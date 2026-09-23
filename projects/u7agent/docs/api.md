@@ -52,11 +52,14 @@ DTO の正は `server/src/schema.ts`（zod）。リクエストボディは `@ho
   ],
   "defaultThinkingLevel": "medium",
   "defaultModelError": "指定された既定モデルは利用できません: openai/ghost",
-  "sessionStore": { "path": "/var/lib/u7agent/sessions", "ok": true, "dirty": 0 }
+  "sessionStore": { "path": "/var/lib/u7agent/sessions", "ok": true, "dirty": 0 },
+  "appDb": { "path": "/var/lib/u7agent/sessions/u7agent.db", "ok": true }
 }
 ```
 
 `modelOptions` は認証済みで利用可能なモデルのみ。`PI_MODELS` を指定したときは、その whitelist と利用可能モデルの積だけになる（`PI_MODEL` が whitelist 外なら `defaultModelError`、積が空なら `ready: false` と PI_MODELS を名指しした `error`）。能力情報（`supportsThinking` / `thinkingLevels`）は pi SDK の公開ヘルパー（`getSupportedThinkingLevels`）から得る。`defaultThinkingLevel` は `PI_MODEL` の末尾指定 → `PI_THINKING` → `medium` の優先順位で決まる。解決の詳細は [model-effort.md](model-effort.md)。
+
+`sessionStore` は会話ストア、`appDb` はプロジェクト / カタログを保存する SQLite の状態。`ok: false` のときは `error` に理由が入り、その保存先を読む API は 503 になる。`path` が `null` のときは永続化なし（テスト・未設定。`sessionStore` は未設定、`appDb` はメモリ DB）。詳細は [persistence.md](persistence.md)。
 
 ## ファイル一覧
 
@@ -186,7 +189,7 @@ Content-Security-Policy: sandbox allow-scripts; default-src 'none'; style-src 'u
 | POST | `/api/projects` | プロジェクト作成（新規ディレクトリの作成 or 既存ディレクトリの登録） |
 | DELETE | `/api/projects/:id` | 登録解除（配下セッションを破棄し、ディレクトリは残す） |
 
-プロジェクトはワークスペース内のディレクトリで、サーバーのメモリ内にのみ存在する（再デプロイで消える）。`cwd` はワークスペース root（`health.cwd` = `PI_APP_CWD`）相対の正規化パスで、root 自身（`""` / `"."`）は登録できない（未所属セッションの作業場所）。セッションの作業ディレクトリは所属プロジェクトの `cwd` を root と結合して決まり、作成後に変えることはできない。実行時の隔離は行わない（`cwd` はツールのパス解決の起点のみ。詳細は [projects.md](projects.md)）。
+プロジェクトはワークスペース内のディレクトリで、アプリデータの SQLite へ保存する（再起動後も残る。詳細は [persistence.md](persistence.md)）。`cwd` はワークスペース root（`health.cwd` = `PI_APP_CWD`）相対の正規化パスで、root 自身（`""` / `"."`）は登録できない（未所属セッションの作業場所）。セッションの作業ディレクトリは所属プロジェクトの `cwd` を root と結合して決まり、作成後に変えることはできない。実行時の隔離は行わない（`cwd` はツールのパス解決の起点のみ。詳細は [projects.md](projects.md)）。
 
 ```json
 {

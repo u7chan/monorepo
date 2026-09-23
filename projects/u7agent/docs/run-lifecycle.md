@@ -69,7 +69,7 @@ startRun():
 
 ## ライフサイクル / 制限
 
-- 会話は BFF 専用ストアへ永続化し、起動時に一覧を復元する（[persistence.md](persistence.md)）。プロジェクトの登録はプロセスのメモリ内のみで、所属は `projectCwd` から読み取り時に解決する。
+- 会話は BFF 専用ストアへ永続化し、起動時に一覧を復元する（[persistence.md](persistence.md)）。プロジェクトの登録はアプリデータの SQLite へ保存し、所属は `projectCwd` から読み取り時に解決する。
 - 1 時間未使用のアイドルセッションは SWEEP でメモリから外す（実行中・キューあり・SSE 購読中は対象外）。ストアと作業フォルダは残り、次回アクセス時に SDK セッションを復元する。
 - id ごとの状態（未ロード / loading / live / evicting / deleting）とライフサイクルの Promise チェーンで、ロード・sweep・削除の競合を直列化する。読み書きするファイルは `session-store` の書込みキューでも直列化する。
 - サーバ終了時は進行中の書込みを flush してから全セッションを abort + dispose する。

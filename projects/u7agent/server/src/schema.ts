@@ -308,6 +308,14 @@ export const HealthSchema = z.object({
       dirty: z.number().optional(),
     })
     .optional(),
+  /** アプリデータ (プロジェクト / カタログ) の SQLite。null は永続化なし (未設定・テスト) */
+  appDb: z
+    .object({
+      path: z.string().nullable(),
+      ok: z.boolean(),
+      error: z.string().optional(),
+    })
+    .optional(),
 });
 export type Health = z.infer<typeof HealthSchema>;
 

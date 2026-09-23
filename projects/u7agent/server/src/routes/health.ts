@@ -2,6 +2,7 @@ import { resolve } from "node:path";
 import type { Context } from "hono";
 import { AUTH_REQUIRED_MESSAGE } from "../agent";
 import type { PiBff } from "../agent";
+import type { AppDbStatus } from "../app-db";
 
 function modelLabel(model: unknown): string | undefined {
   if (!model || typeof model !== "object") return undefined;
@@ -13,16 +14,22 @@ export interface SessionStoreHealth {
   status(): { path: string | null; ok: boolean; error?: string; dirty: number };
 }
 
+export interface AppDbHealth {
+  status(): AppDbStatus;
+}
+
 export function createHealthRoutes({
   pi,
   initError,
   cwd,
   store,
+  appDb,
 }: {
   pi: PiBff | null;
   initError: string | undefined;
   cwd: string;
   store?: SessionStoreHealth;
+  appDb?: AppDbHealth;
 }) {
   return {
     health: (c: Context) => {
@@ -42,6 +49,7 @@ export function createHealthRoutes({
               ? "runtime_unavailable"
               : undefined;
       const sessionStore = store?.status();
+      const appDbStatus = appDb?.status();
       return c.json({
         ok: true,
         ready,
@@ -55,6 +63,7 @@ export function createHealthRoutes({
         availabilityError: pi?.availabilityError,
         sandboxConfigured: pi?.sandboxConfigured ?? false,
         ...(sessionStore ? { sessionStore } : {}),
+        ...(appDbStatus ? { appDb: appDbStatus } : {}),
         errorCode,
         error: initError ?? (authRequired ? AUTH_REQUIRED_MESSAGE : pi?.availabilityError),
       });

@@ -1,7 +1,9 @@
 import { Hono } from "hono";
 import { HTTPException } from "hono/http-exception";
+import type { MiddlewareHandler } from "hono";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
 import { zValidator } from "@hono/zod-validator";
+import type { AppDb } from "./app-db";
 import { createBffContext } from "./bootstrap";
 import type { CreateBffAppOptions } from "./bootstrap";
 import { bodyGuard, jsonBodyValidator, messageFor, statusCodeOf } from "./http";
@@ -28,11 +30,26 @@ import {
 export * from "./schema";
 export type { CreateBffAppOptions };
 
+/**
+ * アプリデータ (SQLite) を読む API の入口。開けていないときは 503 にして、空のカタログや未所属へ
+ * 黙って落とさない (会話ストアの storeError と同じ規約)。
+ */
+function appDataGuard(appDb: AppDb): MiddlewareHandler {
+  return async (c, next) => {
+    const status = appDb.status();
+    if (!status.ok) {
+      return c.json({ error: `アプリデータ（SQLite）を利用できません: ${status.error ?? "unknown error"}` }, 503);
+    }
+    await next();
+  };
+}
+
 export async function createBffApp(opts: CreateBffAppOptions = {}) {
   const { clientDistDir = DEFAULT_CLIENT_DIST_DIR } = opts;
-  const { cwd, pi, initError, catalog, projects, store, workspace, sessionStore } = await createBffContext(opts);
+  const { cwd, pi, initError, catalog, projects, store, workspace, sessionStore, appDb } = await createBffContext(opts);
+  const appData = appDataGuard(appDb);
 
-  const healthRoutes = createHealthRoutes({ pi, initError, cwd, store });
+  const healthRoutes = createHealthRoutes({ pi, initError, cwd, store, appDb });
   const fileRoutes = createFileRoutes({ workspace });
   const catalogRoutes = createCatalogRoutes({ catalog, workspace, rootCwd: cwd });
   const projectRoutes = createProjectRoutes({ projects, store, workspace });
@@ -58,18 +75,20 @@ export async function createBffApp(opts: CreateBffAppOptions = {}) {
     // `:path{.+}` はルート配下のパスを 1 セグメントで受ける (wildcard `*` は Hono 4 で param として取れない)
     .get("/api/files/html/:path{.+}", fileRoutes.html)
     .get("/api/files/raw", fileRoutes.raw)
-    .get("/api/projects", projectRoutes.list)
+    .get("/api/projects", appData, projectRoutes.list)
     .post(
       "/api/projects",
+      appData,
       zValidator("json", CreateProjectBodySchema, (result, c) =>
         result.success ? undefined : c.json({ error: "Invalid request body" }, 400),
       ),
       (c) => projectRoutes.create(c, c.req.valid("json")),
     )
-    .delete("/api/projects/:id", projectRoutes.remove)
-    .get("/api/agents", catalogRoutes.snapshot)
+    .delete("/api/projects/:id", appData, projectRoutes.remove)
+    .get("/api/agents", appData, catalogRoutes.snapshot)
     .put(
       "/api/agents",
+      appData,
       zValidator("json", ReplaceCatalogBodySchema, (result, c) =>
         result.success ? undefined : c.json({ error: "Definitions must contain skills and agents arrays" }, 400),
       ),
@@ -77,6 +96,7 @@ export async function createBffApp(opts: CreateBffAppOptions = {}) {
     )
     .post(
       "/api/agents",
+      appData,
       jsonBodyValidator(CreateAgentBodySchema, (result, c) =>
         result.success ? undefined : c.json({ error: "Invalid request body" }, 400),
       ),
@@ -84,6 +104,7 @@ export async function createBffApp(opts: CreateBffAppOptions = {}) {
     )
     .patch(
       "/api/agents/:id",
+      appData,
       jsonBodyValidator(UpdateAgentBodySchema, (result, c) =>
         result.success ? undefined : c.json({ error: "Invalid request body" }, 400),
       ),
@@ -91,16 +112,18 @@ export async function createBffApp(opts: CreateBffAppOptions = {}) {
     )
     .put(
       "/api/agents/:id",
+      appData,
       jsonBodyValidator(UpdateAgentBodySchema, (result, c) =>
         result.success ? undefined : c.json({ error: "Invalid request body" }, 400),
       ),
       (c) => catalogRoutes.updateAgent(c, c.req.valid("json")),
     )
-    .delete("/api/agents/:id", catalogRoutes.removeAgent)
-    .get("/api/skills", catalogRoutes.listSkills)
+    .delete("/api/agents/:id", appData, catalogRoutes.removeAgent)
+    .get("/api/skills", appData, catalogRoutes.listSkills)
     .get("/api/skills/files", catalogRoutes.listFileSkills)
     .post(
       "/api/skills",
+      appData,
       jsonBodyValidator(CreateSkillBodySchema, (result, c) =>
         result.success ? undefined : c.json({ error: "Invalid request body" }, 400),
       ),
@@ -108,6 +131,7 @@ export async function createBffApp(opts: CreateBffAppOptions = {}) {
     )
     .patch(
       "/api/skills/:id",
+      appData,
       jsonBodyValidator(UpdateSkillBodySchema, (result, c) =>
         result.success ? undefined : c.json({ error: "Invalid request body" }, 400),
       ),
@@ -115,15 +139,17 @@ export async function createBffApp(opts: CreateBffAppOptions = {}) {
     )
     .put(
       "/api/skills/:id",
+      appData,
       jsonBodyValidator(UpdateSkillBodySchema, (result, c) =>
         result.success ? undefined : c.json({ error: "Invalid request body" }, 400),
       ),
       (c) => catalogRoutes.updateSkill(c, c.req.valid("json")),
     )
-    .delete("/api/skills/:id", catalogRoutes.removeSkill)
-    .get("/api/sessions", sessionRoutes.list)
+    .delete("/api/skills/:id", appData, catalogRoutes.removeSkill)
+    .get("/api/sessions", appData, sessionRoutes.list)
     .post(
       "/api/sessions",
+      appData,
       zValidator("json", CreateSessionBodySchema, (result, c) =>
         result.success ? undefined : c.json({ error: "Invalid request body" }, 400),
       ),
@@ -131,24 +157,26 @@ export async function createBffApp(opts: CreateBffAppOptions = {}) {
     )
     .patch(
       "/api/sessions/:id/settings",
+      appData,
       zValidator("json", UpdateSessionSettingsBodySchema, (result, c) =>
         result.success ? undefined : c.json({ error: "Invalid session settings" }, 400),
       ),
       (c) => sessionRoutes.updateSettings(c, c.req.valid("json")),
     )
-    .get("/api/sessions/:id", sessionRoutes.get)
+    .get("/api/sessions/:id", appData, sessionRoutes.get)
     .delete("/api/sessions/:id", sessionRoutes.remove)
     .post("/api/sessions/:id/stop", sessionRoutes.stop)
     .post("/api/sessions/:id/abort", sessionRoutes.stop)
     .get("/api/sessions/:id/skills", sessionRoutes.skills)
     .post(
       "/api/sessions/:id/messages",
+      appData,
       zValidator("json", PostMessageBodySchema, (result, c) =>
         result.success ? undefined : c.json({ error: "text is required" }, 400),
       ),
       (c) => sessionRoutes.postMessage(c, c.req.valid("json")),
     )
-    .get("/api/sessions/:id/events", sessionRoutes.events)
+    .get("/api/sessions/:id/events", appData, sessionRoutes.events)
     // Hono は登録順にマッチするため、未マッチの GET を拾う catch-all は最後に置く。
     .get("*", serveClientAssets(clientDistDir))
     .notFound((c) => c.json({ error: "Not found" }, 404))
@@ -168,8 +196,10 @@ export async function createBffApp(opts: CreateBffAppOptions = {}) {
     pi,
     initError,
     sessionStore,
+    appDb,
     close: async () => {
       await store.close();
+      appDb.close();
     },
   };
 }

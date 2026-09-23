@@ -25,6 +25,12 @@ async function main() {
     if (!bff.pi?.selectedModel) {
       console.log("[u7agent] API key or pi authentication is required before sending a message.");
     }
+    const appDb = bff.appDb.status();
+    console.log(
+      appDb.ok
+        ? `[u7agent] app db: ${appDb.path ?? "in-memory"}`
+        : `[u7agent] app db unavailable: ${appDb.error ?? "unknown"}`,
+    );
     if (!bff.pi?.sandboxConfigured) {
       console.log(
         "[u7agent] sandbox is not configured (PI_SANDBOX_URL / PI_SANDBOX_TOKEN): tool execution and new sessions fail with 503. See the local startup steps in README.",

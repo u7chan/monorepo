@@ -1,11 +1,12 @@
 /**
- * インメモリのプロジェクトストア。プロジェクト = ワークスペース内のディレクトリで、
+ * プロジェクトストア。プロジェクト = ワークスペース内のディレクトリで、
  * cwd は rootCwd 相対で持つ (絶対パスで保存するとマウント先の変更で壊れる)。
- * 再デプロイで消えることを許容する。
+ * 実体はアプリデータの SQLite (app-db.ts) にあり、ここは正規化と検証を持つ。
  */
 import { randomUUID } from "node:crypto";
 import { isAbsolute, posix, resolve, sep } from "node:path";
 import { APP_DIR_REL, isAppDirPath } from "./app-paths";
+import { AppDb } from "./app-db";
 import type { Project } from "./schema";
 
 interface HttpLikeError extends Error {
@@ -72,23 +73,24 @@ export interface CreateProjectInput {
 }
 
 export class ProjectStore {
-  projects: Map<string, Project>;
+  #db: AppDb;
 
-  constructor(projects: Project[] = []) {
-    this.projects = new Map(projects.map((project) => [project.id, project]));
+  /** db 未指定はメモリ DB (カタログの単体テストと同じ扱い) */
+  constructor(db?: AppDb) {
+    this.#db = db ?? AppDb.open({ storeDir: null });
   }
 
-  /** 作成順 (Map の挿入順) */
+  /** 作成順 */
   list(): Project[] {
-    return [...this.projects.values()];
+    return this.#db.listProjects();
   }
 
   get(id: string): Project | undefined {
-    return this.projects.get(id);
+    return this.#db.getProject(id);
   }
 
   findByCwd(cwd: string): Project | undefined {
-    return [...this.projects.values()].find((project) => project.cwd === cwd);
+    return this.#db.findProjectByCwd(cwd);
   }
 
   create({ cwd, name }: CreateProjectInput): Project {
@@ -99,11 +101,11 @@ export class ProjectStore {
       cwd,
       createdAt: Date.now(),
     };
-    this.projects.set(project.id, project);
+    this.#db.insertProject(project);
     return project;
   }
 
   remove(id: string): boolean {
-    return this.projects.delete(id);
+    return this.#db.deleteProject(id);
   }
 }

@@ -16,10 +16,11 @@ GUI の会話履歴は **BFF 専用の会話ストア**（`PI_SESSION_STORE`）�
 | プロジェクトスキル（`<project>/.agents/skills`） | 残る（登録したディレクトリが永続マウント配下なら） |
 | 添付ファイル（`<workspace>/.u7agent/uploads/<id>`） | 残る |
 | 会話履歴・セッション一覧・タイトル（`PI_SESSION_STORE/<id>/{meta.json,session.jsonl}`） | 残る（ストアを永続ボリュームに置いた場合） |
-| エージェント / スキル定義（BFF のインメモリカタログ） | 消える（サンプル定義に戻る） |
+| エージェント / スキル定義（アプリデータの SQLite） | 残る（ストアを永続ボリュームに置いた場合） |
+| アプリデータの DB（`PI_SESSION_STORE/u7agent.db`） | 残る（ストアを永続ボリュームに置いた場合） |
 | `/workspace` 以外に保存したデータ・後からインストールしたツール | 原則残らない |
 | 実行中のプロセス | 中断される |
-| プロジェクトの登録 | 消える（メモリ内管理。所属は `projectCwd` から読み取り時に解決する） |
+| プロジェクトの登録 | 残る（アプリデータの SQLite。所属は `projectCwd` から読み取り時に解決する） |
 
 この表は永続マウントを設定したデプロイ環境での挙動を示す。
 イメージ単体で起動するだけでは `/workspace` と会話ストアの永続化は保証されない。
@@ -48,6 +49,29 @@ GUI の会話履歴は **BFF 専用の会話ストア**（`PI_SESSION_STORE`）�
 - [target 設定](https://github.com/u7chan/self-hosted-runner/blob/main/deploy/targets.json)
 - [運用手順](https://github.com/u7chan/self-hosted-runner/blob/main/docs/u7agent.md)
 
+## アプリデータ（SQLite）
+
+プロジェクトの登録、エージェント定義、スキル定義は BFF の SQLite に保存する（`server/src/app-db.ts`）。
+会話は従来どおり `session.jsonl` のままで、DB には入れない。
+
+- 置き場所は会話ストアと同じディレクトリの `PI_SESSION_STORE/u7agent.db`。新しい環境変数は増やさない。
+- メモリ DB（`:memory:`）になるのは `sessionStoreDir: null` を明示したとき（テスト）だけ。パス解決に失敗したときは DB を使えない状態にし、メモリへは逃がさない。
+- テーブルは `projects` / `agents` / `skills` の 3 つ。`skillIds` / `suggestions` / `model` は JSON 列、並び順は作成順（rowid）。
+- `PRAGMA user_version` をコード側の定数（`APP_DB_SCHEMA_VERSION`）と照合し、不一致ならアプリ所有のテーブルを DROP → CREATE する。マイグレーションは持たない（開発中は作り直しで進める）。会話は `session.jsonl` なので作り直しでも消えない。
+- サンプル定義（ずんだもん 1 体）は DB ファイルを新規作成したときだけ入れる。`user_version` 不一致の作り直しでは入れないため、削除した定義は再起動でも戻らない。
+- スキーマ作成 → `user_version` 設定 → seed は同一トランザクション。カタログの一括置換とスキル削除（参照除去を含む）もトランザクションで行い、途中で失敗したら部分適用を残さない。
+- `journal_mode=WAL` / `synchronous=NORMAL`。書き込みは BFF の 1 プロセスを前提とし、複数インスタンスは対象外。
+
+### 失敗時の扱い
+
+会話ストアと同じ規約（メモリだけの黙ったフォールバックをしない）。
+
+- 起動は継続し、`GET /api/health` の `appDb` に `{ path, ok, error }` を返す。
+- アプリデータを読む API は 503 になる。カタログ（`/api/agents` / `/api/skills`）、プロジェクト（`/api/projects`）、セッションの作成・一覧・取得・設定変更・送信・SSE 接続（所属の解決と `create()` のカタログ参照を通るため）。
+- 会話ストアだけで完結する操作（履歴の削除・実行の停止）は通す。
+- SSE は接続時に 503 で拒否し、配信中の payload 生成で失敗したらその接続を閉じる（未所属へ落として配信を続けない）。
+- 起動時だけでなく稼働中の読み書き失敗も同じ扱いにする。`appDb.ok` は成功したクエリで解除される。
+
 ## 会話履歴の扱い
 
 会話は BFF 専用ストアの `PI_SESSION_STORE/<id>/{meta.json,session.jsonl}` に保存する。
@@ -61,8 +85,8 @@ GUI の会話履歴は **BFF 専用の会話ストア**（`PI_SESSION_STORE`）�
 - モデルは JSONL 最後の `model_change` → meta の `model` → アプリ既定 の順に `PI_MODELS` の候補と照合する（[model-effort.md](model-effort.md)）。候補外ならアプリ既定へフォールバックし、その実効値を `model_change` へ追記して保存する。
 - スキル読み込み（`read` で basename が `SKILL.md`）の表示は専用の保存フィールド / カラムを持たず、**pi entry の raw content（`toolCall` part と `toolResult`）を正として毎回再導出**する（`classifySkillRead()`。導出の契約は [api-sessions.md](api-sessions.md#スキル読み込みskillloads--skill)）。この再導出が成立するのは raw content を保存し続ける場合だけで、projected な `ChatMessage` の列（role / text / usage / metrics）だけを保存する設計にすると再導出できず、別途カラムが要る。現行の `session.jsonl`（SDK 形式）は raw content を保つため、BFF 再起動後に復元したセッションでも同じ位置に出る
 - ストアのレイアウト・検証・書込み手順の設計は [session-files.md](session-files.md) を正とする。
-- プロジェクト（ワークスペース内ディレクトリの登録。`server/src/projects.ts`）はメモリ内のみで、
-  再デプロイ後は未所属チャットに戻る。セッションは `projectCwd` を meta に持ち、
+- プロジェクト（ワークスペース内ディレクトリの登録。`server/src/projects.ts`）はアプリデータの SQLite に保存し、
+  再起動後も残る（DB を作り直したときは消える）。セッションは `projectCwd` を meta に持ち、
   復元時はそのディレクトリをそのまま cwd に使う（未登録でもスクラッチへは切り替えない）。
   同じ cwd を再登録すれば一覧の所属が再び解決される（プロジェクトの自動再登録はしない）。
   列は `{ id, name, cwd, createdAt }` の 4 つに保ち、cwd は root 相対で持つ（[projects.md](projects.md)）。
@@ -87,13 +111,13 @@ DTO（[api-sessions.md](api-sessions.md) の `compactions`）はそのまま写�
 
 | 種類 | 置き場 | 編集 | 再デプロイ後 |
 |---|---|---|---|
-| エージェント定義 | BFF のインメモリカタログ（設定 → スキル） | GUI | 消える（サンプル定義に戻る） |
+| エージェント定義 | アプリデータの SQLite（設定 → スキル） | GUI | 残る |
 | ファイルスキル（共通） | `<workspace>/.agents/skills` | ファイル（GUI は読み取り専用） | 残る |
 | ファイルスキル（プロジェクト） | `<project>/.agents/skills` | ファイル | 残る（永続マウント配下なら） |
 | 組み込み | アプリのバンドル `server/src/builtin-skills/`（仮想パス `<workspace>/.u7agent/builtin-skills/...`） | 不可 | イメージ更新で入れ替わる |
 
 - エージェント定義のスキルは作成時に `promptSnapshot` へ `<agent_skill>` で本文を固定し、索引（name / description / 仮想パス `<workspace>/.u7agent/agent-skills/<name>/SKILL.md`）だけを `skillsOverride` で渡す。`read` は BFF が横取りしてこの本文を返す（[session-files.md](session-files.md)、[api-catalog.md](api-catalog.md#セッションへの渡し方)）。
-- 初期状態はカタログスキル 0 件で、ユーザー定義エージェントはずんだもん `agent-zundamon` 1 体（`systemPrompt` に語尾の指示）。どちらも通常の定義と同じ扱いで削除・置換ができ、再起動で戻る。
+- 初期状態はカタログスキル 0 件で、ユーザー定義エージェントはずんだもん `agent-zundamon` 1 体（`systemPrompt` に語尾の指示）。どちらも通常の定義と同じ扱いで削除・置換ができる。サンプルは DB を新規作成したときだけ入るため、削除した定義は再起動でも戻らない。
 - ファイルスキルはエージェントに紐づかない **ambient** なスキルで、セッション作成・復元のたびにサンドボックス（`GET /v1/skills`）で発見し、SDK の `skillsOverride` へ渡す。`promptSnapshot` には保存しない。セッションが持つのは発見一覧・説明・優先順位だけで、復元時は `meta.projectCwd` を起点に取り直す（プロジェクト登録が外れていても同じ）。
 - 発見できるのは `SKILL.md` だけ。**本文は保存も固定もしない**ため、モデルが `read` した時点のファイル内容になる（作成後に編集すればその内容、削除すれば読取り失敗）。設定画面とチャットの一覧も同じで、ファイルを変えれば再読み込み後の表示に反映される。どのターンで `read` されたかは JSONL の `toolCall` から導出し、チャットの assistant バブルに `[skill]` バッジとして出す（上記の再導出）。
 - 優先順位は `プロジェクト > 共通 > 組み込み`。同名は注入時に一意化し、影になったファイルはログと設定一覧の警告で、上書きされた組み込みは一覧の「上書きされています」で確認する（ファイルの改名・削除・マージはしない）。
@@ -103,7 +127,8 @@ DTO（[api-sessions.md](api-sessions.md) の `compactions`）はそのまま写�
 
 ## バックアップ（エクスポート / インポート）
 
-再デプロイで消えるメモリ内のデータ（エージェント / スキル定義とプロジェクト）は、設定の「バックアップ」（`client/src/components/BackupPage.tsx`）からファイルへ書き出せる。
+設定の「バックアップ」（`client/src/components/BackupPage.tsx`）は、エージェント / スキル定義とプロジェクトをファイルへ書き出す機能。
+定義とプロジェクトはアプリデータの SQLite に残るようになったため、再デプロイ対策としての用途は無くなった。
 保存先がサーバーのディスクにある会話履歴も、バックアップの対象には含む（下表のとおり、現状は準備中）。
 エクスポートは画面でチェックした対象を 1 ファイルにまとめ、インポートは**ファイルに入っている対象だけ**を置き換える
 （取り込む範囲は画面のチェックではなくファイルの中身で決まる）。
