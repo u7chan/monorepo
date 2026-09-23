@@ -6,13 +6,14 @@
 export type SidebarMode = "nav" | "settings";
 
 // 並び順はサイドバーの表示順
-export type SettingsSection = "agents" | "skills" | "files" | "appearance";
+export type SettingsSection = "agents" | "skills" | "files" | "appearance" | "runtime";
 
 export const SETTINGS_SECTIONS: { section: SettingsSection; label: string }[] = [
   { section: "agents", label: "エージェント" },
   { section: "skills", label: "スキル" },
   { section: "files", label: "ファイル" },
   { section: "appearance", label: "外観" },
+  { section: "runtime", label: "ランタイム" },
 ];
 
 /** URL にセクションが無いときの行き先 (「設定」の導線と、保存値が読めないときの既定) */

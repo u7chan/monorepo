@@ -6,11 +6,19 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import type { Hono } from "hono";
-import { AUTH_REQUIRED_MESSAGE, MODEL_WHITELIST_EMPTY_MESSAGE } from "../src/agent";
+import { AUTH_REQUIRED_MESSAGE, deriveRuntimeModelDiagnostics, MODEL_WHITELIST_EMPTY_MESSAGE } from "../src/agent";
 import { createBffApp } from "../src/app";
 import { BUILTIN_SKILLS } from "../src/builtin-skills";
 import { SandboxRequestError, type SandboxWorkspaceClient } from "../src/sandbox/client";
-import { asPiBff, createStubPi, STUB_CONTEXT_USAGE, STUB_MODEL, STUB_USAGE } from "./stub-pi";
+import {
+  asPiBff,
+  createStubPi,
+  STUB_CONTEXT_USAGE,
+  STUB_MODEL,
+  STUB_PLAIN_MODEL,
+  STUB_USAGE,
+  stubModel,
+} from "./stub-pi";
 
 const jsonPost = (payload: unknown): RequestInit => ({
   method: "POST",
@@ -522,6 +530,91 @@ test("health exposes the model picker options and the app default thinking level
       health.modelOptions.map((option: { name: string }) => option.name),
       ["Stub Model", "Stub Plain"],
     );
+  } finally {
+    await bff.close();
+  }
+});
+
+test("health keeps its existing model contract while runtime models expose separate whitelist and availability flags", async () => {
+  const catalogOnlyModel = stubModel({
+    provider: "stub",
+    id: "catalog-only",
+    name: "Catalog Only Model",
+    reasoning: false,
+  });
+  const runtimeDiagnostics = deriveRuntimeModelDiagnostics({
+    catalog: [STUB_MODEL, STUB_PLAIN_MODEL, catalogOnlyModel],
+    available: [STUB_MODEL, STUB_PLAIN_MODEL],
+    providerIds: ["stub"],
+    authStatuses: new Map([
+      ["stub", { configured: true, source: "models_json_command", label: "private command details" }],
+    ]),
+    whitelist: [{ provider: "stub", id: "stub-model" }],
+    requestedModel: { provider: "stub", id: "stub-plain" },
+    versions: { piCodingAgent: "0.87.1", piAi: "0.87.1", commitHash: "test-build" },
+  });
+  const pi = createStubPi({
+    runtimeDiagnostics,
+    availableModels: [STUB_MODEL],
+    selectedModel: STUB_MODEL,
+  });
+  const bff = await createBffApp({ cwd: "/tmp/project", sessionStoreDir: null, pi: asPiBff(pi) });
+
+  try {
+    const health = await jsonBody(bff.app.request("/api/health"));
+    assert.equal(health.ready, true);
+    assert.equal(health.model, "stub/stub-model");
+    assert.deepEqual(health.availableModels, ["stub/stub-model"]);
+    assert.deepEqual(
+      health.modelOptions.map(({ name }: { name: string }) => name),
+      ["Stub Model"],
+    );
+    assert.equal(health.defaultThinkingLevel, "medium");
+    assert.equal(health.defaultModelError, undefined);
+    assert.equal(health.errorCode, undefined);
+    assert.equal(health.runtimeDiagnostics.status, "available");
+    assert.equal(health.runtimeDiagnostics.availableCount, 2);
+    assert.equal(health.runtimeDiagnostics.whitelistCount, 1);
+    assert.equal(health.runtimeDiagnostics.piModel.status, "not_in_whitelist");
+    assert.equal(health.runtimeDiagnostics.piModel.available, true);
+    assert.equal(health.runtimeDiagnostics.piModel.inWhitelist, false);
+    assert.ok(!JSON.stringify(health).includes("Catalog Only Model"), "health must not include the full catalog");
+    assert.ok(!("models" in health.runtimeDiagnostics), "health diagnostics contain summaries, not model rows");
+    assert.ok(!JSON.stringify(health).includes("private command details"));
+
+    const response = await bff.app.request("/api/runtime/models");
+    assert.equal(response.status, 200);
+    const runtimeModels = await jsonBody(response);
+    assert.equal(runtimeModels.catalogCount, 3);
+    assert.equal(runtimeModels.whitelistConfigured, true);
+    assert.deepEqual(
+      runtimeModels.providers[0].models.map(({ id, available, inWhitelist }: any) => [id, available, inWhitelist]),
+      [
+        ["stub-model", true, true],
+        ["stub-plain", true, false],
+        ["catalog-only", false, false],
+      ],
+    );
+    assert.deepEqual(runtimeModels.providers[0].auth, {
+      configured: true,
+      source: "models_json_command",
+      environmentVariables: [],
+    });
+    assert.ok(!JSON.stringify(runtimeModels).includes("private command details"));
+  } finally {
+    await bff.close();
+  }
+});
+
+test("runtime models returns a fixed secret-free 503 when the runtime is unavailable", async () => {
+  const bff = await createBffApp({ cwd: "/tmp/project", sessionStoreDir: null, pi: null });
+  try {
+    const response = await bff.app.request("/api/runtime/models");
+    assert.equal(response.status, 503);
+    assert.deepEqual(await jsonBody(response), { error: "ランタイムのモデル情報を取得できません" });
+    const health = await jsonBody(bff.app.request("/api/health"));
+    assert.equal(health.runtimeDiagnostics.status, "unavailable");
+    assert.equal(health.runtimeDiagnostics.unavailableReason, "runtime_unavailable");
   } finally {
     await bff.close();
   }

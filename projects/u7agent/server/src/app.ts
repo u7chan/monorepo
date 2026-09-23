@@ -11,6 +11,7 @@ import { createCatalogRoutes } from "./routes/catalog";
 import { createFileRoutes } from "./routes/files";
 import { createHealthRoutes } from "./routes/health";
 import { createProjectRoutes } from "./routes/projects";
+import { createRuntimeRoutes } from "./routes/runtime";
 import { createSessionRoutes } from "./routes/sessions";
 import { DEFAULT_CLIENT_DIST_DIR, serveClientAssets } from "./static";
 import {
@@ -54,6 +55,7 @@ export async function createBffApp(opts: CreateBffAppOptions = {}) {
   const appData = appDataGuard(appDb);
 
   const healthRoutes = createHealthRoutes({ pi, initError, cwd, store, appDb });
+  const runtimeRoutes = createRuntimeRoutes({ pi });
   const fileRoutes = createFileRoutes({ workspace });
   const catalogRoutes = createCatalogRoutes({ catalog, workspace, rootCwd: cwd });
   const projectRoutes = createProjectRoutes({ projects, store, workspace });
@@ -64,6 +66,7 @@ export async function createBffApp(opts: CreateBffAppOptions = {}) {
     .post("/api/sessions/:id/files", (c) => sessionRoutes.uploadFile(c))
     .use("/api/*", bodyGuard)
     .get("/api/health", healthRoutes.health)
+    .get("/api/runtime/models", runtimeRoutes.models)
     .get("/api/files", fileRoutes.list)
     // 一覧と同じパスに DELETE を重ねる (パスはクエリで受ける)
     .delete("/api/files", fileRoutes.remove)

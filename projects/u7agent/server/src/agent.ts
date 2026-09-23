@@ -6,11 +6,13 @@ import {
   ModelRuntime,
   SessionManager,
   SettingsManager,
+  VERSION,
   type CreateAgentSessionOptions,
   type Skill,
 } from "@earendil-works/pi-coding-agent";
 import { getSupportedThinkingLevels } from "@earendil-works/pi-ai";
 import type { Api, Model as PiAiModel } from "@earendil-works/pi-ai";
+import { readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { COMMON_SKILLS_DIR } from "./app-paths";
 import { catalogSkillIndexForSession } from "./catalog-skills";
@@ -22,12 +24,29 @@ import { createRemoteToolDefinitions } from "./sandbox/remote-tools";
 import type { SecretMasker } from "./redact";
 import { createRuntimeSecretMasker, createSecretRedactionExtension } from "./secret-guard";
 import { catalogSkillsFromSnapshot } from "./session-skills";
-import type { AgentDef, AgentSkillInfo, ModelOption, ModelRef, SkillDef, ThinkingLevel } from "./schema";
+import type {
+  AgentDef,
+  AgentSkillInfo,
+  ModelOption,
+  ModelRef,
+  ModelReferenceDiagnostic,
+  RuntimeAuth,
+  RuntimeDiagnosticSummary,
+  RuntimeModelsResponse,
+  RuntimeVersions,
+  SkillDef,
+  ThinkingLevel,
+} from "./schema";
 import type { PromptSnapshot } from "./session-store";
 
 export interface PiModelRef {
   provider: string;
   id: string;
+}
+
+export interface RuntimeModelDiagnostics {
+  summary: RuntimeDiagnosticSummary;
+  catalog: RuntimeModelsResponse;
 }
 
 export const AUTH_REQUIRED_MESSAGE =
@@ -124,6 +143,8 @@ export interface PiBff {
   availabilityError: string | undefined;
   /** PI_MODELS が候補を全部落とした (ready: false の原因が whitelist だと health が判定するため) */
   modelWhitelistExcludesAll: boolean;
+  /** whitelist 適用前のランタイム診断。取得に失敗しても既存のモデル選択には影響させない */
+  runtimeDiagnostics: RuntimeModelDiagnostics | undefined;
   sandboxConfigured: boolean;
   tools: string[];
   resolveModel(model: ModelRef): CreateAgentSessionOptions["model"] | undefined;
@@ -146,14 +167,16 @@ function parseThinkingLevel(value: string): ThinkingLevel {
 /**
  * PI_MODEL / PI_THINKING を構文解釈する。利用可否の照合は createPiBff 側で行う。
  */
-function parseModelReference(): { model: ModelRef; thinkingLevel: ThinkingLevel | undefined } | undefined {
-  const rawValue = process.env.PI_MODEL?.trim();
+export function parseModelReference(
+  env: NodeJS.ProcessEnv = process.env,
+): { model: ModelRef; thinkingLevel: ThinkingLevel | undefined } | undefined {
+  const rawValue = env.PI_MODEL?.trim();
   if (!rawValue) {
     return undefined;
   }
 
   let reference = rawValue;
-  let thinkingLevel = process.env.PI_THINKING?.trim() || undefined;
+  let thinkingLevel = env.PI_THINKING?.trim() || undefined;
   const thinkingSuffix = reference.match(/:(off|minimal|low|medium|high|xhigh|max)$/);
   if (thinkingSuffix) {
     reference = reference.slice(0, -thinkingSuffix[0].length);
@@ -163,7 +186,7 @@ function parseModelReference(): { model: ModelRef; thinkingLevel: ThinkingLevel 
   const parsedLevel = thinkingLevel === undefined ? undefined : parseThinkingLevel(thinkingLevel);
 
   const slash = reference.indexOf("/");
-  const provider = slash === -1 ? process.env.PI_PROVIDER?.trim() : reference.slice(0, slash);
+  const provider = slash === -1 ? env.PI_PROVIDER?.trim() : reference.slice(0, slash);
   const modelId = slash === -1 ? reference : reference.slice(slash + 1);
   if (!provider || !modelId) {
     throw new Error("既定モデルは provider/model 形式で指定してください（プロバイダーを別に指定することもできます）");
@@ -202,6 +225,182 @@ export function parseModelWhitelist(raw: string | undefined): ModelRef[] | undef
 export function filterModelsByWhitelist(models: PiAiModel<Api>[], whitelist: ModelRef[] | undefined): PiAiModel<Api>[] {
   if (!whitelist) return models;
   return models.filter((model) => whitelist.some((ref) => ref.provider === model.provider && ref.id === model.id));
+}
+
+export interface RuntimeAuthStatusLike {
+  configured: boolean;
+  source?: string;
+  label?: string;
+}
+
+const AUTH_SOURCES = new Set([
+  "environment",
+  "stored",
+  "runtime",
+  "fallback",
+  "models_json_key",
+  "models_json_command",
+]);
+const ENVIRONMENT_VARIABLE_NAME = /^[A-Z_][A-Z0-9_]*$/;
+
+/** AuthStatus.label は任意文字列なので公開せず、環境変数名として検証できたものだけを残す。 */
+export function sanitizeRuntimeAuth(status: RuntimeAuthStatusLike | undefined): RuntimeAuth {
+  const configured = status?.configured ?? false;
+  const source =
+    configured && status?.source
+      ? AUTH_SOURCES.has(status.source)
+        ? (status.source as RuntimeAuth["source"])
+        : "unknown"
+      : undefined;
+  const environmentVariables =
+    source === "environment" && typeof status?.label === "string"
+      ? [
+          ...new Set(
+            status.label
+              .split(",")
+              .map((name) => name.trim())
+              .filter((name) => ENVIRONMENT_VARIABLE_NAME.test(name)),
+          ),
+        ]
+      : [];
+  return {
+    configured,
+    ...(source ? { source } : {}),
+    environmentVariables,
+  };
+}
+
+export function runtimeVersionInfo(env: NodeJS.ProcessEnv = process.env): RuntimeVersions {
+  let piAi: string | undefined;
+  try {
+    const packageJsonUrl = new URL("../package.json", import.meta.resolve("@earendil-works/pi-ai"));
+    const packageJson = JSON.parse(readFileSync(packageJsonUrl, "utf8")) as { version?: unknown };
+    if (typeof packageJson.version === "string") piAi = packageJson.version;
+  } catch {
+    // pi-ai has no public version export; dist/package.json may be unavailable in alternate package layouts.
+  }
+  const commitHash = env.COMMIT_HASH?.trim() || undefined;
+  return {
+    piCodingAgent: VERSION,
+    ...(piAi ? { piAi } : {}),
+    ...(commitHash ? { commitHash } : {}),
+  };
+}
+
+export interface RuntimeDiagnosticInput {
+  catalog: readonly PiAiModel<Api>[];
+  available: readonly PiAiModel<Api>[];
+  providerIds: readonly string[];
+  authStatuses: ReadonlyMap<string, RuntimeAuthStatusLike>;
+  whitelist: ModelRef[] | undefined;
+  requestedModel: ModelRef | undefined;
+  versions: RuntimeVersions;
+}
+
+const modelKey = ({ provider, id }: ModelRef): string => JSON.stringify([provider, id]);
+
+/** Purely derives safe diagnostics from the model runtime snapshot; picker inputs are left untouched. */
+export function deriveRuntimeModelDiagnostics(input: RuntimeDiagnosticInput): RuntimeModelDiagnostics {
+  const { catalog, available, providerIds, authStatuses, whitelist, requestedModel, versions } = input;
+  const catalogByKey = new Map(catalog.map((model) => [modelKey(model), model]));
+  const catalogKeys = new Set(catalogByKey.keys());
+  const availableKeys = new Set(available.map(modelKey));
+  const providerSet = new Set(providerIds);
+  const whitelistConfigured = whitelist !== undefined;
+  const isInWhitelist = (ref: ModelRef) =>
+    !whitelistConfigured || whitelist.some((entry) => entry.provider === ref.provider && entry.id === ref.id);
+
+  const diagnose = (ref: ModelRef): ModelReferenceDiagnostic => {
+    const key = modelKey(ref);
+    const cataloged = catalogKeys.has(key);
+    const authenticated = sanitizeRuntimeAuth(authStatuses.get(ref.provider)).configured;
+    const availableModel = availableKeys.has(key);
+    const inWhitelist = isInWhitelist(ref);
+    const status = !providerSet.has(ref.provider)
+      ? "unknown_provider"
+      : !cataloged
+        ? "catalog_missing"
+        : !authenticated
+          ? "unauthenticated"
+          : !inWhitelist
+            ? "not_in_whitelist"
+            : availableModel
+              ? "available"
+              : "not_available";
+    return { ...ref, status, cataloged, authenticated, available: availableModel, inWhitelist };
+  };
+
+  const distinctCatalog = new Map(catalog.map((model) => [modelKey(model), model]));
+  const whitelistCount = [...distinctCatalog.keys()].filter((key) => {
+    const model = distinctCatalog.get(key);
+    return model ? isInWhitelist(model) : false;
+  }).length;
+  const uniqueProviders = [...new Set(providerIds)];
+  const countFor = (provider: string) => {
+    const models = catalog.filter((model) => model.provider === provider);
+    const distinctModels = new Map(models.map((model) => [modelKey(model), model]));
+    return {
+      catalogCount: models.length,
+      whitelistCount: [...distinctModels.values()].filter(isInWhitelist).length,
+      availableCount: available.filter((model) => model.provider === provider).length,
+    };
+  };
+  const toProvider = (provider: string) => ({
+    provider,
+    auth: sanitizeRuntimeAuth(authStatuses.get(provider)),
+    models: catalog
+      .filter((model) => model.provider === provider)
+      .map((model) => ({
+        id: model.id,
+        name: model.name || `${model.provider}/${model.id}`,
+        available: availableKeys.has(modelKey(model)),
+        inWhitelist: isInWhitelist(model),
+      })),
+  });
+
+  const referencedProviders = new Set(
+    [requestedModel, ...(whitelist ?? [])]
+      .filter((ref): ref is ModelRef => ref !== undefined)
+      .map((ref) => ref.provider),
+  );
+  const summaryProviderIds = [
+    ...uniqueProviders.filter(
+      (provider) => sanitizeRuntimeAuth(authStatuses.get(provider)).configured || referencedProviders.has(provider),
+    ),
+    ...[...referencedProviders].filter((provider) => !providerSet.has(provider)),
+  ];
+  const providers = summaryProviderIds.map((provider) => ({
+    provider,
+    auth: sanitizeRuntimeAuth(authStatuses.get(provider)),
+    ...countFor(provider),
+  }));
+  const piModels = (whitelist ?? []).map(diagnose);
+  const summary: RuntimeDiagnosticSummary = {
+    status: "available",
+    whitelistConfigured,
+    catalogCount: catalog.length,
+    whitelistCount,
+    availableCount: available.length,
+    ...(requestedModel ? { piModel: diagnose(requestedModel) } : {}),
+    piModels,
+    providers,
+    versions,
+  };
+  const response: RuntimeModelsResponse = {
+    whitelistConfigured,
+    catalogCount: catalog.length,
+    whitelistCount,
+    availableCount: available.length,
+    versions,
+    providers: uniqueProviders.map(toProvider),
+  };
+  return { summary, catalog: response };
+}
+
+export function unavailableRuntimeDiagnostics(
+  unavailableReason: "runtime_unavailable" | "diagnostics_unavailable",
+): RuntimeDiagnosticSummary {
+  return { status: "unavailable", unavailableReason, versions: runtimeVersionInfo() };
 }
 
 /** picker 用の能力情報。SDK のヘルパーをそのまま使い、BFF 側で模倣しない。 */
@@ -315,6 +514,26 @@ export async function createPiBff({ cwd = process.cwd() }: { cwd?: string } = {}
     availableModelList = [...(await modelRuntime.getAvailable())];
   } catch (error) {
     availabilityError = errorMessage(error);
+  }
+  let runtimeDiagnostics: RuntimeModelDiagnostics | undefined;
+  if (!availabilityError) {
+    try {
+      const providerIds = modelRuntime.getProviders().map((provider) => provider.id);
+      const authStatuses = new Map(
+        providerIds.map((provider) => [provider, modelRuntime.getProviderAuthStatus(provider)] as const),
+      );
+      runtimeDiagnostics = deriveRuntimeModelDiagnostics({
+        catalog: modelRuntime.getModels(),
+        available: availableModelList,
+        providerIds,
+        authStatuses,
+        whitelist: modelWhitelist,
+        requestedModel: requested?.model,
+        versions: runtimeVersionInfo(),
+      });
+    } catch {
+      // Diagnostics are best-effort and must not change the existing runtime or model-selection behavior.
+    }
   }
   availableModelList = filterModelsByWhitelist(availableModelList, modelWhitelist);
   const availableModels: PiModelRef[] = availableModelList;
@@ -458,6 +677,7 @@ export async function createPiBff({ cwd = process.cwd() }: { cwd?: string } = {}
     defaultModelError,
     availabilityError,
     modelWhitelistExcludesAll,
+    runtimeDiagnostics,
     sandboxConfigured: Boolean(sandboxClient),
     tools: configuredTools(),
     resolveModel,

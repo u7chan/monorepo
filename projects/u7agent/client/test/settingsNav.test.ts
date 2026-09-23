@@ -8,7 +8,7 @@ import {
   SETTINGS_SECTION_KEY,
 } from "../src/lib/settingsNav";
 
-test("設定ナビはエージェント / スキル / ファイル / 外観 の 4 項目をこの順で持つ", () => {
+test("設定ナビはエージェント / スキル / ファイル / 外観 / ランタイム の 5 項目をこの順で持つ", () => {
   assert.deepEqual(
     SETTINGS_SECTIONS.map((item) => [item.section, item.label]),
     [
@@ -16,6 +16,7 @@ test("設定ナビはエージェント / スキル / ファイル / 外観 の 
       ["skills", "スキル"],
       ["files", "ファイル"],
       ["appearance", "外観"],
+      ["runtime", "ランタイム"],
     ],
   );
 });

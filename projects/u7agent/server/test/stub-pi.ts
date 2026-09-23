@@ -4,7 +4,7 @@
  */
 import { clampThinkingLevel, getSupportedThinkingLevels } from "@earendil-works/pi-ai";
 import type { Api, Model as PiAiModel } from "@earendil-works/pi-ai";
-import type { PiBff } from "../src/agent";
+import type { PiBff, RuntimeModelDiagnostics } from "../src/agent";
 import type {
   AgentDef,
   AgentSkillInfo,
@@ -503,6 +503,7 @@ export interface StubPiOptions {
   availabilityError?: string;
   /** true で PI_MODELS が候補を全部落とした状態 (ready: false の whitelist 起因エラー) を再現する */
   modelWhitelistExcludesAll?: boolean;
+  runtimeDiagnostics?: RuntimeModelDiagnostics;
   createSessionRejects?: number;
 }
 
@@ -520,6 +521,7 @@ export function createStubPi(options: StubPiOptions = {}) {
     defaultModelError: options.defaultModelError,
     availabilityError: options.availabilityError,
     modelWhitelistExcludesAll: options.modelWhitelistExcludesAll ?? false,
+    runtimeDiagnostics: options.runtimeDiagnostics,
     tools: ["read"],
     sessions,
     createInputs,
