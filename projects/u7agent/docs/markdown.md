@@ -22,8 +22,9 @@ MessageView (assistant の本文)
         ├─ 表 / リスト / 引用 → 再帰的に parse + 描画
         └─ 段落・見出し → MdInline[]               lib/markdown/inline.ts
               └─ 強調 / コードスパン / リンク / 生 HTML / 自動リンク / インライン数式
+                    ├─ コードスパン → 参照のときだけ button  components/markdown/FileRefLink.tsx
                     └─ HtmlNode / MathNode         lib/markdown/{html,latex}.ts
-  └─ components/markdown/{MarkdownView,CodeBlock,HtmlInline,MathView,Diagram}.tsx
+  └─ components/markdown/{MarkdownView,CodeBlock,HtmlInline,MathView,Diagram,FileRefLink}.tsx
 ```
 
 `parse.ts` は 1 段だけブロックに分ける。リスト項目・引用の中身は `source` 文字列として保持し、描画側が `MarkdownBlocks` を再帰的に呼ぶ。この形にすると、props が文字列だけで済むためブロック単位の `memo` が効き、ストリーミング中は伸びているブロックだけを解析し直す。
@@ -33,7 +34,7 @@ MessageView (assistant の本文)
 | 記法 | 対応 | 備考 |
 | --- | --- | --- |
 | 見出し `#`〜`######` / 段落 / 段落内改行 | ✓ | 段落内の改行は `<br>` にする（従来の `whitespace-pre-wrap` と同じ見え方） |
-| 強調 `**b**` `*i*` `~~s~~` / コードスパン | ✓ | `_` は語中では強調しない（`snake_case` を壊さない） |
+| 強調 `**b**` `*i*` `~~s~~` / コードスパン | ✓ | `_` は語中では強調しない（`snake_case` を壊さない）。コードスパンはファイル参照として操作要素になり得る（下記） |
 | リンク `[t](url "title")` / 自動リンク / 画像 | ✓ | 画像は同一オリジン（相対パス）のみ |
 | 箇条書き / 番号付き / 入れ子 / タスクリスト `- [ ]` | ✓ | 番号付きは開始番号を保つ |
 | 引用 `>` / 水平線 | ✓ | |
@@ -44,6 +45,17 @@ MessageView (assistant の本文)
 | 数式 `$…$` `\(…\)` `$$…$$` `\[…\]` | ✓ | 前後に空白が無い `$` だけでインライン数式にする。対応コマンドは下記 |
 | 図 ` ```mermaid ` | ✓ | `flowchart TD` / `TB` / `LR` と `sequenceDiagram`。フェンスが閉じてからのみ描画する（下記） |
 | HTML ブロック / 脚注 / 定義リスト / 表のセル内改行 / 遅延継続行 | ✗ | 原文表示 |
+
+## インラインコードのファイル参照
+
+コードスパンは、assistant 本文でファイル参照として解決できたときだけ操作要素（`button`）にする。字面の判定・cwd 相対への解決・クリック後の導線（要求の寿命・パネル / sheet の開き方・focus）は [file-preview.md](file-preview.md#メッセージからの導線ファイル参照) を正とし、ここには描画側の契約だけを置く。描画とソース走査は `client/test/markdownFileRef.test.ts` が固定する。
+
+- **操作要素にするのは assistant 本文だけ**。user 本文は `MarkdownView` を通らず（`MessageView` が `whitespace-pre-wrap` で出す）、コードスパンも操作要素にしない
+- **Markdown リンクの children は対象外**。`` [`index.html`](https://example.com) `` の code は従来どおり `<a>` の中の `code` で、`button` を入れない。`strong` / `em` / `del` の入れ子にも同じ印（`MarkdownView` の `inLink`）を伝搬する
+- **長文のプレーン表示フォールバック（`MARKDOWN_MAX_LENGTH` 超）は対象外**。解析も描画もしないため code を作らない
+- 参照と判定されない字面（`localStorage` など）と `FileRefProvider` の外は、従来どおりの `code` で描く
+- 操作要素は `type="button"` の `button` で、内側は従来の `code` のまま。Tab 移動 / Enter / Space / 可視 focus / 読み上げ名（字面）を持つ。見た目（背景・枠）は `.md code` が担い、`button` は UA のスタイルを打ち消して hover と `:focus-visible` だけを足す（`.md-fileref`、`client/src/styles/index.css`）
+- 字面が参照かどうかは描画層（`client/src/components/markdown/FileRefLink.tsx` の context）が決める。`MdInline` の `code` は字面だけを持ち、parser と `lib/markdown/` はファイル参照を知らない（原則 4 を保つ）
 
 ## 解析の上限（ストリーミング対策）
 

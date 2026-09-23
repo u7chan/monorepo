@@ -163,7 +163,7 @@ Content-Security-Policy: sandbox allow-scripts; default-src 'none'; style-src 'u
 
 ## メッセージからの導線（ファイル参照）
 
-assistant 本文のインラインコードが指すファイルを、右パネル / sheet のタブとして開く。字面の判定と cwd 相対への解決は `client/src/lib/fileRef.ts` の純関数、要求の保持は `client/src/lib/fileRefRequest.ts`、インラインコードの描画は `client/src/components/markdown/FileRefLink.tsx` が持つ。Markdown リンクの横取り・prompt 規約・ツール履歴（`write` / `edit` 行）からの導線は非ゴール（[markdown.md](markdown.md) の対応サブセットは変えない）。
+assistant 本文のインラインコードが指すファイルを、右パネル / sheet のタブとして開く。字面の判定と cwd 相対への解決は `client/src/lib/fileRef.ts` の純関数、要求の保持は `client/src/lib/fileRefRequest.ts`、インラインコードの描画は `client/src/components/markdown/FileRefLink.tsx` が持つ。Markdown リンクの横取り・prompt 規約・ツール履歴（`write` / `edit` 行）からの導線は非ゴール（対応サブセットは変えない。描画側の契約は [markdown.md](markdown.md#インラインコードのファイル参照)）。
 
 ### 字面の判定（matcher）
 
@@ -312,6 +312,6 @@ assistant 本文のインラインコードが指すファイルを、右パネ�
 ## 参照
 
 - [ui-layout.md](ui-layout.md) — 本文の中でツリーとプレビューをどう並べるか
-- [markdown.md](markdown.md) — 共有するトークナイザの対応言語・上限（インラインコードの描画契約）
+- [markdown.md](markdown.md) — 共有するトークナイザの対応言語・上限と、インラインコードをファイル参照の操作要素にする描画契約
 - [api.md](api.md#テキストプレビュー) — プレビューの転送契約
 - [api.md](api.md#html-プレビュー) — HTML プレビューのヘッダとエラー応答

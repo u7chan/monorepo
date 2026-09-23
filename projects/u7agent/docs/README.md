@@ -32,7 +32,7 @@
 - [sandbox-api.md](sandbox-api.md) — サンドボックス内部 API と環境変数
 - [secrets.md](secrets.md) — APIキー漏洩の抑制
 - [frontend.md](frontend.md) — フロントエンドの状態管理・テーマ・Effect 契約
-- [markdown.md](markdown.md) — チャット本文の Markdown 描画（対応サブセットと上限）
+- [markdown.md](markdown.md) — チャット本文の Markdown 描画（対応サブセット・上限・インラインコードのファイル参照）
 - [file-preview.md](file-preview.md) — ファイルプレビューの行番号・シンタックスハイライト・HTML / 画像の描画
 - [api.md](api.md) — HTTP API の規約と索引（health / files / projects）
 - [api-sessions.md](api-sessions.md) — セッション API と SSE イベント
