@@ -1,10 +1,11 @@
 // ファイルツリーのリネーム導線。client に DOM テスト基盤が無いため、行の右端のコンポーネントだけを
-// react-dom/server で描画して canRename の出し分けを固定し、配線 (prompt / API / 状態の張り替え) は
+// react-dom/server で描画して canRename / readOnly の出し分けを固定し、配線 (prompt / API / 状態の張り替え) は
 // ソース走査で固定する (fileBrowserRowTime.test.ts と同じ方針)。
 //   1. 鉛筆がフォルダ行の削除ボタンの左に出る / 既定 (チャット右パネル) とファイル行・symlink 行には出ない
-//   2. prompt の初期値が現在の名前で、空・未変更なら何もしない
-//   3. 成功後にツリー・タブ・表示モードの経路を張り替え、失敗は親ディレクトリの行に出す
-//   4. リネームを出すのは設定ツリー (FileTreePage) だけ
+//   2. readOnly (スキルのファイルタブ) は削除とリネームの導線ごと消える / 既存 2 画面は既定 false のまま
+//   3. prompt の初期値が現在の名前で、空・未変更なら何もしない
+//   4. 成功後にツリー・タブ・表示モードの経路を張り替え、失敗は親ディレクトリの行に出す
+//   5. リネームを出すのは設定ツリー (FileTreePage) だけ
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
@@ -20,13 +21,19 @@ function read(relativePath: string): string {
   return readFileSync(fileURLToPath(new URL(`../${relativePath}`, import.meta.url)), "utf8");
 }
 
-function renderActions(props: { type?: "file" | "dir"; symlink?: boolean; canRename?: boolean }): string {
+function renderActions(props: {
+  type?: "file" | "dir";
+  symlink?: boolean;
+  canRename?: boolean;
+  readOnly?: boolean;
+}): string {
   return renderToStaticMarkup(
     createElement(EntryRowActions, {
       name: "docs",
       type: props.type ?? "dir",
       symlink: props.symlink,
       canRename: props.canRename ?? false,
+      readOnly: props.readOnly ?? false,
       onRename: () => {},
       onDelete: () => {},
     }),
@@ -52,6 +59,15 @@ test("描画: リネームの鉛筆は canRename のフォルダ行だけに、�
   }
   // symlink は削除も出さない
   assert.ok(!renderActions({ canRename: true, symlink: true }).includes("を削除"));
+});
+
+test("描画: readOnly は削除とリネームの導線ごと消す", () => {
+  // スキルのファイルタブは本文を読むだけの面なので、通常ファイル / ディレクトリ / symlink のどの行にも
+  // ゴミ箱と鉛筆を出さない (空スペーサーも残さない)
+  for (const props of [{ canRename: true }, { type: "file" }, { symlink: true }] as const) {
+    const html = renderActions({ ...props, readOnly: true });
+    assert.equal(html, "", `${JSON.stringify(props)} に行の操作が出ている`);
+  }
 });
 
 test("リネームの導線は prompt の初期値を現在の名前にして、空・未変更なら何もしない", () => {
@@ -84,9 +100,18 @@ test("リネームはサンドボックスへ委譲し、成功後にツリー�
 test("リネームを出すのは設定ツリー (FileTreePage) だけ", () => {
   const fileBrowser = read("src/components/FileBrowser.tsx");
   assert.match(fileBrowser, /canRename = false[^}]*\}: FileBrowserProps/, "canRename の既定が false でない");
+  // readOnly も既定 false。渡すのはスキルのファイルタブだけで、既存 2 画面の導線は不変
+  assert.match(fileBrowser, /readOnly = false[^}]*\}: FileBrowserProps/, "readOnly の既定が false でない");
+  for (const screen of ["src/components/FileTreePage.tsx", "src/components/SessionFilesPanel.tsx"]) {
+    assert.ok(!read(screen).includes("readOnly"), `${screen} が readOnly を渡している`);
+  }
   assert.ok(read("src/components/FileTreePage.tsx").includes("canRename"), "FileTreePage が canRename を渡していない");
   assert.ok(
     !read("src/components/SessionFilesPanel.tsx").includes("canRename"),
     "チャット右パネルが canRename を渡している",
+  );
+  assert.ok(
+    read("src/components/skill-settings/ReadOnlySkillPanel.tsx").includes("readOnly"),
+    "スキルのファイルタブが読み取り専用でない",
   );
 });

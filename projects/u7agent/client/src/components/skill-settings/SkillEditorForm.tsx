@@ -10,6 +10,12 @@ export function skillFormOf(skill: SkillDef | undefined): SkillForm {
   return { name: skill?.name ?? "", description: skill?.description ?? "", body: skill?.body ?? "" };
 }
 
+/** 下書きが保存済みの内容から変わっているか。キャンセルの確認を出す条件に使う */
+export function skillFormDirty(form: SkillForm, skill: SkillDef | undefined): boolean {
+  const base = skillFormOf(skill);
+  return form.name !== base.name || form.description !== base.description || form.body !== base.body;
+}
+
 export function SkillEditorForm({
   editingId,
   skill,
@@ -20,6 +26,7 @@ export function SkillEditorForm({
   onSelectSkill,
   onNote,
   onDone,
+  onCancel,
 }: {
   editingId: string | null;
   skill: SkillDef | undefined;
@@ -32,6 +39,8 @@ export function SkillEditorForm({
   onNote: (text: string, error?: boolean) => void;
   /** 保存 / 削除が成功したときに呼ぶ */
   onDone?: () => void;
+  /** 閲覧ビューへ戻る導線。既存スキルの編集のときだけ渡す (新規作成は従来どおり) */
+  onCancel?: () => void;
 }) {
   const saveSkill = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -126,6 +135,11 @@ export function SkillEditorForm({
         >
           <TrashIcon />
           削除
+        </button>
+      ) : null}
+      {onCancel ? (
+        <button type="button" onClick={onCancel} className="btn-quiet">
+          キャンセル
         </button>
       ) : null}
       <button type="submit" className={variant === "page" ? "btn-primary flex-1" : "btn-primary ml-auto"}>

@@ -9,6 +9,7 @@ import {
   FILE_SKILL_RELOAD_LABEL,
   FILE_SKILL_SCOPE_LABEL,
   FILE_SKILL_SECTION_LABEL,
+  fileSkillDir,
   fileSkillWarning,
   groupFileSkills,
 } from "../src/lib/fileSkills";
@@ -108,4 +109,36 @@ test("再読み込みの読み上げ名は視覚ラベルを含み、更新さ�
   assert.ok(FILE_SKILL_RELOAD_ARIA_LABEL.includes(FILE_SKILL_RELOAD_LABEL));
   assert.ok(FILE_SKILL_RELOAD_ARIA_LABEL.includes(FILE_SKILL_GROUP_LABEL));
   assert.ok(FILE_SKILL_RELOAD_ARIA_LABEL.includes(BUILTIN_SKILL_GROUP_LABEL));
+});
+
+test("ファイルタブの root は root 相対の SKILL.md の親だけを返す", () => {
+  assert.equal(fileSkillDir(fileSkill()), ".agents/skills/alpha");
+  assert.equal(
+    fileSkillDir(fileSkill({ scope: "project", relativePath: "projects/app/.agents/skills/alpha/SKILL.md" })),
+    "projects/app/.agents/skills/alpha",
+  );
+  // 親が無い / 本文ファイルでない / 途中に空セグメントがあるものは root にしない
+  for (const relativePath of ["SKILL.md", ".agents/skills/alpha/README.md", ".agents//skills/alpha/SKILL.md"]) {
+    assert.equal(fileSkillDir(fileSkill({ relativePath })), null, relativePath);
+  }
+});
+
+test("組み込みと root の外を指すパスにはファイルタブの root を返さない", () => {
+  // 組み込みの relativePath は root 相対の形をしているが、ワークスペースに実体が無い仮想パス
+  assert.equal(fileSkillDir(builtinSkill()), null);
+  const rejected = [
+    "",
+    "/workspace/.agents/skills/alpha/SKILL.md",
+    "C:/work/.agents/skills/alpha/SKILL.md",
+    "C:\\work\\.agents\\skills\\alpha\\SKILL.md",
+    "//server/share/skills/alpha/SKILL.md",
+    "..",
+    "../skills/alpha/SKILL.md",
+    ".agents/skills/../other/SKILL.md",
+  ];
+  for (const relativePath of rejected) {
+    assert.equal(fileSkillDir(fileSkill({ relativePath })), null, relativePath);
+  }
+  // .. はセグメント全体のときだけ親参照 (release..notes のような名前は巻き込まない)
+  assert.equal(fileSkillDir(fileSkill({ relativePath: "skills/release..notes/SKILL.md" })), "skills/release..notes");
 });

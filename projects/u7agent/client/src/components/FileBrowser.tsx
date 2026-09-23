@@ -61,6 +61,8 @@ export type FileBrowserProps = {
   reloadToken: number;
   /** フォルダ行にリネームの鉛筆を出すか。既定 false (チャット右パネルでは出さない) */
   canRename?: boolean;
+  /** 削除とリネームの導線を出さない (読み取り専用の面)。既定 false (既存 2 画面は不変) */
+  readOnly?: boolean;
   /** 未消費の「ファイル参照から開く」要求。適用したら onHandled(seq) で App へ返す */
   openRequest?: FileRefRequest | null;
   onHandled?: (seq: number) => void;
@@ -73,7 +75,14 @@ export type FileBrowserProps = {
  * 行は深さに比例したインデントだけを持ち、長い名前は truncate して横スクロールを出さない。
  * ディレクトリは展開時に初めて取得し、ファイル監視はしない (一覧も行の時刻も「再読み込み」と run 終了でしか更新されない)。
  */
-export function FileBrowser({ root, reloadToken, canRename = false, openRequest, onHandled }: FileBrowserProps) {
+export function FileBrowser({
+  root,
+  reloadToken,
+  canRename = false,
+  readOnly = false,
+  openRequest,
+  onHandled,
+}: FileBrowserProps) {
   const rootPath = normalizeFileTreeRoot(root);
   // 復元は mount ごとに 1 回。lazy initializer に置くことで、復元前の空状態を取得や保存の Effect が見ない
   // (StrictMode で初期化が 2 回走っても同じ snapshot から同じ状態になる)
@@ -245,6 +254,7 @@ export function FileBrowser({ root, reloadToken, canRename = false, openRequest,
               tree={tree}
               selected={tabs.active}
               canRename={canRename}
+              readOnly={readOnly}
               onToggle={toggle}
               onSelect={openTab}
               onRename={renameRow}
@@ -280,6 +290,7 @@ type BranchProps = {
   tree: FileTreeState;
   selected: string | null;
   canRename: boolean;
+  readOnly: boolean;
   onToggle: (path: string) => void;
   onSelect: (path: string) => void;
   onRename: (path: string, name: string) => void;
@@ -293,6 +304,7 @@ function Branch({
   tree,
   selected,
   canRename,
+  readOnly,
   onToggle,
   onSelect,
   onRename,
@@ -312,6 +324,7 @@ function Branch({
           tree={tree}
           selected={selected}
           canRename={canRename}
+          readOnly={readOnly}
           onToggle={onToggle}
           onSelect={onSelect}
           onRename={onRename}
@@ -330,6 +343,7 @@ function EntryRow({
   tree,
   selected,
   canRename,
+  readOnly,
   onToggle,
   onSelect,
   onRename,
@@ -341,6 +355,7 @@ function EntryRow({
   tree: FileTreeState;
   selected: string | null;
   canRename: boolean;
+  readOnly: boolean;
   onToggle: (path: string) => void;
   onSelect: (path: string) => void;
   onRename: (path: string, name: string) => void;
@@ -383,6 +398,7 @@ function EntryRow({
             type={entry.type}
             symlink={entry.symlink}
             canRename={canRename}
+            readOnly={readOnly}
             onRename={() => onRename(path, entry.name)}
             onDelete={() => onDelete(path, entry.type)}
           />
@@ -402,6 +418,7 @@ function EntryRow({
                 tree={tree}
                 selected={selected}
                 canRename={canRename}
+                readOnly={readOnly}
                 onToggle={onToggle}
                 onSelect={onSelect}
                 onRename={onRename}
@@ -442,6 +459,7 @@ function EntryRow({
         type={entry.type}
         symlink={entry.symlink}
         canRename={canRename}
+        readOnly={readOnly}
         onRename={() => onRename(path, entry.name)}
         onDelete={() => onDelete(path, entry.type)}
       />
@@ -459,6 +477,7 @@ export function EntryRowActions({
   type,
   symlink,
   canRename,
+  readOnly,
   onRename,
   onDelete,
 }: {
@@ -466,12 +485,15 @@ export function EntryRowActions({
   type: "file" | "dir";
   symlink?: boolean;
   canRename: boolean;
+  readOnly: boolean;
   onRename: () => void;
   onDelete: () => void;
 }) {
   // リネームはフォルダ行だけに出す (UI からファイルは改名できない)。symlink はサンドボックスが 400 で拒否する
   const renamable = canRename && type === "dir" && !symlink;
   const deletable = !symlink;
+  // 読み取り専用の面 (スキルのファイルタブ) は削除とリネームの導線ごと消す
+  if (readOnly) return null;
   return (
     <>
       {canRename ? renamable ? <RenameRowButton name={name} onClick={onRename} /> : <EmptySlot /> : null}
