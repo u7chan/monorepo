@@ -33,7 +33,7 @@ pnpm dev   # サンドボックス + BFF + Vite をまとめて起動 → http:/
 - **ファイルスキル** — `<PI_APP_CWD>/.agents/skills/<name>/SKILL.md`（共通）と、プロジェクト配下の `<project>/.agents/skills/<name>/SKILL.md`（そのプロジェクトのセッションのみ）。エージェントに紐づかない ambient なスキルとしてセッションへ注入され、モデルは必要になった時点で `SKILL.md` を `read` します（本文の編集は次に読んだ時点から効きます）
 - **組み込みスキル** — アプリに同梱した `skill-creator` など（`server/src/builtin-skills/`）。全セッションで常時有効で、ワークスペースには実体を作らず、`read` だけ BFF が同梱の本文を返します。編集の対象外です
 
-共通スキルの置き場はワークスペース root（`PI_APP_CWD`）の直下です。ローカル dev の既定は `projects/u7agent` 自身なので、モノレポ root の `.agents/skills` を使いたい場合は `PI_APP_CWD=/path/to/monorepo pnpm dev` のように指定します（サンドボックスの `PI_SANDBOX_CWD` と同じパスに揃えてください）。共通スキルと組み込みスキルは設定 → スキルで読み取り専用で確認できます（組み込みは本文ビュー付き）。
+共通スキルの置き場はワークスペース root（`PI_APP_CWD`）の直下です。ローカル dev の既定は `projects/u7agent` 自身なので、モノレポ root の `.agents/skills` を使いたい場合は `PI_APP_CWD=/path/to/monorepo pnpm dev` のように指定します（サンドボックスの `PI_SANDBOX_CWD` と同じパスに揃えてください）。共通スキルと組み込みスキルは設定 → スキルで読み取り専用の一覧として並び、選ぶと本文ビューが開きます（ファイルスキルの本文は選択のたびに取り直すため、`SKILL.md` の編集内容がそのまま出ます）。
 
 チャットの入力欄の「スキル一覧」から、そのセッションで使えるスキル（プロジェクト / 共通 / 組み込み / エージェント定義）を選んで `/skill:<name>` を入力できます。`/skill:` は送信時に BFF が本文ブロックへ展開するため、Docker（BFF に作業領域が無い）でもファイルスキルと組み込みスキルが動きます。本文は送信時点の内容で、一覧が固定するのは発見一覧・説明・優先順位だけです。詳細は [docs/persistence.md](docs/persistence.md#スキルの扱い) と [docs/api-catalog.md](docs/api-catalog.md#ファイルスキルagentsskills)、展開の仕様は [docs/api-sessions.md](docs/api-sessions.md#skill-の展開) を参照してください。
 

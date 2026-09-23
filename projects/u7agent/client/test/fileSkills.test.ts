@@ -4,6 +4,7 @@ import test from "node:test";
 import {
   BUILTIN_SKILL_GROUP_LABEL,
   FILE_SKILL_GROUP_LABEL,
+  FILE_SKILL_PANEL_HEADING,
   FILE_SKILL_RELOAD_ARIA_LABEL,
   FILE_SKILL_RELOAD_LABEL,
   FILE_SKILL_SCOPE_LABEL,
@@ -85,6 +86,14 @@ test("グループ分けは組み込みを共通スキルから分ける", () =>
 
 test("スコープの表示名は 3 種類そろっている", () => {
   assert.deepEqual(FILE_SKILL_SCOPE_LABEL, { user: "共通", project: "プロジェクト", builtin: "組み込み" });
+});
+
+test("本文ビューの見出しはグループ名と同じ 3 種類そろっている", () => {
+  assert.deepEqual(FILE_SKILL_PANEL_HEADING, {
+    user: "共通スキル",
+    project: "プロジェクトスキル",
+    builtin: "組み込みスキル",
+  });
 });
 
 test("読み取り専用の断りはブロックの見出しにだけ出し、グループはスコープ名だけにする", () => {
