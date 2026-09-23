@@ -23,6 +23,7 @@ pi SDK (BFF)                       sandbox service (別プロセス / 別コン�
 - すべての `/v1/*` は `Authorization: Bearer PI_SANDBOX_TOKEN` を要求し、長さを漏らさない定数時間比較で検証する。未認証は 401
 - `/healthz` は無認証（Compose healthcheck 用）。ツール実行の情報は含まない
 - ツール実行APIはホストへ publish しない。BFF ⇄ サンドボックスは専用の内部ネットワークのみで到達する。トークンは BFF とサンドボックスの 2 サービスにのみ渡す（LLM 認証情報とは別の値）。ホスト上の別プロセスで起動する場合は `SANDBOX_HOST=127.0.0.1` を指定する（既定は `0.0.0.0` で LAN へ露出する）
+- サンドボックス内で起動したサーバー（Python / Node の dev server など）はホストへ publish されず、BFF にも任意ポートの proxy が無いため、ブラウザ・ホストのどちらからも到達できない。エージェント自身の確認はサンドボックス内の `curl 127.0.0.1:<port>` までで、成果物を人間に見せる経路はファイルプレビュー（`GET /api/files/preview` / `/api/files/html/<root 相対>` / `/api/files/raw`）だけ（HTML プレビューの CSP は `default-src 'none'` で `connect-src` を持たず、プレビューからサーバーへも繋げない）
 - `PI_SANDBOX_URL` / `PI_SANDBOX_TOKEN` が未設定のとき、BFF はセッション作成を 503 で拒否する（ローカル実行へのフォールバックなし）
 
 ## パスと並行実行
