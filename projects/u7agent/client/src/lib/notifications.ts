@@ -92,13 +92,44 @@ export function notificationHasFailure(settings: NotificationsResponse | null): 
   return settings?.lastResult?.ok === false;
 }
 
-/** On でも配信できないときの注記。色では表さず、押した直後のバーの下と設定ページに文字で出す */
-export const NOTIFY_UNAVAILABLE_NOTE = "Webhook が未設定です（設定 → 通知）";
+/** 配信できない理由ごとの注記。色では表さず、バーの下へ文字で出す (導線は画面側が添える) */
+export const NOTIFY_DISABLED_NOTE = "通知は設定で無効です";
+export const NOTIFY_UNCONFIGURED_NOTE = "Webhook が未設定です";
 
-/** バーの下へ出す注記。On で、かつ配信できる設定 (有効 + Webhook 登録済み) でなければ返す */
-export function notifyUnavailableNote(on: boolean, settings: NotificationsResponse | null): string | undefined {
-  if (!on) return undefined;
-  return settings?.enabled === true && settings.configured === true ? undefined : NOTIFY_UNAVAILABLE_NOTE;
+/** 配信できない理由。disabled はグローバル無効、unconfigured は Webhook 未登録 */
+export type NotifyUnavailableReason = "disabled" | "unconfigured";
+
+/**
+ * 配信できない理由。設定が未取得 (null) の間は判定できないため undefined を返し、注記も切替の禁止もしない
+ * (起動直後の一瞬だけボタンが効かないと、壊れているように見える)。
+ */
+export function notifyUnavailableReason(settings: NotificationsResponse | null): NotifyUnavailableReason | undefined {
+  if (!settings) return undefined;
+  if (!settings.enabled) return "disabled";
+  return settings.configured ? undefined : "unconfigured";
+}
+
+/**
+ * バーの下へ出す注記。On で配信できないときは常に、まだ On でないときは押した後 (attempted) だけ出す
+ * (設定が無効なだけの会話で毎回出して、バーを埋めないため)。
+ */
+export function notifyUnavailableNote(
+  on: boolean,
+  settings: NotificationsResponse | null,
+  attempted = false,
+): string | undefined {
+  if (!on && !attempted) return undefined;
+  const reason = notifyUnavailableReason(settings);
+  if (!reason) return undefined;
+  return reason === "disabled" ? NOTIFY_DISABLED_NOTE : NOTIFY_UNCONFIGURED_NOTE;
+}
+
+/**
+ * On へ切り替えられないか。Off へ戻す操作は常に許可する (機微な会話の通知を、設定を直すまで
+ * 止められない状態を作らないため)。設定が未取得の間は判定しない。
+ */
+export function notifyCannotEnable(on: boolean, settings: NotificationsResponse | null): boolean {
+  return !on && notifyUnavailableReason(settings) !== undefined;
 }
 
 /** 通知のリンク (`/s/<id>`) の会話を開けなかったときの注記 */

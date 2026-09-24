@@ -20,7 +20,7 @@ import { useRoute } from "./hooks/useRoute";
 import { agentIconOf } from "./lib/agentIcon";
 import { cn } from "./lib/cn";
 import { fileRefRequestForSession } from "./lib/fileRefRequest";
-import { notificationHasFailure, notifyUnavailableNote } from "./lib/notifications";
+import { notificationHasFailure, notifyCannotEnable, notifyUnavailableNote } from "./lib/notifications";
 import { sessionFilesRoot } from "./lib/sessionFiles";
 import { type SettingsSection, type SidebarMode } from "./lib/settingsNav";
 
@@ -40,8 +40,8 @@ export default function App() {
   const [navOpen, setNavOpen] = useState(false);
   // セッションファイル UI の開閉は保存しない (desktop は右パネル、compact は全画面シート)
   const [sessionFilesOpen, setSessionFilesOpen] = useState(false);
-  // トグルを押した直後だけ、On でも配信できない理由をバーの下へ出す (色では表さず文字で示す)
-  const [notifyPressed, setNotifyPressed] = useState(false);
+  // 配信できない設定で通知を On にしようとした会話。理由は押した会話にだけ出し、別の会話へ移ったら消す
+  const [notifyAttemptId, setNotifyAttemptId] = useState<string | null>(null);
   const mainView = route.view;
   const sidebarMode: SidebarMode = route.view === "settings" ? "settings" : "nav";
   // URL にセクションが無いときだけ「最後に開いていたセクション」を見せる (URL の指定を上書きしない)
@@ -98,14 +98,14 @@ export default function App() {
   }, [app]);
 
   const handleToggleNotify = useCallback(() => {
-    setNotifyPressed(true);
+    // 送られない On を作らない。押しても切り替わらず、理由と導線をバーの下に出す
+    if (notifyCannotEnable(app.notify, app.notifications.settings)) {
+      setNotifyAttemptId(app.sessionId);
+      return;
+    }
+    setNotifyAttemptId(null);
     void app.toggleNotify();
   }, [app]);
-  const notifyToggle = {
-    on: app.notify,
-    note: notifyPressed ? notifyUnavailableNote(app.notify, app.notifications.settings) : undefined,
-    onToggle: handleToggleNotify,
-  };
 
   // エージェントの切替は「新しい会話」と同じで、現在の会話はセッション一覧に残す
   const handleAgentChange = useCallback(
@@ -135,6 +135,19 @@ export default function App() {
     },
     [navigate],
   );
+
+  // 会話の通知トグル。note は On で配信できない間は常に、Off では押した後だけ出す (Off へは常に戻せる)
+  const notifyToggle = {
+    on: app.notify,
+    note: notifyUnavailableNote(
+      app.notify,
+      app.notifications.settings,
+      notifyAttemptId !== null && notifyAttemptId === app.sessionId,
+    ),
+    canEnable: !notifyCannotEnable(app.notify, app.notifications.settings),
+    onToggle: handleToggleNotify,
+    onOpenSettings: () => openSettingsSection("notifications"),
+  };
 
   const navProps = {
     mode: sidebarMode,

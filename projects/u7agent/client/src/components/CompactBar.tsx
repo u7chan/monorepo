@@ -2,6 +2,7 @@ import type { RuntimeStatus } from "../hooks/runtimeStatus";
 import { cn } from "../lib/cn";
 import type { LayoutMode } from "../lib/layout";
 import { BellIcon, FolderIcon, MenuIcon } from "./icons";
+import { NotifyNote } from "./NotifyNote";
 import { RuntimeAlert } from "./RuntimeAlert";
 
 export type CompactBarProps = {
@@ -9,8 +10,11 @@ export type CompactBarProps = {
   title: string;
   agentName?: string;
   runtimeStatus: RuntimeStatus;
-  /** 会話の通知トグル。note は On でも配信できないときに押した直後だけ出す */
-  notify: { on: boolean; note?: string; onToggle: () => void };
+  /**
+   * 会話の通知トグル。canEnable は On へ切り替えられるか (Off へは常に戻せる)。
+   * note は配信できない理由で、On の間は常に、Off では押した後に出る
+   */
+  notify: { on: boolean; note?: string; canEnable: boolean; onToggle: () => void; onOpenSettings?: () => void };
   sessionFiles?: { open: boolean; onToggle: () => void };
   onOpenNav: () => void;
 };
@@ -25,6 +29,8 @@ export function CompactBar({
   onOpenNav,
 }: CompactBarProps) {
   const landscape = mode === "landscape";
+  // 配信できない On は、押しても切り替わらない理由を読み上げ名と title でも示す (色だけに頼らない)
+  const notifyLabel = notify.on && !notify.canEnable ? "通知（停止中）" : "通知";
 
   return (
     <header className="grid min-w-0 grid-cols-1 border-b border-line bg-panel/85">
@@ -46,9 +52,9 @@ export function CompactBar({
           type="button"
           aria-pressed={notify.on}
           onClick={notify.onToggle}
-          aria-label="通知"
-          title="通知"
-          className={cn("icon-button", notify.on && "border-accent/50 text-accent-text")}
+          aria-label={notifyLabel}
+          title={notifyLabel}
+          className={cn("icon-button", notify.on && notify.canEnable && "border-accent/50 text-accent-text")}
         >
           <BellIcon ringing={notify.on} />
         </button>
@@ -71,10 +77,7 @@ export function CompactBar({
         </div>
       ) : null}
       {notify.note ? (
-        // 配信できない状態は色ではなく文字で示す (色の意味を 1 つに保つ)
-        <p role="status" className="px-3 pb-2 text-1xs leading-relaxed text-ink-soft">
-          {notify.note}
-        </p>
+        <NotifyNote text={notify.note} onOpenSettings={notify.onOpenSettings} className="mx-3 mb-2" />
       ) : null}
     </header>
   );
