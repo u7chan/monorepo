@@ -261,6 +261,11 @@ export function useU7Agent({ pendingSessionId, onPendingSessionResolved }: UseU7
 
   const boot = useEffectEvent(async (isCurrent: () => boolean) => {
     try {
+      // 保留の入口は、起動処理を始めた時点の選択世代と比べる。ここを最初の await の後ろに置くと、
+      // health / catalog / projects の待ちの間の選択を、遅れて届いたディープリンク先が奪う
+      pendingEntryRef.current = pendingSessionId
+        ? { sessionId: pendingSessionId, selection: selectionSeqRef.current }
+        : null;
       const h = await getHealth();
       if (!isCurrent()) return;
       applyHealth(h);
@@ -269,10 +274,6 @@ export function useU7Agent({ pendingSessionId, onPendingSessionResolved }: UseU7
       // プロジェクトを先に取る。配下セッションを持たない一覧で描画すると、起動直後に Chats へ一瞬出る
       await refreshProjects(isCurrent);
       if (!isCurrent()) return;
-      // 保留の入口は、一覧の要求より前の選択世代と比べる (待機中にユーザーが選んだら、その選択を奪わない)
-      pendingEntryRef.current = pendingSessionId
-        ? { sessionId: pendingSessionId, selection: selectionSeqRef.current }
-        : null;
       const list = await refreshSessions(isCurrent);
       if (!isCurrent()) return;
       if (pendingSessionId) {

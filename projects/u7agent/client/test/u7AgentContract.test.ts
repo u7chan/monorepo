@@ -2,9 +2,16 @@
 //
 // useU7Agent は画面 (App) から見た facade で、composer / 設定ページが型と定数を import している。
 // 返却値は UI が使う名前を消さないことを型で、export は実行時で確認する。
+// 起動処理の待機順は DOM で再現できないため、ソース走査で固定する。
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import test from "node:test";
 import type { U7Agent } from "../src/hooks/useU7Agent";
+
+function read(relativePath: string): string {
+  return readFileSync(fileURLToPath(new URL(`../${relativePath}`, import.meta.url)), "utf8");
+}
 
 type ContractKeys = {
   chat: unknown;
@@ -62,4 +69,47 @@ test("keeps the facade exports used by the UI", () => {
   assert.equal(effortLabel("xhigh"), "xHigh");
   assert.equal(effortLabel("unknown"), "unknown");
   assert.deepEqual(ALL_THINKING_LEVELS, ["off", "minimal", "low", "medium", "high", "xhigh", "max"]);
+});
+
+/** 行コメントを除いてから走査する (説明文の中の `await` で誤判定しない) */
+function withoutLineComments(source: string): string {
+  return source
+    .split("\n")
+    .map((line) => {
+      const at = line.indexOf("//");
+      return at >= 0 ? line.slice(0, at) : line;
+    })
+    .join("\n");
+}
+
+/** 起動処理 (boot) の本体。次の useEffect までを切り出す */
+function bootSource(source: string): string {
+  const start = source.indexOf("const boot = useEffectEvent(");
+  const end = source.indexOf("useEffect(", start);
+  assert.ok(start >= 0 && end > start, "boot の定義が見つからない");
+  return source.slice(start, end);
+}
+
+test("起動処理は、保留の入口の基準にする選択世代を最初の await より前に読む", () => {
+  const source = read("src/hooks/useU7Agent.ts");
+  const boot = withoutLineComments(bootSource(source));
+  const capture = boot.indexOf("pendingEntryRef.current = pendingSessionId");
+  const firstAwait = boot.indexOf("await ");
+  assert.ok(capture >= 0, "保留の入口の capture が無い");
+  assert.ok(firstAwait >= 0, "boot に await が無い");
+  // health / catalog / projects の待ちの間の選択も「後からの選択」に含める (await の後ろに置くと奪う)
+  assert.ok(capture < firstAwait, "基準の選択世代を最初の await の後に読んでいる");
+  // 世代は capture した値をそのまま使う (読み直すと、遅れて届いた応答が後からの選択を奪う)
+  assert.equal(
+    boot.slice(capture).split("selectionSeqRef.current").length - 1,
+    1,
+    "boot 内で基準の世代を読み直している",
+  );
+  assert.ok(boot.slice(capture, firstAwait).includes("selectionSeqRef.current"), "capture が世代を読んでいない");
+  // ポーリングからの再解決も pendingEntryRef に保持した世代を使う
+  const resolve = withoutLineComments(
+    source.slice(source.indexOf("const resolvePendingEntry"), source.indexOf("const boot = useEffectEvent(")),
+  );
+  assert.ok(resolve.includes("const resolvePendingEntry"), "再解決の実装が見つからない");
+  assert.ok(!resolve.includes("selectionSeqRef.current"), "再解決で世代を読み直している");
 });
