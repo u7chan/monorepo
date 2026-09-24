@@ -7,6 +7,7 @@ import { join } from "node:path";
 import test from "node:test";
 import { createBffApp } from "../src/app";
 import type { SandboxWorkspaceClient } from "../src/sandbox/client";
+import { SessionNotifyResponseSchema } from "../src/schema";
 import { sessionMetaPath } from "../src/session-store";
 import { asPiBff, createStubPi, waitFor } from "./stub-pi";
 
@@ -270,6 +271,74 @@ test("an unloaded session can be toggled without the runtime", async () => {
       assert.equal((await jsonBody(restarted.app.request(`/api/sessions/${created.sessionId}`))).notify, true);
     } finally {
       await restarted.close();
+    }
+  });
+});
+
+test("the notify response is the same small DTO for live and unloaded sessions", async () => {
+  await withStoreDir(async (dir) => {
+    const bff = await openBff(dir);
+    const created = await jsonBody(bff.app.request("/api/sessions", jsonPost({})));
+    try {
+      // live
+      const live = await jsonBody(
+        await bff.app.request(`/api/sessions/${created.sessionId}/notify`, jsonPatch({ notify: true })),
+      );
+      assert.deepEqual(live, { sessionId: created.sessionId, notify: true });
+      assert.equal(SessionNotifyResponseSchema.safeParse(live).success, true);
+      assert.equal("messages" in live, false, "会話全文は返さない");
+    } finally {
+      await bff.close();
+    }
+
+    // 未ロード (SDK を開かないので同じ形で返せる)
+    const restarted = await openBff(dir);
+    try {
+      const unloaded = await jsonBody(
+        await restarted.app.request(`/api/sessions/${created.sessionId}/notify`, jsonPatch({ notify: false })),
+      );
+      assert.deepEqual(unloaded, { sessionId: created.sessionId, notify: false });
+      assert.equal(SessionNotifyResponseSchema.safeParse(unloaded).success, true);
+      assert.equal("messages" in unloaded, false, "会話全文は返さない");
+    } finally {
+      await restarted.close();
+    }
+  });
+});
+
+test("a restore started while the toggle is being written keeps the new value", async () => {
+  await withStoreDir(async (dir) => {
+    const first = await openBff(dir);
+    const created = await jsonBody(first.app.request("/api/sessions", jsonPost({})));
+    await first.close();
+
+    // SDK 復元を保留できるスタブ (createSession を gate で止める)
+    const pi = createStubPi();
+    const originalCreateSession = pi.createSession;
+    let release: () => void = () => {};
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    pi.createSession = async (input) => {
+      await gate;
+      return originalCreateSession(input);
+    };
+
+    const bff = await openBff(dir, { pi });
+    try {
+      // 未ロードのまま書き込みを始め、同じ tick で復元を開始する
+      const toggled = bff.store.setNotify(created.sessionId, true);
+      const restored = bff.store.resolve(created.sessionId);
+      await toggled;
+      // 保存が終わってから復元を進める (古い descriptor の load が残っていると古い値で上書きされる)
+      release();
+      const record = await restored;
+
+      assert.equal(record?.notify, true, "復元した record が古い値へ戻らない");
+      assert.equal(bff.store.list()[0].notify, true);
+      assert.equal(await metaNotify(created.sessionId, dir), true);
+    } finally {
+      await bff.close();
     }
   });
 });

@@ -89,11 +89,11 @@ export function createSessionRoutes({
       return c.json(payload);
     },
 
-    /** 通知トグル。busy でも成功し、送るかどうかは finish 時点の値で決まる */
+    /** 通知トグル。busy でも成功し、応答は live / 未ロード共通の `{ sessionId, notify }` */
     updateNotify: async (c: Context, body: UpdateSessionNotifyBody) => {
-      const payload = await store.setNotify(c.req.param("id") ?? "", body.notify);
-      if (!payload) return c.json({ error: "Session not found" }, 404);
-      return c.json(payload);
+      const result = await store.setNotify(c.req.param("id") ?? "", body.notify);
+      if (!result) return c.json({ error: "Session not found" }, 404);
+      return c.json(result);
     },
 
     remove: async (c: Context) => {

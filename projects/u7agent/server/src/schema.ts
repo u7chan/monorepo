@@ -655,6 +655,16 @@ export const StopResultSchema = z.object({
 });
 export type StopResult = z.infer<typeof StopResultSchema>;
 
+/**
+ * `PATCH /api/sessions/:id/notify` の応答。live / 未ロードで同じ形にし、SDK セッションを開かない
+ * 未ロードでも返せるよう会話全文 (`messages`) は載せない。
+ */
+export const SessionNotifyResponseSchema = z.object({
+  sessionId: z.string(),
+  notify: z.boolean(),
+});
+export type SessionNotifyResponse = z.infer<typeof SessionNotifyResponseSchema>;
+
 // ---------------------------------------------------------------------------
 // リクエスト body スキーマ
 // route が見るのは JSON の形と型だけ。必須判定と正規化 (trim / 上限 / 未知キー) は catalog が正

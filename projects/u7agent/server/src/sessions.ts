@@ -57,6 +57,7 @@ import type {
   ModelRef,
   Project,
   RunStatus,
+  SessionNotifyResponse,
   SessionPayload,
   SessionSummary,
   SkillDef,
@@ -543,8 +544,9 @@ export class SessionStore {
    * (実行中でも切り替えられ、送るかどうかは finish 時点の値で決まる)。
    * 未ロードのセッションは meta.json だけを書き換え、SDK セッションを開かない
    * (モデルランタイムが使えない間でも通知を切り替えられるように)。
+   * 応答は live / 未ロード共通の `{ sessionId, notify }` だけにする (会話全文は返さない)。
    */
-  async setNotify(id: string, notify: boolean): Promise<SessionPayload | SessionSummary | undefined> {
+  async setNotify(id: string, notify: boolean): Promise<SessionNotifyResponse | undefined> {
     // 復元中の id は完了を待つ (descriptor を先に書き換えると load の meta で上書きされる)
     const pending = this.lifecycle.get(id);
     if (pending) await pending.catch(() => {});
@@ -555,21 +557,29 @@ export class SessionStore {
       await this.persist(live, { jsonl: false });
       // 保存失敗を成功扱いにしない (in-memory の実行は止めないが、この応答は 500)
       if (live.persistError) throw httpError(500, `セッションの保存に失敗しました: ${live.persistError}`);
-      return this.payload(live);
+      return { sessionId: live.id, notify: live.notify };
     }
     const meta = this.descriptors.get(id);
     if (!meta || !this.storeDir) return undefined;
     const updated: SessionMeta = { ...meta };
     if (notify) updated.notify = true;
     else delete updated.notify;
+    const storeDir = this.storeDir;
+    // 書き込みも lifecycle へ載せる。載せないと、書き込み中の同じ id の GET が古い descriptor で
+    // load(meta) を始め、復元した record と一覧を古い値へ戻してしまう (ディスクと応答は新しい値のまま)。
+    const write = (async () => {
+      await writeSessionMeta(storeDir, updated);
+      this.descriptors.set(id, updated);
+    })();
+    this.lifecycle.set(id, write);
     try {
-      await writeSessionMeta(this.storeDir, updated);
+      await write;
     } catch (error) {
       throw httpError(500, `セッションの保存に失敗しました: ${messageFor(error)}`);
+    } finally {
+      if (this.lifecycle.get(id) === write) this.lifecycle.delete(id);
     }
-    this.descriptors.set(id, updated);
-    // 未ロードは SessionPayload を組めない (組むには SDK セッションの復元が要る) ため、一覧と同じ summary を返す
-    return this.summaryOfMeta(updated);
+    return { sessionId: id, notify };
   }
 
   async updateSettings(record: SessionRecord, input: UpdateSessionSettingsInput): Promise<SessionPayload> {
