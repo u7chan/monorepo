@@ -3,6 +3,7 @@ import type { AppType } from "server";
 import { encodeFilePathParam } from "./lib/fileUrl";
 import type {
   AgentDef,
+  ArchiveSettingsResponse,
   CatalogResponse,
   CreateAgentBody,
   CreateSkillBody,
@@ -367,6 +368,29 @@ export const updateNotifications = async (input: UpdateNotificationsBody): Promi
 
 export const testNotification = async (): Promise<NotificationResult> => {
   const res = await client.api.notifications.test.$post();
+  if (!res.ok) throw await apiError(res);
+  return res.json();
+};
+
+/**
+ * アーカイブの除外名。`excludeNames` は常に実効値で、`overridden` が false のときは既定の一覧を使っている。
+ * 保存（PUT）と既定に戻す（DELETE）も同じ形を返すため、画面は応答をそのまま次の状態にできる。
+ */
+export const getArchiveSettings = async (): Promise<ArchiveSettingsResponse> => {
+  const res = await client.api.settings.archive.$get();
+  if (!res.ok) throw await apiError(res);
+  return res.json();
+};
+
+export const updateArchiveSettings = async (excludeNames: string[]): Promise<ArchiveSettingsResponse> => {
+  const res = await client.api.settings.archive.$put({ json: { excludeNames } });
+  if (!res.ok) throw await apiError(res);
+  return res.json();
+};
+
+/** 保存行を消して未設定へ戻す（既定名を保存し直さないので、将来の既定の追加に追随する） */
+export const resetArchiveSettings = async (): Promise<ArchiveSettingsResponse> => {
+  const res = await client.api.settings.archive.$delete();
   if (!res.ok) throw await apiError(res);
   return res.json();
 };

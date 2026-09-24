@@ -1,5 +1,6 @@
 import type { Context } from "hono";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
+import type { ArchiveSettings } from "../archive-settings";
 import {
   messageFor,
   sandboxFailure,
@@ -102,7 +103,14 @@ function htmlError(c: Context, status: number, message: string) {
 }
 
 /** セッションに依存させない (セッションが無くても開ける必要がある) ため、トップレベルのルートにする。 */
-export function createFileRoutes({ workspace }: { workspace: SandboxWorkspaceClient | null }) {
+export function createFileRoutes({
+  workspace,
+  archiveSettings,
+}: {
+  workspace: SandboxWorkspaceClient | null;
+  /** ダウンロードの走査に渡す除外名の実効値（設定ストア）。サンドボックスは設定を持たない */
+  archiveSettings: ArchiveSettings;
+}) {
   /** 画像は allowlist を BFF でも見て、画像以外を同一オリジンで配らない (SVG / HTML の XSS 回避)。 */
   async function serveRawImage(c: Context, path: string) {
     if (!workspace) return sandboxNotConfigured(c);
@@ -237,7 +245,7 @@ export function createFileRoutes({ workspace }: { workspace: SandboxWorkspaceCli
     download: async (c: Context) => {
       if (!workspace) return sandboxNotConfigured(c);
       try {
-        const file = await workspace.downloadEntry(c.req.query("path") ?? "");
+        const file = await workspace.downloadEntry(c.req.query("path") ?? "", archiveSettings.effectiveNames());
         if (!file.body) return c.json({ error: "サンドボックスが本文を返しませんでした" }, 502);
         return c.body(file.body, 200, {
           "Content-Type": file.contentType,
@@ -257,7 +265,9 @@ export function createFileRoutes({ workspace }: { workspace: SandboxWorkspaceCli
     downloadCheck: async (c: Context) => {
       if (!workspace) return sandboxNotConfigured(c);
       try {
-        const parsed = FileDownloadCheckSchema.safeParse(await workspace.checkDownload(c.req.query("path") ?? ""));
+        const parsed = FileDownloadCheckSchema.safeParse(
+          await workspace.checkDownload(c.req.query("path") ?? "", archiveSettings.effectiveNames()),
+        );
         if (!parsed.success) return c.json({ error: "サンドボックスのダウンロード確認応答が不正です" }, 502);
         return c.json(parsed.data);
       } catch (error) {

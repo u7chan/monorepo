@@ -11,6 +11,7 @@
 | モデル / Effort の解決と変更 | `server/src/agent.ts`、`server/src/sessions.ts`、`client/src/lib/composerSettings.ts`、`client/src/components/composer/ComposerStatus.tsx` | [model-effort.md](model-effort.md)、[api-sessions.md](api-sessions.md) |
 | プロジェクト / cwd / ファイルツリーとプレビュー | `server/src/projects.ts`、`client/src/components/FileTreePage.tsx`、`client/src/components/SessionFilesPanel.tsx`、`client/src/components/FileBrowser.tsx`、`client/src/components/FilePreview.tsx`、`client/src/lib/fileTree.ts`、`client/src/lib/fileTabs.ts`、`client/src/lib/fileRef.ts`、`client/src/lib/sessionFiles.ts` | [projects.md](projects.md)、[api.md](api.md)、[ui-layout.md](ui-layout.md)、[file-preview.md](file-preview.md) |
 | ファイル / フォルダのダウンロード（ZIP） | `server/src/archive-rules.ts`、`server/src/sandbox/zip.ts`、`server/src/sandbox/archive.ts`、`server/src/routes/files.ts`、`client/src/lib/archive.ts`、`client/src/components/FileBrowser.tsx` | [file-preview.md](file-preview.md#ダウンロード)、[api.md](api.md#ダウンロード)、[sandbox-api.md](sandbox-api.md#get-v1filesdownload) |
+| アーカイブの除外（設定） | `server/src/archive-settings.ts`、`server/src/routes/archive.ts`、`server/src/app-db.ts`、`client/src/hooks/useArchiveSettings.ts`、`client/src/components/ArchiveSettingsPage.tsx`、`client/src/lib/archiveSettings.ts` | [api.md](api.md#アーカイブの除外名)、[persistence.md](persistence.md#アプリデータsqlite)、[file-preview.md](file-preview.md#ダウンロード) |
 | セッションの保存・復元（会話ストア / 作業フォルダ） | `server/src/session-store.ts`、`server/src/sessions.ts`、`server/src/agent.ts` | [session-files.md](session-files.md)、[persistence.md](persistence.md) |
 | ファイルプレビューの表示（行番号 / ハイライト / HTML・画像の描画） | `client/src/lib/fileCode.ts`、`client/src/lib/fileTabs.ts`、`client/src/lib/attachments.ts`、`client/src/components/FileBrowser.tsx`、`client/src/components/FilePreview.tsx`、`server/src/routes/files.ts` | [file-preview.md](file-preview.md)、[api.md](api.md) |
 | チャットの添付ファイル（アップロード / 画像配信 / 注記） | `server/src/attachments.ts`、`server/src/routes/sessions.ts`、`client/src/lib/attachments.ts`、`client/src/components/Composer.tsx`、`client/src/hooks/useU7Agent.ts` | [session-files.md](session-files.md)、[api-sessions.md](api-sessions.md) |
@@ -35,7 +36,7 @@
 - [notifications.md](notifications.md) — Discord 通知（送るタイミング・宛先制限・write-only な Webhook URL・設定画面）
 - [frontend.md](frontend.md) — フロントエンドの状態管理・テーマ・Effect 契約
 - [markdown.md](markdown.md) — チャット本文の Markdown 描画（対応サブセット・上限・インラインコードのファイル参照）
-- [file-preview.md](file-preview.md) — ファイルプレビューの行番号・シンタックスハイライト・HTML / 画像の描画と、ツリー行の削除 / リネーム / ダウンロード
+- [file-preview.md](file-preview.md) — ファイルプレビューの行番号・シンタックスハイライト・HTML / 画像の描画と、ツリー行の削除 / リネーム / ダウンロード（除外名の設定を含む）
 - [api.md](api.md) — HTTP API の規約と索引（health / files / projects）
 - [api-sessions.md](api-sessions.md) — セッション API と SSE イベント
 - [api-catalog.md](api-catalog.md) — エージェント / スキル API

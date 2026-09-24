@@ -6,12 +6,14 @@
 export type SidebarMode = "nav" | "settings";
 
 // 並び順はサイドバーの表示順
-export type SettingsSection = "agents" | "skills" | "files" | "appearance" | "runtime" | "notifications";
+export type SettingsSection = "agents" | "skills" | "files" | "archive" | "appearance" | "runtime" | "notifications";
 
 export const SETTINGS_SECTIONS: { section: SettingsSection; label: string }[] = [
   { section: "agents", label: "エージェント" },
   { section: "skills", label: "スキル" },
   { section: "files", label: "ファイル" },
+  // ファイルの次に置く (ツリーの行のダウンロード導線と対になる設定のため)
+  { section: "archive", label: "アーカイブ" },
   { section: "appearance", label: "外観" },
   { section: "runtime", label: "ランタイム" },
   { section: "notifications", label: "通知" },

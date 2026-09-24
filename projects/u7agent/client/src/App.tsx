@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { AgentSettingsPage } from "./components/AgentSettingsPage";
 import { AppearancePage } from "./components/AppearancePage";
+import { ArchiveSettingsPage } from "./components/ArchiveSettingsPage";
 import { ChatArea } from "./components/ChatArea";
 import { CompactBar } from "./components/CompactBar";
 import { Composer } from "./components/Composer";
@@ -216,6 +217,8 @@ export default function App() {
   const filesSheetOpen = compact && filesRoot !== "" && sessionFilesOpen;
   // 未消費の要求は選択中セッションのときだけパネルへ渡す (セッションが変われば useSessions が破棄する)
   const pendingFileRef = fileRefRequestForSession(app.fileRefRequest, app.sessionId);
+  // ツリーの行のダウンロードの出し分け。取得前は空 = 導線を出し、実際の拒否はサーバーの check に任せる
+  const excludeNames = app.archiveSettings.settings?.excludeNames ?? [];
 
   const activeSession = app.sessions.find((item) => item.sessionId === app.sessionId);
   // 会話が無いときだけ「新しい会話」と言い切る (一覧が未取得でも sessionId は確定している)
@@ -327,7 +330,9 @@ export default function App() {
             ) : settingsSection === "files" ? (
               // root を選択中の session / project に追随させると、選択を変えると同じ画面が別の場所を指して分かりにくい。
               // 設定のファイルはワークスペース全体に固定し、セッションの作業フォルダはツリーから辿って開く
-              <FileTreePage {...pageProps} cwd="" />
+              <FileTreePage {...pageProps} cwd="" excludeNames={excludeNames} />
+            ) : settingsSection === "archive" ? (
+              <ArchiveSettingsPage {...pageProps} archiveSettings={app.archiveSettings} />
             ) : settingsSection === "appearance" ? (
               <AppearancePage {...pageProps} />
             ) : settingsSection === "runtime" ? (
@@ -341,6 +346,7 @@ export default function App() {
           <SessionFilesPanel
             key={filesRoot}
             root={filesRoot}
+            excludeNames={excludeNames}
             runEndSeq={app.chat.runEndSeq}
             onClose={closeSessionFiles}
             openRequest={pendingFileRef}
@@ -352,6 +358,7 @@ export default function App() {
         <SessionFilesSheet
           key={filesRoot}
           root={filesRoot}
+          excludeNames={excludeNames}
           runEndSeq={app.chat.runEndSeq}
           onClose={closeSessionFiles}
           openRequest={pendingFileRef}

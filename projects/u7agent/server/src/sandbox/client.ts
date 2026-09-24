@@ -85,8 +85,8 @@ export function createSandboxToolClient(options: SandboxToolClientOptions): Sand
     deleteDirectory: (path) => deleteDirectory(path, baseUrl, token, fetchImpl),
     uploadFile: (input) => uploadFile(input, baseUrl, token, fetchImpl),
     rawFile: (path) => rawFile(path, baseUrl, token, fetchImpl),
-    downloadEntry: (path) => downloadEntry(path, baseUrl, token, fetchImpl),
-    checkDownload: (path) => checkDownload(path, baseUrl, token, fetchImpl),
+    downloadEntry: (path, excludeNames) => downloadEntry(path, excludeNames, baseUrl, token, fetchImpl),
+    checkDownload: (path, excludeNames) => checkDownload(path, excludeNames, baseUrl, token, fetchImpl),
   };
 }
 
@@ -116,9 +116,9 @@ export interface SandboxToolClient {
   uploadFile(input: SandboxUploadInput): Promise<SandboxFileUpload>;
   rawFile(path: string): Promise<SandboxRawFile>;
   /** 通常ファイルは生配信、ディレクトリは ZIP。保存名と `Content-Disposition` はサンドボックスが決める */
-  downloadEntry(path: string): Promise<SandboxDownloadFile>;
+  downloadEntry(path: string, excludeNames: readonly string[]): Promise<SandboxDownloadFile>;
   /** download と同じ走査の見積り（除外名 / 合計サイズ / エントリ数）。上限超過は 413 で拒否される */
-  checkDownload(path: string): Promise<SandboxDownloadCheck>;
+  checkDownload(path: string, excludeNames: readonly string[]): Promise<SandboxDownloadCheck>;
 }
 
 /** /api/files とプロジェクト作成・アップロードが使うサンドボックス機能 (テストはこれを stub に差し替える)。 */
@@ -340,13 +340,14 @@ async function rawFile(path: string, baseUrl: string, token: string, fetchImpl: 
  */
 async function downloadEntry(
   path: string,
+  excludeNames: readonly string[],
   baseUrl: string,
   token: string,
   fetchImpl: typeof fetch,
 ): Promise<SandboxDownloadFile> {
   const response = await fetchJson(
     fetchImpl,
-    `${baseUrl}/v1/files/download?path=${encodeURIComponent(path)}`,
+    `${baseUrl}/v1/files/download?path=${encodeURIComponent(path)}&${archiveExcludeQuery(excludeNames)}`,
     { headers: jsonHeaders(token) },
     baseUrl,
   );
@@ -364,18 +365,30 @@ async function downloadEntry(
 /** 事前チェック。download と同じ 4xx (413 を含む) を文言ごと透過し、応答は JSON として読む。 */
 async function checkDownload(
   path: string,
+  excludeNames: readonly string[],
   baseUrl: string,
   token: string,
   fetchImpl: typeof fetch,
 ): Promise<SandboxDownloadCheck> {
   const response = await fetchJson(
     fetchImpl,
-    `${baseUrl}/v1/files/download/check?path=${encodeURIComponent(path)}`,
+    `${baseUrl}/v1/files/download/check?path=${encodeURIComponent(path)}&${archiveExcludeQuery(excludeNames)}`,
     { headers: jsonHeaders(token) },
     baseUrl,
   );
   if (!response.ok) throw await rawError(response, "ダウンロードの確認ができませんでした");
   return (await response.json()) as SandboxDownloadCheck;
+}
+
+/**
+ * 除外名の query を組む。**空リストでも `exclude=` を 1 つ送る**（サンドボックスは param なしを「BFF 未指定」
+ * = 既定と見るため、明示空を「除外なし」として伝えるには空値の param が要る）。
+ */
+function archiveExcludeQuery(excludeNames: readonly string[]): string {
+  const params = new URLSearchParams();
+  if (excludeNames.length === 0) params.append("exclude", "");
+  else for (const name of excludeNames) params.append("exclude", name);
+  return params.toString();
 }
 
 /**

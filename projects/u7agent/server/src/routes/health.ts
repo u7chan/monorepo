@@ -19,18 +19,25 @@ export interface AppDbHealth {
   status(): AppDbStatus;
 }
 
+/** health へ出す実効値の取得元（設定ストア）。省略時は既定を使う */
+export interface ArchiveSettingsHealth {
+  effectiveNames(): string[];
+}
+
 export function createHealthRoutes({
   pi,
   initError,
   cwd,
   store,
   appDb,
+  archiveSettings,
 }: {
   pi: PiBff | null;
   initError: string | undefined;
   cwd: string;
   store?: SessionStoreHealth;
   appDb?: AppDbHealth;
+  archiveSettings?: ArchiveSettingsHealth;
 }) {
   return {
     health: (c: Context) => {
@@ -66,8 +73,8 @@ export function createHealthRoutes({
         runtimeDiagnostics:
           pi?.runtimeDiagnostics?.summary ??
           unavailableRuntimeDiagnostics(pi ? "diagnostics_unavailable" : "runtime_unavailable"),
-        // クライアントは行にダウンロードを出すかの判定に使う。フェーズ 2 で設定値に差し替わる
-        archive: { excludeNames: resolveArchiveExcludeNames() },
+        // クライアントは行にダウンロードを出すかの判定に使う。設定ストアの実効値が正で、download / check も同じ値を使う
+        archive: { excludeNames: archiveSettings?.effectiveNames() ?? resolveArchiveExcludeNames() },
         ...(sessionStore ? { sessionStore } : {}),
         ...(appDbStatus ? { appDb: appDbStatus } : {}),
         errorCode,

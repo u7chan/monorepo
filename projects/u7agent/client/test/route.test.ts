@@ -39,6 +39,8 @@ test("parseRoute は pathname だけで画面を決め、表のとおりに畳�
     ["/s/%E3%82%BB%E3%83%83%E3%82%B7%E3%83%A7%E3%83%B3", entry("セッション")],
     // 設定 (大文字・末尾スラッシュ・連続スラッシュ・percent encoding は正準形へ畳む)
     ["/settings/files", settings("files")],
+    ["/settings/archive", settings("archive")],
+    ["/Settings/ARCHIVE/", settings("archive")],
     ["/settings/files/", settings("files")],
     ["/Settings/FILES", settings("files")],
     ["//settings//files//", settings("files")],
@@ -63,6 +65,7 @@ test("routePath は正準形を返し、parseRoute と往復する", () => {
       "/settings/agents",
       "/settings/skills",
       "/settings/files",
+      "/settings/archive",
       "/settings/appearance",
       "/settings/runtime",
       "/settings/notifications",

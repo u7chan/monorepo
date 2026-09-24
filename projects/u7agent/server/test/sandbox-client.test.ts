@@ -529,3 +529,50 @@ test("renameEntry relays the sandbox 409 conflict and maps the rest to 502", asy
     return true;
   });
 });
+
+// ---------------------------------------------------------------------------
+// downloadEntry / checkDownload (GET /v1/files/download[/check]。exclude は繰り返しの query)
+// ---------------------------------------------------------------------------
+
+/**
+ * 除外名は「param なし = BFF 未指定（サンドボックスが既定を使う）」と「空値のみ = 除外なし」を
+ * 区別する唯一の手段なので、組み立てた URL をここで固定する（サンドボックス側の受け取りは
+ * sandbox-archive.test.ts が見る）。
+ */
+test("downloadEntry / checkDownload は exclude を繰り返しで送り、空リストでも 1 つ送る", async () => {
+  const download = stubFetch(
+    () =>
+      new Response(new Uint8Array([0x50, 0x4b]), {
+        status: 200,
+        headers: {
+          "Content-Type": "application/zip",
+          "Content-Disposition": "attachment; filename*=UTF-8''src.zip",
+        },
+      }),
+  );
+  const client = createSandboxToolClient({ baseUrl: "http://sandbox.test", token: TOKEN, fetchImpl: download.impl });
+  await client.downloadEntry("src/nested", ["node_modules", "dist"]);
+  assert.equal(
+    download.calls[0].url,
+    "http://sandbox.test/v1/files/download?path=src%2Fnested&exclude=node_modules&exclude=dist",
+  );
+  // 空リストは「明示空」を伝えるマーカー。ここで param を落とすと保存した「除外なし」が既定に戻る
+  await client.downloadEntry("src", []);
+  assert.equal(download.calls[1].url, "http://sandbox.test/v1/files/download?path=src&exclude=");
+
+  const check = stubFetch(
+    () =>
+      new Response(JSON.stringify({ kind: "archive", name: "src.zip", bytes: 0, entries: 0, skipped: [] }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      }),
+  );
+  const checkClient = createSandboxToolClient({ baseUrl: "http://sandbox.test", token: TOKEN, fetchImpl: check.impl });
+  await checkClient.checkDownload("src", ["dist", "node_modules"]);
+  assert.equal(
+    check.calls[0].url,
+    "http://sandbox.test/v1/files/download/check?path=src&exclude=dist&exclude=node_modules",
+  );
+  await checkClient.checkDownload("src", []);
+  assert.equal(check.calls[1].url, "http://sandbox.test/v1/files/download/check?path=src&exclude=");
+});

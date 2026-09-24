@@ -7,6 +7,8 @@ import { RefreshIcon } from "./icons";
 export type FileTreePageProps = SettingsPageProps & {
   /** ワークスペース root 相対 ("" や絶対パスは root へ畳まれる) */
   cwd: string;
+  /** アーカイブの除外名の実効値（app 状態）。行のダウンロードの出し分けに使う */
+  excludeNames: readonly string[];
 };
 
 /**
@@ -14,7 +16,7 @@ export type FileTreePageProps = SettingsPageProps & {
  * 固定する (同じ画面が選択状態で別の場所を指すと、今どこを見ているか分からなくなる)。ツリーとプレビューの本体は
  * `FileBrowser` で、チャットの右パネル (`SessionFilesPanel`) と共有する。ヘッダは画面幅いっぱいに使う。
  */
-export function FileTreePage({ cwd, compact = false, onBack, onOpenNav }: FileTreePageProps) {
+export function FileTreePage({ cwd, excludeNames, compact = false, onBack, onOpenNav }: FileTreePageProps) {
   // root が固定なので key は不要 (root が変わる画面は呼び出し側で FileBrowser を張り替える)
   const rootPath = normalizeFileTreeRoot(cwd);
   const [reloadToken, setReloadToken] = useState(0);
@@ -39,7 +41,7 @@ export function FileTreePage({ cwd, compact = false, onBack, onOpenNav }: FileTr
         </button>
       }
     >
-      <FileBrowser root={rootPath} reloadToken={reloadToken} canRename />
+      <FileBrowser root={rootPath} reloadToken={reloadToken} canRename excludeNames={excludeNames} />
     </SettingsPageLayout>
   );
 }

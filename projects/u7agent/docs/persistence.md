@@ -17,6 +17,7 @@ GUI の会話履歴は **BFF 専用の会話ストア**（`PI_SESSION_STORE`）�
 | 添付ファイル（`<workspace>/.u7agent/uploads/<id>`） | 残る |
 | 会話履歴・セッション一覧・タイトル（`PI_SESSION_STORE/<id>/{meta.json,session.jsonl}`） | 残る（ストアを永続ボリュームに置いた場合） |
 | エージェント / スキル定義（アプリデータの SQLite） | 残る（ストアを永続ボリュームに置いた場合） |
+| アーカイブの除外名（アプリデータの SQLite、上書きしたときだけ） | 残る（ストアを永続ボリュームに置いた場合） |
 | アプリデータの DB（`PI_SESSION_STORE/u7agent.db`） | 残る（ストアを永続ボリュームに置いた場合） |
 | `/workspace` 以外に保存したデータ・後からインストールしたツール | 原則残らない |
 | 実行中のプロセス | 中断される |
@@ -56,8 +57,9 @@ GUI の会話履歴は **BFF 専用の会話ストア**（`PI_SESSION_STORE`）�
 
 - 置き場所は会話ストアと同じディレクトリの `PI_SESSION_STORE/u7agent.db`。新しい環境変数は増やさない。
 - メモリ DB（`:memory:`）になるのは `sessionStoreDir: null` を明示したとき（テスト）だけ。パス解決に失敗したときは DB を使えない状態にし、メモリへは逃がさない。
-- テーブルは `projects` / `agents` / `skills` / `notification_settings` の 4 つ。`skillIds` / `suggestions` / `model` は JSON 列、並び順は作成順（rowid）。`notification_settings` は Discord 通知のグローバル設定（Webhook URL / 有効 / ベース URL / メンション / 直近結果）を 1 行だけ持ち、Webhook URL は API 応答へ出さない（[notifications.md](notifications.md)）。
+- テーブルは `projects` / `agents` / `skills` / `notification_settings` / `archive_settings` の 5 つ。`skillIds` / `suggestions` / `model` / `excludeNames` は JSON 列、並び順は作成順（rowid）。`notification_settings` は Discord 通知のグローバル設定（Webhook URL / 有効 / ベース URL / メンション / 直近結果）を 1 行だけ持ち、Webhook URL は API 応答へ出さない（[notifications.md](notifications.md)）。`archive_settings` はダウンロード ZIP の除外名（`excludeNames`）を 1 行だけ持ち、**行が無い = 未設定**（実効値は `DEFAULT_ARCHIVE_EXCLUDE_NAMES`）、行があればその一覧が正で `[]` は「除外なし」を表す（[file-preview.md](file-preview.md#ダウンロード)、[api.md](api.md#アーカイブの除外名)）。既定へ戻すときは行ごと消す（既定名を保存し直すと、以後 `DEFAULT_ARCHIVE_EXCLUDE_NAMES` を足しても追随しなくなる）。
 - `PRAGMA user_version` をコード側の定数（`APP_DB_SCHEMA_VERSION`）と照合する。古い版（小さい値）は加算的に移行し、足りないテーブルだけを `CREATE TABLE IF NOT EXISTS` で作って `user_version` を更新する（既存のエージェント / スキル / プロジェクトは消さない）。新しい版（大きい値）のときだけアプリ所有のテーブルを DROP → CREATE する。会話は `session.jsonl` なので作り直しでも消えない。
+- 自分で書いた JSON 列が壊れていたときは、黙って既定へ落とさず例外にして 503 側で見せる（通知の `lastResult` と同じ規約）。アーカイブの除外名も、行があるのに配列でなければ同じ扱いにする。
 - サンプル定義（ずんだもん 1 体）は DB ファイルを新規作成したときだけ入れる。`user_version` 不一致の作り直しでは入れないため、削除した定義は再起動でも戻らない。
 - スキーマ作成 → `user_version` 設定 → seed は同一トランザクション。スキル削除（参照除去を含む）もトランザクションで行い、途中で失敗したら部分適用を残さない。
 - `journal_mode=WAL` / `synchronous=NORMAL`。書き込みは BFF の 1 プロセスを前提とし、複数インスタンスは対象外。
@@ -67,7 +69,7 @@ GUI の会話履歴は **BFF 専用の会話ストア**（`PI_SESSION_STORE`）�
 会話ストアと同じ規約（メモリだけの黙ったフォールバックをしない）。
 
 - 起動は継続し、`GET /api/health` の `appDb` に `{ path, ok, error }` を返す。
-- アプリデータを読む API は 503 になる。カタログ（`/api/agents` / `/api/skills`）、プロジェクト（`/api/projects`）、セッションの作成・一覧・取得・設定変更・送信・SSE 接続（所属の解決と `create()` のカタログ参照を通るため）。
+- アプリデータを読む API は 503 になる。カタログ（`/api/agents` / `/api/skills`）、プロジェクト（`/api/projects`）、セッションの作成・一覧・取得・設定変更・送信・SSE 接続（所属の解決と `create()` のカタログ参照を通るため）、設定のアーカイブ（`/api/settings/archive`）。
 - 削除は会話ストアだけで完結するため通す。停止も live なセッションなら通る（未ロードのセッションは復元時に所属を解決するため、DB が使えないと 503 になる）。
 - SSE は接続時に 503 で拒否し、配信中の payload 生成で失敗したらその接続を閉じる（未所属へ落として配信を続けない）。
 - 起動時だけでなく稼働中の読み書き失敗も同じ扱いにする。失敗状態のときは入口ガードが `SELECT 1` で読み直し、成功すれば解除される（復旧に再起動は要らない）。

@@ -7,6 +7,7 @@ import { chatReducer, initialChatState } from "./chatReducer";
 import { runtimeStatusForError } from "./runtimeStatus";
 import { sendChatMessage, stopRun } from "./sessionActions";
 import type { SettingsSelection } from "./settingsChange";
+import { useArchiveSettings } from "./useArchiveSettings";
 import { useNotifications } from "./useNotifications";
 import { useProjects } from "./useProjects";
 import { useRuntimeCatalog } from "./useRuntimeCatalog";
@@ -73,6 +74,8 @@ export function useU7Agent({ pendingSessionId, onPendingSessionResolved }: UseU7
   } = useProjects();
   // 通知設定はナビの ⚠ にも使うため、設定ページを開いていなくても facade が読み込む
   const notifications = useNotifications();
+  // アーカイブの除外名はツリーの行の出し分けにも使うため、同じく facade が持つ
+  const archiveSettings = useArchiveSettings();
   const {
     sessions,
     sessionId,
@@ -352,6 +355,7 @@ export function useU7Agent({ pendingSessionId, onPendingSessionResolved }: UseU7
     sessionSkills,
     reloadSessionSkills,
     notifications,
+    archiveSettings,
     notify,
     toggleNotify,
     attachments: attachmentsForSession(attachments, sessionId),

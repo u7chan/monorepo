@@ -8,13 +8,15 @@ import {
   SETTINGS_SECTION_KEY,
 } from "../src/lib/settingsNav";
 
-test("設定ナビはエージェント / スキル / ファイル / 外観 / ランタイム / 通知 の 6 項目をこの順で持つ", () => {
+test("設定ナビはエージェント / スキル / ファイル / アーカイブ / 外観 / ランタイム / 通知 の 7 項目をこの順で持つ", () => {
   assert.deepEqual(
     SETTINGS_SECTIONS.map((item) => [item.section, item.label]),
     [
       ["agents", "エージェント"],
       ["skills", "スキル"],
       ["files", "ファイル"],
+      // ツリーの行のダウンロード導線と対になる設定なので、ファイルの直後に置く
+      ["archive", "アーカイブ"],
       ["appearance", "外観"],
       ["runtime", "ランタイム"],
       ["notifications", "通知"],

@@ -36,7 +36,7 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import { Hono } from "hono";
 import { COMMON_SKILLS_DIR } from "../app-paths";
-import { resolveArchiveExcludeNames } from "../archive-rules";
+import { DEFAULT_ARCHIVE_EXCLUDE_NAMES } from "../archive-rules";
 import {
   archiveContentDisposition,
   archiveDownloadName,
@@ -55,6 +55,7 @@ import {
   SANDBOX_MAX_UPLOAD_BYTES,
   encodeSandboxEvent,
   isValidEntryName,
+  parseArchiveExcludeQuery,
   parseRecursiveQuery,
   rawImageContentType,
   RECURSIVE_QUERY_ERROR,
@@ -676,8 +677,6 @@ export function createSandboxService(options: SandboxServiceOptions): SandboxSer
     maxBytes: options.maxArchiveBytes ?? DEFAULT_ARCHIVE_LIMITS.maxBytes,
     maxEntries: options.maxArchiveEntries ?? DEFAULT_ARCHIVE_LIMITS.maxEntries,
   };
-  // 除外規則の実効値 (フェーズ 2 で設定ストアに差し替える)。health の開示と同じ関数から引く
-  const archiveExcludeNames = resolveArchiveExcludeNames();
 
   // bash にはセッションメタ変数 (PI_SESSION_ID 等) を注入せず (サンドボックスにセッションは無い)、
   // SDK の bash が process.env を継承しても、このプロセスの唯一の秘密値である共有トークンだけは剥がす。
@@ -980,11 +979,14 @@ export function createSandboxService(options: SandboxServiceOptions): SandboxSer
 
   // ダウンロードの事前チェック。walk は download と同じ計画を使い、ブラウザに生 JSON を見せずに理由を出す
   app.get("/v1/files/download/check", async (c) => {
+    const exclude = parseArchiveExcludeQuery(c.req.queries("exclude"));
+    if (!exclude.ok) return c.json({ error: exclude.message }, 400);
     try {
       const plan = await planDownload({
         rootCwd,
         requested: c.req.query("path") ?? "",
-        excludeNames: archiveExcludeNames,
+        // param なしは「BFF 未指定」なので既定に倒す（直叩きでも安全側）
+        excludeNames: exclude.names ?? DEFAULT_ARCHIVE_EXCLUDE_NAMES,
         limits: archiveLimits,
       });
       return c.json(downloadCheckFor(plan));
@@ -997,11 +999,13 @@ export function createSandboxService(options: SandboxServiceOptions): SandboxSer
   // 通常ファイルは生配信、ディレクトリはストリーミング ZIP。どちらも添付として配るため画像 allowlist は通さない
   // (HTML / SVG もここでは配る。レンダリングさせないよう attachment と nosniff を付ける)
   app.get("/v1/files/download", async (c) => {
+    const exclude = parseArchiveExcludeQuery(c.req.queries("exclude"));
+    if (!exclude.ok) return c.json({ error: exclude.message }, 400);
     try {
       const plan = await planDownload({
         rootCwd,
         requested: c.req.query("path") ?? "",
-        excludeNames: archiveExcludeNames,
+        excludeNames: exclude.names ?? DEFAULT_ARCHIVE_EXCLUDE_NAMES,
         limits: archiveLimits,
       });
       const common = { "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff" };

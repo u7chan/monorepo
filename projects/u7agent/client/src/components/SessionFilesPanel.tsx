@@ -6,6 +6,8 @@ import { CloseIcon, RefreshIcon } from "./icons";
 export type SessionFilesPanelProps = {
   /** 選択中セッションの作業フォルダ (ワークスペース root 相対)。パネル / シートの root */
   root: string;
+  /** アーカイブの除外名の実効値（app 状態）。行のダウンロードの出し分けに使う */
+  excludeNames: readonly string[];
   /** run が終わった回数 (ChatState.runEndSeq)。増えるたびに一覧と開いている本文を取り直す */
   runEndSeq: number;
   onClose: () => void;
@@ -17,6 +19,7 @@ export type SessionFilesPanelProps = {
 
 function SessionFilesContent({
   root,
+  excludeNames,
   runEndSeq,
   onClose,
   openRequest,
@@ -68,7 +71,13 @@ function SessionFilesContent({
           </button>
         </div>
       </header>
-      <FileBrowser root={root} reloadToken={reloadToken} openRequest={openRequest} onHandled={onHandled} />
+      <FileBrowser
+        root={root}
+        reloadToken={reloadToken}
+        excludeNames={excludeNames}
+        openRequest={openRequest}
+        onHandled={onHandled}
+      />
     </>
   );
 }

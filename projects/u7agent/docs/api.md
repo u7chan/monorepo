@@ -22,6 +22,7 @@ DTO の正は `server/src/schema.ts`（zod）。リクエストボディは `@ho
 | プロジェクト | `GET/POST /api/projects`、`DELETE /api/projects/:id` | このファイル |
 | セッション | `/api/sessions`、`/api/sessions/:id`、`/skills`、`/files`、`/messages`、`/events`、`/settings`、`/stop` | [api-sessions.md](api-sessions.md) |
 | 通知（Discord） | `GET/PUT /api/notifications`、`POST /api/notifications/test`、`PATCH /api/sessions/:id/notify` | [notifications.md](notifications.md) |
+| アーカイブの除外名 | `GET/PUT/DELETE /api/settings/archive` | このファイル |
 | エージェント / スキル | `/api/agents`、`/api/skills`、`/api/skills/files`、`/api/skills/session` | [api-catalog.md](api-catalog.md)、[api-sessions.md](api-sessions.md) |
 | サンドボックス（内部） | `/v1/*`（BFF からは見えない） | [sandbox-api.md](sandbox-api.md) |
 
@@ -73,7 +74,7 @@ DTO の正は `server/src/schema.ts`（zod）。リクエストボディは `@ho
 }
 ```
 
-`archive.excludeNames` はダウンロード ZIP から落とす名前の**実効値**（[ダウンロード](#ダウンロード)）。UI は行にダウンロードを出すかの判定だけに使い、実際の拒否は `GET /api/files/download/check` が行う。
+`archive.excludeNames` はダウンロード ZIP から落とす名前の**実効値**（[ダウンロード](#ダウンロード)）。設定ストア（[アーカイブの除外名](#アーカイブの除外名)）が唯一の決定点で、未設定なら既定の一覧、上書きされていればその一覧になる。UI は行にダウンロードを出すかの判定だけに使い、実際の拒否は `GET /api/files/download/check` が行う（このフィールドの形と意味は変えない）。
 
 `modelOptions` は認証済みで利用可能なモデルのみ。`PI_MODELS` を指定したときは、その whitelist と利用可能モデルの積だけになる（`PI_MODEL` が whitelist 外なら `defaultModelError`、積が空なら `ready: false` と PI_MODELS を名指しした `error`）。能力情報（`supportsThinking` / `thinkingLevels`）は pi SDK の公開ヘルパー（`getSupportedThinkingLevels`）から得る。`defaultThinkingLevel` は `PI_MODEL` の末尾指定 → `PI_THINKING` → `medium` の優先順位で決まる。解決の詳細は [model-effort.md](model-effort.md)。
 
@@ -263,6 +264,34 @@ Content-Security-Policy: sandbox allow-scripts; default-src 'none'; style-src 'u
 - 503: `PI_SANDBOX_URL` / `PI_SANDBOX_TOKEN` が未設定
 
 クライアントは `client/src/api.ts` の `getFileDownloadCheck(path)` で先に見積りを取り、`fileDownloadUrl(path)` の URL を `<a download>` のプログラム的クリックで開く（本文を `fetch` して保持しない。100 MiB のメモリを避け、ページ遷移もしない）。確認ダイアログ・エラー表示・行の出し分けは [file-preview.md](file-preview.md#ダウンロード)。
+
+## アーカイブの除外名
+
+| メソッド | パス | 説明 |
+| --- | --- | --- |
+| GET | `/api/settings/archive` | 現在の一覧（実効値）と、未設定かどうか・上限を返す |
+| PUT | `/api/settings/archive` | 一覧を丸ごと差し替える（上書き保存。空配列は「除外なし」） |
+| DELETE | `/api/settings/archive` | 保存行を消して未設定へ戻す（既定名を保存し直さない） |
+
+3 ルートとも同じ形を返す（204 にしないのは、画面が保存 / 既定に戻すの直後に新しい一覧をそのまま映すため）。アプリデータの SQLite を読むため、DB が使えないときは 503（[persistence.md](persistence.md#アプリデータsqlite)）。
+
+```json
+// GET /api/settings/archive (200)
+{
+  "excludeNames": ["node_modules", ".venv", "dist"],
+  "defaultExcludeNames": ["node_modules", ".venv", "dist", "…"],
+  "overridden": false,
+  "maxNames": 100,
+  "maxNameLength": 200
+}
+```
+
+- `excludeNames` は常に**実効値**（health の `archive.excludeNames` と同じ値）。`overridden: false` は行が無い = 既定の一覧を使っており、`true` は保存済みの一覧が正であることを表す（`[]` は「除外なし」で、既定へ戻した状態とは違う）
+- `maxNames` / `maxNameLength` は画面が定数を二重持ちしないために返す（サーバーの検証と同じ値）
+- PUT の本文は `{ "excludeNames": string[] }`（zod は形だけを見て、値の検証は store 側）。前後の空白は落とし、空文字は無視し、重複は先勝ちで畳む（大文字小文字はそのまま保持）
+- 400: 形が違う本文、または 1 セグメント名として不正な名前（空・`.`・`..`・`/`・`\`・制御文字・`maxNameLength` 超）と `maxNames` 超。文言は `除外名に使えない名前があります: <name>` / `除外名は 100 件までです` で、画面はそのまま出す
+- 保存 / リセットの応答も GET と同じ形で、`excludeNames` は保存後の実効値になる
+- 変更は次のダウンロードから効く（BFF はリクエストごとに実効値をサンドボックスへ渡す。[sandbox-api.md](sandbox-api.md#get-v1filesdownload)）
 
 ## セッションへのファイルアップロード
 

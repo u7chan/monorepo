@@ -300,6 +300,82 @@ test("notification settings round-trip through the sqlite row", () => {
   }
 });
 
+/** v2 相当のスキーマ (archive_settings が無い状態)。v2 の実ファイルと同じ形 */
+const V2_TABLES = `
+CREATE TABLE projects (id TEXT PRIMARY KEY, name TEXT NOT NULL, cwd TEXT NOT NULL, createdAt INTEGER NOT NULL);
+CREATE TABLE skills (id TEXT PRIMARY KEY, name TEXT NOT NULL, description TEXT NOT NULL, body TEXT NOT NULL);
+CREATE TABLE agents (
+  id TEXT PRIMARY KEY, name TEXT NOT NULL, description TEXT NOT NULL, systemPrompt TEXT NOT NULL,
+  icon TEXT, model TEXT, thinkingLevel TEXT, skillIds TEXT NOT NULL, suggestions TEXT
+);
+CREATE TABLE notification_settings (
+  id INTEGER PRIMARY KEY CHECK (id = 1), enabled INTEGER NOT NULL, webhookUrl TEXT, baseUrl TEXT,
+  mention TEXT NOT NULL, lastResult TEXT
+);
+`;
+
+test("migrates a v2 db additively and keeps archive settings across reopen", () => {
+  const dir = tempStoreDir();
+  try {
+    const raw = new DatabaseSync(join(dir, APP_DB_FILENAME));
+    raw.exec(V2_TABLES);
+    raw.exec("PRAGMA user_version = 2");
+    raw.prepare("INSERT INTO projects (id, name, cwd, createdAt) VALUES (?, ?, ?, ?)").run("p1", "p1", "proj-a", 1);
+    raw.prepare("INSERT INTO notification_settings (id, enabled, mention) VALUES (1, 1, 'here')").run();
+    raw.close();
+
+    const first = AppDb.open({ storeDir: dir });
+    // 加算移行なので既存 4 テーブルは消えない。行が無い = 未設定
+    assert.deepEqual(first.listProjects(), [project("p1", "proj-a")]);
+    assert.equal(first.getNotificationSettings()?.mention, "here");
+    assert.equal(first.readArchiveExcludeNames(), undefined);
+    first.saveArchiveExcludeNames(["node_modules", "dist"]);
+    first.close();
+
+    // 開き直しても残り、リセットで行ごと消える (既定名を保存し直さない)
+    const second = AppDb.open({ storeDir: dir });
+    assert.deepEqual(second.readArchiveExcludeNames(), ["node_modules", "dist"]);
+    assert.equal(second.resetArchiveExcludeNames(), true);
+    assert.equal(second.readArchiveExcludeNames(), undefined);
+    // 行が無い状態のリセットは false (存在しない削除を成功と見せない)
+    assert.equal(second.resetArchiveExcludeNames(), false);
+    second.close();
+
+    const check = new DatabaseSync(join(dir, APP_DB_FILENAME));
+    assert.equal(Number(check.prepare("PRAGMA user_version").get()?.user_version), APP_DB_SCHEMA_VERSION);
+    check.close();
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("archive settings keep an explicit empty list and reject a broken JSON value", () => {
+  const dir = tempStoreDir();
+  try {
+    const db = AppDb.open({ storeDir: dir });
+    // 明示空 ([]) は未設定 (undefined) と別の状態として残る
+    db.saveArchiveExcludeNames([]);
+    assert.deepEqual(db.readArchiveExcludeNames(), []);
+    db.close();
+
+    // 壊れた JSON は黙って既定へ落とさず、他の列と同じく 503 にする
+    const raw = new DatabaseSync(join(dir, APP_DB_FILENAME));
+    raw.prepare("UPDATE archive_settings SET excludeNames = ?").run("not json");
+    raw.close();
+    const broken = AppDb.open({ storeDir: dir });
+    assert.throws(() => broken.readArchiveExcludeNames(), isServiceUnavailable);
+    // 配列でない JSON も同じ扱い
+    broken.probe();
+    const rawAgain = new DatabaseSync(join(dir, APP_DB_FILENAME));
+    rawAgain.prepare("UPDATE archive_settings SET excludeNames = ?").run('{"a":1}');
+    rawAgain.close();
+    assert.throws(() => broken.readArchiveExcludeNames(), isServiceUnavailable);
+    broken.close();
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("unavailable() keeps the reason for health", () => {
   const dir = tempStoreDir();
   try {

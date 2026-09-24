@@ -7,6 +7,7 @@ import type { AppDb } from "./app-db";
 import { createBffContext } from "./bootstrap";
 import type { CreateBffAppOptions } from "./bootstrap";
 import { bodyGuard, jsonBodyValidator, messageFor, statusCodeOf } from "./http";
+import { createArchiveRoutes } from "./routes/archive";
 import { createCatalogRoutes } from "./routes/catalog";
 import { createFileRoutes } from "./routes/files";
 import { createHealthRoutes } from "./routes/health";
@@ -23,6 +24,7 @@ import {
   PostMessageBodySchema,
   RenameFileBodySchema,
   UpdateAgentBodySchema,
+  UpdateArchiveSettingsBodySchema,
   UpdateNotificationsBodySchema,
   UpdateSessionNotifyBodySchema,
   UpdateSessionSettingsBodySchema,
@@ -54,17 +56,29 @@ function appDataGuard(appDb: AppDb): MiddlewareHandler {
 
 export async function createBffApp(opts: CreateBffAppOptions = {}) {
   const { clientDistDir = DEFAULT_CLIENT_DIST_DIR } = opts;
-  const { cwd, pi, initError, catalog, projects, store, workspace, sessionStore, appDb, notifications } =
-    await createBffContext(opts);
+  const {
+    cwd,
+    pi,
+    initError,
+    catalog,
+    projects,
+    store,
+    workspace,
+    sessionStore,
+    appDb,
+    notifications,
+    archiveSettings,
+  } = await createBffContext(opts);
   const appData = appDataGuard(appDb);
 
-  const healthRoutes = createHealthRoutes({ pi, initError, cwd, store, appDb });
+  const healthRoutes = createHealthRoutes({ pi, initError, cwd, store, appDb, archiveSettings });
   const runtimeRoutes = createRuntimeRoutes({ pi });
-  const fileRoutes = createFileRoutes({ workspace });
+  const fileRoutes = createFileRoutes({ workspace, archiveSettings });
   const catalogRoutes = createCatalogRoutes({ catalog, workspace, rootCwd: cwd });
   const projectRoutes = createProjectRoutes({ projects, store, workspace });
   const sessionRoutes = createSessionRoutes({ store, workspace });
   const notificationRoutes = createNotificationRoutes({ notifications });
+  const archiveRoutes = createArchiveRoutes({ archiveSettings });
 
   const app = new Hono()
     // bodyGuard は本文を最長 64 KiB で読み切って text 化するため、raw で受けるアップロードは先に登録する
@@ -205,6 +219,16 @@ export async function createBffApp(opts: CreateBffAppOptions = {}) {
       (c) => notificationRoutes.update(c, c.req.valid("json")),
     )
     .post("/api/notifications/test", appData, notificationRoutes.test)
+    .get("/api/settings/archive", appData, archiveRoutes.get)
+    .put(
+      "/api/settings/archive",
+      appData,
+      jsonBodyValidator(UpdateArchiveSettingsBodySchema, (result, c) =>
+        result.success ? undefined : c.json({ error: "Invalid request body" }, 400),
+      ),
+      (c) => archiveRoutes.update(c, c.req.valid("json")),
+    )
+    .delete("/api/settings/archive", appData, archiveRoutes.reset)
     // Hono は登録順にマッチするため、未マッチの GET を拾う catch-all は最後に置く。
     .get("*", serveClientAssets(clientDistDir))
     .notFound((c) => c.json({ error: "Not found" }, 404))
@@ -226,6 +250,7 @@ export async function createBffApp(opts: CreateBffAppOptions = {}) {
     sessionStore,
     appDb,
     notifications,
+    archiveSettings,
     close: async () => {
       // 未完了の送信結果は記録しない (プロセス終了時に破棄する)
       notifications.close();

@@ -152,6 +152,26 @@ export function PencilIcon() {
   );
 }
 
+/** 設定ナビの「アーカイブ」。箱 (除外される成果物の入れ物) の絵 */
+export function ArchiveIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.5"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className="size-4 shrink-0"
+    >
+      <path d="M2.25 5.25h11.5v7.5H2.25z" />
+      <path d="M2.75 2.75h10.5v2.5H2.75z" />
+      <path d="M6.25 8.25h3.5" />
+    </svg>
+  );
+}
+
 /** 行のダウンロードボタン (リネーム / 削除と同じ寸法にそろえる) */
 export function DownloadIcon() {
   return (
