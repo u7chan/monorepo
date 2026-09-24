@@ -1,9 +1,11 @@
 // GET /api/files/download と /api/files/download/check。サンドボックスはスタブを注入し、listen せず app.request() で検証する。
 // 本文は JSON に載せずストリーム中継し、`Content-Disposition`（日本語名）はそのまま通す。
+// 除外名は設定ストアの実効値を、`exclude` query の繰り返しとしてサンドボックスへ渡す。
 
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createBffApp } from "../src/app";
+import { DEFAULT_ARCHIVE_EXCLUDE_NAMES } from "../src/archive-rules";
 import { SandboxRequestError, type SandboxWorkspaceClient } from "../src/sandbox/client";
 import type { SandboxDownloadCheck } from "../src/sandbox/protocol";
 
@@ -19,10 +21,13 @@ const CHECK: SandboxDownloadCheck = {
 function stubWorkspace(overrides: Partial<SandboxWorkspaceClient> = {}): {
   workspace: SandboxWorkspaceClient;
   paths: string[];
+  excludes: string[][];
 } {
   const paths: string[] = [];
+  const excludes: string[][] = [];
   return {
     paths,
+    excludes,
     workspace: {
       previewFile: async () => ({ text: "" }),
       listFiles: async () => ({ path: ".", entries: [], truncated: false }),
@@ -33,16 +38,18 @@ function stubWorkspace(overrides: Partial<SandboxWorkspaceClient> = {}): {
       deleteDirectory: async () => {},
       uploadFile: async ({ name }) => ({ path: name, name, renamed: false, size: 0 }),
       rawFile: async () => ({ contentType: "image/png", body: null }),
-      downloadEntry: async (path: string) => {
+      downloadEntry: async (path: string, excludeNames: readonly string[]) => {
         paths.push(path);
+        excludes.push([...excludeNames]);
         return {
           contentType: "application/zip",
           contentDisposition: "attachment; filename*=UTF-8''%E6%97%A5%E6%9C%AC%E8%AA%9E.zip",
           body: new Blob([new Uint8Array([0x50, 0x4b, 0x03, 0x04])]).stream(),
         };
       },
-      checkDownload: async (path: string) => {
+      checkDownload: async (path: string, excludeNames: readonly string[]) => {
         paths.push(path);
+        excludes.push([...excludeNames]);
         return CHECK;
       },
       ...overrides,
@@ -51,7 +58,7 @@ function stubWorkspace(overrides: Partial<SandboxWorkspaceClient> = {}): {
 }
 
 test("GET /api/files/download streams the sandbox body and relays headers", async () => {
-  const { workspace, paths } = stubWorkspace();
+  const { workspace, paths, excludes } = stubWorkspace();
   const bff = await createBffApp({ cwd: "/tmp/project", sessionStoreDir: null, pi: null, workspace });
   try {
     const response = await bff.app.request("/api/files/download?path=src");
@@ -68,6 +75,34 @@ test("GET /api/files/download streams the sandbox body and relays headers", asyn
     assert.equal(response.headers.get("Content-Length"), null);
     assert.deepEqual([...new Uint8Array(await response.arrayBuffer())], [0x50, 0x4b, 0x03, 0x04]);
     assert.deepEqual(paths, ["src"]);
+    // 未設定のときは既定の一覧をそのまま渡す
+    assert.deepEqual(excludes, [[...DEFAULT_ARCHIVE_EXCLUDE_NAMES]]);
+  } finally {
+    await bff.close();
+  }
+});
+
+test("GET /api/files/download は保存した一覧（明示空も）をそのまま渡す", async () => {
+  const { workspace, excludes } = stubWorkspace();
+  const bff = await createBffApp({ cwd: "/tmp/project", sessionStoreDir: null, pi: null, workspace });
+  try {
+    const put = (excludeNames: string[]) =>
+      bff.app.request("/api/settings/archive", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ excludeNames }),
+      });
+    await put(["dist", "vendor"]);
+    await bff.app.request("/api/files/download?path=src");
+    await bff.app.request("/api/files/download/check?path=src");
+    assert.deepEqual(excludes, [
+      ["dist", "vendor"],
+      ["dist", "vendor"],
+    ]);
+    // 明示空は空のまま渡す（サンドボックスは空の param を「除外なし」と読む）
+    await put([]);
+    await bff.app.request("/api/files/download?path=src");
+    assert.deepEqual(excludes[2], []);
   } finally {
     await bff.close();
   }

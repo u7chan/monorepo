@@ -44,7 +44,7 @@
 
 画面は URL がただ 1 つの正で、サイドバーのモードや表示中のセクションを state では持たない（`client/src/lib/route.ts` の `parseRoute` / `routePath` が pathname と画面を相互変換し、`client/src/hooks/useRoute.ts` が `popstate` の購読と URL の置換を 1 箇所に集約する）。
 
-- `/` はチャット、`/settings/<section>` は設定の 6 画面（`agents` / `skills` / `files` / `appearance` / `runtime` / `notifications`）、`/s/<sessionId>` は通知のリンクの入口（[通知のディープリンク](#通知のディープリンク)）。大文字・末尾スラッシュ・連続スラッシュ・percent encoding は正準形（小文字・末尾スラッシュなし）へ畳む。`/settings` 単体は画面を特定できないため、未知のセクションや不正な encoding と同じくチャットにする
+- `/` はチャット、`/settings/<section>` は設定の 7 画面（`agents` / `skills` / `files` / `archive` / `appearance` / `runtime` / `notifications`）、`/s/<sessionId>` は通知のリンクの入口（[通知のディープリンク](#通知のディープリンク)）。大文字・末尾スラッシュ・連続スラッシュ・percent encoding は正準形（小文字・末尾スラッシュなし）へ畳む。`/settings` 単体は画面を特定できないため、未知のセクションや不正な encoding と同じくチャットにする
 - 画面切替は `replaceState` で、履歴は追加しない（Back / Forward はブラウザーの既存履歴に従う）。URL の置換と表示の更新は `navigate()` だけが行い、両者を独立に同期させない
 - クエリとフラグメントは解釈も破棄もしない。`#foo` のような断片リンク（チャット本文の Markdown が通す）を壊さないため、画面切替でもそのまま持ち越す
 - 「設定」の行き先は URL のセクションを優先し、`/` では保存した最後のセクションへ。直接 `/settings/<section>` を開いた場合もそのセクションを「最後」として保存する。`Sidebar` の「設定」は `onSelectMode("settings")` を呼ぶため、App は `navProps` と `drawerProps` の両方をこの経路へ接続する

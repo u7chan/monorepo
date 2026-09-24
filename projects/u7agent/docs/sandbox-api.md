@@ -11,8 +11,8 @@ BFF が作業用ツール（`read` / `bash` / `edit` / `write` / `grep` / `find`
 | POST | `/v1/files/rename` | エントリ（ファイル / ディレクトリ）のリネーム。`{ path, name }` |
 | GET | `/v1/files/preview` | UTF-8テキストの取得。`?path=<root 相対>`。上限・応答は [api.md](api.md#テキストプレビュー) を参照 |
 | GET | `/v1/files/raw` | 画像の生配信。`?path=<root 相対>`。応答ヘッダは [api.md](api.md#画像配信raw) を参照 |
-| GET | `/v1/files/download` | 通常ファイルは生バイト、ディレクトリは ZIP（ストリーム）。`?path=<root 相対>` |
-| GET | `/v1/files/download/check` | ダウンロードの見積り（JSON）。除外 / 上限の判定は download と同じ |
+| GET | `/v1/files/download` | 通常ファイルは生バイト、ディレクトリは ZIP（ストリーム）。`?path=<root 相対>&exclude=<名前>`（繰り返し可） |
+| GET | `/v1/files/download/check` | ダウンロードの見積り（JSON）。除外 / 上限の判定は download と同じ（`exclude` も共通） |
 | POST | `/v1/files/upload` | ファイル追加（raw 本文）。`?dir=<root 相対>&name=<ファイル名>` |
 | POST | `/v1/dirs` | ディレクトリ作成（`mkdir -p` 相当）。`{ path }` |
 | DELETE | `/v1/dirs` | ディレクトリ削除。`?path=<root 相対>&recursive=true`。成功は本文なしの 204 |
@@ -120,6 +120,7 @@ root 相対のエントリを持ち出し用に配る。通常ファイルは `c
 
 ```
 GET /v1/files/download?path=src
+GET /v1/files/download?path=src&exclude=node_modules&exclude=dist
 Content-Type: application/zip
 Content-Disposition: attachment; filename*=UTF-8''src.zip
 Cache-Control: no-store
@@ -132,6 +133,10 @@ X-Content-Type-Options: nosniff
   - **Zip64 は書かない**。そのために下記の上限を本文送出前に検査する（[上限](#get-v1filesdownload-の上限)）
 - 検証は削除 / リネームと同じ枠組み（親を realpath → 最終要素は `lstat`）で、**symlink は辿らず 400**（リンク先の内容を配ると root 内に閉じる検証を迂回する）。最終要素の `.` / `..` も 400
 - **除外規則**（`server/src/archive-rules.ts`）はベース名の完全一致・全階層で、ファイルとディレクトリのどちらにも当てる。除外した名前は `check` の `skipped` に実効の規則順で返す
+- **除外名はリクエストごとに `exclude` query の繰り返しで受ける**（サンドボックスは設定を持たない。設定の保存先は BFF のアプリデータ SQLite。[persistence.md](persistence.md#アプリデータsqlite)）
+  - **param なし = BFF 未指定**として既定の一覧（`DEFAULT_ARCHIVE_EXCLUDE_NAMES`）を使う（直叩きでも安全側）
+  - **値があればその一覧が正**で、空値だけの指定（`?exclude=`）は「除外なし」を表す（未設定と明示空を区別するマーカー）
+  - 値は空値を落とし、重複は先勝ちで畳む。1 セグメント名として不正（空・`.`・`..`・区切り・制御文字・200 文字超）または 100 件超は走査の前に 400（`Invalid archive exclude name: <name>` / `Too many archive exclude names (max 100)`）
 - **symlink はエントリにも入れない**。socket / fifo / device などの特殊ファイルも入れない
 - **空ディレクトリは末尾 `/` のエントリ**として入れる（入れないと展開後に消える）。ZIP の中身は**フォルダ直下をルートに置く**（フォルダ自身は前置しない）
 - **エントリの更新時刻**: ファイルは元ファイルの mtime を書く（ZIP の DOS 時刻はローカル時刻・2 秒粒度で、1980 年より前と 2107 年より先は年だけを丸める）。ディレクトリのエントリは walk が stat を持たないため ZIP を生成した時刻になる
@@ -152,7 +157,7 @@ X-Content-Type-Options: nosniff
 
 ### `GET /v1/files/download/check`
 
-`download` と同じ計画（解決 + walk）から見積りだけを返す。ブラウザに生 JSON を見せずに理由をツリー内へ出すために UI が先に呼ぶ。
+`download` と同じ計画（解決 + walk）から見積りだけを返す。ブラウザに生 JSON を見せずに理由をツリー内へ出すために UI が先に呼ぶ。`exclude` query の扱い（未指定 = 既定 / 空値 = 除外なし / 検証）は `download` と共通。
 
 ```json
 // GET /v1/files/download/check?path=src (200)

@@ -86,7 +86,11 @@ test("本文は表示と同じ生テキストを常時表示のコピーボタ�
 test("ファイルタブは root 相対のスキルだけに出し、読み取り専用の FileBrowser を置く", () => {
   const source = panelSource();
   assert.ok(source.includes("fileSkillDir(skill)"), "ファイルタブの root を純関数で判定していない");
-  assert.match(source, /<FileBrowser root=\{skillDir\} reloadToken=\{0\} readOnly \/>/, "FileBrowser の配線が違う");
+  assert.match(
+    source,
+    /<FileBrowser\s+root=\{skillDir\} reloadToken=\{0\} readOnly excludeNames=\{\[\]\}/,
+    "FileBrowser の配線が違う",
+  );
   // 初回に開いたときだけ mount し、以降は display で隠して保持する
   assert.ok(source.includes('if (next === "files") setFilesOpened(true)'), "初回の mount をタブの選択で行っていない");
   assert.ok(source.includes('showFiles={tab === "files"}'), "表示の切替を display に渡していない");

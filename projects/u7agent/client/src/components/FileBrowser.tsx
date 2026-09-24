@@ -1,13 +1,5 @@
 import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
-import {
-  deleteDirectory,
-  deleteFile,
-  fileDownloadUrl,
-  getFileDownloadCheck,
-  getFiles,
-  getHealth,
-  renameEntry,
-} from "../api";
+import { deleteDirectory, deleteFile, fileDownloadUrl, getFileDownloadCheck, getFiles, renameEntry } from "../api";
 import { FilePreview } from "./FilePreview";
 import { cn } from "../lib/cn";
 import { archiveConfirmMessage, isArchiveExcludedName, startArchiveDownload } from "../lib/archive";
@@ -72,6 +64,11 @@ export type FileBrowserProps = {
   canRename?: boolean;
   /** 削除とリネームの導線を出さない (読み取り専用の面)。既定 false (既存 2 画面は不変) */
   readOnly?: boolean;
+  /**
+   * アーカイブの除外名の実効値 (設定ストア)。除外名の行にはダウンロードを出さない。
+   * 取得元を health ではなく app 状態 (prop) にすることで、設定の保存直後に再 mount なしで追随する。
+   */
+  excludeNames: readonly string[];
   /** 未消費の「ファイル参照から開く」要求。適用したら onHandled(seq) で App へ返す */
   openRequest?: FileRefRequest | null;
   onHandled?: (seq: number) => void;
@@ -89,6 +86,7 @@ export function FileBrowser({
   reloadToken,
   canRename = false,
   readOnly = false,
+  excludeNames,
   openRequest,
   onHandled,
 }: FileBrowserProps) {
@@ -112,8 +110,6 @@ export function FileBrowser({
   const renamingRef = useRef<Set<string>>(new Set());
   // 同じ行のダウンロードを二重に始めない (確認ダイアログが二重に出ないように)
   const downloadingRef = useRef<Set<string>>(new Set());
-  /** 除外規則の実効値 (health の `archive.excludeNames`)。取れなかったら空のままにし、判定はサーバーの check に任せる */
-  const [excludeNames, setExcludeNames] = useState<readonly string[]>([]);
   // 最後に適用した要求の seq。適用の直前に記録して StrictMode の effect 再実行を弾く
   const appliedRequestRef = useRef<number | null>(null);
 
@@ -126,24 +122,6 @@ export function FileBrowser({
     setTabs((prev) => openFileTab(prev, openRequest.path));
     onHandled?.(openRequest.seq);
   }, [openRequest, onHandled]);
-
-  // 除外規則はサーバーが正。行の出し分けだけに使うため mount 時に 1 回取り、失敗しても導線は出す
-  // (実際の拒否は download/check が行い、ツリーのエラー行に出る)
-  useEffect(() => {
-    if (readOnly) return;
-    let cancelled = false;
-    void (async () => {
-      try {
-        const health = await getHealth();
-        if (!cancelled) setExcludeNames(health.archive?.excludeNames ?? []);
-      } catch {
-        // 取れないときは除外なしとして扱う (判定はサーバーに任せる)
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [readOnly]);
 
   // 未取得のディレクトリを表示順に取得する。状態遷移は lib/fileTree.ts の純関数だけが行う。
   useEffect(() => {
@@ -561,7 +539,7 @@ export function EntryRowActions({
   symlink?: boolean;
   canRename: boolean;
   readOnly: boolean;
-  /** ワークスペースの除外名 (health の `archive.excludeNames`)。除外名の行にはダウンロードを出さない */
+  /** ワークスペースの除外名（設定ストアの実効値）。除外名の行にはダウンロードを出さない */
   excludeNames: readonly string[];
   onRename: () => void;
   onDelete: () => void;

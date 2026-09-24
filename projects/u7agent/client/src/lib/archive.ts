@@ -1,6 +1,6 @@
 /**
  * ファイル / フォルダのダウンロード（`<a download>`）の文言と起動。除外名の正はサーバーで、
- * ここは health の `archive.excludeNames` による行の出し分けと、check の応答を使った確認・開始だけを持つ。
+ * ここは渡された実効値（設定ストア）による行の出し分けと、check の応答を使った確認・開始だけを持つ。
  * 判定と文言を純関数に閉じ、DOM を触るのは `startArchiveDownload` だけにする。
  */
 import { formatBytes } from "./attachments";

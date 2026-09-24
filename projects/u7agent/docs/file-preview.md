@@ -270,7 +270,8 @@ assistant 本文のインラインコードが指すファイルを、右パネ�
 
 - **出す画面は設定 → ファイル（ワークスペース root）とチャット右パネル（セッションの作業フォルダ）の 2 つ**。行の右端のスロットは ダウンロード → リネーム → 削除 の順で、ダウンロードは通常ファイルとフォルダの行に出る。**スキル設定のファイルタブは `readOnly` で導線ごと消す**（組み込みスキルはワークスペース外でサンドボックスから解決できないため、削除 / リネームと同じ扱い）
 - **symlink の行には出さない**（サンドボックスが 400 で拒否する。削除と同じ判定）。**除外規則に一致する名前の行にも出さない**（`node_modules` など。出すと押した直後に 400 になるため）。導線の無い行も `size-6` の空スペーサーだけを残し、時刻と他のボタンの右端をそろえる
-- **除外名は `GET /api/health` の `archive.excludeNames`（実効値）から取り、`FileBrowser` が mount 時に 1 回だけ取得する**。取れなくても導線は出し、実際の判定はサーバーの `check` に任せる（フェーズ 2 で設定値に差し替わっても同じ経路で追随する。ずれた瞬間は `check` が 400 を返し、ツリーのエラー行に出る）
+- **除外名は設定 → アーカイブ（`/settings/archive`）で編集する**。一覧はアプリデータの SQLite に保存し、未設定のときは既定の一覧（`DEFAULT_ARCHIVE_EXCLUDE_NAMES`）、保存するとその一覧が正になる（`[]` は「除外なし」。空にすると `node_modules` も入るため画面が警告する）。規則はベース名の完全一致・全階層で、symlink は一覧に関係なく常に対象外（[api.md](api.md#アーカイブの除外名)、[persistence.md](persistence.md#アプリデータsqlite)）
+- **除外名は設定ストアの実効値（`GET /api/settings/archive` の `excludeNames`）を `App` から prop で受ける**（`app.archiveSettings.settings?.excludeNames ?? []`）。取得元を health から app 状態へ移したのは、設定の保存直後に再 mount なしで 設定 → ファイル とチャット右パネルの両方が追随するため。未取得の間は空（= 除外なし）として導線を出し、実際の判定はサーバーの `check` に任せる（ずれた瞬間は `check` が 400 を返し、ツリーのエラー行に出る）
 - **クリックで先に `check` を呼び、結果で振り分ける**。`kind: "archive"` で `skipped` が 1 件以上あるときだけ `window.confirm` を 1 回出し、**サイズ / 件数の超過（413）・除外名のディレクトリそのもの（400）は確認より先にエラー行へ出す**（ダウンロードは始まらない）。確認の文言は `client/src/lib/archive.ts` の `archiveConfirmMessage` で、`「<名前>」を ZIP でダウンロードします。` + `含まれるファイル数 N 件 / 合計サイズ X` + `除外: node_modules, dist`（**実際に落ちた名前をサーバーの `skipped` からそのまま出す**）。除外 0 件のフォルダと通常ファイルは確認なしで始まる
 - **開始は `<a download>` のプログラム的クリック**（`startArchiveDownload`）。本文を `fetch` して state に保持しないため 100 MiB をメモリに載せず、ページ遷移も起きない（チャットのタブ・ツリーの開閉・実行中のランはそのまま）。`href` は `fileDownloadUrl` の URL、`download` 属性は `check.name`（サーバーの `Content-Disposition` と同じ名前。日本語名も化けない）
 - **失敗（400 / 404 / 413 / 502 / 503）は削除 / リネームと同じく親ディレクトリの行に出す**（`applyFileTreeError`。生 JSON をブラウザに開かせない）。行はそのまま残り、「再読み込み」で消える
@@ -284,7 +285,7 @@ assistant 本文のインラインコードが指すファイルを、右パネ�
 
 - **途中失敗は切れた zip になる**: 事前 walk の後にファイルが消えた / 読めなくなった / 接続が切れた場合、ブラウザは失敗として扱うが部分ファイルが残り得る（事前 walk で大半は防げる）。レジューム（`Accept-Ranges`）と進捗 UI は持たない
 - **事前 walk と圧縮の間の増減で見積りがずれる**: 増えても実害はサイズだけで、減るとエントリが黙って落ちる（上限は近似になる）
-- **クライアントが握る除外名（health）と実効値がずれる瞬間がある**: その場合は `check` が拒否し、ツリーのエラー行に出る（導線が出ないより先に整合する）
+- **クライアントが握る除外名（設定ストアの実効値）と実効値がずれる瞬間がある**: その場合は `check` が拒否し、ツリーのエラー行に出る（導線が出ないより先に整合する）
 - **除外の拡大で「忠実なコピーではない」性質が強い**: 何が入らないかを開示するのは確認ダイアログとツールチップだけで、正確な規則は [sandbox-api.md](sandbox-api.md#get-v1filesdownload) の記述を正とする
 - 3 スロット化で compact の深い階層では名前の truncate が増える。同時ダウンロードの制限は持たない（単一ユーザー前提。zip 1 本あたりは 1 リクエスト）
 - Zip64（4 GiB 超 / 65,535 エントリ超）は書かない。上限で回避する（緩和は別）
@@ -321,7 +322,9 @@ assistant 本文のインラインコードが指すファイルを、右パネ�
 | `client/test/filePreviewCopy.test.ts` | 本文のコピー（パス行に置く / `reveal` を渡さない / 表示中の本文を渡す / 画像と HTML のプレビューでは出さない / タブを切り替えたら成功表示を捨てる） |
 | `client/test/fileTree.test.ts` | 開閉・子のマージ・エラー保持 / 削除した行だけを落として他を保つこと / 削除の confirm 文言（ファイル / 配下ごとのディレクトリ、画面の root 相対パス）/ ディレクトリ削除後の枝の prune（接頭辞境界と own プロパティ契約）/ リネームの prompt 文言と、親の行の名前差し替え・配下キーの張り替え・開閉と取得済みの子の保持（接頭辞境界・未取得の親・`__proto__`）/ 取得中のリネームで loading を落として新しいキーで取り直すこと（旧キーの応答で新キーを汚さない）/ 保存する展開の抽出と復元（root の初期化、親を閉じた子の open、truncated） |
 | `client/test/fileBrowserRowTime.test.ts` | ディレクトリ行とファイル行が同じ形の時刻と末尾スロットを持つこと（`<EntryTime at={entry.mtime}>` / `pr-1` / 共通の `EntryRowActions`）/ 右端のスロットが ダウンロード (symlink と除外名以外)・リネーム (フォルダのみ)・削除 (symlink 以外) を同じ条件で出し、残りは空スペーサーに落ちること / `readOnly` では両行とも行の操作ごと消えること / 時刻が開閉の `button` の外にあること / 空スペーサーが `aria-hidden` の `size-6` であること / 削除が種類ごとに confirm と API を分けること（ディレクトリは `deleteDirectory` と配下の state / タブの除去）/ 時刻が `messageTimeLabel` と `title` の完全な表記を使い、`mtime` 無しの行には出ないこと |
-| `client/test/fileDownloadRow.test.ts` | ダウンロードの出し分け（ファイル / フォルダ行 / ダウンロード → リネーム → 削除 の順 / 除外名・symlink 行は空スペーサー / `readOnly` は行の操作ごと消える）/ 確認文言（実際の除外名 / 件数 / サイズ表記 / ディレクトリだけ）/ `check` を先に通して `<a download>` で開始すること / 失敗をツリー内のエラー行へ出すこと / 除外名を `health` の `archive.excludeNames` から取ること（`react-dom/server` の描画 + ソース走査） |
+| `client/test/fileDownloadRow.test.ts` | ダウンロードの出し分け（ファイル / フォルダ行 / ダウンロード → リネーム → 削除 の順 / 除外名・symlink 行は空スペーサー / `readOnly` は行の操作ごと消える）/ 確認文言（実際の除外名 / 件数 / サイズ表記 / ディレクトリだけ）/ `check` を先に通して `<a download>` で開始すること / 失敗をツリー内のエラー行へ出すこと / 除外名を app 状態から prop で受け取り、`FileBrowser` が health を取りに行かないこと（`react-dom/server` の描画 + ソース走査） |
+| `client/test/archiveSettings.test.ts` | 除外名の下書きの純関数（実効値からの初期化と配列を共有しないこと / dirty の比較（未設定のまま既定を保存させない）/ 追加の trim・空・重複・上限 / 削除 / 検証（サーバーと同じ 1 セグメント名の規則と件数上限）） |
+| `client/test/archiveSettingsPage.test.ts` | 設定 → アーカイブの描画（未設定バッジ / 上書き中 / 行と件数 / 明示空の警告 / note のエラー / 読み込み中と失敗）と配線（保存 → `PUT` / 既定に戻す → `DELETE` / 応答を app 状態へ反映 / 行の出し分けが app 状態の実効値を使う）（`react-dom/server` の描画 + ソース走査） |
 | `client/test/fileBrowserRename.test.ts` | リネームの鉛筆の出し分け（`canRename` のフォルダ行だけ / 削除の左 / ファイル行と symlink 行は空スペーサー / 既定は出さない）/ `readOnly` は行の操作ごと消えること / prompt の初期値と空・未変更の no-op / API への委譲とツリー・タブ・表示モードの張り替え・失敗の表示 / 渡すのは `FileTreePage` だけ、`readOnly` はスキルのファイルタブだけ（`react-dom/server` の描画 + ソース走査） |
 | `client/test/readOnlySkillPanel.test.ts` | 読み取り専用スキルの本文の取得元（選択のたびに `GET /api/files/preview` / 組み込みは一覧の `body`）/ 本文 / ファイル タブの出し分け（`fileSkillDir` / 読み取り専用の `FileBrowser` / 初回 mount と `display` の保持）/ 本文のコピーが表示と同じ生テキストであること（`react-dom/server` の描画 + ソース走査） |
 | `client/test/fileRef.test.ts` | matcher の採否表（正規化と別表記の同ービキー / 制御文字 U+0000 / Unicode 空白 U+00A0・U+3000 / dotfile / scheme / `..` / 末尾ドット）と、解決の表（rootCwd 前置き / cwd 外 / rootCwd 未取得 / 明示的な相対 / cwd 未確定） |
@@ -333,10 +336,11 @@ assistant 本文のインラインコードが指すファイルを、右パネ�
 | `client/test/route.test.ts` | pathname と画面の対応（大文字・末尾スラッシュ・percent encoding・不正な入力の畳み方）と往復 |
 | `client/test/fileUrl.test.ts` | パスのセグメント単位 encode（`#` / `?` / `%` / `+` / 日本語 / 1 回の decode で戻ること）/ `fileHtmlPreviewUrl` がクエリでなくパス形式で組み立てること |
 | `server/test/files.test.ts` | HTML プレビューのポリシー定数（段階ごとの CSP / `connect-src` なし）/ `GET /api/files/html/<path>` の文書・画像・テキストアセット・400 の分岐と percent decoding / ヘッダ（CSP / `no-store` / `nosniff`）/ 文書は HTML・アセットは JSON のエラー写像 / `DELETE /api/files` の委譲（`recursive=true` は `deleteDirectory`）と 204・`recursive` の検証・エラー写像 / `POST /api/files/rename` の委譲と body 検証・エラー写像（409 の透過を含む）・契約外の応答の 502 |
-| `server/test/archive-rules.test.ts` | 既定の除外名（再生成物 / ビルド成果物 / `vendor` などを入れない）/ 上書きの解決（空配列は全解除・trim と重複の除去・呼び出し側の変更から既定を守る）/ `GET /api/health` が実効値を返すこと |
+| `server/test/archive-rules.test.ts` | 既定の除外名（再生成物 / ビルド成果物 / `vendor` などを入れない）/ 上書きの解決（空配列は全解除・trim と重複の除去・呼び出し側の変更から既定を守る）/ 正規化（trim / 空落とし / 先勝ちの重複 / 順序と大文字小文字の保持）/ 検証（`.`・`..`・区切り・制御文字・200 文字超・100 件超）/ `GET /api/health` が実効値を返すこと |
+| `server/test/archive-settings.test.ts` | 設定ストア（未設定 = 既定 / 保存の正規化と明示空 / リセットで行を消す / 検証エラーの 400 と非破壊 / DB 不可のフォールバックと 503）とルート（GET / PUT / DELETE の同じ形 / zod の 400 / 再起動後の保持 / DB 不可の 503）/ 整合（PUT の直後に health と download / check が同じ実効値を見る） |
 | `server/test/zip-writer.test.ts` | ZIP ライタ（既知ベクタの CRC32 と分割入力 / store と deflate の選択 / UTF-8 名と bit 3・bit 11 / 空ファイル・空ディレクトリ / 複数チャンク / 途中失敗でストリームを失敗させる） |
-| `server/test/sandbox-archive.test.ts` | `GET /v1/files/download` と `/check`（zip の中身と除外 / skipped の内容 / 除外名のディレクトリの 400 / symlink の 400 と配下 symlink の除外 / 単体ファイルの生配信とヘッダ / root の zip / 空ディレクトリ / 末尾スラッシュ / 404・root 外 400・`..` の 400 / 上限 413 / 認証） |
-| `server/test/file-download.test.ts` | BFF の `GET /api/files/download` と `/check`（ストリーム中継とヘッダ / `Content-Disposition` の透過 / `Content-Length` の有無 / 400・404・413・502・503 の写像 / 契約外の check 応答の 502） |
+| `server/test/sandbox-archive.test.ts` | `GET /v1/files/download` と `/check`（zip の中身と除外 / skipped の内容 / `exclude` の省略 = 既定と空値のみ = 除外なし / 繰り返しの一覧 / 不正名と 100 件超の 400 / 除外名のディレクトリの 400 / symlink の 400 と配下 symlink の除外 / 単体ファイルの生配信とヘッダ / root の zip / 空ディレクトリ / 末尾スラッシュ / 404・root 外 400・`..` の 400 / 上限 413 / 認証） |
+| `server/test/file-download.test.ts` | BFF の `GET /api/files/download` と `/check`（ストリーム中継とヘッダ / `Content-Disposition` の透過 / `Content-Length` の有無 / 設定ストアの実効値を `exclude` の繰り返しで渡すこと（未設定 = 既定 / 明示空 = 空のまま）/ 400・404・413・502・503 の写像 / 契約外の check 応答の 502） |
 | `server/test/sandbox-delete-dir.test.ts` | `DELETE /v1/dirs`（`recursive` の解釈 / 空ディレクトリ / 非空の 400 と部分削除なし / 配下ごとの削除と接頭辞境界 / パス形式と root 外・不存在・非ディレクトリ・symlink の 400・404 / 配下 symlink のリンクだけの削除 / 一覧上限外の子 / `__proto__` / 認証） |
 | `server/test/sandbox-client.test.ts` | NDJSON / JSON 経路の写像と、`deleteDirectory` が `DELETE /v1/dirs?recursive=true` を呼び 204 の本文を読まないこと / `renameEntry` が `POST /v1/files/rename` を呼び、409 を文言ごと透過すること |
 | `server/test/sandbox-rename.test.ts` | `POST /v1/files/rename`（ファイル / ディレクトリの改名と応答パス / 大文字小文字だけの変更 / 同名 409 と変更なし / 不正な名前・パス形式の 400 / 不存在 404 / root 外 400 / symlink の 400 とリンク先の維持・symlink への上書きの 409 / symlink ディレクトリ経由 / 認証） |
@@ -350,3 +354,4 @@ assistant 本文のインラインコードが指すファイルを、右パネ�
 - [api.md](api.md#html-プレビュー) — HTML プレビューのヘッダとエラー応答
 - [api.md](api.md#ダウンロード) — ダウンロードの転送契約
 - [sandbox-api.md](sandbox-api.md#get-v1filesdownload) — ZIP の除外規則・上限・ZIP ライタの実装
+- [api.md](api.md#アーカイブの除外名) — 除外名の設定 API（未設定と明示空の区別・検証）

@@ -84,6 +84,33 @@ export function parseRecursiveQuery(values: string[] | undefined): RecursiveQuer
 export const RECURSIVE_QUERY_ERROR = 'recursive must be exactly "true" when present';
 
 /**
+ * ダウンロード ZIP の除外名の上限。BFF の設定 (archive-rules) とサンドボックスの query 検証が同じ値を見る
+ * ため、両者が import するこのモジュールに置く。
+ */
+export const ARCHIVE_EXCLUDE_MAX_NAMES = 100;
+
+/**
+ * `exclude` query の解釈結果。省略 (undefined / 空配列) は「BFF が指定していない」= 既定を使う意図で、
+ * 空値だけの指定は「除外なし」を表す (未設定と明示空を区別するマーカー)。
+ */
+export type ArchiveExcludeQuery = { ok: true; names?: string[] } | { ok: false; message: string };
+
+/**
+ * `exclude` は繰り返しで受ける。省略は既定、値があるときは空値を落として 1 セグメント名と件数だけを見る
+ * (規則の判断は BFF の設定が持ち、サンドボックスは渡された一覧をそのまま使う)。
+ */
+export function parseArchiveExcludeQuery(values: string[] | undefined): ArchiveExcludeQuery {
+  if (!values || values.length === 0) return { ok: true };
+  const names = [...new Set(values.filter((name) => name.length > 0))];
+  if (names.length > ARCHIVE_EXCLUDE_MAX_NAMES) {
+    return { ok: false, message: `Too many archive exclude names (max ${ARCHIVE_EXCLUDE_MAX_NAMES})` };
+  }
+  const invalid = names.find((name) => !isValidEntryName(name));
+  if (invalid !== undefined) return { ok: false, message: `Invalid archive exclude name: ${invalid}` };
+  return { ok: true, names };
+}
+
+/**
  * 一覧の 1 エントリ。type は symlink を辿った実体の種別で、ディレクトリ以外は file に寄せる。
  * size は実体を stat できたファイルに、mtime は実体を stat できたエントリに付ける (ディレクトリにも付く)。
  */

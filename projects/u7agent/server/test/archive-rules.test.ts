@@ -3,7 +3,16 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createBffApp } from "../src/app";
-import { DEFAULT_ARCHIVE_EXCLUDE_NAMES, resolveArchiveExcludeNames } from "../src/archive-rules";
+import {
+  ARCHIVE_EXCLUDE_COUNT_ERROR,
+  ARCHIVE_EXCLUDE_MAX_NAME_LENGTH,
+  ARCHIVE_EXCLUDE_MAX_NAMES,
+  ARCHIVE_EXCLUDE_NAME_ERROR,
+  DEFAULT_ARCHIVE_EXCLUDE_NAMES,
+  normalizeArchiveExcludeNames,
+  resolveArchiveExcludeNames,
+  validateArchiveExcludeNames,
+} from "../src/archive-rules";
 
 test("既定の除外名は再生成物とビルド成果物だけで、vendor や public は入れない", () => {
   const names = [...DEFAULT_ARCHIVE_EXCLUDE_NAMES];
@@ -53,4 +62,32 @@ test("GET /api/health は実効の除外名を返す", async () => {
   } finally {
     await bff.close();
   }
+});
+
+test("normalizeArchiveExcludeNames は trim / 空落とし / 先勝ちの重複畳みをし、順序と大文字小文字を保つ", () => {
+  assert.deepEqual(normalizeArchiveExcludeNames([" node_modules ", "", "   ", "Node_Modules", "node_modules"]), [
+    "node_modules",
+    "Node_Modules",
+  ]);
+  // 呼び出し側の配列は書き換えない
+  const input = ["dist", "dist"];
+  assert.deepEqual(normalizeArchiveExcludeNames(input), ["dist"]);
+  assert.deepEqual(input, ["dist", "dist"]);
+  assert.deepEqual(normalizeArchiveExcludeNames([]), []);
+});
+
+test("validateArchiveExcludeNames は 1 セグメント名と件数の上限だけを拒む", () => {
+  assert.equal(validateArchiveExcludeNames(["node_modules", ".git", "日本語 名前"]), undefined);
+  // 空は正規化で落ちる前提なので、検証には現れない (単体では弾く)
+  for (const bad of ["", ".", "..", "a/b", "a\\b", "a\u0000b", "a\u001fb", "a\u007fb", "x".repeat(201)]) {
+    assert.equal(validateArchiveExcludeNames([bad]), `${ARCHIVE_EXCLUDE_NAME_ERROR}: ${bad}`, JSON.stringify(bad));
+  }
+  // 200 文字は通る
+  assert.equal(validateArchiveExcludeNames(["x".repeat(ARCHIVE_EXCLUDE_MAX_NAME_LENGTH)]), undefined);
+  // 100 件は通り、101 件で件数の理由を返す
+  const max = Array.from({ length: ARCHIVE_EXCLUDE_MAX_NAMES }, (_, index) => `name-${index}`);
+  assert.equal(validateArchiveExcludeNames(max), undefined);
+  assert.equal(validateArchiveExcludeNames([...max, "extra"]), ARCHIVE_EXCLUDE_COUNT_ERROR);
+  assert.equal(ARCHIVE_EXCLUDE_MAX_NAME_LENGTH, 200);
+  assert.equal(ARCHIVE_EXCLUDE_MAX_NAMES, 100);
 });

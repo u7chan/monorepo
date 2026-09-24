@@ -2,6 +2,7 @@ import type { ReactNode } from "react";
 import { SETTINGS_SECTIONS, type SettingsSection, type SidebarMode } from "../../lib/settingsNav";
 import { MenuItem } from "../MenuItem";
 import {
+  ArchiveIcon,
   ArrowLeftIcon,
   BellIcon,
   BoltIcon,
@@ -17,6 +18,7 @@ const SECTION_ICONS: Record<SettingsSection, ReactNode> = {
   agents: <SparkleIcon />,
   skills: <BoltIcon />,
   files: <FolderIcon />,
+  archive: <ArchiveIcon />,
   appearance: <ThemeIcon />,
   runtime: <GaugeIcon />,
   notifications: <BellIcon />,

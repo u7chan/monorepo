@@ -17,7 +17,7 @@ import type {
 
 export const APP_DB_FILENAME = "u7agent.db";
 /** テーブル定義を変えたら上げる。新規作成と加算移行はこの版へ揃え、未知の版は作り直す */
-export const APP_DB_SCHEMA_VERSION = 2;
+export const APP_DB_SCHEMA_VERSION = 3;
 
 export interface AppDbStatus {
   /** null は永続化なし (メモリ DB)。開けなかったときも null */
@@ -46,6 +46,17 @@ CREATE TABLE IF NOT EXISTS notification_settings (
 );
 `;
 
+/**
+ * v2 -> v3 で足したテーブル。除外名は JSON 配列テキストで、**行が無い = 未設定**（実効値は既定）。
+ * 明示空（`[]`）と区別するため、既定へ戻すときは行ごと消す。
+ */
+const ARCHIVE_SETTINGS_TABLE = `
+CREATE TABLE IF NOT EXISTS archive_settings (
+  id INTEGER PRIMARY KEY CHECK (id = 1),
+  excludeNames TEXT NOT NULL
+);
+`;
+
 const CREATE_TABLES = `
 CREATE TABLE projects (
   id TEXT PRIMARY KEY,
@@ -70,7 +81,8 @@ CREATE TABLE agents (
   skillIds TEXT NOT NULL,
   suggestions TEXT
 );
-${NOTIFICATION_SETTINGS_TABLE}`;
+${NOTIFICATION_SETTINGS_TABLE}
+${ARCHIVE_SETTINGS_TABLE}`;
 
 /** アプリ所有のテーブルだけを落とす (同じ DB に足した別機能のテーブルを巻き込まない) */
 const DROP_TABLES = `
@@ -78,6 +90,7 @@ DROP TABLE IF EXISTS agents;
 DROP TABLE IF EXISTS skills;
 DROP TABLE IF EXISTS projects;
 DROP TABLE IF EXISTS notification_settings;
+DROP TABLE IF EXISTS archive_settings;
 `;
 
 /**
@@ -307,6 +320,7 @@ export class AppDb {
     this.#query((db) => db.exec("BEGIN"));
     try {
       this.#query((db) => db.exec(NOTIFICATION_SETTINGS_TABLE));
+      this.#query((db) => db.exec(ARCHIVE_SETTINGS_TABLE));
       // PRAGMA はパラメータ化できない (値はコード側の定数)
       this.#query((db) => db.exec(`PRAGMA user_version = ${APP_DB_SCHEMA_VERSION}`));
       this.#query((db) => db.exec("COMMIT"));
@@ -347,6 +361,35 @@ export class AppDb {
           settings.lastResult ? JSON.stringify(settings.lastResult) : null,
         ),
     );
+  }
+
+  // --- archive settings (1 行だけ。行が無い = 未設定) ---
+
+  readArchiveExcludeNames(): string[] | undefined {
+    return this.#query((db) => {
+      const row = db.prepare("SELECT * FROM archive_settings WHERE id = 1").get() as Row | undefined;
+      if (!row) return undefined;
+      const names = jsonArray<string>(row.excludeNames);
+      // 行がある以上は配列のはず。壊れた値は黙って既定へ落とさず、他の列と同じく 503 にする
+      if (!names) throw new Error("archive_settings.excludeNames is not a JSON array");
+      return names;
+    });
+  }
+
+  saveArchiveExcludeNames(names: readonly string[]): void {
+    this.#query((db) =>
+      db
+        .prepare(
+          `INSERT INTO archive_settings (id, excludeNames) VALUES (1, ?)
+           ON CONFLICT(id) DO UPDATE SET excludeNames = excluded.excludeNames`,
+        )
+        .run(JSON.stringify(names)),
+    );
+  }
+
+  /** 行を消して未設定へ戻す (既定名を保存し直すと、以後の既定の更新に追随しなくなる) */
+  resetArchiveExcludeNames(): boolean {
+    return this.#query((db) => db.prepare("DELETE FROM archive_settings WHERE id = 1").run().changes > 0);
   }
 
   // --- projects ---

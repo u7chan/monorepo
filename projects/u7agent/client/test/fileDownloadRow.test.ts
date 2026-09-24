@@ -5,7 +5,7 @@
 //   2. 除外名の行 / symlink 行 / readOnly 面には出ない (スロットは空けて時刻の右端をそろえる)
 //   3. フォルダは確認ダイアログ 1 回 (除外があるときだけ) / ファイルは確認なし
 //   4. check が先。413 などの理由はツリー内のエラー行に出す (生 JSON を見せない)
-//   5. 除外名は health の archive.excludeNames から取る
+//   5. 除外名は app 状態（設定 → アーカイブ の実効値）から prop で受け取る
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
@@ -122,12 +122,12 @@ test("ダウンロードは check を通してから開始し、エラーはツ�
   assert.ok(!source.includes("fetch(fileDownloadUrl"), "本文を fetch している");
 });
 
-test("除外名は health の archive.excludeNames から取り、行へ渡す", () => {
+test("除外名は prop で受け取り、FileBrowser は health を取りに行かない", () => {
   const source = read("src/components/FileBrowser.tsx");
-  assert.ok(source.includes("await getHealth()"), "health を取っていない");
-  assert.ok(source.includes("health.archive?.excludeNames ?? []"), "実効値を読んでいない");
-  // readOnly (スキルのファイルタブ) では取りに行かない
-  assert.match(source, /useEffect\(\(\) => \{\n    if \(readOnly\) return;/, "readOnly でも health を取りに行っている");
+  // 取得元は app 状態（設定ストアの実効値）。保存の直後に再 mount なしで追随させるため health は使わない
+  assert.ok(!source.includes("getHealth"), "FileBrowser が health を取りに行っている");
+  assert.ok(!source.includes("health.archive?.excludeNames"), "実効値の出所が health のままである");
+  assert.ok(source.includes("excludeNames: readonly string[]"), "excludeNames prop を受けていない");
   assert.ok(source.includes("excludeNames={excludeNames}"), "行へ渡していない");
   assert.ok(read("src/lib/archive.ts").includes("excludeNames.includes(name)"), "除外の判定が純関数でない");
 });

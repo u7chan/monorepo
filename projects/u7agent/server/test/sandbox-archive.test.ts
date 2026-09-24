@@ -40,12 +40,20 @@ function authHeaders(): Record<string, string> {
   return { Authorization: `Bearer ${TOKEN}` };
 }
 
+/** `exclude` は繰り返しの query。undefined は「param なし」で、空配列は「空値のみ」を表す */
+function archiveUrl(base: string, path: string, excludes: readonly string[] | undefined): string {
+  const params = new URLSearchParams({ path });
+  if (excludes) for (const name of excludes) params.append("exclude", name);
+  return `${base}?${params.toString()}`;
+}
+
 async function download(
   app: App,
   path: string,
+  excludes?: readonly string[],
   init?: RequestInit,
 ): Promise<{ status: number; headers: Headers; body: Buffer }> {
-  const response = await app.request(`/v1/files/download?path=${encodeURIComponent(path)}`, {
+  const response = await app.request(archiveUrl("/v1/files/download", path, excludes), {
     ...init,
     headers: { ...authHeaders(), ...init?.headers },
   });
@@ -55,8 +63,9 @@ async function download(
 async function check(
   app: App,
   path: string,
+  excludes?: readonly string[],
 ): Promise<{ status: number; body: SandboxDownloadCheck | { error: string } }> {
-  const response = await app.request(`/v1/files/download/check?path=${encodeURIComponent(path)}`, {
+  const response = await app.request(archiveUrl("/v1/files/download/check", path, excludes), {
     headers: authHeaders(),
   });
   const text = await response.text();
@@ -148,6 +157,85 @@ test("除外は全階層で効き、check の skipped に実効の名前が返�
       bytes: 1,
       entries: 1,
       skipped: ["node_modules", ".git", "dist"],
+    });
+  } finally {
+    service.close();
+  }
+});
+
+test("`exclude` の省略は既定、空値だけは「除外なし」になる", async () => {
+  const root = makeRoot("exclude-query");
+  const service = createService(root);
+  try {
+    await mkdir(join(root, "app", "node_modules", "dep"), { recursive: true });
+    await mkdir(join(root, "app", "dist"), { recursive: true });
+    await writeFile(join(root, "app", "index.js"), "1");
+    await writeFile(join(root, "app", "node_modules", "dep", "a.js"), "2");
+    await writeFile(join(root, "app", "dist", "b.js"), "3");
+
+    // param なし = BFF 未指定。直叩きでも既定に倒す
+    const defaults = await download(service.app, "app");
+    assert.deepEqual(entryNames(parseZip(defaults.body)), ["index.js"]);
+    const defaultCheck = await check(service.app, "app");
+    assert.deepEqual((defaultCheck.body as SandboxDownloadCheck).skipped, ["node_modules", "dist"]);
+
+    // 空値だけ = 除外なし (未設定と明示空を区別するマーカー)
+    const none = await download(service.app, "app", [""]);
+    assert.deepEqual(entryNames(parseZip(none.body)), [
+      "dist/",
+      "dist/b.js",
+      "node_modules/",
+      "node_modules/dep/",
+      "node_modules/dep/a.js",
+      "index.js",
+    ]);
+    const noneCheck = await check(service.app, "app", [""]);
+    assert.deepEqual((noneCheck.body as SandboxDownloadCheck).skipped, []);
+
+    // 繰り返しの一覧がそのまま実効値になる (空値は落とし、重複は先勝ちで畳む)
+    const listed = await check(service.app, "app", ["dist", "node_modules", "dist", ""]);
+    assert.deepEqual(listed.body, {
+      kind: "archive",
+      name: "app.zip",
+      bytes: 1,
+      entries: 1,
+      skipped: ["dist", "node_modules"],
+    });
+    const partial = await download(service.app, "app", ["dist"]);
+    assert.deepEqual(entryNames(parseZip(partial.body)), [
+      "node_modules/",
+      "node_modules/dep/",
+      "node_modules/dep/a.js",
+      "index.js",
+    ]);
+  } finally {
+    service.close();
+  }
+});
+
+test("不正な `exclude` と 100 件超は 400 で断る", async () => {
+  const root = makeRoot("exclude-invalid");
+  const service = createService(root);
+  try {
+    await mkdir(join(root, "app"));
+    await writeFile(join(root, "app", "a.txt"), "a");
+
+    for (const bad of [["a/b"], ["."], [".."], ["a\\b"], ["x".repeat(201)]]) {
+      const result = await download(service.app, "app", bad);
+      assert.equal(result.status, 400, JSON.stringify(bad));
+      assert.deepEqual(JSON.parse(result.body.toString("utf8")), {
+        error: `Invalid archive exclude name: ${bad[0]}`,
+      });
+      assert.equal((await check(service.app, "app", bad)).status, 400, JSON.stringify(bad));
+    }
+
+    // 100 件は通り、101 件で断る (URL が長くなるだけの一覧を走査させない)
+    const max = Array.from({ length: 100 }, (_, index) => `name-${index}`);
+    assert.equal((await check(service.app, "app", max)).status, 200);
+    const tooMany = await download(service.app, "app", [...max, "extra"]);
+    assert.equal(tooMany.status, 400);
+    assert.deepEqual(JSON.parse(tooMany.body.toString("utf8")), {
+      error: "Too many archive exclude names (max 100)",
     });
   } finally {
     service.close();

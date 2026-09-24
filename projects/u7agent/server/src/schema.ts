@@ -321,6 +321,19 @@ export const NotificationsResponseSchema = z.object({
 });
 export type NotificationsResponse = z.infer<typeof NotificationsResponseSchema>;
 
+/**
+ * GET / PUT / DELETE `/api/settings/archive` の応答。`excludeNames` は常に実効値で、
+ * `overridden` が false のときは既定の一覧を使っている（行が無い）。
+ */
+export const ArchiveSettingsResponseSchema = z.object({
+  excludeNames: z.array(z.string()),
+  defaultExcludeNames: z.array(z.string()),
+  overridden: z.boolean(),
+  maxNames: z.number(),
+  maxNameLength: z.number(),
+});
+export type ArchiveSettingsResponse = z.infer<typeof ArchiveSettingsResponseSchema>;
+
 export const ModelOptionSchema = z.object({
   provider: z.string(),
   id: z.string(),
@@ -720,6 +733,10 @@ export const UpdateNotificationsBodySchema = z.object({
   mention: NotificationMentionSchema.optional(),
 });
 export type UpdateNotificationsBody = z.infer<typeof UpdateNotificationsBodySchema>;
+
+/** アーカイブ除外名の更新。一覧は丸ごと差し替える（空配列は「除外なし」を表す） */
+export const UpdateArchiveSettingsBodySchema = z.object({ excludeNames: z.array(z.string()) });
+export type UpdateArchiveSettingsBody = z.infer<typeof UpdateArchiveSettingsBodySchema>;
 
 // 全キー任意にするのは、空 body の PATCH を no-op として通し、必須判定を catalog の文言のまま残すため。
 // null は「指定解除」、キー省略は「現在値の維持」で、どちらも catalog が解釈する。

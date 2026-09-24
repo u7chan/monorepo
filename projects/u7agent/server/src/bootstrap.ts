@@ -3,6 +3,8 @@ import type { PiBff } from "./agent";
 import { AppDb } from "./app-db";
 import { createAgentCatalog } from "./agents";
 import type { AgentCatalog } from "./agents";
+import { createArchiveSettings } from "./archive-settings";
+import type { ArchiveSettings } from "./archive-settings";
 import { BUILTIN_SKILLS } from "./builtin-skills";
 import { messageFor } from "./http";
 import { NotificationService } from "./notifications";
@@ -45,6 +47,8 @@ export type BffContext = {
   appDb: AppDb;
   /** Discord 通知。ラン完了時の送信と設定 API の両方から使う */
   notifications: NotificationService;
+  /** アーカイブの除外名。health と download / check が同じ実効値を取る */
+  archiveSettings: ArchiveSettings;
 };
 
 export async function createBffContext(opts: CreateBffAppOptions = {}): Promise<BffContext> {
@@ -101,6 +105,8 @@ export async function createBffContext(opts: CreateBffAppOptions = {}): Promise<
     masker: pi?.secretMasker,
     fetchImpl: opts.notificationFetch,
   });
+  // アーカイブの除外名は設定ストアが唯一の決定点で、サンドボックスへはリクエストごとに渡す
+  const archiveSettings = createArchiveSettings({ db: appDb });
   // 作業領域の操作はモデルランタイムとは独立に生成する (APIキー未設定で ready: false でもツリーは開けるように)
   const workspace =
     opts.workspace !== undefined ? opts.workspace : (createSandboxToolClientFromEnv(process.env) ?? null);
@@ -126,5 +132,17 @@ export async function createBffContext(opts: CreateBffAppOptions = {}): Promise<
       console.error(`[u7agent] session store init failed: ${sessionStoreError}`);
     }
   }
-  return { cwd, pi, initError, catalog, projects, store, workspace, sessionStore, appDb, notifications };
+  return {
+    cwd,
+    pi,
+    initError,
+    catalog,
+    projects,
+    store,
+    workspace,
+    sessionStore,
+    appDb,
+    notifications,
+    archiveSettings,
+  };
 }

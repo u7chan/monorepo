@@ -104,7 +104,12 @@ export function ReadOnlySkillPanel({ skill, variant }: { skill: FileSkillInfo; v
       note={skill.scope === "builtin" ? BUILTIN_SKILL_READONLY_NOTE : FILE_SKILL_READONLY_NOTE}
       warning={skill.overridden ? BUILTIN_SKILL_OVERRIDE_NOTE : undefined}
       body={body}
-      files={skillDir && filesOpened ? <FileBrowser root={skillDir} reloadToken={0} readOnly /> : undefined}
+      files={
+        skillDir && filesOpened ? (
+          // 読み取り専用の面なので行の操作ごと出さない（除外名は使われない）
+          <FileBrowser root={skillDir} reloadToken={0} readOnly excludeNames={[]} />
+        ) : undefined
+      }
       showFiles={tab === "files"}
     />
   );
