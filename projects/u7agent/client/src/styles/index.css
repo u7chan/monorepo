@@ -652,8 +652,7 @@ html[data-theme="sky"] {
     border: 1px solid var(--c-line);
     color: var(--c-ink);
   }
-  /* ファイル参照のインラインコード。見た目は内側の code が持ち、button は focus と hover だけを足す
-   * (UA の button スタイルを消さないと文字サイズと行間が周囲とずれる) */
+  /* UA の button スタイルを消さないと文字サイズと行間が周囲とずれる */
   .md-fileref {
     font: inherit;
     color: inherit;
@@ -664,17 +663,23 @@ html[data-theme="sky"] {
     cursor: pointer;
     border-radius: 6px;
   }
+  /* ファイル参照のインラインコード。rest でも操作要素と分かるようリンクの語彙 (アクセント文字色 + 下線) を借りる。
+   * 枠は補助で、soft 面の 3:1 に届かないテーマがあるため 50% 混色のままにする (理由は docs/markdown.md) */
   .md-fileref code {
+    color: var(--c-accent-text);
+    border-color: color-mix(in srgb, var(--c-focus) 50%, var(--c-line));
+    text-decoration: underline;
+    text-underline-offset: 2px;
     transition:
       border-color 0.12s ease,
       background-color 0.12s ease;
   }
   .md-fileref:hover code {
-    border-color: var(--c-accent);
+    border-color: var(--c-focus);
     background: var(--c-accent-wash);
   }
   .md-fileref:focus-visible {
-    outline: 2px solid var(--c-accent);
+    outline: 2px solid var(--c-focus);
     outline-offset: 1px;
   }
   .md kbd {
