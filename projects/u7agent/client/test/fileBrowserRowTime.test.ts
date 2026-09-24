@@ -3,7 +3,7 @@
 // ここでは両行が同じ形であること（配線）だけを固定する。どれかが崩れると次のどれかになる。
 //   1. ディレクトリ行の button が時刻を包み、読み上げ名に時刻が混ざる / 時刻のクリックで開閉する
 //   2. 右 padding か末尾スロットの幅が変わり、ディレクトリ行とファイル行の時刻の右端がずれる
-//   3. 時刻の表示規則 (messageTimeLabel + title の完全な表記) か、mtime 無しの行の扱いが変わる
+//   3. 時刻の表示規則 (fileTimeLabel + title の完全な表記) か、mtime 無しの行の扱いが変わる
 //   4. ディレクトリ行の削除導線が消える / ファイル行と別の見た目になる
 //   5. ダウンロード / リネーム / 削除 のスロットの幅か出し分けが揺れる
 //   6. readOnly の行 (スキルのファイルタブ) に導線が残る、または既存 2 画面が readOnly になる
@@ -50,8 +50,9 @@ test("ディレクトリ行とファイル行は同じ形の時刻と末尾ス�
     ["ファイル", file],
   ] as const) {
     assert.match(row, /<EntryTime\s+at=\{entry\.mtime\}/, `${label}行が行の時刻を出していない`);
-    assert.ok(row.includes("pr-1"), `${label}行の右 padding が pr-1 でない`);
-    assert.ok(!row.includes("pr-2"), `${label}行に pr-2 が残っている`);
+    // 時刻と右端のスロットの間隔 (gap-1.5) と、行の右 padding (pr-2) は両行で同じにする。
+    // どちらかが片側だけ変わると、時刻の右端がディレクトリ行とファイル行でずれる
+    assert.ok(row.includes("gap-1.5 rounded-lg pr-2 pl-(--tree-indent)"), `${label}行の余白 (gap / pr) が変わった`);
     // 行の末尾は時刻 → 右端のスロット (リネーム / ゴミ箱 / symlink 用の空スペーサー)
     assert.ok(row.includes("<EntryRowActions"), `${label}行に右端のスロットが無い`);
     assert.ok(
@@ -164,7 +165,7 @@ test("削除のハンドラは種類ごとにサンドボックスの入口と c
   assert.ok(source.includes("closeTab(path);"), "ファイル行のタブを閉じていない");
 });
 
-test("時刻は messageTimeLabel を表示し、title に完全な表記を出す", () => {
+test("時刻は fileTimeLabel を表示し、title に完全な表記を出す", () => {
   const source = read("src/components/FileBrowser.tsx");
   const start = source.indexOf("function EntryTime");
   const end = source.indexOf("function MessageRow");
@@ -172,7 +173,7 @@ test("時刻は messageTimeLabel を表示し、title に完全な表記を出�
   const label = source.slice(start, end);
   assert.match(label, /dateTime=\{new Date\(at\)\.toISOString\(\)\}/, "dateTime を持たない");
   assert.match(label, /title=\{messageFullTimeLabel\(at\)\}/, "title に完全な表記を出していない");
-  assert.match(label, /\{messageTimeLabel\(at\)\}/, "表示が messageTimeLabel でない");
+  assert.match(label, /\{fileTimeLabel\(at\)\}/, "表示が fileTimeLabel (日付 + 時刻) でない");
   assert.match(label, /tabular-nums/, "tabular-nums が無く、数字の幅で行がガタつく");
   assert.ok(label.includes("if (at === undefined) return null;"), "mtime を持たない行にも時刻を出そうとしている");
 });

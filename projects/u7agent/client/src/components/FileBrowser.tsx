@@ -38,7 +38,7 @@ import {
 import { fileKind } from "../lib/fileKind";
 import { type FileRefRequest } from "../lib/fileRefRequest";
 import { filePreviewStore } from "../lib/filePreviewState";
-import { messageFullTimeLabel, messageTimeLabel } from "../lib/messageTime";
+import { fileTimeLabel, messageFullTimeLabel } from "../lib/messageTime";
 import {
   closeFileTab,
   closeFileTabsUnder,
@@ -291,7 +291,7 @@ export function FileBrowser({
             プレビューの min-h-40 へ譲る。タブが無いときはツリーを全幅に使う (空の列を作らない) */}
         <div
           className={cn(
-            "min-h-0 scrollbar-thin overflow-x-hidden overflow-y-auto px-3 py-3",
+            "min-h-0 scrollbar-thin overflow-x-hidden overflow-y-auto px-4 py-3",
             tabs.paths.length > 0 ? "max-h-64 @2xl:max-h-none @2xl:w-72 @2xl:flex-none" : "flex-1",
           )}
         >
@@ -439,7 +439,7 @@ function EntryRow({
             ファイル行と同じ「div + flex-1 の操作 button」に分ける */}
         <div
           style={{ "--tree-indent": `${depth * INDENT + 8}px` } as CSSProperties}
-          className="flex min-h-7.5 w-full items-center rounded-lg pr-1 pl-(--tree-indent) text-xs text-ink transition-colors hover:bg-hover"
+          className="flex min-h-7.5 w-full items-center gap-1.5 rounded-lg pr-2 pl-(--tree-indent) text-xs text-ink transition-colors hover:bg-hover"
         >
           <button
             type="button"
@@ -510,7 +510,7 @@ function EntryRow({
     <div
       style={{ "--tree-indent": `${depth * INDENT + FILE_INDENT}px` } as CSSProperties}
       className={cn(
-        "flex min-h-7.5 w-full items-center rounded-lg pr-1 pl-(--tree-indent) text-xs transition-colors",
+        "flex min-h-7.5 w-full items-center gap-1.5 rounded-lg pr-2 pl-(--tree-indent) text-xs transition-colors",
         isSelected ? "bg-accent-wash text-accent-text" : "text-ink-soft hover:bg-hover hover:text-ink",
       )}
     >
@@ -643,7 +643,7 @@ function EntryTime({ at }: { at: number | undefined }) {
       title={messageFullTimeLabel(at)}
       className="shrink-0 text-2xs whitespace-nowrap text-ink-ghost tabular-nums"
     >
-      {messageTimeLabel(at)}
+      {fileTimeLabel(at)}
     </time>
   );
 }

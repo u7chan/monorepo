@@ -1,5 +1,5 @@
 /**
- * メッセージ時刻の表示整形。表記は日本語 UI に合わせて ja-JP 固定にする
+ * メッセージ / ファイル行の時刻の表示整形。表記は日本語 UI に合わせて ja-JP 固定にする
  * (ブラウザの locale 設定で表記が変わらないようにするため)。
  */
 
@@ -36,15 +36,36 @@ export type MessageTimeOptions = {
   now?: number;
 };
 
+/** 今日 / 今年 / それ以前。日付をどこまで出し、時刻を添えるかを決める粒度 */
+type TimeScope = "today" | "thisYear" | "older";
+
+const SCOPE_FORMATS: Record<TimeScope, TimeFormat> = {
+  today: "time",
+  thisYear: "dayMonth",
+  older: "yearMonthDay",
+};
+
+function timeScope(at: number, now: number, timeZone?: string): TimeScope {
+  if (format("yearMonthDay", at, timeZone) === format("yearMonthDay", now, timeZone)) return "today";
+  if (format("year", at, timeZone) === format("year", now, timeZone)) return "thisYear";
+  return "older";
+}
+
+/** チャットの吹き出しとセッション行の時刻。日付だけを出す粒度では時刻を落とす */
 export function messageTimeLabel(at: number, options: MessageTimeOptions = {}): string {
   const { timeZone, now = Date.now() } = options;
-  if (format("yearMonthDay", at, timeZone) === format("yearMonthDay", now, timeZone)) {
-    return format("time", at, timeZone);
-  }
-  if (format("year", at, timeZone) === format("year", now, timeZone)) {
-    return format("dayMonth", at, timeZone);
-  }
-  return format("yearMonthDay", at, timeZone);
+  return format(SCOPE_FORMATS[timeScope(at, now, timeZone)], at, timeZone);
+}
+
+/**
+ * ファイル行の更新時刻。メッセージと違い、日付だけでは「新しい順にいつ更新されたか」を
+ * 読み取れないため、月日を出す場合は時刻を添える (今日は時刻だけで足りる)。
+ */
+export function fileTimeLabel(at: number, options: MessageTimeOptions = {}): string {
+  const { timeZone, now = Date.now() } = options;
+  const scope = timeScope(at, now, timeZone);
+  const date = format(SCOPE_FORMATS[scope], at, timeZone);
+  return scope === "today" ? date : `${date} ${format("time", at, timeZone)}`;
 }
 
 export function messageFullTimeLabel(at: number, options: MessageTimeOptions = {}): string {
