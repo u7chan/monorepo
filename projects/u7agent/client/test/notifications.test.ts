@@ -188,6 +188,20 @@ test("失敗文言は status と code から出し分け、URL と原文は使�
     headline: "レート制限中です",
     detail: "時間を置いて再試行してください。",
   });
+  // retryAfter があれば待機秒数を文言に含める (Issue の画面設計)
+  assert.deepEqual(notificationResultView(result({ ok: false, status: 429, retryAfter: 2 })), {
+    ok: false,
+    headline: "レート制限中です",
+    detail: "Retry-After 2 秒待ってから再試行してください。",
+  });
+  assert.deepEqual(
+    notificationResultView(result({ ok: false, status: 429, message: "You are being rate limited.", retryAfter: 30 })),
+    {
+      ok: false,
+      headline: "You are being rate limited.",
+      detail: "Retry-After 30 秒待ってから再試行してください。",
+    },
+  );
   assert.deepEqual(notificationResultView(result({ ok: false, status: 500 })), {
     ok: false,
     headline: "Discord 側でエラーが発生しました",

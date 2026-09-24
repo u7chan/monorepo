@@ -138,6 +138,12 @@ function allowedMentions(mention: NotificationMention): { parse: string[] } {
   return { parse: mention === "here" ? ["everyone"] : [] };
 }
 
+/** Discord の retry_after は秒 (小数)。表示用に切り上げ、読めない値は載せない */
+function retryAfterSeconds(value: unknown): number | undefined {
+  if (typeof value !== "number" || !Number.isFinite(value) || value < 0) return undefined;
+  return Math.ceil(value);
+}
+
 function formatDuration(durationMs: number): string {
   const seconds = Math.max(0, Math.round(durationMs / 1000));
   const minutes = Math.floor(seconds / 60);
@@ -305,8 +311,11 @@ export class NotificationService {
     }
   }
 
-  /** Discord のエラー本文から code / message だけを取り出す (原文は返さない) */
-  async #discordError(response: Response): Promise<{ message?: string; code?: number }> {
+  /**
+   * Discord のエラー本文から code / message だけを取り出す (原文は返さない)。
+   * 429 のときだけ retry_after (秒) を切り上げて載せ、他の status では本文にあっても無視する。
+   */
+  async #discordError(response: Response): Promise<{ message?: string; code?: number; retryAfter?: number }> {
     try {
       const text = await response.text();
       if (text.length > DISCORD_ERROR_BODY_MAX) return {};
@@ -315,7 +324,12 @@ export class NotificationService {
       const record = parsed as Record<string, unknown>;
       const code = typeof record.code === "number" ? record.code : undefined;
       const message = typeof record.message === "string" ? this.#mask(record.message) : undefined;
-      return { ...(message ? { message } : {}), ...(code === undefined ? {} : { code }) };
+      const retryAfter = response.status === 429 ? retryAfterSeconds(record.retry_after) : undefined;
+      return {
+        ...(message ? { message } : {}),
+        ...(code === undefined ? {} : { code }),
+        ...(retryAfter === undefined ? {} : { retryAfter }),
+      };
     } catch {
       return {};
     }

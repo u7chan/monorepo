@@ -171,7 +171,10 @@ export function notificationResultView(result: NotificationResult | undefined): 
     return {
       ok: false,
       headline: `${result.message || "レート制限中です"}${code}`,
-      detail: "時間を置いて再試行してください。",
+      detail:
+        result.retryAfter === undefined
+          ? "時間を置いて再試行してください。"
+          : `Retry-After ${result.retryAfter} 秒待ってから再試行してください。`,
     };
   }
   if (result.status >= 500) {

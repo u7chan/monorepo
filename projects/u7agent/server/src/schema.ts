@@ -293,6 +293,8 @@ export const NotificationResultSchema = z.object({
   /** Discord の message、またはアプリ側の固定文言 */
   message: z.string().optional(),
   code: z.number().optional(),
+  /** 429 の待機秒数 (Discord の retry_after を切り上げた整数)。429 以外では省略する */
+  retryAfter: z.number().optional(),
   at: z.number(),
 });
 export type NotificationResult = z.infer<typeof NotificationResultSchema>;

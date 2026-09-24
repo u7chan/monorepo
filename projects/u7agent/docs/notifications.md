@@ -31,13 +31,14 @@
 | --- | --- | --- |
 | GET | `/api/notifications` | `{ enabled, provider: "discord", configured, webhookHint?, baseUrl?, mention, lastResult? }` |
 | PUT | `/api/notifications` | `{ enabled?, webhookUrl?（null で解除）, baseUrl?（null で解除）, mention? }`。宛先とベース URL を検証し、保存時に送信テストはしない |
-| POST | `/api/notifications/test` | 保存済み設定で 1 通。`{ ok, status, latencyMs, message?, code?, at }` を 200 で返す（アプリ側のエラーだけ 4xx）。タイムアウトは 5 秒 |
+| POST | `/api/notifications/test` | 保存済み設定で 1 通。`{ ok, status, latencyMs, message?, code?, retryAfter?, at }` を 200 で返す（アプリ側のエラーだけ 4xx）。タイムアウトは 5 秒 |
 | PATCH | `/api/sessions/:id/notify` | `{ notify: boolean }` → `{ sessionId, notify }` を 200 で返す |
 | POST | `/api/sessions` | `notify?: boolean`（新規チャットで選んだ値を、作成されるセッションへ引き継ぐ） |
 | GET | `/api/sessions` / `/api/sessions/:id` | `notify: boolean`（サーバーは常に載せ、読む側は省略を false として扱う） |
 
 - `PATCH /api/sessions/:id/notify` は専用経路。Model / Effort の `PATCH /settings` には相乗りせず、SDK の設定変更も busy 判定も通さないため実行中でも切り替えられる。live / 未ロードのどちらでも同じ応答で、会話全文は返さない（未ロードでは SDK セッションを開かない）。未知の id は 404
 - 直近結果（`lastResult`）は通常通知とテスト送信で共通の 1 件。送信開始の世代で新しい方を優先し、古い完了で新しい結果を上書きしない。Webhook URL を変えるとクリアする。再起動後は SQLite から復元する
+- `retryAfter` は 429 のときだけ載る待機秒数（Discord の `retry_after` を切り上げた整数）。429 以外では本文に `retry_after` があっても載せず、読めない値（文字列 / 負 / 非数値）も載せない
 - 失敗の表示に使うのは status と Discord の `message` / `code` だけ。リクエスト URL とレスポンス原文は API 応答にも画面にも出さない
 
 ## セキュリティ
@@ -62,7 +63,7 @@
 ## 設定画面（設定 → 通知）
 
 - **Discord カード**: 有効トグルと Webhook URL。保存済みなら「登録済み（末尾 xxxx）」+ `[変更]` を出し、`[変更]` を押したときだけ入力欄を出す（保存済みの値は入れない）。`[取り消し]` で編集をやめる
-- **テスト送信カード**: 未設定なら無効 + 「Webhook URL を保存するとテストできます。」。URL に未保存の変更があるときはラベルが「保存してテスト」になり、保存してから送る。直近結果（日時 / status / latencyMs）と失敗理由を出す
+- **テスト送信カード**: 未設定なら無効 + 「Webhook URL を保存するとテストできます。」。URL に未保存の変更があるときはラベルが「保存してテスト」になり、保存してから送る。直近結果（日時 / status / latencyMs）と失敗理由を出す。429 のときは `retryAfter` があれば「Retry-After N 秒待ってから再試行してください。」、無ければ「時間を置いて再試行してください。」を出す
 - **リンクカード**: 通知から会話を開く URL のベース。`[今開いている URL を使う]` で `location.origin` を入れる。空にするとリンク行を載せない
 - **メッセージカード**: メンション（なし / @here）とプレビュー。プレビューは見本で、実データはサーバーが組み立てる
 - 編集はすべて下書きで、`[保存]` が PUT、`[破棄]` が保存済みの値へ戻す。`webhookUrl` は「変更」で新しく入力したときだけ送り、空にすると解除（null）。`baseUrl` は空なら null
