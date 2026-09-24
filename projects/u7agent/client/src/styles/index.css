@@ -663,8 +663,7 @@ html[data-theme="sky"] {
     cursor: pointer;
     border-radius: 6px;
   }
-  /* ファイル参照のインラインコード。rest でも操作要素と分かるようリンクの語彙 (アクセント文字色 + 下線) を借りる。
-   * 枠は補助で、soft 面の 3:1 に届かないテーマがあるため 50% 混色のままにする (理由は docs/markdown.md) */
+  /* ファイル参照のインラインコード。rest でも操作要素と分かるようリンクの語彙 (アクセント文字色 + 下線) を借りる (枠の扱いの理由は docs/markdown.md が正) */
   .md-fileref code {
     color: var(--c-accent-text);
     border-color: color-mix(in srgb, var(--c-focus) 50%, var(--c-line));
