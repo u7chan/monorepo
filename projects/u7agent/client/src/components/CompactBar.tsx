@@ -11,10 +11,10 @@ export type CompactBarProps = {
   agentName?: string;
   runtimeStatus: RuntimeStatus;
   /**
-   * 会話の通知トグル。canEnable は On へ切り替えられるか (Off へは常に戻せる)。
+   * 会話の通知トグル。deliverable は今の On が実際に送られるか (色とラベルの根拠)。
    * note は配信できない理由で、On の間は常に、Off では押した後に出る
    */
-  notify: { on: boolean; note?: string; canEnable: boolean; onToggle: () => void; onOpenSettings?: () => void };
+  notify: { on: boolean; note?: string; deliverable: boolean; onToggle: () => void; onOpenSettings?: () => void };
   sessionFiles?: { open: boolean; onToggle: () => void };
   onOpenNav: () => void;
 };
@@ -30,7 +30,7 @@ export function CompactBar({
 }: CompactBarProps) {
   const landscape = mode === "landscape";
   // 配信できない On は、押しても切り替わらない理由を読み上げ名と title でも示す (色だけに頼らない)
-  const notifyLabel = notify.on && !notify.canEnable ? "通知（停止中）" : "通知";
+  const notifyLabel = notify.on && !notify.deliverable ? "通知（停止中）" : "通知";
 
   return (
     <header className="grid min-w-0 grid-cols-1 border-b border-line bg-panel/85">
@@ -54,7 +54,7 @@ export function CompactBar({
           onClick={notify.onToggle}
           aria-label={notifyLabel}
           title={notifyLabel}
-          className={cn("icon-button", notify.on && notify.canEnable && "border-accent/50 text-accent-text")}
+          className={cn("icon-button", notify.on && notify.deliverable && "border-accent/50 text-accent-text")}
         >
           <BellIcon ringing={notify.on} />
         </button>

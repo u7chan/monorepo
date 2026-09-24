@@ -16,6 +16,7 @@ import {
   NOTIFY_DISABLED_NOTE,
   NOTIFY_UNCONFIGURED_NOTE,
   notifyCannotEnable,
+  notifyDeliverable,
   notifyUnavailableNote,
 } from "../src/lib/notifications";
 import type { NotificationsResponse, SessionNotifyResponse, SessionSummary } from "../src/types";
@@ -287,16 +288,45 @@ test("On にできないときだけ切替を禁止し、Off へ戻す操作は�
   assert.equal(notifyCannotEnable(false, null), false);
 });
 
+test("配信できる設定かを、On へ戻せるかとは別に判定する", () => {
+  const disabled = { ...SETTINGS, enabled: false };
+  const unconfigured = { ...SETTINGS, configured: false };
+  assert.equal(notifyDeliverable(SETTINGS), true);
+  assert.equal(notifyDeliverable(disabled), false);
+  assert.equal(notifyDeliverable(unconfigured), false);
+  // 設定が未取得の間は判定できないので、色とラベルを変えない側に倒す
+  assert.equal(notifyDeliverable(null), true);
+  // 保存済みの On は、設定が無効でも Off へは戻せる (deliverable と notifyCannotEnable は別物)
+  assert.equal(notifyDeliverable(disabled), false);
+  assert.equal(notifyCannotEnable(true, disabled), false);
+});
+
+test("App は配信可否と押下の禁止を別々に使い、会話を移ったら押した後の注記を捨てる", () => {
+  const app = source("src/App.tsx");
+  // 色とラベルは「配信できるか」だけで決める (On へ戻せるかと混ぜると、保存済みの On が accent のままになる)
+  assert.ok(app.includes("deliverable: notifyDeliverable(app.notifications.settings)"), "バーへ配信可否を渡していない");
+  // 押下を止めるのは On にできないときだけ (Off へは常に戻せる)
+  assert.ok(
+    app.includes("if (notifyCannotEnable(app.notify, app.notifications.settings))"),
+    "押下の禁止判定が変わっている",
+  );
+  // 押した後の注記はその場のフィードバック (会話へ戻ってきたときに復活させない)
+  assert.ok(
+    /useEffect\(\(\) => \{\s*setNotifyAttempted\(false\);\s*\}, \[app\.sessionId\]\);/.test(app),
+    "会話を移っても押した後の注記が残る",
+  );
+});
+
 function renderTopbar(notify: {
   on: boolean;
   note?: string;
-  canEnable?: boolean;
+  deliverable?: boolean;
   onOpenSettings?: () => void;
 }): string {
   return renderToStaticMarkup(
     createElement(Topbar, {
       runtimeStatus: IDLE,
-      notify: { canEnable: true, onToggle: () => {}, ...notify },
+      notify: { deliverable: true, onToggle: () => {}, ...notify },
       sessionFiles: { open: false, onToggle: () => {} },
     }),
   );
@@ -305,7 +335,7 @@ function renderTopbar(notify: {
 test("desktop のバーは通知トグルを「セッションのファイル」の左に置き、配信できる On だけを accent で示す", () => {
   const off = renderTopbar({ on: false });
   const delivering = renderTopbar({ on: true });
-  const stopped = renderTopbar({ on: true, canEnable: false });
+  const stopped = renderTopbar({ on: true, deliverable: false });
   assert.ok(off.indexOf("通知") < off.indexOf("セッションのファイル"), "通知がファイルより右にある");
   assert.ok(off.includes('aria-pressed="false"'), "Off の状態が読み上げに伝わらない");
   assert.ok(delivering.includes('aria-pressed="true"'), "On の状態が読み上げに伝わらない");
@@ -317,20 +347,25 @@ test("desktop のバーは通知トグルを「セッションのファイル」
   assert.ok(stopped.includes("通知（停止中）"), "配信できない On のラベルが出ない");
   assert.ok(stopped.includes(RINGING_MARK), "On の会話でベルが鳴っていない");
   // 注記はバーの下 (接続状態のアラートより後) に出し、設定への導線を添える
-  const withNote = renderTopbar({ on: false, canEnable: false, note: NOTIFY_DISABLED_NOTE, onOpenSettings: () => {} });
+  const withNote = renderTopbar({
+    on: false,
+    deliverable: false,
+    note: NOTIFY_DISABLED_NOTE,
+    onOpenSettings: () => {},
+  });
   assert.ok(withNote.includes(NOTIFY_DISABLED_NOTE), "配信できない理由が出ない");
   assert.ok(withNote.includes("設定を開く"), "設定への導線が出ない");
   assert.ok(!off.includes(NOTIFY_DISABLED_NOTE), "Off で常に注記を出す");
 });
 
-function renderCompactBar(notify: { on: boolean; note?: string; canEnable?: boolean } = { on: true }): string {
+function renderCompactBar(notify: { on: boolean; note?: string; deliverable?: boolean } = { on: true }): string {
   return renderToStaticMarkup(
     createElement(CompactBar, {
       mode: "portrait",
       title: "パンくずの折り返しを直す",
       agentName: "実装担当",
       runtimeStatus: IDLE,
-      notify: { canEnable: true, onToggle: () => {}, ...notify },
+      notify: { deliverable: true, onToggle: () => {}, ...notify },
       sessionFiles: { open: true, onToggle: () => {} },
       onOpenNav: () => {},
     }),
@@ -351,7 +386,7 @@ test("compact のバーは ☰ を左端に置き、通知 → ファイルの�
 
 test("compact は配信できない On を accent にせず、読み上げ名で停止中を示す", () => {
   const delivering = renderCompactBar({ on: true });
-  const stopped = renderCompactBar({ on: true, canEnable: false, note: NOTIFY_UNCONFIGURED_NOTE });
+  const stopped = renderCompactBar({ on: true, deliverable: false, note: NOTIFY_UNCONFIGURED_NOTE });
   // 同じバーの「セッションのファイル」も accent を使うため、通知ボタンのタグだけを見る
   const tagOf = (html: string): string => {
     const match = /<button[^>]*aria-label="通知[^"]*"[^>]*>/.exec(html);
@@ -392,7 +427,7 @@ test("compact のアイコンボタンは @layer components の .icon-button で
   const compact = source("src/components/CompactBar.tsx");
   assert.equal((compact.match(/"icon-button"/g) ?? []).length, 3, "compact の 3 つが .icon-button を使っていない");
   assert.ok(
-    compact.includes('cn("icon-button", notify.on && notify.canEnable && "border-accent/50 text-accent-text")'),
+    compact.includes('cn("icon-button", notify.on && notify.deliverable && "border-accent/50 text-accent-text")'),
     "通知の On が utilities で上書きされていない",
   );
   assert.ok(

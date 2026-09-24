@@ -20,7 +20,12 @@ import { useRoute } from "./hooks/useRoute";
 import { agentIconOf } from "./lib/agentIcon";
 import { cn } from "./lib/cn";
 import { fileRefRequestForSession } from "./lib/fileRefRequest";
-import { notificationHasFailure, notifyCannotEnable, notifyUnavailableNote } from "./lib/notifications";
+import {
+  notificationHasFailure,
+  notifyCannotEnable,
+  notifyDeliverable,
+  notifyUnavailableNote,
+} from "./lib/notifications";
 import { sessionFilesRoot } from "./lib/sessionFiles";
 import { type SettingsSection, type SidebarMode } from "./lib/settingsNav";
 
@@ -40,8 +45,8 @@ export default function App() {
   const [navOpen, setNavOpen] = useState(false);
   // セッションファイル UI の開閉は保存しない (desktop は右パネル、compact は全画面シート)
   const [sessionFilesOpen, setSessionFilesOpen] = useState(false);
-  // 配信できない設定で通知を On にしようとした会話。理由は押した会話にだけ出し、別の会話へ移ったら消す
-  const [notifyAttemptId, setNotifyAttemptId] = useState<string | null>(null);
+  // 配信できない設定で通知を On にしようとしたか。押した後だけ出す注記の根拠で、会話を移ったら捨てる
+  const [notifyAttempted, setNotifyAttempted] = useState(false);
   const mainView = route.view;
   const sidebarMode: SidebarMode = route.view === "settings" ? "settings" : "nav";
   // URL にセクションが無いときだけ「最後に開いていたセクション」を見せる (URL の指定を上書きしない)
@@ -100,12 +105,17 @@ export default function App() {
   const handleToggleNotify = useCallback(() => {
     // 送られない On を作らない。押しても切り替わらず、理由と導線をバーの下に出す
     if (notifyCannotEnable(app.notify, app.notifications.settings)) {
-      setNotifyAttemptId(app.sessionId);
+      setNotifyAttempted(true);
       return;
     }
-    setNotifyAttemptId(null);
+    setNotifyAttempted(false);
     void app.toggleNotify();
   }, [app]);
+
+  // 押した後の注記はその場のフィードバックなので、会話を移ったら捨てる (戻ってきたときに復活させない)
+  useEffect(() => {
+    setNotifyAttempted(false);
+  }, [app.sessionId]);
 
   // エージェントの切替は「新しい会話」と同じで、現在の会話はセッション一覧に残す
   const handleAgentChange = useCallback(
@@ -136,15 +146,12 @@ export default function App() {
     [navigate],
   );
 
-  // 会話の通知トグル。note は On で配信できない間は常に、Off では押した後だけ出す (Off へは常に戻せる)
+  // 会話の通知トグル。note は On で配信できない間は常に、Off では押した後だけ出す (Off へは常に戻せる)。
+  // deliverable (色とラベルの根拠) と notifyCannotEnable (押下を止める根拠) を混ぜない
   const notifyToggle = {
     on: app.notify,
-    note: notifyUnavailableNote(
-      app.notify,
-      app.notifications.settings,
-      notifyAttemptId !== null && notifyAttemptId === app.sessionId,
-    ),
-    canEnable: !notifyCannotEnable(app.notify, app.notifications.settings),
+    note: notifyUnavailableNote(app.notify, app.notifications.settings, notifyAttempted),
+    deliverable: notifyDeliverable(app.notifications.settings),
     onToggle: handleToggleNotify,
     onOpenSettings: () => openSettingsSection("notifications"),
   };

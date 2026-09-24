@@ -125,6 +125,14 @@ export function notifyUnavailableNote(
 }
 
 /**
+ * 配信できる設定か。未取得 (null) の間は判定できないため true を返し、色とラベルを変えない。
+ * On へ切り替えられるか (`notifyCannotEnable`) とは別物で、保存済みの On はここが false でも Off へは戻せる。
+ */
+export function notifyDeliverable(settings: NotificationsResponse | null): boolean {
+  return notifyUnavailableReason(settings) === undefined;
+}
+
+/**
  * On へ切り替えられないか。Off へ戻す操作は常に許可する (機微な会話の通知を、設定を直すまで
  * 止められない状態を作らないため)。設定が未取得の間は判定しない。
  */

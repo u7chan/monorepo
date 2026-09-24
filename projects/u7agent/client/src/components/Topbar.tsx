@@ -7,19 +7,19 @@ import { BellIcon, FolderIcon } from "./icons";
 export type TopbarProps = {
   runtimeStatus: RuntimeStatus;
   /**
-   * 会話の通知トグル。canEnable は On へ切り替えられるか (Off へは常に戻せる)。
+   * 会話の通知トグル。deliverable は今の On が実際に送られるか (色とラベルの根拠)。
    * note は配信できない理由で、On の間は常に、Off では押した後に出る
    */
-  notify: { on: boolean; note?: string; canEnable: boolean; onToggle: () => void; onOpenSettings?: () => void };
+  notify: { on: boolean; note?: string; deliverable: boolean; onToggle: () => void; onOpenSettings?: () => void };
   /** 右パネル (セッションのファイル) のトグル。セッションが無い (root が決まらない) ときは渡さない */
   sessionFiles?: { open: boolean; onToggle: () => void };
 };
 
 export function Topbar({ runtimeStatus, notify, sessionFiles }: TopbarProps) {
   // accent は「実際に送られる」の意味に保つ (設定が無効 / Webhook 未登録の On は青くしない)
-  const delivering = notify.on && notify.canEnable;
+  const delivering = notify.on && notify.deliverable;
   // 配信できない On は、押しても切り替わらない理由をラベルでも示す (色だけに頼らない)
-  const notifyLabel = notify.on && !notify.canEnable ? "通知（停止中）" : "通知";
+  const notifyLabel = notify.on && !notify.deliverable ? "通知（停止中）" : "通知";
   return (
     <header className="grid gap-3 px-6 pt-5 pb-3 wide:px-8 wide:pt-6">
       <div className="flex items-start justify-between gap-4">
