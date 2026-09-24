@@ -50,6 +50,8 @@ export interface SessionMeta {
   projectName?: string;
   model?: string;
   thinkingLevel?: string;
+  /** 完了を Discord へ送るか (既定 false)。v1 の meta には無いので optional のままにする */
+  notify?: boolean;
 }
 
 export interface SessionHeader {
@@ -164,6 +166,8 @@ function parseMeta(value: unknown, id: string): SessionMeta | undefined {
     ...(typeof meta.projectName === "string" ? { projectName: meta.projectName } : {}),
     ...(typeof meta.model === "string" ? { model: meta.model } : {}),
     ...(typeof meta.thinkingLevel === "string" ? { thinkingLevel: meta.thinkingLevel } : {}),
+    // boolean 以外は無視する (手で書き換えられた meta で通知が勝手に有効にならないように)
+    ...(typeof meta.notify === "boolean" ? { notify: meta.notify } : {}),
   };
 }
 

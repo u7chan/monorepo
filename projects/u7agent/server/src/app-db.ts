@@ -5,11 +5,19 @@
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { httpError, messageFor } from "./http";
-import type { AgentDef, AgentSuggestion, ModelRef, Project, SkillDef } from "./schema";
+import type {
+  AgentDef,
+  AgentSuggestion,
+  ModelRef,
+  NotificationResult,
+  NotificationSettings,
+  Project,
+  SkillDef,
+} from "./schema";
 
 export const APP_DB_FILENAME = "u7agent.db";
-/** テーブル定義を変えたら上げる。不一致の DB は作り直す */
-export const APP_DB_SCHEMA_VERSION = 1;
+/** テーブル定義を変えたら上げる。新規作成と加算移行はこの版へ揃え、未知の版は作り直す */
+export const APP_DB_SCHEMA_VERSION = 2;
 
 export interface AppDbStatus {
   /** null は永続化なし (メモリ DB)。開けなかったときも null */
@@ -22,6 +30,21 @@ export interface OpenAppDbOptions {
   /** 会話ストアと同じディレクトリ。null ならメモリ DB (テスト) */
   storeDir: string | null;
 }
+
+/**
+ * v1 -> v2 で足したテーブル。`IF NOT EXISTS` で定義を 1 つに保ち、新規作成と加算移行の両方から使う
+ * (加算移行では既存の projects / agents / skills を消さない)。
+ */
+const NOTIFICATION_SETTINGS_TABLE = `
+CREATE TABLE IF NOT EXISTS notification_settings (
+  id INTEGER PRIMARY KEY CHECK (id = 1),
+  enabled INTEGER NOT NULL,
+  webhookUrl TEXT,
+  baseUrl TEXT,
+  mention TEXT NOT NULL,
+  lastResult TEXT
+);
+`;
 
 const CREATE_TABLES = `
 CREATE TABLE projects (
@@ -47,13 +70,14 @@ CREATE TABLE agents (
   skillIds TEXT NOT NULL,
   suggestions TEXT
 );
-`;
+${NOTIFICATION_SETTINGS_TABLE}`;
 
 /** アプリ所有のテーブルだけを落とす (同じ DB に足した別機能のテーブルを巻き込まない) */
 const DROP_TABLES = `
 DROP TABLE IF EXISTS agents;
 DROP TABLE IF EXISTS skills;
 DROP TABLE IF EXISTS projects;
+DROP TABLE IF EXISTS notification_settings;
 `;
 
 /**
@@ -112,6 +136,21 @@ function skillOf(row: Row): SkillDef {
   };
 }
 
+function notificationSettingsOf(row: Row): NotificationSettings {
+  const settings: NotificationSettings = {
+    enabled: Number(row.enabled) === 1,
+    // 保存側は none / here しか書かないが、未知の値は既定へ寄せる
+    mention: row.mention === "here" ? "here" : "none",
+  };
+  const webhookUrl = optionalText(row.webhookUrl);
+  const baseUrl = optionalText(row.baseUrl);
+  const lastResult = jsonObject<NotificationResult>(row.lastResult);
+  if (webhookUrl) settings.webhookUrl = webhookUrl;
+  if (baseUrl) settings.baseUrl = baseUrl;
+  if (lastResult) settings.lastResult = lastResult;
+  return settings;
+}
+
 function agentOf(row: Row): AgentDef {
   const agent: AgentDef = {
     id: text(row.id),
@@ -158,7 +197,10 @@ export class AppDb {
       const instance = new AppDb(db, path);
       const version = instance.#schemaVersion();
       // user_version が 0 = 未初期化 (新規ファイル・0 バイトの残骸・メモリ DB)。このときだけ seed する
-      if (version !== APP_DB_SCHEMA_VERSION) instance.#recreate(version === 0);
+      if (version === 0) instance.#recreate(true);
+      // 古い版は加算的に移行する (定義を消さない)。未知の新しい版だけ従来どおり作り直す
+      else if (version < APP_DB_SCHEMA_VERSION) instance.#migrate();
+      else if (version > APP_DB_SCHEMA_VERSION) instance.#recreate(false);
       return instance;
     } catch (error) {
       try {
@@ -258,6 +300,53 @@ export class AppDb {
 
   #seed(): void {
     for (const agent of SEED_AGENTS) this.saveAgent(agent);
+  }
+
+  /** 古い版からの加算的な移行。足りないテーブルだけを作り、既存の定義は触らない */
+  #migrate(): void {
+    this.#query((db) => db.exec("BEGIN"));
+    try {
+      this.#query((db) => db.exec(NOTIFICATION_SETTINGS_TABLE));
+      // PRAGMA はパラメータ化できない (値はコード側の定数)
+      this.#query((db) => db.exec(`PRAGMA user_version = ${APP_DB_SCHEMA_VERSION}`));
+      this.#query((db) => db.exec("COMMIT"));
+      console.log(`[u7agent] app db migrated (schema ${APP_DB_SCHEMA_VERSION})`);
+    } catch (error) {
+      try {
+        this.#query((db) => db.exec("ROLLBACK"));
+      } catch {
+        // 元の例外を優先する
+      }
+      throw error;
+    }
+  }
+
+  // --- notification settings (1 行だけ) ---
+
+  getNotificationSettings(): NotificationSettings | undefined {
+    const row = this.#query(
+      (db) => db.prepare("SELECT * FROM notification_settings WHERE id = 1").get() as Row | undefined,
+    );
+    return row ? notificationSettingsOf(row) : undefined;
+  }
+
+  saveNotificationSettings(settings: NotificationSettings): void {
+    this.#query((db) =>
+      db
+        .prepare(
+          `INSERT INTO notification_settings (id, enabled, webhookUrl, baseUrl, mention, lastResult)
+           VALUES (1, ?, ?, ?, ?, ?)
+           ON CONFLICT(id) DO UPDATE SET enabled = excluded.enabled, webhookUrl = excluded.webhookUrl,
+             baseUrl = excluded.baseUrl, mention = excluded.mention, lastResult = excluded.lastResult`,
+        )
+        .run(
+          settings.enabled ? 1 : 0,
+          settings.webhookUrl ?? null,
+          settings.baseUrl ?? null,
+          settings.mention,
+          settings.lastResult ? JSON.stringify(settings.lastResult) : null,
+        ),
+    );
   }
 
   // --- projects ---

@@ -79,6 +79,8 @@ export interface SessionRecord {
   compactionMeta: Map<string, CompactionMeta>;
   /** 設定変更中フラグ。非同期 setModel の間、送信と二重変更を 409 で拒否する */
   changingSettings: boolean;
+  /** 完了を Discord へ送るか。正は meta.notify (live な record はここを更新して永続化する) */
+  notify: boolean;
 }
 
 export interface CreateSessionOptions {
@@ -86,6 +88,8 @@ export interface CreateSessionOptions {
   model?: ModelRef;
   thinkingLevel?: ThinkingLevel;
   projectId?: string;
+  /** 新規チャットで選んだ通知トグル (未指定は false) */
+  notify?: boolean;
 }
 
 /** 一覧用の軽量な記述子。SDK セッションを開かずに meta から作る */

@@ -52,6 +52,7 @@ export function projectSessionPayload({
     createdAt: record.createdAt,
     lastUsedAt: record.lastUsedAt,
     queueDepth: record.queue.length,
+    notify: record.notify,
     lastSeq: record.seq,
     agent: {
       ...record.agent,
@@ -93,6 +94,7 @@ export function projectSessionSummary({
     agentName: record.agent.name,
     status,
     queueDepth: record.queue.length,
+    notify: record.notify,
     messageCount: displayableMessages(record.session, masker).length,
     createdAt: record.createdAt,
     lastUsedAt: record.lastUsedAt,

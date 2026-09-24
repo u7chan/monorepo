@@ -14,7 +14,8 @@ import { composePromptSnapshot } from "./agent";
 import type { AgentCatalog } from "./agents";
 import { stripAttachedFiles } from "./attachments";
 import { compactionsOf } from "./compaction-view";
-import { contextUsageOf, type PiRuntimeLike, type PiSessionLike } from "./pi-runtime";
+import type { NotificationService } from "./notifications";
+import { contextUsageOf, lastAssistantMessage, type PiRuntimeLike, type PiSessionLike } from "./pi-runtime";
 import type { ProjectStore } from "./projects";
 import { createSecretMasker, type SecretMasker } from "./redact";
 import { createRunEventBridge, userFacingError, type RunSettlement } from "./run-events";
@@ -27,7 +28,7 @@ import type {
   UpdateSessionSettingsInput,
 } from "./session-record";
 import { projectSessionPayload, projectSessionSummary } from "./session-payload";
-import { displayableMessages, truncate } from "./session-projection";
+import { contentText, displayableMessages, truncate } from "./session-projection";
 import type { SandboxWorkspaceClient } from "./sandbox/client";
 import { SandboxRequestError } from "./sandbox/client";
 import {
@@ -94,6 +95,8 @@ export interface SessionStoreOptions {
   workspace?: SandboxWorkspaceClient | null;
   /** BFF 側のワークスペース root (作業フォルダの絶対パス解決用) */
   rootCwd?: string;
+  /** 完了通知の送信先。未指定なら通知しない (テスト・未設定のデプロイ) */
+  notifications?: NotificationService | null;
 }
 
 function messageFor(error: unknown): string {
@@ -192,8 +195,20 @@ export class SessionStore {
   storeError: string | undefined;
   /** sweep の二重実行を防ぐ */
   sweeping: boolean;
+  /** 完了通知。null は通知なし */
+  notifications: NotificationService | null;
 
-  constructor({ pi, catalog, masker, projects, storeDir, storeError, workspace, rootCwd }: SessionStoreOptions = {}) {
+  constructor({
+    pi,
+    catalog,
+    masker,
+    projects,
+    storeDir,
+    storeError,
+    workspace,
+    rootCwd,
+    notifications,
+  }: SessionStoreOptions = {}) {
     if (!catalog) throw new Error("SessionStore requires an agent catalog");
     this.pi = pi || null;
     this.catalog = catalog;
@@ -203,6 +218,7 @@ export class SessionStore {
     this.storeError = storeError;
     this.workspace = workspace ?? null;
     this.rootCwd = rootCwd ?? process.cwd();
+    this.notifications = notifications ?? null;
     this.records = new Map();
     this.descriptors = new Map();
     this.lifecycle = new Map();
@@ -231,7 +247,13 @@ export class SessionStore {
     }
   }
 
-  async create({ agentId, model, thinkingLevel, projectId }: CreateSessionOptions = {}): Promise<SessionRecord> {
+  async create({
+    agentId,
+    model,
+    thinkingLevel,
+    projectId,
+    notify,
+  }: CreateSessionOptions = {}): Promise<SessionRecord> {
     if (this.closing) throw httpError(503, "サーバーを終了しています");
     if (this.storeError) throw httpError(503, `会話ストアを利用できません: ${this.storeError}`);
     if (!this.pi) {
@@ -276,6 +298,7 @@ export class SessionStore {
       project,
       title: "",
       createdAt: Date.now(),
+      notify: notify === true,
     });
     this.records.set(record.id, record);
     if (this.storeDir) {
@@ -295,6 +318,7 @@ export class SessionStore {
     project,
     title,
     createdAt,
+    notify,
   }: {
     id: string;
     session: PiSessionLike;
@@ -305,6 +329,7 @@ export class SessionStore {
     project: Project | undefined;
     title: string;
     createdAt: number;
+    notify: boolean;
   }): SessionRecord {
     const meta: SessionMeta = {
       version: 1,
@@ -319,6 +344,7 @@ export class SessionStore {
       ...(project ? { projectCwd: project.cwd, projectName: project.name } : {}),
       ...(modelLabel(session.model) ? { model: modelLabel(session.model) } : {}),
       ...(session.thinkingLevel ? { thinkingLevel: session.thinkingLevel } : {}),
+      ...(notify ? { notify: true } : {}),
     };
     return {
       id,
@@ -344,6 +370,7 @@ export class SessionStore {
       messageMetrics: new WeakMap(),
       compactionMeta: new Map(),
       changingSettings: false,
+      notify,
     };
   }
 
@@ -446,6 +473,7 @@ export class SessionStore {
       project: undefined,
       title: meta.title,
       createdAt: meta.createdAt,
+      notify: meta.notify === true,
     });
     record.lastUsedAt = meta.lastUsedAt;
     record.meta = meta;
@@ -508,6 +536,21 @@ export class SessionStore {
     if (!manager?.appendModelChange) return false;
     manager.appendModelChange(effective.provider, effective.id);
     return true;
+  }
+
+  /**
+   * 通知トグル。model / thinkingLevel の設定変更と違い、SDK の設定変更も busy 判定も通さない
+   * (実行中でも切り替えられ、送るかどうかは finish 時点の値で決まる)。
+   */
+  async setNotify(id: string, notify: boolean): Promise<SessionPayload | undefined> {
+    const record = await this.resolve(id);
+    if (!record) return undefined;
+    record.notify = notify;
+    // 履歴は変わらないので meta.json だけを書く
+    await this.persist(record, { jsonl: false });
+    // 保存失敗を成功扱いにしない (in-memory の実行は止めないが、この応答は 500)
+    if (record.persistError) throw httpError(500, `セッションの保存に失敗しました: ${record.persistError}`);
+    return this.payload(record);
   }
 
   async updateSettings(record: SessionRecord, input: UpdateSessionSettingsInput): Promise<SessionPayload> {
@@ -700,6 +743,7 @@ export class SessionStore {
       agentName: meta.agent.name,
       status: "idle",
       queueDepth: 0,
+      notify: meta.notify === true,
       messageCount: meta.messageCount,
       createdAt: meta.createdAt,
       lastUsedAt: meta.lastUsedAt,
@@ -819,6 +863,7 @@ export class SessionStore {
         ...(record.projectName ? { projectName: record.projectName } : {}),
         ...(modelLabel(session.model) ? { model: modelLabel(session.model) } : {}),
         ...(session.thinkingLevel ? { thinkingLevel: session.thinkingLevel } : {}),
+        ...(record.notify ? { notify: true } : {}),
       };
       if (!meta.projectCwd) {
         delete meta.projectCwd;
@@ -946,13 +991,14 @@ export class SessionStore {
       run.status = stopped ? "stopped" : error ? "error" : "completed";
       run.endedAt = Date.now();
       if (error) run.error = this.masker.mask(error);
+      // 一覧 API / meta と同じ表示メッセージ数。ここを履歴の生件数 (session.messages.length) へ
+      // 戻すと同名フィールドの定義が 2 つに戻る
+      const messages = displayableMessages(session, this.masker);
       this.emit(record, "run_end", {
         runId: run.id,
         status: run.status,
         error: run.error,
-        // 一覧 API / meta と同じ表示メッセージ数。ここを履歴の生件数 (session.messages.length) へ
-        // 戻すと同名フィールドの定義が 2 つに戻る
-        messageCount: displayableMessages(session, this.masker).length,
+        messageCount: messages.length,
         queueDepth: record.queue.length,
         // SDK は message_end をリスナーへ配ってから履歴へ入れるため、usage イベントの context は
         // 直前の応答までの値になる (compaction 直後は不明値のまま)。ここでは履歴反映済みの値を配る。
@@ -960,6 +1006,9 @@ export class SessionStore {
       });
       // 最後の assistant entry を取りこぼさないよう、ラン終了時に必ず保存する
       void this.persist(record);
+
+      // 送信は fire-and-forget。run_end の記録・persist・キューの pump を待たせない
+      this.notifyCompleted(record, run);
 
       if (record.queue.length > 0) {
         setTimeout(() => this.pump(record), QUEUE_DELAY_MS).unref?.();
@@ -995,6 +1044,26 @@ export class SessionStore {
       });
 
     return run;
+  }
+
+  /**
+   * 完了通知。送信は fire-and-forget で、失敗してもランとその記録に影響させない。
+   * 送るかどうかは finish 時点の値で決める (以降のトグル変更を待たない)。
+   */
+  private notifyCompleted(record: SessionRecord, run: RunState): void {
+    if (!this.notifications || run.status !== "completed" || !record.notify) return;
+    // 「最後の assistant メッセージ」を見る。表示集合 (displayableMessages) から選ぶと、
+    // 空応答で終わったランでも前のランの本文を拾ってしまう
+    const last = lastAssistantMessage(record.session);
+    if (!last || !contentText(last.content).trim()) return;
+    this.notifications.notifySession({
+      sessionId: record.id,
+      title: record.title,
+      agentName: record.agent.name,
+      body: contentText(last.content),
+      durationMs: (run.endedAt ?? Date.now()) - run.startedAt,
+      toolCalls: record.tools.size,
+    });
   }
 
   pump(record: SessionRecord): void {
