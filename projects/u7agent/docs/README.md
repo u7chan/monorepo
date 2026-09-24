@@ -10,6 +10,7 @@
 | エージェント / スキル定義とファイルスキル | `server/src/agents.ts`、`server/src/catalog-skills.ts`、`server/src/file-skills.ts`、`server/src/builtin-skills.ts`、`server/src/session-skills.ts`、`client/src/components/AgentSettingsPage.tsx`、`client/src/components/SkillSettingsPage.tsx`、`client/src/components/composer/SkillField.tsx` | [api-catalog.md](api-catalog.md)、[api-sessions.md](api-sessions.md) |
 | モデル / Effort の解決と変更 | `server/src/agent.ts`、`server/src/sessions.ts`、`client/src/lib/composerSettings.ts`、`client/src/components/composer/ComposerStatus.tsx` | [model-effort.md](model-effort.md)、[api-sessions.md](api-sessions.md) |
 | プロジェクト / cwd / ファイルツリーとプレビュー | `server/src/projects.ts`、`client/src/components/FileTreePage.tsx`、`client/src/components/SessionFilesPanel.tsx`、`client/src/components/FileBrowser.tsx`、`client/src/components/FilePreview.tsx`、`client/src/lib/fileTree.ts`、`client/src/lib/fileTabs.ts`、`client/src/lib/fileRef.ts`、`client/src/lib/sessionFiles.ts` | [projects.md](projects.md)、[api.md](api.md)、[ui-layout.md](ui-layout.md)、[file-preview.md](file-preview.md) |
+| ファイル / フォルダのダウンロード（ZIP） | `server/src/archive-rules.ts`、`server/src/sandbox/zip.ts`、`server/src/sandbox/archive.ts`、`server/src/routes/files.ts`、`client/src/lib/archive.ts`、`client/src/components/FileBrowser.tsx` | [file-preview.md](file-preview.md#ダウンロード)、[api.md](api.md#ダウンロード)、[sandbox-api.md](sandbox-api.md#get-v1filesdownload) |
 | セッションの保存・復元（会話ストア / 作業フォルダ） | `server/src/session-store.ts`、`server/src/sessions.ts`、`server/src/agent.ts` | [session-files.md](session-files.md)、[persistence.md](persistence.md) |
 | ファイルプレビューの表示（行番号 / ハイライト / HTML・画像の描画） | `client/src/lib/fileCode.ts`、`client/src/lib/fileTabs.ts`、`client/src/lib/attachments.ts`、`client/src/components/FileBrowser.tsx`、`client/src/components/FilePreview.tsx`、`server/src/routes/files.ts` | [file-preview.md](file-preview.md)、[api.md](api.md) |
 | チャットの添付ファイル（アップロード / 画像配信 / 注記） | `server/src/attachments.ts`、`server/src/routes/sessions.ts`、`client/src/lib/attachments.ts`、`client/src/components/Composer.tsx`、`client/src/hooks/useU7Agent.ts` | [session-files.md](session-files.md)、[api-sessions.md](api-sessions.md) |
@@ -28,11 +29,11 @@
 - [projects.md](projects.md) — プロジェクトとセッションの作業ディレクトリ
 - [model-effort.md](model-effort.md) — モデル / Effort の解決と変更
 - [sandbox.md](sandbox.md) — ツール実行のサンドボックス分離
-- [sandbox-api.md](sandbox-api.md) — サンドボックス内部 API と環境変数
+- [sandbox-api.md](sandbox-api.md) — サンドボックス内部 API と環境変数（ZIP の除外規則と上限を含む）
 - [secrets.md](secrets.md) — APIキー漏洩の抑制
 - [frontend.md](frontend.md) — フロントエンドの状態管理・テーマ・Effect 契約
 - [markdown.md](markdown.md) — チャット本文の Markdown 描画（対応サブセット・上限・インラインコードのファイル参照）
-- [file-preview.md](file-preview.md) — ファイルプレビューの行番号・シンタックスハイライト・HTML / 画像の描画
+- [file-preview.md](file-preview.md) — ファイルプレビューの行番号・シンタックスハイライト・HTML / 画像の描画と、ツリー行の削除 / リネーム / ダウンロード
 - [api.md](api.md) — HTTP API の規約と索引（health / files / projects）
 - [api-sessions.md](api-sessions.md) — セッション API と SSE イベント
 - [api-catalog.md](api-catalog.md) — エージェント / スキル API

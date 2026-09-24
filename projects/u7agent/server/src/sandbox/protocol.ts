@@ -135,6 +135,23 @@ export interface SandboxFilePreview {
   text: string;
 }
 
+/**
+ * GET /v1/files/download/check の応答。download と同じ走査（除外 / symlink / 上限）の結果を返し、
+ * ブラウザに生 JSON を見せずに理由をツリー内へ出すための事前チェック。
+ */
+export interface SandboxDownloadCheck {
+  /** file = 単体ファイルの生配信、archive = ディレクトリの ZIP */
+  kind: "file" | "archive";
+  /** 保存名。ファイルはその名前、ZIP は `<フォルダ名>.zip` */
+  name: string;
+  /** 含まれるファイルの合計サイズ（単体ファイルはそのサイズ）。単体ファイルも ZIP と同じ上限で拒否する */
+  bytes: number;
+  /** ZIP のエントリ数（単体ファイルは 0） */
+  entries: number;
+  /** 除外規則で落とした名前（重複なし・規則の順） */
+  skipped: string[];
+}
+
 /** プレビューで読むファイルサイズの上限 (これより大きいと 400)。 */
 export const SANDBOX_MAX_PREVIEW_BYTES = 256 * 1024;
 
@@ -142,6 +159,15 @@ export const SANDBOX_MAX_PREVIEW_BYTES = 256 * 1024;
  * アップロード / 生配信の 1 ファイル上限 (100 MiB)。クライアントの申告サイズは信用せず、ここで数える。
  */
 export const SANDBOX_MAX_UPLOAD_BYTES = 100 * 1024 * 1024;
+
+/**
+ * ダウンロードの合計サイズ上限。Zip64 を書かないため、ZIP も単体ファイルも同じ値で抑える
+ * (アップロード / 生配信の上限と同値。4 GiB 未満の通常の ZIP フィールドに収める)。
+ */
+export const SANDBOX_MAX_ARCHIVE_BYTES = SANDBOX_MAX_UPLOAD_BYTES;
+
+/** ZIP のエントリ数上限。EOCD の件数は 16bit (65,535) なので余裕をもって抑える */
+export const SANDBOX_MAX_ARCHIVE_ENTRIES = 10_000;
 
 /** 1 セグメントの名前の上限 (文字数)。アップロードの保存名とリネーム先に使う。 */
 export const SANDBOX_MAX_ENTRY_NAME_LENGTH = 200;

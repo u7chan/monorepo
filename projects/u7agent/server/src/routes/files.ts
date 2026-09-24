@@ -7,7 +7,13 @@ import {
   sandboxNotConfigured,
   SANDBOX_NOT_CONFIGURED_MESSAGE,
 } from "../http";
-import { FileListingSchema, FilePreviewSchema, FileRenameSchema, type RenameFileBody } from "../schema";
+import {
+  FileDownloadCheckSchema,
+  FileListingSchema,
+  FilePreviewSchema,
+  FileRenameSchema,
+  type RenameFileBody,
+} from "../schema";
 import { parseRecursiveQuery, rawImageContentType, RECURSIVE_QUERY_ERROR } from "../sandbox/protocol";
 import type { SandboxWorkspaceClient } from "../sandbox/client";
 
@@ -224,5 +230,39 @@ export function createFileRoutes({ workspace }: { workspace: SandboxWorkspaceCli
     },
     /** 画像の生配信 (チャットのサムネイル / ファイル画面のプレビュー)。 */
     raw: async (c: Context) => serveRawImage(c, c.req.query("path") ?? ""),
+    /**
+     * ダウンロード (通常ファイルは raw / ディレクトリは ZIP)。本文は JSON に載せず、サンドボックスの
+     * ストリームと Content-Type / Content-Disposition / 長さをそのまま中継する。判定はサンドボックスが行う。
+     */
+    download: async (c: Context) => {
+      if (!workspace) return sandboxNotConfigured(c);
+      try {
+        const file = await workspace.downloadEntry(c.req.query("path") ?? "");
+        if (!file.body) return c.json({ error: "サンドボックスが本文を返しませんでした" }, 502);
+        return c.body(file.body, 200, {
+          "Content-Type": file.contentType,
+          "Content-Disposition": file.contentDisposition,
+          ...(file.contentLength === undefined ? {} : { "Content-Length": String(file.contentLength) }),
+          "Cache-Control": "no-store",
+          "X-Content-Type-Options": "nosniff",
+        });
+      } catch (error) {
+        return sandboxFailure(c, error);
+      }
+    },
+    /**
+     * ダウンロードの事前チェック。除外 / 上限の理由を生 JSON のままブラウザに開かせず、ツリーの行に出すために
+     * UI が先に呼ぶ。応答は download と同じ走査から導いた見積り。
+     */
+    downloadCheck: async (c: Context) => {
+      if (!workspace) return sandboxNotConfigured(c);
+      try {
+        const parsed = FileDownloadCheckSchema.safeParse(await workspace.checkDownload(c.req.query("path") ?? ""));
+        if (!parsed.success) return c.json({ error: "サンドボックスのダウンロード確認応答が不正です" }, 502);
+        return c.json(parsed.data);
+      } catch (error) {
+        return sandboxFailure(c, error);
+      }
+    },
   };
 }

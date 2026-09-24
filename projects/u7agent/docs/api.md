@@ -18,6 +18,7 @@ DTO の正は `server/src/schema.ts`（zod）。リクエストボディは `@ho
 | テキストプレビュー | `GET /api/files/preview` | このファイル |
 | HTML プレビュー（iframe 用） | `GET /api/files/html/<root 相対>` | このファイル |
 | 画像配信（raw） | `GET /api/files/raw` | このファイル |
+| ダウンロード（ファイル / ZIP） | `GET /api/files/download`、`GET /api/files/download/check` | このファイル |
 | プロジェクト | `GET/POST /api/projects`、`DELETE /api/projects/:id` | このファイル |
 | セッション | `/api/sessions`、`/api/sessions/:id`、`/skills`、`/files`、`/messages`、`/events`、`/settings`、`/stop` | [api-sessions.md](api-sessions.md) |
 | エージェント / スキル | `/api/agents`、`/api/skills`、`/api/skills/files`、`/api/skills/session` | [api-catalog.md](api-catalog.md)、[api-sessions.md](api-sessions.md) |
@@ -66,9 +67,12 @@ DTO の正は `server/src/schema.ts`（zod）。リクエストボディは `@ho
     "versions": { "piCodingAgent": "0.87.1", "piAi": "0.87.1" }
   },
   "sessionStore": { "path": "/var/lib/u7agent/sessions", "ok": true, "dirty": 0 },
-  "appDb": { "path": "/var/lib/u7agent/sessions/u7agent.db", "ok": true }
+  "appDb": { "path": "/var/lib/u7agent/sessions/u7agent.db", "ok": true },
+  "archive": { "excludeNames": ["node_modules", ".venv", "…"] }
 }
 ```
+
+`archive.excludeNames` はダウンロード ZIP から落とす名前の**実効値**（[ダウンロード](#ダウンロード)）。UI は行にダウンロードを出すかの判定だけに使い、実際の拒否は `GET /api/files/download/check` が行う。
 
 `modelOptions` は認証済みで利用可能なモデルのみ。`PI_MODELS` を指定したときは、その whitelist と利用可能モデルの積だけになる（`PI_MODEL` が whitelist 外なら `defaultModelError`、積が空なら `ready: false` と PI_MODELS を名指しした `error`）。能力情報（`supportsThinking` / `thinkingLevels`）は pi SDK の公開ヘルパー（`getSupportedThinkingLevels`）から得る。`defaultThinkingLevel` は `PI_MODEL` の末尾指定 → `PI_THINKING` → `medium` の優先順位で決まる。解決の詳細は [model-effort.md](model-effort.md)。
 
@@ -230,6 +234,34 @@ Content-Security-Policy: sandbox allow-scripts; default-src 'none'; style-src 'u
 - 503: `PI_SANDBOX_URL` / `PI_SANDBOX_TOKEN` が未設定
 
 クライアントは `client/src/api.ts` の `fileRawUrl(path)` で URL を組み立て、`<img>` の src に使う（取得はブラウザに任せ、本文は JSON に載せない）。`path` はワークスペース root 相対で、セッションの作業フォルダ配下を表示するときは `fileTreeFetchPath(cwd, path)` で前置する。表示は [file-preview.md](file-preview.md)。
+
+## ダウンロード
+
+| メソッド | パス | 説明 |
+| --- | --- | --- |
+| GET | `/api/files/download?path=<root 相対>` | 通常ファイルは生バイト、ディレクトリは ZIP。どちらも `Content-Disposition: attachment` |
+| GET | `/api/files/download/check?path=<root 相対>` | ダウンロードの見積り（種別 / 保存名 / 合計サイズ / エントリ数 / 除外名）。UI は先にこれを呼ぶ |
+
+サンドボックスの `GET /v1/files/download` と `GET /v1/files/download/check` に委譲し、**BFF はワークスペースに触らない**。`download` は本文を JSON に載せずストリーム中継し（既存 `raw` と同じ）、`Content-Type` / `Content-Disposition` / `Content-Length` / `Cache-Control: no-store` / `X-Content-Type-Options: nosniff` を付け直す。ファイル名の決定（`filename*=UTF-8''…` のエンコードを含む）と上限 / 除外の判定はサンドボックス側で、BFF は `Content-Disposition` を書き換えない（[sandbox-api.md](sandbox-api.md#get-v1filesdownload)）。
+
+```json
+// GET /api/files/download/check?path=src (200)
+{
+  "kind": "archive",
+  "name": "src.zip",
+  "bytes": 1042263,
+  "entries": 209,
+  "skipped": ["node_modules", "dist"]
+}
+```
+
+- 200: ファイルは `application/octet-stream` + `Content-Length`、ZIP は `application/zip`（**長さを確定できないため `Content-Length` を付けない**）。HTML / SVG もここでは配る（`attachment` と `nosniff` でレンダリングさせない。raw の画像 allowlist は通さない）
+- check の 200: サンドボックスの応答を `FileDownloadCheckSchema`（zod）で検証してそのまま返す。`kind` は `file` / `archive`、`entries` は ZIP のエントリ数（単体ファイルは 0）、`skipped` は除外規則で実際に落ちた名前
+- 400 / 404 / 413: 除外名のディレクトリそのもの・root 外・形式不正（400）、不存在（404）、合計 100 MiB / 10,000 エントリ（単体ファイルも同じ 100 MiB）の超過（413）。サンドボックス側の文言をそのまま返す
+- 502: サンドボックスへ到達できない / 認証失敗 / 本文が無い / check の応答が契約外
+- 503: `PI_SANDBOX_URL` / `PI_SANDBOX_TOKEN` が未設定
+
+クライアントは `client/src/api.ts` の `getFileDownloadCheck(path)` で先に見積りを取り、`fileDownloadUrl(path)` の URL を `<a download>` のプログラム的クリックで開く（本文を `fetch` して保持しない。100 MiB のメモリを避け、ページ遷移もしない）。確認ダイアログ・エラー表示・行の出し分けは [file-preview.md](file-preview.md#ダウンロード)。
 
 ## セッションへのファイルアップロード
 

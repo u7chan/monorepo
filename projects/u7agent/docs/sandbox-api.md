@@ -11,6 +11,8 @@ BFF が作業用ツール（`read` / `bash` / `edit` / `write` / `grep` / `find`
 | POST | `/v1/files/rename` | エントリ（ファイル / ディレクトリ）のリネーム。`{ path, name }` |
 | GET | `/v1/files/preview` | UTF-8テキストの取得。`?path=<root 相対>`。上限・応答は [api.md](api.md#テキストプレビュー) を参照 |
 | GET | `/v1/files/raw` | 画像の生配信。`?path=<root 相対>`。応答ヘッダは [api.md](api.md#画像配信raw) を参照 |
+| GET | `/v1/files/download` | 通常ファイルは生バイト、ディレクトリは ZIP（ストリーム）。`?path=<root 相対>` |
+| GET | `/v1/files/download/check` | ダウンロードの見積り（JSON）。除外 / 上限の判定は download と同じ |
 | POST | `/v1/files/upload` | ファイル追加（raw 本文）。`?dir=<root 相対>&name=<ファイル名>` |
 | POST | `/v1/dirs` | ディレクトリ作成（`mkdir -p` 相当）。`{ path }` |
 | DELETE | `/v1/dirs` | ディレクトリ削除。`?path=<root 相対>&recursive=true`。成功は本文なしの 204 |
@@ -111,6 +113,61 @@ root 相対の画像を `createReadStream` でストリーム返却する。配�
 - 200: `Content-Type`（拡張子）/ `Content-Length` / `Cache-Control: no-store` / `X-Content-Type-Options: nosniff`
 - 413: サイズが上限（100 MiB）を超える
 - BFF はこの応答をそのまま中継し、本文を JSON に載せない（[api.md](api.md#画像配信raw)）
+
+## `GET /v1/files/download`
+
+root 相対のエントリを持ち出し用に配る。通常ファイルは `createReadStream` で生バイトのまま、ディレクトリは**自前のストリーミング ZIP ライタ**（`server/src/sandbox/zip.ts`）で配る。`path` 省略（`""`）/ `"."` / 末尾区切りのみはワークスペース root を ZIP にし、保存名は `<フォルダ名>.zip`（root は解決後の実ディレクトリ名）。
+
+```
+GET /v1/files/download?path=src
+Content-Type: application/zip
+Content-Disposition: attachment; filename*=UTF-8''src.zip
+Cache-Control: no-store
+X-Content-Type-Options: nosniff
+```
+
+- **`zip` バイナリを spawn しない**。`pnpm dev` はサンドボックスをホストで起動するため `zip` / `unzip` が無く、info-zip のエントリ名エンコーディングはロケール依存で日本語名を保証できないため、`node:zlib` の `createDeflateRaw` + CRC32 で自前実装する（外部依存も足さない）
+  - 名前は UTF-8 で書き、general purpose bit 11 を立てる。サイズを事前に確定できないため data descriptor（bit 3）で CRC / サイズを本文の後に置く
+  - 既に圧縮済みの拡張子（`png` / `jpg` / `zip` / `pdf` / `mp3` / `woff2` など）は store（無圧縮）で入れる。それ以外は deflate
+  - **Zip64 は書かない**。そのために下記の上限を本文送出前に検査する（[上限](#get-v1filesdownload-の上限)）
+- 検証は削除 / リネームと同じ枠組み（親を realpath → 最終要素は `lstat`）で、**symlink は辿らず 400**（リンク先の内容を配ると root 内に閉じる検証を迂回する）。最終要素の `.` / `..` も 400
+- **除外規則**（`server/src/archive-rules.ts`）はベース名の完全一致・全階層で、ファイルとディレクトリのどちらにも当てる。除外した名前は `check` の `skipped` に実効の規則順で返す
+- **symlink はエントリにも入れない**。socket / fifo / device などの特殊ファイルも入れない
+- **空ディレクトリは末尾 `/` のエントリ**として入れる（入れないと展開後に消える）。ZIP の中身は**フォルダ直下をルートに置く**（フォルダ自身は前置しない）
+- **エントリの更新時刻**: ファイルは元ファイルの mtime を書く（ZIP の DOS 時刻はローカル時刻・2 秒粒度で、1980 年より前と 2107 年より先は年だけを丸める）。ディレクトリのエントリは walk が stat を持たないため ZIP を生成した時刻になる
+- 200 のヘッダ: ファイルは `application/octet-stream` + `Content-Length`、ZIP は `application/zip`（**`Content-Length` を付けない**）。どちらも `Content-Disposition: attachment; filename*=UTF-8''<percent encoded>` / `Cache-Control: no-store` / `X-Content-Type-Options: nosniff`
+- 400 / 404 / 413: 除外名のディレクトリそのもの・root 外・形式不正・symlink / ファイルでもディレクトリでもない（400）、不存在（404）、サイズ / 件数の上限超過（413）。413 の文言は単体ファイルと ZIP で 1 本（`Download is too large (max … bytes)`）
+- BFF はこの応答をストリーム中継し、本文を JSON に載せない（[api.md](api.md#ダウンロード)）
+
+### `GET /v1/files/download` の上限
+
+| 上限 | 値 | 定数 | 理由 |
+| --- | --- | --- | --- |
+| 含めるファイルの合計サイズ | 100 MiB | `SANDBOX_MAX_ARCHIVE_BYTES`（`SANDBOX_MAX_UPLOAD_BYTES` と同値） | Zip64 を書かない（ローカルヘッダ / 中央ディレクトリのサイズは 4 GiB 未満） |
+| ZIP のエントリ数 | 10,000 | `SANDBOX_MAX_ARCHIVE_ENTRIES` | EOCD の件数が 16bit（65,535） |
+
+事前 walk（`server/src/sandbox/archive.ts`）がヘッダを送る前に上限を検査するため、超過は「切れた zip」ではなく 413 になる。**単体ファイルも同じ 100 MiB** で拒否する（Zip64 を書かずに 4 GiB 級のファイルを 32bit フィールドで書くと壊れるため）。
+
+限界は [file-preview.md](file-preview.md#既知の制限ダウンロード) を参照（ストリーム中の失敗で切れた zip になる / 事前 walk と圧縮の間の増減は見積りの近似になる）。
+
+### `GET /v1/files/download/check`
+
+`download` と同じ計画（解決 + walk）から見積りだけを返す。ブラウザに生 JSON を見せずに理由をツリー内へ出すために UI が先に呼ぶ。
+
+```json
+// GET /v1/files/download/check?path=src (200)
+{
+  "kind": "archive",
+  "name": "src.zip",
+  "bytes": 1042263,
+  "entries": 209,
+  "skipped": ["node_modules", "dist"]
+}
+```
+
+- `kind` は `file` / `archive`。`name` は保存名（ファイルはその名前、ZIP は `<フォルダ名>.zip`）、`bytes` は含めるファイルの合計サイズ（単体ファイルはそのサイズ）、`entries` は ZIP のエントリ数（単体ファイルは 0）、`skipped` は除外規則で実際に落ちた名前（重複なし・実効の規則順）
+- エラーは `download` と同じ分類（400 / 404 / 413）で、本文は `{ error }`
+- walk は download と共通なので、見積りと実際の内容は同じ判定を通る
 
 ## `POST /v1/executions/:id/cancel`
 

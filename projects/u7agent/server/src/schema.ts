@@ -394,6 +394,12 @@ export const HealthSchema = z.object({
   tools: z.array(z.string()).optional(),
   availabilityError: z.string().optional(),
   sandboxConfigured: z.boolean().optional(),
+  /** ダウンロード ZIP の除外規則の実効値。UI は行にダウンロードを出すかの判定に使う */
+  archive: z
+    .object({
+      excludeNames: z.array(z.string()),
+    })
+    .optional(),
   /** 会話ストアの状態。null は永続化なし (未設定・テスト) */
   sessionStore: z
     .object({
@@ -478,6 +484,21 @@ export const FileRenameSchema = z.object({
   name: z.string(),
 });
 export type FileRename = z.infer<typeof FileRenameSchema>;
+
+/**
+ * ダウンロードの事前チェック (BFF GET /api/files/download/check とサンドボックス GET /v1/files/download/check の応答)。
+ * ワイヤ契約の正は server/src/sandbox/protocol.ts の `SandboxDownloadCheck`。
+ */
+export const FileDownloadCheckSchema = z.object({
+  kind: z.enum(["file", "archive"]),
+  /** 保存名。ファイルはその名前、ZIP は `<フォルダ名>.zip` */
+  name: z.string(),
+  bytes: z.number().int().nonnegative(),
+  entries: z.number().int().nonnegative(),
+  /** 除外規則で落とした名前 (重複なし) */
+  skipped: z.array(z.string()),
+});
+export type FileDownloadCheck = z.infer<typeof FileDownloadCheckSchema>;
 
 /**
  * サンドボックス GET /v1/skills の応答。ワイヤ契約の正は server/src/sandbox/protocol.ts で、

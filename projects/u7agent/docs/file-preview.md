@@ -52,7 +52,7 @@ FilePreview                 取得した本文をタブごとに保持（表示�
 - 成功表示は表示中のタブ（`FileCopyButton` の key）に紐づけ、タブを切り替えたら捨てる。見えている本文が変わるため、戻っても表示を復帰させない
 - 画像のプレビューには出さない。HTML はプレビュー中にソースを取得しないので出さず、ソース表示へ切り替えてからコピーする
 - 256 KiB 超で本文を取得できないファイルは対象外（本文自体が無い。上限の緩和は別）
-- 行番号付きコピー / 範囲指定コピー / ダウンロードは持たない
+- 行番号付きコピー / 範囲指定コピーは持たない（持ち出しはツリーの行のダウンロードを使う。[ダウンロード](#ダウンロード)）
 
 ## 上限
 
@@ -156,7 +156,7 @@ Content-Security-Policy: sandbox allow-scripts; default-src 'none'; style-src 'u
 | --- | --- | --- | --- |
 | 設定 → ファイル | `FileTreePage`（`SettingsPageLayout` + ヘッダ） | ワークスペース root 固定（`cwd=""` → `"."`） | 常時 |
 | チャットの右パネル | `SessionFilesPanel`（ヘッダ + 閉じる） | 選択中セッションの作業フォルダ（`payload.cwd`） | desktop のチャット画面で、作業フォルダがあるときだけ（`client/src/lib/sessionFiles.ts`） |
-| 設定 → スキルのファイルタブ | `ReadOnlySkillPanel`（`SkillDetailPanel` の中の 1 タブ） | SKILL.md の親ディレクトリ（root 相対。`client/src/lib/fileSkills.ts` の `fileSkillDir`） | `scope !== "builtin"` かつ root 相対の `.../SKILL.md` の親が取れるときだけ（組み込みの仮想パスと root 外の絶対パスは出さない）。**削除とリネームは `readOnly` で出さない** |
+| 設定 → スキルのファイルタブ | `ReadOnlySkillPanel`（`SkillDetailPanel` の中の 1 タブ） | SKILL.md の親ディレクトリ（root 相対。`client/src/lib/fileSkills.ts` の `fileSkillDir`） | `scope !== "builtin"` かつ root 相対の `.../SKILL.md` の親が取れるときだけ（組み込みの仮想パスと root 外の絶対パスは出さない）。**ダウンロード / 削除 / リネームは `readOnly` で出さない** |
 
 - `FileBrowser` は root が変わると復元・取得・保存をやり直す必要があるので、呼び出し側が `key` を張り替える。パネルはセッションの切替で `SessionFilesPanel` ごと入れ替える（`FileBrowser` の `root` は mount の間一定）。スキルのファイルタブは選択したスキルごとに `ReadOnlySkillPanel` ごと入れ替え、初回にタブを開いたときだけ `FileBrowser` を mount する（以降は `display` で隠して保持する）
 - 取り直しの入口は外装の「再読み込み」と run_end で共通の `reloadToken` に集める（`SessionFilesPanel` は ヘッダの「再読み込み」の回数 + `ChatState.runEndSeq` の合計を渡す）。mount 時の token では撃たない（root の切替は `key` が扱うため）。run_end は描画された `runStatus` の差ではなく、reducer が `run_end` で進める `runEndSeq` を起点にする（`run_start` と `run_end` が同じバッチで届くと React は 1 回の描画にまとめるため、画面側では `running` を観測できず取りこぼす。SSE が切れて `resync` で復帰したときも、`running` を抜けていれば reducer が進める）。実行中の `tool_end` ごとの更新はしない
@@ -229,7 +229,7 @@ assistant 本文のインラインコードが指すファイルを、右パネ�
 誤ってアップロードしたファイルやエージェントの成果物を取り消す導線。通常ファイルとディレクトリの行の右端のゴミ箱（`TrashIcon`）から、`window.confirm`（セッション / プロジェクト / エージェント削除と同じ）で確認してから `DELETE /api/files` を呼ぶ。
 
 - **出す画面は設定 → ファイル（ワークスペース root）とチャット右パネル（セッションの作業フォルダ）の 2 つ**。`FileBrowser` に画面を分ける `canDelete` は持たせず（`onDelete` も必須にする）、通常ファイルとディレクトリの行には常にゴミ箱を出す。プロジェクトのソースを GUI から消せる点は「ワークスペース全体を見ながら片付けたい」という要望を優先して受け入れ、事故防止は confirm のパス表記が担う。**dev の root は `PI_APP_CWD`（既定は `projects/u7agent` 自身）なので、自分のソースも消せる**
-- **スキル設定のファイルタブ（読み取り専用の面）は `readOnly` を渡し、削除とリネームの導線を行ごと出さない**（スキルの補助ファイルは「ファイル」画面から片付ける）。既定は false なので、上の 2 画面の挙動は変わらない
+- **スキル設定のファイルタブ（読み取り専用の面）は `readOnly` を渡し、ダウンロード / 削除 / リネームの導線を行ごと出さない**（スキルの補助ファイルは「ファイル」画面から持ち出し / 片付けする）。既定は false なので、上の 2 画面の挙動は変わらない
 - **confirm にはその画面の root 相対（ツリーに見えているパス）を出す**。ファイルは `client/src/lib/fileTree.ts` の `fileTreeDeleteConfirm(path)`（`「<path>」を削除しますか？この操作は取り消せません。`）で、設定 → ファイル は `.u7agent/uploads/3a7bfba36f/shot.png`、チャット右パネルは作業ディレクトリ相対（`node/main.ts` など）になる。ディレクトリは `fileTreeDeleteDirectoryConfirm(path)` で、配下ごと消えることを示す `「<path>」と配下のファイルをすべて削除しますか？この操作は取り消せません。` を出す。パネルでワークスペース root 相対（見えていない長いパス）を出すと行との対応が取れないため、見えているパスに合わせる（ワークスペース root を見る設定 → ファイル では両者が一致する）
 - **通常ファイルは 1 件、ディレクトリは配下ごと消える**（`recursive=true`。空ディレクトリも同じ導線）。削除範囲は一覧の上限（500 件 / ディレクトリ）に縛られず、未表示の子も消える。**symlink は行に導線を出さない**（サンドボックスが 400 で拒否する。ファイル / ディレクトリとも。symlink の行には既存の「リンク」バッジが付く）。`.u7agent/uploads/<id>/` はフラットだが、セッション作業フォルダの `uploads/` などの片付けにディレクトリ削除を使える
 - **削除したディレクトリ配下の symlink はリンクだけが消え、リンク先は残る**（`rm -rf` と同じ）。削除対象そのものが symlink なら 400 で、リンクもリンク先も残る
@@ -264,13 +264,38 @@ assistant 本文のインラインコードが指すファイルを、右パネ�
 - **同名の競合（TOCTOU）**: サンドボックスの同名判定は `lstat` → `rename(2)` の順なので、その間に同じ名前が作られると上書きされうる（Node に no-replace の rename が無い。単一ユーザーでエージェントと同時に触った場合のみ。[sandbox-api.md](sandbox-api.md#post-v1filesrename)）
 - リネーム先が既存タブと同じ経路になったとき（外部で消えたファイルのタブが残っている等）は、重複したタブを作らず先のタブへ寄せる
 
+## ダウンロード
+
+ワークスペースからファイル / フォルダを持ち出す導線。ツリーの行の右端のダウンロード（`DownloadIcon`）から、**事前チェック（`GET /api/files/download/check`）を通してから**保存を始める。通常ファイルは生バイトのまま、フォルダは ZIP になる。
+
+- **出す画面は設定 → ファイル（ワークスペース root）とチャット右パネル（セッションの作業フォルダ）の 2 つ**。行の右端のスロットは ダウンロード → リネーム → 削除 の順で、ダウンロードは通常ファイルとフォルダの行に出る。**スキル設定のファイルタブは `readOnly` で導線ごと消す**（組み込みスキルはワークスペース外でサンドボックスから解決できないため、削除 / リネームと同じ扱い）
+- **symlink の行には出さない**（サンドボックスが 400 で拒否する。削除と同じ判定）。**除外規則に一致する名前の行にも出さない**（`node_modules` など。出すと押した直後に 400 になるため）。導線の無い行も `size-6` の空スペーサーだけを残し、時刻と他のボタンの右端をそろえる
+- **除外名は `GET /api/health` の `archive.excludeNames`（実効値）から取り、`FileBrowser` が mount 時に 1 回だけ取得する**。取れなくても導線は出し、実際の判定はサーバーの `check` に任せる（フェーズ 2 で設定値に差し替わっても同じ経路で追随する。ずれた瞬間は `check` が 400 を返し、ツリーのエラー行に出る）
+- **クリックで先に `check` を呼び、結果で振り分ける**。`kind: "archive"` で `skipped` が 1 件以上あるときだけ `window.confirm` を 1 回出し、**サイズ / 件数の超過（413）・除外名のディレクトリそのもの（400）は確認より先にエラー行へ出す**（ダウンロードは始まらない）。確認の文言は `client/src/lib/archive.ts` の `archiveConfirmMessage` で、`「<名前>」を ZIP でダウンロードします。` + `含まれるファイル数 N 件 / 合計サイズ X` + `除外: node_modules, dist`（**実際に落ちた名前をサーバーの `skipped` からそのまま出す**）。除外 0 件のフォルダと通常ファイルは確認なしで始まる
+- **開始は `<a download>` のプログラム的クリック**（`startArchiveDownload`）。本文を `fetch` して state に保持しないため 100 MiB をメモリに載せず、ページ遷移も起きない（チャットのタブ・ツリーの開閉・実行中のランはそのまま）。`href` は `fileDownloadUrl` の URL、`download` 属性は `check.name`（サーバーの `Content-Disposition` と同じ名前。日本語名も化けない）
+- **失敗（400 / 404 / 413 / 502 / 503）は削除 / リネームと同じく親ディレクトリの行に出す**（`applyFileTreeError`。生 JSON をブラウザに開かせない）。行はそのまま残り、「再読み込み」で消える
+- 行には `ZIP でダウンロード（ビルド成果物と依存を除く）`（フォルダ）/ `ダウンロード`（ファイル）のツールチップと、名前を含む読み上げ名を付ける（除外の開示は確認ダイアログとここだけ。正確な規則は [sandbox-api.md](sandbox-api.md#get-v1filesdownload)）
+- 同じ行の二重送信は実行中のパスを持つ ref（`downloadingRef`）で弾く。ダウンロード中も他の行は操作でき、ツリーの再取得やラン終了も止めない
+- **上限は合計 100 MiB / 10,000 エントリ**（サンドボックスの定数）。単体ファイルも同じ 100 MiB で、メッセージは 1 本（`Download is too large (max … bytes)`）。上限は本文の送出前に判定するため、超過は「切れた zip」ではなく 413 になる
+- **ZIP の中身はフォルダ直下をルートに置く**（フォルダ自身は前置せず、ダウンロード名 `<フォルダ名>.zip` が担う）。空ディレクトリは末尾 `/` のエントリとして残り、展開後に空フォルダとして復元される（**空のフォルダ自体を配ると中身が無いので空の zip になる**）。symlink は辿らず、エントリにも入らない
+- 保存名・`Content-Type`・長さはサンドボックスが決め、BFF はストリームとヘッダを中継する（[api.md](api.md#ダウンロード)）。zip は長さを確定できないため `Content-Length` を付けない（ブラウザは保存表示で進捗を出す）
+
+### 既知の制限（ダウンロード）
+
+- **途中失敗は切れた zip になる**: 事前 walk の後にファイルが消えた / 読めなくなった / 接続が切れた場合、ブラウザは失敗として扱うが部分ファイルが残り得る（事前 walk で大半は防げる）。レジューム（`Accept-Ranges`）と進捗 UI は持たない
+- **事前 walk と圧縮の間の増減で見積りがずれる**: 増えても実害はサイズだけで、減るとエントリが黙って落ちる（上限は近似になる）
+- **クライアントが握る除外名（health）と実効値がずれる瞬間がある**: その場合は `check` が拒否し、ツリーのエラー行に出る（導線が出ないより先に整合する）
+- **除外の拡大で「忠実なコピーではない」性質が強い**: 何が入らないかを開示するのは確認ダイアログとツールチップだけで、正確な規則は [sandbox-api.md](sandbox-api.md#get-v1filesdownload) の記述を正とする
+- 3 スロット化で compact の深い階層では名前の truncate が増える。同時ダウンロードの制限は持たない（単一ユーザー前提。zip 1 本あたりは 1 リクエスト）
+- Zip64（4 GiB 超 / 65,535 エントリ超）は書かない。上限で回避する（緩和は別）
+
 ## 時刻
 
 ディレクトリ行 / ファイル行の右端に更新時刻（`FileEntry.mtime`、epoch ms）を出す。`mtime` を持つ行だけに出すので、stat できない壊れた symlink の行には出ない。
 
 - 表示はメッセージと同じ規則（`client/src/lib/messageTime.ts`）で、テキストは `messageTimeLabel`（今日 → `08:53` / 今年 → `9/21` / それ以前 → `2026/9/21`）、`title` に `messageFullTimeLabel`（`2026/9/21(日) 08:53`）を出す。`<time dateTime={new Date(mtime).toISOString()} title={…}>` の形の前例はチャットの吹き出し（`MessageView.tsx`）。数字の幅で行ごとにガタつかないよう `tabular-nums` を付ける
 - **ディレクトリ行もファイル行と同じ「div + 操作 button」の形にする**（以前は行全体が 1 つの `button`）。時刻を `button` の中に入れると accessible name に時刻が混ざり、時刻のクリックでも開閉してしまうため。`button` は `flex-1` のままなので、行のクリック領域は実質変わらない
-- 時刻の右端をそろえるため、両行の右 padding を `pr-1` にそろえ、行の末尾に `size-6` のスロットを並べる（行の右端は共通の `EntryRowActions`）。スロットは リネーム → 削除 の順で、**設定 → ファイル（`canRename`）は全行がリネームのスロットを持ち、フォルダ行だけ鉛筆が入る**（ファイル行と symlink 行は `aria-hidden` の空スペーサー `EmptySlot`）。チャット右パネルはリネームのスロットごと出さず、削除のスロット（ファイル / ディレクトリ行 = ゴミ箱、symlink 行 = 空スペーサー）だけになる。px の一致は client に DOM テスト基盤が無いため自動では固定せず、**手動確認**とする（`client/test/fileBrowserRowTime.test.ts` は両行が同じ形であることまでを、`client/test/fileBrowserRename.test.ts` は鉛筆の出し分けだけを固定する）
+- 時刻の右端をそろえるため、両行の右 padding を `pr-1` にそろえ、行の末尾に `size-6` のスロットを並べる（行の右端は共通の `EntryRowActions`）。スロットは ダウンロード → リネーム → 削除 の順で、**設定 → ファイル（`canRename`）は全行がリネームのスロットを持ち、フォルダ行だけ鉛筆が入る**（ファイル行と symlink 行は `aria-hidden` の空スペーサー `EmptySlot`）。ダウンロードは通常ファイル / フォルダ行に入り、symlink 行と除外名の行は空スペーサーになる。チャット右パネルはリネームのスロットごと出さず、ダウンロードと削除のスロットだけになる（[ダウンロード](#ダウンロード)）。px の一致は client に DOM テスト基盤が無いため自動では固定せず、**手動確認**とする（`client/test/fileBrowserRowTime.test.ts` は両行が同じ形であることまでを、`client/test/fileBrowserRename.test.ts` と `client/test/fileDownloadRow.test.ts` は各導線の出し分けだけを固定する）
 - 意味は「更新」。サンドボックスが返せるのは mtime で、`birthtime` は overlayfs 等で 0 になり得るため使わない（アップロード / エージェントの書き出しでは実質の作成時刻と一致する）
 - **サンドボックスの一覧はディレクトリにも `mtime` を付ける**（`size` はファイルだけ。ディレクトリの `size` はファイルの内容量を表さない）。規則は symlink は辿った先（`stat`）、それ以外は `lstat` を全エントリに適用し、`classifyEntry` が種別判定に使った `stat` は捨てずに再利用する（増える syscall は素のディレクトリの `lstat` 1 回）。ディレクトリ symlink にはリンク先の mtime が付く（一覧が実体で表す既存契約と一致）
 - 一覧は追加の更新を持たないので、**行の時刻は「再読み込み」と run 終了でしか更新されない**。削除しても親ディレクトリ行の `mtime` は次の取得まで古いまま
@@ -295,8 +320,9 @@ assistant 本文のインラインコードが指すファイルを、右パネ�
 | `client/test/filePreviewFullscreen.test.ts` | HTML プレビューの全画面（`showModal()` で開く / Escape を全画面のときだけ止める / iframe は 1 つだけ / 出すときのタブに紐づける / 残すのは戻るボタンだけ） |
 | `client/test/filePreviewCopy.test.ts` | 本文のコピー（パス行に置く / `reveal` を渡さない / 表示中の本文を渡す / 画像と HTML のプレビューでは出さない / タブを切り替えたら成功表示を捨てる） |
 | `client/test/fileTree.test.ts` | 開閉・子のマージ・エラー保持 / 削除した行だけを落として他を保つこと / 削除の confirm 文言（ファイル / 配下ごとのディレクトリ、画面の root 相対パス）/ ディレクトリ削除後の枝の prune（接頭辞境界と own プロパティ契約）/ リネームの prompt 文言と、親の行の名前差し替え・配下キーの張り替え・開閉と取得済みの子の保持（接頭辞境界・未取得の親・`__proto__`）/ 取得中のリネームで loading を落として新しいキーで取り直すこと（旧キーの応答で新キーを汚さない）/ 保存する展開の抽出と復元（root の初期化、親を閉じた子の open、truncated） |
-| `client/test/fileBrowserRowTime.test.ts` | ディレクトリ行とファイル行が同じ形の時刻と末尾スロットを持つこと（`<EntryTime at={entry.mtime}>` / `pr-1` / 共通の `EntryRowActions`）/ 右端のスロットがリネーム (フォルダのみ) と削除 (symlink 以外) を同じ条件で出し、残りは空スペーサーに落ちること / `readOnly` では両行とも行の操作ごと消えること / 時刻が開閉の `button` の外にあること / 空スペーサーが `aria-hidden` の `size-6` であること / 削除が種類ごとに confirm と API を分けること（ディレクトリは `deleteDirectory` と配下の state / タブの除去）/ 時刻が `messageTimeLabel` と `title` の完全な表記を使い、`mtime` 無しの行には出ないこと |
-| `client/test/fileBrowserRename.test.ts` | リネームの鉛筆の出し分け（`canRename` のフォルダ行だけ / 削除の左 / ファイル行と symlink 行は空スペーサー / 既定は出さない）/ `readOnly` は削除とリネームの導線ごと消えること / prompt の初期値と空・未変更の no-op / API への委譲とツリー・タブ・表示モードの張り替え・失敗の表示 / 渡すのは `FileTreePage` だけ、`readOnly` はスキルのファイルタブだけ（`react-dom/server` の描画 + ソース走査） |
+| `client/test/fileBrowserRowTime.test.ts` | ディレクトリ行とファイル行が同じ形の時刻と末尾スロットを持つこと（`<EntryTime at={entry.mtime}>` / `pr-1` / 共通の `EntryRowActions`）/ 右端のスロットが ダウンロード (symlink と除外名以外)・リネーム (フォルダのみ)・削除 (symlink 以外) を同じ条件で出し、残りは空スペーサーに落ちること / `readOnly` では両行とも行の操作ごと消えること / 時刻が開閉の `button` の外にあること / 空スペーサーが `aria-hidden` の `size-6` であること / 削除が種類ごとに confirm と API を分けること（ディレクトリは `deleteDirectory` と配下の state / タブの除去）/ 時刻が `messageTimeLabel` と `title` の完全な表記を使い、`mtime` 無しの行には出ないこと |
+| `client/test/fileDownloadRow.test.ts` | ダウンロードの出し分け（ファイル / フォルダ行 / ダウンロード → リネーム → 削除 の順 / 除外名・symlink 行は空スペーサー / `readOnly` は行の操作ごと消える）/ 確認文言（実際の除外名 / 件数 / サイズ表記 / ディレクトリだけ）/ `check` を先に通して `<a download>` で開始すること / 失敗をツリー内のエラー行へ出すこと / 除外名を `health` の `archive.excludeNames` から取ること（`react-dom/server` の描画 + ソース走査） |
+| `client/test/fileBrowserRename.test.ts` | リネームの鉛筆の出し分け（`canRename` のフォルダ行だけ / 削除の左 / ファイル行と symlink 行は空スペーサー / 既定は出さない）/ `readOnly` は行の操作ごと消えること / prompt の初期値と空・未変更の no-op / API への委譲とツリー・タブ・表示モードの張り替え・失敗の表示 / 渡すのは `FileTreePage` だけ、`readOnly` はスキルのファイルタブだけ（`react-dom/server` の描画 + ソース走査） |
 | `client/test/readOnlySkillPanel.test.ts` | 読み取り専用スキルの本文の取得元（選択のたびに `GET /api/files/preview` / 組み込みは一覧の `body`）/ 本文 / ファイル タブの出し分け（`fileSkillDir` / 読み取り専用の `FileBrowser` / 初回 mount と `display` の保持）/ 本文のコピーが表示と同じ生テキストであること（`react-dom/server` の描画 + ソース走査） |
 | `client/test/fileRef.test.ts` | matcher の採否表（正規化と別表記の同ービキー / 制御文字 U+0000 / Unicode 空白 U+00A0・U+3000 / dotfile / scheme / `..` / 末尾ドット）と、解決の表（rootCwd 前置き / cwd 外 / rootCwd 未取得 / 明示的な相対 / cwd 未確定） |
 | `client/test/fileRefRequest.test.ts` | 未消費は 1 件で最新優先 / ack は seq が一致するときだけ消す（request1 → request2 → ack1）/ 選択変更の破棄後に復活しない / 旧 ack で新しい要求を消さない / sessionId の一致判定 / 購読の通知 / 配線のソース走査（選択変更の 3 経路、App の受け渡し、`FileBrowser` の seq ガード、sheet の focus 復帰） |
@@ -307,6 +333,10 @@ assistant 本文のインラインコードが指すファイルを、右パネ�
 | `client/test/route.test.ts` | pathname と画面の対応（大文字・末尾スラッシュ・percent encoding・不正な入力の畳み方）と往復 |
 | `client/test/fileUrl.test.ts` | パスのセグメント単位 encode（`#` / `?` / `%` / `+` / 日本語 / 1 回の decode で戻ること）/ `fileHtmlPreviewUrl` がクエリでなくパス形式で組み立てること |
 | `server/test/files.test.ts` | HTML プレビューのポリシー定数（段階ごとの CSP / `connect-src` なし）/ `GET /api/files/html/<path>` の文書・画像・テキストアセット・400 の分岐と percent decoding / ヘッダ（CSP / `no-store` / `nosniff`）/ 文書は HTML・アセットは JSON のエラー写像 / `DELETE /api/files` の委譲（`recursive=true` は `deleteDirectory`）と 204・`recursive` の検証・エラー写像 / `POST /api/files/rename` の委譲と body 検証・エラー写像（409 の透過を含む）・契約外の応答の 502 |
+| `server/test/archive-rules.test.ts` | 既定の除外名（再生成物 / ビルド成果物 / `vendor` などを入れない）/ 上書きの解決（空配列は全解除・trim と重複の除去・呼び出し側の変更から既定を守る）/ `GET /api/health` が実効値を返すこと |
+| `server/test/zip-writer.test.ts` | ZIP ライタ（既知ベクタの CRC32 と分割入力 / store と deflate の選択 / UTF-8 名と bit 3・bit 11 / 空ファイル・空ディレクトリ / 複数チャンク / 途中失敗でストリームを失敗させる） |
+| `server/test/sandbox-archive.test.ts` | `GET /v1/files/download` と `/check`（zip の中身と除外 / skipped の内容 / 除外名のディレクトリの 400 / symlink の 400 と配下 symlink の除外 / 単体ファイルの生配信とヘッダ / root の zip / 空ディレクトリ / 末尾スラッシュ / 404・root 外 400・`..` の 400 / 上限 413 / 認証） |
+| `server/test/file-download.test.ts` | BFF の `GET /api/files/download` と `/check`（ストリーム中継とヘッダ / `Content-Disposition` の透過 / `Content-Length` の有無 / 400・404・413・502・503 の写像 / 契約外の check 応答の 502） |
 | `server/test/sandbox-delete-dir.test.ts` | `DELETE /v1/dirs`（`recursive` の解釈 / 空ディレクトリ / 非空の 400 と部分削除なし / 配下ごとの削除と接頭辞境界 / パス形式と root 外・不存在・非ディレクトリ・symlink の 400・404 / 配下 symlink のリンクだけの削除 / 一覧上限外の子 / `__proto__` / 認証） |
 | `server/test/sandbox-client.test.ts` | NDJSON / JSON 経路の写像と、`deleteDirectory` が `DELETE /v1/dirs?recursive=true` を呼び 204 の本文を読まないこと / `renameEntry` が `POST /v1/files/rename` を呼び、409 を文言ごと透過すること |
 | `server/test/sandbox-rename.test.ts` | `POST /v1/files/rename`（ファイル / ディレクトリの改名と応答パス / 大文字小文字だけの変更 / 同名 409 と変更なし / 不正な名前・パス形式の 400 / 不存在 404 / root 外 400 / symlink の 400 とリンク先の維持・symlink への上書きの 409 / symlink ディレクトリ経由 / 認証） |
@@ -318,3 +348,5 @@ assistant 本文のインラインコードが指すファイルを、右パネ�
 - [markdown.md](markdown.md) — 共有するトークナイザの対応言語・上限と、インラインコードをファイル参照の操作要素にする描画契約
 - [api.md](api.md#テキストプレビュー) — プレビューの転送契約
 - [api.md](api.md#html-プレビュー) — HTML プレビューのヘッダとエラー応答
+- [api.md](api.md#ダウンロード) — ダウンロードの転送契約
+- [sandbox-api.md](sandbox-api.md#get-v1filesdownload) — ZIP の除外規則・上限・ZIP ライタの実装

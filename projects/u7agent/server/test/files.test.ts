@@ -69,6 +69,9 @@ function stubFiles(result: SandboxFileListing | Error = LISTING): {
         raw.push(path);
         return { contentType: "image/png", body: null };
       },
+      // ダウンロードは BFF の中継を file-download.test.ts で見る
+      downloadEntry: async () => ({ contentType: "application/zip", contentDisposition: "attachment", body: null }),
+      checkDownload: async () => ({ kind: "archive", name: "src.zip", bytes: 0, entries: 0, skipped: [] }),
     },
   };
 }

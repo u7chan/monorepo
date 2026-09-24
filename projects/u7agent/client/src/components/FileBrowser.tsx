@@ -1,7 +1,16 @@
 import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
-import { deleteDirectory, deleteFile, getFiles, renameEntry } from "../api";
+import {
+  deleteDirectory,
+  deleteFile,
+  fileDownloadUrl,
+  getFileDownloadCheck,
+  getFiles,
+  getHealth,
+  renameEntry,
+} from "../api";
 import { FilePreview } from "./FilePreview";
 import { cn } from "../lib/cn";
+import { archiveConfirmMessage, isArchiveExcludedName, startArchiveDownload } from "../lib/archive";
 import {
   applyFileTreeError,
   applyFileTreeListing,
@@ -44,7 +53,7 @@ import {
   type PreviewModes,
 } from "../lib/fileTabs";
 import type { FileEntry } from "../types";
-import { ChevronIcon, FileIcon, FolderIcon, PencilIcon, TrashIcon } from "./icons";
+import { ChevronIcon, DownloadIcon, FileIcon, FolderIcon, PencilIcon, TrashIcon } from "./icons";
 
 const INDENT = 16;
 /** ファイル行の左端。親の chevron (16) + gap-2 (8) + ディレクトリ行の左端 (8) と一致させる */
@@ -101,6 +110,10 @@ export function FileBrowser({
   const deletingRef = useRef<Set<string>>(new Set());
   // 同じ行のリネームを二重に送らない (削除と同じ理由)
   const renamingRef = useRef<Set<string>>(new Set());
+  // 同じ行のダウンロードを二重に始めない (確認ダイアログが二重に出ないように)
+  const downloadingRef = useRef<Set<string>>(new Set());
+  /** 除外規則の実効値 (health の `archive.excludeNames`)。取れなかったら空のままにし、判定はサーバーの check に任せる */
+  const [excludeNames, setExcludeNames] = useState<readonly string[]>([]);
   // 最後に適用した要求の seq。適用の直前に記録して StrictMode の effect 再実行を弾く
   const appliedRequestRef = useRef<number | null>(null);
 
@@ -113,6 +126,24 @@ export function FileBrowser({
     setTabs((prev) => openFileTab(prev, openRequest.path));
     onHandled?.(openRequest.seq);
   }, [openRequest, onHandled]);
+
+  // 除外規則はサーバーが正。行の出し分けだけに使うため mount 時に 1 回取り、失敗しても導線は出す
+  // (実際の拒否は download/check が行い、ツリーのエラー行に出る)
+  useEffect(() => {
+    if (readOnly) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const health = await getHealth();
+        if (!cancelled) setExcludeNames(health.archive?.excludeNames ?? []);
+      } catch {
+        // 取れないときは除外なしとして扱う (判定はサーバーに任せる)
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [readOnly]);
 
   // 未取得のディレクトリを表示順に取得する。状態遷移は lib/fileTree.ts の純関数だけが行う。
   useEffect(() => {
@@ -210,6 +241,29 @@ export function FileBrowser({
     })();
   };
 
+  /**
+   * ダウンロードは事前チェック (`download/check`) を通してから始める。除外 (`skipped`) があるときだけ確認を 1 回出し、
+   * 開始は `<a download>` のプログラム的クリックにする (本文をメモリに保持せずページ遷移もしない)。
+   * 除外名のディレクトリ・上限超過・通信失敗は削除と同じく親ディレクトリのエラー行に出し、行は残す。
+   */
+  const downloadRow = (path: string, name: string, type: "file" | "dir") => {
+    if (downloadingRef.current.has(path)) return;
+    downloadingRef.current.add(path);
+    void (async () => {
+      try {
+        const fetchPath = fileTreeFetchPath(rootPath, path);
+        const check = await getFileDownloadCheck(fetchPath);
+        // サイズ / 件数の超過は check が 413 で返すので、確認より先にエラー行へ出る
+        if (type === "dir" && check.skipped.length > 0 && !window.confirm(archiveConfirmMessage(name, check))) return;
+        startArchiveDownload(fileDownloadUrl(fetchPath), check.name);
+      } catch (error) {
+        setTree((prev) => applyFileTreeError(prev, fileTreeParentPath(path), errorText(error)));
+      } finally {
+        downloadingRef.current.delete(path);
+      }
+    })();
+  };
+
   // 閉じたタブ (上限で落ちた分も含む) の選択を捨てる。復元したタブが揃った状態で走る
   // (復元前の空の paths で消さないため、復元は lazy initializer 側で済ませてある)
   useEffect(() => {
@@ -255,10 +309,12 @@ export function FileBrowser({
               selected={tabs.active}
               canRename={canRename}
               readOnly={readOnly}
+              excludeNames={excludeNames}
               onToggle={toggle}
               onSelect={openTab}
               onRename={renameRow}
               onDelete={removeEntry}
+              onDownload={downloadRow}
             />
           ) : rootNode.error ? null : (
             <MessageRow depth={0}>読み込み中…</MessageRow>
@@ -291,10 +347,13 @@ type BranchProps = {
   selected: string | null;
   canRename: boolean;
   readOnly: boolean;
+  /** ワークスペースの除外名 (行のダウンロードを出すかの判定に使う) */
+  excludeNames: readonly string[];
   onToggle: (path: string) => void;
   onSelect: (path: string) => void;
   onRename: (path: string, name: string) => void;
   onDelete: (path: string, type: "file" | "dir") => void;
+  onDownload: (path: string, name: string, type: "file" | "dir") => void;
 };
 
 function Branch({
@@ -305,10 +364,12 @@ function Branch({
   selected,
   canRename,
   readOnly,
+  excludeNames,
   onToggle,
   onSelect,
   onRename,
   onDelete,
+  onDownload,
 }: BranchProps) {
   const entries = node.children ?? [];
   return (
@@ -325,10 +386,12 @@ function Branch({
           selected={selected}
           canRename={canRename}
           readOnly={readOnly}
+          excludeNames={excludeNames}
           onToggle={onToggle}
           onSelect={onSelect}
           onRename={onRename}
           onDelete={onDelete}
+          onDownload={onDownload}
         />
       ))}
       {node.truncated ? <MessageRow depth={depth}>上限のため {entries.length} 件のみ表示しています</MessageRow> : null}
@@ -344,10 +407,12 @@ function EntryRow({
   selected,
   canRename,
   readOnly,
+  excludeNames,
   onToggle,
   onSelect,
   onRename,
   onDelete,
+  onDownload,
 }: {
   parent: string;
   entry: FileEntry;
@@ -356,10 +421,12 @@ function EntryRow({
   selected: string | null;
   canRename: boolean;
   readOnly: boolean;
+  excludeNames: readonly string[];
   onToggle: (path: string) => void;
   onSelect: (path: string) => void;
   onRename: (path: string, name: string) => void;
   onDelete: (path: string, type: "file" | "dir") => void;
+  onDownload: (path: string, name: string, type: "file" | "dir") => void;
 }) {
   const path = fileTreeChildPath(parent, entry.name);
 
@@ -399,8 +466,10 @@ function EntryRow({
             symlink={entry.symlink}
             canRename={canRename}
             readOnly={readOnly}
+            excludeNames={excludeNames}
             onRename={() => onRename(path, entry.name)}
             onDelete={() => onDelete(path, entry.type)}
+            onDownload={() => onDownload(path, entry.name, entry.type)}
           />
         </div>
         {open ? (
@@ -419,10 +488,12 @@ function EntryRow({
                 selected={selected}
                 canRename={canRename}
                 readOnly={readOnly}
+                excludeNames={excludeNames}
                 onToggle={onToggle}
                 onSelect={onSelect}
                 onRename={onRename}
                 onDelete={onDelete}
+                onDownload={onDownload}
               />
             ) : node?.error ? null : (
               <MessageRow depth={depth + 1}>読み込み中…</MessageRow>
@@ -460,16 +531,18 @@ function EntryRow({
         symlink={entry.symlink}
         canRename={canRename}
         readOnly={readOnly}
+        excludeNames={excludeNames}
         onRename={() => onRename(path, entry.name)}
         onDelete={() => onDelete(path, entry.type)}
+        onDownload={() => onDownload(path, entry.name, entry.type)}
       />
     </div>
   );
 }
 
 /**
- * 行の右端。時刻の右に リネーム (設定ツリーのみ) → 削除 の順で size-6 のスロットを並べる。
- * 導線を持たない行 (ファイルのリネーム / symlink) もスロットだけ空けて時刻の右端をそろえる。
+ * 行の右端。時刻の右に ダウンロード → リネーム (設定ツリーのみ) → 削除 の順で size-6 のスロットを並べる。
+ * 導線を持たない行 (除外名 / symlink) もスロットだけ空けて時刻の右端をそろえる。
  * 行の外に置くのは、行 (EntryRow) が組み立てたパスを渡すためと、描画のテストで直接見るため。
  */
 export function EntryRowActions({
@@ -478,27 +551,51 @@ export function EntryRowActions({
   symlink,
   canRename,
   readOnly,
+  excludeNames,
   onRename,
   onDelete,
+  onDownload,
 }: {
   name: string;
   type: "file" | "dir";
   symlink?: boolean;
   canRename: boolean;
   readOnly: boolean;
+  /** ワークスペースの除外名 (health の `archive.excludeNames`)。除外名の行にはダウンロードを出さない */
+  excludeNames: readonly string[];
   onRename: () => void;
   onDelete: () => void;
+  onDownload: () => void;
 }) {
   // リネームはフォルダ行だけに出す (UI からファイルは改名できない)。symlink はサンドボックスが 400 で拒否する
   const renamable = canRename && type === "dir" && !symlink;
   const deletable = !symlink;
-  // 読み取り専用の面 (スキルのファイルタブ) は削除とリネームの導線ごと消す
+  // ダウンロードは通常ファイルとディレクトリに出す。symlink は api が 400 で拒否し、除外名の行は zip に入らない
+  const downloadable = !symlink && !isArchiveExcludedName(name, excludeNames);
+  // 読み取り専用の面 (スキルのファイルタブ) は削除 / リネーム / ダウンロードの導線ごと消す
   if (readOnly) return null;
   return (
     <>
+      {downloadable ? <DownloadRowButton name={name} type={type} onClick={onDownload} /> : <EmptySlot />}
       {canRename ? renamable ? <RenameRowButton name={name} onClick={onRename} /> : <EmptySlot /> : null}
       {deletable ? <DeleteRowButton name={name} onClick={onDelete} /> : <EmptySlot />}
     </>
+  );
+}
+
+/** 行のダウンロードボタン。ディレクトリは ZIP になり、除外があることをツールチップで開示する。 */
+function DownloadRowButton({ name, type, onClick }: { name: string; type: "file" | "dir"; onClick: () => void }) {
+  const directory = type === "dir";
+  return (
+    <button
+      type="button"
+      aria-label={directory ? `${name} を ZIP でダウンロード` : `${name} をダウンロード`}
+      title={directory ? "ZIP でダウンロード（ビルド成果物と依存を除く）" : "ダウンロード"}
+      onClick={onClick}
+      className="grid size-6 shrink-0 place-items-center rounded-md text-ink-faint transition-colors hover:bg-raised hover:text-ink"
+    >
+      <DownloadIcon />
+    </button>
   );
 }
 

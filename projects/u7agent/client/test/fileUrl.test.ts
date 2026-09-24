@@ -42,3 +42,15 @@ test("fileHtmlPreviewUrl はクエリではなくパス形式で同一オリジ�
   ];
   for (const [path, url] of cases) assert.equal(fileHtmlPreviewUrl(path), url, path);
 });
+
+test("fileDownloadUrl は path をクエリで渡し、サーバー側の 1 回の decode で元に戻る", async () => {
+  Object.defineProperty(globalThis, "location", { value: { origin: "http://localhost:5173" }, configurable: true });
+  const { fileDownloadUrl } = await import("../src/api");
+  for (const path of ["a.txt", "src/nested 日本語", "a+b#c.txt", ""]) {
+    const url = new URL(fileDownloadUrl(path));
+    assert.equal(url.origin, "http://localhost:5173");
+    assert.equal(url.pathname, "/api/files/download", path);
+    // クエリの `+` は searchParams が空白へ戻す (`a+b` は `%2B` になる)
+    assert.equal(url.searchParams.get("path"), path, path);
+  }
+});

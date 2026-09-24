@@ -36,6 +36,17 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import { Hono } from "hono";
 import { COMMON_SKILLS_DIR } from "../app-paths";
+import { resolveArchiveExcludeNames } from "../archive-rules";
+import {
+  archiveContentDisposition,
+  archiveDownloadName,
+  archiveExcludedDirectoryError,
+  archiveTooLargeError,
+  DEFAULT_ARCHIVE_LIMITS,
+  walkArchive,
+  type ArchiveLimits,
+  type ArchivePlan,
+} from "./archive";
 import { SKILLS_SCAN_TIMEOUT_MS, scanSkillsWithDeadline } from "./skills-scan";
 import {
   SANDBOX_MAX_BODY_BYTES,
@@ -48,6 +59,7 @@ import {
   rawImageContentType,
   RECURSIVE_QUERY_ERROR,
   type SandboxCreateDirRequestBody,
+  type SandboxDownloadCheck,
   type SandboxExecuteRequestBody,
   type SandboxEvent,
   type SandboxFileEntry,
@@ -58,6 +70,7 @@ import {
   type SandboxSkillEntry,
   type SandboxSkillsResponse,
 } from "./protocol";
+import { createZipStream } from "./zip";
 
 /** サンドボックスが提供する作業用ツール名 (bash のみローカル出力をストリームする) */
 export const SANDBOX_TOOL_NAMES = ["bash", "read", "edit", "write", "grep", "find", "ls"] as const;
@@ -71,6 +84,10 @@ export interface SandboxServiceOptions {
   rootCwd?: string;
   /** テストで小さくできるアップロード / 生配信の上限 (既定 100 MiB) */
   maxUploadBytes?: number;
+  /** テストで小さくできるダウンロード (ZIP) の合計サイズ上限 (既定 100 MiB) */
+  maxArchiveBytes?: number;
+  /** テストで小さくできるダウンロードのエントリ数上限 (既定 10,000) */
+  maxArchiveEntries?: number;
   /** テストで小さくできるスキル走査の期限 (既定 2s) */
   skillsScanTimeoutMs?: number;
 }
@@ -334,6 +351,83 @@ async function renameWorkspaceEntry(rootCwd: string, requested: string, name: st
   return { path: relativeToRoot(parent.root, nextPath), name };
 }
 
+/** 解決だけをしたダウンロード対象。archive の `size` は使わない（`planDownload` が `walk` を付ける） */
+interface DownloadTarget {
+  kind: "file" | "archive";
+  /** 保存名の元。ファイルはその名前、ZIP はフォルダ名（`.zip` は応答で付ける） */
+  name: string;
+  /** 実パス */
+  target: string;
+  /** file のサイズ */
+  size: number;
+}
+
+/** ダウンロードの計画。file は生配信、archive は走査済みの ZIP。 */
+type DownloadPlan = ({ kind: "file" } & DownloadTarget) | ({ kind: "archive"; walk: ArchivePlan } & DownloadTarget);
+
+/**
+ * root 相対のダウンロード対象を解決する。最終要素は削除 / リネームと同じ lstat で見て、symlink は辿らず拒否する
+ * （リンク先の内容を配ると root 内に閉じる検証を迂回する）。root 自身（`""` / `"."` / 末尾区切りのみ）は
+ * ディレクトリとして扱い、フォルダ名には解決後の実ディレクトリ名を使う。
+ */
+async function resolveDownloadTarget(rootCwd: string, requestedRaw: string): Promise<DownloadTarget> {
+  // 末尾の区切りは同じ対象を指すため落とす (`..` の適用順を変える字句正規化はしない)
+  const requested = requestedRaw.replace(/\/+$/, "");
+  if (!requested || requested === ".") {
+    const { root, target } = await resolveWorkspaceDirectory(rootCwd, "", true);
+    return { kind: "archive", name: basename(root) || "workspace", target, size: 0 };
+  }
+
+  const name = basename(requested);
+  // 最終要素が親参照なら root の外を指し得る。削除 / リネームと同じく受け付けない (root 自身は上の分岐で扱う)
+  if (name === "." || name === "..") throw pathError(400, `Not a file or directory: ${requested}`);
+  // 親の解決は一覧 / 削除 / リネームと同じ (要求パスの字句 dirname を native realpath へ渡す)
+  const parent = await resolveWorkspaceDirectory(rootCwd, dirname(requested));
+  const target = join(parent.target, name);
+  const targetStat = await lstat(target).catch((error: unknown) => {
+    const code = (error as NodeJS.ErrnoException).code;
+    if (code === "ENOENT" || code === "ENOTDIR") throw pathError(404, `Path not found: ${target}`);
+    throw pathError(400, `Cannot resolve path: ${messageFor(error)}`);
+  });
+  if (targetStat.isSymbolicLink()) throw pathError(400, `Symbolic links cannot be downloaded: ${target}`);
+  if (targetStat.isFile()) return { kind: "file", name, target, size: targetStat.size };
+  if (targetStat.isDirectory()) return { kind: "archive", name, target, size: 0 };
+  throw pathError(400, `Not a file or directory: ${target}`);
+}
+
+/**
+ * 事前チェックと本文送出が共有する計画。walk はヘッダを送る前に終わらせ、除外名のディレクトリ・
+ * サイズ超過・件数超過を 4xx で返す（途中で切れた zip を配らない）。
+ */
+async function planDownload(input: {
+  rootCwd: string;
+  requested: string;
+  excludeNames: readonly string[];
+  limits: ArchiveLimits;
+}): Promise<DownloadPlan> {
+  const target = await resolveDownloadTarget(input.rootCwd, input.requested);
+  if (target.kind === "file") {
+    if (target.size > input.limits.maxBytes) throw archiveTooLargeError(input.limits.maxBytes);
+    return { ...target, kind: "file" };
+  }
+  // 除外名のディレクトリそのものを指定されたら断る (UI は行に導線を出さないが、直叩きも防ぐ)
+  if (input.excludeNames.includes(target.name)) throw archiveExcludedDirectoryError(target.name);
+  const walk = await walkArchive({ dir: target.target, excludeNames: input.excludeNames, limits: input.limits });
+  return { ...target, kind: "archive", walk };
+}
+
+/** 事前チェックの応答。見積りは download と同じ計画から導く（エラーの出どころを 1 つにする）。 */
+function downloadCheckFor(plan: DownloadPlan): SandboxDownloadCheck {
+  if (plan.kind === "file") return { kind: "file", name: plan.name, bytes: plan.size, entries: 0, skipped: [] };
+  return {
+    kind: "archive",
+    name: archiveDownloadName(plan.name),
+    bytes: plan.walk.bytes,
+    entries: plan.walk.entryCount,
+    skipped: plan.walk.skipped,
+  };
+}
+
 /** 実在する最も深い祖先 (自身を含む)。root 配下の要求では必ず root 以前で止まる。 */ async function deepestExistingPath(
   target: string,
 ): Promise<string> {
@@ -578,6 +672,12 @@ export function createSandboxService(options: SandboxServiceOptions): SandboxSer
   const rootCwd = options.rootCwd || "/workspace";
   const maxUploadBytes = options.maxUploadBytes ?? SANDBOX_MAX_UPLOAD_BYTES;
   const skillsScanTimeoutMs = options.skillsScanTimeoutMs ?? SKILLS_SCAN_TIMEOUT_MS;
+  const archiveLimits: ArchiveLimits = {
+    maxBytes: options.maxArchiveBytes ?? DEFAULT_ARCHIVE_LIMITS.maxBytes,
+    maxEntries: options.maxArchiveEntries ?? DEFAULT_ARCHIVE_LIMITS.maxEntries,
+  };
+  // 除外規則の実効値 (フェーズ 2 で設定ストアに差し替える)。health の開示と同じ関数から引く
+  const archiveExcludeNames = resolveArchiveExcludeNames();
 
   // bash にはセッションメタ変数 (PI_SESSION_ID 等) を注入せず (サンドボックスにセッションは無い)、
   // SDK の bash が process.env を継承しても、このプロセスの唯一の秘密値である共有トークンだけは剥がす。
@@ -870,6 +970,59 @@ export function createSandboxService(options: SandboxServiceOptions): SandboxSer
           "Content-Length": String(stats.size),
           "Cache-Control": "no-store",
           "X-Content-Type-Options": "nosniff",
+        },
+      });
+    } catch (error) {
+      const statusCode = (error as { statusCode?: number }).statusCode ?? 500;
+      return c.json({ error: messageFor(error) }, statusCode as 400);
+    }
+  });
+
+  // ダウンロードの事前チェック。walk は download と同じ計画を使い、ブラウザに生 JSON を見せずに理由を出す
+  app.get("/v1/files/download/check", async (c) => {
+    try {
+      const plan = await planDownload({
+        rootCwd,
+        requested: c.req.query("path") ?? "",
+        excludeNames: archiveExcludeNames,
+        limits: archiveLimits,
+      });
+      return c.json(downloadCheckFor(plan));
+    } catch (error) {
+      const statusCode = (error as { statusCode?: number }).statusCode ?? 400;
+      return c.json({ error: messageFor(error) }, statusCode as 400);
+    }
+  });
+
+  // 通常ファイルは生配信、ディレクトリはストリーミング ZIP。どちらも添付として配るため画像 allowlist は通さない
+  // (HTML / SVG もここでは配る。レンダリングさせないよう attachment と nosniff を付ける)
+  app.get("/v1/files/download", async (c) => {
+    try {
+      const plan = await planDownload({
+        rootCwd,
+        requested: c.req.query("path") ?? "",
+        excludeNames: archiveExcludeNames,
+        limits: archiveLimits,
+      });
+      const common = { "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff" };
+      if (plan.kind === "file") {
+        return new Response(Readable.toWeb(createReadStream(plan.target)) as ReadableStream<Uint8Array>, {
+          status: 200,
+          headers: {
+            "Content-Type": "application/octet-stream",
+            "Content-Length": String(plan.size),
+            "Content-Disposition": archiveContentDisposition(plan.name),
+            ...common,
+          },
+        });
+      }
+      return new Response(createZipStream(plan.walk.entries), {
+        status: 200,
+        headers: {
+          "Content-Type": "application/zip",
+          // ZIP はストリームなので長さを確定できない (Content-Length を付けない)
+          "Content-Disposition": archiveContentDisposition(archiveDownloadName(plan.name)),
+          ...common,
         },
       });
     } catch (error) {
