@@ -15,6 +15,11 @@ export type MenuItemProps = {
   selected?: boolean;
   /** nav は "page"、一覧の選択は "true" */
   current?: "page" | "true";
+  /**
+   * 右端の印。今のところ通知の失敗 (⚠) 専用なので、色は警告の意味を持つ warn に固定する
+   * (選択中の行では塗りの上で読める on-accent へ切り替える)。
+   */
+  trailing?: ReactNode;
   onClick: () => void;
 };
 
@@ -43,6 +48,7 @@ export function MenuItem({
   variant = "list",
   selected = false,
   current,
+  trailing,
   onClick,
 }: MenuItemProps) {
   const active = selected && variant !== "add";
@@ -84,6 +90,18 @@ export function MenuItem({
           </span>
         ) : null}
       </span>
+      {trailing ? (
+        <span
+          className={cn(
+            "grid size-4 shrink-0 place-items-center",
+            // アイコンの箱と同じく、2 行の行では 1 行目に合わせる
+            description ? "self-start" : null,
+            tone === "nav-active" ? "text-on-accent" : "text-warn",
+          )}
+        >
+          {trailing}
+        </span>
+      ) : null}
     </button>
   );
 }

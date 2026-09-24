@@ -6,6 +6,7 @@ import { CompactBar } from "./components/CompactBar";
 import { Composer } from "./components/Composer";
 import { FileTreePage } from "./components/FileTreePage";
 import { NavSheet } from "./components/NavSheet";
+import { NotificationSettingsPage } from "./components/NotificationSettingsPage";
 import { ProjectDialog } from "./components/ProjectDialog";
 import { RuntimePage } from "./components/RuntimePage";
 import { Sidebar } from "./components/Sidebar";
@@ -19,6 +20,7 @@ import { useRoute } from "./hooks/useRoute";
 import { agentIconOf } from "./lib/agentIcon";
 import { cn } from "./lib/cn";
 import { fileRefRequestForSession } from "./lib/fileRefRequest";
+import { notificationHasFailure } from "./lib/notifications";
 import { sessionFilesRoot } from "./lib/sessionFiles";
 import { type SettingsSection, type SidebarMode } from "./lib/settingsNav";
 
@@ -122,6 +124,8 @@ export default function App() {
     mode: sidebarMode,
     onSelectMode: selectMode,
     activeSettingsSection: settingsSection,
+    // 設定ナビの ⚠。通知設定は facade が持つため、ページを開いていなくても反映される
+    notificationsFailed: notificationHasFailure(app.notifications.settings),
     sessions: app.sessions,
     sessionId: app.sessionId,
     agents: app.agents,
@@ -288,8 +292,10 @@ export default function App() {
               <FileTreePage {...pageProps} cwd="" />
             ) : settingsSection === "appearance" ? (
               <AppearancePage {...pageProps} />
-            ) : (
+            ) : settingsSection === "runtime" ? (
               <RuntimePage {...pageProps} health={app.health} />
+            ) : (
+              <NotificationSettingsPage {...pageProps} notifications={app.notifications} />
             )
           ) : null}
         </div>

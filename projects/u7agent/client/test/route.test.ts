@@ -31,6 +31,7 @@ test("parseRoute は pathname だけで画面を決め、表のとおりに畳�
     ["/settings/skills", settings("skills")],
     ["/settings/appearance", settings("appearance")],
     ["/settings/runtime", settings("runtime")],
+    ["/settings/notifications", settings("notifications")],
     ["/Settings/RUNTIME/", settings("runtime")],
   ];
   for (const [pathname, expected] of table) {
@@ -42,7 +43,14 @@ test("routePath は正準形を返し、parseRoute と往復する", () => {
   assert.equal(routePath(CHAT_ROUTE), "/");
   assert.deepEqual(
     SETTINGS_SECTIONS.map((item) => routePath({ view: "settings", section: item.section })),
-    ["/settings/agents", "/settings/skills", "/settings/files", "/settings/appearance", "/settings/runtime"],
+    [
+      "/settings/agents",
+      "/settings/skills",
+      "/settings/files",
+      "/settings/appearance",
+      "/settings/runtime",
+      "/settings/notifications",
+    ],
   );
   for (const item of SETTINGS_SECTIONS) {
     const route = settings(item.section);

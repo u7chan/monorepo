@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
 import { SETTINGS_SECTIONS, type SettingsSection, type SidebarMode } from "../../lib/settingsNav";
 import { MenuItem } from "../MenuItem";
-import { ArrowLeftIcon, BoltIcon, FolderIcon, GaugeIcon, SparkleIcon, ThemeIcon } from "../icons";
+import { ArrowLeftIcon, BoltIcon, FolderIcon, GaugeIcon, SparkleIcon, ThemeIcon, WarningIcon } from "../icons";
 
 /** セクションの印。文字だけでは並びの違いが読み取りにくいので行の左に置く */
 const SECTION_ICONS: Record<SettingsSection, ReactNode> = {
@@ -10,14 +10,18 @@ const SECTION_ICONS: Record<SettingsSection, ReactNode> = {
   files: <FolderIcon />,
   appearance: <ThemeIcon />,
   runtime: <GaugeIcon />,
+  // ベルの印は会話トグルと共通にするため、いまは置かない (行は文字だけになる)
+  notifications: null,
 };
 
 export function SettingsNav({
   activeSettingsSection,
+  notificationsFailed,
   onSelectMode,
   onOpenSettingsSection,
 }: {
   activeSettingsSection: SettingsSection;
+  notificationsFailed: boolean;
   onSelectMode: (mode: SidebarMode) => void;
   onOpenSettingsSection: (section: SettingsSection) => void;
 }) {
@@ -34,6 +38,14 @@ export function SettingsNav({
           label={item.label}
           selected={item.section === activeSettingsSection}
           current="page"
+          trailing={
+            // 直近の送信が失敗しているときだけ ⚠ を出す (押すと設定 → 通知で理由が読める)
+            item.section === "notifications" && notificationsFailed ? (
+              <span role="img" aria-label="直近の通知の送信に失敗しています">
+                <WarningIcon />
+              </span>
+            ) : undefined
+          }
           onClick={() => onOpenSettingsSection(item.section)}
         />
       ))}

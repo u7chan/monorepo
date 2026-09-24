@@ -56,8 +56,8 @@ GUI の会話履歴は **BFF 専用の会話ストア**（`PI_SESSION_STORE`）�
 
 - 置き場所は会話ストアと同じディレクトリの `PI_SESSION_STORE/u7agent.db`。新しい環境変数は増やさない。
 - メモリ DB（`:memory:`）になるのは `sessionStoreDir: null` を明示したとき（テスト）だけ。パス解決に失敗したときは DB を使えない状態にし、メモリへは逃がさない。
-- テーブルは `projects` / `agents` / `skills` の 3 つ。`skillIds` / `suggestions` / `model` は JSON 列、並び順は作成順（rowid）。
-- `PRAGMA user_version` をコード側の定数（`APP_DB_SCHEMA_VERSION`）と照合し、不一致ならアプリ所有のテーブルを DROP → CREATE する。マイグレーションは持たない（開発中は作り直しで進める）。会話は `session.jsonl` なので作り直しでも消えない。
+- テーブルは `projects` / `agents` / `skills` / `notification_settings` の 4 つ。`skillIds` / `suggestions` / `model` は JSON 列、並び順は作成順（rowid）。`notification_settings` は Discord 通知のグローバル設定（Webhook URL / 有効 / ベース URL / メンション / 直近結果）を 1 行だけ持ち、Webhook URL は API 応答へ出さない（[notifications.md](notifications.md)）。
+- `PRAGMA user_version` をコード側の定数（`APP_DB_SCHEMA_VERSION`）と照合する。古い版（小さい値）は加算的に移行し、足りないテーブルだけを `CREATE TABLE IF NOT EXISTS` で作って `user_version` を更新する（既存のエージェント / スキル / プロジェクトは消さない）。新しい版（大きい値）のときだけアプリ所有のテーブルを DROP → CREATE する。会話は `session.jsonl` なので作り直しでも消えない。
 - サンプル定義（ずんだもん 1 体）は DB ファイルを新規作成したときだけ入れる。`user_version` 不一致の作り直しでは入れないため、削除した定義は再起動でも戻らない。
 - スキーマ作成 → `user_version` 設定 → seed は同一トランザクション。スキル削除（参照除去を含む）もトランザクションで行い、途中で失敗したら部分適用を残さない。
 - `journal_mode=WAL` / `synchronous=NORMAL`。書き込みは BFF の 1 プロセスを前提とし、複数インスタンスは対象外。
@@ -75,7 +75,7 @@ GUI の会話履歴は **BFF 専用の会話ストア**（`PI_SESSION_STORE`）�
 ## 会話履歴の扱い
 
 会話は BFF 専用ストアの `PI_SESSION_STORE/<id>/{meta.json,session.jsonl}` に保存する。
-`meta.json` は表示用メタデータ（タイトル / エージェントのスナップショット / 所属プロジェクトの cwd / 使用モデル）を持ち、
+`meta.json` は表示用メタデータ（タイトル / エージェントのスナップショット / 所属プロジェクトの cwd / 使用モデル / 会話ごとの通知トグル `notify`）を持ち、
 `session.jsonl` は pi SDK 形式（header + entries、compaction entry を含む）で、読み書きは BFF の `session-store` が行う。
 
 - 起動時にストアを走査して一覧（descriptor）を復元し、セッションを開いたときに SDK セッションを遅延生成する。表示メッセージ数（`messageCount`）の定義を変えた場合は、古い値のままの meta を開いたときに書き戻すため、開いていないセッションの一覧は古い値を返し続ける（[session-files.md](session-files.md)）。

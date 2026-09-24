@@ -6,6 +6,7 @@ import { chatReducer, initialChatState } from "./chatReducer";
 import { runtimeStatusForError } from "./runtimeStatus";
 import { sendChatMessage, stopRun } from "./sessionActions";
 import type { SettingsSelection } from "./settingsChange";
+import { useNotifications } from "./useNotifications";
 import { useProjects } from "./useProjects";
 import { useRuntimeCatalog } from "./useRuntimeCatalog";
 import { useSessionSkills } from "./useSessionSkills";
@@ -62,6 +63,8 @@ export function useU7Agent() {
     createProject,
     deleteProject: removeProject,
   } = useProjects();
+  // 通知設定はナビの ⚠ にも使うため、設定ページを開いていなくても facade が読み込む
+  const notifications = useNotifications();
   const {
     sessions,
     sessionId,
@@ -303,6 +306,7 @@ export function useU7Agent() {
     stopVisible,
     sessionSkills,
     reloadSessionSkills,
+    notifications,
     attachments: attachmentsForSession(attachments, sessionId),
     loadCatalog,
     refreshSessions,
