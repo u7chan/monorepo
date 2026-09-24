@@ -134,25 +134,25 @@ test("直近結果の日時と status は Issue の表記で出す", () => {
   const at = Date.UTC(2026, 8, 24, 3, 31);
   assert.equal(resultTimeLabel(at, TIME_ZONE), "2026-09-24 12:31");
   assert.equal(
-    resultMetaLabel({ ...result({ ok: true, status: 204 }), at, latencyMs: 142 }),
+    resultMetaLabel({ ...result({ ok: true, status: 204 }), at, latencyMs: 142 }, TIME_ZONE),
     "2026-09-24 12:31 / 204 No Content / 142 ms",
   );
   // 失敗時は status の数値と理由の両方を出す (受け入れ条件)
   assert.equal(
-    resultMetaLabel({ ...result({ ok: false, status: 404 }), at, latencyMs: 98 }),
+    resultMetaLabel({ ...result({ ok: false, status: 404 }), at, latencyMs: 98 }, TIME_ZONE),
     "2026-09-24 12:31 / 404 Not Found / 98 ms",
   );
   assert.equal(
-    resultMetaLabel({ ...result({ ok: false, status: 429 }), at, latencyMs: 12 }),
+    resultMetaLabel({ ...result({ ok: false, status: 429 }), at, latencyMs: 12 }, TIME_ZONE),
     "2026-09-24 12:31 / 429 Too Many Requests / 12 ms",
   );
   // 未知の status は数値だけ、応答が無いときは理由を出す
   assert.equal(
-    resultMetaLabel({ ...result({ ok: false, status: 418 }), at, latencyMs: 5 }),
+    resultMetaLabel({ ...result({ ok: false, status: 418 }), at, latencyMs: 5 }, TIME_ZONE),
     "2026-09-24 12:31 / 418 / 5 ms",
   );
   assert.equal(
-    resultMetaLabel({ ...result({ ok: false }), at, latencyMs: 5000 }),
+    resultMetaLabel({ ...result({ ok: false }), at, latencyMs: 5000 }, TIME_ZONE),
     "2026-09-24 12:31 / 送信できませんでした / 5000 ms",
   );
   assert.equal(httpStatusLabel(404), "404 Not Found");

@@ -128,9 +128,10 @@ export function httpStatusLabel(status: number): string {
 }
 
 /** 直近結果の 1 行。応答が返らなかった (timeout / network) ときは status の代わりに理由を出す */
-export function resultMetaLabel(result: NotificationResult): string {
+export function resultMetaLabel(result: NotificationResult, timeZone?: string): string {
   const status = result.status === undefined ? "送信できませんでした" : httpStatusLabel(result.status);
-  return `${resultTimeLabel(result.at)} / ${status} / ${result.latencyMs} ms`;
+  // 既定は表示端末のローカル TZ。テストが表示を固定できるよう素通しする
+  return `${resultTimeLabel(result.at, timeZone)} / ${status} / ${result.latencyMs} ms`;
 }
 
 export type NotificationResultView = {
