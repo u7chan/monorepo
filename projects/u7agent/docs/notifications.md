@@ -39,7 +39,7 @@
 - `PATCH /api/sessions/:id/notify` は専用経路。Model / Effort の `PATCH /settings` には相乗りせず、SDK の設定変更も busy 判定も通さないため実行中でも切り替えられる。live / 未ロードのどちらでも同じ応答で、会話全文は返さない（未ロードでは SDK セッションを開かない）。未知の id は 404
 - 直近結果（`lastResult`）は通常通知とテスト送信で共通の 1 件。送信開始の世代で新しい方を優先し、古い完了で新しい結果を上書きしない。Webhook URL を変えるとクリアする。再起動後は SQLite から復元する
 - `retryAfter` は 429 のときだけ載る待機秒数（Discord の `retry_after` を切り上げた整数）。429 以外では本文に `retry_after` があっても載せず、読めない値（文字列 / 負 / 非数値）も載せない
-- 失敗の表示に使うのは status と Discord の `message` / `code` だけ。リクエスト URL とレスポンス原文は API 応答にも画面にも出さない
+- 失敗の表示に使うのは status と Discord の `message` / `code`（429 は `retryAfter`）だけ。リクエスト URL とレスポンス原文は API 応答にも画面にも出さない
 
 ## セキュリティ
 
