@@ -148,6 +148,26 @@ export function PencilIcon() {
   );
 }
 
+/** 行のダウンロードボタン (リネーム / 削除と同じ寸法にそろえる) */
+export function DownloadIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.5"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className="size-3.5 shrink-0"
+    >
+      <path d="M8 2.75v7.5" />
+      <path d="M4.75 7l3.25 3.25L11.25 7" />
+      <path d="M3 13.25h10" />
+    </svg>
+  );
+}
+
 export function CheckIcon() {
   return (
     <svg

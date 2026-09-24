@@ -2,6 +2,7 @@ import { resolve } from "node:path";
 import type { Context } from "hono";
 import { AUTH_REQUIRED_MESSAGE, unavailableRuntimeDiagnostics } from "../agent";
 import type { PiBff } from "../agent";
+import { resolveArchiveExcludeNames } from "../archive-rules";
 import type { AppDbStatus } from "../app-db";
 
 function modelLabel(model: unknown): string | undefined {
@@ -65,6 +66,8 @@ export function createHealthRoutes({
         runtimeDiagnostics:
           pi?.runtimeDiagnostics?.summary ??
           unavailableRuntimeDiagnostics(pi ? "diagnostics_unavailable" : "runtime_unavailable"),
+        // クライアントは行にダウンロードを出すかの判定に使う。フェーズ 2 で設定値に差し替わる
+        archive: { excludeNames: resolveArchiveExcludeNames() },
         ...(sessionStore ? { sessionStore } : {}),
         ...(appDbStatus ? { appDb: appDbStatus } : {}),
         errorCode,

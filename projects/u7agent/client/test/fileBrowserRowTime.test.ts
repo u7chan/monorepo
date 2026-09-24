@@ -5,7 +5,8 @@
 //   2. 右 padding か末尾スロットの幅が変わり、ディレクトリ行とファイル行の時刻の右端がずれる
 //   3. 時刻の表示規則 (messageTimeLabel + title の完全な表記) か、mtime 無しの行の扱いが変わる
 //   4. ディレクトリ行の削除導線が消える / ファイル行と別の見た目になる
-//   5. readOnly の行 (スキルのファイルタブ) に削除 / リネームが残る、または既存 2 画面が readOnly になる
+//   5. ダウンロード / リネーム / 削除 のスロットの幅か出し分けが揺れる
+//   6. readOnly の行 (スキルのファイルタブ) に導線が残る、または既存 2 画面が readOnly になる
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
@@ -79,16 +80,27 @@ test("ディレクトリ行の時刻は開閉の button の外に出す", () => 
   );
 });
 
-test("ディレクトリ行の削除は symlink には出さず、通常ファイル行と同じ条件で出す", () => {
+test("行の右端は ダウンロード / リネーム / 削除 を同じ条件で出し、残りは空スペーサーへ落とす", () => {
   const { actions } = entryRowSections();
-  // リネームはフォルダ行だけ、削除は symlink 以外 (ファイル / ディレクトリとも) に出し、残りは空スペーサーへ落とす
+  // ダウンロードは symlink と除外名以外、リネームはフォルダ行だけ、削除は symlink 以外に出し、残りは空スペーサーへ落とす
+  assert.match(
+    actions,
+    /const downloadable = !symlink && !isArchiveExcludedName\(name, excludeNames\);/,
+    "ダウンロードの条件が変わった",
+  );
   assert.match(actions, /const renamable = canRename && type === "dir" && !symlink;/, "リネームの条件が変わった");
   assert.match(actions, /const deletable = !symlink;/, "削除の条件が変わった");
+  assert.ok(actions.includes("{downloadable ?"), "ダウンロードのスロットが downloadable で分岐していない");
+  assert.ok(
+    actions.indexOf("{downloadable ?") < actions.indexOf("{canRename ?") &&
+      actions.indexOf("{canRename ?") < actions.indexOf("{deletable ?"),
+    "ダウンロード → リネーム → 削除 の順になっていない",
+  );
   assert.ok(actions.includes("{canRename ?"), "リネームのスロットが canRename で分岐していない");
   assert.ok(actions.includes("{deletable ?"), "削除のスロットが deletable で分岐していない");
 });
 
-test("読み取り専用の面では削除とリネームの導線ごと消す", () => {
+test("読み取り専用の面では行の操作ごと消す", () => {
   const { dir, file, actions } = entryRowSections();
   for (const [label, row] of [
     ["ディレクトリ", dir],
@@ -104,8 +116,22 @@ test("読み取り専用の面では削除とリネームの導線ごと消す",
   }
 });
 
-test("末尾スロットはリネーム / ゴミ箱 / 空スペーサーで同じ 24px 幅", () => {
-  const { button } = entryRowSections();
+test("末尾スロットは ダウンロード / リネーム / ゴミ箱 / 空スペーサーで同じ 24px 幅", () => {
+  const { actions, button } = entryRowSections();
+  const downloadStart = actions.indexOf("function DownloadRowButton");
+  assert.ok(downloadStart >= 0, "ダウンロードボタンを切り出せない");
+  const download = actions.slice(downloadStart);
+  assert.match(download, /className="grid size-6 shrink-0 place-items-center/, "ダウンロードボタンが size-6 でない");
+  assert.match(
+    download,
+    /aria-label=\{directory \? `\$\{name\} を ZIP でダウンロード` : `\$\{name\} をダウンロード`\}/,
+    "ダウンロードボタンに読み上げ名が無い",
+  );
+  assert.match(
+    download,
+    /title=\{directory \? "ZIP でダウンロード（ビルド成果物と依存を除く）" : "ダウンロード"\}/,
+    "除外の開示がツールチップに無い",
+  );
   assert.match(button, /className="grid size-6 shrink-0 place-items-center/, "右端のボタンが size-6 でない");
   assert.match(button, /aria-label=\{`\$\{name\} の名前を変更`\}/, "リネームボタンに読み上げ名が無い");
   assert.match(button, /title="名前を変更"/, "リネームボタンに title が無い");

@@ -26,6 +26,7 @@ function renderActions(props: {
   symlink?: boolean;
   canRename?: boolean;
   readOnly?: boolean;
+  excludeNames?: readonly string[];
 }): string {
   return renderToStaticMarkup(
     createElement(EntryRowActions, {
@@ -34,8 +35,10 @@ function renderActions(props: {
       symlink: props.symlink,
       canRename: props.canRename ?? false,
       readOnly: props.readOnly ?? false,
+      excludeNames: props.excludeNames ?? [],
       onRename: () => {},
       onDelete: () => {},
+      onDownload: () => {},
     }),
   );
 }

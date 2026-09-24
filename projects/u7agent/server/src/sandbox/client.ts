@@ -5,6 +5,7 @@
 import {
   decodeSandboxEvent,
   type SandboxCreateDirResult,
+  type SandboxDownloadCheck,
   type SandboxEvent,
   type SandboxFileListing,
   type SandboxFilePreview,
@@ -36,6 +37,14 @@ export interface SandboxExecuteResult {
 /** raw 配信の応答。BFF はヘッダを付け直してストリームをそのまま流す。 */
 export interface SandboxRawFile {
   contentType: string;
+  contentLength?: number;
+  body: ReadableStream<Uint8Array> | null;
+}
+
+/** ダウンロードの応答。ファイル名はサンドボックスが決め、BFF は Content-Disposition ごと中継する。 */
+export interface SandboxDownloadFile {
+  contentType: string;
+  contentDisposition: string;
   contentLength?: number;
   body: ReadableStream<Uint8Array> | null;
 }
@@ -76,6 +85,8 @@ export function createSandboxToolClient(options: SandboxToolClientOptions): Sand
     deleteDirectory: (path) => deleteDirectory(path, baseUrl, token, fetchImpl),
     uploadFile: (input) => uploadFile(input, baseUrl, token, fetchImpl),
     rawFile: (path) => rawFile(path, baseUrl, token, fetchImpl),
+    downloadEntry: (path) => downloadEntry(path, baseUrl, token, fetchImpl),
+    checkDownload: (path) => checkDownload(path, baseUrl, token, fetchImpl),
   };
 }
 
@@ -104,6 +115,10 @@ export interface SandboxToolClient {
   deleteDirectory(path: string): Promise<void>;
   uploadFile(input: SandboxUploadInput): Promise<SandboxFileUpload>;
   rawFile(path: string): Promise<SandboxRawFile>;
+  /** 通常ファイルは生配信、ディレクトリは ZIP。保存名と `Content-Disposition` はサンドボックスが決める */
+  downloadEntry(path: string): Promise<SandboxDownloadFile>;
+  /** download と同じ走査の見積り（除外名 / 合計サイズ / エントリ数）。上限超過は 413 で拒否される */
+  checkDownload(path: string): Promise<SandboxDownloadCheck>;
 }
 
 /** /api/files とプロジェクト作成・アップロードが使うサンドボックス機能 (テストはこれを stub に差し替える)。 */
@@ -118,6 +133,8 @@ export type SandboxWorkspaceClient = Pick<
   | "previewFile"
   | "uploadFile"
   | "rawFile"
+  | "downloadEntry"
+  | "checkDownload"
 >;
 
 /**
@@ -318,7 +335,52 @@ async function rawFile(path: string, baseUrl: string, token: string, fetchImpl: 
 }
 
 /**
+ * ダウンロード（通常ファイルの生配信 / ディレクトリの ZIP）。保存名・Content-Type・長さはサンドボックスが決め、
+ * BFF はヘッダを付け直してストリームを中継する。4xx (不正パス・不存在・上限超過) は文言ごと透過する。
+ */
+async function downloadEntry(
+  path: string,
+  baseUrl: string,
+  token: string,
+  fetchImpl: typeof fetch,
+): Promise<SandboxDownloadFile> {
+  const response = await fetchJson(
+    fetchImpl,
+    `${baseUrl}/v1/files/download?path=${encodeURIComponent(path)}`,
+    { headers: jsonHeaders(token) },
+    baseUrl,
+  );
+  if (!response.ok) throw await rawError(response, "ファイルをダウンロードできませんでした");
+  const contentLength = Number.parseInt(response.headers.get("content-length") ?? "", 10);
+  return {
+    contentType: response.headers.get("content-type") ?? "application/octet-stream",
+    // 名前を落とすと日本語名が化けるため、ヘッダはそのまま中継する
+    contentDisposition: response.headers.get("content-disposition") ?? "attachment",
+    ...(Number.isFinite(contentLength) ? { contentLength } : {}),
+    body: response.body,
+  };
+}
+
+/** 事前チェック。download と同じ 4xx (413 を含む) を文言ごと透過し、応答は JSON として読む。 */
+async function checkDownload(
+  path: string,
+  baseUrl: string,
+  token: string,
+  fetchImpl: typeof fetch,
+): Promise<SandboxDownloadCheck> {
+  const response = await fetchJson(
+    fetchImpl,
+    `${baseUrl}/v1/files/download/check?path=${encodeURIComponent(path)}`,
+    { headers: jsonHeaders(token) },
+    baseUrl,
+  );
+  if (!response.ok) throw await rawError(response, "ダウンロードの確認ができませんでした");
+  return (await response.json()) as SandboxDownloadCheck;
+}
+
+/**
  * raw 経路のエラー写像。413 (上限超過) は raw 固有なので、JSON 経路 (jsonError) とは分けて透過する。
+ * ダウンロードと事前チェックも同じ経路（本文を JSON に載せない応答と 413）を通る。
  */
 async function rawError(response: Response, label: string): Promise<SandboxRequestError> {
   const detail = errorDetailOf(await response.text().catch(() => ""));

@@ -16,6 +16,7 @@ export type {
   CreateAgentBody,
   CreateSkillBody,
   EventEntry,
+  FileDownloadCheck,
   FileEntry,
   FileListing,
   FilePreview,

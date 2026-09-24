@@ -43,6 +43,13 @@ function stubWorkspace(): { workspace: SandboxWorkspaceClient; dirs: string[]; l
       deleteDirectory: async () => {},
       uploadFile: async ({ name }) => ({ path: `uploads/${name}`, name, renamed: false, size: 0 }),
       rawFile: async () => ({ contentType: "image/png", body: null }),
+      // ダウンロードはこのテストでは扱わない
+      downloadEntry: async () => ({
+        contentType: "application/octet-stream",
+        contentDisposition: "attachment",
+        body: null,
+      }),
+      checkDownload: async () => ({ kind: "file", name: "a.txt", bytes: 0, entries: 0, skipped: [] }),
     },
   };
 }

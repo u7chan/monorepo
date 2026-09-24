@@ -82,6 +82,9 @@ export async function createBffApp(opts: CreateBffAppOptions = {}) {
     // `:path{.+}` はルート配下のパスを 1 セグメントで受ける (wildcard `*` は Hono 4 で param として取れない)
     .get("/api/files/html/:path{.+}", fileRoutes.html)
     .get("/api/files/raw", fileRoutes.raw)
+    .get("/api/files/download", fileRoutes.download)
+    // `download` の下に置く静的パス。`download` 自身と衝突しない
+    .get("/api/files/download/check", fileRoutes.downloadCheck)
     .get("/api/projects", appData, projectRoutes.list)
     .post(
       "/api/projects",

@@ -65,6 +65,13 @@ function stubWorkspace() {
       rawPaths.push(path);
       return rawResult();
     },
+    // ダウンロードはこのテストでは扱わない
+    downloadEntry: async () => ({
+      contentType: "application/octet-stream",
+      contentDisposition: "attachment",
+      body: null,
+    }),
+    checkDownload: async () => ({ kind: "file", name: "a.txt", bytes: 0, entries: 0, skipped: [] }),
   };
   return {
     workspace,

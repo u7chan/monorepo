@@ -6,6 +6,7 @@ import type {
   CatalogResponse,
   CreateAgentBody,
   CreateSkillBody,
+  FileDownloadCheck,
   FileListing,
   FilePreview,
   FileRename,
@@ -199,6 +200,22 @@ export const fileHtmlPreviewUrl = (path: string): string =>
  * 生配信に載せるため bodyGuard の上限を通らず、Content-Type はサーバーが決める。
  */
 export const fileRawUrl = (path: string): string => client.api.files.raw.$url({ query: { path } }).toString();
+
+/**
+ * ダウンロードの事前チェック。download と同じ走査の見積り（種別 / 保存名 / 除外名 / 合計サイズ / 件数）を返し、
+ * 除外名のディレクトリ・上限超過は 400 / 413 で reject する（UI はツリーの行に理由を出す）。
+ */
+export const getFileDownloadCheck = async (path: string): Promise<FileDownloadCheck> => {
+  const res = await client.api.files.download.check.$get({ query: { path } });
+  if (!res.ok) throw await apiError(res);
+  return (await res.json()) as FileDownloadCheck;
+};
+
+/**
+ * ダウンロードの URL（`<a download>` の href）。ファイルは生配信、ディレクトリは ZIP になり、
+ * 保存名は応答の `Content-Disposition` が決める。本文は fetch せずブラウザに任せる（100 MiB を保持しない）。
+ */
+export const fileDownloadUrl = (path: string): string => client.api.files.download.$url({ query: { path } }).toString();
 
 export const listProjects = async (): Promise<ProjectsResponse> => {
   const res = await client.api.projects.$get();
