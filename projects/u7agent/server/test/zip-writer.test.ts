@@ -21,11 +21,11 @@ async function collect(stream: ReadableStream<Uint8Array>): Promise<Buffer> {
 }
 
 /** 名前 → 内容のファイルを作り、ZIP へ入れるエントリを返す */
-function writeEntries(root: string, files: Record<string, string>): ZipEntry[] {
+function writeEntries(root: string, files: Record<string, string>, mtime: Date): ZipEntry[] {
   return Object.entries(files).map(([name, content]) => {
     const source = join(root, name.replaceAll("/", "__"));
     writeFileSync(source, content);
-    return { name, source, mtime: new Date("2024-05-06T07:08:10Z") };
+    return { name, source, mtime };
   });
 }
 
@@ -48,15 +48,21 @@ test("zipCompressionFor は既存の圧縮形式だけ store にする", () => {
 
 test("ファイル / 空ファイル / 空ディレクトリ / 日本語名を書ける", async () => {
   const root = makeRoot("files");
+  // DOS 時刻は 2 秒粒度。ファイル側の mtime は偶数秒にして丸めなしで一致させる
+  const mtime = new Date(2024, 4, 6, 16, 8, 10);
   const entries: ZipEntry[] = [
-    ...writeEntries(root, {
-      "hello.txt": "hello zip",
-      "zero.txt": "",
-      "image.png": "not really a png",
-      "日本語 名前.txt": "こんにちは",
-    }),
+    ...writeEntries(
+      root,
+      {
+        "hello.txt": "hello zip",
+        "zero.txt": "",
+        "image.png": "not really a png",
+        "日本語 名前.txt": "こんにちは",
+      },
+      mtime,
+    ),
     // ディレクトリは末尾 `/` のエントリだけ（内容は持たない）
-    { name: "empty/", mtime: new Date("2024-05-06T07:08:10Z") },
+    { name: "empty/", mtime },
   ];
   const parsed = parseZip(await collect(createZipStream(entries)));
   assert.deepEqual(
@@ -79,10 +85,19 @@ test("ファイル / 空ファイル / 空ディレクトリ / 日本語名を�
     assert.equal(entry.localFlags, entry.flags, `${entry.name}: ローカルと中央で flags が違う`);
     assert.ok(entry.descriptorMatches, `${entry.name}: data descriptor が中央ディレクトリと一致しない`);
     assert.ok(entry.crcMatches, `${entry.name}: CRC またはサイズが本文と一致しない`);
+    // エントリの更新時刻は渡した mtime を DOS 時刻へ写したもの（ローカル解釈・2 秒粒度）
+    assert.equal(entry.mtime.getTime(), mtime.getTime(), `${entry.name}: mtime が渡した値と違う`);
     // bit 3 (data descriptor) と bit 11 (UTF-8 名) を立てる
     assert.equal(entry.flags & 0x0008, 0x0008, `${entry.name}: data descriptor の bit が無い`);
     assert.equal(entry.flags & 0x0800, 0x0800, `${entry.name}: UTF-8 の bit が無い`);
   }
+});
+
+test("1980 年以前の mtime は年だけ 1980 へ丸める（月日と時刻はそのまま）", async () => {
+  const root = makeRoot("dos-epoch");
+  const entries = writeEntries(root, { "old.txt": "old" }, new Date(1975, 5, 6, 7, 8, 10));
+  const parsed = parseZip(await collect(createZipStream(entries)));
+  assert.equal(parsed[0].mtime.getTime(), new Date(1980, 5, 6, 7, 8, 10).getTime());
 });
 
 test("64 KiB を超えるファイルも分割してストリームできる", async () => {
@@ -110,7 +125,7 @@ test("空のエントリ一覧でも読めるアーカイブになる", async ()
 test("存在しないファイルはストリームの途中で失敗する（壊れた zip を成功にしない）", async () => {
   const root = makeRoot("missing");
   const entries: ZipEntry[] = [
-    ...writeEntries(root, { "ok.txt": "ok" }),
+    ...writeEntries(root, { "ok.txt": "ok" }, new Date(2024, 4, 6, 16, 8, 10)),
     { name: "gone.txt", source: join(root, "does-not-exist.txt") },
   ];
   await assert.rejects(collect(createZipStream(entries)));

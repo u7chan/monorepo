@@ -113,7 +113,14 @@ export async function walkArchive(input: {
         throw archiveError(400, `Cannot read file: ${error instanceof Error ? error.message : String(error)}`);
       });
       addEntry(
-        { name: zipName, source: target, size: stats.size, compression: zipCompressionFor(zipName) },
+        {
+          name: zipName,
+          source: target,
+          // 展開後に mtime で増分を判断するツール (make など) が使えるよう、元ファイルの更新時刻を書く
+          mtime: stats.mtime,
+          size: stats.size,
+          compression: zipCompressionFor(zipName),
+        },
         stats.size,
       );
     }

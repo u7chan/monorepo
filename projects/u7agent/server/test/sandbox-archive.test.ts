@@ -3,7 +3,7 @@
 
 import assert from "node:assert/strict";
 import { mkdtempSync, symlinkSync } from "node:fs";
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import test from "node:test";
@@ -97,6 +97,27 @@ test("ディレクトリはストリーミング zip になり、除外名 / sym
     assert.equal(byName.get("empty/")?.size, 0);
     // 全エントリが読める zip（CRC / サイズ / data descriptor が本文と一致する）
     for (const entry of entries) assert.ok(entry.crcMatches && entry.descriptorMatches, entry.name);
+  } finally {
+    service.close();
+  }
+});
+
+test("ZIP のエントリは元ファイルの更新時刻を持つ（ダウンロード時刻にしない）", async () => {
+  const root = makeRoot("mtime");
+  const service = createService(root);
+  try {
+    await mkdir(join(root, "src"));
+    const source = join(root, "src", "old.txt");
+    await writeFile(source, "old");
+    // DOS 時刻はローカル時刻で 2 秒粒度。秒は偶数にして丸めなしで一致させる
+    const mtime = new Date(2001, 1, 3, 4, 5, 6);
+    await utimes(source, mtime, mtime);
+
+    const result = await download(service.app, "src");
+    assert.equal(result.status, 200);
+    const entry = parseZip(result.body).find((candidate) => candidate.name === "old.txt");
+    assert.ok(entry, "old.txt のエントリが無い");
+    assert.equal(entry.mtime.getTime(), mtime.getTime(), "エントリの更新時刻が元ファイルと違う");
   } finally {
     service.close();
   }

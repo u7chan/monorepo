@@ -21,8 +21,25 @@ export interface ParsedZipEntry {
   descriptorMatches: boolean;
   /** 中央ディレクトリの CRC が展開後の本文と一致したか */
   crcMatches: boolean;
+  /** 中央ディレクトリの DOS 時刻 / 日付をローカル時刻へ戻した値 (秒は 2 秒粒度) */
+  mtime: Date;
   /** 展開後の本文 */
   data: Buffer;
+}
+
+/**
+ * DOS の時刻 / 日付をローカル時刻の Date へ戻す。ZIP にタイムゾーンは無いため、書く側と同じローカル解釈にする。
+ * 秒は 2 秒単位でしか持てないため、下位ビットは切り捨てる。
+ */
+function dosDateTimeToDate(time: number, date: number): Date {
+  return new Date(
+    1980 + ((date >> 9) & 0x7f),
+    ((date >> 5) & 0x0f) - 1,
+    date & 0x1f,
+    (time >> 11) & 0x1f,
+    (time >> 5) & 0x3f,
+    (time & 0x1f) * 2,
+  );
 }
 
 /** コメントなしの ZIP を想定して EOCD から中央ディレクトリを辿る。壊れていれば assert で落ちる */
@@ -42,6 +59,7 @@ export function parseZip(buffer: Buffer): ParsedZipEntry[] {
     assert.equal(buffer.readUInt32LE(offset), 0x02014b50, "中央ディレクトリの署名が違う");
     const flags = buffer.readUInt16LE(offset + 8);
     const method = buffer.readUInt16LE(offset + 10);
+    const mtime = dosDateTimeToDate(buffer.readUInt16LE(offset + 12), buffer.readUInt16LE(offset + 14));
     const crc32 = buffer.readUInt32LE(offset + 16);
     const compressedSize = buffer.readUInt32LE(offset + 20);
     const size = buffer.readUInt32LE(offset + 24);
@@ -83,6 +101,7 @@ export function parseZip(buffer: Buffer): ParsedZipEntry[] {
       size,
       descriptorMatches,
       crcMatches: crc32 === nodeCrc32(data) && size === data.length,
+      mtime,
       data,
     });
     offset += 46 + nameLength + extraLength + commentLength;

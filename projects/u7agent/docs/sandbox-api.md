@@ -134,6 +134,7 @@ X-Content-Type-Options: nosniff
 - **除外規則**（`server/src/archive-rules.ts`）はベース名の完全一致・全階層で、ファイルとディレクトリのどちらにも当てる。除外した名前は `check` の `skipped` に実効の規則順で返す
 - **symlink はエントリにも入れない**。socket / fifo / device などの特殊ファイルも入れない
 - **空ディレクトリは末尾 `/` のエントリ**として入れる（入れないと展開後に消える）。ZIP の中身は**フォルダ直下をルートに置く**（フォルダ自身は前置しない）
+- **エントリの更新時刻**: ファイルは元ファイルの mtime を書く（ZIP の DOS 時刻はローカル時刻・2 秒粒度で、1980 年より前と 2107 年より先は年だけを丸める）。ディレクトリのエントリは walk が stat を持たないため ZIP を生成した時刻になる
 - 200 のヘッダ: ファイルは `application/octet-stream` + `Content-Length`、ZIP は `application/zip`（**`Content-Length` を付けない**）。どちらも `Content-Disposition: attachment; filename*=UTF-8''<percent encoded>` / `Cache-Control: no-store` / `X-Content-Type-Options: nosniff`
 - 400 / 404 / 413: 除外名のディレクトリそのもの・root 外・形式不正・symlink / ファイルでもディレクトリでもない（400）、不存在（404）、サイズ / 件数の上限超過（413）。413 の文言は単体ファイルと ZIP で 1 本（`Download is too large (max … bytes)`）
 - BFF はこの応答をストリーム中継し、本文を JSON に載せない（[api.md](api.md#ダウンロード)）
