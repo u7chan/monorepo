@@ -19,6 +19,7 @@
 - バーやゲージなどの図形は CSS（幅と背景色）か SVG で描く。ブロック要素のグリフ（`█` / `▁` など）は端末のフォント次第で字形が崩れ、等幅にならないため `tabular-nums` も効かない。設定 → ランタイムの比率ゲージは数値と桁を揃えて並べるので、幅を `viewBox` の内側で決められる `rect` で描く（`RuntimePage.tsx` の `MetricGauge`。`style` 属性は CSP と `shadcn/no-inline-styles` で使えない）。
 - 折りたたみ（`<details>`）は `summary` のブラウザー既定マーカーを外し、`DisclosureChevronIcon` の chevron を開閉の印にする。回転は CSS（`.disclosure-chevron`）が持ち、本文の高さは `details::details-content` の `block-size` を 0 → `auto` へ遷移させる（`interpolate-size: allow-keywords` と `content-visibility` の `allow-discrete` 遷移が要る）。どちらも無いブラウザーでは瞬時に開閉するだけで、機能は落ちない。`prefers-reduced-motion` では遷移を止める。
 - 認識済みコンポーネントへ渡す className は静的に読める形で書く（`shadcn/require-static-classes` が error）。ヘルパー関数の戻り値や、別 module から import したクラス定数を渡すと違反になるので、その場合はコンポーネント側に props を足す。
+- 状態で見た目を切り替えるボタンの土台（`.btn-quiet` / `.icon-button`）は `client/src/styles/index.css` の `@layer components` に置く。utilities 同士で同じプロパティを並べると（`border-line` と `border-accent/50` など）生成 CSS の順序で勝敗が決まり、`cn()` の後勝ちにならない（compact の通知トグルで On の accent が出なかった原因）。
 
 ## チャット状態とレンダリング
 
@@ -57,10 +58,10 @@
 - `parseRoute` は `/s/<id>` を `pendingSessionId` 付きのチャットとして返し、`routePath` も `/s/<id>` を返す。起動時の正準化は `routePath(parseRoute(pathname))` の比較なので、これが一致しないと選択前に URL が消える（ここが「保留」の実装）
 - 起動処理（`useU7Agent` の boot）は、セッション一覧のロード後に保留の id を選ぶ。優先順位は 保留の id → `localStorage` の保存値 → 一覧の先頭で、保留の id が一覧に無ければ選ばずに既定へ落ちる
 - 選択が確定したら `useRoute` の `consumePendingEntry` が `replaceState` で `/` へ畳む（履歴は増やさない）。既に別の画面へ移っていたら何もしない
-- 見つからない / 削除済みの id は「リンク先の会話が見つかりませんでした。」を状態行に出し、既定の会話を選んでから畳む
+- 見つからない / 削除済みの id は「リンク先の会話が見つかりませんでした。」を状態行に出し、既定の会話を選んでから畳む。一覧に無い場合だけでなく、一覧に載っていた会話が取得までに削除されていた場合（`GET /api/sessions/:id` が失敗して別の会話へ移った）も同じ
 - 遅延した応答が後からのユーザー選択を奪わないよう、一覧の要求より前の選択世代（`selectionSeqRef`）と比べる。待機中に別の会話や「新しい会話」を選んでいたら、その選択を残して URL だけを畳む（`GET /api/sessions/:id` の待機中も同じ）
 - 不正な percent encoding は既存どおりチャットへ畳む（入口にしない）。id は decode した値を使い、URL へ戻すときだけ `encodeURIComponent` する。id に `/` を含む形（`%2F`）はセグメントが余るため入口にしない
-- サーバー未接続で起動処理が health の時点で止まったときは畳まない。URL を保つのでリロードで再試行できる
+- 一覧の取得に失敗したときは入口を解決しない（空の一覧として畳まない）。URL を保ち、次に届いた一覧（4 秒のポーリング）で改めて解決する。サーバー未接続で起動処理が health の時点で止まったときも同じく URL を保ち、リロードで再試行できる
 
 ## 保存キーと保存範囲
 

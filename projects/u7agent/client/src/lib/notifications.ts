@@ -101,6 +101,22 @@ export function notifyUnavailableNote(on: boolean, settings: NotificationsRespon
   return settings?.enabled === true && settings.configured === true ? undefined : NOTIFY_UNAVAILABLE_NOTE;
 }
 
+/** 通知のリンク (`/s/<id>`) の会話を開けなかったときの注記 */
+export const MISSING_LINK_NOTE = "リンク先の会話が見つかりませんでした。";
+
+/** 会話を開く要求の結果。fallback は要求した会話を開けず、別の会話 / 未作成チャットへ移ったことを表す */
+export type SessionOpenResult = "opened" | "fallback" | "superseded";
+
+/**
+ * リンク先を開けなかった理由を出すか。一覧に無い場合 (requested = false) だけでなく、一覧に載っていた会話が
+ * 取得までに削除されていた場合 (GET が失敗して fallback した) にも出す。
+ * 待機中にユーザーが別の会話を選んでいた (superseded) ときは、その選択を壊さず何も出さない。
+ */
+export function missingLinkNote(requested: boolean, opened: SessionOpenResult): string | undefined {
+  if (opened === "superseded") return undefined;
+  return !requested || opened === "fallback" ? MISSING_LINK_NOTE : undefined;
+}
+
 const RESULT_TIME_FORMAT: Intl.DateTimeFormatOptions = {
   year: "numeric",
   month: "2-digit",

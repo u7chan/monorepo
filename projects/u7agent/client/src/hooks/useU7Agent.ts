@@ -2,6 +2,7 @@ import { useCallback, useEffect, useEffectEvent, useReducer, useRef, useState } 
 import { getHealth, postMessage, stopSession, uploadSessionFile } from "../api";
 import { attachmentRejection, attachmentsForSession, type Attachment } from "../lib/attachments";
 import { deriveComposerSettings } from "../lib/composerSettings";
+import type { SessionSummary } from "../types";
 import { chatReducer, initialChatState } from "./chatReducer";
 import { runtimeStatusForError } from "./runtimeStatus";
 import { sendChatMessage, stopRun } from "./sessionActions";
@@ -10,7 +11,7 @@ import { useNotifications } from "./useNotifications";
 import { useProjects } from "./useProjects";
 import { useRuntimeCatalog } from "./useRuntimeCatalog";
 import { useSessionSkills } from "./useSessionSkills";
-import { useSessions } from "./useSessions";
+import { useSessions, type PendingEntry } from "./useSessions";
 
 /** 実装は ../lib/composerSettings。既存の import 先を保つ互換 export */
 export { ALL_THINKING_LEVELS, effortLabel, type ComposerSettings } from "../lib/composerSettings";
@@ -235,11 +236,28 @@ export function useU7Agent({ pendingSessionId, onPendingSessionResolved }: UseU7
         return;
       }
       if (!(await removeProject(projectId))) return;
-      // サーバーは配下セッションまで停止・破棄する
-      await reselectIfMissing(await refreshSessions());
+      // サーバーは配下セッションまで停止・破棄する。一覧が取れなければ再選択は次の一覧 (ポーリング / SSE) に任せる
+      const list = await refreshSessions();
+      if (list) await reselectIfMissing(list);
     },
     [projects, refreshSessions, removeProject, reselectIfMissing, sessions],
   );
+
+  /**
+   * まだ解決していない入口 (`/s/<id>`)。一覧の取得に成功した時点で 1 度だけ解決する。
+   * 起動時の取得が失敗しても、次に届いた一覧 (4 秒のポーリング) で解決できるよう URL は保つ。
+   */
+  const pendingEntryRef = useRef<PendingEntry | null>(null);
+  const resolvePendingEntry = useEffectEvent(async (list: SessionSummary[], isCurrent: () => boolean) => {
+    const pending = pendingEntryRef.current;
+    if (!pending) return;
+    // 先に消す (ポーリングと起動処理が同じ一覧で二重に解決しないように)
+    pendingEntryRef.current = null;
+    await restoreSession(list, isCurrent, pending);
+    if (!isCurrent()) return;
+    // 選択が確定してから入口を畳む (URL は選択を待つ間だけ保つ。見つからないときも既定の会話へ移ってから)
+    onPendingSessionResolved?.();
+  });
 
   const boot = useEffectEvent(async (isCurrent: () => boolean) => {
     try {
@@ -252,13 +270,18 @@ export function useU7Agent({ pendingSessionId, onPendingSessionResolved }: UseU7
       await refreshProjects(isCurrent);
       if (!isCurrent()) return;
       // 保留の入口は、一覧の要求より前の選択世代と比べる (待機中にユーザーが選んだら、その選択を奪わない)
-      const selection = selectionSeqRef.current;
+      pendingEntryRef.current = pendingSessionId
+        ? { sessionId: pendingSessionId, selection: selectionSeqRef.current }
+        : null;
       const list = await refreshSessions(isCurrent);
       if (!isCurrent()) return;
-      await restoreSession(list, isCurrent, pendingSessionId ? { sessionId: pendingSessionId, selection } : undefined);
-      if (!isCurrent()) return;
-      // 選択が確定してから入口を畳む (URL は選択を待つ間だけ保つ。見つからないときも既定の会話へ移ってから)
-      if (pendingSessionId) onPendingSessionResolved?.();
+      if (pendingSessionId) {
+        // 一覧が取れなかったときは入口を解決しない (空の成功として畳まず、届いた一覧で解決する)
+        if (list) await resolvePendingEntry(list, isCurrent);
+        return;
+      }
+      // 一覧が取れなかったときは復元先が分からないので、未作成チャットのままにする (従来どおり)
+      await restoreSession(list ?? [], isCurrent);
     } catch (error) {
       if (!isCurrent()) return;
       const status = runtimeStatusForError(error);
@@ -277,7 +300,13 @@ export function useU7Agent({ pendingSessionId, onPendingSessionResolved }: UseU7
 
   useEffect(() => {
     let cancelled = false;
-    const timer = window.setInterval(() => void refreshSessions(() => !cancelled), 4000);
+    const isCurrent = () => !cancelled;
+    const timer = window.setInterval(() => {
+      void refreshSessions(isCurrent).then((list) => {
+        // 一覧が届いたら、起動時に取得できなかった入口をここで解決する
+        if (list) void resolvePendingEntry(list, isCurrent);
+      });
+    }, 4000);
     return () => {
       cancelled = true;
       window.clearInterval(timer);

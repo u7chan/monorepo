@@ -29,13 +29,7 @@ export function CompactBar({
   return (
     <header className="grid min-w-0 grid-cols-1 border-b border-line bg-panel/85">
       <div className={cn("flex min-w-0 items-center gap-2.5 px-3", landscape ? "py-0.5" : "py-2")}>
-        <button
-          type="button"
-          onClick={onOpenNav}
-          aria-label="ナビゲーションを開く"
-          // 他の compact コントロールと同じ 36px のタップ領域を確保する
-          className="grid size-9 shrink-0 place-items-center rounded-lg border border-line bg-raised text-ink-soft transition-colors hover:border-accent/50 hover:text-accent-text"
-        >
+        <button type="button" onClick={onOpenNav} aria-label="ナビゲーションを開く" className="icon-button">
           <MenuIcon />
         </button>
         {landscape ? (
@@ -54,10 +48,7 @@ export function CompactBar({
           onClick={notify.onToggle}
           aria-label="通知"
           title="通知"
-          className={cn(
-            "grid size-9 shrink-0 place-items-center rounded-lg border border-line bg-raised text-ink-soft transition-colors hover:border-accent/50 hover:text-accent-text",
-            notify.on && "border-accent/50 text-accent-text",
-          )}
+          className={cn("icon-button", notify.on && "border-accent/50 text-accent-text")}
         >
           <BellIcon ringing={notify.on} />
         </button>
@@ -68,10 +59,7 @@ export function CompactBar({
             aria-label="セッションのファイル"
             title="セッションのファイル"
             aria-expanded={sessionFiles.open}
-            className={cn(
-              "grid size-9 shrink-0 place-items-center rounded-lg border border-line bg-raised text-ink-soft transition-colors hover:border-accent/50 hover:text-accent-text",
-              sessionFiles.open && "border-accent/50 text-accent-text",
-            )}
+            className={cn("icon-button", sessionFiles.open && "border-accent/50 text-accent-text")}
           >
             <FolderIcon />
           </button>

@@ -7,6 +7,8 @@ import {
   draftIsDirty,
   EMPTY_NOTIFICATION_DRAFT,
   httpStatusLabel,
+  MISSING_LINK_NOTE,
+  missingLinkNote,
   notificationHasFailure,
   notificationPreviewLines,
   notificationResultView,
@@ -244,3 +246,15 @@ test("プレビューは baseUrl があるときだけリンク行を足す", ()
 function result(input: Partial<NotificationResult> & { ok: boolean }): NotificationResult {
   return { latencyMs: 1, at: 0, ...input };
 }
+
+test("リンク先を開けなかったときだけ理由を出す", () => {
+  // 一覧に無い (requested = false) と、一覧に載っていたが取得までに削除されていた (fallback) の両方で出す
+  assert.equal(missingLinkNote(false, "fallback"), MISSING_LINK_NOTE);
+  assert.equal(missingLinkNote(false, "opened"), MISSING_LINK_NOTE);
+  assert.equal(missingLinkNote(true, "fallback"), MISSING_LINK_NOTE);
+  // 開けたときは出さない
+  assert.equal(missingLinkNote(true, "opened"), undefined);
+  // 待機中にユーザーが別の会話を選んでいたら、その選択を壊さず何も出さない
+  assert.equal(missingLinkNote(true, "superseded"), undefined);
+  assert.equal(missingLinkNote(false, "superseded"), undefined);
+});

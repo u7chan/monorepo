@@ -9,7 +9,8 @@ export type SendChatMessageDeps = {
   /** render 時の state は古くなるため、await を挟んだ後の判定に使う */
   sessionIdRef: RefObject<string>;
   ensureSession: () => Promise<string>;
-  refreshSessions: () => Promise<SessionSummary[]>;
+  /** 一覧を取り直す。取得できなかったときは null (空の成功と区別する) */
+  refreshSessions: () => Promise<SessionSummary[] | null>;
   post: (sessionId: string, text: string, attachments: string[]) => Promise<PostMessageResult>;
   /** 送信できた添付 (root 相対)。成功したときにチップを消すために使う */
   attachments?: string[];
