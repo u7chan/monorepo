@@ -1,7 +1,16 @@
 import type { ReactNode } from "react";
 import { SETTINGS_SECTIONS, type SettingsSection, type SidebarMode } from "../../lib/settingsNav";
 import { MenuItem } from "../MenuItem";
-import { ArrowLeftIcon, BoltIcon, FolderIcon, GaugeIcon, SparkleIcon, ThemeIcon, WarningIcon } from "../icons";
+import {
+  ArrowLeftIcon,
+  BellIcon,
+  BoltIcon,
+  FolderIcon,
+  GaugeIcon,
+  SparkleIcon,
+  ThemeIcon,
+  WarningIcon,
+} from "../icons";
 
 /** セクションの印。文字だけでは並びの違いが読み取りにくいので行の左に置く */
 const SECTION_ICONS: Record<SettingsSection, ReactNode> = {
@@ -10,8 +19,7 @@ const SECTION_ICONS: Record<SettingsSection, ReactNode> = {
   files: <FolderIcon />,
   appearance: <ThemeIcon />,
   runtime: <GaugeIcon />,
-  // ベルの印は会話トグルと共通にするため、いまは置かない (行は文字だけになる)
-  notifications: null,
+  notifications: <BellIcon />,
 };
 
 export function SettingsNav({

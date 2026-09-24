@@ -42,6 +42,29 @@ export function draftIsDirty(draft: NotificationDraft, settings: NotificationsRe
   );
 }
 
+/**
+ * 取得した設定に合わせて下書きを追従させる。他タブの保存や定期取得で `settings` が変わったとき、
+ * **未編集のフィールドだけ**新しい保存値へ揃え、編集中のフィールドは残す
+ * (未編集の古い値を PUT して、他タブの変更を巻き戻さないため)。
+ * 判定は「下書きが直前の保存値と一致していれば未編集」。URL は write-only で比較できないため、
+ * 入力中 (`null` 以外) は常に残す。
+ */
+export function syncDraft(
+  draft: NotificationDraft,
+  previous: NotificationsResponse | null,
+  next: NotificationsResponse,
+): NotificationDraft {
+  if (!previous) return draftFromSettings(next);
+  const base = draftFromSettings(previous);
+  const updated = draftFromSettings(next);
+  return {
+    enabled: draft.enabled === base.enabled ? updated.enabled : draft.enabled,
+    webhookUrl: draft.webhookUrl === null ? null : draft.webhookUrl,
+    baseUrl: draft.baseUrl.trim() === base.baseUrl ? updated.baseUrl : draft.baseUrl,
+    mention: draft.mention === base.mention ? updated.mention : draft.mention,
+  };
+}
+
 /** PUT の body。webhookUrl は「変更」で入力したときだけ送り、空にすると null (解除) になる */
 export function draftBody(draft: NotificationDraft): UpdateNotificationsBody {
   const body: UpdateNotificationsBody = {
@@ -98,8 +121,10 @@ const STATUS_LABELS: Record<number, string> = {
   504: "Gateway Timeout",
 };
 
+/** 直近結果に出す「404 Not Found」。未知の status は数値だけにする (理由は headline 側で出す) */
 export function httpStatusLabel(status: number): string {
-  return STATUS_LABELS[status] ?? String(status);
+  const label = STATUS_LABELS[status];
+  return label ? `${status} ${label}` : String(status);
 }
 
 /** 直近結果の 1 行。応答が返らなかった (timeout / network) ときは status の代わりに理由を出す */

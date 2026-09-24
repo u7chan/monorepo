@@ -13,6 +13,7 @@ import {
   previewLink,
   resultMetaLabel,
   resultTimeLabel,
+  syncDraft,
   testAvailable,
   testNeedsSave,
 } from "../src/lib/notifications";
@@ -68,6 +69,43 @@ test("draftBody は URL を触っていなければ送らず、空の baseUrl �
   );
 });
 
+test("syncDraft は未編集のフィールドだけ新しい保存値へ追従させる", () => {
+  const base = draftFromSettings(SETTINGS);
+  // 他タブの保存で enabled / baseUrl / mention が変わっても、A の未編集の下書きは追従する
+  const next: NotificationsResponse = {
+    ...SETTINGS,
+    enabled: false,
+    baseUrl: "http://127.0.0.1:5174",
+    mention: "here",
+  };
+  const synced = syncDraft(base, SETTINGS, next);
+  assert.deepEqual(synced, { enabled: false, webhookUrl: null, baseUrl: "http://127.0.0.1:5174", mention: "here" });
+  // 追従後の下書きは保存済みと同じなので、古い値を PUT しない (dirty が立たない)
+  assert.equal(draftIsDirty(synced, next), false);
+
+  // 未編集のフィールドは追従し、編集中のフィールドは残る (同じ下書き内で混ざってもよい)
+  const edited = { ...base, enabled: true, baseUrl: "http://127.0.0.1:5175", mention: "none" as const };
+  const kept = syncDraft(edited, SETTINGS, next);
+  assert.deepEqual(kept, { enabled: false, webhookUrl: null, baseUrl: "http://127.0.0.1:5175", mention: "here" });
+  // baseUrl の編集だけが残るため dirty は立つ (保存すればその値が送られる)
+  assert.equal(draftIsDirty(kept, next), true);
+
+  // 前後の空白だけの差は未編集として扱う
+  assert.equal(syncDraft({ ...base, baseUrl: "  http://127.0.0.1:5173  " }, SETTINGS, next).baseUrl, next.baseUrl);
+  // 初回 (直前の保存値が無い) は保存値から作る
+  assert.deepEqual(syncDraft(EMPTY_NOTIFICATION_DRAFT, null, next), draftFromSettings(next));
+});
+
+test("syncDraft は「変更」で入力中の Webhook URL を残す", () => {
+  const base = draftFromSettings(SETTINGS);
+  const next: NotificationsResponse = { ...SETTINGS, configured: false, webhookHint: undefined };
+  const synced = syncDraft({ ...base, webhookUrl: "https://discord.com/api/webhooks/1/token" }, SETTINGS, next);
+  assert.equal(synced.webhookUrl, "https://discord.com/api/webhooks/1/token");
+  assert.equal(synced.enabled, next.enabled);
+  // 未編集 (null) は null のまま。他タブの保存で入力欄が勝手に開かない
+  assert.equal(syncDraft(base, SETTINGS, next).webhookUrl, null);
+});
+
 test("テスト送信の可否は保存後の URL の有無で決める", () => {
   const base = draftFromSettings(SETTINGS);
   assert.equal(testNeedsSave(base), false);
@@ -97,13 +135,28 @@ test("直近結果の日時と status は Issue の表記で出す", () => {
   assert.equal(resultTimeLabel(at, TIME_ZONE), "2026-09-24 12:31");
   assert.equal(
     resultMetaLabel({ ...result({ ok: true, status: 204 }), at, latencyMs: 142 }),
-    "2026-09-24 12:31 / No Content / 142 ms",
+    "2026-09-24 12:31 / 204 No Content / 142 ms",
   );
-  // 応答が返らなかったときは status の代わりに理由を出す
+  // 失敗時は status の数値と理由の両方を出す (受け入れ条件)
+  assert.equal(
+    resultMetaLabel({ ...result({ ok: false, status: 404 }), at, latencyMs: 98 }),
+    "2026-09-24 12:31 / 404 Not Found / 98 ms",
+  );
+  assert.equal(
+    resultMetaLabel({ ...result({ ok: false, status: 429 }), at, latencyMs: 12 }),
+    "2026-09-24 12:31 / 429 Too Many Requests / 12 ms",
+  );
+  // 未知の status は数値だけ、応答が無いときは理由を出す
+  assert.equal(
+    resultMetaLabel({ ...result({ ok: false, status: 418 }), at, latencyMs: 5 }),
+    "2026-09-24 12:31 / 418 / 5 ms",
+  );
   assert.equal(
     resultMetaLabel({ ...result({ ok: false }), at, latencyMs: 5000 }),
     "2026-09-24 12:31 / 送信できませんでした / 5000 ms",
   );
+  assert.equal(httpStatusLabel(404), "404 Not Found");
+  assert.equal(httpStatusLabel(429), "429 Too Many Requests");
   assert.equal(httpStatusLabel(418), "418");
 });
 

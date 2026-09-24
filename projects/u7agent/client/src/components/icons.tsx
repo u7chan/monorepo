@@ -328,6 +328,30 @@ export function GaugeIcon() {
   );
 }
 
+/**
+ * 通知 (設定ナビの入口と、会話ごとのトグルの On / Off)。ringing は「鳴っている」で、
+ * 左右に音の線が増える。押せるかどうかの色は呼び出し側の text-* に従う。
+ */
+export function BellIcon({ ringing = false }: { ringing?: boolean }) {
+  return (
+    <svg
+      aria-hidden="true"
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.5"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className="size-4 shrink-0"
+    >
+      <path d="M4.25 11.25V8.25a3.75 3.75 0 0 1 7.5 0v3" />
+      <path d="M2.9 11.25h10.2" />
+      {ringing ? <path d="M1.7 2.8 3.2 4.3M14.3 2.8 12.8 4.3" /> : null}
+      <circle cx="8" cy="12.9" r=".9" fill="currentColor" stroke="none" />
+    </svg>
+  );
+}
+
 /** ツリーの展開 (開いているときは親側で回転させる) */
 export function ChevronIcon() {
   return (
