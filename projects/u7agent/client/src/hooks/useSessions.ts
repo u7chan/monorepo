@@ -6,6 +6,7 @@ import {
   deleteSession as apiDeleteSession,
   getSession,
   listSessions,
+  updateSessionNotify,
   updateSessionSettings,
 } from "../api";
 import { adoptKnownAgentId } from "../lib/agentSelection";
@@ -13,6 +14,7 @@ import { createFileRefRequests } from "../lib/fileRefRequest";
 import type { AgentDef, EventEntry, Health, ModelRef, SessionPayload, SessionSummary, ThinkingLevel } from "../types";
 import type { ChatAction } from "./chatReducer";
 import { createRequestGate } from "./requestGate";
+import { createNotifyCarry, toggleNotify as applyNotifyToggle } from "./notifyToggle";
 import { createSessionCreation } from "./sessionCreation";
 import { applySessionEvent } from "./sessionStream";
 import { applySettingsChange, type SettingsSelection } from "./settingsChange";
@@ -28,6 +30,10 @@ function sessionOpenFailureText(error: unknown): string {
   return error instanceof ApiError ? error.message : "セッションを開けませんでした";
 }
 
+function messageFor(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
 export type UseSessionsParams = {
   dispatch: Dispatch<ChatAction>;
   agentId: string;
@@ -38,6 +44,15 @@ export type UseSessionsParams = {
   selectedProjectIdRef: RefObject<string>;
   refreshHealth: (isCurrent?: () => boolean) => Promise<Health | null>;
   setRuntimeStatus: (status: RuntimeStatus) => void;
+};
+
+/**
+ * 通知のリンク (`/s/<id>`) の入口。sessionId だけでなく、一覧の要求より前の選択世代も持つ
+ * (待機中にユーザーが別の会話を選んでいたら、その選択を奪わないため)。
+ */
+export type PendingEntry = {
+  sessionId: string;
+  selection: number;
 };
 
 export function useSessions({
@@ -71,6 +86,9 @@ export function useSessions({
   const sessionsRef = useRef<SessionSummary[]>([]);
   const preselectionRef = useRef<SettingsSelection>(preselection);
   preselectionRef.current = preselection;
+  // 新規チャットの通知の先行選択。セッション未作成の間だけ持ち、作成の要求時に読む
+  const [notifyCarry] = useState(createNotifyCarry);
+  const notifyPending = useSyncExternalStore(notifyCarry.subscribe, notifyCarry.snapshot);
 
   const [beginSessionsRequest] = useState(createRequestGate);
   const refreshSessions = useCallback(
@@ -119,10 +137,16 @@ export function useSessions({
     [agentId, agents, applySnapshot, fileRefRequests, setAgentId],
   );
 
+  const applyNotify = useCallback((id: string, notify: boolean): void => {
+    // await を挟む処理 (連打の 2 回目) が古い値を読まないよう、ref と state を同時に更新する
+    sessionsRef.current = sessionsRef.current.map((item) => (item.sessionId === id ? { ...item, notify } : item));
+    setSessions((prev) => prev.map((item) => (item.sessionId === id ? { ...item, notify } : item)));
+  }, []);
+
   const selectSession = useCallback(
     async (id: string, isCurrent = alwaysCurrent): Promise<void> => {
       // getSession の待機中にセッション作成が返っても、この選択を奪わせない
-      selectionSeqRef.current += 1;
+      const selection = (selectionSeqRef.current += 1);
       // 選択が変わったら旧セッションの要求を持ち越さない (同じ ID に戻っても復活させない)
       fileRefRequests.clear();
       // 破損などで開けないセッションが複数あると、代わりの候補が互いを指して往復し続ける。
@@ -134,11 +158,15 @@ export function useSessions({
         try {
           const payload = await getSession(pending);
           if (!isCurrent()) return;
+          // 待機中に別の会話が選ばれたら、古い応答でその選択を奪わない (適用するのは最後の選択だけ)
+          if (selectionSeqRef.current !== selection) return;
           applySelectedSession(payload);
           void refreshHealth(isCurrent);
           return;
         } catch (error) {
           if (!isCurrent()) return;
+          // 待機中に別の会話が選ばれていたら、この失敗でその表示を壊さない
+          if (selectionSeqRef.current !== selection) return;
           localStorage.removeItem(SESSION_KEY);
           sessionIdRef.current = "";
           setSessionId("");
@@ -203,11 +231,16 @@ export function useSessions({
       const selection = selectionSeqRef.current;
       // 作成前の選択をリクエストへ乗せ、初期値の解決はサーバーに任せる。未所属 ("") はキーを送らず root に任せる
       const projectId = selectedProjectIdRef.current;
+      // 新規チャットの通知トグルは作成要求の時点で読み切る (応答待ちの切替はこの作成に反映しない)
+      const notify = notifyCarry.snapshot();
       const session = await createSession(agentId || undefined, {
         ...preselectionRef.current,
+        notify,
         ...(projectId ? { projectId } : {}),
       });
       setPreselection({});
+      // 先行選択は作成の成否と選択の変更に関わらず消費する (次の新規チャットへ持ち越さない)
+      notifyCarry.consume();
       // 応答中にユーザーが別のチャットへ切り替えていたら、その選択を奪わず送信先だけを返す
       if (selectionSeqRef.current !== selection) return session.sessionId;
       applySelectedSession(session);
@@ -215,7 +248,15 @@ export function useSessions({
       void refreshHealth();
       return session.sessionId;
     });
-  }, [agentId, applySelectedSession, refreshHealth, refreshSessions, selectedProjectIdRef, sessionCreation]);
+  }, [
+    agentId,
+    applySelectedSession,
+    notifyCarry,
+    refreshHealth,
+    refreshSessions,
+    selectedProjectIdRef,
+    sessionCreation,
+  ]);
 
   const changeSessionSettings = useCallback(
     async (selection: SettingsSelection): Promise<void> => {
@@ -265,6 +306,25 @@ export function useSessions({
     },
     [changeSessionSettings],
   );
+
+  /** 選択中の会話の通知の値。一覧 (4 秒のポーリングと変更直後の反映) を正とし、新規チャットは先行選択を使う */
+  const notify = sessionId ? sessions.find((item) => item.sessionId === sessionId)?.notify === true : notifyPending;
+
+  const toggleNotify = useCallback(async (): Promise<void> => {
+    const id = sessionIdRef.current;
+    const current = id
+      ? sessionsRef.current.find((item) => item.sessionId === id)?.notify === true
+      : notifyCarry.snapshot();
+    await applyNotifyToggle(id, current, {
+      setPending: () => notifyCarry.toggle(),
+      apply: applyNotify,
+      request: updateSessionNotify,
+      onError: (error) => {
+        // 実行の成否とは別の操作なので、接続状態 (runtimeStatus) ではなく状態行へ理由を出す
+        dispatch({ type: "setActivity", text: `通知を切り替えられませんでした。${messageFor(error)}` });
+      },
+    });
+  }, [applyNotify, dispatch, notifyCarry]);
 
   const onEvent = useCallback(
     (entry: EventEntry) => {
@@ -325,26 +385,37 @@ export function useSessions({
   );
 
   const restoreSession = useCallback(
-    async (list: SessionSummary[], isCurrent = alwaysCurrent): Promise<void> => {
+    async (list: SessionSummary[], isCurrent = alwaysCurrent, pending?: PendingEntry): Promise<void> => {
       const stored = localStorage.getItem(SESSION_KEY) || "";
-      const target = list.find((item) => item.sessionId === stored) || list[0];
+      // 通知のディープリンク (`/s/<id>`) は保存済みの復元より優先する
+      const requested = pending ? list.find((item) => item.sessionId === pending.sessionId) : undefined;
+      const target = requested ?? list.find((item) => item.sessionId === stored) ?? list[0];
       if (!isCurrent()) return;
+      // 一覧のロード待ちの間にユーザーが会話を選んでいたら、その選択を奪わない
+      if (pending && selectionSeqRef.current !== pending.selection) return;
       if (target) await selectSession(target.sessionId, isCurrent);
       else newChatRef.current();
+      // 見つからない / 削除済みのリンクは、既定の会話へ移った後に理由を出す (resync が活動表示を消すため)
+      if (pending && !requested) {
+        dispatch({ type: "setActivity", text: "リンク先の会話が見つかりませんでした。" });
+      }
     },
-    [selectSession],
+    [dispatch, selectSession],
   );
 
   return {
     sessions,
     sessionId,
     sessionIdRef,
+    /** 選択の世代。await を挟む処理 (起動時の復元) が「待機中の選択」を判定する */
+    selectionSeqRef,
     cwd,
     fileRefRequest,
     requestFileRef,
     ackFileRef,
     preselection,
     settingsChanging,
+    notify,
     refreshSessions,
     selectSession,
     newChat,
@@ -355,5 +426,6 @@ export function useSessions({
     changeSessionSettings,
     changeModel,
     changeThinkingLevel,
+    toggleNotify,
   };
 }

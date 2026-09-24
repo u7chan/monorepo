@@ -28,6 +28,8 @@ type ContractKeys = {
   selectedAgent: unknown;
   stopVisible: unknown;
   notifications: unknown;
+  notify: unknown;
+  toggleNotify: unknown;
   attachments: unknown;
   loadCatalog: unknown;
   refreshSessions: unknown;

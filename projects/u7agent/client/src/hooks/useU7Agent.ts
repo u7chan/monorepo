@@ -26,7 +26,14 @@ function messageFor(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-export function useU7Agent() {
+export type UseU7AgentOptions = {
+  /** `/s/<id>` の選択待ちの入口。一覧のロード後にこの会話を選ぶ (localStorage の復元より優先) */
+  pendingSessionId?: string;
+  /** 入口を消費した。URL を `/` へ畳ませる (選択が確定してから呼ばれる) */
+  onPendingSessionResolved?: () => void;
+};
+
+export function useU7Agent({ pendingSessionId, onPendingSessionResolved }: UseU7AgentOptions = {}) {
   const [chat, dispatch] = useReducer(chatReducer, initialChatState);
   const [sending, setSending] = useState(false);
   const [attachments, setAttachments] = useState<Attachment[]>([]);
@@ -69,12 +76,14 @@ export function useU7Agent() {
     sessions,
     sessionId,
     sessionIdRef,
+    selectionSeqRef,
     cwd,
     fileRefRequest,
     requestFileRef,
     ackFileRef,
     preselection,
     settingsChanging,
+    notify,
     refreshSessions,
     selectSession,
     newChat,
@@ -84,6 +93,7 @@ export function useU7Agent() {
     restoreSession,
     changeModel,
     changeThinkingLevel,
+    toggleNotify,
   } = useSessions({
     dispatch,
     agentId,
@@ -241,9 +251,14 @@ export function useU7Agent() {
       // プロジェクトを先に取る。配下セッションを持たない一覧で描画すると、起動直後に Chats へ一瞬出る
       await refreshProjects(isCurrent);
       if (!isCurrent()) return;
+      // 保留の入口は、一覧の要求より前の選択世代と比べる (待機中にユーザーが選んだら、その選択を奪わない)
+      const selection = selectionSeqRef.current;
       const list = await refreshSessions(isCurrent);
       if (!isCurrent()) return;
-      await restoreSession(list, isCurrent);
+      await restoreSession(list, isCurrent, pendingSessionId ? { sessionId: pendingSessionId, selection } : undefined);
+      if (!isCurrent()) return;
+      // 選択が確定してから入口を畳む (URL は選択を待つ間だけ保つ。見つからないときも既定の会話へ移ってから)
+      if (pendingSessionId) onPendingSessionResolved?.();
     } catch (error) {
       if (!isCurrent()) return;
       const status = runtimeStatusForError(error);
@@ -307,6 +322,8 @@ export function useU7Agent() {
     sessionSkills,
     reloadSessionSkills,
     notifications,
+    notify,
+    toggleNotify,
     attachments: attachmentsForSession(attachments, sessionId),
     loadCatalog,
     refreshSessions,

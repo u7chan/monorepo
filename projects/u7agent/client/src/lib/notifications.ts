@@ -92,6 +92,15 @@ export function notificationHasFailure(settings: NotificationsResponse | null): 
   return settings?.lastResult?.ok === false;
 }
 
+/** On でも配信できないときの注記。色では表さず、押した直後のバーの下と設定ページに文字で出す */
+export const NOTIFY_UNAVAILABLE_NOTE = "Webhook が未設定です（設定 → 通知）";
+
+/** バーの下へ出す注記。On で、かつ配信できる設定 (有効 + Webhook 登録済み) でなければ返す */
+export function notifyUnavailableNote(on: boolean, settings: NotificationsResponse | null): string | undefined {
+  if (!on) return undefined;
+  return settings?.enabled === true && settings.configured === true ? undefined : NOTIFY_UNAVAILABLE_NOTE;
+}
+
 const RESULT_TIME_FORMAT: Intl.DateTimeFormatOptions = {
   year: "numeric",
   month: "2-digit",
