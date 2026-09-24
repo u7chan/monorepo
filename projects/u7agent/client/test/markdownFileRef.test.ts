@@ -1,5 +1,5 @@
 // assistant 本文のインラインコードをファイル参照の操作要素にするかの描画契約。client に DOM テスト基盤が
-// 無いため、react-dom/server の描画で markup を固定し、リンク内 code の除外はソース走査でも押さえる。
+// 無いため、react-dom/server の描画で markup を固定し、リンク内 code の除外と rest / hover の cue はソース走査で押さえる。
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
@@ -87,4 +87,29 @@ test("ソース走査: 判定は純関数 (lib/fileRef) に閉じている", () 
   const link = read("src/components/markdown/FileRefLink.tsx");
   assert.ok(link.includes("resolveFileRef(text, rootCwd, cwd)"), "解決を lib/fileRef に委譲していない");
   assert.ok(!link.includes("split("), "matcher が描画側に漏れている");
+});
+
+const indexCss = read("src/styles/index.css").replace(/\/\*[\s\S]*?\*\//g, "");
+
+function cssRule(selector: string): string {
+  const escaped = selector.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const match = indexCss.match(new RegExp(`(?:^|\\n)\\s*${escaped}\\s*\\{([^}]*)\\}`));
+  assert.ok(match, `${selector} のルールが index.css に無い`);
+  return match[1];
+}
+
+test("CSS: rest で非操作の code と区別できる cue を持つ", () => {
+  const rest = cssRule(".md-fileref code");
+  assert.match(rest, /color:\s*var\(--c-accent-text\)/);
+  assert.match(rest, /text-decoration:\s*underline/);
+  assert.match(rest, /border-color:\s*color-mix\(in srgb,\s*var\(--c-focus\) 50%,\s*var\(--c-line\)\)/);
+  // .md code と同じ詳細度 (0,1,1) なので、後ろにあるこのルールが勝つ (順序を入れ替えない)
+  assert.ok(indexCss.indexOf(".md-fileref code") > indexCss.indexOf(".md code"), "ルールの順序が逆");
+});
+
+test("CSS: hover と focus-visible は rest との差が分かる", () => {
+  const hover = cssRule(".md-fileref:hover code");
+  assert.match(hover, /border-color:\s*var\(--c-focus\)/);
+  assert.match(hover, /background:\s*var\(--c-accent-wash\)/);
+  assert.match(cssRule(".md-fileref:focus-visible"), /outline:\s*2px solid var\(--c-focus\)/);
 });

@@ -54,7 +54,10 @@ MessageView (assistant の本文)
 - **Markdown リンクの children は対象外**。`` [`index.html`](https://example.com) `` の code は従来どおり `<a>` の中の `code` で、`button` を入れない。`strong` / `em` / `del` の入れ子にも同じ印（`MarkdownView` の `inLink`）を伝搬する
 - **長文のプレーン表示フォールバック（`MARKDOWN_MAX_LENGTH` 超）は対象外**。解析も描画もしないため code を作らない
 - 参照と判定されない字面（`localStorage` など）と `FileRefProvider` の外は、従来どおりの `code` で描く
-- 操作要素は `type="button"` の `button` で、内側は従来の `code` のまま。Tab 移動 / Enter / Space / 可視 focus / 読み上げ名（字面）を持つ。見た目（背景・枠）は `.md code` が担い、`button` は UA のスタイルを打ち消して hover と `:focus-visible` だけを足す（`.md-fileref`、`client/src/styles/index.css`）
+- 操作要素は `type="button"` の `button` で、内側は従来の `code` のまま。Tab 移動 / Enter / Space / 可視 focus / 読み上げ名（字面）を持つ。見た目は `.md code` のチップのまま、`.md-fileref code` が rest から操作要素と分かる cue を足す（`.md-fileref`、`client/src/styles/index.css`）
+  - rest: リンクと同じ `--c-accent-text` の文字色 + 下線（色覚に依存しない cue）+ アクセント寄りの枠（`--c-focus` 50% + `--c-line` 50%）。非操作の code は `--c-ink` + 下線なしなので区別できる
+  - hover / `:focus-visible`: 枠を `--c-focus` へ、面を `--c-accent-wash` へ / `--c-focus` の outline。文字色と下線は rest のまま
+  - 枠は補助に留める。50% 混色は soft 面で 3:1 に届かないテーマ（midnight / daylight / sakura / sky）があり、識別の主役は文字色（soft 面で全テーマ 4.50:1 以上）と下線のため
 - 字面が参照かどうかは描画層（`client/src/components/markdown/FileRefLink.tsx` の context）が決める。`MdInline` の `code` は字面だけを持ち、parser と `lib/markdown/` はファイル参照を知らない（原則 4 を保つ）
 
 ## 解析の上限（ストリーミング対策）
