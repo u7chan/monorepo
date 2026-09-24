@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useState } from "react";
-import { parseRoute, routePath, type Route } from "../lib/route";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { foldPendingEntry, parseRoute, routePath, type Route } from "../lib/route";
 import {
   DEFAULT_SETTINGS_SECTION,
   parseStoredSettingsSection,
@@ -16,6 +16,8 @@ import {
 export type RouteState = {
   route: Route;
   navigate: (route: Route) => void;
+  /** 選択待ちの入口 (`/s/<id>`) を消費して `/` へ畳む。選択が確定してから呼ぶ (履歴は増やさない) */
+  consumePendingEntry: () => void;
   /** URL がセクションを明示していないとき (チャット) に「設定」で戻る先 */
   lastSettingsSection: SettingsSection;
 };
@@ -24,6 +26,10 @@ export function useRoute(): RouteState {
   // 初期値は render 中に確定させる (URL 直開きで 1 フレーム分チャットが出るのを避ける)
   const [route, setRoute] = useState<Route>(() => parseRoute(window.location.pathname));
   const [lastSettingsSection, setLastSettingsSection] = useState<SettingsSection>(readStoredSettingsSection);
+
+  // 選択待ちの入口は URL を保ったまま待つ (ここで畳むと、選択が確定する前にリンクが消える)
+  const routeRef = useRef(route);
+  routeRef.current = route;
 
   // 起動時に URL が正準形でなければ置き換える (画面は上の初期値で既に正しい)
   useEffect(() => {
@@ -49,7 +55,15 @@ export function useRoute(): RouteState {
     setRoute(next);
   }, []);
 
-  return { route, navigate, lastSettingsSection };
+  const consumePendingEntry = useCallback(() => {
+    const next = foldPendingEntry(routeRef.current);
+    // 既に別の画面へ移っていたら、その画面と URL の対応を壊さない
+    if (next === routeRef.current) return;
+    replacePath(routePath(next));
+    setRoute(next);
+  }, []);
+
+  return { route, navigate, consumePendingEntry, lastSettingsSection };
 }
 
 /** pathname だけを差し替える。クエリとフラグメントは現在の URL のものを残す */

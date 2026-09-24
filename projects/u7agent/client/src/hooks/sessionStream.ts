@@ -8,7 +8,8 @@ export type SessionStreamDeps = {
   lastSeqRef: RefObject<number>;
   dispatch: Dispatch<ChatAction>;
   applySnapshot: (payload: SessionPayload) => void;
-  refreshSessions: () => Promise<SessionSummary[]>;
+  /** 一覧を取り直す。取得できなかったときは null (空の成功と区別する) */
+  refreshSessions: () => Promise<SessionSummary[] | null>;
   setRuntimeStatus: (status: RuntimeStatus) => void;
 };
 

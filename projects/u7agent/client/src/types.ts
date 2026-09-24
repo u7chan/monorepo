@@ -45,6 +45,7 @@ export type {
   RuntimeVersions,
   RunPayload,
   RunStatus,
+  SessionNotifyResponse,
   SessionPayload,
   SessionSkillInfo,
   SessionSkillsPreview,

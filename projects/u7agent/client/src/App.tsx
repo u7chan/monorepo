@@ -20,12 +20,18 @@ import { useRoute } from "./hooks/useRoute";
 import { agentIconOf } from "./lib/agentIcon";
 import { cn } from "./lib/cn";
 import { fileRefRequestForSession } from "./lib/fileRefRequest";
-import { notificationHasFailure } from "./lib/notifications";
+import { notificationHasFailure, notifyUnavailableNote } from "./lib/notifications";
 import { sessionFilesRoot } from "./lib/sessionFiles";
 import { type SettingsSection, type SidebarMode } from "./lib/settingsNav";
 
 export default function App() {
-  const app = useU7Agent();
+  // 画面は URL がただ 1 つの正。`/` はチャット、`/settings/<section>` は設定の各画面、
+  // `/s/<id>` は通知のリンクの入口 (選択待ちの間だけ URL を保つ。lib/route.ts)
+  const { route, navigate, consumePendingEntry, lastSettingsSection } = useRoute();
+  const app = useU7Agent({
+    pendingSessionId: route.view === "chat" ? route.pendingSessionId : undefined,
+    onPendingSessionResolved: consumePendingEntry,
+  });
   // desktop shell は幅と高さの両方が要る (lib/layout.ts)。足りない側で portrait / landscape を選ぶ
   const layout = useLayoutMode();
   const compactMode = layout === "desktop" ? null : layout;
@@ -34,8 +40,8 @@ export default function App() {
   const [navOpen, setNavOpen] = useState(false);
   // セッションファイル UI の開閉は保存しない (desktop は右パネル、compact は全画面シート)
   const [sessionFilesOpen, setSessionFilesOpen] = useState(false);
-  // 画面は URL がただ 1 つの正。`/` はチャット、`/settings/<section>` は設定 5 画面 (lib/route.ts)
-  const { route, navigate, lastSettingsSection } = useRoute();
+  // トグルを押した直後だけ、On でも配信できない理由をバーの下へ出す (色では表さず文字で示す)
+  const [notifyPressed, setNotifyPressed] = useState(false);
   const mainView = route.view;
   const sidebarMode: SidebarMode = route.view === "settings" ? "settings" : "nav";
   // URL にセクションが無いときだけ「最後に開いていたセクション」を見せる (URL の指定を上書きしない)
@@ -90,6 +96,16 @@ export default function App() {
   const handleStop = useCallback(() => {
     void app.stopAgent();
   }, [app]);
+
+  const handleToggleNotify = useCallback(() => {
+    setNotifyPressed(true);
+    void app.toggleNotify();
+  }, [app]);
+  const notifyToggle = {
+    on: app.notify,
+    note: notifyPressed ? notifyUnavailableNote(app.notify, app.notifications.settings) : undefined,
+    onToggle: handleToggleNotify,
+  };
 
   // エージェントの切替は「新しい会話」と同じで、現在の会話はセッション一覧に残す
   const handleAgentChange = useCallback(
@@ -225,12 +241,14 @@ export default function App() {
                 title={barTitle}
                 agentName={barAgentName}
                 runtimeStatus={app.runtimeStatus}
+                notify={notifyToggle}
                 sessionFiles={filesRoot ? { open: filesSheetOpen, onToggle: toggleSessionFiles } : undefined}
                 onOpenNav={openNav}
               />
             ) : (
               <Topbar
                 runtimeStatus={app.runtimeStatus}
+                notify={notifyToggle}
                 sessionFiles={filesRoot ? { open: filesPanelOpen, onToggle: toggleSessionFiles } : undefined}
               />
             )}

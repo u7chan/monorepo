@@ -19,6 +19,7 @@ import type {
   Project,
   ProjectsResponse,
   RuntimeModelsResponse,
+  SessionNotifyResponse,
   SessionPayload,
   SessionSkillsPreview,
   SessionSkillsResponse,
@@ -257,13 +258,19 @@ export type SessionOverrides = {
   thinkingLevel?: ThinkingLevel;
 };
 
-export type CreateSessionOverrides = SessionOverrides & { projectId?: string };
+export type CreateSessionOverrides = SessionOverrides & { projectId?: string; notify?: boolean };
 
 export const createSession = async (
   agentId?: string,
   overrides: CreateSessionOverrides = {},
 ): Promise<SessionPayload> => {
-  const json: { agentId?: string; model?: ModelRef; thinkingLevel?: ThinkingLevel; projectId?: string } = {
+  const json: {
+    agentId?: string;
+    model?: ModelRef;
+    thinkingLevel?: ThinkingLevel;
+    projectId?: string;
+    notify?: boolean;
+  } = {
     ...overrides,
   };
   if (agentId) json.agentId = agentId;
@@ -289,6 +296,16 @@ export const updateSessionSettings = async (sessionId: string, settings: Session
     param: { id: sessionId },
     json: settings,
   });
+  if (!res.ok) throw await apiError(res);
+  return res.json();
+};
+
+/**
+ * 会話ごとの通知トグル。Model / Effort の設定変更とは別の経路で、実行中でも切り替えられる。
+ * 応答は会話全文を含まない (`{ sessionId, notify }`)。
+ */
+export const updateSessionNotify = async (sessionId: string, notify: boolean): Promise<SessionNotifyResponse> => {
+  const res = await client.api.sessions[":id"].notify.$patch({ param: { id: sessionId }, json: { notify } });
   if (!res.ok) throw await apiError(res);
   return res.json();
 };

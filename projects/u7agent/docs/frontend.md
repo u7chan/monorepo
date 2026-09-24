@@ -19,6 +19,7 @@
 - バーやゲージなどの図形は CSS（幅と背景色）か SVG で描く。ブロック要素のグリフ（`█` / `▁` など）は端末のフォント次第で字形が崩れ、等幅にならないため `tabular-nums` も効かない。設定 → ランタイムの比率ゲージは数値と桁を揃えて並べるので、幅を `viewBox` の内側で決められる `rect` で描く（`RuntimePage.tsx` の `MetricGauge`。`style` 属性は CSP と `shadcn/no-inline-styles` で使えない）。
 - 折りたたみ（`<details>`）は `summary` のブラウザー既定マーカーを外し、`DisclosureChevronIcon` の chevron を開閉の印にする。回転は CSS（`.disclosure-chevron`）が持ち、本文の高さは `details::details-content` の `block-size` を 0 → `auto` へ遷移させる（`interpolate-size: allow-keywords` と `content-visibility` の `allow-discrete` 遷移が要る）。どちらも無いブラウザーでは瞬時に開閉するだけで、機能は落ちない。`prefers-reduced-motion` では遷移を止める。
 - 認識済みコンポーネントへ渡す className は静的に読める形で書く（`shadcn/require-static-classes` が error）。ヘルパー関数の戻り値や、別 module から import したクラス定数を渡すと違反になるので、その場合はコンポーネント側に props を足す。
+- 状態で見た目を切り替えるボタンの土台（`.btn-quiet` / `.icon-button`）は `client/src/styles/index.css` の `@layer components` に置く。utilities 同士で同じプロパティを並べると（`border-line` と `border-accent/50` など）生成 CSS の順序で勝敗が決まり、`cn()` の後勝ちにならない（compact の通知トグルで On の accent が出なかった原因）。
 
 ## チャット状態とレンダリング
 
@@ -43,12 +44,24 @@
 
 画面は URL がただ 1 つの正で、サイドバーのモードや表示中のセクションを state では持たない（`client/src/lib/route.ts` の `parseRoute` / `routePath` が pathname と画面を相互変換し、`client/src/hooks/useRoute.ts` が `popstate` の購読と URL の置換を 1 箇所に集約する）。
 
-- `/` はチャット、`/settings/<section>` は設定の 5 画面（`agents` / `skills` / `files` / `appearance` / `runtime`）。大文字・末尾スラッシュ・連続スラッシュ・percent encoding は正準形（小文字・末尾スラッシュなし）へ畳む。`/settings` 単体は画面を特定できないため、未知のセクションや不正な encoding と同じくチャットにする
+- `/` はチャット、`/settings/<section>` は設定の 6 画面（`agents` / `skills` / `files` / `appearance` / `runtime` / `notifications`）、`/s/<sessionId>` は通知のリンクの入口（[通知のディープリンク](#通知のディープリンク)）。大文字・末尾スラッシュ・連続スラッシュ・percent encoding は正準形（小文字・末尾スラッシュなし）へ畳む。`/settings` 単体は画面を特定できないため、未知のセクションや不正な encoding と同じくチャットにする
 - 画面切替は `replaceState` で、履歴は追加しない（Back / Forward はブラウザーの既存履歴に従う）。URL の置換と表示の更新は `navigate()` だけが行い、両者を独立に同期させない
 - クエリとフラグメントは解釈も破棄もしない。`#foo` のような断片リンク（チャット本文の Markdown が通す）を壊さないため、画面切替でもそのまま持ち越す
 - 「設定」の行き先は URL のセクションを優先し、`/` では保存した最後のセクションへ。直接 `/settings/<section>` を開いた場合もそのセクションを「最後」として保存する。`Sidebar` の「設定」は `onSelectMode("settings")` を呼ぶため、App は `navProps` と `drawerProps` の両方をこの経路へ接続する
 - 設定 → ランタイムは health の診断サマリを使い、全モデルカタログはページを開いたときだけ `GET /api/runtime/models` で取得する。未認証プロバイダーは初期表示で折りたたみ、ページを離れて戻ると再取得する。モデルは モデル名 / ID / 利用可能 / whitelist の 4 列の表（`table-fixed`）で出し、数値はカタログ数を分母にした比率ゲージと丸・盾の印で示す（ID を名前と同じ行に続けて出すと、名前と識別子の境目が読めない）
 - Vite dev は SPA フォールバックを持つが、本番は BFF が返す（[配信](#開発フローと配信) の SPA フォールバック）。存在しない拡張子なしパスも 200 と `index.html` になる **soft 404** なので、HTTP 200 はパスの存在確認には使えない
+
+## 通知のディープリンク
+
+`/s/<sessionId>` は通知のリンクから会話を開くための**一時的な入口**（入口専用ルート）で、`Route` ではチャット + 保留中の入口（`pendingSessionId`）として表す。リンクの生成（ベース URL + `encodeURIComponent`）はサーバー側（設定 → 通知）が担い、クライアントは受け側だけを持つ。
+
+- `parseRoute` は `/s/<id>` を `pendingSessionId` 付きのチャットとして返し、`routePath` も `/s/<id>` を返す。起動時の正準化は `routePath(parseRoute(pathname))` の比較なので、これが一致しないと選択前に URL が消える（ここが「保留」の実装）
+- 起動処理（`useU7Agent` の boot）は、セッション一覧のロード後に保留の id を選ぶ。優先順位は 保留の id → `localStorage` の保存値 → 一覧の先頭で、保留の id が一覧に無ければ選ばずに既定へ落ちる
+- 選択が確定したら `useRoute` の `consumePendingEntry` が `replaceState` で `/` へ畳む（履歴は増やさない）。既に別の画面へ移っていたら何もしない
+- 見つからない / 削除済みの id は「リンク先の会話が見つかりませんでした。」を状態行に出し、既定の会話を選んでから畳む。一覧に無い場合だけでなく、一覧に載っていた会話が取得までに削除されていた場合（`GET /api/sessions/:id` が失敗して別の会話へ移った）も同じ
+- 遅延した応答が後からのユーザー選択を奪わないよう、**起動処理を始めた時点**の選択世代（`selectionSeqRef`）と比べる（health / catalog / projects の待ちの間の選択も「後からの選択」に含める）。待機中に別の会話や「新しい会話」を選んでいたら、その選択を残して URL だけを畳む（`GET /api/sessions/:id` の待機中も同じ）
+- 不正な percent encoding は既存どおりチャットへ畳む（入口にしない）。id は decode した値を使い、URL へ戻すときだけ `encodeURIComponent` する。id に `/` を含む形（`%2F`）はセグメントが余るため入口にしない
+- 一覧の取得に失敗したときは入口を解決しない（空の一覧として畳まない）。URL を保ち、次に届いた一覧（4 秒のポーリング）で改めて解決する。サーバー未接続で起動処理が health の時点で止まったときも同じく URL を保ち、リロードで再試行できる
 
 ## 保存キーと保存範囲
 

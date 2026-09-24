@@ -3,7 +3,7 @@ import { cn } from "../../lib/cn";
 import { messageTimeLabel } from "../../lib/messageTime";
 import type { AgentDef, SessionSummary } from "../../types";
 import { AgentIcon } from "../AgentIcon";
-import { TrashIcon } from "../icons";
+import { BellIcon, TrashIcon } from "../icons";
 import { RowAction } from "./RowAction";
 
 const STATUS_LABELS: Record<string, string> = {
@@ -77,6 +77,12 @@ export function SessionRow({
           </small>
         </span>
       </button>
+      {/* 通知が On の会話だけ鳴っているベルを出す (Off は印を出さず、一覧が記号で埋まらないようにする) */}
+      {item.notify ? (
+        <span role="img" aria-label="通知オン" title="通知オン" className="shrink-0 text-accent-text">
+          <BellIcon ringing />
+        </span>
+      ) : null}
       <RowAction label="セッションを削除" onClick={onDelete} hoverOnly danger>
         <TrashIcon />
       </RowAction>
