@@ -128,8 +128,8 @@ export function ArchiveSettingsPage({ archiveSettings, compact = false, onBack, 
                 )}
 
                 <p className="text-2xs leading-relaxed text-ink-ghost">
-                  名前は 1 セグメント（`/` を含まない）で {settings.maxNameLength} 文字まで、{settings.maxNames}{" "}
-                  件までです。 既定の一覧は {settings.defaultExcludeNames.length} 件です。
+                  名前は 1 セグメント（<code>/</code>を含まない）で {settings.maxNameLength} 文字まで、
+                  {settings.maxNames} 件までです。既定の一覧は {settings.defaultExcludeNames.length} 件です。
                 </p>
               </section>
             </>

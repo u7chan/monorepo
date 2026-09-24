@@ -73,6 +73,9 @@ test("描画: 未設定は既定の一覧を使用中として出し、行と件
   assert.ok(html.includes("symlink は一覧に関係なく常に ZIP の対象外"), "symlink の説明が無い");
   assert.ok(html.includes("以後のアプリ更新で既定が増えても"), "上書きの説明が無い");
   assert.ok(html.includes("200 文字まで、100 件まで"), "上限の説明が無い");
+  // 説明は JSX のテキストなので、Markdown の記法（バッククォート）を書くと文字として出る。`/` は code で描く
+  assert.ok(html.includes("（<code>/</code>を含まない）"), "スラッシュが code で描かれていない");
+  assert.ok(!html.includes("`"), "バッククォートが文字として描画されている");
   assert.ok(!html.includes("除外なし。"), "空でないのに空の警告が出ている");
   // 差分が無いので保存できない。既定に戻す対象も無い
   assert.ok(saveButtonTag(html).includes("disabled"), "未編集でも保存できる");
