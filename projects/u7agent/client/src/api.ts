@@ -13,6 +13,8 @@ import type {
   FileSkillsResponse,
   Health,
   ModelRef,
+  NotificationResult,
+  NotificationsResponse,
   PostMessageResult,
   Project,
   ProjectsResponse,
@@ -25,6 +27,7 @@ import type {
   StopResult,
   ThinkingLevel,
   UpdateAgentBody,
+  UpdateNotificationsBody,
   UpdateSkillBody,
 } from "./types";
 
@@ -327,4 +330,26 @@ export const uploadSessionFile = async (sessionId: string, file: File): Promise<
   const res = await fetch(url, { method: "POST", body: file });
   if (!res.ok) throw await apiError(res);
   return (await res.json()) as SessionFileUpload;
+};
+
+/**
+ * 通知設定。Webhook URL は write-only で、応答には `configured` と末尾 4 文字しか載らない。
+ * テスト送信は保存済み設定で 1 通送り、Discord 側の失敗も結果 (ok: false) として 200 で返る。
+ */
+export const getNotifications = async (): Promise<NotificationsResponse> => {
+  const res = await client.api.notifications.$get();
+  if (!res.ok) throw await apiError(res);
+  return res.json();
+};
+
+export const updateNotifications = async (input: UpdateNotificationsBody): Promise<NotificationsResponse> => {
+  const res = await client.api.notifications.$put({ json: input });
+  if (!res.ok) throw await apiError(res);
+  return res.json();
+};
+
+export const testNotification = async (): Promise<NotificationResult> => {
+  const res = await client.api.notifications.test.$post();
+  if (!res.ok) throw await apiError(res);
+  return res.json();
 };

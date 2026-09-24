@@ -45,6 +45,10 @@ pnpm dev   # サンドボックス + BFF + Vite をまとめて起動 → http:/
 
 チャットの入力欄の「スキル一覧」から、そのセッションで使えるスキル（プロジェクト / 共通 / 組み込み / エージェント定義）を選んで `/skill:<name>` を入力できます。`/skill:` は送信時に BFF が本文ブロックへ展開するため、Docker（BFF に作業領域が無い）でもファイルスキルと組み込みスキルが動きます。本文は送信時点の内容で、一覧が固定するのは発見一覧・説明・優先順位だけです。詳細は [docs/persistence.md](docs/persistence.md#スキルの扱い) と [docs/api-catalog.md](docs/api-catalog.md#ファイルスキルagentsskills)、展開の仕様は [docs/api-sessions.md](docs/api-sessions.md#skill-の展開) を参照してください。
 
+## 通知（Discord）
+
+会話ごとのトグルが On のとき、エージェントの応答が返ってきたら Discord の Incoming Webhook へ 1 通送ります。Webhook の登録・テスト送信・リンクのベース URL・メンションは 設定 → 通知 で行います。応答本文の先頭 200 文字までが Discord へ渡るため、機微な会話では通知を Off にしてください。詳細は [docs/notifications.md](docs/notifications.md) を参照してください。
+
 ## 環境変数
 
 | 変数 | 説明 |

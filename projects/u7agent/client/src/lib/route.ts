@@ -1,6 +1,6 @@
 /**
  * URL の pathname と画面の対応。DOM も history も触らない純関数だけを置き、URL の読み書きは
- * hooks/useRoute.ts が担う。`/` はチャット、`/settings/<section>` は設定の 5 画面。
+ * hooks/useRoute.ts が担う。`/` はチャット、`/settings/<section>` は設定の各画面 (SETTINGS_SECTIONS)。
  * 未知・不正なパスはチャットへ畳み、routePath は常に正準形 (小文字・末尾スラッシュなし) を返す。
  */
 import { SETTINGS_SECTIONS, type SettingsSection } from "./settingsNav";

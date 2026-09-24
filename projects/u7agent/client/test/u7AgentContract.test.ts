@@ -27,6 +27,7 @@ type ContractKeys = {
   composerSettings: unknown;
   selectedAgent: unknown;
   stopVisible: unknown;
+  notifications: unknown;
   attachments: unknown;
   loadCatalog: unknown;
   refreshSessions: unknown;

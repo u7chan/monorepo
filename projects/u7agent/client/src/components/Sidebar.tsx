@@ -28,6 +28,8 @@ export type SidebarProps = Omit<
   mode: SidebarMode;
   onSelectMode: (mode: SidebarMode) => void;
   activeSettingsSection: SettingsSection;
+  /** 直近の通知の送信が失敗しているか (設定ナビの ⚠)。設定ページを開いていなくても要る */
+  notificationsFailed: boolean;
   newChat: (agentId?: string, projectId?: string) => void;
   selectSession: (sessionId: string) => void;
   deleteSession: (sessionId: string) => void;
@@ -43,6 +45,7 @@ export function Sidebar({
   mode,
   onSelectMode,
   activeSettingsSection,
+  notificationsFailed,
   onNewProject,
   onOpenSettingsSection,
   onClose,
@@ -97,6 +100,7 @@ export function Sidebar({
       {mode === "settings" ? (
         <SettingsNav
           activeSettingsSection={activeSettingsSection}
+          notificationsFailed={notificationsFailed}
           onSelectMode={onSelectMode}
           onOpenSettingsSection={onOpenSettingsSection}
         />

@@ -15,9 +15,13 @@ const SPINNER_DOTS: [number, number][] = [
 ];
 
 /** 先頭のドットほど濃くして尾を引かせる (回転方向と揃えるため index の昇順 = 時計回り) */
-export function RunSpinnerIcon() {
+export function RunSpinnerIcon({ tone = "soft" }: { tone?: "soft" | "on-accent" } = {}) {
   return (
-    <svg aria-hidden="true" viewBox="0 0 16 16" className="run-spinner size-3 shrink-0 text-ink-soft">
+    <svg
+      aria-hidden="true"
+      viewBox="0 0 16 16"
+      className={cn("run-spinner size-3 shrink-0", tone === "on-accent" ? "text-on-accent" : "text-ink-soft")}
+    >
       {SPINNER_DOTS.map(([cx, cy], index) => (
         <circle key={index} cx={cx} cy={cy} r="1.25" fill="currentColor" opacity={1 - index * 0.09} />
       ))}
@@ -324,6 +328,30 @@ export function GaugeIcon() {
   );
 }
 
+/**
+ * 通知 (設定ナビの入口と、会話ごとのトグルの On / Off)。ringing は「鳴っている」で、
+ * 左右に音の線が増える。押せるかどうかの色は呼び出し側の text-* に従う。
+ */
+export function BellIcon({ ringing = false }: { ringing?: boolean }) {
+  return (
+    <svg
+      aria-hidden="true"
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.5"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className="size-4 shrink-0"
+    >
+      <path d="M4.25 11.25V8.25a3.75 3.75 0 0 1 7.5 0v3" />
+      <path d="M2.9 11.25h10.2" />
+      {ringing ? <path d="M1.7 2.8 3.2 4.3M14.3 2.8 12.8 4.3" /> : null}
+      <circle cx="8" cy="12.9" r=".9" fill="currentColor" stroke="none" />
+    </svg>
+  );
+}
+
 /** ツリーの展開 (開いているときは親側で回転させる) */
 export function ChevronIcon() {
   return (
@@ -520,6 +548,41 @@ export function FileIcon({ kind = "text" }: { kind?: FileKind }) {
       <path d="M4.25 2.75h4.9l2.6 2.6v7.9h-7.5z" />
       <path d="M9.15 2.75v2.6h2.6" />
       <g strokeWidth="1.2">{FILE_MARKS[kind]}</g>
+    </svg>
+  );
+}
+
+/**
+ * Discord のロゴ (設定 → 通知のカード見出しでプロバイダを名指しする唯一の場所)。
+ * 出典: https://www.svgrepo.com/svg/353655/discord-icon (Simple Icons、viewBox 0 0 24 24)
+ */
+export function DiscordIcon() {
+  return (
+    <svg aria-hidden="true" viewBox="0 0 24 24" fill="currentColor" className="size-4 shrink-0">
+      <path d="M20.317 4.3698a19.7913 19.7913 0 0 0-4.8851-1.5152.0741.0741 0 0 0-.0785.0371c-.211.3753-.4447.8648-.6083 1.2495-1.8447-.2762-3.68-.2762-5.4868 0-.1636-.3933-.4058-.8742-.6177-1.2495a.077.077 0 0 0-.0785-.037 19.7363 19.7363 0 0 0-4.8852 1.515.0699.0699 0 0 0-.0321.0277C.5334 9.0458-.319 13.5799.0992 18.0578a.0824.0824 0 0 0 .0312.0561c2.0528 1.5076 4.0413 2.4228 5.9929 3.0294a.0777.0777 0 0 0 .0842-.0276c.4616-.6304.8731-1.2952 1.226-1.9942a.076.076 0 0 0-.0416-.1057c-.6528-.2476-1.2743-.5495-1.8722-.8923a.077.077 0 0 1-.0076-.1277c.1258-.0943.2517-.1923.3718-.2914a.0743.0743 0 0 1 .0776-.0105c3.9278 1.7933 8.18 1.7933 12.0614 0a.0739.0739 0 0 1 .0785.0095c.1202.099.246.1981.3728.2924a.077.077 0 0 1-.0066.1276 12.2986 12.2986 0 0 1-1.873.8914.0766.0766 0 0 0-.0407.1067c.3604.698.7719 1.3628 1.225 1.9932a.076.076 0 0 0 .0842.0286c1.961-.6067 3.9495-1.5219 6.0023-3.0294a.077.077 0 0 0 .0313-.0552c.5004-5.177-.8382-9.6739-3.5485-13.6604a.061.061 0 0 0-.0312-.0286ZM8.02 15.3312c-1.1825 0-2.1569-1.0857-2.1569-2.419 0-1.3332.9555-2.4189 2.157-2.4189 1.2108 0 2.1757 1.0952 2.1568 2.419 0 1.3332-.9555 2.4189-2.1569 2.4189Zm7.9748 0c-1.1825 0-2.1569-1.0857-2.1569-2.419 0-1.3332.9554-2.4189 2.1569-2.4189 1.2108 0 2.1757 1.0952 2.1568 2.419 0 1.3332-.946 2.4189-2.1568 2.4189Z" />
+    </svg>
+  );
+}
+
+/**
+ * 警告の印 (通知の送信失敗)。色は呼び出し側の text-* に従う。
+ * 文字の「⚠」はフォント差で字形と大きさが変わるため、他のアイコンと同じ図形で描く。
+ */
+export function WarningIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.5"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className="size-3.5 shrink-0"
+    >
+      <path d="M6.95 2.9 1.55 12.4a1.2 1.2 0 0 0 1.05 1.85h10.8a1.2 1.2 0 0 0 1.05-1.85L9.05 2.9a1.2 1.2 0 0 0-2.1 0Z" />
+      <path d="M8 6.35v3.1" />
+      <circle cx="8" cy="11.6" r=".7" fill="currentColor" stroke="none" />
     </svg>
   );
 }

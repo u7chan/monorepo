@@ -233,6 +233,39 @@ test("a Discord error keeps only status / code / message", async () => {
   }
 });
 
+test("a 429 keeps the Retry-After seconds (rounded up) and other statuses ignore retry_after", async () => {
+  const rateLimited = async (body: unknown, status = 429) => {
+    const { impl } = fakeFetch(() => new Response(JSON.stringify(body), { status }));
+    const { db, service } = createService({ fetchImpl: impl });
+    try {
+      service.save({ webhookUrl: WEBHOOK });
+      return await service.test();
+    } finally {
+      db.close();
+    }
+  };
+
+  // Discord の retry_after は秒 (小数)。表示用に切り上げる
+  const limited = await rateLimited({ message: "You are being rate limited.", retry_after: 1.234 });
+  assert.equal(limited.status, 429);
+  assert.equal(limited.retryAfter, 2);
+  // 待機秒数が無い 429 はフィールドごと省略する (画面は固定文言へフォールバックする)
+  assert.equal("retryAfter" in (await rateLimited({ message: "You are being rate limited." })), false);
+  // 429 以外では本文に retry_after があっても載せない
+  assert.equal(
+    "retryAfter" in (await rateLimited({ message: "Unknown Webhook", code: 10015, retry_after: 5 }, 404)),
+    false,
+  );
+  // 読めない値 (文字列 / 負 / 非数値) は載せない
+  for (const value of ["1.5", -3, Number.NaN, null, {}]) {
+    assert.equal(
+      "retryAfter" in (await rateLimited({ message: "slow down", retry_after: value })),
+      false,
+      String(value),
+    );
+  }
+});
+
 test("a response body cannot leak the webhook URL", async () => {
   const { impl } = fakeFetch(() => new Response(JSON.stringify({ message: `rejected ${WEBHOOK}` }), { status: 500 }));
   const { db, service } = createService({ fetchImpl: impl });

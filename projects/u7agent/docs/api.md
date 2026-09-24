@@ -21,6 +21,7 @@ DTO の正は `server/src/schema.ts`（zod）。リクエストボディは `@ho
 | ダウンロード（ファイル / ZIP） | `GET /api/files/download`、`GET /api/files/download/check` | このファイル |
 | プロジェクト | `GET/POST /api/projects`、`DELETE /api/projects/:id` | このファイル |
 | セッション | `/api/sessions`、`/api/sessions/:id`、`/skills`、`/files`、`/messages`、`/events`、`/settings`、`/stop` | [api-sessions.md](api-sessions.md) |
+| 通知（Discord） | `GET/PUT /api/notifications`、`POST /api/notifications/test`、`PATCH /api/sessions/:id/notify` | [notifications.md](notifications.md) |
 | エージェント / スキル | `/api/agents`、`/api/skills`、`/api/skills/files`、`/api/skills/session` | [api-catalog.md](api-catalog.md)、[api-sessions.md](api-sessions.md) |
 | サンドボックス（内部） | `/v1/*`（BFF からは見えない） | [sandbox-api.md](sandbox-api.md) |
 

@@ -29,6 +29,9 @@ export type {
   ModelReferenceDiagnostic,
   ModelOption,
   ModelRef,
+  NotificationMention,
+  NotificationResult,
+  NotificationsResponse,
   PostMessageResult,
   Project,
   ProjectsResponse,
@@ -53,6 +56,7 @@ export type {
   ThinkingLevel,
   ToolCall,
   UpdateAgentBody,
+  UpdateNotificationsBody,
   UpdateSkillBody,
   Usage,
 } from "server";
