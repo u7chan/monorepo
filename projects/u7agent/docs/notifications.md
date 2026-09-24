@@ -2,6 +2,8 @@
 
 会話（セッション）ごとのトグルが On のとき、エージェントの応答が返ってきたら Discord の Incoming Webhook へ 1 通送る。ブラウザを閉じてもランは BFF で続く（[run-lifecycle.md](run-lifecycle.md)）ため、離席中に終わったことを Discord で知るための仕組み。プロバイダーは Discord だけを対象にする。
 
+Discord 通知リンク `/s/<sessionId>` は、会話を指定して開く唯一の入口。通常の `/` は会話を自動復元せず、リンク先を開けない場合も別の会話へ移らない。
+
 正は `server/src/notifications.ts`（設定の読み書き・宛先検証・送信・直近結果・専用マスク）で、ルートは `server/src/routes/notifications.ts`、per-session のトグルは `server/src/sessions.ts` の `setNotify()` が持つ。設定画面は `client/src/components/NotificationSettingsPage.tsx` と `client/src/components/notifications/`。
 
 ## 送るタイミング

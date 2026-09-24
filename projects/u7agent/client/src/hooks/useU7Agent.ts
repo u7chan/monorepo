@@ -29,7 +29,7 @@ function messageFor(error: unknown): string {
 }
 
 export type UseU7AgentOptions = {
-  /** `/s/<id>` の選択待ちの入口。一覧のロード後にこの会話を選ぶ (localStorage の復元より優先) */
+  /** `/s/<id>` の選択待ちの入口。一覧のロード後にこの会話だけを選ぶ */
   pendingSessionId?: string;
   /** 入口を消費した。URL を `/` へ畳ませる (選択が確定してから呼ばれる) */
   onPendingSessionResolved?: () => void;
@@ -258,7 +258,7 @@ export function useU7Agent({ pendingSessionId, onPendingSessionResolved }: UseU7
     pendingEntryRef.current = null;
     await restoreSession(list, isCurrent, pending);
     if (!isCurrent()) return;
-    // 選択が確定してから入口を畳む (URL は選択を待つ間だけ保つ。見つからないときも既定の会話へ移ってから)
+    // 解決後に入口を畳む (URL は選択を待つ間だけ保ち、見つからないときは未選択のまま畳む)
     onPendingSessionResolved?.();
   });
 
@@ -282,10 +282,7 @@ export function useU7Agent({ pendingSessionId, onPendingSessionResolved }: UseU7
       if (pendingSessionId) {
         // 一覧が取れなかったときは入口を解決しない (空の成功として畳まず、届いた一覧で解決する)
         if (list) await resolvePendingEntry(list, isCurrent);
-        return;
       }
-      // 一覧が取れなかったときは復元先が分からないので、未作成チャットのままにする (従来どおり)
-      await restoreSession(list ?? [], isCurrent);
     } catch (error) {
       if (!isCurrent()) return;
       const status = runtimeStatusForError(error);

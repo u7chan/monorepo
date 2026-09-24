@@ -52,7 +52,7 @@ startRun():
 - 履歴の正は pi セッションの `messages` で、その永続化は BFF 専用ストアの `session.jsonl`（pi SDK 形式）が持つ（[persistence.md](persistence.md) / [session-files.md](session-files.md)）。`GET /api/sessions/:id` が user / assistant のテキストに整形して返す。
 - BFF は起動時にストアを走査して一覧（meta ベースの descriptor）を作り、セッションを開いたとき（GET / POST messages / SSE）に SDK セッションを遅延生成する。未ロードのセッションは SDK を必要としない。
 - タイトルは最初のユーザーメッセージ（60 文字）から自動生成し、meta へ保存する。セッション一覧 `GET /api/sessions` は状態・件数・最終使用時刻付きで返す。
-- セッションの作成は最初のメッセージ送信時。未送信の新規チャットは `POST /api/sessions` を呼ばず、一覧にも出ない（エージェント切替・「新しい会話」・起動時の復元先無しはローカル状態のリセットだけで完結する）。作成前の Model / Effort 選択は次の作成時に `POST /api/sessions` の body として送られる。
+- セッションの作成は最初のメッセージ送信時。未送信の新規チャットは `POST /api/sessions` を呼ばず、一覧にも出ない（エージェント切替・「新しい会話」・起動時の `/` は未選択のローカル状態だけで完結する）。起動時に会話を開くのは通知リンク `/s/<id>` が指定された場合だけで、開いた会話を `/` に畳んだ後の F5 は未選択から始まる。作成前の Model / Effort 選択は次の作成時に `POST /api/sessions` の body として送られる。
 - ラン中に再接続したクライアント向けに、`payload.run.toolCalls` で進行中ランのツールカード状態も返す。
 - エージェント定義の編集は既存チャットに遡及しない。表示用のエージェント情報は作成時に `SessionRecord` へ、実行用プロンプトは meta の `promptSnapshot` へスナップショット化し、定義の変更・削除後も `payload.agent` と復元後の実行内容は作成時のままになる。
 - 会話の圧縮（compaction）は `payload.compactions` と `compaction` / `resync` イベントで配る。表示仕様は [compaction.md](compaction.md) を正とする。compaction entry も `session.jsonl` に保存され、復元後も区切りが再現される（`reason` / `estimatedTokensAfter` は復元後は欠ける）。
