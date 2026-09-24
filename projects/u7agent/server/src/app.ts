@@ -10,6 +10,7 @@ import { bodyGuard, jsonBodyValidator, messageFor, statusCodeOf } from "./http";
 import { createCatalogRoutes } from "./routes/catalog";
 import { createFileRoutes } from "./routes/files";
 import { createHealthRoutes } from "./routes/health";
+import { createNotificationRoutes } from "./routes/notifications";
 import { createProjectRoutes } from "./routes/projects";
 import { createRuntimeRoutes } from "./routes/runtime";
 import { createSessionRoutes } from "./routes/sessions";
@@ -22,6 +23,8 @@ import {
   PostMessageBodySchema,
   RenameFileBodySchema,
   UpdateAgentBodySchema,
+  UpdateNotificationsBodySchema,
+  UpdateSessionNotifyBodySchema,
   UpdateSessionSettingsBodySchema,
   UpdateSkillBodySchema,
 } from "./schema";
@@ -51,7 +54,8 @@ function appDataGuard(appDb: AppDb): MiddlewareHandler {
 
 export async function createBffApp(opts: CreateBffAppOptions = {}) {
   const { clientDistDir = DEFAULT_CLIENT_DIST_DIR } = opts;
-  const { cwd, pi, initError, catalog, projects, store, workspace, sessionStore, appDb } = await createBffContext(opts);
+  const { cwd, pi, initError, catalog, projects, store, workspace, sessionStore, appDb, notifications } =
+    await createBffContext(opts);
   const appData = appDataGuard(appDb);
 
   const healthRoutes = createHealthRoutes({ pi, initError, cwd, store, appDb });
@@ -60,6 +64,7 @@ export async function createBffApp(opts: CreateBffAppOptions = {}) {
   const catalogRoutes = createCatalogRoutes({ catalog, workspace, rootCwd: cwd });
   const projectRoutes = createProjectRoutes({ projects, store, workspace });
   const sessionRoutes = createSessionRoutes({ store, workspace });
+  const notificationRoutes = createNotificationRoutes({ notifications });
 
   const app = new Hono()
     // bodyGuard は本文を最長 64 KiB で読み切って text 化するため、raw で受けるアップロードは先に登録する
@@ -167,6 +172,15 @@ export async function createBffApp(opts: CreateBffAppOptions = {}) {
       ),
       (c) => sessionRoutes.updateSettings(c, c.req.valid("json")),
     )
+    // 通知トグルは専用経路。model / thinkingLevel の設定変更と違い、busy でも切り替えられる
+    .patch(
+      "/api/sessions/:id/notify",
+      appData,
+      zValidator("json", UpdateSessionNotifyBodySchema, (result, c) =>
+        result.success ? undefined : c.json({ error: "notify is required" }, 400),
+      ),
+      (c) => sessionRoutes.updateNotify(c, c.req.valid("json")),
+    )
     .get("/api/sessions/:id", appData, sessionRoutes.get)
     .delete("/api/sessions/:id", sessionRoutes.remove)
     .post("/api/sessions/:id/stop", sessionRoutes.stop)
@@ -181,6 +195,16 @@ export async function createBffApp(opts: CreateBffAppOptions = {}) {
       (c) => sessionRoutes.postMessage(c, c.req.valid("json")),
     )
     .get("/api/sessions/:id/events", appData, sessionRoutes.events)
+    .get("/api/notifications", appData, notificationRoutes.get)
+    .put(
+      "/api/notifications",
+      appData,
+      jsonBodyValidator(UpdateNotificationsBodySchema, (result, c) =>
+        result.success ? undefined : c.json({ error: "Invalid request body" }, 400),
+      ),
+      (c) => notificationRoutes.update(c, c.req.valid("json")),
+    )
+    .post("/api/notifications/test", appData, notificationRoutes.test)
     // Hono は登録順にマッチするため、未マッチの GET を拾う catch-all は最後に置く。
     .get("*", serveClientAssets(clientDistDir))
     .notFound((c) => c.json({ error: "Not found" }, 404))
@@ -201,7 +225,10 @@ export async function createBffApp(opts: CreateBffAppOptions = {}) {
     initError,
     sessionStore,
     appDb,
+    notifications,
     close: async () => {
+      // 未完了の送信結果は記録しない (プロセス終了時に破棄する)
+      notifications.close();
       await store.close();
       appDb.close();
     },

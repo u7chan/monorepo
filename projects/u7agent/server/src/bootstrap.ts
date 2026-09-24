@@ -5,6 +5,7 @@ import { createAgentCatalog } from "./agents";
 import type { AgentCatalog } from "./agents";
 import { BUILTIN_SKILLS } from "./builtin-skills";
 import { messageFor } from "./http";
+import { NotificationService } from "./notifications";
 import { ProjectStore } from "./projects";
 import { createSandboxToolClientFromEnv } from "./sandbox/client";
 import type { SandboxWorkspaceClient } from "./sandbox/client";
@@ -20,6 +21,8 @@ export type CreateBffAppOptions = {
   clientDistDir?: string;
   /** 会話ストアの絶対パス。null で永続化なし。未指定は PI_SESSION_STORE → 既定 (<agentDir>/u7agent/sessions) */
   sessionStoreDir?: string | null;
+  /** 通知送信のテスト用。省略時は globalThis.fetch */
+  notificationFetch?: typeof fetch;
 };
 
 export type SessionStoreStatus = {
@@ -40,6 +43,8 @@ export type BffContext = {
   sessionStore: SessionStoreStatus;
   /** アプリデータ (プロジェクト / カタログ) の DB。status() を health へ出す */
   appDb: AppDb;
+  /** Discord 通知。ラン完了時の送信と設定 API の両方から使う */
+  notifications: NotificationService;
 };
 
 export async function createBffContext(opts: CreateBffAppOptions = {}): Promise<BffContext> {
@@ -90,6 +95,12 @@ export async function createBffContext(opts: CreateBffAppOptions = {}): Promise<
     db: appDb,
   });
   const projects = new ProjectStore(appDb);
+  // 通知はセッションと同じ secret masker を使い、本文とエラーから秘密値を落とす
+  const notifications = new NotificationService({
+    db: appDb,
+    masker: pi?.secretMasker,
+    fetchImpl: opts.notificationFetch,
+  });
   // 作業領域の操作はモデルランタイムとは独立に生成する (APIキー未設定で ready: false でもツリーは開けるように)
   const workspace =
     opts.workspace !== undefined ? opts.workspace : (createSandboxToolClientFromEnv(process.env) ?? null);
@@ -102,6 +113,7 @@ export async function createBffContext(opts: CreateBffAppOptions = {}): Promise<
     storeError: sessionStoreError,
     workspace,
     rootCwd: cwd,
+    notifications,
   });
   if (storeDir) {
     try {
@@ -114,5 +126,5 @@ export async function createBffContext(opts: CreateBffAppOptions = {}): Promise<
       console.error(`[u7agent] session store init failed: ${sessionStoreError}`);
     }
   }
-  return { cwd, pi, initError, catalog, projects, store, workspace, sessionStore, appDb };
+  return { cwd, pi, initError, catalog, projects, store, workspace, sessionStore, appDb, notifications };
 }

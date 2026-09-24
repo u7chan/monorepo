@@ -221,6 +221,85 @@ test("recreating the schema does not touch the conversation files", () => {
   }
 });
 
+/** v1 相当のスキーマ (notification_settings が無い状態) */
+const V1_TABLES = `
+CREATE TABLE projects (id TEXT PRIMARY KEY, name TEXT NOT NULL, cwd TEXT NOT NULL, createdAt INTEGER NOT NULL);
+CREATE TABLE skills (id TEXT PRIMARY KEY, name TEXT NOT NULL, description TEXT NOT NULL, body TEXT NOT NULL);
+CREATE TABLE agents (
+  id TEXT PRIMARY KEY, name TEXT NOT NULL, description TEXT NOT NULL, systemPrompt TEXT NOT NULL,
+  icon TEXT, model TEXT, thinkingLevel TEXT, skillIds TEXT NOT NULL, suggestions TEXT
+);
+`;
+
+test("migrates a v1 db additively without touching agents, skills and projects", () => {
+  const dir = tempStoreDir();
+  try {
+    // v1 の DB を直接作る (このリリースより前の実ファイルと同じ形)
+    const raw = new DatabaseSync(join(dir, APP_DB_FILENAME));
+    raw.exec(V1_TABLES);
+    raw.exec("PRAGMA user_version = 1");
+    raw.prepare("INSERT INTO projects (id, name, cwd, createdAt) VALUES (?, ?, ?, ?)").run("p1", "p1", "proj-a", 1);
+    raw.prepare("INSERT INTO skills (id, name, description, body) VALUES (?, ?, ?, ?)").run("s1", "s1", "", "body");
+    raw
+      .prepare("INSERT INTO agents (id, name, description, systemPrompt, skillIds) VALUES (?, ?, ?, ?, ?)")
+      .run("a1", "a1", "", "", '["s1"]');
+    raw.close();
+
+    const db = AppDb.open({ storeDir: dir });
+    // 加算的な移行で既存の定義は消えない
+    assert.deepEqual(db.listProjects(), [project("p1", "proj-a")]);
+    assert.deepEqual(db.listSkills(), [skill("s1")]);
+    assert.deepEqual(db.listAgents(), [agent("a1", ["s1"])]);
+    assert.equal(db.getNotificationSettings(), undefined);
+    db.saveNotificationSettings({ enabled: true, mention: "here", webhookUrl: "https://discord.com/api/webhooks/1/t" });
+    db.close();
+
+    // 版が上がっている (開き直しても作り直されない)
+    const check = new DatabaseSync(join(dir, APP_DB_FILENAME));
+    assert.equal(Number(check.prepare("PRAGMA user_version").get()?.user_version), APP_DB_SCHEMA_VERSION);
+    check.close();
+
+    const second = AppDb.open({ storeDir: dir });
+    assert.deepEqual(second.listProjects(), [project("p1", "proj-a")]);
+    assert.deepEqual(second.listSkills(), [skill("s1")]);
+    assert.deepEqual(second.listAgents(), [agent("a1", ["s1"])]);
+    assert.equal(second.getNotificationSettings()?.mention, "here");
+    second.close();
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("notification settings round-trip through the sqlite row", () => {
+  const dir = tempStoreDir();
+  try {
+    const first = AppDb.open({ storeDir: dir });
+    assert.equal(first.getNotificationSettings(), undefined);
+    const settings = {
+      enabled: true,
+      mention: "here" as const,
+      webhookUrl: "https://discord.com/api/webhooks/1/t",
+      baseUrl: "http://127.0.0.1:5173",
+      lastResult: { ok: false, status: 404, latencyMs: 98, message: "Unknown Webhook", code: 10015, at: 1 },
+    };
+    first.saveNotificationSettings(settings);
+    // 設定は 1 行を上書きする
+    first.saveNotificationSettings({ ...settings, enabled: false, lastResult: undefined });
+    first.close();
+
+    const second = AppDb.open({ storeDir: dir });
+    assert.deepEqual(second.getNotificationSettings(), {
+      enabled: false,
+      mention: "here",
+      webhookUrl: "https://discord.com/api/webhooks/1/t",
+      baseUrl: "http://127.0.0.1:5173",
+    });
+    second.close();
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("unavailable() keeps the reason for health", () => {
   const dir = tempStoreDir();
   try {

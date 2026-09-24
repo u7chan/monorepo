@@ -248,6 +248,8 @@ export const SessionPayloadSchema = z.object({
   createdAt: z.number(),
   lastUsedAt: z.number(),
   queueDepth: z.number(),
+  /** この会話の完了を Discord へ送るか。サーバーは常に載せ、読む側は省略を false として扱う */
+  notify: z.boolean().optional(),
   lastSeq: z.number(),
   agent: AgentPayloadInfoSchema.optional(),
   run: RunPayloadSchema.nullable(),
@@ -266,6 +268,8 @@ export const SessionSummarySchema = z.object({
   agentName: z.string().optional(),
   status: RunStatusSchema,
   queueDepth: z.number(),
+  /** この会話の完了を Discord へ送るか。サーバーは常に載せ、読む側は省略を false として扱う */
+  notify: z.boolean().optional(),
   messageCount: z.number(),
   createdAt: z.number(),
   lastUsedAt: z.number(),
@@ -273,6 +277,47 @@ export const SessionSummarySchema = z.object({
   projectId: z.string().optional(),
 });
 export type SessionSummary = z.infer<typeof SessionSummarySchema>;
+
+/** 通知のメンション指定。Discord の allowed_mentions は本文ではなくこの値だけで決める */
+export const NotificationMentionSchema = z.enum(["none", "here"]);
+export type NotificationMention = z.infer<typeof NotificationMentionSchema>;
+
+/**
+ * 直近の送信結果 (通常通知とテスト送信で共通の 1 件)。URL とレスポンス原文は入れない。
+ * 応答が返らなかった (タイムアウト / ネットワーク / リダイレクト拒否) ときは status を省略する。
+ */
+export const NotificationResultSchema = z.object({
+  ok: z.boolean(),
+  status: z.number().optional(),
+  latencyMs: z.number(),
+  /** Discord の message、またはアプリ側の固定文言 */
+  message: z.string().optional(),
+  code: z.number().optional(),
+  at: z.number(),
+});
+export type NotificationResult = z.infer<typeof NotificationResultSchema>;
+
+/** アプリデータの SQLite に保存する通知設定。webhookUrl は API 応答へ出さない (write-only) */
+export const NotificationSettingsSchema = z.object({
+  enabled: z.boolean(),
+  webhookUrl: z.string().optional(),
+  baseUrl: z.string().optional(),
+  mention: NotificationMentionSchema,
+  lastResult: NotificationResultSchema.optional(),
+});
+export type NotificationSettings = z.infer<typeof NotificationSettingsSchema>;
+
+/** GET / PUT `/api/notifications` の応答。保存済み URL は `configured` と末尾 4 文字だけを返す */
+export const NotificationsResponseSchema = z.object({
+  enabled: z.boolean(),
+  provider: z.literal("discord"),
+  configured: z.boolean(),
+  webhookHint: z.string().optional(),
+  baseUrl: z.string().optional(),
+  mention: NotificationMentionSchema,
+  lastResult: NotificationResultSchema.optional(),
+});
+export type NotificationsResponse = z.infer<typeof NotificationsResponseSchema>;
 
 export const ModelOptionSchema = z.object({
   provider: z.string(),
@@ -610,6 +655,16 @@ export const StopResultSchema = z.object({
 });
 export type StopResult = z.infer<typeof StopResultSchema>;
 
+/**
+ * `PATCH /api/sessions/:id/notify` の応答。live / 未ロードで同じ形にし、SDK セッションを開かない
+ * 未ロードでも返せるよう会話全文 (`messages`) は載せない。
+ */
+export const SessionNotifyResponseSchema = z.object({
+  sessionId: z.string(),
+  notify: z.boolean(),
+});
+export type SessionNotifyResponse = z.infer<typeof SessionNotifyResponseSchema>;
+
 // ---------------------------------------------------------------------------
 // リクエスト body スキーマ
 // route が見るのは JSON の形と型だけ。必須判定と正規化 (trim / 上限 / 未知キー) は catalog が正
@@ -629,6 +684,8 @@ export const CreateSessionBodySchema = z.object({
   thinkingLevel: ThinkingLevelSchema.optional(),
   // 未指定は未所属 (cwd = root)。未知の id は 400
   projectId: z.string().min(1).optional(),
+  // 新規チャットで選んだ通知トグルを、作成されるセッションへ引き継ぐ (未指定は false)
+  notify: z.boolean().optional(),
 });
 export type CreateSessionBody = z.infer<typeof CreateSessionBodySchema>;
 
@@ -645,6 +702,22 @@ export const UpdateSessionSettingsBodySchema = z.object({
   thinkingLevel: ThinkingLevelSchema.optional(),
 });
 export type UpdateSessionSettingsBody = z.infer<typeof UpdateSessionSettingsBodySchema>;
+
+/**
+ * 会話ごとの通知トグル。model / thinkingLevel の設定変更とは別経路にして、
+ * SDK の設定変更と busy 判定を通さずに実行中でも切り替えられるようにする。
+ */
+export const UpdateSessionNotifyBodySchema = z.object({ notify: z.boolean() });
+export type UpdateSessionNotifyBody = z.infer<typeof UpdateSessionNotifyBodySchema>;
+
+/** 通知設定の更新。キー省略は現在値の維持、webhookUrl / baseUrl の null は解除 */
+export const UpdateNotificationsBodySchema = z.object({
+  enabled: z.boolean().optional(),
+  webhookUrl: z.string().nullish(),
+  baseUrl: z.string().nullish(),
+  mention: NotificationMentionSchema.optional(),
+});
+export type UpdateNotificationsBody = z.infer<typeof UpdateNotificationsBodySchema>;
 
 // 全キー任意にするのは、空 body の PATCH を no-op として通し、必須判定を catalog の文言のまま残すため。
 // null は「指定解除」、キー省略は「現在値の維持」で、どちらも catalog が解釈する。

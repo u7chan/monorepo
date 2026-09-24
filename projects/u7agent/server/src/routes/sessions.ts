@@ -11,6 +11,7 @@ import {
   FileUploadSchema,
   type CreateSessionBody,
   type PostMessageBody,
+  type UpdateSessionNotifyBody,
   type UpdateSessionSettingsBody,
 } from "../schema";
 import type { SessionRecord, SessionStore } from "../sessions";
@@ -64,6 +65,7 @@ export function createSessionRoutes({
         model: body.model,
         thinkingLevel: body.thinkingLevel,
         projectId: body.projectId,
+        notify: body.notify,
       });
       return c.json(store.payload(record), 201);
     },
@@ -85,6 +87,13 @@ export function createSessionRoutes({
         thinkingLevel: body.thinkingLevel,
       });
       return c.json(payload);
+    },
+
+    /** 通知トグル。busy でも成功し、応答は live / 未ロード共通の `{ sessionId, notify }` */
+    updateNotify: async (c: Context, body: UpdateSessionNotifyBody) => {
+      const result = await store.setNotify(c.req.param("id") ?? "", body.notify);
+      if (!result) return c.json({ error: "Session not found" }, 404);
+      return c.json(result);
     },
 
     remove: async (c: Context) => {

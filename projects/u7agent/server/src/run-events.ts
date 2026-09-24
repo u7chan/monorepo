@@ -89,6 +89,11 @@ export interface RunEventBridge {
   listener: PiSessionEventListener;
   /** 保留中の差分と resync を流し、以降のイベントを無視する (run_end を配る前に呼ぶ) */
   finalize: () => void;
+  /**
+   * このランで確定した最後の assistant 本文 (mask 済み)。このランで assistant メッセージを観測しなければ
+   * undefined を返す (履歴を遡って前のランの本文を拾わない)。finalize の後に呼ぶ。
+   */
+  settledAssistantText: () => string | undefined;
 }
 
 export function createRunEventBridge(deps: RunEventBridgeDeps): RunEventBridge {
@@ -96,6 +101,9 @@ export function createRunEventBridge(deps: RunEventBridgeDeps): RunEventBridge {
 
   let finished = false;
   let currentAssistantText = "";
+  // このランで assistant メッセージを観測したか。観測していないランの本文は空として扱う
+  // (SDK は assistant を生成せずに agent_settled を配ることがある)。
+  let assistantSeen = false;
   // 応答時間は assistant メッセージごとにリセットする
   let assistantStartedAt: number | undefined;
   let firstTokenAt: number | undefined;
@@ -155,6 +163,7 @@ export function createRunEventBridge(deps: RunEventBridgeDeps): RunEventBridge {
           break;
         case "message_start":
           if (event.message?.role === "assistant") {
+            assistantSeen = true;
             currentAssistantText = "";
             assistantStartedAt = Date.now();
             firstTokenAt = undefined;
@@ -174,6 +183,7 @@ export function createRunEventBridge(deps: RunEventBridgeDeps): RunEventBridge {
         }
         case "message_end":
           if (event.message?.role === "assistant") {
+            assistantSeen = true;
             pushText(deltaMasker.flush());
             const usage = parseUsage(event.message.usage);
             const metrics = computeMessageMetrics({
@@ -273,5 +283,5 @@ export function createRunEventBridge(deps: RunEventBridgeDeps): RunEventBridge {
     }
   };
 
-  return { listener, finalize };
+  return { listener, finalize, settledAssistantText: () => (assistantSeen ? currentAssistantText : undefined) };
 }
