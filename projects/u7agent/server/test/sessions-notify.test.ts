@@ -74,15 +74,22 @@ async function withStoreDir<T>(run: (dir: string) => Promise<T>): Promise<T> {
 
 async function openBff(
   dir: string,
-  options: { pi?: ReturnType<typeof createStubPi>; notificationFetch?: typeof fetch } = {},
+  options: { pi?: ReturnType<typeof createStubPi> | null; notificationFetch?: typeof fetch } = {},
 ) {
   return createBffApp({
     cwd: "/tmp/project",
     sessionStoreDir: dir,
-    pi: asPiBff(options.pi ?? createStubPi()),
+    // null はモデルランタイム無し (SDK セッションを復元できない状態)
+    pi: options.pi === undefined ? asPiBff(createStubPi()) : options.pi === null ? null : asPiBff(options.pi),
     workspace: stubWorkspace(),
     notificationFetch: options.notificationFetch,
   });
+}
+
+/** meta.json の notify。未指定はキーごと無い (false と区別して古い true の残骸を見る) */
+async function metaNotify(id: string, dir: string): Promise<boolean | undefined> {
+  const meta = JSON.parse(await readFile(sessionMetaPath(id, dir), "utf8")) as { notify?: boolean };
+  return meta.notify;
 }
 
 test("notify is stored in meta and read back through every path", async () => {
@@ -192,6 +199,108 @@ test("a completed run posts one embed with the link, mention and masked body", a
       // 通知本文の Webhook URL は専用マスクで潰す
       assert.equal(lines[1], "結果です [REDACTED]");
       assert.equal(lines[2], `http://127.0.0.1:5173/s/${created.sessionId}`);
+    } finally {
+      await bff.close();
+    }
+  });
+});
+
+test("turning notify off clears the persisted flag", async () => {
+  await withStoreDir(async (dir) => {
+    const { impl, calls } = fakeFetch(() => new Response(null, { status: 204 }));
+    const bff = await openBff(dir, { notificationFetch: impl });
+    try {
+      await bff.app.request("/api/notifications", jsonPut({ webhookUrl: WEBHOOK, enabled: true }));
+      const created = await jsonBody(bff.app.request("/api/sessions", jsonPost({ notify: true })));
+      assert.equal(await metaNotify(created.sessionId, dir), true);
+
+      const off = await bff.app.request(`/api/sessions/${created.sessionId}/notify`, jsonPatch({ notify: false }));
+      assert.equal(off.status, 200);
+      assert.equal((await jsonBody(off)).notify, false);
+      // 古い meta.notify: true を残さない (再起動で On に戻らない)
+      assert.equal(await metaNotify(created.sessionId, dir), undefined);
+    } finally {
+      await bff.close();
+    }
+
+    // 再起動しても Off のまま、完了しても送らない
+    const restarted = await openBff(dir, { notificationFetch: impl });
+    try {
+      const list = await jsonBody(restarted.app.request("/api/sessions"));
+      assert.equal(list.sessions[0].notify, false);
+      await restarted.app.request(
+        `/api/sessions/${list.sessions[0].sessionId}/messages`,
+        jsonPost({ text: "送らないで" }),
+      );
+      const record = restarted.store.records.get(list.sessions[0].sessionId);
+      await waitFor(() => restarted.store.statusOf(record!) === "completed");
+      assert.equal(calls.length, 0);
+    } finally {
+      await restarted.close();
+    }
+  });
+});
+
+test("an unloaded session can be toggled without the runtime", async () => {
+  await withStoreDir(async (dir) => {
+    const first = await openBff(dir);
+    const created = await jsonBody(first.app.request("/api/sessions", jsonPost({})));
+    await first.close();
+
+    // モデルランタイム無し = 保存済みセッションを SDK で復元できない状態
+    const offline = await openBff(dir, { pi: null });
+    try {
+      const list = await jsonBody(offline.app.request("/api/sessions"));
+      assert.equal(list.sessions.length, 1, "保存済みセッションは一覧に残る");
+      const toggled = await offline.app.request(
+        `/api/sessions/${created.sessionId}/notify`,
+        jsonPatch({ notify: true }),
+      );
+      assert.equal(toggled.status, 200, "一覧にあるセッションは 404 にしない");
+      assert.equal((await jsonBody(toggled)).notify, true);
+      assert.equal(await metaNotify(created.sessionId, dir), true);
+    } finally {
+      await offline.close();
+    }
+
+    // 再起動後 (未ロード) も同じ値
+    const restarted = await openBff(dir);
+    try {
+      assert.equal((await jsonBody(restarted.app.request("/api/sessions"))).sessions[0].notify, true);
+      assert.equal((await jsonBody(restarted.app.request(`/api/sessions/${created.sessionId}`))).notify, true);
+    } finally {
+      await restarted.close();
+    }
+  });
+});
+
+test("a completed run without an assistant message does not reuse the previous reply", async () => {
+  await withStoreDir(async (dir) => {
+    const { impl, calls } = fakeFetch(() => new Response(null, { status: 204 }));
+    const pi = createStubPi();
+    const bff = await openBff(dir, { pi, notificationFetch: impl });
+    try {
+      await bff.app.request("/api/notifications", jsonPut({ webhookUrl: WEBHOOK, enabled: true }));
+      const created = await jsonBody(bff.app.request("/api/sessions", jsonPost({ notify: true })));
+      const first = await jsonBody(
+        await bff.app.request(`/api/sessions/${created.sessionId}/messages`, jsonPost({ text: "1つ目" })),
+      );
+      await waitFor(() => calls.length === 1);
+
+      // 2 回目は user メッセージだけを積み、assistant を生成せずに終わる
+      const session = pi.sessions[0];
+      session.prompt = async (text: string) => {
+        session.appendMessage({ role: "user", content: text, timestamp: Date.now() });
+        session.emit({ type: "agent_settled" });
+      };
+      const second = await jsonBody(
+        await bff.app.request(`/api/sessions/${created.sessionId}/messages`, jsonPost({ text: "2つ目" })),
+      );
+      assert.notEqual(second.runId, first.runId);
+      const record = bff.store.records.get(created.sessionId);
+      await waitFor(() => bff.store.statusOf(record!) === "completed");
+      // 前回の assistant 本文を再送しない
+      assert.equal(calls.length, 1);
     } finally {
       await bff.close();
     }

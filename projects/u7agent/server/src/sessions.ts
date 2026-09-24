@@ -15,7 +15,7 @@ import type { AgentCatalog } from "./agents";
 import { stripAttachedFiles } from "./attachments";
 import { compactionsOf } from "./compaction-view";
 import type { NotificationService } from "./notifications";
-import { contextUsageOf, lastAssistantMessage, type PiRuntimeLike, type PiSessionLike } from "./pi-runtime";
+import { contextUsageOf, type PiRuntimeLike, type PiSessionLike } from "./pi-runtime";
 import type { ProjectStore } from "./projects";
 import { createSecretMasker, type SecretMasker } from "./redact";
 import { createRunEventBridge, userFacingError, type RunSettlement } from "./run-events";
@@ -28,7 +28,7 @@ import type {
   UpdateSessionSettingsInput,
 } from "./session-record";
 import { projectSessionPayload, projectSessionSummary } from "./session-payload";
-import { contentText, displayableMessages, truncate } from "./session-projection";
+import { displayableMessages, truncate } from "./session-projection";
 import type { SandboxWorkspaceClient } from "./sandbox/client";
 import { SandboxRequestError } from "./sandbox/client";
 import {
@@ -541,16 +541,35 @@ export class SessionStore {
   /**
    * 通知トグル。model / thinkingLevel の設定変更と違い、SDK の設定変更も busy 判定も通さない
    * (実行中でも切り替えられ、送るかどうかは finish 時点の値で決まる)。
+   * 未ロードのセッションは meta.json だけを書き換え、SDK セッションを開かない
+   * (モデルランタイムが使えない間でも通知を切り替えられるように)。
    */
-  async setNotify(id: string, notify: boolean): Promise<SessionPayload | undefined> {
-    const record = await this.resolve(id);
-    if (!record) return undefined;
-    record.notify = notify;
-    // 履歴は変わらないので meta.json だけを書く
-    await this.persist(record, { jsonl: false });
-    // 保存失敗を成功扱いにしない (in-memory の実行は止めないが、この応答は 500)
-    if (record.persistError) throw httpError(500, `セッションの保存に失敗しました: ${record.persistError}`);
-    return this.payload(record);
+  async setNotify(id: string, notify: boolean): Promise<SessionPayload | SessionSummary | undefined> {
+    // 復元中の id は完了を待つ (descriptor を先に書き換えると load の meta で上書きされる)
+    const pending = this.lifecycle.get(id);
+    if (pending) await pending.catch(() => {});
+    const live = this.records.get(id);
+    if (live) {
+      live.notify = notify;
+      // 履歴は変わらないので meta.json だけを書く
+      await this.persist(live, { jsonl: false });
+      // 保存失敗を成功扱いにしない (in-memory の実行は止めないが、この応答は 500)
+      if (live.persistError) throw httpError(500, `セッションの保存に失敗しました: ${live.persistError}`);
+      return this.payload(live);
+    }
+    const meta = this.descriptors.get(id);
+    if (!meta || !this.storeDir) return undefined;
+    const updated: SessionMeta = { ...meta };
+    if (notify) updated.notify = true;
+    else delete updated.notify;
+    try {
+      await writeSessionMeta(this.storeDir, updated);
+    } catch (error) {
+      throw httpError(500, `セッションの保存に失敗しました: ${messageFor(error)}`);
+    }
+    this.descriptors.set(id, updated);
+    // 未ロードは SessionPayload を組めない (組むには SDK セッションの復元が要る) ため、一覧と同じ summary を返す
+    return this.summaryOfMeta(updated);
   }
 
   async updateSettings(record: SessionRecord, input: UpdateSessionSettingsInput): Promise<SessionPayload> {
@@ -863,12 +882,14 @@ export class SessionStore {
         ...(record.projectName ? { projectName: record.projectName } : {}),
         ...(modelLabel(session.model) ? { model: modelLabel(session.model) } : {}),
         ...(session.thinkingLevel ? { thinkingLevel: session.thinkingLevel } : {}),
-        ...(record.notify ? { notify: true } : {}),
       };
       if (!meta.projectCwd) {
         delete meta.projectCwd;
         delete meta.projectName;
       }
+      // record.meta の古い値を残さない (Off へ戻した会話が再起動で On に戻らないように)
+      if (record.notify) meta.notify = true;
+      else delete meta.notify;
       record.meta = meta;
       this.descriptors.set(record.id, meta);
       // 今回の保存だけを評価する (過去の失敗は成功で消す)
@@ -1008,7 +1029,7 @@ export class SessionStore {
       void this.persist(record);
 
       // 送信は fire-and-forget。run_end の記録・persist・キューの pump を待たせない
-      this.notifyCompleted(record, run);
+      this.notifyCompleted(record, run, bridge.settledAssistantText());
 
       if (record.queue.length > 0) {
         setTimeout(() => this.pump(record), QUEUE_DELAY_MS).unref?.();
@@ -1048,19 +1069,17 @@ export class SessionStore {
 
   /**
    * 完了通知。送信は fire-and-forget で、失敗してもランとその記録に影響させない。
-   * 送るかどうかは finish 時点の値で決める (以降のトグル変更を待たない)。
+   * 送るかどうかは finish 時点の値で決め、本文はこのランで確定したものだけを使う
+   * (履歴を遡ると、assistant を生成しなかったランで前の応答を再送してしまう)。
    */
-  private notifyCompleted(record: SessionRecord, run: RunState): void {
+  private notifyCompleted(record: SessionRecord, run: RunState, body: string | undefined): void {
     if (!this.notifications || run.status !== "completed" || !record.notify) return;
-    // 「最後の assistant メッセージ」を見る。表示集合 (displayableMessages) から選ぶと、
-    // 空応答で終わったランでも前のランの本文を拾ってしまう
-    const last = lastAssistantMessage(record.session);
-    if (!last || !contentText(last.content).trim()) return;
+    if (!body?.trim()) return;
     this.notifications.notifySession({
       sessionId: record.id,
       title: record.title,
       agentName: record.agent.name,
-      body: contentText(last.content),
+      body,
       durationMs: (run.endedAt ?? Date.now()) - run.startedAt,
       toolCalls: record.tools.size,
     });
