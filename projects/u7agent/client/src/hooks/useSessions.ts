@@ -23,7 +23,6 @@ import { nextAfterFailure } from "./sessionFallback";
 import { useSessionEvents } from "./useSessionEvents";
 import { runtimeStatusForError, type RuntimeStatus } from "./runtimeStatus";
 
-const SESSION_KEY = "u7agent-session";
 const alwaysCurrent = () => true;
 
 /** 開けなかった理由。サーバーの 409 は「どのファイルが壊れているか」を含む */
@@ -67,7 +66,7 @@ export function useSessions({
   setRuntimeStatus,
 }: UseSessionsParams) {
   const [sessions, setSessions] = useState<SessionSummary[]>([]);
-  const [sessionId, setSessionId] = useState<string>(() => localStorage.getItem(SESSION_KEY) || "");
+  const [sessionId, setSessionId] = useState("");
   const [cwd, setCwd] = useState<string>("");
   const [settingsChanging, setSettingsChanging] = useState(false);
   const [preselection, setPreselection] = useState<SettingsSelection>({});
@@ -131,7 +130,6 @@ export function useSessions({
       if (sessionIdRef.current !== payload.sessionId) fileRefRequests.clear();
       sessionIdRef.current = payload.sessionId;
       setSessionId(payload.sessionId);
-      localStorage.setItem(SESSION_KEY, payload.sessionId);
       // 復元したセッションの agent はカタログに無いことがある (削除済み / ID 変更)。
       // 選択に残すと次のセッション作成が 400 になるので、既知のときだけ採用する
       const snapshotAgentId = adoptKnownAgentId(agents, payload.agent?.id, agentId);
@@ -162,13 +160,16 @@ export function useSessions({
   );
 
   const selectSession = useCallback(
-    async (id: string, isCurrent = alwaysCurrent): Promise<SessionOpenResult> => {
+    async (
+      id: string,
+      isCurrent = alwaysCurrent,
+      { fallbackOnFailure = true }: { fallbackOnFailure?: boolean } = {},
+    ): Promise<SessionOpenResult> => {
       // getSession の待機中にセッション作成が返っても、この選択を奪わせない
       const selection = (selectionSeqRef.current += 1);
       // 選択が変わったら旧セッションの要求を持ち越さない (同じ ID に戻っても復活させない)
       fileRefRequests.clear();
-      // 破損などで開けないセッションが複数あると、代わりの候補が互いを指して往復し続ける。
-      // この連鎖で試した id を覚え、一覧を 1 周したら未作成チャットへ落とす
+      // 破損した候補が互いを指して往復するため、フォールバックも一覧 1 周で止める
       const failed = new Set<string>();
       let pending: string | undefined = id;
       while (pending) {
@@ -186,9 +187,10 @@ export function useSessions({
           if (!isCurrent()) return "superseded";
           // 待機中に別の会話が選ばれていたら、この失敗でその表示を壊さない
           if (selectionSeqRef.current !== selection) return "superseded";
-          localStorage.removeItem(SESSION_KEY);
-          sessionIdRef.current = "";
-          setSessionId("");
+          if (!fallbackOnFailure) {
+            newChatRef.current();
+            return "fallback";
+          }
           const next = nextAfterFailure(sessionsRef.current, failed);
           if (next.kind === "newChat") {
             newChatRef.current();
@@ -216,7 +218,6 @@ export function useSessions({
       sessionCreation.clear();
       // 新規チャットの通知の先行選択も持ち越さない (作成中の古い応答でこの選択を消させない)
       notifyCarry.reset();
-      localStorage.removeItem(SESSION_KEY);
       sessionIdRef.current = "";
       lastSeqRef.current = 0;
       setSessionId("");
@@ -409,19 +410,17 @@ export function useSessions({
 
   const restoreSession = useCallback(
     async (list: SessionSummary[], isCurrent = alwaysCurrent, pending?: PendingEntry): Promise<void> => {
-      const stored = localStorage.getItem(SESSION_KEY) || "";
-      // 通知のディープリンク (`/s/<id>`) は保存済みの復元より優先する
-      const requested = pending ? list.find((item) => item.sessionId === pending.sessionId) : undefined;
-      const target = requested ?? list.find((item) => item.sessionId === stored) ?? list[0];
+      if (!pending) return;
+      const requested = list.find((item) => item.sessionId === pending.sessionId);
       if (!isCurrent()) return;
       // 一覧のロード待ちの間にユーザーが会話を選んでいたら、その選択を奪わない
-      if (pending && selectionSeqRef.current !== pending.selection) return;
+      if (selectionSeqRef.current !== pending.selection) return;
       // 一覧に無い場合だけでなく、リンク先が一覧の取得後に削除されていた (GET が失敗した) 場合も理由を出す
       let opened: SessionOpenResult = "fallback";
-      if (target) opened = await selectSession(target.sessionId, isCurrent);
+      if (requested) opened = await selectSession(requested.sessionId, isCurrent, { fallbackOnFailure: false });
       else newChatRef.current();
       // 理由は選択の後に出す (resync が活動表示を消すため)
-      const note = pending ? missingLinkNote(requested !== undefined, opened) : undefined;
+      const note = missingLinkNote(requested !== undefined, opened);
       if (note) dispatch({ type: "setActivity", text: note });
     },
     [dispatch, selectSession],

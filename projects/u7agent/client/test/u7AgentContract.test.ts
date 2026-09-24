@@ -113,3 +113,26 @@ test("起動処理は、保留の入口の基準にする選択世代を最初�
   assert.ok(resolve.includes("const resolvePendingEntry"), "再解決の実装が見つからない");
   assert.ok(!resolve.includes("selectionSeqRef.current"), "再解決で世代を読み直している");
 });
+
+test("起動時は保留のリンクだけを開き、失敗時に別の会話へフォールバックしない", () => {
+  const sessions = read("src/hooks/useSessions.ts");
+  assert.doesNotMatch(sessions, /u7agent-session|localStorage/, "選択中の会話を保存・復元している");
+  assert.match(sessions, /const \[sessionId, setSessionId\] = useState\(""\)/, "初期選択が空ではない");
+  assert.ok(
+    sessions.includes("selectSession(requested.sessionId, isCurrent, { fallbackOnFailure: false })"),
+    "リンク先の取得に失敗したときのフォールバック禁止が無い",
+  );
+  assert.match(
+    sessions,
+    /if \(!fallbackOnFailure\) \{\s*newChatRef\.current\(\);\s*return "fallback";\s*\}\s*const next = nextAfterFailure/,
+    "リンク先の取得失敗後に一覧走査を始めている",
+  );
+  assert.match(
+    sessions,
+    /if \(!pending\) return;\s*const requested = list\.find/,
+    "保留 URL が無い起動で一覧から会話を選んでいる",
+  );
+
+  const boot = withoutLineComments(bootSource(read("src/hooks/useU7Agent.ts")));
+  assert.ok(!boot.includes("restoreSession("), "保留 URL が無い boot から会話を復元している");
+});
