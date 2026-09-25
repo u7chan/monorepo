@@ -28,6 +28,7 @@ import {
   type FileTreeState,
 } from "../lib/fileTree";
 import { fileKind } from "../lib/fileKind";
+import { FILE_MENTION_MIME, mentionText } from "../lib/fileMention";
 import { type FileRefRequest } from "../lib/fileRefRequest";
 import { filePreviewStore } from "../lib/filePreviewState";
 import { fileTimeLabel, messageFullTimeLabel } from "../lib/messageTime";
@@ -64,6 +65,8 @@ export type FileBrowserProps = {
   canRename?: boolean;
   /** 削除とリネームの導線を出さない (読み取り専用の面)。既定 false (既存 2 画面は不変) */
   readOnly?: boolean;
+  /** ファイル行を参照としてドラッグできるようにする。ドロップ先 (入力欄) と同じ root の面だけ true */
+  canRef?: boolean;
   /**
    * アーカイブの除外名の実効値 (設定ストア)。除外名の行にはダウンロードを出さない。
    * 取得元を health ではなく app 状態 (prop) にすることで、設定の保存直後に再 mount なしで追随する。
@@ -86,6 +89,7 @@ export function FileBrowser({
   reloadToken,
   canRename = false,
   readOnly = false,
+  canRef = false,
   excludeNames,
   openRequest,
   onHandled,
@@ -287,6 +291,7 @@ export function FileBrowser({
               selected={tabs.active}
               canRename={canRename}
               readOnly={readOnly}
+              canRef={canRef}
               excludeNames={excludeNames}
               onToggle={toggle}
               onSelect={openTab}
@@ -325,6 +330,7 @@ type BranchProps = {
   selected: string | null;
   canRename: boolean;
   readOnly: boolean;
+  canRef: boolean;
   /** ワークスペースの除外名 (行のダウンロードを出すかの判定に使う) */
   excludeNames: readonly string[];
   onToggle: (path: string) => void;
@@ -342,6 +348,7 @@ function Branch({
   selected,
   canRename,
   readOnly,
+  canRef,
   excludeNames,
   onToggle,
   onSelect,
@@ -364,6 +371,7 @@ function Branch({
           selected={selected}
           canRename={canRename}
           readOnly={readOnly}
+          canRef={canRef}
           excludeNames={excludeNames}
           onToggle={onToggle}
           onSelect={onSelect}
@@ -400,6 +408,7 @@ function EntryRow({
   selected,
   canRename,
   readOnly,
+  canRef,
   excludeNames,
   onToggle,
   onSelect,
@@ -414,6 +423,7 @@ function EntryRow({
   selected: string | null;
   canRename: boolean;
   readOnly: boolean;
+  canRef: boolean;
   excludeNames: readonly string[];
   onToggle: (path: string) => void;
   onSelect: (path: string) => void;
@@ -482,6 +492,7 @@ function EntryRow({
                 selected={selected}
                 canRename={canRename}
                 readOnly={readOnly}
+                canRef={canRef}
                 excludeNames={excludeNames}
                 onToggle={onToggle}
                 onSelect={onSelect}
@@ -502,6 +513,18 @@ function EntryRow({
   return (
     // 行全体は選択、右端のスロットはリネーム (フォルダのみ) と削除。入れ子の button は作れないため、行は div にして button を並べる
     <div
+      draggable={canRef}
+      onDragStart={
+        canRef
+          ? (event) => {
+              // 添付 (Files) と区別する型と、他アプリへ落としても本文になる字面の両方を積む
+              event.dataTransfer.setData(FILE_MENTION_MIME, path);
+              event.dataTransfer.setData("text/plain", mentionText(path));
+              event.dataTransfer.effectAllowed = "copy";
+            }
+          : undefined
+      }
+      title={canRef ? `${path}（ドラッグでチャットの参照にできます）` : undefined}
       style={{ "--tree-indent": `${depth * INDENT + FILE_INDENT}px` } as CSSProperties}
       className={cn(
         "flex min-h-7.5 w-full flex-wrap items-center gap-x-1.5 gap-y-1 rounded-lg pr-2 pl-(--tree-indent) text-xs transition-colors",

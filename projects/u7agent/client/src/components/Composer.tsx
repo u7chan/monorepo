@@ -3,6 +3,7 @@ import type { Attachment, ComposerSettings } from "../hooks/useU7Agent";
 import type { SessionSkillsState } from "../hooks/useSessionSkills";
 import { cn } from "../lib/cn";
 import { shouldSubmitOnEnter } from "../lib/composerKeys";
+import { composerDropKind, FILE_MENTION_MIME, insertFileMention, type ComposerDropKind } from "../lib/fileMention";
 import type { LayoutMode } from "../lib/layout";
 import { skillCommandText } from "../lib/sessionSkills";
 import type { AgentDef, ContextUsage, ModelRef, ThinkingLevel } from "../types";
@@ -46,6 +47,17 @@ export type ComposerProps = {
 const MAX_TEXTAREA_HEIGHT = 180;
 /** compact では入力欄が画面を占めないよう低く抑える */
 const COMPACT_TEXTAREA_HEIGHT = 120;
+
+/**
+ * ドロップ座標に対応する入力欄の文字位置。`caretRangeFromPoint` は textarea で正しい位置を返さない
+ * ブラウザーがあるため `caretPositionFromPoint` だけを使い、取れなければ現在の選択位置へ倒す。
+ */
+function caretOffsetAt(textarea: HTMLTextAreaElement, x: number, y: number): number | null {
+  const position = document.caretPositionFromPoint?.(x, y) ?? null;
+  if (position === null) return null;
+  if (position.offsetNode !== textarea && !textarea.contains(position.offsetNode)) return null;
+  return Math.min(Math.max(position.offset, 0), textarea.value.length);
+}
 
 function ArrowUpIcon() {
   return (
@@ -115,7 +127,9 @@ export function Composer({
   const [value, setValue] = useState("");
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [skillsOpen, setSkillsOpen] = useState(false);
-  const [dragging, setDragging] = useState(false);
+  const [dropKind, setDropKind] = useState<ComposerDropKind | null>(null);
+  // 直前の dragover の座標。drop で参照の挿入位置を決める (drop の座標は実装によっては 0 になる)
+  const dropPointRef = useRef<{ x: number; y: number } | null>(null);
 
   const attachmentsBusy = attachments.some((item) => item.status !== "done");
   const hasAttachment = attachments.some((item) => item.status === "done");
@@ -169,10 +183,46 @@ export function Composer({
     });
   };
 
-  const handleDrop = (event: DragEvent<HTMLFormElement>) => {
-    if (event.dataTransfer.files.length === 0) return;
+  const handleDragOver = (event: DragEvent<HTMLFormElement>) => {
+    const kind = composerDropKind(event.dataTransfer.types);
+    if (kind === null) return;
     event.preventDefault();
-    setDragging(false);
+    event.dataTransfer.dropEffect = "copy";
+    dropPointRef.current = { x: event.clientX, y: event.clientY };
+    setDropKind(kind);
+  };
+
+  /** ツリーの行から落とした参照を本文へ挿す。位置はドロップ位置、取れなければ現在の選択 */
+  const insertMention = (path: string) => {
+    const el = inputRef.current;
+    const point = dropPointRef.current;
+    dropPointRef.current = null;
+    const offset = el && point ? caretOffsetAt(el, point.x, point.y) : null;
+    const start = offset ?? el?.selectionStart ?? value.length;
+    const end = offset ?? el?.selectionEnd ?? value.length;
+    const insertion = insertFileMention(value, path, start, end);
+    setValue(insertion.value);
+    // 挿入した後ろへカーソルを戻す (続けて本文を書けるようにする)
+    requestAnimationFrame(() => {
+      const target = inputRef.current;
+      if (!target) return;
+      target.focus();
+      target.setSelectionRange(insertion.caret, insertion.caret);
+    });
+  };
+
+  const handleDrop = (event: DragEvent<HTMLFormElement>) => {
+    setDropKind(null);
+    const kind = composerDropKind(event.dataTransfer.types);
+    if (kind === "mention") {
+      event.preventDefault();
+      // 空は自前のドラッグでない (他アプリの同名の型)。何もしない
+      const path = event.dataTransfer.getData(FILE_MENTION_MIME);
+      if (path !== "") insertMention(path);
+      return;
+    }
+    if (kind !== "files" || event.dataTransfer.files.length === 0) return;
+    event.preventDefault();
     pickFiles([...event.dataTransfer.files]);
   };
 
@@ -226,17 +276,12 @@ export function Composer({
       />
       <form
         onSubmit={handleSubmit}
-        onDragOver={(event) => {
-          if (event.dataTransfer.types.includes("Files")) {
-            event.preventDefault();
-            setDragging(true);
-          }
-        }}
-        onDragLeave={() => setDragging(false)}
+        onDragOver={handleDragOver}
+        onDragLeave={() => setDropKind(null)}
         onDrop={handleDrop}
         className={cn(
           "grid rounded-xl border bg-panel/90 shadow-panel",
-          dragging ? "border-accent" : "border-line-strong",
+          dropKind !== null ? "border-accent" : "border-line-strong",
           compact ? "gap-1.5 p-2" : "gap-2 p-2.5",
         )}
       >

@@ -78,12 +78,14 @@ function SessionFilesContent({
           </button>
         </div>
       </header>
+      {/* compact の sheet は全画面 modal で、入力欄へドロップできない */}
       <FileBrowser
         root={root}
         reloadToken={reloadToken}
         excludeNames={excludeNames}
         openRequest={openRequest}
         onHandled={onHandled}
+        canRef={!compact}
       />
     </>
   );

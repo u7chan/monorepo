@@ -118,7 +118,7 @@ test("配線: FileBrowser は mount 後の effect で適用し、seq ガード�
   assert.ok(source.includes("onHandled?.(openRequest.seq)"), "onHandled を返していない");
   assert.ok(
     read("src/components/SessionFilesPanel.tsx").includes(
-      "<FileBrowser\n        root={root}\n        reloadToken={reloadToken}\n        excludeNames={excludeNames}\n        openRequest={openRequest}\n        onHandled={onHandled}\n      />",
+      "<FileBrowser\n        root={root}\n        reloadToken={reloadToken}\n        excludeNames={excludeNames}\n        openRequest={openRequest}\n        onHandled={onHandled}\n        canRef={!compact}\n      />",
     ),
     "パネルから FileBrowser へ渡していない",
   );
