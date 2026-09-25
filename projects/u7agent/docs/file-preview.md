@@ -232,6 +232,16 @@ assistant 本文のインラインコードが指すファイルを、右パネ�
 - compact の sheet は閉じたときに、クリックした button を `App` が保持して focus を戻す（`document.activeElement` はクリックした button を指すとは限らない）。起点がセッション切替などで消えていたら focus を移さない。トグルから開いたときは戻さない。Escape は dialog の標準動作で閉じる（プレビューの中にフォーカスがあると親へ届かない既知制約は HTML プレビューと同じ）
 - provider は `App` が `rootCwd` / `cwd` / callback だけの memo 値で配る。要求 `seq` やパネル開閉を value に混ぜず、SSE の更新で過去の本文を再解析・再描画させない。インラインコード側だけが context を購読するため、独自 comparator を持つ `MdBlockView` / `MdList` / `MdListItemView` / `MdTable` に callback を通す必要がない
 
+## ツリーの行のドラッグ（入力欄への参照）
+
+デスクトップの右パネルのファイル行をチャットの入力欄へドロップすると、その行のパスが本文へ `@<作業フォルダ相対のパス>` として挿さる。**添付（アップロード）ではない**のでファイルは送られず、モデルが必要なときに `read` で開く（`@<path>` が cwd 相対の参照であることは `server/src/agent.ts` の `appendSystemPrompt` が説明する）。字面と区切りの規則は `client/src/lib/fileMention.ts` の純関数、ドロップの受け取りは `Composer` が持つ。
+
+- ドラッグできるのは参照のパスが作業フォルダと一致する面だけ（`FileBrowser` の `canRef`。渡すのは desktop の右パネル）。設定 → ファイル はワークスペース root、スキルのファイルタブは SKILL.md の親ディレクトリで、パスの意味が違う。compact の sheet は全画面 modal で入力欄へ届かない
+- ディレクトリ行はドラッグできない（`@<dir>` はファイルとして `read` できない）
+- 積む型は参照専用の `application/x-u7agent-file-mention`（パス）と `text/plain`（`@<パス>`）。入力欄はこの専用の型を `Files` より先に見て、参照を添付へ倒さない。`text/plain` があるため、他のアプリ / 入力欄へ落とすと参照の字面になる
+- 挿入位置はドロップ座標（`caretPositionFromPoint`。`caretRangeFromPoint` は textarea で正しい位置を返さないブラウザーがある）、取れなければ現在の選択。前後が非空白なら区切りに空白を足し、カーソルは参照の直後（続きを書ける位置）へ置く
+- 存在確認も展開もしない。消えているパスでも挿せて、空白を含むパスは字面のままで、区切りの解釈はモデルに委ねる（[メッセージからの導線](#メッセージからの導線ファイル参照) の matcher とは別の規則）
+
 ## 削除
 
 誤ってアップロードしたファイルやエージェントの成果物を取り消す導線。通常ファイルとディレクトリの行の右端のゴミ箱（`TrashIcon`）から、`window.confirm`（セッション / プロジェクト / エージェント削除と同じ）で確認してから `DELETE /api/files` を呼ぶ。
@@ -338,6 +348,7 @@ assistant 本文のインラインコードが指すファイルを、右パネ�
 | `client/test/fileBrowserRename.test.ts` | リネームの鉛筆の出し分け（`canRename` のフォルダ行だけ / 削除の左 / ファイル行と symlink 行は空スペーサー / 既定は出さない）/ `readOnly` は行の操作ごと消えること / prompt の初期値と空・未変更の no-op / API への委譲とツリー・タブ・表示モードの張り替え・失敗の表示 / 渡すのは `FileTreePage` だけ、`readOnly` はスキルのファイルタブだけ（`react-dom/server` の描画 + ソース走査） |
 | `client/test/readOnlySkillPanel.test.ts` | 読み取り専用スキルの本文の取得元（選択のたびに `GET /api/files/preview` / 組み込みは一覧の `body`）/ 本文 / ファイル タブの出し分け（`fileSkillDir` / 読み取り専用の `FileBrowser` / 初回 mount と `display` の保持）/ 本文のコピーが表示と同じ生テキストであること（`react-dom/server` の描画 + ソース走査） |
 | `client/test/fileRef.test.ts` | matcher の採否表（正規化と別表記の同ービキー / 制御文字 U+0000 / Unicode 空白 U+00A0・U+3000 / dotfile / scheme / `..` / 末尾ドット）と、解決の表（rootCwd 前置き / cwd 外 / rootCwd 未取得 / 明示的な相対 / cwd 未確定） |
+| `client/test/fileMention.test.ts` | ドラッグの種類の判定（参照の型は添付の `Files` より優先 / 対象外は null）/ 参照の字面 / 挿入規則（空・末尾・語中・選択の置換・既に空白がある位置・改行の後ろ、カーソルは参照の直後）/ 配線のソース走査（ファイル行が積む型と `text/plain` / `canRef` を渡すのは desktop の右パネルだけ / Composer が参照を添付より先に見ること / ドロップ座標の解決と挿入） |
 | `client/test/fileRefRequest.test.ts` | 未消費は 1 件で最新優先 / ack は seq が一致するときだけ消す（request1 → request2 → ack1）/ 選択変更の破棄後に復活しない / 旧 ack で新しい要求を消さない / sessionId の一致判定 / 購読の通知 / 配線のソース走査（選択変更の 3 経路、App の受け渡し、`FileBrowser` の seq ガード、sheet の focus 復帰） |
 | `client/test/markdownFileRef.test.ts` | 参照になるインラインコードだけ button にする / provider の外と参照でない字面は code のまま / rootCwd 前置きと cwd 外の解決 / リンク内 code の除外 / 引用・リスト・表の中の code / 長文フォールバックの例外（描画 + ソース走査） |
 | `client/test/filePreviewState.test.ts` | 保存 schema の encode / decode / 検証と上限 / 壊れた入力の捨て方 / 他 cwd を消さない merge / read・write の例外とメモリ snapshot |

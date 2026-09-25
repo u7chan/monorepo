@@ -434,6 +434,8 @@ test("appendSystemPrompt は作業ディレクトリとファイル / スキル�
   assert.match(prompt, /registered project directory/);
   assert.match(prompt, /scratch directory/);
   assert.match(prompt, /relative to the working directory/);
+  // 入力欄へ落とした `@<path>` の参照を read で開かせる
+  assert.match(prompt, /`@<path>` mention/);
   assert.match(prompt, /`\/workspace\/\.agents\/skills`/);
   // セッション cwd の絶対パスは SDK が Current working directory: で付ける
   assert.doesNotMatch(prompt, /\/workspace\/\.u7agent/);
