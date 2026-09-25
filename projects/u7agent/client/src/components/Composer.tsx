@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type DragEvent, type FormEvent, type Keybo
 import type { Attachment, ComposerSettings } from "../hooks/useU7Agent";
 import type { SessionSkillsState } from "../hooks/useSessionSkills";
 import { cn } from "../lib/cn";
+import { shouldSubmitOnEnter } from "../lib/composerKeys";
 import type { LayoutMode } from "../lib/layout";
 import { skillCommandText } from "../lib/sessionSkills";
 import type { AgentDef, ContextUsage, ModelRef, ThinkingLevel } from "../types";
@@ -181,10 +182,11 @@ export function Composer({
   };
 
   const handleKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
-    if (event.key === "Enter" && !event.shiftKey) {
-      event.preventDefault();
-      submit();
-    }
+    const { isComposing, keyCode } = event.nativeEvent;
+    const state = { key: event.key, shiftKey: event.shiftKey, isComposing, keyCode };
+    if (!shouldSubmitOnEnter(state, mode)) return;
+    event.preventDefault();
+    submit();
   };
 
   const notice = settings.modelWarning ?? settings.effortNotice;
@@ -308,6 +310,7 @@ export function Composer({
               "flex-1 resize-none bg-transparent px-0.5 leading-normal text-ink outline-none placeholder:text-ink-ghost",
               compact ? "max-h-30 min-h-9 py-1.5 text-md" : "max-h-45 min-h-6 py-1",
             )}
+            enterKeyHint={compact ? "enter" : "send"}
             onChange={(event) => setValue(event.currentTarget.value)}
             onKeyDown={handleKeyDown}
           />
