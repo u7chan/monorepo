@@ -16,9 +16,13 @@ export function composerDropKind(types: readonly string[]): ComposerDropKind | n
   return null;
 }
 
-/** 本文へ挿す参照の字面。区切りの空白は insertFileMention が入れる */
+/**
+ * 本文へ挿す参照の字面。区切りの空白と区別できない文字 (空白・二重引用符・バックスラッシュ) を含むパスは
+ * 二重引用符で囲む — 囲まないと送信時の `trim` で末尾の空白が消え、別のファイルを指す。
+ */
 export function mentionText(path: string): string {
-  return `@${path}`;
+  if (!/[\s"\\]/.test(path)) return `@${path}`;
+  return `@"${path.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`;
 }
 
 export type MentionInsertion = {

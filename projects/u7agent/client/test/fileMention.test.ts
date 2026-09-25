@@ -2,9 +2,10 @@
 // 挿入規則とドラッグの判定は純関数を直接固定し、配線 (行が積むデータ / Composer の分岐の順) はソース走査で固定する。
 //   1. 参照の型は OS からのファイル (`Files`) と区別し、添付より先に判定する
 //   2. 挿入は前後の区切りに空白を足し、カーソルを参照の直後 (続きを書ける位置) に置く
-//   3. ファイル行は参照用の型とプレーンテキストの両方を積む (他アプリへ落としたときは本文になる)
-//   4. Composer は参照を添付より先に見る (逆だと `Files` を持たない参照のドロップが捨てられる)
-//   5. 参照を積めるのはドロップ先と同じ画面にある desktop の右パネルだけ (compact の sheet は入力欄へ届かない)
+//   3. 区切りの空白と紛れるパス (空白・引用符・バックスラッシュを含む) は引用し、送信時の trim でパスが変わらない
+//   4. ファイル行は参照用の型とプレーンテキストの両方を積む (他アプリへ落としたときは本文になる)
+//   5. Composer は参照を添付より先に見る (逆だと `Files` を持たない参照のドロップが捨てられる)
+//   6. 参照を積めるのはドロップ先と同じ画面にある desktop の右パネルだけ (compact の sheet は入力欄へ届かない)
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
@@ -31,6 +32,18 @@ test("対象外のドラッグは何もしない (既定動作を止めない)",
 test("参照の字面は @ と作業フォルダ相対のパス", () => {
   assert.equal(mentionText("cafe.html"), "@cafe.html");
   assert.equal(mentionText("src/lib/foo.ts"), "@src/lib/foo.ts");
+});
+
+test("区切りの空白と紛れるパスは二重引用符で囲む", () => {
+  assert.equal(mentionText("my dir/a.ts"), '@"my dir/a.ts"');
+  assert.equal(mentionText("foo "), '@"foo "', "末尾の空白は区切りと区別できない");
+  assert.equal(mentionText(' a"b\\c '), '@" a\\"b\\\\c "', "引用符とバックスラッシュはエスケープする");
+});
+
+test("送信時の trim を通しても参照のパスが変わらない", () => {
+  // 囲まないと trim で末尾の空白が消え、別のファイル (`foo ` → `foo`) を指す
+  assert.equal(insertFileMention("", "foo ", 0, 0).value.trim(), '@"foo "');
+  assert.equal(insertFileMention("直して", "foo ", 3, 3).value.trim(), '直して @"foo "');
 });
 
 test("空の入力欄へ挿すと参照と区切りの空白だけになる", () => {
