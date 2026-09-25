@@ -5,8 +5,24 @@ export type NavSheetProps = SidebarProps & {
   onClose: () => void;
 };
 
-/** 起点が消えていたときの受け皿。docked の Sidebar (dialog の中ではない) の先頭操作要素 */
-const DOCKED_NAV_FOCUS_SELECTOR = '[data-nav-root="docked"] button';
+/**
+ * 起点が切れていた / 隠れていたときの受け皿。docked の Sidebar の先頭操作要素と、いま表示されている ☰
+ * (画面遷移でチャットが `display: none` になると、☰ は DOM に残るが focus を受け取れない)
+ */
+const FOCUS_FALLBACK_SELECTORS = ['[data-nav-root="docked"] button', '[aria-label="ナビゲーションを開く"]'];
+
+/**
+ * focus を移せる最初の候補へ移す。非表示の要素では `focus()` が何もしないため、実際に移せたか
+ * (`document.activeElement`) で判定する。どの候補にも移せなければ何もしない (body のままにする)。
+ */
+function focusFirstAvailable(selectors: readonly string[]): void {
+  for (const selector of selectors) {
+    for (const element of document.querySelectorAll<HTMLElement>(selector)) {
+      element.focus();
+      if (document.activeElement === element) return;
+    }
+  }
+}
 
 /** モーダル dialog にして、背面の inert 化と Escape での終了を標準挙動に任せる */
 export function NavSheet({ onClose, ...sidebarProps }: NavSheetProps) {
@@ -27,11 +43,13 @@ export function NavSheet({ onClose, ...sidebarProps }: NavSheetProps) {
       const previous = previousFocusRef.current;
       if (previous?.isConnected) {
         previous.focus();
-        return;
+        // 設定ページへ移ると起点 (Topbar / CompactBar の ☰) は display: none になり focus を受け取れない。
+        // ここで戻すのを諦めると、閉じた dialog の後始末で focus が body へ落ちる
+        if (document.activeElement === previous) return;
       }
-      // 幅を広げると ☰ ごと消える。切れた起点へ戻そうとして body へ落とさず、
-      // docked になった Sidebar の先頭操作要素へ移す (sheet の中の Sidebar は選択子で除外する)
-      document.querySelector<HTMLElement>(DOCKED_NAV_FOCUS_SELECTOR)?.focus();
+      // 幅を広げて ☰ ごと消えた場合は docked になった Sidebar へ、画面遷移で隠れた場合は
+      // 表示されている ☰ へ移す (sheet の中の Sidebar は選択子で除外する)
+      focusFirstAvailable(FOCUS_FALLBACK_SELECTORS);
     };
   }, []);
 

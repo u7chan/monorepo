@@ -124,7 +124,7 @@ compact の 設定 → エージェント / スキル は「一覧（ページ�
 
 サイドバーは nav / settings の 2 モードを持ち、モードは URL から導出する（`NavSheet` は同じ `Sidebar` を開くだけなので、desktop と compact のどちらでも切替が保たれる）。実装は `client/src/components/Sidebar.tsx`。compact では**モードの切替（設定 / アプリに戻る）ではドロワーを閉じず、セクションの選択で閉じる**（既存契約）。`Escape` は 詳細シート → nav ドロワー → チャット の順で、開いているもの 1 つだけが受ける。
 
-置き方は幅だけで決まる（`resolveSidebarPlacement`）。docked（viewport >= 1200px の desktop）は左カラムに常駐し、開く導線は無い。overlay（それ以外）は ☰（`Topbar` / 設定ページのヘッダ / `CompactBar`）から `NavSheet` を開く。開いたまま 1200px を跨ぐと ☰ ごと消えるため、`NavSheet` の focus の戻し先が切れていたら（`isConnected` が false）docked になった `Sidebar` の先頭操作要素へ移す（`body` へ落とさない）。
+置き方は幅だけで決まる（`resolveSidebarPlacement`）。docked（viewport >= 1200px の desktop）は左カラムに常駐し、開く導線は無い。overlay（それ以外）は ☰（`Topbar` / 設定ページのヘッダ / `CompactBar`）から `NavSheet` を開く。閉じるときの focus は、起点がまだ使えるならそこへ戻す（`isConnected` は真でも `display: none` の真であることがあるため、「移せたか」を `document.activeElement` で確かめる）。使えない場合は docked になった `Sidebar` の先頭操作要素、次にいま表示されている ☰ へ移す（1200px を跨いで ☰ ごと消えたときと、設定ページへ移って ☰ が隠れたときの両方を拾う。`body` へは落とさない）。
 
 - docked ⇄ overlay を跨ぐと `Sidebar` は unmount / mount するので、その内部 state（プロジェクトの折りたたみ）はリセットされる（compact の drawer と同じ挙動。永続化は非ゴール）
 - 同じく跨いだときに開いていた `NavSheet` は閉じる（左バーが docked に戻るため）。描画の条件にも `!sidebarDocked` を入れて、docked へ戻ったフレームで両方を重ねない

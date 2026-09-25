@@ -2,7 +2,8 @@
 // バーの ☰ は react-dom/server で描画して出し分けを固定し、App と NavSheet の分岐はソース走査で固定する。
 //   1. docked は 2 カラム + Sidebar 常駐、overlay は 1 カラム + ☰ (Topbar / 設定ページのヘッダ)
 //   2. docked へ戻ったらドロワーを閉じ、docked の Sidebar と重ねて描かない
-//   3. 1199 → 1200 を跨ぐと ☰ ごと消えるため、focus の戻し先が切れていたら docked の Sidebar へ移す
+//   3. 1199 → 1200 を跨ぐと ☰ ごと消えるため、focus の戻し先が切れていたら docked の Sidebar へ、
+//      設定ページへ移って起点が display: none になったときは表示されている ☰ へ移す
 //   4. 右パネルの上限は overlay のとき main = viewport 幅で計算する (#1540 の mainWidth)
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
@@ -78,11 +79,13 @@ test("App: docked は 2 カラム + Sidebar 常駐、overlay は 1 カラム + �
   assert.ok(app.includes("{navOpen && !sidebarDocked ? <NavSheet {...drawerProps} onClose={closeNav} /> : null}"));
 });
 
-test("NavSheet は起点が切れていたら docked の Sidebar へ focus を移す", () => {
+test("NavSheet は起点が使えなくなったら表示中の導線へ focus を移す", () => {
   const sheet = read("src/components/NavSheet.tsx");
   assert.ok(sheet.includes("if (previous?.isConnected) {"));
-  assert.ok(sheet.includes("const DOCKED_NAV_FOCUS_SELECTOR = '[data-nav-root=\"docked\"] button';"));
-  assert.ok(sheet.includes("document.querySelector<HTMLElement>(DOCKED_NAV_FOCUS_SELECTOR)?.focus();"));
+  assert.ok(sheet.includes("if (document.activeElement === previous) return;"));
+  // 起点が隠れていた場合 (設定ページへ移動) はいま表示されている ☰ へ、消えていた場合は docked の Sidebar へ
+  assert.ok(sheet.includes("focusFirstAvailable(FOCUS_FALLBACK_SELECTORS);"));
+  assert.ok(sheet.includes('[data-nav-root="docked"] button'));
   // 置き方は Sidebar が持ち、dialog の中の Sidebar (sheet) は選択子で拾わない
   assert.ok(read("src/components/Sidebar.tsx").includes('data-nav-root={sheet ? "sheet" : "docked"}'));
 });
