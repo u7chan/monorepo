@@ -23,7 +23,7 @@ import { useViewportWidth } from "./hooks/useViewportWidth";
 import { agentIconOf } from "./lib/agentIcon";
 import { cn } from "./lib/cn";
 import { fileRefRequestForSession } from "./lib/fileRefRequest";
-import { SIDEBAR_WIDTH } from "./lib/layout";
+import { resolveSidebarPlacement, SIDEBAR_WIDTH } from "./lib/layout";
 import {
   notificationHasFailure,
   notifyCannotEnable,
@@ -45,11 +45,13 @@ export default function App() {
   const layout = useLayoutMode();
   const compactMode = layout === "desktop" ? null : layout;
   const compact = compactMode !== null;
-  // 右パネルの幅は main 列の残りで決まる (左バーの 252px を引く)。compact はパネルを出さない (全画面シート)
+  // 左バーの置き方だけが変わる (中身はどちらも同じ Sidebar)。overlay は ☰ から開く
   const viewportWidth = useViewportWidth();
+  const sidebarDocked = resolveSidebarPlacement(viewportWidth, layout) === "docked";
+  // 右パネルの幅は main 列の残りで決まる (docked の左バー 252px を引く。overlay は main = viewport)
   const panelWidth = useSessionFilesPanelWidth({
     viewportWidth,
-    mainWidth: viewportWidth - (compact ? 0 : SIDEBAR_WIDTH),
+    mainWidth: sidebarDocked ? viewportWidth - SIDEBAR_WIDTH : viewportWidth,
   });
   const [projectDialogOpen, setProjectDialogOpen] = useState(false);
   const [navOpen, setNavOpen] = useState(false);
@@ -84,10 +86,10 @@ export default function App() {
   }, []);
   const closeSessionFiles = useCallback(() => setSessionFilesOpen(false), []);
 
-  // 回転やウィンドウ拡大で desktop shell に戻ったら、ドロワーは畳む
+  // 幅を広げて左バーが docked に戻ったら、ドロワーは畳む (開いたままにしない)
   useEffect(() => {
-    if (!compact) setNavOpen(false);
-  }, [compact]);
+    if (sidebarDocked) setNavOpen(false);
+  }, [sidebarDocked]);
 
   // 設定ページは dialog ではないため、showModal() が担っていた Escape を自前で受ける。
   // ドロワーが開いているときは Escape をドロワーの close に任せる (モードは保つ)
@@ -238,18 +240,18 @@ export default function App() {
   const chatAgentName = app.chat.sessionAgentName || app.selectedAgent?.name;
   const chatAgentIcon = agentIconOf(app.agents, app.chat.sessionAgentId ?? app.agentId);
 
-  // 設定ページは main を丸ごと使う (チャットとは排他)。compact ではヘッダが CompactBar の代わりになるため、
-  // 設定ページ間を移るための nav の導線をページへ渡す
-  const pageProps = { compact, onBack: backToChat, onOpenNav: compact ? openNav : undefined };
+  // 設定ページは main を丸ごと使う (チャットとは排他)。compact ではヘッダが CompactBar の代わりになり、
+  // 狭い desktop では左バーが overlay になるため、どちらも nav の導線をページへ渡す
+  const pageProps = { compact, onBack: backToChat, onOpenNav: sidebarDocked ? undefined : openNav };
 
   return (
     <div
       className={cn(
         "grid h-dvh min-h-0 bg-base text-ink",
-        compact ? "grid-cols-1 grid-rows-1" : "grid-cols-[252px_minmax(0,1fr)] grid-rows-1",
+        sidebarDocked ? "grid-cols-[252px_minmax(0,1fr)] grid-rows-1" : "grid-cols-1 grid-rows-1",
       )}
     >
-      {compact ? null : <Sidebar {...navProps} />}
+      {sidebarDocked ? <Sidebar {...navProps} /> : null}
       <main
         ref={panelWidth.mainRef}
         // パネルの列幅。ドラッグ中は同じ変数を直接書き換える (hooks/useSessionFilesPanelWidth)
@@ -285,6 +287,7 @@ export default function App() {
                 runtimeStatus={app.runtimeStatus}
                 notify={notifyToggle}
                 sessionFiles={filesRoot ? { open: filesPanelOpen, onToggle: toggleSessionFiles } : undefined}
+                nav={sidebarDocked ? undefined : { onOpen: openNav }}
               />
             )}
             <FileRefProvider rootCwd={app.health?.cwd ?? ""} cwd={app.cwd} onOpen={openFileRef}>
@@ -379,7 +382,8 @@ export default function App() {
           returnFocus={fileRefOriginRef.current}
         />
       ) : null}
-      {compact && navOpen ? <NavSheet {...drawerProps} onClose={closeNav} /> : null}
+      {/* overlay の左バーは docked の Sidebar と排他にする (docked へ戻ったフレームで両方を描かない) */}
+      {navOpen && !sidebarDocked ? <NavSheet {...drawerProps} onClose={closeNav} /> : null}
       {projectDialogOpen ? (
         <ProjectDialog compact={compact} onClose={closeProjectDialog} onCreate={app.createProject} />
       ) : null}

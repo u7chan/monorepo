@@ -14,8 +14,8 @@ const compactBar = source("../src/components/CompactBar.tsx");
 const chatArea = source("../src/components/ChatArea.tsx");
 const messageView = source("../src/components/chat/MessageView.tsx");
 
-test("compact の単一列 Grid は minmax(0, 1fr) 相当の grid-cols-1 で幅を拘束する", () => {
-  assert.ok(app.includes('compact ? "grid-cols-1 grid-rows-1"'));
+test("compact と overlay の左バーは単一列 Grid を grid-cols-1 で幅を拘束する", () => {
+  assert.ok(app.includes('sidebarDocked ? "grid-cols-[252px_minmax(0,1fr)] grid-rows-1" : "grid-cols-1 grid-rows-1"'));
   assert.ok(app.includes('filesPanelOpen ? "grid-cols-[minmax(0,1fr)_var(--session-files-width)]" : "grid-cols-1"'));
   assert.ok(app.includes("grid min-h-0 min-w-0 grid-cols-1 grid-rows-1 overflow-hidden"));
   assert.ok(app.includes("grid min-h-0 min-w-0 grid-cols-1 grid-rows-[auto_minmax(0,1fr)_auto] overflow-hidden"));

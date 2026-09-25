@@ -44,8 +44,9 @@ export function SettingsPageLayout({
       >
         {/* タイトル列に最小幅を持たせ、狭い viewport では操作行の方を折り返す (文字が数文字幅まで潰れるのを防ぐ) */}
         <div className="flex min-w-0 flex-1 basis-60 items-center gap-2.5">
-          {/* compact ではヘッダが CompactBar の代わりになる。無いと設定ページ間を移動できない */}
-          {compact && onOpenNav ? (
+          {/* compact は CompactBar の代わりに、狭い desktop は左バーが overlay になるため、
+              どちらもここが設定ページ間を移るための nav の導線になる */}
+          {onOpenNav ? (
             <button
               type="button"
               onClick={onOpenNav}

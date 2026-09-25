@@ -70,6 +70,9 @@ export function Sidebar({
 
   return (
     <aside
+      // docked と sheet の Sidebar は同時に立つことがある (幅を広げたフレーム)。
+      // NavSheet の focus 復帰が docked 側だけを選べるように置き方を持たせる
+      data-nav-root={sheet ? "sheet" : "docked"}
       className={cn(
         "flex h-full min-h-0 flex-col gap-3.5 bg-panel px-3 py-4",
         // 高さが足りない compact でも全項目へ到達できるよう、drawer 全体も 1 つのスクロール領域にする
