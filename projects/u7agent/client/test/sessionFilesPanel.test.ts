@@ -173,8 +173,11 @@ test("ハンドルの配線: 終了経路をまとめ、移動ゼロでは commi
   assert.ok(panel.includes("aria-valuenow={width}"));
   assert.ok(panel.includes("tabIndex={0}"));
   assert.ok(panel.includes("setPointerCapture"));
-  // 終了経路 (pointerup / pointercancel / lostpointercapture) はすべて finishDrag を通る
-  assert.equal(panel.match(/finishDrag\(true\)/g)?.length, 3);
+  // 終了経路 (pointerup / pointercancel / lostpointercapture) はすべて finishDrag を通り、
+  // 開始したポインターだけを受け付ける (別の指の同時タッチでドラッグを終わらせない)
+  assert.equal(panel.match(/finishDrag\(event\.pointerId, true\)/g)?.length, 3);
+  assert.ok(panel.includes("if (event.button !== 0 || dragRef.current) return;"));
+  assert.ok(panel.includes("if (!drag || (pointerId !== null && drag.pointerId !== pointerId)) return;"));
   assert.ok(panel.includes("if (commitWidth && drag.width !== drag.startWidth) commit(drag.width);"));
   // ダブルクリックは未指定へ戻す / min == max ではハンドルごと出さない
   assert.ok(panel.includes("onDoubleClick={reset}"));

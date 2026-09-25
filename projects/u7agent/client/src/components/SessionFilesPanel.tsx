@@ -118,10 +118,11 @@ function SessionFilesResizeHandle({
   const bounds: SessionFilesPanelBounds = { min, max };
 
   // 終了経路 (pointerup / pointercancel / lostpointercapture / unmount) をここへまとめる。
-  // どの経路でもカーソルの解除・選択抑止の解除・aria-valuenow の確定を同じ処理で行う
-  const finishDrag = (commitWidth: boolean) => {
+  // どの経路でもカーソルの解除・選択抑止の解除・aria-valuenow の確定を同じ処理で行う。
+  // pointerId は「いま drag 中のポインター」だけを受け付ける (別の指の同時タッチで終わらせない)
+  const finishDrag = (pointerId: number | null, commitWidth: boolean) => {
     const drag = dragRef.current;
-    if (!drag) return;
+    if (!drag || (pointerId !== null && drag.pointerId !== pointerId)) return;
     dragRef.current = null;
     document.body.classList.remove(RESIZING_CLASS);
     handleRef.current?.setAttribute("aria-valuenow", String(drag.width));
@@ -131,17 +132,12 @@ function SessionFilesResizeHandle({
 
   // パネルが消える経路 (閉じる / セッション切替) でも、ドラッグ中の見た目と選択抑止を残さない
   useEffect(() => {
-    return () => {
-      const drag = dragRef.current;
-      dragRef.current = null;
-      if (!drag) return;
-      document.body.classList.remove(RESIZING_CLASS);
-      if (drag.width !== drag.startWidth) commit(drag.width);
-    };
+    return () => finishDrag(null, true);
   }, [commit]);
 
   const handlePointerDown = (event: PointerEvent<HTMLDivElement>) => {
-    if (event.button !== 0) return;
+    // 主ボタンだけで開始する。ドラッグ中の 2 本目のタッチでは開始し直さない
+    if (event.button !== 0 || dragRef.current) return;
     event.preventDefault();
     event.currentTarget.setPointerCapture(event.pointerId);
     dragRef.current = { pointerId: event.pointerId, startX: event.clientX, startWidth: width, width };
@@ -186,11 +182,11 @@ function SessionFilesResizeHandle({
       className="panel-resize-handle absolute inset-y-0 left-0 w-2 cursor-col-resize touch-none outline-none hover:bg-accent/40 focus-visible:bg-accent/40 focus-visible:ring-1 focus-visible:ring-focus focus-visible:ring-inset"
       onDoubleClick={reset}
       onKeyDown={handleKeyDown}
-      onLostPointerCapture={() => finishDrag(true)}
-      onPointerCancel={() => finishDrag(true)}
+      onLostPointerCapture={(event) => finishDrag(event.pointerId, true)}
+      onPointerCancel={(event) => finishDrag(event.pointerId, true)}
       onPointerDown={handlePointerDown}
       onPointerMove={handlePointerMove}
-      onPointerUp={() => finishDrag(true)}
+      onPointerUp={(event) => finishDrag(event.pointerId, true)}
     />
   );
 }
