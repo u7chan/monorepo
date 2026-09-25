@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type CSSProperties } from "react";
 import { AgentSettingsPage } from "./components/AgentSettingsPage";
 import { AppearancePage } from "./components/AppearancePage";
 import { ArchiveSettingsPage } from "./components/ArchiveSettingsPage";
@@ -18,9 +18,12 @@ import { FileRefProvider } from "./components/markdown/FileRefLink";
 import { useU7Agent } from "./hooks/useU7Agent";
 import { useLayoutMode } from "./hooks/useLayoutMode";
 import { useRoute } from "./hooks/useRoute";
+import { useSessionFilesPanelWidth } from "./hooks/useSessionFilesPanelWidth";
+import { useViewportWidth } from "./hooks/useViewportWidth";
 import { agentIconOf } from "./lib/agentIcon";
 import { cn } from "./lib/cn";
 import { fileRefRequestForSession } from "./lib/fileRefRequest";
+import { SIDEBAR_WIDTH } from "./lib/layout";
 import {
   notificationHasFailure,
   notifyCannotEnable,
@@ -42,6 +45,12 @@ export default function App() {
   const layout = useLayoutMode();
   const compactMode = layout === "desktop" ? null : layout;
   const compact = compactMode !== null;
+  // 右パネルの幅は main 列の残りで決まる (左バーの 252px を引く)。compact はパネルを出さない (全画面シート)
+  const viewportWidth = useViewportWidth();
+  const panelWidth = useSessionFilesPanelWidth({
+    viewportWidth,
+    mainWidth: viewportWidth - (compact ? 0 : SIDEBAR_WIDTH),
+  });
   const [projectDialogOpen, setProjectDialogOpen] = useState(false);
   const [navOpen, setNavOpen] = useState(false);
   // セッションファイル UI の開閉は保存しない (desktop は右パネル、compact は全画面シート)
@@ -242,10 +251,13 @@ export default function App() {
     >
       {compact ? null : <Sidebar {...navProps} />}
       <main
+        ref={panelWidth.mainRef}
+        // パネルの列幅。ドラッグ中は同じ変数を直接書き換える (hooks/useSessionFilesPanelWidth)
+        style={{ "--session-files-width": `${panelWidth.width}px` } as CSSProperties}
         className={cn(
           "grid min-h-0 min-w-0 grid-rows-1 overflow-hidden",
-          // 右パネルはシェルの 3 カラム目 (チャット列の隣)。狭い viewport では 30vw まで縮めてチャット列を残す
-          filesPanelOpen ? "grid-cols-[minmax(0,1fr)_min(360px,30vw)]" : "grid-cols-1",
+          // 右パネルはシェルの 3 カラム目 (チャット列の隣)。幅はハンドルで選ぶ (lib/sessionFilesPanel.ts)
+          filesPanelOpen ? "grid-cols-[minmax(0,1fr)_var(--session-files-width)]" : "grid-cols-1",
         )}
       >
         <div className="grid min-h-0 min-w-0 grid-cols-1 grid-rows-1 overflow-hidden">
@@ -351,6 +363,7 @@ export default function App() {
             onClose={closeSessionFiles}
             openRequest={pendingFileRef}
             onHandled={app.ackFileRef}
+            resize={panelWidth}
           />
         ) : null}
       </main>

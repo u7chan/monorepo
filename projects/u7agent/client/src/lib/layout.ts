@@ -2,6 +2,8 @@
 
 export const DESKTOP_MIN_WIDTH = 720;
 export const DESKTOP_MIN_HEIGHT = 560;
+/** 左バー (Sidebar) の幅。App の grid クラス `grid-cols-[252px_minmax(0,1fr)]` と同じ値にする */
+export const SIDEBAR_WIDTH = 252;
 
 export type LayoutMode = "desktop" | "portrait" | "landscape";
 
