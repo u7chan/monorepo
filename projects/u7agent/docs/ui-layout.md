@@ -122,7 +122,7 @@ compact の 設定 → エージェント / スキル は「一覧（ページ�
 
 ## サイドバー
 
-サイドバーは nav / settings の 2 モードを持ち、モードは URL から導出する（`NavSheet` は同じ `Sidebar` を開くだけなので、desktop と compact のどちらでも切替が保たれる）。実装は `client/src/components/Sidebar.tsx`。compact では**モードの切替（設定 / アプリに戻る）ではドロワーを閉じず、セクションの選択で閉じる**（既存契約）。`Escape` は 詳細シート → nav ドロワー → チャット の順で、開いているもの 1 つだけが受ける。
+サイドバーは nav / settings の 2 モードを持ち、モードは URL から導出する（`NavSheet` は同じ `Sidebar` を開くだけなので、desktop と compact のどちらでも切替が保たれる）。実装は `client/src/components/Sidebar.tsx`。overlay（compact と 1200px 未満の desktop）では**モードの切替（設定 / アプリに戻る）ではドロワーを閉じず、セクションの選択で閉じる**（既存契約。切替で中身が入れ替わると押した項目が unmount するため、focus はドロワーの中の先頭操作要素へ引き戻す）。`Escape` は 詳細シート → nav ドロワー → チャット の順で、開いているもの 1 つだけが受ける。
 
 置き方は幅だけで決まる（`resolveSidebarPlacement`）。docked（viewport >= 1200px の desktop）は左カラムに常駐し、開く導線は無い。overlay（それ以外）は ☰（`Topbar` / 設定ページのヘッダ / `CompactBar`）から `NavSheet` を開く。閉じるときの focus は、起点がまだ使えるならそこへ戻す（`isConnected` は真でも `display: none` の真であることがあるため、「移せたか」を `document.activeElement` で確かめる）。使えない場合は docked になった `Sidebar` の先頭操作要素、次にいま表示されている ☰ へ移す（1200px を跨いで ☰ ごと消えたときと、設定ページへ移って ☰ が隠れたときの両方を拾う。`body` へは落とさない）。
 

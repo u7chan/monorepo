@@ -84,8 +84,12 @@ test("NavSheet は起点が使えなくなったら表示中の導線へ focus �
   assert.ok(sheet.includes("if (previous?.isConnected) {"));
   assert.ok(sheet.includes("if (document.activeElement === previous) return;"));
   // 起点が隠れていた場合 (設定ページへ移動) はいま表示されている ☰ へ、消えていた場合は docked の Sidebar へ
-  assert.ok(sheet.includes("focusFirstAvailable(FOCUS_FALLBACK_SELECTORS);"));
+  assert.ok(sheet.includes("focusFirstAvailable(document, FOCUS_FALLBACK_SELECTORS);"));
   assert.ok(sheet.includes('[data-nav-root="docked"] button'));
+  // モードの切替 (設定 ⇄ アプリに戻る) は中身だけを入れ替えるので、focus を dialog の中へ引き戻す
+  assert.ok(sheet.includes("if (!dialog?.open || dialog.contains(document.activeElement)) return;"));
+  assert.ok(sheet.includes("focusFirstAvailable(dialog, FOCUS_IN_DIALOG_SELECTORS);"));
+  assert.ok(sheet.includes("}, [mode]);"));
   // 置き方は Sidebar が持ち、dialog の中の Sidebar (sheet) は選択子で拾わない
   assert.ok(read("src/components/Sidebar.tsx").includes('data-nav-root={sheet ? "sheet" : "docked"}'));
 });
