@@ -23,6 +23,14 @@ FilePreview                 取得した本文をタブごとに保持（表示�
 
 変換は表示中のタブの本文について `useMemo` で 1 回だけ行う。タブごとに変換結果を持つと 1 タブ 3 MB 級になるため、切り替えると変換し直す（上限内のファイルでは数十 ms）。
 
+## タブ
+
+タブバーは開いた順に並べて横スクロールし（タブが増えても行の高さと本文の幅を変えない）、同時に開けるのは `FILE_TAB_LIMIT`（8 枚。9 枚目を開くと最も古いタブを落とす）。選択は並びを変えず、表示中のタブを閉じたときだけ右隣 → 左隣 → 全消去へ繰り上がる（`closeFileTab`。削除とリネームの張り替えも同じ規則を使う）。
+
+- 閉じる導線はタブの右端の `×` と、**PC のホイール押し込みによる中クリック**の 2 つ。中クリックはタブの箱（ラベル / `×` のどちらの上でも）で受け、表示中でないタブを閉じても表示は動かさない（`closeFileTab`）
+- 中クリックは `auxclick` の `button === 1` だけを閉じる操作にし、同じ `mousedown` の既定動作（Windows のオートスクロール / Linux のペースト）は `preventDefault` で止める。既定動作は `auxclick` では止められず、止めないと閉じると同時にスクロールモードへ入る
+- 中クリックを持たないタッチ端末では `×` だけが導線になるので、`×` は残す
+
 ## 言語判定
 
 拡張子を `highlight.ts` の `normalizeLang` に渡して決める（`ts` / `tsx` / `js` / `json` / `py` / `sh` / `css` / `html` / `md` / `diff` など、エイリアスはトークナイザと共通）。拡張子を持たないファイルは `Dockerfile` だけ `bash` の規則で色を付ける。それ以外（`README`、`.gitignore`、`a.yaml` など）は素のテキストとして出す。
@@ -321,6 +329,7 @@ assistant 本文のインラインコードが指すファイルを、右パネ�
 | `client/test/fileTabs.test.ts` | 表示モードの既定（HTML と画像だけプレビュー）/ 選択の保持と破棄 / 全画面を続ける条件 / タブの開閉と上限 / ディレクトリ配下のタブの一括削除（接頭辞境界と繰り上がり）/ リネームの経路の張り替え（並び・表示中の保持、配下、重複の排除、表示モード）/ 保存値からの復元（表示中の繰り上がりと上限） |
 | `client/test/filePreviewFullscreen.test.ts` | HTML プレビューの全画面（`showModal()` で開く / Escape を全画面のときだけ止める / iframe は 1 つだけ / 出すときのタブに紐づける / 残すのは戻るボタンだけ） |
 | `client/test/filePreviewCopy.test.ts` | 本文のコピー（パス行に置く / `reveal` を渡さない / 表示中の本文を渡す / 画像と HTML のプレビューでは出さない / タブを切り替えたら成功表示を捨てる） |
+| `client/test/filePreviewTabClose.test.ts` | タブを中クリックで閉じる契約（`button === 1` だけ / タブの箱で受ける / down 側の既定動作を止める / `×` を残す） |
 | `client/test/fileTree.test.ts` | 開閉・子のマージ・エラー保持 / 削除した行だけを落として他を保つこと / 削除の confirm 文言（ファイル / 配下ごとのディレクトリ、画面の root 相対パス）/ ディレクトリ削除後の枝の prune（接頭辞境界と own プロパティ契約）/ リネームの prompt 文言と、親の行の名前差し替え・配下キーの張り替え・開閉と取得済みの子の保持（接頭辞境界・未取得の親・`__proto__`）/ 取得中のリネームで loading を落として新しいキーで取り直すこと（旧キーの応答で新キーを汚さない）/ 保存する展開の抽出と復元（root の初期化、親を閉じた子の open、truncated） |
 | `client/test/fileBrowserRowTime.test.ts` | ディレクトリ行とファイル行が同じ形の時刻と末尾スロットを持つこと（`<EntryTime at={entry.mtime}>` / `flex-wrap … gap-x-1.5 gap-y-1 rounded-lg pr-2` / 共通の `RowTail` + `EntryRowActions`）/ 狭い面で行を 2 段にする契約（`RowTail` の `basis-full` と `@2xs:basis-auto`）/ 右端のスロットが ダウンロード (symlink と除外名以外)・リネーム (フォルダのみ)・削除 (symlink 以外) を同じ条件で出し、残りは空スペーサーに落ちること / `readOnly` では両行とも行の操作ごと消えること / 時刻が開閉の `button` の外にあること / 空スペーサーが `aria-hidden` の `size-6` であること / 削除が種類ごとに confirm と API を分けること（ディレクトリは `deleteDirectory` と配下の state / タブの除去）/ 時刻が `fileTimeLabel` と `title` の完全な表記を使い、`mtime` 無しの行には出ないこと |
 | `client/test/fileDownloadRow.test.ts` | ダウンロードの出し分け（ファイル / フォルダ行 / ダウンロード → リネーム → 削除 の順 / 除外名・symlink 行は空スペーサー / `readOnly` は行の操作ごと消える）/ 確認文言（実際の除外名 / 件数 / サイズ表記 / ディレクトリだけ）/ `check` を先に通して `<a download>` で開始すること / 失敗をツリー内のエラー行へ出すこと / 除外名を app 状態から prop で受け取り、`FileBrowser` が health を取りに行かないこと（`react-dom/server` の描画 + ソース走査） |
