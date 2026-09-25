@@ -6,11 +6,13 @@
 
 | モード | 条件 | シェル |
 | --- | --- | --- |
-| desktop | 幅 >= 720px かつ 高さ >= 560px | 252px Sidebar + main（従来どおり） |
+| desktop | 幅 >= 720px かつ 高さ >= 560px | 幅 >= 1200px は 252px Sidebar + main、1200px 未満は左バーを ☰ の overlay へ退避 |
 | landscape | 高さ < 560px | compact bar + Chat + compact Composer |
 | portrait | 幅 < 720px（高さは 560px 以上） | compact bar + Chat + compact Composer |
 
 desktop に幅だけでなく高さも要求するのは、横向きスマホ（例: iPhone 14 の 844x390）が幅 720px を超えるため。幅だけで 2 カラムを選ぶと、高さ 390px の画面に Sidebar とヘッダが常駐し、ChatArea が数十 px まで潰れる。landscape は横向きスマホだけでなく、低いデスクトップウィンドウも同じ扱いにする。
+
+desktop の中でも viewport が 1200px 未満なら、左バー（252px）を常駐させず `NavSheet` の overlay へ退避し、空いた 252px をチャットと右パネルへ回す。閾値 1200 は右パネルの幅 `min(360px, 30vw)` が縮み始める幅（30vw = 360px）と同じで、「狭くなるとパネルもチャットも苦しい帯」の入口を 1 つの数字で表す。判定は `client/src/lib/layout.ts` の `resolveSidebarPlacement(width, mode)` が正で、compact は幅に関係なく常に overlay（モード判定と同じく CSS のメディアクエリでは分岐しない）。
 
 ## モードごとの構成
 
@@ -18,14 +20,14 @@ desktop に幅だけでなく高さも要求するのは、横向きスマホ（
 
 画面切替は履歴を追加しない（`replaceState`）。Back / Forward はブラウザーの既存履歴に従うので、アプリ内に戻れることもあれば、直リンクの新規タブのようにアプリの外へ出ることもある。
 
-- desktop: `Topbar`（見出し + エラー時の接続状態 + 通知トグル + セッションのファイル。配信できないときの注記は compact と同じくバーの下に出る）+ `ChatArea` + `Composer`（エージェント選択を常時表示し、Model / Effort は追加設定として畳む）
-- 設定ページは エージェント（`AgentSettingsPage`）/ スキル（`SkillSettingsPage`）/ ファイル（`FileTreePage`）/ アーカイブ（`ArchiveSettingsPage`）/ 外観（`AppearancePage`）/ ランタイム（`RuntimePage`）/ 通知（`NotificationSettingsPage`）の 7 つ。並びは `client/src/lib/settingsNav.ts` の `SETTINGS_SECTIONS` が正で、アーカイブはツリーの行のダウンロード導線と対になる設定なのでファイルの直後に置く。ヘッダは 見出し + 操作で、「アプリに戻る」は置かない（desktop の戻り導線はサイドバーの 1 つだけ。2 カラムで同じボタンが並ぶのを避ける）。**compact だけはヘッダにも「アプリに戻る」を出す**（左カラムが無く、サイドバーの導線はドロワーを開かないと押せないため）。`Escape` でもチャットへ戻る（`<dialog>` の標準挙動を失った分を `App` の keydown で明示的に受ける。nav ドロワーが開いているときはドロワーを閉じる方、compact の詳細シートが開いているときはシートの方を優先する）。フォーカス拘束は無いので、desktop でも `Tab` / `Shift+Tab` の巡回でサイドバーの「アプリに戻る」に到達できる
+- desktop: `Topbar`（見出し + エラー時の接続状態 + 通知トグル + セッションのファイル。左バーが overlay の帯では eyebrow の左に ☰ を足す。配信できないときの注記は compact と同じくバーの下に出る）+ `ChatArea` + `Composer`（エージェント選択を常時表示し、Model / Effort は追加設定として畳む）
+- 設定ページは エージェント（`AgentSettingsPage`）/ スキル（`SkillSettingsPage`）/ ファイル（`FileTreePage`）/ アーカイブ（`ArchiveSettingsPage`）/ 外観（`AppearancePage`）/ ランタイム（`RuntimePage`）/ 通知（`NotificationSettingsPage`）の 7 つ。並びは `client/src/lib/settingsNav.ts` の `SETTINGS_SECTIONS` が正で、アーカイブはツリーの行のダウンロード導線と対になる設定なのでファイルの直後に置く。ヘッダは 見出し + 操作で、「アプリに戻る」は置かない（desktop の戻り導線はサイドバーの 1 つだけ。2 カラムで同じボタンが並ぶのを避ける）。**compact だけはヘッダにも「アプリに戻る」を出す**（左カラムが無く、サイドバーの導線はドロワーを開かないと押せないため）。**左バーが overlay の帯では見出しの左に ☰ を出す**（compact は CompactBar の代わりに、狭い desktop は常駐する左バーが無いため。出すのは `onOpenNav` があるときだけ）。`Escape` でもチャットへ戻る（`<dialog>` の標準挙動を失った分を `App` の keydown で明示的に受ける。nav ドロワーが開いているときはドロワーを閉じる方、compact の詳細シートが開いているときはシートの方を優先する）。フォーカス拘束は無いので、desktop でも `Tab` / `Shift+Tab` の巡回でサイドバーの「アプリに戻る」に到達できる
 - `FileTreePage`（ワークスペースのファイルツリー）は設定ナビの「ファイル」から開く。root は選択中セッション / プロジェクトに追随させず、常にワークスペース root（`cwd=""`、ヘッダのタイトルは「ワークスペース」）に固定する（同じ画面が選択状態で別の場所を指すと、今どこを見ているか分からなくなる。セッションの作業ディレクトリはプロジェクトの登録ディレクトリや `.u7agent/sessions/<id>` をツリーから辿って開く）。**この root がツリーの root になり**、`GET /api/files` へは root 自身を `path=.`、配下を `path=<name>` で問い合わせる。ヘッダのパス表示も同じ root 相対（root は `/`）に揃える。絶対パスは API の `path` と単位が違うことと、ワークスペース root 自身を指す `health.cwd` が混ざるのを避けるため。設定ページの中でもヘッダは画面幅いっぱいに使う（ツリーの行は深さに比例したインデントだけを持ち、幅は viewport に追従する）。行の右端は 時刻 + ダウンロード + リネーム（フォルダ行のみ）+ 削除 のスロットで、リネームの鉛筆はこの画面だけに出し、チャット右パネルには出さない（[file-preview.md](file-preview.md#リネーム)、[file-preview.md](file-preview.md#ダウンロード)）。ツリーの状態（`client/src/lib/fileTree.ts`）はパスをキーにするため、`__proto__` のような名前でも壊れないよう own プロパティとして読み書きする（`Object.hasOwn` と `Object.defineProperty`）
-  - 本文はツリーとプレビューを、本文のコンテナ（`@container`）幅が `@2xl`（672px）以上なら左右、未満なら上下に積む。viewport ではなくコンテナ幅で判定するのは、main の幅が「サイドバー 252px」を引いた残りで決まるため（1440x900 は本文 1188px で左右、720px 幅の desktop は 468px で上下）。左右のときツリーは `w-72` 固定、上下のときはタブが無ければ全幅、あれば `max-h-64` でプレビュー本文へ高さを譲る（タブが無いときに列を空けない）
+  - 本文はツリーとプレビューを、本文のコンテナ（`@container`）幅が `@2xl`（672px）以上なら左右、未満なら上下に積む。viewport ではなくコンテナ幅で判定するのは、main の幅が「サイドバー 252px」を引いた残りで決まるため（docked のとき。左バーが overlay の帯は main が viewport 幅いっぱいになる）、1440x900 は本文 1188px で左右、720px 幅の desktop は 468px で上下）。左右のときツリーは `w-72` 固定、上下のときはタブが無ければ全幅、あれば `max-h-64` でプレビュー本文へ高さを譲る（タブが無いときに列を空けない）
   - プレビューはタブ式。タブは開いた順に並び（選択では並びを変えない）、同時に開けるのは 8 枚（`client/src/lib/fileTabs.ts` の `FILE_TAB_LIMIT`）で、超えたら最も古いタブを閉じる（本文の保持量の上限でもある）。タブのラベルは名前だけで、同名のタブがあるときだけ親ディレクトリを前置する（`client/package.json`）。全体パスは tooltip とタブ下のパス行に出す。本文はタブごとに保持して切替では取り直さない（閉じたタブの本文は捨てる）。「再読み込み」はタブを保ったまま本文を捨てて取り直す。本文は行番号付きで出し、拡張子から判定できた言語は `highlight.ts` で色を付ける（[file-preview.md](file-preview.md)）
   - HTML（`.html` / `.htm`）のタブはパス行のトグルで ソース / プレビュー を切り替える。既定はプレビューで、プレビューは `GET /api/files/html/<root 相対>` を src にした `sandbox="allow-scripts"` の iframe（背景は白）。このときはソース本文を取得しない（トグルはパス行の中だけに置き、他の拡張子には出さない）。プレビューはパス行のボタンで viewport いっぱいのモーダル dialog（`showModal()`）にでき、compact でも同じ扱いで、全画面に残すのは `全画面をやめる` の 1 行だけにする（[file-preview.md](file-preview.md#全画面)）
-- desktop のチャット画面には、選択中セッションの作業ディレクトリ（`payload.cwd`。プロジェクト所属なら登録ディレクトリ、未所属なら `.u7agent/sessions/<id>`）を見る右パネル（`SessionFilesPanel`）を出せる。シェルの 3 カラム目に置き、幅は左端のハンドルで選ぶ。`Topbar` の「セッションのファイル」で開閉し、既定は閉、開閉状態は URL にも localStorage にも保存しない
-  - 幅の規則は `client/src/lib/sessionFilesPanel.ts` が正。下限は `min(360px, 30vw)`（未指定のときの幅 = 従来幅。720px 幅の desktop では 216px）、上限は `min(671px, main − 320px)`。`main` は左バーを引いた列の幅で、呼び出し側が渡す（左バーの配置が変わっても式は同じ）。320px は上限の基準であって保証ではなく、下限が優先される帯（docked で viewport 817px 以下）ではチャットは 320px を割る（720px では パネル 216 / チャット 252 で従来と同じ）
+- desktop のチャット画面には、選択中セッションの作業ディレクトリ（`payload.cwd`。プロジェクト所属なら登録ディレクトリ、未所属なら `.u7agent/sessions/<id>`）を見る右パネル（`SessionFilesPanel`）を出せる。シェルの main 列の右に置き（3 カラム目。左バーが overlay の帯では 2 カラム目）、幅は左端のハンドルで選ぶ。`Topbar` の「セッションのファイル」で開閉し、既定は閉、開閉状態は URL にも localStorage にも保存しない
+  - 幅の規則は `client/src/lib/sessionFilesPanel.ts` が正。下限は `min(360px, 30vw)`（未指定のときの幅 = 従来幅。720px 幅の desktop では 216px）、上限は `min(671px, main − 320px)`。`main` は左バーを引いた列の幅で、呼び出し側が渡す（docked は `viewport − 252`、左バーが overlay の帯は `viewport`。式は配置に依存しない）。320px は上限の基準であって保証ではなく、下限が優先される帯（docked で viewport 817px 以下）ではチャットは 320px を割る（720px では パネル 216 / チャット 252 で従来と同じ）
   - 上限を 671px で止めるのは `FileBrowser` の `@container` `@2xl`（672px）を発火させないため。発火するとツリーとプレビューが左右に並び、かえって読める幅が減る（実測: パネル 671 → code 670、672 → 671、700 → 410）
   - ハンドルは ドラッグ（pointer capture、幅は開始幅からの絶対計算）/ ←→（16px）/ Home / End / ダブルクリック（未指定へ戻す）で操作する。`role="separator"` / `aria-orientation="vertical"` / `aria-valuemin|max|now` を持ち、`aria-valuenow` は値の変化に追随する（ドラッグ中は state へ入れず DOM へ直接書く）。min == max になる幅（例: 720px）ではハンドルごと出さない
   - 選んだ幅は `localStorage` の `u7agent-session-files-width` に px の整数だけを保存する（端末ごとの表示設定なのでサーバー設定には入れない）。整数でない / 0 以下 / 2000px 超の保存値は未設定として捨て、今の bounds を外れていても捨てない（表示時に clamp するだけにして、広げ直したときに選んだ幅へ戻せるようにする）。ダブルクリックの「未指定へ戻す」はキーを削除する
@@ -53,7 +55,7 @@ Composer の状態行（`client/src/components/composer/ComposerStatus.tsx`）�
 
 Context ゲージは compact でも絶対値 `(2.9k/272k)` まで出す（百分率だけではモデルの窓の大きさが読めないため）。行は `flex-wrap` で、活動テキストがあるときは下限幅 `min-w-40`（160px）を置き、モデル名 + ゲージは 1 つの組にして右端へ寄せる。幅が足りなければ組が右寄せの 2 行目へ落ちる。ゲージだけを `shrink-0` で残してモデル名を活動テキストの隣に固定すると、狭い画面では活動テキストの幅が残らず 1 文字ごとに折り返して縦長になるため、幅を譲る側を組の折り返しに寄せる。モデル名が無いとき（セッションもモデルも未解決）は組がゲージだけになる。
 
-`min-h-5.25`（21px）は下限なので、折り返すと行は伸びる。実アプリの実測（モデル名 `DeepSeek V4.1 Flash` = 106.1px、ゲージ = 166.8px、活動テキストは `bash を実行中…` と `完了`）では、活動があるときは 390x844 = 39.5px（組が右寄せの 2 行目）、1440x900 = 22.5px（1 行）になり、landscape の 844x390 と低いウィンドウの 1440x500、tablet の 820x1180 も 22.5px、desktop の最小 720x900 だけ 39.5px（組が 2 行目）になる。折り返す境界はモデル名と活動テキストの長さで動き（実行中のスピナーも 1 行の可否に効く）、この環境では 500〜560px 付近。720x900 が 2 行目へ落ちるのは、状態行の幅が Sidebar の 252px を引いた main 列（実測 412px）で決まるため。
+`min-h-5.25`（21px）は下限なので、折り返すと行は伸びる。実アプリの実測（モデル名 `DeepSeek V4.1 Flash` = 106.1px、ゲージ = 166.8px、活動テキストは `bash を実行中…` と `完了`）では、活動があるときは 390x844 = 39.5px（組が右寄せの 2 行目）、1440x900 = 22.5px（1 行）になり、landscape の 844x390 と低いウィンドウの 1440x500、tablet の 820x1180 も 22.5px、desktop の最小 720x900 だけ 39.5px（組が 2 行目）になる。折り返す境界はモデル名と活動テキストの長さで動き（実行中のスピナーも 1 行の可否に効く）、この環境では 500〜560px 付近。720x900 が 2 行目へ落ちるのは、状態行の幅が Sidebar の 252px を引いた main 列（実測 412px）で決まるため（docked のとき。左バーが overlay の帯では 252px 分がチャットへ回る）。
 
 活動が無いとき（復帰直後や応答後の idle）は活動欄ごと出さないので、どの幅でも 21px の 1 行に戻る（空の活動欄を残すと、390x844 でも空行のぶんだけ 2 行目へ落ちる）。折り返すかは活動テキストの下限幅（160px）が決めるため、長い活動テキストでは 1 行に収まる幅でも活動テキストだけが 2 行へ折り返す（`実行中…（タブを閉じても処理は続きます）` は約 222px で、560〜600px 付近では組を同じ行に残したまま 39px になる）。モデル名が長いときは 2 行目の残り幅で名前だけを切り詰める（幅はフォントとモデル名で変わる）。
 
@@ -86,7 +88,7 @@ assistant のメッセージ列は `flex-1` で列幅いっぱい（desktop は 
 
 - エディタ列は `<form>` を縦 flex の 2 段にし、上段 = スクロールする本文（`flex-1`）、下段 = 常時表示のアクション行（左: 削除 / 右: 保存）にする。削除は編集中だけ出す。ヘッダ（`SettingsPageLayout` の `actions`）に置かないのは、compact のヘッダが ナビ + タイトル + アプリに戻る の 3 要素で、破壊操作が保存の隣に並ぶため。`flex-1` は grid item では無視されるので、ページの grid 行でも [シート](#compact-の詳細シート) の flex 列でも同じ形で高さを埋められる
 - スキルのフォームは 2 段にするのをシートのときだけにする。desktop は従来どおり本文（`max-w-2xl`）の最後に操作行を置き、保存を全幅にする
-- 本文は `@container`（`@3xl` = 768px）で、コンテナ幅が足りるときだけ 2 カラム（左: 名前 / 説明 / 役割・基本指示 / Model・Effort、右: スキル / 定型プロンプト）にする。viewport ではなくコンテナで判定するのは、エディタ列の幅が「サイドバー 252px + 一覧 248px」を引いた残りで決まり、compact では一覧が上に積まれて本文が全幅になるため。1440x900 は本文 約 908px で 2 カラム、1280x800 は 約 748px で 1 カラムになる（どちらも 保存 / 削除 は本文の外にある）
+- 本文は `@container`（`@3xl` = 768px）で、コンテナ幅が足りるときだけ 2 カラム（左: 名前 / 説明 / 役割・基本指示 / Model・Effort、右: スキル / 定型プロンプト）にする。viewport ではなくコンテナで判定するのは、エディタ列の幅が「サイドバー 252px + 一覧 248px」を引いた残りで決まり（左バーが docked のとき）、compact では一覧が上に積まれて本文が全幅になるため。1440x900 は本文 約 908px で 2 カラム、1280x800 は 約 748px で 1 カラムになる（どちらも 保存 / 削除 は本文の外にある）
 - 本文の中央寄せ上限は `max-w-5xl`（1024px）。1440x900 では効かず、極端に広いウィンドウでフィールドが横に伸びきるのを防ぐだけに置く
 - アイコンは プレビュー（`AgentIcon` の `preview`）+「画像を選ぶ」/「解除」の 1 行にし、保存は既存の「保存」ボタンで他の項目と同じ要求に乗せる（ファイルを選んだ時点では送らない。未保存の下書きとアイコンが食い違う状態を作らないため）。canvas の縮小とエンコードは DOM 依存なので `client/src/lib/agentIconFile.ts` に閉じ、純関数（縮小サイズ / data URL の検証 / `agentId` の解決）は `client/src/lib/agentIcon.ts` に置く
 - 右カラムは最大 360px なので、定型プロンプト（`SuggestionsEditor`）の 1 件は「ラベル + 削除アイコン」の行と「プロンプト」の行の 2 段にする。フィールド見出しは placeholder へ寄せ、読み上げ用の `aria-label` は残す。スキル（`SkillSelector`）は見出しに「割り当て中 N / 全 M」を出し、一覧だけを `max-h-72` の内部スクロールにする（行の説明は 1 行 truncate + `title`）。組み込みスキルはその下に「組み込み（全エージェントで常時有効）」の小見出しで、チェック済み・無効の行として出す（`skillIds` では外せないため。データは `GET /api/agents` の `builtinSkills`）。ここで `wide:`（viewport 900px）を使うと狭いカラムの中で常に真になり横並びが潰れるので、カラム内は縦積みに固定する
@@ -122,6 +124,11 @@ compact の 設定 → エージェント / スキル は「一覧（ページ�
 
 サイドバーは nav / settings の 2 モードを持ち、モードは URL から導出する（`NavSheet` は同じ `Sidebar` を開くだけなので、desktop と compact のどちらでも切替が保たれる）。実装は `client/src/components/Sidebar.tsx`。compact では**モードの切替（設定 / アプリに戻る）ではドロワーを閉じず、セクションの選択で閉じる**（既存契約）。`Escape` は 詳細シート → nav ドロワー → チャット の順で、開いているもの 1 つだけが受ける。
 
+置き方は幅だけで決まる（`resolveSidebarPlacement`）。docked（viewport >= 1200px の desktop）は左カラムに常駐し、開く導線は無い。overlay（それ以外）は ☰（`Topbar` / 設定ページのヘッダ / `CompactBar`）から `NavSheet` を開く。開いたまま 1200px を跨ぐと ☰ ごと消えるため、`NavSheet` の focus の戻し先が切れていたら（`isConnected` が false）docked になった `Sidebar` の先頭操作要素へ移す（`body` へ落とさない）。
+
+- docked ⇄ overlay を跨ぐと `Sidebar` は unmount / mount するので、その内部 state（プロジェクトの折りたたみ）はリセットされる（compact の drawer と同じ挙動。永続化は非ゴール）
+- 同じく跨いだときに開いていた `NavSheet` は閉じる（左バーが docked に戻るため）。描画の条件にも `!sidebarDocked` を入れて、docked へ戻ったフレームで両方を重ねない
+
 ### nav モード
 
 上から ブランド / 「新しい会話」/ `Projects`（`New Project` + プロジェクト行）/ `Chats` / フットノート / `設定`（下部固定。設定ナビの項目と同じ行の寸法）。
@@ -140,7 +147,7 @@ compact の 設定 → エージェント / スキル は「一覧（ページ�
 
 ## 検証
 
-自動テストは `client/test/layout.test.ts` がモード判定の境界を、`client/test/sessionsByProject.test.ts` がプロジェクト別のグループ化（未所属の分離・並び順）を、`client/test/route.test.ts` が pathname と画面の対応（大文字・末尾スラッシュ・percent encoding・不正な入力の畳み方、`/s/<id>` の選択待ちの入口と畳み）を、`client/test/notifyToggle.test.ts` が会話の通知トグル（新規チャットの先行選択と作成要求時のスナップショット、会話ごとの直列化と後発優先、配信できない理由ごとの注記、配信可否と切替の禁止の使い分け）と、バーに描かれる ☰ / 🔔 / 📁 の順と `.icon-button`（components 層）の見た目を、`client/test/settingsNav.test.ts` が設定ナビの 7 項目と保存された最後のセクションの解決を、`client/test/archiveSettingsPage.test.ts` が設定 → アーカイブの描画（未設定 / 上書き / 明示空 / note のエラー）と配線（PUT / DELETE と app 状態の反映）を、`client/test/fileTabs.test.ts` がプレビューのタブ（開閉・上限・選択の遷移・同名タブのラベル・保存値からの復元）を、`client/test/settingsDetailSheet.test.ts` が compact の詳細シートの `Escape` の順序（モーダルで開く / 伝播を止める / `App` は bubble で受ける）を、`client/test/skillLoad.test.ts` がバッジの行範囲整形と状態（実行中 / 成功 / 失敗）、ライブ / 履歴 / resync の統合（全バブル横断の二重表示排除）、ツール履歴の件数・サマリー・コピーからの除外と、`react-dom/server` での描画（バッジ / 畳み方 / スキルしかないバブル）を、`client/test/sidebarRowAction.test.ts` が行の右端の操作（プロジェクト行とセッション行が同じ `RowAction` を使うこと、削除が `×` ではなくゴミ箱であること、読み上げ名とホバー端末での出し分け）を、`client/test/composerEnter.test.ts` が入力欄の Enter の判定（IME 変換中 / `keyCode` 229 / desktop / compact）と、モードごとの `enterkeyhint` を、`client/test/sessionFilesPanel.test.ts` が右パネルの幅の境界（1920〜720px の min / max、720px の `min == max`、overlay 配置での上限）と clamp・キーボードの 1 歩・保存値の parse（壊れた値 / bounds 外 / 保存領域が使えない環境）と、ハンドルの配線（終了経路の集約・移動ゼロで commit しないこと）を固定する。client test の方針は jsdom を足さずに DOM に依存しないことで、純粋なロジックに加えて `client/test/eventInStateUpdater.test.ts` のようなソース走査型の回帰テストも置く。見た目は次の viewport で確認する。
+自動テストは `client/test/layout.test.ts` がモード判定の境界と、左バーの配置（1200px の境界・compact は常に overlay）を、`client/test/sidebarOverlay.test.ts` が左バーの ☰ の出し分け（`Topbar` / 設定ページのヘッダの描画、overlay のときだけ出す）と App の配線（1 カラム ⇄ 2 カラム・`mainWidth` の渡し分け・docked へ戻ったらドロワーを閉じる・焦点の戻し先のフォールバック）を、`client/test/sessionsByProject.test.ts` がプロジェクト別のグループ化（未所属の分離・並び順）を、`client/test/route.test.ts` が pathname と画面の対応（大文字・末尾スラッシュ・percent encoding・不正な入力の畳み方、`/s/<id>` の選択待ちの入口と畳み）を、`client/test/notifyToggle.test.ts` が会話の通知トグル（新規チャットの先行選択と作成要求時のスナップショット、会話ごとの直列化と後発優先、配信できない理由ごとの注記、配信可否と切替の禁止の使い分け）と、バーに描かれる ☰ / 🔔 / 📁 の順と `.icon-button`（components 層）の見た目を、`client/test/settingsNav.test.ts` が設定ナビの 7 項目と保存された最後のセクションの解決を、`client/test/archiveSettingsPage.test.ts` が設定 → アーカイブの描画（未設定 / 上書き / 明示空 / note のエラー）と配線（PUT / DELETE と app 状態の反映）を、`client/test/fileTabs.test.ts` がプレビューのタブ（開閉・上限・選択の遷移・同名タブのラベル・保存値からの復元）を、`client/test/settingsDetailSheet.test.ts` が compact の詳細シートの `Escape` の順序（モーダルで開く / 伝播を止める / `App` は bubble で受ける）を、`client/test/skillLoad.test.ts` がバッジの行範囲整形と状態（実行中 / 成功 / 失敗）、ライブ / 履歴 / resync の統合（全バブル横断の二重表示排除）、ツール履歴の件数・サマリー・コピーからの除外と、`react-dom/server` での描画（バッジ / 畳み方 / スキルしかないバブル）を、`client/test/sidebarRowAction.test.ts` が行の右端の操作（プロジェクト行とセッション行が同じ `RowAction` を使うこと、削除が `×` ではなくゴミ箱であること、読み上げ名とホバー端末での出し分け）を、`client/test/composerEnter.test.ts` が入力欄の Enter の判定（IME 変換中 / `keyCode` 229 / desktop / compact）と、モードごとの `enterkeyhint` を、`client/test/sessionFilesPanel.test.ts` が右パネルの幅の境界（1920〜720px の min / max、720px の `min == max`、overlay 配置での上限）と clamp・キーボードの 1 歩・保存値の parse（壊れた値 / bounds 外 / 保存領域が使えない環境）と、ハンドルの配線（終了経路の集約・移動ゼロで commit しないこと）を固定する。client test の方針は jsdom を足さずに DOM に依存しないことで、純粋なロジックに加えて `client/test/eventInStateUpdater.test.ts` のようなソース走査型の回帰テストも置く。見た目は次の viewport で確認する。
 
 | 用途 | viewport |
 | --- | --- |

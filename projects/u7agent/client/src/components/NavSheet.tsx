@@ -5,6 +5,9 @@ export type NavSheetProps = SidebarProps & {
   onClose: () => void;
 };
 
+/** 起点が消えていたときの受け皿。docked の Sidebar (dialog の中ではない) の先頭操作要素 */
+const DOCKED_NAV_FOCUS_SELECTOR = '[data-nav-root="docked"] button';
+
 /** モーダル dialog にして、背面の inert 化と Escape での終了を標準挙動に任せる */
 export function NavSheet({ onClose, ...sidebarProps }: NavSheetProps) {
   const dialogRef = useRef<HTMLDialogElement>(null);
@@ -20,7 +23,16 @@ export function NavSheet({ onClose, ...sidebarProps }: NavSheetProps) {
       // 直前の cleanup でフォーカスが背面へ戻されている (StrictMode)
       dialog.focus();
     }
-    return () => previousFocusRef.current?.focus();
+    return () => {
+      const previous = previousFocusRef.current;
+      if (previous?.isConnected) {
+        previous.focus();
+        return;
+      }
+      // 幅を広げると ☰ ごと消える。切れた起点へ戻そうとして body へ落とさず、
+      // docked になった Sidebar の先頭操作要素へ移す (sheet の中の Sidebar は選択子で除外する)
+      document.querySelector<HTMLElement>(DOCKED_NAV_FOCUS_SELECTOR)?.focus();
+    };
   }, []);
 
   return (

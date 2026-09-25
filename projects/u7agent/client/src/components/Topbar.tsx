@@ -2,7 +2,7 @@ import { cn } from "../lib/cn";
 import type { RuntimeStatus } from "../hooks/runtimeStatus";
 import { NotifyNote } from "./NotifyNote";
 import { RuntimeAlert } from "./RuntimeAlert";
-import { BellIcon, FolderIcon } from "./icons";
+import { BellIcon, FolderIcon, MenuIcon } from "./icons";
 
 export type TopbarProps = {
   runtimeStatus: RuntimeStatus;
@@ -13,9 +13,11 @@ export type TopbarProps = {
   notify: { on: boolean; note?: string; deliverable: boolean; onToggle: () => void; onOpenSettings?: () => void };
   /** 右パネル (セッションのファイル) のトグル。セッションが無い (root が決まらない) ときは渡さない */
   sessionFiles?: { open: boolean; onToggle: () => void };
+  /** 左バーが overlay のときだけ渡す (docked では左バーが常駐するので ☰ を出さない) */
+  nav?: { onOpen: () => void };
 };
 
-export function Topbar({ runtimeStatus, notify, sessionFiles }: TopbarProps) {
+export function Topbar({ runtimeStatus, notify, sessionFiles, nav }: TopbarProps) {
   // accent は「実際に送られる」の意味に保つ (設定が無効 / Webhook 未登録の On は青くしない)
   const delivering = notify.on && notify.deliverable;
   // 配信できない On は、押しても切り替わらない理由をラベルでも示す (色だけに頼らない)
@@ -23,7 +25,15 @@ export function Topbar({ runtimeStatus, notify, sessionFiles }: TopbarProps) {
   return (
     <header className="grid gap-3 px-6 pt-5 pb-3 wide:px-8 wide:pt-6">
       <div className="flex items-start justify-between gap-4">
-        <div className="text-2xs font-semibold tracking-label text-ink-ghost uppercase">LOCAL WORKSPACE</div>
+        <div className="flex min-w-0 items-center gap-2.5">
+          {/* 左バーが overlay の帯では、ここが nav の唯一の導線になる (設定ページのヘッダにも同じ ☰ を出す) */}
+          {nav ? (
+            <button type="button" onClick={nav.onOpen} aria-label="ナビゲーションを開く" className="icon-button">
+              <MenuIcon />
+            </button>
+          ) : null}
+          <div className="text-2xs font-semibold tracking-label text-ink-ghost uppercase">LOCAL WORKSPACE</div>
+        </div>
         <div className="flex min-w-0 items-center gap-2">
           {/* 正常時のモデルは入力欄の上の状態行、接続状態は画面の様子から分かるので、エラーのときだけ出す */}
           {runtimeStatus.error ? (
