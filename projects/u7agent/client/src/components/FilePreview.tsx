@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type Ref } from "react";
+import { useEffect, useMemo, useRef, useState, type MouseEvent, type Ref } from "react";
 import { fileHtmlPreviewUrl, fileRawUrl, getFilePreview } from "../api";
 import { useMessageCopy } from "../hooks/useMessageCopy";
 import { isImageName } from "../lib/attachments";
@@ -7,6 +7,7 @@ import { buildPreviewCode, isHtmlPath, previewCopyText, previewLineNumbers } fro
 import {
   dropClosedPreviews,
   fileTabLabels,
+  isMiddleClick,
   keepsFullscreenPreview,
   previewModeFor,
   readPreview,
@@ -289,9 +290,18 @@ function FileTab({
   onSelect: () => void;
   onClose: () => void;
 }) {
+  const closeOnMiddleClick = (event: MouseEvent<HTMLDivElement>) => {
+    if (isMiddleClick(event)) onClose();
+  };
   return (
     <div
       ref={rootRef}
+      // 中クリック (PC のホイール押し込み) でも閉じる。既定動作は auxclick では止められないので、
+      // down 側で止める (止めないと Windows のオートスクロール / Linux のペーストが同時に走る)
+      onMouseDown={(event) => {
+        if (isMiddleClick(event)) event.preventDefault();
+      }}
+      onAuxClick={closeOnMiddleClick}
       className={cn(
         "flex min-h-7.5 shrink-0 items-center gap-0.5 rounded-lg pr-0.5 pl-2 text-xs transition-colors",
         active ? "bg-accent-wash text-accent-text" : "text-ink-soft hover:bg-hover hover:text-ink",

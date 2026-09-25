@@ -106,6 +106,14 @@ export function dropClosedPreviews(results: PreviewResults, paths: string[]): Pr
   return kept.length === Object.keys(results).length ? results : Object.fromEntries(kept);
 }
 
+/**
+ * 中クリック (PC のホイール押し込み) かどうか。タブは中クリックでも閉じるが、右クリックや 4 番目以降の
+ * ボタンは閉じる操作に混ぜない。
+ */
+export function isMiddleClick(event: { button: number }): boolean {
+  return event.button === 1;
+}
+
 /** タブを開いて表示する。既に開いていれば並びは変えず表示だけを移す。 */
 export function openFileTab(state: FileTabsState, path: string, limit = FILE_TAB_LIMIT): FileTabsState {
   if (state.paths.includes(path)) return { paths: state.paths, active: path };
