@@ -447,6 +447,16 @@ html[data-theme="sky"] {
     transform-origin: center;
     animation: run-spinner-turn 0.8s steps(8, end) infinite;
   }
+
+  /* 右パネルの幅のドラッグ中 (SessionFilesPanel が body へ付ける)。ポインタがハンドルを離れても
+   * カーソルを保ち、テキスト選択を止める。ハンドル自身の色は状態を持たずここで示す */
+  body.is-resizing-panel {
+    cursor: col-resize;
+    user-select: none;
+  }
+  body.is-resizing-panel .panel-resize-handle {
+    background: var(--c-accent);
+  }
   @keyframes run-spinner-turn {
     to {
       transform: rotate(360deg);
