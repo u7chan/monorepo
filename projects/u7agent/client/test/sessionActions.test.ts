@@ -6,7 +6,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { Dispatch } from "react";
-import type { ChatAction } from "../src/hooks/chatReducer";
+import { chatReducer, initialChatState, type ChatAction } from "../src/hooks/chatReducer";
 import {
   compactChat,
   sendChatMessage,
@@ -64,6 +64,7 @@ function createHarness(overrides: Partial<SendChatMessageDeps> = {}) {
     sessionIdRef: { current: "s-1" },
     opsRef: { current: 0 },
     runStatusRef: { current: "idle" },
+    runEndSeqRef: { current: 0 },
     ensureSession: async () => "s-1",
     refreshSessions: async () => {
       record.refreshed += 1;
@@ -192,6 +193,79 @@ test("送信中に別の会話へ切り替えたら、queued の応答で表示�
   await sending;
 
   assert.deepEqual(actionsOfType(record.actions, "setRun"), [], "切替後の表示を実行中にしない");
+});
+
+/** dispatch を chatReducer に通し、ref は useU7Agent と同じく描画のたびに state へ合わせる */
+function reducerDispatch(initial: ChatAction[]) {
+  let state = initial.reduce(chatReducer, initialChatState);
+  const runEndSeqRef = { current: state.runEndSeq };
+  const dispatch: Dispatch<ChatAction> = (action) => {
+    state = chatReducer(state, action as ChatAction);
+    runEndSeqRef.current = state.runEndSeq;
+  };
+  return { dispatch, runEndSeqRef, state: () => state };
+}
+
+test("queued の応答が run_end より後に届いても、表示は完了のままにする", async () => {
+  const postCalled = deferred<void>();
+  const posted = deferred<PostMessageResult>();
+  // 1 通目が走っているところから始める (SSE の run_start 相当)
+  const { dispatch, runEndSeqRef, state } = reducerDispatch([
+    { type: "runStart", prompt: "1つ目", at: 1, startedAt: 1 },
+  ]);
+  const { deps } = createHarness({
+    dispatch,
+    runEndSeqRef,
+    runStatusRef: { current: "running" },
+    post: () => {
+      postCalled.resolve();
+      return posted.promise;
+    },
+  });
+
+  const sending = sendChatMessage("2つ目", deps);
+  await postCalled.promise;
+  // 実 API で観測した順序: queued → run #1 の run_end → pump の run_start → run #2 の run_end
+  dispatch({ type: "queued", position: 1, queueDepth: 1 });
+  dispatch({ type: "runEnd", status: "completed", queueDepth: 1 });
+  assert.equal(state().runStatus, "queued", "run #1 の終了で待機中の表示になる");
+  dispatch({ type: "runStart", prompt: "2つ目", at: 2, startedAt: 2 });
+  dispatch({ type: "runEnd", status: "completed", queueDepth: 0 });
+  assert.equal(state().runStatus, "idle");
+
+  // run #1 を指す queued 応答 (queueDepth 1) がここで届く
+  posted.resolve({ queued: true, queueDepth: 1, runId: "run-1" });
+  await sending;
+
+  assert.equal(state().runStatus, "idle", "終わった run の queueDepth で実行中に戻さない");
+  assert.equal(state().queueDepth, 0);
+  assert.equal(state().activity, "完了");
+});
+
+test("即時 run の応答が run_end より後に届いても、表示は完了のままにする", async () => {
+  const postCalled = deferred<void>();
+  const posted = deferred<PostMessageResult>();
+  const { dispatch, runEndSeqRef, state } = reducerDispatch([]);
+  const { deps } = createHarness({
+    dispatch,
+    runEndSeqRef,
+    post: () => {
+      postCalled.resolve();
+      return posted.promise;
+    },
+  });
+
+  const sending = sendChatMessage("1つ目", deps);
+  await postCalled.promise;
+  dispatch({ type: "runStart", prompt: "1つ目", at: 1, startedAt: 1 });
+  dispatch({ type: "runEnd", status: "completed", queueDepth: 0 });
+  assert.equal(state().runStatus, "idle");
+
+  posted.resolve({ queued: false, queueDepth: 0, runId: "run-1" });
+  await sending;
+
+  assert.equal(state().runStatus, "idle", "終わった run の応答で実行中に戻さない");
+  assert.equal(state().activity, "完了");
 });
 
 test("does not send while the runtime is not ready", async () => {

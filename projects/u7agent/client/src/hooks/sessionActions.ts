@@ -27,6 +27,8 @@ export type SendChatMessageDeps = {
   opsRef: RefObject<number>;
   /** 現在の実行状態。圧縮中の送信キューは compacting のまま見せる */
   runStatusRef: RefObject<RunStatus>;
+  /** run が終わった回数 (ChatState.runEndSeq)。要求の後に run が終わっていれば、その run の値を持つ応答は古い */
+  runEndSeqRef: RefObject<number>;
   ensureSession: () => Promise<string>;
   /** 一覧を取り直す。取得できなかったときは null (空の成功と区別する) */
   refreshSessions: () => Promise<SessionSummary[] | null>;
@@ -48,6 +50,7 @@ export async function sendChatMessage(text: string, deps: SendChatMessageDeps): 
     sessionIdRef,
     opsRef,
     runStatusRef,
+    runEndSeqRef,
     ensureSession,
     refreshSessions,
     post,
@@ -74,14 +77,16 @@ export async function sendChatMessage(text: string, deps: SendChatMessageDeps): 
       echoed = true;
     }
 
-    // 送信を始めた時点の世代。応答の適用時に一致を確認する (ensureSession は選択と一覧を進めるため、
-    // これより前に読むと自分の送信の応答まで捨てる)
+    // 送信を始めた時点の世代と run の終了回数。応答の適用時に一致を確認する (ensureSession は選択と
+    // 一覧を進めるため、これより前に読むと自分の送信の応答まで捨てる)
     const ops = opsRef.current;
+    const runSeq = runEndSeqRef.current;
     const result = await post(targetId, text, attachments);
     deps.onSent?.();
-    // 応答は状態の正ではない。要求の後に終端 resync や新しい要求が入った / 表示が別の会話へ移った場合は、
-    // 遅れて届いた queueDepth と runStatus で表示を戻さない (一覧の取り直しは続ける)
-    if (sameChat && opsRef.current === ops && sessionIdRef.current === targetId) {
+    // 応答は状態の正ではない。要求の後に権威ある状態 (終端 resync / run の終了 / 新しい要求) が入った、
+    // または表示が別の会話へ移った場合は、遅れて届いた queueDepth と runStatus で表示を戻さない
+    // (一覧の取り直しは続ける)
+    if (sameChat && opsRef.current === ops && runEndSeqRef.current === runSeq && sessionIdRef.current === targetId) {
       if (result.queued) {
         // 圧縮中の送信はキューに積まれる。表示は compacting のまま保つ (実際に走っているのは圧縮)
         const compacting = runStatusRef.current === "compacting";

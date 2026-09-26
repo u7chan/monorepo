@@ -115,6 +115,9 @@ export function useU7Agent({ pendingSessionId, onPendingSessionResolved }: UseU7
   // await を挟む判定 (送信 / 停止の応答) が、最新の状態を ref から読むために使う
   const runStatusRef = useRef<RunStatus>(chat.runStatus);
   runStatusRef.current = chat.runStatus;
+  // run の終了回数も同じ用途 (要求の後に run が終わった送信の応答を捨てる)
+  const runEndSeqRef = useRef(chat.runEndSeq);
+  runEndSeqRef.current = chat.runEndSeq;
 
   // セッションのスキル一覧 (`/skill:` の入力補助)。新規チャットは選択中のプロジェクト / エージェントで
   // プレビューし、カタログ (エージェント定義) の読み込みまでは取得先が確定しない
@@ -209,6 +212,7 @@ export function useU7Agent({ pendingSessionId, onPendingSessionResolved }: UseU7
         sessionIdRef,
         opsRef: sessionOpsRef,
         runStatusRef,
+        runEndSeqRef,
         ensureSession,
         refreshSessions,
         post: postMessage,
@@ -231,6 +235,7 @@ export function useU7Agent({ pendingSessionId, onPendingSessionResolved }: UseU7
       sessionOpsRef,
       settingsChanging,
       setRuntimeStatus,
+      runEndSeqRef,
     ],
   );
 
