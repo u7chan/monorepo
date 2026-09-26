@@ -89,6 +89,8 @@ function fakeDb(rows: Record<string, string> = {}) {
     failDelete: false,
     /** 保存は成功させるが、以後の一覧読みを失敗させる (DTO 組み立てだけが壊れる経路) */
     armListFailureOnSave: false,
+    /** 削除は成功させるが、以後の一覧読みを失敗させる (DELETE だけが DTO を組めない経路) */
+    armListFailureOnDelete: false,
     error: new Error("sqlite failure"),
   };
   const db: ModelSettingsDb = {
@@ -108,7 +110,9 @@ function fakeDb(rows: Record<string, string> = {}) {
     },
     deleteProviderCredential: (provider) => {
       if (state.failDelete) throw state.error;
-      return store.delete(provider);
+      const deleted = store.delete(provider);
+      if (state.armListFailureOnDelete) state.failList = true;
+      return deleted;
     },
   };
   return { db, store, state };
@@ -340,6 +344,27 @@ test("DB 書き込み後に DTO を組めなくても not_stored ではなく ap
   assert.equal(response.providers.find((provider) => provider.provider === "anthropic")?.managed, true);
   assert.equal(response.providers.find((provider) => provider.provider === "anthropic")?.degraded, "apply");
   assert.equal(db.store.get("anthropic"), KEY_A);
+});
+
+test("DELETE 直後に一覧を読めなくても、削除した provider を保存済みとして返さない", async () => {
+  const db = fakeDb({ anthropic: KEY_A });
+  db.state.armListFailureOnDelete = true;
+  const runtime = fakeRuntime({ remove: () => ({ outcome: "unknown" }) });
+  const { service } = createService({ db: db.db, runtime: runtime.runtime });
+
+  const response = okBody(await service.deleteKey("anthropic"));
+  assert.equal(response.state, "applied_unsynced");
+  const entry = response.providers.find((provider) => provider.provider === "anthropic");
+  // managed は「DB に行がある」の契約。削除が確定した行を保存済みで返すと [削除] が残り、再削除が 400 になる
+  assert.equal(entry?.managed, false);
+  assert.equal(entry?.orphan, false);
+  // 消えているのは DB 行だけ。runtime の overlay は残っているので再同期の導線は出る
+  assert.equal(entry?.degraded, "remove");
+  assert.equal(db.store.has("anthropic"), false);
+
+  // 一覧が読めるようになれば、削除済みであることをそのまま報告する
+  db.state.failList = false;
+  assert.equal(service.settings().providers.find((provider) => provider.provider === "anthropic")?.managed, false);
 });
 
 test("DB 失敗の応答とログにキー値が現れない", async () => {

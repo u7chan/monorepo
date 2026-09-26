@@ -1,6 +1,7 @@
 /**
  * 設定 → モデルの表示変換。コンポーネントから切り出し、認証バッジ・並び・保存後の文言をテストできるようにする。
  * 保存先 (managed = DB) と実効値 (auth.source) と未反映 (degraded) は混ぜず、別々に出す。
+ * 案内文 (degradedNotice) は、そのカードで実際に押せる回復操作 (resyncAvailable) と一致させる。
  */
 import type {
   ModelMutationResponse,
@@ -63,6 +64,23 @@ export function providerAuthBadge(provider: ProviderAuthSetting): ProviderBadge 
 export function resyncAvailable(provider: ProviderAuthSetting): boolean {
   if (!provider.degraded) return false;
   return !provider.orphan || provider.degraded === "remove";
+}
+
+/**
+ * degraded の回復案内。このカードで実際に押せる操作だけを案内する ([再同期] を書くなら
+ * resyncAvailable() が true であること)。カタログ外の apply は resync API も 400 にするため、
+ * 削除かカタログ復帰へ導く。
+ */
+export function degradedNotice(provider: ProviderAuthSetting): string | undefined {
+  if (provider.degraded === "apply") {
+    return provider.orphan
+      ? "保存済みのキーは実行中のランタイムへ反映できません（現在のカタログに無い provider です）。[削除] で保存を取り消すか、カタログに戻ってから登録し直してください。"
+      : "保存済みのキーが実行中のランタイムへ反映されていません。[再同期] を実行するか、次回の変更か再起動で反映されます。";
+  }
+  if (provider.degraded === "remove") {
+    return "保存行は削除済みですが、実行中のランタイムに前のキーが残っている可能性があります。[再同期] で削除を再試行できます。";
+  }
+  return undefined;
 }
 
 export interface ProviderGroups {

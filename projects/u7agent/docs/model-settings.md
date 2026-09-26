@@ -42,6 +42,8 @@ CREATE TABLE IF NOT EXISTS provider_credentials (
 
 `applied_unsynced` は「永続化は確定した」ので 2xx とする（成功と失敗の混在を HTTP で二重表現しない）。`not_stored` は DB の**単一ステートメント（自動コミット）が commit されなかった**場合だけに使い、DB 書込後に DTO の組み立てや state の再計算が失敗した場合は `applied_unsynced` として degraded を残す。GET は `state` を持たない純粋読取で、SDK 呼び出しも修復も行わない。
 
+このとき一覧を読めずに rows を空で組むフォールバックでも、`managed` は**行があると確定している操作（PUT / resync apply）だけ**に付け、DELETE のフォールバックでは対象を `managed: true` にしない（`managed` = DB 行の契約を守り、削除できた行に [削除] を残して再削除を 400 にしない）。
+
 ## 手順と並行性
 
 認証変更・DB 書込・state 公開は**同じサービスインスタンスの 1 本のミューテーションロック**で直列化する。ロックの内側で:
@@ -95,6 +97,7 @@ CREATE TABLE IF NOT EXISTS provider_credentials (
 
 - `SETTINGS_SECTIONS` に `models`（ラベル「モデル」）を追加し、`App.tsx` が `ModelSettingsPage` を出す
 - 画面は provider を「設定済み（`auth.configured` / `managed` / 利用可能モデルあり）」と「未設定」に分け、未設定は畳む。各カードに認証バッジ（未設定 / 環境変数（変数名）/ 保存済み（auth.json）/ この画面で登録済み（実効）/ 保存済み（未反映）/ 削除が未反映 / カタログ外）と、`canSetApiKey` のときだけキー入力、`managed` のときだけ削除（確認に既存会話への影響を出す）、再同期可能な `degraded` のときだけ再同期を出す
+- 未反映の案内文（`degradedNotice`）は、そのカードで実際に押せる回復操作に合わせる。カタログ外（`orphan`）の `apply` は resync API も 400 にするため [再同期] を案内せず、[削除] とカタログ復帰を案内する
 - APIキーの登録後は health と `GET /api/runtime/models` を取り直し、入力欄のモデル候補とモデル数を追随させる。カタログの取得失敗は設定 API の表示を壊さず、別の注記として出す
 - 8 文字未満は保存前に同じ理由で止める（サーバーも 400）
 
@@ -124,10 +127,10 @@ CREATE TABLE IF NOT EXISTS provider_credentials (
 
 実 API は呼ばず、ダミーキーと fake / stub で検証する。
 
-- `server/test/model-settings.test.ts` — GET / PUT / DELETE / resync の契約、DB-first、1 回だけの再試行、degraded の解除と記録、別 provider の並行 PUT の直列化、lock の rejected Promise、起動適用（マスク登録の順序・orphan / 短い行の除外）、キー値を含む例外が応答とログへ漏れないこと
+- `server/test/model-settings.test.ts` — GET / PUT / DELETE / resync の契約、DB-first、1 回だけの再試行、degraded の解除と記録と DTO を組めないときの `managed` の補正、別 provider の並行 PUT の直列化、lock の rejected Promise、起動適用（マスク登録の順序・orphan / 短い行の除外）、キー値を含む例外が応答とログへ漏れないこと
 - `server/test/model-settings-api.test.ts` — HTTP 契約（200 `applied` / `applied_unsynced`、503 `not_stored`、400）、再起動後の適用、DB 不通、health とログのマスク
 - `server/test/provider-key-runtime.test.ts` — `CredentialCommit` の写像（CSE の照合・開始前 abort・実行中 abort・未知の例外）
 - `server/test/model-state.test.ts` — `deriveModelState` / `readModelState`（whitelist、既定モデル、可用 0、失敗時の安全な state）
 - `server/test/app-db.test.ts` — v3 → v4 の加算移行、CRUD、`sanitizeError` の境界
 - `server/test/redact.test.ts` — `createMutableSecretMasker` の swap と streaming masker への追随
-- `client/test/modelSettings.test.ts` / `client/test/modelSettingsPage.test.ts` — 表示変換（認証バッジ・並び・入力検証・注記）と初期描画
+- `client/test/modelSettings.test.ts` / `client/test/modelSettingsPage.test.ts` — 表示変換（認証バッジ・並び・入力検証・注記・回復案内）と初期描画（カタログ外の未反映行に再同期ボタンを出さないこと）

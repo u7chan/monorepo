@@ -5,6 +5,7 @@ import {
   API_KEY_MAX_LENGTH,
   API_KEY_MIN_LENGTH,
   availableCountOf,
+  degradedNotice,
   deleteConfirmMessage,
   groupProviders,
   mutationNote,
@@ -114,6 +115,35 @@ test("再同期はカタログにある provider か degraded remove のとき�
   // カタログ外の apply は再同期しても直らない (サーバーも 400 にする) ので削除だけを出す
   assert.equal(resyncAvailable(provider({ orphan: true, degraded: "apply" })), false);
   assert.equal(resyncAvailable(provider({ orphan: true, degraded: "remove" })), true);
+});
+
+test("未反映の案内はそのカードで押せる回復操作と一致する (カタログ外では再同期を案内しない)", () => {
+  assert.equal(degradedNotice(provider()), undefined, "未反映でなければ案内は無い");
+
+  const cases = [
+    provider({ degraded: "apply", managed: true }),
+    provider({ degraded: "remove", managed: false }),
+    provider({ degraded: "apply", managed: true, orphan: true }),
+    provider({ degraded: "remove", managed: false, orphan: true }),
+  ];
+  for (const entry of cases) {
+    const text = degradedNotice(entry) ?? "";
+    assert.notEqual(text, "", `${entry.degraded} の案内を出す`);
+    // 押せない操作を探させない: [再同期] を案内するなら、そのカードに再同期のボタンが出ること
+    if (text.includes("[再同期]")) {
+      assert.equal(resyncAvailable(entry), true, `再同期を案内するなら実行できる: ${JSON.stringify(entry)}`);
+    }
+  }
+
+  const orphanApply = degradedNotice(provider({ degraded: "apply", managed: true, orphan: true })) ?? "";
+  assert.match(orphanApply, /\[削除\]/, "カタログ外の apply は削除を案内する");
+  assert.match(orphanApply, /カタログに戻ってから/, "復帰手段としてカタログ復帰も案内する");
+  assert.equal(resyncAvailable(provider({ degraded: "apply", managed: true, orphan: true })), false);
+  assert.match(
+    degradedNotice(provider({ degraded: "remove", managed: false, orphan: true })) ?? "",
+    /\[再同期\]/,
+    "カタログ外でも remove は再同期で消せる (サーバーも受ける)",
+  );
 });
 
 test("設定済みを先頭に、未設定は後ろへ分ける (並びはサーバーの順)", () => {

@@ -241,7 +241,10 @@ export class ModelSettingsService {
     } catch {
       // DTO を組めない = クライアントへ反映を確認できない。not_stored とは言わず、未同期として回復導線を残す
       this.#degraded.set(provider, operation);
-      return { status: 200, response: { ...this.#compose([], provider), state: "applied_unsynced" } };
+      // managed (= DB に行がある) を補えるのは apply だけ。apply は直前の書込/読取で行の存在が確定しているが、
+      // remove は削除が確定済みなので、ここで保存済みとして返すと [削除] が残り再削除が 400 になる。
+      const assumedManaged = operation === "apply" ? provider : undefined;
+      return { status: 200, response: { ...this.#compose([], assumedManaged), state: "applied_unsynced" } };
     }
   }
 
@@ -262,9 +265,14 @@ export class ModelSettingsService {
     return this.#notStored(PROVIDER_KEY_RUNTIME_UNAVAILABLE_MESSAGE);
   }
 
-  #compose(rows: ProviderCredentialRow[], fallbackManaged?: string): ModelsSettingsResponse {
+  /**
+   * GET / 変更系の応答 DTO。rows は DB の生きた行で、`managed` はこの行の有無だけで決める。
+   * `assumedManaged` は一覧を読めず rows が空のときだけ渡せる「行があると確定している」provider の補正で、
+   * 呼び出し側が書込/読取の成功で保証できる apply のときだけ使う (DELETE では渡さない)。
+   */
+  #compose(rows: ProviderCredentialRow[], assumedManaged?: string): ModelsSettingsResponse {
     const managed = new Set(rows.map((row) => row.provider));
-    if (fallbackManaged) managed.add(fallbackManaged);
+    if (assumedManaged) managed.add(assumedManaged);
     const providers = new Map<string, ProviderAuthSetting>();
     for (const entry of this.#runtime?.list() ?? []) {
       providers.set(

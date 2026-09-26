@@ -100,10 +100,39 @@ test("provider 行に認証バッジ・キー入力・削除・再同期・モ�
   assert.ok(html.includes("削除"), "managed の provider には削除を出す");
   assert.ok(html.includes("保存済み（未反映）") && html.includes("再同期"), "degraded には再同期を出す");
   assert.ok(html.includes("カタログ外（保存済み）"), "orphan を警告として出す");
+  assert.ok(html.includes("カタログに戻るまで再登録はできません"), "orphan の保存行は削除だけできると書く");
   assert.ok(html.includes("未設定のプロバイダーを表示 (2)"), "未設定は畳んで件数だけ出す");
   assert.ok(html.includes("PI_MODELS"), "whitelist の注記を出す");
   assert.ok(html.includes("アプリ既定モデル"), "既定モデルを出す");
   assert.ok(html.includes("キーの有効性は保存時に確認しません"), "有効性を検証しない旨を出す");
+});
+
+test("カタログ外で未反映の行は再同期ボタンを出さず、削除とカタログ復帰を案内する", () => {
+  const html = render(
+    modelSettings({
+      settings: {
+        ...SETTINGS,
+        providers: [
+          provider({
+            provider: "ghost",
+            name: "Ghost",
+            managed: true,
+            canSetApiKey: false,
+            orphan: true,
+            degraded: "apply",
+          }),
+        ],
+      },
+      catalog: null,
+    }),
+  );
+  assert.ok(html.includes("保存済み（未反映）"), "未反映として警告する");
+  assert.ok(
+    html.includes("カタログに戻ってから登録し直してください"),
+    "実行できない再同期ではなく削除と復帰を案内する",
+  );
+  assert.ok(html.includes("削除"), "managed なので削除は出る");
+  assert.equal(html.includes("再同期"), false, "resync API が 400 になるカードに再同期ボタンを出さない");
 });
 
 test("キー登録できない provider は入力欄を出さず、理由を書く", () => {

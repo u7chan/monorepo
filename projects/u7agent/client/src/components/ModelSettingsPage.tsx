@@ -4,6 +4,7 @@ import { cn } from "../lib/cn";
 import {
   API_KEY_MIN_LENGTH,
   availableCountOf,
+  degradedNotice,
   deleteConfirmMessage,
   groupProviders,
   providerAuthBadge,
@@ -195,6 +196,7 @@ function ProviderCard({
 }) {
   const [apiKey, setApiKey] = useState("");
   const badge = providerAuthBadge(provider);
+  const notice = degradedNotice(provider);
   const catalogProvider = catalog?.providers.find((entry) => entry.provider === provider.provider);
   const available = availableCountOf(catalog, provider.provider);
 
@@ -222,27 +224,20 @@ function ProviderCard({
         </div>
       </div>
 
-      {provider.degraded === "apply" ? (
+      {notice ? (
         <p
           role="alert"
           className="rounded-md border border-warn/40 bg-raised px-2.5 py-1.5 text-2xs leading-relaxed text-warn"
         >
-          保存済みのキーが実行中のランタイムへ反映されていません。[再同期]
-          を実行するか、次回の変更か再起動で反映されます。
-        </p>
-      ) : null}
-      {provider.degraded === "remove" ? (
-        <p
-          role="alert"
-          className="rounded-md border border-warn/40 bg-raised px-2.5 py-1.5 text-2xs leading-relaxed text-warn"
-        >
-          保存行は削除済みですが、実行中のランタイムに前のキーが残っている可能性があります。[再同期]
-          で削除を再試行できます。
+          {notice}
         </p>
       ) : null}
       {provider.orphan ? (
         <p className="text-2xs leading-relaxed text-ink-muted">
-          現在のカタログに無い provider です。保存済みのキーは削除できます（再登録はできません）。
+          現在のカタログに無い provider です。
+          {provider.managed
+            ? "保存済みのキーは削除できます（カタログに戻るまで再登録はできません）。"
+            : "この画面からの登録はできません。"}
         </p>
       ) : null}
 
