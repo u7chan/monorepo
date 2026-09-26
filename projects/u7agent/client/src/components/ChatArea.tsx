@@ -1,7 +1,7 @@
 import { Fragment, useEffect, useRef, useState } from "react";
 import type { Bubble } from "../hooks/chatReducer";
 import { useMessageCopy } from "../hooks/useMessageCopy";
-import { isAtBottom, isAutoScrollEvent } from "../lib/chatScroll";
+import { resolveScrollFollow } from "../lib/chatScroll";
 import { cn } from "../lib/cn";
 import { compactionDividerIndex } from "../lib/compaction";
 import { toolCallCopyText, toolHistoryCopyText } from "../lib/copy-content";
@@ -52,9 +52,9 @@ export function ChatArea({
   // ボタンの出し分けは state で持つ
   const [follow, setFollow] = useState(true);
   const followRef = useRef(true);
-  // snap で書いた位置の控え。次の scroll イベントが snap 由来かを位置で見分ける (無条件に 1 回
-  // 無視すると、配送までのユーザー操作を取りこぼして引き戻す)
-  const snapTopRef = useRef<number | null>(null);
+  // 直前に観測したスクロール位置。次に届く scroll が「上へ戻す操作」かを位置の向きで見分ける
+  // (snap の代入でも更新する)
+  const lastTopRef = useRef(0);
   const prevSendSeqRef = useRef(sendSeq);
   const prevSessionIdRef = useRef(sessionId);
   const { copiedId, copyMessage } = useMessageCopy();
@@ -72,20 +72,26 @@ export function ChatArea({
     setFollowBoth(true);
     const el = chatAreaRef.current;
     if (!visible || !el) return;
-    const before = el.scrollTop;
     el.scrollTop = el.scrollHeight;
-    // 位置が変わらない代入では scroll イベントが来ないので、控えを残さない
-    if (el.scrollTop !== before) snapTopRef.current = el.scrollTop;
+    // 代入の後に読んだ位置を基準にする (位置が変わらない代入でも更新する。控えが古いままだと、
+    // 直後にレイアウト起因で届く scroll を上へ戻す操作と誤認する)
+    lastTopRef.current = el.scrollTop;
   }
 
   function handleScroll(): void {
     const el = chatAreaRef.current;
     if (!el) return;
-    const snapTop = snapTopRef.current;
-    // 控えは 1 回で使い切る (次のイベントは通常の距離判定に回す)
-    snapTopRef.current = null;
-    if (isAutoScrollEvent(el.scrollTop, snapTop)) return;
-    setFollowBoth(isAtBottom(el));
+    const top = el.scrollTop;
+    const next = resolveScrollFollow({
+      follow: followRef.current,
+      previousTop: lastTopRef.current,
+      scrollTop: top,
+      scrollHeight: el.scrollHeight,
+      clientHeight: el.clientHeight,
+    });
+    lastTopRef.current = top;
+    if (next.snap) snapToBottom();
+    else setFollowBoth(next.follow);
   }
 
   // 内容が伸びても、読み返し中 (follow が外れている) は位置を動かさない

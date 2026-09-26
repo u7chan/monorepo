@@ -9,9 +9,6 @@
  */
 export const CHAT_FOLLOW_THRESHOLD = 48;
 
-/** 控えた snap の位置と scroll イベントの位置を比べる許容 (px)。代入とイベント配送の丸め誤差だけを吸収する */
-export const SNAP_POSITION_EPSILON = 1;
-
 export type ScrollMetrics = {
   scrollTop: number;
   scrollHeight: number;
@@ -26,11 +23,37 @@ export function isAtBottom({ scrollTop, scrollHeight, clientHeight }: ScrollMetr
   return scrollHeight - clientHeight - scrollTop <= CHAT_FOLLOW_THRESHOLD;
 }
 
+export type ScrollFollowInput = ScrollMetrics & {
+  /** 直前の follow */
+  follow: boolean;
+  /** 直前に観測した位置 (snap の代入と、前回の scroll イベントの位置) */
+  previousTop: number;
+};
+
+export type ScrollFollowOutcome = {
+  /** 次の follow。false は読み返し中 (追従しない) */
+  follow: boolean;
+  /** 最下部へ書き戻すか。追従中に最下部から離れているときだけ true */
+  snap: boolean;
+};
+
 /**
- * snap (自分で書いた最下部への代入) で起きた scroll イベントか。控えが無い / 控えより上へ動いた
- * イベントは false にして通常の距離判定へ回す (代入とイベント配送の間にユーザーが上へ戻した操作を
- * 取りこぼすと、次の更新で引き戻してしまう)。
+ * scroll イベントを受けたときの次の追従を決める。
+ *
+ * 追従を外せるのは、ユーザーが上へ戻した (位置が減る) ときだけ。位置が増える scroll は自分の snap の
+ * 代入か、レイアウトの再折り返しでブラウザーが動かした位置で、どちらもユーザー操作ではない。右パネルを
+ * 開くとチャット幅が変わって本文が折り返し直り、Chrome のスクロールアンカリングが scrollTop を増やして
+ * 最下部から離れた位置の scroll を配る。この scroll は同じフレームの ResizeObserver callback より先に
+ * 届くため、距離だけで判定すると追従が外れ、直後の callback も follow が false で書き戻さなくなる
+ * (実測: 追従中に右パネルを開くと 70/71 で外れた)。
+ *
+ * 追従中に離れていたら書き戻す。アンカリングを止める (`overflow-anchor: none`) 案は採らない。読み返し中
+ * (follow が false) にレイアウトが変わったときの読み位置を保つ役目をブラウザーに残すため。
  */
-export function isAutoScrollEvent(scrollTop: number, snapTop: number | null): boolean {
-  return snapTop !== null && scrollTop >= snapTop - SNAP_POSITION_EPSILON;
+export function resolveScrollFollow(input: ScrollFollowInput): ScrollFollowOutcome {
+  const atBottom = isAtBottom(input);
+  if (!input.follow) return { follow: atBottom, snap: false };
+  // 上へ戻す操作だけ距離で判定する (snap の代入とイベント配送の間にユーザーが戻した場合もここへ来る)
+  if (input.scrollTop < input.previousTop) return { follow: atBottom, snap: false };
+  return { follow: true, snap: !atBottom };
 }

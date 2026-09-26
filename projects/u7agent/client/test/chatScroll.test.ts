@@ -1,4 +1,4 @@
-// チャットの自動追従の判定と配線。client に DOM テスト基盤が無いため、しきい値の境界と snap 由来の
+// チャットの自動追従の判定と配線。client に DOM テスト基盤が無いため、しきい値の境界と scroll の
 // 判定は純関数 (lib/chatScroll) で固定し、ChatArea / App の配線はソース走査で固定する。
 // スクロール・ResizeObserver・フォーカスそのものは実ブラウザーでの手動受入に残る。
 import assert from "node:assert/strict";
@@ -8,7 +8,7 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import test from "node:test";
 import { ScrollToBottomButton } from "../src/components/chat/ScrollToBottomButton";
-import { CHAT_FOLLOW_THRESHOLD, isAtBottom, isAutoScrollEvent, SNAP_POSITION_EPSILON } from "../src/lib/chatScroll";
+import { CHAT_FOLLOW_THRESHOLD, isAtBottom, resolveScrollFollow } from "../src/lib/chatScroll";
 
 function read(relativePath: string): string {
   return readFileSync(fileURLToPath(new URL(`../${relativePath}`, import.meta.url)), "utf8");
@@ -34,16 +34,50 @@ test("内容が収まっている / 空のときは最下部とみなす", () =>
   assert.equal(isAtBottom({ scrollTop: 0, scrollHeight: 0, clientHeight: 0 }), true);
 });
 
-test("snap 由来の scroll は控えた位置で見分ける", () => {
-  // 控えが無い (通常のスクロール) は snap 由来にしない
-  assert.equal(isAutoScrollEvent(1200, null), false);
-  // 控えと同じ位置 = snap の代入で起きたイベント
-  assert.equal(isAutoScrollEvent(1200, 1200), true);
-  // 端数の丸めは許容する
-  assert.equal(isAutoScrollEvent(1200 - SNAP_POSITION_EPSILON, 1200), true);
-  assert.equal(isAutoScrollEvent(1200 - SNAP_POSITION_EPSILON - 1, 1200), false);
-  // 控えより上へ動いている = 代入とイベント配送の間にユーザーが戻した操作。通常の距離判定に回す
-  assert.equal(isAutoScrollEvent(900, 1200), false);
+test("追従中は位置が増える scroll (レイアウト起因 / snap の代入) で追従を外さない", () => {
+  // 右パネルを開いた再折り返し (実測: scrollHeight 10291 → 13021、最下部 12347)。アンカリングが
+  // scrollTop を 9374 → 11922 へ増やし、最下部から 425px 離れた scroll を ResizeObserver より先に配る
+  const resized = { scrollHeight: 13021, clientHeight: 674 };
+  assert.deepEqual(resolveScrollFollow({ follow: true, previousTop: 9374, scrollTop: 11922, ...resized }), {
+    follow: true,
+    snap: true,
+  });
+  // 位置が同じ (snap の代入が動かさなかった) もユーザー操作ではない。最下部なら書き戻さない
+  assert.deepEqual(resolveScrollFollow({ follow: true, previousTop: 12347, scrollTop: 12347, ...resized }), {
+    follow: true,
+    snap: false,
+  });
+});
+
+test("上へ戻す scroll は追従中でも距離で判定する", () => {
+  const resized = { scrollHeight: 13021, clientHeight: 674 };
+  // 48px ちょうどまでは追従を続け、端数で外れる
+  assert.deepEqual(resolveScrollFollow({ follow: true, previousTop: 12347, scrollTop: 12347 - 48, ...resized }), {
+    follow: true,
+    snap: false,
+  });
+  assert.deepEqual(resolveScrollFollow({ follow: true, previousTop: 12347, scrollTop: 12347 - 49, ...resized }), {
+    follow: false,
+    snap: false,
+  });
+  // snap の代入とイベント配送の間にユーザーが戻した場合も、位置が減るのでこの経路で外れる
+  assert.deepEqual(resolveScrollFollow({ follow: true, previousTop: 9000, scrollTop: 8000, ...resized }), {
+    follow: false,
+    snap: false,
+  });
+});
+
+test("読み返し中は位置が増えても追従を戻さず、48px 以内へ戻ったときだけ再開する", () => {
+  const resized = { scrollHeight: 13021, clientHeight: 674 };
+  // レイアウト起因で位置が増えても、読み位置を動かさない
+  assert.deepEqual(resolveScrollFollow({ follow: false, previousTop: 5000, scrollTop: 6000, ...resized }), {
+    follow: false,
+    snap: false,
+  });
+  assert.deepEqual(resolveScrollFollow({ follow: false, previousTop: 5000, scrollTop: 12347 - 48, ...resized }), {
+    follow: true,
+    snap: false,
+  });
 });
 
 test("ChatArea は follow で gate し、非表示中はスクロールを書かない", () => {
@@ -65,9 +99,12 @@ test("ChatArea は送信 / 会話の切替 / 表示への復帰 / リサイズ�
   // 容器と本文の両方を見る (コンポーザの伸縮・添付の遅延ロード・パネルのドラッグ)
   assert.ok(chatArea.includes("observer.observe(section);"));
   assert.ok(chatArea.includes("observer.observe(content);"));
-  // snap で書いた位置を控え、scroll のたびに使い切る
-  assert.ok(chatArea.includes("if (isAutoScrollEvent(el.scrollTop, snapTop)) return;"));
-  assert.ok(chatArea.includes("snapTopRef.current = null;"));
+  // scroll の判定は純関数へ委ね、位置の向き (上へ戻す操作か) を見る。自分が書いた位置だけを控える
+  // 旧方式は、右パネルの開閉でブラウザーが起こした scroll をユーザー操作と誤認して追従を外した
+  assert.ok(chatArea.includes("resolveScrollFollow({"));
+  assert.ok(!chatArea.includes("snapTopRef"));
+  // 次に届く scroll と向きを比べる基準は、snap の代入でも更新する
+  assert.ok(chatArea.includes("lastTopRef.current = el.scrollTop;"));
 });
 
 test("最下部ボタンは追従が外れていてメッセージがあるときだけ出す", () => {
