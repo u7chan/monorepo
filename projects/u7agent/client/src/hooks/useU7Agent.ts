@@ -357,6 +357,7 @@ export function useU7Agent({ pendingSessionId, onPendingSessionResolved }: UseU7
     toggleNotify,
     attachments: attachmentsForSession(attachments, sessionId),
     loadCatalog,
+    refreshHealth,
     refreshSessions,
     refreshProjects,
     selectSession,

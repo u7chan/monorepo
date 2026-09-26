@@ -399,7 +399,7 @@ export default function App() {
             ) : settingsSection === "appearance" ? (
               <AppearancePage {...pageProps} />
             ) : settingsSection === "runtime" ? (
-              <RuntimePage {...pageProps} health={app.health} />
+              <RuntimePage {...pageProps} health={app.health} onRefreshHealth={app.refreshHealth} />
             ) : (
               <NotificationSettingsPage {...pageProps} notifications={app.notifications} />
             )

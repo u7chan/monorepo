@@ -12,6 +12,7 @@ DTO の正は `server/src/schema.ts`（zod）。リクエストボディは `@ho
 | --- | --- | --- |
 | ヘルス | `GET /api/health` | このファイル |
 | ランタイムのモデルカタログ | `GET /api/runtime/models` | このファイル |
+| 実行環境（サンドボックスの診断） | `GET /api/runtime/environment` | このファイル |
 | ファイル一覧 | `GET /api/files` | このファイル |
 | ファイル削除 | `DELETE /api/files` | このファイル |
 | ファイルのリネーム | `POST /api/files/rename` | このファイル |
@@ -120,6 +121,39 @@ DTO の正は `server/src/schema.ts`（zod）。リクエストボディは `@ho
 カタログ全件は通常約 90KB（pi SDK の同梱版で変動）となるため、health には載せない。この API は設定画面を開いたときにだけ要求する。
 
 `sessionStore` は会話ストア、`appDb` はプロジェクト / カタログを保存する SQLite の状態。`ok: false` のときは `error` に理由が入り、その保存先を読む API は 503 になる。`path` が `null` なのは永続化なしのとき（`sessionStore` は未設定、`appDb` はテストのメモリ DB）で、パス解決に失敗した `appDb` は `ok: false` と `path: null` の組み合わせになる。詳細は [persistence.md](persistence.md)。
+
+## 実行環境（サンドボックス診断）
+
+| メソッド | パス | 説明 |
+| --- | --- | --- |
+| GET | `/api/runtime/environment` | 設定 → ランタイムを開いたときと再読み込みで取得する、サンドボックス側の実行環境とコマンド |
+
+```json
+// 200 (connected)
+{
+  "state": "connected",
+  "environment": {
+    "os": "Debian GNU/Linux 13 (trixie)",
+    "arch": "x86_64",
+    "user": "node",
+    "isRoot": false,
+    "workspace": "/workspace"
+  },
+  "commands": [
+    { "name": "curl", "version": "8.14.1" },
+    { "name": "npm", "version": null }
+  ]
+}
+```
+
+`state` は `connected` / `not_configured` / `unreachable` / `unauthorized` / `timeout` / `probe_failed` の 6 種で、`connected` 以外は `state` だけを返す（サンドボックスの情報は載せない）。検出できるコマンドの意味と allowlist、上限は [sandbox-api.md](sandbox-api.md#get-v1runtimeinfo) を参照する。
+
+- 未接続でも HTTP 200 で返し、UI は HTTP ステータスや文言ではなく `state` で分岐する。BFF 自体の予期せぬエラーだけが既存のエラー処理（500）になる
+- `connected` は認証付きの `GET /v1/runtime/info` が契約どおり応答し、情報の取得が完了した状態を指す。`bash` などのツールが実行可能であることは保証しない。個別コマンドのバージョンを取れなくても存在を確認できていれば `version: null` として `connected` を維持する
+- `probe_failed` はサンドボックスへ到達したが応答が契約外 / 診断全体が不成立だった場合。HTTP 401 / 403 は `unauthorized`、接続失敗は `unreachable`、診断専用の期限（8 秒。接続待ちだけでなく**本文の受信完了まで**）の超過は `timeout`、接続情報が無いときは `not_configured`
+- 非 2xx の本文は読まずに解放し、その完了は待たない（本文の `cancel()` が止まっても失敗分類は期限内に返す。待つと再読み込み中のままになる）
+- サンドボックスの URL / 共有トークン / 内部エラーの詳細は応答に含めない（詳細は BFF のログに限る）
+- `GET /api/health` の `ready`（モデル利用可能性）と `sandboxConfigured`（設定の有無）、`GET /api/runtime/models` の契約は変わらない。実行環境の「接続中」は認証付き診断 API の正常応答だけを示し、`sandboxConfigured` とは別の意味を持つ
 
 ## ファイル一覧
 

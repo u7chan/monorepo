@@ -68,11 +68,12 @@ export async function createBffApp(opts: CreateBffAppOptions = {}) {
     appDb,
     notifications,
     archiveSettings,
+    runtimeDiagnostics,
   } = await createBffContext(opts);
   const appData = appDataGuard(appDb);
 
   const healthRoutes = createHealthRoutes({ pi, initError, cwd, store, appDb, archiveSettings });
-  const runtimeRoutes = createRuntimeRoutes({ pi });
+  const runtimeRoutes = createRuntimeRoutes({ pi, runtimeDiagnostics });
   const fileRoutes = createFileRoutes({ workspace, archiveSettings });
   const catalogRoutes = createCatalogRoutes({ catalog, workspace, rootCwd: cwd });
   const projectRoutes = createProjectRoutes({ projects, store, workspace });
@@ -86,6 +87,7 @@ export async function createBffApp(opts: CreateBffAppOptions = {}) {
     .use("/api/*", bodyGuard)
     .get("/api/health", healthRoutes.health)
     .get("/api/runtime/models", runtimeRoutes.models)
+    .get("/api/runtime/environment", runtimeRoutes.environment)
     .get("/api/files", fileRoutes.list)
     // 一覧と同じパスに DELETE を重ねる (パスはクエリで受ける)
     .delete("/api/files", fileRoutes.remove)

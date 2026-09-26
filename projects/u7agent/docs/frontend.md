@@ -49,6 +49,8 @@
 - クエリとフラグメントは解釈も破棄もしない。`#foo` のような断片リンク（チャット本文の Markdown が通す）を壊さないため、画面切替でもそのまま持ち越す
 - 「設定」の行き先は URL のセクションを優先し、`/` では保存した最後のセクションへ。直接 `/settings/<section>` を開いた場合もそのセクションを「最後」として保存する。`Sidebar` の「設定」は `onSelectMode("settings")` を呼ぶため、App は `navProps` と `drawerProps` の両方をこの経路へ接続する
 - 設定 → ランタイムは health の診断サマリを使い、全モデルカタログはページを開いたときだけ `GET /api/runtime/models` で取得する。未認証プロバイダーは初期表示で折りたたみ、ページを離れて戻ると再取得する。モデルは モデル名 / ID / 利用可能 / whitelist の 4 列の表（`table-fixed`）で出し、数値はカタログ数を分母にした比率ゲージと丸・盾の印で示す（ID を名前と同じ行に続けて出すと、名前と識別子の境目が読めない）
+- 実行環境カードは `GET /api/runtime/environment` の `state`（`connected` / `not_configured` / `unreachable` / `unauthorized` / `timeout` / `probe_failed`）だけで分岐し、HTTP ステータスや文言を解釈しない。`connected` のときだけ OS / アーキテクチャ / 実行ユーザー / ワークスペースを出し、検出できたコマンドだけを名前とバージョンの表にする（バージョンを取れなかったものは「バージョン不明」。存在しないコマンドの一覧やインストール・実行の UI は持たない）。接続状態カードの「サンドボックス = 設定済み」は設定の有無で、実行環境カードの「接続中」は診断 API の正常応答だけを指す
+- 開いたときの取得はカタログと実行環境の 2 系統で、health は親が持つ値を使う。再読み込みは親の `refreshHealth()` を含む 3 系統を `Promise.allSettled` 相当でまとめて取り直し、全 settled までボタンを処理中にする。各結果は独立して保持し、1 系統の失敗で他を消さない。`refreshHealth()` は失敗もキャンセルも `null` を返す契約なので、画面側で `null` を失敗へ変換し、health の失敗は「前回値を表示中」と明示する。古い応答の適用は世代番号（`client/src/lib/runtimeEnvironment.ts` の `createRuntimeReloadGate`）で排除し、その判定は親の `refreshHealth(isCurrent)` にもそのまま渡す（画面の state だけでなく親が持つ health も、アンマウント後 / 新しい取得後の応答で上書きしない）
 - Vite dev は SPA フォールバックを持つが、本番は BFF が返す（[配信](#開発フローと配信) の SPA フォールバック）。存在しない拡張子なしパスも 200 と `index.html` になる **soft 404** なので、HTTP 200 はパスの存在確認には使えない
 
 ## 通知のディープリンク
