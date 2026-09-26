@@ -136,6 +136,17 @@ test("作成先はプロジェクト行の ＋ でだけ決まる (「新しい�
     "プロジェクト行の ＋ がプロジェクトを渡していない",
   );
   assert.ok(!sidebar.includes("selectProject"), "サイドバーが作成先を選択している");
+  // プロジェクト作成は作成先を変えない (作成した直後の送信先が新規プロジェクトに化けない)
+  const createProject = projects.slice(
+    projects.indexOf("const createProject = useCallback("),
+    projects.indexOf("const deleteProject = useCallback("),
+  );
+  assert.ok(createProject.includes("const createProject"), "createProject の実装が見つからない");
+  assert.ok(!createProject.includes("selectProject("), "プロジェクト作成が作成先を変えている");
+  // SidebarProps から外した props は JSX スプレッドで型検査をすり抜けるので、渡していないことを固定する
+  const sidebarProps = app.slice(app.indexOf("const navProps = {"), app.indexOf("// 表示方法だけを layout で分ける"));
+  assert.ok(sidebarProps.includes("const navProps"), "navProps の抽出に失敗した");
+  assert.ok(!sidebarProps.includes("selectedProjectId"), "Sidebar へ作成先を渡している");
   // 行のクリックは折りたたみのトグル (作成先の選択を無くした)。子の SessionRow は自分の onSelect を持つ
   assert.ok(projectRow.includes("onClick={onToggle}"), "プロジェクト行のクリックが折りたたみになっていない");
   assert.doesNotMatch(projectRow, /^\s+onSelect[?:,]/m, "プロジェクト行が作成先を選択している");

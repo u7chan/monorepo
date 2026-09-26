@@ -230,7 +230,6 @@ export default function App() {
     sessionId: app.sessionId,
     agents: app.agents,
     projects: app.projects,
-    selectedProjectId: app.selectedProjectId,
     newChat: handleNewChat,
     selectSession: (sessionId: string) => {
       if (sessionId !== app.sessionId) void app.selectSession(sessionId);
