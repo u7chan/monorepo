@@ -1,6 +1,7 @@
 import { fileRawUrl } from "../../api";
 import { attachmentFetchPath, formatBytes, isImageName, type Attachment } from "../../lib/attachments";
 import { cn } from "../../lib/cn";
+import { ZoomableImage } from "../ImageZoom";
 import { CloseIcon } from "../icons";
 
 export type AttachmentChipsProps = {
@@ -42,6 +43,7 @@ function AttachmentChip({
       : attachment.status === "error"
         ? attachment.error
         : undefined;
+  // 押せるのはサムネイルだけにする (チップ全体を押せると × と競合する)
   return (
     <li
       className={cn(
@@ -50,7 +52,7 @@ function AttachmentChip({
       )}
     >
       {thumbnail ? (
-        <img src={thumbnail} alt="" className="size-7 shrink-0 rounded object-cover" />
+        <ZoomableImage src={thumbnail} alt={attachment.name} variant="chip" />
       ) : (
         <span aria-hidden="true" className="shrink-0 text-ink-faint">
           {attachment.status === "error" ? "!" : "▤"}

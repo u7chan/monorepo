@@ -8,6 +8,7 @@
 //   4. 背景クリックは event.target が dialog 自身のときだけ閉じる (画像や閉じるボタンのクリックで閉じない)
 //   5. 見た目の切替は variant / compact が持ち、呼び出し側からは渡さない (枠・角丸・cursor・focus-visible は部品が所有)
 //   6. リンクの中の画像は素の img のまま (Markdown の inLink と、生 HTML の <a> の子)
+//   7. 入力欄のチップは 28px のサムネイルだけが押せる (チップ全体を押せると × と競合する)
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
@@ -100,10 +101,11 @@ test("拡大画像は .md の外に置き、枠・角丸を当てない", () => 
 test("見た目の切替は variant / compact が持ち、呼び出し側からは渡さない", () => {
   const zoom = read("src/components/ImageZoom.tsx");
   assert.match(zoom, /variant: ImageZoomVariant;/, "variant を必須の props にする");
-  assert.match(zoom, /variant === "markdown" \? "md-img"/, "markdown は md-img を自分で当てる");
+  assert.match(zoom, /variant === "markdown" && "md-img object-contain"/, "markdown は md-img を自分で当てる");
   assert.match(zoom, /compact \? "max-h-32" : "max-h-44"/, "添付の高さを compact で切り替える");
   const callers: [string, string][] = [
     ["src/components/chat/AttachedFiles.tsx", 'variant="attachment"'],
+    ["src/components/composer/AttachmentChips.tsx", 'variant="chip"'],
     ["src/components/markdown/MarkdownView.tsx", 'variant="markdown"'],
     ["src/components/markdown/HtmlInline.tsx", 'variant="markdown"'],
   ];
@@ -117,6 +119,30 @@ test("見た目の切替は variant / compact が持ち、呼び出し側から�
   }
   // compact を渡し忘れると狭い viewport でサムネイルが高くなる (型では防げない)
   assert.match(read("src/components/chat/AttachedFiles.tsx"), /compact=\{compact\}/, "添付が compact を渡していない");
+});
+
+test("チップは 28px のサムネイルだけが押せる", () => {
+  const chips = read("src/components/composer/AttachmentChips.tsx");
+  // thumbnail は status "done" かつ画像のときだけ入る。画像が無いチップには分岐を足さない
+  assert.match(
+    chips,
+    /\{thumbnail \? \(\s*<ZoomableImage src=\{thumbnail\}/,
+    "サムネイルを出す条件と開く条件がずれている",
+  );
+  assert.match(
+    chips,
+    /<ZoomableImage src=\{thumbnail\} alt=\{attachment\.name\} variant="chip" \/>/,
+    "読み上げ名がファイル名になっていない",
+  );
+  assert.equal(chips.match(/<ZoomableImage\b/g)?.length, 1, "サムネイル以外からも開こうとしている");
+  assert.ok(!/<li[^>]*onClick/.test(chips), "チップ全体を押せるようにしている (× と競合する)");
+  const zoom = read("src/components/ImageZoom.tsx");
+  assert.match(
+    zoom,
+    /variant === "chip" && "size-7 shrink-0 rounded object-cover"/,
+    "チップ用の 28px と角丸を部品が持っていない",
+  );
+  assert.match(zoom, /variant === "chip" && "shrink-0 rounded"/, "押下面の角丸がサムネイルと揃っていない");
 });
 
 test("Markdown のリンク内 (inLink) は ZoomableImage を通さない", () => {

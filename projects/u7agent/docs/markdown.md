@@ -69,7 +69,7 @@ MessageView (assistant の本文)
 - 読み込みに失敗した画像（intrinsic 幅を持たない）は `button` で包まず、その場（段落 / `<li>`）へ直接置く。`button` は fit-content の包含ブロックなので、包むとサムネイルが alt テキスト幅まで縮み、失敗時の見え方（段落幅）が変わるため
 - 開くのは `showModal()`（終了とフォーカス拘束は標準挙動）。閉じるのは Escape / 背景クリック（`event.target` が dialog 自身のときだけ）/ 閉じるボタンで、`onClose` で state を落とし、サムネイルへ focus を戻す。Escape の keydown は `stopPropagation` だけして `preventDefault` しない（閉じるのを標準挙動に任せ、App の Escape（設定ページからチャットへ戻る）へ渡さない）
 - 拡大画像は viewport に収まる範囲で最大にし、intrinsic size は超えて引き伸ばさない。dialog 自身は背景透明の全画面で、減光とぼかしは既存の `dialog::backdrop` に任せる
-- 見た目は `variant` で切り替える（`markdown` は `md-img`、`attachment` は枠・角丸を自分で当てる）。呼び出し側は `src` / `alt` / `title` / `variant`（添付は `compact`）だけを渡し、className は渡さない（`shadcn/no-restyle`）
+- 見た目は `variant` で切り替える（`markdown` は `md-img`、`attachment` は枠・角丸を自分で当てる、`chip` は入力欄のチップの 28px（`size-7`）と角丸）。呼び出し側は `src` / `alt` / `title` / `variant`（添付は `compact`）だけを渡し、className は渡さない（`shadcn/no-restyle`）
 - ストリーミング中は、同じブロックの再描画で画像が同じ位置にあれば開いたまま（state は部品が持つ）。位置が変わって unmount された場合は閉じる（開いたままを保証しない）
 
 ### リンクの中の画像（対象外）
