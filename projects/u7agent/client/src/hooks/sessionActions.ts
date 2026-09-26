@@ -23,6 +23,8 @@ export type SendChatMessageDeps = {
   busy: boolean;
   /** render 時の state は古くなるため、await を挟んだ後の判定に使う */
   sessionIdRef: RefObject<string>;
+  /** 同一セッション内の操作世代。要求の後に権威ある状態 (終端 resync / 新しい要求) が入っていれば応答を捨てる */
+  opsRef: RefObject<number>;
   /** 現在の実行状態。圧縮中の送信キューは compacting のまま見せる */
   runStatusRef: RefObject<RunStatus>;
   ensureSession: () => Promise<string>;
@@ -42,8 +44,17 @@ export async function sendChatMessage(text: string, deps: SendChatMessageDeps): 
   const attachments = deps.attachments ?? [];
   // 本文も添付も無い送信は投げない (添付だけの送信は許可されている)
   if ((!text && attachments.length === 0) || deps.busy) return;
-  const { sessionIdRef, runStatusRef, ensureSession, refreshSessions, post, dispatch, setSending, setRuntimeStatus } =
-    deps;
+  const {
+    sessionIdRef,
+    opsRef,
+    runStatusRef,
+    ensureSession,
+    refreshSessions,
+    post,
+    dispatch,
+    setSending,
+    setRuntimeStatus,
+  } = deps;
   setSending(true);
   // 失敗時に戻すエコーの判定。ensureSession 自体の失敗ではまだエコーを出していない
   let echoed = false;
@@ -63,9 +74,14 @@ export async function sendChatMessage(text: string, deps: SendChatMessageDeps): 
       echoed = true;
     }
 
+    // 送信を始めた時点の世代。応答の適用時に一致を確認する (ensureSession は選択と一覧を進めるため、
+    // これより前に読むと自分の送信の応答まで捨てる)
+    const ops = opsRef.current;
     const result = await post(targetId, text, attachments);
     deps.onSent?.();
-    if (sameChat) {
+    // 応答は状態の正ではない。要求の後に終端 resync や新しい要求が入った / 表示が別の会話へ移った場合は、
+    // 遅れて届いた queueDepth と runStatus で表示を戻さない (一覧の取り直しは続ける)
+    if (sameChat && opsRef.current === ops && sessionIdRef.current === targetId) {
       if (result.queued) {
         // 圧縮中の送信はキューに積まれる。表示は compacting のまま保つ (実際に走っているのは圧縮)
         const compacting = runStatusRef.current === "compacting";

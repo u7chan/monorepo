@@ -62,6 +62,7 @@ function createHarness(overrides: Partial<SendChatMessageDeps> = {}) {
     health: health(),
     busy: false,
     sessionIdRef: { current: "s-1" },
+    opsRef: { current: 0 },
     runStatusRef: { current: "idle" },
     ensureSession: async () => "s-1",
     refreshSessions: async () => {
@@ -145,6 +146,52 @@ test("圧縮中の送信は compacting のままキューへ積む", async () =>
       activity: "圧縮中のため待機キューに追加しました（2件目）",
     },
   ]);
+});
+
+test("queued の応答は、後の権威ある状態 (終端 resync) より遅れて届いても表示に反映しない", async () => {
+  const postCalled = deferred<void>();
+  const posted = deferred<PostMessageResult>();
+  // 要求の後に終端 resync が届くと世代が進む。この間の応答は古い queueDepth / runStatus を持つ
+  const opsRef = { current: 5 };
+  const { record, deps } = createHarness({
+    opsRef,
+    runStatusRef: { current: "compacting" },
+    post: () => {
+      postCalled.resolve();
+      return posted.promise;
+    },
+  });
+
+  const sending = sendChatMessage("あとで", deps);
+  await postCalled.promise;
+  // 終端 resync → pump → run_end が先に届き、表示は実行中ではなくなっている
+  opsRef.current += 1;
+  posted.resolve({ queued: true, queueDepth: 1, runId: undefined });
+  await sending;
+
+  assert.deepEqual(actionsOfType(record.actions, "setRun"), [], "遅れた応答で実行中 (や圧縮中) に戻さない");
+  assert.equal(record.refreshed, 1, "一覧の取り直しは応答の適用とは別に続ける");
+});
+
+test("送信中に別の会話へ切り替えたら、queued の応答で表示を触らない", async () => {
+  const postCalled = deferred<void>();
+  const posted = deferred<PostMessageResult>();
+  const sessionIdRef = { current: "s-1" };
+  const { record, deps } = createHarness({
+    sessionIdRef,
+    post: () => {
+      postCalled.resolve();
+      return posted.promise;
+    },
+  });
+
+  const sending = sendChatMessage("hello", deps);
+  await postCalled.promise;
+  sessionIdRef.current = "s-2";
+  posted.resolve({ queued: true, queueDepth: 1 });
+  await sending;
+
+  assert.deepEqual(actionsOfType(record.actions, "setRun"), [], "切替後の表示を実行中にしない");
 });
 
 test("does not send while the runtime is not ready", async () => {
