@@ -79,6 +79,24 @@ export function ArrowLeftIcon() {
   );
 }
 
+export function ArrowDownIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.6"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className="size-4 shrink-0"
+    >
+      <path d="M8 3.75V12.5" />
+      <path d="M3.75 7.25 8 11.5l4.25-4.25" />
+    </svg>
+  );
+}
+
 export function RefreshIcon() {
   return (
     <svg
