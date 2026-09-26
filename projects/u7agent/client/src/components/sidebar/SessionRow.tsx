@@ -9,6 +9,7 @@ import { RowAction } from "./RowAction";
 const STATUS_LABELS: Record<string, string> = {
   running: "実行中",
   queued: "キュー待ち",
+  compacting: "圧縮中",
   completed: "完了",
   stopped: "停止",
   error: "エラー",
@@ -18,6 +19,8 @@ const STATUS_LABELS: Record<string, string> = {
 function statusDotClass(status: string): string {
   switch (status) {
     case "running":
+    case "compacting":
+      // 圧縮も「サーバーが動いている」ので同じ点で示す (ラベルで区別する)
       return cn("dot dot-accent dot-pulse");
     case "queued":
     case "stopped":

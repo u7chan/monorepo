@@ -50,6 +50,7 @@ export type {
   RunStatus,
   SandboxRuntimeCommand,
   SandboxRuntimeEnvironment,
+  SessionCompactionResult,
   SessionNotifyResponse,
   SessionPayload,
   SessionSkillInfo,

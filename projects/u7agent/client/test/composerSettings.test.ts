@@ -6,7 +6,7 @@ import {
   effortLabel,
   type ComposerSettingsInput,
 } from "../src/lib/composerSettings";
-import type { AgentDef, Health, ModelOption, ThinkingLevel } from "../src/types";
+import type { AgentDef, Health, ModelOption, RunStatus, ThinkingLevel } from "../src/types";
 
 const health = (overrides: Partial<Health> = {}): Health => ({ ready: true, ...overrides });
 
@@ -32,7 +32,7 @@ function input(overrides: Partial<ComposerSettingsInput> = {}): ComposerSettings
     selectedAgent: undefined,
     sessionId: "",
     preselection: {},
-    chat: { supportsThinking: true, availableThinkingLevels: ALL_THINKING_LEVELS },
+    chat: { supportsThinking: true, availableThinkingLevels: ALL_THINKING_LEVELS, runStatus: "idle" },
     sending: false,
     settingsChanging: false,
     stopVisible: false,
@@ -51,6 +51,7 @@ test("shows the effective values that resync put on the chat", () => {
         sessionThinkingLevel: "high",
         supportsThinking: false,
         availableThinkingLevels: ["off"],
+        runStatus: "idle",
       },
       health: health({ model: "app/default", modelOptions: [option("resync", "model")] }),
     }),
@@ -167,4 +168,31 @@ test("状態行に出すモデル表示名を解決する", () => {
 test("renders unknown effort levels as-is", () => {
   assert.equal(effortLabel("xhigh"), "xHigh");
   assert.equal(effortLabel("warp"), "warp");
+});
+
+const chatWith = (runStatus: RunStatus): ComposerSettingsInput["chat"] => ({
+  supportsThinking: true,
+  availableThinkingLevels: ALL_THINKING_LEVELS,
+  runStatus,
+});
+
+test("手動圧縮は実効 busy (running / queued / compacting) と通信中に押せない", () => {
+  assert.equal(deriveComposerSettings(input()).compactDisabled, false, "idle は押せる");
+
+  for (const status of ["running", "queued", "compacting"] as const) {
+    const settings = deriveComposerSettings(input({ chat: chatWith(status) }));
+    assert.equal(settings.compactDisabled, true, `${status} は押せない`);
+    assert.ok(settings.compactDisabledReason, `${status} は理由を出す`);
+  }
+  // statusOf は idle 相当でも completed / stopped / error を返すため、idle と同じ扱いにする
+  for (const status of ["idle", "completed", "stopped", "error"] as const) {
+    const settings = deriveComposerSettings(input({ chat: chatWith(status) }));
+    assert.equal(settings.compactDisabled, false, `${status} は押せる`);
+    assert.equal(settings.compactDisabledReason, undefined);
+  }
+
+  assert.equal(deriveComposerSettings(input({ sending: true })).compactDisabled, true);
+  assert.equal(deriveComposerSettings(input({ settingsChanging: true })).compactDisabled, true);
+  assert.equal(deriveComposerSettings(input({ chat: chatWith("compacting") })).compactDisabledReason, "圧縮中");
+  assert.equal(deriveComposerSettings(input({ chat: chatWith("running") })).compactDisabledReason, "実行中");
 });

@@ -201,6 +201,8 @@ export async function createBffApp(opts: CreateBffAppOptions = {}) {
     .delete("/api/sessions/:id", sessionRoutes.remove)
     .post("/api/sessions/:id/stop", sessionRoutes.stop)
     .post("/api/sessions/:id/abort", sessionRoutes.stop)
+    // body 無し。手動 compaction は完了まで待って `{ sessionId, status }` を返す
+    .post("/api/sessions/:id/compact", sessionRoutes.compact)
     .get("/api/sessions/:id/skills", sessionRoutes.skills)
     .post(
       "/api/sessions/:id/messages",

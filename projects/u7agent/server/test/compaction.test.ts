@@ -1,14 +1,20 @@
 // compaction の payload / SSE イベントの検証。実 API は使わず stub で再現する
 // (compaction_end は run 中しか観測できないため、postMessage 直後に stub の compact() を叩く)。
 import assert from "node:assert/strict";
+import { mkdir, mkdtemp, readFile, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import test from "node:test";
 import { compactionSettingsFromEnv, parseCompactionTokenKnob } from "../src/agent";
 import { createAgentCatalog } from "../src/agents";
+import { ProjectStore } from "../src/projects";
 import { createSecretMasker, REDACTED } from "../src/redact";
+import type { SandboxWorkspaceClient } from "../src/sandbox/client";
 import { SessionStore } from "../src/sessions";
 import type { SessionRecord } from "../src/sessions";
 import type { EventEntry } from "../src/schema";
-import { createStubPi, waitFor, type StubSession } from "./stub-pi";
+import { parseSessionFile, SessionFileWriter, sessionJsonlPath, sessionMetaPath } from "../src/session-store";
+import { createStubPi, waitFor, type StubCompactionOptions, type StubPiOptions, type StubSession } from "./stub-pi";
 
 const CHUNK_DELAY_MS = 20;
 
@@ -26,13 +32,77 @@ async function runTurn(
 }
 
 /** 1 セッションだけ作った store (テストごとに独立させる) */
-async function createFixture(options: { masker?: ReturnType<typeof createSecretMasker> } = {}) {
+async function createFixture(options: { masker?: ReturnType<typeof createSecretMasker>; stub?: StubPiOptions } = {}) {
   const catalog = createAgentCatalog();
-  const pi = createStubPi({ chunkDelayMs: CHUNK_DELAY_MS });
-  const store = new SessionStore({ pi, catalog, ...options });
+  const pi = createStubPi({ chunkDelayMs: CHUNK_DELAY_MS, ...options.stub });
+  const store = new SessionStore({ pi, catalog, ...(options.masker ? { masker: options.masker } : {}) });
   const record = await store.create();
   return { store, record, session: pi.sessions[0] as StubSession };
 }
+
+/** storeDir を使う store。永続化と、persist を止めた保存待ちの再現に使う */
+async function createPersistentFixture(options: { stub?: StubPiOptions; projects?: ProjectStore } = {}) {
+  const storeDir = await mkdtemp(join(tmpdir(), "u7agent-compaction-"));
+  // create / restore が必要とするのは dir の作成と存在確認だけ
+  const workspace = {
+    createDir: async (path: string) => ({ path }),
+    listFiles: async (path: string) => ({ path: path || ".", entries: [], truncated: false }),
+  } as unknown as SandboxWorkspaceClient;
+  const catalog = createAgentCatalog();
+  const pi = createStubPi({ ...options.stub });
+  const store = new SessionStore({
+    pi,
+    catalog,
+    storeDir,
+    workspace,
+    rootCwd: "/tmp/project",
+    ...(options.projects ? { projects: options.projects } : {}),
+  });
+  await store.init();
+  const record = await store.create();
+  return { store, record, session: pi.sessions[0] as StubSession, storeDir, pi, catalog, workspace };
+}
+
+interface Gate {
+  promise: Promise<void>;
+  open: () => void;
+}
+
+function createGate(): Gate {
+  let open!: () => void;
+  const promise = new Promise<void>((resolve) => {
+    open = resolve;
+  });
+  return { promise, open };
+}
+
+/** persist を gate で止め、SDK 完了後 (保存待ち) の状態を固定する */
+function holdPersist(record: SessionRecord): Gate {
+  const gate = createGate();
+  const writer = record.writer as SessionFileWriter;
+  record.writer = {
+    schedule: async (
+      header: Parameters<SessionFileWriter["schedule"]>[0],
+      entries: Parameters<SessionFileWriter["schedule"]>[1],
+    ) => {
+      await gate.promise;
+      await writer.schedule(header, entries);
+    },
+    flush: () => writer.flush(),
+    get error() {
+      return writer.error;
+    },
+  } as unknown as SessionFileWriter;
+  return gate;
+}
+
+function collect(store: SessionStore, record: SessionRecord): EventEntry[] {
+  const events: EventEntry[] = [];
+  store.subscribe(record, `${record.generation}:${record.seq}`, (entry) => events.push(entry));
+  return events;
+}
+
+type StoreError = { statusCode?: number; message?: string };
 
 test("compaction の要約は messages から外れ、entry を写した形で compactions に載る", async () => {
   const { store, record, session } = await createFixture();
@@ -330,4 +400,374 @@ test("検証用の閾値ノブは未設定・不正値を SDK 既定へ戻す", 
     } as NodeJS.ProcessEnv),
     { enabled: true, reserveTokens: 30_000, keepRecentTokens: 4_000 },
   );
+});
+
+// ---------------------------------------------------------------------------
+// 手動圧縮 (POST /api/sessions/:id/compact の経路)
+// ---------------------------------------------------------------------------
+
+/** BFF からの手動圧縮に使う stub の挙動 */
+const withManual = (options: StubCompactionOptions): { stub: StubPiOptions } => ({
+  stub: { manualCompaction: options },
+});
+
+test("手動圧縮は開始 resync → compaction → 終端 resync → status の順に配る", async () => {
+  const { store, record } = await createFixture();
+  await runTurn(store, record, "圧縮される会話");
+  const events = collect(store, record);
+
+  const result = await store.compact(record);
+
+  assert.deepEqual(
+    events.map((entry) => entry.type),
+    ["resync", "compaction", "resync", "status"],
+  );
+  const [start, compaction, end, status] = events;
+  assert.equal(start.type === "resync" ? start.data.status : undefined, "compacting");
+  assert.equal(
+    typeof (start.type === "resync" ? start.data.compactionStartedAt : undefined),
+    "number",
+    "開始 resync で経過時間の起点を配る",
+  );
+  assert.equal(compaction.type === "compaction" ? compaction.data.compaction.reason : undefined, "manual");
+  assert.equal(end.type === "resync" ? end.data.status : undefined, "completed");
+  assert.equal(end.type === "resync" ? end.data.compactionStartedAt : undefined, undefined, "終端では起点を落とす");
+  assert.equal(end.type === "resync" ? end.data.compactions.length : 0, 1);
+  assert.equal(status.type === "status" ? status.data.text : "", "会話を圧縮しました（1回目）");
+
+  // 同期応答も終端と同じ状態を返し、排他は保存完了まで保持される
+  assert.deepEqual(result, { sessionId: record.id, status: "completed" });
+  assert.equal(record.compacting, false);
+  assert.equal(record.compactionStartedAt, undefined);
+  assert.equal(record.compactionTask, undefined);
+  // 別タブ / reload の正は payload (compactionStartedAt を残さない)
+  const payload = store.payload(record);
+  assert.equal(payload.status, "completed");
+  assert.equal(payload.compactionStartedAt, undefined);
+  assert.equal(payload.compactions.length, 1);
+  assert.equal(typeof payload.compactions[0].beforeMessageIndex, "number");
+
+  await store.close();
+});
+
+for (const [failure, status, text] of [
+  ["too-small", 400, "まだ要約できる古い会話がありません"],
+  ["already", 409, "会話はすでに圧縮されています"],
+] as const) {
+  test(`手動圧縮の ${failure} は ${status} を返し、compaction を配らず終端 resync と status を配る`, async () => {
+    const { store, record } = await createFixture(withManual({ failure }));
+    await runTurn(store, record, "小さい会話");
+    const events = collect(store, record);
+
+    await assert.rejects(
+      () => store.compact(record),
+      (error: StoreError) => error.statusCode === status && error.message === text,
+    );
+
+    assert.deepEqual(
+      events.map((entry) => entry.type),
+      ["resync", "resync", "status"],
+      "履歴が変わらないので compaction は配らない",
+    );
+    const end = events[1];
+    assert.equal(end.type === "resync" ? end.data.status : undefined, "completed");
+    assert.equal(end.type === "resync" ? end.data.compactionStartedAt : undefined, undefined);
+    assert.equal(events[2].type === "status" ? events[2].data.text : "", text);
+    assert.deepEqual(store.payload(record).compactions, []);
+    assert.equal(record.compacting, false);
+
+    await store.close();
+  });
+}
+
+test("未知の失敗は詳細を配らず 500 に倒す", async () => {
+  const { store, record } = await createFixture(withManual({ failure: "unknown" }));
+  const events = collect(store, record);
+
+  await assert.rejects(
+    () => store.compact(record),
+    (error: StoreError) => error.statusCode === 500 && error.message === "会話の圧縮に失敗しました",
+  );
+
+  assert.deepEqual(
+    events.map((entry) => entry.type),
+    ["resync", "resync", "status"],
+  );
+  assert.equal(events[2].type === "status" ? events[2].data.text : "", "会話の圧縮に失敗しました");
+
+  await store.close();
+});
+
+test("未対応のランタイムは 501 になり、排他も立てない", async () => {
+  const { store, record, session } = await createFixture();
+  delete (session as unknown as { compact?: unknown }).compact;
+
+  await assert.rejects(
+    () => store.compact(record),
+    (error: StoreError) => error.statusCode === 501,
+  );
+  assert.equal(record.compacting, false);
+  assert.equal(record.compactionTask, undefined);
+
+  await store.close();
+});
+
+test("圧縮中の stop は中止として返り、応答の status に compacting を残さない", async () => {
+  const { store, record, session } = await createFixture(withManual({ delayMs: 100 }));
+  const events = collect(store, record);
+
+  const compacting = store.compact(record).then(
+    () => undefined,
+    (error: StoreError) => error,
+  );
+  await waitFor(() => record.compacting, 1000, "compaction started");
+  const stopped = await store.stop(record);
+  const failure = await compacting;
+
+  assert.notEqual(stopped.status, "compacting");
+  assert.equal(failure?.statusCode, 409);
+  assert.equal(failure?.message, "圧縮を中止しました");
+  assert.ok(session.compactionAborts >= 1, "SDK の compaction を abort する");
+  assert.deepEqual(
+    events.map((entry) => entry.type),
+    ["resync", "resync", "status"],
+  );
+  assert.equal(events[2].type === "status" ? events[2].data.text : "", "圧縮を中止しました");
+  assert.deepEqual(store.payload(record).compactions, []);
+
+  await store.close();
+});
+
+test("圧縮中の二重 POST と設定変更は 409 になり、実行中の圧縮も 409 になる", async () => {
+  const { store, record } = await createFixture(withManual({ delayMs: 50 }));
+
+  const compacting = store.compact(record);
+  await waitFor(() => record.compacting, 1000, "compaction started");
+  await assert.rejects(
+    () => store.compact(record),
+    (error: StoreError) => error.statusCode === 409,
+  );
+  await assert.rejects(
+    () => store.updateSettings(record, { thinkingLevel: "high" }),
+    (error: StoreError) => error.statusCode === 409,
+  );
+  await compacting;
+  assert.equal(store.statusOf(record), "idle", "圧縮だけでは run の状態は変わらない");
+
+  // run 中は idle ではないので圧縮できない
+  store.postMessage(record, "実行中");
+  await assert.rejects(
+    () => store.compact(record),
+    (error: StoreError) => error.statusCode === 409,
+  );
+  await waitFor(() => store.statusOf(record) === "completed", 3000, "run completion");
+  await store.close();
+});
+
+test("圧縮中の送信は runId なしで queued になり、終端処理の後に 1 回だけ pump する", async () => {
+  const { store, record } = await createFixture(withManual({ delayMs: 50 }));
+  const events = collect(store, record);
+
+  const compacting = store.compact(record);
+  await waitFor(() => record.compacting, 1000, "compaction started");
+  const queued = store.postMessage(record, "圧縮中の送信");
+
+  assert.deepEqual(queued, { queued: true, queueDepth: 1, runId: undefined });
+  assert.equal(store.statusOf(record), "compacting");
+  await compacting;
+
+  assert.deepEqual(
+    events.map((entry) => entry.type).slice(0, 6),
+    ["resync", "queued", "compaction", "resync", "status", "run_start"],
+    "終端 resync / status の後に pump する",
+  );
+  await waitFor(() => store.statusOf(record) === "completed", 3000, "queued run completion");
+  assert.equal(events.filter((entry) => entry.type === "run_start").length, 1, "pump は 1 回だけ");
+
+  await store.close();
+});
+
+test("保存待ちの間は送信・設定変更・二重圧縮・stop が割り込まない", async () => {
+  const { store, record, session } = await createPersistentFixture();
+  await runTurn(store, record, "保存待ちの会話");
+  const events = collect(store, record);
+  const gate = holdPersist(record);
+
+  const compacting = store.compact(record);
+  await waitFor(() => events.some((entry) => entry.type === "compaction"), 2000, "sdk compaction done");
+  assert.equal(record.compacting, true, "BFF の排他は保存待ちも覆う");
+  assert.equal(session.isIdle, true, "SDK から見ると保存待ちの間は idle");
+
+  const queued = store.postMessage(record, "保存待ちの送信");
+  assert.deepEqual(queued, { queued: true, queueDepth: 1, runId: undefined });
+  await assert.rejects(
+    () => store.compact(record),
+    (error: StoreError) => error.statusCode === 409,
+  );
+  await assert.rejects(
+    () => store.updateSettings(record, { thinkingLevel: "high" }),
+    (error: StoreError) => error.statusCode === 409,
+  );
+  // stop は保存の settle を待つ (entry を append 済みなので巻き戻さない)
+  const stopping = store.stop(record);
+  gate.open();
+  const stopped = await stopping;
+  await compacting;
+
+  assert.notEqual(stopped.status, "compacting");
+  assert.deepEqual(
+    events.map((entry) => entry.type),
+    ["resync", "compaction", "queued", "queue_cleared", "resync", "status"],
+    "stop がキューを捨てるので pump は走らない",
+  );
+  const last = events.at(-1);
+  assert.equal(last?.type === "status" ? last.data.text : "", "会話を圧縮しました（1回目）");
+
+  await store.close();
+});
+
+test("保存に失敗しても compaction と終端 resync を配り、同期 POST だけを 500 にする", async () => {
+  const { store, record, storeDir } = await createPersistentFixture();
+  await runTurn(store, record, "保存に失敗する会話");
+  // meta.json をディレクトリへ置き換えて rename を失敗させる
+  const metaPath = sessionMetaPath(record.id, storeDir);
+  await rm(metaPath, { force: true });
+  await mkdir(metaPath, { recursive: true });
+  const events = collect(store, record);
+
+  await assert.rejects(
+    () => store.compact(record),
+    (error: StoreError) =>
+      error.statusCode === 500 && (error.message ?? "").startsWith("セッションの保存に失敗しました: "),
+  );
+
+  assert.deepEqual(
+    events.map((entry) => entry.type),
+    ["resync", "compaction", "resync", "status"],
+    "保存に失敗しても履歴は巻き戻さない",
+  );
+  const status = events[3];
+  assert.match(
+    status.type === "status" ? status.data.text : "",
+    /^会話を圧縮しましたが、保存に失敗しました: /,
+    "別タブ (同期 POST を呼ばない購読者) にも保存失敗を配る",
+  );
+  assert.equal(store.payload(record).compactions.length, 1);
+  assert.equal(store.status().dirty, 1);
+
+  await store.close();
+});
+
+test("手動圧縮は次の run を起こさず close しても復元できる", async () => {
+  const { store, record, storeDir, pi, catalog } = await createPersistentFixture();
+  await runTurn(store, record, "残す会話");
+  await store.compact(record);
+  await store.close();
+
+  const restarted = new SessionStore({
+    pi,
+    catalog,
+    storeDir,
+    workspace: { createDir: async (path: string) => ({ path }) } as unknown as SandboxWorkspaceClient,
+    rootCwd: "/tmp/project",
+  });
+  await restarted.init();
+  const restored = await restarted.resolve(record.id);
+  assert.ok(restored);
+  const payload = restarted.payload(restored);
+  assert.equal(payload.compactions.length, 1);
+  assert.equal(payload.compactions[0].tokensBefore, 68_000);
+  assert.equal(typeof payload.compactions[0].beforeMessageIndex, "number");
+  // reason は compaction_end にしか無く、再起動で失う (既知の制約)
+  assert.equal(payload.compactions[0].reason, undefined);
+  await restarted.close();
+});
+
+test("削除中の圧縮は保存も終端配信も行わず、pump もしない", async () => {
+  const { store, record } = await createFixture(withManual({ delayMs: 100 }));
+  const events = collect(store, record);
+
+  const compacting = store.compact(record).then(
+    () => undefined,
+    (error: StoreError) => error,
+  );
+  await waitFor(() => record.compacting, 1000, "compaction started");
+  store.postMessage(record, "削除される待機メッセージ");
+  const deleted = store.deleteSession(record.id);
+  const failure = await compacting;
+
+  assert.equal(failure?.statusCode, 409);
+  assert.equal(await deleted, true);
+  assert.deepEqual(
+    events.map((entry) => entry.type),
+    ["resync", "queued", "session_deleted"],
+    "終端 resync / status も run_start も配らない",
+  );
+  assert.equal(store.get(record.id), undefined);
+
+  await store.close();
+});
+
+test("close は保存待ちの圧縮を待って保存し、終端配信と pump だけを止める", async () => {
+  const { store, record, storeDir } = await createPersistentFixture();
+  await runTurn(store, record, "閉じる会話");
+  const events = collect(store, record);
+  const gate = holdPersist(record);
+
+  const compacting = store.compact(record);
+  await waitFor(() => events.some((entry) => entry.type === "compaction"), 2000, "sdk compaction done");
+  store.postMessage(record, "配信されない待機メッセージ");
+  const closing = store.close();
+  gate.open();
+  await closing;
+  await compacting.catch(() => {});
+
+  assert.deepEqual(
+    events.map((entry) => entry.type),
+    ["resync", "compaction", "queued"],
+    "closing 中は終端 resync / status と pump を配らない",
+  );
+  // 保存は行われている (SDK は in-memory なので、保存を飛ばすと entry が失われる)
+  const parsed = parseSessionFile(await readFile(sessionJsonlPath(record.id, storeDir), "utf8"), record.id);
+  assert.equal(parsed.kind, "ok");
+  if (parsed.kind === "ok") {
+    assert.equal(parsed.entries.filter((entry) => entry.type === "compaction").length, 1);
+  }
+});
+
+test("圧縮中は sweep の対象外になる", async () => {
+  const { store, record } = await createFixture(withManual({ delayMs: 50 }));
+
+  const compacting = store.compact(record);
+  await waitFor(() => record.compacting, 1000, "compaction started");
+  record.lastUsedAt = Date.now() - 24 * 60 * 60 * 1000;
+  await store.sweep();
+
+  assert.equal(store.get(record.id), record, "圧縮中は外さない");
+  await compacting;
+  await store.close();
+});
+
+test("プロジェクト解除は圧縮の settle 後に所属変更の resync を配る", async () => {
+  const projects = new ProjectStore();
+  const { store, record } = await createPersistentFixture({ projects, stub: { manualCompaction: { delayMs: 100 } } });
+  const project = projects.create({ cwd: "proj-a" });
+  assert.ok(project);
+  record.projectCwd = project.cwd;
+  record.projectId = project.id;
+  const events = collect(store, record);
+
+  const compacting = store.compact(record).catch(() => undefined);
+  await waitFor(() => record.compacting, 1000, "compaction started");
+  projects.remove(project.id);
+  await store.releaseProject(project.cwd);
+  await compacting;
+
+  const types = events.map((entry) => entry.type);
+  assert.deepEqual(types, ["resync", "resync", "status", "resync"], "解除の resync は圧縮の settle の後");
+  const last = events.at(-1);
+  assert.equal(last?.type === "resync" ? last.data.projectId : project.id, undefined, "所属が外れた payload");
+  assert.equal(record.queue.length, 0);
+
+  await store.close();
 });

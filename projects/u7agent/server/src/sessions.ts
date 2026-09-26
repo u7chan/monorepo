@@ -13,9 +13,9 @@ import { SANDBOX_NOT_CONFIGURED_MESSAGE, type PiBff } from "./agent";
 import { composePromptSnapshot } from "./agent";
 import type { AgentCatalog } from "./agents";
 import { stripAttachedFiles } from "./attachments";
-import { compactionsOf } from "./compaction-view";
+import { compactionsOf, recordCompactionOutcome } from "./compaction-view";
 import type { NotificationService } from "./notifications";
-import { contextUsageOf, type PiRuntimeLike, type PiSessionLike } from "./pi-runtime";
+import { contextUsageOf, type PiRuntimeLike, type PiSessionEvent, type PiSessionLike } from "./pi-runtime";
 import type { ProjectStore } from "./projects";
 import { createSecretMasker, type SecretMasker } from "./redact";
 import { createRunEventBridge, userFacingError, type RunSettlement } from "./run-events";
@@ -57,6 +57,7 @@ import type {
   ModelRef,
   Project,
   RunStatus,
+  SessionCompactionResult,
   SessionNotifyResponse,
   SessionPayload,
   SessionSummary,
@@ -73,6 +74,11 @@ const SESSION_TTL_MS = 60 * 60 * 1000;
 const SWEEP_INTERVAL_MS = 10 * 60 * 1000;
 const TITLE_MAX = 60;
 
+/** SDK の compact() が投げる既知の理由。完全一致で分類する (部分一致は別の失敗を拾い得る) */
+const COMPACTION_TOO_SMALL = "Nothing to compact (session too small)";
+const COMPACTION_ALREADY = "Already compacted";
+const COMPACTION_CANCELLED = "Compaction cancelled";
+
 export interface HttpLikeError extends Error {
   statusCode?: number;
 }
@@ -81,6 +87,35 @@ function httpError(statusCode: number, message: string): HttpLikeError {
   const error = new Error(message) as HttpLikeError;
   error.statusCode = statusCode;
   return error;
+}
+
+/** compaction の失敗理由。応答の status と、終端 status イベントの文言を組で持つ */
+interface CompactionFailure {
+  error: HttpLikeError;
+  text: string;
+}
+
+/**
+ * SDK 例外を HTTP status と応答文言へ分類する。未知の例外は詳細を出さず 500 に畳む
+ * (例外の文字列には API キーなどの秘密が混じり得るため、既知の 3 つ以外はそのまま配らない)。
+ */
+function compactionFailure(error: unknown): CompactionFailure {
+  const message = messageFor(error);
+  if (message === COMPACTION_TOO_SMALL) {
+    const text = "まだ要約できる古い会話がありません";
+    return { error: httpError(400, text), text };
+  }
+  if (message === COMPACTION_ALREADY) {
+    const text = "会話はすでに圧縮されています";
+    return { error: httpError(409, text), text };
+  }
+  // aborted された SDK は "Compaction cancelled" を投げる。ユーザーの stop と extension の
+  // cancel を区別できないため、どちらも中止として同じ文言にする
+  if (message === COMPACTION_CANCELLED) {
+    const text = "圧縮を中止しました";
+    return { error: httpError(409, text), text };
+  }
+  return { error: httpError(500, "会話の圧縮に失敗しました"), text: "会話の圧縮に失敗しました" };
 }
 
 export interface SessionStoreOptions {
@@ -371,6 +406,7 @@ export class SessionStore {
       messageMetrics: new WeakMap(),
       compactionMeta: new Map(),
       changingSettings: false,
+      compacting: false,
       notify,
     };
   }
@@ -640,13 +676,16 @@ export class SessionStore {
   }
 
   statusOf(record: SessionRecord): RunStatus {
+    // 圧縮中の排他は保存待ちも覆うため、キュー待ちより先に見る
+    if (record.compacting) return "compacting";
     if (record.run?.status === "running" || record.session.isStreaming) return "running";
     if (record.queue.length > 0) return "queued";
     return record.run?.status || "idle";
   }
 
   isBusy(record: SessionRecord): boolean {
-    return this.statusOf(record) === "running" || this.statusOf(record) === "queued";
+    const status = this.statusOf(record);
+    return status === "running" || status === "queued" || status === "compacting";
   }
 
   /**
@@ -659,7 +698,9 @@ export class SessionStore {
     if (record.changingSettings) {
       throw httpError(409, "Session settings are being changed");
     }
-    if (this.statusOf(record) === "running" || record.session.isStreaming) {
+    // 圧縮中も送信はキューへ積む (排他の正は BFF の flag。SDK は保存待ちの間 idle に見える)
+    const running = record.run?.status === "running" || record.session.isStreaming;
+    if (running || record.compacting) {
       if (record.queue.length >= MAX_QUEUE_DEPTH) {
         throw httpError(429, `Message queue is full (max ${MAX_QUEUE_DEPTH})`);
       }
@@ -676,14 +717,15 @@ export class SessionStore {
     }
     record.lastUsedAt = Date.now();
 
-    if (record.run?.status === "running" || record.session.isStreaming) {
+    if (running || record.compacting) {
       record.queue.push(text);
       this.emit(record, "queued", {
         position: record.queue.length,
         queueDepth: record.queue.length,
         prompt: this.masker.mask(text),
       });
-      return { queued: true, queueDepth: record.queue.length, runId: record.run?.id };
+      // 圧縮中は旧 run の id を返さない (送信の実行者はまだ存在しない)
+      return { queued: true, queueDepth: record.queue.length, runId: running ? record.run?.id : undefined };
     }
 
     const run = this.startRun(record, text);
@@ -697,10 +739,114 @@ export class SessionStore {
       record.queue = [];
       this.emit(record, "queue_cleared", {});
     }
-    if (record.run?.status === "running" || record.session.isStreaming) {
+    // 先に task を持ち、abort の後にその settle を待つ (abort は SDK の待機で、保存待ちは覆わない)。
+    // SDK の abort() は abortCompaction() も呼ぶため、圧縮中もこれ 1 つで巻き戻せる
+    const compaction = record.compactionTask;
+    if (record.run?.status === "running" || record.session.isStreaming || record.compacting) {
       await record.session.abort().catch(() => {});
     }
+    // entry を append 済み (保存待ち) の段階では圧縮を巻き戻せない。成功と保存結果を正とする
+    await compaction?.catch(() => {});
     return { ok: true, status: this.statusOf(record) };
+  }
+
+  /**
+   * 手動 compaction。SDK の compact() の完了を待ち、成功時は entry の保存まで排他を保持する。
+   * 開始 / 終端の配信順序と失敗の分類は docs/compaction.md / docs/api-sessions.md を正とする。
+   */
+  async compact(record: SessionRecord): Promise<SessionCompactionResult> {
+    if (this.closing) throw httpError(503, "サーバーを終了しています");
+    const { session } = record;
+    const runCompact = session.compact?.bind(session);
+    if (!runCompact) throw httpError(501, "このランタイムは手動圧縮に対応していません");
+    // 実効 busy は BFF の flag で見る。SDK の isIdle はキュー / 設定変更を知らないため併せて見る
+    if (this.isBusy(record) || session.isStreaming || session.isIdle === false || record.changingSettings) {
+      throw httpError(409, "セッションが実行中のため圧縮できません");
+    }
+    // 排他は最初の await より前に立て、task も同期で登録する (二重 POST / stop / delete の取りこぼしを防ぐ)
+    record.compacting = true;
+    record.compactionStartedAt = Date.now();
+    // 開始は resync だけ。client は payload の status / compactionStartedAt から表示を導出する。
+    // SDK は待ちが無ければ compaction_end を同期で emit するため、listener の購読より先に配る
+    this.emitResync(record);
+    const task = this.runCompaction(record, runCompact);
+    record.compactionTask = task;
+    const failure = await task;
+    if (failure) throw failure.error;
+    return { sessionId: record.id, status: this.statusOf(record) };
+  }
+
+  /**
+   * compaction の本体。成功時は保存完了まで排他を保持し、終端は resync → status の順に配る。
+   * 失敗・中止は `compaction` を配らず、finally で解放してから同じ順で終端を配る。
+   */
+  private async runCompaction(
+    record: SessionRecord,
+    runCompact: () => Promise<unknown>,
+  ): Promise<CompactionFailure | undefined> {
+    const { session } = record;
+    let unsubscribe: () => void = () => {};
+    let sdkFailure: CompactionFailure | undefined;
+    let saveFailure: CompactionFailure | undefined;
+    let savedCount = 0;
+    try {
+      unsubscribe = session.subscribe((event: PiSessionEvent) => {
+        if (event.type !== "compaction_end") return;
+        // 履歴が変わったときだけ 1 件配る。resync は保存後の終端処理が担う
+        const compactions = recordCompactionOutcome({
+          session,
+          compactionMeta: record.compactionMeta,
+          masker: this.masker,
+          event,
+        });
+        if (!compactions) return;
+        this.emit(record, "compaction", {
+          compaction: compactions[compactions.length - 1],
+          count: compactions.length,
+        });
+      });
+      await runCompact();
+      // SDK は entry を SessionManager へ積んでから解決する。排他を保持したまま保存する
+      await this.persist(record);
+      // pump や他の保存で値が変わる前 (await persist の直後) に控える
+      const saveError = record.persistError;
+      if (saveError !== undefined) {
+        const reason = this.masker.mask(saveError);
+        saveFailure = {
+          error: httpError(500, `セッションの保存に失敗しました: ${reason}`),
+          text: `会話を圧縮しましたが、保存に失敗しました: ${reason}`,
+        };
+      } else {
+        savedCount = this.compactionsOf(record).length;
+      }
+    } catch (error) {
+      sdkFailure = compactionFailure(error);
+      if (sdkFailure.error.statusCode === 500) {
+        console.warn(`[u7agent] 会話の圧縮に失敗しました (${record.id}): ${messageFor(error)}`);
+      }
+    } finally {
+      unsubscribe();
+      record.compacting = false;
+      record.compactionStartedAt = undefined;
+      record.compactionTask = undefined;
+    }
+    const failure = sdkFailure ?? saveFailure;
+    if (this.canPublishCompaction(record)) {
+      // 終端は resync → status の順 (client は resync を状態の正、status を文言として扱う)
+      this.emitResync(record);
+      this.emit(record, "status", {
+        state: "compacting",
+        text: failure ? failure.text : `会話を圧縮しました（${savedCount}回目）`,
+      });
+      // 終端処理の後に 1 回だけ pump する (圧縮中は pump が止まっている)
+      if (record.queue.length > 0) this.pump(record);
+    }
+    return failure;
+  }
+
+  /** 削除中 / close 中は終端の配信と pump を抑止する (保存と flush は呼び出し側が待つ) */
+  private canPublishCompaction(record: SessionRecord): boolean {
+    return !this.closing && !this.deleting.has(record.id) && this.records.get(record.id) === record;
   }
 
   /**
@@ -832,7 +978,10 @@ export class SessionStore {
       const record = this.records.get(id);
       if (record) {
         record.queue = [];
+        // 先に task を持ち、abort の後にその settle を待つ (削除中の保存は persist のガードが no-op にする)
+        const compaction = record.compactionTask;
         if (this.isBusy(record) || record.session.isStreaming) await record.session.abort().catch(() => {});
+        await compaction?.catch(() => {});
         await this.flush(record);
         record.session.dispose?.();
         this.records.delete(id);
@@ -986,7 +1135,10 @@ export class SessionStore {
     clearInterval(this.sweeper);
     await Promise.allSettled(Array.from(this.lifecycle.values()));
     for (const record of Array.from(this.records.values())) {
+      // 先に task を持ち、abort の後にその settle を待つ (closing でも保存は行われ、終端配信と pump だけ止まる)
+      const compaction = record.compactionTask;
       if (this.isBusy(record)) await record.session.abort().catch(() => {});
+      await compaction?.catch(() => {});
       await this.flush(record);
       record.session.dispose?.();
     }
@@ -1097,6 +1249,8 @@ export class SessionStore {
 
   pump(record: SessionRecord): void {
     if (this.deleting.has(record.id) || this.records.get(record.id) !== record) return;
+    // 圧縮の終端処理が done してから呼ばれる (圧縮中はキューを進めない)
+    if (record.compacting) return;
     if (record.queue.length === 0) return;
     if (record.run?.status === "running" || record.session.isStreaming) return;
     const next = record.queue.shift();

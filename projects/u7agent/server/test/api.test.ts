@@ -442,6 +442,36 @@ test("compaction reaches the client through SSE and stays in the session payload
   }
 });
 
+test("手動圧縮 API は完了まで待って実効状態を返し、実行中は 409 になる", async () => {
+  const pi = createStubPi({ chunkDelayMs: 100, manualCompaction: { summary: "手動の要約", tokensBefore: 42_000 } });
+  const bff = await createBffApp({ cwd: "/tmp/project", sessionStoreDir: null, pi: asPiBff(pi) });
+  const { app } = bff;
+  try {
+    const created = await createSession(app);
+
+    const response = await app.request(`/api/sessions/${created.sessionId}/compact`, { method: "POST" });
+    assert.equal(response.status, 200);
+    assert.deepEqual(await response.json(), { sessionId: created.sessionId, status: "idle" });
+
+    const payload = await jsonBody(app.request(`/api/sessions/${created.sessionId}`));
+    assert.equal(payload.compactions.length, 1);
+    assert.equal(payload.compactions[0].summary, "手動の要約");
+    assert.equal(payload.compactions[0].reason, "manual");
+    assert.equal(payload.compactionStartedAt, undefined, "終端では開始時刻を載せない");
+
+    // 実行中は idle ではないので 409 (キューは POST /messages が担う)
+    const posted = await app.request(`/api/sessions/${created.sessionId}/messages`, jsonPost({ text: "実行中の会話" }));
+    assert.equal(posted.status, 202);
+    const busy = await app.request(`/api/sessions/${created.sessionId}/compact`, { method: "POST" });
+    assert.equal(busy.status, 409);
+
+    const missing = await app.request("/api/sessions/unknown/compact", { method: "POST" });
+    assert.equal(missing.status, 404);
+  } finally {
+    await bff.close();
+  }
+});
+
 test("server still answers when the pi runtime failed to initialize", async () => {
   const bff = await createBffApp({ cwd: "/tmp/project", sessionStoreDir: null, pi: null });
   try {

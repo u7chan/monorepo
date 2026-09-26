@@ -21,6 +21,7 @@ import type {
   ProjectsResponse,
   RuntimeEnvironmentResponse,
   RuntimeModelsResponse,
+  SessionCompactionResult,
   SessionNotifyResponse,
   SessionPayload,
   SessionSkillsPreview,
@@ -324,6 +325,16 @@ export const updateSessionNotify = async (sessionId: string, notify: boolean): P
 
 export const stopSession = async (sessionId: string): Promise<StopResult> => {
   const res = await client.api.sessions[":id"].stop.$post({ param: { id: sessionId } });
+  if (!res.ok) throw await apiError(res);
+  return res.json();
+};
+
+/**
+ * 手動でのコンテキスト圧縮。body なしで、完了まで待って実効状態を返す（途中経過は SSE が配る）。
+ * 失敗は 400（要約できる履歴が無い）/ 409（実行中・中止・圧縮済み）/ 500（保存失敗）で reject する。
+ */
+export const compactSession = async (sessionId: string): Promise<SessionCompactionResult> => {
+  const res = await client.api.sessions[":id"].compact.$post({ param: { id: sessionId } });
   if (!res.ok) throw await apiError(res);
   return res.json();
 };

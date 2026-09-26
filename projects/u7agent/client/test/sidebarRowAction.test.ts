@@ -26,7 +26,7 @@ function renderRowAction(props: { label: string; danger?: boolean; hoverOnly?: b
   );
 }
 
-function renderSessionRow(): string {
+function renderSessionRow(overrides: Partial<SessionSummary> = {}): string {
   const item: SessionSummary = {
     sessionId: "s-1",
     title: "テスト",
@@ -37,6 +37,7 @@ function renderSessionRow(): string {
     messageCount: 2,
     createdAt: 0,
     lastUsedAt: 0,
+    ...overrides,
   };
   return renderToStaticMarkup(
     createElement(SessionRow, { item, agents: [], active: false, onSelect: () => {}, onDelete: () => {} }),
@@ -99,4 +100,14 @@ test("プロジェクト行とセッション行は同じ RowAction を使う", 
   assert.ok(deleteAction.includes("hoverOnly"), "セッションの削除がホバー端末で隠れない");
   assert.ok(deleteAction.includes("danger"), "セッションの削除が危険色にならない");
   assert.ok(deleteAction.includes("<TrashIcon />"), "セッションの削除がゴミ箱でない");
+});
+
+test("圧縮中のセッションは行に「圧縮中」を出し、実行中と同じ動きのある点で示す", () => {
+  const html = renderSessionRow({ status: "compacting" });
+
+  assert.ok(html.includes("圧縮中"), "状態ラベルが無い");
+  assert.ok(!html.includes("実行中"), "実行中のラベルを出している");
+  assert.ok(html.includes("dot-pulse"), "実行中と同じ動きのある点で示す");
+  // 色と点は実行中と同じなので、区別はラベルが担う
+  assert.ok(html.includes("dot-accent"), "アクセント色の点でない");
 });

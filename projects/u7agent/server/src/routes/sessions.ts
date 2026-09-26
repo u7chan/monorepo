@@ -105,6 +105,13 @@ export function createSessionRoutes({
 
     stop,
 
+    /** 手動圧縮。完了まで待って実効状態を返し、失敗は理由に応じた status (400 / 409 / 500) を返す */
+    compact: async (c: Context) => {
+      const record = await resolveRecord(c);
+      if (!record) return c.json({ error: "Session not found" }, 404);
+      return c.json(await store.compact(record));
+    },
+
     /**
      * セッションで使えるスキル (プロジェクト / 共通 / 組み込み / Agent 割り当て)。
      * 本文は載せない (送信時に取り直す) ため、応答は一覧と優先順位の表示に使う。
