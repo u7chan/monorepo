@@ -56,7 +56,7 @@ test("セッションがあるときは作成先ではなく所属を見る", ()
   const scope = chatScope({
     cwd: ".u7agent/sessions/01a0b4cf",
     sessionId: "s1",
-    // 左バーで別のプロジェクトを選んでいても、表示中のセッションの所属が優先される
+    // 別のプロジェクトの新規会話 (プロジェクト行の ＋) を開いていても、表示中のセッションの所属が優先される
     selectedProjectId: "p1",
     projects: PROJECTS,
     sessions: [session("s1", "p2")],
@@ -86,7 +86,7 @@ test("プロジェクト名が引けないときは未所属 (解除後もフォ
 });
 
 test("一覧の取得前は未所属 (root も解決できるまで空)", () => {
-  // 作成先の id は localStorage 由来で先に在るが、名前は一覧の到着まで引けない
+  // 作成先の id は一覧の到着前に設定され得るが、名前は一覧の到着まで引けない
   assert.deepEqual(newChat({ selectedProjectId: "p2", projects: [] }), { label: "未所属", project: false, root: "" });
   // 表示中のセッションの所属も、一覧に無いうちは引けない (payload.cwd だけ先に届く)
   const scope = chatScope({

@@ -43,7 +43,6 @@ type ContractKeys = {
   refreshSessions: unknown;
   refreshProjects: unknown;
   selectSession: unknown;
-  selectProject: unknown;
   newChat: unknown;
   sendMessage: unknown;
   attachFiles: unknown;

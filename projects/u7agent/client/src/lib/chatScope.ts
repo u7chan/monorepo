@@ -10,7 +10,8 @@ export type ChatScopeInput = {
   cwd: string;
   /** 選択中セッション。"" は未作成チャット (作成先がそのまま作業先) */
   sessionId: string;
-  /** 未作成チャットの作成先。セッションがあるときは見ない */
+  /** 未作成チャットの作成先。セッションがあるときは見ない。プロジェクト行の ＋ で新規会話を
+   * 開いたときだけ設定される (「新しい会話」は未所属) */
   selectedProjectId: string;
   projects: Project[];
   /** 所属の解決に使う。一覧に無い id は未所属 */

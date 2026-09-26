@@ -71,10 +71,9 @@ export default function App() {
   });
   const [projectDialogOpen, setProjectDialogOpen] = useState(false);
   const [navOpen, setNavOpen] = useState(false);
-  // 作業フォルダの開閉は保存しない (desktop は右パネル、compact は全画面シートで state も分ける)
-  const [sessionFilesOpen, setSessionFilesOpen] = useState(() =>
-    sessionFilesDefaultOpen({ compact, projectId: app.selectedProjectId }),
-  );
+  // 作業フォルダの開閉は保存しない (desktop は右パネル、compact は全画面シートで state も分ける)。
+  // 起動時は常に未所属の新規会話なので閉。既定を当てるのは利用者操作の新規会話の入口だけ
+  const [sessionFilesOpen, setSessionFilesOpen] = useState(false);
   const [sessionFilesSheetOpen, setSessionFilesSheetOpen] = useState(false);
   // シートを閉じる契機の監視キー。route 全体は比べない (/s/<id> が / へ畳まれるだけでは閉じない)
   const [sheetScope, setSheetScope] = useState(() => ({ compact, view: mainView, root: filesRoot }));
@@ -166,23 +165,28 @@ export default function App() {
     setNotifyAttempted(false);
   }, [app.sessionId]);
 
+  // 表示中のセッション。エージェント切替で引き継ぐ作業先 (所属) の解決にも使う
+  const activeSession = app.sessions.find((item) => item.sessionId === app.sessionId);
+
   // 利用者操作の新規会話の入口をここへ寄せる (サイドバー / ドロワー / エージェント切替)。
-  // 既定 (プロジェクト配下なら開) を適用するのはこの入口と起動時の初期化だけで、内部フォールバックは
-  // useSessions が newChat を直接呼ぶため通らない
+  // 作成先はプロジェクト行の ＋ が渡したときだけプロジェクトになり、それ以外は未所属
+  // (最後に開いたプロジェクトを引き継がない)。既定 (プロジェクト配下なら開) の適用はこの入口だけ
   const handleNewChat = useCallback(
     (agentId?: string, projectId?: string) => {
-      setSessionFilesOpen(sessionFilesDefaultOpen({ compact, projectId: projectId ?? app.selectedProjectId }));
-      app.newChat(agentId, projectId);
+      const target = projectId ?? "";
+      setSessionFilesOpen(sessionFilesDefaultOpen({ compact, projectId: target }));
+      app.newChat(agentId, target);
     },
     [app, compact],
   );
 
-  // エージェントの切替は「新しい会話」と同じで、現在の会話はセッション一覧に残す
+  // エージェントの切替は「新しい会話」と同じで、現在の会話はセッション一覧に残す。作業先だけは
+  // いま見ている会話から引き継ぐ (エージェントを変えただけで書き込み先が動くと取り違える)
   const handleAgentChange = useCallback(
     (agentId: string) => {
-      handleNewChat(agentId);
+      handleNewChat(agentId, app.sessionId === "" ? app.selectedProjectId : (activeSession?.projectId ?? ""));
     },
-    [handleNewChat],
+    [activeSession, app, handleNewChat],
   );
 
   const refreshCatalog = useCallback(async () => {
@@ -226,7 +230,6 @@ export default function App() {
     sessionId: app.sessionId,
     agents: app.agents,
     projects: app.projects,
-    selectedProjectId: app.selectedProjectId,
     newChat: handleNewChat,
     selectSession: (sessionId: string) => {
       if (sessionId !== app.sessionId) void app.selectSession(sessionId);
@@ -234,7 +237,6 @@ export default function App() {
     deleteSession: (sessionId: string) => {
       void app.deleteSession(sessionId);
     },
-    selectProject: app.selectProject,
     deleteProject: (projectId: string) => {
       void app.deleteProject(projectId);
     },
@@ -255,10 +257,6 @@ export default function App() {
       closeNav();
       if (sessionId !== app.sessionId) void app.selectSession(sessionId);
     },
-    selectProject: (projectId: string) => {
-      closeNav();
-      app.selectProject(projectId);
-    },
     onNewProject: () => {
       closeNav();
       setProjectDialogOpen(true);
@@ -278,7 +276,6 @@ export default function App() {
   // ツリーの行のダウンロードの出し分け。取得前は空 = 導線を出し、実際の拒否はサーバーの check に任せる
   const excludeNames = app.archiveSettings.settings?.excludeNames ?? [];
 
-  const activeSession = app.sessions.find((item) => item.sessionId === app.sessionId);
   // 会話が無いときだけ「新しい会話」と言い切る (一覧が未取得でも sessionId は確定している)
   const barTitle = app.sessionId ? activeSession?.title || "無題のセッション" : "新しい会話";
   const barAgentName = activeSession?.agentName || app.selectedAgent?.name;

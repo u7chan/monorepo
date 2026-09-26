@@ -83,7 +83,7 @@
 - 保存値は version を持ち、形（paths の重複と上限、active が paths 内か null、modes の enum と対象タブ、root 相対の展開パス）を検証する。JSON 全体が壊れているときだけ全体を捨て、形の合わない cwd は 1 件ずつ捨てる。`__proto__` / `constructor` のような名前も合法なパスとして往復させる（own property で読み書きする）
 - 総量の上限（cwd 20 件 / 展開 200 件 / 書き込み前の JSON 64 KiB）を超える書き込みは捨てる。cwd 数が上限を超えたら先に書かれた cwd から落とす。書き込み側も読み手と同じ検証を通し、読み手が捨てる形（上限超えや active の不整合）は書かない（書くと次の起動でその cwd のタブもモードも失われる）
 - 新規 2 キーの read / write は例外を握り、保存領域が使えない環境でも操作を止めず、無限リトライもしない。write が失敗した cwd はメモリ snapshot が最新になるため、同一セッション内の往復（設定を離れて戻る等）は復元できる。ただし write 失敗後の F5 では古い保存値が戻り得る（復元は保証しない）
-- 既存 2 キー（`u7agent-project` / `u7agent-agent`）の `localStorage` 直接アクセスは例外を握っていない。**保存領域が使えない環境では現状すでに起動が失敗する**（頑健化は別 Issue）
+- `u7agent-agent`（選択中のエージェント）の `localStorage` 直接アクセスは例外を握っていない。**保存領域が使えない環境では現状すでに起動が失敗する**（頑健化は別 Issue）。未作成チャットの作成先（旧 `u7agent-project`）は保存しない（[ui-layout.md](ui-layout.md#作成先)）
 
 ## クライアントの Effect 契約
 
@@ -95,5 +95,5 @@
 - DOM のテーマ反映・入力欄の高さ・チャットのスクロール・dialog のフォーカス同期・設定ページの Escape には Effect を残す（チャットのスクロールは設定ページを開いている間は触らず、戻ったときに追従中なら最新へ揃える。送信は `ChatState.sendSeq`（`localUser` でだけ 1 進む）の増加で拾い、バブルの形からは推測しない。追従の状態遷移としきい値は [ui-layout.md](ui-layout.md#チャットの自動追従と最下部ボタン)）。作業フォルダのシートを閉じる判定だけは、子の `showModal()` より先に state を確定させる必要があるため Effect ではなく描画中の同期にする（[ui-layout.md](ui-layout.md#既定オープンと手動操作)）。コピー完了待ちの要求は cleanup で無効化する。
 - フォームの入力値は state updater の外でイベントから読む。updater は遅延評価されるため、その中で `event.currentTarget` を読むと null 参照でツリーごと落ちる（型では防げない）。この形がソースに戻っていないことは `client/test/eventInStateUpdater.test.ts` が固定する。
 - ファイル画面の復元は `FileBrowser` の mount ごとに 1 回。設定 → ファイル の root は常にワークスペース root（`cwd=""` → `"."`）で確定し、チャットの作業フォルダ（`SessionFilesPanel`）は選択中セッションの作業フォルダ（`payload.cwd`）、セッション未作成では作成先プロジェクトの `cwd` を root にする。どちらも起動処理（`useU7Agent` の boot）の完了を待たずに復元・取得・保存する
-- チャットの作業フォルダの開閉は `App` の state で、desktop のパネルと compact のシートを分ける（保存しない。URL にも載せない）。パネルの既定は「作成先がプロジェクトなら開」で、適用するのは起動時の初期化と利用者操作の新規会話の入口（`App` の `handleNewChat`）だけ。派生 state（プロジェクト一覧の到着や root の解決）を契機にしない。コンパクトのシートは既定を持たず、設定ページへの出入り / root の変更 / desktop への復帰で閉じる（Effect ではなく描画中の同期。判定は `compact` / `mainView` / `filesRoot` の 3 キーで、`route` オブジェクトは比べない）。条件と期待値の表は [ui-layout.md](ui-layout.md#作業先と作業フォルダの導線)。run_end での取り直しは `ChatState.runEndSeq`（reducer が `run_end` と、`running` を抜けた `resync` で 1 ずつ進める）を起点にし、値が変わったときだけ撃つ。描画間の `runStatus` の差では、同じバッチで届いた `run_start` / `run_end` を React が 1 回の描画にまとめるため取りこぼす
+- チャットの作業フォルダの開閉は `App` の state で、desktop のパネルと compact のシートを分ける（保存しない。URL にも載せない）。パネルの既定は「作成先がプロジェクトなら開」で、適用するのは利用者操作の新規会話の入口（`App` の `handleNewChat`）だけ（起動時は常に未所属なので閉）。派生 state（プロジェクト一覧の到着や root の解決）を契機にしない。コンパクトのシートは既定を持たず、設定ページへの出入り / root の変更 / desktop への復帰で閉じる（Effect ではなく描画中の同期。判定は `compact` / `mainView` / `filesRoot` の 3 キーで、`route` オブジェクトは比べない）。条件と期待値の表は [ui-layout.md](ui-layout.md#作業先と作業フォルダの導線)。run_end での取り直しは `ChatState.runEndSeq`（reducer が `run_end` と、`running` を抜けた `resync` で 1 ずつ進める）を起点にし、値が変わったときだけ撃つ。描画間の `runStatus` の差では、同じバッチで届いた `run_start` / `run_end` を React が 1 回の描画にまとめるため取りこぼす
 - 復元の順序は 検証 → tabs / modes / 開いているディレクトリを一体で初期化（lazy initializer）→ 取得と保存を許可。復元前の空状態を保存せず、復元した modes を空の `tabs.paths` で掃除しない（StrictMode の再実行でも同じ結果になる）。`u7agent-files` の書き込みは他 cwd を消さない read-modify-write で、内容が同じときは書かない
