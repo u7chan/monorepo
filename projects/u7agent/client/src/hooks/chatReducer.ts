@@ -52,6 +52,11 @@ export type ChatState = {
    */
   runEndSeq: number;
   /**
+   * 送信 (ローカルエコー) の回数。値そのものは表示に使わず、チャットの自動追従が最下部へ戻る合図に使う。
+   * バブルの形 (件数と末尾の role) では、履歴を全置換する resync と送信を区別できない。
+   */
+  sendSeq: number;
+  /**
    * run_start 待ちのローカルエコー (user バブル id)。送信した順に並び、run_start が先頭から消費する。
    * 同じ本文を続けて送っても、届いた注記を正しいバブルに割り当てるために必要 (配列の末尾だけを見ると取り違える)。
    */
@@ -98,6 +103,7 @@ export const initialChatState: ChatState = {
   runStatus: "idle",
   runStartedAt: undefined,
   runEndSeq: 0,
+  sendSeq: 0,
   pendingEchoIds: [],
   queueDepth: 0,
   activity: "",
@@ -241,7 +247,13 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
       // 未作成チャットは sessionModel 等の実効値を持たず、表示は composerSettings が担う。
       // nextId だけは引き継ぐ (セッションを跨いで古いイベントの bubble id と衝突させない)。
       // runEndSeq も引き継ぐ (右パネルの合図をセッションを跨いで単調に保つ)。
-      return { ...initialChatState, nextId: state.nextId, runEndSeq: state.runEndSeq };
+      return {
+        ...initialChatState,
+        nextId: state.nextId,
+        runEndSeq: state.runEndSeq,
+        // sendSeq も単調に保つ (新規チャットへの切替を「送信」と誤読させない)
+        sendSeq: state.sendSeq,
+      };
 
     case "resync": {
       const payload = action.payload;
@@ -334,6 +346,8 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
         currentAssistantId: null,
         activity: "送信中…",
         pendingEchoIds: [...state.pendingEchoIds, next.nextId - 1],
+        // 送信の合図。post が失敗して echo を戻しても減らさない (最下部に居続ける方が都合が良い)
+        sendSeq: state.sendSeq + 1,
       };
     }
 

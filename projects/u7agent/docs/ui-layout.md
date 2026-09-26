@@ -16,7 +16,7 @@ desktop の中でも viewport が 1200px 未満なら、左バー（252px）を�
 
 ## モードごとの構成
 
-メイン領域は チャット / 設定ページ のどちらかを出し、URL（`/` または `/settings/<section>`）がそれを決める（[frontend.md](frontend.md#url-と画面の対応)）。設定ページは `<dialog>` を被せずメイン領域に出す（サイドバーと同時に見える）。compact の詳細（エージェント / スキルの編集）だけはページの一覧から開く全画面シートにする（[compact の詳細シート](#compact-の詳細シート)）。設定ページを開いている間もチャットは mount したまま `display` だけ切るので、SSE 購読（実行中のラン）・入力中の下書き・スクロール位置は失われない（戻ると続きから見られる）。
+メイン領域は チャット / 設定ページ のどちらかを出し、URL（`/` または `/settings/<section>`）がそれを決める（[frontend.md](frontend.md#url-と画面の対応)）。設定ページは `<dialog>` を被せずメイン領域に出す（サイドバーと同時に見える）。compact の詳細（エージェント / スキルの編集）だけはページの一覧から開く全画面シートにする（[compact の詳細シート](#compact-の詳細シート)）。設定ページを開いている間もチャットは mount したまま `display` だけ切るので、SSE 購読（実行中のラン）・入力中の下書きは失われない。スクロール位置はアプリとして復元しない（非表示中は `scrollHeight` を読めないので触らず、戻ったときに追従中なら最新へ揃える）。実測（Chromium / 1440x900）では追従が外れているときの往復でも `scrollTop` は保持され（`8474 → 8474`、先頭に見えていたバブルも offset 差 0）、位置の保持はブラウザー任せで保証はしない。詳細は[チャットの自動追従と最下部ボタン](#チャットの自動追従と最下部ボタン)。
 
 画面切替は履歴を追加しない（`replaceState`）。Back / Forward はブラウザーの既存履歴に従うので、アプリ内に戻れることもあれば、直リンクの新規タブのようにアプリの外へ出ることもある。
 
@@ -72,6 +72,43 @@ assistant のメッセージ列は `flex-1` で列幅いっぱい（desktop は 
 ツール履歴の各コールの行の右端にある位相ラベル（実行中 / エラー）は `w-[3.25em]`（`text-3xs` で 29.25px）の固定スロットに右寄せ + `whitespace-nowrap` で置く。位相で文字幅が変わると（実測 実行中 27 / エラー 27.42px）、右隣のコピーボタンと左のコール名の truncate 境界が動くため。完了は空スロットにして、位相が違っても右端のコピーボタンの x を揃える。履歴のサマリーはスロットを持たず、実行中のときだけ `実行中` を置く（それ以外はラベルが無いので、右端のコピーボタンは常に同じ位置に着く）。幅を rem 基準にするとブラウザーの既定フォントサイズが 14px のときスロットが 24.5px まで縮んで最長ラベルが 2 行に折り返し、行高まで位相で変わる。そこでラベルの文字サイズに連動する em を使う。
 
 メッセージ本文の下の時刻ラベルとコピーボタンは本文と同じ列の中の 1 行に並べる（時刻は `at` が無ければ出さない）。assistant 列の幅は本文とツール履歴で決まり、時刻ラベルの有無や長さでは動かない。内容幅で決まる user 列では、本文よりこの行が広い短文（例: 2 文字）で時刻ラベルの分だけ列幅が広がる。
+
+## チャットの自動追従と最下部ボタン
+
+メッセージ領域は「最下部付近にいるときだけ」最新へ追従する。読み返している最中（追従が外れている間）は、応答のトークンが届いても位置を動かさず、下端中央のボタンを「最新へ戻る」導線にする。判定は `client/src/lib/chatScroll.ts` の純関数が正で、state / ref と Effect は `ChatArea` が持つ。
+
+| 遷移 | きっかけ |
+| --- | --- |
+| true → false | 位置が減る scroll（ユーザーが上へ戻した）で最下部からの距離が 48px を超えた |
+| false → true | 48px 以内へ自分で戻る / ボタン押下 / 送信（`sendSeq` の増加）/ 会話の切替（`sessionId` の変化。`""` からの遷移 = 新規チャットの作成も含む） |
+| true のとき | 内容・容器のサイズが変わるたびに最下部へ揃える。レイアウト起因の `scroll` で離れたときもその場で書き戻す |
+
+- しきい値は `CHAT_FOLLOW_THRESHOLD = 48`（px）。本文の行高は `styles/index.css` の `.md` で 22.75px（13px × 1.75）なので 2 行ぶんを取る。丸め誤差や添付の遅延ロードのような小さなズレでは外れず、意図的な上スクロールでは外れる目安で、ホイール量は機器と設定に依存するため「1 ノッチで必ず外れる」は保証しない
+- 送信はバブルの形（件数と末尾の role）から推測せず、`ChatState.sendSeq` の増加で拾う。増えるのは `localUser`（表示中の会話への送信のローカルエコー）だけで、履歴を全置換する `resync` では変えない（再接続で件数が増えて末尾が user でも送信と誤読しない）。`newChat` は `nextId` / `runEndSeq` と同じく引き継いで単調に保つ（減少を「送信」と誤読させない）。post が失敗して echo を戻しても減らさない（最下部に居続ける方が都合が良く、失敗の理由は状態行に出る）
+- 会話の切替は `""` からの遷移も含めて最下部へ揃える。新規チャットの作成は送信だけでなく添付のアップロードでも起き、空のチャットでも内容が viewport を超えればスクロールできるため、例外を作らない
+- ボタン押下と追従の書き込みは instant（`scrollTop = scrollHeight`）。`behavior: "smooth"` はアニメーション中の `scroll` で追従が戻る競合と `prefers-reduced-motion` の分岐が増えるため使わない
+- 追従を外せるのはユーザーが上へ戻した（位置が減る）ときだけ。位置が増える `scroll` は、自分の snap の代入か、レイアウトの再折り返しでブラウザーが動かした位置で、どちらもユーザー操作ではない。右パネルを開くとチャット幅が 1188 → 828px に変わって本文が折り返し直り、Chrome のスクロールアンカリングが `scrollTop` を増やして最下部から離れた位置（実測 `dist 136〜227`）の `scroll` を配る。この `scroll` は同じフレームの `ResizeObserver` callback より先に届くため、距離だけで判定すると追従が外れ、直後の callback も `follow` が false で書き戻さない（実測: 追従中に開くと 70/71 で外れ、開→閉の「開いた瞬間」も必ず外れる）。`resolveScrollFollow()` が向きで判定し、追従中に離れていたらその場で書き戻す（snap の代入で書いた位置を控えて照合する旧方式は、自分が書いた位置しか除外できずこの経路を塞げない）
+- `overflow-anchor: none` でアンカリングを止める案は採らない。注入すれば 8/8 → 0/8 で欠陥は消えるが、読み返し中にレイアウトが変わったときの読み位置を保つ役目（ブラウザー任せだが実測で効いている）を失うため、判定側で除外する
+- 追従中は `scroll` の向きを見るだけで、距離の判定は位置が減る `scroll` に限る。ウィンドウリサイズ（1440 → 820、同じ再折り返しが起きる）は実測 0/24 で外れず、in-page の列幅変更（右パネルを開く）だけが引き金だった
+- `ScrollToBottomButton` は追従中とメッセージ 0 件（suggestion 表示）では出さない。`aria-live="polite"` の外側（section の後ろ）に `absolute bottom-4 left-1/2 -translate-x-1/2` で浮かせ、見た目は `client/src/components/chat/ScrollToBottomButton.tsx` が持ち、位置だけを呼び出し側の className で渡す
+- Effect は 内容（`bubbles`）/ `sendSeq` / `sessionId` / `visible` / `ResizeObserver`（section と本文ブロック）の 5 つ。DOM への書き込みは `visible` を見て follow を立ててから書く `snapToBottom()` に閉じ、非表示中は書かない（設定ページ中は祖先が `display: none`）。observer は `visible` の間だけ張り、callback でも `visible` と 0 サイズ（非表示中の通知）を除外する。callback からサイズを変える更新はしない（loop 警告を避ける）
+- 非ゴール: スムーススクロール、新着のドット / 件数バッジ、位置の永続化（リロード・会話を跨いだ復元）、設定ページ往復後の読み位置の復元、resync をまたいで同じメッセージを見続けること（全バブルの id が振り直される）、「一番上へ」ボタン
+
+### 追従の検証
+
+`client/test/chatScroll.test.ts` がしきい値の境界（ちょうど / 端数 / 内容が収まる / 空）と `resolveScrollFollow()` の判定（位置が増えるレイアウト起因の `scroll` では外さず書き戻す / 位置が減る `scroll` は 48px ちょうどまで追従 / 読み返し中は 48px 以内へ戻ったときだけ再開）、`ChatArea` の配線（follow で gate されている・`visible` 中は書かない・向きの基準 `lastTopRef` を snap の代入でも更新する・ボタンの `aria-label`）を、`client/test/chatReducer.test.ts` が `sendSeq` の増減（`localUser` だけ / `resync` / `newChat`）を固定する。スクロール・ResizeObserver・フォーカスは jsdom 無しのテストでは検証できないので、実ブラウザーで次を確認する。
+
+- ストリーミング中に上へスクロールしても引き戻されず、ボタンが出る（ホイール / トラックパッド / `PageUp`・`↑`・`Home` / タッチ）
+- 追従中はユーザー操作なしにボタンが出ない（大きな tool 出力が続く場面）
+- snap の直後に上へスクロールしても引き戻されず、ボタンが出る（向きの判定がユーザー操作を取りこぼさない）
+- 追従中（`dist ≦ 48`）に右パネルを開閉しても `dist ≦ 48` のままで、ボタンが出ない（開→閉の「開いた瞬間」も含む。連続開閉 / ストリーミング中 / `dist 30` からの操作も同じ）
+- ボタンで最下部へ戻り、以後は追従が再開する。48px 以内へ自分で戻したときも（ボタン無しで）再開する
+- 読み返したまま送信すると最下部へ戻る（キュー送信も同じ。post に失敗したときも最下部に居続け、理由は状態行に出る）
+- 会話の切替で最新位置が出る（`A → "" → B`。新規チャットの作成は送信 / 添付のどちらでも揃う）
+- 再接続（SSE の resync）で強制的に最下部へ飛ばない
+- 追従中は最下部から離れない（コンポーザの伸縮 / 右パネルのドラッグ / リサイズ）
+- 設定ページを往復したときの位置（追従中は最新。外れているときは実測で `scrollTop` が保持された（`8474 → 8474`）が、アプリは復元しないので保証はしない）
+- メッセージ 0 件（suggestion 表示）ではボタンが出ない。キーボードでボタンへ到達でき、既存の `Escape` を妨げない
 
 ## 入力欄の Enter（送信と改行）
 
@@ -147,7 +184,7 @@ compact の 設定 → エージェント / スキル は「一覧（ページ�
 
 ## 検証
 
-自動テストは `client/test/layout.test.ts` がモード判定の境界と、左バーの配置（1200px の境界・compact は常に overlay）を、`client/test/sidebarOverlay.test.ts` が左バーの ☰ の出し分け（`Topbar` / 設定ページのヘッダの描画、overlay のときだけ出す）と App の配線（1 カラム ⇄ 2 カラム・`mainWidth` の渡し分け・docked へ戻ったらドロワーを閉じる・焦点の戻し先のフォールバック）を、`client/test/sessionsByProject.test.ts` がプロジェクト別のグループ化（未所属の分離・並び順）を、`client/test/route.test.ts` が pathname と画面の対応（大文字・末尾スラッシュ・percent encoding・不正な入力の畳み方、`/s/<id>` の選択待ちの入口と畳み）を、`client/test/notifyToggle.test.ts` が会話の通知トグル（新規チャットの先行選択と作成要求時のスナップショット、会話ごとの直列化と後発優先、配信できない理由ごとの注記、配信可否と切替の禁止の使い分け）と、バーに描かれる ☰ / 🔔 / 📁 の順と `.icon-button`（components 層）の見た目を、`client/test/settingsNav.test.ts` が設定ナビの 7 項目と保存された最後のセクションの解決を、`client/test/archiveSettingsPage.test.ts` が設定 → アーカイブの描画（未設定 / 上書き / 明示空 / note のエラー）と配線（PUT / DELETE と app 状態の反映）を、`client/test/fileTabs.test.ts` がプレビューのタブ（開閉・上限・選択の遷移・同名タブのラベル・保存値からの復元）を、`client/test/filePreviewTabClose.test.ts` がタブの中クリック（`button === 1` だけ / タブの箱で受ける / down 側の既定動作を止める）を、`client/test/settingsDetailSheet.test.ts` が compact の詳細シートの `Escape` の順序（モーダルで開く / 伝播を止める / `App` は bubble で受ける）を、`client/test/skillLoad.test.ts` がバッジの行範囲整形と状態（実行中 / 成功 / 失敗）、ライブ / 履歴 / resync の統合（全バブル横断の二重表示排除）、ツール履歴の件数・サマリー・コピーからの除外と、`react-dom/server` での描画（バッジ / 畳み方 / スキルしかないバブル）を、`client/test/sidebarRowAction.test.ts` が行の右端の操作（プロジェクト行とセッション行が同じ `RowAction` を使うこと、削除が `×` ではなくゴミ箱であること、読み上げ名とホバー端末での出し分け）を、`client/test/composerEnter.test.ts` が入力欄の Enter の判定（IME 変換中 / `keyCode` 229 / desktop / compact）と、モードごとの `enterkeyhint` を、`client/test/sessionFilesPanel.test.ts` が右パネルの幅の境界（1920〜720px の min / max、720px の `min == max`、overlay 配置での上限）と clamp・キーボードの 1 歩・保存値の parse（壊れた値 / bounds 外 / 保存領域が使えない環境）と、ハンドルの配線（終了経路の集約・移動ゼロで commit しないこと）を固定する。client test の方針は jsdom を足さずに DOM に依存しないことで、純粋なロジックに加えて `client/test/eventInStateUpdater.test.ts` のようなソース走査型の回帰テストも置く。見た目は次の viewport で確認する。
+自動テストは `client/test/layout.test.ts` がモード判定の境界と、左バーの配置（1200px の境界・compact は常に overlay）を、`client/test/sidebarOverlay.test.ts` が左バーの ☰ の出し分け（`Topbar` / 設定ページのヘッダの描画、overlay のときだけ出す）と App の配線（1 カラム ⇄ 2 カラム・`mainWidth` の渡し分け・docked へ戻ったらドロワーを閉じる・焦点の戻し先のフォールバック）を、`client/test/sessionsByProject.test.ts` がプロジェクト別のグループ化（未所属の分離・並び順）を、`client/test/route.test.ts` が pathname と画面の対応（大文字・末尾スラッシュ・percent encoding・不正な入力の畳み方、`/s/<id>` の選択待ちの入口と畳み）を、`client/test/notifyToggle.test.ts` が会話の通知トグル（新規チャットの先行選択と作成要求時のスナップショット、会話ごとの直列化と後発優先、配信できない理由ごとの注記、配信可否と切替の禁止の使い分け）と、バーに描かれる ☰ / 🔔 / 📁 の順と `.icon-button`（components 層）の見た目を、`client/test/settingsNav.test.ts` が設定ナビの 7 項目と保存された最後のセクションの解決を、`client/test/archiveSettingsPage.test.ts` が設定 → アーカイブの描画（未設定 / 上書き / 明示空 / note のエラー）と配線（PUT / DELETE と app 状態の反映）を、`client/test/fileTabs.test.ts` がプレビューのタブ（開閉・上限・選択の遷移・同名タブのラベル・保存値からの復元）を、`client/test/filePreviewTabClose.test.ts` がタブの中クリック（`button === 1` だけ / タブの箱で受ける / down 側の既定動作を止める）を、`client/test/settingsDetailSheet.test.ts` が compact の詳細シートの `Escape` の順序（モーダルで開く / 伝播を止める / `App` は bubble で受ける）を、`client/test/skillLoad.test.ts` がバッジの行範囲整形と状態（実行中 / 成功 / 失敗）、ライブ / 履歴 / resync の統合（全バブル横断の二重表示排除）、ツール履歴の件数・サマリー・コピーからの除外と、`react-dom/server` での描画（バッジ / 畳み方 / スキルしかないバブル）を、`client/test/sidebarRowAction.test.ts` が行の右端の操作（プロジェクト行とセッション行が同じ `RowAction` を使うこと、削除が `×` ではなくゴミ箱であること、読み上げ名とホバー端末での出し分け）を、`client/test/composerEnter.test.ts` が入力欄の Enter の判定（IME 変換中 / `keyCode` 229 / desktop / compact）と、モードごとの `enterkeyhint` を、`client/test/sessionFilesPanel.test.ts` が右パネルの幅の境界（1920〜720px の min / max、720px の `min == max`、overlay 配置での上限）と clamp・キーボードの 1 歩・保存値の parse（壊れた値 / bounds 外 / 保存領域が使えない環境）と、ハンドルの配線（終了経路の集約・移動ゼロで commit しないこと）を固定する。チャットの自動追従は `client/test/chatScroll.test.ts`（しきい値の境界・`resolveScrollFollow()` の向きの判定・`ChatArea` の配線）と `client/test/chatReducer.test.ts`（`sendSeq` の増減）が固定し、実ブラウザーでの受入項目は[チャットの自動追従と最下部ボタン](#チャットの自動追従と最下部ボタン)に列挙する。client test の方針は jsdom を足さずに DOM に依存しないことで、純粋なロジックに加えて `client/test/eventInStateUpdater.test.ts` のようなソース走査型の回帰テストも置く。見た目は次の viewport で確認する。
 
 | 用途 | viewport |
 | --- | --- |

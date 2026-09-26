@@ -300,6 +300,8 @@ export default function App() {
                 agentName={chatAgentName}
                 agentIcon={chatAgentIcon}
                 rootCwd={app.health?.cwd ?? ""}
+                sessionId={app.sessionId}
+                sendSeq={app.chat.sendSeq}
                 onSuggestion={handleSend}
               />
             </FileRefProvider>

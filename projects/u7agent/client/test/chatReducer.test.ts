@@ -78,6 +78,38 @@ test("新規チャット後も bubble id を再利用しない", () => {
   assert.equal(afterNextMessage.bubbles[0]?.id, nextIdBefore);
 });
 
+// --- 送信の合図 (sendSeq) ---
+
+test("sendSeq は送信 (localUser) でだけ増える", () => {
+  const sent = chatReducer(initialChatState, { type: "localUser", text: "聞いて", at: 1 });
+  assert.equal(sent.sendSeq, initialChatState.sendSeq + 1);
+  assert.equal(chatReducer(sent, { type: "localUser", text: "もう一度", at: 2 }).sendSeq, 2);
+});
+
+test("sendSeq は resync / run_start / echo の破棄で変わらない", () => {
+  const sent = chatReducer(initialChatState, { type: "localUser", text: "聞いて", at: 1 });
+
+  // 履歴を全置換する再接続。末尾が user でも送信と誤読しない
+  const resynced = chatReducer(sent, { type: "resync", payload: runningPayload() });
+  assert.equal(resynced.sendSeq, 1);
+  assert.equal(chatReducer(resynced, { type: "resync", payload: runningPayload() }).sendSeq, 1);
+
+  // サーバー側の受信 (run_start) は送信ではない
+  assert.equal(chatReducer(sent, { type: "runStart", prompt: "聞いて", at: 2, startedAt: 2 }).sendSeq, 1);
+
+  // post に失敗して echo を戻しても減らさない (最下部へ戻したままにする)
+  assert.equal(chatReducer(sent, { type: "dropLocalUser" }).sendSeq, 1);
+});
+
+test("sendSeq は新規チャットへ引き継ぎ、単調に保つ", () => {
+  const sent = chatReducer(initialChatState, { type: "localUser", text: "聞いて", at: 1 });
+  const reset = chatReducer(sent, { type: "newChat" });
+
+  // 減らすと、新規チャットへの切替を「送信」と誤読させる
+  assert.equal(reset.sendSeq, 1);
+  assert.equal(chatReducer(reset, { type: "localUser", text: "次の会話", at: 2 }).sendSeq, 2);
+});
+
 // --- メッセージ時刻 ---
 
 /** 履歴に at を持つ payload (リロード / resync 後はサーバーの値が正) */
