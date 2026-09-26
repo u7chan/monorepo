@@ -5,6 +5,7 @@ BFF が作業用ツール（`read` / `bash` / `edit` / `write` / `grep` / `find`
 | メソッド | パス | 説明 |
 | --- | --- | --- |
 | GET | `/healthz` | 無認証。Compose healthcheck 用。`{ ok, tools, cwd, runningExecutions }` |
+| GET | `/v1/runtime/info` | 実行環境の診断（認証必須・読み取り専用）。[実行環境の診断](#get-v1runtimeinfo) |
 | GET | `/v1/files` | 作業領域の一覧（JSON）。`?path=<root 相対>` |
 | GET | `/v1/skills` | ファイルスキル（`SKILL.md`）の発見（JSON）。`?dir=<root 相対>` |
 | DELETE | `/v1/files` | 通常ファイルの削除。`?path=<root 相対>`。成功は本文なしの 204 |
@@ -247,6 +248,43 @@ root 相対の通常ファイルを 1 つ消す。成功は本文なしの 204�
 - **symlink は 400（`Symbolic links cannot be deleted: …`）**。realpath で実体に解決してから消すと、root 内のリンクが指す root 外のファイルを消せてしまうため、要求パスの最終要素だけを `lstat` で見て symlink なら `unlink` しない（リンクだけを消す挙動は提供しない）
 - 親ディレクトリは `GET /v1/files` と同じ解決（realpath → root 内外 → 実在 → ディレクトリ）を通す。要求パスの字句の `dirname` を native realpath へ渡すため、`..` は symlink を辿った後に適用される（一覧と同じ）。root 外を指す symlink ディレクトリ経由（`linkOutside/file.txt`）は 400、root 内を指す symlink ディレクトリ経由（`linkInside/file.txt`）は一覧と同じく消せる
 - 400: root 外へ解決される / 不正 / 通常ファイル以外 / symlink。404: 実在しない（`Path not found: …`）
+
+## `GET /v1/runtime/info`
+
+サンドボックス自身の実行環境と、allowlist のうち実在したコマンドのバージョンを返す。BFF の `GET /api/runtime/environment` がこの API を呼び、状態コード付きの公開 DTO へ写す（[api.md](api.md#実行環境サンドボックス診断)）。
+
+```json
+// response
+{
+  "environment": {
+    "os": "Debian GNU/Linux 13 (trixie)",
+    "arch": "x86_64",
+    "user": "node",
+    "isRoot": false,
+    "workspace": "/workspace"
+  },
+  "commands": [
+    { "name": "curl", "version": "8.14.1" },
+    { "name": "npm", "version": null }
+  ]
+}
+```
+
+- `environment` は OS の名称と版（`/etc/os-release` の `PRETTY_NAME`。取れなければ `不明`）、正規化した CPU アーキテクチャ（`x86_64` / `aarch64` など）、実行ユーザー名、UID 0 で動いているか、ワークスペース root。環境変数の値・認証ファイル・ホストの情報は返さない
+- `commands` は固定 allowlist（`curl` / `node` / `npm` / `npx` / `python3` / `uv` / `git` / `rg` / `fd` / `jq` / `file` / `tar` / `gzip` / `unzip` / `zip` / `xz` / `openssl` / `bash`）のうち実在したものだけを allowlist の順で返す。Dockerfile のビルド用ステージにしか無いツールは含まれない。`version` は出力から抽出・正規化した値で、存在は確認できたが取れなかったときは `null`（UI は「バージョン不明」）。検出できなかったコマンドは一覧に含めない
+- `version` は生の stdout / stderr を返さない。抽出は数字とドットだけの最初のトークンで、警告や内部パスは落とす
+
+### 検出の安全性と上限
+
+診断の子プロセスには SDK の `spawnHook`（bash ツールの `PI_SANDBOX_TOKEN` 除去）が適用されない。診断自体を新しい漏えい経路にしないよう、次を守る（定数は `server/src/sandbox/runtime-info.ts`）。
+
+- 環境は `process.env` を継承せず新規作成する（`PATH` / `HOME` / `LANG` / `LC_ALL` / `TERM` だけ）。`PI_SANDBOX_TOKEN`、LLM キー、`NODE_OPTIONS` / `LD_PRELOAD` / `PYTHONPATH` / `BASH_ENV` は渡さない。`HOME` は存在しない固定値で、ユーザー別の設定やフックを読ませない
+- `PATH` は信頼できるシステムディレクトリ（`/usr/local/sbin` `/usr/local/bin` `/usr/sbin` `/usr/bin` `/sbin` `/bin`）だけで組む。実行ファイルはそこで解決した絶対パスを使い、symlink は実体まで解決して、実体が信頼ディレクトリの外なら採用しない（ワークスペースや書き込み可能な PATH 上の偽コマンドを使わない）。`cwd` はワークスペース外の固定値（`/`）
+- 起動はシェルを介さず、allowlist の名前と固定引数だけを使う。リクエスト値はコマンド名にも引数にも入らない
+- 1 コマンド 1 秒（`RUNTIME_PROBE_PER_COMMAND_TIMEOUT_MS`）・同時 4（`RUNTIME_PROBE_MAX_CONCURRENCY`）・全体 5 秒（`RUNTIME_PROBE_TOTAL_TIMEOUT_MS`）。全体の期限を過ぎたら残りは起動せず、存在を確認できたコマンドは `version: null` で返す
+- 出力は stdout + stderr の合計 64 KiB（`RUNTIME_PROBE_MAX_OUTPUT_BYTES`）を上限とし、読み込み完了を待たずストリーム受信中に打ち切る。打ち切りと期限超過では `detached` で作ったプロセスグループごと SIGKILL し、孫プロセスを残さない
+
+この対応は診断用子プロセスからの漏えいを防ぐもので、同一ユーザーが読めるファイルや、すでに許可された `bash` 実行に対する完全な秘密隔離を保証しない（[sandbox.md](sandbox.md#残存リスク)）。
 
 ## 環境変数
 

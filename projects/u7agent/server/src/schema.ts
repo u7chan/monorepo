@@ -1,5 +1,6 @@
 /** API 契約の正。DTO のフィールド名と optional の扱いは client と揃える。 */
 import { z } from "zod";
+import type { SandboxRuntimeCommand, SandboxRuntimeEnvironment } from "./sandbox/protocol";
 
 export const RunStatusSchema = z.enum(["idle", "running", "queued", "completed", "stopped", "error"]);
 export type RunStatus = z.infer<typeof RunStatusSchema>;
@@ -437,6 +438,47 @@ export const RuntimeModelsResponseSchema = z.object({
   providers: z.array(RuntimeCatalogProviderSchema),
 });
 export type RuntimeModelsResponse = z.infer<typeof RuntimeModelsResponseSchema>;
+
+/**
+ * 設定 → ランタイムの実行環境カードが使う状態。`connected` だけが情報を持ち、他は理由の分類だけを返す
+ * (URL / トークン / 内部エラーは載せない)。`connected` は診断 API の正常応答だけで、
+ * ツール実行の成功を保証しない。
+ */
+export const RuntimeEnvironmentStateSchema = z.enum([
+  "connected",
+  "not_configured",
+  "unreachable",
+  "unauthorized",
+  "timeout",
+  "probe_failed",
+]);
+export type RuntimeEnvironmentState = z.infer<typeof RuntimeEnvironmentStateSchema>;
+
+/**
+ * サンドボックスの `GET /v1/runtime/info` の応答検証。ワイヤ契約の正は `sandbox/protocol.ts` の
+ * `SandboxRuntimeInfo` で、ここは BFF が受けた応答を検証するための写し。
+ */
+export const SandboxRuntimeInfoSchema = z.object({
+  environment: z.object({
+    os: z.string(),
+    arch: z.string(),
+    user: z.string(),
+    isRoot: z.boolean(),
+    workspace: z.string(),
+  }),
+  commands: z.array(z.object({ name: z.string(), version: z.string().nullable() })),
+});
+
+/**
+ * GET /api/runtime/environment の公開 DTO。未接続でも HTTP 200 で返し、UI は HTTP ステータスや
+ * 文言ではなく `state` で分岐する。共通の項目は `sandbox/protocol.ts` の型をそのまま使う。
+ */
+export type RuntimeEnvironmentResponse =
+  | { state: "connected"; environment: SandboxRuntimeEnvironment; commands: SandboxRuntimeCommand[] }
+  | { state: Exclude<RuntimeEnvironmentState, "connected"> };
+
+/** クライアントへ配るため、ワイヤ契約の共通項目も schema 経由で再 export する */
+export type { SandboxRuntimeCommand, SandboxRuntimeEnvironment };
 
 /** client/src/types.ts の Health に加え、ルート固有のフィールドを optional で許容する。 */
 export const HealthSchema = z.object({

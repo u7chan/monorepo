@@ -19,6 +19,7 @@ import type {
   PostMessageResult,
   Project,
   ProjectsResponse,
+  RuntimeEnvironmentResponse,
   RuntimeModelsResponse,
   SessionNotifyResponse,
   SessionPayload,
@@ -64,6 +65,16 @@ export const getHealth = async (): Promise<Health> => {
 
 export const getRuntimeModels = async (): Promise<RuntimeModelsResponse> => {
   const res = await client.api.runtime.models.$get();
+  if (!res.ok) throw await apiError(res);
+  return res.json();
+};
+
+/**
+ * 実行環境の診断。未接続を含む 6 状態を HTTP 200 で返すため、ここでの失敗は BFF 自体の異常を表す。
+ * UI は HTTP ステータスではなく応答の `state` で分岐する。
+ */
+export const getRuntimeEnvironment = async (): Promise<RuntimeEnvironmentResponse> => {
+  const res = await client.api.runtime.environment.$get();
   if (!res.ok) throw await apiError(res);
   return res.json();
 };

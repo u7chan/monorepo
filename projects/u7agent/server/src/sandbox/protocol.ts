@@ -55,6 +55,35 @@ export interface SandboxCreateDirResult {
   path: string;
 }
 
+/**
+ * GET /v1/runtime/info の応答。サンドボックス自身の実行環境と、allowlist のうち実在したコマンド。
+ * 環境依存で取れない項目は "不明"、存在は確認できたがバージョンを取れないコマンドは version: null にする。
+ */
+export interface SandboxRuntimeEnvironment {
+  /** OS の名称と版 (例: Debian GNU/Linux 13 (trixie)) */
+  os: string;
+  /** 正規化した CPU アーキテクチャ (x86_64 / aarch64 など) */
+  arch: string;
+  /** 実行ユーザー名 */
+  user: string;
+  /** root (UID 0) で動いているか */
+  isRoot: boolean;
+  /** ワークスペース root (絶対パス) */
+  workspace: string;
+}
+
+export interface SandboxRuntimeCommand {
+  name: string;
+  /** 検出したバージョン。取得できなかったときは null (存在は確認済み) */
+  version: string | null;
+}
+
+/** GET /v1/runtime/info の応答。検出できなかったコマンドは commands に含めない。 */
+export interface SandboxRuntimeInfo {
+  environment: SandboxRuntimeEnvironment;
+  commands: SandboxRuntimeCommand[];
+}
+
 /** POST /v1/files/rename のリクエストボディ。path は root 相対のエントリ (ファイル / ディレクトリ)、name は 1 セグメント。 */
 export interface SandboxRenameRequestBody {
   path: string;

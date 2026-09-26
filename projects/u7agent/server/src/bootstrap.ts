@@ -10,7 +10,7 @@ import { messageFor } from "./http";
 import { NotificationService } from "./notifications";
 import { ProjectStore } from "./projects";
 import { createSandboxToolClientFromEnv } from "./sandbox/client";
-import type { SandboxWorkspaceClient } from "./sandbox/client";
+import type { SandboxRuntimeDiagnostics, SandboxWorkspaceClient } from "./sandbox/client";
 import { SessionStore } from "./sessions";
 import { prepareSessionStore, resolveSessionStoreDir } from "./session-store";
 
@@ -20,6 +20,11 @@ export type CreateBffAppOptions = {
   pi?: PiBff | null;
   /** 未指定なら env から生成し、null なら未設定として 503 を返す */
   workspace?: SandboxWorkspaceClient | null;
+  /**
+   * 診断専用クライアント。未指定なら env から生成したサンドボックスクライアントを再利用する
+   * (workspace を差し替えたテストでは null。既存の workspace スタブへ診断メソッドを要求しない)。
+   */
+  runtimeDiagnostics?: SandboxRuntimeDiagnostics | null;
   clientDistDir?: string;
   /** 会話ストアの絶対パス。null で永続化なし。未指定は PI_SESSION_STORE → 既定 (<agentDir>/u7agent/sessions) */
   sessionStoreDir?: string | null;
@@ -42,6 +47,8 @@ export type BffContext = {
   projects: ProjectStore;
   store: SessionStore;
   workspace: SandboxWorkspaceClient | null;
+  /** 実行環境の診断。workspace とは別に注入でき、null なら not_configured を返す */
+  runtimeDiagnostics: SandboxRuntimeDiagnostics | null;
   sessionStore: SessionStoreStatus;
   /** アプリデータ (プロジェクト / カタログ) の DB。status() を health へ出す */
   appDb: AppDb;
@@ -108,8 +115,9 @@ export async function createBffContext(opts: CreateBffAppOptions = {}): Promise<
   // アーカイブの除外名は設定ストアが唯一の決定点で、サンドボックスへはリクエストごとに渡す
   const archiveSettings = createArchiveSettings({ db: appDb });
   // 作業領域の操作はモデルランタイムとは独立に生成する (APIキー未設定で ready: false でもツリーは開けるように)
-  const workspace =
-    opts.workspace !== undefined ? opts.workspace : (createSandboxToolClientFromEnv(process.env) ?? null);
+  const sandboxClient = opts.workspace !== undefined ? undefined : createSandboxToolClientFromEnv(process.env);
+  const workspace = opts.workspace !== undefined ? opts.workspace : (sandboxClient ?? null);
+  const runtimeDiagnostics = opts.runtimeDiagnostics !== undefined ? opts.runtimeDiagnostics : (sandboxClient ?? null);
   const store = new SessionStore({
     pi,
     catalog,
@@ -140,6 +148,7 @@ export async function createBffContext(opts: CreateBffAppOptions = {}): Promise<
     projects,
     store,
     workspace,
+    runtimeDiagnostics,
     sessionStore,
     appDb,
     notifications,

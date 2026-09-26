@@ -11,6 +11,7 @@ import {
   type SandboxFilePreview,
   type SandboxFileUpload,
   type SandboxRenameResult,
+  type SandboxRuntimeInfo,
   type SandboxSkillsResponse,
 } from "./protocol";
 
@@ -19,7 +20,38 @@ export interface SandboxToolClientOptions {
   token: string;
   /** テストで差し替える fetch 実装 */
   fetchImpl?: typeof fetch;
+  /** テストで短くできる診断専用の期限 (既定 8s) */
+  runtimeInfoTimeoutMs?: number;
 }
+
+/**
+ * 実行環境の診断専用インターフェース。workspace 操作 (`SandboxWorkspaceClient`) と混ぜずに
+ * bootstrap から注入し、既存の workspace テストスタブに診断メソッドを要求しない。
+ */
+export interface SandboxRuntimeDiagnostics {
+  /** 認証付きの実行環境 API。本文の受信完了まで診断専用の期限を適用する */
+  getRuntimeInfo(): Promise<SandboxRuntimeInfo>;
+}
+
+/** 診断 API の失敗分類。BFF の公開 DTO の state にそのまま写す。 */
+export type SandboxRuntimeFailure = "unreachable" | "unauthorized" | "timeout" | "probe_failed";
+
+/** 生のエラー文言はサーバーログにだけ出し、クライアントへは failure の分類だけを返す。 */
+export class SandboxRuntimeError extends Error {
+  constructor(
+    message: string,
+    readonly failure: SandboxRuntimeFailure,
+  ) {
+    super(message);
+    this.name = "SandboxRuntimeError";
+  }
+}
+
+/**
+ * BFF → サンドボックスの診断専用 HTTP の期限。既存のファイル操作 / ツール実行のタイムアウト契約は変えず、
+ * この経路だけ接続待ちと本文受信の両方に適用する (本文が止まっても UI を待たせない)。
+ */
+export const SANDBOX_RUNTIME_INFO_TIMEOUT_MS = 8000;
 
 export interface SandboxExecuteInput {
   toolCallId?: string;
@@ -62,11 +94,13 @@ export function createSandboxToolClient(options: SandboxToolClientOptions): Sand
   const baseUrl = options.baseUrl.trim().replace(/\/+$/, "");
   const token = options.token.trim();
   const fetchImpl = options.fetchImpl ?? fetch;
+  const runtimeInfoTimeoutMs = options.runtimeInfoTimeoutMs ?? SANDBOX_RUNTIME_INFO_TIMEOUT_MS;
   if (!baseUrl || !token) {
     throw new Error("Sandbox tool client requires baseUrl and token");
   }
   return {
     execute: (toolName, input) => execute(toolName, input, baseUrl, token, fetchImpl),
+    getRuntimeInfo: () => getRuntimeInfo(baseUrl, token, fetchImpl, runtimeInfoTimeoutMs),
     listFiles: (path) => listFiles(path, baseUrl, token, fetchImpl),
     listSkills: (dir) => listSkills(dir, baseUrl, token, fetchImpl),
     previewFile: async (path) => {
@@ -101,7 +135,7 @@ export function createSandboxToolClientFromEnv(
   return createSandboxToolClient({ baseUrl, token, fetchImpl });
 }
 
-export interface SandboxToolClient {
+export interface SandboxToolClient extends SandboxRuntimeDiagnostics {
   previewFile(path: string): Promise<SandboxFilePreview>;
   execute(toolName: string, input: SandboxExecuteInput): Promise<SandboxExecuteResult>;
   listFiles(path: string): Promise<SandboxFileListing>;
@@ -407,6 +441,75 @@ async function rawError(response: Response, label: string): Promise<SandboxReque
     `サンドボックスの${label} (HTTP ${response.status})${detail ? `: ${detail}` : ""}`,
     502,
   );
+}
+
+/**
+ * 実行環境の診断。接続待ちだけでなく本文の受信完了まで期限を適用し、期限超過は timeout に分類する
+ * (unreachable / probe_failed と混同しない)。
+ */
+async function getRuntimeInfo(
+  baseUrl: string,
+  token: string,
+  fetchImpl: typeof fetch,
+  timeoutMs: number,
+): Promise<SandboxRuntimeInfo> {
+  const controller = new AbortController();
+  let rejectTimeout: ((error: SandboxRuntimeError) => void) | undefined;
+  // fetch / 本文読み取りが signal を無視しても期限で抜けられるよう、拒否を race で重ねる
+  const timeout = new Promise<never>((_resolve, reject) => {
+    rejectTimeout = reject;
+  });
+  const timer = setTimeout(() => {
+    controller.abort();
+    rejectTimeout?.(new SandboxRuntimeError("サンドボックスの実行環境診断がタイムアウトしました", "timeout"));
+  }, timeoutMs);
+
+  try {
+    let response: Response;
+    try {
+      response = await Promise.race([
+        fetchImpl(`${baseUrl}/v1/runtime/info`, { headers: jsonHeaders(token), signal: controller.signal }),
+        timeout,
+      ]);
+    } catch (error) {
+      if (error instanceof SandboxRuntimeError) throw error;
+      throw new SandboxRuntimeError(
+        `サンドボックス (${baseUrl}) に接続できません: ${messageFor(error)}`,
+        "unreachable",
+      );
+    }
+    if (response.status === 401 || response.status === 403) {
+      await cancelBody(response);
+      throw new SandboxRuntimeError(
+        "サンドボックスの認証に失敗しました (PI_SANDBOX_TOKEN を確認してください)",
+        "unauthorized",
+      );
+    }
+    if (!response.ok) {
+      await cancelBody(response);
+      throw new SandboxRuntimeError(
+        `サンドボックスの実行環境情報を取得できませんでした (HTTP ${response.status})`,
+        "probe_failed",
+      );
+    }
+    try {
+      return await Promise.race([response.json() as Promise<SandboxRuntimeInfo>, timeout]);
+    } catch (error) {
+      if (error instanceof SandboxRuntimeError) throw error;
+      throw new SandboxRuntimeError("サンドボックスの実行環境の応答が不正です", "probe_failed");
+    } finally {
+      await cancelBody(response);
+    }
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/** 本文を読まない経路でも接続を解放する (期限超過の中断も含む)。 */
+async function cancelBody(response: Response): Promise<void> {
+  const body = response.body;
+  if (!body) return;
+  await body.cancel().catch(() => {});
 }
 
 /** サンドボックスの本文は { error } を返す契約。読めなければ生テキストをそのまま使う。 */

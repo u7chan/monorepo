@@ -39,6 +39,7 @@ type ContractKeys = {
   toggleNotify: unknown;
   attachments: unknown;
   loadCatalog: unknown;
+  refreshHealth: unknown;
   refreshSessions: unknown;
   refreshProjects: unknown;
   selectSession: unknown;

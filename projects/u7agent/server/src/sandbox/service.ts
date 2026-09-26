@@ -48,6 +48,7 @@ import {
   type ArchivePlan,
 } from "./archive";
 import { SKILLS_SCAN_TIMEOUT_MS, scanSkillsWithDeadline } from "./skills-scan";
+import { probeSandboxRuntime } from "./runtime-info";
 import {
   SANDBOX_MAX_BODY_BYTES,
   SANDBOX_MAX_FILE_ENTRIES,
@@ -68,6 +69,7 @@ import {
   type SandboxFileUpload,
   type SandboxRenameRequestBody,
   type SandboxRenameResult,
+  type SandboxRuntimeInfo,
   type SandboxSkillEntry,
   type SandboxSkillsResponse,
 } from "./protocol";
@@ -91,6 +93,8 @@ export interface SandboxServiceOptions {
   maxArchiveEntries?: number;
   /** テストで小さくできるスキル走査の期限 (既定 2s) */
   skillsScanTimeoutMs?: number;
+  /** テストで差し替える実行環境の診断 (既定は実プロセスでコマンドを検出する) */
+  probeRuntimeInfo?: (rootCwd: string) => Promise<SandboxRuntimeInfo>;
 }
 
 export interface SandboxService {
@@ -677,6 +681,7 @@ export function createSandboxService(options: SandboxServiceOptions): SandboxSer
     maxBytes: options.maxArchiveBytes ?? DEFAULT_ARCHIVE_LIMITS.maxBytes,
     maxEntries: options.maxArchiveEntries ?? DEFAULT_ARCHIVE_LIMITS.maxEntries,
   };
+  const probeRuntimeInfo = options.probeRuntimeInfo ?? ((workspaceRoot: string) => probeSandboxRuntime(workspaceRoot));
 
   // bash にはセッションメタ変数 (PI_SESSION_ID 等) を注入せず (サンドボックスにセッションは無い)、
   // SDK の bash が process.env を継承しても、このプロセスの唯一の秘密値である共有トークンだけは剥がす。
@@ -776,6 +781,16 @@ export function createSandboxService(options: SandboxServiceOptions): SandboxSer
       return c.json({ error: "Unauthorized" }, 401);
     }
     await next();
+  });
+
+  // 実行環境の診断。応答は分類だけを返し、内部エラーの詳細はプロセスのログに限る
+  app.get("/v1/runtime/info", async (c) => {
+    try {
+      return c.json(await probeRuntimeInfo(rootCwd));
+    } catch (error) {
+      console.warn(`[u7agent-sandbox] runtime info failed: ${messageFor(error)}`);
+      return c.json({ error: "実行環境の診断に失敗しました" }, 500);
+    }
   });
 
   app.post("/v1/tools/:tool/execute", async (c) => {
