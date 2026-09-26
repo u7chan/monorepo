@@ -25,6 +25,7 @@ MessageView (assistant の本文)
                     ├─ コードスパン → 参照のときだけ button  components/markdown/FileRefLink.tsx
                     └─ HtmlNode / MathNode         lib/markdown/{html,latex}.ts
   └─ components/markdown/{MarkdownView,CodeBlock,HtmlInline,MathView,Diagram,FileRefLink}.tsx
+        └─ 画像のクリック拡大 → components/ImageZoom.tsx (添付の履歴とも共有)
 ```
 
 `parse.ts` は 1 段だけブロックに分ける。リスト項目・引用の中身は `source` 文字列として保持し、描画側が `MarkdownBlocks` を再帰的に呼ぶ。この形にすると、props が文字列だけで済むためブロック単位の `memo` が効き、ストリーミング中は伸びているブロックだけを解析し直す。
@@ -35,7 +36,7 @@ MessageView (assistant の本文)
 | --- | --- | --- |
 | 見出し `#`〜`######` / 段落 / 段落内改行 | ✓ | 段落内の改行は `<br>` にする（従来の `whitespace-pre-wrap` と同じ見え方） |
 | 強調 `**b**` `*i*` `~~s~~` / コードスパン | ✓ | `_` は語中では強調しない（`snake_case` を壊さない）。コードスパンはファイル参照として操作要素になり得る（下記） |
-| リンク `[t](url "title")` / 自動リンク / 画像 | ✓ | 画像は同一オリジン（相対パス）のみ |
+| リンク `[t](url "title")` / 自動リンク / 画像 | ✓ | 画像は同一オリジン（相対パス）のみ。クリックで拡大表示する（リンクの中は対象外。[画像の拡大表示](#画像の拡大表示)） |
 | 箇条書き / 番号付き / 入れ子 / タスクリスト `- [ ]` | ✓ | 番号付きは開始番号を保つ |
 | 引用 `>` / 水平線 | ✓ | |
 | 表（パイプテーブル、`:---:` の整列） | ✓ | 横スクロール。区切り行の列数がヘッダと違うときは表にしない |
@@ -59,6 +60,26 @@ MessageView (assistant の本文)
   - hover / `:focus-visible`: 枠を `--c-focus` へ、面を `--c-accent-wash` へ / `--c-focus` の outline。文字色と下線は rest のまま
   - 枠は補助に留める。50% 混色は soft 面で 3:1 に届かないテーマ（midnight / daylight / sakura / sky）があり、識別の主役は文字色（soft 面で全テーマ 4.50:1 以上）と下線のため
 - 字面が参照かどうかは描画層（`client/src/components/markdown/FileRefLink.tsx` の context）が決める。`MdInline` の `code` は字面だけを持ち、parser と `lib/markdown/` はファイル参照を知らない（原則 4 を保つ）
+
+## 画像の拡大表示
+
+本文の画像（Markdown の `![alt](src)` と、許可リストを通った生 HTML の `img`）は、クリックでライトボックスを開く。実装は `client/src/components/ImageZoom.tsx` の `ZoomableImage` が持ち、Markdown 側は import して使うだけにする。`components/markdown/` は `client/test/markdownSafety.test.ts` が `document.` とインライン style を禁止して走査するため、DOM に触る部品をここには置かない（`MarkdownView` へコールバックも引き回さないので、ブロック単位の `memo` にも影響しない）。
+
+- サムネイルは `type="button"` の `button` で、読み上げ名は `<alt> を拡大表示`。開いた `dialog` は `createPortal` で `document.body` へ出す。段落（`<p>`）の中に `<dialog>` を置くと DOM が不正になるうえ、`.md img` の枠・角丸が拡大画像にも当たる
+- 開くのは `showModal()`（終了とフォーカス拘束は標準挙動）。閉じるのは Escape / 背景クリック（`event.target` が dialog 自身のときだけ）/ 閉じるボタンで、`onClose` で state を落とし、サムネイルへ focus を戻す。Escape の keydown は `stopPropagation` だけして `preventDefault` しない（閉じるのを標準挙動に任せ、App の Escape（設定ページからチャットへ戻る）へ渡さない）
+- 拡大画像は viewport に収まる範囲で最大にし、intrinsic size は超えて引き伸ばさない。dialog 自身は背景透明の全画面で、減光とぼかしは既存の `dialog::backdrop` に任せる
+- 見た目は `variant` で切り替える（`markdown` は `md-img`、`attachment` は枠・角丸を自分で当てる）。呼び出し側は `src` / `alt` / `title` / `variant`（添付は `compact`）だけを渡し、className は渡さない（`shadcn/no-restyle`）
+- ストリーミング中は、同じブロックの再描画で画像が同じ位置にあれば開いたまま（state は部品が持つ）。位置が変わって unmount された場合は閉じる（開いたままを保証しない）
+
+### リンクの中の画像（対象外）
+
+`<a>` の中に `button` は置けないため、リンクとして動く画像は従来どおり素の `img` のままにする。次の 3 通りがある。
+
+- `[![alt](img)](url)` — ラベル内の Markdown 画像は解析側が画像にしないため、字面のまま `<a>` の中に出る
+- `[<img src="…">](url)` — Markdown のリンクの children は `inLink` として `html` ノードへ渡す（`MarkdownView` の `case "html"`）
+- `<a href="…"><img …></a>` — `HtmlInline` が自身の `a` の子へ同じ印を伝搬する（入れ子の `span` などにも通す）
+
+`HtmlInline` の `a` の子だけを見ても `<a>` の中の `button` は防げない。Markdown のリンクはラベルに生 HTML を書ける（`client/src/lib/markdown/inline.ts` の `scanInline` がラベル内の HTML も解析する）ためで、2 つ目の経路が必要になる。
 
 ## 解析の上限（ストリーミング対策）
 
@@ -182,3 +203,4 @@ Markdown 記法側の URL（`[t](url)` / `![alt](src)`）も同じ `safeUrl` を
 | `client/test/markdownLatex.test.ts` | `\frac` `\sqrt` 上下限 行列 cases の AST とレイアウトモデル / 決定性 / `$` の判定と通貨記号 / `$$` のブロック検出 / 失敗が `ok: false` になる / 例外を投げない |
 | `client/test/markdownDiagram.test.ts` | 形状 4 種 / エッジの種類とラベル / チェーン / TD と LR のランク方向 / 境界で止まるエッジ / 戻るエッジと外側レーン / エッジラベルと線の余白 / 長いラベルの折り返しと 6 行上限 / sequenceDiagram の順序と Note / 決定性 / 未対応が `ok: false` になる / 上限 / 固定シードのランダム入力でエッジがノードを横切らずラベルも線に貫かれない / SSR した HTML にインライン style が出ない |
 | `client/test/markdownSafety.test.ts` | `lib/markdown` と `components/markdown` に DOM 文字列の生成・インライン style が現れない（ソース走査） |
+| `client/test/imageZoom.test.ts` | 画像の拡大表示（開いている間だけ body へ portal する `dialog` / `showModal()` / Escape の `stopPropagation` / 背景クリックの判定 / リンク内の画像を button にしない・リンク内の判定を HTML の子へ伝搬する） |

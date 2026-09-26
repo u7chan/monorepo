@@ -1,6 +1,7 @@
 import { fileRawUrl } from "../../api";
 import { attachmentFetchPath, isImageName } from "../../lib/attachments";
 import { cn } from "../../lib/cn";
+import { ZoomableImage } from "../ImageZoom";
 
 export type AttachedFilesProps = {
   /** 注記の添付パス (絶対パス) */
@@ -27,11 +28,12 @@ function AttachedFile({ path, rootCwd, compact }: { path: string; rootCwd: strin
   if (isImageName(name)) {
     return (
       <li>
-        <img
+        <ZoomableImage
           src={fileRawUrl(attachmentFetchPath(rootCwd, path))}
           alt={name}
           title={path}
-          className={cn("rounded-lg border border-line object-contain", compact ? "max-h-32" : "max-h-44")}
+          variant="attachment"
+          compact={compact}
         />
       </li>
     );
