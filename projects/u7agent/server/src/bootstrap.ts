@@ -1,5 +1,6 @@
 import { createPiBff } from "./agent";
 import type { PiBff } from "./agent";
+import { CredentialSynchronizationError } from "@earendil-works/pi-coding-agent";
 import { AppDb } from "./app-db";
 import { createAgentCatalog } from "./agents";
 import type { AgentCatalog } from "./agents";
@@ -7,6 +8,7 @@ import { createArchiveSettings } from "./archive-settings";
 import type { ArchiveSettings } from "./archive-settings";
 import { BUILTIN_SKILLS } from "./builtin-skills";
 import { messageFor } from "./http";
+import { ModelSettingsService, type CredentialCommit, type ProviderKeyRuntime } from "./model-settings";
 import { NotificationService } from "./notifications";
 import { ProjectStore } from "./projects";
 import { createSandboxToolClientFromEnv } from "./sandbox/client";
@@ -56,6 +58,8 @@ export type BffContext = {
   notifications: NotificationService;
   /** アーカイブの除外名。health と download / check が同じ実効値を取る */
   archiveSettings: ArchiveSettings;
+  /** プロバイダー API キー (設定 → モデル)。DB を希望状態として SDK へ写す */
+  modelSettings: ModelSettingsService;
 };
 
 export async function createBffContext(opts: CreateBffAppOptions = {}): Promise<BffContext> {
@@ -70,6 +74,9 @@ export async function createBffContext(opts: CreateBffAppOptions = {}): Promise<
       console.error(`[u7agent] Pi runtime unavailable: ${initError}`);
     }
   }
+  // DB の例外文言に登録済みキーが現れても、ログ / health / 503 に生のまま載せない境界を先に作る。
+  // 可変マスカーなので、起動後に登録されたキーにも効く。pi が無いときだけ identity に落ちる。
+  const maskError = (text: string): string => (pi ? pi.secretMasker.mask(text) : text);
 
   // 会話ストアはサンドボックスと共有しない。設定ミス (ワークスペース内の指定) は永続化なしに落とし、
   // health で理由を見せてセッション作成だけを 503 で止める。
@@ -97,9 +104,24 @@ export async function createBffContext(opts: CreateBffAppOptions = {}): Promise<
     }
   }
   const appDb = sessionStoreError
-    ? AppDb.unavailable({ storeDir, error: sessionStoreError })
-    : AppDb.open({ storeDir });
+    ? AppDb.unavailable({ storeDir, error: sessionStoreError, sanitizeError: maskError })
+    : AppDb.open({ storeDir, sanitizeError: maskError });
 
+  // プロバイダー API キーは DB を希望状態の正とし、起動時に SDK の runtime overlay へ写す。
+  // 失敗しても起動は続け、degraded として設定画面から回復できるようにする。
+  const modelSettings = new ModelSettingsService({
+    db: appDb,
+    runtime: pi ? createProviderKeyRuntime(pi) : null,
+    retainSecret: pi ? pi.retainSecret : () => {},
+    maskError,
+    refreshModelState: pi ? pi.refreshModelState : async () => {},
+    defaultModel: () => {
+      const model = pi?.selectedModel;
+      return model ? `${model.provider}/${model.id}` : undefined;
+    },
+    whitelistConfigured: () => pi?.runtimeDiagnostics?.summary.whitelistConfigured ?? false,
+  });
+  await modelSettings.applyStored();
   // 組み込みスキルはサンドボックスに依らず起動時に読み込み済みなので、カタログの応答へそのまま載せる
   const catalog = createAgentCatalog({
     builtinSkills: BUILTIN_SKILLS.map((skill) => ({ name: skill.name, description: skill.description })),
@@ -153,5 +175,58 @@ export async function createBffContext(opts: CreateBffAppOptions = {}): Promise<
     appDb,
     notifications,
     archiveSettings,
+    modelSettings,
   };
+}
+
+/**
+ * SDK の ModelRuntime を ProviderKeyRuntime へ写す。SDK の例外は throw せず CredentialCommit へ分類し、
+ * `credential` / `cause` / 生の例外文言はこの境界から外へ出さない。
+ */
+export function createProviderKeyRuntime(pi: PiBff): ProviderKeyRuntime {
+  const { modelRuntime } = pi;
+  return {
+    list: () =>
+      modelRuntime.getProviders().map((provider) => ({
+        provider: provider.id,
+        name: provider.name || provider.id,
+        // auth.apiKey.login は「対話でキー入力を受け付ける」印。ambient / keyless は login を持たない
+        canSetApiKey: Boolean(provider.auth?.apiKey?.login),
+        supportsOAuth: Boolean(provider.auth?.oauth),
+      })),
+    auth: (provider) => modelRuntime.getProviderAuthStatus(provider),
+    applyApiKey: (provider, apiKey, { signal }) =>
+      commitCredential("setRuntimeApiKey", provider, signal, () =>
+        modelRuntime.setRuntimeApiKey(provider, apiKey, { signal }),
+      ),
+    removeApiKey: (provider, { signal }) =>
+      commitCredential("removeRuntimeApiKey", provider, signal, () =>
+        modelRuntime.removeRuntimeApiKey(provider, { signal }),
+      ),
+  };
+}
+
+/**
+ * SDK は Map への commit 後に同期が失敗した場合も CSE を投げるため、例外を「未適用」と見なさない。
+ * provider / operation が一致する CSE だけを commit 済みと判定し、timeout・実行中 abort は unknown に倒す。
+ */
+async function commitCredential(
+  operation: "setRuntimeApiKey" | "removeRuntimeApiKey",
+  provider: string,
+  signal: AbortSignal,
+  run: () => Promise<unknown>,
+): Promise<CredentialCommit> {
+  // 開始前と確実に識別できる abort だけを not_applied とする (呼び出し側の timeout が先に切れている場合)。
+  if (signal.aborted) return { outcome: "not_applied" };
+  try {
+    await run();
+    return { outcome: "applied", synced: true };
+  } catch (error) {
+    if (error instanceof CredentialSynchronizationError) {
+      return error.providerId === provider && error.operation === operation
+        ? { outcome: "applied", synced: false }
+        : { outcome: "unknown" };
+    }
+    return { outcome: "unknown" };
+  }
 }

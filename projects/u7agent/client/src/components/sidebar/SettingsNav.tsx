@@ -8,6 +8,7 @@ import {
   BoltIcon,
   FolderIcon,
   GaugeIcon,
+  KeyIcon,
   SparkleIcon,
   ThemeIcon,
   WarningIcon,
@@ -20,6 +21,7 @@ const SECTION_ICONS: Record<SettingsSection, ReactNode> = {
   files: <FolderIcon />,
   archive: <ArchiveIcon />,
   appearance: <ThemeIcon />,
+  models: <KeyIcon />,
   runtime: <GaugeIcon />,
   notifications: <BellIcon />,
 };

@@ -1,5 +1,6 @@
-// 設定 → ランタイムの表示変換と、health / モデルカタログ / 実行環境をまとめて取り直す手順を検証する。
+// 設定 → ランタイムの表示変換と、health / 実行環境をまとめて取り直す手順を検証する。
 // 状態コード 6 種・空一覧・部分失敗・refreshHealth の null 失敗扱い・古い応答の排除・ゲートを固定する。
+// モデルカタログは設定 → モデルへ移設したため、ここでは取得しない。
 
 import assert from "node:assert/strict";
 import test from "node:test";
@@ -11,7 +12,7 @@ import {
   runtimeEnvironmentSummary,
   runtimeFetchStateOf,
 } from "../src/lib/runtimeEnvironment";
-import type { Health, RuntimeEnvironmentResponse, RuntimeEnvironmentState, RuntimeModelsResponse } from "../src/types";
+import type { Health, RuntimeEnvironmentResponse, RuntimeEnvironmentState } from "../src/types";
 
 const STATES: RuntimeEnvironmentState[] = [
   "connected",
@@ -25,14 +26,6 @@ const STATES: RuntimeEnvironmentState[] = [
 const HEALTH: Health = { ready: true, sandboxConfigured: true };
 /** 単発の取得 (再試行なし) を表す判定。親の health をそのまま適用してよいケース */
 const alwaysCurrent = () => true;
-const MODELS: RuntimeModelsResponse = {
-  whitelistConfigured: false,
-  catalogCount: 0,
-  whitelistCount: 0,
-  availableCount: 0,
-  versions: { piCodingAgent: "0.87.1" },
-  providers: [],
-};
 const CONNECTED: RuntimeEnvironmentResponse = {
   state: "connected",
   environment: {
@@ -99,8 +92,7 @@ test("command rows keep the detected order and mark missing versions", () => {
   );
 });
 
-test("reloads all three sources and waits for them to settle", async () => {
-  const models = deferred<RuntimeModelsResponse>();
+test("reloads health and the environment and waits for them to settle", async () => {
   const environment = deferred<RuntimeEnvironmentResponse>();
   const healthCalls: number[] = [];
   const pending = reloadRuntime({
@@ -110,47 +102,40 @@ test("reloads all three sources and waits for them to settle", async () => {
       healthCalls.push(1);
       return HEALTH;
     },
-    getModels: () => models.promise,
     getEnvironment: () => environment.promise,
   });
-  models.resolve(MODELS);
   environment.resolve(CONNECTED);
   const results = await pending;
   assert.equal(healthCalls.length, 1);
   assert.deepEqual(results.health, { ok: true, value: HEALTH });
-  assert.deepEqual(results.models, { ok: true, value: MODELS });
   assert.deepEqual(results.environment, { ok: true, value: CONNECTED });
 });
 
-test("treats a null health result as a failure and keeps the other two results", async () => {
+test("treats a null health result as a failure and keeps the environment result", async () => {
   const results = await reloadRuntime({
     includeHealth: true,
     isCurrent: alwaysCurrent,
     refreshHealth: async () => null,
-    getModels: async () => MODELS,
     getEnvironment: async () => CONNECTED,
   });
   assert.deepEqual(results.health, { ok: false, message: HEALTH_RELOAD_FAILED_MESSAGE });
-  assert.equal(results.models.ok, true);
   assert.equal(results.environment.ok, true);
 });
 
-test("keeps successful results when one source fails", async () => {
+test("keeps a successful health result when the environment fails", async () => {
   const results = await reloadRuntime({
     includeHealth: true,
     isCurrent: alwaysCurrent,
     refreshHealth: async () => HEALTH,
-    getModels: async () => {
-      throw new Error("モデル情報を取得できませんでした");
+    getEnvironment: async () => {
+      throw new Error("実行環境を取得できませんでした");
     },
-    getEnvironment: async () => CONNECTED,
   });
   assert.deepEqual(results.health, { ok: true, value: HEALTH });
-  assert.deepEqual(results.models, { ok: false, message: "モデル情報を取得できませんでした" });
-  assert.deepEqual(results.environment, { ok: true, value: CONNECTED });
+  assert.deepEqual(results.environment, { ok: false, message: "実行環境を取得できませんでした" });
 });
 
-test("opening the page fetches only the catalog and the environment", async () => {
+test("opening the page fetches only the environment", async () => {
   let healthCalls = 0;
   const results = await reloadRuntime({
     includeHealth: false,
@@ -159,12 +144,10 @@ test("opening the page fetches only the catalog and the environment", async () =
       healthCalls += 1;
       return HEALTH;
     },
-    getModels: async () => MODELS,
     getEnvironment: async () => CONNECTED,
   });
   assert.equal(healthCalls, 0, "親が持つ health を再取得しない");
   assert.equal(results.health, null);
-  assert.equal(results.models.ok, true);
   assert.equal(results.environment.ok, true);
 });
 
@@ -210,7 +193,6 @@ function reloadWithHealth(
     includeHealth: true,
     isCurrent,
     refreshHealth,
-    getModels: async () => MODELS,
     getEnvironment: async () => CONNECTED,
   });
 }

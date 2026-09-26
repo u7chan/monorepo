@@ -1,6 +1,7 @@
 // 設定 → ランタイムの初期描画。client に DOM テスト基盤が無いため、react-dom/server の静的描画で
-// 実行環境 / 利用可能なコマンドのセクションが既存の接続状態・モデル解決と並んで出ることを固定する
+// 実行環境 / 利用可能なコマンドのセクションが接続状態・モデル解決と並んで出ることを固定する
 // (取得後の状態は lib/runtimeEnvironment の純関数テストが担う)。
+// 表示専用の画面なので、編集するプロバイダー認証とカタログは出さない (設定 → モデルへ移設)。
 
 import assert from "node:assert/strict";
 import { createElement } from "react";
@@ -55,6 +56,8 @@ test("renders the connection, environment, commands and model sections in order"
   assert.ok(html.includes("実行環境を取得しています。"), "取得中の状態を出す");
   assert.ok(html.includes("再読み込み"), "再読み込みボタンを出す");
   assert.ok(html.includes("disabled"), "取得が settled するまでボタンを処理中にする");
+  assert.ok(!html.includes("プロバイダーとカタログ"), "カタログは設定 → モデルへ移設した");
+  assert.ok(!html.includes("APIキーを保存"), "この画面は表示専用 (認証変更の操作を出さない)");
 });
 
 test("renders without a health snapshot", () => {

@@ -1,11 +1,13 @@
 # APIキー漏洩の抑制
 
-プロバイダーAPIキーを環境変数で BFF へ渡す運用でも、キーが LLM・ブラウザ・ログへ流れにくくする多層防御。ツール実行自体はサンドボックスへ分離済み（[sandbox.md](sandbox.md)）で、ここで述べるのは BFF 内での出力マスク（キーが作業領域のファイル等へ現れた場合の二次漏洩対策）と、SDK の公開 API だけで実装する縛り。
+プロバイダーAPIキーを環境変数や 設定 → モデルの GUI（[model-settings.md](model-settings.md)）で BFF へ渡す運用でも、キーが LLM・ブラウザ・ログへ流れにくくする多層防御。ツール実行自体はサンドボックスへ分離済み（[sandbox.md](sandbox.md)）で、ここで述べるのは BFF 内での出力マスク（キーが作業領域のファイル等へ現れた場合の二次漏洩対策）と、SDK の公開 API だけで実装する縛り。
 
 ## 保護対象
 
 - `createRuntimeSecretMasker()`（`server/src/secret-guard.ts`）が `ModelRuntime.getProviders()` の各プロバイダーに対し pi-ai の公開ヘルパー `findEnvKeys()` で「設定済みのキー変数」を解決し、その非空値を保護対象にする。findEnvKeys が解決しない既知プロバイダーのキー変数（Bedrock の `AWS_BEARER_TOKEN_BEDROCK`）は補完テーブルで埋める。独自プロバイダー分は `PI_SECRET_ENV_VARS` で変数名を追加する
 - 自動解決された値は 8 文字未満を通常出力の過剰改変防止のため対象外にする。`PI_SECRET_ENV_VARS` で明示指定された変数は運用者の意図なので長さに関係なく保護する。重複・包含する値は長い順に置換する
+- 設定 → モデルで登録したキーは `createMutableSecretMasker` の `setSecrets` で保護対象へ足す。登録は **SDK / DB へ渡す前**に行い、起動時は DB から読めた全行（orphan・不正値・適用失敗を含む）を適用前に登録する。削除・上書き後も**プロセス生存中は保護対象から外さない**（`session.jsonl` の raw 入力を再投影しても旧キーを出さないため。入力は 8..2048 文字で、これより短いキーは GUI の対象外）
+- SQLite の失敗文言にキーが載る経路（`AppDb.#query` と `open()`）は `AppDb.open({ sanitizeError })` でマスカーを通してからログ・`#error`（health / 503）へ渡す。`model-settings.ts` は固定文言だけを応答へ返し、ログには provider id と分類だけを残す
 - ユーザーがチャットへ直接入力したキーはモデルへはそのまま渡る（対象はツール出力由来の値）。ただしエコー（タイトル・プロンプト表示・メッセージ履歴・text delta）はマスクする
 - 会話は BFF 専用ストアの `session.jsonl` / `meta.json` に保存される。生のユーザー入力・モデル出力を含むが、ツール出力は LLM・履歴へ渡す前にマスクされるため保存後も `[REDACTED]` のままになる。ストアはサンドボックスへマウントしない（[persistence.md](persistence.md)）
 - ツール引数・出力の要約は、切り詰めの前にマスクする。先に切り詰めると要約上限の境界でキーの末尾が欠け、大部分がそのまま残るため
@@ -42,9 +44,15 @@ SDK はツール出力をいくつかの方法で切り詰める。キーが切�
 - `server/test/secret-guard.test.ts` — リモート定義を包むマスカーの出力マスク、途中出力とエラーのマスク、SDKの切り詰めで先頭が欠けたケース、実SDKのgrepで行切り詰め境界に跨った断片のマスク、`tool_result` 拡張
 - `server/test/redact.test.ts` — マスク本体（重複値、チャンク境界、中断時のフラッシュ）
 - `server/test/sessions-secrets.test.ts` — SSE イベント・payload・エラー経路のマスクと、秘密を含まない出力が改変されないこと。スキル読み込みの `ToolCall.skill` / `ChatMessage.skillLoads` も対象
+- `server/test/model-settings.test.ts` / `server/test/model-settings-api.test.ts` — GUI 登録キーのマスカー登録順序、DB 例外にキーが載っても応答・health・ログに出ないこと
+- `server/test/app-db.test.ts` — `sanitizeError` が `#query` のログ・`#error`・`open()` の失敗の両方に効くこと
+- `server/test/redact.test.ts` — `createMutableSecretMasker` の swap（追加・置換・失敗時の原子性）と、先に作った streaming masker が swap 後の値を保留幅に使うこと
 
 ## 残存リスク
 
 - 分割・エンコードされたキーや未登録の秘密情報は検出できない。OAuth トークンは対象外
 - bash ツールの出力が切り詰められた場合、フル出力はサンドボックス内の一時ファイルへ書かれる。ファイル自体はマスクされない
 - サンドボックス・作業領域側のリスクは [sandbox.md](sandbox.md) を参照する
+- 設定 → モデルで登録したキーは `PI_SESSION_STORE/u7agent.db` に**平文**で残る。WAL・バックアップ・ボリュームの読み取り権限を持つ者は読める。ログイン認証がないため BFF を LAN / インターネットへ公開しない（詳細は [model-settings.md](model-settings.md#残存リスク)）
+- 削除・上書きした旧キーの保護は**プロセス生存中だけ**。再起動後はチャットへ貼り付けた生の入力が再投影で見えうる（tombstone は将来課題）
+- ランタイム初期化に失敗したとき（`pi` が null）は可変マスカー自体が作られないため、この状態で起動したプロセスでは DB のキーを新たにマスク対象へ足せない。この場合も認証変更 API は 503 で、キーは新規登録されない

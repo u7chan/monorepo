@@ -24,6 +24,7 @@ DTO の正は `server/src/schema.ts`（zod）。リクエストボディは `@ho
 | セッション | `/api/sessions`、`/api/sessions/:id`、`/skills`、`/files`、`/messages`、`/events`、`/settings`、`/stop`、`/compact` | [api-sessions.md](api-sessions.md) |
 | 通知（Discord） | `GET/PUT /api/notifications`、`POST /api/notifications/test`、`PATCH /api/sessions/:id/notify` | [notifications.md](notifications.md) |
 | アーカイブの除外名 | `GET/PUT/DELETE /api/settings/archive` | このファイル |
+| プロバイダーAPIキー（設定 → モデル） | `GET /api/settings/models`、`PUT/DELETE /api/settings/models/:provider/key`、`POST /api/settings/models/:provider/resync` | このファイル |
 | エージェント / スキル | `/api/agents`、`/api/skills`、`/api/skills/files`、`/api/skills/session` | [api-catalog.md](api-catalog.md)、[api-sessions.md](api-sessions.md) |
 | サンドボックス（内部） | `/v1/*`（BFF からは見えない） | [sandbox-api.md](sandbox-api.md) |
 
@@ -326,6 +327,48 @@ Content-Security-Policy: sandbox allow-scripts; default-src 'none'; style-src 'u
 - 400: 形が違う本文、または 1 セグメント名として不正な名前（空・`.`・`..`・`/`・`\`・制御文字・`maxNameLength` 超）と `maxNames` 超。文言は `除外名に使えない名前があります: <name>` / `除外名は 100 件までです` で、画面はそのまま出す
 - 保存 / リセットの応答も GET と同じ形で、`excludeNames` は保存後の実効値になる
 - 変更は次のダウンロードから効く（BFF はリクエストごとに実効値をサンドボックスへ渡す。[sandbox-api.md](sandbox-api.md#get-v1filesdownload)）
+
+## プロバイダーAPIキー（設定 → モデル）
+
+| メソッド | パス | 説明 |
+| --- | --- | --- |
+| GET | `/api/settings/models` | provider 一覧（auth 状態 / managed / canSetApiKey / orphan / degraded）。純粋読取 |
+| PUT | `/api/settings/models/:provider/key` | APIキーを登録（既存は上書き）。body は `{ "apiKey": "…" }` |
+| DELETE | `/api/settings/models/:provider/key` | この画面で登録したキーを削除 |
+| POST | `/api/settings/models/:provider/resync` | degraded（保存済み・未反映）の回復。body 無し |
+
+アプリデータの SQLite を読むため DB が使えないときは 503（[persistence.md](persistence.md#アプリデータsqlite)）。設計と残存リスクは [model-settings.md](model-settings.md) を正とする。
+
+```json
+// GET /api/settings/models (200)
+{
+  "runtimeAvailable": true,
+  "whitelistConfigured": false,
+  "defaultModel": "<provider>/<id>",
+  "providers": [
+    {
+      "provider": "<provider>",
+      "name": "…",
+      "auth": { "configured": true, "source": "runtime", "environmentVariables": [] },
+      "managed": true,
+      "canSetApiKey": true,
+      "supportsOAuth": false,
+      "orphan": false,
+      "degraded": "apply"
+    }
+  ]
+}
+```
+
+- `managed` は `provider_credentials` に行がある（保存済みの希望状態）、`auth.source` は SDK の実効値（`runtime` / `environment` / `stored` …）、`degraded` はこのプロセスの SDK 反映が未完了（`apply` = 未適用 / `remove` = 削除未反映）を表す。3 つは独立で、混ぜて「使える」と見せない
+- `canSetApiKey` は SDK の `auth.apiKey.login` の有無。false の provider（ambient / keyless）はこの画面からキーを登録できない
+- `orphan: true` は現在のカタログに無い DB 行。`name` は provider id になり、削除だけできる（再同期はできない）
+- キー値・ラベル・生の認証エラーは GET の応答に含めない。環境変数の**変数名**だけを `environmentVariables` に載せる（`GET /api/health` と同じ公開範囲）
+- 変更系の本文は `{ "apiKey": "…" }` で、8..2048 文字。形が違う場合は 400（SDK / DB へ要求を出さない）
+- 200 の応答は GET と同じ形 + 必須の `state`。`applied` は反映まで成功、`applied_unsynced` は「保存済み・反映未完了」で、再同期 / 次回の変更 / 再起動で収束する
+- 503 は `{ "error": "…", "state": "not_stored" }` で、何も保存されていないことを示す（DB 書込前の失敗、ランタイム初期化失敗など）。400 は `{ "error": "…" }` だけ
+- 400: 未知の provider / `canSetApiKey` が false の provider への PUT、登録行が無い provider の DELETE、再同期の対象外（カタログに無く degraded も `remove` でない）。サンドボックスは使わない
+- `POST /:provider/resync` は冪等。degraded でない provider に送っても現在の DB 希望状態を再適用して 200 を返す
 
 ## セッションへのファイルアップロード
 

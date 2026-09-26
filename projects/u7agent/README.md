@@ -14,7 +14,7 @@ pnpm dev   # サンドボックス + BFF + Vite をまとめて起動 → http:/
 
 - サンドボックスは常に別プロセスです。`pnpm dev` が共有トークンを生成してサンドボックスと BFF の両方へ渡します（ローカルで Docker は不要）
 - 作業領域は既定でこのディレクトリです。変えるときは `PI_APP_CWD=/path/to/project pnpm dev`（プロジェクト登録と未所属チャットの起点になります）
-- APIキーは `cp .env.example .env` で設定できます。`~/.pi/agent/auth.json` があれば不要です（`.env` を読むのは BFF だけ）
+- APIキーは起動後に **設定 → モデル** から登録できます（登録したキーはアプリのデータベースに保存され、再起動後も使われます）。`cp .env.example .env` で環境変数として渡すこともでき（この場合は再起動が必要）、`~/.pi/agent/auth.json` があれば不要です（`.env` を読むのは BFF だけ）
 - 停止は Ctrl-C（3 プロセスまとめて止まります）
 
 ## プロジェクトとセッションの作業ディレクトリ
@@ -63,6 +63,8 @@ pnpm dev   # サンドボックス + BFF + Vite をまとめて起動 → http:/
 | `PI_SANDBOX_URL` / `PI_SANDBOX_TOKEN` | 外部のサンドボックスへ繋ぐ場合のみ（`pnpm dev` は自動で設定） |
 | `PI_SECRET_ENV_VARS` | 追加でマスクする独自の秘密環境変数 |
 
+プロバイダーAPIキーは起動後に **設定 → モデル** から登録するのが既定です（アプリのデータベースへ保存し、起動中のモデル候補へすぐ反映します）。環境変数（`.env`）や `~/.pi/agent/auth.json` で渡す場合は、これまでどおり再起動が必要です。移行の手順と残存リスクは [docs/model-settings.md](docs/model-settings.md) を参照してください。
+
 一覧は [.env.example](.env.example) と [docs/sandbox-api.md](docs/sandbox-api.md)（サンドボックス側）を参照してください。
 
 プロジェクトとエージェント / スキル定義は、会話ストアと同じディレクトリの `u7agent.db`（SQLite）に保存します。パスを分ける環境変数はなく、`PI_SESSION_STORE` を永続ボリュームに置けば両方残ります（[persistence.md](docs/persistence.md)）。
@@ -71,7 +73,7 @@ pnpm dev   # サンドボックス + BFF + Vite をまとめて起動 → http:/
 
 - **ログイン認証はありません。インターネットや LAN へ公開しないでください**（既定の待受は `127.0.0.1`）
 - ツールはサンドボックスの作業領域でコマンド実行やファイル変更ができます。信頼できる環境だけで使ってください（`write` / `edit` はセッションの作業ディレクトリと `<workspace root>/.agents/skills` に限られますが、`bash` は制限しません）
-- LLM の APIキーは BFF が持ち、サンドボックスへは共有トークンしか渡しません。ツール出力に現れた既知のキーは、LLM・SSE・ログへ渡す前に `[REDACTED]` へ置換します。ただし `pnpm dev` のようにホストで別プロセスとして起動した場合、サンドボックスは起動元シェルの環境を継承するため、export 済みの APIキーと同一ユーザーが読める認証ファイルは見えます（コンテナ分離ではこの継承はありません）
+- LLM の APIキーは BFF が持ち、サンドボックスへは共有トークンしか渡しません。設定 → モデルで登録したキーはアプリデータの SQLite（`PI_SESSION_STORE/u7agent.db`）へ**平文**で保存されるため、DB・WAL・バックアップのアクセス権を管理してください（[docs/model-settings.md](docs/model-settings.md#残存リスク)）。ツール出力に現れた既知のキーは、LLM・SSE・ログへ渡す前に `[REDACTED]` へ置換します。ただし `pnpm dev` のようにホストで別プロセスとして起動した場合、サンドボックスは起動元シェルの環境を継承するため、export 済みの APIキーと同一ユーザーが読める認証ファイルは見えます（コンテナ分離ではこの継承はありません）
 - `pnpm dev` の分離はプロセス分離です（同一ユーザー・同一環境）。コンテナ分離の設計と残存リスクは [docs/sandbox.md](docs/sandbox.md) を参照してください
 
 ## ドキュメント

@@ -5,6 +5,7 @@
 import { clampThinkingLevel, getSupportedThinkingLevels } from "@earendil-works/pi-ai";
 import type { Api, Model as PiAiModel } from "@earendil-works/pi-ai";
 import type { PiBff, RuntimeModelDiagnostics } from "../src/agent";
+import { createMutableSecretMasker } from "../src/redact";
 import type {
   AgentDef,
   AgentSkillInfo,
@@ -569,6 +570,8 @@ export interface StubPiOptions {
   /** BFF からの手動 compaction (引数なしの compact()) に使う options */
   manualCompaction?: StubCompactionOptions;
   availableModels?: PiAiModel<Api>[];
+  /** モデルカタログ (設定 → モデルのモデル一覧表示と診断が使う) */
+  catalogModels?: PiAiModel<Api>[];
   /** null を渡すとアプリ既定モデル無し (認証済み候補はある) を再現する */
   selectedModel?: PiAiModel<Api> | null;
   defaultThinkingLevel?: ThinkingLevel;
@@ -578,6 +581,74 @@ export interface StubPiOptions {
   modelWhitelistExcludesAll?: boolean;
   runtimeDiagnostics?: RuntimeModelDiagnostics;
   createSessionRejects?: number;
+  /** 設定 → モデルの API が返すプロバイダー。省略時は stub 1 件 (キー登録可) */
+  providers?: StubProvider[];
+  /** テストからツールする SDK 操作の模倣。throw すると CredentialCommit の分類を検証できる */
+  onSetRuntimeApiKey?: (provider: string, apiKey: string, signal: AbortSignal | undefined) => Promise<void> | void;
+  onRemoveRuntimeApiKey?: (provider: string, signal: AbortSignal | undefined) => Promise<void> | void;
+}
+
+export interface StubProvider {
+  provider: string;
+  name?: string;
+  canSetApiKey?: boolean;
+  supportsOAuth?: boolean;
+  /** configured の初期値。false (既定) は未認証 */
+  configured?: boolean;
+  authSource?: string;
+}
+
+/** 設定 → モデルの API 用。認証変更の呼び出しを記録し、provider ごとの configured を書き換える */
+export interface StubModelRuntimeCall {
+  operation: "setRuntimeApiKey" | "removeRuntimeApiKey";
+  provider: string;
+  apiKey?: string;
+}
+
+export interface StubModelRuntime {
+  getProviders(): readonly { id: string; name: string; auth: { apiKey?: { login: unknown }; oauth: unknown } }[];
+  getModels(): readonly PiAiModel<Api>[];
+  getProviderAuthStatus(provider: string): { configured: boolean; source?: string } | undefined;
+  setRuntimeApiKey(provider: string, apiKey: string, options?: { signal?: AbortSignal }): Promise<void>;
+  removeRuntimeApiKey(provider: string, options?: { signal?: AbortSignal }): Promise<void>;
+}
+
+export function createStubModelRuntime(
+  options: StubPiOptions = {},
+  calls: StubModelRuntimeCall[] = [],
+): StubModelRuntime {
+  const configured = new Map<string, boolean>(
+    (options.providers ?? []).map((provider) => [provider.provider, provider.configured ?? false]),
+  );
+  return {
+    getProviders: () =>
+      (options.providers ?? []).map((provider) => ({
+        id: provider.provider,
+        name: provider.name ?? provider.provider,
+        auth: {
+          apiKey: provider.canSetApiKey === false ? undefined : { login: () => {} },
+          oauth: provider.supportsOAuth ? {} : undefined,
+        },
+      })),
+    getModels: () => options.catalogModels ?? [],
+    getProviderAuthStatus: (provider) => {
+      const entry = (options.providers ?? []).find((candidate) => candidate.provider === provider);
+      if (!entry) return { configured: false };
+      return configured.get(provider)
+        ? { configured: true, source: entry.authSource ?? "environment" }
+        : { configured: false };
+    },
+    setRuntimeApiKey: async (provider, apiKey, callOptions) => {
+      calls.push({ operation: "setRuntimeApiKey", provider, apiKey });
+      await options.onSetRuntimeApiKey?.(provider, apiKey, callOptions?.signal);
+      configured.set(provider, true);
+    },
+    removeRuntimeApiKey: async (provider, callOptions) => {
+      calls.push({ operation: "removeRuntimeApiKey", provider });
+      await options.onRemoveRuntimeApiKey?.(provider, callOptions?.signal);
+      configured.set(provider, false);
+    },
+  };
 }
 
 export function createStubPi(options: StubPiOptions = {}) {
@@ -585,6 +656,11 @@ export function createStubPi(options: StubPiOptions = {}) {
   const selectedModel = options.selectedModel === undefined ? available[0] : (options.selectedModel ?? undefined);
   const sessions: StubSession[] = [];
   const createInputs: StubCreateInput[] = [];
+  // 設定 → モデル用の記録。bootstrap がメソッドを剥ぎ取っても動くよう、配列はクロージャで持つ
+  const modelRuntimeCalls: StubModelRuntimeCall[] = [];
+  const retainedSecrets: string[] = [];
+  const secretMasker = createMutableSecretMasker([]);
+  let refreshCount = 0;
   return {
     cwd: "/tmp/project",
     selectedModel,
@@ -598,6 +674,22 @@ export function createStubPi(options: StubPiOptions = {}) {
     tools: ["read"],
     sessions,
     createInputs,
+    // 設定 → モデル (bootstrap の createProviderKeyRuntime) が触る SDK 面の模倣
+    modelRuntime: createStubModelRuntime(options, modelRuntimeCalls),
+    modelRuntimeCalls,
+    // 実物と同じく、retainSecret で保護対象が増える可変マスカーを返す
+    secretMasker,
+    retainedSecrets,
+    retainSecret: (value: string) => {
+      retainedSecrets.push(value);
+      secretMasker.setSecrets(retainedSecrets);
+    },
+    get refreshCount() {
+      return refreshCount;
+    },
+    refreshModelState: async () => {
+      refreshCount += 1;
+    },
     resolveModel: (ref: ModelRef) => available.find((model) => model.provider === ref.provider && model.id === ref.id),
     createSession: async (input: StubCreateInput = {}) => {
       if ((options.createSessionRejects ?? 0) > 0) {

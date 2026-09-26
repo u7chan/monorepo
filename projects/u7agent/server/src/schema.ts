@@ -442,6 +442,57 @@ export const RuntimeModelsResponseSchema = z.object({
 export type RuntimeModelsResponse = z.infer<typeof RuntimeModelsResponseSchema>;
 
 /**
+ * 設定 → モデルのAPIキー入力の境界。短い値は通常出力のマスカーの下限 (MIN_SECRET_LENGTH) と揃え、
+ * 長い値は DB / メモリを守るために上限を置く。
+ */
+export const PROVIDER_API_KEY_MIN_LENGTH = 8;
+export const PROVIDER_API_KEY_MAX_LENGTH = 2048;
+
+/** 設定 → モデルの 1 プロバイダー行。認証状態は出所だけで、値・ラベル・生の認証エラーは含めない。 */
+export const ProviderAuthSettingSchema = z.object({
+  provider: z.string(),
+  name: z.string(),
+  auth: RuntimeAuthSchema,
+  /** provider_credentials に行がある (保存済みの希望状態) */
+  managed: z.boolean(),
+  /** auth.apiKey.login を持ち、この画面からキーを登録できる */
+  canSetApiKey: z.boolean(),
+  supportsOAuth: z.boolean(),
+  /** 現在のカタログに provider が無い (DB 行にしか無い) */
+  orphan: z.boolean(),
+  /** このプロセスの SDK 反映が未完了 (apply = 未適用 / remove = 削除未反映) */
+  degraded: z.enum(["apply", "remove"]).optional(),
+});
+export type ProviderAuthSetting = z.infer<typeof ProviderAuthSettingSchema>;
+
+/** GET /api/settings/models。カタログ全件は載せず、モデル数と一覧は /api/runtime/models が持つ */
+export const ModelsSettingsResponseSchema = z.object({
+  runtimeAvailable: z.boolean(),
+  whitelistConfigured: z.boolean(),
+  defaultModel: z.string().optional(),
+  providers: z.array(ProviderAuthSettingSchema),
+});
+export type ModelsSettingsResponse = z.infer<typeof ModelsSettingsResponseSchema>;
+
+/** 変更系 (PUT / DELETE / resync) の応答。GET と同型 + 必須の state (GET は state を持たない) */
+export const ModelMutationResponseSchema = ModelsSettingsResponseSchema.extend({
+  state: z.enum(["applied", "applied_unsynced"]),
+});
+export type ModelMutationResponse = z.infer<typeof ModelMutationResponseSchema>;
+
+/** 変更系の失敗応答 (何も変わっていない)。400 は error のみ */
+export const ModelMutationErrorSchema = z.object({
+  error: z.string(),
+  state: z.literal("not_stored"),
+});
+export type ModelMutationError = z.infer<typeof ModelMutationErrorSchema>;
+
+export const UpdateProviderKeyBodySchema = z.object({
+  apiKey: z.string().min(PROVIDER_API_KEY_MIN_LENGTH).max(PROVIDER_API_KEY_MAX_LENGTH),
+});
+export type UpdateProviderKeyBody = z.infer<typeof UpdateProviderKeyBodySchema>;
+
+/**
  * 設定 → ランタイムの実行環境カードが使う状態。`connected` だけが情報を持ち、他は理由の分類だけを返す
  * (URL / トークン / 内部エラーは載せない)。`connected` は診断 API の正常応答だけで、
  * ツール実行の成功を保証しない。
