@@ -1,5 +1,6 @@
 import type { RuntimeStatus } from "../hooks/runtimeStatus";
 import { cn } from "../lib/cn";
+import type { ChatScope } from "../lib/chatScope";
 import type { LayoutMode } from "../lib/layout";
 import { BellIcon, FolderIcon, MenuIcon } from "./icons";
 import { NotifyNote } from "./NotifyNote";
@@ -9,6 +10,8 @@ export type CompactBarProps = {
   mode: Exclude<LayoutMode, "desktop">;
   title: string;
   agentName?: string;
+  /** 作業先。エージェント名の行 (landscape はタイトルの左) に前置する */
+  scope: ChatScope;
   runtimeStatus: RuntimeStatus;
   /**
    * 会話の通知トグル。deliverable は今の On が実際に送られるか (色とラベルの根拠)。
@@ -23,12 +26,15 @@ export function CompactBar({
   mode,
   title,
   agentName,
+  scope,
   runtimeStatus,
   notify,
   sessionFiles,
   onOpenNav,
 }: CompactBarProps) {
   const landscape = mode === "landscape";
+  // 2 行目 (landscape はタイトルの左) に「作業先 · エージェント名」を出す
+  const scopeLine = `${scope.label} · ${agentName || "エージェント未選択"}`;
   // 配信できない On は、押しても切り替わらない理由を読み上げ名と title でも示す (色だけに頼らない)
   const notifyLabel = notify.on && !notify.deliverable ? "通知（停止中）" : "通知";
 
@@ -39,12 +45,12 @@ export function CompactBar({
           <MenuIcon />
         </button>
         {landscape ? (
-          <span className="shrink-0 text-2xs text-ink-faint">{agentName || "エージェント未選択"}</span>
+          // プロジェクト名に長さ制限は無い。行の半分を上限にして収縮と省略を許し、タイトルと固定幅の
+          // ボタンを viewport 内に残す (shrink-0 だと名前の分だけ右へ押し出す)
+          <span className="max-w-1/2 min-w-0 shrink truncate text-2xs text-ink-faint">{scopeLine}</span>
         ) : null}
         <div className="min-w-0 flex-1">
-          {landscape ? null : (
-            <div className="truncate text-2xs text-ink-faint">{agentName || "エージェント未選択"}</div>
-          )}
+          {landscape ? null : <div className="truncate text-2xs text-ink-faint">{scopeLine}</div>}
           <div className={cn("truncate font-medium text-ink-strong", landscape ? "text-xs" : "text-1sm")}>{title}</div>
         </div>
         {runtimeStatus.error ? <span className="dot dot-danger shrink-0" aria-hidden /> : null}
@@ -62,8 +68,8 @@ export function CompactBar({
           <button
             type="button"
             onClick={sessionFiles.onToggle}
-            aria-label="セッションのファイル"
-            title="セッションのファイル"
+            aria-label="作業フォルダ"
+            title="作業フォルダ"
             aria-expanded={sessionFiles.open}
             className={cn("icon-button", sessionFiles.open && "border-accent/50 text-accent-text")}
           >

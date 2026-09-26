@@ -47,7 +47,7 @@ export type ChatState = {
   runStartedAt?: number;
   /**
    * run が終わった回数。run_end と、running を抜けた resync で進む。値そのものは表示に使わず、
-   * チャットの右パネル (セッションのファイル) が取り直しの合図に使う (描画間の runStatus の差では、
+   * チャットの右パネル (作業フォルダ) が取り直しの合図に使う (描画間の runStatus の差では、
    * run_start と run_end が同じバッチで届いたときに running を観測できない)。
    */
   runEndSeq: number;

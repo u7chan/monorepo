@@ -1,23 +1,26 @@
 import { cn } from "../lib/cn";
+import type { ChatScope } from "../lib/chatScope";
 import type { RuntimeStatus } from "../hooks/runtimeStatus";
 import { NotifyNote } from "./NotifyNote";
 import { RuntimeAlert } from "./RuntimeAlert";
 import { BellIcon, FolderIcon, MenuIcon } from "./icons";
 
 export type TopbarProps = {
+  /** 作業先。プロジェクト名 (引けなければ「未所属」) と、チップの title に出す作業フォルダ */
+  scope: ChatScope;
   runtimeStatus: RuntimeStatus;
   /**
    * 会話の通知トグル。deliverable は今の On が実際に送られるか (色とラベルの根拠)。
    * note は配信できない理由で、On の間は常に、Off では押した後に出る
    */
   notify: { on: boolean; note?: string; deliverable: boolean; onToggle: () => void; onOpenSettings?: () => void };
-  /** 右パネル (セッションのファイル) のトグル。セッションが無い (root が決まらない) ときは渡さない */
+  /** 右パネル (作業フォルダ) のトグル。root が決まらないときは渡さない */
   sessionFiles?: { open: boolean; onToggle: () => void };
   /** 左バーが overlay のときだけ渡す (docked では左バーが常駐するので ☰ を出さない) */
   nav?: { onOpen: () => void };
 };
 
-export function Topbar({ runtimeStatus, notify, sessionFiles, nav }: TopbarProps) {
+export function Topbar({ scope, runtimeStatus, notify, sessionFiles, nav }: TopbarProps) {
   // accent は「実際に送られる」の意味に保つ (設定が無効 / Webhook 未登録の On は青くしない)
   const delivering = notify.on && notify.deliverable;
   // 配信できない On は、押しても切り替わらない理由をラベルでも示す (色だけに頼らない)
@@ -33,6 +36,18 @@ export function Topbar({ runtimeStatus, notify, sessionFiles, nav }: TopbarProps
             </button>
           ) : null}
           <div className="text-2xs font-semibold tracking-label text-ink-ghost uppercase">LOCAL WORKSPACE</div>
+          {/* プロジェクト配下の新規会話と未所属は main 領域では同じ見た目になるため、作業先を常時出す */}
+          <div
+            className="inline-flex min-w-0 items-center gap-1.5 rounded-full border border-line px-2.5 py-1.5 text-1xs text-ink-soft"
+            title={scope.root || undefined}
+          >
+            {scope.project ? (
+              <span className="shrink-0 text-ink-faint">
+                <FolderIcon />
+              </span>
+            ) : null}
+            <span className="min-w-0 truncate">{scope.label}</span>
+          </div>
         </div>
         <div className="flex min-w-0 items-center gap-2">
           {/* 正常時のモデルは入力欄の上の状態行、接続状態は画面の様子から分かるので、エラーのときだけ出す */}
@@ -60,7 +75,7 @@ export function Topbar({ runtimeStatus, notify, sessionFiles, nav }: TopbarProps
               className={cn("btn-quiet shrink-0", sessionFiles.open && "border-accent/50 text-accent-text")}
             >
               <FolderIcon />
-              セッションのファイル
+              作業フォルダ
             </button>
           ) : null}
         </div>

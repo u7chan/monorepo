@@ -2,6 +2,7 @@ import { Fragment, useEffect, useRef, useState } from "react";
 import type { Bubble } from "../hooks/chatReducer";
 import { useMessageCopy } from "../hooks/useMessageCopy";
 import { resolveScrollFollow } from "../lib/chatScroll";
+import type { ChatScope } from "../lib/chatScope";
 import { cn } from "../lib/cn";
 import { compactionDividerIndex } from "../lib/compaction";
 import { toolCallCopyText, toolHistoryCopyText } from "../lib/copy-content";
@@ -21,6 +22,8 @@ export type ChatAreaProps = {
   agentName?: string;
   /** 未設定なら SparkleIcon へフォールバックする */
   agentIcon?: string;
+  /** 作業先。空状態の見出しを「〈作業先〉で作業します」にするかの根拠 */
+  scope: ChatScope;
   /** ワークスペース root の絶対パス (health.cwd)。添付のサムネイル URL を組むのに使う */
   rootCwd?: string;
   /** 会話の切替 ("" からの遷移 = 新規チャットの作成も含む)。変わったら最下部へ揃える */
@@ -39,6 +42,7 @@ export function ChatArea({
   suggestions = [],
   agentName,
   agentIcon,
+  scope,
   rootCwd = "",
   sessionId,
   sendSeq,
@@ -156,7 +160,7 @@ export function ChatArea({
                 <AgentIcon icon={agentIcon} variant="hero" />
               </div>
               <h2 className={cn("font-semibold text-ink-strong", compact ? "text-lg" : "text-xl")}>
-                プロジェクトの相棒です
+                {scope.project ? `${scope.label} で作業します` : "プロジェクトの相棒です"}
               </h2>
               <p className="mt-2 text-1sm leading-relaxed text-ink-soft">
                 コードを読んだり、ファイルを編集したり、コマンドを実行できます。

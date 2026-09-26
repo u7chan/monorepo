@@ -11,7 +11,7 @@ import { FileBrowser } from "./FileBrowser";
 import { CloseIcon, RefreshIcon } from "./icons";
 
 export type SessionFilesPanelProps = {
-  /** 選択中セッションの作業フォルダ (ワークスペース root 相対)。パネル / シートの root */
+  /** 作業フォルダ (ワークスペース root 相対)。パネル / シートの root */
   root: string;
   /** アーカイブの除外名の実効値（app 状態）。行のダウンロードの出し分けに使う */
   excludeNames: readonly string[];
@@ -50,7 +50,7 @@ function SessionFilesContent({
       >
         <div className="min-w-0 flex-1">
           {compact ? (
-            <div className="text-2xs font-semibold tracking-label text-ink-ghost uppercase">SESSION FILES</div>
+            <div className="text-2xs font-semibold tracking-label text-ink-ghost uppercase">WORK FOLDER</div>
           ) : null}
           <h2
             className={
@@ -59,13 +59,12 @@ function SessionFilesContent({
                 : "truncate text-xs font-semibold text-ink-strong"
             }
           >
-            セッションのファイル
+            作業フォルダ
           </h2>
-          {compact ? (
-            <code className="block truncate text-2xs leading-normal text-ink-muted" title={root}>
-              {root}
-            </code>
-          ) : null}
+          {/* 新規会話ではプロジェクトのフォルダを指すため、ラベルだけでなく root も desktop で出す */}
+          <code className="block truncate text-2xs leading-normal text-ink-muted" title={root}>
+            {root}
+          </code>
         </div>
         <div className="ml-auto flex shrink-0 items-center gap-1">
           <button type="button" onClick={() => setManualReload((count) => count + 1)} className="btn-quiet">
@@ -175,7 +174,7 @@ function SessionFilesResizeHandle({
     <div
       ref={handleRef}
       role="separator"
-      aria-label="セッションのファイルの幅"
+      aria-label="作業フォルダの幅"
       aria-orientation="vertical"
       aria-valuemin={min}
       aria-valuemax={max}
@@ -203,7 +202,7 @@ export type SessionFilesDesktopPanelProps = SessionFilesPanelProps & { resize: S
 export function SessionFilesPanel({ resize, ...props }: SessionFilesDesktopPanelProps) {
   return (
     <aside
-      aria-label="セッションのファイル"
+      aria-label="作業フォルダ"
       className="relative grid h-full min-h-0 grid-rows-[auto_minmax(0,1fr)] overflow-hidden border-l border-line bg-panel"
     >
       {resize.resizable ? <SessionFilesResizeHandle {...resize} /> : null}
@@ -246,7 +245,7 @@ export function SessionFilesSheet({ returnFocus, ...props }: SessionFilesSheetPr
       onClose={props.onClose}
       tabIndex={-1}
       aria-modal="true"
-      aria-label="セッションのファイル"
+      aria-label="作業フォルダ"
       onKeyDown={(event) => {
         if (event.key === "Escape") event.stopPropagation();
       }}

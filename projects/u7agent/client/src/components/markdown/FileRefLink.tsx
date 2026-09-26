@@ -40,7 +40,7 @@ export function InlineFileRef({ text }: { text: string }) {
     <button
       type="button"
       className="md-fileref"
-      title="セッションのファイルで開く"
+      title="作業フォルダで開く"
       onClick={(event) => opener.open(path, event.currentTarget)}
     >
       <code>{text}</code>
