@@ -73,7 +73,7 @@ export function ChatArea({
     const el = chatAreaRef.current;
     if (!visible || !el) return;
     el.scrollTop = el.scrollHeight;
-    // 代入の後に読んだ位置を基準にする (位置が変わらない代入でも更新する。控えが古いままだと、
+    // 代入の後に読んだ位置を基準にする (位置が変わらない代入でも更新する。基準が古いままだと、
     // 直後にレイアウト起因で届く scroll を上へ戻す操作と誤認する)
     lastTopRef.current = el.scrollTop;
   }
