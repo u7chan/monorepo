@@ -391,3 +391,115 @@ test("unavailable() keeps the reason for health", () => {
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+/** v3 相当のスキーマ (provider_credentials が無い状態)。v3 の実ファイルと同じ形 */
+const V3_TABLES = `
+${V2_TABLES}
+CREATE TABLE archive_settings (
+  id INTEGER PRIMARY KEY CHECK (id = 1),
+  excludeNames TEXT NOT NULL
+);
+`;
+
+test("migrates a v3 db additively and keeps provider credentials across reopen", () => {
+  const dir = tempStoreDir();
+  try {
+    const raw = new DatabaseSync(join(dir, APP_DB_FILENAME));
+    raw.exec(V3_TABLES);
+    raw.exec("PRAGMA user_version = 3");
+    raw.prepare("INSERT INTO projects (id, name, cwd, createdAt) VALUES (?, ?, ?, ?)").run("p1", "p1", "proj-a", 1);
+    raw.prepare("INSERT INTO archive_settings (id, excludeNames) VALUES (1, ?)").run('["dist"]');
+    raw.close();
+
+    const first = AppDb.open({ storeDir: dir });
+    // 加算移行なので既存テーブルは消えない。新しいテーブルは空で始まる
+    assert.deepEqual(first.listProjects(), [project("p1", "proj-a")]);
+    assert.deepEqual(first.readArchiveExcludeNames(), ["dist"]);
+    assert.deepEqual(first.listProviderCredentials(), []);
+    first.saveProviderCredential("anthropic", "sk-ant-1");
+    // 同じ provider への保存は上書き (行を増やさない)
+    first.saveProviderCredential("anthropic", "sk-ant-2");
+    first.saveProviderCredential("openai", "sk-openai-1");
+    first.close();
+
+    const second = AppDb.open({ storeDir: dir });
+    assert.deepEqual(second.listProviderCredentials(), [
+      { provider: "anthropic", apiKey: "sk-ant-2" },
+      { provider: "openai", apiKey: "sk-openai-1" },
+    ]);
+    assert.deepEqual(second.getProviderCredential("anthropic"), { provider: "anthropic", apiKey: "sk-ant-2" });
+    assert.equal(second.getProviderCredential("ghost"), undefined);
+    assert.equal(second.deleteProviderCredential("anthropic"), true);
+    assert.equal(second.deleteProviderCredential("anthropic"), false, "無い行の削除は false");
+    second.close();
+
+    const check = new DatabaseSync(join(dir, APP_DB_FILENAME));
+    assert.equal(Number(check.prepare("PRAGMA user_version").get()?.user_version), APP_DB_SCHEMA_VERSION);
+    check.close();
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("sanitizeError masks both the query log and the error kept for health", () => {
+  const dir = tempStoreDir();
+  const key = "sk-ant-dummy-key-0123456789abcdef";
+  try {
+    const db = AppDb.open({ storeDir: dir, sanitizeError: (text) => text.split(key).join("[REDACTED]") });
+    db.saveProviderCredential("anthropic", key);
+    // SQLite の例外文言にキーが載る経路を作り、境界を通す (#query は成功でエラーを解除する)
+    const raw = new DatabaseSync(join(dir, APP_DB_FILENAME));
+    raw.exec(
+      `CREATE TRIGGER leak BEFORE UPDATE ON provider_credentials
+       BEGIN SELECT RAISE(ABORT, 'boom ' || NEW.apiKey); END`,
+    );
+    raw.close();
+
+    const logged: string[] = [];
+    const originalError = console.error;
+    console.error = (...args: unknown[]) => logged.push(args.map(String).join(" "));
+    try {
+      assert.throws(() => db.saveProviderCredential("anthropic", key), isServiceUnavailable);
+    } finally {
+      console.error = originalError;
+    }
+    const status = db.status();
+    assert.equal(status.ok, false);
+    assert.ok(status.error && !status.error.includes(key), `status.error をマスクする: ${status.error}`);
+    assert.ok(status.error?.includes("[REDACTED]"));
+    assert.ok(logged.length > 0 && !logged.join("\n").includes(key), "ログにも生のキーを出さない");
+    assert.throws(
+      () => db.saveProviderCredential("anthropic", key),
+      (error: unknown) => !String((error as Error).message).includes(key),
+      "503 の本文にもキーを出さない",
+    );
+    db.close();
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("open() failure messages pass through sanitizeError", () => {
+  const dir = tempStoreDir();
+  try {
+    // ディレクトリの位置に通常ファイルを置き、DB を開けない失敗を作る
+    mkdirSync(join(dir, "store"));
+    const fileAsDir = join(dir, "store", "u7agent.db");
+    writeFileSync(fileAsDir, "x");
+    const logged: string[] = [];
+    const originalError = console.error;
+    console.error = (...args: unknown[]) => logged.push(args.map(String).join(" "));
+    let db: AppDb;
+    try {
+      db = AppDb.open({ storeDir: fileAsDir, sanitizeError: (text) => `masked: ${text}` });
+    } finally {
+      console.error = originalError;
+    }
+    assert.equal(db.status().ok, false);
+    assert.ok(db.status().error?.startsWith("masked: "), `sanitizeError を通す: ${db.status().error}`);
+    assert.ok(logged.length > 0 && logged[0]?.includes("masked: "), "起動時のログもマスクする");
+    db.close();
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});

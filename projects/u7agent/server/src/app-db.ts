@@ -17,7 +17,13 @@ import type {
 
 export const APP_DB_FILENAME = "u7agent.db";
 /** テーブル定義を変えたら上げる。新規作成と加算移行はこの版へ揃え、未知の版は作り直す */
-export const APP_DB_SCHEMA_VERSION = 3;
+export const APP_DB_SCHEMA_VERSION = 4;
+
+/** プロバイダー API キーの保存行。平文なのでアクセス権の管理は docs/secrets.md を正とする */
+export interface ProviderCredentialRow {
+  provider: string;
+  apiKey: string;
+}
 
 export interface AppDbStatus {
   /** null は永続化なし (メモリ DB)。開けなかったときも null */
@@ -29,6 +35,11 @@ export interface AppDbStatus {
 export interface OpenAppDbOptions {
   /** 会話ストアと同じディレクトリ。null ならメモリ DB (テスト) */
   storeDir: string | null;
+  /**
+   * ログと health / 503 に載る DB エラー文言の境界。bootstrap が可変マスカーを渡し、
+   * 登録済みのAPIキーが例外文言へ現れても生のまま記録しない。未指定は identity (テストの明示 opt-out)。
+   */
+  sanitizeError?: (text: string) => string;
 }
 
 /**
@@ -57,6 +68,17 @@ CREATE TABLE IF NOT EXISTS archive_settings (
 );
 `;
 
+/**
+ * v3 -> v4 で足したテーブル。GUI から登録したプロバイダー API キーを 1 行 1 プロバイダーで持つ。
+ * 値は必ずバインドして渡す (SQL 文字列へ埋め込まない)。
+ */
+const PROVIDER_CREDENTIALS_TABLE = `
+CREATE TABLE IF NOT EXISTS provider_credentials (
+  provider TEXT PRIMARY KEY,
+  apiKey TEXT NOT NULL
+);
+`;
+
 const CREATE_TABLES = `
 CREATE TABLE projects (
   id TEXT PRIMARY KEY,
@@ -82,7 +104,8 @@ CREATE TABLE agents (
   suggestions TEXT
 );
 ${NOTIFICATION_SETTINGS_TABLE}
-${ARCHIVE_SETTINGS_TABLE}`;
+${ARCHIVE_SETTINGS_TABLE}
+${PROVIDER_CREDENTIALS_TABLE}`;
 
 /** アプリ所有のテーブルだけを落とす (同じ DB に足した別機能のテーブルを巻き込まない) */
 const DROP_TABLES = `
@@ -91,6 +114,7 @@ DROP TABLE IF EXISTS skills;
 DROP TABLE IF EXISTS projects;
 DROP TABLE IF EXISTS notification_settings;
 DROP TABLE IF EXISTS archive_settings;
+DROP TABLE IF EXISTS provider_credentials;
 `;
 
 /**
@@ -149,6 +173,10 @@ function skillOf(row: Row): SkillDef {
   };
 }
 
+function providerCredentialOf(row: Row): ProviderCredentialRow {
+  return { provider: text(row.provider), apiKey: text(row.apiKey) };
+}
+
 function notificationSettingsOf(row: Row): NotificationSettings {
   const settings: NotificationSettings = {
     enabled: Number(row.enabled) === 1,
@@ -192,14 +220,22 @@ export class AppDb {
   #db: DatabaseSync | null;
   #path: string | null;
   #error: string | undefined;
+  #sanitizeError: (text: string) => string;
 
-  private constructor(db: DatabaseSync | null, path: string | null, error?: string) {
+  private constructor(
+    db: DatabaseSync | null,
+    path: string | null,
+    sanitizeError: (text: string) => string,
+    error?: string,
+  ) {
     this.#db = db;
     this.#path = path;
+    this.#sanitizeError = sanitizeError;
     this.#error = error;
   }
 
-  static open({ storeDir }: OpenAppDbOptions): AppDb {
+  static open({ storeDir, sanitizeError }: OpenAppDbOptions): AppDb {
+    const sanitize = sanitizeError ?? ((text: string) => text);
     const path = storeDir === null ? null : join(storeDir, APP_DB_FILENAME);
     let db: DatabaseSync | null = null;
     try {
@@ -207,7 +243,7 @@ export class AppDb {
       // 会話ストアと同じ方針 (メモリ DB では無視される)
       db.exec("PRAGMA journal_mode = WAL");
       db.exec("PRAGMA synchronous = NORMAL");
-      const instance = new AppDb(db, path);
+      const instance = new AppDb(db, path, sanitize);
       const version = instance.#schemaVersion();
       // user_version が 0 = 未初期化 (新規ファイル・0 バイトの残骸・メモリ DB)。このときだけ seed する
       if (version === 0) instance.#recreate(true);
@@ -222,14 +258,23 @@ export class AppDb {
       } catch {
         // noop
       }
-      console.error(`[u7agent] app db unavailable: ${messageFor(error)}`);
-      return new AppDb(null, path, messageFor(error));
+      console.error(`[u7agent] app db unavailable: ${sanitize(messageFor(error))}`);
+      return new AppDb(null, path, sanitize, sanitize(messageFor(error)));
     }
   }
 
   /** パス解決の失敗など、開く前に DB を使えないと分かっている状態 */
-  static unavailable({ storeDir, error }: { storeDir: string | null; error: string }): AppDb {
-    return new AppDb(null, storeDir === null ? null : join(storeDir, APP_DB_FILENAME), error);
+  static unavailable({
+    storeDir,
+    error,
+    sanitizeError,
+  }: {
+    storeDir: string | null;
+    error: string;
+    sanitizeError?: (text: string) => string;
+  }): AppDb {
+    const sanitize = sanitizeError ?? ((text: string) => text);
+    return new AppDb(null, storeDir === null ? null : join(storeDir, APP_DB_FILENAME), sanitize, sanitize(error));
   }
 
   status(): AppDbStatus {
@@ -277,7 +322,7 @@ export class AppDb {
       this.#error = undefined;
       return result;
     } catch (error) {
-      this.#error = messageFor(error);
+      this.#error = this.#sanitizeError(messageFor(error));
       console.error(`[u7agent] app db query failed: ${this.#error}`);
       throw httpError(503, `アプリデータ（SQLite）を利用できません: ${this.#error}`);
     }
@@ -321,6 +366,7 @@ export class AppDb {
     try {
       this.#query((db) => db.exec(NOTIFICATION_SETTINGS_TABLE));
       this.#query((db) => db.exec(ARCHIVE_SETTINGS_TABLE));
+      this.#query((db) => db.exec(PROVIDER_CREDENTIALS_TABLE));
       // PRAGMA はパラメータ化できない (値はコード側の定数)
       this.#query((db) => db.exec(`PRAGMA user_version = ${APP_DB_SCHEMA_VERSION}`));
       this.#query((db) => db.exec("COMMIT"));
@@ -390,6 +436,42 @@ export class AppDb {
   /** 行を消して未設定へ戻す (既定名を保存し直すと、以後の既定の更新に追随しなくなる) */
   resetArchiveExcludeNames(): boolean {
     return this.#query((db) => db.prepare("DELETE FROM archive_settings WHERE id = 1").run().changes > 0);
+  }
+
+  // --- provider credentials (GUI から登録したプロバイダー API キー) ---
+
+  listProviderCredentials(): ProviderCredentialRow[] {
+    return this.#query((db) =>
+      (db.prepare("SELECT * FROM provider_credentials ORDER BY rowid").all() as Row[]).map(providerCredentialOf),
+    );
+  }
+
+  getProviderCredential(provider: string): ProviderCredentialRow | undefined {
+    const row = this.#query(
+      (db) => db.prepare("SELECT * FROM provider_credentials WHERE provider = ?").get(provider) as Row | undefined,
+    );
+    return row ? providerCredentialOf(row) : undefined;
+  }
+
+  /**
+   * 登録と上書きで同じ (provider が主キー)。単一ステートメントなので自動コミットで確定し、
+   * ここが成功して返れば行は永続化されている (呼び出し側の not_stored 判定の根拠)。
+   */
+  saveProviderCredential(provider: string, apiKey: string): void {
+    this.#query((db) =>
+      db
+        .prepare(
+          `INSERT INTO provider_credentials (provider, apiKey) VALUES (?, ?)
+           ON CONFLICT(provider) DO UPDATE SET apiKey = excluded.apiKey`,
+        )
+        .run(provider, apiKey),
+    );
+  }
+
+  deleteProviderCredential(provider: string): boolean {
+    return this.#query(
+      (db) => db.prepare("DELETE FROM provider_credentials WHERE provider = ?").run(provider).changes > 0,
+    );
   }
 
   // --- projects ---

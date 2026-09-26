@@ -2,6 +2,12 @@
 
 モデルの選択は「アプリ既定 → セッション作成時の指定 → チャット単位の変更」の 3 段階があり、実効値は常に pi セッション（`session.model` / `session.thinkingLevel`）を正とする。
 
+プロバイダーの認証は `PI_MODEL` / `PI_MODELS` の解釈より前段で、`ModelRuntime.getAvailable()` の入力になる。設定 → モデルから登録したAPIキーは runtime overlay として環境変数や `auth.json` より優先され、登録・削除の直後に available を再計算する（[model-settings.md](model-settings.md)）。
+
+## モデル state の再計算
+
+available と診断は起動時に一度だけ読むのではなく、`readModelState()`（snapshot 読取 → `deriveModelState()`）で作り直し、`PiBff` の getter 群（`availableModels` / `modelOptions` / `selectedModel` / `defaultModelError` / `availabilityError` / `modelWhitelistExcludesAll` / `runtimeDiagnostics`）が常に同じ 1 参照を返す。再計算は認証変更のミューテーションロックの内側だけで行い、`getAvailable()` の失敗は「可用 0 + `availabilityError`」として公開する（古い可用一覧を成功として残さない）。導出そのものが失敗してもロックを壊さず、可用 0 の安全な state にする。`availabilityError` は health に出るため必ずマスカーを通す。
+
 ## アプリ既定の決定
 
 アプリ既定モデルは `ModelRuntime.getAvailable()` の結果（認証済みモデルのみ）から決める。`PI_MODEL` を明示していればそれを使い、利用できない場合は別のモデルへ黙ってフォールバックせず `health.defaultModelError` として返す（`ready` は候補が 1 つ以上あれば true のまま）。`PI_MODEL` 未指定なら先頭候補を使う。
@@ -28,6 +34,7 @@ POST /api/sessions { model?, thinkingLevel? }
 
 - フォールバックしたときは実効モデルを `model_change` entry へ追記して保存し、meta の `model` も更新する。元モデルが後で候補に戻っても、続きを別モデルで進めたセッションは元へ戻らない
 - 利用可能なモデルが 1 つも無いときはセッションを開く要求を 503 で拒否し、一覧（meta）からは消さない
+- 設定 → モデルでキーを削除した provider の会話も同じ規則で解決する。未ロードの会話は次の復元時に候補が無ければアプリ既定へフォールバックし、フォールバックした実効値を保存する
 - Effort は JSONL の最後の `thinking_level_change` を使い、現在のモデル能力で clamp する（clamp は決定的なので補正後の値を entry へ必ず追記する必要はない）。payload には SDK が持つ実効値を返す
 
 ## チャット単位の変更
@@ -42,6 +49,14 @@ POST /api/sessions { model?, thinkingLevel? }
 送信（`POST /api/sessions/:id/messages`）は text だけを受け取り、モデルはそのセッションの SDK セッションが持つ実効値（`session.model`）で決まる。送信ごとのモデル指定は無いため、表示（入力欄 / ヘッダー）と実際の送信先が食い違わないよう、クライアントは選択中セッションの実効モデルだけを表示する。
 
 エージェント定義の Model / Effort（`agent.model` / `agent.thinkingLevel`）はセッション作成時の初期値にだけ使い、既存チャットへ遡及しない（[api-catalog.md](api-catalog.md)）。
+
+## 既存の会話への影響（認証の変更）
+
+設定 → モデルからAPIキーを登録・削除しても、**起動中のセッションのモデルは自動で切り替えない**。
+
+- 削除した provider のキーだけで認証していた会話は、次回の送信が認証で失敗しうる（環境変数や `auth.json` の認証があればそちらが使われる）
+- 未ロードの会話は復元時に上の「復元時の解決」を通るため、`PI_MODELS` の候補が無ければ別のモデルへ落ちる。このとき切替は `model_change` へ保存され、元に戻らない
+- `applied_unsynced`（保存済み・未反映）の間は、available が古いまま公開 state に残りうる。実際の送信は SDK が持つ認証に従うため、選択中モデルの送信が失敗する可能性がある（設定 → モデルに警告と再同期の導線を出す）
 
 ## クライアント側の表示
 

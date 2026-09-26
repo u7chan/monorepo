@@ -12,6 +12,7 @@ import { createCatalogRoutes } from "./routes/catalog";
 import { createFileRoutes } from "./routes/files";
 import { createHealthRoutes } from "./routes/health";
 import { createNotificationRoutes } from "./routes/notifications";
+import { createModelSettingsRoutes } from "./routes/models";
 import { createProjectRoutes } from "./routes/projects";
 import { createRuntimeRoutes } from "./routes/runtime";
 import { createSessionRoutes } from "./routes/sessions";
@@ -26,6 +27,7 @@ import {
   UpdateAgentBodySchema,
   UpdateArchiveSettingsBodySchema,
   UpdateNotificationsBodySchema,
+  UpdateProviderKeyBodySchema,
   UpdateSessionNotifyBodySchema,
   UpdateSessionSettingsBodySchema,
   UpdateSkillBodySchema,
@@ -37,9 +39,10 @@ export type { CreateBffAppOptions };
 
 /**
  * アプリデータ (SQLite) を読む API の入口。開けていないときは 503 にして、空のカタログや未所属へ
- * 黙って落とさない (会話ストアの storeError と同じ規約)。
+ * 黙って落とさない (会話ストアの storeError と同じ規約)。変更系のルートでは、何も変わっていないことを
+ * 応答契約 (`{ error, state: "not_stored" }`) でも示す。
  */
-function appDataGuard(appDb: AppDb): MiddlewareHandler {
+function appDataGuard(appDb: AppDb, { notStored = false }: { notStored?: boolean } = {}): MiddlewareHandler {
   return async (c, next) => {
     if (!appDb.status().ok) {
       // 一過性の失敗から戻れるように、失敗状態のときだけ軽く読み直す (成功したら解除される)
@@ -47,7 +50,8 @@ function appDataGuard(appDb: AppDb): MiddlewareHandler {
         appDb.probe();
       } catch {
         const { error } = appDb.status();
-        return c.json({ error: `アプリデータ（SQLite）を利用できません: ${error ?? "unknown error"}` }, 503);
+        const body = { error: `アプリデータ（SQLite）を利用できません: ${error ?? "unknown error"}` };
+        return notStored ? c.json({ ...body, state: "not_stored" as const }, 503) : c.json(body, 503);
       }
     }
     await next();
@@ -69,8 +73,11 @@ export async function createBffApp(opts: CreateBffAppOptions = {}) {
     notifications,
     archiveSettings,
     runtimeDiagnostics,
+    modelSettings,
   } = await createBffContext(opts);
   const appData = appDataGuard(appDb);
+  // 変更系は「何も保存していない」ことを state でも示す
+  const appDataMutation = appDataGuard(appDb, { notStored: true });
 
   const healthRoutes = createHealthRoutes({ pi, initError, cwd, store, appDb, archiveSettings });
   const runtimeRoutes = createRuntimeRoutes({ pi, runtimeDiagnostics });
@@ -80,6 +87,7 @@ export async function createBffApp(opts: CreateBffAppOptions = {}) {
   const sessionRoutes = createSessionRoutes({ store, workspace });
   const notificationRoutes = createNotificationRoutes({ notifications });
   const archiveRoutes = createArchiveRoutes({ archiveSettings });
+  const modelSettingsRoutes = createModelSettingsRoutes({ modelSettings });
 
   const app = new Hono()
     // bodyGuard は本文を最長 64 KiB で読み切って text 化するため、raw で受けるアップロードは先に登録する
@@ -233,6 +241,17 @@ export async function createBffApp(opts: CreateBffAppOptions = {}) {
       (c) => archiveRoutes.update(c, c.req.valid("json")),
     )
     .delete("/api/settings/archive", appData, archiveRoutes.reset)
+    .get("/api/settings/models", appData, modelSettingsRoutes.list)
+    .put(
+      "/api/settings/models/:provider/key",
+      appDataMutation,
+      jsonBodyValidator(UpdateProviderKeyBodySchema, (result, c) =>
+        result.success ? undefined : c.json({ error: "Invalid request body" }, 400),
+      ),
+      (c) => modelSettingsRoutes.putKey(c, c.req.valid("json").apiKey),
+    )
+    .delete("/api/settings/models/:provider/key", appDataMutation, modelSettingsRoutes.deleteKey)
+    .post("/api/settings/models/:provider/resync", appDataMutation, modelSettingsRoutes.resync)
     // Hono は登録順にマッチするため、未マッチの GET を拾う catch-all は最後に置く。
     .get("*", serveClientAssets(clientDistDir))
     .notFound((c) => c.json({ error: "Not found" }, 404))
@@ -255,6 +274,7 @@ export async function createBffApp(opts: CreateBffAppOptions = {}) {
     appDb,
     notifications,
     archiveSettings,
+    modelSettings,
     close: async () => {
       // 未完了の送信結果は記録しない (プロセス終了時に破棄する)
       notifications.close();

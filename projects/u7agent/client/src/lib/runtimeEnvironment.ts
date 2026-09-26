@@ -2,13 +2,7 @@
  * 設定 → ランタイムの実行環境カードの表示変換と、health / モデルカタログ / 実行環境をまとめて
  * 取り直す手順。コンポーネントから切り出して、状態の分岐と古い応答の扱いをテストできるようにする。
  */
-import type {
-  Health,
-  RuntimeEnvironmentResponse,
-  RuntimeEnvironmentState,
-  RuntimeModelsResponse,
-  SandboxRuntimeCommand,
-} from "../types";
+import type { Health, RuntimeEnvironmentResponse, RuntimeEnvironmentState, SandboxRuntimeCommand } from "../types";
 
 export type RuntimeEnvironmentSummary = {
   label: string;
@@ -62,7 +56,6 @@ export type RuntimeReloadOutcome<T> = { ok: true; value: T } | { ok: false; mess
 export type RuntimeReloadResults = {
   /** includeHealth が false のときは null (親が持つ health をそのまま使う) */
   health: RuntimeReloadOutcome<Health> | null;
-  models: RuntimeReloadOutcome<RuntimeModelsResponse>;
   environment: RuntimeReloadOutcome<RuntimeEnvironmentResponse>;
 };
 
@@ -78,25 +71,23 @@ export type RuntimeReloadInput = {
   isCurrent: () => boolean;
   /** 既存の契約 (失敗もキャンセルも null) は変えず、ここで明示的な失敗へ変換する */
   refreshHealth: (isCurrent?: () => boolean) => Promise<Health | null>;
-  getModels: () => Promise<RuntimeModelsResponse>;
   getEnvironment: () => Promise<RuntimeEnvironmentResponse>;
 };
 
 /**
- * 3 系統をまとめて取得する。1 系統の失敗で他を捨てず、全 settled を待つ。
+ * health と実行環境をまとめて取得する。1 系統の失敗で他を捨てず、全 settled を待つ。
  * 古い応答を適用しない判定は呼び出し側 (createRuntimeReloadGate) が持つ。
  */
 export async function reloadRuntime(input: RuntimeReloadInput): Promise<RuntimeReloadResults> {
   if (!input.includeHealth) {
-    const [models, environment] = await Promise.allSettled([input.getModels(), input.getEnvironment()]);
-    return { health: null, models: outcomeOf(models), environment: outcomeOf(environment) };
+    const [environment] = await Promise.allSettled([input.getEnvironment()]);
+    return { health: null, environment: outcomeOf(environment) };
   }
-  const [health, models, environment] = await Promise.allSettled([
+  const [health, environment] = await Promise.allSettled([
     refreshHealthOrFail(input.refreshHealth, input.isCurrent),
-    input.getModels(),
     input.getEnvironment(),
   ]);
-  return { health: outcomeOf(health), models: outcomeOf(models), environment: outcomeOf(environment) };
+  return { health: outcomeOf(health), environment: outcomeOf(environment) };
 }
 
 async function refreshHealthOrFail(

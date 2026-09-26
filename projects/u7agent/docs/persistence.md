@@ -18,6 +18,7 @@ GUI の会話履歴は **BFF 専用の会話ストア**（`PI_SESSION_STORE`）�
 | 会話履歴・セッション一覧・タイトル（`PI_SESSION_STORE/<id>/{meta.json,session.jsonl}`） | 残る（ストアを永続ボリュームに置いた場合） |
 | エージェント / スキル定義（アプリデータの SQLite） | 残る（ストアを永続ボリュームに置いた場合） |
 | アーカイブの除外名（アプリデータの SQLite、上書きしたときだけ） | 残る（ストアを永続ボリュームに置いた場合） |
+| 設定 → モデルで登録したプロバイダーAPIキー（アプリデータの SQLite） | 残る（ストアを永続ボリュームに置いた場合。平文・[model-settings.md](model-settings.md)） |
 | アプリデータの DB（`PI_SESSION_STORE/u7agent.db`） | 残る（ストアを永続ボリュームに置いた場合） |
 | `/workspace` 以外に保存したデータ・後からインストールしたツール | 原則残らない |
 | 実行中のプロセス | 中断される |
@@ -57,7 +58,9 @@ GUI の会話履歴は **BFF 専用の会話ストア**（`PI_SESSION_STORE`）�
 
 - 置き場所は会話ストアと同じディレクトリの `PI_SESSION_STORE/u7agent.db`。新しい環境変数は増やさない。
 - メモリ DB（`:memory:`）になるのは `sessionStoreDir: null` を明示したとき（テスト）だけ。パス解決に失敗したときは DB を使えない状態にし、メモリへは逃がさない。
-- テーブルは `projects` / `agents` / `skills` / `notification_settings` / `archive_settings` の 5 つ。`skillIds` / `suggestions` / `model` / `excludeNames` は JSON 列、並び順は作成順（rowid）。`notification_settings` は Discord 通知のグローバル設定（Webhook URL / 有効 / ベース URL / メンション / 直近結果）を 1 行だけ持ち、Webhook URL は API 応答へ出さない（[notifications.md](notifications.md)）。`archive_settings` はダウンロード ZIP の除外名（`excludeNames`）を 1 行だけ持ち、**行が無い = 未設定**（実効値は `DEFAULT_ARCHIVE_EXCLUDE_NAMES`）、行があればその一覧が正で `[]` は「除外なし」を表す（[file-preview.md](file-preview.md#ダウンロード)、[api.md](api.md#アーカイブの除外名)）。既定へ戻すときは行ごと消す（既定名を保存し直すと、以後 `DEFAULT_ARCHIVE_EXCLUDE_NAMES` を足しても追随しなくなる）。
+- テーブルは `projects` / `agents` / `skills` / `notification_settings` / `archive_settings` / `provider_credentials` の 6 つ。`provider_credentials` は 設定 → モデルで登録したプロバイダー API キーを 1 行 1 プロバイダーで持ち、値は平文（アクセス権の管理と残存リスクは [model-settings.md](model-settings.md)）。`skillIds` / `suggestions` / `model` / `excludeNames` は JSON 列、並び順は作成順（rowid）。`notification_settings` は Discord 通知のグローバル設定（Webhook URL / 有効 / ベース URL / メンション / 直近結果）を 1 行だけ持ち、Webhook URL は API 応答へ出さない（[notifications.md](notifications.md)）。`archive_settings` はダウンロード ZIP の除外名（`excludeNames`）を 1 行だけ持ち、**行が無い = 未設定**（実効値は `DEFAULT_ARCHIVE_EXCLUDE_NAMES`）、行があればその一覧が正で `[]` は「除外なし」を表す（[file-preview.md](file-preview.md#ダウンロード)、[api.md](api.md#アーカイブの除外名)）。既定へ戻すときは行ごと消す（既定名を保存し直すと、以後 `DEFAULT_ARCHIVE_EXCLUDE_NAMES` を足しても追随しなくなる）。
+- `provider_credentials` は v3 → v4 の加算移行で足した。保存は主キー `provider` の upsert（単一ステートメント）で、成功して返れば行は確定している。この性質を認証変更 API の `applied` / `not_stored` の判定に使う（[model-settings.md](model-settings.md#応答契約)）。
+- DB の例外文言は `AppDb.open({ sanitizeError })` を通してからログ・health・503 へ出す（bootstrap が可変マスカーを注入し、登録済みの API キーが例外へ現れても生のまま記録しない）。未指定は identity で、これはテストの明示 opt-out。
 - `PRAGMA user_version` をコード側の定数（`APP_DB_SCHEMA_VERSION`）と照合する。古い版（小さい値）は加算的に移行し、足りないテーブルだけを `CREATE TABLE IF NOT EXISTS` で作って `user_version` を更新する（既存のエージェント / スキル / プロジェクトは消さない）。新しい版（大きい値）のときだけアプリ所有のテーブルを DROP → CREATE する。会話は `session.jsonl` なので作り直しでも消えない。
 - 自分で書いた JSON 列が壊れていたときは、黙って既定へ落とさず例外にして 503 側で見せる（通知の `lastResult` と同じ規約）。アーカイブの除外名も、行があるのに配列でなければ同じ扱いにする。
 - サンプル定義（ずんだもん 1 体）は DB ファイルを新規作成したときだけ入れる。`user_version` 不一致の作り直しでは入れないため、削除した定義は再起動でも戻らない。
@@ -69,7 +72,7 @@ GUI の会話履歴は **BFF 専用の会話ストア**（`PI_SESSION_STORE`）�
 会話ストアと同じ規約（メモリだけの黙ったフォールバックをしない）。
 
 - 起動は継続し、`GET /api/health` の `appDb` に `{ path, ok, error }` を返す。
-- アプリデータを読む API は 503 になる。カタログ（`/api/agents` / `/api/skills`）、プロジェクト（`/api/projects`）、セッションの作成・一覧・取得・設定変更・送信・SSE 接続（所属の解決と `create()` のカタログ参照を通るため）、設定のアーカイブ（`/api/settings/archive`）。
+- アプリデータを読む API は 503 になる。カタログ（`/api/agents` / `/api/skills`）、プロジェクト（`/api/projects`）、セッションの作成・一覧・取得・設定変更・送信・SSE 接続（所属の解決と `create()` のカタログ参照を通るため）、設定のアーカイブ（`/api/settings/archive`）、設定のモデル（`/api/settings/models`。変更系の 503 は `state: "not_stored"` を付ける）。
 - 削除は会話ストアだけで完結するため通す。停止も live なセッションなら通る（未ロードのセッションは復元時に所属を解決するため、DB が使えないと 503 になる）。
 - SSE は接続時に 503 で拒否し、配信中の payload 生成で失敗したらその接続を閉じる（未所属へ落として配信を続けない）。
 - 起動時だけでなく稼働中の読み書き失敗も同じ扱いにする。失敗状態のときは入口ガードが `SELECT 1` で読み直し、成功すれば解除される（復旧に再起動は要らない）。

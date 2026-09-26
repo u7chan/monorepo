@@ -9,6 +9,7 @@
 | HTTP の契約 / DTO / ルート追加 | `server/src/schema.ts`、`server/src/app.ts`、`server/src/routes/` | [api.md](api.md)、[api-sessions.md](api-sessions.md)、[api-catalog.md](api-catalog.md) |
 | エージェント / スキル定義とファイルスキル | `server/src/agents.ts`、`server/src/catalog-skills.ts`、`server/src/file-skills.ts`、`server/src/builtin-skills.ts`、`server/src/session-skills.ts`、`client/src/components/AgentSettingsPage.tsx`、`client/src/components/SkillSettingsPage.tsx`、`client/src/components/composer/SkillField.tsx` | [api-catalog.md](api-catalog.md)、[api-sessions.md](api-sessions.md) |
 | モデル / Effort の解決と変更 | `server/src/agent.ts`、`server/src/sessions.ts`、`client/src/lib/composerSettings.ts`、`client/src/components/composer/ComposerStatus.tsx` | [model-effort.md](model-effort.md)、[api-sessions.md](api-sessions.md) |
+| プロバイダー API キーの登録（設定 → モデル） | `server/src/model-settings.ts`、`server/src/routes/models.ts`、`server/src/bootstrap.ts`、`client/src/hooks/useModelSettings.ts`、`client/src/components/ModelSettingsPage.tsx` | [model-settings.md](model-settings.md)、[secrets.md](secrets.md)、[api.md](api.md#プロバイダーapiキー設定--モデル) |
 | プロジェクト / cwd / ファイルツリーとプレビュー | `server/src/projects.ts`、`client/src/components/FileTreePage.tsx`、`client/src/components/SessionFilesPanel.tsx`、`client/src/components/FileBrowser.tsx`、`client/src/components/FilePreview.tsx`、`client/src/lib/fileTree.ts`、`client/src/lib/fileTabs.ts`、`client/src/lib/fileRef.ts`、`client/src/lib/sessionFiles.ts`、`client/src/lib/chatScope.ts` | [projects.md](projects.md)、[api.md](api.md)、[ui-layout.md](ui-layout.md)、[file-preview.md](file-preview.md) |
 | ファイル / フォルダのダウンロード（ZIP） | `server/src/archive-rules.ts`、`server/src/sandbox/zip.ts`、`server/src/sandbox/archive.ts`、`server/src/routes/files.ts`、`client/src/lib/archive.ts`、`client/src/components/FileBrowser.tsx` | [file-preview.md](file-preview.md#ダウンロード)、[api.md](api.md#ダウンロード)、[sandbox-api.md](sandbox-api.md#get-v1filesdownload) |
 | アーカイブの除外（設定） | `server/src/archive-settings.ts`、`server/src/routes/archive.ts`、`server/src/app-db.ts`、`client/src/hooks/useArchiveSettings.ts`、`client/src/components/ArchiveSettingsPage.tsx`、`client/src/lib/archiveSettings.ts` | [api.md](api.md#アーカイブの除外名)、[persistence.md](persistence.md#アプリデータsqlite)、[file-preview.md](file-preview.md#ダウンロード) |
@@ -31,6 +32,7 @@
 - [run-lifecycle.md](run-lifecycle.md) — ラン、イベントログ、SSE、セッションのライフサイクル
 - [projects.md](projects.md) — プロジェクトとセッションの作業ディレクトリ
 - [model-effort.md](model-effort.md) — モデル / Effort の解決と変更
+- [model-settings.md](model-settings.md) — プロバイダーAPIキーの GUI 登録（保存先・応答契約・degraded・残存リスク）
 - [sandbox.md](sandbox.md) — ツール実行のサンドボックス分離
 - [sandbox-api.md](sandbox-api.md) — サンドボックス内部 API と環境変数（ZIP の除外規則と上限を含む）
 - [secrets.md](secrets.md) — APIキー漏洩の抑制

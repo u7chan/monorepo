@@ -13,6 +13,8 @@ import type {
   FileRename,
   FileSkillsResponse,
   Health,
+  ModelMutationResponse,
+  ModelsSettingsResponse,
   ModelRef,
   NotificationResult,
   NotificationsResponse,
@@ -39,6 +41,8 @@ export class ApiError extends Error {
   constructor(
     message: string,
     public readonly status: number,
+    /** 変更系の 503 だけが持つ。何も保存されていないことを UI が区別できる */
+    public readonly state?: "not_stored",
   ) {
     super(message);
     this.name = "ApiError";
@@ -54,7 +58,11 @@ async function apiError(res: Response): Promise<ApiError> {
     typeof body === "object" && body !== null && "error" in body && typeof body.error === "string"
       ? body.error
       : `HTTP ${res.status}`;
-  return new ApiError(message, res.status);
+  const state =
+    typeof body === "object" && body !== null && "state" in body && body.state === "not_stored"
+      ? ("not_stored" as const)
+      : undefined;
+  return new ApiError(message, res.status, state);
 }
 
 export const getHealth = async (): Promise<Health> => {
@@ -415,4 +423,35 @@ export const resetArchiveSettings = async (): Promise<ArchiveSettingsResponse> =
   const res = await client.api.settings.archive.$delete();
   if (!res.ok) throw await apiError(res);
   return res.json();
+};
+
+/**
+ * 設定 → モデルのプロバイダー認証状態（純粋読取）。キー値は含まれない。
+ * モデル数と一覧は別途 `getRuntimeModels()` が持ち、片方の失敗が他方を隠さない。
+ */
+export const getModelsSettings = async (): Promise<ModelsSettingsResponse> => {
+  const res = await client.api.settings.models.$get();
+  if (!res.ok) throw await apiError(res);
+  return res.json();
+};
+
+/** APIキーの登録（既存は上書き）。保存は確定し、SDK へ未反映なら `state: "applied_unsynced"` で返る */
+export const putProviderApiKey = async (provider: string, apiKey: string): Promise<ModelMutationResponse> => {
+  const res = await client.api.settings.models[":provider"].key.$put({ param: { provider }, json: { apiKey } });
+  if (!res.ok) throw await apiError(res);
+  return (await res.json()) as ModelMutationResponse;
+};
+
+/** この画面で登録したキーの削除。この画面の管理外（行が無い）は 400 */
+export const deleteProviderApiKey = async (provider: string): Promise<ModelMutationResponse> => {
+  const res = await client.api.settings.models[":provider"].key.$delete({ param: { provider } });
+  if (!res.ok) throw await apiError(res);
+  return (await res.json()) as ModelMutationResponse;
+};
+
+/** degraded（保存済み・未反映）の回復。DB の希望状態を SDK へ再適用するだけで、冪等 */
+export const resyncProviderApiKey = async (provider: string): Promise<ModelMutationResponse> => {
+  const res = await client.api.settings.models[":provider"].resync.$post({ param: { provider } });
+  if (!res.ok) throw await apiError(res);
+  return (await res.json()) as ModelMutationResponse;
 };

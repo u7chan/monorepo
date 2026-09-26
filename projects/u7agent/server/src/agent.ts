@@ -21,8 +21,8 @@ import { resolveWorkspaceCwd } from "./projects";
 import { ThinkingLevelSchema } from "./schema";
 import { createSandboxToolClientFromEnv } from "./sandbox/client";
 import { createRemoteToolDefinitions } from "./sandbox/remote-tools";
-import type { SecretMasker } from "./redact";
-import { createRuntimeSecretMasker, createSecretRedactionExtension } from "./secret-guard";
+import { createMutableSecretMasker, type SecretMasker } from "./redact";
+import { collectSecretValues, createSecretRedactionExtension, extraSecretVarNames } from "./secret-guard";
 import { catalogSkillsFromSnapshot } from "./session-skills";
 import type {
   AgentDef,
@@ -50,7 +50,7 @@ export interface RuntimeModelDiagnostics {
 }
 
 export const AUTH_REQUIRED_MESSAGE =
-  "APIキーが未設定です。ANTHROPIC_API_KEY などのプロバイダー用キーを設定するか、保存済みの認証情報を確認してからサーバーを再起動してください。";
+  "APIキーが未設定です。設定 → モデル でプロバイダーのAPIキーを登録するか、ANTHROPIC_API_KEY などのプロバイダー用キーを設定してからサーバーを再起動してください。";
 
 export const SANDBOX_NOT_CONFIGURED_MESSAGE =
   "サンドボックスが設定されていません。PI_SANDBOX_URL と PI_SANDBOX_TOKEN を設定してサーバーを再起動してください (ローカルでのツール実行にはフォールバックしません)。";
@@ -152,6 +152,13 @@ export interface PiBff {
   createSession(input?: CreateSessionInput): Promise<{ session: unknown; promptSnapshot: PromptSnapshot }>;
   modelLabel(model?: PiModelRef | null): string | undefined;
   secretMasker: SecretMasker;
+  /**
+   * 実行中に得た秘密値 (GUI 入力のAPIキー・DB から読んだキー) を保護対象へ足す。
+   * 同じ値の再登録は no-op で、プロセス生存中は集合から取り除かない。
+   */
+  retainSecret(value: string): void;
+  /** SDK のモデル状態を読み直して公開 state を差し替える。throw しない (lock を壊さない) */
+  refreshModelState(): Promise<void>;
 }
 
 export function errorMessage(error: unknown): string {
@@ -404,6 +411,162 @@ export function unavailableRuntimeDiagnostics(
   return { status: "unavailable", unavailableReason, versions: runtimeVersionInfo() };
 }
 
+/** SDK から読んだランタイムのスナップショット (非同期・失敗しうる)。公開 state はここから純粋に導出する。 */
+export interface ModelSnapshot {
+  /** whitelist 適用前の利用可能モデル */
+  available: PiAiModel<Api>[];
+  catalog: PiAiModel<Api>[];
+  providerIds: string[];
+  authStatuses: Map<string, RuntimeAuthStatusLike>;
+  /** getAvailable() 失敗時のみ。値は必ずマスク済み */
+  availabilityError?: string;
+}
+
+/** health / resolveModel / ピッカーが読む公開 state。常にミューテーションロックの内側で 1 参照だけ差し替える。 */
+export interface ModelState {
+  availableModels: PiAiModel<Api>[];
+  modelOptions: ModelOption[];
+  selectedModel?: PiAiModel<Api>;
+  defaultModelError?: string;
+  availabilityError?: string;
+  modelWhitelistExcludesAll: boolean;
+  runtimeDiagnostics?: RuntimeModelDiagnostics;
+}
+
+/** 可用 0 の安全な state。導出そのものが失敗したときだけ使う (古い可用一覧を成功として残さない) */
+export function unavailableModelState(availabilityError?: string): ModelState {
+  return {
+    availableModels: [],
+    modelOptions: [],
+    modelWhitelistExcludesAll: false,
+    ...(availabilityError ? { availabilityError } : {}),
+  };
+}
+
+export async function readModelSnapshot(modelRuntime: ModelRuntime): Promise<ModelSnapshot> {
+  const available = [...(await modelRuntime.getAvailable())];
+  const providerIds = modelRuntime.getProviders().map((provider) => provider.id);
+  const authStatuses = new Map(
+    providerIds.map((provider) => [provider, modelRuntime.getProviderAuthStatus(provider)] as const),
+  );
+  return { available, catalog: [...modelRuntime.getModels()], providerIds, authStatuses };
+}
+
+export interface ModelStateInput {
+  snapshot: ModelSnapshot;
+  requested: RequestedModel | undefined;
+  whitelist: ModelRef[] | undefined;
+  versions: RuntimeVersions;
+}
+
+/** PI_MODEL の構文解釈結果 (requested。thinkingLevel はここでは使わない) */
+export interface RequestedModel {
+  model: ModelRef;
+  thinkingLevel: ThinkingLevel | undefined;
+}
+
+/**
+ * スナップショット読取から公開 state までを 1 回分行う。非同期の失敗 (SDK) も導出の失敗 (バグ・契約外データ)
+ * も例外にせず、可用 0 の安全な state へ寄せる。
+ */
+export async function readModelState(input: {
+  modelRuntime: ModelRuntime;
+  requested: RequestedModel | undefined;
+  whitelist: ModelRef[] | undefined;
+  versions: RuntimeVersions;
+  /** health / availabilityError に出るため、SDK の例外文言はここで必ずマスクする */
+  maskError: (error: unknown) => string;
+}): Promise<ModelState> {
+  let snapshot: ModelSnapshot;
+  try {
+    snapshot = await readModelSnapshot(input.modelRuntime);
+  } catch (error) {
+    let catalog: PiAiModel<Api>[] = [];
+    try {
+      catalog = [...input.modelRuntime.getModels()];
+    } catch {
+      // カタログも読めないときは空のまま (診断は unavailable になる)
+    }
+    snapshot = {
+      available: [],
+      catalog,
+      providerIds: [],
+      authStatuses: new Map(),
+      availabilityError: input.maskError(error),
+    };
+  }
+  try {
+    return deriveModelState({
+      snapshot,
+      requested: input.requested,
+      whitelist: input.whitelist,
+      versions: input.versions,
+    });
+  } catch {
+    return unavailableModelState("モデル状態の再計算に失敗しました");
+  }
+}
+
+/**
+ * スナップショットから公開 state を純粋に導出する。可用モデルの絞り込み・既定モデルの選択・
+ * 診断の集計を 1 箇所に閉じ、すべての値が同じ available から決まるようにする。
+ */
+export function deriveModelState({ snapshot, requested, whitelist, versions }: ModelStateInput): ModelState {
+  const availableModelList = filterModelsByWhitelist(snapshot.available, whitelist);
+  let availabilityError = snapshot.availabilityError;
+  let modelWhitelistExcludesAll = false;
+  if (whitelist && !availabilityError && availableModelList.length === 0) {
+    // 認証が未設定でも whitelist は必ず空になるため、対処先を絞れるよう両方を確認させる文言で返す。
+    modelWhitelistExcludesAll = true;
+    availabilityError = MODEL_WHITELIST_EMPTY_MESSAGE;
+  }
+
+  // getModel() は認証の有無を見ないため、PI_MODEL の指定も getAvailable() と突き合わせる。
+  const selectedModel = requested
+    ? availableModelList.find((model) => model.provider === requested.model.provider && model.id === requested.model.id)
+    : availableModelList[0];
+  let defaultModelError: string | undefined;
+  if (requested && !selectedModel) {
+    // 利用不能でも他候補へ黙ってフォールバックせず、ready のままエラーとして伝える。
+    defaultModelError = `指定された既定モデルは利用できません: ${requested.model.provider}/${requested.model.id}`;
+  }
+
+  if (!selectedModel && !defaultModelError && !availabilityError) {
+    const requestedProvider = requested?.model.provider;
+    const hasConfiguredProvider = requestedProvider
+      ? sanitizeRuntimeAuth(snapshot.authStatuses.get(requestedProvider)).configured
+      : snapshot.providerIds.some((provider) => sanitizeRuntimeAuth(snapshot.authStatuses.get(provider)).configured);
+    availabilityError = hasConfiguredProvider ? MODEL_UNAVAILABLE_MESSAGE : AUTH_REQUIRED_MESSAGE;
+  }
+
+  let runtimeDiagnostics: RuntimeModelDiagnostics | undefined;
+  if (!snapshot.availabilityError) {
+    try {
+      runtimeDiagnostics = deriveRuntimeModelDiagnostics({
+        catalog: snapshot.catalog,
+        available: snapshot.available,
+        providerIds: snapshot.providerIds,
+        authStatuses: snapshot.authStatuses,
+        whitelist,
+        requestedModel: requested?.model,
+        versions,
+      });
+    } catch {
+      // Diagnostics are best-effort and must not change the existing runtime or model-selection behavior.
+    }
+  }
+
+  return {
+    availableModels: availableModelList,
+    modelOptions: availableModelList.map(modelOptionOf),
+    selectedModel,
+    defaultModelError,
+    availabilityError,
+    modelWhitelistExcludesAll,
+    runtimeDiagnostics,
+  };
+}
+
 /** picker 用の能力情報。SDK のヘルパーをそのまま使い、BFF 側で模倣しない。 */
 function modelOptionOf(model: PiAiModel<Api>): ModelOption {
   const levels = getSupportedThinkingLevels(model) as ThinkingLevel[];
@@ -502,75 +665,43 @@ export async function createPiBff({ cwd = process.cwd() }: { cwd?: string } = {}
     modelsPath: join(agentDir, "models.json"),
   });
   // 保護対象は BFF が環境変数で受け取ったキーの非空値だけで、認証に使う process.env 自体は変更しない。
-  const secretMasker = createRuntimeSecretMasker(modelRuntime.getProviders(), process.env);
+  // 可変にして、GUI から登録されたキーを SDK / DB へ渡す前に保護対象へ足せるようにする。
+  const secretMasker = createMutableSecretMasker(
+    collectSecretValues(modelRuntime.getProviders(), process.env, extraSecretVarNames(process.env)),
+  );
+  // 削除・上書きしてもプロセス生存中は保護対象から外さない (raw の session.jsonl の再投影で旧キーを出さないため)。
+  const retainedSecrets = new Set<string>();
+  const retainSecret = (value: string): void => {
+    if (typeof value !== "string" || value.trim() === "" || retainedSecrets.has(value)) return;
+    retainedSecrets.add(value);
+    secretMasker.setSecrets([
+      ...collectSecretValues(modelRuntime.getProviders(), process.env, extraSecretVarNames(process.env)),
+      ...retainedSecrets,
+    ]);
+  };
   // 作業用ツールはすべてサンドボックス (別プロセス) で実行し、BFF ローカル実行へはフォールバックしない。
   const sandboxClient = createSandboxToolClientFromEnv(process.env);
 
   const requested = parseModelReference();
   const modelWhitelist = parseModelWhitelist(process.env.PI_MODELS);
-  let availableModelList: PiAiModel<Api>[] = [];
-  let availabilityError: string | undefined;
+  const versions = runtimeVersionInfo();
+  const maskError = (error: unknown): string => secretMasker.mask(errorMessage(error));
 
-  try {
-    availableModelList = [...(await modelRuntime.getAvailable())];
-  } catch (error) {
-    availabilityError = errorMessage(error);
+  const current = { value: unavailableModelState() };
+  /** 公開 state の差し替え。ロックの内側でだけ呼び、例外は出さない (lock を壊さない)。 */
+  async function refreshModelState(): Promise<void> {
+    current.value = await readModelState({ modelRuntime, requested, whitelist: modelWhitelist, versions, maskError });
   }
-  let runtimeDiagnostics: RuntimeModelDiagnostics | undefined;
-  if (!availabilityError) {
-    try {
-      const providerIds = modelRuntime.getProviders().map((provider) => provider.id);
-      const authStatuses = new Map(
-        providerIds.map((provider) => [provider, modelRuntime.getProviderAuthStatus(provider)] as const),
-      );
-      runtimeDiagnostics = deriveRuntimeModelDiagnostics({
-        catalog: modelRuntime.getModels(),
-        available: availableModelList,
-        providerIds,
-        authStatuses,
-        whitelist: modelWhitelist,
-        requestedModel: requested?.model,
-        versions: runtimeVersionInfo(),
-      });
-    } catch {
-      // Diagnostics are best-effort and must not change the existing runtime or model-selection behavior.
-    }
-  }
-  availableModelList = filterModelsByWhitelist(availableModelList, modelWhitelist);
-  const availableModels: PiModelRef[] = availableModelList;
-
-  let modelWhitelistExcludesAll = false;
-  if (modelWhitelist && !availabilityError && availableModelList.length === 0) {
-    // 認証が未設定でも whitelist は必ず空になるため、対処先を絞れるよう両方を確認させる文言で返す。
-    modelWhitelistExcludesAll = true;
-    availabilityError = MODEL_WHITELIST_EMPTY_MESSAGE;
-  }
-
-  // getModel() は認証の有無を見ないため、PI_MODEL の指定も getAvailable() と突き合わせる。
-  const matchAvailable = (ref: ModelRef): PiAiModel<Api> | undefined =>
-    availableModelList.find((model) => model.provider === ref.provider && model.id === ref.id);
-  let selectedModel = requested ? matchAvailable(requested.model) : availableModelList[0];
-  let defaultModelError: string | undefined;
-  if (requested && !selectedModel) {
-    // 利用不能でも他候補へ黙ってフォールバックせず、ready のままエラーとして伝える。
-    defaultModelError = `指定された既定モデルは利用できません: ${requested.model.provider}/${requested.model.id}`;
-  }
-
-  if (!selectedModel && !defaultModelError && !availabilityError) {
-    const requestedProvider = requested?.model.provider;
-    const hasConfiguredProvider = requestedProvider
-      ? modelRuntime.getProviderAuthStatus(requestedProvider).configured
-      : modelRuntime.getProviders().some((provider) => modelRuntime.getProviderAuthStatus(provider.id).configured);
-    availabilityError = hasConfiguredProvider ? MODEL_UNAVAILABLE_MESSAGE : AUTH_REQUIRED_MESSAGE;
-  }
+  await refreshModelState();
 
   const defaultThinkingLevel = parseThinkingLevel(
     requested?.thinkingLevel ?? process.env.PI_THINKING?.trim() ?? "medium",
   );
 
-  const modelOptions = availableModelList.map((model) => modelOptionOf(model));
   const resolveModel = (model: ModelRef): PiAiModel<Api> | undefined =>
-    availableModelList.find((candidate) => candidate.provider === model.provider && candidate.id === model.id);
+    current.value.availableModels.find(
+      (candidate) => candidate.provider === model.provider && candidate.id === model.id,
+    );
   // 検証時だけ閾値を下げる。未設定なら SDK 既定 (16384 / 20000) で従来と同じ。
   const compactionSettings = compactionSettingsFromEnv();
 
@@ -588,7 +719,7 @@ export async function createPiBff({ cwd = process.cwd() }: { cwd?: string } = {}
     // 不正な cwd はモデル解決より先に 400 にする (実行できない指定を 503 の裏に隠さない)
     const { relative: relativeCwd, absolute: sessionCwd } = resolveWorkspaceCwd(rootCwd, requestedCwd);
     // 明示されたモデルは利用可能一覧と厳密照合する
-    const modelObject = model ? resolveModel(model) : selectedModel;
+    const modelObject = model ? resolveModel(model) : current.value.selectedModel;
     if (model && !modelObject) {
       const error = new Error(`Model is not available: ${model.provider}/${model.id}`) as Error & {
         statusCode?: number;
@@ -597,7 +728,9 @@ export async function createPiBff({ cwd = process.cwd() }: { cwd?: string } = {}
       throw error;
     }
     if (!modelObject) {
-      const error = new Error(defaultModelError || availabilityError || AUTH_REQUIRED_MESSAGE) as Error & {
+      const error = new Error(
+        current.value.defaultModelError || current.value.availabilityError || AUTH_REQUIRED_MESSAGE,
+      ) as Error & {
         statusCode?: number;
       };
       error.statusCode = 503;
@@ -671,19 +804,35 @@ export async function createPiBff({ cwd = process.cwd() }: { cwd?: string } = {}
     cwd: rootCwd,
     agentDir,
     modelRuntime,
-    selectedModel,
-    availableModels,
-    modelOptions,
+    get selectedModel() {
+      return current.value.selectedModel;
+    },
+    get availableModels() {
+      return current.value.availableModels;
+    },
+    get modelOptions() {
+      return current.value.modelOptions;
+    },
     defaultThinkingLevel,
-    defaultModelError,
-    availabilityError,
-    modelWhitelistExcludesAll,
-    runtimeDiagnostics,
+    get defaultModelError() {
+      return current.value.defaultModelError;
+    },
+    get availabilityError() {
+      return current.value.availabilityError;
+    },
+    get modelWhitelistExcludesAll() {
+      return current.value.modelWhitelistExcludesAll;
+    },
+    get runtimeDiagnostics() {
+      return current.value.runtimeDiagnostics;
+    },
     sandboxConfigured: Boolean(sandboxClient),
     tools: configuredTools(),
     resolveModel,
     createSession,
     modelLabel,
     secretMasker,
+    retainSecret,
+    refreshModelState,
   };
 }

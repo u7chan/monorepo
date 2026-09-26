@@ -1,6 +1,12 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { createSecretMasker, createStreamingSecretMasker, MIN_SECRET_LENGTH, REDACTED } from "../src/redact";
+import {
+  createMutableSecretMasker,
+  createSecretMasker,
+  createStreamingSecretMasker,
+  MIN_SECRET_LENGTH,
+  REDACTED,
+} from "../src/redact";
 
 const KEY = "sk-ant-dummy-0123456789abcdef";
 const OTHER = "AIzaSyDummyDummyDummy123456789";
@@ -134,4 +140,52 @@ test("interruption: held-back partial is not streamed early and flush keeps text
   let second = resumed.push(`out ${KEY}`);
   second += resumed.flush();
   assert.equal(second, `out ${REDACTED}`);
+});
+
+test("createMutableSecretMasker swaps the whole protection set and follows it through getters", () => {
+  const masker = createMutableSecretMasker([KEY]);
+  assert.deepEqual(masker.secrets, [KEY]);
+  assert.equal(masker.maxSecretLength, KEY.length);
+  assert.equal(masker.mask(`x ${KEY} y`), `x ${REDACTED} y`);
+
+  // 追加: 新しい値も保護し、getter は差し替え後の一覧を返す (公開配列はミューテートしない)
+  masker.setSecrets([KEY, OTHER]);
+  const beforeSwap = masker.secrets;
+  assert.deepEqual([...beforeSwap].sort(), [KEY, OTHER].sort(), "長い順に並んだ新しい一覧を返す");
+  assert.equal(masker.mask(`x ${OTHER} y`), `x ${REDACTED} y`);
+  assert.equal(masker.maxSecretLength, Math.max(KEY.length, OTHER.length));
+
+  // 置換: 削除した値は対象から外れる (プロセス生存中の保持は呼び出し側の責務)
+  masker.setSecrets([OTHER]);
+  assert.deepEqual(masker.secrets, [OTHER]);
+  assert.equal(masker.mask(`x ${KEY} y`), `x ${KEY} y`);
+  assert.notEqual(masker.secrets, beforeSwap, "同じ配列参照を使い回さない");
+
+  masker.setSecrets([]);
+  assert.deepEqual(masker.secrets, []);
+  assert.equal(masker.maxSecretLength, 0);
+  assert.equal(masker.mask(`x ${OTHER} y`), `x ${OTHER} y`);
+});
+
+test("a streaming masker created before the swap holds back the new values", () => {
+  const masker = createMutableSecretMasker([]);
+  const stream = createStreamingSecretMasker(masker);
+  masker.setSecrets([KEY]);
+
+  assert.equal(stream.push("before "), "before ");
+  // 保留幅は flush 時ではなく push 時に読むため、swap 後の値でも中途半端なキーを配らない
+  assert.equal(stream.push(KEY.slice(0, 10)), "");
+  assert.equal(stream.push(KEY.slice(10)), REDACTED);
+  assert.equal(stream.flush(), "");
+});
+
+test("a failed swap keeps the previous protection set (atomic replace)", () => {
+  const masker = createMutableSecretMasker([KEY]);
+  function* broken(): Generator<string> {
+    yield OTHER;
+    throw new Error("boom");
+  }
+  assert.throws(() => masker.setSecrets(broken()));
+  assert.deepEqual(masker.secrets, [KEY], "組み立てに失敗した値は適用しない");
+  assert.equal(masker.mask(`x ${KEY} y`), `x ${REDACTED} y`);
 });

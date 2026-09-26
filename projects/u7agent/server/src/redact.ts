@@ -62,6 +62,46 @@ export function createSecretMasker(secrets: Iterable<string>, options: SecretMas
   };
 }
 
+/**
+ * 保護対象を実行中に差し替えられるマスカー。GUI から登録したキーを、SDK / DB へ渡す前から
+ * 既存の参照 (SessionStore / NotificationService / ツール closure / streaming masker) へ効かせるために使う。
+ */
+export interface MutableSecretMasker extends SecretMasker {
+  /** 保護対象一式を差し替える。内部マスカーを組み立ててから 1 参照で swap する (同期・例外安全) */
+  setSecrets(secrets: Iterable<string>): void;
+}
+
+/**
+ * swap は内部マスカーの参照差し替えだけで行う。公開する `secrets` / `maxSecretLength` は getter なので、
+ * 差し替え後も既存の参照 (createStreamingSecretMasker など) が古い配列を掴まない。
+ */
+export function createMutableSecretMasker(
+  secrets: Iterable<string>,
+  options: SecretMaskerOptions = {},
+): MutableSecretMasker {
+  let inner = createSecretMasker(secrets, options);
+  return {
+    get secrets(): readonly string[] {
+      return inner.secrets;
+    },
+    get maxSecretLength(): number {
+      return inner.maxSecretLength;
+    },
+    mask(text: string): string {
+      return inner.mask(text);
+    },
+    maskSafe(text: string): string {
+      return inner.maskSafe(text);
+    },
+    maskAccumulated(text: string): string {
+      return inner.maskAccumulated(text);
+    },
+    setSecrets(next: Iterable<string>): void {
+      inner = createSecretMasker(next, options);
+    },
+  };
+}
+
 /** これ以下の先頭部分一致は再構成のリスクが小さく、通常出力への誤置換を避けるため対象外。 */
 export const MIN_LEADING_PARTIAL = 4;
 

@@ -7,6 +7,7 @@ import { CompactBar } from "./components/CompactBar";
 import { Composer } from "./components/Composer";
 import { FileTreePage } from "./components/FileTreePage";
 import { NavSheet } from "./components/NavSheet";
+import { ModelSettingsPage } from "./components/ModelSettingsPage";
 import { NotificationSettingsPage } from "./components/NotificationSettingsPage";
 import { ProjectDialog } from "./components/ProjectDialog";
 import { RuntimePage } from "./components/RuntimePage";
@@ -406,6 +407,8 @@ export default function App() {
               <ArchiveSettingsPage {...pageProps} archiveSettings={app.archiveSettings} />
             ) : settingsSection === "appearance" ? (
               <AppearancePage {...pageProps} />
+            ) : settingsSection === "models" ? (
+              <ModelSettingsPage {...pageProps} onRefreshHealth={app.refreshHealth} />
             ) : settingsSection === "runtime" ? (
               <RuntimePage {...pageProps} health={app.health} onRefreshHealth={app.refreshHealth} />
             ) : (
