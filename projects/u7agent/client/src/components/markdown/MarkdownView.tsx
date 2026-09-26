@@ -2,6 +2,7 @@ import { memo, useMemo } from "react";
 import { parseInline } from "../../lib/markdown/inline";
 import { MARKDOWN_MAX_LENGTH, parseMarkdown } from "../../lib/markdown/parse";
 import type { MdAlign, MdBlock, MdHeadingLevel, MdInline, MdListItem } from "../../lib/markdown/types";
+import { ZoomableImage } from "../ImageZoom";
 import { CodeBlock } from "./CodeBlock";
 import { Diagram } from "./Diagram";
 import { InlineFileRef } from "./FileRefLink";
@@ -196,9 +197,14 @@ function InlineNode({ node, inLink = false }: { node: MdInline; inLink?: boolean
         </a>
       );
     case "image":
-      return <img className="md-img" src={node.src} alt={node.alt} />;
+      // <a> の中に button を置けない。リンクの children は従来どおり素の img で描く
+      return inLink ? (
+        <img className="md-img" src={node.src} alt={node.alt} />
+      ) : (
+        <ZoomableImage src={node.src} alt={node.alt} variant="markdown" />
+      );
     case "html":
-      return <HtmlInline node={node.node} />;
+      return <HtmlInline node={node.node} inLink={inLink} />;
     case "math":
       return <MathInline node={node.node} />;
   }
