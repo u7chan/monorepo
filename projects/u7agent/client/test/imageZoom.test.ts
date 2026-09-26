@@ -75,6 +75,15 @@ test("背景クリックは dialog 自身を押したときだけ閉じる", () 
   assert.match(zoom, /if \(event\.target === dialogRef\.current\) dialogRef\.current\?\.close\(\);/);
 });
 
+test("読み込みに失敗した画像は button で包まず、元の包含ブロックで幅を解決する", () => {
+  // button は fit-content の包含ブロックなので、intrinsic 幅を持たない失敗 img を包むとサムネイルが
+  // alt テキスト幅まで縮む (段落直下の img は段落幅で解決していた)。失敗したら包まずに描く
+  const zoom = read("src/components/ImageZoom.tsx");
+  assert.match(zoom, /const failed = failedSrc === src;/, "失敗した src を覚えておく (src が変わったら戻す)");
+  assert.match(zoom, /onError=\{\(\) => setFailedSrc\(src\)\}/, "読み込み失敗を拾っていない");
+  assert.match(zoom, /\{failed\s*\?\s*\(\s*thumbnail\s*\)\s*:\s*\(\s*<button/, "失敗時も button で包んでいる");
+});
+
 test("拡大画像は .md の外に置き、枠・角丸を当てない", () => {
   const zoom = read("src/components/ImageZoom.tsx");
   const lightbox = zoom.slice(zoom.indexOf("createPortal("));

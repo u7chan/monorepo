@@ -66,6 +66,7 @@ MessageView (assistant の本文)
 本文の画像（Markdown の `![alt](src)` と、許可リストを通った生 HTML の `img`）は、クリックでライトボックスを開く。実装は `client/src/components/ImageZoom.tsx` の `ZoomableImage` が持ち、Markdown 側は import して使うだけにする。`components/markdown/` は `client/test/markdownSafety.test.ts` が `document.` とインライン style を禁止して走査するため、DOM に触る部品をここには置かない（`MarkdownView` へコールバックも引き回さないので、ブロック単位の `memo` にも影響しない）。
 
 - サムネイルは `type="button"` の `button` で、読み上げ名は `<alt> を拡大表示`。開いた `dialog` は `createPortal` で `document.body` へ出す。段落（`<p>`）の中に `<dialog>` を置くと DOM が不正になるうえ、`.md img` の枠・角丸が拡大画像にも当たる
+- 読み込みに失敗した画像（intrinsic 幅を持たない）は `button` で包まず、その場（段落 / `<li>`）へ直接置く。`button` は fit-content の包含ブロックなので、包むとサムネイルが alt テキスト幅まで縮み、失敗時の見え方（段落幅）が変わるため
 - 開くのは `showModal()`（終了とフォーカス拘束は標準挙動）。閉じるのは Escape / 背景クリック（`event.target` が dialog 自身のときだけ）/ 閉じるボタンで、`onClose` で state を落とし、サムネイルへ focus を戻す。Escape の keydown は `stopPropagation` だけして `preventDefault` しない（閉じるのを標準挙動に任せ、App の Escape（設定ページからチャットへ戻る）へ渡さない）
 - 拡大画像は viewport に収まる範囲で最大にし、intrinsic size は超えて引き伸ばさない。dialog 自身は背景透明の全画面で、減光とぼかしは既存の `dialog::backdrop` に任せる
 - 見た目は `variant` で切り替える（`markdown` は `md-img`、`attachment` は枠・角丸を自分で当てる）。呼び出し側は `src` / `alt` / `title` / `variant`（添付は `compact`）だけを渡し、className は渡さない（`shadcn/no-restyle`）

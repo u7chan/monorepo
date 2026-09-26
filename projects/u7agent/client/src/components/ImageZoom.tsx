@@ -21,6 +21,11 @@ export type ZoomableImageProps = {
  */
 export function ZoomableImage({ src, alt, title, variant, compact = false }: ZoomableImageProps) {
   const [open, setOpen] = useState(false);
+  // 読み込みに失敗した img は intrinsic 幅を持たない。button は fit-content の包含ブロックになり、
+  // 失敗 img のサムネイルが alt テキスト幅まで縮む (main は段落幅で解決していた)。失敗した src だけを
+  // 持つのは、src が変わったときに再度失敗するまで button へ戻すため
+  const [failedSrc, setFailedSrc] = useState<string | null>(null);
+  const failed = failedSrc === src;
   const dialogRef = useRef<HTMLDialogElement | null>(null);
   const thumbRef = useRef<HTMLButtonElement | null>(null);
   const label = alt === "" ? "画像を拡大表示" : `${alt} を拡大表示`;
@@ -31,25 +36,34 @@ export function ZoomableImage({ src, alt, title, variant, compact = false }: Zoo
     if (open && dialog !== null && !dialog.open) dialog.showModal();
   }, [open]);
 
+  const thumbnail = (
+    <img
+      src={src}
+      alt={alt}
+      title={title}
+      onError={() => setFailedSrc(src)}
+      className={cn(
+        "object-contain",
+        variant === "markdown" ? "md-img" : cn("rounded-lg border border-line", compact ? "max-h-32" : "max-h-44"),
+      )}
+    />
+  );
+
   return (
     <>
-      <button
-        type="button"
-        ref={thumbRef}
-        aria-label={label}
-        onClick={() => setOpen(true)}
-        className="block max-w-full cursor-zoom-in outline-none focus-visible:ring-2 focus-visible:ring-focus"
-      >
-        <img
-          src={src}
-          alt={alt}
-          title={title}
-          className={cn(
-            "object-contain",
-            variant === "markdown" ? "md-img" : cn("rounded-lg border border-line", compact ? "max-h-32" : "max-h-44"),
-          )}
-        />
-      </button>
+      {failed ? (
+        thumbnail
+      ) : (
+        <button
+          type="button"
+          ref={thumbRef}
+          aria-label={label}
+          onClick={() => setOpen(true)}
+          className="block max-w-full cursor-zoom-in outline-none focus-visible:ring-2 focus-visible:ring-focus"
+        >
+          {thumbnail}
+        </button>
+      )}
       {open
         ? createPortal(
             <dialog
