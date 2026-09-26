@@ -21,6 +21,7 @@ import { useRoute } from "./hooks/useRoute";
 import { useSessionFilesPanelWidth } from "./hooks/useSessionFilesPanelWidth";
 import { useViewportWidth } from "./hooks/useViewportWidth";
 import { agentIconOf } from "./lib/agentIcon";
+import { chatScope } from "./lib/chatScope";
 import { cn } from "./lib/cn";
 import { fileRefRequestForSession } from "./lib/fileRefRequest";
 import { resolveSidebarPlacement, SIDEBAR_WIDTH } from "./lib/layout";
@@ -30,7 +31,7 @@ import {
   notifyDeliverable,
   notifyUnavailableNote,
 } from "./lib/notifications";
-import { sessionFilesRoot } from "./lib/sessionFiles";
+import { sessionFilesDefaultOpen, sessionFilesRoot } from "./lib/sessionFiles";
 import { type SettingsSection, type SidebarMode } from "./lib/settingsNav";
 
 export default function App() {
@@ -53,13 +54,38 @@ export default function App() {
     viewportWidth,
     mainWidth: sidebarDocked ? viewportWidth - SIDEBAR_WIDTH : viewportWidth,
   });
+  const mainView = route.view;
+  // 作業先 (バーのチップ / 空状態の見出し)。未作成チャットは作成先、セッションはその所属が作業先になる
+  const scope = chatScope({
+    cwd: app.cwd,
+    sessionId: app.sessionId,
+    selectedProjectId: app.selectedProjectId,
+    projects: app.projects,
+    sessions: app.sessions,
+  });
+  // 作業フォルダの root。projectCwd はセッション未作成かつ作成先が解決済みのときだけ渡す (lib/sessionFiles.ts)
+  const filesRoot = sessionFilesRoot({
+    chatView: mainView === "chat",
+    cwd: app.cwd,
+    projectCwd: app.sessionId === "" ? (app.selectedProject?.cwd ?? "") : "",
+  });
   const [projectDialogOpen, setProjectDialogOpen] = useState(false);
   const [navOpen, setNavOpen] = useState(false);
-  // セッションファイル UI の開閉は保存しない (desktop は右パネル、compact は全画面シート)
-  const [sessionFilesOpen, setSessionFilesOpen] = useState(false);
+  // 作業フォルダの開閉は保存しない (desktop は右パネル、compact は全画面シートで state も分ける)
+  const [sessionFilesOpen, setSessionFilesOpen] = useState(() =>
+    sessionFilesDefaultOpen({ compact, projectId: app.selectedProjectId }),
+  );
+  const [sessionFilesSheetOpen, setSessionFilesSheetOpen] = useState(false);
+  // シートを閉じる契機の監視キー。route 全体は比べない (/s/<id> が / へ畳まれるだけでは閉じない)
+  const [sheetScope, setSheetScope] = useState(() => ({ compact, view: mainView, root: filesRoot }));
+  // 設定ページへの出入り / root の変更 / desktop への復帰でシートを閉じる。showModal() は子の Effect で
+  // 親より先に走るため、Effect ではなく前の描画の値と比べる描画中の同期で閉じる
+  if (sheetScope.compact !== compact || sheetScope.view !== mainView || sheetScope.root !== filesRoot) {
+    setSheetScope({ compact, view: mainView, root: filesRoot });
+    setSessionFilesSheetOpen(false);
+  }
   // 配信できない設定で通知を On にしようとしたか。押した後だけ出す注記の根拠で、会話を移ったら捨てる
   const [notifyAttempted, setNotifyAttempted] = useState(false);
-  const mainView = route.view;
   const sidebarMode: SidebarMode = route.view === "settings" ? "settings" : "nav";
   // URL にセクションが無いときだけ「最後に開いていたセクション」を見せる (URL の指定を上書きしない)
   const settingsSection: SettingsSection = route.view === "settings" ? route.section : lastSettingsSection;
@@ -74,17 +100,24 @@ export default function App() {
     (path: string, origin: HTMLElement | null) => {
       // 起点はクリック時に自分で持つ (document.activeElement がクリックした button を指すとは限らない)
       fileRefOriginRef.current = origin;
-      setSessionFilesOpen(true);
+      // ファイル参照の意味は変えず、開く先だけを layout に従わせる
+      if (compact) setSessionFilesSheetOpen(true);
+      else setSessionFilesOpen(true);
       requestFileRef(path);
     },
-    [requestFileRef],
+    [compact, requestFileRef],
   );
   const toggleSessionFiles = useCallback(() => {
     // トグルからの開閉ではファイル参照へ focus を戻さない
     fileRefOriginRef.current = null;
-    setSessionFilesOpen((open) => !open);
+    // 押した面 (layout で決まる) だけを反転する
+    if (compact) setSessionFilesSheetOpen((open) => !open);
+    else setSessionFilesOpen((open) => !open);
+  }, [compact]);
+  const closeSessionFiles = useCallback(() => {
+    setSessionFilesOpen(false);
+    setSessionFilesSheetOpen(false);
   }, []);
-  const closeSessionFiles = useCallback(() => setSessionFilesOpen(false), []);
 
   // 幅を広げて左バーが docked に戻ったら、ドロワーは畳む (開いたままにしない)
   useEffect(() => {
@@ -129,12 +162,23 @@ export default function App() {
     setNotifyAttempted(false);
   }, [app.sessionId]);
 
+  // 利用者操作の新規会話の入口をここへ寄せる (サイドバー / ドロワー / エージェント切替)。
+  // 既定 (プロジェクト配下なら開) を適用するのはこの入口と起動時の初期化だけで、内部フォールバックは
+  // useSessions が newChat を直接呼ぶため通らない
+  const handleNewChat = useCallback(
+    (agentId?: string, projectId?: string) => {
+      setSessionFilesOpen(sessionFilesDefaultOpen({ compact, projectId: projectId ?? app.selectedProjectId }));
+      app.newChat(agentId, projectId);
+    },
+    [app, compact],
+  );
+
   // エージェントの切替は「新しい会話」と同じで、現在の会話はセッション一覧に残す
   const handleAgentChange = useCallback(
     (agentId: string) => {
-      app.newChat(agentId);
+      handleNewChat(agentId);
     },
-    [app],
+    [handleNewChat],
   );
 
   const refreshCatalog = useCallback(async () => {
@@ -179,7 +223,7 @@ export default function App() {
     agents: app.agents,
     projects: app.projects,
     selectedProjectId: app.selectedProjectId,
-    newChat: app.newChat,
+    newChat: handleNewChat,
     selectSession: (sessionId: string) => {
       if (sessionId !== app.sessionId) void app.selectSession(sessionId);
     },
@@ -201,7 +245,7 @@ export default function App() {
     // モードの切替は閉じない (設定ナビは drawer の中で出す)
     newChat: (agentId?: string, projectId?: string) => {
       closeNav();
-      app.newChat(agentId, projectId);
+      handleNewChat(agentId, projectId);
     },
     selectSession: (sessionId: string) => {
       closeNav();
@@ -221,11 +265,10 @@ export default function App() {
     },
   };
 
-  // 選択中セッションの作業フォルダ (payload.cwd) を root にする。表示方法だけ layout で分ける。
-  // 設定 → ファイルはワークスペース root 固定なので、セッションのファイルとは別の入口にする。
-  const filesRoot = sessionFilesRoot({ chatView: mainView === "chat", cwd: app.cwd });
+  // 表示方法だけを layout で分ける (desktop は右パネル、compact は全画面シート)。設定 → ファイルは
+  // ワークスペース root 固定なので、作業フォルダとは別の入口にする
   const filesPanelOpen = !compact && filesRoot !== "" && sessionFilesOpen;
-  const filesSheetOpen = compact && filesRoot !== "" && sessionFilesOpen;
+  const filesSheetOpen = compact && filesRoot !== "" && sessionFilesSheetOpen;
   // 未消費の要求は選択中セッションのときだけパネルへ渡す (セッションが変われば useSessions が破棄する)
   const pendingFileRef = fileRefRequestForSession(app.fileRefRequest, app.sessionId);
   // ツリーの行のダウンロードの出し分け。取得前は空 = 導線を出し、実際の拒否はサーバーの check に任せる
@@ -277,6 +320,7 @@ export default function App() {
                 mode={compactMode}
                 title={barTitle}
                 agentName={barAgentName}
+                scope={scope}
                 runtimeStatus={app.runtimeStatus}
                 notify={notifyToggle}
                 sessionFiles={filesRoot ? { open: filesSheetOpen, onToggle: toggleSessionFiles } : undefined}
@@ -284,6 +328,7 @@ export default function App() {
               />
             ) : (
               <Topbar
+                scope={scope}
                 runtimeStatus={app.runtimeStatus}
                 notify={notifyToggle}
                 sessionFiles={filesRoot ? { open: filesPanelOpen, onToggle: toggleSessionFiles } : undefined}
@@ -296,6 +341,7 @@ export default function App() {
                 bubbles={app.chat.bubbles}
                 compactions={app.chat.compactions}
                 compact={compact}
+                scope={scope}
                 suggestions={app.selectedAgent?.suggestions}
                 agentName={chatAgentName}
                 agentIcon={chatAgentIcon}

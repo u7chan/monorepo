@@ -24,6 +24,8 @@ import type { NotificationsResponse, SessionNotifyResponse, SessionSummary } fro
 const IDLE: RuntimeStatus = { text: "", error: false };
 /** 鳴っているベルの目印 (BellIcon の ringing でだけ描かれる線) */
 const RINGING_MARK = "M1.7 2.8 3.2 4.3";
+/** バーの作業先チップ / 作業先の前置。ラベルだけを見るテストなので値は固定でよい */
+const SCOPE = { label: "work/hello", project: true, root: "work/hello" };
 
 const SETTINGS: NotificationsResponse = {
   enabled: true,
@@ -325,6 +327,7 @@ function renderTopbar(notify: {
 }): string {
   return renderToStaticMarkup(
     createElement(Topbar, {
+      scope: SCOPE,
       runtimeStatus: IDLE,
       notify: { deliverable: true, onToggle: () => {}, ...notify },
       sessionFiles: { open: false, onToggle: () => {} },
@@ -332,11 +335,11 @@ function renderTopbar(notify: {
   );
 }
 
-test("desktop のバーは通知トグルを「セッションのファイル」の左に置き、配信できる On だけを accent で示す", () => {
+test("desktop のバーは通知トグルを「作業フォルダ」の左に置き、配信できる On だけを accent で示す", () => {
   const off = renderTopbar({ on: false });
   const delivering = renderTopbar({ on: true });
   const stopped = renderTopbar({ on: true, deliverable: false });
-  assert.ok(off.indexOf("通知") < off.indexOf("セッションのファイル"), "通知がファイルより右にある");
+  assert.ok(off.indexOf("通知") < off.indexOf("作業フォルダ"), "通知がファイルより右にある");
   assert.ok(off.includes('aria-pressed="false"'), "Off の状態が読み上げに伝わらない");
   assert.ok(delivering.includes('aria-pressed="true"'), "On の状態が読み上げに伝わらない");
   assert.ok(delivering.includes("border-accent/50 text-accent-text"), "配信できる On が accent で示されない");
@@ -364,6 +367,7 @@ function renderCompactBar(notify: { on: boolean; note?: string; deliverable?: bo
       mode: "portrait",
       title: "パンくずの折り返しを直す",
       agentName: "実装担当",
+      scope: SCOPE,
       runtimeStatus: IDLE,
       notify: { deliverable: true, onToggle: () => {}, ...notify },
       sessionFiles: { open: true, onToggle: () => {} },
@@ -377,7 +381,7 @@ test("compact のバーは ☰ を左端に置き、通知 → ファイルの�
   assert.ok(!html.includes("✦"), "装飾の ✦ が残っている");
   assert.ok(html.indexOf('aria-label="ナビゲーションを開く"') < html.indexOf("実装担当"), "☰ が左端に無い");
   assert.ok(
-    html.indexOf('aria-label="通知"') < html.indexOf('aria-label="セッションのファイル"'),
+    html.indexOf('aria-label="通知"') < html.indexOf('aria-label="作業フォルダ"'),
     "通知がファイルより右にある",
   );
   assert.ok(html.includes("gap-2.5"), "コントロールの間隔が実測の前提と違う");
@@ -387,7 +391,7 @@ test("compact のバーは ☰ を左端に置き、通知 → ファイルの�
 test("compact は配信できない On を accent にせず、読み上げ名で停止中を示す", () => {
   const delivering = renderCompactBar({ on: true });
   const stopped = renderCompactBar({ on: true, deliverable: false, note: NOTIFY_UNCONFIGURED_NOTE });
-  // 同じバーの「セッションのファイル」も accent を使うため、通知ボタンのタグだけを見る
+  // 同じバーの「作業フォルダ」も accent を使うため、通知ボタンのタグだけを見る
   const tagOf = (html: string): string => {
     const match = /<button[^>]*aria-label="通知[^"]*"[^>]*>/.exec(html);
     assert.ok(match, "通知ボタンが無い");

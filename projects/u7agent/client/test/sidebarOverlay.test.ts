@@ -16,6 +16,8 @@ import { Topbar } from "../src/components/Topbar";
 import type { RuntimeStatus } from "../src/hooks/runtimeStatus";
 
 const IDLE: RuntimeStatus = { text: "", error: false };
+/** 作業先チップ。☰ の位置だけを見るテストなので値は固定でよい */
+const SCOPE = { label: "未所属", project: false, root: "" };
 /** 読み上げ名。compact の CompactBar と設定ページのヘッダも同じ名前を使う */
 const NAV_MARK = 'aria-label="ナビゲーションを開く"';
 
@@ -26,6 +28,7 @@ function read(relativePath: string): string {
 function renderTopbar(nav?: { onOpen: () => void }): string {
   return renderToStaticMarkup(
     createElement(Topbar, {
+      scope: SCOPE,
       runtimeStatus: IDLE,
       notify: { on: false, deliverable: true, onToggle: () => {} },
       nav,

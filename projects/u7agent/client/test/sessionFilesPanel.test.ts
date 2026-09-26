@@ -1,4 +1,4 @@
-// 右パネル (セッションのファイル) の幅の規則。client に DOM テスト基盤が無いため、境界・clamp・
+// 右パネル (作業フォルダ) の幅の規則。client に DOM テスト基盤が無いため、境界・clamp・
 // キー操作・保存値の扱いを純関数で固定し、ハンドルの配線はソース走査で固定する。
 //   1. bounds は viewport と main 列 (左バーを引いた残り) で決まる。mainWidth を渡し直すだけで
 //      overlay 配置 (#1541) にも追随する
@@ -167,7 +167,7 @@ test("ハンドルの配線: 終了経路をまとめ、移動ゼロでは commi
   const panel = read("src/components/SessionFilesPanel.tsx");
   assert.ok(panel.includes('role="separator"'));
   assert.ok(panel.includes('aria-orientation="vertical"'));
-  assert.ok(panel.includes('aria-label="セッションのファイルの幅"'));
+  assert.ok(panel.includes('aria-label="作業フォルダの幅"'));
   assert.ok(panel.includes("aria-valuemin={min}"));
   assert.ok(panel.includes("aria-valuemax={max}"));
   assert.ok(panel.includes("aria-valuenow={width}"));
