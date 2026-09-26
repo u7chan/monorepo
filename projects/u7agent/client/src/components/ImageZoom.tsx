@@ -4,7 +4,7 @@ import { cn } from "../lib/cn";
 import { CloseIcon } from "./icons";
 
 /** 画像の出どころ。サムネイルの枠・角丸・高さは部品が持ち、呼び出し側からは渡さない */
-export type ImageZoomVariant = "attachment" | "markdown";
+export type ImageZoomVariant = "attachment" | "chip" | "markdown";
 
 export type ZoomableImageProps = {
   src: string;
@@ -43,8 +43,11 @@ export function ZoomableImage({ src, alt, title, variant, compact = false }: Zoo
       title={title}
       onError={() => setFailedSrc(src)}
       className={cn(
-        "object-contain",
-        variant === "markdown" ? "md-img" : cn("rounded-lg border border-line", compact ? "max-h-32" : "max-h-44"),
+        variant === "markdown" && "md-img object-contain",
+        // 失敗時は button で包まず直に置くので、縮まないよう shrink-0 も持たせる
+        variant === "chip" && "size-7 shrink-0 rounded object-cover",
+        variant === "attachment" && "rounded-lg border border-line object-contain",
+        variant === "attachment" && (compact ? "max-h-32" : "max-h-44"),
       )}
     />
   );
@@ -59,7 +62,11 @@ export function ZoomableImage({ src, alt, title, variant, compact = false }: Zoo
           ref={thumbRef}
           aria-label={label}
           onClick={() => setOpen(true)}
-          className="block max-w-full cursor-zoom-in outline-none focus-visible:ring-2 focus-visible:ring-focus"
+          className={cn(
+            "block max-w-full cursor-zoom-in outline-none focus-visible:ring-2 focus-visible:ring-focus",
+            // chip はサムネイルと同じ角丸を button にも当て、focus-visible の輪を枠に沿わせる
+            variant === "chip" && "shrink-0 rounded",
+          )}
         >
           {thumbnail}
         </button>

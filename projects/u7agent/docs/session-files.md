@@ -112,6 +112,7 @@ $PI_SESSION_STORE/u7agent.db  # アプリデータ（プロジェクト / カタ
 - 履歴と `run_start.prompt` には注記込みの本文が入る。クライアントは注記を分解し、user バブルにチップと本文を分けて表示する（コピーは注記を除いた本文）
 - 画像の表示は `GET /api/files/raw`（画像のみの allowlist。SVG / HTML は配信しない）
 - 履歴の画像はクリックで拡大表示する（ライトボックス）。部品は Markdown 本文の画像と同じ `client/src/components/ImageZoom.tsx` の `ZoomableImage`（`variant="attachment"`）で、サムネイルの高さだけ compact で切り替える。開閉と focus の扱いは [markdown.md](markdown.md#画像の拡大表示) を正とする
+- 入力欄の添付チップも同じ部品（`variant="chip"`）で拡大表示する。押せるのは 28px のサムネイルだけで、チップ全体は押せない（× と競合させない）。チップのサイズと行の高さは変えない。未完了 / 失敗のチップはサムネイル自体を持たない（[markdown.md](markdown.md#画像の拡大表示)）
 
 | 上限 | 値 | 場所 |
 | --- | --- | --- |
