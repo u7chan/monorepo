@@ -9,9 +9,7 @@ export function ProjectRow({
   sessions,
   agents,
   sessionId,
-  selected,
   open,
-  onSelect,
   onToggle,
   onNewChat,
   onDelete,
@@ -22,9 +20,7 @@ export function ProjectRow({
   sessions: SessionSummary[];
   agents: AgentDef[];
   sessionId: string;
-  selected: boolean;
   open: boolean;
-  onSelect: () => void;
   onToggle: () => void;
   onNewChat: () => void;
   onDelete: () => void;
@@ -33,17 +29,13 @@ export function ProjectRow({
 }) {
   return (
     <div className="grid gap-1">
-      {/* 行の選択 (作成先) は弱いハイライトに留め、開いているセッションの行と区別する */}
-      <div
-        className={cn(
-          "group flex min-h-10.5 items-center gap-1 rounded-lg border pr-1.5 transition-colors",
-          selected ? "border-accent/25 bg-accent-wash/60" : "border-transparent hover:bg-hover",
-        )}
-      >
+      {/* 行のクリックは折りたたみのトグル。選択ハイライトは持たず (作成先は ＋ が明示する)、
+          開いているセッションの行だけを強調する */}
+      <div className="group flex min-h-10.5 items-center gap-1 rounded-lg border border-transparent pr-1.5 transition-colors hover:bg-hover">
         <button
           type="button"
-          onClick={onSelect}
-          aria-current={selected ? "true" : undefined}
+          onClick={onToggle}
+          aria-expanded={open}
           className="flex min-w-0 flex-1 items-center gap-2 px-2.5 py-1.5 text-left"
         >
           <span className="shrink-0 text-ink-faint">

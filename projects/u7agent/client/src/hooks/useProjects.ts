@@ -8,14 +8,13 @@ import {
 import type { Project } from "../types";
 import { createRequestGate } from "./requestGate";
 
-const PROJECT_KEY = "u7agent-project";
 const alwaysCurrent = () => true;
 
 export function useProjects() {
   const [projects, setProjects] = useState<Project[]>([]);
-  const [selectedProjectId, setSelectedProjectIdState] = useState<string>(
-    () => localStorage.getItem(PROJECT_KEY) || "",
-  );
+  // 未作成チャットの作成先。プロジェクト行の ＋ で明示されたときだけ設定し、保存もしない
+  // (起動や「新しい会話」で、最後に開いたプロジェクトを引き継がないため)
+  const [selectedProjectId, setSelectedProjectIdState] = useState<string>("");
   const projectsRef = useRef<Project[]>([]);
   const selectedProjectIdRef = useRef(selectedProjectId);
   selectedProjectIdRef.current = selectedProjectId;
@@ -24,7 +23,6 @@ export function useProjects() {
   const selectProject = useCallback((id: string): void => {
     selectedProjectIdRef.current = id;
     setSelectedProjectIdState(id);
-    localStorage.setItem(PROJECT_KEY, id);
   }, []);
 
   const [beginProjectsRequest] = useState(createRequestGate);
@@ -56,10 +54,9 @@ export function useProjects() {
       const list = [...projectsRef.current.filter((item) => item.id !== project.id), project];
       projectsRef.current = list;
       setProjects(list);
-      selectProject(project.id);
       return project;
     },
-    [beginProjectsRequest, selectProject],
+    [beginProjectsRequest],
   );
 
   /** 解除できたかを返す。配下セッションの表示回復は呼び出し元 (facade) が行う */

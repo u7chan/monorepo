@@ -224,8 +224,9 @@ export function useSessions({
     (nextAgentId?: string, nextProjectId?: string): void => {
       // 未作成チャットで選んだ agent は、最初の送信で作るセッションの初期値になる
       if (nextAgentId) setAgentId(nextAgentId);
-      // 作成先を先に移し、その後の表示と送信先を一致させる
-      if (nextProjectId !== undefined) selectProject(nextProjectId);
+      // 作成先は引数で明示されたときだけプロジェクトにする。未指定は常に未所属へ戻し、
+      // 前の会話や最後に開いたプロジェクトを引き継がない
+      selectProject(nextProjectId ?? "");
       selectionSeqRef.current += 1;
       sessionOpsRef.current += 1;
       fileRefRequests.clear();

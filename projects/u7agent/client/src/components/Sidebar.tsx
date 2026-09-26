@@ -12,16 +12,7 @@ import { SettingsNav } from "./sidebar/SettingsNav";
 export type SidebarProps = Omit<
   Pick<
     U7Agent,
-    | "sessions"
-    | "sessionId"
-    | "agents"
-    | "projects"
-    | "selectedProjectId"
-    | "selectProject"
-    | "newChat"
-    | "selectSession"
-    | "deleteSession"
-    | "deleteProject"
+    "sessions" | "sessionId" | "agents" | "projects" | "newChat" | "selectSession" | "deleteSession" | "deleteProject"
   >,
   "newChat" | "selectSession" | "deleteSession" | "deleteProject"
 > & {
@@ -53,18 +44,7 @@ export function Sidebar({
   ...props
 }: SidebarProps) {
   const sheet = variant === "sheet";
-  const {
-    sessions,
-    sessionId,
-    agents,
-    projects,
-    selectedProjectId,
-    selectProject,
-    newChat,
-    selectSession,
-    deleteSession,
-    deleteProject,
-  } = props;
+  const { sessions, sessionId, agents, projects, newChat, selectSession, deleteSession, deleteProject } = props;
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
   const { groups, unassigned } = groupSessionsByProject(sessions, projects);
 
@@ -145,9 +125,7 @@ export function Sidebar({
                       sessions={group.sessions}
                       agents={agents}
                       sessionId={sessionId}
-                      selected={group.project.id === selectedProjectId}
                       open={!collapsed[group.project.id]}
-                      onSelect={() => selectProject(group.project.id)}
                       onToggle={() =>
                         setCollapsed((prev) => ({ ...prev, [group.project.id]: !prev[group.project.id] }))
                       }
@@ -161,21 +139,13 @@ export function Sidebar({
               )}
             </section>
 
-            {/* 見出しを押すと「新しい会話」の作成先を未所属へ戻せる (他の戻し方が無い)。0 件でも見出しとプレースホルダを出す */}
+            {/* 見出しはラベルだけ。作成先は「新しい会話」(未所属) とプロジェクト行の ＋ (そのプロジェクト) で決まる。
+                0 件でも見出しとプレースホルダを出す */}
             <section className="grid gap-2">
-              <button
-                type="button"
-                onClick={() => selectProject("")}
-                aria-current={selectedProjectId ? undefined : "true"}
-                title="未所属を「新しい会話」の作成先にする"
-                className={cn(
-                  "flex min-h-8.5 w-full items-center gap-2 rounded-lg border px-2.5 text-left transition-colors",
-                  selectedProjectId ? "border-transparent hover:bg-hover" : "border-accent/25 bg-accent-wash/60",
-                )}
-              >
+              <div className="flex min-h-8.5 items-center gap-2 px-2.5">
                 <span className="text-2xs font-semibold tracking-widest text-ink-faint uppercase">Chats</span>
                 <span className="min-w-0 flex-1 truncate text-2xs text-ink-ghost">未所属</span>
-              </button>
+              </div>
               {unassigned.length === 0 ? (
                 <div className="rounded-lg px-1 py-1 text-1xs text-ink-faint">未所属のセッションはありません</div>
               ) : (

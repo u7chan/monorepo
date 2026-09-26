@@ -1,13 +1,15 @@
 // 作業先の表示と、作業フォルダの導線 (既定オープン / compact のシートの閉じ方) の配線。
 // client に DOM テスト基盤が無いため、バーと空状態の描画は react-dom/server、配線はソース走査で固定する。
-//   1. 既定オープン (プロジェクト配下なら開) を適用するのは起動時の初期化と App の handleNewChat だけ。
-//      派生 state (projects 一覧の到着や root の解決) を契機にしない = sessionFiles を読む Effect を置かない
-//   2. サイドバー / ドロワー / エージェント切替の 3 入口は handleNewChat を通り、useSessions の
+//   1. 既定オープン (プロジェクト配下なら開) を適用するのは App の handleNewChat だけ。
+//      起動時は常に未所属の新規会話なので閉で、派生 state (projects 一覧の到着や root の解決) を契機にしない
+//   2. 作成先はプロジェクト行の ＋ だけが決める。サイドバーの「新しい会話」と起動は未所属、
+//      エージェント切替は今見ている会話の作業先を引き継ぐ
+//   3. サイドバー / ドロワー / エージェント切替の 3 入口は handleNewChat を通り、useSessions の
 //      内部フォールバック (newChat の直接呼び出し 6 箇所) は通らない
-//   3. compact のシートは Effect ではなく描画中の同期で閉じ、監視キーは compact / mainView / filesRoot
+//   4. compact のシートは Effect ではなく描画中の同期で閉じ、監視キーは compact / mainView / filesRoot
 //      (route オブジェクト全体は比べない)
-//   4. 作業フォルダの閉じる導線は押した面だけを閉じる (シートの close が desktop のパネルを閉じない)
-//   5. landscape の作業先行は収縮 + 省略 (長いプロジェクト名でタイトルと固定幅のボタンを押し出さない)
+//   5. 作業フォルダの閉じる導線は押した面だけを閉じる (シートの close が desktop のパネルを閉じない)
+//   6. landscape の作業先行は収縮 + 省略 (長いプロジェクト名でタイトルと固定幅のボタンを押し出さない)
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
@@ -98,18 +100,16 @@ test("バーは作業先を出し、空状態の見出しは作業先の有無�
   );
 });
 
-test("既定オープンを適用するのは起動時の初期化と handleNewChat だけ", () => {
+test("既定オープンを適用するのは handleNewChat だけ (起動時は未所属なので閉)", () => {
   const calls = app.match(/sessionFilesDefaultOpen\(/g) ?? [];
-  assert.equal(calls.length, 2, "既定オープンの呼び出しが「初期化 + handleNewChat」以外にある");
+  assert.equal(calls.length, 1, "既定オープンの呼び出しが handleNewChat 以外にある");
   assert.ok(
-    /useState\(\(\) =>\s*sessionFilesDefaultOpen\(\{\s*compact,\s*projectId: app\.selectedProjectId,?\s*\}\),?\s*\)/.test(
-      app,
-    ),
-    "起動時の初期値が作成先から決まっていない (projects 一覧は見ない)",
+    app.includes("const [sessionFilesOpen, setSessionFilesOpen] = useState(false);"),
+    "起動時のパネルの初期値が閉ではない (作成先を保存して引き継いでいる)",
   );
   assert.ok(
-    app.includes("sessionFilesDefaultOpen({ compact, projectId: projectId ?? app.selectedProjectId })"),
-    "新規会話の入口が「そのときの作成先」で既定を決めていない",
+    app.includes("setSessionFilesOpen(sessionFilesDefaultOpen({ compact, projectId: target }))"),
+    "新規会話の入口が作成先で既定を決めていない",
   );
   // 派生 state (一覧の到着 / root の解決 / layout) を契機に開閉しない
   const bodies = effectBodies(app);
@@ -120,10 +120,40 @@ test("既定オープンを適用するのは起動時の初期化と handleNewC
   );
 });
 
+test("作成先はプロジェクト行の ＋ でだけ決まる (「新しい会話」と起動は未所属)", () => {
+  const projects = read("src/hooks/useProjects.ts");
+  const sidebar = read("src/components/Sidebar.tsx");
+  const projectRow = read("src/components/sidebar/ProjectRow.tsx");
+  // 作成先を保存すると、起動や「新しい会話」が最後に開いたプロジェクトを引き継いでしまう
+  assert.doesNotMatch(projects, /localStorage|u7agent-project/, "作成先を保存している");
+  assert.ok(projects.includes('useState<string>("")'), "起動時の作成先が未所属ではない");
+  // 引数の無い newChat は未所属へ戻す (内部フォールバックも同じ規則になる)
+  assert.ok(sessions.includes('selectProject(nextProjectId ?? "");'), "newChat が作成先を未所属へ戻していない");
+  // 「新しい会話」はプロジェクトを渡さない。渡すのはプロジェクト行の ＋ だけ
+  assert.ok(sidebar.includes("onClick={() => newChat()}"), "「新しい会話」がプロジェクトを渡している");
+  assert.ok(
+    sidebar.includes("newChat(undefined, group.project.id)"),
+    "プロジェクト行の ＋ がプロジェクトを渡していない",
+  );
+  assert.ok(!sidebar.includes("selectProject"), "サイドバーが作成先を選択している");
+  // 行のクリックは折りたたみのトグル (作成先の選択を無くした)。子の SessionRow は自分の onSelect を持つ
+  assert.ok(projectRow.includes("onClick={onToggle}"), "プロジェクト行のクリックが折りたたみになっていない");
+  assert.doesNotMatch(projectRow, /^\s+onSelect[?:,]/m, "プロジェクト行が作成先を選択している");
+  assert.doesNotMatch(projectRow, /^\s+selected[?:,]/m, "プロジェクト行が選択ハイライトを持っている");
+  // App の入口は未所属を既定にし、エージェント切替だけ今の作業先を引き継ぐ
+  assert.ok(app.includes('const target = projectId ?? "";'), "新規会話の既定が未所属になっていない");
+  assert.ok(
+    app.includes(
+      'handleNewChat(agentId, app.sessionId === "" ? app.selectedProjectId : (activeSession?.projectId ?? ""));',
+    ),
+    "エージェント切替が今の作業先を引き継いでいない",
+  );
+});
+
 test("新規会話の 3 入口は handleNewChat を通り、内部フォールバックは通らない", () => {
   assert.ok(app.includes("newChat: handleNewChat,"), "docked の Sidebar が handleNewChat を通っていない");
   assert.ok(app.includes("handleNewChat(agentId, projectId);"), "ドロワーの入口が handleNewChat を通っていない");
-  assert.ok(app.includes("handleNewChat(agentId);"), "エージェント切替が handleNewChat を通っていない");
+  assert.ok(app.includes("handleNewChat(agentId,"), "エージェント切替が handleNewChat を通っていない");
   assert.equal((app.match(/app\.newChat\(/g) ?? []).length, 1, "handleNewChat 以外から newChat を呼んでいる");
   // 内部フォールバック (開けない / 削除 / SSE 閉鎖 / リンク解決失敗) は useSessions が直接呼ぶ
   assert.equal(

@@ -380,7 +380,6 @@ export function useU7Agent({ pendingSessionId, onPendingSessionResolved }: UseU7
     refreshSessions,
     refreshProjects,
     selectSession,
-    selectProject,
     newChat,
     sendMessage,
     attachFiles,

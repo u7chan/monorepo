@@ -40,7 +40,7 @@ desktop の中でも viewport が 1200px 未満なら、左バー（252px）を�
   - `CompactBar` はチャットのときに「作業先と、どのエージェントのどの会話か」、通知トグル、作業フォルダ、nav の導線を常時表示する（landscape は 1 行に畳む）。エージェント名の行（landscape はタイトルの左）は `〈作業先〉· 〈エージェント名〉` にする。どちらの layout も省略表示にし、landscape の作業先行は `shrink-0` にせず `min-w-0` + `max-w-1/2`（行の半分）で収縮させる（プロジェクト名に長さ制限が無いため。`shrink-0` だと名前の分だけ右へ伸び、タイトルと固定幅のボタンを viewport 外へ押し出す）。作業フォルダはチャット幅を奪う右パネルではなく全画面 modal sheet（`SessionFilesSheet`）で開き、同じ `FileBrowser` を viewport 幅いっぱいで使う
   - `CompactBar` のコントロールは左から ☰（nav）/ 🔔（通知）/ 📁（作業フォルダ）で、どれも 36px（`styles/index.css` の `.icon-button`）・間隔 10px（`gap-2.5`）＝固定 138px。エージェント名とタイトルは残り幅を truncate する。実測（Chromium）ではタイトル列が 390x844 で 228px、320x640 で 158px になり、320px でも横スクロールは出ない（`documentElement.scrollWidth` = viewport 幅）。1 行に畳む landscape の 844x390 では、作業先行が 105 文字のとき `max-w-1/2` の 410px で省略表示になり、タイトルは 262px を保ち、通知（左端 750）/ 作業フォルダ（右端 832）が viewport（844）内に残る。通知が On でも配信できない（Webhook 未設定 / グローバル無効）ときは、バーの下に 1 行の注記（理由 + `設定を開く` の導線）を出し、バーは 390x844 で 52px + 注記 26px になる（色では表さない。押しても On にできないため、まだ On でないときは押した後にだけ出す）
   - 設定ページは `CompactBar` の代わりにメイン領域を占めるため、**設定ページのヘッダにも nav の導線（ハンバーガー）**を出す。これが無いと エージェント / スキル / ファイル / アーカイブ / 外観 の間を移動できない
-  - サイドバー（プロジェクト階層・未所属の `Chats`・設定ナビ）は `NavSheet`（モーダル dialog のドロワー）へ退避する。`NavSheet` は desktop と同じ `Sidebar` をモード付きで使い、**モードはドロワーを閉じても保たれる**（設定モードで閉じて開き直すと設定ナビが出る）。プロジェクト・セッションの項目を選ぶとドロワーは閉じ（選択後に主画面で続ける操作はプロジェクト行の「＋」）、設定の項目を選ぶと閉じてからそのページをメイン領域に出す。折りたたみ chevron は選択ではないので閉じない
+  - サイドバー（プロジェクト階層・未所属の `Chats`・設定ナビ）は `NavSheet`（モーダル dialog のドロワー）へ退避する。`NavSheet` は desktop と同じ `Sidebar` をモード付きで使い、**モードはドロワーを閉じても保たれる**（設定モードで閉じて開き直すと設定ナビが出る）。セッションの項目と、プロジェクトで始める新規会話（プロジェクト行の「＋」）を選ぶとドロワーは閉じる。プロジェクト行の折りたたみ（行 / chevron）は選択ではないので閉じない。設定の項目を選ぶと閉じてからそのページをメイン領域に出す
   - ドロワーは高さが足りない viewport でも全項目へ到達できるよう、drawer 全体を 1 つのスクロール領域にする（一覧だけを `flex-1` にすると 0px に潰れる）
   - `Composer` は Model / Effort を追加設定として畳み、エージェント選択の右のボタンで展開する（desktop は同じ行の右へ、compact は入力欄の上の別の行へ開く）。**compact は送信が成立した時点で畳む**（狭い画面で入力欄の上を占め、生成中はピッカーを無効化していて操作できないため。畳む合図を送信の成立である `sending` の立ち上がりに置くのは、送信経路が入力欄に限らず `ChatArea` の suggestion もあるため。送信が成立しなかったときは `sending` が立たないので畳まない）。desktop は送信しても開いたままにする。エージェント選択は desktop も compact と同じく入力欄の上に常時置く（選択は `Sidebar` から移した）。footnote は常時表示しない（送信できない理由や停止だけを残す）。添付のチップ列とクリップボタンも入力欄と同じ行に置き、チップは入力欄の上の行へ折り返す（[session-files.md](session-files.md#添付ファイルチャットからのアップロード)）
   - `ChatArea` は余白と avatar を詰め、assistant の本文 max-width を外してコード / tool output の幅を優先する
@@ -84,27 +84,39 @@ assistant のメッセージ列は `flex-1` で列幅いっぱい（desktop は 
 - 作業フォルダの root（`sessionFilesRoot`）は選択中セッションの `payload.cwd`、セッション未作成では作成先プロジェクトの `cwd`。**セッションがあるときに `projectCwd` は渡さない**（`App` の呼び出しは `sessionId === "" ? selectedProject?.cwd ?? "" : ""` の 1 式に固定する）。選択待ちの `cwd === ""` に、作成先の別プロジェクトのツリーを出さないため。未所属の新規会話は root が決まらず（`sessionId` の採番が送信時）、トグル自体を出さない
 - プロジェクト配下の新規会話は送信前からプロジェクトのツリーを出す（プロジェクトには登録時にディレクトリ実在が要る。[projects.md](projects.md)）。同一プロジェクトのセッションは同じ root を共有する
 
+### 作成先
+
+未作成チャットの作成先（`selectedProjectId`）は、プロジェクト行の ＋ が渡したときだけプロジェクトになり、それ以外は未所属へ戻る。最後に開いたプロジェクトは保存しない（`localStorage` の `u7agent-project` は使わない）ため、起動とリロード後は常に未所属の新規会話から始まる。
+
+| 入口 | 作成先 |
+| --- | --- |
+| 起動 / リロード / `/` | 未所属（保存しない） |
+| サイドバーの「新しい会話」/ ドロワー | 未所属（直前の作成先を引き継がない） |
+| プロジェクト行の ＋ | そのプロジェクト |
+| エージェント切替 | いま見ている会話の作業先（未作成チャットなら作成先、セッションなら所属） |
+| `useSessions` の内部フォールバック（開けない / 削除 / SSE 閉鎖 / リンク解決失敗） | 未所属 |
+
+- 見た目で選ばせる作成先は持たない。プロジェクト行のクリックは配下セッションの折りたたみのトグルで、`Chats` 見出しはラベルだけ（以前はどちらも作成先の選択だった）
+- プロジェクト配下の新規会話になるのは、そのプロジェクトで作業を始める ＋ を押したときだけ。未作成チャットはチップ / 見出し / root が作成先そのものなので、押した直後にプロジェクト名へ変わる
+
 ### 既定オープンと手動操作
 
 desktop のパネル（`sessionFilesOpen`）と compact のシート（`sessionFilesSheetOpen`）は state を分ける。1 つにすると、desktop で開いたまま狭めたときに全画面シートが自動で開き、Effect で閉じても 1 フレーム遅れて `showModal()` と focus 移動が走る。
 
-- desktop のパネルの既定（開）へ戻すのは 2 契機だけ。**(1) 起動時の初期化**（`!compact && selectedProjectId !== ""` の `useState` 遅延初期化。`projects` 一覧は見ず、一覧の到着を契機に開く Effect を作らない）、**(2) 利用者操作の新規会話の入口**（サイドバーの「新しい会話」/ プロジェクト行の ＋ / エージェント切替。そのときの作成先（引数の `projectId`、無ければ現在の `selectedProjectId`）がプロジェクトなら開、未所属なら閉。押すたびに既定へ戻す）。`App` の `handleNewChat` に 3 入口を寄せ、`useSessions` の内部フォールバック（開けない / 削除 / SSE 閉鎖 / リンク解決失敗）は `newChat` を直接呼ぶため既定を通らない
+- desktop のパネルの既定（開）へ戻すのは利用者操作の新規会話の入口（`App` の `handleNewChat`）だけ。そのときの作成先（引数の `projectId`、無ければ `""`）がプロジェクトなら開、未所属なら閉で、押すたびに既定へ戻す。起動時は常に未所属なので初期値も閉（`useState(false)`。以前は保存した作成先から開いていた）。`App` の `handleNewChat` に 3 入口を寄せ、`useSessions` の内部フォールバック（開けない / 削除 / SSE 閉鎖 / リンク解決失敗）は `newChat` を直接呼ぶため既定を通らない
 - compact のシートは既定オープンの対象外で、手動トグルだけで開く（`compact` へ入っただけでは開かない）。desktop へ戻ったとき（次に compact へ入ったときに自動で開かないため）、compact のまま `mainView`（設定ページかどうか）か `filesRoot` が変わったときに閉じる。**Effect ではなく描画中の同期**（前の描画の値と比べて state を更新する React のパターン）で閉じるので、`key={filesRoot}` の再 mount で `showModal()` が 1 フレーム走ることはない。監視するキーは `compact` / `mainView` / `filesRoot` の 3 つで、`route` オブジェクト全体は比較しない（`/s/<id>` の保留 URL を `/` へ畳むだけでは閉じない）。同じ root のままのセッション切替では閉じない
 - レイアウト切替は互いの state に影響しない（desktop のパネルは compact 中も state を保ち、desktop へ戻ると同じ開閉で出る）。閉じる導線（パネル / シートのヘッダの ✕、シートの `Escape`）は押した面だけを閉じ、もう一方の state は変えない
-- 作成先の選択（プロジェクト行 / `Chats` 見出し）は開閉 state を変えない。ただし未作成チャットでは表示中のチャットの作業先が作成先そのものなので、チップ / 見出し / root は直ちに変わる
+- プロジェクト行のクリック / chevron は配下セッションの折りたたみだけで、作業先も開閉 state も変えない
 
 | 操作 | チップ / 見出し | desktop のパネル |
 | --- | --- | --- |
-| 起動（作成先 = プロジェクト） | 一覧到着後にプロジェクト名（到着前は未所属） | 開（初期値）。root の解決後に見える |
-| 起動（作成先 = 未所属） | 未所属 | 閉 |
-| 起動（`/s/<id>` の復元） | 復元したセッションの所属（解決前は未所属） | 作成先の初期値を継承（下の例外） |
-| サイドバーの「新しい会話」 | 作成先を維持 | 作成先がプロジェクトなら開、未所属なら閉 |
+| 起動 / リロード / `/` | 未所属 | 閉（初期値） |
+| 起動（`/s/<id>` の復元） | 復元したセッションの所属（解決前は未所属） | 閉（初期値） |
+| サイドバーの「新しい会話」/ ドロワー | 未所属 | 閉 |
 | プロジェクト行の ＋ | プロジェクト名 | 開 |
-| エージェント切替 | 作成先を維持 | サイドバーの「新しい会話」と同じ |
-| 内部フォールバック | 移った先の所属 | 変わらない |
-| プロジェクト行の選択のみ（セッション表示中） | 変わらない | 変わらない |
-| プロジェクト行の選択のみ（未作成チャット表示中） | 選んだプロジェクト名 | state のまま。root が変わって true ならそのまま出る |
-| `Chats` 見出しのクリック（未作成チャット表示中） | 未所属 | root が消えて非表示（state は保持） |
+| エージェント切替 | いま見ている会話の作業先（未作成チャットなら作成先） | その作業先がプロジェクトなら開、未所属なら閉 |
+| 内部フォールバック | 未所属 | 変わらない |
+| プロジェクト行のクリック | 変わらない | 変わらない |
 | 添付・送信（セッション生成） | 変わらない | 変わらない |
 | 既存セッションを開く | そのセッションの所属 | 変わらない |
 | 設定ページ往復 | 変わらない | 変わらない（設定中は非表示、戻ると同じ） |
@@ -112,8 +124,6 @@ desktop のパネル（`sessionFilesOpen`）と compact のシート（`sessionF
 | compact → desktop | 変わらない | パネルの state で出る |
 
 凡例: 表の「変わらない」は desktop のパネル state を指す。compact のシートは、設定ページへ入る / 出るか root が変わったとき（desktop へ戻ったときも含む）に閉じる。
-
-**例外（起動時の `/s/<id>`）**: 初期値は作成先から決めるため、URL の対象が未所属や別プロジェクトでも、作成先がプロジェクトなら復元したセッションのパネルが開く。選択操作による上書きではなく、起動時に置いた初期値が（state を変えない既存セッションの復元にも）そのまま適用される。
 
 ### 非同期ロード中の表示契約
 
@@ -128,8 +138,11 @@ desktop のパネル（`sessionFilesOpen`）と compact のシート（`sessionF
 
 ### 検証（実ブラウザー）
 
+- 起動 / リロード → 見出しはキャッチコピー、チップは「未所属」、パネルは閉で導線も無い
+- プロジェクト配下のセッションを表示中に「新しい会話」→ 未所属になり、パネルが閉じる（最後に開いたプロジェクトへ行かない）
 - プロジェクト行の ＋ → 見出しにプロジェクト名、チップにプロジェクト名、右パネルが開いてプロジェクトのツリーが出る（送信前）
-- `Chats` 見出し → 新しい会話 → 見出しはキャッチコピー、チップは「未所属」、パネルは閉で導線も無い
+- プロジェクト配下のセッションを表示中にエージェントを切り替える → 同じプロジェクトの新規会話になり、パネルが開く
+- プロジェクト行のクリック / chevron → 配下セッションの折りたたみが切り替わり、チップ / 見出しは変わらない
 - プロジェクト配下の新規会話で添付 → 送信前後でパネルの開閉と見出しが変わらない
 - 手動で閉じる → 添付 → 送信 → 別セッション → 戻る、の各段階で勝手に開かない
 - 送信に失敗したとき（サーバー未接続）に見出し / チップ / パネルが壊れない
@@ -238,9 +251,9 @@ compact の 設定 → エージェント / スキル は「一覧（ページ�
 
 上から ブランド / 「新しい会話」/ `Projects`（`New Project` + プロジェクト行）/ `Chats` / フットノート / `設定`（下部固定。設定ナビの項目と同じ行の寸法）。
 
-- プロジェクト行は フォルダアイコン + 名前 + cwd 相対パスの副次表示 + 折りたたみ chevron + ホバーの「＋」「削除」。行のクリックでそのプロジェクトを選択し、配下セッションは `SessionRow` をインデント表示する
+- プロジェクト行は フォルダアイコン + 名前 + cwd 相対パスの副次表示 + 折りたたみ chevron + ホバーの「＋」「削除」。行のクリックは chevron と同じ折りたたみのトグルで、配下セッションは `SessionRow` をインデント表示する
 - 行の右端の操作は `client/src/components/sidebar/RowAction.tsx` が寸法（`size-7` / 角丸 / 文字色）とホバー端末での出し分け（`can-hover` では隠し、行のホバーで出す。タッチ端末では常時表示）を持ち、プロジェクト行とセッション行で共有する。削除の印はどちらもゴミ箱（`TrashIcon`）で、設定 → エージェント / スキルの削除と同じ絵にする。赤くなるのはボタン自身のホバーだけで、行のホバーでは色を変えない（プロジェクト行は折りたたみ / ＋ / 削除を並べるため、行のホバーで 1 つだけ赤くなると何を指すか読めない）
-- 選択中プロジェクトは「新しい会話」の**作成先**で、開いているセッションの所属とは一致しないことがある。そのためプロジェクト行のハイライトは弱く（`accent-wash/60` と薄い枠）、セッション行（`accent-wash` と濃い枠）と区別する。**`Chats` 見出しも同じ選択**を持ち、押すと作成先を未所属へ戻す（未所属を選んでいるときは見出しが弱いハイライトになる）。プロジェクト行は選ぶだけでは解除できないため、未所属へ戻す導線はここだけ
+- 行のハイライトは開いているセッション（`accent-wash` と濃い枠）だけが持つ。作成先の選択は見た目に持たず、プロジェクトで作業を始めるのは行の ＋（「このプロジェクトに新しい会話」）だけ（[作成先](#作成先)）
 - 並び順はプロジェクトが作成順、配下セッションと `Chats` が `lastUsedAt` 降順。グループ化は `client/src/lib/sessionsByProject.ts` の純関数が担い、未知の `projectId`（破棄直後など）は `Chats` へ寄せて一覧から消さない
 - プロジェクトの追加は dialog（`ProjectDialog`）で行う。新規作成は親ディレクトリ + 名前、既存登録は対象ディレクトリを選び、どちらも `GET /api/files` を辿って選ぶ（root は登録できない）。削除の confirm は配下セッション数を示し、ディレクトリが残ることも明示する
 
@@ -252,7 +265,7 @@ compact の 設定 → エージェント / スキル は「一覧（ページ�
 
 ## 検証
 
-自動テストは `client/test/layout.test.ts` がモード判定の境界と、左バーの配置（1200px の境界・compact は常に overlay）を、`client/test/sidebarOverlay.test.ts` が左バーの ☰ の出し分け（`Topbar` / 設定ページのヘッダの描画、overlay のときだけ出す）と App の配線（1 カラム ⇄ 2 カラム・`mainWidth` の渡し分け・docked へ戻ったらドロワーを閉じる・焦点の戻し先のフォールバック）を、`client/test/sessionsByProject.test.ts` がプロジェクト別のグループ化（未所属の分離・並び順）を、`client/test/route.test.ts` が pathname と画面の対応（大文字・末尾スラッシュ・percent encoding・不正な入力の畳み方、`/s/<id>` の選択待ちの入口と畳み）を、`client/test/notifyToggle.test.ts` が会話の通知トグル（新規チャットの先行選択と作成要求時のスナップショット、会話ごとの直列化と後発優先、配信できない理由ごとの注記、配信可否と切替の禁止の使い分け）と、バーに描かれる ☰ / 🔔 / 📁 の順と `.icon-button`（components 層）の見た目を、`client/test/settingsNav.test.ts` が設定ナビの 7 項目と保存された最後のセクションの解決を、`client/test/archiveSettingsPage.test.ts` が設定 → アーカイブの描画（未設定 / 上書き / 明示空 / note のエラー）と配線（PUT / DELETE と app 状態の反映）を、`client/test/fileTabs.test.ts` がプレビューのタブ（開閉・上限・選択の遷移・同名タブのラベル・保存値からの復元）を、`client/test/filePreviewTabClose.test.ts` がタブの中クリック（`button === 1` だけ / タブの箱で受ける / down 側の既定動作を止める）を、`client/test/settingsDetailSheet.test.ts` が compact の詳細シートの `Escape` の順序（モーダルで開く / 伝播を止める / `App` は bubble で受ける）を、`client/test/skillLoad.test.ts` がバッジの行範囲整形と状態（実行中 / 成功 / 失敗）、ライブ / 履歴 / resync の統合（全バブル横断の二重表示排除）、ツール履歴の件数・サマリー・コピーからの除外と、`react-dom/server` での描画（バッジ / 畳み方 / スキルしかないバブル）を、`client/test/sidebarRowAction.test.ts` が行の右端の操作（プロジェクト行とセッション行が同じ `RowAction` を使うこと、削除が `×` ではなくゴミ箱であること、読み上げ名とホバー端末での出し分け）を、`client/test/composerEnter.test.ts` が入力欄の Enter の判定（IME 変換中 / `keyCode` 229 / desktop / compact）と、モードごとの `enterkeyhint` を、`client/test/sessionFilesPanel.test.ts` が右パネルの幅の境界（1920〜720px の min / max、720px の `min == max`、overlay 配置での上限）と clamp・キーボードの 1 歩・保存値の parse（壊れた値 / bounds 外 / 保存領域が使えない環境）と、ハンドルの配線（終了経路の集約・移動ゼロで commit しないこと）を固定する。手動圧縮の状態行は `client/test/composerStatus.test.ts`（ゲージの右の配置、小さい variant、`aria-describedby` と注意書きの導線、押せないときの理由）と `client/test/composerSettings.test.ts`（実効 busy と通信中での活性）、応答の適用は `client/test/sessionActions.test.ts`（操作世代と選択のガード）が固定する。作業先と作業フォルダの導線は `client/test/chatScope.test.ts`（作業先の解決: 未作成 / セッションあり / 名前が引けない / 解除後 / 一覧未取得）、`client/test/sessionFiles.test.ts`（root の可用性と既定オープンの純関数）、`client/test/chatScopeWiring.test.ts`（バーと空状態の描画・既定オープンを適用する契機が「起動の初期化」と `App` の `handleNewChat` だけであること・3 入口の配線と内部フォールバックが通らないこと・compact のシートを描画中の同期で閉じること・閉じる導線が押した面だけを閉じること・landscape の作業先行の収縮と省略）が固定する。チャットの自動追従は `client/test/chatScroll.test.ts`（しきい値の境界・`resolveScrollFollow()` の向きの判定・`ChatArea` の配線）と `client/test/chatReducer.test.ts`（`sendSeq` の増減）が固定し、実ブラウザーでの受入項目は[チャットの自動追従と最下部ボタン](#チャットの自動追従と最下部ボタン)に列挙する。client test の方針は jsdom を足さずに DOM に依存しないことで、純粋なロジックに加えて `client/test/eventInStateUpdater.test.ts` のようなソース走査型の回帰テストも置く。見た目は次の viewport で確認する。
+自動テストは `client/test/layout.test.ts` がモード判定の境界と、左バーの配置（1200px の境界・compact は常に overlay）を、`client/test/sidebarOverlay.test.ts` が左バーの ☰ の出し分け（`Topbar` / 設定ページのヘッダの描画、overlay のときだけ出す）と App の配線（1 カラム ⇄ 2 カラム・`mainWidth` の渡し分け・docked へ戻ったらドロワーを閉じる・焦点の戻し先のフォールバック）を、`client/test/sessionsByProject.test.ts` がプロジェクト別のグループ化（未所属の分離・並び順）を、`client/test/route.test.ts` が pathname と画面の対応（大文字・末尾スラッシュ・percent encoding・不正な入力の畳み方、`/s/<id>` の選択待ちの入口と畳み）を、`client/test/notifyToggle.test.ts` が会話の通知トグル（新規チャットの先行選択と作成要求時のスナップショット、会話ごとの直列化と後発優先、配信できない理由ごとの注記、配信可否と切替の禁止の使い分け）と、バーに描かれる ☰ / 🔔 / 📁 の順と `.icon-button`（components 層）の見た目を、`client/test/settingsNav.test.ts` が設定ナビの 7 項目と保存された最後のセクションの解決を、`client/test/archiveSettingsPage.test.ts` が設定 → アーカイブの描画（未設定 / 上書き / 明示空 / note のエラー）と配線（PUT / DELETE と app 状態の反映）を、`client/test/fileTabs.test.ts` がプレビューのタブ（開閉・上限・選択の遷移・同名タブのラベル・保存値からの復元）を、`client/test/filePreviewTabClose.test.ts` がタブの中クリック（`button === 1` だけ / タブの箱で受ける / down 側の既定動作を止める）を、`client/test/settingsDetailSheet.test.ts` が compact の詳細シートの `Escape` の順序（モーダルで開く / 伝播を止める / `App` は bubble で受ける）を、`client/test/skillLoad.test.ts` がバッジの行範囲整形と状態（実行中 / 成功 / 失敗）、ライブ / 履歴 / resync の統合（全バブル横断の二重表示排除）、ツール履歴の件数・サマリー・コピーからの除外と、`react-dom/server` での描画（バッジ / 畳み方 / スキルしかないバブル）を、`client/test/sidebarRowAction.test.ts` が行の右端の操作（プロジェクト行とセッション行が同じ `RowAction` を使うこと、削除が `×` ではなくゴミ箱であること、読み上げ名とホバー端末での出し分け）を、`client/test/composerEnter.test.ts` が入力欄の Enter の判定（IME 変換中 / `keyCode` 229 / desktop / compact）と、モードごとの `enterkeyhint` を、`client/test/sessionFilesPanel.test.ts` が右パネルの幅の境界（1920〜720px の min / max、720px の `min == max`、overlay 配置での上限）と clamp・キーボードの 1 歩・保存値の parse（壊れた値 / bounds 外 / 保存領域が使えない環境）と、ハンドルの配線（終了経路の集約・移動ゼロで commit しないこと）を固定する。手動圧縮の状態行は `client/test/composerStatus.test.ts`（ゲージの右の配置、小さい variant、`aria-describedby` と注意書きの導線、押せないときの理由）と `client/test/composerSettings.test.ts`（実効 busy と通信中での活性）、応答の適用は `client/test/sessionActions.test.ts`（操作世代と選択のガード）が固定する。作業先と作業フォルダの導線は `client/test/chatScope.test.ts`（作業先の解決: 未作成 / セッションあり / 名前が引けない / 解除後 / 一覧未取得）、`client/test/sessionFiles.test.ts`（root の可用性と既定オープンの純関数）、`client/test/chatScopeWiring.test.ts`（バーと空状態の描画・作成先を決める入口（起動 / 新しい会話 / プロジェクト行の ＋ / エージェント切替）と既定オープンを適用する契機が `App` の `handleNewChat` だけであること・3 入口の配線と内部フォールバックが通らないこと・compact のシートを描画中の同期で閉じること・閉じる導線が押した面だけを閉じること・landscape の作業先行の収縮と省略）が固定する。チャットの自動追従は `client/test/chatScroll.test.ts`（しきい値の境界・`resolveScrollFollow()` の向きの判定・`ChatArea` の配線）と `client/test/chatReducer.test.ts`（`sendSeq` の増減）が固定し、実ブラウザーでの受入項目は[チャットの自動追従と最下部ボタン](#チャットの自動追従と最下部ボタン)に列挙する。client test の方針は jsdom を足さずに DOM に依存しないことで、純粋なロジックに加えて `client/test/eventInStateUpdater.test.ts` のようなソース走査型の回帰テストも置く。見た目は次の viewport で確認する。
 
 | 用途 | viewport |
 | --- | --- |
