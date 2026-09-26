@@ -2,7 +2,7 @@ import { useCallback, useEffect, useEffectEvent, useReducer, useRef, useState } 
 import { getHealth, postMessage, stopSession, uploadSessionFile } from "../api";
 import { attachmentRejection, attachmentsForSession, type Attachment } from "../lib/attachments";
 import { deriveComposerSettings } from "../lib/composerSettings";
-import type { SessionSummary } from "../types";
+import type { RunStatus, SessionSummary } from "../types";
 import { chatReducer, initialChatState } from "./chatReducer";
 import { runtimeStatusForError } from "./runtimeStatus";
 import { sendChatMessage, stopRun } from "./sessionActions";
@@ -81,6 +81,7 @@ export function useU7Agent({ pendingSessionId, onPendingSessionResolved }: UseU7
     sessionId,
     sessionIdRef,
     selectionSeqRef,
+    sessionOpsRef,
     cwd,
     fileRefRequest,
     requestFileRef,
@@ -97,6 +98,7 @@ export function useU7Agent({ pendingSessionId, onPendingSessionResolved }: UseU7
     restoreSession,
     changeModel,
     changeThinkingLevel,
+    compactSession,
     toggleNotify,
   } = useSessions({
     dispatch,
@@ -109,7 +111,13 @@ export function useU7Agent({ pendingSessionId, onPendingSessionResolved }: UseU7
     setRuntimeStatus,
   });
 
-  const stopVisible = chat.runStatus === "running" || chat.queueDepth > 0;
+  const stopVisible = chat.runStatus === "running" || chat.runStatus === "compacting" || chat.queueDepth > 0;
+  // await を挟む判定 (送信 / 停止の応答) が、最新の状態を ref から読むために使う
+  const runStatusRef = useRef<RunStatus>(chat.runStatus);
+  runStatusRef.current = chat.runStatus;
+  // run の終了回数も同じ用途 (要求の後に run が終わった送信の応答を捨てる)
+  const runEndSeqRef = useRef(chat.runEndSeq);
+  runEndSeqRef.current = chat.runEndSeq;
 
   // セッションのスキル一覧 (`/skill:` の入力補助)。新規チャットは選択中のプロジェクト / エージェントで
   // プレビューし、カタログ (エージェント定義) の読み込みまでは取得先が確定しない
@@ -202,6 +210,9 @@ export function useU7Agent({ pendingSessionId, onPendingSessionResolved }: UseU7
         health,
         busy: sending || settingsChanging,
         sessionIdRef,
+        opsRef: sessionOpsRef,
+        runStatusRef,
+        runEndSeqRef,
         ensureSession,
         refreshSessions,
         post: postMessage,
@@ -221,14 +232,22 @@ export function useU7Agent({ pendingSessionId, onPendingSessionResolved }: UseU7
       refreshSessions,
       sending,
       sessionIdRef,
+      sessionOpsRef,
       settingsChanging,
       setRuntimeStatus,
+      runEndSeqRef,
     ],
   );
 
   const stopAgent = useCallback(async (): Promise<void> => {
-    await stopRun({ sessionIdRef, stop: stopSession, dispatch });
-  }, [dispatch, sessionIdRef]);
+    await stopRun({
+      sessionIdRef,
+      opsRef: sessionOpsRef,
+      runStatusRef,
+      stop: stopSession,
+      dispatch,
+    });
+  }, [dispatch, sessionIdRef, sessionOpsRef]);
 
   const deleteProject = useCallback(
     async (projectId: string): Promise<void> => {
@@ -367,6 +386,7 @@ export function useU7Agent({ pendingSessionId, onPendingSessionResolved }: UseU7
     attachFiles,
     removeAttachment,
     stopAgent,
+    compactSession,
     deleteSession,
     createProject,
     deleteProject,

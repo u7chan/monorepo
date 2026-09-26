@@ -71,6 +71,15 @@ export interface PiSessionLike {
   setModel(model: unknown, options?: { persist?: boolean }): Promise<void>;
   /** SDK の SessionManager。compaction の entry を読むためだけに参照する (旧 SDK では undefined) */
   sessionManager?: { getBranch?(): unknown[] };
+  /** 手動 compaction。SDK が持たない実装 (スタブ・旧 SDK) では undefined */
+  compact?(customInstructions?: string): Promise<unknown>;
+  /**
+   * 実行中の compaction を中断する。SDK の abort() も内部で呼ぶが、BFF は stop と同じ経路
+   * (abort) を通すため単体では使わない。SDK が持たない実装では undefined
+   */
+  abortCompaction?(): void;
+  /** SDK の isCompacting。BFF の保存待ちは含まない (busy 判定は SessionRecord の flag で行う) */
+  isCompacting?: boolean;
   /** SDK が非対応値を補正する */
   setThinkingLevel(level: string, options?: { persist?: boolean }): void;
   /** 現在のモデルが選べる thinkingLevel (非推論モデルは ["off"] のみ) */

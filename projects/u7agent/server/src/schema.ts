@@ -2,7 +2,7 @@
 import { z } from "zod";
 import type { SandboxRuntimeCommand, SandboxRuntimeEnvironment } from "./sandbox/protocol";
 
-export const RunStatusSchema = z.enum(["idle", "running", "queued", "completed", "stopped", "error"]);
+export const RunStatusSchema = z.enum(["idle", "running", "queued", "compacting", "completed", "stopped", "error"]);
 export type RunStatus = z.infer<typeof RunStatusSchema>;
 
 export const SkillDefSchema = z.object({
@@ -249,6 +249,8 @@ export const SessionPayloadSchema = z.object({
   createdAt: z.number(),
   lastUsedAt: z.number(),
   queueDepth: z.number(),
+  /** 手動圧縮の開始時刻 (epoch ms)。status === "compacting" のときだけ載る */
+  compactionStartedAt: z.number().optional(),
   /** この会話の完了を Discord へ送るか。サーバーは常に載せ、読む側は省略を false として扱う */
   notify: z.boolean().optional(),
   lastSeq: z.number(),
@@ -711,6 +713,13 @@ export const StopResultSchema = z.object({
   status: RunStatusSchema,
 });
 export type StopResult = z.infer<typeof StopResultSchema>;
+
+/** `POST /api/sessions/:id/compact` の応答。完了まで待って実効状態を返す */
+export const SessionCompactionResultSchema = z.object({
+  sessionId: z.string(),
+  status: RunStatusSchema,
+});
+export type SessionCompactionResult = z.infer<typeof SessionCompactionResultSchema>;
 
 /**
  * `PATCH /api/sessions/:id/notify` の応答。live / 未ロードで同じ形にし、SDK セッションを開かない

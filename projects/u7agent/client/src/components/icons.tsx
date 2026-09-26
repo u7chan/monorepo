@@ -624,3 +624,47 @@ export function WarningIcon() {
     </svg>
   );
 }
+
+/**
+ * 手動のコンテキスト圧縮。上下の線へ向かう矢印で「短く畳む」ことを示す
+ * (ゲージの右に並ぶため、意味はボタンの aria-label が担う)。
+ */
+export function CompactIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.5"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className="size-3.5 shrink-0"
+    >
+      <path d="M2.75 2.5h10.5" />
+      <path d="M2.75 13.5h10.5" />
+      <path d="M8 5.25v2.25M8 10.75V8.5" />
+      <path d="M6.25 6.75 8 8.5l1.75-1.75M6.25 9.25 8 7.5l1.75 1.75" />
+    </svg>
+  );
+}
+
+/** 補足の開閉 (圧縮の注意書き)。押すと説明が開く導線そのものなので、印は丸の i にする */
+export function InfoIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.5"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className="size-3.5 shrink-0"
+    >
+      <circle cx="8" cy="8" r="6.25" />
+      <path d="M8 7.25v3.5" />
+      <circle cx="8" cy="5.1" r=".75" fill="currentColor" stroke="none" />
+    </svg>
+  );
+}

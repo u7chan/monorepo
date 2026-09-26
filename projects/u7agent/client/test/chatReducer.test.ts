@@ -698,3 +698,84 @@ test("runStartedAt は受信時刻ではなくサーバーの開始時刻を使�
   assert.equal(chatReducer(started, { type: "runEnd", status: "completed", queueDepth: 0 }).runStartedAt, undefined);
   assert.equal(chatReducer(started, { type: "newChat" }).runStartedAt, undefined);
 });
+
+// --- 手動圧縮 (compacting) ---
+
+/** 圧縮中の payload。開始時刻は payload の compactionStartedAt だけを正とする */
+function compactingPayload(): SessionPayload {
+  return {
+    ...runningPayload(),
+    status: "compacting",
+    compactionStartedAt: 1700000005000,
+    run: null,
+  };
+}
+
+test("resync は compacting の runStatus / 開始時刻 / 活動を payload から導出する", () => {
+  const state = chatReducer(initialChatState, { type: "resync", payload: compactingPayload() });
+
+  assert.equal(state.runStatus, "compacting");
+  assert.equal(state.compactionStartedAt, 1700000005000);
+  assert.equal(state.activity, "会話を整理中…");
+  // 実行中の起点は使い回さない
+  assert.equal(state.runStartedAt, undefined);
+});
+
+test("終端 resync で compacting と開始時刻が解除される", () => {
+  const compacting = chatReducer(initialChatState, { type: "resync", payload: compactingPayload() });
+  const completed = chatReducer(compacting, {
+    type: "resync",
+    payload: { ...runningPayload(), status: "completed" },
+  });
+
+  assert.equal(completed.runStatus, "completed");
+  assert.equal(completed.compactionStartedAt, undefined, "compactionStartedAt は payload が持たないので残さない");
+  assert.equal(completed.activity, "", "文言は後続の status が担う");
+});
+
+test("切断復帰 (reload) の resync でも compacting が揃う", () => {
+  // reload 直後は GET /api/sessions/:id の payload だけで状態を作る
+  const reloaded = chatReducer(initialChatState, { type: "resync", payload: compactingPayload() });
+  assert.equal(reloaded.runStatus, "compacting");
+  assert.equal(reloaded.compactionStartedAt, 1700000005000);
+
+  // 別タブの操作は resync で届く (POST の応答は当てにしない)
+  const ended = chatReducer(reloaded, { type: "resync", payload: { ...runningPayload(), status: "idle" } });
+  assert.equal(ended.runStatus, "idle");
+  assert.equal(ended.compactionStartedAt, undefined);
+});
+
+test("圧縮中に届いた queued は compacting を維持し、文言も圧縮中として出す", () => {
+  const compacting = chatReducer(initialChatState, { type: "resync", payload: compactingPayload() });
+  const queued = chatReducer(compacting, { type: "queued", position: 1, queueDepth: 1 });
+
+  assert.equal(queued.runStatus, "compacting");
+  assert.equal(queued.compactionStartedAt, 1700000005000);
+  assert.equal(queued.activity, "圧縮中のため待機キューに追加しました（1件目）");
+  assert.equal(queued.queueDepth, 1);
+
+  // 圧縮でないときは従来どおり running
+  const running = chatReducer(chatReducer(initialChatState, { type: "runStart", prompt: "p", at: 1, startedAt: 1 }), {
+    type: "queued",
+    position: 1,
+    queueDepth: 1,
+  });
+  assert.equal(running.runStatus, "running");
+  assert.equal(running.activity, "実行中のため待機キューに追加しました（1件目）");
+});
+
+test("圧縮の開始時刻は run_start / run_end / setRun をまたいで残らない", () => {
+  const compacting = chatReducer(initialChatState, { type: "resync", payload: compactingPayload() });
+  const started = chatReducer(compacting, { type: "runStart", prompt: "次の実行", at: 9, startedAt: 9 });
+  assert.equal(started.runStartedAt, 9);
+  assert.equal(started.compactionStartedAt, undefined, "次の run は圧縮の起点を引き継がない");
+
+  const queuedStatus = chatReducer(compacting, { type: "setRun", runStatus: "queued", queueDepth: 1 });
+  assert.equal(queuedStatus.compactionStartedAt, undefined);
+
+  const ended = chatReducer(compacting, { type: "runEnd", status: "stopped", queueDepth: 0 });
+  assert.equal(ended.compactionStartedAt, undefined);
+
+  // 新しい会話へ戻しても残らない
+  assert.equal(chatReducer(compacting, { type: "newChat" }).compactionStartedAt, undefined);
+});

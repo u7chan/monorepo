@@ -129,6 +129,8 @@
 
 `model` / `thinkingLevel` は pi SDK のセッションが持つ実効値（`thinkingLevel` は SDK 補正後）。`supportsThinking` と `availableThinkingLevels` はその実効モデルの能力を SDK の公開ヘルパーから引いたもの。`agent` は作成時点のスナップショットなので、定義を編集・削除しても既存チャットの表示は変わらない。
 
+`status` は `idle` / `running` / `queued` / `compacting` / `completed` / `stopped` / `error`。`compacting` は手動圧縮の実行中で、SDK の実行中だけでなく**保存待ち**も含む（排他の正は BFF のフラグ。詳細は [compaction.md](compaction.md#手動圧縮)）。`compactionStartedAt` はその開始時刻（epoch ms）で、`status` が `compacting` のときだけ載る（終端の `resync` では載せない）。経過時間の起点はこの値を使い、`run.startedAt` は再利用しない。
+
 `cwd` はワークスペース root 相対の作業ディレクトリ（プロジェクト所属は `projectCwd`、未所属は `.u7agent/sessions/<id>`）。ツール実行と `GET /api/files` の結果はこのディレクトリを起点に組み立てる。`write` / `edit` はこのディレクトリと `<root>/.agents/skills` の内側にだけ書ける（[projects.md](projects.md#write--edit-の書き込み範囲)）。`health.cwd` は root の絶対パス（表示用）で意味が違う。`projectId` は所属プロジェクト（未所属はキーを省略）。復元時は `meta.projectCwd` から `cwd` を解決し、登録が解除・消失していてもそのディレクトリを使う。
 
 `eventGeneration` は SSE の世代（[イベント購読](#get-apisessionsidevents) を参照）。`lastSeq` と組でカーソルの整合判定に使う。
@@ -179,7 +181,7 @@ JSONL が破損している（SDK が追記する entry type / message role を 
 
 - 省略した項目は現在値維持。空 body・`null`・不正な値・利用不能なモデルは 400、存在しないセッションは 404。
 - モデルだけ変更するときは変更前の実効 Effort を退避して SDK 切替後に再適用する。両方指定したときは要求した Effort を再適用する。SDK が非対応値を補正するため、応答は補正後の実効値になる。
-- 実行中・送信待ちキューあり・SDK が非 idle・別の設定変更中のときは 409（値は変わらない）。変更中は同セッションへの送信も 409 になり、変更完了後に解除される。
+- 実行中・送信待ちキューあり・圧縮中・SDK が非 idle・別の設定変更中のときは 409（値は変わらない）。変更中は同セッションへの送信も 409 になり、変更完了後に解除される。
 - 変更は `resync` イベントで購読中のクライアントへ同期する。
 
 ## `POST /api/sessions/:id/messages`
@@ -199,6 +201,7 @@ JSONL が破損している（SDK が追記する entry type / message role を 
 - `text` は空でも添付があれば送れる（本文も添付も無いときだけ 400）。
 - `text` が `/skill:` で始まるときは、BFF が本文ブロックへ展開してから送る（[`/skill:` の展開](#skill-の展開)）。
 - BFF は本文の末尾に注記を合成してから `SessionStore.postMessage` へ渡す（[注記](#添付の注記)）。
+- 圧縮中に送るとキューに積まれ、`queued: true` と `queueDepth` を返す（`runId` は載らない）。圧縮の終端処理の後に 1 回だけ pump し、同じ 202 の応答で次のランが始まる（排他の判定は BFF の `compacting` フラグ。SDK は保存待ちの間 idle に見える）。
 
 ### `/skill:` の展開
 
@@ -330,21 +333,38 @@ SSE（`text/event-stream`）でイベントを購読。カーソルは `Last-Eve
 | `run_start` | `{ runId, prompt, startedAt }`（`startedAt` は payload の `run.startedAt` と同じ値） |
 | `text` | `{ delta }` |
 | `tool_start` / `tool_end` | `{ id, name, args, skill? }` / `{ id, name, isError, output }`（`skill` は `run.toolCalls[].skill` と同じスキル読み込み。結果が無い時点なので `isError` は載らない） |
-| `status` | `{ state, text }`（考え中 / ツール実行中 / 再試行中 など） |
+| `status` | `{ state, text }`（考え中 / ツール実行中 / 再試行中 など。手動圧縮の終端では成功 / 失敗の文言を配る） |
 | `queued` | `{ position, queueDepth, prompt }` |
 | `queue_cleared` | `{}` |
 | `run_end` | `{ runId, status, error, messageCount, queueDepth, context? }`（`messageCount` は一覧 API と同じ表示メッセージ数） |
 | `usage` | `{ usage?, metrics?, context? }`（assistant の `message_end` ごとに 1 件。usage はプロバイダが報告したときだけ、metrics は BFF 計測、context は SDK の `getContextUsage()` だが履歴反映前なので確定値は `run_end` 側） |
-| `compaction` | `{ compaction, count }`（`compaction_end` ごとに 1 件。`compaction` は payload の `compactions` の要素 1 つ、`count` はその時点の累計回数。続けて同じ状態を持つ `resync` が届く（送信メッセージを履歴へ入れる前に圧縮が走った場合は、そのメッセージが入ってから届く）。`result` が無い / `aborted` / `errorMessage` ありのときは `compaction` も `resync` も配らない） |
-| `resync` | セッションペイロード全体（バッファを逃した場合・世代が一致しない場合） |
+| `compaction` | `{ compaction, count }`（`compaction_end` ごとに 1 件。`compaction` は payload の `compactions` の要素 1 つ、`count` はその時点の累計回数。run の自動圧縮では続けて同じ状態を持つ `resync` が届く（送信メッセージを履歴へ入れる前に圧縮が走った場合は、そのメッセージが入ってから届く）。手動圧縮では resync を配らず、保存の完了後に終端 `resync` が 1 回届く。`result` が無い / `aborted` / `errorMessage` ありのときは `compaction` も `resync` も配らない） |
+| `resync` | セッションペイロード全体（バッファを逃した場合・世代が一致しない場合と、手動圧縮の開始 / 終端） |
 | `session_deleted` | `{ sessionId }`（削除時。送出後に接続を閉じる） |
 | `ping` | `{}`（接続直後と 15 秒ごとの生存確認。`id` 無し = カーソルを動かさない） |
 
 テキスト系イベント（`text` / `tool_start` / `tool_end` / `run_start` / `queued` / `run_end` のエラーや `resync` の `messages`・`compactions[].summary`、`compaction` の `compaction.summary` など）は、既知のプロバイダーAPIキーの値が `[REDACTED]` に置換されて配信される。対象キーと保証範囲は [secrets.md](secrets.md) を参照。
 
+## `POST /api/sessions/:id/compact`
+
+手動でのコンテキスト圧縮（compaction）。body は無し。**完了まで待って**実効状態を返す（途中経過と結果は SSE が配る）。進行中のタブを閉じても圧縮は続く（リクエストの signal は繋がない）。
+
+```json
+// response (200)
+{ "sessionId": "…", "status": "idle" }
+```
+
+- 呼べるのは **idle のときだけ**。実行中・キュー待ち・streaming 中・設定変更中・既に圧縮中なら 409
+- SDK の例外は完全一致で分類し、`Nothing to compact (session too small)` は 400、`Already compacted` は 409、中止（abort / `Compaction cancelled`）は 409、未知の例外はマスクした文言で 500。501 はランタイムが `compact()` を持たないとき
+- **保存失敗は 500**（`セッションの保存に失敗しました: …`）。それでも圧縮自体は成立しているため、`compaction` と終端 `resync` は配られ、履歴は巻き戻らない。health の `dirty` に出る
+- 同期応答は状態の正ではない（別タブ / reload / 再接続は payload と `resync` を正とする）。進捗と終端の契約・文言は [compaction.md](compaction.md#手動圧縮)
+- 404 は未知のセッション。未対応のランタイムは 501
+
 ## `POST /api/sessions/:id/stop`
 
 実行中のランを中断し、待機キューを破棄する。`{ ok: true, status: "stopped" }` を返す。旧 `POST /api/sessions/:id/abort` も同じ動作のエイリアス。
+
+圧縮中に呼んだ場合は SDK の `abortCompaction()` も走り（`abort()` が内部で呼ぶ）、BFF は圧縮の task（保存と終端配信）の settle を待ってから応答するため、応答の `status` が `compacting` になることはない。SDK が entry を append 済み（保存待ち）の段階では圧縮を巻き戻せないので、表示と応答は圧縮の成功と保存結果を正とする。
 
 ## `DELETE /api/sessions/:id`
 

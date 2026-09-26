@@ -46,6 +46,11 @@ export type ChatState = {
   /** 実行中ランの開始時刻 (epoch ms)。サーバーが配る値だけを使う (受信時刻は使わない) */
   runStartedAt?: number;
   /**
+   * 手動圧縮の開始時刻 (epoch ms)。payload の compactionStartedAt だけを使う
+   * (runStartedAt とは別に持ち、圧縮の経過時間に使う)
+   */
+  compactionStartedAt?: number;
+  /**
    * run が終わった回数。run_end と、running を抜けた resync で進む。値そのものは表示に使わず、
    * チャットの右パネル (作業フォルダ) が取り直しの合図に使う (描画間の runStatus の差では、
    * run_start と run_end が同じバッチで届いたときに running を観測できない)。
@@ -102,6 +107,7 @@ export const initialChatState: ChatState = {
   toolBubbleIds: {},
   runStatus: "idle",
   runStartedAt: undefined,
+  compactionStartedAt: undefined,
   runEndSeq: 0,
   sendSeq: 0,
   pendingEchoIds: [],
@@ -273,6 +279,8 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
         toolBubbleIds,
         runStatus: status,
         runStartedAt: status === "running" ? payload.run?.startedAt : undefined,
+        // 圧縮の起点は payload の値だけ。終端 resync で status が抜ければ解除される
+        compactionStartedAt: status === "compacting" ? payload.compactionStartedAt : undefined,
         queueDepth: payload.queueDepth || 0,
         activity: "",
         sessionModel: payload.model,
@@ -294,6 +302,7 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
         }
       }
       if (status === "running") next = { ...next, activity: "実行中…（タブを閉じても処理は続きます）" };
+      else if (status === "compacting") next = { ...next, activity: "会話を整理中…" };
       else if (status === "queued")
         next = { ...next, activity: `待機中のメッセージがあります（${payload.queueDepth}件）` };
       else if (status === "error") next = { ...next, activity: "前回の実行でエラーが発生しました" };
@@ -332,6 +341,8 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
         toolBubbleIds: {},
         runStatus: "running",
         runStartedAt: action.startedAt,
+        // 圧縮の終端では run_start より先に終端 resync が届く (回復時も残さない)
+        compactionStartedAt: undefined,
         activity: "実行を開始しました",
         // 前の run の保留値を引き継がない
         pendingUsage: undefined,
@@ -432,9 +443,13 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
     case "queued":
       return {
         ...state,
-        runStatus: "running",
+        // 圧縮中は体感の状態を compacting のまま保つ (実際に走っているのは圧縮)
+        runStatus: state.runStatus === "compacting" ? "compacting" : "running",
         queueDepth: action.queueDepth,
-        activity: `実行中のため待機キューに追加しました（${action.position}件目）`,
+        activity:
+          state.runStatus === "compacting"
+            ? `圧縮中のため待機キューに追加しました（${action.position}件目）`
+            : `実行中のため待機キューに追加しました（${action.position}件目）`,
       };
 
     case "queueCleared":
@@ -454,6 +469,7 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
         // run が終わったことを取り直しの合図として数える (描画を挟まず reducer で進める)
         runEndSeq: state.runEndSeq + 1,
         runStartedAt: undefined,
+        compactionStartedAt: undefined,
         runStatus: queueDepth > 0 ? "queued" : status === "completed" ? "idle" : status,
         queueDepth,
         // 履歴反映後の最新値 (usage イベントの context は 1 応答分古い)
@@ -468,6 +484,8 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
       return {
         ...state,
         runStatus: action.runStatus,
+        // 圧縮の起点は resync が持つ。応答などで compacting 以外へ移すときは残さない
+        compactionStartedAt: action.runStatus === "compacting" ? state.compactionStartedAt : undefined,
         queueDepth: action.queueDepth ?? state.queueDepth,
         activity: action.activity ?? state.activity,
       };

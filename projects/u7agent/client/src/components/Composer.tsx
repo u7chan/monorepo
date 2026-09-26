@@ -15,7 +15,7 @@ import { SkillPanel, SkillToggle } from "./composer/SkillField";
 
 export type ComposerProps = {
   activity: string;
-  /** 実行中だけ渡す (活動行の経過時間の起点) */
+  /** 実行中 / 圧縮中だけ渡す (活動行の経過時間の起点) */
   runningSince?: number;
   runtimeReady: boolean;
   sending: boolean;
@@ -23,6 +23,8 @@ export type ComposerProps = {
   queueDepth: number;
   context?: ContextUsage;
   settings: ComposerSettings;
+  /** 手動圧縮。セッションがあるときだけ渡す (未作成チャットでは導線を出さない) */
+  onCompact?: () => void;
   agents: AgentDef[];
   agentId: string;
   mode: LayoutMode;
@@ -117,6 +119,7 @@ export function Composer({
   onChangeModel,
   onChangeThinkingLevel,
   onChangeAgent,
+  onCompact,
   onReloadSkills,
 }: ComposerProps) {
   const compact = mode !== "desktop";
@@ -273,6 +276,9 @@ export function Composer({
         model={settings.model}
         modelLabel={settings.modelLabel}
         modelUnavailable={Boolean(settings.modelWarning)}
+        onCompact={onCompact}
+        compactDisabled={settings.compactDisabled}
+        compactDisabledReason={settings.compactDisabledReason}
       />
       <form
         onSubmit={handleSubmit}

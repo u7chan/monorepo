@@ -116,6 +116,8 @@ export interface StubSessionOptions {
    * 実 SDK は送信メッセージを組み立てる前に compaction を走らせる。
    */
   preflightCompactions?: Array<StubCompactionOptions | null>;
+  /** BFF からの手動 compaction (引数なしの compact()) に使う options */
+  manualCompaction?: StubCompactionOptions;
 }
 
 /** SDK の SessionEntry と同じ形の append-only ログ。getBranch() が返す */
@@ -155,6 +157,13 @@ export interface StubCompactionOptions {
   summarizeCount?: number;
   /** "none" / "aborted" / "error" で result が無い異常系を再現する */
   outcome?: "ok" | "none" | "aborted" | "error";
+  /**
+   * "too-small" で `Nothing to compact (session too small)`、"already" で `Already compacted`、
+   * "unknown" で未知の例外を compaction_end の後に投げる (実 SDK と同じ順序)
+   */
+  failure?: "too-small" | "already" | "unknown";
+  /** 要約生成の待ち (ms)。圧縮中の abort / delete / close の検証に使う */
+  delayMs?: number;
   summary?: string;
   tokensBefore?: number;
   estimatedTokensAfter?: number;
@@ -174,8 +183,11 @@ export interface StubSession extends PiSessionLike {
   modelSwitchDefault: string;
   /** getBranch() が返す append-only の entry ログ */
   readonly entries: StubSessionEntry[];
-  /** compaction を 1 回実行する (実 SDK と同じ順序でイベントと entry / messages を更新する) */
+  /** BFF からの手動呼び出しは customInstructions (string)、テストからの呼び出しは options */
+  compact(customInstructions?: string): Promise<unknown>;
   compact(options?: StubCompactionOptions): Promise<void>;
+  /** compaction 中に届いた abortCompaction / abort の回数 */
+  compactionAborts: number;
   /** overflow 回復の再現: 失敗した assistant を agent state から外す (entry には残す) */
   dropLastAssistantFromState(): void;
 }
@@ -188,6 +200,9 @@ export function createStubSession(options: StubSessionOptions = {}): StubSession
   const listeners = new Set<PiSessionEventListener>();
   // 実 SDK はリスナーへ message_end を配った後に SessionManager へ入れるため、その間だけ context が古い
   let historyUpdated = true;
+  // 実 SDK の isCompacting / abortCompaction に対応する状態 (BFF の保存待ちは含まない)
+  let compacting = false;
+  let compactionAbortRequested = false;
   const sleepers = new Set<() => void>();
   const sleep = (ms: number) =>
     new Promise<void>((resolveSleep) => {
@@ -263,8 +278,12 @@ export function createStubSession(options: StubSessionOptions = {}): StubSession
     ) as string,
     messages: [] as PiSessionLike["messages"],
     isStreaming: false,
+    /** 手動 / 自動 compaction の実行中 (実 SDK と同じく isIdle へも効く) */
+    get isCompacting() {
+      return compacting;
+    },
     get isIdle() {
-      return !session.isStreaming;
+      return !session.isStreaming && !compacting;
     },
     sessionManager: {
       getBranch: () => [...entries],
@@ -320,8 +339,18 @@ export function createStubSession(options: StubSessionOptions = {}): StubSession
       for (const listener of listeners) listener(event);
     },
     async abort() {
+      // 実 SDK の abort() は compaction も中止して idle を待つ。BFF の stop もこれを流用する
+      session.abortCompaction();
       if (!session.isStreaming) return;
       session.abortRequested = true;
+      for (const wake of sleepers) wake();
+    },
+    compactionAborts: 0,
+    abortCompaction() {
+      if (!compacting) return;
+      compactionAbortRequested = true;
+      session.compactionAborts += 1;
+      // 要約生成の待ちを起こして、compact() の巻き戻しを進める
       for (const wake of sleepers) wake();
     },
     dispose() {
@@ -335,66 +364,108 @@ export function createStubSession(options: StubSessionOptions = {}): StubSession
         }
       }
     },
-    async compact(compaction: StubCompactionOptions = {}) {
-      const reason = compaction.reason ?? "threshold";
+    /**
+     * BFF (手動圧縮) は customInstructions の string で、テストは StubCompactionOptions の object で呼ぶ。
+     * 実 SDK と同じ順序 (compaction_start → 負荷 → entry append → compaction_end → 例外) を再現する。
+     */
+    async compact(instructionsOrOptions?: string | StubCompactionOptions) {
+      const fromBff = instructionsOrOptions === undefined || typeof instructionsOrOptions === "string";
+      const compaction: StubCompactionOptions = fromBff ? (options.manualCompaction ?? {}) : instructionsOrOptions;
+      // 手動 (BFF / 文字列) は manual、テストの object 指定は従来どおり threshold を既定にする
+      const reason = compaction.reason ?? (fromBff ? "manual" : "threshold");
       const outcome = compaction.outcome ?? "ok";
+      compacting = true;
       session.emit({ type: "compaction_start", reason });
-      if (outcome !== "ok") {
+      try {
+        if ((compaction.delayMs ?? 0) > 0) await sleep(compaction.delayMs ?? 0);
+        if (compactionAbortRequested) {
+          session.emit({
+            type: "compaction_end",
+            reason,
+            result: undefined,
+            aborted: true,
+            willRetry: false,
+          });
+          throw new Error("Compaction cancelled");
+        }
+        if (compaction.failure) {
+          const message =
+            compaction.failure === "too-small"
+              ? "Nothing to compact (session too small)"
+              : compaction.failure === "already"
+                ? "Already compacted"
+                : "stub compaction exploded";
+          session.emit({
+            type: "compaction_end",
+            reason,
+            result: undefined,
+            aborted: false,
+            willRetry: false,
+            errorMessage: `Compaction failed: ${message}`,
+          });
+          throw new Error(message);
+        }
+        if (outcome !== "ok") {
+          session.emit({
+            type: "compaction_end",
+            reason,
+            result: undefined,
+            aborted: outcome === "aborted",
+            willRetry: false,
+            ...(outcome === "error" ? { errorMessage: "Compaction failed: stub" } : {}),
+          });
+          return;
+        }
+        const displayable = contextEntries().filter(
+          (entry) =>
+            entry.type === "message" && (entry.message?.role === "user" || entry.message?.role === "assistant"),
+        );
+        const summarizeCount = compaction.summarizeCount ?? Math.max(0, displayable.length - 2);
+        const firstKept = displayable[Math.min(summarizeCount, displayable.length - 1)];
+        let firstKeptEntryId: string | undefined = firstKept?.id;
+        if (firstKept && compaction.firstKeptIsMetadata) {
+          // 実 SDK の cut point は model 変更などの metadata entry を指し得る。
+          // 境界の位置だけを再現したいので、branch の親子関係を保ったまま手前へ差し込む。
+          entrySeq += 1;
+          const metadata: StubSessionEntry = {
+            type: "model_change",
+            id: `entry-${entrySeq}`,
+            parentId: firstKept.parentId,
+            timestamp: new Date().toISOString(),
+          };
+          const position = entries.indexOf(firstKept);
+          firstKept.parentId = metadata.id;
+          entries.splice(position, 0, metadata);
+          leafId = entries[entries.length - 1].id;
+          firstKeptEntryId = metadata.id;
+        }
+        const tokensBefore = compaction.tokensBefore ?? 68_000;
+        const entry = appendEntry({
+          type: "compaction",
+          summary: compaction.summary ?? "これまでの会話の要約です",
+          firstKeptEntryId,
+          tokensBefore,
+          usage: compaction.usage,
+          fromHook: compaction.fromHook,
+        });
+        session.messages = contextMessages();
         session.emit({
           type: "compaction_end",
           reason,
-          result: undefined,
-          aborted: outcome === "aborted",
+          result: {
+            summary: entry.summary,
+            firstKeptEntryId: entry.firstKeptEntryId,
+            tokensBefore,
+            estimatedTokensAfter: compaction.estimatedTokensAfter ?? 5_000,
+            usage: compaction.usage,
+          },
+          aborted: false,
           willRetry: false,
-          ...(outcome === "error" ? { errorMessage: "Compaction failed: stub" } : {}),
         });
-        return;
+      } finally {
+        compacting = false;
+        compactionAbortRequested = false;
       }
-      const displayable = contextEntries().filter(
-        (entry) => entry.type === "message" && (entry.message?.role === "user" || entry.message?.role === "assistant"),
-      );
-      const summarizeCount = compaction.summarizeCount ?? Math.max(0, displayable.length - 2);
-      const firstKept = displayable[Math.min(summarizeCount, displayable.length - 1)];
-      let firstKeptEntryId: string | undefined = firstKept?.id;
-      if (firstKept && compaction.firstKeptIsMetadata) {
-        // 実 SDK の cut point は model 変更などの metadata entry を指し得る。
-        // 境界の位置だけを再現したいので、branch の親子関係を保ったまま手前へ差し込む。
-        entrySeq += 1;
-        const metadata: StubSessionEntry = {
-          type: "model_change",
-          id: `entry-${entrySeq}`,
-          parentId: firstKept.parentId,
-          timestamp: new Date().toISOString(),
-        };
-        const position = entries.indexOf(firstKept);
-        firstKept.parentId = metadata.id;
-        entries.splice(position, 0, metadata);
-        leafId = entries[entries.length - 1].id;
-        firstKeptEntryId = metadata.id;
-      }
-      const tokensBefore = compaction.tokensBefore ?? 68_000;
-      const entry = appendEntry({
-        type: "compaction",
-        summary: compaction.summary ?? "これまでの会話の要約です",
-        firstKeptEntryId,
-        tokensBefore,
-        usage: compaction.usage,
-        fromHook: compaction.fromHook,
-      });
-      session.messages = contextMessages();
-      session.emit({
-        type: "compaction_end",
-        reason,
-        result: {
-          summary: entry.summary,
-          firstKeptEntryId: entry.firstKeptEntryId,
-          tokensBefore,
-          estimatedTokensAfter: compaction.estimatedTokensAfter ?? 5_000,
-          usage: compaction.usage,
-        },
-        aborted: false,
-        willRetry: false,
-      });
     },
     async prompt(text: string) {
       session.abortRequested = false;
@@ -495,6 +566,8 @@ export interface StubPiOptions {
   setModelFailures?: number;
   /** prompt ごとに消費する preflight compaction (StubSessionOptions と同じ) */
   preflightCompactions?: Array<StubCompactionOptions | null>;
+  /** BFF からの手動 compaction (引数なしの compact()) に使う options */
+  manualCompaction?: StubCompactionOptions;
   availableModels?: PiAiModel<Api>[];
   /** null を渡すとアプリ既定モデル無し (認証済み候補はある) を再現する */
   selectedModel?: PiAiModel<Api> | null;

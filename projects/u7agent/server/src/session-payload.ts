@@ -52,6 +52,7 @@ export function projectSessionPayload({
     createdAt: record.createdAt,
     lastUsedAt: record.lastUsedAt,
     queueDepth: record.queue.length,
+    ...(record.compactionStartedAt !== undefined ? { compactionStartedAt: record.compactionStartedAt } : {}),
     notify: record.notify,
     lastSeq: record.seq,
     agent: {

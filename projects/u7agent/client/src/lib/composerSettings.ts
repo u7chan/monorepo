@@ -34,6 +34,10 @@ export type ComposerSettings = {
   disabled: boolean;
   /** 設定変更通信中は送信も待たせる */
   changing: boolean;
+  /** 手動圧縮ボタンを押せない (実効 busy / 送信中 / 設定変更中) */
+  compactDisabled: boolean;
+  /** 押せない理由。圧縮の注意書きに付け足し、aria-describedby でも読ませる */
+  compactDisabledReason?: string;
   /** 未作成チャットで有効なモデルが無いときの、送信しても作成できない理由 */
   sendBlockedReason?: string;
 };
@@ -43,11 +47,35 @@ export type ComposerSettingsInput = {
   selectedAgent?: AgentDef;
   sessionId: string;
   preselection: SettingsSelection;
-  chat: Pick<ChatState, "sessionModel" | "sessionThinkingLevel" | "supportsThinking" | "availableThinkingLevels">;
+  chat: Pick<
+    ChatState,
+    "sessionModel" | "sessionThinkingLevel" | "supportsThinking" | "availableThinkingLevels" | "runStatus"
+  >;
   sending: boolean;
   settingsChanging: boolean;
   stopVisible: boolean;
 };
+
+/**
+ * 手動圧縮の実効 busy。`statusOf` は streaming を running として返し、idle 相当でも
+ * completed / stopped / error を返すため、runStatus === "idle" では判定できない。
+ */
+export function compactionBusy(runStatus: string): boolean {
+  return runStatus === "running" || runStatus === "queued" || runStatus === "compacting";
+}
+
+/** 手動圧縮を押せない理由。順序は実際に遮っているもの (圧縮中 > 実行中 > 送信中 > 設定変更中) */
+function compactDisabledReason(input: {
+  runStatus: string;
+  sending: boolean;
+  settingsChanging: boolean;
+}): string | undefined {
+  if (input.runStatus === "compacting") return "圧縮中";
+  if (compactionBusy(input.runStatus)) return "実行中";
+  if (input.sending) return "送信中";
+  if (input.settingsChanging) return "設定の変更中";
+  return undefined;
+}
 
 const modelLabel = (ref?: ModelRef): string | undefined => (ref ? `${ref.provider}/${ref.id}` : undefined);
 
@@ -83,6 +111,9 @@ export function deriveComposerSettings(input: ComposerSettingsInput): ComposerSe
     effortNotice: option ? undefined : "使用モデルに応じて補正されます",
     disabled: stopVisible || sending || settingsChanging,
     changing: settingsChanging,
+    // 送信の通信中も止める (送信と同時に押すと run の開始と競合する)
+    compactDisabled: compactionBusy(chat.runStatus) || sending || settingsChanging,
+    compactDisabledReason: compactDisabledReason({ runStatus: chat.runStatus, sending, settingsChanging }),
     sendBlockedReason: !inSession && !model && health?.defaultModelError ? health.defaultModelError : undefined,
   };
 }

@@ -49,6 +49,7 @@ type ContractKeys = {
   attachFiles: unknown;
   removeAttachment: unknown;
   stopAgent: unknown;
+  compactSession: unknown;
   deleteSession: unknown;
   createProject: unknown;
   deleteProject: unknown;

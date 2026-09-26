@@ -34,9 +34,12 @@ startRun():
 | `idle` | ランなし |
 | `running` | ラン実行中 |
 | `queued` | 待機メッセージあり |
+| `compacting` | 手動圧縮の実行中（SDK 実行中と保存待ちの両方） |
 | `completed` | 最後のランが完了 |
 | `stopped` | 最後のランがユーザー停止 |
 | `error` | 最後のランがエラー |
+
+`compacting` は queue より優先して返る（圧縮中の送信はキューに積まれるが、表示は圧縮中）。手動圧縮のライフサイクル・排他・終端の順序は [compaction.md](compaction.md#手動圧縮) を正とする。
 
 ## イベントログと SSE
 
@@ -55,15 +58,17 @@ startRun():
 - セッションの作成は最初のメッセージ送信時。未送信の新規チャットは `POST /api/sessions` を呼ばず、一覧にも出ない（エージェント切替・「新しい会話」・起動時の `/` は未選択のローカル状態だけで完結する）。起動時に会話を開くのは通知リンク `/s/<id>` が指定された場合だけで、開いた会話を `/` に畳んだ後の F5 は未選択から始まる。作成前の Model / Effort 選択は次の作成時に `POST /api/sessions` の body として送られる。
 - ラン中に再接続したクライアント向けに、`payload.run.toolCalls` で進行中ランのツールカード状態も返す。
 - エージェント定義の編集は既存チャットに遡及しない。表示用のエージェント情報は作成時に `SessionRecord` へ、実行用プロンプトは meta の `promptSnapshot` へスナップショット化し、定義の変更・削除後も `payload.agent` と復元後の実行内容は作成時のままになる。
-- 会話の圧縮（compaction）は `payload.compactions` と `compaction` / `resync` イベントで配る。表示仕様は [compaction.md](compaction.md) を正とする。compaction entry も `session.jsonl` に保存され、復元後も区切りが再現される（`reason` / `estimatedTokensAfter` は復元後は欠ける）。
+- 会話の圧縮（compaction）は `payload.compactions` と `compaction` / `resync` イベントで配る。表示仕様と手動圧縮の契約は [compaction.md](compaction.md) を正とする。compaction entry も `session.jsonl` に保存され、復元後も区切りが再現される（`reason` / `estimatedTokensAfter` は復元後は欠ける）。
+- 手動圧縮（`POST /api/sessions/:id/compact`）は run と同じく HTTP リクエストから切り離して進み、状態は `statusOf` の `compacting` として現れる。完了は同期 POST と SSE（終端 `resync` → `status`）の両方で届き、正は payload。
 
 ## 停止と破棄
 
 `POST /api/sessions/:id/stop`（旧 `/abort` もエイリアスとして有効）:
 
 1. 待機キューを破棄し `queue_cleared` イベントを記録
-2. `session.abort()` を呼ぶ（pi が `agent_settled` / stopReason `aborted` を返す）
-3. `finish()` が `run_end`（status: `stopped`）を記録。キューは破棄済みなので次のランは起動しない
+2. `session.abort()` を呼ぶ（pi が `agent_settled` / stopReason `aborted` を返す。圧縮中なら `abortCompaction()` も同時に走る）
+3. 圧縮中だった場合は `compactionTask` の settle（保存と終端配信）を待つ（応答の `status` に `compacting` を残さない）
+4. `finish()` が `run_end`（status: `stopped`）を記録。キューは破棄済みなので次のランは起動しない
 
 `DELETE /api/sessions/:id` は停止 + ストアの履歴削除 + 購読者への `session_deleted` 通知を行う（作業フォルダは残す）。未ロードのセッションは SDK を開かずに消せる。
 

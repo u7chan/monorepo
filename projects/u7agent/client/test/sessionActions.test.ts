@@ -6,10 +6,16 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { Dispatch } from "react";
-import type { ChatAction } from "../src/hooks/chatReducer";
-import { sendChatMessage, stopRun, type SendChatMessageDeps } from "../src/hooks/sessionActions";
+import { chatReducer, initialChatState, type ChatAction } from "../src/hooks/chatReducer";
+import {
+  compactChat,
+  sendChatMessage,
+  stopRun,
+  type CompactChatDeps,
+  type SendChatMessageDeps,
+} from "../src/hooks/sessionActions";
 import type { RuntimeStatus } from "../src/hooks/runtimeStatus";
-import type { Health, PostMessageResult, StopResult } from "../src/types";
+import type { Health, PostMessageResult, SessionCompactionResult, StopResult } from "../src/types";
 
 const health = (overrides: Partial<Health> = {}): Health => ({ ready: true, ...overrides });
 
@@ -33,6 +39,14 @@ function deferred<T>(): Deferred<T> {
   return { promise, resolve };
 }
 
+function actionRecorder(): { actions: ChatAction[]; dispatch: Dispatch<ChatAction> } {
+  const actions: ChatAction[] = [];
+  const dispatch: Dispatch<ChatAction> = (value) => {
+    actions.push(value as ChatAction);
+  };
+  return { actions, dispatch };
+}
+
 function createHarness(overrides: Partial<SendChatMessageDeps> = {}) {
   const record = {
     actions: [] as ChatAction[],
@@ -48,6 +62,9 @@ function createHarness(overrides: Partial<SendChatMessageDeps> = {}) {
     health: health(),
     busy: false,
     sessionIdRef: { current: "s-1" },
+    opsRef: { current: 0 },
+    runStatusRef: { current: "idle" },
+    runEndSeqRef: { current: 0 },
     ensureSession: async () => "s-1",
     refreshSessions: async () => {
       record.refreshed += 1;
@@ -112,6 +129,143 @@ test("marks the message as queued when the session is already running", async ()
   const [run] = actionsOfType(record.actions, "setRun");
   assert.equal(run.queueDepth, 3);
   assert.equal(run.activity, "実行中のため待機キューに追加しました（3件目）");
+});
+
+test("圧縮中の送信は compacting のままキューへ積む", async () => {
+  const { record, deps } = createHarness({
+    runStatusRef: { current: "compacting" },
+    post: async () => ({ queued: true, queueDepth: 2, runId: undefined }),
+  });
+
+  await sendChatMessage("hello", deps);
+
+  assert.deepEqual(actionsOfType(record.actions, "setRun"), [
+    {
+      type: "setRun",
+      runStatus: "compacting",
+      queueDepth: 2,
+      activity: "圧縮中のため待機キューに追加しました（2件目）",
+    },
+  ]);
+});
+
+test("queued の応答は、後の権威ある状態 (終端 resync) より遅れて届いても表示に反映しない", async () => {
+  const postCalled = deferred<void>();
+  const posted = deferred<PostMessageResult>();
+  // 要求の後に終端 resync が届くと世代が進む。この間の応答は古い queueDepth / runStatus を持つ
+  const opsRef = { current: 5 };
+  const { record, deps } = createHarness({
+    opsRef,
+    runStatusRef: { current: "compacting" },
+    post: () => {
+      postCalled.resolve();
+      return posted.promise;
+    },
+  });
+
+  const sending = sendChatMessage("あとで", deps);
+  await postCalled.promise;
+  // 終端 resync → pump → run_end が先に届き、表示は実行中ではなくなっている
+  opsRef.current += 1;
+  posted.resolve({ queued: true, queueDepth: 1, runId: undefined });
+  await sending;
+
+  assert.deepEqual(actionsOfType(record.actions, "setRun"), [], "遅れた応答で実行中 (や圧縮中) に戻さない");
+  assert.equal(record.refreshed, 1, "一覧の取り直しは応答の適用とは別に続ける");
+});
+
+test("送信中に別の会話へ切り替えたら、queued の応答で表示を触らない", async () => {
+  const postCalled = deferred<void>();
+  const posted = deferred<PostMessageResult>();
+  const sessionIdRef = { current: "s-1" };
+  const { record, deps } = createHarness({
+    sessionIdRef,
+    post: () => {
+      postCalled.resolve();
+      return posted.promise;
+    },
+  });
+
+  const sending = sendChatMessage("hello", deps);
+  await postCalled.promise;
+  sessionIdRef.current = "s-2";
+  posted.resolve({ queued: true, queueDepth: 1 });
+  await sending;
+
+  assert.deepEqual(actionsOfType(record.actions, "setRun"), [], "切替後の表示を実行中にしない");
+});
+
+/** dispatch を chatReducer に通し、ref は useU7Agent と同じく描画のたびに state へ合わせる */
+function reducerDispatch(initial: ChatAction[]) {
+  let state = initial.reduce(chatReducer, initialChatState);
+  const runEndSeqRef = { current: state.runEndSeq };
+  const dispatch: Dispatch<ChatAction> = (action) => {
+    state = chatReducer(state, action as ChatAction);
+    runEndSeqRef.current = state.runEndSeq;
+  };
+  return { dispatch, runEndSeqRef, state: () => state };
+}
+
+test("queued の応答が run_end より後に届いても、表示は完了のままにする", async () => {
+  const postCalled = deferred<void>();
+  const posted = deferred<PostMessageResult>();
+  // 1 通目が走っているところから始める (SSE の run_start 相当)
+  const { dispatch, runEndSeqRef, state } = reducerDispatch([
+    { type: "runStart", prompt: "1つ目", at: 1, startedAt: 1 },
+  ]);
+  const { deps } = createHarness({
+    dispatch,
+    runEndSeqRef,
+    runStatusRef: { current: "running" },
+    post: () => {
+      postCalled.resolve();
+      return posted.promise;
+    },
+  });
+
+  const sending = sendChatMessage("2つ目", deps);
+  await postCalled.promise;
+  // 実 API で観測した順序: queued → run #1 の run_end → pump の run_start → run #2 の run_end
+  dispatch({ type: "queued", position: 1, queueDepth: 1 });
+  dispatch({ type: "runEnd", status: "completed", queueDepth: 1 });
+  assert.equal(state().runStatus, "queued", "run #1 の終了で待機中の表示になる");
+  dispatch({ type: "runStart", prompt: "2つ目", at: 2, startedAt: 2 });
+  dispatch({ type: "runEnd", status: "completed", queueDepth: 0 });
+  assert.equal(state().runStatus, "idle");
+
+  // run #1 を指す queued 応答 (queueDepth 1) がここで届く
+  posted.resolve({ queued: true, queueDepth: 1, runId: "run-1" });
+  await sending;
+
+  assert.equal(state().runStatus, "idle", "終わった run の queueDepth で実行中に戻さない");
+  assert.equal(state().queueDepth, 0);
+  assert.equal(state().activity, "完了");
+});
+
+test("即時 run の応答が run_end より後に届いても、表示は完了のままにする", async () => {
+  const postCalled = deferred<void>();
+  const posted = deferred<PostMessageResult>();
+  const { dispatch, runEndSeqRef, state } = reducerDispatch([]);
+  const { deps } = createHarness({
+    dispatch,
+    runEndSeqRef,
+    post: () => {
+      postCalled.resolve();
+      return posted.promise;
+    },
+  });
+
+  const sending = sendChatMessage("1つ目", deps);
+  await postCalled.promise;
+  dispatch({ type: "runStart", prompt: "1つ目", at: 1, startedAt: 1 });
+  dispatch({ type: "runEnd", status: "completed", queueDepth: 0 });
+  assert.equal(state().runStatus, "idle");
+
+  posted.resolve({ queued: false, queueDepth: 0, runId: "run-1" });
+  await sending;
+
+  assert.equal(state().runStatus, "idle", "終わった run の応答で実行中に戻さない");
+  assert.equal(state().activity, "完了");
 });
 
 test("does not send while the runtime is not ready", async () => {
@@ -257,6 +411,8 @@ test("stops the displayed session", async () => {
 
   await stopRun({
     sessionIdRef: { current: "s-1" },
+    opsRef: { current: 3 },
+    runStatusRef: { current: "running" },
     stop: async (sessionId): Promise<StopResult> => {
       stops.push(sessionId);
       return { ok: true, status: "stopped" };
@@ -270,15 +426,57 @@ test("stops the displayed session", async () => {
   ]);
 });
 
+test("圧縮中の stop の応答では表示を戻さない", async () => {
+  const { actions, dispatch } = actionRecorder();
+
+  await stopRun({
+    sessionIdRef: { current: "s-1" },
+    opsRef: { current: 0 },
+    runStatusRef: { current: "compacting" },
+    stop: async () => ({ ok: true, status: "completed" }),
+    dispatch,
+  });
+
+  // 応答は圧縮前の run の値。状態の正は終端 resync / status
+  assert.deepEqual(actions, []);
+});
+
+test("stop の応答は、後から入った操作や別セッションには適用しない", async () => {
+  const opsRef = { current: 0 };
+  const sessionIdRef = { current: "s-1" };
+  const { actions, dispatch } = actionRecorder();
+  const stopping = stopRun({
+    sessionIdRef,
+    opsRef,
+    runStatusRef: { current: "running" },
+    stop: async () => ({ ok: true, status: "stopped" }),
+    dispatch,
+  });
+  // 終端 resync (操作世代が進む) や別会話への切替が先に起きた
+  opsRef.current += 1;
+  await stopping;
+  assert.deepEqual(actions, []);
+
+  const switched = stopRun({
+    sessionIdRef,
+    opsRef,
+    runStatusRef: { current: "running" },
+    stop: async () => ({ ok: true, status: "stopped" }),
+    dispatch,
+  });
+  sessionIdRef.current = "s-3";
+  await switched;
+  assert.deepEqual(actions, []);
+});
+
 test("does nothing when no session is displayed", async () => {
-  const record = { actions: [] as ChatAction[] };
-  const dispatch: Dispatch<ChatAction> = (value) => {
-    record.actions.push(value as ChatAction);
-  };
+  const { actions, dispatch } = actionRecorder();
   let called = false;
 
   await stopRun({
     sessionIdRef: { current: "" },
+    opsRef: { current: 0 },
+    runStatusRef: { current: "idle" },
     stop: async (): Promise<StopResult> => {
       called = true;
       return { ok: true, status: "idle" };
@@ -287,5 +485,85 @@ test("does nothing when no session is displayed", async () => {
   });
 
   assert.equal(called, false);
-  assert.deepEqual(record.actions, []);
+  assert.deepEqual(actions, []);
+});
+
+/** api.ts の ApiError と同じ形 (location を参照するため class は読み込まない) */
+function apiFailure(message: string, status: number): Error {
+  return Object.assign(new Error(message), { status });
+}
+
+function compactDeps(overrides: Partial<CompactChatDeps> = {}) {
+  const { actions, dispatch } = actionRecorder();
+  const statuses: RuntimeStatus[] = [];
+  const compacted: string[] = [];
+  const deps: CompactChatDeps = {
+    sessionIdRef: { current: "s-1" },
+    opsRef: { current: 0 },
+    compact: async (sessionId): Promise<SessionCompactionResult> => {
+      compacted.push(sessionId);
+      return { sessionId, status: "idle" };
+    },
+    dispatch,
+    setRuntimeStatus: (status) => {
+      statuses.push(status);
+    },
+    ...overrides,
+  };
+  return { actions, statuses, compacted, deps };
+}
+
+test("compactChat は要求とともに操作世代を進め、成功では表示を触らない", async () => {
+  const { actions, compacted, deps } = compactDeps();
+
+  await compactChat(deps);
+
+  assert.deepEqual(compacted, ["s-1"]);
+  assert.equal(deps.opsRef.current, 1, "同じ表示のまま押し直しても前の応答を捨てられる");
+  assert.deepEqual(actions, [], "状態の正は SSE (開始 / 終端 resync と status)");
+});
+
+test("compactChat の失敗は状態行に理由を出し、接続状態は通信の失敗だけ変える", async () => {
+  const api = compactDeps({
+    compact: async () => {
+      throw apiFailure("まだ要約できる古い会話がありません", 400);
+    },
+  });
+  await compactChat(api.deps);
+  assert.deepEqual(api.actions, [{ type: "setActivity", text: "まだ要約できる古い会話がありません" }]);
+  assert.deepEqual(api.statuses, [], "400 は操作の結果で、接続の異常ではない");
+
+  const network = compactDeps({
+    compact: async () => {
+      throw new Error("Failed to fetch");
+    },
+  });
+  await compactChat(network.deps);
+  assert.equal(network.statuses.length, 1);
+  assert.equal(network.actions.length, 1);
+});
+
+test("compactChat の応答は、後から入った操作や終端 resync の後では適用しない", async () => {
+  const { actions, statuses, deps } = compactDeps({
+    compact: async () => {
+      throw apiFailure("セッションの保存に失敗しました", 500);
+    },
+  });
+
+  const running = compactChat(deps);
+  // 要求の後に終端 resync が届く / 別の操作が始まると世代が進む
+  deps.opsRef.current += 1;
+  await running;
+
+  assert.deepEqual(actions, [], "SSE が配った新しい状態を古い失敗で上書きしない");
+  assert.deepEqual(statuses, []);
+});
+
+test("compactChat は表示中のセッションが無ければ何もしない", async () => {
+  const { compacted, deps } = compactDeps({ sessionIdRef: { current: "" } });
+
+  await compactChat(deps);
+
+  assert.deepEqual(compacted, []);
+  assert.equal(deps.opsRef.current, 0);
 });

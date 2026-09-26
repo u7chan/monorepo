@@ -2,6 +2,7 @@ import { useCallback, useRef, useState, useSyncExternalStore } from "react";
 import type { Dispatch, RefObject } from "react";
 import {
   ApiError,
+  compactSession as requestCompaction,
   createSession,
   deleteSession as apiDeleteSession,
   getSession,
@@ -19,6 +20,7 @@ import { createNotifyCarry, createNotifyToggleRunner } from "./notifyToggle";
 import { createSessionCreation } from "./sessionCreation";
 import { applySessionEvent } from "./sessionStream";
 import { applySettingsChange, type SettingsSelection } from "./settingsChange";
+import { compactChat } from "./sessionActions";
 import { nextAfterFailure } from "./sessionFallback";
 import { useSessionEvents } from "./useSessionEvents";
 import { runtimeStatusForError, type RuntimeStatus } from "./runtimeStatus";
@@ -77,6 +79,11 @@ export function useSessions({
   const generationRef = useRef("");
   /** newChat / selectSession で選択が変わった世代 (作成待ちの応答で選択を奪わないため) */
   const selectionSeqRef = useRef(0);
+  /**
+   * 同一セッション内の操作世代。新しい要求と、compacting を抜けた権威ある状態 (終端 resync /
+   * 選択し直し) で進み、遅れて届いた stop / compact の応答を適用しない判定に使う
+   */
+  const sessionOpsRef = useRef(0);
   const [sessionCreation] = useState(() => createSessionCreation<string>());
   // ファイル参照の要求。seq の単調増加と pending を store が持ち、破棄は選択が変わる各経路で行う
   const [fileRefRequests] = useState(createFileRefRequests);
@@ -119,9 +126,16 @@ export function useSessions({
       // 表示する cwd は payload.cwd (root 相対) だけを正とする。health.cwd は root の絶対パスで、
       // ファイル画面の tree root (= GET /api/files の path) とは単位が違う
       setCwd(payload.cwd || "");
+      // 権威ある状態が届いた。圧縮を抜けたなら、進行中の同期応答は古いので捨てる
+      if (payload.status !== "compacting") sessionOpsRef.current += 1;
       dispatch({ type: "resync", payload });
+      // 圧縮は run の開始 / 終了を伴わないため、一覧の「圧縮中」がポーリング (4 秒) まで古いままになる。
+      // 一覧とずれたときだけ取り直す (毎回叩かない)
+      const listed = sessionsRef.current.find((item) => item.sessionId === payload.sessionId);
+      const listedCompacting = listed?.status === "compacting";
+      if ((payload.status === "compacting") !== listedCompacting) void refreshSessions();
     },
-    [dispatch],
+    [dispatch, refreshSessions],
   );
 
   const applySelectedSession = useCallback(
@@ -213,6 +227,7 @@ export function useSessions({
       // 作成先を先に移し、その後の表示と送信先を一致させる
       if (nextProjectId !== undefined) selectProject(nextProjectId);
       selectionSeqRef.current += 1;
+      sessionOpsRef.current += 1;
       fileRefRequests.clear();
       // 進行中の作成を持ち越さない (新しい会話が前のセッションを掴まないようにする)
       sessionCreation.clear();
@@ -331,6 +346,17 @@ export function useSessions({
     [changeSessionSettings],
   );
 
+  /** 手動圧縮。状態の正は SSE (開始 / 終端 resync と status) で、同期応答は補助に留める */
+  const compactSession = useCallback(async (): Promise<void> => {
+    await compactChat({
+      sessionIdRef,
+      opsRef: sessionOpsRef,
+      compact: requestCompaction,
+      dispatch,
+      setRuntimeStatus,
+    });
+  }, [dispatch, setRuntimeStatus]);
+
   /** 選択中の会話の通知の値。一覧 (4 秒のポーリングと変更直後の反映) を正とし、新規チャットは先行選択を使う */
   const notify = sessionId ? sessions.find((item) => item.sessionId === sessionId)?.notify === true : notifyPending;
 
@@ -432,6 +458,8 @@ export function useSessions({
     sessionIdRef,
     /** 選択の世代。await を挟む処理 (起動時の復元) が「待機中の選択」を判定する */
     selectionSeqRef,
+    /** 同一セッション内の操作世代 (stop / compact の応答適用ガード) */
+    sessionOpsRef,
     cwd,
     fileRefRequest,
     requestFileRef,
@@ -449,6 +477,7 @@ export function useSessions({
     changeSessionSettings,
     changeModel,
     changeThinkingLevel,
+    compactSession,
     toggleNotify,
   };
 }

@@ -79,6 +79,15 @@ export interface SessionRecord {
   compactionMeta: Map<string, CompactionMeta>;
   /** 設定変更中フラグ。非同期 setModel の間、送信と二重変更を 409 で拒否する */
   changingSettings: boolean;
+  /**
+   * 手動 compaction の実行中フラグ。SDK の isCompacting と違い、SDK 実行中と保存待ちの
+   * 両方で true (排他の正はここで、busy 判定もこの値で行う)
+   */
+  compacting: boolean;
+  /** 手動 compaction の開始時刻 (epoch ms)。payload / SSE の経過時間の起点 */
+  compactionStartedAt?: number;
+  /** 実行中 compaction の完了 promise。保存・終端配信と排他の解放までを覆う */
+  compactionTask?: Promise<unknown>;
   /** 完了を Discord へ送るか。正は meta.notify (live な record はここを更新して永続化する) */
   notify: boolean;
 }

@@ -62,3 +62,56 @@ test("描画: 利用できないモデルは warn 色にする", () => {
   assert.ok(missing.includes("text-warn"));
   assert.ok(!available.includes("text-warn"), "利用できるときは warn 色にしない");
 });
+
+// --- 手動圧縮の導線 ---
+
+test("描画: セッションがあると Context ゲージの右に圧縮ボタンを出す", () => {
+  const html = render({
+    activity: "",
+    context,
+    model: "zai/glm-5.3-flash",
+    modelLabel: "GLM-5.3 Flash",
+    onCompact: () => {},
+  });
+
+  const gaugeIndex = html.indexOf('aria-label="コンテキスト使用量"');
+  const compactIndex = html.indexOf('aria-label="会話を圧縮"');
+  assert.ok(gaugeIndex >= 0 && compactIndex > gaugeIndex, "モデル名 + ゲージと同じ組の右端に置く");
+  assert.ok(html.includes('aria-label="圧縮の注意"'), "タップで開ける補足を持つ");
+  // 注意書きは hover に頼らず DOM に出し、aria-describedby からも読めるようにする
+  assert.ok(html.includes("元のメッセージは GUI から戻せません"));
+  assert.ok(html.includes("composer-status-icon"), "36px の .icon-button ではなく状態行用の小さい variant");
+  const described = /aria-describedby="([^"]+)"/.exec(html)?.[1];
+  assert.ok(described, "押す前に注意書きを読み上げへ渡す");
+  assert.ok(html.includes(`id="${described}"`), "describedby の参照先が存在する");
+  assert.ok(!html.includes("disabled"), "idle では押せる");
+});
+
+test("描画: ゲージが無くても (SDK 未対応) セッションがあれば圧縮ボタンを出す", () => {
+  const html = render({ activity: "", model: "zai/glm-5.3-flash", modelLabel: "GLM-5.3 Flash", onCompact: () => {} });
+
+  assert.ok(!html.includes("Context"), "ゲージは出さない");
+  assert.ok(html.includes('aria-label="会話を圧縮"'));
+});
+
+test("描画: 未作成チャット (onCompact なし) では圧縮ボタンも注意書きも出さない", () => {
+  const html = render({ activity: "", context, model: "zai/glm-5.3-flash", modelLabel: "GLM-5.3 Flash" });
+
+  assert.ok(!html.includes("会話を圧縮"));
+  assert.ok(!html.includes("元のメッセージは GUI から戻せません"));
+});
+
+test("描画: 押せないときは disabled と理由を注意書きに載せる", () => {
+  const html = render({
+    activity: "会話を整理中…",
+    context,
+    model: "zai/glm-5.3-flash",
+    modelLabel: "GLM-5.3 Flash",
+    onCompact: () => {},
+    compactDisabled: true,
+    compactDisabledReason: "圧縮中",
+  });
+
+  assert.ok(html.includes('disabled=""'));
+  assert.ok(html.includes("（圧縮中）"), "押せない理由を hover 以外でも読める形で出す");
+});

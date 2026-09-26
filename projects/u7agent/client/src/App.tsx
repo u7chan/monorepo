@@ -147,6 +147,10 @@ export default function App() {
     void app.stopAgent();
   }, [app]);
 
+  const handleCompact = useCallback(() => {
+    void app.compactSession();
+  }, [app]);
+
   const handleToggleNotify = useCallback(() => {
     // 送られない On を作らない。押しても切り替わらず、理由と導線をバーの下に出す
     if (notifyCannotEnable(app.notify, app.notifications.settings)) {
@@ -354,7 +358,13 @@ export default function App() {
             <Composer
               visible={mainView === "chat"}
               activity={app.chat.activity}
-              runningSince={app.chat.runStatus === "running" ? app.chat.runStartedAt : undefined}
+              runningSince={
+                app.chat.runStatus === "running"
+                  ? app.chat.runStartedAt
+                  : app.chat.runStatus === "compacting"
+                    ? app.chat.compactionStartedAt
+                    : undefined
+              }
               runtimeReady={app.health?.ready !== false}
               sending={app.sending}
               stopVisible={app.stopVisible}
@@ -369,6 +379,7 @@ export default function App() {
               skills={app.sessionSkills}
               onSend={handleSend}
               onStop={handleStop}
+              onCompact={app.sessionId ? handleCompact : undefined}
               onAttachFiles={app.attachFiles}
               onRemoveAttachment={app.removeAttachment}
               onChangeModel={app.changeModel}
