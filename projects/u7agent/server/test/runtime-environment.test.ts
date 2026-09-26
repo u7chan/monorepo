@@ -144,6 +144,37 @@ test("aborts the diagnostics request when the sandbox never responds", async () 
   assert.equal(signals[0]?.aborted, true, "期限超過でサンドボックスへの要求を中断する");
 });
 
+test("classifies non-2xx responses without waiting for the body cancel to finish", async () => {
+  const cases = [
+    [401, "unauthorized"],
+    [500, "probe_failed"],
+  ] as const;
+  for (const [httpStatus, state] of cases) {
+    const app = await createApp(
+      createSandboxToolClient({
+        baseUrl: "http://sandbox.test:8080",
+        token: "runtime-test-token-0123456789",
+        runtimeInfoTimeoutMs: 20,
+        fetchImpl: (async () =>
+          new Response(
+            // cancel() が完了しない本文。ここを待つと期限を超えても getRuntimeInfo が解決しない
+            new ReadableStream<Uint8Array>({ cancel: () => new Promise<void>(() => {}) }),
+            { status: httpStatus },
+          )) as typeof fetch,
+      }),
+    );
+    const began = Date.now();
+    const outcome = await Promise.race([
+      readEnvironment(app),
+      new Promise<null>((resolve) => setTimeout(() => resolve(null), 2000)),
+    ]);
+    assert.ok(outcome, `HTTP ${httpStatus} の失敗分類を期限内に返す`);
+    assert.equal(outcome.status, 200);
+    assert.deepEqual(outcome.body, { state });
+    assert.ok(Date.now() - began < 1000, `本文の解放を待たない (elapsed=${Date.now() - began}ms)`);
+  }
+});
+
 test("aborts when the response headers arrive but the body never completes", async () => {
   const signals: Array<AbortSignal | null | undefined> = [];
   const app = await createApp(

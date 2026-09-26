@@ -25,8 +25,11 @@ import { SettingsPageLayout, type SettingsPageProps } from "./SettingsPageLayout
 
 type RuntimePageProps = SettingsPageProps & {
   health: Health | null;
-  /** 親が持つ health の再取得。null (取得失敗 / キャンセル) は失敗として扱う */
-  onRefreshHealth: () => Promise<Health | null>;
+  /**
+   * 親が持つ health の再取得。`isCurrent` を渡し、古い応答を親の state へ適用させない。
+   * null (取得失敗 / キャンセル) は失敗として扱う。
+   */
+  onRefreshHealth: (isCurrent?: () => boolean) => Promise<Health | null>;
 };
 
 export function RuntimePage({ health, onRefreshHealth, compact = false, onBack, onOpenNav }: RuntimePageProps) {
@@ -46,6 +49,7 @@ export function RuntimePage({ health, onRefreshHealth, compact = false, onBack, 
       setPending(true);
       const results = await reloadRuntime({
         includeHealth,
+        isCurrent,
         refreshHealth: onRefreshHealth,
         getModels: getRuntimeModels,
         getEnvironment: getRuntimeEnvironment,

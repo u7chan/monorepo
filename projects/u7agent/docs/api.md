@@ -151,6 +151,7 @@ DTO の正は `server/src/schema.ts`（zod）。リクエストボディは `@ho
 - 未接続でも HTTP 200 で返し、UI は HTTP ステータスや文言ではなく `state` で分岐する。BFF 自体の予期せぬエラーだけが既存のエラー処理（500）になる
 - `connected` は認証付きの `GET /v1/runtime/info` が契約どおり応答し、情報の取得が完了した状態を指す。`bash` などのツールが実行可能であることは保証しない。個別コマンドのバージョンを取れなくても存在を確認できていれば `version: null` として `connected` を維持する
 - `probe_failed` はサンドボックスへ到達したが応答が契約外 / 診断全体が不成立だった場合。HTTP 401 / 403 は `unauthorized`、接続失敗は `unreachable`、診断専用の期限（8 秒。接続待ちだけでなく**本文の受信完了まで**）の超過は `timeout`、接続情報が無いときは `not_configured`
+- 非 2xx の本文は読まずに解放し、その完了は待たない（本文の `cancel()` が止まっても失敗分類は期限内に返す。待つと再読み込み中のままになる）
 - サンドボックスの URL / 共有トークン / 内部エラーの詳細は応答に含めない（詳細は BFF のログに限る）
 - `GET /api/health` の `ready`（モデル利用可能性）と `sandboxConfigured`（設定の有無）、`GET /api/runtime/models` の契約は変わらない。実行環境の「接続中」は認証付き診断 API の正常応答だけを示し、`sandboxConfigured` とは別の意味を持つ
 

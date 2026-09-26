@@ -71,8 +71,13 @@ export const HEALTH_RELOAD_FAILED_MESSAGE = "接続状態を再取得できま�
 
 export type RuntimeReloadInput = {
   includeHealth: boolean;
+  /**
+   * この取得が最新かの判定。親の `refreshHealth` へそのまま渡し、アンマウント後 / 新しい取得後の
+   * health 応答を親の state へ適用させない (画面内の state だけでは親の上書きを防げない)。
+   */
+  isCurrent: () => boolean;
   /** 既存の契約 (失敗もキャンセルも null) は変えず、ここで明示的な失敗へ変換する */
-  refreshHealth: () => Promise<Health | null>;
+  refreshHealth: (isCurrent?: () => boolean) => Promise<Health | null>;
   getModels: () => Promise<RuntimeModelsResponse>;
   getEnvironment: () => Promise<RuntimeEnvironmentResponse>;
 };
@@ -87,15 +92,18 @@ export async function reloadRuntime(input: RuntimeReloadInput): Promise<RuntimeR
     return { health: null, models: outcomeOf(models), environment: outcomeOf(environment) };
   }
   const [health, models, environment] = await Promise.allSettled([
-    refreshHealthOrFail(input.refreshHealth),
+    refreshHealthOrFail(input.refreshHealth, input.isCurrent),
     input.getModels(),
     input.getEnvironment(),
   ]);
   return { health: outcomeOf(health), models: outcomeOf(models), environment: outcomeOf(environment) };
 }
 
-async function refreshHealthOrFail(refreshHealth: () => Promise<Health | null>): Promise<Health> {
-  const value = await refreshHealth();
+async function refreshHealthOrFail(
+  refreshHealth: (isCurrent?: () => boolean) => Promise<Health | null>,
+  isCurrent: () => boolean,
+): Promise<Health> {
+  const value = await refreshHealth(isCurrent);
   if (value === null) throw new Error(HEALTH_RELOAD_FAILED_MESSAGE);
   return value;
 }

@@ -479,14 +479,14 @@ async function getRuntimeInfo(
       );
     }
     if (response.status === 401 || response.status === 403) {
-      await cancelBody(response);
+      cancelBody(response);
       throw new SandboxRuntimeError(
         "サンドボックスの認証に失敗しました (PI_SANDBOX_TOKEN を確認してください)",
         "unauthorized",
       );
     }
     if (!response.ok) {
-      await cancelBody(response);
+      cancelBody(response);
       throw new SandboxRuntimeError(
         `サンドボックスの実行環境情報を取得できませんでした (HTTP ${response.status})`,
         "probe_failed",
@@ -498,18 +498,21 @@ async function getRuntimeInfo(
       if (error instanceof SandboxRuntimeError) throw error;
       throw new SandboxRuntimeError("サンドボックスの実行環境の応答が不正です", "probe_failed");
     } finally {
-      await cancelBody(response);
+      cancelBody(response);
     }
   } finally {
     clearTimeout(timer);
   }
 }
 
-/** 本文を読まない経路でも接続を解放する (期限超過の中断も含む)。 */
-async function cancelBody(response: Response): Promise<void> {
+/**
+ * 本文を読まない経路でも接続を解放する。完了は待たない (cancel() が止まる本文を待つと、
+ * 期限で中断しても失敗分類が返らず、画面が再読み込み中のままになる)。
+ */
+function cancelBody(response: Response): void {
   const body = response.body;
   if (!body) return;
-  await body.cancel().catch(() => {});
+  void body.cancel().catch(() => {});
 }
 
 /** サンドボックスの本文は { error } を返す契約。読めなければ生テキストをそのまま使う。 */
