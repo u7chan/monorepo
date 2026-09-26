@@ -114,10 +114,10 @@ export default function App() {
     if (compact) setSessionFilesSheetOpen((open) => !open);
     else setSessionFilesOpen((open) => !open);
   }, [compact]);
-  const closeSessionFiles = useCallback(() => {
-    setSessionFilesOpen(false);
-    setSessionFilesSheetOpen(false);
-  }, []);
+  // 閉じる導線は押した面だけを閉じる。特にシートの close で desktop のパネルを閉じると、
+  // compact を往復しただけで開閉が変わる (レイアウト切替は互いの state に影響しない)
+  const closeSessionFiles = useCallback(() => setSessionFilesOpen(false), []);
+  const closeSessionFilesSheet = useCallback(() => setSessionFilesSheetOpen(false), []);
 
   // 幅を広げて左バーが docked に戻ったら、ドロワーは畳む (開いたままにしない)
   useEffect(() => {
@@ -424,7 +424,7 @@ export default function App() {
           root={filesRoot}
           excludeNames={excludeNames}
           runEndSeq={app.chat.runEndSeq}
-          onClose={closeSessionFiles}
+          onClose={closeSessionFilesSheet}
           openRequest={pendingFileRef}
           onHandled={app.ackFileRef}
           returnFocus={fileRefOriginRef.current}

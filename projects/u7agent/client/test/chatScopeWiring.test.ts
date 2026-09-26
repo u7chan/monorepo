@@ -6,6 +6,8 @@
 //      内部フォールバック (newChat の直接呼び出し 6 箇所) は通らない
 //   3. compact のシートは Effect ではなく描画中の同期で閉じ、監視キーは compact / mainView / filesRoot
 //      (route オブジェクト全体は比べない)
+//   4. 作業フォルダの閉じる導線は押した面だけを閉じる (シートの close が desktop のパネルを閉じない)
+//   5. landscape の作業先行は収縮 + 省略 (長いプロジェクト名でタイトルと固定幅のボタンを押し出さない)
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
@@ -27,6 +29,15 @@ function read(relativePath: string): string {
 const app = read("src/App.tsx");
 const sessions = read("src/hooks/useSessions.ts");
 const chatArea = read("src/components/ChatArea.tsx");
+
+/** `<Tag` から次の `/>` までの JSX ブロック (props の配線を見る) */
+function jsxProps(source: string, tag: string): string {
+  const start = source.indexOf(`<${tag}`);
+  assert.ok(start >= 0, `${tag} の JSX が見つからない`);
+  const end = source.indexOf("/>", start);
+  assert.ok(end > start, `${tag} の JSX の終端が見つからない`);
+  return source.slice(start, end);
+}
 
 /** useEffect の呼び出し本体 (括弧の対応で切り出す)。見つけた数も返し、取りこぼしを検出できるようにする */
 function effectBodies(source: string): string[] {
@@ -121,6 +132,47 @@ test("新規会話の 3 入口は handleNewChat を通り、内部フォール�
     "useSessions の内部フォールバックの数が変わった (配線の前提を見直す)",
   );
   assert.ok(!sessions.includes("sessionFilesDefaultOpen"), "内部フォールバックが既定オープンを適用している");
+});
+
+test("compact の作業先行は長い名前でも収縮して省略される (固定幅のボタンを押し出さない)", () => {
+  // プロジェクト名に長さ制限は無い。shrink-0 のままだと名前の分だけ右へ伸び、通知 / 作業フォルダを押し出す
+  const html = renderToStaticMarkup(
+    createElement(CompactBar, {
+      mode: "landscape",
+      title: "会話",
+      agentName: "実装担当",
+      scope: { label: `a-very-long-${"x".repeat(90)}`, project: true, root: "demo-project" },
+      runtimeStatus: IDLE,
+      notify: { on: false, deliverable: true, onToggle: () => {} },
+      sessionFiles: { open: false, onToggle: () => {} },
+      onOpenNav: () => {},
+    }),
+  );
+  const span = /<span class="([^"]*max-w-1\/2[^"]*)"/.exec(html);
+  assert.ok(span, "landscape の作業先行が見つからない");
+  const classes = span[1].split(/\s+/);
+  for (const name of ["max-w-1/2", "min-w-0", "shrink", "truncate"]) {
+    assert.ok(classes.includes(name), `作業先行に収縮 / 省略のクラスが無い: ${name}`);
+  }
+  assert.ok(!classes.includes("shrink-0"), "作業先行が収縮できない (shrink-0)");
+  // 固定幅のボタンは作業先行の後ろに残す (先に伸びる要素を置かない)
+  assert.ok(html.indexOf("· 実装担当") < html.indexOf('aria-label="通知"'));
+  assert.ok(html.indexOf('aria-label="通知"') < html.indexOf('aria-label="作業フォルダ"'));
+});
+
+test("作業フォルダの閉じる導線は押した面だけを閉じる", () => {
+  // シートの close で desktop のパネルを閉じると、compact を往復しただけで開閉が変わる
+  assert.ok(
+    app.includes("const closeSessionFiles = useCallback(() => setSessionFilesOpen(false), []);"),
+    "パネルだけを閉じる close が無い",
+  );
+  assert.ok(
+    app.includes("const closeSessionFilesSheet = useCallback(() => setSessionFilesSheetOpen(false), []);"),
+    "シートだけを閉じる close が無い",
+  );
+  const onCloseOf = (block: string): string => /onClose=\{(\w+)\}/.exec(block)?.[1] ?? "";
+  assert.equal(onCloseOf(jsxProps(app, "SessionFilesPanel")), "closeSessionFiles", "パネルの close が違う");
+  assert.equal(onCloseOf(jsxProps(app, "SessionFilesSheet")), "closeSessionFilesSheet", "シートの close が違う");
 });
 
 test("compact のシートは描画中の同期で閉じ、監視キーは compact / mainView / filesRoot", () => {

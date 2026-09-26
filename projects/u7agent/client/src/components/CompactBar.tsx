@@ -33,7 +33,7 @@ export function CompactBar({
   onOpenNav,
 }: CompactBarProps) {
   const landscape = mode === "landscape";
-  // 2 行目 (landscape はタイトルの左) に「作業先 · エージェント名」を出す。truncate の扱いは変えない
+  // 2 行目 (landscape はタイトルの左) に「作業先 · エージェント名」を出す
   const scopeLine = `${scope.label} · ${agentName || "エージェント未選択"}`;
   // 配信できない On は、押しても切り替わらない理由を読み上げ名と title でも示す (色だけに頼らない)
   const notifyLabel = notify.on && !notify.deliverable ? "通知（停止中）" : "通知";
@@ -44,7 +44,11 @@ export function CompactBar({
         <button type="button" onClick={onOpenNav} aria-label="ナビゲーションを開く" className="icon-button">
           <MenuIcon />
         </button>
-        {landscape ? <span className="shrink-0 text-2xs text-ink-faint">{scopeLine}</span> : null}
+        {landscape ? (
+          // プロジェクト名に長さ制限は無い。行の半分を上限にして収縮と省略を許し、タイトルと固定幅の
+          // ボタンを viewport 内に残す (shrink-0 だと名前の分だけ右へ押し出す)
+          <span className="max-w-1/2 min-w-0 shrink truncate text-2xs text-ink-faint">{scopeLine}</span>
+        ) : null}
         <div className="min-w-0 flex-1">
           {landscape ? null : <div className="truncate text-2xs text-ink-faint">{scopeLine}</div>}
           <div className={cn("truncate font-medium text-ink-strong", landscape ? "text-xs" : "text-1sm")}>{title}</div>
