@@ -140,6 +140,8 @@ test("429→成功: waiting→retrying を配り、失敗試行の本文は表�
   assert.equal(runEnd.length, 1);
   assert.equal(runEnd[0].data.status, "completed");
   assert.equal(runEnd[0].data.totalRetryCount, 1);
+  assert.equal(runEnd[0].data.errorCode, undefined, "成功したランには分類コードを載せない");
+  assert.equal(store.payload(record).run?.errorCode, undefined);
   assert.equal(JSON.stringify(events).includes("org-SECRET"), false, "公開経路に生エラーを載せない");
   // 成功した本文は通知にだけ使い、失敗試行の本文は残さない
   assert.equal(store.payload(record).messages.at(-1)?.text, "復帰しました");
@@ -179,10 +181,13 @@ test("最大回数超過: 分類済みの理由 + 累計 + 案内を run_end / p
     "レート制限により実行に失敗しました（自動再試行2回）。時間をおいて再実行してください",
   );
   assert.equal(runEnd[0].data.totalRetryCount, 2);
+  assert.equal(runEnd[0].data.errorCode, "rate_limit", "run_end (SSE) に最終失敗の分類コードを載せる");
   assert.equal(record.run?.retry, undefined, "終了でアクティブな retry を消す");
   assert.equal(record.run?.totalRetryCount, 2, "累計は結果表示用に残す");
+  assert.equal(record.run?.errorCode, "rate_limit", "RunState にも立てる");
   const payload = store.payload(record);
   assert.equal(payload.run?.error, runEnd[0].data.error, "payload.run.error も同じ分類済み文言");
+  assert.equal(payload.run?.errorCode, "rate_limit", "payload (リロード / resync) からも再実行カードを復元できる");
   assert.equal(JSON.stringify(payload).includes("org-SECRET"), false, "組織IDは公開経路へ出さない");
   assert.equal(JSON.stringify(runRetryEvents(events)).includes("org-SECRET"), false);
   assert.equal(runRetryEvents(events).at(-1)?.retry, null);
@@ -363,5 +368,57 @@ test("待機イベントのリプレイには現在の serverNow を持つ resyn
 
   release();
   await waitFor(() => store.statusOf(record) === "completed", 3000, "completion");
+  await store.close();
+});
+
+test("分類できない例外もコードを載せ、原文は公開経路へ出さない", async () => {
+  const { store, record, events } = await createRecord();
+  record.session.prompt = async () => {
+    throw new Error("stub exploded for org-SECRET");
+  };
+  store.postMessage(record, "未知の失敗");
+  await waitFor(() => store.statusOf(record) === "error", 3000, "run error");
+
+  const runEnd = events.filter((entry) => entry.type === "run_end");
+  assert.equal(runEnd.length, 1);
+  assert.equal(runEnd[0].data.status, "error");
+  assert.equal(runEnd[0].data.errorCode, "unknown", "分類できない失敗も unknown としてコードを載せる");
+  assert.equal(
+    runEnd[0].data.error,
+    "実行に失敗しました。原因を特定できませんでした。接続と設定を確認して、もう一度実行してください",
+  );
+  assert.equal(store.payload(record).run?.errorCode, "unknown");
+  assert.equal(JSON.stringify(events).includes("org-SECRET"), false, "上流の原文は公開経路へ出さない");
+
+  await store.close();
+});
+
+test("停止要求と例外が同時のときは stopped のまま errorCode を載せない", async () => {
+  const { store, record, session, events } = await createRecord();
+  let release!: () => void;
+  const waitForRelease = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  // 停止要求の後に prompt() が拒否される状況 (listener 例外 / reject と stop が重なる)
+  record.session.prompt = async () => {
+    session.emit({ type: "agent_start" });
+    await waitForRelease;
+    throw new Error("429 Rate limit reached for org-SECRET on TPM");
+  };
+
+  store.postMessage(record, "停止と例外");
+  await waitFor(() => record.run?.status === "running", 3000, "run start");
+  await store.stop(record);
+  release();
+  await waitFor(() => store.statusOf(record) === "stopped", 3000, "stopped");
+
+  const runEnd = events.filter((entry) => entry.type === "run_end").at(-1);
+  assert.ok(runEnd);
+  assert.equal(runEnd.data.status, "stopped", "停止を正とする");
+  assert.equal(runEnd.data.errorCode, undefined, "停止直後に再実行カードを出させない");
+  assert.equal(record.run?.errorCode, undefined);
+  assert.equal(store.payload(record).run?.errorCode, undefined);
+  assert.equal(JSON.stringify(events).includes("org-SECRET"), false);
+
   await store.close();
 });

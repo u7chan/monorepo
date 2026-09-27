@@ -2,15 +2,24 @@ import { useId, type CSSProperties } from "react";
 import { useElapsedMs } from "../../hooks/useElapsedMs";
 import { cn } from "../../lib/cn";
 import { formatElapsed } from "../../lib/elapsed";
+import {
+  blockedButtonsNotice,
+  retryableRunError,
+  RUN_RETRY_LABEL,
+  RUN_RETRY_LABEL_COMPACT,
+  RUN_RETRY_NOTE,
+  type RunErrorInfo,
+} from "../../lib/runRetry";
 import { contextGauge } from "../../lib/usageFormat";
-import type { ContextUsage } from "../../types";
-import { CompactIcon, RunSpinnerIcon } from "../icons";
+import type { ContextUsage, RunStatus } from "../../types";
+import { CompactIcon, RefreshIcon, RunSpinnerIcon } from "../icons";
 
 /**
  * 入力欄の上の状態行 (活動 / モデル / Context ゲージ)。
  * モデル名とゲージは 1 つの組にして右端へ寄せ、幅が足りないときだけ組ごと 2 行目へ折り返す
  * (別々に置くと、狭い画面で活動テキストが 1 文字幅まで潰れる。docs/ui-layout.md)。
  * 圧縮の不可逆性と課金の注意は、押した時点の確認 (`App` の handleCompact) が担う。
+ * 最終失敗の再実行カードは状態行の上に出し、文言は BFF が合成した 1 文をそのまま使う。
  */
 export function ComposerStatus({
   activity,
@@ -22,6 +31,12 @@ export function ComposerStatus({
   onCompact,
   compactDisabled = false,
   compactDisabledReason,
+  compact = false,
+  runStatus = "idle",
+  runError,
+  onRetry,
+  retryDisabled = false,
+  retryDisabledReason,
 }: {
   activity: string;
   /** 実行中 / 圧縮中だけ渡す (活動行の経過時間の起点) */
@@ -38,6 +53,17 @@ export function ComposerStatus({
   compactDisabled?: boolean;
   /** 押せない理由。状態行の下に 1 行で出し、aria-describedby の参照先にもする */
   compactDisabledReason?: string;
+  /** 幅の狭いレイアウト。再実行カードのボタンを全幅にする */
+  compact?: boolean;
+  /** ランがエラーで終わったか。再実行カードの表示条件 (`runStatus === "error"`) に使う */
+  runStatus?: RunStatus;
+  /** 最後に失敗したランの分類コードと文言。runEnd / resync から保持したもの */
+  runError?: RunErrorInfo;
+  /** 再実行。固定文言を通常の送信経路で送る */
+  onRetry?: () => void;
+  retryDisabled?: boolean;
+  /** 再実行を押せない理由。圧縮と同じ 1 行にまとめて出す */
+  retryDisabledReason?: string;
 }) {
   const reasonId = useId();
   const gauge = contextGauge(context);
@@ -45,14 +71,54 @@ export function ComposerStatus({
   const elapsed = elapsedMs === undefined ? null : formatElapsed(elapsedMs);
   // 活動が無いときは活動欄ごと出さない (空の欄が折り返して空行が残るのを避ける)
   const showActivity = activity !== "" || elapsed !== null;
-  if (!showActivity && !gauge && !modelLabel && onCompact === undefined) return null;
+  // 再実行カードは時間をおけば回復し得る失敗だけに出す (停止・成功・キュー待ちでは出さない)
+  const card = retryableRunError(runStatus, runError);
+  const showRetry = card !== undefined && onRetry !== undefined;
+  // カードだけの状態でも描画する (activity は空にして文言をカードへ移す)
+  if (!showActivity && !gauge && !modelLabel && onCompact === undefined && !showRetry) return null;
   const gaugeColor =
     gauge?.level === "danger" ? "text-danger-text" : gauge?.level === "warn" ? "text-warn" : "text-ink-faint";
   // 押せない理由は状態行の下に 1 行で出す (押せない間の説明を hover だけに閉じると、タッチ端末で読めない)
   const compactBlocked = onCompact !== undefined && compactDisabled && compactDisabledReason !== undefined;
+  const retryBlocked = showRetry && retryDisabled && retryDisabledReason !== undefined;
+  // 無効な操作と実際の理由だけを並べる (再実行だけが無効なときに圧縮の文言を出さない)
+  const blockedNotice = blockedButtonsNotice({
+    compact: compactBlocked ? compactDisabledReason : undefined,
+    retry: retryBlocked ? retryDisabledReason : undefined,
+  });
 
   return (
     <>
+      {showRetry ? (
+        // role="alert" は付けない (同じ文言が RuntimeAlert の alert で読み上げられるため)
+        <div
+          className={cn(
+            "mb-1.5 flex border border-danger/35 bg-soft",
+            compact ? "flex-col gap-2 rounded-lg px-2.5 py-2" : "items-center gap-2.5 rounded-xl px-3.5 py-3",
+          )}
+        >
+          <div className={cn("flex min-w-0 items-start gap-2.5", compact ? "" : "flex-1")}>
+            <span className="dot dot-danger mt-1" aria-hidden />
+            <div className="min-w-0 text-1xs">
+              <p className="m-0 leading-relaxed break-words text-ink-soft">{card.text}</p>
+              {compact ? null : (
+                // 送信内容はデスクトップだけ補助行で示す (compact はボタンのラベルが兼ねる)
+                <p className="m-0 mt-1 text-2xs leading-relaxed break-words text-ink-ghost">{RUN_RETRY_NOTE}</p>
+              )}
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={onRetry}
+            disabled={retryDisabled}
+            aria-describedby={retryBlocked ? reasonId : undefined}
+            className={cn("btn-quiet", compact && "w-full")}
+          >
+            <RefreshIcon />
+            {compact ? RUN_RETRY_LABEL_COMPACT : RUN_RETRY_LABEL}
+          </button>
+        </div>
+      ) : null}
       <div className="flex min-h-5.25 flex-wrap items-center justify-end gap-x-2 gap-y-0.5 px-1 pb-1.5 text-1xs text-ink-muted">
         {elapsed === null ? null : <RunSpinnerIcon />}
         {showActivity ? (
@@ -115,12 +181,12 @@ export function ComposerStatus({
           )}
         </span>
       </div>
-      {compactBlocked ? (
-        // 押せない理由を、押した行の真下に出す (ボタンは右端なので右寄せにする)
+      {blockedNotice === undefined ? null : (
+        // 押せない理由を、押した行の真下に 1 行で出す (ボタンは右端なので右寄せにする)
         <p id={reasonId} className="m-0 px-1 pb-1 text-right text-2xs break-words text-ink-ghost">
-          今は圧縮できません（{compactDisabledReason}）
+          {blockedNotice}
         </p>
-      ) : null}
+      )}
     </>
   );
 }

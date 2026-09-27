@@ -160,3 +160,26 @@ test("backs off the reconnect delay for each consecutive failure", () => {
   assert.equal(nextRetryDelayMs(5), 30_000, "上限で頭打ちにして、停止中もリクエストを叩き続けない");
   assert.equal(nextRetryDelayMs(64), 30_000);
 });
+
+test("passes the failure code from run_end to the reducer", () => {
+  const { record, deps } = createHarness();
+
+  applySessionEvent(
+    {
+      seq: 3,
+      type: "run_end",
+      data: {
+        status: "error",
+        queueDepth: 0,
+        error: "レート制限により実行に失敗しました（自動再試行2回）。時間をおいて再実行してください",
+        errorCode: "rate_limit",
+      },
+      at: 3,
+    },
+    deps,
+  );
+
+  const action = record.actions[0] as { type: string; errorCode?: string };
+  assert.equal(action.type, "runEnd");
+  assert.equal(action.errorCode, "rate_limit", "再実行カードの判断に分類コードを渡す");
+});

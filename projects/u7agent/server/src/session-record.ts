@@ -8,6 +8,7 @@ import type {
   EventEntry,
   MessageMetrics,
   ModelRef,
+  RunErrorCode,
   RunRetryState,
   RunStatus,
   ThinkingLevel,
@@ -23,6 +24,11 @@ export interface RunState {
   startedAt: number;
   endedAt?: number;
   error?: string;
+  /**
+   * 最終失敗の分類コード。status === "error" のときだけ立てる (停止と例外が同時でも停止を正とし、
+   * 停止直後の再実行カードを出さない)。成功・停止では載せない
+   */
+  errorCode?: RunErrorCode;
   /** 進行中の自動再試行 (成功・最終失敗・停止で消える)。累計は totalRetryCount に残す */
   retry?: RunRetryState;
   /** ラン中の auto_retry_start 通知の累計 (再試行のスケジュール回数。待機中の中止も含む) */

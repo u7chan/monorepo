@@ -98,6 +98,8 @@ export function applySessionEvent(entry: EventEntry, deps: SessionStreamDeps): v
         status: entry.data.status,
         queueDepth: entry.data.queueDepth,
         error: entry.data.error,
+        // 分類コードは status が error のときだけサーバーが載せる (後方互換のため undefined があり得る)
+        errorCode: entry.data.errorCode,
         context: entry.data.context,
         totalRetryCount: entry.data.totalRetryCount,
       });

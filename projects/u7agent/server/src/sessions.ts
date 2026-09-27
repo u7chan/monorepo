@@ -1165,6 +1165,7 @@ export class SessionStore {
       startedAt: Date.now(),
       endedAt: undefined,
       error: undefined,
+      errorCode: undefined,
       totalRetryCount: 0,
     };
     record.run = run;
@@ -1197,6 +1198,9 @@ export class SessionStore {
       // アクティブな再試行は終了で消す。累計は結果表示のため残す
       delete run.retry;
       if (error) run.error = this.masker.mask(composeRunError(error, run.totalRetryCount));
+      // 分類コードは最終失敗のときだけ公開する。停止要求と例外が同時なら status は stopped で、
+      // クライアントに再実行カードを出させない (run.error は従来どおり残す)
+      if (run.status === "error" && error) run.errorCode = error.code;
       // 一覧 API / meta と同じ表示メッセージ数。ここを履歴の生件数 (session.messages.length) へ
       // 戻すと同名フィールドの定義が 2 つに戻る
       const messages = displayableMessages(session, this.masker);
@@ -1204,6 +1208,7 @@ export class SessionStore {
         runId: run.id,
         status: run.status,
         error: run.error,
+        errorCode: run.errorCode,
         messageCount: messages.length,
         queueDepth: record.queue.length,
         totalRetryCount: run.totalRetryCount,

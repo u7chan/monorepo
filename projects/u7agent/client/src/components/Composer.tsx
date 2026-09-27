@@ -5,8 +5,9 @@ import { cn } from "../lib/cn";
 import { shouldSubmitOnEnter } from "../lib/composerKeys";
 import { composerDropKind, FILE_MENTION_MIME, insertFileMention, type ComposerDropKind } from "../lib/fileMention";
 import type { LayoutMode } from "../lib/layout";
+import { runRetryBlockedReason, type RunErrorInfo } from "../lib/runRetry";
 import { skillCommandText } from "../lib/sessionSkills";
-import type { AgentDef, ContextUsage, ModelRef, ThinkingLevel } from "../types";
+import type { AgentDef, ContextUsage, ModelRef, RunStatus, ThinkingLevel } from "../types";
 import { AgentField } from "./composer/AgentField";
 import { AttachmentChips } from "./composer/AttachmentChips";
 import { ComposerStatus } from "./composer/ComposerStatus";
@@ -25,6 +26,12 @@ export type ComposerProps = {
   settings: ComposerSettings;
   /** 手動圧縮。セッションがあるときだけ渡す (未作成チャットでは導線を出さない) */
   onCompact?: () => void;
+  /** ランがエラーで終わったか (再実行カードの表示条件) */
+  runStatus?: RunStatus;
+  /** 最後に失敗したランの分類コードと、BFF が合成した文言 */
+  runError?: RunErrorInfo;
+  /** 失敗カードの再実行。固定文言を通常の送信経路で送る */
+  onRetry?: () => void;
   agents: AgentDef[];
   agentId: string;
   mode: LayoutMode;
@@ -120,6 +127,9 @@ export function Composer({
   onChangeThinkingLevel,
   onChangeAgent,
   onCompact,
+  onRetry,
+  runStatus,
+  runError,
   onReloadSkills,
 }: ComposerProps) {
   const compact = mode !== "desktop";
@@ -243,6 +253,13 @@ export function Composer({
   };
 
   const notice = settings.modelWarning ?? settings.effortNotice;
+  // 再実行の押せない理由は送信経路と同じガードから導く (実際に遮っているものだけを出す)
+  const retryBlockedReason = runRetryBlockedReason({
+    sending,
+    settingsChanging: settings.changing,
+    attachmentsBusy,
+    runtimeReady,
+  });
   // Model / Effort は追加設定。Effort の注意書きは設定の中身なので、畳んでいるときはモデルが使えない警告だけを残す
   const rowNotice = settingsOpen ? notice : settings.modelWarning;
   const stopButton = stopVisible ? (
@@ -279,6 +296,12 @@ export function Composer({
         onCompact={onCompact}
         compactDisabled={settings.compactDisabled}
         compactDisabledReason={settings.compactDisabledReason}
+        compact={compact}
+        runStatus={runStatus}
+        runError={runError}
+        onRetry={onRetry}
+        retryDisabled={retryBlockedReason !== undefined}
+        retryDisabledReason={retryBlockedReason}
       />
       <form
         onSubmit={handleSubmit}

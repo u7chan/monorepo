@@ -124,3 +124,126 @@ test("描画: 押せないときは disabled にし、理由を状態行の下�
   assert.ok(described, "押せない理由を読み上げへ渡す");
   assert.ok(html.includes(`id="${described}"`), "describedby の参照先が存在する");
 });
+
+// --- 最終失敗の再実行カード ---
+
+const failure = {
+  code: "rate_limit",
+  text: "レート制限により実行に失敗しました（自動再試行4回）。時間をおいて再実行してください",
+} as const;
+
+test("描画: 回復し得る失敗ではカードを状態行の上に出し、文言をカードへ移す", () => {
+  for (const code of ["rate_limit", "unknown"] as const) {
+    const html = render({
+      activity: "",
+      model: "zai/glm-5.3-flash",
+      modelLabel: "GLM-5.3 Flash",
+      runStatus: "error",
+      runError: { ...failure, code },
+      onRetry: () => {},
+    });
+
+    assert.ok(html.includes(failure.text), `${code} は BFF の 1 文をそのまま出す`);
+    assert.ok(html.includes("dot-danger"), "RuntimeAlert と同じ赤ドットで揃える");
+    assert.ok(html.includes("前回の続きから送信します"), "デスクトップは補助行で送信内容を示す");
+    const button = /<button[^>]*>.*?<\/button>/s.exec(html)?.[0] ?? "";
+    assert.ok(button.includes(">再実行<"), "デスクトップのラベルは補助行の分だけ短くする");
+    assert.ok(button.includes("<svg"), "押すと何が起きるかを更新アイコンで示す (RefreshIcon)");
+    assert.ok(!html.includes('role="alert"'), "同じ文言を RuntimeAlert と二重に読み上げない");
+    assert.ok(html.indexOf(failure.text) < html.indexOf("GLM-5.3 Flash"), "状態行 (モデル / ゲージ) の上に置く");
+  }
+});
+
+test("描画: compact はボタンを全幅にし、ラベルが送信内容を兼ねる (補助行は出さない)", () => {
+  const html = render({
+    activity: "",
+    compact: true,
+    runStatus: "error",
+    runError: failure,
+    onRetry: () => {},
+  });
+
+  assert.ok(html.includes("再実行（前回の続きから送信）"), "compact はラベルで送信内容を示す");
+  assert.ok(!html.includes("前回の続きから送信します"), "同じ内容を 2 回出さない");
+  const button = /<button[^>]*>.*?<\/button>/s.exec(html)?.[0] ?? "";
+  assert.ok(button.includes("btn-quiet") && button.includes("w-full"), "細いボタンを押し損ねないよう全幅にする");
+});
+
+test("描画: 同じ送信では直らない分類と、コードが無い縮退ではカードを出さない", () => {
+  for (const code of ["auth_required", "insufficient_quota", "context_overflow"] as const) {
+    const html = render({
+      activity: "エラー: テスト",
+      runStatus: "error",
+      runError: { ...failure, code },
+      onRetry: () => {},
+    });
+
+    assert.ok(!html.includes("ドット") && !html.includes("dot-danger"), `${code} はカードを出さない`);
+    assert.ok(!html.includes("再実行"), `${code} は再実行の導線を出さない`);
+    assert.ok(html.includes("エラー: テスト"), "状態行の現行文言を残す");
+  }
+
+  // 旧 payload などの縮退。run.error の文言は状態行に出たままにする
+  const legacy = render({ activity: "エラー: 旧 payload", runStatus: "error", onRetry: () => {} });
+  assert.ok(!legacy.includes("dot-danger"));
+  assert.ok(legacy.includes("エラー: 旧 payload"));
+});
+
+test("描画: 停止・完了・キュー待ちではカードを出さない", () => {
+  for (const runStatus of ["queued", "stopped", "completed", "idle", "running"] as const) {
+    const html = render({ activity: "完了", runStatus, runError: failure, onRetry: () => {} });
+
+    assert.ok(!html.includes("dot-danger"), `${runStatus} ではカードを出さない`);
+    assert.ok(!html.includes("再実行"), `${runStatus} では再実行を出さない`);
+  }
+});
+
+test("描画: カードだけでも描画する (activity が空でも早期 return しない)", () => {
+  const html = render({ activity: "", runStatus: "error", runError: failure, onRetry: () => {} });
+
+  assert.ok(html.includes("dot-danger"));
+  assert.ok(html.includes("再実行"));
+});
+
+test("描画: 再実行が押せないときは理由を 1 行で出し、圧縮の文言を流用しない", () => {
+  const html = render({
+    activity: "",
+    model: "zai/glm-5.3-flash",
+    modelLabel: "GLM-5.3 Flash",
+    context,
+    onCompact: () => {},
+    runStatus: "error",
+    runError: failure,
+    onRetry: () => {},
+    retryDisabled: true,
+    retryDisabledReason: "添付のアップロード中",
+  });
+
+  assert.ok(html.includes('disabled=""'), "押せない間は無効にする");
+  const paragraph = /<p id="([^"]+)" class="[^"]*">([^<]*)<\/p>/.exec(html);
+  assert.ok(paragraph, "押せない理由を状態行の下に 1 行で出す");
+  assert.equal(paragraph[2], "今は再実行できません（添付のアップロード中）");
+  assert.ok(!html.includes("今は圧縮できません"), "再実行だけが無効なときに圧縮を押せないと誤案内しない");
+  assert.ok(html.includes(`aria-describedby="${paragraph[1]}"`), "理由を読み上げへ渡す");
+  assert.ok(!html.includes('aria-label="再実行"'), "押せるときと同じく可視のラベルで名前を伝える");
+});
+
+test("描画: 圧縮と再実行が同時に無効なときも理由の行は 1 つにまとめる", () => {
+  const html = render({
+    activity: "",
+    model: "zai/glm-5.3-flash",
+    modelLabel: "GLM-5.3 Flash",
+    context,
+    onCompact: () => {},
+    compactDisabled: true,
+    compactDisabledReason: "送信中",
+    runStatus: "error",
+    runError: failure,
+    onRetry: () => {},
+    retryDisabled: true,
+    retryDisabledReason: "送信中",
+  });
+
+  assert.equal((html.match(/<p id=/g) ?? []).length, 1, "理由の行を増やさない");
+  assert.ok(html.includes("今は圧縮も再実行もできません（送信中）"));
+});

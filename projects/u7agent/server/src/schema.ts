@@ -151,6 +151,8 @@ export const RunPayloadSchema = z.object({
   startedAt: z.number(),
   endedAt: z.number().optional(),
   error: z.string().optional(),
+  /** 最終失敗の分類コード。`status === "error"` のときだけ載る (停止と例外が同時なら載せない) */
+  errorCode: RunErrorCodeSchema.optional(),
   prompt: z.string(),
   toolCalls: z.array(ToolCallSchema),
   /** 進行中の自動再試行。成功・最終失敗・手動停止で消える (累計は totalRetryCount に残る) */
@@ -906,6 +908,8 @@ export const EventDataSchemas = {
     status: RunStatusSchema,
     queueDepth: z.number(),
     error: z.string().optional(),
+    /** 最終失敗の分類コード。payload の `run.errorCode` と同じ値で、error と組で載る */
+    errorCode: RunErrorCodeSchema.optional(),
     messageCount: z.number().optional(),
     /** ラン中の再試行スケジュール累計 (error の文言にも含まれる。構造で読むクライアント用) */
     totalRetryCount: z.number().optional(),
