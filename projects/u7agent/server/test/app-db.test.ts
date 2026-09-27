@@ -441,6 +441,109 @@ test("migrates a v3 db additively and keeps provider credentials across reopen",
   }
 });
 
+/** v4 相当のスキーマ (model_settings が無い状態)。v4 の実ファイルと同じ形 */
+const V4_TABLES = `
+${V3_TABLES}
+CREATE TABLE provider_credentials (
+  provider TEXT PRIMARY KEY,
+  apiKey TEXT NOT NULL
+);
+`;
+
+test("migrates a v4 db additively and keeps model settings across reopen", () => {
+  const dir = tempStoreDir();
+  try {
+    const raw = new DatabaseSync(join(dir, APP_DB_FILENAME));
+    raw.exec(V4_TABLES);
+    raw.exec("PRAGMA user_version = 4");
+    raw.prepare("INSERT INTO projects (id, name, cwd, createdAt) VALUES (?, ?, ?, ?)").run("p1", "p1", "proj-a", 1);
+    raw.prepare("INSERT INTO provider_credentials (provider, apiKey) VALUES (?, ?)").run("anthropic", "sk-ant-1");
+    raw.close();
+
+    const first = AppDb.open({ storeDir: dir });
+    // 加算移行なので既存テーブルは消えない。新しいテーブルは空 (行が無い = 未設定) で始まる
+    assert.deepEqual(first.listProjects(), [project("p1", "proj-a")]);
+    assert.deepEqual(first.listProviderCredentials(), [{ provider: "anthropic", apiKey: "sk-ant-1" }]);
+    assert.equal(first.readModelSettings(), undefined);
+    first.saveModelSettings({
+      allowedModels: [
+        { provider: "anthropic", id: "claude-sonnet-4-5" },
+        { provider: "openai", id: "gpt-5.6-luna" },
+      ],
+      defaultModel: "anthropic/claude-sonnet-4-5",
+    });
+    first.close();
+
+    const second = AppDb.open({ storeDir: dir });
+    assert.deepEqual(second.readModelSettings(), {
+      allowedModels: [
+        { provider: "anthropic", id: "claude-sonnet-4-5" },
+        { provider: "openai", id: "gpt-5.6-luna" },
+      ],
+      defaultModel: "anthropic/claude-sonnet-4-5",
+    });
+    // 1 行を上書きする (行を増やさない)
+    second.saveModelSettings({ allowedModels: null, defaultModel: "anthropic/claude-haiku-4-5" });
+    assert.deepEqual(second.readModelSettings(), { allowedModels: null, defaultModel: "anthropic/claude-haiku-4-5" });
+    assert.equal(second.resetModelSettings(), true);
+    assert.equal(second.readModelSettings(), undefined);
+    assert.equal(second.resetModelSettings(), false, "行が無い状態の削除は false");
+    second.close();
+
+    const check = new DatabaseSync(join(dir, APP_DB_FILENAME));
+    assert.equal(Number(check.prepare("PRAGMA user_version").get()?.user_version), APP_DB_SCHEMA_VERSION);
+    check.close();
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("model settings normalize empty lists and reject a broken JSON value", () => {
+  const dir = tempStoreDir();
+  try {
+    const db = AppDb.open({ storeDir: dir });
+    // 空配列は制限なし (NULL) と同じ状態へ正規化する
+    db.saveModelSettings({ allowedModels: [], defaultModel: null });
+    assert.equal(db.readModelSettings(), undefined, "両方が未設定の保存は行ごと消す");
+    db.saveModelSettings({ allowedModels: [], defaultModel: "anthropic/claude-sonnet-4-5" });
+    assert.deepEqual(db.readModelSettings(), { allowedModels: null, defaultModel: "anthropic/claude-sonnet-4-5" });
+    db.close();
+
+    // 壊れた JSON は黙って既定へ落とさず、他の列と同じく 503 にする
+    const raw = new DatabaseSync(join(dir, APP_DB_FILENAME));
+    raw.prepare("UPDATE model_settings SET allowedModels = ?").run("not json");
+    raw.close();
+    const broken = AppDb.open({ storeDir: dir });
+    assert.throws(() => broken.readModelSettings(), isServiceUnavailable);
+    // 壊れた保存値は別テーブルの読取成功や probe() の成功で消えない (health が失敗を示し続ける)
+    assert.deepEqual(broken.listProviderCredentials(), [], "別テーブルの読取は成功する");
+    assert.equal(broken.probe(), true);
+    const status = broken.status();
+    assert.equal(status.ok, false, "制限なしで起動したことを health から見せる");
+    assert.match(status.error ?? "", /model_settings\.allowedModels/);
+    // 配列でない JSON も同じ扱い
+    const rawAgain = new DatabaseSync(join(dir, APP_DB_FILENAME));
+    rawAgain.prepare("UPDATE model_settings SET allowedModels = ?").run('{"a":1}');
+    rawAgain.close();
+    assert.throws(() => broken.readModelSettings(), isServiceUnavailable);
+    assert.equal(broken.status().ok, false, "同じテーブルの失敗を重ねても残る");
+    // 行を直したあとの読取成功でだけ解除される
+    const rawFixed = new DatabaseSync(join(dir, APP_DB_FILENAME));
+    rawFixed
+      .prepare("UPDATE model_settings SET allowedModels = ?")
+      .run(JSON.stringify([{ provider: "anthropic", id: "claude-sonnet-4-5" }]));
+    rawFixed.close();
+    assert.deepEqual(broken.readModelSettings(), {
+      allowedModels: [{ provider: "anthropic", id: "claude-sonnet-4-5" }],
+      defaultModel: "anthropic/claude-sonnet-4-5",
+    });
+    assert.deepEqual(broken.status(), { path: join(dir, APP_DB_FILENAME), ok: true });
+    broken.close();
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("sanitizeError masks both the query log and the error kept for health", () => {
   const dir = tempStoreDir();
   const key = "sk-ant-dummy-key-0123456789abcdef";

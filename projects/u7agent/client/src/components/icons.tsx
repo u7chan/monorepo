@@ -504,50 +504,6 @@ const FILE_MARKS: Record<FileKind, ReactNode> = {
 };
 
 /**
- * 真偽の印 (利用可能 / カタログ / 認証)。丸の中のチェックと横線で分ける。
- * 文字を添えても色だけでは状態が伝わらない利用者に届くよう、形そのものを変える。
- */
-export function CheckMark({ ok }: { ok: boolean }) {
-  return (
-    <svg
-      aria-hidden="true"
-      viewBox="0 0 16 16"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.5"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      className={cn("size-3.5 shrink-0", ok ? "text-ok" : "text-ink-ghost")}
-    >
-      <circle cx="8" cy="8" r="6.25" />
-      {ok ? <path d="M5.5 8.2 7.3 10 10.6 6.2" /> : <path d="M5.6 8h4.8" />}
-    </svg>
-  );
-}
-
-/**
- * whitelist (PI_MODELS) の収載。丸の印と混ざらないよう盾の形にする。
- * 盾の先端は 2 本の 2 次曲線で描く (直線で閉じると 16px では三角形に見える)。
- */
-export function WhitelistMark({ inWhitelist }: { inWhitelist: boolean }) {
-  return (
-    <svg
-      aria-hidden="true"
-      viewBox="0 0 16 16"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.5"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      className={cn("size-3.5 shrink-0", inWhitelist ? "text-accent-text" : "text-ink-ghost")}
-    >
-      <path d="M8 2.3 13 4.1v3.7q0 3.9-5 5.5-5-1.6-5-5.5V4.1z" />
-      {inWhitelist ? <path d="M6 7.9 7.4 9.3 10.1 6.6" /> : <path d="M6.2 8h3.6" />}
-    </svg>
-  );
-}
-
-/**
  * プロバイダーの認証状態 (鍵 = 使える資格情報があるか)。色は呼び出し側の text-* に従う。
  * 横向きの鍵は 14px で丸と軸が同じ高さに潰れて読めないため、斜めに置いて歯を輪郭から外す。
  */

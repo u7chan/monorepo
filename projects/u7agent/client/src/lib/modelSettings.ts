@@ -2,9 +2,12 @@
  * 設定 → モデルの表示変換。コンポーネントから切り出し、認証バッジ・並び・保存後の文言をテストできるようにする。
  * 保存先 (managed = DB) と実効値 (auth.source) と未反映 (degraded) は混ぜず、別々に出す。
  * 案内文 (degradedNotice) は、そのカードで実際に押せる回復操作 (resyncAvailable) と一致させる。
+ * 「利用可能なモデル」の編集は、許可の正を `GET /api/settings/models` の allowedModels に保ち、
+ * 下書きの組み立て・集計・確認文だけをここで純関数的に扱う (DOM に依存させない)。
  */
 import type {
   ModelMutationResponse,
+  ModelRef,
   ModelsSettingsResponse,
   ProviderAuthSetting,
   RuntimeModelsResponse,
@@ -113,7 +116,7 @@ export function validateApiKey(value: string): string | undefined {
   return undefined;
 }
 
-export type MutationAction = "save" | "delete" | "resync";
+export type MutationAction = "save" | "delete" | "resync" | "availability";
 
 /** 削除の確認。既存の会話は自動でモデルを切り替えないため、影響を先に伝える */
 export function deleteConfirmMessage(name: string): string {
@@ -141,5 +144,231 @@ export function mutationNote(
       return unsynced
         ? { text: "再同期できませんでした。時間をおいてもう一度実行してください。", error: true }
         : { text: "再同期しました。モデル候補を更新しています。", error: false };
+    case "availability":
+      // SDK 呼び出しを含まないため applied_unsynced にはならない
+      return { text: "利用可能なモデルを保存しました。新しい会話の候補を更新しています。", error: false };
   }
+}
+
+// --- 利用可能なモデル（許可リスト）とアプリ既定モデルの編集 ---
+
+/** カタログのモデル参照を "provider/model" にする（API の allowedModels と同じ表記） */
+export function modelRefKey(ref: ModelRef): string {
+  return `${ref.provider}/${ref.id}`;
+}
+
+/** カタログの provider を落とさず 1 件ずつ扱うための平坦化 */
+export interface CatalogModelEntry {
+  key: string;
+  name: string;
+  available: boolean;
+}
+
+export function catalogModelEntries(catalog: RuntimeModelsResponse | null): CatalogModelEntry[] {
+  return (catalog?.providers ?? []).flatMap((provider) =>
+    provider.models.map((model) => ({
+      key: modelRefKey({ provider: provider.provider, id: model.id }),
+      name: model.name,
+      available: model.available,
+    })),
+  );
+}
+
+/**
+ * 編集の下書き。`allowed` は "provider/model" の一覧（API の allowedModels と同じ表記）で、
+ * 空配列は「すべて外した」を表し、保存時に制限なしへ正規化する。`unrestricted` のときは使わない。
+ */
+export interface AvailabilityDraft {
+  unrestricted: boolean;
+  allowed: string[];
+  /** 保存値としての既定モデル（`provider/id`）。未設定は null */
+  defaultModel: string | null;
+}
+
+export function availabilityDraftFromSettings(settings: ModelsSettingsResponse): AvailabilityDraft {
+  return {
+    unrestricted: settings.allowedModels === null,
+    allowed: settings.allowedModels ?? [],
+    defaultModel: settings.defaultModel,
+  };
+}
+
+/** 制限なしから選択へ戻すときの初期値。全件を選んだ状態から外していけるようにカタログ全件を入れる */
+export function availabilityDraftWithAllModels(catalog: RuntimeModelsResponse | null): string[] {
+  return catalogModelEntries(catalog).map((entry) => entry.key);
+}
+
+/** 保存形へ正規化する。空配列は「制限なし」へ寄せる（サーバーと同じ扱い） */
+export function normalizeAllowedModels(allowed: string[]): string[] | null {
+  return allowed.length > 0 ? allowed : null;
+}
+
+export function isModelAllowed(allowed: string[], key: string): boolean {
+  return allowed.includes(key);
+}
+
+/** 保存値・下書きにあるが、現在のカタログに無いエントリ。保存すると 400 になるため画面で消す */
+export function allowedModelsOutsideCatalog(allowed: string[], catalog: RuntimeModelsResponse | null): string[] {
+  const keys = new Set(catalogModelEntries(catalog).map((entry) => entry.key));
+  return allowed.filter((key) => !keys.has(key));
+}
+
+export interface AvailabilityCounts {
+  /** カタログ全件 */
+  catalog: number;
+  /** 下書きで許可しているモデル数（制限なしはカタログ全件） */
+  allowed: number;
+  /** 許可しているうち、いま利用可能なモデル数 */
+  available: number;
+}
+
+/**
+ * 下書きの集計。カタログを取得できないときは undefined を返し、画面は編集自体を止める
+ * （呼び出し側は catalogError で編集可否を判定する）。
+ */
+export function availabilityCounts(
+  draft: AvailabilityDraft,
+  catalog: RuntimeModelsResponse | null,
+): AvailabilityCounts | undefined {
+  if (!catalog) return undefined;
+  const entries = catalogModelEntries(catalog);
+  const allowed = draft.unrestricted ? entries : entries.filter((entry) => draft.allowed.includes(entry.key));
+  return {
+    catalog: entries.length,
+    allowed: allowed.length,
+    available: allowed.filter((entry) => entry.available).length,
+  };
+}
+
+export interface AvailabilityNotice {
+  /** 常時出す警告（既定に選んだモデルが未認証のとき） */
+  warning?: string;
+  /** [保存] を押したときの確認。確認が不要なら undefined */
+  confirm?: string;
+}
+
+/**
+ * 保存前の警告と確認文。確認の出し方 (画面内確認) はコンポーネント側が
+ * `availabilitySaveOnSubmit()` で決め、ここは DOM に依存せず文言だけを組み立てる。
+ */
+export function availabilityNotice(
+  draft: AvailabilityDraft,
+  catalog: RuntimeModelsResponse | null,
+): AvailabilityNotice {
+  const counts = availabilityCounts(draft, catalog);
+  if (!counts) return {};
+  const defaultEntry = draft.defaultModel
+    ? catalogModelEntries(catalog).find((entry) => entry.key === draft.defaultModel)
+    : undefined;
+  // ここでの未認証は「カタログにはあるが available でない」を指す（認証状態の詳細はサーバーが持つ）
+  const defaultUnavailable = Boolean(draft.defaultModel && defaultEntry && !defaultEntry.available);
+
+  const reasons: string[] = [];
+  if (!draft.unrestricted && draft.allowed.length === 0) {
+    reasons.push("利用可能なモデルをすべて外したので、保存すると制限なし（全モデル）へ戻ります");
+  } else if (counts.allowed > 0 && counts.available === 0) {
+    reasons.push("この保存で利用可能なモデルが 0 件になり、新しい会話を作成できなくなります");
+  }
+  if (defaultUnavailable) reasons.push("既定に選んだモデルは現在利用できません（キー未設定または未認証です）");
+
+  return {
+    ...(defaultUnavailable
+      ? {
+          warning:
+            "既定に選んだモデルは現在利用できません。キー未設定または未認証のまま保存すると、新しい会話の作成が 503 で失敗します。",
+        }
+      : {}),
+    ...(reasons.length > 0 ? { confirm: `${reasons.join("。")}。保存しますか？` } : {}),
+  };
+}
+
+/**
+ * 利用可能なモデルの保存操作の状態。確認が要るときは 1 回目の押下で画面内確認を出し、同意後の
+ * [保存する] で送る（ネイティブの `window.confirm` は使わない。判定を DOM なしで検証できるようにする）。
+ */
+export interface AvailabilitySaveState {
+  confirming: boolean;
+}
+
+export const AVAILABILITY_SAVE_INITIAL: AvailabilitySaveState = { confirming: false };
+
+/** [保存] を押したときの次の一手。send が false なら画面内確認を出すだけにして、PUT を送らない */
+export function availabilitySaveOnSubmit(
+  state: AvailabilitySaveState,
+  notice: AvailabilityNotice,
+): { state: AvailabilitySaveState; send: boolean } {
+  if (notice.confirm && !state.confirming) return { state: { confirming: true }, send: false };
+  return { state: AVAILABILITY_SAVE_INITIAL, send: true };
+}
+
+/** 画面内確認に出す文言（確認を出していないときは undefined） */
+export function availabilitySaveConfirmMessage(
+  state: AvailabilitySaveState,
+  notice: AvailabilityNotice,
+): string | undefined {
+  return state.confirming ? notice.confirm : undefined;
+}
+
+export interface AvailabilityRow {
+  key: string;
+  /** カタログの表示名 */
+  name: string;
+  available: boolean;
+  checked: boolean;
+}
+
+/** provider ごとの折りたたみ 1 件。カタログの入力順を保つ */
+export interface AvailabilityGroup {
+  provider: string;
+  authConfigured: boolean;
+  rows: AvailabilityRow[];
+}
+
+export function availabilityGroups(
+  draft: AvailabilityDraft,
+  catalog: RuntimeModelsResponse | null,
+): AvailabilityGroup[] {
+  return (catalog?.providers ?? []).map((provider) => ({
+    provider: provider.provider,
+    authConfigured: provider.auth.configured,
+    rows: provider.models.map((model) => {
+      const key = modelRefKey({ provider: provider.provider, id: model.id });
+      return {
+        key,
+        name: model.name,
+        available: model.available,
+        checked: draft.unrestricted || draft.allowed.includes(key),
+      };
+    }),
+  }));
+}
+
+export interface AvailabilityChoice {
+  key: string;
+  label: string;
+  available: boolean;
+  inCatalog: boolean;
+}
+
+/** 既定モデルの選択肢。カタログ外の保存値も選べる状態のまま残す（削除するまで保存できない） */
+export function availabilityDefaultChoices(
+  draft: AvailabilityDraft,
+  catalog: RuntimeModelsResponse | null,
+): AvailabilityChoice[] {
+  const entries = catalogModelEntries(catalog);
+  const keys = draft.unrestricted ? availabilityDraftWithAllModels(catalog) : draft.allowed;
+  const seen = new Set<string>();
+  const choices: AvailabilityChoice[] = [];
+  for (const key of keys) {
+    if (seen.has(key)) continue;
+    seen.add(key);
+    const entry = entries.find((candidate) => candidate.key === key);
+    choices.push({
+      key,
+      label: entry ? `${entry.name}（${key}）` : `${key}（カタログ外）`,
+      available: entry?.available ?? false,
+      inCatalog: Boolean(entry),
+    });
+  }
+  return choices;
 }

@@ -33,6 +33,7 @@ import type {
   StopResult,
   ThinkingLevel,
   UpdateAgentBody,
+  UpdateModelAvailabilityBody,
   UpdateNotificationsBody,
   UpdateSkillBody,
 } from "./types";
@@ -433,6 +434,16 @@ export const getModelsSettings = async (): Promise<ModelsSettingsResponse> => {
   const res = await client.api.settings.models.$get();
   if (!res.ok) throw await apiError(res);
   return res.json();
+};
+
+/**
+ * 利用可能なモデルとアプリ既定モデルの一括保存。両方 null は「未設定へ戻す」。
+ * SDK 呼び出しを含まないため `applied_unsynced` にはならない。
+ */
+export const putModelAvailability = async (input: UpdateModelAvailabilityBody): Promise<ModelMutationResponse> => {
+  const res = await client.api.settings.models.allowed.$put({ json: input });
+  if (!res.ok) throw await apiError(res);
+  return (await res.json()) as ModelMutationResponse;
 };
 
 /** APIキーの登録（既存は上書き）。保存は確定し、SDK へ未反映なら `state: "applied_unsynced"` で返る */

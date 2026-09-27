@@ -1,6 +1,6 @@
 import { resolve } from "node:path";
 import type { Context } from "hono";
-import { AUTH_REQUIRED_MESSAGE, unavailableRuntimeDiagnostics } from "../agent";
+import { AUTH_REQUIRED_MESSAGE, runtimeVersionInfo } from "../agent";
 import type { PiBff } from "../agent";
 import { resolveArchiveExcludeNames } from "../archive-rules";
 import type { AppDbStatus } from "../app-db";
@@ -41,11 +41,12 @@ export function createHealthRoutes({
 }) {
   return {
     health: (c: Context) => {
-      // ready は「runtime が使え、利用可能モデルが 1 つ以上ある」の意で、
-      // 明示 PI_MODEL が使えるかどうかとは分離する (defaultModelError)。
+      // ready は「runtime が使え、利用可能なモデルが 1 つ以上ある」の意で、
+      // 保存された既定モデルが使えるかどうかとは分離する (defaultModelError)。
       const availableModels = pi?.availableModels ?? [];
       const ready = Boolean(pi) && availableModels.length > 0;
-      // PI_MODELS が候補を全部落としたなら、認証の有無より先に whitelist 側を原因として示す。
+      // 許可リストが候補を全部落としたなら、認証の有無より先に許可リスト側を原因として示す
+      // (errorCode は互換のため据え置き)。
       const whitelistEmpty = Boolean(pi && pi.modelWhitelistExcludesAll);
       const authRequired = Boolean(pi && !ready && !whitelistEmpty && pi.availabilityError === AUTH_REQUIRED_MESSAGE);
       const errorCode: "authentication_required" | "model_whitelist_empty" | "runtime_unavailable" | undefined =
@@ -70,9 +71,8 @@ export function createHealthRoutes({
         tools: pi?.tools || [],
         availabilityError: pi?.availabilityError,
         sandboxConfigured: pi?.sandboxConfigured ?? false,
-        runtimeDiagnostics:
-          pi?.runtimeDiagnostics?.summary ??
-          unavailableRuntimeDiagnostics(pi ? "diagnostics_unavailable" : "runtime_unavailable"),
+        // バージョン表示はモデル診断の撤去後も残す（接続状態カードが使う）
+        versions: runtimeVersionInfo(),
         // クライアントは行にダウンロードを出すかの判定に使う。設定ストアの実効値が正で、download / check も同じ値を使う
         archive: { excludeNames: archiveSettings?.effectiveNames() ?? resolveArchiveExcludeNames() },
         ...(sessionStore ? { sessionStore } : {}),

@@ -6,19 +6,11 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import type { Hono } from "hono";
-import { AUTH_REQUIRED_MESSAGE, deriveRuntimeModelDiagnostics, MODEL_WHITELIST_EMPTY_MESSAGE } from "../src/agent";
+import { AUTH_REQUIRED_MESSAGE, MODEL_WHITELIST_EMPTY_MESSAGE } from "../src/agent";
 import { createBffApp } from "../src/app";
 import { BUILTIN_SKILLS } from "../src/builtin-skills";
 import { SandboxRequestError, type SandboxWorkspaceClient } from "../src/sandbox/client";
-import {
-  asPiBff,
-  createStubPi,
-  STUB_CONTEXT_USAGE,
-  STUB_MODEL,
-  STUB_PLAIN_MODEL,
-  STUB_USAGE,
-  stubModel,
-} from "./stub-pi";
+import { asPiBff, createStubPi, STUB_CONTEXT_USAGE, STUB_MODEL, STUB_USAGE } from "./stub-pi";
 
 const jsonPost = (payload: unknown): RequestInit => ({
   method: "POST",
@@ -515,7 +507,7 @@ test("reports missing API-key authentication before creating an unusable session
   }
 });
 
-test("an empty PI_MODELS whitelist surfaces a whitelist-caused failure", async () => {
+test("an empty allowed list surfaces a whitelist-caused failure", async () => {
   const bff = await createBffApp({
     cwd: "/tmp/project",
     sessionStoreDir: null,
@@ -534,8 +526,8 @@ test("an empty PI_MODELS whitelist surfaces a whitelist-caused failure", async (
     assert.equal(health.ready, false);
     assert.equal(health.errorCode, "model_whitelist_empty");
     assert.equal(health.error, MODEL_WHITELIST_EMPTY_MESSAGE);
-    // 原因が whitelist だと分かる文言を返し、認証エラーとは混同しない
-    assert.match(health.error, /PI_MODELS/);
+    // 原因が許可リストだと分かる文言を返し、認証エラーとは混同しない
+    assert.match(health.error, /設定 → モデル/);
     assert.notEqual(health.errorCode, "authentication_required");
     assert.deepEqual(health.availableModels, []);
     assert.deepEqual(health.modelOptions, []);
@@ -579,26 +571,25 @@ test("health exposes the model picker options and the app default thinking level
   }
 });
 
-test("health keeps its existing model contract while runtime models expose separate whitelist and availability flags", async () => {
-  const catalogOnlyModel = stubModel({
-    provider: "stub",
-    id: "catalog-only",
-    name: "Catalog Only Model",
-    reasoning: false,
-  });
-  const runtimeDiagnostics = deriveRuntimeModelDiagnostics({
-    catalog: [STUB_MODEL, STUB_PLAIN_MODEL, catalogOnlyModel],
-    available: [STUB_MODEL, STUB_PLAIN_MODEL],
-    providerIds: ["stub"],
-    authStatuses: new Map([
-      ["stub", { configured: true, source: "models_json_command", label: "private command details" }],
-    ]),
-    whitelist: [{ provider: "stub", id: "stub-model" }],
-    requestedModel: { provider: "stub", id: "stub-plain" },
+test("health drops the model diagnostics while runtime models expose the catalog", async () => {
+  const modelCatalog = {
+    catalogCount: 3,
+    availableCount: 2,
     versions: { piCodingAgent: "0.87.1", piAi: "0.87.1", commitHash: "test-build" },
-  });
+    providers: [
+      {
+        provider: "stub",
+        auth: { configured: true, source: "models_json_command" as const, environmentVariables: [] },
+        models: [
+          { id: "stub-model", name: "Stub Model", available: true },
+          { id: "stub-plain", name: "Stub Plain", available: true },
+          { id: "catalog-only", name: "Catalog Only Model", available: false },
+        ],
+      },
+    ],
+  };
   const pi = createStubPi({
-    runtimeDiagnostics,
+    modelCatalog,
     availableModels: [STUB_MODEL],
     selectedModel: STUB_MODEL,
   });
@@ -616,35 +607,34 @@ test("health keeps its existing model contract while runtime models expose separ
     assert.equal(health.defaultThinkingLevel, "medium");
     assert.equal(health.defaultModelError, undefined);
     assert.equal(health.errorCode, undefined);
-    assert.equal(health.runtimeDiagnostics.status, "available");
-    assert.equal(health.runtimeDiagnostics.availableCount, 2);
-    assert.equal(health.runtimeDiagnostics.whitelistCount, 1);
-    assert.equal(health.runtimeDiagnostics.piModel.status, "not_in_whitelist");
-    assert.equal(health.runtimeDiagnostics.piModel.available, true);
-    assert.equal(health.runtimeDiagnostics.piModel.inWhitelist, false);
+    assert.equal("runtimeDiagnostics" in health, false, "モデル診断は health から撤去した");
+    assert.deepEqual(health.versions.piCodingAgent, "0.87.1", "バージョン表示は health 直下に残す");
     assert.ok(!JSON.stringify(health).includes("Catalog Only Model"), "health must not include the full catalog");
-    assert.ok(!("models" in health.runtimeDiagnostics), "health diagnostics contain summaries, not model rows");
-    assert.ok(!JSON.stringify(health).includes("private command details"));
 
     const response = await bff.app.request("/api/runtime/models");
     assert.equal(response.status, 200);
     const runtimeModels = await jsonBody(response);
     assert.equal(runtimeModels.catalogCount, 3);
-    assert.equal(runtimeModels.whitelistConfigured, true);
+    assert.equal(runtimeModels.availableCount, 2);
+    assert.equal("whitelistConfigured" in runtimeModels, false, "許可リストの情報は設定 API だけが持つ");
+    assert.equal("whitelistCount" in runtimeModels, false);
     assert.deepEqual(
-      runtimeModels.providers[0].models.map(({ id, available, inWhitelist }: any) => [id, available, inWhitelist]),
+      runtimeModels.providers[0].models.map(({ id, available }: any) => [id, available]),
       [
-        ["stub-model", true, true],
-        ["stub-plain", true, false],
-        ["catalog-only", false, false],
+        ["stub-model", true],
+        ["stub-plain", true],
+        ["catalog-only", false],
       ],
+    );
+    assert.ok(
+      runtimeModels.providers[0].models.every((model: any) => !("inWhitelist" in model)),
+      "カタログ応答に whitelist 系フィールドを残さない",
     );
     assert.deepEqual(runtimeModels.providers[0].auth, {
       configured: true,
       source: "models_json_command",
       environmentVariables: [],
     });
-    assert.ok(!JSON.stringify(runtimeModels).includes("private command details"));
   } finally {
     await bff.close();
   }
@@ -657,14 +647,14 @@ test("runtime models returns a fixed secret-free 503 when the runtime is unavail
     assert.equal(response.status, 503);
     assert.deepEqual(await jsonBody(response), { error: "ランタイムのモデル情報を取得できません" });
     const health = await jsonBody(bff.app.request("/api/health"));
-    assert.equal(health.runtimeDiagnostics.status, "unavailable");
-    assert.equal(health.runtimeDiagnostics.unavailableReason, "runtime_unavailable");
+    assert.equal("runtimeDiagnostics" in health, false);
+    assert.equal(typeof health.versions.piCodingAgent, "string");
   } finally {
     await bff.close();
   }
 });
 
-test("an unusable PI_MODEL keeps ready true and surfaces a default model error", async () => {
+test("an unusable stored default model keeps ready true and surfaces a default model error", async () => {
   const pi = createStubPi({
     selectedModel: null,
     defaultModelError: "指定された既定モデルは利用できません: stub/ghost",

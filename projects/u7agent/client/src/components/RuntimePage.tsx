@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { cn } from "../lib/cn";
 import { getRuntimeEnvironment } from "../api";
 import {
@@ -10,16 +10,8 @@ import {
   type RuntimeFetchState,
   type RuntimeReloadGate,
 } from "../lib/runtimeEnvironment";
-import {
-  runtimeDiagnosticCounts,
-  runtimeDiagnosticRows,
-  runtimeProviderSummaryRows,
-  type RuntimeModelDisplayRow,
-  type RuntimeProviderDisplayRow,
-} from "../lib/runtimeModels";
 import type { Health, RuntimeEnvironmentResponse, RuntimeEnvironmentState } from "../types";
-import { CheckMark, KeyIcon, RefreshIcon, WhitelistMark } from "./icons";
-import { MetricGauges } from "./runtimeMetrics";
+import { RefreshIcon } from "./icons";
 import { SettingsPageLayout, type SettingsPageProps } from "./SettingsPageLayout";
 
 type RuntimePageProps = SettingsPageProps & {
@@ -32,8 +24,8 @@ type RuntimePageProps = SettingsPageProps & {
 };
 
 /**
- * 設定 → ランタイム。接続状態・実行環境・利用可能コマンド・モデル解決の診断だけを出す表示専用の画面。
- * プロバイダー認証とカタログは設定 → モデルへ移設した (ここではモデル候補を取らない)。
+ * 設定 → ランタイム。接続状態・実行環境・利用可能コマンドの診断だけを出す表示専用の画面。
+ * プロバイダー認証とカタログは 設定 → モデル が持ち、モデル診断は health からも撤去した。
  */
 export function RuntimePage({ health, onRefreshHealth, compact = false, onBack, onOpenNav }: RuntimePageProps) {
   const [environmentState, setEnvironmentState] = useState<RuntimeFetchState<RuntimeEnvironmentResponse>>({
@@ -70,11 +62,7 @@ export function RuntimePage({ health, onRefreshHealth, compact = false, onBack, 
     return () => gate.invalidate();
   }, [gate, runLoad]);
 
-  const diagnostics = health?.runtimeDiagnostics;
-  const diagnosticRows = diagnostics ? runtimeDiagnosticRows(diagnostics) : { piModel: undefined, piModels: [] };
-  const diagnosticCounts = diagnostics ? runtimeDiagnosticCounts(diagnostics) : undefined;
-  const summaryProviderRows = runtimeProviderSummaryRows(diagnostics?.providers ?? []);
-  const versions = diagnostics?.versions;
+  const versions = health?.versions;
   const environment = environmentState.status === "ready" ? environmentState.value : undefined;
   const commandRows = environment?.state === "connected" ? runtimeCommandRows(environment.commands) : [];
 
@@ -82,7 +70,7 @@ export function RuntimePage({ health, onRefreshHealth, compact = false, onBack, 
     <SettingsPageLayout
       eyebrow="RUNTIME"
       title="ランタイム"
-      caption="接続状態・実行環境・モデル解決の診断を表示します。設定の変更は行いません。"
+      caption="接続状態・実行環境・利用可能なコマンドの診断を表示します。設定の変更は行いません。"
       actions={
         <button type="button" className="btn-quiet" onClick={() => void runLoad(true)} disabled={pending}>
           <RefreshIcon />
@@ -205,34 +193,6 @@ export function RuntimePage({ health, onRefreshHealth, compact = false, onBack, 
               </>
             )}
           </section>
-
-          <section className="grid gap-2 rounded-lg border border-line bg-soft p-3">
-            <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
-              <h3 className="text-2xs font-semibold tracking-label text-ink-faint uppercase">モデル解決</h3>
-              {diagnosticCounts ? (
-                <MetricGauges {...diagnosticCounts} availableLabel="利用可能 (whitelist 適用前)" />
-              ) : null}
-            </div>
-            {diagnostics?.status === "unavailable" ? (
-              <p className="text-xs text-ink-muted">診断情報を取得できません。</p>
-            ) : diagnostics?.status === "available" ? (
-              <>
-                {diagnosticCounts ? null : <p className="text-xs text-ink-muted">カタログ数は取得できていません。</p>}
-                <p className="text-2xs text-ink-muted">
-                  PI_MODELS: {diagnostics.whitelistConfigured ? "whitelist を設定" : "制限なし"}
-                </p>
-                <DiagnosticRows
-                  title="PI_MODEL"
-                  rows={diagnosticRows.piModel ? [diagnosticRows.piModel] : []}
-                  empty="指定なし"
-                />
-                <DiagnosticRows title="PI_MODELS" rows={diagnosticRows.piModels} empty="指定なし" />
-                <ProviderSummary rows={summaryProviderRows} />
-              </>
-            ) : (
-              <p className="text-xs text-ink-muted">health から診断サマリを取得できていません。</p>
-            )}
-          </section>
         </div>
       </div>
     </SettingsPageLayout>
@@ -281,111 +241,4 @@ function storeStatus(store: Health["sessionStore"]): string {
 function dbStatus(db: Health["appDb"]): string {
   if (!db) return "情報なし";
   return `${db.ok ? "利用可能" : "利用できません"} · ${db.path ?? "永続化なし"}`;
-}
-
-function BooleanFact({ label, ok }: { label: string; ok: boolean }) {
-  return (
-    <span className="inline-flex items-center gap-1 whitespace-nowrap text-ink-muted">
-      <CheckMark ok={ok} />
-      {label}
-    </span>
-  );
-}
-
-function WhitelistFact({ label, inWhitelist }: { label: string; inWhitelist: boolean }) {
-  return (
-    <span className="inline-flex items-center gap-1 whitespace-nowrap text-ink-muted">
-      <WhitelistMark inWhitelist={inWhitelist} />
-      {label}
-    </span>
-  );
-}
-
-function DiagnosticRows({ title, rows, empty }: { title: string; rows: RuntimeModelDisplayRow[]; empty: string }) {
-  return (
-    <div className="grid gap-1 border-t border-line pt-2">
-      <h4 className="text-2xs font-semibold text-ink-soft">{title}</h4>
-      {rows.length === 0 ? (
-        <p className="text-2xs text-ink-muted">{empty}</p>
-      ) : (
-        rows.map((row) => (
-          <div key={row.key} className="grid gap-1.5 rounded-md bg-raised px-2.5 py-2">
-            <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
-              <code className="text-2xs break-all text-ink">{row.label}</code>
-              <span className="text-2xs text-ink-soft">{row.statusLabel}</span>
-            </div>
-            <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-              <BooleanFact label="カタログ" ok={row.cataloged} />
-              <BooleanFact label="認証" ok={row.authenticated} />
-              <BooleanFact label="利用可能" ok={row.available} />
-              <WhitelistFact label="whitelist" inWhitelist={row.inWhitelist} />
-            </div>
-          </div>
-        ))
-      )}
-    </div>
-  );
-}
-
-function ProviderSummary({ rows }: { rows: RuntimeProviderDisplayRow[] }) {
-  return (
-    <div className="grid gap-1 border-t border-line pt-2">
-      <h4 className="text-2xs font-semibold text-ink-soft">プロバイダー集計</h4>
-      {rows.length === 0 ? (
-        <p className="text-2xs text-ink-muted">参照されたプロバイダー、認証済みプロバイダーはありません。</p>
-      ) : (
-        rows.map((row) => (
-          <div key={row.provider} className="grid gap-1.5 rounded-md bg-raised px-2.5 py-2">
-            <ProviderHeadline provider={row} />
-            <AuthSource provider={row} />
-          </div>
-        ))
-      )}
-    </div>
-  );
-}
-
-/** プロバイダー 1 行の見出し。折りたたみの summary と集計の行で同じ見た目を使う */
-function ProviderHeadline({ provider, leading }: { provider: RuntimeProviderDisplayRow; leading?: ReactNode }) {
-  return (
-    <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
-      {leading}
-      <code title={provider.provider} className="min-w-0 flex-1 text-1xs break-all text-ink">
-        {provider.provider}
-      </code>
-      <span
-        className={cn(
-          "inline-flex shrink-0 items-center gap-1 text-2xs",
-          provider.configured ? "text-ok" : "text-ink-faint",
-        )}
-      >
-        <KeyIcon />
-        {provider.configured ? "認証済み" : "未認証"}
-      </span>
-      <MetricGauges
-        catalog={provider.catalogCount}
-        whitelist={provider.whitelistCount}
-        available={provider.availableCount}
-      />
-    </div>
-  );
-}
-
-function AuthSource({ provider }: { provider: RuntimeProviderDisplayRow }) {
-  return (
-    <p className="text-2xs text-ink-muted">
-      認証ソース: {provider.authSource}
-      {provider.environmentVariables.length > 0 ? (
-        <>
-          {" "}
-          · 環境変数:{" "}
-          {provider.environmentVariables.map((name) => (
-            <code key={name} className="ml-1">
-              {name}
-            </code>
-          ))}
-        </>
-      ) : null}
-    </p>
-  );
 }

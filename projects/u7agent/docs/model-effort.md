@@ -2,21 +2,23 @@
 
 モデルの選択は「アプリ既定 → セッション作成時の指定 → チャット単位の変更」の 3 段階があり、実効値は常に pi セッション（`session.model` / `session.thinkingLevel`）を正とする。
 
-プロバイダーの認証は `PI_MODEL` / `PI_MODELS` の解釈より前段で、`ModelRuntime.getAvailable()` の入力になる。設定 → モデルから登録したAPIキーは runtime overlay として環境変数や `auth.json` より優先され、登録・削除の直後に available を再計算する（[model-settings.md](model-settings.md)）。
+プロバイダーの認証は available の入力になり、利用可能なモデル（設定 → モデル の許可リスト）はその後段で available との積を取る。設定 → モデルから登録したAPIキーは runtime overlay として環境変数や `auth.json` より優先され、登録・削除の直後に available を再計算する（[model-settings.md](model-settings.md)）。
 
 ## モデル state の再計算
 
-available と診断は起動時に一度だけ読むのではなく、`readModelState()`（snapshot 読取 → `deriveModelState()`）で作り直し、`PiBff` の getter 群（`availableModels` / `modelOptions` / `selectedModel` / `defaultModelError` / `availabilityError` / `modelWhitelistExcludesAll` / `runtimeDiagnostics`）が常に同じ 1 参照を返す。再計算は認証変更のミューテーションロックの内側だけで行い、`getAvailable()` の失敗は「可用 0 + `availabilityError`」として公開する（古い可用一覧を成功として残さない）。導出そのものが失敗してもロックを壊さず、可用 0 の安全な state にする。`availabilityError` は health に出るため必ずマスカーを通す。
+available とカタログは起動時に一度だけ読むのではなく、`readModelState()`（snapshot 読取 → `deriveModelState()`）で作り直し、`PiBff` の getter 群（`availableModels` / `modelOptions` / `selectedModel` / `defaultModelError` / `availabilityError` / `modelWhitelistExcludesAll` / `modelCatalog`）が常に同じ 1 参照を返す。再計算は認証変更と利用可能なモデルの保存のミューテーションロックの内側だけで行い、`getAvailable()` の失敗は「可用 0 + `availabilityError`」として公開する（古い可用一覧を成功として残さない）。導出そのものが失敗してもロックを壊さず、可用 0 の安全な state にする。`availabilityError` は health に出るため必ずマスカーを通す。実効選択（許可リストと既定モデル）は `setModelSelection()` で差し替え、公開 state へ効かせるのは `refreshModelState()` の 1 回だけ（setter → refresh の順）。
 
 ## アプリ既定の決定
 
-アプリ既定モデルは `ModelRuntime.getAvailable()` の結果（認証済みモデルのみ）から決める。`PI_MODEL` を明示していればそれを使い、利用できない場合は別のモデルへ黙ってフォールバックせず `health.defaultModelError` として返す（`ready` は候補が 1 つ以上あれば true のまま）。`PI_MODEL` 未指定なら先頭候補を使う。
+アプリ既定モデルは、設定 → モデル の「利用可能なモデル」で保存した値（`model_settings.defaultModel`）を使う。保存値が無ければ `ModelRuntime.getAvailable()` の先頭（認証済みモデルのみ）を使う。保存値が利用できない場合は別のモデルへ黙ってフォールバックせず `health.defaultModelError` として返す（`ready` は候補が 1 つ以上あれば true のまま）。許可リストに未認証のモデルを既定として保存することはでき、その場合は保存時と画面表示で警告する（このとき候補ゼロなら `ready: false` になる）。
 
-`PI_MODELS`（`provider/model` のカンマ区切り）を指定すると、available を組み立てる 1 箇所で whitelist との積を取り、そこから導出する `availableModels` / `modelOptions` / `selectedModel` / `resolveModel()` を一貫して絞り込む。個別にフィルタを足すと `PATCH /api/sessions/:id/settings` の経路から漏れるため、絞り込みはこの 1 箇所だけに置く。`PI_MODELS` 未指定は全件表示（後方互換）。whitelist と available の積が空なら（available の取得自体が例外になったときはそのエラーを優先）、`availabilityError` に `MODEL_WHITELIST_EMPTY_MESSAGE` を入れて `health.ready` を false にし、`errorCode: "model_whitelist_empty"` で原因が whitelist だと分かるようにする。認証が無い場合も whitelist が効いている以上候補は空になるため、このエラーは認証エラーより優先する。
+許可リスト（設定 → モデル の「利用可能なモデル」）を保存すると、available を組み立てる 1 箇所でその積を取り、そこから導出する `availableModels` / `modelOptions` / `selectedModel` / `resolveModel()` を一貫して絞り込む。個別にフィルタを足すと `PATCH /api/sessions/:id/settings` の経路から漏れるため、絞り込みはこの 1 箇所だけに置く。許可リスト未設定は全件表示。許可リストと available の積が空なら（available の取得自体が例外になったときはそのエラーを優先）、`availabilityError` に `MODEL_WHITELIST_EMPTY_MESSAGE` を入れて `health.ready` を false にし、`errorCode: "model_whitelist_empty"`（互換のための名前。文言は 設定 → モデル へ誘導する）で原因が許可リストだと分かるようにする。認証が無い場合も許可リストが効いている以上候補は空になるため、このエラーは認証エラーより優先する。
+
+`PI_MODELS` / `PI_MODEL` / `PI_PROVIDER` は読まない。設定されていても無視し、`GET /api/settings/models` の `ignoredEnvironmentVariables` と起動ログで移行（削除）を促す。
 
 モデル能力（対応する Effort の段階）は `@earendil-works/pi-ai` の公開ヘルパー `getSupportedThinkingLevels` / `clampThinkingLevel` を使う。`@earendil-works/pi-ai` は SDK と同じ 0.87.1 系を直接依存として持ち、推移依存の内部パスや dist 深部は import しない。
 
-`thinkingLevel` の非対応値は SDK がモデル能力で補正する（BFF では模倣しない）。既定の Effort は `PI_MODEL` の末尾指定 → `PI_THINKING` → `medium` の優先順位で決まる。
+`thinkingLevel` の非対応値は SDK がモデル能力で補正する（BFF では模倣しない）。既定の Effort は `PI_THINKING` → `medium` の順で決まる。
 
 ## セッション作成時の解決
 
@@ -30,7 +32,7 @@ POST /api/sessions { model?, thinkingLevel? }
 
 ## 復元時の解決
 
-保存済みセッションを開くとき（BFF 再起動後・sweep 後の復元）は、保存値（`session.jsonl` の最後の `model_change` → meta の `model`）を `availableModels` と厳密照合し、候補があればそれを、無ければアプリ既定を使って `createAgentSession()` に渡す。`model` を明示しない SDK の自動復元は `PI_MODELS` の絞り込みを迂回するため使わない。
+保存済みセッションを開くとき（BFF 再起動後・sweep 後の復元）は、保存値（`session.jsonl` の最後の `model_change` → meta の `model`）を `availableModels`（利用可能なモデルで絞った候補）と厳密照合し、候補があればそれを、無ければアプリ既定を使って `createAgentSession()` に渡す。`model` を明示しない SDK の自動復元は許可リストの絞り込みを迂回するため使わない。
 
 - フォールバックしたときは実効モデルを `model_change` entry へ追記して保存し、meta の `model` も更新する。元モデルが後で候補に戻っても、続きを別モデルで進めたセッションは元へ戻らない
 - 利用可能なモデルが 1 つも無いときはセッションを開く要求を 503 で拒否し、一覧（meta）からは消さない
@@ -55,10 +57,12 @@ POST /api/sessions { model?, thinkingLevel? }
 設定 → モデルからAPIキーを登録・削除しても、**起動中のセッションのモデルは自動で切り替えない**。
 
 - 削除した provider のキーだけで認証していた会話は、次回の送信が認証で失敗しうる（環境変数や `auth.json` の認証があればそちらが使われる）
-- 未ロードの会話は復元時に上の「復元時の解決」を通るため、`PI_MODELS` の候補が無ければ別のモデルへ落ちる。このとき切替は `model_change` へ保存され、元に戻らない
+- 未ロードの会話は復元時に上の「復元時の解決」を通るため、利用可能なモデルの候補が無ければ別のモデルへ落ちる。このとき切替は `model_change` へ保存され、元に戻らない
 - `applied_unsynced`（保存済み・未反映）の間は、available が古いまま公開 state に残りうる。実際の送信は SDK が持つ認証に従うため、選択中モデルの送信が失敗する可能性がある（設定 → モデルに警告と再同期の導線を出す）
 
 ## クライアント側の表示
+
+利用可能なモデルとアプリ既定モデルは 設定 → モデル の「利用可能なモデル」で編集する（カタログ全件のチェック・既定モデルの選択・制限なしへの復帰・カタログ外の残存エントリの削除）。保存すると health とカタログを取り直し、未作成チャットの候補が追随する。開いている会話のモデルは切り替えない（[model-settings.md](model-settings.md#クライアント)）。
 
 入力欄の Model / Effort ピッカーは `Composer` に置く。セッションがあれば `resync` で受け取った実効値、未作成のチャットでは「作成前の選択 → 選択中エージェントの定義 → health のアプリ既定」をサーバーと同じ優先順位で表示する（導出は `client/src/lib/composerSettings.ts`）。同じ実効値は入力欄の上の状態行（`client/src/components/composer/ComposerStatus.tsx`）にも出し、ピッカーを畳んでいても使用中モデルが分かるようにする。表示名は候補を引ければ `ModelOption.name`、引けなければ `provider/id` を使う。ピッカーを開いている間も表示は実効値のままで、変更したときは `resync` が返った時点で入れ替わる（クライアントでは楽観的に書き換えない。サーバーが SDK 補正後の値を返すまで実際の送信先と食い違い得るため）。生成中・キュー待ち・設定変更通信中はピッカーを無効化し、設定変更通信中は送信も待たせる。compact で畳んでいるときも、モデルが利用できない警告と送信できない理由は入力欄の下に出る。
 

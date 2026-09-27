@@ -534,7 +534,7 @@ export class SessionStore {
     return record;
   }
 
-  /** JSONL の最後の model_change → meta.model → アプリ既定 の順に、whitelist 内の候補を決める */
+  /** JSONL の最後の model_change → meta.model → アプリ既定 の順に、利用可能なモデル内の候補を決める */
   private restoreInputs(
     meta: SessionMeta,
     entries: SessionEntryLike[],
@@ -560,7 +560,7 @@ export class SessionStore {
   }
 
   /**
-   * 復元で実効モデルが保存値と変わったとき (whitelist 外 → アプリ既定) は、model_change entry を
+   * 復元で実効モデルが保存値と変わったとき (許可リスト外 → アプリ既定) は、model_change entry を
    * 追記して次回復元で元モデルへ戻らないようにする。SDK の setModel は thinking を触るため使わない。
    */
   private recordEffectiveModel(session: PiSessionLike, recorded: ModelRef | undefined): boolean {

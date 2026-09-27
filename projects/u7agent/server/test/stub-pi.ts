@@ -4,7 +4,8 @@
  */
 import { clampThinkingLevel, getSupportedThinkingLevels } from "@earendil-works/pi-ai";
 import type { Api, Model as PiAiModel } from "@earendil-works/pi-ai";
-import type { PiBff, RuntimeModelDiagnostics } from "../src/agent";
+import type { PiBff } from "../src/agent";
+import type { ModelSelection } from "../src/agent";
 import { createMutableSecretMasker } from "../src/redact";
 import type {
   AgentDef,
@@ -12,6 +13,7 @@ import type {
   ContextUsage,
   ModelOption,
   ModelRef,
+  RuntimeModelsResponse,
   SkillDef,
   ThinkingLevel,
   Usage,
@@ -577,9 +579,10 @@ export interface StubPiOptions {
   defaultThinkingLevel?: ThinkingLevel;
   defaultModelError?: string;
   availabilityError?: string;
-  /** true で PI_MODELS が候補を全部落とした状態 (ready: false の whitelist 起因エラー) を再現する */
+  /** true で許可リストが候補を全部落とした状態 (ready: false の許可リスト起因エラー) を再現する */
   modelWhitelistExcludesAll?: boolean;
-  runtimeDiagnostics?: RuntimeModelDiagnostics;
+  /** GET /api/runtime/models が返すカタログを直接与える (未指定は undefined = 503) */
+  modelCatalog?: RuntimeModelsResponse;
   createSessionRejects?: number;
   /** 設定 → モデルの API が返すプロバイダー。省略時は stub 1 件 (キー登録可) */
   providers?: StubProvider[];
@@ -660,6 +663,9 @@ export function createStubPi(options: StubPiOptions = {}) {
   const modelRuntimeCalls: StubModelRuntimeCall[] = [];
   const retainedSecrets: string[] = [];
   const secretMasker = createMutableSecretMasker([]);
+  // setter が refresh より先に呼ばれることを順序で確かめられるよう、同じログへ積む
+  const modelStateEvents: string[] = [];
+  const modelSelections: ModelSelection[] = [];
   let refreshCount = 0;
   return {
     cwd: "/tmp/project",
@@ -670,7 +676,7 @@ export function createStubPi(options: StubPiOptions = {}) {
     defaultModelError: options.defaultModelError,
     availabilityError: options.availabilityError,
     modelWhitelistExcludesAll: options.modelWhitelistExcludesAll ?? false,
-    runtimeDiagnostics: options.runtimeDiagnostics,
+    modelCatalog: options.modelCatalog,
     tools: ["read"],
     sessions,
     createInputs,
@@ -680,6 +686,8 @@ export function createStubPi(options: StubPiOptions = {}) {
     // 実物と同じく、retainSecret で保護対象が増える可変マスカーを返す
     secretMasker,
     retainedSecrets,
+    modelSelections,
+    modelStateEvents,
     retainSecret: (value: string) => {
       retainedSecrets.push(value);
       secretMasker.setSecrets(retainedSecrets);
@@ -687,7 +695,12 @@ export function createStubPi(options: StubPiOptions = {}) {
     get refreshCount() {
       return refreshCount;
     },
+    setModelSelection: (selection: ModelSelection) => {
+      modelStateEvents.push("set");
+      modelSelections.push(selection);
+    },
     refreshModelState: async () => {
+      modelStateEvents.push("refresh");
       refreshCount += 1;
     },
     resolveModel: (ref: ModelRef) => available.find((model) => model.provider === ref.provider && model.id === ref.id),

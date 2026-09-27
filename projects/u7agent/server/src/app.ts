@@ -26,6 +26,7 @@ import {
   RenameFileBodySchema,
   UpdateAgentBodySchema,
   UpdateArchiveSettingsBodySchema,
+  UpdateModelAvailabilityBodySchema,
   UpdateNotificationsBodySchema,
   UpdateProviderKeyBodySchema,
   UpdateSessionNotifyBodySchema,
@@ -242,6 +243,14 @@ export async function createBffApp(opts: CreateBffAppOptions = {}) {
     )
     .delete("/api/settings/archive", appData, archiveRoutes.reset)
     .get("/api/settings/models", appData, modelSettingsRoutes.list)
+    .put(
+      "/api/settings/models/allowed",
+      appDataMutation,
+      jsonBodyValidator(UpdateModelAvailabilityBodySchema, (result, c) =>
+        result.success ? undefined : c.json({ error: "Invalid request body" }, 400),
+      ),
+      (c) => modelSettingsRoutes.putAllowed(c, c.req.valid("json")),
+    )
     .put(
       "/api/settings/models/:provider/key",
       appDataMutation,

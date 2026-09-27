@@ -43,7 +43,7 @@ export function runtimeStatusForError(error: unknown): RuntimeStatus {
 }
 
 /**
- * health から接続状態を作る。ready: false の原因 (認証・whitelist・初期化失敗) を優先し、
+ * health から接続状態を作る。ready: false の原因 (認証・利用可能なモデル・初期化失敗) を優先し、
  * ready: true のときだけ実行環境の未設定を既定モデルのエラーより先に知らせる。
  */
 export function runtimeStatusForHealth(health: Health): RuntimeStatus {

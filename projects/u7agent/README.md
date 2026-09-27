@@ -57,13 +57,12 @@ pnpm dev   # サンドボックス + BFF + Vite をまとめて起動 → http:/
 | --- | --- |
 | `PI_APP_CWD` | ワークスペース root（登録したプロジェクトと未所属チャットのスクラッチの起点、および共通スキル `<PI_APP_CWD>/.agents/skills` の場所。既定: このディレクトリ） |
 | `PI_SESSION_STORE` | 会話ストアの絶対パス（既定: `<pi agentDir>/u7agent/sessions`）。ワークスペースの外を指定する。未設定でも起動するが、`null`（永続化なし）にしたいのはテストだけ |
-| `PI_MODEL` / `PI_MODELS` | 既定モデルの固定 / 選択できるモデルの whitelist |
 | `PI_THINKING` | 既定の Effort |
 | `PORT` / `HOST` | BFF の待受（既定 4317 / 127.0.0.1） |
 | `PI_SANDBOX_URL` / `PI_SANDBOX_TOKEN` | 外部のサンドボックスへ繋ぐ場合のみ（`pnpm dev` は自動で設定） |
 | `PI_SECRET_ENV_VARS` | 追加でマスクする独自の秘密環境変数 |
 
-プロバイダーAPIキーは起動後に **設定 → モデル** から登録するのが既定です（アプリのデータベースへ保存し、起動中のモデル候補へすぐ反映します）。環境変数（`.env`）や `~/.pi/agent/auth.json` で渡す場合は、これまでどおり再起動が必要です。移行の手順と残存リスクは [docs/model-settings.md](docs/model-settings.md) を参照してください。
+**利用可能なモデル**と**アプリ既定モデル**、プロバイダーAPIキーは起動後に **設定 → モデル** から設定するのが既定です（アプリのデータベースへ保存し、再起動せずにモデル候補へ反映します）。選択の入口は GUI に一本化したため、`PI_MODEL` / `PI_MODELS` / `PI_PROVIDER` は読みません（設定されていても無視し、画面と起動ログに移行を促します）。プロバイダーAPIキーを環境変数（`.env`）や `~/.pi/agent/auth.json` で渡す場合は、これまでどおり再起動が必要です。移行の手順と残存リスクは [docs/model-settings.md](docs/model-settings.md) を参照してください。
 
 一覧は [.env.example](.env.example) と [docs/sandbox-api.md](docs/sandbox-api.md)（サンドボックス側）を参照してください。
 

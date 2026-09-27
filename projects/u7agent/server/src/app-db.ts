@@ -17,12 +17,18 @@ import type {
 
 export const APP_DB_FILENAME = "u7agent.db";
 /** テーブル定義を変えたら上げる。新規作成と加算移行はこの版へ揃え、未知の版は作り直す */
-export const APP_DB_SCHEMA_VERSION = 4;
+export const APP_DB_SCHEMA_VERSION = 5;
 
 /** プロバイダー API キーの保存行。平文なのでアクセス権の管理は docs/secrets.md を正とする */
 export interface ProviderCredentialRow {
   provider: string;
   apiKey: string;
+}
+
+/** 利用可能なモデル / アプリ既定モデルの保存行。null は未設定 (制限なし・候補の先頭) を表す */
+export interface ModelSettingsRow {
+  allowedModels: ModelRef[] | null;
+  defaultModel: string | null;
 }
 
 export interface AppDbStatus {
@@ -79,6 +85,18 @@ CREATE TABLE IF NOT EXISTS provider_credentials (
 );
 `;
 
+/**
+ * v4 -> v5 で足したテーブル。利用可能なモデルは JSON 配列テキストで、**行が無い = 未設定**。
+ * 空配列も未設定 (制限なし) へ正規化するため、両方が null の保存は行ごと消す。
+ */
+const MODEL_SETTINGS_TABLE = `
+CREATE TABLE IF NOT EXISTS model_settings (
+  id INTEGER PRIMARY KEY CHECK (id = 1),
+  allowedModels TEXT,
+  defaultModel TEXT
+);
+`;
+
 const CREATE_TABLES = `
 CREATE TABLE projects (
   id TEXT PRIMARY KEY,
@@ -105,7 +123,8 @@ CREATE TABLE agents (
 );
 ${NOTIFICATION_SETTINGS_TABLE}
 ${ARCHIVE_SETTINGS_TABLE}
-${PROVIDER_CREDENTIALS_TABLE}`;
+${PROVIDER_CREDENTIALS_TABLE}
+${MODEL_SETTINGS_TABLE}`;
 
 /** アプリ所有のテーブルだけを落とす (同じ DB に足した別機能のテーブルを巻き込まない) */
 const DROP_TABLES = `
@@ -115,6 +134,7 @@ DROP TABLE IF EXISTS projects;
 DROP TABLE IF EXISTS notification_settings;
 DROP TABLE IF EXISTS archive_settings;
 DROP TABLE IF EXISTS provider_credentials;
+DROP TABLE IF EXISTS model_settings;
 `;
 
 /**
@@ -153,6 +173,18 @@ function jsonObject<T>(value: unknown): T | undefined {
   if (typeof value !== "string") return undefined;
   const parsed: unknown = JSON.parse(value);
   return parsed && typeof parsed === "object" ? (parsed as T) : undefined;
+}
+
+/**
+ * 保存行の JSON 配列を読む。JSON.parse の文言は値の断片を写すため、テーブル / 列だけを示して
+ * 503 へ渡す (health とログで、どの行を直せばよいか分かるようにする)。
+ */
+function jsonArrayColumn<T>(table: string, column: string, value: unknown): T[] | undefined {
+  try {
+    return jsonArray<T>(value);
+  } catch {
+    throw new Error(`${table}.${column} is not valid JSON`);
+  }
 }
 
 function projectOf(row: Row): Project {
@@ -220,6 +252,11 @@ export class AppDb {
   #db: DatabaseSync | null;
   #path: string | null;
   #error: string | undefined;
+  /**
+   * 壊れた保存値のように、別テーブルの読取成功で消してはいけない失敗。テーブル名ごとに持ち、
+   * 同じテーブルの読取が成功したときだけ解除する。一過性の失敗 (#error) と違い probe() では消えない。
+   */
+  #storedValueErrors = new Map<string, string>();
   #sanitizeError: (text: string) => string;
 
   private constructor(
@@ -279,7 +316,10 @@ export class AppDb {
 
   status(): AppDbStatus {
     if (!this.#db) return { path: this.#path, ok: false, error: this.#error ?? "unknown error" };
-    return this.#error ? { path: this.#path, ok: false, error: this.#error } : { path: this.#path, ok: true };
+    // 壊れた保存値は別テーブルの成功で消さない (health が失敗を示し続ける)。解消はその行の修正か保存し直し
+    const [storedValueError] = this.#storedValueErrors.values();
+    const error = storedValueError ?? this.#error;
+    return error ? { path: this.#path, ok: false, error } : { path: this.#path, ok: true };
   }
 
   close(): void {
@@ -314,17 +354,23 @@ export class AppDb {
     return this.#db;
   }
 
-  /** 稼働中の失敗も 503 に寄せる (成功したら解除する)。理由は health にも出る */
-  #query<T>(fn: (db: DatabaseSync) => T): T {
+  /**
+   * 稼働中の失敗も 503 に寄せる (成功したら解除する)。理由は health にも出る。
+   * `storedValueKey` を渡した読取は「壊れた保存値」として扱い、別テーブルの成功では消さない。
+   */
+  #query<T>(fn: (db: DatabaseSync) => T, storedValueKey?: string): T {
     const db = this.#handle();
     try {
       const result = fn(db);
+      if (storedValueKey) this.#storedValueErrors.delete(storedValueKey);
       this.#error = undefined;
       return result;
     } catch (error) {
-      this.#error = this.#sanitizeError(messageFor(error));
-      console.error(`[u7agent] app db query failed: ${this.#error}`);
-      throw httpError(503, `アプリデータ（SQLite）を利用できません: ${this.#error}`);
+      const message = this.#sanitizeError(messageFor(error));
+      this.#error = message;
+      if (storedValueKey) this.#storedValueErrors.set(storedValueKey, message);
+      console.error(`[u7agent] app db query failed: ${message}`);
+      throw httpError(503, `アプリデータ（SQLite）を利用できません: ${message}`);
     }
   }
 
@@ -367,6 +413,7 @@ export class AppDb {
       this.#query((db) => db.exec(NOTIFICATION_SETTINGS_TABLE));
       this.#query((db) => db.exec(ARCHIVE_SETTINGS_TABLE));
       this.#query((db) => db.exec(PROVIDER_CREDENTIALS_TABLE));
+      this.#query((db) => db.exec(MODEL_SETTINGS_TABLE));
       // PRAGMA はパラメータ化できない (値はコード側の定数)
       this.#query((db) => db.exec(`PRAGMA user_version = ${APP_DB_SCHEMA_VERSION}`));
       this.#query((db) => db.exec("COMMIT"));
@@ -415,11 +462,11 @@ export class AppDb {
     return this.#query((db) => {
       const row = db.prepare("SELECT * FROM archive_settings WHERE id = 1").get() as Row | undefined;
       if (!row) return undefined;
-      const names = jsonArray<string>(row.excludeNames);
+      const names = jsonArrayColumn<string>("archive_settings", "excludeNames", row.excludeNames);
       // 行がある以上は配列のはず。壊れた値は黙って既定へ落とさず、他の列と同じく 503 にする
       if (!names) throw new Error("archive_settings.excludeNames is not a JSON array");
       return names;
-    });
+    }, "archive_settings");
   }
 
   saveArchiveExcludeNames(names: readonly string[]): void {
@@ -472,6 +519,49 @@ export class AppDb {
     return this.#query(
       (db) => db.prepare("DELETE FROM provider_credentials WHERE provider = ?").run(provider).changes > 0,
     );
+  }
+
+  // --- model settings (1 行だけ。行が無い = 未設定) ---
+
+  /** 行が無ければ undefined。壊れた JSON は黙って未設定へ落とさず 503 にする */
+  readModelSettings(): ModelSettingsRow | undefined {
+    return this.#query((db) => {
+      const row = db.prepare("SELECT * FROM model_settings WHERE id = 1").get() as Row | undefined;
+      if (!row) return undefined;
+      // 行がある以上 allowedModels は JSON 配列か NULL のはず。壊れた値を制限なしと読み違えない
+      const parsed =
+        row.allowedModels === null
+          ? null
+          : jsonArrayColumn<ModelRef>("model_settings", "allowedModels", row.allowedModels);
+      if (row.allowedModels !== null && !parsed) throw new Error("model_settings.allowedModels is not a JSON array");
+      return {
+        allowedModels: parsed && parsed.length > 0 ? parsed : null,
+        defaultModel: optionalText(row.defaultModel) ?? null,
+      };
+    }, "model_settings");
+  }
+
+  /** 空配列は制限なしへ正規化する。両方 null になったら行を消して未設定へ戻す */
+  saveModelSettings(settings: ModelSettingsRow): void {
+    const allowedModels = settings.allowedModels && settings.allowedModels.length > 0 ? settings.allowedModels : null;
+    const defaultModel = settings.defaultModel || null;
+    if (!allowedModels && !defaultModel) {
+      this.resetModelSettings();
+      return;
+    }
+    this.#query((db) =>
+      db
+        .prepare(
+          `INSERT INTO model_settings (id, allowedModels, defaultModel) VALUES (1, ?, ?)
+           ON CONFLICT(id) DO UPDATE SET allowedModels = excluded.allowedModels, defaultModel = excluded.defaultModel`,
+        )
+        .run(allowedModels ? JSON.stringify(allowedModels) : null, defaultModel),
+    );
+  }
+
+  /** 行を消して未設定へ戻す (保存値が残っていないことを応答で確かめる導線) */
+  resetModelSettings(): boolean {
+    return this.#query((db) => db.prepare("DELETE FROM model_settings WHERE id = 1").run().changes > 0);
   }
 
   // --- projects ---
