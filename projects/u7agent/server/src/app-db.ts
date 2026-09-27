@@ -175,6 +175,18 @@ function jsonObject<T>(value: unknown): T | undefined {
   return parsed && typeof parsed === "object" ? (parsed as T) : undefined;
 }
 
+/**
+ * 保存行の JSON 配列を読む。JSON.parse の文言は値の断片を写すため、テーブル / 列だけを示して
+ * 503 へ渡す (health とログで、どの行を直せばよいか分かるようにする)。
+ */
+function jsonArrayColumn<T>(table: string, column: string, value: unknown): T[] | undefined {
+  try {
+    return jsonArray<T>(value);
+  } catch {
+    throw new Error(`${table}.${column} is not valid JSON`);
+  }
+}
+
 function projectOf(row: Row): Project {
   return {
     id: text(row.id),
@@ -240,6 +252,11 @@ export class AppDb {
   #db: DatabaseSync | null;
   #path: string | null;
   #error: string | undefined;
+  /**
+   * 壊れた保存値のように、別テーブルの読取成功で消してはいけない失敗。テーブル名ごとに持ち、
+   * 同じテーブルの読取が成功したときだけ解除する。一過性の失敗 (#error) と違い probe() では消えない。
+   */
+  #storedValueErrors = new Map<string, string>();
   #sanitizeError: (text: string) => string;
 
   private constructor(
@@ -299,7 +316,10 @@ export class AppDb {
 
   status(): AppDbStatus {
     if (!this.#db) return { path: this.#path, ok: false, error: this.#error ?? "unknown error" };
-    return this.#error ? { path: this.#path, ok: false, error: this.#error } : { path: this.#path, ok: true };
+    // 壊れた保存値は別テーブルの成功で消さない (health が失敗を示し続ける)。解消はその行の修正か保存し直し
+    const [storedValueError] = this.#storedValueErrors.values();
+    const error = storedValueError ?? this.#error;
+    return error ? { path: this.#path, ok: false, error } : { path: this.#path, ok: true };
   }
 
   close(): void {
@@ -334,17 +354,23 @@ export class AppDb {
     return this.#db;
   }
 
-  /** 稼働中の失敗も 503 に寄せる (成功したら解除する)。理由は health にも出る */
-  #query<T>(fn: (db: DatabaseSync) => T): T {
+  /**
+   * 稼働中の失敗も 503 に寄せる (成功したら解除する)。理由は health にも出る。
+   * `storedValueKey` を渡した読取は「壊れた保存値」として扱い、別テーブルの成功では消さない。
+   */
+  #query<T>(fn: (db: DatabaseSync) => T, storedValueKey?: string): T {
     const db = this.#handle();
     try {
       const result = fn(db);
+      if (storedValueKey) this.#storedValueErrors.delete(storedValueKey);
       this.#error = undefined;
       return result;
     } catch (error) {
-      this.#error = this.#sanitizeError(messageFor(error));
-      console.error(`[u7agent] app db query failed: ${this.#error}`);
-      throw httpError(503, `アプリデータ（SQLite）を利用できません: ${this.#error}`);
+      const message = this.#sanitizeError(messageFor(error));
+      this.#error = message;
+      if (storedValueKey) this.#storedValueErrors.set(storedValueKey, message);
+      console.error(`[u7agent] app db query failed: ${message}`);
+      throw httpError(503, `アプリデータ（SQLite）を利用できません: ${message}`);
     }
   }
 
@@ -436,11 +462,11 @@ export class AppDb {
     return this.#query((db) => {
       const row = db.prepare("SELECT * FROM archive_settings WHERE id = 1").get() as Row | undefined;
       if (!row) return undefined;
-      const names = jsonArray<string>(row.excludeNames);
+      const names = jsonArrayColumn<string>("archive_settings", "excludeNames", row.excludeNames);
       // 行がある以上は配列のはず。壊れた値は黙って既定へ落とさず、他の列と同じく 503 にする
       if (!names) throw new Error("archive_settings.excludeNames is not a JSON array");
       return names;
-    });
+    }, "archive_settings");
   }
 
   saveArchiveExcludeNames(names: readonly string[]): void {
@@ -503,13 +529,16 @@ export class AppDb {
       const row = db.prepare("SELECT * FROM model_settings WHERE id = 1").get() as Row | undefined;
       if (!row) return undefined;
       // 行がある以上 allowedModels は JSON 配列か NULL のはず。壊れた値を制限なしと読み違えない
-      const parsed = row.allowedModels === null ? null : jsonArray<ModelRef>(row.allowedModels);
+      const parsed =
+        row.allowedModels === null
+          ? null
+          : jsonArrayColumn<ModelRef>("model_settings", "allowedModels", row.allowedModels);
       if (row.allowedModels !== null && !parsed) throw new Error("model_settings.allowedModels is not a JSON array");
       return {
         allowedModels: parsed && parsed.length > 0 ? parsed : null,
         defaultModel: optionalText(row.defaultModel) ?? null,
       };
-    });
+    }, "model_settings");
   }
 
   /** 空配列は制限なしへ正規化する。両方 null になったら行を消して未設定へ戻す */

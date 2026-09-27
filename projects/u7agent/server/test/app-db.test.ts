@@ -515,12 +515,29 @@ test("model settings normalize empty lists and reject a broken JSON value", () =
     raw.close();
     const broken = AppDb.open({ storeDir: dir });
     assert.throws(() => broken.readModelSettings(), isServiceUnavailable);
+    // 壊れた保存値は別テーブルの読取成功や probe() の成功で消えない (health が失敗を示し続ける)
+    assert.deepEqual(broken.listProviderCredentials(), [], "別テーブルの読取は成功する");
+    assert.equal(broken.probe(), true);
+    const status = broken.status();
+    assert.equal(status.ok, false, "制限なしで起動したことを health から見せる");
+    assert.match(status.error ?? "", /model_settings\.allowedModels/);
     // 配列でない JSON も同じ扱い
-    broken.probe();
     const rawAgain = new DatabaseSync(join(dir, APP_DB_FILENAME));
     rawAgain.prepare("UPDATE model_settings SET allowedModels = ?").run('{"a":1}');
     rawAgain.close();
     assert.throws(() => broken.readModelSettings(), isServiceUnavailable);
+    assert.equal(broken.status().ok, false, "同じテーブルの失敗を重ねても残る");
+    // 行を直したあとの読取成功でだけ解除される
+    const rawFixed = new DatabaseSync(join(dir, APP_DB_FILENAME));
+    rawFixed
+      .prepare("UPDATE model_settings SET allowedModels = ?")
+      .run(JSON.stringify([{ provider: "anthropic", id: "claude-sonnet-4-5" }]));
+    rawFixed.close();
+    assert.deepEqual(broken.readModelSettings(), {
+      allowedModels: [{ provider: "anthropic", id: "claude-sonnet-4-5" }],
+      defaultModel: "anthropic/claude-sonnet-4-5",
+    });
+    assert.deepEqual(broken.status(), { path: join(dir, APP_DB_FILENAME), ok: true });
     broken.close();
   } finally {
     rmSync(dir, { recursive: true, force: true });

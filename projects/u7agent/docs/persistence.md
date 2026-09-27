@@ -62,7 +62,7 @@ GUI の会話履歴は **BFF 専用の会話ストア**（`PI_SESSION_STORE`）�
 - `provider_credentials` は v3 → v4、`model_settings` は v4 → v5 の加算移行で足した。保存は主キー `provider` の upsert（単一ステートメント）で、成功して返れば行は確定している。この性質を認証変更 API の `applied` / `not_stored` の判定に使う（[model-settings.md](model-settings.md#応答契約)）。
 - DB の例外文言は `AppDb.open({ sanitizeError })` を通してからログ・health・503 へ出す（bootstrap が可変マスカーを注入し、登録済みの API キーが例外へ現れても生のまま記録しない）。未指定は identity で、これはテストの明示 opt-out。
 - `PRAGMA user_version` をコード側の定数（`APP_DB_SCHEMA_VERSION`）と照合する。古い版（小さい値）は加算的に移行し、足りないテーブルだけを `CREATE TABLE IF NOT EXISTS` で作って `user_version` を更新する（既存のエージェント / スキル / プロジェクトは消さない）。新しい版（大きい値）のときだけアプリ所有のテーブルを DROP → CREATE する。会話は `session.jsonl` なので作り直しでも消えない。
-- 自分で書いた JSON 列が壊れていたときは、黙って既定へ落とさず例外にして 503 側で見せる（通知の `lastResult` と同じ規約）。アーカイブの除外名も、行があるのに配列でなければ同じ扱いにする。
+- 自分で書いた JSON 列が壊れていたときは、黙って既定へ落とさず例外にして 503 側で見せる（通知の `lastResult` と同じ規約）。アーカイブの除外名も、行があるのに配列でなければ同じ扱いにする。この「壊れた保存値」の失敗は `provider_credentials` のような別テーブルの読取成功や `probe()` の成功では消さず、同じテーブルを正しく読み直せたときだけ解除する（一過性の失敗とは別で、health の `appDb` が失敗を示し続ける）。
 - サンプル定義（ずんだもん 1 体）は DB ファイルを新規作成したときだけ入れる。`user_version` 不一致の作り直しでは入れないため、削除した定義は再起動でも戻らない。
 - スキーマ作成 → `user_version` 設定 → seed は同一トランザクション。スキル削除（参照除去を含む）もトランザクションで行い、途中で失敗したら部分適用を残さない。
 - `journal_mode=WAL` / `synchronous=NORMAL`。書き込みは BFF の 1 プロセスを前提とし、複数インスタンスは対象外。

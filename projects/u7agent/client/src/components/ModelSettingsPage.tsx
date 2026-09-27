@@ -3,6 +3,7 @@ import { useModelSettings, type ModelSettings } from "../hooks/useModelSettings"
 import { cn } from "../lib/cn";
 import {
   API_KEY_MIN_LENGTH,
+  AVAILABILITY_SAVE_INITIAL,
   allowedModelsOutsideCatalog,
   availabilityCounts,
   availabilityDefaultChoices,
@@ -10,6 +11,8 @@ import {
   availabilityDraftWithAllModels,
   availabilityGroups,
   availabilityNotice,
+  availabilitySaveConfirmMessage,
+  availabilitySaveOnSubmit,
   availableCountOf,
   degradedNotice,
   deleteConfirmMessage,
@@ -19,6 +22,7 @@ import {
   providerAuthBadge,
   resyncAvailable,
   type AvailabilityDraft,
+  type AvailabilitySaveState,
   type ProviderBadgeTone,
 } from "../lib/modelSettings";
 import type {
@@ -218,10 +222,15 @@ function AvailabilitySection({
   onSave: (input: UpdateModelAvailabilityBody) => Promise<boolean>;
 }) {
   const [draft, setDraft] = useState<AvailabilityDraft>(() => availabilityDraftFromSettings(settings));
+  const [saveState, setSaveState] = useState<AvailabilitySaveState>(AVAILABILITY_SAVE_INITIAL);
   // 読み込み・保存で保存値が入れ替わったときだけ下書きを戻す (取得失敗では settings が変わらない)
   useEffect(() => {
     setDraft(availabilityDraftFromSettings(settings));
   }, [settings]);
+  // 下書きが変わったら確認をやり直す (前の内容への同意を、違う内容の保存へ流用しない)
+  useEffect(() => {
+    setSaveState(AVAILABILITY_SAVE_INITIAL);
+  }, [draft]);
 
   // 編集不可は取得失敗 (catalogError) だけで判定する。catalog === null は初期ロード中も真になるため、
   // 読み込み中を「編集できません」と混同しない (保存も読み込みが終わるまで押せない)
@@ -229,6 +238,7 @@ function AvailabilitySection({
   const loading = catalog === null;
   const counts = availabilityCounts(draft, catalog);
   const notice = availabilityNotice(draft, catalog);
+  const confirmMessage = availabilitySaveConfirmMessage(saveState, notice);
   const groups = availabilityGroups(draft, catalog);
   const choices = availabilityDefaultChoices(draft, catalog);
   const orphans = allowedModelsOutsideCatalog(draft.allowed, catalog);
@@ -254,8 +264,10 @@ function AvailabilitySection({
   };
 
   const submit = async () => {
-    // 確認の文言は純関数が組み立て、ここは window.confirm を呼ぶだけにする
-    if (notice.confirm && !window.confirm(notice.confirm)) return;
+    // 確認の文言は純関数が組み立てる。send が false の押下では PUT を送らない
+    const next = availabilitySaveOnSubmit(saveState, notice);
+    setSaveState(next.state);
+    if (!next.send) return;
     await onSave({
       allowedModels: draft.unrestricted ? null : normalizeAllowedModels(draft.allowed),
       defaultModel: draft.defaultModel,
@@ -275,7 +287,7 @@ function AvailabilitySection({
           <button
             type="button"
             className="btn-primary"
-            disabled={saving || loading || blocked}
+            disabled={saving || loading || blocked || confirmMessage !== undefined}
             onClick={() => void submit()}
           >
             <CheckIcon />
@@ -286,6 +298,28 @@ function AvailabilitySection({
       <p className="text-2xs leading-relaxed text-ink-soft">
         新しい会話で使えるモデルを選びます。保存した内容は新しい会話のモデル候補とアプリ既定モデルに効き、開いている会話のモデルは切り替えません。未ロードの会話は、次に開いたときに候補外ならアプリ既定へフォールバックします。
       </p>
+
+      {confirmMessage ? (
+        <div className="grid gap-2 rounded-md border border-warn/40 bg-raised px-2.5 py-2">
+          <p role="alert" className="text-2xs leading-relaxed text-warn">
+            {confirmMessage}
+          </p>
+          <div className="flex flex-wrap items-center gap-2">
+            <button type="button" className="btn-primary" disabled={saving} onClick={() => void submit()}>
+              <CheckIcon />
+              保存する
+            </button>
+            <button
+              type="button"
+              className="btn-quiet"
+              disabled={saving}
+              onClick={() => setSaveState(AVAILABILITY_SAVE_INITIAL)}
+            >
+              キャンセル
+            </button>
+          </div>
+        </div>
+      ) : null}
 
       {blocked ? (
         <p role="alert" className="rounded-md border border-warn/40 bg-raised px-2.5 py-2 text-2xs text-warn">

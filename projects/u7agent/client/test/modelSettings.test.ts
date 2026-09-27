@@ -4,6 +4,7 @@ import test from "node:test";
 import {
   API_KEY_MAX_LENGTH,
   API_KEY_MIN_LENGTH,
+  AVAILABILITY_SAVE_INITIAL,
   allowedModelsOutsideCatalog,
   availabilityCounts,
   availabilityDefaultChoices,
@@ -11,6 +12,8 @@ import {
   availabilityDraftWithAllModels,
   availabilityGroups,
   availabilityNotice,
+  availabilitySaveConfirmMessage,
+  availabilitySaveOnSubmit,
   availableCountOf,
   degradedNotice,
   deleteConfirmMessage,
@@ -343,4 +346,26 @@ test("保存の確認は利用可能 0 件と既定の未認証を伝える", ()
   assert.deepEqual(availabilityNotice({ unrestricted: true, allowed: [], defaultModel: null }, CATALOG), {});
   // カタログを取得できないときは判定しない (呼び出し側が編集自体を止める)
   assert.deepEqual(availabilityNotice({ unrestricted: false, allowed: [], defaultModel: null }, null), {});
+});
+
+test("利用可能なモデルの保存は確認を画面内で出し、同意したときだけ送る", () => {
+  const notice = availabilityNotice({ unrestricted: false, allowed: [], defaultModel: null }, CATALOG);
+  assert.equal(typeof notice.confirm, "string");
+  assert.equal(availabilitySaveConfirmMessage(AVAILABILITY_SAVE_INITIAL, notice), undefined, "普段は確認を出さない");
+
+  const first = availabilitySaveOnSubmit(AVAILABILITY_SAVE_INITIAL, notice);
+  assert.deepEqual(first, { state: { confirming: true }, send: false }, "1 回目の押下では PUT を送らない");
+  assert.equal(availabilitySaveConfirmMessage(first.state, notice), notice.confirm, "純関数の文言を画面内確認へ出す");
+
+  const accepted = availabilitySaveOnSubmit(first.state, notice);
+  assert.deepEqual(accepted, { state: AVAILABILITY_SAVE_INITIAL, send: true }, "同意した押下でだけ送る");
+  assert.equal(availabilitySaveConfirmMessage(AVAILABILITY_SAVE_INITIAL, notice), undefined, "送ったら確認を閉じる");
+
+  // 確認が不要な保存は 1 回目でそのまま送る
+  assert.deepEqual(availabilitySaveOnSubmit(AVAILABILITY_SAVE_INITIAL, {}), {
+    state: AVAILABILITY_SAVE_INITIAL,
+    send: true,
+  });
+  // キャンセルは初期状態へ戻すだけ (コンポーネントはこの定数をセットし、PUT を送らない)
+  assert.equal(AVAILABILITY_SAVE_INITIAL.confirming, false);
 });

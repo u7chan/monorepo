@@ -101,7 +101,7 @@ CREATE TABLE IF NOT EXISTS model_settings (
 
 `bootstrap.ts` は `createPiBff()` → `AppDb.open({ storeDir, sanitizeError })` → `applyStored()` → `SessionStore` / `NotificationService` の順に組み立てる。DB を開く前に pi の初回 state（制限なし・既定は候補の先頭）が立つため、`applyStored()` は listen 前に setter → `refreshModelState()` を必ず 1 回通す。
 
-1. `readModelSettings()` を読み、`setModelSelection()` で保存値を写す。失敗したら「未設定（制限なし）」で続行し、警告だけを残す（health の `appDb` が失敗を示し、設定 API は 503 になる）
+1. `readModelSettings()` を読み、`setModelSelection()` で保存値を写す。失敗したら「未設定（制限なし）」で続行し、警告だけを残す（health の `appDb` が失敗を示し、設定 API は 503 になる。この失敗は `provider_credentials` の読取成功では消えない）
 2. `listProviderCredentials()`。失敗しても 1 の適用と最後の再計算は行う（警告のみ。空 DB として黙って続行はしない）
 3. **全行のキーをマスカーへ登録**（SDK へ渡す前。orphan・不正値・適用失敗でも保持）
 4. 行ごとに `applyApiKey`（+ 0〜1 回の再試行）。失敗は `degraded: "apply"` として記録し、ログには provider id と分類だけを残す
@@ -133,7 +133,7 @@ CREATE TABLE IF NOT EXISTS model_settings (
 
 - `SETTINGS_SECTIONS` に `models`（ラベル「モデル」）を追加し、`App.tsx` が `ModelSettingsPage` を出す
 - 画面の先頭に「利用可能なモデル」セクションを置く。provider ごとに折りたたみ、カタログ全件をチェックで選び、各行に利用可能かどうか（利用可能 / 未認証）を併記する。アプリ既定モデルは許可したモデルから選び、未設定（利用可能なモデルの先頭）も選べる。[保存] で一括適用する
-  - 「制限なし（全モデル）」へ戻すチェック、現在の利用可能数の表示、カタログ外の残存エントリの表示と [削除] を同じセクションに置く。保存で利用可能なモデルが 0 件になるときと、既定が未認証のときは確認を出し、後者は保存前から警告を出す（判定は `client/src/lib/modelSettings.ts` の純関数）
+  - 「制限なし（全モデル）」へ戻すチェック、現在の利用可能数の表示、カタログ外の残存エントリの表示と [削除] を同じセクションに置く。保存で利用可能なモデルが 0 件になるときと既定が未認証のときは、[保存] の押下で画面内の確認（[保存する] / [キャンセル]）を出し、後者は保存前から警告を出す。判定と文言は `client/src/lib/modelSettings.ts` の純関数が持ち、ネイティブの `window.confirm` は使わない（DOM なしで検証するため。同意するまで PUT を送らない）
   - 許可されているかの正は `GET /api/settings/models` の `allowedModels` だけで、カタログは available とモデル一覧にしか使わない。カタログを取得できないときは `catalogError` で編集不可を出し、provider のキー操作は妨げない（`catalog === null` は初期ロード中も真になるため、編集可否の判定には使わない）
   - 保存後は health とカタログを取り直して、入力欄のモデル候補を追随させる。live の会話のモデルを切り替えないことを画面に注記する（[model-effort.md](model-effort.md#既存の会話への影響認証の変更)）
 - 画面は provider を「設定済み（`auth.configured` / `managed` / 利用可能モデルあり）」と「未設定」に分け、未設定は畳む。各カードに認証バッジ（未設定 / 環境変数（変数名）/ 保存済み（auth.json）/ この画面で登録済み（実効）/ 保存済み（未反映）/ 削除が未反映 / カタログ外）と、`canSetApiKey` のときだけキー入力、`managed` のときだけ削除（確認に既存会話への影響を出す）、再同期可能な `degraded` のときだけ再同期を出す

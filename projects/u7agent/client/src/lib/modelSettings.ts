@@ -282,6 +282,33 @@ export function availabilityNotice(
   };
 }
 
+/**
+ * 利用可能なモデルの保存操作の状態。確認が要るときは 1 回目の押下で画面内確認を出し、同意後の
+ * [保存する] で送る（ネイティブの `window.confirm` は使わない。判定を DOM なしで検証できるようにする）。
+ */
+export interface AvailabilitySaveState {
+  confirming: boolean;
+}
+
+export const AVAILABILITY_SAVE_INITIAL: AvailabilitySaveState = { confirming: false };
+
+/** [保存] を押したときの次の一手。send が false なら画面内確認を出すだけにして、PUT を送らない */
+export function availabilitySaveOnSubmit(
+  state: AvailabilitySaveState,
+  notice: AvailabilityNotice,
+): { state: AvailabilitySaveState; send: boolean } {
+  if (notice.confirm && !state.confirming) return { state: { confirming: true }, send: false };
+  return { state: AVAILABILITY_SAVE_INITIAL, send: true };
+}
+
+/** 画面内確認に出す文言（確認を出していないときは undefined） */
+export function availabilitySaveConfirmMessage(
+  state: AvailabilitySaveState,
+  notice: AvailabilityNotice,
+): string | undefined {
+  return state.confirming ? notice.confirm : undefined;
+}
+
 export interface AvailabilityRow {
   key: string;
   /** カタログの表示名 */

@@ -487,3 +487,57 @@ test("GET は設定されていても無視する環境変数名を返す", asyn
     }
   });
 });
+
+test("壊れた model_settings は制限なしで起動し、health と設定 API に失敗を残す", async () => {
+  await withStoreDir(async (dir) => {
+    const first = createStubPi(catalogOptions());
+    const bff = await createBffApp({ cwd: "/tmp/project", sessionStoreDir: dir, pi: asPiBff(first), workspace: null });
+    await bff.app.request(
+      "/api/settings/models/allowed",
+      jsonPut({ allowedModels: ["stub/stub-model"], defaultModel: "stub/stub-model" }),
+    );
+    await bff.close();
+
+    // 保存値だけを壊す (v5 の実ファイルを直接編集した状態)
+    const raw = new DatabaseSync(join(dir, APP_DB_FILENAME));
+    raw.prepare("UPDATE model_settings SET allowedModels = ?").run("not json");
+    raw.close();
+
+    const logged: string[] = [];
+    const original = { warn: console.warn, error: console.error };
+    console.warn = (...args: unknown[]) => logged.push(args.map(String).join(" "));
+    console.error = (...args: unknown[]) => logged.push(args.map(String).join(" "));
+    const restarted = createStubPi(catalogOptions());
+    let reopened: Awaited<ReturnType<typeof createBffApp>>;
+    try {
+      reopened = await createBffApp({
+        cwd: "/tmp/project",
+        sessionStoreDir: dir,
+        pi: asPiBff(restarted),
+        workspace: null,
+      });
+    } finally {
+      console.warn = original.warn;
+      console.error = original.error;
+    }
+    try {
+      assert.ok(logged.join("\n").includes("model settings unavailable"), "起動ログに警告を残す");
+      assert.deepEqual(restarted.modelSelections, [], "読めなかった側は写さず、制限なしで続行する");
+      assert.equal(restarted.modelStateEvents.at(-1), "refresh", "最後の再計算は行う");
+
+      const health = await jsonBody(await reopened.app.request("/api/health"));
+      assert.equal(health.appDb.ok, false, "health の appDb が失敗を示す");
+      assert.match(health.appDb.error, /model_settings\.allowedModels/);
+
+      const response = await reopened.app.request("/api/settings/models");
+      assert.equal(response.status, 503, "設定 API は同じ行で 503 になる");
+
+      // 別テーブルだけを使う API は動き続け、その成功で health の失敗が消えない
+      assert.equal((await reopened.app.request("/api/projects")).status, 200);
+      const again = await jsonBody(await reopened.app.request("/api/health"));
+      assert.equal(again.appDb.ok, false, "別テーブルの読取成功で失敗状態を消さない");
+    } finally {
+      await reopened.close();
+    }
+  });
+});

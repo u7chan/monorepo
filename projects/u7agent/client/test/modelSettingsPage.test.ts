@@ -1,8 +1,12 @@
 // 設定 → モデルの初期描画。client に DOM テスト基盤が無いため、react-dom/server の静的描画で
 // 「利用可能なモデル」セクションと provider 行・キー入力・削除・再同期・未設定の畳み・警告が出ることを固定する
 // (状態遷移・集計・確認の文言は lib/modelSettings の純関数テストが担う)。
+// 利用可能なモデルの保存確認だけは、押下後の状態を持つため静的描画では出せない。ソース上で
+// ネイティブ confirm を使わないことを固定し、判断は lib の純関数テストで検証する。
 
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import test from "node:test";
@@ -248,4 +252,20 @@ test("カタログの読み込み中は編集不可と出さず、保存も押�
   assert.ok(html.includes("モデル一覧を読み込んでいます"), "読み込み中として出す");
   assert.equal(html.includes("利用可能なモデルは編集できません"), false, "取得失敗と混同しない");
   assert.ok(html.includes("読み込み中</"), "保存ボタンを読み込み中にする");
+});
+
+test("利用可能なモデルの保存確認は window.confirm を使わず、純関数の文言で画面内に出す", () => {
+  const source = readFileSync(
+    fileURLToPath(new URL("../src/components/ModelSettingsPage.tsx", import.meta.url)),
+    "utf8",
+  );
+  const section = source.slice(source.indexOf("function AvailabilitySection("), source.indexOf("const BADGE_TONE"));
+  assert.ok(section.includes("利用可能なモデル"), "AvailabilitySection を切り出せる");
+  assert.equal(section.includes("window.confirm"), false, "ネイティブ confirm を使わない");
+  assert.match(section, /availabilitySaveConfirmMessage\(/, "確認の文言は純関数から取る");
+  assert.match(section, /role="alert"/, "確認は画面内に出す");
+  assert.match(section, /保存する/, "同意ボタンを出す");
+  assert.match(section, /キャンセル/, "取り消しできるボタンを出す");
+  // キー削除の確認は従来どおりネイティブ confirm のまま (この指摘の対象外)
+  assert.equal(source.includes("window.confirm"), true);
 });
