@@ -158,6 +158,15 @@ test("existing hashed assets keep the immutable cache", async () => {
   });
 });
 
+test("woff2 assets are served as font/woff2", async () => {
+  await withDist({ "index.html": INDEX_HTML, "assets/font.woff2": "wOF2" }, async (request) => {
+    const asset = await request("/assets/font.woff2", { headers: { Accept: BROWSER_ACCEPT } });
+    assert.equal(asset.status, 200);
+    assert.equal(asset.headers.get("content-type"), "font/woff2");
+    assert.equal(asset.headers.get("cache-control"), "public, max-age=31536000, immutable");
+  });
+});
+
 test("missing client build answers 503 for page URLs too", async () => {
   await withDist({}, async (request) => {
     for (const path of ["/", "/settings/files"]) {
