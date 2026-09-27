@@ -66,7 +66,9 @@ export function Sidebar({
       className={cn(
         "flex h-full min-h-0 flex-col gap-3.5 bg-panel px-3 py-4",
         // 高さが足りない compact でも全項目へ到達できるよう、drawer 全体も 1 つのスクロール領域にする
-        "overflow-y-auto",
+        "scrollbar-thin overflow-y-auto",
+        // docked は一覧が flex-1 で高さを吸収するので、<aside> 自身のガターは実際にスクロールする sheet だけに確保する
+        sheet ? "scrollbar-stable" : null,
         sheet ? null : "border-r border-line",
       )}
     >
@@ -111,7 +113,7 @@ export function Sidebar({
             <span>新しい会話</span>
           </button>
 
-          <div className="grid min-h-0 flex-1 scrollbar-thin content-start gap-4 overflow-y-auto pr-0.5">
+          <div className="scrollbar-stable grid min-h-0 flex-1 scrollbar-thin content-start gap-4 overflow-y-auto pr-0.5">
             <section className="grid gap-2">
               <div className="flex items-center justify-between gap-2">
                 <div className="text-2xs font-semibold tracking-widest text-ink-faint uppercase">Projects</div>
