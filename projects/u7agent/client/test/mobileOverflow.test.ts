@@ -12,6 +12,7 @@ function source(path: string): string {
 const app = source("../src/App.tsx");
 const compactBar = source("../src/components/CompactBar.tsx");
 const chatArea = source("../src/components/ChatArea.tsx");
+const composer = source("../src/components/Composer.tsx");
 const messageView = source("../src/components/chat/MessageView.tsx");
 
 test("compact と overlay の左バーは単一列 Grid を grid-cols-1 で幅を拘束する", () => {
@@ -31,4 +32,13 @@ test("compact bar と chat の直接子は intrinsic width より狭く縮めら
   assert.ok(chatArea.includes("min-h-0 min-w-0 flex-1 scrollbar-thin overflow-x-hidden overflow-y-auto"));
   assert.ok(chatArea.includes("grid min-w-0 grid-cols-1 pt-2"));
   assert.ok(messageView.includes("group/bubble flex min-w-0 animate-rise"));
+});
+
+// Firefox と iOS Safari の select は、選択肢の幅 (= intrinsic width) を auto 列の item の
+// 最小サイズとして使う。入力欄も cols 既定値の intrinsic 幅を下限に持つため、どちらも
+// minmax(0, 1fr) と min-w-0 で拘束しないと form とボタンが viewport の外へ出る
+test("composer の form と中身は intrinsic width で広がらない", () => {
+  assert.ok(composer.includes('"grid grid-cols-1 rounded-xl border bg-panel/90 shadow-panel"'));
+  assert.ok(composer.includes('landscape ? "grid-cols-2" : "grid-cols-1"'));
+  assert.ok(composer.includes("min-w-0 flex-1 resize-none"));
 });

@@ -309,7 +309,9 @@ export function Composer({
         onDragLeave={() => setDropKind(null)}
         onDrop={handleDrop}
         className={cn(
-          "grid rounded-xl border bg-panel/90 shadow-panel",
+          // 単一列 Grid の auto 列は、行の中身 (モデルの select が持つ選択肢の幅) で form の外まで
+          // 伸びる。minmax(0, 1fr) で form 幅に拘束する (docs/ui-layout.md)
+          "grid grid-cols-1 rounded-xl border bg-panel/90 shadow-panel",
           dropKind !== null ? "border-accent" : "border-line-strong",
           compact ? "gap-1.5 p-2" : "gap-2 p-2.5",
         )}
@@ -340,8 +342,9 @@ export function Composer({
         {compact && settingsOpen ? (
           <div
             className={cn(
+              // ここも auto 列だと select の選択肢の幅で box が広がり、中身が form の外へ出る
               "grid gap-1.5 rounded-lg border border-line bg-soft px-2 py-2",
-              landscape ? "grid-cols-2" : "",
+              landscape ? "grid-cols-2" : "grid-cols-1",
             )}
           >
             <ModelEffortFields
@@ -381,7 +384,9 @@ export function Composer({
                 : "APIキーを設定すると送信できます"
             }
             className={cn(
-              "flex-1 resize-none bg-transparent px-0.5 leading-normal text-ink outline-none placeholder:text-ink-ghost",
+              // min-w-0 が無いと cols 既定値の intrinsic 幅 (textarea の自動最小サイズ) が下限になり、
+              // 狭い viewport で入力欄が縮まずに送信 / 添付ボタンを画面外へ押し出す
+              "min-w-0 flex-1 resize-none bg-transparent px-0.5 leading-normal text-ink outline-none placeholder:text-ink-ghost",
               compact ? "max-h-30 min-h-9 py-1.5 text-md" : "max-h-45 min-h-6 py-1",
             )}
             enterKeyHint={compact ? "enter" : "send"}
