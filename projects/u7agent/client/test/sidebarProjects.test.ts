@@ -186,13 +186,13 @@ test("Sidebar は既定 closed で、開閉を singleton の store へ write-thr
   );
   assert.ok(!sidebar.includes("createSidebarProjectsStore"), "Sidebar が store を組み立てている");
   assert.ok(sidebar.includes("sidebarProjectsStore.write(next)"), "store へ書いていない");
-  // ＋ はその行を開いてから newChat する (開く前に newChat すると、ドロワーでは先に閉じて書けない)
+  // ⋯ の「このプロジェクトに新しい会話」はその行を開いてから newChat する (開く前に newChat すると、ドロワーでは先に閉じて書けない)
   const newChat = sidebar.slice(sidebar.indexOf("onNewChat={() =>"), sidebar.indexOf("onDelete={() =>"));
-  assert.ok(newChat.includes("setProjectOpen(group.project.cwd, true)"), "＋ がその行を開いていない");
+  assert.ok(newChat.includes("setProjectOpen(group.project.cwd, true)"), "新規会話の項目がその行を開いていない");
   assert.ok(
     newChat.indexOf("setProjectOpen(group.project.cwd, true)") <
       newChat.indexOf("newChat(undefined, group.project.id)"),
-    "＋ がその行を開く前に newChat している",
+    "新規会話の項目がその行を開く前に newChat している",
   );
   // Effect では書かない (Effect 本文だけを見る。useEffect が無いことを断定はしない)
   const bodies = effectBodies(sidebar);
@@ -239,7 +239,7 @@ test("ProjectRow は畳みで aria-expanded=false になり、配下セッショ
   assert.ok(closed.includes('aria-expanded="false"'), "畳みで aria-expanded が false でない");
   assert.ok(!closed.includes("既存の会話"), "畳みで配下セッションを出している");
   assert.ok(!closed.includes("セッションはありません"), "畳みで空の案内を出している");
-  assert.ok(closed.includes('aria-label="展開する"'), "畳みの操作が展開になっていない");
+  assert.ok(closed.includes('aria-label="hello の操作"'), "畳みの行に ⋯ (操作メニュー) が出ていない");
 
   const opened = renderProjectRow(true);
   assert.ok(opened.includes('aria-expanded="true"'), "展開で aria-expanded が true でない");

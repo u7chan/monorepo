@@ -152,7 +152,7 @@ export function Sidebar({
               )}
             </section>
 
-            {/* 見出しはラベルだけ。作成先は「新しい会話」(未所属) とプロジェクトを指定する導線 (行の ＋ / 追加の成功後) で決まる。
+            {/* 見出しはラベルだけ。作成先は「新しい会話」(未所属) とプロジェクトを指定する導線 (行の ⋯ / 追加の成功後) で決まる。
                 0 件でも見出しとプレースホルダを出す */}
             <section className="grid gap-2">
               <div className="flex min-h-8.5 items-center gap-2 px-2.5">
