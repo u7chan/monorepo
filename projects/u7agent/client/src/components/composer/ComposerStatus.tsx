@@ -36,7 +36,7 @@ export function ComposerStatus({
   /** 手動圧縮。セッションがあるときだけ渡す (未対応ランタイムはサーバーが 501 を返す) */
   onCompact?: () => void;
   compactDisabled?: boolean;
-  /** 押せない理由。title と aria-describedby の参照先 (sr-only) に出す */
+  /** 押せない理由。状態行の下に 1 行で出し、aria-describedby の参照先にもする */
   compactDisabledReason?: string;
 }) {
   const reasonId = useId();
@@ -48,7 +48,7 @@ export function ComposerStatus({
   if (!showActivity && !gauge && !modelLabel && onCompact === undefined) return null;
   const gaugeColor =
     gauge?.level === "danger" ? "text-danger-text" : gauge?.level === "warn" ? "text-warn" : "text-ink-faint";
-  // 押せない理由は行に出さない (同じ状態は活動テキストも示す)。hover と読み上げの両方へ渡す
+  // 押せない理由は状態行の下に 1 行で出す (押せない間の説明を hover だけに閉じると、タッチ端末で読めない)
   const compactBlocked = onCompact !== undefined && compactDisabled && compactDisabledReason !== undefined;
 
   return (
@@ -108,7 +108,6 @@ export function ComposerStatus({
               disabled={compactDisabled}
               aria-label="会話を圧縮"
               aria-describedby={compactBlocked ? reasonId : undefined}
-              title={compactBlocked ? `会話を圧縮（今はできません: ${compactDisabledReason}）` : undefined}
               className="composer-status-icon"
             >
               <CompactIcon />
@@ -117,7 +116,8 @@ export function ComposerStatus({
         </span>
       </div>
       {compactBlocked ? (
-        <p id={reasonId} className="sr-only">
+        // 押せない理由を、押した行の真下に出す (ボタンは右端なので右寄せにする)
+        <p id={reasonId} className="m-0 px-1 pb-1 text-right text-2xs break-words text-ink-ghost">
           今は圧縮できません（{compactDisabledReason}）
         </p>
       ) : null}

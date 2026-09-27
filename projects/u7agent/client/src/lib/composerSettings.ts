@@ -36,7 +36,7 @@ export type ComposerSettings = {
   changing: boolean;
   /** 手動圧縮ボタンを押せない (実効 busy / 送信中 / 設定変更中) */
   compactDisabled: boolean;
-  /** 押せない理由。ボタンの title と aria-describedby の参照先 (sr-only) に出す */
+  /** 押せない理由。状態行の下に 1 行で出し (touch でも読める)、aria-describedby の参照先にもする */
   compactDisabledReason?: string;
   /** 未作成チャットで有効なモデルが無いときの、送信しても作成できない理由 */
   sendBlockedReason?: string;

@@ -78,6 +78,7 @@ test("描画: セッションがあると Context ゲージの右に圧縮ボタ
   const compactIndex = html.indexOf('aria-label="会話を圧縮"');
   assert.ok(gaugeIndex >= 0 && compactIndex > gaugeIndex, "モデル名 + ゲージと同じ組の右端に置く");
   assert.ok(html.includes("composer-status-icon"), "36px の .icon-button ではなく状態行用の小さい variant");
+  assert.ok(!html.includes('aria-label="会話を圧縮" title='), "アイコンだけのボタンは aria-label で名前を伝える");
   // 押す前に読ませる補足は置かない。不可逆性と課金は押した時点の確認 (window.confirm) が示す
   assert.ok(!html.includes("圧縮の注意"), "注意を開く専用のボタンを並べない");
   assert.ok(!html.includes("元のメッセージは GUI から戻せません"), "状態行に注意書きを出さない");
@@ -99,7 +100,7 @@ test("描画: 未作成チャット (onCompact なし) では圧縮ボタンも�
   assert.ok(!html.includes("今は圧縮できません"));
 });
 
-test("描画: 押せないときは disabled にし、理由を title と sr-only の文で示す", () => {
+test("描画: 押せないときは disabled にし、理由を状態行の下に可視の 1 行で出す", () => {
   const html = render({
     activity: "会話を整理中…",
     context,
@@ -111,10 +112,15 @@ test("描画: 押せないときは disabled にし、理由を title と sr-onl
   });
 
   assert.ok(html.includes('disabled=""'));
-  // 行を増やさずに理由を読める形で残す (hover と、DOM を読む読み上げの両方)
-  assert.ok(html.includes('title="会話を圧縮（今はできません: 圧縮中）"'), "hover で理由を出す");
+  // 理由は hover や読み上げだけに閉じず、画面上に出す (設定の変更中など活動テキストが理由を示さない状態がある)
+  const paragraph = /<p id="[^"]+" class="([^"]*)">今は圧縮できません（圧縮中）<\/p>/.exec(html);
+  assert.ok(paragraph, "理由の文を状態行の下に出す");
+  assert.ok(!paragraph[1].includes("sr-only"), "読み上げ専用にしない (タッチ端末でも読める)");
+  assert.ok(
+    paragraph[1].includes("text-2xs") && paragraph[1].includes("text-right"),
+    "小さい文字で押した行の下へ寄せる",
+  );
   const described = /aria-describedby="([^"]+)"/.exec(html)?.[1];
-  assert.ok(described, "読み上げへ理由を渡す");
+  assert.ok(described, "押せない理由を読み上げへ渡す");
   assert.ok(html.includes(`id="${described}"`), "describedby の参照先が存在する");
-  assert.ok(html.includes("今は圧縮できません（圧縮中）"));
 });
