@@ -22,13 +22,14 @@ import { useElapsedMs } from "./hooks/useElapsedMs";
 import { useLayoutMode } from "./hooks/useLayoutMode";
 import { useRoute } from "./hooks/useRoute";
 import { useSessionFilesPanelWidth } from "./hooks/useSessionFilesPanelWidth";
+import { useSidebarWidth } from "./hooks/useSidebarWidth";
 import { useViewportWidth } from "./hooks/useViewportWidth";
 import { agentIconOf } from "./lib/agentIcon";
 import { chatScope } from "./lib/chatScope";
 import { cn } from "./lib/cn";
 import { compactConfirmMessage } from "./lib/compaction";
 import { fileRefRequestForSession } from "./lib/fileRefRequest";
-import { resolveSidebarPlacement, SIDEBAR_WIDTH } from "./lib/layout";
+import { resolveSidebarPlacement } from "./lib/layout";
 import {
   notificationHasFailure,
   notifyCannotEnable,
@@ -55,10 +56,12 @@ export default function App() {
   // 左バーの置き方だけが変わる (中身はどちらも同じ Sidebar)。overlay は ☰ から開く
   const viewportWidth = useViewportWidth();
   const sidebarDocked = resolveSidebarPlacement(viewportWidth, layout) === "docked";
-  // 右パネルの幅は main 列の残りで決まる (docked の左バー 252px を引く。overlay は main = viewport)
+  // 左バーの幅は docked のシェル (grid の 1 列目) が使う。overlay のドロワーは従来どおり固定幅
+  const sidebarWidth = useSidebarWidth();
+  // 右パネルの幅は main 列の残りで決まる (docked は左バーの実幅を引く。overlay は main = viewport)
   const panelWidth = useSessionFilesPanelWidth({
     viewportWidth,
-    mainWidth: sidebarDocked ? viewportWidth - SIDEBAR_WIDTH : viewportWidth,
+    mainWidth: sidebarDocked ? viewportWidth - sidebarWidth.width : viewportWidth,
   });
   const mainView = route.view;
   // 再試行待機の残り時間表示。受信後の経過だけを毎秒測る (retryReceivedAt が無ければ tick しない)
@@ -185,7 +188,7 @@ export default function App() {
   const activeSession = app.sessions.find((item) => item.sessionId === app.sessionId);
 
   // 利用者操作の新規会話の入口をここへ寄せる (サイドバー / ドロワー / エージェント切替 / プロジェクトの追加)。
-  // 作成先はプロジェクトを指定する導線 (プロジェクト行の ＋ / 追加の成功後) が渡したときだけプロジェクトになり、
+  // 作成先はプロジェクトを指定する導線 (プロジェクト行の ⋯「このプロジェクトに新しい会話」/ 追加の成功後) が渡したときだけプロジェクトになり、
   // それ以外は未所属 (最後に開いたプロジェクトを引き継がない)。既定 (プロジェクト配下なら開) の適用はこの入口だけ
   const handleNewChat = useCallback(
     (agentId?: string, projectId?: string) => {
@@ -272,7 +275,7 @@ export default function App() {
   };
 
   // ドロワーは選んだら閉じる。削除だけは confirm の後も開いたまま残す (連続操作しうる)。
-  // 折りたたみ chevron は選択ではないので閉じない (Sidebar 側で行を選択しない)
+  // 折りたたみ (行のクリック) は選択ではないので閉じない (Sidebar 側で行を選択しない)
   const drawerProps = {
     ...navProps,
     // モードの切替は閉じない (設定ナビは drawer の中で出す)
@@ -317,12 +320,15 @@ export default function App() {
 
   return (
     <div
+      ref={sidebarWidth.shellRef}
+      // 左バーの列幅。ドラッグ中は同じ変数を直接書き換える (hooks/useSidebarWidth)
+      style={{ "--sidebar-width": `${sidebarWidth.width}px` } as CSSProperties}
       className={cn(
         "grid h-dvh min-h-0 bg-base text-ink",
-        sidebarDocked ? "grid-cols-[252px_minmax(0,1fr)] grid-rows-1" : "grid-cols-1 grid-rows-1",
+        sidebarDocked ? "grid-cols-[var(--sidebar-width)_minmax(0,1fr)] grid-rows-1" : "grid-cols-1 grid-rows-1",
       )}
     >
-      {sidebarDocked ? <Sidebar {...navProps} /> : null}
+      {sidebarDocked ? <Sidebar {...navProps} resize={sidebarWidth} /> : null}
       <main
         ref={panelWidth.mainRef}
         // パネルの列幅。ドラッグ中は同じ変数を直接書き換える (hooks/useSessionFilesPanelWidth)

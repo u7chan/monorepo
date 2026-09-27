@@ -24,7 +24,7 @@ import {
   type SessionFilesPanelWidthStorage,
 } from "../src/lib/sessionFilesPanel";
 
-/** desktop で左バー (252px) が docked のときの main 列の幅 */
+/** desktop で左バー (既定幅 252px) が docked のときの main 列の幅 */
 function dockedMainWidth(viewportWidth: number): number {
   return viewportWidth - 252;
 }
@@ -59,6 +59,14 @@ test("bounds は mainWidth だけで変わる (左バーを overlay にすると
   assert.equal(overlay.max, 671);
   // 下限は viewport だけで決まる (パネルの最小幅は左バーの配置に依存しない)
   assert.equal(docked.min, overlay.min);
+});
+
+test("左バーを広げると main が狭くなり、右パネルの上限も下がる", () => {
+  // 1200px: 既定 252px なら main 948 → 上限 628、左バーの上限 400px なら main 800 → 上限 480
+  assert.equal(sessionFilesPanelBounds(1200, 1200 - 252).max, 628);
+  assert.equal(sessionFilesPanelBounds(1200, 1200 - 400).max, 480);
+  // 広い窓では右パネル自身の上限 (671px) が効く
+  assert.equal(sessionFilesPanelBounds(1920, 1920 - 400).max, 671);
 });
 
 test("min == max の幅ではハンドルを出さない", () => {

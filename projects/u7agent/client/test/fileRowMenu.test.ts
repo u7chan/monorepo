@@ -12,15 +12,14 @@ import { fileURLToPath } from "node:url";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import test from "node:test";
+import { fileRowActions, type FileRowAction } from "../src/lib/fileRowMenu";
 import {
-  fileRowActions,
   nextRowMenuIndex,
   ROW_MENU_GAP,
   ROW_MENU_MARGIN,
   rowMenuAnchorVisible,
   rowMenuPlacement,
-  type FileRowAction,
-} from "../src/lib/fileRowMenu";
+} from "../src/lib/rowMenu";
 
 // FileBrowser / RowMenu は api.ts (location.origin を読む) を辿るため、node では最小の shim を置いてから読み込む
 globalThis.location ??= { origin: "http://localhost" } as Location;

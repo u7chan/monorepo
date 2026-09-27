@@ -39,7 +39,7 @@ export function SettingsNav({
 }) {
   return (
     // 行間は gap-1 に一本化し、見出しだけ padding で上を広く取る (実効で上 24 / 下 10)
-    <div className="grid min-h-0 flex-1 scrollbar-thin content-start gap-1 overflow-y-auto pr-0.5">
+    <div className="scrollbar-stable grid min-h-0 flex-1 scrollbar-thin content-start gap-1 overflow-y-auto pr-0.5">
       <MenuItem variant="nav" icon={<ArrowLeftIcon />} label="アプリに戻る" onClick={() => onSelectMode("nav")} />
       <div className="px-2 pt-5 pb-1.5 text-2xs font-semibold tracking-widest text-ink-faint uppercase">設定</div>
       {SETTINGS_SECTIONS.map((item) => (

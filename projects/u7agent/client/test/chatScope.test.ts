@@ -56,7 +56,7 @@ test("セッションがあるときは作成先ではなく所属を見る", ()
   const scope = chatScope({
     cwd: ".u7agent/sessions/01a0b4cf",
     sessionId: "s1",
-    // 別のプロジェクトの新規会話 (プロジェクト行の ＋) を開いていても、表示中のセッションの所属が優先される
+    // 別のプロジェクトの新規会話 (プロジェクト行の ⋯「このプロジェクトに新しい会話」) を開いていても、表示中のセッションの所属が優先される
     selectedProjectId: "p1",
     projects: PROJECTS,
     sessions: [session("s1", "p2")],

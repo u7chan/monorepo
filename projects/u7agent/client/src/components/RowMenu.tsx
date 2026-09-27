@@ -14,18 +14,19 @@ import {
   nextRowMenuIndex,
   rowMenuAnchorVisible,
   rowMenuPlacement,
-  type FileRowAction,
-  type FileRowActionKind,
+  type RowMenuAction,
+  type RowMenuActionKind,
   type RowMenuRect,
-} from "../lib/fileRowMenu";
+} from "../lib/rowMenu";
 import { MenuItem } from "./MenuItem";
-import { DownloadIcon, MoreIcon, PencilIcon, TrashIcon } from "./icons";
+import { DownloadIcon, MoreIcon, PencilIcon, PlusIcon, TrashIcon } from "./icons";
 
-/** 種別ごとのアイコン。描画側に条件分岐を残さないため、種別からここで引く */
-const ACTION_ICONS: Record<FileRowActionKind, ReactNode> = {
+/** 種別ごとのアイコン。描画側に条件分岐を残さないため、種別からここで引く (全画面ぶんを 1 箇所に置く) */
+const ACTION_ICONS: Record<RowMenuActionKind, ReactNode> = {
   download: <DownloadIcon />,
   rename: <PencilIcon />,
   delete: <TrashIcon />,
+  "new-chat": <PlusIcon />,
 };
 
 /** overflow-y を持つ直近の祖先 = ツリーのスクロール枠。popover は top layer に載るので切られはしないが、
@@ -44,12 +45,12 @@ function visibleClips(element: HTMLElement): RowMenuRect[] {
   return clip === null ? [viewport] : [viewport, clip];
 }
 
-export type RowMenuProps = {
+export type RowMenuProps<K extends RowMenuActionKind> = {
   /** ⋯ の読み上げ名に含める行の名前 */
   name: string;
   /** 出す項目。空配列は受けない (項目 0 の行の空きスロットは呼び出し側が置く) */
-  actions: readonly FileRowAction[];
-  onSelect: (kind: FileRowActionKind) => void;
+  actions: readonly RowMenuAction<K>[];
+  onSelect: (kind: K) => void;
 };
 
 /**
@@ -58,7 +59,7 @@ export type RowMenuProps = {
  * 自前で閉じる経路 (項目の選択 / Tab での退出) だけ `hidePopover()` を通す。
  * 本体は常時 mount する (React の条件付き mount で出し入れすると標準の開閉と二重管理になる)。
  */
-export function RowMenu({ name, actions, onSelect }: RowMenuProps) {
+export function RowMenu<K extends RowMenuActionKind>({ name, actions, onSelect }: RowMenuProps<K>) {
   const menuId = useId();
   const triggerId = `${menuId}-trigger`;
   const [open, setOpen] = useState(false);

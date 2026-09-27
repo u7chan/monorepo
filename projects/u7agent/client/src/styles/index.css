@@ -467,8 +467,9 @@ html[data-theme="sky"] {
     animation: run-spinner-turn 0.8s steps(8, end) infinite;
   }
 
-  /* 右パネルの幅のドラッグ中 (SessionFilesPanel が body へ付ける)。ポインタがハンドルを離れても
-   * カーソルを保ち、テキスト選択を止める。ハンドル自身の色は状態を持たずここで示す */
+  /* 幅のドラッグ中 (右パネルの SessionFilesPanel と左バーの SidebarResizeHandle が body へ付ける)。
+   * ポインタがハンドルを離れてもカーソルを保ち、テキスト選択を止める。ハンドル自身の色は状態を
+   * 持たずここで示す (`.panel-resize-handle` は両ハンドル共通の印) */
   body.is-resizing-panel {
     cursor: col-resize;
     user-select: none;
@@ -535,6 +536,11 @@ html[data-theme="sky"] {
   .scrollbar-thin::-webkit-scrollbar-thumb {
     border-radius: 999px;
     background: var(--c-line-strong);
+  }
+
+  /* スクロールバーの有無で内容幅が動かないよう、バー分の場所を常に確保する */
+  .scrollbar-stable {
+    scrollbar-gutter: stable;
   }
 
   /* テーマスイッチャーの色見本。各テーマの実色をハードコードで表示する */
