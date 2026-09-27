@@ -83,7 +83,7 @@ function modelSettings(overrides: Partial<ModelSettings> = {}): ModelSettings {
     reloading: false,
     reload: async () => {},
     save: async () => true,
-    saveAvailability: async () => true,
+    saveAvailability: async () => SETTINGS,
     remove: async () => true,
     resync: async () => true,
     ...overrides,
@@ -119,8 +119,21 @@ test("利用可能なモデルのセクションは先頭に出て、選択・�
   assert.ok(html.includes("Claude Haiku"), "カタログ全件を出す");
   assert.ok(html.includes("利用可能") && html.includes("利用不可"), "各行に利用可能かどうかを併記する");
   assert.ok(html.includes("制限なし（全モデル）"), "制限なしへ戻す操作を出す");
+  assert.ok(html.includes("すべて選択") && html.includes("すべて解除"), "provider ごとの一括操作を出す");
+  assert.ok(html.includes("min-h-11") && html.includes("size-5 shrink-0 accent-focus"), "チェック行を44px以上にする");
   assert.ok(html.includes("開いている会話のモデルは切り替えません"), "live の会話へ効かないことを注記する");
   assert.equal(html.includes("whitelist"), false, "whitelist の語を画面に出さない");
+});
+
+test("下部の固定アクション行は変更なしを示し、セクション見出しに保存ボタンを置かない", () => {
+  const html = render(modelSettings({ settings: { ...SETTINGS, providers: [] } }));
+  assert.ok(html.includes("未保存の変更はありません"), "初期状態を固定バーに表示する");
+  assert.ok(html.includes('class="btn-primary" disabled=""'), "変更がなければ保存を無効にする");
+  const sectionStart = html.indexOf("利用可能なモデル</h3>");
+  const sectionEnd = html.indexOf("この画面でできること", sectionStart);
+  assert.notEqual(sectionStart, -1);
+  assert.notEqual(sectionEnd, -1);
+  assert.equal(html.slice(sectionStart, sectionEnd).includes("保存</button>"), false, "保存は見出しから外す");
 });
 
 test("制限なし・カタログ外の残存エントリ・環境変数の注記を出す", () => {
@@ -223,6 +236,7 @@ test("ページ本体は取得前の初期状態 (読み込み中) を出す", (
   );
   assert.ok(html.includes("プロバイダーの認証状態を読み込んでいます。"));
   assert.ok(html.includes("ランタイムが利用できないため") === false, "取得前に警告を出さない");
+  assert.equal(html.includes("未保存の変更はありません"), false, "設定未取得の間は固定バーを出さない");
 });
 
 test("読み込み中の状態を出す", () => {
@@ -251,7 +265,7 @@ test("カタログの読み込み中は編集不可と出さず、保存も押�
   const html = render(modelSettings({ catalog: null, catalogError: null }));
   assert.ok(html.includes("モデル一覧を読み込んでいます"), "読み込み中として出す");
   assert.equal(html.includes("利用可能なモデルは編集できません"), false, "取得失敗と混同しない");
-  assert.ok(html.includes("読み込み中</"), "保存ボタンを読み込み中にする");
+  assert.ok(html.includes('class="btn-primary" disabled=""'), "カタログの読み込み中は固定バーの保存を無効にする");
 });
 
 test("利用可能なモデルの保存確認は window.confirm を使わず、純関数の文言で画面内に出す", () => {
@@ -259,13 +273,13 @@ test("利用可能なモデルの保存確認は window.confirm を使わず、�
     fileURLToPath(new URL("../src/components/ModelSettingsPage.tsx", import.meta.url)),
     "utf8",
   );
-  const section = source.slice(source.indexOf("function AvailabilitySection("), source.indexOf("const BADGE_TONE"));
-  assert.ok(section.includes("利用可能なモデル"), "AvailabilitySection を切り出せる");
-  assert.equal(section.includes("window.confirm"), false, "ネイティブ confirm を使わない");
-  assert.match(section, /availabilitySaveConfirmMessage\(/, "確認の文言は純関数から取る");
-  assert.match(section, /role="alert"/, "確認は画面内に出す");
-  assert.match(section, /保存する/, "同意ボタンを出す");
-  assert.match(section, /キャンセル/, "取り消しできるボタンを出す");
+  const editor = source.slice(source.indexOf("function AvailabilityEditor("), source.indexOf("const BADGE_TONE"));
+  assert.ok(editor.includes("利用可能なモデル"), "AvailabilityEditor がモデル設定を持つ");
+  assert.equal(editor.includes("window.confirm"), false, "ネイティブ confirm を使わない");
+  assert.match(editor, /availabilitySaveConfirmMessage\(/, "確認の文言は純関数から取る");
+  assert.match(editor, /role="alert"/, "確認は画面内に出す");
+  assert.match(editor, /保存する/, "同意ボタンを出す");
+  assert.match(editor, /キャンセル/, "取り消しできるボタンを出す");
   // キー削除の確認は従来どおりネイティブ confirm のまま (この指摘の対象外)
   assert.equal(source.includes("window.confirm"), true);
 });

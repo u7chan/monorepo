@@ -132,8 +132,10 @@ CREATE TABLE IF NOT EXISTS model_settings (
 ## クライアント
 
 - `SETTINGS_SECTIONS` に `models`（ラベル「モデル」）を追加し、`App.tsx` が `ModelSettingsPage` を出す
-- 画面の先頭に「利用可能なモデル」セクションを置く。provider ごとに折りたたみ、カタログ全件をチェックで選び、各行に利用可能かどうか（利用可能 / 未認証）を併記する。アプリ既定モデルは許可したモデルから選び、未設定（利用可能なモデルの先頭）も選べる。[保存] で一括適用する
-  - 「制限なし（全モデル）」へ戻すチェック、現在の利用可能数の表示、カタログ外の残存エントリの表示と [削除] を同じセクションに置く。保存で利用可能なモデルが 0 件になるときと既定が未認証のときは、[保存] の押下で画面内の確認（[保存する] / [キャンセル]）を出し、後者は保存前から警告を出す。判定と文言は `client/src/lib/modelSettings.ts` の純関数が持ち、ネイティブの `window.confirm` は使わない（DOM なしで検証するため。同意するまで PUT を送らない）
+- 画面の先頭に「利用可能なモデル」セクションを置く。provider ごとに折りたたみ、カタログ全件をチェックで選び、各行に利用可能かどうか（利用可能 / 未認証）を併記する。provider ごとに [すべて選択] / [すべて解除] があり、available でないモデルも含めて下書きを一括操作する。アプリ既定モデルは許可したモデルから選び、未設定（利用可能なモデルの先頭）も選べる
+  - provider 群は利用可能モデル数の降順、同数ならカタログ順で表示する。これは表示順だけで、保存値や既定未設定時の実効先頭を変えない（実効先頭はサーバーが `getAvailable()` の順から決める）。APIキーカードの設定済み優先の並びは別の規則で現状どおり
+  - 「制限なし（全モデル）」へ戻すチェック、現在の利用可能数の表示、カタログ外の残存エントリの表示と [削除] を同じセクションに置く。保存操作は本文の外に固定した下部バーにまとめ、変更がなければ保存を無効にし、差分があれば対象が利用可能モデルと分かる文言と [変更を破棄] / [保存] を出す。成功時は応答値で下書きを戻す（制限あり・空配列はサーバーが `null` に正規化する）。設定 API の保存値がキー操作・再読み込みで実際に変わった場合も下書きを戻すが、配列参照だけが変わって内容が同じ場合は編集中の下書きを保つ
+  - 保存で利用可能なモデルが 0 件になるときと既定が未認証のときは、固定バーに画面内の確認（[保存する] / [キャンセル]）を出し、後者は保存前から警告を出す。判定と文言は `client/src/lib/modelSettings.ts` の純関数が持ち、ネイティブの `window.confirm` は使わない（DOM なしで検証するため。同意するまで PUT を送らない）
   - 許可されているかの正は `GET /api/settings/models` の `allowedModels` だけで、カタログは available とモデル一覧にしか使わない。カタログを取得できないときは `catalogError` で編集不可を出し、provider のキー操作は妨げない（`catalog === null` は初期ロード中も真になるため、編集可否の判定には使わない）
   - 保存後は health とカタログを取り直して、入力欄のモデル候補を追随させる。live の会話のモデルを切り替えないことを画面に注記する（[model-effort.md](model-effort.md#既存の会話への影響認証の変更)）
 - 画面は provider を「設定済み（`auth.configured` / `managed` / 利用可能モデルあり）」と「未設定」に分け、未設定は畳む。各カードに認証バッジ（未設定 / 環境変数（変数名）/ 保存済み（auth.json）/ この画面で登録済み（実効）/ 保存済み（未反映）/ 削除が未反映 / カタログ外）と、`canSetApiKey` のときだけキー入力、`managed` のときだけ削除（確認に既存会話への影響を出す）、再同期可能な `degraded` のときだけ再同期を出す
@@ -179,5 +181,5 @@ CREATE TABLE IF NOT EXISTS model_settings (
 - `server/test/model-state.test.ts` — `deriveModelState` / `readModelState`（許可リストの積・既定モデル・カタログの導出・可用 0・失敗時の安全な state）、`filterModelsByWhitelist()`
 - `server/test/api.test.ts` — health から `runtimeDiagnostics` が消えたこと、モデルカタログ応答に whitelist 系フィールドが無いこと
 - `server/test/redact.test.ts` — `createMutableSecretMasker` の swap と streaming masker への追随
-- `client/test/modelSettings.test.ts` / `client/test/modelSettingsPage.test.ts` — 表示変換（認証バッジ・並び・入力検証・注記・回復案内）と、利用可能なモデルの集計・確認文・初期描画（カタログ外・未設定・環境変数の注記・カタログ取得失敗時の編集不可）
+- `client/test/modelSettings.test.ts` / `client/test/modelSettingsPage.test.ts` — 表示変換（認証バッジ・並び・入力検証・注記・回復案内）、利用可能なモデルの並べ替え・dirty 判定・provider 一括操作・集計・確認文、固定バーの初期描画（変更なしでは保存無効）とカタログ外・未設定・環境変数の注記・カタログ取得失敗時の編集不可
 - `client/test/runtimePage.test.ts` — 設定 → ランタイムから「モデル解決」が消えたこと

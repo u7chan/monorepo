@@ -120,16 +120,17 @@ export function useModelSettings({ onRefreshHealth }: ModelSettingsParams) {
 
   /** 利用可能なモデルの一括保存。確認は純関数の判定を受けてコンポーネントが先に出す */
   const saveAvailability = useCallback(
-    async (input: UpdateModelAvailabilityBody): Promise<boolean> => {
+    async (input: UpdateModelAvailabilityBody): Promise<ModelsSettingsResponse | null> => {
       setSavingAvailability(true);
       try {
-        await applyMutation("availability", await putModelAvailability(input));
-        return true;
+        const response = await putModelAvailability(input);
+        await applyMutation("availability", response);
+        return response;
       } catch (error) {
         // 何も保存されなかった (503 not_stored / 400) ことを文言で区別する
         const prefix = error instanceof ApiError && error.state === "not_stored" ? "変更は保存されていません。" : "";
         setNote({ text: `${prefix}${messageFor(error)}`, error: true });
-        return false;
+        return null;
       } finally {
         setSavingAvailability(false);
       }
