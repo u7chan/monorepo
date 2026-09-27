@@ -155,10 +155,6 @@ export function RowMenu({ name, actions, onSelect }: RowMenuProps) {
     popoverRef.current?.hidePopover();
   };
 
-  /**
-   * 項目の選択で閉じる経路。フォーカスを popover の外へ退避させてから hidePopover() する。
-   * native の復帰は閉じる時にフォーカスが popover 内にあるときだけ起きるので、⋯ へ戻さずに閉じられる。
-   */
   const closeBySelection = () => {
     const popover = popoverRef.current;
     if (popover === null) return;
