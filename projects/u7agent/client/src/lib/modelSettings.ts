@@ -193,6 +193,49 @@ export function availabilityDraftFromSettings(settings: ModelsSettingsResponse):
   };
 }
 
+/** 設定 API の配列参照が変わっても、保存値の要素内容が同じなら編集中の下書きを保つ */
+export function sameAvailabilitySettings(
+  left: Pick<ModelsSettingsResponse, "allowedModels" | "defaultModel">,
+  right: Pick<ModelsSettingsResponse, "allowedModels" | "defaultModel">,
+): boolean {
+  if (left.defaultModel !== right.defaultModel) return false;
+  if (left.allowedModels === null || right.allowedModels === null) return left.allowedModels === right.allowedModels;
+  return (
+    left.allowedModels.length === right.allowedModels.length &&
+    left.allowedModels.every((model, index) => model === right.allowedModels?.[index])
+  );
+}
+
+/** 下書きと保存値の差分。許可モデルは集合として扱い、制限なし中は allowed を比較しない */
+export function availabilityDraftIsDirty(draft: AvailabilityDraft, initial: AvailabilityDraft): boolean {
+  if (draft.unrestricted !== initial.unrestricted || draft.defaultModel !== initial.defaultModel) return true;
+  if (draft.unrestricted) return false;
+  const draftAllowed = new Set(draft.allowed);
+  const initialAllowed = new Set(initial.allowed);
+  return draftAllowed.size !== initialAllowed.size || [...draftAllowed].some((model) => !initialAllowed.has(model));
+}
+
+/** provider 単位の一括選択。available の値に関係なくカタログ全件を操作する */
+export function setAvailabilityProviderModels(
+  draft: AvailabilityDraft,
+  providerId: string,
+  selected: boolean,
+  catalog: RuntimeModelsResponse | null,
+): AvailabilityDraft {
+  if (draft.unrestricted) return draft;
+  const provider = catalog?.providers.find((entry) => entry.provider === providerId);
+  const keys = provider?.models.map((model) => modelRefKey({ provider: providerId, id: model.id })) ?? [];
+  if (keys.length === 0) return draft;
+
+  const providerKeys = new Set(keys);
+  const allowed = selected
+    ? [...new Set([...draft.allowed, ...keys])]
+    : draft.allowed.filter((key) => !providerKeys.has(key));
+  const defaultModel =
+    !selected && draft.defaultModel && providerKeys.has(draft.defaultModel) ? null : draft.defaultModel;
+  return { ...draft, allowed, defaultModel };
+}
+
 /** 制限なしから選択へ戻すときの初期値。全件を選んだ状態から外していけるようにカタログ全件を入れる */
 export function availabilityDraftWithAllModels(catalog: RuntimeModelsResponse | null): string[] {
   return catalogModelEntries(catalog).map((entry) => entry.key);
@@ -328,19 +371,26 @@ export function availabilityGroups(
   draft: AvailabilityDraft,
   catalog: RuntimeModelsResponse | null,
 ): AvailabilityGroup[] {
-  return (catalog?.providers ?? []).map((provider) => ({
-    provider: provider.provider,
-    authConfigured: provider.auth.configured,
-    rows: provider.models.map((model) => {
-      const key = modelRefKey({ provider: provider.provider, id: model.id });
-      return {
-        key,
-        name: model.name,
-        available: model.available,
-        checked: draft.unrestricted || draft.allowed.includes(key),
-      };
-    }),
-  }));
+  return (catalog?.providers ?? [])
+    .map((provider, index) => ({
+      index,
+      availableCount: provider.models.filter((model) => model.available).length,
+      group: {
+        provider: provider.provider,
+        authConfigured: provider.auth.configured,
+        rows: provider.models.map((model) => {
+          const key = modelRefKey({ provider: provider.provider, id: model.id });
+          return {
+            key,
+            name: model.name,
+            available: model.available,
+            checked: draft.unrestricted || draft.allowed.includes(key),
+          };
+        }),
+      },
+    }))
+    .sort((left, right) => right.availableCount - left.availableCount || left.index - right.index)
+    .map(({ group }) => group);
 }
 
 export interface AvailabilityChoice {
