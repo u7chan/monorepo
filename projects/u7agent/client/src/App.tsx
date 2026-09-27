@@ -17,7 +17,7 @@ import { SessionFilesPanel, SessionFilesSheet } from "./components/SessionFilesP
 import { SkillSettingsPage } from "./components/SkillSettingsPage";
 import { Topbar } from "./components/Topbar";
 import { FileRefProvider } from "./components/markdown/FileRefLink";
-import { useU7Agent } from "./hooks/useU7Agent";
+import { useU7Agent, type SendMessageOptions } from "./hooks/useU7Agent";
 import { useElapsedMs } from "./hooks/useElapsedMs";
 import { useLayoutMode } from "./hooks/useLayoutMode";
 import { useRoute } from "./hooks/useRoute";
@@ -144,8 +144,8 @@ export default function App() {
   }, [mainView, navOpen, backToChat]);
 
   const handleSend = useCallback(
-    (text: string) => {
-      void app.sendMessage(text);
+    (text: string, options?: SendMessageOptions) => {
+      void app.sendMessage(text, options);
     },
     [app],
   );
@@ -155,8 +155,9 @@ export default function App() {
   }, [app]);
 
   const handleRetry = useCallback(() => {
-    // 失敗の復旧も通常の送信経路に載せる (BFF から prompt() を再発行しない。固定文言だけを送る)
-    handleSend(RUN_RETRY_PROMPT);
+    // 失敗の復旧も通常の送信経路に載せる (BFF から prompt() を再発行しない)。固定文言だけを送り、
+    // 編集中の添付は送らず消費もしない
+    handleSend(RUN_RETRY_PROMPT, { includeAttachments: false });
   }, [handleSend]);
 
   const handleCompact = useCallback(() => {

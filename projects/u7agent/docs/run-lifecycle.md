@@ -71,7 +71,7 @@ message_end(assistant, error, usage.total = 0)  失敗試行
 - 公開文言はコードごとの定型日本語（理由 + 原因別の操作案内 + 再試行累計）だけとし、上流の原文・組織ID・APIキーを UI へ出さない。クレジット不足や認証失敗を「時間を置けば復旧する」と案内しない。
 - `retry.reason` も同じコードだけを配る。
 - 最終失敗の分類コードは `RunState.errorCode` に控え、`run_end.errorCode` と `payload.run.errorCode` として公開する。載せるのは `run.status === "error"` のときだけとし、停止要求（`stopRequested`）と listener 例外 / `prompt()` reject が同時に起きたときは `stopped` のままコードを載せない（停止直後に再実行カードを出さない）。成功・停止・実行中の `run` はキーを持たない（payload 上は後方互換のため optional）。
-- クライアントは分類コードが `rate_limit` / `unknown` のときだけ、`run.error` の 1 文をそのまま使った再実行カードを出す。押すと固定文言「前回の続きから再開してください」を通常の `POST /api/sessions/:id/messages` へ送るだけで、BFF から `prompt()` は再発行しない（[frontend.md](frontend.md#チャット状態とレンダリング)）。
+- クライアントは分類コードが `rate_limit` / `unknown` のときだけ、`run.error` の 1 文をそのまま使った再実行カードを出す。押すと固定文言「前回の続きから再開してください」を通常の `POST /api/sessions/:id/messages` へ送るだけで、添付は載せず（編集中のチップも消費しない）、BFF から `prompt()` は再発行しない（[frontend.md](frontend.md#チャット状態とレンダリング)）。
 
 ## 状態
 

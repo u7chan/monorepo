@@ -8,6 +8,7 @@ import {
   MAX_ATTACHMENTS,
   attachmentFetchPath,
   attachmentRejection,
+  attachmentsForSend,
   attachmentsForSession,
   formatBytes,
   isImageName,
@@ -124,4 +125,44 @@ test("attachmentRejection reports the reason to keep as an error chip", () => {
   assert.match(attachmentRejection({ name: "a.bin", size: MAX_ATTACHMENT_BYTES + 1 }, 0) ?? "", /100 MiB を超える/);
   // 上限ちょうどは通す
   assert.equal(attachmentRejection({ name: "a.bin", size: MAX_ATTACHMENT_BYTES }, 0), undefined);
+});
+
+test("attachmentsForSend carries and consumes the chips of the current session", () => {
+  const chip = (id: string, extra: Partial<Attachment> = {}): Attachment => ({
+    id,
+    sessionId: "s-1",
+    name: `${id}.png`,
+    size: 1,
+    status: "done",
+    path: `.u7agent/uploads/s-1/${id}.png`,
+    ...extra,
+  });
+  const chips = [
+    chip("a"),
+    chip("b", { status: "uploading", path: undefined }),
+    chip("c", { sessionId: "s-2" }),
+    chip("d", { status: "error", path: undefined }),
+  ];
+
+  const normal = attachmentsForSend(chips, "s-1", true);
+  // アップロード中 / 失敗のチップは pending に残る (呼び出し側がこの集合で送信を止める)
+  assert.deepEqual(
+    normal.pending.map((item) => item.id),
+    ["a", "b", "d"],
+  );
+  assert.deepEqual(normal.paths, [".u7agent/uploads/s-1/a.png"], "パスを持つチップだけを送る");
+  assert.deepEqual(normal.sentIds, ["a", "b", "d"], "送れたら現在のセッションのチップを消費する");
+  assert.deepEqual(attachmentsForSend(chips, "s-3", true).pending, [], "別セッションのチップは載せない");
+});
+
+test("attachmentsForSend keeps the chips out of a send that takes no attachments", () => {
+  const chips: Attachment[] = [
+    { id: "a", sessionId: "s-1", name: "a.png", size: 1, status: "done", path: ".u7agent/uploads/s-1/a.png" },
+    { id: "b", sessionId: "s-1", name: "b.png", size: 1, status: "uploading" },
+  ];
+
+  // 失敗の再実行は固定文言だけを送る。アップロード完了を待たず、送信後もチップを消さない
+  const retry = attachmentsForSend(chips, "s-1", false);
+  assert.deepEqual(retry, { pending: [], paths: [], sentIds: [] });
+  assert.deepEqual(attachmentsForSend([], "s-1", false), { pending: [], paths: [], sentIds: [] });
 });

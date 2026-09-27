@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useEffectEvent, useReducer, useRef, useState } from "react";
 import { getHealth, postMessage, stopSession, uploadSessionFile } from "../api";
-import { attachmentRejection, attachmentsForSession, type Attachment } from "../lib/attachments";
+import { attachmentRejection, attachmentsForSend, attachmentsForSession, type Attachment } from "../lib/attachments";
 import { deriveComposerSettings } from "../lib/composerSettings";
 import type { RunStatus, SessionSummary } from "../types";
 import { chatReducer, initialChatState } from "./chatReducer";
@@ -33,6 +33,14 @@ export type UseU7AgentOptions = {
   pendingSessionId?: string;
   /** 入口を消費した。URL を `/` へ畳ませる (選択が確定してから呼ばれる) */
   onPendingSessionResolved?: () => void;
+};
+
+export type SendMessageOptions = {
+  /**
+   * 添付チップを送り、送れたら消費するか (既定 true)。失敗の再実行は固定文言だけを送るため false にし、
+   * 編集中のチップを次のランへ巻き込まない。
+   */
+  includeAttachments?: boolean;
 };
 
 export function useU7Agent({ pendingSessionId, onPendingSessionResolved }: UseU7AgentOptions = {}) {
@@ -199,13 +207,17 @@ export function useU7Agent({ pendingSessionId, onPendingSessionResolved }: UseU7
   }, [sessionId, commitAttachments, sessionIdRef]);
 
   const sendMessage = useCallback(
-    async (text: string): Promise<void> => {
-      // 切替直後は古いセッションのチップが state に残っているため、描画と同じ規則で絞ってから送る
-      const pending = attachmentsForSession(attachmentsRef.current, sessionIdRef.current);
+    async (text: string, options: SendMessageOptions = {}): Promise<void> => {
+      const includeAttachments = options.includeAttachments ?? true;
+      // 切替直後は古いセッションのチップが state に残っているため、描画と同じ規則で絞ってから送る。
+      // 再実行 (includeAttachments=false) はチップを読まず、送信も消費もしない
+      const { pending, paths, sentIds } = attachmentsForSend(
+        attachmentsRef.current,
+        sessionIdRef.current,
+        includeAttachments,
+      );
       // アップロード中 / 失敗のチップがある間は送らない (Composer でも止める)
       if (pending.some((item) => item.status !== "done")) return;
-      const paths = pending.map((item) => item.path).filter((path): path is string => Boolean(path));
-      const sentIds = pending.map((item) => item.id);
       await sendChatMessage(text, {
         health,
         busy: sending || settingsChanging,
@@ -217,8 +229,11 @@ export function useU7Agent({ pendingSessionId, onPendingSessionResolved }: UseU7
         refreshSessions,
         post: postMessage,
         attachments: paths,
-        // 送れたときだけチップを消す (失敗したファイルは作業フォルダに残るが、送信前に消さない)
-        onSent: () => commitAttachments((prev) => prev.filter((item) => !sentIds.includes(item.id))),
+        // 送れたときだけチップを消す (失敗したファイルは作業フォルダに残るが、送信前に消さない)。
+        // 再実行は編集中のチップを消費しないので onSent を渡さない
+        onSent: includeAttachments
+          ? () => commitAttachments((prev) => prev.filter((item) => !sentIds.includes(item.id)))
+          : undefined,
         dispatch,
         setSending,
         setRuntimeStatus,

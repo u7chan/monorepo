@@ -102,12 +102,30 @@ test("押せない理由の行は無効な操作の名前を実際のものに�
 test("配線: 再実行は固定文言を App の handleSend へ渡す (通常の送信経路だけを使う)", () => {
   const source = read("src/App.tsx");
   const handler = source.indexOf("const handleRetry");
-  const send = source.indexOf("handleSend(RUN_RETRY_PROMPT)");
+  const send = source.indexOf("handleSend(RUN_RETRY_PROMPT, { includeAttachments: false })");
 
   assert.ok(handler >= 0, "App に再実行の入口を置く");
   assert.ok(send > handler, "再実行は通常の送信経路 (handleSend) を通す");
-  assert.equal((source.match(/handleSend\(RUN_RETRY_PROMPT\)/g) ?? []).length, 1, "固定文言の送信経路を 1 つに保つ");
+  assert.equal((source.match(/handleSend\(RUN_RETRY_PROMPT/g) ?? []).length, 1, "固定文言の送信経路を 1 つに保つ");
   assert.ok(source.includes("onRetry={handleRetry}"), "入口を Composer のカードへ配線する");
+});
+
+test("配線: 再実行は添付を送らず、編集中のチップも消費しない", () => {
+  const source = read("src/App.tsx");
+  const hooks = read("src/hooks/useU7Agent.ts");
+
+  assert.ok(
+    source.includes("handleSend(RUN_RETRY_PROMPT, { includeAttachments: false })"),
+    "再実行は添付なしの送信として渡す",
+  );
+  assert.match(source, /onSend=\{handleSend\}/, "通常の送信は options を渡さず従来どおり添付を載せる");
+  // 添付の選択と消費は純関数へ集約し、再実行では何も載せない (挙動は attachments.test.ts で固定する)
+  assert.match(
+    hooks,
+    /attachmentsForSend\(\s*attachmentsRef\.current,\s*sessionIdRef\.current,\s*includeAttachments,?\s*\)/,
+    "includeAttachments を添付の選択へ渡す",
+  );
+  assert.match(hooks, /onSent: includeAttachments/, "再実行ではチップを消費する onSent を渡さない");
 });
 
 test("配線: 文言は runRetry の純関数 module から取り、コンポーネントへ書き戻さない", () => {
