@@ -155,6 +155,18 @@ export function RowMenu({ name, actions, onSelect }: RowMenuProps) {
     popoverRef.current?.hidePopover();
   };
 
+  /**
+   * 項目の選択で閉じる経路。フォーカスを popover の外へ退避させてから hidePopover() する。
+   * native の復帰は閉じる時にフォーカスが popover 内にあるときだけ起きるので、⋯ へ戻さずに閉じられる。
+   */
+  const closeBySelection = () => {
+    const popover = popoverRef.current;
+    if (popover === null) return;
+    const active = document.activeElement;
+    if (active instanceof HTMLElement && popover.contains(active)) active.blur();
+    popover.hidePopover();
+  };
+
   return (
     <>
       <button
@@ -206,7 +218,7 @@ export function RowMenu({ name, actions, onSelect }: RowMenuProps) {
             danger={action.danger}
             onClick={() => {
               // 確認ダイアログ / prompt をメニューの背後に出さない (開いたままだと隠れる)
-              popoverRef.current?.hidePopover();
+              closeBySelection();
               onSelect(action.kind);
             }}
           />

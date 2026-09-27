@@ -208,8 +208,18 @@ test("配線: 自前の close は hidePopover() を通り、Escape は伝播だ�
   // 開閉は showPopover / hidePopover だけ。⋯ 自身の押下は popoverTarget で light dismiss の対象外にする
   assert.match(source, /popover\.showPopover\(\);/);
   assert.ok(source.includes("popoverTarget={menuId}"), "⋯ が light dismiss の対象外になっていない");
-  // 項目の選択は hidePopover してからハンドラを呼ぶ (confirm / prompt をメニューの背後に出さない)
-  assert.match(source, /hidePopover\(\);\s*\n\s*onSelect\(action\.kind\);/, "項目の選択が hidePopover を通らない");
+  // 項目の選択は、フォーカスを popover の外へ退避させてから hidePopover し、⋯ への native 復帰を
+  // 抑える (戻すのは Escape だけ)。確認ダイアログ / prompt は閉じてから出す (背後に隠さない)
+  assert.match(
+    source,
+    /closeBySelection\(\);\s*\n\s*onSelect\(action\.kind\);/,
+    "項目の選択が closeBySelection を通らない",
+  );
+  assert.match(
+    source,
+    /popover\.contains\(active\)\) active\.blur\(\);\s*\n\s*popover\.hidePopover\(\);/,
+    "項目の選択が hidePopover の前にフォーカスを外へ退避させていない",
+  );
   // Tab で外へ出たとき (focusout) も hidePopover() で閉じる
   assert.match(source, /onBlur=\{onBlur\}/, "focusout で閉じていない");
   assert.match(source, /popoverRef\.current\?\.hidePopover\(\);/, "focusout が hidePopover を通らない");
