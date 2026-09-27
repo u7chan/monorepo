@@ -1,12 +1,11 @@
-// ディレクトリ行 / ファイル行の時刻と右端のスロットを突き合わせる。client に DOM テスト基盤が無いため、
+// ディレクトリ行 / ファイル行の時刻と右端の ⋯ を突き合わせる。client に DOM テスト基盤が無いため、
 // 右 padding と末尾スロットによる px の一致は自動固定できず、手動確認に残す (docs/file-preview.md#時刻)。
 // ここでは両行が同じ形であること（配線）だけを固定する。どれかが崩れると次のどれかになる。
 //   1. ディレクトリ行の button が時刻を包み、読み上げ名に時刻が混ざる / 時刻のクリックで開閉する
 //   2. 右 padding か末尾スロットの幅が変わり、ディレクトリ行とファイル行の時刻の右端がずれる
 //   3. 時刻の表示規則 (fileTimeLabel + title の完全な表記)、狭い面の折り返し (basis-full)、mtime 無しの行の扱いが変わる
-//   4. ディレクトリ行の削除導線が消える / ファイル行と別の見た目になる
-//   5. ダウンロード / リネーム / 削除 のスロットの幅か出し分けが揺れる
-//   6. readOnly の行 (スキルのファイルタブ) に導線が残る、または既存 2 画面が readOnly になる
+//   4. ⋯ の行が空きスロット (EmptySlot) と違う幅になる / symlink の行に ⋯ が出る
+//   5. readOnly の行 (スキルのファイルタブ) に導線が残る、または既存 2 画面が readOnly になる
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
@@ -20,30 +19,26 @@ function read(relativePath: string): string {
  * EntryRow のディレクトリ行 (分岐の先頭) / ファイル行 / 右端の共通部 (EntryRowActions) を切り出す。
  * 共通部は両行の外に置くため、行の断片に定義が混ざらないよう行ごとに切る。
  */
-function entryRowSections(): { dir: string; file: string; actions: string; button: string } {
+function entryRowSections(): { dir: string; file: string; actions: string; slot: string } {
   const source = read("src/components/FileBrowser.tsx");
   const dirStart = source.indexOf('if (entry.type === "dir")');
   const fileStart = source.indexOf("const isSelected = selected === path;");
   const actionsStart = source.indexOf("export function EntryRowActions");
-  const buttonStart = source.indexOf("/** 行のリネームボタン");
+  const slotStart = source.indexOf("function EmptySlot");
   const end = source.indexOf("function MessageRow");
   assert.ok(
-    dirStart >= 0 &&
-      fileStart > dirStart &&
-      actionsStart > fileStart &&
-      buttonStart > actionsStart &&
-      end > buttonStart,
+    dirStart >= 0 && fileStart > dirStart && actionsStart > fileStart && slotStart > actionsStart && end > slotStart,
     "FileBrowser.tsx からディレクトリ行 / ファイル行 / 右端の共通部を切り出せない",
   );
   return {
     dir: source.slice(dirStart, fileStart),
     file: source.slice(fileStart, actionsStart),
-    actions: source.slice(actionsStart, buttonStart),
-    button: source.slice(buttonStart, end),
+    actions: source.slice(actionsStart, slotStart),
+    slot: source.slice(slotStart, end),
   };
 }
 
-test("ディレクトリ行とファイル行は同じ形の時刻と末尾スロットを持つ", () => {
+test("ディレクトリ行とファイル行は同じ形の時刻と ⋯ を持つ", () => {
   const { dir, file } = entryRowSections();
   for (const [label, row] of [
     ["ディレクトリ", dir],
@@ -56,17 +51,23 @@ test("ディレクトリ行とファイル行は同じ形の時刻と末尾ス�
       row.includes("flex-wrap items-center gap-x-1.5 gap-y-1 rounded-lg pr-2 pl-(--tree-indent)"),
       `${label}行の余白 (gap / pr / 折り返し) が変わった`,
     );
-    // 行の末尾は時刻 → 右端のスロット (リネーム / ゴミ箱 / symlink 用の空スペーサー)
+    // 行の末尾は時刻 → ⋯ (1 スロット)。項目の有無は EntryRowActions が決める
     assert.ok(row.includes("<EntryRowActions"), `${label}行に右端のスロットが無い`);
     assert.ok(
       row.indexOf("<EntryTime") < row.indexOf("<EntryRowActions"),
       `${label}行の時刻が末尾スロットより後ろにある`,
     );
-    // 削除の導線は通常ファイルとディレクトリの行に出す (symlink は共通部が EmptySlot へ落とす)
+    // 行が組み立てたパスと名前を、メニューのハンドラ (削除 / リネーム / ダウンロード) へ渡す
     assert.ok(
       row.includes("onDelete={() => onDelete(path, entry.type)}"),
       `${label}行の削除が種類ごとの入口へ渡っていない`,
     );
+    assert.ok(row.includes("onRename={() => onRename(path, entry.name)}"), `${label}行のリネームが渡っていない`);
+    assert.ok(
+      row.includes("onDownload={() => onDownload(path, entry.name, entry.type)}"),
+      `${label}行のダウンロードが渡っていない`,
+    );
+    assert.ok(row.includes("readOnly={readOnly}"), `${label}行が readOnly を渡していない`);
   }
 });
 
@@ -84,70 +85,43 @@ test("ディレクトリ行の時刻は開閉の button の外に出す", () => 
   );
 });
 
-test("行の右端は ダウンロード / リネーム / 削除 を同じ条件で出し、残りは空スペーサーへ落とす", () => {
-  const { actions } = entryRowSections();
-  // ダウンロードは symlink と除外名以外、リネームはフォルダ行だけ、削除は symlink 以外に出し、残りは空スペーサーへ落とす
-  assert.match(
-    actions,
-    /const downloadable = !symlink && !isArchiveExcludedName\(name, excludeNames\);/,
-    "ダウンロードの条件が変わった",
-  );
-  assert.match(actions, /const renamable = canRename && type === "dir" && !symlink;/, "リネームの条件が変わった");
-  assert.match(actions, /const deletable = !symlink;/, "削除の条件が変わった");
-  assert.ok(actions.includes("{downloadable ?"), "ダウンロードのスロットが downloadable で分岐していない");
+test("行の右端は ⋯ 1 個で、項目が無い行だけ空きスロットへ落とす", () => {
+  const { actions, slot } = entryRowSections();
+  // 出し分けは lib/fileRowMenu.ts の純関数が正 (条件は fileRowMenu.test.ts が固定する)。
+  // ここでは描画側がその結果を ⋯ と空きスロットへ振り分けることだけを見る
+  assert.match(actions, /const actions = fileRowActions\(/, "出し分けを純関数へ出していない");
+  assert.ok(actions.includes("if (actions === null) return null;"), "readOnly で行の操作を消していない");
   assert.ok(
-    actions.indexOf("{downloadable ?") < actions.indexOf("{canRename ?") &&
-      actions.indexOf("{canRename ?") < actions.indexOf("{deletable ?"),
-    "ダウンロード → リネーム → 削除 の順になっていない",
+    actions.includes("if (actions.length === 0) return <EmptySlot />;"),
+    "項目 0 の行を空きスロットへ落としていない",
   );
-  assert.ok(actions.includes("{canRename ?"), "リネームのスロットが canRename で分岐していない");
-  assert.ok(actions.includes("{deletable ?"), "削除のスロットが deletable で分岐していない");
+  assert.ok(actions.includes("<RowMenu name={name} actions={actions}"), "⋯ のメニューへ繋いでいない");
+  assert.ok(actions.includes("onSelect={(kind) => handlers[kind]()}"), "種別でハンドラを引いていない");
+  // 行ごとにスロットが増えない (⋯ は常に 1 個)
+  assert.ok(!actions.includes("downloadable"), "以前のスロット分岐が残っている");
+  assert.ok(!actions.includes("{canRename ?"), "以前のスロット分岐が残っている");
+  for (const [label, source] of [
+    ["空きスロット", slot],
+    ["⋯", read("src/components/RowMenu.tsx")],
+  ] as const) {
+    assert.match(
+      source,
+      /className="(grid )?size-6 shrink-0( place-items-center)?/,
+      `${label}がボタンと同じ size-6 でない`,
+    );
+  }
+  assert.match(slot, /aria-hidden/, "空きスロットが読み上げの対象になる");
 });
 
-test("読み取り専用の面では行の操作ごと消す", () => {
-  const { dir, file, actions } = entryRowSections();
-  for (const [label, row] of [
-    ["ディレクトリ", dir],
-    ["ファイル", file],
-  ] as const) {
-    assert.ok(row.includes("readOnly={readOnly}"), `${label}行が readOnly を渡していない`);
-  }
-  // 条件で分岐を残すと空スペーサーだけが出る。行の操作ごと落とす
-  assert.match(actions, /if \(readOnly\) return null;/, "readOnly で行の操作を消していない");
+test("読み取り専用の面では行の操作ごと消し、既存 2 画面は既定のまま", () => {
+  const { actions } = entryRowSections();
+  // 条件で分岐を残すと空スペーサーだけが出る。純関数が null を返し、行の操作ごと落とす
+  assert.match(read("src/lib/fileRowMenu.ts"), /if \(readOnly\) return null;/, "readOnly で行の操作を消していない");
+  assert.ok(actions.includes("if (actions === null) return null;"), "null を描画側で受けていない");
   // 既存 2 画面 (設定 → ファイル / チャット右パネル) は readOnly を渡さない (既定 false のまま)
   for (const screen of ["src/components/FileTreePage.tsx", "src/components/SessionFilesPanel.tsx"]) {
     assert.ok(!read(screen).includes("readOnly"), `${screen} が readOnly を渡している`);
   }
-});
-
-test("末尾スロットは ダウンロード / リネーム / ゴミ箱 / 空スペーサーで同じ 24px 幅", () => {
-  const { actions, button } = entryRowSections();
-  const downloadStart = actions.indexOf("function DownloadRowButton");
-  assert.ok(downloadStart >= 0, "ダウンロードボタンを切り出せない");
-  const download = actions.slice(downloadStart);
-  assert.match(download, /className="grid size-6 shrink-0 place-items-center/, "ダウンロードボタンが size-6 でない");
-  assert.match(
-    download,
-    /aria-label=\{directory \? `\$\{name\} を ZIP でダウンロード` : `\$\{name\} をダウンロード`\}/,
-    "ダウンロードボタンに読み上げ名が無い",
-  );
-  assert.match(
-    download,
-    /title=\{directory \? "ZIP でダウンロード（ビルド成果物と依存を除く）" : "ダウンロード"\}/,
-    "除外の開示がツールチップに無い",
-  );
-  assert.match(button, /className="grid size-6 shrink-0 place-items-center/, "右端のボタンが size-6 でない");
-  assert.match(button, /aria-label=\{`\$\{name\} の名前を変更`\}/, "リネームボタンに読み上げ名が無い");
-  assert.match(button, /title="名前を変更"/, "リネームボタンに title が無い");
-  assert.match(button, /aria-label=\{`\$\{name\} を削除`\}/, "削除ボタンに読み上げ名が無い");
-  assert.match(button, /title="削除"/, "削除ボタンに title が無い");
-  const source = read("src/components/FileBrowser.tsx");
-  const start = source.indexOf("function EmptySlot");
-  const end = source.indexOf("function EntryTime");
-  assert.ok(start >= 0 && end > start, "EmptySlot を切り出せない");
-  const emptySlot = source.slice(start, end);
-  assert.match(emptySlot, /className="size-6 shrink-0"/, "空スペーサーがボタンと同じ size-6 でない");
-  assert.match(emptySlot, /aria-hidden/, "空スペーサーが読み上げの対象になる");
 });
 
 test("削除のハンドラは種類ごとにサンドボックスの入口と confirm を分ける", () => {

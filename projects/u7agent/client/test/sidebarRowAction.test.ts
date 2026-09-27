@@ -72,7 +72,7 @@ test("セッション行の削除は × ではなくゴミ箱で、読み上げ�
   for (const file of [
     "src/components/agent-settings/AgentEditorForm.tsx",
     "src/components/skill-settings/SkillEditorForm.tsx",
-    "src/components/FileBrowser.tsx",
+    "src/components/RowMenu.tsx",
   ]) {
     assert.ok(read(file).includes("<TrashIcon />"), `${file} の削除がゴミ箱でない`);
   }

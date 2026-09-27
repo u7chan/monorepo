@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import type { ReactNode, Ref } from "react";
 import { cn } from "../lib/cn";
 
 export type MenuItemProps = {
@@ -20,6 +20,12 @@ export type MenuItemProps = {
    * (選択中の行では塗りの上で読める on-accent へ切り替える)。
    */
   trailing?: ReactNode;
+  /** 破壊的な操作の行。ホバーを待たず文字色で示す */
+  danger?: boolean;
+  /** メニューの項目にするときは "menuitem" (移動は親の role="menu" が担うので tabIndex は -1 にする) */
+  role?: "menuitem";
+  tabIndex?: number;
+  ref?: Ref<HTMLButtonElement>;
   onClick: () => void;
 };
 
@@ -28,6 +34,7 @@ const TONE = {
   "nav-active": "bg-accent text-on-accent",
   "list-active": "bg-accent-wash text-accent-text",
   idle: "text-ink hover:bg-hover",
+  danger: "text-danger-text hover:bg-hover",
 } as const;
 
 const ICON_TONE = {
@@ -35,6 +42,7 @@ const ICON_TONE = {
   "nav-active": "text-on-accent",
   "list-active": "text-accent-text",
   idle: "text-ink-soft",
+  danger: "text-danger-text",
 } as const;
 
 /**
@@ -49,13 +57,20 @@ export function MenuItem({
   selected = false,
   current,
   trailing,
+  danger = false,
+  role,
+  tabIndex,
+  ref,
   onClick,
 }: MenuItemProps) {
   const active = selected && variant !== "add";
-  const tone = variant === "add" ? "add" : active ? (`${variant}-active` as const) : "idle";
+  const tone = variant === "add" ? "add" : active ? (`${variant}-active` as const) : danger ? "danger" : "idle";
   return (
     <button
       type="button"
+      ref={ref}
+      role={role}
+      tabIndex={tabIndex}
       aria-current={active ? current : undefined}
       onClick={onClick}
       className={cn(
