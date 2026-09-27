@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type CSSProperties } from "react";
+import type { CreateProjectInput } from "./api";
 import { AgentSettingsPage } from "./components/AgentSettingsPage";
 import { AppearancePage } from "./components/AppearancePage";
 import { ArchiveSettingsPage } from "./components/ArchiveSettingsPage";
@@ -169,9 +170,9 @@ export default function App() {
   // 表示中のセッション。エージェント切替で引き継ぐ作業先 (所属) の解決にも使う
   const activeSession = app.sessions.find((item) => item.sessionId === app.sessionId);
 
-  // 利用者操作の新規会話の入口をここへ寄せる (サイドバー / ドロワー / エージェント切替)。
-  // 作成先はプロジェクト行の ＋ が渡したときだけプロジェクトになり、それ以外は未所属
-  // (最後に開いたプロジェクトを引き継がない)。既定 (プロジェクト配下なら開) の適用はこの入口だけ
+  // 利用者操作の新規会話の入口をここへ寄せる (サイドバー / ドロワー / エージェント切替 / プロジェクトの追加)。
+  // 作成先はプロジェクトを指定する導線 (プロジェクト行の ＋ / 追加の成功後) が渡したときだけプロジェクトになり、
+  // それ以外は未所属 (最後に開いたプロジェクトを引き継がない)。既定 (プロジェクト配下なら開) の適用はこの入口だけ
   const handleNewChat = useCallback(
     (agentId?: string, projectId?: string) => {
       const target = projectId ?? "";
@@ -188,6 +189,17 @@ export default function App() {
       handleNewChat(agentId, app.sessionId === "" ? app.selectedProjectId : (activeSession?.projectId ?? ""));
     },
     [activeSession, app, handleNewChat],
+  );
+
+  // プロジェクトの追加も「そのディレクトリで作業を始める」入口なので、成功後は ＋ と同じ新規会話へ入る。
+  // 選ぶのは一覧への反映後 (先に選ぶと、一覧に無い id として未所属へ戻され得る)
+  const handleCreateProject = useCallback(
+    async (input: CreateProjectInput) => {
+      const project = await app.createProject(input);
+      handleNewChat(undefined, project.id);
+      return project;
+    },
+    [app, handleNewChat],
   );
 
   const refreshCatalog = useCallback(async () => {
@@ -444,7 +456,7 @@ export default function App() {
       {/* overlay の左バーは docked の Sidebar と排他にする (docked へ戻ったフレームで両方を描かない) */}
       {navOpen && !sidebarDocked ? <NavSheet {...drawerProps} onClose={closeNav} /> : null}
       {projectDialogOpen ? (
-        <ProjectDialog compact={compact} onClose={closeProjectDialog} onCreate={app.createProject} />
+        <ProjectDialog compact={compact} onClose={closeProjectDialog} onCreate={handleCreateProject} />
       ) : null}
     </div>
   );

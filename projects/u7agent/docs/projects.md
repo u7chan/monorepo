@@ -15,7 +15,7 @@
 
 未所属チャットは現行どおり `<root>/<appdir>/sessions/<id>` のスクラッチを使う。添付ファイルは所属に関係なく `<root>/<appdir>/uploads/<sessionId>/` に置き、プロジェクト所属でもリポジトリ内には作らない。モデルへは注記で絶対パスを渡し、ファイル画面には出ない（[session-files.md](session-files.md#添付ファイルチャットからのアップロード)）。
 
-プロジェクト所属セッションを作る入口は、サイドバーのプロジェクト行の ＋（このプロジェクトに新しい会話）だけ。サイドバーの「新しい会話」と起動・リロード後の新規会話は常に未所属で、最後に開いたプロジェクトを引き継がない（[ui-layout.md](ui-layout.md#作成先)）。
+プロジェクト所属セッションを作る入口は、サイドバーのプロジェクト行の ＋（このプロジェクトに新しい会話）と、プロジェクトの追加（`ProjectDialog`。新規作成 / 既存登録の成功後にそのプロジェクトの新規会話へ入る）。サイドバーの「新しい会話」と起動・リロード後の新規会話は常に未所属で、最後に開いたプロジェクトを引き継がない（[ui-layout.md](ui-layout.md#作成先)）。
 
 所属プロジェクトは `projectCwd` / `projectName` として会話ストアの meta に保存し、`SessionPayload.cwd` / `SessionSummary.projectId` は root 相対の作業フォルダと、読み取り時に `ProjectStore.findByCwd(projectCwd)` で解決した所属から組み立てる。所属を後から変える API は無い。SDK セッションへは `createAgentSession({ cwd })` / `SessionManager.inMemory(cwd, ...)` として作業フォルダを渡し、実行時のパス解決の起点にする。
 

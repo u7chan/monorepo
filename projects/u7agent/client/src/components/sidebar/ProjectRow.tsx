@@ -29,7 +29,7 @@ export function ProjectRow({
 }) {
   return (
     <div className="grid gap-1">
-      {/* 行のクリックは折りたたみのトグル。選択ハイライトは持たず (作成先は ＋ が明示する)、
+      {/* 行のクリックは折りたたみのトグル。選択ハイライトは持たず (作成先は ＋ と追加の成功後が明示する)、
           開いているセッションの行だけを強調する */}
       <div className="group flex min-h-10.5 items-center gap-1 rounded-lg border border-transparent pr-1.5 transition-colors hover:bg-hover">
         <button
