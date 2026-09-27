@@ -1,6 +1,6 @@
 // 設定 → ランタイムの初期描画。client に DOM テスト基盤が無いため、react-dom/server の静的描画で
 // 接続状態 / 実行環境 / 利用可能なコマンドのセクションが出て、モデル解決が撤去されたことを固定する
-// (取得後の状態は lib/runtimeEnvironment の純関数テストが担う)。
+// (取得後の状態とコピー本文は lib/runtimeEnvironment の純関数テストが担う)。
 // 表示専用の画面なので、編集するプロバイダー認証とカタログは出さない (設定 → モデルが持つ)。
 
 import assert from "node:assert/strict";
@@ -49,6 +49,7 @@ test("renders the connection, environment and command sections in order", () => 
   assert.ok(html.includes("設定済み"), "sandboxConfigured を出す");
   assert.ok(html.includes("実行環境を取得しています。"), "取得中の状態を出す");
   assert.ok(html.includes("再読み込み"), "再読み込みボタンを出す");
+  assert.ok(html.includes('aria-label="診断情報をコピー"'), "一括コピーのボタンを出す");
   assert.ok(html.includes("disabled"), "取得が settled するまでボタンを処理中にする");
   assert.ok(html.includes("pi-coding-agent: 0.87.1"), "SDK バージョンは接続状態に残す");
   assert.ok(!html.includes("モデル解決"), "モデル解決は health の診断ごと撤去した");
