@@ -2,10 +2,10 @@
 // client に DOM テスト基盤が無いため、バーと空状態の描画は react-dom/server、配線はソース走査で固定する。
 //   1. 既定オープン (プロジェクト配下なら開) を適用するのは App の handleNewChat だけ。
 //      起動時は常に未所属の新規会話なので閉で、派生 state (projects 一覧の到着や root の解決) を契機にしない
-//   2. 作成先はプロジェクト行の ＋ だけが決める。サイドバーの「新しい会話」と起動は未所属、
-//      エージェント切替は今見ている会話の作業先を引き継ぐ
-//   3. サイドバー / ドロワー / エージェント切替の 3 入口は handleNewChat を通り、useSessions の
-//      内部フォールバック (newChat の直接呼び出し 6 箇所) は通らない
+//   2. 作成先はプロジェクトを指定する入口 (プロジェクト行の ＋ / プロジェクトの追加) だけが決める。
+//      サイドバーの「新しい会話」と起動は未所属、エージェント切替は今見ている会話の作業先を引き継ぐ
+//   3. サイドバー / ドロワー / エージェント切替 / プロジェクトの追加の 4 入口は handleNewChat を通り、
+//      useSessions の内部フォールバック (newChat の直接呼び出し 6 箇所) は通らない
 //   4. compact のシートは Effect ではなく描画中の同期で閉じ、監視キーは compact / mainView / filesRoot
 //      (route オブジェクト全体は比べない)
 //   5. 作業フォルダの閉じる導線は押した面だけを閉じる (シートの close が desktop のパネルを閉じない)
@@ -120,7 +120,7 @@ test("既定オープンを適用するのは handleNewChat だけ (起動時は
   );
 });
 
-test("作成先はプロジェクト行の ＋ でだけ決まる (「新しい会話」と起動は未所属)", () => {
+test("作成先はプロジェクトを指定する入口でだけ決まる (「新しい会話」と起動は未所属)", () => {
   const projects = read("src/hooks/useProjects.ts");
   const sidebar = read("src/components/Sidebar.tsx");
   const projectRow = read("src/components/sidebar/ProjectRow.tsx");
@@ -136,7 +136,7 @@ test("作成先はプロジェクト行の ＋ でだけ決まる (「新しい�
     "プロジェクト行の ＋ がプロジェクトを渡していない",
   );
   assert.ok(!sidebar.includes("selectProject"), "サイドバーが作成先を選択している");
-  // プロジェクト作成は作成先を変えない (作成した直後の送信先が新規プロジェクトに化けない)
+  // フックは一覧へ反映するだけで、作成先は触らない (作成先を移すのは App の入口ラッパー)
   const createProject = projects.slice(
     projects.indexOf("const createProject = useCallback("),
     projects.indexOf("const deleteProject = useCallback("),
@@ -161,10 +161,33 @@ test("作成先はプロジェクト行の ＋ でだけ決まる (「新しい�
   );
 });
 
-test("新規会話の 3 入口は handleNewChat を通り、内部フォールバックは通らない", () => {
+test("プロジェクトの追加は、成功後にそのプロジェクトを作成先にした新規会話へ入る", () => {
+  // 追加の入口ラッパー (App) が dialog に渡り、一覧への反映後に handleNewChat を通る
+  assert.equal(
+    /onCreate=\{(\w+)\}/.exec(jsxProps(app, "ProjectDialog"))?.[1],
+    "handleCreateProject",
+    "追加 dialog の onCreate が入口ラッパーではない",
+  );
+  const wrapper = app.slice(
+    app.indexOf("const handleCreateProject = useCallback("),
+    app.indexOf("const refreshCatalog = useCallback("),
+  );
+  assert.ok(wrapper.includes("const handleCreateProject"), "追加の入口ラッパーの実装が見つからない");
+  assert.ok(wrapper.includes("await app.createProject(input)"), "ラッパーが作成の完了を待っていない");
+  // 選ぶのは一覧への反映後 (先に選ぶと、一覧に無い id として未所属へ戻され得る)
+  assert.ok(
+    wrapper.indexOf("await app.createProject(input)") < wrapper.indexOf("handleNewChat(undefined, project.id)"),
+    "ラッパーが作成の完了前に新規会話を開いている",
+  );
+  // 失敗 (createProject の throw) は握りつぶさず dialog のフォームへ返す (会話表示を変えない)
+  assert.ok(!wrapper.includes("catch"), "ラッパーが作成の失敗を握りつぶしている");
+});
+
+test("新規会話の 4 入口は handleNewChat を通り、内部フォールバックは通らない", () => {
   assert.ok(app.includes("newChat: handleNewChat,"), "docked の Sidebar が handleNewChat を通っていない");
   assert.ok(app.includes("handleNewChat(agentId, projectId);"), "ドロワーの入口が handleNewChat を通っていない");
   assert.ok(app.includes("handleNewChat(agentId,"), "エージェント切替が handleNewChat を通っていない");
+  assert.ok(app.includes("handleNewChat(undefined, project.id)"), "プロジェクトの追加が handleNewChat を通っていない");
   assert.equal((app.match(/app\.newChat\(/g) ?? []).length, 1, "handleNewChat 以外から newChat を呼んでいる");
   // 内部フォールバック (開けない / 削除 / SSE 閉鎖 / リンク解決失敗) は useSessions が直接呼ぶ
   assert.equal(
