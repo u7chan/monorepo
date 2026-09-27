@@ -1,18 +1,16 @@
-import { useId, useState, type CSSProperties } from "react";
+import { useId, type CSSProperties } from "react";
 import { useElapsedMs } from "../../hooks/useElapsedMs";
 import { cn } from "../../lib/cn";
 import { formatElapsed } from "../../lib/elapsed";
 import { contextGauge } from "../../lib/usageFormat";
 import type { ContextUsage } from "../../types";
-import { CompactIcon, InfoIcon, RunSpinnerIcon } from "../icons";
-
-/** 圧縮の注意書き。押す前の不可逆性と課金を、hover に頼らず読める形で出す */
-const COMPACT_NOTE = "元のメッセージは GUI から戻せません。要約の生成にモデルの利用料金がかかります。";
+import { CompactIcon, RunSpinnerIcon } from "../icons";
 
 /**
  * 入力欄の上の状態行 (活動 / モデル / Context ゲージ)。
  * モデル名とゲージは 1 つの組にして右端へ寄せ、幅が足りないときだけ組ごと 2 行目へ折り返す
  * (別々に置くと、狭い画面で活動テキストが 1 文字幅まで潰れる。docs/ui-layout.md)。
+ * 圧縮の不可逆性と課金の注意は、押した時点の確認 (`App` の handleCompact) が担う。
  */
 export function ComposerStatus({
   activity,
@@ -38,11 +36,10 @@ export function ComposerStatus({
   /** 手動圧縮。セッションがあるときだけ渡す (未対応ランタイムはサーバーが 501 を返す) */
   onCompact?: () => void;
   compactDisabled?: boolean;
-  /** 押せない理由。note と同じ段落に載せ、aria-describedby でも読ませる */
+  /** 押せない理由。状態行の下に 1 行で出し、aria-describedby の参照先にもする */
   compactDisabledReason?: string;
 }) {
-  const [noteOpen, setNoteOpen] = useState(false);
-  const noteId = useId();
+  const reasonId = useId();
   const gauge = contextGauge(context);
   const elapsedMs = useElapsedMs(runningSince);
   const elapsed = elapsedMs === undefined ? null : formatElapsed(elapsedMs);
@@ -51,7 +48,8 @@ export function ComposerStatus({
   if (!showActivity && !gauge && !modelLabel && onCompact === undefined) return null;
   const gaugeColor =
     gauge?.level === "danger" ? "text-danger-text" : gauge?.level === "warn" ? "text-warn" : "text-ink-faint";
-  const note = compactDisabled && compactDisabledReason ? `${COMPACT_NOTE}（${compactDisabledReason}）` : COMPACT_NOTE;
+  // 押せない理由は状態行の下に 1 行で出す (押せない間の説明を hover だけに閉じると、タッチ端末で読めない)
+  const compactBlocked = onCompact !== undefined && compactDisabled && compactDisabledReason !== undefined;
 
   return (
     <>
@@ -104,37 +102,25 @@ export function ComposerStatus({
             </span>
           ) : null}
           {onCompact === undefined ? null : (
-            <span className="flex shrink-0 items-center">
-              <button
-                type="button"
-                onClick={onCompact}
-                disabled={compactDisabled}
-                aria-label="会話を圧縮"
-                aria-describedby={noteId}
-                title="会話を圧縮（元のメッセージには戻せません）"
-                className="composer-status-icon"
-              >
-                <CompactIcon />
-              </button>
-              {/* 注意書きは hover に頼らずタップで開ける (読み上げには describedby で常に渡す) */}
-              <button
-                type="button"
-                onClick={() => setNoteOpen((open) => !open)}
-                aria-expanded={noteOpen}
-                aria-label="圧縮の注意"
-                className="composer-status-icon"
-              >
-                <InfoIcon />
-              </button>
-            </span>
+            <button
+              type="button"
+              onClick={onCompact}
+              disabled={compactDisabled}
+              aria-label="会話を圧縮"
+              aria-describedby={compactBlocked ? reasonId : undefined}
+              className="composer-status-icon"
+            >
+              <CompactIcon />
+            </button>
           )}
         </span>
       </div>
-      {onCompact === undefined ? null : (
-        <p id={noteId} className={cn("m-0 px-1 pb-1 text-2xs break-words text-ink-ghost", noteOpen ? "" : "sr-only")}>
-          {note}
+      {compactBlocked ? (
+        // 押せない理由を、押した行の真下に出す (ボタンは右端なので右寄せにする)
+        <p id={reasonId} className="m-0 px-1 pb-1 text-right text-2xs break-words text-ink-ghost">
+          今は圧縮できません（{compactDisabledReason}）
         </p>
-      )}
+      ) : null}
     </>
   );
 }

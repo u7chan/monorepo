@@ -26,6 +26,7 @@ import { useViewportWidth } from "./hooks/useViewportWidth";
 import { agentIconOf } from "./lib/agentIcon";
 import { chatScope } from "./lib/chatScope";
 import { cn } from "./lib/cn";
+import { compactConfirmMessage } from "./lib/compaction";
 import { fileRefRequestForSession } from "./lib/fileRefRequest";
 import { resolveSidebarPlacement, SIDEBAR_WIDTH } from "./lib/layout";
 import {
@@ -153,6 +154,8 @@ export default function App() {
   }, [app]);
 
   const handleCompact = useCallback(() => {
+    // 戻せない操作なので、押した時点で不可逆性と課金を確認する (状態行に注意書きを開く導線は置かない)
+    if (!window.confirm(compactConfirmMessage())) return;
     void app.compactSession();
   }, [app]);
 

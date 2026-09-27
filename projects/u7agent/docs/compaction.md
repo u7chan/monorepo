@@ -25,7 +25,7 @@ pi SDK はコンテキストが上限に近づくと会話を自動で compactio
 
 ## 手動圧縮
 
-`ComposerStatus` の Context ゲージの右の圧縮ボタンから `POST /api/sessions/:id/compact` を呼ぶ。SDK の `AgentSession.compact()` は run の外（idle のとき）からしか呼べず、BFF は run 中しか SDK を subscribe していないため、手動経路の listener は `SessionStore` が `compaction_end` の間だけ持つ（`SessionStore.compact()`）。確認ダイアログは出さず、不可逆性と課金の注意は状態行の「圧縮の注意」で示す。
+`ComposerStatus` の Context ゲージの右の圧縮ボタンから `POST /api/sessions/:id/compact` を呼ぶ。SDK の `AgentSession.compact()` は run の外（idle のとき）からしか呼べず、BFF は run 中しか SDK を subscribe していないため、手動経路の listener は `SessionStore` が `compaction_end` の間だけ持つ（`SessionStore.compact()`）。不可逆性（元のメッセージは GUI から戻せない）と課金は、押した時点の確認で示す（`App` の `handleCompact` が `window.confirm` で `client/src/lib/compaction.ts` の `compactConfirmMessage()` を出し、取り消したときは要求を出さない。注意を開く専用のボタンは状態行に置かない）。
 
 ### 実行できるかどうかは総量では決まらない
 
@@ -124,9 +124,9 @@ pnpm check   # lint → format:check → 型チェック → テスト → ク�
 
 - `server/test/compaction.test.ts` — auto / 手動の両方を通す。stub の `compact()` で `compaction_start` / `compaction_end` を発火させ、payload（要約の分離・`beforeMessageIndex`・複数回・`firstKeptEntryId` が metadata entry を指す場合・マスク）と SSE イベントを固定する。手動は開始 `resync` → `compaction` → 終端 `resync` → `status` の順序、400 / 409 / 500 の分類、二重 POST・`updateSettings`・`stop` との競合、保存待ちの割り込み、削除中 / close 中の抑止、永続化と保存失敗、キューと pump を固定する。実 API は呼ばない
 - `server/test/compaction-cut.test.ts` — SDK 公開の `findCutPoint` / `estimateTokens` で、上表のカット可否を固定する（実 API は呼ばない）
-- `client/test/compaction.test.ts` — 区切り / 要約一覧のラベル整形を純関数として固定する（DOM は使わない）
+- `client/test/compaction.test.ts` — 区切り / 要約一覧のラベル整形と手動圧縮の確認文言を純関数として固定し、確認してから要求を出す順序をソース走査で固定する（DOM は使わない）
 - `client/test/chatReducer.test.ts` — `compaction` の取り込み、`resync` からの compacting / 開始時刻 / activity の導出と終端での解除、圧縮中の `queued`、run をまたぐ解除を固定する
-- `client/test/composerStatus.test.ts` / `client/test/composerSettings.test.ts` / `client/test/sessionActions.test.ts` — ボタンの配置と活性条件、注意書きの導線、同期応答の操作世代ガードを固定する
+- `client/test/composerStatus.test.ts` / `client/test/composerSettings.test.ts` / `client/test/sessionActions.test.ts` — ボタンの配置と活性条件、押せないときの理由、同期応答の操作世代ガードを固定する
 
 ### 実 API での目視（低コスト・任意）
 

@@ -1,7 +1,11 @@
 // 圧縮位置の区切りと要約一覧の整形。locale に依存しない純関数なので境界値を固定値で検証する。
+// 手動圧縮の確認文言と、押してから要求を出す順序はソース走査で固定する。
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import test from "node:test";
 import {
+  compactConfirmMessage,
   compactionDividerIndex,
   compactionDividerLabel,
   compactionHistoryLabel,
@@ -9,6 +13,10 @@ import {
   compactionSummaryHeading,
 } from "../src/lib/compaction";
 import type { CompactionInfo } from "../src/types";
+
+function read(relativePath: string): string {
+  return readFileSync(fileURLToPath(new URL(`../${relativePath}`, import.meta.url)), "utf8");
+}
 
 function compaction(overrides: Partial<CompactionInfo> = {}): CompactionInfo {
   return {
@@ -73,4 +81,24 @@ test("区切りの index は最新の 1 件の beforeMessageIndex だけから�
     ]),
     4,
   );
+});
+
+// --- 手動圧縮の確認 ---
+
+test("手動圧縮の確認は、戻せないことと課金を押した時点で示す", () => {
+  const message = compactConfirmMessage();
+
+  assert.ok(message.includes("元のメッセージは GUI から戻せません"), "不可逆性を示す");
+  assert.ok(message.includes("利用料金"), "課金を示す");
+  assert.ok(message.includes("続けますか"), "同意を問う");
+});
+
+test("手動圧縮は確認してから要求を出す (取り消しでは何も送らない)", () => {
+  const source = read("src/App.tsx");
+  const confirm = source.indexOf("!window.confirm(compactConfirmMessage())");
+  const request = source.indexOf("app.compactSession()");
+
+  assert.ok(confirm >= 0, "文言は純関数から取り、ネイティブの confirm で確認する");
+  assert.ok(request > confirm, "確認より先に要求を出していない");
+  assert.equal((source.match(/app\.compactSession\(\)/g) ?? []).length, 1, "確認を通らない入口を App に残さない");
 });
