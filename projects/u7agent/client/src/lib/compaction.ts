@@ -8,6 +8,14 @@ const REASON_LABELS: Record<string, string> = {
   overflow: "上限超過",
 };
 
+/**
+ * 手動圧縮の確認文言。押した時点で不可逆性と課金を示す (状態行に注意書きを開く導線は置かない。
+ * 出す側は `App` の `handleCompact` で、`window.confirm` は DOM なしで検証できないため文言だけを切り出す)。
+ */
+export function compactConfirmMessage(): string {
+  return "会話を圧縮します。元のメッセージは GUI から戻せません。要約の生成にモデルの利用料金がかかります。続けますか？";
+}
+
 export function compactionReasonLabel(reason?: string): string | undefined {
   if (!reason) return undefined;
   return REASON_LABELS[reason] ?? reason;

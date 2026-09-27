@@ -77,13 +77,11 @@ test("描画: セッションがあると Context ゲージの右に圧縮ボタ
   const gaugeIndex = html.indexOf('aria-label="コンテキスト使用量"');
   const compactIndex = html.indexOf('aria-label="会話を圧縮"');
   assert.ok(gaugeIndex >= 0 && compactIndex > gaugeIndex, "モデル名 + ゲージと同じ組の右端に置く");
-  assert.ok(html.includes('aria-label="圧縮の注意"'), "タップで開ける補足を持つ");
-  // 注意書きは hover に頼らず DOM に出し、aria-describedby からも読めるようにする
-  assert.ok(html.includes("元のメッセージは GUI から戻せません"));
   assert.ok(html.includes("composer-status-icon"), "36px の .icon-button ではなく状態行用の小さい variant");
-  const described = /aria-describedby="([^"]+)"/.exec(html)?.[1];
-  assert.ok(described, "押す前に注意書きを読み上げへ渡す");
-  assert.ok(html.includes(`id="${described}"`), "describedby の参照先が存在する");
+  // 押す前に読ませる補足は置かない。不可逆性と課金は押した時点の確認 (window.confirm) が示す
+  assert.ok(!html.includes("圧縮の注意"), "注意を開く専用のボタンを並べない");
+  assert.ok(!html.includes("元のメッセージは GUI から戻せません"), "状態行に注意書きを出さない");
+  assert.ok(!html.includes("aria-describedby"), "押せるときは補足の文を持たない");
   assert.ok(!html.includes("disabled"), "idle では押せる");
 });
 
@@ -94,14 +92,14 @@ test("描画: ゲージが無くても (SDK 未対応) セッションがあれ�
   assert.ok(html.includes('aria-label="会話を圧縮"'));
 });
 
-test("描画: 未作成チャット (onCompact なし) では圧縮ボタンも注意書きも出さない", () => {
+test("描画: 未作成チャット (onCompact なし) では圧縮ボタンも押せない理由も出さない", () => {
   const html = render({ activity: "", context, model: "zai/glm-5.3-flash", modelLabel: "GLM-5.3 Flash" });
 
   assert.ok(!html.includes("会話を圧縮"));
-  assert.ok(!html.includes("元のメッセージは GUI から戻せません"));
+  assert.ok(!html.includes("今は圧縮できません"));
 });
 
-test("描画: 押せないときは disabled と理由を注意書きに載せる", () => {
+test("描画: 押せないときは disabled にし、理由を title と sr-only の文で示す", () => {
   const html = render({
     activity: "会話を整理中…",
     context,
@@ -113,5 +111,10 @@ test("描画: 押せないときは disabled と理由を注意書きに載せ�
   });
 
   assert.ok(html.includes('disabled=""'));
-  assert.ok(html.includes("（圧縮中）"), "押せない理由を hover 以外でも読める形で出す");
+  // 行を増やさずに理由を読める形で残す (hover と、DOM を読む読み上げの両方)
+  assert.ok(html.includes('title="会話を圧縮（今はできません: 圧縮中）"'), "hover で理由を出す");
+  const described = /aria-describedby="([^"]+)"/.exec(html)?.[1];
+  assert.ok(described, "読み上げへ理由を渡す");
+  assert.ok(html.includes(`id="${described}"`), "describedby の参照先が存在する");
+  assert.ok(html.includes("今は圧縮できません（圧縮中）"));
 });
