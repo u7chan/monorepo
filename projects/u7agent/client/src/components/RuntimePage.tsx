@@ -1,16 +1,30 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { cn } from "../lib/cn";
 import { getRuntimeEnvironment } from "../api";
+import { useMessageCopy } from "../hooks/useMessageCopy";
 import {
   createRuntimeReloadGate,
+  HEALTH_RELOAD_FAILED_MESSAGE,
   reloadRuntime,
+  RUNTIME_COMMANDS_EMPTY,
+  RUNTIME_COMMANDS_FOOTNOTE,
+  RUNTIME_COMMANDS_LOADING,
+  RUNTIME_COMMANDS_UNAVAILABLE,
+  RUNTIME_ENVIRONMENT_ERROR_LEAD,
+  RUNTIME_ENVIRONMENT_LOADING,
+  RUNTIME_SECTION_TITLES,
   runtimeCommandRows,
-  runtimeEnvironmentSummary,
+  runtimeConnectionRows,
+  runtimeDiagnosticText,
+  runtimeEnvironmentRows,
+  runtimeEnvironmentStatusRow,
   runtimeFetchStateOf,
+  runtimeVersionRows,
   type RuntimeFetchState,
   type RuntimeReloadGate,
 } from "../lib/runtimeEnvironment";
 import type { Health, RuntimeEnvironmentResponse, RuntimeEnvironmentState } from "../types";
+import { CopyButton } from "./chat/CopyButton";
 import { RefreshIcon } from "./icons";
 import { SettingsPageLayout, type SettingsPageProps } from "./SettingsPageLayout";
 
@@ -33,6 +47,7 @@ export function RuntimePage({ health, onRefreshHealth, compact = false, onBack, 
   });
   const [healthFailed, setHealthFailed] = useState(false);
   const [pending, setPending] = useState(true);
+  const { copiedId, copyMessage } = useMessageCopy();
   const gateRef = useRef<RuntimeReloadGate | null>(null);
   if (gateRef.current === null) gateRef.current = createRuntimeReloadGate();
   const gate = gateRef.current;
@@ -62,9 +77,9 @@ export function RuntimePage({ health, onRefreshHealth, compact = false, onBack, 
     return () => gate.invalidate();
   }, [gate, runLoad]);
 
-  const versions = health?.versions;
   const environment = environmentState.status === "ready" ? environmentState.value : undefined;
   const commandRows = environment?.state === "connected" ? runtimeCommandRows(environment.commands) : [];
+  const diagnosticText = runtimeDiagnosticText({ health, healthFailed, environment: environmentState });
 
   return (
     <SettingsPageLayout
@@ -72,10 +87,17 @@ export function RuntimePage({ health, onRefreshHealth, compact = false, onBack, 
       title="ランタイム"
       caption="接続状態・実行環境・利用可能なコマンドの診断を表示します。設定の変更は行いません。"
       actions={
-        <button type="button" className="btn-quiet" onClick={() => void runLoad(true)} disabled={pending}>
-          <RefreshIcon />
-          再読み込み
-        </button>
+        <>
+          <CopyButton
+            copied={copiedId === "diagnostic"}
+            onClick={() => void copyMessage(diagnosticText, "diagnostic")}
+            label="診断情報をコピー"
+          />
+          <button type="button" className="btn-quiet" onClick={() => void runLoad(true)} disabled={pending}>
+            <RefreshIcon />
+            再読み込み
+          </button>
+        </>
       }
       compact={compact}
       onOpenNav={onOpenNav}
@@ -84,64 +106,47 @@ export function RuntimePage({ health, onRefreshHealth, compact = false, onBack, 
       <div className="min-h-0 min-w-0 scrollbar-thin overflow-x-hidden overflow-y-auto px-4 py-4">
         <div className="mx-auto grid max-w-4xl gap-3">
           <section className="grid gap-2 rounded-lg border border-line bg-soft p-3">
-            <h3 className="text-2xs font-semibold tracking-label text-ink-faint uppercase">接続状態</h3>
+            <h3 className="text-2xs font-semibold tracking-label text-ink-faint uppercase">
+              {RUNTIME_SECTION_TITLES.connection}
+            </h3>
             {healthFailed ? (
               <p role="alert" className="text-2xs text-danger-text">
-                接続状態を再取得できませんでした。前回の値を表示しています。
+                {HEALTH_RELOAD_FAILED_MESSAGE}
               </p>
             ) : null}
             <dl className="grid gap-2 text-xs sm:grid-cols-2">
-              <InfoItem
-                label="ランタイム"
-                value={health ? (health.ready ? "利用可能" : "利用できません") : "情報なし"}
-              />
-              <InfoItem
-                label="サンドボックス"
-                value={health ? (health.sandboxConfigured ? "設定済み" : "未設定") : "情報なし"}
-              />
-              <InfoItem
-                label="既定モデル"
-                value={health?.model ?? "指定なし"}
-                note="アプリの既定モデルです。会話中に使われている実効モデルではありません。"
-              />
-              <InfoItem label="作業ディレクトリ (cwd)" value={health?.cwd ?? "情報なし"} />
-              <InfoItem label="セッションストア" value={storeStatus(health?.sessionStore)} />
-              <InfoItem label="アプリ DB" value={dbStatus(health?.appDb)} />
+              {runtimeConnectionRows(health).map((row) => (
+                <InfoItem key={row.label} {...row} />
+              ))}
             </dl>
             <div className="grid gap-1 border-t border-line pt-2 text-2xs text-ink-muted">
-              <span>pi-coding-agent: {versions?.piCodingAgent ?? "情報なし"}</span>
-              {versions?.piAi ? <span>pi-ai: {versions.piAi}</span> : null}
-              {versions?.commitHash ? <span>COMMIT_HASH: {versions.commitHash}</span> : null}
+              {runtimeVersionRows(health).map((row) => (
+                <span key={row.label}>
+                  {row.label}: {row.value}
+                </span>
+              ))}
             </div>
           </section>
 
           <section className="grid gap-2 rounded-lg border border-line bg-soft p-3">
             <h3 className="text-2xs font-semibold tracking-label text-ink-faint uppercase">
-              実行環境（サンドボックス側）
+              {RUNTIME_SECTION_TITLES.environment}
             </h3>
             {environmentState.status === "loading" ? (
               <p role="status" className="text-xs text-ink-muted">
-                実行環境を取得しています。
+                {RUNTIME_ENVIRONMENT_LOADING}
               </p>
             ) : environmentState.status === "error" ? (
               <p role="alert" className="text-xs text-danger-text">
-                実行環境を取得できませんでした。{environmentState.message}
+                {RUNTIME_ENVIRONMENT_ERROR_LEAD}
+                {environmentState.message}
               </p>
             ) : environmentState.value.state === "connected" ? (
               <dl className="grid gap-2 text-xs sm:grid-cols-2">
                 <EnvironmentStatusItem state="connected" />
-                <InfoItem label="OS" value={environmentState.value.environment.os} />
-                <InfoItem label="アーキテクチャ" value={environmentState.value.environment.arch} />
-                <InfoItem
-                  label="実行ユーザー"
-                  value={`${environmentState.value.environment.user}（${environmentState.value.environment.isRoot ? "root" : "非 root"}）`}
-                  note={
-                    environmentState.value.environment.isRoot
-                      ? "root で動いています。コンテナ外への影響を避けるため、非 root 実行を推奨します。"
-                      : undefined
-                  }
-                />
-                <InfoItem label="ワークスペース" value={environmentState.value.environment.workspace} />
+                {runtimeEnvironmentRows(environmentState.value.environment).map((row) => (
+                  <InfoItem key={row.label} {...row} />
+                ))}
               </dl>
             ) : (
               <EnvironmentStatusItem state={environmentState.value.state} />
@@ -149,17 +154,17 @@ export function RuntimePage({ health, onRefreshHealth, compact = false, onBack, 
           </section>
 
           <section className="grid gap-2 rounded-lg border border-line bg-soft p-3">
-            <h3 className="text-2xs font-semibold tracking-label text-ink-faint uppercase">利用可能なコマンド</h3>
+            <h3 className="text-2xs font-semibold tracking-label text-ink-faint uppercase">
+              {RUNTIME_SECTION_TITLES.commands}
+            </h3>
             {environmentState.status === "loading" ? (
               <p role="status" className="text-xs text-ink-muted">
-                コマンドを検出しています。
+                {RUNTIME_COMMANDS_LOADING}
               </p>
             ) : environmentState.status === "error" || environmentState.value.state !== "connected" ? (
-              <p className="text-xs text-ink-muted">
-                実行環境の情報を取得できていないため、コマンドは表示していません。
-              </p>
+              <p className="text-xs text-ink-muted">{RUNTIME_COMMANDS_UNAVAILABLE}</p>
             ) : commandRows.length === 0 ? (
-              <p className="text-xs text-ink-muted">検出できたコマンドはありません。</p>
+              <p className="text-xs text-ink-muted">{RUNTIME_COMMANDS_EMPTY}</p>
             ) : (
               <>
                 <table className="w-full table-fixed border-collapse text-2xs">
@@ -189,7 +194,7 @@ export function RuntimePage({ health, onRefreshHealth, compact = false, onBack, 
                     ))}
                   </tbody>
                 </table>
-                <p className="text-2xs text-ink-muted">実際に検出できたコマンドだけを表示します。</p>
+                <p className="text-2xs text-ink-muted">{RUNTIME_COMMANDS_FOOTNOTE}</p>
               </>
             )}
           </section>
@@ -220,25 +225,15 @@ const STATUS_TONE = {
  * 接続状態カードの「サンドボックス = 設定済み」(設定の有無) とは別の意味を持つ。
  */
 function EnvironmentStatusItem({ state }: { state: RuntimeEnvironmentState }) {
-  const summary = runtimeEnvironmentSummary(state);
+  const row = runtimeEnvironmentStatusRow(state);
   return (
     <div className="grid min-w-0 gap-0.5">
-      <dt className="text-2xs text-ink-faint">接続状態</dt>
+      <dt className="text-2xs text-ink-faint">{row.label}</dt>
       <dd className="flex items-center gap-1.5 text-ink">
-        <span aria-hidden="true" className={cn("size-1.5 shrink-0 rounded-full", STATUS_TONE[summary.tone])} />
-        {summary.label}
+        <span aria-hidden="true" className={cn("size-1.5 shrink-0 rounded-full", STATUS_TONE[row.tone])} />
+        {row.value}
       </dd>
-      {state === "connected" ? null : <p className="text-2xs leading-relaxed text-ink-muted">{summary.detail}</p>}
+      {row.note ? <p className="text-2xs leading-relaxed text-ink-muted">{row.note}</p> : null}
     </div>
   );
-}
-
-function storeStatus(store: Health["sessionStore"]): string {
-  if (!store) return "情報なし";
-  return `${store.ok ? "利用可能" : "利用できません"} · ${store.path ?? "永続化なし"}`;
-}
-
-function dbStatus(db: Health["appDb"]): string {
-  if (!db) return "情報なし";
-  return `${db.ok ? "利用可能" : "利用できません"} · ${db.path ?? "永続化なし"}`;
 }

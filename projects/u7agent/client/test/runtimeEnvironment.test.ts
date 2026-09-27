@@ -1,6 +1,6 @@
 // 設定 → ランタイムの表示変換と、health / 実行環境をまとめて取り直す手順を検証する。
-// 状態コード 6 種・空一覧・部分失敗・refreshHealth の null 失敗扱い・古い応答の排除・ゲートを固定する。
-// モデルカタログは設定 → モデルへ移設したため、ここでは取得しない。
+// 状態コード 6 種・空一覧・部分失敗・refreshHealth の null 失敗扱い・古い応答の排除・ゲート・
+// 一括コピー本文の整形を固定する。モデルカタログは設定 → モデルへ移設したため、ここでは取得しない。
 
 import assert from "node:assert/strict";
 import test from "node:test";
@@ -9,6 +9,7 @@ import {
   HEALTH_RELOAD_FAILED_MESSAGE,
   reloadRuntime,
   runtimeCommandRows,
+  runtimeDiagnosticText,
   runtimeEnvironmentSummary,
   runtimeFetchStateOf,
 } from "../src/lib/runtimeEnvironment";
@@ -228,4 +229,148 @@ test("does not apply health to the parent after the page unmounts", async () => 
 
   assert.deepEqual(applied, [], "アンマウント後の応答は親の health へ適用しない");
   assert.deepEqual(result.health, { ok: false, message: HEALTH_RELOAD_FAILED_MESSAGE });
+});
+
+const HEALTH_FULL: Health = {
+  ready: true,
+  cwd: "/workspace",
+  model: "openai/gpt-6-luna",
+  sandboxConfigured: true,
+  versions: { piCodingAgent: "0.87.1", piAi: "0.87.1", commitHash: "673d6e4" },
+  sessionStore: { ok: true, path: "/session-store" },
+  appDb: { ok: true, path: "/session-store/u7agent.db" },
+};
+
+test("一括コピー本文は画面と同じ見出し・値・注記を markdown で出す", () => {
+  const text = runtimeDiagnosticText({
+    health: HEALTH_FULL,
+    healthFailed: false,
+    environment: { status: "ready", value: CONNECTED },
+  });
+
+  assert.equal(
+    text,
+    [
+      "# u7agent ランタイム診断",
+      "",
+      "## 接続状態",
+      "- ランタイム: 利用可能",
+      "- サンドボックス: 設定済み",
+      "- 既定モデル: openai/gpt-6-luna（アプリの既定モデルです。会話中に使われている実効モデルではありません。）",
+      "- 作業ディレクトリ (cwd): /workspace",
+      "- セッションストア: 利用可能 · /session-store",
+      "- アプリ DB: 利用可能 · /session-store/u7agent.db",
+      "- pi-coding-agent: 0.87.1",
+      "- pi-ai: 0.87.1",
+      "- COMMIT_HASH: 673d6e4",
+      "",
+      "## 実行環境（サンドボックス側）",
+      "- 接続状態: 接続中",
+      "- OS: Debian GNU/Linux 13 (trixie)",
+      "- アーキテクチャ: x86_64",
+      "- 実行ユーザー: node（非 root）",
+      "- ワークスペース: /workspace",
+      "",
+      "## 利用可能なコマンド",
+      "- curl: 8.14.1",
+      "実際に検出できたコマンドだけを表示します。",
+    ].join("\n"),
+  );
+});
+
+test("health が無くても行を残し、前回値の断り書きを見出しの直後に出す", () => {
+  const text = runtimeDiagnosticText({ health: null, healthFailed: true, environment: { status: "loading" } });
+
+  assert.ok(text.includes("## 接続状態\n" + HEALTH_RELOAD_FAILED_MESSAGE), "見出しの直後に断り書きを出す");
+  assert.ok(text.includes("- ランタイム: 情報なし"));
+  assert.ok(text.includes("- サンドボックス: 情報なし"));
+  assert.ok(text.includes("- 既定モデル: 指定なし"));
+  assert.ok(text.includes("- 作業ディレクトリ (cwd): 情報なし"));
+  assert.ok(text.includes("- セッションストア: 情報なし"));
+  assert.ok(text.includes("- アプリ DB: 情報なし"));
+  assert.ok(text.includes("- pi-coding-agent: 情報なし"));
+  assert.ok(!text.includes("- pi-ai:"), "値が無いバージョン行は出さない");
+  assert.ok(!text.includes("- COMMIT_HASH:"), "値が無いバージョン行は出さない");
+});
+
+test("取得できていないセクションは状態文言を出し、黙って省かない", () => {
+  const loading = runtimeDiagnosticText({ health: HEALTH, healthFailed: false, environment: { status: "loading" } });
+  assert.ok(loading.includes("実行環境を取得しています。"));
+  assert.ok(loading.includes("コマンドを検出しています。"));
+
+  const failed = runtimeDiagnosticText({
+    health: HEALTH,
+    healthFailed: false,
+    environment: { status: "error", message: "サンドボックスの診断が期限内に応答しませんでした。" },
+  });
+  assert.ok(failed.includes("実行環境を取得できませんでした。サンドボックスの診断が期限内に応答しませんでした。"));
+  assert.ok(failed.includes("実行環境の情報を取得できていないため、コマンドは表示していません。"));
+
+  const multiline = runtimeDiagnosticText({
+    health: HEALTH,
+    healthFailed: false,
+    environment: { status: "error", message: "1 行目\n2 行目" },
+  });
+  assert.ok(multiline.includes("実行環境を取得できませんでした。1 行目 2 行目"), "エラー文言の改行も畳む");
+});
+
+test("未接続の状態は理由を注記として出し、環境とコマンドは非表示にする", () => {
+  for (const state of STATES) {
+    if (state === "connected") continue;
+    const summary = runtimeEnvironmentSummary(state);
+    const text = runtimeDiagnosticText({
+      health: HEALTH,
+      healthFailed: false,
+      environment: { status: "ready", value: { state } },
+    });
+
+    assert.ok(text.includes(`- 接続状態: ${summary.label}（${summary.detail}）`), state);
+    assert.ok(!text.includes("- OS:"), `${state} では環境の値を出さない`);
+    assert.ok(text.includes("実行環境の情報を取得できていないため、コマンドは表示していません。"), state);
+  }
+});
+
+test("root 実行とコマンドなしとバージョン不明をそのままコピーに残す", () => {
+  const text = runtimeDiagnosticText({
+    health: HEALTH,
+    healthFailed: false,
+    environment: {
+      status: "ready",
+      value: {
+        state: "connected",
+        environment: { os: "Debian", arch: "aarch64", user: "root", isRoot: true, workspace: "/workspace" },
+        commands: [{ name: "xz", version: null }],
+      },
+    },
+  });
+
+  assert.ok(text.includes("- 実行ユーザー: root（root）"));
+  assert.ok(text.includes("（root で動いています。コンテナ外への影響を避けるため、非 root 実行を推奨します。）"));
+  assert.ok(text.includes("- xz: バージョン不明"));
+
+  const empty = runtimeDiagnosticText({
+    health: HEALTH,
+    healthFailed: false,
+    environment: { status: "ready", value: { state: "connected", environment: CONNECTED.environment, commands: [] } },
+  });
+  assert.ok(empty.includes("検出できたコマンドはありません。"));
+  assert.ok(!empty.includes("実際に検出できたコマンドだけを表示します。"), "行が無いときは注記も出さない");
+});
+
+test("値の改行は空白へ畳み、コピー本文の行構造を壊さない", () => {
+  const text = runtimeDiagnosticText({
+    health: { ...HEALTH, cwd: "/work\nspace" },
+    healthFailed: false,
+    environment: {
+      status: "ready",
+      value: {
+        state: "connected",
+        environment: { os: "Debian", arch: "x86_64", user: "node", isRoot: false, workspace: "/w" },
+        commands: [{ name: "bash", version: "5.2.37\n(extra)" }],
+      },
+    },
+  });
+
+  assert.ok(text.includes("- 作業ディレクトリ (cwd): /work space"));
+  assert.ok(text.includes("- bash: 5.2.37 (extra)"));
 });
