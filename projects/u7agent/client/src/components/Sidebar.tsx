@@ -3,6 +3,7 @@ import type { U7Agent } from "../hooks/useU7Agent";
 import { cn } from "../lib/cn";
 import { type SettingsSection, type SidebarMode } from "../lib/settingsNav";
 import { groupSessionsByProject } from "../lib/sessionsByProject";
+import { sidebarProjectsStore } from "../lib/sidebarProjects";
 import { CloseIcon, GearIcon, PlusIcon } from "./icons";
 import { MenuItem } from "./MenuItem";
 import { ProjectRow } from "./sidebar/ProjectRow";
@@ -45,13 +46,22 @@ export function Sidebar({
 }: SidebarProps) {
   const sheet = variant === "sheet";
   const { sessions, sessionId, agents, projects, newChat, selectSession, deleteSession, deleteProject } = props;
-  const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
+  // 既定は畳み (保存値が無ければ空 = 全行 closed)。書き込みは Effect ではなくクリック時に済ませる
+  const [expanded, setExpanded] = useState<string[]>(() => sidebarProjectsStore.read());
   const { groups, unassigned } = groupSessionsByProject(sessions, projects);
+
+  /** 展開の集合を差し替えて保存する (末尾 = 今回開いた cwd) */
+  const setProjectOpen = (cwd: string, open: boolean) => {
+    const next = expanded.filter((item) => item !== cwd);
+    if (open) next.push(cwd);
+    setExpanded(next);
+    sidebarProjectsStore.write(next);
+  };
 
   return (
     <aside
-      // docked と sheet の Sidebar は同時に立つことがある (幅を広げたフレーム)。
-      // NavSheet の focus 復帰が docked 側だけを選べるように置き方を持たせる
+      // docked と sheet は App が排他で描く (同時に立たない)。data-nav-root は NavSheet の focus 復帰が
+      // docked 側を選ぶための印で、開閉 state を mount 時に読むこの形は排他が前提 (崩れると片側に反映されない)
       data-nav-root={sheet ? "sheet" : "docked"}
       className={cn(
         "flex h-full min-h-0 flex-col gap-3.5 bg-panel px-3 py-4",
@@ -125,11 +135,12 @@ export function Sidebar({
                       sessions={group.sessions}
                       agents={agents}
                       sessionId={sessionId}
-                      open={!collapsed[group.project.id]}
-                      onToggle={() =>
-                        setCollapsed((prev) => ({ ...prev, [group.project.id]: !prev[group.project.id] }))
-                      }
-                      onNewChat={() => newChat(undefined, group.project.id)}
+                      open={expanded.includes(group.project.cwd)}
+                      onToggle={() => setProjectOpen(group.project.cwd, !expanded.includes(group.project.cwd))}
+                      onNewChat={() => {
+                        setProjectOpen(group.project.cwd, true);
+                        newChat(undefined, group.project.id);
+                      }}
                       onDelete={() => deleteProject(group.project.id)}
                       onSelectSession={selectSession}
                       onDeleteSession={deleteSession}
