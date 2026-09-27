@@ -537,6 +537,11 @@ html[data-theme="sky"] {
     background: var(--c-line-strong);
   }
 
+  /* スクロールバーの有無で内容幅が動かないよう、バー分の場所を常に確保する */
+  .scrollbar-stable {
+    scrollbar-gutter: stable;
+  }
+
   /* テーマスイッチャーの色見本。各テーマの実色をハードコードで表示する */
   .theme-swatch {
     display: inline-block;
