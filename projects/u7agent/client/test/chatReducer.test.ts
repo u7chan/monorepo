@@ -788,3 +788,136 @@ test("圧縮の開始時刻は run_start / run_end / setRun をまたいで残�
   // 新しい会話へ戻しても残らない
   assert.equal(chatReducer(compacting, { type: "newChat" }).compactionStartedAt, undefined);
 });
+
+// --- 最終失敗の分類コード (エラーカードの再実行) ---
+
+const RUN_ERROR_TEXT = "レート制限により実行に失敗しました（自動再試行4回）。時間をおいて再実行してください";
+
+/** 最終失敗の run を持つ payload (run.errorCode は status === "error" のときだけ載る) */
+function failedPayload(overrides: Partial<SessionPayload> = {}): SessionPayload {
+  return {
+    ...runningPayload(),
+    status: "error",
+    queueDepth: 0,
+    run: {
+      id: "run-1",
+      status: "error",
+      startedAt: 1700000000000,
+      endedAt: 1700000001000,
+      error: RUN_ERROR_TEXT,
+      errorCode: "rate_limit",
+      prompt: "聞いて",
+      toolCalls: [],
+      totalRetryCount: 4,
+    },
+    ...overrides,
+  };
+}
+
+test("runEnd は分類コードを保持し、カードを出すときだけ活動欄の文言を空にする", () => {
+  const ended = chatReducer(initialChatState, {
+    type: "runEnd",
+    status: "error",
+    queueDepth: 0,
+    error: RUN_ERROR_TEXT,
+    errorCode: "rate_limit",
+  });
+
+  assert.deepEqual(ended.runError, { code: "rate_limit", text: RUN_ERROR_TEXT });
+  assert.equal(ended.runStatus, "error");
+  assert.equal(ended.activity, "", "同じ 1 文をカードと状態行に二重に出さない");
+});
+
+test("runEnd はカードを出さない分類でもコードを保持し、文言は状態行に残す", () => {
+  const ended = chatReducer(initialChatState, {
+    type: "runEnd",
+    status: "error",
+    queueDepth: 0,
+    error: "入力がモデルのコンテキスト上限を超えました",
+    errorCode: "context_overflow",
+  });
+
+  assert.equal(ended.runError?.code, "context_overflow");
+  assert.equal(ended.activity, "エラー: 入力がモデルのコンテキスト上限を超えました");
+});
+
+test("runEnd は分類コードが無ければ従来どおり汎用文言を出す", () => {
+  const ended = chatReducer(initialChatState, { type: "runEnd", status: "error", queueDepth: 0 });
+
+  assert.equal(ended.runError, undefined);
+  assert.equal(ended.activity, "エラー: 実行に失敗しました");
+});
+
+test("停止で確定した runEnd は分類コードを載せない (停止と例外が同時の場合)", () => {
+  const ended = chatReducer(initialChatState, {
+    type: "runEnd",
+    status: "stopped",
+    queueDepth: 0,
+    error: RUN_ERROR_TEXT,
+    errorCode: "rate_limit",
+  });
+
+  assert.equal(ended.runError, undefined, "停止直後に再実行カードを出さない");
+  assert.equal(ended.activity, "停止しました");
+});
+
+test("キュー待ちを挟んだ失敗はカードを出さず、文言を状態行に残す", () => {
+  const ended = chatReducer(initialChatState, {
+    type: "runEnd",
+    status: "error",
+    queueDepth: 1,
+    error: RUN_ERROR_TEXT,
+    errorCode: "rate_limit",
+  });
+
+  assert.equal(ended.runStatus, "queued", "次のランが pump されるまでのカードのフラッシュを避ける");
+  assert.equal(ended.activity, `エラー: ${RUN_ERROR_TEXT}`);
+});
+
+test("resync は payload.run.errorCode から失敗を復元し、status が error でなければ載せない", () => {
+  const resynced = chatReducer(initialChatState, { type: "resync", payload: failedPayload() });
+  assert.deepEqual(resynced.runError, { code: "rate_limit", text: RUN_ERROR_TEXT });
+  assert.equal(resynced.activity, "");
+
+  // キュー待ちの payload (run は失敗のまま、status は queued) ではカードを出さない
+  const queued = chatReducer(initialChatState, { type: "resync", payload: failedPayload({ status: "queued" }) });
+  assert.equal(queued.runError, undefined);
+  assert.equal(queued.runStatus, "queued", "状態行は待機の案内のまま (既存の表示を変えない)");
+
+  // コードが無い旧 payload は現行の文言のまま
+  const legacy = chatReducer(initialChatState, {
+    type: "resync",
+    payload: failedPayload({
+      run: {
+        id: "run-1",
+        status: "error",
+        startedAt: 1,
+        endedAt: 2,
+        error: RUN_ERROR_TEXT,
+        prompt: "x",
+        toolCalls: [],
+        totalRetryCount: 0,
+      },
+    }),
+  });
+  assert.equal(legacy.runError, undefined);
+  assert.equal(legacy.activity, `エラー: ${RUN_ERROR_TEXT}`);
+});
+
+test("新しいラン・成功・停止・実行中への移行・チャット切替で失敗を消す", () => {
+  const failed = chatReducer(initialChatState, {
+    type: "runEnd",
+    status: "error",
+    queueDepth: 0,
+    error: RUN_ERROR_TEXT,
+    errorCode: "rate_limit",
+  });
+  assert.notEqual(failed.runError, undefined);
+
+  assert.equal(chatReducer(failed, { type: "runStart", prompt: "続き", at: 1, startedAt: 1 }).runError, undefined);
+  assert.equal(chatReducer(failed, { type: "runEnd", status: "completed", queueDepth: 0 }).runError, undefined);
+  assert.equal(chatReducer(failed, { type: "runEnd", status: "stopped", queueDepth: 0 }).runError, undefined);
+  // 送信の応答で実行中へ移ったら、run_start が遅れても古い失敗を残さない
+  assert.equal(chatReducer(failed, { type: "setRun", runStatus: "running" }).runError, undefined);
+  assert.equal(chatReducer(failed, { type: "newChat" }).runError, undefined);
+});

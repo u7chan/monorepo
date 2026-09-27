@@ -138,6 +138,8 @@
 
 `run.retry` は進行中の自動再試行で、`phase` は SDK の backoff 待機中 (`waiting`) か、次の assistant の応答開始後 (`retrying`)。`reason` は `auth_required` / `insufficient_quota` / `context_overflow` / `rate_limit` / `unknown` の分類コードだけで、上流のエラー原文は載らない。`run.totalRetryCount` はラン中の再試行スケジュール回数の累計（`auto_retry_start` の通知数。待機中の中止も含む）で、成功・最終失敗後も結果表示用に残る。新しいランでは 0 へ戻る。成功・最終失敗・停止でアクティブな `retry` は消える（復元時に「いつまで待機中か」を誤らないため）。
 
+`run.errorCode` は最終失敗の分類コードで、`run.status === "error"` のときだけ載る（`error` と組になる）。停止要求と listener 例外 / `prompt()` reject が同時に起きたランは `stopped` のままで、コードを載せない。クライアントは `rate_limit` / `unknown` のときだけ再実行カードを出し、それ以外は状態行の文言だけを出す（[frontend.md](frontend.md#チャット状態とレンダリング)）。
+
 `cwd` はワークスペース root 相対の作業ディレクトリ（プロジェクト所属は `projectCwd`、未所属は `.u7agent/sessions/<id>`）。ツール実行と `GET /api/files` の結果はこのディレクトリを起点に組み立てる。`write` / `edit` はこのディレクトリと `<root>/.agents/skills` の内側にだけ書ける（[projects.md](projects.md#write--edit-の書き込み範囲)）。`health.cwd` は root の絶対パス（表示用）で意味が違う。`projectId` は所属プロジェクト（未所属はキーを省略）。復元時は `meta.projectCwd` から `cwd` を解決し、登録が解除・消失していてもそのディレクトリを使う。
 
 `eventGeneration` は SSE の世代（[イベント購読](#get-apisessionsidevents) を参照）。`lastSeq` と組でカーソルの整合判定に使う。
@@ -346,7 +348,7 @@ SSE（`text/event-stream`）でイベントを購読。カーソルは `Last-Eve
 | `queued` | `{ position, queueDepth, prompt }` |
 | `queue_cleared` | `{}` |
 | `run_retry` | `{ retry, totalRetryCount, serverNow }`（自動再試行の開始 / 再実行開始 / 解除。`retry` は payload の `run.retry` と同じ形で、解除時は `null`） |
-| `run_end` | `{ runId, status, error, messageCount, queueDepth, totalRetryCount?, context? }`（`messageCount` は一覧 API と同じ表示メッセージ数） |
+| `run_end` | `{ runId, status, error, errorCode?, messageCount, queueDepth, totalRetryCount?, context? }`（`messageCount` は一覧 API と同じ表示メッセージ数。`errorCode` は `status === "error"` のときだけ載る最終失敗の分類コードで、`error` と組になる） |
 | `usage` | `{ usage?, metrics?, context? }`（assistant の `message_end` ごとに 1 件。usage はプロバイダが報告したときだけ、metrics は BFF 計測、context は SDK の `getContextUsage()` だが履歴反映前なので確定値は `run_end` 側） |
 | `compaction` | `{ compaction, count }`（`compaction_end` ごとに 1 件。`compaction` は payload の `compactions` の要素 1 つ、`count` はその時点の累計回数。run の自動圧縮では続けて同じ状態を持つ `resync` が届く（送信メッセージを履歴へ入れる前に圧縮が走った場合は、そのメッセージが入ってから届く）。手動圧縮では resync を配らず、保存の完了後に終端 `resync` が 1 回届く。`result` が無い / `aborted` / `errorMessage` ありのときは `compaction` も `resync` も配らない） |
 | `resync` | セッションペイロード全体（バッファを逃した場合・世代が一致しない場合と、手動圧縮の開始 / 終端） |
@@ -359,6 +361,7 @@ SSE（`text/event-stream`）でイベントを購読。カーソルは `Last-Eve
 
 - 再試行対象になった失敗 assistant の途中テキストは、SDK が `context_edit` を追加して投影を更新した後に届く `resync` で表示から取り消す（`resync.messages` が正）。失敗試行と次の試行のテキストは連結しない。確定済みのツール履歴・先行する正常な assistant は残る。
 - `run_end.error` / `payload.run.error` / `resync` のエラーは、共通の分類（恒久的な利用枠 → 認証 → コンテキスト超過 → `rate_limit` → `unknown`）を通した定型日本語だけを配る。プロバイダーの生エラー（組織ID・APIキーを含み得る）は公開経路へ出さない。最終失敗の文言には再試行のスケジュール累計と原因別の操作案内を含める。
+- `run_end.errorCode` / `payload.run.errorCode` は同じ分類コードで、`status === "error"` のときだけ載る（停止要求と例外が同時に起きたときは `stopped` を正とする）。分類コードは `run.error` の再実装ではなく、クライアントが再実行カードを出すかの判断にだけ使う。
 - 分類・文言の定義と SDK イベントの対応は [run-lifecycle.md](run-lifecycle.md#自動再試行sdk-の-retry) / [run-lifecycle.md](run-lifecycle.md#失敗の分類と公開契約) を正とする。
 
 ## `POST /api/sessions/:id/compact`

@@ -1,10 +1,12 @@
 import { splitAttachedFiles } from "../lib/attachments";
+import { retryableRunError, runErrorFrom, type RunErrorInfo } from "../lib/runRetry";
 import { skillCommandForm } from "../lib/skillBlock";
 import type {
   ChatMessage,
   CompactionInfo,
   ContextUsage,
   MessageMetrics,
+  RunErrorCode,
   RunRetryState,
   RunStatus,
   SessionPayload,
@@ -82,6 +84,12 @@ export type ChatState = {
   pendingMetrics?: MessageMetrics;
   /** 進行中の自動再試行。resync / run_retry で復元し、run_end で消える */
   retry?: RunRetryState;
+  /**
+   * 最後に失敗したランの分類コードと文言。`runStatus === "error"` のときだけ持ち
+   * (停止と例外が同時の `run_end` は `stopped` になる)、カードを出す場合は活動欄から文言を外す。
+   * 失敗の文言は `run.error` (BFF が合成した 1 文) をそのまま使う
+   */
+  runError?: RunErrorInfo;
   /** retry の残り時間 (受信時点)。retryAt - serverNow で出し、ブラウザ時計は受信後の経過だけに使う */
   retryRemainingMs?: number;
   /** retry を受信したときのブラウザ時刻 (経過の起点) */
@@ -111,6 +119,8 @@ export type ChatAction =
       status: RunStatus;
       queueDepth: number;
       error?: string;
+      /** 最終失敗の分類コード。`status === "error"` のときだけサーバーが載せる */
+      errorCode?: RunErrorCode;
       context?: ContextUsage;
       totalRetryCount?: number;
     }
@@ -141,6 +151,7 @@ export const initialChatState: ChatState = {
   pendingUsage: undefined,
   pendingMetrics: undefined,
   retry: undefined,
+  runError: undefined,
   retryRemainingMs: undefined,
   retryReceivedAt: undefined,
   retryCount: 0,
@@ -334,6 +345,8 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
         payload.serverNow,
         action.receivedAt ?? Date.now(),
       );
+      // 失敗の分類コードは payload から復元する (run_end だけに依存しない)。status が error 以外なら載せない
+      const runError = runErrorFrom(status, payload.run?.errorCode, payload.run?.error);
       // run が終わった合図。run_end を受け取れない復帰 (切断した SSE の resync) でも、running から
       // 抜けていれば進める (パネルの取り直しは run_end とこの 1 回で足りる)
       const runEnded = state.runStatus === "running" && status !== "running";
@@ -363,6 +376,7 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
         pendingUsage: undefined,
         pendingMetrics: undefined,
         ...retryState,
+        runError,
         // ランが終わっていても結果表示用に累計を引き継ぐ (run が無い復元では前の値のまま)
         retryCount: payload.run ? payload.run.totalRetryCount : state.retryCount,
       };
@@ -380,8 +394,13 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
       else if (status === "error")
         next = {
           ...next,
-          // 分類済みの run.error があればライブの run_end と同じ文言にする (リロードで理由・案内を失わない)
-          activity: payload.run?.error ? `エラー: ${payload.run.error}` : "前回の実行でエラーが発生しました",
+          // カードを出すとき (分類コードと status の両方が揃うとき) は文言をカードへ移し、
+          // 状態行に同じ 1 文を二重に出さない。分類コードが無い縮退では現行どおり出す
+          activity: retryableRunError(status, runError)
+            ? ""
+            : payload.run?.error
+              ? `エラー: ${payload.run.error}`
+              : "前回の実行でエラーが発生しました",
         };
       else if (status === "stopped") next = { ...next, activity: "前回の実行は停止されました" };
       return next;
@@ -428,6 +447,8 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
         retryRemainingMs: undefined,
         retryReceivedAt: undefined,
         retryCount: 0,
+        // 前のランの失敗は引き継がない (新しいランの開始でカードを消す)
+        runError: undefined,
       };
     }
 
@@ -547,9 +568,15 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
 
     case "runEnd": {
       const { status, queueDepth } = action;
+      // 失敗の分類コードは status === "error" のときだけ保持する (停止と例外が同時でもカードを出さない)
+      const runError = runErrorFrom(status, action.errorCode, action.error);
+      const runStatus: RunStatus = queueDepth > 0 ? "queued" : status === "completed" ? "idle" : status;
+      // カードを出すときだけ状態行のエラー文言を空にし、同じ 1 文を二重に出さない。
+      // キュー待ちを挟んだ run は queued なのでカードを出さず、現行の文言を維持する
+      const cardShown = retryableRunError(runStatus, runError) !== undefined;
       let activity: string;
       if (status === "stopped") activity = "停止しました";
-      else if (status === "error") activity = `エラー: ${action.error || "実行に失敗しました"}`;
+      else if (status === "error") activity = cardShown ? "" : `エラー: ${action.error || "実行に失敗しました"}`;
       else activity = queueDepth > 0 ? "完了。次のメッセージを実行します" : "完了";
       return {
         ...state,
@@ -560,7 +587,7 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
         runEndSeq: state.runEndSeq + 1,
         runStartedAt: undefined,
         compactionStartedAt: undefined,
-        runStatus: queueDepth > 0 ? "queued" : status === "completed" ? "idle" : status,
+        runStatus,
         queueDepth,
         // 履歴反映後の最新値 (usage イベントの context は 1 応答分古い)
         context: action.context ?? state.context,
@@ -572,6 +599,7 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
         retryRemainingMs: undefined,
         retryReceivedAt: undefined,
         retryCount: action.totalRetryCount ?? state.retryCount,
+        runError,
       };
     }
 
@@ -583,6 +611,8 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
         compactionStartedAt: action.runStatus === "compacting" ? state.compactionStartedAt : undefined,
         queueDepth: action.queueDepth ?? state.queueDepth,
         activity: action.activity ?? state.activity,
+        // 送信の応答や停止の応答で権威ある状態へ移った時点でカードを消す (run_start が遅れても古い失敗を残さない)
+        runError: undefined,
       };
 
     case "setActivity":

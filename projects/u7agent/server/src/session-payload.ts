@@ -69,6 +69,8 @@ export function projectSessionPayload({
           startedAt: record.run.startedAt,
           endedAt: record.run.endedAt,
           error: record.run.error,
+          // 復元 (リロード / SSE 再接続) でも再実行カードを出せるように、run_end だけに依存せず載せる
+          ...(record.run.errorCode ? { errorCode: record.run.errorCode } : {}),
           prompt: truncate(record.run.prompt, PROMPT_TEXT_MAX),
           toolCalls: [...record.tools.values()],
           ...(record.run.retry ? { retry: { ...record.run.retry } } : {}),

@@ -61,6 +61,23 @@ export function attachmentsForSession(attachments: Attachment[], sessionId: stri
   return attachments.filter((item) => item.sessionId === sessionId);
 }
 
+/**
+ * 1 回の送信に載せる添付。`include = false`（失敗の再実行）ではチップを読まず、何も送らず消費もしない
+ * （固定文言だけを送り、編集中の添付を巻き込まないため）。`pending` は送信を止める判定に使う。
+ */
+export function attachmentsForSend(
+  attachments: Attachment[],
+  sessionId: string,
+  include: boolean,
+): { pending: Attachment[]; paths: string[]; sentIds: string[] } {
+  const pending = include ? attachmentsForSession(attachments, sessionId) : [];
+  return {
+    pending,
+    paths: pending.map((item) => item.path).filter((path): path is string => Boolean(path)),
+    sentIds: pending.map((item) => item.id),
+  };
+}
+
 /** 追加前の検査。理由を返したらチップは error としてだけ残す (アップロードしない)。 */
 export function attachmentRejection(file: { name: string; size: number }, currentCount: number): string | undefined {
   if (currentCount >= MAX_ATTACHMENTS) return `添付できるのは最大 ${MAX_ATTACHMENTS} 件までです`;

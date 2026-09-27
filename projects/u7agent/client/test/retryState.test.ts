@@ -141,6 +141,7 @@ test("resync keeps the classified run error visible after a reload", () => {
   });
   const state = chatReducer(initialChatState, { type: "resync", payload: failed, receivedAt: 500 });
   assert.equal(state.activity, `エラー: ${error}`, "ライブの run_end と同じ文言");
+  assert.equal(state.runError, undefined, "分類コードが無い payload ではカードを出さない");
   assert.equal(state.retry, undefined);
   assert.equal(state.retryCount, 2);
 
@@ -154,6 +155,31 @@ test("resync keeps the classified run error visible after a reload", () => {
     receivedAt: 500,
   });
   assert.equal(generic.activity, "前回の実行でエラーが発生しました");
+});
+
+test("resync restores the failure code and hands the wording to the retry card", () => {
+  const error = "レート制限により実行に失敗しました（自動再試行2回）。時間をおいて再実行してください";
+  const state = chatReducer(initialChatState, {
+    type: "resync",
+    payload: payload({
+      status: "error",
+      run: {
+        id: "run-1",
+        status: "error",
+        startedAt: 1,
+        endedAt: 2,
+        prompt: "聞いて",
+        toolCalls: [],
+        error,
+        errorCode: "rate_limit",
+        totalRetryCount: 2,
+      },
+    }),
+    receivedAt: 500,
+  });
+
+  assert.deepEqual(state.runError, { code: "rate_limit", text: error });
+  assert.equal(state.activity, "", "同じ 1 文をカードと状態行に二重に出さない");
 });
 
 test("run_retry applies waiting → retrying → cleared and keeps the cumulative count", () => {
@@ -199,11 +225,24 @@ test("runEnd clears the active retry but keeps the cumulative count for the resu
 });
 
 test("runStart and newChat reset the retry state", () => {
-  const waiting = chatReducer(initialChatState, { type: "resync", payload: payload(), receivedAt: 500 });
+  let waiting = chatReducer(initialChatState, { type: "resync", payload: payload(), receivedAt: 500 });
+  // 最終失敗の分類コードも次のラン / 新規チャットへ引き継がない
+  waiting = chatReducer(waiting, {
+    type: "runEnd",
+    status: "error",
+    queueDepth: 0,
+    error: "レート制限により実行に失敗しました",
+    errorCode: "rate_limit",
+  });
+  assert.equal(waiting.runError?.code, "rate_limit");
+  assert.equal(waiting.activity, "", "文言はカードへ移す");
+
   const started = chatReducer(waiting, { type: "runStart", prompt: "次", at: 1, startedAt: 1 });
   assert.equal(started.retry, undefined);
   assert.equal(started.retryCount, 0);
+  assert.equal(started.runError, undefined);
   assert.equal(chatReducer(waiting, { type: "newChat" }).retry, undefined);
+  assert.equal(chatReducer(waiting, { type: "newChat" }).runError, undefined);
 });
 
 test("routes run_retry SSE events to the reducer with the browser receipt time", () => {

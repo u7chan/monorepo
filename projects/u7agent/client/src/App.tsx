@@ -17,7 +17,7 @@ import { SessionFilesPanel, SessionFilesSheet } from "./components/SessionFilesP
 import { SkillSettingsPage } from "./components/SkillSettingsPage";
 import { Topbar } from "./components/Topbar";
 import { FileRefProvider } from "./components/markdown/FileRefLink";
-import { useU7Agent } from "./hooks/useU7Agent";
+import { useU7Agent, type SendMessageOptions } from "./hooks/useU7Agent";
 import { useElapsedMs } from "./hooks/useElapsedMs";
 import { useLayoutMode } from "./hooks/useLayoutMode";
 import { useRoute } from "./hooks/useRoute";
@@ -38,6 +38,7 @@ import {
 } from "./lib/notifications";
 import { sessionFilesDefaultOpen, sessionFilesRoot } from "./lib/sessionFiles";
 import { retryActivityText, retryRemainingMs } from "./lib/retryState";
+import { RUN_RETRY_PROMPT } from "./lib/runRetry";
 import { type SettingsSection, type SidebarMode } from "./lib/settingsNav";
 
 export default function App() {
@@ -146,8 +147,8 @@ export default function App() {
   }, [mainView, navOpen, backToChat]);
 
   const handleSend = useCallback(
-    (text: string) => {
-      void app.sendMessage(text);
+    (text: string, options?: SendMessageOptions) => {
+      void app.sendMessage(text, options);
     },
     [app],
   );
@@ -155,6 +156,12 @@ export default function App() {
   const handleStop = useCallback(() => {
     void app.stopAgent();
   }, [app]);
+
+  const handleRetry = useCallback(() => {
+    // 失敗の復旧も通常の送信経路に載せる (BFF から prompt() を再発行しない)。固定文言だけを送り、
+    // 編集中の添付は送らず消費もしない
+    handleSend(RUN_RETRY_PROMPT, { includeAttachments: false });
+  }, [handleSend]);
 
   const handleCompact = useCallback(() => {
     // 戻せない操作なので、押した時点で不可逆性と課金を確認する (状態行に注意書きを開く導線は置かない)
@@ -406,6 +413,9 @@ export default function App() {
               onSend={handleSend}
               onStop={handleStop}
               onCompact={app.sessionId ? handleCompact : undefined}
+              runStatus={app.chat.runStatus}
+              runError={app.chat.runError}
+              onRetry={handleRetry}
               onAttachFiles={app.attachFiles}
               onRemoveAttachment={app.removeAttachment}
               onChangeModel={app.changeModel}
