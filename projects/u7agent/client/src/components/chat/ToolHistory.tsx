@@ -4,7 +4,7 @@ import { abbreviatedToolSummary, historyPreview } from "../../lib/toolSummary";
 import { DisclosureChevronIcon } from "../icons";
 import { CopyButton } from "./CopyButton";
 
-// 位相で文字幅が変わると (実測 実行中 27 / エラー 27.42px) 右隣のコピーボタンとサマリーの
+// 位相で文字幅が変わると (実測 実行中 27 / エラー 25.3px) 右隣のコピーボタンとサマリーの
 // truncate 境界が動く。幅を rem にすると既定フォント 14px で折り返すため 3.25em + nowrap で固定する
 const PHASE_LABEL_CLASS = cn("w-[3.25em] shrink-0 text-right font-sans text-3xs whitespace-nowrap");
 

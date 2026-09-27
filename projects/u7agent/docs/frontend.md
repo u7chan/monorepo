@@ -2,6 +2,15 @@
 
 チャット UI は `client/` ワークスペースに切り出し、React 19 + Vite + TypeScript + Tailwind CSS v4 で実装している。ソースは `client/src` 配下に置き、エントリは `main.tsx`（`index.html` から読み込む）。SSE イベントは reducer で状態に変換し、旧実装（命令的な DOM 操作）の挙動を忠実に再現する。レイアウトの判定は [ui-layout.md](ui-layout.md)、API 呼び出しの型は [api.md](api.md) を参照する。
 
+## フォント
+
+- `--font-sans` の第一候補は自前ホストの **Noto Sans JP**（可変 100〜900）。`@fontsource-variable/noto-sans-jp` を `client/package.json` の `devDependencies` に固定し、`client/src/styles/index.css` の先頭で `@import "@fontsource-variable/noto-sans-jp";` として読み込む。latin サブセットも同じパッケージに入っているため、以前の `Inter`（Web フォントとしては読んでおらず、実際は OS のフォールバックだった）は `--font-sans` から外した。ファミリ名は fontsource の `@font-face` が付ける `Noto Sans JP Variable`（`Noto Sans JP` ではない）。
+- `devDependencies` に置くのは、ビルド段（`Dockerfile` の builder）で `client/dist/assets/` へ焼き込まれ、実行時には要らないため。`dependencies` にすると実行イメージの `node_modules` が約 5.3 MB 増え、monorepo の license check（`pnpm install --prod` で収集する）の対象にもなる。配布物の woff2 には OFL-1.1 が及び、条文は `client/public/fonts/OFL.txt`（ビルド後は `/fonts/OFL.txt`）で配る。
+- 外部 CDN（Google Fonts 等）は使わない。本番の CSP は `server/src/static.ts` の `default-src 'self'` で、フォントの取得先も `'self'` に限られる。パッケージの CSS は `unicode-range` で 124 分割された `@font-face` を持ち、その画面で使う字のチャンクだけが落ちてくる。`font-display: swap` なので、初回は OS のフォールバック（和文は OS 依存）で描かれてから置き換わる。
+- 字詰め（`palt`）は `@layer base` の `body` 全体に当てる。等幅の面（`font-mono`）は同じ層の `.font-mono` が `font-feature-settings: normal` で打ち消す。`code` / `pre` は Tailwind preflight が既定で外しているため手当て不要。
+- `--font-mono` は Tailwind の既定スタックの末尾に `Noto Sans JP Variable` を足し、和文も OS 任せにしない（全角グリッドに載せる等幅の和文フォントは別の課題）。`@theme` の `--font-mono` は `--default-mono-font-family` 経由で `code` / `pre` のフォントにも効く。
+- 配信は `server/src/static.ts` の `CONTENT_TYPES` が `.woff2` を `font/woff2` で返す。Vite は woff2 をハッシュ付きで `assets/` へ出すため、長期キャッシュ（`immutable`）にそのまま乗る。
+
 ## テーマシステム
 
 - テーマは `html` 要素の `data-theme` 属性で決定し、各プリセットが CSS 変数（`--c-*`）を定義する。Tailwind v4 の `@theme inline` で CSS 変数をセマンティックトークンにマップし、コンポーネントはトークンクラス（背景色・文字色など）だけで書く。プリセットの再配色は CSS 変数定義だけで完結するが、テーマの**追加**は CSS 変数（`html[data-theme]` プリセットと `.theme-swatch`）に加えて `client/src/theme/themes.ts` の `THEMES` と `client/public/theme-init.js` の id 配列も更新する（両者の同期は `client/test/themeSync.test.ts` が固定する）。
