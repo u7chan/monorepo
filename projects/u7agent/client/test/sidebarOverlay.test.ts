@@ -71,12 +71,16 @@ test("設定ページのヘッダの ☰ は overlay の desktop でも出す", 
 
 test("App: docked は 2 カラム + Sidebar 常駐、overlay は 1 カラム + ☰", () => {
   const app = read("src/App.tsx");
-  assert.ok(app.includes('sidebarDocked ? "grid-cols-[252px_minmax(0,1fr)] grid-rows-1" : "grid-cols-1 grid-rows-1"'));
-  assert.ok(app.includes("{sidebarDocked ? <Sidebar {...navProps} /> : null}"));
+  assert.ok(
+    app.includes(
+      'sidebarDocked ? "grid-cols-[var(--sidebar-width)_minmax(0,1fr)] grid-rows-1" : "grid-cols-1 grid-rows-1"',
+    ),
+  );
+  assert.ok(app.includes("{sidebarDocked ? <Sidebar {...navProps} resize={sidebarWidth} /> : null}"));
   assert.ok(app.includes("nav={sidebarDocked ? undefined : { onOpen: openNav }}"));
   assert.ok(app.includes("onOpenNav: sidebarDocked ? undefined : openNav"));
-  // 右パネルの上限は overlay のとき 252px 増える (main = viewport 幅)
-  assert.ok(app.includes("mainWidth: sidebarDocked ? viewportWidth - SIDEBAR_WIDTH : viewportWidth"));
+  // 右パネルの上限は overlay のとき左バーの実幅ぶん増える (main = viewport 幅)
+  assert.ok(app.includes("mainWidth: sidebarDocked ? viewportWidth - sidebarWidth.width : viewportWidth"));
   // docked へ戻ったらドロワーを閉じ、docked の Sidebar と重ねて描かない
   assert.ok(app.includes("if (sidebarDocked) setNavOpen(false);"));
   assert.ok(app.includes("{navOpen && !sidebarDocked ? <NavSheet {...drawerProps} onClose={closeNav} /> : null}"));

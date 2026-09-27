@@ -22,13 +22,14 @@ import { useElapsedMs } from "./hooks/useElapsedMs";
 import { useLayoutMode } from "./hooks/useLayoutMode";
 import { useRoute } from "./hooks/useRoute";
 import { useSessionFilesPanelWidth } from "./hooks/useSessionFilesPanelWidth";
+import { useSidebarWidth } from "./hooks/useSidebarWidth";
 import { useViewportWidth } from "./hooks/useViewportWidth";
 import { agentIconOf } from "./lib/agentIcon";
 import { chatScope } from "./lib/chatScope";
 import { cn } from "./lib/cn";
 import { compactConfirmMessage } from "./lib/compaction";
 import { fileRefRequestForSession } from "./lib/fileRefRequest";
-import { resolveSidebarPlacement, SIDEBAR_WIDTH } from "./lib/layout";
+import { resolveSidebarPlacement } from "./lib/layout";
 import {
   notificationHasFailure,
   notifyCannotEnable,
@@ -54,10 +55,12 @@ export default function App() {
   // 左バーの置き方だけが変わる (中身はどちらも同じ Sidebar)。overlay は ☰ から開く
   const viewportWidth = useViewportWidth();
   const sidebarDocked = resolveSidebarPlacement(viewportWidth, layout) === "docked";
-  // 右パネルの幅は main 列の残りで決まる (docked の左バー 252px を引く。overlay は main = viewport)
+  // 左バーの幅は docked のシェル (grid の 1 列目) が使う。overlay のドロワーは従来どおり固定幅
+  const sidebarWidth = useSidebarWidth();
+  // 右パネルの幅は main 列の残りで決まる (docked は左バーの実幅を引く。overlay は main = viewport)
   const panelWidth = useSessionFilesPanelWidth({
     viewportWidth,
-    mainWidth: sidebarDocked ? viewportWidth - SIDEBAR_WIDTH : viewportWidth,
+    mainWidth: sidebarDocked ? viewportWidth - sidebarWidth.width : viewportWidth,
   });
   const mainView = route.view;
   // 再試行待機の残り時間表示。受信後の経過だけを毎秒測る (retryReceivedAt が無ければ tick しない)
@@ -310,12 +313,15 @@ export default function App() {
 
   return (
     <div
+      ref={sidebarWidth.shellRef}
+      // 左バーの列幅。ドラッグ中は同じ変数を直接書き換える (hooks/useSidebarWidth)
+      style={{ "--sidebar-width": `${sidebarWidth.width}px` } as CSSProperties}
       className={cn(
         "grid h-dvh min-h-0 bg-base text-ink",
-        sidebarDocked ? "grid-cols-[252px_minmax(0,1fr)] grid-rows-1" : "grid-cols-1 grid-rows-1",
+        sidebarDocked ? "grid-cols-[var(--sidebar-width)_minmax(0,1fr)] grid-rows-1" : "grid-cols-1 grid-rows-1",
       )}
     >
-      {sidebarDocked ? <Sidebar {...navProps} /> : null}
+      {sidebarDocked ? <Sidebar {...navProps} resize={sidebarWidth} /> : null}
       <main
         ref={panelWidth.mainRef}
         // パネルの列幅。ドラッグ中は同じ変数を直接書き換える (hooks/useSessionFilesPanelWidth)
