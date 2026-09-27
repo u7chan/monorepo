@@ -248,8 +248,8 @@ export interface AvailabilityNotice {
 }
 
 /**
- * 保存前の警告と確認文。確認は DOM に依存させず、文言だけをここで組み立てる
- * （`window.confirm` はコンポーネント側で呼ぶ）。
+ * 保存前の警告と確認文。確認の出し方 (画面内確認) はコンポーネント側が
+ * `availabilitySaveOnSubmit()` で決め、ここは DOM に依存せず文言だけを組み立てる。
  */
 export function availabilityNotice(
   draft: AvailabilityDraft,
