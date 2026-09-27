@@ -3,31 +3,14 @@
  * 応答時間・送信メッセージの観測) だけをここが持ち、run / queue / subscriber のライフサイクルは
  * SessionStore に残す。SDK は完了時刻を持たないため、応答時間はイベントの到着時刻で測る。
  */
-import { AUTH_REQUIRED_MESSAGE } from "./agent";
 import { recordCompactionOutcome } from "./compaction-view";
+import { classifyRunError, type RunErrorClassification } from "./error-classify";
 import type { PiSessionEventListener, PiSessionLike } from "./pi-runtime";
 import { contextUsageOf, lastAssistantMessage, parseUsage } from "./pi-runtime";
 import { createStreamingSecretMasker, type SecretMasker } from "./redact";
 import type { CompactionMeta } from "./session-record";
 import type { MessageMetrics, SSEEventData, SSEEventType, ToolCall } from "./schema";
 import { classifySkillRead, contentText, skillLoadOf, toolArgsSummary, toolResultSummary } from "./session-projection";
-
-function messageFor(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}
-
-/**
- * 認証・設定由来の SDK エラーは、UI が復旧手順を示せる定型文言へ置換する。
- * throw された falsy な値も文字列化するため、エラー有無の判定はこの戻り値で行う
- * (空メッセージの Error は空文字 = エラー無し、`throw undefined` は "undefined" = エラー)。
- */
-export function userFacingError(error: unknown): string {
-  const message = messageFor(error);
-  if (/No API key found|Provider is not configured|No model selected/i.test(message)) {
-    return AUTH_REQUIRED_MESSAGE;
-  }
-  return message;
-}
 
 /**
  * 応答時間のうち BFF が測れる分を組む。tok/s は最初の delta からのスパンで割り、
@@ -63,8 +46,16 @@ export function computeMessageMetrics({
 /** ランの終了理由。run_end の status と error 文言は受け取った側 (SessionStore) が決める */
 export interface RunSettlement {
   stopped?: boolean;
-  /** 正規化済みのエラー文言 (undefined は正常終了) */
-  error?: string;
+  /** 分類済みのエラー (undefined は正常終了) */
+  error?: RunErrorClassification;
+}
+
+/** auto_retry_start の通知。SessionStore が run.retry と累計を更新する */
+export interface RetryScheduledEvent {
+  attempt: number;
+  maxAttempts: number;
+  delayMs: number;
+  errorMessage: string;
 }
 
 export interface RunEventBridgeDeps {
@@ -82,6 +73,10 @@ export interface RunEventBridgeDeps {
   emitResync: () => void;
   /** message_end / compaction_end のたびに呼ぶ。SDK は通知後に entry を append するため、呼び出し側で 1 拍置く */
   onPersist?: () => void;
+  /** 再試行のスケジュール / 再実行開始 / 解除を run へ反映する */
+  onRetryScheduled: (event: RetryScheduledEvent) => void;
+  onRetryAttemptStart: () => void;
+  onRetryEnd: () => void;
   onSettled: (outcome: RunSettlement) => void;
 }
 
@@ -97,13 +92,30 @@ export interface RunEventBridge {
 }
 
 export function createRunEventBridge(deps: RunEventBridgeDeps): RunEventBridge {
-  const { session, masker, cwd, tools, messageMetrics, compactionMeta, emit, emitResync, onPersist, onSettled } = deps;
+  const {
+    session,
+    masker,
+    cwd,
+    tools,
+    messageMetrics,
+    compactionMeta,
+    emit,
+    emitResync,
+    onPersist,
+    onRetryScheduled,
+    onRetryAttemptStart,
+    onRetryEnd,
+    onSettled,
+  } = deps;
 
   let finished = false;
   let currentAssistantText = "";
   // このランで assistant メッセージを観測したか。観測していないランの本文は空として扱う
   // (SDK は assistant を生成せずに agent_settled を配ることがある)。
   let assistantSeen = false;
+  // このランで message_end を観測した assistant メッセージ。finalize の補完対象をここへ限定する
+  // (SDK は失敗試行を context_edit で投影から外すため、投影の最後をそのまま信じると前の応答を再表示する)。
+  const observedAssistants = new Set<object>();
   // 応答時間は assistant メッセージごとにリセットする
   let assistantStartedAt: number | undefined;
   let firstTokenAt: number | undefined;
@@ -113,6 +125,7 @@ export function createRunEventBridge(deps: RunEventBridgeDeps): RunEventBridge {
   // compaction を走らせるため、その時点の resync は送信メッセージを欠いた履歴になる。
   let promptRecorded = false;
   let pendingCompactionResync = false;
+  let retryActive = false;
 
   const pushText = (delta: string): void => {
     if (!delta) return;
@@ -120,20 +133,35 @@ export function createRunEventBridge(deps: RunEventBridgeDeps): RunEventBridge {
     emit("text", { delta });
   };
 
+  /** 失敗試行の一時状態 (保留 delta・本文) を破棄する。SDK の context_edit が投影へ反映された後に呼ぶ */
+  const discardAttempt = (): void => {
+    currentAssistantText = "";
+    deltaMasker = createStreamingSecretMasker(masker);
+    assistantStartedAt = undefined;
+    firstTokenAt = undefined;
+  };
+
   const finalize = (): void => {
     if (finished) return;
     finished = true;
 
-    // 中断・エラー・正常完了のいずれでも、保留中の末尾をマスクして流す。
-    pushText(deltaMasker.flush());
-
-    // プロバイダは通常 text delta をストリームする。このフォールバックは
-    // message_end で初めて最終テキストを含めるプロバイダ向け。
-    const finalText = masker.mask(contentText(lastAssistantMessage(session)?.content));
-    if (finalText && !currentAssistantText) {
-      pushText(finalText);
-    } else if (finalText && currentAssistantText && finalText.startsWith(currentAssistantText)) {
-      pushText(finalText.slice(currentAssistantText.length));
+    // 補完対象はこのランで観測し、かつ SDK の最終投影に残っている assistant だけ。
+    // 失敗試行 (context_edit で除外) や前のランの本文を、保留 delta の flush で再表示しない。
+    const projected = lastAssistantMessage(session);
+    if (projected && observedAssistants.has(projected)) {
+      // 中断・エラー・正常完了のいずれでも、保留中の末尾をマスクして流す。
+      pushText(deltaMasker.flush());
+      // プロバイダは通常 text delta をストリームする。このフォールバックは
+      // message_end で初めて最終テキストを含めるプロバイダ向け。
+      const finalText = masker.mask(contentText(projected.content));
+      if (finalText && !currentAssistantText) {
+        pushText(finalText);
+      } else if (finalText && currentAssistantText && finalText.startsWith(currentAssistantText)) {
+        pushText(finalText.slice(currentAssistantText.length));
+      }
+    } else {
+      discardAttempt();
+      assistantSeen = false;
     }
 
     // 送信メッセージを観測できないままターンが終わった場合の保険 (通常は message_end で配る)
@@ -168,6 +196,8 @@ export function createRunEventBridge(deps: RunEventBridgeDeps): RunEventBridge {
             assistantStartedAt = Date.now();
             firstTokenAt = undefined;
             deltaMasker = createStreamingSecretMasker(masker);
+            // 待機が終わって次の試行の本文が始まった時点を再実行の観測点にする (auto_retry_end は使わない)
+            if (retryActive) onRetryAttemptStart();
           }
           break;
         case "message_update": {
@@ -182,8 +212,9 @@ export function createRunEventBridge(deps: RunEventBridgeDeps): RunEventBridge {
           break;
         }
         case "message_end":
-          if (event.message?.role === "assistant") {
+          if (event.message?.role === "assistant" && event.message) {
             assistantSeen = true;
+            observedAssistants.add(event.message);
             pushText(deltaMasker.flush());
             const usage = parseUsage(event.message.usage);
             const metrics = computeMessageMetrics({
@@ -247,11 +278,32 @@ export function createRunEventBridge(deps: RunEventBridgeDeps): RunEventBridge {
           else pendingCompactionResync = true;
           break;
         }
-        case "auto_retry_start":
-          emit("status", {
-            state: "retry",
-            text: `再試行中… (${event.attempt}/${event.maxAttempts})`,
+        case "auto_retry_start": {
+          retryActive = true;
+          onRetryScheduled({
+            attempt: event.attempt ?? 0,
+            maxAttempts: event.maxAttempts ?? 0,
+            delayMs: event.delayMs ?? 0,
+            errorMessage: typeof event.errorMessage === "string" ? event.errorMessage : "",
           });
+          break;
+        }
+        case "entry_appended":
+          // auto_retry_start は SDK が失敗メッセージを投影から外す (context_edit) 前に届き、
+          // entry_appended の時点でも session.messages はまだ古い。microtask で 1 拍置いて、
+          // 投影が更新された後にだけ resync を配る (失敗試行の表示を取り消す)。
+          if (event.entry?.type === "context_edit") {
+            queueMicrotask(() => {
+              if (finished) return;
+              discardAttempt();
+              emitResync();
+            });
+          }
+          break;
+        case "auto_retry_end":
+          // 系列の確定通知。待機終了の観測点には使わない (再実行の開始は次の message_start)。
+          retryActive = false;
+          onRetryEnd();
           break;
         case "extension_error":
           emit("status", {
@@ -266,12 +318,13 @@ export function createRunEventBridge(deps: RunEventBridgeDeps): RunEventBridge {
           break;
         case "agent_settled": {
           const finalAssistant = lastAssistantMessage(session);
+          const error =
+            finalAssistant?.stopReason === "error"
+              ? classifyRunError(finalAssistant.errorMessage || "モデルの実行に失敗しました")
+              : undefined;
           onSettled({
             stopped: finalAssistant?.stopReason === "aborted",
-            error:
-              finalAssistant?.stopReason === "error"
-                ? userFacingError(finalAssistant.errorMessage || "モデルの実行に失敗しました")
-                : undefined,
+            ...(error ? { error } : {}),
           });
           break;
         }
@@ -279,7 +332,7 @@ export function createRunEventBridge(deps: RunEventBridgeDeps): RunEventBridge {
           break;
       }
     } catch (error) {
-      onSettled({ error: userFacingError(error) });
+      onSettled({ error: classifyRunError(error) });
     }
   };
 

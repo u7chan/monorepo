@@ -18,7 +18,8 @@ import type { NotificationService } from "./notifications";
 import { contextUsageOf, type PiRuntimeLike, type PiSessionEvent, type PiSessionLike } from "./pi-runtime";
 import type { ProjectStore } from "./projects";
 import { createSecretMasker, type SecretMasker } from "./redact";
-import { createRunEventBridge, userFacingError, type RunSettlement } from "./run-events";
+import { classifyRunError, composeRunError, retryWaitingText } from "./error-classify";
+import { createRunEventBridge, type RunSettlement } from "./run-events";
 import type {
   CreateSessionOptions,
   PostMessageResultInternal,
@@ -743,6 +744,8 @@ export class SessionStore {
     // SDK の abort() は abortCompaction() も呼ぶため、圧縮中もこれ 1 つで巻き戻せる
     const compaction = record.compactionTask;
     if (record.run?.status === "running" || record.session.isStreaming || record.compacting) {
+      // 待機中は aborted の assistant が投影に残らず stopReason では判定できないため、要求を控えておく
+      if (record.run?.status === "running") record.run.stopRequested = true;
       await record.session.abort().catch(() => {});
     }
     // entry を append 済み (保存待ち) の段階では圧縮を巻き戻せない。成功と保存結果を正とする
@@ -1156,6 +1159,7 @@ export class SessionStore {
       startedAt: Date.now(),
       endedAt: undefined,
       error: undefined,
+      totalRetryCount: 0,
     };
     record.run = run;
     record.tools = new Map();
@@ -1164,6 +1168,15 @@ export class SessionStore {
 
     let finished = false;
 
+    /** run.retry のスナップショットを SSE へ配る。run はこのランを閉じるまで差し替わらない */
+    const emitRetry = (): void => {
+      this.emit(record, "run_retry", {
+        retry: run.retry ? { ...run.retry } : null,
+        totalRetryCount: run.totalRetryCount,
+        serverNow: Date.now(),
+      });
+    };
+
     const finish = ({ error, stopped = false }: RunSettlement = {}): void => {
       if (finished) return;
       finished = true;
@@ -1171,9 +1184,13 @@ export class SessionStore {
       // 保留中の差分・最終テキスト・送信メッセージ待ちの resync は run_end より先に配る
       bridge.finalize();
 
-      run.status = stopped ? "stopped" : error ? "error" : "completed";
+      // 待機中の中止は aborted の assistant が投影に残らないため、stop の要求を停止の正とする
+      const wasStopped = stopped || run.stopRequested === true;
+      run.status = wasStopped ? "stopped" : error ? "error" : "completed";
       run.endedAt = Date.now();
-      if (error) run.error = this.masker.mask(error);
+      // アクティブな再試行は終了で消す。累計は結果表示のため残す
+      delete run.retry;
+      if (error) run.error = this.masker.mask(composeRunError(error, run.totalRetryCount));
       // 一覧 API / meta と同じ表示メッセージ数。ここを履歴の生件数 (session.messages.length) へ
       // 戻すと同名フィールドの定義が 2 つに戻る
       const messages = displayableMessages(session, this.masker);
@@ -1183,6 +1200,7 @@ export class SessionStore {
         error: run.error,
         messageCount: messages.length,
         queueDepth: record.queue.length,
+        totalRetryCount: run.totalRetryCount,
         // SDK は message_end をリスナーへ配ってから履歴へ入れるため、usage イベントの context は
         // 直前の応答までの値になる (compaction 直後は不明値のまま)。ここでは履歴反映済みの値を配る。
         context: contextUsageOf(session),
@@ -1207,9 +1225,47 @@ export class SessionStore {
       messageMetrics: record.messageMetrics,
       compactionMeta: record.compactionMeta,
       emit: (type, data) => this.emit(record, type, data),
-      emitResync: () => this.emitResync(record),
+      // 遅延した resync (context_edit の microtask) が次のランへ漏れないよう、ラン ID を確認してから配る
+      emitResync: () => {
+        if (record.run === run && run.status === "running") this.emitResync(record);
+      },
       // SDK は listener 通知の後に entry を append する。1 拍置いてから読む (保存点の順序テストあり)
       onPersist: () => queueMicrotask(() => void this.persist(record)),
+      onRetryScheduled: ({ attempt, maxAttempts, delayMs, errorMessage }) => {
+        run.totalRetryCount += 1;
+        const reason = classifyRunError(errorMessage)?.code ?? "unknown";
+        run.retry = {
+          phase: "waiting",
+          attempt,
+          maxAttempts,
+          retryAt: Date.now() + Math.max(0, delayMs),
+          reason,
+        };
+        emitRetry();
+        this.emit(record, "status", {
+          state: "retry",
+          text: retryWaitingText(reason, attempt, maxAttempts, delayMs),
+        });
+      },
+      onRetryAttemptStart: () => {
+        if (!run.retry) return;
+        run.retry = {
+          phase: "retrying",
+          attempt: run.retry.attempt,
+          maxAttempts: run.retry.maxAttempts,
+          reason: run.retry.reason,
+        };
+        emitRetry();
+        this.emit(record, "status", {
+          state: "retry",
+          text: `再実行中（${run.retry.attempt}/${run.retry.maxAttempts}）`,
+        });
+      },
+      onRetryEnd: () => {
+        if (!run.retry) return;
+        delete run.retry;
+        emitRetry();
+      },
       onSettled: (outcome) => finish(outcome),
     });
 
@@ -1222,7 +1278,7 @@ export class SessionStore {
         unsubscribe();
       })
       .catch((error) => {
-        if (!finished) finish({ error: userFacingError(error) });
+        if (!finished) finish({ error: classifyRunError(error) });
         unsubscribe();
       });
 

@@ -26,6 +26,7 @@ function payload(sessionId: string, lastSeq: number): SessionPayload {
     title: "",
     createdAt: 1,
     lastUsedAt: 1,
+    serverNow: 1,
     queueDepth: 0,
     lastSeq,
     run: null,

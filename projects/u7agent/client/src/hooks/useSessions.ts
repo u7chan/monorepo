@@ -128,7 +128,7 @@ export function useSessions({
       setCwd(payload.cwd || "");
       // 権威ある状態が届いた。圧縮を抜けたなら、進行中の同期応答は古いので捨てる
       if (payload.status !== "compacting") sessionOpsRef.current += 1;
-      dispatch({ type: "resync", payload });
+      dispatch({ type: "resync", payload, receivedAt: Date.now() });
       // 圧縮は run の開始 / 終了を伴わないため、一覧の「圧縮中」がポーリング (4 秒) まで古いままになる。
       // 一覧とずれたときだけ取り直す (毎回叩かない)
       const listed = sessionsRef.current.find((item) => item.sessionId === payload.sessionId);

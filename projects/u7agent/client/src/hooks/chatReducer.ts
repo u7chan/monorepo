@@ -5,6 +5,7 @@ import type {
   CompactionInfo,
   ContextUsage,
   MessageMetrics,
+  RunRetryState,
   RunStatus,
   SessionPayload,
   SkillLoad,
@@ -79,11 +80,19 @@ export type ChatState = {
   compactions: CompactionInfo[];
   pendingUsage?: Usage;
   pendingMetrics?: MessageMetrics;
+  /** 進行中の自動再試行。resync / run_retry で復元し、run_end で消える */
+  retry?: RunRetryState;
+  /** retry の残り時間 (受信時点)。retryAt - serverNow で出し、ブラウザ時計は受信後の経過だけに使う */
+  retryRemainingMs?: number;
+  /** retry を受信したときのブラウザ時刻 (経過の起点) */
+  retryReceivedAt?: number;
+  /** ラン中の再試行スケジュール累計 (結果表示用。新しいランで 0 に戻す) */
+  retryCount: number;
 };
 
 export type ChatAction =
   | { type: "newChat" }
-  | { type: "resync"; payload: SessionPayload }
+  | { type: "resync"; payload: SessionPayload; receivedAt?: number }
   | { type: "runStart"; prompt: string; at: number; startedAt: number }
   | { type: "localUser"; text: string; at: number }
   /** 送信に失敗したローカルエコーを戻す (待ち行列の末尾 = 直前に送った分) */
@@ -96,7 +105,15 @@ export type ChatAction =
   | { type: "status"; text: string }
   | { type: "queued"; position: number; queueDepth: number }
   | { type: "queueCleared" }
-  | { type: "runEnd"; status: RunStatus; queueDepth: number; error?: string; context?: ContextUsage }
+  | { type: "retry"; retry: RunRetryState | null; totalRetryCount: number; serverNow: number; receivedAt: number }
+  | {
+      type: "runEnd";
+      status: RunStatus;
+      queueDepth: number;
+      error?: string;
+      context?: ContextUsage;
+      totalRetryCount?: number;
+    }
   | { type: "setRun"; runStatus: RunStatus; queueDepth?: number; activity?: string }
   | { type: "setActivity"; text: string };
 
@@ -123,7 +140,24 @@ export const initialChatState: ChatState = {
   compactions: [],
   pendingUsage: undefined,
   pendingMetrics: undefined,
+  retry: undefined,
+  retryRemainingMs: undefined,
+  retryReceivedAt: undefined,
+  retryCount: 0,
 };
+
+/** retryAt と serverNow の差を残り時間として控える。どちらか欠けたら undefined (推測で時刻を合成しない) */
+function retrySnapshot(
+  retry: RunRetryState | null | undefined,
+  serverNow: number | undefined,
+  receivedAt: number,
+): Pick<ChatState, "retry" | "retryRemainingMs" | "retryReceivedAt"> {
+  if (!retry) return { retry: undefined, retryRemainingMs: undefined, retryReceivedAt: undefined };
+  const remaining =
+    retry.retryAt === undefined || serverNow === undefined ? undefined : Math.max(0, retry.retryAt - serverNow);
+  // 残りが無いとき (retrying / 復元不能) は tick の起点も持たない
+  return { retry, retryRemainingMs: remaining, retryReceivedAt: remaining === undefined ? undefined : receivedAt };
+}
 
 /**
  * 送信エコーの照合用の正規形。添付の注記を落とし、`/skill:` の展開結果は打ったコマンドの形へ戻す。
@@ -265,6 +299,8 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
       const payload = action.payload;
       const { bubbles, nextId, toolBubbleIds } = historyToBubbles(state.nextId, payload.messages ?? []);
       const status = payload.status || "idle";
+      // 履歴で置き換えたので、旧バブルを指すエコーの待ち行列は持ち越さない
+      const retryState = retrySnapshot(payload.run?.retry, payload.serverNow, action.receivedAt ?? Date.now());
       // run が終わった合図。run_end を受け取れない復帰 (切断した SSE の resync) でも、running から
       // 抜けていれば進める (パネルの取り直しは run_end とこの 1 回で足りる)
       const runEnded = state.runStatus === "running" && status !== "running";
@@ -293,6 +329,9 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
         compactions: payload.compactions ?? [],
         pendingUsage: undefined,
         pendingMetrics: undefined,
+        ...retryState,
+        // ランが終わっていても結果表示用に累計を引き継ぐ (run が無い復元では前の値のまま)
+        retryCount: payload.run ? payload.run.totalRetryCount : state.retryCount,
       };
       if (payload.run?.toolCalls?.length && (status === "running" || status === "completed")) {
         const last = [...bubbles].reverse().find((b) => b.role === "assistant");
@@ -344,9 +383,13 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
         // 圧縮の終端では run_start より先に終端 resync が届く (回復時も残さない)
         compactionStartedAt: undefined,
         activity: "実行を開始しました",
-        // 前の run の保留値を引き継がない
+        // 前の run の保留値・再試行状態を引き継がない (累計は結果表示用に残す)
         pendingUsage: undefined,
         pendingMetrics: undefined,
+        retry: undefined,
+        retryRemainingMs: undefined,
+        retryReceivedAt: undefined,
+        retryCount: 0,
       };
     }
 
@@ -455,6 +498,15 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
     case "queueCleared":
       return { ...state, queueDepth: 0, activity: "待機キューを取り消しました" };
 
+    case "retry": {
+      const retryState = retrySnapshot(action.retry, action.serverNow, action.receivedAt);
+      return {
+        ...state,
+        ...retryState,
+        retryCount: action.totalRetryCount,
+      };
+    }
+
     case "runEnd": {
       const { status, queueDepth } = action;
       let activity: string;
@@ -477,6 +529,11 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
         // バブルが作られないまま run が終わった保留値は、次の run へ持ち越さない
         pendingUsage: undefined,
         pendingMetrics: undefined,
+        // アクティブな再試行は終了で消す。累計は結果表示のため残す
+        retry: undefined,
+        retryRemainingMs: undefined,
+        retryReceivedAt: undefined,
+        retryCount: action.totalRetryCount ?? state.retryCount,
       };
     }
 

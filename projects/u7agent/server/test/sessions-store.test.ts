@@ -690,16 +690,23 @@ test("normalizes the run error at the settlement callers, including falsy thrown
   const store = new SessionStore({ pi: createStubPi(), catalog });
   const record = await store.create();
 
-  // 正規化は例外を受け取った境界で行い、status の判定も正規化後の文字列で決める。
-  // 空メッセージの Error / throw "" はエラー無し、throw された falsy な値は文言化してエラーになる。
+  // 正規化は例外を受け取った境界で行い、status の判定も分類後の結果で決める。
+  // 空メッセージの Error / throw "" はエラー無し、throw された falsy な値は unknown としてエラーになる。
+  // 上流の原文は公開せず、分類コードごとの定型日本語に置換する。
+  const unknown = "実行に失敗しました。原因を特定できませんでした。接続と設定を確認して、もう一度実行してください";
   const cases: Array<{ thrown: unknown; status: "completed" | "error"; error?: string }> = [
     { thrown: new Error(), status: "completed" },
     { thrown: "", status: "completed" },
-    { thrown: undefined, status: "error", error: "undefined" },
-    { thrown: null, status: "error", error: "null" },
-    { thrown: 0, status: "error", error: "0" },
-    { thrown: new Error("モデルの実行に失敗しました"), status: "error", error: "モデルの実行に失敗しました" },
+    { thrown: undefined, status: "error", error: unknown },
+    { thrown: null, status: "error", error: unknown },
+    { thrown: 0, status: "error", error: unknown },
+    { thrown: new Error("モデルの実行に失敗しました"), status: "error", error: unknown },
     { thrown: new Error("No API key found"), status: "error", error: AUTH_REQUIRED_MESSAGE },
+    {
+      thrown: new Error("429 Rate limit reached for org-SECRET in tokens per min (TPM): Limit 200000"),
+      status: "error",
+      error: "レート制限により実行に失敗しました。時間をおいて再実行してください",
+    },
   ];
 
   for (const { thrown, status, error } of cases) {

@@ -17,6 +17,7 @@ import { SkillSettingsPage } from "./components/SkillSettingsPage";
 import { Topbar } from "./components/Topbar";
 import { FileRefProvider } from "./components/markdown/FileRefLink";
 import { useU7Agent } from "./hooks/useU7Agent";
+import { useElapsedMs } from "./hooks/useElapsedMs";
 import { useLayoutMode } from "./hooks/useLayoutMode";
 import { useRoute } from "./hooks/useRoute";
 import { useSessionFilesPanelWidth } from "./hooks/useSessionFilesPanelWidth";
@@ -33,6 +34,7 @@ import {
   notifyUnavailableNote,
 } from "./lib/notifications";
 import { sessionFilesDefaultOpen, sessionFilesRoot } from "./lib/sessionFiles";
+import { retryActivityText, retryRemainingMs } from "./lib/retryState";
 import { type SettingsSection, type SidebarMode } from "./lib/settingsNav";
 
 export default function App() {
@@ -56,6 +58,8 @@ export default function App() {
     mainWidth: sidebarDocked ? viewportWidth - SIDEBAR_WIDTH : viewportWidth,
   });
   const mainView = route.view;
+  // 再試行待機の残り時間表示。受信後の経過だけを毎秒測る (retryReceivedAt が無ければ tick しない)
+  const retryElapsed = useElapsedMs(app.chat.retryReceivedAt);
   // 作業先 (バーのチップ / 空状態の見出し)。未作成チャットは作成先、セッションはその所属が作業先になる
   const scope = chatScope({
     cwd: app.cwd,
@@ -355,7 +359,10 @@ export default function App() {
             </FileRefProvider>
             <Composer
               visible={mainView === "chat"}
-              activity={app.chat.activity}
+              activity={
+                retryActivityText(app.chat.retry, retryRemainingMs(app.chat.retryRemainingMs, retryElapsed)) ??
+                app.chat.activity
+              }
               runningSince={
                 app.chat.runStatus === "running"
                   ? app.chat.runStartedAt

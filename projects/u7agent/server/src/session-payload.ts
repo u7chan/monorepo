@@ -51,6 +51,8 @@ export function projectSessionPayload({
     title: record.title,
     createdAt: record.createdAt,
     lastUsedAt: record.lastUsedAt,
+    // retryAt との差でクライアントが残り時間を出す基準時刻 (ブラウザ時計と比較しない)
+    serverNow: Date.now(),
     queueDepth: record.queue.length,
     ...(record.compactionStartedAt !== undefined ? { compactionStartedAt: record.compactionStartedAt } : {}),
     notify: record.notify,
@@ -69,6 +71,8 @@ export function projectSessionPayload({
           error: record.run.error,
           prompt: truncate(record.run.prompt, PROMPT_TEXT_MAX),
           toolCalls: [...record.tools.values()],
+          ...(record.run.retry ? { retry: { ...record.run.retry } } : {}),
+          totalRetryCount: record.run.totalRetryCount,
         }
       : null,
     messages: projectMessages(session, record.messageMetrics, masker, workspaceAbs(rootCwd, cwd)),
