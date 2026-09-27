@@ -120,6 +120,31 @@ export const ToolCallSchema = z.object({
 });
 export type ToolCall = z.infer<typeof ToolCallSchema>;
 
+/** ラン失敗の公開分類。上流の原文は公開せず、このコードだけを SSE / payload に載せる */
+export const RunErrorCodeSchema = z.enum([
+  "auth_required",
+  "insufficient_quota",
+  "context_overflow",
+  "rate_limit",
+  "unknown",
+]);
+export type RunErrorCode = z.infer<typeof RunErrorCodeSchema>;
+
+/**
+ * 進行中の自動再試行。`waiting` は SDK の backoff 中 (retryAt まで)、`retrying` は次の
+ * assistant の message_start を観測した後。`attempt` は現在の連続失敗系列の番号で、
+ * ラン全体の回数は RunPayload.totalRetryCount が持つ。
+ */
+export const RunRetryStateSchema = z.object({
+  phase: z.enum(["waiting", "retrying"]),
+  attempt: z.number(),
+  maxAttempts: z.number(),
+  /** waiting の待機終了予定 (epoch ms)。サーバー基準で、クライアントは serverNow との差で残りを出す */
+  retryAt: z.number().optional(),
+  reason: RunErrorCodeSchema,
+});
+export type RunRetryState = z.infer<typeof RunRetryStateSchema>;
+
 export const RunPayloadSchema = z.object({
   id: z.string(),
   status: RunStatusSchema,
@@ -128,6 +153,10 @@ export const RunPayloadSchema = z.object({
   error: z.string().optional(),
   prompt: z.string(),
   toolCalls: z.array(ToolCallSchema),
+  /** 進行中の自動再試行。成功・最終失敗・手動停止で消える (累計は totalRetryCount に残る) */
+  retry: RunRetryStateSchema.optional(),
+  /** ラン中の auto_retry_start 通知の累計 (再試行のスケジュール回数。待機中の中止も含む) */
+  totalRetryCount: z.number(),
 });
 export type RunPayload = z.infer<typeof RunPayloadSchema>;
 
@@ -248,6 +277,8 @@ export const SessionPayloadSchema = z.object({
   title: z.string(),
   createdAt: z.number(),
   lastUsedAt: z.number(),
+  /** この payload を組み立てた時刻 (epoch ms)。retry.retryAt との差でクライアントが残り時間を出す */
+  serverNow: z.number(),
   queueDepth: z.number(),
   /** 手動圧縮の開始時刻 (epoch ms)。status === "compacting" のときだけ載る */
   compactionStartedAt: z.number().optional(),
@@ -876,8 +907,16 @@ export const EventDataSchemas = {
     queueDepth: z.number(),
     error: z.string().optional(),
     messageCount: z.number().optional(),
+    /** ラン中の再試行スケジュール累計 (error の文言にも含まれる。構造で読むクライアント用) */
+    totalRetryCount: z.number().optional(),
     // message_end 時点の context は SDK が履歴へ入れる前で古いため、確定値は run_end で配る
     context: ContextUsageSchema.optional(),
+  }),
+  // 自動再試行の開始 / 再実行開始 / 解除。payload.run.retry と同じ形を serverNow と組で配る
+  run_retry: z.object({
+    retry: RunRetryStateSchema.nullable(),
+    totalRetryCount: z.number(),
+    serverNow: z.number(),
   }),
   // compaction_end の 1 件分と、その時点の累計回数。続けて resync が同じ状態を配る
   compaction: z.object({

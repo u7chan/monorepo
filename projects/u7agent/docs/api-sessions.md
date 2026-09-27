@@ -68,8 +68,11 @@
     "id": "…",
     "status": "running",
     "startedAt": 1700000000000,
+    "retry": { "phase": "waiting", "attempt": 1, "maxAttempts": 2, "retryAt": 1700000004000, "reason": "rate_limit" },
+    "totalRetryCount": 1,
     "toolCalls": [{ "id": "…", "name": "read", "args": "…/gh/SKILL.md", "done": true, "isError": false, "output": "…", "skill": { "id": "…", "name": "gh", "path": "/workspace/.agents/skills/gh/SKILL.md" } }]
   },
+  "serverNow": 1700000002100,
   "context": { "tokens": 68000, "contextWindow": 200000, "percent": 34 },
   "messages": [
     { "role": "user", "text": "…", "at": 1700000000000 },
@@ -130,6 +133,10 @@
 `model` / `thinkingLevel` は pi SDK のセッションが持つ実効値（`thinkingLevel` は SDK 補正後）。`supportsThinking` と `availableThinkingLevels` はその実効モデルの能力を SDK の公開ヘルパーから引いたもの。`agent` は作成時点のスナップショットなので、定義を編集・削除しても既存チャットの表示は変わらない。
 
 `status` は `idle` / `running` / `queued` / `compacting` / `completed` / `stopped` / `error`。`compacting` は手動圧縮の実行中で、SDK の実行中だけでなく**保存待ち**も含む（排他の正は BFF のフラグ。詳細は [compaction.md](compaction.md#手動圧縮)）。`compactionStartedAt` はその開始時刻（epoch ms）で、`status` が `compacting` のときだけ載る（終端の `resync` では載せない）。経過時間の起点はこの値を使い、`run.startedAt` は再利用しない。
+
+`serverNow` は payload を組み立てたサーバー基準時刻（epoch ms）。`run.retry.retryAt` との差でクライアントが待機の残り時間を出すための値で、ブラウザの時計と直接比較してはならない（リロード / SSE 再接続 / 別タブでも同じ残り時間を復元する。詳細は [run-lifecycle.md](run-lifecycle.md#再試行状態の配信と復元)）。
+
+`run.retry` は進行中の自動再試行で、`phase` は SDK の backoff 待機中 (`waiting`) か、次の assistant の応答開始後 (`retrying`)。`reason` は `auth_required` / `insufficient_quota` / `context_overflow` / `rate_limit` / `unknown` の分類コードだけで、上流のエラー原文は載らない。`run.totalRetryCount` はラン中の再試行スケジュール回数の累計（`auto_retry_start` の通知数。待機中の中止も含む）で、成功・最終失敗後も結果表示用に残る。新しいランでは 0 へ戻る。成功・最終失敗・停止でアクティブな `retry` は消える（復元時に「いつまで待機中か」を誤らないため）。
 
 `cwd` はワークスペース root 相対の作業ディレクトリ（プロジェクト所属は `projectCwd`、未所属は `.u7agent/sessions/<id>`）。ツール実行と `GET /api/files` の結果はこのディレクトリを起点に組み立てる。`write` / `edit` はこのディレクトリと `<root>/.agents/skills` の内側にだけ書ける（[projects.md](projects.md#write--edit-の書き込み範囲)）。`health.cwd` は root の絶対パス（表示用）で意味が違う。`projectId` は所属プロジェクト（未所属はキーを省略）。復元時は `meta.projectCwd` から `cwd` を解決し、登録が解除・消失していてもそのディレクトリを使う。
 
@@ -326,6 +333,8 @@ SSE（`text/event-stream`）でイベントを購読。カーソルは `Last-Eve
 
 接続直後と、以降 15 秒ごとに `ping`（可視イベント）を送る。`id` を付けないため `Last-Event-ID` は動かない。クライアントはこれを生存確認にだけ使い、状態には流さない（dev の Vite プロキシは upstream が落ちても接続を閉じないので、無音を切断とみなして張り直す）。
 
+バッファからのリプレイ範囲に待機中の `run_retry` を含むときは、リプレイの末尾に現在のペイロードを持つ `resync` を 1 件続けて送る。リプレイされたイベントの `serverNow` は発行時点のままで、クライアントが受信時刻を起点にすると残り時間が過大になるため（`retryAt` は絶対値、判定は [run-lifecycle.md](run-lifecycle.md#再試行状態の配信と復元)）。
+
 イベントタイプ:
 
 | イベント | data |
@@ -333,10 +342,11 @@ SSE（`text/event-stream`）でイベントを購読。カーソルは `Last-Eve
 | `run_start` | `{ runId, prompt, startedAt }`（`startedAt` は payload の `run.startedAt` と同じ値） |
 | `text` | `{ delta }` |
 | `tool_start` / `tool_end` | `{ id, name, args, skill? }` / `{ id, name, isError, output }`（`skill` は `run.toolCalls[].skill` と同じスキル読み込み。結果が無い時点なので `isError` は載らない） |
-| `status` | `{ state, text }`（考え中 / ツール実行中 / 再試行中 など。手動圧縮の終端では成功 / 失敗の文言を配る） |
+| `status` | `{ state, text }`（考え中 / ツール実行中 / 再試行 など。手動圧縮の終端では成功 / 失敗の文言を配る。自動再試行の文言は `run_retry` の構造化情報からクライアントが導出する） |
 | `queued` | `{ position, queueDepth, prompt }` |
 | `queue_cleared` | `{}` |
-| `run_end` | `{ runId, status, error, messageCount, queueDepth, context? }`（`messageCount` は一覧 API と同じ表示メッセージ数） |
+| `run_retry` | `{ retry, totalRetryCount, serverNow }`（自動再試行の開始 / 再実行開始 / 解除。`retry` は payload の `run.retry` と同じ形で、解除時は `null`） |
+| `run_end` | `{ runId, status, error, messageCount, queueDepth, totalRetryCount?, context? }`（`messageCount` は一覧 API と同じ表示メッセージ数） |
 | `usage` | `{ usage?, metrics?, context? }`（assistant の `message_end` ごとに 1 件。usage はプロバイダが報告したときだけ、metrics は BFF 計測、context は SDK の `getContextUsage()` だが履歴反映前なので確定値は `run_end` 側） |
 | `compaction` | `{ compaction, count }`（`compaction_end` ごとに 1 件。`compaction` は payload の `compactions` の要素 1 つ、`count` はその時点の累計回数。run の自動圧縮では続けて同じ状態を持つ `resync` が届く（送信メッセージを履歴へ入れる前に圧縮が走った場合は、そのメッセージが入ってから届く）。手動圧縮では resync を配らず、保存の完了後に終端 `resync` が 1 回届く。`result` が無い / `aborted` / `errorMessage` ありのときは `compaction` も `resync` も配らない） |
 | `resync` | セッションペイロード全体（バッファを逃した場合・世代が一致しない場合と、手動圧縮の開始 / 終端） |
@@ -344,6 +354,12 @@ SSE（`text/event-stream`）でイベントを購読。カーソルは `Last-Eve
 | `ping` | `{}`（接続直後と 15 秒ごとの生存確認。`id` 無し = カーソルを動かさない） |
 
 テキスト系イベント（`text` / `tool_start` / `tool_end` / `run_start` / `queued` / `run_end` のエラーや `resync` の `messages`・`compactions[].summary`、`compaction` の `compaction.summary` など）は、既知のプロバイダーAPIキーの値が `[REDACTED]` に置換されて配信される。対象キーと保証範囲は [secrets.md](secrets.md) を参照。
+
+### 失敗試行の取り消しとエラーの公開契約
+
+- 再試行対象になった失敗 assistant の途中テキストは、SDK が `context_edit` を追加して投影を更新した後に届く `resync` で表示から取り消す（`resync.messages` が正）。失敗試行と次の試行のテキストは連結しない。確定済みのツール履歴・先行する正常な assistant は残る。
+- `run_end.error` / `payload.run.error` / `resync` のエラーは、共通の分類（恒久的な利用枠 → 認証 → コンテキスト超過 → `rate_limit` → `unknown`）を通した定型日本語だけを配る。プロバイダーの生エラー（組織ID・APIキーを含み得る）は公開経路へ出さない。最終失敗の文言には再試行のスケジュール累計と原因別の操作案内を含める。
+- 分類・文言の定義と SDK イベントの対応は [run-lifecycle.md](run-lifecycle.md#自動再試行sdk-の-retry) / [run-lifecycle.md](run-lifecycle.md#失敗の分類と公開契約) を正とする。
 
 ## `POST /api/sessions/:id/compact`
 

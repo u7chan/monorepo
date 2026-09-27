@@ -23,6 +23,7 @@ function runningPayload(): SessionPayload {
     title: "README をレビューして",
     createdAt: 1,
     lastUsedAt: 2,
+    serverNow: 2,
     queueDepth: 2,
     lastSeq: 7,
     run: null,
@@ -208,6 +209,7 @@ test("running 中の resync は run の重複 call を優先し、tool_end を�
     startedAt: 10,
     prompt: "続けて",
     toolCalls: [runningOverlap, runningNew],
+    totalRetryCount: 0,
   };
 
   const resynced = chatReducer(initialChatState, { type: "resync", payload });
@@ -643,7 +645,14 @@ test("新しい会話へ戻しても runEndSeq は戻らない", () => {
 function payloadWithRun(): SessionPayload {
   return {
     ...runningPayload(),
-    run: { id: "run-1", status: "running", startedAt: 1700000000000, prompt: "聞いて", toolCalls: [] },
+    run: {
+      id: "run-1",
+      status: "running",
+      startedAt: 1700000000000,
+      prompt: "聞いて",
+      toolCalls: [],
+      totalRetryCount: 0,
+    },
   };
 }
 

@@ -8,6 +8,7 @@ import type {
   EventEntry,
   MessageMetrics,
   ModelRef,
+  RunRetryState,
   RunStatus,
   ThinkingLevel,
   ToolCall,
@@ -22,6 +23,12 @@ export interface RunState {
   startedAt: number;
   endedAt?: number;
   error?: string;
+  /** 進行中の自動再試行 (成功・最終失敗・停止で消える)。累計は totalRetryCount に残す */
+  retry?: RunRetryState;
+  /** ラン中の auto_retry_start 通知の累計 (再試行のスケジュール回数。待機中の中止も含む) */
+  totalRetryCount: number;
+  /** BFF の stop で abort したか。待機中は aborted の assistant が残らないため、停止判定に使う */
+  stopRequested?: boolean;
 }
 
 /** compaction entry id に紐づく、entry へは保存されない表示用の値 */

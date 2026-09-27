@@ -11,19 +11,65 @@ POST /api/sessions/:id/messages { text }
                     （キューは最大 10 件。超過は 429）
 
 startRun():
-  1. run オブジェクト生成（status: "running"）
+  1. run オブジェクト生成（status: "running", totalRetryCount: 0）
   2. run_start イベントを記録
   3. session.subscribe() で pi のイベントを変換して記録（変換は `server/src/run-events.ts`）
      - message_update / text_delta → text
      - tool_execution_start/end    → tool_start / tool_end
+     - auto_retry_start/end        → run_retry / status（後述）
+     - entry_appended(context_edit) → 失敗試行の取り消し resync（後述）
      - agent_settled               → 終了判定
   4. session.prompt(text) を fire-and-forget で呼ぶ（await しない）
   5. agent_settled（または prompt の解決）で finish():
-     - 最終テキストの取りこぼし補完（delta が来なかった場合の差分送出）
+     - 失敗試行の取り消し後の最終テキスト補完（対象はこのランで観測した assistant だけ）
      - run.status を completed / stopped / error に確定
      - run_end イベントを記録
      - キューがあれば 200ms 後に pump() で次のメッセージを実行
 ```
+
+## 自動再試行（SDK の retry）
+
+モデルの一時的なレート制限などは、pi SDK の agent-level リトライ（`SettingsManager` の `retry: { enabled: true, maxRetries: 2 }`）に任せる。**BFF は `prompt()` を再発行しない**（ユーザーメッセージやツール実行を二重に走らせない）。backoff は SDK の指数バックオフで、既定は 2 秒 → 4 秒。プロバイダーの `Retry-After` ヘッダーや本文の「Please try again in Xs」は SDK では使われないため、待機時間を上流の指定として保証しない。
+
+SDK v0.87.1 で観測する順序（スタブではなく SDK 実体の回帰テストで固定）:
+
+```text
+message_end(assistant, error, usage.total = 0)  失敗試行
+  → agent_end(willRetry=true)                   status「再試行を準備中…」
+  → auto_retry_start { attempt, maxAttempts, delayMs } → run_retry(waiting)
+  → entry_appended(context_edit)                失敗メッセージの投影からの除外
+  → （backoff）
+  → agent_start → message_start(assistant)       → run_retry(retrying)
+  → message_end(assistant)
+  → auto_retry_end { success, attempt }
+```
+
+- `waiting` は `auto_retry_start` で入り、`retryAt = 受信時刻 + delayMs` をサーバー基準で持つ。`retrying` は**次の assistant の `message_start`** を再実行開始の観測点にする。`auto_retry_end` は系列の確定（成功 / 最終失敗 / 中止）であって待機終了の通知ではない。
+- `run.retry.attempt` は SDK が現在の連続失敗系列へ付けた番号で、成功するとリセットされる（同一ラン内の後続 LLM 呼び出しで再び 1 から始まる）。ラン全体の再試行回数は `run.totalRetryCount` が持ち、`auto_retry_start` の通知数の累計（**スケジュール回数**）と定義する。待機中に中止した回も含み、実際の HTTP 再送回数とは呼ばない。終了時はアクティブな `retry` だけを消し、累計は結果表示用に残す。
+- 成功・最終失敗・手動停止でアクティブな `retry` は解除する。待機中に `POST /stop` を呼ぶと SDK 内部の待機が abort され、`auto_retry_end(success:false, finalError: "Retry cancelled")` → `agent_settled` の順で終わる。このとき aborted の assistant は投影に残らないため、BFF は stop 要求を控えて `run_end(status: "stopped")` にする。
+- 同じランの `run_start` / `run_end` は各 1 回。待機キューはランが確定してから従来どおり進める。
+
+### 失敗した試行の表示取り消し
+
+- 再試行対象の失敗 assistant の途中テキストは表示から取り消し、次の試行のテキストと連結しない。確定済みのツール実行・結果と、先行する正常な assistant は消さない。生の SDK 履歴 / JSONL は改変せず、**SDK の現在のセッション投影（`session.messages`）を表示の正**とする。
+- `auto_retry_start` は SDK が失敗メッセージを除外する**前**に届く。同じく `entry_appended(context_edit)` の時点でも投影はまだ古い。BFF はこのイベントの listener で同期 resync せず、microtask で 1 拍置いてから、そのランが実行中であることを確認して `resync` を 1 件配る。クライアントはこの `resync` で失敗試行のバブルを取り消し、以降の `text` を新しい試行として表示する（ライブ / SSE リプレイ / 再読み込みで同じ `messages` になる）。
+- 除外が確定した時点で、BFF の保留 delta・`currentAssistantText`・応答時間の計測起点は試行単位で破棄する（保留分を flush して次の試行へ連結しない）。
+- `finalize()` の最終テキスト補完と完了通知の本文は、**このランで `message_end` を観測し、かつ最終投影に残っている assistant** だけを対象にする。前のランの本文や除外された失敗試行を補完・再表示しない。
+- 最終失敗（最大回数を使い切った失敗）の assistant は SDK が除外しないため投影に残る。投影の最後がこの失敗 assistant のときは、途中テキストをそのまま確定させ、別の応答を継ぎ足さない。
+
+### 再試行状態の配信と復元
+
+- `payload.run.retry` は `{ phase: "waiting" | "retrying", attempt, maxAttempts, retryAt?, reason }`。`reason` は分類済みコードだけで、SDK の `errorMessage` / `finalError` 原文は配らない。ライブでは同じ形を `run_retry` イベント（`totalRetryCount` と `serverNow` 付き）で配る。
+- `serverNow` は payload を組み立てたサーバー基準時刻。クライアントは `retryAt - serverNow` で受信時点の残りを出し、受信後の経過分だけを引く（ブラウザ時計とサーバー時刻を直接比較しない）。予定時刻を過ぎても `message_start` が来ない場合は「再実行の開始待ち」へ切り替え、「あと 0 秒」の待機表示を残さない。
+- SSE のリプレイで古い `run_retry` / `resync` が届いても、保存済みの絶対 `retryAt` を使うため待機は延長されない。サーバーはリプレイ範囲に待機中の `run_retry` を含むとき、古い `serverNow` のままで残り時間を計算させないよう、リプレイの末尾へ現在のペイロードを持つ `resync` を 1 件追加する。クライアントも同じ試行（同じ `attempt` / `retryAt`）の再受信では、既に得た期限より後ろへ待機を延ばさない。
+
+## 失敗の分類と公開契約
+
+`server/src/error-classify.ts` の純関数が、`agent_settled` の最終エラー・`prompt()` の reject・`run_end.error`・`SessionPayload.run.error`・`resync` のすべてで共通に使う。
+
+- 優先順位は **恒久的な利用枠 / 課金（`insufficient_quota` など）→ 認証・設定 → コンテキスト超過 → 一時的な `rate_limit`（429 / TPM / RPM）→ `unknown`**。SDK 自身の再試行可否判定を BFF で上書きはしない（分類は表示と案内のためだけに使う）。
+- 公開文言はコードごとの定型日本語（理由 + 原因別の操作案内 + 再試行累計）だけとし、上流の原文・組織ID・APIキーを UI へ出さない。クレジット不足や認証失敗を「時間を置けば復旧する」と案内しない。
+- `retry.reason` も同じコードだけを配る。
 
 ## 状態
 
@@ -66,9 +112,11 @@ startRun():
 `POST /api/sessions/:id/stop`（旧 `/abort` もエイリアスとして有効）:
 
 1. 待機キューを破棄し `queue_cleared` イベントを記録
-2. `session.abort()` を呼ぶ（pi が `agent_settled` / stopReason `aborted` を返す。圧縮中なら `abortCompaction()` も同時に走る）
+2. `session.abort()` を呼ぶ（pi が `agent_settled` / stopReason `aborted` を返す。自動再試行の backoff 待機中なら SDK がその待機を abort する。圧縮中なら `abortCompaction()` も同時に走る）
 3. 圧縮中だった場合は `compactionTask` の settle（保存と終端配信）を待つ（応答の `status` に `compacting` を残さない）
 4. `finish()` が `run_end`（status: `stopped`）を記録。キューは破棄済みなので次のランは起動しない
+
+自動再試行の待機中の中止は、SDK が失敗試行を投影から除外済みで aborted の assistant が残らない。BFF は stop の要求を `RunState` へ控え、最終 assistant の `stopReason` に依らず `stopped` とする（`run.retry` は解除し、`totalRetryCount` は残す）。
 
 `DELETE /api/sessions/:id` は停止 + ストアの履歴削除 + 購読者への `session_deleted` 通知を行う（作業フォルダは残す）。未ロードのセッションは SDK を開かずに消せる。
 

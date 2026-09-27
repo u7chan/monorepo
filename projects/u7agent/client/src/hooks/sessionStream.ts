@@ -75,6 +75,16 @@ export function applySessionEvent(entry: EventEntry, deps: SessionStreamDeps): v
     case "status":
       dispatch({ type: "status", text: entry.data.text });
       return;
+    case "run_retry":
+      // 受信時刻はブラウザの Date.now()。サーバーの serverNow との差で残り時間を出す
+      dispatch({
+        type: "retry",
+        retry: entry.data.retry,
+        totalRetryCount: entry.data.totalRetryCount,
+        serverNow: entry.data.serverNow,
+        receivedAt: Date.now(),
+      });
+      return;
     case "queued":
       dispatch({ type: "queued", position: entry.data.position, queueDepth: entry.data.queueDepth });
       void refreshSessions();
@@ -89,6 +99,7 @@ export function applySessionEvent(entry: EventEntry, deps: SessionStreamDeps): v
         queueDepth: entry.data.queueDepth,
         error: entry.data.error,
         context: entry.data.context,
+        totalRetryCount: entry.data.totalRetryCount,
       });
       if (entry.data.status === "error" && entry.data.error) {
         setRuntimeStatus(runtimeStatusForError(new Error(entry.data.error)));

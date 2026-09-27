@@ -629,6 +629,10 @@ test("保存待ちの間は送信・設定変更・二重圧縮・stop が割り
 test("保存に失敗しても compaction と終端 resync を配り、同期 POST だけを 500 にする", async () => {
   const { store, record, storeDir } = await createPersistentFixture();
   await runTurn(store, record, "保存に失敗する会話");
+  // runTurn 最後の保存は fire-and-forget のため、meta.json を置き換える前に settle を待つ。
+  // 待たずに rm と mkdir の間へ rename が入ると `mkdir(recursive: true)` が EEXIST で落ちる
+  // (保存失敗そのものは compact の persist で作る)。
+  await store.flush(record);
   // meta.json をディレクトリへ置き換えて rename を失敗させる
   const metaPath = sessionMetaPath(record.id, storeDir);
   await rm(metaPath, { force: true });

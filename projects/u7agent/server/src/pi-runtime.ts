@@ -21,13 +21,20 @@ export interface PiSessionEvent {
   args?: unknown;
   isError?: boolean;
   result?: unknown;
+  /** auto_retry_start: SDK が現在の連続失敗系列へ付けた番号と待機幅 */
   attempt?: number;
   maxAttempts?: number;
+  delayMs?: number;
+  /** auto_retry_end: 系列の成否。待機終了の通知ではない */
+  success?: boolean;
+  finalError?: string;
   error?: unknown;
   willRetry?: boolean;
   reason?: string;
   aborted?: boolean;
   errorMessage?: string;
+  /** entry_appended: SDK が追記した entry (context_edit の検知だけに使う) */
+  entry?: { type?: string } | null;
 }
 
 /** pi SDK の SessionEntry (BFF が compaction を読むのに必要な分だけ) */

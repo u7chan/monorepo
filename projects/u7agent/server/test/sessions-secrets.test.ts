@@ -268,7 +268,7 @@ test("スキル読み込みの導出行 (履歴) もマスクされる", async (
   await store.close();
 });
 
-test("error messages are masked before run_end and status events", async () => {
+test("error messages are classified before run_end and status events", async () => {
   const session = createScriptedSession(async (s) => {
     const assistant = startAssistant(s);
     await streamChunks(s, assistant, ["失敗します"]);
@@ -287,7 +287,11 @@ test("error messages are masked before run_end and status events", async () => {
   const runEnd = events.find((entry) => entry.type === "run_end");
   assert.ok(runEnd, "run_end が記録される");
   assert.equal(runEnd.data.status, "error");
-  assert.equal((runEnd.data as { error?: string }).error, `Provider rejected: ${REDACTED}`);
+  // 未分類の上流文言は公開経路へ出さず、定型の日本語へ置換する
+  assert.equal(
+    (runEnd.data as { error?: string }).error,
+    "実行に失敗しました。原因を特定できませんでした。接続と設定を確認して、もう一度実行してください",
+  );
   const payload = store.payload(record);
   assertNoRawKey(events, payload, "error surfaces");
 });
