@@ -16,11 +16,10 @@ export function createRuntimeRoutes({
 }) {
   return {
     models: (c: Context) => {
-      const diagnostics = pi?.runtimeDiagnostics;
-      if (!diagnostics || diagnostics.summary.status !== "available") {
-        return c.json({ error: RUNTIME_MODELS_UNAVAILABLE_MESSAGE }, 503);
-      }
-      return c.json(diagnostics.catalog);
+      // カタログを取れなかった回は空のカタログで 200 を返さない (全 provider 未認証と区別できない)
+      const catalog = pi?.modelCatalog;
+      if (!catalog) return c.json({ error: RUNTIME_MODELS_UNAVAILABLE_MESSAGE }, 503);
+      return c.json(catalog);
     },
     /**
      * 実行環境の診断。未接続を含めて常に 200 で返し、UI は state だけで分岐する。

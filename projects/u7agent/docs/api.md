@@ -2,7 +2,7 @@
 
 静的ファイル（`/`）以外は `/api/` 配下。JSON は `Content-Type: application/json`。
 
-例の JSON のモデルは `<provider>` / `<id>` のプレースホルダで示す。実値は環境の利用可能モデル（`PI_MODELS` の whitelist と available の積）で決まる。
+例の JSON のモデルは `<provider>` / `<id>` のプレースホルダで示す。実値は環境の利用可能モデル（設定 → モデル の「利用可能なモデル」と available の積）で決まる。
 
 DTO の正は `server/src/schema.ts`（zod）。リクエストボディは `@hono/zod-validator` で検証され、client（`client/src/api.ts`）は `hono/client`（hc）でこの契約を型として参照する。
 
@@ -38,9 +38,9 @@ DTO の正は `server/src/schema.ts`（zod）。リクエストボディは `@ho
 
 | メソッド | パス | 説明 |
 | --- | --- | --- |
-| GET | `/api/health` | pi ランタイムの状態（`ready` / `model` / `modelOptions` / `defaultThinkingLevel` / `cwd`）と小さいモデル診断サマリ。認証が無い場合は `errorCode: "authentication_required"`、`PI_MODELS` の whitelist と利用可能モデルが交差しない場合は `errorCode: "model_whitelist_empty"` |
+| GET | `/api/health` | pi ランタイムの状態（`ready` / `model` / `modelOptions` / `defaultThinkingLevel` / `cwd` / `versions`）と永続化の状態。認証が無い場合は `errorCode: "authentication_required"`、保存された許可リストと利用可能モデルが交差しない場合は `errorCode: "model_whitelist_empty"` |
 
-`ready` は「ランタイムが使え、利用可能モデルが 1 つ以上ある」の意で、アプリ既定モデル（`model`）が使えるかとは独立している。`model` はあくまでアプリ既定（新規セッションで明示も定義も無いときに使う値）で、チャットごとの実効モデルではない。チャットの実効モデルはセッションの payload / 一覧の `model` を参照する。明示 `PI_MODEL` が利用不能でも候補が他にあれば `ready: true` と `defaultModelError` を返し、別モデルへは自動で切り替えない。`sandboxConfigured` は `PI_SANDBOX_URL` / `PI_SANDBOX_TOKEN` が揃っているか（未設定ならセッション作成が 503 になる）を示す。
+`ready` は「ランタイムが使え、利用可能モデルが 1 つ以上ある」の意で、アプリ既定モデル（`model`）が使えるかとは独立している。`model` はあくまでアプリ既定（新規セッションで明示も定義も無いときに使う値）で、チャットごとの実効モデルではない。チャットの実効モデルはセッションの payload / 一覧の `model` を参照する。設定 → モデル で保存した既定モデルが利用不能でも候補が他にあれば `ready: true` と `defaultModelError` を返し、別モデルへは自動で切り替えない。`sandboxConfigured` は `PI_SANDBOX_URL` / `PI_SANDBOX_TOKEN` が揃っているか（未設定ならセッション作成が 503 になる）を示す。`PI_MODEL` / `PI_MODELS` / `PI_PROVIDER` は読まない（設定されていても無視する）。
 
 ```json
 {
@@ -59,17 +59,8 @@ DTO の正は `server/src/schema.ts`（zod）。リクエストボディは `@ho
     }
   ],
   "defaultThinkingLevel": "medium",
-  "defaultModelError": "指定された既定モデルは利用できません: openai/ghost",
-  "runtimeDiagnostics": {
-    "status": "available",
-    "whitelistConfigured": true,
-    "catalogCount": 1495,
-    "whitelistCount": 3,
-    "availableCount": 8,
-    "piModels": [],
-    "providers": [],
-    "versions": { "piCodingAgent": "0.87.1", "piAi": "0.87.1" }
-  },
+  "defaultModelError": "保存された既定モデルは利用できません: openai/ghost",
+  "versions": { "piCodingAgent": "0.87.1", "piAi": "0.87.1" },
   "sessionStore": { "path": "/var/lib/u7agent/sessions", "ok": true, "dirty": 0 },
   "appDb": { "path": "/var/lib/u7agent/sessions/u7agent.db", "ok": true },
   "archive": { "excludeNames": ["node_modules", ".venv", "…"] }
@@ -78,23 +69,19 @@ DTO の正は `server/src/schema.ts`（zod）。リクエストボディは `@ho
 
 `archive.excludeNames` はダウンロード ZIP から落とす名前の**実効値**（[ダウンロード](#ダウンロード)）。設定ストア（[アーカイブの除外名](#アーカイブの除外名)）が唯一の決定点で、未設定なら既定の一覧、上書きされていればその一覧になる。UI は行にダウンロードを出すかの判定だけに使い、実際の拒否は `GET /api/files/download/check` が行う（このフィールドの形と意味は変えない）。
 
-`modelOptions` は認証済みで利用可能なモデルのみ。`PI_MODELS` を指定したときは、その whitelist と利用可能モデルの積だけになる（`PI_MODEL` が whitelist 外なら `defaultModelError`、積が空なら `ready: false` と PI_MODELS を名指しした `error`）。能力情報（`supportsThinking` / `thinkingLevels`）は pi SDK の公開ヘルパー（`getSupportedThinkingLevels`）から得る。`defaultThinkingLevel` は `PI_MODEL` の末尾指定 → `PI_THINKING` → `medium` の優先順位で決まる。解決の詳細は [model-effort.md](model-effort.md)。
+`modelOptions` は認証済みで利用可能なモデルのみ。設定 → モデル の「利用可能なモデル」を保存したときは、その許可リストと利用可能モデルの積だけになる（保存された既定モデルが許可リスト外なら `defaultModelError`、積が空なら `ready: false` と `設定 → モデル` を名指しした `error`。`errorCode` は互換のため `model_whitelist_empty` のまま）。能力情報（`supportsThinking` / `thinkingLevels`）は pi SDK の公開ヘルパー（`getSupportedThinkingLevels`）から得る。`defaultThinkingLevel` は `PI_THINKING` → `medium` の順で決まる。解決の詳細は [model-effort.md](model-effort.md)。
 
-`runtimeDiagnostics` は全カタログを含めない集計で、カタログ数・whitelist 収載数・whitelist 適用前の利用可能数と、明示した `PI_MODEL` / `PI_MODELS` の各入力要素を返す。`PI_MODELS` の判定は入力順と重複を保つ。モデル参照の判定は「未知のプロバイダー → カタログ外 → 未認証 → whitelist 対象外 → 利用可能」の優先順で、認証済みでも SDK の利用可能一覧に無いモデルは `not_available` になる。プロバイダー別の数値と認証状態は、`PI_MODEL` / `PI_MODELS` で参照されたプロバイダーと認証済みプロバイダーだけを含む。それ以外の内訳は返さない。
-
-認証ソースは `environment` / `stored` / `runtime` / `fallback` / `models_json_key` / `models_json_command` を表し、将来 SDK が返す未知の値は `unknown` にする。`environmentVariables` に含めるのは環境変数名として検証できた名前だけで、認証状態のラベル、環境変数値、認証ファイル内容、生の認証エラーは含めない。SDK バージョンと、設定されている場合の `COMMIT_HASH` も表示する。ランタイム初期化または診断の取得に失敗した場合は `runtimeDiagnostics.status: "unavailable"` とし、既存の health エラーや `ready` の意味は変更しない。
+`versions` は実行中の SDK バージョンで、設定されている場合は `COMMIT_HASH` も含む。以前は `runtimeDiagnostics.versions` として返していたが、モデル診断の撤去に伴い health 直下へ移した（ランタイム初期化に失敗したときも `runtimeVersionInfo()` の値だけを返す）。プロバイダー別の集計と認証ソース（`environment` / `stored` / `runtime` / `fallback` / `models_json_key` / `models_json_command` / 未知の値は `unknown`）は [ランタイムのモデルカタログ](#ランタイムのモデルカタログ) が返す。認証状態のラベル、環境変数値、認証ファイル内容、生の認証エラーは health にもカタログにも含めない。
 
 ## ランタイムのモデルカタログ
 
 | メソッド | パス | 説明 |
 | --- | --- | --- |
-| GET | `/api/runtime/models` | 設定 → ランタイムを開いたときに取得する、全カタログとプロバイダー認証状態 |
+| GET | `/api/runtime/models` | 設定 → モデル を開いたときに取得する、全カタログとプロバイダー認証状態 |
 
 ```json
 {
-  "whitelistConfigured": true,
   "catalogCount": 2,
-  "whitelistCount": 1,
   "availableCount": 2,
   "versions": { "piCodingAgent": "0.87.1", "piAi": "0.87.1", "commitHash": "…" },
   "providers": [
@@ -105,19 +92,17 @@ DTO の正は `server/src/schema.ts`（zod）。リクエストボディは `@ho
         "source": "environment",
         "environmentVariables": ["<ENV_VAR_NAME>"]
       },
-      "models": [
-        { "id": "<id>", "name": "…", "available": true, "inWhitelist": true }
-      ]
+      "models": [{ "id": "<id>", "name": "…", "available": true }]
     }
   ]
 }
 ```
 
-- `available` は whitelist 適用前の SDK `getAvailable()` の結果、`inWhitelist` はカタログの whitelist 収載状態。両者は独立している。whitelist 未指定時は全モデルで `inWhitelist: true` とし、`whitelistConfigured: false` で制限なしを示す
-- `whitelistCount` はカタログとの一致モデル数で、whitelist 入力の重複は数えない。`availableCount` は whitelist 適用前の件数
+- `available` は SDK `getAvailable()` の結果（認証済みかつ SDK が利用可能とするモデル）。許可リストの適用前で、利用可能かどうかとは独立している
+- 許可されているかどうかの正は [設定 → モデル](#利用可能なモデルとプロバイダーapiキー設定--モデル) の `allowedModels` だけで、この応答には whitelist 系のフィールドを持たせない
 - 認証ソースと `environmentVariables` の公開範囲は `GET /api/health` と同じ。provider の内部設定、キー値、`auth.json` / `models.json` の内容は返さない
 - 200: カタログ応答。0 件でも空の `providers` / count を返す
-- 503: ランタイムまたは診断情報が利用できない。生のエラーを含めず、`{ "error": "ランタイムのモデル情報を取得できません" }` を返す
+- 503: カタログを取得できない（ランタイム初期化失敗・`getAvailable()` の失敗）。生のエラーを含めず、`{ "error": "ランタイムのモデル情報を取得できません" }` を返す
 
 カタログ全件は通常約 90KB（pi SDK の同梱版で変動）となるため、health には載せない。この API は設定画面を開いたときにだけ要求する。
 
@@ -328,11 +313,12 @@ Content-Security-Policy: sandbox allow-scripts; default-src 'none'; style-src 'u
 - 保存 / リセットの応答も GET と同じ形で、`excludeNames` は保存後の実効値になる
 - 変更は次のダウンロードから効く（BFF はリクエストごとに実効値をサンドボックスへ渡す。[sandbox-api.md](sandbox-api.md#get-v1filesdownload)）
 
-## プロバイダーAPIキー（設定 → モデル）
+## 利用可能なモデルとプロバイダーAPIキー（設定 → モデル）
 
 | メソッド | パス | 説明 |
 | --- | --- | --- |
-| GET | `/api/settings/models` | provider 一覧（auth 状態 / managed / canSetApiKey / orphan / degraded）。純粋読取 |
+| GET | `/api/settings/models` | 保存値（`allowedModels` / `defaultModel`）と provider 一覧（auth 状態 / managed / canSetApiKey / orphan / degraded）。純粋読取 |
+| PUT | `/api/settings/models/allowed` | 利用可能なモデルとアプリ既定モデルの一括保存。body は `{ "allowedModels": ["<provider>/<id>"], "defaultModel": "<provider>/<id>" }`（どちらも `null` 可） |
 | PUT | `/api/settings/models/:provider/key` | APIキーを登録（既存は上書き）。body は `{ "apiKey": "…" }` |
 | DELETE | `/api/settings/models/:provider/key` | この画面で登録したキーを削除 |
 | POST | `/api/settings/models/:provider/resync` | degraded（保存済み・未反映）の回復。body 無し |
@@ -343,8 +329,9 @@ Content-Security-Policy: sandbox allow-scripts; default-src 'none'; style-src 'u
 // GET /api/settings/models (200)
 {
   "runtimeAvailable": true,
-  "whitelistConfigured": false,
+  "allowedModels": ["<provider>/<id>"],
   "defaultModel": "<provider>/<id>",
+  "ignoredEnvironmentVariables": ["PI_MODELS"],
   "providers": [
     {
       "provider": "<provider>",
@@ -360,13 +347,18 @@ Content-Security-Policy: sandbox allow-scripts; default-src 'none'; style-src 'u
 }
 ```
 
+- `allowedModels` は保存された許可リスト（`provider/model` の配列）で、`null` は「未設定 = 制限なし（全モデル）」。空配列で保存しても `null` へ正規化する。**許可されているかどうかの正はこのフィールドだけ**で、`GET /api/runtime/models` には同じ情報を載せない
+- `defaultModel` は保存値（`null` は未設定 = 利用可能なモデルの先頭）。**実効値は `GET /api/health` の `model`** で、保存値が利用できないときは `defaultModelError` が付く
+- `ignoredEnvironmentVariables` は、設定されていても読まなくなった環境変数（`PI_MODELS` / `PI_MODEL` / `PI_PROVIDER`）の名前。設定画面は移行のため削除を促す注記に使う
+- `PUT /api/settings/models/allowed` は `provider/model` 形式・重複なし・カタログ内・既定が許可リスト内（制限なしのときはカタログ内）を検証し、400 で理由を返す（`カタログに無いモデルは指定できません: <provider>/<id>` など）。「許可リスト内だが未認証」の既定は保存できる（画面が警告と確認を出す）。応答は GET と同じ形 + `state: "applied"`
+- `state: "applied"` は「アプリ DB へ保存し、公開 state（availableModels / modelOptions / selectedModel / resolveModel）を再計算した」ことを表す。SDK 呼び出しを含まないため `applied_unsynced` は無い。`null` の保存（未設定へ戻す）で行が消え、再起動後も維持される
 - `managed` は `provider_credentials` に行がある（保存済みの希望状態）、`auth.source` は SDK の実効値（`runtime` / `environment` / `stored` …）、`degraded` はこのプロセスの SDK 反映が未完了（`apply` = 未適用 / `remove` = 削除未反映）を表す。3 つは独立で、混ぜて「使える」と見せない
 - `canSetApiKey` は SDK の `auth.apiKey.login` の有無。false の provider（ambient / keyless）はこの画面からキーを登録できない
 - `orphan: true` は現在のカタログに無い DB 行。`name` は provider id になり、削除だけできる（再同期はできない）
 - キー値・ラベル・生の認証エラーは GET の応答に含めない。環境変数の**変数名**だけを `environmentVariables` に載せる（`GET /api/health` と同じ公開範囲）
 - 変更系の本文は `{ "apiKey": "…" }` で、8..2048 文字。形が違う場合は 400（SDK / DB へ要求を出さない）
 - 200 の応答は GET と同じ形 + 必須の `state`。`applied` は反映まで成功、`applied_unsynced` は「保存済み・反映未完了」で、再同期 / 次回の変更 / 再起動で収束する
-- 503 は `{ "error": "…", "state": "not_stored" }` で、何も保存されていないことを示す（DB 書込前の失敗、ランタイム初期化失敗など）。400 は `{ "error": "…" }` だけ
+- 503 は `{ "error": "…", "state": "not_stored" }` で、何も保存されていないことを示す（DB 書込前の失敗、ランタイム初期化失敗など）。400 は `{ "error": "…" }` だけ。`PUT /api/settings/models/allowed` もランタイムが無いときは 503 `not_stored`（カタログ検証ができないため）
 - 400: 未知の provider / `canSetApiKey` が false の provider への PUT、登録行が無い provider の DELETE、再同期の対象外（カタログに無く degraded も `remove` でない）。サンドボックスは使わない
 - `POST /:provider/resync` は冪等。degraded でない provider に送っても現在の DB 希望状態を再適用して 200 を返す
 

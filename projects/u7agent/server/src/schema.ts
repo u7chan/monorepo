@@ -365,25 +365,6 @@ export const RuntimeAuthSchema = z.object({
 });
 export type RuntimeAuth = z.infer<typeof RuntimeAuthSchema>;
 
-export const ModelDiagnosticStatusSchema = z.enum([
-  "unknown_provider",
-  "catalog_missing",
-  "unauthenticated",
-  "not_in_whitelist",
-  "available",
-  "not_available",
-]);
-export type ModelDiagnosticStatus = z.infer<typeof ModelDiagnosticStatusSchema>;
-
-export const ModelReferenceDiagnosticSchema = ModelRefSchema.extend({
-  status: ModelDiagnosticStatusSchema,
-  cataloged: z.boolean(),
-  authenticated: z.boolean(),
-  available: z.boolean(),
-  inWhitelist: z.boolean(),
-});
-export type ModelReferenceDiagnostic = z.infer<typeof ModelReferenceDiagnosticSchema>;
-
 export const RuntimeVersionsSchema = z.object({
   piCodingAgent: z.string(),
   piAi: z.string().optional(),
@@ -391,35 +372,10 @@ export const RuntimeVersionsSchema = z.object({
 });
 export type RuntimeVersions = z.infer<typeof RuntimeVersionsSchema>;
 
-export const RuntimeProviderSummarySchema = z.object({
-  provider: z.string(),
-  auth: RuntimeAuthSchema,
-  catalogCount: z.number().int().nonnegative(),
-  whitelistCount: z.number().int().nonnegative(),
-  availableCount: z.number().int().nonnegative(),
-});
-export type RuntimeProviderSummary = z.infer<typeof RuntimeProviderSummarySchema>;
-
-/** health に載せる診断は集計と明示設定だけ。カタログ全件は別 API で取得する。 */
-export const RuntimeDiagnosticSummarySchema = z.object({
-  status: z.enum(["available", "unavailable"]),
-  unavailableReason: z.enum(["runtime_unavailable", "diagnostics_unavailable"]).optional(),
-  whitelistConfigured: z.boolean().optional(),
-  catalogCount: z.number().int().nonnegative().optional(),
-  whitelistCount: z.number().int().nonnegative().optional(),
-  availableCount: z.number().int().nonnegative().optional(),
-  piModel: ModelReferenceDiagnosticSchema.optional(),
-  piModels: z.array(ModelReferenceDiagnosticSchema).optional(),
-  providers: z.array(RuntimeProviderSummarySchema).optional(),
-  versions: RuntimeVersionsSchema.optional(),
-});
-export type RuntimeDiagnosticSummary = z.infer<typeof RuntimeDiagnosticSummarySchema>;
-
 export const RuntimeCatalogModelSchema = z.object({
   id: z.string(),
   name: z.string(),
   available: z.boolean(),
-  inWhitelist: z.boolean(),
 });
 export type RuntimeCatalogModel = z.infer<typeof RuntimeCatalogModelSchema>;
 
@@ -432,9 +388,7 @@ export type RuntimeCatalogProvider = z.infer<typeof RuntimeCatalogProviderSchema
 
 /** GET /api/runtime/models。モデル一覧はこの API を開いたときだけ取得する。 */
 export const RuntimeModelsResponseSchema = z.object({
-  whitelistConfigured: z.boolean(),
   catalogCount: z.number().int().nonnegative(),
-  whitelistCount: z.number().int().nonnegative(),
   availableCount: z.number().int().nonnegative(),
   versions: RuntimeVersionsSchema,
   providers: z.array(RuntimeCatalogProviderSchema),
@@ -465,11 +419,15 @@ export const ProviderAuthSettingSchema = z.object({
 });
 export type ProviderAuthSetting = z.infer<typeof ProviderAuthSettingSchema>;
 
-/** GET /api/settings/models。カタログ全件は載せず、モデル数と一覧は /api/runtime/models が持つ */
+/** GET /api/settings/models。カタログ全件は載せず、利用可能なモデルは allowedModels だけが持つ */
 export const ModelsSettingsResponseSchema = z.object({
   runtimeAvailable: z.boolean(),
-  whitelistConfigured: z.boolean(),
-  defaultModel: z.string().optional(),
+  /** `provider/model` の一覧。未設定 (null) = 制限なし。許可されているかの正はこのフィールドだけ */
+  allowedModels: z.array(z.string()).nullable(),
+  /** 保存値。null は未設定 (利用可能なモデルの先頭を使う)。実効値は health.model */
+  defaultModel: z.string().nullable(),
+  /** 設定されていても無視する移行前の環境変数名 */
+  ignoredEnvironmentVariables: z.array(z.string()),
   providers: z.array(ProviderAuthSettingSchema),
 });
 export type ModelsSettingsResponse = z.infer<typeof ModelsSettingsResponseSchema>;
@@ -491,6 +449,13 @@ export const UpdateProviderKeyBodySchema = z.object({
   apiKey: z.string().min(PROVIDER_API_KEY_MIN_LENGTH).max(PROVIDER_API_KEY_MAX_LENGTH),
 });
 export type UpdateProviderKeyBody = z.infer<typeof UpdateProviderKeyBodySchema>;
+
+/** 利用可能なモデルの一括保存。両方 null が「未設定へ戻す」なので DELETE は持たない */
+export const UpdateModelAvailabilityBodySchema = z.object({
+  allowedModels: z.array(z.string()).nullable(),
+  defaultModel: z.string().nullable(),
+});
+export type UpdateModelAvailabilityBody = z.infer<typeof UpdateModelAvailabilityBodySchema>;
 
 /**
  * 設定 → ランタイムの実行環境カードが使う状態。`connected` だけが情報を持ち、他は理由の分類だけを返す
@@ -544,11 +509,13 @@ export const HealthSchema = z.object({
   availableModels: z.array(z.string()).optional(),
   modelOptions: z.array(ModelOptionSchema).optional(),
   defaultThinkingLevel: ThinkingLevelSchema.optional(),
-  /** 明示 PI_MODEL が利用不能なときの理由 (ready は true のまま) */
+  /** 保存された既定モデルが利用不能なときの理由 (ready は true のまま) */
   defaultModelError: z.string().optional(),
   tools: z.array(z.string()).optional(),
   availabilityError: z.string().optional(),
   sandboxConfigured: z.boolean().optional(),
+  /** 実行中の SDK バージョン。ランタイムの診断とは独立に出し続ける */
+  versions: RuntimeVersionsSchema.optional(),
   /** ダウンロード ZIP の除外規則の実効値。UI は行にダウンロードを出すかの判定に使う */
   archive: z
     .object({
@@ -573,7 +540,6 @@ export const HealthSchema = z.object({
       error: z.string().optional(),
     })
     .optional(),
-  runtimeDiagnostics: RuntimeDiagnosticSummarySchema.optional(),
 });
 export type Health = z.infer<typeof HealthSchema>;
 

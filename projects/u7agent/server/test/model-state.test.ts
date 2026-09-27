@@ -6,6 +6,7 @@ import {
   AUTH_REQUIRED_MESSAGE,
   MODEL_WHITELIST_EMPTY_MESSAGE,
   deriveModelState,
+  filterModelsByWhitelist,
   readModelState,
   unavailableModelState,
   type ModelSnapshot,
@@ -41,10 +42,10 @@ function fakeModelRuntime(options: {
   } as unknown as ModelRuntime;
 }
 
-test("available と whitelist の積から選択肢・既定モデルを導出する", () => {
+test("保存された許可リストの積から選択肢を導出し、既定は保存値を使う", () => {
   const state = deriveModelState({
     snapshot: snapshot(),
-    requested: { model: { provider: "stub", id: "stub-plain" }, thinkingLevel: undefined },
+    requested: { provider: "stub", id: "stub-plain" },
     whitelist: undefined,
     versions: VERSIONS,
   });
@@ -55,11 +56,25 @@ test("available と whitelist の積から選択肢・既定モデルを導出�
   assert.equal(state.selectedModel?.id, "stub-plain");
   assert.equal(state.defaultModelError, undefined);
   assert.equal(state.availabilityError, undefined);
-  assert.equal(state.runtimeDiagnostics?.summary.catalogCount, 2);
   assert.equal(state.modelOptions[0]?.supportsThinking, true);
 });
 
-test("PI_MODELS の積が空なら whitelist 起因のエラーにする", () => {
+test("保存された許可リストで絞り、既定が未設定なら先頭を使う", () => {
+  const state = deriveModelState({
+    snapshot: snapshot(),
+    requested: undefined,
+    whitelist: [{ provider: "stub", id: "stub-plain" }],
+    versions: VERSIONS,
+  });
+  assert.deepEqual(
+    state.availableModels.map((model) => model.id),
+    ["stub-plain"],
+  );
+  assert.equal(state.selectedModel?.id, "stub-plain", "既定が未設定なら絞り込み後の先頭");
+  assert.equal(state.defaultModelError, undefined);
+});
+
+test("許可リストの積が空なら許可リスト起因のエラーにする", () => {
   const state = deriveModelState({
     snapshot: snapshot(),
     requested: undefined,
@@ -92,15 +107,15 @@ test("認証済みプロバイダーが無ければ APIキー未設定の案内�
   assert.match(configured.availabilityError ?? "", /利用可能なモデルがありません/);
 });
 
-test("明示 PI_MODEL が利用不能でも他候補へフォールバックしない", () => {
+test("保存された既定モデルが利用不能でも他候補へフォールバックしない", () => {
   const state = deriveModelState({
     snapshot: snapshot(),
-    requested: { model: { provider: "stub", id: "ghost" }, thinkingLevel: undefined },
+    requested: { provider: "stub", id: "ghost" },
     whitelist: undefined,
     versions: VERSIONS,
   });
   assert.equal(state.selectedModel, undefined);
-  assert.equal(state.defaultModelError, "指定された既定モデルは利用できません: stub/ghost");
+  assert.equal(state.defaultModelError, "保存された既定モデルは利用できません: stub/ghost");
 });
 
 test("getAvailable() の失敗は可用 0 + マスク済み理由を公開し、古い一覧を残さない", async () => {
@@ -121,7 +136,7 @@ test("getAvailable() の失敗は可用 0 + マスク済み理由を公開し、
   assert.equal(state.selectedModel, undefined);
   assert.ok(state.availabilityError?.includes(REDACTED), "理由はマスクして公開する");
   assert.ok(!state.availabilityError?.includes(KEY));
-  assert.equal(state.runtimeDiagnostics, undefined, "可用の取得に失敗した回は診断を出さない");
+  assert.equal(state.catalog, undefined, "可用の取得に失敗した回はカタログを出さない");
 });
 
 test("導出そのものが失敗しても可用 0 の安全な state にする", async () => {
@@ -138,7 +153,7 @@ test("導出そのものが失敗しても可用 0 の安全な state にする"
   assert.deepEqual(state, unavailableModelState("モデル状態の再計算に失敗しました"));
 });
 
-test("runtimeDiagnostics の導出が失敗しても選択肢は公開する", () => {
+test("カタログの導出が失敗しても選択肢は公開する", () => {
   const brokenCatalog: unknown[] = [null];
   const state = deriveModelState({
     snapshot: snapshot({ catalog: brokenCatalog as ModelSnapshot["catalog"] }),
@@ -146,9 +161,51 @@ test("runtimeDiagnostics の導出が失敗しても選択肢は公開する", (
     whitelist: undefined,
     versions: VERSIONS,
   });
-  assert.equal(state.runtimeDiagnostics, undefined, "診断は best-effort");
+  assert.equal(state.catalog, undefined, "カタログは best-effort");
   assert.deepEqual(
     state.availableModels.map((model) => model.id),
     ["stub-model", "stub-plain"],
   );
+});
+
+test("カタログは provider ごとのモデルと available を返し、許可リストの情報を持たない", () => {
+  const state = deriveModelState({
+    snapshot: snapshot({
+      catalog: [STUB_MODEL, STUB_PLAIN_MODEL],
+      providerIds: ["stub"],
+    }),
+    requested: undefined,
+    whitelist: [{ provider: "stub", id: "stub-model" }],
+    versions: VERSIONS,
+  });
+  assert.equal(state.catalog?.catalogCount, 2);
+  assert.equal(state.catalog?.availableCount, 2);
+  assert.deepEqual(state.catalog?.versions, VERSIONS);
+  assert.deepEqual(
+    state.catalog?.providers[0]?.models.map((model) => [model.id, model.available]),
+    [
+      ["stub-model", true],
+      ["stub-plain", true],
+    ],
+  );
+  assert.ok(
+    !JSON.stringify(state.catalog).includes("whitelist") && !JSON.stringify(state.catalog).includes("allowedModels"),
+    "許可リストの情報は設定 API だけが持つ",
+  );
+});
+
+test("filterModelsByWhitelist は入力順・重複を保ち、交差なしは空、未指定は全件", () => {
+  const available = [STUB_MODEL, STUB_PLAIN_MODEL];
+  assert.deepEqual(filterModelsByWhitelist(available, undefined), available);
+  assert.deepEqual(
+    filterModelsByWhitelist(available, [
+      { provider: "stub", id: "stub-plain" },
+      { provider: "stub", id: "stub-model" },
+      { provider: "stub", id: "stub-plain" },
+    ]).map((model) => model.id),
+    ["stub-model", "stub-plain"],
+    "available の順を保ち、重複した指定は 1 回だけ効く",
+  );
+  assert.deepEqual(filterModelsByWhitelist(available, [{ provider: "stub", id: "ghost" }]), []);
+  assert.deepEqual(filterModelsByWhitelist(available, [{ provider: "openai", id: "stub-model" }]), []);
 });

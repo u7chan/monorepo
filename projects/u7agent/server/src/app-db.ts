@@ -17,12 +17,18 @@ import type {
 
 export const APP_DB_FILENAME = "u7agent.db";
 /** テーブル定義を変えたら上げる。新規作成と加算移行はこの版へ揃え、未知の版は作り直す */
-export const APP_DB_SCHEMA_VERSION = 4;
+export const APP_DB_SCHEMA_VERSION = 5;
 
 /** プロバイダー API キーの保存行。平文なのでアクセス権の管理は docs/secrets.md を正とする */
 export interface ProviderCredentialRow {
   provider: string;
   apiKey: string;
+}
+
+/** 利用可能なモデル / アプリ既定モデルの保存行。null は未設定 (制限なし・候補の先頭) を表す */
+export interface ModelSettingsRow {
+  allowedModels: ModelRef[] | null;
+  defaultModel: string | null;
 }
 
 export interface AppDbStatus {
@@ -79,6 +85,18 @@ CREATE TABLE IF NOT EXISTS provider_credentials (
 );
 `;
 
+/**
+ * v4 -> v5 で足したテーブル。利用可能なモデルは JSON 配列テキストで、**行が無い = 未設定**。
+ * 空配列も未設定 (制限なし) へ正規化するため、両方が null の保存は行ごと消す。
+ */
+const MODEL_SETTINGS_TABLE = `
+CREATE TABLE IF NOT EXISTS model_settings (
+  id INTEGER PRIMARY KEY CHECK (id = 1),
+  allowedModels TEXT,
+  defaultModel TEXT
+);
+`;
+
 const CREATE_TABLES = `
 CREATE TABLE projects (
   id TEXT PRIMARY KEY,
@@ -105,7 +123,8 @@ CREATE TABLE agents (
 );
 ${NOTIFICATION_SETTINGS_TABLE}
 ${ARCHIVE_SETTINGS_TABLE}
-${PROVIDER_CREDENTIALS_TABLE}`;
+${PROVIDER_CREDENTIALS_TABLE}
+${MODEL_SETTINGS_TABLE}`;
 
 /** アプリ所有のテーブルだけを落とす (同じ DB に足した別機能のテーブルを巻き込まない) */
 const DROP_TABLES = `
@@ -115,6 +134,7 @@ DROP TABLE IF EXISTS projects;
 DROP TABLE IF EXISTS notification_settings;
 DROP TABLE IF EXISTS archive_settings;
 DROP TABLE IF EXISTS provider_credentials;
+DROP TABLE IF EXISTS model_settings;
 `;
 
 /**
@@ -367,6 +387,7 @@ export class AppDb {
       this.#query((db) => db.exec(NOTIFICATION_SETTINGS_TABLE));
       this.#query((db) => db.exec(ARCHIVE_SETTINGS_TABLE));
       this.#query((db) => db.exec(PROVIDER_CREDENTIALS_TABLE));
+      this.#query((db) => db.exec(MODEL_SETTINGS_TABLE));
       // PRAGMA はパラメータ化できない (値はコード側の定数)
       this.#query((db) => db.exec(`PRAGMA user_version = ${APP_DB_SCHEMA_VERSION}`));
       this.#query((db) => db.exec("COMMIT"));
@@ -472,6 +493,46 @@ export class AppDb {
     return this.#query(
       (db) => db.prepare("DELETE FROM provider_credentials WHERE provider = ?").run(provider).changes > 0,
     );
+  }
+
+  // --- model settings (1 行だけ。行が無い = 未設定) ---
+
+  /** 行が無ければ undefined。壊れた JSON は黙って未設定へ落とさず 503 にする */
+  readModelSettings(): ModelSettingsRow | undefined {
+    return this.#query((db) => {
+      const row = db.prepare("SELECT * FROM model_settings WHERE id = 1").get() as Row | undefined;
+      if (!row) return undefined;
+      // 行がある以上 allowedModels は JSON 配列か NULL のはず。壊れた値を制限なしと読み違えない
+      const parsed = row.allowedModels === null ? null : jsonArray<ModelRef>(row.allowedModels);
+      if (row.allowedModels !== null && !parsed) throw new Error("model_settings.allowedModels is not a JSON array");
+      return {
+        allowedModels: parsed && parsed.length > 0 ? parsed : null,
+        defaultModel: optionalText(row.defaultModel) ?? null,
+      };
+    });
+  }
+
+  /** 空配列は制限なしへ正規化する。両方 null になったら行を消して未設定へ戻す */
+  saveModelSettings(settings: ModelSettingsRow): void {
+    const allowedModels = settings.allowedModels && settings.allowedModels.length > 0 ? settings.allowedModels : null;
+    const defaultModel = settings.defaultModel || null;
+    if (!allowedModels && !defaultModel) {
+      this.resetModelSettings();
+      return;
+    }
+    this.#query((db) =>
+      db
+        .prepare(
+          `INSERT INTO model_settings (id, allowedModels, defaultModel) VALUES (1, ?, ?)
+           ON CONFLICT(id) DO UPDATE SET allowedModels = excluded.allowedModels, defaultModel = excluded.defaultModel`,
+        )
+        .run(allowedModels ? JSON.stringify(allowedModels) : null, defaultModel),
+    );
+  }
+
+  /** 行を消して未設定へ戻す (保存値が残っていないことを応答で確かめる導線) */
+  resetModelSettings(): boolean {
+    return this.#query((db) => db.prepare("DELETE FROM model_settings WHERE id = 1").run().changes > 0);
   }
 
   // --- projects ---

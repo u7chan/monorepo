@@ -15,7 +15,7 @@
 - BFF はワークスペースに触らず、ファイル操作・シェル実行はサンドボックス API 経由（[sandbox.md](sandbox.md)）。BFF のファイルアクセスはこの原則の例外を作らない。
 - pi SDK の `SessionManager` は会話を JSONL（1 行目 header、以降 message / compaction / model_change / thinking_level_change など）で扱う。現在は `SessionManager.inMemory` を使っている（`server/src/agent.ts`）。
 - SDK のファイル永続化は assistant メッセージが現れるまで書かない（`_persist` が `hasAssistant` まで保留する）。そのまま使うと初回応答の完了前に再起動したとき最初の送信が消える。
-- SDK は `model` を明示しないと、保存済みモデルを `PI_MODELS` で絞った候補ではなくランタイム全体から復元する（[model-effort.md](model-effort.md) の whitelist を迂回する）。
+- SDK は `model` を明示しないと、保存済みモデルを利用可能なモデル（設定 → モデル の許可リスト）で絞った候補ではなくランタイム全体から復元する（[model-effort.md](model-effort.md) の絞り込みを迂回する）。
 - SDK の `message_end` は **listener 通知が先で、entry の append は後**（`dist/core/agent-session.js` の `_handleAgentEvent`）。listener の中で `getEntries()` を読むと当該メッセージはまだ入っていない。
 - ツール出力の秘密値は LLM・SSE へ渡す前に `redact` でマスクされる（[secrets.md](secrets.md)）。生のユーザー入力・モデル出力はマスク対象外。
 
@@ -143,7 +143,7 @@ assistant 本文のインラインコードが指すファイルは、クリッ�
 
 ## モデル / Effort の復元
 
-- 候補の決め方は「JSONL の最後の `model_change` → meta の `model` → アプリ既定」の順。`availableModels`（`PI_MODELS` で絞った候補）と厳密照合し、候補があればそれを、無ければアプリ既定を使って復元する。**whitelist 外のモデルで再開する経路は作らない。**
+- 候補の決め方は「JSONL の最後の `model_change` → meta の `model` → アプリ既定」の順。`availableModels`（設定 → モデル の「利用可能なモデル」で絞った候補）と厳密照合し、候補があればそれを、無ければアプリ既定を使って復元する。**許可リスト外のモデルで再開する経路は作らない。**
 - フォールバックしたときは `session.setModel(実効モデル)` で `model_change` entry を追記して保存する（元モデルが後で候補に戻っても、続きを別モデルで進めたセッションが元へ戻らないようにする）。meta の `model` も更新する。
 - 利用可能なモデルが 1 つも無い場合、セッションを開く要求は 503（既存の `AUTH_REQUIRED_MESSAGE` / `MODEL_UNAVAILABLE_MESSAGE` 相当）で拒否する。履歴の閲覧だけをモデル無しで許すことはしない（現行どおりランタイム必須）。
 - `thinkingLevel` は JSONL の最後の `thinking_level_change` を使い、現在のモデル能力で clamp した値を実行に使う（clamp はロードのたびに再現されるため、補正後の値を entry へ必ず追記する必要はない）。payload には SDK が持つ実効値を返し、モデル能力が変わった場合の挙動をテストする。
@@ -208,7 +208,7 @@ assistant 本文のインラインコードが指すファイルは、クリッ�
 ## 検討した代替案
 
 - **会話とファイルを同じフォルダに置く**: サンドボックスが唯一の書込み者であるフォルダに BFF が追記する構成になり、symlink 差し替えでコンテナ境界を越えられる。却下。
-- **SDK のファイル永続化をそのまま使う**: 初回 assistant まで保存されない・モデル復元が whitelist を迂回する・書込みフラグを制御できない。却下。
+- **SDK のファイル永続化をそのまま使う**: 初回 assistant まで保存されない・モデル復元が利用可能なモデルの絞り込みを迂回する・書込みフラグを制御できない。却下。
 - **セッションの DELETE で作業フォルダも消す**: ファイル / ディレクトリ単位の削除 API は足したが、セッション削除でフォルダごと消すのは非破壊の方針から外れる。別 Issue に送る。
 - **ID に UUID / 外部ライブラリ**: 長い / 依存が増える。10 hex 文字で足りる。
 
@@ -229,7 +229,7 @@ assistant 本文のインラインコードが指すファイルは、クリッ�
 - [ ] BFF を再起動しても、セッション一覧・タイトル・履歴・ファイルが復元され、続きから送信できる
 - [ ] 初回応答の完了前に再起動しても、保存済みのユーザーメッセージが復元される（保存点の順序テスト）
 - [ ] compaction を含む履歴が JSONL に残り、復元後も区切り表示が再現される
-- [ ] `PI_MODELS` から外したモデルのセッションは、そのモデルで再開されず、フォールバック後の実効モデルが JSONL / meta に残る
+- [ ] 利用可能なモデルから外したモデルのセッションは、そのモデルで再開されず、フォールバック後の実効モデルが JSONL / meta に残る
 - [ ] アイドル sweep で store / 作業フォルダが消えず、SSE 購読中のセッションは sweep されない
 - [ ] `DELETE /api/sessions/:id` は SDK ロードなしで動き（破損・モデル未認証でも可）、履歴だけを消してファイルを残す
 - [ ] load × DELETE、write × DELETE、sweep × 送信 / 購読、close × loading が store を復活させたり進行中の SDK を壊したりしない（状態予約とライフサイクルチェーンのテスト）

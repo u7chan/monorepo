@@ -1,6 +1,6 @@
 // 設定 → モデルの初期描画。client に DOM テスト基盤が無いため、react-dom/server の静的描画で
-// provider 行・キー入力・削除・再同期・未設定の畳み・ランタイム不可の警告が出ることを固定する
-// (状態遷移と保存の文言は lib/modelSettings の純関数テストが担う)。
+// 「利用可能なモデル」セクションと provider 行・キー入力・削除・再同期・未設定の畳み・警告が出ることを固定する
+// (状態遷移・集計・確認の文言は lib/modelSettings の純関数テストが担う)。
 
 import assert from "node:assert/strict";
 import { createElement } from "react";
@@ -33,9 +33,7 @@ function provider(overrides: Partial<ProviderAuthSetting> = {}): ProviderAuthSet
 }
 
 const CATALOG: RuntimeModelsResponse = {
-  whitelistConfigured: false,
   catalogCount: 2,
-  whitelistCount: 2,
   availableCount: 1,
   versions: { piCodingAgent: "0.87.1" },
   providers: [
@@ -43,8 +41,8 @@ const CATALOG: RuntimeModelsResponse = {
       provider: "anthropic",
       auth: { configured: true, source: "environment", environmentVariables: [] },
       models: [
-        { id: "claude-sonnet", name: "Claude Sonnet", available: true, inWhitelist: true },
-        { id: "claude-haiku", name: "Claude Haiku", available: false, inWhitelist: true },
+        { id: "claude-sonnet", name: "Claude Sonnet", available: true },
+        { id: "claude-haiku", name: "Claude Haiku", available: false },
       ],
     },
   ],
@@ -52,8 +50,9 @@ const CATALOG: RuntimeModelsResponse = {
 
 const SETTINGS: ModelsSettingsResponse = {
   runtimeAvailable: true,
-  whitelistConfigured: true,
+  allowedModels: ["anthropic/claude-sonnet"],
   defaultModel: "anthropic/claude-sonnet",
+  ignoredEnvironmentVariables: [],
   providers: [
     provider({ auth: { configured: true, source: "environment", environmentVariables: ["ANTHROPIC_API_KEY"] } }),
     provider({ provider: "openai", name: "OpenAI", canSetApiKey: false, supportsOAuth: true }),
@@ -76,9 +75,11 @@ function modelSettings(overrides: Partial<ModelSettings> = {}): ModelSettings {
     catalogError: null,
     note: { text: MODEL_SETTINGS_NOTE, error: false },
     saving: null,
+    savingAvailability: false,
     reloading: false,
     reload: async () => {},
     save: async () => true,
+    saveAvailability: async () => true,
     remove: async () => true,
     resync: async () => true,
     ...overrides,
@@ -102,9 +103,62 @@ test("provider 行に認証バッジ・キー入力・削除・再同期・モ�
   assert.ok(html.includes("カタログ外（保存済み）"), "orphan を警告として出す");
   assert.ok(html.includes("カタログに戻るまで再登録はできません"), "orphan の保存行は削除だけできると書く");
   assert.ok(html.includes("未設定のプロバイダーを表示 (2)"), "未設定は畳んで件数だけ出す");
-  assert.ok(html.includes("PI_MODELS"), "whitelist の注記を出す");
-  assert.ok(html.includes("アプリ既定モデル"), "既定モデルを出す");
   assert.ok(html.includes("キーの有効性は保存時に確認しません"), "有効性を検証しない旨を出す");
+});
+
+test("利用可能なモデルのセクションは先頭に出て、選択・既定・利用可能数を示す", () => {
+  const html = render(modelSettings());
+  assert.ok(html.includes("利用可能なモデル"), "セクションの見出しを出す");
+  assert.ok(html.indexOf("利用可能なモデル") < html.indexOf("この画面でできること"), "セクションは画面の先頭に置く");
+  assert.ok(html.includes("利用可能 1 / 許可 1 / カタログ 2"), "現在の利用可能数を出す");
+  assert.ok(html.includes("未設定（利用可能なモデルの先頭を使う）"), "既定の未設定も選べる");
+  assert.ok(html.includes("Claude Haiku"), "カタログ全件を出す");
+  assert.ok(html.includes("利用可能") && html.includes("利用不可"), "各行に利用可能かどうかを併記する");
+  assert.ok(html.includes("制限なし（全モデル）"), "制限なしへ戻す操作を出す");
+  assert.ok(html.includes("開いている会話のモデルは切り替えません"), "live の会話へ効かないことを注記する");
+  assert.equal(html.includes("whitelist"), false, "whitelist の語を画面に出さない");
+});
+
+test("制限なし・カタログ外の残存エントリ・環境変数の注記を出す", () => {
+  const html = render(
+    modelSettings({
+      settings: {
+        ...SETTINGS,
+        allowedModels: null,
+        defaultModel: null,
+        ignoredEnvironmentVariables: ["PI_MODELS", "PI_PROVIDER"],
+      },
+    }),
+  );
+  assert.ok(html.includes("チェック済み") === false, "制限なしでは全件を選んだ状態にする");
+  assert.ok(html.includes("すべてのモデルを候補にします"), "制限なしの意味を書く");
+  assert.ok(html.includes("利用可能 1 / 許可 2 / カタログ 2"), "制限なしは全件を許可として数える");
+  assert.ok(html.includes("PI_MODELS") && html.includes("PI_PROVIDER"), "無視する環境変数名を出す");
+  assert.ok(html.includes("デプロイ設定からは削除"), "環境変数の削除を促す");
+  assert.equal(html.includes("カタログに無いモデルが保存されています"), false, "残存エントリが無ければ出さない");
+});
+
+test("カタログ外の保存エントリは削除導線とともに警告する", () => {
+  const html = render(
+    modelSettings({
+      settings: {
+        ...SETTINGS,
+        allowedModels: ["anthropic/claude-sonnet", "anthropic/ghost"],
+      },
+    }),
+  );
+  assert.ok(html.includes("カタログに無いモデルが保存されています"));
+  assert.ok(html.includes("anthropic/ghost"), "残存エントリを識別子で示す");
+  assert.ok(html.includes("anthropic/ghost（カタログ外）"), "既定モデルの選択肢にもカタログ外と書く");
+});
+
+test("カタログを取得できないときは許可リストを編集させず、キー操作は妨げない", () => {
+  const html = render(modelSettings({ catalog: null, catalogError: "ランタイムのモデル情報を取得できません" }));
+  assert.ok(html.includes("利用可能なモデルは編集できません"), "編集不可の理由を出す");
+  assert.ok(html.includes("モデル一覧を取得できませんでした"), "カタログの取得失敗も独立して出す");
+  assert.ok(html.includes('type="password"'), "provider のキー操作は続けられる");
+  // カタログが無いのに「制限なし（全モデル）」の操作は出さない
+  assert.equal(html.includes("制限なし（全モデル）"), false);
 });
 
 test("カタログ外で未反映の行は再同期ボタンを出さず、削除とカタログ復帰を案内する", () => {
@@ -187,4 +241,11 @@ test("保存の警告 (applied_unsynced) は注記として出る", () => {
     }),
   );
   assert.ok(html.includes("実行中のランタイムへは未反映です"));
+});
+
+test("カタログの読み込み中は編集不可と出さず、保存も押せない", () => {
+  const html = render(modelSettings({ catalog: null, catalogError: null }));
+  assert.ok(html.includes("モデル一覧を読み込んでいます"), "読み込み中として出す");
+  assert.equal(html.includes("利用可能なモデルは編集できません"), false, "取得失敗と混同しない");
+  assert.ok(html.includes("読み込み中</"), "保存ボタンを読み込み中にする");
 });

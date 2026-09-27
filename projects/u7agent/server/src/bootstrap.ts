@@ -1,5 +1,6 @@
 import { createPiBff } from "./agent";
 import type { PiBff } from "./agent";
+import { ignoredModelEnvironmentVariables } from "./agent";
 import { CredentialSynchronizationError } from "@earendil-works/pi-coding-agent";
 import { AppDb } from "./app-db";
 import { createAgentCatalog } from "./agents";
@@ -109,17 +110,22 @@ export async function createBffContext(opts: CreateBffAppOptions = {}): Promise<
 
   // プロバイダー API キーは DB を希望状態の正とし、起動時に SDK の runtime overlay へ写す。
   // 失敗しても起動は続け、degraded として設定画面から回復できるようにする。
+  // 利用可能なモデルとアプリ既定モデルは DB を正とし、起動時に pi の実行時選択へ写す。
+  // provider キーとは別の読取なので、片方が読めなくても他方の適用と最後の再計算を行う。
+  const ignoredEnvironmentVariables = ignoredModelEnvironmentVariables();
+  if (ignoredEnvironmentVariables.length > 0) {
+    console.warn(
+      `[u7agent] ${ignoredEnvironmentVariables.join(", ")} は無視されます。設定 → モデル で設定し、デプロイ設定からは削除してください`,
+    );
+  }
   const modelSettings = new ModelSettingsService({
     db: appDb,
     runtime: pi ? createProviderKeyRuntime(pi) : null,
     retainSecret: pi ? pi.retainSecret : () => {},
     maskError,
     refreshModelState: pi ? pi.refreshModelState : async () => {},
-    defaultModel: () => {
-      const model = pi?.selectedModel;
-      return model ? `${model.provider}/${model.id}` : undefined;
-    },
-    whitelistConfigured: () => pi?.runtimeDiagnostics?.summary.whitelistConfigured ?? false,
+    setModelSelection: pi ? pi.setModelSelection : () => {},
+    ignoredEnvironmentVariables,
   });
   await modelSettings.applyStored();
   // 組み込みスキルはサンドボックスに依らず起動時に読み込み済みなので、カタログの応答へそのまま載せる
@@ -195,6 +201,8 @@ export function createProviderKeyRuntime(pi: PiBff): ProviderKeyRuntime {
         supportsOAuth: Boolean(provider.auth?.oauth),
       })),
     auth: (provider) => modelRuntime.getProviderAuthStatus(provider),
+    // 認証の有無を見ない getModels() を引く (未認証のモデルも許可リストには入れられる)
+    catalog: () => modelRuntime.getModels().map((model) => ({ provider: model.provider, id: model.id })),
     applyApiKey: (provider, apiKey, { signal }) =>
       commitCredential("setRuntimeApiKey", provider, signal, () =>
         modelRuntime.setRuntimeApiKey(provider, apiKey, { signal }),

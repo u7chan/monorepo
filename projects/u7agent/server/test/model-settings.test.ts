@@ -3,6 +3,11 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { createSecretMasker } from "../src/redact";
 import {
+  MODEL_SELECTION_DEFAULT_NOT_ALLOWED_MESSAGE,
+  MODEL_SELECTION_FORMAT_MESSAGE,
+  MODEL_SELECTION_NOT_IN_CATALOG_MESSAGE,
+  MODEL_SELECTION_NOT_STORED_MESSAGE,
+  MODEL_SELECTION_RUNTIME_UNAVAILABLE_MESSAGE,
   ModelSettingsService,
   PROVIDER_KEY_NOT_MANAGED_MESSAGE,
   PROVIDER_KEY_RUNTIME_UNAVAILABLE_MESSAGE,
@@ -11,8 +16,9 @@ import {
   type ModelSettingsDb,
   type MutationOutcome,
   type ProviderKeyRuntime,
+  type StoredModelSelection,
 } from "../src/model-settings";
-import { PROVIDER_API_KEY_MIN_LENGTH } from "../src/schema";
+import { PROVIDER_API_KEY_MIN_LENGTH, type ModelRef } from "../src/schema";
 
 const KEY_A = "sk-ant-dummy-key-a-0123456789";
 const KEY_B = "sk-openai-dummy-key-b-0123456789";
@@ -37,6 +43,7 @@ interface RuntimeCall {
 function fakeRuntime(
   options: {
     providers?: FakeProvider[];
+    catalog?: ModelRef[];
     apply?: (provider: string, apiKey: string, signal: AbortSignal) => CredentialCommit | Promise<CredentialCommit>;
     remove?: (provider: string, signal: AbortSignal) => CredentialCommit | Promise<CredentialCommit>;
   } = {},
@@ -59,6 +66,7 @@ function fakeRuntime(
         ? { configured: true, source: entry.authSource ?? "environment" }
         : { configured: false };
     },
+    catalog: () => options.catalog ?? [{ provider: "anthropic", id: "claude-sonnet-4-5" }],
     applyApiKey: async (provider, apiKey, { signal }) => {
       calls.push({ operation: "apply", provider, apiKey, aborted: signal.aborted });
       const commit = options.apply
@@ -80,19 +88,23 @@ function fakeRuntime(
 }
 
 /** DB 面の fake。失敗フラグで AppDb の失敗経路を再現する */
-function fakeDb(rows: Record<string, string> = {}) {
+function fakeDb(rows: Record<string, string> = {}, selection?: StoredModelSelection) {
   const store = new Map(Object.entries(rows));
   const state = {
     failList: false,
     failGet: false,
     failSave: false,
     failDelete: false,
+    failReadSelection: false,
+    failSaveSelection: false,
     /** 保存は成功させるが、以後の一覧読みを失敗させる (DTO 組み立てだけが壊れる経路) */
     armListFailureOnSave: false,
     /** 削除は成功させるが、以後の一覧読みを失敗させる (DELETE だけが DTO を組めない経路) */
     armListFailureOnDelete: false,
     error: new Error("sqlite failure"),
   };
+  // 行の有無 = 未設定を保つため、両方 null の保存は行ごと消す (AppDb と同じ正規化)
+  let saved: StoredModelSelection | undefined = selection;
   const db: ModelSettingsDb = {
     listProviderCredentials: () => {
       if (state.failList) throw state.error;
@@ -114,8 +126,21 @@ function fakeDb(rows: Record<string, string> = {}) {
       if (state.armListFailureOnDelete) state.failList = true;
       return deleted;
     },
+    readModelSettings: () => {
+      if (state.failReadSelection) throw state.error;
+      return saved;
+    },
+    saveModelSettings: (next) => {
+      if (state.failSaveSelection) throw state.error;
+      saved = next.allowedModels || next.defaultModel ? next : undefined;
+    },
   };
-  return { db, store, state };
+  return {
+    db,
+    store,
+    state,
+    readSelection: () => saved,
+  };
 }
 
 function createService(options: {
@@ -125,9 +150,13 @@ function createService(options: {
   log?: string[];
   refresh?: () => Promise<void>;
   masker?: (text: string) => string;
+  ignoredEnvironmentVariables?: string[];
 }) {
   const retained = options.retained ?? [];
   const refreshes: number[] = [];
+  const selections: { allowedModels: ModelRef[] | undefined; defaultModel: ModelRef | undefined }[] = [];
+  // setter と refresh の順序を検証できるよう、別のログへ積む
+  const events: string[] = [];
   const service = new ModelSettingsService({
     db: options.db,
     runtime: options.runtime,
@@ -138,13 +167,17 @@ function createService(options: {
     },
     maskError: (text) => options.masker?.(text) ?? text,
     refreshModelState: async () => {
+      events.push("refresh");
       refreshes.push(1);
       await options.refresh?.();
     },
-    defaultModel: () => "anthropic/claude-sonnet-4-5",
-    whitelistConfigured: () => false,
+    setModelSelection: (selection) => {
+      events.push("set");
+      selections.push(selection);
+    },
+    ignoredEnvironmentVariables: options.ignoredEnvironmentVariables ?? [],
   });
-  return { service, retained, refreshCount: () => refreshes.length };
+  return { service, retained, refreshCount: () => refreshes.length, selections, events };
 }
 
 function okBody(outcome: MutationOutcome) {
@@ -182,7 +215,9 @@ test("GET はキー値を返さず、managed / canSetApiKey / orphan / degraded 
 
   const response = service.settings();
   assert.equal(response.runtimeAvailable, true);
-  assert.equal(response.defaultModel, "anthropic/claude-sonnet-4-5");
+  assert.equal(response.defaultModel, null);
+  assert.equal(response.allowedModels, null);
+  assert.deepEqual(response.ignoredEnvironmentVariables, []);
   const byProvider = new Map(response.providers.map((provider) => [provider.provider, provider]));
   assert.deepEqual(byProvider.get("anthropic"), {
     provider: "anthropic",
@@ -659,4 +694,234 @@ test("refreshModelState が例外を出しても変更系は応答を返す", as
   const { value, logs } = await captureConsole(() => service.putKey("anthropic", KEY_A));
   assert.equal(okBody(value).state, "applied");
   assert.ok(logs.join("\n").includes("model state refresh failed"));
+});
+
+// --- 利用可能なモデル / アプリ既定モデル (model_settings) ---
+
+const CATALOG: ModelRef[] = [
+  { provider: "anthropic", id: "claude-sonnet-4-5" },
+  { provider: "anthropic", id: "claude-haiku-4-5" },
+  { provider: "openai", id: "gpt-5.6-luna" },
+];
+/** API の許可リストは "provider/model" の文字列 (DB 行は ModelRef の JSON 配列) */
+const CATALOG_LABELS = CATALOG.map((model) => `${model.provider}/${model.id}`);
+
+test("GET は保存値を返し、無視している環境変数名を載せる", () => {
+  const db = fakeDb(
+    {},
+    { allowedModels: [{ provider: "anthropic", id: "claude-haiku-4-5" }], defaultModel: "anthropic/claude-haiku-4-5" },
+  );
+  const runtime = fakeRuntime({ catalog: CATALOG });
+  const { service } = createService({
+    db: db.db,
+    runtime: runtime.runtime,
+    ignoredEnvironmentVariables: ["PI_MODELS", "PI_PROVIDER"],
+  });
+
+  const response = service.settings();
+  assert.deepEqual(response.allowedModels, ["anthropic/claude-haiku-4-5"]);
+  assert.equal(response.defaultModel, "anthropic/claude-haiku-4-5");
+  assert.deepEqual(response.ignoredEnvironmentVariables, ["PI_MODELS", "PI_PROVIDER"]);
+  assert.deepEqual(runtime.calls, [], "GET は SDK を呼ばない");
+});
+
+test("PUT は重複を正規化し、setter → refresh を 1 回ずつ通す", async () => {
+  const db = fakeDb();
+  const runtime = fakeRuntime({ catalog: CATALOG });
+  const { service, refreshCount, selections, events } = createService({ db: db.db, runtime: runtime.runtime });
+
+  const response = okBody(
+    await service.putModelSelection({
+      allowedModels: ["anthropic/claude-sonnet-4-5", "anthropic/claude-sonnet-4-5", "anthropic/claude-haiku-4-5"],
+      defaultModel: "anthropic/claude-haiku-4-5",
+    }),
+  );
+  assert.equal(response.state, "applied");
+  assert.deepEqual(response.allowedModels, ["anthropic/claude-sonnet-4-5", "anthropic/claude-haiku-4-5"]);
+  assert.equal(response.defaultModel, "anthropic/claude-haiku-4-5");
+  assert.deepEqual(db.readSelection(), {
+    allowedModels: [
+      { provider: "anthropic", id: "claude-sonnet-4-5" },
+      { provider: "anthropic", id: "claude-haiku-4-5" },
+    ],
+    defaultModel: "anthropic/claude-haiku-4-5",
+  });
+  assert.deepEqual(selections, [
+    {
+      allowedModels: [
+        { provider: "anthropic", id: "claude-sonnet-4-5" },
+        { provider: "anthropic", id: "claude-haiku-4-5" },
+      ],
+      defaultModel: { provider: "anthropic", id: "claude-haiku-4-5" },
+    },
+  ]);
+  assert.deepEqual(events, ["set", "refresh"], "公開 state へ効かせるのは refresh で、setter が先");
+  assert.equal(refreshCount(), 1, "再計算は 1 回だけ");
+});
+
+test("PUT は空配列と両方 null を未設定へ正規化する", async () => {
+  const db = fakeDb({}, { allowedModels: CATALOG, defaultModel: "anthropic/claude-sonnet-4-5" });
+  const runtime = fakeRuntime({ catalog: CATALOG });
+  const { service, selections } = createService({ db: db.db, runtime: runtime.runtime });
+
+  const cleared = okBody(await service.putModelSelection({ allowedModels: null, defaultModel: null }));
+  assert.equal(cleared.allowedModels, null);
+  assert.equal(cleared.defaultModel, null);
+  assert.equal(db.readSelection(), undefined, "行を消して未設定へ戻す");
+  assert.deepEqual(selections.at(-1), { allowedModels: undefined, defaultModel: undefined });
+
+  // 空配列の保存も「制限なし」の 1 行として扱う (明示空と未設定を区別しない)
+  const empty = okBody(
+    await service.putModelSelection({ allowedModels: [], defaultModel: "anthropic/claude-haiku-4-5" }),
+  );
+  assert.equal(empty.allowedModels, null);
+  assert.equal(db.readSelection()?.allowedModels, null);
+});
+
+test("PUT はカタログ外・既定が許可外・形式不正を 400 で拒否し、DB と setter を触らない", async () => {
+  const db = fakeDb();
+  const runtime = fakeRuntime({ catalog: CATALOG });
+  const { service, selections, refreshCount } = createService({ db: db.db, runtime: runtime.runtime });
+
+  const statusOf = (error: unknown) => (error as { statusCode?: number }).statusCode;
+  const messageOf = (error: unknown) => (error as { message?: string }).message;
+
+  await assert.rejects(
+    () => service.putModelSelection({ allowedModels: ["anthropic/ghost"], defaultModel: null }),
+    (error: unknown) =>
+      statusOf(error) === 400 && messageOf(error) === `${MODEL_SELECTION_NOT_IN_CATALOG_MESSAGE}: anthropic/ghost`,
+  );
+  // 未認証でもカタログにあるモデルは許可できる (認証済みかどうかは保存の条件ではない)
+  await assert.rejects(
+    () =>
+      service.putModelSelection({
+        allowedModels: ["openai/gpt-5.6-luna"],
+        defaultModel: "anthropic/claude-haiku-4-5",
+      }),
+    (error: unknown) =>
+      statusOf(error) === 400 &&
+      messageOf(error) === `${MODEL_SELECTION_DEFAULT_NOT_ALLOWED_MESSAGE}: anthropic/claude-haiku-4-5`,
+  );
+  await assert.rejects(
+    () => service.putModelSelection({ allowedModels: null, defaultModel: "claude-sonnet-4-5" }),
+    (error: unknown) => statusOf(error) === 400 && messageOf(error) === MODEL_SELECTION_FORMAT_MESSAGE,
+  );
+  await assert.rejects(
+    () => service.putModelSelection({ allowedModels: null, defaultModel: "anthropic/ghost" }),
+    (error: unknown) =>
+      statusOf(error) === 400 && messageOf(error) === `${MODEL_SELECTION_NOT_IN_CATALOG_MESSAGE}: anthropic/ghost`,
+  );
+
+  assert.equal(db.readSelection(), undefined);
+  assert.deepEqual(selections, []);
+  assert.equal(refreshCount(), 0);
+});
+
+test("PUT は制限なしのときカタログ全体から既定を選べる", async () => {
+  const db = fakeDb();
+  const runtime = fakeRuntime({ catalog: CATALOG });
+  const { service } = createService({ db: db.db, runtime: runtime.runtime });
+  const response = okBody(
+    await service.putModelSelection({ allowedModels: null, defaultModel: "openai/gpt-5.6-luna" }),
+  );
+  assert.equal(response.state, "applied");
+  assert.equal(response.defaultModel, "openai/gpt-5.6-luna");
+  assert.equal(response.allowedModels, null);
+});
+
+test("PUT の DB 保存失敗は 503 not_stored で setter / refresh を呼ばない", async () => {
+  const db = fakeDb();
+  db.state.failSaveSelection = true;
+  const runtime = fakeRuntime({ catalog: CATALOG });
+  const { service, selections, refreshCount } = createService({ db: db.db, runtime: runtime.runtime });
+
+  const { value, logs } = await captureConsole(() =>
+    service.putModelSelection({ allowedModels: CATALOG_LABELS, defaultModel: null }),
+  );
+  assert.equal(value.status, 503);
+  assert.equal(value.status === 503 ? value.error : "", MODEL_SELECTION_NOT_STORED_MESSAGE);
+  assert.equal(db.readSelection(), undefined);
+  assert.deepEqual(selections, []);
+  assert.equal(refreshCount(), 0);
+  assert.ok(logs.join("\n").includes("model selection save failed"));
+});
+
+test("PUT は保存後に一覧を読めなくても applied を返す", async () => {
+  const db = fakeDb();
+  db.state.armListFailureOnSave = true;
+  const runtime = fakeRuntime({ catalog: CATALOG });
+  const { service } = createService({ db: db.db, runtime: runtime.runtime });
+
+  const response = okBody(
+    await service.putModelSelection({ allowedModels: null, defaultModel: "anthropic/claude-haiku-4-5" }),
+  );
+  assert.equal(response.state, "applied", "DB への保存は確定している");
+  assert.equal(response.defaultModel, "anthropic/claude-haiku-4-5");
+  assert.equal(
+    response.providers.some((provider) => provider.managed),
+    false,
+    "一覧を読めない側は空で組む (キーの行は復元しない)",
+  );
+});
+
+test("ランタイム無しの PUT は 503 not_stored で DB を書かない", async () => {
+  const db = fakeDb();
+  const { service } = createService({ db: db.db, runtime: null });
+  const outcome = await service.putModelSelection({ allowedModels: CATALOG_LABELS, defaultModel: null });
+  assert.equal(outcome.status, 503);
+  assert.equal(outcome.status === 503 ? outcome.error : "", MODEL_SELECTION_RUNTIME_UNAVAILABLE_MESSAGE);
+  assert.equal(db.readSelection(), undefined);
+});
+
+test("起動適用は保存値を setter → refresh の順で 1 回ずつ通す", async () => {
+  const db = fakeDb({}, { allowedModels: CATALOG, defaultModel: "openai/gpt-5.6-luna" });
+  const runtime = fakeRuntime({ catalog: CATALOG });
+  const { service, selections, events, refreshCount } = createService({ db: db.db, runtime: runtime.runtime });
+
+  await service.applyStored();
+  assert.deepEqual(selections, [{ allowedModels: CATALOG, defaultModel: { provider: "openai", id: "gpt-5.6-luna" } }]);
+  assert.deepEqual(events, ["set", "refresh"]);
+  assert.equal(refreshCount(), 1);
+});
+
+test("起動適用は保存値の読取失敗でも警告だけ残して続行する (制限なし)", async () => {
+  const db = fakeDb({ anthropic: KEY_A }, { allowedModels: CATALOG, defaultModel: null });
+  db.state.failReadSelection = true;
+  const runtime = fakeRuntime({ catalog: CATALOG });
+  const { service, selections, refreshCount } = createService({ db: db.db, runtime: runtime.runtime });
+
+  const { logs } = await captureConsole(() => service.applyStored());
+  assert.ok(logs.join("\n").includes("model settings unavailable"), "起動ログに警告を残す");
+  assert.deepEqual(selections, [], "読めなかった側は写さない (初期 state = 制限なしのまま)");
+  assert.deepEqual(
+    runtime.calls.map((call) => call.operation),
+    ["apply"],
+    "片方の読取失敗でも他方 (provider キー) の適用は続ける",
+  );
+  assert.equal(refreshCount(), 1, "最後の再計算は行う");
+});
+
+test("起動適用は provider キーの読取失敗でも保存値の適用と再計算を行う", async () => {
+  const db = fakeDb({ anthropic: KEY_A }, { allowedModels: CATALOG, defaultModel: "anthropic/claude-haiku-4-5" });
+  db.state.failList = true;
+  const runtime = fakeRuntime({ catalog: CATALOG });
+  const { service, selections, refreshCount } = createService({ db: db.db, runtime: runtime.runtime });
+
+  const { logs } = await captureConsole(() => service.applyStored());
+  assert.ok(logs.join("\n").includes("provider credentials unavailable"));
+  assert.deepEqual(selections, [
+    { allowedModels: CATALOG, defaultModel: { provider: "anthropic", id: "claude-haiku-4-5" } },
+  ]);
+  assert.deepEqual(runtime.calls, [], "読めなかった側の SDK 適用はしない");
+  assert.equal(refreshCount(), 1);
+});
+
+test("起動適用は手で壊された既定モデルを未設定として続行する", async () => {
+  const db = fakeDb({}, { allowedModels: null, defaultModel: "broken" });
+  const runtime = fakeRuntime({ catalog: CATALOG });
+  const { service, selections } = createService({ db: db.db, runtime: runtime.runtime });
+
+  const { logs } = await captureConsole(() => service.applyStored());
+  assert.deepEqual(selections, [{ allowedModels: undefined, defaultModel: undefined }]);
+  assert.ok(logs.join("\n").includes("stored default model is invalid"));
 });

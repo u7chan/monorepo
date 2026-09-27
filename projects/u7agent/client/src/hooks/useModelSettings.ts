@@ -4,11 +4,18 @@ import {
   deleteProviderApiKey,
   getModelsSettings,
   getRuntimeModels,
+  putModelAvailability,
   putProviderApiKey,
   resyncProviderApiKey,
 } from "../api";
 import { MODEL_SETTINGS_NOTE, mutationNote, validateApiKey, type MutationAction } from "../lib/modelSettings";
-import type { Health, ModelMutationResponse, ModelsSettingsResponse, RuntimeModelsResponse } from "../types";
+import type {
+  Health,
+  ModelMutationResponse,
+  ModelsSettingsResponse,
+  RuntimeModelsResponse,
+  UpdateModelAvailabilityBody,
+} from "../types";
 import { createRequestGate } from "./requestGate";
 
 function messageFor(error: unknown): string {
@@ -30,6 +37,7 @@ export function useModelSettings({ onRefreshHealth }: ModelSettingsParams) {
   const [catalogError, setCatalogError] = useState<string | null>(null);
   const [note, setNote] = useState<{ text: string; error: boolean }>({ text: MODEL_SETTINGS_NOTE, error: false });
   const [saving, setSaving] = useState<string | null>(null);
+  const [savingAvailability, setSavingAvailability] = useState(false);
   const [reloading, setReloading] = useState(true);
   const [beginLoad] = useState(createRequestGate);
 
@@ -110,6 +118,25 @@ export function useModelSettings({ onRefreshHealth }: ModelSettingsParams) {
     [runMutation],
   );
 
+  /** 利用可能なモデルの一括保存。確認は純関数の判定を受けてコンポーネントが先に出す */
+  const saveAvailability = useCallback(
+    async (input: UpdateModelAvailabilityBody): Promise<boolean> => {
+      setSavingAvailability(true);
+      try {
+        await applyMutation("availability", await putModelAvailability(input));
+        return true;
+      } catch (error) {
+        // 何も保存されなかった (503 not_stored / 400) ことを文言で区別する
+        const prefix = error instanceof ApiError && error.state === "not_stored" ? "変更は保存されていません。" : "";
+        setNote({ text: `${prefix}${messageFor(error)}`, error: true });
+        return false;
+      } finally {
+        setSavingAvailability(false);
+      }
+    },
+    [applyMutation],
+  );
+
   const remove = useCallback(
     (provider: string): Promise<boolean> => runMutation(provider, "delete", () => deleteProviderApiKey(provider)),
     [runMutation],
@@ -126,9 +153,11 @@ export function useModelSettings({ onRefreshHealth }: ModelSettingsParams) {
     catalogError,
     note,
     saving,
+    savingAvailability,
     reloading,
     reload,
     save,
+    saveAvailability,
     remove,
     resync,
   };

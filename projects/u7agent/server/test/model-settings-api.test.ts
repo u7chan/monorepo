@@ -8,7 +8,7 @@ import test from "node:test";
 import { APP_DB_FILENAME } from "../src/app-db";
 import { createBffApp } from "../src/app";
 import { PROVIDER_API_KEY_MIN_LENGTH } from "../src/schema";
-import { asPiBff, createStubPi, type StubPiOptions } from "./stub-pi";
+import { asPiBff, createStubPi, STUB_MODEL, STUB_PLAIN_MODEL, type StubPiOptions } from "./stub-pi";
 
 const KEY = "sk-ant-dummy-key-0123456789abcdef";
 const OTHER_KEY = "sk-openai-dummy-key-0123456789";
@@ -283,6 +283,207 @@ test("登録済みキーを含む DB 例外が応答・health・ログに現れ�
       console.warn = original.warn;
       console.error = original.error;
       await bff.close();
+    }
+  });
+});
+
+// --- 利用可能なモデル / アプリ既定モデル (PUT /api/settings/models/allowed) ---
+
+// API の許可リストは "provider/model" の文字列
+const CATALOG_LABEL = "stub/stub-model";
+
+function catalogOptions(): StubPiOptions {
+  return stubOptions({ catalogModels: [STUB_MODEL, STUB_PLAIN_MODEL] });
+}
+
+test("PUT allowed は保存値を正規化して返し、setter → refresh を 1 回ずつ通す", async () => {
+  await withStoreDir(async (dir) => {
+    const pi = createStubPi(catalogOptions());
+    const bff = await createBffApp({ cwd: "/tmp/project", sessionStoreDir: dir, pi: asPiBff(pi), workspace: null });
+    try {
+      const before = pi.refreshCount;
+      const saved = await jsonBody(
+        await bff.app.request(
+          "/api/settings/models/allowed",
+          jsonPut({ allowedModels: [CATALOG_LABEL, CATALOG_LABEL], defaultModel: CATALOG_LABEL }),
+        ),
+      );
+      assert.equal(saved.state, "applied");
+      assert.deepEqual(saved.allowedModels, [CATALOG_LABEL], "重複は正規化する");
+      assert.equal(saved.defaultModel, CATALOG_LABEL);
+      assert.deepEqual(pi.modelSelections.at(-1), {
+        allowedModels: [{ provider: "stub", id: "stub-model" }],
+        defaultModel: { provider: "stub", id: "stub-model" },
+      });
+      assert.equal(pi.refreshCount, before + 1, "保存 1 回で再計算は 1 回");
+      assert.equal(pi.modelStateEvents.at(-1), "refresh");
+      assert.equal(pi.modelStateEvents.at(-2), "set", "setter が refresh より先");
+
+      const response = await jsonBody(await bff.app.request("/api/settings/models"));
+      assert.deepEqual(response.allowedModels, [CATALOG_LABEL]);
+      assert.equal(response.defaultModel, CATALOG_LABEL);
+    } finally {
+      await bff.close();
+    }
+  });
+});
+
+test("PUT allowed は保存値を再起動後も維持し、起動時に適用する", async () => {
+  await withStoreDir(async (dir) => {
+    const first = createStubPi(catalogOptions());
+    const bff = await createBffApp({ cwd: "/tmp/project", sessionStoreDir: dir, pi: asPiBff(first), workspace: null });
+    await bff.app.request(
+      "/api/settings/models/allowed",
+      jsonPut({ allowedModels: ["stub/stub-plain"], defaultModel: null }),
+    );
+    await bff.close();
+
+    const second = createStubPi(catalogOptions());
+    const restarted = await createBffApp({
+      cwd: "/tmp/project",
+      sessionStoreDir: dir,
+      pi: asPiBff(second),
+      workspace: null,
+    });
+    try {
+      assert.deepEqual(second.modelSelections, [
+        { allowedModels: [{ provider: "stub", id: "stub-plain" }], defaultModel: undefined },
+      ]);
+      assert.equal(second.modelStateEvents.at(-1), "refresh");
+      const response = await jsonBody(await restarted.app.request("/api/settings/models"));
+      assert.deepEqual(response.allowedModels, ["stub/stub-plain"]);
+      assert.equal(response.defaultModel, null);
+    } finally {
+      await restarted.close();
+    }
+  });
+});
+
+test("PUT allowed は未設定へ戻すと行を消し、両方 null を返す", async () => {
+  await withStoreDir(async (dir) => {
+    const pi = createStubPi(catalogOptions());
+    const bff = await createBffApp({ cwd: "/tmp/project", sessionStoreDir: dir, pi: asPiBff(pi), workspace: null });
+    try {
+      await bff.app.request(
+        "/api/settings/models/allowed",
+        jsonPut({ allowedModels: [CATALOG_LABEL], defaultModel: CATALOG_LABEL }),
+      );
+      const cleared = await jsonBody(
+        await bff.app.request("/api/settings/models/allowed", jsonPut({ allowedModels: null, defaultModel: null })),
+      );
+      assert.equal(cleared.state, "applied");
+      assert.equal(cleared.allowedModels, null);
+      assert.equal(cleared.defaultModel, null);
+      assert.deepEqual(pi.modelSelections.at(-1), { allowedModels: undefined, defaultModel: undefined });
+    } finally {
+      await bff.close();
+    }
+  });
+});
+
+test("PUT allowed はカタログ外と既定が許可外を 400 にし、何も保存しない", async () => {
+  await withStoreDir(async (dir) => {
+    const pi = createStubPi(catalogOptions());
+    const bff = await createBffApp({ cwd: "/tmp/project", sessionStoreDir: dir, pi: asPiBff(pi), workspace: null });
+    try {
+      const outside = await bff.app.request(
+        "/api/settings/models/allowed",
+        jsonPut({ allowedModels: ["stub/ghost"], defaultModel: null }),
+      );
+      assert.equal(outside.status, 400);
+      assert.match((await jsonBody(outside)).error, /カタログに無いモデル/);
+      // 起動適用の 1 件だけが記録され、400 の保存は setter を呼ばない
+      const selections = pi.modelSelections.length;
+
+      const defaultOutside = await bff.app.request(
+        "/api/settings/models/allowed",
+        jsonPut({ allowedModels: [CATALOG_LABEL], defaultModel: "stub/stub-plain" }),
+      );
+      assert.equal(defaultOutside.status, 400);
+      assert.match((await jsonBody(defaultOutside)).error, /既定モデルは利用可能なモデルから/);
+
+      const shape = await bff.app.request(
+        "/api/settings/models/allowed",
+        jsonPut({ allowedModels: null, defaultModel: "stub-model" }),
+      );
+      assert.equal(shape.status, 400);
+
+      const response = await jsonBody(await bff.app.request("/api/settings/models"));
+      assert.equal(response.allowedModels, null);
+      assert.equal(response.defaultModel, null);
+      assert.equal(pi.modelSelections.length, selections, "400 の保存は公開 state へ触らない");
+    } finally {
+      await bff.close();
+    }
+  });
+});
+
+test("PUT allowed はランタイム無しで 503 not_stored、アプリ DB 不通でも 503 not_stored", async () => {
+  await withStoreDir(async (dir) => {
+    const withoutRuntime = await createBffApp({ cwd: "/tmp/project", sessionStoreDir: dir, pi: null, workspace: null });
+    try {
+      const response = await withoutRuntime.app.request(
+        "/api/settings/models/allowed",
+        jsonPut({ allowedModels: null, defaultModel: null }),
+      );
+      assert.equal(response.status, 503);
+      assert.deepEqual(await jsonBody(response), {
+        error: "ランタイムが利用できないため、利用可能なモデルを変更できません",
+        state: "not_stored",
+      });
+    } finally {
+      await withoutRuntime.close();
+    }
+
+    // 会話ストアのパスに通常ファイルを指すと、DB を開く前に使えないと分かる
+    const filePath = join(dir, "not-a-directory");
+    await writeFile(filePath, "x");
+    const withoutDb = await createBffApp({
+      cwd: "/tmp/project",
+      sessionStoreDir: filePath,
+      pi: asPiBff(createStubPi(catalogOptions())),
+      workspace: null,
+    });
+    try {
+      const put = await withoutDb.app.request(
+        "/api/settings/models/allowed",
+        jsonPut({ allowedModels: null, defaultModel: null }),
+      );
+      assert.equal(put.status, 503);
+      assert.equal((await jsonBody(put)).state, "not_stored");
+    } finally {
+      await withoutDb.close();
+    }
+  });
+});
+
+test("GET は設定されていても無視する環境変数名を返す", async () => {
+  await withStoreDir(async (dir) => {
+    const names = ["PI_MODELS", "PI_MODEL", "PI_PROVIDER"] as const;
+    const previous = names.map((name) => [name, process.env[name]] as const);
+    process.env.PI_MODELS = "stub/stub-model";
+    process.env.PI_MODEL = "stub/stub-plain";
+    delete process.env.PI_PROVIDER;
+    try {
+      const bff = await createBffApp({
+        cwd: "/tmp/project",
+        sessionStoreDir: dir,
+        pi: asPiBff(createStubPi(catalogOptions())),
+        workspace: null,
+      });
+      try {
+        const response = await jsonBody(await bff.app.request("/api/settings/models"));
+        assert.deepEqual(response.ignoredEnvironmentVariables, ["PI_MODELS", "PI_MODEL"]);
+        // 無視されるので、許可リストは未設定のまま (環境変数は保存値に影響しない)
+        assert.equal(response.allowedModels, null);
+      } finally {
+        await bff.close();
+      }
+    } finally {
+      for (const [name, value] of previous) {
+        if (value === undefined) delete process.env[name];
+        else process.env[name] = value;
+      }
     }
   });
 });
