@@ -12,7 +12,7 @@ const alwaysCurrent = () => true;
 
 export function useProjects() {
   const [projects, setProjects] = useState<Project[]>([]);
-  // 未作成チャットの作成先。プロジェクトを指定する入口 (プロジェクト行の ＋ / プロジェクトの追加) で
+  // 未作成チャットの作成先。プロジェクトを指定する入口 (プロジェクト行の ⋯「このプロジェクトに新しい会話」/ プロジェクトの追加) で
   // 明示されたときだけ設定し、保存もしない (起動や「新しい会話」で、最後に開いたプロジェクトを引き継がないため)
   const [selectedProjectId, setSelectedProjectIdState] = useState<string>("");
   const projectsRef = useRef<Project[]>([]);

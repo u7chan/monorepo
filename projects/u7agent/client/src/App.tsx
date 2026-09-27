@@ -178,7 +178,7 @@ export default function App() {
   const activeSession = app.sessions.find((item) => item.sessionId === app.sessionId);
 
   // 利用者操作の新規会話の入口をここへ寄せる (サイドバー / ドロワー / エージェント切替 / プロジェクトの追加)。
-  // 作成先はプロジェクトを指定する導線 (プロジェクト行の ＋ / 追加の成功後) が渡したときだけプロジェクトになり、
+  // 作成先はプロジェクトを指定する導線 (プロジェクト行の ⋯「このプロジェクトに新しい会話」/ 追加の成功後) が渡したときだけプロジェクトになり、
   // それ以外は未所属 (最後に開いたプロジェクトを引き継がない)。既定 (プロジェクト配下なら開) の適用はこの入口だけ
   const handleNewChat = useCallback(
     (agentId?: string, projectId?: string) => {
@@ -265,7 +265,7 @@ export default function App() {
   };
 
   // ドロワーは選んだら閉じる。削除だけは confirm の後も開いたまま残す (連続操作しうる)。
-  // 折りたたみ chevron は選択ではないので閉じない (Sidebar 側で行を選択しない)
+  // 折りたたみ (行のクリック) は選択ではないので閉じない (Sidebar 側で行を選択しない)
   const drawerProps = {
     ...navProps,
     // モードの切替は閉じない (設定ナビは drawer の中で出す)

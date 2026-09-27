@@ -1,7 +1,7 @@
-import { cn } from "../../lib/cn";
+import { projectRowActions, type ProjectRowKind } from "../../lib/sidebarRowMenu";
 import type { AgentDef, Project, SessionSummary } from "../../types";
-import { ChevronIcon, FolderIcon, PlusIcon, TrashIcon } from "../icons";
-import { RowAction } from "./RowAction";
+import { FolderIcon } from "../icons";
+import { RowMenu } from "../RowMenu";
 import { SessionRow } from "./SessionRow";
 
 export function ProjectRow({
@@ -27,10 +27,13 @@ export function ProjectRow({
   onSelectSession: (sessionId: string) => void;
   onDeleteSession: (sessionId: string) => void;
 }) {
+  // kind から行の props を引く表。actions と同じ種別に狭め、表の無い kind を型で検出する
+  const handlers: Record<ProjectRowKind, () => void> = { "new-chat": onNewChat, delete: onDelete };
+
   return (
     <div className="grid gap-1">
-      {/* 行のクリックは折りたたみのトグル。選択ハイライトは持たず (作成先は ＋ と追加の成功後が明示する)、
-          開いているセッションの行だけを強調する */}
+      {/* 行のクリックは折りたたみのトグル。選択ハイライトは持たず (作成先は ⋯ の「このプロジェクトに新しい会話」と
+          追加の成功後が明示する)、開いているセッションの行だけを強調する */}
       <div className="group flex min-h-10.5 items-center gap-1 rounded-lg border border-transparent pr-1.5 transition-colors hover:bg-hover">
         <button
           type="button"
@@ -46,17 +49,7 @@ export function ProjectRow({
             <small className="truncate text-2xs text-ink-muted">{project.cwd}</small>
           </span>
         </button>
-        <RowAction label={open ? "折りたたむ" : "展開する"} onClick={onToggle}>
-          <span className={cn("block transition-transform", open ? "rotate-90" : "")}>
-            <ChevronIcon />
-          </span>
-        </RowAction>
-        <RowAction label="このプロジェクトに新しい会話" onClick={onNewChat} hoverOnly>
-          <PlusIcon />
-        </RowAction>
-        <RowAction label="プロジェクトを削除" onClick={onDelete} hoverOnly danger>
-          <TrashIcon />
-        </RowAction>
+        <RowMenu name={project.name} actions={projectRowActions()} onSelect={(kind) => handlers[kind]()} />
       </div>
       {open ? (
         sessions.length === 0 ? (

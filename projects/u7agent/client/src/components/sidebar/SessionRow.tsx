@@ -1,10 +1,11 @@
 import { agentIconOf } from "../../lib/agentIcon";
 import { cn } from "../../lib/cn";
 import { messageTimeLabel } from "../../lib/messageTime";
+import { sessionRowActions, type SessionRowKind } from "../../lib/sidebarRowMenu";
 import type { AgentDef, SessionSummary } from "../../types";
 import { AgentIcon } from "../AgentIcon";
-import { BellIcon, TrashIcon } from "../icons";
-import { RowAction } from "./RowAction";
+import { BellIcon } from "../icons";
+import { RowMenu } from "../RowMenu";
 
 const STATUS_LABELS: Record<string, string> = {
   running: "実行中",
@@ -56,6 +57,8 @@ export function SessionRow({
     STATUS_LABELS[item.status],
     item.queueDepth > 0 ? `待機${item.queueDepth}件` : "",
   ].filter(Boolean);
+  // kind から行の props を引く表。actions と同じ種別に狭め、表の無い kind を型で検出する
+  const handlers: Record<SessionRowKind, () => void> = { delete: onDelete };
 
   return (
     <div
@@ -86,9 +89,11 @@ export function SessionRow({
           <BellIcon ringing />
         </span>
       ) : null}
-      <RowAction label="セッションを削除" onClick={onDelete} hoverOnly danger>
-        <TrashIcon />
-      </RowAction>
+      <RowMenu
+        name={item.title || "無題のセッション"}
+        actions={sessionRowActions()}
+        onSelect={(kind) => handlers[kind]()}
+      />
     </div>
   );
 }
