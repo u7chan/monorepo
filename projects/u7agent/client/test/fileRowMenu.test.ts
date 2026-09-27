@@ -233,6 +233,16 @@ test("配線: 自前の close は hidePopover() を通り、Escape は伝播だ�
   }
 });
 
+test("配線: レイアウトが変わった commit の後にも位置を取り直す", () => {
+  const source = read("src/components/RowMenu.tsx");
+  // サイドバーの docked ⇄ overlay のような React の再レンダーは window の resize ハンドラより後に
+  // DOM へ届き、ハンドラ側の place() は動く前の rect を読む。commit 後の place() が無いと、1 回の
+  // 離散リサイズで ⋯ だけが動き、次のイベントまでメニューが取り残される
+  assert.match(source, /useLayoutEffect\(\(\) => \{\s*if \(open\) place\(\);\s*\}\);\n/, "commit 後の再配置が無い");
+  // CSS だけが変わるリサイズ (viewport / @container) はイベント側の place() が拾う
+  assert.match(source, /window\.addEventListener\("resize", onMove\)/, "resize での追従が無い");
+});
+
 test("アイコン: ⋯ の点 3 つを持ち、MenuIcon (ハンバーガー) とは別に使う", () => {
   const icons = read("src/components/icons.tsx");
   assert.match(icons, /export function MoreIcon\(\)/, "⋯ のアイコンが無い");

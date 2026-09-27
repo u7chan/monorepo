@@ -2,6 +2,7 @@ import {
   useCallback,
   useEffect,
   useId,
+  useLayoutEffect,
   useRef,
   useState,
   type FocusEvent,
@@ -84,6 +85,13 @@ export function RowMenu({ name, actions, onSelect }: RowMenuProps) {
     popover.style.left = `${left}px`;
     popover.style.top = `${top}px`;
   }, []);
+
+  // 開いている間は commit のたびに置き直す。window の resize ハンドラは React の再レンダー
+  // (サイドバーの docked ⇄ overlay など) より先に走り、動く前の rect を読んでしまう。commit 後なら
+  // DOM は更新済みなので、ここで読む rect が新しい配置を指す
+  useLayoutEffect(() => {
+    if (open) place();
+  });
 
   // 開閉の正は popover の状態。標準の close (Escape / light dismiss) もここで観測して aria-expanded へ写す
   useEffect(() => {
