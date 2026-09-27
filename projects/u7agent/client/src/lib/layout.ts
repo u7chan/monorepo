@@ -2,7 +2,10 @@
 
 export const DESKTOP_MIN_WIDTH = 720;
 export const DESKTOP_MIN_HEIGHT = 560;
-/** 左バー (Sidebar) の幅。App の grid クラス `grid-cols-[252px_minmax(0,1fr)]` と同じ値にする */
+/**
+ * 左バー (Sidebar) の既定幅。docked の grid は CSS 変数 `--sidebar-width` を使うので、
+ * 実際の表示幅は利用者が選んだ値 (bounds の下限 = この値。lib/sidebarWidth.ts) になる
+ */
 export const SIDEBAR_WIDTH = 252;
 /**
  * 左バーを overlay へ退避する幅。右パネルの幅 `min(360px, 30vw)` が縮み始める幅 (30vw = 360px) と
@@ -27,7 +30,8 @@ export function resolveLayoutMode(width: number, height: number): LayoutMode {
 
 /**
  * 左バーの置き方。compact (portrait / landscape) は従来どおり常に overlay で、
- * 開く導線は CompactBar の ☰。desktop は 252px をコンテンツへ回すため width < 1200 で overlay にする。
+ * 開く導線は CompactBar の ☰。desktop は左バーを畳んで main へ回すため width < 1200 で overlay にする
+ * (幅は選べるようになったが、狭い窓では main が足りないので閾値は据え置き。docs/ui-layout.md)。
  */
 export function resolveSidebarPlacement(width: number, mode: LayoutMode): SidebarPlacement {
   if (mode !== "desktop") return "overlay";

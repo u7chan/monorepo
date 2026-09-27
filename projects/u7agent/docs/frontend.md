@@ -87,6 +87,7 @@
 | `u7agent-files` | cwd ごとの snapshot を 1 キーに持つ（version 付き）。cwd は 設定 → ファイル の `"."` と、チャットの右パネルで開いたセッションの作業フォルダ | タブの並び・表示中・タブごとの表示モード・開いているディレクトリ |
 | `u7agent-settings-section` | 最後に開いていた設定セクション | 「設定」で戻る先（正は URL で、これは `/` からの補助） |
 | `u7agent-expanded-projects` | 開いているプロジェクトの `cwd`（ワークスペース root 相対）の集合（version 付き） | サイドバーのプロジェクト行の開閉（既定は畳み） |
+| `u7agent-sidebar-width` | 左バー（Sidebar）の幅（px の整数 1 つ。既定 252px / 上限 400px） | リロード後の左バーの幅（未指定は既定幅。[ui-layout.md](ui-layout.md#幅)） |
 
 会話の選択は保存しない。会話を指定して開く唯一の入口は通知リンクの `/s/<sessionId>` で、開いた後は `/` に畳む。
 

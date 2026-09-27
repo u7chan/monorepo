@@ -1,4 +1,5 @@
 import { useState } from "react";
+import type { SidebarResize } from "../hooks/useSidebarWidth";
 import type { U7Agent } from "../hooks/useU7Agent";
 import { cn } from "../lib/cn";
 import { type SettingsSection, type SidebarMode } from "../lib/settingsNav";
@@ -8,6 +9,7 @@ import { CloseIcon, GearIcon, PlusIcon } from "./icons";
 import { MenuItem } from "./MenuItem";
 import { ProjectRow } from "./sidebar/ProjectRow";
 import { SessionRow } from "./sidebar/SessionRow";
+import { SidebarResizeHandle } from "./sidebar/SidebarResizeHandle";
 import { SettingsNav } from "./sidebar/SettingsNav";
 
 export type SidebarProps = Omit<
@@ -31,6 +33,8 @@ export type SidebarProps = Omit<
   /** sheet variant のときだけ使う (モバイルのドロワーを閉じる) */
   onClose?: () => void;
   variant?: "sidebar" | "sheet";
+  /** 幅の操作。docked の面だけが受け取り、overlay のドロワー (sheet) には渡さない */
+  resize?: SidebarResize;
 };
 
 export function Sidebar({
@@ -42,6 +46,7 @@ export function Sidebar({
   onOpenSettingsSection,
   onClose,
   variant = "sidebar",
+  resize,
   ...props
 }: SidebarProps) {
   const sheet = variant === "sheet";
@@ -64,7 +69,9 @@ export function Sidebar({
       // docked 側を選ぶための印で、開閉 state を mount 時に読むこの形は排他が前提 (崩れると片側に反映されない)
       data-nav-root={sheet ? "sheet" : "docked"}
       className={cn(
-        "flex h-full min-h-0 flex-col gap-3.5 bg-panel px-3 py-4",
+        // relative は幅のハンドル (absolute inset-y-0 right-0) の基準。docked は <aside> 自身が
+        // スクロールしない (一覧が flex-1 で吸収する) ので、ハンドルがスクロールで動くことはない
+        "relative flex h-full min-h-0 flex-col gap-3.5 bg-panel px-3 py-4",
         // 高さが足りない compact でも全項目へ到達できるよう、drawer 全体も 1 つのスクロール領域にする
         "scrollbar-thin overflow-y-auto",
         // docked は一覧が flex-1 で高さを吸収するので、<aside> 自身のガターは実際にスクロールする sheet だけに確保する
@@ -186,6 +193,8 @@ export function Sidebar({
           <MenuItem variant="nav" icon={<GearIcon />} label="設定" onClick={() => onSelectMode("settings")} />
         ) : null}
       </div>
+
+      {resize ? <SidebarResizeHandle {...resize} /> : null}
     </aside>
   );
 }
