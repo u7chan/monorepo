@@ -68,6 +68,94 @@ test("resync restores retry and retryAt from the payload's server clock", () => 
   assert.equal(state.retryCount, 1);
 });
 
+test("replaying the same waiting event does not extend the wait", () => {
+  // 切断中に発行された run_retry が 1.5 秒後にリプレイされる状況 (同じ serverNow が再度届く)
+  let state = chatReducer(initialChatState, {
+    type: "retry",
+    retry: { ...RETRY },
+    totalRetryCount: 1,
+    serverNow: 10_000,
+    receivedAt: 500,
+  });
+  state = chatReducer(state, {
+    type: "retry",
+    retry: { ...RETRY },
+    totalRetryCount: 1,
+    serverNow: 10_000,
+    receivedAt: 2000,
+  });
+  assert.equal(state.retryReceivedAt, 500, "最初に得た起点を維持する");
+  assert.equal(state.retryRemainingMs, 2000);
+  assert.equal(
+    retryActivityText(state.retry, retryRemainingMs(state.retryRemainingMs, 1500)),
+    "レート制限中。約1秒後に再試行予定（1/2）",
+    "時刻 2000 では残り 0.5 秒 (約 1 秒) のまま",
+  );
+  assert.equal(
+    retryActivityText(state.retry, retryRemainingMs(state.retryRemainingMs, 2100)),
+    "再実行の開始待ち（1/2）",
+    "予定時刻を過ぎたら開始待ちへ切り替わる",
+  );
+});
+
+test("a fresh resync with the current serverNow shrinks the remaining wait", () => {
+  const waiting = chatReducer(initialChatState, {
+    type: "retry",
+    retry: { ...RETRY },
+    totalRetryCount: 1,
+    serverNow: 10_000,
+    receivedAt: 500,
+  });
+  // サーバーが現在の serverNow (11500) を持つ resync を配ると、残りは 500ms になる
+  const resynced = chatReducer(waiting, {
+    type: "resync",
+    payload: payload({ serverNow: 11_500 }),
+    receivedAt: 2000,
+  });
+  assert.equal(resynced.retryRemainingMs, 500);
+  assert.equal(resynced.retryReceivedAt, 2000);
+  assert.equal(
+    retryActivityText(resynced.retry, retryRemainingMs(resynced.retryRemainingMs, 0)),
+    "レート制限中。約1秒後に再試行予定（1/2）",
+  );
+  assert.equal(
+    retryActivityText(resynced.retry, retryRemainingMs(resynced.retryRemainingMs, 500)),
+    "再実行の開始待ち（1/2）",
+  );
+});
+
+test("resync keeps the classified run error visible after a reload", () => {
+  const error = "レート制限により実行に失敗しました（自動再試行2回）。時間をおいて再実行してください";
+  const failed = payload({
+    status: "error",
+    run: {
+      id: "run-1",
+      status: "error",
+      startedAt: 1,
+      endedAt: 2,
+      prompt: "聞いて",
+      toolCalls: [],
+      error,
+      totalRetryCount: 2,
+    },
+  });
+  const state = chatReducer(initialChatState, { type: "resync", payload: failed, receivedAt: 500 });
+  assert.equal(state.activity, `エラー: ${error}`, "ライブの run_end と同じ文言");
+  assert.equal(state.retry, undefined);
+  assert.equal(state.retryCount, 2);
+
+  // run.error が無い古い payload は従来の汎用文言
+  const generic = chatReducer(initialChatState, {
+    type: "resync",
+    payload: payload({
+      status: "error",
+      run: { id: "run-1", status: "error", startedAt: 1, prompt: "x", toolCalls: [], totalRetryCount: 0 },
+    }),
+    receivedAt: 500,
+  });
+  assert.equal(generic.activity, "前回の実行でエラーが発生しました");
+});
+
 test("run_retry applies waiting → retrying → cleared and keeps the cumulative count", () => {
   const receivedAt = 900;
   let state = chatReducer(initialChatState, {

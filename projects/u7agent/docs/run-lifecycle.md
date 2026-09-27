@@ -61,7 +61,7 @@ message_end(assistant, error, usage.total = 0)  失敗試行
 
 - `payload.run.retry` は `{ phase: "waiting" | "retrying", attempt, maxAttempts, retryAt?, reason }`。`reason` は分類済みコードだけで、SDK の `errorMessage` / `finalError` 原文は配らない。ライブでは同じ形を `run_retry` イベント（`totalRetryCount` と `serverNow` 付き）で配る。
 - `serverNow` は payload を組み立てたサーバー基準時刻。クライアントは `retryAt - serverNow` で受信時点の残りを出し、受信後の経過分だけを引く（ブラウザ時計とサーバー時刻を直接比較しない）。予定時刻を過ぎても `message_start` が来ない場合は「再実行の開始待ち」へ切り替え、「あと 0 秒」の待機表示を残さない。
-- SSE のリプレイで古い `run_retry` / `resync` が届いても、保存済みの絶対 `retryAt` を使うため待機は延長されない。
+- SSE のリプレイで古い `run_retry` / `resync` が届いても、保存済みの絶対 `retryAt` を使うため待機は延長されない。サーバーはリプレイ範囲に待機中の `run_retry` を含むとき、古い `serverNow` のままで残り時間を計算させないよう、リプレイの末尾へ現在のペイロードを持つ `resync` を 1 件追加する。クライアントも同じ試行（同じ `attempt` / `retryAt`）の再受信では、既に得た期限より後ろへ待機を延ばさない。
 
 ## 失敗の分類と公開契約
 

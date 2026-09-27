@@ -882,9 +882,15 @@ export class SessionStore {
         throw error;
       }
     } else {
+      // 待機イベントのリプレイは `serverNow` が発行時点のままで、残り時間が過大になる。
+      // retry のリプレイを含むときは、現在の serverNow を持つスナップショットで上書きする。
+      let retryReplayed = false;
       for (const entry of record.events) {
-        if (entry.seq > cursor.seq) send(entry);
+        if (entry.seq <= cursor.seq) continue;
+        send(entry);
+        if (entry.type === "run_retry" && entry.data.retry !== null) retryReplayed = true;
       }
+      if (retryReplayed) send({ seq: record.seq, type: "resync", data: this.payload(record), at: Date.now() });
     }
     return () => record.subscribers.delete(subscriber);
   }

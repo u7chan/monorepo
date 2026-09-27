@@ -327,3 +327,41 @@ test("新しいランは retry と累計を初期化し、run_start / run_end �
   assert.equal(runRetryEvents(events).at(-1)?.totalRetryCount, 1);
   await store.close();
 });
+
+test("待機イベントのリプレイには現在の serverNow を持つ resync を続けて配る", async () => {
+  const { store, record, session } = await createRecord();
+  let release!: () => void;
+  const waitForRelease = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  record.session.prompt = async () => {
+    session.emit({ type: "agent_start" });
+    appendFailedAssistant(session, "", "429 TPM");
+    session.emit({ type: "auto_retry_start", attempt: 1, maxAttempts: 2, delayMs: 2000, errorMessage: "429 TPM" });
+    omitLastAssistant(session);
+    await waitForRelease;
+    session.emit({ type: "auto_retry_end", success: false, attempt: 1, finalError: "Retry cancelled" });
+    session.emit({ type: "agent_settled" });
+  };
+  store.postMessage(record, "リプレイ");
+  await waitFor(() => record.run?.retry?.phase === "waiting", 3000, "waiting");
+
+  // 切断前のカーソルで再購読する (run_retry がイベントログからリプレイされる)
+  const replayed: EventEntry[] = [];
+  store.subscribe(record, `${record.generation}:0`, (entry) => replayed.push(entry));
+  const retryEntry = replayed.find((entry): entry is Extract<EventEntry, { type: "run_retry" }> => {
+    return entry.type === "run_retry";
+  });
+  assert.ok(retryEntry, "run_retry がリプレイされる");
+  assert.notEqual(retryEntry.data.retry, null);
+  const tail = replayed.at(-1);
+  assert.ok(tail, "リプレイ結果がある");
+  assert.equal(tail.type, "resync", "リプレイの末尾に現在のスナップショットを続ける");
+  if (tail.type !== "resync") assert.fail("resync expected");
+  assert.deepEqual(tail.data.run?.retry, record.run?.retry, "現在の retry 状態を持つ");
+  assert.ok(tail.data.serverNow >= retryEntry.data.serverNow, "リプレイされた serverNow より新しい基準時刻を配る");
+
+  release();
+  await waitFor(() => store.statusOf(record) === "completed", 3000, "completion");
+  await store.close();
+});

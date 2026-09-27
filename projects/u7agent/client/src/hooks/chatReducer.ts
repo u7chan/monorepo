@@ -160,6 +160,34 @@ function retrySnapshot(
 }
 
 /**
+ * 同じ待機 (同じ attempt / retryAt) を再度受けたときは、既に得た期限を後ろへずらさない。
+ * SSE のリプレイで古い `run_retry` / `resync` が届いても、受信時刻の更新で待機を延長しないための保険。
+ */
+function mergeRetrySnapshot(
+  state: ChatState,
+  retry: RunRetryState | null | undefined,
+  serverNow: number | undefined,
+  receivedAt: number,
+): Pick<ChatState, "retry" | "retryRemainingMs" | "retryReceivedAt"> {
+  const next = retrySnapshot(retry, serverNow, receivedAt);
+  const sameWaiting =
+    next.retry?.phase === "waiting" &&
+    state.retry?.phase === "waiting" &&
+    state.retry.attempt === next.retry.attempt &&
+    state.retry.retryAt !== undefined &&
+    state.retry.retryAt === next.retry.retryAt;
+  const keptRemaining = state.retryRemainingMs;
+  const keptReceivedAt = state.retryReceivedAt;
+  const nextDeadline = next.retryRemainingMs === undefined ? undefined : receivedAt + next.retryRemainingMs;
+  const keptDeadline =
+    keptRemaining === undefined || keptReceivedAt === undefined ? undefined : keptReceivedAt + keptRemaining;
+  if (sameWaiting && nextDeadline !== undefined && keptDeadline !== undefined && nextDeadline > keptDeadline) {
+    return { retry: next.retry, retryRemainingMs: keptRemaining, retryReceivedAt: keptReceivedAt };
+  }
+  return next;
+}
+
+/**
  * 送信エコーの照合用の正規形。添付の注記を落とし、`/skill:` の展開結果は打ったコマンドの形へ戻す。
  * ローカルエコー (素の入力) と run_start (展開済みの本文) を同じ形に寄せるために使う。
  */
@@ -300,7 +328,12 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
       const { bubbles, nextId, toolBubbleIds } = historyToBubbles(state.nextId, payload.messages ?? []);
       const status = payload.status || "idle";
       // 履歴で置き換えたので、旧バブルを指すエコーの待ち行列は持ち越さない
-      const retryState = retrySnapshot(payload.run?.retry, payload.serverNow, action.receivedAt ?? Date.now());
+      const retryState = mergeRetrySnapshot(
+        state,
+        payload.run?.retry,
+        payload.serverNow,
+        action.receivedAt ?? Date.now(),
+      );
       // run が終わった合図。run_end を受け取れない復帰 (切断した SSE の resync) でも、running から
       // 抜けていれば進める (パネルの取り直しは run_end とこの 1 回で足りる)
       const runEnded = state.runStatus === "running" && status !== "running";
@@ -344,7 +377,12 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
       else if (status === "compacting") next = { ...next, activity: "会話を整理中…" };
       else if (status === "queued")
         next = { ...next, activity: `待機中のメッセージがあります（${payload.queueDepth}件）` };
-      else if (status === "error") next = { ...next, activity: "前回の実行でエラーが発生しました" };
+      else if (status === "error")
+        next = {
+          ...next,
+          // 分類済みの run.error があればライブの run_end と同じ文言にする (リロードで理由・案内を失わない)
+          activity: payload.run?.error ? `エラー: ${payload.run.error}` : "前回の実行でエラーが発生しました",
+        };
       else if (status === "stopped") next = { ...next, activity: "前回の実行は停止されました" };
       return next;
     }
@@ -499,7 +537,7 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
       return { ...state, queueDepth: 0, activity: "待機キューを取り消しました" };
 
     case "retry": {
-      const retryState = retrySnapshot(action.retry, action.serverNow, action.receivedAt);
+      const retryState = mergeRetrySnapshot(state, action.retry, action.serverNow, action.receivedAt);
       return {
         ...state,
         ...retryState,
