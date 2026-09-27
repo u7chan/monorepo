@@ -1,76 +1,44 @@
-// ファイルツリーのリネーム導線。client に DOM テスト基盤が無いため、行の右端のコンポーネントだけを
-// react-dom/server で描画して canRename / readOnly の出し分けを固定し、配線 (prompt / API / 状態の張り替え) は
-// ソース走査で固定する (fileBrowserRowTime.test.ts と同じ方針)。
-//   1. 鉛筆がフォルダ行の削除ボタンの左に出る / 既定 (チャット右パネル) とファイル行・symlink 行には出ない
-//   2. readOnly (スキルのファイルタブ) は削除とリネームの導線ごと消える / 既存 2 画面は既定 false のまま
+// ファイルツリーのリネーム導線。出し分けは lib/fileRowMenu.ts の純関数が正で、ここでは prompt / API /
+// 状態の張り替えの配線と、どの画面が canRename / readOnly を渡すかを固定する (描画の属性は fileRowMenu.test.ts)。
+//   1. リネームは canRename (設定 → ファイル) のフォルダ行だけ。既定 (チャット右パネル) とファイル行・symlink 行には出ない
+//   2. readOnly (スキルのファイルタブ) は行の操作ごと消える / 既存 2 画面は既定 false のまま
 //   3. prompt の初期値が現在の名前で、空・未変更なら何もしない
 //   4. 成功後にツリー・タブ・表示モードの経路を張り替え、失敗は親ディレクトリの行に出す
 //   5. リネームを出すのは設定ツリー (FileTreePage) だけ
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { createElement } from "react";
-import { renderToStaticMarkup } from "react-dom/server";
 import test from "node:test";
+import { fileRowActions } from "../src/lib/fileRowMenu";
 
-// FileBrowser は api.ts (location.origin を読む) を辿るため、node では最小の shim を置いてから読み込む
-globalThis.location ??= { origin: "http://localhost" } as Location;
-const { EntryRowActions } = await import("../src/components/FileBrowser");
+const base = {
+  name: "docs",
+  type: "dir" as const,
+  canRename: false,
+  readOnly: false,
+  excludeNames: [] as readonly string[],
+};
 
 function read(relativePath: string): string {
   return readFileSync(fileURLToPath(new URL(`../${relativePath}`, import.meta.url)), "utf8");
 }
 
-function renderActions(props: {
-  type?: "file" | "dir";
-  symlink?: boolean;
-  canRename?: boolean;
-  readOnly?: boolean;
-  excludeNames?: readonly string[];
-}): string {
-  return renderToStaticMarkup(
-    createElement(EntryRowActions, {
-      name: "docs",
-      type: props.type ?? "dir",
-      symlink: props.symlink,
-      canRename: props.canRename ?? false,
-      readOnly: props.readOnly ?? false,
-      excludeNames: props.excludeNames ?? [],
-      onRename: () => {},
-      onDelete: () => {},
-      onDownload: () => {},
-    }),
+test("出し分け: リネームは canRename のフォルダ行だけに、ダウンロードの後ろ・削除の前へ出す", () => {
+  const renamable = fileRowActions({ ...base, canRename: true }) ?? [];
+  assert.deepEqual(
+    renamable.map((action) => action.kind),
+    ["download", "rename", "delete"],
+    "リネームの位置か順序が違う",
   );
-}
 
-test("描画: リネームの鉛筆は canRename のフォルダ行だけに、削除の左へ出す", () => {
-  const renamable = renderActions({ canRename: true });
-  assert.ok(renamable.includes("docs の名前を変更"), "フォルダ行に鉛筆が出ていない");
-  assert.ok(renamable.includes("docs を削除"));
-  assert.ok(renamable.indexOf("docs の名前を変更") < renamable.indexOf("docs を削除"), "削除の左に並べていない");
-
-  // 既定 (チャット右パネル) はリネームの導線を出さない
-  const plain = renderActions({});
-  assert.ok(!plain.includes("名前を変更"));
-  assert.ok(plain.includes("docs を削除"));
-
-  // ファイル行と symlink 行はスロットだけ空けて鉛筆を出さない (時刻の右端をそろえる)
-  for (const props of [{ canRename: true, type: "file" } as const, { canRename: true, symlink: true } as const]) {
-    const html = renderActions(props);
-    assert.ok(!html.includes("名前を変更"), JSON.stringify(props));
-    assert.ok(html.includes('class="size-6 shrink-0"'), `スロットが空いていない: ${JSON.stringify(props)}`);
-  }
-  // symlink は削除も出さない
-  assert.ok(!renderActions({ canRename: true, symlink: true }).includes("を削除"));
-});
-
-test("描画: readOnly は削除とリネームの導線ごと消す", () => {
-  // スキルのファイルタブは本文を読むだけの面なので、通常ファイル / ディレクトリ / symlink のどの行にも
-  // ゴミ箱と鉛筆を出さない (空スペーサーも残さない)
-  for (const props of [{ canRename: true }, { type: "file" }, { symlink: true }] as const) {
-    const html = renderActions({ ...props, readOnly: true });
-    assert.equal(html, "", `${JSON.stringify(props)} に行の操作が出ている`);
-  }
+  // 既定 (チャット右パネル) は出さない
+  assert.ok(!(fileRowActions(base) ?? []).some((action) => action.kind === "rename"));
+  // ファイル行は出さない (UI からは改名できない)
+  assert.ok(!(fileRowActions({ ...base, type: "file", canRename: true }) ?? []).some((a) => a.kind === "rename"));
+  // symlink 行は項目ごと消える
+  assert.deepEqual(fileRowActions({ ...base, canRename: true, symlink: true }), []);
+  // readOnly は行の操作ごと消える (スキルのファイルタブ)
+  assert.equal(fileRowActions({ ...base, canRename: true, readOnly: true }), null);
 });
 
 test("リネームの導線は prompt の初期値を現在の名前にして、空・未変更なら何もしない", () => {

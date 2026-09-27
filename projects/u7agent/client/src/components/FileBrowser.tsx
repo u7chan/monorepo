@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from 
 import { deleteDirectory, deleteFile, fileDownloadUrl, getFileDownloadCheck, getFiles, renameEntry } from "../api";
 import { FilePreview } from "./FilePreview";
 import { cn } from "../lib/cn";
-import { archiveConfirmMessage, isArchiveExcludedName, startArchiveDownload } from "../lib/archive";
+import { archiveConfirmMessage, startArchiveDownload } from "../lib/archive";
 import {
   applyFileTreeError,
   applyFileTreeListing,
@@ -29,6 +29,7 @@ import {
 } from "../lib/fileTree";
 import { fileKind } from "../lib/fileKind";
 import { FILE_MENTION_MIME, mentionText } from "../lib/fileMention";
+import { fileRowActions, type FileRowActionKind } from "../lib/fileRowMenu";
 import { type FileRefRequest } from "../lib/fileRefRequest";
 import { filePreviewStore } from "../lib/filePreviewState";
 import { fileTimeLabel, messageFullTimeLabel } from "../lib/messageTime";
@@ -46,7 +47,8 @@ import {
   type PreviewModes,
 } from "../lib/fileTabs";
 import type { FileEntry } from "../types";
-import { ChevronIcon, DownloadIcon, FileIcon, FolderIcon, PencilIcon, TrashIcon } from "./icons";
+import { ChevronIcon, FileIcon, FolderIcon } from "./icons";
+import { RowMenu } from "./RowMenu";
 
 const INDENT = 16;
 /** ファイル行の左端。親の chevron (16) + gap-2 (8) + ディレクトリ行の左端 (8) と一致させる */
@@ -61,9 +63,9 @@ export type FileBrowserProps = {
   root: string;
   /** 値を変えると一覧と開いている本文を取り直す。mount 時の値では撃たない */
   reloadToken: number;
-  /** フォルダ行にリネームの鉛筆を出すか。既定 false (チャット右パネルでは出さない) */
+  /** フォルダ行の ⋯ メニューにリネームを出すか。既定 false (チャット右パネルでは出さない) */
   canRename?: boolean;
-  /** 削除とリネームの導線を出さない (読み取り専用の面)。既定 false (既存 2 画面は不変) */
+  /** 行の操作 (ダウンロード / リネーム / 削除) の ⋯ ごと出さない (読み取り専用の面)。既定 false (既存 2 画面は不変) */
   readOnly?: boolean;
   /** ファイル行を参照としてドラッグできるようにする。ドロップ先 (入力欄) と同じ root の面だけ true */
   canRef?: boolean;
@@ -511,7 +513,7 @@ function EntryRow({
 
   const isSelected = selected === path;
   return (
-    // 行全体は選択、右端のスロットはリネーム (フォルダのみ) と削除。入れ子の button は作れないため、行は div にして button を並べる
+    // 行全体は選択、右端は ⋯ の操作メニュー。入れ子の button は作れないため、行は div にして button を並べる
     <div
       draggable={canRef}
       onDragStart={
@@ -559,8 +561,7 @@ function EntryRow({
 }
 
 /**
- * 行の右端。時刻の右に ダウンロード → リネーム (設定ツリーのみ) → 削除 の順で size-6 のスロットを並べる。
- * 導線を持たない行 (除外名 / symlink) もスロットだけ空けて時刻の右端をそろえる。
+ * 行の右端。時刻の右に ⋯ 1 個を並べる。項目を持たない行 (symlink) もスロットだけ空けて時刻の右端をそろえる。
  * 行の外に置くのは、行 (EntryRow) が組み立てたパスを渡すためと、描画のテストで直接見るため。
  */
 export function EntryRowActions({
@@ -585,69 +586,19 @@ export function EntryRowActions({
   onDelete: () => void;
   onDownload: () => void;
 }) {
-  // リネームはフォルダ行だけに出す (UI からファイルは改名できない)。symlink はサンドボックスが 400 で拒否する
-  const renamable = canRename && type === "dir" && !symlink;
-  const deletable = !symlink;
-  // ダウンロードは通常ファイルとディレクトリに出す。symlink は api が 400 で拒否し、除外名の行は zip に入らない
-  const downloadable = !symlink && !isArchiveExcludedName(name, excludeNames);
-  // 読み取り専用の面 (スキルのファイルタブ) は削除 / リネーム / ダウンロードの導線ごと消す
-  if (readOnly) return null;
-  return (
-    <>
-      {downloadable ? <DownloadRowButton name={name} type={type} onClick={onDownload} /> : <EmptySlot />}
-      {canRename ? renamable ? <RenameRowButton name={name} onClick={onRename} /> : <EmptySlot /> : null}
-      {deletable ? <DeleteRowButton name={name} onClick={onDelete} /> : <EmptySlot />}
-    </>
-  );
+  const actions = fileRowActions({ name, type, symlink, canRename, readOnly, excludeNames });
+  // null = 読み取り専用の面で行の操作ごと消す。空配列 = 領域は出すが項目が無い (空きスロット 1 個)
+  if (actions === null) return null;
+  if (actions.length === 0) return <EmptySlot />;
+  const handlers: Record<FileRowActionKind, () => void> = {
+    download: onDownload,
+    rename: onRename,
+    delete: onDelete,
+  };
+  return <RowMenu name={name} actions={actions} onSelect={(kind) => handlers[kind]()} />;
 }
 
-/** 行のダウンロードボタン。ディレクトリは ZIP になり、除外があることをツールチップで開示する。 */
-function DownloadRowButton({ name, type, onClick }: { name: string; type: "file" | "dir"; onClick: () => void }) {
-  const directory = type === "dir";
-  return (
-    <button
-      type="button"
-      aria-label={directory ? `${name} を ZIP でダウンロード` : `${name} をダウンロード`}
-      title={directory ? "ZIP でダウンロード（ビルド成果物と依存を除く）" : "ダウンロード"}
-      onClick={onClick}
-      className="grid size-6 shrink-0 place-items-center rounded-md text-ink-faint transition-colors hover:bg-raised hover:text-ink"
-    >
-      <DownloadIcon />
-    </button>
-  );
-}
-
-/** 行のリネームボタン。削除ボタンと同じ寸法・色で、その左に並べる。 */
-function RenameRowButton({ name, onClick }: { name: string; onClick: () => void }) {
-  return (
-    <button
-      type="button"
-      aria-label={`${name} の名前を変更`}
-      title="名前を変更"
-      onClick={onClick}
-      className="grid size-6 shrink-0 place-items-center rounded-md text-ink-faint transition-colors hover:bg-raised hover:text-ink"
-    >
-      <PencilIcon />
-    </button>
-  );
-}
-
-/** 行の削除ボタン。ディレクトリ行とファイル行で同じ見た目にし、末尾スロットを size-6 にそろえる。 */
-function DeleteRowButton({ name, onClick }: { name: string; onClick: () => void }) {
-  return (
-    <button
-      type="button"
-      aria-label={`${name} を削除`}
-      title="削除"
-      onClick={onClick}
-      className="grid size-6 shrink-0 place-items-center rounded-md text-ink-faint transition-colors hover:bg-raised hover:text-danger-text"
-    >
-      <TrashIcon />
-    </button>
-  );
-}
-
-/** 導線を持たない行 (ファイルのリネーム / symlink) の末尾スロット。時刻の右端をボタンの行にそろえる。 */
+/** 項目を持たない行 (symlink) の末尾スロット。時刻の右端を ⋯ の行にそろえる。 */
 function EmptySlot() {
   return <span aria-hidden className="size-6 shrink-0" />;
 }

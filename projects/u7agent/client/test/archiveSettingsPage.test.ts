@@ -163,7 +163,10 @@ test("配線: 行の出し分けは app 状態の実効値を使い、保存の�
   const browser = read("src/components/FileBrowser.tsx");
   assert.ok(!browser.includes("getHealth"), "FileBrowser が health を取りに行っている");
   assert.ok(!browser.includes("health.archive?.excludeNames"), "FileBrowser が health から除外名を読んでいる");
-  assert.ok(browser.includes("isArchiveExcludedName(name, excludeNames)"), "除外の判定が純関数でない");
+  assert.ok(
+    read("src/lib/fileRowMenu.ts").includes("isArchiveExcludedName(name, excludeNames)"),
+    "除外の判定が純関数でない",
+  );
   // 設定ページ以外の面（スキルのファイルタブ）も prop を要求する
   for (const file of ["src/components/FileTreePage.tsx", "src/components/SessionFilesPanel.tsx"]) {
     assert.ok(read(file).includes("excludeNames"), `${file} が excludeNames を受けていない`);

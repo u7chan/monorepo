@@ -210,6 +210,17 @@ export function DownloadIcon() {
   );
 }
 
+/** 行の ⋯ ボタン (横並びの点 3 つ) */
+export function MoreIcon() {
+  return (
+    <svg aria-hidden="true" viewBox="0 0 16 16" fill="currentColor" className="size-3.5 shrink-0">
+      <circle cx="3.5" cy="8" r="1.15" />
+      <circle cx="8" cy="8" r="1.15" />
+      <circle cx="12.5" cy="8" r="1.15" />
+    </svg>
+  );
+}
+
 export function CheckIcon() {
   return (
     <svg
