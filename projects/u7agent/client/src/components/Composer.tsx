@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type DragEvent, type FormEvent, type KeyboardEvent } from "react";
+import { useCallback, useEffect, useRef, useState, type DragEvent, type FormEvent, type KeyboardEvent } from "react";
 import type { Attachment, ComposerSettings } from "../hooks/useU7Agent";
 import type { SessionSkillsState } from "../hooks/useSessionSkills";
 import { cn } from "../lib/cn";
@@ -12,7 +12,7 @@ import { AgentField } from "./composer/AgentField";
 import { AttachmentChips } from "./composer/AttachmentChips";
 import { ComposerStatus } from "./composer/ComposerStatus";
 import { ModelEffortFields, ModelEffortToggle } from "./composer/ModelEffortControls";
-import { SkillPanel, SkillToggle } from "./composer/SkillField";
+import { SkillPicker } from "./composer/SkillPicker";
 
 export type ComposerProps = {
   activity: string;
@@ -41,6 +41,7 @@ export type ComposerProps = {
   rootCwd: string;
   /** セッションのスキル一覧 (`/skill:` の入力補助)。新規チャットは作成前の選択で解決したプレビュー */
   skills: SessionSkillsState;
+  /** スキルの取り直し。ポップアップを開いたときと、状態行の「再取得」で呼ぶ */
   onReloadSkills: () => void;
   /** 非表示 (設定ページ) の間は scrollHeight を読めないので計測を止める */
   visible?: boolean;
@@ -162,6 +163,22 @@ export function Composer({
   useEffect(() => {
     if (compact && sending) setSettingsOpen(false);
   }, [compact, sending]);
+
+  // 送信の成立でスキルピッカーも畳む (compact で入力欄の上を覆い、生成中は操作しない)。畳む合図は
+  // Model / Effort と同じ `sending` に寄せる (desktop も開いたままだと応答に被る)
+  useEffect(() => {
+    if (sending) setSkillsOpen(false);
+  }, [sending]);
+
+  // 開いたときに取り直す。一覧はファイルスキルの走査結果なので、開き直しで拾えるようにする
+  // (取り直しで一覧を消すかの判断は useSessionSkills 側にある)
+  const handleSkillsOpenChange = useCallback(
+    (open: boolean) => {
+      setSkillsOpen(open);
+      if (open) onReloadSkills();
+    },
+    [onReloadSkills],
+  );
 
   const submit = () => {
     const text = value.trim();
@@ -319,11 +336,14 @@ export function Composer({
         <div className={cn("flex flex-wrap items-center", compact ? "gap-2" : "gap-x-3 gap-y-1.5 px-0.5")}>
           <AgentField agents={agents} agentId={agentId} compact={compact} onChangeAgent={onChangeAgent} />
           <ModelEffortToggle open={settingsOpen} compact={compact} onToggle={() => setSettingsOpen((open) => !open)} />
-          <SkillToggle
-            open={skillsOpen}
+          <SkillPicker
+            state={skills}
+            rootCwd={rootCwd}
             compact={compact}
-            enabled={skills.status !== "unavailable"}
-            onToggle={() => setSkillsOpen((open) => !open)}
+            open={skillsOpen}
+            onOpenChange={handleSkillsOpenChange}
+            onSelect={insertSkillCommand}
+            onReload={onReloadSkills}
           />
           {compact ? null : (
             <>
@@ -359,16 +379,6 @@ export function Composer({
               </span>
             ) : null}
           </div>
-        ) : null}
-        {skillsOpen ? (
-          <SkillPanel
-            state={skills}
-            rootCwd={rootCwd}
-            compact={compact}
-            landscape={landscape}
-            onSelect={insertSkillCommand}
-            onReload={onReloadSkills}
-          />
         ) : null}
         <AttachmentChips attachments={attachments} rootCwd={rootCwd} compact={compact} onRemove={onRemoveAttachment} />
         <div className={cn("flex items-end", compact ? "gap-2" : "gap-2.5")}>

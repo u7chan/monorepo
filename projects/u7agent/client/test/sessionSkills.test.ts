@@ -7,10 +7,12 @@ import {
   SESSION_SKILL_EMPTY_NOTE,
   SESSION_SKILL_ERROR_PREFIX,
   SESSION_SKILL_LOADING_NOTE,
+  SESSION_SKILL_RELOAD_ERROR_PREFIX,
   SESSION_SKILL_SHADOWED_NOTE,
   SESSION_SKILL_UNAVAILABLE_NOTE,
   fetchSessionSkills,
   groupSessionSkills,
+  reduceSessionSkills,
   sessionSkillLocation,
   sessionSkillsNotice,
   sessionSkillsSource,
@@ -18,6 +20,7 @@ import {
   sessionSkillWarning,
   skillCommandText,
   skillLocationLabel,
+  startSessionSkillsReload,
   type SessionSkillsFetchers,
   type SessionSkillsState,
 } from "../src/lib/sessionSkills";
@@ -140,6 +143,25 @@ test("sessionSkillsSourceKey は取得先が変わるときだけ変わる", () 
   assert.notEqual(key("", "p1", "a1"), key("s1", "p1", "a1"));
 });
 
+/**
+ * `fetchSessionSkills` が受ける functional な setState を、適用後の状態の列として集める。
+ * 実際の `useState` と同じく、前の状態を引き継いで畳む (再取得の「一覧を残す」判断が効く)。
+ */
+function collector(initial: SessionSkillsState): {
+  apply: (update: (previous: SessionSkillsState) => SessionSkillsState) => void;
+  states: SessionSkillsState[];
+} {
+  let current = initial;
+  const states: SessionSkillsState[] = [];
+  return {
+    apply: (update) => {
+      current = update(current);
+      states.push(current);
+    },
+    states,
+  };
+}
+
 test("fetchSessionSkills は取得先に応じて API を呼び、応答を ready へ写す", async () => {
   const calls: string[] = [];
   const fetchers: SessionSkillsFetchers = {
@@ -152,15 +174,16 @@ test("fetchSessionSkills は取得先に応じて API を呼び、応答を read
       return { cwd: "proj", projectSkills: true, skills: [sessionSkill({ name: "from-preview" })] };
     },
   };
-  const applied: SessionSkillsState[] = [];
-  const apply = (state: SessionSkillsState) => applied.push(state);
+  const applied = collector({ status: "loading" });
 
-  await fetchSessionSkills({ kind: "session", sessionId: "s1" }, fetchers, () => true, apply);
-  await fetchSessionSkills({ kind: "preview", projectId: "p1", agentId: "" }, fetchers, () => true, apply);
+  await fetchSessionSkills({ kind: "session", sessionId: "s1" }, fetchers, () => true, applied.apply);
+  await fetchSessionSkills({ kind: "preview", projectId: "p1", agentId: "" }, fetchers, () => true, applied.apply);
 
   assert.deepEqual(calls, ["session:s1", "preview:p1:"], "セッションがあれば既存 API だけを使う");
   assert.deepEqual(
-    applied.map((state) => (state.status === "ready" ? [state.skills[0]?.name, state.projectSkills] : state.status)),
+    applied.states.map((state) =>
+      state.status === "ready" ? [state.skills[0]?.name, state.projectSkills] : state.status,
+    ),
     [
       ["from-session", true],
       ["from-preview", true],
@@ -169,11 +192,11 @@ test("fetchSessionSkills は取得先に応じて API を呼び、応答を read
 });
 
 test("fetchSessionSkills は失敗を error にし、切替後に届いた古い応答は捨てる", async () => {
-  // 503 (サンドボックス未設定) はパネルへ理由を出す。ボタンは押せるままにする (unavailable にしない)
+  // 503 (サンドボックス未設定) はポップアップへ理由を出す。ボタンは押せるままにする (unavailable にしない)
   const failure = Object.assign(new Error("サンドボックスが設定されていません (PI_SANDBOX_URL / PI_SANDBOX_TOKEN)"), {
     status: 503,
   });
-  const applied: SessionSkillsState[] = [];
+  const failed = collector({ status: "loading" });
   await fetchSessionSkills(
     { kind: "preview", projectId: "", agentId: "" },
     {
@@ -185,12 +208,13 @@ test("fetchSessionSkills は失敗を error にし、切替後に届いた古い
       },
     },
     () => true,
-    (state) => applied.push(state),
+    failed.apply,
   );
-  assert.deepEqual(applied, [{ status: "error", message: failure.message }]);
-  assert.deepEqual(sessionSkillsNotice(applied[0] as SessionSkillsState), {
+  assert.deepEqual(failed.states, [{ status: "error", message: failure.message }]);
+  assert.deepEqual(sessionSkillsNotice(failed.states[0] as SessionSkillsState), {
     text: `${SESSION_SKILL_ERROR_PREFIX}: ${failure.message}`,
     warn: true,
+    retry: true,
   });
 
   // プレビュー取得中に取得先が変わる: 後から開始した方の応答だけを反映する
@@ -206,43 +230,92 @@ test("fetchSessionSkills は失敗を error にし、切替後に届いた古い
     preview: async ({ projectId }: { projectId: string }) =>
       projectId === "p1" ? oldResponse : { cwd: "", projectSkills: false, skills: [sessionSkill({ name: "new" })] },
   };
-  const switched: SessionSkillsState[] = [];
+  const switched = collector({ status: "loading" });
   const oldRequest = fetchSessionSkills(
     { kind: "preview", projectId: "p1", agentId: "" },
     fetchers,
     beginRequest(),
-    (state) => switched.push(state),
+    switched.apply,
   );
   const latest = fetchSessionSkills(
     { kind: "preview", projectId: "p2", agentId: "" },
     fetchers,
     beginRequest(),
-    (state) => switched.push(state),
+    switched.apply,
   );
   await latest;
   releaseOld();
   await oldRequest;
   assert.deepEqual(
-    switched.map((state) => (state.status === "ready" ? state.skills[0]?.name : state.status)),
+    switched.states.map((state) => (state.status === "ready" ? state.skills[0]?.name : state.status)),
     ["new"],
     "切替後に届いた古い一覧は反映しない",
   );
 });
 
-test("sessionSkillsNotice は状態ごとの 1 行を返し、一覧があるときは何も出さない", () => {
-  assert.deepEqual(sessionSkillsNotice({ status: "loading" }), { text: SESSION_SKILL_LOADING_NOTE, warn: false });
+test("reduceSessionSkills は一覧を持っている間の失敗で一覧を捨てない", () => {
+  const list: SessionSkillsState = { status: "ready", skills: [sessionSkill()], projectSkills: true };
+  // 再取得の失敗は reloadError として重ね、索引として使える一覧は残す
+  assert.deepEqual(reduceSessionSkills(list, { ok: false, message: "503" }), { ...list, reloadError: "503" });
+  // 一覧が無いときの失敗は error (理由を出すしかない)
+  assert.deepEqual(reduceSessionSkills({ status: "loading" }, { ok: false, message: "503" }), {
+    status: "error",
+    message: "503",
+  });
+  // 再取得の成功は前の reloadError を消す (状態を ready で作り直す)
+  assert.deepEqual(
+    reduceSessionSkills({ ...list, reloadError: "503" }, { ok: true, skills: [], projectSkills: false }),
+    { status: "ready", skills: [], projectSkills: false },
+  );
+  assert.deepEqual(
+    reduceSessionSkills({ status: "error", message: "503" }, { ok: true, skills: [], projectSkills: false }),
+    {
+      status: "ready",
+      skills: [],
+      projectSkills: false,
+    },
+  );
+});
+
+test("startSessionSkillsReload は持っている一覧を消さず、無いときだけ読込表示へ戻す", () => {
+  const list: SessionSkillsState = { status: "ready", skills: [sessionSkill()], projectSkills: false };
+  assert.deepEqual(startSessionSkillsReload(list), list, "開き直しで一覧を消さない (高さを跳ねさせない)");
+  assert.deepEqual(startSessionSkillsReload({ ...list, reloadError: "503" }), { ...list, reloadError: "503" });
+  assert.deepEqual(startSessionSkillsReload({ status: "error", message: "503" }), { status: "loading" });
+  assert.deepEqual(startSessionSkillsReload({ status: "unavailable" }), { status: "loading" });
+});
+
+test("sessionSkillsNotice は状態ごとの 1 行と再取得の要否を返す", () => {
+  assert.deepEqual(sessionSkillsNotice({ status: "loading" }), {
+    text: SESSION_SKILL_LOADING_NOTE,
+    warn: false,
+    retry: false,
+  });
   // 取得先が判明していない間は理由を出し、ボタンは押せない (Composer の enabled が unavailable だけを弾く)
   assert.deepEqual(sessionSkillsNotice({ status: "unavailable" }), {
     text: SESSION_SKILL_UNAVAILABLE_NOTE,
     warn: false,
+    retry: false,
   });
   assert.deepEqual(sessionSkillsNotice({ status: "error", message: "503" }), {
     text: `${SESSION_SKILL_ERROR_PREFIX}: 503`,
     warn: true,
+    retry: true,
   });
   assert.deepEqual(sessionSkillsNotice({ status: "ready", skills: [], projectSkills: false }), {
     text: SESSION_SKILL_EMPTY_NOTE,
     warn: false,
+    retry: true,
   });
   assert.equal(sessionSkillsNotice({ status: "ready", skills: [sessionSkill()], projectSkills: true }), null);
+  // 一覧を持ったままの再取得失敗は、0 件の注意ではなく理由を見せる
+  assert.deepEqual(
+    sessionSkillsNotice({ status: "ready", skills: [sessionSkill()], projectSkills: true, reloadError: "503" }),
+    { text: `${SESSION_SKILL_RELOAD_ERROR_PREFIX}: 503`, warn: true, retry: true },
+  );
+  assert.deepEqual(sessionSkillsNotice({ status: "ready", skills: [], projectSkills: false, reloadError: "503" }), {
+    text: `${SESSION_SKILL_RELOAD_ERROR_PREFIX}: 503`,
+    warn: true,
+    retry: true,
+  });
 });

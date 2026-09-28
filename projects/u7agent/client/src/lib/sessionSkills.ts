@@ -2,6 +2,8 @@
  * セッションのスキル一覧 (GET /api/sessions/:id/skills と、セッション未確定の GET /api/skills/session) の
  * 取得先と表示用の導出。取得先の切替・状態の文言・グループ分け・注意書き・場所の表示をここ 1 箇所へ閉じ、
  * フックとコンポーネントは結果を使うだけにする (docs/api-sessions.md)。
+ * 再取得 (ポップアップを開き直したとき) の結果の畳み方もここに置く: 一覧を持っている間の失敗は
+ * `reloadError` にして一覧を残す (索引として使える方が得なので、一瞬の失敗で消さない)。
  * 形式の正はサーバーの SessionSkillInfo で、ここは文言と取得先だけを持つ。
  */
 import type { SessionSkillInfo, SessionSkillsPreview, SessionSkillsResponse } from "../types";
@@ -24,6 +26,8 @@ export const SESSION_SKILL_UNAVAILABLE_NOTE =
   "スキル一覧を取得できる状態ではありません（起動処理の完了後に使えます）。";
 /** ファイルスキルは一覧のたびに探索し直し、カタログの本文はセッション作成時のスナップショットになる */
 export const SESSION_SKILL_BODY_NOTE = "本文は送信時に読み直します（ファイルスキルは一覧のたびに探索し直します）。";
+/** 再取得だけが失敗したときの 1 行。持っている一覧は残すので、空 / 失敗とは別の文言にする */
+export const SESSION_SKILL_RELOAD_ERROR_PREFIX = "一覧を更新できませんでした";
 export const SESSION_SKILL_DISABLED_NOTE = "モデルからは呼ばれません（手動でのみ実行できます）";
 export const SESSION_SKILL_SHADOWED_NOTE = "同名のスキルが優先されます（この行は使われません）";
 
@@ -35,7 +39,8 @@ export const SESSION_SKILL_SHADOWED_NOTE = "同名のスキルが優先されま
 export type SessionSkillsState =
   | { status: "unavailable" }
   | { status: "loading" }
-  | { status: "ready"; skills: SessionSkillInfo[]; projectSkills: boolean }
+  /** `reloadError` は一覧を保ったまま再取得に失敗したときだけ入る (一覧は索引なので捨てない) */
+  | { status: "ready"; skills: SessionSkillInfo[]; projectSkills: boolean; reloadError?: string }
   | { status: "error"; message: string };
 
 /** 一覧の取得先。セッションが確定していればセッション基準、無ければ新規チャットのプレビュー */
@@ -66,30 +71,62 @@ export type SessionSkillsFetchers = {
 };
 
 /**
- * 取得先 1 つ分の一覧を取り、`canApply` が真のときだけ `apply` へ渡す。切替中に届いた古い応答はここで
- * 捨てる (プレビュー取得中に project / agent が変わる、送信中に別チャットへ移る)。
+ * 取得先 1 つ分の一覧を取り、`canApply` が真のときだけ `setState` へ渡す。切替中に届いた古い応答はここで
+ * 捨てる (プレビュー取得中に project / agent が変わる、送信中に別チャットへ移る)。適用は functional な
+ * 更新にする: 初回取得では前の `loading` を、再取得では持っている一覧を保つかの判断を呼び出し側が持つ。
  */
 export async function fetchSessionSkills(
   source: SessionSkillsSource,
   fetchers: SessionSkillsFetchers,
   canApply: () => boolean,
-  apply: (state: SessionSkillsState) => void,
+  setState: (update: (previous: SessionSkillsState) => SessionSkillsState) => void,
 ): Promise<void> {
   try {
     const response =
       source.kind === "session" ? await fetchers.session(source.sessionId) : await fetchers.preview(source);
-    if (canApply()) apply({ status: "ready", skills: response.skills, projectSkills: response.projectSkills });
+    if (canApply())
+      setState((previous) =>
+        reduceSessionSkills(previous, { ok: true, skills: response.skills, projectSkills: response.projectSkills }),
+      );
   } catch (error) {
-    if (canApply()) apply({ status: "error", message: error instanceof Error ? error.message : String(error) });
+    const message = error instanceof Error ? error.message : String(error);
+    if (canApply()) setState((previous) => reduceSessionSkills(previous, { ok: false, message }));
   }
 }
 
-/** パネルに出す状態の 1 行。一覧を出せている (ready かつ 1 件以上) ときは何も出さない */
-export function sessionSkillsNotice(state: SessionSkillsState): { text: string; warn: boolean } | null {
-  if (state.status === "loading") return { text: SESSION_SKILL_LOADING_NOTE, warn: false };
-  if (state.status === "unavailable") return { text: SESSION_SKILL_UNAVAILABLE_NOTE, warn: false };
-  if (state.status === "error") return { text: `${SESSION_SKILL_ERROR_PREFIX}: ${state.message}`, warn: true };
-  return state.skills.length === 0 ? { text: SESSION_SKILL_EMPTY_NOTE, warn: false } : null;
+/** 取得の結果。`ok` は一覧が取れたことだけを指し、失敗の行き先は前の状態が決める */
+export type SessionSkillsResult =
+  | { ok: true; skills: SessionSkillInfo[]; projectSkills: boolean }
+  | { ok: false; message: string };
+
+/**
+ * 取得の結果を今の状態へ重ねる。一覧を持っている間の失敗は `reloadError` にして一覧を残す
+ * (索引として使える方が得なので、一瞬の失敗で消さない)。持っていなければ `error` にする。
+ */
+export function reduceSessionSkills(previous: SessionSkillsState, result: SessionSkillsResult): SessionSkillsState {
+  if (result.ok) return { status: "ready", skills: result.skills, projectSkills: result.projectSkills };
+  if (previous.status === "ready") return { ...previous, reloadError: result.message };
+  return { status: "error", message: result.message };
+}
+
+/**
+ * 再取得の開始。持っている一覧は消さない (消すと読込表示へ戻ってポップアップの高さが跳ねる)。
+ * 一覧が無い (`loading` / `error` / `unavailable`) ときは通常の読込表示へ戻す。
+ */
+export function startSessionSkillsReload(previous: SessionSkillsState): SessionSkillsState {
+  return previous.status === "ready" ? previous : { status: "loading" };
+}
+
+/** パネルに出す状態の 1 行。一覧を出せている (ready かつ 1 件以上で再取得も成功) ときは何も出さない */
+export function sessionSkillsNotice(state: SessionSkillsState): { text: string; warn: boolean; retry: boolean } | null {
+  if (state.status === "loading") return { text: SESSION_SKILL_LOADING_NOTE, warn: false, retry: false };
+  if (state.status === "unavailable") return { text: SESSION_SKILL_UNAVAILABLE_NOTE, warn: false, retry: false };
+  if (state.status === "error")
+    return { text: `${SESSION_SKILL_ERROR_PREFIX}: ${state.message}`, warn: true, retry: true };
+  // 失敗していても一覧は出せるので、0 件の注意より先に理由を見せる
+  if (state.reloadError)
+    return { text: `${SESSION_SKILL_RELOAD_ERROR_PREFIX}: ${state.reloadError}`, warn: true, retry: true };
+  return state.skills.length === 0 ? { text: SESSION_SKILL_EMPTY_NOTE, warn: false, retry: true } : null;
 }
 
 /** 選択で入力欄へ入れるコマンド。末尾の空白は引数を続けて書くため */
