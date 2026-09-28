@@ -657,6 +657,52 @@ test("sanitizeError masks both the query log and the error kept for health", () 
   }
 });
 
+test("provider memo failures keep the memo value out of the log, health and 503 message", () => {
+  const dir = tempStoreDir();
+  const memo = "review-memo-sensitive-text";
+  try {
+    const db = AppDb.open({ storeDir: dir });
+    // 実 DB のトリガーで例外文言へメモ値を写す経路を作る (マスカー未登録のまま境界を通す)
+    const raw = new DatabaseSync(join(dir, APP_DB_FILENAME));
+    raw.prepare("INSERT INTO provider_memos (provider, memo) VALUES (?, ?)").run("openai", memo);
+    raw.exec(
+      `CREATE TRIGGER memo_insert_failure BEFORE INSERT ON provider_memos
+       BEGIN SELECT RAISE(ABORT, 'boom ' || NEW.memo); END`,
+    );
+    raw.exec(
+      `CREATE TRIGGER memo_delete_failure BEFORE DELETE ON provider_memos
+       BEGIN SELECT RAISE(ABORT, 'boom ' || OLD.memo); END`,
+    );
+    raw.close();
+
+    const logged: string[] = [];
+    const originalError = console.error;
+    console.error = (...args: unknown[]) => logged.push(args.map(String).join(" "));
+    try {
+      for (const run of [() => db.saveProviderMemo("anthropic", memo), () => db.deleteProviderMemo("openai")]) {
+        assert.throws(
+          run,
+          (error: unknown) =>
+            isServiceUnavailable(error) &&
+            !String((error as Error).message).includes(memo) &&
+            String((error as Error).message).includes("provider memo query failed"),
+          "503 へ値を含まない固定文言だけを載せる",
+        );
+      }
+    } finally {
+      console.error = originalError;
+    }
+    const status = db.status();
+    assert.equal(status.ok, false);
+    assert.equal(status.error, "provider memo query failed", "health へ載る保持エラーも固定文言にする");
+    assert.ok(!logged.join("\n").includes(memo), `ログにもメモを出さない: ${logged.join("\n")}`);
+    assert.ok(logged.join("\n").includes("provider memo query failed"), "固定文言は残す");
+    db.close();
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("open() failure messages pass through sanitizeError", () => {
   const dir = tempStoreDir();
   try {

@@ -114,6 +114,12 @@ CREATE TABLE IF NOT EXISTS provider_memos (
 );
 `;
 
+/**
+ * provider メモは retainSecret に登録しない方針なので、SQLite の例外文言に値が写り得る。
+ * ログ・health・503 へは、この値を含まない固定文言だけを渡す。
+ */
+const PROVIDER_MEMO_QUERY_FAILED = "provider memo query failed";
+
 const CREATE_TABLES = `
 CREATE TABLE projects (
   id TEXT PRIMARY KEY,
@@ -399,6 +405,20 @@ export class AppDb {
     }
   }
 
+  /**
+   * provider メモ専用のクエリ入口。メモはマスカーへ登録しないため、トリガーの RAISE などで例外文言に
+   * 値が写っても、#query がログ / #error へ渡す前に値を含まない固定文言へ置き換える。
+   */
+  #memoQuery<T>(fn: (db: DatabaseSync) => T): T {
+    return this.#query((db) => {
+      try {
+        return fn(db);
+      } catch {
+        throw new Error(PROVIDER_MEMO_QUERY_FAILED);
+      }
+    });
+  }
+
   #schemaVersion(): number {
     const row = this.#handle().prepare("PRAGMA user_version").get() as Row | undefined;
     return Number(row?.user_version ?? 0);
@@ -550,7 +570,7 @@ export class AppDb {
   // --- provider memos (provider に紐づく人間用メモ。行が無い = 未設定) ---
 
   listProviderMemos(): ProviderMemoRow[] {
-    return this.#query((db) =>
+    return this.#memoQuery((db) =>
       (db.prepare("SELECT * FROM provider_memos ORDER BY rowid").all() as Row[])
         .map(providerMemoOf)
         .filter((row): row is ProviderMemoRow => row !== undefined),
@@ -558,7 +578,7 @@ export class AppDb {
   }
 
   getProviderMemo(provider: string): ProviderMemoRow | undefined {
-    const row = this.#query(
+    const row = this.#memoQuery(
       (db) => db.prepare("SELECT * FROM provider_memos WHERE provider = ?").get(provider) as Row | undefined,
     );
     return row ? providerMemoOf(row) : undefined;
@@ -566,7 +586,7 @@ export class AppDb {
 
   /** 登録と上書きで同じ (provider が主キー)。単一ステートメントなので自動コミットで確定する */
   saveProviderMemo(provider: string, memo: string): void {
-    this.#query((db) =>
+    this.#memoQuery((db) =>
       db
         .prepare(
           `INSERT INTO provider_memos (provider, memo) VALUES (?, ?)
@@ -577,7 +597,9 @@ export class AppDb {
   }
 
   deleteProviderMemo(provider: string): boolean {
-    return this.#query((db) => db.prepare("DELETE FROM provider_memos WHERE provider = ?").run(provider).changes > 0);
+    return this.#memoQuery(
+      (db) => db.prepare("DELETE FROM provider_memos WHERE provider = ?").run(provider).changes > 0,
+    );
   }
 
   // --- model settings (1 行だけ。行が無い = 未設定) ---

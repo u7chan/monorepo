@@ -291,6 +291,47 @@ test("登録済みキーを含む DB 例外が応答・health・ログに現れ�
   });
 });
 
+test("メモを含む DB 例外が応答・health・ログに現れない", async () => {
+  await withStoreDir(async (dir) => {
+    const memo = "review-memo-sensitive-text";
+    const pi = createStubPi(stubOptions());
+    const bff = await createBffApp({ cwd: "/tmp/project", sessionStoreDir: dir, pi: asPiBff(pi), workspace: null });
+    const logged: string[] = [];
+    const original = { warn: console.warn, error: console.error };
+    console.warn = (...args: unknown[]) => logged.push(args.map(String).join(" "));
+    console.error = (...args: unknown[]) => logged.push(args.map(String).join(" "));
+    try {
+      // SQLite の例外文言にメモ値が載る経路を作り、DB エラー境界を通す
+      const raw = new DatabaseSync(join(dir, APP_DB_FILENAME));
+      raw.exec(
+        `CREATE TRIGGER memo_failure BEFORE INSERT ON provider_memos
+         BEGIN SELECT RAISE(ABORT, 'boom ' || NEW.memo); END`,
+      );
+      raw.close();
+
+      const response = await bff.app.request("/api/settings/models/anthropic/memo", jsonPut({ memo }));
+      assert.equal(response.status, 503);
+      const body = await jsonBody(response);
+      assert.equal(body.state, "not_stored");
+      assert.equal(body.error, "メモをアプリデータ（SQLite）へ保存できませんでした");
+      assert.ok(!JSON.stringify(body).includes(memo), "応答本文にメモを出さない");
+
+      const health = await jsonBody(await bff.app.request("/api/health"));
+      assert.equal(health.appDb.ok, false);
+      assert.equal(health.appDb.error, "provider memo query failed", "health へ載る保持エラーも固定文言にする");
+      assert.ok(!health.appDb.error.includes(memo), `health にメモを出さない: ${health.appDb.error}`);
+
+      assert.ok(!logged.join("\n").includes(memo), `ログにもメモを出さない: ${logged.join("\n")}`);
+      assert.ok(logged.join("\n").includes("provider memo save failed: anthropic"), "操作の分類だけを残す");
+      assert.ok(logged.join("\n").includes("provider memo query failed"), "固定文言だけを残す");
+    } finally {
+      console.warn = original.warn;
+      console.error = original.error;
+      await bff.close();
+    }
+  });
+});
+
 // --- provider メモ (PUT /api/settings/models/:provider/memo) ---
 
 test("PUT memo は trim して保存し、応答と GET に載せて SDK を呼ばない", async () => {
