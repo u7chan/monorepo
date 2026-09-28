@@ -209,6 +209,8 @@ GET /api/sessions/:id/history?limit=50&before=<itemId>
 - `prevCursor` はページ先頭 item の直前にある item の id（無ければ `null`）。クライアントはこれでページ間の連続性を判定し、保持分と繋がらない（別タブで `limit` 以上追記された / 分岐が変わった）ときは欠落区間を `before` で取り直し、1 ページに収まらなければ最新ページで組み直す
 - 存在しないカーソルは空の成功へ縮退させず 400（`{ "error": "Unknown history cursor" }`）。存在しないセッションは 404
 - item の `id` は SDK entry の id（id を持たない旧履歴だけ `legacy-<entry index>`）。`context` は `active`（現在も生の context にある）/ `summarized`（最新の compaction の `firstKeptEntryId` より手前）/ `excluded`（`context_edit` で外れた）で、判定は [compaction.md](compaction.md#全履歴の表示閲覧と段階読み込み) を正とする
+- user item には、その発言を送信した run の `runId` が載る（送信応答 `POST /api/sessions/:id/messages` の `runId` と同じ値）。実行時に対応表を持たないため、サーバー再起動後は載らない。クライアントはこの値で自分の送信エコーを他クライアントの同一文面 item と区別し、`run_start` やページ適用で正しい item へ吸収する（[frontend.md](frontend.md)）
+- キュー待ちの送信にも受け付けた時点で `runId` を振り、応答と、そのメッセージから始まる run の `run_start` で同じ値を使う（旧サーバーは実行中の run の id を返していた）
 - `firstKeptEntryId` は metadata entry を指し得る。その場合も「その entry 以降が有効」として位置だけを使い、メッセージ検索で境界をずらさない
 - `messageCount` / `summarizedMessageCount` はページではなく現行ブランチ全体の値。クライアントは保持済みの古いページの `summarized` を更新するのに使う（この 2 つだけがページ外の全体量を表す）
 - `activeContextStartId` は現在有効なコンテキストの先頭 message item。要約で置き換わった範囲が無いときは `null`
@@ -290,7 +292,7 @@ References are relative to /workspace/.agents/skills/writer.
 - 添付の保存先はセッションの作業ディレクトリの外（プロジェクト所属ではリポジトリの外）にあるため、注記は**絶対パス**で示す。モデルはそのパスで `read` する
 - 履歴（`messages[].text`）と SSE の `run_start.prompt` には注記込みの本文が入る。組み立ては `server/src/attachments.ts` だけが行う
 - タイトルは注記を除いた本文から作る（添付だけの送信では空のまま）
-- クライアントは注記を分解し、user バブルにチップと本文を分けて表示する（コピーも注記を除いた本文が対象）。ローカルエコーは素の本文で先に出し、`run_start` が届いたら注記込みへ差し替える（`client/src/hooks/chatReducer.ts`。送信順の待ち行列で同じ本文を続けて送っても取り違えない）
+- クライアントは注記を分解し、user バブルにチップと本文を分けて表示する（コピーも注記を除いた本文が対象）。ローカルエコーは素の本文で先に出し、送信応答の `runId` が付いた後（`echoRunId`）に `run_start` の注記込み本文へ差し替える。`run_start` が応答より先でも本文は控えておくため、別 run (別タブ) の本文では差し替えない（`client/src/hooks/chatReducer.ts`。run id が無い旧経路だけ送信順の待ち行列と本文の正規形で突き合わせる）
 
 ## `GET /api/sessions/:id/skills`
 

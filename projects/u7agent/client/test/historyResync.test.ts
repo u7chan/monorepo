@@ -52,8 +52,8 @@ function msg(id: string, context: "active" | "summarized" | "excluded", text: st
   return { kind: "message", id, context, role: "assistant", text };
 }
 
-function userMsg(id: string, text: string): HistoryPage["items"][number] {
-  return { kind: "message", id, context: "active", role: "user", text };
+function userMsg(id: string, text: string, runId?: string): HistoryPage["items"][number] {
+  return { kind: "message", id, context: "active", role: "user", text, ...(runId ? { runId } : {}) };
 }
 
 function entryIds(state: ReturnType<typeof chatReducer>): (string | undefined)[] {
@@ -679,4 +679,243 @@ test("newChat は全履歴の状態を初期化する", () => {
   assert.deepEqual(reset.history, initialChatState.history);
   assert.deepEqual(reset.dividers, []);
   assert.deepEqual(reset.bubbles, []);
+});
+
+/** レビューの再現: old -> 自分の pending エコー -> 別タブの同一文面 entry -> run_start */
+test("別タブの同一文面 entry では run_start が自分の送信中エコーを消さない", () => {
+  const base = chatReducer(initialChatState, {
+    type: "resyncHistory",
+    page: historyPage([userMsg("old", "old")], { hasMore: true, nextCursor: "old", messageCount: 1 }),
+  });
+  const echoed = chatReducer(base, { type: "localUser", text: "同じ質問", at: 2 });
+  const echoId = echoed.pendingEchoIds[0];
+  // 自分の送信応答で run id を結び付ける
+  const assigned = chatReducer(echoed, { type: "echoRunId", runId: "run-mine" });
+  assert.equal(assigned.bubbles.find((bubble) => bubble.id === echoId)?.runId, "run-mine");
+
+  // 別タブの同一文面 entry が resync で載る
+  const foreign = chatReducer(assigned, {
+    type: "resyncHistory",
+    page: historyPage([userMsg("old", "old"), userMsg("foreign", "同じ質問", "run-foreign")], {
+      prevCursor: null,
+      hasMore: false,
+      nextCursor: null,
+      messageCount: 2,
+    }),
+  });
+  assert.equal(
+    foreign.bubbles.some((bubble) => bubble.id === echoId),
+    true,
+    "別タブの entry ではページ適用時にエコーを消さない",
+  );
+
+  // 別タブの run_start (同一文面・別 run)
+  const foreignRun = chatReducer(foreign, {
+    type: "runStart",
+    runId: "run-foreign",
+    prompt: "同じ質問",
+    at: 3,
+    startedAt: 3,
+  });
+  assert.equal(
+    foreignRun.bubbles.some((bubble) => bubble.id === echoId),
+    true,
+    "別 run の run_start ではエコーを消さない",
+  );
+  assert.deepEqual(
+    foreignRun.bubbles.map((bubble) => bubble.text),
+    ["old", "同じ質問", "同じ質問"],
+    "old + foreign + 自分のエコー",
+  );
+
+  // 自分の run_start でも、自分の entry がまだ無ければ保持する
+  const mineRun = chatReducer(foreignRun, {
+    type: "runStart",
+    runId: "run-mine",
+    prompt: "同じ質問",
+    at: 4,
+    startedAt: 4,
+  });
+  assert.equal(
+    mineRun.bubbles.some((bubble) => bubble.id === echoId),
+    true,
+    "entry が無い間は保持する",
+  );
+
+  // 自分の entry (run-mine) がページに載った時点で置き換わる
+  const withMine = chatReducer(mineRun, {
+    type: "resyncHistory",
+    page: historyPage(
+      [userMsg("old", "old"), userMsg("foreign", "同じ質問", "run-foreign"), userMsg("mine", "同じ質問", "run-mine")],
+      { prevCursor: null, hasMore: false, nextCursor: null, messageCount: 3 },
+    ),
+  });
+  assert.equal(
+    withMine.bubbles.some((bubble) => bubble.id === echoId),
+    false,
+    "自分の entry へ吸収する",
+  );
+  assert.deepEqual(
+    withMine.bubbles.filter((bubble) => bubble.text === "同じ質問").map((bubble) => bubble.entryId),
+    ["foreign", "mine"],
+  );
+  assert.deepEqual(withMine.pendingEchoIds, []);
+});
+
+test("preflight compaction で自分の entry が先に載ったらページ適用時に吸収する", () => {
+  const base = chatReducer(initialChatState, {
+    type: "resyncHistory",
+    page: historyPage([userMsg("old", "old")], { hasMore: true, nextCursor: "old", messageCount: 1 }),
+  });
+  const echoed = chatReducer(base, { type: "localUser", text: "同じ質問", at: 2 });
+  const echoId = echoed.pendingEchoIds[0];
+  const assigned = chatReducer(echoed, { type: "echoRunId", runId: "run-mine" });
+
+  const page = historyPage([userMsg("old", "old"), userMsg("mine", "同じ質問", "run-mine")], {
+    prevCursor: null,
+    hasMore: false,
+    nextCursor: null,
+    messageCount: 2,
+  });
+  const merged = chatReducer(assigned, { type: "resyncHistory", page });
+  assert.equal(
+    merged.bubbles.some((bubble) => bubble.id === echoId),
+    false,
+    "自分の entry へ吸収する",
+  );
+  assert.deepEqual(
+    merged.bubbles.filter((bubble) => bubble.text === "同じ質問").map((bubble) => bubble.entryId),
+    ["mine"],
+    "二重表示しない",
+  );
+  assert.deepEqual(merged.pendingEchoIds, []);
+
+  // 遅れて届いた自分の run_start も二重に足さない
+  const started = chatReducer(merged, {
+    type: "runStart",
+    runId: "run-mine",
+    prompt: "同じ質問",
+    at: 3,
+    startedAt: 3,
+  });
+  assert.equal(started.bubbles.filter((bubble) => bubble.text === "同じ質問").length, 1);
+});
+
+test("ページが送信応答より先に届いても、run id の結び付きでエコーを吸収する", () => {
+  const base = chatReducer(initialChatState, {
+    type: "resyncHistory",
+    page: historyPage([userMsg("old", "old")], { hasMore: true, nextCursor: "old", messageCount: 1 }),
+  });
+  const echoed = chatReducer(base, { type: "localUser", text: "同じ質問", at: 2 });
+  const echoId = echoed.pendingEchoIds[0];
+  // 応答 (echoRunId) より先に自分の entry が載る
+  const pageFirst = chatReducer(echoed, {
+    type: "resyncHistory",
+    page: historyPage([userMsg("old", "old"), userMsg("mine", "同じ質問", "run-mine")], {
+      prevCursor: null,
+      hasMore: false,
+      nextCursor: null,
+      messageCount: 2,
+    }),
+  });
+  assert.equal(
+    pageFirst.bubbles.some((bubble) => bubble.id === echoId),
+    true,
+    "run id が無いうちは保持する",
+  );
+  const assigned = chatReducer(pageFirst, { type: "echoRunId", runId: "run-mine" });
+  assert.equal(
+    assigned.bubbles.some((bubble) => bubble.id === echoId),
+    false,
+    "応答時に吸収する",
+  );
+  assert.deepEqual(assigned.pendingEchoIds, []);
+});
+
+test("run_start が応答より先でも、run id の結び付きでエコー本文を展開後の形へ差し替える", () => {
+  const block = '<skill name="writer" location="/skills/writer.md">\n本文\n</skill>\n\n3行で書いて';
+  const echoed = chatReducer(initialChatState, {
+    type: "localUser",
+    text: "/skill:writer 3行で書いて",
+    at: 2,
+  });
+  const echoId = echoed.pendingEchoIds[0];
+  // 別 run の run_start では本文も待ち行列も触らない
+  const foreignStart = chatReducer(echoed, {
+    type: "runStart",
+    runId: "run-foreign",
+    prompt: "別の本文",
+    at: 3,
+    startedAt: 3,
+  });
+  assert.equal(
+    foreignStart.bubbles.find((bubble) => bubble.id === echoId)?.text,
+    "/skill:writer 3行で書いて",
+    "別 run の本文へ差し替えない",
+  );
+  // 自分の run_start が先に届いても、応答 (echoRunId) までは素の本文のまま
+  const mineStart = chatReducer(foreignStart, {
+    type: "runStart",
+    runId: "run-mine",
+    prompt: block,
+    at: 4,
+    startedAt: 4,
+  });
+  assert.equal(mineStart.bubbles.find((bubble) => bubble.id === echoId)?.text, "/skill:writer 3行で書いて");
+  const assigned = chatReducer(mineStart, { type: "echoRunId", runId: "run-mine" });
+  assert.equal(assigned.bubbles.find((bubble) => bubble.id === echoId)?.text, block, "応答で展開後の本文へ差し替える");
+  assert.equal(assigned.runPrompts["run-mine"], undefined, "使った本文は残さない");
+});
+
+test("送信応答がまだでも、別 run の run_start では pending エコーを消さない", () => {
+  const base = chatReducer(initialChatState, {
+    type: "resyncHistory",
+    page: historyPage([userMsg("old", "old")], { hasMore: true, nextCursor: "old", messageCount: 1 }),
+  });
+  const echoed = chatReducer(base, { type: "localUser", text: "同じ質問", at: 2 });
+  const echoId = echoed.pendingEchoIds[0];
+  // 自分の応答 (echoRunId) がまだ届いていない状態で、別タブの entry と run_start が届く
+  const foreign = chatReducer(echoed, {
+    type: "resyncHistory",
+    page: historyPage([userMsg("old", "old"), userMsg("foreign", "同じ質問", "run-foreign")], {
+      prevCursor: null,
+      hasMore: false,
+      nextCursor: null,
+      messageCount: 2,
+    }),
+  });
+  const started = chatReducer(foreign, {
+    type: "runStart",
+    runId: "run-foreign",
+    prompt: "同じ質問",
+    at: 3,
+    startedAt: 3,
+  });
+  assert.equal(
+    started.bubbles.some((bubble) => bubble.id === echoId),
+    true,
+    "run id が分からないエコーは保持する",
+  );
+  assert.deepEqual(started.pendingEchoIds, [echoId]);
+  assert.deepEqual(
+    started.bubbles.map((bubble) => bubble.text),
+    ["old", "同じ質問", "同じ質問"],
+    "old + foreign + 自分のエコー",
+  );
+});
+
+test("2 通目がキュー中でも run id は送信ごとに結び付く", () => {
+  const base = chatReducer(initialChatState, {
+    type: "resyncHistory",
+    page: historyPage([userMsg("h1", "h1")], { hasMore: true, nextCursor: "h1", messageCount: 1 }),
+  });
+  const first = chatReducer(base, { type: "localUser", text: "1通目", at: 2 });
+  const firstId = first.pendingEchoIds[0];
+  const second = chatReducer(first, { type: "localUser", text: "2通目", at: 3 });
+  const secondId = second.pendingEchoIds[1];
+  // キュー中でも応答は自分が送った run の id を返す (running 中の run ではない)
+  const withFirst = chatReducer(second, { type: "echoRunId", runId: "run-2" });
+  const withSecond = chatReducer(withFirst, { type: "echoRunId", runId: "run-3" });
+  assert.equal(withSecond.bubbles.find((bubble) => bubble.id === firstId)?.runId, "run-2", "先頭のエコーへ順に結ぶ");
+  assert.equal(withSecond.bubbles.find((bubble) => bubble.id === secondId)?.runId, "run-3");
 });

@@ -257,6 +257,11 @@ export const HistoryMessageItemSchema = ChatMessageSchema.extend({
   kind: z.literal("message"),
   id: z.string(),
   context: HistoryContextStateSchema,
+  /**
+   * user メッセージを送信した run の id。クライアントが自分の送信エコー (POST 応答の runId) と
+   * entry を厳密に対応付けるために使う。旧サーバー / 対応を失った履歴では載らない
+   */
+  runId: z.string().optional(),
 });
 export type HistoryMessageItem = z.infer<typeof HistoryMessageItemSchema>;
 

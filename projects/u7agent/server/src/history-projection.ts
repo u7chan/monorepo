@@ -174,10 +174,13 @@ function projectItems({
       };
     }
     const item = projectedById.get(descriptor.id);
+    // 送信した run の id は、リロードや別タブの resync でもエコーと entry を対応付けるために写す
+    const runId = descriptor.message.role === "user" ? record.userMessageRuns.get(descriptor.message) : undefined;
     return {
       kind: "message",
       id: descriptor.id,
       context: descriptor.context,
+      ...(runId !== undefined ? { runId } : {}),
       role: item?.role ?? (descriptor.message.role as "user" | "assistant"),
       text: item?.text ?? "",
       ...(item?.stopReason !== undefined ? { stopReason: item.stopReason } : {}),

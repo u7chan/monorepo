@@ -56,6 +56,7 @@ function bubbleOfItem(
     id: nextId,
     entryId: item.id,
     context: item.context,
+    ...(item.runId !== undefined ? { runId: item.runId } : {}),
     role: item.role,
     text: item.text,
     tools,
@@ -178,26 +179,49 @@ function connectionFor(prev: HistoryBundle, page: HistoryPage): Connection {
 }
 
 /**
- * ライブバブルを、新しく入った item の列と突き合わせる。本文の集合ではなく、role と正規形が
- * 一致する item を後ろから順に対にするので、過去に同じ文面があっても新規送信のエコーを消さない。
- * 返す consumed の分だけバブルと pendingEchoIds を落とす。
+ * ライブバブルと item の同一性。送信の run id が分かるバブルは runId の一致で厳密に対応付ける
+ * (別クライアントの同一文面 entry を自分のエコーと誤認しない)。どちらかに run id が無いときは
+ * 従来どおり role + 正規形の本文で突き合わせる (旧サーバー / 対応を失った履歴への縮退)。
+ */
+function matchesLive(bubble: Bubble, item: HistoryItem): boolean {
+  if (item.kind !== "message" || item.role !== bubble.role) return false;
+  if (bubble.runId !== undefined && item.runId !== undefined) return bubble.runId === item.runId;
+  return canonicalUserText(item.text) === canonicalUserText(bubble.text);
+}
+
+/**
+ * ライブバブルを、新しく入った item の列と突き合わせる。本文の集合ではなく、role と同一性
+ * (run id、無ければ正規形の本文) が一致する item を後ろから順に対にするので、過去に同じ文面が
+ * あっても新規送信のエコーを消さない。返す consumed の分だけバブルと pendingEchoIds を落とす。
  */
 function reconcileLive(live: Bubble[], items: HistoryItem[]): { kept: Bubble[]; consumed: Set<number> } {
   const consumed = new Set<number>();
   const usedItemIds = new Set<string>();
   for (let index = live.length - 1; index >= 0; index -= 1) {
     const bubble = live[index];
-    const text = canonicalUserText(bubble.text);
     for (let itemIndex = items.length - 1; itemIndex >= 0; itemIndex -= 1) {
       const item = items[itemIndex];
-      if (usedItemIds.has(item.id) || item.kind !== "message" || item.role !== bubble.role) continue;
-      if (canonicalUserText(item.text) !== text) continue;
+      if (usedItemIds.has(item.id) || !matchesLive(bubble, item)) continue;
       consumed.add(bubble.id);
       usedItemIds.add(item.id);
       break;
     }
   }
   return { kept: live.filter((bubble) => !consumed.has(bubble.id)), consumed };
+}
+
+/**
+ * pending の送信エコーのうち、新しい領域に自分の run の item (同じ runId) が載ったものを吸収する。
+ * pending は他クライアントの同一文面 entry と区別できないため、run id が一致する item だけを対象に
+ * する (run id が無い item へは縮退しない。run_start 前の誤った吸収を避ける)。
+ */
+function absorbPendingEchoes(pendingLives: Bubble[], items: HistoryItem[]): Set<number> {
+  const consumed = new Set<number>();
+  for (const bubble of pendingLives) {
+    if (bubble.runId === undefined) continue;
+    if (items.some((item) => item.kind === "message" && item.runId === bubble.runId)) consumed.add(bubble.id);
+  }
+  return consumed;
 }
 
 function rebuildToolBubbleIds(bubbles: Bubble[]): Record<string, number> {
@@ -266,15 +290,17 @@ export function mergeHistoryPage(
   const pageBundle = historyItemsToBundle(prev.nextId, page.items);
   const newItems = page.items.filter((item) => !heldIds.has(item.id));
   const pending = new Set(pendingEchoIds);
-  // pending のローカルエコーは他クライアントの同一文面 entry と区別できないため、
-  // ここでは消費せず run_start の吸収判定へ委ねる (settled のライブだけを突き合わせる)
-  const settledLives = live.filter((bubble) => !pending.has(bubble.id));
+  // pending のローカルエコーは他クライアントの同一文面 entry と区別できないため、run id が一致する
+  // item (自分の run の entry) だけを吸収に使う
   const pendingLives = live.filter((bubble) => pending.has(bubble.id));
-  const { front, tail } = splitLive(prev, settledLives);
+  const otherLives = live.filter((bubble) => !pending.has(bubble.id));
+  const consumedPending = absorbPendingEchoes(pendingLives, newItems);
+  const keptPending = pendingLives.filter((bubble) => !consumedPending.has(bubble.id));
+  const { front, tail } = splitLive(prev, otherLives);
   const { kept: remainingFront } = reconcileLive(front, newItems);
   const { kept: remainingTail } = reconcileLive(tail, newItems);
   const carried = remainingFront;
-  const trailing = [...remainingTail, ...pendingLives];
+  const trailing = [...remainingTail, ...keptPending];
   const bubbles = [...carried, ...kept, ...pageBundle.bubbles, ...trailing];
   const markers = [
     ...connection.keepMarkers.map((marker) => ({ ...marker, index: marker.index + carried.length })),
@@ -290,7 +316,7 @@ export function mergeHistoryPage(
     nextId: pageBundle.nextId,
     toolBubbleIds: rebuildToolBubbleIds(withCounts),
     gap: false,
-    pendingEchoIds,
+    pendingEchoIds: pendingEchoIds.filter((id) => !consumedPending.has(id)),
   };
 }
 
@@ -340,17 +366,18 @@ export function prependHistoryPage(
   }
   const bundle = historyItemsToBundle(prev.nextId, fresh);
   const pending = new Set(pendingEchoIds);
-  // pending のエコーは追加分の古い item と突き合わせない (run_start まで保持する)
+  // pending のエコーは追加分の古い item と突き合わせない (run id が一致する自分の entry だけ吸収する)。
+  // 保持分より手前の pending は、run_start 前でも保持分の手前へ戻さず末尾に残す
+  const frontPending = frontLives.filter((bubble) => pending.has(bubble.id));
+  const tailPending = tailLives.filter((bubble) => pending.has(bubble.id));
   const { kept: remainingFront } = reconcileLive(
     frontLives.filter((bubble) => !pending.has(bubble.id)),
     fresh,
   );
-  const front = remainingFront.filter((bubble) => !pending.has(bubble.id));
-  const tail = [
-    ...remainingFront.filter((bubble) => pending.has(bubble.id)),
-    ...frontLives.filter((bubble) => pending.has(bubble.id)),
-    ...tailLives,
-  ];
+  const consumedPending = absorbPendingEchoes([...frontPending, ...tailPending], fresh);
+  const front = remainingFront;
+  const keepTail = (bubble: Bubble): boolean => !pending.has(bubble.id) || !consumedPending.has(bubble.id);
+  const tail = [...frontPending.filter(keepTail), ...tailLives.filter(keepTail)];
   const shift = bundle.bubbles.length + front.length;
   const bubbles = [...front, ...bundle.bubbles, ...historyBubbles, ...tail];
   const markers = [
@@ -364,6 +391,6 @@ export function prependHistoryPage(
     nextId: bundle.nextId,
     toolBubbleIds: { ...bundle.toolBubbleIds, ...prev.toolBubbleIds },
     prepended: bundle.bubbles.length,
-    pendingEchoIds,
+    pendingEchoIds: pendingEchoIds.filter((id) => !consumedPending.has(id)),
   };
 }

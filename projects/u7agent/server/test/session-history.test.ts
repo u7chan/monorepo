@@ -11,7 +11,7 @@ import { createSecretMasker, REDACTED } from "../src/redact";
 import type { SandboxWorkspaceClient } from "../src/sandbox/client";
 import { SessionStore } from "../src/sessions";
 import type { HistoryItem, HistoryPage } from "../src/schema";
-import { asPiBff, createStubPi, type StubSession } from "./stub-pi";
+import { asPiBff, createStubPi, waitFor, type StubSession } from "./stub-pi";
 
 function text(value: string): unknown {
   return [{ type: "text", text: value }];
@@ -359,4 +359,44 @@ test("GET /api/sessions/:id/history は最新ページを返し、limit / cursor
   } finally {
     await bff.close();
   }
+});
+
+test("送信した user item には、その run の id が載る", async () => {
+  const store = new SessionStore({ pi: createStubPi(), catalog: createAgentCatalog() });
+  const record = await store.create();
+  const posted = store.postMessage(record, "run id の検証");
+  await waitFor(() => store.statusOf(record) === "completed", 3000, "run completion");
+
+  const result = store.history(record, {});
+  assert.ok(result.ok);
+  const items = messageItems(result.page);
+  assert.equal(items.find((item) => item.role === "user")?.runId, posted.runId, "自分の run の id が載る");
+  assert.equal(items.find((item) => item.role === "assistant")?.runId, undefined, "assistant には載らない");
+
+  await store.close();
+});
+
+test("キュー経由の送信でも、各 user item には自分の run の id が載る", async () => {
+  const store = new SessionStore({ pi: createStubPi({ chunkDelayMs: 10 }), catalog: createAgentCatalog() });
+  const record = await store.create();
+  const first = store.postMessage(record, "1つ目");
+  // 実行中に積んだ送信にも、受け付けた時点で run id が振られる
+  const second = store.postMessage(record, "2つ目");
+  assert.equal(second.queued, true);
+  assert.notEqual(second.runId, first.runId);
+  await waitFor(() => store.statusOf(record) === "completed", 5000, "runs completion");
+
+  const result = store.history(record, {});
+  assert.ok(result.ok);
+  const users = messageItems(result.page).filter((item) => item.role === "user");
+  assert.deepEqual(
+    users.map((item) => [item.text, item.runId]),
+    [
+      ["1つ目", first.runId],
+      ["2つ目", second.runId],
+    ],
+    "応答で返した run id がそのまま item に載る",
+  );
+
+  await store.close();
 });

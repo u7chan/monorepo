@@ -117,6 +117,7 @@ GUI の全履歴（[compaction.md](compaction.md#全履歴の表示閲覧と段�
 （性能計測で必要になった場合の次段階とする）。
 
 - 再起動後も `getBranch()` の entry から同じ item が同じ id で復元される（圧縮前の元メッセージ・過去の compaction イベントを含む）
+- user item の `runId`（送信した run の id）は実行時の参照（SDK メッセージ → run id）から写す表示専用の値で、JSONL へは保存しない。再起動後は古い user item に載らないため、クライアントは本文の正規形での突き合わせへ縮退する
 - `context_edit` で agent state から外れたメッセージも entry には残るため、`excluded` として読める（要約済みとは区別する）
 - ページ取得は JSONL を読み直さずメモリ上の entry 列を走査する。表示文字列へ写すのは選んだページ範囲だけで、既存のマスカーを共有する
 

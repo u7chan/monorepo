@@ -29,10 +29,15 @@ export type Bubble = {
   /** このバブルに出す導出行 (繰り上げ分を含む。カードと重複する分は表示側で落とす) */
   skillLoads: SkillLoad[];
   /**
-   * 送信時点で既知だった最新の履歴 item id。run_start の吸収判定で「これより後に現れた entry」
-   * だけを自分の送信の候補にし、別クライアントの同一文面 entry を誤って自分のものにしない。
+   * 送信時点で既知だった最新の履歴 item id。run id が分からない旧経路で、run_start の吸収判定を
+   * 「これより後に現れた同一文面の entry」に限定するために使う
    */
   since?: string;
+  /**
+   * この送信を実行する run の id (POST 応答の runId)。ページの user entry と同じ runId のときだけ
+   * 対応する履歴 item へ吸収し、別クライアントの同一文面 entry を自分のものと取り違えない
+   */
+  runId?: string;
   /**
    * run が終わって確定したライブバブル (履歴ページがまだ拾っていない分)。resync で捨てずに残し、
    * 履歴ページが届いたら entryId 付きのバブルと置き換える。未確定のストリーミング中だけ false。

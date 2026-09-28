@@ -93,6 +93,12 @@ export type ChatState = {
   retryReceivedAt?: number;
   /** ラン中の再試行スケジュール累計 (結果表示用。新しいランで 0 に戻す) */
   retryCount: number;
+  /**
+   * run_start で観測した run id -> 展開済みの本文。送信応答 (`echoRunId`) が run_start より遅れて
+   * 届いたときに、ローカルエコーを注記込み / `/skill:` 展開済みの本文へ差し替えるために使う。
+   * 直近の数件だけ持ち、対応が取れたら消す (別 run の本文を自分のエコーへ入れない)
+   */
+  runPrompts: Record<string, string>;
 };
 
 export type ChatAction =
@@ -110,8 +116,10 @@ export type ChatAction =
   | { type: "historyLoading"; loading: boolean }
   /** 旧サーバー (履歴 API 無し) / セッション消滅。payload.messages ベースの表示へ戻す */
   | { type: "historyUnsupported" }
-  | { type: "runStart"; prompt: string; at: number; startedAt: number }
+  | { type: "runStart"; runId?: string; prompt: string; at: number; startedAt: number }
   | { type: "localUser"; text: string; at: number }
+  /** 送信応答の run id。未対応付けの最古のエコーへ結び付け、自分の entry を run id で特定する */
+  | { type: "echoRunId"; runId: string }
   /** 送信に失敗したローカルエコーを戻す (待ち行列の末尾 = 直前に送った分) */
   | { type: "dropLocalUser" }
   | { type: "text"; delta: string; at: number }
@@ -125,6 +133,8 @@ export type ChatAction =
   | { type: "retry"; retry: RunRetryState | null; totalRetryCount: number; serverNow: number; receivedAt: number }
   | {
       type: "runEnd";
+      /** 終わった run の id。自分のエコーの run_start 待ちを卒業させるために使う */
+      runId?: string;
       status: RunStatus;
       queueDepth: number;
       error?: string;
@@ -178,6 +188,7 @@ export const initialChatState: ChatState = {
   retryRemainingMs: undefined,
   retryReceivedAt: undefined,
   retryCount: 0,
+  runPrompts: {},
 };
 
 /** retryAt と serverNow の差を残り時間として控える。どちらか欠けたら undefined (推測で時刻を合成しない) */
@@ -232,10 +243,15 @@ function legacyMarkers(compactions: CompactionInfo[]): CompactionMarker[] {
 /** 履歴ページの適用結果を chat 状態へ写す (保留中の gap は解消済みにする) */
 /**
  * run_start に対応する自分の user entry が既に履歴へ載っているか (送信直前の preflight compaction など)。
- * 送信時点 (`echo.since`) より後に現れた entry だけを候補にするので、過去の同一文面や他クライアントの
- * 古い entry を自分のものにしない。見つかったらエコーを捨てて履歴 item 1 件に吸収する。
+ * 送信の run id が分かるときは runId が一致する item だけを見るので、別クライアントの同一文面 entry を
+ * 自分のものにしない。run id が無い旧経路は、送信時点 (`echo.since`) より後に現れた同一文面へ縮退する。
  */
 function echoAbsorbTarget(bubbles: Bubble[], markers: CompactionMarker[], echo: Bubble): Bubble | undefined {
+  if (echo.runId !== undefined) {
+    return bubbles.find(
+      (bubble) => bubble.entryId !== undefined && bubble.role === "user" && bubble.runId === echo.runId,
+    );
+  }
   const after = historyIdsAfter(bubbles, markers, echo.since);
   const text = canonicalUserText(echo.text);
   for (let index = bubbles.length - 1; index >= 0; index -= 1) {
@@ -290,6 +306,16 @@ function updateBubble(state: ChatState, id: number, update: (bubble: Bubble) => 
 function patchAssistant(state: ChatState, update: (bubble: Bubble) => Bubble): ChatState {
   if (state.currentAssistantId === null) return state;
   return updateBubble(state, state.currentAssistantId, update);
+}
+
+const RUN_PROMPT_LIMIT = 16;
+
+/** run_start の本文を run id で控える。応答が遅れて届いてもエコーへ反映できるよう直近分だけ持つ */
+function rememberRunPrompt(prompts: Record<string, string>, runId: string, prompt: string): Record<string, string> {
+  const next = { ...prompts, [runId]: prompt };
+  const keys = Object.keys(next);
+  for (const key of keys.slice(0, Math.max(0, keys.length - RUN_PROMPT_LIMIT))) delete next[key];
+  return next;
 }
 
 /** at は生成元イベントの時刻 */
@@ -596,17 +622,25 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
       return { ...state, history: { ...state.history, supported: false } };
 
     case "runStart": {
-      // ローカルエコーは素の本文、run_start は注記込み・`/skill:` 展開済みの本文で届く。送信順の
-      // 待ち行列を先頭から見て、同じ入力に戻した本文が一致するエコーを差し替える
-      // (同一本文を続けて送っても取り違えない)
+      // 自分の送信を実行する run は run id で厳密に照合する。run id が分からないエコー (応答待ち) は
+      // 照合せず保持し、別クライアントの同一文面 entry を誤って自分のものにしない
       const promptBody = canonicalUserText(action.prompt);
-      const echoIndex = state.pendingEchoIds.findIndex((id) => {
-        const bubble = state.bubbles.find((item) => item.id === id);
-        return bubble !== undefined && canonicalUserText(bubble.text) === promptBody;
-      });
+      const echoIndex =
+        action.runId !== undefined
+          ? state.pendingEchoIds.findIndex((id) => state.bubbles.find((item) => item.id === id)?.runId === action.runId)
+          : state.pendingEchoIds.findIndex((id) => {
+              const bubble = state.bubbles.find((item) => item.id === id);
+              return bubble !== undefined && canonicalUserText(bubble.text) === promptBody;
+            });
       const echo = echoIndex === -1 ? undefined : state.bubbles.find((b) => b.id === state.pendingEchoIds[echoIndex]);
-      // 一致した分までを消費する (run_start は送信順に届くため、それ以前の待ちは解決不能)
-      const pendingEchoIds = echoIndex === -1 ? state.pendingEchoIds : state.pendingEchoIds.slice(echoIndex + 1);
+      // 対応が取れた 1 件だけ待ち行列から外す。run id 不明の旧経路は送信順に届く前提を保つ
+      const pendingEchoIds =
+        echoIndex === -1
+          ? state.pendingEchoIds
+          : action.runId !== undefined
+            ? state.pendingEchoIds.filter((_, index) => index !== echoIndex)
+            : state.pendingEchoIds.slice(echoIndex + 1);
+      const pending = new Set(state.pendingEchoIds);
       let next: ChatState;
       if (echo !== undefined) {
         const absorb = echoAbsorbTarget(state.bubbles, state.dividers, echo);
@@ -621,14 +655,21 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
               : updateBubble(state, echo.id, (bubble) => ({ ...bubble, text: action.prompt }));
         }
       } else {
-        // 待ち行列が無い (resync 後など) ときは、注記込みの本文が既にある履歴を重複させない。
-        // resync 直後は複数の user バブルが並ぶため、最後の 1 件ではなく全バブルを完全一致で見る
-        const known = state.bubbles.some((bubble) => bubble.role === "user" && bubble.text === action.prompt);
+        // 待ち行列のエコーが本文の正規形で一致するなら、自分の run_start が応答より先に届いた場合なので
+        // 二重に足さない (別クライアントの同一文面はページの item を正とする)
+        const known =
+          state.bubbles.some((bubble) => bubble.role === "user" && bubble.text === action.prompt) ||
+          state.bubbles.some((bubble) => pending.has(bubble.id) && canonicalUserText(bubble.text) === promptBody);
         next = known ? state : appendBubble(state, "user", action.prompt, action.at);
       }
       return {
         ...next,
         pendingEchoIds,
+        // run_start の本文を控えておく。応答が遅れて届いたエコーを展開後の本文へ差し替えるのに使う
+        runPrompts:
+          action.runId === undefined
+            ? next.runPrompts
+            : rememberRunPrompt(next.runPrompts, action.runId, action.prompt),
         currentAssistantId: null,
         toolBubbleIds: {},
         runStatus: "running",
@@ -661,6 +702,36 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
         pendingEchoIds: [...state.pendingEchoIds, echoId],
         // 送信の合図。post が失敗して echo を戻しても減らさない (最下部に居続ける方が都合が良い)
         sendSeq: state.sendSeq + 1,
+      };
+    }
+
+    case "echoRunId": {
+      // 送信応答の run id を、未対応付けの最古のエコーへ結び付ける (送信は直列なので順序で足りる)。
+      // run_start が応答より先に届いていても、これで自分の run と厳密に対応付く
+      const echoId = state.pendingEchoIds.find((id) => {
+        const bubble = state.bubbles.find((item) => item.id === id);
+        return bubble !== undefined && bubble.runId === undefined;
+      });
+      if (echoId === undefined) return state;
+      // run_start が応答より先に届いていれば、控えた本文でローカルエコーを差し替える
+      const prompt = state.runPrompts[action.runId];
+      const withRunId = updateBubble(state, echoId, (bubble) => ({
+        ...bubble,
+        runId: action.runId,
+        ...(prompt !== undefined ? { text: prompt } : {}),
+      }));
+      const runPrompts = { ...state.runPrompts };
+      delete runPrompts[action.runId];
+      // preflight compaction などで自分の entry が先にページへ載っていたら、ここで吸収する
+      const target = withRunId.bubbles.find(
+        (bubble) => bubble.entryId !== undefined && bubble.role === "user" && bubble.runId === action.runId,
+      );
+      if (target === undefined) return { ...withRunId, runPrompts };
+      return {
+        ...withRunId,
+        runPrompts,
+        bubbles: withRunId.bubbles.filter((bubble) => bubble.id !== echoId),
+        pendingEchoIds: withRunId.pendingEchoIds.filter((id) => id !== echoId),
       };
     }
 
@@ -770,6 +841,14 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
 
     case "runEnd": {
       const { status, queueDepth } = action;
+      // 自分の run が終わったら、その run のエコーは run_start 待ちを卒業する (履歴 item に run id が
+      // 載らない縮退時は、ページ到着時に本文での突き合わせへ戻す)
+      const pendingEchoIds =
+        action.runId === undefined
+          ? state.pendingEchoIds
+          : state.pendingEchoIds.filter(
+              (id) => state.bubbles.find((bubble) => bubble.id === id)?.runId !== action.runId,
+            );
       // 失敗の分類コードは status === "error" のときだけ保持する (停止と例外が同時でもカードを出さない)
       const runError = runErrorFrom(status, action.errorCode, action.error);
       const runStatus: RunStatus = queueDepth > 0 ? "queued" : status === "completed" ? "idle" : status;
@@ -787,6 +866,7 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
           : updateBubble(state, state.currentAssistantId, (bubble) => ({ ...bubble, settled: true }));
       return {
         ...settled,
+        pendingEchoIds,
         currentAssistantId: null,
         toolBubbleIds: {},
         activity,
