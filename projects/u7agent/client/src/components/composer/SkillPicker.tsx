@@ -57,12 +57,16 @@ export function SkillPicker({
   const popoverRef = useRef<HTMLDivElement | null>(null);
   const bodyRef = useRef<HTMLDivElement | null>(null);
   const footerRef = useRef<HTMLParagraphElement | null>(null);
-  // トリガーの押下は click より先にフォーカスを奪う。その focusout で閉じると直後の click が
-  // 開き直してトグルが効かないため、押している間だけ focusout での終了を保留する
-  const pressingTriggerRef = useRef(false);
   const groups = state.status === "ready" ? groupSessionSkills(state.skills) : [];
   const notice = sessionSkillsNotice(state);
   const enabled = state.status !== "unavailable";
+  // 失敗している間はトリガーを warn 色にし、理由を title へ出す (開かなくても気付ける。本文の 1 行と同じ文言)
+  const triggerTitle =
+    state.status === "unavailable"
+      ? SESSION_SKILL_UNAVAILABLE_NOTE
+      : notice?.warn
+        ? `スキル一覧（${notice.text}）`
+        : "スキル一覧（選択で /skill: を入力）";
 
   const place = useCallback(() => {
     const popover = popoverRef.current;
@@ -124,7 +128,6 @@ export function SkillPicker({
   const toggle = (event: MouseEvent<HTMLButtonElement>) => {
     const popover = popoverRef.current;
     if (popover === null) return;
-    pressingTriggerRef.current = false;
     // popoverTarget はトリガー自身の押下を light dismiss の対象外にするためだけに付ける。既定の activation
     // behavior は同じトグルを二重に走らせるので止め、開閉を showPopover / hidePopover に寄せる
     event.preventDefault();
@@ -144,26 +147,29 @@ export function SkillPicker({
     onSelect(name);
   };
 
-  const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+  // Escape は native の light dismiss も閉じるが、App の Escape (設定ページからチャットへ戻る) へ
+  // 届かせないため、トリガーとポップアップの両方を含むここで止める
+  const onKeyDown = (event: KeyboardEvent<HTMLSpanElement>) => {
     if (event.key !== "Escape") return;
-    // 止めないと App の Escape (設定ページからチャットへ戻る) まで届く。閉じるのは標準挙動に任せる
     event.stopPropagation();
   };
 
-  const onBlur = (event: FocusEvent<HTMLDivElement>) => {
+  /**
+   * フォーカスが外へ出たら閉じる。native popover は Tab では閉じないため自前で見る。
+   * 監視は**トリガーとポップアップの両方**を包むここに置く: 開いた直後のフォーカスはトリガーにあり、
+   * Shift+Tab や (行が無いときの) Tab はポップアップの中を経由せずに外へ出るため、
+   * ポップアップ側だけの `onBlur` では取りこぼす。
+   */
+  const onFocusOut = (event: FocusEvent<HTMLSpanElement>) => {
     const next = event.relatedTarget;
-    if (next instanceof Node && popoverRef.current?.contains(next)) return;
-    if (next === triggerRef.current && pressingTriggerRef.current) {
-      // トリガーへの押下で移るフォーカスは閉じる操作ではない (閉じるかどうかは click 側が決める)
-      pressingTriggerRef.current = false;
-      return;
-    }
-    // native popover は Tab では閉じないため、外へのフォーカス移動は自前で閉じる
+    // トリガー → 行、行 → 行の移動は閉じる操作ではない (トリガーへ戻る移動もここに含まれる)
+    if (next instanceof Node && event.currentTarget.contains(next)) return;
     popoverRef.current?.hidePopover();
   };
 
   return (
-    <>
+    // トリガーとポップアップを 1 つのフォーカス範囲として扱う (display: contents は行の flex 配置を変えない)
+    <span className="contents" onKeyDown={onKeyDown} onBlur={onFocusOut}>
       <button
         type="button"
         ref={triggerRef}
@@ -171,19 +177,10 @@ export function SkillPicker({
         aria-expanded={open}
         aria-controls={pickerId}
         aria-label="スキル一覧"
-        title={enabled ? "スキル一覧（選択で /skill: を入力）" : SESSION_SKILL_UNAVAILABLE_NOTE}
+        title={triggerTitle}
         popoverTarget={pickerId}
         popoverTargetAction="toggle"
         disabled={!enabled}
-        onPointerDown={() => {
-          pressingTriggerRef.current = true;
-        }}
-        onPointerUp={() => {
-          pressingTriggerRef.current = false;
-        }}
-        onPointerCancel={() => {
-          pressingTriggerRef.current = false;
-        }}
         onClick={toggle}
         className={cn(
           "grid shrink-0 cursor-pointer place-items-center rounded-full border transition-colors disabled:cursor-not-allowed disabled:opacity-45",
@@ -206,8 +203,6 @@ export function SkillPicker({
         popover="auto"
         role="dialog"
         aria-label="スキル一覧"
-        onKeyDown={onKeyDown}
-        onBlur={onBlur}
         className="fixed inset-auto m-0 overflow-hidden rounded-lg border border-line bg-panel shadow-panel"
       >
         <div ref={bodyRef} className="grid min-w-0 scrollbar-thin gap-2 overflow-x-hidden overflow-y-auto px-2.5 py-2">
@@ -278,6 +273,6 @@ export function SkillPicker({
           </p>
         ) : null}
       </div>
-    </>
+    </span>
   );
 }

@@ -7,7 +7,7 @@ import {
   startSessionSkillsReload,
   type SessionSkillsState,
 } from "../lib/sessionSkills";
-import { createRequestGate } from "./requestGate";
+import { createRequestGate, createRequestTracker } from "./requestGate";
 
 export type { SessionSkillsState } from "../lib/sessionSkills";
 
@@ -40,25 +40,23 @@ export function useSessionSkills({
 } {
   const [state, setState] = useState<SessionSkillsState>({ status: "unavailable" });
   const [beginRequest] = useState(createRequestGate);
+  const [requests] = useState(createRequestTracker);
   const [reloadCount, setReloadCount] = useState(0);
   // 再取得で走らせた Effect は一覧を消さない。Effect は取得キーだけを依存にするため、
   // 「どちらの入口で走ったか」は ref で渡す
   const keepListRef = useRef(false);
-  // 取得中の数。ポップアップを開いた直後 (初回取得が飛んでいる間) の二重打ちを避ける
-  const inFlightRef = useRef(0);
 
   // 常に最新の取得先を使うが、依存は取得キーだけにする (Effect Event は依存に含めない)。セッションがある間の
   // projectId / agentId の切替では取得先が変わらないため、一覧を取り直さない (再走査と読込表示を避ける)
   const load = useEffectEvent((canApply: () => boolean) => {
-    inFlightRef.current += 1;
+    // 取得中の判定は「いまの要求」だけを見る (前の要求が返らなくても次の要求を塞がない)
+    const done = requests.begin();
     void fetchSessionSkills(
       sessionSkillsSource(sessionId, projectId, agentId),
       { session: getSessionSkills, preview: getSessionSkillsPreview },
       canApply,
       setState,
-    ).finally(() => {
-      inFlightRef.current -= 1;
-    });
+    ).finally(done);
   });
   const sourceKey = sessionSkillsSourceKey(sessionSkillsSource(sessionId, projectId, agentId));
 
@@ -77,10 +75,10 @@ export function useSessionSkills({
   }, [beginRequest, enabled, reloadCount, sourceKey]);
 
   const revalidate = useCallback(() => {
-    if (inFlightRef.current > 0) return;
+    if (requests.pending()) return;
     keepListRef.current = true;
     setReloadCount((count) => count + 1);
-  }, []);
+  }, [requests]);
 
   return { state, revalidate };
 }
