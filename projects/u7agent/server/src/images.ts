@@ -35,6 +35,9 @@ export interface ImageCatalogEntry {
   name: string;
 }
 
+/** 画像生成の provider。v1 は openrouter 固定で、他は設定 API が 400 にする */
+export const IMAGE_PROVIDER_ID = "openrouter";
+
 /** アプリ DB の image_settings 行と同じ形。実行のたびに読み直す現在の設定を表す */
 export interface ImageGenerationSettings {
   provider: string;
@@ -186,9 +189,18 @@ export function catalogOf(providers: readonly ImagesProvider[]): ImageCatalogEnt
   );
 }
 
-/** builtinImagesProviders() のカタログ。設定 API と UI の選択肢はこの一覧を正とする */
+/**
+ * SDK 同梱カタログからルーター用メタモデルを除くための接頭辞。`openrouter/auto*` は画像専用 API に
+ * 存在せず (/images が 404)、SDK のまま選択肢へ出すと生成時に必ず失敗する。
+ */
+const ROUTER_META_MODEL_PREFIX = `${IMAGE_PROVIDER_ID}/`;
+
+/**
+ * SDK 同梱のカタログ。live 取得に失敗したときのフォールバックで、プロバイダー自身のメタモデルだけを落とす。
+ * 一覧の正は live 側 (docs/image-generation.md)。
+ */
 export function imageModelCatalog(): ImageCatalogEntry[] {
-  return catalogOf(builtinImagesProviders());
+  return catalogOf(builtinImagesProviders()).filter((entry) => !entry.id.startsWith(ROUTER_META_MODEL_PREFIX));
 }
 
 export function createImagesGenerator(options: ImagesGeneratorOptions = {}): ImagesGenerator {

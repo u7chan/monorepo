@@ -11,6 +11,7 @@ import {
   IMAGE_TIMEOUT_MESSAGE,
   IMAGE_ABORTED_MESSAGE,
   IMAGE_UNKNOWN_FAILURE_MESSAGE,
+  imageModelCatalog,
 } from "../src/images";
 
 const STUB_IMAGE_MODEL: ImagesModel<string> = {
@@ -67,6 +68,17 @@ const baseInput = { provider: "stub", model: "stub-image", prompt: "a cafe", api
 test("カタログは provider のモデルを provider / id / name で平坦化する", () => {
   const generator = createImagesGenerator({ providers: () => [stubProvider()] });
   assert.deepEqual(generator.catalog(), [{ provider: "stub", id: "stub-image", name: "Stub Image" }]);
+});
+
+test("SDK 同梱カタログはルーター用メタモデルを落とす", () => {
+  const catalog = imageModelCatalog();
+  assert.ok(catalog.length > 0, "カタログが空");
+  // /images に存在しない openrouter/auto* は生成が必ず 404 になるので、選択肢へ出さない
+  assert.deepEqual(
+    catalog.filter((entry) => entry.id.startsWith("openrouter/")),
+    [],
+  );
+  assert.ok(catalog.some((entry) => entry.id === "openai/gpt-image-2"));
 });
 
 test("回帰: chat/completions ではなく画像専用 API の /images へ POST する", async () => {

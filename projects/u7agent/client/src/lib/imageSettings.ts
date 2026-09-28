@@ -3,7 +3,8 @@
  * 選択肢の組み立て・入力の後始末・保存後の文言・確認文をテストできるようにする。
  */
 import type { ImageSettingsResponse, ModelRef, UpdateImageSelectionBody } from "../types";
-import { modelRefKey } from "./modelSettings";
+import { messageTimeLabel, type MessageTimeOptions } from "./messageTime";
+import { modelRefKey, type ProviderBadge } from "./modelSettings";
 
 /** 画像生成タブの初期注記。キーの有無に関わらず出す */
 export const IMAGE_SETTINGS_NOTE = "画像生成の設定はサーバーに保存され、再起動後も残ります。";
@@ -13,7 +14,41 @@ export const IMAGE_KEY_DELETED_NOTE = "画像APIキーを削除しました。ge
 export const IMAGE_MODEL_SAVED_NOTE = "画像生成のモデルを保存しました。";
 
 /** 実行中の操作。null なら操作なし */
-export type ImageSavingAction = "key" | "delete" | "selection";
+export type ImageSavingAction = "key" | "delete" | "selection" | "catalog";
+
+/** APIキーの登録状態バッジ。同じ意味の表示をプロバイダータブと同じ見た目で揃える */
+export function imageKeyStatusBadge(configured: boolean): ProviderBadge {
+  return configured ? { label: "設定済み", tone: "ok" } : { label: "未設定", tone: "muted" };
+}
+
+/** provider の表示名。v1 は openrouter だけなので、未設定 (null) も同じ名前へ寄せる */
+export function imageProviderLabel(provider: string | null): string {
+  return provider === null || provider === "openrouter" ? "OpenRouter" : provider;
+}
+
+/**
+ * モデル一覧の出どころ。取得できなかったことと、いまどちらの一覧を見ているかを 1 行で示す。
+ * `fetchedAt` は live / stored のときだけ意味を持ち、SDK 同梱では出さない。
+ */
+export function imageCatalogNotice(
+  settings: Pick<ImageSettingsResponse, "catalogSource" | "fetchedAt">,
+  options: MessageTimeOptions = {},
+): string {
+  const at = settings.fetchedAt === null ? "" : `（最終取得: ${messageTimeLabel(settings.fetchedAt, options)}）`;
+  switch (settings.catalogSource) {
+    case "live":
+      return `モデル一覧は OpenRouter から取得しました${at}`;
+    case "stored":
+      return `OpenRouter から取得できなかったため、前回の一覧を表示しています${at}`;
+    case "sdk":
+      return "OpenRouter から取得できていないため、SDK の組み込み一覧を表示しています";
+  }
+}
+
+/** [再取得] の結果。失敗しても一覧は前のまま残るので、変わらないことを文言で伝える */
+export function imageCatalogRefreshNote(catalogError: string | null): string {
+  return catalogError === null ? "モデル一覧を取得しました。" : `${catalogError}。表示中の一覧は変わりません。`;
+}
 
 export interface ImageModelOption {
   /** 選択欄の値。`provider/id` 表記 */

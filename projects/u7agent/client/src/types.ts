@@ -30,6 +30,7 @@ export type {
   HistoryItem,
   HistoryMessageItem,
   HistoryPage,
+  ImageCatalogRefreshResponse,
   ImageMutationResponse,
   ImageSettingsResponse,
   MessageMetrics,

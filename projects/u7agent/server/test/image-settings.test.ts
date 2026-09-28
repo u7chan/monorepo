@@ -2,11 +2,11 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { ImageSettingsRow } from "../src/app-db";
+import type { ImageCatalog, ImageCatalogSnapshot } from "../src/image-catalog";
 import {
   DEFAULT_IMAGE_MODEL,
   IMAGE_KEY_NOT_STORED_MESSAGE,
   IMAGE_MODEL_NOT_IN_CATALOG_MESSAGE,
-  IMAGE_PROVIDER_ID,
   IMAGE_PROVIDER_UNSUPPORTED_MESSAGE,
   IMAGE_SETTINGS_NOT_STORED_MESSAGE,
   IMAGE_SETTINGS_RUNTIME_UNAVAILABLE_MESSAGE,
@@ -14,7 +14,7 @@ import {
   ImageSettingsService,
   type ImageSettingsDb,
 } from "../src/image-settings";
-import type { ImageGenerationConfig } from "../src/images";
+import { IMAGE_PROVIDER_ID, type ImageGenerationConfig } from "../src/images";
 
 const KEY = "sk-image-dummy-key-0123456789abcdef";
 
@@ -48,16 +48,54 @@ class FakeImageDb implements ImageSettingsDb {
   }
 }
 
+/**
+ * カタログの fake。取得とキャッシュ読込の呼び出し回数と、返す snapshot / 失敗文言をテストから動かせる。
+ */
+function createFakeCatalog(
+  options: {
+    models?: { provider: string; id: string; name: string }[];
+    source?: ImageCatalogSnapshot["source"];
+    fetchedAt?: number | null;
+    refreshError?: string | null;
+  } = {},
+) {
+  const state = {
+    refreshes: 0,
+    loadedStored: 0,
+    snapshot: {
+      entries: options.models ?? [{ provider: IMAGE_PROVIDER_ID, id: DEFAULT_IMAGE_MODEL, name: "GPT Image 2" }],
+      source: options.source ?? ("live" as const),
+      fetchedAt: options.fetchedAt ?? null,
+    } as ImageCatalogSnapshot,
+    refreshError: options.refreshError ?? null,
+  };
+  const catalog: ImageCatalog = {
+    snapshot: () => state.snapshot,
+    loadStored: () => {
+      state.loadedStored += 1;
+    },
+    refresh: async () => {
+      state.refreshes += 1;
+      return state.refreshError;
+    },
+  };
+  return { catalog, state };
+}
+
 function createService(
   options: {
     db?: FakeImageDb;
     runtimeAvailable?: boolean;
     models?: { provider: string; id: string; name: string }[];
+    source?: ImageCatalogSnapshot["source"];
+    fetchedAt?: number | null;
+    refreshError?: string | null;
   } = {},
 ) {
   const db = options.db ?? new FakeImageDb();
   const retained: string[] = [];
   const configs: ImageGenerationConfig[] = [];
+  const fake = createFakeCatalog(options);
   const service = new ImageSettingsService({
     db,
     runtimeAvailable: options.runtimeAvailable ?? true,
@@ -65,14 +103,14 @@ function createService(
       retained.push(value);
       db.events.push("retain");
     },
-    catalog: () => options.models ?? [{ provider: IMAGE_PROVIDER_ID, id: DEFAULT_IMAGE_MODEL, name: "GPT Image 2" }],
+    catalog: fake.catalog,
     setImageGeneration: (config) => {
       configs.push(config);
       db.events.push(`inject:${config.enabled ? "on" : "off"}`);
     },
     maskError: (text) => text.split(KEY).join("[REDACTED]"),
   });
-  return { db, service, retained, configs, latest: () => configs.at(-1) };
+  return { db, service, retained, configs, catalog: fake.state, latest: () => configs.at(-1) };
 }
 
 function statusOf(error: unknown): number | undefined {
@@ -86,12 +124,14 @@ test("GET は行が無いとき未設定を返し、キーを載せない", () =
     provider: null,
     model: null,
     models: [{ provider: IMAGE_PROVIDER_ID, id: DEFAULT_IMAGE_MODEL, name: "GPT Image 2" }],
+    catalogSource: "live",
+    fetchedAt: null,
     runtimeAvailable: true,
   });
 });
 
-test("キー登録はマスカー → DB → 注入の順に通し、行が無ければ既定 provider / model で作る", async () => {
-  const { db, service, retained, configs } = createService();
+test("キー登録はマスカー → DB → 注入 → live 取得の順に通し、行が無ければ既定 provider / model で作る", async () => {
+  const { db, service, retained, configs, catalog } = createService();
   const outcome = await service.putKey(KEY);
   assert.equal(outcome.status, 200);
   if (outcome.status !== 200) return;
@@ -99,11 +139,36 @@ test("キー登録はマスカー → DB → 注入の順に通し、行が無�
   assert.equal(outcome.response.configured, true);
   assert.equal(outcome.response.provider, IMAGE_PROVIDER_ID);
   assert.equal(outcome.response.model, DEFAULT_IMAGE_MODEL);
+  assert.equal(outcome.response.catalogSource, "live");
   assert.deepEqual(db.row, { provider: IMAGE_PROVIDER_ID, model: DEFAULT_IMAGE_MODEL, apiKey: KEY });
   assert.deepEqual(retained, [KEY], "マスカー登録は 1 回");
   assert.deepEqual(db.events, ["retain", "save", "inject:on"]);
+  assert.equal(catalog.refreshes, 1, "一覧が初めて見える瞬間に live へ寄せる");
   assert.equal(configs.at(-1)?.enabled, true);
   assert.deepEqual(configs.at(-1)?.read(), db.row, "注入した read は現在の行を返す");
+});
+
+test("カタログの再取得は失敗しても一覧を返し、固定文言だけを catalogError に載せる", async () => {
+  const failing = createService({
+    refreshError: "モデル一覧の取得がタイムアウトしました",
+    source: "stored",
+    fetchedAt: 500,
+  });
+  assert.deepEqual(await failing.service.refreshCatalog(), {
+    models: [{ provider: IMAGE_PROVIDER_ID, id: DEFAULT_IMAGE_MODEL, name: "GPT Image 2" }],
+    catalogSource: "stored",
+    fetchedAt: 500,
+    catalogError: "モデル一覧の取得がタイムアウトしました",
+  });
+  assert.equal(failing.catalog.refreshes, 1);
+
+  const ok = createService();
+  assert.deepEqual(await ok.service.refreshCatalog(), {
+    models: [{ provider: IMAGE_PROVIDER_ID, id: DEFAULT_IMAGE_MODEL, name: "GPT Image 2" }],
+    catalogSource: "live",
+    fetchedAt: null,
+    catalogError: null,
+  });
 });
 
 test("キー上書きは選択済みの provider / model を保つ", async () => {
@@ -180,11 +245,12 @@ test("キー削除は行ごと消して注入を無効にし、未設定でも 2
 });
 
 test("ランタイム初期化に失敗しているときのキー登録は 503 not_stored（DB とマスカーへ触らない）", async () => {
-  const { db, service, retained } = createService({ runtimeAvailable: false });
+  const { db, service, retained, catalog } = createService({ runtimeAvailable: false });
   const outcome = await service.putKey(KEY);
   assert.deepEqual(outcome, { status: 503, error: IMAGE_SETTINGS_RUNTIME_UNAVAILABLE_MESSAGE });
   assert.deepEqual(db.events, []);
   assert.deepEqual(retained, []);
+  assert.equal(catalog.refreshes, 0, "保存できなければ取得もしない");
   assert.equal(service.settings().runtimeAvailable, false);
 });
 
@@ -233,11 +299,21 @@ test("起動時の適用は行の有無を注入し、読めないときは無�
   assert.equal(configured.latest()?.enabled, true);
   assert.deepEqual(configured.latest()?.read(), configured.db.row);
   assert.deepEqual(configured.retained, [KEY], "起動時点の行もマスカーへ登録する");
+  assert.deepEqual(
+    [configured.catalog.loadedStored, configured.catalog.refreshes],
+    [1, 1],
+    "キャッシュを読んでから live を試す",
+  );
 
   const unset = createService();
   await unset.service.applyStored();
   assert.equal(unset.latest()?.enabled, false);
   assert.equal(unset.latest()?.read(), undefined);
+  assert.deepEqual(
+    [unset.catalog.loadedStored, unset.catalog.refreshes],
+    [1, 0],
+    "未設定では一覧を出す画面が無いので取得しない",
+  );
 
   const broken = createService();
   broken.db.failRead = true;
@@ -250,5 +326,6 @@ test("起動時の適用は行の有無を注入し、読めないときは無�
     console.error = original;
   }
   assert.equal(broken.latest()?.enabled, false, "読めないときは無効で立つ");
+  assert.equal(broken.catalog.refreshes, 0, "行を確定できないときは取得しない");
   assert.ok(logged.join("\n").includes("image settings unavailable"), logged.join("\n"));
 });

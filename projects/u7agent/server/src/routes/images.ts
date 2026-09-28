@@ -17,6 +17,9 @@ export function createImageSettingsRoutes({ imageSettings }: { imageSettings: Im
     putKey: async (c: Context, apiKey: string) => respond(c, await imageSettings.putKey(apiKey)),
 
     deleteKey: async (c: Context) => respond(c, await imageSettings.deleteKey()),
+
+    // 取得できなくても 200。一覧を失わせず、失敗は catalogError だけに載せる（DB のガードも通さない）
+    refreshCatalog: async (c: Context) => c.json(await imageSettings.refreshCatalog()),
   };
 }
 

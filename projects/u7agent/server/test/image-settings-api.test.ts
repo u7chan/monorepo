@@ -7,7 +7,8 @@ import { join } from "node:path";
 import test from "node:test";
 import { APP_DB_FILENAME } from "../src/app-db";
 import { createBffApp } from "../src/app";
-import { DEFAULT_IMAGE_MODEL, IMAGE_PROVIDER_ID } from "../src/image-settings";
+import { DEFAULT_IMAGE_MODEL } from "../src/image-settings";
+import { IMAGE_PROVIDER_ID } from "../src/images";
 import { asPiBff, createStubPi } from "./stub-pi";
 
 const KEY = "sk-image-dummy-key-0123456789abcdef";
@@ -31,10 +32,26 @@ async function withStoreDir<T>(run: (dir: string) => Promise<T>): Promise<T> {
   }
 }
 
+/** 実 API を叩かせないための live カタログ stub。応答は固定で、取得側の時計も進めない */
+const liveCatalogFetch: typeof fetch = async () =>
+  new Response(
+    JSON.stringify({
+      data: [
+        { id: CATALOG_MODEL, name: "FLUX.2 Max" },
+        { id: DEFAULT_IMAGE_MODEL, name: "GPT Image 2" },
+      ],
+    }),
+    { status: 200, headers: { "content-type": "application/json" } },
+  );
+
+/** createBffApp の薄い包み。カタログ取得だけを stub に固定する */
+const openBff = (options: Parameters<typeof createBffApp>[0] = {}) =>
+  createBffApp({ ...options, imageCatalogFetch: liveCatalogFetch });
+
 test("GET / PUT / DELETE の往復で設定が変わり、キーは応答に載らない", async () => {
   await withStoreDir(async (dir) => {
     const pi = createStubPi();
-    const bff = await createBffApp({ cwd: "/tmp/project", sessionStoreDir: dir, pi: asPiBff(pi), workspace: null });
+    const bff = await openBff({ cwd: "/tmp/project", sessionStoreDir: dir, pi: asPiBff(pi), workspace: null });
     try {
       const before = await jsonBody(await bff.app.request("/api/settings/images"));
       assert.equal(before.configured, false);
@@ -42,6 +59,9 @@ test("GET / PUT / DELETE の往復で設定が変わり、キーは応答に載�
       assert.equal(before.model, null);
       assert.equal(before.runtimeAvailable, true);
       assert.ok(before.models.length > 0, "カタログが空");
+      // キー未設定では live を取りに行かないので、SDK 同梱カタログから始まる
+      assert.equal(before.catalogSource, "sdk");
+      assert.equal(before.fetchedAt, null);
       assert.ok(
         before.models.some((model: any) => model.provider === IMAGE_PROVIDER_ID && model.id === DEFAULT_IMAGE_MODEL),
       );
@@ -64,6 +84,12 @@ test("GET / PUT / DELETE の往復で設定が変わり、キーは応答に載�
       assert.equal(put.configured, true);
       assert.equal(put.provider, IMAGE_PROVIDER_ID);
       assert.equal(put.model, DEFAULT_IMAGE_MODEL);
+      assert.equal(put.catalogSource, "live", "キー登録で live へ寄せる");
+      assert.equal(typeof put.fetchedAt, "number");
+      assert.deepEqual(
+        put.models.map((model: any) => model.id),
+        [CATALOG_MODEL, DEFAULT_IMAGE_MODEL],
+      );
       assert.ok(!JSON.stringify(put).includes(KEY), "応答にキーを載せない");
       assert.ok(pi.retainedSecrets.includes(KEY), "DB より前にマスカーへ登録していない");
       assert.equal(pi.imageGenerationEnabled, true, "次に作るセッション向けに即時反映する");
@@ -98,7 +124,7 @@ test("GET / PUT / DELETE の往復で設定が変わり、キーは応答に載�
 test("入力と対象の検証: 短い / 長いキー、provider、カタログ外モデルは 400", async () => {
   await withStoreDir(async (dir) => {
     const pi = createStubPi();
-    const bff = await createBffApp({ cwd: "/tmp/project", sessionStoreDir: dir, pi: asPiBff(pi), workspace: null });
+    const bff = await openBff({ cwd: "/tmp/project", sessionStoreDir: dir, pi: asPiBff(pi), workspace: null });
     try {
       for (const apiKey of ["short", "x".repeat(2049)]) {
         const response = bff.app.request("/api/settings/images/key", jsonPut({ apiKey }));
@@ -125,7 +151,7 @@ test("入力と対象の検証: 短い / 長いキー、provider、カタログ�
 test("カタログ外 model の 400 は登録済みキーを反射しない", async () => {
   await withStoreDir(async (dir) => {
     const pi = createStubPi();
-    const bff = await createBffApp({ cwd: "/tmp/project", sessionStoreDir: dir, pi: asPiBff(pi), workspace: null });
+    const bff = await openBff({ cwd: "/tmp/project", sessionStoreDir: dir, pi: asPiBff(pi), workspace: null });
     try {
       await bff.app.request("/api/settings/images/key", jsonPut({ apiKey: KEY }));
       // 登録済みキーを model に誤って渡しても、エラー文言から再露出させない
@@ -143,7 +169,7 @@ test("カタログ外 model の 400 は登録済みキーを反射しない", as
 
 test("ランタイムが無いときの GET は runtimeAvailable: false、キー登録は 503 not_stored", async () => {
   await withStoreDir(async (dir) => {
-    const bff = await createBffApp({ cwd: "/tmp/project", sessionStoreDir: dir, pi: null, workspace: null });
+    const bff = await openBff({ cwd: "/tmp/project", sessionStoreDir: dir, pi: null, workspace: null });
     try {
       const response = await jsonBody(await bff.app.request("/api/settings/images"));
       assert.equal(response.runtimeAvailable, false);
@@ -169,7 +195,7 @@ test("アプリ DB が使えないときは GET / 変更系とも 503 になる"
     const filePath = join(dir, "not-a-directory");
     await writeFile(filePath, "x");
     const pi = createStubPi();
-    const bff = await createBffApp({
+    const bff = await openBff({
       cwd: "/tmp/project",
       sessionStoreDir: filePath,
       pi: asPiBff(pi),
@@ -193,7 +219,7 @@ test("起動時に保存行があればツールを有効化し、行が無け�
     const raw = new DatabaseSync(join(dir, APP_DB_FILENAME));
     // createBffApp が DB を新規作成するため、先に schema 8 の DB を作ってから行を足す
     raw.close();
-    const first = await createBffApp({
+    const first = await openBff({
       cwd: "/tmp/project",
       sessionStoreDir: dir,
       pi: asPiBff(createStubPi()),
@@ -208,7 +234,7 @@ test("起動時に保存行があればツールを有効化し、行が無け�
     seed.close();
 
     const pi = createStubPi();
-    const bff = await createBffApp({ cwd: "/tmp/project", sessionStoreDir: dir, pi: asPiBff(pi), workspace: null });
+    const bff = await openBff({ cwd: "/tmp/project", sessionStoreDir: dir, pi: asPiBff(pi), workspace: null });
     try {
       assert.equal(pi.imageGenerationEnabled, true);
       assert.deepEqual(pi.imageGenerationConfigs.at(-1)?.read(), {
@@ -226,7 +252,7 @@ test("起動時に保存行があればツールを有効化し、行が無け�
 test("登録済みキーを含む DB 例外が応答・health・ログに現れない", async () => {
   await withStoreDir(async (dir) => {
     const pi = createStubPi();
-    const bff = await createBffApp({ cwd: "/tmp/project", sessionStoreDir: dir, pi: asPiBff(pi), workspace: null });
+    const bff = await openBff({ cwd: "/tmp/project", sessionStoreDir: dir, pi: asPiBff(pi), workspace: null });
     const logged: string[] = [];
     const original = { warn: console.warn, error: console.error };
     console.warn = (...args: unknown[]) => logged.push(args.map(String).join(" "));
@@ -265,7 +291,7 @@ test("登録済みキーを含む DB 例外が応答・health・ログに現れ�
 test("同じキーの上書き保存でもマスカーの登録は増えず、2 本目のキーは削除後も保護される", async () => {
   await withStoreDir(async (dir) => {
     const pi = createStubPi();
-    const bff = await createBffApp({ cwd: "/tmp/project", sessionStoreDir: dir, pi: asPiBff(pi), workspace: null });
+    const bff = await openBff({ cwd: "/tmp/project", sessionStoreDir: dir, pi: asPiBff(pi), workspace: null });
     try {
       await bff.app.request("/api/settings/images/key", jsonPut({ apiKey: KEY }));
       await bff.app.request("/api/settings/images/key", jsonPut({ apiKey: OTHER_KEY }));
@@ -273,6 +299,52 @@ test("同じキーの上書き保存でもマスカーの登録は増えず、2 
       const response = await jsonBody(await bff.app.request("/api/settings/images"));
       assert.equal(response.model, DEFAULT_IMAGE_MODEL);
       assert.ok(!JSON.stringify(response).includes(OTHER_KEY));
+    } finally {
+      await bff.close();
+    }
+  });
+});
+
+test("モデル一覧の再取得は 200 で一覧を返し、失敗は catalogError にだけ載せる", async () => {
+  await withStoreDir(async (dir) => {
+    const bff = await openBff({
+      cwd: "/tmp/project",
+      sessionStoreDir: dir,
+      pi: asPiBff(createStubPi()),
+      workspace: null,
+    });
+    try {
+      const refreshed = await jsonBody(
+        await bff.app.request("/api/settings/images/catalog/refresh", { method: "POST" }),
+      );
+      assert.equal(refreshed.catalogError, null);
+      assert.equal(refreshed.catalogSource, "live");
+      assert.equal(typeof refreshed.fetchedAt, "number");
+      assert.deepEqual(
+        refreshed.models.map((model: any) => model.id),
+        [CATALOG_MODEL, DEFAULT_IMAGE_MODEL],
+      );
+    } finally {
+      await bff.close();
+    }
+  });
+
+  await withStoreDir(async (dir) => {
+    const bff = await createBffApp({
+      cwd: "/tmp/project",
+      sessionStoreDir: dir,
+      pi: asPiBff(createStubPi()),
+      workspace: null,
+      imageCatalogFetch: async () => new Response("boom", { status: 503 }),
+    });
+    try {
+      const response = await bff.app.request("/api/settings/images/catalog/refresh", { method: "POST" });
+      assert.equal(response.status, 200, "取得できなくても 200 で一覧を失わせない");
+      const body = await jsonBody(response);
+      assert.equal(body.catalogError, "モデル一覧の取得が混雑しています（レート制限またはプロバイダー障害）");
+      assert.equal(body.catalogSource, "sdk");
+      assert.equal(body.fetchedAt, null);
+      assert.ok(body.models.length > 0, "前の一覧を返す");
     } finally {
       await bff.close();
     }

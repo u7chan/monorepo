@@ -17,7 +17,7 @@ import type {
 
 export const APP_DB_FILENAME = "u7agent.db";
 /** テーブル定義を変えたら上げる。新規作成と加算移行はこの版へ揃え、未知の版は作り直す */
-export const APP_DB_SCHEMA_VERSION = 8;
+export const APP_DB_SCHEMA_VERSION = 9;
 
 /** プロバイダー API キーの保存行。平文なのでアクセス権の管理は docs/secrets.md を正とする */
 export interface ProviderCredentialRow {
@@ -49,6 +49,22 @@ export interface ImageSettingsRow {
   provider: string;
   model: string;
   apiKey: string;
+}
+
+/** カタログ 1 件の保存形。provider は v1 では openrouter 固定なので id と表示名だけを残す */
+export interface ImageCatalogModelRow {
+  id: string;
+  name: string;
+}
+
+/**
+ * live カタログのキャッシュ行。**行が無い = 取得できていない**で、SDK 同梱カタログへ落ちる。
+ * 利用者データではなくキャッシュなので、壊れた行は未保存として扱い、設定 API を 503 にしない。
+ */
+export interface ImageCatalogRow {
+  /** 最後に live を取得できた時刻 (epoch ms) */
+  fetchedAt: number;
+  models: ImageCatalogModelRow[];
 }
 
 export interface AppDbStatus {
@@ -145,6 +161,18 @@ CREATE TABLE IF NOT EXISTS image_settings (
 `;
 
 /**
+ * v8 -> v9 で足したテーブル。取得に失敗した起動でも前回の一覧を出せるように、
+ * 最後に成功した live カタログを 1 行だけ残す (docs/image-generation.md)。
+ */
+const IMAGE_CATALOG_TABLE = `
+CREATE TABLE IF NOT EXISTS image_catalog (
+  id        INTEGER PRIMARY KEY CHECK (id = 1),
+  fetchedAt INTEGER NOT NULL,
+  models    TEXT NOT NULL
+);
+`;
+
+/**
  * provider メモは retainSecret に登録しない方針なので、SQLite の例外文言に値が写り得る。
  * ログ・health・503 へは、この値を含まない固定文言だけを渡す。
  */
@@ -179,7 +207,8 @@ ${ARCHIVE_SETTINGS_TABLE}
 ${PROVIDER_CREDENTIALS_TABLE}
 ${MODEL_SETTINGS_TABLE}
 ${PROVIDER_MEMOS_TABLE}
-${IMAGE_SETTINGS_TABLE}`;
+${IMAGE_SETTINGS_TABLE}
+${IMAGE_CATALOG_TABLE}`;
 
 /** アプリ所有のテーブルだけを落とす (同じ DB に足した別機能のテーブルを巻き込まない) */
 const DROP_TABLES = `
@@ -192,6 +221,7 @@ DROP TABLE IF EXISTS provider_credentials;
 DROP TABLE IF EXISTS model_settings;
 DROP TABLE IF EXISTS provider_memos;
 DROP TABLE IF EXISTS image_settings;
+DROP TABLE IF EXISTS image_catalog;
 `;
 
 /**
@@ -284,6 +314,23 @@ function imageSettingsOf(row: Row): ImageSettingsRow | undefined {
   const apiKey = optionalText(row.apiKey);
   if (!provider || !model || !apiKey) return undefined;
   return { provider, model, apiKey };
+}
+
+/**
+ * キャッシュ行の JSON 配列。要素の形が違えば行ごと無視する (キャッシュなので、読めなければ
+ * SDK カタログへ落ちれば足りる)。JSON 自体が壊れているときは列名だけの例外にする。
+ */
+function imageCatalogModelsOf(value: unknown): ImageCatalogModelRow[] | undefined {
+  const entries = jsonArrayColumn<unknown>("image_catalog", "models", value);
+  if (!entries || entries.length === 0) return undefined;
+  const models: ImageCatalogModelRow[] = [];
+  for (const entry of entries) {
+    if (typeof entry !== "object" || entry === null) return undefined;
+    const { id, name } = entry as { id?: unknown; name?: unknown };
+    if (typeof id !== "string" || id === "" || typeof name !== "string") return undefined;
+    models.push({ id, name });
+  }
+  return models;
 }
 
 function notificationSettingsOf(row: Row): NotificationSettings {
@@ -520,6 +567,7 @@ export class AppDb {
       this.#query((db) => db.exec(MODEL_SETTINGS_TABLE));
       this.#query((db) => db.exec(PROVIDER_MEMOS_TABLE));
       this.#query((db) => db.exec(IMAGE_SETTINGS_TABLE));
+      this.#query((db) => db.exec(IMAGE_CATALOG_TABLE));
       // 列追加は CREATE TABLE IF NOT EXISTS の後 (既存テーブルでは CREATE が何もしないため)。DDL も
       // トランザクション対象なので、途中失敗で列だけが残らない
       this.#addColumnIfMissing("provider_credentials", "updatedAt", "INTEGER");
@@ -732,6 +780,30 @@ export class AppDb {
   /** 行を消して未設定へ戻す (キー削除は provider / model も含めて行ごと消す) */
   deleteImageSettings(): boolean {
     return this.#query((db) => db.prepare("DELETE FROM image_settings WHERE id = 1").run().changes > 0);
+  }
+
+  // --- image catalog (live カタログのキャッシュ 1 行) ---
+
+  /** 行が無い / 形が壊れているときは undefined (未取得として SDK カタログへ落とす) */
+  readImageCatalog(): ImageCatalogRow | undefined {
+    const row = this.#query((db) => db.prepare("SELECT * FROM image_catalog WHERE id = 1").get() as Row | undefined);
+    if (!row) return undefined;
+    const models = imageCatalogModelsOf(row.models);
+    const fetchedAt = Number(row.fetchedAt);
+    if (!models || !Number.isFinite(fetchedAt)) return undefined;
+    return { fetchedAt, models };
+  }
+
+  /** 取得成功時の上書き (id = 1 の upsert)。キャッシュなので、失敗しても呼び出し側は続行する */
+  saveImageCatalog(row: ImageCatalogRow): void {
+    this.#query((db) =>
+      db
+        .prepare(
+          `INSERT INTO image_catalog (id, fetchedAt, models) VALUES (1, ?, ?)
+           ON CONFLICT(id) DO UPDATE SET fetchedAt = excluded.fetchedAt, models = excluded.models`,
+        )
+        .run(row.fetchedAt, JSON.stringify(row.models)),
+    );
   }
 
   // --- projects ---

@@ -82,10 +82,13 @@ SDK(pi-ai 0.87.1) の `openrouter-images` は `chat/completions` へ投げるが
 
 | メソッド | パス | 説明 |
 | --- | --- | --- |
-| GET | `/api/settings/images` | `configured` / `provider` / `model` / `models`（カタログ）/ `runtimeAvailable`。キーは返さない |
+| GET | `/api/settings/images` | `configured` / `provider` / `model` / `models`（カタログ）/ `catalogSource` / `fetchedAt` / `runtimeAvailable`。キーは返さない |
 | PUT | `/api/settings/images` | `{ provider, model }`。キーを保持したまま選択を更新（行が無ければ 400） |
-| PUT | `/api/settings/images/key` | `{ apiKey }`。登録・上書き（行が無ければ既定 provider / model で作成） |
+| PUT | `/api/settings/images/key` | `{ apiKey }`。登録・上書き（行が無ければ既定 provider / model で作成し、live カタログへ寄せてから返す） |
 | DELETE | `/api/settings/images/key` | 行ごと削除（未設定へ戻す。冪等） |
+| POST | `/api/settings/images/catalog/refresh` | live カタログの再取得。常に 200 で `models` / `catalogSource` / `fetchedAt` / `catalogError` を返す（失敗時も一覧は返す） |
+
+- `catalogSource` は `live` / `stored` / `sdk` で、`models` の出どころを表す（[モデルカタログ](#モデルカタログ)）。`live` 以外は取得に失敗している状態で、`fetchedAt` は最後に live を取得できた時刻（`sdk` のときは `null`）
 
 - 変更系の応答は GET と同じ形 + `state: "applied"`。SDK への反映が無いため `applied_unsynced` は無い。DB 書込に失敗したときだけ 503 `{ error, state: "not_stored" }`
 - キー登録の既定は provider `openrouter` / model `openai/gpt-image-2`（直後に画面から変更できる）

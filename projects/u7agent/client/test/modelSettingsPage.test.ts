@@ -125,6 +125,8 @@ const IMAGE_SETTINGS: ImageSettingsResponse = {
     { provider: "openrouter", id: "openai/gpt-image-2", name: "GPT Image 2" },
     { provider: "openrouter", id: "google/gemini-image", name: "Gemini Image" },
   ],
+  catalogSource: "live",
+  fetchedAt: null,
   runtimeAvailable: true,
 };
 
@@ -138,6 +140,7 @@ function imageSettings(overrides: Partial<ImageSettings> = {}): ImageSettings {
     saveKey: async () => true,
     removeKey: async () => true,
     saveSelection: async () => true,
+    refreshCatalog: async () => true,
     ...overrides,
   };
 }

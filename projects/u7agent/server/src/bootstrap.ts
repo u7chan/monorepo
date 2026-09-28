@@ -9,8 +9,8 @@ import { createArchiveSettings } from "./archive-settings";
 import type { ArchiveSettings } from "./archive-settings";
 import { BUILTIN_SKILLS } from "./builtin-skills";
 import { messageFor } from "./http";
+import { createImageCatalog } from "./image-catalog";
 import { ImageSettingsService } from "./image-settings";
-import { imageModelCatalog } from "./images";
 import { ModelSettingsService, type CredentialCommit, type ProviderKeyRuntime } from "./model-settings";
 import { NotificationService } from "./notifications";
 import { ProjectStore } from "./projects";
@@ -35,6 +35,8 @@ export type CreateBffAppOptions = {
   sessionStoreDir?: string | null;
   /** 通知送信のテスト用。省略時は globalThis.fetch */
   notificationFetch?: typeof fetch;
+  /** 画像モデル一覧取得のテスト用。省略時は globalThis.fetch */
+  imageCatalogFetch?: typeof fetch;
 };
 
 export type SessionStoreStatus = {
@@ -134,11 +136,13 @@ export async function createBffContext(opts: CreateBffAppOptions = {}): Promise<
   await modelSettings.applyStored();
   // 画像生成は provider キーとは独立した 1 行で、行の有無を PiBff のツール公開へ写す。
   // 書込は自分のロックで直列化し、applyStored() も同じロックを通す（model-settings と同じ順序）。
+  // モデル一覧は live を正とし、取得できないときは前回の成功（アプリ DB）→ SDK 同梱へ落ちる。
+  const imageCatalog = createImageCatalog({ store: appDb, fetchImpl: opts.imageCatalogFetch });
   const imageSettings = new ImageSettingsService({
     db: appDb,
     runtimeAvailable: pi !== null,
     retainSecret: pi ? pi.retainSecret : () => {},
-    catalog: imageModelCatalog,
+    catalog: imageCatalog,
     setImageGeneration: pi ? pi.setImageGeneration : () => {},
     maskError,
   });
