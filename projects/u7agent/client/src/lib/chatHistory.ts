@@ -137,7 +137,9 @@ function keptUpTo(items: { bubble?: Bubble; marker?: CompactionMarker }[], posit
  */
 function connectionFor(prev: HistoryBundle, page: HistoryPage): Connection {
   const historyBubbles = prev.bubbles.filter((bubble) => bubble.entryId !== undefined);
-  if (historyBubbles.length === 0 && prev.markers.length === 0) {
+  // entryId 付きの保持 item が無い = legacy 初期表示 / 履歴を持たない状態。legacy の区切りは
+  // 位置の基準 (entryId) が無いので、marker の有無に関わらず最新ページをそのまま適用する
+  if (historyBubbles.length === 0) {
     return { kind: "apply", keepBubbles: 0, keepMarkers: [] };
   }
   if (page.items.length === 0) {

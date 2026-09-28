@@ -423,6 +423,34 @@ test("前置きしても保持分より新しい確定ライブバブルは末�
   );
 });
 
+test("legacy の区切りだけがある状態でも最新ページを gap にせず適用する", () => {
+  const compaction: CompactionInfo = {
+    id: "c1",
+    parentId: null,
+    timestamp: "",
+    summary: "要約",
+    firstKeptEntryId: "",
+    tokensBefore: 1,
+  };
+  const legacy: HistoryBundle = {
+    bubbles: [{ id: 1, role: "user", text: "u1", tools: [], skillLoads: [] }],
+    markers: [{ id: "legacy-c", index: 1, compactions: [compaction] }],
+    nextId: 2,
+    toolBubbleIds: {},
+  };
+  const merged = mergeHistoryPage(
+    legacy,
+    page([userItem("m1", "u1")], { prevCursor: "outside", hasMore: true, nextCursor: "m1", messageCount: 2 }),
+    { live: legacy.bubbles },
+  );
+  assert.equal(merged.gap, false, "legacy の区切りは連続性判定の邪魔をしない");
+  assert.deepEqual(
+    merged.bubbles.map((bubble) => bubble.entryId),
+    ["m1"],
+  );
+  assert.deepEqual(merged.markers, [], "legacy の区切りは履歴ページの区切りへ置き換わる");
+});
+
 test("古いページの前置きは重複を捨て、区切りの位置をずらす", () => {
   const current = historyItemsToBundle(10, [message("m3", "active", "c"), compactionItem("c2", "2回目")]);
   const prepended = prependHistoryPage(

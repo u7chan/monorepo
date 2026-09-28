@@ -403,6 +403,66 @@ test("保持分が最新ページと同一の再同期では gap 取得を要求
   );
 });
 
+test("compaction marker 付きの legacy 初期状態でも gap 取得を要求しない", () => {
+  const legacyPayload = payload([
+    { role: "user", text: "m1" },
+    { role: "user", text: "m2" },
+  ]);
+  legacyPayload.compactions = [
+    {
+      id: "c1",
+      parentId: null,
+      timestamp: "",
+      summary: "要約",
+      firstKeptEntryId: "",
+      tokensBefore: 1,
+      beforeMessageIndex: 1,
+    },
+  ];
+  const legacy = chatReducer(initialChatState, { type: "resync", payload: legacyPayload });
+  assert.equal(legacy.dividers.length, 1, "legacy の区切りができている (再現条件)");
+  const applied = chatReducer(legacy, {
+    type: "resyncHistory",
+    page: historyPage([userMsg("m1", "m1"), userMsg("m2", "m2")], {
+      prevCursor: "outside",
+      hasMore: true,
+      nextCursor: "m1",
+      messageCount: 4,
+    }),
+  });
+  assert.equal(applied.history.gapCursor, null, "初回表示で gap にしない");
+  assert.equal(applied.history.pendingPage, null);
+  assert.deepEqual(entryIds(applied), ["m1", "m2"]);
+  assert.deepEqual(applied.dividers, [], "legacy の区切りは履歴ページの区切りへ置き換わる");
+});
+
+test("欠落区間が埋まらないときは gap ページを捨てずに組み込み、同じ before を再取得しない", () => {
+  const base = chatReducer(initialChatState, {
+    type: "resyncHistory",
+    page: historyPage([userMsg("h1", "h1"), userMsg("h2", "h2")], { hasMore: false, messageCount: 2 }),
+  });
+  // 最新ページは保持分と繋がらず、直前の item は gap ページの末尾 (q2)
+  const pending = historyPage([userMsg("p1", "p1"), userMsg("p2", "p2")], {
+    prevCursor: "q2",
+    hasMore: true,
+    nextCursor: "p1",
+    messageCount: 6,
+  });
+  const detected = chatReducer(base, { type: "resyncHistory", page: pending });
+  assert.equal(detected.history.gapCursor, "p1");
+  // gap ページも保持分とは繋がらない (1 ページに収まらない欠落) が、最新ページとは連続している
+  const gapPage = historyPage([userMsg("q1", "q1"), userMsg("q2", "q2")], {
+    prevCursor: "x8",
+    hasMore: true,
+    nextCursor: "q1",
+    messageCount: 6,
+  });
+  const rebuilt = chatReducer(detected, { type: "historyGap", cursor: "p1", page: gapPage });
+  assert.deepEqual(entryIds(rebuilt), ["q1", "q2", "p1", "p2"], "gap ページを破棄しない");
+  assert.equal(rebuilt.history.nextCursor, "q1", "次は gap ページより古い範囲を取る");
+  assert.notEqual(rebuilt.history.nextCursor, detected.history.gapCursor, "同じ before を再取得しない");
+});
+
 test("欠落区間の取得に失敗したら保留を解いて次の resync で取り直せる", () => {
   const base = chatReducer(initialChatState, {
     type: "resyncHistory",

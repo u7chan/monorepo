@@ -490,34 +490,40 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
       const pending = state.history.pendingPage;
       // 古い応答 / 別の保留ページで解決済みなら何もしない
       if (!pending || state.history.gapCursor !== action.cursor) return state;
+      const bundle = {
+        bubbles: state.bubbles,
+        markers: state.dividers,
+        nextId: state.nextId,
+        toolBubbleIds: state.toolBubbleIds,
+      };
       const live = state.bubbles.filter((bubble) => bubble.entryId === undefined);
       // 1) 欠落区間のページを保持分へ適用する (繋がらなければ 1 ページに収まらない欠落)
-      const gapMerge = mergeHistoryPage(
-        { bubbles: state.bubbles, markers: state.dividers, nextId: state.nextId, toolBubbleIds: state.toolBubbleIds },
-        action.page,
-        { live, pendingEchoIds: state.pendingEchoIds },
+      const gapMerge = mergeHistoryPage(bundle, action.page, { live, pendingEchoIds: state.pendingEchoIds });
+      // 2) 保留していた最新ページを適用する
+      if (!gapMerge.gap) {
+        const latestMerge = mergeHistoryPage(gapMerge, pending, {
+          live: gapMerge.bubbles.filter((bubble) => bubble.entryId === undefined),
+          pendingEchoIds: gapMerge.pendingEchoIds,
+        });
+        if (!latestMerge.gap) return applyHistoryMerge(state, latestMerge, pending);
+      }
+      // 3) 欠落区間が 1 ページに収まらない / 分岐が変わった。取ってある gap ページは
+      //    保留ページと連続しているので捨てずに組み込み、カーソルを gap ページ側へ進める
+      //    (同じ before を再取得しない)
+      if (action.page.items.length > 0) {
+        const rebuilt = rebuildHistoryPage(bundle, action.page, { live, pendingEchoIds: state.pendingEchoIds });
+        const withPending = mergeHistoryPage(rebuilt, pending, {
+          live: rebuilt.bubbles.filter((bubble) => bubble.entryId === undefined),
+          pendingEchoIds: rebuilt.pendingEchoIds,
+        });
+        // メタデータ (nextCursor / hasMore / counts) は古い方 (= gap ページ) を正とする
+        if (!withPending.gap) return applyHistoryMerge(state, withPending, action.page);
+      }
+      return applyHistoryMerge(
+        state,
+        rebuildHistoryPage(bundle, pending, { live, pendingEchoIds: state.pendingEchoIds }),
+        pending,
       );
-      // 2) 保留していた最新ページを適用する。どちらかが繋がらなければ再構築へ縮退
-      const latestMerge = gapMerge.gap
-        ? null
-        : mergeHistoryPage(gapMerge, pending, {
-            live: gapMerge.bubbles.filter((bubble) => bubble.entryId === undefined),
-            pendingEchoIds: gapMerge.pendingEchoIds,
-          });
-      const merged =
-        latestMerge && !latestMerge.gap
-          ? latestMerge
-          : rebuildHistoryPage(
-              {
-                bubbles: state.bubbles,
-                markers: state.dividers,
-                nextId: state.nextId,
-                toolBubbleIds: state.toolBubbleIds,
-              },
-              pending,
-              { live, pendingEchoIds: state.pendingEchoIds },
-            );
-      return applyHistoryMerge(state, merged, pending);
     }
 
     case "historyGapFailed": {
