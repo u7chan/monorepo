@@ -14,6 +14,7 @@ import { composePromptSnapshot } from "./agent";
 import type { AgentCatalog } from "./agents";
 import { stripAttachedFiles } from "./attachments";
 import { compactionsOf, recordCompactionOutcome } from "./compaction-view";
+import { projectHistoryPage } from "./history-projection";
 import type { NotificationService } from "./notifications";
 import { contextUsageOf, type PiRuntimeLike, type PiSessionEvent, type PiSessionLike } from "./pi-runtime";
 import type { ProjectStore } from "./projects";
@@ -405,6 +406,7 @@ export class SessionStore {
       run: null,
       tools: new Map(),
       messageMetrics: new WeakMap(),
+      userMessageRuns: new WeakMap(),
       compactionMeta: new Map(),
       changingSettings: false,
       compacting: false,
@@ -719,14 +721,16 @@ export class SessionStore {
     record.lastUsedAt = Date.now();
 
     if (running || record.compacting) {
-      record.queue.push(text);
+      // 圧縮中も送信はキューへ積む。run id はここで振り、キューから始まる run の id として
+      // 応答へ返す (クライアントが自分の送信と run_start / 履歴 entry を対応付けるため)
+      const runId = randomBytes(8).toString("hex");
+      record.queue.push({ text, runId });
       this.emit(record, "queued", {
         position: record.queue.length,
         queueDepth: record.queue.length,
         prompt: this.masker.mask(text),
       });
-      // 圧縮中は旧 run の id を返さない (送信の実行者はまだ存在しない)
-      return { queued: true, queueDepth: record.queue.length, runId: running ? record.run?.id : undefined };
+      return { queued: true, queueDepth: record.queue.length, runId };
     }
 
     const run = this.startRun(record, text);
@@ -908,6 +912,16 @@ export class SessionStore {
 
   compactionsOf(record: SessionRecord): CompactionInfo[] {
     return compactionsOf(record, this.masker);
+  }
+
+  /** 全履歴のカーソルページ。切り出しと状態導出は history-projection の純関数が持つ */
+  history(record: SessionRecord, options: { before?: string; limit?: number }) {
+    return projectHistoryPage({
+      record,
+      masker: this.masker,
+      cwd: workspaceAbs(this.rootCwd, record.workdir),
+      ...options,
+    });
   }
 
   summary(record: SessionRecord): SessionSummary {
@@ -1155,10 +1169,11 @@ export class SessionStore {
   }
 
   /** バックグラウンドランを開始する (呼び出し側はセッションが idle であることを保証する)。 */
-  startRun(record: SessionRecord, text: string): RunState {
+  startRun(record: SessionRecord, text: string, presetId?: string): RunState {
     const { session } = record;
     const run: RunState = {
-      id: randomBytes(8).toString("hex"),
+      // キューから始まる run は受け付けた時点で振った id を使う (応答で返した id と一致させる)
+      id: presetId ?? randomBytes(8).toString("hex"),
       // ログ・SSE 用に保持するプロンプトはマスクする (モデルへ渡す text はユーザー入力そのまま)。
       prompt: this.masker.mask(text),
       status: "running",
@@ -1242,6 +1257,11 @@ export class SessionStore {
       },
       // SDK は listener 通知の後に entry を append する。1 拍置いてから読む (保存点の順序テストあり)
       onPersist: () => queueMicrotask(() => void this.persist(record)),
+      // 履歴 item に run id を写すための控え。SDK は listener の後に entry を append するが、
+      // entry と session.messages は同じメッセージ参照を共有するので、投影時に参照で引ける
+      onPromptMessage: (message) => {
+        record.userMessageRuns.set(message, run.id);
+      },
       onRetryScheduled: ({ attempt, maxAttempts, delayMs, errorMessage }) => {
         run.totalRetryCount += 1;
         const reason = classifyRunError(errorMessage)?.code ?? "unknown";
@@ -1323,7 +1343,7 @@ export class SessionStore {
     const next = record.queue.shift();
     if (next === undefined) return;
     record.lastUsedAt = Date.now();
-    this.startRun(record, next);
+    this.startRun(record, next.text, next.runId);
   }
 
   emit<T extends SSEEventType>(record: SessionRecord, type: T, data: SSEEventData[T]): EventEntry {

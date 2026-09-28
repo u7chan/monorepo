@@ -57,3 +57,22 @@ export function resolveScrollFollow(input: ScrollFollowInput): ScrollFollowOutco
   if (input.scrollTop < input.previousTop) return { follow: atBottom, snap: false };
   return { follow: true, snap: !atBottom };
 }
+
+/** 上端付近で古いページの先読みを始める距離 (px)。数行の行き来で連続取得しない幅を取る */
+export const CHAT_PREPEND_THRESHOLD = 200;
+
+/**
+ * 上方向の追加取得を要求するか。取得中の二重要求と、hasMore=false (先頭まで読んだ) を除く。
+ * 実際のフェッチは ChatArea のコールバック (useSessions.loadOlderHistory) が担う。
+ */
+export function shouldLoadOlder({
+  scrollTop,
+  hasMore,
+  loading,
+}: {
+  scrollTop: number;
+  hasMore: boolean;
+  loading: boolean;
+}): boolean {
+  return hasMore && !loading && scrollTop <= CHAT_PREPEND_THRESHOLD;
+}

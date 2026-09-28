@@ -6,10 +6,12 @@ import {
   createSession,
   deleteSession as apiDeleteSession,
   getSession,
+  getSessionHistory,
   listSessions,
   updateSessionNotify,
   updateSessionSettings,
 } from "../api";
+import type { ChatHistoryState } from "../lib/chatTypes";
 import { adoptKnownAgentId } from "../lib/agentSelection";
 import { createFileRefRequests } from "../lib/fileRefRequest";
 import { missingLinkNote, type SessionOpenResult } from "../lib/notifications";
@@ -44,6 +46,8 @@ export type UseSessionsParams = {
   selectProject: (id: string) => void;
   /** state の反映を待たず読む (ensureSession が送信時に参照) */
   selectedProjectIdRef: RefObject<string>;
+  /** chat 状態の history。追加取得のカーソルは reducer が適用したページの値だけを使う */
+  historyStateRef: RefObject<ChatHistoryState>;
   refreshHealth: (isCurrent?: () => boolean) => Promise<Health | null>;
   setRuntimeStatus: (status: RuntimeStatus) => void;
 };
@@ -64,6 +68,7 @@ export function useSessions({
   setAgentId,
   selectProject,
   selectedProjectIdRef,
+  historyStateRef,
   refreshHealth,
   setRuntimeStatus,
 }: UseSessionsParams) {
@@ -101,6 +106,32 @@ export function useSessions({
 
   const [beginSessionsRequest] = useState(createRequestGate);
   /**
+   * 履歴ページの要求世代と二重取得の防止。カーソル (nextCursor / hasMore) は reducer の
+   * history が正で、適用されなかったページ (gap) の値をここへ持ち込まない。
+   */
+  const historyRef = useRef({ seq: 0 });
+  const historyLoadingRef = useRef(false);
+
+  /** 最新ページを取り直す。resync (再接続 / 圧縮 / context_edit) のたびに呼び、取得済みの古いページは残す */
+  const refreshHistory = useCallback(
+    async (targetId: string, isCurrent: () => boolean = alwaysCurrent): Promise<void> => {
+      if (!targetId) return;
+      const seq = (historyRef.current.seq += 1);
+      try {
+        const page = await getSessionHistory(targetId);
+        // 古い応答 (別セッション / 連続 resync) で新しい表示を戻さない
+        if (!isCurrent() || sessionIdRef.current !== targetId || historyRef.current.seq !== seq) return;
+        dispatch({ type: "resyncHistory", page });
+      } catch (error) {
+        if (!isCurrent() || sessionIdRef.current !== targetId || historyRef.current.seq !== seq) return;
+        // 履歴 API を持たない旧サーバーは 404 (未知ルート)。payload.messages での表示に戻す
+        if (error instanceof ApiError && error.status === 404) dispatch({ type: "historyUnsupported" });
+      }
+    },
+    [dispatch],
+  );
+
+  /**
    * 一覧を取り直す。取得できなかったときは null を返し、前回のリスト (sessionsRef) は保つ。
    * 空の成功と区別できないと、保留の入口 (`/s/<id>`) を「会話なし」として畳んでしまう。
    */
@@ -133,19 +164,24 @@ export function useSessions({
       // 権威ある状態が届いた。圧縮を抜けたなら、進行中の同期応答は古いので捨てる
       if (payload.status !== "compacting") sessionOpsRef.current += 1;
       dispatch({ type: "resync", payload, receivedAt: Date.now() });
+      // 表示の正は全履歴ページ。ここでは状態だけを同期し、最新ページを別途取り直す
+      void refreshHistory(payload.sessionId);
       // 圧縮は run の開始 / 終了を伴わないため、一覧の「圧縮中」がポーリング (4 秒) まで古いままになる。
       // 一覧とずれたときだけ取り直す (毎回叩かない)
       const listed = sessionsRef.current.find((item) => item.sessionId === payload.sessionId);
       const listedCompacting = listed?.status === "compacting";
       if ((payload.status === "compacting") !== listedCompacting) void refreshSessions();
     },
-    [dispatch, refreshSessions],
+    [dispatch, refreshHistory, refreshSessions],
   );
 
   const applySelectedSession = useCallback(
     (payload: SessionPayload) => {
       // 切替待機中に旧セッションの本文から作られた要求を、確定時にも落とす (開始時の破棄だけでは残る)
       if (sessionIdRef.current !== payload.sessionId) fileRefRequests.clear();
+      // 旧セッションのカーソルを持ち越さない (in-flight の応答も seq で無効化する)
+      historyRef.current.seq += 1;
+      historyLoadingRef.current = false;
       sessionIdRef.current = payload.sessionId;
       setSessionId(payload.sessionId);
       // 復元したセッションの agent はカタログに無いことがある (削除済み / ID 変更)。
@@ -236,6 +272,9 @@ export function useSessions({
       fileRefRequests.clear();
       // 進行中の作成を持ち越さない (新しい会話が前のセッションを掴まないようにする)
       sessionCreation.clear();
+      // 全履歴のカーソルも持ち越さない (in-flight の応答は seq で無効化する)
+      historyRef.current.seq += 1;
+      historyLoadingRef.current = false;
       // 新規チャットの通知の先行選択も持ち越さない (作成中の古い応答でこの選択を消させない)
       notifyCarry.reset();
       sessionIdRef.current = "";
@@ -362,6 +401,65 @@ export function useSessions({
     });
   }, [dispatch, setRuntimeStatus]);
 
+  /**
+   * 上方向の追加取得。カーソルは entry id なので、取得中に追記 / 圧縮されても同じ item を二度返さない。
+   * 取得結果は reducer が既存のバブルへ前置きする (古い側は消させない)。
+   */
+  const loadOlderHistory = useCallback(async (): Promise<void> => {
+    const id = sessionIdRef.current;
+    if (!id) return;
+    const state = historyStateRef.current;
+    const cursor = state.nextCursor;
+    if (historyLoadingRef.current || !state.hasMore || !cursor) return;
+    historyLoadingRef.current = true;
+    dispatch({ type: "historyLoading", loading: true });
+    try {
+      const page = await getSessionHistory(id, { before: cursor });
+      // 取得中にセッション / ブランチ / 保持分の先頭が変わっていたら、古いページを混ぜない
+      if (sessionIdRef.current !== id || historyStateRef.current.nextCursor !== cursor) return;
+      dispatch({ type: "prependHistory", cursor, page });
+    } catch (error) {
+      if (sessionIdRef.current !== id) return;
+      if (error instanceof ApiError && error.status === 400) {
+        // 不明なカーソルは履歴が入れ替わった証拠。最新ページから取り直せば次の操作で遡れる
+        void refreshHistory(id);
+      } else {
+        dispatch({ type: "setActivity", text: `過去の履歴を取得できませんでした。${messageFor(error)}` });
+      }
+    } finally {
+      historyLoadingRef.current = false;
+      dispatch({ type: "historyLoading", loading: false });
+    }
+  }, [dispatch, historyStateRef, refreshHistory]);
+
+  /**
+   * 欠落区間の取得。resync の最新ページが保持分と繋がらないときに呼ばれ、保留中の最新ページと
+   * 合わせて適用する。適用可否は reducer が保留中の cursor と突き合わせて判定するため、ここでは
+   * seq を進めない (連続 resync で保留が同じでも応答を捨てない)。
+   */
+  const fillHistoryGap = useCallback(
+    async (cursor: string): Promise<void> => {
+      const id = sessionIdRef.current;
+      if (!id) return;
+      try {
+        const page = await getSessionHistory(id, { before: cursor });
+        if (sessionIdRef.current !== id) return;
+        dispatch({ type: "historyGap", cursor, page });
+      } catch (error) {
+        if (sessionIdRef.current !== id) return;
+        if (error instanceof ApiError && error.status === 400) {
+          // カーソルが現行ブランチに無い (分岐が変わった)。最新ページから取り直す
+          void refreshHistory(id);
+        } else {
+          // 保留を解いて、次の resync で再試行できる状態に戻す
+          dispatch({ type: "historyGapFailed", cursor });
+          dispatch({ type: "setActivity", text: `履歴の欠落区間を取得できませんでした。${messageFor(error)}` });
+        }
+      }
+    },
+    [dispatch, refreshHistory],
+  );
+
   /** 選択中の会話の通知の値。一覧 (4 秒のポーリングと変更直後の反映) を正とし、新規チャットは先行選択を使う */
   const notify = sessionId ? sessions.find((item) => item.sessionId === sessionId)?.notify === true : notifyPending;
 
@@ -485,6 +583,8 @@ export function useSessions({
     changeModel,
     changeThinkingLevel,
     compactSession,
+    loadOlderHistory,
+    fillHistoryGap,
     toggleNotify,
   };
 }

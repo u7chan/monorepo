@@ -83,6 +83,11 @@ export async function sendChatMessage(text: string, deps: SendChatMessageDeps): 
     const runSeq = runEndSeqRef.current;
     const result = await post(targetId, text, attachments);
     deps.onSent?.();
+    // 自分の送信の run id をエコーへ結び付ける。表示の正は SSE だが、この対応付けは応答だけが持つ
+    // (圧縮中 / キュー中でも、自分が送った run の id が返る)。切替後の表示は触らない
+    if (sameChat && sessionIdRef.current === targetId && result.runId !== undefined) {
+      dispatch({ type: "echoRunId", runId: result.runId });
+    }
     // 応答は状態の正ではない。要求の後に権威ある状態 (終端 resync / run の終了 / 新しい要求) が入った、
     // または表示が別の会話へ移った場合は、遅れて届いた queueDepth と runStatus で表示を戻さない
     // (一覧の取り直しは続ける)

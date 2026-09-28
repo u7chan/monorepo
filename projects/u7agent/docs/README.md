@@ -5,7 +5,7 @@
 | 変更テーマ | 主に読むコード | 主に読む docs |
 | --- | --- | --- |
 | ランの送信 / キュー / 停止 / SSE | `server/src/routes/sessions.ts`、`server/src/sessions.ts`、`server/src/run-events.ts` | [run-lifecycle.md](run-lifecycle.md)、[api-sessions.md](api-sessions.md) |
-| セッションの状態 / 履歴 / compaction 表示 | `server/src/session-record.ts`、`server/src/session-projection.ts`、`server/src/compaction-view.ts`、`server/src/session-payload.ts` | [run-lifecycle.md](run-lifecycle.md)、[compaction.md](compaction.md) |
+| セッションの状態 / 履歴 / compaction 表示 | `server/src/session-record.ts`、`server/src/session-projection.ts`、`server/src/history-projection.ts`、`server/src/compaction-view.ts`、`server/src/session-payload.ts`、`client/src/lib/chatHistory.ts`、`client/src/lib/chatItems.ts` | [run-lifecycle.md](run-lifecycle.md)、[compaction.md](compaction.md)、[api-sessions.md](api-sessions.md) |
 | HTTP の契約 / DTO / ルート追加 | `server/src/schema.ts`、`server/src/app.ts`、`server/src/routes/` | [api.md](api.md)、[api-sessions.md](api-sessions.md)、[api-catalog.md](api-catalog.md) |
 | エージェント / スキル定義とファイルスキル | `server/src/agents.ts`、`server/src/catalog-skills.ts`、`server/src/file-skills.ts`、`server/src/builtin-skills.ts`、`server/src/session-skills.ts`、`client/src/components/AgentSettingsPage.tsx`、`client/src/components/SkillSettingsPage.tsx`、`client/src/components/composer/SkillField.tsx` | [api-catalog.md](api-catalog.md)、[api-sessions.md](api-sessions.md) |
 | モデル / Effort の解決と変更 | `server/src/agent.ts`、`server/src/sessions.ts`、`client/src/lib/composerSettings.ts`、`client/src/components/composer/ComposerStatus.tsx` | [model-effort.md](model-effort.md)、[api-sessions.md](api-sessions.md) |

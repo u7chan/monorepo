@@ -73,6 +73,11 @@ export interface RunEventBridgeDeps {
   emitResync: () => void;
   /** message_end / compaction_end のたびに呼ぶ。SDK は通知後に entry を append するため、呼び出し側で 1 拍置く */
   onPersist?: () => void;
+  /**
+   * 送信メッセージ (role user) の message_end。SDK は listener の後に同じ参照を entry へ append するため、
+   * 呼び出し側はメッセージの参照を控えて履歴 item の run id に対応付ける
+   */
+  onPromptMessage?: (message: object) => void;
   /** 再試行のスケジュール / 再実行開始 / 解除を run へ反映する */
   onRetryScheduled: (event: RetryScheduledEvent) => void;
   onRetryAttemptStart: () => void;
@@ -102,6 +107,7 @@ export function createRunEventBridge(deps: RunEventBridgeDeps): RunEventBridge {
     emit,
     emitResync,
     onPersist,
+    onPromptMessage,
     onRetryScheduled,
     onRetryAttemptStart,
     onRetryEnd,
@@ -180,6 +186,7 @@ export function createRunEventBridge(deps: RunEventBridgeDeps): RunEventBridge {
       // それを待ってから、送信メッセージを欠いたままの resync を配る。
       if (event.type === "message_end" && event.message?.role === "user") {
         promptRecorded = true;
+        onPromptMessage?.(event.message);
         if (pendingCompactionResync) {
           pendingCompactionResync = false;
           emitResync();

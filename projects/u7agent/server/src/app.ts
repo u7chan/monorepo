@@ -208,6 +208,8 @@ export async function createBffApp(opts: CreateBffAppOptions = {}) {
       (c) => sessionRoutes.updateNotify(c, c.req.valid("json")),
     )
     .get("/api/sessions/:id", appData, sessionRoutes.get)
+    // 全履歴のカーソルページ。`:id` より深いパスのため順序に依存しないが、:id の近くに置く
+    .get("/api/sessions/:id/history", appData, sessionRoutes.history)
     .delete("/api/sessions/:id", sessionRoutes.remove)
     .post("/api/sessions/:id/stop", sessionRoutes.stop)
     .post("/api/sessions/:id/abort", sessionRoutes.stop)

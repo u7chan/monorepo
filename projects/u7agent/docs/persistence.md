@@ -109,7 +109,18 @@ DTO（[api-sessions.md](api-sessions.md) の `compactions`）はそのまま写�
 最新の compaction の `beforeMessageIndex` だけは `messages` から導出する。
 
 - `reason` と `estimatedTokensAfter` は `CompactionEntry` には保存されず `compaction_end` にしか無いため、復元後は欠ける（表示は `tokensBefore` だけで成立する）
-- `usage` / `fromHook` は entry に含まれるため復元できる
+- `usage` / `fromHook` は entry に含まれるため復元できる。ただし SDK 型上 `usage` は optional で、旧 / 手作り JSONL に無い場合 `getContextUsage()` が例外になる。BFF はこの失敗を握って payload の `context` を省略し、セッションは開ける（Context ゲージは次の応答まで出ない）
+
+### 全履歴の投影
+
+GUI の全履歴（[compaction.md](compaction.md#全履歴の表示閲覧と段階読み込み)）も同じ entry 列から毎回投影する。
+ページのカーソルは entry id で、ファイルを書き換えずに遡れる。**会話の二重保存・SQLite への履歴格納・ディスクのページ索引は追加しない**
+（性能計測で必要になった場合の次段階とする）。
+
+- 再起動後も `getBranch()` の entry から同じ item が同じ id で復元される（圧縮前の元メッセージ・過去の compaction イベントを含む）
+- user item の `runId`（送信した run の id）は実行時の参照（SDK メッセージ → run id）から写す表示専用の値で、JSONL へは保存しない。再起動後は古い user item に載らないため、クライアントは本文の正規形（+ 送信時点の位置 `since`）での突き合わせへ縮退する。この縮退は未完了 run の pending エコーにも適用し、実行中の再起動でエコーが残り続けないようにする（`runId` を持つ別 run の item は対象外）
+- `context_edit` で agent state から外れたメッセージも entry には残るため、`excluded` として読める（要約済みとは区別する）
+- ページ取得は JSONL を読み直さずメモリ上の entry 列を走査する。表示文字列へ写すのは選んだページ範囲だけで、既存のマスカーを共有する
 
 ## スキルの扱い
 

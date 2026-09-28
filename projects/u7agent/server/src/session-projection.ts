@@ -67,27 +67,52 @@ export function displayableMessages(session: PiSessionLike, masker: SecretMasker
   return session.messages.filter((message) => isDisplayableMessage(message, masker));
 }
 
-export function projectMessages(
-  session: PiSessionLike,
+/** 表示用メッセージへ写す文脈。履歴ページは表示範囲の外にある toolResult / 繰り上げ元も参照できるよう、
+ * 全履歴ぶんの索引と表示範囲を別々に渡す (索引作りは文字列を作らない軽い走査に留める)。 */
+export interface MessageProjectionContext {
+  toolResults: Map<string, PiSessionLike["messages"][number]>;
+  toolErrors: Map<string, boolean>;
+  messageMetrics: WeakMap<object, MessageMetrics>;
+  masker: SecretMasker;
+  cwd: string;
+}
+
+/** toolResult は toolCall より後ろに来るため、id で先に結び付ける */
+export function messageProjectionContext(
+  messages: PiSessionLike["messages"],
   messageMetrics: WeakMap<object, MessageMetrics>,
   masker: SecretMasker,
   cwd: string,
-): ChatMessage[] {
-  // toolResult は toolCall より後ろに来るため、id で先に結び付ける
-  const { errors: toolErrors, results: toolResults } = toolResultsOf(session.messages);
-  const messages: ChatMessage[] = [];
-  // 本文を持たない assistant は表示集合から落ちるため、同ターン内の次の表示メッセージへ
-  // 繰り上げる。表示集合と messageCount を変えないための前詰め領域 (2 回目の走査で消費する)。
+): MessageProjectionContext {
+  const { errors, results } = toolResultsOf(messages);
+  return { toolResults: results, toolErrors: errors, messageMetrics, masker, cwd };
+}
+
+/**
+ * [from, to) を履歴順に投影する。from より手前の繰り上げ元は見えないため、呼び出し側は
+ * ターンの先頭 (直前の user) まで from を戻す。1 件も表示しないメッセージの tools / skillLoads は
+ * 同ターン内の次の表示メッセージへ繰り上げる (件数と表示集合を変えないため)。
+ */
+export function projectMessagesRange(
+  messages: PiSessionLike["messages"],
+  context: MessageProjectionContext,
+  range: { from?: number; to?: number } = {},
+): { index: number; message: ChatMessage }[] {
+  const from = Math.max(0, Math.min(messages.length, range.from ?? 0));
+  const to = Math.max(from, Math.min(messages.length, range.to ?? messages.length));
+  const { messageMetrics, masker, cwd } = context;
+  const projected: { index: number; message: ChatMessage }[] = [];
   let carried: SkillLoad[] = [];
   let carriedTools: ToolCall[] = [];
-  for (const message of session.messages) {
+  for (let index = from; index < to; index += 1) {
+    const message = messages[index];
     // ターン境界では繰り上げない (次の user メッセージを越えた先へは運ばない)
     if (message.role === "user") {
       carried = [];
       carriedTools = [];
     }
-    const loads = message.role === "assistant" ? skillLoadsOf(message, toolErrors, cwd, masker) : [];
-    const tools = message.role === "assistant" ? toolCallsOf(message, toolResults, cwd, masker) : [];
+    const loads = message.role === "assistant" ? skillLoadsOf(message, context.toolErrors, cwd, masker) : [];
+    const tools = message.role === "assistant" ? toolCallsOf(message, context.toolResults, cwd, masker) : [];
     if (!isDisplayableMessage(message, masker)) {
       carried.push(...loads);
       carriedTools.push(...tools);
@@ -100,19 +125,32 @@ export function projectMessages(
     const projectedTools = [...carriedTools, ...tools];
     carried = [];
     carriedTools = [];
-    messages.push({
-      role: message.role as "user" | "assistant",
-      text,
-      stopReason: message.role === "assistant" ? message.stopReason : undefined,
-      // SDK が timestamp を持たない履歴 (旧セッション / スタブ) では at キー自体を作らない
-      ...(typeof message.timestamp === "number" ? { at: message.timestamp } : {}),
-      ...(usage ? { usage } : {}),
-      ...(metrics ? { metrics } : {}),
-      ...(projectedTools.length > 0 ? { tools: projectedTools } : {}),
-      ...(skillLoads.length > 0 ? { skillLoads } : {}),
+    projected.push({
+      index,
+      message: {
+        role: message.role as "user" | "assistant",
+        text,
+        stopReason: message.role === "assistant" ? message.stopReason : undefined,
+        // SDK が timestamp を持たない履歴 (旧セッション / スタブ) では at キー自体を作らない
+        ...(typeof message.timestamp === "number" ? { at: message.timestamp } : {}),
+        ...(usage ? { usage } : {}),
+        ...(metrics ? { metrics } : {}),
+        ...(projectedTools.length > 0 ? { tools: projectedTools } : {}),
+        ...(skillLoads.length > 0 ? { skillLoads } : {}),
+      },
     });
   }
-  return messages;
+  return projected;
+}
+
+export function projectMessages(
+  session: PiSessionLike,
+  messageMetrics: WeakMap<object, MessageMetrics>,
+  masker: SecretMasker,
+  cwd: string,
+): ChatMessage[] {
+  const context = messageProjectionContext(session.messages, messageMetrics, masker, cwd);
+  return projectMessagesRange(session.messages, context).map(({ message }) => message);
 }
 
 function toolResultsOf(messages: PiSessionLike["messages"]): {

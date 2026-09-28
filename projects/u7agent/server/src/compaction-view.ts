@@ -47,12 +47,12 @@ function keptMessageCount(
 }
 
 /** session.messages ではなく entry を正として圧縮履歴を組む。要約も他の出力と同じくマスクする。 */
-function projectCompactions(
-  session: PiSessionLike,
+export function compactionsFromEntries(
+  entries: PiSessionEntryLike[],
+  messages: PiSessionLike["messages"],
   compactionMeta: Map<string, CompactionMeta>,
   masker: SecretMasker,
 ): CompactionInfo[] {
-  const entries = branchEntriesOf(session);
   const compactionIndexes = entries
     .map((entry, index) => (entry.type === "compaction" ? index : -1))
     .filter((index) => index >= 0);
@@ -72,12 +72,21 @@ function projectCompactions(
       ...(usage ? { usage } : {}),
       ...(entry.fromHook === true ? { fromHook: true } : {}),
       ...(entryIndex === latestIndex
-        ? { beforeMessageIndex: keptMessageCount(session.messages, entries, entryIndex, masker) }
+        ? { beforeMessageIndex: keptMessageCount(messages, entries, entryIndex, masker) }
         : {}),
       ...(meta?.reason ? { reason: meta.reason } : {}),
       ...(meta?.estimatedTokensAfter !== undefined ? { estimatedTokensAfter: meta.estimatedTokensAfter } : {}),
     };
   });
+}
+
+/** session を入力にする版 (compactionsFromEntries の薄いラッパー) */
+function projectCompactions(
+  session: PiSessionLike,
+  compactionMeta: Map<string, CompactionMeta>,
+  masker: SecretMasker,
+): CompactionInfo[] {
+  return compactionsFromEntries(branchEntriesOf(session), session.messages, compactionMeta, masker);
 }
 
 /** record を入力にする版 */

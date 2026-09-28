@@ -145,7 +145,7 @@ test("takes the run start from the event data, not from the receive time", () =>
     deps,
   );
 
-  assert.deepEqual(record.actions, [{ type: "runStart", prompt: "go", at: 5000, startedAt: 900 }]);
+  assert.deepEqual(record.actions, [{ type: "runStart", runId: "r-1", prompt: "go", at: 5000, startedAt: 900 }]);
 });
 
 test("treats a stream that stopped sending heartbeat as silent", () => {

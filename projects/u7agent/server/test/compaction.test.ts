@@ -564,7 +564,7 @@ test("圧縮中の二重 POST と設定変更は 409 になり、実行中の圧
   await store.close();
 });
 
-test("圧縮中の送信は runId なしで queued になり、終端処理の後に 1 回だけ pump する", async () => {
+test("圧縮中の送信は runId を先に振って queued になり、終端処理の後に 1 回だけ pump する", async () => {
   const { store, record } = await createFixture(withManual({ delayMs: 50 }));
   const events = collect(store, record);
 
@@ -572,7 +572,10 @@ test("圧縮中の送信は runId なしで queued になり、終端処理の�
   await waitFor(() => record.compacting, 1000, "compaction started");
   const queued = store.postMessage(record, "圧縮中の送信");
 
-  assert.deepEqual(queued, { queued: true, queueDepth: 1, runId: undefined });
+  // run id は受け付けた時点で振り、キューから始まる run の id として返す (圧縮中の旧 run の id ではない)
+  assert.equal(queued.queued, true);
+  assert.equal(queued.queueDepth, 1);
+  assert.equal(typeof queued.runId, "string", "実行前でも自分の run id を返す");
   assert.equal(store.statusOf(record), "compacting");
   await compacting;
 
@@ -582,7 +585,9 @@ test("圧縮中の送信は runId なしで queued になり、終端処理の�
     "終端 resync / status の後に pump する",
   );
   await waitFor(() => store.statusOf(record) === "completed", 3000, "queued run completion");
-  assert.equal(events.filter((entry) => entry.type === "run_start").length, 1, "pump は 1 回だけ");
+  const runStarts = events.filter((entry) => entry.type === "run_start");
+  assert.equal(runStarts.length, 1, "pump は 1 回だけ");
+  assert.equal(runStarts[0].data.runId, queued.runId, "応答で返した run id で run が始まる");
 
   await store.close();
 });
@@ -599,7 +604,9 @@ test("保存待ちの間は送信・設定変更・二重圧縮・stop が割り
   assert.equal(session.isIdle, true, "SDK から見ると保存待ちの間は idle");
 
   const queued = store.postMessage(record, "保存待ちの送信");
-  assert.deepEqual(queued, { queued: true, queueDepth: 1, runId: undefined });
+  assert.equal(queued.queued, true);
+  assert.equal(queued.queueDepth, 1);
+  assert.equal(typeof queued.runId, "string", "保存待ちでも自分の run id を返す");
   await assert.rejects(
     () => store.compact(record),
     (error: StoreError) => error.statusCode === 409,
