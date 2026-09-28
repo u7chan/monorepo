@@ -500,3 +500,22 @@ test("モデル候補の保存確認は window.confirm を使わず、純関数�
   assert.equal(providersTab.includes("window.confirm"), true);
   assert.equal(providersTab.includes("ModelTable"), false, "モデル一覧の3重表示を消す");
 });
+
+test("下書きの作り直しは保存値と初回の null 展開に限り、provider の入力は親が保つ", () => {
+  const page = readFileSync(fileURLToPath(new URL("../src/components/ModelSettingsPage.tsx", import.meta.url)), "utf8");
+  // カタログの更新 (キー操作での再取得・取得失敗) では下書きを作り直さない。判定は lib の純関数が持つ
+  assert.match(page, /availabilityDraftState\(/, "比較基準の作り直しは純関数に任せる");
+  assert.match(page, /appliedDraft\.current/);
+  assert.match(page, /providerDrafts/, "provider の下書きも両タブの親が持つ");
+  assert.match(page, /withProviderDraft\(/);
+
+  const providersTab = readFileSync(
+    fileURLToPath(new URL("../src/components/model-settings/ProvidersTab.tsx", import.meta.url)),
+    "utf8",
+  );
+  // apiKey / memo のローカル state を持たない (再マウントで保存値に戻らない)
+  assert.equal(providersTab.includes("const [apiKey, setApiKey]"), false);
+  assert.equal(providersTab.includes("const [memo, setMemo]"), false);
+  assert.match(providersTab, /providerDraftOf\(/, "入力値は親の下書きから取る");
+  assert.match(providersTab, /onChangeDraft\(/, "編集は親の下書きを更新する");
+});

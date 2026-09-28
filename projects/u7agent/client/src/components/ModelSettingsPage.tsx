@@ -1,7 +1,13 @@
 import { useRef, useState } from "react";
 import { useModelSettings, type ModelSettings } from "../hooks/useModelSettings";
 import { cn } from "../lib/cn";
-import { availabilityDraftFromSettings, availabilityDraftIsDirty, type AvailabilityDraft } from "../lib/modelSettings";
+import {
+  availabilityDraftState,
+  withProviderDraft,
+  type AvailabilityDraft,
+  type AvailabilityDraftState,
+  type ProviderDraft,
+} from "../lib/modelSettings";
 import { DEFAULT_MODELS_SUBSECTION, MODELS_SUBSECTIONS, type ModelsSubsection } from "../lib/settingsNav";
 import type { Health, SessionSummary } from "../types";
 import { RefreshIcon } from "./icons";
@@ -85,15 +91,17 @@ export function ModelSettingsView({
     remove,
     resync,
   } = modelSettings;
-  // 下書きは両タブの親が持つ。タブを切り替えて片方が unmount しても、未保存の選択と既定モデルを失わない
+  // モデルの下書きは両タブの親が持つ。タブを切り替えて片方が unmount しても、未保存の選択と既定モデルを失わない
   const [draft, setDraft] = useState<AvailabilityDraft>(EMPTY_DRAFT);
-  const appliedInitial = useRef<AvailabilityDraft | null>(null);
-  const initialDraft = settings ? availabilityDraftFromSettings(settings, catalog) : null;
-  // 初期下書きが変わったときだけ下書きを作り直す。catalog の到着でも null (旧・制限なし) の展開が
-  // 変わるため、Effect の遅延で古い下書きを見せないよう render 中に同期させる
-  if (initialDraft && (!appliedInitial.current || availabilityDraftIsDirty(initialDraft, appliedInitial.current))) {
-    appliedInitial.current = initialDraft;
-    setDraft(initialDraft);
+  // provider 詳細の入力下書き (apiKey / memo) も同じ親が持つ。タブ切替・provider 切替・検索で失わない
+  const [providerDrafts, setProviderDrafts] = useState<Record<string, ProviderDraft>>({});
+  const appliedDraft = useRef<AvailabilityDraftState | null>(null);
+  // 比較基準は保存値が変わったときと null (旧・制限なし) の初回展開でだけ作り直す。
+  // カタログの更新 (キー操作での再取得・取得失敗) だけでは、編集中の下書きを置換しない
+  const draftState = settings ? availabilityDraftState(appliedDraft.current, settings, catalog) : null;
+  if (draftState && draftState !== appliedDraft.current) {
+    appliedDraft.current = draftState;
+    setDraft(draftState.initial);
   }
 
   return (
@@ -142,6 +150,10 @@ export function ModelSettingsView({
             onSaveMemo={saveMemo}
             onDelete={remove}
             onResync={resync}
+            drafts={providerDrafts}
+            onChangeDraft={(provider, next) =>
+              setProviderDrafts((current) => withProviderDraft(current, provider, next))
+            }
             onOpenModels={() => onSelectModelsSubsection?.(DEFAULT_MODELS_SUBSECTION)}
           />
         ) : (
@@ -151,7 +163,7 @@ export function ModelSettingsView({
             catalogError={catalogError}
             saving={savingAvailability}
             draft={draft}
-            initialDraft={initialDraft ?? draft}
+            initialDraft={draftState?.initial ?? draft}
             setDraft={setDraft}
             onSave={saveAvailability}
             compact={compact}

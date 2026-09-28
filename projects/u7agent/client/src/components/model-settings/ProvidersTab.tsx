@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { cn } from "../../lib/cn";
 import { messageTimeLabel } from "../../lib/messageTime";
 import {
@@ -9,8 +9,10 @@ import {
   groupProviders,
   MEMO_MAX_LENGTH,
   providerAuthBadge,
+  providerDraftOf,
   providerUsage,
   resyncAvailable,
+  type ProviderDraft,
 } from "../../lib/modelSettings";
 import type { ModelsSettingsResponse, ProviderAuthSetting, RuntimeModelsResponse, SessionSummary } from "../../types";
 import { CheckIcon, KeyIcon, RefreshIcon, TrashIcon } from "../icons";
@@ -29,6 +31,9 @@ export type ProvidersTabProps = {
   onSaveMemo: (provider: string, memo: string) => Promise<boolean>;
   onDelete: (provider: string) => Promise<boolean>;
   onResync: (provider: string) => Promise<boolean>;
+  /** provider ごとの入力下書き (apiKey / memo)。両タブの親が保持する */
+  drafts: Record<string, ProviderDraft>;
+  onChangeDraft: (provider: string, draft: ProviderDraft) => void;
   /** キー登録後にモデルを選びに行く導線 */
   onOpenModels: () => void;
 };
@@ -50,6 +55,8 @@ export function ProvidersTab({
   onSaveMemo,
   onDelete,
   onResync,
+  drafts,
+  onChangeDraft,
   onOpenModels,
 }: ProvidersTabProps) {
   const [query, setQuery] = useState("");
@@ -156,6 +163,8 @@ export function ProvidersTab({
                 onSaveMemo={onSaveMemo}
                 onDelete={onDelete}
                 onResync={onResync}
+                drafts={drafts}
+                onChangeDraft={onChangeDraft}
                 onOpenModels={onOpenModels}
               />
             ) : (
@@ -220,6 +229,8 @@ function ProviderDetail({
   onSaveMemo,
   onDelete,
   onResync,
+  drafts,
+  onChangeDraft,
   onOpenModels,
 }: {
   provider: ProviderAuthSetting;
@@ -233,11 +244,14 @@ function ProviderDetail({
   onSaveMemo: (provider: string, memo: string) => Promise<boolean>;
   onDelete: (provider: string) => Promise<boolean>;
   onResync: (provider: string) => Promise<boolean>;
+  drafts: Record<string, ProviderDraft>;
+  onChangeDraft: (provider: string, draft: ProviderDraft) => void;
   onOpenModels: () => void;
 }) {
-  const [apiKey, setApiKey] = useState("");
+  // 入力値は親が持つ下書きから取る。このコンポーネントの再マウント (タブ切替・provider 切替) で失わない
+  const draft = providerDraftOf(drafts, provider);
+  const { apiKey, memo } = draft;
   const savedMemo = provider.memo ?? "";
-  const [memo, setMemo] = useState(savedMemo);
   const badge = providerAuthBadge(provider);
   const notice = degradedNotice(provider);
   const catalogProvider = catalog?.providers.find((entry) => entry.provider === provider.provider);
@@ -258,20 +272,24 @@ function ProviderDetail({
         ? "この provider の会話はありません"
         : `最終使用: ${messageTimeLabel(usage.lastUsedAt)} · この provider の会話 ${usage.sessions} 件`;
 
-  // 保存値が変わったときだけ入力値を合わせる (同じ内容の再取得で編集中の下書きを消さない)
+  // 保存値が変わったときだけ入力値を合わせる (同じ内容の再取得で編集中の下書きを消さない)。
+  // mount 直後 (provider 切替) は同期しない: 親が保つ下書きを保存値で上書きしないため
+  const previousSavedMemo = useRef(savedMemo);
   useEffect(() => {
-    setMemo(savedMemo);
+    if (previousSavedMemo.current === savedMemo) return;
+    previousSavedMemo.current = savedMemo;
+    onChangeDraft(provider.provider, { apiKey, memo: savedMemo });
   }, [savedMemo]);
 
   const submit = async () => {
     // 保存できたときだけ入力を消す (失敗したら打ち直さず再利用できるように)
-    if (await onSave(provider.provider, apiKey)) setApiKey("");
+    if (await onSave(provider.provider, apiKey)) onChangeDraft(provider.provider, { apiKey: "", memo });
   };
 
   const submitMemo = async () => {
     // サーバーが trim して保存するため、成功時は trim 済みの値で入力値を戻して dirty を消す
     const trimmed = memo.trim();
-    if (await onSaveMemo(provider.provider, trimmed)) setMemo(trimmed);
+    if (await onSaveMemo(provider.provider, trimmed)) onChangeDraft(provider.provider, { apiKey, memo: trimmed });
   };
 
   return (
@@ -331,7 +349,7 @@ function ProviderDetail({
                 aria-label={`${provider.name} のAPIキー`}
                 autoComplete="off"
                 spellCheck={false}
-                onChange={(event) => setApiKey(event.currentTarget.value)}
+                onChange={(event) => onChangeDraft(provider.provider, { apiKey: event.currentTarget.value, memo })}
               />
               <button type="submit" className="btn-primary" disabled={busy || apiKey.length === 0}>
                 <CheckIcon />
@@ -393,7 +411,7 @@ function ProviderDetail({
               placeholder="例: 個人アカウントの本番キー（2026-01 発行）"
               aria-label={`${provider.name} のメモ`}
               disabled={!runtimeAvailable}
-              onChange={(event) => setMemo(event.currentTarget.value)}
+              onChange={(event) => onChangeDraft(provider.provider, { apiKey, memo: event.currentTarget.value })}
             />
           </label>
           <div className="flex flex-wrap items-center justify-between gap-2">

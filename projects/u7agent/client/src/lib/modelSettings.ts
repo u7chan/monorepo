@@ -132,6 +132,33 @@ export function providerUsage(sessions: SessionSummary[], provider: string): Pro
   return { sessions: count, lastUsedAt };
 }
 
+// --- provider 詳細の入力下書き（両タブの親が持つ） ---
+
+/** provider 詳細の入力下書き。タブ切替・provider 切替・検索を跨いで親が保つ */
+export interface ProviderDraft {
+  apiKey: string;
+  memo: string;
+}
+
+/**
+ * 入力欄に出す下書き。まだ触っていない provider は保存値 (メモ) から作り、触った後は親の下書きを使う。
+ * 子を再マウントしても編集中の値を失わないための入口 (provider.memo で再初期化しない)。
+ */
+export function providerDraftOf(drafts: Record<string, ProviderDraft>, provider: ProviderAuthSetting): ProviderDraft {
+  return drafts[provider.provider] ?? { apiKey: "", memo: provider.memo ?? "" };
+}
+
+/** 下書きの保存。内容が同じなら同じ参照を返し、不要な再レンダーを作らない */
+export function withProviderDraft(
+  drafts: Record<string, ProviderDraft>,
+  provider: string,
+  draft: ProviderDraft,
+): Record<string, ProviderDraft> {
+  const current = drafts[provider];
+  if (current && current.apiKey === draft.apiKey && current.memo === draft.memo) return drafts;
+  return { ...drafts, [provider]: draft };
+}
+
 /** 設定済みを先頭に、未設定は畳めるよう後ろへ分ける。並びはサーバーが返した順を保つ */
 export function groupProviders(
   settings: ModelsSettingsResponse,
@@ -251,7 +278,7 @@ export interface AvailabilityDraft {
  * (足さないと、別の差分を保存した時点で既定モデルが選択外になり 400 になる)。
  */
 export function availabilityDraftFromSettings(
-  settings: ModelsSettingsResponse,
+  settings: Pick<ModelsSettingsResponse, "allowedModels" | "defaultModel">,
   catalog: RuntimeModelsResponse | null,
 ): AvailabilityDraft {
   const allowed =
@@ -262,6 +289,33 @@ export function availabilityDraftFromSettings(
       : [...settings.allowedModels];
   if (settings.defaultModel && !allowed.includes(settings.defaultModel)) allowed.push(settings.defaultModel);
   return { allowed, defaultModel: settings.defaultModel };
+}
+
+/** 下書きの比較基準。`settings` はこの基準を作った保存値、`expandedNull` は null をカタログつきで展開済みか */
+export interface AvailabilityDraftState {
+  settings: Pick<ModelsSettingsResponse, "allowedModels" | "defaultModel">;
+  initial: AvailabilityDraft;
+  expandedNull: boolean;
+}
+
+/**
+ * 保存値とカタログから下書きの比較基準を作る。保存値 (allowedModels / defaultModel) が変わったときと、
+ * null (旧・制限なし) をまだカタログつきで展開していないときだけ作り直し、それ以外は同じ参照を返す。
+ * カタログの更新 (キー操作での再取得・取得失敗) だけでは、編集中の下書きを置換しない。
+ */
+export function availabilityDraftState(
+  previous: AvailabilityDraftState | null,
+  settings: Pick<ModelsSettingsResponse, "allowedModels" | "defaultModel">,
+  catalog: RuntimeModelsResponse | null,
+): AvailabilityDraftState {
+  // null の展開はカタログが要る。カタログが無い間は初期値だけを作り、到着後の 1 回で展開する
+  const needsExpansion = settings.allowedModels === null && catalog !== null && !(previous?.expandedNull ?? false);
+  if (previous && !needsExpansion && sameAvailabilitySettings(previous.settings, settings)) return previous;
+  return {
+    settings,
+    initial: availabilityDraftFromSettings(settings, catalog),
+    expandedNull: settings.allowedModels !== null || catalog !== null,
+  };
 }
 
 /** 設定 API の配列参照が変わっても、保存値の要素内容が同じなら編集中の下書きを保つ */

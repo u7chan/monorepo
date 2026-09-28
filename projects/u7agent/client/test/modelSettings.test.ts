@@ -10,6 +10,7 @@ import {
   availabilityDefaultChoices,
   availabilityDraftFromSettings,
   availabilityDraftIsDirty,
+  availabilityDraftState,
   availabilityNotice,
   availabilitySaveConfirmMessage,
   availabilitySaveOnSubmit,
@@ -27,6 +28,7 @@ import {
   mutationNote,
   normalizeAllowedModels,
   providerAuthBadge,
+  providerDraftOf,
   providerUsage,
   resyncAvailable,
   sameAvailabilitySettings,
@@ -34,6 +36,7 @@ import {
   UNSET_DEFAULT_MODEL_LABEL,
   validateApiKey,
   validateMemo,
+  withProviderDraft,
 } from "../src/lib/modelSettings";
 import type {
   ModelMutationResponse,
@@ -257,6 +260,27 @@ test("providerUsage は model の最初の / で provider を分け、会話数�
   assert.deepEqual(providerUsage([], "anthropic"), { sessions: 0, lastUsedAt: null });
 });
 
+test("provider の入力下書きは親が持ち、未編集の provider は保存値を使う", () => {
+  const saved = provider({ memo: "個人アカウントの控え" });
+  assert.deepEqual(providerDraftOf({}, saved), { apiKey: "", memo: "個人アカウントの控え" });
+
+  const drafts = withProviderDraft({}, "anthropic", { apiKey: "sk-live", memo: "編集中" });
+  // 保存値の再取得や別 provider の追加があっても、編集中の下書きをそのまま返す (再マウントで復元する値)
+  assert.deepEqual(providerDraftOf(drafts, saved), { apiKey: "sk-live", memo: "編集中" });
+  assert.deepEqual(providerDraftOf(drafts, provider({ memo: "別の控え" })), { apiKey: "sk-live", memo: "編集中" });
+  assert.deepEqual(providerDraftOf(drafts, provider({ provider: "openai", name: "OpenAI" })), {
+    apiKey: "",
+    memo: "",
+  });
+
+  // 更新は provider ごとに独立し、内容が同じなら同じ参照を返す
+  assert.equal(withProviderDraft(drafts, "anthropic", { apiKey: "sk-live", memo: "編集中" }), drafts);
+  assert.deepEqual(withProviderDraft(drafts, "openai", { apiKey: "sk-other", memo: "" }), {
+    anthropic: { apiKey: "sk-live", memo: "編集中" },
+    openai: { apiKey: "sk-other", memo: "" },
+  });
+});
+
 test("APIキーの長さはサーバーと同じ境界で検証する", () => {
   assert.equal(validateApiKey("a".repeat(API_KEY_MIN_LENGTH - 1)), "APIキーは 8 文字以上で入力してください。");
   assert.equal(validateApiKey("a".repeat(API_KEY_MIN_LENGTH)), undefined);
@@ -332,6 +356,45 @@ test("保存値から下書きを作り、null は利用可能な全モデルを
     allowed: [KEY_B],
     defaultModel: KEY_B,
   });
+});
+
+test("下書きの比較基準はカタログの更新では作り直さず、保存値と初回の null 展開でだけ作り直す", () => {
+  const nullSettings = { allowedModels: null, defaultModel: null };
+  // カタログ取得前は空。展開済みフラグは false
+  const pending = availabilityDraftState(null, nullSettings, null);
+  assert.deepEqual(pending.initial, { allowed: [], defaultModel: null });
+  assert.equal(pending.expandedNull, false);
+  // カタログが届いたら 1 回だけ展開する
+  const expanded = availabilityDraftState(pending, nullSettings, CATALOG);
+  assert.notEqual(expanded, pending);
+  assert.deepEqual(expanded.initial.allowed, [KEY_A], "available の全件を選択済みにする");
+  assert.equal(expanded.expandedNull, true);
+
+  // キー登録でカタログに新しい provider が増えても、比較基準は作り直さない (編集中の下書きを置換しない)
+  const grown: RuntimeModelsResponse = {
+    ...CATALOG,
+    providers: [
+      ...CATALOG.providers,
+      {
+        provider: "b",
+        auth: { configured: true, source: "environment", environmentVariables: [] },
+        models: [{ id: "three", name: "Three", available: true }],
+      },
+    ],
+  };
+  assert.equal(availabilityDraftState(expanded, nullSettings, grown), expanded);
+  // 再取得に失敗してカタログを失っても作り直さない
+  assert.equal(availabilityDraftState(expanded, nullSettings, null), expanded);
+  // 保存値が変わったら作り直す
+  const saved = { allowedModels: [KEY_B], defaultModel: KEY_B };
+  const next = availabilityDraftState(expanded, saved, grown);
+  assert.notEqual(next, expanded);
+  assert.deepEqual(next.initial, { allowed: [KEY_B], defaultModel: KEY_B });
+
+  // 明示リストのときもカタログの更新では作り直さない
+  const listSettings = { allowedModels: [KEY_A], defaultModel: null };
+  const listState = availabilityDraftState(null, listSettings, CATALOG);
+  assert.equal(availabilityDraftState(listState, listSettings, grown), listState);
 });
 
 test("明示リストの正規化は空だけを null へ寄せ、全選択でもリストを返す", () => {
