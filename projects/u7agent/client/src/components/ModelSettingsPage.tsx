@@ -19,6 +19,7 @@ import {
   deleteConfirmMessage,
   groupProviders,
   isModelAllowed,
+  MEMO_MAX_LENGTH,
   normalizeAllowedModels,
   providerAuthBadge,
   resyncAvailable,
@@ -76,6 +77,7 @@ export function ModelSettingsView({
     reloading,
     reload,
     save,
+    saveMemo,
     saveAvailability,
     remove,
     resync,
@@ -110,7 +112,7 @@ export function ModelSettingsView({
           <ScreenInfo />
           {settings.runtimeAvailable ? null : (
             <p role="alert" className="rounded-lg border border-warn/40 bg-raised px-2.5 py-2 text-2xs text-warn">
-              ランタイムが利用できないため、APIキーの登録・削除はできません。サーバーの起動ログを確認してください。
+              ランタイムが利用できないため、APIキーとメモの変更はできません。サーバーの起動ログを確認してください。
             </p>
           )}
 
@@ -121,9 +123,11 @@ export function ModelSettingsView({
                   key={provider.provider}
                   provider={provider}
                   catalog={catalog}
+                  runtimeAvailable={settings.runtimeAvailable}
                   saving={saving === provider.provider}
                   busy={saving !== null}
                   onSave={(apiKey) => save(provider.provider, apiKey)}
+                  onSaveMemo={(memo) => saveMemo(provider.provider, memo)}
                   onDelete={() => remove(provider.provider)}
                   onResync={() => resync(provider.provider)}
                 />
@@ -149,9 +153,11 @@ export function ModelSettingsView({
                       key={provider.provider}
                       provider={provider}
                       catalog={catalog}
+                      runtimeAvailable={settings.runtimeAvailable}
                       saving={saving === provider.provider}
                       busy={saving !== null}
                       onSave={(apiKey) => save(provider.provider, apiKey)}
+                      onSaveMemo={(memo) => saveMemo(provider.provider, memo)}
                       onDelete={() => remove(provider.provider)}
                       onResync={() => resync(provider.provider)}
                     />
@@ -197,6 +203,7 @@ function ScreenInfo() {
       <h3 className="text-2xs font-semibold tracking-label text-ink-faint uppercase">この画面でできること</h3>
       <ul className="grid gap-1 text-2xs leading-relaxed text-ink-soft">
         <li>登録したキーはアプリのデータベース（SQLite）へ平文で保存され、再起動後も使われます。</li>
+        <li>メモも平文で保存され、この画面と API 応答に表示されます。キー本体は書かないでください。</li>
         <li>保存したキーは再表示しません。変更するときは同じ provider へ上書き登録してください。</li>
         <li>この GUI にはログインがありません。BFF をインターネットや LAN へ公開しないでください。</li>
         <li>キーの有効性は保存時に確認しません。「利用可能」なモデル数の増加を目安にしてください。</li>
@@ -574,29 +581,47 @@ const BADGE_TONE: Record<ProviderBadgeTone, string> = {
 function ProviderCard({
   provider,
   catalog,
+  runtimeAvailable,
   saving,
   busy,
   onSave,
+  onSaveMemo,
   onDelete,
   onResync,
 }: {
   provider: ProviderAuthSetting;
   catalog: RuntimeModelsResponse | null;
+  runtimeAvailable: boolean;
   saving: boolean;
   busy: boolean;
   onSave: (apiKey: string) => Promise<boolean>;
+  onSaveMemo: (memo: string) => Promise<boolean>;
   onDelete: () => Promise<boolean>;
   onResync: () => Promise<boolean>;
 }) {
   const [apiKey, setApiKey] = useState("");
+  const savedMemo = provider.memo ?? "";
+  const [memo, setMemo] = useState(savedMemo);
   const badge = providerAuthBadge(provider);
   const notice = degradedNotice(provider);
   const catalogProvider = catalog?.providers.find((entry) => entry.provider === provider.provider);
   const available = availableCountOf(catalog, provider.provider);
+  const memoDirty = memo.trim() !== savedMemo;
+
+  // 保存値が変わったときだけ入力値を合わせる (同じ内容の再取得で編集中の下書きを消さない)
+  useEffect(() => {
+    setMemo(savedMemo);
+  }, [savedMemo]);
 
   const submit = async () => {
     // 保存できたときだけ入力を消す (失敗したら打ち直さず再利用できるように)
     if (await onSave(apiKey)) setApiKey("");
+  };
+
+  const submitMemo = async () => {
+    // サーバーが trim して保存するため、成功時は trim 済みの値で入力値を戻して dirty を消す
+    const trimmed = memo.trim();
+    if (await onSaveMemo(trimmed)) setMemo(trimmed);
   };
 
   return (
@@ -631,7 +656,7 @@ function ProviderCard({
           現在のカタログに無い provider です。
           {provider.managed
             ? "保存済みのキーは削除できます（カタログに戻るまで再登録はできません）。"
-            : "この画面からの登録はできません。"}
+            : "キーの登録はできません（メモは保存できます）。"}
         </p>
       ) : null}
 
@@ -685,6 +710,36 @@ function ProviderCard({
           </button>
         ) : null}
       </div>
+
+      {/* キー入力とは別の form にして、Enter がキーの保存を走らせないようにする */}
+      <form
+        className="grid gap-1"
+        onSubmit={(event) => {
+          event.preventDefault();
+          void submitMemo();
+        }}
+      >
+        <label className="grid gap-1 text-2xs text-ink-soft">
+          メモ
+          <textarea
+            className="field min-h-11 min-w-0 text-xs"
+            rows={2}
+            maxLength={MEMO_MAX_LENGTH}
+            value={memo}
+            placeholder="例: 個人アカウントの本番キー（2026-01 発行）"
+            aria-label={`${provider.name} のメモ`}
+            disabled={!runtimeAvailable}
+            onChange={(event) => setMemo(event.currentTarget.value)}
+          />
+        </label>
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <span className="text-2xs text-warn">{memoDirty ? "メモに未保存の変更があります" : ""}</span>
+          <button type="submit" className="btn-primary" disabled={!memoDirty || !runtimeAvailable || busy}>
+            <CheckIcon />
+            メモを保存
+          </button>
+        </div>
+      </form>
 
       {catalogProvider ? (
         <details className="rounded-md border border-line bg-raised">

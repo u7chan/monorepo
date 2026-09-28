@@ -460,6 +460,16 @@ export const deleteProviderApiKey = async (provider: string): Promise<ModelMutat
   return (await res.json()) as ModelMutationResponse;
 };
 
+/**
+ * provider のメモ（人間用の任意文字列）。SDK に触れないため常に `state: "applied"`。
+ * 空文字を送ると行が消えて `memo: null` に戻る。
+ */
+export const putProviderMemo = async (provider: string, memo: string): Promise<ModelMutationResponse> => {
+  const res = await client.api.settings.models[":provider"].memo.$put({ param: { provider }, json: { memo } });
+  if (!res.ok) throw await apiError(res);
+  return (await res.json()) as ModelMutationResponse;
+};
+
 /** degraded（保存済み・未反映）の回復。DB の希望状態を SDK へ再適用するだけで、冪等 */
 export const resyncProviderApiKey = async (provider: string): Promise<ModelMutationResponse> => {
   const res = await client.api.settings.models[":provider"].resync.$post({ param: { provider } });

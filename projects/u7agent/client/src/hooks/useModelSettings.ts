@@ -6,9 +6,16 @@ import {
   getRuntimeModels,
   putModelAvailability,
   putProviderApiKey,
+  putProviderMemo,
   resyncProviderApiKey,
 } from "../api";
-import { MODEL_SETTINGS_NOTE, mutationNote, validateApiKey, type MutationAction } from "../lib/modelSettings";
+import {
+  MODEL_SETTINGS_NOTE,
+  mutationNote,
+  validateApiKey,
+  validateMemo,
+  type MutationAction,
+} from "../lib/modelSettings";
 import type {
   Health,
   ModelMutationResponse,
@@ -143,6 +150,36 @@ export function useModelSettings({ onRefreshHealth }: ModelSettingsParams) {
     [runMutation],
   );
 
+  /**
+   * provider メモの保存。SDK に触れないため health / カタログの再取得は通さないが、
+   * 進行中の reload() の応答で保存直後の設定を上書きされないよう、先行ロードは無効化する。
+   */
+  const saveMemo = useCallback(
+    async (provider: string, memo: string): Promise<boolean> => {
+      const invalid = validateMemo(memo);
+      if (invalid) {
+        setNote({ text: invalid, error: true });
+        return false;
+      }
+      setSaving(provider);
+      try {
+        const response = await putProviderMemo(provider, memo);
+        beginLoad();
+        setSettings(response);
+        setNote(mutationNote("memo", response, memo.trim().length === 0));
+        return true;
+      } catch (error) {
+        // 何も保存されなかった (503 not_stored / 400) ことを文言で区別する
+        const prefix = error instanceof ApiError && error.state === "not_stored" ? "変更は保存されていません。" : "";
+        setNote({ text: `${prefix}${messageFor(error)}`, error: true });
+        return false;
+      } finally {
+        setSaving(null);
+      }
+    },
+    [beginLoad],
+  );
+
   const resync = useCallback(
     (provider: string): Promise<boolean> => runMutation(provider, "resync", () => resyncProviderApiKey(provider)),
     [runMutation],
@@ -158,6 +195,7 @@ export function useModelSettings({ onRefreshHealth }: ModelSettingsParams) {
     reloading,
     reload,
     save,
+    saveMemo,
     saveAvailability,
     remove,
     resync,

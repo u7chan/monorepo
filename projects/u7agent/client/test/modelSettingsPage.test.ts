@@ -32,6 +32,7 @@ function provider(overrides: Partial<ProviderAuthSetting> = {}): ProviderAuthSet
     canSetApiKey: true,
     supportsOAuth: false,
     orphan: false,
+    memo: null,
     ...overrides,
   };
 }
@@ -83,6 +84,7 @@ function modelSettings(overrides: Partial<ModelSettings> = {}): ModelSettings {
     reloading: false,
     reload: async () => {},
     save: async () => true,
+    saveMemo: async () => true,
     saveAvailability: async () => SETTINGS,
     remove: async () => true,
     resync: async () => true,
@@ -108,6 +110,52 @@ test("provider 行に認証バッジ・キー入力・削除・再同期・モ�
   assert.ok(html.includes("カタログに戻るまで再登録はできません"), "orphan の保存行は削除だけできると書く");
   assert.ok(html.includes("未設定のプロバイダーを表示 (2)"), "未設定は畳んで件数だけ出す");
   assert.ok(html.includes("キーの有効性は保存時に確認しません"), "有効性を検証しない旨を出す");
+});
+
+test("provider 行にメモ欄と保存ボタンを出し、runtime 不可では disable する", () => {
+  const html = render(
+    modelSettings({ settings: { ...SETTINGS, providers: [provider({ memo: "個人アカウントの控え" })] } }),
+  );
+  const textarea = /<textarea[^>]*>/.exec(html)?.[0] ?? "";
+  assert.ok(textarea !== "", "メモ欄を出す");
+  assert.ok(
+    textarea.toLowerCase().includes('maxlength="500"') && textarea.includes('rows="2"'),
+    "rows と上限で高さを押さえる",
+  );
+  assert.equal(textarea.includes("disabled"), false, "runtime が使えるときは編集できる");
+  assert.ok(html.includes("個人アカウントの控え"), "保存済みのメモを入力値として出す");
+  assert.ok(html.includes("メモを保存"), "メモの保存ボタンを出す");
+  assert.ok(
+    html.includes("例: 個人アカウントの本番キー（2026-01 発行）"),
+    "placeholder でキー本体を書かないよう誘導する",
+  );
+  assert.ok(html.includes("メモも平文で保存され"), "メモが画面と API 応答に出ることを注記する");
+  assert.equal(html.includes("メモに未保存の変更があります"), false, "変更がなければ未保存の印を出さない");
+  // キー入力の form と別にして、Enter がキーの保存を走らせないようにする
+  assert.ok((html.match(/<form/g) ?? []).length >= 2, "メモは専用の form に分ける");
+
+  const stopped = render(
+    modelSettings({ settings: { ...SETTINGS, runtimeAvailable: false, providers: [provider()] } }),
+  );
+  const stoppedTextarea = /<textarea[^>]*>/.exec(stopped)?.[0] ?? "";
+  assert.ok(stoppedTextarea.includes("disabled"), "runtime 不可ではメモ欄を disable する");
+});
+
+test("カタログ外のメモだけの provider はキーを登録できないがメモは書けると案内する", () => {
+  const html = render(
+    modelSettings({
+      settings: {
+        ...SETTINGS,
+        providers: [
+          provider({ provider: "memo-only", name: "memo-only", orphan: true, canSetApiKey: false, memo: "控え" }),
+        ],
+      },
+      catalog: null,
+    }),
+  );
+  assert.ok(html.includes("キーの登録はできません（メモは保存できます）"), "メモ欄の存在が伝わる文言にする");
+  assert.ok(html.includes("控え"), "既存のメモを表示する");
+  assert.equal(html.includes('type="password"'), false, "キーの入力欄は出さない");
 });
 
 test("利用可能なモデルのセクションは先頭に出て、選択・既定・利用可能数を示す", () => {
@@ -225,7 +273,7 @@ test("ランタイム不可のときは警告を出し、カタログ失敗も�
       catalogError: "ランタイムのモデル情報を取得できません",
     }),
   );
-  assert.ok(html.includes("APIキーの登録・削除はできません"), "変更できないことを先に伝える");
+  assert.ok(html.includes("APIキーとメモの変更はできません"), "変更できないことを先に伝える");
   assert.ok(html.includes("モデル一覧を取得できませんでした"), "カタログの失敗を独立して出す");
 });
 

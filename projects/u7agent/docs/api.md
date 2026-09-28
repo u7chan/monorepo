@@ -24,7 +24,7 @@ DTO の正は `server/src/schema.ts`（zod）。リクエストボディは `@ho
 | セッション | `/api/sessions`、`/api/sessions/:id`、`/skills`、`/files`、`/messages`、`/events`、`/settings`、`/stop`、`/compact` | [api-sessions.md](api-sessions.md) |
 | 通知（Discord） | `GET/PUT /api/notifications`、`POST /api/notifications/test`、`PATCH /api/sessions/:id/notify` | [notifications.md](notifications.md) |
 | アーカイブの除外名 | `GET/PUT/DELETE /api/settings/archive` | このファイル |
-| プロバイダーAPIキー（設定 → モデル） | `GET /api/settings/models`、`PUT/DELETE /api/settings/models/:provider/key`、`POST /api/settings/models/:provider/resync` | このファイル |
+| プロバイダーAPIキーとメモ（設定 → モデル） | `GET /api/settings/models`、`PUT/DELETE /api/settings/models/:provider/key`、`PUT /api/settings/models/:provider/memo`、`POST /api/settings/models/:provider/resync` | このファイル |
 | エージェント / スキル | `/api/agents`、`/api/skills`、`/api/skills/files`、`/api/skills/session` | [api-catalog.md](api-catalog.md)、[api-sessions.md](api-sessions.md) |
 | サンドボックス（内部） | `/v1/*`（BFF からは見えない） | [sandbox-api.md](sandbox-api.md) |
 
@@ -320,6 +320,7 @@ Content-Security-Policy: sandbox allow-scripts; default-src 'none'; style-src 'u
 | GET | `/api/settings/models` | 保存値（`allowedModels` / `defaultModel`）と provider 一覧（auth 状態 / managed / canSetApiKey / orphan / degraded）。純粋読取 |
 | PUT | `/api/settings/models/allowed` | 利用可能なモデルとアプリ既定モデルの一括保存。body は `{ "allowedModels": ["<provider>/<id>"], "defaultModel": "<provider>/<id>" }`（どちらも `null` 可） |
 | PUT | `/api/settings/models/:provider/key` | APIキーを登録（既存は上書き）。body は `{ "apiKey": "…" }` |
+| PUT | `/api/settings/models/:provider/memo` | provider のメモを保存（`trim` して空なら行を削除）。body は `{ "memo": "…" }`（0..500 文字） |
 | DELETE | `/api/settings/models/:provider/key` | この画面で登録したキーを削除 |
 | POST | `/api/settings/models/:provider/resync` | degraded（保存済み・未反映）の回復。body 無し |
 
@@ -341,7 +342,8 @@ Content-Security-Policy: sandbox allow-scripts; default-src 'none'; style-src 'u
       "canSetApiKey": true,
       "supportsOAuth": false,
       "orphan": false,
-      "degraded": "apply"
+      "degraded": "apply",
+      "memo": "個人アカウントの本番キー"
     }
   ]
 }
@@ -353,13 +355,15 @@ Content-Security-Policy: sandbox allow-scripts; default-src 'none'; style-src 'u
 - `PUT /api/settings/models/allowed` は `provider/model` 形式・重複なし・カタログ内・既定が許可リスト内（制限なしのときはカタログ内）を検証し、400 で理由を返す（`カタログに無いモデルは指定できません: <provider>/<id>` など）。「許可リスト内だが未認証」の既定は保存できる（画面が警告と確認を出す）。応答は GET と同じ形 + `state: "applied"`
 - `state: "applied"` は「アプリ DB へ保存し、公開 state（availableModels / modelOptions / selectedModel / resolveModel）を再計算した」ことを表す。SDK 呼び出しを含まないため `applied_unsynced` は無い。`null` の保存（未設定へ戻す）で行が消え、再起動後も維持される
 - `managed` は `provider_credentials` に行がある（保存済みの希望状態）、`auth.source` は SDK の実効値（`runtime` / `environment` / `stored` …）、`degraded` はこのプロセスの SDK 反映が未完了（`apply` = 未適用 / `remove` = 削除未反映）を表す。3 つは独立で、混ぜて「使える」と見せない
+- `memo` は `provider_memos` の行と同じで、`null` = 未設定。**人間用の控えで、キーの登録有無（`managed`）とは独立**し、キーを削除しても残る。`canSetApiKey` が false の provider（ambient / keyless）にも書ける。メモだけの provider は `orphan: true` / `managed: false` として出る（カタログ外のバッジに落ちる）。メモは秘密情報ではないのでマスカーには登録しない（[secrets.md](secrets.md)）
 - `canSetApiKey` は SDK の `auth.apiKey.login` の有無。false の provider（ambient / keyless）はこの画面からキーを登録できない
 - `orphan: true` は現在のカタログに無い DB 行。`name` は provider id になり、削除だけできる（再同期はできない）
 - キー値・ラベル・生の認証エラーは GET の応答に含めない。環境変数の**変数名**だけを `environmentVariables` に載せる（`GET /api/health` と同じ公開範囲）
 - 変更系の本文は `{ "apiKey": "…" }` で、8..2048 文字。形が違う場合は 400（SDK / DB へ要求を出さない）
+- `PUT /api/settings/models/:provider/memo` の本文は `{ "memo": "…" }` で、500 文字まで。`trim` して空なら行を消して `memo: null` に戻す。SDK 呼び出しを含まないため応答は常に `state: "applied"`。カタログに無い provider は credential 行かメモ行が既にあるときだけ受け付け、それ以外は 400（`このプロバイダーのメモは保存できません`）。500 文字超と形の違う本文は route の zod が 400 にする
 - 200 の応答は GET と同じ形 + 必須の `state`。`applied` は反映まで成功、`applied_unsynced` は「保存済み・反映未完了」で、再同期 / 次回の変更 / 再起動で収束する
 - 503 は `{ "error": "…", "state": "not_stored" }` で、何も保存されていないことを示す（DB 書込前の失敗、ランタイム初期化失敗など）。400 は `{ "error": "…" }` だけ。`PUT /api/settings/models/allowed` もランタイムが無いときは 503 `not_stored`（カタログ検証ができないため）
-- 400: 未知の provider / `canSetApiKey` が false の provider への PUT、登録行が無い provider の DELETE、再同期の対象外（カタログに無く degraded も `remove` でない）。サンドボックスは使わない
+- 400: 未知の provider / `canSetApiKey` が false の provider への PUT、登録行が無い provider の DELETE、再同期の対象外（カタログに無く degraded も `remove` でない）、メモの対象外 provider。サンドボックスは使わない
 - `POST /:provider/resync` は冪等。degraded でない provider に送っても現在の DB 希望状態を再適用して 200 を返す
 
 ## セッションへのファイルアップロード

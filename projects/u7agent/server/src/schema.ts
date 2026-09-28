@@ -435,6 +435,9 @@ export type RuntimeModelsResponse = z.infer<typeof RuntimeModelsResponseSchema>;
 export const PROVIDER_API_KEY_MIN_LENGTH = 8;
 export const PROVIDER_API_KEY_MAX_LENGTH = 2048;
 
+/** 設定 → モデルの provider メモの上限。秘密情報ではなく、長文でカードが伸びるのを抑える境界 */
+export const PROVIDER_MEMO_MAX_LENGTH = 500;
+
 /** 設定 → モデルの 1 プロバイダー行。認証状態は出所だけで、値・ラベル・生の認証エラーは含めない。 */
 export const ProviderAuthSettingSchema = z.object({
   provider: z.string(),
@@ -449,6 +452,11 @@ export const ProviderAuthSettingSchema = z.object({
   orphan: z.boolean(),
   /** このプロセスの SDK 反映が未完了 (apply = 未適用 / remove = 削除未反映) */
   degraded: z.enum(["apply", "remove"]).optional(),
+  /**
+   * 人間用メモ。provider_memos の行と同じで、null = 未設定。キーの登録有無 (managed) とは独立する。
+   * 秘密情報ではないので、マスカーにも載せない (docs/secrets.md)。
+   */
+  memo: z.string().nullable(),
 });
 export type ProviderAuthSetting = z.infer<typeof ProviderAuthSettingSchema>;
 
@@ -482,6 +490,12 @@ export const UpdateProviderKeyBodySchema = z.object({
   apiKey: z.string().min(PROVIDER_API_KEY_MIN_LENGTH).max(PROVIDER_API_KEY_MAX_LENGTH),
 });
 export type UpdateProviderKeyBody = z.infer<typeof UpdateProviderKeyBodySchema>;
+
+/** メモの保存。空文字は行を消して未設定へ戻す (trim は service が行う) */
+export const UpdateProviderMemoBodySchema = z.object({
+  memo: z.string().max(PROVIDER_MEMO_MAX_LENGTH),
+});
+export type UpdateProviderMemoBody = z.infer<typeof UpdateProviderMemoBodySchema>;
 
 /** 利用可能なモデルの一括保存。両方 null が「未設定へ戻す」なので DELETE は持たない */
 export const UpdateModelAvailabilityBodySchema = z.object({

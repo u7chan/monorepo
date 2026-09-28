@@ -24,6 +24,13 @@ export function createModelSettingsRoutes({ modelSettings }: { modelSettings: Mo
       return c.json(outcome.response, 200);
     },
 
+    /** provider に紐づく人間用メモ。SDK に触れないため応答は常に applied (長さは route の zod が見る) */
+    putMemo: async (c: Context, memo: string) => {
+      const outcome = await modelSettings.putMemo(c.req.param("provider") ?? "", memo);
+      if (outcome.status === 503) return c.json({ error: outcome.error, state: "not_stored" as const }, 503);
+      return c.json(outcome.response, 200);
+    },
+
     deleteKey: async (c: Context) => {
       const outcome = await modelSettings.deleteKey(c.req.param("provider") ?? "");
       if (outcome.status === 503) return c.json({ error: outcome.error, state: "not_stored" as const }, 503);

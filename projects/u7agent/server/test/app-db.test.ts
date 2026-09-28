@@ -544,6 +544,81 @@ test("model settings normalize empty lists and reject a broken JSON value", () =
   }
 });
 
+/** v5 相当のスキーマ (provider_memos が無い状態)。v5 の実ファイルと同じ形 */
+const V5_TABLES = `
+${V4_TABLES}
+CREATE TABLE model_settings (
+  id INTEGER PRIMARY KEY CHECK (id = 1),
+  allowedModels TEXT,
+  defaultModel TEXT
+);
+`;
+
+test("migrates a v5 db additively and keeps provider memos across reopen", () => {
+  const dir = tempStoreDir();
+  try {
+    const raw = new DatabaseSync(join(dir, APP_DB_FILENAME));
+    raw.exec(V5_TABLES);
+    raw.exec("PRAGMA user_version = 5");
+    raw.prepare("INSERT INTO projects (id, name, cwd, createdAt) VALUES (?, ?, ?, ?)").run("p1", "p1", "proj-a", 1);
+    raw.prepare("INSERT INTO provider_credentials (provider, apiKey) VALUES (?, ?)").run("anthropic", "sk-ant-1");
+    raw.close();
+
+    const first = AppDb.open({ storeDir: dir });
+    // 加算移行なので既存のキーは消えない。メモのテーブルは空 (行が無い = 未設定) で始まる
+    assert.deepEqual(first.listProviderCredentials(), [{ provider: "anthropic", apiKey: "sk-ant-1" }]);
+    assert.deepEqual(first.listProviderMemos(), []);
+    assert.equal(first.getProviderMemo("anthropic"), undefined);
+    first.saveProviderMemo("anthropic", "個人アカウントの本番キー");
+    // 同じ provider への保存は上書き (行を増やさない)
+    first.saveProviderMemo("anthropic", "会社アカウント");
+    first.saveProviderMemo("openai", "無料枠");
+    first.close();
+
+    const second = AppDb.open({ storeDir: dir });
+    assert.deepEqual(second.listProviderCredentials(), [{ provider: "anthropic", apiKey: "sk-ant-1" }]);
+    assert.deepEqual(second.listProviderMemos(), [
+      { provider: "anthropic", memo: "会社アカウント" },
+      { provider: "openai", memo: "無料枠" },
+    ]);
+    assert.deepEqual(second.getProviderMemo("anthropic"), { provider: "anthropic", memo: "会社アカウント" });
+    assert.equal(second.getProviderMemo("ghost"), undefined);
+    // キーの行を消すだけではメモは消えない (メモを消すにはメモ自体を空で保存する)
+    assert.equal(second.deleteProviderCredential("anthropic"), true);
+    assert.deepEqual(second.getProviderMemo("anthropic"), { provider: "anthropic", memo: "会社アカウント" });
+    assert.equal(second.deleteProviderMemo("anthropic"), true);
+    assert.equal(second.deleteProviderMemo("anthropic"), false, "無い行の削除は false");
+    second.close();
+
+    const check = new DatabaseSync(join(dir, APP_DB_FILENAME));
+    assert.equal(Number(check.prepare("PRAGMA user_version").get()?.user_version), APP_DB_SCHEMA_VERSION);
+    check.close();
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("a hand-edited empty memo row reads as unset", () => {
+  const dir = tempStoreDir();
+  try {
+    const db = AppDb.open({ storeDir: dir });
+    db.saveProviderMemo("anthropic", "memo");
+    db.close();
+
+    // 手編集された空文字の行を「メモあり」と読み違えない
+    const raw = new DatabaseSync(join(dir, APP_DB_FILENAME));
+    raw.prepare("UPDATE provider_memos SET memo = ''").run();
+    raw.close();
+
+    const broken = AppDb.open({ storeDir: dir });
+    assert.equal(broken.getProviderMemo("anthropic"), undefined);
+    assert.deepEqual(broken.listProviderMemos(), []);
+    broken.close();
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("sanitizeError masks both the query log and the error kept for health", () => {
   const dir = tempStoreDir();
   const key = "sk-ant-dummy-key-0123456789abcdef";
@@ -576,6 +651,52 @@ test("sanitizeError masks both the query log and the error kept for health", () 
       (error: unknown) => !String((error as Error).message).includes(key),
       "503 の本文にもキーを出さない",
     );
+    db.close();
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("provider memo failures keep the memo value out of the log, health and 503 message", () => {
+  const dir = tempStoreDir();
+  const memo = "review-memo-sensitive-text";
+  try {
+    const db = AppDb.open({ storeDir: dir });
+    // 実 DB のトリガーで例外文言へメモ値を写す経路を作る (マスカー未登録のまま境界を通す)
+    const raw = new DatabaseSync(join(dir, APP_DB_FILENAME));
+    raw.prepare("INSERT INTO provider_memos (provider, memo) VALUES (?, ?)").run("openai", memo);
+    raw.exec(
+      `CREATE TRIGGER memo_insert_failure BEFORE INSERT ON provider_memos
+       BEGIN SELECT RAISE(ABORT, 'boom ' || NEW.memo); END`,
+    );
+    raw.exec(
+      `CREATE TRIGGER memo_delete_failure BEFORE DELETE ON provider_memos
+       BEGIN SELECT RAISE(ABORT, 'boom ' || OLD.memo); END`,
+    );
+    raw.close();
+
+    const logged: string[] = [];
+    const originalError = console.error;
+    console.error = (...args: unknown[]) => logged.push(args.map(String).join(" "));
+    try {
+      for (const run of [() => db.saveProviderMemo("anthropic", memo), () => db.deleteProviderMemo("openai")]) {
+        assert.throws(
+          run,
+          (error: unknown) =>
+            isServiceUnavailable(error) &&
+            !String((error as Error).message).includes(memo) &&
+            String((error as Error).message).includes("provider memo query failed"),
+          "503 へ値を含まない固定文言だけを載せる",
+        );
+      }
+    } finally {
+      console.error = originalError;
+    }
+    const status = db.status();
+    assert.equal(status.ok, false);
+    assert.equal(status.error, "provider memo query failed", "health へ載る保持エラーも固定文言にする");
+    assert.ok(!logged.join("\n").includes(memo), `ログにもメモを出さない: ${logged.join("\n")}`);
+    assert.ok(logged.join("\n").includes("provider memo query failed"), "固定文言は残す");
     db.close();
   } finally {
     rmSync(dir, { recursive: true, force: true });
