@@ -5,6 +5,10 @@ import { defineConfig } from "vite";
 export default defineConfig({
   plugins: [react(), tailwindcss()],
   server: {
+    // WSL の NAT 越しに実機から見るため LAN へ開き、3000 が埋まっていれば黙って別ポートへずらさず失敗させる
+    host: true,
+    port: 3000,
+    strictPort: true,
     proxy: {
       // BFF (pnpm dev / pnpm start) へ API を転送する。scripts/dev.mjs は PORT を BFF と揃えて渡す
       "/api": `http://127.0.0.1:${Number(process.env.PORT) || 4317}`,
