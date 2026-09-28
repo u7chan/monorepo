@@ -1,6 +1,8 @@
 import {
   canonicalUserText,
+  historyIdsAfter,
   mergeHistoryPage,
+  newestHistoryItemId,
   prependHistoryPage,
   rebuildHistoryPage,
   toolCardOf,
@@ -103,7 +105,8 @@ export type ChatAction =
   /** 欠落区間の取得失敗。保留を解いて次の resync で取り直せるようにする */
   | { type: "historyGapFailed"; cursor: string }
   /** 上方向の追加取得 (古いページ) */
-  | { type: "prependHistory"; page: HistoryPage }
+  /** 上方向の追加取得 (古いページ)。cursor は要求時に読んだ先頭 item id で、適用中の先頭と一致したときだけ適用する */
+  | { type: "prependHistory"; cursor: string; page: HistoryPage }
   | { type: "historyLoading"; loading: boolean }
   /** 旧サーバー (履歴 API 無し) / セッション消滅。payload.messages ベースの表示へ戻す */
   | { type: "historyUnsupported" }
@@ -227,6 +230,24 @@ function legacyMarkers(compactions: CompactionInfo[]): CompactionMarker[] {
 }
 
 /** 履歴ページの適用結果を chat 状態へ写す (保留中の gap は解消済みにする) */
+/**
+ * run_start に対応する自分の user entry が既に履歴へ載っているか (送信直前の preflight compaction など)。
+ * 送信時点 (`echo.since`) より後に現れた entry だけを候補にするので、過去の同一文面や他クライアントの
+ * 古い entry を自分のものにしない。見つかったらエコーを捨てて履歴 item 1 件に吸収する。
+ */
+function echoAbsorbTarget(bubbles: Bubble[], markers: CompactionMarker[], echo: Bubble): Bubble | undefined {
+  const after = historyIdsAfter(bubbles, markers, echo.since);
+  const text = canonicalUserText(echo.text);
+  for (let index = bubbles.length - 1; index >= 0; index -= 1) {
+    const bubble = bubbles[index];
+    if (bubble.entryId === undefined || bubble.role !== "user") continue;
+    if (!after.has(bubble.entryId)) continue;
+    if (canonicalUserText(bubble.text) !== text) continue;
+    return bubble;
+  }
+  return undefined;
+}
+
 function applyHistoryMerge(state: ChatState, merged: HistoryMergeResult, page: HistoryPage): ChatState {
   return {
     ...state,
@@ -533,6 +554,8 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
 
     case "prependHistory": {
       const page = action.page;
+      // 取得中にブランチ / 保持分の先頭が変わっていたら、旧ブランチのページを混ぜない
+      if (state.history.nextCursor !== action.cursor) return state;
       const bundle = prependHistoryPage(
         {
           bubbles: state.bubbles,
@@ -586,10 +609,17 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
       const pendingEchoIds = echoIndex === -1 ? state.pendingEchoIds : state.pendingEchoIds.slice(echoIndex + 1);
       let next: ChatState;
       if (echo !== undefined) {
-        next =
-          echo.text === action.prompt
-            ? state
-            : updateBubble(state, echo.id, (bubble) => ({ ...bubble, text: action.prompt }));
+        const absorb = echoAbsorbTarget(state.bubbles, state.dividers, echo);
+        if (absorb !== undefined) {
+          // preflight compaction などで自分の entry が既に履歴へ載っている。エコーを履歴 item へ
+          // 吸収し、同じ発言の二重表示を防ぐ
+          next = { ...state, bubbles: state.bubbles.filter((bubble) => bubble.id !== echo.id) };
+        } else {
+          next =
+            echo.text === action.prompt
+              ? state
+              : updateBubble(state, echo.id, (bubble) => ({ ...bubble, text: action.prompt }));
+        }
       } else {
         // 待ち行列が無い (resync 後など) ときは、注記込みの本文が既にある履歴を重複させない。
         // resync 直後は複数の user バブルが並ぶため、最後の 1 件ではなく全バブルを完全一致で見る
@@ -620,11 +650,15 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
 
     case "localUser": {
       const next = appendBubble(state, "user", action.text, action.at);
+      const echoId = next.nextId - 1;
+      // 送信時点で既知の最新 item。run_start の吸収判定でこれより後の entry だけを自分の候補にする
+      const since = newestHistoryItemId(state.bubbles, state.dividers);
       return {
         ...next,
+        bubbles: next.bubbles.map((bubble) => (bubble.id === echoId ? { ...bubble, since } : bubble)),
         currentAssistantId: null,
         activity: "送信中…",
-        pendingEchoIds: [...state.pendingEchoIds, next.nextId - 1],
+        pendingEchoIds: [...state.pendingEchoIds, echoId],
         // 送信の合図。post が失敗して echo を戻しても減らさない (最下部に居続ける方が都合が良い)
         sendSeq: state.sendSeq + 1,
       };

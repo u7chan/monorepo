@@ -116,6 +116,26 @@ export function heldHistoryIds(bubbles: Bubble[], markers: CompactionMarker[]): 
   return ids;
 }
 
+/** 保持中の最新の履歴 item id。ローカルエコーの「送信時点で既知だった位置」に使う */
+export function newestHistoryItemId(bubbles: Bubble[], markers: CompactionMarker[]): string | undefined {
+  return heldHistoryIds(bubbles, markers).at(-1);
+}
+
+/**
+ * since より後に並ぶ履歴 item の id 集合。since が undefined なら全件。since が見つからない
+ * (分岐が変わった等で位置を特定できない) ときは空にして、誤った吸収をしない。
+ */
+export function historyIdsAfter(
+  bubbles: Bubble[],
+  markers: CompactionMarker[],
+  since: string | undefined,
+): Set<string> {
+  const ids = heldHistoryIds(bubbles, markers);
+  if (since === undefined) return new Set(ids);
+  const index = ids.indexOf(since);
+  return new Set(index === -1 ? [] : ids.slice(index + 1));
+}
+
 type Connection = { kind: "apply"; keepBubbles: number; keepMarkers: CompactionMarker[] } | { kind: "gap" };
 
 /** items の position まで (自身を含む) を保持する接続結果 */
@@ -245,12 +265,16 @@ export function mergeHistoryPage(
   const kept = historyBubbles.slice(0, connection.keepBubbles);
   const pageBundle = historyItemsToBundle(prev.nextId, page.items);
   const newItems = page.items.filter((item) => !heldIds.has(item.id));
-  const { front, tail } = splitLive(prev, live);
+  const pending = new Set(pendingEchoIds);
+  // pending のローカルエコーは他クライアントの同一文面 entry と区別できないため、
+  // ここでは消費せず run_start の吸収判定へ委ねる (settled のライブだけを突き合わせる)
+  const settledLives = live.filter((bubble) => !pending.has(bubble.id));
+  const pendingLives = live.filter((bubble) => pending.has(bubble.id));
+  const { front, tail } = splitLive(prev, settledLives);
   const { kept: remainingFront } = reconcileLive(front, newItems);
   const { kept: remainingTail } = reconcileLive(tail, newItems);
-  const pending = new Set(pendingEchoIds);
-  const carried = remainingFront.filter((bubble) => !pending.has(bubble.id));
-  const trailing = [...remainingFront.filter((bubble) => pending.has(bubble.id)), ...remainingTail];
+  const carried = remainingFront;
+  const trailing = [...remainingTail, ...pendingLives];
   const bubbles = [...carried, ...kept, ...pageBundle.bubbles, ...trailing];
   const markers = [
     ...connection.keepMarkers.map((marker) => ({ ...marker, index: marker.index + carried.length })),
@@ -266,9 +290,7 @@ export function mergeHistoryPage(
     nextId: pageBundle.nextId,
     toolBubbleIds: rebuildToolBubbleIds(withCounts),
     gap: false,
-    pendingEchoIds: pendingEchoIds.filter((id) =>
-      [...remainingFront, ...remainingTail].some((bubble) => bubble.id === id),
-    ),
+    pendingEchoIds,
   };
 }
 
@@ -317,10 +339,18 @@ export function prependHistoryPage(
     return { ...prev, prepended: 0, pendingEchoIds };
   }
   const bundle = historyItemsToBundle(prev.nextId, fresh);
-  const { kept: remainingFront } = reconcileLive(frontLives, fresh);
   const pending = new Set(pendingEchoIds);
+  // pending のエコーは追加分の古い item と突き合わせない (run_start まで保持する)
+  const { kept: remainingFront } = reconcileLive(
+    frontLives.filter((bubble) => !pending.has(bubble.id)),
+    fresh,
+  );
   const front = remainingFront.filter((bubble) => !pending.has(bubble.id));
-  const tail = [...remainingFront.filter((bubble) => pending.has(bubble.id)), ...tailLives];
+  const tail = [
+    ...remainingFront.filter((bubble) => pending.has(bubble.id)),
+    ...frontLives.filter((bubble) => pending.has(bubble.id)),
+    ...tailLives,
+  ];
   const shift = bundle.bubbles.length + front.length;
   const bubbles = [...front, ...bundle.bubbles, ...historyBubbles, ...tail];
   const markers = [
@@ -334,6 +364,6 @@ export function prependHistoryPage(
     nextId: bundle.nextId,
     toolBubbleIds: { ...bundle.toolBubbleIds, ...prev.toolBubbleIds },
     prepended: bundle.bubbles.length,
-    pendingEchoIds: pendingEchoIds.filter((id) => remainingFront.some((bubble) => bubble.id === id)),
+    pendingEchoIds,
   };
 }

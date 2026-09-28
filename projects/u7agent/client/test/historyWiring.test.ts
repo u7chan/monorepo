@@ -24,7 +24,7 @@ test("getSessionHistory は before / limit を query に載せて履歴ルート
 test("useSessions は resync のたびに最新ページを取り直し、古いページを前置きする", () => {
   assert.ok(sessions.includes("getSessionHistory"));
   assert.ok(sessions.includes('dispatch({ type: "resyncHistory", page })'));
-  assert.ok(sessions.includes('dispatch({ type: "prependHistory", page })'));
+  assert.ok(sessions.includes('dispatch({ type: "prependHistory", cursor, page })'));
   assert.ok(sessions.includes('dispatch({ type: "historyUnsupported" })'));
   // resync (applySnapshot) のたびに最新ページを取り直す
   assert.ok(sessions.includes("void refreshHistory(payload.sessionId)"));

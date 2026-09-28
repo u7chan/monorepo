@@ -405,13 +405,15 @@ export function useSessions({
     const id = sessionIdRef.current;
     if (!id) return;
     const state = historyStateRef.current;
-    if (historyLoadingRef.current || !state.hasMore || !state.nextCursor) return;
+    const cursor = state.nextCursor;
+    if (historyLoadingRef.current || !state.hasMore || !cursor) return;
     historyLoadingRef.current = true;
     dispatch({ type: "historyLoading", loading: true });
     try {
-      const page = await getSessionHistory(id, { before: state.nextCursor });
-      if (sessionIdRef.current !== id) return;
-      dispatch({ type: "prependHistory", page });
+      const page = await getSessionHistory(id, { before: cursor });
+      // 取得中にセッション / ブランチ / 保持分の先頭が変わっていたら、古いページを混ぜない
+      if (sessionIdRef.current !== id || historyStateRef.current.nextCursor !== cursor) return;
+      dispatch({ type: "prependHistory", cursor, page });
     } catch (error) {
       if (sessionIdRef.current !== id) return;
       if (error instanceof ApiError && error.status === 400) {

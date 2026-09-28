@@ -232,7 +232,7 @@ test("保持分の途中を prevCursor が指すページは、そこまで残�
   assert.deepEqual(ids(merged.bubbles), ["h1", "h2", "h3", "h4"]);
 });
 
-test("同じ文面の過去発言があっても、新しい領域の entry とだけ突き合わせてエコーを残す", () => {
+test("pending の送信エコーは他クライアントの同一文面 entry では消費しない", () => {
   const heldItems = [
     userItem("h1", "同じ質問"),
     ...Array.from({ length: 10 }, (_, index) => userItem(`h${index + 2}`, `x${index}`)),
@@ -249,18 +249,19 @@ test("同じ文面の過去発言があっても、新しい領域の entry と�
   assert.deepEqual(keptEcho.pendingEchoIds, [99], "過去の同一文面では消費しない");
   assert.equal(keptEcho.bubbles.filter((bubble) => bubble.id === 99).length, 1);
 
-  // 送信分の entry が現れたら、新しい領域の item と一致してエコーを消費する
-  const withEntry = page(
+  // 別クライアントの entry が新しい領域に現れても、pending の間は区別できないので消費しない
+  const withOtherEntry = page(
     [...Array.from({ length: 10 }, (_, index) => userItem(`h${index + 2}`, `x${index}`)), userItem("n1", "同じ質問")],
     { prevCursor: "h1", hasMore: true, nextCursor: "h2", messageCount: 12 },
   );
-  const consumed = mergeHistoryPage(held, withEntry, { live: [echo], pendingEchoIds: [99] });
-  assert.deepEqual(consumed.pendingEchoIds, [], "entry が現れたエコーは消費する");
+  const keptPending = mergeHistoryPage(held, withOtherEntry, { live: [echo], pendingEchoIds: [99] });
+  assert.deepEqual(keptPending.pendingEchoIds, [99], "pending は run_start まで保持する");
   assert.equal(
-    consumed.bubbles.some((bubble) => bubble.id === 99),
-    false,
+    keptPending.bubbles.some((bubble) => bubble.id === 99),
+    true,
+    "他クライアントの entry ではエコーを消さない",
   );
-  assert.equal(consumed.bubbles.filter((bubble) => bubble.entryId === "n1").length, 1, "二重表示しない");
+  assert.equal(keptPending.bubbles.filter((bubble) => bubble.entryId === "n1").length, 1);
 });
 
 test("確定済みライブバブルはページの手前へ戻し、送信直後のエコーは末尾に残す", () => {
