@@ -1,46 +1,19 @@
-import { useEffect, useRef, useState, type Dispatch, type ReactNode, type SetStateAction } from "react";
+import { useRef, useState } from "react";
 import { useModelSettings, type ModelSettings } from "../hooks/useModelSettings";
 import { cn } from "../lib/cn";
-import { messageTimeLabel } from "../lib/messageTime";
 import {
-  API_KEY_MIN_LENGTH,
-  AVAILABILITY_SAVE_INITIAL,
-  allowedModelsOutsideCatalog,
-  availabilityCounts,
-  availabilityDefaultChoices,
-  availabilityDraftFromSettings,
-  availabilityDraftWithAllModels,
-  availabilityDraftIsDirty,
-  availabilityGroups,
-  availabilityNotice,
-  availabilitySaveConfirmMessage,
-  availabilitySaveOnSubmit,
-  availableCountOf,
-  degradedNotice,
-  deleteConfirmMessage,
-  groupProviders,
-  isModelAllowed,
-  MEMO_MAX_LENGTH,
-  normalizeAllowedModels,
-  providerAuthBadge,
-  providerUsage,
-  resyncAvailable,
-  sameAvailabilitySettings,
-  setAvailabilityProviderModels,
+  availabilityDraftState,
+  providerDraftBase,
+  withProviderDraft,
   type AvailabilityDraft,
-  type AvailabilitySaveState,
-  type ProviderBadgeTone,
+  type AvailabilityDraftState,
+  type ProviderDraft,
 } from "../lib/modelSettings";
-import type {
-  Health,
-  ModelsSettingsResponse,
-  ProviderAuthSetting,
-  RuntimeCatalogModel,
-  RuntimeModelsResponse,
-  SessionSummary,
-  UpdateModelAvailabilityBody,
-} from "../types";
-import { CheckIcon, KeyIcon, RefreshIcon, TrashIcon } from "./icons";
+import { DEFAULT_MODELS_SUBSECTION, MODELS_SUBSECTIONS, type ModelsSubsection } from "../lib/settingsNav";
+import type { Health, SessionSummary } from "../types";
+import { RefreshIcon } from "./icons";
+import { ModelsTab } from "./model-settings/ModelsTab";
+import { ProvidersTab } from "./model-settings/ProvidersTab";
 import { SettingsPageLayout, type SettingsPageProps } from "./SettingsPageLayout";
 
 export type ModelSettingsPageProps = SettingsPageProps & {
@@ -50,14 +23,20 @@ export type ModelSettingsPageProps = SettingsPageProps & {
   sessions: SessionSummary[];
   /** 一覧の初回取得に成功したか。false の間は最終使用の行を出さない */
   sessionsLoaded: boolean;
+  /** URL が決めるタブ。既定は「モデルを選ぶ」 */
+  modelsSubsection: ModelsSubsection;
+  onSelectModelsSubsection: (subsection: ModelsSubsection) => void;
 };
 
 /**
- * 設定 → モデル。利用可能なモデル（許可リスト）とプロバイダー認証を編集する。
- * hook はこの画面が持つ (カタログ全件を起動のたびに読まない。開いたときだけ取得する)。
+ * 設定 → モデル。「モデルを選ぶ / プロバイダー」の 2 タブを持ち、表示の正は URL
+ * (`/settings/models` と `/settings/models/providers`) に置く。hook はこの画面が持つ
+ * (カタログ全件を起動のたびに読まない。開いたときだけ取得する)。
  */
 export function ModelSettingsPage({
   onRefreshHealth,
+  modelsSubsection,
+  onSelectModelsSubsection,
   compact,
   onBack,
   onOpenNav,
@@ -67,6 +46,8 @@ export function ModelSettingsPage({
   return (
     <ModelSettingsView
       modelSettings={useModelSettings({ onRefreshHealth })}
+      modelsSubsection={modelsSubsection}
+      onSelectModelsSubsection={onSelectModelsSubsection}
       sessions={sessions}
       sessionsLoaded={sessionsLoaded}
       compact={compact}
@@ -76,15 +57,26 @@ export function ModelSettingsPage({
   );
 }
 
-/** 表示だけを持つ部分。取得の成否は modelSettings が持ち、ここは描画に徹する */
+/** 取得前の下書きの置き場。settings が届くと同じ render で保存値から作り直す */
+const EMPTY_DRAFT: AvailabilityDraft = { allowed: [], defaultModel: null };
+
+/** 表示だけを持つ部分。取得の成否は modelSettings が持ち、ここはタブと描画に徹する */
 export function ModelSettingsView({
   modelSettings,
   sessions = [],
   sessionsLoaded = false,
   compact = false,
+  modelsSubsection = DEFAULT_MODELS_SUBSECTION,
+  onSelectModelsSubsection,
   onBack,
   onOpenNav,
-}: SettingsPageProps & { modelSettings: ModelSettings; sessions?: SessionSummary[]; sessionsLoaded?: boolean }) {
+}: SettingsPageProps & {
+  modelSettings: ModelSettings;
+  sessions?: SessionSummary[];
+  sessionsLoaded?: boolean;
+  modelsSubsection?: ModelsSubsection;
+  onSelectModelsSubsection?: (subsection: ModelsSubsection) => void;
+}) {
   const {
     settings,
     catalog,
@@ -100,19 +92,52 @@ export function ModelSettingsView({
     remove,
     resync,
   } = modelSettings;
-  const [revealUnconfigured, setRevealUnconfigured] = useState(false);
-  const groups = settings ? groupProviders(settings, catalog) : null;
+  // モデルの下書きは両タブの親が持つ。タブを切り替えて片方が unmount しても、未保存の選択と既定モデルを失わない
+  const [draft, setDraft] = useState<AvailabilityDraft>(EMPTY_DRAFT);
+  // provider 詳細の入力下書き (apiKey / memo) も同じ親が持つ。タブ切替・provider 切替・検索で失わない
+  const [providerDrafts, setProviderDrafts] = useState<Record<string, ProviderDraft>>({});
+  // 更新はフィールド単位にする。保存 Promise の待機中に入力された他方の値を、古いスナップショットで上書きしない
+  const updateProviderDraft = (provider: string, patch: Partial<ProviderDraft>) => {
+    const setting = settings?.providers.find((entry) => entry.provider === provider);
+    setProviderDrafts((current) =>
+      withProviderDraft(current, provider, setting ? providerDraftBase(setting) : { apiKey: "", memo: "" }, patch),
+    );
+  };
+  const appliedDraft = useRef<AvailabilityDraftState | null>(null);
+  // 比較基準は保存値が変わったときと null (旧・制限なし) の初回展開でだけ作り直す。
+  // カタログの更新 (キー操作での再取得・取得失敗) だけでは、編集中の下書きを置換しない
+  const draftState = settings ? availabilityDraftState(appliedDraft.current, settings, catalog) : null;
+  if (draftState && draftState !== appliedDraft.current) {
+    appliedDraft.current = draftState;
+    setDraft(draftState.initial);
+  }
 
   return (
     <SettingsPageLayout
       eyebrow="MODELS"
       title="モデル"
-      caption="利用可能なモデルと、プロバイダーごとのAPIキーを設定します。保存した内容は再起動後も使われます。"
+      caption="使うモデルと、プロバイダーごとのAPIキーを設定します。保存した内容は再起動後も使われます。"
       actions={
         <button type="button" className="btn-quiet" onClick={() => void reload()} disabled={reloading}>
           <RefreshIcon />
           再読み込み
         </button>
+      }
+      tabs={
+        <div role="tablist" aria-label="モデルの設定" className="flex shrink-0 gap-1 border-b border-line px-4">
+          {MODELS_SUBSECTIONS.map((item) => (
+            <button
+              key={item.subsection}
+              type="button"
+              role="tab"
+              aria-selected={modelsSubsection === item.subsection}
+              onClick={() => onSelectModelsSubsection?.(item.subsection)}
+              className={cn("tab-item", modelsSubsection === item.subsection && "tab-item-active")}
+            >
+              {item.label}
+            </button>
+          ))}
+        </div>
       }
       note={note}
       compact={compact}
@@ -120,85 +145,39 @@ export function ModelSettingsView({
       onBack={onBack}
     >
       {settings ? (
-        <AvailabilityEditor
-          settings={settings}
-          catalog={catalog}
-          catalogError={catalogError}
-          saving={savingAvailability}
-          onSave={saveAvailability}
-        >
-          <ScreenInfo />
-          {settings.runtimeAvailable ? null : (
-            <p role="alert" className="rounded-lg border border-warn/40 bg-raised px-2.5 py-2 text-2xs text-warn">
-              ランタイムが利用できないため、APIキーとメモの変更はできません。サーバーの起動ログを確認してください。
-            </p>
-          )}
-
-          <section className="grid gap-2">
-            {groups && groups.configured.length > 0 ? (
-              groups.configured.map((provider) => (
-                <ProviderCard
-                  key={provider.provider}
-                  provider={provider}
-                  catalog={catalog}
-                  runtimeAvailable={settings.runtimeAvailable}
-                  sessions={sessions}
-                  sessionsLoaded={sessionsLoaded}
-                  saving={saving === provider.provider}
-                  busy={saving !== null}
-                  onSave={(apiKey) => save(provider.provider, apiKey)}
-                  onSaveMemo={(memo) => saveMemo(provider.provider, memo)}
-                  onDelete={() => remove(provider.provider)}
-                  onResync={() => resync(provider.provider)}
-                />
-              ))
-            ) : (
-              <p className="rounded-lg border border-line bg-soft px-2.5 py-2 text-xs text-ink-muted">
-                設定済みのプロバイダーはありません。
-              </p>
-            )}
-
-            {groups && groups.unconfigured.length > 0 ? (
-              <details
-                className="overflow-hidden rounded-lg border border-line bg-soft"
-                open={revealUnconfigured}
-                onToggle={(event) => setRevealUnconfigured(event.currentTarget.open)}
-              >
-                <summary className="disclosure-summary block cursor-pointer px-2.5 py-2 text-xs text-ink-soft transition-colors outline-none hover:bg-raised/60 focus-visible:ring-1 focus-visible:ring-focus focus-visible:ring-inset">
-                  未設定のプロバイダーを表示 ({groups.unconfigured.length})
-                </summary>
-                <div className="grid gap-2 border-t border-line p-2">
-                  {groups.unconfigured.map((provider) => (
-                    <ProviderCard
-                      key={provider.provider}
-                      provider={provider}
-                      catalog={catalog}
-                      runtimeAvailable={settings.runtimeAvailable}
-                      sessions={sessions}
-                      sessionsLoaded={sessionsLoaded}
-                      saving={saving === provider.provider}
-                      busy={saving !== null}
-                      onSave={(apiKey) => save(provider.provider, apiKey)}
-                      onSaveMemo={(memo) => saveMemo(provider.provider, memo)}
-                      onDelete={() => remove(provider.provider)}
-                      onResync={() => resync(provider.provider)}
-                    />
-                  ))}
-                </div>
-              </details>
-            ) : null}
-          </section>
-
-          {catalogError ? (
-            <p role="alert" className="rounded-lg border border-line bg-soft px-2.5 py-2 text-2xs text-ink-muted">
-              モデル一覧を取得できませんでした。{catalogError}（認証状態の表示は保っています）
-            </p>
-          ) : null}
-        </AvailabilityEditor>
+        modelsSubsection === "providers" ? (
+          <ProvidersTab
+            settings={settings}
+            catalog={catalog}
+            catalogError={catalogError}
+            saving={saving}
+            sessions={sessions}
+            sessionsLoaded={sessionsLoaded}
+            compact={compact}
+            onSave={save}
+            onSaveMemo={saveMemo}
+            onDelete={remove}
+            onResync={resync}
+            drafts={providerDrafts}
+            onChangeDraft={updateProviderDraft}
+            onOpenModels={() => onSelectModelsSubsection?.(DEFAULT_MODELS_SUBSECTION)}
+          />
+        ) : (
+          <ModelsTab
+            settings={settings}
+            catalog={catalog}
+            catalogError={catalogError}
+            saving={savingAvailability}
+            draft={draft}
+            initialDraft={draftState?.initial ?? draft}
+            setDraft={setDraft}
+            onSave={saveAvailability}
+            compact={compact}
+          />
+        )
       ) : (
         <div className="min-h-0 min-w-0 scrollbar-thin overflow-x-hidden overflow-y-auto px-4 py-4">
           <div className="mx-auto grid max-w-3xl gap-3">
-            <ScreenInfo />
             <div className="grid justify-items-start gap-2 rounded-lg border border-line bg-soft p-3 text-xs text-ink-muted">
               {note.error ? (
                 <>
@@ -216,626 +195,5 @@ export function ModelSettingsView({
         </div>
       )}
     </SettingsPageLayout>
-  );
-}
-
-function ScreenInfo() {
-  return (
-    <section className="grid gap-2 rounded-lg border border-line bg-soft p-3">
-      <h3 className="text-2xs font-semibold tracking-label text-ink-faint uppercase">この画面でできること</h3>
-      <ul className="grid gap-1 text-2xs leading-relaxed text-ink-soft">
-        <li>登録したキーはアプリのデータベース（SQLite）へ平文で保存され、再起動後も使われます。</li>
-        <li>メモも平文で保存され、この画面と API 応答に表示されます。キー本体は書かないでください。</li>
-        <li>保存したキーは再表示しません。変更するときは同じ provider へ上書き登録してください。</li>
-        <li>この GUI にはログインがありません。BFF をインターネットや LAN へ公開しないでください。</li>
-        <li>キーの有効性は保存時に確認しません。「利用可能」なモデル数の増加を目安にしてください。</li>
-        <li>
-          APIキーは {API_KEY_MIN_LENGTH} 文字以上で入力します。環境変数（<code>.env</code>）や保存済みの{" "}
-          <code>auth.json</code> の認証はそのまま使われます。
-        </li>
-      </ul>
-    </section>
-  );
-}
-
-/** 本文と下部アクションバーが共有する下書き・確認状態の所有者 */
-function AvailabilityEditor({
-  settings,
-  catalog,
-  catalogError,
-  saving,
-  onSave,
-  children,
-}: {
-  settings: ModelsSettingsResponse;
-  catalog: RuntimeModelsResponse | null;
-  catalogError: string | null;
-  saving: boolean;
-  onSave: (input: UpdateModelAvailabilityBody) => Promise<ModelsSettingsResponse | null>;
-  children: ReactNode;
-}) {
-  const [draft, setDraft] = useState<AvailabilityDraft>(() => availabilityDraftFromSettings(settings));
-  const [saveState, setSaveState] = useState<AvailabilitySaveState>(AVAILABILITY_SAVE_INITIAL);
-  const previousSettings = useRef(settings);
-  // キー操作・再読み込みで設定 DTO が再生成されても、保存対象の値が同じなら下書きを保つ
-  useEffect(() => {
-    if (!sameAvailabilitySettings(previousSettings.current, settings)) {
-      setDraft(availabilityDraftFromSettings(settings));
-    }
-    previousSettings.current = settings;
-  }, [settings]);
-  // 下書きが変わったら確認をやり直す (前の内容への同意を、違う内容の保存へ流用しない)
-  useEffect(() => {
-    setSaveState(AVAILABILITY_SAVE_INITIAL);
-  }, [draft]);
-
-  const initialDraft = availabilityDraftFromSettings(settings);
-  const dirty = availabilityDraftIsDirty(draft, initialDraft);
-  // 編集不可は取得失敗だけで判定する。catalog === null は初期ロード中も真になる
-  const blocked = catalogError !== null;
-  const loading = catalog === null;
-  const notice = availabilityNotice(draft, catalog);
-  const confirmMessage = dirty ? availabilitySaveConfirmMessage(saveState, notice) : undefined;
-
-  const submit = async () => {
-    if (!dirty || saving || loading || blocked) return;
-    // 確認の文言は純関数が組み立てる。send が false の押下では PUT を送らない
-    const next = availabilitySaveOnSubmit(saveState, notice);
-    setSaveState(next.state);
-    if (!next.send) return;
-    const response = await onSave({
-      allowedModels: draft.unrestricted ? null : normalizeAllowedModels(draft.allowed),
-      defaultModel: draft.defaultModel,
-    });
-    // API は空の許可リストを null に正規化するため、成功応答の値で必ず下書きを確定する
-    if (response) setDraft(availabilityDraftFromSettings(response));
-  };
-
-  const discard = () => {
-    setDraft(availabilityDraftFromSettings(settings));
-    setSaveState(AVAILABILITY_SAVE_INITIAL);
-  };
-
-  return (
-    <div className="flex min-h-0 min-w-0 flex-col">
-      <div className="min-h-0 min-w-0 flex-1 scrollbar-thin overflow-x-hidden overflow-y-auto px-4 py-4">
-        <div className="mx-auto grid max-w-3xl gap-3">
-          <AvailabilitySection
-            settings={settings}
-            catalog={catalog}
-            catalogError={catalogError}
-            saving={saving}
-            draft={draft}
-            setDraft={setDraft}
-            notice={notice}
-          />
-          {children}
-        </div>
-      </div>
-
-      <div className="flex shrink-0 flex-wrap items-center justify-between gap-x-3 gap-y-2 border-t border-line bg-soft px-4 py-2.5">
-        <div className="min-w-0 flex-1">
-          {saving ? (
-            <p role="status" className="text-2xs text-ink-muted">
-              保存中…
-            </p>
-          ) : confirmMessage ? (
-            <p role="alert" className="text-2xs leading-relaxed text-warn">
-              {confirmMessage}
-            </p>
-          ) : (
-            <p role="status" className="text-2xs text-ink-muted">
-              {dirty ? "利用可能なモデルに未保存の変更があります" : "未保存の変更はありません"}
-            </p>
-          )}
-        </div>
-        <div className="ml-auto flex shrink-0 flex-wrap items-center gap-2">
-          {confirmMessage ? (
-            <>
-              <button
-                type="button"
-                className="btn-quiet"
-                disabled={saving}
-                onClick={() => setSaveState(AVAILABILITY_SAVE_INITIAL)}
-              >
-                キャンセル
-              </button>
-              <button
-                type="button"
-                className="btn-primary"
-                disabled={saving || loading || blocked}
-                onClick={() => void submit()}
-              >
-                <CheckIcon />
-                保存する
-              </button>
-            </>
-          ) : (
-            <>
-              {dirty ? (
-                <button type="button" className="btn-quiet" disabled={saving} onClick={discard}>
-                  変更を破棄
-                </button>
-              ) : null}
-              <button
-                type="button"
-                className="btn-primary"
-                disabled={!dirty || saving || loading || blocked}
-                onClick={() => void submit()}
-              >
-                <CheckIcon />
-                {saving ? "保存中…" : "保存"}
-              </button>
-            </>
-          )}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-/**
- * 「利用可能なモデル」セクション。チェックと既定モデルを下書きとして編集する。
- * 許可されているかの正は settings.allowedModels だけで、カタログは候補とモデル一覧にしか使わない。
- */
-function AvailabilitySection({
-  settings,
-  catalog,
-  catalogError,
-  saving,
-  draft,
-  setDraft,
-  notice,
-}: {
-  settings: ModelsSettingsResponse;
-  catalog: RuntimeModelsResponse | null;
-  catalogError: string | null;
-  saving: boolean;
-  draft: AvailabilityDraft;
-  setDraft: Dispatch<SetStateAction<AvailabilityDraft>>;
-  notice: ReturnType<typeof availabilityNotice>;
-}) {
-  // 編集不可は取得失敗 (catalogError) だけで判定する。catalog === null は初期ロード中も真になるため、
-  // 読み込み中を「編集できません」と混同しない (保存も読み込みが終わるまで押せない)
-  const blocked = catalogError !== null;
-  const counts = availabilityCounts(draft, catalog);
-  const groups = availabilityGroups(draft, catalog);
-  const choices = availabilityDefaultChoices(draft, catalog);
-  const orphans = allowedModelsOutsideCatalog(draft.allowed, catalog);
-
-  const setUnrestricted = (unrestricted: boolean) => {
-    setDraft((current) =>
-      // 制限なしから選択へ戻すときは全件を選んだ状態から始める (全部外すと「制限なし」へ寄るため)
-      unrestricted || current.allowed.length > 0
-        ? { ...current, unrestricted }
-        : { ...current, unrestricted, allowed: availabilityDraftWithAllModels(catalog) },
-    );
-  };
-
-  const toggleModel = (key: string) => {
-    setDraft((current) => {
-      const allowed = isModelAllowed(current.allowed, key)
-        ? current.allowed.filter((entry) => entry !== key)
-        : [...current.allowed, key];
-      // 外したモデルが既定のまま残ると保存が 400 になるため、同時に未設定へ戻す
-      const defaultModel = current.defaultModel === key ? null : current.defaultModel;
-      return { ...current, allowed, defaultModel };
-    });
-  };
-
-  return (
-    <section className="grid gap-2 rounded-lg border border-line bg-soft p-3">
-      <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
-        <h3 className="text-2xs font-semibold tracking-label text-ink-faint uppercase">利用可能なモデル</h3>
-        {counts ? (
-          <span className="text-2xs whitespace-nowrap text-ink-muted">
-            利用可能 {counts.available} / 許可 {counts.allowed} / カタログ {counts.catalog}
-          </span>
-        ) : null}
-      </div>
-      <p className="text-2xs leading-relaxed text-ink-soft">
-        新しい会話で使えるモデルを選びます。保存した内容は新しい会話のモデル候補とアプリ既定モデルに効き、開いている会話のモデルは切り替えません。未ロードの会話は、次に開いたときに候補外ならアプリ既定へフォールバックします。
-      </p>
-
-      {blocked ? (
-        <p role="alert" className="rounded-md border border-warn/40 bg-raised px-2.5 py-2 text-2xs text-warn">
-          モデル一覧を取得できないため、利用可能なモデルは編集できません。（{catalogError}）
-        </p>
-      ) : catalog === null ? (
-        <p role="status" className="text-2xs text-ink-muted">
-          モデル一覧を読み込んでいます。
-        </p>
-      ) : (
-        <>
-          <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
-            <label className="flex min-h-11 cursor-pointer items-center gap-1.5 text-2xs text-ink-soft">
-              <input
-                type="checkbox"
-                className="size-5 shrink-0 accent-focus"
-                checked={draft.unrestricted}
-                disabled={saving}
-                onChange={(event) => setUnrestricted(event.currentTarget.checked)}
-              />
-              制限なし（全モデル）
-            </label>
-            <span className="text-2xs text-ink-muted">
-              {draft.unrestricted ? "すべてのモデルを候補にします。" : "チェックしたモデルだけが候補になります。"}
-            </span>
-          </div>
-
-          <label className="grid gap-1 text-2xs text-ink-soft">
-            アプリ既定モデル
-            <select
-              className="field text-xs"
-              value={draft.defaultModel ?? ""}
-              disabled={saving}
-              onChange={(event) => {
-                // state updater は遅延評価されるため、event は setter の外で読む
-                const value = event.currentTarget.value || null;
-                setDraft((current) => ({ ...current, defaultModel: value }));
-              }}
-            >
-              <option value="">未設定（利用可能なモデルの先頭を使う）</option>
-              {choices.map((choice) => (
-                <option key={choice.key} value={choice.key}>
-                  {choice.label}
-                </option>
-              ))}
-            </select>
-          </label>
-          {notice.warning ? (
-            <p role="alert" className="rounded-md border border-warn/40 bg-raised px-2.5 py-1.5 text-2xs text-warn">
-              {notice.warning}
-            </p>
-          ) : null}
-
-          {orphans.length > 0 ? (
-            <div className="grid gap-1 rounded-md border border-warn/40 bg-raised px-2.5 py-2">
-              <p className="text-2xs text-warn">
-                現在のカタログに無いモデルが保存されています。削除するまで保存できません。
-              </p>
-              {orphans.map((key) => (
-                <div key={key} className="flex flex-wrap items-center justify-between gap-2">
-                  <code className="text-2xs break-all text-ink">{key}</code>
-                  <button type="button" className="btn-quiet" disabled={saving} onClick={() => toggleModel(key)}>
-                    <TrashIcon />
-                    削除
-                  </button>
-                </div>
-              ))}
-            </div>
-          ) : null}
-
-          <div className="grid gap-2">
-            {groups.map((group) => (
-              <details key={group.provider} className="overflow-hidden rounded-lg border border-line bg-raised">
-                <summary className="disclosure-summary flex cursor-pointer flex-wrap items-center justify-between gap-x-3 gap-y-2 px-2.5 py-2 text-xs text-ink-soft transition-colors outline-none hover:bg-soft/40 focus-visible:ring-1 focus-visible:ring-focus focus-visible:ring-inset">
-                  <span className="min-w-0 flex-1">
-                    <code className="text-2xs break-all text-ink">{group.provider}</code>{" "}
-                    <span className="text-2xs text-ink-muted">
-                      {group.rows.length} モデル · 選択 {group.rows.filter((row) => row.checked).length}
-                      {group.authConfigured ? "" : " · 未認証"}
-                    </span>
-                  </span>
-                  <span className="flex flex-wrap items-center gap-1.5">
-                    <button
-                      type="button"
-                      className="btn-quiet"
-                      disabled={saving || draft.unrestricted || group.rows.length === 0}
-                      onClick={(event) => {
-                        event.preventDefault();
-                        event.stopPropagation();
-                        setDraft((current) => setAvailabilityProviderModels(current, group.provider, true, catalog));
-                      }}
-                    >
-                      すべて選択
-                    </button>
-                    <button
-                      type="button"
-                      className="btn-quiet"
-                      disabled={saving || draft.unrestricted || group.rows.length === 0}
-                      onClick={(event) => {
-                        event.preventDefault();
-                        event.stopPropagation();
-                        setDraft((current) => setAvailabilityProviderModels(current, group.provider, false, catalog));
-                      }}
-                    >
-                      すべて解除
-                    </button>
-                  </span>
-                </summary>
-                <div className="grid gap-1 border-t border-line p-2">
-                  {group.rows.length === 0 ? (
-                    <p className="text-2xs text-ink-muted">この provider のカタログモデルはありません。</p>
-                  ) : (
-                    group.rows.map((row) => (
-                      <label
-                        key={row.key}
-                        className="flex min-h-11 cursor-pointer items-center justify-between gap-x-3 gap-y-1 rounded px-2 hover:bg-soft/40"
-                      >
-                        <span className="flex min-w-0 items-center gap-2">
-                          <input
-                            type="checkbox"
-                            className="size-5 shrink-0 accent-focus"
-                            checked={row.checked}
-                            disabled={saving || draft.unrestricted}
-                            onChange={() => toggleModel(row.key)}
-                          />
-                          <span className="min-w-0 truncate text-2xs text-ink">{row.name}</span>
-                          <code className="text-2xs break-all text-ink-ghost">{row.key}</code>
-                        </span>
-                        <span
-                          className={cn("text-2xs whitespace-nowrap", row.available ? "text-ok" : "text-ink-faint")}
-                        >
-                          {row.available ? "利用可能" : "利用不可"}
-                        </span>
-                      </label>
-                    ))
-                  )}
-                </div>
-              </details>
-            ))}
-          </div>
-        </>
-      )}
-
-      {settings.ignoredEnvironmentVariables.length > 0 ? (
-        <p className="border-t border-line pt-2 text-2xs leading-relaxed text-warn">
-          環境変数{" "}
-          {settings.ignoredEnvironmentVariables.map((name) => (
-            <code key={name} className="mr-1">
-              {name}
-            </code>
-          ))}
-          は無視されます。設定 → モデル の内容だけが使われるため、デプロイ設定からは削除してください。
-        </p>
-      ) : null}
-    </section>
-  );
-}
-
-const BADGE_TONE: Record<ProviderBadgeTone, string> = {
-  ok: "border-ok/40 text-ok",
-  muted: "border-line text-ink-muted",
-  warn: "border-warn/40 text-warn",
-};
-
-function ProviderCard({
-  provider,
-  catalog,
-  runtimeAvailable,
-  sessions,
-  sessionsLoaded,
-  saving,
-  busy,
-  onSave,
-  onSaveMemo,
-  onDelete,
-  onResync,
-}: {
-  provider: ProviderAuthSetting;
-  catalog: RuntimeModelsResponse | null;
-  runtimeAvailable: boolean;
-  sessions: SessionSummary[];
-  sessionsLoaded: boolean;
-  saving: boolean;
-  busy: boolean;
-  onSave: (apiKey: string) => Promise<boolean>;
-  onSaveMemo: (memo: string) => Promise<boolean>;
-  onDelete: () => Promise<boolean>;
-  onResync: () => Promise<boolean>;
-}) {
-  const [apiKey, setApiKey] = useState("");
-  const savedMemo = provider.memo ?? "";
-  const [memo, setMemo] = useState(savedMemo);
-  const badge = providerAuthBadge(provider);
-  const notice = degradedNotice(provider);
-  const catalogProvider = catalog?.providers.find((entry) => entry.provider === provider.provider);
-  const available = availableCountOf(catalog, provider.provider);
-  const memoDirty = memo.trim() !== savedMemo;
-  // キーの保存日時はこの画面で登録した (managed) provider だけに出す。null は移行前の行なので「不明」と言い切る
-  const keyUpdatedLabel = !provider.managed
-    ? null
-    : provider.keyUpdatedAt === null
-      ? "キー最終保存: 保存日不明"
-      : `キー最終保存: ${messageTimeLabel(provider.keyUpdatedAt)}`;
-  // 最終使用は会話の最終更新で、API 呼び出しの成功を意味しない。一覧が未取得の間は行ごと出さない
-  const usage = sessionsLoaded ? providerUsage(sessions, provider.provider) : null;
-  const usageLabel =
-    !usage || (!provider.managed && usage.sessions === 0)
-      ? null
-      : usage.lastUsedAt === null
-        ? "この provider の会話はありません"
-        : `最終使用: ${messageTimeLabel(usage.lastUsedAt)} · この provider の会話 ${usage.sessions} 件`;
-
-  // 保存値が変わったときだけ入力値を合わせる (同じ内容の再取得で編集中の下書きを消さない)
-  useEffect(() => {
-    setMemo(savedMemo);
-  }, [savedMemo]);
-
-  const submit = async () => {
-    // 保存できたときだけ入力を消す (失敗したら打ち直さず再利用できるように)
-    if (await onSave(apiKey)) setApiKey("");
-  };
-
-  const submitMemo = async () => {
-    // サーバーが trim して保存するため、成功時は trim 済みの値で入力値を戻して dirty を消す
-    const trimmed = memo.trim();
-    if (await onSaveMemo(trimmed)) setMemo(trimmed);
-  };
-
-  return (
-    <section className="grid gap-2 rounded-lg border border-line bg-soft p-3">
-      <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
-        <div className="flex min-w-0 flex-wrap items-baseline gap-x-2 gap-y-0.5">
-          <h4 className="text-xs font-semibold text-ink">{provider.name}</h4>
-          <code className="text-2xs break-all text-ink-ghost">{provider.provider}</code>
-        </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <span className={cn("rounded border px-1.5 py-0.5 text-2xs", BADGE_TONE[badge.tone])}>
-            <KeyIcon /> {badge.label}
-          </span>
-          {catalogProvider ? (
-            <span className="text-2xs whitespace-nowrap text-ink-muted">
-              利用可能 {available} / カタログ {catalogProvider.models.length}
-            </span>
-          ) : null}
-          {keyUpdatedLabel ? (
-            <span className="text-2xs whitespace-nowrap text-ink-muted">{keyUpdatedLabel}</span>
-          ) : null}
-          {usageLabel ? <span className="text-2xs whitespace-nowrap text-ink-muted">{usageLabel}</span> : null}
-        </div>
-      </div>
-
-      {notice ? (
-        <p
-          role="alert"
-          className="rounded-md border border-warn/40 bg-raised px-2.5 py-1.5 text-2xs leading-relaxed text-warn"
-        >
-          {notice}
-        </p>
-      ) : null}
-      {provider.orphan ? (
-        <p className="text-2xs leading-relaxed text-ink-muted">
-          現在のカタログに無い provider です。
-          {provider.managed
-            ? "保存済みのキーは削除できます（カタログに戻るまで再登録はできません）。"
-            : "キーの登録はできません（メモは保存できます）。"}
-        </p>
-      ) : null}
-
-      <div className="flex flex-wrap items-center gap-2">
-        {provider.canSetApiKey ? (
-          <form
-            className="flex min-w-0 flex-1 flex-wrap items-center gap-2"
-            onSubmit={(event) => {
-              event.preventDefault();
-              void submit();
-            }}
-          >
-            <input
-              className="field min-w-0 flex-1 text-xs"
-              type="password"
-              value={apiKey}
-              placeholder={provider.managed ? "新しいAPIキー（上書き）" : "APIキー"}
-              aria-label={`${provider.name} のAPIキー`}
-              autoComplete="off"
-              spellCheck={false}
-              onChange={(event) => setApiKey(event.currentTarget.value)}
-            />
-            <button type="submit" className="btn-primary" disabled={busy || apiKey.length === 0}>
-              <CheckIcon />
-              {provider.managed ? "上書き保存" : "保存"}
-            </button>
-          </form>
-        ) : (
-          <p className="min-w-0 flex-1 text-2xs text-ink-ghost">
-            この provider のキーは環境変数や認証ファイルで設定します（この画面からは登録できません）。
-          </p>
-        )}
-        {provider.managed ? (
-          <button
-            type="button"
-            className="btn-quiet"
-            disabled={busy}
-            onClick={() => {
-              if (!window.confirm(deleteConfirmMessage(provider.name))) return;
-              void onDelete();
-            }}
-          >
-            <TrashIcon />
-            削除
-          </button>
-        ) : null}
-        {resyncAvailable(provider) ? (
-          <button type="button" className="btn-quiet" disabled={busy} onClick={() => void onResync()}>
-            <RefreshIcon />
-            {saving ? "再同期中" : "再同期"}
-          </button>
-        ) : null}
-      </div>
-
-      {/* キー入力とは別の form にして、Enter がキーの保存を走らせないようにする */}
-      <form
-        className="grid gap-1"
-        onSubmit={(event) => {
-          event.preventDefault();
-          void submitMemo();
-        }}
-      >
-        <label className="grid gap-1 text-2xs text-ink-soft">
-          メモ
-          <textarea
-            className="field min-h-11 min-w-0 text-xs"
-            rows={2}
-            maxLength={MEMO_MAX_LENGTH}
-            value={memo}
-            placeholder="例: 個人アカウントの本番キー（2026-01 発行）"
-            aria-label={`${provider.name} のメモ`}
-            disabled={!runtimeAvailable}
-            onChange={(event) => setMemo(event.currentTarget.value)}
-          />
-        </label>
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <span className="text-2xs text-warn">{memoDirty ? "メモに未保存の変更があります" : ""}</span>
-          <button type="submit" className="btn-primary" disabled={!memoDirty || !runtimeAvailable || busy}>
-            <CheckIcon />
-            メモを保存
-          </button>
-        </div>
-      </form>
-
-      {catalogProvider ? (
-        <details className="rounded-md border border-line bg-raised">
-          <summary className="disclosure-summary block cursor-pointer px-2.5 py-1.5 text-2xs text-ink-soft transition-colors outline-none hover:bg-soft/40 focus-visible:ring-1 focus-visible:ring-focus focus-visible:ring-inset">
-            モデル一覧を表示
-          </summary>
-          <div className="grid gap-2 border-t border-line px-2.5 py-2">
-            {catalogProvider.models.length === 0 ? (
-              <p className="text-2xs text-ink-muted">このプロバイダーのカタログモデルはありません。</p>
-            ) : (
-              <ModelTable models={catalogProvider.models} />
-            )}
-          </div>
-        </details>
-      ) : null}
-    </section>
-  );
-}
-
-const STATUS_MARK = {
-  ok: "text-ok",
-  muted: "text-ink-faint",
-} as const;
-
-/** モデル名と ID を別の列に分ける。同じ行に続けて出すと、名前と識別子の境目が読めない */
-function ModelTable({ models }: { models: RuntimeCatalogModel[] }) {
-  return (
-    <table className="w-full table-fixed border-collapse text-2xs">
-      <thead>
-        <tr className="text-3xs text-ink-muted">
-          <th scope="col" className="w-2/5 pr-2 pb-1 text-left font-medium">
-            モデル
-          </th>
-          <th scope="col" className="w-2/5 pr-2 pb-1 text-left font-medium">
-            ID
-          </th>
-          <th scope="col" className="w-1/5 pb-1 text-left font-medium">
-            利用可能
-          </th>
-        </tr>
-      </thead>
-      <tbody>
-        {models.map((model) => (
-          <tr key={model.id} className="border-t border-line/60 align-top">
-            <td className="py-1 pr-2 break-words text-ink">{model.name}</td>
-            <td className="py-1 pr-2 font-mono break-all text-ink-muted">{model.id}</td>
-            <td className={cn("py-1", STATUS_MARK[model.available ? "ok" : "muted"])}>
-              {model.available ? "はい" : "いいえ"}
-            </td>
-          </tr>
-        ))}
-      </tbody>
-    </table>
   );
 }

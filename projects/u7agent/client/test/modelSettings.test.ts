@@ -10,26 +10,34 @@ import {
   availabilityDefaultChoices,
   availabilityDraftFromSettings,
   availabilityDraftIsDirty,
-  availabilityDraftWithAllModels,
-  availabilityGroups,
+  availabilityDraftState,
   availabilityNotice,
   availabilitySaveConfirmMessage,
   availabilitySaveOnSubmit,
   availableCountOf,
+  candidateGroups,
+  defaultModelOptions,
   degradedNotice,
   deleteConfirmMessage,
+  filterCandidateGroups,
+  filterDefaultModelOptions,
   groupProviders,
   MEMO_MAX_LENGTH,
+  modelKeyProvider,
   modelRefKey,
   mutationNote,
   normalizeAllowedModels,
   providerAuthBadge,
+  providerDraftBase,
+  providerDraftOf,
   providerUsage,
   resyncAvailable,
   sameAvailabilitySettings,
   setAvailabilityProviderModels,
+  UNSET_DEFAULT_MODEL_LABEL,
   validateApiKey,
   validateMemo,
+  withProviderDraft,
 } from "../src/lib/modelSettings";
 import type {
   ModelMutationResponse,
@@ -253,6 +261,50 @@ test("providerUsage は model の最初の / で provider を分け、会話数�
   assert.deepEqual(providerUsage([], "anthropic"), { sessions: 0, lastUsedAt: null });
 });
 
+test("provider の入力下書きはフィールド単位で、未編集の provider は保存値を使う", () => {
+  const saved = provider({ memo: "個人アカウントの控え" });
+  const base = providerDraftBase(saved);
+  assert.deepEqual(providerDraftOf({}, saved), { apiKey: "", memo: "個人アカウントの控え" });
+
+  let drafts = withProviderDraft({}, "anthropic", base, { apiKey: "sk-live", memo: "編集中" });
+  // 保存値の再取得や別 provider の追加があっても、編集中の下書きをそのまま返す (再マウントで復元する値)
+  assert.deepEqual(providerDraftOf(drafts, saved), { apiKey: "sk-live", memo: "編集中" });
+  assert.deepEqual(providerDraftOf(drafts, provider({ memo: "別の控え" })), { apiKey: "sk-live", memo: "編集中" });
+  assert.deepEqual(providerDraftOf(drafts, provider({ provider: "openai", name: "OpenAI" })), {
+    apiKey: "",
+    memo: "",
+  });
+
+  // 更新は provider ごとに独立し、内容が同じなら同じ参照を返す (base はその provider の保存値)
+  assert.equal(withProviderDraft(drafts, "anthropic", base, { apiKey: "sk-live", memo: "編集中" }), drafts);
+  drafts = withProviderDraft(drafts, "openai", providerDraftBase(provider({ provider: "openai", name: "OpenAI" })), {
+    apiKey: "sk-other",
+  });
+  assert.deepEqual(drafts, {
+    anthropic: { apiKey: "sk-live", memo: "編集中" },
+    openai: { apiKey: "sk-other", memo: "" },
+  });
+});
+
+test("保存完了と保存値の同期はフィールド単位で更新し、待機中の他方の入力を残す", () => {
+  const base = providerDraftBase(provider());
+  // キー保存: 押下後、保存の待機中にメモを編集 → 完了後も新しいメモが残る
+  let drafts = withProviderDraft({}, "anthropic", base, { apiKey: "sk-live" });
+  drafts = withProviderDraft(drafts, "anthropic", base, { memo: "待機中に書いたメモ" });
+  drafts = withProviderDraft(drafts, "anthropic", base, { apiKey: "" });
+  assert.deepEqual(providerDraftOf(drafts, provider()), { apiKey: "", memo: "待機中に書いたメモ" });
+
+  // メモ保存: 押下後、保存の待機中にキーを編集 → 完了後も新しいキーが残る
+  drafts = withProviderDraft(drafts, "anthropic", base, { memo: "  メモ  " });
+  drafts = withProviderDraft(drafts, "anthropic", base, { apiKey: "sk-next" });
+  drafts = withProviderDraft(drafts, "anthropic", base, { memo: "メモ" });
+  assert.deepEqual(providerDraftOf(drafts, provider()), { apiKey: "sk-next", memo: "メモ" });
+
+  // 保存値の外部変化 (useEffect) は memo だけを合わせ、入力中の apiKey を巻き戻さない
+  drafts = withProviderDraft(drafts, "anthropic", base, { memo: "外部の新しいメモ" });
+  assert.deepEqual(providerDraftOf(drafts, provider()), { apiKey: "sk-next", memo: "外部の新しいメモ" });
+});
+
 test("APIキーの長さはサーバーと同じ境界で検証する", () => {
   assert.equal(validateApiKey("a".repeat(API_KEY_MIN_LENGTH - 1)), "APIキーは 8 文字以上で入力してください。");
   assert.equal(validateApiKey("a".repeat(API_KEY_MIN_LENGTH)), undefined);
@@ -308,75 +360,135 @@ const KEY_B = "anthropic/b";
 const KEY_C = "local/c";
 const KEY_GHOST = "anthropic/ghost";
 
-test("保存値から下書きを作り、空配列は制限なしへ正規化する", () => {
-  assert.deepEqual(availabilityDraftFromSettings(settings()), {
-    unrestricted: true,
-    allowed: [],
+test("保存値から下書きを作り、null は利用可能な全モデルを選択済みとして明示リストへ展開する", () => {
+  assert.deepEqual(availabilityDraftFromSettings(settings(), CATALOG), {
+    allowed: [KEY_A],
     defaultModel: null,
   });
-  assert.deepEqual(availabilityDraftFromSettings(settings({ allowedModels: [KEY_A], defaultModel: KEY_A })), {
-    unrestricted: false,
-    allowed: [KEY_A],
-    defaultModel: KEY_A,
+  // 既定モデルが available の集合に無い場合は 1 件足す (別の差分の保存を 400 にしない)
+  assert.deepEqual(availabilityDraftFromSettings(settings({ defaultModel: KEY_B }), CATALOG), {
+    allowed: [KEY_A, KEY_B],
+    defaultModel: KEY_B,
   });
-  assert.equal(normalizeAllowedModels([]), null);
-  assert.deepEqual(normalizeAllowedModels([KEY_A]), [KEY_A]);
-  assert.equal(modelRefKey({ provider: "anthropic", id: "a" }), KEY_A);
+  // カタログを取得できないときは空になるが、既定だけは表示集合に残す
+  assert.deepEqual(availabilityDraftFromSettings(settings({ defaultModel: KEY_GHOST }), null), {
+    allowed: [KEY_GHOST],
+    defaultModel: KEY_GHOST,
+  });
+  // 明示リストは available でない選択も保存値のまま保つ
+  assert.deepEqual(availabilityDraftFromSettings(settings({ allowedModels: [KEY_B], defaultModel: KEY_B }), CATALOG), {
+    allowed: [KEY_B],
+    defaultModel: KEY_B,
+  });
 });
 
-test("制限なしへ戻す候補はカタログ全件で、カタログ外の残存エントリを分ける", () => {
-  assert.deepEqual(availabilityDraftWithAllModels(CATALOG), [KEY_A, KEY_B, KEY_C]);
-  assert.deepEqual(availabilityDraftWithAllModels(null), []);
+test("下書きの比較基準はカタログの更新では作り直さず、保存値と初回の null 展開でだけ作り直す", () => {
+  const nullSettings = { allowedModels: null, defaultModel: null };
+  // カタログ取得前は空。展開済みフラグは false
+  const pending = availabilityDraftState(null, nullSettings, null);
+  assert.deepEqual(pending.initial, { allowed: [], defaultModel: null });
+  assert.equal(pending.expandedNull, false);
+  // カタログが届いたら 1 回だけ展開する
+  const expanded = availabilityDraftState(pending, nullSettings, CATALOG);
+  assert.notEqual(expanded, pending);
+  assert.deepEqual(expanded.initial.allowed, [KEY_A], "available の全件を選択済みにする");
+  assert.equal(expanded.expandedNull, true);
+
+  // キー登録でカタログに新しい provider が増えても、比較基準は作り直さない (編集中の下書きを置換しない)
+  const grown: RuntimeModelsResponse = {
+    ...CATALOG,
+    providers: [
+      ...CATALOG.providers,
+      {
+        provider: "b",
+        auth: { configured: true, source: "environment", environmentVariables: [] },
+        models: [{ id: "three", name: "Three", available: true }],
+      },
+    ],
+  };
+  assert.equal(availabilityDraftState(expanded, nullSettings, grown), expanded);
+  // 再取得に失敗してカタログを失っても作り直さない
+  assert.equal(availabilityDraftState(expanded, nullSettings, null), expanded);
+  // 保存値が変わったら作り直す
+  const saved = { allowedModels: [KEY_B], defaultModel: KEY_B };
+  const next = availabilityDraftState(expanded, saved, grown);
+  assert.notEqual(next, expanded);
+  assert.deepEqual(next.initial, { allowed: [KEY_B], defaultModel: KEY_B });
+
+  // 明示リストのときもカタログの更新では作り直さない
+  const listSettings = { allowedModels: [KEY_A], defaultModel: null };
+  const listState = availabilityDraftState(null, listSettings, CATALOG);
+  assert.equal(availabilityDraftState(listState, listSettings, grown), listState);
+});
+
+test("明示リストの正規化は空だけを null へ寄せ、全選択でもリストを返す", () => {
+  assert.equal(normalizeAllowedModels([]), null);
+  assert.deepEqual(normalizeAllowedModels([KEY_A]), [KEY_A]);
+  assert.deepEqual(
+    normalizeAllowedModels([KEY_A, KEY_B, KEY_C]),
+    [KEY_A, KEY_B, KEY_C],
+    "全チェックでも明示リストを送る (空への安全網はあるが、UI からは空を送らない)",
+  );
+  assert.equal(modelRefKey({ provider: "anthropic", id: "a" }), KEY_A);
+  assert.equal(modelKeyProvider("openrouter/anthropic/claude"), "openrouter", "provider は最初の / まで");
+});
+
+test("カタログ外の残存エントリを分ける", () => {
   assert.deepEqual(allowedModelsOutsideCatalog([KEY_A, KEY_GHOST], CATALOG), [KEY_GHOST]);
   assert.deepEqual(allowedModelsOutsideCatalog([KEY_A], null), [KEY_A]);
 });
 
-test("集計は制限なしならカタログ全件、選んだときは積で数える", () => {
-  assert.deepEqual(availabilityCounts({ unrestricted: true, allowed: [], defaultModel: null }, CATALOG), {
-    catalog: 3,
-    allowed: 3,
-    available: 1,
-  });
+test("候補は認証済み provider のカタログ全件で、選択済みなら未認証・カタログ外でも警告付きで出す", () => {
+  const groups = candidateGroups({ allowed: [KEY_C, KEY_GHOST], defaultModel: null }, CATALOG, settings());
   assert.deepEqual(
-    availabilityCounts({ unrestricted: false, allowed: [KEY_B, KEY_C], defaultModel: null }, CATALOG),
-    { catalog: 3, allowed: 2, available: 0 },
-    "許可した 2 件はいずれも未認証",
+    groups.map((group) => [group.provider, group.authenticated]),
+    [
+      ["anthropic", true],
+      ["local", false],
+    ],
+    "カタログにある認証済み provider を先に出し、下書きにしか無い provider を後ろに足す",
   );
-  assert.equal(availabilityCounts({ unrestricted: true, allowed: [], defaultModel: null }, null), undefined);
+  const anthropic = groups[0];
+  assert.deepEqual(
+    anthropic.rows.map((row) => [row.key, row.checked, row.available, row.outsideCatalog]),
+    [
+      [KEY_A, false, true, false],
+      [KEY_B, false, false, false],
+      [KEY_GHOST, true, false, true],
+    ],
+    "カタログ全件に加えて、カタログ外の選択済みをチェック済みで足す",
+  );
+  assert.match(anthropic.warning ?? "", /カタログに無いモデル/);
+
+  // 未認証 provider はカタログ全件を出さず、保存済みの選択だけを警告付きで出す
+  const local = groups[1];
+  assert.deepEqual(
+    local.rows.map((row) => row.key),
+    [KEY_C],
+  );
+  assert.match(local.warning ?? "", /認証が設定されていない/);
+  assert.equal(local.availableCount, 0);
+  assert.equal(local.catalogCount, 1);
+  assert.equal(local.selectedCount, 1);
+  // カタログにも下書きにも無い provider は行に出ない
+  assert.equal(
+    groups.some((group) => group.provider === "unknown"),
+    false,
+  );
 });
 
-test("provider ごとの行は利用可能数の降順で、同数ならカタログ順を保ち、available false も含める", () => {
-  const groups = availabilityGroups({ unrestricted: false, allowed: [KEY_B], defaultModel: null }, CATALOG);
-  assert.deepEqual(
-    groups.map((group) => group.provider),
-    ["anthropic", "local"],
-    "利用可能モデル数の多い group を先にする",
-  );
-  assert.deepEqual(
-    groups[0]?.rows.map((row) => [row.key, row.checked, row.available]),
-    [
-      [KEY_A, false, true],
-      [KEY_B, true, false],
-    ],
-  );
-  // 制限なしでは全件チェックになる
-  const all = availabilityGroups({ unrestricted: true, allowed: [], defaultModel: null }, CATALOG);
-  assert.deepEqual(
-    all.flatMap((group) => group.rows.map((row) => row.checked)),
-    [true, true, true],
-  );
-
+test("候補の並びは利用可能モデル数の降順で、同数ならカタログ順を保つ", () => {
   const catalog: RuntimeModelsResponse = {
     ...CATALOG,
     providers: [
       {
         provider: "first",
-        auth: { configured: false, environmentVariables: [] },
+        auth: { configured: true, source: "environment", environmentVariables: [] },
         models: [{ id: "a", name: "A", available: true }],
       },
       {
         provider: "second",
-        auth: { configured: false, environmentVariables: [] },
+        auth: { configured: true, source: "environment", environmentVariables: [] },
         models: [
           { id: "a", name: "A", available: true },
           { id: "b", name: "B", available: true },
@@ -385,14 +497,14 @@ test("provider ごとの行は利用可能数の降順で、同数ならカタ�
       },
       {
         provider: "third",
-        auth: { configured: false, environmentVariables: [] },
-        models: [{ id: "a", name: "A", available: true }],
+        auth: { configured: true, source: "environment", environmentVariables: [] },
+        models: [{ id: "a", name: "A", available: false }],
       },
     ],
   };
-  const sorted = availabilityGroups({ unrestricted: false, allowed: [], defaultModel: null }, catalog);
+  const groups = candidateGroups({ allowed: [], defaultModel: null }, catalog, settings());
   assert.deepEqual(
-    sorted.map((group) => [group.provider, group.rows.length]),
+    groups.map((group) => [group.provider, group.rows.length]),
     [
       ["second", 3],
       ["first", 1],
@@ -402,31 +514,49 @@ test("provider ごとの行は利用可能数の降順で、同数ならカタ�
   );
 });
 
-test("下書きの未保存判定は allowed を集合として比べ、unrestricted 中は無視する", () => {
-  const unrestricted = { unrestricted: true, allowed: [], defaultModel: null };
+test("検索は provider / モデル名 / ID に当たり、選択済みのみで絞る", () => {
+  const groups = candidateGroups({ allowed: [KEY_A], defaultModel: null }, CATALOG, settings());
+  assert.deepEqual(
+    filterCandidateGroups(groups, "ANTHROPIC", false).map((group) => [group.provider, group.rows.length]),
+    [["anthropic", 2]],
+    "provider 名 / ID は大文字小文字を無視して provider 全件に当てる",
+  );
+  assert.deepEqual(
+    filterCandidateGroups(groups, "anthropic/b", false).map((group) => group.rows.map((row) => row.key)),
+    [[KEY_B]],
+    "モデル名 / ID で行を絞る",
+  );
+  assert.deepEqual(
+    filterCandidateGroups(groups, "", true).map((group) => group.rows.map((row) => row.key)),
+    [[KEY_A]],
+    "選択済みのみはチェック済みの行だけを残す",
+  );
+  assert.deepEqual(filterCandidateGroups(groups, "missing", false), [], "当たらない provider は残さない");
+
+  const withLocal = candidateGroups({ allowed: [KEY_C], defaultModel: null }, CATALOG, settings());
+  assert.deepEqual(
+    filterCandidateGroups(withLocal, "local", false).map((group) => group.rows.map((row) => row.key)),
+    [[KEY_C]],
+    "未認証 provider の保存済みエントリも検索で出る",
+  );
+});
+
+test("集計は表示集合の利用可能数と選択数を返す", () => {
+  const groups = candidateGroups({ allowed: [KEY_A, KEY_C], defaultModel: null }, CATALOG, settings());
+  assert.deepEqual(availabilityCounts(groups), { available: 1, selected: 2 });
+  assert.deepEqual(availabilityCounts([]), { available: 0, selected: 0 });
+});
+
+test("下書きの未保存判定は選択を集合として比べ、並び順だけの違いは無視する", () => {
+  const initial = { allowed: [KEY_A, KEY_B], defaultModel: KEY_A };
   assert.equal(
-    availabilityDraftIsDirty({ ...unrestricted, allowed: [KEY_A] }, unrestricted),
+    availabilityDraftIsDirty({ ...initial, allowed: [KEY_B, KEY_A] }, initial),
     false,
-    "unrestricted の間は allowed を比較しない",
+    "並び順だけでは dirty にならない",
   );
-  assert.equal(
-    availabilityDraftIsDirty(
-      { unrestricted: false, allowed: [KEY_B, KEY_A], defaultModel: null },
-      { unrestricted: false, allowed: [KEY_A, KEY_B], defaultModel: null },
-    ),
-    false,
-    "allowed の順序だけでは dirty にならない",
-  );
-  assert.equal(
-    availabilityDraftIsDirty({ unrestricted: false, allowed: [], defaultModel: null }, unrestricted),
-    true,
-    "制限あり + 空配列は unrestricted へ正規化されても明示的な dirty とする",
-  );
-  assert.equal(
-    availabilityDraftIsDirty({ ...unrestricted, defaultModel: KEY_A }, unrestricted),
-    true,
-    "既定モデルの差分も dirty とする",
-  );
+  assert.equal(availabilityDraftIsDirty({ ...initial, allowed: [KEY_A] }, initial), true, "選択の増減は dirty");
+  assert.equal(availabilityDraftIsDirty({ ...initial, defaultModel: null }, initial), true, "既定モデルの差分も dirty");
+  assert.equal(availabilityDraftIsDirty(initial, initial), false);
 });
 
 test("保存値の内容比較は新しい配列参照を無視し、要素の変更を検出する", () => {
@@ -453,78 +583,81 @@ test("保存値の内容比較は新しい配列参照を無視し、要素の�
   );
 });
 
-test("provider 単位の一括操作は全カタログ行を重複なく選び、解除時は既定を戻す", () => {
-  const initial = { unrestricted: false, allowed: [KEY_A, KEY_C], defaultModel: KEY_B };
+test("provider 単位の一括操作は全カタログ行を重複なく選び、解除では保存済みを外して既定を戻す", () => {
+  const initial = { allowed: [KEY_A, KEY_C], defaultModel: KEY_B };
   const selected = setAvailabilityProviderModels(initial, "anthropic", true, CATALOG);
-  assert.deepEqual(selected, {
-    unrestricted: false,
-    allowed: [KEY_A, KEY_C, KEY_B],
-    defaultModel: KEY_B,
-  });
+  assert.deepEqual(selected, { allowed: [KEY_A, KEY_C, KEY_B], defaultModel: KEY_B });
   assert.equal(selected.allowed.filter((key) => key === KEY_B).length, 1, "利用不可のモデルも追加するが重複は作らない");
 
   assert.deepEqual(setAvailabilityProviderModels(selected, "anthropic", false, CATALOG), {
-    unrestricted: false,
     allowed: [KEY_C],
     defaultModel: null,
   });
   assert.deepEqual(
     setAvailabilityProviderModels(initial, "unknown", true, CATALOG),
     initial,
-    "モデル行の無い provider は変更しない",
+    "カタログに無い provider は追加できない",
   );
-  const unrestricted = { unrestricted: true, allowed: [], defaultModel: null };
-  assert.equal(setAvailabilityProviderModels(unrestricted, "anthropic", false, CATALOG), unrestricted);
+  // [すべて解除] はカタログに無い provider でも、下書きの全エントリを外せる
+  const orphan = { allowed: ["ghost/x", "ghost/y"], defaultModel: "ghost/x" };
+  assert.deepEqual(setAvailabilityProviderModels(orphan, "ghost", false, CATALOG), {
+    allowed: [],
+    defaultModel: null,
+  });
 });
 
-test("既定モデルの選択肢はカタログ外の保存値も残し、ラベルで区別する", () => {
-  const restricted = availabilityDefaultChoices(
-    { unrestricted: false, allowed: [KEY_A, KEY_GHOST], defaultModel: KEY_GHOST },
-    CATALOG,
-  );
+test("既定モデルの選択肢は選択済みだけをカタログの名前つきで返し、カタログ外も残す", () => {
+  const choices = availabilityDefaultChoices({ allowed: [KEY_A, KEY_GHOST], defaultModel: KEY_GHOST }, CATALOG);
+  assert.deepEqual(choices, [
+    { key: KEY_A, name: "A", available: true, inCatalog: true },
+    { key: KEY_GHOST, name: KEY_GHOST, available: false, inCatalog: false },
+  ]);
+  assert.deepEqual(availabilityDefaultChoices({ allowed: [], defaultModel: null }, CATALOG), []);
+});
+
+test("既定モデルのピッカーは「未設定」を先頭に残し、名前 / ID で検索する", () => {
+  const options = defaultModelOptions({ allowed: [KEY_B, KEY_GHOST], defaultModel: KEY_GHOST }, CATALOG);
   assert.deepEqual(
-    restricted.map((choice) => [choice.label, choice.available, choice.inCatalog]),
+    options.map((option) => [option.key, option.name, option.detail, option.inCatalog]),
     [
-      ["A（anthropic/a）", true, true],
-      ["anthropic/ghost（カタログ外）", false, false],
+      [null, UNSET_DEFAULT_MODEL_LABEL, "", true],
+      [KEY_B, "B", KEY_B, true],
+      [KEY_GHOST, KEY_GHOST, KEY_GHOST, false],
     ],
   );
-  const all = availabilityDefaultChoices({ unrestricted: true, allowed: [], defaultModel: null }, CATALOG);
+  assert.deepEqual(filterDefaultModelOptions(options, ""), options, "未入力では全件を出す");
   assert.deepEqual(
-    all.map((choice) => choice.key),
-    [KEY_A, KEY_B, KEY_C],
+    filterDefaultModelOptions(options, "ghost").map((option) => option.key),
+    [KEY_GHOST],
   );
+  assert.deepEqual(
+    filterDefaultModelOptions(options, "未設定").map((option) => option.key),
+    [null],
+    "「未設定」の語でも絞り込める",
+  );
+  assert.deepEqual(filterDefaultModelOptions(options, "missing"), []);
 });
 
-test("保存の確認は利用可能 0 件と既定の未認証を伝える", () => {
-  // すべて外した＝保存すると制限なしへ戻る
-  assert.match(
-    availabilityNotice({ unrestricted: false, allowed: [], defaultModel: null }, CATALOG).confirm ?? "",
-    /制限なし（全モデル）へ戻ります/,
-  );
-  // 未認証のモデルだけを許可した＝利用可能 0 件
-  const emptyAvailable = availabilityNotice({ unrestricted: false, allowed: [KEY_B], defaultModel: null }, CATALOG);
+test("保存の確認は利用可能 0 件と既定の未認証を伝え、選択 0 件の理由は扱わない", () => {
+  // 選択 0 件はコンポーネントが保存自体を止めるため、ここでは確認を出さない
+  assert.deepEqual(availabilityNotice({ allowed: [], defaultModel: null }, CATALOG), {});
+  // 未認証のモデルだけを選択した＝利用可能 0 件
+  const emptyAvailable = availabilityNotice({ allowed: [KEY_B], defaultModel: null }, CATALOG);
   assert.match(emptyAvailable.confirm ?? "", /利用可能なモデルが 0 件/);
   assert.equal(emptyAvailable.warning, undefined, "既定が未認証でなければ警告は出さない");
 
   // 既定が未認証なら警告を常時出し、確認にも含める
-  const unauthenticatedDefault = availabilityNotice(
-    { unrestricted: false, allowed: [KEY_A, KEY_B], defaultModel: KEY_B },
-    CATALOG,
-  );
+  const unauthenticatedDefault = availabilityNotice({ allowed: [KEY_A, KEY_B], defaultModel: KEY_B }, CATALOG);
   assert.match(unauthenticatedDefault.warning ?? "", /既定に選んだモデルは現在利用できません/);
   assert.match(unauthenticatedDefault.confirm ?? "", /既定に選んだモデルは現在利用できません/);
-  // 利用可能な既定なら警告も確認も無い
-  const ok = availabilityNotice({ unrestricted: false, allowed: [KEY_A], defaultModel: KEY_A }, CATALOG);
-  assert.deepEqual(ok, {});
-  // 制限なしなら全件が許可され、カタログに available がある限り確認は出ない
-  assert.deepEqual(availabilityNotice({ unrestricted: true, allowed: [], defaultModel: null }, CATALOG), {});
+  // 利用可能な選択と既定なら警告も確認も無い
+  assert.deepEqual(availabilityNotice({ allowed: [KEY_A], defaultModel: KEY_A }, CATALOG), {});
   // カタログを取得できないときは判定しない (呼び出し側が編集自体を止める)
-  assert.deepEqual(availabilityNotice({ unrestricted: false, allowed: [], defaultModel: null }, null), {});
+  assert.deepEqual(availabilityNotice({ allowed: [KEY_B], defaultModel: null }, null), {});
 });
 
 test("利用可能なモデルの保存は確認を画面内で出し、同意したときだけ送る", () => {
-  const notice = availabilityNotice({ unrestricted: false, allowed: [], defaultModel: null }, CATALOG);
+  const notice = availabilityNotice({ allowed: [KEY_B], defaultModel: null }, CATALOG);
   assert.equal(typeof notice.confirm, "string");
   assert.equal(availabilitySaveConfirmMessage(AVAILABILITY_SAVE_INITIAL, notice), undefined, "普段は確認を出さない");
 

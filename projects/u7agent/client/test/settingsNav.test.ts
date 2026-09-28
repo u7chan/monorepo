@@ -2,7 +2,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  DEFAULT_MODELS_SUBSECTION,
   DEFAULT_SETTINGS_SECTION,
+  MODELS_SUBSECTIONS,
   parseStoredSettingsSection,
   SETTINGS_SECTIONS,
   SETTINGS_SECTION_KEY,
@@ -24,6 +26,17 @@ test("設定ナビはエージェント / スキル / ファイル / アーカ�
       ["notifications", "通知"],
     ],
   );
+});
+
+test("設定 → モデルのタブは「モデルを選ぶ / プロバイダー」の 2 項目で、既定はモデルを選ぶ", () => {
+  assert.deepEqual(
+    MODELS_SUBSECTIONS.map((item) => [item.subsection, item.label]),
+    [
+      ["models", "モデルを選ぶ"],
+      ["providers", "プロバイダー"],
+    ],
+  );
+  assert.equal(DEFAULT_MODELS_SUBSECTION, MODELS_SUBSECTIONS[0].subsection);
 });
 
 test("保存された最後のセクションは既知の値だけを受け、それ以外は既定へ畳む", () => {

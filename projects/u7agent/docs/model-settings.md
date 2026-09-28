@@ -1,6 +1,6 @@
 # 利用可能なモデルとプロバイダーAPIキーの設定（設定 → モデル）
 
-設定 → モデルから、**利用可能なモデル（許可リスト）**・**アプリ既定モデル**・**プロバイダーごとのAPIキーとメモ**を GUI で設定する。保存した内容はアプリデータの SQLite に残り（再起動後も使え）、SDK の非永続の runtime overlay と公開 state へ写して起動中のモデル候補へ反映する。プロバイダーの認証に `.env` の環境変数と `~/.pi/agent/auth.json` を使う経路はこれまでどおり使え、GUI はそれらを変更しない。
+設定 → モデルから、**モデル候補（選択リスト）**・**アプリ既定モデル**・**プロバイダーごとのAPIキーとメモ**を GUI で設定する。保存した内容はアプリデータの SQLite に残り（再起動後も使え）、SDK の非永続の runtime overlay と公開 state へ写して起動中のモデル候補へ反映する。プロバイダーの認証に `.env` の環境変数と `~/.pi/agent/auth.json` を使う経路はこれまでどおり使え、GUI はそれらを変更しない。
 
 - 保存の正は **アプリ DB**（`provider_credentials` / `model_settings` / `provider_memos`）。SDK の runtime overlay は実効状態で、再起動で消える
 - APIキーの変更系は「DB を希望状態として先に確定」し、SDK への反映に失敗しても DB を戻さない（補償ロールバックを持たない）。反映できなかった変更は **degraded（保存済み・未反映）** として画面に出し、`resync` / 次回の変更 / 再起動で収束させる
@@ -12,7 +12,7 @@
 | 画面 | 役割 | 内容 |
 | --- | --- | --- |
 | 設定 → ランタイム（表示専用） | 環境診断 | 接続状態 / 実行環境 / 利用可能なコマンド / SDK バージョン |
-| 設定 → モデル（編集可） | 利用可能なモデル + プロバイダー認証 + カタログ | 「利用可能なモデル」の編集、provider ごとの認証状態、APIキーの登録・上書き・削除、メモの保存、再同期、利用可能モデル数とモデル一覧 |
+| 設定 → モデル（編集可） | タブ 1: モデルを選ぶ（`/settings/models`）/ タブ 2: プロバイダー（`/settings/models/providers`） | タブ 1 はモデル候補の選択とアプリ既定モデル、タブ 2 は provider ごとの認証状態、APIキーの登録・上書き・削除、メモの保存、再同期、カタログの利用可能数。モデル一覧の重複表示は持たない |
 
 プロバイダーとカタログの表示はランタイム画面からモデル画面へ移した。ランタイム画面は `GET /api/runtime/models` を呼ばない。health に載せていたモデル診断（`runtimeDiagnostics`）は撤去し、SDK バージョンだけを health 直下の `versions` に残した。
 
@@ -46,16 +46,17 @@ CREATE TABLE IF NOT EXISTS provider_memos (
 - メモは credential ではなく provider に紐づき、**行が無い = 未設定**。空にして保存すると行ごと消し、手編集された空文字の行も未設定として読む（DTO は `memo: null`）
 - DB の読み書きとスキーマ移行の失敗は [persistence.md](persistence.md#失敗時の扱い) と同じで、health の `appDb` と 503 に出る
 
-## 利用可能なモデルとアプリ既定モデル
+## モデル候補（選択）とアプリ既定モデル
 
 `model_settings` は 1 行だけで、**行が無い = 未設定**（制限なし・既定は候補の先頭）。
 
 - `allowedModels` は `provider/model`（model id の `/` は許す）の一覧で、API の応答もこの文字列で返す。保存時に**重複を先勝ちで畳み**、**空配列は制限なし（NULL）へ正規化**する。両方が NULL になった保存は行ごと消して未設定へ戻す
-- `defaultModel` は保存値で、`GET /api/settings/models` が返す。**実効値は `GET /api/health` の `model`**（保存値 → available の先頭の順で決まる）
-- **許可されているかどうかの正は `GET /api/settings/models` の `allowedModels` だけ**。`GET /api/runtime/models` のカタログは候補とモデル一覧にしか使わず、同じ情報（`inWhitelist` のような形）を持たない
+- UI は選択を**常に明示リスト**で扱い、`allowedModels: null`（旧・制限なし）は「利用可能な全モデルが選択済み」として表示する。空配列は API が制限なしへ正規化して意図と逆になるため、選択 0 件の間は保存ボタンを無効にする（`normalizeAllowedModels()` の空→NULL はサーバーと同じ安全網として残す）
+- `defaultModel` は保存値で、`GET /api/settings/models` が返す。**実効値は `GET /api/health` の `model`**（保存値 → available の先頭の順で決まる）。UI では選択済みモデルを検索できるピッカーで選び、「未設定（利用可能なモデルの先頭を使う）」を先頭に残す。保存値の `null` 展開時に既定モデルが利用可能な集合に無ければ 1 件だけ足す（別の差分の保存を 400 にしないため）
+- **選択されているかどうかの正は `GET /api/settings/models` の `allowedModels` だけ**。`GET /api/runtime/models` のカタログは候補の表示と available 判定にしか使わず、同じ情報（`inWhitelist` のような形）を持たない
 - 実効値の向きは「DB を正とする `ModelSettingsService` → pi の state」。`PiBff.setModelSelection({ allowedModels, defaultModel })` で実行時選択を差し替え、`refreshModelState()` を 1 回呼んで公開 state を再計算する。起動時の初回 state は「制限なし・既定は候補の先頭」で立ち、DB を開いた後の `applyStored()` が保存値へ確定させる
 - 絞り込みは `filterModelsByWhitelist()` の 1 箇所だけに保つ（個別にフィルタを足すと `PATCH /api/sessions/:id/settings` の経路から漏れる）
-- 許可リストの変更は**起動中の live セッションのモデルを変えない**。効くのは新しい会話と、未ロードの会話の復元時フォールバックだけ（[model-effort.md](model-effort.md#既存の会話への影響認証の変更)）
+- 選択リストの変更は**起動中の live セッションのモデルを変えない**。効くのは新しい会話と、未ロードの会話の復元時フォールバックだけ（[model-effort.md](model-effort.md#既存の会話への影響認証の変更)）
 
 ### 保存時の検証
 
@@ -63,16 +64,16 @@ CREATE TABLE IF NOT EXISTS provider_memos (
 | --- | --- | --- |
 | `allowedModels` の形式 | 各要素が `provider/model` 形式（先頭の `/` で分けた provider / id が非空で、provider に `/` を含まない） | 400 `モデルは provider/model 形式で指定してください` |
 | カタログ | カタログ（`ModelRuntime.getModels()`）にある `provider/model` のみ | 400 `カタログに無いモデルは指定できません: <provider>/<id>` |
-| `defaultModel` | 許可リスト内のみ（制限なしのときはカタログ内） | 400 `既定モデルは利用可能なモデルから選んでください: <provider>/<id>` |
+| `defaultModel` | 選択リスト内のみ（制限なしのときはカタログ内） | 400 `既定モデルは利用可能なモデルから選んでください: <provider>/<id>` |
 | 重複 | 正規化（先勝ち）して保存 | — |
 | 空配列 | 制限なしへ正規化 | — |
-| 未認証の既定 | 許可する（画面が警告と確認を出す） | — |
+| 未認証の既定 | 保存を許す（画面が警告と確認を出す） | — |
 
-検証は `getAvailable()` ではなく `getModels()`（カタログ）を引く。未認証のモデルでも許可リストには入れられ、カタログから消えた残存エントリは保存できない（画面に削除導線を出す）。応答は `GET /api/settings/models` と同じ形 + `state: "applied"` で、`state` は「DB 確定 + 公開 state の再計算」を表す。
+検証は `getAvailable()` ではなく `getModels()`（カタログ）を引く。未認証のモデルでも選択リストには入れられ、カタログから消えた残存エントリは保存できない（画面は選択済みエントリとして警告付きで行に出し、外せる）。応答は `GET /api/settings/models` と同じ形 + `state: "applied"` で、`state` は「DB 確定 + 公開 state の再計算」を表す。
 
 ### 移行前の環境変数
 
-`PI_MODELS` / `PI_MODEL` / `PI_PROVIDER` は読まない。設定されていても無視し、`GET /api/settings/models` の `ignoredEnvironmentVariables`（設定されている名前だけ）と起動ログの警告で削除を促す。カタログ外の残存エントリがある間は保存できず（400）、画面の削除導線で 1 手間かけて消す。
+`PI_MODELS` / `PI_MODEL` / `PI_PROVIDER` は読まない。設定されていても無視し、`GET /api/settings/models` の `ignoredEnvironmentVariables`（設定されている名前だけ）と起動ログの警告で削除を促す。カタログ外の残存エントリがある間は保存できず（400）、画面の選択リストの行から外す。
 
 ## プロバイダーごとのメモ
 
@@ -165,18 +166,21 @@ CREATE TABLE IF NOT EXISTS provider_memos (
 
 ## クライアント
 
-- `SETTINGS_SECTIONS` に `models`（ラベル「モデル」）を追加し、`App.tsx` が `ModelSettingsPage` を出す
-- 画面の先頭に「利用可能なモデル」セクションを置く。provider ごとに折りたたみ、カタログ全件をチェックで選び、各行に利用可能かどうか（利用可能 / 未認証）を併記する。provider ごとに [すべて選択] / [すべて解除] があり、available でないモデルも含めて下書きを一括操作する。アプリ既定モデルは許可したモデルから選び、未設定（利用可能なモデルの先頭）も選べる
-  - provider 群は利用可能モデル数の降順、同数ならカタログ順で表示する。これは表示順だけで、保存値や既定未設定時の実効先頭を変えない（実効先頭はサーバーが `getAvailable()` の順から決める）。APIキーカードの設定済み優先の並びは別の規則で現状どおり
-  - 「制限なし（全モデル）」へ戻すチェック、現在の利用可能数の表示、カタログ外の残存エントリの表示と [削除] を同じセクションに置く。保存操作は本文の外に固定した下部バーにまとめ、変更がなければ保存を無効にし、差分があれば対象が利用可能モデルと分かる文言と [変更を破棄] / [保存] を出す。成功時は応答値で下書きを戻す（制限あり・空配列はサーバーが `null` に正規化する）。設定 API の保存値がキー操作・再読み込みで実際に変わった場合も下書きを戻すが、配列参照だけが変わって内容が同じ場合は編集中の下書きを保つ
-  - 保存で利用可能なモデルが 0 件になるときと既定が未認証のときは、固定バーに画面内の確認（[保存する] / [キャンセル]）を出し、後者は保存前から警告を出す。判定と文言は `client/src/lib/modelSettings.ts` の純関数が持ち、ネイティブの `window.confirm` は使わない（DOM なしで検証するため。同意するまで PUT を送らない）
-  - 許可されているかの正は `GET /api/settings/models` の `allowedModels` だけで、カタログは available とモデル一覧にしか使わない。カタログを取得できないときは `catalogError` で編集不可を出し、provider のキー操作は妨げない（`catalog === null` は初期ロード中も真になるため、編集可否の判定には使わない）
+- 画面は `/settings/models`（モデルを選ぶ。既定）と `/settings/models/providers`（プロバイダー）の 2 タブ。タブの語彙は `client/src/lib/settingsNav.ts` の `MODELS_SUBSECTIONS` に置き、URL と `routePath` が同じ値を使う。未知のサブセクションと `/settings/models/models` は既定タブヘ畳む（モデル画面からチャットへ飛ばさない）。タブ行は `SettingsPageLayout` の任意スロットに置き、`ProjectDialog` と同じ `.tab-item` を使う
+- `useModelSettings` は両タブの親（`ModelSettingsPage`）で 1 回だけ呼び、未保存の下書き（モデルの選択・既定モデルと、provider ごとの apiKey / メモ）も親が持つ。タブ切替・provider 切替・検索で再マウントしても下書き・note・カタログを失わない。カタログと設定は独立に取り、片方の失敗で他方を捨てない
+- 「モデルを選ぶ」タブは、候補を「認証済み provider のカタログ全件」と「選択済みエントリ（下書きの `allowed` 全件）」の和集合で組む。選択済みを未認証・カタログ外でも必ず行に出し、非表示のまま選択数に残さない。折りたたみ中は行を描画せず、先頭の provider と警告のある provider だけを初期展開する。検索は DOM ではなくカタログのデータ（provider / モデル名 / ID）に当てて該当 provider を自動展開し、「選択済みのみ」でチェック済みだけに絞る
+  - provider 行はバッジと `利用可能 a/b ・ 選択 c`（a/b はカタログ、c は下書き全体の選択数）を出し、[すべて選択] は認証済み provider だけ、[すべて解除] はカタログに無い provider でも保存済みを外せる。provider 群は利用可能モデル数の降順、同数ならカタログ順で表示する。これは表示順だけで、保存値や既定未設定時の実効先頭を変えない（実効先頭はサーバーが `getAvailable()` の順から決める）
+  - 未認証の provider は保存済みの選択だけを警告付きで出し（カタログ全件は出さない）、カタログ外のエントリも警告付きで出して外せる（`allowedModelsOutsideCatalog()` 相当の判定を `candidateGroups()` が行と警告に写す）。選択 0 件は固定バーで保存を無効にし、理由として「空の選択は API で「制限なし（全モデル）」へ正規化されるため、この画面からは送らない」を示す
+  - アプリ既定モデルは `ModelDefaultPicker`（native popover + listbox。`composer/AgentPicker.tsx` と同じ組み方）で選び、先頭に「未設定（利用可能なモデルの先頭を使う）」を残す。選択が 0 件のときは選べない理由をピッカーの下に出す。行は名前と ID を分け、検索は名前 / ID に当てる
+  - 保存は本文の外に固定した下部バーにまとめ、変更がなければ [モデル候補を保存] を無効にし、差分があれば [変更を破棄] / [モデル候補を保存] を出す。保存で利用可能なモデルが 0 件になるときと既定が未認証のときは、純関数の文言で画面内の確認（[保存する] / [キャンセル]）を出し、後者は保存前から警告を出す（ネイティブの `window.confirm` は使わない。同意するまで PUT を送らない）。成功時は応答値から下書きを作り直す。設定 API の保存値が実際に変わった場合も下書きを戻すが、配列参照だけが変わって内容が同じ場合は編集中の下書きを保つ。カタログの更新（キー操作での再取得・再取得の失敗で `catalog: null` になる場合）だけでは下書きを置換しない（`availabilityDraftState()` が保存値の変更と `allowedModels: null` の初回展開だけを作り直しの条件にする）
+  - 選択の正は `GET /api/settings/models` の `allowedModels` だけで、カタログは available と候補の表示にしか使わない。カタログを取得できないときは `catalogError` で編集不可を出し、プロバイダータブのキー操作は妨げない（`catalog === null` は初期ロード中も真になるため、編集可否の判定には使わない）
   - 保存後は health とカタログを取り直して、入力欄のモデル候補を追随させる。live の会話のモデルを切り替えないことを画面に注記する（[model-effort.md](model-effort.md#既存の会話への影響認証の変更)）
-- 画面は provider を「設定済み（`auth.configured` / `managed` / メモあり / 利用可能モデルあり）」と「未設定」に分け、未設定は畳む。各カードに認証バッジ（未設定 / 環境変数（変数名）/ 保存済み（auth.json）/ この画面で登録済み（実効）/ 保存済み（未反映）/ 削除が未反映 / カタログ外）と、`canSetApiKey` のときだけキー入力、`managed` のときだけ削除（確認に既存会話への影響を出す）、再同期可能な `degraded` のときだけ再同期を出す。メモは「メモあり」を設定済み側の条件に足すだけで、キーのバッジと折りたたみの中身は変えない（メモが折りたたみに隠れると見つけられないため）
-- メモ欄はキー入力とは別の `<form>` にした `<textarea rows={2} maxLength={500}>` と [メモを保存] で、Enter がキーの保存を走らせない。入力値は `provider.memo` が変わったときだけ同期し、dirty（`trim` 後の値が保存値と違う）のときだけ保存を有効にしてカード内に未保存の印を出す。保存に成功したら応答の `trim` 済みの値で入力値を戻す。メモの保存は SDK に触れないので health / カタログを取り直さず、進行中の `reload()` の応答で保存直後を上書きされないよう先行ロードの無効化だけ行う。`runtimeAvailable: false` のときは入力欄と保存を disable し、runtime 停止時の注意書きにメモも含める。カタログ外のメモだけの provider には「キーの登録はできません（メモは保存できます）」と案内する
-- 未反映の案内文（`degradedNotice`）は、そのカードで実際に押せる回復操作に合わせる。カタログ外（`orphan`）の `apply` は resync API も 400 にするため [再同期] を案内せず、[削除] とカタログ復帰を案内する
-- APIキーの登録後は health と `GET /api/runtime/models` を取り直し、入力欄のモデル候補とモデル数を追随させる。カタログの取得失敗は設定 API の表示を壊さず、別の注記として出す
-- 8 文字未満は保存前に同じ理由で止める（サーバーも 400）
+- 「プロバイダー」タブは左の一覧（`GET /api/settings/models` の全件を「設定済み（`auth.configured` / `managed` / メモあり / 利用可能モデルあり）」と「未設定」に分け、検索は provider 名 / ID。件数メタは `available/catalog` または未反映・カタログ外）と右の詳細（APIキーの登録・上書き、メモ、削除、再同期、利用可能数、`degraded` の案内）の master-detail。詳細の上部にキーの平文保存と「BFF を LAN / インターネットへ公開しない」注意を常時出し、プロバイダーを切り替えても消さない。キー保存後に「モデルを選ぶ」タブへ戻る導線を置き、固定バーではキー・メモが各保存ボタンで即時保存されることを区別する。モデル一覧の重複表示（旧 ModelTable）は削除した
+  - 詳細は認証バッジ（未設定 / 環境変数（変数名）/ 保存済み（auth.json）/ この画面で登録済み（実効）/ 保存済み（未反映）/ 削除が未反映 / カタログ外）を出し、`canSetApiKey` のときだけキー入力、`managed` のときだけ削除（確認に既存会話への影響を出す）、再同期可能な `degraded` のときだけ再同期を出す。キー最終保存は `managed` の provider だけに「保存日不明」を含めて出す
+  - 未反映の案内文（`degradedNotice`）は、その詳細で実際に押せる回復操作に合わせる。カタログ外（`orphan`）の `apply` は resync API も 400 にするため [再同期] を案内せず、[削除] とカタログ復帰を案内する
+- メモ欄はキー入力とは別の `<form>` にした `<textarea rows={2} maxLength={500}>` と [メモを保存] で、Enter がキーの保存を走らせない。入力値は `provider.memo` が変わったときだけ同期し、dirty（`trim` 後の値が保存値と違う）のときだけ保存を有効にし、未保存の印を出す。保存に成功したら応答の `trim` 済みの値で入力値を戻す。メモの保存は SDK に触れないので health / カタログを取り直さず、進行中の `reload()` の応答で保存直後を上書きされないよう先行ロードの無効化だけ行う。`runtimeAvailable: false` のときは入力欄と保存を disable し、runtime 停止時の注意書きにメモも含める。カタログ外のメモだけの provider には「キーの登録はできません（メモは保存できます）」と案内し、キー入力は出さない
+- APIキーの登録後は health と `GET /api/runtime/models` を取り直し、入力欄のモデル候補とモデル数を追随させる。カタログの取得失敗は設定 API の表示を壊さず、両タブで別の注記として出す
+- 8 文字未満は保存前に同じ理由で止める（サーバーも 400）。モデルの選択・既定で使う語彙は「利用可能（available）」と「選択」の 2 語に統一する
 
 ## 既存の会話への影響
 
@@ -211,11 +215,11 @@ CREATE TABLE IF NOT EXISTS provider_memos (
 実 API は呼ばず、ダミーキーと fake / stub で検証する。
 
 - `server/test/app-db.test.ts` — v4 → v5 / v5 → v6 / v6 → v7 の加算移行、`model_settings` の CRUD、空配列 = 制限なしの正規化、両方 NULL の行削除、壊れた JSON の 503、`provider_memos` の CRUD（上書き・削除・空文字行 = 未設定）、`provider_credentials.updatedAt` の移行（既存行は NULL のまま・キーは消えない）と再実行の冪等性、新規 DB の列、`sanitizeError` の境界
-- `server/test/model-settings.test.ts` — GET / PUT / DELETE / resync の契約、DB-first、1 回だけの再試行、degraded の解除と記録と DTO を組めないときの `managed` の補正、利用可能なモデルの正規化・検証（カタログ外・既定が許可外・形式・重複）と 503、メモの `trim`・空で削除・対象外 400・DB 失敗 503・メモ値を応答とログへ出さないこと・degraded を作らないこと、GET の 4 経路（カタログ / credential 行 / メモ行 / degraded）とメモだけの orphan の扱い、キー削除後もメモが残ること、`keyUpdatedAt` が GET / PUT に載り移行前は null で resync / 削除では変わらないこと、起動適用（model_settings と provider_credentials の独立した読取・setter → refresh の順序・マスク登録の順序）、別 provider の並行 PUT の直列化、lock の rejected Promise、キー値を含む例外が応答とログへ漏れないこと
+- `server/test/model-settings.test.ts` — GET / PUT / DELETE / resync の契約、DB-first、1 回だけの再試行、degraded の解除と記録と DTO を組めないときの `managed` の補正、利用可能なモデルの正規化・検証（カタログ外・既定が選択外・形式・重複）と 503、メモの `trim`・空で削除・対象外 400・DB 失敗 503・メモ値を応答とログへ出さないこと・degraded を作らないこと、GET の 4 経路（カタログ / credential 行 / メモ行 / degraded）とメモだけの orphan の扱い、キー削除後もメモが残ること、`keyUpdatedAt` が GET / PUT に載り移行前は null で resync / 削除では変わらないこと、起動適用（model_settings と provider_credentials の独立した読取・setter → refresh の順序・マスク登録の順序）、別 provider の並行 PUT の直列化、lock の rejected Promise、キー値を含む例外が応答とログへ漏れないこと
 - `server/test/model-settings-api.test.ts` — HTTP 契約（200 `applied` / `applied_unsynced`、503 `not_stored`、400）、メモの 200 / 400（500 文字超は route の zod）/ 503 と再起動後の読み出し、再起動後の適用、DB 不通、health とログのマスク、`ignoredEnvironmentVariables`、`keyUpdatedAt` が GET / PUT に載ることと移行前の行が null になること
 - `server/test/provider-key-runtime.test.ts` — `CredentialCommit` の写像（CSE の照合・開始前 abort・実行中 abort・未知の例外）
-- `server/test/model-state.test.ts` — `deriveModelState` / `readModelState`（許可リストの積・既定モデル・カタログの導出・可用 0・失敗時の安全な state）、`filterModelsByWhitelist()`
+- `server/test/model-state.test.ts` — `deriveModelState` / `readModelState`（選択リストの積・既定モデル・カタログの導出・可用 0・失敗時の安全な state）、`filterModelsByWhitelist()`
 - `server/test/api.test.ts` — health から `runtimeDiagnostics` が消えたこと、モデルカタログ応答に whitelist 系フィールドが無いこと
 - `server/test/redact.test.ts` — `createMutableSecretMasker` の swap と streaming masker への追随
-- `client/test/modelSettings.test.ts` / `client/test/modelSettingsPage.test.ts` — 表示変換（認証バッジ・並び・入力検証・メモの検証・注記・回復案内）、`providerUsage()`（最初の `/` での分割・`model` 無し・複数セッション・空配列）、利用可能なモデルの並べ替え・dirty 判定・provider 一括操作・集計・確認文、固定バーの初期描画（変更なしでは保存無効）とカタログ外・未設定・環境変数の注記・カタログ取得失敗時の編集不可、メモ欄・保存ボタン・runtime 停止時の disable・メモだけの orphan の案内、キー最終保存（managed だけ・NULL は保存日不明）と最終使用（`sessionsLoaded` が false なら非表示・会話 0 件の managed は「会話はありません」・非 managed は会話があるときだけ）
+- `client/test/modelSettings.test.ts` / `client/test/modelSettingsPage.test.ts` — 表示変換（認証バッジ・並び・入力検証・メモの検証・注記・回復案内）、`providerUsage()`（最初の `/` での分割・`model` 無し・複数セッション・空配列）、`null` の明示リスト展開（利用可能な全モデル + 既定モデルの 1 件追加）・認証済み provider の絞り込み・未認証/カタログ外の残存エントリの警告付き表示・候補の並べ替え/検索/集計・既定モデルの選択肢と検索・dirty 判定・provider 一括操作・確認文、タブと保存バーの初期描画（変更なしと選択 0 件では保存無効）とカタログ外・未設定・環境変数の注記・カタログ取得失敗時の編集不可、プロバイダータブの一覧と詳細（平文注意の常時表示・メモ欄・保存ボタン・runtime 停止時の disable・メモだけの orphan の案内）、キー最終保存（managed だけ・NULL は保存日不明）と最終使用（`sessionsLoaded` が false なら非表示・会話 0 件の managed は「会話はありません」・非 managed は会話があるときだけ）、`client/test/route.test.ts` のタブの正準化（未知のサブセクションと既定タブの明示は `/settings/models` へ）
 - `client/test/runtimePage.test.ts` — 設定 → ランタイムから「モデル解決」が消えたこと

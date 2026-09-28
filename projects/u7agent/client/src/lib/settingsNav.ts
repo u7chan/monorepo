@@ -29,6 +29,19 @@ export const SETTINGS_SECTIONS: { section: SettingsSection; label: string }[] = 
   { section: "notifications", label: "通知" },
 ];
 
+/**
+ * 設定 → モデル のタブ。URL は `/settings/models` と `/settings/models/providers` を正とし、
+ * 既定タブ (models) はパスへ出さない (lib/route.ts の routePath)。
+ */
+export type ModelsSubsection = "models" | "providers";
+
+export const MODELS_SUBSECTIONS: { subsection: ModelsSubsection; label: string }[] = [
+  { subsection: "models", label: "モデルを選ぶ" },
+  { subsection: "providers", label: "プロバイダー" },
+];
+
+export const DEFAULT_MODELS_SUBSECTION: ModelsSubsection = "models";
+
 /** URL にセクションが無いときの行き先 (「設定」の導線と、保存値が読めないときの既定) */
 export const DEFAULT_SETTINGS_SECTION: SettingsSection = "agents";
 
