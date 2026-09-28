@@ -31,6 +31,7 @@ import {
   providerDraftBase,
   providerDraftOf,
   providerUsage,
+  pruneAvailabilityDraft,
   resyncAvailable,
   sameAvailabilitySettings,
   setAvailabilityProviderModels,
@@ -375,24 +376,58 @@ test("保存値から下書きを作り、null は利用可能な全モデルを
     allowed: [KEY_GHOST],
     defaultModel: KEY_GHOST,
   });
-  // 明示リストは available でない選択も保存値のまま保つ
+  // 明示リストは available でない選択も保存値のまま保つ (provider が認証済みなら候補に出る)
   assert.deepEqual(availabilityDraftFromSettings(settings({ allowedModels: [KEY_B], defaultModel: KEY_B }), CATALOG), {
     allowed: [KEY_B],
     defaultModel: KEY_B,
   });
+  // 認証の無い provider の選択と、それを指す既定は下書きから落とす (画面に出ない値を保存しない)
+  assert.deepEqual(
+    availabilityDraftFromSettings(settings({ allowedModels: [KEY_A, KEY_C], defaultModel: KEY_C }), CATALOG),
+    { allowed: [KEY_A], defaultModel: null },
+  );
+  // カタログ外の残存エントリは、認証が無くても外せるように残す
+  assert.deepEqual(
+    availabilityDraftFromSettings(settings({ allowedModels: [KEY_C, KEY_GHOST], defaultModel: null }), CATALOG),
+    { allowed: [KEY_GHOST], defaultModel: null },
+  );
 });
 
-test("下書きの比較基準はカタログの更新では作り直さず、保存値と初回の null 展開でだけ作り直す", () => {
+test("下書きの除去は表示と同じ判定で認証済み provider とカタログ外だけを残し、変化が無ければ同じ参照を返す", () => {
+  const draft = { allowed: [KEY_A, KEY_B, KEY_C, KEY_GHOST], defaultModel: KEY_C };
+  assert.deepEqual(pruneAvailabilityDraft(draft, CATALOG), {
+    allowed: [KEY_A, KEY_B, KEY_GHOST],
+    defaultModel: null,
+  });
+  // 既定が残る選択を指すなら保つ
+  assert.deepEqual(pruneAvailabilityDraft({ ...draft, defaultModel: KEY_A }, CATALOG).defaultModel, KEY_A);
+  // カタログが無いときは判定できないのでそのまま
+  assert.equal(pruneAvailabilityDraft(draft, null), draft);
+  // 落とすものが無ければ参照を変えない (そのまま再レンダーさせない)
+  const clean = { allowed: [KEY_A], defaultModel: KEY_A };
+  assert.equal(pruneAvailabilityDraft(clean, CATALOG), clean);
+});
+
+test("下書きの比較基準はカタログの更新では作り直さず、保存値と初回のカタログ到着でだけ作り直す", () => {
   const nullSettings = { allowedModels: null, defaultModel: null };
-  // カタログ取得前は空。展開済みフラグは false
+  // カタログ取得前は空。カタログつきで作った印は false
   const pending = availabilityDraftState(null, nullSettings, null);
   assert.deepEqual(pending.initial, { allowed: [], defaultModel: null });
-  assert.equal(pending.expandedNull, false);
+  assert.equal(pending.builtWithCatalog, false);
   // カタログが届いたら 1 回だけ展開する
   const expanded = availabilityDraftState(pending, nullSettings, CATALOG);
   assert.notEqual(expanded, pending);
   assert.deepEqual(expanded.initial.allowed, [KEY_A], "available の全件を選択済みにする");
-  assert.equal(expanded.expandedNull, true);
+  assert.equal(expanded.builtWithCatalog, true);
+
+  // 明示リストもカタログ取得前に作った初期値は、カタログの到着で 1 回だけ除去して作り直す
+  const listPending = availabilityDraftState(null, { allowedModels: [KEY_C, KEY_A], defaultModel: null }, null);
+  assert.deepEqual(listPending.initial, { allowed: [KEY_C, KEY_A], defaultModel: null });
+  assert.equal(listPending.builtWithCatalog, false);
+  const listBuilt = availabilityDraftState(listPending, listPending.settings, CATALOG);
+  assert.notEqual(listBuilt, listPending);
+  assert.deepEqual(listBuilt.initial, { allowed: [KEY_A], defaultModel: null });
+  assert.equal(listBuilt.builtWithCatalog, true);
 
   // キー登録でカタログに新しい provider が増えても、比較基準は作り直さない (編集中の下書きを置換しない)
   const grown: RuntimeModelsResponse = {
@@ -407,6 +442,7 @@ test("下書きの比較基準はカタログの更新では作り直さず、�
     ],
   };
   assert.equal(availabilityDraftState(expanded, nullSettings, grown), expanded);
+  assert.equal(availabilityDraftState(listBuilt, listBuilt.settings, grown), listBuilt);
   // 再取得に失敗してカタログを失っても作り直さない
   assert.equal(availabilityDraftState(expanded, nullSettings, null), expanded);
   // 保存値が変わったら作り直す
@@ -438,15 +474,12 @@ test("カタログ外の残存エントリを分ける", () => {
   assert.deepEqual(allowedModelsOutsideCatalog([KEY_A], null), [KEY_A]);
 });
 
-test("候補は認証済み provider のカタログ全件で、選択済みなら未認証・カタログ外でも警告付きで出す", () => {
+test("候補は認証済み provider のカタログ全件とカタログ外の残存だけで、認証の無い provider は出さない", () => {
   const groups = candidateGroups({ allowed: [KEY_C, KEY_GHOST], defaultModel: null }, CATALOG, settings());
   assert.deepEqual(
     groups.map((group) => [group.provider, group.authenticated]),
-    [
-      ["anthropic", true],
-      ["local", false],
-    ],
-    "カタログにある認証済み provider を先に出し、下書きにしか無い provider を後ろに足す",
+    [["anthropic", true]],
+    "下書きに残っていても未認証 provider の選択は出さない (表示と保存の対象を揃える)",
   );
   const anthropic = groups[0];
   assert.deepEqual(
@@ -460,16 +493,29 @@ test("候補は認証済み provider のカタログ全件で、選択済みな�
   );
   assert.match(anthropic.warning ?? "", /カタログに無いモデル/);
 
-  // 未認証 provider はカタログ全件を出さず、保存済みの選択だけを警告付きで出す
-  const local = groups[1];
+  // カタログ外の残存エントリは、認証の無い provider でも外せるように警告付きで出す
+  const staleLocal = candidateGroups({ allowed: [KEY_C, "local/ghost"], defaultModel: null }, CATALOG, settings());
+  const local = staleLocal.find((group) => group.provider === "local");
   assert.deepEqual(
-    local.rows.map((row) => row.key),
-    [KEY_C],
+    local?.rows.map((row) => row.key),
+    ["local/ghost"],
+    "カタログにあるが認証の無い provider は、カタログ外の保存済みだけを出す",
   );
-  assert.match(local.warning ?? "", /認証が設定されていない/);
-  assert.equal(local.availableCount, 0);
-  assert.equal(local.catalogCount, 1);
-  assert.equal(local.selectedCount, 1);
+  assert.match(local?.warning ?? "", /認証が設定されていない/);
+  assert.equal(local?.authenticated, false);
+  assert.equal(local?.selectedCount, 2, "provider 行の選択数は下書きから数える");
+
+  // カタログ外の provider は選択を外せるように警告付きで出す
+  const unknown = candidateGroups({ allowed: ["unknown/x"], defaultModel: null }, CATALOG, settings());
+  assert.deepEqual(
+    unknown.map((group) => [group.provider, group.authenticated, group.rows.map((row) => row.key)]),
+    [
+      ["anthropic", true, [KEY_A, KEY_B]],
+      ["unknown", false, ["unknown/x"]],
+    ],
+    "認証済み provider を先に、カタログ外の provider を後ろに足す",
+  );
+  assert.match(unknown[1].warning ?? "", /カタログに無い provider/);
   // カタログにも下書きにも無い provider は行に出ない
   assert.equal(
     groups.some((group) => group.provider === "unknown"),
@@ -535,15 +581,25 @@ test("検索は provider / モデル名 / ID に当たり、選択済みのみ�
 
   const withLocal = candidateGroups({ allowed: [KEY_C], defaultModel: null }, CATALOG, settings());
   assert.deepEqual(
-    filterCandidateGroups(withLocal, "local", false).map((group) => group.rows.map((row) => row.key)),
-    [[KEY_C]],
-    "未認証 provider の保存済みエントリも検索で出る",
+    filterCandidateGroups(withLocal, "local", false),
+    [],
+    "認証の無い provider は検索でも出さない (検索だけが見えない選択を掘り起こさない)",
+  );
+  const withStale = candidateGroups({ allowed: ["local/ghost"], defaultModel: null }, CATALOG, settings());
+  assert.deepEqual(
+    filterCandidateGroups(withStale, "local", false).map((group) => group.rows.map((row) => row.key)),
+    [["local/ghost"]],
+    "カタログ外の残存は検索でも出して外せる",
   );
 });
 
 test("集計は表示集合の利用可能数と選択数を返す", () => {
   const groups = candidateGroups({ allowed: [KEY_A, KEY_C], defaultModel: null }, CATALOG, settings());
-  assert.deepEqual(availabilityCounts(groups), { available: 1, selected: 2 });
+  assert.deepEqual(
+    availabilityCounts(groups),
+    { available: 1, selected: 1 },
+    "認証の無い provider の選択は表示集合に無いので数えない",
+  );
   assert.deepEqual(availabilityCounts([]), { available: 0, selected: 0 });
 });
 

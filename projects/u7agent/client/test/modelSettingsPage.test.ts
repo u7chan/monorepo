@@ -152,19 +152,23 @@ test("タブ行は URL が決めるタブを示し、両方のタブを出す", 
   assert.ok(providersHtml.includes("provider 名 / ID で絞り込み"));
 });
 
-test("モデルを選ぶタブは既定モデル・選択数・候補・保存バーを出す", () => {
+test("モデルを選ぶタブは既定モデル・選択数・候補・保存バーを出し、折りたたみは既定で閉じる", () => {
   const html = render(modelSettings());
   assert.ok(html.includes("既定モデル"), "既定モデルの見出しを出す");
   assert.ok(html.includes("未設定（利用可能なモデルの先頭を使う）"), "既定の未設定を残す");
   assert.ok(html.includes("選択 1 / 利用可能 1"), "選択数と利用可能数を出す");
   assert.ok(html.includes("チェックしたモデルだけが候補になります"));
-  assert.ok(html.includes("Claude Sonnet") && html.includes("Claude Haiku"), "先頭の provider のカタログ全件を出す");
-  assert.ok(html.includes("利用可能 1/2 ・ 選択 1"), "provider 行に a/b と選択数を出す");
-  assert.ok(html.includes("すべて選択") && html.includes("すべて解除"), "provider ごとの一括操作を出す");
-  assert.ok(html.includes("min-h-9") && html.includes("size-4 shrink-0 accent-focus"), "チェック行の寸法");
+  assert.ok(
+    html.includes("Anthropic") && html.includes("利用可能 1/2 ・ 選択 1"),
+    "provider 行に名前と a/b と選択数を出す",
+  );
   assert.ok(html.includes("min-h-11"), "選択済みのみのチェックはタッチ向けの高さを保つ");
   assert.ok(html.includes("開いている会話のモデルは切り替えません"), "live の会話へ効かないことを注記する");
   assert.ok(html.includes("モデル一覧を表示") === false, "ModelTable は出さない");
+  // 先頭の provider も含めて既定は閉じ、折りたたみ中は行を描画しない
+  assert.equal((html.match(/<details[^>]*\sopen=""/g) ?? []).length, 0, "警告が無ければ既定で全部閉じる");
+  assert.equal(html.includes("すべて解除"), false, "折りたたみ中の一括操作も描画しない");
+  assert.equal(html.includes('title="anthropic/claude-sonnet"'), false, "折りたたみ中の行も描画しない");
   // 下部の固定アクション行は変更なしを示し、ボタンは無効
   assert.ok(html.includes("未保存の変更はありません"));
   assert.ok(html.includes('class="btn-primary" disabled=""'));
@@ -174,24 +178,19 @@ test("モデルを選ぶタブは既定モデル・選択数・候補・保存�
 test("既存の null（制限なし）は利用可能な全モデルを選択済みとして表示する", () => {
   const html = render(modelSettings({ settings: { ...SETTINGS, allowedModels: null } }));
   assert.ok(html.includes("選択 1 / 利用可能 1"));
-  assert.equal((html.match(/checked=""/g) ?? []).length, 1, "利用可能な Claude Sonnet だけがチェック済み");
-  const sonnetRow = /<label[^>]*title="anthropic\/claude-sonnet"[^>]*>([\s\S]*?)<\/label>/.exec(html)?.[1] ?? "";
-  assert.ok(sonnetRow.includes('checked=""'), "利用可能なモデルの行がチェック済み");
+  assert.ok(html.includes("利用可能 1/2 ・ 選択 1"), "展開した選択が provider 行の選択数に出る");
 });
 
-test("未認証 provider に残った選択は警告付きで表示し、外せる", () => {
+test("認証が設定されていない provider の選択は表示せず、下書きからも落とす", () => {
   const html = render(
-    modelSettings({ settings: { ...SETTINGS, allowedModels: ["local/local-a"], defaultModel: null } }),
+    modelSettings({ settings: { ...SETTINGS, allowedModels: ["local/local-a"], defaultModel: "local/local-a" } }),
   );
-  assert.ok(html.includes("認証が設定されていない provider です。保存済みの選択だけを表示しています。"));
-  assert.ok(html.includes("Local A"), "保存済みの残存エントリを行に出す");
-  assert.ok(html.includes("すべて解除"), "外せるようにする");
-  assert.equal(
-    (html.match(/すべて選択/g) ?? []).length,
-    1,
-    "すべて選択は認証済み provider にだけ出し、見えない行を一括選択させない",
-  );
-  assert.ok(html.includes("選択 1 / 利用可能 1"), "選択数と、表示集合の利用可能数を分けて数える");
+  assert.equal(html.includes("Local A"), false, "未認証 provider の行は出さない");
+  assert.equal(html.includes("認証が設定されていない provider"), false, "警告付きの未認証グループも出さない");
+  assert.ok(html.includes("選択 0 / 利用可能 1"), "見えない選択は数えない (保存値に残っていても下書きから落とす)");
+  assert.ok(html.includes("未設定（利用可能なモデルの先頭を使う）"), "未認証を指す既定も未設定へ戻す");
+  assert.ok(html.includes("登録が無いプロバイダーに残った選択は候補に出さず"), "残った選択の扱いを注意書きに出す");
+  assert.ok(html.includes('class="btn-primary" disabled=""'), "選択 0 件の間は保存しない");
 });
 
 test("カタログ外の保存済みエントリは警告付きで残し、既定モデルの候補にも出す", () => {
@@ -204,6 +203,12 @@ test("カタログ外の保存済みエントリは警告付きで残し、既�
   assert.ok(html.includes("Claude Sonnet"), "認証済み provider のカタログ全件は出す");
   assert.ok(html.includes("anthropic/ghost"), "カタログ外のエントリも出す");
   assert.ok(html.includes("選択 1 / 利用可能 1"));
+  assert.ok(html.includes("すべて解除"), "外せる一括操作も出す");
+  assert.equal(
+    (html.match(/<details[^>]*\sopen=""/g) ?? []).length,
+    1,
+    "警告のある provider だけは対処できるように開く",
+  );
 });
 
 test("選択 0 件は保存できず、空を送らない理由を出す", () => {

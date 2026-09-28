@@ -74,12 +74,10 @@ export function ModelsTab({
     setSaveState(AVAILABILITY_SAVE_INITIAL);
   }, [draft]);
 
-  // 先頭の group だけは最初から開く (展開の中身を見せる)。以降の開閉は利用者が持つ
-  const defaultOpenProvider = groups[0]?.provider;
+  // 折りたたみは既定で閉じる。検索中は当たった provider を、警告のある provider は対処が必要な
+  // 状態を見せるため開く。以降の開閉は利用者が持つ
   const isGroupOpen = (provider: string, hasWarning: boolean) =>
-    searching ||
-    (!closedProviders.has(provider) &&
-      (openedProviders.has(provider) || provider === defaultOpenProvider || hasWarning));
+    searching || (!closedProviders.has(provider) && (openedProviders.has(provider) || hasWarning));
   const toggleGroup = (provider: string, next: boolean) => {
     setClosedProviders((current) => {
       const updated = new Set(current);
@@ -231,7 +229,7 @@ export function ModelsTab({
                 )}
 
                 <p className="text-2xs leading-relaxed text-ink-muted">
-                  APIキーや認証が設定済みのプロバイダーだけを表示しています。追加するには「プロバイダー」タブで登録します。
+                  APIキーや認証が設定済みのプロバイダーだけを表示しています。追加するには「プロバイダー」タブで登録します。登録が無いプロバイダーに残った選択は候補に出さず、次に保存したときに外れます。
                 </p>
               </>
             )}

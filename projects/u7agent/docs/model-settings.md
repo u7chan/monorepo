@@ -51,7 +51,7 @@ CREATE TABLE IF NOT EXISTS provider_memos (
 `model_settings` は 1 行だけで、**行が無い = 未設定**（制限なし・既定は候補の先頭）。
 
 - `allowedModels` は `provider/model`（model id の `/` は許す）の一覧で、API の応答もこの文字列で返す。保存時に**重複を先勝ちで畳み**、**空配列は制限なし（NULL）へ正規化**する。両方が NULL になった保存は行ごと消して未設定へ戻す
-- UI は選択を**常に明示リスト**で扱い、`allowedModels: null`（旧・制限なし）は「利用可能な全モデルが選択済み」として表示する。空配列は API が制限なしへ正規化して意図と逆になるため、選択 0 件の間は保存ボタンを無効にする（`normalizeAllowedModels()` の空→NULL はサーバーと同じ安全網として残す）
+- UI は選択を**常に明示リスト**で扱い、`allowedModels: null`（旧・制限なし）は「利用可能な全モデルが選択済み」として表示する。空配列は API が制限なしへ正規化して意図と逆になるため、選択 0 件の間は保存ボタンを無効にする（`normalizeAllowedModels()` の空→NULL はサーバーと同じ安全網として残す）。候補として扱うのは認証済み provider のモデルとカタログ外の残存だけで、認証が無い provider の選択は候補に行に出さず下書きからも落とす（`pruneAvailabilityDraft()`。保存値に残っていても次の保存では送らない）
 - `defaultModel` は保存値で、`GET /api/settings/models` が返す。**実効値は `GET /api/health` の `model`**（保存値 → available の先頭の順で決まる）。UI では選択済みモデルを検索できるピッカーで選び、「未設定（利用可能なモデルの先頭を使う）」を先頭に残す。保存値の `null` 展開時に既定モデルが利用可能な集合に無ければ 1 件だけ足す（別の差分の保存を 400 にしないため）
 - **選択されているかどうかの正は `GET /api/settings/models` の `allowedModels` だけ**。`GET /api/runtime/models` のカタログは候補の表示と available 判定にしか使わず、同じ情報（`inWhitelist` のような形）を持たない
 - 実効値の向きは「DB を正とする `ModelSettingsService` → pi の state」。`PiBff.setModelSelection({ allowedModels, defaultModel })` で実行時選択を差し替え、`refreshModelState()` を 1 回呼んで公開 state を再計算する。起動時の初回 state は「制限なし・既定は候補の先頭」で立ち、DB を開いた後の `applyStored()` が保存値へ確定させる
@@ -69,7 +69,7 @@ CREATE TABLE IF NOT EXISTS provider_memos (
 | 空配列 | 制限なしへ正規化 | — |
 | 未認証の既定 | 保存を許す（画面が警告と確認を出す） | — |
 
-検証は `getAvailable()` ではなく `getModels()`（カタログ）を引く。未認証のモデルでも選択リストには入れられ、カタログから消えた残存エントリは保存できない（画面は選択済みエントリとして警告付きで行に出し、外せる）。応答は `GET /api/settings/models` と同じ形 + `state: "applied"` で、`state` は「DB 確定 + 公開 state の再計算」を表す。
+検証は `getAvailable()` ではなく `getModels()`（カタログ）を引く。未認証のモデルでも API の選択リストには入れられる（画面は認証済み provider のモデルとカタログ外の残存だけを候補にし、認証が無い provider の選択は下書きから落とす）。カタログから消えた残存エントリは保存できない（画面は選択済みエントリとして警告付きで行に出し、外せる）。応答は `GET /api/settings/models` と同じ形 + `state: "applied"` で、`state` は「DB 確定 + 公開 state の再計算」を表す。
 
 ### 移行前の環境変数
 
@@ -168,11 +168,11 @@ CREATE TABLE IF NOT EXISTS provider_memos (
 
 - 画面は `/settings/models`（モデルを選ぶ。既定）と `/settings/models/providers`（プロバイダー）の 2 タブ。タブの語彙は `client/src/lib/settingsNav.ts` の `MODELS_SUBSECTIONS` に置き、URL と `routePath` が同じ値を使う。未知のサブセクションと `/settings/models/models` は既定タブヘ畳む（モデル画面からチャットへ飛ばさない）。タブ行は `SettingsPageLayout` の任意スロットに置き、`ProjectDialog` と同じ `.tab-item` を使う
 - `useModelSettings` は両タブの親（`ModelSettingsPage`）で 1 回だけ呼び、未保存の下書き（モデルの選択・既定モデルと、provider ごとの apiKey / メモ）も親が持つ。タブ切替・provider 切替・検索で再マウントしても下書き・note・カタログを失わない。カタログと設定は独立に取り、片方の失敗で他方を捨てない
-- 「モデルを選ぶ」タブは、候補を「認証済み provider のカタログ全件」と「選択済みエントリ（下書きの `allowed` 全件）」の和集合で組む。選択済みを未認証・カタログ外でも必ず行に出し、非表示のまま選択数に残さない。折りたたみ中は行を描画せず、先頭の provider と警告のある provider だけを初期展開する。検索は DOM ではなくカタログのデータ（provider / モデル名 / ID）に当てて該当 provider を自動展開し、「選択済みのみ」でチェック済みだけに絞る
+- 「モデルを選ぶ」タブは、候補を「認証済み provider のカタログ全件」と「カタログ外の残存エントリ」の和集合で組む。認証が設定されていない provider の選択は行に出さず、下書きからも落として保存しない（`pruneAvailabilityDraft()`）。カタログ外の残存だけは保存が 400 になるため、認証が無くても警告付きで出して外せる。折りたたみ中は行を描画せず、既定は全部閉じる（検索中の該当 provider と、警告のある provider だけ開く）。検索は DOM ではなくカタログのデータ（provider / モデル名 / ID）に当てて該当 provider を自動展開し、「選択済みのみ」でチェック済みだけに絞る
   - provider 行はバッジと `利用可能 a/b ・ 選択 c`（a/b はカタログ、c は下書き全体の選択数）を出し、[すべて選択] は認証済み provider だけ、[すべて解除] はカタログに無い provider でも保存済みを外せる。provider 群は利用可能モデル数の降順、同数ならカタログ順で表示する。これは表示順だけで、保存値や既定未設定時の実効先頭を変えない（実効先頭はサーバーが `getAvailable()` の順から決める）
-  - 未認証の provider は保存済みの選択だけを警告付きで出し（カタログ全件は出さない）、カタログ外のエントリも警告付きで出して外せる（`allowedModelsOutsideCatalog()` 相当の判定を `candidateGroups()` が行と警告に写す）。選択 0 件は固定バーで保存を無効にし、理由として「空の選択は API で「制限なし（全モデル）」へ正規化されるため、この画面からは送らない」を示す
+  - 未認証の provider はカタログ外の残存があるときだけ警告付きで出し（カタログ全件は出さない）、外せる（`allowedModelsOutsideCatalog()` 相当の判定を `candidateGroups()` が行と警告に写し、認証が無い provider のカタログ内の選択は行に出さない）。選択 0 件は固定バーで保存を無効にし、理由として「空の選択は API で「制限なし（全モデル）」へ正規化されるため、この画面からは送らない」を示す
   - アプリ既定モデルは `ModelDefaultPicker`（native popover + listbox。`composer/AgentPicker.tsx` と同じ組み方）で選び、先頭に「未設定（利用可能なモデルの先頭を使う）」を残す。選択が 0 件のときは選べない理由をピッカーの下に出す。行は名前と ID を分け、検索は名前 / ID に当てる
-  - 保存は本文の外に固定した下部バーにまとめ、変更がなければ [モデル候補を保存] を無効にし、差分があれば [変更を破棄] / [モデル候補を保存] を出す。保存で利用可能なモデルが 0 件になるときと既定が未認証のときは、純関数の文言で画面内の確認（[保存する] / [キャンセル]）を出し、後者は保存前から警告を出す（ネイティブの `window.confirm` は使わない。同意するまで PUT を送らない）。成功時は応答値から下書きを作り直す。設定 API の保存値が実際に変わった場合も下書きを戻すが、配列参照だけが変わって内容が同じ場合は編集中の下書きを保つ。カタログの更新（キー操作での再取得・再取得の失敗で `catalog: null` になる場合）だけでは下書きを置換しない（`availabilityDraftState()` が保存値の変更と `allowedModels: null` の初回展開だけを作り直しの条件にする）
+  - 保存は本文の外に固定した下部バーにまとめ、変更がなければ [モデル候補を保存] を無効にし、差分があれば [変更を破棄] / [モデル候補を保存] を出す。保存で利用可能なモデルが 0 件になるときと既定が未認証のときは、純関数の文言で画面内の確認（[保存する] / [キャンセル]）を出し、後者は保存前から警告を出す（ネイティブの `window.confirm` は使わない。同意するまで PUT を送らない）。成功時は応答値から下書きを作り直す。設定 API の保存値が実際に変わった場合も下書きを戻すが、配列参照だけが変わって内容が同じ場合は編集中の下書きを保つ。カタログの更新（キー操作での再取得・再取得の失敗で `catalog: null` になる場合）だけでは下書きを置換しない（`availabilityDraftState()` が保存値の変更と、カタログ無しで作った初期値の初回カタログ到着だけを作り直しの条件にし、認証が外れた provider の選択は `pruneAvailabilityDraft()` で下書きと比較基準から落とす）
   - 選択の正は `GET /api/settings/models` の `allowedModels` だけで、カタログは available と候補の表示にしか使わない。カタログを取得できないときは `catalogError` で編集不可を出し、プロバイダータブのキー操作は妨げない（`catalog === null` は初期ロード中も真になるため、編集可否の判定には使わない）
   - 保存後は health とカタログを取り直して、入力欄のモデル候補を追随させる。live の会話のモデルを切り替えないことを画面に注記する（[model-effort.md](model-effort.md#既存の会話への影響認証の変更)）
 - 「プロバイダー」タブは左の一覧（`GET /api/settings/models` の全件を「設定済み（`auth.configured` / `managed` / メモあり / 利用可能モデルあり）」と「未設定」に分け、検索は provider 名 / ID。件数メタは `available/catalog` または未反映・カタログ外）と右の詳細（APIキーの登録・上書き、メモ、削除、再同期、利用可能数、`degraded` の案内）の master-detail。詳細の上部にキーの平文保存と「BFF を LAN / インターネットへ公開しない」注意を常時出し、プロバイダーを切り替えても消さない。キー保存後に「モデルを選ぶ」タブへ戻る導線を置き、固定バーではキー・メモが各保存ボタンで即時保存されることを区別する。モデル一覧の重複表示（旧 ModelTable）は削除した
@@ -221,5 +221,5 @@ CREATE TABLE IF NOT EXISTS provider_memos (
 - `server/test/model-state.test.ts` — `deriveModelState` / `readModelState`（選択リストの積・既定モデル・カタログの導出・可用 0・失敗時の安全な state）、`filterModelsByWhitelist()`
 - `server/test/api.test.ts` — health から `runtimeDiagnostics` が消えたこと、モデルカタログ応答に whitelist 系フィールドが無いこと
 - `server/test/redact.test.ts` — `createMutableSecretMasker` の swap と streaming masker への追随
-- `client/test/modelSettings.test.ts` / `client/test/modelSettingsPage.test.ts` — 表示変換（認証バッジ・並び・入力検証・メモの検証・注記・回復案内）、`providerUsage()`（最初の `/` での分割・`model` 無し・複数セッション・空配列）、`null` の明示リスト展開（利用可能な全モデル + 既定モデルの 1 件追加）・認証済み provider の絞り込み・未認証/カタログ外の残存エントリの警告付き表示・候補の並べ替え/検索/集計・既定モデルの選択肢と検索・dirty 判定・provider 一括操作・確認文、タブと保存バーの初期描画（変更なしと選択 0 件では保存無効）とカタログ外・未設定・環境変数の注記・カタログ取得失敗時の編集不可、プロバイダータブの一覧と詳細（平文注意の常時表示・メモ欄・保存ボタン・runtime 停止時の disable・メモだけの orphan の案内）、キー最終保存（managed だけ・NULL は保存日不明）と最終使用（`sessionsLoaded` が false なら非表示・会話 0 件の managed は「会話はありません」・非 managed は会話があるときだけ）、`client/test/route.test.ts` のタブの正準化（未知のサブセクションと既定タブの明示は `/settings/models` へ）
+- `client/test/modelSettings.test.ts` / `client/test/modelSettingsPage.test.ts` — 表示変換（認証バッジ・並び・入力検証・メモの検証・注記・回復案内）、`providerUsage()`（最初の `/` での分割・`model` 無し・複数セッション・空配列）、`null` の明示リスト展開（利用可能な全モデル + 既定モデルの 1 件追加）・認証済み provider の絞り込み（`pruneAvailabilityDraft()` の除去と、表示の対象を揃える `candidateGroups()` の絞り込み）・カタログ外の残存エントリの警告付き表示・候補の並べ替え/検索/集計・既定モデルの選択肢と検索・dirty 判定・provider 一括操作・確認文、タブと保存バーの初期描画（折りたたみの既定閉・警告のある provider の自動展開・変更なしと選択 0 件では保存無効）とカタログ外・未設定・環境変数の注記・カタログ取得失敗時の編集不可、プロバイダータブの一覧と詳細（平文注意の常時表示・メモ欄・保存ボタン・runtime 停止時の disable・メモだけの orphan の案内）、キー最終保存（managed だけ・NULL は保存日不明）と最終使用（`sessionsLoaded` が false なら非表示・会話 0 件の managed は「会話はありません」・非 managed は会話があるときだけ）、`client/test/route.test.ts` のタブの正準化（未知のサブセクションと既定タブの明示は `/settings/models` へ）
 - `client/test/runtimePage.test.ts` — 設定 → ランタイムから「モデル解決」が消えたこと

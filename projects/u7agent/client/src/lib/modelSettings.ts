@@ -285,9 +285,32 @@ export interface AvailabilityDraft {
 }
 
 /**
+ * 候補に出さないエントリを下書きから落とす。表示 (`candidateGroups()`) と同じ「認証済み provider か」
+ * の判定を使い、画面に出ない選択が保存へ残らないようにする。カタログ外のエントリは保存が 400 に
+ * なるため残し、行と警告を出して外せるようにする。カタログを取得できていないときは判定できないので
+ * そのまま返す。
+ */
+export function pruneAvailabilityDraft(
+  draft: AvailabilityDraft,
+  catalog: RuntimeModelsResponse | null,
+): AvailabilityDraft {
+  if (catalog === null) return draft;
+  const authenticated = new Set(
+    catalog.providers.filter((provider) => provider.auth.configured).map((provider) => provider.provider),
+  );
+  const outsideCatalog = new Set(allowedModelsOutsideCatalog(draft.allowed, catalog));
+  const allowed = draft.allowed.filter((key) => authenticated.has(modelKeyProvider(key)) || outsideCatalog.has(key));
+  // 既定が選択外になると保存が 400 になるため、落とした選択を指す既定は未設定へ戻す
+  const defaultModel = draft.defaultModel !== null && !allowed.includes(draft.defaultModel) ? null : draft.defaultModel;
+  if (allowed.length === draft.allowed.length && defaultModel === draft.defaultModel) return draft;
+  return { allowed, defaultModel };
+}
+
+/**
  * 下書きの初期値。`allowedModels === null`（旧・制限なし）は「利用可能な全モデルが選択済み」
  * として明示リストへ展開する。保存済みの既定モデルがその集合に無い場合は 1 件だけ足す
- * (足さないと、別の差分を保存した時点で既定モデルが選択外になり 400 になる)。
+ * (足さないと、別の差分を保存した時点で既定モデルが選択外になり 400 になる)。最後に認証の無い
+ * provider の選択 (`pruneAvailabilityDraft()`) を落とし、表示と保存の対象を認証済みへ揃える。
  */
 export function availabilityDraftFromSettings(
   settings: Pick<ModelsSettingsResponse, "allowedModels" | "defaultModel">,
@@ -300,33 +323,36 @@ export function availabilityDraftFromSettings(
           .map((entry) => entry.key)
       : [...settings.allowedModels];
   if (settings.defaultModel && !allowed.includes(settings.defaultModel)) allowed.push(settings.defaultModel);
-  return { allowed, defaultModel: settings.defaultModel };
+  return pruneAvailabilityDraft({ allowed, defaultModel: settings.defaultModel }, catalog);
 }
 
-/** 下書きの比較基準。`settings` はこの基準を作った保存値、`expandedNull` は null をカタログつきで展開済みか */
+/**
+ * 下書きの比較基準。`settings` はこの基準を作った保存値、`builtWithCatalog` はカタログつきで
+ * 初期値を作ったか (null の展開と、認証の無い provider の除去にカタログが要る)。
+ */
 export interface AvailabilityDraftState {
   settings: Pick<ModelsSettingsResponse, "allowedModels" | "defaultModel">;
   initial: AvailabilityDraft;
-  expandedNull: boolean;
+  builtWithCatalog: boolean;
 }
 
 /**
  * 保存値とカタログから下書きの比較基準を作る。保存値 (allowedModels / defaultModel) が変わったときと、
- * null (旧・制限なし) をまだカタログつきで展開していないときだけ作り直し、それ以外は同じ参照を返す。
- * カタログの更新 (キー操作での再取得・取得失敗) だけでは、編集中の下書きを置換しない。
+ * カタログ無しで作った初期値をまだカタログつきで作り直していないときだけ作り直し、それ以外は同じ
+ * 参照を返す。カタログの更新 (キー操作での再取得・取得失敗) だけでは、編集中の下書きを置換しない。
  */
 export function availabilityDraftState(
   previous: AvailabilityDraftState | null,
   settings: Pick<ModelsSettingsResponse, "allowedModels" | "defaultModel">,
   catalog: RuntimeModelsResponse | null,
 ): AvailabilityDraftState {
-  // null の展開はカタログが要る。カタログが無い間は初期値だけを作り、到着後の 1 回で展開する
-  const needsExpansion = settings.allowedModels === null && catalog !== null && !(previous?.expandedNull ?? false);
-  if (previous && !needsExpansion && sameAvailabilitySettings(previous.settings, settings)) return previous;
+  // カタログが無い間は保存値のまま作り、初回の到着で 1 回だけ作り直す (初回の再取得では作り直さない)
+  const needsCatalogBuild = catalog !== null && !(previous?.builtWithCatalog ?? false);
+  if (previous && !needsCatalogBuild && sameAvailabilitySettings(previous.settings, settings)) return previous;
   return {
     settings,
     initial: availabilityDraftFromSettings(settings, catalog),
-    expandedNull: settings.allowedModels !== null || catalog !== null,
+    builtWithCatalog: catalog !== null || (previous?.builtWithCatalog ?? false),
   };
 }
 
@@ -509,9 +535,10 @@ export interface CandidateGroup {
 }
 
 /**
- * モデル候補の表示集合。認証済み provider のカタログ全件と、下書きの選択済み全エントリの
- * 和集合にする。選択済みのエントリを未認証・カタログ外でも必ず行に出し、見えないまま
- * 選択数に残さない。並びは利用可能モデル数の降順、同数ならカタログ順（表示順だけ）。
+ * モデル候補の表示集合。認証済み provider のカタログ全件と、カタログ外の残存エントリ（外すまで
+ * 保存できないため必ず出す）の和集合にする。認証の無い provider は下書きに選択が残っていても
+ * 出さない（`pruneAvailabilityDraft()` と同じ判定で、表示と保存の対象を揃える）。並びは利用可能
+ * モデル数の降順、同数ならカタログ順（表示順だけ）。
  */
 export function candidateGroups(
   draft: AvailabilityDraft,
@@ -562,9 +589,11 @@ export function candidateGroups(
         });
       }
     }
-    // 選択済みなのにカタログ行として出ていないエントリ（未認証 provider・カタログ外）を行に足す
+    // カタログ行として出ていないエントリ。認証済み provider は選択済み全部、未認証 provider は
+    // カタログ外の残存だけを出す（認証の無い provider の選択は `pruneAvailabilityDraft()` が落とす）
     for (const key of draft.allowed) {
       if (modelKeyProvider(key) !== provider || seen.has(key)) continue;
+      if (!authenticated && !outsideCatalog.has(key)) continue;
       const model = catalogProvider?.models.find((entry) => modelRefKey({ provider, id: entry.id }) === key);
       rows.push({
         key,
@@ -585,7 +614,10 @@ export function candidateGroups(
           ? { warning: "現在のカタログに無いモデルが保存されています。外すまで保存できません。" }
           : {}
         : catalogProvider
-          ? { warning: "認証が設定されていない provider です。保存済みの選択だけを表示しています。" }
+          ? {
+              warning:
+                "認証が設定されていない provider です。カタログに無い保存済みの選択だけを表示しています。外すまで保存できません。",
+            }
           : { warning: "現在のカタログに無い provider です。保存済みの選択を外すことで削除できます。" }),
       availableCount: catalogModels.filter((model) => model.available).length,
       catalogCount: catalogModels.length,
@@ -594,7 +626,9 @@ export function candidateGroups(
     };
   });
 
-  return groups.sort((left, right) => right.availableCount - left.availableCount);
+  return groups
+    .filter((group) => group.authenticated || group.rows.length > 0)
+    .sort((left, right) => right.availableCount - left.availableCount);
 }
 
 /**
