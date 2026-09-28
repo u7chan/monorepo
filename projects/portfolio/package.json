@@ -28,7 +28,7 @@
     "@tanstack/react-router": "^1.170.38",
     "crypto-js": "^4.2.0",
     "drizzle-orm": "^0.45.3",
-    "hono": "^4.13.8",
+    "hono": "^4.13.10",
     "monaco-editor": "^0.56.0",
     "openai": "^6.49.0",
     "pg": "^8.23.0",
