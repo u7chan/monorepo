@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url";
 import test from "node:test";
 import {
   buildPreviewCode,
+  FILE_PREVIEW_MAX_LENGTH,
   FILE_PREVIEW_MAX_TOKENS,
   isHtmlPath,
   previewCopyText,
@@ -118,11 +119,11 @@ test("フェンスの上限 (40 KiB) を超える本文もファイル側の上�
   assert.equal(code.highlight?.lang, "ts");
 });
 
-test("上限を超える本文はハイライトしない", () => {
-  // サンドボックスの上限 (256 KiB) を超える本文は素のテキストで出す
+test("ハイライトの上限を超える本文は素のテキストで出す (本文の取得上限とは別)", () => {
+  // ハイライトの上限 (256 KiB) を超えても本文と行番号は全部出す
   const source = `const a = 1;\n${"// x\n".repeat(60_000)}`;
   const code = buildPreviewCode(source, "a.ts");
-  assert.ok(source.length > 256 * 1024);
+  assert.ok(source.length > FILE_PREVIEW_MAX_LENGTH);
   assert.equal(code.highlight, null);
   assert.equal(code.lineCount, 60_001);
 });

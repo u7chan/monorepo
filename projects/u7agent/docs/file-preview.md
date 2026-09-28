@@ -59,17 +59,24 @@ FilePreview                 取得した本文をタブごとに保持（表示�
 - 成功表示は既存のコピーと同じ `useMessageCopy`（チェックアイコン + `コピーしました` を 2 秒）。失敗時は成功表示にしない
 - 成功表示は表示中のタブ（`FileCopyButton` の key）に紐づけ、タブを切り替えたら捨てる。見えている本文が変わるため、戻っても表示を復帰させない
 - 画像のプレビューには出さない。HTML はプレビュー中にソースを取得しないので出さず、ソース表示へ切り替えてからコピーする
-- 256 KiB 超で本文を取得できないファイルは対象外（本文自体が無い。上限の緩和は別）
+- 2 MiB 超で本文を取得できないファイルは対象外（本文自体が無い。上限の値と変更手順は [上限](#上限)）
 - 行番号付きコピー / 範囲指定コピーは持たない（持ち出しはツリーの行のダウンロードを使う。[ダウンロード](#ダウンロード)）
 
 ## 上限
 
 | 上限 | 値 | 場所 | 決め方 |
 | --- | --- | --- | --- |
-| ハイライトする本文 | 256 KiB | `FILE_PREVIEW_MAX_LENGTH` | サンドボックスが返す本文の上限に合わせる（超えたら素のテキスト + 行番号） |
+| 本文の取得 | 2 MiB | `SANDBOX_MAX_PREVIEW_BYTES`（サンドボックス）/ `FilePreviewSchema`（BFF） | プレビューは本文を 1 本の JSON（`{ text }`）で返すため、サンドボックス・BFF・ブラウザー（タブごとに保持し同時 8 タブ）のメモリーと転送量が本文長に比例する。その入口を抑える値（セキュリティ境界ではない） |
+| ハイライトする本文 | 256 KiB | `FILE_PREVIEW_MAX_LENGTH` | ハイライトの DOM コストで決める（本文の取得上限とは別。超えたら素のテキスト + 行番号で最後まで出す） |
 | トークン数 | 2 万 | `FILE_PREVIEW_MAX_TOKENS` | トークン 1 つが DOM ノード 1 つになる。実測（dev / Chromium）で 232 KiB の TS（4.6 万トークン）の描画に 0.66 秒かかるため、その半分程度に収める |
 
 上限でハイライトを落としても本文と行番号は出す（無言で消さない）。実測値の目安は、41 行の TS が 66 ms（色付き）、7,058 行 / 226 KiB の TS が 162 ms（トークン上限を超えるため素のテキスト + 行番号）。
+
+### 上限の経緯
+
+本文の取得上限はテキストプレビュー追加（#1386）のときに 256 KiB で置いた控えめな既定で、実測から決めた値ではない。単体 HTML の成果物（Three.js を埋め込んだゲームなど、およそ 680 KiB）が 256 KiB を超えてプレビューできなくなったため 2 MiB へ引き上げた。ハイライトの上限（`FILE_PREVIEW_MAX_LENGTH`）は据え置きで、上限内の本文は最後まで表示され、ハイライトだけが落ちる。
+
+同じ値はテキストプレビュー以外に、HTML プレビューの iframe 文書と相対アセット（`.js` / `.css` / `.json` / `.txt`）、`/skill:` 展開でプロンプトへ入れる SKILL.md 本文にも掛かる（プロンプト長の上限ではない）。本文の取得上限を変えるときは、`SANDBOX_MAX_PREVIEW_BYTES`・`server/src/sandbox/service.ts` のエラー文言・`FilePreviewSchema` の `max`（UTF-16 単位。UTF-8 ではバイト数 ≥ 単位数なので同じ値でよい）・テストとドキュメントの表記を揃える。
 
 ## HTML プレビュー
 
@@ -87,7 +94,7 @@ FilePreview                 取得した本文をタブごとに保持（表示�
 | それ以外（`.svg` を含む） | 400 `Not a servable asset: <path>` |
 
 - 文書以外は CSP を付けず、Content-Type と `nosniff` で守る。`.svg` と HTML はアセットとして配らない（同一オリジンでスクリプトを動かさない）。フォント / メディアは対象外
-- アセットの本文も 256 KiB 以下の UTF-8 テキストに限る。超える `.js` / `.css` は 400 になり、プレビューから読めない
+- アセットの本文も 2 MiB 以下の UTF-8 テキストに限る。超える `.js` / `.css` は 400 になり、プレビューから読めない
 - `.json` は CSP に `connect-src` が無いため、現状のプレビュー内から読む手段が無い（`fetch` も classic script も不可）
 - path はクライアントがセグメント単位で percent encoding する（`client/src/lib/fileUrl.ts`）。Hono 側（`:path{.+}`）は 1 回だけ decode する
 
@@ -112,7 +119,7 @@ Content-Security-Policy: sandbox allow-scripts; default-src 'none'; style-src 'u
 - `connect-src` はどの段階にも無い。`fetch` / XHR は `default-src 'none'` にフォールバックして止まる
 - `sandbox` によりオペークオリジンになり、親 DOM へ触れない（`localStorage` / cookie は SecurityError）
 - iframe 側の `sandbox="allow-scripts"` 属性と両方で隔離する。スクリプトの有効 / 無効は切り替えない（クライアントのトグルは ソース / プレビューの 2 択だけ）
-- 本文は 256 KiB のテキストとして取得する（`FilePreviewSchema` を通す）。サンドボックス側の API は増やさず、新規依存も足さない
+- 本文は 2 MiB のテキストとして取得する（`FilePreviewSchema` を通す）。サンドボックス側の API は増やさず、新規依存も足さない
 - 200 の応答は文書 / アセットとも `Cache-Control: no-store` と `X-Content-Type-Options: nosniff` を付ける（文書は CSP も）
 - 文書のエラーは iframe の中で読めるよう HTML 文書で返し（サンドボックス由来の文言はエスケープ）、この 2 つのヘッダも付ける。アセットのエラーはサブリソースに `text/html` を返さないよう JSON で返し、この 2 つのヘッダは付けない
 
@@ -139,7 +146,7 @@ Content-Security-Policy: sandbox allow-scripts; default-src 'none'; style-src 'u
 ### できないこと（残リスク）
 
 - 相対参照で読めるのは同じルートの allowlist に入ったアセット（画像 / `.js` / `.mjs` / `.css` / `.json` / `.txt`）だけ。`.svg`、フォント、メディア、他の拡張子は 400 になる
-- 256 KiB を超える `.js` / `.css` は配信できず、プレビューから読めない（文書と同じ上限）
+- 2 MiB を超える `.js` / `.css` は配信できず、プレビューから読めない（文書と同じ上限）
 - `<script type="module">` と動的 `import()` は読み込めない。オペークオリジンからの module 取得は CORS になり、BFF は CORS ヘッダを付けないため（classic script だけが動く。Vite 等が出力する `type="module"` の HTML は兄弟ファイルを置いても動かない）
 - `localStorage` / `sessionStorage` / cookie を使う HTML は動かない（オペークオリジン）。`localStorage` の読み取りでは `SecurityError: Failed to read the 'localStorage' property from 'Window': The document is sandboxed and lacks the 'allow-same-origin' flag.` が投げられる
 - インライン script の途中で例外が出ると、その script の残りは実行されない（storage を使う単一ファイル HTML は「JS が動かない」ように見える）

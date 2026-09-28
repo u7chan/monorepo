@@ -292,7 +292,7 @@ test("expandSkillCommand は上書きされた組み込みではなく採用側�
 test("expandSkillCommand は本文が取れないときだけ 4xx / 502 で止める", async () => {
   const cases: Array<[SandboxRequestError, number, RegExp]> = [
     [new SandboxRequestError("Path not found: /workspace/x", 404), 404, /削除された可能性/],
-    [new SandboxRequestError("プレビューは256 KiB以下のファイルに対応しています", 400), 400, /256 KiB/],
+    [new SandboxRequestError("プレビューは2 MiB以下のファイルに対応しています", 400), 400, /2 MiB/],
     [new SandboxRequestError("サンドボックスに接続できません", 502), 502, /本文を取得できません/],
   ];
   for (const [error, status, message] of cases) {
