@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { deleteDirectory, deleteFile, fileDownloadUrl, getFileDownloadCheck, getFiles, renameEntry } from "../api";
+import { useFileTreeWidth } from "../hooks/useFileTreeWidth";
+import { FileTreeResizeHandle } from "./file-tree/FileTreeResizeHandle";
 import { FilePreview } from "./FilePreview";
 import { cn } from "../lib/cn";
 import { archiveConfirmMessage, startArchiveDownload } from "../lib/archive";
@@ -108,6 +110,8 @@ export function FileBrowser({
   const [previewVersion, setPreviewVersion] = useState(0);
   // 表示モードは再読み込みの remount を跨ぐ必要がある (選択はタブを閉じるまで保持する) ため親が持つ (docs/file-preview.md)
   const [previewModes, setPreviewModes] = useState<PreviewModes>(() => restored?.modes ?? {});
+  // 幅は左右 2 段のときだけ効く。ツリーの親 (@container) 自身を測り、--file-tree-width をそこへ入れる
+  const treeWidth = useFileTreeWidth();
   // StrictMode の effect 二重実行と、取得中の再読み込みで同じディレクトリを二重に要求しない
   const inFlightRef = useRef<Set<string>>(new Set());
   // 同じ行の削除を二重に送らない (実体が消えた後の再要求で 404 を出さないため)
@@ -269,14 +273,19 @@ export function FileBrowser({
   return (
     // 外装が渡す枠 (グリッドの 1 行 / flex の 1 要素) をそのまま埋める。内側の 1 段は @container でないと
     // 自分自身の幅を問い合わせられないため、判定はこの段で行う
-    <div className="@container min-h-0">
-      <div className="flex h-full min-h-0 flex-col @2xl:flex-row">
+    <div
+      ref={treeWidth.containerRef}
+      className="@container min-h-0"
+      style={{ "--file-tree-width": `${treeWidth.width}px` } as CSSProperties}
+    >
+      <div className="relative flex h-full min-h-0 flex-col @2xl:flex-row">
         {/* タブがあるときは shrink-0 を付けない。低い viewport でツリーが全高を取るとプレビュー本文が見えなくなるため、
-            プレビューの min-h-40 へ譲る。タブが無いときはツリーを全幅に使う (空の列を作らない) */}
+            プレビューの min-h-40 へ譲る。タブが無いときはツリーを全幅に使う (空の列を作らない)。
+            左右 2 段では幅を --file-tree-width で選べる (既定はコンテナの 1/3。lib/fileTreeWidth.ts) */}
         <div
           className={cn(
-            "min-h-0 scrollbar-thin overflow-x-hidden overflow-y-auto px-4 py-3",
-            tabs.paths.length > 0 ? "max-h-64 @2xl:max-h-none @2xl:w-72 @2xl:flex-none" : "flex-1",
+            "scrollbar-stable min-h-0 scrollbar-thin overflow-x-hidden overflow-y-auto px-4 py-3",
+            tabs.paths.length > 0 ? "max-h-64 @2xl:max-h-none @2xl:w-(--file-tree-width) @2xl:flex-none" : "flex-1",
           )}
         >
           {rootNode.error ? (
@@ -305,6 +314,18 @@ export function FileBrowser({
             <MessageRow depth={0}>読み込み中…</MessageRow>
           )}
         </div>
+        {/* ハンドルはスクロール枠の兄弟に置く (中に置くと absolute でも内容と一緒にスクロールする)。
+            位置はツリーの右端 = 境界の中心で、--file-tree-width に追随する */}
+        {tabs.paths.length > 0 && treeWidth.resizable ? (
+          <FileTreeResizeHandle
+            width={treeWidth.width}
+            min={treeWidth.min}
+            max={treeWidth.max}
+            preview={treeWidth.preview}
+            commit={treeWidth.commit}
+            reset={treeWidth.reset}
+          />
+        ) : null}
         {tabs.paths.length > 0 && tabs.active ? (
           <FilePreview
             key={previewVersion}

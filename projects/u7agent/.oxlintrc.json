@@ -38,6 +38,7 @@
               "grid-cols-[minmax(0,1fr)_min(360px,30vw)]",
               "grid-cols-[minmax(0,1fr)_var(--session-files-width)]",
               "grid-cols-[minmax(0,1fr)_minmax(300px,360px)]",
+              "left-[calc(var(--file-tree-width)_-_4px)]",
               "max-h-[30vh]",
               "max-h-[42dvh]",
               "max-h-[min(88dvh,760px)]",
