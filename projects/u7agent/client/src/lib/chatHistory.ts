@@ -213,13 +213,49 @@ function reconcileLive(live: Bubble[], items: HistoryItem[]): { kept: Bubble[]; 
 /**
  * pending の送信エコーのうち、新しい領域に自分の run の item (同じ runId) が載ったものを吸収する。
  * pending は他クライアントの同一文面 entry と区別できないため、run id が一致する item だけを対象に
- * する (run id が無い item へは縮退しない。run_start 前の誤った吸収を避ける)。
+ * する (run id が無い item は、後段の `consumePendingFallback` が文書化済みの縮退で扱う)。
  */
 function absorbPendingEchoes(pendingLives: Bubble[], items: HistoryItem[]): Set<number> {
   const consumed = new Set<number>();
   for (const bubble of pendingLives) {
     if (bubble.runId === undefined) continue;
     if (items.some((item) => item.kind === "message" && item.runId === bubble.runId)) consumed.add(bubble.id);
+  }
+  return consumed;
+}
+
+/**
+ * run 対応を失った履歴 (item に runId が載らない) への縮退の突き合わせ。サーバー再起動で実行時の
+ * 対応表が消えた item は、runId を持つ item (別 run の entry) と区別できないため、文書化済みの
+ * 契約どおり role + 本文の正規形と、送信時点で既知だった位置 (`since`) より後という条件でだけ
+ * 対応付ける。`since` が見つからないときは何も返さない (誤った吸収をしない)。
+ */
+export function fallbackEchoTarget(bubbles: Bubble[], markers: CompactionMarker[], echo: Bubble): Bubble | undefined {
+  const after = historyIdsAfter(bubbles, markers, echo.since);
+  const text = canonicalUserText(echo.text);
+  for (let index = bubbles.length - 1; index >= 0; index -= 1) {
+    const bubble = bubbles[index];
+    if (bubble.entryId === undefined || bubble.role !== "user") continue;
+    if (bubble.runId !== undefined) continue;
+    if (!after.has(bubble.entryId)) continue;
+    if (canonicalUserText(bubble.text) !== text) continue;
+    return bubble;
+  }
+  return undefined;
+}
+
+/**
+ * 残った pending エコーを、run 対応を失った履歴 item と突き合わせて吸収する。1 item につき
+ * 1 エコーだけを消費し、対応のないエコーは末尾に残す。
+ */
+function consumePendingFallback(bubbles: Bubble[], markers: CompactionMarker[], pendingLives: Bubble[]): Set<number> {
+  const consumed = new Set<number>();
+  const usedTargets = new Set<number>();
+  for (const echo of pendingLives) {
+    const target = fallbackEchoTarget(bubbles, markers, echo);
+    if (target === undefined || usedTargets.has(target.id)) continue;
+    usedTargets.add(target.id);
+    consumed.add(echo.id);
   }
   return consumed;
 }
@@ -301,7 +337,7 @@ export function mergeHistoryPage(
   const { kept: remainingTail } = reconcileLive(tail, newItems);
   const carried = remainingFront;
   const trailing = [...remainingTail, ...keptPending];
-  const bubbles = [...carried, ...kept, ...pageBundle.bubbles, ...trailing];
+  const assembled = [...carried, ...kept, ...pageBundle.bubbles, ...trailing];
   const markers = [
     ...connection.keepMarkers.map((marker) => ({ ...marker, index: marker.index + carried.length })),
     ...pageBundle.markers.map((marker) => ({
@@ -309,6 +345,12 @@ export function mergeHistoryPage(
       index: marker.index + carried.length + kept.length,
     })),
   ].sort((a, b) => a.index - b.index);
+  // まだ残っている pending エコーは、run 対応を失った履歴 item (runId 無し) となら本文の正規形 +
+  // `since` の位置条件で突き合わせる。サーバー再起動で実行中の run が消えてもエコーを残さない
+  // (runId を持つ別 run の entry は `fallbackEchoTarget` が対象外にする)
+  const fallbackConsumed = consumePendingFallback(assembled, markers, keptPending);
+  const bubbles =
+    fallbackConsumed.size > 0 ? assembled.filter((bubble) => !fallbackConsumed.has(bubble.id)) : assembled;
   const withCounts = applyHistoryCounts(bubbles, page.messageCount, page.summarizedMessageCount);
   return {
     bubbles: withCounts,
@@ -316,7 +358,7 @@ export function mergeHistoryPage(
     nextId: pageBundle.nextId,
     toolBubbleIds: rebuildToolBubbleIds(withCounts),
     gap: false,
-    pendingEchoIds: pendingEchoIds.filter((id) => !consumedPending.has(id)),
+    pendingEchoIds: pendingEchoIds.filter((id) => !consumedPending.has(id) && !fallbackConsumed.has(id)),
   };
 }
 

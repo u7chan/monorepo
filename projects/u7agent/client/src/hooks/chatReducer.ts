@@ -1,6 +1,6 @@
 import {
   canonicalUserText,
-  historyIdsAfter,
+  fallbackEchoTarget,
   mergeHistoryPage,
   newestHistoryItemId,
   prependHistoryPage,
@@ -244,7 +244,8 @@ function legacyMarkers(compactions: CompactionInfo[]): CompactionMarker[] {
 /**
  * run_start に対応する自分の user entry が既に履歴へ載っているか (送信直前の preflight compaction など)。
  * 送信の run id が分かるときは runId が一致する item だけを見るので、別クライアントの同一文面 entry を
- * 自分のものにしない。run id が無い旧経路は、送信時点 (`echo.since`) より後に現れた同一文面へ縮退する。
+ * 自分のものにしない。run id が無い旧経路は、送信時点 (`echo.since`) より後に現れた runId 無しの
+ * 同一文面へ縮退する (`fallbackEchoTarget`)。
  */
 function echoAbsorbTarget(bubbles: Bubble[], markers: CompactionMarker[], echo: Bubble): Bubble | undefined {
   if (echo.runId !== undefined) {
@@ -252,16 +253,7 @@ function echoAbsorbTarget(bubbles: Bubble[], markers: CompactionMarker[], echo: 
       (bubble) => bubble.entryId !== undefined && bubble.role === "user" && bubble.runId === echo.runId,
     );
   }
-  const after = historyIdsAfter(bubbles, markers, echo.since);
-  const text = canonicalUserText(echo.text);
-  for (let index = bubbles.length - 1; index >= 0; index -= 1) {
-    const bubble = bubbles[index];
-    if (bubble.entryId === undefined || bubble.role !== "user") continue;
-    if (!after.has(bubble.entryId)) continue;
-    if (canonicalUserText(bubble.text) !== text) continue;
-    return bubble;
-  }
-  return undefined;
+  return fallbackEchoTarget(bubbles, markers, echo);
 }
 
 function applyHistoryMerge(state: ChatState, merged: HistoryMergeResult, page: HistoryPage): ChatState {

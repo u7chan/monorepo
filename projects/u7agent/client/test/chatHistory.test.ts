@@ -238,7 +238,15 @@ test("pending の送信エコーは他クライアントの同一文面 entry �
     ...Array.from({ length: 10 }, (_, index) => userItem(`h${index + 2}`, `x${index}`)),
   ];
   const held = mergeHistoryPage(EMPTY, page(heldItems, { hasMore: true, nextCursor: "h1", messageCount: 11 }));
-  const echo: Bubble = { id: 99, role: "user", text: "同じ質問", tools: [], skillLoads: [] };
+  const echo: Bubble = {
+    id: 99,
+    role: "user",
+    text: "同じ質問",
+    tools: [],
+    skillLoads: [],
+    runId: "run-mine",
+    since: "h1",
+  };
   // 最新ページは保持分と重なる (h2..h11) が、送信分の entry はまだ無い
   const overlapping = page(
     Array.from({ length: 10 }, (_, index) => userItem(`h${index + 2}`, `x${index}`)),
@@ -249,19 +257,55 @@ test("pending の送信エコーは他クライアントの同一文面 entry �
   assert.deepEqual(keptEcho.pendingEchoIds, [99], "過去の同一文面では消費しない");
   assert.equal(keptEcho.bubbles.filter((bubble) => bubble.id === 99).length, 1);
 
-  // 別クライアントの entry が新しい領域に現れても、pending の間は区別できないので消費しない
+  // 別クライアントの entry (別 runId) は run id が一致せず、本文も同じだが消費しない
   const withOtherEntry = page(
-    [...Array.from({ length: 10 }, (_, index) => userItem(`h${index + 2}`, `x${index}`)), userItem("n1", "同じ質問")],
+    [
+      ...Array.from({ length: 10 }, (_, index) => userItem(`h${index + 2}`, `x${index}`)),
+      { kind: "message", id: "n1", context: "active", role: "user", text: "同じ質問", runId: "run-other" },
+    ],
     { prevCursor: "h1", hasMore: true, nextCursor: "h2", messageCount: 12 },
   );
   const keptPending = mergeHistoryPage(held, withOtherEntry, { live: [echo], pendingEchoIds: [99] });
-  assert.deepEqual(keptPending.pendingEchoIds, [99], "pending は run_start まで保持する");
+  assert.deepEqual(keptPending.pendingEchoIds, [99], "別 run の entry では消費しない");
   assert.equal(
     keptPending.bubbles.some((bubble) => bubble.id === 99),
     true,
     "他クライアントの entry ではエコーを消さない",
   );
   assert.equal(keptPending.bubbles.filter((bubble) => bubble.entryId === "n1").length, 1);
+});
+
+test("run 対応を失った item (runId 無し) は本文の正規形 + since で pending エコーへ吸収する", () => {
+  const held = mergeHistoryPage(EMPTY, page([userItem("m1", "old")], { hasMore: true, nextCursor: "m1" }));
+  const echo: Bubble = {
+    id: 99,
+    role: "user",
+    text: "mine",
+    tools: [],
+    skillLoads: [],
+    runId: "run-mine",
+    since: "m1",
+  };
+  // サーバー再起動で復元した item は runId を持たない。runId の一致は見つからないので本文で縮退する
+  const merged = mergeHistoryPage(
+    held,
+    page([userItem("m1", "old"), userItem("m2", "mine")], {
+      prevCursor: null,
+      hasMore: false,
+      nextCursor: null,
+      messageCount: 2,
+    }),
+    { live: [echo], pendingEchoIds: [99] },
+  );
+  assert.deepEqual(merged.pendingEchoIds, [], "pending を残さない");
+  assert.deepEqual(
+    merged.bubbles.map((bubble) => [bubble.entryId, bubble.text]),
+    [
+      ["m1", "old"],
+      ["m2", "mine"],
+    ],
+    "履歴 item 1 件だけを残す",
+  );
 });
 
 test("確定済みライブバブルはページの手前へ戻し、送信直後のエコーは末尾に残す", () => {
