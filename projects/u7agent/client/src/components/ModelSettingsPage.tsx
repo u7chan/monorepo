@@ -3,6 +3,7 @@ import { useModelSettings, type ModelSettings } from "../hooks/useModelSettings"
 import { cn } from "../lib/cn";
 import {
   availabilityDraftState,
+  pruneAvailabilityDraft,
   providerDraftBase,
   withProviderDraft,
   type AvailabilityDraft,
@@ -104,13 +105,22 @@ export function ModelSettingsView({
     );
   };
   const appliedDraft = useRef<AvailabilityDraftState | null>(null);
-  // 比較基準は保存値が変わったときと null (旧・制限なし) の初回展開でだけ作り直す。
-  // カタログの更新 (キー操作での再取得・取得失敗) だけでは、編集中の下書きを置換しない
-  const draftState = settings ? availabilityDraftState(appliedDraft.current, settings, catalog) : null;
-  if (draftState && draftState !== appliedDraft.current) {
-    appliedDraft.current = draftState;
-    setDraft(draftState.initial);
+  // 比較基準は保存値が変わったときと、カタログ無しで作った初期値をまだカタログつきで作り直して
+  // いないときだけ作り直す。カタログの更新 (キー操作での再取得・取得失敗) だけでは、編集中の下書きを置換しない
+  const nextDraftState = settings ? availabilityDraftState(appliedDraft.current, settings, catalog) : null;
+  if (nextDraftState && nextDraftState !== appliedDraft.current) {
+    appliedDraft.current = nextDraftState;
+    setDraft(nextDraftState.initial);
+  } else if (nextDraftState) {
+    // カタログの更新で認証が外れた provider の選択は、表示と同じ判定で下書きと比較基準から落とす
+    const prunedDraft = pruneAvailabilityDraft(draft, catalog);
+    const prunedInitial = pruneAvailabilityDraft(nextDraftState.initial, catalog);
+    if (prunedDraft !== draft || prunedInitial !== nextDraftState.initial) {
+      appliedDraft.current = { ...nextDraftState, initial: prunedInitial };
+      setDraft(prunedDraft);
+    }
   }
+  const draftState = appliedDraft.current;
 
   return (
     <SettingsPageLayout
