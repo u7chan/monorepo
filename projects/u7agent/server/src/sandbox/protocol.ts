@@ -208,8 +208,11 @@ export interface SandboxDownloadCheck {
   skipped: string[];
 }
 
-/** プレビューで読むファイルサイズの上限 (これより大きいと 400)。 */
-export const SANDBOX_MAX_PREVIEW_BYTES = 256 * 1024;
+/**
+ * プレビューで読むファイルサイズの上限 (これより大きいと 400)。
+ * 値の理由と変更手順は docs/file-preview.md の「上限」を参照する。
+ */
+export const SANDBOX_MAX_PREVIEW_BYTES = 2 * 1024 * 1024;
 
 /**
  * アップロード / 生配信の 1 ファイル上限 (100 MiB)。クライアントの申告サイズは信用せず、ここで数える。

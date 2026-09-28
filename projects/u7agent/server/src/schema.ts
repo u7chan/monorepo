@@ -720,8 +720,9 @@ export type FileListing = z.infer<typeof FileListingSchema>;
 /**
  * テキストプレビュー (サンドボックス GET /v1/files/preview の応答)。
  * サンドボックス側の上限はバイト数で、ここは UTF-16 単位の防御。UTF-8 ではバイト数 ≥ 単位数なので通った文字列を弾かない。
+ * 値は SANDBOX_MAX_PREVIEW_BYTES と揃える (変更手順は docs/file-preview.md の「上限」を参照)。
  */
-export const FilePreviewSchema = z.object({ text: z.string().max(256 * 1024) });
+export const FilePreviewSchema = z.object({ text: z.string().max(2 * 1024 * 1024) });
 export type FilePreview = z.infer<typeof FilePreviewSchema>;
 
 /**

@@ -272,7 +272,7 @@ References are relative to /workspace/.agents/skills/writer.
 - 形式は SDK の `_expandSkillCommand` と同じ（`parseSkillBlock` で読み直せる）。`location` は `read` に渡す値と同じで、ファイル / 組み込み / カタログとも絶対パス（組み込みは `<root>/.u7agent/builtin-skills/...`、カタログは `<root>/.u7agent/agent-skills/...` の仮想パス）。カタログは実体が無いので「References are relative to …」行は入らない。引数はブロックの後に空行を挟んでそのまま渡す
 - 本文の取得元はスコープ別: ファイル（共通 / プロジェクト）→ サンドボックスの `GET /v1/files/preview`、組み込み → BFF の registry、カタログ（Agent 割り当て）→ セッションの `promptSnapshot`（旧 `<skill>` と新 `<agent_skill>` の両方を受け付け、タグではなく `name` 属性で引く）
 - 名前は優先順位 `プロジェクト > 共通 > 組み込み > カタログ` で一意に解決する（[一覧 API](#get-apisessionsidskills) と同じ解決を共有）。未知の名前、`/skill:` で始まらない本文は素通しする（SDK と同じ挙動）
-- **本文は送信時点の内容**。ファイルが削除されていれば 404、256 KiB 超 / UTF-8 でない / バイナリは 400、サンドボックスへ到達できなければ 502 を返し、**メッセージは送らない**（切り詰めて黙って送るとモデルが読む本文が変わるため）
+- **本文は送信時点の内容**。ファイルが削除されていれば 404、2 MiB 超 / UTF-8 でない / バイナリは 400、サンドボックスへ到達できなければ 502 を返し、**メッセージは送らない**（切り詰めて黙って送るとモデルが読む本文が変わるため）
 - 実行中（キュー / steering）に送った場合も同じ経路で展開する（`postMessage` が展開してから `SessionStore` へ渡す）
 - 一覧のタイトルは展開前の入力（`/skill:writer 3 行で書いて`）から作る。履歴（`messages[].text`）と `run_start.prompt` には展開後の本文が入り、クライアントは user バブルでブロックを畳んで表示する（引数だけを吹き出しに残す）
 - 二重展開はしない。展開結果は `<skill …>` で始まるため、SDK 側の展開（`/skill:` 接頭辞）には当たらない

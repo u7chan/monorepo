@@ -918,7 +918,7 @@ export function createSandboxService(options: SandboxServiceOptions): SandboxSer
           if (!bytesRead) break;
           size += bytesRead;
         }
-        if (size > limit) throw pathError(400, "プレビューは256 KiB以下のファイルに対応しています");
+        if (size > limit) throw pathError(400, "プレビューは2 MiB以下のファイルに対応しています");
         let text: string;
         try {
           text = new TextDecoder("utf-8", { fatal: true }).decode(buffer.subarray(0, size));

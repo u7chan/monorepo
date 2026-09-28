@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import { createSandboxService } from "../src/sandbox/service";
+import { SANDBOX_MAX_PREVIEW_BYTES } from "../src/sandbox/protocol";
 
 test("preview accepts bounded UTF-8 files and rejects unsafe paths", async () => {
   const root = await mkdtemp(join(tmpdir(), "preview-"));
@@ -18,15 +19,19 @@ test("preview accepts bounded UTF-8 files and rejects unsafe paths", async () =>
     await writeFile(join(root, "empty"), "");
     await writeFile(join(root, "binary"), Buffer.from([0, 1, 2]));
     await writeFile(join(root, "invalid"), Buffer.from([255]));
-    await writeFile(join(root, "large"), "a".repeat(256 * 1024 + 1));
+    await writeFile(join(root, "large"), "a".repeat(SANDBOX_MAX_PREVIEW_BYTES + 1));
     await symlink(tmpdir(), join(root, "outside"));
     assert.deepEqual(await (await request("text")).json(), { text: "日本語\n<script>alert(1)</script>" });
     assert.deepEqual(await (await request("empty")).json(), { text: "" });
     for (const path of ["binary", "invalid", "large", ".", "outside", "../missing"])
       assert.equal((await request(path)).status, 400, path);
+    // 上限超過はユーザーが直せる文言で返す (値は SANDBOX_MAX_PREVIEW_BYTES と揃える)
+    assert.deepEqual(await (await request("large")).json(), {
+      error: "プレビューは2 MiB以下のファイルに対応しています",
+    });
     assert.equal((await request("missing")).status, 404);
     // 境界 (ちょうど上限) は通す
-    await writeFile(join(root, "limit"), "a".repeat(256 * 1024));
+    await writeFile(join(root, "limit"), "a".repeat(SANDBOX_MAX_PREVIEW_BYTES));
     assert.equal((await request("limit")).status, 200);
     assert.equal((await service.app.request("/v1/files/preview?path=text")).status, 401);
   } finally {

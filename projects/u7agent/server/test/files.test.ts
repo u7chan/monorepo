@@ -325,9 +325,9 @@ test("GET /api/files/html/<path> maps asset failures to JSON", async () => {
     },
     { error: new SandboxRequestError("Path not found: /workspace/nope", 404), status: 404, message: /Path not found/ },
     {
-      error: new SandboxRequestError("プレビューは256 KiB以下のファイルに対応しています", 400),
+      error: new SandboxRequestError("プレビューは2 MiB以下のファイルに対応しています", 400),
       status: 400,
-      message: /256 KiB/,
+      message: /2 MiB/,
     },
     {
       error: new SandboxRequestError("サンドボックス (http://x) に接続できません: ECONNREFUSED", 502),

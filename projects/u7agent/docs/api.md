@@ -207,7 +207,7 @@ client（`client/src/api.ts` の `getFiles`）は hc でこの契約を型とし
 
 | メソッド | パス | 説明 |
 | --- | --- | --- |
-| GET | `/api/files/preview?path=<root 相対>` | テキストファイルの内容（UTF-8、256 KiB 以下） |
+| GET | `/api/files/preview?path=<root 相対>` | テキストファイルの内容（UTF-8、2 MiB 以下） |
 
 `{ "text": "内容" }` を返す（`Cache-Control: no-store`）。サンドボックスの `GET /v1/files/preview` に委譲し、root 内の通常ファイルのみ読み取る。この経路では HTML や Markdown も実行・レンダリングせずプレーンテキストとして返す（HTML の描画は `GET /api/files/html/<root 相対>` を使う）。
 
@@ -223,16 +223,16 @@ iframe の src になる HTML 文書と、その文書が相対参照するア�
 
 | 要求（`GET /api/files/html/<path>`） | 応答 |
 | --- | --- |
-| `.html` / `.htm` | HTML 文書（UTF-8、256 KiB 以下）。CSP + `sandbox` 付きの `text/html` |
+| `.html` / `.htm` | HTML 文書（UTF-8、2 MiB 以下）。CSP + `sandbox` 付きの `text/html` |
 | 画像（`png` / `jpg` / `jpeg` / `gif` / `webp` / `avif` / `bmp` / `ico`） | `GET /v1/files/raw` を流用した生配信（100 MiB 以下） |
-| `.js` / `.mjs` / `.css` / `.json` / `.txt` | `GET /v1/files/preview` を流用した UTF-8 テキスト（256 KiB 以下） |
+| `.js` / `.mjs` / `.css` / `.json` / `.txt` | `GET /v1/files/preview` を流用した UTF-8 テキスト（2 MiB 以下） |
 | それ以外（`.svg` を含む） | 400 `Not a servable asset: <path>` |
 | パスなし（`/api/files/html`、`/api/files/html/`） | 404（HTML 文書は返さない） |
 
 - 文書はサンドボックスの `GET /v1/files/preview` の応答を `text/html` としてそのまま返す（`Cache-Control: no-store`、`X-Content-Type-Options: nosniff`）。HTML として開くかの判定は要求パスの拡張子で行い、本文の中身や拡張子は見ない
 - テキストアセットも同じ `workspace.previewFile()` を通るため、バイナリ・UTF-8 として不正なバイト列・上限超過・ディレクトリ・root 外は 400、実在しない場合は 404（サンドボックス側の文言をそのまま返す）。画像は raw の経路で `Content-Type` / `Content-Length` / `no-store` / `nosniff` を付けて返す
 - 文書以外には CSP を付けず、拡張子から決めた Content-Type と `nosniff` で守る。`.svg` / HTML をアセットとして配らない（同一オリジンでスクリプトを動かさない）
-- アセットの本文は 256 KiB が上限で、超える `.js` / `.css` はプレビューから読めない。`<script type="module">` は CORS ヘッダが無いため読めない（classic script のみ）
+- アセットの本文は 2 MiB が上限で、超える `.js` / `.css` はプレビューから読めない。`<script type="module">` は CORS ヘッダが無いため読めない（classic script のみ）
 - 400 / 404: テキストプレビューと同じ分類。502: サンドボックスへ到達できない / 認証失敗 / 契約外の応答（BFF が zod で検証して弾く）。503: `PI_SANDBOX_URL` / `PI_SANDBOX_TOKEN` が未設定
 
 iframe の中身は応答ヘッダだけで隔離する（親の CSP を継承させないために別ルートにする）。CSP は `server/src/routes/files.ts` の `HTML_PREVIEW_POLICY` 1 箇所から導出し、既定は Lv2（相対アセットの `'self'` と `https:`）。iframe 属性は段階に関わらず `sandbox="allow-scripts"` 固定。

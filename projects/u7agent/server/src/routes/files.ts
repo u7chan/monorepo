@@ -136,7 +136,7 @@ export function createFileRoutes({
   async function serveTextAsset(c: Context, path: string, contentType: string) {
     if (!workspace) return sandboxNotConfigured(c);
     try {
-      // 本文はテキストプレビューと同じ経路 (サンドボックスの GET /v1/files/preview、UTF-8 テキスト 256 KiB 上限)
+      // 本文はテキストプレビューと同じ経路 (サンドボックスの GET /v1/files/preview、UTF-8 テキスト 2 MiB 上限)
       const parsed = FilePreviewSchema.safeParse(await workspace.previewFile(path));
       if (!parsed.success) return c.json({ error: "サンドボックスのプレビューが不正です" }, 502);
       return c.body(parsed.data.text, 200, {
@@ -153,7 +153,7 @@ export function createFileRoutes({
   async function serveHtmlDocument(c: Context, path: string) {
     if (!workspace) return htmlError(c, 503, SANDBOX_NOT_CONFIGURED_MESSAGE);
     try {
-      // 本文はテキストプレビューと同じ経路 (サンドボックスの GET /v1/files/preview、UTF-8 テキスト 256 KiB 上限)
+      // 本文はテキストプレビューと同じ経路 (サンドボックスの GET /v1/files/preview、UTF-8 テキスト 2 MiB 上限)
       const parsed = FilePreviewSchema.safeParse(await workspace.previewFile(path));
       if (!parsed.success) return htmlError(c, 502, "サンドボックスのプレビューが不正です");
       return c.html(parsed.data.text, 200, HTML_PREVIEW_HEADERS);

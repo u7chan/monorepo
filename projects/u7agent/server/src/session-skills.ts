@@ -222,7 +222,7 @@ async function resolveSkillBody(skill: ResolvedSessionSkill, input: SessionSkill
 }
 
 /**
- * 本文が取れない理由を切り分けて返す。削除 (404) と「テキストとして読めない / 256 KiB 超」(400) は
+ * 本文が取れない理由を切り分けて返す。削除 (404) と「テキストとして読めない / 2 MiB 超」(400) は
  * ユーザーが直せるのでサンドボックスの文言をそのまま見せ、それ以外は 502 に寄せる。
  */
 function skillBodyError(info: SessionSkillInfo, error: unknown): Error {

@@ -5,7 +5,10 @@
  */
 import { highlightCode, normalizeLang, type MdToken } from "./markdown/highlight";
 
-/** ハイライトする本文の上限。サンドボックスが返す本文の上限 (256 KiB) に合わせる */
+/**
+ * ハイライトする本文の上限。本文の取得上限 (サンドボックスの `SANDBOX_MAX_PREVIEW_BYTES` = 2 MiB) とは別で、
+ * トークン 1 つが DOM ノード 1 つになるコストを抑えるために意図的に低くしてある。超えても本文と行番号は全部出す。
+ */
 export const FILE_PREVIEW_MAX_LENGTH = 256 * 1024;
 
 /**
