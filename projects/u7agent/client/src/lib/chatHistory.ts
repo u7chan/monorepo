@@ -13,6 +13,13 @@ export interface HistoryBundle {
   toolBubbleIds: Record<string, number>;
 }
 
+export interface HistoryMergeResult extends HistoryBundle {
+  /** ページが保持分と繋がらず、欠落区間の取得が必要 (true のとき bubbles 等は prev のまま) */
+  gap: boolean;
+  /** 消費した送信エコーを除いた待ち行列 */
+  pendingEchoIds: number[];
+}
+
 /**
  * 送信エコーの照合用の正規形。添付の注記を落とし、`/skill:` の展開結果は打ったコマンドの形へ戻す。
  * ローカルエコー (素の入力) と履歴 / run_start (展開済みの本文) を同じ形に寄せるために使う。
@@ -96,18 +103,83 @@ function orderedItems(
   return items;
 }
 
-/** item id より手前にあるメッセージバブルの数 (= 保持すべき古い側の件数) */
-function bubbleCountBefore(bubbles: Bubble[], markers: CompactionMarker[], id: string): number | undefined {
-  let count = 0;
-  for (const item of orderedItems(bubbles, markers)) {
-    if (item.bubble) {
-      if (item.bubble.entryId === id) return count;
-      count += 1;
-      continue;
-    }
-    if (item.marker?.id === id) return count;
+/** 保持中の履歴 item の id (古い→新しい)。ページ間の連続性検証に使う */
+export function heldHistoryIds(bubbles: Bubble[], markers: CompactionMarker[]): string[] {
+  const ids: string[] = [];
+  for (const item of orderedItems(
+    bubbles.filter((bubble) => bubble.entryId !== undefined),
+    markers,
+  )) {
+    if (item.bubble?.entryId !== undefined) ids.push(item.bubble.entryId);
+    else if (item.marker) ids.push(item.marker.id);
   }
-  return undefined;
+  return ids;
+}
+
+type Connection = { kind: "apply"; keepBubbles: number; keepMarkers: CompactionMarker[] } | { kind: "gap" };
+
+/**
+ * ページが保持分と繋がるかを prevCursor で判定する。prevCursor はページ先頭の直前の item id なので、
+ * 保持中にあれば「そこまで残してページで置き換える」、null ならブランチ先頭 (保持分は現行に無い)、
+ * 見つからなければ欠落区間 (別タブで limit 以上追記された / 分岐が変わった) として取り直す。
+ */
+function connectionFor(prev: HistoryBundle, page: HistoryPage): Connection {
+  const historyBubbles = prev.bubbles.filter((bubble) => bubble.entryId !== undefined);
+  if (historyBubbles.length === 0 && prev.markers.length === 0) {
+    return { kind: "apply", keepBubbles: 0, keepMarkers: [] };
+  }
+  if (page.items.length === 0) {
+    // 最新ページが空 = 現行ブランチに item が無い。保持分は現行に無いので捨てる
+    return { kind: "apply", keepBubbles: 0, keepMarkers: [] };
+  }
+  if (page.prevCursor === null) return { kind: "apply", keepBubbles: 0, keepMarkers: [] };
+  const items = orderedItems(historyBubbles, prev.markers);
+  const position = items.findIndex((item) => (item.bubble?.entryId ?? item.marker?.id) === page.prevCursor);
+  if (position === -1) return { kind: "gap" };
+  const kept = items.slice(0, position + 1);
+  return {
+    kind: "apply",
+    keepBubbles: kept.filter((item) => item.bubble !== undefined).length,
+    keepMarkers: kept.flatMap((item) => (item.marker ? [item.marker] : [])),
+  };
+}
+
+/**
+ * ライブバブルを「ページの新しい領域 (保持分に無い item)」と突き合わせる。本文の集合ではなく、
+ * role と正規形が一致する item を後ろから順に対にするので、過去に同じ文面があっても新規送信の
+ * エコーを消さない。返す consumed の分だけバブルと pendingEchoIds を落とす。
+ */
+function reconcileLive(
+  live: Bubble[],
+  page: HistoryPage,
+  heldIds: Set<string>,
+): { kept: Bubble[]; consumed: Set<number> } {
+  const newItems = page.items.filter((item) => !heldIds.has(item.id));
+  const consumed = new Set<number>();
+  const usedItemIds = new Set<string>();
+  for (let index = live.length - 1; index >= 0; index -= 1) {
+    const bubble = live[index];
+    const text = canonicalUserText(bubble.text);
+    for (let itemIndex = newItems.length - 1; itemIndex >= 0; itemIndex -= 1) {
+      const item = newItems[itemIndex];
+      if (usedItemIds.has(item.id) || item.kind !== "message" || item.role !== bubble.role) continue;
+      if (canonicalUserText(item.text) !== text) continue;
+      consumed.add(bubble.id);
+      usedItemIds.add(item.id);
+      break;
+    }
+  }
+  return { kept: live.filter((bubble) => !consumed.has(bubble.id)), consumed };
+}
+
+function rebuildToolBubbleIds(bubbles: Bubble[]): Record<string, number> {
+  const ids: Record<string, number> = {};
+  for (const bubble of bubbles) {
+    for (const card of bubble.tools) {
+      if (ids[card.id] === undefined) ids[card.id] = bubble.id;
+    }
+  }
+  return ids;
 }
 
 /**
@@ -129,55 +201,36 @@ export function applyHistoryCounts(bubbles: Bubble[], messageCount: number, summ
   });
 }
 
-function rebuildToolBubbleIds(bubbles: Bubble[]): Record<string, number> {
-  const ids: Record<string, number> = {};
-  for (const bubble of bubbles) {
-    for (const card of bubble.tools) {
-      if (ids[card.id] === undefined) ids[card.id] = bubble.id;
-    }
-  }
-  return ids;
-}
-
 /**
  * resync 相当のマージ。最新ページで「新しい側」だけを差し替え、ページ先頭より古い取得済みページは残す。
- * ライブバブルはユーザーのローカルエコー (送信直後) だけ残し、ストリーミング中の assistant は
- * context_edit の resync と同じく捨てる (完了した本文はページ側に載る)。
+ * ページが保持分と繋がらない (gap) ときは適用せず、呼び出し側が欠落区間を取ってから再適用する。
+ * ライブバブルはページの新しい領域と一致した分だけ落とし、未一致の確定分はページの手前、
+ * 送信直後のローカルエコーは末尾へ置く。
  */
 export function mergeHistoryPage(
   prev: HistoryBundle,
   page: HistoryPage,
   { live = [], pendingEchoIds = [] }: { live?: Bubble[]; pendingEchoIds?: number[] } = {},
-): HistoryBundle {
-  const historyBubbles = prev.bubbles.filter((bubble) => bubble.entryId !== undefined);
-  const pageStart = page.items[0]?.id;
-  let keepCount: number;
-  if (pageStart === undefined) {
-    keepCount = 0;
-  } else {
-    const found = bubbleCountBefore(historyBubbles, prev.markers, pageStart);
-    // 見つからない = 保持中の全件がページより古い。全件がページに含まれる (hasMore=false) なら残さない
-    keepCount = found ?? (page.hasMore ? historyBubbles.length : 0);
+): HistoryMergeResult {
+  const connection = connectionFor(prev, page);
+  if (connection.kind === "gap") {
+    return { ...prev, gap: true, pendingEchoIds };
   }
-  const kept = historyBubbles.slice(0, keepCount);
+  const historyBubbles = prev.bubbles.filter((bubble) => bubble.entryId !== undefined);
+  const heldIds = new Set(heldHistoryIds(prev.bubbles, prev.markers));
+  const kept = historyBubbles.slice(0, connection.keepBubbles);
   const pageBundle = historyItemsToBundle(prev.nextId, page.items);
-  const pageIds = new Set(page.items.map((item) => item.id));
-  const keptMarkers = prev.markers
-    .filter((marker) => marker.index < keepCount && !pageIds.has(marker.id))
-    .map((marker) => ({ ...marker, compactions: marker.compactions }));
-  // ページに同じ発言が載ったライブバブルは捨てる (entryId 付きの item が正)。ページに載らない
-  // 確定済みのライブバブルはページ先頭より古い (resync を跨いだターン) ため、ページの手前へ戻し、
-  // 送信直後でまだ entry になっていないローカルエコーだけを末尾へ残す。
-  const knownText = (bubble: Bubble): string => `${bubble.role}\u0000${canonicalUserText(bubble.text)}`;
-  const knownTexts = new Set([...kept, ...pageBundle.bubbles].map(knownText));
+  const { kept: remainingLive } = reconcileLive(live, page, heldIds);
   const pending = new Set(pendingEchoIds);
-  const unmatched = live.filter((bubble) => !knownTexts.has(knownText(bubble)));
-  const carried = unmatched.filter((bubble) => !pending.has(bubble.id));
-  const trailing = unmatched.filter((bubble) => pending.has(bubble.id));
+  const carried = remainingLive.filter((bubble) => !pending.has(bubble.id));
+  const trailing = remainingLive.filter((bubble) => pending.has(bubble.id));
   const bubbles = [...kept, ...carried, ...pageBundle.bubbles, ...trailing];
   const markers = [
-    ...keptMarkers,
-    ...pageBundle.markers.map((marker) => ({ ...marker, index: marker.index + keepCount + carried.length })),
+    ...connection.keepMarkers,
+    ...pageBundle.markers.map((marker) => ({
+      ...marker,
+      index: marker.index + kept.length + carried.length,
+    })),
   ].sort((a, b) => a.index - b.index);
   const withCounts = applyHistoryCounts(bubbles, page.messageCount, page.summarizedMessageCount);
   return {
@@ -185,7 +238,21 @@ export function mergeHistoryPage(
     markers,
     nextId: pageBundle.nextId,
     toolBubbleIds: rebuildToolBubbleIds(withCounts),
+    gap: false,
+    pendingEchoIds: pendingEchoIds.filter((id) => remainingLive.some((bubble) => bubble.id === id)),
   };
+}
+
+/**
+ * 保持分を捨ててページだけで組み直す。欠落区間が 1 ページに収まらない / 分岐が変わったときの
+ * 縮退で、表示は現行ブランチの最新ページへ揃う (古いページはスクロールで取り直す)。
+ */
+export function rebuildHistoryPage(
+  prev: HistoryBundle,
+  page: HistoryPage,
+  options: { live?: Bubble[]; pendingEchoIds?: number[] } = {},
+): HistoryMergeResult {
+  return mergeHistoryPage({ bubbles: [], markers: [], nextId: prev.nextId, toolBubbleIds: {} }, page, options);
 }
 
 /**

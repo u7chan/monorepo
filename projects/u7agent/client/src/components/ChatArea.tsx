@@ -93,13 +93,16 @@ export function ChatArea({
 
   // 可変高さ (Markdown / ツール履歴 / 折りたたみ要約) を計測し、可視範囲 + overscan だけ DOM に載せる。
   // アイテムは entry id をキーにし、古いページを前置きしても同じ DOM を再利用する。
-  // 画面より上で伸縮したアイテムの scrollTop 補正は virtual-core の既定 (anchorTo: "start") が担う
+  // 画面より上で伸縮したアイテムの scrollTop 補正は virtual-core の既定 (anchorTo: "start") が担う。
+  // 計測を rAF へずらし、ResizeObserver callback 内の同期レイアウト変更による
+  // "ResizeObserver loop completed with undelivered notifications" を避ける
   const virtualizer = useVirtualizer({
     count: items.length,
     getScrollElement: () => chatAreaRef.current,
     estimateSize: (index) => estimateChatItemHeight(items[index]),
     getItemKey: (index) => items[index].key,
     overscan: 8,
+    useAnimationFrameWithResizeObserver: true,
   });
 
   const loadOlderRef = useRef(onLoadOlder);

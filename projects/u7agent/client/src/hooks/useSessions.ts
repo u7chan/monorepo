@@ -11,6 +11,7 @@ import {
   updateSessionNotify,
   updateSessionSettings,
 } from "../api";
+import type { ChatHistoryState } from "../lib/chatTypes";
 import { adoptKnownAgentId } from "../lib/agentSelection";
 import { createFileRefRequests } from "../lib/fileRefRequest";
 import { missingLinkNote, type SessionOpenResult } from "../lib/notifications";
@@ -45,6 +46,8 @@ export type UseSessionsParams = {
   selectProject: (id: string) => void;
   /** state の反映を待たず読む (ensureSession が送信時に参照) */
   selectedProjectIdRef: RefObject<string>;
+  /** chat 状態の history。追加取得のカーソルは reducer が適用したページの値だけを使う */
+  historyStateRef: RefObject<ChatHistoryState>;
   refreshHealth: (isCurrent?: () => boolean) => Promise<Health | null>;
   setRuntimeStatus: (status: RuntimeStatus) => void;
 };
@@ -65,6 +68,7 @@ export function useSessions({
   setAgentId,
   selectProject,
   selectedProjectIdRef,
+  historyStateRef,
   refreshHealth,
   setRuntimeStatus,
 }: UseSessionsParams) {
@@ -100,10 +104,11 @@ export function useSessions({
 
   const [beginSessionsRequest] = useState(createRequestGate);
   /**
-   * 全履歴ページの取得状態。reducer の history と二重に持つのは、await を跨ぐ loadOlder が
-   * 最新のカーソルと二重取得の防止を同期的に読むため (表示用の値は reducer 側が正)。
+   * 履歴ページの要求世代と二重取得の防止。カーソル (nextCursor / hasMore) は reducer の
+   * history が正で、適用されなかったページ (gap) の値をここへ持ち込まない。
    */
-  const historyRef = useRef({ nextCursor: null as string | null, hasMore: false, loading: false, seq: 0 });
+  const historyRef = useRef({ seq: 0 });
+  const historyLoadingRef = useRef(false);
 
   /** 最新ページを取り直す。resync (再接続 / 圧縮 / context_edit) のたびに呼び、取得済みの古いページは残す */
   const refreshHistory = useCallback(
@@ -114,8 +119,6 @@ export function useSessions({
         const page = await getSessionHistory(targetId);
         // 古い応答 (別セッション / 連続 resync) で新しい表示を戻さない
         if (!isCurrent() || sessionIdRef.current !== targetId || historyRef.current.seq !== seq) return;
-        historyRef.current.nextCursor = page.nextCursor;
-        historyRef.current.hasMore = page.hasMore;
         dispatch({ type: "resyncHistory", page });
       } catch (error) {
         if (!isCurrent() || sessionIdRef.current !== targetId || historyRef.current.seq !== seq) return;
@@ -173,10 +176,8 @@ export function useSessions({
       // 切替待機中に旧セッションの本文から作られた要求を、確定時にも落とす (開始時の破棄だけでは残る)
       if (sessionIdRef.current !== payload.sessionId) fileRefRequests.clear();
       // 旧セッションのカーソルを持ち越さない (in-flight の応答も seq で無効化する)
-      historyRef.current.nextCursor = null;
-      historyRef.current.hasMore = false;
-      historyRef.current.loading = false;
       historyRef.current.seq += 1;
+      historyLoadingRef.current = false;
       sessionIdRef.current = payload.sessionId;
       setSessionId(payload.sessionId);
       // 復元したセッションの agent はカタログに無いことがある (削除済み / ID 変更)。
@@ -268,10 +269,8 @@ export function useSessions({
       // 進行中の作成を持ち越さない (新しい会話が前のセッションを掴まないようにする)
       sessionCreation.clear();
       // 全履歴のカーソルも持ち越さない (in-flight の応答は seq で無効化する)
-      historyRef.current.nextCursor = null;
-      historyRef.current.hasMore = false;
-      historyRef.current.loading = false;
       historyRef.current.seq += 1;
+      historyLoadingRef.current = false;
       // 新規チャットの通知の先行選択も持ち越さない (作成中の古い応答でこの選択を消させない)
       notifyCarry.reset();
       sessionIdRef.current = "";
@@ -405,31 +404,55 @@ export function useSessions({
   const loadOlderHistory = useCallback(async (): Promise<void> => {
     const id = sessionIdRef.current;
     if (!id) return;
-    const ref = historyRef.current;
-    if (ref.loading || !ref.hasMore || !ref.nextCursor) return;
-    ref.loading = true;
+    const state = historyStateRef.current;
+    if (historyLoadingRef.current || !state.hasMore || !state.nextCursor) return;
+    historyLoadingRef.current = true;
     dispatch({ type: "historyLoading", loading: true });
     try {
-      const page = await getSessionHistory(id, { before: ref.nextCursor });
+      const page = await getSessionHistory(id, { before: state.nextCursor });
       if (sessionIdRef.current !== id) return;
-      ref.nextCursor = page.nextCursor;
-      ref.hasMore = page.hasMore;
       dispatch({ type: "prependHistory", page });
     } catch (error) {
       if (sessionIdRef.current !== id) return;
       if (error instanceof ApiError && error.status === 400) {
         // 不明なカーソルは履歴が入れ替わった証拠。最新ページから取り直せば次の操作で遡れる
-        ref.nextCursor = null;
-        ref.hasMore = true;
         void refreshHistory(id);
       } else {
         dispatch({ type: "setActivity", text: `過去の履歴を取得できませんでした。${messageFor(error)}` });
       }
     } finally {
-      ref.loading = false;
+      historyLoadingRef.current = false;
       dispatch({ type: "historyLoading", loading: false });
     }
-  }, [dispatch, refreshHistory]);
+  }, [dispatch, historyStateRef, refreshHistory]);
+
+  /**
+   * 欠落区間の取得。resync の最新ページが保持分と繋がらないときに呼ばれ、保留中の最新ページと
+   * 合わせて適用する。適用可否は reducer が保留中の cursor と突き合わせて判定するため、ここでは
+   * seq を進めない (連続 resync で保留が同じでも応答を捨てない)。
+   */
+  const fillHistoryGap = useCallback(
+    async (cursor: string): Promise<void> => {
+      const id = sessionIdRef.current;
+      if (!id) return;
+      try {
+        const page = await getSessionHistory(id, { before: cursor });
+        if (sessionIdRef.current !== id) return;
+        dispatch({ type: "historyGap", cursor, page });
+      } catch (error) {
+        if (sessionIdRef.current !== id) return;
+        if (error instanceof ApiError && error.status === 400) {
+          // カーソルが現行ブランチに無い (分岐が変わった)。最新ページから取り直す
+          void refreshHistory(id);
+        } else {
+          // 保留を解いて、次の resync で再試行できる状態に戻す
+          dispatch({ type: "historyGapFailed", cursor });
+          dispatch({ type: "setActivity", text: `履歴の欠落区間を取得できませんでした。${messageFor(error)}` });
+        }
+      }
+    },
+    [dispatch, refreshHistory],
+  );
 
   /** 選択中の会話の通知の値。一覧 (4 秒のポーリングと変更直後の反映) を正とし、新規チャットは先行選択を使う */
   const notify = sessionId ? sessions.find((item) => item.sessionId === sessionId)?.notify === true : notifyPending;
@@ -553,6 +576,7 @@ export function useSessions({
     changeThinkingLevel,
     compactSession,
     loadOlderHistory,
+    fillHistoryGap,
     toggleNotify,
   };
 }

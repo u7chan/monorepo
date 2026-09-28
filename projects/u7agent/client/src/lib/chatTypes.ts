@@ -1,5 +1,5 @@
 // チャット表示の型。reducer (chatReducer) と純関数 (lib/chatHistory) の双方から使うため独立させる。
-import type { CompactionInfo, HistoryContextState, MessageMetrics, SkillLoad, Usage } from "../types";
+import type { CompactionInfo, HistoryContextState, HistoryPage, MessageMetrics, SkillLoad, Usage } from "../types";
 
 export type ToolPhase = "running" | "done" | "failed";
 
@@ -57,4 +57,8 @@ export type ChatHistoryState = {
   messageCount: number;
   summarizedMessageCount: number;
   activeContextStartId: string | null;
+  /** 最新ページが保持分と繋がらず、欠落区間を取るために使う before カーソル */
+  gapCursor: string | null;
+  /** 欠落区間の取得後に適用する保留中の最新ページ */
+  pendingPage: HistoryPage | null;
 };

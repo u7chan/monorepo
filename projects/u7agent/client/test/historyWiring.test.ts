@@ -32,6 +32,25 @@ test("useSessions は resync のたびに最新ページを取り直し、古い
   assert.ok(sessions.includes("historyRef.current.seq !== seq"));
 });
 
+test("欠落区間 (prevCursor が保持分に無い) は fillHistoryGap で取り直す", () => {
+  assert.ok(sessions.includes("const fillHistoryGap = useCallback"));
+  assert.ok(sessions.includes('dispatch({ type: "historyGap", cursor, page })'));
+  assert.ok(sessions.includes("fillHistoryGap,"));
+  // reducer の保留を Effect で解消する
+  assert.ok(u7agent.includes("chat.history.gapCursor"));
+  assert.ok(u7agent.includes("void fillHistoryGap(gapCursor)"));
+});
+
+test("追加取得のカーソルは reducer が適用したページの値だけを使う", () => {
+  assert.ok(sessions.includes("historyStateRef.current"));
+  assert.ok(
+    !sessions.includes("historyRef.current.nextCursor"),
+    "gap で保留したページの nextCursor を先読みに使わない",
+  );
+  assert.ok(u7agent.includes("const historyStateRef = useRef(chat.history)"));
+  assert.ok(u7agent.includes("historyStateRef.current = chat.history"));
+});
+
 test("上方向の追加取得は useU7Agent の facade から ChatArea へ渡る", () => {
   assert.ok(u7agent.includes("loadOlderHistory"));
   assert.ok(chatArea.includes("onLoadOlder"));

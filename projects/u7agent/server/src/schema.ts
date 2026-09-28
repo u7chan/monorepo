@@ -273,13 +273,16 @@ export type HistoryItem = z.infer<typeof HistoryItemSchema>;
 
 /**
  * カーソル型の履歴ページ。items は古い→新しい、nextCursor はさらに古いページを取るための
- * 先頭 item の id。messageCount / summarizedMessageCount はページではなく現行ブランチ全体の値で、
+ * 先頭 item の id。prevCursor は先頭 item の直前の item id (ページ間の連続性検証用)。
+ * messageCount / summarizedMessageCount はページではなく現行ブランチ全体の値で、
  * クライアントが保持済みページの dim (summarized) 判定を更新するのに使う。
  */
 export const HistoryPageSchema = z.object({
   sessionId: z.string(),
   items: z.array(HistoryItemSchema),
   nextCursor: z.string().nullable(),
+  /** このページの先頭 item の直前にある item の id (無ければ null)。保持分と繋がるかの判定に使う */
+  prevCursor: z.string().nullable(),
   hasMore: z.boolean(),
   /** 現在有効なコンテキストの先頭 message item。summarized が 0 件のときは null */
   activeContextStartId: z.string().nullable(),

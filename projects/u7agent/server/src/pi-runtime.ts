@@ -140,6 +140,14 @@ export function parseUsage(raw: unknown): Usage | undefined {
 }
 
 export function contextUsageOf(session: PiSessionLike): ContextUsage | undefined {
-  const parsed = ContextUsageSchema.safeParse(session.getContextUsage?.());
+  // SDK の getContextUsage() は compaction entry の usage を無条件に読むため、usage を持たない
+  // 旧 / 手作り JSONL では例外になる。context は補助情報なので、失敗はキー省略へ縮退させる
+  let raw: unknown;
+  try {
+    raw = session.getContextUsage?.();
+  } catch {
+    return undefined;
+  }
+  const parsed = ContextUsageSchema.safeParse(raw);
   return parsed.success ? parsed.data : undefined;
 }

@@ -1,4 +1,11 @@
-import { canonicalUserText, mergeHistoryPage, prependHistoryPage, toolCardOf } from "../lib/chatHistory";
+import {
+  canonicalUserText,
+  mergeHistoryPage,
+  prependHistoryPage,
+  rebuildHistoryPage,
+  toolCardOf,
+} from "../lib/chatHistory";
+import type { HistoryMergeResult } from "../lib/chatHistory";
 import { compactionDividerIndex } from "../lib/compaction";
 import type { Bubble, ChatHistoryState, CompactionMarker, ToolCard } from "../lib/chatTypes";
 import { retryableRunError, runErrorFrom, type RunErrorInfo } from "../lib/runRetry";
@@ -91,6 +98,10 @@ export type ChatAction =
   | { type: "resync"; payload: SessionPayload; receivedAt?: number }
   /** 全履歴の最新ページ。取得済みの古いページを残して新しい側だけを差し替える */
   | { type: "resyncHistory"; page: HistoryPage }
+  /** 欠落区間の取得結果。保留中の最新ページと合わせて適用する */
+  | { type: "historyGap"; cursor: string; page: HistoryPage }
+  /** 欠落区間の取得失敗。保留を解いて次の resync で取り直せるようにする */
+  | { type: "historyGapFailed"; cursor: string }
   /** 上方向の追加取得 (古いページ) */
   | { type: "prependHistory"; page: HistoryPage }
   | { type: "historyLoading"; loading: boolean }
@@ -138,6 +149,8 @@ export const initialChatState: ChatState = {
     messageCount: 0,
     summarizedMessageCount: 0,
     activeContextStartId: null,
+    gapCursor: null,
+    pendingPage: null,
   },
   runStatus: "idle",
   runStartedAt: undefined,
@@ -211,6 +224,31 @@ function legacyMarkers(compactions: CompactionInfo[]): CompactionMarker[] {
   const latest = compactions[compactions.length - 1];
   if (index === undefined || !latest) return [];
   return [{ id: latest.id, index, compactions }];
+}
+
+/** 履歴ページの適用結果を chat 状態へ写す (保留中の gap は解消済みにする) */
+function applyHistoryMerge(state: ChatState, merged: HistoryMergeResult, page: HistoryPage): ChatState {
+  return {
+    ...state,
+    bubbles: merged.bubbles,
+    nextId: merged.nextId,
+    toolBubbleIds: merged.toolBubbleIds,
+    currentAssistantId: null,
+    dividers: merged.markers,
+    pendingEchoIds: merged.pendingEchoIds,
+    sessionId: page.sessionId,
+    history: {
+      supported: true,
+      hasMore: page.hasMore,
+      nextCursor: page.nextCursor,
+      loading: state.history.loading,
+      messageCount: page.messageCount,
+      summarizedMessageCount: page.summarizedMessageCount,
+      activeContextStartId: page.activeContextStartId,
+      gapCursor: null,
+      pendingPage: null,
+    },
+  };
 }
 
 /** 送信エコーの照合用の正規形。添付の注記を落とし、`/skill:` の展開結果は打ったコマンドの形へ戻す。
@@ -432,24 +470,59 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
         page,
         { live, pendingEchoIds: state.pendingEchoIds },
       );
-      return {
-        ...state,
-        bubbles: bundle.bubbles,
-        nextId: bundle.nextId,
-        toolBubbleIds: bundle.toolBubbleIds,
-        currentAssistantId: null,
-        dividers: bundle.markers,
-        sessionId: page.sessionId,
-        history: {
-          supported: true,
-          hasMore: page.hasMore,
-          nextCursor: page.nextCursor,
-          loading: state.history.loading,
-          messageCount: page.messageCount,
-          summarizedMessageCount: page.summarizedMessageCount,
-          activeContextStartId: page.activeContextStartId,
-        },
-      };
+      // 保持分と繋がらない (別タブで limit 以上追記された / 分岐が変わった) ときは、
+      // 欠落区間を取ってから最新ページを適用する。表示は保持分のまま待つ
+      if (bundle.gap) {
+        return {
+          ...state,
+          history: {
+            ...state.history,
+            supported: true,
+            gapCursor: page.items[0]?.id ?? null,
+            pendingPage: page.items.length > 0 ? page : null,
+          },
+        };
+      }
+      return applyHistoryMerge(state, bundle, page);
+    }
+
+    case "historyGap": {
+      const pending = state.history.pendingPage;
+      // 古い応答 / 別の保留ページで解決済みなら何もしない
+      if (!pending || state.history.gapCursor !== action.cursor) return state;
+      const live = state.bubbles.filter((bubble) => bubble.entryId === undefined);
+      // 1) 欠落区間のページを保持分へ適用する (繋がらなければ 1 ページに収まらない欠落)
+      const gapMerge = mergeHistoryPage(
+        { bubbles: state.bubbles, markers: state.dividers, nextId: state.nextId, toolBubbleIds: state.toolBubbleIds },
+        action.page,
+        { live, pendingEchoIds: state.pendingEchoIds },
+      );
+      // 2) 保留していた最新ページを適用する。どちらかが繋がらなければ再構築へ縮退
+      const latestMerge = gapMerge.gap
+        ? null
+        : mergeHistoryPage(gapMerge, pending, {
+            live: gapMerge.bubbles.filter((bubble) => bubble.entryId === undefined),
+            pendingEchoIds: gapMerge.pendingEchoIds,
+          });
+      const merged =
+        latestMerge && !latestMerge.gap
+          ? latestMerge
+          : rebuildHistoryPage(
+              {
+                bubbles: state.bubbles,
+                markers: state.dividers,
+                nextId: state.nextId,
+                toolBubbleIds: state.toolBubbleIds,
+              },
+              pending,
+              { live, pendingEchoIds: state.pendingEchoIds },
+            );
+      return applyHistoryMerge(state, merged, pending);
+    }
+
+    case "historyGapFailed": {
+      if (state.history.gapCursor !== action.cursor) return state;
+      return { ...state, history: { ...state.history, gapCursor: null, pendingPage: null } };
     }
 
     case "prependHistory": {

@@ -45,6 +45,10 @@ export type SendMessageOptions = {
 
 export function useU7Agent({ pendingSessionId, onPendingSessionResolved }: UseU7AgentOptions = {}) {
   const [chat, dispatch] = useReducer(chatReducer, initialChatState);
+  // 履歴の追加取得が読むカーソル。reducer が適用したページの値だけを持ち、gap で保留した
+  // ページの nextCursor を持ち込まない
+  const historyStateRef = useRef(chat.history);
+  historyStateRef.current = chat.history;
   const [sending, setSending] = useState(false);
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   // 追加 / 削除 / 完了を同期的に読む (同時に選んだファイルの件数検査をすり抜けないため)
@@ -108,6 +112,7 @@ export function useU7Agent({ pendingSessionId, onPendingSessionResolved }: UseU7
     changeThinkingLevel,
     compactSession,
     loadOlderHistory,
+    fillHistoryGap,
     toggleNotify,
   } = useSessions({
     dispatch,
@@ -116,6 +121,7 @@ export function useU7Agent({ pendingSessionId, onPendingSessionResolved }: UseU7
     setAgentId,
     selectProject,
     selectedProjectIdRef,
+    historyStateRef,
     refreshHealth,
     setRuntimeStatus,
   });
@@ -206,6 +212,14 @@ export function useU7Agent({ pendingSessionId, onPendingSessionResolved }: UseU7
       return kept.length === prev.length ? prev : kept;
     });
   }, [sessionId, commitAttachments, sessionIdRef]);
+
+  // 最新ページが保持分と繋がらない (別タブで limit 以上追記された / 分岐が変わった) ときは、
+  // 欠落区間を取り直してから保留中の最新ページを適用する
+  const gapCursor = chat.history.gapCursor;
+  useEffect(() => {
+    if (!gapCursor) return;
+    void fillHistoryGap(gapCursor);
+  }, [gapCursor, fillHistoryGap]);
 
   const sendMessage = useCallback(
     async (text: string, options: SendMessageOptions = {}): Promise<void> => {

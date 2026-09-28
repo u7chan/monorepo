@@ -51,10 +51,10 @@
 
 圧縮後も元の会話を閲覧できるように、表示の正は `GET /api/sessions/:id/history` の全履歴ページとする（`SessionPayload.messages` は有効コンテキストの同期用で、履歴表示には使わない）。
 
-- セッションを開くと `resync` の直後に最新ページを取り、`resyncHistory` でバブル列を組む。`resync`（再接続 / 圧縮 / `context_edit` / 設定変更）のたびに最新ページを取り直し、取得済みの古いページは消さずに新しい側だけを差し替える（`client/src/lib/chatHistory.ts` の `mergeHistoryPage`）。取得中の古い応答は要求の seq で捨てる
-- 送信直後のローカルエコーは `run_start` が解決するまで残し、履歴ページに同じユーザー発言が載ったら重複を消す。ストリーミング中の assistant（未確定）は `resync` で捨てる（`context_edit` で失敗試行を取り消す既存契約と同じ）。run が確定したバブル（`settled`）は resync を跨いで残し、履歴ページが追いついたら entryId 付きの item へ置き換える（`client/src/hooks/chatReducer.ts`）
+- セッションを開くと `resync` の直後に最新ページを取り、`resyncHistory` でバブル列を組む。`resync`（再接続 / 圧縮 / `context_edit` / 設定変更）のたびに最新ページを取り直し、`prevCursor` が保持分の item を指すときだけ新しい側を差し替えて取得済みの古いページを残す。指さない（別タブで `limit` 以上追記された / 分岐が変わった）ときは欠落区間を `before` で取り直してから適用し、1 ページに収まらなければ最新ページで組み直す（`client/src/lib/chatHistory.ts` の `mergeHistoryPage` / `rebuildHistoryPage`）。取得中の古い応答は要求の seq で捨て、追加取得のカーソルは reducer が適用したページの値だけを使う（gap で保留したページの `nextCursor` を先読みに使わない）
+- ライブバブルはページの新しい領域（保持分に無い item）と role + 正規形の順序で後ろから突き合わせ、一致した分だけ entryId 付きの item へ置き換える。過去の同一文面では消費しないので、同じ本文を再送しても送信中エコーと `pendingEchoIds` が不整合にならない。未一致の確定分はページの手前、`run_start` 待ちのローカルエコーは末尾へ置く
 - 上端付近（`CHAT_PREPEND_THRESHOLD` = 200px）で古いページを取り、`prependHistory` で前置きする。前置きの前後で `scrollHeight` の差を `scrollTop` に足し、閲覧位置を飛ばさない（`client/src/lib/chatItems.ts` の `anchoredScrollTop`）。カーソルは entry id なので、取得中に追記・圧縮されても同じ item を二度返さない
-- 描画は `@tanstack/react-virtual` の `useVirtualizer` で、可視範囲 + overscan だけを DOM に載せる。アイテムは entry id をキーにし、可変高さ（Markdown / ツール履歴 / 折りたたみ要約）は `measureElement` で計測する。位置と高さは CSS 変数（`--virtual-start` / `--virtual-total-height`）で渡し、inline style は変数の代入に限定する（CSP の `style-src` と `shadcn/no-inline-styles` のため。React は custom property を `style.setProperty` で設定する）
+- 描画は `@tanstack/react-virtual` の `useVirtualizer` で、可視範囲 + overscan だけを DOM に載せる。アイテムは entry id をキーにし、可変高さ（Markdown / ツール履歴 / 折りたたみ要約）は `measureElement` で計測する。計測は `useAnimationFrameWithResizeObserver` で rAF へずらし、ResizeObserver callback 内の同期レイアウト変更（`ResizeObserver loop completed with undelivered notifications`）を避ける。位置と高さは CSS 変数（`--virtual-start` / `--virtual-total-height`）で渡し、inline style は変数の代入に限定する（CSP の `style-src` と `shadcn/no-inline-styles` のため。React は custom property を `style.setProperty` で設定する）
 - コンテキスト状態はバブルごとの `context`（`active` / `summarized` / `excluded`）で持ち、`chatRenderItems` が区切りと境界ラベルを並べる。境界は「要約済みのバブルが実際に読み込まれている」ときだけ、`activeContextStartId` の直前に出す（未取得の古いページに隠れた境界では出さない）。薄暗い表示とタグの仕様は [compaction.md](compaction.md#全履歴の表示閲覧と段階読み込み)
 - 圧縮イベントの区切りは全履歴の entry 順（`HistoryItem` の compaction item）で位置を決める。旧 payload（履歴 API 無し）のときだけ `beforeMessageIndex` から復元する
 

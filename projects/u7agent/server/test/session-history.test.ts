@@ -180,6 +180,20 @@ test("カーソル型ページネーションは重複も欠落もなく古い�
   );
 
   const all = await collectAllPages(store, record, 3);
+  // prevCursor は先頭 item の直前の item。連続性の検証に使う
+  assert.equal(first.page.prevCursor, all.find((item) => item.kind === "message" && item.text === "u18")?.id);
+  const older = store.history(record, { before: first.page.nextCursor as string, limit: 3 });
+  assert.ok(older.ok);
+  assert.deepEqual(
+    older.page.items.map((item) => (item.kind === "message" ? item.text : "compaction")),
+    ["u17", "a17", "u18"],
+  );
+  assert.equal(older.page.prevCursor, all.find((item) => item.kind === "message" && item.text === "a16")?.id);
+  const head = store.history(record, { before: all[0].id, limit: 3 });
+  assert.ok(head.ok);
+  assert.equal(head.page.prevCursor, null, "ブランチ先頭のページは前が無い");
+  assert.equal(head.page.items.length, 0, "先頭より古い item は無い");
+
   assert.equal(all.length, 40);
   assert.deepEqual(
     all.map((item) => (item.kind === "message" ? item.text : "compaction")),

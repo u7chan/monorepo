@@ -196,6 +196,7 @@ GET /api/sessions/:id/history?limit=50&before=<itemId>
     { "kind": "message", "id": "<entryId>", "context": "active", "role": "user", "text": "…" }
   ],
   "nextCursor": "<itemId>",
+  "prevCursor": "<itemId>",
   "hasMore": true,
   "activeContextStartId": "<itemId>",
   "messageCount": 120,
@@ -205,6 +206,7 @@ GET /api/sessions/:id/history?limit=50&before=<itemId>
 
 - `items` は古い→新しい。`limit` は 1〜200 の整数（既定 50）で、範囲外は 400
 - `before` はこの item より古い範囲を返す排他的カーソル。省略は最新ページ。`nextCursor` はさらに古いページを取るときの `before` に使う（それ以上は `null`）
+- `prevCursor` はページ先頭 item の直前にある item の id（無ければ `null`）。クライアントはこれでページ間の連続性を判定し、保持分と繋がらない（別タブで `limit` 以上追記された / 分岐が変わった）ときは欠落区間を `before` で取り直し、1 ページに収まらなければ最新ページで組み直す
 - 存在しないカーソルは空の成功へ縮退させず 400（`{ "error": "Unknown history cursor" }`）。存在しないセッションは 404
 - item の `id` は SDK entry の id（id を持たない旧履歴だけ `legacy-<entry index>`）。`context` は `active`（現在も生の context にある）/ `summarized`（最新の compaction の `firstKeptEntryId` より手前）/ `excluded`（`context_edit` で外れた）で、判定は [compaction.md](compaction.md#全履歴の表示閲覧と段階読み込み) を正とする
 - `firstKeptEntryId` は metadata entry を指し得る。その場合も「その entry 以降が有効」として位置だけを使い、メッセージ検索で境界をずらさない

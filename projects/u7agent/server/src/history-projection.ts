@@ -228,6 +228,10 @@ export function projectHistoryPage({
   const hasMore = window.length > limit;
   const selected = hasMore ? window.slice(window.length - limit) : window;
   const startEntryIndex = selected.length > 0 ? selected[0].entryIndex : endEntryIndex;
+  // ページの先頭 item の直前にある item。クライアントはこれで「保持分と繋がるか」を判定し、
+  // 繋がらない (別タブで limit 以上追記された / 分岐が変わった) ときは欠落区間を取り直す
+  const startIndexInPageable = pageable.length - selected.length;
+  const prevCursor = selected.length > 0 && startIndexInPageable > 0 ? pageable[startIndexInPageable - 1].id : null;
   return {
     ok: true,
     page: {
@@ -237,6 +241,7 @@ export function projectHistoryPage({
           ? projectItems({ record, entries, selected, startEntryIndex, endEntryIndex, masker, cwd })
           : [],
       nextCursor: hasMore ? selected[0].id : null,
+      prevCursor,
       hasMore,
       activeContextStartId,
       messageCount: messages.length,

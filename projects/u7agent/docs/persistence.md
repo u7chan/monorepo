@@ -108,7 +108,7 @@ DTO（[api-sessions.md](api-sessions.md) の `compactions`）はそのまま写�
 最新の compaction の `beforeMessageIndex` だけは `messages` から導出する。
 
 - `reason` と `estimatedTokensAfter` は `CompactionEntry` には保存されず `compaction_end` にしか無いため、復元後は欠ける（表示は `tokensBefore` だけで成立する）
-- `usage` / `fromHook` は entry に含まれるため復元できる
+- `usage` / `fromHook` は entry に含まれるため復元できる。ただし SDK 型上 `usage` は optional で、旧 / 手作り JSONL に無い場合 `getContextUsage()` が例外になる。BFF はこの失敗を握って payload の `context` を省略し、セッションは開ける（Context ゲージは次の応答まで出ない）
 
 ### 全履歴の投影
 
