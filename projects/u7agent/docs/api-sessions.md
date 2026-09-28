@@ -154,7 +154,7 @@ JSONL が破損している（SDK が追記する entry type / message role を 
 
 `messages[].tools` は表示対象の assistant バブルに属する確定済みツール履歴。対応する `toolResult` がある toolCall だけを `ToolCall` DTO（`done: true`）で投影し、結果が無い call は含めない。`args` / `output` はライブイベントと同じマスク・要約関数を通す。スキル読み込み（`read` で basename が `SKILL.md`）はここに含めず、`skillLoads` のバッジだけに出す。本文の無い assistant に属するツール履歴は同じ user ターン内の次の表示 assistant へ part 順で繰り上げるが、ターン内に表示 assistant が無い場合は復元しない（表示バブル数 / `messageCount` を維持するため）。
 
-`resync` は `messages[].tools` を `ToolCard` へ変換し、`toolCallId` → バブルの索引も再構築する。重複する `run.toolCalls` は現在の実行状態を優先して該当カードを更新し、履歴に無い call だけを最後の assistant バブルへ追加する。履歴側は全セッション分を payload に含むため、各 call の要約上限に加え、500 件の長い履歴で payload サイズと生成・JSON 化時間を検証する。
+`resync` は `messages[].tools` を `ToolCard` へ変換し、`toolCallId` → バブルの索引も再構築する。重複する `run.toolCalls` は現在の実行状態を優先して該当カードを更新し、履歴に無い call だけを最後の assistant バブルへ追加する。`messages` は有効コンテキストの投影なので、全履歴の表示は `history` API（下記）が担う。500 件の長い履歴で payload サイズと生成・JSON 化時間を検証する（`messages` に全履歴は含めない）。
 
 ### スキル読み込み（`skillLoads` / `skill`）
 
@@ -176,7 +176,42 @@ JSONL が破損している（SDK が追記する entry type / message role を 
 - `beforeMessageIndex` は区切りを置く `messages` の index（この index の手前。`messages.length` なら末尾）で、**最新の 1 件だけ**が持つ。位置は `messages` と同じ集合を数えて求め（entry は「compaction より手前か」の判定だけに使う）、SDK が context を組み替えても `messages` とずれない。SDK は最新の compaction しか context に残さないため、以前の圧縮位置は `messages` から復元できない。回数は `compactions.length` で示し、過去分は要約の一覧として読む
 - `reason`（`manual` / `threshold` / `overflow`）と `estimatedTokensAfter` は `CompactionEntry` に保存されず `compaction_end` にしか無いため、BFF がイベント受信時に entry id ごとに控えて payload 組み立て時に合成する。控えは揮発で、BFF の再起動後はキーを省略する（`reason` が無くても `tokensBefore` だけで表示は成立する）
 - `tokensBefore` は最後の assistant の usage と末尾メッセージの推定を足した SDK の `estimateContextTokens()` の値で、プロバイダの実測そのものではない。`estimatedTokensAfter` は `estimateMessagesTokens()` の推定値で、初期 UI には出さない（Context ゲージは provider 実測のため、並べると食い違いに見える）
-- 圧縮で context から外れたメッセージは `messages` から消える（圧縮前の元メッセージは配らない）。`messages` に role `compactionSummary` のメッセージは載せない
+- 圧縮で context から外れたメッセージは `messages` から消える（`messages` は有効コンテキストの投影）。圧縮前の元メッセージは `history` API で全履歴として読める。`messages` に role `compactionSummary` のメッセージは載せない
+
+## `GET /api/sessions/:id/history`
+
+全履歴（現行ブランチの entry 列）のカーソルページ。圧縮で context から外れた元メッセージも含む。GUI のタイムラインはこの API を正とし、`messages`（有効コンテキスト）は実行状態の同期に使う。
+
+```
+GET /api/sessions/:id/history?limit=50&before=<itemId>
+```
+
+```json
+{
+  "sessionId": "…",
+  "items": [
+    { "kind": "message", "id": "<entryId>", "context": "summarized", "role": "user", "text": "…", "at": 1700000000000 },
+    { "kind": "message", "id": "<entryId>", "context": "summarized", "role": "assistant", "text": "…", "tools": [] },
+    { "kind": "compaction", "id": "<entryId>", "compaction": { "id": "…", "summary": "…", "firstKeptEntryId": "…", "tokensBefore": 68000 } },
+    { "kind": "message", "id": "<entryId>", "context": "active", "role": "user", "text": "…" }
+  ],
+  "nextCursor": "<itemId>",
+  "hasMore": true,
+  "activeContextStartId": "<itemId>",
+  "messageCount": 120,
+  "summarizedMessageCount": 84
+}
+```
+
+- `items` は古い→新しい。`limit` は 1〜200 の整数（既定 50）で、範囲外は 400
+- `before` はこの item より古い範囲を返す排他的カーソル。省略は最新ページ。`nextCursor` はさらに古いページを取るときの `before` に使う（それ以上は `null`）
+- 存在しないカーソルは空の成功へ縮退させず 400（`{ "error": "Unknown history cursor" }`）。存在しないセッションは 404
+- item の `id` は SDK entry の id（id を持たない旧履歴だけ `legacy-<entry index>`）。`context` は `active`（現在も生の context にある）/ `summarized`（最新の compaction の `firstKeptEntryId` より手前）/ `excluded`（`context_edit` で外れた）で、判定は [compaction.md](compaction.md#全履歴の表示閲覧と段階読み込み) を正とする
+- `firstKeptEntryId` は metadata entry を指し得る。その場合も「その entry 以降が有効」として位置だけを使い、メッセージ検索で境界をずらさない
+- `messageCount` / `summarizedMessageCount` はページではなく現行ブランチ全体の値。クライアントは保持済みの古いページの `summarized` を更新するのに使う（この 2 つだけがページ外の全体量を表す）
+- `activeContextStartId` は現在有効なコンテキストの先頭 message item。要約で置き換わった範囲が無いときは `null`
+- 本文 / 要約 / ツール出力は他の経路と同じマスカーを通す（[secrets.md](secrets.md)）。JSONL の保存形式は変えない
+- 投影はページ範囲を選んでからその範囲にだけ掛ける（全エントリーを DTO 化してから切らない）
 
 ## `PATCH /api/sessions/:id/settings`
 

@@ -44,6 +44,7 @@ export function MessageView({
   onCopyTool,
   copiedAll,
   onCopyAll,
+  animate = true,
 }: {
   bubble: Bubble;
   /** 全バブル横断の dedup 済みバッジ (履歴優先。ChatArea が skillBadgesOf で組み立てる) */
@@ -61,8 +62,13 @@ export function MessageView({
   onCopyTool: (card: ToolCard) => void;
   copiedAll: boolean;
   onCopyAll: () => void;
+  /** 登場アニメーション。仮想スクロールで再マウントする履歴 item では再生しない (既定 true) */
+  animate?: boolean;
 }) {
   const isUser = bubble.role === "user";
+  // 要約で置き換わった / context_edit で外れた発言は薄暗くし、理由をタグでも示す
+  // (色だけに依存せず、最新の有効範囲の境界は ContextBoundary が担う)
+  const contextTag = bubble.context === "summarized" ? "要約済み" : bubble.context === "excluded" ? "除外" : undefined;
   // 履歴の user 本文には添付の注記と `/skill:` の展開結果が入っている。表示とコピーは
   // 注記を除き、スキルブロックは畳んで見せる (打った本文 = 引数だけを吹き出しに残す)
   const { text: userBody, files } = isUser ? splitAttachedFiles(bubble.text) : { text: bubble.text, files: [] };
@@ -74,7 +80,13 @@ export function MessageView({
   const toolCards = nonSkillToolCards(bubble.tools);
   return (
     <article
-      className={cn("group/bubble flex min-w-0 animate-rise", compact ? "gap-2" : "gap-3", isUser ? "justify-end" : "")}
+      className={cn(
+        "group/bubble flex min-w-0",
+        animate ? "animate-rise" : "",
+        compact ? "gap-2" : "gap-3",
+        isUser ? "justify-end" : "",
+        contextTag ? "opacity-60" : "",
+      )}
     >
       {isUser ? (
         <div
@@ -96,8 +108,26 @@ export function MessageView({
           compact ? (isUser ? "max-w-[88%]" : "max-w-full") : "max-w-[min(760px,86%)]",
         )}
       >
-        <div className={cn("text-2xs font-medium text-ink-faint", compact ? "mb-0.5" : "mb-1")}>
-          {isUser ? "あなた" : agentName || "アシスタント"}
+        <div
+          className={cn(
+            "flex items-center gap-2 text-2xs font-medium text-ink-faint",
+            compact ? "mb-0.5" : "mb-1",
+            isUser ? "justify-end" : "",
+          )}
+        >
+          <span>{isUser ? "あなた" : agentName || "アシスタント"}</span>
+          {contextTag ? (
+            <span
+              title={
+                bubble.context === "summarized"
+                  ? "要約に置き換わり、現在のコンテキストには含まれていません"
+                  : "再試行や上限超過の回復でコンテキストから外れました"
+              }
+              className="rounded-sm border border-line px-1 text-3xs font-normal text-ink-muted"
+            >
+              {contextTag}
+            </span>
+          ) : null}
         </div>
         {!isUser ? <SkillLoadList badges={skillBadges} compact={compact} /> : null}
         {!isUser && toolCards.length > 0 ? (

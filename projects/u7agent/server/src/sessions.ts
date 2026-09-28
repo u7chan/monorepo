@@ -14,6 +14,7 @@ import { composePromptSnapshot } from "./agent";
 import type { AgentCatalog } from "./agents";
 import { stripAttachedFiles } from "./attachments";
 import { compactionsOf, recordCompactionOutcome } from "./compaction-view";
+import { projectHistoryPage } from "./history-projection";
 import type { NotificationService } from "./notifications";
 import { contextUsageOf, type PiRuntimeLike, type PiSessionEvent, type PiSessionLike } from "./pi-runtime";
 import type { ProjectStore } from "./projects";
@@ -908,6 +909,16 @@ export class SessionStore {
 
   compactionsOf(record: SessionRecord): CompactionInfo[] {
     return compactionsOf(record, this.masker);
+  }
+
+  /** 全履歴のカーソルページ。切り出しと状態導出は history-projection の純関数が持つ */
+  history(record: SessionRecord, options: { before?: string; limit?: number }) {
+    return projectHistoryPage({
+      record,
+      masker: this.masker,
+      cwd: workspaceAbs(this.rootCwd, record.workdir),
+      ...options,
+    });
   }
 
   summary(record: SessionRecord): SessionSummary {

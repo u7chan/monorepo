@@ -3,6 +3,7 @@ import { streamSSE } from "hono/streaming";
 import { MAX_ATTACHMENT_BYTES, composePrompt, normalizeAttachmentPaths, toAttachmentPath } from "../attachments";
 import { sessionUploadsRel, workspaceAbs } from "../app-paths";
 import { sandboxFailure, sandboxNotConfigured } from "../http";
+import { HISTORY_PAGE_LIMIT_MAX, type HistoryPageResult } from "../history-projection";
 import { isValidEntryName } from "../sandbox/protocol";
 import { SandboxRequestError, type SandboxWorkspaceClient } from "../sandbox/client";
 import { expandSkillCommand, hasProjectSkills, listSessionSkills, type SessionSkillsInput } from "../session-skills";
@@ -74,6 +75,31 @@ export function createSessionRoutes({
       const record = await resolveRecord(c);
       if (!record) return c.json({ error: "Session not found" }, 404);
       return c.json(store.payload(record));
+    },
+
+    /**
+     * 全履歴のカーソルページ。`before` より古い範囲を `limit` 件返す。
+     * 不明なカーソルは空の成功にせず 400 で返し、クライアントのページ飛びを防ぐ。
+     */
+    history: async (c: Context) => {
+      const record = await resolveRecord(c);
+      if (!record) return c.json({ error: "Session not found" }, 404);
+      const rawLimit = c.req.query("limit");
+      let limit: number | undefined;
+      if (rawLimit !== undefined) {
+        const parsed = Number(rawLimit);
+        if (!Number.isInteger(parsed) || parsed < 1 || parsed > HISTORY_PAGE_LIMIT_MAX) {
+          return c.json({ error: `limit must be an integer between 1 and ${HISTORY_PAGE_LIMIT_MAX}` }, 400);
+        }
+        limit = parsed;
+      }
+      const before = c.req.query("before") || undefined;
+      const result: HistoryPageResult = store.history(record, {
+        ...(before ? { before } : {}),
+        ...(limit ? { limit } : {}),
+      });
+      if (!result.ok) return c.json({ error: "Unknown history cursor" }, 400);
+      return c.json(result.page);
     },
 
     updateSettings: async (c: Context, body: UpdateSessionSettingsBody) => {

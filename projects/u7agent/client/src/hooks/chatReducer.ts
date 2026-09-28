@@ -1,10 +1,12 @@
-import { splitAttachedFiles } from "../lib/attachments";
+import { canonicalUserText, mergeHistoryPage, prependHistoryPage, toolCardOf } from "../lib/chatHistory";
+import { compactionDividerIndex } from "../lib/compaction";
+import type { Bubble, ChatHistoryState, CompactionMarker, ToolCard } from "../lib/chatTypes";
 import { retryableRunError, runErrorFrom, type RunErrorInfo } from "../lib/runRetry";
-import { skillCommandForm } from "../lib/skillBlock";
 import type {
   ChatMessage,
   CompactionInfo,
   ContextUsage,
+  HistoryPage,
   MessageMetrics,
   RunErrorCode,
   RunRetryState,
@@ -16,35 +18,21 @@ import type {
   Usage,
 } from "../types";
 
-export type ToolPhase = "running" | "done" | "failed";
-
-export type ToolCard = {
-  id: string;
-  name: string;
-  args: string;
-  phase: ToolPhase;
-  output: string;
-  /** スキル読み込みのときだけ載る (履歴 / ライブのどちらから来ても同じ DTO) */
-  skill?: SkillLoad;
-};
-
-export type Bubble = {
-  id: number;
-  role: "user" | "assistant";
-  text: string;
-  tools: ToolCard[];
-  /** このバブルに出す導出行 (繰り上げ分を含む。カードと重複する分は表示側で落とす) */
-  skillLoads: SkillLoad[];
-  at?: number;
-  usage?: Usage;
-  metrics?: MessageMetrics;
-};
-
+// 型の正は lib/chatTypes。既存の import 先 (components / tests) を保つために再配布する
+export type { Bubble, ChatHistoryState, CompactionMarker, ToolCard, ToolPhase } from "../lib/chatTypes";
 export type ChatState = {
   bubbles: Bubble[];
   nextId: number;
   currentAssistantId: number | null;
   toolBubbleIds: Record<string, number>;
+  /** 表示中のセッション。切替 (resync の sessionId 変化) で履歴ページを捨てる */
+  sessionId: string;
+  /** 圧縮イベントの区切り位置。復元は全履歴の entry 順、旧 payload では beforeMessageIndex */
+  dividers: CompactionMarker[];
+  /** 古いページを前置きした回数。ChatArea がスクロールアンカーの補正に使う */
+  prependSeq: number;
+  /** 全履歴ページの取得状態。supported=false の間は payload.messages から表示を組む */
+  history: ChatHistoryState;
   runStatus: RunStatus;
   /** 実行中ランの開始時刻 (epoch ms)。サーバーが配る値だけを使う (受信時刻は使わない) */
   runStartedAt?: number;
@@ -101,6 +89,13 @@ export type ChatState = {
 export type ChatAction =
   | { type: "newChat" }
   | { type: "resync"; payload: SessionPayload; receivedAt?: number }
+  /** 全履歴の最新ページ。取得済みの古いページを残して新しい側だけを差し替える */
+  | { type: "resyncHistory"; page: HistoryPage }
+  /** 上方向の追加取得 (古いページ) */
+  | { type: "prependHistory"; page: HistoryPage }
+  | { type: "historyLoading"; loading: boolean }
+  /** 旧サーバー (履歴 API 無し) / セッション消滅。payload.messages ベースの表示へ戻す */
+  | { type: "historyUnsupported" }
   | { type: "runStart"; prompt: string; at: number; startedAt: number }
   | { type: "localUser"; text: string; at: number }
   /** 送信に失敗したローカルエコーを戻す (待ち行列の末尾 = 直前に送った分) */
@@ -132,6 +127,18 @@ export const initialChatState: ChatState = {
   nextId: 1,
   currentAssistantId: null,
   toolBubbleIds: {},
+  sessionId: "",
+  dividers: [],
+  prependSeq: 0,
+  history: {
+    supported: false,
+    hasMore: false,
+    nextCursor: null,
+    loading: false,
+    messageCount: 0,
+    summarizedMessageCount: 0,
+    activeContextStartId: null,
+  },
   runStatus: "idle",
   runStartedAt: undefined,
   compactionStartedAt: undefined,
@@ -198,14 +205,16 @@ function mergeRetrySnapshot(
   return next;
 }
 
-/**
- * 送信エコーの照合用の正規形。添付の注記を落とし、`/skill:` の展開結果は打ったコマンドの形へ戻す。
- * ローカルエコー (素の入力) と run_start (展開済みの本文) を同じ形に寄せるために使う。
- */
-function canonicalUserText(text: string): string {
-  return skillCommandForm(splitAttachedFiles(text).text);
+/** 旧 payload の compactions から区切りを復元する (位置を持つのは最新の 1 件だけ) */
+function legacyMarkers(compactions: CompactionInfo[]): CompactionMarker[] {
+  const index = compactionDividerIndex(compactions);
+  const latest = compactions[compactions.length - 1];
+  if (index === undefined || !latest) return [];
+  return [{ id: latest.id, index, compactions }];
 }
 
+/** 送信エコーの照合用の正規形。添付の注記を落とし、`/skill:` の展開結果は打ったコマンドの形へ戻す。
+ * ローカルエコー (素の入力) と run_start (展開済みの本文) を同じ形に寄せるために使う。 */
 function appendBubble(state: ChatState, role: Bubble["role"], text = "", at?: number): ChatState {
   const bubble: Bubble = { id: state.nextId, role, text, tools: [], skillLoads: [], at };
   return {
@@ -258,17 +267,6 @@ function addToolCard(state: ChatState, card: ToolCard, at?: number): ChatState {
 }
 
 /** 履歴の導出値を写し忘れると resync でツール履歴やバッジが黙って消える */
-function toolCardOf(call: ToolCall): ToolCard {
-  return {
-    id: call.id,
-    name: call.name,
-    args: call.args,
-    phase: call.done ? (call.isError ? "failed" : "done") : "running",
-    output: call.output,
-    ...(call.skill ? { skill: call.skill } : {}),
-  };
-}
-
 export function historyToBubbles(
   nextId: number,
   messages: ChatMessage[],
@@ -336,8 +334,24 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
 
     case "resync": {
       const payload = action.payload;
-      const { bubbles, nextId, toolBubbleIds } = historyToBubbles(state.nextId, payload.messages ?? []);
       const status = payload.status || "idle";
+      const sessionChanged = payload.sessionId !== state.sessionId;
+      // 全履歴 API が使える間は payload.messages (有効コンテキスト) ではなく履歴ページを表示の正とする。
+      // 取得済みの古いページを消さないため、ここでは表示を組み直さない (最新ページは resyncHistory が届く)
+      const keepHistory = state.history.supported && !sessionChanged;
+      const legacy = keepHistory ? null : historyToBubbles(state.nextId, payload.messages ?? []);
+      // 確定済みのライブバブル (前の run の応答 / 送信エコー) は、履歴ページが届くまで残す。未確定の
+      // ストリーミング中の assistant だけを捨てる (context_edit の resync で失敗試行を取り消す契約)
+      const live = keepHistory ? state.bubbles.filter((bubble) => bubble.entryId === undefined) : [];
+      const keptLive = live.filter((bubble) => bubble.role === "user" || bubble.settled === true);
+      const bubbles = keepHistory
+        ? [...state.bubbles.filter((bubble) => bubble.entryId !== undefined), ...keptLive]
+        : legacy!.bubbles;
+      const nextId = keepHistory ? state.nextId : legacy!.nextId;
+      const toolBubbleIds = keepHistory
+        ? Object.fromEntries(bubbles.flatMap((bubble) => bubble.tools.map((card) => [card.id, bubble.id] as const)))
+        : legacy!.toolBubbleIds;
+      const retainedEchoIds = new Set(keptLive.filter((bubble) => bubble.role === "user").map((bubble) => bubble.id));
       // 履歴で置き換えたので、旧バブルを指すエコーの待ち行列は持ち越さない
       const retryState = mergeRetrySnapshot(
         state,
@@ -355,10 +369,14 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
         runEndSeq: state.runEndSeq + (runEnded ? 1 : 0),
         bubbles,
         nextId,
-        // 履歴で置き換えたので、旧バブルを指すエコーの待ち行列は持ち越さない
-        pendingEchoIds: [],
+        // 残したローカルエコー以外の待ちは持ち越さない
+        pendingEchoIds: state.pendingEchoIds.filter((id) => retainedEchoIds.has(id)),
         currentAssistantId: null,
         toolBubbleIds,
+        // 履歴モードでは区切りを履歴ページが正とし、旧 payload では messages の index から復元する
+        dividers: keepHistory ? state.dividers : legacyMarkers(payload.compactions ?? []),
+        history: sessionChanged ? initialChatState.history : state.history,
+        sessionId: payload.sessionId,
         runStatus: status,
         runStartedAt: status === "running" ? payload.run?.startedAt : undefined,
         // 圧縮の起点は payload の値だけ。終端 resync で status が抜ければ解除される
@@ -405,6 +423,73 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
       else if (status === "stopped") next = { ...next, activity: "前回の実行は停止されました" };
       return next;
     }
+
+    case "resyncHistory": {
+      const page = action.page;
+      const live = state.bubbles.filter((bubble) => bubble.entryId === undefined);
+      const bundle = mergeHistoryPage(
+        { bubbles: state.bubbles, markers: state.dividers, nextId: state.nextId, toolBubbleIds: state.toolBubbleIds },
+        page,
+        { live, pendingEchoIds: state.pendingEchoIds },
+      );
+      return {
+        ...state,
+        bubbles: bundle.bubbles,
+        nextId: bundle.nextId,
+        toolBubbleIds: bundle.toolBubbleIds,
+        currentAssistantId: null,
+        dividers: bundle.markers,
+        sessionId: page.sessionId,
+        history: {
+          supported: true,
+          hasMore: page.hasMore,
+          nextCursor: page.nextCursor,
+          loading: state.history.loading,
+          messageCount: page.messageCount,
+          summarizedMessageCount: page.summarizedMessageCount,
+          activeContextStartId: page.activeContextStartId,
+        },
+      };
+    }
+
+    case "prependHistory": {
+      const page = action.page;
+      const bundle = prependHistoryPage(
+        {
+          bubbles: state.bubbles,
+          markers: state.dividers,
+          nextId: state.nextId,
+          toolBubbleIds: state.toolBubbleIds,
+          messageCount: state.history.messageCount,
+          summarizedMessageCount: state.history.summarizedMessageCount,
+        },
+        page,
+      );
+      return {
+        ...state,
+        bubbles: bundle.bubbles,
+        dividers: bundle.markers,
+        nextId: bundle.nextId,
+        toolBubbleIds: bundle.toolBubbleIds,
+        prependSeq: state.prependSeq + (bundle.prepended > 0 ? 1 : 0),
+        history: {
+          ...state.history,
+          supported: true,
+          hasMore: page.hasMore,
+          nextCursor: page.nextCursor,
+          loading: false,
+          messageCount: page.messageCount,
+          summarizedMessageCount: page.summarizedMessageCount,
+          activeContextStartId: page.activeContextStartId,
+        },
+      };
+    }
+
+    case "historyLoading":
+      return { ...state, history: { ...state.history, loading: action.loading } };
+
+    case "historyUnsupported":
+      return { ...state, history: { ...state.history, supported: false } };
 
     case "runStart": {
       // ローカルエコーは素の本文、run_start は注記込み・`/skill:` 展開済みの本文で届く。送信順の
@@ -535,6 +620,8 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
       return {
         ...state,
         compactions,
+        // 区切りの位置は次の resync の履歴ページが正。旧 payload では beforeMessageIndex から復元する
+        dividers: state.history.supported ? state.dividers : legacyMarkers(compactions),
         activity: `会話を圧縮しました（${action.count}回目）`,
       };
     }
@@ -578,13 +665,18 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
       if (status === "stopped") activity = "停止しました";
       else if (status === "error") activity = cardShown ? "" : `エラー: ${action.error || "実行に失敗しました"}`;
       else activity = queueDepth > 0 ? "完了。次のメッセージを実行します" : "完了";
+      // 確定した応答のバブルは resync でも残す (履歴ページが届くまでの表示を維持する)
+      const settled =
+        state.currentAssistantId === null
+          ? state
+          : updateBubble(state, state.currentAssistantId, (bubble) => ({ ...bubble, settled: true }));
       return {
-        ...state,
+        ...settled,
         currentAssistantId: null,
         toolBubbleIds: {},
         activity,
         // run が終わったことを取り直しの合図として数える (描画を挟まず reducer で進める)
-        runEndSeq: state.runEndSeq + 1,
+        runEndSeq: settled.runEndSeq + 1,
         runStartedAt: undefined,
         compactionStartedAt: undefined,
         runStatus,

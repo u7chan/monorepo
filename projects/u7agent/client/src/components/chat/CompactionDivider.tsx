@@ -4,10 +4,19 @@ import type { CompactionInfo } from "../../types";
 import { DisclosureChevronIcon } from "../icons";
 
 /**
- * 圧縮位置の区切り。過去の圧縮位置は context の組み替えで復元できないため、
- * 要約の一覧はこの 1 つの折りたたみにまとめる。
+ * 圧縮位置の区切り。全履歴では圧縮イベントごとに 1 つ出す (要約はその場で読める)。
+ * 旧 payload (全履歴 API 無し) では位置を持つ最新の区切りに全要約をまとめる。
  */
-export function CompactionDivider({ compactions, compact }: { compactions: CompactionInfo[]; compact: boolean }) {
+export function CompactionDivider({
+  compactions,
+  startIndex = 0,
+  compact,
+}: {
+  compactions: CompactionInfo[];
+  /** compactions[0] の全体順。履歴の区切りで「N回目」を通し番号にする */
+  startIndex?: number;
+  compact: boolean;
+}) {
   const latest = compactions[compactions.length - 1];
   if (!latest) return null;
   const historyLabel = compactionHistoryLabel(compactions.length);
@@ -31,7 +40,7 @@ export function CompactionDivider({ compactions, compact }: { compactions: Compa
           {compactions.map((compaction, index) => (
             <li key={compaction.id} className="grid min-w-0 gap-1">
               <span className="font-sans text-3xs tracking-wide text-ink-faint uppercase">
-                {compactionSummaryHeading(compaction, index)}
+                {compactionSummaryHeading(compaction, startIndex + index)}
               </span>
               <p className="m-0 text-xs leading-relaxed break-words whitespace-pre-wrap text-ink-soft">
                 {compaction.summary}

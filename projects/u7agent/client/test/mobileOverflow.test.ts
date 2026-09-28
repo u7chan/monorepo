@@ -30,8 +30,11 @@ test("compact bar と chat の直接子は intrinsic width より狭く縮めら
   assert.ok(compactBar.includes("grid min-w-0 grid-cols-1 border-b"));
   assert.ok(compactBar.includes("flex min-w-0 items-center"));
   assert.ok(chatArea.includes("min-h-0 min-w-0 flex-1 scrollbar-thin overflow-x-hidden overflow-y-auto"));
-  assert.ok(chatArea.includes("grid min-w-0 grid-cols-1 pt-2"));
-  assert.ok(messageView.includes("group/bubble flex min-w-0 animate-rise"));
+  assert.ok(chatArea.includes("mx-auto w-full min-w-0"));
+  assert.ok(chatArea.includes('"virtual-canvas relative mt-2 w-full"'));
+  assert.ok(chatArea.includes('"virtual-item"'));
+  assert.ok(messageView.includes('"group/bubble flex min-w-0"'));
+  assert.ok(messageView.includes('animate ? "animate-rise" : ""'));
 });
 
 // Firefox と iOS Safari の select は、選択肢の幅 (= intrinsic width) を auto 列の item の

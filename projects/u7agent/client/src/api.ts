@@ -13,6 +13,7 @@ import type {
   FileRename,
   FileSkillsResponse,
   Health,
+  HistoryPage,
   ModelMutationResponse,
   ModelsSettingsResponse,
   ModelRef,
@@ -303,6 +304,25 @@ export const createSession = async (
 
 export const getSession = async (sessionId: string): Promise<SessionPayload> => {
   const res = await client.api.sessions[":id"].$get({ param: { id: sessionId } });
+  if (!res.ok) throw await apiError(res);
+  return res.json();
+};
+
+/**
+ * 全履歴のカーソルページ。`before` より古い範囲を返し、初回 (before 無し) は最新ページだけを取る。
+ * カーソルは entry id なので、追記・圧縮・再接続を跨いでも同じ item を二度返さない。
+ */
+export const getSessionHistory = async (
+  sessionId: string,
+  options: { before?: string | null; limit?: number } = {},
+): Promise<HistoryPage> => {
+  const query: Record<string, string> = {};
+  if (options.before) query.before = options.before;
+  if (options.limit !== undefined) query.limit = String(options.limit);
+  // query validator を持たないルートのため、hc の $get ではなく URL を組んで fetch する
+  const url = client.api.sessions[":id"].history.$url({ param: { id: sessionId } });
+  url.search = new URLSearchParams(query).toString();
+  const res = await fetch(url);
   if (!res.ok) throw await apiError(res);
   return res.json();
 };

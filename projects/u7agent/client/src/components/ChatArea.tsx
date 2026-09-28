@@ -1,21 +1,34 @@
-import { Fragment, useEffect, useRef, useState } from "react";
-import type { Bubble } from "../hooks/chatReducer";
+import { useVirtualizer } from "@tanstack/react-virtual";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import type { Bubble, CompactionMarker } from "../hooks/chatReducer";
 import { useMessageCopy } from "../hooks/useMessageCopy";
-import { resolveScrollFollow } from "../lib/chatScroll";
+import { anchoredScrollTop, chatRenderItems, estimateChatItemHeight, type ChatRenderItem } from "../lib/chatItems";
+import { resolveScrollFollow, shouldLoadOlder } from "../lib/chatScroll";
 import type { ChatScope } from "../lib/chatScope";
 import { cn } from "../lib/cn";
-import { compactionDividerIndex } from "../lib/compaction";
 import { toolCallCopyText, toolHistoryCopyText } from "../lib/copy-content";
 import { nonSkillToolCards, skillBadgesOf } from "../lib/skillLoad";
 import type { AgentSuggestion, CompactionInfo } from "../types";
 import { AgentIcon } from "./AgentIcon";
 import { CompactionDivider } from "./chat/CompactionDivider";
+import { ContextBoundary } from "./chat/ContextBoundary";
 import { MessageView } from "./chat/MessageView";
 import { ScrollToBottomButton } from "./chat/ScrollToBottomButton";
 
 export type ChatAreaProps = {
   bubbles: Bubble[];
+  /** 圧縮イベントの区切り (index = bubbles の何番目の手前か)。全履歴 API が正 */
+  dividers?: CompactionMarker[];
+  /** 全体の圧縮履歴 (要約の通し番号に使う) */
   compactions?: CompactionInfo[];
+  /** 現在の有効コンテキストの先頭。要約済みが見えているときだけ境界ラベルを出す */
+  activeContextStartId?: string | null;
+  /** 上方向の追加取得の状態 (hasMore / 取得中) */
+  historyHasMore?: boolean;
+  historyLoading?: boolean;
+  /** 古いページを前置きした回数。スクロール位置の補正の合図 */
+  prependSeq?: number;
+  onLoadOlder?: () => void;
   compact?: boolean;
   suggestions?: AgentSuggestion[];
   /** assistant の表示名 (セッションのスナップショット)。未作成チャットでは選択中のエージェント */
@@ -37,7 +50,13 @@ export type ChatAreaProps = {
 
 export function ChatArea({
   bubbles,
+  dividers = [],
   compactions = [],
+  activeContextStartId = null,
+  historyHasMore = false,
+  historyLoading = false,
+  prependSeq = 0,
+  onLoadOlder,
   compact = false,
   suggestions = [],
   agentName,
@@ -61,10 +80,30 @@ export function ChatArea({
   const lastTopRef = useRef(0);
   const prevSendSeqRef = useRef(sendSeq);
   const prevSessionIdRef = useRef(sessionId);
+  const prevPrependSeqRef = useRef(prependSeq);
+  /** 古いページの前置き前に測った位置。前置き後の高さ増加ぶんだけ scrollTop を戻す */
+  const anchorRef = useRef<{ top: number; height: number } | null>(null);
   const { copiedId, copyMessage } = useMessageCopy();
-  const dividerIndex = compactionDividerIndex(compactions);
+  const items = useMemo(
+    () => chatRenderItems({ bubbles, markers: dividers, compactions, activeContextStartId }),
+    [bubbles, dividers, compactions, activeContextStartId],
+  );
   // resync では run の toolCall が最後のバブルへまとまるため、全バブル横断で同じ呼び出しをバッジ 1 件に統合する
   const skillBadges = skillBadgesOf(bubbles);
+
+  // 可変高さ (Markdown / ツール履歴 / 折りたたみ要約) を計測し、可視範囲 + overscan だけ DOM に載せる。
+  // アイテムは entry id をキーにし、古いページを前置きしても同じ DOM を再利用する。
+  // 画面より上で伸縮したアイテムの scrollTop 補正は virtual-core の既定 (anchorTo: "start") が担う
+  const virtualizer = useVirtualizer({
+    count: items.length,
+    getScrollElement: () => chatAreaRef.current,
+    estimateSize: (index) => estimateChatItemHeight(items[index]),
+    getItemKey: (index) => items[index].key,
+    overscan: 8,
+  });
+
+  const loadOlderRef = useRef(onLoadOlder);
+  loadOlderRef.current = onLoadOlder;
 
   function setFollowBoth(value: boolean): void {
     followRef.current = value;
@@ -77,9 +116,18 @@ export function ChatArea({
     const el = chatAreaRef.current;
     if (!visible || !el) return;
     el.scrollTop = el.scrollHeight;
+    // 未計測ぶんは推定高さなので、末尾 index へも明示的に寄せる (計測後のずれは observer が拾う)
+    if (items.length > 0) virtualizer.scrollToIndex(items.length - 1, { align: "end" });
     // 代入の後に読んだ位置を基準にする (位置が変わらない代入でも更新する。基準が古いままだと、
     // 直後にレイアウト起因で届く scroll を上へ戻す操作と誤認する)
     lastTopRef.current = el.scrollTop;
+  }
+
+  /** 上端付近で古いページを要求する。位置の基準を先に控え、前置き後に補正する */
+  function requestOlderHistory(): void {
+    const el = chatAreaRef.current;
+    if (el) anchorRef.current = { top: el.scrollTop, height: el.scrollHeight };
+    loadOlderRef.current?.();
   }
 
   function handleScroll(): void {
@@ -96,13 +144,39 @@ export function ChatArea({
     lastTopRef.current = top;
     if (next.snap) snapToBottom();
     else setFollowBoth(next.follow);
+    if (shouldLoadOlder({ scrollTop: top, hasMore: historyHasMore, loading: historyLoading })) {
+      requestOlderHistory();
+    }
   }
 
   // 内容が伸びても、読み返し中 (follow が外れている) は位置を動かさない
   useEffect(() => {
     if (!followRef.current) return;
     snapToBottom();
-  }, [bubbles]);
+  }, [items]);
+
+  // ページが 1 画面に収まる (scroll イベントが来ない) ときも、古いページがあれば読み込む
+  useEffect(() => {
+    if (!historyHasMore || historyLoading) return;
+    const el = chatAreaRef.current;
+    if (el && el.scrollHeight <= el.clientHeight + 1) requestOlderHistory();
+  }, [items, historyHasMore, historyLoading]);
+
+  // 古いページの前置きは scrollTop を高さの増加分だけずらし、閲覧中の位置を保つ
+  useLayoutEffect(() => {
+    if (prependSeq === prevPrependSeqRef.current) return;
+    prevPrependSeqRef.current = prependSeq;
+    const anchor = anchorRef.current;
+    anchorRef.current = null;
+    const el = chatAreaRef.current;
+    if (!anchor || !el) return;
+    el.scrollTop = anchoredScrollTop({
+      anchorTop: anchor.top,
+      anchorHeight: anchor.height,
+      nextHeight: el.scrollHeight,
+    });
+    lastTopRef.current = el.scrollTop;
+  }, [prependSeq]);
 
   // 送信は状態の形から推測せず、ローカルエコーの増加で拾う (再接続の resync も末尾が user になり得る)
   useEffect(() => {
@@ -142,6 +216,33 @@ export function ChatArea({
     return () => observer.disconnect();
   }, [visible]);
 
+  function renderItem(item: ChatRenderItem) {
+    if (item.kind === "boundary") return <ContextBoundary compact={compact} />;
+    if (item.kind === "compaction") {
+      return <CompactionDivider compactions={item.marker.compactions} startIndex={item.index} compact={compact} />;
+    }
+    const bubble = item.bubble;
+    return (
+      <MessageView
+        bubble={bubble}
+        skillBadges={skillBadges.get(bubble.id) ?? []}
+        copied={copiedId === `bubble_${bubble.id}`}
+        compact={compact}
+        agentName={agentName}
+        agentIcon={agentIcon}
+        rootCwd={rootCwd}
+        // 履歴 item はスクロールで再マウントするため、登場アニメーションはライブバブルだけにする
+        animate={bubble.entryId === undefined}
+        // 添付の注記を除いた本文をコピーする (MessageView が分解して渡す)
+        onCopy={(text) => void copyMessage(text, `bubble_${bubble.id}`)}
+        copiedId={copiedId}
+        onCopyTool={(card) => void copyMessage(toolCallCopyText(card), `tool_${card.id}`)}
+        copiedAll={copiedId === `tools_${bubble.id}`}
+        onCopyAll={() => void copyMessage(toolHistoryCopyText(nonSkillToolCards(bubble.tools)), `tools_${bubble.id}`)}
+      />
+    );
+  }
+
   return (
     <div className="relative flex min-h-0 min-w-0">
       <section
@@ -154,7 +255,7 @@ export function ChatArea({
         )}
       >
         <div ref={contentRef} className={cn("mx-auto w-full min-w-0", compact ? null : "max-w-220")}>
-          {bubbles.length === 0 ? (
+          {items.length === 0 ? (
             <div className={cn("mx-auto max-w-md text-center", compact ? "pt-[8vh]" : "pt-[18vh]")}>
               <div className="mx-auto mb-4 w-fit">
                 <AgentIcon icon={agentIcon} variant="hero" />
@@ -181,39 +282,27 @@ export function ChatArea({
               ) : null}
             </div>
           ) : (
-            <div className={cn("grid min-w-0 grid-cols-1 pt-2", compact ? "gap-3.5" : "gap-5")}>
-              {bubbles.map((bubble, index) => (
-                <Fragment key={bubble.id}>
-                  {dividerIndex === index ? <CompactionDivider compactions={compactions} compact={compact} /> : null}
-                  <MessageView
-                    bubble={bubble}
-                    skillBadges={skillBadges.get(bubble.id) ?? []}
-                    copied={copiedId === `bubble_${bubble.id}`}
-                    compact={compact}
-                    agentName={agentName}
-                    agentIcon={agentIcon}
-                    rootCwd={rootCwd}
-                    // 添付の注記を除いた本文をコピーする (MessageView が分解して渡す)
-                    onCopy={(text) => void copyMessage(text, `bubble_${bubble.id}`)}
-                    copiedId={copiedId}
-                    onCopyTool={(card) => void copyMessage(toolCallCopyText(card), `tool_${card.id}`)}
-                    copiedAll={copiedId === `tools_${bubble.id}`}
-                    onCopyAll={() =>
-                      void copyMessage(toolHistoryCopyText(nonSkillToolCards(bubble.tools)), `tools_${bubble.id}`)
-                    }
-                  />
-                </Fragment>
+            <div
+              className="virtual-canvas relative mt-2 w-full"
+              style={{ "--virtual-total-height": `${virtualizer.getTotalSize()}px` } as CSSProperties}
+            >
+              {virtualizer.getVirtualItems().map((virtualItem) => (
+                <div
+                  key={virtualItem.key}
+                  data-index={virtualItem.index}
+                  ref={virtualizer.measureElement}
+                  className={cn("virtual-item", compact ? "pb-3.5" : "pb-5")}
+                  style={{ "--virtual-start": `${virtualItem.start}px` } as CSSProperties}
+                >
+                  {renderItem(items[virtualItem.index])}
+                </div>
               ))}
-              {/* 区切りが末尾 (圧縮後のメッセージがまだ無い) のときは bubbles の後ろへ出す */}
-              {dividerIndex !== undefined && dividerIndex >= bubbles.length ? (
-                <CompactionDivider compactions={compactions} compact={compact} />
-              ) : null}
             </div>
           )}
         </div>
       </section>
       {/* aria-live の中に入れると読み上げに混ざるため、section の外へ浮かせる */}
-      {!follow && bubbles.length > 0 ? (
+      {!follow && items.length > 0 ? (
         <ScrollToBottomButton onClick={snapToBottom} className="absolute bottom-4 left-1/2 -translate-x-1/2" />
       ) : null}
     </div>

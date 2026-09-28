@@ -107,6 +107,7 @@ export function useU7Agent({ pendingSessionId, onPendingSessionResolved }: UseU7
     changeModel,
     changeThinkingLevel,
     compactSession,
+    loadOlderHistory,
     toggleNotify,
   } = useSessions({
     dispatch,
@@ -401,6 +402,7 @@ export function useU7Agent({ pendingSessionId, onPendingSessionResolved }: UseU7
     removeAttachment,
     stopAgent,
     compactSession,
+    loadOlderHistory,
     deleteSession,
     createProject,
     deleteProject,

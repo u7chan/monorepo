@@ -373,7 +373,13 @@ export default function App() {
               <ChatArea
                 visible={mainView === "chat"}
                 bubbles={app.chat.bubbles}
+                dividers={app.chat.dividers}
                 compactions={app.chat.compactions}
+                activeContextStartId={app.chat.history.activeContextStartId}
+                historyHasMore={app.chat.history.hasMore}
+                historyLoading={app.chat.history.loading}
+                prependSeq={app.chat.prependSeq}
+                onLoadOlder={app.loadOlderHistory}
                 compact={compact}
                 scope={scope}
                 suggestions={app.selectedAgent?.suggestions}

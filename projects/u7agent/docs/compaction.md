@@ -12,16 +12,29 @@ pi SDK はコンテキストが上限に近づくと会話を自動で compactio
 
 | 項目 | 仕様 |
 | --- | --- |
-| 区切り | 圧縮位置に 1 行出す。例 `ここで会話を圧縮しました（自動: 68k tokens から）`。文言は `client/src/lib/compaction.ts` の純関数が持ち、compact（portrait / landscape）でも出す |
+| 区切り | 圧縮イベントごとに 1 行出す。例 `ここで会話を圧縮しました（自動: 68k tokens から）`。文言は `client/src/lib/compaction.ts` の純関数が持ち、compact（portrait / landscape）でも出す |
 | 理由 | `manual` = 手動 / `threshold` = 自動 / `overflow` = 上限超過。区切りと要約一覧の両方で区別する |
 | 数値 | 区切りに出すのは `tokensBefore` のみ（pi TUI と同じ）。`estimatedTokensAfter` は推定値であり Context ゲージ（provider 実測）と食い違って見えるため出さない。DTO には保持する |
-| 要約 | 折りたたみ（既定は畳む）。開くと全要約を古い→新しいの通し番号付きで一覧表示する |
-| 位置 | 区切りを位置に出せるのは最新の 1 件だけ（`beforeMessageIndex`）。位置は `messages` と同じ集合を数えて求め、entry は「compaction より手前か」の判定にだけ使う。複数回のときは「この会話は N 回圧縮されました」を要約一覧の先頭に出す |
-| 圧縮前の元メッセージ | 表示しない（entry ベースの履歴 DTO は対象外） |
-| 反映 | `compaction` イベントの後に届く `resync` で `messages` / `compactions` を置き換える。SDK は送信メッセージを履歴へ入れる前に compaction を走らせることがあるため、その場合は送信メッセージが入ってから `resync` を配る（先に配るとそのメッセージが履歴から消える）。リロード・再接続はサーバー payload を正とする |
+| 要約 | 各区切りを折りたたみ（既定は畳む）にし、その圧縮の要約を「N回目」の通し番号付きで出す。過去の圧縮も発生位置で読める |
+| 位置 | 区切りは全履歴の entry 順で決める（`HistoryItem` の compaction item）。旧 payload（全履歴 API 無し）では最新の 1 件の `beforeMessageIndex` だけを使う |
+| 圧縮前の元メッセージ | 全履歴 API（[api-sessions.md](api-sessions.md#get-apisessionsidhistory)）で遡って読める。要約で置き換わった範囲は薄暗く、「要約済み」タグを付ける |
+| 反映 | `compaction` イベントで要約と回数を反映し、続く `resync` で最新ページを取り直す（クライアントは取得済みの古いページを保持する）。SDK は送信メッセージを履歴へ入れる前に compaction を走らせることがあるため、その場合は送信メッセージが入ってから `resync` を配る（先に配るとそのメッセージが履歴から消える）。リロード・再接続はサーバー payload と履歴ページを正とする |
 | 失敗・中断（run の自動圧縮） | `result` が無い / `aborted` / `errorMessage` ありのときは `compaction` も `resync` も配らず、履歴と区切りを変えない（既存の status 遷移とエラー表示に任せる）。手動圧縮は下の「終端の契約」で終端 `resync` を配る |
 
 要約は `messages` に混ぜず `SessionPayload.compactions` として配り、`messages` は従来どおり role `user` / `assistant` だけにする。要約テキストは他の出力と同じマスカーを通してから配る。
+
+## 全履歴の表示（閲覧と段階読み込み）
+
+圧縮で context から外れた元の user / assistant とツール履歴も GUI で遡って読めるようにする。保存の正は従来どおり `session.jsonl` で、表示用の履歴は SDK entry 列（`SessionManager.getBranch()`）から毎回投影する（会話の二重保存・ディスク索引は追加しない。API は [api-sessions.md](api-sessions.md#get-apisessionsidhistory)）。
+
+- 各 item は SDK entry の id を持ち、メッセージはコンテキスト状態を持つ。
+  - `active` = 現在の `session.messages` に生のまま残る
+  - `summarized` = 最新の compaction の `firstKeptEntryId` より手前（要約に置き換わった）
+  - `excluded` = リトライ / overflow 回復の `context_edit` で context から外れた（要約とは区別し、別のタグで表示する）
+- `firstKeptEntryId` は metadata entry（model 変更など）を指し得る。境界はメッセージ entry を探さず「その entry 以降が有効」として位置だけを使う。
+- 複数回圧縮しても圧縮イベントは entry の位置に残り、各要約をその場で開ける。現在有効な範囲は最新の SDK 状態（最新 compaction の cut 以降）を正とする。
+- 要約で置き換わった範囲は薄暗く表示し、「要約済み」タグを出す。色だけに依存しないよう、最新の有効コンテキストの先頭に境界ラベル（`ここから現在の有効な会話`）を出す。保持された圧縮前の発言（cut 以降）は通常表示のまま。
+- 初回は最新ページだけを取り、上端付近で古いページを追加取得する。取得済みのページはコンテキスト状態の更新だけを受け、閲覧位置は前置き前後の高さの差で補正する（[frontend.md](frontend.md#全履歴のタイムラインと仮想スクロール)）。
 
 ## 手動圧縮
 
@@ -123,6 +136,7 @@ pnpm check   # lint → format:check → 型チェック → テスト → ク�
 ```
 
 - `server/test/compaction.test.ts` — auto / 手動の両方を通す。stub の `compact()` で `compaction_start` / `compaction_end` を発火させ、payload（要約の分離・`beforeMessageIndex`・複数回・`firstKeptEntryId` が metadata entry を指す場合・マスク）と SSE イベントを固定する。手動は開始 `resync` → `compaction` → 終端 `resync` → `status` の順序、400 / 409 / 500 の分類、二重 POST・`updateSettings`・`stop` との競合、保存待ちの割り込み、削除中 / close 中の抑止、永続化と保存失敗、キューと pump を固定する。実 API は呼ばない
+- `server/test/session-history.test.ts` — 全履歴の投影（`active` / `summarized` / `excluded`、複数回の compaction、`firstKeptEntryId` が metadata entry を指す場合、context_edit の除外、マスク）と、カーソル型ページネーション（重複・欠落なし、不明カーソルの 400、route の limit / 404）を固定する。実 API は呼ばない
 - `server/test/compaction-cut.test.ts` — SDK 公開の `findCutPoint` / `estimateTokens` で、上表のカット可否を固定する（実 API は呼ばない）
 - `client/test/compaction.test.ts` — 区切り / 要約一覧のラベル整形と手動圧縮の確認文言を純関数として固定し、確認してから要求を出す順序をソース走査で固定する（DOM は使わない）
 - `client/test/chatReducer.test.ts` — `compaction` の取り込み、`resync` からの compacting / 開始時刻 / activity の導出と終端での解除、圧縮中の `queued`、run をまたぐ解除を固定する
@@ -144,3 +158,9 @@ pnpm check   # lint → format:check → 型チェック → テスト → ク�
 - 長い要約（1 行が長いテキスト）でも区切りと要約一覧が横に溢れない（`break-words` で折り返す）
 - compact でも区切りの 1 行が出て、要約が畳まれたままである
 - 状態行のゲージ + 圧縮ボタンが 390px と長いモデル名でも切れない（足りなければ組ごと 2 行目へ折り返す）
+
+### 全履歴（圧縮後の遡りと段階読み込み）の目視
+
+圧縮後に区切りの手前の元メッセージが薄暗く残り、「要約済み」タグと境界ラベル（`ここから現在の有効な会話`）が出ることを確認する。保持された圧縮前の発言は通常表示のままで、`excluded`（リトライ / overflow 回復）は「除外」タグになる。上端付近まで戻すと古いページが追加取得され、閲覧位置が飛ばない（DevTools の Network で `GET /api/sessions/<id>/history?before=…` が増える）。リロード後も同じ位置関係で復元される。
+
+長い履歴は `PI_SESSION_STORE/<session-id>/session.jsonl` に合成 entry を追記して作れる（BFF を止めて、header の後に user / assistant（必要なら `toolCall` + `toolResult`）と compaction の行を足し、`parentId` を直前の entry id につなぐ。`firstKeptEntryId` は境界にする message entry の id を指す。`meta.json` の `messageCount` は次に開いたときに書き戻される）。数千メッセージでも最初の GET が最新 50 件（既定 `limit`）だけを返し、DOM ノード数がスクロールしても増え続けないことを確認する。

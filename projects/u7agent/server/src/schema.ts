@@ -245,6 +245,50 @@ export const ChatMessageSchema = z.object({
 export type ChatMessage = z.infer<typeof ChatMessageSchema>;
 
 /**
+ * 履歴項目のコンテキスト状態。active = 現在の SDK context に生のまま残る、summarized = 最新の
+ * compaction の要約へ置き換わった、excluded = context_edit などで context から外れた。
+ * summarized と excluded はどちらも生のコンテキストに無いが、要約と混同しないため別の値にする。
+ */
+export const HistoryContextStateSchema = z.enum(["active", "summarized", "excluded"]);
+export type HistoryContextState = z.infer<typeof HistoryContextStateSchema>;
+
+/** 表示用の履歴 1 件。id は SDK entry の id で、ページのカーソルと重複排除に使う */
+export const HistoryMessageItemSchema = ChatMessageSchema.extend({
+  kind: z.literal("message"),
+  id: z.string(),
+  context: HistoryContextStateSchema,
+});
+export type HistoryMessageItem = z.infer<typeof HistoryMessageItemSchema>;
+
+/** 圧縮イベントそのもの。発生位置を entry の並びで持ち、区切りをここに置く */
+export const HistoryCompactionItemSchema = z.object({
+  kind: z.literal("compaction"),
+  id: z.string(),
+  compaction: CompactionInfoSchema,
+});
+export type HistoryCompactionItem = z.infer<typeof HistoryCompactionItemSchema>;
+
+export const HistoryItemSchema = z.discriminatedUnion("kind", [HistoryMessageItemSchema, HistoryCompactionItemSchema]);
+export type HistoryItem = z.infer<typeof HistoryItemSchema>;
+
+/**
+ * カーソル型の履歴ページ。items は古い→新しい、nextCursor はさらに古いページを取るための
+ * 先頭 item の id。messageCount / summarizedMessageCount はページではなく現行ブランチ全体の値で、
+ * クライアントが保持済みページの dim (summarized) 判定を更新するのに使う。
+ */
+export const HistoryPageSchema = z.object({
+  sessionId: z.string(),
+  items: z.array(HistoryItemSchema),
+  nextCursor: z.string().nullable(),
+  hasMore: z.boolean(),
+  /** 現在有効なコンテキストの先頭 message item。summarized が 0 件のときは null */
+  activeContextStartId: z.string().nullable(),
+  messageCount: z.number(),
+  summarizedMessageCount: z.number(),
+});
+export type HistoryPage = z.infer<typeof HistoryPageSchema>;
+
+/**
  * ワークスペース内のプロジェクト。cwd は rootCwd 相対で、DB へ写せるよう列はこの 4 つに保つ。
  * 後から所属を変える API は無いため、配下セッションの cwd も作成時に固定される。
  */

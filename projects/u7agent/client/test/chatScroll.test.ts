@@ -8,7 +8,7 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import test from "node:test";
 import { ScrollToBottomButton } from "../src/components/chat/ScrollToBottomButton";
-import { CHAT_FOLLOW_THRESHOLD, isAtBottom, resolveScrollFollow } from "../src/lib/chatScroll";
+import { CHAT_FOLLOW_THRESHOLD, isAtBottom, resolveScrollFollow, shouldLoadOlder } from "../src/lib/chatScroll";
 
 function read(relativePath: string): string {
   return readFileSync(fileURLToPath(new URL(`../${relativePath}`, import.meta.url)), "utf8");
@@ -108,7 +108,7 @@ test("ChatArea は送信 / 会話の切替 / 表示への復帰 / リサイズ�
 });
 
 test("最下部ボタンは追従が外れていてメッセージがあるときだけ出す", () => {
-  assert.ok(chatArea.includes("{!follow && bubbles.length > 0 ? ("));
+  assert.ok(chatArea.includes("{!follow && items.length > 0 ? ("));
   // aria-live の外 (section の後ろ) に置く
   assert.ok(chatArea.indexOf('aria-live="polite"') < chatArea.indexOf("<ScrollToBottomButton"));
 });
@@ -116,6 +116,30 @@ test("最下部ボタンは追従が外れていてメッセージがあると�
 test("App は sessionId と sendSeq を ChatArea へ渡す", () => {
   assert.ok(app.includes("sessionId={app.sessionId}"));
   assert.ok(app.includes("sendSeq={app.chat.sendSeq}"));
+});
+
+test("上端付近で古いページの先読みを 1 回だけ要求する", () => {
+  assert.equal(shouldLoadOlder({ scrollTop: 0, hasMore: true, loading: false }), true);
+  assert.equal(shouldLoadOlder({ scrollTop: 200, hasMore: true, loading: false }), true); // しきい値ちょうど
+  assert.equal(shouldLoadOlder({ scrollTop: 201, hasMore: true, loading: false }), false);
+  assert.equal(shouldLoadOlder({ scrollTop: 0, hasMore: false, loading: false }), false, "先頭まで読んだら要求しない");
+  assert.equal(shouldLoadOlder({ scrollTop: 0, hasMore: true, loading: true }), false, "取得中は重ねて要求しない");
+});
+
+test("ChatArea は仮想スクロールと先読み / アンカー補正を配線する", () => {
+  assert.ok(chatArea.includes("useVirtualizer("));
+  assert.ok(chatArea.includes("getItemKey: (index) => items[index].key"));
+  assert.ok(chatArea.includes("ref={virtualizer.measureElement}"));
+  assert.ok(chatArea.includes("shouldLoadOlder({"));
+  assert.ok(chatArea.includes("anchoredScrollTop({"));
+  assert.ok(chatArea.includes("requestOlderHistory()"));
+});
+
+test("App は全履歴の props (dividers / history / onLoadOlder) を ChatArea へ渡す", () => {
+  assert.ok(app.includes("dividers={app.chat.dividers}"));
+  assert.ok(app.includes("activeContextStartId={app.chat.history.activeContextStartId}"));
+  assert.ok(app.includes("historyHasMore={app.chat.history.hasMore}"));
+  assert.ok(app.includes("onLoadOlder={app.loadOlderHistory}"));
 });
 
 test("ScrollToBottomButton は最新へ戻るボタンとして読み上げられる", () => {
