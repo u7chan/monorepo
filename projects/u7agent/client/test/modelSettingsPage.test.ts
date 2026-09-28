@@ -11,11 +11,14 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import test from "node:test";
 import type { ModelSettings } from "../src/hooks/useModelSettings";
+import type { ImageSettings } from "../src/hooks/useImageSettings";
+import { IMAGE_SETTINGS_NOTE } from "../src/lib/imageSettings";
 import { MODEL_SETTINGS_NOTE } from "../src/lib/modelSettings";
 import type { ModelsSubsection } from "../src/lib/settingsNav";
 import type {
   ModelsSettingsResponse,
   ModelMutationResponse,
+  ImageSettingsResponse,
   ProviderAuthSetting,
   RuntimeModelsResponse,
   SessionSummary,
@@ -114,18 +117,45 @@ function modelSettings(overrides: Partial<ModelSettings> = {}): ModelSettings {
   };
 }
 
+const IMAGE_SETTINGS: ImageSettingsResponse = {
+  configured: true,
+  provider: "openrouter",
+  model: "openai/gpt-image-2",
+  models: [
+    { provider: "openrouter", id: "openai/gpt-image-2", name: "GPT Image 2" },
+    { provider: "openrouter", id: "google/gemini-image", name: "Gemini Image" },
+  ],
+  runtimeAvailable: true,
+};
+
+function imageSettings(overrides: Partial<ImageSettings> = {}): ImageSettings {
+  return {
+    settings: IMAGE_SETTINGS,
+    note: { text: IMAGE_SETTINGS_NOTE, error: false },
+    saving: null,
+    reloading: false,
+    reload: async () => {},
+    saveKey: async () => true,
+    removeKey: async () => true,
+    saveSelection: async () => true,
+    ...overrides,
+  };
+}
+
 function render(
   settings: ModelSettings,
   options: {
     modelsSubsection?: ModelsSubsection;
     sessions?: SessionSummary[];
     sessionsLoaded?: boolean;
+    imageSettings?: ImageSettings;
     onSelectModelsSubsection?: (subsection: ModelsSubsection) => void;
   } = {},
 ): string {
   return renderToStaticMarkup(
     createElement(ModelSettingsView, {
       modelSettings: settings,
+      imageSettings: options.imageSettings ?? imageSettings(),
       sessions: options.sessions ?? [],
       sessionsLoaded: options.sessionsLoaded ?? false,
       modelsSubsection: options.modelsSubsection ?? "models",
@@ -135,12 +165,13 @@ function render(
   );
 }
 
-test("タブ行は URL が決めるタブを示し、両方のタブを出す", () => {
+test("タブ行は URL が決めるタブを示し、3 つのタブを出す", () => {
   const html = render(modelSettings());
   assert.ok(html.includes('role="tablist"'), "タブ行を出す");
-  assert.equal((html.match(/role="tab"/g) ?? []).length, 2, "タブは 2 つ");
+  assert.equal((html.match(/role="tab"/g) ?? []).length, 3, "タブは 3 つ");
   assert.match(html, /<button[^>]*aria-selected="true"[^>]*>モデルを選ぶ</, "既定は「モデルを選ぶ」");
   assert.ok(html.includes("プロバイダー"));
+  assert.ok(html.includes("画像生成"));
   // タブの切替は URL 経由で親へ渡す
   const calls: ModelsSubsection[] = [];
   render(modelSettings(), { onSelectModelsSubsection: (subsection) => calls.push(subsection) });
@@ -150,6 +181,13 @@ test("タブ行は URL が決めるタブを示し、両方のタブを出す", 
   assert.match(providersHtml, /<button[^>]*aria-selected="true"[^>]*>プロバイダー</);
   assert.equal(providersHtml.includes("モデル候補を保存"), false, "プロバイダータブに候補の保存バーは出さない");
   assert.ok(providersHtml.includes("provider 名 / ID で絞り込み"));
+});
+
+test("画像生成タブは URL が選んだときにだけ描画し、キー入力を出す", () => {
+  const html = render(modelSettings(), { modelsSubsection: "images" });
+  assert.match(html, /<button[^>]*aria-selected="true"[^>]*>画像生成</);
+  assert.ok(html.includes('type="password"'), "画像生成タブのキー入力を出す");
+  assert.equal(html.includes("モデル候補を保存"), false, "他のタブの保存バーは出さない");
 });
 
 test("モデルを選ぶタブは既定モデル・選択数・候補・保存バーを出し、折りたたみは既定で閉じる", () => {

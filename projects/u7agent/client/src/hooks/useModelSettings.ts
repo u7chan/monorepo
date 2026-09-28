@@ -23,7 +23,7 @@ import type {
   RuntimeModelsResponse,
   UpdateModelAvailabilityBody,
 } from "../types";
-import { createRequestGate } from "./requestGate";
+import { createLoadingTracker, createRequestGate } from "./requestGate";
 
 function messageFor(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
@@ -45,8 +45,10 @@ export function useModelSettings({ onRefreshHealth }: ModelSettingsParams) {
   const [note, setNote] = useState<{ text: string; error: boolean }>({ text: MODEL_SETTINGS_NOTE, error: false });
   const [saving, setSaving] = useState<string | null>(null);
   const [savingAvailability, setSavingAvailability] = useState(false);
-  const [reloading, setReloading] = useState(true);
+  const [reloading, setReloading] = useState(false);
   const [beginLoad] = useState(createRequestGate);
+  // 破棄された取得でも進行中を解除するため、適用の可否とは別に追う
+  const [reloadTracker] = useState(() => createLoadingTracker(setReloading));
 
   /** カタログだけ取り直す (モデル数と一覧の表示を変更直後に追随させる) */
   const loadCatalog = useCallback(async (canApply: () => boolean) => {
@@ -65,18 +67,21 @@ export function useModelSettings({ onRefreshHealth }: ModelSettingsParams) {
 
   const reload = useCallback(async (): Promise<void> => {
     const canApply = beginLoad();
-    setReloading(true);
-    const [settingsResult] = await Promise.allSettled([getModelsSettings()]);
-    if (!canApply()) return;
-    if (settingsResult.status === "fulfilled") {
-      setSettings(settingsResult.value);
-      setNote({ text: MODEL_SETTINGS_NOTE, error: false });
-    } else {
-      setNote({ text: `モデルの設定を読み込めませんでした。${messageFor(settingsResult.reason)}`, error: true });
+    const finishReload = reloadTracker.begin();
+    try {
+      const [settingsResult] = await Promise.allSettled([getModelsSettings()]);
+      if (!canApply()) return;
+      if (settingsResult.status === "fulfilled") {
+        setSettings(settingsResult.value);
+        setNote({ text: MODEL_SETTINGS_NOTE, error: false });
+      } else {
+        setNote({ text: `モデルの設定を読み込めませんでした。${messageFor(settingsResult.reason)}`, error: true });
+      }
+      await loadCatalog(canApply);
+    } finally {
+      finishReload();
     }
-    await loadCatalog(canApply);
-    if (canApply()) setReloading(false);
-  }, [beginLoad, loadCatalog]);
+  }, [beginLoad, loadCatalog, reloadTracker]);
 
   useEffect(() => {
     void reload();

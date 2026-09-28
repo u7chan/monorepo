@@ -30,14 +30,15 @@ export const SETTINGS_SECTIONS: { section: SettingsSection; label: string }[] = 
 ];
 
 /**
- * 設定 → モデル のタブ。URL は `/settings/models` と `/settings/models/providers` を正とし、
+ * 設定 → モデル のタブ。URL は `/settings/models` と `/settings/models/<sub>` を正とし、
  * 既定タブ (models) はパスへ出さない (lib/route.ts の routePath)。
  */
-export type ModelsSubsection = "models" | "providers";
+export type ModelsSubsection = "models" | "providers" | "images";
 
 export const MODELS_SUBSECTIONS: { subsection: ModelsSubsection; label: string }[] = [
   { subsection: "models", label: "モデルを選ぶ" },
   { subsection: "providers", label: "プロバイダー" },
+  { subsection: "images", label: "画像生成" },
 ];
 
 export const DEFAULT_MODELS_SUBSECTION: ModelsSubsection = "models";

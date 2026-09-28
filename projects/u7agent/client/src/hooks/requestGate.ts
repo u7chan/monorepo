@@ -28,3 +28,30 @@ export function createRequestTracker() {
     },
   };
 }
+
+/**
+ * 取得の「進行中」表示を追う。応答の適用可否 (`createRequestGate`) とは別に持ち、破棄された要求の
+ * 完了でも必ず解除する (適用の可否で解除を分岐すると、フラグが立ちっぱなしになって再取得を塞ぐ)。
+ * 後続の要求がある間だけ維持し、値が変わったときだけ `onChange` を呼ぶ。
+ */
+export function createLoadingTracker(onChange: (loading: boolean) => void) {
+  const tracker = createRequestTracker();
+  let current = false;
+  const publish = () => {
+    const next = tracker.pending();
+    if (next === current) return;
+    current = next;
+    onChange(next);
+  };
+  return {
+    /** 要求の開始。返す関数は finally で必ず呼ぶ (canApply の判定で分岐しない) */
+    begin(): () => void {
+      const finish = tracker.begin();
+      publish();
+      return () => {
+        finish();
+        publish();
+      };
+    },
+  };
+}

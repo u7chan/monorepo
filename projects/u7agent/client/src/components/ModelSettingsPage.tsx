@@ -1,4 +1,5 @@
 import { useRef, useState } from "react";
+import { useImageSettings, type ImageSettings } from "../hooks/useImageSettings";
 import { useModelSettings, type ModelSettings } from "../hooks/useModelSettings";
 import { cn } from "../lib/cn";
 import {
@@ -14,6 +15,7 @@ import { DEFAULT_MODELS_SUBSECTION, MODELS_SUBSECTIONS, type ModelsSubsection } 
 import type { Health, SessionSummary } from "../types";
 import { RefreshIcon } from "./icons";
 import { ModelsTab } from "./model-settings/ModelsTab";
+import { ImageSettingsTab } from "./model-settings/ImageSettingsTab";
 import { ProvidersTab } from "./model-settings/ProvidersTab";
 import { SettingsPageLayout, type SettingsPageProps } from "./SettingsPageLayout";
 
@@ -30,9 +32,9 @@ export type ModelSettingsPageProps = SettingsPageProps & {
 };
 
 /**
- * 設定 → モデル。「モデルを選ぶ / プロバイダー」の 2 タブを持ち、表示の正は URL
- * (`/settings/models` と `/settings/models/providers`) に置く。hook はこの画面が持つ
- * (カタログ全件を起動のたびに読まない。開いたときだけ取得する)。
+ * 設定 → モデル。「モデルを選ぶ / プロバイダー / 画像生成」の 3 タブを持ち、表示の正は URL
+ * (`/settings/models`、`/settings/models/providers`、`/settings/models/images`) に置く。
+ * hook はこの画面が持つ (カタログ全件を起動のたびに読まない。開いたときだけ取得する)。
  */
 export function ModelSettingsPage({
   onRefreshHealth,
@@ -44,9 +46,12 @@ export function ModelSettingsPage({
   sessions,
   sessionsLoaded,
 }: ModelSettingsPageProps) {
+  const modelSettings = useModelSettings({ onRefreshHealth });
+  const imageSettings = useImageSettings();
   return (
     <ModelSettingsView
-      modelSettings={useModelSettings({ onRefreshHealth })}
+      modelSettings={modelSettings}
+      imageSettings={imageSettings}
       modelsSubsection={modelsSubsection}
       onSelectModelsSubsection={onSelectModelsSubsection}
       sessions={sessions}
@@ -61,9 +66,10 @@ export function ModelSettingsPage({
 /** 取得前の下書きの置き場。settings が届くと同じ render で保存値から作り直す */
 const EMPTY_DRAFT: AvailabilityDraft = { allowed: [], defaultModel: null };
 
-/** 表示だけを持つ部分。取得の成否は modelSettings が持ち、ここはタブと描画に徹する */
+/** 表示だけを持つ部分。取得の成否は modelSettings / imageSettings が持ち、ここはタブと描画に徹する */
 export function ModelSettingsView({
   modelSettings,
+  imageSettings,
   sessions = [],
   sessionsLoaded = false,
   compact = false,
@@ -73,6 +79,7 @@ export function ModelSettingsView({
   onOpenNav,
 }: SettingsPageProps & {
   modelSettings: ModelSettings;
+  imageSettings: ImageSettings;
   sessions?: SessionSummary[];
   sessionsLoaded?: boolean;
   modelsSubsection?: ModelsSubsection;
@@ -121,14 +128,23 @@ export function ModelSettingsView({
     }
   }
   const draftState = appliedDraft.current;
+  const imagesTab = modelsSubsection === "images";
+  // 注記と再読み込みは表示中のタブのものだけを出す (別タブの失敗を混ぜない)
+  const activeNote = imagesTab ? imageSettings.note : note;
+  const activeReloading = imagesTab ? imageSettings.reloading : reloading;
 
   return (
     <SettingsPageLayout
       eyebrow="MODELS"
       title="モデル"
-      caption="使うモデルと、プロバイダーごとのAPIキーを設定します。保存した内容は再起動後も使われます。"
+      caption="使うモデルと、プロバイダーごとのAPIキー、画像生成の設定をします。保存した内容は再起動後も使われます。"
       actions={
-        <button type="button" className="btn-quiet" onClick={() => void reload()} disabled={reloading}>
+        <button
+          type="button"
+          className="btn-quiet"
+          onClick={() => void Promise.all([reload(), imageSettings.reload()])}
+          disabled={activeReloading}
+        >
           <RefreshIcon />
           再読み込み
         </button>
@@ -149,12 +165,29 @@ export function ModelSettingsView({
           ))}
         </div>
       }
-      note={note}
+      note={activeNote}
       compact={compact}
       onOpenNav={onOpenNav}
       onBack={onBack}
     >
-      {settings ? (
+      {imagesTab ? (
+        imageSettings.settings ? (
+          <ImageSettingsTab
+            settings={imageSettings.settings}
+            saving={imageSettings.saving}
+            onSaveKey={imageSettings.saveKey}
+            onDeleteKey={imageSettings.removeKey}
+            onSaveSelection={imageSettings.saveSelection}
+          />
+        ) : (
+          <SettingsPlaceholder
+            label="画像生成の設定"
+            note={imageSettings.note}
+            reloading={imageSettings.reloading}
+            onReload={() => void imageSettings.reload()}
+          />
+        )
+      ) : settings ? (
         modelsSubsection === "providers" ? (
           <ProvidersTab
             settings={settings}
@@ -186,24 +219,46 @@ export function ModelSettingsView({
           />
         )
       ) : (
-        <div className="min-h-0 min-w-0 scrollbar-thin overflow-x-hidden overflow-y-auto px-4 py-4">
-          <div className="mx-auto grid max-w-3xl gap-3">
-            <div className="grid justify-items-start gap-2 rounded-lg border border-line bg-soft p-3 text-xs text-ink-muted">
-              {note.error ? (
-                <>
-                  <p role="alert">プロバイダーの認証状態を読み込めませんでした。</p>
-                  <button type="button" className="btn-quiet" onClick={() => void reload()}>
-                    <RefreshIcon />
-                    再読み込み
-                  </button>
-                </>
-              ) : (
-                <p role="status">プロバイダーの認証状態を読み込んでいます。</p>
-              )}
-            </div>
-          </div>
-        </div>
+        <SettingsPlaceholder
+          label="プロバイダーの認証状態"
+          note={note}
+          reloading={reloading}
+          onReload={() => void reload()}
+        />
       )}
     </SettingsPageLayout>
+  );
+}
+
+/** 取得前の本文。読み込み中と取得失敗で同じ枠を使い、失敗のときだけ再読み込みの導線を出す */
+function SettingsPlaceholder({
+  label,
+  note,
+  reloading,
+  onReload,
+}: {
+  label: string;
+  note: { text: string; error: boolean };
+  reloading: boolean;
+  onReload: () => void;
+}) {
+  return (
+    <div className="min-h-0 min-w-0 scrollbar-thin overflow-x-hidden overflow-y-auto px-4 py-4">
+      <div className="mx-auto grid max-w-3xl gap-3">
+        <div className="grid justify-items-start gap-2 rounded-lg border border-line bg-soft p-3 text-xs text-ink-muted">
+          {note.error ? (
+            <>
+              <p role="alert">{label}を読み込めませんでした。</p>
+              <button type="button" className="btn-quiet" onClick={onReload} disabled={reloading}>
+                <RefreshIcon />
+                再読み込み
+              </button>
+            </>
+          ) : (
+            <p role="status">{label}を読み込んでいます。</p>
+          )}
+        </div>
+      </div>
+    </div>
   );
 }

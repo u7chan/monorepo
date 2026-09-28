@@ -14,6 +14,8 @@ import type {
   FileSkillsResponse,
   Health,
   HistoryPage,
+  ImageMutationResponse,
+  ImageSettingsResponse,
   ModelMutationResponse,
   ModelsSettingsResponse,
   ModelRef,
@@ -34,6 +36,7 @@ import type {
   StopResult,
   ThinkingLevel,
   UpdateAgentBody,
+  UpdateImageSelectionBody,
   UpdateModelAvailabilityBody,
   UpdateNotificationsBody,
   UpdateSkillBody,
@@ -495,4 +498,35 @@ export const resyncProviderApiKey = async (provider: string): Promise<ModelMutat
   const res = await client.api.settings.models[":provider"].resync.$post({ param: { provider } });
   if (!res.ok) throw await apiError(res);
   return (await res.json()) as ModelMutationResponse;
+};
+
+/**
+ * 設定 → モデルの画像生成タブ（純粋読取）。APIキーは含まれず、登録済みでも値は返らない。
+ * モデルの選択肢はカタログ（models）で、キー未設定なら configured: false。
+ */
+export const getImageSettings = async (): Promise<ImageSettingsResponse> => {
+  const res = await client.api.settings.images.$get();
+  if (!res.ok) throw await apiError(res);
+  return res.json();
+};
+
+/** 画像生成の provider / model の変更。キーは保持され、行が無ければ 400 */
+export const putImageSettings = async (input: UpdateImageSelectionBody): Promise<ImageMutationResponse> => {
+  const res = await client.api.settings.images.$put({ json: input });
+  if (!res.ok) throw await apiError(res);
+  return (await res.json()) as ImageMutationResponse;
+};
+
+/** 画像専用APIキーの登録・上書き。行が無ければ既定 provider / model で作成される */
+export const putImageApiKey = async (apiKey: string): Promise<ImageMutationResponse> => {
+  const res = await client.api.settings.images.key.$put({ json: { apiKey } });
+  if (!res.ok) throw await apiError(res);
+  return (await res.json()) as ImageMutationResponse;
+};
+
+/** 画像専用APIキーの削除（行ごと消して未設定へ戻す）。未設定でも 200 の冪等 */
+export const deleteImageApiKey = async (): Promise<ImageMutationResponse> => {
+  const res = await client.api.settings.images.key.$delete();
+  if (!res.ok) throw await apiError(res);
+  return (await res.json()) as ImageMutationResponse;
 };
