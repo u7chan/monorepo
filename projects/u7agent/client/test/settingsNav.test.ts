@@ -28,12 +28,13 @@ test("設定ナビはエージェント / スキル / ファイル / アーカ�
   );
 });
 
-test("設定 → モデルのタブは「モデルを選ぶ / プロバイダー」の 2 項目で、既定はモデルを選ぶ", () => {
+test("設定 → モデルのタブは「モデルを選ぶ / プロバイダー / 画像生成」の 3 項目で、既定はモデルを選ぶ", () => {
   assert.deepEqual(
     MODELS_SUBSECTIONS.map((item) => [item.subsection, item.label]),
     [
       ["models", "モデルを選ぶ"],
       ["providers", "プロバイダー"],
+      ["images", "画像生成"],
     ],
   );
   assert.equal(DEFAULT_MODELS_SUBSECTION, MODELS_SUBSECTIONS[0].subsection);

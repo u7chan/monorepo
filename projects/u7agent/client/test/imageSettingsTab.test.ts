@@ -1,0 +1,74 @@
+// 画像生成タブの初期描画。client に DOM テスト基盤が無いため、react-dom/server の静的描画で
+// 未設定 / 設定済み / runtime 不可の出し分けと、保存済みキーを表示しないことを固定する
+// (入力の後始末・選択肢・PUT の本文・確認文は lib/imageSettings の純関数テストが担う)。
+
+import assert from "node:assert/strict";
+import { createElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
+import test from "node:test";
+import { ImageSettingsTab } from "../src/components/model-settings/ImageSettingsTab";
+import type { ImageSettingsResponse } from "../src/types";
+
+const MODELS = [
+  { provider: "openrouter", id: "openai/gpt-image-2", name: "GPT Image 2" },
+  { provider: "openrouter", id: "google/gemini-image", name: "Gemini Image" },
+];
+
+function settings(overrides: Partial<ImageSettingsResponse> = {}): ImageSettingsResponse {
+  return {
+    configured: true,
+    provider: "openrouter",
+    model: "openai/gpt-image-2",
+    models: MODELS,
+    runtimeAvailable: true,
+    ...overrides,
+  };
+}
+
+function render(overrides: Partial<ImageSettingsResponse> = {}): string {
+  return renderToStaticMarkup(
+    createElement(ImageSettingsTab, {
+      settings: settings(overrides),
+      saving: null,
+      onSaveKey: async () => true,
+      onDeleteKey: async () => true,
+      onSaveSelection: async () => true,
+    }),
+  );
+}
+
+test("未設定ではキー入力だけを出し、モデル選択と削除は出さない", () => {
+  const html = render({ configured: false, provider: null, model: null });
+  assert.ok(html.includes('type="password"'), "キー入力を出す");
+  assert.match(html, /<input[^>]*(?:autoComplete|autocomplete)="off"/, "再表示しない前提なので autocomplete を切る");
+  assert.ok(html.includes("画像生成専用のキーです"), "プロバイダー登録キーと別管理であることを出す");
+  assert.equal(html.includes("<select"), false, "モデル選択はキー保存後にだけ出す");
+  assert.equal(html.includes(">削除</button>"), false, "削除もキー保存後にだけ出す");
+});
+
+test("設定済みでは上書き保存・削除・モデル選択を出し、保存済みキーを入力欄へ戻さない", () => {
+  const html = render();
+  assert.ok(html.includes("上書き保存"));
+  assert.ok(html.includes(">削除</button>"));
+  assert.ok(html.includes("<select"), "モデル選択を出す");
+  assert.ok(html.includes('value="openrouter/openai/gpt-image-2"'), "保存済みモデルを選択した状態で出す");
+  assert.ok(html.includes("GPT Image 2"));
+  const input = /<input[^>]*type="password"[^>]*>/.exec(html)?.[0] ?? "";
+  assert.ok(input.includes('value=""'), "保存済みのキーは入力欄へ戻さない");
+});
+
+test("カタログ外の保存済みモデルも選択肢に残す", () => {
+  const html = render({ model: "stale/model" });
+  assert.ok(html.includes("stale/model（カタログ外）"), "現在の保存値を選択肢に出す");
+  assert.ok(html.includes('value="openrouter/stale/model"'));
+  assert.ok(html.includes("Gemini Image"), "カタログの他の候補も失わない");
+});
+
+test("runtimeAvailable: false ではキー操作だけを無効化し、モデル変更は残す", () => {
+  const html = render({ runtimeAvailable: false });
+  assert.ok(html.includes("ランタイムが利用できないため"), "変更できないことを先に伝える");
+  assert.match(html, /<input[^>]*type="password"[^>]*disabled=""/, "キー入力を disable する");
+  assert.match(html, /<button[^>]*class="btn-quiet"[^>]*disabled=""/, "削除を disable する");
+  // モデルの変更は SDK に触れないため、runtime が無くてもサーバーは受け付ける
+  assert.doesNotMatch(html, /<select[^>]*disabled=""/, "モデル選択は disable しない");
+});
