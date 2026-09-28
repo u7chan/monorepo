@@ -107,6 +107,19 @@ test("描画: 行は候補の順に並び、選択中の行だけ aria-selected=
   });
 });
 
+test("描画: 幅の sizer は全候補を不可視で重ねる (文字数ではなく描画幅の最大値で決める)", () => {
+  const html = renderToStaticMarkup(
+    createElement(AgentPicker, { agents, agentId: "a", compact: false, onChangeAgent: () => {} }),
+  );
+  const trigger = html.slice(0, html.indexOf("</button>"));
+  const sizers = [...trigger.matchAll(/<span aria-hidden="true"[^>]*>([^<]*)<\/span>/g)].map((match) => match[1]);
+  assert.deepEqual(
+    sizers,
+    agents.map((agent) => agent.name),
+    "全候補が sizer として重なっていない (選択で欄の幅が動く)",
+  );
+});
+
 test("描画: 候補が無いとトリガーが無効になり、名前入りの読み上げ名を出さない", () => {
   const html = renderToStaticMarkup(
     createElement(AgentPicker, { agents: [], agentId: "", compact: true, onChangeAgent: () => {} }),

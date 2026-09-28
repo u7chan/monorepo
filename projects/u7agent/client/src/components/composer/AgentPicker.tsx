@@ -15,11 +15,6 @@ import type { AgentDef } from "../../types";
 import { AgentIcon } from "../AgentIcon";
 import { MenuItem } from "../MenuItem";
 
-/** 欄の幅を最長の候補名で決める sizer 用。JS の計測を避け、grid の同一セルに重ねて max を取る */
-function widestAgentName(agents: readonly AgentDef[]): string {
-  return agents.reduce((widest, agent) => (agent.name.length > widest.length ? agent.name : widest), "");
-}
-
 /**
  * コンポーザーのエージェント選択。native `<select>` の `<option>` には画像を描画できないため、
  * button + native `popover="auto"` の listbox で行にアイコンと名前を出す。外側クリックと Escape の
@@ -204,10 +199,13 @@ export function AgentPicker({
             compact ? "text-md" : "text-1xs",
           )}
         >
-          {/* 不可視の sizer で欄の幅を最長の候補名 (と表示中の名前) の max にする。選択で幅を動かさない */}
-          <span aria-hidden="true" className="invisible col-start-1 row-start-1 truncate">
-            {widestAgentName(agents)}
-          </span>
+          {/* 不可視の sizer を全候補ぶん同じセルに重ね、実際の描画幅の最大値を欄の幅にする。文字数では
+              幅の広い名前を取りこぼし、選択のたびに欄と chevron が動く (選択で幅を動かさない) */}
+          {agents.map((agent) => (
+            <span key={agent.id} aria-hidden="true" className="invisible col-start-1 row-start-1 truncate">
+              {agent.name}
+            </span>
+          ))}
           <span className="col-start-1 row-start-1 min-w-0 truncate">{selected?.name ?? ""}</span>
         </button>
         <span className="pointer-events-none absolute inset-y-0 left-2 flex items-center peer-disabled:opacity-55">
