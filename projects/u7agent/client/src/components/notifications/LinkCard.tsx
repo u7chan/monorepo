@@ -16,7 +16,7 @@ export function LinkCard({ value, onChange }: LinkCardProps) {
             className="field min-w-0 flex-1 text-xs"
             type="text"
             value={value}
-            placeholder="http://127.0.0.1:5173"
+            placeholder="http://127.0.0.1:3000"
             aria-label="通知から会話を開く URL のベース"
             autoComplete="off"
             spellCheck={false}
