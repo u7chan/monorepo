@@ -122,6 +122,25 @@ test("入力と対象の検証: 短い / 長いキー、provider、カタログ�
   });
 });
 
+test("カタログ外 model の 400 は登録済みキーを反射しない", async () => {
+  await withStoreDir(async (dir) => {
+    const pi = createStubPi();
+    const bff = await createBffApp({ cwd: "/tmp/project", sessionStoreDir: dir, pi: asPiBff(pi), workspace: null });
+    try {
+      await bff.app.request("/api/settings/images/key", jsonPut({ apiKey: KEY }));
+      // 登録済みキーを model に誤って渡しても、エラー文言から再露出させない
+      const response = bff.app.request("/api/settings/images", jsonPut({ provider: IMAGE_PROVIDER_ID, model: KEY }));
+      assert.equal((await response).status, 400);
+      const body = await jsonBody(response);
+      assert.ok(!JSON.stringify(body).includes(KEY), `400 応答にキーを出さない: ${JSON.stringify(body)}`);
+      assert.ok(body.error.includes("[REDACTED]"), `マスク済みの文言を返す: ${body.error}`);
+      assert.ok(body.error.startsWith("カタログに無い画像モデルは指定できません"), "分類の文言は残す");
+    } finally {
+      await bff.close();
+    }
+  });
+});
+
 test("ランタイムが無いときの GET は runtimeAvailable: false、キー登録は 503 not_stored", async () => {
   await withStoreDir(async (dir) => {
     const bff = await createBffApp({ cwd: "/tmp/project", sessionStoreDir: dir, pi: null, workspace: null });

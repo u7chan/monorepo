@@ -244,6 +244,19 @@ test("設定の読取失敗と provider の失敗はマスクを通して throw 
       throw error;
     }
   }, /provider boom/);
+
+  // 引数を反射する path の拒否文言も、包んだマスカーを通る
+  const pathFailure = tool({ capture, settings, masker });
+  await assert.rejects(async () => {
+    try {
+      await run(pathFailure, { prompt: "cafe", path: `../${key}` });
+    } catch (error) {
+      assert.ok(!(error as Error).message.includes(key), "path の拒否文言もマスクする");
+      assert.ok((error as Error).message.includes("[REDACTED]"));
+      throw error;
+    }
+  }, /作業フォルダの外には保存できません/);
+  assert.equal(capture.generated.length, 1, "拒否した path で生成を呼んでいない");
 });
 
 test("mimeType が未知なら保存せずに失敗する", async () => {

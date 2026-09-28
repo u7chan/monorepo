@@ -124,7 +124,8 @@ export class ImageSettingsService {
       if (!existing) throw badRequest(IMAGE_SETTINGS_UNCONFIGURED_MESSAGE);
       if (input.provider !== IMAGE_PROVIDER_ID) throw badRequest(IMAGE_PROVIDER_UNSUPPORTED_MESSAGE);
       const inCatalog = this.#catalog().some((entry) => entry.provider === input.provider && entry.id === input.model);
-      if (!inCatalog) throw badRequest(`${IMAGE_MODEL_NOT_IN_CATALOG_MESSAGE}: ${input.model}`);
+      // 入力を反射する文言はマスカーを通す（model にキーを誤って渡されたとき、400 応答から再露出させない）
+      if (!inCatalog) throw badRequest(`${IMAGE_MODEL_NOT_IN_CATALOG_MESSAGE}: ${this.#maskError(input.model)}`);
       try {
         this.#db.saveImageSettings({ ...existing, provider: input.provider, model: input.model });
       } catch {

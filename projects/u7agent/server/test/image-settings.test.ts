@@ -145,6 +145,15 @@ test("provider / model の変更はキーを保持し、行が無い / provider 
       throw error;
     }
   }, "カタログ外のモデルを受け付けている");
+  // 入力を反射する 400 文言はマスカーを通す（model に登録済みキーを渡されても再露出させない）
+  const reflected = await service.putSelection({ provider: IMAGE_PROVIDER_ID, model: KEY }).then(
+    () => undefined,
+    (error: unknown) => error,
+  );
+  assert.ok(reflected, "カタログ外の model が 400 にならない");
+  assert.equal(statusOf(reflected), 400);
+  assert.ok(!(reflected as Error).message.includes(KEY), "エラー文言にキーが残っている");
+  assert.ok((reflected as Error).message.includes("[REDACTED]"));
 
   const outcome = await service.putSelection({ provider: IMAGE_PROVIDER_ID, model: DEFAULT_IMAGE_MODEL });
   assert.equal(outcome.status, 200);
