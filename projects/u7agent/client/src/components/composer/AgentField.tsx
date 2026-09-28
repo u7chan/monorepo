@@ -1,9 +1,6 @@
-import { agentIconOf } from "../../lib/agentIcon";
-import { cn } from "../../lib/cn";
 import type { AgentDef } from "../../types";
-import { AgentIcon } from "../AgentIcon";
-import { SelectField } from "../SelectField";
 import { fieldLabelClass } from "./fieldStyles";
+import { AgentPicker } from "./AgentPicker";
 
 export function AgentField({
   agents,
@@ -17,27 +14,11 @@ export function AgentField({
   onChangeAgent: (agentId: string) => void;
 }) {
   return (
-    <label className={fieldLabelClass(compact)}>
+    // button も labelable なので label にすると、見出しのクリックがトリガーの activation へ転送されて
+    // light dismiss と二重に走り得る。読み上げ名はトリガーの aria-label が持つ
+    <div className={fieldLabelClass(compact)}>
       <span className="shrink-0">エージェント</span>
-      <SelectField
-        aria-label="エージェントを選択"
-        density="sm"
-        compact={compact}
-        leadingIcon={<AgentIcon icon={agentIconOf(agents, agentId)} variant="inline" />}
-        wrapperClassName={cn(compact ? "min-w-0 flex-1" : "max-w-50 min-w-0")}
-        value={agentId}
-        disabled={agents.length === 0}
-        onChange={(event) => {
-          const next = event.currentTarget.value;
-          if (next !== agentId) onChangeAgent(next);
-        }}
-      >
-        {agents.map((agent) => (
-          <option key={agent.id} value={agent.id}>
-            {agent.name}
-          </option>
-        ))}
-      </SelectField>
-    </label>
+      <AgentPicker agents={agents} agentId={agentId} compact={compact} onChangeAgent={onChangeAgent} />
+    </div>
   );
 }
