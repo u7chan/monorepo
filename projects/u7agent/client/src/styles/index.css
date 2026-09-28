@@ -763,9 +763,11 @@ html[data-theme="sky"] {
     border-top: 1px solid var(--c-line);
     margin: 14px 0;
   }
+  /* 縦長画像 1 枚で会話が埋まらないよう高さを抑える (幅は本文列に従い、比率は height: auto が保つ) */
   .md img,
   .md-img {
     max-width: 100%;
+    max-height: min(50dvh, 360px);
     height: auto;
     border-radius: 6px;
     border: 1px solid var(--c-line);
