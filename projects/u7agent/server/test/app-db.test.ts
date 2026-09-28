@@ -416,18 +416,22 @@ test("migrates a v3 db additively and keeps provider credentials across reopen",
     assert.deepEqual(first.listProjects(), [project("p1", "proj-a")]);
     assert.deepEqual(first.readArchiveExcludeNames(), ["dist"]);
     assert.deepEqual(first.listProviderCredentials(), []);
-    first.saveProviderCredential("anthropic", "sk-ant-1");
-    // 同じ provider への保存は上書き (行を増やさない)
-    first.saveProviderCredential("anthropic", "sk-ant-2");
-    first.saveProviderCredential("openai", "sk-openai-1");
+    first.saveProviderCredential("anthropic", "sk-ant-1", 100);
+    // 同じ provider への保存は上書き (行を増やさず、保存日時も更新する)
+    first.saveProviderCredential("anthropic", "sk-ant-2", 200);
+    first.saveProviderCredential("openai", "sk-openai-1", 300);
     first.close();
 
     const second = AppDb.open({ storeDir: dir });
     assert.deepEqual(second.listProviderCredentials(), [
-      { provider: "anthropic", apiKey: "sk-ant-2" },
-      { provider: "openai", apiKey: "sk-openai-1" },
+      { provider: "anthropic", apiKey: "sk-ant-2", updatedAt: 200 },
+      { provider: "openai", apiKey: "sk-openai-1", updatedAt: 300 },
     ]);
-    assert.deepEqual(second.getProviderCredential("anthropic"), { provider: "anthropic", apiKey: "sk-ant-2" });
+    assert.deepEqual(second.getProviderCredential("anthropic"), {
+      provider: "anthropic",
+      apiKey: "sk-ant-2",
+      updatedAt: 200,
+    });
     assert.equal(second.getProviderCredential("ghost"), undefined);
     assert.equal(second.deleteProviderCredential("anthropic"), true);
     assert.equal(second.deleteProviderCredential("anthropic"), false, "無い行の削除は false");
@@ -463,7 +467,7 @@ test("migrates a v4 db additively and keeps model settings across reopen", () =>
     const first = AppDb.open({ storeDir: dir });
     // 加算移行なので既存テーブルは消えない。新しいテーブルは空 (行が無い = 未設定) で始まる
     assert.deepEqual(first.listProjects(), [project("p1", "proj-a")]);
-    assert.deepEqual(first.listProviderCredentials(), [{ provider: "anthropic", apiKey: "sk-ant-1" }]);
+    assert.deepEqual(first.listProviderCredentials(), [{ provider: "anthropic", apiKey: "sk-ant-1", updatedAt: null }]);
     assert.equal(first.readModelSettings(), undefined);
     first.saveModelSettings({
       allowedModels: [
@@ -566,7 +570,7 @@ test("migrates a v5 db additively and keeps provider memos across reopen", () =>
 
     const first = AppDb.open({ storeDir: dir });
     // 加算移行なので既存のキーは消えない。メモのテーブルは空 (行が無い = 未設定) で始まる
-    assert.deepEqual(first.listProviderCredentials(), [{ provider: "anthropic", apiKey: "sk-ant-1" }]);
+    assert.deepEqual(first.listProviderCredentials(), [{ provider: "anthropic", apiKey: "sk-ant-1", updatedAt: null }]);
     assert.deepEqual(first.listProviderMemos(), []);
     assert.equal(first.getProviderMemo("anthropic"), undefined);
     first.saveProviderMemo("anthropic", "個人アカウントの本番キー");
@@ -576,7 +580,9 @@ test("migrates a v5 db additively and keeps provider memos across reopen", () =>
     first.close();
 
     const second = AppDb.open({ storeDir: dir });
-    assert.deepEqual(second.listProviderCredentials(), [{ provider: "anthropic", apiKey: "sk-ant-1" }]);
+    assert.deepEqual(second.listProviderCredentials(), [
+      { provider: "anthropic", apiKey: "sk-ant-1", updatedAt: null },
+    ]);
     assert.deepEqual(second.listProviderMemos(), [
       { provider: "anthropic", memo: "会社アカウント" },
       { provider: "openai", memo: "無料枠" },
@@ -592,6 +598,83 @@ test("migrates a v5 db additively and keeps provider memos across reopen", () =>
 
     const check = new DatabaseSync(join(dir, APP_DB_FILENAME));
     assert.equal(Number(check.prepare("PRAGMA user_version").get()?.user_version), APP_DB_SCHEMA_VERSION);
+    check.close();
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+/** v6 相当のスキーマ (provider_credentials.updatedAt が無い状態)。v6 の実ファイルと同じ形 */
+const V6_TABLES = `
+${V5_TABLES}
+CREATE TABLE provider_memos (
+  provider TEXT PRIMARY KEY,
+  memo     TEXT NOT NULL
+);
+`;
+
+test("migrates a v6 db additively and adds provider credential timestamps", () => {
+  const dir = tempStoreDir();
+  try {
+    const raw = new DatabaseSync(join(dir, APP_DB_FILENAME));
+    raw.exec(V6_TABLES);
+    raw.exec("PRAGMA user_version = 6");
+    raw.prepare("INSERT INTO projects (id, name, cwd, createdAt) VALUES (?, ?, ?, ?)").run("p1", "p1", "proj-a", 1);
+    raw.prepare("INSERT INTO provider_credentials (provider, apiKey) VALUES (?, ?)").run("anthropic", "sk-ant-1");
+    raw.close();
+
+    const first = AppDb.open({ storeDir: dir });
+    // 加算移行なので既存のキーは消えない。既存行の日時は不明 (NULL) のままで、移行で書き戻さない
+    assert.deepEqual(first.listProjects(), [project("p1", "proj-a")]);
+    assert.deepEqual(first.listProviderCredentials(), [{ provider: "anthropic", apiKey: "sk-ant-1", updatedAt: null }]);
+    first.saveProviderCredential("anthropic", "sk-ant-2", 1234);
+    assert.deepEqual(first.getProviderCredential("anthropic"), {
+      provider: "anthropic",
+      apiKey: "sk-ant-2",
+      updatedAt: 1234,
+    });
+    first.close();
+
+    const second = AppDb.open({ storeDir: dir });
+    assert.deepEqual(second.listProviderCredentials(), [
+      { provider: "anthropic", apiKey: "sk-ant-2", updatedAt: 1234 },
+    ]);
+    second.close();
+
+    // user_version を戻して再 open しても列は 1 つのまま (addColumnIfMissing が冪等)
+    const rawAgain = new DatabaseSync(join(dir, APP_DB_FILENAME));
+    rawAgain.exec("PRAGMA user_version = 6");
+    rawAgain.close();
+
+    const third = AppDb.open({ storeDir: dir });
+    assert.deepEqual(third.listProviderCredentials(), [{ provider: "anthropic", apiKey: "sk-ant-2", updatedAt: 1234 }]);
+    third.close();
+
+    const check = new DatabaseSync(join(dir, APP_DB_FILENAME));
+    const columns = check.prepare("PRAGMA table_info(provider_credentials)").all() as { name: string }[];
+    assert.equal(columns.filter((column) => column.name === "updatedAt").length, 1, "列は重複しない");
+    assert.equal(Number(check.prepare("PRAGMA user_version").get()?.user_version), APP_DB_SCHEMA_VERSION);
+    check.close();
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("a new db creates provider_credentials with updatedAt from the start", () => {
+  const dir = tempStoreDir();
+  try {
+    const db = AppDb.open({ storeDir: dir });
+    db.saveProviderCredential("anthropic", "sk-ant-1", 42);
+    assert.deepEqual(db.getProviderCredential("anthropic"), {
+      provider: "anthropic",
+      apiKey: "sk-ant-1",
+      updatedAt: 42,
+    });
+    db.close();
+
+    const check = new DatabaseSync(join(dir, APP_DB_FILENAME));
+    const columns = check.prepare("PRAGMA table_info(provider_credentials)").all() as { name: string }[];
+    assert.ok(columns.some((column) => column.name === "updatedAt"));
     check.close();
   } finally {
     rmSync(dir, { recursive: true, force: true });
@@ -624,7 +707,7 @@ test("sanitizeError masks both the query log and the error kept for health", () 
   const key = "sk-ant-dummy-key-0123456789abcdef";
   try {
     const db = AppDb.open({ storeDir: dir, sanitizeError: (text) => text.split(key).join("[REDACTED]") });
-    db.saveProviderCredential("anthropic", key);
+    db.saveProviderCredential("anthropic", key, 1);
     // SQLite の例外文言にキーが載る経路を作り、境界を通す (#query は成功でエラーを解除する)
     const raw = new DatabaseSync(join(dir, APP_DB_FILENAME));
     raw.exec(
@@ -637,7 +720,7 @@ test("sanitizeError masks both the query log and the error kept for health", () 
     const originalError = console.error;
     console.error = (...args: unknown[]) => logged.push(args.map(String).join(" "));
     try {
-      assert.throws(() => db.saveProviderCredential("anthropic", key), isServiceUnavailable);
+      assert.throws(() => db.saveProviderCredential("anthropic", key, 2), isServiceUnavailable);
     } finally {
       console.error = originalError;
     }
@@ -647,7 +730,7 @@ test("sanitizeError masks both the query log and the error kept for health", () 
     assert.ok(status.error?.includes("[REDACTED]"));
     assert.ok(logged.length > 0 && !logged.join("\n").includes(key), "ログにも生のキーを出さない");
     assert.throws(
-      () => db.saveProviderCredential("anthropic", key),
+      () => db.saveProviderCredential("anthropic", key, 3),
       (error: unknown) => !String((error as Error).message).includes(key),
       "503 の本文にもキーを出さない",
     );

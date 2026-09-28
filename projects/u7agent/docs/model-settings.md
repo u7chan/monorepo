@@ -18,12 +18,13 @@
 
 ## 保存先とスキーマ
 
-`PI_SESSION_STORE/u7agent.db` の `provider_credentials`（`APP_DB_SCHEMA_VERSION` 3 → 4）、`model_settings`（4 → 5）、`provider_memos`（5 → 6）。
+`PI_SESSION_STORE/u7agent.db` の `provider_credentials`（`APP_DB_SCHEMA_VERSION` 3 → 4、`updatedAt` は 6 → 7 の列追加）、`model_settings`（4 → 5）、`provider_memos`（5 → 6）。この DB では初めて `ALTER TABLE ... ADD COLUMN` で既存テーブルへ列を足す。
 
 ```sql
 CREATE TABLE IF NOT EXISTS provider_credentials (
-  provider TEXT PRIMARY KEY,
-  apiKey   TEXT NOT NULL
+  provider  TEXT PRIMARY KEY,
+  apiKey    TEXT NOT NULL,
+  updatedAt INTEGER  -- epoch ms。上書き保存のたびに更新。NULL = 移行前の行で不明
 );
 
 CREATE TABLE IF NOT EXISTS model_settings (
@@ -40,6 +41,8 @@ CREATE TABLE IF NOT EXISTS provider_memos (
 
 - 値は必ずバインドして渡す。保存行は**平文**で、Webhook URL と同じトラストレベル（[persistence.md](persistence.md#アプリデータsqlite)）
 - `managed`（DB 行 = 永続化された希望状態）と `auth.source`（SDK の実効値。`runtime` / `environment` / `stored` …）は**別物**として画面に出す
+- `keyUpdatedAt`（DTO の `providers[].keyUpdatedAt`）はこの画面で登録したキーの最終保存時刻（epoch ms）。`managed` が false の provider は常に `null`。上書き保存のたびに `Date.now()` で更新し、`resync` / 削除では変えない（削除は行ごと消えるため以後 `null`）。移行前の行も `null`（保存日不明）で、起動時に `Date.now()` を書き戻さない
+- 最終使用は保存しない。クライアントが `GET /api/sessions` の `model` + `lastUsedAt` から provider ごとに集計する派生値で、サーバーの DTO / health には足さない
 - メモは credential ではなく provider に紐づき、**行が無い = 未設定**。空にして保存すると行ごと消し、手編集された空文字の行も未設定として読む（DTO は `memo: null`）
 - DB の読み書きとスキーマ移行の失敗は [persistence.md](persistence.md#失敗時の扱い) と同じで、health の `appDb` と 503 に出る
 
@@ -81,6 +84,17 @@ CREATE TABLE IF NOT EXISTS provider_memos (
 - キーを削除してもメモは消さない。ユーザーが書いたテキストを黙って消さないため、消したいときはメモ欄を空にして保存する
 - カタログから消えた provider のメモは `orphan: true` のカードとして出続け、空にして保存すると消える
 - メモは秘密情報ではない。マスカー（`retainSecret`）に登録せず、代わりにログ・health・エラー文言のどの経路にも値を載せない（[secrets.md](secrets.md)）
+
+## キーの棚卸し（最終保存と最終使用）
+
+使っていないキーの解約・整理の材料として、各カードに「キー最終保存」と「最終使用」を出す。どちらも事実だけを示し、キーの有効性や API 呼び出しの成功を断定しない。
+
+- 「キー最終保存」は `managed` の provider だけに出す。`keyUpdatedAt` が `null` の行（移行前）は「保存日不明」と書く。`managed` でない provider（環境変数認証など）には日時行を出さない
+- 「最終使用」は `model` + `lastUsedAt` を provider ごとに集計した値（`client/src/lib/modelSettings.ts` の `providerUsage()`）で、`provider/model` の区切りは**最初の `/`** だけ（model id に `/` を含み得る。server の `parseModelRef` と同じ規則）。`model` の無い会話は母数から除く
+- 表示は `最終使用: <messageTimeLabel(lastUsedAt)> · この provider の会話 N 件` で、1 件も無ければ「この provider の会話はありません」。`managed` でなく会話も 0 件のときは、どちらの行も出さない（ノイズを作らない）。日時整形は `client/src/lib/messageTime.ts` の `messageTimeLabel()`（今日 = 時刻 / 今年 = 月日 / それ以前 = 年月日）をそのまま使い、相対表記は持たない
+- `lastUsedAt` は会話の最終更新（作成・設定変更・送信・停止・ランの開始/再開）で、provider への API 呼び出し成功を意味しない。設定変更だけでも更新されるため、厳密な課金確認には使えない
+- セッション一覧の state は `[]` 初期値のため、`useSessions` の `sessionsLoaded`（初回の取得に成功するまで false）が true になるまで「最終使用」の行を出さない。false を「会話 0 件」と混同しない。取得に失敗しても false へ戻さず、前回の一覧と状態を保つ
+- セッションを削除すると集計からも消える（最終使用を永続化しない割り切り）。一覧に出ない会話（ストア移行・meta 破損など）は母数に入らない
 
 ## 応答契約
 
@@ -140,7 +154,7 @@ CREATE TABLE IF NOT EXISTS provider_memos (
 
 | メソッド | パス | 説明 |
 | --- | --- | --- |
-| GET | `/api/settings/models` | 保存値（`allowedModels` / `defaultModel` / `ignoredEnvironmentVariables`）と provider 一覧（auth 状態・managed・degraded・orphan）。純粋読取 |
+| GET | `/api/settings/models` | 保存値（`allowedModels` / `defaultModel` / `ignoredEnvironmentVariables`）と provider 一覧（auth 状態・managed・keyUpdatedAt・degraded・orphan）。純粋読取 |
 | PUT | `/api/settings/models/allowed` | 利用可能なモデルとアプリ既定モデルの一括保存。両方 `null` が未設定へ戻す |
 | PUT | `/api/settings/models/:provider/key` | APIキーを登録（既存は上書き） |
 | PUT | `/api/settings/models/:provider/memo` | provider のメモを保存（`trim` して空なら行を削除）。上限 500 文字 |
@@ -196,12 +210,12 @@ CREATE TABLE IF NOT EXISTS provider_memos (
 
 実 API は呼ばず、ダミーキーと fake / stub で検証する。
 
-- `server/test/app-db.test.ts` — v4 → v5 / v5 → v6 の加算移行、`model_settings` の CRUD、空配列 = 制限なしの正規化、両方 NULL の行削除、壊れた JSON の 503、`provider_memos` の CRUD（上書き・削除・空文字行 = 未設定）、`sanitizeError` の境界
-- `server/test/model-settings.test.ts` — GET / PUT / DELETE / resync の契約、DB-first、1 回だけの再試行、degraded の解除と記録と DTO を組めないときの `managed` の補正、利用可能なモデルの正規化・検証（カタログ外・既定が許可外・形式・重複）と 503、メモの `trim`・空で削除・対象外 400・DB 失敗 503・メモ値を応答とログへ出さないこと・degraded を作らないこと、GET の 4 経路（カタログ / credential 行 / メモ行 / degraded）とメモだけの orphan の扱い、キー削除後もメモが残ること、起動適用（model_settings と provider_credentials の独立した読取・setter → refresh の順序・マスク登録の順序）、別 provider の並行 PUT の直列化、lock の rejected Promise、キー値を含む例外が応答とログへ漏れないこと
-- `server/test/model-settings-api.test.ts` — HTTP 契約（200 `applied` / `applied_unsynced`、503 `not_stored`、400）、メモの 200 / 400（500 文字超は route の zod）/ 503 と再起動後の読み出し、再起動後の適用、DB 不通、health とログのマスク、`ignoredEnvironmentVariables`
+- `server/test/app-db.test.ts` — v4 → v5 / v5 → v6 / v6 → v7 の加算移行、`model_settings` の CRUD、空配列 = 制限なしの正規化、両方 NULL の行削除、壊れた JSON の 503、`provider_memos` の CRUD（上書き・削除・空文字行 = 未設定）、`provider_credentials.updatedAt` の移行（既存行は NULL のまま・キーは消えない）と再実行の冪等性、新規 DB の列、`sanitizeError` の境界
+- `server/test/model-settings.test.ts` — GET / PUT / DELETE / resync の契約、DB-first、1 回だけの再試行、degraded の解除と記録と DTO を組めないときの `managed` の補正、利用可能なモデルの正規化・検証（カタログ外・既定が許可外・形式・重複）と 503、メモの `trim`・空で削除・対象外 400・DB 失敗 503・メモ値を応答とログへ出さないこと・degraded を作らないこと、GET の 4 経路（カタログ / credential 行 / メモ行 / degraded）とメモだけの orphan の扱い、キー削除後もメモが残ること、`keyUpdatedAt` が GET / PUT に載り移行前は null で resync / 削除では変わらないこと、起動適用（model_settings と provider_credentials の独立した読取・setter → refresh の順序・マスク登録の順序）、別 provider の並行 PUT の直列化、lock の rejected Promise、キー値を含む例外が応答とログへ漏れないこと
+- `server/test/model-settings-api.test.ts` — HTTP 契約（200 `applied` / `applied_unsynced`、503 `not_stored`、400）、メモの 200 / 400（500 文字超は route の zod）/ 503 と再起動後の読み出し、再起動後の適用、DB 不通、health とログのマスク、`ignoredEnvironmentVariables`、`keyUpdatedAt` が GET / PUT に載ることと移行前の行が null になること
 - `server/test/provider-key-runtime.test.ts` — `CredentialCommit` の写像（CSE の照合・開始前 abort・実行中 abort・未知の例外）
 - `server/test/model-state.test.ts` — `deriveModelState` / `readModelState`（許可リストの積・既定モデル・カタログの導出・可用 0・失敗時の安全な state）、`filterModelsByWhitelist()`
 - `server/test/api.test.ts` — health から `runtimeDiagnostics` が消えたこと、モデルカタログ応答に whitelist 系フィールドが無いこと
 - `server/test/redact.test.ts` — `createMutableSecretMasker` の swap と streaming masker への追随
-- `client/test/modelSettings.test.ts` / `client/test/modelSettingsPage.test.ts` — 表示変換（認証バッジ・並び・入力検証・メモの検証・注記・回復案内）、利用可能なモデルの並べ替え・dirty 判定・provider 一括操作・集計・確認文、固定バーの初期描画（変更なしでは保存無効）とカタログ外・未設定・環境変数の注記・カタログ取得失敗時の編集不可、メモ欄・保存ボタン・runtime 停止時の disable・メモだけの orphan の案内
+- `client/test/modelSettings.test.ts` / `client/test/modelSettingsPage.test.ts` — 表示変換（認証バッジ・並び・入力検証・メモの検証・注記・回復案内）、`providerUsage()`（最初の `/` での分割・`model` 無し・複数セッション・空配列）、利用可能なモデルの並べ替え・dirty 判定・provider 一括操作・集計・確認文、固定バーの初期描画（変更なしでは保存無効）とカタログ外・未設定・環境変数の注記・カタログ取得失敗時の編集不可、メモ欄・保存ボタン・runtime 停止時の disable・メモだけの orphan の案内、キー最終保存（managed だけ・NULL は保存日不明）と最終使用（`sessionsLoaded` が false なら非表示・会話 0 件の managed は「会話はありません」・非 managed は会話があるときだけ）
 - `client/test/runtimePage.test.ts` — 設定 → ランタイムから「モデル解決」が消えたこと

@@ -17,12 +17,14 @@ import type {
 
 export const APP_DB_FILENAME = "u7agent.db";
 /** テーブル定義を変えたら上げる。新規作成と加算移行はこの版へ揃え、未知の版は作り直す */
-export const APP_DB_SCHEMA_VERSION = 6;
+export const APP_DB_SCHEMA_VERSION = 7;
 
 /** プロバイダー API キーの保存行。平文なのでアクセス権の管理は docs/secrets.md を正とする */
 export interface ProviderCredentialRow {
   provider: string;
   apiKey: string;
+  /** 最終保存時刻 (epoch ms)。NULL は移行前の行で不明 */
+  updatedAt: number | null;
 }
 
 /** プロバイダーに紐づく人間用メモの保存行。空文字の行は未設定として返す (optionalText) */
@@ -82,12 +84,14 @@ CREATE TABLE IF NOT EXISTS archive_settings (
 
 /**
  * v3 -> v4 で足したテーブル。GUI から登録したプロバイダー API キーを 1 行 1 プロバイダーで持つ。
+ * `updatedAt` (epoch ms) は v6 -> v7 で足した列で、NULL は移行前の行 = 保存日不明。
  * 値は必ずバインドして渡す (SQL 文字列へ埋め込まない)。
  */
 const PROVIDER_CREDENTIALS_TABLE = `
 CREATE TABLE IF NOT EXISTS provider_credentials (
   provider TEXT PRIMARY KEY,
-  apiKey TEXT NOT NULL
+  apiKey TEXT NOT NULL,
+  updatedAt INTEGER
 );
 `;
 
@@ -187,6 +191,11 @@ function optionalText(value: unknown): string | undefined {
   return typeof value === "string" && value ? value : undefined;
 }
 
+/** NULL を不明のまま読む (移行前の行を 0 と混同しない) */
+function optionalNumber(value: unknown): number | null {
+  return value === null || value === undefined ? null : Number(value);
+}
+
 /** 自分で書いた JSON 列だけを読む。壊れていたら黙って空にせず例外にして 503 側で見せる */
 function jsonArray<T>(value: unknown): T[] | undefined {
   if (typeof value !== "string") return undefined;
@@ -231,7 +240,7 @@ function skillOf(row: Row): SkillDef {
 }
 
 function providerCredentialOf(row: Row): ProviderCredentialRow {
-  return { provider: text(row.provider), apiKey: text(row.apiKey) };
+  return { provider: text(row.provider), apiKey: text(row.apiKey), updatedAt: optionalNumber(row.updatedAt) };
 }
 
 /** 空文字の行は未設定として落とす (手編集された DB を「メモあり」と読み違えない) */
@@ -424,6 +433,19 @@ export class AppDb {
     return Number(row?.user_version ?? 0);
   }
 
+  /**
+   * 加算移行の列追加。SQLite に `ADD COLUMN IF NOT EXISTS` は無く PRAGMA はパラメータ化できないため、
+   * テーブル名・列名・定義はコード側の定数だけを渡す。存在確認は毎回 PRAGMA を引く
+   * (結果をキャッシュすると、同じ列名を別テーブルへ足すときに壊れる)。
+   */
+  #addColumnIfMissing(table: string, column: string, definition: string): void {
+    this.#query((db) => {
+      const columns = db.prepare(`PRAGMA table_info(${table})`).all() as Row[];
+      if (columns.some((row) => row.name === column)) return;
+      db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
+    });
+  }
+
   /** DROP → CREATE → user_version → (未初期化なら) seed を 1 トランザクションで行う */
   #recreate(seed: boolean): void {
     this.#query((db) => db.exec("BEGIN"));
@@ -451,7 +473,7 @@ export class AppDb {
     for (const agent of SEED_AGENTS) this.saveAgent(agent);
   }
 
-  /** 古い版からの加算的な移行。足りないテーブルだけを作り、既存の定義は触らない */
+  /** 古い版からの加算的な移行。足りないテーブルと列だけを足し、既存の定義は触らない */
   #migrate(): void {
     this.#query((db) => db.exec("BEGIN"));
     try {
@@ -460,6 +482,9 @@ export class AppDb {
       this.#query((db) => db.exec(PROVIDER_CREDENTIALS_TABLE));
       this.#query((db) => db.exec(MODEL_SETTINGS_TABLE));
       this.#query((db) => db.exec(PROVIDER_MEMOS_TABLE));
+      // 列追加は CREATE TABLE IF NOT EXISTS の後 (既存テーブルでは CREATE が何もしないため)。DDL も
+      // トランザクション対象なので、途中失敗で列だけが残らない
+      this.#addColumnIfMissing("provider_credentials", "updatedAt", "INTEGER");
       // PRAGMA はパラメータ化できない (値はコード側の定数)
       this.#query((db) => db.exec(`PRAGMA user_version = ${APP_DB_SCHEMA_VERSION}`));
       this.#query((db) => db.exec("COMMIT"));
@@ -549,15 +574,16 @@ export class AppDb {
   /**
    * 登録と上書きで同じ (provider が主キー)。単一ステートメントなので自動コミットで確定し、
    * ここが成功して返れば行は永続化されている (呼び出し側の not_stored 判定の根拠)。
+   * `updatedAt` (epoch ms) は呼び出し側が渡す (移行で既存行を書き戻さない)。
    */
-  saveProviderCredential(provider: string, apiKey: string): void {
+  saveProviderCredential(provider: string, apiKey: string, updatedAt: number): void {
     this.#query((db) =>
       db
         .prepare(
-          `INSERT INTO provider_credentials (provider, apiKey) VALUES (?, ?)
-           ON CONFLICT(provider) DO UPDATE SET apiKey = excluded.apiKey`,
+          `INSERT INTO provider_credentials (provider, apiKey, updatedAt) VALUES (?, ?, ?)
+           ON CONFLICT(provider) DO UPDATE SET apiKey = excluded.apiKey, updatedAt = excluded.updatedAt`,
         )
-        .run(provider, apiKey),
+        .run(provider, apiKey, updatedAt),
     );
   }
 

@@ -24,6 +24,7 @@ import {
   mutationNote,
   normalizeAllowedModels,
   providerAuthBadge,
+  providerUsage,
   resyncAvailable,
   sameAvailabilitySettings,
   setAvailabilityProviderModels,
@@ -35,6 +36,7 @@ import type {
   ModelsSettingsResponse,
   ProviderAuthSetting,
   RuntimeModelsResponse,
+  SessionSummary,
 } from "../src/types";
 
 function provider(overrides: Partial<ProviderAuthSetting> = {}): ProviderAuthSetting {
@@ -43,6 +45,7 @@ function provider(overrides: Partial<ProviderAuthSetting> = {}): ProviderAuthSet
     name: "Anthropic",
     auth: { configured: false, environmentVariables: [] },
     managed: false,
+    keyUpdatedAt: null,
     canSetApiKey: true,
     supportsOAuth: false,
     orphan: false,
@@ -79,6 +82,20 @@ function settings(overrides: Partial<ModelsSettingsResponse> = {}): ModelsSettin
     defaultModel: null,
     ignoredEnvironmentVariables: [],
     providers: [],
+    ...overrides,
+  };
+}
+
+function session(overrides: Partial<SessionSummary> = {}): SessionSummary {
+  return {
+    sessionId: "s1",
+    title: "title",
+    agentId: "agent-zundamon",
+    status: "idle",
+    queueDepth: 0,
+    messageCount: 0,
+    createdAt: 1,
+    lastUsedAt: 2,
     ...overrides,
   };
 }
@@ -187,6 +204,7 @@ test("設定済みを先頭に、未設定は後ろへ分ける (並びはサー
       }),
       provider({ provider: "unset-a" }),
       provider({ provider: "managed", managed: true }),
+      provider({ provider: "managed-stamped", managed: true, keyUpdatedAt: 123 }),
       provider({ provider: "memo-only", memo: "個人アカウントの控え" }),
       provider({ provider: "anthropic", auth: { configured: false, environmentVariables: [] } }),
       provider({ provider: "unset-b", orphan: true }),
@@ -195,7 +213,7 @@ test("設定済みを先頭に、未設定は後ろへ分ける (並びはサー
   const groups = groupProviders(configured, CATALOG);
   assert.deepEqual(
     groups.configured.map((entry) => entry.provider),
-    ["configured-env", "managed", "memo-only", "anthropic"],
+    ["configured-env", "managed", "managed-stamped", "memo-only", "anthropic"],
     "カタログに available があるか、メモがある provider は設定済みとして先頭に置く",
   );
   assert.deepEqual(
@@ -211,6 +229,28 @@ test("設定済みを先頭に、未設定は後ろへ分ける (並びはサー
     memoOnly.configured.map((entry) => entry.provider),
     ["memo-only"],
   );
+});
+
+test("providerUsage は model の最初の / で provider を分け、会話数と最新の最終使用を返す", () => {
+  const sessions = [
+    session({ sessionId: "a", model: "anthropic/claude-sonnet", lastUsedAt: 100 }),
+    session({ sessionId: "b", model: "anthropic/claude-haiku", lastUsedAt: 300 }),
+    // model id に / を含んでも provider は先頭だけを見る (openrouter のモデル)
+    session({ sessionId: "c", model: "openrouter/anthropic/claude", lastUsedAt: 999 }),
+    session({ sessionId: "d", model: "openai/gpt-5", lastUsedAt: 400 }),
+    // model の無い会話は母数から除く
+    session({ sessionId: "e", lastUsedAt: 500 }),
+  ];
+  assert.deepEqual(providerUsage(sessions, "anthropic"), { sessions: 2, lastUsedAt: 300 });
+  assert.deepEqual(providerUsage(sessions, "openrouter"), { sessions: 1, lastUsedAt: 999 });
+  assert.deepEqual(providerUsage(sessions, "openai"), { sessions: 1, lastUsedAt: 400 });
+  assert.deepEqual(providerUsage(sessions, "ghost"), { sessions: 0, lastUsedAt: null });
+  // 壊れた model は数えない (provider も id も空にできない)
+  assert.deepEqual(providerUsage([session({ model: "anthropic/" }), session({ model: "/claude" })], "anthropic"), {
+    sessions: 0,
+    lastUsedAt: null,
+  });
+  assert.deepEqual(providerUsage([], "anthropic"), { sessions: 0, lastUsedAt: null });
 });
 
 test("APIキーの長さはサーバーと同じ境界で検証する", () => {

@@ -446,7 +446,13 @@ export default function App() {
             ) : settingsSection === "appearance" ? (
               <AppearancePage {...pageProps} />
             ) : settingsSection === "models" ? (
-              <ModelSettingsPage {...pageProps} onRefreshHealth={app.refreshHealth} />
+              // 最終使用の導出元は起動時から facade が持つ一覧。この画面だけに渡す (再取得はしない)
+              <ModelSettingsPage
+                {...pageProps}
+                onRefreshHealth={app.refreshHealth}
+                sessions={app.sessions}
+                sessionsLoaded={app.sessionsLoaded}
+              />
             ) : settingsSection === "runtime" ? (
               <RuntimePage {...pageProps} health={app.health} onRefreshHealth={app.refreshHealth} />
             ) : (

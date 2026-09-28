@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type Dispatch, type ReactNode, type SetStateAction } from "react";
 import { useModelSettings, type ModelSettings } from "../hooks/useModelSettings";
 import { cn } from "../lib/cn";
+import { messageTimeLabel } from "../lib/messageTime";
 import {
   API_KEY_MIN_LENGTH,
   AVAILABILITY_SAVE_INITIAL,
@@ -22,6 +23,7 @@ import {
   MEMO_MAX_LENGTH,
   normalizeAllowedModels,
   providerAuthBadge,
+  providerUsage,
   resyncAvailable,
   sameAvailabilitySettings,
   setAvailabilityProviderModels,
@@ -35,6 +37,7 @@ import type {
   ProviderAuthSetting,
   RuntimeCatalogModel,
   RuntimeModelsResponse,
+  SessionSummary,
   UpdateModelAvailabilityBody,
 } from "../types";
 import { CheckIcon, KeyIcon, RefreshIcon, TrashIcon } from "./icons";
@@ -43,16 +46,29 @@ import { SettingsPageLayout, type SettingsPageProps } from "./SettingsPageLayout
 export type ModelSettingsPageProps = SettingsPageProps & {
   /** キーの変更後に composer のモデル候補を更新する (画面を開いている間だけ使う) */
   onRefreshHealth: (isCurrent?: () => boolean) => Promise<Health | null>;
+  /** 最終使用の導出元。facade が持つセッション一覧を渡す (この画面では取得しない) */
+  sessions: SessionSummary[];
+  /** 一覧の初回取得に成功したか。false の間は最終使用の行を出さない */
+  sessionsLoaded: boolean;
 };
 
 /**
  * 設定 → モデル。利用可能なモデル（許可リスト）とプロバイダー認証を編集する。
  * hook はこの画面が持つ (カタログ全件を起動のたびに読まない。開いたときだけ取得する)。
  */
-export function ModelSettingsPage({ onRefreshHealth, compact, onBack, onOpenNav }: ModelSettingsPageProps) {
+export function ModelSettingsPage({
+  onRefreshHealth,
+  compact,
+  onBack,
+  onOpenNav,
+  sessions,
+  sessionsLoaded,
+}: ModelSettingsPageProps) {
   return (
     <ModelSettingsView
       modelSettings={useModelSettings({ onRefreshHealth })}
+      sessions={sessions}
+      sessionsLoaded={sessionsLoaded}
       compact={compact}
       onBack={onBack}
       onOpenNav={onOpenNav}
@@ -63,10 +79,12 @@ export function ModelSettingsPage({ onRefreshHealth, compact, onBack, onOpenNav 
 /** 表示だけを持つ部分。取得の成否は modelSettings が持ち、ここは描画に徹する */
 export function ModelSettingsView({
   modelSettings,
+  sessions = [],
+  sessionsLoaded = false,
   compact = false,
   onBack,
   onOpenNav,
-}: SettingsPageProps & { modelSettings: ModelSettings }) {
+}: SettingsPageProps & { modelSettings: ModelSettings; sessions?: SessionSummary[]; sessionsLoaded?: boolean }) {
   const {
     settings,
     catalog,
@@ -124,6 +142,8 @@ export function ModelSettingsView({
                   provider={provider}
                   catalog={catalog}
                   runtimeAvailable={settings.runtimeAvailable}
+                  sessions={sessions}
+                  sessionsLoaded={sessionsLoaded}
                   saving={saving === provider.provider}
                   busy={saving !== null}
                   onSave={(apiKey) => save(provider.provider, apiKey)}
@@ -154,6 +174,8 @@ export function ModelSettingsView({
                       provider={provider}
                       catalog={catalog}
                       runtimeAvailable={settings.runtimeAvailable}
+                      sessions={sessions}
+                      sessionsLoaded={sessionsLoaded}
                       saving={saving === provider.provider}
                       busy={saving !== null}
                       onSave={(apiKey) => save(provider.provider, apiKey)}
@@ -582,6 +604,8 @@ function ProviderCard({
   provider,
   catalog,
   runtimeAvailable,
+  sessions,
+  sessionsLoaded,
   saving,
   busy,
   onSave,
@@ -592,6 +616,8 @@ function ProviderCard({
   provider: ProviderAuthSetting;
   catalog: RuntimeModelsResponse | null;
   runtimeAvailable: boolean;
+  sessions: SessionSummary[];
+  sessionsLoaded: boolean;
   saving: boolean;
   busy: boolean;
   onSave: (apiKey: string) => Promise<boolean>;
@@ -607,6 +633,20 @@ function ProviderCard({
   const catalogProvider = catalog?.providers.find((entry) => entry.provider === provider.provider);
   const available = availableCountOf(catalog, provider.provider);
   const memoDirty = memo.trim() !== savedMemo;
+  // キーの保存日時はこの画面で登録した (managed) provider だけに出す。null は移行前の行なので「不明」と言い切る
+  const keyUpdatedLabel = !provider.managed
+    ? null
+    : provider.keyUpdatedAt === null
+      ? "キー最終保存: 保存日不明"
+      : `キー最終保存: ${messageTimeLabel(provider.keyUpdatedAt)}`;
+  // 最終使用は会話の最終更新で、API 呼び出しの成功を意味しない。一覧が未取得の間は行ごと出さない
+  const usage = sessionsLoaded ? providerUsage(sessions, provider.provider) : null;
+  const usageLabel =
+    !usage || (!provider.managed && usage.sessions === 0)
+      ? null
+      : usage.lastUsedAt === null
+        ? "この provider の会話はありません"
+        : `最終使用: ${messageTimeLabel(usage.lastUsedAt)} · この provider の会話 ${usage.sessions} 件`;
 
   // 保存値が変わったときだけ入力値を合わせる (同じ内容の再取得で編集中の下書きを消さない)
   useEffect(() => {
@@ -640,6 +680,10 @@ function ProviderCard({
               利用可能 {available} / カタログ {catalogProvider.models.length}
             </span>
           ) : null}
+          {keyUpdatedLabel ? (
+            <span className="text-2xs whitespace-nowrap text-ink-muted">{keyUpdatedLabel}</span>
+          ) : null}
+          {usageLabel ? <span className="text-2xs whitespace-nowrap text-ink-muted">{usageLabel}</span> : null}
         </div>
       </div>
 

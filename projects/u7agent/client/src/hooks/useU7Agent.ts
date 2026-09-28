@@ -86,6 +86,7 @@ export function useU7Agent({ pendingSessionId, onPendingSessionResolved }: UseU7
   const archiveSettings = useArchiveSettings();
   const {
     sessions,
+    sessionsLoaded,
     sessionId,
     sessionIdRef,
     selectionSeqRef,
@@ -366,6 +367,7 @@ export function useU7Agent({ pendingSessionId, onPendingSessionResolved }: UseU7
     catalog,
     agents,
     sessions,
+    sessionsLoaded,
     projects,
     selectedProject,
     selectedProjectId,

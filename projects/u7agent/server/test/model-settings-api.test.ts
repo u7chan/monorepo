@@ -48,12 +48,19 @@ test("GET はプロバイダーの認証状態と managed を返し、キー値�
       const before = pi.refreshCount;
       const put = await jsonBody(await bff.app.request("/api/settings/models/anthropic/key", jsonPut({ apiKey: KEY })));
       assert.equal(put.state, "applied");
+      assert.equal(
+        typeof put.providers.find((provider: any) => provider.provider === "anthropic")?.keyUpdatedAt,
+        "number",
+        "登録応答に保存日時 (epoch ms) を載せる",
+      );
       assert.ok(!JSON.stringify(put).includes(KEY), "登録応答にキー値を載せない");
 
       const response = await jsonBody(await bff.app.request("/api/settings/models"));
       assert.equal(response.runtimeAvailable, true);
       const byProvider = new Map<string, any>(response.providers.map((provider: any) => [provider.provider, provider]));
       assert.equal(byProvider.get("anthropic")?.managed, true);
+      assert.equal(typeof byProvider.get("anthropic")?.keyUpdatedAt, "number");
+      assert.equal(byProvider.get("local")?.keyUpdatedAt, null, "行の無い provider は保存日時なし");
       assert.equal(byProvider.get("anthropic")?.canSetApiKey, true);
       assert.deepEqual(byProvider.get("anthropic")?.auth, {
         configured: true,
@@ -69,6 +76,35 @@ test("GET はプロバイダーの認証状態と managed を返し、キー値�
       );
       assert.deepEqual(pi.retainedSecrets, [KEY]);
       assert.equal(pi.refreshCount, before + 1, "変更 1 回で state の再計算は 1 回");
+    } finally {
+      await bff.close();
+    }
+  });
+});
+
+test("移行前のキー行は keyUpdatedAt: null で返り、上書き保存で日時が入る", async () => {
+  await withStoreDir(async (dir) => {
+    const pi = createStubPi(stubOptions());
+    const bff = await createBffApp({ cwd: "/tmp/project", sessionStoreDir: dir, pi: asPiBff(pi), workspace: null });
+    try {
+      // v6 からの移行直後と同じ形 (updatedAt が NULL) を DB へ直接作る
+      const raw = new DatabaseSync(join(dir, APP_DB_FILENAME));
+      raw
+        .prepare("INSERT INTO provider_credentials (provider, apiKey, updatedAt) VALUES (?, ?, NULL)")
+        .run("anthropic", KEY);
+      raw.close();
+
+      const before = await jsonBody(await bff.app.request("/api/settings/models"));
+      const migrated = before.providers.find((provider: any) => provider.provider === "anthropic");
+      assert.equal(migrated.managed, true);
+      assert.equal(migrated.keyUpdatedAt, null, "移行前の行は保存日不明");
+
+      const at = Date.now();
+      const put = await jsonBody(await bff.app.request("/api/settings/models/anthropic/key", jsonPut({ apiKey: KEY })));
+      const saved = put.providers.find((provider: any) => provider.provider === "anthropic")?.keyUpdatedAt;
+      assert.equal(typeof saved, "number", "上書き保存で日時が入る");
+      assert.ok(saved >= at);
+      assert.ok(!JSON.stringify(put).includes(KEY));
     } finally {
       await bff.close();
     }

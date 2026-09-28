@@ -68,6 +68,8 @@ export function useSessions({
   setRuntimeStatus,
 }: UseSessionsParams) {
   const [sessions, setSessions] = useState<SessionSummary[]>([]);
+  /** 一覧の初回取得に成功したか。空配列を「使用なし」と読んで嘘を出さないためのフラグ */
+  const [sessionsLoaded, setSessionsLoaded] = useState(false);
   const [sessionId, setSessionId] = useState("");
   const [cwd, setCwd] = useState<string>("");
   const [settingsChanging, setSettingsChanging] = useState(false);
@@ -110,6 +112,8 @@ export function useSessions({
         if (!canApply()) return list;
         sessionsRef.current = list;
         setSessions(list);
+        // 成功のときだけ立てる (失敗時は前回のリストと状態を保つ)
+        setSessionsLoaded(true);
         return list;
       } catch {
         // サーバーが一時的に届かないときは前回のリストを保持
@@ -455,6 +459,8 @@ export function useSessions({
 
   return {
     sessions,
+    /** 一覧の初回取得に成功するまで false。派生値 (最終使用など) を「0 件」と混同しないために使う */
+    sessionsLoaded,
     sessionId,
     sessionIdRef,
     /** 選択の世代。await を挟む処理 (起動時の復元) が「待機中の選択」を判定する */

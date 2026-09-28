@@ -39,7 +39,7 @@ export interface ProviderKeyRuntime {
 export interface ModelSettingsDb {
   listProviderCredentials(): ProviderCredentialRow[];
   getProviderCredential(provider: string): ProviderCredentialRow | undefined;
-  saveProviderCredential(provider: string, apiKey: string): void;
+  saveProviderCredential(provider: string, apiKey: string, updatedAt: number): void;
   deleteProviderCredential(provider: string): boolean;
   /** 行が無ければ undefined = 未設定。空文字の行も未設定として返す */
   listProviderMemos(): ProviderMemoRow[];
@@ -348,7 +348,8 @@ export class ModelSettingsService {
       // マスカーへの登録は SDK / DB より前。ここが失敗しても保護対象だけは残す
       this.#retainSecret(apiKey);
       try {
-        this.#db.saveProviderCredential(provider, apiKey);
+        // 保存日時は DB を持つ (最終使用は保存しない)。projects.createdAt と同じく呼び出し側で作る
+        this.#db.saveProviderCredential(provider, apiKey, Date.now());
       } catch {
         // DB の理由は AppDb の境界がマスクして記録する。ここは provider と操作の分類だけに絞る
         console.warn(`[u7agent] provider key save failed: ${provider}`);
@@ -494,6 +495,10 @@ export class ModelSettingsService {
     const managed = new Set(rows.map((row) => row.provider));
     if (assumedManaged) managed.add(assumedManaged);
     const memoOf = new Map(memos.map((row) => [row.provider, row.memo]));
+    const updatedAtOf = new Map(rows.map((row) => [row.provider, row.updatedAt]));
+    // 行が無い (= managed でない) provider は保存日時も不明として null にする
+    const keyUpdatedAtOf = (provider: string): number | null =>
+      managed.has(provider) ? (updatedAtOf.get(provider) ?? null) : null;
     const providers = new Map<string, ProviderAuthSetting>();
     for (const entry of this.#runtime?.list() ?? []) {
       providers.set(
@@ -510,6 +515,7 @@ export class ModelSettingsService {
             appliable: managed.has(entry.provider),
           },
           memoOf.get(entry.provider),
+          keyUpdatedAtOf(entry.provider),
         ),
       );
     }
@@ -524,6 +530,7 @@ export class ModelSettingsService {
           undefined,
           { managed: true, canSetApiKey: false, supportsOAuth: false, orphan: true, appliable: true },
           memoOf.get(row.provider),
+          keyUpdatedAtOf(row.provider),
         ),
       );
     }
@@ -538,6 +545,7 @@ export class ModelSettingsService {
           undefined,
           { managed: false, canSetApiKey: false, supportsOAuth: false, orphan: true, appliable: false },
           row.memo,
+          keyUpdatedAtOf(row.provider),
         ),
       );
     }
@@ -558,6 +566,7 @@ export class ModelSettingsService {
             appliable: false,
           },
           memoOf.get(provider),
+          keyUpdatedAtOf(provider),
         ),
       );
     }
@@ -584,6 +593,7 @@ export class ModelSettingsService {
       appliable: boolean;
     },
     memo: string | undefined,
+    keyUpdatedAt: number | null,
   ): ProviderAuthSetting {
     const degraded =
       flags.orphan && flags.appliable && !this.#degraded.has(provider) ? "apply" : this.#degraded.get(provider);
@@ -598,6 +608,7 @@ export class ModelSettingsService {
       orphan: flags.orphan,
       ...(degraded ? { degraded } : {}),
       memo: memo ?? null,
+      keyUpdatedAt,
     };
   }
 }

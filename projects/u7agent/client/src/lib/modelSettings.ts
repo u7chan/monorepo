@@ -11,6 +11,7 @@ import type {
   ModelsSettingsResponse,
   ProviderAuthSetting,
   RuntimeModelsResponse,
+  SessionSummary,
 } from "../types";
 
 /** サーバーの検証と同じ境界。クライアントでも保存前に同じ理由で止める */
@@ -98,6 +99,37 @@ export interface ProviderGroups {
 export function availableCountOf(catalog: RuntimeModelsResponse | null, provider: string): number {
   const entry = catalog?.providers.find((candidate) => candidate.provider === provider);
   return entry?.models.filter((model) => model.available).length ?? 0;
+}
+
+/**
+ * この provider を使っている会話の数と最終使用。最終使用は保存値ではなく、セッション一覧の
+ * `model` + `lastUsedAt` から導出する (会話の最終更新であって、取り消し・削除で減り得る)。
+ */
+export interface ProviderUsage {
+  /** この provider のモデルを使っている会話の数 */
+  sessions: number;
+  /** その中で最も新しい lastUsedAt。1 件も無ければ null */
+  lastUsedAt: number | null;
+}
+
+/**
+ * provider ごとの使用状況。`model` は `provider/model` 形式で、区切りは最初の `/` だけ
+ * (model id に `/` を含み得る。server の parseModelRef と同じ規則)。`model` の無い会話は母数から除く。
+ */
+export function providerUsage(sessions: SessionSummary[], provider: string): ProviderUsage {
+  let count = 0;
+  let lastUsedAt: number | null = null;
+  for (const session of sessions) {
+    const model = session.model;
+    if (!model) continue;
+    const slash = model.indexOf("/");
+    // provider が空 / id が空の壊れた値は数えない (parseModelRef と同じ扱い)
+    if (slash <= 0 || slash === model.length - 1) continue;
+    if (model.slice(0, slash) !== provider) continue;
+    count += 1;
+    if (lastUsedAt === null || session.lastUsedAt > lastUsedAt) lastUsedAt = session.lastUsedAt;
+  }
+  return { sessions: count, lastUsedAt };
 }
 
 /** 設定済みを先頭に、未設定は畳めるよう後ろへ分ける。並びはサーバーが返した順を保つ */
