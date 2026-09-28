@@ -17,6 +17,9 @@ import type {
 export const API_KEY_MIN_LENGTH = 8;
 export const API_KEY_MAX_LENGTH = 2048;
 
+/** provider メモの上限。秘密情報ではなく、長文でカードが伸びるのを抑える境界 */
+export const MEMO_MAX_LENGTH = 500;
+
 export const MODEL_SETTINGS_NOTE = "登録したキーは保存され、再起動後も使われます。登録済みのキーは再表示しません。";
 
 export type ProviderBadgeTone = "ok" | "muted" | "warn";
@@ -104,7 +107,12 @@ export function groupProviders(
 ): ProviderGroups {
   const groups: ProviderGroups = { configured: [], unconfigured: [] };
   for (const provider of settings.providers) {
-    const settled = provider.auth.configured || provider.managed || availableCountOf(catalog, provider.provider) > 0;
+    // メモは SDK に触れないため「認証済み」ではないが、折りたたみの中に隠れると見つけられない
+    const settled =
+      provider.auth.configured ||
+      provider.managed ||
+      provider.memo !== null ||
+      availableCountOf(catalog, provider.provider) > 0;
     (settled ? groups.configured : groups.unconfigured).push(provider);
   }
   return groups;
@@ -116,7 +124,13 @@ export function validateApiKey(value: string): string | undefined {
   return undefined;
 }
 
-export type MutationAction = "save" | "delete" | "resync" | "availability";
+/** メモは上限だけを見る。空文字はクリア（行を消して未設定へ戻す）として許す */
+export function validateMemo(value: string): string | undefined {
+  if (value.length > MEMO_MAX_LENGTH) return `メモは ${MEMO_MAX_LENGTH} 文字以内で入力してください。`;
+  return undefined;
+}
+
+export type MutationAction = "save" | "delete" | "resync" | "availability" | "memo";
 
 /** 削除の確認。既存の会話は自動でモデルを切り替えないため、影響を先に伝える */
 export function deleteConfirmMessage(name: string): string {
@@ -127,6 +141,8 @@ export function deleteConfirmMessage(name: string): string {
 export function mutationNote(
   action: MutationAction,
   response: ModelMutationResponse,
+  /** memo だけ: 空にして保存した (行を消した) かどうかで文言を分ける */
+  memoCleared = false,
 ): { text: string; error: boolean } {
   const unsynced = response.state === "applied_unsynced";
   const suffix =
@@ -147,6 +163,9 @@ export function mutationNote(
     case "availability":
       // SDK 呼び出しを含まないため applied_unsynced にはならない
       return { text: "利用可能なモデルを保存しました。新しい会話の候補を更新しています。", error: false };
+    case "memo":
+      // SDK に触れないため applied_unsynced にはならない
+      return { text: memoCleared ? "メモを消しました。" : "メモを保存しました。", error: false };
   }
 }
 

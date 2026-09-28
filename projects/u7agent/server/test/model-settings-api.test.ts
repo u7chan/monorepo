@@ -7,7 +7,7 @@ import { join } from "node:path";
 import test from "node:test";
 import { APP_DB_FILENAME } from "../src/app-db";
 import { createBffApp } from "../src/app";
-import { PROVIDER_API_KEY_MIN_LENGTH } from "../src/schema";
+import { PROVIDER_API_KEY_MIN_LENGTH, PROVIDER_MEMO_MAX_LENGTH } from "../src/schema";
 import { asPiBff, createStubPi, STUB_MODEL, STUB_PLAIN_MODEL, type StubPiOptions } from "./stub-pi";
 
 const KEY = "sk-ant-dummy-key-0123456789abcdef";
@@ -208,6 +208,10 @@ test("アプリ DB が使えないときの設定 API は 503 になる", async 
       const put = await bff.app.request("/api/settings/models/anthropic/key", jsonPut({ apiKey: KEY }));
       assert.equal(put.status, 503);
       assert.equal((await jsonBody(put)).state, "not_stored");
+
+      const memo = await bff.app.request("/api/settings/models/anthropic/memo", jsonPut({ memo: "メモ" }));
+      assert.equal(memo.status, 503);
+      assert.equal((await jsonBody(memo)).state, "not_stored");
     } finally {
       await bff.close();
     }
@@ -282,6 +286,118 @@ test("登録済みキーを含む DB 例外が応答・health・ログに現れ�
     } finally {
       console.warn = original.warn;
       console.error = original.error;
+      await bff.close();
+    }
+  });
+});
+
+// --- provider メモ (PUT /api/settings/models/:provider/memo) ---
+
+test("PUT memo は trim して保存し、応答と GET に載せて SDK を呼ばない", async () => {
+  await withStoreDir(async (dir) => {
+    const pi = createStubPi(stubOptions());
+    const bff = await createBffApp({ cwd: "/tmp/project", sessionStoreDir: dir, pi: asPiBff(pi), workspace: null });
+    try {
+      const before = pi.refreshCount;
+      const saved = await jsonBody(
+        await bff.app.request("/api/settings/models/anthropic/memo", jsonPut({ memo: "  個人アカウントの本番キー  " })),
+      );
+      assert.equal(saved.state, "applied");
+      const entry = saved.providers.find((provider: any) => provider.provider === "anthropic");
+      assert.equal(entry.memo, "個人アカウントの本番キー", "trim して保存する");
+      assert.equal(entry.managed, false, "メモの保存でキーの行を作らない");
+      assert.equal(entry.degraded, undefined);
+      assert.deepEqual(pi.modelRuntimeCalls, [], "SDK を呼ばない");
+      assert.equal(pi.refreshCount, before, "公開 state を再計算しない");
+
+      const response = await jsonBody(await bff.app.request("/api/settings/models"));
+      assert.equal(
+        response.providers.find((provider: any) => provider.provider === "anthropic").memo,
+        "個人アカウントの本番キー",
+      );
+
+      // キーを登録できない provider (ambient / keyless) にもメモは書ける
+      const keyless = await jsonBody(
+        await bff.app.request("/api/settings/models/local/memo", jsonPut({ memo: "ローカルの控え" })),
+      );
+      assert.equal(keyless.state, "applied");
+      assert.equal(keyless.providers.find((provider: any) => provider.provider === "local").memo, "ローカルの控え");
+
+      // 空にして保存すると行が消え、null に戻る
+      const cleared = await jsonBody(
+        await bff.app.request("/api/settings/models/anthropic/memo", jsonPut({ memo: "" })),
+      );
+      assert.equal(cleared.providers.find((provider: any) => provider.provider === "anthropic").memo, null);
+    } finally {
+      await bff.close();
+    }
+  });
+});
+
+test("PUT memo は長さ超過を route の zod で 400 にし、対象外 provider も 400 にする", async () => {
+  await withStoreDir(async (dir) => {
+    const pi = createStubPi(stubOptions());
+    const bff = await createBffApp({ cwd: "/tmp/project", sessionStoreDir: dir, pi: asPiBff(pi), workspace: null });
+    try {
+      const tooLong = await bff.app.request(
+        "/api/settings/models/anthropic/memo",
+        jsonPut({ memo: "a".repeat(PROVIDER_MEMO_MAX_LENGTH + 1) }),
+      );
+      assert.equal(tooLong.status, 400, "service は長さを見ないので route の zod が止める");
+      assert.deepEqual(await jsonBody(tooLong), { error: "Invalid request body" });
+
+      const unknown = await bff.app.request("/api/settings/models/openai/memo", jsonPut({ memo: "メモ" }));
+      assert.equal(unknown.status, 400);
+      assert.match((await jsonBody(unknown)).error, /メモは保存できません/);
+
+      const shape = await bff.app.request("/api/settings/models/anthropic/memo", jsonPut({}));
+      assert.equal(shape.status, 400);
+
+      const response = await jsonBody(await bff.app.request("/api/settings/models"));
+      assert.equal(response.providers.find((provider: any) => provider.provider === "anthropic").memo, null);
+    } finally {
+      await bff.close();
+    }
+  });
+});
+
+test("保存したメモは再起動後も残り、SDK へ適用されない", async () => {
+  await withStoreDir(async (dir) => {
+    const first = createStubPi(stubOptions());
+    const bff = await createBffApp({ cwd: "/tmp/project", sessionStoreDir: dir, pi: asPiBff(first), workspace: null });
+    await bff.app.request("/api/settings/models/anthropic/memo", jsonPut({ memo: "個人アカウントの控え" }));
+    await bff.close();
+
+    const second = createStubPi(stubOptions());
+    const restarted = await createBffApp({
+      cwd: "/tmp/project",
+      sessionStoreDir: dir,
+      pi: asPiBff(second),
+      workspace: null,
+    });
+    try {
+      assert.deepEqual(second.modelRuntimeCalls, [], "メモは認証 overlay に関わらない");
+      const response = await jsonBody(await restarted.app.request("/api/settings/models"));
+      const entry = response.providers.find((provider: any) => provider.provider === "anthropic");
+      assert.equal(entry.memo, "個人アカウントの控え");
+      assert.equal(entry.managed, false);
+    } finally {
+      await restarted.close();
+    }
+  });
+});
+
+test("ランタイム無しのメモ保存は 503 not_stored", async () => {
+  await withStoreDir(async (dir) => {
+    const bff = await createBffApp({ cwd: "/tmp/project", sessionStoreDir: dir, pi: null, workspace: null });
+    try {
+      const put = await bff.app.request("/api/settings/models/anthropic/memo", jsonPut({ memo: "メモ" }));
+      assert.equal(put.status, 503);
+      assert.deepEqual(await jsonBody(put), {
+        error: "ランタイムが利用できないため、メモを保存できません",
+        state: "not_stored",
+      });
+    } finally {
       await bff.close();
     }
   });

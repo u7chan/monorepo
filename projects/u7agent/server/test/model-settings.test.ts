@@ -11,6 +11,9 @@ import {
   ModelSettingsService,
   PROVIDER_KEY_NOT_MANAGED_MESSAGE,
   PROVIDER_KEY_RUNTIME_UNAVAILABLE_MESSAGE,
+  PROVIDER_MEMO_NOT_STORED_MESSAGE,
+  PROVIDER_MEMO_RUNTIME_UNAVAILABLE_MESSAGE,
+  PROVIDER_MEMO_TARGET_MESSAGE,
   PROVIDER_RESYNC_TARGET_MESSAGE,
   type CredentialCommit,
   type ModelSettingsDb,
@@ -90,6 +93,7 @@ function fakeRuntime(
 /** DB 面の fake。失敗フラグで AppDb の失敗経路を再現する */
 function fakeDb(rows: Record<string, string> = {}, selection?: StoredModelSelection) {
   const store = new Map(Object.entries(rows));
+  const memos = new Map<string, string>();
   const state = {
     failList: false,
     failGet: false,
@@ -97,10 +101,16 @@ function fakeDb(rows: Record<string, string> = {}, selection?: StoredModelSelect
     failDelete: false,
     failReadSelection: false,
     failSaveSelection: false,
+    failListMemos: false,
+    failGetMemo: false,
+    failSaveMemo: false,
+    failDeleteMemo: false,
     /** 保存は成功させるが、以後の一覧読みを失敗させる (DTO 組み立てだけが壊れる経路) */
     armListFailureOnSave: false,
     /** 削除は成功させるが、以後の一覧読みを失敗させる (DELETE だけが DTO を組めない経路) */
     armListFailureOnDelete: false,
+    /** メモ保存は成功させるが、以後のメモ一覧読みを失敗させる */
+    armListFailureOnSaveMemo: false,
     error: new Error("sqlite failure"),
   };
   // 行の有無 = 未設定を保つため、両方 null の保存は行ごと消す (AppDb と同じ正規化)
@@ -126,6 +136,24 @@ function fakeDb(rows: Record<string, string> = {}, selection?: StoredModelSelect
       if (state.armListFailureOnDelete) state.failList = true;
       return deleted;
     },
+    listProviderMemos: () => {
+      if (state.failListMemos) throw state.error;
+      return [...memos].map(([provider, memo]) => ({ provider, memo }));
+    },
+    getProviderMemo: (provider) => {
+      if (state.failGetMemo) throw state.error;
+      const memo = memos.get(provider);
+      return memo === undefined ? undefined : { provider, memo };
+    },
+    saveProviderMemo: (provider, memo) => {
+      if (state.failSaveMemo) throw state.error;
+      memos.set(provider, memo);
+      if (state.armListFailureOnSaveMemo) state.failListMemos = true;
+    },
+    deleteProviderMemo: (provider) => {
+      if (state.failDeleteMemo) throw state.error;
+      return memos.delete(provider);
+    },
     readModelSettings: () => {
       if (state.failReadSelection) throw state.error;
       return saved;
@@ -138,6 +166,7 @@ function fakeDb(rows: Record<string, string> = {}, selection?: StoredModelSelect
   return {
     db,
     store,
+    memos,
     state,
     readSelection: () => saved,
   };
@@ -227,6 +256,7 @@ test("GET はキー値を返さず、managed / canSetApiKey / orphan / degraded 
     canSetApiKey: true,
     supportsOAuth: false,
     orphan: false,
+    memo: null,
   });
   assert.equal(byProvider.get("openai")?.managed, false);
   assert.equal(byProvider.get("openai")?.canSetApiKey, false);
@@ -241,6 +271,7 @@ test("GET はキー値を返さず、managed / canSetApiKey / orphan / degraded 
     orphan: true,
     // カタログに無い行は SDK へ適用できない = 未反映
     degraded: "apply",
+    memo: null,
   });
   const serialized = JSON.stringify(response);
   assert.ok(!serialized.includes(KEY_A) && !serialized.includes(KEY_B), "キー値は応答に載せない");
@@ -694,6 +725,177 @@ test("refreshModelState が例外を出しても変更系は応答を返す", as
   const { value, logs } = await captureConsole(() => service.putKey("anthropic", KEY_A));
   assert.equal(okBody(value).state, "applied");
   assert.ok(logs.join("\n").includes("model state refresh failed"));
+});
+
+// --- provider メモ (provider_memos) ---
+
+test("GET は provider のメモを載せ、行が無ければ null になる", () => {
+  const db = fakeDb({ anthropic: KEY_A });
+  db.memos.set("anthropic", "個人アカウントの本番キー");
+  const runtime = fakeRuntime({ providers: [{ provider: "anthropic" }, { provider: "openai" }] });
+  const { service } = createService({ db: db.db, runtime: runtime.runtime });
+
+  const byProvider = new Map(service.settings().providers.map((provider) => [provider.provider, provider]));
+  assert.equal(byProvider.get("anthropic")?.memo, "個人アカウントの本番キー");
+  assert.equal(byProvider.get("openai")?.memo, null);
+});
+
+test("メモだけの provider を GET の 4 経路目として出し、degraded を付けない", () => {
+  const db = fakeDb();
+  db.memos.set("memo-only", "無料枠の控え");
+  const runtime = fakeRuntime({ providers: [{ provider: "anthropic" }] });
+  const { service } = createService({ db: db.db, runtime: runtime.runtime });
+
+  const entry = service.settings().providers.find((provider) => provider.provider === "memo-only");
+  assert.deepEqual(entry, {
+    provider: "memo-only",
+    name: "memo-only",
+    auth: { configured: false, environmentVariables: [] },
+    managed: false,
+    canSetApiKey: false,
+    supportsOAuth: false,
+    orphan: true,
+    memo: "無料枠の控え",
+  });
+});
+
+test("メモは trim して保存し、SDK を呼ばず degraded も作らない", async () => {
+  const db = fakeDb();
+  const runtime = fakeRuntime();
+  const { service, refreshCount } = createService({ db: db.db, runtime: runtime.runtime });
+
+  const response = okBody(await service.putMemo("anthropic", "  個人アカウント  "));
+  assert.equal(response.state, "applied");
+  assert.equal(db.memos.get("anthropic"), "個人アカウント");
+  const entry = response.providers.find((provider) => provider.provider === "anthropic");
+  assert.equal(entry?.memo, "個人アカウント");
+  assert.equal(entry?.managed, false, "メモの保存でキーの行を作らない");
+  assert.equal(entry?.degraded, undefined);
+  assert.equal(refreshCount(), 0, "SDK / 公開 state に触れない");
+  assert.deepEqual(runtime.calls, []);
+});
+
+test("メモは空にして保存すると行を消して 200 applied を返す", async () => {
+  const db = fakeDb({ anthropic: KEY_A });
+  db.memos.set("anthropic", "古いメモ");
+  const runtime = fakeRuntime();
+  const { service } = createService({ db: db.db, runtime: runtime.runtime });
+
+  const response = okBody(await service.putMemo("anthropic", "   "));
+  assert.equal(response.state, "applied");
+  assert.equal(db.memos.has("anthropic"), false);
+  assert.equal(response.providers.find((provider) => provider.provider === "anthropic")?.memo, null);
+});
+
+test("カタログ外でも credential 行かメモ行があればメモを保存できる", async () => {
+  const runtime = fakeRuntime();
+  const withCredential = fakeDb({ "legacy-orphan": KEY_B });
+  const { service: credentialService } = createService({ db: withCredential.db, runtime: runtime.runtime });
+  const credentialResponse = okBody(await credentialService.putMemo("legacy-orphan", "旧 provider の控え"));
+  const credentialEntry = credentialResponse.providers.find((provider) => provider.provider === "legacy-orphan");
+  assert.equal(credentialEntry?.memo, "旧 provider の控え");
+  assert.equal(credentialEntry?.managed, true, "キーの行の意味はメモで変えない");
+  assert.equal(credentialEntry?.degraded, "apply");
+
+  const withMemo = fakeDb();
+  withMemo.memos.set("memo-only", "既存のメモ");
+  const { service: memoService } = createService({ db: withMemo.db, runtime: runtime.runtime });
+  const memoResponse = okBody(await memoService.putMemo("memo-only", "更新後"));
+  assert.equal(memoResponse.providers.find((provider) => provider.provider === "memo-only")?.memo, "更新後");
+});
+
+test("メモの保存は対象外 provider を 400 で拒否し、canSetApiKey では gate しない", async () => {
+  const runtime = fakeRuntime({ providers: [{ provider: "anthropic", canSetApiKey: false }] });
+  const db = fakeDb();
+  const { service } = createService({ db: db.db, runtime: runtime.runtime });
+
+  await assert.rejects(
+    () => service.putMemo("ghost", "メモ"),
+    (error: unknown) =>
+      (error as { statusCode?: number }).statusCode === 400 &&
+      (error as { message?: string }).message === PROVIDER_MEMO_TARGET_MESSAGE,
+  );
+  assert.equal(db.memos.size, 0);
+  // login を持たない provider でもメモは書ける (キーの登録可否と独立)
+  assert.equal(okBody(await service.putMemo("anthropic", "メモ")).state, "applied");
+});
+
+test("ランタイム無しのメモ保存はメモ専用文言の 503 not_stored", async () => {
+  const db = fakeDb();
+  const { service } = createService({ db: db.db, runtime: null });
+  const outcome = await service.putMemo("anthropic", "メモ");
+  assert.equal(outcome.status, 503);
+  assert.equal(outcome.status === 503 ? outcome.error : "", PROVIDER_MEMO_RUNTIME_UNAVAILABLE_MESSAGE);
+  assert.notEqual(PROVIDER_MEMO_RUNTIME_UNAVAILABLE_MESSAGE, PROVIDER_KEY_RUNTIME_UNAVAILABLE_MESSAGE);
+  assert.equal(db.memos.size, 0);
+});
+
+test("メモの DB 読取・書込失敗は 503 not_stored になる", async () => {
+  const runtime = fakeRuntime();
+  const readFailure = fakeDb();
+  readFailure.state.failGetMemo = true;
+  const { service: readService } = createService({ db: readFailure.db, runtime: runtime.runtime });
+  const readOutcome = await readService.putMemo("ghost", "メモ");
+  assert.equal(readOutcome.status === 503 ? readOutcome.error : "", PROVIDER_MEMO_NOT_STORED_MESSAGE);
+
+  const saveFailure = fakeDb();
+  saveFailure.state.failSaveMemo = true;
+  const { service: saveService } = createService({ db: saveFailure.db, runtime: runtime.runtime });
+  const saveOutcome = await saveService.putMemo("anthropic", "メモ");
+  assert.equal(saveOutcome.status === 503 ? saveOutcome.error : "", PROVIDER_MEMO_NOT_STORED_MESSAGE);
+
+  const deleteFailure = fakeDb();
+  deleteFailure.memos.set("anthropic", "古いメモ");
+  deleteFailure.state.failDeleteMemo = true;
+  const { service: deleteService } = createService({ db: deleteFailure.db, runtime: runtime.runtime });
+  assert.equal((await deleteService.putMemo("anthropic", "")).status, 503);
+});
+
+test("メモの DB 失敗の応答とログにメモ値が現れない", async () => {
+  const memo = "個人アカウントの控え";
+  const db = fakeDb();
+  db.state.error = new Error(`sqlite failure with ${memo}`);
+  db.state.failSaveMemo = true;
+  const runtime = fakeRuntime();
+  const { service } = createService({ db: db.db, runtime: runtime.runtime });
+
+  const { value, logs } = await captureConsole(() => service.putMemo("anthropic", memo));
+  assert.equal(value.status, 503);
+  assert.ok(!JSON.stringify(value).includes(memo));
+  assert.ok(!logs.join("\n").includes(memo), `ログにもメモを出さない: ${logs.join("\n")}`);
+  // ログは provider と操作の分類だけに絞る (DB の理由は AppDb の境界が記録する)
+  assert.ok(logs.join("\n").includes("provider memo save failed: anthropic"));
+});
+
+test("メモの保存後にメモ一覧を読めなくても applied を返す", async () => {
+  const db = fakeDb();
+  db.state.armListFailureOnSaveMemo = true;
+  const runtime = fakeRuntime();
+  const { service } = createService({ db: db.db, runtime: runtime.runtime });
+
+  const { value } = await captureConsole(() => service.putMemo("anthropic", "メモ"));
+  const response = okBody(value);
+  assert.equal(response.state, "applied", "DB への保存は確定している");
+  assert.equal(db.memos.get("anthropic"), "メモ");
+  assert.equal(
+    response.providers.find((provider) => provider.provider === "anthropic")?.managed,
+    false,
+    "読めない側は空で組む (キーの行を復元しない)",
+  );
+});
+
+test("キーを削除してもメモは残す", async () => {
+  const db = fakeDb({ anthropic: KEY_A });
+  db.memos.set("anthropic", "個人アカウントの控え");
+  const runtime = fakeRuntime();
+  const { service } = createService({ db: db.db, runtime: runtime.runtime });
+
+  const response = okBody(await service.deleteKey("anthropic"));
+  assert.equal(db.memos.get("anthropic"), "個人アカウントの控え", "キー削除はメモに触らない");
+  const entry = response.providers.find((provider) => provider.provider === "anthropic");
+  assert.equal(entry?.memo, "個人アカウントの控え");
+  assert.equal(entry?.managed, false);
+  assert.equal(entry?.degraded, undefined, "キーが無いのに未反映にならない");
 });
 
 // --- 利用可能なモデル / アプリ既定モデル (model_settings) ---

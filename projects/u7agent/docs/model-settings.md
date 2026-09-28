@@ -1,23 +1,24 @@
 # 利用可能なモデルとプロバイダーAPIキーの設定（設定 → モデル）
 
-設定 → モデルから、**利用可能なモデル（許可リスト）**・**アプリ既定モデル**・**プロバイダーごとのAPIキー**を GUI で設定する。保存した内容はアプリデータの SQLite に残り（再起動後も使え）、SDK の非永続の runtime overlay と公開 state へ写して起動中のモデル候補へ反映する。プロバイダーの認証に `.env` の環境変数と `~/.pi/agent/auth.json` を使う経路はこれまでどおり使え、GUI はそれらを変更しない。
+設定 → モデルから、**利用可能なモデル（許可リスト）**・**アプリ既定モデル**・**プロバイダーごとのAPIキーとメモ**を GUI で設定する。保存した内容はアプリデータの SQLite に残り（再起動後も使え）、SDK の非永続の runtime overlay と公開 state へ写して起動中のモデル候補へ反映する。プロバイダーの認証に `.env` の環境変数と `~/.pi/agent/auth.json` を使う経路はこれまでどおり使え、GUI はそれらを変更しない。
 
-- 保存の正は **アプリ DB**（`provider_credentials` と `model_settings`）。SDK の runtime overlay は実効状態で、再起動で消える
+- 保存の正は **アプリ DB**（`provider_credentials` / `model_settings` / `provider_memos`）。SDK の runtime overlay は実効状態で、再起動で消える
 - APIキーの変更系は「DB を希望状態として先に確定」し、SDK への反映に失敗しても DB を戻さない（補償ロールバックを持たない）。反映できなかった変更は **degraded（保存済み・未反映）** として画面に出し、`resync` / 次回の変更 / 再起動で収束させる
 - 利用可能なモデルとアプリ既定モデルは SDK 呼び出しを含まないため degraded を作らない。「DB 確定 → 公開 state の再計算」だけで効く
+- provider メモはキーの登録有無と独立した人間用の任意文字列で、SDK 呼び出しを含まない。`applied` だけを返し、キーを削除しても残る
 
 ## 画面の分離
 
 | 画面 | 役割 | 内容 |
 | --- | --- | --- |
 | 設定 → ランタイム（表示専用） | 環境診断 | 接続状態 / 実行環境 / 利用可能なコマンド / SDK バージョン |
-| 設定 → モデル（編集可） | 利用可能なモデル + プロバイダー認証 + カタログ | 「利用可能なモデル」の編集、provider ごとの認証状態、APIキーの登録・上書き・削除、再同期、利用可能モデル数とモデル一覧 |
+| 設定 → モデル（編集可） | 利用可能なモデル + プロバイダー認証 + カタログ | 「利用可能なモデル」の編集、provider ごとの認証状態、APIキーの登録・上書き・削除、メモの保存、再同期、利用可能モデル数とモデル一覧 |
 
 プロバイダーとカタログの表示はランタイム画面からモデル画面へ移した。ランタイム画面は `GET /api/runtime/models` を呼ばない。health に載せていたモデル診断（`runtimeDiagnostics`）は撤去し、SDK バージョンだけを health 直下の `versions` に残した。
 
 ## 保存先とスキーマ
 
-`PI_SESSION_STORE/u7agent.db` の `provider_credentials`（`APP_DB_SCHEMA_VERSION` 3 → 4）と `model_settings`（4 → 5）。
+`PI_SESSION_STORE/u7agent.db` の `provider_credentials`（`APP_DB_SCHEMA_VERSION` 3 → 4）、`model_settings`（4 → 5）、`provider_memos`（5 → 6）。
 
 ```sql
 CREATE TABLE IF NOT EXISTS provider_credentials (
@@ -30,10 +31,16 @@ CREATE TABLE IF NOT EXISTS model_settings (
   allowedModels TEXT,  -- JSON 配列。NULL または空配列 = 制限なし
   defaultModel  TEXT   -- "provider/model"。NULL = 利用可能なモデルの先頭
 );
+
+CREATE TABLE IF NOT EXISTS provider_memos (
+  provider TEXT PRIMARY KEY,
+  memo     TEXT NOT NULL  -- 人間用の任意文字列。行が無い = 未設定
+);
 ```
 
 - 値は必ずバインドして渡す。保存行は**平文**で、Webhook URL と同じトラストレベル（[persistence.md](persistence.md#アプリデータsqlite)）
 - `managed`（DB 行 = 永続化された希望状態）と `auth.source`（SDK の実効値。`runtime` / `environment` / `stored` …）は**別物**として画面に出す
+- メモは credential ではなく provider に紐づき、**行が無い = 未設定**。空にして保存すると行ごと消し、手編集された空文字の行も未設定として読む（DTO は `memo: null`）
 - DB の読み書きとスキーマ移行の失敗は [persistence.md](persistence.md#失敗時の扱い) と同じで、health の `appDb` と 503 に出る
 
 ## 利用可能なモデルとアプリ既定モデル
@@ -64,11 +71,22 @@ CREATE TABLE IF NOT EXISTS model_settings (
 
 `PI_MODELS` / `PI_MODEL` / `PI_PROVIDER` は読まない。設定されていても無視し、`GET /api/settings/models` の `ignoredEnvironmentVariables`（設定されている名前だけ）と起動ログの警告で削除を促す。カタログ外の残存エントリがある間は保存できず（400）、画面の削除導線で 1 手間かけて消す。
 
+## プロバイダーごとのメモ
+
+`provider_memos` は「この provider にどのキーを入れたか」（無料枠 / 課金枠、個人 / 会社アカウントなど）を人間が思い出すための任意文字列で、**キーの登録有無（`managed`）とは独立**している。キーは再表示しないため、画面からでは見分けられない。
+
+- 保存先を `provider_credentials` に相乗りさせないのは、`managed`・[削除]・degraded が「この画面で登録したキーの行」を意味する契約を守るため。メモだけの行が credential にあると、キーが無いのに `managed: true` になり、`deleteKey` が SDK の overlay を消しにいく。`apiKey` が `NOT NULL` なので列を足すだけでもメモ単独の行は作れない
+- `putMemo` は `trim()` して空なら行を消し（未設定へ戻す）、それ以外は upsert する。行が無い = 未設定を保つため、空文字の行は残さない
+- メモ欄はキーの登録可否（`canSetApiKey`）と無関係に出し、ambient / keyless の provider にも書ける。キーの行と同様に `managed` / `degraded` / `orphan` の意味は変えない
+- キーを削除してもメモは消さない。ユーザーが書いたテキストを黙って消さないため、消したいときはメモ欄を空にして保存する
+- カタログから消えた provider のメモは `orphan: true` のカードとして出続け、空にして保存すると消える
+- メモは秘密情報ではない。マスカー（`retainSecret`）に登録せず、代わりにログ・health・エラー文言のどの経路にも値を載せない（[secrets.md](secrets.md)）
+
 ## 応答契約
 
 | 結果 | HTTP | body `state` | 意味 |
 | --- | --- | --- | --- |
-| DB 保存 + SDK 反映まで成功（モデル選択は DB 保存 + state 再計算） | 200 | `applied` | 完了 |
+| DB 保存 + SDK 反映まで成功（モデル選択・メモは DB 保存だけ） | 200 | `applied` | 完了 |
 | DB 保存済み・SDK 反映が未完了 | 200 | `applied_unsynced` | キーは永続化された。反映は resync / 次回変更 / 再起動で行う |
 | DB 保存に失敗（何も変わっていない） | 503 | `not_stored` | 変更は適用されていない |
 | 入力・対象が不正 | 400 | — | 変更なし |
@@ -76,7 +94,7 @@ CREATE TABLE IF NOT EXISTS model_settings (
 
 `applied_unsynced` は「永続化は確定した」ので 2xx とする（成功と失敗の混在を HTTP で二重表現しない）。`not_stored` は DB の**単一ステートメント（自動コミット）が commit されなかった**場合だけに使い、DB 書込後に DTO の組み立てや state の再計算が失敗した場合は `applied_unsynced` として degraded を残す。利用可能なモデルの保存だけは SDK 呼び出しを持たないため `applied` だけを返す（DTO を組めないときも、保存が確定していれば `applied` として次の GET に追随させる）。GET は `state` を持たない純粋読取で、SDK 呼び出しも修復も行わない。
 
-このとき一覧を読めずに rows を空で組むフォールバックでも、`managed` は**行があると確定している操作（PUT / resync apply）だけ**に付け、DELETE のフォールバックでは対象を `managed: true` にしない（`managed` = DB 行の契約を守り、削除できた行に [削除] を残して再削除を 400 にしない）。
+このとき一覧を読めずに rows を空で組むフォールバックでも、`managed` は**行があると確定している操作（PUT / resync apply）だけ**に付け、DELETE のフォールバックでは対象を `managed: true` にしない（`managed` = DB 行の契約を守り、削除できた行に [削除] を残して再削除を 400 にしない）。メモの保存も SDK 呼び出しを含まないため `applied` だけを返し、DTO を組めないときは `#compose([], [], selection)` 相当の縮退で `applied` を返して次の GET に追随させる（この経路では `managed` / `memo` が一時的に欠けうる）。
 
 ## 手順と並行性
 
@@ -89,7 +107,7 @@ CREATE TABLE IF NOT EXISTS model_settings (
 5. `refreshModelState()` を 1 回（成功・失敗のどちらでも）。可用 0 の安全な state へ寄せ、例外を出さない
 6. `applied` なら degraded を解除、そうでなければ `apply` / `remove` として記録して応答を組む
 
-利用可能なモデルの保存は 1 → 3 → `setModelSelection()` → 5 の順で、SDK commit（4）と degraded（6）を持たない。応答は「自分の変更までを含む state」を公開し、別 provider の同時 PUT も 1 件ずつ直列化される。1 回の例外（lock の rejected Promise）で後続の変更が止まらない。
+利用可能なモデルの保存は 1 → 3 → `setModelSelection()` → 5 の順で、SDK commit（4）と degraded（6）を持たない。メモの保存は「対象 provider の存在確認（カタログ / credential 行 / メモ行のいずれか。無ければ 400）」→ 3 の順で、`refreshModelState()` も health / カタログの再取得も行わない。応答は「自分の変更までを含む state」を公開し、別 provider の同時 PUT も 1 件ずつ直列化される。1 回の例外（lock の rejected Promise）で後続の変更が止まらない。
 
 - `CredentialCommit` の写像: SDK の `CredentialSynchronizationError` は Map への commit 後に同期が失敗した印なので、`providerId` と `operation` が一致するときだけ `applied/synced: false` とする。開始前と確実に識別できる abort（呼び出し時に signal が abort 済み）は `not_applied`、timeout・実行中 abort・未知の例外は `unknown` として**未適用と断定しない**。`credential` / `cause` / 生の例外文言は応答・health・ログへ流さない
 
@@ -108,7 +126,7 @@ CREATE TABLE IF NOT EXISTS model_settings (
    - カタログに無い provider（orphan）と 8 文字未満の行は SDK へ渡さず、`degraded: "apply"` だけ記録する（GET の削除導線）
 5. 最後に `refreshModelState()` を 1 回
 
-`degraded` はこのプロセスのメモリだけが持つ（再起動で消える）。GET はカタログの provider、DB 行、degraded の和集合を返し、DB 行にしか無い provider は `orphan: true` / `canSetApiKey: false` / `managed: true` として削除導線を出す。
+`degraded` はこのプロセスのメモリだけが持つ（再起動で消える）。GET はカタログの provider、`provider_credentials` 行、`provider_memos` 行、degraded の和集合を返し、DB 行にしか無い provider は `orphan: true` / `canSetApiKey: false` / `managed: true` として削除導線を出し、メモ行にしか無い provider は `managed: false` / `orphan: true` として出す。`#settingOf` の degraded 自動付与（orphan → `apply`）は credential 行がある（`appliable`）provider だけに限り、メモだけの orphan に「保存済み（未反映）」と [再同期] を出さない。
 
 ## 秘密マスク
 
@@ -116,6 +134,7 @@ CREATE TABLE IF NOT EXISTS model_settings (
 - 登録済みのキーは削除・上書き後も**プロセス生存中は保護対象から外さない**。`session.jsonl` は raw の入力を持ち、表示のたびに現在のマスカーで再投影するため、削除は「今後の認証に使わない」であって「過去の値を開示してよい」ではない（[secrets.md](secrets.md)）
 - キーは GET 系 API の応答に一切含めない。入力の長さは 8..2048 文字で、これより短いキーしか受け付けない keyless / ローカル provider は環境変数や `models.json` の領域として GUI の対象外にする
 - `AppDb.open({ storeDir, sanitizeError })` で `#query` と `open()` のログ・`#error`（health / 503 に載る）をマスカーで境界化する。`bootstrap.ts` は可変マスカーを渡し、後から登録されたキーにも効かせる
+- メモは秘密情報ではないので `retainSecret()` に渡さない。任意の自由文を登録すると、短いメモでも `createMutableSecretMasker` が値をマスクし、よくある単語が会話表示で赤塗りされる誤爆の方が実害より大きい。代わりに、ログ・health・エラー文言のどの経路にも値を載せない
 
 ## API
 
@@ -124,6 +143,7 @@ CREATE TABLE IF NOT EXISTS model_settings (
 | GET | `/api/settings/models` | 保存値（`allowedModels` / `defaultModel` / `ignoredEnvironmentVariables`）と provider 一覧（auth 状態・managed・degraded・orphan）。純粋読取 |
 | PUT | `/api/settings/models/allowed` | 利用可能なモデルとアプリ既定モデルの一括保存。両方 `null` が未設定へ戻す |
 | PUT | `/api/settings/models/:provider/key` | APIキーを登録（既存は上書き） |
+| PUT | `/api/settings/models/:provider/memo` | provider のメモを保存（`trim` して空なら行を削除）。上限 500 文字 |
 | DELETE | `/api/settings/models/:provider/key` | この画面で登録したキーを削除（行が無ければ 400） |
 | POST | `/api/settings/models/:provider/resync` | degraded の回復。body 無し |
 
@@ -138,7 +158,8 @@ CREATE TABLE IF NOT EXISTS model_settings (
   - 保存で利用可能なモデルが 0 件になるときと既定が未認証のときは、固定バーに画面内の確認（[保存する] / [キャンセル]）を出し、後者は保存前から警告を出す。判定と文言は `client/src/lib/modelSettings.ts` の純関数が持ち、ネイティブの `window.confirm` は使わない（DOM なしで検証するため。同意するまで PUT を送らない）
   - 許可されているかの正は `GET /api/settings/models` の `allowedModels` だけで、カタログは available とモデル一覧にしか使わない。カタログを取得できないときは `catalogError` で編集不可を出し、provider のキー操作は妨げない（`catalog === null` は初期ロード中も真になるため、編集可否の判定には使わない）
   - 保存後は health とカタログを取り直して、入力欄のモデル候補を追随させる。live の会話のモデルを切り替えないことを画面に注記する（[model-effort.md](model-effort.md#既存の会話への影響認証の変更)）
-- 画面は provider を「設定済み（`auth.configured` / `managed` / 利用可能モデルあり）」と「未設定」に分け、未設定は畳む。各カードに認証バッジ（未設定 / 環境変数（変数名）/ 保存済み（auth.json）/ この画面で登録済み（実効）/ 保存済み（未反映）/ 削除が未反映 / カタログ外）と、`canSetApiKey` のときだけキー入力、`managed` のときだけ削除（確認に既存会話への影響を出す）、再同期可能な `degraded` のときだけ再同期を出す
+- 画面は provider を「設定済み（`auth.configured` / `managed` / メモあり / 利用可能モデルあり）」と「未設定」に分け、未設定は畳む。各カードに認証バッジ（未設定 / 環境変数（変数名）/ 保存済み（auth.json）/ この画面で登録済み（実効）/ 保存済み（未反映）/ 削除が未反映 / カタログ外）と、`canSetApiKey` のときだけキー入力、`managed` のときだけ削除（確認に既存会話への影響を出す）、再同期可能な `degraded` のときだけ再同期を出す。メモは「メモあり」を設定済み側の条件に足すだけで、キーのバッジと折りたたみの中身は変えない（メモが折りたたみに隠れると見つけられないため）
+- メモ欄はキー入力とは別の `<form>` にした `<textarea rows={2} maxLength={500}>` と [メモを保存] で、Enter がキーの保存を走らせない。入力値は `provider.memo` が変わったときだけ同期し、dirty（`trim` 後の値が保存値と違う）のときだけ保存を有効にしてカード内に未保存の印を出す。保存に成功したら応答の `trim` 済みの値で入力値を戻す。メモの保存は SDK に触れないので health / カタログを取り直さず、進行中の `reload()` の応答で保存直後を上書きされないよう先行ロードの無効化だけ行う。`runtimeAvailable: false` のときは入力欄と保存を disable し、runtime 停止時の注意書きにメモも含める。カタログ外のメモだけの provider には「キーの登録はできません（メモは保存できます）」と案内する
 - 未反映の案内文（`degradedNotice`）は、そのカードで実際に押せる回復操作に合わせる。カタログ外（`orphan`）の `apply` は resync API も 400 にするため [再同期] を案内せず、[削除] とカタログ復帰を案内する
 - APIキーの登録後は health と `GET /api/runtime/models` を取り直し、入力欄のモデル候補とモデル数を追随させる。カタログの取得失敗は設定 API の表示を壊さず、別の注記として出す
 - 8 文字未満は保存前に同じ理由で止める（サーバーも 400）
@@ -168,18 +189,19 @@ CREATE TABLE IF NOT EXISTS model_settings (
 - 環境変数の警告は表示だけで自動移行しない
 - DB を読めないときは制限が外れた状態（制限なし）で起動する。気付けるのは起動ログの警告・health の `appDb`・設定 API の 503 に限る
 - `PI_SECRET_ENV_VARS` は環境変数名の指定なので、GUI 登録のキーには不要
+- メモは平文で DB に入り、GET 応答にも平文で載る（ログインの無い BFF は LAN 越しに読める）。画面の注意書きと placeholder でキー本体を書かないよう誘導するが、短いメモでも会話表示のマスクは掛からない
 - OAuth のブラウザログイン、`models.json` のカスタム provider / baseUrl の編集、既定 Effort（`PI_THINKING`）の GUI 化、プロジェクト / エージェント単位のモデル制限は対象外
 
 ## 検証
 
 実 API は呼ばず、ダミーキーと fake / stub で検証する。
 
-- `server/test/app-db.test.ts` — v4 → v5 の加算移行、`model_settings` の CRUD、空配列 = 制限なしの正規化、両方 NULL の行削除、壊れた JSON の 503、`sanitizeError` の境界
-- `server/test/model-settings.test.ts` — GET / PUT / DELETE / resync の契約、DB-first、1 回だけの再試行、degraded の解除と記録と DTO を組めないときの `managed` の補正、利用可能なモデルの正規化・検証（カタログ外・既定が許可外・形式・重複）と 503、起動適用（model_settings と provider_credentials の独立した読取・setter → refresh の順序・マスク登録の順序）、別 provider の並行 PUT の直列化、lock の rejected Promise、キー値を含む例外が応答とログへ漏れないこと
-- `server/test/model-settings-api.test.ts` — HTTP 契約（200 `applied` / `applied_unsynced`、503 `not_stored`、400）、再起動後の適用、DB 不通、health とログのマスク、`ignoredEnvironmentVariables`
+- `server/test/app-db.test.ts` — v4 → v5 / v5 → v6 の加算移行、`model_settings` の CRUD、空配列 = 制限なしの正規化、両方 NULL の行削除、壊れた JSON の 503、`provider_memos` の CRUD（上書き・削除・空文字行 = 未設定）、`sanitizeError` の境界
+- `server/test/model-settings.test.ts` — GET / PUT / DELETE / resync の契約、DB-first、1 回だけの再試行、degraded の解除と記録と DTO を組めないときの `managed` の補正、利用可能なモデルの正規化・検証（カタログ外・既定が許可外・形式・重複）と 503、メモの `trim`・空で削除・対象外 400・DB 失敗 503・メモ値を応答とログへ出さないこと・degraded を作らないこと、GET の 4 経路（カタログ / credential 行 / メモ行 / degraded）とメモだけの orphan の扱い、キー削除後もメモが残ること、起動適用（model_settings と provider_credentials の独立した読取・setter → refresh の順序・マスク登録の順序）、別 provider の並行 PUT の直列化、lock の rejected Promise、キー値を含む例外が応答とログへ漏れないこと
+- `server/test/model-settings-api.test.ts` — HTTP 契約（200 `applied` / `applied_unsynced`、503 `not_stored`、400）、メモの 200 / 400（500 文字超は route の zod）/ 503 と再起動後の読み出し、再起動後の適用、DB 不通、health とログのマスク、`ignoredEnvironmentVariables`
 - `server/test/provider-key-runtime.test.ts` — `CredentialCommit` の写像（CSE の照合・開始前 abort・実行中 abort・未知の例外）
 - `server/test/model-state.test.ts` — `deriveModelState` / `readModelState`（許可リストの積・既定モデル・カタログの導出・可用 0・失敗時の安全な state）、`filterModelsByWhitelist()`
 - `server/test/api.test.ts` — health から `runtimeDiagnostics` が消えたこと、モデルカタログ応答に whitelist 系フィールドが無いこと
 - `server/test/redact.test.ts` — `createMutableSecretMasker` の swap と streaming masker への追随
-- `client/test/modelSettings.test.ts` / `client/test/modelSettingsPage.test.ts` — 表示変換（認証バッジ・並び・入力検証・注記・回復案内）、利用可能なモデルの並べ替え・dirty 判定・provider 一括操作・集計・確認文、固定バーの初期描画（変更なしでは保存無効）とカタログ外・未設定・環境変数の注記・カタログ取得失敗時の編集不可
+- `client/test/modelSettings.test.ts` / `client/test/modelSettingsPage.test.ts` — 表示変換（認証バッジ・並び・入力検証・メモの検証・注記・回復案内）、利用可能なモデルの並べ替え・dirty 判定・provider 一括操作・集計・確認文、固定バーの初期描画（変更なしでは保存無効）とカタログ外・未設定・環境変数の注記・カタログ取得失敗時の編集不可、メモ欄・保存ボタン・runtime 停止時の disable・メモだけの orphan の案内
 - `client/test/runtimePage.test.ts` — 設定 → ランタイムから「モデル解決」が消えたこと

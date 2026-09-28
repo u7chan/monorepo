@@ -17,12 +17,18 @@ import type {
 
 export const APP_DB_FILENAME = "u7agent.db";
 /** テーブル定義を変えたら上げる。新規作成と加算移行はこの版へ揃え、未知の版は作り直す */
-export const APP_DB_SCHEMA_VERSION = 5;
+export const APP_DB_SCHEMA_VERSION = 6;
 
 /** プロバイダー API キーの保存行。平文なのでアクセス権の管理は docs/secrets.md を正とする */
 export interface ProviderCredentialRow {
   provider: string;
   apiKey: string;
+}
+
+/** プロバイダーに紐づく人間用メモの保存行。空文字の行は未設定として返す (optionalText) */
+export interface ProviderMemoRow {
+  provider: string;
+  memo: string;
 }
 
 /** 利用可能なモデル / アプリ既定モデルの保存行。null は未設定 (制限なし・候補の先頭) を表す */
@@ -97,6 +103,17 @@ CREATE TABLE IF NOT EXISTS model_settings (
 );
 `;
 
+/**
+ * v5 -> v6 で足したテーブル。provider に紐づく人間用メモで、**行が無い = 未設定**。
+ * credential とは別テーブルにし、キーの登録有無 (managed) とメモを混ぜない。
+ */
+const PROVIDER_MEMOS_TABLE = `
+CREATE TABLE IF NOT EXISTS provider_memos (
+  provider TEXT PRIMARY KEY,
+  memo     TEXT NOT NULL
+);
+`;
+
 const CREATE_TABLES = `
 CREATE TABLE projects (
   id TEXT PRIMARY KEY,
@@ -124,7 +141,8 @@ CREATE TABLE agents (
 ${NOTIFICATION_SETTINGS_TABLE}
 ${ARCHIVE_SETTINGS_TABLE}
 ${PROVIDER_CREDENTIALS_TABLE}
-${MODEL_SETTINGS_TABLE}`;
+${MODEL_SETTINGS_TABLE}
+${PROVIDER_MEMOS_TABLE}`;
 
 /** アプリ所有のテーブルだけを落とす (同じ DB に足した別機能のテーブルを巻き込まない) */
 const DROP_TABLES = `
@@ -135,6 +153,7 @@ DROP TABLE IF EXISTS notification_settings;
 DROP TABLE IF EXISTS archive_settings;
 DROP TABLE IF EXISTS provider_credentials;
 DROP TABLE IF EXISTS model_settings;
+DROP TABLE IF EXISTS provider_memos;
 `;
 
 /**
@@ -207,6 +226,12 @@ function skillOf(row: Row): SkillDef {
 
 function providerCredentialOf(row: Row): ProviderCredentialRow {
   return { provider: text(row.provider), apiKey: text(row.apiKey) };
+}
+
+/** 空文字の行は未設定として落とす (手編集された DB を「メモあり」と読み違えない) */
+function providerMemoOf(row: Row): ProviderMemoRow | undefined {
+  const memo = optionalText(row.memo);
+  return memo === undefined ? undefined : { provider: text(row.provider), memo };
 }
 
 function notificationSettingsOf(row: Row): NotificationSettings {
@@ -414,6 +439,7 @@ export class AppDb {
       this.#query((db) => db.exec(ARCHIVE_SETTINGS_TABLE));
       this.#query((db) => db.exec(PROVIDER_CREDENTIALS_TABLE));
       this.#query((db) => db.exec(MODEL_SETTINGS_TABLE));
+      this.#query((db) => db.exec(PROVIDER_MEMOS_TABLE));
       // PRAGMA はパラメータ化できない (値はコード側の定数)
       this.#query((db) => db.exec(`PRAGMA user_version = ${APP_DB_SCHEMA_VERSION}`));
       this.#query((db) => db.exec("COMMIT"));
@@ -519,6 +545,39 @@ export class AppDb {
     return this.#query(
       (db) => db.prepare("DELETE FROM provider_credentials WHERE provider = ?").run(provider).changes > 0,
     );
+  }
+
+  // --- provider memos (provider に紐づく人間用メモ。行が無い = 未設定) ---
+
+  listProviderMemos(): ProviderMemoRow[] {
+    return this.#query((db) =>
+      (db.prepare("SELECT * FROM provider_memos ORDER BY rowid").all() as Row[])
+        .map(providerMemoOf)
+        .filter((row): row is ProviderMemoRow => row !== undefined),
+    );
+  }
+
+  getProviderMemo(provider: string): ProviderMemoRow | undefined {
+    const row = this.#query(
+      (db) => db.prepare("SELECT * FROM provider_memos WHERE provider = ?").get(provider) as Row | undefined,
+    );
+    return row ? providerMemoOf(row) : undefined;
+  }
+
+  /** 登録と上書きで同じ (provider が主キー)。単一ステートメントなので自動コミットで確定する */
+  saveProviderMemo(provider: string, memo: string): void {
+    this.#query((db) =>
+      db
+        .prepare(
+          `INSERT INTO provider_memos (provider, memo) VALUES (?, ?)
+           ON CONFLICT(provider) DO UPDATE SET memo = excluded.memo`,
+        )
+        .run(provider, memo),
+    );
+  }
+
+  deleteProviderMemo(provider: string): boolean {
+    return this.#query((db) => db.prepare("DELETE FROM provider_memos WHERE provider = ?").run(provider).changes > 0);
   }
 
   // --- model settings (1 行だけ。行が無い = 未設定) ---

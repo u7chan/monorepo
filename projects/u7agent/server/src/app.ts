@@ -29,6 +29,7 @@ import {
   UpdateModelAvailabilityBodySchema,
   UpdateNotificationsBodySchema,
   UpdateProviderKeyBodySchema,
+  UpdateProviderMemoBodySchema,
   UpdateSessionNotifyBodySchema,
   UpdateSessionSettingsBodySchema,
   UpdateSkillBodySchema,
@@ -260,6 +261,14 @@ export async function createBffApp(opts: CreateBffAppOptions = {}) {
       (c) => modelSettingsRoutes.putKey(c, c.req.valid("json").apiKey),
     )
     .delete("/api/settings/models/:provider/key", appDataMutation, modelSettingsRoutes.deleteKey)
+    .put(
+      "/api/settings/models/:provider/memo",
+      appDataMutation,
+      jsonBodyValidator(UpdateProviderMemoBodySchema, (result, c) =>
+        result.success ? undefined : c.json({ error: "Invalid request body" }, 400),
+      ),
+      (c) => modelSettingsRoutes.putMemo(c, c.req.valid("json").memo),
+    )
     .post("/api/settings/models/:provider/resync", appDataMutation, modelSettingsRoutes.resync)
     // Hono は登録順にマッチするため、未マッチの GET を拾う catch-all は最後に置く。
     .get("*", serveClientAssets(clientDistDir))

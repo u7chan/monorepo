@@ -19,6 +19,7 @@ import {
   degradedNotice,
   deleteConfirmMessage,
   groupProviders,
+  MEMO_MAX_LENGTH,
   modelRefKey,
   mutationNote,
   normalizeAllowedModels,
@@ -27,6 +28,7 @@ import {
   sameAvailabilitySettings,
   setAvailabilityProviderModels,
   validateApiKey,
+  validateMemo,
 } from "../src/lib/modelSettings";
 import type {
   ModelMutationResponse,
@@ -44,6 +46,7 @@ function provider(overrides: Partial<ProviderAuthSetting> = {}): ProviderAuthSet
     canSetApiKey: true,
     supportsOAuth: false,
     orphan: false,
+    memo: null,
     ...overrides,
   };
 }
@@ -184,6 +187,7 @@ test("設定済みを先頭に、未設定は後ろへ分ける (並びはサー
       }),
       provider({ provider: "unset-a" }),
       provider({ provider: "managed", managed: true }),
+      provider({ provider: "memo-only", memo: "個人アカウントの控え" }),
       provider({ provider: "anthropic", auth: { configured: false, environmentVariables: [] } }),
       provider({ provider: "unset-b", orphan: true }),
     ],
@@ -191,8 +195,8 @@ test("設定済みを先頭に、未設定は後ろへ分ける (並びはサー
   const groups = groupProviders(configured, CATALOG);
   assert.deepEqual(
     groups.configured.map((entry) => entry.provider),
-    ["configured-env", "managed", "anthropic"],
-    "カタログに available があれば設定済みとして先頭に置く",
+    ["configured-env", "managed", "memo-only", "anthropic"],
+    "カタログに available があるか、メモがある provider は設定済みとして先頭に置く",
   );
   assert.deepEqual(
     groups.unconfigured.map((entry) => entry.provider),
@@ -201,6 +205,12 @@ test("設定済みを先頭に、未設定は後ろへ分ける (並びはサー
   assert.equal(availableCountOf(CATALOG, "anthropic"), 1);
   assert.equal(availableCountOf(CATALOG, "unknown"), 0);
   assert.equal(availableCountOf(null, "anthropic"), 0);
+  // メモだけの provider もカタログ無しで設定済み側へ出す (折りたたみに隠れない)
+  const memoOnly = groupProviders(settings({ providers: [provider({ provider: "memo-only", memo: "控え" })] }), null);
+  assert.deepEqual(
+    memoOnly.configured.map((entry) => entry.provider),
+    ["memo-only"],
+  );
 });
 
 test("APIキーの長さはサーバーと同じ境界で検証する", () => {
@@ -208,6 +218,14 @@ test("APIキーの長さはサーバーと同じ境界で検証する", () => {
   assert.equal(validateApiKey("a".repeat(API_KEY_MIN_LENGTH)), undefined);
   assert.equal(validateApiKey("a".repeat(API_KEY_MAX_LENGTH)), undefined);
   assert.equal(validateApiKey("a".repeat(API_KEY_MAX_LENGTH + 1)), "APIキーは 2048 文字以内で入力してください。");
+});
+
+test("メモは上限だけを検証し、空文字はクリアとして通す", () => {
+  // 空は「行を消して未設定へ戻す」なのでエラーにしない
+  assert.equal(validateMemo(""), undefined);
+  assert.equal(validateMemo("個人アカウントの控え"), undefined);
+  assert.equal(validateMemo("a".repeat(MEMO_MAX_LENGTH)), undefined);
+  assert.equal(validateMemo("a".repeat(MEMO_MAX_LENGTH + 1)), `メモは ${MEMO_MAX_LENGTH} 文字以内で入力してください。`);
 });
 
 test("変更系の注記は state ごとに再同期を案内する", () => {
@@ -230,6 +248,9 @@ test("変更系の注記は state ごとに再同期を案内する", () => {
     text: "利用可能なモデルを保存しました。新しい会話の候補を更新しています。",
     error: false,
   });
+  // メモは SDK に触れないため applied_unsynced は来ない。空で保存したときだけ文言を分ける
+  assert.deepEqual(mutationNote("memo", applied), { text: "メモを保存しました。", error: false });
+  assert.deepEqual(mutationNote("memo", applied, true), { text: "メモを消しました。", error: false });
 });
 
 test("削除の確認は既存会話への影響を伝える", () => {

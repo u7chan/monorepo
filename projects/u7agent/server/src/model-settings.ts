@@ -4,7 +4,7 @@
  * degraded (保存済み・未反映) として記録して resync / 次回変更 / 再起動で収束させる (補償ロールバックは持たない)。
  * 契約と残存リスクは docs/model-settings.md を正とする。
  */
-import type { ModelSettingsRow, ProviderCredentialRow } from "./app-db";
+import type { ModelSettingsRow, ProviderCredentialRow, ProviderMemoRow } from "./app-db";
 import { sanitizeRuntimeAuth, type RuntimeAuthStatusLike } from "./agent";
 import { httpError, messageFor } from "./http";
 import {
@@ -41,6 +41,11 @@ export interface ModelSettingsDb {
   getProviderCredential(provider: string): ProviderCredentialRow | undefined;
   saveProviderCredential(provider: string, apiKey: string): void;
   deleteProviderCredential(provider: string): boolean;
+  /** 行が無ければ undefined = 未設定。空文字の行も未設定として返す */
+  listProviderMemos(): ProviderMemoRow[];
+  getProviderMemo(provider: string): ProviderMemoRow | undefined;
+  saveProviderMemo(provider: string, memo: string): void;
+  deleteProviderMemo(provider: string): boolean;
   /** 行が無ければ undefined = 未設定 */
   readModelSettings(): ModelSettingsRow | undefined;
   saveModelSettings(settings: ModelSettingsRow): void;
@@ -79,6 +84,9 @@ export const PROVIDER_KEY_NOT_STORED_MESSAGE = "APIキーをアプリデータ�
 export const PROVIDER_KEY_TARGET_MESSAGE = "このプロバイダーにはAPIキーを登録できません";
 export const PROVIDER_KEY_NOT_MANAGED_MESSAGE = "この画面で登録したAPIキーがありません";
 export const PROVIDER_RESYNC_TARGET_MESSAGE = "このプロバイダーは再同期できません";
+export const PROVIDER_MEMO_RUNTIME_UNAVAILABLE_MESSAGE = "ランタイムが利用できないため、メモを保存できません";
+export const PROVIDER_MEMO_NOT_STORED_MESSAGE = "メモをアプリデータ（SQLite）へ保存できませんでした";
+export const PROVIDER_MEMO_TARGET_MESSAGE = "このプロバイダーのメモは保存できません";
 export const MODEL_SELECTION_RUNTIME_UNAVAILABLE_MESSAGE =
   "ランタイムが利用できないため、利用可能なモデルを変更できません";
 export const MODEL_SELECTION_NOT_STORED_MESSAGE = "利用可能なモデルをアプリデータ（SQLite）へ保存できませんでした";
@@ -182,7 +190,7 @@ export class ModelSettingsService {
 
   /** GET。純粋読取で、SDK の呼び出しも修復も行わない (DB の失敗は 503 のまま伝える) */
   settings(): ModelsSettingsResponse {
-    return this.#compose(this.#db.listProviderCredentials(), this.#readSelection());
+    return this.#compose(this.#db.listProviderCredentials(), this.#db.listProviderMemos(), this.#readSelection());
   }
 
   /**
@@ -283,7 +291,50 @@ export class ModelSettingsService {
         return { status: 200, response: { ...this.settings(), state: "applied" } };
       } catch {
         // DB への保存は確定している。一覧を組めない応答でも保存済みを伝え、次の GET で追随させる
-        return { status: 200, response: { ...this.#compose([], stored), state: "applied" } };
+        return { status: 200, response: { ...this.#compose([], this.#memosOrEmpty(), stored), state: "applied" } };
+      }
+    });
+  }
+
+  /**
+   * provider のメモ (人間用の任意文字列) の保存。SDK 呼び出しを含まないため degraded は作らず、
+   * キーの登録有無 (managed) も変えない。trim して空なら行を消して未設定へ戻す。
+   */
+  async putMemo(provider: string, memo: string): Promise<MutationOutcome> {
+    return this.#lock.run(async () => {
+      // メモは SDK の認証状態に依存しないが、GET と揃えてランタイム無しでは受け付けない
+      if (!this.#runtime) return this.#runtimeUnavailable(PROVIDER_MEMO_RUNTIME_UNAVAILABLE_MESSAGE);
+      const inCatalog = this.#runtime.list().some((candidate) => candidate.provider === provider);
+      if (!inCatalog) {
+        let known: boolean;
+        try {
+          // カタログ外は credential 行かメモ行が既にあるときだけ許す (canSetApiKey では gate しない)
+          known =
+            this.#db.getProviderCredential(provider) !== undefined || this.#db.getProviderMemo(provider) !== undefined;
+        } catch {
+          console.warn(`[u7agent] provider memo read failed: ${provider}`);
+          return this.#notStored(PROVIDER_MEMO_NOT_STORED_MESSAGE);
+        }
+        if (!known) throw httpError(400, PROVIDER_MEMO_TARGET_MESSAGE);
+      }
+      const trimmed = memo.trim();
+      try {
+        if (trimmed) this.#db.saveProviderMemo(provider, trimmed);
+        else this.#db.deleteProviderMemo(provider);
+      } catch {
+        // DB の理由は AppDb の境界がマスクして記録する。ここは provider と操作の分類だけに絞る
+        console.warn(`[u7agent] provider memo ${trimmed ? "save" : "delete"} failed: ${provider}`);
+        return this.#notStored(PROVIDER_MEMO_NOT_STORED_MESSAGE);
+      }
+      // SDK と公開 state に触れないため refreshModelState() も health / カタログの再取得も行わない
+      try {
+        return { status: 200, response: { ...this.settings(), state: "applied" } };
+      } catch {
+        // 保存は確定している。一覧を組めない応答でも applied を返し、次の GET で追随させる
+        return {
+          status: 200,
+          response: { ...this.#compose([], this.#memosOrEmpty(), this.#selectionOrUnset()), state: "applied" },
+        };
       }
     });
   }
@@ -378,7 +429,10 @@ export class ModelSettingsService {
       const assumedManaged = operation === "apply" ? provider : undefined;
       return {
         status: 200,
-        response: { ...this.#compose([], this.#selectionOrUnset(), assumedManaged), state: "applied_unsynced" },
+        response: {
+          ...this.#compose([], this.#memosOrEmpty(), this.#selectionOrUnset(), assumedManaged),
+          state: "applied_unsynced",
+        },
       };
     }
   }
@@ -406,6 +460,15 @@ export class ModelSettingsService {
     return { allowedModels: row?.allowedModels ?? null, defaultModel: row?.defaultModel ?? null };
   }
 
+  /** メモ一覧の読取。組めないときは空で縮退し、次の GET の 503 で気付けるようにする */
+  #memosOrEmpty(): ProviderMemoRow[] {
+    try {
+      return this.#db.listProviderMemos();
+    } catch {
+      return [];
+    }
+  }
+
   /** provider 変更の応答を組むときの補正。読めない側は未設定で組み、次の GET の 503 で気付けるようにする */
   #selectionOrUnset(): StoredModelSelection {
     try {
@@ -417,26 +480,37 @@ export class ModelSettingsService {
 
   /**
    * GET / 変更系の応答 DTO。rows は DB の生きた行で、`managed` はこの行の有無だけで決める。
+   * memos は provider に紐づく人間用メモで、行がある provider は credential / カタログに無くても
+   * orphan として出す (managed は false のままで、バッジは既存の「カタログ外」に落ちる)。
    * `assumedManaged` は一覧を読めず rows が空のときだけ渡せる「行があると確定している」provider の補正で、
    * 呼び出し側が書込/読取の成功で保証できる apply のときだけ使う (DELETE では渡さない)。
    */
   #compose(
     rows: ProviderCredentialRow[],
+    memos: ProviderMemoRow[],
     selection: StoredModelSelection,
     assumedManaged?: string,
   ): ModelsSettingsResponse {
     const managed = new Set(rows.map((row) => row.provider));
     if (assumedManaged) managed.add(assumedManaged);
+    const memoOf = new Map(memos.map((row) => [row.provider, row.memo]));
     const providers = new Map<string, ProviderAuthSetting>();
     for (const entry of this.#runtime?.list() ?? []) {
       providers.set(
         entry.provider,
-        this.#settingOf(entry.provider, entry.name, this.#runtime?.auth(entry.provider), {
-          managed: managed.has(entry.provider),
-          canSetApiKey: entry.canSetApiKey,
-          supportsOAuth: entry.supportsOAuth,
-          orphan: false,
-        }),
+        this.#settingOf(
+          entry.provider,
+          entry.name,
+          this.#runtime?.auth(entry.provider),
+          {
+            managed: managed.has(entry.provider),
+            canSetApiKey: entry.canSetApiKey,
+            supportsOAuth: entry.supportsOAuth,
+            orphan: false,
+            appliable: managed.has(entry.provider),
+          },
+          memoOf.get(entry.provider),
+        ),
       );
     }
     for (const row of rows) {
@@ -444,12 +518,27 @@ export class ModelSettingsService {
       // カタログに無い行 (orphan) は SDK へ適用できないため、未反映として復旧・削除の導線を出す
       providers.set(
         row.provider,
-        this.#settingOf(row.provider, row.provider, undefined, {
-          managed: true,
-          canSetApiKey: false,
-          supportsOAuth: false,
-          orphan: true,
-        }),
+        this.#settingOf(
+          row.provider,
+          row.provider,
+          undefined,
+          { managed: true, canSetApiKey: false, supportsOAuth: false, orphan: true, appliable: true },
+          memoOf.get(row.provider),
+        ),
+      );
+    }
+    for (const row of memos) {
+      if (providers.has(row.provider)) continue;
+      // メモだけの provider。キーの行ではないので managed / degraded を付けず、メモ欄と消去の導線だけを残す
+      providers.set(
+        row.provider,
+        this.#settingOf(
+          row.provider,
+          row.provider,
+          undefined,
+          { managed: false, canSetApiKey: false, supportsOAuth: false, orphan: true, appliable: false },
+          row.memo,
+        ),
       );
     }
     // 削除に失敗した overlay は DB 行が無く、カタログからも消えていることがある。行が無くても再同期の導線を残す
@@ -457,12 +546,19 @@ export class ModelSettingsService {
       if (providers.has(provider)) continue;
       providers.set(
         provider,
-        this.#settingOf(provider, provider, undefined, {
-          managed: managed.has(provider),
-          canSetApiKey: false,
-          supportsOAuth: false,
-          orphan: true,
-        }),
+        this.#settingOf(
+          provider,
+          provider,
+          undefined,
+          {
+            managed: managed.has(provider),
+            canSetApiKey: false,
+            supportsOAuth: false,
+            orphan: true,
+            appliable: false,
+          },
+          memoOf.get(provider),
+        ),
       );
     }
     return {
@@ -479,9 +575,18 @@ export class ModelSettingsService {
     provider: string,
     name: string,
     auth: RuntimeAuthStatusLike | undefined,
-    flags: { managed: boolean; canSetApiKey: boolean; supportsOAuth: boolean; orphan: boolean },
+    flags: {
+      managed: boolean;
+      canSetApiKey: boolean;
+      supportsOAuth: boolean;
+      orphan: boolean;
+      /** provider_credentials に行がある。orphan への degraded 自動付与は適用対象のキーがあるときだけ */
+      appliable: boolean;
+    },
+    memo: string | undefined,
   ): ProviderAuthSetting {
-    const degraded = flags.orphan && !this.#degraded.has(provider) ? "apply" : this.#degraded.get(provider);
+    const degraded =
+      flags.orphan && flags.appliable && !this.#degraded.has(provider) ? "apply" : this.#degraded.get(provider);
     const sanitized: RuntimeAuth = sanitizeRuntimeAuth(auth);
     return {
       provider,
@@ -492,6 +597,7 @@ export class ModelSettingsService {
       supportsOAuth: flags.supportsOAuth,
       orphan: flags.orphan,
       ...(degraded ? { degraded } : {}),
+      memo: memo ?? null,
     };
   }
 }
