@@ -158,7 +158,7 @@ Content-Security-Policy: sandbox allow-scripts; default-src 'none'; style-src 'u
 
 ## 画面と root
 
-ツリーとプレビューの本体は `client/src/components/FileBrowser.tsx` で、root を props で受け取る。同じ実装を 2 画面が別の root で使う。
+ツリーとプレビューの本体は `client/src/components/FileBrowser.tsx` で、root を props で受け取る。同じ実装を 3 面が別の root で使う。
 
 | 画面 | 外装 | root | 出す条件 |
 | --- | --- | --- | --- |
@@ -245,7 +245,7 @@ assistant 本文のインラインコードが指すファイルを、右パネ�
 
 ## 行の操作メニュー（⋯）
 
-行の右端の ⋯（`client/src/components/RowMenu.tsx`）に、その行の操作（ダウンロード / リネーム / 削除）を 1 つのメニューとして畳む。同じ ⋯ を左サイドバーのプロジェクト行 / セッション行とも共有する（[ui-layout.md](ui-layout.md#サイドバー)）。行ごとにアイコンを並べる方式では、固定幅の列（`@2xl:w-72` = 288px。最大 3 スロット = 84px）で名前が数文字まで truncate され、1 行あたりのタブストップも最大 3 つあった。
+行の右端の ⋯（`client/src/components/RowMenu.tsx`）に、その行の操作（ダウンロード / リネーム / 削除）を 1 つのメニューとして畳む。同じ ⋯ を左サイドバーのプロジェクト行 / セッション行とも共有する（[ui-layout.md](ui-layout.md#サイドバー)）。行ごとにアイコンを並べる方式では、幅の狭い列（当時は `@2xl:w-72` = 288px 固定。最大 3 スロット = 84px）で名前が数文字まで truncate され、1 行あたりのタブストップも最大 3 つあった。
 
 - **出し分けの正は `client/src/lib/fileRowMenu.ts` の `fileRowActions`**。`null` = 行の操作領域ごと出さない（`readOnly`）、`[]` = 領域は出すが項目が無い（symlink。`aria-hidden` の `size-6` の空きスロット `EmptySlot` を 1 個だけ置いて時刻の右端をそろえる）と契約を分ける（`[]` だけで両方を表すと、`FileBrowser` 側で `readOnly` と symlink を区別できない）。項目は ダウンロード → リネーム → 削除 の順で、ディレクトリのダウンロードだけラベル「ZIP でダウンロード」+ 2 行目「ビルド成果物と依存を除く」を持つ（以前の `title` の開示をメニュー項目へ移した）。条件は移行前と同じで、[ダウンロード](#ダウンロード) / [リネーム](#リネーム) / [削除](#削除) をそれぞれ参照
 - **項目の型と、位置 / キーボード移動の計算は `client/src/lib/rowMenu.ts` の共有部**（`RowMenuAction` / `rowMenuPlacement` / `rowMenuAnchorVisible` / `nextRowMenuIndex`）。画面ごとの出し分けはここ（`fileRowMenu.ts` の `fileRowActions`）と `client/src/lib/sidebarRowMenu.ts` の `projectRowActions` / `sessionRowActions` が持ち、描画は `RowMenu.tsx` 1 箇所で共有する
