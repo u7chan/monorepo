@@ -1,12 +1,39 @@
 # 画像生成（generate_image ツール）
 
-チャットから画像を生成し、セッションの作業フォルダへ保存する。生成そのものは BFF が provider（v1 は OpenRouter）の画像専用 API（`POST {baseUrl}/images`）へ要求し、保存だけをサンドボックスの upload API へ委譲する（BFF は作業領域に触らない）。provider の APIキーは 設定 → モデル の「画像生成」タブで登録し、アプリ DB の `image_settings` に**平文**で保存する。
+チャットから画像を生成し、セッションの作業フォルダへ保存する。生成そのものは BFF が provider（v1 は OpenRouter）の画像専用 API（`POST {baseUrl}/images`）へ要求し、保存だけをサンドボックスの upload API へ委譲する（BFF は作業領域に触らない）。provider の APIキーは 設定 → モデル の「画像生成」タブで登録し、アプリ DB の `image_settings` に**平文**で保存する。モデルの選択肢は OpenRouter の画像モデル API（`GET /api/v1/images/models`）を正とし、取得できないときは前回の成功（アプリ DB のキャッシュ）→ SDK 同梱の順に落ちる。
 
 - 画像専用のキー・モデルを `provider_credentials` とは別に管理する。プロバイダー登録済みキーは流用せず、画像タブで登録したキーだけを使う（別 provider のキーへ黙って切り替えない）
 - キーが有効（`image_settings` に行がある）ときだけ、モデルへ `generate_image` を見せる。未設定ならツール一覧に現れない
 - ツールは **BFF ローカル**（`server/src/image-tools.ts`）。サンドボックスのリモート定義ではなく、`createRemoteToolDefinitions` / `REMOTE_TOOL_NAMES` の外にあり、`PI_AGENT_TOOLS` の影響を受けない
 - 保存は `workspace.uploadFile({ dir, name })`。`dir` は root 相対で渡す（BFF がセッション cwd を前置する 1 段。`projects.ts` の cwd 解決とは混ぜない）
 - 設定画面の操作は 設定 → モデル の「画像生成」タブ。API は [api.md](api.md#画像生成設定--モデルの画像生成タブ) を参照
+
+## モデルカタログ
+
+選択肢の正は OpenRouter の live 一覧（`GET https://openrouter.ai/api/v1/images/models`）。pi-ai 同梱のカタログは SDK のリリース時点のスナップショットで、live とずれる（追加されたモデルが出ない / `/images` に無い `openrouter/auto*` が混ざる）。実装は `server/src/image-catalog.ts`。
+
+| 出どころ (`catalogSource`) | いつ | `fetchedAt` |
+| --- | --- | --- |
+| `live` | このプロセスで取得に成功した（メモリ保持） | 取得時刻 |
+| `stored` | 今回の起動では取れず、前回の成功を DB キャッシュから読んだ | 前回の取得時刻 |
+| `sdk` | キャッシュも無く、SDK 同梱のカタログを使っている（ルーター用メタモデルは除外） | `null` |
+
+- 取得は **API キーを使わない**（一覧 API は認証を見ないので、認証ヘッダも付けない）。キーの有無・有効性とは独立で、**キーの死活チェックには使えない**（無効なキーでも 200 が返る）
+- 取得契機は 起動時（`image_settings` に行があるとき）/ 手動の [再取得]。`GET /api/settings/images` はネットワークに触らず、メモリ上の現在値を返すだけ。キー保存にも紐づけない（設定の変更を外部 API の待ち時間へ巻き込まない）
+- 期限は 10 秒（`IMAGE_CATALOG_TIMEOUT_MS`）+ リトライなし。失敗は timeout / 混雑（429・5xx）/ 不明の固定文言へ分類し、上流の応答本文はログにも UI にも出さない
+- 取得成功時だけ DB（`image_catalog`）へ `id` と表示名を残す。失敗しても一覧は前のままで、`catalogSource` / `fetchedAt` も変えない
+- 起動時は先にキャッシュを読み、行があれば続けて live を試す。live が失敗しても「前回の一覧」から始められる
+- SDK 同梱へ落ちるときは `openrouter/*`（= `openrouter/auto*`）を除く。画像専用 API に存在せず、選ぶと生成が 404 になる
+- キャッシュは利用者データではない。行が無い / 形が違う / JSON が壊れているときは「未取得」として読み、health の失敗にはしない（次の取得成功で上書きされて直る。ここで 503 にすると、取得で直せる設定画面自体が開かなくなる）
+
+### 画面表示
+
+モデル欄に由来と最終取得時刻を出す。`live` 以外は警告色で、前回の一覧 / SDK 同梱のどちらを見ているかを明示する（黙って古い一覧を見せない）。
+
+- `live`: 「モデル一覧は OpenRouter から取得しました（最終取得: 3時間前）」
+- `stored`: 「OpenRouter から取得できなかったため、前回の一覧を表示しています（最終取得: …）」
+- `sdk`: 「OpenRouter から取得できていないため、SDK の組み込み一覧を表示しています」
+- [再取得] は `POST /api/settings/images/catalog/refresh`。**常に 200** で現在の一覧を返し、今回の取得に失敗したときだけ `catalogError`（固定文言）を載せる。UI は既存の注記で「取得できませんでした。表示中の一覧は変わりません。」と出す
 
 ## 保存先とパスの空間
 
@@ -33,7 +60,7 @@
 
 ## 失敗の分類
 
-SDK(pi-ai 0.87.1) の `openrouter-images` は `chat/completions` へ投げるが、画像生成専用モデルはそちらでは 404（`Use the /api/v1/images endpoint instead.`）になる。そのため `server/src/images.ts` は SDK の `generateImages()` を通さず `POST {baseUrl}/images` を自分で叩き、status と本文も自分で読んで次で分類する。SDK はカタログ（モデル一覧と `baseUrl`）にだけ使う。
+SDK(pi-ai 0.87.1) の `openrouter-images` は `chat/completions` へ投げるが、画像生成専用モデルはそちらでは 404（`Use the /api/v1/images endpoint instead.`）になる。そのため `server/src/images.ts` は SDK の `generateImages()` を通さず `POST {baseUrl}/images` を自分で叩き、status と本文も自分で読んで次で分類する。SDK は `baseUrl` の解決にだけ使う（モデル一覧は live カタログ。[モデルカタログ](#モデルカタログ)）。
 
 - 非 2xx の status を分類の根拠にする。理由は本文の `error.message` を優先し、形が違うときだけ生テキストへ落とす（生テキストは非 2xx のみ）
 - 期限は自前の `AbortController` + タイマーだけに掛ける。既定は 180 秒
@@ -66,6 +93,7 @@ SDK(pi-ai 0.87.1) の `openrouter-images` は `chat/completions` へ投げるが
 設定 → モデル の 3 つ目のタブ（`/settings/models/images`）。表示の正は `client/src/lib/imageSettings.ts` の純関数、取得と操作は `client/src/hooks/useImageSettings.ts`、描画は `client/src/components/model-settings/ImageSettingsTab.tsx` に閉じる。
 
 - 未設定ではキー入力だけを出す。`PUT /api/settings/images` は行が無いと 400 のため、モデル選択と削除はキー保存（`PUT /api/settings/images/key`）に成功してから現れる
+- APIキーの見出しに登録状態バッジ（設定済み / 未設定）を出す（プロバイダータブと同じ見た目。`imageKeyStatusBadge()`）。キー欄の補足には provider 名（OpenRouter）を添え、モデル欄に出る `OpenAI: …` と混同させない
 - キーは `type="password"` / `autoComplete="off"` で、保存値を再表示しない（常に空から入力する）。[上書き保存] は成功したときだけ入力を消し、[削除] は `window.confirm` の後に行ごと消して未設定へ戻す
 - モデルは native `<select>`（`SelectField`）でカタログから 1 件選ぶ。保存済みのモデルがカタログに無いときは「（カタログ外）」として現在の id を先頭に足す（何が保存されているかを見失わせない）。サイズ / 品質 / 出力形式の UI は持たない
 - 注意書きは詳細の上部に常時出す（平文保存・再表示しない・ログイン無しで公開しない・有効性は保存時に見ない・キーは 8 文字以上・プロバイダー登録キーとは別管理）。下部に「保存したキーは新しい会話から使える（ツール一覧はセッション作成時に固定）」と、生成物の保存先（作業フォルダの `generated/`）を注記する
@@ -84,7 +112,7 @@ SDK(pi-ai 0.87.1) の `openrouter-images` は `chat/completions` へ投げるが
 | --- | --- | --- |
 | GET | `/api/settings/images` | `configured` / `provider` / `model` / `models`（カタログ）/ `catalogSource` / `fetchedAt` / `runtimeAvailable`。キーは返さない |
 | PUT | `/api/settings/images` | `{ provider, model }`。キーを保持したまま選択を更新（行が無ければ 400） |
-| PUT | `/api/settings/images/key` | `{ apiKey }`。登録・上書き（行が無ければ既定 provider / model で作成し、live カタログへ寄せてから返す） |
+| PUT | `/api/settings/images/key` | `{ apiKey }`。登録・上書き（行が無ければ既定 provider / model で作成） |
 | DELETE | `/api/settings/images/key` | 行ごと削除（未設定へ戻す。冪等） |
 | POST | `/api/settings/images/catalog/refresh` | live カタログの再取得。常に 200 で `models` / `catalogSource` / `fetchedAt` / `catalogError` を返す（失敗時も一覧は返す） |
 
@@ -100,16 +128,19 @@ SDK(pi-ai 0.87.1) の `openrouter-images` は `chat/completions` へ投げるが
 
 | テスト | 固定すること |
 | --- | --- |
-| `server/test/images.test.ts` | カタログ / `chat/completions` へ戻らないこと（`/images` の送信先・ヘッダ・本文）/ `media_type` の落とし方 / 失敗分類（401・403・402・429・5xx・timeout・ユーザー中断・原因不明）/ 画像 0 件の失敗（2xx の生本文と `error.message`）/ provider メッセージのマスク |
+| `server/test/images.test.ts` | カタログ / `chat/completions` へ戻らないこと（`/images` の送信先・ヘッダ・本文）/ `media_type` の落とし方 / 失敗分類（401・403・402・429・5xx・timeout・ユーザー中断・原因不明）/ 画像 0 件の失敗（2xx の生本文と `error.message`）/ provider メッセージのマスク / SDK 同梱カタログから `openrouter/*` を落とすこと |
+| `server/test/image-catalog.test.ts` | live の採用とキャッシュ保存（認証ヘッダを付けない / id と表示名だけ）/ 重複 id と表示名の欠落 / 失敗分類（429・5xx・契約外・空・timeout）と一覧の保持 / キャッシュの読込と live 失敗時の維持 / キャッシュの読取・保存失敗 |
 | `server/test/image-tools.test.ts` | ツールの組み立て（有効時だけ）/ path の拒否規則 / slug と拡張子 / root 相対への前置き / 同名衝突で実際の保存名を返す / execute が毎回設定を読む / throw のマスク / signal の伝播 |
-| `server/test/image-settings.test.ts` | GET / PUT / DELETE の契約、マスカー登録の順序、既定行、行が無い / provider / カタログ外の 400、runtime 無しの 503、DB 失敗の 503、起動時の適用 |
-| `server/test/image-settings-api.test.ts` | HTTP 契約と DB 例外のマスク、起動時の有効化、キーが応答・health・ログへ出ないこと |
-| `server/test/app-db.test.ts` | v7 → v8 の加算移行と `image_settings` の CRUD、空文字行 = 未設定 |
+| `server/test/image-settings.test.ts` | GET / PUT / DELETE の契約、マスカー登録の順序、既定行、行が無い / provider / カタログ外の 400、runtime 無しの 503、DB 失敗の 503、起動時の適用（キャッシュ読込と、行があるときだけの live 取得）/ キー保存が取得を待たないこと / 再取得の失敗文言 |
+| `server/test/image-settings-api.test.ts` | HTTP 契約と DB 例外のマスク、起動時の有効化、キーが応答・health・ログへ出ないこと、カタログの出どころ / 再取得の 200 と `catalogError` |
+| `server/test/app-db.test.ts` | v7 → v8 / v8 → v9 の加算移行、`image_settings` の CRUD、空文字行 = 未設定、`image_catalog` の upsert と壊れた行（health を落とさない） |
 | `client/test/markdownImage.test.ts` | Markdown 画像の 3 段解決 / 解決できない src / `components/markdown/` が `api.ts` を import しないこと |
-| `client/test/imageSettings.test.ts` / `client/test/imageSettingsTab.test.ts` | 選択肢（カタログ順・同名への id 添え・カタログ外の現在値）/ 現在値と PUT の本文 / 保存成功時だけキー入力を消す / タブの初期描画（未設定はキーのみ・設定済みは削除とモデル選択・キーを再表示しない・runtime 不可の disable） |
+| `client/test/imageSettings.test.ts` / `client/test/imageSettingsTab.test.ts` | 選択肢（カタログ順・同名への id 添え・カタログ外の現在値）/ 現在値と PUT の本文 / 保存成功時だけキー入力を消す / キーの登録状態バッジ / 一覧の出どころの注記と最終取得 / 再取得の注記 / タブの初期描画（未設定はキーのみ・設定済みは削除とモデル選択・キーを再表示しない・runtime 不可の disable・[再取得] の出し分け） |
 
 ## 非ゴール
 
 - OpenAI provider の実装（差し替え点だけ残す）
-- コスト表示、キー有効性のプレチェック、provider 切替 UI、プロバイダー登録済みキーの流用
+- キーの有効性のチェック（live カタログの取得は API キーを見ないため兼用できない。やるなら別 API）
+- TTL / バックグラウンドでのカタログ自動再取得（契機は起動と手動 [再取得] だけ）
+- コスト表示、provider 切替 UI、プロバイダー登録済みキーの流用
 - サイズ / 品質 / 出力形式の変更、参照画像による編集、複数枚生成、ツール結果への画像 content

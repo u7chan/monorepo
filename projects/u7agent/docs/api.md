@@ -375,7 +375,7 @@ Content-Security-Policy: sandbox allow-scripts; default-src 'none'; style-src 'u
 | --- | --- | --- |
 | GET | `/api/settings/images` | `configured` / `provider` / `model` / `models`（カタログ）/ `catalogSource` / `fetchedAt` / `runtimeAvailable`。純粋読取で、APIキーは返さない |
 | PUT | `/api/settings/images` | `{ provider, model }`。キーを保持したまま選択を更新（行が無ければ 400） |
-| PUT | `/api/settings/images/key` | `{ apiKey }`。登録・上書き（行が無ければ既定 provider / model で作成。成功時は live カタログへ寄せてから返す） |
+| PUT | `/api/settings/images/key` | `{ apiKey }`。登録・上書き（行が無ければ既定 provider / model で作成） |
 | DELETE | `/api/settings/images/key` | 行ごと削除して未設定へ戻す（冪等） |
 | POST | `/api/settings/images/catalog/refresh` | live カタログの再取得。常に 200 で `{ models, catalogSource, fetchedAt, catalogError }` を返す（失敗時も前の一覧を返し、`catalogError` に固定文言を載せる） |
 

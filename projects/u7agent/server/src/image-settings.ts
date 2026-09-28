@@ -122,8 +122,6 @@ export class ImageSettingsService {
         return { status: 503, error: IMAGE_KEY_NOT_STORED_MESSAGE };
       }
       this.#apply(true);
-      // 一覧が初めて見える瞬間なので live へ寄せてから返す。失敗しても保存は確定させ、前回の一覧を保つ
-      await this.#catalog.refresh();
       return {
         status: 200,
         response: this.#applied(true, existing?.provider ?? IMAGE_PROVIDER_ID, existing?.model ?? DEFAULT_IMAGE_MODEL),

@@ -787,17 +787,16 @@ test("a broken image catalog cache row reads as unset", () => {
   const dir = tempStoreDir();
   try {
     const db = AppDb.open({ storeDir: dir });
-    // 形が違う行 / 空配列は「未取得」として読む (キャッシュなので、SDK カタログへ落ちれば足りる)
+    // 形が違う行 / 空配列 / JSON でない行は「未取得」として読む。キャッシュを理由に health を落とすと、
+    // 取り直して直せる設定画面自体が 503 で開かなくなる
     db.saveImageCatalog({ fetchedAt: 1, models: [{ id: "openai/gpt-image-2", name: "GPT Image 2" }] });
     const raw = new DatabaseSync(join(dir, APP_DB_FILENAME));
-    raw.prepare("UPDATE image_catalog SET models = ? WHERE id = 1").run('[{"id":1}]');
-    assert.equal(db.readImageCatalog(), undefined);
-    raw.prepare("UPDATE image_catalog SET models = ? WHERE id = 1").run("[]");
-    assert.equal(db.readImageCatalog(), undefined);
-    // JSON として壊れている行は列名だけの例外にする (呼び出し側が警告して SDK へ落とす)
-    raw.prepare("UPDATE image_catalog SET models = ? WHERE id = 1").run("not json");
+    for (const models of ['[{"id":1}]', "[]", "not json"]) {
+      raw.prepare("UPDATE image_catalog SET models = ? WHERE id = 1").run(models);
+      assert.equal(db.readImageCatalog(), undefined);
+    }
     raw.close();
-    assert.throws(() => db.readImageCatalog(), /image_catalog\.models is not valid JSON/);
+    assert.equal(db.status().ok, true, "壊れたキャッシュ行を保存値の失敗として扱わない");
     db.close();
   } finally {
     rmSync(dir, { recursive: true, force: true });

@@ -84,11 +84,11 @@ test("GET / PUT / DELETE の往復で設定が変わり、キーは応答に載�
       assert.equal(put.configured, true);
       assert.equal(put.provider, IMAGE_PROVIDER_ID);
       assert.equal(put.model, DEFAULT_IMAGE_MODEL);
-      assert.equal(put.catalogSource, "live", "キー登録で live へ寄せる");
-      assert.equal(typeof put.fetchedAt, "number");
-      assert.deepEqual(
-        put.models.map((model: any) => model.id),
-        [CATALOG_MODEL, DEFAULT_IMAGE_MODEL],
+      assert.equal(put.catalogSource, "sdk", "キー保存では live を取りに行かない");
+      assert.equal(put.fetchedAt, null);
+      assert.ok(
+        put.models.some((model: any) => model.id === DEFAULT_IMAGE_MODEL),
+        "SDK 同梱の一覧を返す",
       );
       assert.ok(!JSON.stringify(put).includes(KEY), "応答にキーを載せない");
       assert.ok(pi.retainedSecrets.includes(KEY), "DB より前にマスカーへ登録していない");

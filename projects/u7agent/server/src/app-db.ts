@@ -317,14 +317,19 @@ function imageSettingsOf(row: Row): ImageSettingsRow | undefined {
 }
 
 /**
- * キャッシュ行の JSON 配列。要素の形が違えば行ごと無視する (キャッシュなので、読めなければ
- * SDK カタログへ落ちれば足りる)。JSON 自体が壊れているときは列名だけの例外にする。
+ * キャッシュ行の JSON 配列。キャッシュなので、JSON が壊れていても、形が違っても、空でも「未取得」として読む。
+ * ここで例外にすると health が失敗し、同じ行を直せる取得の画面自体が 503 で開かなくなる。
  */
 function imageCatalogModelsOf(value: unknown): ImageCatalogModelRow[] | undefined {
-  const entries = jsonArrayColumn<unknown>("image_catalog", "models", value);
-  if (!entries || entries.length === 0) return undefined;
+  let parsed: unknown;
+  try {
+    parsed = typeof value === "string" ? JSON.parse(value) : undefined;
+  } catch {
+    return undefined;
+  }
+  if (!Array.isArray(parsed) || parsed.length === 0) return undefined;
   const models: ImageCatalogModelRow[] = [];
-  for (const entry of entries) {
+  for (const entry of parsed) {
     if (typeof entry !== "object" || entry === null) return undefined;
     const { id, name } = entry as { id?: unknown; name?: unknown };
     if (typeof id !== "string" || id === "" || typeof name !== "string") return undefined;
@@ -784,7 +789,7 @@ export class AppDb {
 
   // --- image catalog (live カタログのキャッシュ 1 行) ---
 
-  /** 行が無い / 形が壊れているときは undefined (未取得として SDK カタログへ落とす) */
+  /** 行が無い / 形が崩れているときは undefined（未取得として SDK カタログへ落とす。health の失敗にはしない） */
   readImageCatalog(): ImageCatalogRow | undefined {
     const row = this.#query((db) => db.prepare("SELECT * FROM image_catalog WHERE id = 1").get() as Row | undefined);
     if (!row) return undefined;

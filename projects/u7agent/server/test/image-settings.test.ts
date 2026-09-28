@@ -130,7 +130,7 @@ test("GET は行が無いとき未設定を返し、キーを載せない", () =
   });
 });
 
-test("キー登録はマスカー → DB → 注入 → live 取得の順に通し、行が無ければ既定 provider / model で作る", async () => {
+test("キー登録はマスカー → DB → 注入の順に通し、行が無ければ既定 provider / model で作る", async () => {
   const { db, service, retained, configs, catalog } = createService();
   const outcome = await service.putKey(KEY);
   assert.equal(outcome.status, 200);
@@ -143,7 +143,7 @@ test("キー登録はマスカー → DB → 注入 → live 取得の順に通�
   assert.deepEqual(db.row, { provider: IMAGE_PROVIDER_ID, model: DEFAULT_IMAGE_MODEL, apiKey: KEY });
   assert.deepEqual(retained, [KEY], "マスカー登録は 1 回");
   assert.deepEqual(db.events, ["retain", "save", "inject:on"]);
-  assert.equal(catalog.refreshes, 1, "一覧が初めて見える瞬間に live へ寄せる");
+  assert.equal(catalog.refreshes, 0, "キー保存は外部 API を待たない");
   assert.equal(configs.at(-1)?.enabled, true);
   assert.deepEqual(configs.at(-1)?.read(), db.row, "注入した read は現在の行を返す");
 });
