@@ -660,6 +660,85 @@ test("migrates a v6 db additively and adds provider credential timestamps", () =
   }
 });
 
+/** v7 相当のスキーマ (image_settings が無い状態)。v7 の実ファイルと同じ形 */
+const V7_TABLES = `
+${V6_TABLES}
+ALTER TABLE provider_credentials ADD COLUMN updatedAt INTEGER;
+`;
+
+test("migrates a v7 db additively and keeps image settings across reopen", () => {
+  const dir = tempStoreDir();
+  try {
+    const raw = new DatabaseSync(join(dir, APP_DB_FILENAME));
+    raw.exec(V7_TABLES);
+    raw.exec("PRAGMA user_version = 7");
+    raw.prepare("INSERT INTO projects (id, name, cwd, createdAt) VALUES (?, ?, ?, ?)").run("p1", "p1", "proj-a", 1);
+    raw
+      .prepare("INSERT INTO provider_credentials (provider, apiKey, updatedAt) VALUES (?, ?, ?)")
+      .run("anthropic", "sk-ant-1", 10);
+    raw.close();
+
+    const first = AppDb.open({ storeDir: dir });
+    // 加算移行なので既存の定義とキーは消えない。image_settings は行が無い = 未設定で始まる
+    assert.deepEqual(first.listProjects(), [project("p1", "proj-a")]);
+    assert.deepEqual(first.listProviderCredentials(), [{ provider: "anthropic", apiKey: "sk-ant-1", updatedAt: 10 }]);
+    assert.equal(first.readImageSettings(), undefined);
+    first.saveImageSettings({ provider: "openrouter", model: "openai/gpt-image-2", apiKey: "sk-image-1" });
+    // id = 1 の upsert なので上書きしても行は増えない
+    first.saveImageSettings({
+      provider: "openrouter",
+      model: "black-forest-labs/flux.2-max",
+      apiKey: "sk-image-2",
+    });
+    assert.deepEqual(first.readImageSettings(), {
+      provider: "openrouter",
+      model: "black-forest-labs/flux.2-max",
+      apiKey: "sk-image-2",
+    });
+    first.close();
+
+    const second = AppDb.open({ storeDir: dir });
+    assert.deepEqual(second.readImageSettings(), {
+      provider: "openrouter",
+      model: "black-forest-labs/flux.2-max",
+      apiKey: "sk-image-2",
+    });
+    assert.equal(second.deleteImageSettings(), true);
+    assert.equal(second.readImageSettings(), undefined);
+    assert.equal(second.deleteImageSettings(), false, "無い行の削除は false");
+    second.close();
+
+    const check = new DatabaseSync(join(dir, APP_DB_FILENAME));
+    const columns = check.prepare("PRAGMA table_info(image_settings)").all() as { name: string }[];
+    assert.deepEqual(
+      columns.map((column) => column.name),
+      ["id", "provider", "model", "apiKey"],
+    );
+    assert.equal(Number(check.prepare("PRAGMA user_version").get()?.user_version), APP_DB_SCHEMA_VERSION);
+    check.close();
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("an image settings row with empty values reads as unset", () => {
+  const dir = tempStoreDir();
+  try {
+    const raw = new DatabaseSync(join(dir, APP_DB_FILENAME));
+    raw.exec(V7_TABLES);
+    raw.exec("PRAGMA user_version = 7");
+    raw.close();
+
+    const db = AppDb.open({ storeDir: dir });
+    // 手編集で壊れた行を「設定済み」と読み違えない (メモと同じ規約)
+    db.saveImageSettings({ provider: "", model: "", apiKey: "" });
+    assert.equal(db.readImageSettings(), undefined);
+    db.close();
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("a new db creates provider_credentials with updatedAt from the start", () => {
   const dir = tempStoreDir();
   try {

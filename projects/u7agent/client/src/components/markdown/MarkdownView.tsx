@@ -7,6 +7,7 @@ import { CodeBlock } from "./CodeBlock";
 import { Diagram } from "./Diagram";
 import { InlineFileRef } from "./FileRefLink";
 import { HtmlInline } from "./HtmlInline";
+import { useMarkdownImageSrc } from "./MarkdownImageRefs";
 import { MathBlock, MathInline } from "./MathView";
 
 /**
@@ -161,6 +162,8 @@ function InlineNodes({ nodes, inLink = false }: { nodes: MdInline[]; inLink?: bo
 }
 
 function InlineNode({ node, inLink = false }: { node: MdInline; inLink?: boolean }) {
+  // 画像 src だけ cwd 相対から配信 URL へ解決する (provider が無ければ入力をそのまま使う)
+  const imageSrc = useMarkdownImageSrc(node.kind === "image" ? node.src : "");
   switch (node.kind) {
     case "text":
       return node.text;
@@ -199,9 +202,9 @@ function InlineNode({ node, inLink = false }: { node: MdInline; inLink?: boolean
     case "image":
       // <a> の中に button を置けない。リンクの children は従来どおり素の img で描く
       return inLink ? (
-        <img className="md-img" src={node.src} alt={node.alt} />
+        <img className="md-img" src={imageSrc} alt={node.alt} />
       ) : (
-        <ZoomableImage src={node.src} alt={node.alt} variant="markdown" />
+        <ZoomableImage src={imageSrc} alt={node.alt} variant="markdown" />
       );
     case "html":
       return <HtmlInline node={node.node} inLink={inLink} />;

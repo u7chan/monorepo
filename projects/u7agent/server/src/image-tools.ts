@@ -1,0 +1,202 @@
+/**
+ * BFF ローカルの `generate_image` ツール。サンドボックス実行のリモート定義とは別の層で、
+ * `PI_AGENT_TOOLS`（サンドボックスの allowlist）の影響を受けない。
+ * 有効化はセッション作成時に固定し、execute は毎回現在の settings を読む（docs/image-generation.md）。
+ */
+import { Type, type Static } from "@earendil-works/pi-ai";
+import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
+import { messageFor } from "./http";
+import type { GeneratedImage, ImageGenerationResult, ImageGenerationSettings } from "./images";
+import type { SandboxWorkspaceClient } from "./sandbox/client";
+import { wrapToolDefinitionWithSecretMasker } from "./secret-guard";
+import type { SecretMasker } from "./redact";
+
+export const IMAGE_TOOL_NAME = "generate_image";
+
+/** 既定の保存先。`<slug>` はプロンプト、`<ext>` は保存する mimeType から決める */
+export const IMAGE_TOOL_DEFAULT_DIR = "generated";
+export const IMAGE_TOOL_SLUG_MAX_LENGTH = 40;
+
+export const IMAGE_TOOL_DESCRIPTION =
+  "Generate an image from a text prompt and save it in the working directory. " +
+  "Returns the working-directory-relative path of the saved file. " +
+  "Show the generated image in your reply as a Markdown image, for example ![alt](generated/name.png).";
+
+export const IMAGE_TOOL_GUIDELINES = [
+  "Use generate_image only when the user asks for a new image; it costs provider credits.",
+  "After generating, show the saved file as a Markdown image with its working-directory-relative path instead of pasting the path alone.",
+];
+
+/** 有効なときだけ system prompt へ足す 2 行。生成物の場所と本文での示し方を固定する */
+export const IMAGE_GENERATION_PROMPT_LINES = [
+  "generate_image saves generated images under the working directory (by default `generated/`) and returns the working-directory-relative path.",
+  "When you generate an image, show it in your reply as a Markdown image using that path, for example ![description](generated/name.png).",
+];
+
+/** SDK の tools へ渡す登録名。画像ツールは有効なときだけ足す */
+export function sessionToolNames(base: readonly string[], imageGenerationEnabled: boolean): string[] {
+  return imageGenerationEnabled ? [...base, IMAGE_TOOL_NAME] : [...base];
+}
+
+const generateImageSchema = Type.Object({
+  prompt: Type.String({ description: "Text prompt describing the image to generate" }),
+  path: Type.Optional(
+    Type.String({
+      description:
+        "Optional path relative to the working directory (for example `generated/cafe.png`). Parent directories are created, and an existing file is kept and saved with a `-1` suffix.",
+    }),
+  ),
+});
+type GenerateImageParams = Static<typeof generateImageSchema>;
+
+export interface ImageToolTarget {
+  /** セッション cwd 相対の保存先ディレクトリ（"" は cwd 直下） */
+  dir: string;
+  /** 保存名（basename） */
+  name: string;
+}
+
+/** `/` 区切りの相対パスを字句的に畳む。空セグメントと `.` は落とす */
+function segmentsOf(value: string): string[] {
+  return value.split("/").filter((segment) => segment !== "" && segment !== ".");
+}
+
+/**
+ * `path` を cwd 相対の dir / name へ分ける。拒否規則は write / edit と同じ思想で、
+ * `..` / 絶対パス / バックスラッシュ / 空の name（末尾 `/` を含む）を拒む。
+ * root 相対への前置きは `rootRelativeDir` だけが行う。
+ */
+export function parseImageToolPath(rawPath: string): ImageToolTarget {
+  if (rawPath.trim() === "") throw new Error("path が空です");
+  if (rawPath.includes("\\")) throw new Error(`path にバックスラッシュは使えません: ${rawPath}`);
+  if (rawPath.startsWith("/") || /^[A-Za-z]:/.test(rawPath)) {
+    throw new Error(`作業フォルダの外には保存できません: ${rawPath}`);
+  }
+  if (rawPath.endsWith("/")) throw new Error(`ファイル名が必要です: ${rawPath}`);
+  const segments = segmentsOf(rawPath);
+  if (segments.includes("..")) throw new Error(`作業フォルダの外には保存できません: ${rawPath}`);
+  const name = segments.pop();
+  if (!name) throw new Error(`ファイル名が必要です: ${rawPath}`);
+  return { dir: segments.join("/"), name };
+}
+
+/** プロンプトから既定の保存名を作る。`[a-z0-9-]` へ正規化した 40 文字まで */
+export function imageSlug(prompt: string, now: number): string {
+  const slug = prompt
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, IMAGE_TOOL_SLUG_MAX_LENGTH)
+    .replace(/-+$/g, "");
+  if (slug !== "") return slug;
+  // 英数字が 1 文字も取れないプロンプト（日本語だけなど）は日時へ落とす
+  const stamp = new Date(now).toISOString().replace(/[:.]/g, "-");
+  return `image-${stamp}`;
+}
+
+/** 保存拡張子は mimeType から決める（provider の応答を正とする） */
+export function imageExtensionFor(mimeType: string): "png" | "jpeg" | "webp" {
+  const normalized = mimeType.toLowerCase().split(";")[0]?.trim();
+  if (normalized === "image/png") return "png";
+  if (normalized === "image/jpeg" || normalized === "image/jpg") return "jpeg";
+  if (normalized === "image/webp") return "webp";
+  throw new Error(`対応していない画像形式です: ${mimeType}`);
+}
+
+/** セッション cwd（root 相対）を前置する 1 段。projects.ts の cwd 解決とは混ぜない */
+export function rootRelativeDir(cwd: string, dir: string): string {
+  const root = segmentsOf(cwd).join("/");
+  const child = segmentsOf(dir).join("/");
+  if (root === "") return child;
+  return child === "" ? root : `${root}/${child}`;
+}
+
+/** cwd 相対の保存先。ツール結果と read / Markdown の起点を揃えるため root 相対は返さない */
+export function cwdRelativePath(dir: string, name: string): string {
+  const child = segmentsOf(dir).join("/");
+  return child === "" ? name : `${child}/${name}`;
+}
+
+/** base64 の画像をアップロード用のストリームにする */
+function imageBody(image: GeneratedImage): ReadableStream<Uint8Array> {
+  return new Blob([new Uint8Array(Buffer.from(image.data, "base64"))]).stream();
+}
+
+export interface ImageToolDefinitionOptions {
+  /** セッション作成時に固定した公開状態 */
+  enabled: boolean;
+  /** セッションの作業ディレクトリ（rootCwd 相対。"" は root） */
+  sessionCwd: string;
+  workspace: SandboxWorkspaceClient;
+  masker: SecretMasker;
+  /** 実行のたびに読む。未設定・削除後は undefined（キー無効エラー） */
+  readSettings: () => ImageGenerationSettings | undefined;
+  generate: (input: {
+    provider: string;
+    model: string;
+    prompt: string;
+    apiKey: string;
+    signal?: AbortSignal | undefined;
+  }) => Promise<ImageGenerationResult>;
+}
+
+export function createImageToolDefinitions(options: ImageToolDefinitionOptions): ToolDefinition[] {
+  if (!options.enabled) return [];
+  const definition: ToolDefinition<typeof generateImageSchema> = {
+    name: IMAGE_TOOL_NAME,
+    label: IMAGE_TOOL_NAME,
+    description: IMAGE_TOOL_DESCRIPTION,
+    promptSnippet: "Generate an image from a prompt",
+    promptGuidelines: [...IMAGE_TOOL_GUIDELINES],
+    parameters: generateImageSchema,
+    constrainedSampling: { type: "json_schema", strict: "prefer" },
+    async execute(_toolCallId, params: GenerateImageParams, signal) {
+      // 支出の前に path を検証する。dir と name は実際に保存するまで確定しない
+      const explicit = params.path === undefined ? undefined : parseImageToolPath(params.path);
+      const settings = readCurrentSettings(options.readSettings);
+      const result = await options.generate({
+        provider: settings.provider,
+        model: settings.model,
+        prompt: params.prompt,
+        apiKey: settings.apiKey,
+        signal,
+      });
+      if (!result.ok) throw new Error(result.message);
+
+      // 明示 path は拡張子も含めてそのまま使う。省略時だけ mimeType から決める
+      const dir = explicit?.dir ?? IMAGE_TOOL_DEFAULT_DIR;
+      const name =
+        explicit?.name ?? `${imageSlug(params.prompt, Date.now())}.${imageExtensionFor(result.image.mimeType)}`;
+      const uploaded = await options.workspace.uploadFile({
+        dir: rootRelativeDir(options.sessionCwd, dir),
+        name,
+        body: imageBody(result.image),
+        signal,
+      });
+      // 同名はサンドボックスが `-1` を付けて退避するため、実際に保存された名前を返す
+      const path = cwdRelativePath(dir, uploaded.name);
+      return {
+        content: [
+          {
+            type: "text",
+            text: `画像を生成して保存しました: ${path}\n本文に示すときは Markdown 画像 ![alt](${path}) で示してください。`,
+          },
+        ],
+        details: undefined,
+      };
+    },
+  };
+  return [wrapToolDefinitionWithSecretMasker(definition, options.masker)];
+}
+
+/** 未設定・削除後はキー無効エラーにする。作成時のキーは握らず、毎回ここを通す */
+function readCurrentSettings(read: () => ImageGenerationSettings | undefined): ImageGenerationSettings {
+  let settings: ImageGenerationSettings | undefined;
+  try {
+    settings = read();
+  } catch (error) {
+    throw new Error(`画像生成の設定を読み取れませんでした: ${messageFor(error)}`);
+  }
+  if (!settings) throw new Error("画像APIキーが未設定です。設定 → モデル で画像APIキーを登録してください");
+  return settings;
+}

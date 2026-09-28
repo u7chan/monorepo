@@ -9,6 +9,8 @@ import { createArchiveSettings } from "./archive-settings";
 import type { ArchiveSettings } from "./archive-settings";
 import { BUILTIN_SKILLS } from "./builtin-skills";
 import { messageFor } from "./http";
+import { ImageSettingsService } from "./image-settings";
+import { imageModelCatalog } from "./images";
 import { ModelSettingsService, type CredentialCommit, type ProviderKeyRuntime } from "./model-settings";
 import { NotificationService } from "./notifications";
 import { ProjectStore } from "./projects";
@@ -61,6 +63,8 @@ export type BffContext = {
   archiveSettings: ArchiveSettings;
   /** プロバイダー API キー (設定 → モデル)。DB を希望状態として SDK へ写す */
   modelSettings: ModelSettingsService;
+  /** 画像生成の provider / model / APIキー (設定 → モデルの画像生成タブ)。行の有無をツール公開へ写す */
+  imageSettings: ImageSettingsService;
 };
 
 export async function createBffContext(opts: CreateBffAppOptions = {}): Promise<BffContext> {
@@ -128,6 +132,17 @@ export async function createBffContext(opts: CreateBffAppOptions = {}): Promise<
     ignoredEnvironmentVariables,
   });
   await modelSettings.applyStored();
+  // 画像生成は provider キーとは独立した 1 行で、行の有無を PiBff のツール公開へ写す。
+  // 書込は自分のロックで直列化し、applyStored() も同じロックを通す（model-settings と同じ順序）。
+  const imageSettings = new ImageSettingsService({
+    db: appDb,
+    runtimeAvailable: pi !== null,
+    retainSecret: pi ? pi.retainSecret : () => {},
+    catalog: imageModelCatalog,
+    setImageGeneration: pi ? pi.setImageGeneration : () => {},
+    maskError,
+  });
+  await imageSettings.applyStored();
   // 組み込みスキルはサンドボックスに依らず起動時に読み込み済みなので、カタログの応答へそのまま載せる
   const catalog = createAgentCatalog({
     builtinSkills: BUILTIN_SKILLS.map((skill) => ({ name: skill.name, description: skill.description })),
@@ -182,6 +197,7 @@ export async function createBffContext(opts: CreateBffAppOptions = {}): Promise<
     notifications,
     archiveSettings,
     modelSettings,
+    imageSettings,
   };
 }
 

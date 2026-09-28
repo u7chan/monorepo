@@ -558,6 +558,55 @@ export const UpdateModelAvailabilityBodySchema = z.object({
 });
 export type UpdateModelAvailabilityBody = z.infer<typeof UpdateModelAvailabilityBodySchema>;
 
+/** 画像生成のカタログ 1 件。provider は将来の追加に備えて載せ、値は開放しない */
+export const ImageModelSchema = z.object({
+  provider: z.string(),
+  id: z.string(),
+  name: z.string(),
+});
+export type ImageModel = z.infer<typeof ImageModelSchema>;
+
+/**
+ * GET /api/settings/images。`configured: false` のとき provider / model は null（行が無い = 未設定）。
+ * APIキーは返さない。
+ */
+export const ImageSettingsResponseSchema = z.object({
+  configured: z.boolean(),
+  provider: z.string().nullable(),
+  model: z.string().nullable(),
+  /** builtinImagesProviders() のカタログ。UI はこの一覧からだけモデルを選べる */
+  models: z.array(ImageModelSchema),
+  /** SDK ランタイムの初期化に成功したか。false のときキー登録は 503（model-settings と同じ） */
+  runtimeAvailable: z.boolean(),
+});
+export type ImageSettingsResponse = z.infer<typeof ImageSettingsResponseSchema>;
+
+/** 変更系（PUT / DELETE）の応答。SDK への反映を持たないため `applied` だけを返す */
+export const ImageMutationResponseSchema = ImageSettingsResponseSchema.extend({
+  state: z.literal("applied"),
+});
+export type ImageMutationResponse = z.infer<typeof ImageMutationResponseSchema>;
+
+/** 変更系の失敗応答（何も変わっていない）。400 は error のみ */
+export const ImageMutationErrorSchema = z.object({
+  error: z.string(),
+  state: z.literal("not_stored"),
+});
+export type ImageMutationError = z.infer<typeof ImageMutationErrorSchema>;
+
+/** provider / model の変更。キーは保持したまま差し替える（行が無ければ 400） */
+export const UpdateImageSelectionBodySchema = z.object({
+  provider: z.string(),
+  model: z.string(),
+});
+export type UpdateImageSelectionBody = z.infer<typeof UpdateImageSelectionBodySchema>;
+
+/** 画像APIキーの登録・上書き。長さは provider_credentials と同じ */
+export const UpdateImageKeyBodySchema = z.object({
+  apiKey: z.string().min(PROVIDER_API_KEY_MIN_LENGTH).max(PROVIDER_API_KEY_MAX_LENGTH),
+});
+export type UpdateImageKeyBody = z.infer<typeof UpdateImageKeyBodySchema>;
+
 /**
  * 設定 → ランタイムの実行環境カードが使う状態。`connected` だけが情報を持ち、他は理由の分類だけを返す
  * (URL / トークン / 内部エラーは載せない)。`connected` は診断 API の正常応答だけで、

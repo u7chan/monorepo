@@ -24,7 +24,7 @@ MessageView (assistant の本文)
               └─ 強調 / コードスパン / リンク / 生 HTML / 自動リンク / インライン数式
                     ├─ コードスパン → 参照のときだけ button  components/markdown/FileRefLink.tsx
                     └─ HtmlNode / MathNode         lib/markdown/{html,latex}.ts
-  └─ components/markdown/{MarkdownView,CodeBlock,HtmlInline,MathView,Diagram,FileRefLink}.tsx
+  └─ components/markdown/{MarkdownView,CodeBlock,HtmlInline,MathView,Diagram,FileRefLink,MarkdownImageRefs}.tsx
         └─ 画像のクリック拡大 → components/ImageZoom.tsx (添付の履歴とも共有)
 ```
 
@@ -36,7 +36,7 @@ MessageView (assistant の本文)
 | --- | --- | --- |
 | 見出し `#`〜`######` / 段落 / 段落内改行 | ✓ | 段落内の改行は `<br>` にする（従来の `whitespace-pre-wrap` と同じ見え方） |
 | 強調 `**b**` `*i*` `~~s~~` / コードスパン | ✓ | `_` は語中では強調しない（`snake_case` を壊さない）。コードスパンはファイル参照として操作要素になり得る（下記） |
-| リンク `[t](url "title")` / 自動リンク / 画像 | ✓ | 画像は同一オリジン（相対パス）のみ。クリックで拡大表示する（リンクの中は対象外。[画像の拡大表示](#画像の拡大表示)） |
+| リンク `[t](url "title")` / 自動リンク / 画像 | ✓ | 画像は同一オリジン（相対パス）のみ。相対パスは作業フォルダ相対で解決して raw URL へ写す（下記）。クリックで拡大表示する（リンクの中は対象外。[画像の拡大表示](#画像の拡大表示)） |
 | 箇条書き / 番号付き / 入れ子 / タスクリスト `- [ ]` | ✓ | 番号付きは開始番号を保つ |
 | 引用 `>` / 水平線 | ✓ | |
 | 表（パイプテーブル、`:---:` の整列） | ✓ | 横スクロール。区切り行の列数がヘッダと違うときは表にしない |
@@ -81,6 +81,18 @@ MessageView (assistant の本文)
 - `<a href="…"><img …></a>` — `HtmlInline` が自身の `a` の子へ同じ印を伝搬する（入れ子の `span` などにも通す）
 
 `HtmlInline` の `a` の子だけを見ても `<a>` の中の `button` は防げない。Markdown のリンクはラベルに生 HTML を書ける（`client/src/lib/markdown/inline.ts` の `scanInline` がラベル内の HTML も解析する）ためで、2 つ目の経路が必要になる。
+
+## 画像の src 解決
+
+assistant 本文の `![alt](src)` は、次の 3 段で配信 URL へ解決する（`client/src/components/markdown/MarkdownImageRefs.tsx`）。生成した画像（[image-generation.md](image-generation.md)）を `![cafe](generated/cafe.png)` のように cwd 相対で示せるようにするための導線で、`src` が解決できなければ従来どおりそのまま描く。
+
+1. `resolveFileRef(src, rootCwd, cwd)` で cwd 相対へ（`client/src/lib/fileRef.ts`）
+2. `fileTreeFetchPath(cwd, resolved)` で root 相対へ（`client/src/lib/fileTree.ts`）
+3. `fileRawUrl(rootRelative)` で URL へ（`client/src/api.ts`。組み立ては App 側に置く）
+
+- **`client/src/api.ts` は module 評価時に `location.origin` を読むため、`components/markdown/` から直接 import しない**（`react-dom/server` の静的描画テストが落ちる）。既存の `FileRefProvider` と同じ形で resolver context から `rawUrl` を受け取り、`components/markdown/` は `resolveFileRef` と `fileTreeFetchPath` だけを呼ぶ
+- 外部 URL / `..` / cwd 外の絶対パス / 拡張子のない字面は `resolveFileRef` が解決せず、素の `src` のままになる（外部の画像は `safeUrl` がパース段階で弾き、Markdown の原文表示に落ちる）
+- リンクの中の画像（`[![alt](img)](url)` など）は従来どおり素の `img` で、クリック拡大の対象外
 
 ## 解析の上限（ストリーミング対策）
 
@@ -205,3 +217,4 @@ Markdown 記法側の URL（`[t](url)` / `![alt](src)`）も同じ `safeUrl` を
 | `client/test/markdownDiagram.test.ts` | 形状 4 種 / エッジの種類とラベル / チェーン / TD と LR のランク方向 / 境界で止まるエッジ / 戻るエッジと外側レーン / エッジラベルと線の余白 / 長いラベルの折り返しと 6 行上限 / sequenceDiagram の順序と Note / 決定性 / 未対応が `ok: false` になる / 上限 / 固定シードのランダム入力でエッジがノードを横切らずラベルも線に貫かれない / SSR した HTML にインライン style が出ない |
 | `client/test/markdownSafety.test.ts` | `lib/markdown` と `components/markdown` に DOM 文字列の生成・インライン style が現れない（ソース走査） |
 | `client/test/imageZoom.test.ts` | 画像の拡大表示（開いている間だけ body へ portal する `dialog` / `showModal()` / Escape の `stopPropagation` / 背景クリックの判定 / リンク内の画像を button にしない・リンク内の判定を HTML の子へ伝搬する） |
+| `client/test/markdownImage.test.ts` | 画像 src の 3 段解決 / 解決できない src は従来どおり / `components/markdown/` が `api.ts` を import しないこと（SSR テストが通ること） |

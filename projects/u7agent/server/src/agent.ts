@@ -17,6 +17,8 @@ import { join, resolve } from "node:path";
 import { COMMON_SKILLS_DIR } from "./app-paths";
 import { catalogSkillIndexForSession } from "./catalog-skills";
 import { discoverSessionFileSkills } from "./file-skills";
+import { createImageToolDefinitions, IMAGE_GENERATION_PROMPT_LINES, sessionToolNames } from "./image-tools";
+import { createImagesGenerator, type ImageGenerationConfig } from "./images";
 import { resolveWorkspaceCwd } from "./projects";
 import { ThinkingLevelSchema } from "./schema";
 import { createSandboxToolClientFromEnv } from "./sandbox/client";
@@ -65,8 +67,9 @@ export function ignoredModelEnvironmentVariables(env: NodeJS.ProcessEnv = proces
 /**
  * セッション共通の追加プロンプト。作業ディレクトリの意味とファイル / スキルの置き場はセッションの cwd で
  * 変わるため rootCwd を受けて組み立てる (promptSnapshot に含めず、作成・復元のたびに評価する)。
+ * 画像生成の案内はツールを公開したセッションだけが受け取る (無効時に存在しないツールを案内しない)。
  */
-export function appendSystemPrompt(rootCwd: string): string {
+export function appendSystemPrompt(rootCwd: string, options: { imageGeneration?: boolean } = {}): string {
   return `
 You are running inside a small browser UI.
 Respond in Japanese by default, unless the user asks for another language.
@@ -89,6 +92,7 @@ Python: keep dependencies inside the working directory. Create the environment a
 When a task involves the project, inspect it with the available tools instead of guessing.
 When the user asks to create or change a reusable skill, put it in the \`.agents/skills\` directory under the working directory, or in \`${join(rootCwd, COMMON_SKILLS_DIR)}\` for a standalone chat, and follow the bundled \`skill-creator\` skill for the location, layout, frontmatter and verification.
 Do not reveal private chain-of-thought; provide a short useful summary of your reasoning instead.
+${options.imageGeneration ? IMAGE_GENERATION_PROMPT_LINES.join("\n") : ""}
 `.trim();
 }
 
@@ -171,6 +175,13 @@ export interface PiBff {
   setModelSelection(selection: ModelSelection): void;
   /** SDK のモデル状態を読み直して公開 state を差し替える。throw しない (lock を壊さない) */
   refreshModelState(): Promise<void>;
+  /** 画像生成ツールを公開しているか。セッション作成時に読み、ツール一覧を固定する */
+  imageGenerationEnabled: boolean;
+  /**
+   * 画像生成の設定を注入する。DB を正とする ImageSettingsService が同じロックの内側で呼び、
+   * `read` は常に差し替える（既存セッションの execute は削除後も現在の行を見に行く）
+   */
+  setImageGeneration(config: ImageGenerationConfig): void;
 }
 
 export function errorMessage(error: unknown): string {
@@ -564,6 +575,10 @@ export async function createPiBff({ cwd = process.cwd() }: { cwd?: string } = {}
   const selection: ModelSelection = { allowedModels: undefined, defaultModel: undefined };
   const versions = runtimeVersionInfo();
   const maskError = (error: unknown): string => secretMasker.mask(errorMessage(error));
+  // 画像生成は DB を正とする ImageSettingsService が setImageGeneration() で写す。初期値は無効で、
+  // ツール定義はセッション作成時にこの値を見る（既存会話へ遡及しない）
+  const imageGeneration: { config: ImageGenerationConfig | undefined } = { config: undefined };
+  const imagesGenerator = createImagesGenerator({ maskText: maskError });
 
   const current = { value: unavailableModelState() };
   /** 公開 state の差し替え。ロックの内側でだけ呼び、例外は出さない (lock を壊さない)。 */
@@ -629,6 +644,9 @@ export async function createPiBff({ cwd = process.cwd() }: { cwd?: string } = {}
       retry: { enabled: true, maxRetries: 2 },
     });
     const snapshot = promptSnapshot ?? composePromptSnapshot(agent, skills);
+    // ツール一覧はセッション作成時に固定する。画像ツールの有効化は新しい会話と復元から効く
+    const imageGenerationEnabled = imageGeneration.config?.enabled === true;
+    const baseTools = configuredTools();
     // ファイルスキルは SDK のネイティブ発見を使わず、サンドボックスで発見した一覧を skillsOverride で渡す
     // (発見に失敗してもスキル無しでセッション作成を続行する)
     const fileSkills = await discoverSessionFileSkills(sandboxClient, { rootCwd, relativeCwd });
@@ -646,7 +664,10 @@ export async function createPiBff({ cwd = process.cwd() }: { cwd?: string } = {}
       agentDir,
       settingsManager,
       secretMasker,
-      appendSystemPrompt: [appendSystemPrompt(rootCwd), snapshot.agent].filter(Boolean),
+      appendSystemPrompt: [
+        appendSystemPrompt(rootCwd, { imageGeneration: imageGenerationEnabled }),
+        snapshot.agent,
+      ].filter(Boolean),
       fileSkills: fileSkills.skills,
       catalogSkills: catalogIndex,
     });
@@ -666,17 +687,28 @@ export async function createPiBff({ cwd = process.cwd() }: { cwd?: string } = {}
         sessionId ? { id: sessionId } : undefined,
         entries as Parameters<typeof SessionManager.inMemory>[2],
       ),
-      tools: configuredTools(),
+      tools: sessionToolNames(baseTools, imageGenerationEnabled),
       // 組込み定義を「サンドボックスの実行API を呼ぶリモート定義」で置き換え、BFF 上で作業コードを実行しない。
-      customTools: createRemoteToolDefinitions({
-        cwd: sessionCwd,
-        rootCwd,
-        sandboxCwd: relativeCwd,
-        client: sandboxClient,
-        masker: secretMasker,
-        tools: configuredTools(),
-        catalogSkills: catalogSkillBodies,
-      }),
+      // 画像生成は BFF ローカルの customTool として足す（サンドボックスには送らない）
+      customTools: [
+        ...createRemoteToolDefinitions({
+          cwd: sessionCwd,
+          rootCwd,
+          sandboxCwd: relativeCwd,
+          client: sandboxClient,
+          masker: secretMasker,
+          tools: baseTools,
+          catalogSkills: catalogSkillBodies,
+        }),
+        ...createImageToolDefinitions({
+          enabled: imageGenerationEnabled,
+          sessionCwd: relativeCwd,
+          workspace: sandboxClient,
+          masker: secretMasker,
+          readSettings: () => imageGeneration.config?.read(),
+          generate: imagesGenerator.generate,
+        }),
+      ],
     };
 
     return { session: (await createAgentSession(options)).session, promptSnapshot: snapshot };
@@ -718,6 +750,12 @@ export async function createPiBff({ cwd = process.cwd() }: { cwd?: string } = {}
     setModelSelection(next) {
       selection.allowedModels = next.allowedModels;
       selection.defaultModel = next.defaultModel;
+    },
+    get imageGenerationEnabled() {
+      return imageGeneration.config?.enabled === true;
+    },
+    setImageGeneration(config) {
+      imageGeneration.config = config;
     },
     refreshModelState,
   };

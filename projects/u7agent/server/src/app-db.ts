@@ -17,7 +17,7 @@ import type {
 
 export const APP_DB_FILENAME = "u7agent.db";
 /** テーブル定義を変えたら上げる。新規作成と加算移行はこの版へ揃え、未知の版は作り直す */
-export const APP_DB_SCHEMA_VERSION = 7;
+export const APP_DB_SCHEMA_VERSION = 8;
 
 /** プロバイダー API キーの保存行。平文なのでアクセス権の管理は docs/secrets.md を正とする */
 export interface ProviderCredentialRow {
@@ -33,10 +33,22 @@ export interface ProviderMemoRow {
   memo: string;
 }
 
-/** 利用可能なモデル / アプリ既定モデルの保存行。null は未設定 (制限なし・候補の先頭) を表す */
+/**
+ * 利用可能なモデル / アプリ既定モデルの保存行。null は未設定 (制限なし・候補の先頭) を表す
+ */
 export interface ModelSettingsRow {
   allowedModels: ModelRef[] | null;
   defaultModel: string | null;
+}
+
+/**
+ * 画像生成の保存行。**行が無い = 未設定**で、キー削除は行ごと消す。apiKey は平文
+ * (アクセス権の管理と残存リスクは docs/secrets.md / docs/image-generation.md を正とする)
+ */
+export interface ImageSettingsRow {
+  provider: string;
+  model: string;
+  apiKey: string;
 }
 
 export interface AppDbStatus {
@@ -119,6 +131,20 @@ CREATE TABLE IF NOT EXISTS provider_memos (
 `;
 
 /**
+ * v7 -> v8 で足したテーブル。画像生成の provider / model / APIキーを 1 行だけ持ち、
+ * **行が無い = 未設定**（キー削除は行ごと消す）。provider_credentials とは別管理にし、
+ * プロバイダー登録キーを画像生成へ流用しない（docs/image-generation.md）。
+ */
+const IMAGE_SETTINGS_TABLE = `
+CREATE TABLE IF NOT EXISTS image_settings (
+  id       INTEGER PRIMARY KEY CHECK (id = 1),
+  provider TEXT NOT NULL,
+  model    TEXT NOT NULL,
+  apiKey   TEXT NOT NULL
+);
+`;
+
+/**
  * provider メモは retainSecret に登録しない方針なので、SQLite の例外文言に値が写り得る。
  * ログ・health・503 へは、この値を含まない固定文言だけを渡す。
  */
@@ -152,7 +178,8 @@ ${NOTIFICATION_SETTINGS_TABLE}
 ${ARCHIVE_SETTINGS_TABLE}
 ${PROVIDER_CREDENTIALS_TABLE}
 ${MODEL_SETTINGS_TABLE}
-${PROVIDER_MEMOS_TABLE}`;
+${PROVIDER_MEMOS_TABLE}
+${IMAGE_SETTINGS_TABLE}`;
 
 /** アプリ所有のテーブルだけを落とす (同じ DB に足した別機能のテーブルを巻き込まない) */
 const DROP_TABLES = `
@@ -164,6 +191,7 @@ DROP TABLE IF EXISTS archive_settings;
 DROP TABLE IF EXISTS provider_credentials;
 DROP TABLE IF EXISTS model_settings;
 DROP TABLE IF EXISTS provider_memos;
+DROP TABLE IF EXISTS image_settings;
 `;
 
 /**
@@ -247,6 +275,15 @@ function providerCredentialOf(row: Row): ProviderCredentialRow {
 function providerMemoOf(row: Row): ProviderMemoRow | undefined {
   const memo = optionalText(row.memo);
   return memo === undefined ? undefined : { provider: text(row.provider), memo };
+}
+
+/** 列は NOT NULL だが、手編集で空文字にされた行は未設定として読む (メモと同じ規約) */
+function imageSettingsOf(row: Row): ImageSettingsRow | undefined {
+  const provider = optionalText(row.provider);
+  const model = optionalText(row.model);
+  const apiKey = optionalText(row.apiKey);
+  if (!provider || !model || !apiKey) return undefined;
+  return { provider, model, apiKey };
 }
 
 function notificationSettingsOf(row: Row): NotificationSettings {
@@ -482,6 +519,7 @@ export class AppDb {
       this.#query((db) => db.exec(PROVIDER_CREDENTIALS_TABLE));
       this.#query((db) => db.exec(MODEL_SETTINGS_TABLE));
       this.#query((db) => db.exec(PROVIDER_MEMOS_TABLE));
+      this.#query((db) => db.exec(IMAGE_SETTINGS_TABLE));
       // 列追加は CREATE TABLE IF NOT EXISTS の後 (既存テーブルでは CREATE が何もしないため)。DDL も
       // トランザクション対象なので、途中失敗で列だけが残らない
       this.#addColumnIfMissing("provider_credentials", "updatedAt", "INTEGER");
@@ -669,6 +707,31 @@ export class AppDb {
   /** 行を消して未設定へ戻す (保存値が残っていないことを応答で確かめる導線) */
   resetModelSettings(): boolean {
     return this.#query((db) => db.prepare("DELETE FROM model_settings WHERE id = 1").run().changes > 0);
+  }
+
+  // --- image settings (1 行だけ。行が無い = 未設定) ---
+
+  /** 行が無ければ undefined。空文字へ手編集された行も未設定として読む */
+  readImageSettings(): ImageSettingsRow | undefined {
+    const row = this.#query((db) => db.prepare("SELECT * FROM image_settings WHERE id = 1").get() as Row | undefined);
+    return row ? imageSettingsOf(row) : undefined;
+  }
+
+  /** 登録と上書きで同じ (id = 1 の upsert)。単一ステートメントなので自動コミットで確定する */
+  saveImageSettings(settings: ImageSettingsRow): void {
+    this.#query((db) =>
+      db
+        .prepare(
+          `INSERT INTO image_settings (id, provider, model, apiKey) VALUES (1, ?, ?, ?)
+           ON CONFLICT(id) DO UPDATE SET provider = excluded.provider, model = excluded.model, apiKey = excluded.apiKey`,
+        )
+        .run(settings.provider, settings.model, settings.apiKey),
+    );
+  }
+
+  /** 行を消して未設定へ戻す (キー削除は provider / model も含めて行ごと消す) */
+  deleteImageSettings(): boolean {
+    return this.#query((db) => db.prepare("DELETE FROM image_settings WHERE id = 1").run().changes > 0);
   }
 
   // --- projects ---

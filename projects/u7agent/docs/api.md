@@ -25,6 +25,7 @@ DTO の正は `server/src/schema.ts`（zod）。リクエストボディは `@ho
 | 通知（Discord） | `GET/PUT /api/notifications`、`POST /api/notifications/test`、`PATCH /api/sessions/:id/notify` | [notifications.md](notifications.md) |
 | アーカイブの除外名 | `GET/PUT/DELETE /api/settings/archive` | このファイル |
 | プロバイダーAPIキーとメモ（設定 → モデル） | `GET /api/settings/models`、`PUT/DELETE /api/settings/models/:provider/key`、`PUT /api/settings/models/:provider/memo`、`POST /api/settings/models/:provider/resync` | このファイル |
+| 画像生成（設定 → モデル） | `GET/PUT /api/settings/images`、`PUT/DELETE /api/settings/images/key` | このファイル、[image-generation.md](image-generation.md) |
 | エージェント / スキル | `/api/agents`、`/api/skills`、`/api/skills/files`、`/api/skills/session` | [api-catalog.md](api-catalog.md)、[api-sessions.md](api-sessions.md) |
 | サンドボックス（内部） | `/v1/*`（BFF からは見えない） | [sandbox-api.md](sandbox-api.md) |
 
@@ -255,7 +256,7 @@ Content-Security-Policy: sandbox allow-scripts; default-src 'none'; style-src 'u
 - 502: サンドボックスへ到達できない / 認証失敗 / 本文が無い
 - 503: `PI_SANDBOX_URL` / `PI_SANDBOX_TOKEN` が未設定
 
-クライアントは `client/src/api.ts` の `fileRawUrl(path)` で URL を組み立て、`<img>` の src に使う（取得はブラウザに任せ、本文は JSON に載せない）。`path` はワークスペース root 相対で、セッションの作業フォルダ配下を表示するときは `fileTreeFetchPath(cwd, path)` で前置する。表示は [file-preview.md](file-preview.md)。
+クライアントは `client/src/api.ts` の `fileRawUrl(path)` で URL を組み立て、`<img>` の src に使う（取得はブラウザに任せ、本文は JSON に載せない）。`path` はワークスペース root 相対で、セッションの作業フォルダ配下を表示するときは `fileTreeFetchPath(cwd, path)` で前置する。表示は [file-preview.md](file-preview.md)。assistant 本文の Markdown 画像も同じ URL を使う（cwd 相対からの 3 段解決は [markdown.md](markdown.md#画像の-src-解決)）。
 
 ## ダウンロード
 
@@ -367,6 +368,35 @@ Content-Security-Policy: sandbox allow-scripts; default-src 'none'; style-src 'u
 - 503 は `{ "error": "…", "state": "not_stored" }` で、何も保存されていないことを示す（DB 書込前の失敗、ランタイム初期化失敗など）。400 は `{ "error": "…" }` だけ。`PUT /api/settings/models/allowed` もランタイムが無いときは 503 `not_stored`（カタログ検証ができないため）
 - 400: 未知の provider / `canSetApiKey` が false の provider への PUT、登録行が無い provider の DELETE、再同期の対象外（カタログに無く degraded も `remove` でない）、メモの対象外 provider。サンドボックスは使わない
 - `POST /:provider/resync` は冪等。degraded でない provider に送っても現在の DB 希望状態を再適用して 200 を返す
+
+## 画像生成（設定 → モデルの画像生成タブ）
+
+| メソッド | パス | 説明 |
+| --- | --- | --- |
+| GET | `/api/settings/images` | `configured` / `provider` / `model` / `models`（カタログ）/ `runtimeAvailable`。純粋読取で、APIキーは返さない |
+| PUT | `/api/settings/images` | `{ provider, model }`。キーを保持したまま選択を更新（行が無ければ 400） |
+| PUT | `/api/settings/images/key` | `{ apiKey }`。登録・上書き（行が無ければ既定 provider / model で作成） |
+| DELETE | `/api/settings/images/key` | 行ごと削除して未設定へ戻す（冪等） |
+
+アプリデータの SQLite を読むため DB が使えないときは 503（[persistence.md](persistence.md#アプリデータsqlite)）。モデル、保存先、ゲート、失敗分類は [image-generation.md](image-generation.md) を正とする。
+
+```json
+// GET /api/settings/images (200)
+{
+  "configured": true,
+  "provider": "openrouter",
+  "model": "openai/gpt-image-2",
+  "models": [{ "provider": "openrouter", "id": "openai/gpt-image-2", "name": "OpenAI: GPT Image 2" }],
+  "runtimeAvailable": true
+}
+```
+
+- `configured` は `image_settings` に行があるか。`false` のとき `provider` / `model` は `null`（行が無い = 未設定）
+- `models` は `builtinImagesProviders()` のカタログで、UI はこの一覧からだけモデルを選べる。キー値は GET にも変更系の応答にも含めない
+- `runtimeAvailable` は `/api/settings/models` と同じく「SDK ランタイムの初期化に成功したか」。`false` のときキー登録は 503 `not_stored`（`retainSecret` が no-op になり保護できないため）。選択変更と削除は runtime に依存しない
+- 変更系の応答は GET と同じ形 + `state: "applied"`。SDK への反映を持たないため `applied_unsynced` は無い。DB 書込に失敗したときだけ 503 `{ error, state: "not_stored" }`
+- 400: 行が無いのに PUT（`画像APIキーが未設定です。先にキーを登録してください`）、`openrouter` 以外の provider、カタログ外の model、8..2048 文字外のキー、形が違う本文
+- キー登録の既定は provider `openrouter` / model `openai/gpt-image-2`。削除すると行ごと消え、`generate_image` ツールは次のセッション作成から公開されなくなる（既存セッションの execute は実行時にキー無効エラーを返す）
 
 ## セッションへのファイルアップロード
 

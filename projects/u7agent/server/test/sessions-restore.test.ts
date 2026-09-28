@@ -337,6 +337,95 @@ test("ツール呼び出しだけのターンを含んでも meta / 一覧 / 復
   }
 });
 
+/**
+ * 画像生成ツール（generate_image）の呼び出しを含むターンを JSONL へ足す。
+ * 設定が無い（ツールを公開しない）store でも復元できることを固定するための入力。
+ */
+async function appendGenerateImageTurn(id: string, storeDir: string): Promise<void> {
+  const file = sessionJsonlPath(id, storeDir);
+  const parsed = parseSessionFile(await readFile(file, "utf8"), id);
+  assert.equal(parsed.kind, "ok");
+  if (parsed.kind !== "ok") return;
+  const at = new Date().toISOString();
+  const turn = [
+    {
+      type: "message",
+      id: "entry-image-user",
+      parentId: parsed.entries.at(-1)?.id ?? null,
+      timestamp: at,
+      message: { role: "user", content: "画像を作って", timestamp: Date.now() },
+    },
+    {
+      type: "message",
+      id: "entry-image-call",
+      parentId: "entry-image-user",
+      timestamp: at,
+      message: {
+        role: "assistant",
+        content: [{ type: "toolCall", id: "call-image", name: "generate_image", arguments: { prompt: "cafe" } }],
+        timestamp: Date.now(),
+      },
+    },
+    {
+      type: "message",
+      id: "entry-image-result",
+      parentId: "entry-image-call",
+      timestamp: at,
+      message: {
+        role: "toolResult",
+        toolCallId: "call-image",
+        toolName: "generate_image",
+        content: [{ type: "text", text: "画像を生成して保存しました: generated/cafe.png" }],
+        isError: false,
+        timestamp: Date.now(),
+      },
+    },
+    {
+      type: "message",
+      id: "entry-image-answer",
+      parentId: "entry-image-result",
+      timestamp: at,
+      message: {
+        role: "assistant",
+        content: [{ type: "text", text: "![cafe](generated/cafe.png)" }],
+        timestamp: Date.now(),
+      },
+    },
+  ];
+  await writeFile(file, serializeSession(parsed.header, [...parsed.entries, ...turn]));
+}
+
+test("画像生成ツールが無効でも generate_image を含む履歴を復元できる", async () => {
+  const storeDir = await mkdtemp(join(tmpdir(), "sessions-image-restore-"));
+  const { workspace } = stubWorkspace();
+  const catalog = createAgentCatalog();
+  try {
+    const store1 = createStore(storeDir, { pi: createStubPi(), workspace, catalog });
+    await store1.init();
+    const created = await store1.create();
+    await store1.flush(created);
+    await store1.close();
+
+    await appendGenerateImageTurn(created.id, storeDir);
+
+    // この store に画像設定は無い（ツールは公開されない）。それでもセッション作成が失敗しないことを固定する。
+    // 実 SDK が未知の toolCall を履歴からどう扱うかまでは stub では保証しない。
+    const store2 = createStore(storeDir, { pi: createStubPi(), workspace, catalog });
+    await store2.init();
+    const record = await store2.resolve(created.id);
+    assert.ok(record);
+    const payload = store2.payload(record);
+    assert.deepEqual(
+      payload.messages.map((message) => message.text),
+      ["画像を作って", "![cafe](generated/cafe.png)"],
+    );
+    assert.ok(JSON.stringify(payload.messages).includes("generate_image"), "履歴のツール呼び出しを消さない");
+    await store2.close();
+  } finally {
+    await rm(storeDir, { recursive: true, force: true });
+  }
+});
+
 test("store 経由で復元してもスキル読み込みが同じ位置に出る", async () => {
   const storeDir = await mkdtemp(join(tmpdir(), "sessions-skill-load-"));
   const { workspace } = stubWorkspace();
