@@ -9,7 +9,7 @@ import {
 } from "../lib/imageSettings";
 import { validateApiKey } from "../lib/modelSettings";
 import type { ImageSettingsResponse, UpdateImageSelectionBody } from "../types";
-import { createRequestGate } from "./requestGate";
+import { createLoadingTracker, createRequestGate } from "./requestGate";
 
 function messageFor(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
@@ -24,12 +24,14 @@ export function useImageSettings() {
   const [settings, setSettings] = useState<ImageSettingsResponse | null>(null);
   const [note, setNote] = useState<{ text: string; error: boolean }>({ text: IMAGE_SETTINGS_NOTE, error: false });
   const [saving, setSaving] = useState<ImageSavingAction | null>(null);
-  const [reloading, setReloading] = useState(true);
+  const [reloading, setReloading] = useState(false);
   const [beginLoad] = useState(createRequestGate);
+  // 破棄された取得でも進行中を解除するため、適用の可否とは別に追う
+  const [reloadTracker] = useState(() => createLoadingTracker(setReloading));
 
   const reload = useCallback(async (): Promise<void> => {
     const canApply = beginLoad();
-    setReloading(true);
+    const finishReload = reloadTracker.begin();
     try {
       const next = await getImageSettings();
       if (!canApply()) return;
@@ -40,9 +42,9 @@ export function useImageSettings() {
         setNote({ text: `画像生成の設定を読み込めませんでした。${messageFor(error)}`, error: true });
       }
     } finally {
-      if (canApply()) setReloading(false);
+      finishReload();
     }
-  }, [beginLoad]);
+  }, [beginLoad, reloadTracker]);
 
   useEffect(() => {
     void reload();

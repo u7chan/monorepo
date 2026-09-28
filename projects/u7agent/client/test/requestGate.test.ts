@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { createRequestGate, createRequestTracker } from "../src/hooks/requestGate";
+import { createLoadingTracker, createRequestGate, createRequestTracker } from "../src/hooks/requestGate";
 
 test("later requests prevent older responses from overwriting the list", async () => {
   const begin = createRequestGate();
@@ -59,4 +59,29 @@ test("createRequestTracker lets a re-fetch through after the latest request fini
   assert.equal(doneA, doneA, "A の完了は B の判定を変えない");
   doneA();
   assert.equal(tracker.pending(), false);
+});
+
+test("createLoadingTracker は破棄された要求の完了でも解除し、後続がある間は維持する", () => {
+  const states: boolean[] = [];
+  const tracker = createLoadingTracker((loading) => states.push(loading));
+  // ミューテーションで応答が破棄されても、finally から完了が届けばフラグを解除する
+  // (適用の可否で解除を分岐すると、ここで true が残って再取得を塞ぐ)
+  const finishStale = tracker.begin();
+  finishStale();
+  // 後続が飛んでいる間は、古い方の完了では解除しない
+  const finishOld = tracker.begin();
+  const finishLatest = tracker.begin();
+  finishOld();
+  finishLatest();
+  assert.deepEqual(states, [true, false, true, false]);
+});
+
+test("createLoadingTracker は同じ状態を重複して通知しない", () => {
+  const states: boolean[] = [];
+  const tracker = createLoadingTracker((loading) => states.push(loading));
+  const finishA = tracker.begin();
+  const finishB = tracker.begin();
+  finishA();
+  finishB();
+  assert.deepEqual(states, [true, false], "2 件目の開始と 1 件目の完了では再通知しない");
 });
