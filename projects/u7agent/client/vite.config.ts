@@ -5,7 +5,6 @@ import { defineConfig } from "vite";
 export default defineConfig({
   plugins: [react(), tailwindcss()],
   server: {
-    // WSL の NAT 越しに実機から見るため LAN へ開き、3000 が埋まっていれば黙って別ポートへずらさず失敗させる
     host: true,
     port: 3000,
     strictPort: true,
