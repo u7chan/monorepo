@@ -537,6 +537,7 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
           summarizedMessageCount: state.history.summarizedMessageCount,
         },
         page,
+        { pendingEchoIds: state.pendingEchoIds },
       );
       return {
         ...state,
@@ -544,6 +545,7 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
         dividers: bundle.markers,
         nextId: bundle.nextId,
         toolBubbleIds: bundle.toolBubbleIds,
+        pendingEchoIds: bundle.pendingEchoIds,
         prependSeq: state.prependSeq + (bundle.prepended > 0 ? 1 : 0),
         history: {
           ...state.history,

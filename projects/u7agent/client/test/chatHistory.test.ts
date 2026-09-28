@@ -275,7 +275,7 @@ test("確定済みライブバブルはページの手前へ戻し、送信直�
     page([userItem("m2", "m2")], { prevCursor: "m1", hasMore: true, nextCursor: "m2", messageCount: 3 }),
     { live: [settled, echo], pendingEchoIds: [3] },
   );
-  assert.deepEqual(texts(merged.bubbles), ["active:m1", "live:古い応答", "active:m2", "live:新しい質問"]);
+  assert.deepEqual(texts(merged.bubbles), ["live:古い応答", "active:m1", "active:m2", "live:新しい質問"]);
   assert.deepEqual(merged.pendingEchoIds, [3]);
 });
 
@@ -295,7 +295,7 @@ test("確定済みライブバブルを戻した分だけ区切りの位置も�
     }),
     { live: [settled] },
   );
-  assert.deepEqual(texts(merged.bubbles), ["active:m0", "live:古いターン", "active:a", "active:b"]);
+  assert.deepEqual(texts(merged.bubbles), ["live:古いターン", "active:m0", "active:a", "active:b"]);
   assert.deepEqual(
     merged.markers.map((marker) => [marker.id, marker.index]),
     [["c1", 3]],
@@ -328,6 +328,99 @@ test("applyHistoryCounts は未取得の summarized が先頭にあっても位�
     ),
   );
   assert.deepEqual(texts(prepended.bubbles), ["summarized:a", "summarized:b", "summarized:c", "active:d", "active:e"]);
+});
+
+test("上方向の追加取得は carried のライブバブルを item と突き合わせて消費し、順序を崩さない", () => {
+  const items = (from: number, to: number): HistoryItem[] =>
+    Array.from({ length: to - from }, (_, index) => userItem(`m${from + index}`, `m${from + index}`));
+  // legacy 初期表示 (entryId 無し) で m1..m7
+  const legacy: Bubble[] = Array.from({ length: 7 }, (_, index) => ({
+    id: index + 1,
+    role: "user",
+    text: `m${index + 1}`,
+    tools: [],
+    skillLoads: [],
+  }));
+  // 最新ページ m5..m7 を適用 → m5..m7 だけ消費され、m1..m4 が carried で残る
+  const latest = mergeHistoryPage(
+    EMPTY,
+    page(items(5, 8), { prevCursor: "x", hasMore: true, nextCursor: "m5", messageCount: 7 }),
+    { live: legacy },
+  );
+  assert.deepEqual(
+    latest.bubbles.map((bubble) => bubble.text),
+    ["m1", "m2", "m3", "m4", "m5", "m6", "m7"],
+  );
+  assert.deepEqual(
+    latest.bubbles.filter((bubble) => bubble.entryId === undefined).map((bubble) => bubble.text),
+    ["m1", "m2", "m3", "m4"],
+  );
+
+  // 上方向 1 回目 m3,m4: carried の m3,m4 を消費し、残り m1,m2 は追加分の手前へ
+  const first = prependHistoryPage(
+    { ...latest, messageCount: 7, summarizedMessageCount: 0 },
+    page(items(3, 5), { prevCursor: "m2", hasMore: true, nextCursor: "m3", messageCount: 7 }),
+  );
+  assert.deepEqual(
+    first.bubbles.map((bubble) => bubble.text),
+    ["m1", "m2", "m3", "m4", "m5", "m6", "m7"],
+  );
+  assert.deepEqual(
+    first.bubbles.filter((bubble) => bubble.entryId === undefined).map((bubble) => bubble.text),
+    ["m1", "m2"],
+    "重複せず、未取得分だけが残る",
+  );
+
+  // 上方向 2 回目 m1,m2: 残った carried も消費され、全件が entryId 付きになる
+  const second = prependHistoryPage(
+    { ...first, messageCount: 7, summarizedMessageCount: 0 },
+    page(items(1, 3), { prevCursor: null, hasMore: false, nextCursor: null, messageCount: 7 }),
+  );
+  assert.deepEqual(
+    second.bubbles.map((bubble) => bubble.text),
+    ["m1", "m2", "m3", "m4", "m5", "m6", "m7"],
+  );
+  assert.equal(
+    second.bubbles.some((bubble) => bubble.entryId === undefined),
+    false,
+  );
+  assert.equal(new Set(second.bubbles.map((bubble) => bubble.entryId)).size, 7);
+});
+
+test("保持分が最新ページと同一のときは gap にしない (同じページの再同期)", () => {
+  const items = Array.from({ length: 5 }, (_, index) => userItem(`m${index + 1}`, `m${index + 1}`));
+  // 最新ページの prevCursor は保持窓の 1 つ外側を指す
+  const latest = page(items, { prevCursor: "outside", hasMore: true, nextCursor: "m1", messageCount: 10 });
+  const held = mergeHistoryPage(EMPTY, latest);
+  assert.equal(held.gap, false);
+  const again = mergeHistoryPage(held, latest);
+  assert.equal(again.gap, false, "同じページの再同期で gap と誤判定しない");
+  assert.deepEqual(
+    ids(again.bubbles),
+    items.map((item) => item.id),
+  );
+});
+
+test("前置きしても保持分より新しい確定ライブバブルは末尾に残る", () => {
+  const held = mergeHistoryPage(
+    EMPTY,
+    page([userItem("m1", "m1"), userItem("m2", "m2")], {
+      hasMore: true,
+      nextCursor: "m1",
+      messageCount: 4,
+    }),
+  );
+  const settled: Bubble = { id: 9, settled: true, role: "assistant", text: "新しい応答", tools: [], skillLoads: [] };
+  const withTail = { ...held, bubbles: [...held.bubbles, settled], messageCount: 4, summarizedMessageCount: 0 };
+  const prepended = prependHistoryPage(
+    withTail,
+    page([userItem("m0", "m0")], { prevCursor: null, hasMore: false, nextCursor: null, messageCount: 4 }),
+  );
+  assert.deepEqual(
+    prepended.bubbles.map((bubble) => bubble.text),
+    ["m0", "m1", "m2", "新しい応答"],
+    "保持分より後ろのライブは先頭へ動かさない",
+  );
 });
 
 test("古いページの前置きは重複を捨て、区切りの位置をずらす", () => {

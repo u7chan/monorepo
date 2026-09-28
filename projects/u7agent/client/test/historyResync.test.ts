@@ -274,6 +274,135 @@ test("欠落区間が埋まらない / 古い gap 応答のときは再構築か
   assert.equal(rebuilt.history.pendingPage, null);
 });
 
+test("上方向の追加取得を 2 回行っても API の item 数に一致する (legacy 初期表示の重複回帰)", () => {
+  const items = Array.from({ length: 110 }, (_, index) => userMsg(`m${index}`, `message ${index}`));
+  const legacyMessages = items.map((item) =>
+    item.kind === "message" ? { role: item.role, text: item.text } : { role: "user" as const, text: "" },
+  );
+  const legacy = chatReducer(initialChatState, { type: "resync", payload: payload(legacyMessages) });
+  assert.equal(legacy.bubbles.length, 110, "legacy 初期表示は API の item 数と一致する");
+
+  // 最新ページ m60..m109
+  const withLatest = chatReducer(legacy, {
+    type: "resyncHistory",
+    page: historyPage(items.slice(60), { prevCursor: "outside", hasMore: true, nextCursor: "m60", messageCount: 110 }),
+  });
+  assert.equal(withLatest.bubbles.length, 110, "最新ページ適用でも行数が増えない");
+  assert.equal(withLatest.bubbles.filter((bubble) => bubble.entryId !== undefined).length, 50);
+
+  // 上方向 1 回目 m10..m59
+  const first = chatReducer(withLatest, {
+    type: "prependHistory",
+    page: historyPage(items.slice(10, 60), { prevCursor: "m9", hasMore: true, nextCursor: "m10", messageCount: 110 }),
+  });
+  assert.equal(first.bubbles.length, 110, "1 回目の追加取得で重複しない");
+  assert.equal(first.bubbles.filter((bubble) => bubble.entryId !== undefined).length, 100);
+  assert.equal(first.bubbles.filter((bubble) => bubble.entryId === undefined).length, 10);
+
+  // 上方向 2 回目 m0..m9
+  const second = chatReducer(first, {
+    type: "prependHistory",
+    page: historyPage(items.slice(0, 10), { prevCursor: null, hasMore: false, nextCursor: null, messageCount: 110 }),
+  });
+  assert.equal(second.bubbles.length, 110, "2 回目の追加取得で重複しない");
+  assert.equal(
+    second.bubbles.every((bubble) => bubble.entryId !== undefined),
+    true,
+  );
+  assert.equal(new Set(second.bubbles.map((bubble) => bubble.entryId)).size, 110);
+  assert.deepEqual(
+    second.bubbles.map((bubble) => bubble.text),
+    items.map((item) => (item.kind === "message" ? item.text : "")),
+  );
+});
+
+test("再構築後に上方向取得しても carried live が item と重複しない", () => {
+  const legacy = chatReducer(initialChatState, {
+    type: "resync",
+    payload: payload([
+      { role: "user", text: "l0" },
+      { role: "user", text: "l1" },
+      { role: "user", text: "l2" },
+      { role: "user", text: "l3" },
+    ]),
+  });
+  // 本文が違う最新ページでは carried に残る
+  const withPage = chatReducer(legacy, {
+    type: "resyncHistory",
+    page: historyPage([userMsg("p0", "p0"), userMsg("p1", "p1")], {
+      prevCursor: "x",
+      hasMore: true,
+      nextCursor: "p0",
+      messageCount: 6,
+    }),
+  });
+  assert.equal(withPage.bubbles.filter((bubble) => bubble.entryId === undefined).length, 4);
+
+  // 欠落区間が 1 ページに収まらず、最新ページで再構築
+  const pending = chatReducer(withPage, {
+    type: "resyncHistory",
+    page: historyPage([userMsg("q0", "q0"), userMsg("q1", "q1")], {
+      prevCursor: "y",
+      hasMore: true,
+      nextCursor: "q0",
+      messageCount: 8,
+    }),
+  });
+  assert.equal(pending.history.gapCursor, "q0");
+  const rebuilt = chatReducer(pending, {
+    type: "historyGap",
+    cursor: "q0",
+    page: historyPage([userMsg("z0", "z0")], { prevCursor: "z", messageCount: 8 }),
+  });
+  assert.equal(rebuilt.bubbles.length, 6, "再構築は carried live を残す");
+
+  // 上方向 1 回目: l0,l1 を消費し、残りは追加分の手前へ
+  const first = chatReducer(rebuilt, {
+    type: "prependHistory",
+    page: historyPage([userMsg("r0", "l0"), userMsg("r1", "l1")], {
+      prevCursor: null,
+      hasMore: true,
+      nextCursor: "r0",
+      messageCount: 8,
+    }),
+  });
+  assert.deepEqual(
+    first.bubbles.map((bubble) => bubble.text),
+    ["l2", "l3", "l0", "l1", "q0", "q1"],
+  );
+  assert.equal(first.bubbles.filter((bubble) => bubble.entryId === undefined).length, 2);
+
+  // 上方向 2 回目: 残りも消費して重複なし
+  const second = chatReducer(first, {
+    type: "prependHistory",
+    page: historyPage([userMsg("s0", "l2"), userMsg("s1", "l3")], {
+      prevCursor: null,
+      hasMore: false,
+      nextCursor: null,
+      messageCount: 8,
+    }),
+  });
+  assert.equal(second.bubbles.length, 6);
+  assert.equal(
+    second.bubbles.some((bubble) => bubble.entryId === undefined),
+    false,
+  );
+  assert.equal(new Set(second.bubbles.map((bubble) => bubble.entryId)).size, 6);
+});
+
+test("保持分が最新ページと同一の再同期では gap 取得を要求しない", () => {
+  const items = Array.from({ length: 5 }, (_, index) => userMsg(`m${index}`, `m${index}`));
+  const latest = historyPage(items, { prevCursor: "outside", hasMore: true, nextCursor: "m0", messageCount: 10 });
+  const first = chatReducer(initialChatState, { type: "resyncHistory", page: latest });
+  const again = chatReducer(first, { type: "resyncHistory", page: latest });
+  assert.equal(again.history.gapCursor, null, "同一ページの再同期で gap にしない");
+  assert.equal(again.history.pendingPage, null);
+  assert.deepEqual(
+    entryIds(again),
+    items.map((item) => item.id),
+  );
+});
+
 test("欠落区間の取得に失敗したら保留を解いて次の resync で取り直せる", () => {
   const base = chatReducer(initialChatState, {
     type: "resyncHistory",

@@ -118,10 +118,22 @@ export function heldHistoryIds(bubbles: Bubble[], markers: CompactionMarker[]): 
 
 type Connection = { kind: "apply"; keepBubbles: number; keepMarkers: CompactionMarker[] } | { kind: "gap" };
 
+/** items の position まで (自身を含む) を保持する接続結果 */
+function keptUpTo(items: { bubble?: Bubble; marker?: CompactionMarker }[], position: number): Connection {
+  const kept = position < 0 ? [] : items.slice(0, position + 1);
+  return {
+    kind: "apply",
+    keepBubbles: kept.filter((item) => item.bubble !== undefined).length,
+    keepMarkers: kept.flatMap((item) => (item.marker ? [item.marker] : [])),
+  };
+}
+
 /**
  * ページが保持分と繋がるかを prevCursor で判定する。prevCursor はページ先頭の直前の item id なので、
  * 保持中にあれば「そこまで残してページで置き換える」、null ならブランチ先頭 (保持分は現行に無い)、
  * 見つからなければ欠落区間 (別タブで limit 以上追記された / 分岐が変わった) として取り直す。
+ * prevCursor が無くてもページ先頭が保持中の item なら重なりとみなす (同じ最新ページの再同期で
+ * gap と誤判定しないため)。
  */
 function connectionFor(prev: HistoryBundle, page: HistoryPage): Connection {
   const historyBubbles = prev.bubbles.filter((bubble) => bubble.entryId !== undefined);
@@ -132,36 +144,30 @@ function connectionFor(prev: HistoryBundle, page: HistoryPage): Connection {
     // 最新ページが空 = 現行ブランチに item が無い。保持分は現行に無いので捨てる
     return { kind: "apply", keepBubbles: 0, keepMarkers: [] };
   }
-  if (page.prevCursor === null) return { kind: "apply", keepBubbles: 0, keepMarkers: [] };
   const items = orderedItems(historyBubbles, prev.markers);
-  const position = items.findIndex((item) => (item.bubble?.entryId ?? item.marker?.id) === page.prevCursor);
-  if (position === -1) return { kind: "gap" };
-  const kept = items.slice(0, position + 1);
-  return {
-    kind: "apply",
-    keepBubbles: kept.filter((item) => item.bubble !== undefined).length,
-    keepMarkers: kept.flatMap((item) => (item.marker ? [item.marker] : [])),
-  };
+  const positionOf = (id: string | null): number =>
+    id === null ? -1 : items.findIndex((item) => (item.bubble?.entryId ?? item.marker?.id) === id);
+  const beforePage = positionOf(page.prevCursor);
+  if (beforePage !== -1) return keptUpTo(items, beforePage);
+  const pageStart = positionOf(page.items[0].id);
+  if (pageStart !== -1) return keptUpTo(items, pageStart - 1);
+  if (page.prevCursor === null) return { kind: "apply", keepBubbles: 0, keepMarkers: [] };
+  return { kind: "gap" };
 }
 
 /**
- * ライブバブルを「ページの新しい領域 (保持分に無い item)」と突き合わせる。本文の集合ではなく、
- * role と正規形が一致する item を後ろから順に対にするので、過去に同じ文面があっても新規送信の
- * エコーを消さない。返す consumed の分だけバブルと pendingEchoIds を落とす。
+ * ライブバブルを、新しく入った item の列と突き合わせる。本文の集合ではなく、role と正規形が
+ * 一致する item を後ろから順に対にするので、過去に同じ文面があっても新規送信のエコーを消さない。
+ * 返す consumed の分だけバブルと pendingEchoIds を落とす。
  */
-function reconcileLive(
-  live: Bubble[],
-  page: HistoryPage,
-  heldIds: Set<string>,
-): { kept: Bubble[]; consumed: Set<number> } {
-  const newItems = page.items.filter((item) => !heldIds.has(item.id));
+function reconcileLive(live: Bubble[], items: HistoryItem[]): { kept: Bubble[]; consumed: Set<number> } {
   const consumed = new Set<number>();
   const usedItemIds = new Set<string>();
   for (let index = live.length - 1; index >= 0; index -= 1) {
     const bubble = live[index];
     const text = canonicalUserText(bubble.text);
-    for (let itemIndex = newItems.length - 1; itemIndex >= 0; itemIndex -= 1) {
-      const item = newItems[itemIndex];
+    for (let itemIndex = items.length - 1; itemIndex >= 0; itemIndex -= 1) {
+      const item = items[itemIndex];
       if (usedItemIds.has(item.id) || item.kind !== "message" || item.role !== bubble.role) continue;
       if (canonicalUserText(item.text) !== text) continue;
       consumed.add(bubble.id);
@@ -202,10 +208,26 @@ export function applyHistoryCounts(bubbles: Bubble[], messageCount: number, summ
 }
 
 /**
+ * live を「保持分より手前 (carried)」と「保持分より後ろ (最新ターン / 送信直後)」に分ける。
+ * prev に含まれない live (テストや rebuild が別に渡す分) は手前扱い。
+ */
+function splitLive(prev: HistoryBundle, live: Bubble[]): { front: Bubble[]; tail: Bubble[] } {
+  const firstHistory = prev.bubbles.findIndex((bubble) => bubble.entryId !== undefined);
+  const front: Bubble[] = [];
+  const tail: Bubble[] = [];
+  for (const bubble of live) {
+    const index = prev.bubbles.indexOf(bubble);
+    if (firstHistory !== -1 && index > firstHistory) tail.push(bubble);
+    else front.push(bubble);
+  }
+  return { front, tail };
+}
+
+/**
  * resync 相当のマージ。最新ページで「新しい側」だけを差し替え、ページ先頭より古い取得済みページは残す。
  * ページが保持分と繋がらない (gap) ときは適用せず、呼び出し側が欠落区間を取ってから再適用する。
- * ライブバブルはページの新しい領域と一致した分だけ落とし、未一致の確定分はページの手前、
- * 送信直後のローカルエコーは末尾へ置く。
+ * ライブバブルはページの新しい領域と一致した分だけ落とし、carried になった分は保持分の手前、
+ * 送信直後のローカルエコーと保持分より後のタンは末尾へ置く。
  */
 export function mergeHistoryPage(
   prev: HistoryBundle,
@@ -220,16 +242,19 @@ export function mergeHistoryPage(
   const heldIds = new Set(heldHistoryIds(prev.bubbles, prev.markers));
   const kept = historyBubbles.slice(0, connection.keepBubbles);
   const pageBundle = historyItemsToBundle(prev.nextId, page.items);
-  const { kept: remainingLive } = reconcileLive(live, page, heldIds);
+  const newItems = page.items.filter((item) => !heldIds.has(item.id));
+  const { front, tail } = splitLive(prev, live);
+  const { kept: remainingFront } = reconcileLive(front, newItems);
+  const { kept: remainingTail } = reconcileLive(tail, newItems);
   const pending = new Set(pendingEchoIds);
-  const carried = remainingLive.filter((bubble) => !pending.has(bubble.id));
-  const trailing = remainingLive.filter((bubble) => pending.has(bubble.id));
-  const bubbles = [...kept, ...carried, ...pageBundle.bubbles, ...trailing];
+  const carried = remainingFront.filter((bubble) => !pending.has(bubble.id));
+  const trailing = [...remainingFront.filter((bubble) => pending.has(bubble.id)), ...remainingTail];
+  const bubbles = [...carried, ...kept, ...pageBundle.bubbles, ...trailing];
   const markers = [
-    ...connection.keepMarkers,
+    ...connection.keepMarkers.map((marker) => ({ ...marker, index: marker.index + carried.length })),
     ...pageBundle.markers.map((marker) => ({
       ...marker,
-      index: marker.index + kept.length + carried.length,
+      index: marker.index + carried.length + kept.length,
     })),
   ].sort((a, b) => a.index - b.index);
   const withCounts = applyHistoryCounts(bubbles, page.messageCount, page.summarizedMessageCount);
@@ -239,7 +264,9 @@ export function mergeHistoryPage(
     nextId: pageBundle.nextId,
     toolBubbleIds: rebuildToolBubbleIds(withCounts),
     gap: false,
-    pendingEchoIds: pendingEchoIds.filter((id) => remainingLive.some((bubble) => bubble.id === id)),
+    pendingEchoIds: pendingEchoIds.filter((id) =>
+      [...remainingFront, ...remainingTail].some((bubble) => bubble.id === id),
+    ),
   };
 }
 
@@ -257,24 +284,45 @@ export function rebuildHistoryPage(
 
 /**
  * 古いページの前置き。既に持っている item は捨て、重なったページを二度足さない。
+ * carried になっているライブバブル (legacy 初期表示の残りなど) も、追加分の item と role + 正規形の
+ * 順序で突き合わせて消費する。残りは追加分より古いので手前へ戻し、送信直後のエコーだけ末尾に残す。
  * 追加した件数を prependSeq として返し、ChatArea がスクロール位置の補正に使う。
  */
 export function prependHistoryPage(
   prev: HistoryBundle & { messageCount: number; summarizedMessageCount: number },
   page: HistoryPage,
-): HistoryBundle & { prepended: number } {
+  { pendingEchoIds = [] }: { pendingEchoIds?: number[] } = {},
+): HistoryBundle & { prepended: number; pendingEchoIds: number[] } {
   const known = new Set<string>();
   for (const bubble of prev.bubbles) if (bubble.entryId !== undefined) known.add(bubble.entryId);
   for (const marker of prev.markers) known.add(marker.id);
   const fresh = page.items.filter((item) => !known.has(item.id));
+  const historyBubbles = prev.bubbles.filter((bubble) => bubble.entryId !== undefined);
+  // 保持分より手前のライブ (legacy 初期表示の残り / 再構築で carried になった分) だけを追加分と
+  // 突き合わせる。保持分より後ろのライブ (送信直後のエコー / 完結した最新ターン) は末尾に残す
+  const frontLives: Bubble[] = [];
+  const tailLives: Bubble[] = [];
+  let seenHistory = false;
+  for (const bubble of prev.bubbles) {
+    if (bubble.entryId !== undefined) {
+      seenHistory = true;
+      continue;
+    }
+    if (seenHistory) tailLives.push(bubble);
+    else frontLives.push(bubble);
+  }
   if (fresh.length === 0) {
-    return { ...prev, prepended: 0 };
+    return { ...prev, prepended: 0, pendingEchoIds };
   }
   const bundle = historyItemsToBundle(prev.nextId, fresh);
-  const shift = bundle.bubbles.length;
-  const bubbles = [...bundle.bubbles, ...prev.bubbles];
+  const { kept: remainingFront } = reconcileLive(frontLives, fresh);
+  const pending = new Set(pendingEchoIds);
+  const front = remainingFront.filter((bubble) => !pending.has(bubble.id));
+  const tail = [...remainingFront.filter((bubble) => pending.has(bubble.id)), ...tailLives];
+  const shift = bundle.bubbles.length + front.length;
+  const bubbles = [...front, ...bundle.bubbles, ...historyBubbles, ...tail];
   const markers = [
-    ...bundle.markers,
+    ...bundle.markers.map((marker) => ({ ...marker, index: marker.index + front.length })),
     ...prev.markers.map((marker) => ({ ...marker, index: marker.index + shift })),
   ].sort((a, b) => a.index - b.index);
   const withCounts = applyHistoryCounts(bubbles, page.messageCount, page.summarizedMessageCount);
@@ -284,5 +332,6 @@ export function prependHistoryPage(
     nextId: bundle.nextId,
     toolBubbleIds: { ...bundle.toolBubbleIds, ...prev.toolBubbleIds },
     prepended: bundle.bubbles.length,
+    pendingEchoIds: pendingEchoIds.filter((id) => remainingFront.some((bubble) => bubble.id === id)),
   };
 }
