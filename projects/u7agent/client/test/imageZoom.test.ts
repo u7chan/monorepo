@@ -98,6 +98,18 @@ test("拡大画像は .md の外に置き、枠・角丸を当てない", () => 
   );
 });
 
+test("本文のサムネイルは高さの上限を持ち、縦長画像 1 枚で会話を埋めない", () => {
+  // 添付は variant 側の max-h で抑えているが、本文は本文列の幅いっぱいで描くため、上限が無いと
+  // 1024x1536 の画像 1 枚で会話が埋まる。上限は CSS (.md img, .md-img) が持ち、拡大画像には当たらない
+  const css = read("src/styles/index.css");
+  const definition = css.indexOf(".md img,");
+  assert.ok(definition >= 0, ".md img の定義が無い");
+  const block = css.slice(definition, css.indexOf("}", definition));
+  assert.match(block, /max-height:\s*(?:\d+(?:\.\d+)?(?:px|rem)|min\([^)]*\))/, "サムネイルに高さの上限が無い");
+  assert.match(block, /max-width:\s*100%/, "幅の上限が無い");
+  assert.match(block, /height:\s*auto/, "高さを固定すると比率が崩れる");
+});
+
 test("見た目の切替は variant / compact が持ち、呼び出し側からは渡さない", () => {
   const zoom = read("src/components/ImageZoom.tsx");
   assert.match(zoom, /variant: ImageZoomVariant;/, "variant を必須の props にする");
