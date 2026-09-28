@@ -93,6 +93,8 @@ function fakeRuntime(
 /** DB 面の fake。失敗フラグで AppDb の失敗経路を再現する */
 function fakeDb(rows: Record<string, string> = {}, selection?: StoredModelSelection) {
   const store = new Map(Object.entries(rows));
+  // API キーの行と保存日時を分ける。移行前の既存行は日時不明 (null) で始まる
+  const updatedAtStore = new Map<string, number | null>(Object.keys(rows).map((provider) => [provider, null]));
   const memos = new Map<string, string>();
   const state = {
     failList: false,
@@ -118,21 +120,27 @@ function fakeDb(rows: Record<string, string> = {}, selection?: StoredModelSelect
   const db: ModelSettingsDb = {
     listProviderCredentials: () => {
       if (state.failList) throw state.error;
-      return [...store].map(([provider, apiKey]) => ({ provider, apiKey }));
+      return [...store].map(([provider, apiKey]) => ({
+        provider,
+        apiKey,
+        updatedAt: updatedAtStore.get(provider) ?? null,
+      }));
     },
     getProviderCredential: (provider) => {
       if (state.failGet) throw state.error;
       const apiKey = store.get(provider);
-      return apiKey === undefined ? undefined : { provider, apiKey };
+      return apiKey === undefined ? undefined : { provider, apiKey, updatedAt: updatedAtStore.get(provider) ?? null };
     },
-    saveProviderCredential: (provider, apiKey) => {
+    saveProviderCredential: (provider, apiKey, updatedAt) => {
       if (state.failSave) throw state.error;
       store.set(provider, apiKey);
+      updatedAtStore.set(provider, updatedAt);
       if (state.armListFailureOnSave) state.failList = true;
     },
     deleteProviderCredential: (provider) => {
       if (state.failDelete) throw state.error;
       const deleted = store.delete(provider);
+      updatedAtStore.delete(provider);
       if (state.armListFailureOnDelete) state.failList = true;
       return deleted;
     },
@@ -166,6 +174,7 @@ function fakeDb(rows: Record<string, string> = {}, selection?: StoredModelSelect
   return {
     db,
     store,
+    updatedAtStore,
     memos,
     state,
     readSelection: () => saved,
@@ -257,6 +266,7 @@ test("GET はキー値を返さず、managed / canSetApiKey / orphan / degraded 
     supportsOAuth: false,
     orphan: false,
     memo: null,
+    keyUpdatedAt: null,
   });
   assert.equal(byProvider.get("openai")?.managed, false);
   assert.equal(byProvider.get("openai")?.canSetApiKey, false);
@@ -272,6 +282,8 @@ test("GET はキー値を返さず、managed / canSetApiKey / orphan / degraded 
     // カタログに無い行は SDK へ適用できない = 未反映
     degraded: "apply",
     memo: null,
+    // 移行前の行は日時不明
+    keyUpdatedAt: null,
   });
   const serialized = JSON.stringify(response);
   assert.ok(!serialized.includes(KEY_A) && !serialized.includes(KEY_B), "キー値は応答に載せない");
@@ -310,6 +322,36 @@ test("PUT は DB を先に確定し、SDK が成功すれば applied になる",
   assert.deepEqual(log, [`retain:${KEY_A}`, `apply:anthropic:${KEY_A}`], "マスカー登録は SDK より前");
   assert.equal(refreshCount(), 1, "state の再計算は 1 回だけ");
   assert.equal(response.providers.find((provider) => provider.provider === "anthropic")?.degraded, undefined);
+});
+
+test("キーの最終保存日時は PUT で更新し、resync / 削除では書き換えない", async () => {
+  const before = Date.now();
+  const db = fakeDb({ legacy: KEY_B });
+  const runtime = fakeRuntime({ providers: [{ provider: "anthropic" }, { provider: "legacy" }] });
+  const { service } = createService({ db: db.db, runtime: runtime.runtime });
+
+  // 移行前の既存行は日時不明 (null) のまま
+  assert.equal(service.settings().providers.find((provider) => provider.provider === "legacy")?.keyUpdatedAt, null);
+
+  const put = okBody(await service.putKey("anthropic", KEY_A));
+  const saved = put.providers.find((provider) => provider.provider === "anthropic")?.keyUpdatedAt;
+  assert.equal(typeof saved, "number", "PUT の応答に保存時刻 (epoch ms) を載せる");
+  assert.ok((saved ?? 0) >= before && (saved ?? 0) <= Date.now());
+  assert.equal(
+    service.settings().providers.find((provider) => provider.provider === "anthropic")?.keyUpdatedAt,
+    saved,
+    "GET も同じ保存日時を返す",
+  );
+
+  // 再同期は DB 行を書き換えないので日時は変わらない
+  const resynced = okBody(await service.resync("anthropic"));
+  assert.equal(resynced.providers.find((provider) => provider.provider === "anthropic")?.keyUpdatedAt, saved);
+
+  // 削除は行ごと消えるため、以後は保存日時なし (managed: false)
+  const deleted = okBody(await service.deleteKey("anthropic"));
+  const gone = deleted.providers.find((provider) => provider.provider === "anthropic");
+  assert.equal(gone?.managed, false);
+  assert.equal(gone?.keyUpdatedAt, null);
 });
 
 test("PUT の DB 保存失敗は not_stored で SDK を呼ばない", async () => {
@@ -756,6 +798,7 @@ test("メモだけの provider を GET の 4 経路目として出し、degraded
     supportsOAuth: false,
     orphan: true,
     memo: "無料枠の控え",
+    keyUpdatedAt: null,
   });
 });
 

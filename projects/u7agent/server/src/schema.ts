@@ -445,6 +445,8 @@ export const ProviderAuthSettingSchema = z.object({
   auth: RuntimeAuthSchema,
   /** provider_credentials に行がある (保存済みの希望状態) */
   managed: z.boolean(),
+  /** provider_credentials.updatedAt (epoch ms)。null = 行が無い / 移行前の行で不明 */
+  keyUpdatedAt: z.number().nullable(),
   /** auth.apiKey.login を持ち、この画面からキーを登録できる */
   canSetApiKey: z.boolean(),
   supportsOAuth: z.boolean(),

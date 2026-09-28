@@ -17,6 +17,7 @@ import type {
   ModelMutationResponse,
   ProviderAuthSetting,
   RuntimeModelsResponse,
+  SessionSummary,
 } from "../src/types";
 
 // api.ts (location.origin を読む) を辿るため、node では最小の shim を置いてから読み込む
@@ -29,10 +30,25 @@ function provider(overrides: Partial<ProviderAuthSetting> = {}): ProviderAuthSet
     name: "Anthropic",
     auth: { configured: false, environmentVariables: [] },
     managed: false,
+    keyUpdatedAt: null,
     canSetApiKey: true,
     supportsOAuth: false,
     orphan: false,
     memo: null,
+    ...overrides,
+  };
+}
+
+function session(overrides: Partial<SessionSummary> = {}): SessionSummary {
+  return {
+    sessionId: "s1",
+    title: "title",
+    agentId: "agent-zundamon",
+    status: "idle",
+    queueDepth: 0,
+    messageCount: 0,
+    createdAt: 1,
+    lastUsedAt: 2,
     ...overrides,
   };
 }
@@ -92,8 +108,18 @@ function modelSettings(overrides: Partial<ModelSettings> = {}): ModelSettings {
   };
 }
 
-function render(settings: ModelSettings): string {
-  return renderToStaticMarkup(createElement(ModelSettingsView, { modelSettings: settings, onBack: () => {} }));
+function render(
+  settings: ModelSettings,
+  options: { sessions?: SessionSummary[]; sessionsLoaded?: boolean } = {},
+): string {
+  return renderToStaticMarkup(
+    createElement(ModelSettingsView, {
+      modelSettings: settings,
+      sessions: options.sessions ?? [],
+      sessionsLoaded: options.sessionsLoaded ?? false,
+      onBack: () => {},
+    }),
+  );
 }
 
 test("provider 行に認証バッジ・キー入力・削除・再同期・モデル数を出す", () => {
@@ -139,6 +165,92 @@ test("provider 行にメモ欄と保存ボタンを出し、runtime 不可では
   );
   const stoppedTextarea = /<textarea[^>]*>/.exec(stopped)?.[0] ?? "";
   assert.ok(stoppedTextarea.includes("disabled"), "runtime 不可ではメモ欄を disable する");
+});
+
+test("managed の provider だけにキー最終保存を出し、日時が無ければ保存日不明と書く", () => {
+  const stamped = render(
+    modelSettings({
+      settings: { ...SETTINGS, providers: [provider({ managed: true, keyUpdatedAt: 1 })] },
+      catalog: null,
+    }),
+  );
+  assert.ok(stamped.includes("キー最終保存:"), "managed には保存日時を出す");
+  assert.equal(stamped.includes("保存日不明"), false);
+
+  // 移行前の行 (keyUpdatedAt: null) は「不明」と明示する
+  const migrated = render(
+    modelSettings({
+      settings: { ...SETTINGS, providers: [provider({ managed: true, keyUpdatedAt: null })] },
+      catalog: null,
+    }),
+  );
+  assert.ok(migrated.includes("キー最終保存: 保存日不明"));
+
+  // 環境変数などの非 managed には日時の行を出さない
+  const ambient = render(
+    modelSettings({
+      settings: {
+        ...SETTINGS,
+        providers: [
+          provider({ provider: "local", name: "Local", auth: { configured: true, environmentVariables: [] } }),
+        ],
+      },
+      catalog: null,
+    }),
+  );
+  assert.equal(ambient.includes("キー最終保存"), false);
+});
+
+test("最終使用は一覧の取得後だけ出し、会話が無いときの言い分けを分ける", () => {
+  const managed = provider({ managed: true, keyUpdatedAt: 1 });
+  const sessions = [
+    session({ sessionId: "a", model: "anthropic/claude-sonnet", lastUsedAt: 100 }),
+    session({ sessionId: "b", model: "anthropic/claude-haiku", lastUsedAt: 300 }),
+  ];
+  const withSessions = render(modelSettings({ settings: { ...SETTINGS, providers: [managed] } }), {
+    sessions,
+    sessionsLoaded: true,
+  });
+  assert.ok(withSessions.includes("最終使用:"), "取得後は最終使用を出す");
+  assert.ok(withSessions.includes("この provider の会話 2 件"), "会話数を出す");
+
+  // 未取得の間は最終使用の行ごと出さない (「0 件」と混同しない)
+  const beforeLoad = render(modelSettings({ settings: { ...SETTINGS, providers: [managed] } }), {
+    sessions: [],
+    sessionsLoaded: false,
+  });
+  assert.equal(beforeLoad.includes("最終使用"), false);
+  assert.equal(beforeLoad.includes("この provider の会話はありません"), false);
+
+  // 取得済みで 1 件も無ければ、managed には「会話はありません」と書く
+  const noSessions = render(modelSettings({ settings: { ...SETTINGS, providers: [managed] } }), {
+    sessions: [],
+    sessionsLoaded: true,
+  });
+  assert.ok(noSessions.includes("この provider の会話はありません"));
+
+  // managed でなく会話も 0 件ならどちらの行も出さない (ノイズを作らない)
+  const quiet = render(
+    modelSettings({
+      settings: { ...SETTINGS, providers: [provider({ provider: "local", name: "Local" })] },
+      catalog: null,
+    }),
+    { sessions: [], sessionsLoaded: true },
+  );
+  assert.equal(quiet.includes("キー最終保存"), false);
+  assert.equal(quiet.includes("最終使用"), false);
+
+  // managed でなくても会話があれば最終使用だけを出す (環境変数認証など)
+  const ambient = render(
+    modelSettings({
+      settings: { ...SETTINGS, providers: [provider({ provider: "anthropic", name: "Anthropic" })] },
+      catalog: null,
+    }),
+    { sessions, sessionsLoaded: true },
+  );
+  assert.equal(ambient.includes("キー最終保存"), false);
+  assert.ok(ambient.includes("最終使用:"));
+  assert.ok(ambient.includes("この provider の会話 2 件"));
 });
 
 test("カタログ外のメモだけの provider はキーを登録できないがメモは書けると案内する", () => {
@@ -280,7 +392,12 @@ test("ランタイム不可のときは警告を出し、カタログ失敗も�
 test("ページ本体は取得前の初期状態 (読み込み中) を出す", () => {
   // hook が取得を始めるのは mount 後なので、react-dom/server の初期描画は読み込み中になる
   const html = renderToStaticMarkup(
-    createElement(ModelSettingsPage, { onRefreshHealth: async () => null, onBack: () => {} }),
+    createElement(ModelSettingsPage, {
+      onRefreshHealth: async () => null,
+      onBack: () => {},
+      sessions: [],
+      sessionsLoaded: false,
+    }),
   );
   assert.ok(html.includes("プロバイダーの認証状態を読み込んでいます。"));
   assert.ok(html.includes("ランタイムが利用できないため") === false, "取得前に警告を出さない");
