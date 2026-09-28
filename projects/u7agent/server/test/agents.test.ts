@@ -445,6 +445,15 @@ test("appendSystemPrompt は作業ディレクトリとファイル / スキル�
   assert.match(appendSystemPrompt("/other/root"), /`\/other\/root\/\.agents\/skills`/);
 });
 
+test("appendSystemPrompt は画像生成ツールの案内を有効時だけ足す", () => {
+  const off = appendSystemPrompt("/workspace");
+  assert.doesNotMatch(off, /generate_image/);
+  const on = appendSystemPrompt("/workspace", { imageGeneration: true });
+  assert.match(on, /generate_image saves generated images/);
+  assert.match(on, /Markdown image/);
+  assert.match(on, /generated\/name\.png/);
+});
+
 test("appendSystemPrompt はサンドボックスの python / uv と .venv の運用を説明する", () => {
   const prompt = appendSystemPrompt("/workspace");
   // ベースイメージの Python が上がったらプロンプトの記述も見直す (node 24 と同じ性質のドリフト)

@@ -6,6 +6,7 @@ import { clampThinkingLevel, getSupportedThinkingLevels } from "@earendil-works/
 import type { Api, Model as PiAiModel } from "@earendil-works/pi-ai";
 import type { PiBff } from "../src/agent";
 import type { ModelSelection } from "../src/agent";
+import type { ImageGenerationConfig } from "../src/images";
 import { createMutableSecretMasker } from "../src/redact";
 import type {
   AgentDef,
@@ -666,6 +667,7 @@ export function createStubPi(options: StubPiOptions = {}) {
   // setter が refresh より先に呼ばれることを順序で確かめられるよう、同じログへ積む
   const modelStateEvents: string[] = [];
   const modelSelections: ModelSelection[] = [];
+  const imageGenerationConfigs: ImageGenerationConfig[] = [];
   let refreshCount = 0;
   return {
     cwd: "/tmp/project",
@@ -688,6 +690,14 @@ export function createStubPi(options: StubPiOptions = {}) {
     retainedSecrets,
     modelSelections,
     modelStateEvents,
+    // 画像生成の注入面（bootstrap が AppDb.open 後に写す）。記録だけしてセッション作成には使わない
+    imageGenerationConfigs,
+    get imageGenerationEnabled() {
+      return imageGenerationConfigs.at(-1)?.enabled === true;
+    },
+    setImageGeneration: (config: ImageGenerationConfig) => {
+      imageGenerationConfigs.push(config);
+    },
     retainSecret: (value: string) => {
       retainedSecrets.push(value);
       secretMasker.setSecrets(retainedSecrets);

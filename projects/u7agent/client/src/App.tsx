@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type CSSProperties } from "react";
 import type { CreateProjectInput } from "./api";
+import { fileRawUrl } from "./api";
 import { AgentSettingsPage } from "./components/AgentSettingsPage";
 import { AppearancePage } from "./components/AppearancePage";
 import { ArchiveSettingsPage } from "./components/ArchiveSettingsPage";
@@ -17,6 +18,7 @@ import { SessionFilesPanel, SessionFilesSheet } from "./components/SessionFilesP
 import { SkillSettingsPage } from "./components/SkillSettingsPage";
 import { Topbar } from "./components/Topbar";
 import { FileRefProvider } from "./components/markdown/FileRefLink";
+import { MarkdownImageProvider } from "./components/markdown/MarkdownImageRefs";
 import { useU7Agent, type SendMessageOptions } from "./hooks/useU7Agent";
 import { useElapsedMs } from "./hooks/useElapsedMs";
 import { useLayoutMode } from "./hooks/useLayoutMode";
@@ -387,26 +389,28 @@ export default function App() {
               />
             )}
             <FileRefProvider rootCwd={app.health?.cwd ?? ""} cwd={app.cwd} onOpen={openFileRef}>
-              <ChatArea
-                visible={mainView === "chat"}
-                bubbles={app.chat.bubbles}
-                dividers={app.chat.dividers}
-                compactions={app.chat.compactions}
-                activeContextStartId={app.chat.history.activeContextStartId}
-                historyHasMore={app.chat.history.hasMore}
-                historyLoading={app.chat.history.loading}
-                prependSeq={app.chat.prependSeq}
-                onLoadOlder={app.loadOlderHistory}
-                compact={compact}
-                scope={scope}
-                suggestions={app.selectedAgent?.suggestions}
-                agentName={chatAgentName}
-                agentIcon={chatAgentIcon}
-                rootCwd={app.health?.cwd ?? ""}
-                sessionId={app.sessionId}
-                sendSeq={app.chat.sendSeq}
-                onSuggestion={handleSend}
-              />
+              <MarkdownImageProvider rootCwd={app.health?.cwd ?? ""} cwd={app.cwd} rawUrl={fileRawUrl}>
+                <ChatArea
+                  visible={mainView === "chat"}
+                  bubbles={app.chat.bubbles}
+                  dividers={app.chat.dividers}
+                  compactions={app.chat.compactions}
+                  activeContextStartId={app.chat.history.activeContextStartId}
+                  historyHasMore={app.chat.history.hasMore}
+                  historyLoading={app.chat.history.loading}
+                  prependSeq={app.chat.prependSeq}
+                  onLoadOlder={app.loadOlderHistory}
+                  compact={compact}
+                  scope={scope}
+                  suggestions={app.selectedAgent?.suggestions}
+                  agentName={chatAgentName}
+                  agentIcon={chatAgentIcon}
+                  rootCwd={app.health?.cwd ?? ""}
+                  sessionId={app.sessionId}
+                  sendSeq={app.chat.sendSeq}
+                  onSuggestion={handleSend}
+                />
+              </MarkdownImageProvider>
             </FileRefProvider>
             <Composer
               visible={mainView === "chat"}

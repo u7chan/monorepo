@@ -52,6 +52,7 @@ test("解析と描画のソースが揃っている (走査対象が空になら
     "Diagram.tsx",
     "FileRefLink.tsx",
     "HtmlInline.tsx",
+    "MarkdownImageRefs.tsx",
     "MarkdownView.tsx",
     "MathView.tsx",
   ]);

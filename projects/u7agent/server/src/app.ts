@@ -11,6 +11,7 @@ import { createArchiveRoutes } from "./routes/archive";
 import { createCatalogRoutes } from "./routes/catalog";
 import { createFileRoutes } from "./routes/files";
 import { createHealthRoutes } from "./routes/health";
+import { createImageSettingsRoutes } from "./routes/images";
 import { createNotificationRoutes } from "./routes/notifications";
 import { createModelSettingsRoutes } from "./routes/models";
 import { createProjectRoutes } from "./routes/projects";
@@ -26,6 +27,8 @@ import {
   RenameFileBodySchema,
   UpdateAgentBodySchema,
   UpdateArchiveSettingsBodySchema,
+  UpdateImageKeyBodySchema,
+  UpdateImageSelectionBodySchema,
   UpdateModelAvailabilityBodySchema,
   UpdateNotificationsBodySchema,
   UpdateProviderKeyBodySchema,
@@ -76,6 +79,7 @@ export async function createBffApp(opts: CreateBffAppOptions = {}) {
     archiveSettings,
     runtimeDiagnostics,
     modelSettings,
+    imageSettings,
   } = await createBffContext(opts);
   const appData = appDataGuard(appDb);
   // 変更系は「何も保存していない」ことを state でも示す
@@ -90,6 +94,7 @@ export async function createBffApp(opts: CreateBffAppOptions = {}) {
   const notificationRoutes = createNotificationRoutes({ notifications });
   const archiveRoutes = createArchiveRoutes({ archiveSettings });
   const modelSettingsRoutes = createModelSettingsRoutes({ modelSettings });
+  const imageSettingsRoutes = createImageSettingsRoutes({ imageSettings });
 
   const app = new Hono()
     // bodyGuard は本文を最長 64 KiB で読み切って text 化するため、raw で受けるアップロードは先に登録する
@@ -272,6 +277,24 @@ export async function createBffApp(opts: CreateBffAppOptions = {}) {
       (c) => modelSettingsRoutes.putMemo(c, c.req.valid("json").memo),
     )
     .post("/api/settings/models/:provider/resync", appDataMutation, modelSettingsRoutes.resync)
+    .get("/api/settings/images", appData, imageSettingsRoutes.list)
+    .put(
+      "/api/settings/images",
+      appDataMutation,
+      jsonBodyValidator(UpdateImageSelectionBodySchema, (result, c) =>
+        result.success ? undefined : c.json({ error: "Invalid request body" }, 400),
+      ),
+      (c) => imageSettingsRoutes.putSelection(c, c.req.valid("json")),
+    )
+    .put(
+      "/api/settings/images/key",
+      appDataMutation,
+      jsonBodyValidator(UpdateImageKeyBodySchema, (result, c) =>
+        result.success ? undefined : c.json({ error: "Invalid request body" }, 400),
+      ),
+      (c) => imageSettingsRoutes.putKey(c, c.req.valid("json").apiKey),
+    )
+    .delete("/api/settings/images/key", appDataMutation, imageSettingsRoutes.deleteKey)
     // Hono は登録順にマッチするため、未マッチの GET を拾う catch-all は最後に置く。
     .get("*", serveClientAssets(clientDistDir))
     .notFound((c) => c.json({ error: "Not found" }, 404))
@@ -295,6 +318,7 @@ export async function createBffApp(opts: CreateBffAppOptions = {}) {
     notifications,
     archiveSettings,
     modelSettings,
+    imageSettings,
     close: async () => {
       // 未完了の送信結果は記録しない (プロセス終了時に破棄する)
       notifications.close();
