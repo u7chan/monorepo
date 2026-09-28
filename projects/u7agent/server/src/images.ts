@@ -214,16 +214,18 @@ export function createImagesGenerator(options: ImagesGeneratorOptions = {}): Ima
 
     generate: async (input) => {
       const provider = providers().find((candidate) => candidate.id === input.provider);
-      const model: ImagesModel<string> | undefined = provider
-        ?.getModels()
-        .find((candidate) => candidate.id === input.model);
-      if (!provider || !model) {
+      const models = provider?.getModels() ?? [];
+      // 一覧の正は live で、SDK 同梱は遅れる。カタログに無い id も送れるように、URL / ヘッダは同じ
+      // provider のモデル (openrouter は全モデルで同一) をひな形に借り、送信する id だけを差し替える
+      const template = models.find((candidate) => candidate.id === input.model) ?? models[0];
+      if (!provider || !template) {
         return {
           ok: false,
           code: "unknown",
           message: `${IMAGE_UNKNOWN_FAILURE_MESSAGE}: 画像モデルが見つかりません (${input.provider}/${input.model})`,
         };
       }
+      const model: ImagesModel<string> = { ...template, id: input.model };
 
       // 期限はここでのみ掛ける。SDK と違い応答と status を自分で読むため、abort の理由は timedOut で判別する
       const controller = new AbortController();

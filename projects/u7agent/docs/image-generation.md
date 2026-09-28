@@ -24,7 +24,8 @@
 - 取得成功時だけ DB（`image_catalog`）へ `id` と表示名を残す。失敗しても一覧は前のままで、`catalogSource` / `fetchedAt` も変えない
 - 起動時は先にキャッシュを読み、行があれば続けて live を試す。live が失敗しても「前回の一覧」から始められる
 - SDK 同梱へ落ちるときは `openrouter/*`（= `openrouter/auto*`）を除く。画像専用 API に存在せず、選ぶと生成が 404 になる
-- キャッシュは利用者データではない。行が無い / 形が違う / JSON が壊れているときは「未取得」として読み、health の失敗にはしない（次の取得成功で上書きされて直る。ここで 503 にすると、取得で直せる設定画面自体が開かなくなる）
+- キャッシュは利用者データではなく派生データとして扱う。行が無い / 形が違う / JSON が壊れているときは「未取得」として読み、health の失敗にはしない（破損を DB 全体の失敗にしない。次の取得成功が行を上書きして直る）
+- 生成は保存された id をそのまま `/images` へ送る。live カタログにしか無いモデルでも、SDK 同梱の一覧にあるかどうかでローカルには弾かない（SDK から借りるのは provider の `baseUrl` / ヘッダだけ）
 
 ### 画面表示
 
@@ -60,7 +61,7 @@
 
 ## 失敗の分類
 
-SDK(pi-ai 0.87.1) の `openrouter-images` は `chat/completions` へ投げるが、画像生成専用モデルはそちらでは 404（`Use the /api/v1/images endpoint instead.`）になる。そのため `server/src/images.ts` は SDK の `generateImages()` を通さず `POST {baseUrl}/images` を自分で叩き、status と本文も自分で読んで次で分類する。SDK は `baseUrl` の解決にだけ使う（モデル一覧は live カタログ。[モデルカタログ](#モデルカタログ)）。
+SDK(pi-ai 0.87.1) の `openrouter-images` は `chat/completions` へ投げるが、画像生成専用モデルはそちらでは 404（`Use the /api/v1/images endpoint instead.`）になる。そのため `server/src/images.ts` は SDK の `generateImages()` を通さず `POST {baseUrl}/images` を自分で叩き、status と本文も自分で読んで次で分類する。SDK は provider の `baseUrl` / ヘッダのひな形にだけ使い、送信する model id は要求のものをそのまま使う（一覧の正は live なので、SDK の一覧に無い id でもローカルでは弾かない。[モデルカタログ](#モデルカタログ)）。
 
 - 非 2xx の status を分類の根拠にする。理由は本文の `error.message` を優先し、形が違うときだけ生テキストへ落とす（生テキストは非 2xx のみ）
 - 期限は自前の `AbortController` + タイマーだけに掛ける。既定は 180 秒
@@ -128,7 +129,7 @@ SDK(pi-ai 0.87.1) の `openrouter-images` は `chat/completions` へ投げるが
 
 | テスト | 固定すること |
 | --- | --- |
-| `server/test/images.test.ts` | カタログ / `chat/completions` へ戻らないこと（`/images` の送信先・ヘッダ・本文）/ `media_type` の落とし方 / 失敗分類（401・403・402・429・5xx・timeout・ユーザー中断・原因不明）/ 画像 0 件の失敗（2xx の生本文と `error.message`）/ provider メッセージのマスク / SDK 同梱カタログから `openrouter/*` を落とすこと |
+| `server/test/images.test.ts` | カタログ / `chat/completions` へ戻らないこと（`/images` の送信先・ヘッダ・本文）/ `media_type` の落とし方 / 失敗分類（401・403・402・429・5xx・timeout・ユーザー中断・原因不明）/ 画像 0 件の失敗（2xx の生本文と `error.message`）/ provider メッセージのマスク / SDK 同梱カタログから `openrouter/*` を落とすこと / SDK の一覧に無い id（live のみのモデル）も provider の URL で送ること |
 | `server/test/image-catalog.test.ts` | live の採用とキャッシュ保存（認証ヘッダを付けない / id と表示名だけ）/ 重複 id と表示名の欠落 / 失敗分類（429・5xx・契約外・空・timeout）と一覧の保持 / キャッシュの読込と live 失敗時の維持 / キャッシュの読取・保存失敗 |
 | `server/test/image-tools.test.ts` | ツールの組み立て（有効時だけ）/ path の拒否規則 / slug と拡張子 / root 相対への前置き / 同名衝突で実際の保存名を返す / execute が毎回設定を読む / throw のマスク / signal の伝播 |
 | `server/test/image-settings.test.ts` | GET / PUT / DELETE の契約、マスカー登録の順序、既定行、行が無い / provider / カタログ外の 400、runtime 無しの 503、DB 失敗の 503、起動時の適用（キャッシュ読込と、行があるときだけの live 取得）/ キー保存が取得を待たないこと / 再取得の失敗文言 |

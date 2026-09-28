@@ -276,3 +276,11 @@ test("中断は provider 呼び出しへ signal を渡す", async () => {
   await run(tool({ capture, settings }), { prompt: "cafe" }, controller.signal);
   assert.equal(capture.generated[0].signal, controller.signal);
 });
+
+test("カタログにしか無いモデルの保存値もそのまま provider へ渡す", async () => {
+  const capture: Capture = { uploads: [], bodies: [], generated: [] };
+  // 生成側はカタログを知らない (SDK の一覧に無い id をローカルで弾かない)
+  const liveOnly = { ...settings, model: "recraft/recraft-v4.1-flash" };
+  await run(tool({ capture, settings: liveOnly }), { prompt: "cafe" });
+  assert.equal(capture.generated[0].model, "recraft/recraft-v4.1-flash");
+});

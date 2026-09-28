@@ -317,8 +317,8 @@ function imageSettingsOf(row: Row): ImageSettingsRow | undefined {
 }
 
 /**
- * キャッシュ行の JSON 配列。キャッシュなので、JSON が壊れていても、形が違っても、空でも「未取得」として読む。
- * ここで例外にすると health が失敗し、同じ行を直せる取得の画面自体が 503 で開かなくなる。
+ * キャッシュ行の JSON 配列。派生データなので、JSON が壊れていても、形が違っても、空でも「未取得」として読む
+ * (保存値の破損として health / 503 にはしない。読めなければ SDK カタログへ落ち、次の取得成功が行を上書きして直る)。
  */
 function imageCatalogModelsOf(value: unknown): ImageCatalogModelRow[] | undefined {
   let parsed: unknown;
