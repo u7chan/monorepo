@@ -113,8 +113,8 @@
 
   <!-- BFF → サンドボックス -->
   <line class="line" x1="500" y1="548" x2="500" y2="660" marker-end="url(#arrowEnd)" />
-  <text class="t-body" x="524" y="576">BFF → サンドボックス：ツール実行要求（NDJSON）</text>
-  <text class="t-body" x="524" y="598">サンドボックス → BFF：update / result / error</text>
+  <text class="t-body" x="524" y="576">BFF → サンドボックス：ツール実行の要求（JSON）</text>
+  <text class="t-body" x="524" y="598">サンドボックス → BFF：update / result / error（NDJSON）</text>
   <text class="t-small" x="524" y="622">内部ネットワークのみ・Bearer 認証／ホストへ公開しない</text>
 
   <!-- 実行ランタイム -->
