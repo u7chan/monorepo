@@ -28,6 +28,7 @@ import {
   mutationNote,
   normalizeAllowedModels,
   providerAuthBadge,
+  providerDraftBase,
   providerDraftOf,
   providerUsage,
   resyncAvailable,
@@ -260,11 +261,12 @@ test("providerUsage は model の最初の / で provider を分け、会話数�
   assert.deepEqual(providerUsage([], "anthropic"), { sessions: 0, lastUsedAt: null });
 });
 
-test("provider の入力下書きは親が持ち、未編集の provider は保存値を使う", () => {
+test("provider の入力下書きはフィールド単位で、未編集の provider は保存値を使う", () => {
   const saved = provider({ memo: "個人アカウントの控え" });
+  const base = providerDraftBase(saved);
   assert.deepEqual(providerDraftOf({}, saved), { apiKey: "", memo: "個人アカウントの控え" });
 
-  const drafts = withProviderDraft({}, "anthropic", { apiKey: "sk-live", memo: "編集中" });
+  let drafts = withProviderDraft({}, "anthropic", base, { apiKey: "sk-live", memo: "編集中" });
   // 保存値の再取得や別 provider の追加があっても、編集中の下書きをそのまま返す (再マウントで復元する値)
   assert.deepEqual(providerDraftOf(drafts, saved), { apiKey: "sk-live", memo: "編集中" });
   assert.deepEqual(providerDraftOf(drafts, provider({ memo: "別の控え" })), { apiKey: "sk-live", memo: "編集中" });
@@ -273,12 +275,34 @@ test("provider の入力下書きは親が持ち、未編集の provider は保�
     memo: "",
   });
 
-  // 更新は provider ごとに独立し、内容が同じなら同じ参照を返す
-  assert.equal(withProviderDraft(drafts, "anthropic", { apiKey: "sk-live", memo: "編集中" }), drafts);
-  assert.deepEqual(withProviderDraft(drafts, "openai", { apiKey: "sk-other", memo: "" }), {
+  // 更新は provider ごとに独立し、内容が同じなら同じ参照を返す (base はその provider の保存値)
+  assert.equal(withProviderDraft(drafts, "anthropic", base, { apiKey: "sk-live", memo: "編集中" }), drafts);
+  drafts = withProviderDraft(drafts, "openai", providerDraftBase(provider({ provider: "openai", name: "OpenAI" })), {
+    apiKey: "sk-other",
+  });
+  assert.deepEqual(drafts, {
     anthropic: { apiKey: "sk-live", memo: "編集中" },
     openai: { apiKey: "sk-other", memo: "" },
   });
+});
+
+test("保存完了と保存値の同期はフィールド単位で更新し、待機中の他方の入力を残す", () => {
+  const base = providerDraftBase(provider());
+  // キー保存: 押下後、保存の待機中にメモを編集 → 完了後も新しいメモが残る
+  let drafts = withProviderDraft({}, "anthropic", base, { apiKey: "sk-live" });
+  drafts = withProviderDraft(drafts, "anthropic", base, { memo: "待機中に書いたメモ" });
+  drafts = withProviderDraft(drafts, "anthropic", base, { apiKey: "" });
+  assert.deepEqual(providerDraftOf(drafts, provider()), { apiKey: "", memo: "待機中に書いたメモ" });
+
+  // メモ保存: 押下後、保存の待機中にキーを編集 → 完了後も新しいキーが残る
+  drafts = withProviderDraft(drafts, "anthropic", base, { memo: "  メモ  " });
+  drafts = withProviderDraft(drafts, "anthropic", base, { apiKey: "sk-next" });
+  drafts = withProviderDraft(drafts, "anthropic", base, { memo: "メモ" });
+  assert.deepEqual(providerDraftOf(drafts, provider()), { apiKey: "sk-next", memo: "メモ" });
+
+  // 保存値の外部変化 (useEffect) は memo だけを合わせ、入力中の apiKey を巻き戻さない
+  drafts = withProviderDraft(drafts, "anthropic", base, { memo: "外部の新しいメモ" });
+  assert.deepEqual(providerDraftOf(drafts, provider()), { apiKey: "sk-next", memo: "外部の新しいメモ" });
 });
 
 test("APIキーの長さはサーバーと同じ境界で検証する", () => {

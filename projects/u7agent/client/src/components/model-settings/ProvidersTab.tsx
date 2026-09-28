@@ -33,7 +33,8 @@ export type ProvidersTabProps = {
   onResync: (provider: string) => Promise<boolean>;
   /** provider ごとの入力下書き (apiKey / memo)。両タブの親が保持する */
   drafts: Record<string, ProviderDraft>;
-  onChangeDraft: (provider: string, draft: ProviderDraft) => void;
+  /** 下書きのフィールド単位の更新。触っていないフィールドは親側の最新値を保つ */
+  onChangeDraft: (provider: string, patch: Partial<ProviderDraft>) => void;
   /** キー登録後にモデルを選びに行く導線 */
   onOpenModels: () => void;
 };
@@ -245,7 +246,7 @@ function ProviderDetail({
   onDelete: (provider: string) => Promise<boolean>;
   onResync: (provider: string) => Promise<boolean>;
   drafts: Record<string, ProviderDraft>;
-  onChangeDraft: (provider: string, draft: ProviderDraft) => void;
+  onChangeDraft: (provider: string, patch: Partial<ProviderDraft>) => void;
   onOpenModels: () => void;
 }) {
   // 入力値は親が持つ下書きから取る。このコンポーネントの再マウント (タブ切替・provider 切替) で失わない
@@ -273,23 +274,24 @@ function ProviderDetail({
         : `最終使用: ${messageTimeLabel(usage.lastUsedAt)} · この provider の会話 ${usage.sessions} 件`;
 
   // 保存値が変わったときだけ入力値を合わせる (同じ内容の再取得で編集中の下書きを消さない)。
-  // mount 直後 (provider 切替) は同期しない: 親が保つ下書きを保存値で上書きしないため
+  // mount 直後 (provider 切替) は同期しない。memo だけを更新し、入力中の apiKey を巻き戻さない
   const previousSavedMemo = useRef(savedMemo);
   useEffect(() => {
     if (previousSavedMemo.current === savedMemo) return;
     previousSavedMemo.current = savedMemo;
-    onChangeDraft(provider.provider, { apiKey, memo: savedMemo });
+    onChangeDraft(provider.provider, { memo: savedMemo });
   }, [savedMemo]);
 
   const submit = async () => {
-    // 保存できたときだけ入力を消す (失敗したら打ち直さず再利用できるように)
-    if (await onSave(provider.provider, apiKey)) onChangeDraft(provider.provider, { apiKey: "", memo });
+    // 保存できたときだけ入力を消す。await 中に入力された memo は親の最新値だから、apiKey だけを更新する
+    if (await onSave(provider.provider, apiKey)) onChangeDraft(provider.provider, { apiKey: "" });
   };
 
   const submitMemo = async () => {
-    // サーバーが trim して保存するため、成功時は trim 済みの値で入力値を戻して dirty を消す
+    // サーバーが trim して保存するため、成功時は trim 済みの値で入力値を戻して dirty を消す。
+    // await 中に入力された apiKey は親の最新値だから、memo だけを更新する
     const trimmed = memo.trim();
-    if (await onSaveMemo(provider.provider, trimmed)) onChangeDraft(provider.provider, { apiKey, memo: trimmed });
+    if (await onSaveMemo(provider.provider, trimmed)) onChangeDraft(provider.provider, { memo: trimmed });
   };
 
   return (
@@ -349,7 +351,7 @@ function ProviderDetail({
                 aria-label={`${provider.name} のAPIキー`}
                 autoComplete="off"
                 spellCheck={false}
-                onChange={(event) => onChangeDraft(provider.provider, { apiKey: event.currentTarget.value, memo })}
+                onChange={(event) => onChangeDraft(provider.provider, { apiKey: event.currentTarget.value })}
               />
               <button type="submit" className="btn-primary" disabled={busy || apiKey.length === 0}>
                 <CheckIcon />
@@ -411,7 +413,7 @@ function ProviderDetail({
               placeholder="例: 個人アカウントの本番キー（2026-01 発行）"
               aria-label={`${provider.name} のメモ`}
               disabled={!runtimeAvailable}
-              onChange={(event) => onChangeDraft(provider.provider, { apiKey, memo: event.currentTarget.value })}
+              onChange={(event) => onChangeDraft(provider.provider, { memo: event.currentTarget.value })}
             />
           </label>
           <div className="flex flex-wrap items-center justify-between gap-2">

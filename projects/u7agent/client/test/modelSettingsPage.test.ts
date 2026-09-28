@@ -518,4 +518,12 @@ test("下書きの作り直しは保存値と初回の null 展開に限り、pr
   assert.equal(providersTab.includes("const [memo, setMemo]"), false);
   assert.match(providersTab, /providerDraftOf\(/, "入力値は親の下書きから取る");
   assert.match(providersTab, /onChangeDraft\(/, "編集は親の下書きを更新する");
+  // 保存完了と保存値の同期は保存対象のフィールドだけを更新する (await 中に入力された他方を古い値で上書きしない)
+  assert.match(providersTab, /onChangeDraft\(provider\.provider, \{ apiKey: "" \}\)/, "キー保存後は apiKey だけ消す");
+  assert.match(providersTab, /onChangeDraft\(provider\.provider, \{ memo: trimmed \}\)/, "メモ保存後は memo だけ戻す");
+  assert.match(
+    providersTab,
+    /onChangeDraft\(provider\.provider, \{ memo: savedMemo \}\)/,
+    "外部変化の同期も memo だけ",
+  );
 });

@@ -140,23 +140,35 @@ export interface ProviderDraft {
   memo: string;
 }
 
+/** 下書きがまだ無い provider の初期値。メモは保存値から始める */
+export function providerDraftBase(provider: ProviderAuthSetting): ProviderDraft {
+  return { apiKey: "", memo: provider.memo ?? "" };
+}
+
 /**
  * 入力欄に出す下書き。まだ触っていない provider は保存値 (メモ) から作り、触った後は親の下書きを使う。
  * 子を再マウントしても編集中の値を失わないための入口 (provider.memo で再初期化しない)。
  */
 export function providerDraftOf(drafts: Record<string, ProviderDraft>, provider: ProviderAuthSetting): ProviderDraft {
-  return drafts[provider.provider] ?? { apiKey: "", memo: provider.memo ?? "" };
+  return drafts[provider.provider] ?? providerDraftBase(provider);
 }
 
-/** 下書きの保存。内容が同じなら同じ参照を返し、不要な再レンダーを作らない */
+/**
+ * 下書きをフィールド単位で更新する。`base` は下書きがまだ無いときの初期値。
+ * `patch` に含まれないフィールドは最新の下書きの値を保つため、保存の待機中に他方へ入力された値や、
+ * 保存値の外部変化で同期したくないフィールドを古いスナップショットで上書きしない。
+ * 内容が同じなら同じ参照を返し、不要な再レンダーを作らない。
+ */
 export function withProviderDraft(
   drafts: Record<string, ProviderDraft>,
   provider: string,
-  draft: ProviderDraft,
+  base: ProviderDraft,
+  patch: Partial<ProviderDraft>,
 ): Record<string, ProviderDraft> {
-  const current = drafts[provider];
-  if (current && current.apiKey === draft.apiKey && current.memo === draft.memo) return drafts;
-  return { ...drafts, [provider]: draft };
+  const current = drafts[provider] ?? base;
+  const next = { ...current, ...patch };
+  if (current.apiKey === next.apiKey && current.memo === next.memo) return drafts;
+  return { ...drafts, [provider]: next };
 }
 
 /** 設定済みを先頭に、未設定は畳めるよう後ろへ分ける。並びはサーバーが返した順を保つ */

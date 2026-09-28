@@ -3,6 +3,7 @@ import { useModelSettings, type ModelSettings } from "../hooks/useModelSettings"
 import { cn } from "../lib/cn";
 import {
   availabilityDraftState,
+  providerDraftBase,
   withProviderDraft,
   type AvailabilityDraft,
   type AvailabilityDraftState,
@@ -95,6 +96,13 @@ export function ModelSettingsView({
   const [draft, setDraft] = useState<AvailabilityDraft>(EMPTY_DRAFT);
   // provider 詳細の入力下書き (apiKey / memo) も同じ親が持つ。タブ切替・provider 切替・検索で失わない
   const [providerDrafts, setProviderDrafts] = useState<Record<string, ProviderDraft>>({});
+  // 更新はフィールド単位にする。保存 Promise の待機中に入力された他方の値を、古いスナップショットで上書きしない
+  const updateProviderDraft = (provider: string, patch: Partial<ProviderDraft>) => {
+    const setting = settings?.providers.find((entry) => entry.provider === provider);
+    setProviderDrafts((current) =>
+      withProviderDraft(current, provider, setting ? providerDraftBase(setting) : { apiKey: "", memo: "" }, patch),
+    );
+  };
   const appliedDraft = useRef<AvailabilityDraftState | null>(null);
   // 比較基準は保存値が変わったときと null (旧・制限なし) の初回展開でだけ作り直す。
   // カタログの更新 (キー操作での再取得・取得失敗) だけでは、編集中の下書きを置換しない
@@ -151,9 +159,7 @@ export function ModelSettingsView({
             onDelete={remove}
             onResync={resync}
             drafts={providerDrafts}
-            onChangeDraft={(provider, next) =>
-              setProviderDrafts((current) => withProviderDraft(current, provider, next))
-            }
+            onChangeDraft={updateProviderDraft}
             onOpenModels={() => onSelectModelsSubsection?.(DEFAULT_MODELS_SUBSECTION)}
           />
         ) : (
