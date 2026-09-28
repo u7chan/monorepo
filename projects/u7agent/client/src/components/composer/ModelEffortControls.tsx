@@ -1,22 +1,11 @@
 import { useMemo } from "react";
 import { effortLabel, type ComposerSettings } from "../../hooks/useU7Agent";
 import { cn } from "../../lib/cn";
+import { modelChoices, unavailableModelChoice } from "../../lib/modelChoices";
 import type { ModelRef, ThinkingLevel } from "../../types";
 import { SelectField } from "../SelectField";
 import { SlidersIcon } from "../icons";
 import { fieldLabelClass, fieldNameClass } from "./fieldStyles";
-
-/** 候補に無いモデルも表示できるよう選択肢へ足す */
-function modelChoicesOf(settings: ComposerSettings): Array<{ value: string; label: string }> {
-  const choices = settings.modelOptions.map((option) => ({
-    value: `${option.provider}/${option.id}`,
-    label: option.name ? `${option.name}（${option.provider}/${option.id}）` : `${option.provider}/${option.id}`,
-  }));
-  if (settings.model && !choices.some((choice) => choice.value === settings.model)) {
-    choices.push({ value: settings.model, label: `${settings.model}（利用不可）` });
-  }
-  return choices;
-}
 
 export function ModelEffortToggle({
   open,
@@ -58,7 +47,14 @@ export function ModelEffortFields({
   onChangeModel: (model: ModelRef) => void;
   onChangeThinkingLevel: (level: ThinkingLevel) => void;
 }) {
-  const modelChoices = useMemo(() => modelChoicesOf(settings), [settings]);
+  const choices = useMemo(() => {
+    const list = modelChoices(settings.modelOptions);
+    // 実効値が候補に無い（利用不可）ときも現在値を表示できるようにする
+    if (settings.model && !list.some((choice) => choice.value === settings.model)) {
+      list.push(unavailableModelChoice(settings.model));
+    }
+    return list;
+  }, [settings.modelOptions, settings.model]);
   // SDK が補正した実効値が候補に無くても表示できるようにする
   const effortChoices = useMemo(() => {
     const levels = [...settings.thinkingLevels];
@@ -71,9 +67,9 @@ export function ModelEffortFields({
   const effortDisabled = settings.disabled || !settings.supportsThinking || effortChoices.length === 0;
 
   const handleModelChange = (next: string) => {
-    const slash = next.indexOf("/");
-    if (slash <= 0) return;
-    onChangeModel({ provider: next.slice(0, slash), id: next.slice(slash + 1) });
+    const choice = choices.find((candidate) => candidate.value === next);
+    if (!choice?.model) return;
+    onChangeModel(choice.model);
   };
 
   return (
@@ -90,7 +86,7 @@ export function ModelEffortFields({
           onChange={(event) => handleModelChange(event.currentTarget.value)}
         >
           {settings.model ? null : <option value="">未選択</option>}
-          {modelChoices.map((choice) => (
+          {choices.map((choice) => (
             <option key={choice.value} value={choice.value}>
               {choice.label}
             </option>

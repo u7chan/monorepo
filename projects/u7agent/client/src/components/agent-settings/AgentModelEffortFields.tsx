@@ -1,9 +1,11 @@
 import { useMemo } from "react";
 import { ALL_THINKING_LEVELS, effortLabel } from "../../hooks/useU7Agent";
+import { modelChoices, unavailableModelChoice } from "../../lib/modelChoices";
+import { modelRefKey } from "../../lib/modelSettings";
 import type { ModelOption, ModelRef, ThinkingLevel } from "../../types";
 import { SelectField } from "../SelectField";
 
-const modelValueOf = (ref: ModelRef | null): string => (ref ? `${ref.provider}/${ref.id}` : "");
+const modelValueOf = (ref: ModelRef | null): string => (ref ? modelRefKey(ref) : "");
 
 export function AgentModelEffortFields({
   model,
@@ -33,16 +35,13 @@ export function AgentModelEffortFields({
   const modelMissing =
     Boolean(modelValue) && !modelOptions.some((option) => `${option.provider}/${option.id}` === modelValue);
 
-  const modelChoices = useMemo(() => {
-    const choices = modelOptions.map((option) => ({
-      value: `${option.provider}/${option.id}`,
-      label: `${option.name}（${option.provider}/${option.id}）`,
-    }));
-    if (modelValue && !choices.some((choice) => choice.value === modelValue)) {
-      choices.push({ value: modelValue, label: `${modelValue}（利用不可）` });
-    }
-    return choices;
-  }, [modelOptions, modelValue]);
+  const choices = useMemo(() => {
+    const value = modelValueOf(model);
+    const list = modelChoices(modelOptions);
+    // 保存済みモデルが候補から消えても表示できるようにする
+    if (value && !list.some((choice) => choice.value === value)) list.push(unavailableModelChoice(value));
+    return list;
+  }, [modelOptions, model]);
 
   const effortChoices = useMemo(() => {
     const levels = [...thinkingLevels];
@@ -55,9 +54,8 @@ export function AgentModelEffortFields({
       onChangeModel(null);
       return;
     }
-    const slash = value.indexOf("/");
-    if (slash <= 0) return;
-    onChangeModel({ provider: value.slice(0, slash), id: value.slice(slash + 1) });
+    const choice = choices.find((candidate) => candidate.value === value);
+    if (choice?.model) onChangeModel(choice.model);
   };
 
   return (
@@ -73,7 +71,7 @@ export function AgentModelEffortFields({
             onChange={(e) => changeModel(e.currentTarget.value)}
           >
             <option value="">未指定（アプリ既定）</option>
-            {modelChoices.map((choice) => (
+            {choices.map((choice) => (
               <option key={choice.value} value={choice.value}>
                 {choice.label}
               </option>
