@@ -2,9 +2,16 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { CHAT_ROUTE, foldPendingEntry, parseRoute, pendingSessionIdOf, routePath, type Route } from "../src/lib/route";
-import { SETTINGS_SECTIONS, type SettingsSection } from "../src/lib/settingsNav";
+import { SETTINGS_SECTIONS, type ModelsSubsection, type SettingsSection } from "../src/lib/settingsNav";
 
 const settings = (section: SettingsSection): Route => ({ view: "settings", section });
+
+/** 設定 → モデルのタブ。既定タブ (models) は URL のパスに出さない */
+const modelsTab = (modelsSubsection: ModelsSubsection): Route => ({
+  view: "settings",
+  section: "models",
+  modelsSubsection,
+});
 
 /** 通知のリンク (`/s/<id>`) が作る「選択待ちの入口」。チャット画面 + 消費されるまでの id */
 const entry = (pendingSessionId: string): Route => ({ view: "chat", pendingSessionId });
@@ -52,6 +59,15 @@ test("parseRoute は pathname だけで画面を決め、表のとおりに畳�
     ["/settings/runtime", settings("runtime")],
     ["/settings/notifications", settings("notifications")],
     ["/Settings/RUNTIME/", settings("runtime")],
+    // 設定 → モデルのタブ。正準形は「モデルを選ぶ」= /settings/models、「プロバイダー」= /providers
+    ["/settings/models/providers", modelsTab("providers")],
+    ["/Settings/MODELS/PROVIDERS/", modelsTab("providers")],
+    ["//settings//models//providers//", modelsTab("providers")],
+    ["/settings%2Fmodels%2Fproviders", modelsTab("providers")],
+    // 未知のサブセクションと既定タブの明示は既定タブへ畳む (チャットへ飛ばさない)
+    ["/settings/models/models", settings("models")],
+    ["/settings/models/unknown", settings("models")],
+    ["/settings/models/PROVIDERS/unknown", CHAT_ROUTE],
   ];
   for (const [pathname, expected] of table) {
     assert.deepEqual(parseRoute(pathname), expected, pathname);
@@ -77,6 +93,10 @@ test("routePath は正準形を返し、parseRoute と往復する", () => {
     const route = settings(item.section);
     assert.deepEqual(parseRoute(routePath(route)), route, item.section);
   }
+  // モデルのタブは providers のときだけパスへ出し、既定タブは出さない
+  assert.equal(routePath(modelsTab("providers")), "/settings/models/providers");
+  assert.equal(routePath(modelsTab("models")), "/settings/models");
+  assert.deepEqual(parseRoute(routePath(modelsTab("providers"))), modelsTab("providers"));
 });
 
 test("routePath は `/s/<id>` を encode して返し、parseRoute と往復する", () => {

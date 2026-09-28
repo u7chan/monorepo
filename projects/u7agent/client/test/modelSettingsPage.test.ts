@@ -1,8 +1,8 @@
 // 設定 → モデルの初期描画。client に DOM テスト基盤が無いため、react-dom/server の静的描画で
-// 「利用可能なモデル」セクションと provider 行・キー入力・削除・再同期・未設定の畳み・警告が出ることを固定する
+// タブ・「モデルを選ぶ」の候補と保存バー・「プロバイダー」のマスター詳細を固定する
 // (状態遷移・集計・確認の文言は lib/modelSettings の純関数テストが担う)。
-// 利用可能なモデルの保存確認だけは、押下後の状態を持つため静的描画では出せない。ソース上で
-// ネイティブ confirm を使わないことを固定し、判断は lib の純関数テストで検証する。
+// 保存の画面内確認だけは押下後の状態を持つため静的描画では出せない。ソース上でネイティブ confirm を
+// 使わないことを固定し、判断は lib の純関数テストで検証する。
 
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
@@ -12,6 +12,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import test from "node:test";
 import type { ModelSettings } from "../src/hooks/useModelSettings";
 import { MODEL_SETTINGS_NOTE } from "../src/lib/modelSettings";
+import type { ModelsSubsection } from "../src/lib/settingsNav";
 import type {
   ModelsSettingsResponse,
   ModelMutationResponse,
@@ -54,7 +55,7 @@ function session(overrides: Partial<SessionSummary> = {}): SessionSummary {
 }
 
 const CATALOG: RuntimeModelsResponse = {
-  catalogCount: 2,
+  catalogCount: 3,
   availableCount: 1,
   versions: { piCodingAgent: "0.87.1" },
   providers: [
@@ -66,13 +67,18 @@ const CATALOG: RuntimeModelsResponse = {
         { id: "claude-haiku", name: "Claude Haiku", available: false },
       ],
     },
+    {
+      provider: "local",
+      auth: { configured: false, environmentVariables: [] },
+      models: [{ id: "local-a", name: "Local A", available: false }],
+    },
   ],
 };
 
 const SETTINGS: ModelsSettingsResponse = {
   runtimeAvailable: true,
   allowedModels: ["anthropic/claude-sonnet"],
-  defaultModel: "anthropic/claude-sonnet",
+  defaultModel: null,
   ignoredEnvironmentVariables: [],
   providers: [
     provider({ auth: { configured: true, source: "environment", environmentVariables: ["ANTHROPIC_API_KEY"] } }),
@@ -110,37 +116,151 @@ function modelSettings(overrides: Partial<ModelSettings> = {}): ModelSettings {
 
 function render(
   settings: ModelSettings,
-  options: { sessions?: SessionSummary[]; sessionsLoaded?: boolean } = {},
+  options: {
+    modelsSubsection?: ModelsSubsection;
+    sessions?: SessionSummary[];
+    sessionsLoaded?: boolean;
+    onSelectModelsSubsection?: (subsection: ModelsSubsection) => void;
+  } = {},
 ): string {
   return renderToStaticMarkup(
     createElement(ModelSettingsView, {
       modelSettings: settings,
       sessions: options.sessions ?? [],
       sessionsLoaded: options.sessionsLoaded ?? false,
+      modelsSubsection: options.modelsSubsection ?? "models",
+      onSelectModelsSubsection: options.onSelectModelsSubsection ?? (() => {}),
       onBack: () => {},
     }),
   );
 }
 
-test("provider 行に認証バッジ・キー入力・削除・再同期・モデル数を出す", () => {
+test("タブ行は URL が決めるタブを示し、両方のタブを出す", () => {
   const html = render(modelSettings());
-  assert.ok(html.includes("モデル</h2>"), "タイトルを出す");
-  assert.ok(html.includes("Anthropic") && html.includes("anthropic"), "表示名と provider id を出す");
-  assert.ok(html.includes("環境変数（ANTHROPIC_API_KEY）"), "実効の認証ソースを出す");
+  assert.ok(html.includes('role="tablist"'), "タブ行を出す");
+  assert.equal((html.match(/role="tab"/g) ?? []).length, 2, "タブは 2 つ");
+  assert.match(html, /<button[^>]*aria-selected="true"[^>]*>モデルを選ぶ</, "既定は「モデルを選ぶ」");
+  assert.ok(html.includes("プロバイダー"));
+  // タブの切替は URL 経由で親へ渡す
+  const calls: ModelsSubsection[] = [];
+  render(modelSettings(), { onSelectModelsSubsection: (subsection) => calls.push(subsection) });
+  assert.deepEqual(calls, [], "描画だけでは切替を要求しない");
+
+  const providersHtml = render(modelSettings(), { modelsSubsection: "providers" });
+  assert.match(providersHtml, /<button[^>]*aria-selected="true"[^>]*>プロバイダー</);
+  assert.equal(providersHtml.includes("モデル候補を保存"), false, "プロバイダータブに候補の保存バーは出さない");
+  assert.ok(providersHtml.includes("provider 名 / ID で絞り込み"));
+});
+
+test("モデルを選ぶタブは既定モデル・選択数・候補・保存バーを出す", () => {
+  const html = render(modelSettings());
+  assert.ok(html.includes("既定モデル"), "既定モデルの見出しを出す");
+  assert.ok(html.includes("未設定（利用可能なモデルの先頭を使う）"), "既定の未設定を残す");
+  assert.ok(html.includes("選択 1 / 利用可能 1"), "選択数と利用可能数を出す");
+  assert.ok(html.includes("チェックしたモデルだけが候補になります"));
+  assert.ok(html.includes("Claude Sonnet") && html.includes("Claude Haiku"), "先頭の provider のカタログ全件を出す");
+  assert.ok(html.includes("利用可能 1/2 ・ 選択 1"), "provider 行に a/b と選択数を出す");
+  assert.ok(html.includes("すべて選択") && html.includes("すべて解除"), "provider ごとの一括操作を出す");
+  assert.ok(html.includes("min-h-9") && html.includes("size-4 shrink-0 accent-focus"), "チェック行の寸法");
+  assert.ok(html.includes("min-h-11"), "選択済みのみのチェックはタッチ向けの高さを保つ");
+  assert.ok(html.includes("開いている会話のモデルは切り替えません"), "live の会話へ効かないことを注記する");
+  assert.ok(html.includes("モデル一覧を表示") === false, "ModelTable は出さない");
+  // 下部の固定アクション行は変更なしを示し、ボタンは無効
+  assert.ok(html.includes("未保存の変更はありません"));
+  assert.ok(html.includes('class="btn-primary" disabled=""'));
+  assert.ok(html.includes("モデル候補を保存"));
+});
+
+test("既存の null（制限なし）は利用可能な全モデルを選択済みとして表示する", () => {
+  const html = render(modelSettings({ settings: { ...SETTINGS, allowedModels: null } }));
+  assert.ok(html.includes("選択 1 / 利用可能 1"));
+  assert.equal((html.match(/checked=""/g) ?? []).length, 1, "利用可能な Claude Sonnet だけがチェック済み");
+  const sonnetRow = /<label[^>]*title="anthropic\/claude-sonnet"[^>]*>([\s\S]*?)<\/label>/.exec(html)?.[1] ?? "";
+  assert.ok(sonnetRow.includes('checked=""'), "利用可能なモデルの行がチェック済み");
+});
+
+test("未認証 provider に残った選択は警告付きで表示し、外せる", () => {
+  const html = render(
+    modelSettings({ settings: { ...SETTINGS, allowedModels: ["local/local-a"], defaultModel: null } }),
+  );
+  assert.ok(html.includes("認証が設定されていない provider です。保存済みの選択だけを表示しています。"));
+  assert.ok(html.includes("Local A"), "保存済みの残存エントリを行に出す");
+  assert.ok(html.includes("すべて解除"), "外せるようにする");
+  assert.equal(
+    (html.match(/すべて選択/g) ?? []).length,
+    1,
+    "すべて選択は認証済み provider にだけ出し、見えない行を一括選択させない",
+  );
+  assert.ok(html.includes("選択 1 / 利用可能 1"), "選択数と、表示集合の利用可能数を分けて数える");
+});
+
+test("カタログ外の保存済みエントリは警告付きで残し、既定モデルの候補にも出す", () => {
+  const html = render(
+    modelSettings({
+      settings: { ...SETTINGS, allowedModels: ["anthropic/ghost"], defaultModel: "anthropic/ghost" },
+    }),
+  );
+  assert.ok(html.includes("現在のカタログに無いモデルが保存されています"));
+  assert.ok(html.includes("Claude Sonnet"), "認証済み provider のカタログ全件は出す");
+  assert.ok(html.includes("anthropic/ghost"), "カタログ外のエントリも出す");
+  assert.ok(html.includes("選択 1 / 利用可能 1"));
+});
+
+test("選択 0 件は保存できず、空を送らない理由を出す", () => {
+  const html = render(modelSettings({ settings: { ...SETTINGS, allowedModels: [], defaultModel: null } }));
+  assert.ok(html.includes("選択したモデルが 0 件のため保存できません"));
+  assert.ok(html.includes("空の選択は API で「制限なし（全モデル）」へ正規化される"));
+  assert.ok(html.includes("「モデル候補」から 1 つ以上選ぶと既定モデルを選べます"));
+  assert.ok(html.includes('class="btn-primary" disabled=""'));
+});
+
+test("カタログを取得できないときは候補を編集させず、保存もできない", () => {
+  const html = render(modelSettings({ catalog: null, catalogError: "ランタイムのモデル情報を取得できません" }));
+  assert.ok(html.includes("モデル一覧を取得できないため、モデル候補は編集できません"));
+  assert.ok(html.includes("ランタイムのモデル情報を取得できません"));
+  assert.equal(html.includes("モデル一覧を読み込んでいます"), false, "取得失敗と読み込み中を混同しない");
+  assert.ok(html.includes('class="btn-primary" disabled=""'));
+});
+
+test("カタログの読み込み中は編集不可と出さず、保存も押せない", () => {
+  const html = render(modelSettings({ catalog: null, catalogError: null }));
+  assert.ok(html.includes("モデル一覧を読み込んでいます"));
+  assert.equal(html.includes("モデル一覧を取得できないため"), false);
+  assert.ok(html.includes('class="btn-primary" disabled=""'));
+  assert.ok(html.includes("モデル一覧を読み込んでいます。"), "固定バーも読み込み中を示す");
+});
+
+test("無限に無視される環境変数を注記する", () => {
+  const html = render(
+    modelSettings({ settings: { ...SETTINGS, ignoredEnvironmentVariables: ["PI_MODELS", "PI_PROVIDER"] } }),
+  );
+  assert.ok(html.includes("PI_MODELS") && html.includes("PI_PROVIDER"), "無視する環境変数名を出す");
+  assert.ok(html.includes("デプロイ設定からは削除"), "環境変数の削除を促す");
+});
+
+test("プロバイダータブは一覧と詳細を分け、平文の注意を上部に常時出す", () => {
+  const html = render(modelSettings(), { modelsSubsection: "providers" });
+  assert.ok(html.includes("設定済み 3") && html.includes("未設定 2"), "全件を設定済み / 未設定に分けて出す");
+  for (const name of ["Anthropic", "OpenAI", "Local", "ghost", "Stale"]) {
+    assert.ok(html.includes(name), `${name} を一覧に出す`);
+  }
+  assert.ok(html.includes("環境変数（ANTHROPIC_API_KEY）"), "詳細の認証バッジを出す");
   assert.ok(html.includes("利用可能 1 / カタログ 2"), "カタログから数えたモデル数を出す");
   assert.ok(html.includes('type="password"'), "キー入力はマスクする");
-  assert.ok(html.includes("保存"), "保存ボタンを出す");
-  assert.ok(html.includes("削除"), "managed の provider には削除を出す");
-  assert.ok(html.includes("保存済み（未反映）") && html.includes("再同期"), "degraded には再同期を出す");
-  assert.ok(html.includes("カタログ外（保存済み）"), "orphan を警告として出す");
-  assert.ok(html.includes("カタログに戻るまで再登録はできません"), "orphan の保存行は削除だけできると書く");
-  assert.ok(html.includes("未設定のプロバイダーを表示 (2)"), "未設定は畳んで件数だけ出す");
-  assert.ok(html.includes("キーの有効性は保存時に確認しません"), "有効性を検証しない旨を出す");
+  assert.ok(html.includes("BFF をインターネットや LAN へ公開しないでください"), "公開しない注意を常時出す");
+  assert.ok(html.includes("キーの有効性は保存時に確認しません"));
+  assert.ok(html.includes("キーを保存して「モデルを選ぶ」タブに戻ると"));
+  assert.ok(html.includes("各項目の保存ボタンでその場で保存されます"), "キー・メモは即時保存だと区別する");
+  assert.ok(html.includes("「モデルを選ぶ」タブを開く"));
+  assert.ok(html.includes("モデル一覧を表示") === false, "ModelTable は削除した");
 });
 
 test("provider 行にメモ欄と保存ボタンを出し、runtime 不可では disable する", () => {
   const html = render(
     modelSettings({ settings: { ...SETTINGS, providers: [provider({ memo: "個人アカウントの控え" })] } }),
+    {
+      modelsSubsection: "providers",
+    },
   );
   const textarea = /<textarea[^>]*>/.exec(html)?.[0] ?? "";
   assert.ok(textarea !== "", "メモ欄を出す");
@@ -162,27 +282,25 @@ test("provider 行にメモ欄と保存ボタンを出し、runtime 不可では
 
   const stopped = render(
     modelSettings({ settings: { ...SETTINGS, runtimeAvailable: false, providers: [provider()] } }),
+    { modelsSubsection: "providers" },
   );
   const stoppedTextarea = /<textarea[^>]*>/.exec(stopped)?.[0] ?? "";
   assert.ok(stoppedTextarea.includes("disabled"), "runtime 不可ではメモ欄を disable する");
+  assert.ok(stopped.includes("APIキーとメモの変更はできません"), "変更できないことを先に伝える");
 });
 
 test("managed の provider だけにキー最終保存を出し、日時が無ければ保存日不明と書く", () => {
   const stamped = render(
-    modelSettings({
-      settings: { ...SETTINGS, providers: [provider({ managed: true, keyUpdatedAt: 1 })] },
-      catalog: null,
-    }),
+    modelSettings({ settings: { ...SETTINGS, providers: [provider({ managed: true, keyUpdatedAt: 1 })] } }),
+    { modelsSubsection: "providers" },
   );
   assert.ok(stamped.includes("キー最終保存:"), "managed には保存日時を出す");
   assert.equal(stamped.includes("保存日不明"), false);
 
   // 移行前の行 (keyUpdatedAt: null) は「不明」と明示する
   const migrated = render(
-    modelSettings({
-      settings: { ...SETTINGS, providers: [provider({ managed: true, keyUpdatedAt: null })] },
-      catalog: null,
-    }),
+    modelSettings({ settings: { ...SETTINGS, providers: [provider({ managed: true, keyUpdatedAt: null })] } }),
+    { modelsSubsection: "providers" },
   );
   assert.ok(migrated.includes("キー最終保存: 保存日不明"));
 
@@ -195,8 +313,8 @@ test("managed の provider だけにキー最終保存を出し、日時が無�
           provider({ provider: "local", name: "Local", auth: { configured: true, environmentVariables: [] } }),
         ],
       },
-      catalog: null,
     }),
+    { modelsSubsection: "providers" },
   );
   assert.equal(ambient.includes("キー最終保存"), false);
 });
@@ -208,6 +326,7 @@ test("最終使用は一覧の取得後だけ出し、会話が無いときの�
     session({ sessionId: "b", model: "anthropic/claude-haiku", lastUsedAt: 300 }),
   ];
   const withSessions = render(modelSettings({ settings: { ...SETTINGS, providers: [managed] } }), {
+    modelsSubsection: "providers",
     sessions,
     sessionsLoaded: true,
   });
@@ -216,6 +335,7 @@ test("最終使用は一覧の取得後だけ出し、会話が無いときの�
 
   // 未取得の間は最終使用の行ごと出さない (「0 件」と混同しない)
   const beforeLoad = render(modelSettings({ settings: { ...SETTINGS, providers: [managed] } }), {
+    modelsSubsection: "providers",
     sessions: [],
     sessionsLoaded: false,
   });
@@ -224,6 +344,7 @@ test("最終使用は一覧の取得後だけ出し、会話が無いときの�
 
   // 取得済みで 1 件も無ければ、managed には「会話はありません」と書く
   const noSessions = render(modelSettings({ settings: { ...SETTINGS, providers: [managed] } }), {
+    modelsSubsection: "providers",
     sessions: [],
     sessionsLoaded: true,
   });
@@ -231,111 +352,21 @@ test("最終使用は一覧の取得後だけ出し、会話が無いときの�
 
   // managed でなく会話も 0 件ならどちらの行も出さない (ノイズを作らない)
   const quiet = render(
-    modelSettings({
-      settings: { ...SETTINGS, providers: [provider({ provider: "local", name: "Local" })] },
-      catalog: null,
-    }),
-    { sessions: [], sessionsLoaded: true },
+    modelSettings({ settings: { ...SETTINGS, providers: [provider({ provider: "local", name: "Local" })] } }),
+    { modelsSubsection: "providers", sessions: [], sessionsLoaded: true },
   );
   assert.equal(quiet.includes("キー最終保存"), false);
   assert.equal(quiet.includes("最終使用"), false);
 
   // managed でなくても会話があれば最終使用だけを出す (環境変数認証など)
-  const ambient = render(
-    modelSettings({
-      settings: { ...SETTINGS, providers: [provider({ provider: "anthropic", name: "Anthropic" })] },
-      catalog: null,
-    }),
-    { sessions, sessionsLoaded: true },
-  );
+  const ambient = render(modelSettings({ settings: { ...SETTINGS, providers: [provider()] } }), {
+    modelsSubsection: "providers",
+    sessions,
+    sessionsLoaded: true,
+  });
   assert.equal(ambient.includes("キー最終保存"), false);
   assert.ok(ambient.includes("最終使用:"));
   assert.ok(ambient.includes("この provider の会話 2 件"));
-});
-
-test("カタログ外のメモだけの provider はキーを登録できないがメモは書けると案内する", () => {
-  const html = render(
-    modelSettings({
-      settings: {
-        ...SETTINGS,
-        providers: [
-          provider({ provider: "memo-only", name: "memo-only", orphan: true, canSetApiKey: false, memo: "控え" }),
-        ],
-      },
-      catalog: null,
-    }),
-  );
-  assert.ok(html.includes("キーの登録はできません（メモは保存できます）"), "メモ欄の存在が伝わる文言にする");
-  assert.ok(html.includes("控え"), "既存のメモを表示する");
-  assert.equal(html.includes('type="password"'), false, "キーの入力欄は出さない");
-});
-
-test("利用可能なモデルのセクションは先頭に出て、選択・既定・利用可能数を示す", () => {
-  const html = render(modelSettings());
-  assert.ok(html.includes("利用可能なモデル"), "セクションの見出しを出す");
-  assert.ok(html.indexOf("利用可能なモデル") < html.indexOf("この画面でできること"), "セクションは画面の先頭に置く");
-  assert.ok(html.includes("利用可能 1 / 許可 1 / カタログ 2"), "現在の利用可能数を出す");
-  assert.ok(html.includes("未設定（利用可能なモデルの先頭を使う）"), "既定の未設定も選べる");
-  assert.ok(html.includes("Claude Haiku"), "カタログ全件を出す");
-  assert.ok(html.includes("利用可能") && html.includes("利用不可"), "各行に利用可能かどうかを併記する");
-  assert.ok(html.includes("制限なし（全モデル）"), "制限なしへ戻す操作を出す");
-  assert.ok(html.includes("すべて選択") && html.includes("すべて解除"), "provider ごとの一括操作を出す");
-  assert.ok(html.includes("min-h-11") && html.includes("size-5 shrink-0 accent-focus"), "チェック行を44px以上にする");
-  assert.ok(html.includes("開いている会話のモデルは切り替えません"), "live の会話へ効かないことを注記する");
-  assert.equal(html.includes("whitelist"), false, "whitelist の語を画面に出さない");
-});
-
-test("下部の固定アクション行は変更なしを示し、セクション見出しに保存ボタンを置かない", () => {
-  const html = render(modelSettings({ settings: { ...SETTINGS, providers: [] } }));
-  assert.ok(html.includes("未保存の変更はありません"), "初期状態を固定バーに表示する");
-  assert.ok(html.includes('class="btn-primary" disabled=""'), "変更がなければ保存を無効にする");
-  const sectionStart = html.indexOf("利用可能なモデル</h3>");
-  const sectionEnd = html.indexOf("この画面でできること", sectionStart);
-  assert.notEqual(sectionStart, -1);
-  assert.notEqual(sectionEnd, -1);
-  assert.equal(html.slice(sectionStart, sectionEnd).includes("保存</button>"), false, "保存は見出しから外す");
-});
-
-test("制限なし・カタログ外の残存エントリ・環境変数の注記を出す", () => {
-  const html = render(
-    modelSettings({
-      settings: {
-        ...SETTINGS,
-        allowedModels: null,
-        defaultModel: null,
-        ignoredEnvironmentVariables: ["PI_MODELS", "PI_PROVIDER"],
-      },
-    }),
-  );
-  assert.ok(html.includes("チェック済み") === false, "制限なしでは全件を選んだ状態にする");
-  assert.ok(html.includes("すべてのモデルを候補にします"), "制限なしの意味を書く");
-  assert.ok(html.includes("利用可能 1 / 許可 2 / カタログ 2"), "制限なしは全件を許可として数える");
-  assert.ok(html.includes("PI_MODELS") && html.includes("PI_PROVIDER"), "無視する環境変数名を出す");
-  assert.ok(html.includes("デプロイ設定からは削除"), "環境変数の削除を促す");
-  assert.equal(html.includes("カタログに無いモデルが保存されています"), false, "残存エントリが無ければ出さない");
-});
-
-test("カタログ外の保存エントリは削除導線とともに警告する", () => {
-  const html = render(
-    modelSettings({
-      settings: {
-        ...SETTINGS,
-        allowedModels: ["anthropic/claude-sonnet", "anthropic/ghost"],
-      },
-    }),
-  );
-  assert.ok(html.includes("カタログに無いモデルが保存されています"));
-  assert.ok(html.includes("anthropic/ghost"), "残存エントリを識別子で示す");
-  assert.ok(html.includes("anthropic/ghost（カタログ外）"), "既定モデルの選択肢にもカタログ外と書く");
-});
-
-test("カタログを取得できないときは許可リストを編集させず、キー操作は妨げない", () => {
-  const html = render(modelSettings({ catalog: null, catalogError: "ランタイムのモデル情報を取得できません" }));
-  assert.ok(html.includes("利用可能なモデルは編集できません"), "編集不可の理由を出す");
-  assert.ok(html.includes("モデル一覧を取得できませんでした"), "カタログの取得失敗も独立して出す");
-  assert.ok(html.includes('type="password"'), "provider のキー操作は続けられる");
-  // カタログが無いのに「制限なし（全モデル）」の操作は出さない
-  assert.equal(html.includes("制限なし（全モデル）"), false);
 });
 
 test("カタログ外で未反映の行は再同期ボタンを出さず、削除とカタログ復帰を案内する", () => {
@@ -356,6 +387,7 @@ test("カタログ外で未反映の行は再同期ボタンを出さず、削�
       },
       catalog: null,
     }),
+    { modelsSubsection: "providers" },
   );
   assert.ok(html.includes("保存済み（未反映）"), "未反映として警告する");
   assert.ok(
@@ -363,7 +395,7 @@ test("カタログ外で未反映の行は再同期ボタンを出さず、削�
     "実行できない再同期ではなく削除と復帰を案内する",
   );
   assert.ok(html.includes("削除"), "managed なので削除は出る");
-  assert.equal(html.includes("再同期"), false, "resync API が 400 になるカードに再同期ボタンを出さない");
+  assert.equal(html.includes("再同期"), false, "resync API が 400 になる詳細に再同期ボタンを出さない");
 });
 
 test("キー登録できない provider は入力欄を出さず、理由を書く", () => {
@@ -371,22 +403,52 @@ test("キー登録できない provider は入力欄を出さず、理由を書�
     modelSettings({
       settings: { ...SETTINGS, providers: [provider({ provider: "local", name: "Local", canSetApiKey: false })] },
     }),
+    { modelsSubsection: "providers" },
   );
   assert.ok(html.includes("この画面からは登録できません"));
-  // 設定済みとして先頭に出るので、入力欄は 1 つも無い
   assert.equal(html.includes('type="password"'), false);
 });
 
-test("ランタイム不可のときは警告を出し、カタログ失敗も独立して出す", () => {
+test("カタログ外のメモだけの provider はキーを登録できないがメモは書けると案内する", () => {
+  const html = render(
+    modelSettings({
+      settings: {
+        ...SETTINGS,
+        providers: [
+          provider({ provider: "memo-only", name: "memo-only", orphan: true, canSetApiKey: false, memo: "控え" }),
+        ],
+      },
+      catalog: null,
+    }),
+    { modelsSubsection: "providers" },
+  );
+  assert.ok(html.includes("キーの登録はできません（メモは保存できます）"), "メモ欄の存在が伝わる文言にする");
+  assert.ok(html.includes("控え"), "既存のメモを表示する");
+  assert.equal(html.includes('type="password"'), false, "キーの入力欄は出さない");
+});
+
+test("カタログの失敗はプロバイダータブでも独立して出す", () => {
   const html = render(
     modelSettings({
       settings: { ...SETTINGS, runtimeAvailable: false },
       catalog: null,
       catalogError: "ランタイムのモデル情報を取得できません",
     }),
+    { modelsSubsection: "providers" },
   );
   assert.ok(html.includes("APIキーとメモの変更はできません"), "変更できないことを先に伝える");
   assert.ok(html.includes("モデル一覧を取得できませんでした"), "カタログの失敗を独立して出す");
+});
+
+test("保存の警告 (applied_unsynced) は注記として出る", () => {
+  const response: ModelMutationResponse = { ...SETTINGS, state: "applied_unsynced" };
+  const html = render(
+    modelSettings({
+      settings: response,
+      note: { text: "APIキーを保存しましたが、実行中のランタイムへは未反映です。", error: true },
+    }),
+  );
+  assert.ok(html.includes("実行中のランタイムへは未反映です"));
 });
 
 test("ページ本体は取得前の初期状態 (読み込み中) を出す", () => {
@@ -397,10 +459,12 @@ test("ページ本体は取得前の初期状態 (読み込み中) を出す", (
       onBack: () => {},
       sessions: [],
       sessionsLoaded: false,
+      modelsSubsection: "models",
+      onSelectModelsSubsection: () => {},
     }),
   );
   assert.ok(html.includes("プロバイダーの認証状態を読み込んでいます。"));
-  assert.ok(html.includes("ランタイムが利用できないため") === false, "取得前に警告を出さない");
+  assert.ok(html.includes('role="tablist"'), "取得前からタブは出す");
   assert.equal(html.includes("未保存の変更はありません"), false, "設定未取得の間は固定バーを出さない");
 });
 
@@ -415,36 +479,24 @@ test("読み込み中の状態を出す", () => {
   assert.ok(html.includes("再読み込み"));
 });
 
-test("保存の警告 (applied_unsynced) は注記として出る", () => {
-  const response: ModelMutationResponse = { ...SETTINGS, state: "applied_unsynced" };
-  const html = render(
-    modelSettings({
-      settings: response,
-      note: { text: "APIキーを保存しましたが、実行中のランタイムへは未反映です。", error: true },
-    }),
-  );
-  assert.ok(html.includes("実行中のランタイムへは未反映です"));
-});
-
-test("カタログの読み込み中は編集不可と出さず、保存も押せない", () => {
-  const html = render(modelSettings({ catalog: null, catalogError: null }));
-  assert.ok(html.includes("モデル一覧を読み込んでいます"), "読み込み中として出す");
-  assert.equal(html.includes("利用可能なモデルは編集できません"), false, "取得失敗と混同しない");
-  assert.ok(html.includes('class="btn-primary" disabled=""'), "カタログの読み込み中は固定バーの保存を無効にする");
-});
-
-test("利用可能なモデルの保存確認は window.confirm を使わず、純関数の文言で画面内に出す", () => {
-  const source = readFileSync(
-    fileURLToPath(new URL("../src/components/ModelSettingsPage.tsx", import.meta.url)),
+test("モデル候補の保存確認は window.confirm を使わず、純関数の文言で画面内に出す", () => {
+  const modelsTab = readFileSync(
+    fileURLToPath(new URL("../src/components/model-settings/ModelsTab.tsx", import.meta.url)),
     "utf8",
   );
-  const editor = source.slice(source.indexOf("function AvailabilityEditor("), source.indexOf("const BADGE_TONE"));
-  assert.ok(editor.includes("利用可能なモデル"), "AvailabilityEditor がモデル設定を持つ");
-  assert.equal(editor.includes("window.confirm"), false, "ネイティブ confirm を使わない");
-  assert.match(editor, /availabilitySaveConfirmMessage\(/, "確認の文言は純関数から取る");
-  assert.match(editor, /role="alert"/, "確認は画面内に出す");
-  assert.match(editor, /保存する/, "同意ボタンを出す");
-  assert.match(editor, /キャンセル/, "取り消しできるボタンを出す");
+  assert.equal(modelsTab.includes("window.confirm"), false, "ネイティブ confirm を使わない");
+  assert.match(modelsTab, /availabilitySaveConfirmMessage\(/, "確認の文言は純関数から取る");
+  assert.match(modelsTab, /role="alert"/, "確認は画面内に出す");
+  assert.match(modelsTab, /保存する/, "同意ボタンを出す");
+  assert.match(modelsTab, /キャンセル/, "取り消しできるボタンを出す");
+  assert.match(modelsTab, /normalizeAllowedModels\(draft\.allowed\)/, "全選択でも明示リストを送る");
+  assert.match(modelsTab, /noSelection/, "選択 0 件では保存を押させない");
+
+  const providersTab = readFileSync(
+    fileURLToPath(new URL("../src/components/model-settings/ProvidersTab.tsx", import.meta.url)),
+    "utf8",
+  );
   // キー削除の確認は従来どおりネイティブ confirm のまま (この指摘の対象外)
-  assert.equal(source.includes("window.confirm"), true);
+  assert.equal(providersTab.includes("window.confirm"), true);
+  assert.equal(providersTab.includes("ModelTable"), false, "モデル一覧の3重表示を消す");
 });

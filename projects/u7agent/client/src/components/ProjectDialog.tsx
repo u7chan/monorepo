@@ -107,11 +107,7 @@ export function ProjectDialog({ onClose, onCreate, compact = false }: ProjectDia
     })();
   };
 
-  const tabClass = (active: boolean) =>
-    cn(
-      "min-h-10 rounded-t-lg border-b-2 px-3.5 text-xs font-semibold transition-colors",
-      active ? "border-focus text-accent-text" : "border-transparent text-ink-soft hover:text-ink",
-    );
+  const tabClass = (active: boolean) => cn("tab-item", active && "tab-item-active");
 
   const directoryRowClass = cn(
     "flex min-h-9 w-full items-center gap-2 rounded-md px-2 text-left text-xs text-ink transition-colors hover:bg-hover",

@@ -32,6 +32,7 @@
             "allow": [
               "grid-rows-[auto_minmax(0,1fr)]",
               "grid-rows-[auto_minmax(0,1fr)_auto]",
+              "grid-rows-[auto_auto_minmax(0,1fr)_auto]",
               "grid-rows-[minmax(0,1fr)_auto]",
               "grid-cols-[248px_minmax(0,1fr)]",
               "grid-cols-[var(--sidebar-width)_minmax(0,1fr)]",

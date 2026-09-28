@@ -39,7 +39,12 @@ import {
 import { sessionFilesDefaultOpen, sessionFilesRoot } from "./lib/sessionFiles";
 import { retryActivityText, retryRemainingMs } from "./lib/retryState";
 import { RUN_RETRY_PROMPT } from "./lib/runRetry";
-import { type SettingsSection, type SidebarMode } from "./lib/settingsNav";
+import {
+  DEFAULT_MODELS_SUBSECTION,
+  type ModelsSubsection,
+  type SettingsSection,
+  type SidebarMode,
+} from "./lib/settingsNav";
 
 export default function App() {
   // 画面は URL がただ 1 つの正。`/` はチャット、`/settings/<section>` は設定の各画面、
@@ -236,6 +241,18 @@ export default function App() {
   const openSettingsSection = useCallback(
     (section: SettingsSection) => {
       navigate({ view: "settings", section });
+    },
+    [navigate],
+  );
+
+  // モデルのタブ切替も URL へ集約する。既定タブはパスへ出さない (正準形は lib/route.ts が決める)
+  const openModelsSubsection = useCallback(
+    (subsection: ModelsSubsection) => {
+      navigate(
+        subsection === DEFAULT_MODELS_SUBSECTION
+          ? { view: "settings", section: "models" }
+          : { view: "settings", section: "models", modelsSubsection: subsection },
+      );
     },
     [navigate],
   );
@@ -458,6 +475,12 @@ export default function App() {
                 onRefreshHealth={app.refreshHealth}
                 sessions={app.sessions}
                 sessionsLoaded={app.sessionsLoaded}
+                modelsSubsection={
+                  route.view === "settings" && route.section === "models"
+                    ? (route.modelsSubsection ?? DEFAULT_MODELS_SUBSECTION)
+                    : DEFAULT_MODELS_SUBSECTION
+                }
+                onSelectModelsSubsection={openModelsSubsection}
               />
             ) : settingsSection === "runtime" ? (
               <RuntimePage {...pageProps} health={app.health} onRefreshHealth={app.refreshHealth} />

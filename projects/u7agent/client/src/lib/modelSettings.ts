@@ -2,7 +2,7 @@
  * 設定 → モデルの表示変換。コンポーネントから切り出し、認証バッジ・並び・保存後の文言をテストできるようにする。
  * 保存先 (managed = DB) と実効値 (auth.source) と未反映 (degraded) は混ぜず、別々に出す。
  * 案内文 (degradedNotice) は、そのカードで実際に押せる回復操作 (resyncAvailable) と一致させる。
- * 「利用可能なモデル」の編集は、許可の正を `GET /api/settings/models` の allowedModels に保ち、
+ * モデル候補（選択）の編集は、選択の正を `GET /api/settings/models` の allowedModels に保ち、
  * 下書きの組み立て・集計・確認文だけをここで純関数的に扱う (DOM に依存させない)。
  */
 import type {
@@ -201,11 +201,20 @@ export function mutationNote(
   }
 }
 
-// --- 利用可能なモデル（許可リスト）とアプリ既定モデルの編集 ---
+// --- モデル候補（選択リスト）とアプリ既定モデルの編集 ---
 
 /** カタログのモデル参照を "provider/model" にする（API の allowedModels と同じ表記） */
 export function modelRefKey(ref: ModelRef): string {
   return `${ref.provider}/${ref.id}`;
+}
+
+/**
+ * "provider/model" から provider を取り出す。区切りは最初の `/` だけ
+ * (model id に `/` を含み得る。server の parseModelRef と同じ規則)。
+ */
+export function modelKeyProvider(key: string): string {
+  const slash = key.indexOf("/");
+  return slash > 0 ? key.slice(0, slash) : key;
 }
 
 /** カタログの provider を落とさず 1 件ずつ扱うための平坦化 */
@@ -226,22 +235,33 @@ export function catalogModelEntries(catalog: RuntimeModelsResponse | null): Cata
 }
 
 /**
- * 編集の下書き。`allowed` は "provider/model" の一覧（API の allowedModels と同じ表記）で、
- * 空配列は「すべて外した」を表し、保存時に制限なしへ正規化する。`unrestricted` のときは使わない。
+ * モデル候補の下書き。`allowed` は "provider/model" の明示リストで、空配列は UI から送らない
+ * (API は空配列を制限なしへ正規化するため、画面側で 0 件の保存を止める)。
  */
 export interface AvailabilityDraft {
-  unrestricted: boolean;
+  /** 選択したモデル。表示は API の allowedModels と同じ表記 */
   allowed: string[];
   /** 保存値としての既定モデル（`provider/id`）。未設定は null */
   defaultModel: string | null;
 }
 
-export function availabilityDraftFromSettings(settings: ModelsSettingsResponse): AvailabilityDraft {
-  return {
-    unrestricted: settings.allowedModels === null,
-    allowed: settings.allowedModels ?? [],
-    defaultModel: settings.defaultModel,
-  };
+/**
+ * 下書きの初期値。`allowedModels === null`（旧・制限なし）は「利用可能な全モデルが選択済み」
+ * として明示リストへ展開する。保存済みの既定モデルがその集合に無い場合は 1 件だけ足す
+ * (足さないと、別の差分を保存した時点で既定モデルが選択外になり 400 になる)。
+ */
+export function availabilityDraftFromSettings(
+  settings: ModelsSettingsResponse,
+  catalog: RuntimeModelsResponse | null,
+): AvailabilityDraft {
+  const allowed =
+    settings.allowedModels === null
+      ? catalogModelEntries(catalog)
+          .filter((entry) => entry.available)
+          .map((entry) => entry.key)
+      : [...settings.allowedModels];
+  if (settings.defaultModel && !allowed.includes(settings.defaultModel)) allowed.push(settings.defaultModel);
+  return { allowed, defaultModel: settings.defaultModel };
 }
 
 /** 設定 API の配列参照が変わっても、保存値の要素内容が同じなら編集中の下書きを保つ */
@@ -257,39 +277,37 @@ export function sameAvailabilitySettings(
   );
 }
 
-/** 下書きと保存値の差分。許可モデルは集合として扱い、制限なし中は allowed を比較しない */
+/** 下書きと保存値の差分。選択は集合として扱い、並び順だけの違いは差分にしない */
 export function availabilityDraftIsDirty(draft: AvailabilityDraft, initial: AvailabilityDraft): boolean {
-  if (draft.unrestricted !== initial.unrestricted || draft.defaultModel !== initial.defaultModel) return true;
-  if (draft.unrestricted) return false;
+  if (draft.defaultModel !== initial.defaultModel) return true;
   const draftAllowed = new Set(draft.allowed);
   const initialAllowed = new Set(initial.allowed);
   return draftAllowed.size !== initialAllowed.size || [...draftAllowed].some((model) => !initialAllowed.has(model));
 }
 
-/** provider 単位の一括選択。available の値に関係なくカタログ全件を操作する */
+/**
+ * provider 単位の一括操作。[すべて解除] はカタログに無い provider でも保存済みエントリを外せる
+ * ように、カタログではなく下書きから対象を引く。
+ */
 export function setAvailabilityProviderModels(
   draft: AvailabilityDraft,
   providerId: string,
   selected: boolean,
   catalog: RuntimeModelsResponse | null,
 ): AvailabilityDraft {
-  if (draft.unrestricted) return draft;
   const provider = catalog?.providers.find((entry) => entry.provider === providerId);
-  const keys = provider?.models.map((model) => modelRefKey({ provider: providerId, id: model.id })) ?? [];
-  if (keys.length === 0) return draft;
+  const providerKeys = selected
+    ? (provider?.models ?? []).map((model) => modelRefKey({ provider: providerId, id: model.id }))
+    : draft.allowed.filter((key) => modelKeyProvider(key) === providerId);
+  if (providerKeys.length === 0) return draft;
 
-  const providerKeys = new Set(keys);
+  const selectedKeys = new Set(providerKeys);
   const allowed = selected
-    ? [...new Set([...draft.allowed, ...keys])]
-    : draft.allowed.filter((key) => !providerKeys.has(key));
+    ? [...new Set([...draft.allowed, ...providerKeys])]
+    : draft.allowed.filter((key) => !selectedKeys.has(key));
   const defaultModel =
-    !selected && draft.defaultModel && providerKeys.has(draft.defaultModel) ? null : draft.defaultModel;
+    !selected && draft.defaultModel && modelKeyProvider(draft.defaultModel) === providerId ? null : draft.defaultModel;
   return { ...draft, allowed, defaultModel };
-}
-
-/** 制限なしから選択へ戻すときの初期値。全件を選んだ状態から外していけるようにカタログ全件を入れる */
-export function availabilityDraftWithAllModels(catalog: RuntimeModelsResponse | null): string[] {
-  return catalogModelEntries(catalog).map((entry) => entry.key);
 }
 
 /** 保存形へ正規化する。空配列は「制限なし」へ寄せる（サーバーと同じ扱い） */
@@ -308,30 +326,23 @@ export function allowedModelsOutsideCatalog(allowed: string[], catalog: RuntimeM
 }
 
 export interface AvailabilityCounts {
-  /** カタログ全件 */
-  catalog: number;
-  /** 下書きで許可しているモデル数（制限なしはカタログ全件） */
-  allowed: number;
-  /** 許可しているうち、いま利用可能なモデル数 */
+  /** 表示集合（認証済み provider のカタログ + 選択済みエントリ）のうち利用可能なモデル数 */
   available: number;
+  /** 選択中のモデル数 */
+  selected: number;
 }
 
-/**
- * 下書きの集計。カタログを取得できないときは undefined を返し、画面は編集自体を止める
- * （呼び出し側は catalogError で編集可否を判定する）。
- */
-export function availabilityCounts(
-  draft: AvailabilityDraft,
-  catalog: RuntimeModelsResponse | null,
-): AvailabilityCounts | undefined {
-  if (!catalog) return undefined;
-  const entries = catalogModelEntries(catalog);
-  const allowed = draft.unrestricted ? entries : entries.filter((entry) => draft.allowed.includes(entry.key));
-  return {
-    catalog: entries.length,
-    allowed: allowed.length,
-    available: allowed.filter((entry) => entry.available).length,
-  };
+/** 候補の集計。状態表示は絞り込み前の groups から数える */
+export function availabilityCounts(groups: CandidateGroup[]): AvailabilityCounts {
+  let available = 0;
+  let selected = 0;
+  for (const group of groups) {
+    for (const row of group.rows) {
+      if (row.available) available += 1;
+      if (row.checked) selected += 1;
+    }
+  }
+  return { available, selected };
 }
 
 export interface AvailabilityNotice {
@@ -342,25 +353,24 @@ export interface AvailabilityNotice {
 }
 
 /**
- * 保存前の警告と確認文。確認の出し方 (画面内確認) はコンポーネント側が
- * `availabilitySaveOnSubmit()` で決め、ここは DOM に依存せず文言だけを組み立てる。
+ * 保存前の警告と確認文。選択 0 件はコンポーネントが保存自体を止めるためここでは扱わない。
+ * 確認の出し方 (画面内確認) は `availabilitySaveOnSubmit()` で決め、ここは DOM に依存せず
+ * 文言だけを組み立てる。
  */
 export function availabilityNotice(
   draft: AvailabilityDraft,
   catalog: RuntimeModelsResponse | null,
 ): AvailabilityNotice {
-  const counts = availabilityCounts(draft, catalog);
-  if (!counts) return {};
-  const defaultEntry = draft.defaultModel
-    ? catalogModelEntries(catalog).find((entry) => entry.key === draft.defaultModel)
-    : undefined;
+  if (!catalog) return {};
+  const entries = catalogModelEntries(catalog);
+  const selected = new Set(draft.allowed);
+  const availableSelected = entries.filter((entry) => selected.has(entry.key) && entry.available).length;
+  const defaultEntry = draft.defaultModel ? entries.find((entry) => entry.key === draft.defaultModel) : undefined;
   // ここでの未認証は「カタログにはあるが available でない」を指す（認証状態の詳細はサーバーが持つ）
   const defaultUnavailable = Boolean(draft.defaultModel && defaultEntry && !defaultEntry.available);
 
   const reasons: string[] = [];
-  if (!draft.unrestricted && draft.allowed.length === 0) {
-    reasons.push("利用可能なモデルをすべて外したので、保存すると制限なし（全モデル）へ戻ります");
-  } else if (counts.allowed > 0 && counts.available === 0) {
+  if (selected.size > 0 && availableSelected === 0) {
     reasons.push("この保存で利用可能なモデルが 0 件になり、新しい会話を作成できなくなります");
   }
   if (defaultUnavailable) reasons.push("既定に選んだモデルは現在利用できません（キー未設定または未認証です）");
@@ -403,73 +413,209 @@ export function availabilitySaveConfirmMessage(
   return state.confirming ? notice.confirm : undefined;
 }
 
-export interface AvailabilityRow {
+/** モデル候補の 1 行。checkbox / モデル名 / ID / 利用可能 の 4 列の材料 */
+export interface CandidateRow {
   key: string;
-  /** カタログの表示名 */
+  /** カタログの表示名。カタログ外のエントリは key をそのまま出す */
   name: string;
   available: boolean;
   checked: boolean;
+  /** 現在のカタログに無い保存済みエントリ */
+  outsideCatalog: boolean;
 }
 
-/** provider ごとの折りたたみ 1 件。カタログの入力順を保つ */
-export interface AvailabilityGroup {
+/** モデル候補の provider ごとの折りたたみ 1 件 */
+export interface CandidateGroup {
   provider: string;
-  authConfigured: boolean;
-  rows: AvailabilityRow[];
+  /** 表示名。設定 API の provider 行が無ければ provider id */
+  name: string;
+  badge: ProviderBadge;
+  /** 認証済み provider。false の group は保存済みの選択だけを警告付きで出す */
+  authenticated: boolean;
+  /** 保存済みの選択を残したままにしている理由（未認証・カタログ外） */
+  warning?: string;
+  /** カタログ全件のうち利用可能な数（catalogCount と合わせて a/b の表記に使う） */
+  availableCount: number;
+  catalogCount: number;
+  /** 下書き全体の選択数（表示行ではなく下書きから数える） */
+  selectedCount: number;
+  rows: CandidateRow[];
 }
 
-export function availabilityGroups(
+/**
+ * モデル候補の表示集合。認証済み provider のカタログ全件と、下書きの選択済み全エントリの
+ * 和集合にする。選択済みのエントリを未認証・カタログ外でも必ず行に出し、見えないまま
+ * 選択数に残さない。並びは利用可能モデル数の降順、同数ならカタログ順（表示順だけ）。
+ */
+export function candidateGroups(
   draft: AvailabilityDraft,
   catalog: RuntimeModelsResponse | null,
-): AvailabilityGroup[] {
-  return (catalog?.providers ?? [])
-    .map((provider, index) => ({
-      index,
-      availableCount: provider.models.filter((model) => model.available).length,
-      group: {
-        provider: provider.provider,
-        authConfigured: provider.auth.configured,
-        rows: provider.models.map((model) => {
-          const key = modelRefKey({ provider: provider.provider, id: model.id });
-          return {
-            key,
-            name: model.name,
-            available: model.available,
-            checked: draft.unrestricted || draft.allowed.includes(key),
-          };
-        }),
-      },
-    }))
-    .sort((left, right) => right.availableCount - left.availableCount || left.index - right.index)
-    .map(({ group }) => group);
+  settings: ModelsSettingsResponse,
+): CandidateGroup[] {
+  const allowed = new Set(draft.allowed);
+  const outsideCatalog = new Set(allowedModelsOutsideCatalog(draft.allowed, catalog));
+  const selectedCounts = new Map<string, number>();
+  for (const key of allowed) {
+    const provider = modelKeyProvider(key);
+    selectedCounts.set(provider, (selectedCounts.get(provider) ?? 0) + 1);
+  }
+  const catalogProviders = new Map((catalog?.providers ?? []).map((entry) => [entry.provider, entry]));
+  const settingsProviders = new Map(settings.providers.map((entry) => [entry.provider, entry]));
+
+  // 表示する provider はカタログ順の認証済み → 下書きにしか無い provider（下書きの順）
+  const order: string[] = [];
+  const known = new Set<string>();
+  for (const provider of catalog?.providers ?? []) {
+    if (!provider.auth.configured || known.has(provider.provider)) continue;
+    known.add(provider.provider);
+    order.push(provider.provider);
+  }
+  for (const key of draft.allowed) {
+    const provider = modelKeyProvider(key);
+    if (known.has(provider)) continue;
+    known.add(provider);
+    order.push(provider);
+  }
+
+  const groups = order.map((provider): CandidateGroup => {
+    const catalogProvider = catalogProviders.get(provider);
+    const setting = settingsProviders.get(provider);
+    const authenticated = catalogProvider?.auth.configured === true;
+    const rows: CandidateRow[] = [];
+    const seen = new Set<string>();
+    if (authenticated) {
+      for (const model of catalogProvider?.models ?? []) {
+        const key = modelRefKey({ provider, id: model.id });
+        seen.add(key);
+        rows.push({
+          key,
+          name: model.name,
+          available: model.available,
+          checked: allowed.has(key),
+          outsideCatalog: false,
+        });
+      }
+    }
+    // 選択済みなのにカタログ行として出ていないエントリ（未認証 provider・カタログ外）を行に足す
+    for (const key of draft.allowed) {
+      if (modelKeyProvider(key) !== provider || seen.has(key)) continue;
+      const model = catalogProvider?.models.find((entry) => modelRefKey({ provider, id: entry.id }) === key);
+      rows.push({
+        key,
+        name: model?.name ?? key,
+        available: model?.available ?? false,
+        checked: true,
+        outsideCatalog: outsideCatalog.has(key),
+      });
+    }
+    const catalogModels = catalogProvider?.models ?? [];
+    return {
+      provider,
+      name: setting?.name ?? provider,
+      badge: setting ? providerAuthBadge(setting) : { label: catalogProvider ? "未認証" : "カタログ外", tone: "warn" },
+      authenticated,
+      ...(authenticated
+        ? rows.some((row) => row.outsideCatalog)
+          ? { warning: "現在のカタログに無いモデルが保存されています。外すまで保存できません。" }
+          : {}
+        : catalogProvider
+          ? { warning: "認証が設定されていない provider です。保存済みの選択だけを表示しています。" }
+          : { warning: "現在のカタログに無い provider です。保存済みの選択を外すことで削除できます。" }),
+      availableCount: catalogModels.filter((model) => model.available).length,
+      catalogCount: catalogModels.length,
+      selectedCount: selectedCounts.get(provider) ?? 0,
+      rows,
+    };
+  });
+
+  return groups.sort((left, right) => right.availableCount - left.availableCount);
+}
+
+/**
+ * 検索と「選択済みのみ」で候補を絞る。検索は DOM ではなくカタログのデータ（provider / モデル名 /
+ * ID）に当て、当たった provider だけを残す（コンポーネントは検索中にそれを自動展開する）。
+ */
+export function filterCandidateGroups(
+  groups: CandidateGroup[],
+  query: string,
+  selectedOnly: boolean,
+): CandidateGroup[] {
+  const needle = query.trim().toLowerCase();
+  const matched = (text: string) => text.toLowerCase().includes(needle);
+  return groups
+    .map((group) => {
+      const providerMatched = needle !== "" && (matched(group.provider) || matched(group.name));
+      const rows = group.rows.filter((row) => {
+        if (selectedOnly && !row.checked) return false;
+        return needle === "" || providerMatched || matched(row.name) || matched(row.key);
+      });
+      return { ...group, rows };
+    })
+    .filter((group) => group.rows.length > 0);
 }
 
 export interface AvailabilityChoice {
   key: string;
-  label: string;
+  name: string;
   available: boolean;
   inCatalog: boolean;
 }
 
-/** 既定モデルの選択肢。カタログ外の保存値も選べる状態のまま残す（削除するまで保存できない） */
+/** 既定モデルの候補。選択済みモデルだけを並べ、カタログ外の保存値も外すまで残す */
 export function availabilityDefaultChoices(
   draft: AvailabilityDraft,
   catalog: RuntimeModelsResponse | null,
 ): AvailabilityChoice[] {
   const entries = catalogModelEntries(catalog);
-  const keys = draft.unrestricted ? availabilityDraftWithAllModels(catalog) : draft.allowed;
   const seen = new Set<string>();
   const choices: AvailabilityChoice[] = [];
-  for (const key of keys) {
+  for (const key of draft.allowed) {
     if (seen.has(key)) continue;
     seen.add(key);
     const entry = entries.find((candidate) => candidate.key === key);
     choices.push({
       key,
-      label: entry ? `${entry.name}（${key}）` : `${key}（カタログ外）`,
+      name: entry?.name ?? key,
       available: entry?.available ?? false,
-      inCatalog: Boolean(entry),
+      inCatalog: entry !== undefined,
     });
   }
   return choices;
+}
+
+/** 既定モデルのピッカーの先頭に残す「未設定」の表示 */
+export const UNSET_DEFAULT_MODEL_LABEL = "未設定（利用可能なモデルの先頭を使う）";
+
+/** 既定モデルのピッカーの 1 行。key null は「未設定」 */
+export interface DefaultModelOption {
+  key: string | null;
+  name: string;
+  /** ID 列に出す文字列（未設定は空） */
+  detail: string;
+  available: boolean;
+  inCatalog: boolean;
+}
+
+/** 既定モデルのピッカーの候補。先頭は常に「未設定」で、その後に選択済みモデルを並べる */
+export function defaultModelOptions(
+  draft: AvailabilityDraft,
+  catalog: RuntimeModelsResponse | null,
+): DefaultModelOption[] {
+  return [
+    { key: null, name: UNSET_DEFAULT_MODEL_LABEL, detail: "", available: true, inCatalog: true },
+    ...availabilityDefaultChoices(draft, catalog).map((choice) => ({
+      key: choice.key,
+      name: choice.name,
+      detail: choice.key,
+      available: choice.available,
+      inCatalog: choice.inCatalog,
+    })),
+  ];
+}
+
+/** 既定モデルのピッカーの検索。名前と ID を見る（未設定は「未設定」の語で当たる） */
+export function filterDefaultModelOptions(options: DefaultModelOption[], query: string): DefaultModelOption[] {
+  const needle = query.trim().toLowerCase();
+  if (needle === "") return options;
+  return options.filter((option) => `${option.name} ${option.detail}`.toLowerCase().includes(needle));
 }

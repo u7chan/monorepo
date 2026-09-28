@@ -13,6 +13,8 @@ export type SettingsPageLayoutProps = SettingsPageProps & {
   title: string;
   caption?: ReactNode;
   actions?: ReactNode;
+  /** 本文の上に置くタブ行 (role="tablist")。無いページでは行ごと出さない */
+  tabs?: ReactNode;
   /** aria-live で読み上げる */
   note?: { text: string; error: boolean };
   children: ReactNode;
@@ -27,6 +29,7 @@ export function SettingsPageLayout({
   title,
   caption,
   actions,
+  tabs,
   note,
   compact = false,
   onBack,
@@ -35,7 +38,12 @@ export function SettingsPageLayout({
 }: SettingsPageLayoutProps) {
   return (
     // minmax(0,1fr) で列幅を viewport に固定する (auto だと nowrap のパス文字列に引き伸ばされる)
-    <section className="grid h-full min-h-0 grid-cols-1 grid-rows-[auto_minmax(0,1fr)_auto] overflow-hidden">
+    <section
+      className={cn(
+        "grid h-full min-h-0 grid-cols-1 overflow-hidden",
+        tabs ? "grid-rows-[auto_auto_minmax(0,1fr)_auto]" : "grid-rows-[auto_minmax(0,1fr)_auto]",
+      )}
+    >
       <header
         className={cn(
           "flex flex-wrap items-start justify-between gap-x-3 gap-y-2 border-b border-line",
@@ -76,6 +84,8 @@ export function SettingsPageLayout({
           </div>
         ) : null}
       </header>
+
+      {tabs}
 
       {children}
 
