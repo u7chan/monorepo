@@ -31,8 +31,8 @@ importers:
         specifier: ^3.14.13
         version: 3.14.13(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
       hono:
-        specifier: ^4.9.0
-        version: 4.13.8
+        specifier: ^4.13.10
+        version: 4.13.10
       react:
         specifier: ^19.2.0
         version: 19.3.0
@@ -78,13 +78,13 @@ importers:
     dependencies:
       '@hono/node-server':
         specifier: ^2.1.1
-        version: 2.1.1(hono@4.13.8)
+        version: 2.1.1(hono@4.13.10)
       '@hono/zod-validator':
         specifier: ^0.9.1
-        version: 0.9.1(hono@4.13.8)(zod@4.6.5)
+        version: 0.9.1(hono@4.13.10)(zod@4.6.5)
       hono:
-        specifier: ^4.9.0
-        version: 4.13.8
+        specifier: ^4.13.10
+        version: 4.13.10
       tsx:
         specifier: ^4.23.15
         version: 4.23.15
@@ -1554,8 +1554,8 @@ packages:
   highlight.js@10.7.3:
     resolution: {integrity: sha512-tzcUFauisWKNHaRkN4Wjl/ZA07gENAjFl3J/c480dprkGTg5EQstgaNFqBfUqCq54kZRIEcreTsAgF/m2quD7A==}
 
-  hono@4.13.8:
-    resolution: {integrity: sha512-/Gng7NfoykZl2pjukW5Z6+8Yxm3BPRf86GTbQnt0SbySkvax4fyL4H3HhY1cCpBGmiW9XDRFzRV+CXK2W8QudQ==}
+  hono@4.13.10:
+    resolution: {integrity: sha512-dQuLsa5oO+47QVMVMaaD9cIv8ctmVtK1iRvwWngkfloFJMeFeuoUFDswIqZGxmGX3hrRzREgEArjkK9OgsQEhA==}
     engines: {node: '>=16.9.0'}
 
   hookified@1.15.1:
@@ -2535,13 +2535,13 @@ snapshots:
       - supports-color
       - utf-8-validate
 
-  '@hono/node-server@2.1.1(hono@4.13.8)':
+  '@hono/node-server@2.1.1(hono@4.13.10)':
     dependencies:
-      hono: 4.13.8
+      hono: 4.13.10
 
-  '@hono/zod-validator@0.9.1(hono@4.13.8)(zod@4.6.5)':
+  '@hono/zod-validator@0.9.1(hono@4.13.10)(zod@4.6.5)':
     dependencies:
-      hono: 4.13.8
+      hono: 4.13.10
       zod: 4.6.5
 
   '@humanfs/core@0.19.2':
@@ -3386,7 +3386,7 @@ snapshots:
 
   highlight.js@10.7.3: {}
 
-  hono@4.13.8: {}
+  hono@4.13.10: {}
 
   hookified@1.15.1:
     optional: true
