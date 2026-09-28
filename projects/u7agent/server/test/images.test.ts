@@ -101,13 +101,23 @@ test("mimeType は data の media_type → 応答全体の media_type → png �
   assert.deepEqual(missingResult, { ok: true, image: { mimeType: "image/png", data: "aGVsbG8=" } });
 });
 
-test("2xx でも画像 0 件は失敗にし、応答本文をそのまま理由にしない", async () => {
+test("2xx でも画像 0 件は失敗にし、生の応答本文は理由にしない", async () => {
   const { fetchImpl } = stubFetch(() => imageResponse({ data: [] }));
   const result = await createImagesGenerator({ providers: () => [stubProvider()], fetchImpl }).generate(baseInput);
   assert.equal(result.ok, false);
   if (result.ok) return;
   assert.equal(result.code, "unknown");
   assert.equal(result.message, `${IMAGE_UNKNOWN_FAILURE_MESSAGE}（原因不明）`);
+
+  // 構造化された error.message は 2xx でも添える（docs/image-generation.md の失敗分類）
+  const structured = stubFetch(() => imageResponse({ data: [], error: { message: "moderation blocked" } }));
+  const rejected = await createImagesGenerator({
+    providers: () => [stubProvider()],
+    fetchImpl: structured.fetchImpl,
+  }).generate(baseInput);
+  assert.equal(rejected.ok, false);
+  if (rejected.ok) return;
+  assert.ok(rejected.message.includes("moderation blocked"));
 });
 
 test("分類: 401 / 403 はキー無効、402 は残高不足、429 と 5xx は混雑", async () => {

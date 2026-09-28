@@ -35,11 +35,11 @@
 
 SDK(pi-ai 0.87.1) の `openrouter-images` は `chat/completions` へ投げるが、画像生成専用モデルはそちらでは 404（`Use the /api/v1/images endpoint instead.`）になる。そのため `server/src/images.ts` は SDK の `generateImages()` を通さず `POST {baseUrl}/images` を自分で叩き、status と本文も自分で読んで次で分類する。SDK はカタログ（モデル一覧と `baseUrl`）にだけ使う。
 
-- 非 2xx の status を分類の根拠にする。理由は本文の `error.message` を優先し、形が違うときだけ生テキストへ落とす
+- 非 2xx の status を分類の根拠にする。理由は本文の `error.message` を優先し、形が違うときだけ生テキストへ落とす（生テキストは非 2xx のみ）
 - 期限は自前の `AbortController` + タイマーだけに掛ける。既定は 180 秒
 - ユーザー中断は `signal.aborted` で `timedOut` と区別する。signal はそのまま fetch へ渡す
 - 画像は `data[0].b64_json`。`media_type` は data の各件 → 応答全体の `media_type` → `image/png` の順に落とす
-- 2xx でも画像が 0 件なら失敗として扱い、本文を理由に載せない（モデルへ「生成できた」と誤解させない）
+- 2xx でも画像が 0 件なら失敗として扱う（モデルへ「生成できた」と誤解させない）。理由は生の応答本文にはフォールバックせず、`error.message` があればマスクして添える
 
 | 分類 | 条件 | 文言 |
 | --- | --- | --- |
@@ -97,7 +97,7 @@ SDK(pi-ai 0.87.1) の `openrouter-images` は `chat/completions` へ投げるが
 
 | テスト | 固定すること |
 | --- | --- |
-| `server/test/images.test.ts` | カタログ / `chat/completions` へ戻らないこと（`/images` の送信先・ヘッダ・本文）/ `media_type` の落とし方 / 失敗分類（401・403・402・429・5xx・timeout・ユーザー中断・原因不明）/ 画像 0 件の失敗 / provider メッセージのマスク |
+| `server/test/images.test.ts` | カタログ / `chat/completions` へ戻らないこと（`/images` の送信先・ヘッダ・本文）/ `media_type` の落とし方 / 失敗分類（401・403・402・429・5xx・timeout・ユーザー中断・原因不明）/ 画像 0 件の失敗（2xx の生本文と `error.message`）/ provider メッセージのマスク |
 | `server/test/image-tools.test.ts` | ツールの組み立て（有効時だけ）/ path の拒否規則 / slug と拡張子 / root 相対への前置き / 同名衝突で実際の保存名を返す / execute が毎回設定を読む / throw のマスク / signal の伝播 |
 | `server/test/image-settings.test.ts` | GET / PUT / DELETE の契約、マスカー登録の順序、既定行、行が無い / provider / カタログ外の 400、runtime 無しの 503、DB 失敗の 503、起動時の適用 |
 | `server/test/image-settings-api.test.ts` | HTTP 契約と DB 例外のマスク、起動時の有効化、キーが応答・health・ログへ出ないこと |
