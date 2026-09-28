@@ -22,8 +22,8 @@ export type MenuItemProps = {
   trailing?: ReactNode;
   /** 破壊的な操作の行。ホバーを待たず文字色で示す */
   danger?: boolean;
-  /** メニューの項目にするときは "menuitem" (移動は親の role="menu" が担うので tabIndex は -1 にする) */
-  role?: "menuitem";
+  /** メニューの項目は "menuitem"、listbox の項目は "option" (移動は親の role が担うので tabIndex は -1 にする) */
+  role?: "menuitem" | "option";
   tabIndex?: number;
   ref?: Ref<HTMLButtonElement>;
   onClick: () => void;
@@ -71,7 +71,8 @@ export function MenuItem({
       ref={ref}
       role={role}
       tabIndex={tabIndex}
-      aria-current={active ? current : undefined}
+      aria-current={role === "option" ? undefined : active ? current : undefined}
+      aria-selected={role === "option" ? active : undefined}
       onClick={onClick}
       className={cn(
         "flex min-h-7.5 w-full min-w-0 items-center gap-1.5 rounded-lg px-2 py-1 text-left transition-colors",

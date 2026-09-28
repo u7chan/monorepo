@@ -266,7 +266,7 @@ test("アイコン: ⋯ の点 3 つを持ち、MenuIcon (ハンバーガー) �
 test("MenuItem: danger / role / tabIndex / ref を受け、既存の呼び出しは既定のまま", () => {
   const source = read("src/components/MenuItem.tsx");
   assert.ok(source.includes("danger?: boolean;"), "danger の口が無い");
-  assert.ok(source.includes('role?: "menuitem";'), "role の口が無い");
+  assert.ok(source.includes('role?: "menuitem" | "option";'), "role の口が無い");
   assert.ok(source.includes("tabIndex?: number;"), "tabIndex の口が無い");
   assert.ok(source.includes("ref?: Ref<HTMLButtonElement>;"), "ref の口が無い");
   assert.match(source, /danger = false,/, "danger の既定が false でない");
