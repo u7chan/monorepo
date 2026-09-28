@@ -443,7 +443,7 @@ export default function App() {
               onRemoveAttachment={app.removeAttachment}
               onChangeModel={app.changeModel}
               onChangeThinkingLevel={app.changeThinkingLevel}
-              onReloadSkills={app.reloadSessionSkills}
+              onReloadSkills={app.revalidateSessionSkills}
               onChangeAgent={handleAgentChange}
             />
           </div>

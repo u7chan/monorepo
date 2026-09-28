@@ -137,7 +137,7 @@ export function useU7Agent({ pendingSessionId, onPendingSessionResolved }: UseU7
 
   // セッションのスキル一覧 (`/skill:` の入力補助)。新規チャットは選択中のプロジェクト / エージェントで
   // プレビューし、カタログ (エージェント定義) の読み込みまでは取得先が確定しない
-  const { state: sessionSkills, reload: reloadSessionSkills } = useSessionSkills({
+  const { state: sessionSkills, revalidate: revalidateSessionSkills } = useSessionSkills({
     sessionId,
     projectId: selectedProjectId,
     agentId,
@@ -401,7 +401,7 @@ export function useU7Agent({ pendingSessionId, onPendingSessionResolved }: UseU7
     selectedAgent,
     stopVisible,
     sessionSkills,
-    reloadSessionSkills,
+    revalidateSessionSkills,
     notifications,
     archiveSettings,
     notify,
