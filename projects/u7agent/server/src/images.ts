@@ -1,16 +1,12 @@
 /**
  * 画像生成の薄い関数。provider の選択と失敗の分類をこの 1 箇所へ閉じ、
  * 将来 OpenAI を足すときは providers の差し替えで済ませる（docs/image-generation.md）。
- * SDK は失敗を throw せず `stopReason: "error"` へ畳むため、非 2xx の status を包んだ fetch で記録する。
+ *
+ * 送信先は OpenRouter の画像専用 API（`POST {baseUrl}/images`）。SDK(pi-ai 0.87.1) の
+ * openrouter-images は chat/completions へ投げるが、画像生成専用モデルはそちらでは
+ * 404 になり `/images` でしか受け付けない。カタログだけ SDK を使い、要求は自前で組む。
  */
-import type {
-  AssistantImages,
-  ImageContent,
-  ImagesContext,
-  ImagesModel,
-  ImagesOptions,
-  ImagesProvider,
-} from "@earendil-works/pi-ai";
+import type { ImagesModel, ImagesProvider } from "@earendil-works/pi-ai";
 import { builtinImagesProviders } from "@earendil-works/pi-ai/providers/all";
 
 /** 失敗の公開分類。上流の原文は出さず、マスク済みの provider メッセージだけを添える */
@@ -85,32 +81,68 @@ export const IMAGE_UNKNOWN_FAILURE_MESSAGE = "画像生成に失敗しました"
 /** 応答に添える provider メッセージの上限。長文のエラー本文をそのまま会話へ載せない */
 const PROVIDER_MESSAGE_MAX_LENGTH = 500;
 
+/** media_type が読めないときの画像形式。OpenRouter は識別できるときだけ返す */
+const DEFAULT_IMAGE_MIME_TYPE = "image/png";
+
 interface FailureContext {
   status: number | undefined;
   timedOut: boolean;
   aborted: boolean;
+  providerMessage: string | undefined;
   maskText: (text: string) => string;
 }
 
-function providerMessageOf(result: AssistantImages): string | undefined {
-  if (result.errorMessage) return result.errorMessage;
-  const texts: string[] = [];
-  for (const part of result.output) {
-    if (part.type === "text" && part.text !== "") texts.push(part.text);
+/** 本文を JSON として読む。JSON でない本文（プロキシの HTML など）は生テキストのまま扱う */
+function parseJson(text: string): unknown {
+  if (text === "") return undefined;
+  try {
+    return JSON.parse(text);
+  } catch {
+    return undefined;
   }
-  return texts.length > 0 ? texts.join("\n") : undefined;
+}
+
+/** 画像本体を取り出す。media_type は data の各件 → 応答全体 → png の順に落とす */
+function imageOf(body: unknown): GeneratedImage | undefined {
+  if (typeof body !== "object" || body === null) return undefined;
+  const data = (body as { data?: unknown }).data;
+  if (!Array.isArray(data)) return undefined;
+  const fallback = (body as { media_type?: unknown }).media_type;
+  for (const entry of data) {
+    if (typeof entry !== "object" || entry === null) continue;
+    const { b64_json: encoded, media_type: mimeType } = entry as { b64_json?: unknown; media_type?: unknown };
+    if (typeof encoded !== "string" || encoded === "") continue;
+    const resolved =
+      typeof mimeType === "string" && mimeType !== ""
+        ? mimeType
+        : typeof fallback === "string" && fallback !== ""
+          ? fallback
+          : DEFAULT_IMAGE_MIME_TYPE;
+    return { mimeType: resolved, data: encoded };
+  }
+  return undefined;
+}
+
+/** OpenRouter の `error.message` を優先して理由を取り出す。非 2xx で形が違えば生テキストへ落とす */
+function providerMessageOf(body: unknown, raw: string, includeRaw: boolean): string | undefined {
+  if (typeof body === "object" && body !== null) {
+    const error = (body as { error?: unknown }).error;
+    if (typeof error === "string" && error !== "") return error;
+    if (typeof error === "object" && error !== null) {
+      const message = (error as { message?: unknown }).message;
+      if (typeof message === "string" && message !== "") return message;
+    }
+  }
+  if (!includeRaw) return undefined;
+  const trimmed = raw.trim();
+  return trimmed === "" ? undefined : trimmed;
 }
 
 /**
- * `generateImages()` の戻り値から成功・失敗を決める。画像 0 件は失敗として扱い、text だけを結果に載せない
- * （モデルへ「生成できた」と誤解させない）。
- * 分類は記録した status → タイムアウト → ユーザー中断 → 原因不明の順に見る。
+ * 失敗の分類。タイムアウト → ユーザー中断 → 記録した status → 原因不明の順に見る。
+ * 画像 0 件は失敗として扱い、理由の分からない応答本文をそのまま会話へ載せない。
  */
-function classifyImageResult(result: AssistantImages, context: FailureContext): ImageGenerationResult {
-  const images = result.output.filter((part): part is ImageContent => part.type === "image");
-  const first = images[0];
-  if (first) return { ok: true, image: { mimeType: first.mimeType, data: first.data } };
-
+function classifyImageFailure(context: FailureContext): ImageGenerationResult {
   if (context.timedOut) return { ok: false, code: "timeout", message: IMAGE_TIMEOUT_MESSAGE };
   if (context.aborted) return { ok: false, code: "aborted", message: IMAGE_ABORTED_MESSAGE };
   const { status } = context;
@@ -122,7 +154,7 @@ function classifyImageResult(result: AssistantImages, context: FailureContext): 
   if (status === 429 || (status !== undefined && status >= 500)) {
     return { ok: false, code: "rate_limited", message: IMAGE_RATE_LIMITED_MESSAGE };
   }
-  const detail = providerMessageOf(result);
+  const detail = context.providerMessage;
   return {
     ok: false,
     code: "unknown",
@@ -130,6 +162,11 @@ function classifyImageResult(result: AssistantImages, context: FailureContext): 
       ? `${IMAGE_UNKNOWN_FAILURE_MESSAGE}: ${context.maskText(detail).slice(0, PROVIDER_MESSAGE_MAX_LENGTH)}`
       : `${IMAGE_UNKNOWN_FAILURE_MESSAGE}（原因不明）`,
   };
+}
+
+/** 画像専用 API の URL。baseUrl の末尾スラッシュは 1 本へ畳む */
+function imagesEndpoint(model: ImagesModel<string>): string {
+  return `${model.baseUrl.replace(/\/+$/, "")}/images`;
 }
 
 export interface ImagesGenerator {
@@ -176,7 +213,7 @@ export function createImagesGenerator(options: ImagesGeneratorOptions = {}): Ima
         };
       }
 
-      // SDK の timeoutMs は status 未記録のまま先に返り得るため渡さない。期限はここでのみ掛ける
+      // 期限はここでのみ掛ける。SDK と違い応答と status を自分で読むため、abort の理由は timedOut で判別する
       const controller = new AbortController();
       let timedOut = false;
       const timer = setTimeout(() => {
@@ -186,47 +223,41 @@ export function createImagesGenerator(options: ImagesGeneratorOptions = {}): Ima
       const onUserAbort = (): void => controller.abort();
       input.signal?.addEventListener("abort", onUserAbort, { once: true });
       if (input.signal?.aborted) onUserAbort();
+      const aborted = (): boolean => input.signal?.aborted === true;
 
       let status: number | undefined;
-      const recordStatus = (value: number): void => {
-        // リトライで複数回失敗したときは最初の非 2xx を分類の根拠にする
-        if (status === undefined) status = value;
-      };
-      const fetchImpl: typeof fetch = async (request, init) => {
-        const response = await baseFetch(request, init);
-        if (!response.ok) recordStatus(response.status);
-        return response;
-      };
-
       try {
-        const context: ImagesContext = { input: [{ type: "text", text: input.prompt }] };
-        const request: ImagesOptions = {
-          apiKey: input.apiKey,
+        const response = await baseFetch(imagesEndpoint(model), {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            authorization: `Bearer ${input.apiKey}`,
+            ...model.headers,
+          },
+          body: JSON.stringify({ model: model.id, prompt: input.prompt, n: 1 }),
           signal: controller.signal,
-          fetch: fetchImpl,
-        };
-        const result = await provider.generateImages(model, context, request);
-        return classifyImageResult(result, {
+        });
+        if (!response.ok) status = response.status;
+        const text = await response.text();
+        const body = parseJson(text);
+        const image = imageOf(body);
+        if (image) return { ok: true, image };
+        return classifyImageFailure({
           status,
           timedOut,
-          aborted: input.signal?.aborted === true,
+          aborted: aborted(),
+          providerMessage: providerMessageOf(body, text, !response.ok),
           maskText,
         });
       } catch (error) {
-        // provider は throw しない契約だが、stub / 版差でも分類の外へ漏らさない
         const message = error instanceof Error ? error.message : String(error);
-        return classifyImageResult(
-          {
-            api: model.api,
-            provider: model.provider,
-            model: model.id,
-            output: [],
-            stopReason: "error",
-            errorMessage: message,
-            timestamp: Date.now(),
-          },
-          { status, timedOut, aborted: input.signal?.aborted === true, maskText },
-        );
+        return classifyImageFailure({
+          status,
+          timedOut,
+          aborted: aborted(),
+          providerMessage: message,
+          maskText,
+        });
       } finally {
         clearTimeout(timer);
         input.signal?.removeEventListener("abort", onUserAbort);

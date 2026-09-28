@@ -1,6 +1,6 @@
 # 画像生成（generate_image ツール）
 
-チャットから画像を生成し、セッションの作業フォルダへ保存する。生成そのものは BFF が provider（v1 は OpenRouter）へ要求し、保存だけをサンドボックスの upload API へ委譲する（BFF は作業領域に触らない）。provider の APIキーは 設定 → モデル の「画像生成」タブで登録し、アプリ DB の `image_settings` に**平文**で保存する。
+チャットから画像を生成し、セッションの作業フォルダへ保存する。生成そのものは BFF が provider（v1 は OpenRouter）の画像専用 API（`POST {baseUrl}/images`）へ要求し、保存だけをサンドボックスの upload API へ委譲する（BFF は作業領域に触らない）。provider の APIキーは 設定 → モデル の「画像生成」タブで登録し、アプリ DB の `image_settings` に**平文**で保存する。
 
 - 画像専用のキー・モデルを `provider_credentials` とは別に管理する。プロバイダー登録済みキーは流用せず、画像タブで登録したキーだけを使う（別 provider のキーへ黙って切り替えない）
 - キーが有効（`image_settings` に行がある）ときだけ、モデルへ `generate_image` を見せる。未設定ならツール一覧に現れない
@@ -33,12 +33,13 @@
 
 ## 失敗の分類
 
-`generateImages()` は失敗を throw せず `stopReason: "error"` と `errorMessage` に畳む。status も `onResponse` も取れない（非 2xx では SDK が reject する）ため、`server/src/images.ts` が次で分類する。
+SDK(pi-ai 0.87.1) の `openrouter-images` は `chat/completions` へ投げるが、画像生成専用モデルはそちらでは 404（`Use the /api/v1/images endpoint instead.`）になる。そのため `server/src/images.ts` は SDK の `generateImages()` を通さず `POST {baseUrl}/images` を自分で叩き、status と本文も自分で読んで次で分類する。SDK はカタログ（モデル一覧と `baseUrl`）にだけ使う。
 
-- `ImagesOptions.fetch` を自前で包み、非 2xx の status を記録する（最初の非 2xx を分類の根拠にする）
-- 期限は自前の `AbortController` + タイマーだけに掛ける（`ImagesOptions.timeoutMs` は渡さない。SDK の期限が先に返ると status 未記録のまま原因不明に落ちるため）。既定は 180 秒
-- ユーザー中断は `signal.aborted` で `timedOut` と区別する。signal はそのまま provider 呼び出しへ渡す
-- `AssistantImages.output` に画像が 0 件のときは失敗として扱い、text だけを結果に載せない（モデルへ「生成できた」と誤解させない）
+- 非 2xx の status を分類の根拠にする。理由は本文の `error.message` を優先し、形が違うときだけ生テキストへ落とす
+- 期限は自前の `AbortController` + タイマーだけに掛ける。既定は 180 秒
+- ユーザー中断は `signal.aborted` で `timedOut` と区別する。signal はそのまま fetch へ渡す
+- 画像は `data[0].b64_json`。`media_type` は data の各件 → 応答全体の `media_type` → `image/png` の順に落とす
+- 2xx でも画像が 0 件なら失敗として扱い、本文を理由に載せない（モデルへ「生成できた」と誤解させない）
 
 | 分類 | 条件 | 文言 |
 | --- | --- | --- |
@@ -49,7 +50,7 @@
 | `aborted` | ユーザー中断 | 画像生成を中断しました |
 | `unknown` | それ以外 | 画像生成に失敗しました（マスク済みの provider メッセージを 500 文字まで添える） |
 
-分類はこの 1 箇所に閉じる。将来 OpenAI provider を足すときは `createImagesGenerator({ providers })` の差し替えで足し、status の写像だけを provider ごとに増やす。
+要求の組み立てと分類はこの 1 箇所に閉じる。将来 OpenAI provider を足すときは `createImagesGenerator({ providers })` の差し替えでカタログを足し、エンドポイント / 応答形と status の写像だけを provider ごとに増やす。
 
 ## キーの扱い
 
@@ -96,7 +97,7 @@
 
 | テスト | 固定すること |
 | --- | --- |
-| `server/test/images.test.ts` | カタログ / 失敗分類（401・403・402・429・5xx・timeout・ユーザー中断・原因不明）/ 画像 0 件の失敗 / provider メッセージのマスク |
+| `server/test/images.test.ts` | カタログ / `chat/completions` へ戻らないこと（`/images` の送信先・ヘッダ・本文）/ `media_type` の落とし方 / 失敗分類（401・403・402・429・5xx・timeout・ユーザー中断・原因不明）/ 画像 0 件の失敗 / provider メッセージのマスク |
 | `server/test/image-tools.test.ts` | ツールの組み立て（有効時だけ）/ path の拒否規則 / slug と拡張子 / root 相対への前置き / 同名衝突で実際の保存名を返す / execute が毎回設定を読む / throw のマスク / signal の伝播 |
 | `server/test/image-settings.test.ts` | GET / PUT / DELETE の契約、マスカー登録の順序、既定行、行が無い / provider / カタログ外の 400、runtime 無しの 503、DB 失敗の 503、起動時の適用 |
 | `server/test/image-settings-api.test.ts` | HTTP 契約と DB 例外のマスク、起動時の有効化、キーが応答・health・ログへ出ないこと |
