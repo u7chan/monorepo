@@ -184,6 +184,8 @@ test("タブ行は URL が決めるタブを示し、3 つのタブを出す", (
   assert.match(providersHtml, /<button[^>]*aria-selected="true"[^>]*>プロバイダー</);
   assert.equal(providersHtml.includes("モデル候補を保存"), false, "プロバイダータブに候補の保存バーは出さない");
   assert.ok(providersHtml.includes("provider 名 / ID で絞り込み"));
+  assert.ok(providersHtml.includes('fill-rule="evenodd"'), "ロゴのある provider は一覧にロゴを出す");
+  assert.ok(providersHtml.includes(">L<"), "ロゴの無い provider は頭文字を出す");
 });
 
 test("画像生成タブは URL が選んだときにだけ描画し、キー入力を出す", () => {
@@ -203,6 +205,7 @@ test("モデルを選ぶタブは既定モデル・選択数・候補・保存�
     html.includes("Anthropic") && html.includes("利用可能 1/2 ・ 選択 1"),
     "provider 行に名前と a/b と選択数を出す",
   );
+  assert.ok(html.includes('fill-rule="evenodd"'), "モデル候補の provider 行にもロゴを出す");
   assert.ok(html.includes("min-h-11"), "選択済みのみのチェックはタッチ向けの高さを保つ");
   assert.ok(html.includes("開いている会話のモデルは切り替えません"), "live の会話へ効かないことを注記する");
   assert.ok(html.includes("モデル一覧を表示") === false, "ModelTable は出さない");
