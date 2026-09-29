@@ -6,7 +6,7 @@
 //   3. 閉じた枝の内容が DOM から消え、畳むときだけ遷移が効かない (または未取得の枝に読み込み中が残る)
 //   4. 閉じた枝の行がフォーカス可能なまま残る (Tab で見えない行に入る)
 //   5. prefers-reduced-motion でも動く
-//   6. reveal のスクロールの合わせ直し (FOLD_MS) が CSS の遷移時間からずれ、行が画面外に残る
+//   6. reveal のスクロールの合わせ直しが遷移の長さを JS に写し、CSS とずれる (または手動スクロールを巻き戻す)
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
@@ -55,15 +55,23 @@ test("閉じた枝も取得済みの内容を残し、inert でフォーカス�
   // 閉じた枝の内容を DOM に残す (畳むときも同じ遷移で潰す)。inert は開いているときだけ外す
   assert.match(
     browser,
-    /<div className="tree-fold" data-open=\{open\} inert=\{!open\}>/,
-    "ディレクトリの子が .tree-fold で包まれていない",
+    /const loaded = node\?\.children !== undefined \|\| node\?\.error !== undefined;/,
+    "一覧が届いたかの判定が無い",
   );
-  // 未取得の枝に「読み込み中…」を DOM へ残さないよう、内容は開いたか取得済みのときだけ描く
+  // 「読み込み中…」と内容は別の入れ物にする: 同じ入れ物で入れ替えると、開き切った後の高さ (1fr の
+  // 解決値) は変わっても遷移が走らず、取得の完了が飛んで見える (入れ替えは 2 つの遷移を重ねる)
   assert.match(
     browser,
-    /\{open \|\| node\?\.children \|\| node\?\.error \? \(/,
-    "取得済みの内容を閉じている間も描く条件になっていない",
+    /<div className="tree-fold" data-open=\{open && !loaded\} inert=\{!open\}>/,
+    "読み込み中の行の入れ物が無い (または内容と同じ入れ物にある)",
   );
+  assert.match(
+    browser,
+    /<div className="tree-fold" data-open=\{open && loaded\} inert=\{!open\}>/,
+    "内容の入れ物が無い (または開閉だけを遷移させている)",
+  );
+  // 内容は開いたか取得済みのときに描く (未取得の枝に中身は無い。閉じた枝は残す)
+  assert.match(browser, /\{node\?\.children \? \(/, "取得済みの子を描いていない");
 });
 
 test("prefers-reduced-motion では折りたたみを遷移させない", () => {
@@ -76,12 +84,10 @@ test("prefers-reduced-motion では折りたたみを遷移させない", () => 
   assert.ok(block.includes("transition: none;"), "prefers-reduced-motion で遷移を止めていない");
 });
 
-test("reveal のスクロールの合わせ直しは CSS の遷移時間と一致する", () => {
-  const { base } = foldRules();
-  const cssMs = /transition:\s*grid-template-rows (\d+)ms/.exec(base)?.[1];
-  assert.ok(cssMs, "CSS の遷移時間を読めない");
+test("reveal のスクロールの合わせ直しは、待ち時間の定数を持たず transitionend を合図にする", () => {
   const browser = read("src/components/FileBrowser.tsx");
-  const jsMs = /const FOLD_MS = (\d+);/.exec(browser)?.[1];
-  assert.ok(jsMs, "FileBrowser.tsx に FOLD_MS が無い");
-  assert.equal(jsMs, cssMs, "FOLD_MS が CSS の遷移時間とずれている");
+  // 遷移の長さを JS に写すと、CSS を変えたときに黙ってずれる。合図は transitionend にする
+  assert.ok(!/FOLD_MS/.test(browser), "折りたたみの長さを JS の定数に写している");
+  assert.match(browser, /fold\.addEventListener\("transitionend", scrollToRow\)/, "transitionend を拾っていない");
+  assert.match(browser, /event\.propertyName !== "grid-template-rows"/, "高さ以外の遷移でもスクロールし直す");
 });
