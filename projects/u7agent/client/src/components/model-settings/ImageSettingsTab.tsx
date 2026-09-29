@@ -203,9 +203,12 @@ function ImageModelSection({
       {/* サイズ・品質・出力形式の UI は持たない理由だけを残す。provider は見出しに出ている */}
       <p className="text-2xs leading-relaxed text-ink-muted">サイズ・品質・出力形式は provider の既定を使います。</p>
       <div className="flex flex-wrap items-center gap-2">
-        <MetaChip wrap tone={settings.catalogSource === "live" ? "muted" : "warn"}>
-          {imageCatalogNotice(settings)}
-        </MetaChip>
+        {/* 段落のセマンティクスを残すため、チップ (span) は <p> の中に置く */}
+        <p className="min-w-0">
+          <MetaChip wrap tone={settings.catalogSource === "live" ? "muted" : "warn"}>
+            {imageCatalogNotice(settings)}
+          </MetaChip>
+        </p>
         <button type="button" className="btn-quiet" disabled={busy} onClick={() => void onRefresh()}>
           <RefreshIcon />
           {refreshing ? "取得中" : "再取得"}

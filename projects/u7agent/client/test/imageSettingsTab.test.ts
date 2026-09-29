@@ -95,6 +95,11 @@ test("設定済みでは上書き保存・削除・モデル選択を出し、�
     ),
     "出どころもプロバイダータブと同じチップで出す",
   );
+  assert.match(
+    html,
+    /<p[^>]*><span class="rounded border[^"]*">モデル一覧は OpenRouter から取得しました/,
+    "文をチップにしても段落のセマンティクスを残す",
+  );
   assert.ok(html.includes("サイズ・品質・出力形式は provider の既定を使います"), "設定できる範囲の説明を残す");
   assert.equal(html.includes("プロバイダー: OpenRouter"), false, "見出しと重複する provider 名を本文で繰り返さない");
   assert.ok(html.includes(">再取得</button>"));
