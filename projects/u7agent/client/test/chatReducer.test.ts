@@ -921,3 +921,183 @@ test("新しいラン・成功・停止・実行中への移行・チャット�
   assert.equal(chatReducer(failed, { type: "setRun", runStatus: "running" }).runError, undefined);
   assert.equal(chatReducer(failed, { type: "newChat" }).runError, undefined);
 });
+
+// --- 直近 run のツールカード (runTools) ---
+
+function toolCall(id: string, overrides: Partial<ToolCall> = {}): ToolCall {
+  return { id, name: "bash", args: `$ ${id}`, isError: false, done: true, output: `${id} done`, ...overrides };
+}
+
+/** 実行中 run のツール状態を配る payload (resync / GET /api/sessions/:id 相当) */
+function payloadWithRunTools(
+  messages: { role: "user" | "assistant"; text: string; tools?: ToolCall[] }[],
+  toolCalls: ToolCall[],
+): SessionPayload {
+  return {
+    ...runningPayload(),
+    messages,
+    run: { id: "run-1", status: "running", startedAt: 1700000000000, prompt: "", toolCalls, totalRetryCount: 0 },
+  };
+}
+
+test("runTools は resync の payload.run.toolCalls で常に置き換わり、run が無ければ空へ戻る", () => {
+  const calls = [toolCall("t1"), toolCall("t2", { done: false, output: "" })];
+  const running = chatReducer(initialChatState, {
+    type: "resync",
+    payload: payloadWithRunTools(
+      [
+        { role: "user", text: "聞いて" },
+        { role: "assistant", text: "処理中" },
+      ],
+      calls,
+    ),
+  });
+  assert.deepEqual(Object.keys(running.runTools), ["t1", "t2"]);
+  assert.equal(running.runTools.t2?.done, false);
+  assert.equal(
+    running.currentAssistantId,
+    running.bubbles.at(-1)?.id,
+    "running の resync は補完先の assistant を現在のバブルにする",
+  );
+
+  // 完了 run でもカードは残るが、currentAssistantId は指さない (既存の契約)
+  const completed = chatReducer(running, {
+    type: "resync",
+    payload: {
+      ...payloadWithRunTools(
+        [
+          { role: "user", text: "聞いて" },
+          { role: "assistant", text: "処理中" },
+        ],
+        calls,
+      ),
+      status: "completed",
+      run: {
+        id: "run-1",
+        status: "completed",
+        startedAt: 1700000000000,
+        endedAt: 1700000001000,
+        prompt: "",
+        toolCalls: calls,
+        totalRetryCount: 0,
+      },
+    },
+  });
+  assert.deepEqual(Object.keys(completed.runTools), ["t1", "t2"]);
+  assert.equal(completed.currentAssistantId, null);
+
+  // 空配列 (run 開始直後) は前の run のカードを残さない
+  const cleared = chatReducer(running, {
+    type: "resync",
+    payload: payloadWithRunTools([{ role: "user", text: "聞いて" }], []),
+  });
+  assert.deepEqual(cleared.runTools, {});
+
+  // run を持たない payload でも空になる
+  const withoutRun = chatReducer(running, { type: "resync", payload: runningPayload() });
+  assert.deepEqual(withoutRun.runTools, {});
+});
+
+test("runTools は runStart / newChat / セッション切替で初期化し、runEnd では消さない", () => {
+  const running = chatReducer(initialChatState, {
+    type: "resync",
+    payload: payloadWithRunTools(
+      [
+        { role: "user", text: "聞いて" },
+        { role: "assistant", text: "処理中" },
+      ],
+      [toolCall("t1", { done: false, output: "" })],
+    ),
+  });
+  assert.deepEqual(Object.keys(running.runTools), ["t1"]);
+
+  // runEnd はカードを残す (終了後に遅れて適用される履歴ページへ補うため)
+  const ended = chatReducer(running, { type: "runEnd", status: "completed", queueDepth: 0 });
+  assert.deepEqual(Object.keys(ended.runTools), ["t1"]);
+  assert.deepEqual(ended.toolBubbleIds, {}, "索引は次の run のイベントを誤適用しないよう空にする");
+
+  // 次の run は前の run のカードを引き継がない
+  assert.deepEqual(chatReducer(ended, { type: "runStart", prompt: "続き", at: 2, startedAt: 2 }).runTools, {});
+
+  // 別セッションへ切り替えたら混ぜない
+  const switched = chatReducer(running, {
+    type: "resync",
+    payload: { ...runningPayload(), sessionId: "session-b" },
+  });
+  assert.deepEqual(switched.runTools, {});
+
+  // 新規チャットも初期化する
+  assert.deepEqual(chatReducer(running, { type: "newChat" }).runTools, {});
+});
+
+test("resync の run 側カードは前ターンへ付かず、text / usage も前ターンへ混ぜない (legacy)", () => {
+  const resynced = chatReducer(initialChatState, {
+    type: "resync",
+    payload: payloadWithRunTools(
+      [
+        { role: "user", text: "1通目" },
+        { role: "assistant", text: "1通目の答え" },
+        { role: "user", text: "2通目" },
+      ],
+      [toolCall("t1")],
+    ),
+  });
+  // 補完先 = 最後の user より後の assistant が無いので保留する
+  assert.deepEqual(resynced.bubbles[1]?.tools, [], "前ターンの assistant へ付けない");
+  assert.deepEqual(resynced.bubbles[1]?.text, "1通目の答え");
+  assert.deepEqual(Object.keys(resynced.runTools), ["t1"]);
+  assert.equal(resynced.currentAssistantId, null, "前ターンの assistant を指さない");
+
+  const streaming = chatReducer(resynced, { type: "text", delta: "2通目の生成中", at: 3 });
+  assert.equal(streaming.bubbles[1]?.text, "1通目の答え", "前ターンの本文へ混ぜない");
+  const current = streaming.bubbles.at(-1);
+  assert.equal(current?.role, "assistant");
+  assert.equal(current?.text, "2通目の生成中");
+  assert.deepEqual(
+    current?.tools.map((card) => [card.id, card.phase]),
+    [["t1", "done"]],
+    "保留していたカードが現在ターンへ付く",
+  );
+
+  const withUsage = chatReducer(streaming, { type: "usage", usage: USAGE, metrics: METRICS });
+  assert.deepEqual(withUsage.bubbles[1]?.usage, undefined, "前ターンへ usage を混ぜない");
+  assert.deepEqual(withUsage.bubbles.at(-1)?.usage, USAGE);
+});
+
+test("補完先が無い run 側カードは保留し、text / toolStart で補完先ができたら補う", () => {
+  const held = (calls: ToolCall[]) =>
+    chatReducer(initialChatState, {
+      type: "resync",
+      payload: payloadWithRunTools([{ role: "user", text: "1通目" }], calls),
+    });
+
+  // text が作る assistant バブルへ回る
+  const waiting = held([toolCall("t1", { done: false, output: "" })]);
+  assert.deepEqual(
+    waiting.bubbles.map((bubble) => bubble.role),
+    ["user"],
+    "補完先が無ければ補完しない",
+  );
+  const streamed = chatReducer(waiting, { type: "text", delta: "生成中", at: 2 });
+  assert.deepEqual(
+    streamed.bubbles.at(-1)?.tools.map((card) => [card.id, card.phase]),
+    [["t1", "running"]],
+  );
+  assert.equal(streamed.bubbles.at(-1)?.text, "生成中");
+
+  // toolStart が作る assistant バブルへ、保留分と合わせて回る
+  const withTool = chatReducer(held([toolCall("t1", { done: false, output: "" })]), {
+    type: "toolStart",
+    id: "t2",
+    name: "read",
+    args: "README.md",
+    at: 3,
+  });
+  assert.deepEqual(
+    withTool.bubbles
+      .at(-1)
+      ?.tools.map((card) => card.id)
+      .sort(),
+    ["t1", "t2"],
+  );
+});

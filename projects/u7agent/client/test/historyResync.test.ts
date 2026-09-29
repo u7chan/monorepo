@@ -3,9 +3,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { chatReducer, initialChatState } from "../src/hooks/chatReducer";
-import type { HistoryPage, SessionPayload } from "../src/types";
+import type { HistoryPage, SessionPayload, ToolCall, Usage } from "../src/types";
 
-function payload(messages: { role: "user" | "assistant"; text: string }[]): SessionPayload {
+function payload(messages: { role: "user" | "assistant"; text: string; tools?: ToolCall[] }[]): SessionPayload {
   return {
     sessionId: "session-a",
     piSessionId: "pi-session-a",
@@ -58,6 +58,22 @@ function userMsg(id: string, text: string, runId?: string): HistoryPage["items"]
 
 function entryIds(state: ReturnType<typeof chatReducer>): (string | undefined)[] {
   return state.bubbles.map((bubble) => bubble.entryId);
+}
+
+function toolCall(id: string, overrides: Partial<ToolCall> = {}): ToolCall {
+  return { id, name: "bash", args: `$ ${id}`, isError: false, done: true, output: `${id} done`, ...overrides };
+}
+
+/** 実行中 run のツール状態を配る payload (resync / GET /api/sessions/:id 相当) */
+function runningPayloadWithTools(
+  messages: { role: "user" | "assistant"; text: string; tools?: ToolCall[] }[],
+  toolCalls: ToolCall[],
+): SessionPayload {
+  return {
+    ...payload(messages),
+    status: "running",
+    run: { id: "run-1", status: "running", startedAt: 2, prompt: "", toolCalls, totalRetryCount: 0 },
+  };
 }
 
 test("resyncHistory で履歴表示へ移行し、以降の resync は古いページとエコーを残す", () => {
@@ -1015,4 +1031,315 @@ test("runId を失った履歴でも、since より手前の同一文面へは�
     ["同じ質問", "h2", "同じ質問"],
     "過去の entry + 送信中エコー",
   );
+});
+
+// --- 直近 run のツールカードと履歴ページの整合 (runTools の補完) ---
+
+const USAGE: Usage = {
+  input: 1,
+  output: 1,
+  cacheRead: 0,
+  cacheWrite: 0,
+  totalTokens: 2,
+  cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+};
+
+test("resync で消えた実行中カードは resyncHistory の適用で戻り、toolEnd が反映される", () => {
+  const base = chatReducer(initialChatState, {
+    type: "resyncHistory",
+    page: historyPage([userMsg("h1", "1通目")], { hasMore: true, nextCursor: "h1", messageCount: 1 }),
+  });
+  const started = chatReducer(base, { type: "runStart", prompt: "1通目", at: 2, startedAt: 2 });
+  const bashDone = chatReducer(
+    chatReducer(started, { type: "toolStart", id: "t-bash", name: "bash", args: "$ ls", at: 3 }),
+    { type: "toolEnd", id: "t-bash", isError: false, output: "bash ok" },
+  );
+  const readRunning = chatReducer(bashDone, {
+    type: "toolStart",
+    id: "t-read",
+    name: "read",
+    args: "README.md",
+    at: 4,
+  });
+  assert.deepEqual(
+    readRunning.bubbles.at(-1)?.tools.map((card) => [card.id, card.phase]),
+    [
+      ["t-bash", "done"],
+      ["t-read", "running"],
+    ],
+  );
+
+  // context_edit の resync: 履歴 (h1 のみ) へ組み直され、未確定の assistant は消える
+  const resynced = chatReducer(readRunning, {
+    type: "resync",
+    payload: runningPayloadWithTools(
+      [{ role: "user", text: "1通目" }],
+      [toolCall("t-bash", { output: "bash ok" }), toolCall("t-read", { done: false, output: "" })],
+    ),
+  });
+  assert.deepEqual(entryIds(resynced), ["h1"], "未確定の assistant は消える");
+  assert.deepEqual(resynced.bubbles[0]?.tools, []);
+  assert.deepEqual(Object.keys(resynced.runTools), ["t-bash", "t-read"]);
+  assert.equal(resynced.currentAssistantId, null, "補完先が無いので向けない");
+
+  // 履歴ページが追いつくと、実行中カードが現在ターンの assistant へ戻る
+  const applied = chatReducer(resynced, {
+    type: "resyncHistory",
+    page: historyPage(
+      [
+        userMsg("h1", "1通目"),
+        {
+          kind: "message",
+          id: "m2",
+          context: "active",
+          role: "assistant",
+          text: "処理中",
+          tools: [toolCall("t-bash", { output: "bash ok" })],
+        },
+      ],
+      { prevCursor: "h1", hasMore: true, nextCursor: "h1", messageCount: 2 },
+    ),
+  });
+  const assistant = applied.bubbles.at(-1);
+  assert.equal(assistant?.entryId, "m2");
+  assert.deepEqual(
+    assistant?.tools.map((card) => [card.id, card.phase]),
+    [
+      ["t-bash", "done"],
+      ["t-read", "running"],
+    ],
+  );
+  assert.equal(applied.currentAssistantId, assistant?.id, "resyncHistory でも補完先へ向ける");
+
+  // その後の tool_end も該当カードを更新できる
+  const ended = chatReducer(applied, { type: "toolEnd", id: "t-read", isError: true, output: "read failed" });
+  assert.deepEqual(
+    ended.bubbles.at(-1)?.tools.map((card) => [card.id, card.phase, card.output]),
+    [
+      ["t-bash", "done", "bash ok"],
+      ["t-read", "failed", "read failed"],
+    ],
+  );
+});
+
+test("前ターンの assistant がある resync はカードと text / usage を前ターンへ混ぜない (履歴モード)", () => {
+  const base = chatReducer(initialChatState, {
+    type: "resyncHistory",
+    page: historyPage([userMsg("h1", "1通目"), msg("m2", "active", "1通目の答え"), userMsg("h3", "2通目")], {
+      hasMore: true,
+      nextCursor: "h1",
+      messageCount: 3,
+    }),
+  });
+  const resynced = chatReducer(base, {
+    type: "resync",
+    payload: runningPayloadWithTools([{ role: "user", text: "2通目" }], [toolCall("t1")]),
+  });
+  assert.deepEqual(entryIds(resynced), ["h1", "m2", "h3"], "履歴は残る");
+  assert.deepEqual(resynced.bubbles[1]?.tools, [], "前ターンの assistant へ付けない");
+  assert.equal(resynced.currentAssistantId, null, "前ターンの assistant を指さない");
+
+  const streamed = chatReducer(resynced, { type: "text", delta: "2通目の生成中", at: 3 });
+  assert.equal(streamed.bubbles[1]?.text, "1通目の答え", "前ターンの本文へ混ぜない");
+  const current = streamed.bubbles.at(-1);
+  assert.equal(current?.text, "2通目の生成中");
+  assert.deepEqual(
+    current?.tools.map((card) => card.id),
+    ["t1"],
+    "現在ターンの assistant へ補完する",
+  );
+
+  const withUsage = chatReducer(streamed, { type: "usage", usage: USAGE });
+  assert.deepEqual(withUsage.bubbles[1]?.usage, undefined, "前ターンへ usage を混ぜない");
+  assert.deepEqual(withUsage.bubbles.at(-1)?.usage, USAGE);
+});
+
+test("runEnd 後の resync / resyncHistory でも直近 run のカードが残り、run の無い resync で runTools は空になる", () => {
+  const page = historyPage(
+    [
+      userMsg("h1", "1通目"),
+      {
+        kind: "message",
+        id: "m2",
+        context: "active",
+        role: "assistant",
+        text: "1通目の答え",
+        tools: [toolCall("t1")],
+      },
+    ],
+    { prevCursor: null, hasMore: true, nextCursor: "h1", messageCount: 2 },
+  );
+  const base = chatReducer(initialChatState, { type: "resyncHistory", page });
+  const running = chatReducer(base, {
+    type: "resync",
+    payload: runningPayloadWithTools([{ role: "user", text: "1通目" }], [toolCall("t1", { done: false, output: "" })]),
+  });
+  assert.equal(running.currentAssistantId, running.bubbles[1]?.id);
+
+  const ended = chatReducer(running, { type: "runEnd", status: "completed", queueDepth: 0 });
+  assert.deepEqual(Object.keys(ended.runTools), ["t1"], "runEnd では消さない");
+  assert.deepEqual(ended.toolBubbleIds, {});
+
+  // 終了後に遅れて届いた完了 run の resync でもカードは該当バブルへ残る
+  const completed = chatReducer(ended, {
+    type: "resync",
+    payload: {
+      ...runningPayloadWithTools([{ role: "user", text: "1通目" }], [toolCall("t1")]),
+      status: "completed",
+      run: {
+        id: "run-1",
+        status: "completed",
+        startedAt: 2,
+        endedAt: 4,
+        prompt: "1通目",
+        toolCalls: [toolCall("t1")],
+        totalRetryCount: 0,
+      },
+    },
+  });
+  assert.deepEqual(
+    completed.bubbles[1]?.tools.map((card) => [card.id, card.phase]),
+    [["t1", "done"]],
+  );
+  assert.deepEqual(Object.keys(completed.runTools), ["t1"]);
+
+  // resyncHistory でページを組み直しても、run 側のカードが同じバブルを更新する
+  const remerged = chatReducer(completed, { type: "resyncHistory", page });
+  assert.deepEqual(
+    remerged.bubbles[1]?.tools.map((card) => [card.id, card.phase]),
+    [["t1", "done"]],
+  );
+  assert.deepEqual(Object.keys(remerged.runTools), ["t1"]);
+
+  // run を持たない resync (別タブの終端状態など) では runTools を空へ戻す。ページのカードは残る
+  const withoutRun = chatReducer(remerged, { type: "resync", payload: payload([{ role: "user", text: "1通目" }]) });
+  assert.deepEqual(withoutRun.runTools, {});
+  assert.deepEqual(
+    withoutRun.bubbles[1]?.tools.map((card) => card.id),
+    ["t1"],
+    "ページのカードは残る",
+  );
+});
+
+test("historyGap の適用で保留していた run 側カードを補完する", () => {
+  const base = chatReducer(initialChatState, {
+    type: "resyncHistory",
+    page: historyPage([userMsg("h1", "1通目")], { hasMore: true, nextCursor: "h1", messageCount: 4 }),
+  });
+  const held = chatReducer(base, {
+    type: "resync",
+    payload: runningPayloadWithTools([{ role: "user", text: "1通目" }], [toolCall("t1", { done: false, output: "" })]),
+  });
+  const detected = chatReducer(held, {
+    type: "resyncHistory",
+    page: historyPage([userMsg("p1", "3通目"), msg("p2", "active", "3通目の答え")], {
+      prevCursor: "g2",
+      hasMore: true,
+      nextCursor: "p1",
+      messageCount: 4,
+    }),
+  });
+  assert.equal(detected.history.gapCursor, "p1");
+  assert.deepEqual(entryIds(detected), ["h1"], "保留中は補完しない");
+  assert.equal(detected.currentAssistantId, null);
+
+  // gap ページが保持分と保留ページの両方に繋がる (通常の適用経路)
+  const applied = chatReducer(detected, {
+    type: "historyGap",
+    cursor: "p1",
+    page: historyPage([userMsg("g1", "2通目"), userMsg("g2", "2通目の続き")], {
+      prevCursor: "h1",
+      hasMore: true,
+      nextCursor: "g1",
+      messageCount: 4,
+    }),
+  });
+  assert.deepEqual(entryIds(applied), ["h1", "g1", "g2", "p1", "p2"]);
+  const assistant = applied.bubbles.at(-1);
+  assert.deepEqual(
+    assistant?.tools.map((card) => [card.id, card.phase]),
+    [["t1", "running"]],
+  );
+  assert.equal(applied.currentAssistantId, assistant?.id, "保留していた補完先へ向ける");
+});
+
+test("historyGap が再構築へ落ちる経路でも保留していた run 側カードを補完する", () => {
+  const held = () => {
+    const base = chatReducer(initialChatState, {
+      type: "resyncHistory",
+      page: historyPage([userMsg("h1", "1通目")], { hasMore: true, nextCursor: "h1", messageCount: 6 }),
+    });
+    return chatReducer(base, {
+      type: "resync",
+      payload: runningPayloadWithTools(
+        [{ role: "user", text: "1通目" }],
+        [toolCall("t1", { done: false, output: "" })],
+      ),
+    });
+  };
+  const detect = (state: ReturnType<typeof chatReducer>) =>
+    chatReducer(state, {
+      type: "resyncHistory",
+      page: historyPage([userMsg("p1", "3通目"), msg("p2", "active", "3通目の答え")], {
+        prevCursor: "q2",
+        hasMore: true,
+        nextCursor: "p1",
+        messageCount: 6,
+      }),
+    });
+
+  // gap ページは保持分と繋がらないが、保留ページとは連続している (取得済みの gap を組み込む)
+  const rebuiltWithGap = chatReducer(detect(held()), {
+    type: "historyGap",
+    cursor: "p1",
+    page: historyPage([userMsg("q1", "2通目"), userMsg("q2", "2通目の続き")], {
+      prevCursor: "x8",
+      hasMore: true,
+      nextCursor: "q1",
+      messageCount: 6,
+    }),
+  });
+  assert.deepEqual(entryIds(rebuiltWithGap), ["q1", "q2", "p1", "p2"]);
+  assert.deepEqual(
+    rebuiltWithGap.bubbles.at(-1)?.tools.map((card) => card.id),
+    ["t1"],
+  );
+  assert.equal(rebuiltWithGap.currentAssistantId, rebuiltWithGap.bubbles.at(-1)?.id);
+
+  // gap ページと保留ページも連続しない (保留ページのみで組み直す)
+  const rebuiltPending = chatReducer(detect(held()), {
+    type: "historyGap",
+    cursor: "p1",
+    page: historyPage([userMsg("z1", "2通目")], { prevCursor: "x8", messageCount: 6 }),
+  });
+  assert.deepEqual(entryIds(rebuiltPending), ["p1", "p2"]);
+  assert.deepEqual(
+    rebuiltPending.bubbles.at(-1)?.tools.map((card) => card.id),
+    ["t1"],
+  );
+  assert.equal(rebuiltPending.currentAssistantId, rebuiltPending.bubbles.at(-1)?.id);
+});
+
+test("prependHistory は末尾を触らず、保留中の run 側カードも補完しない", () => {
+  const base = chatReducer(initialChatState, {
+    type: "resyncHistory",
+    page: historyPage([userMsg("h1", "1通目")], { hasMore: true, nextCursor: "h1", messageCount: 2 }),
+  });
+  const held = chatReducer(base, {
+    type: "resync",
+    payload: runningPayloadWithTools([{ role: "user", text: "1通目" }], [toolCall("t1", { done: false, output: "" })]),
+  });
+  const prepended = chatReducer(held, {
+    type: "prependHistory",
+    cursor: held.history.nextCursor as string,
+    page: historyPage([userMsg("h0", "0通目")], { prevCursor: null, hasMore: true, nextCursor: "h0", messageCount: 2 }),
+  });
+  assert.deepEqual(entryIds(prepended), ["h0", "h1"]);
+  assert.equal(
+    prepended.bubbles.some((bubble) => bubble.role === "assistant"),
+    false,
+    "補完しない",
+  );
+  assert.deepEqual(Object.keys(prepended.runTools), ["t1"], "run 側の保持は変えない");
+  assert.equal(prepended.currentAssistantId, null);
 });
