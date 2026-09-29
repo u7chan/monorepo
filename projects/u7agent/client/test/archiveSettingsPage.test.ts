@@ -5,6 +5,7 @@
 //   2. 明示空（全部消した）ときは node_modules も入る警告を出す
 //   3. 保存 / 読み込みの結果は note 行に出る（aria-live は SettingsPageLayout が持つ）
 //   4. [保存] は PUT、[既定に戻す] は DELETE。どちらも応答で app 状態（ツリーの出し分け）が更新される
+//   5. 一覧の行はカードにしない（面の上に行だけで並べ、削除は行の右端に常時出す）
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
@@ -115,6 +116,24 @@ test("描画: note のエラーは aria-live の行にそのまま出る", () =>
   assert.ok(loading.includes("読み込んでいます"), "読み込み中の表示が無い");
   const failed = render({ settings: null, note: { text: "読み込めませんでした", error: true } });
   assert.ok(failed.includes("読み込めませんでした") && failed.includes("再読み込み"), "再読み込みの導線が無い");
+});
+
+test("描画: 行はカードを重ねず、面の上に行だけで並べる", () => {
+  const html = render();
+  const rowTag = html.match(/<li class="-mx-[^"]*">/)?.[0] ?? "";
+  const trash = html.match(/<button[^>]* を除外から外す"[^>]*>/)?.[0] ?? "";
+  assert.ok(rowTag && trash, "行か削除ボタンが見つからない");
+  // 行が自前の枠と面を持つと、セクションの枠と合わせて箱の入れ子になり、名前より枠が目立つ
+  assert.ok(!rowTag.includes("border"), "行に枠が付いている");
+  assert.ok(!rowTag.includes("bg-raised"), "行が面を持っている");
+  assert.ok(rowTag.includes("hover:bg-hover"), "行のホバーが無い");
+  // 削除はこの画面の主操作なので、ホバー待ちにせず行の右端へ常時出す
+  // アイコンの色は面に対して 3:1 以上を保つ（text-ink-faint は明るいテーマで 2.7:1 まで落ちる）
+  assert.ok(trash.includes("text-ink-soft"), "削除の色が面に対して薄すぎる");
+  assert.ok(trash.includes("hover:text-danger"), "削除のホバーが danger でない");
+  assert.ok(!trash.includes("can-hover:"), "削除がホバーに隠れている");
+  assert.ok(!trash.includes("btn-quiet"), "削除が枠付きのボタンのまま");
+  assert.match(html, /<li class="-mx-[^"]*">[\s\S]*?を除外から外す[\s\S]*?<\/li>/, "削除が行の中に無い");
 });
 
 test("配線: 保存は PUT、既定に戻すは DELETE で、応答を app 状態へ反映する", () => {

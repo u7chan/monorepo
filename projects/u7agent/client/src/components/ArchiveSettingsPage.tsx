@@ -106,16 +106,18 @@ export function ArchiveSettingsPage({ archiveSettings, compact = false, onBack, 
                     の上限に届いて失敗しやすくなります。ビルド成果物と依存を落とすなら既定に戻してください。
                   </p>
                 ) : (
-                  <ul className="grid gap-1">
+                  <ul className="grid min-w-0 gap-0.5">
                     {draft.excludeNames.map((name) => (
                       <li
                         key={name}
-                        className="flex min-w-0 items-center justify-between gap-2 rounded-lg border border-line bg-raised px-2.5 py-1.5"
+                        className="-mx-1.5 flex min-h-6.5 min-w-0 items-center gap-2 rounded-md px-1.5 transition-colors hover:bg-hover"
                       >
-                        <code className="min-w-0 truncate text-xs text-ink">{name}</code>
+                        <code className="min-w-0 flex-1 truncate text-xs text-ink" title={name}>
+                          {name}
+                        </code>
                         <button
                           type="button"
-                          className="btn-quiet min-h-7 px-2"
+                          className="grid size-6 shrink-0 cursor-pointer place-items-center rounded-md text-ink-soft transition-colors hover:bg-raised hover:text-danger"
                           aria-label={`${name} を除外から外す`}
                           title="除外から外す"
                           onClick={() => remove(name)}
