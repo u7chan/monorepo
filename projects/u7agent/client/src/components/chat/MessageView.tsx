@@ -12,6 +12,7 @@ import { CopyButton } from "./CopyButton";
 import { SkillInvocation } from "./SkillInvocation";
 import { SkillLoadList } from "./SkillLoadList";
 import { ToolHistoryView } from "./ToolHistory";
+import { UserMessageBody } from "./UserMessageBody";
 
 function UserIcon() {
   return (
@@ -148,8 +149,8 @@ export function MessageView({
               {skill ? <SkillInvocation block={skill} rootCwd={rootCwd} compact={compact} /> : null}
               {bodyText ? (
                 // user は打った文字がそのまま見えることを優先し、Markdown として解釈しない
-                <div className="rounded-2xl rounded-tr-md bg-accent-bright px-3.5 py-2.5 text-1sm leading-relaxed break-words whitespace-pre-wrap text-on-accent">
-                  {bodyText}
+                <div className="rounded-2xl rounded-tr-md bg-accent-bright px-3.5 py-2.5 text-1sm leading-relaxed text-on-accent">
+                  <UserMessageBody text={bodyText} />
                 </div>
               ) : null}
             </>

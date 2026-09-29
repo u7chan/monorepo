@@ -47,6 +47,7 @@
 - 一覧の取り直しは「ポップアップを開いたとき」と「状態の行の `再取得`」の 2 つだけ。開いたときの取り直し（`revalidate`）は**持っている一覧を消さない**（消すと読込表示へ戻り、ポップアップの高さが跳ねる）。**いまの要求が飛んでいる間**は何もしない（開いた直後の二重打ちを避ける。取得先が変わって新しい要求が始まったら、前の要求が返らなくても塞がない = `client/src/hooks/requestGate.ts` の `createRequestTracker`）。**失敗しても一覧は残し**、理由を `reloadError` として重ねて 1 行で出す（索引として使える一覧を一瞬の失敗で捨てない。`reduceSessionSkills`）。一覧が無いときの失敗と 0 件は行を出さず、「状態の 1 行 + `再取得`」だけを出す。
 - 一覧の取得キーは `sessionId`、無ければ `(projectId, agentId)` の組で、これが変わるときだけ取り直す（セッションを開いている間のプロジェクト / エージェントの切替では取り直さない）。切替中に届いた古い応答は `createRequestGate` で捨てる（`ensureSession` の await 中に画面が変わっても、古いプレビューを新しいチャットへ混ぜない）。状態は `SessionSkillsState` の 4 つで、`unavailable` は取得先がまだ判明していないとき（起動直後でカタログ未読み込み）だけ＝ボタンを押せない。取得先がある状態での失敗（サンドボックス未設定の 503 など）は `error` としてポップアップに理由を出し、トリガーは押せるままにする。
 - 履歴の user 本文には添付の注記と `/skill:` の展開結果が入る。表示は注記を落とし、スキルブロックは `client/src/lib/skillBlock.ts` で分解して畳んで見せる（引数だけを吹き出しに残す）。送信エコーの照合も同じ分解を使い、展開前の入力と `run_start` の本文を同じ形へ寄せてから突き合わせる（`chatReducer.ts`）。
+- user の長い本文は `UserMessageBody` が折りたたむ。切り取る高さは CSS（`.user-message-clamp` の `max-block-size: 15rem`）が持ち、本文がそれを超えるときだけ「続きを表示 / 折りたたむ」とフェードを出す。あふれは `scrollHeight > clientHeight`、開いた高さは実測した `scrollHeight` を CSS 変数で渡し、`max-block-size` の遷移だけで開閉する（`interpolate-size` / `calc-size()` が無いブラウザーでも機能とアニメーションが落ちない）。仮想スクロールの見積りは長い user 本文を clamp の高さで頭打ちにし、計測で縮む量を抑える（`lib/userMessage.ts` / `lib/chatItems.ts`）。
 
 ## 全履歴のタイムラインと仮想スクロール
 
