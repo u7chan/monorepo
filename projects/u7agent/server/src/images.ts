@@ -35,6 +35,9 @@ export interface ImageCatalogEntry {
   name: string;
 }
 
+/** 画像生成の provider。v1 は openrouter 固定で、他は設定 API が 400 にする */
+export const IMAGE_PROVIDER_ID = "openrouter";
+
 /** アプリ DB の image_settings 行と同じ形。実行のたびに読み直す現在の設定を表す */
 export interface ImageGenerationSettings {
   provider: string;
@@ -186,9 +189,18 @@ export function catalogOf(providers: readonly ImagesProvider[]): ImageCatalogEnt
   );
 }
 
-/** builtinImagesProviders() のカタログ。設定 API と UI の選択肢はこの一覧を正とする */
+/**
+ * SDK 同梱カタログからルーター用メタモデルを除くための接頭辞。`openrouter/auto*` は画像専用 API に
+ * 存在せず (/images が 404)、SDK のまま選択肢へ出すと生成時に必ず失敗する。
+ */
+const ROUTER_META_MODEL_PREFIX = `${IMAGE_PROVIDER_ID}/`;
+
+/**
+ * SDK 同梱のカタログ。live 取得に失敗したときのフォールバックで、プロバイダー自身のメタモデルだけを落とす。
+ * 一覧の正は live 側 (docs/image-generation.md)。
+ */
 export function imageModelCatalog(): ImageCatalogEntry[] {
-  return catalogOf(builtinImagesProviders());
+  return catalogOf(builtinImagesProviders()).filter((entry) => !entry.id.startsWith(ROUTER_META_MODEL_PREFIX));
 }
 
 export function createImagesGenerator(options: ImagesGeneratorOptions = {}): ImagesGenerator {
@@ -202,16 +214,18 @@ export function createImagesGenerator(options: ImagesGeneratorOptions = {}): Ima
 
     generate: async (input) => {
       const provider = providers().find((candidate) => candidate.id === input.provider);
-      const model: ImagesModel<string> | undefined = provider
-        ?.getModels()
-        .find((candidate) => candidate.id === input.model);
-      if (!provider || !model) {
+      const models = provider?.getModels() ?? [];
+      // 一覧の正は live で、SDK 同梱は遅れる。カタログに無い id も送れるように、URL / ヘッダは同じ
+      // provider のモデル (openrouter は全モデルで同一) をひな形に借り、送信する id だけを差し替える
+      const template = models.find((candidate) => candidate.id === input.model) ?? models[0];
+      if (!provider || !template) {
         return {
           ok: false,
           code: "unknown",
           message: `${IMAGE_UNKNOWN_FAILURE_MESSAGE}: 画像モデルが見つかりません (${input.provider}/${input.model})`,
         };
       }
+      const model: ImagesModel<string> = { ...template, id: input.model };
 
       // 期限はここでのみ掛ける。SDK と違い応答と status を自分で読むため、abort の理由は timedOut で判別する
       const controller = new AbortController();

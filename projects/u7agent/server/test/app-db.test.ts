@@ -721,6 +721,88 @@ test("migrates a v7 db additively and keeps image settings across reopen", () =>
   }
 });
 
+/** v8 相当のスキーマ (image_catalog が無い状態)。v8 の実ファイルと同じ形 */
+const V8_TABLES = `
+${V7_TABLES}
+CREATE TABLE IF NOT EXISTS image_settings (
+  id       INTEGER PRIMARY KEY CHECK (id = 1),
+  provider TEXT NOT NULL,
+  model    TEXT NOT NULL,
+  apiKey   TEXT NOT NULL
+);
+`;
+
+test("migrates a v8 db additively and keeps the image catalog cache across reopen", () => {
+  const dir = tempStoreDir();
+  try {
+    const raw = new DatabaseSync(join(dir, APP_DB_FILENAME));
+    raw.exec(V8_TABLES);
+    raw.exec("PRAGMA user_version = 8");
+    raw
+      .prepare("INSERT INTO image_settings (id, provider, model, apiKey) VALUES (1, ?, ?, ?)")
+      .run("openrouter", "openai/gpt-image-2", "sk-image-1");
+    raw.close();
+
+    const first = AppDb.open({ storeDir: dir });
+    // 加算移行なので既存の設定は消えない。カタログは行が無い = 未取得で始まる
+    assert.deepEqual(first.readImageSettings(), {
+      provider: "openrouter",
+      model: "openai/gpt-image-2",
+      apiKey: "sk-image-1",
+    });
+    assert.equal(first.readImageCatalog(), undefined);
+    first.saveImageCatalog({ fetchedAt: 1000, models: [{ id: "openai/gpt-image-2", name: "GPT Image 2" }] });
+    // id = 1 の upsert なので、保存し直すと行は増えずに置き換わる
+    first.saveImageCatalog({
+      fetchedAt: 2000,
+      models: [{ id: "recraft/recraft-v4.1-flash", name: "Recraft V4.1 Flash" }],
+    });
+    assert.deepEqual(first.readImageCatalog(), {
+      fetchedAt: 2000,
+      models: [{ id: "recraft/recraft-v4.1-flash", name: "Recraft V4.1 Flash" }],
+    });
+    first.close();
+
+    const second = AppDb.open({ storeDir: dir });
+    assert.deepEqual(second.readImageCatalog(), {
+      fetchedAt: 2000,
+      models: [{ id: "recraft/recraft-v4.1-flash", name: "Recraft V4.1 Flash" }],
+    });
+    second.close();
+
+    const check = new DatabaseSync(join(dir, APP_DB_FILENAME));
+    const columns = check.prepare("PRAGMA table_info(image_catalog)").all() as { name: string }[];
+    assert.deepEqual(
+      columns.map((column) => column.name),
+      ["id", "fetchedAt", "models"],
+    );
+    assert.equal(Number(check.prepare("PRAGMA user_version").get()?.user_version), APP_DB_SCHEMA_VERSION);
+    check.close();
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("a broken image catalog cache row reads as unset", () => {
+  const dir = tempStoreDir();
+  try {
+    const db = AppDb.open({ storeDir: dir });
+    // 形が違う行 / 空配列 / JSON でない行は「未取得」として読む。キャッシュを理由に health を落とすと、
+    // 取り直して直せる設定画面自体が 503 で開かなくなる
+    db.saveImageCatalog({ fetchedAt: 1, models: [{ id: "openai/gpt-image-2", name: "GPT Image 2" }] });
+    const raw = new DatabaseSync(join(dir, APP_DB_FILENAME));
+    for (const models of ['[{"id":1}]', "[]", "not json"]) {
+      raw.prepare("UPDATE image_catalog SET models = ? WHERE id = 1").run(models);
+      assert.equal(db.readImageCatalog(), undefined);
+    }
+    raw.close();
+    assert.equal(db.status().ok, true, "壊れたキャッシュ行を保存値の失敗として扱わない");
+    db.close();
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("an image settings row with empty values reads as unset", () => {
   const dir = tempStoreDir();
   try {

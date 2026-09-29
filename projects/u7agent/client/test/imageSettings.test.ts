@@ -5,9 +5,13 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   deleteImageKeyConfirmMessage,
+  imageCatalogNotice,
+  imageCatalogRefreshNote,
+  imageKeyStatusBadge,
   imageModelOptions,
   imageModelSelection,
   imageModelValue,
+  imageProviderLabel,
   keyDraftAfterSave,
 } from "../src/lib/imageSettings";
 import type { ImageSettingsResponse } from "../src/types";
@@ -22,6 +26,8 @@ function settings(overrides: Partial<ImageSettingsResponse> = {}): ImageSettings
       { provider: "openrouter", id: "google/gemini-image", name: "Gemini Image" },
       { provider: "openrouter", id: "mystery/image", name: "GPT Image 2" },
     ],
+    catalogSource: "live",
+    fetchedAt: null,
     runtimeAvailable: true,
     ...overrides,
   };
@@ -69,4 +75,36 @@ test("削除の確認は新しい会話への影響と既存の会話の失敗�
   assert.match(message, /削除します/);
   assert.match(message, /新しい会話/);
   assert.match(message, /キー無効エラー/);
+});
+
+test("キーの登録状態バッジと provider 表示名", () => {
+  assert.deepEqual(imageKeyStatusBadge(true), { label: "設定済み", tone: "ok" });
+  assert.deepEqual(imageKeyStatusBadge(false), { label: "未設定", tone: "muted" });
+  // v1 は openrouter だけなので、未設定 (null) でも同じ名前を出す
+  assert.equal(imageProviderLabel(null), "OpenRouter");
+  assert.equal(imageProviderLabel("openrouter"), "OpenRouter");
+  assert.equal(imageProviderLabel("other"), "other", "知らない provider は id のまま出す");
+});
+
+test("モデル一覧の注記は取得元と最終取得時刻を示す", () => {
+  assert.equal(
+    imageCatalogNotice({ catalogSource: "live", fetchedAt: 0 }, { timeZone: "Asia/Tokyo", now: 0 }),
+    "モデル一覧は OpenRouter から取得しました（最終取得: 09:00）",
+  );
+  assert.equal(
+    imageCatalogNotice({ catalogSource: "stored", fetchedAt: 0 }, { timeZone: "Asia/Tokyo", now: 0 }),
+    "OpenRouter から取得できなかったため、前回の一覧を表示しています（最終取得: 09:00）",
+  );
+  assert.equal(
+    imageCatalogNotice({ catalogSource: "sdk", fetchedAt: null }),
+    "OpenRouter から取得できていないため、SDK の組み込み一覧を表示しています",
+  );
+});
+
+test("再取得の注記は成功と失敗を区別し、失敗でも一覧が残ることを伝える", () => {
+  assert.equal(imageCatalogRefreshNote(null), "モデル一覧を取得しました。");
+  assert.equal(
+    imageCatalogRefreshNote("モデル一覧の取得がタイムアウトしました"),
+    "モデル一覧の取得がタイムアウトしました。表示中の一覧は変わりません。",
+  );
 });

@@ -20,41 +20,67 @@ function settings(overrides: Partial<ImageSettingsResponse> = {}): ImageSettings
     provider: "openrouter",
     model: "openai/gpt-image-2",
     models: MODELS,
+    catalogSource: "live",
+    fetchedAt: null,
     runtimeAvailable: true,
     ...overrides,
   };
 }
 
-function render(overrides: Partial<ImageSettingsResponse> = {}): string {
+function render(
+  overrides: Partial<ImageSettingsResponse> = {},
+  saving: "key" | "delete" | "selection" | "catalog" | null = null,
+): string {
   return renderToStaticMarkup(
     createElement(ImageSettingsTab, {
       settings: settings(overrides),
-      saving: null,
+      saving,
       onSaveKey: async () => true,
       onDeleteKey: async () => true,
       onSaveSelection: async () => true,
+      onRefreshCatalog: async () => true,
     }),
   );
 }
 
 test("未設定ではキー入力だけを出し、モデル選択と削除は出さない", () => {
-  const html = render({ configured: false, provider: null, model: null });
+  const html = render({ configured: false, provider: null, model: null, catalogSource: "sdk", fetchedAt: null });
   assert.ok(html.includes('type="password"'), "キー入力を出す");
   assert.match(html, /<input[^>]*(?:autoComplete|autocomplete)="off"/, "再表示しない前提なので autocomplete を切る");
-  assert.ok(html.includes("画像生成専用のキーです"), "プロバイダー登録キーと別管理であることを出す");
+  assert.ok(html.includes("OpenRouter の画像生成専用のキーです"), "どの provider のキーかと、別管理であることを出す");
+  assert.ok(html.includes(">未設定<"), "未設定バッジを出す");
+  assert.equal(html.includes("設定済み"), false, "未設定では設定済みと言わない");
   assert.equal(html.includes("<select"), false, "モデル選択はキー保存後にだけ出す");
   assert.equal(html.includes(">削除</button>"), false, "削除もキー保存後にだけ出す");
+  assert.equal(html.includes(">再取得</button>"), false, "再取得もモデル欄と同じくキー保存後にだけ出す");
 });
 
 test("設定済みでは上書き保存・削除・モデル選択を出し、保存済みキーを入力欄へ戻さない", () => {
   const html = render();
   assert.ok(html.includes("上書き保存"));
+  assert.ok(html.includes(">設定済み<"), "設定済みバッジを出す");
   assert.ok(html.includes(">削除</button>"));
   assert.ok(html.includes("<select"), "モデル選択を出す");
   assert.ok(html.includes('value="openrouter/openai/gpt-image-2"'), "保存済みモデルを選択した状態で出す");
   assert.ok(html.includes("GPT Image 2"));
+  assert.ok(html.includes("モデル一覧は OpenRouter から取得しました"), "一覧の出どころを出す");
+  assert.ok(html.includes(">再取得</button>"));
   const input = /<input[^>]*type="password"[^>]*>/.exec(html)?.[0] ?? "";
   assert.ok(input.includes('value=""'), "保存済みのキーは入力欄へ戻さない");
+});
+
+test("取得できていないときは一覧の出どころを警告色で出す", () => {
+  const stored = render({ catalogSource: "stored", fetchedAt: 0 });
+  assert.ok(stored.includes("OpenRouter から取得できなかったため、前回の一覧を表示しています"));
+  assert.match(stored, /text-warn"[^>]*>OpenRouter から取得できなかった/);
+  const sdk = render({ catalogSource: "sdk", fetchedAt: null });
+  assert.ok(sdk.includes("SDK の組み込み一覧を表示しています"));
+});
+
+test("再取得中はボタンを取得中にする", () => {
+  const html = render({}, "catalog");
+  assert.ok(html.includes("取得中"), "進行中を出す");
+  assert.match(html, /<button[^>]*class="btn-quiet"[^>]*disabled=""[^>]*><[^>]*>.*取得中/s, "連打できないようにする");
 });
 
 test("カタログ外の保存済みモデルも選択肢に残す", () => {

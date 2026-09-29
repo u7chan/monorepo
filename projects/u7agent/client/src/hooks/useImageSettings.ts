@@ -1,10 +1,18 @@
 import { useCallback, useEffect, useState } from "react";
-import { ApiError, deleteImageApiKey, getImageSettings, putImageApiKey, putImageSettings } from "../api";
+import {
+  ApiError,
+  deleteImageApiKey,
+  getImageSettings,
+  putImageApiKey,
+  putImageSettings,
+  refreshImageCatalog,
+} from "../api";
 import {
   IMAGE_KEY_DELETED_NOTE,
   IMAGE_KEY_SAVED_NOTE,
   IMAGE_MODEL_SAVED_NOTE,
   IMAGE_SETTINGS_NOTE,
+  imageCatalogRefreshNote,
   type ImageSavingAction,
 } from "../lib/imageSettings";
 import { validateApiKey } from "../lib/modelSettings";
@@ -99,7 +107,36 @@ export function useImageSettings() {
     [runMutation],
   );
 
-  return { settings, note, saving, reloading, reload, saveKey, removeKey, saveSelection };
+  /**
+   * モデル一覧の再取得。設定は変わらないので、一覧と出どころだけを差し替える
+   * （GET と同じ形の応答を待っている別の読み込みに上書きさせないため、beginLoad で無効化する）。
+   */
+  const refreshCatalog = useCallback(async (): Promise<boolean> => {
+    setSaving("catalog");
+    try {
+      const response = await refreshImageCatalog();
+      beginLoad();
+      setSettings((previous) =>
+        previous === null
+          ? previous
+          : {
+              ...previous,
+              models: response.models,
+              catalogSource: response.catalogSource,
+              fetchedAt: response.fetchedAt,
+            },
+      );
+      setNote({ text: imageCatalogRefreshNote(response.catalogError), error: response.catalogError !== null });
+      return response.catalogError === null;
+    } catch (error) {
+      setNote({ text: `モデル一覧を取得できませんでした。${messageFor(error)}`, error: true });
+      return false;
+    } finally {
+      setSaving(null);
+    }
+  }, [beginLoad]);
+
+  return { settings, note, saving, reloading, reload, saveKey, removeKey, saveSelection, refreshCatalog };
 }
 
 export type ImageSettings = ReturnType<typeof useImageSettings>;

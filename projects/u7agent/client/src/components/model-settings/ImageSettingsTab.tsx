@@ -1,16 +1,21 @@
 import { useState } from "react";
 import {
   deleteImageKeyConfirmMessage,
+  imageCatalogNotice,
+  imageKeyStatusBadge,
   imageModelOptions,
   imageModelSelection,
   imageModelValue,
+  imageProviderLabel,
   keyDraftAfterSave,
   type ImageSavingAction,
 } from "../../lib/imageSettings";
+import { cn } from "../../lib/cn";
 import { API_KEY_MIN_LENGTH } from "../../lib/modelSettings";
 import type { ImageSettingsResponse, UpdateImageSelectionBody } from "../../types";
-import { CheckIcon, TrashIcon } from "../icons";
+import { CheckIcon, RefreshIcon, TrashIcon } from "../icons";
 import { SelectField } from "../SelectField";
+import { ProviderBadgeTag } from "./ProviderBadgeTag";
 
 export type ImageSettingsTabProps = {
   settings: ImageSettingsResponse;
@@ -19,13 +24,22 @@ export type ImageSettingsTabProps = {
   onSaveKey: (apiKey: string) => Promise<boolean>;
   onDeleteKey: () => Promise<boolean>;
   onSaveSelection: (input: UpdateImageSelectionBody) => Promise<boolean>;
+  /** モデル一覧の再取得。失敗しても一覧は前のまま残る */
+  onRefreshCatalog: () => Promise<boolean>;
 };
 
 /**
  * 「画像生成」タブ。キー登録・モデル選択・削除の最小 UI に絞り、未設定ではキー入力だけを出す。
  * `PUT /api/settings/images` は行が無いと 400 のため、モデル選択はキー保存に成功してから現れる。
  */
-export function ImageSettingsTab({ settings, saving, onSaveKey, onDeleteKey, onSaveSelection }: ImageSettingsTabProps) {
+export function ImageSettingsTab({
+  settings,
+  saving,
+  onSaveKey,
+  onDeleteKey,
+  onSaveSelection,
+  onRefreshCatalog,
+}: ImageSettingsTabProps) {
   // 保存したキーは再表示しないため、入力は常に空から始め、保存できたときだけ消す
   const [apiKey, setApiKey] = useState("");
   const busy = saving !== null;
@@ -52,7 +66,10 @@ export function ImageSettingsTab({ settings, saving, onSaveKey, onDeleteKey, onS
         <SecurityNotice />
 
         <section className="grid gap-1.5">
-          <div className="text-2xs font-semibold tracking-label text-ink-faint uppercase">APIキー</div>
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="text-2xs font-semibold tracking-label text-ink-faint uppercase">APIキー</div>
+            <ProviderBadgeTag badge={imageKeyStatusBadge(settings.configured)} />
+          </div>
           <div className="flex flex-wrap items-center gap-2">
             <form
               className="flex min-w-0 flex-1 flex-wrap items-center gap-2"
@@ -90,13 +107,22 @@ export function ImageSettingsTab({ settings, saving, onSaveKey, onDeleteKey, onS
             ) : null}
           </div>
           <p className="text-2xs leading-relaxed text-ink-muted">
-            画像生成専用のキーです。プロバイダータブで登録したキーとは別に管理し、流用しません。キーは{" "}
+            {imageProviderLabel(settings.provider)}{" "}
+            の画像生成専用のキーです。プロバイダータブで登録したキーとは別に管理し、流用しません。 キーは{" "}
             {API_KEY_MIN_LENGTH} 文字以上で入力します。
           </p>
         </section>
 
         {/* 行が消えると unmount するため、未保存の選択は未設定へ戻った時点で捨てる */}
-        {settings.configured ? <ImageModelSection settings={settings} busy={busy} onSave={onSaveSelection} /> : null}
+        {settings.configured ? (
+          <ImageModelSection
+            settings={settings}
+            busy={busy}
+            refreshing={saving === "catalog"}
+            onSave={onSaveSelection}
+            onRefresh={onRefreshCatalog}
+          />
+        ) : null}
 
         <section className="grid gap-1 border-t border-line pt-3 text-2xs leading-relaxed text-ink-muted">
           <p>
@@ -117,11 +143,15 @@ export function ImageSettingsTab({ settings, saving, onSaveKey, onDeleteKey, onS
 function ImageModelSection({
   settings,
   busy,
+  refreshing,
   onSave,
+  onRefresh,
 }: {
   settings: ImageSettingsResponse;
   busy: boolean;
+  refreshing: boolean;
   onSave: (input: UpdateImageSelectionBody) => Promise<boolean>;
+  onRefresh: () => Promise<boolean>;
 }) {
   // null は保存値へ追随する。保存できたら null へ戻し、次の保存値で選択を描き直す
   const [draftModel, setDraftModel] = useState<string | null>(null);
@@ -163,8 +193,22 @@ function ImageModelSection({
         </button>
       </div>
       <p className="text-2xs leading-relaxed text-ink-muted">
-        プロバイダー: {settings.provider}。サイズ・品質・出力形式は provider の既定を使います。
+        プロバイダー: {imageProviderLabel(settings.provider)}。サイズ・品質・出力形式は provider の既定を使います。
       </p>
+      <div className="flex flex-wrap items-center gap-2">
+        <p
+          className={cn(
+            "min-w-0 flex-1 text-2xs leading-relaxed",
+            settings.catalogSource === "live" ? "text-ink-muted" : "text-warn",
+          )}
+        >
+          {imageCatalogNotice(settings)}
+        </p>
+        <button type="button" className="btn-quiet" disabled={busy} onClick={() => void onRefresh()}>
+          <RefreshIcon />
+          {refreshing ? "取得中" : "再取得"}
+        </button>
+      </div>
     </section>
   );
 }

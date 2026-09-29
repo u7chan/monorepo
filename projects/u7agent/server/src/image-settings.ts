@@ -7,11 +7,9 @@
 import { messageFor } from "./http";
 import { MutationLock } from "./model-settings";
 import type { ImageSettingsRow } from "./app-db";
-import type { ImageGenerationConfig, ImageCatalogEntry } from "./images";
-import { type ImageMutationResponse, type ImageSettingsResponse } from "./schema";
-
-/** v1 で受け付ける画像 provider。カタログから引くが、受け入れはこの 1 つに固定する */
-export const IMAGE_PROVIDER_ID = "openrouter";
+import type { ImageCatalog } from "./image-catalog";
+import { IMAGE_PROVIDER_ID, type ImageGenerationConfig } from "./images";
+import { type ImageCatalogRefreshResponse, type ImageMutationResponse, type ImageSettingsResponse } from "./schema";
 
 /** キー登録で作る行の既定モデル（直後に画面から変更できる） */
 export const DEFAULT_IMAGE_MODEL = "openai/gpt-image-2";
@@ -36,8 +34,8 @@ export interface ImageSettingsOptions {
   runtimeAvailable: boolean;
   /** SDK / DB へ触る前に保護対象へ足す（マスカーの swap は同期） */
   retainSecret: (value: string) => void;
-  /** 公開する選択肢。builtinImagesProviders() のカタログを渡す */
-  catalog: () => ImageCatalogEntry[];
+  /** 公開する選択肢と、live 取得の状態。カタログの取得自体はサービスではなくこの実装が行う */
+  catalog: ImageCatalog;
   /** PiBff の注入面。**同じロックの内側**で呼び、次に作るセッションへ即時反映する */
   setImageGeneration: (config: ImageGenerationConfig) => void;
   /** health / ログへ出す前の文言境界（可変マスカー） */
@@ -50,7 +48,7 @@ export class ImageSettingsService {
   #db: ImageSettingsDb;
   #runtimeAvailable: boolean;
   #retainSecret: (value: string) => void;
-  #catalog: () => ImageCatalogEntry[];
+  #catalog: ImageCatalog;
   #setImageGeneration: (config: ImageGenerationConfig) => void;
   #maskError: (text: string) => string;
   #lock = new MutationLock();
@@ -67,13 +65,33 @@ export class ImageSettingsService {
   /** GET。純粋読取で、キー値は返さない（DB の失敗は 503 のまま伝える） */
   settings(): ImageSettingsResponse {
     const row = this.#db.readImageSettings();
+    const catalog = this.#catalog.snapshot();
     return {
       configured: row !== undefined,
       provider: row?.provider ?? null,
       model: row?.model ?? null,
-      models: this.#catalog(),
+      models: catalog.entries,
+      catalogSource: catalog.source,
+      fetchedAt: catalog.fetchedAt,
       runtimeAvailable: this.#runtimeAvailable,
     };
+  }
+
+  /**
+   * live カタログの再取得。取得できなくても 200 で現在の一覧を返し、UI 注記用の固定文言を
+   * `catalogError` に載せる（一覧を失わせない）。設定は変わらないため configured / provider / model は返さない。
+   */
+  async refreshCatalog(): Promise<ImageCatalogRefreshResponse> {
+    return this.#lock.run(async () => {
+      const catalogError = await this.#catalog.refresh();
+      const catalog = this.#catalog.snapshot();
+      return {
+        models: catalog.entries,
+        catalogSource: catalog.source,
+        fetchedAt: catalog.fetchedAt,
+        catalogError,
+      };
+    });
   }
 
   /** キーの登録・上書き。行が無ければ既定 provider / model で作る */
@@ -123,7 +141,9 @@ export class ImageSettingsService {
       }
       if (!existing) throw badRequest(IMAGE_SETTINGS_UNCONFIGURED_MESSAGE);
       if (input.provider !== IMAGE_PROVIDER_ID) throw badRequest(IMAGE_PROVIDER_UNSUPPORTED_MESSAGE);
-      const inCatalog = this.#catalog().some((entry) => entry.provider === input.provider && entry.id === input.model);
+      const inCatalog = this.#catalog
+        .snapshot()
+        .entries.some((entry) => entry.provider === input.provider && entry.id === input.model);
       // 入力を反射する文言はマスカーを通す（model にキーを誤って渡されたとき、400 応答から再露出させない）
       if (!inCatalog) throw badRequest(`${IMAGE_MODEL_NOT_IN_CATALOG_MESSAGE}: ${this.#maskError(input.model)}`);
       try {
@@ -160,6 +180,7 @@ export class ImageSettingsService {
    */
   async applyStored(): Promise<void> {
     await this.#lock.run(async () => {
+      this.#catalog.loadStored();
       let row: ImageSettingsRow | undefined;
       try {
         row = this.#db.readImageSettings();
@@ -169,6 +190,8 @@ export class ImageSettingsService {
       }
       // SDK へ渡す前に保護対象へ入れる（削除・上書き後もプロセス生存中は外さない）
       if (row) this.#retainSecret(row.apiKey);
+      // キーの有無で一覧の表示は変わらないが、未設定では一覧を出す画面が無いので取得しない
+      if (row) await this.#catalog.refresh();
       this.#apply(row !== undefined);
     });
   }
@@ -179,17 +202,20 @@ export class ImageSettingsService {
 
   /**
    * DB 書込が確定した後の応答。値を知っている側から組み、read の成否に依存させない
-   * （書込成功後の読取失敗を not_stored と誤伝しない）。
+   * （書込成功後の読取失敗を not_stored と誤伝しない）。カタログはメモリ上の現在値を載せる。
    */
   #applied(configured: boolean, provider: string | null, model: string | null): ImageMutationResponse {
-    let models: ImageCatalogEntry[];
-    try {
-      models = this.#catalog();
-    } catch {
-      // カタログは静的なので通常は起こらない。組めないときは空で返し、次の GET に追随させる
-      models = [];
-    }
-    return { configured, provider, model, models, runtimeAvailable: this.#runtimeAvailable, state: "applied" };
+    const catalog = this.#catalog.snapshot();
+    return {
+      configured,
+      provider,
+      model,
+      models: catalog.entries,
+      catalogSource: catalog.source,
+      fetchedAt: catalog.fetchedAt,
+      runtimeAvailable: this.#runtimeAvailable,
+      state: "applied",
+    };
   }
 }
 

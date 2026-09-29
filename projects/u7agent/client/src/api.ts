@@ -14,6 +14,7 @@ import type {
   FileSkillsResponse,
   Health,
   HistoryPage,
+  ImageCatalogRefreshResponse,
   ImageMutationResponse,
   ImageSettingsResponse,
   ModelMutationResponse,
@@ -529,4 +530,14 @@ export const deleteImageApiKey = async (): Promise<ImageMutationResponse> => {
   const res = await client.api.settings.images.key.$delete();
   if (!res.ok) throw await apiError(res);
   return (await res.json()) as ImageMutationResponse;
+};
+
+/**
+ * 画像モデル一覧の再取得。取得できなくても 200 で、失敗は catalogError にだけ載る（一覧は手元に残る）。
+ * 設定は変わらないため、応答は一覧と出どころだけを返す。
+ */
+export const refreshImageCatalog = async (): Promise<ImageCatalogRefreshResponse> => {
+  const res = await client.api.settings.images.catalog.refresh.$post();
+  if (!res.ok) throw await apiError(res);
+  return (await res.json()) as ImageCatalogRefreshResponse;
 };

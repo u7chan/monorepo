@@ -178,6 +178,7 @@ export function ModelSettingsView({
             onSaveKey={imageSettings.saveKey}
             onDeleteKey={imageSettings.removeKey}
             onSaveSelection={imageSettings.saveSelection}
+            onRefreshCatalog={imageSettings.refreshCatalog}
           />
         ) : (
           <SettingsPlaceholder

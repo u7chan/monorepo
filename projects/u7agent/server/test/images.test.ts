@@ -11,6 +11,7 @@ import {
   IMAGE_TIMEOUT_MESSAGE,
   IMAGE_ABORTED_MESSAGE,
   IMAGE_UNKNOWN_FAILURE_MESSAGE,
+  imageModelCatalog,
 } from "../src/images";
 
 const STUB_IMAGE_MODEL: ImagesModel<string> = {
@@ -67,6 +68,17 @@ const baseInput = { provider: "stub", model: "stub-image", prompt: "a cafe", api
 test("カタログは provider のモデルを provider / id / name で平坦化する", () => {
   const generator = createImagesGenerator({ providers: () => [stubProvider()] });
   assert.deepEqual(generator.catalog(), [{ provider: "stub", id: "stub-image", name: "Stub Image" }]);
+});
+
+test("SDK 同梱カタログはルーター用メタモデルを落とす", () => {
+  const catalog = imageModelCatalog();
+  assert.ok(catalog.length > 0, "カタログが空");
+  // /images に存在しない openrouter/auto* は生成が必ず 404 になるので、選択肢へ出さない
+  assert.deepEqual(
+    catalog.filter((entry) => entry.id.startsWith("openrouter/")),
+    [],
+  );
+  assert.ok(catalog.some((entry) => entry.id === "openai/gpt-image-2"));
 });
 
 test("回帰: chat/completions ではなく画像専用 API の /images へ POST する", async () => {
@@ -224,13 +236,25 @@ test("分類: 開始前に中断済みの signal でもユーザー中断とし�
   assert.equal(result.code, "aborted");
 });
 
-test("provider が見つからない / モデルがカタログに無いときは原因不明の失敗にする", async () => {
+test("provider が見つからないときだけローカルで失敗にする", async () => {
   const generator = createImagesGenerator({ providers: () => [] });
   const missingProvider = await generator.generate(baseInput);
   assert.equal(missingProvider.ok, false);
-  const model = createImagesGenerator({ providers: () => [stubProvider()] });
-  const missingModel = await model.generate({ ...baseInput, model: "ghost" });
-  assert.equal(missingModel.ok, false);
-  if (missingModel.ok) return;
-  assert.equal(missingModel.code, "unknown");
+  if (missingProvider.ok) return;
+  assert.equal(missingProvider.code, "unknown");
+  assert.match(missingProvider.message, /画像モデルが見つかりません/);
+});
+
+test("SDK カタログに無い id (live のみのモデル) も provider の URL で送る", async () => {
+  const { requests, fetchImpl } = stubFetch(() => imageResponse({ data: [{ b64_json: "aGVsbG8=" }] }));
+  const generator = createImagesGenerator({ providers: () => [stubProvider()], fetchImpl });
+  const result = await generator.generate({ ...baseInput, model: "inclusionai/ming-image-0.1-design-layer" });
+  assert.equal(result.ok, true);
+  assert.equal(requests.length, 1);
+  assert.equal(requests[0].url, "https://stub.invalid/api/v1/images", "provider の baseUrl を使う");
+  assert.deepEqual(JSON.parse(String(requests[0].init?.body)), {
+    model: "inclusionai/ming-image-0.1-design-layer",
+    prompt: "a cafe",
+    n: 1,
+  });
 });

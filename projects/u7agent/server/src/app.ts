@@ -295,6 +295,7 @@ export async function createBffApp(opts: CreateBffAppOptions = {}) {
       (c) => imageSettingsRoutes.putKey(c, c.req.valid("json").apiKey),
     )
     .delete("/api/settings/images/key", appDataMutation, imageSettingsRoutes.deleteKey)
+    .post("/api/settings/images/catalog/refresh", (c) => imageSettingsRoutes.refreshCatalog(c))
     // Hono は登録順にマッチするため、未マッチの GET を拾う catch-all は最後に置く。
     .get("*", serveClientAssets(clientDistDir))
     .notFound((c) => c.json({ error: "Not found" }, 404))
