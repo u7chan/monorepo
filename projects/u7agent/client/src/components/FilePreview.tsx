@@ -15,7 +15,7 @@ import {
   type PreviewModes,
   type PreviewResults,
 } from "../lib/fileTabs";
-import { fileTreeFetchPath } from "../lib/fileTree";
+import { fileTreeBreadcrumbs, fileTreeFetchPath } from "../lib/fileTree";
 import { CopyButton } from "./chat/CopyButton";
 import { CloseIcon } from "./icons";
 
@@ -37,6 +37,8 @@ export type FilePreviewProps = {
   rootPath: string;
   /** タブごとの表示モード。親が持つ (再読み込みの remount で選択を失わないため) */
   modes: PreviewModes;
+  /** パンくずのクリック。ツリーと同じ画面 root 相対パスを渡す (ツリーでその位置を示す) */
+  onReveal: (path: string) => void;
   onModeChange: (path: string, mode: PreviewMode) => void;
   onSelect: (path: string) => void;
   onClose: (path: string) => void;
@@ -46,7 +48,16 @@ export type FilePreviewProps = {
  * タブ付きのプレビュー。本文はタブごとに保持し、切替で取り直さない (タブを開いただけでは取得しない)。
  * 親が `key` を変えたとき (一覧の再読み込み) は全タブの本文を捨てて取り直す。
  */
-export function FilePreview({ paths, activePath, rootPath, modes, onModeChange, onSelect, onClose }: FilePreviewProps) {
+export function FilePreview({
+  paths,
+  activePath,
+  rootPath,
+  modes,
+  onReveal,
+  onModeChange,
+  onSelect,
+  onClose,
+}: FilePreviewProps) {
   const [results, setResults] = useState<PreviewResults>({});
   // 全画面を出したタブ (null は全画面でない)。表示対象が変わったら条件が false になり解除される
   const [fullscreenPath, setFullscreenPath] = useState<string | null>(null);
@@ -157,9 +168,7 @@ export function FilePreview({ paths, activePath, rootPath, modes, onModeChange, 
       >
         {fullscreen ? null : (
           <>
-            <code className="min-w-0 flex-1 truncate text-1xs text-ink-muted" title={fetchPath}>
-              {fetchPath}
-            </code>
+            <FileBreadcrumb rootPath={rootPath} activePath={activePath} onReveal={onReveal} />
             {isHtmlPath(activePath) ? (
               <PreviewModeToggle mode={mode} onChange={(next) => onModeChange(activePath, next)} />
             ) : null}
@@ -234,6 +243,60 @@ export function FilePreview({ paths, activePath, rootPath, modes, onModeChange, 
         </div>
       )}
     </dialog>
+  );
+}
+
+/**
+ * プレビューのパンくず。表示中のファイルまでの各セグメントを並べ、クリックでツリー上のその位置を示す (reveal)。
+ * 表示は取得時と同じ画面 root 前置きのパス (fetchPath) を保ち、渡すパスはツリーと同じ画面 root 相対にする。
+ * 画面 root 自体はクリックできない (ツリーの起点で、その行が無いため)。
+ */
+export function FileBreadcrumb({
+  rootPath,
+  activePath,
+  onReveal,
+}: {
+  rootPath: string;
+  activePath: string;
+  onReveal: (path: string) => void;
+}) {
+  const crumbs = fileTreeBreadcrumbs(rootPath, activePath);
+
+  return (
+    // 表示はこれまでと同じ全体パス (tooltip) を保ち、横幅が足りなければ横スクロールへ逃がす
+    <nav
+      aria-label="ファイルの場所"
+      title={fileTreeFetchPath(rootPath, activePath)}
+      className="min-w-0 flex-1 scrollbar-thin overflow-x-auto"
+    >
+      <ol className="flex items-center font-mono text-1xs text-ink-muted">
+        {crumbs.map((crumb, index) => {
+          const path = crumb.path;
+          return (
+            <li key={path ?? "root"} className="flex shrink-0 items-center">
+              {index > 0 ? (
+                <span aria-hidden className="px-0.5 text-ink-ghost">
+                  /
+                </span>
+              ) : null}
+              {path === null ? (
+                <span>{crumb.label}</span>
+              ) : (
+                <button
+                  type="button"
+                  aria-current={path === activePath ? "page" : undefined}
+                  title={`${path} をツリーで表示`}
+                  onClick={() => onReveal(path)}
+                  className="rounded px-0.5 transition-colors outline-none hover:bg-hover hover:text-ink focus-visible:ring-2 focus-visible:ring-focus"
+                >
+                  {crumb.label}
+                </button>
+              )}
+            </li>
+          );
+        })}
+      </ol>
+    </nav>
   );
 }
 

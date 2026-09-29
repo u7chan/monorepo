@@ -177,6 +177,19 @@ Content-Security-Policy: sandbox allow-scripts; default-src 'none'; style-src 'u
 - 取り直しの入口は外装の「再読み込み」と run_end で共通の `reloadToken` に集める（`SessionFilesPanel` は ヘッダの「再読み込み」の回数 + `ChatState.runEndSeq` の合計を渡す）。mount 時の token では撃たない（root の切替は `key` が扱うため）。run_end は描画された `runStatus` の差ではなく、reducer が `run_end` で進める `runEndSeq` を起点にする（`run_start` と `run_end` が同じバッチで届くと React は 1 回の描画にまとめるため、画面側では `running` を観測できず取りこぼす。SSE が切れて `resync` で復帰したときも、`running` を抜けていれば reducer が進める）。実行中の `tool_end` ごとの更新はしない
 - `GET /api/files` の path は root を前置する（`fileTreeFetchPath`）ので、パネルは `payload.cwd`（プロジェクト所属なら登録ディレクトリ、未所属なら `.u7agent/sessions/<id>`）を root として扱う。サンドボックス / API は変えない（同じファイルを設定 → ファイル からも開ける）
 
+## ツリーの reveal
+
+ツリーでファイルの位置が分かるように、対象の祖先ディレクトリを開いて対象の行へスクロールし、しばらく一時ハイライトする（`FileBrowser`）。**画面の root は変えない**（サブツリーへ再ルートする機能は持たない）。表示するパスは常に画面 root 相対のままで、タブ・ドラッグ参照・confirm と同じ座標を使う。入口は 2 つで、どちらも同じ `revealRow` を通る。
+
+- **ファイル参照からタブを開いたとき**（`openRequest` の適用時）。参照のファイルは深い階層にあることが多く、プレビューだけ開くとツリーのどこにあるか分からないため
+- **プレビューのパンくずのクリック**。ソース表示のパス行はセグメントごとのボタンになり、押すとその階層をツリーで示す（表示中のファイル自身もボタン）
+
+- 祖先を開くのは `lib/fileTree.ts` の `openFileTreeAncestors`（純関数）。取得済みの子・loading・error は保ち、未取得の祖先は `open` だけの状態を作る。取得は既存の `pendingFileTreeDirectories` の経路が親から順に拾うので、reveal 専用の取得経路は持たない
+- スクロールは対象の行が現れてから行う（祖先の取得中は行が無い）。行は `reveal` の state と `revealRowRef` で受け、`tree` が進むたびに Effect を再実行して取りこぼさない。スクロール済みの `seq` は再実行で弾く
+- 一時ハイライト（`ring-2 ring-focus ring-inset`）はスクロールのあと `REVEAL_HIGHLIGHT_MS`（1.6 秒）で消す。タイマーは掛け直しと unmount で掃除する
+- reveal で開いた階層は通常の展開と同じく `filePreviewStore` の保存対象に入る（F5・面の往復で復帰する）。reveal の対象とハイライトは保存しない
+- パンくずの表示は従来のパス行（`fetchPath`、`title` に全体パス）を保つ。画面 root の前置き（チャット右パネル / スキルのファイルタブの root）はツリーにその行が無いためクリックできない。項目の組み立ては `fileTreeBreadcrumbs` の純関数
+
 ## メッセージからの導線（ファイル参照）
 
 assistant 本文のインラインコードが指すファイルを、右パネル / sheet のタブとして開く。字面の判定と cwd 相対への解決は `client/src/lib/fileRef.ts` の純関数、要求の保持は `client/src/lib/fileRefRequest.ts`、インラインコードの描画は `client/src/components/markdown/FileRefLink.tsx` が持つ。Markdown リンクの横取り・prompt 規約・ツール履歴（`write` / `edit` 行）からの導線は非ゴール（対応サブセットは変えない。描画側の契約は [markdown.md](markdown.md#インラインコードのファイル参照)）。
@@ -234,7 +247,7 @@ assistant 本文のインラインコードが指すファイルを、右パネ�
 - 要求の寿命は選択中セッションの滞在期間に限る。`selectSession` / `newChat` の開始時と、`applySelectedSession` で ID が変わるときに破棄する（A→B→A と戻っても復活しない。`cwd` はセッション識別子にならず、同一プロジェクトの別セッションでも選択が変われば破棄する）
 - パネル / sheet は条件付き mount なので、`FileBrowser` が mount 後の Effect で未消費の要求を適用し、`onHandled(seq)` で App へ返す（`reloadToken` の「mount 時の値は無視する」方式は初回クリックを取り落とすため使わない）。App の ack は現在の pending の `seq` と照合し、古い ack で新しい要求を消さない
 - 適用の印は `FileBrowser` の ref が持ち、適用の直前に記録する。Effect の再実行（StrictMode）では二重に適用しない。`openFileTab` は同一パスでも新しい state を返すため、「タブが増えない」ことは 1 回適用の根拠にならない
-- 復元は `useState` の初期化、要求は Effect で適用するため、要求が最後に効く（表示中のタブが要求のパスになる）。ツリーの親は自動展開せず、プレビューも自動で全画面にしない
+- 復元は `useState` の初期化、要求は Effect で適用するため、要求が最後に効く（表示中のタブが要求のパスになる）。要求の適用時はツリーの祖先を開いて対象の行を示す（[ツリーの reveal](#ツリーの-reveal)）。プレビューは自動で全画面にしない
 - 表示モードは既存の選択規則のまま（未選択の HTML だけ既定でプレビュー。ユーザーがソースを選んだタブはソースのまま）
 - compact の sheet は閉じたときに、クリックした button を `App` が保持して focus を戻す（`document.activeElement` はクリックした button を指すとは限らない）。起点がセッション切替などで消えていたら focus を移さない。トグルから開いたときは戻さない。Escape は dialog の標準動作で閉じる（プレビューの中にフォーカスがあると親へ届かない既知制約は HTML プレビューと同じ）
 - provider は `App` が `rootCwd` / `cwd` / callback だけの memo 値で配る。要求 `seq` やパネル開閉を value に混ぜず、SSE の更新で過去の本文を再解析・再描画させない。インラインコード側だけが context を購読するため、独自 comparator を持つ `MdBlockView` / `MdList` / `MdListItemView` / `MdTable` に callback を通す必要がない
@@ -363,7 +376,8 @@ assistant 本文のインラインコードが指すファイルを、右パネ�
 | `client/test/filePreviewFullscreen.test.ts` | HTML プレビューの全画面（`showModal()` で開く / Escape を全画面のときだけ止める / iframe は 1 つだけ / 出すときのタブに紐づける / 残すのは戻るボタンだけ） |
 | `client/test/filePreviewCopy.test.ts` | 本文のコピー（パス行に置く / `reveal` を渡さない / 表示中の本文を渡す / 画像と HTML のプレビューでは出さない / タブを切り替えたら成功表示を捨てる） |
 | `client/test/filePreviewTabClose.test.ts` | タブを中クリックで閉じる契約（`button === 1` だけ / タブの箱で受ける / down 側の既定動作を止める / `×` を残す） |
-| `client/test/fileTree.test.ts` | 開閉・子のマージ・エラー保持 / 削除した行だけを落として他を保つこと / 削除の confirm 文言（ファイル / 配下ごとのディレクトリ、画面の root 相対パス）/ ディレクトリ削除後の枝の prune（接頭辞境界と own プロパティ契約）/ リネームの prompt 文言と、親の行の名前差し替え・配下キーの張り替え・開閉と取得済みの子の保持（接頭辞境界・未取得の親・`__proto__`）/ 取得中のリネームで loading を落として新しいキーで取り直すこと（旧キーの応答で新キーを汚さない）/ 保存する展開の抽出と復元（root の初期化、親を閉じた子の open、truncated） |
+| `client/test/fileTree.test.ts` | 開閉・子のマージ・エラー保持 / 削除した行だけを落として他を保つこと / 削除の confirm 文言（ファイル / 配下ごとのディレクトリ、画面の root 相対パス）/ ディレクトリ削除後の枝の prune（接頭辞境界と own プロパティ契約）/ リネームの prompt 文言と、親の行の名前差し替え・配下キーの張り替え・開閉と取得済みの子の保持（接頭辞境界・未取得の親・`__proto__`）/ 取得中のリネームで loading を落として新しいキーで取り直すこと（旧キーの応答で新キーを汚さない）/ 保存する展開の抽出と復元（root の初期化、親を閉じた子の open、truncated）/ reveal の祖先（root から近い順・root 直下は空・同 object を返す条件・loading と子の保持・`__proto__`）/ パンくずの項目（root 前置きと正規化） |
+| `client/test/fileTreeReveal.test.ts` | reveal の配線（参照の適用時に祖先を開く / パンくずと `revealRow` を共有 / 行が現れてからスクロール / 一時ハイライトとタイマーの掃除 / 対象の行だけが ref とハイライトを持つ）と、パンくずの構造（root 前置きは非ボタン / root 相対の祖先とファイルはボタン / `aria-current` / クリックは画面 root 相対のまま）（`react-dom/server` の描画 + ソース走査） |
 | `client/test/fileRowMenu.test.ts` | 行の操作の出し分け（readOnly は `null` / symlink は `[]` / ダウンロード → リネーム → 削除 の順と条件 / ディレクトリの ZIP ラベルと 2 行目の開示）/ ⋯ の `aria-haspopup`・`aria-expanded` と本体の `role="menu"`・`aria-labelledby`、項目の `role="menuitem"`・`tabIndex=-1`・並び順と danger / 位置の純関数（右端・下端での反転と clamp）/ 可視判定 / ↑↓ の端止まり / 自前の close が `hidePopover()` を通り、`Escape` が伝播だけ止めること（`react-dom/server` の描画 + ソース走査） |
 | `client/test/fileBrowserRowTime.test.ts` | ディレクトリ行とファイル行が同じ形の時刻と ⋯ を持つこと（`<EntryTime at={entry.mtime}>` / `flex-wrap … gap-x-1.5 gap-y-1 rounded-lg pr-2` / 共通の `RowTail` + `EntryRowActions`）/ 狭い面で行を 2 段にする契約（`RowTail` の `basis-full` と `@2xs:basis-auto`）/ 行の右端が ⋯ 1 個で、項目 0 の行だけ空きスロット（`aria-hidden` の `size-6`）へ落ちること / `readOnly` では両行とも行の操作ごと消えること / 時刻が開閉の `button` の外にあること / 削除が種類ごとに confirm と API を分けること（ディレクトリは `deleteDirectory` と配下の state / タブの除去）/ 時刻が `fileTimeLabel` と `title` の完全な表記を使い、`mtime` 無しの行には出ないこと |
 | `client/test/fileDownloadRow.test.ts` | ダウンロードの出し分け（ファイル / フォルダ行のラベルと 2 行目の開示 / 除外名・symlink 行には出ない / `readOnly` は行の操作ごと消える）/ 確認文言（実際の除外名 / 件数 / サイズ表記 / ディレクトリだけ）/ `check` を先に通して `<a download>` で開始すること / 失敗をツリー内のエラー行へ出すこと / 除外名を app 状態から prop で受け取り、`FileBrowser` が health を取りに行かないこと（純関数 + ソース走査） |
