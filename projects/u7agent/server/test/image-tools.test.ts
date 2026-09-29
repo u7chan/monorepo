@@ -13,6 +13,7 @@ import {
   sessionToolNames,
 } from "../src/image-tools";
 import { createMutableSecretMasker } from "../src/redact";
+import { toolResultSummary } from "../src/session-projection";
 import type { SandboxUploadInput, SandboxWorkspaceClient } from "../src/sandbox/client";
 
 type AnyTool = ToolDefinition<any, any, any>;
@@ -185,6 +186,16 @@ test("同名衝突ではサンドボックスが返した実際の名前を結�
     { prompt: "a cafe" },
   );
   assert.ok(text.includes("generated/a-cafe-1.png"), text);
+});
+
+test("長い path でも使用モデルは投影の切詰め内に残る", async () => {
+  const capture: Capture = { uploads: [], bodies: [], generated: [] };
+  // 投影 (SUMMARY_TEXT_MAX = 900) より長い path。basename は有効なまま
+  const longDir = Array.from({ length: 5 }, () => "d".repeat(180)).join("/");
+  const text = await run(tool({ capture, settings }), { prompt: "cafe", path: `${longDir}/cafe.png` });
+  // ライブ / 復元後のツール履歴と同じ投影を通してもモデル行が見える
+  const projected = toolResultSummary({ content: [{ type: "text", text }] }, createMutableSecretMasker([]));
+  assert.ok(projected.includes("モデル: openai/gpt-image-2"), projected.slice(0, 120));
 });
 
 test("path が不正なら provider を呼ばずに拒否する", async () => {
