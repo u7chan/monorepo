@@ -157,4 +157,16 @@ test("ScrollToBottomButton は最新へ戻るボタンとして読み上げら�
   assert.ok(html.includes("shadow-md"));
   assert.ok(html.includes("hover:border-accent/50"));
   assert.ok(html.includes("absolute bottom-4 left-1/2 -translate-x-1/2"));
+  // 出現は下からふわっと (定義は styles/index.css の @theme)
+  assert.ok(html.includes("animate-float-in"));
+});
+
+test("float-in は中央寄せを崩さずに下からふわっと出す", () => {
+  const css = read("src/styles/index.css");
+  assert.ok(css.includes("--animate-float-in: float-in"), "@theme に float-in が無い");
+  const keyframes = css.match(/@keyframes float-in \{([\s\S]*?)\n  \}/)?.[1] ?? "";
+  assert.match(keyframes, /opacity:\s*0/, "透明から出す");
+  assert.match(keyframes, /transform:\s*translateY\([1-9]\d*px\)/, "わずかに下から持ち上げる");
+  // 呼び出し側の -translate-x-1/2 は Tailwind v4 では translate プロパティ。触ると中央寄せが崩れる
+  assert.ok(!/(^|\s)translate\s*:/.test(keyframes), "translate プロパティは動かさない");
 });
