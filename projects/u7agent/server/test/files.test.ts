@@ -289,6 +289,25 @@ test("GET /api/files/raw keeps serving images only and rejects audio", async () 
   }
 });
 
+test("GET /api/files/raw answers 503 before the allowlist when the sandbox is not configured", async () => {
+  const bff = await createBffApp({ cwd: "/tmp/project", sessionStoreDir: null, pi: null, workspace: null });
+  try {
+    // 未設定の診断はパスに依存させない (拡張子で 400 になると設定不足が分からなくなる)
+    for (const url of [
+      "/api/files/raw?path=assets%2Fbgm.mp3",
+      "/api/files/raw?path=assets%2Fvector.svg",
+      "/api/files/raw?path=assets%2Fcat.png",
+      "/api/files/raw",
+    ]) {
+      const response = await bff.app.request(url);
+      assert.equal(response.status, 503, url);
+      assert.match((await jsonBody(response)).error, /PI_SANDBOX_URL/, url);
+    }
+  } finally {
+    await bff.close();
+  }
+});
+
 test("GET /api/files/html/<path> serves text assets with an extension-specific Content-Type", async () => {
   const { workspace, previewed, raw } = stubFiles();
   const bff = await createBffApp({ cwd: "/tmp/project", sessionStoreDir: null, pi: null, workspace });

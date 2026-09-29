@@ -135,6 +135,8 @@ export function createFileRoutes({
 
   /** 画像配信 (`/api/files/raw`、チャットのサムネイル / ファイル画面のプレビュー)。配信対象は画像だけ。 */
   async function serveRawImage(c: Context, path: string) {
+    // 未設定の診断を拡張子より先に返す (パス次第で 400 になると設定不足が分からなくなる)
+    if (!workspace) return sandboxNotConfigured(c);
     if (!rawImageContentType(path)) return c.json({ error: `Not a servable image: ${path}` }, 400);
     return serveRawAsset(c, path);
   }

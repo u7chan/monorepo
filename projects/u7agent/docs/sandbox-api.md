@@ -112,7 +112,7 @@ POST /v1/files/rename
 root 相対の画像 / 音声を `createReadStream` でストリーム返却する。配信できる拡張子は画像が `png` / `jpg` / `jpeg` / `gif` / `webp` / `avif` / `bmp` / `ico`、音声が `mp3` / `m4a` / `ogg` / `oga` / `wav` / `flac` だけで、それ以外（SVG / HTML / 動画 / フォント / 拡張子なし / dotfile）は 400 `Not a servable file: …`。root 外・実在しない・ディレクトリは通常のパス検証と同じ 400 / 404 になる。
 
 - 200: `Content-Type`（拡張子）/ `Content-Length` / `Cache-Control: no-store` / `X-Content-Type-Options: nosniff`
-- 413: サイズが上限（100 MiB）を超える（`File is too large (max … bytes)`。本文は送出せず本文長も送らない）
+- 413: サイズが上限（100 MiB）を超える（`{ error: "File is too large (max … bytes)" }` の JSON を返す。ファイルの本文と `Content-Length` は送出しない）
 - BFF はこの応答をそのまま中継し、本文を JSON に載せない。ただし **BFF の公開 `GET /api/files/raw` は画像だけを渡し、音声は `GET /api/files/html/<path>` のアセット経路だけが使う**（[api.md](api.md#画像配信raw)）
 
 ## `GET /v1/files/download`
