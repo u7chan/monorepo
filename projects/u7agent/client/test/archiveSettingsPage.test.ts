@@ -128,6 +128,8 @@ test("描画: 行はカードを重ねず、面の上に行だけで並べる", 
   assert.ok(!rowTag.includes("bg-raised"), "行が面を持っている");
   assert.ok(rowTag.includes("hover:bg-hover"), "行のホバーが無い");
   // 削除はこの画面の主操作なので、ホバー待ちにせず行の右端へ常時出す
+  // アイコンの色は面に対して 3:1 以上を保つ（text-ink-faint は明るいテーマで 2.7:1 まで落ちる）
+  assert.ok(trash.includes("text-ink-soft"), "削除の色が面に対して薄すぎる");
   assert.ok(trash.includes("hover:text-danger"), "削除のホバーが danger でない");
   assert.ok(!trash.includes("can-hover:"), "削除がホバーに隠れている");
   assert.ok(!trash.includes("btn-quiet"), "削除が枠付きのボタンのまま");

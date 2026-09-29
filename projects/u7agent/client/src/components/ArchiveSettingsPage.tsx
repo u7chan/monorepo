@@ -106,8 +106,6 @@ export function ArchiveSettingsPage({ archiveSettings, compact = false, onBack, 
                     の上限に届いて失敗しやすくなります。ビルド成果物と依存を落とすなら既定に戻してください。
                   </p>
                 ) : (
-                  // 行はカードにしない (面の上に塗りだけで並べる)。削除はこの画面の主操作なので行の右端へ常時出す
-                  // (理由と寸法は docs/ui-layout.md の設定ページの項が正)
                   <ul className="grid min-w-0 gap-0.5">
                     {draft.excludeNames.map((name) => (
                       <li
@@ -119,7 +117,7 @@ export function ArchiveSettingsPage({ archiveSettings, compact = false, onBack, 
                         </code>
                         <button
                           type="button"
-                          className="grid size-6 shrink-0 cursor-pointer place-items-center rounded-md text-ink-faint transition-colors hover:bg-raised hover:text-danger"
+                          className="grid size-6 shrink-0 cursor-pointer place-items-center rounded-md text-ink-soft transition-colors hover:bg-raised hover:text-danger"
                           aria-label={`${name} を除外から外す`}
                           title="除外から外す"
                           onClick={() => remove(name)}
