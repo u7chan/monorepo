@@ -438,6 +438,27 @@ export function DisclosureChevronIcon() {
 }
 
 /**
+ * user の長文折りたたみ (UserMessageBody) の開閉。開いた状態の回転は CSS が
+ * button の `aria-expanded` を見て行う (.user-message-chevron)
+ */
+export function CollapseChevronIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.6"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className="user-message-chevron size-3 shrink-0"
+    >
+      <path d="M4.25 6.25 8 10l3.75-3.75" />
+    </svg>
+  );
+}
+
+/**
  * フォルダ (ツリーの行と各所の見出し)。開いているときは手前のパネルを傾けて薄く塗る。
  * 輪郭のままだと展開の印が chevron の回転だけになり、行の左端で開閉が読み取れない。
  */

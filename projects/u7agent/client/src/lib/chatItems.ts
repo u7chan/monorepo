@@ -2,6 +2,7 @@
 // DOM を使わない純関数だけをここに置き、配線 (virtualizer / scroll ハンドラ) は ChatArea が持つ。
 import type { Bubble, CompactionMarker } from "./chatTypes";
 import type { CompactionInfo } from "../types";
+import { USER_MESSAGE_CLAMP_PX } from "./userMessage";
 
 export type ChatRenderItem =
   | { kind: "message"; key: string; bubble: Bubble }
@@ -64,7 +65,10 @@ export function estimateChatItemHeight(item: ChatRenderItem): number {
   if (item.kind === "compaction") return 56;
   if (item.kind === "boundary") return 36;
   const { bubble } = item;
-  const textHeight = Math.min(bubble.text.length, 4000) * 0.55;
+  // user は収まらないときに折りたたまれるため、見積りの上限が clamp の高さになる
+  // (収まる場合の推定はこの上限より小さいまま)
+  const estimatedText = Math.min(bubble.text.length, 4000) * 0.55;
+  const textHeight = bubble.role === "user" ? Math.min(estimatedText, USER_MESSAGE_CLAMP_PX) : estimatedText;
   const toolHeight = bubble.tools.reduce((total, card) => total + 48 + Math.min(card.output.length, 600) * 0.35, 0);
   const skillHeight = bubble.skillLoads.length * 28;
   return Math.max(72, Math.min(4000, 64 + textHeight + toolHeight + skillHeight));

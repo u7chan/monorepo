@@ -578,6 +578,42 @@ html[data-theme="sky"] {
     }
   }
 
+  /* user バブルの長文折りたたみ。切り取る高さ 15rem は 16px root で 240px
+     (lib/userMessage.ts の見積りと対)。開いた高さは UserMessageBody が実測値を
+     CSS 変数で渡すため、interpolate-size のような新しい CSS が無くても開閉が遷移する */
+  .user-message-clamp {
+    max-block-size: 15rem;
+    overflow: hidden;
+    transition: max-block-size 200ms ease;
+  }
+  .user-message-clamp-open {
+    max-block-size: var(--user-message-height, none);
+  }
+  /* 切り取った行の終わりをバブルの面 (bg-accent-bright) へ溶かす */
+  .user-message-fade {
+    position: absolute;
+    inset-inline: 0;
+    bottom: 0;
+    height: 3rem;
+    pointer-events: none;
+    background: linear-gradient(to bottom, transparent, var(--c-accent-bright));
+    transition: opacity 160ms ease;
+  }
+  /* 開閉の印。開いた状態は button の aria-expanded を見る (details の回転とは別) */
+  .user-message-chevron {
+    transition: transform 180ms ease;
+  }
+  [aria-expanded="true"] > .user-message-chevron {
+    transform: rotate(180deg);
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .user-message-clamp,
+    .user-message-fade,
+    .user-message-chevron {
+      transition: none;
+    }
+  }
+
   /* 細いスクロールバー */
   .scrollbar-thin {
     scrollbar-width: thin;
