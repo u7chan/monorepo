@@ -55,6 +55,27 @@ test("未設定ではキー入力だけを出し、モデル選択と削除は�
   assert.equal(html.includes(">再取得</button>"), false, "再取得もモデル欄と同じくキー保存後にだけ出す");
 });
 
+test("見出しに provider のロゴ・名前・id とキーの登録状態を出す", () => {
+  const html = render();
+  assert.match(html, /<svg[^>]*viewBox="0 0 24 24"/, "ロゴを出す (プロバイダータブと同じ対応表を引く)");
+  assert.ok(html.includes(">OpenRouter</h2>"), "provider の表示名を出す");
+  assert.ok(html.includes(">openrouter</code>"), "モデル欄の id 表記と結び付くように provider id も出す");
+  assert.ok(html.includes(">設定済み<"), "登録状態を provider の見出しへ出す");
+});
+
+test("未設定でも、これから登録するキーの provider の見出しは出す", () => {
+  const html = render({ configured: false, provider: null, model: null, catalogSource: "sdk", fetchedAt: null });
+  assert.match(html, /<svg[^>]*viewBox="0 0 24 24"/, "この画面で登録するキーの provider のロゴを出す");
+  assert.ok(html.includes(">OpenRouter</h2>"), "未設定でも同じ provider の名前を出す");
+  assert.ok(html.includes(">未設定<"), "登録状態は未設定のまま出す");
+});
+
+test("対応表に無い provider の見出しは頭文字のタイルへ落とす", () => {
+  const html = render({ provider: "faux-image" });
+  assert.ok(html.includes(">FI<"), "ロゴが無い provider も名前の頭文字で見分けられる");
+  assert.ok(html.includes(">faux-image</h2>"), "知らない provider は id のまま出す");
+});
+
 test("設定済みでは上書き保存・削除・モデル選択を出し、保存済みキーを入力欄へ戻さない", () => {
   const html = render();
   assert.ok(html.includes("上書き保存"));
