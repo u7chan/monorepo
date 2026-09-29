@@ -798,8 +798,11 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
         output: "",
         ...(action.skill ? { skill: action.skill } : {}),
       };
-      const withRun = { ...state, runTools: { ...state.runTools, [action.id]: call } };
-      return attachRunToolCards(addToolCard(withRun, toolCardOf(call), action.at), false);
+      // 保留中の run 側カードを先に補ってから新しいカードを足す (逆順だと初回の assistant バブルで
+      // 新規が先頭になり、run 側の挿入順と逆のツール履歴になる)
+      const withBubble = attachRunToolCards(ensureAssistant(state, action.at), false);
+      const withRun = { ...withBubble, runTools: { ...withBubble.runTools, [action.id]: call } };
+      return addToolCard(withRun, toolCardOf(call), action.at);
     }
 
     case "toolEnd": {

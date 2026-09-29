@@ -1094,10 +1094,29 @@ test("補完先が無い run 側カードは保留し、text / toolStart で補�
     at: 3,
   });
   assert.deepEqual(
-    withTool.bubbles
-      .at(-1)
-      ?.tools.map((card) => card.id)
-      .sort(),
+    withTool.bubbles.at(-1)?.tools.map((card) => card.id),
     ["t1", "t2"],
   );
+});
+
+test("保留中の run 側カードは新しい toolStart より先に並ぶ (呼び出し順を逆にしない)", () => {
+  // 補完先が無いまま resync が run のカード t1 を配り、次に toolStart(t2) が初めて assistant バブルを作る
+  const held = chatReducer(initialChatState, {
+    type: "resync",
+    payload: payloadWithRunTools([{ role: "user", text: "1通目" }], [toolCall("t1", { done: false, output: "" })]),
+  });
+  assert.deepEqual(Object.keys(held.runTools), ["t1"], "補完先が無ければ保留する");
+
+  const withTool = chatReducer(held, { type: "toolStart", id: "t2", name: "read", args: "README.md", at: 3 });
+  assert.deepEqual(Object.keys(withTool.runTools), ["t1", "t2"], "run 側の挿入順を保つ");
+  const targetId = withTool.bubbles.at(-1)?.id;
+  assert.deepEqual(
+    withTool.bubbles.at(-1)?.tools.map((card) => [card.id, card.phase]),
+    [
+      ["t1", "running"],
+      ["t2", "running"],
+    ],
+    "保留分を先に補ってから新しいカードを足す",
+  );
+  assert.deepEqual(withTool.toolBubbleIds, { t1: targetId, t2: targetId }, "索引も同じバブルを指す");
 });
