@@ -175,11 +175,16 @@ export function createImageToolDefinitions(options: ImageToolDefinitionOptions):
       });
       // 同名はサンドボックスが `-1` を付けて退避するため、実際に保存された名前を返す
       const path = cwdRelativePath(dir, uploaded.name);
+      // 使用モデルを結果本文へ残す。会話履歴は session.jsonl の toolResult を正とするため、
+      // ここに載せた行が (ライブ / 復元後の両方で) ツール履歴の出力として見える (docs/image-generation.md)
       return {
         content: [
           {
             type: "text",
-            text: `画像を生成して保存しました: ${path}\n本文に示すときは Markdown 画像 ![alt](${path}) で示してください。`,
+            text:
+              `画像を生成して保存しました: ${path}\n` +
+              `モデル: ${settings.model}\n` +
+              `本文に示すときは Markdown 画像 ![alt](${path}) で示してください。`,
           },
         ],
         details: undefined,

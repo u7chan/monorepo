@@ -154,6 +154,7 @@ test("省略時は generated/<slug>.<ext> へ保存し、実際の cwd 相対パ
   assert.deepEqual(capture.bodies[0], Buffer.from("hello"));
   assert.ok(text.includes("generated/"), text);
   assert.ok(!text.includes("projects/u7agent/generated/"), "root 相対を返している");
+  assert.ok(text.includes("モデル: openai/gpt-image-2"), "使用モデルを結果に残す");
   assert.ok(text.includes("Markdown 画像"), text);
 });
 
@@ -281,6 +282,7 @@ test("カタログにしか無いモデルの保存値もそのまま provider �
   const capture: Capture = { uploads: [], bodies: [], generated: [] };
   // 生成側はカタログを知らない (SDK の一覧に無い id をローカルで弾かない)
   const liveOnly = { ...settings, model: "recraft/recraft-v4.1-flash" };
-  await run(tool({ capture, settings: liveOnly }), { prompt: "cafe" });
+  const text = await run(tool({ capture, settings: liveOnly }), { prompt: "cafe" });
   assert.equal(capture.generated[0].model, "recraft/recraft-v4.1-flash");
+  assert.ok(text.includes("モデル: recraft/recraft-v4.1-flash"), text);
 });
