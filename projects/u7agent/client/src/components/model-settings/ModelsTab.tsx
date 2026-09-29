@@ -345,7 +345,7 @@ function CandidateGroupSection({
         {compact ? null : (
           <>
             <ProviderBadgeTag badge={group.badge} />
-            <span className="text-2xs whitespace-nowrap text-ink-muted">
+            <span className="min-w-40 shrink-0 text-right text-2xs whitespace-nowrap text-ink-muted tabular-nums">
               利用可能 {group.availableCount}/{group.catalogCount} ・ 選択 {group.selectedCount}
             </span>
           </>

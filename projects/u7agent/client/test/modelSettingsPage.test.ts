@@ -206,6 +206,7 @@ test("モデルを選ぶタブは既定モデル・選択数・候補・保存�
     "provider 行に名前と a/b と選択数を出す",
   );
   assert.ok(html.includes('fill-rule="evenodd"'), "モデル候補の provider 行にもロゴを出す");
+  assert.ok(html.includes("min-w-40"), "provider 行右端の件数は幅を固定し、バッジと数字の位置を揃える");
   assert.ok(html.includes("min-h-11"), "選択済みのみのチェックはタッチ向けの高さを保つ");
   assert.ok(html.includes("開いている会話のモデルは切り替えません"), "live の会話へ効かないことを注記する");
   assert.ok(html.includes("モデル一覧を表示") === false, "ModelTable は出さない");
