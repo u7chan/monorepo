@@ -49,10 +49,10 @@ test("折りたたみは grid の行 (0fr → 1fr) を遷移させ、子を潰�
   assert.ok(child.includes("overflow: hidden;"), ".tree-fold の子に overflow: hidden が無い");
 });
 
-test("閉じた枝も取得済みの内容を残し、inert でフォーカスから外す", () => {
+test("閉じた枝も取得済みの内容を残し、閉じている入れ物は inert で外す", () => {
   const browser = read("src/components/FileBrowser.tsx");
   // 入れ物は開く前から置く (新しく mount した要素には遷移の前の値が無く、初回の開が瞬時になるため)。
-  // 閉じた枝の内容を DOM に残す (畳むときも同じ遷移で潰す)。inert は開いているときだけ外す
+  // 閉じた枝の内容を DOM に残す (畳むときも同じ遷移で潰す)
   assert.match(
     browser,
     /const loaded = node\?\.children !== undefined \|\| node\?\.error !== undefined;/,
@@ -62,15 +62,15 @@ test("閉じた枝も取得済みの内容を残し、inert でフォーカス�
   // 解決値) は変わっても遷移が走らず、取得の完了が飛んで見える (入れ替えは 2 つの遷移を重ねる)
   assert.match(
     browser,
-    /<div className="tree-fold" data-open=\{open && !loaded\} inert=\{!open\}>/,
-    "読み込み中の行の入れ物が無い (または内容と同じ入れ物にある)",
+    /const loadingOpen = open && !loaded;/,
+    "読み込み中の行の入れ物の開閉が無い (または内容と同じ入れ物にある)",
   );
-  assert.match(
-    browser,
-    /<div className="tree-fold" data-open=\{open && loaded\} inert=\{!open\}>/,
-    "内容の入れ物が無い (または開閉だけを遷移させている)",
-  );
-  // 内容は開いたか取得済みのときに描く (未取得の枝に中身は無い。閉じた枝は残す)
+  assert.match(browser, /const contentOpen = open && loaded;/, "内容の入れ物の開閉が無い");
+  // inert は「その入れ物が閉じているか」で決める。ディレクトリが開いていても、閉じた入れ物の中身は
+  // 高さ 0 で見えないだけなので、フォーカスも読み上げもさせない (取得後の「読み込み中…」が残る)
+  assert.match(browser, /data-open=\{loadingOpen\} inert=\{!loadingOpen\}/, "読み込み中の入れ物が inert でない");
+  assert.match(browser, /data-open=\{contentOpen\} inert=\{!contentOpen\}/, "内容の入れ物が inert でない");
+  // 内容は取得済みの子だけを描く (未取得の枝に中身は無い。閉じた枝は残す)
   assert.match(browser, /\{node\?\.children \? \(/, "取得済みの子を描いていない");
 });
 

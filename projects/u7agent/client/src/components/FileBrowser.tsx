@@ -172,7 +172,9 @@ export function FileBrowser({
       if (el.classList.contains("tree-fold")) folds.push(el);
     }
     const scrollToRow = (event: TransitionEvent) => {
-      // 行の中の色や chevron の遷移も泡で届くため、高さの遷移だけを見る
+      // 子孫の折りたたみの遷移も泡で届く (兄弟の枝を開くと祖先の listener が鳴る) ため、
+      // その入れ物自身の高さの遷移だけを見る。色や chevron の遷移は propertyName で落とす
+      if (event.target !== event.currentTarget) return;
       if (event.propertyName !== "grid-template-rows") return;
       row.scrollIntoView({ block: "nearest", inline: "nearest" });
     };
@@ -545,6 +547,10 @@ function EntryRow({
     const open = node?.open ?? false;
     // 一覧が届いたか。空のディレクトリは children: [] なので、未取得 (undefined) と区別する
     const loaded = node?.children !== undefined || node?.error !== undefined;
+    // 「読み込み中…」の行と内容は別の入れ物にする (下のコメント参照)。閉じている入れ物は inert にして、
+    // 高さ 0 で見えない行をフォーカスさせない (inert は支援技術からも外す)
+    const loadingOpen = open && !loaded;
+    const contentOpen = open && loaded;
     return (
       <div>
         {/* 行全体を button にすると時刻が accessible name に混ざり、時刻のクリックでも開閉するため、
@@ -591,16 +597,17 @@ function EntryRow({
         </div>
         {/* 開閉は高さの遷移で見せる (styles/index.css の .tree-fold)。入れ物は開く前から置くので、
             初めて開く枝 (取得を待つ間) も 0fr から伸びる。閉じている間も取得済みの内容を残して
-            同じ遷移で潰し、閉じた枝の行は inert でフォーカスできないようにする。
+            同じ遷移で潰し、閉じている入れ物は inert にしてフォーカスも読み上げもさせない
+            (高さ 0 で見えない行が支援技術に残るため)。
             「読み込み中…」と内容は別の入れ物にする: 同じ入れ物の中で入れ替えると、開き切った後の高さ
             (1fr の解決値) は変わっても遷移が走らず、取得の完了が飛んで見える (入れ替えは 2 つの遷移を
             同じ長さで重ねる)。どちらも開く前から置くのは、mount した要素には遷移の前の値が無いため */}
-        <div className="tree-fold" data-open={open && !loaded} inert={!open}>
+        <div className="tree-fold" data-open={loadingOpen} inert={!loadingOpen}>
           <div>
             <MessageRow depth={depth + 1}>読み込み中…</MessageRow>
           </div>
         </div>
-        <div className="tree-fold" data-open={open && loaded} inert={!open}>
+        <div className="tree-fold" data-open={contentOpen} inert={!contentOpen}>
           <div>
             {node?.error ? (
               <MessageRow depth={depth + 1} danger alert>
