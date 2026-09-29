@@ -16,6 +16,7 @@ import {
 } from "../../lib/modelSettings";
 import type { ModelsSettingsResponse, ProviderAuthSetting, RuntimeModelsResponse, SessionSummary } from "../../types";
 import { CheckIcon, KeyIcon, RefreshIcon, TrashIcon } from "../icons";
+import { ProviderIcon } from "../ProviderIcon";
 import { ProviderBadgeTag } from "./ProviderBadgeTag";
 
 export type ProvidersTabProps = {
@@ -114,19 +115,22 @@ export function ProvidersTab({
                           aria-current={isActive ? "true" : undefined}
                           onClick={() => setSelectedProvider(provider.provider)}
                           className={cn(
-                            "grid w-full gap-0.5 rounded-lg border px-2 py-1.5 text-left transition-colors",
+                            "flex w-full items-center gap-2 rounded-lg border px-2 py-1.5 text-left transition-colors",
                             isActive ? "border-accent/40 bg-accent-wash" : "border-transparent hover:bg-hover",
                           )}
                         >
-                          <span className="flex min-w-0 items-center gap-2">
-                            <span className="min-w-0 flex-1 truncate text-xs text-ink">{provider.name}</span>
-                            <span
-                              className={cn("text-2xs whitespace-nowrap", meta.warn ? "text-warn" : "text-ink-muted")}
-                            >
-                              {meta.text}
+                          <ProviderIcon provider={provider.provider} name={provider.name} />
+                          <span className="grid min-w-0 flex-1 gap-0.5">
+                            <span className="flex min-w-0 items-center gap-2">
+                              <span className="min-w-0 flex-1 truncate text-xs text-ink">{provider.name}</span>
+                              <span
+                                className={cn("text-2xs whitespace-nowrap", meta.warn ? "text-warn" : "text-ink-muted")}
+                              >
+                                {meta.text}
+                              </span>
                             </span>
+                            <code className="truncate text-2xs text-ink-ghost">{provider.provider}</code>
                           </span>
-                          <code className="truncate text-2xs text-ink-ghost">{provider.provider}</code>
                         </button>
                       );
                     })}
@@ -298,6 +302,7 @@ function ProviderDetail({
     <section className="grid gap-4">
       <div className="grid gap-2 border-b border-line pb-2">
         <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+          <ProviderIcon provider={provider.provider} name={provider.name} variant="heading" />
           <h2 className="font-semibold text-base text-ink-strong">{provider.name}</h2>
           <code className="text-2xs text-ink-ghost">{provider.provider}</code>
           <ProviderBadgeTag badge={badge} />
