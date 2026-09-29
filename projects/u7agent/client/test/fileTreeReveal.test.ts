@@ -96,3 +96,16 @@ test("パンくずのクリックと中継は画面 root 相対のパスのま�
     "FilePreview がパンくずに onReveal を渡していない",
   );
 });
+
+test("reveal のスクロールの合わせ直しは、その入れ物自身の遷移だけを対象にする", () => {
+  const browser = read("src/components/FileBrowser.tsx");
+  // 祖先が既に開いていれば遷移は走らない。長さで無条件に合わせ直すと直後の手動スクロールを巻き戻すため、
+  // 行の祖先の折りたたみ (transitionend) を合図にする
+  assert.match(browser, /el\.classList\.contains\("tree-fold"\)/, "行の祖先の折りたたみを拾っていない");
+  assert.match(browser, /fold\.addEventListener\("transitionend", scrollToRow\)/, "transitionend を拾っていない");
+  assert.match(browser, /fold\.removeEventListener\("transitionend", scrollToRow\)/, "listener を片付けていない");
+  // transitionend は泡で届くので、兄弟の枝 (行の祖先の子孫の折りたたみ) の遷移でも鳴る。
+  // その入れ物自身の遷移だけを見ないと、関係ない枝を開いただけでスクロールを巻き戻す
+  assert.match(browser, /if \(event\.target !== event\.currentTarget\) return;/, "泡で届いた遷移を弾いていない");
+  assert.match(browser, /event\.propertyName !== "grid-template-rows"/, "高さ以外の遷移でもスクロールし直す");
+});

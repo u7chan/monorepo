@@ -158,6 +158,32 @@ export function FileBrowser({
     }, REVEAL_HIGHLIGHT_MS);
   }, [reveal, tree]);
 
+  // 折りたたみの高さの遷移の途中は行の位置が確定しないため、遷移が終わってからスクロールを合わせ直す
+  // (block: "nearest" はその時点の位置で決まる)。合図は transitionend だけにする: 遷移が走った枝にだけ
+  // listener が付くので、祖先が既に開いているとき (遷移なし) は何も起きず、直後の手動スクロールを
+  // 巻き戻さない。reduced motion でも遷移が無く、最初のスクロールがそのまま正しい。
+  // tree に依存させるのは、祖先の一覧の取得で行が現れるのがこの effect のあとになるため
+  useEffect(() => {
+    if (reveal === null) return;
+    const row = revealRowRef.current;
+    if (row === null) return;
+    const folds: HTMLElement[] = [];
+    for (let el = row.parentElement; el !== null; el = el.parentElement) {
+      if (el.classList.contains("tree-fold")) folds.push(el);
+    }
+    const scrollToRow = (event: TransitionEvent) => {
+      // 子孫の折りたたみの遷移も泡で届く (兄弟の枝を開くと祖先の listener が鳴る) ため、
+      // その入れ物自身の高さの遷移だけを見る。色や chevron の遷移は propertyName で落とす
+      if (event.target !== event.currentTarget) return;
+      if (event.propertyName !== "grid-template-rows") return;
+      row.scrollIntoView({ block: "nearest", inline: "nearest" });
+    };
+    for (const fold of folds) fold.addEventListener("transitionend", scrollToRow);
+    return () => {
+      for (const fold of folds) fold.removeEventListener("transitionend", scrollToRow);
+    };
+  }, [reveal, tree]);
+
   // unmount 後にタイマーを残さない (幅やレイアウトの切替で FileBrowser ごと入れ替わる面がある)
   useEffect(
     () => () => {
@@ -519,6 +545,12 @@ function EntryRow({
   if (entry.type === "dir") {
     const node = fileTreeDirectoryState(tree, path);
     const open = node?.open ?? false;
+    // 一覧が届いたか。空のディレクトリは children: [] なので、未取得 (undefined) と区別する
+    const loaded = node?.children !== undefined || node?.error !== undefined;
+    // 「読み込み中…」の行と内容は別の入れ物にする (下のコメント参照)。閉じている入れ物は inert にして、
+    // 高さ 0 で見えない行をフォーカスさせない (inert は支援技術からも外す)
+    const loadingOpen = open && !loaded;
+    const contentOpen = open && loaded;
     return (
       <div>
         {/* 行全体を button にすると時刻が accessible name に混ざり、時刻のクリックでも開閉するため、
@@ -563,8 +595,20 @@ function EntryRow({
             />
           </RowTail>
         </div>
-        {open ? (
-          <>
+        {/* 開閉は高さの遷移で見せる (styles/index.css の .tree-fold)。入れ物は開く前から置くので、
+            初めて開く枝 (取得を待つ間) も 0fr から伸びる。閉じている間も取得済みの内容を残して
+            同じ遷移で潰し、閉じている入れ物は inert にしてフォーカスも読み上げもさせない
+            (高さ 0 で見えない行が支援技術に残るため)。
+            「読み込み中…」と内容は別の入れ物にする: 同じ入れ物の中で入れ替えると、開き切った後の高さ
+            (1fr の解決値) は変わっても遷移が走らず、取得の完了が飛んで見える (入れ替えは 2 つの遷移を
+            同じ長さで重ねる)。どちらも開く前から置くのは、mount した要素には遷移の前の値が無いため */}
+        <div className="tree-fold" data-open={loadingOpen} inert={!loadingOpen}>
+          <div>
+            <MessageRow depth={depth + 1}>読み込み中…</MessageRow>
+          </div>
+        </div>
+        <div className="tree-fold" data-open={contentOpen} inert={!contentOpen}>
+          <div>
             {node?.error ? (
               <MessageRow depth={depth + 1} danger alert>
                 {node.error}
@@ -589,11 +633,9 @@ function EntryRow({
                 onDelete={onDelete}
                 onDownload={onDownload}
               />
-            ) : node?.error ? null : (
-              <MessageRow depth={depth + 1}>読み込み中…</MessageRow>
-            )}
-          </>
-        ) : null}
+            ) : null}
+          </div>
+        </div>
       </div>
     );
   }
