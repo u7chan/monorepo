@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState, type CSSProperties, type RefObject, type ReactNode } from "react";
 import { deleteDirectory, deleteFile, fileDownloadUrl, getFileDownloadCheck, getFiles, renameEntry } from "../api";
 import { useFileTreeWidth } from "../hooks/useFileTreeWidth";
 import { FileTreeResizeHandle } from "./file-tree/FileTreeResizeHandle";
@@ -20,6 +20,7 @@ import {
   fileTreeRenamePrompt,
   invalidateFileTree,
   normalizeFileTreeRoot,
+  openFileTreeAncestors,
   openFileTreeDirectories,
   pendingFileTreeDirectories,
   pruneFileTreeSubtree,
@@ -55,6 +56,8 @@ import { RowMenu } from "./RowMenu";
 const INDENT = 16;
 /** ファイル行の左端。親の chevron (16) + gap-2 (8) + ディレクトリ行の左端 (8) と一致させる */
 const FILE_INDENT = 32;
+/** reveal の一時ハイライトを残す時間。行が見つかってスクロールしてから数える */
+const REVEAL_HIGHLIGHT_MS = 1600;
 
 function errorText(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
@@ -123,6 +126,46 @@ export function FileBrowser({
   // 最後に適用した要求の seq。適用の直前に記録して StrictMode の effect 再実行を弾く
   const appliedRequestRef = useRef<number | null>(null);
 
+  // ツリーで対象の位置を示す要求 (reveal)。ファイル参照から開いた時と、プレビューのパンくずから受ける。
+  // 祖先を開くのは state の遷移、スクロールと一時ハイライトは描画後 (対象の行は取得が終わるまで無い)
+  const [reveal, setReveal] = useState<{ path: string; seq: number } | null>(null);
+  const revealSeqRef = useRef(0);
+  // スクロール済みの seq。tree の更新ごとの再実行で同じ対象を何度もスクロールしない
+  const revealedSeqRef = useRef<number | null>(null);
+  // 対象の行だけがこの ref を持つ (一致する行の設置時にスクロールする)
+  const revealRowRef = useRef<HTMLDivElement | null>(null);
+  const revealTimerRef = useRef<number | null>(null);
+
+  const revealRow = useCallback((path: string) => {
+    // 祖先を開いてから対象を指す。取得は既存の pendingFileTreeDirectories の経路が親から順に拾う
+    setTree((prev) => openFileTreeAncestors(prev, path));
+    revealSeqRef.current += 1;
+    setReveal({ path, seq: revealSeqRef.current });
+  }, []);
+
+  // 対象の行が現れたらスクロールして一時ハイライトする。祖先の取得中は行が無いので、
+  // tree が進むたびに再実行して取りこぼさない。ハイライトはスクロール後だけ残す
+  useEffect(() => {
+    if (reveal === null || revealedSeqRef.current === reveal.seq) return;
+    const row = revealRowRef.current;
+    if (row === null) return;
+    revealedSeqRef.current = reveal.seq;
+    row.scrollIntoView({ block: "nearest", inline: "nearest" });
+    if (revealTimerRef.current !== null) window.clearTimeout(revealTimerRef.current);
+    revealTimerRef.current = window.setTimeout(() => {
+      revealTimerRef.current = null;
+      setReveal((current) => (current?.seq === reveal.seq ? null : current));
+    }, REVEAL_HIGHLIGHT_MS);
+  }, [reveal, tree]);
+
+  // unmount 後にタイマーを残さない (幅やレイアウトの切替で FileBrowser ごと入れ替わる面がある)
+  useEffect(
+    () => () => {
+      if (revealTimerRef.current !== null) window.clearTimeout(revealTimerRef.current);
+    },
+    [],
+  );
+
   // ファイル参照からの要求は mount 後の effect で適用する (パネルは条件付き mount のため、
   // 「mount 時の token を無視する」reloadToken の方式では初回クリックを取り落とす)。
   // openFileTab は同一パスでも新しい state を返すので「タブが増えない」ことは 1 回適用の根拠にならない
@@ -130,8 +173,10 @@ export function FileBrowser({
     if (!openRequest || appliedRequestRef.current === openRequest.seq) return;
     appliedRequestRef.current = openRequest.seq;
     setTabs((prev) => openFileTab(prev, openRequest.path));
+    // 参照されたファイルはツリーでも位置を示す (祖先を開いてスクロール + 一時ハイライト)
+    revealRow(openRequest.path);
     onHandled?.(openRequest.seq);
-  }, [openRequest, onHandled]);
+  }, [openRequest, onHandled, revealRow]);
 
   // 未取得のディレクトリを表示順に取得する。状態遷移は lib/fileTree.ts の純関数だけが行う。
   useEffect(() => {
@@ -309,6 +354,8 @@ export function FileBrowser({
               onRename={renameRow}
               onDelete={removeEntry}
               onDownload={downloadRow}
+              revealPath={reveal?.path ?? null}
+              revealRef={revealRowRef}
             />
           ) : rootNode.error ? null : (
             <MessageRow depth={0}>読み込み中…</MessageRow>
@@ -338,6 +385,7 @@ export function FileBrowser({
             }
             onSelect={openTab}
             onClose={closeTab}
+            onReveal={revealRow}
           />
         ) : null}
       </div>
@@ -356,6 +404,9 @@ type BranchProps = {
   canRef: boolean;
   /** ワークスペースの除外名 (行のダウンロードを出すかの判定に使う) */
   excludeNames: readonly string[];
+  /** reveal 対象のパス。一致する行だけ ref を付け、スクロールと一時ハイライトの対象にする */
+  revealPath: string | null;
+  revealRef: RefObject<HTMLDivElement | null>;
   onToggle: (path: string) => void;
   onSelect: (path: string) => void;
   onRename: (path: string, name: string) => void;
@@ -373,6 +424,8 @@ function Branch({
   readOnly,
   canRef,
   excludeNames,
+  revealPath,
+  revealRef,
   onToggle,
   onSelect,
   onRename,
@@ -396,6 +449,8 @@ function Branch({
           readOnly={readOnly}
           canRef={canRef}
           excludeNames={excludeNames}
+          revealPath={revealPath}
+          revealRef={revealRef}
           onToggle={onToggle}
           onSelect={onSelect}
           onRename={onRename}
@@ -433,6 +488,8 @@ function EntryRow({
   readOnly,
   canRef,
   excludeNames,
+  revealPath,
+  revealRef,
   onToggle,
   onSelect,
   onRename,
@@ -448,6 +505,8 @@ function EntryRow({
   readOnly: boolean;
   canRef: boolean;
   excludeNames: readonly string[];
+  revealPath: string | null;
+  revealRef: RefObject<HTMLDivElement | null>;
   onToggle: (path: string) => void;
   onSelect: (path: string) => void;
   onRename: (path: string, name: string) => void;
@@ -455,6 +514,7 @@ function EntryRow({
   onDownload: (path: string, name: string, type: "file" | "dir") => void;
 }) {
   const path = fileTreeChildPath(parent, entry.name);
+  const revealed = revealPath === path;
 
   if (entry.type === "dir") {
     const node = fileTreeDirectoryState(tree, path);
@@ -464,8 +524,12 @@ function EntryRow({
         {/* 行全体を button にすると時刻が accessible name に混ざり、時刻のクリックでも開閉するため、
             ファイル行と同じ「div + flex-1 の操作 button」に分ける */}
         <div
+          ref={revealed ? revealRef : undefined}
           style={{ "--tree-indent": `${depth * INDENT + 8}px` } as CSSProperties}
-          className="flex min-h-7.5 w-full flex-wrap items-center gap-x-1.5 gap-y-1 rounded-lg pr-2 pl-(--tree-indent) text-xs text-ink transition-colors hover:bg-hover"
+          className={cn(
+            "flex min-h-7.5 w-full flex-wrap items-center gap-x-1.5 gap-y-1 rounded-lg pr-2 pl-(--tree-indent) text-xs text-ink transition-colors hover:bg-hover",
+            revealed && "ring-2 ring-focus ring-inset",
+          )}
         >
           <button
             type="button"
@@ -517,6 +581,8 @@ function EntryRow({
                 readOnly={readOnly}
                 canRef={canRef}
                 excludeNames={excludeNames}
+                revealPath={revealPath}
+                revealRef={revealRef}
                 onToggle={onToggle}
                 onSelect={onSelect}
                 onRename={onRename}
@@ -536,6 +602,7 @@ function EntryRow({
   return (
     // 行全体は選択、右端は ⋯ の操作メニュー。入れ子の button は作れないため、行は div にして button を並べる
     <div
+      ref={revealed ? revealRef : undefined}
       draggable={canRef}
       onDragStart={
         canRef
@@ -552,6 +619,7 @@ function EntryRow({
       className={cn(
         "flex min-h-7.5 w-full flex-wrap items-center gap-x-1.5 gap-y-1 rounded-lg pr-2 pl-(--tree-indent) text-xs transition-colors",
         isSelected ? "bg-accent-wash text-accent-text" : "text-ink-soft hover:bg-hover hover:text-ink",
+        revealed && "ring-2 ring-focus ring-inset",
       )}
     >
       <button

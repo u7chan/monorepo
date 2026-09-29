@@ -72,6 +72,59 @@ export function fileTreeParentPath(path: string): string {
   return slash === -1 ? FILE_TREE_ROOT : path.slice(0, slash);
 }
 
+/**
+ * path の祖先ディレクトリを root から近い順に返す (root は含まない)。reveal とパンくずが使う。
+ * root 直下のファイル (`a.txt`) は空配列。空セグメントは無視する。
+ */
+export function fileTreeAncestorPaths(path: string): string[] {
+  const segments = path.split("/");
+  const ancestors: string[] = [];
+  let current = FILE_TREE_ROOT;
+  for (let index = 0; index < segments.length - 1; index += 1) {
+    if (segments[index] === "") continue;
+    current = fileTreeChildPath(current, segments[index]);
+    ancestors.push(current);
+  }
+  return ancestors;
+}
+
+function lastPathSegment(path: string): string {
+  return path.slice(path.lastIndexOf("/") + 1);
+}
+
+/**
+ * プレビューのパンくずの項目。画面 root の前置き (root が "." のときは無し)、root 相対の祖先、
+ * 表示中のファイルの順に並べる。path が null の項目 (画面 root) はクリックできない。
+ */
+export function fileTreeBreadcrumbs(rootPath: string, path: string): { label: string; path: string | null }[] {
+  const root = normalizeFileTreeRoot(rootPath);
+  const crumbs: { label: string; path: string | null }[] = [];
+  if (root !== FILE_TREE_ROOT) crumbs.push({ label: root, path: null });
+  for (const ancestor of fileTreeAncestorPaths(path)) {
+    crumbs.push({ label: lastPathSegment(ancestor), path: ancestor });
+  }
+  crumbs.push({ label: lastPathSegment(path), path });
+  return crumbs;
+}
+
+/**
+ * path の祖先ディレクトリを開いた状態へ変える (reveal 用)。取得済みの子・loading・error はそのまま保つ。
+ * 未取得の祖先は open だけを立てて作り、取得は既存の pendingFileTreeDirectories の経路に任せる。
+ * 変える祖先が無ければ同じ object を返す。
+ */
+export function openFileTreeAncestors(state: FileTreeState, path: string): FileTreeState {
+  const ancestors = fileTreeAncestorPaths(path);
+  let changed = false;
+  const next = { ...state };
+  for (const ancestor of ancestors) {
+    const node = fileTreeDirectoryState(next, ancestor);
+    if (node?.open) continue;
+    changed = true;
+    setFileTreeDirectoryState(next, ancestor, { ...(node ?? { loading: false }), open: true });
+  }
+  return changed ? next : state;
+}
+
 /** 削除の確認文言。path は画面の root 相対で、ツリーに見えているパスと一致させる。 */
 export function fileTreeDeleteConfirm(path: string): string {
   return `「${path}」を削除しますか？この操作は取り消せません。`;

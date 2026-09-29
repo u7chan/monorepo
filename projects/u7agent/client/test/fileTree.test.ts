@@ -7,6 +7,8 @@ import {
   beginFileTreeLoad,
   createFileTreeState,
   createFileTreeStateFromDirectories,
+  fileTreeAncestorPaths,
+  fileTreeBreadcrumbs,
   fileTreeChildPath,
   fileTreeDeleteConfirm,
   fileTreeDeleteDirectoryConfirm,
@@ -15,6 +17,7 @@ import {
   fileTreeRenamePrompt,
   invalidateFileTree,
   normalizeFileTreeRoot,
+  openFileTreeAncestors,
   openFileTreeDirectories,
   pendingFileTreeDirectories,
   pruneFileTreeSubtree,
@@ -469,4 +472,76 @@ test("取得中の配下を持つディレクトリをリネームしても配�
   assert.equal(fileTreeDirectoryState(renamed, "renamed/sub")?.loading, false, "配下の loading を持ち越している");
   assert.equal(fileTreeDirectoryState(renamed, "renamed/sub")?.open, true);
   assert.deepEqual(pendingFileTreeDirectories(renamed), ["renamed/sub"], "配下が再取得の対象になる");
+});
+
+test("祖先ディレクトリは root から近い順に返し、root 直下は空になる", () => {
+  assert.deepEqual(fileTreeAncestorPaths("a.txt"), []);
+  assert.deepEqual(fileTreeAncestorPaths("a/b/c.txt"), ["a", "a/b"]);
+  // ディレクトリ自身の祖先は親まで (自分は含めない)
+  assert.deepEqual(fileTreeAncestorPaths("a/b"), ["a"]);
+  assert.deepEqual(fileTreeAncestorPaths("."), []);
+  // 空セグメントは無視する (画面の root 相対パスは正規化済みだが、字面で崩れても状態キーを汚さない)
+  assert.deepEqual(fileTreeAncestorPaths("a//b.txt"), ["a"]);
+});
+
+test("reveal は祖先だけを開き、root 直下のファイルでは何もしない", () => {
+  // root 直下のファイルは root が元から開いているので、新しい object を作らない
+  const topLevel = loaded({ ".": [dir("a"), file("top.txt")] });
+  assert.equal(openFileTreeAncestors(topLevel, "top.txt"), topLevel);
+
+  const state = loaded({ ".": [dir("a")], a: [dir("b")] });
+  const revealed = openFileTreeAncestors(state, "a/b/c.txt");
+  assert.equal(fileTreeDirectoryState(revealed, "a")?.open, true);
+  assert.equal(fileTreeDirectoryState(revealed, "a/b")?.open, true, "未取得の祖先も open にして取得対象にする");
+  assert.deepEqual(fileTreeDirectoryState(revealed, "a")?.children, [dir("b")], "取得済みの子を落とす");
+  assert.deepEqual(pendingFileTreeDirectories(revealed), ["a/b"], "取得が必要なのは未取得の祖先だけ");
+});
+
+test("reveal は取得済みの子・loading・error を保ち、開いている祖先では同じ object を返す", () => {
+  let state = loaded({ ".": [dir("a")], a: [dir("b")], "a/b": [file("c.txt")] });
+  state = toggleFileTreeDirectory(state, "a");
+  state = toggleFileTreeDirectory(state, "a/b");
+
+  // すでに必要な祖先がすべて開いているときは新しい object を作らない
+  assert.equal(openFileTreeAncestors(state, "a/b/c.txt"), state);
+
+  // 取得中の祖先を開いても loading を落とさない (飛んでいる応答を捨てないため)
+  const loading = beginFileTreeLoad(renameFileTreeEntry(state, "a", "renamed"), "renamed");
+  const revealed = openFileTreeAncestors(loading, "renamed/sub/deep.txt");
+  assert.equal(fileTreeDirectoryState(revealed, "renamed")?.loading, true, "loading を持ち越していない");
+  assert.deepEqual(fileTreeDirectoryState(revealed, "renamed")?.children, [dir("b")]);
+  assert.equal(fileTreeDirectoryState(revealed, "renamed/sub")?.open, true);
+});
+
+test("__proto__ の名前の祖先も own プロパティとして開く", () => {
+  const revealed = openFileTreeAncestors(createFileTreeState(), "__proto__/x/y.txt");
+  assert.equal(Object.getPrototypeOf(revealed), Object.prototype, "プロトタイプを壊す");
+  assert.equal(Object.hasOwn(revealed, "__proto__"), true);
+  assert.equal(fileTreeDirectoryState(revealed, "__proto__")?.open, true);
+  assert.equal(fileTreeDirectoryState(revealed, "__proto__/x")?.open, true);
+});
+
+test("パンくずは画面 root の前置きと root 相対の祖先とファイルを並べる", () => {
+  assert.deepEqual(fileTreeBreadcrumbs(".", "a/b/c.txt"), [
+    { label: "a", path: "a" },
+    { label: "b", path: "a/b" },
+    { label: "c.txt", path: "a/b/c.txt" },
+  ]);
+  // 画面 root が "." でない面 (チャット右パネル) は、クリックできない前置きを先頭に付ける
+  assert.deepEqual(fileTreeBreadcrumbs("projects/u7agent", "client/src/a.ts"), [
+    { label: "projects/u7agent", path: null },
+    { label: "client", path: "client" },
+    { label: "src", path: "client/src" },
+    { label: "a.ts", path: "client/src/a.ts" },
+  ]);
+});
+
+test("パンくずの root 前置きは root 直下のファイルでは省き、絶対パスは root へ畳む", () => {
+  assert.deepEqual(fileTreeBreadcrumbs(".", "top.txt"), [{ label: "top.txt", path: "top.txt" }]);
+  // root の表記ゆれ (末尾スラッシュ / 絶対パス) は正規化する。絶対パスの root は "." と同じ扱い
+  assert.deepEqual(fileTreeBreadcrumbs("projects/u7agent/", "top.txt"), [
+    { label: "projects/u7agent", path: null },
+    { label: "top.txt", path: "top.txt" },
+  ]);
+  assert.deepEqual(fileTreeBreadcrumbs("/workspace/", "top.txt"), [{ label: "top.txt", path: "top.txt" }]);
 });
