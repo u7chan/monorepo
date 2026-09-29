@@ -11,6 +11,7 @@ import {
   imageModelOptions,
   imageModelSelection,
   imageModelValue,
+  imageProviderId,
   imageProviderLabel,
   keyDraftAfterSave,
 } from "../src/lib/imageSettings";
@@ -77,10 +78,13 @@ test("削除の確認は新しい会話への影響と既存の会話の失敗�
   assert.match(message, /キー無効エラー/);
 });
 
-test("キーの登録状態バッジと provider 表示名", () => {
+test("キーの登録状態バッジと provider の id / 表示名", () => {
   assert.deepEqual(imageKeyStatusBadge(true), { label: "設定済み", tone: "ok" });
   assert.deepEqual(imageKeyStatusBadge(false), { label: "未設定", tone: "muted" });
-  // v1 は openrouter だけなので、未設定 (null) でも同じ名前を出す
+  // v1 は openrouter だけなので、未設定 (null) も同じ provider へ寄せる (見出しのロゴも同じ id を引く)
+  assert.equal(imageProviderId(null), "openrouter");
+  assert.equal(imageProviderId("openrouter"), "openrouter");
+  assert.equal(imageProviderId("other"), "other");
   assert.equal(imageProviderLabel(null), "OpenRouter");
   assert.equal(imageProviderLabel("openrouter"), "OpenRouter");
   assert.equal(imageProviderLabel("other"), "other", "知らない provider は id のまま出す");

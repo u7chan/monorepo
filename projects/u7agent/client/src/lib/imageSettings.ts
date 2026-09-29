@@ -21,9 +21,18 @@ export function imageKeyStatusBadge(configured: boolean): ProviderBadge {
   return configured ? { label: "設定済み", tone: "ok" } : { label: "未設定", tone: "muted" };
 }
 
-/** provider の表示名。v1 は openrouter だけなので、未設定 (null) も同じ名前へ寄せる */
+/** 未設定 (行が無い) のときに見せる provider。サーバーが既定行を作る provider と同じにする */
+const DEFAULT_IMAGE_PROVIDER = "openrouter";
+
+/** 見出しのロゴを引く id。未設定でも、これから登録するキーの provider を出す */
+export function imageProviderId(provider: string | null): string {
+  return provider ?? DEFAULT_IMAGE_PROVIDER;
+}
+
+/** provider の表示名。v1 は openrouter だけなので id のまま出さず、既知の provider は名前へ寄せる */
 export function imageProviderLabel(provider: string | null): string {
-  return provider === null || provider === "openrouter" ? "OpenRouter" : provider;
+  const id = imageProviderId(provider);
+  return id === DEFAULT_IMAGE_PROVIDER ? "OpenRouter" : id;
 }
 
 /**

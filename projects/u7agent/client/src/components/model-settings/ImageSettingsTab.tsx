@@ -6,6 +6,7 @@ import {
   imageModelOptions,
   imageModelSelection,
   imageModelValue,
+  imageProviderId,
   imageProviderLabel,
   keyDraftAfterSave,
   type ImageSavingAction,
@@ -14,6 +15,7 @@ import { cn } from "../../lib/cn";
 import { API_KEY_MIN_LENGTH } from "../../lib/modelSettings";
 import type { ImageSettingsResponse, UpdateImageSelectionBody } from "../../types";
 import { CheckIcon, RefreshIcon, TrashIcon } from "../icons";
+import { ProviderIcon } from "../ProviderIcon";
 import { SelectField } from "../SelectField";
 import { ProviderBadgeTag } from "./ProviderBadgeTag";
 
@@ -44,6 +46,7 @@ export function ImageSettingsTab({
   const [apiKey, setApiKey] = useState("");
   const busy = saving !== null;
   const runtimeAvailable = settings.runtimeAvailable;
+  const providerName = imageProviderLabel(settings.provider);
 
   const submitKey = async () => {
     setApiKey(keyDraftAfterSave(apiKey, await onSaveKey(apiKey)));
@@ -58,6 +61,13 @@ export function ImageSettingsTab({
   return (
     <div className="min-h-0 min-w-0 scrollbar-thin overflow-x-hidden overflow-y-auto px-4 py-4">
       <div className="mx-auto grid max-w-3xl gap-3">
+        {/* このタブがどの provider の設定かを最初に示す。provider が増えたら settings.provider に追随する */}
+        <section className="flex flex-wrap items-center gap-x-3 gap-y-1 border-b border-line pb-2">
+          <ProviderIcon provider={imageProviderId(settings.provider)} name={providerName} variant="heading" />
+          <h2 className="font-semibold text-base text-ink-strong">{providerName}</h2>
+          <code className="text-2xs text-ink-ghost">{imageProviderId(settings.provider)}</code>
+          <ProviderBadgeTag badge={imageKeyStatusBadge(settings.configured)} />
+        </section>
         {runtimeAvailable ? null : (
           <p role="alert" className="rounded-lg border border-warn/40 bg-raised px-2.5 py-2 text-2xs text-warn">
             ランタイムが利用できないため、画像APIキーの登録・上書き・削除はできません。サーバーの起動ログを確認してください。
@@ -66,10 +76,7 @@ export function ImageSettingsTab({
         <SecurityNotice />
 
         <section className="grid gap-1.5">
-          <div className="flex flex-wrap items-center gap-2">
-            <div className="text-2xs font-semibold tracking-label text-ink-faint uppercase">APIキー</div>
-            <ProviderBadgeTag badge={imageKeyStatusBadge(settings.configured)} />
-          </div>
+          <div className="text-2xs font-semibold tracking-label text-ink-faint uppercase">APIキー</div>
           <div className="flex flex-wrap items-center gap-2">
             <form
               className="flex min-w-0 flex-1 flex-wrap items-center gap-2"
@@ -107,8 +114,7 @@ export function ImageSettingsTab({
             ) : null}
           </div>
           <p className="text-2xs leading-relaxed text-ink-muted">
-            {imageProviderLabel(settings.provider)}{" "}
-            の画像生成専用のキーです。プロバイダータブで登録したキーとは別に管理し、流用しません。 キーは{" "}
+            {providerName} の画像生成専用のキーです。プロバイダータブで登録したキーとは別に管理し、流用しません。 キーは{" "}
             {API_KEY_MIN_LENGTH} 文字以上で入力します。
           </p>
         </section>
