@@ -114,6 +114,73 @@ test("同じ id は 1 件に畳み、表示名が無い / 文字列でないも�
   ]);
 });
 
+test("live の形式宣言を取り込み、保存できる形式だけを一覧に出し、宣言はキャッシュにも残す", async () => {
+  const { catalog, store } = create({
+    fetch: async () =>
+      jsonResponse({
+        data: [
+          {
+            id: "vector/only",
+            name: "Vector",
+            supported_parameters: { output_format: { type: "enum", values: ["svg"] } },
+          },
+          {
+            id: "raster/mixed",
+            name: "Mixed",
+            supported_parameters: { output_format: { type: "enum", values: ["png", "svg"] } },
+          },
+          { id: "raster/declared", name: "Declared", supported_parameters: { output_format: { values: ["jpeg"] } } },
+          { id: "declared/none", name: "None", supported_parameters: { aspect_ratio: { values: ["1:1"] } } },
+          { id: "malformed/values", name: "Malformed", supported_parameters: { output_format: { values: "svg" } } },
+          { id: "malformed/params", name: "NoParams", supported_parameters: "none" },
+        ],
+      }),
+  });
+  assert.equal(await catalog.refresh(), null);
+  assert.deepEqual(catalog.snapshot().entries, [
+    { provider: "openrouter", id: "raster/mixed", name: "Mixed" },
+    { provider: "openrouter", id: "raster/declared", name: "Declared" },
+    { provider: "openrouter", id: "declared/none", name: "None" },
+    { provider: "openrouter", id: "malformed/values", name: "Malformed" },
+    { provider: "openrouter", id: "malformed/params", name: "NoParams" },
+  ]);
+  // 一覧から落ちた svg-only も、宣言は生成前ガードとキャッシュのために残す
+  assert.deepEqual(catalog.outputFormatsOf("vector/only"), ["svg"]);
+  assert.deepEqual(catalog.outputFormatsOf("raster/mixed"), ["png", "svg"]);
+  assert.equal(catalog.outputFormatsOf("malformed/values"), undefined, "形が違う宣言は不明として読む");
+  assert.equal(catalog.outputFormatsOf("ghost/model"), undefined, "カタログに無い id は不明");
+  assert.deepEqual(store.saved, [
+    {
+      fetchedAt: 1000,
+      models: [
+        { id: "vector/only", name: "Vector", outputFormats: ["svg"] },
+        { id: "raster/mixed", name: "Mixed", outputFormats: ["png", "svg"] },
+        { id: "raster/declared", name: "Declared", outputFormats: ["jpeg"] },
+        { id: "declared/none", name: "None" },
+        { id: "malformed/values", name: "Malformed" },
+        { id: "malformed/params", name: "NoParams" },
+      ],
+    },
+  ]);
+});
+
+test("キャッシュの宣言も一覧の絞り込みと生成前ガードに使う", async () => {
+  const store = new FakeCatalogStore();
+  store.row = {
+    fetchedAt: 500,
+    models: [
+      { id: "vector/only", name: "Vector", outputFormats: ["svg"] },
+      { id: "openai/gpt-image-2", name: "GPT Image 2" },
+    ],
+  };
+  const { catalog } = create({ store, fetch: async () => jsonResponse({ error: "boom" }, 503) });
+  catalog.loadStored();
+  assert.deepEqual(catalog.snapshot().entries, [
+    { provider: "openrouter", id: "openai/gpt-image-2", name: "GPT Image 2" },
+  ]);
+  assert.deepEqual(catalog.outputFormatsOf("vector/only"), ["svg"]);
+});
+
 test("失敗は固定文言へ分類し、一覧は前のまま保つ", async () => {
   const cases: { response: Response; error: string }[] = [
     { response: jsonResponse({ error: "boom" }, 429), error: IMAGE_CATALOG_ERROR_RATE_LIMITED },

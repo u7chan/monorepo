@@ -706,6 +706,7 @@ export async function createPiBff({ cwd = process.cwd() }: { cwd?: string } = {}
           workspace: sandboxClient,
           masker: secretMasker,
           readSettings: () => imageGeneration.config?.read(),
+          readOutputFormats: (model) => imageGeneration.config?.readOutputFormats(model),
           generate: imagesGenerator.generate,
         }),
       ],

@@ -52,6 +52,7 @@ function tool(options: {
     | { provider: string; model: string; apiKey: string }
     | undefined
     | (() => { provider: string; model: string; apiKey: string } | undefined);
+  outputFormats?: (model: string) => readonly string[] | undefined;
   generate?: (input: Capture["generated"][number]) => Promise<unknown>;
   workspaceResult?: (input: SandboxUploadInput) => { path: string; name: string; renamed: boolean; size: number };
 }): AnyTool {
@@ -62,6 +63,7 @@ function tool(options: {
     workspace: fakeWorkspace(options.capture, options.workspaceResult),
     masker: options.masker ?? createMutableSecretMasker([]),
     readSettings: () => (typeof settingsOption === "function" ? settingsOption() : settingsOption),
+    readOutputFormats: options.outputFormats ?? (() => undefined),
     generate: async (input) => {
       options.capture.generated.push(input);
       if (options.generate) return (await options.generate(input)) as never;
@@ -140,6 +142,7 @@ test("ツール一覧は有効なときだけ generate_image を足す", () => {
       workspace: {} as SandboxWorkspaceClient,
       masker: createMutableSecretMasker([]),
       readSettings: () => undefined,
+      readOutputFormats: () => undefined,
       generate: async () => ({ ok: false, code: "unknown", message: "x" }),
     }),
     [],
@@ -271,15 +274,44 @@ test("設定の読取失敗と provider の失敗はマスクを通して throw 
   assert.equal(capture.generated.length, 1, "拒否した path で生成を呼んでいない");
 });
 
-test("mimeType が未知なら保存せずに失敗する", async () => {
+test("mimeType が未知なら保存せず、生成済みで課金されていることまで文言に載せる", async () => {
   const capture: Capture = { uploads: [], bodies: [], generated: [] };
   const execute = tool({
     capture,
     settings,
     generate: async () => ({ ok: true, image: { mimeType: "image/svg+xml", data: "PHN2Zz4=" } }),
   });
-  await assert.rejects(() => run(execute, { prompt: "cafe" }), /対応していない画像形式/);
+  const error = await run(execute, { prompt: "cafe" }).then(
+    () => undefined,
+    (failure: unknown) => failure,
+  );
+  assert.ok(error instanceof Error);
+  assert.match(error.message, /対応していない画像形式/);
+  assert.match(error.message, /生成は完了しており、クレジットは消費されています/);
+  assert.match(error.message, /別の画像モデル/);
   assert.equal(capture.uploads.length, 0);
+});
+
+test("保存できる形式を宣言していないモデルは provider を叩く前に止める", async () => {
+  const capture: Capture = { uploads: [], bodies: [], generated: [] };
+  const execute = tool({ capture, settings, outputFormats: () => ["svg"] });
+  const error = await run(execute, { prompt: "cafe" }).then(
+    () => undefined,
+    (failure: unknown) => failure,
+  );
+  assert.ok(error instanceof Error);
+  assert.match(error.message, /生成は行っていません/);
+  assert.match(error.message, /クレジットは消費していません/);
+  assert.match(error.message, /別の画像モデル/);
+  assert.equal(capture.generated.length, 0, "生成 API を叩く前に止める");
+});
+
+test("形式が不明 / 保存できる形式を含む宣言のモデルは止めない", async () => {
+  const capture: Capture = { uploads: [], bodies: [], generated: [] };
+  for (const formats of [undefined, [], ["svg", "png"], ["webp"]]) {
+    await run(tool({ capture, settings, outputFormats: () => formats }), { prompt: "cafe" });
+  }
+  assert.equal(capture.generated.length, 4, "宣言が不明なときは従来どおり送る");
 });
 
 test("中断は provider 呼び出しへ signal を渡す", async () => {

@@ -3,8 +3,8 @@
  * 前回の成功（アプリ DB のキャッシュ）→ SDK 同梱カタログの順に落とす。一覧 API は API キーを見ないため、
  * 取得はキーの有無・有効性と独立に扱う（正は docs/image-generation.md）。
  */
-import type { ImageCatalogRow } from "./app-db";
-import { IMAGE_PROVIDER_ID, imageModelCatalog, type ImageCatalogEntry } from "./images";
+import type { ImageCatalogModelRow, ImageCatalogRow } from "./app-db";
+import { IMAGE_PROVIDER_ID, imageModelCatalog, isUnsaveableOutputOnly, type ImageCatalogEntry } from "./images";
 
 /** いま表示している一覧の出どころ。live 以外は取得に失敗した状態を表す */
 export type ImageCatalogSource = "live" | "stored" | "sdk";
@@ -34,8 +34,10 @@ export interface ImageCatalogOptions {
 }
 
 export interface ImageCatalog {
-  /** 表示と検証に使う現在の一覧。同期で例外を投げない */
+  /** 表示と検証に使う現在の一覧。保存できる形式を宣言した（または宣言が無い）モデルだけを返す */
   snapshot(): ImageCatalogSnapshot;
+  /** 形式の宣言。一覧から落ちたモデルも引ける（生成前ガード用）。未知名・宣言なしは undefined */
+  outputFormatsOf(model: string): string[] | undefined;
   /** キャッシュを読む（live は試さない）。読めなければ SDK 同梱のままにする */
   loadStored(): void;
   /** live を試す。失敗しても一覧を保ち、UI 注記用の固定文言を返す（成功は null） */
@@ -54,7 +56,36 @@ export const IMAGE_CATALOG_ERROR_UNKNOWN = "モデル一覧を取得できませ
 /** 取得失敗の分類。上流の原文はログにも UI にも出さず、この 3 つへ寄せる */
 type FetchOutcome = { entries: ImageCatalogEntry[]; fetchedAt: number } | { error: string };
 
-/** `data[]` から id / 表示名を読む。1 件も読めない応答は契約外として失敗にする */
+/**
+ * live 応答の `supported_parameters.output_format.values` を読む。宣言が無い / 形が違うときは undefined
+ * （＝不明）として扱い、一覧の絞り込みも生成前ガードも動かさない。
+ */
+function declaredFormatsOf(item: object): string[] | undefined {
+  const parameters = (item as { supported_parameters?: unknown }).supported_parameters;
+  if (typeof parameters !== "object" || parameters === null) return undefined;
+  const outputFormat = (parameters as { output_format?: unknown }).output_format;
+  if (typeof outputFormat !== "object" || outputFormat === null) return undefined;
+  const values = (outputFormat as { values?: unknown }).values;
+  if (!Array.isArray(values)) return undefined;
+  const formats = values.filter((value): value is string => typeof value === "string" && value.trim() !== "");
+  return formats.length === 0 ? undefined : formats;
+}
+
+/** キャッシュの 1 件。宣言が無い行（この項目より前に書かれたキャッシュ）は「不明」として読む */
+function entryOf(model: ImageCatalogModelRow): ImageCatalogEntry {
+  return model.outputFormats
+    ? { provider: IMAGE_PROVIDER_ID, id: model.id, name: model.name, outputFormats: model.outputFormats }
+    : { provider: IMAGE_PROVIDER_ID, id: model.id, name: model.name };
+}
+
+/** カタログ 1 件をキャッシュ行へ。宣言が無いときは鍵ごと落とす（見分けの付く JSON にする） */
+function cacheModelOf(entry: ImageCatalogEntry): ImageCatalogModelRow {
+  return entry.outputFormats
+    ? { id: entry.id, name: entry.name, outputFormats: entry.outputFormats }
+    : { id: entry.id, name: entry.name };
+}
+
+/** `data[]` から id / 表示名 / 形式の宣言を読む。1 件も読めない応答は契約外として失敗にする */
 function entriesOf(body: unknown): ImageCatalogEntry[] | undefined {
   if (typeof body !== "object" || body === null) return undefined;
   const data = (body as { data?: unknown }).data;
@@ -66,7 +97,13 @@ function entriesOf(body: unknown): ImageCatalogEntry[] | undefined {
     const { id, name } = item as { id?: unknown; name?: unknown };
     if (typeof id !== "string" || id === "" || seen.has(id)) continue;
     seen.add(id);
-    entries.push({ provider: IMAGE_PROVIDER_ID, id, name: typeof name === "string" ? name : "" });
+    const outputFormats = declaredFormatsOf(item);
+    entries.push({
+      provider: IMAGE_PROVIDER_ID,
+      id,
+      name: typeof name === "string" ? name : "",
+      ...(outputFormats ? { outputFormats } : {}),
+    });
   }
   return entries.length === 0 ? undefined : entries;
 }
@@ -78,19 +115,20 @@ export function createImageCatalog(options: ImageCatalogOptions): ImageCatalog {
   const now = options.now ?? (() => Date.now());
   const timeoutMs = options.timeoutMs ?? IMAGE_CATALOG_TIMEOUT_MS;
 
-  let snapshot: ImageCatalogSnapshot = { entries: [...sdkCatalog()], source: "sdk", fetchedAt: null };
+  let entries: ImageCatalogEntry[] = [...sdkCatalog()];
+  let source: ImageCatalogSource = "sdk";
+  let fetchedAt: number | null = null;
 
   /**
    * 取得成功を採用する。メモリを先に更新し、キャッシュ保存の失敗は次の起動で前回の一覧が消えるだけなので
    * ログに留める（いま返している一覧は live のままで正しい）。
    */
   const adopt = (outcome: { entries: ImageCatalogEntry[]; fetchedAt: number }): void => {
-    snapshot = { entries: outcome.entries, source: "live", fetchedAt: outcome.fetchedAt };
+    entries = outcome.entries;
+    source = "live";
+    fetchedAt = outcome.fetchedAt;
     try {
-      store.saveImageCatalog({
-        fetchedAt: outcome.fetchedAt,
-        models: outcome.entries.map(({ id, name }) => ({ id, name })),
-      });
+      store.saveImageCatalog({ fetchedAt: outcome.fetchedAt, models: outcome.entries.map(cacheModelOf) });
     } catch {
       console.warn("[u7agent] image catalog cache save failed");
     }
@@ -126,17 +164,25 @@ export function createImageCatalog(options: ImageCatalogOptions): ImageCatalog {
   };
 
   return {
-    snapshot: () => snapshot,
+    snapshot: () => ({
+      // 形式が不明なモデル（SDK 同梱・古いキャッシュ）は落とさない。宣言はサーバー側の判定にだけ使い、
+      // 形式を選べない UI へは載せない（載せても使う先が無く、応答の形だけが広がる）
+      entries: entries
+        .filter((entry) => !isUnsaveableOutputOnly(entry.outputFormats))
+        .map(({ provider, id, name }) => ({ provider, id, name })),
+      source,
+      fetchedAt,
+    }),
+
+    outputFormatsOf: (model) => entries.find((entry) => entry.id === model)?.outputFormats,
 
     loadStored: () => {
       try {
         const stored = store.readImageCatalog();
         if (!stored) return;
-        snapshot = {
-          entries: stored.models.map(({ id, name }) => ({ provider: IMAGE_PROVIDER_ID, id, name })),
-          source: "stored",
-          fetchedAt: stored.fetchedAt,
-        };
+        entries = stored.models.map(entryOf);
+        source = "stored";
+        fetchedAt = stored.fetchedAt;
       } catch (error) {
         console.warn(
           `[u7agent] image catalog cache unavailable: ${error instanceof Error ? error.message : String(error)}`,

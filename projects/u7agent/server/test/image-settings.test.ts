@@ -54,6 +54,8 @@ class FakeImageDb implements ImageSettingsDb {
 function createFakeCatalog(
   options: {
     models?: { provider: string; id: string; name: string }[];
+    /** モデル id → 形式の宣言。生成前ガードへ渡る値をここで固定する */
+    outputFormats?: Record<string, string[]>;
     source?: ImageCatalogSnapshot["source"];
     fetchedAt?: number | null;
     refreshError?: string | null;
@@ -71,6 +73,7 @@ function createFakeCatalog(
   };
   const catalog: ImageCatalog = {
     snapshot: () => state.snapshot,
+    outputFormatsOf: (model) => options.outputFormats?.[model],
     loadStored: () => {
       state.loadedStored += 1;
     },
@@ -87,6 +90,7 @@ function createService(
     db?: FakeImageDb;
     runtimeAvailable?: boolean;
     models?: { provider: string; id: string; name: string }[];
+    outputFormats?: Record<string, string[]>;
     source?: ImageCatalogSnapshot["source"];
     fetchedAt?: number | null;
     refreshError?: string | null;
@@ -146,6 +150,15 @@ test("キー登録はマスカー → DB → 注入の順に通し、行が無�
   assert.equal(catalog.refreshes, 0, "キー保存は外部 API を待たない");
   assert.equal(configs.at(-1)?.enabled, true);
   assert.deepEqual(configs.at(-1)?.read(), db.row, "注入した read は現在の行を返す");
+});
+
+test("注入した config は一覧から落ちたモデルの形式宣言も引ける（生成前ガードの経路）", async () => {
+  const { service, latest } = createService({
+    outputFormats: { "recraft/recraft-v4.1-vector": ["svg"] },
+  });
+  await service.putKey(KEY);
+  assert.deepEqual(latest()?.readOutputFormats("recraft/recraft-v4.1-vector"), ["svg"]);
+  assert.equal(latest()?.readOutputFormats(DEFAULT_IMAGE_MODEL), undefined, "宣言なし・未知名は止めない");
 });
 
 test("カタログの再取得は失敗しても一覧を返し、固定文言だけを catalogError に載せる", async () => {
