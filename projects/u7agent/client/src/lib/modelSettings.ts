@@ -537,8 +537,8 @@ export interface CandidateGroup {
 /**
  * モデル候補の表示集合。認証済み provider のカタログ全件と、カタログ外の残存エントリ（外すまで
  * 保存できないため必ず出す）の和集合にする。認証の無い provider は下書きに選択が残っていても
- * 出さない（`pruneAvailabilityDraft()` と同じ判定で、表示と保存の対象を揃える）。並びは利用可能
- * モデル数の降順、同数ならカタログ順（表示順だけ）。
+ * 出さない（`pruneAvailabilityDraft()` と同じ判定で、表示と保存の対象を揃える）。並びは
+ * 「プロバイダー」タブと同じカタログ順にし、カタログに無い残存は下書きの順でうしろへ足す（表示順だけ）。
  */
 export function candidateGroups(
   draft: AvailabilityDraft,
@@ -626,9 +626,7 @@ export function candidateGroups(
     };
   });
 
-  return groups
-    .filter((group) => group.authenticated || group.rows.length > 0)
-    .sort((left, right) => right.availableCount - left.availableCount);
+  return groups.filter((group) => group.authenticated || group.rows.length > 0);
 }
 
 /**

@@ -523,7 +523,7 @@ test("候補は認証済み provider のカタログ全件とカタログ外の�
   );
 });
 
-test("候補の並びは利用可能モデル数の降順で、同数ならカタログ順を保つ", () => {
+test("候補の並びはカタログ順で、プロバイダー一覧と同じ順を保つ", () => {
   const catalog: RuntimeModelsResponse = {
     ...CATALOG,
     providers: [
@@ -552,11 +552,11 @@ test("候補の並びは利用可能モデル数の降順で、同数ならカ�
   assert.deepEqual(
     groups.map((group) => [group.provider, group.rows.length]),
     [
-      ["second", 3],
       ["first", 1],
+      ["second", 3],
       ["third", 1],
     ],
-    "利用不可の行も group に含め、available 数同数はカタログ順を保つ",
+    "利用不可の行も group に含め、利用可能数の多い provider を先頭に動かさない",
   );
 });
 
