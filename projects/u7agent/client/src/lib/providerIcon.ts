@@ -2,6 +2,7 @@
  * provider ロゴのキー解決と、ロゴが無い provider の頭文字。
  * 一覧・詳細・モデル候補で同じ provider が同じ見た目になるよう、対応表はここ 1 箇所に保つ
  * （パス本体は下の PROVIDER_ICON_PATHS。新しい provider を足すときは両方へ足す）。
+ * 取り込んだパスの帰属表示は client/public/THIRD_PARTY_NOTICES.txt に置き、配布物へ同梱する。
  */
 
 /** pi SDK の builtin provider id をロゴへ寄せる表。派生 id（-cn など）も同じロゴにする */
@@ -48,18 +49,26 @@ const PROVIDER_ICON_KEYS: Record<string, ProviderIconKey> = {
   "zai-coding-cn": "zai",
 };
 
-/** ロゴが無い provider（カスタム / SDK の新顔）は null を返し、呼び出し側は頭文字のタイルへ落とす */
+/** ロゴが無い provider（radius などの gateway / カスタム / SDK の新顔）は null を返し、頭文字のタイルへ落とす */
 export function providerIconKey(provider: string): ProviderIconKey | null {
   return PROVIDER_ICON_KEYS[provider] ?? null;
+}
+
+/** 語の先頭 1 書記素。結合文字（か + ゙ = が）をコードポイントで割らない */
+const GRAPHEME_SEGMENTER = new Intl.Segmenter(undefined, { granularity: "grapheme" });
+
+function firstGrapheme(word: string): string {
+  return [...GRAPHEME_SEGMENTER.segment(word)][0]?.segment ?? "";
 }
 
 /** ロゴの無い provider 用の 1〜2 文字。名前の語頭を優先し、名前が無ければ provider id の語頭を使う */
 export function providerMonogram(name: string, provider: string): string {
   const source = name.trim() === "" ? provider.trim() : name.trim();
-  const words = source.split(/[^\p{L}\p{N}]+/u).filter((word) => word !== "");
+  // 語の区切りに結合文字 (\p{M}) を含める。分解形の「が」を「か」と「゙」に割らない
+  const words = source.split(/[^\p{L}\p{N}\p{M}]+/u).filter((word) => word !== "");
   const [first, second] = words;
   if (first === undefined) return "?";
-  const initials = second === undefined ? [...first][0] : `${[...first][0]}${[...second][0]}`;
+  const initials = second === undefined ? firstGrapheme(first) : `${firstGrapheme(first)}${firstGrapheme(second)}`;
   return initials.toUpperCase();
 }
 
