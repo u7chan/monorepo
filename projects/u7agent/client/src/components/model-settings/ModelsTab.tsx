@@ -380,11 +380,10 @@ function CandidateGroupSection({
             <p className="px-1 py-1 text-2xs text-ink-muted">この provider のモデルはありません。</p>
           ) : (
             <>
-              <div className={cn("flex items-center gap-x-3 px-1 text-3xs text-ink-muted", compact ? "" : "pr-4")}>
+              <div className="flex items-center gap-x-3 px-1 text-3xs text-ink-muted">
                 <span aria-hidden className="size-4 shrink-0" />
                 <span className="min-w-0 flex-1">モデル</span>
                 {compact ? null : <span className="min-w-0 flex-1">ID</span>}
-                <span className="w-20 shrink-0 text-right">利用可能</span>
               </div>
               {group.rows.map((row) => (
                 <label
@@ -405,14 +404,6 @@ function CandidateGroupSection({
                       {row.key}
                     </code>
                   )}
-                  <span
-                    className={cn(
-                      "w-20 shrink-0 text-right text-2xs whitespace-nowrap",
-                      row.available ? "text-ok" : "text-ink-ghost",
-                    )}
-                  >
-                    {row.available ? "はい" : "いいえ"}
-                  </span>
                 </label>
               ))}
             </>
