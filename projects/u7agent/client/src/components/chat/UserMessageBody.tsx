@@ -1,5 +1,6 @@
 import { useLayoutEffect, useId, useRef, useState, type CSSProperties } from "react";
 import { cn } from "../../lib/cn";
+import { measureUserMessageClamp } from "../../lib/userMessage";
 import { CollapseChevronIcon } from "../icons";
 
 /**
@@ -10,6 +11,8 @@ import { CollapseChevronIcon } from "../icons";
 export function UserMessageBody({ text }: { text: string }) {
   const bodyRef = useRef<HTMLDivElement>(null);
   const bodyId = useId();
+  // 確定済みの clamp の高さ (px)。縮小の遷移中は clientHeight が動くため、判定の基準をこちらへ固定する
+  const clampHeightRef = useRef(0);
   // 切り取る高さを超えているか。開閉ボタンとフェードの出し分けに使う
   const [clamped, setClamped] = useState(false);
   const [expanded, setExpanded] = useState(false);
@@ -20,13 +23,15 @@ export function UserMessageBody({ text }: { text: string }) {
     const el = bodyRef.current;
     if (!el) return;
     const measure = () => {
-      // 開いている間は clientHeight も全文の高さになるため、あふれの判定に使えない
-      // (scrollHeight は切り取り中でも全文の高さを返す)
-      if (expanded) {
-        setOpenHeight(el.scrollHeight);
-        return;
-      }
-      setClamped(el.scrollHeight > el.clientHeight + 1);
+      // 開いている間も scrollHeight は全文の高さを返す
+      if (expanded) setOpenHeight(el.scrollHeight);
+      const next = measureUserMessageClamp({
+        scrollHeight: el.scrollHeight,
+        clientHeight: el.clientHeight,
+        clampHeight: clampHeightRef.current,
+      });
+      clampHeightRef.current = next.clampHeight;
+      setClamped(next.clamped);
     };
     measure();
     // display: none で mount された (設定ページを開いた状態で起動) ときは、
