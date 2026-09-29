@@ -783,6 +783,56 @@ test("migrates a v8 db additively and keeps the image catalog cache across reope
   }
 });
 
+test("the image catalog cache keeps the output format declaration across reopen", () => {
+  const dir = tempStoreDir();
+  try {
+    const db = AppDb.open({ storeDir: dir });
+    db.saveImageCatalog({
+      fetchedAt: 1000,
+      models: [
+        { id: "recraft/recraft-v4.1-vector", name: "Recraft V4.1 Vector", outputFormats: ["svg"] },
+        { id: "openai/gpt-image-2", name: "GPT Image 2" },
+      ],
+    });
+    assert.deepEqual(db.readImageCatalog(), {
+      fetchedAt: 1000,
+      models: [
+        { id: "recraft/recraft-v4.1-vector", name: "Recraft V4.1 Vector", outputFormats: ["svg"] },
+        { id: "openai/gpt-image-2", name: "GPT Image 2" },
+      ],
+    });
+    db.close();
+
+    const second = AppDb.open({ storeDir: dir });
+    assert.deepEqual(second.readImageCatalog(), {
+      fetchedAt: 1000,
+      models: [
+        { id: "recraft/recraft-v4.1-vector", name: "Recraft V4.1 Vector", outputFormats: ["svg"] },
+        { id: "openai/gpt-image-2", name: "GPT Image 2" },
+      ],
+    });
+    second.close();
+
+    // outputFormats は任意フィールドなので migration は不要。形が違う宣言は「宣言なし」として読み、
+    // id / 表示名が正しい行まで捨てない（この項目より前のキャッシュが宣言なしで読めるのと同じ扱い）
+    const raw = new DatabaseSync(join(dir, APP_DB_FILENAME));
+    raw
+      .prepare("UPDATE image_catalog SET models = ? WHERE id = 1")
+      .run(JSON.stringify([{ id: "openai/gpt-image-2", name: "GPT Image 2", outputFormats: "svg" }]));
+    raw.close();
+
+    const third = AppDb.open({ storeDir: dir });
+    assert.deepEqual(third.readImageCatalog(), {
+      fetchedAt: 1000,
+      models: [{ id: "openai/gpt-image-2", name: "GPT Image 2" }],
+    });
+    assert.equal(third.status().ok, true, "任意フィールドの形違いで行を捨てない");
+    third.close();
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("a broken image catalog cache row reads as unset", () => {
   const dir = tempStoreDir();
   try {

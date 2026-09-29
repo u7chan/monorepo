@@ -6,7 +6,14 @@
 import { Type, type Static } from "@earendil-works/pi-ai";
 import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { messageFor } from "./http";
-import type { GeneratedImage, ImageGenerationResult, ImageGenerationSettings } from "./images";
+import {
+  isUnsaveableOutputOnly,
+  saveableImageFormat,
+  type GeneratedImage,
+  type ImageGenerationResult,
+  type ImageGenerationSettings,
+  type SaveableImageFormat,
+} from "./images";
 import type { SandboxWorkspaceClient } from "./sandbox/client";
 import { wrapToolDefinitionWithSecretMasker } from "./secret-guard";
 import type { SecretMasker } from "./redact";
@@ -26,6 +33,10 @@ export const IMAGE_TOOL_GUIDELINES = [
   "Use generate_image only when the user asks for a new image; it costs provider credits.",
   "After generating, show the saved file as a Markdown image with its working-directory-relative path instead of pasting the path alone.",
 ];
+
+/** 保存できる形式を 1 つも宣言していないモデルを生成前に止めるときの文言。課金前であることを明示する */
+export const IMAGE_TOOL_UNSAVEABLE_MODEL_MESSAGE =
+  "この画像モデルは png / jpeg / webp を返さないため、生成は行っていません（クレジットは消費していません）。設定 → モデル で別の画像モデルを選んでください";
 
 /** 有効なときだけ system prompt へ足す 2 行。生成物の場所と本文での示し方を固定する */
 export const IMAGE_GENERATION_PROMPT_LINES = [
@@ -94,13 +105,16 @@ export function imageSlug(prompt: string, now: number): string {
   return `image-${stamp}`;
 }
 
-/** 保存拡張子は mimeType から決める（provider の応答を正とする） */
-export function imageExtensionFor(mimeType: string): "png" | "jpeg" | "webp" {
-  const normalized = mimeType.toLowerCase().split(";")[0]?.trim();
-  if (normalized === "image/png") return "png";
-  if (normalized === "image/jpeg" || normalized === "image/jpg") return "jpeg";
-  if (normalized === "image/webp") return "webp";
-  throw new Error(`対応していない画像形式です: ${mimeType}`);
+/**
+ * 保存拡張子は mimeType から決める（provider の応答を正とする）。ここへ来るのは生成成功の後だけなので、
+ * 課金済みであることと次に取れる行動まで文言に含める。
+ */
+export function imageExtensionFor(mimeType: string): SaveableImageFormat {
+  const extension = saveableImageFormat(mimeType);
+  if (extension) return extension;
+  throw new Error(
+    `対応していない画像形式です: ${mimeType}（生成は完了しており、クレジットは消費されています）。設定 → モデル で別の画像モデルを選んでください`,
+  );
 }
 
 /** セッション cwd（root 相対）を前置する 1 段。projects.ts の cwd 解決とは混ぜない */
@@ -131,6 +145,8 @@ export interface ImageToolDefinitionOptions {
   masker: SecretMasker;
   /** 実行のたびに読む。未設定・削除後は undefined（キー無効エラー） */
   readSettings: () => ImageGenerationSettings | undefined;
+  /** 実行のたびに読むカタログの形式宣言。未知名・宣言なしは undefined（＝止めない） */
+  readOutputFormats: (model: string) => readonly string[] | undefined;
   generate: (input: {
     provider: string;
     model: string;
@@ -151,9 +167,13 @@ export function createImageToolDefinitions(options: ImageToolDefinitionOptions):
     parameters: generateImageSchema,
     constrainedSampling: { type: "json_schema", strict: "prefer" },
     async execute(_toolCallId, params: GenerateImageParams, signal) {
-      // 支出の前に path を検証する。dir と name は実際に保存するまで確定しない
+      // 支出の前に path と形式を検証する。dir と name は実際に保存するまで確定しない
       const explicit = params.path === undefined ? undefined : parseImageToolPath(params.path);
       const settings = readCurrentSettings(options.readSettings);
+      // 保存名を決める段で初めて分かると生成だけが成功して課金が残るため、provider を叩く前に止める
+      if (isUnsaveableOutputOnly(options.readOutputFormats(settings.model))) {
+        throw new Error(IMAGE_TOOL_UNSAVEABLE_MODEL_MESSAGE);
+      }
       const result = await options.generate({
         provider: settings.provider,
         model: settings.model,

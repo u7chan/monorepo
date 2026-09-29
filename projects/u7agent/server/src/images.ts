@@ -33,6 +33,37 @@ export interface ImageCatalogEntry {
   provider: string;
   id: string;
   name: string;
+  /**
+   * live 一覧が宣言する出力形式（`supported_parameters.output_format.values`）。宣言が無い / 形が違うときは
+   * 載せない（＝形式は不明）。SDK 同梱カタログと、この項目より前に書かれたキャッシュがこれにあたる。
+   */
+  outputFormats?: string[] | undefined;
+}
+
+/** 保存できる画像形式の拡張子。`imageExtensionFor` の戻り値と一致させる */
+export type SaveableImageFormat = "png" | "jpeg" | "webp";
+
+/**
+ * 形式の表記を保存できる形式へ寄せる。宣言（live の `output_format`）は短い名前で、応答の media_type は
+ * mimeType で来るため、両方を受けて保存側と判定を揃える。`image/jpg` は provider 側の揺れとして jpeg にする。
+ */
+export function saveableImageFormat(value: string): SaveableImageFormat | undefined {
+  const normalized = value.toLowerCase().split(";")[0]?.trim();
+  if (normalized === "png" || normalized === "image/png") return "png";
+  if (normalized === "jpeg" || normalized === "jpg" || normalized === "image/jpeg" || normalized === "image/jpg") {
+    return "jpeg";
+  }
+  if (normalized === "webp" || normalized === "image/webp") return "webp";
+  return undefined;
+}
+
+/**
+ * 保存できない形式だけを宣言していると「分かっている」か。宣言が無い / 空（＝不明）のときは false = 止めない。
+ * 一覧の絞り込みと生成前ガードの両方がこの 1 つを使い、保存側の `imageExtensionFor` と同じ表を見る。
+ */
+export function isUnsaveableOutputOnly(outputFormats: readonly string[] | undefined): boolean {
+  if (!outputFormats || outputFormats.length === 0) return false;
+  return !outputFormats.some((format) => saveableImageFormat(format) !== undefined);
 }
 
 /** 画像生成の provider。v1 は openrouter 固定で、他は設定 API が 400 にする */
@@ -50,6 +81,11 @@ export interface ImageGenerationConfig {
   enabled: boolean;
   /** 実行のたびに現在の設定を読む。行が無ければ undefined（未設定・削除後） */
   read: () => ImageGenerationSettings | undefined;
+  /**
+   * 実行のたびにカタログの形式宣言を引く。未知名・宣言なし（SDK 同梱カタログなど）は undefined。
+   * 保存できる形式を 1 つも宣言していないモデルを provider へ送る前に止めるために使う。
+   */
+  readOutputFormats: (model: string) => readonly string[] | undefined;
 }
 
 export interface ImageGenerationInput {

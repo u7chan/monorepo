@@ -51,10 +51,12 @@ export interface ImageSettingsRow {
   apiKey: string;
 }
 
-/** カタログ 1 件の保存形。provider は v1 では openrouter 固定なので id と表示名だけを残す */
+/** カタログ 1 件の保存形。provider は v1 では openrouter 固定なので id と表示名、あれば形式の宣言を残す */
 export interface ImageCatalogModelRow {
   id: string;
   name: string;
+  /** live が宣言する出力形式。無い行（この項目より前のキャッシュ）は「宣言なし」として読む */
+  outputFormats?: string[] | undefined;
 }
 
 /**
@@ -331,9 +333,13 @@ function imageCatalogModelsOf(value: unknown): ImageCatalogModelRow[] | undefine
   const models: ImageCatalogModelRow[] = [];
   for (const entry of parsed) {
     if (typeof entry !== "object" || entry === null) return undefined;
-    const { id, name } = entry as { id?: unknown; name?: unknown };
+    const { id, name, outputFormats } = entry as { id?: unknown; name?: unknown; outputFormats?: unknown };
     if (typeof id !== "string" || id === "" || typeof name !== "string") return undefined;
-    models.push({ id, name });
+    // 形式の宣言は任意フィールド。形が違えば「宣言なし」として読み、id / 表示名が正しい行まで捨てない
+    const formats = Array.isArray(outputFormats)
+      ? outputFormats.filter((format): format is string => typeof format === "string" && format !== "")
+      : [];
+    models.push(formats.length > 0 ? { id, name, outputFormats: formats } : { id, name });
   }
   return models;
 }
