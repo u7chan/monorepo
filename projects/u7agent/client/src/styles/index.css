@@ -58,6 +58,23 @@
       transform: translateX(0);
     }
   }
+
+  /* 追従が外れたときに浮かぶ「最新へ」ボタンの出現用 (下からふわっと)。呼び出し側の
+   * -translate-x-1/2 は Tailwind v4 では translate プロパティなので、ここで translate を
+   * 動かすと中央寄せが崩れる。transform と scale だけを動かす */
+  --animate-float-in: float-in 200ms ease-out;
+  @keyframes float-in {
+    from {
+      opacity: 0;
+      transform: translateY(6px);
+      scale: 0.96;
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+      scale: 1;
+    }
+  }
 }
 
 /* セマンティックトークン → ユーティリティ。inline オプションにより、ユーティリティは

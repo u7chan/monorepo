@@ -15,7 +15,8 @@ export function ScrollToBottomButton({ onClick, className }: ScrollToBottomButto
       onClick={onClick}
       aria-label="最新のメッセージへ移動"
       className={cn(
-        "grid size-9 place-items-center rounded-full border border-line bg-raised text-ink-soft shadow-md transition-colors hover:border-accent/50 hover:text-accent-text",
+        // 出現は下からふわっと (定義は styles/index.css の @theme)
+        "grid size-9 animate-float-in place-items-center rounded-full border border-line bg-raised text-ink-soft shadow-md transition-colors hover:border-accent/50 hover:text-accent-text",
         className,
       )}
     >
