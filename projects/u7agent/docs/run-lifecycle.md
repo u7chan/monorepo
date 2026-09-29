@@ -51,7 +51,7 @@ message_end(assistant, error, usage.total = 0)  失敗試行
 
 ### 失敗した試行の表示取り消し
 
-- 再試行対象の失敗 assistant の途中テキストは表示から取り消し、次の試行のテキストと連結しない。確定済みのツール実行・結果と、先行する正常な assistant は消さない。生の SDK 履歴 / JSONL は改変せず、**SDK の現在のセッション投影（`session.messages`）を表示の正**とする。
+- 再試行対象の失敗 assistant の途中テキストは表示から取り消し、次の試行のテキストと連結しない。確定済みのツール実行・結果と、先行する正常な assistant は消さない。生の SDK 履歴 / JSONL は改変せず、**SDK の現在のセッション投影（`session.messages`）を表示の正**とする。取り消すのは未確定の assistant バブルだけで、実行中ツールのカードはクライアントが run 側の状態（`payload.run.toolCalls` / `ChatState.runTools`）から現在ターンの assistant バブルへ補う（[frontend.md](frontend.md#チャット状態とレンダリング)）。
 - `auto_retry_start` は SDK が失敗メッセージを除外する**前**に届く。同じく `entry_appended(context_edit)` の時点でも投影はまだ古い。BFF はこのイベントの listener で同期 resync せず、microtask で 1 拍置いてから、そのランが実行中であることを確認して `resync` を 1 件配る。クライアントはこの `resync` で失敗試行のバブルを取り消し、以降の `text` を新しい試行として表示する（ライブ / SSE リプレイ / 再読み込みで同じ `messages` になる）。
 - 除外が確定した時点で、BFF の保留 delta・`currentAssistantText`・応答時間の計測起点は試行単位で破棄する（保留分を flush して次の試行へ連結しない）。
 - `finalize()` の最終テキスト補完と完了通知の本文は、**このランで `message_end` を観測し、かつ最終投影に残っている assistant** だけを対象にする。前のランの本文や除外された失敗試行を補完・再表示しない。

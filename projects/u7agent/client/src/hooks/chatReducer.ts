@@ -34,6 +34,12 @@ export type ChatState = {
   nextId: number;
   currentAssistantId: number | null;
   toolBubbleIds: Record<string, number>;
+  /**
+   * 直近 run のツールカード (toolCallId -> ToolCall)。ライブの tool_start / tool_end と resync の
+   * payload.run.toolCalls が正で、履歴ページにまだ投影されていないカードを補完する元データ。
+   * runEnd では消さない (終了後に遅れて適用される履歴ページへ補うため)
+   */
+  runTools: Record<string, ToolCall>;
   /** 表示中のセッション。切替 (resync の sessionId 変化) で履歴ページを捨てる */
   sessionId: string;
   /** 圧縮イベントの区切り位置。復元は全履歴の entry 順、旧 payload では beforeMessageIndex */
@@ -151,6 +157,7 @@ export const initialChatState: ChatState = {
   nextId: 1,
   currentAssistantId: null,
   toolBubbleIds: {},
+  runTools: {},
   sessionId: "",
   dividers: [],
   prependSeq: 0,
@@ -374,6 +381,38 @@ export function historyToBubbles(
   return { bubbles, nextId, toolBubbleIds };
 }
 
+/**
+ * 補完先 = 最後の user バブルより後にある最後の assistant バブル。無ければ undefined (保留)。
+ * entryId の有無を問わず、履歴ページ適用後の確定バブルにもライブの生成中バブルにも補う。
+ */
+function currentTurnAssistantId(bubbles: Bubble[]): number | undefined {
+  let lastUser = -1;
+  for (let index = bubbles.length - 1; index >= 0; index -= 1) {
+    if (bubbles[index].role === "user") {
+      lastUser = index;
+      break;
+    }
+  }
+  for (let index = bubbles.length - 1; index > lastUser; index -= 1) {
+    if (bubbles[index].role === "assistant") return bubbles[index].id;
+  }
+  return undefined;
+}
+
+/**
+ * run 側のツール状態を現在ターンの assistant バブルへ反映する。補完先が無いときは補完せず
+ * 保持だけする (保留)。ページを組み直す位置から呼ぶので、ID で突き合わせてべき等にする。
+ * focus は running の resync 用で、true のときだけ currentAssistantId を補完先へ向ける。
+ */
+function attachRunToolCards(state: ChatState, focus: boolean): ChatState {
+  const calls = Object.values(state.runTools);
+  if (calls.length === 0) return state;
+  const targetId = currentTurnAssistantId(state.bubbles);
+  if (targetId === undefined) return state;
+  const attached = attachToolCalls(state, targetId, calls);
+  return focus ? { ...attached, currentAssistantId: targetId } : attached;
+}
+
 function attachToolCalls(state: ChatState, bubbleId: number, toolCalls: ToolCall[]): ChatState {
   let next = state;
   for (const call of toolCalls) {
@@ -438,6 +477,10 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
       );
       // 失敗の分類コードは payload から復元する (run_end だけに依存しない)。status が error 以外なら載せない
       const runError = runErrorFrom(status, payload.run?.errorCode, payload.run?.error);
+      // 直近 run のツール状態は payload が正。run の無い resync で前の run のカードを残さず、
+      // SSE のリプレイ / 再接続の取りこぼしもここで復元する (sessionChanged でも必ず置き換わる)
+      const runTools: Record<string, ToolCall> = {};
+      for (const call of payload.run?.toolCalls ?? []) runTools[call.id] = call;
       // run が終わった合図。run_end を受け取れない復帰 (切断した SSE の resync) でも、running から
       // 抜けていれば進める (パネルの取り直しは run_end とこの 1 回で足りる)
       const runEnded = state.runStatus === "running" && status !== "running";
@@ -450,6 +493,7 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
         pendingEchoIds: state.pendingEchoIds.filter((id) => retainedEchoIds.has(id)),
         currentAssistantId: null,
         toolBubbleIds,
+        runTools,
         // 履歴モードでは区切りを履歴ページが正とし、旧 payload では messages の index から復元する
         dividers: keepHistory ? state.dividers : legacyMarkers(payload.compactions ?? []),
         history: sessionChanged ? initialChatState.history : state.history,
@@ -475,13 +519,9 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
         // ランが終わっていても結果表示用に累計を引き継ぐ (run が無い復元では前の値のまま)
         retryCount: payload.run ? payload.run.totalRetryCount : state.retryCount,
       };
-      if (payload.run?.toolCalls?.length && (status === "running" || status === "completed")) {
-        const last = [...bubbles].reverse().find((b) => b.role === "assistant");
-        if (last) {
-          next = attachToolCalls(next, last.id, payload.run.toolCalls);
-          next = { ...next, currentAssistantId: status === "running" ? last.id : null };
-        }
-      }
+      // 未投影の run 側カードを現在ターンの assistant へ補う (補完先が無ければ保留)。
+      // currentAssistantId は実行中のときだけ補完先へ向ける
+      next = attachRunToolCards(next, status === "running");
       if (status === "running") next = { ...next, activity: "実行中…（タブを閉じても処理は続きます）" };
       else if (status === "compacting") next = { ...next, activity: "会話を整理中…" };
       else if (status === "queued")
@@ -522,7 +562,7 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
           },
         };
       }
-      return applyHistoryMerge(state, bundle, page);
+      return attachRunToolCards(applyHistoryMerge(state, bundle, page), true);
     }
 
     case "historyGap": {
@@ -544,7 +584,7 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
           live: gapMerge.bubbles.filter((bubble) => bubble.entryId === undefined),
           pendingEchoIds: gapMerge.pendingEchoIds,
         });
-        if (!latestMerge.gap) return applyHistoryMerge(state, latestMerge, pending);
+        if (!latestMerge.gap) return attachRunToolCards(applyHistoryMerge(state, latestMerge, pending), true);
       }
       // 3) 欠落区間が 1 ページに収まらない / 分岐が変わった。取ってある gap ページは
       //    保留ページと連続しているので捨てずに組み込み、カーソルを gap ページ側へ進める
@@ -556,12 +596,15 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
           pendingEchoIds: rebuilt.pendingEchoIds,
         });
         // メタデータ (nextCursor / hasMore / counts) は古い方 (= gap ページ) を正とする
-        if (!withPending.gap) return applyHistoryMerge(state, withPending, action.page);
+        if (!withPending.gap) return attachRunToolCards(applyHistoryMerge(state, withPending, action.page), true);
       }
-      return applyHistoryMerge(
-        state,
-        rebuildHistoryPage(bundle, pending, { live, pendingEchoIds: state.pendingEchoIds }),
-        pending,
+      return attachRunToolCards(
+        applyHistoryMerge(
+          state,
+          rebuildHistoryPage(bundle, pending, { live, pendingEchoIds: state.pendingEchoIds }),
+          pending,
+        ),
+        true,
       );
     }
 
@@ -664,6 +707,7 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
             : rememberRunPrompt(next.runPrompts, action.runId, action.prompt),
         currentAssistantId: null,
         toolBubbleIds: {},
+        runTools: {},
         runStatus: "running",
         runStartedAt: action.startedAt,
         // 圧縮の終端では run_start より先に終端 resync が届く (回復時も残さない)
@@ -739,33 +783,55 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
     }
 
     case "text": {
-      const withBubble = ensureAssistant(state, action.at);
+      // 保留していた run 側カードは、ensureAssistant が補完先を作った時点で補う
+      const withBubble = attachRunToolCards(ensureAssistant(state, action.at), false);
       return patchAssistant(withBubble, (b) => ({ ...b, text: b.text + (action.delta || "") }));
     }
 
-    case "toolStart":
-      return addToolCard(
-        state,
-        {
-          id: action.id,
-          name: action.name || "",
-          args: action.args || "",
-          phase: "running",
-          output: "",
-          ...(action.skill ? { skill: action.skill } : {}),
-        },
-        action.at,
-      );
+    case "toolStart": {
+      const call: ToolCall = {
+        id: action.id,
+        name: action.name || "",
+        args: action.args || "",
+        isError: false,
+        done: false,
+        output: "",
+        ...(action.skill ? { skill: action.skill } : {}),
+      };
+      // 保留中の run 側カードを先に補ってから新しいカードを足す (逆順だと初回の assistant バブルで
+      // 新規が先頭になり、run 側の挿入順と逆のツール履歴になる)
+      const withBubble = attachRunToolCards(ensureAssistant(state, action.at), false);
+      const withRun = { ...withBubble, runTools: { ...withBubble.runTools, [action.id]: call } };
+      return addToolCard(withRun, toolCardOf(call), action.at);
+    }
 
     case "toolEnd": {
-      const bubbleId = state.toolBubbleIds[action.id];
-      if (bubbleId === undefined) return state;
-      return updateBubble(state, bubbleId, (b) => ({
-        ...b,
-        tools: b.tools.map((card) =>
-          card.id === action.id ? { ...card, phase: action.isError ? "failed" : "done", output: action.output } : card,
-        ),
-      }));
+      // run 側を更新してから補完する (ページ取得がツール完了前に走っていても done / failed に揃う)
+      const call = state.runTools[action.id];
+      const withRun =
+        call === undefined
+          ? state
+          : {
+              ...state,
+              runTools: {
+                ...state.runTools,
+                [action.id]: { ...call, done: true, isError: action.isError, output: action.output },
+              },
+            };
+      const bubbleId = withRun.toolBubbleIds[action.id];
+      // run 側に無い call (run の無い resync 後) でも、履歴ページのカードが索引にあれば位相を反映する
+      const withCard =
+        bubbleId === undefined
+          ? withRun
+          : updateBubble(withRun, bubbleId, (b) => ({
+              ...b,
+              tools: b.tools.map((card) =>
+                card.id === action.id
+                  ? { ...card, phase: action.isError ? "failed" : "done", output: action.output }
+                  : card,
+              ),
+            }));
+      return attachRunToolCards(withCard, false);
     }
 
     case "usage": {
