@@ -2,7 +2,7 @@
 // 描画は react-dom/server で属性と項目の並びだけを見る (開閉 / 位置 / キーボードは共有部で
 // client/test/fileRowMenu.test.ts が固定する)。実ブラウザーでの操作は手動確認に残す。
 //   1. プロジェクト行の項目は このプロジェクトに新しい会話 → プロジェクトを削除 (danger) の 2 つ
-//   2. セッション行の項目は セッションを削除 (danger) の 1 つで、通知のベルは行に残る
+//   2. セッション行の項目は 名前を変更 → セッションを削除 (danger) の 2 つで、通知のベルは行に残る
 //   3. ⋯ は常時表示 (hoverOnly をやめた) で、読み上げ名は <名前> の操作、削除はゴミ箱
 //   4. 行の選択 button と ⋯ は兄弟で、RowAction.tsx は残っていない
 import assert from "node:assert/strict";
@@ -13,7 +13,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import test from "node:test";
 import { ProjectRow } from "../src/components/sidebar/ProjectRow";
 import { SessionRow } from "../src/components/sidebar/SessionRow";
-import { projectRowActions, sessionRowActions } from "../src/lib/sidebarRowMenu";
+import { projectRowActions, sessionRenamePrompt, sessionRowActions } from "../src/lib/sidebarRowMenu";
 import type { Project, SessionSummary } from "../src/types";
 
 function read(relativePath: string): string {
@@ -24,6 +24,8 @@ function read(relativePath: string): string {
 const TRASH_MARK = "M2.75 4.5h10.5";
 /** PlusIcon の本体 (十字)。new-chat が ＋ の絵であることの目印 */
 const PLUS_MARK = "M8 3.25v9.5M3.25 8h9.5";
+/** PencilIcon の本体 (ペン先)。リネームが鉛筆の絵であることの目印 */
+const PENCIL_MARK = "M11.25 2.75l2 2-7.5 7.5-2.6.6.6-2.6z";
 
 const project: Project = { id: "p-1", name: "hello", cwd: "work/hello", createdAt: 0 };
 
@@ -39,6 +41,7 @@ function renderProjectRow(): string {
       onNewChat: () => {},
       onDelete: () => {},
       onSelectSession: () => {},
+      onRenameSession: () => {},
       onDeleteSession: () => {},
     }),
   );
@@ -58,7 +61,14 @@ function renderSessionRow(overrides: Partial<SessionSummary> = {}): string {
     ...overrides,
   };
   return renderToStaticMarkup(
-    createElement(SessionRow, { item, agents: [], active: false, onSelect: () => {}, onDelete: () => {} }),
+    createElement(SessionRow, {
+      item,
+      agents: [],
+      active: false,
+      onSelect: () => {},
+      onRename: () => {},
+      onDelete: () => {},
+    }),
   );
 }
 
@@ -69,12 +79,16 @@ function menuTrigger(html: string): string {
   return match[0];
 }
 
-test("出し分け: プロジェクト行は 新しい会話 → 削除、セッション行は 削除 だけを返す", () => {
+test("出し分け: プロジェクト行は 新しい会話 → 削除、セッション行は 名前を変更 → 削除 を返す", () => {
   assert.deepEqual(projectRowActions(), [
     { kind: "new-chat", label: "このプロジェクトに新しい会話" },
     { kind: "delete", label: "プロジェクトを削除", danger: true },
   ]);
-  assert.deepEqual(sessionRowActions(), [{ kind: "delete", label: "セッションを削除", danger: true }]);
+  assert.deepEqual(sessionRowActions(), [
+    { kind: "rename", label: "名前を変更" },
+    { kind: "delete", label: "セッションを削除", danger: true },
+  ]);
+  assert.equal(sessionRenamePrompt(), "セッションの新しい名前を入力してください。");
 });
 
 test("プロジェクト行の ⋯ は常時表示で、読み上げ名と 2 項目の並びを持つ", () => {
@@ -103,7 +117,7 @@ test("プロジェクト行の ⋯ は常時表示で、読み上げ名と 2 項
   assert.ok(html.includes('aria-expanded="false"'), "行の button が aria-expanded を持たない");
 });
 
-test("セッション行の ⋯ は 削除 の 1 項目で、通知のベルは行に残る", () => {
+test("セッション行の ⋯ は 名前を変更 → 削除 の 2 項目で、通知のベルは行に残る", () => {
   const html = renderSessionRow();
   const trigger = menuTrigger(html);
   assert.ok(trigger.includes('aria-label="テスト の操作"'), "⋯ の読み上げ名にセッション名が入っていない");
@@ -111,10 +125,14 @@ test("セッション行の ⋯ は 削除 の 1 項目で、通知のベルは�
   assert.ok(!trigger.includes("opacity-0"), "⋯ がホバー端末で隠れる");
 
   const items = html.split("<button").filter((part) => part.includes('role="menuitem"'));
-  assert.equal(items.length, 1, "項目数が違う");
-  assert.ok(html.includes("セッションを削除"), "削除の項目が無い");
-  assert.ok(items[0].includes(TRASH_MARK), "削除がゴミ箱 (TrashIcon) でない");
-  assert.ok(items[0].includes("text-danger-text"), "削除が danger でない");
+  assert.equal(items.length, 2, "項目数が違う");
+  const rename = html.indexOf("名前を変更");
+  const remove = html.indexOf("セッションを削除");
+  assert.ok(rename >= 0 && rename < remove, "並びが 名前を変更 → 削除 でない");
+  assert.ok(items[0].includes(PENCIL_MARK), "名前を変更が鉛筆 (PencilIcon) でない");
+  assert.ok(!items[0].includes("text-danger-text"), "名前を変更に danger が付いている");
+  assert.ok(items[1].includes(TRASH_MARK), "削除がゴミ箱 (TrashIcon) でない");
+  assert.ok(items[1].includes("text-danger-text"), "削除が danger でない");
   assert.ok(!html.includes("×"), "× が残っている");
 
   // 通知のベルは状態の印なので行に残す (メニューへ移さない)。タイトルの無い行も読み上げ名が空にならない

@@ -33,6 +33,7 @@ import type {
   SessionSkillsPreview,
   SessionSkillsResponse,
   SessionSummary,
+  SessionTitleResponse,
   SkillDef,
   StopResult,
   ThinkingLevel,
@@ -352,6 +353,16 @@ export const updateSessionSettings = async (sessionId: string, settings: Session
  */
 export const updateSessionNotify = async (sessionId: string, notify: boolean): Promise<SessionNotifyResponse> => {
   const res = await client.api.sessions[":id"].notify.$patch({ param: { id: sessionId }, json: { notify } });
+  if (!res.ok) throw await apiError(res);
+  return res.json();
+};
+
+/**
+ * 会話タイトルの変更。通知トグルと同じ専用経路で、実行中でも変えられる。
+ * 応答の `title` は正規化 (trim / マスク / 上限) 後で、一覧の表示にそのまま使える。
+ */
+export const updateSessionTitle = async (sessionId: string, title: string): Promise<SessionTitleResponse> => {
+  const res = await client.api.sessions[":id"].title.$patch({ param: { id: sessionId }, json: { title } });
   if (!res.ok) throw await apiError(res);
   return res.json();
 };

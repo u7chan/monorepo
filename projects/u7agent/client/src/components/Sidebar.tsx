@@ -15,9 +15,17 @@ import { SettingsNav } from "./sidebar/SettingsNav";
 export type SidebarProps = Omit<
   Pick<
     U7Agent,
-    "sessions" | "sessionId" | "agents" | "projects" | "newChat" | "selectSession" | "deleteSession" | "deleteProject"
+    | "sessions"
+    | "sessionId"
+    | "agents"
+    | "projects"
+    | "newChat"
+    | "selectSession"
+    | "renameSession"
+    | "deleteSession"
+    | "deleteProject"
   >,
-  "newChat" | "selectSession" | "deleteSession" | "deleteProject"
+  "newChat" | "selectSession" | "renameSession" | "deleteSession" | "deleteProject"
 > & {
   mode: SidebarMode;
   onSelectMode: (mode: SidebarMode) => void;
@@ -26,6 +34,7 @@ export type SidebarProps = Omit<
   notificationsFailed: boolean;
   newChat: (agentId?: string, projectId?: string) => void;
   selectSession: (sessionId: string) => void;
+  renameSession: (sessionId: string) => void;
   deleteSession: (sessionId: string) => void;
   deleteProject: (projectId: string) => void;
   onNewProject: () => void;
@@ -50,7 +59,8 @@ export function Sidebar({
   ...props
 }: SidebarProps) {
   const sheet = variant === "sheet";
-  const { sessions, sessionId, agents, projects, newChat, selectSession, deleteSession, deleteProject } = props;
+  const { sessions, sessionId, agents, projects, newChat, selectSession, renameSession, deleteSession, deleteProject } =
+    props;
   // 既定は畳み (保存値が無ければ空 = 全行 closed)。書き込みは Effect ではなくクリック時に済ませる
   const [expanded, setExpanded] = useState<string[]>(() => sidebarProjectsStore.read());
   const { groups, unassigned } = groupSessionsByProject(sessions, projects);
@@ -152,6 +162,7 @@ export function Sidebar({
                       }}
                       onDelete={() => deleteProject(group.project.id)}
                       onSelectSession={selectSession}
+                      onRenameSession={renameSession}
                       onDeleteSession={deleteSession}
                     />
                   ))}
@@ -177,6 +188,7 @@ export function Sidebar({
                       agents={agents}
                       active={item.sessionId === sessionId}
                       onSelect={() => selectSession(item.sessionId)}
+                      onRename={() => renameSession(item.sessionId)}
                       onDelete={() => deleteSession(item.sessionId)}
                     />
                   ))}

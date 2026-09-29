@@ -14,6 +14,7 @@ import {
   type PostMessageBody,
   type UpdateSessionNotifyBody,
   type UpdateSessionSettingsBody,
+  type UpdateSessionTitleBody,
 } from "../schema";
 import type { SessionRecord, SessionStore } from "../sessions";
 
@@ -118,6 +119,16 @@ export function createSessionRoutes({
     /** 通知トグル。busy でも成功し、応答は live / 未ロード共通の `{ sessionId, notify }` */
     updateNotify: async (c: Context, body: UpdateSessionNotifyBody) => {
       const result = await store.setNotify(c.req.param("id") ?? "", body.notify);
+      if (!result) return c.json({ error: "Session not found" }, 404);
+      return c.json(result);
+    },
+
+    /**
+     * 会話タイトルの変更。notify と同じく busy でも成功し、応答は `{ sessionId, title }`。
+     * 空・空白だけは store が 400 で拒否する。
+     */
+    updateTitle: async (c: Context, body: UpdateSessionTitleBody) => {
+      const result = await store.setTitle(c.req.param("id") ?? "", body.title);
       if (!result) return c.json({ error: "Session not found" }, 404);
       return c.json(result);
     },

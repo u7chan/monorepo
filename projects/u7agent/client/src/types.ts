@@ -67,6 +67,7 @@ export type {
   SessionSkillsPreview,
   SessionSkillsResponse,
   SessionSummary,
+  SessionTitleResponse,
   SkillDef,
   SkillLoad,
   StopResult,

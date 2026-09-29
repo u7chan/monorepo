@@ -35,6 +35,7 @@ import {
   UpdateProviderMemoBodySchema,
   UpdateSessionNotifyBodySchema,
   UpdateSessionSettingsBodySchema,
+  UpdateSessionTitleBodySchema,
   UpdateSkillBodySchema,
 } from "./schema";
 
@@ -211,6 +212,15 @@ export async function createBffApp(opts: CreateBffAppOptions = {}) {
         result.success ? undefined : c.json({ error: "notify is required" }, 400),
       ),
       (c) => sessionRoutes.updateNotify(c, c.req.valid("json")),
+    )
+    // タイトルの変更も通知と同じ専用経路 (SDK に触らないため、実行中でも変えられる)
+    .patch(
+      "/api/sessions/:id/title",
+      appData,
+      zValidator("json", UpdateSessionTitleBodySchema, (result, c) =>
+        result.success ? undefined : c.json({ error: "title is required" }, 400),
+      ),
+      (c) => sessionRoutes.updateTitle(c, c.req.valid("json")),
     )
     .get("/api/sessions/:id", appData, sessionRoutes.get)
     // 全履歴のカーソルページ。`:id` より深いパスのため順序に依存しないが、:id の近くに置く

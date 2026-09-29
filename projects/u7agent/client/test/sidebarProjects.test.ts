@@ -229,6 +229,7 @@ function renderProjectRow(open: boolean): string {
       onNewChat: () => {},
       onDelete: () => {},
       onSelectSession: () => {},
+      onRenameSession: () => {},
       onDeleteSession: () => {},
     }),
   );
