@@ -232,7 +232,7 @@ export const SANDBOX_MAX_ARCHIVE_ENTRIES = 10_000;
 export const SANDBOX_MAX_ENTRY_NAME_LENGTH = 200;
 
 /**
- * GET /v1/files/raw が配信する拡張子と Content-Type。SVG / HTML は同一オリジンでスクリプトが動くため載せない。
+ * GET /v1/files/raw が配信する画像の拡張子と Content-Type。SVG / HTML は同一オリジンでスクリプトが動くため載せない。
  */
 export const RAW_IMAGE_CONTENT_TYPES: Record<string, string> = {
   png: "image/png",
@@ -245,15 +245,41 @@ export const RAW_IMAGE_CONTENT_TYPES: Record<string, string> = {
   ico: "image/x-icon",
 };
 
-/** パスの拡張子から配信用の Content-Type を引く。allowlist 外 (拡張子なし・dotfile 含む) は undefined。 */
-export function rawImageContentType(path: string): string | undefined {
+/**
+ * 同じく音声の拡張子と Content-Type。動画 / フォントは載せず、HTML プレビューのアセット経路だけが使う
+ * (公開 `GET /api/files/raw` は画像専用のまま。docs/api.md)。
+ */
+export const RAW_MEDIA_CONTENT_TYPES: Record<string, string> = {
+  mp3: "audio/mpeg",
+  m4a: "audio/mp4",
+  ogg: "audio/ogg",
+  oga: "audio/ogg",
+  wav: "audio/wav",
+  flac: "audio/flac",
+};
+
+/** パスの拡張子を小文字で取る。拡張子なしと dotfile は undefined。 */
+function fileExtension(path: string): string | undefined {
   const name = path.slice(path.lastIndexOf("/") + 1);
   const dot = name.lastIndexOf(".");
-  if (dot <= 0) return undefined;
-  const extension = name.slice(dot + 1).toLowerCase();
+  return dot <= 0 ? undefined : name.slice(dot + 1).toLowerCase();
+}
+
+function contentTypeFor(allowlist: Record<string, string>, path: string): string | undefined {
+  const extension = fileExtension(path);
   // `Object.prototype` の名前 (`.constructor` など) を拡張子に使われても allowlist を通過させない
-  if (!Object.hasOwn(RAW_IMAGE_CONTENT_TYPES, extension)) return undefined;
-  return RAW_IMAGE_CONTENT_TYPES[extension];
+  if (!extension || !Object.hasOwn(allowlist, extension)) return undefined;
+  return allowlist[extension];
+}
+
+/** パスの拡張子から配信用の Content-Type を引く。allowlist 外 (拡張子なし・dotfile 含む) は undefined。 */
+export function rawImageContentType(path: string): string | undefined {
+  return contentTypeFor(RAW_IMAGE_CONTENT_TYPES, path);
+}
+
+/** 音声の配信用 Content-Type。判定規則は画像と同じ。 */
+export function rawMediaContentType(path: string): string | undefined {
+  return contentTypeFor(RAW_MEDIA_CONTENT_TYPES, path);
 }
 
 /**

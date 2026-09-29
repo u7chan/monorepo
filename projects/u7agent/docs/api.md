@@ -225,14 +225,16 @@ iframe の src になる HTML 文書と、その文書が相対参照するア�
 | --- | --- |
 | `.html` / `.htm` | HTML 文書（UTF-8、2 MiB 以下）。CSP + `sandbox` 付きの `text/html` |
 | 画像（`png` / `jpg` / `jpeg` / `gif` / `webp` / `avif` / `bmp` / `ico`） | `GET /v1/files/raw` を流用した生配信（100 MiB 以下） |
+| 音声（`mp3` / `m4a` / `ogg` / `oga` / `wav` / `flac`） | 画像と同じ raw の生配信（100 MiB 以下） |
 | `.js` / `.mjs` / `.css` / `.json` / `.txt` | `GET /v1/files/preview` を流用した UTF-8 テキスト（2 MiB 以下） |
 | それ以外（`.svg` を含む） | 400 `Not a servable asset: <path>` |
 | パスなし（`/api/files/html`、`/api/files/html/`） | 404（HTML 文書は返さない） |
 
 - 文書はサンドボックスの `GET /v1/files/preview` の応答を `text/html` としてそのまま返す（`Cache-Control: no-store`、`X-Content-Type-Options: nosniff`）。HTML として開くかの判定は要求パスの拡張子で行い、本文の中身や拡張子は見ない
-- テキストアセットも同じ `workspace.previewFile()` を通るため、バイナリ・UTF-8 として不正なバイト列・上限超過・ディレクトリ・root 外は 400、実在しない場合は 404（サンドボックス側の文言をそのまま返す）。画像は raw の経路で `Content-Type` / `Content-Length` / `no-store` / `nosniff` を付けて返す
-- 文書以外には CSP を付けず、拡張子から決めた Content-Type と `nosniff` で守る。`.svg` / HTML をアセットとして配らない（同一オリジンでスクリプトを動かさない）
-- アセットの本文は 2 MiB が上限で、超える `.js` / `.css` はプレビューから読めない。`<script type="module">` は CORS ヘッダが無いため読めない（classic script のみ）
+- テキストアセットも同じ `workspace.previewFile()` を通るため、バイナリ・UTF-8 として不正なバイト列・上限超過・ディレクトリ・root 外は 400、実在しない場合は 404（サンドボックス側の文言をそのまま返す）。画像 / 音声は raw の経路で `Content-Type` / `Content-Length` / `no-store` / `nosniff` を付けて返す
+- 文書以外には CSP を付けず、拡張子から決めた Content-Type と `nosniff` で守る。`.svg` / HTML をアセットとして配らない（同一オリジンでスクリプトを動かさない）。動画 / フォントは対象外
+- アセットの上限はテキスト（`.js` / `.mjs` / `.css` / `.json` / `.txt`）が 2 MiB、画像 / 音声の raw が 100 MiB。超えるテキストは 400、超える画像 / 音声は 413 でプレビューから読めない。`<script type="module">` は CORS ヘッダが無いため読めない（classic script のみ）
+- 音声も画像と同じ生配信で、`Range` / 206 は返さない（シークのたびに全体を取り直す）
 - 400 / 404: テキストプレビューと同じ分類。502: サンドボックスへ到達できない / 認証失敗 / 契約外の応答（BFF が zod で検証して弾く）。503: `PI_SANDBOX_URL` / `PI_SANDBOX_TOKEN` が未設定
 
 iframe の中身は応答ヘッダだけで隔離する（親の CSP を継承させないために別ルートにする）。CSP は `server/src/routes/files.ts` の `HTML_PREVIEW_POLICY` 1 箇所から導出し、既定は Lv2（相対アセットの `'self'` と `https:`）。iframe 属性は段階に関わらず `sandbox="allow-scripts"` 固定。
@@ -249,10 +251,10 @@ Content-Security-Policy: sandbox allow-scripts; default-src 'none'; style-src 'u
 | --- | --- | --- |
 | GET | `/api/files/raw?path=<root 相対>` | 画像の生配信（チャットの添付サムネイル・ファイル画面のプレビュー） |
 
-サンドボックスの `GET /v1/files/raw` に委譲し、応答をそのままストリームで返す。配信するのは画像だけで、allowlist は `png` / `jpg` / `jpeg` / `gif` / `webp` / `avif` / `bmp` / `ico`（SVG / HTML は同一オリジンでスクリプトが動くため配信しない）。判定は BFF とサンドボックスの両方で行う。
+サンドボックスの `GET /v1/files/raw` に委譲し、応答をそのままストリームで返す。配信するのは画像だけで、allowlist は `png` / `jpg` / `jpeg` / `gif` / `webp` / `avif` / `bmp` / `ico`（SVG / HTML は同一オリジンでスクリプトが動くため配信しない）。判定は BFF とサンドボックスの両方で行う。**音声を配るのは `GET /api/files/html/<path>` のアセット経路だけで、この公開 raw は画像専用のまま**（内部 `GET /v1/files/raw` は画像 + 音声を受け付ける。サンドボックス側の一覧は [sandbox-api.md](sandbox-api.md#get-v1filesraw)）。
 
 - 200: 本文 + `Content-Type`（拡張子から決める）/ `Content-Length` / `Cache-Control: no-store` / `X-Content-Type-Options: nosniff`
-- 400 / 404 / 413: allowlist 外（`Not a servable image: …`）/ 未作成・root 外 / 上限（100 MiB）超過。サンドボックス側の文言をそのまま返す
+- 400 / 404 / 413: allowlist 外（`Not a servable image: …`）/ 未作成・root 外 / 上限（100 MiB）超過。サンドボックス側の文言をそのまま返す。**413 の文言は `File is too large (max … bytes)`**（内部 raw が画像 + 音声の一般文言になったのに追随する）
 - 502: サンドボックスへ到達できない / 認証失敗 / 本文が無い
 - 503: `PI_SANDBOX_URL` / `PI_SANDBOX_TOKEN` が未設定
 

@@ -11,7 +11,7 @@ BFF が作業用ツール（`read` / `bash` / `edit` / `write` / `grep` / `find`
 | DELETE | `/v1/files` | 通常ファイルの削除。`?path=<root 相対>`。成功は本文なしの 204 |
 | POST | `/v1/files/rename` | エントリ（ファイル / ディレクトリ）のリネーム。`{ path, name }` |
 | GET | `/v1/files/preview` | UTF-8テキストの取得。`?path=<root 相対>`。上限・応答は [api.md](api.md#テキストプレビュー) を参照 |
-| GET | `/v1/files/raw` | 画像の生配信。`?path=<root 相対>`。応答ヘッダは [api.md](api.md#画像配信raw) を参照 |
+| GET | `/v1/files/raw` | 画像 + 音声の生配信。`?path=<root 相対>`。応答ヘッダは [api.md](api.md#画像配信raw) を参照 |
 | GET | `/v1/files/download` | 通常ファイルは生バイト、ディレクトリは ZIP（ストリーム）。`?path=<root 相対>&exclude=<名前>`（繰り返し可） |
 | GET | `/v1/files/download/check` | ダウンロードの見積り（JSON）。除外 / 上限の判定は download と同じ（`exclude` も共通） |
 | POST | `/v1/files/upload` | ファイル追加（raw 本文）。`?dir=<root 相対>&name=<ファイル名>` |
@@ -109,11 +109,11 @@ POST /v1/files/rename
 
 ## `GET /v1/files/raw`
 
-root 相対の画像を `createReadStream` でストリーム返却する。配信できる拡張子は `png` / `jpg` / `jpeg` / `gif` / `webp` / `avif` / `bmp` / `ico` だけで、それ以外（SVG / HTML / 拡張子なし）は 400。root 外・実在しない・ディレクトリは通常のパス検証と同じ 400 / 404 になる。
+root 相対の画像 / 音声を `createReadStream` でストリーム返却する。配信できる拡張子は画像が `png` / `jpg` / `jpeg` / `gif` / `webp` / `avif` / `bmp` / `ico`、音声が `mp3` / `m4a` / `ogg` / `oga` / `wav` / `flac` だけで、それ以外（SVG / HTML / 動画 / フォント / 拡張子なし / dotfile）は 400 `Not a servable file: …`。root 外・実在しない・ディレクトリは通常のパス検証と同じ 400 / 404 になる。
 
 - 200: `Content-Type`（拡張子）/ `Content-Length` / `Cache-Control: no-store` / `X-Content-Type-Options: nosniff`
-- 413: サイズが上限（100 MiB）を超える
-- BFF はこの応答をそのまま中継し、本文を JSON に載せない（[api.md](api.md#画像配信raw)）
+- 413: サイズが上限（100 MiB）を超える（`{ error: "File is too large (max … bytes)" }` の JSON を返す。ファイルの本文と `Content-Length` は送出しない）
+- BFF はこの応答をそのまま中継し、本文を JSON に載せない。ただし **BFF の公開 `GET /api/files/raw` は画像だけを渡し、音声は `GET /api/files/html/<path>` のアセット経路だけが使う**（[api.md](api.md#画像配信raw)）
 
 ## `GET /v1/files/download`
 
