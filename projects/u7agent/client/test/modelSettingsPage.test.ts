@@ -419,6 +419,22 @@ test("最終使用は一覧の取得後だけ出し、会話が無いときの�
   assert.ok(ambient.includes("この provider の会話 2 件"));
 });
 
+test("provider 詳細の件数・キー最終保存・最終使用は認証バッジと同じチップで揃える", () => {
+  const html = render(
+    modelSettings({ settings: { ...SETTINGS, providers: [provider({ managed: true, keyUpdatedAt: 1 })] } }),
+    {
+      modelsSubsection: "providers",
+      sessions: [session({ sessionId: "a", model: "anthropic/claude-sonnet", lastUsedAt: 100 })],
+      sessionsLoaded: true,
+    },
+  );
+  const chip = (text: string) =>
+    `rounded border px-1.5 py-0.5 text-2xs whitespace-nowrap border-line text-ink-muted">${text}`;
+  assert.ok(html.includes(chip("利用可能 1 / カタログ 2<")), "利用可能数もチップで出す");
+  assert.ok(html.includes(chip("キー最終保存: ")), "キー最終保存もチップで出す");
+  assert.ok(html.includes(chip("最終使用: ")), "最終使用もチップで出す");
+});
+
 test("カタログ外で未反映の行は再同期ボタンを出さず、削除とカタログ復帰を案内する", () => {
   const html = render(
     modelSettings({

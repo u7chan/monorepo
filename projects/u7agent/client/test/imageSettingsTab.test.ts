@@ -61,6 +61,10 @@ test("見出しに provider のロゴ・名前・id とキーの登録状態を�
   assert.ok(html.includes(">OpenRouter</h2>"), "provider の表示名を出す");
   assert.ok(html.includes(">openrouter</code>"), "モデル欄の id 表記と結び付くように provider id も出す");
   assert.ok(html.includes(">設定済み<"), "登録状態を provider の見出しへ出す");
+  assert.ok(
+    html.includes('rounded border px-1.5 py-0.5 text-2xs whitespace-nowrap border-line text-ink-muted">カタログ 2<'),
+    "カタログの件数もプロバイダータブと同じチップで出す",
+  );
 });
 
 test("未設定でも、これから登録するキーの provider の見出しは出す", () => {
@@ -85,15 +89,23 @@ test("設定済みでは上書き保存・削除・モデル選択を出し、�
   assert.ok(html.includes('value="openrouter/openai/gpt-image-2"'), "保存済みモデルを選択した状態で出す");
   assert.ok(html.includes("GPT Image 2"));
   assert.ok(html.includes("モデル一覧は OpenRouter から取得しました"), "一覧の出どころを出す");
+  assert.ok(
+    html.includes(
+      'rounded border px-1.5 py-0.5 text-2xs leading-relaxed whitespace-normal border-line text-ink-muted">モデル一覧は OpenRouter から取得しました',
+    ),
+    "出どころもプロバイダータブと同じチップで出す",
+  );
+  assert.ok(html.includes("サイズ・品質・出力形式は provider の既定を使います"), "設定できる範囲の説明を残す");
+  assert.equal(html.includes("プロバイダー: OpenRouter"), false, "見出しと重複する provider 名を本文で繰り返さない");
   assert.ok(html.includes(">再取得</button>"));
   const input = /<input[^>]*type="password"[^>]*>/.exec(html)?.[0] ?? "";
   assert.ok(input.includes('value=""'), "保存済みのキーは入力欄へ戻さない");
 });
 
-test("取得できていないときは一覧の出どころを警告色で出す", () => {
+test("取得できていないときは一覧の出どころを警告色のチップで出す", () => {
   const stored = render({ catalogSource: "stored", fetchedAt: 0 });
   assert.ok(stored.includes("OpenRouter から取得できなかったため、前回の一覧を表示しています"));
-  assert.match(stored, /text-warn"[^>]*>OpenRouter から取得できなかった/);
+  assert.match(stored, /border-warn\/40 text-warn"[^>]*>OpenRouter から取得できなかった/);
   const sdk = render({ catalogSource: "sdk", fetchedAt: null });
   assert.ok(sdk.includes("SDK の組み込み一覧を表示しています"));
 });
