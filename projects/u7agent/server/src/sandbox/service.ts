@@ -59,6 +59,7 @@ import {
   parseArchiveExcludeQuery,
   parseRecursiveQuery,
   rawImageContentType,
+  rawMediaContentType,
   RECURSIVE_QUERY_ERROR,
   type SandboxCreateDirRequestBody,
   type SandboxDownloadCheck,
@@ -966,16 +967,16 @@ export function createSandboxService(options: SandboxServiceOptions): SandboxSer
     }
   });
 
-  // 画像だけをストリームで返す。BFF は Content-Type / 長さ / no-store / nosniff を付け直して配る
+  // 画像と音声をストリームで返す。BFF は Content-Type / 長さ / no-store / nosniff を付け直して配る
   app.get("/v1/files/raw", async (c) => {
     const requested = c.req.query("path") ?? "";
-    const contentType = rawImageContentType(requested);
-    if (!contentType) return c.json({ error: `Not a servable image: ${requested}` }, 400);
+    const contentType = rawImageContentType(requested) ?? rawMediaContentType(requested);
+    if (!contentType) return c.json({ error: `Not a servable file: ${requested}` }, 400);
     try {
       const { target } = await resolveWorkspaceDirectory(rootCwd, requested, false);
       const stats = await stat(target);
       if (stats.size > maxUploadBytes) {
-        return c.json({ error: `Image is too large (max ${maxUploadBytes} bytes)` }, 413);
+        return c.json({ error: `File is too large (max ${maxUploadBytes} bytes)` }, 413);
       }
       return new Response(Readable.toWeb(createReadStream(target)) as ReadableStream<Uint8Array>, {
         status: 200,

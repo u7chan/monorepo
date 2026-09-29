@@ -351,7 +351,7 @@ async function deleteDirectory(path: string, baseUrl: string, token: string, fet
   if (!response.ok) throw await jsonError(response, "ディレクトリを削除できませんでした");
 }
 
-/** 画像の生配信。4xx (不正パス・不存在・上限超過) は文言ごと透過する。 */
+/** 画像 / 音声の生配信。4xx (不正パス・不存在・上限超過) は文言ごと透過する。 */
 async function rawFile(path: string, baseUrl: string, token: string, fetchImpl: typeof fetch): Promise<SandboxRawFile> {
   const response = await fetchJson(
     fetchImpl,

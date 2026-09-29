@@ -140,27 +140,63 @@ test("upload rejects a directory outside the workspace and too large bodies", as
   }
 });
 
-test("raw streams an allowlisted image with its type and length", async () => {
+test("raw streams allowlisted images and audio with their type and length", async () => {
   const root = await makeRoot("raw");
   const service = createSandboxService({ token: TOKEN, rootCwd: root });
   try {
     const png = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+    const mp3 = Buffer.from([0x49, 0x44, 0x33, 0x04]);
     await mkdir(join(root, "uploads"), { recursive: true });
     await writeFile(join(root, "uploads", "logo.PNG"), png);
+    await writeFile(join(root, "uploads", "bgm.MP3"), mp3);
 
-    const response = await service.app.request("/v1/files/raw?path=uploads%2Flogo.PNG", { headers: authHeaders() });
-    assert.equal(response.status, 200);
-    assert.equal(response.headers.get("content-type"), "image/png");
-    assert.equal(response.headers.get("content-length"), String(png.byteLength));
-    assert.equal(response.headers.get("cache-control"), "no-store");
-    assert.equal(response.headers.get("x-content-type-options"), "nosniff");
-    assert.deepEqual(Buffer.from(await response.arrayBuffer()), png);
+    const image = await service.app.request("/v1/files/raw?path=uploads%2Flogo.PNG", { headers: authHeaders() });
+    assert.equal(image.status, 200);
+    assert.equal(image.headers.get("content-type"), "image/png");
+    assert.equal(image.headers.get("content-length"), String(png.byteLength));
+    assert.equal(image.headers.get("cache-control"), "no-store");
+    assert.equal(image.headers.get("x-content-type-options"), "nosniff");
+    assert.deepEqual(Buffer.from(await image.arrayBuffer()), png);
+
+    const audio = await service.app.request("/v1/files/raw?path=uploads%2Fbgm.MP3", { headers: authHeaders() });
+    assert.equal(audio.status, 200);
+    assert.equal(audio.headers.get("content-type"), "audio/mpeg");
+    assert.equal(audio.headers.get("content-length"), String(mp3.byteLength));
+    assert.equal(audio.headers.get("cache-control"), "no-store");
+    assert.equal(audio.headers.get("x-content-type-options"), "nosniff");
+    assert.deepEqual(Buffer.from(await audio.arrayBuffer()), mp3);
   } finally {
     service.close();
   }
 });
 
-test("raw rejects non-allowlisted extensions, missing files and oversize images", async () => {
+test("raw maps each allowlisted audio extension to its Content-Type", async () => {
+  const root = await makeRoot("raw-audio");
+  const service = createSandboxService({ token: TOKEN, rootCwd: root });
+  try {
+    await mkdir(join(root, "uploads"), { recursive: true });
+    const cases: Array<[string, string]> = [
+      ["bgm.mp3", "audio/mpeg"],
+      ["song.m4a", "audio/mp4"],
+      ["voice.ogg", "audio/ogg"],
+      ["voice.oga", "audio/ogg"],
+      ["beat.wav", "audio/wav"],
+      ["master.flac", "audio/flac"],
+    ];
+    for (const [name, contentType] of cases) {
+      await writeFile(join(root, "uploads", name), Buffer.from([1]));
+      const response = await service.app.request(`/v1/files/raw?path=${encodeURIComponent(`uploads/${name}`)}`, {
+        headers: authHeaders(),
+      });
+      assert.equal(response.status, 200, name);
+      assert.equal(response.headers.get("content-type"), contentType, name);
+    }
+  } finally {
+    service.close();
+  }
+});
+
+test("raw rejects non-allowlisted extensions, missing files and oversize images or audio", async () => {
   const root = await makeRoot("raw-reject");
   const service = createSandboxService({ token: TOKEN, rootCwd: root, maxUploadBytes: 4 });
   try {
@@ -168,13 +204,16 @@ test("raw rejects non-allowlisted extensions, missing files and oversize images"
     await writeFile(join(root, "uploads", "page.html"), "<h1>x</h1>");
     await writeFile(join(root, "uploads", "vector.svg"), "<svg/>");
     await writeFile(join(root, "uploads", "big.png"), Buffer.alloc(5));
+    await writeFile(join(root, "uploads", "big.mp3"), Buffer.alloc(5));
+    await writeFile(join(root, "uploads", ".mp3"), Buffer.alloc(1));
 
-    const notImage = await service.app.request("/v1/files/raw?path=uploads%2Fpage.html", { headers: authHeaders() });
-    assert.equal(notImage.status, 400);
+    const notFile = await service.app.request("/v1/files/raw?path=uploads%2Fpage.html", { headers: authHeaders() });
+    assert.equal(notFile.status, 400);
+    assert.match(((await notFile.json()) as { error: string }).error, /^Not a servable file: /);
     const svg = await service.app.request("/v1/files/raw?path=uploads%2Fvector.svg", { headers: authHeaders() });
     assert.equal(svg.status, 400);
-    // Object.prototype の名前を拡張子にしたパスも allowlist を通過させない
-    for (const name of ["x.constructor", "x.__proto__"]) {
+    // dotfile は拡張子なしと同じで、Object.prototype の名前も allowlist を通過させない
+    for (const name of [".mp3", "x.constructor", "x.__proto__"]) {
       const prototypeKey = await service.app.request(`/v1/files/raw?path=${encodeURIComponent(`uploads/${name}`)}`, {
         headers: authHeaders(),
       });
@@ -182,12 +221,15 @@ test("raw rejects non-allowlisted extensions, missing files and oversize images"
     }
     const missing = await service.app.request("/v1/files/raw?path=uploads%2Fnope.png", { headers: authHeaders() });
     assert.equal(missing.status, 404);
-    const tooLarge = await service.app.request("/v1/files/raw?path=uploads%2Fbig.png", { headers: authHeaders() });
-    assert.equal(tooLarge.status, 413);
+    for (const name of ["big.png", "big.mp3"]) {
+      const tooLarge = await service.app.request(`/v1/files/raw?path=uploads%2F${name}`, { headers: authHeaders() });
+      assert.equal(tooLarge.status, 413, name);
+      assert.deepEqual(await tooLarge.json(), { error: "File is too large (max 4 bytes)" }, name);
+    }
     const outside = await service.app.request("/v1/files/raw?path=..%2Fpage.png", { headers: authHeaders() });
     assert.equal(outside.status, 400);
     const directory = await service.app.request("/v1/files/raw?path=uploads", { headers: authHeaders() });
-    assert.equal(directory.status, 400, "画像拡張子のないディレクトリは allowlist で先に弾く");
+    assert.equal(directory.status, 400, "拡張子のないディレクトリは allowlist で先に弾く");
   } finally {
     service.close();
   }

@@ -214,6 +214,81 @@ test("GET /api/files/html/<path> serves images from the sandbox raw path", async
   }
 });
 
+test("GET /api/files/html/<path> serves audio from the sandbox raw path", async () => {
+  const { workspace, previewed, raw } = stubFiles();
+  const bff = await createBffApp({ cwd: "/tmp/project", sessionStoreDir: null, pi: null, workspace });
+  try {
+    workspace.rawFile = async (path) => {
+      raw.push(path);
+      return {
+        contentType: "audio/mpeg",
+        contentLength: 4,
+        body: new Blob([new Uint8Array([1, 2, 3, 4])]).stream(),
+      };
+    };
+    const response = await bff.app.request("/api/files/html/work%2Fassets%2Fmirai.mp3");
+    assert.equal(response.status, 200);
+    assert.equal(response.headers.get("Content-Type"), "audio/mpeg");
+    assert.equal(response.headers.get("Content-Length"), "4");
+    assert.equal(response.headers.get("Cache-Control"), "no-store");
+    assert.equal(response.headers.get("X-Content-Type-Options"), "nosniff");
+    // 文書だけに CSP を当てる (音声はサブリソース)
+    assert.equal(response.headers.get("Content-Security-Policy"), null);
+    assert.deepEqual(new Uint8Array(await response.arrayBuffer()), new Uint8Array([1, 2, 3, 4]));
+    // 音声は raw 経路、テキストは preview 経路 (使い分けを固定する)
+    assert.deepEqual(raw, ["work/assets/mirai.mp3"]);
+    assert.deepEqual(previewed, []);
+
+    assert.equal((await bff.app.request("/api/files/html/work%2Fassets%2Fmain.js")).status, 200);
+    assert.deepEqual(raw, ["work/assets/mirai.mp3"]);
+    assert.deepEqual(previewed, ["work/assets/main.js"]);
+  } finally {
+    await bff.close();
+  }
+});
+
+test("GET /api/files/html/<path> accepts every allowlisted audio extension and matches case-insensitively", async () => {
+  const { workspace, raw } = stubFiles();
+  const bff = await createBffApp({ cwd: "/tmp/project", sessionStoreDir: null, pi: null, workspace });
+  try {
+    workspace.rawFile = async (path) => {
+      raw.push(path);
+      return { contentType: "audio/mpeg", body: new Blob([new Uint8Array([1])]).stream() };
+    };
+    const paths = [
+      "assets/bgm.mp3",
+      "assets/song.M4A",
+      "assets/voice.ogg",
+      "assets/voice.oga",
+      "assets/beat.wav",
+      "assets/master.flac",
+    ];
+    for (const path of paths) {
+      const response = await bff.app.request(`/api/files/html/${encodeURIComponent(path)}`);
+      assert.equal(response.status, 200, path);
+      assert.equal(response.headers.get("Content-Type"), "audio/mpeg", path);
+    }
+    assert.deepEqual(raw, paths);
+  } finally {
+    await bff.close();
+  }
+});
+
+test("GET /api/files/raw keeps serving images only and rejects audio", async () => {
+  const { workspace, raw } = stubFiles();
+  const bff = await createBffApp({ cwd: "/tmp/project", sessionStoreDir: null, pi: null, workspace });
+  try {
+    for (const path of ["assets/bgm.mp3", "assets/voice.oga", "assets/page.html", "assets/vector.svg"]) {
+      const response = await bff.app.request(`/api/files/raw?path=${encodeURIComponent(path)}`);
+      assert.equal(response.status, 400, path);
+      assert.match((await jsonBody(response)).error, /^Not a servable image: /, path);
+    }
+    assert.deepEqual(raw, [], "配信対象外の拡張子をサンドボックスへ読ませている");
+  } finally {
+    await bff.close();
+  }
+});
+
 test("GET /api/files/html/<path> serves text assets with an extension-specific Content-Type", async () => {
   const { workspace, previewed, raw } = stubFiles();
   const bff = await createBffApp({ cwd: "/tmp/project", sessionStoreDir: null, pi: null, workspace });
@@ -246,14 +321,17 @@ test("GET /api/files/html/<path> rejects extensions that are not servable as ass
   const { workspace, previewed, raw } = stubFiles();
   const bff = await createBffApp({ cwd: "/tmp/project", sessionStoreDir: null, pi: null, workspace });
   try {
-    // .svg は同一オリジンでスクリプトが動くため配信しない。拡張子なし / dotfile / Object.prototype の名前も対象外にする
+    // .svg は同一オリジンでスクリプトが動くため配信しない。動画 / フォントも非対応。拡張子なし / dotfile / Object.prototype の名前も対象外にする
     for (const url of [
       "/api/files/html/dir%2Flogo.svg",
       "/api/files/html/app.js.map",
       "/api/files/html/data.yaml",
       "/api/files/html/a.woff2",
+      "/api/files/html/movie.mp4",
+      "/api/files/html/movie.webm",
       "/api/files/html/dir%2F",
       "/api/files/html/.js",
+      "/api/files/html/.mp3",
       "/api/files/html/x.constructor",
       "/api/files/html/x.__proto__",
     ]) {
@@ -388,7 +466,11 @@ test("GET /api/files/html/<path> answers 503 as an HTML document when the sandbo
 test("GET /api/files/html/<path> answers 503 as JSON for assets when the sandbox is not configured", async () => {
   const bff = await createBffApp({ cwd: "/tmp/project", sessionStoreDir: null, pi: null, workspace: null });
   try {
-    for (const url of ["/api/files/html/dir%2Fapp.js", "/api/files/html/dir%2Fcat.png"]) {
+    for (const url of [
+      "/api/files/html/dir%2Fapp.js",
+      "/api/files/html/dir%2Fcat.png",
+      "/api/files/html/assets%2Fbgm.mp3",
+    ]) {
       const response = await bff.app.request(url);
       assert.equal(response.status, 503, url);
       assert.match(response.headers.get("Content-Type") ?? "", /^application\/json/, url);

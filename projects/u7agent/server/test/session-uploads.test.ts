@@ -307,7 +307,7 @@ test("GET /api/files/raw passes sandbox errors through and answers 502 for conne
     for (const [status, message] of [
       [404, "Path not found: uploads/x.png"],
       [400, "Path outside the workspace: /etc/x.png"],
-      [413, "Image is too large (max 104857600 bytes)"],
+      [413, "File is too large (max 104857600 bytes)"],
     ] as const) {
       setRawResult(async () => {
         throw new SandboxRequestError(message, status);
@@ -430,7 +430,10 @@ test("uploaded images are servable and other extensions are not", async () => {
   try {
     await mkdir(join(root, ".u7agent", "uploads"), { recursive: true });
     await writeFile(join(root, ".u7agent", "uploads", "note.txt"), "text");
+    await writeFile(join(root, ".u7agent", "uploads", "bgm.mp3"), Buffer.from([0x49, 0x44, 0x33]));
     assert.equal((await bff.app.request("/api/files/raw?path=.u7agent%2Fuploads%2Fnote.txt")).status, 400);
+    // 音声を配るのは HTML プレビューのアセット経路だけで、公開 raw は画像専用のまま
+    assert.equal((await bff.app.request("/api/files/raw?path=.u7agent%2Fuploads%2Fbgm.mp3")).status, 400);
     assert.equal((await bff.app.request("/api/files/raw?path=.u7agent%2Fuploads%2Fmissing.png")).status, 404);
   } finally {
     await close();

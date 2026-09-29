@@ -15,7 +15,12 @@ import {
   FileRenameSchema,
   type RenameFileBody,
 } from "../schema";
-import { parseRecursiveQuery, rawImageContentType, RECURSIVE_QUERY_ERROR } from "../sandbox/protocol";
+import {
+  parseRecursiveQuery,
+  rawImageContentType,
+  rawMediaContentType,
+  RECURSIVE_QUERY_ERROR,
+} from "../sandbox/protocol";
 import type { SandboxWorkspaceClient } from "../sandbox/client";
 
 /**
@@ -111,10 +116,9 @@ export function createFileRoutes({
   /** ダウンロードの走査に渡す除外名の実効値（設定ストア）。サンドボックスは設定を持たない */
   archiveSettings: ArchiveSettings;
 }) {
-  /** 画像は allowlist を BFF でも見て、画像以外を同一オリジンで配らない (SVG / HTML の XSS 回避)。 */
-  async function serveRawImage(c: Context, path: string) {
+  /** 画像 / 音声は allowlist を BFF でも見て、それ以外を同一オリジンで配らない (SVG / HTML の XSS 回避)。 */
+  async function serveRawAsset(c: Context, path: string) {
     if (!workspace) return sandboxNotConfigured(c);
-    if (!rawImageContentType(path)) return c.json({ error: `Not a servable image: ${path}` }, 400);
     try {
       const file = await workspace.rawFile(path);
       if (!file.body) return c.json({ error: "サンドボックスが本文を返しませんでした" }, 502);
@@ -127,6 +131,12 @@ export function createFileRoutes({
     } catch (error) {
       return sandboxFailure(c, error);
     }
+  }
+
+  /** 画像配信 (`/api/files/raw`、チャットのサムネイル / ファイル画面のプレビュー)。配信対象は画像だけ。 */
+  async function serveRawImage(c: Context, path: string) {
+    if (!rawImageContentType(path)) return c.json({ error: `Not a servable image: ${path}` }, 400);
+    return serveRawAsset(c, path);
   }
 
   /**
@@ -182,7 +192,8 @@ export function createFileRoutes({
       // `:path{.+}` は Hono が 1 回だけ percent decoding する (path に空文字は来ない)
       const path = c.req.param("path") ?? "";
       if (isHtmlDocumentPath(path)) return serveHtmlDocument(c, path);
-      if (rawImageContentType(path)) return serveRawImage(c, path);
+      // 音声も raw の経路に相乗りさせる (Content-Length と nosniff を付けて返す。Range / 206 は非対応)
+      if (rawImageContentType(path) || rawMediaContentType(path)) return serveRawAsset(c, path);
       const contentType = previewAssetContentType(path);
       if (!contentType) return c.json({ error: `Not a servable asset: ${path}` }, 400);
       return serveTextAsset(c, path, contentType);
@@ -236,7 +247,7 @@ export function createFileRoutes({
         return sandboxFailure(c, error);
       }
     },
-    /** 画像の生配信 (チャットのサムネイル / ファイル画面のプレビュー)。 */
+    /** 画像の生配信 (チャットのサムネイル / ファイル画面のプレビュー)。音声は HTML プレビューのアセット経路だけ。 */
     raw: async (c: Context) => serveRawImage(c, c.req.query("path") ?? ""),
     /**
      * ダウンロード (通常ファイルは raw / ディレクトリは ZIP)。本文は JSON に載せず、サンドボックスの
