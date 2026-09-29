@@ -283,6 +283,9 @@ export default function App() {
     selectSession: (sessionId: string) => {
       if (sessionId !== app.sessionId) void app.selectSession(sessionId);
     },
+    renameSession: (sessionId: string) => {
+      void app.renameSession(sessionId);
+    },
     deleteSession: (sessionId: string) => {
       void app.deleteSession(sessionId);
     },
@@ -293,7 +296,7 @@ export default function App() {
     onOpenSettingsSection: openSettingsSection,
   };
 
-  // ドロワーは選んだら閉じる。削除だけは confirm の後も開いたまま残す (連続操作しうる)。
+  // ドロワーは選んだら閉じる。削除とリネームだけは確認 / 入力の後も開いたまま残す (連続操作しうる)。
   // 折りたたみ (行のクリック) は選択ではないので閉じない (Sidebar 側で行を選択しない)
   const drawerProps = {
     ...navProps,

@@ -14,6 +14,7 @@ export function ProjectRow({
   onNewChat,
   onDelete,
   onSelectSession,
+  onRenameSession,
   onDeleteSession,
 }: {
   project: Project;
@@ -25,6 +26,7 @@ export function ProjectRow({
   onNewChat: () => void;
   onDelete: () => void;
   onSelectSession: (sessionId: string) => void;
+  onRenameSession: (sessionId: string) => void;
   onDeleteSession: (sessionId: string) => void;
 }) {
   // kind から行の props を引く表。actions と同じ種別に狭め、表の無い kind を型で検出する
@@ -63,6 +65,7 @@ export function ProjectRow({
                 agents={agents}
                 active={item.sessionId === sessionId}
                 onSelect={() => onSelectSession(item.sessionId)}
+                onRename={() => onRenameSession(item.sessionId)}
                 onDelete={() => onDeleteSession(item.sessionId)}
               />
             ))}

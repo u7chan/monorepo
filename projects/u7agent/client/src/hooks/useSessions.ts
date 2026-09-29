@@ -10,11 +10,13 @@ import {
   listSessions,
   updateSessionNotify,
   updateSessionSettings,
+  updateSessionTitle,
 } from "../api";
 import type { ChatHistoryState } from "../lib/chatTypes";
 import { adoptKnownAgentId } from "../lib/agentSelection";
 import { createFileRefRequests } from "../lib/fileRefRequest";
 import { missingLinkNote, type SessionOpenResult } from "../lib/notifications";
+import { sessionRenamePrompt } from "../lib/sidebarRowMenu";
 import type { AgentDef, EventEntry, Health, ModelRef, SessionPayload, SessionSummary, ThinkingLevel } from "../types";
 import type { ChatAction } from "./chatReducer";
 import { createRequestGate } from "./requestGate";
@@ -198,6 +200,12 @@ export function useSessions({
     // await を挟む処理 (連打の 2 回目) が古い値を読まないよう、ref と state を同時に更新する
     sessionsRef.current = sessionsRef.current.map((item) => (item.sessionId === id ? { ...item, notify } : item));
     setSessions((prev) => prev.map((item) => (item.sessionId === id ? { ...item, notify } : item)));
+  }, []);
+
+  /** 一覧のタイトルを差し替える。応答の正規化後タイトルを正とし、次のポーリングでも同じ値になる */
+  const applyTitle = useCallback((id: string, title: string): void => {
+    sessionsRef.current = sessionsRef.current.map((item) => (item.sessionId === id ? { ...item, title } : item));
+    setSessions((prev) => prev.map((item) => (item.sessionId === id ? { ...item, title } : item)));
   }, []);
 
   // 通知トグルの実行は 1 つだけ作る (会話ごとの直列化と「最新の要求だけを反映する」判定を跨いで保つ)
@@ -526,6 +534,27 @@ export function useSessions({
     [refreshSessions, selectSession],
   );
 
+  /**
+   * 会話タイトルの変更。設定 → ファイル のフォルダと同じ window.prompt で受け取り、応答のタイトルを
+   * 一覧へ反映する (ヘッダの表示も一覧から引くため、これだけで画面が追従する)。
+   * 失敗は楽観反映をしないので、理由だけを状態行へ出す。
+   */
+  const renameSession = useCallback(
+    async (id: string): Promise<void> => {
+      const current = sessionsRef.current.find((item) => item.sessionId === id)?.title ?? "";
+      const next = window.prompt(sessionRenamePrompt(), current);
+      // 取り消し (null)・空・未変更なら何もしない (空文字はサーバーも 400 で拒否する)
+      if (!next || next === current) return;
+      try {
+        const result = await updateSessionTitle(id, next);
+        applyTitle(result.sessionId, result.title);
+      } catch (error) {
+        dispatch({ type: "setActivity", text: `セッション名を変更できませんでした。${messageFor(error)}` });
+      }
+    },
+    [applyTitle, dispatch],
+  );
+
   const reselectIfMissing = useCallback(
     async (list: SessionSummary[]): Promise<void> => {
       const current = sessionIdRef.current;
@@ -577,6 +606,7 @@ export function useSessions({
     newChat,
     ensureSession,
     deleteSession,
+    renameSession,
     reselectIfMissing,
     restoreSession,
     changeSessionSettings,

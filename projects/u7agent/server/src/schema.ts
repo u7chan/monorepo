@@ -920,6 +920,17 @@ export const SessionNotifyResponseSchema = z.object({
 });
 export type SessionNotifyResponse = z.infer<typeof SessionNotifyResponseSchema>;
 
+/**
+ * `PATCH /api/sessions/:id/title` の応答。notify と同じく live / 未ロードで同じ形にし、
+ * SDK セッションを開かない未ロードでも返せるよう会話全文 (`messages`) は載せない。
+ * `title` は正規化 (trim / 秘密のマスク / 上限) 後で、一覧の表示と一致する。
+ */
+export const SessionTitleResponseSchema = z.object({
+  sessionId: z.string(),
+  title: z.string(),
+});
+export type SessionTitleResponse = z.infer<typeof SessionTitleResponseSchema>;
+
 // ---------------------------------------------------------------------------
 // リクエスト body スキーマ
 // route が見るのは JSON の形と型だけ。必須判定と正規化 (trim / 上限 / 未知キー) は catalog が正
@@ -964,6 +975,13 @@ export type UpdateSessionSettingsBody = z.infer<typeof UpdateSessionSettingsBody
  */
 export const UpdateSessionNotifyBodySchema = z.object({ notify: z.boolean() });
 export type UpdateSessionNotifyBody = z.infer<typeof UpdateSessionNotifyBodySchema>;
+
+/**
+ * 会話タイトルの変更。notify と同じく SDK に触らないため実行中でも変えられる。
+ * 空・空白だけ・上限超えの正規化は store が正 (route は JSON の形だけを見る)。
+ */
+export const UpdateSessionTitleBodySchema = z.object({ title: z.string() });
+export type UpdateSessionTitleBody = z.infer<typeof UpdateSessionTitleBodySchema>;
 
 /** 通知設定の更新。キー省略は現在値の維持、webhookUrl / baseUrl の null は解除 */
 export const UpdateNotificationsBodySchema = z.object({

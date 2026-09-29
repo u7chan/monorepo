@@ -34,6 +34,7 @@ function renderSidebar({ mode, variant }: { mode: SidebarMode; variant: "sidebar
       projects: [],
       newChat: () => {},
       selectSession: () => {},
+      renameSession: () => {},
       deleteSession: () => {},
       deleteProject: () => {},
       onNewProject: () => {},

@@ -456,7 +456,14 @@ test("サイドバーのセッション行は On の会話だけ鳴っている�
   };
   const render = (session: SessionSummary) =>
     renderToStaticMarkup(
-      createElement(SessionRow, { item: session, agents: [], active: false, onSelect: () => {}, onDelete: () => {} }),
+      createElement(SessionRow, {
+        item: session,
+        agents: [],
+        active: false,
+        onSelect: () => {},
+        onRename: () => {},
+        onDelete: () => {},
+      }),
     );
   const off = render(item);
   const on = render({ ...item, notify: true });

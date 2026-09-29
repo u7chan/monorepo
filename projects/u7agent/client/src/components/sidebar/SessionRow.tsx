@@ -35,12 +35,13 @@ function statusDotClass(status: string): string {
   }
 }
 
-/** 行の選択と削除は別の button にする (入れ子の interactive control を作らない) */
+/** 行の選択と ⋯ の操作は別の button にする (入れ子の interactive control を作らない) */
 export function SessionRow({
   item,
   agents,
   active,
   onSelect,
+  onRename,
   onDelete,
 }: {
   item: SessionSummary;
@@ -48,6 +49,7 @@ export function SessionRow({
   agents: AgentDef[];
   active: boolean;
   onSelect: () => void;
+  onRename: () => void;
   onDelete: () => void;
 }) {
   const bits = [
@@ -58,7 +60,7 @@ export function SessionRow({
     item.queueDepth > 0 ? `待機${item.queueDepth}件` : "",
   ].filter(Boolean);
   // kind から行の props を引く表。actions と同じ種別に狭め、表の無い kind を型で検出する
-  const handlers: Record<SessionRowKind, () => void> = { delete: onDelete };
+  const handlers: Record<SessionRowKind, () => void> = { rename: onRename, delete: onDelete };
 
   return (
     <div

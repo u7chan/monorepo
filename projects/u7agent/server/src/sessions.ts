@@ -63,6 +63,7 @@ import type {
   SessionNotifyResponse,
   SessionPayload,
   SessionSummary,
+  SessionTitleResponse,
   SkillDef,
   SSEEventData,
   SSEEventType,
@@ -619,6 +620,45 @@ export class SessionStore {
       if (this.lifecycle.get(id) === write) this.lifecycle.delete(id);
     }
     return { sessionId: id, notify };
+  }
+
+  /**
+   * 会話タイトルの変更。notify と同じく SDK に触らず busy 判定も通さないため、実行中でも変えられる。
+   * 未ロードのセッションは meta.json だけを書き換え、SDK セッションを開かない。応答は
+   * `{ sessionId, title }` だけを返し、一覧と同じ正規化 (trim / マスク / 上限) 後の値を載せる。
+   */
+  async setTitle(id: string, title: string): Promise<SessionTitleResponse | undefined> {
+    // 自動タイトルと同じ正規化を 1 行に収める (改行を持つ名前が一覧の行を崩さないように)
+    const next = truncate(this.masker.mask(title).replace(/\s+/g, " ").trim(), TITLE_MAX);
+    if (!next) throw httpError(400, "title is required");
+    // 復元中の id は完了を待つ (descriptor を先に書き換えると load の meta で上書きされる)
+    const pending = this.lifecycle.get(id);
+    if (pending) await pending.catch(() => {});
+    const live = this.records.get(id);
+    if (live) {
+      live.title = next;
+      await this.persist(live, { jsonl: false });
+      if (live.persistError) throw httpError(500, `セッションの保存に失敗しました: ${live.persistError}`);
+      return { sessionId: live.id, title: live.title };
+    }
+    const meta = this.descriptors.get(id);
+    if (!meta || !this.storeDir) return undefined;
+    const updated: SessionMeta = { ...meta, title: next };
+    const storeDir = this.storeDir;
+    // 書き込み中の GET が古い descriptor で load(meta) を始めないよう、notify と同じく lifecycle へ載せる
+    const write = (async () => {
+      await writeSessionMeta(storeDir, updated);
+      this.descriptors.set(id, updated);
+    })();
+    this.lifecycle.set(id, write);
+    try {
+      await write;
+    } catch (error) {
+      throw httpError(500, `セッションの保存に失敗しました: ${messageFor(error)}`);
+    } finally {
+      if (this.lifecycle.get(id) === write) this.lifecycle.delete(id);
+    }
+    return { sessionId: id, title: next };
   }
 
   async updateSettings(record: SessionRecord, input: UpdateSessionSettingsInput): Promise<SessionPayload> {
