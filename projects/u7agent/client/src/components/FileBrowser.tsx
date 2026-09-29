@@ -58,6 +58,8 @@ const INDENT = 16;
 const FILE_INDENT = 32;
 /** reveal の一時ハイライトを残す時間。行が見つかってスクロールしてから数える */
 const REVEAL_HIGHLIGHT_MS = 1600;
+/** 折りたたみの高さ遷移 (styles/index.css の .tree-fold) の長さ。reveal のスクロールを合わせ直す時期に使う */
+const FOLD_MS = 180;
 
 function errorText(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
@@ -135,6 +137,8 @@ export function FileBrowser({
   // 対象の行だけがこの ref を持つ (一致する行の設置時にスクロールする)
   const revealRowRef = useRef<HTMLDivElement | null>(null);
   const revealTimerRef = useRef<number | null>(null);
+  // 開いた祖先の高さが決まってから、reveal のスクロールを合わせ直すためのタイマー
+  const revealFoldTimerRef = useRef<number | null>(null);
 
   const revealRow = useCallback((path: string) => {
     // 祖先を開いてから対象を指す。取得は既存の pendingFileTreeDirectories の経路が親から順に拾う
@@ -151,6 +155,13 @@ export function FileBrowser({
     if (row === null) return;
     revealedSeqRef.current = reveal.seq;
     row.scrollIntoView({ block: "nearest", inline: "nearest" });
+    // 折りたたみの高さ遷移の途中は行の位置が確定しないため、遷移が終わってから合わせ直す
+    // (対象が動かなければ何も起きない。対象の行が消えていても detach 済みの no-op)
+    if (revealFoldTimerRef.current !== null) window.clearTimeout(revealFoldTimerRef.current);
+    revealFoldTimerRef.current = window.setTimeout(() => {
+      revealFoldTimerRef.current = null;
+      row.scrollIntoView({ block: "nearest", inline: "nearest" });
+    }, FOLD_MS);
     if (revealTimerRef.current !== null) window.clearTimeout(revealTimerRef.current);
     revealTimerRef.current = window.setTimeout(() => {
       revealTimerRef.current = null;
@@ -162,6 +173,7 @@ export function FileBrowser({
   useEffect(
     () => () => {
       if (revealTimerRef.current !== null) window.clearTimeout(revealTimerRef.current);
+      if (revealFoldTimerRef.current !== null) window.clearTimeout(revealFoldTimerRef.current);
     },
     [],
   );
@@ -563,37 +575,45 @@ function EntryRow({
             />
           </RowTail>
         </div>
-        {open ? (
-          <>
-            {node?.error ? (
-              <MessageRow depth={depth + 1} danger alert>
-                {node.error}
-              </MessageRow>
+        {/* 開閉は高さの遷移で見せる (styles/index.css の .tree-fold)。入れ物は開く前から置くので、
+            初めて開く枝 (取得を待つ間) も 0fr から伸びる。閉じている間も取得済みの内容を残して
+            同じ遷移で潰し、閉じた枝の行は inert でフォーカスできないようにする。未取得の枝に
+            「読み込み中…」を残さないよう、内容は開いたか取得済みのときだけ描く */}
+        <div className="tree-fold" data-open={open} inert={!open}>
+          <div>
+            {open || node?.children || node?.error ? (
+              <>
+                {node?.error ? (
+                  <MessageRow depth={depth + 1} danger alert>
+                    {node.error}
+                  </MessageRow>
+                ) : null}
+                {node?.children ? (
+                  <Branch
+                    parent={path}
+                    node={node}
+                    depth={depth + 1}
+                    tree={tree}
+                    selected={selected}
+                    canRename={canRename}
+                    readOnly={readOnly}
+                    canRef={canRef}
+                    excludeNames={excludeNames}
+                    revealPath={revealPath}
+                    revealRef={revealRef}
+                    onToggle={onToggle}
+                    onSelect={onSelect}
+                    onRename={onRename}
+                    onDelete={onDelete}
+                    onDownload={onDownload}
+                  />
+                ) : node?.error ? null : (
+                  <MessageRow depth={depth + 1}>読み込み中…</MessageRow>
+                )}
+              </>
             ) : null}
-            {node?.children ? (
-              <Branch
-                parent={path}
-                node={node}
-                depth={depth + 1}
-                tree={tree}
-                selected={selected}
-                canRename={canRename}
-                readOnly={readOnly}
-                canRef={canRef}
-                excludeNames={excludeNames}
-                revealPath={revealPath}
-                revealRef={revealRef}
-                onToggle={onToggle}
-                onSelect={onSelect}
-                onRename={onRename}
-                onDelete={onDelete}
-                onDownload={onDownload}
-              />
-            ) : node?.error ? null : (
-              <MessageRow depth={depth + 1}>読み込み中…</MessageRow>
-            )}
-          </>
-        ) : null}
+          </div>
+        </div>
       </div>
     );
   }

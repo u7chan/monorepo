@@ -177,6 +177,17 @@ Content-Security-Policy: sandbox allow-scripts; default-src 'none'; style-src 'u
 - 取り直しの入口は外装の「再読み込み」と run_end で共通の `reloadToken` に集める（`SessionFilesPanel` は ヘッダの「再読み込み」の回数 + `ChatState.runEndSeq` の合計を渡す）。mount 時の token では撃たない（root の切替は `key` が扱うため）。run_end は描画された `runStatus` の差ではなく、reducer が `run_end` で進める `runEndSeq` を起点にする（`run_start` と `run_end` が同じバッチで届くと React は 1 回の描画にまとめるため、画面側では `running` を観測できず取りこぼす。SSE が切れて `resync` で復帰したときも、`running` を抜けていれば reducer が進める）。実行中の `tool_end` ごとの更新はしない
 - `GET /api/files` の path は root を前置する（`fileTreeFetchPath`）ので、パネルは `payload.cwd`（プロジェクト所属なら登録ディレクトリ、未所属なら `.u7agent/sessions/<id>`）を root として扱う。サンドボックス / API は変えない（同じファイルを設定 → ファイル からも開ける）
 
+## ディレクトリの開閉
+
+ディレクトリ行の開閉は、子の入れ物の高さを grid の行（`0fr` → `1fr`）で遷移させて見せる（`FileBrowser` の `.tree-fold`、遷移は `styles/index.css`）。`details` の折りたたみと違い開閉の状態は React が持つので、CSS は遷移だけを担う。子を `min-height: 0` / `overflow: hidden` で潰すため、`interpolate-size` に依存しない。
+
+- 入れ物（`.tree-fold`）は開く前から置く。mount した要素には遷移の前の値が無いため、開いたときに初めて mount すると初回の開が瞬時になる
+- 閉じた枝も**取得済みの内容は DOM に残す**（`open || node?.children || node?.error` のときだけ内容を描く）。畳むときも同じ遷移で潰すため。未取得の枝に「読み込み中…」を残さないのはこの条件の副作用で、取得は `pendingFileTreeDirectories` の経路のまま（閉じた枝からは取りに行かない）
+- 閉じた枝の行は `inert` でフォーカスから外す（見えていない行へ Tab で入らない）
+- `prefers-reduced-motion` では遷移させず瞬時に開閉する（`details` の折りたたみと同じ扱い）
+- 高さの遷移の途中は行の位置が確定しないため、reveal は遷移の後にスクロールを合わせ直す（`FOLD_MS` は CSS の遷移時間と一致させる。`client/test/fileTreeFold.test.ts` が突き合わせる）
+- 見え方は client に DOM テスト基盤が無いため自動では見ず、**手動確認**とする（テストは CSS の定義と配線と時間の一致だけを固定する）
+
 ## ツリーの reveal
 
 ツリーでファイルの位置が分かるように、対象の祖先ディレクトリを開いて対象の行へスクロールし、しばらく一時ハイライトする（`FileBrowser`）。**画面の root は変えない**（サブツリーへ再ルートする機能は持たない）。表示するパスは常に画面 root 相対のままで、タブ・ドラッグ参照・confirm と同じ座標を使う。入口は 2 つで、どちらも同じ `revealRow` を通る。
@@ -378,6 +389,7 @@ assistant 本文のインラインコードが指すファイルを、右パネ�
 | `client/test/filePreviewTabClose.test.ts` | タブを中クリックで閉じる契約（`button === 1` だけ / タブの箱で受ける / down 側の既定動作を止める / `×` を残す） |
 | `client/test/fileTree.test.ts` | 開閉・子のマージ・エラー保持 / 削除した行だけを落として他を保つこと / 削除の confirm 文言（ファイル / 配下ごとのディレクトリ、画面の root 相対パス）/ ディレクトリ削除後の枝の prune（接頭辞境界と own プロパティ契約）/ リネームの prompt 文言と、親の行の名前差し替え・配下キーの張り替え・開閉と取得済みの子の保持（接頭辞境界・未取得の親・`__proto__`）/ 取得中のリネームで loading を落として新しいキーで取り直すこと（旧キーの応答で新キーを汚さない）/ 保存する展開の抽出と復元（root の初期化、親を閉じた子の open、truncated）/ reveal の祖先（root から近い順・root 直下は空・同 object を返す条件・loading と子の保持・`__proto__`）/ パンくずの項目（root 前置きと正規化） |
 | `client/test/fileTreeReveal.test.ts` | reveal の配線（参照の適用時に祖先を開く / パンくずと `revealRow` を共有 / 行が現れてからスクロール / 一時ハイライトとタイマーの掃除 / 対象の行だけが ref とハイライトを持つ）と、パンくずの構造（root 前置きは非ボタン / root 相対の祖先とファイルはボタン / `aria-current` / クリックは画面 root 相対のまま）（`react-dom/server` の描画 + ソース走査） |
+| `client/test/fileTreeFold.test.ts` | ディレクトリの開閉（`.tree-fold` が grid の行を 0fr → 1fr へ遷移させる / 子を潰す `min-height` と `overflow` / 入れ物を開く前から置いて閉じた枝の内容も残すこと / 閉じた枝の `inert` / `prefers-reduced-motion` で遷移しないこと / reveal のスクロールの合わせ直し `FOLD_MS` が CSS の遷移時間と一致すること）（ソース走査） |
 | `client/test/fileRowMenu.test.ts` | 行の操作の出し分け（readOnly は `null` / symlink は `[]` / ダウンロード → リネーム → 削除 の順と条件 / ディレクトリの ZIP ラベルと 2 行目の開示）/ ⋯ の `aria-haspopup`・`aria-expanded` と本体の `role="menu"`・`aria-labelledby`、項目の `role="menuitem"`・`tabIndex=-1`・並び順と danger / 位置の純関数（右端・下端での反転と clamp）/ 可視判定 / ↑↓ の端止まり / 自前の close が `hidePopover()` を通り、`Escape` が伝播だけ止めること（`react-dom/server` の描画 + ソース走査） |
 | `client/test/fileBrowserRowTime.test.ts` | ディレクトリ行とファイル行が同じ形の時刻と ⋯ を持つこと（`<EntryTime at={entry.mtime}>` / `flex-wrap … gap-x-1.5 gap-y-1 rounded-lg pr-2` / 共通の `RowTail` + `EntryRowActions`）/ 狭い面で行を 2 段にする契約（`RowTail` の `basis-full` と `@2xs:basis-auto`）/ 行の右端が ⋯ 1 個で、項目 0 の行だけ空きスロット（`aria-hidden` の `size-6`）へ落ちること / `readOnly` では両行とも行の操作ごと消えること / 時刻が開閉の `button` の外にあること / 削除が種類ごとに confirm と API を分けること（ディレクトリは `deleteDirectory` と配下の state / タブの除去）/ 時刻が `fileTimeLabel` と `title` の完全な表記を使い、`mtime` 無しの行には出ないこと |
 | `client/test/fileDownloadRow.test.ts` | ダウンロードの出し分け（ファイル / フォルダ行のラベルと 2 行目の開示 / 除外名・symlink 行には出ない / `readOnly` は行の操作ごと消える）/ 確認文言（実際の除外名 / 件数 / サイズ表記 / ディレクトリだけ）/ `check` を先に通して `<a download>` で開始すること / 失敗をツリー内のエラー行へ出すこと / 除外名を app 状態から prop で受け取り、`FileBrowser` が health を取りに行かないこと（純関数 + ソース走査） |
