@@ -92,7 +92,7 @@ CREATE TABLE IF NOT EXISTS provider_memos (
 
 - 「キー最終保存」は `managed` の provider だけに出す。`keyUpdatedAt` が `null` の行（移行前）は「保存日不明」と書く。`managed` でない provider（環境変数認証など）には日時行を出さない
 - 「最終使用」は `model` + `lastUsedAt` を provider ごとに集計した値（`client/src/lib/modelSettings.ts` の `providerUsage()`）で、`provider/model` の区切りは**最初の `/`** だけ（model id に `/` を含み得る。server の `parseModelRef` と同じ規則）。`model` の無い会話は母数から除く
-- 表示は `最終使用: <messageTimeLabel(lastUsedAt)> · この provider の会話 N 件` で、1 件も無ければ「この provider の会話はありません」。`managed` でなく会話も 0 件のときは、どちらの行も出さない（ノイズを作らない）。日時整形は `client/src/lib/messageTime.ts` の `messageTimeLabel()`（今日 = 時刻 / 今年 = 月日 / それ以前 = 年月日）をそのまま使い、相対表記は持たない
+- 表示は `最終使用: <messageTimeLabel(lastUsedAt)> · この provider の会話 N 件` で、1 件も無ければ「この provider の会話はありません」。`managed` でなく会話も 0 件のときは、どちらの行も出さない（ノイズを作らない）。日時整形は `client/src/lib/messageTime.ts` の `messageTimeLabel()`（今日 = 時刻 / 今年 = 月日 / それ以前 = 年月日）をそのまま使い、相対表記は持たない。件数と最終保存・最終使用は 1 行のチップとして並べ、文の連結で増えた時に備えて行を `flex-wrap` で折り返す
 - `lastUsedAt` は会話の最終更新（作成・設定変更・送信・停止・ランの開始/再開）で、provider への API 呼び出し成功を意味しない。設定変更だけでも更新されるため、厳密な課金確認には使えない
 - セッション一覧の state は `[]` 初期値のため、`useSessions` の `sessionsLoaded`（初回の取得に成功するまで false）が true になるまで「最終使用」の行を出さない。false を「会話 0 件」と混同しない。取得に失敗しても false へ戻さず、前回の一覧と状態を保つ
 - セッションを削除すると集計からも消える（最終使用を永続化しない割り切り）。一覧に出ない会話（ストア移行・meta 破損など）は母数に入らない
@@ -177,6 +177,7 @@ CREATE TABLE IF NOT EXISTS provider_memos (
   - 保存後は health とカタログを取り直して、入力欄のモデル候補を追随させる。live の会話のモデルを切り替えないことを画面に注記する（[model-effort.md](model-effort.md#既存の会話への影響認証の変更)）
 - 「プロバイダー」タブは左の一覧（`GET /api/settings/models` の全件を「設定済み（`auth.configured` / `managed` / メモあり / 利用可能モデルあり）」と「未設定」に分け、検索は provider 名 / ID。件数メタは `available/catalog` または未反映・カタログ外）と右の詳細（APIキーの登録・上書き、メモ、削除、再同期、利用可能数、`degraded` の案内）の master-detail。詳細の上部にキーの平文保存と「BFF を LAN / インターネットへ公開しない」注意を常時出し、プロバイダーを切り替えても消さない。キー保存後に「モデルを選ぶ」タブへ戻る導線を置き、固定バーではキー・メモが各保存ボタンで即時保存されることを区別する。モデル一覧の重複表示（旧 ModelTable）は削除した
   - 詳細は認証バッジ（未設定 / 環境変数（変数名）/ 保存済み（auth.json）/ この画面で登録済み（実効）/ 保存済み（未反映）/ 削除が未反映 / カタログ外）を出し、`canSetApiKey` のときだけキー入力、`managed` のときだけ削除（確認に既存会話への影響を出す）、再同期可能な `degraded` のときだけ再同期を出す。キー最終保存は `managed` の provider だけに「保存日不明」を含めて出す
+  - 見出しの 1 行メタ（`利用可能 a / カタログ b`・`キー最終保存: …`・`最終使用: …`）は、認証バッジと同じ寸法のチップ（`client/src/components/model-settings/MetaChip.tsx`）で組む。チップの色は警告の有無にだけ使い、日時や件数の値では変えない（情報の種別ではなく、対処が要るかを見せる）
   - 未反映の案内文（`degradedNotice`）は、その詳細で実際に押せる回復操作に合わせる。カタログ外（`orphan`）の `apply` は resync API も 400 にするため [再同期] を案内せず、[削除] とカタログ復帰を案内する
 - メモ欄はキー入力とは別の `<form>` にした `<textarea rows={2} maxLength={500}>` と [メモを保存] で、Enter がキーの保存を走らせない。入力値は `provider.memo` が変わったときだけ同期し、dirty（`trim` 後の値が保存値と違う）のときだけ保存を有効にし、未保存の印を出す。保存に成功したら応答の `trim` 済みの値で入力値を戻す。メモの保存は SDK に触れないので health / カタログを取り直さず、進行中の `reload()` の応答で保存直後を上書きされないよう先行ロードの無効化だけ行う。`runtimeAvailable: false` のときは入力欄と保存を disable し、runtime 停止時の注意書きにメモも含める。カタログ外のメモだけの provider には「キーの登録はできません（メモは保存できます）」と案内し、キー入力は出さない
 - 「画像生成」タブは画像専用の APIキー・モデルだけを扱い、上部に provider（v1 は OpenRouter）の見出し（ロゴ・表示名・id・キーの登録状態）を出し、`settings.provider` に追随してロゴが切り替わる。未設定ではキー入力だけを出す（キー保存で行ができてからモデル選択と削除が現れる）。キーは常に空の入力欄へ再表示し、本物のキーは GET 応答にも載せない。`runtimeAvailable: false` のときはキー登録・上書き・削除を disable する（モデルの変更は SDK に触れないため残す）。操作と注意書きの詳細は [image-generation.md](image-generation.md#設定画面画像生成タブ)

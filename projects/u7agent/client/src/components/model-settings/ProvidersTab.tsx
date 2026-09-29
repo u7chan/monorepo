@@ -17,6 +17,7 @@ import {
 import type { ModelsSettingsResponse, ProviderAuthSetting, RuntimeModelsResponse, SessionSummary } from "../../types";
 import { CheckIcon, KeyIcon, RefreshIcon, TrashIcon } from "../icons";
 import { ProviderIcon } from "../ProviderIcon";
+import { MetaChip } from "./MetaChip";
 import { ProviderBadgeTag } from "./ProviderBadgeTag";
 
 export type ProvidersTabProps = {
@@ -301,21 +302,21 @@ function ProviderDetail({
   return (
     <section className="grid gap-4">
       <div className="grid gap-2 border-b border-line pb-2">
-        <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
           <ProviderIcon provider={provider.provider} name={provider.name} variant="heading" />
           <h2 className="font-semibold text-base text-ink-strong">{provider.name}</h2>
           <code className="text-2xs text-ink-ghost">{provider.provider}</code>
           <ProviderBadgeTag badge={badge} />
           {catalogProvider ? (
-            <span className="text-2xs whitespace-nowrap text-ink-muted">
+            <MetaChip>
               利用可能 {available} / カタログ {catalogProvider.models.length}
-            </span>
+            </MetaChip>
           ) : null}
         </div>
         {keyUpdatedLabel || usageLabel ? (
-          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-2xs text-ink-muted">
-            {keyUpdatedLabel ? <span className="whitespace-nowrap">{keyUpdatedLabel}</span> : null}
-            {usageLabel ? <span className="whitespace-nowrap">{usageLabel}</span> : null}
+          <div className="flex flex-wrap items-center gap-x-1.5 gap-y-1.5">
+            {keyUpdatedLabel ? <MetaChip>{keyUpdatedLabel}</MetaChip> : null}
+            {usageLabel ? <MetaChip>{usageLabel}</MetaChip> : null}
           </div>
         ) : null}
       </div>

@@ -32,7 +32,7 @@
 
 ### 画面表示
 
-モデル欄に由来と最終取得時刻を出す。`live` 以外は警告色で、前回の一覧 / SDK 同梱のどちらを見ているかを明示する（黙って古い一覧を見せない）。
+モデル欄に由来と最終取得時刻を出す。`live` 以外は警告色で、前回の一覧 / SDK 同梱のどちらを見ているかを明示する（黙って古い一覧を見せない）。表示はプロバイダータブと同じ `MetaChip` のチップで、`live` は muted、それ以外は warn にする。文が長いためこのチップだけは折り返しを許し、[再取得] を隣に置く。段落のセマンティクス（暗黙の `paragraph` ロール）を残すために `<p>` で包み、`wrap` のチップは `inline-block max-w-full` で 1 つの枠のまま中で折り返す（inline のままだと行ごとに枠線が分断される）。
 
 - `live`: 「モデル一覧は OpenRouter から取得しました（最終取得: 3時間前）」
 - `stored`: 「OpenRouter から取得できなかったため、前回の一覧を表示しています（最終取得: …）」
@@ -119,10 +119,10 @@ SDK(pi-ai 0.87.1) の `openrouter-images` は `chat/completions` へ投げるが
 設定 → モデル の 3 つ目のタブ（`/settings/models/images`）。表示の正は `client/src/lib/imageSettings.ts` の純関数、取得と操作は `client/src/hooks/useImageSettings.ts`、描画は `client/src/components/model-settings/ImageSettingsTab.tsx` に閉じる。
 
 - 未設定ではキー入力だけを出す。`PUT /api/settings/images` は行が無いと 400 のため、モデル選択と削除はキー保存（`PUT /api/settings/images/key`）に成功してから現れる
-- タブの上部に provider の見出し（ロゴ + 表示名 + provider id + 登録状態バッジ）を出す。ロゴは `client/src/components/ProviderIcon.tsx` の `providerIconKey()` で引き、表示名と id は `imageProviderId()` / `imageProviderLabel()` が決める。v1 は openrouter だけなので未設定（`null`）でも OpenRouter を出し、provider が増えれば `settings.provider` に追随して同じ見出しのロゴが切り替わる（対応表に無い provider は頭文字のタイルへ落ちる）
+- タブの上部に provider の見出し（ロゴ + 表示名 + provider id + 登録状態バッジ + `カタログ <n>`）を出す。ロゴは `client/src/components/ProviderIcon.tsx` の `providerIconKey()` で引き、表示名と id は `imageProviderId()` / `imageProviderLabel()` が決める。v1 は openrouter だけなので未設定（`null`）でも OpenRouter を出し、provider が増えれば `settings.provider` に追随して同じ見出しのロゴが切り替わる（対応表に無い provider は頭文字のタイルへ落ちる）。件数と登録状態のチップはプロバイダータブと同じ `MetaChip` を使う
 - 登録状態バッジ（設定済み / 未設定）は上部の見出しに出す（プロバイダータブと同じ見た目。`imageKeyStatusBadge()`）。キー欄の補足には provider 名（OpenRouter）を添え、モデル欄に出る `OpenAI: …` と混同させない
 - キーは `type="password"` / `autoComplete="off"` で、保存値を再表示しない（常に空から入力する）。[上書き保存] は成功したときだけ入力を消し、[削除] は `window.confirm` の後に行ごと消して未設定へ戻す
-- モデルは native `<select>`（`SelectField`）でカタログから 1 件選ぶ。保存済みのモデルがカタログに無いときは「（カタログ外）」として現在の id を先頭に足す（何が保存されているかを見失わせない）。サイズ / 品質 / 出力形式の UI は持たない
+- モデルは native `<select>`（`SelectField`）でカタログから 1 件選ぶ。保存済みのモデルがカタログに無いときは「（カタログ外）」として現在の id を先頭に足す（何が保存されているかを見失わせない）。サイズ / 品質 / 出力形式の UI は持たず、本文にはその理由（provider の既定を使う）だけを書く。provider 名は見出しにあるため繰り返さない
 - 注意書きは詳細の上部に常時出す（平文保存・再表示しない・ログイン無しで公開しない・有効性は保存時に見ない・キーは 8 文字以上・プロバイダー登録キーとは別管理）。下部に「保存したキーは新しい会話から使える（ツール一覧はセッション作成時に固定）」と、生成物の保存先（作業フォルダの `generated/`）を注記する
 - `runtimeAvailable: false` のときはキー登録・上書き・削除を disable し、プロバイダータブと同じ理由（サーバーの起動ログ）を出す。モデルの変更は SDK に触れないため残す。変更系の 503 `state: "not_stored"` は「変更は保存されていません。」を付けて画面の注記へ出す
 - 画面の [再読み込み] はモデル設定と画像設定の両方を取り直す。キーの登録・削除は再起動を待たず、次に作るセッションから効く
@@ -164,7 +164,7 @@ SDK(pi-ai 0.87.1) の `openrouter-images` は `chat/completions` へ投げるが
 | `server/test/image-settings-api.test.ts` | HTTP 契約と DB 例外のマスク、起動時の有効化、キーが応答・health・ログへ出ないこと、カタログの出どころ / 再取得の 200 と `catalogError` / `models` の形（宣言を載せない） |
 | `server/test/app-db.test.ts` | v7 → v8 / v8 → v9 の加算移行、`image_settings` の CRUD、空文字行 = 未設定、`image_catalog` の upsert と壊れた行（health を落とさない）、形式宣言の往復と形違いの読み方 |
 | `client/test/markdownImage.test.ts` | Markdown 画像の 3 段解決 / 解決できない src / `components/markdown/` が `api.ts` を import しないこと |
-| `client/test/imageSettings.test.ts` / `client/test/imageSettingsTab.test.ts` | 選択肢（カタログ順・同名への id 添え・カタログ外の現在値）/ 現在値と PUT の本文 / 保存成功時だけキー入力を消す / キーの登録状態バッジと provider の id・表示名 / 見出しの provider（ロゴ・未設定でも OpenRouter・対応表に無い provider は頭文字）/ 一覧の出どころの注記と最終取得 / 再取得の注記 / タブの初期描画（未設定はキーのみ・設定済みは削除とモデル選択・キーを再表示しない・runtime 不可の disable・[再取得] の出し分け） |
+| `client/test/imageSettings.test.ts` / `client/test/imageSettingsTab.test.ts` | 選択肢（カタログ順・同名への id 添え・カタログ外の現在値）/ 現在値と PUT の本文 / 保存成功時だけキー入力を消す / キーの登録状態バッジと provider の id・表示名 / 見出しの provider（ロゴ・未設定でも OpenRouter・対応表に無い provider は頭文字）と `カタログ <n>` のチップ / 一覧の出どころのチップと最終取得 / 再取得の注記 / タブの初期描画（未設定はキーのみ・設定済みは削除とモデル選択・キーを再表示しない・runtime 不可の disable・[再取得] の出し分け） |
 
 ## 非ゴール
 

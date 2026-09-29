@@ -11,12 +11,12 @@ import {
   keyDraftAfterSave,
   type ImageSavingAction,
 } from "../../lib/imageSettings";
-import { cn } from "../../lib/cn";
 import { API_KEY_MIN_LENGTH } from "../../lib/modelSettings";
 import type { ImageSettingsResponse, UpdateImageSelectionBody } from "../../types";
 import { CheckIcon, RefreshIcon, TrashIcon } from "../icons";
 import { ProviderIcon } from "../ProviderIcon";
 import { SelectField } from "../SelectField";
+import { MetaChip } from "./MetaChip";
 import { ProviderBadgeTag } from "./ProviderBadgeTag";
 
 export type ImageSettingsTabProps = {
@@ -61,12 +61,14 @@ export function ImageSettingsTab({
   return (
     <div className="min-h-0 min-w-0 scrollbar-thin overflow-x-hidden overflow-y-auto px-4 py-4">
       <div className="mx-auto grid max-w-3xl gap-3">
-        {/* このタブがどの provider の設定かを最初に示す。provider が増えたら settings.provider に追随する */}
-        <section className="flex flex-wrap items-center gap-x-3 gap-y-1 border-b border-line pb-2">
+        {/* このタブがどの provider の設定かを最初に示す。provider が増えたら settings.provider に追随する。
+            件数と一覧の出どころはプロバイダータブと同じチップで揃える */}
+        <section className="flex flex-wrap items-center gap-x-3 gap-y-1.5 border-b border-line pb-2">
           <ProviderIcon provider={imageProviderId(settings.provider)} name={providerName} variant="heading" />
           <h2 className="font-semibold text-base text-ink-strong">{providerName}</h2>
           <code className="text-2xs text-ink-ghost">{imageProviderId(settings.provider)}</code>
           <ProviderBadgeTag badge={imageKeyStatusBadge(settings.configured)} />
+          <MetaChip>カタログ {settings.models.length}</MetaChip>
         </section>
         {runtimeAvailable ? null : (
           <p role="alert" className="rounded-lg border border-warn/40 bg-raised px-2.5 py-2 text-2xs text-warn">
@@ -198,17 +200,14 @@ function ImageModelSection({
           保存
         </button>
       </div>
-      <p className="text-2xs leading-relaxed text-ink-muted">
-        プロバイダー: {imageProviderLabel(settings.provider)}。サイズ・品質・出力形式は provider の既定を使います。
-      </p>
+      {/* サイズ・品質・出力形式の UI は持たない理由だけを残す。provider は見出しに出ている */}
+      <p className="text-2xs leading-relaxed text-ink-muted">サイズ・品質・出力形式は provider の既定を使います。</p>
       <div className="flex flex-wrap items-center gap-2">
-        <p
-          className={cn(
-            "min-w-0 flex-1 text-2xs leading-relaxed",
-            settings.catalogSource === "live" ? "text-ink-muted" : "text-warn",
-          )}
-        >
-          {imageCatalogNotice(settings)}
+        {/* 段落のセマンティクスを残すため、チップ (span) は <p> の中に置く */}
+        <p className="min-w-0">
+          <MetaChip wrap tone={settings.catalogSource === "live" ? "muted" : "warn"}>
+            {imageCatalogNotice(settings)}
+          </MetaChip>
         </p>
         <button type="button" className="btn-quiet" disabled={busy} onClick={() => void onRefresh()}>
           <RefreshIcon />
