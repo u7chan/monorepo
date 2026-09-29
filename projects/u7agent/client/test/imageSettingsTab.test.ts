@@ -91,9 +91,9 @@ test("設定済みでは上書き保存・削除・モデル選択を出し、�
   assert.ok(html.includes("モデル一覧は OpenRouter から取得しました"), "一覧の出どころを出す");
   assert.ok(
     html.includes(
-      'rounded border px-1.5 py-0.5 text-2xs leading-relaxed whitespace-normal border-line text-ink-muted">モデル一覧は OpenRouter から取得しました',
+      'rounded border px-1.5 py-0.5 text-2xs inline-block max-w-full leading-relaxed whitespace-normal border-line text-ink-muted">モデル一覧は OpenRouter から取得しました',
     ),
-    "出どころもプロバイダータブと同じチップで出す",
+    "出どころもプロバイダータブと同じチップで出し、狭い幅でも 1 つの枠のまま折り返す",
   );
   assert.match(
     html,
