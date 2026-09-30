@@ -12,6 +12,11 @@ const KINDS: MdTokenKind[] = ["key", "str", "num", "com", "fn", "type", "op", "p
 
 const SAMPLES: Record<string, string> = {
   ts: 'export function parseMarkdown(input: string): MdBlock[] {\n  // 純関数\n  return scanBlocks(input.split(/\\r?\\n/), "tsx", 1.5);\n}\n',
+  c: '#include <stdio.h>\n\n/* 配列を並べ替える */\nvoid sort(int *a, size_t n) {\n  for (size_t i = 0; i < n; i++) printf("%d\\n", a[i]);\n}\n',
+  cpp: "#include <vector>\n\nclass Box final {\npublic:\n  explicit Box(std::vector<int> values) : values_(std::move(values)) {}\n\nprivate:\n  std::vector<int> values_;\n};\n",
+  java: "import java.util.List;\n\npublic final class Box<T> {\n  private final List<T> values; // 値\n\n  Box(List<T> values) {\n    this.values = values;\n  }\n}\n",
+  go: 'package main\n\nimport "fmt"\n\nfunc main() {\n\tvalues := []int{1, 2, 3}\n\tfor i, v := range values {\n\t\tfmt.Println(i, v)\n\t}\n}\n',
+  rust: "use std::collections::HashMap;\n\n/// 数を数える\nfn count(values: &[u32]) -> HashMap<u32, usize> {\n    let mut counts = HashMap::new();\n    for value in values {\n        *counts.entry(*value).or_insert(0) += 1;\n    }\n    counts\n}\n",
   json: '{\n  "name": "u7agent",\n  "count": 12,\n  "ok": true,\n  "none": null\n}\n',
   bash: '# 実行\npnpm --filter client test -- --test-name-pattern markdown\ngit switch -c "feat/x"\necho $HOME > out.txt\n',
   python: 'import os\n\n\ndef main(x: int) -> str:\n    """doc"""\n    return f"{x}"  # 文字列\n',
@@ -61,6 +66,29 @@ test("TypeScript はキーワード / 関数 / 文字列 / コメント / 数値
   assert.deepEqual(
     tokensOf("type", tokens).map((token) => token.text),
     ["string", "MdBlock"],
+  );
+});
+
+test("C はプリプロセッサ / キーワード / 型名 / マクロ / コメントを塗り分ける", () => {
+  const tokens = highlightCode(
+    "#include <stdio.h>\n\n/* 配列を並べ替える */\nvoid sort(int *a, size_t n) {\n  FILE *out = NULL;\n}\n",
+    "c",
+  );
+  assert.deepEqual(
+    tokensOf("key", tokens).map((token) => token.text),
+    ["#include", "void", "int"],
+  );
+  assert.deepEqual(
+    tokensOf("fn", tokens).map((token) => token.text),
+    ["sort"],
+  );
+  assert.deepEqual(
+    tokensOf("type", tokens).map((token) => token.text),
+    ["size_t", "FILE", "NULL"],
+  );
+  assert.deepEqual(
+    tokensOf("com", tokens).map((token) => token.text),
+    ["/* 配列を並べ替える */"],
   );
 });
 
@@ -119,12 +147,82 @@ test("diff は追加 / 削除 / ハンクを行単位で塗る", () => {
   );
 });
 
+test("単一引用符は言語ごとに文字定数 / ライフタイム / 桁区切りを区別する", () => {
+  const strings = (source: string, lang: string) => tokensOf("str", highlightCode(source, lang)).map((t) => t.text);
+  // Rust: ライフタイムは文字リテラルではない (`'a,'` の `'` を閉じ引用符にしない)
+  const rust = highlightCode("fn f<'a, 'b>(x: &'a str, y: &'b str) {}\n", "rust");
+  assert.deepEqual(tokensOf("str", rust), [], "ライフタイムを文字列にしている");
+  assert.deepEqual(
+    tokensOf("type", rust).map((token) => token.text),
+    ["str", "str"],
+  );
+  // Rust: 文字リテラルは 1 文字かエスケープ 1 つ (サロゲートペアも 1 文字)
+  for (const source of ["'a'", "'\\n'", "'\\''", "'\\\\'", "'\\x41'", "'\\u{1F600}'", "'😀'"]) {
+    assert.deepEqual(strings(source, "rust"), [source], source);
+  }
+  // C / C++: 文字定数は長さを制限しない (複数文字と多桁のエスケープ)
+  for (const source of ["'a'", "'\\n'", "'\\''", "'\\\\'", "'\\x41'", "'\\101'", "'ab'"]) {
+    assert.deepEqual(strings(source, "c"), [source], `c ${source}`);
+    assert.deepEqual(strings(source, "cpp"), [source], `cpp ${source}`);
+  }
+  // C / C++: 桁区切りは数値として飲む (区切りの `'` を引用符にしない)
+  for (const source of ["1'000", "1'2'3", "0x1'0000", "0b1'0101", "1.5'000"]) {
+    const tokens = highlightCode(source, "cpp");
+    assert.deepEqual(
+      tokensOf("num", tokens).map((token) => token.text),
+      [source],
+      source,
+    );
+    assert.deepEqual(tokensOf("str", tokens), [], source);
+  }
+  // 指数部 (10 進の `e` と 16 進浮動小数点の `p`) の区切りも数値として飲む
+  for (const source of ["1e1'0", "1.2e+1'0", "1'000e1'000", "0x1p1'0", "0x1.8p1'0"]) {
+    const tokens = highlightCode(source, "cpp");
+    assert.deepEqual(
+      tokensOf("num", tokens).map((token) => token.text),
+      [source],
+      source,
+    );
+    assert.deepEqual(tokensOf("str", tokens), [], source);
+  }
+  assert.deepEqual(
+    tokensOf("key", highlightCode("int n = 1'2'3; int m = 2'000;", "cpp")).map((token) => token.text),
+    ["int", "int"],
+  );
+  assert.deepEqual(
+    tokensOf("key", highlightCode("double a = 1e1'0; double b = 1e2'0;", "cpp")).map((token) => token.text),
+    ["double", "double"],
+  );
+  // Rust の Unicode エスケープ: `_` は桁数に数えない
+  for (const source of ["'\\u{41}'", "'\\u{1F600}'", "'\\u{0000_41}'", "'\\u{10_FFFF}'"]) {
+    assert.deepEqual(strings(source, "rust"), [source], source);
+  }
+  // JS / TS / Java は従来どおり長さを制限しない
+  assert.deepEqual(strings("const a = 'ab';", "ts"), ["'ab'"]);
+  assert.deepEqual(strings("String a = 'ab';", "java"), ["'ab'"]);
+});
+
 test("別名の言語も同じルールでハイライトする", () => {
   const source = "const a: number = 1;\n";
   const base = JSON.stringify(highlightCode(source, "ts"));
   for (const alias of ["ts", "tsx", "typescript", "js", "jsx", "javascript", "mjs", "cjs"]) {
     assert.equal(JSON.stringify(highlightCode(source, alias)), base, alias);
   }
+  // C 系 / Go / Rust の別名 (拡張子とフェンスの info 文字列の両方から同じ規則で引ける)
+  const cSource = "#include <stdio.h>\nint main(void) { return 0; }\n";
+  const cBase = JSON.stringify(highlightCode(cSource, "c"));
+  for (const alias of ["c", "h"]) assert.equal(JSON.stringify(highlightCode(cSource, alias)), cBase, alias);
+  const cppSource = "class Box final {\npublic:\n  int v = 0;\n};\n";
+  const cppBase = JSON.stringify(highlightCode(cppSource, "cpp"));
+  for (const alias of ["cpp", "c++", "cc", "cxx", "hh", "hpp", "hxx"])
+    assert.equal(JSON.stringify(highlightCode(cppSource, alias)), cppBase, alias);
+  const goSource = "func main() {\n\tfmt.Println(len(os.Args))\n}\n";
+  const goBase = JSON.stringify(highlightCode(goSource, "go"));
+  for (const alias of ["go", "golang"]) assert.equal(JSON.stringify(highlightCode(goSource, alias)), goBase, alias);
+  const rustSource = "pub fn count(v: &[u32]) -> usize { v.len() }\n";
+  const rustBase = JSON.stringify(highlightCode(rustSource, "rust"));
+  for (const alias of ["rs", "rust"]) assert.equal(JSON.stringify(highlightCode(rustSource, alias)), rustBase, alias);
+  assert.notEqual(highlightCode("public static void main(String[] a) {}", "java"), null);
   assert.notEqual(highlightCode("pnpm x", "sh"), null);
   assert.notEqual(highlightCode("py = 1", "py"), null);
   assert.notEqual(highlightCode("# h", "markdown"), null);

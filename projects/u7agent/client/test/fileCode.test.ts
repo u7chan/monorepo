@@ -4,6 +4,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
+import { lineNumbers } from "../src/lib/codeLines";
 import {
   buildPreviewCode,
   FILE_PREVIEW_MAX_LENGTH,
@@ -11,7 +12,6 @@ import {
   isHtmlPath,
   previewCopyText,
   previewLang,
-  previewLineNumbers,
 } from "../src/lib/fileCode";
 
 test("拡張子から言語を決める", () => {
@@ -20,6 +20,13 @@ test("拡張子から言語を決める", () => {
     ["a.tsx", "ts"],
     ["a.js", "ts"],
     ["A.TSX", "ts"],
+    ["a.c", "c"],
+    ["a.h", "c"],
+    ["a.cpp", "cpp"],
+    ["a.hpp", "cpp"],
+    ["a.java", "java"],
+    ["a.go", "go"],
+    ["a.rs", "rust"],
     ["dir.v2/a.json", "json"],
     ["dir/a.jsonc", "json"],
     ["a.py", "python"],
@@ -58,6 +65,8 @@ test("行数は末尾の空行を数えず、CRLF / CR は LF に揃える", () 
     ["a\rb", "a\nb", 2],
     ["\n", "", 0],
     ["\n\n", "", 0],
+    // 空白だけの本文も行として数える (空のファイルと区別する)
+    [" \n\t\n", " \n\t", 2],
   ];
   for (const [input, text, lineCount] of cases) {
     const code = buildPreviewCode(input, "a.txt");
@@ -82,7 +91,7 @@ test("コピーする本文は正規化後で、行番号も CR も末尾の空�
   }
   // 行番号の列 (1 から始まる連番) は描画側のもので、コピー本文には含めない
   const code = buildPreviewCode("a\nb\n", "a.txt");
-  assert.notEqual(previewCopyText(code), `${previewLineNumbers(code.lineCount)}\n${code.text}`);
+  assert.notEqual(previewCopyText(code), `${lineNumbers(code.lineCount)}\n${code.text}`);
   assert.ok(!previewCopyText(code).includes("1\na"), "行番号を行頭に混ぜない");
 });
 
@@ -134,12 +143,6 @@ test("トークンが多すぎるときはハイライトしない", () => {
   const code = buildPreviewCode(source, "a.json");
   assert.equal(code.highlight, null);
   assert.equal(code.text, source);
-});
-
-test("行番号の列は 1 から行数まで (行ごとの要素を作らない)", () => {
-  assert.equal(previewLineNumbers(0), "");
-  assert.equal(previewLineNumbers(1), "1");
-  assert.equal(previewLineNumbers(4), "1\n2\n3\n4");
 });
 
 test("不正な入力でも例外を投げない", () => {
