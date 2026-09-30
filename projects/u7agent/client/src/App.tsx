@@ -421,6 +421,8 @@ export default function App() {
                 retryActivityText(app.chat.retry, retryRemainingMs(app.chat.retryRemainingMs, retryElapsed)) ??
                 app.chat.activity
               }
+              // 再試行の待機文言で上書きしていても、由来は run 側の状態を使う (thinking のときだけ光る)
+              activityState={app.chat.activityState}
               runningSince={
                 app.chat.runStatus === "running"
                   ? app.chat.runStartedAt

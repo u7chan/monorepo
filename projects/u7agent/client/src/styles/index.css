@@ -523,6 +523,54 @@ html[data-theme="sky"] {
     }
   }
 
+  /* 生成中の活動ラベル (「考え中…」) に光を流す。グラデーションを文字でクリップし、
+   * 背景の位置だけを動かす (アニメーションの依存は増やさない)。当てるのは折り返さない短い
+   * ラベルだけにする: 複数行になると帯が行ごとに切れ、移動ではなく汚れに見える。
+   * 基準色は行の色 (text-ink-muted) と同じにして、止まっている瞬間の見た目を変えない */
+  .activity-shimmer {
+    --shimmer-band: 1.5em;
+    background-image: linear-gradient(
+      90deg,
+      var(--c-ink-muted) calc(50% - var(--shimmer-band)),
+      var(--c-ink) 50%,
+      var(--c-ink-muted) calc(50% + var(--shimmer-band))
+    );
+    background-size: 220% 100%;
+    background-repeat: no-repeat;
+    background-clip: text;
+    -webkit-background-clip: text;
+    color: transparent;
+    -webkit-text-fill-color: transparent;
+    animation: activity-shimmer-sweep 2.4s linear infinite;
+  }
+  @keyframes activity-shimmer-sweep {
+    from {
+      background-position: 100% center;
+    }
+    to {
+      background-position: 0% center;
+    }
+  }
+  /* 動きを止める設定ではグラデーションごと外して通常色へ戻す。止めるだけだと帯が途中で
+   * 固まり、文字の一部が薄いままになる */
+  @media (prefers-reduced-motion: reduce) {
+    .activity-shimmer {
+      animation: none;
+      background-image: none;
+      color: inherit;
+      -webkit-text-fill-color: currentColor;
+    }
+  }
+  /* 強制配色では背景画像が落ちて color: transparent だけが残る (文字が消える) ため、通常色へ戻す */
+  @media (forced-colors: active) {
+    .activity-shimmer {
+      animation: none;
+      background-image: none;
+      color: CanvasText;
+      -webkit-text-fill-color: CanvasText;
+    }
+  }
+
   /* 折りたたみ (details/summary) の開閉マーカー (summary のブラウザ既定マーカーを置き換える) */
   .disclosure-summary {
     list-style: none;

@@ -1120,3 +1120,42 @@ test("保留中の run 側カードは新しい toolStart より先に並ぶ (�
   );
   assert.deepEqual(withTool.toolBubbleIds, { t1: targetId, t2: targetId }, "索引も同じバブルを指す");
 });
+
+// --- 生成中の活動表示 (activityState) ---
+
+test("status の state が活動表示の由来になり、run_end で消える", () => {
+  const started = chatReducer(initialChatState, { type: "runStart", prompt: "聞いて", at: 1, startedAt: 1 });
+  assert.equal(started.activityState, undefined, "run_start の時点ではモデルは動いていない");
+
+  const thinking = chatReducer(started, { type: "status", state: "thinking", text: "考え中…" });
+  assert.equal(thinking.activityState, "thinking");
+  assert.equal(thinking.activity, "考え中…");
+
+  const tool = chatReducer(thinking, { type: "status", state: "tool", text: "read を実行中…" });
+  assert.equal(tool.activityState, "tool", "由来は文言ではなくサーバーの state から取る");
+
+  const ended = chatReducer(tool, { type: "runEnd", status: "completed", queueDepth: 0 });
+  assert.equal(ended.activityState, undefined, "終わった run の由来を残さない");
+});
+
+test("resync は生成中の run を thinking として復元する (リロード / 再接続)", () => {
+  const running = chatReducer(initialChatState, { type: "resync", payload: runningPayload() });
+  assert.equal(running.runStatus, "running");
+  assert.equal(running.activityState, "thinking", "生成中に切断しても演出が途切れる");
+
+  const finished = chatReducer(running, {
+    type: "resync",
+    payload: { ...runningPayload(), status: "completed" as const },
+  });
+  assert.equal(finished.activityState, undefined, "run_end を取りこぼした復帰でも残さない");
+});
+
+test("resync は未完了のツールがあれば生成中とみなさない", () => {
+  const state = chatReducer(initialChatState, {
+    type: "resync",
+    payload: payloadWithRunTools([{ role: "user", text: "聞いて" }], [toolCall("t1", { done: false, output: "" })]),
+  });
+
+  assert.equal(state.runStatus, "running");
+  assert.equal(state.activityState, undefined, "ツール実行中に生成中の演出を出している");
+});

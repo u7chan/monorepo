@@ -79,7 +79,9 @@ export function applySessionEvent(entry: EventEntry, deps: SessionStreamDeps): v
       dispatch({ type: "compaction", compaction: entry.data.compaction, count: entry.data.count });
       return;
     case "status":
-      dispatch({ type: "status", text: entry.data.text });
+      // state はサーバーが配る活動の種類 (thinking / tool / compacting / retry / warning)。
+      // 表示文言とは別に持ち、活動ラベルの演出 (thinking のときだけ光を流す) の条件に使う
+      dispatch({ type: "status", state: entry.data.state, text: entry.data.text });
       return;
     case "run_retry":
       // 受信時刻はブラウザの Date.now()。サーバーの serverNow との差で残り時間を出す

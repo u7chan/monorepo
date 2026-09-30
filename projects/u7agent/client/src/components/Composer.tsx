@@ -16,6 +16,8 @@ import { SkillPicker } from "./composer/SkillPicker";
 
 export type ComposerProps = {
   activity: string;
+  /** 活動表示の由来 (SSE `status` の state)。thinking のときだけ活動ラベルに光を流す */
+  activityState?: string;
   /** 実行中 / 圧縮中だけ渡す (活動行の経過時間の起点) */
   runningSince?: number;
   runtimeReady: boolean;
@@ -106,6 +108,7 @@ function ClipIcon() {
 
 export function Composer({
   activity,
+  activityState,
   runningSince,
   runtimeReady,
   sending,
@@ -305,6 +308,7 @@ export function Composer({
     >
       <ComposerStatus
         activity={activity}
+        activityState={activityState}
         runningSince={runningSince}
         context={context}
         model={settings.model}
