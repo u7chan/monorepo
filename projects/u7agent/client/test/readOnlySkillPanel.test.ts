@@ -7,6 +7,7 @@
 //   4. ファイルタブを組み込みや root の外にも出し、ワークスペース root や別ディレクトリを見せる
 //   5. ファイルタブへ行き来するたびに一覧を取り直す (display で保持せず unmount する)
 //   6. 削除 / リネームの導線がファイルタブに残る
+//   7. ファイルタブでツリーの root (スキルの置き場) が見えなくなる (メタ行は display で隠れる)
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
@@ -95,6 +96,8 @@ test("ファイルタブは root 相対のスキルだけに出し、読み取�
   assert.ok(source.includes('if (next === "files") setFilesOpened(true)'), "初回の mount をタブの選択で行っていない");
   assert.ok(source.includes('showFiles={tab === "files"}'), "表示の切替を display に渡していない");
   assert.ok(detailSource().includes('showFiles && "hidden"'), "本文を display で隠していない");
+  // ファイルタブではメタ行 (置き場) が display で隠れるため、ツリーの root を caption に出す
+  assert.ok(source.includes("title={skillDir}"), "root の caption が無い");
 });
 
 test("描画: ファイルタブは共通スキルに出し、組み込みには出さない", () => {

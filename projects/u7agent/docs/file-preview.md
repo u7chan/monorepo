@@ -206,7 +206,7 @@ Content-Security-Policy: sandbox allow-scripts; default-src 'none'; style-src 'u
 - スクロールは対象の行が現れてから行う（祖先の取得中は行が無い）。行は `reveal` の state と `revealRowRef` で受け、`tree` が進むたびに Effect を再実行して取りこぼさない。スクロール済みの `seq` は再実行で弾く
 - 一時ハイライト（`ring-2 ring-focus ring-inset`）はスクロールのあと `REVEAL_HIGHLIGHT_MS`（1.6 秒）で消す。タイマーは掛け直しと unmount で掃除する
 - reveal で開いた階層は通常の展開と同じく `filePreviewStore` の保存対象に入る（F5・面の往復で復帰する）。reveal の対象とハイライトは保存しない
-- パンくずは画面 root 相対の祖先と表示中のファイルだけを並べる（画面 root 自体はツリーにその行が無く押せないうえ、チャット右パネルのヘッダ / 設定の caption が同じパスを出す）。全体パスは `fetchPath` のまま `title` に残す。項目の組み立ては `fileTreeBreadcrumbs` の純関数
+- パンくずは画面 root 相対の祖先と表示中のファイルだけを並べる（画面 root 自体はツリーにその行が無く押せないうえ、各面のヘッダが同じパスを出す: チャット右パネルのヘッダ / 設定の caption / スキルのファイルタブの root 行）。全体パスは `fetchPath` のまま `title` に残す。項目の組み立ては `fileTreeBreadcrumbs` の純関数
 
 ## メッセージからの導線（ファイル参照）
 
@@ -405,7 +405,7 @@ assistant 本文のインラインコードが指すファイルを、右パネ�
 | `client/test/archiveSettings.test.ts` | 除外名の下書きの純関数（実効値からの初期化と配列を共有しないこと / dirty の比較（未設定のまま既定を保存させない）/ 追加の trim・空・重複・上限 / 削除 / 検証（サーバーと同じ 1 セグメント名の規則と件数上限）） |
 | `client/test/archiveSettingsPage.test.ts` | 設定 → アーカイブの描画（未設定バッジ / 上書き中 / 行と件数 / 明示空の警告 / note のエラー / 読み込み中と失敗 / 行がカードの入れ子になっていないこと（枠と面を持たず、削除が行の右端に常時出る））と配線（保存 → `PUT` / 既定に戻す → `DELETE` / 応答を app 状態へ反映 / 行の出し分けが app 状態の実効値を使う）（`react-dom/server` の描画 + ソース走査） |
 | `client/test/fileBrowserRename.test.ts` | リネームの出し分け（`canRename` のフォルダ行だけ / ダウンロードの後ろ・削除の前 / ファイル行と symlink 行には出ない / 既定は出さない）/ `readOnly` は行の操作ごと消えること / prompt の初期値と空・未変更の no-op / API への委譲とツリー・タブ・表示モードの張り替え・失敗の表示 / 渡すのは `FileTreePage` だけ、`readOnly` はスキルのファイルタブだけ（純関数 + ソース走査） |
-| `client/test/readOnlySkillPanel.test.ts` | 読み取り専用スキルの本文の取得元（選択のたびに `GET /api/files/preview` / 組み込みは一覧の `body`）/ 本文 / ファイル タブの出し分け（`fileSkillDir` / 読み取り専用の `FileBrowser` / 初回 mount と `display` の保持）/ 本文のコピーが表示と同じ生テキストであること（`react-dom/server` の描画 + ソース走査） |
+| `client/test/readOnlySkillPanel.test.ts` | 読み取り専用スキルの本文の取得元（選択のたびに `GET /api/files/preview` / 組み込みは一覧の `body`）/ 本文 / ファイル タブの出し分け（`fileSkillDir` / 読み取り専用の `FileBrowser` / root の caption / 初回 mount と `display` の保持）/ 本文のコピーが表示と同じ生テキストであること（`react-dom/server` の描画 + ソース走査） |
 | `client/test/fileRef.test.ts` | matcher の採否表（正規化と別表記の同ービキー / 制御文字 U+0000 / Unicode 空白 U+00A0・U+3000 / dotfile / scheme / `..` / 末尾ドット）と、解決の表（rootCwd 前置き / cwd 外 / rootCwd 未取得 / 明示的な相対 / cwd 未確定） |
 | `client/test/fileMention.test.ts` | ドラッグの種類の判定（参照の型は添付の `Files` より優先 / 対象外は null）/ 参照の字面（空白・引用符・バックスラッシュを含むパスの引用とエスケープ）/ 挿入規則（空・末尾・語中・選択の置換・既に空白がある位置・改行の後ろ、カーソルは参照の直後）/ 送信時の `trim` を通してもパスが変わらないこと / 配線のソース走査（ファイル行が積む型と `text/plain` / `canRef` を渡すのは desktop の右パネルだけ / Composer が参照を添付より先に見ること / ドロップ座標の解決と挿入） |
 | `client/test/fileRefRequest.test.ts` | 未消費は 1 件で最新優先 / ack は seq が一致するときだけ消す（request1 → request2 → ack1）/ 選択変更の破棄後に復活しない / 旧 ack で新しい要求を消さない / sessionId の一致判定 / 購読の通知 / 配線のソース走査（選択変更の 3 経路、App の受け渡し、`FileBrowser` の seq ガード、sheet の focus 復帰） |
