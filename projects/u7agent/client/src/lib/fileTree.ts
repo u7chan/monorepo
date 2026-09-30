@@ -93,13 +93,11 @@ function lastPathSegment(path: string): string {
 }
 
 /**
- * プレビューのパンくずの項目。画面 root の前置き (root が "." のときは無し)、root 相対の祖先、
- * 表示中のファイルの順に並べる。path が null の項目 (画面 root) はクリックできない。
+ * プレビューのパンくずの項目。画面 root 相対の祖先と、表示中のファイルを順に並べる。
+ * 画面 root 自体は出さない (ツリーにその行が無く押せないうえ、パネルのヘッダが同じパスを出す)。
  */
-export function fileTreeBreadcrumbs(rootPath: string, path: string): { label: string; path: string | null }[] {
-  const root = normalizeFileTreeRoot(rootPath);
-  const crumbs: { label: string; path: string | null }[] = [];
-  if (root !== FILE_TREE_ROOT) crumbs.push({ label: root, path: null });
+export function fileTreeBreadcrumbs(path: string): { label: string; path: string }[] {
+  const crumbs: { label: string; path: string }[] = [];
   for (const ancestor of fileTreeAncestorPaths(path)) {
     crumbs.push({ label: lastPathSegment(ancestor), path: ancestor });
   }

@@ -3,8 +3,8 @@
 // 実ブラウザーでのスクロール / ハイライトの見え方は手動確認に残す (docs/file-preview.md#ツリーの-reveal)。
 //   1. ファイル参照の適用時に祖先を openFileTreeAncestors で開き、対象の行を reveal する
 //   2. 対象の行だけが ref を持ち、スクロールのあとに一時ハイライトを付けて消す (タイマーは unmount で掃除)
-//   3. パンくずは画面 root の前置きと各階層を並べ、クリックで画面 root 相対のパスを onReveal へ渡す
-//   4. パンくずの表示は root 前置き (fetchPath) を保ち、画面 root 自体はクリックできない
+//   3. パンくずは画面 root 相対の各階層を並べ、クリックで画面 root 相対のパスを onReveal へ渡す
+//   4. 画面 root はパンくずに出さず、全体パスは fetchPath のまま title に残す
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
@@ -66,7 +66,7 @@ test("reveal は行が現れてからスクロールし、一時ハイライト�
   );
 });
 
-test("パンくずは root 前置きと各階層を並べ、root 相対のパスで reveal できる", () => {
+test("パンくずは root 相対の各階層を並べ、root 相対のパスで reveal できる", () => {
   const html = renderToStaticMarkup(
     createElement(FileBreadcrumb, {
       rootPath: "projects/u7agent",
@@ -75,9 +75,9 @@ test("パンくずは root 前置きと各階層を並べ、root 相対のパス
     }),
   );
   assert.ok(html.includes('aria-label="ファイルの場所"'), "パンくずのラベルが無い");
-  // 画面 root の前置きは表示するが、ツリーにその行は無いのでクリックできない
-  assert.ok(html.includes(">projects/u7agent<"), "root 前置きの表示が無い");
-  assert.ok(!html.includes('title="projects/u7agent をツリーで表示"'), "画面 root をクリックできる");
+  // 画面 root はツリーにその行が無く押せないため出さない (全体パスは title に残す)
+  assert.ok(!html.includes(">projects/u7agent<"), "画面 root が出ている");
+  assert.ok(html.includes('title="projects/u7agent/client/src/a.ts"'), "全体パスの tooltip が無い");
   // 画面 root 相対の祖先とファイルは、ツリーで位置を示すボタンにする
   for (const path of ["client", "client/src", "client/src/a.ts"]) {
     assert.ok(html.includes(`title="${path} をツリーで表示"`), `${path} の reveal ボタンが無い`);
@@ -89,7 +89,7 @@ test("パンくずは root 前置きと各階層を並べ、root 相対のパス
 test("パンくずのクリックと中継は画面 root 相対のパスのままにする", () => {
   const preview = read("src/components/FilePreview.tsx");
   // 表示用の fetchPath ではなく、ツリーと同じ画面 root 相対の項目パスを渡す (再ルートはしない)
-  assert.match(preview, /onClick=\{\(\) => onReveal\(path\)\}/, "クリックが項目パスを渡していない");
+  assert.match(preview, /onClick=\{\(\) => onReveal\(crumb\.path\)\}/, "クリックが項目パスを渡していない");
   assert.match(
     preview,
     /<FileBreadcrumb rootPath=\{rootPath\} activePath=\{activePath\} onReveal=\{onReveal\} \/>/,

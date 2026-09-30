@@ -267,9 +267,9 @@ export function FilePreview({
 }
 
 /**
- * プレビューのパンくず。表示中のファイルまでの各セグメントを並べ、クリックでツリー上のその位置を示す (reveal)。
- * 表示は取得時と同じ画面 root 前置きのパス (fetchPath) を保ち、渡すパスはツリーと同じ画面 root 相対にする。
- * 画面 root 自体はクリックできない (ツリーの起点で、その行が無いため)。
+ * プレビューのパンくず。表示中のファイルまでの各セグメントを root 相対で並べ、クリックでツリー上のその位置を示す (reveal)。
+ * 画面 root は出さない (ツリーの起点でその行が無く押せないうえ、パネルのヘッダが同じパスを出す)。
+ * 全体パスは取得時と同じ表記 (fetchPath) で tooltip に残す。
  */
 export function FileBreadcrumb({
   rootPath,
@@ -280,7 +280,7 @@ export function FileBreadcrumb({
   activePath: string;
   onReveal: (path: string) => void;
 }) {
-  const crumbs = fileTreeBreadcrumbs(rootPath, activePath);
+  const crumbs = fileTreeBreadcrumbs(activePath);
 
   return (
     // 表示はこれまでと同じ全体パス (tooltip) を保ち、横幅が足りなければ横スクロールへ逃がす
@@ -290,31 +290,24 @@ export function FileBreadcrumb({
       className="min-w-0 flex-1 scrollbar-thin overflow-x-auto"
     >
       <ol className="flex items-center font-mono text-1xs text-ink-muted">
-        {crumbs.map((crumb, index) => {
-          const path = crumb.path;
-          return (
-            <li key={path ?? "root"} className="flex shrink-0 items-center">
-              {index > 0 ? (
-                <span aria-hidden className="px-0.5 text-ink-ghost">
-                  /
-                </span>
-              ) : null}
-              {path === null ? (
-                <span>{crumb.label}</span>
-              ) : (
-                <button
-                  type="button"
-                  aria-current={path === activePath ? "page" : undefined}
-                  title={`${path} をツリーで表示`}
-                  onClick={() => onReveal(path)}
-                  className="rounded px-0.5 transition-colors outline-none hover:bg-hover hover:text-ink focus-visible:ring-2 focus-visible:ring-focus"
-                >
-                  {crumb.label}
-                </button>
-              )}
-            </li>
-          );
-        })}
+        {crumbs.map((crumb, index) => (
+          <li key={crumb.path} className="flex shrink-0 items-center">
+            {index > 0 ? (
+              <span aria-hidden className="px-0.5 text-ink-ghost">
+                /
+              </span>
+            ) : null}
+            <button
+              type="button"
+              aria-current={crumb.path === activePath ? "page" : undefined}
+              title={`${crumb.path} をツリーで表示`}
+              onClick={() => onReveal(crumb.path)}
+              className="rounded px-0.5 transition-colors outline-none hover:bg-hover hover:text-ink focus-visible:ring-2 focus-visible:ring-focus"
+            >
+              {crumb.label}
+            </button>
+          </li>
+        ))}
       </ol>
     </nav>
   );
