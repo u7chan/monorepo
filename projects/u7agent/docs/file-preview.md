@@ -130,7 +130,7 @@ Content-Security-Policy: sandbox allow-scripts; default-src 'none'; style-src 'u
 
 - `connect-src` はどの段階にも無い。`fetch` / XHR は `default-src 'none'` にフォールバックして止まる
 - アプリ オリジンの `sandbox allow-scripts` によりオペークオリジンになり、親 DOM へ触れない（`localStorage` / cookie は SecurityError）
-- 有効モードの文書のオリジンはプレビュー オリジンになり、storage はそのオリジンの保存領域へ入る。**アプリの storage とはオリジンごと分離される**が、同じオリジンを使う他のプレビューとは共有される（サーバーには保存しない）
+- 有効モードの文書のオリジンはプレビュー オリジンになり、`localStorage` / `sessionStorage` / IndexedDB はそのオリジン（scheme + host + port）の保存領域へ入る。**アプリの storage とは分離される**が、同じオリジンを使う他のプレビューとは共有される（サーバーには保存しない）。cookie はオリジンではなくホスト単位で決まるため分離されない（後述の[できないこと](#できないこと残リスク)）
 - iframe 属性は CSP と同じフラグを書く。スクリプトの有効 / 無効は切り替えない（クライアントのトグルは ソース / プレビュー の 2 択 + オリジンの 2 択）
 - 本文は 2 MiB のテキストとして取得する（`FilePreviewSchema` を通す）。サンドボックス側の API は増やさず、新規依存も足さない
 - 200 の応答は文書 / アセットとも `Cache-Control: no-store` と `X-Content-Type-Options: nosniff` を付ける（文書は CSP も）
@@ -143,6 +143,7 @@ Content-Security-Policy: sandbox allow-scripts; default-src 'none'; style-src 'u
 - パス行の `保存を有効化` がタブごとの配信元を切り替える（`aria-pressed`）。ON は別オリジンの URL + iframe 属性 `allow-scripts allow-same-origin allow-pointer-lock`、OFF は現行どおりの URL + `allow-scripts`。切替は iframe の src が変わる = プレビューが再読み込みされるので、そのことと同じオリジンの他のプレビューと保存領域を共有することを `title` に書く
 - ポートは health の `filePreviewPort`（ブラウザから見たポート）で受ける。未取得の間はトグルを無効にし、client にポートを焼き込まない。有効モードを選んでいてもポートが無ければ隔離のまま開く（`aria-pressed` も実体に合わせる）。`App` が health から受けて、ファイルを開ける 4 面（設定 → ファイル / チャット右パネル / チャットの sheet / スキルのファイルタブ）の `FileBrowser` へ prop で渡す（面ごとに health を取り直さない）
 - 配信元の選択はタブごとに保持し、タブを閉じると隔離へ戻る（`previewOriginFor` / `withPreviewOrigin` / `dropClosedPreviewOrigins` / `renamePreviewOrigins`）。表示モードと違い**保存はしない**ので、F5 と タブを閉じて開き直すと隔離から始まる。全画面ではパス行の中身を描かないためトグルも出ず、戻ると保持している切替が効く
+- **配信元の切替は iframe の `key` を変えて要素ごと作り直す**。Chromium はナビゲーション開始時の sandbox フラグで文書を作るため、同じ更新で `src` と `sandbox` を書き換えると古いフラグ（`allow-scripts`）のまま読み込まれ、後から属性を直しても再ナビゲーションされない（CSP の `sandbox allow-scripts allow-same-origin allow-pointer-lock` は要素側の制限を打ち消せない = 和集合）。sandbox 属性が変わらないタブ間の切替は作り直さない（`src` だけが変わり、フラグはそのまま正しい）
 - 表示モードの選択もタブごとに保持し、タブを閉じると捨てる（`previewModeFor` / `withPreviewMode` / `dropClosedPreviewModes`）。state は `FileBrowser` が持つ。選択は「タブを閉じるまで」が条件で、「再読み込み」は `FilePreview` を remount して本文だけを捨てる（本文はタブごとに保持するが、選択は再取得では戻さない）
 - プレビュー中はソース本文を取得しない（`lang · N 行` も本文のコピーもソース表示のときだけ出す）
 - 「再読み込み」は `FilePreview` の remount（`FileBrowser` の `key` 差し替え）で iframe も取り直す（プレビュー用の追加実装は無い）
@@ -173,7 +174,8 @@ HTML プレビューのパス行のアイコンボタンで、描画中の文書
 - 相対参照で読めるのは同じルートの allowlist に入ったアセット（画像 / 音声 / `.js` / `.mjs` / `.css` / `.json` / `.txt`）だけ。`.svg`、動画、フォント、他の拡張子は 400 になる
 - テキスト（`.js` / `.css` など）は 2 MiB、画像 / 音声は 100 MiB が上限で、超えるとプレビューから読めない
 - `<script type="module">` と動的 `import()` は隔離モードでは読み込めない。オペークオリジンからの module 取得は CORS になり、BFF は CORS ヘッダを付けないため（classic script だけが動く）。ストレージ有効モードでは別オリジンの同じルートが `'self'` になるため読める（Lv0 `inline` は `script-src` に `'self'` が無いので、有効モードでも読めない）
-- `localStorage` / `sessionStorage` / cookie を読む HTML は**隔離モードでは動かない**（オペークオリジン）。`localStorage` の読み取りでは `SecurityError: Failed to read the 'localStorage' property from 'Window': The document is sandboxed and lacks the 'allow-same-origin' flag.` が投げられる。ストレージ有効モードでは使える（保存先はプレビュー オリジンのブラウザ保存領域で、アプリの `u7agent-*` とは分離される。同じオリジンの他のプレビューとは共有される）
+- `localStorage` / `sessionStorage` / IndexedDB を読む HTML は**隔離モードでは動かない**（オペークオリジン）。`localStorage` の読み取りでは `SecurityError: Failed to read the 'localStorage' property from 'Window': The document is sandboxed and lacks the 'allow-same-origin' flag.` が投げられる。ストレージ有効モードでは使える（保存先はプレビュー オリジン = scheme + host + port の保存領域で、アプリの `u7agent-*` とは分離される。同じオリジンの他のプレビューとは共有される）
+- **cookie はポートでは分離されない**（RFC 6265 §8.5。cookie はオリジンではなくホスト単位で、`Path` が一致する非 HttpOnly cookie は有効モードの文書からも読み書きできる）。アプリと hostname を共用するため、有効モードのプレビューをアプリの cookie から隔離しない（アプリは現状 cookie を使わない。将来 cookie を足すときは同じホストで共有される前提で扱う）
 - 隔離モードでは、storage を使うインライン script の途中で例外が出るとその script の残りは実行されない（「JS が動かない」ように見える）。storage を読む HTML はトグルを ON にするか、例外を捕まえて続ける
 - `fetch` / `eval` / `new Worker` は使えない（CSP 違反。`connect-src` は足さない）
 - プレビュー自身は外部 URL へ自己遷移できる（持ち出せるのは自分自身の内容だけ）
@@ -416,7 +418,7 @@ assistant 本文のインラインコードが指すファイルを、右パネ�
 | --- | --- |
 | `client/test/fileCode.test.ts` | 拡張子の言語判定 / 正規化と行数 / コピーする本文（正規化後・行番号なし・空文字）/ 上限でのフォールバック / 例外を投げない / 描画側が DOM 文字列とインライン style を使わない / HTML の判定 / iframe が sandbox 付きで 2 つの URL ヘルパ（隔離 / 有効）を使う（行番号の列と行数の数え方はチャット本文と共通で [markdown.md](markdown.md#コードブロックの行番号)） |
 | `client/test/fileTabs.test.ts` | 表示モードの既定（HTML と画像だけプレビュー）/ 表示モードと配信元の選択の保持と破棄 / 全画面を続ける条件 / タブの開閉と上限 / ディレクトリ配下のタブの一括削除（接頭辞境界と繰り上がり）/ リネームの経路の張り替え（並び・表示中の保持、配下、重複の排除、表示モードと配信元）/ 保存値からの復元（表示中の繰り上がりと上限） |
-| `client/test/filePreviewStorageMode.test.ts` | ストレージ有効モードの切替（既定はアプリ オリジン + `allow-scripts` / 有効は別オリジン + `allow-scripts allow-same-origin allow-pointer-lock` / ポート未取得では無効で隔離のまま / `aria-pressed` と `disabled` / ポートを client に焼き込まない / health から `FileBrowser` 経由で受ける）（`react-dom/server` の描画 + ソース走査） |
+| `client/test/filePreviewStorageMode.test.ts` | ストレージ有効モードの切替（既定はアプリ オリジン + `allow-scripts` / 有効は別オリジン + `allow-scripts allow-same-origin allow-pointer-lock` / ポート未取得では無効で隔離のまま / `aria-pressed` と `disabled` / ポートを client に焼き込まない / health から `FileBrowser` 経由で受ける / 切替で iframe を作り直す `key`）（`react-dom/server` の描画 + ソース走査。sandbox フラグが読まれる時点は Chromium の実挙動なので E2E で見る） |
 | `client/test/filePreviewFullscreen.test.ts` | HTML プレビューの全画面（`showModal()` で開く / Escape を全画面のときだけ止める / iframe は 1 つだけ / 出すときのタブに紐づける / 残すのは戻るボタンだけで、配信元のトグルはパス行の中に置く） |
 | `client/test/filePreviewNewTab.test.ts` | 新しいタブで開く（パス行に置いて HTML プレビュー中だけ出す / iframe と同じ `fileHtmlPreviewUrl(fetchPath)` を開く / `target="_blank"` + `rel="noreferrer noopener"` で `window.open` を使わない / アイコンだけのリンクに `aria-label` と `title`）（ソース走査） |
 | `client/test/filePreviewCopy.test.ts` | 本文のコピー（パス行に置く / `reveal` を渡さない / 表示中の本文を渡す / 画像と HTML のプレビューでは出さない / タブを切り替えたら成功表示を捨てる） |

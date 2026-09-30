@@ -267,8 +267,11 @@ export function FilePreview({
           />
         </div>
       ) : showHtml ? (
-        // 相対パスは同じルート配下 (画像 / テキストアセット) へ解決する。sandbox フラグは CSP と両方に書く
+        // 相対パスは同じルート配下 (画像 / テキストアセット) へ解決する。sandbox フラグは CSP と両方に書く。
+        // Chromium はナビゲーション開始時の sandbox フラグで文書を作るため、src と sandbox を同じ更新で
+        // 変えると古いフラグで読み込まれる (CSP 側では打ち消せない)。切替時は key を変えて要素ごと作り直す
         <iframe
+          key={storageEnabled ? "storage" : "isolated"}
           src={htmlPreviewSrc}
           title={`${fetchPath} のプレビュー`}
           sandbox={storageEnabled ? "allow-scripts allow-same-origin allow-pointer-lock" : "allow-scripts"}

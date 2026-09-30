@@ -1,10 +1,5 @@
-// ストレージ有効モード (別オリジンのプレビュー) の切替。client に DOM テスト基盤が無いため、react-dom/server の
-// 静的な描画で iframe の src / sandbox とトグルの状態を固定し、配線はソース走査で固定する。ここが崩れると
-// 次のどれかになる。
-//   1. 有効モードなのに iframe の sandbox が allow-same-origin を落とす (オペークのままで storage が使えない)
-//   2. 隔離モードの src が別オリジンになる (既定が隔離でなくなる)
-//   3. ポート未取得でも切替が押せる (client にポートを焼き込む原因になる)
-//   4. トグルの状態 (aria-pressed / disabled) が実際の iframe とずれる
+// client に DOM テスト基盤が無いため、iframe の属性とトグルの状態は react-dom/server の静的描画で固定し、
+// 配線はソース走査で固定する (sandbox フラグが読まれる時点は DOM の実挙動なので E2E で見る)。
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
@@ -103,6 +98,13 @@ test("切替は配信元の state だけを変え、iframe の属性と src は�
     "src を配信元から導いていない",
   );
   assert.ok(!preview.includes("4318"), "client にポートを焼き込んでいる");
+  // 配信元の切替は src と sandbox を同時に変えるため、要素を作り直さないと Chromium は古い sandbox フラグで
+  // 新文書を作る (属性の適用順に依存させない)
+  assert.match(
+    preview,
+    /<iframe[\s\S]*?key=\{storageEnabled \? "storage" : "isolated"\}/,
+    "配信元の切替で iframe を作り直す key が無い",
+  );
 
   // state は FileBrowser が持ち、health から受けたポートをそのまま渡す (画面ごとに取得し直さない)
   const browser = read("src/components/FileBrowser.tsx");
