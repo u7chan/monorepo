@@ -106,8 +106,18 @@ export function ReadOnlySkillPanel({ skill, variant }: { skill: FileSkillInfo; v
       body={body}
       files={
         skillDir && filesOpened ? (
-          // 読み取り専用の面なので行の操作ごと出さない（除外名は使われない）
-          <FileBrowser root={skillDir} reloadToken={0} readOnly excludeNames={[]} />
+          // ファイルタブではメタ行 (置き場) が display で隠れるため、ツリーの root をここに出す
+          // (パンくずは画面 root 相対なので、root は面ごとのヘッダ側に置く)
+          <div className="grid min-h-0 grid-rows-[auto_minmax(0,1fr)]">
+            <code
+              className="block truncate border-b border-line px-4 py-1.5 text-2xs leading-normal text-ink-muted"
+              title={skillDir}
+            >
+              {skillDir}
+            </code>
+            {/* 読み取り専用の面なので行の操作ごと出さない（除外名は使われない） */}
+            <FileBrowser root={skillDir} reloadToken={0} readOnly excludeNames={[]} />
+          </div>
         ) : undefined
       }
       showFiles={tab === "files"}

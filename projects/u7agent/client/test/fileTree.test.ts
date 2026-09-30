@@ -522,29 +522,22 @@ test("__proto__ の名前の祖先も own プロパティとして開く", () =>
   assert.equal(fileTreeDirectoryState(revealed, "__proto__/x")?.open, true);
 });
 
-test("パンくずは画面 root の前置きと root 相対の祖先とファイルを並べる", () => {
-  assert.deepEqual(fileTreeBreadcrumbs(".", "a/b/c.txt"), [
+test("パンくずは画面 root 相対の祖先とファイルを並べる", () => {
+  assert.deepEqual(fileTreeBreadcrumbs("a/b/c.txt"), [
     { label: "a", path: "a" },
     { label: "b", path: "a/b" },
     { label: "c.txt", path: "a/b/c.txt" },
   ]);
-  // 画面 root が "." でない面 (チャット右パネル) は、クリックできない前置きを先頭に付ける
-  assert.deepEqual(fileTreeBreadcrumbs("projects/u7agent", "client/src/a.ts"), [
-    { label: "projects/u7agent", path: null },
+  // 深い階層でも画面 root は出さない (ツリーにその行が無く押せないうえ、パネルのヘッダが同じパスを出す)
+  assert.deepEqual(fileTreeBreadcrumbs("client/src/a.ts"), [
     { label: "client", path: "client" },
     { label: "src", path: "client/src" },
     { label: "a.ts", path: "client/src/a.ts" },
   ]);
 });
 
-test("パンくずの root 前置きは root 直下のファイルでは省き、絶対パスは root へ畳む", () => {
-  assert.deepEqual(fileTreeBreadcrumbs(".", "top.txt"), [{ label: "top.txt", path: "top.txt" }]);
-  // root の表記ゆれ (末尾スラッシュ / 絶対パス) は正規化する。絶対パスの root は "." と同じ扱い
-  assert.deepEqual(fileTreeBreadcrumbs("projects/u7agent/", "top.txt"), [
-    { label: "projects/u7agent", path: null },
-    { label: "top.txt", path: "top.txt" },
-  ]);
-  assert.deepEqual(fileTreeBreadcrumbs("/workspace/", "top.txt"), [{ label: "top.txt", path: "top.txt" }]);
+test("パンくずは root 直下のファイルを 1 項目にする", () => {
+  assert.deepEqual(fileTreeBreadcrumbs("top.txt"), [{ label: "top.txt", path: "top.txt" }]);
 });
 
 test("取得済みの行は親の子から名前で引く (未取得の親と一覧の上限外は undefined)", () => {
