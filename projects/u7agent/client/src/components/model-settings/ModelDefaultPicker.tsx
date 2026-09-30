@@ -212,7 +212,7 @@ export function ModelDefaultPicker({
         popover="auto"
         onKeyDown={onPopoverKeyDown}
         onBlur={onPopoverBlur}
-        className="fixed inset-auto m-0 w-max overflow-visible rounded-lg border border-line bg-panel p-1 shadow-panel"
+        className="popover-panel fixed inset-auto m-0 w-max overflow-visible rounded-lg border border-line bg-panel p-1 shadow-panel"
       >
         <div className="grid gap-1">
           <input
