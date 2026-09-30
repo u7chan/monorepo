@@ -18,7 +18,7 @@ import {
 import { fileTreeBreadcrumbs, fileTreeFetchPath } from "../lib/fileTree";
 import { imageMetaLabel, type ImageDimensions } from "../lib/imageMeta";
 import { CopyButton } from "./chat/CopyButton";
-import { CloseIcon } from "./icons";
+import { CloseIcon, ExternalLinkIcon } from "./icons";
 
 const PREVIEW_MODES: { value: PreviewMode; label: string }[] = [
   { value: "source", label: "ソース" },
@@ -191,6 +191,19 @@ export function FilePreview({
               <span className="shrink-0 text-3xs text-ink-ghost tabular-nums">{imageMeta}</span>
             )}
             {code === null ? null : <FileCopyButton key={activePath} text={previewCopyText(code)} />}
+            {/* プレビュー中だけ出す (ソース表示から開くと、見えている本文と違う描画結果が出る) */}
+            {showHtml ? (
+              <a
+                href={fileHtmlPreviewUrl(fetchPath)}
+                target="_blank"
+                rel="noreferrer noopener"
+                aria-label="新しいタブで開く"
+                title="新しいタブで開く"
+                className="grid size-6 shrink-0 place-items-center rounded-md text-ink-faint transition-colors hover:text-accent-text"
+              >
+                <ExternalLinkIcon />
+              </a>
+            ) : null}
           </>
         )}
         {showHtml ? (
