@@ -47,6 +47,15 @@ MessageView (assistant の本文)
 | 図 ` ```mermaid ` | ✓ | `flowchart TD` / `TB` / `LR` と `sequenceDiagram`。フェンスが閉じてからのみ描画する（下記） |
 | HTML ブロック / 脚注 / 定義リスト / 表のセル内改行 / 遅延継続行 | ✗ | 原文表示 |
 
+## シンタックスハイライト
+
+フェンスの言語ごとに、字面を順序つきの規則でトークンに分ける（`client/src/lib/markdown/highlight.ts`。外部ライブラリは足さない）。同じ `'` でも言語によって意味が違うため、規則は「コメント / 引用符（二重引用符とバックティック）/ 数値 / 単一引用符 / 演算子」の組にして、**数値と単一引用符だけを言語ごとに差し替える**。
+
+- JS / TS / Java / Go の `'…'` は文字列（長さを制限しない。`'ab'` も 1 つの文字列）
+- C / C++ の `'…'` は文字定数で、同じく長さを制限しない（`'a'` / `'\x41'` / `'\101'` / `'ab'`）。数値は桁区切り（`1'000'000`）を 1 つの数値として飲み、区切りの `'` を文字定数の開始と間違えない
+- Rust の `'…'` は 1 文字のリテラルだけ（`'a'` / `'\n'` / `'\x41'` / `'\u{41}'` / 絵文字）。それ以外の `'a` はライフタイムとして地の文のまま残す
+- 未知の言語と [上限](#解析の上限ストリーミング対策)を超える本文はハイライトしない。色が付かないだけで本文は変えない
+
 ## コードブロックの行番号
 
 コードフェンス（`CodeBlock`）は本文の左に行番号の列を出す。番号は表示だけのもので、本文の文字列（コピー・選択・ハイライト）には含めない。番号の文字列と行数は `client/src/lib/codeLines.ts` の純関数が返す（ファイルプレビューと同じ実装。`client/test/markdownCodeBlock.test.ts` が固定する）。
@@ -225,7 +234,7 @@ Markdown 記法側の URL（`[t](url)` / `![alt](src)`）も同じ `safeUrl` を
 | `client/test/markdownParse.test.ts` | 見出し / 段落 / リスト / 引用 / 表 / フェンス / 未終端 / CRLF / 空行 / 例外を投げない |
 | `client/test/markdownInline.test.ts` | 強調の入れ子 / コードスパン / リンク / 自動リンク / エスケープ / 改行 / 無言で消さない |
 | `client/test/markdownHtml.test.ts` | 許可リスト / 属性の除去 / `on*` `javascript:` の拒否 / 未閉じは原文 / `safeUrl` |
-| `client/test/markdownHighlight.test.ts` | 言語判定 / 未知言語と上限超過 / トークンが入力を欠落させない / 言語ごとの塗り分け (C のプリプロセッサ・型名を含む) / CSS との対応 |
+| `client/test/markdownHighlight.test.ts` | 言語判定 / 未知言語と上限超過 / トークンが入力を欠落させない / 言語ごとの塗り分け (C のプリプロセッサ・型名 / 単一引用符の文字定数・ライフタイム・桁区切りの区別) / CSS との対応 |
 | `client/test/codeLines.test.ts` | 行数の数え方（本文の行ボックスと一致する / 空の本文と空白だけの本文 / 生成中のカーソルの行）/ 行番号の列 |
 | `client/test/markdownCodeBlock.test.ts` | 行番号の列（本文の外に出して 1 対 1 にする / 空のブロックには出さない / 生成中のカーソルの行 / 本文と同じ行送り・同じ上下余白 / sticky / `aria-hidden` と `user-select: none` / コピーは本文だけ） |
 | `client/test/markdownLatex.test.ts` | `\frac` `\sqrt` 上下限 行列 cases の AST とレイアウトモデル / 決定性 / `$` の判定と通貨記号 / `$$` のブロック検出 / 失敗が `ok: false` になる / 例外を投げない |

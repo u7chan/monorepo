@@ -147,32 +147,41 @@ test("diff は追加 / 削除 / ハンクを行単位で塗る", () => {
   );
 });
 
-test("Rust のライフタイムと C++ の桁区切りを文字列に飲まない", () => {
-  // 単一引用符の規則を短くしているため、対にならない `'` は地の文のまま残る
-  const rust = highlightCode("fn f<'a>(x: &'a str) {}\n", "rust");
-  assert.ok(!tokensOf("str", rust).some((token) => token.text.includes("'")), "ライフタイムを文字列にしている");
-  assert.deepEqual(
-    tokensOf("key", rust).map((token) => token.text),
-    ["fn"],
-  );
+test("単一引用符は言語ごとに文字定数 / ライフタイム / 桁区切りを区別する", () => {
+  const strings = (source: string, lang: string) => tokensOf("str", highlightCode(source, lang)).map((t) => t.text);
+  // Rust: ライフタイムは文字リテラルではない (`'a,'` の `'` を閉じ引用符にしない)
+  const rust = highlightCode("fn f<'a, 'b>(x: &'a str, y: &'b str) {}\n", "rust");
+  assert.deepEqual(tokensOf("str", rust), [], "ライフタイムを文字列にしている");
   assert.deepEqual(
     tokensOf("type", rust).map((token) => token.text),
-    ["str"],
+    ["str", "str"],
   );
+  // Rust: 文字リテラルは 1 文字かエスケープ 1 つ (サロゲートペアも 1 文字)
+  for (const source of ["'a'", "'\\n'", "'\\''", "'\\\\'", "'\\x41'", "'\\u{1F600}'", "'😀'"]) {
+    assert.deepEqual(strings(source, "rust"), [source], source);
+  }
+  // C / C++: 文字定数は長さを制限しない (複数文字と多桁のエスケープ)
+  for (const source of ["'a'", "'\\n'", "'\\''", "'\\\\'", "'\\x41'", "'\\101'", "'ab'"]) {
+    assert.deepEqual(strings(source, "c"), [source], `c ${source}`);
+    assert.deepEqual(strings(source, "cpp"), [source], `cpp ${source}`);
+  }
+  // C / C++: 桁区切りは数値として飲む (区切りの `'` を引用符にしない)
+  for (const source of ["1'000", "1'2'3", "0x1'0000", "0b1'0101", "1.5'000"]) {
+    const tokens = highlightCode(source, "cpp");
+    assert.deepEqual(
+      tokensOf("num", tokens).map((token) => token.text),
+      [source],
+      source,
+    );
+    assert.deepEqual(tokensOf("str", tokens), [], source);
+  }
   assert.deepEqual(
-    tokensOf("str", highlightCode("let c = '\\n';\n", "rust")).map((token) => token.text),
-    ["'\\n'"],
-  );
-  const cpp = highlightCode("int n = 1'000; int m = 2'000;\n", "cpp");
-  assert.ok(!tokensOf("str", cpp).some((token) => token.text.includes("'")), "桁区切りを文字列にしている");
-  assert.deepEqual(
-    tokensOf("key", cpp).map((token) => token.text),
+    tokensOf("key", highlightCode("int n = 1'2'3; int m = 2'000;", "cpp")).map((token) => token.text),
     ["int", "int"],
   );
-  assert.deepEqual(
-    tokensOf("str", highlightCode("char c = 'a';\n", "c")).map((token) => token.text),
-    ["'a'"],
-  );
+  // JS / TS / Java は従来どおり長さを制限しない
+  assert.deepEqual(strings("const a = 'ab';", "ts"), ["'ab'"]);
+  assert.deepEqual(strings("String a = 'ab';", "java"), ["'ab'"]);
 });
 
 test("別名の言語も同じルールでハイライトする", () => {

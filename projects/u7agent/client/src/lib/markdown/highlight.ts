@@ -94,28 +94,48 @@ const TS_TYPES = new Set([
   "void",
 ]);
 
-/** 単一引用符の文字列。JS / TS / Java / Go は長さを制限しない (`'a'` も `'abc'` も文字列) */
-const STR_SINGLE: Rule = { kind: "str", re: /'(?:\\[\s\S]|[^\\'\n]){0,4000}'/y };
-
-/**
- * C / C++ / Rust 版。閉じ引用符までを 2 文字に限る。C++ の桁区切り (`1'000`) と Rust のライフタイム (`'a`) は
- * 引用符が対にならないため文字列にならず、地の文のまま残る (区切り位置を字面だけで決められないため、長さで分ける)。
- */
-const STR_SINGLE_SHORT: Rule = { kind: "str", re: /'(?:\\[\s\S]|[^\\'\n]){0,2}'/y };
-
-const C_LIKE_RULES: Rule[] = [
+/** コメントと引用符。C 系の言語で同じ規則を使う */
+const COMMENT_STRING_RULES: Rule[] = [
   { kind: "com", re: /\/\/[^\n]*/y },
   { kind: "com", re: /\/\*[\s\S]{0,4000}?\*\//y },
   { kind: "str", re: /`(?:\\[\s\S]|[^\\`]){0,4000}`/y },
   { kind: "str", re: /"(?:\\[\s\S]|[^\\"\n]){0,4000}"/y },
-  STR_SINGLE,
-  { kind: "num", re: /0[xX][0-9a-fA-F_]+|0[bB][01_]+|\d[\d_]*(?:\.[\d_]+)?(?:[eE][+-]?\d+)?n?/y },
+];
+
+/** 演算子。C 系の言語で同じ規則を使う */
+const OPERATOR_RULES: Rule[] = [
   { kind: "op", re: /[+\-*/%=<>!&|^~?]+/y },
   { kind: "op", re: /[{}[\]();,.:]+/y },
 ];
 
-/** C / C++ / Rust の規則。単一引用符だけを短い規則に差し替える */
-const C_LIKE_RULES_SHORT_CHAR: Rule[] = C_LIKE_RULES.map((rule) => (rule === STR_SINGLE ? STR_SINGLE_SHORT : rule));
+/** 数値。`'` は桁区切りとして扱わない (TS の BigInt だけ `n` を許す) */
+const NUMBER: Rule = {
+  kind: "num",
+  re: /0[xX][0-9a-fA-F_]+|0[bB][01_]+|\d[\d_]*(?:\.[\d_]+)?(?:[eE][+-]?\d+)?n?/y,
+};
+
+/**
+ * C / C++ の数値。桁区切り (`1'000'000`) を 1 つの数値として飲む。数値と `'` は同じ位置では始まらないため、
+ * この規則があるかぎり区切りの `'` が引用符の規則へ渡らない。
+ */
+const NUMBER_SEPARATED: Rule = {
+  kind: "num",
+  re: /0[xX][0-9a-fA-F_']+|0[bB][01_']+|\d[\d_']*(?:\.[\d_']+)?(?:[eE][+-]?\d+)?/y,
+};
+
+/** 単一引用符の文字列。JS / TS / Java / Go は長さを制限しない (`'a'` も `'abc'` も文字列) */
+const STR_SINGLE: Rule = { kind: "str", re: /'(?:\\[\s\S]|[^\\'\n]){0,4000}'/y };
+
+/**
+ * Rust の文字リテラル。中身は 1 文字かエスケープ 1 つだけなので、ライフタイム (`'a`) が閉じ引用符を
+ * 共有しない (`u` は絵文字のようなサロゲートペアを 1 文字として数えるために要る)。
+ */
+const STR_CHAR: Rule = {
+  kind: "str",
+  re: /'(?:\\x[0-9a-fA-F]{2}|\\u\{[0-9a-fA-F_]{1,6}\}|\\[\s\S]|[^\\'\n])'/uy,
+};
+
+const C_LIKE_RULES: Rule[] = [...COMMENT_STRING_RULES, STR_SINGLE, NUMBER, ...OPERATOR_RULES];
 
 const TS_SPEC: LangSpec = {
   rules: C_LIKE_RULES,
@@ -183,7 +203,8 @@ const C_PREPROCESSOR: Rule = {
   re: /#\s*(?:ifdef|ifndef|include|define|elif|else|endif|undef|pragma|error|warning|line|if)\b/y,
 };
 
-const C_RULES: Rule[] = [C_PREPROCESSOR, ...C_LIKE_RULES_SHORT_CHAR];
+/** C / C++ の規則。文字定数は JS と同じ長さ無制限で、数値だけ桁区切りを飲む */
+const C_CPP_RULES: Rule[] = [C_PREPROCESSOR, ...COMMENT_STRING_RULES, STR_SINGLE, NUMBER_SEPARATED, ...OPERATOR_RULES];
 
 /**
  * C / C++ の塗り分け。型名 (`size_t` / `uint32_t`) やマクロ (`NULL` / `EOF`) はキーワード表に無く、
@@ -191,7 +212,7 @@ const C_RULES: Rule[] = [C_PREPROCESSOR, ...C_LIKE_RULES_SHORT_CHAR];
  */
 function cFamilySpec(keywords: Set<string>): LangSpec {
   return {
-    rules: C_RULES,
+    rules: C_CPP_RULES,
     classify: (word, context) => {
       if (keywords.has(word)) return "key";
       if (/^\s*\(/.test(context.rest)) return "fn";
@@ -551,8 +572,11 @@ const RUST_TYPES = new Set([
   "usize",
 ]);
 
+/** Rust の規則。単一引用符は 1 文字のリテラルだけに使う (ライフタイムと区別する) */
+const RUST_RULES: Rule[] = [...COMMENT_STRING_RULES, STR_CHAR, NUMBER, ...OPERATOR_RULES];
+
 const RUST_SPEC: LangSpec = {
-  rules: C_LIKE_RULES_SHORT_CHAR,
+  rules: RUST_RULES,
   classify: (word, context) => {
     if (RUST_KEYWORDS.has(word)) return "key";
     if (RUST_TYPES.has(word)) return "type";
