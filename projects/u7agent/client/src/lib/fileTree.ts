@@ -315,3 +315,13 @@ export function pendingFileTreeDirectories(state: FileTreeState): string[] {
   walk(FILE_TREE_ROOT);
   return pending;
 }
+
+/**
+ * 取得済みの親の子から 1 行を引く。未取得の親と一覧の上限外は undefined で、呼び出し側は「分からない」として扱う
+ * (プレビューの画像メタが表示中の行のサイズを引くのに使う。ツリーに行が無い面ではサイズを出さない)。
+ */
+export function fileTreeEntryFor(state: FileTreeState, path: string): FileEntry | undefined {
+  const parent = fileTreeParentPath(path);
+  const name = lastPathSegment(path);
+  return fileTreeDirectoryState(state, parent)?.children?.find((entry) => entry.name === name);
+}
