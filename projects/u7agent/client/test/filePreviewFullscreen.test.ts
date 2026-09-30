@@ -48,6 +48,9 @@ test("全画面は タブバーとパス行の中身を出さず、戻るボタ�
   assert.match(preview, /fullscreen && "hidden"/, "タブバーは全画面で隠す");
   // パス / 表示の切替 / 行数は全画面では描かない (戻る以外の操作を並べない)
   assert.match(preview, /\{fullscreen \? null : \(/, "パス行の中身は全画面で描画しない");
+  // ストレージ有効モードのトグルもパス行の中に置く (全画面では出さない)
+  const pathRow = preview.slice(preview.indexOf("{fullscreen ? null : ("), preview.indexOf("{result?.error"));
+  assert.ok(pathRow.includes("<PreviewStorageToggle"), "トグルが全画面でも出る場所にある");
   // 重ねるボタンを作らず 1 つに保つ (2 つ目は Escape の扱いとフォーカスを二重にする)
   assert.equal(preview.match(/全画面をやめる/g)?.length, 1, "戻るボタンは 1 つだけ");
 });

@@ -16,6 +16,8 @@ import { BoltIcon } from "./icons";
 export type SkillSettingsPageProps = SettingsPageProps & {
   catalog: Catalog;
   refreshCatalog: () => Promise<Catalog>;
+  /** プレビュー オリジンのブラウザから見たポート (health)。未取得は undefined */
+  filePreviewPort?: number;
 };
 
 /** カタログスキルの表示。一覧で選ぶと閲覧ビュー、`編集` でフォームへ入る */
@@ -24,6 +26,7 @@ type SkillMode = "view" | "edit";
 export function SkillSettingsPage({
   catalog,
   refreshCatalog,
+  filePreviewPort,
   compact = false,
   onBack,
   onOpenNav,
@@ -120,6 +123,7 @@ export function SkillSettingsPage({
       key={`${selectedFileSkill.path}:${selectedFileSkillSeq}`}
       skill={selectedFileSkill}
       variant={compact ? "sheet" : "page"}
+      filePreviewPort={filePreviewPort}
     />
   ) : editingSkill && mode === "view" ? (
     <CatalogSkillPanel

@@ -30,7 +30,16 @@ function errorText(error: unknown): string {
  * (docs/api-catalog.md。反映タイミングは本文の取得時点)。ファイルスキルは本文の隣の補助ファイル
  * (references / scripts / assets) も見られるよう「本文 / ファイル」のタブを持つ。
  */
-export function ReadOnlySkillPanel({ skill, variant }: { skill: FileSkillInfo; variant: "page" | "sheet" }) {
+export function ReadOnlySkillPanel({
+  skill,
+  variant,
+  filePreviewPort,
+}: {
+  skill: FileSkillInfo;
+  variant: "page" | "sheet";
+  /** プレビュー オリジンのブラウザから見たポート (health)。未取得は undefined */
+  filePreviewPort?: number;
+}) {
   const [body, setBody] = useState<SkillBodyState>(() =>
     skill.body === undefined ? { status: "loading" } : { status: "ready", text: skill.body },
   );
@@ -116,7 +125,7 @@ export function ReadOnlySkillPanel({ skill, variant }: { skill: FileSkillInfo; v
               {skillDir}
             </code>
             {/* 読み取り専用の面なので行の操作ごと出さない（除外名は使われない） */}
-            <FileBrowser root={skillDir} reloadToken={0} readOnly excludeNames={[]} />
+            <FileBrowser root={skillDir} reloadToken={0} readOnly excludeNames={[]} filePreviewPort={filePreviewPort} />
           </div>
         ) : undefined
       }

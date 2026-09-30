@@ -471,11 +471,21 @@ export default function App() {
                 defaultThinkingLevel={app.health?.defaultThinkingLevel}
               />
             ) : settingsSection === "skills" ? (
-              <SkillSettingsPage {...pageProps} catalog={app.catalog} refreshCatalog={refreshCatalog} />
+              <SkillSettingsPage
+                {...pageProps}
+                catalog={app.catalog}
+                refreshCatalog={refreshCatalog}
+                filePreviewPort={app.health?.filePreviewPort}
+              />
             ) : settingsSection === "files" ? (
               // root を選択中の session / project に追随させると、選択を変えると同じ画面が別の場所を指して分かりにくい。
               // 設定のファイルはワークスペース全体に固定し、セッションの作業フォルダはツリーから辿って開く
-              <FileTreePage {...pageProps} cwd="" excludeNames={excludeNames} />
+              <FileTreePage
+                {...pageProps}
+                cwd=""
+                excludeNames={excludeNames}
+                filePreviewPort={app.health?.filePreviewPort}
+              />
             ) : settingsSection === "archive" ? (
               <ArchiveSettingsPage {...pageProps} archiveSettings={app.archiveSettings} />
             ) : settingsSection === "appearance" ? (
@@ -506,6 +516,7 @@ export default function App() {
             key={filesRoot}
             root={filesRoot}
             excludeNames={excludeNames}
+            filePreviewPort={app.health?.filePreviewPort}
             runEndSeq={app.chat.runEndSeq}
             onClose={closeSessionFiles}
             openRequest={pendingFileRef}
@@ -519,6 +530,7 @@ export default function App() {
           key={filesRoot}
           root={filesRoot}
           excludeNames={excludeNames}
+          filePreviewPort={app.health?.filePreviewPort}
           runEndSeq={app.chat.runEndSeq}
           onClose={closeSessionFilesSheet}
           openRequest={pendingFileRef}

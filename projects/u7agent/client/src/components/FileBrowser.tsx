@@ -41,14 +41,19 @@ import {
   closeFileTab,
   closeFileTabsUnder,
   dropClosedPreviewModes,
+  dropClosedPreviewOrigins,
   openFileTab,
   renameFileTabs,
   renamePreviewModes,
+  renamePreviewOrigins,
   restoreFileTabsState,
   withPreviewMode,
+  withPreviewOrigin,
   type FileTabsState,
   type PreviewMode,
   type PreviewModes,
+  type PreviewOrigin,
+  type PreviewOrigins,
 } from "../lib/fileTabs";
 import type { FileEntry } from "../types";
 import { ChevronIcon, FileIcon, FolderIcon } from "./icons";
@@ -83,6 +88,8 @@ export type FileBrowserProps = {
   /** 未消費の「ファイル参照から開く」要求。適用したら onHandled(seq) で App へ返す */
   openRequest?: FileRefRequest | null;
   onHandled?: (seq: number) => void;
+  /** プレビュー オリジン (別オリジン) のブラウザから見たポート。health から受け取り、未取得は undefined */
+  filePreviewPort?: number;
 };
 
 /**
@@ -101,6 +108,7 @@ export function FileBrowser({
   excludeNames,
   openRequest,
   onHandled,
+  filePreviewPort,
 }: FileBrowserProps) {
   const rootPath = normalizeFileTreeRoot(root);
   // 復元は mount ごとに 1 回。lazy initializer に置くことで、復元前の空状態を取得や保存の Effect が見ない
@@ -114,6 +122,8 @@ export function FileBrowser({
   const [previewVersion, setPreviewVersion] = useState(0);
   // 表示モードは再読み込みの remount を跨ぐ必要がある (選択はタブを閉じるまで保持する) ため親が持つ (docs/file-preview.md)
   const [previewModes, setPreviewModes] = useState<PreviewModes>(() => restored?.modes ?? {});
+  // ストレージ有効モードは保存しない (F5 とタブを閉じるで隔離に戻すため、snapshot に載せず mount ごとに空から始める)
+  const [previewOrigins, setPreviewOrigins] = useState<PreviewOrigins>({});
   // 幅は左右 2 段のときだけ効く。ツリーの親 (@container) 自身を測り、--file-tree-width をそこへ入れる
   const treeWidth = useFileTreeWidth();
   // StrictMode の effect 二重実行と、取得中の再読み込みで同じディレクトリを二重に要求しない
@@ -293,6 +303,7 @@ export function FileBrowser({
         setTree((prev) => renameFileTreeEntry(prev, path, nextPath));
         setTabs((prev) => renameFileTabs(prev, path, nextPath));
         setPreviewModes((prev) => renamePreviewModes(prev, path, nextPath));
+        setPreviewOrigins((prev) => renamePreviewOrigins(prev, path, nextPath));
       } catch (error) {
         setTree((prev) => applyFileTreeError(prev, fileTreeParentPath(path), errorText(error)));
       } finally {
@@ -328,6 +339,7 @@ export function FileBrowser({
   // (復元前の空の paths で消さないため、復元は lazy initializer 側で済ませてある)
   useEffect(() => {
     setPreviewModes((prev) => dropClosedPreviewModes(prev, tabs.paths));
+    setPreviewOrigins((prev) => dropClosedPreviewOrigins(prev, tabs.paths));
   }, [tabs.paths]);
 
   // 変更のたびに保存する。他 root を消さない read-modify-write と、内容が同じときの書き込み省略は store 側
@@ -409,9 +421,14 @@ export function FileBrowser({
             activePath={tabs.active}
             rootPath={rootPath}
             modes={previewModes}
+            origins={previewOrigins}
+            filePreviewPort={filePreviewPort}
             activeSize={activeSize}
             onModeChange={(path: string, mode: PreviewMode) =>
               setPreviewModes((prev) => withPreviewMode(prev, path, mode))
+            }
+            onOriginChange={(path: string, origin: PreviewOrigin) =>
+              setPreviewOrigins((prev) => withPreviewOrigin(prev, path, origin))
             }
             onSelect={openTab}
             onClose={closeTab}

@@ -1,5 +1,7 @@
 // ファイル画面の保存 schema。壊れた入力・上限・prototype 名・保存領域の例外を純関数と薄い境界で固定する。
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import test from "node:test";
 import {
   createFilePreviewStore,
@@ -16,6 +18,10 @@ import {
   type SnapshotStorage,
 } from "../src/lib/filePreviewState";
 import type { PreviewMode, PreviewModes } from "../src/lib/fileTabs";
+
+function read(relativePath: string): string {
+  return readFileSync(fileURLToPath(new URL(`../${relativePath}`, import.meta.url)), "utf8");
+}
 
 const snapshot = (overrides: Partial<FilePreviewSnapshot> = {}): FilePreviewSnapshot => ({
   paths: ["a.html", "b/c.txt"],
@@ -138,6 +144,19 @@ test("形の合わない snapshot は 1 件ずつ捨てる", () => {
     modes: {},
     dirs: [],
   });
+});
+
+test("配信元 (ストレージ有効モード) は保存対象に入らない", () => {
+  // snapshot に混ざった値は decode で落ちる (未知のフィールドは返さない)
+  const parsed = parseFilePreviewSnapshot({ ...snapshot(), origins: { "a.html": "storage" } });
+  assert.deepEqual(parsed, snapshot(), "保存値から配信元が復元されている");
+  // 保存 schema が配信元を知らないことをソースでも固定する (snapshot へ足す変更を検出する)
+  const schema = read("src/lib/filePreviewState.ts");
+  assert.ok(!schema.includes("PreviewOrigin"), "保存 schema が配信元を持っている");
+  // FileBrowser は復元値からは読まず、mount ごとに空 (隔離) から始める
+  const browser = read("src/components/FileBrowser.tsx");
+  assert.match(browser, /useState<PreviewOrigins>\(\{\}\)/, "配信元を保存値から復元している");
+  assert.ok(!browser.includes("restored?.origins"), "配信元を snapshot から読んでいる");
 });
 
 test("store は他 cwd を消さずに merge し、1 件だけ消せる", () => {

@@ -170,14 +170,20 @@ test("HTML を描画するパスを判定する", () => {
   }
 });
 
-test("HTML プレビューは sandbox 付き iframe と同一オリジンの URL だけを使う", () => {
+test("HTML プレビューは sandbox 付き iframe と 2 つの URL ヘルパを使う", () => {
   const file = "src/components/FilePreview.tsx";
   const code = readFileSync(fileURLToPath(new URL(`../${file}`, import.meta.url)), "utf8");
-  // iframe の中身は常に sandbox で隔離し、親の CSP を継承する渡し方 (srcdoc / blob: / data:) を使わない
-  assert.ok(code.includes('sandbox="allow-scripts"'), "iframe の sandbox 属性が無い");
+  // iframe の中身は常に sandbox で隔離し、親の CSP を継承する渡し方 (srcdoc / blob: / data:) を使わない。
+  // ストレージ有効モード (別オリジン) だけが同じフラグを CSP と両方に足す
+  assert.ok(code.includes('"allow-scripts"'), "隔離モードの sandbox フラグが無い");
+  assert.ok(code.includes('"allow-scripts allow-same-origin allow-pointer-lock"'), "有効モードの sandbox フラグが無い");
   for (const token of ["srcdoc", "blob:", "data:text/html"]) {
     assert.ok(!code.includes(token), `${file} に ${token} がある`);
   }
   // URL は api.ts の helper 経由で組み立てる (取得したパスをそのまま渡す。契約と encode は server / fileUrl のテストが見る)
-  assert.ok(code.includes("fileHtmlPreviewUrl(fetchPath)"), "プレビューの URL を helper から取っていない");
+  assert.ok(code.includes("fileHtmlPreviewUrl(fetchPath)"), "隔離モードの URL を helper から取っていない");
+  assert.ok(
+    code.includes("fileStoragePreviewUrl(fetchPath, filePreviewPort)"),
+    "有効モードの URL を helper から取っていない",
+  );
 });
