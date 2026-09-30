@@ -614,13 +614,8 @@ html[data-theme="sky"] {
     }
   }
 
-  /* native popover のパネル (スキル一覧 / ⋯ メニュー / エージェント・モデルのピッカー) の出入り。
-   * 位置と大きさは各コンポーネントの place() が開いた直後の getBoundingClientRect() で決めるため、
-   * 開始フレームは scale を使えない (scale は rect の高さに乗り、top の計算が数 px ずれる)。translate は
-   * 高さを変えないので計測に影響しない。閉じる間も描画を残す display / overlay の離散遷移は Chromium 117+ の
-   * 機能で、無いブラウザーは従来どおり即時に消える (開く方は @starting-style の有無で分かれる)。
-   * display は遷移のプロパティとしてだけ書き、値を持つユーティリティを当てない (UA の「閉じている間は
-   * display: none」を消してしまうため)。 */
+  /* native popover のパネル共通。開始フレームに scale を使うと place() の高さ計測に乗り top が数 px ずれる。
+   * 開閉の契約 (ブラウザー差 / display の扱い) は docs/ui-layout.md が正 */
   .popover-panel {
     opacity: 0;
     transform: translateY(4px);
