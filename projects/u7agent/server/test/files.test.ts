@@ -572,6 +572,20 @@ test("previewApp maps document failures to HTML with the storage-enabled CSP", a
       await bff.close();
     }
   }
+
+  // FilePreviewSchema の検証失敗 (サンドボックスが契約外の本文を返した場合) も例外と同じ 502 の HTML にする
+  const { workspace } = stubFiles();
+  workspace.previewFile = async () => ({ text: 42 }) as unknown as { text: string };
+  const invalid = await createBffApp({ cwd: "/tmp/project", sessionStoreDir: null, pi: null, workspace });
+  try {
+    const response = await invalid.previewApp.request("/api/files/html/chart.html");
+    assert.equal(response.status, 502);
+    assert.match(response.headers.get("Content-Type") ?? "", /^text\/html/);
+    assert.equal(response.headers.get("Content-Security-Policy"), CSP_STORAGE_CDN);
+    assert.match(await response.text(), /不正/);
+  } finally {
+    await invalid.close();
+  }
 });
 
 test("previewApp keeps asset failures as JSON without a CSP", async () => {
