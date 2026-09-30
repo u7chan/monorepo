@@ -145,6 +145,15 @@ Content-Security-Policy: sandbox allow-scripts; default-src 'none'; style-src 'u
 - 全画面中は背面が inert になる（モーダルの標準挙動）。背面の SSE と実行中のランは止まらない（表示だけ）
 - 見た目は `h-dvh w-screen max-h-none max-w-none m-0 border-0 bg-base` + `aria-modal` で、ツリーやタブの幅に依存しない（compact でも同じ）
 
+### 新しいタブで開く
+
+HTML プレビューのパス行のアイコンボタンで、描画中の文書をブラウザの新しいタブで開く（`client/src/components/FilePreview.tsx` の `ExternalLinkIcon`。アイコンだけなので `aria-label` / `title` に `新しいタブで開く` を持つ）。
+
+- `<a href target="_blank" rel="noreferrer noopener">` にする。`window.open` は使わない（ポップアップブロッカー / 中クリック / URL のコピーをブラウザの標準に任せる）
+- 開く先は iframe と同じ `fileHtmlPreviewUrl(fetchPath)`（`GET /api/files/html/<root 相対>`）。path を組み立て直さないのは、セグメント単位の encode と「相対参照を文書と同じディレクトリで解決する」前提を iframe と共有するため
+- 出すのはプレビュー中だけ（`showHtml`）。ソース表示から開くと、見えている本文と違うもの（描画された文書）が出る。全画面は戻るボタンだけを残す規則に合わせて出さない（パス行の中身を描かないブロックに置く）
+- **隔離は緩くならない**。応答の CSP（`sandbox allow-scripts`）はトップレベル文書にも効くため、classic script は動くが `localStorage` は SecurityError、`fetch` / XHR は `connect-src` 無しで止まる（Chromium で確認済み）。`rel="noreferrer noopener"` と合わせて、新しいタブからアプリ側の面へは触れない
+
 ### できないこと（残リスク）
 
 - 相対参照で読めるのは同じルートの allowlist に入ったアセット（画像 / 音声 / `.js` / `.mjs` / `.css` / `.json` / `.txt`）だけ。`.svg`、動画、フォント、他の拡張子は 400 になる
@@ -392,6 +401,7 @@ assistant 本文のインラインコードが指すファイルを、右パネ�
 | `client/test/fileCode.test.ts` | 拡張子の言語判定 / 正規化と行数 / コピーする本文（正規化後・行番号なし・空文字）/ 上限でのフォールバック / 行番号の列 / 例外を投げない / 描画側が DOM 文字列とインライン style を使わない / HTML の判定 / iframe が sandbox 付きで同一オリジンの URL を使う |
 | `client/test/fileTabs.test.ts` | 表示モードの既定（HTML と画像だけプレビュー）/ 選択の保持と破棄 / 全画面を続ける条件 / タブの開閉と上限 / ディレクトリ配下のタブの一括削除（接頭辞境界と繰り上がり）/ リネームの経路の張り替え（並び・表示中の保持、配下、重複の排除、表示モード）/ 保存値からの復元（表示中の繰り上がりと上限） |
 | `client/test/filePreviewFullscreen.test.ts` | HTML プレビューの全画面（`showModal()` で開く / Escape を全画面のときだけ止める / iframe は 1 つだけ / 出すときのタブに紐づける / 残すのは戻るボタンだけ） |
+| `client/test/filePreviewNewTab.test.ts` | 新しいタブで開く（パス行に置いて HTML プレビュー中だけ出す / iframe と同じ `fileHtmlPreviewUrl(fetchPath)` を開く / `target="_blank"` + `rel="noreferrer noopener"` で `window.open` を使わない / アイコンだけのリンクに `aria-label` と `title`）（ソース走査） |
 | `client/test/filePreviewCopy.test.ts` | 本文のコピー（パス行に置く / `reveal` を渡さない / 表示中の本文を渡す / 画像と HTML のプレビューでは出さない / タブを切り替えたら成功表示を捨てる） |
 | `client/test/filePreviewImage.test.ts` | 画像プレビューの下地とメタ（メタはパス行に置いて画像タブだけに出る / `.image-canvas` が市松で、色はテーマのトークンだけで作り 1 タイルの大きさを持つ / 寸法は `onLoad` の内在ピクセルから取り、表示中のタブの値だけを出す / サイズはツリーの行から引いて `activeSize` で渡す）（ソース走査） |
 | `client/test/imageMeta.test.ts` | 画像メタの表記（寸法とサイズの両方 / 片方だけ / どちらも無ければ null / 不正値の落とし方と 0 B） |

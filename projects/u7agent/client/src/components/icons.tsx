@@ -210,6 +210,27 @@ export function DownloadIcon() {
   );
 }
 
+/** パス行の「新しいタブで開く」。右上へ抜ける矢印で、アプリの外 (ブラウザのタブ) へ出ることを示す */
+export function ExternalLinkIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.5"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className="size-3.5 shrink-0"
+    >
+      {/* 枠は右上を開けて描く (矢印が枠を突き抜けて見えるように) */}
+      <path d="M13.5 9.5V12a1.5 1.5 0 0 1-1.5 1.5H4A1.5 1.5 0 0 1 2.5 12V5A1.5 1.5 0 0 1 4 3.5h2.5" />
+      <path d="M9.5 2.5h4v4" />
+      <path d="M13.5 2.5 7.75 8.25" />
+    </svg>
+  );
+}
+
 /** 行の ⋯ ボタン (横並びの点 3 つ) */
 export function MoreIcon() {
   return (
