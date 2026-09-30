@@ -6,7 +6,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { chatReducer, initialChatState } from "../src/hooks/chatReducer";
 import { applySessionEvent, type SessionStreamDeps } from "../src/hooks/sessionStream";
-import { retryActivityText, retryRemainingMs } from "../src/lib/retryState";
+import { activityDisplay, retryActivityText, retryRemainingMs } from "../src/lib/retryState";
 import type { SessionPayload } from "../src/types";
 
 const RETRY = { phase: "waiting", attempt: 1, maxAttempts: 2, retryAt: 12_000, reason: "rate_limit" } as const;
@@ -58,6 +58,22 @@ test("retryActivityText switches to the start-wait wording after the deadline", 
   );
   assert.equal(retryActivityText(undefined, 0), undefined);
   assert.equal(retryActivityText({ ...RETRY }, undefined), "自動再試行を待機中（1/2）");
+});
+
+test("activityDisplay: 再試行の文言で上書きしている間は run の由来を渡さない", () => {
+  assert.deepEqual(activityDisplay("考え中…", "thinking", undefined, undefined), {
+    text: "考え中…",
+    state: "thinking",
+  });
+  assert.deepEqual(activityDisplay("考え中…", "thinking", { ...RETRY }, 2000), {
+    text: "レート制限中。約2秒後に再試行予定（1/2）",
+    state: undefined,
+    // 再実行の試行中は state が thinking でも行に出ているのは「再実行中（1/2）」
+  });
+  assert.deepEqual(activityDisplay("考え中…", "thinking", { ...RETRY, phase: "retrying" }, 0), {
+    text: "再実行中（1/2）",
+    state: undefined,
+  });
 });
 
 test("resync restores retry and retryAt from the payload's server clock", () => {

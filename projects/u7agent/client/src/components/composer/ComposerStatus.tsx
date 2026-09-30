@@ -42,7 +42,9 @@ export function ComposerStatus({
   activity: string;
   /**
    * 活動表示の由来 (SSE `status` の state)。thinking のときだけ活動ラベルに光を流す
-   * (ツール実行中や待機の文言まで流すと、演出ではなく装飾になる。docs/frontend.md)
+   * (ツール実行中や待機の文言まで流すと、演出ではなく装飾になる。docs/frontend.md)。
+   * 由来が付くのは run 自身の短いラベルだけで、復帰の長い文言と再試行の文言には付かない
+   * (折り返すと帯が行ごとに切れる。保証するのは chatReducer と App 側)
    */
   activityState?: string;
   /** 実行中 / 圧縮中だけ渡す (活動行の経過時間の起点) */

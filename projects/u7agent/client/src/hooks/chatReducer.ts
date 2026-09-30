@@ -511,7 +511,7 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
         compactionStartedAt: status === "compacting" ? payload.compactionStartedAt : undefined,
         queueDepth: payload.queueDepth || 0,
         activity: "",
-        // 活動の由来は下の status ごとの分岐で入れる (running だけ thinking を復元する)
+        // 活動の由来は status イベントだけが入れる (復帰時の文言は状態ではなくお知らせなので持たない)
         activityState: undefined,
         sessionModel: payload.model,
         sessionThinkingLevel: payload.thinkingLevel,
@@ -532,14 +532,9 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
       // currentAssistantId は実行中のときだけ補完先へ向ける
       next = attachRunToolCards(next, status === "running");
       if (status === "running") {
-        // 切断中に届かなかった status を復元する。未完了のツールが無ければモデルの生成中とみなし、
-        // リロード / 再接続の直後も活動ラベルの演出 (activity-shimmer) を途切れさせない
-        const generating = !(payload.run?.toolCalls ?? []).some((call) => !call.done);
-        next = {
-          ...next,
-          activity: "実行中…（タブを閉じても処理は続きます）",
-          activityState: generating ? "thinking" : undefined,
-        };
+        // 復帰の文言は長い 1 文 (「実行中…（タブを閉じても処理は続きます）」) なので由来を持たせない
+        // (折り返すと帯が行ごとに切れる)。run 自身の短いラベルを配る次の status で再開する
+        next = { ...next, activity: "実行中…（タブを閉じても処理は続きます）" };
       } else if (status === "compacting") next = { ...next, activity: "会話を整理中…" };
       else if (status === "queued")
         next = { ...next, activity: `待機中のメッセージがあります（${payload.queueDepth}件）` };
