@@ -147,6 +147,34 @@ test("diff は追加 / 削除 / ハンクを行単位で塗る", () => {
   );
 });
 
+test("Rust のライフタイムと C++ の桁区切りを文字列に飲まない", () => {
+  // 単一引用符の規則を短くしているため、対にならない `'` は地の文のまま残る
+  const rust = highlightCode("fn f<'a>(x: &'a str) {}\n", "rust");
+  assert.ok(!tokensOf("str", rust).some((token) => token.text.includes("'")), "ライフタイムを文字列にしている");
+  assert.deepEqual(
+    tokensOf("key", rust).map((token) => token.text),
+    ["fn"],
+  );
+  assert.deepEqual(
+    tokensOf("type", rust).map((token) => token.text),
+    ["str"],
+  );
+  assert.deepEqual(
+    tokensOf("str", highlightCode("let c = '\\n';\n", "rust")).map((token) => token.text),
+    ["'\\n'"],
+  );
+  const cpp = highlightCode("int n = 1'000; int m = 2'000;\n", "cpp");
+  assert.ok(!tokensOf("str", cpp).some((token) => token.text.includes("'")), "桁区切りを文字列にしている");
+  assert.deepEqual(
+    tokensOf("key", cpp).map((token) => token.text),
+    ["int", "int"],
+  );
+  assert.deepEqual(
+    tokensOf("str", highlightCode("char c = 'a';\n", "c")).map((token) => token.text),
+    ["'a'"],
+  );
+});
+
 test("別名の言語も同じルールでハイライトする", () => {
   const source = "const a: number = 1;\n";
   const base = JSON.stringify(highlightCode(source, "ts"));

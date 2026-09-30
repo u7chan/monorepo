@@ -5,11 +5,15 @@
  */
 
 /**
- * 描画する本文の行数。番号は本文の行と 1 対 1 にするため、行の数え方をここに 1 つだけ置く。
- * 末尾の改行 1 つに空の行は描かれないので行に数えない。空白だけの本文は 0 行 (空のブロック)。
+ * 描画する本文の行数 (= 行番号の数)。番号は本文の行ボックスと 1 対 1 にするため、数え方をここに 1 つだけ置く。
+ * 末尾の改行 1 つに空の行は描かれないので行に数えない。本文が空のときだけ 0 行 (空白だけでも行は描かれるので数える)。
+ *
+ * `caret` は生成中のカーソルを本文の後ろに出すかどうか。本文が空か改行で終わるときはカーソルが次の行に載るため、
+ * その行の番号も出す。
  */
-export function codeLineCount(text: string): number {
-  if (text.trim() === "") return 0;
+export function codeLineCount(text: string, caret = false): number {
+  if (caret && (text === "" || text.endsWith("\n"))) return codeLineCount(text) + 1;
+  if (text === "") return 0;
   return text.replace(/\n$/, "").split("\n").length;
 }
 

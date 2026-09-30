@@ -65,6 +65,8 @@ test("行数は末尾の空行を数えず、CRLF / CR は LF に揃える", () 
     ["a\rb", "a\nb", 2],
     ["\n", "", 0],
     ["\n\n", "", 0],
+    // 空白だけの本文も行として数える (空のファイルと区別する)
+    [" \n\t\n", " \n\t", 2],
   ];
   for (const [input, text, lineCount] of cases) {
     const code = buildPreviewCode(input, "a.txt");

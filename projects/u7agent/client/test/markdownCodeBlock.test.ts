@@ -46,10 +46,16 @@ test("番号の列は本文の外に出し、本文の行と 1 対 1 にする",
   assert.equal(pre[1].replace(/<[^>]*>/g, ""), "const a = 1;\nconst b = 2;", "本文の文字列が番号や装飾で変わっている");
 });
 
-test("生成中も番号を出し、空のブロックには列を出さない", () => {
+test("生成中も番号を出し、カーソルの行も数える", () => {
+  // 本文 "const a = 1;\n" + カーソル (次の行) で 2 行
   const streaming = render("```ts\nconst a = 1;\n");
-  assert.match(streaming, /<div aria-hidden="true" class="md-code-gutter">1<\/div>/, "生成中の行番号が無い");
+  assert.match(streaming, /<div aria-hidden="true" class="md-code-gutter">1\n2<\/div>/, "生成中の行番号が無い");
+  assert.ok(streaming.includes('<span class="md-code-lines">2 行</span>'), "カーソルの行を数えていない");
   assert.ok(streaming.includes('<span class="md-caret" aria-hidden="true"></span>'), "生成中のカーソルが無い");
+  // カーソルが本文の行に載るときは増やさない
+  const sameLine = render("```ts\nconst a = 1;");
+  assert.match(sameLine, /<div aria-hidden="true" class="md-code-gutter">1<\/div>/);
+  assert.ok(sameLine.includes('<span class="md-code-lines">1 行</span>'));
   // 空のブロックは行番号の列も「N 行」も出さない
   const empty = render("```ts\n```\n");
   assert.ok(!empty.includes("md-code-gutter"), "空のブロックに行番号を出している");

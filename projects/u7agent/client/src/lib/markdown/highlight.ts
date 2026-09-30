@@ -94,16 +94,28 @@ const TS_TYPES = new Set([
   "void",
 ]);
 
+/** 単一引用符の文字列。JS / TS / Java / Go は長さを制限しない (`'a'` も `'abc'` も文字列) */
+const STR_SINGLE: Rule = { kind: "str", re: /'(?:\\[\s\S]|[^\\'\n]){0,4000}'/y };
+
+/**
+ * C / C++ / Rust 版。閉じ引用符までを 2 文字に限る。C++ の桁区切り (`1'000`) と Rust のライフタイム (`'a`) は
+ * 引用符が対にならないため文字列にならず、地の文のまま残る (区切り位置を字面だけで決められないため、長さで分ける)。
+ */
+const STR_SINGLE_SHORT: Rule = { kind: "str", re: /'(?:\\[\s\S]|[^\\'\n]){0,2}'/y };
+
 const C_LIKE_RULES: Rule[] = [
   { kind: "com", re: /\/\/[^\n]*/y },
   { kind: "com", re: /\/\*[\s\S]{0,4000}?\*\//y },
   { kind: "str", re: /`(?:\\[\s\S]|[^\\`]){0,4000}`/y },
   { kind: "str", re: /"(?:\\[\s\S]|[^\\"\n]){0,4000}"/y },
-  { kind: "str", re: /'(?:\\[\s\S]|[^\\'\n]){0,4000}'/y },
+  STR_SINGLE,
   { kind: "num", re: /0[xX][0-9a-fA-F_]+|0[bB][01_]+|\d[\d_]*(?:\.[\d_]+)?(?:[eE][+-]?\d+)?n?/y },
   { kind: "op", re: /[+\-*/%=<>!&|^~?]+/y },
   { kind: "op", re: /[{}[\]();,.:]+/y },
 ];
+
+/** C / C++ / Rust の規則。単一引用符だけを短い規則に差し替える */
+const C_LIKE_RULES_SHORT_CHAR: Rule[] = C_LIKE_RULES.map((rule) => (rule === STR_SINGLE ? STR_SINGLE_SHORT : rule));
 
 const TS_SPEC: LangSpec = {
   rules: C_LIKE_RULES,
@@ -171,7 +183,7 @@ const C_PREPROCESSOR: Rule = {
   re: /#\s*(?:ifdef|ifndef|include|define|elif|else|endif|undef|pragma|error|warning|line|if)\b/y,
 };
 
-const C_RULES: Rule[] = [C_PREPROCESSOR, ...C_LIKE_RULES];
+const C_RULES: Rule[] = [C_PREPROCESSOR, ...C_LIKE_RULES_SHORT_CHAR];
 
 /**
  * C / C++ の塗り分け。型名 (`size_t` / `uint32_t`) やマクロ (`NULL` / `EOF`) はキーワード表に無く、
@@ -540,7 +552,7 @@ const RUST_TYPES = new Set([
 ]);
 
 const RUST_SPEC: LangSpec = {
-  rules: C_LIKE_RULES,
+  rules: C_LIKE_RULES_SHORT_CHAR,
   classify: (word, context) => {
     if (RUST_KEYWORDS.has(word)) return "key";
     if (RUST_TYPES.has(word)) return "type";

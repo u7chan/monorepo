@@ -23,7 +23,8 @@ export const CodeBlock = memo(function CodeBlock({
 }) {
   const tokens = useMemo(() => highlightCode(text, lang), [text, lang]);
   const { copiedId, copyMessage } = useMessageCopy();
-  const lineCount = codeLineCount(text);
+  // 生成中のカーソルは本文の後ろに付くため、本文が改行で終わるときはその行も数える
+  const lineCount = codeLineCount(text, !closed);
   return (
     <figure className={cn("md-code group/code", closed ? "" : "md-code-streaming")}>
       <figcaption className="md-code-head">

@@ -4,20 +4,40 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { codeLineCount, lineNumbers } from "../src/lib/codeLines";
 
-test("行数は末尾の改行 1 つを数えない (空白だけの本文は 0 行)", () => {
+test("行数は本文の行ボックスと一致する (末尾の改行 1 つは数えない)", () => {
   const cases: [string, number][] = [
     ["", 0],
-    ["\n", 0],
-    [" \n\t\n", 0],
+    // 空行も行として描かれる
+    ["\n", 1],
+    ["\n\n", 2],
     ["a", 1],
     ["a\n", 1],
-    // 末尾の改行 2 つは空の行が 1 つ描かれるので 2 行
     ["a\n\n", 2],
     ["a\nb", 2],
     ["a\nb\n\n", 3],
     ["a\n\nb\n", 3],
+    // 空白だけの本文も行は描かれる (ファイルプレビューの行数と同じ)
+    [" \n\t\n", 2],
   ];
   for (const [text, count] of cases) assert.equal(codeLineCount(text), count, JSON.stringify(text));
+});
+
+test("生成中のカーソルは本文の後ろの行に載る", () => {
+  const cases: [string, boolean, number][] = [
+    // 本文が空か改行で終わるときだけ、カーソルの行が増える
+    ["", true, 1],
+    ["\n", true, 2],
+    ["a", true, 1],
+    ["a\n", true, 2],
+    ["a\n\n", true, 3],
+    // カーソルを出さない (閉じたフェンス) ときは本文の行だけ
+    ["", false, 0],
+    ["a", false, 1],
+    ["a\n", false, 1],
+  ];
+  for (const [text, caret, count] of cases) {
+    assert.equal(codeLineCount(text, caret), count, `${JSON.stringify(text)} caret=${caret}`);
+  }
 });
 
 test("行番号の列は 1 から行数まで (行ごとの要素を作らない)", () => {

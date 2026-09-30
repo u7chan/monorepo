@@ -55,7 +55,8 @@ MessageView (assistant の本文)
 - 番号の列は本文と同じ行送りで重ねる。文字サイズと行送りは両者が継承する `.md-code-body` に置き、上下の余白は `.md-code-gutter`（`padding` の上下）と `.md-code-pre` で同じ値にする（`client/src/styles/index.css`）
 - 横スクロールでも左端に残す（`position: sticky`）。下を本文が通るため背景は不透明（`--c-panel`）にする
 - 番号は読み上げの対象にしない（`aria-hidden`）し、コピーにも選択にも入らない（`user-select: none`）。コピー操作は従来どおり `CopyButton` が本文（`text`）だけを渡す
-- 行数は本文から数える（`codeLineCount`。末尾の改行 1 つは行に数えない）。空白だけの本文は 0 行で、番号の列もヘッダの `N 行` も出さない
+- 行数は本文から数える（`codeLineCount`）。番号は本文の行ボックスと 1 対 1 にし、**本文が空のときだけ 0 行**で、番号の列もヘッダの `N 行` も出さない（空白だけの本文も行は描かれるので数える。ファイルプレビューは本文を正規化してから渡すため、空のファイルの判定は変わらない）
+- 生成中のカーソルは本文の後ろに付く。本文が空か改行で終わるときはカーソルが次の行に載るため、その行の番号も出す
 - 図（mermaid）の解析に失敗して原文を出す場合も同じ描画になる（番号が付く）
 
 ## インラインコードのファイル参照
@@ -225,8 +226,8 @@ Markdown 記法側の URL（`[t](url)` / `![alt](src)`）も同じ `safeUrl` を
 | `client/test/markdownInline.test.ts` | 強調の入れ子 / コードスパン / リンク / 自動リンク / エスケープ / 改行 / 無言で消さない |
 | `client/test/markdownHtml.test.ts` | 許可リスト / 属性の除去 / `on*` `javascript:` の拒否 / 未閉じは原文 / `safeUrl` |
 | `client/test/markdownHighlight.test.ts` | 言語判定 / 未知言語と上限超過 / トークンが入力を欠落させない / 言語ごとの塗り分け (C のプリプロセッサ・型名を含む) / CSS との対応 |
-| `client/test/codeLines.test.ts` | 行数の数え方（末尾の改行と空のブロック）/ 行番号の列 |
-| `client/test/markdownCodeBlock.test.ts` | 行番号の列（本文の外に出して 1 対 1 にする / 空のブロックには出さない / 本文と同じ行送り・同じ上下余白 / sticky / `aria-hidden` と `user-select: none` / コピーは本文だけ） |
+| `client/test/codeLines.test.ts` | 行数の数え方（本文の行ボックスと一致する / 空の本文と空白だけの本文 / 生成中のカーソルの行）/ 行番号の列 |
+| `client/test/markdownCodeBlock.test.ts` | 行番号の列（本文の外に出して 1 対 1 にする / 空のブロックには出さない / 生成中のカーソルの行 / 本文と同じ行送り・同じ上下余白 / sticky / `aria-hidden` と `user-select: none` / コピーは本文だけ） |
 | `client/test/markdownLatex.test.ts` | `\frac` `\sqrt` 上下限 行列 cases の AST とレイアウトモデル / 決定性 / `$` の判定と通貨記号 / `$$` のブロック検出 / 失敗が `ok: false` になる / 例外を投げない |
 | `client/test/markdownDiagram.test.ts` | 形状 4 種 / エッジの種類とラベル / チェーン / TD と LR のランク方向 / 境界で止まるエッジ / 戻るエッジと外側レーン / エッジラベルと線の余白 / 長いラベルの折り返しと 6 行上限 / sequenceDiagram の順序と Note / 決定性 / 未対応が `ok: false` になる / 上限 / 固定シードのランダム入力でエッジがノードを横切らずラベルも線に貫かれない / SSR した HTML にインライン style が出ない |
 | `client/test/markdownSafety.test.ts` | `lib/markdown` と `components/markdown` に DOM 文字列の生成・インライン style が現れない（ソース走査） |
