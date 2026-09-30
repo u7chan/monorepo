@@ -15,6 +15,7 @@ import {
   fileTreeDeleteConfirm,
   fileTreeDeleteDirectoryConfirm,
   fileTreeDirectoryState,
+  fileTreeEntryFor,
   fileTreeFetchPath,
   fileTreeParentPath,
   fileTreeRenamePrompt,
@@ -339,6 +340,8 @@ export function FileBrowser({
     });
   }, [rootPath, tree, tabs, previewModes]);
 
+  // 表示中のタブのサイズは取得済みの行から引く (メタ表示のために一覧を取り直さない)。未取得は undefined
+  const activeSize = tabs.active === null ? undefined : fileTreeEntryFor(tree, tabs.active)?.size;
   const rootNode = fileTreeDirectoryState(tree, FILE_TREE_ROOT) ?? { open: true, loading: false };
 
   return (
@@ -406,6 +409,7 @@ export function FileBrowser({
             activePath={tabs.active}
             rootPath={rootPath}
             modes={previewModes}
+            activeSize={activeSize}
             onModeChange={(path: string, mode: PreviewMode) =>
               setPreviewModes((prev) => withPreviewMode(prev, path, mode))
             }

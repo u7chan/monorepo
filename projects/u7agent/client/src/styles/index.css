@@ -1028,6 +1028,17 @@ html[data-theme="sky"] {
     white-space: pre;
   }
 
+  /* 画像プレビューの下地。透過の見える面を市松で示す。色はトークンの混合で作り、6 テーマぶんの
+   * 定義を足さない (1 タイル 16px = 8px 角。市松として読める最小に近い大きさ) */
+  .image-canvas {
+    background-color: var(--c-soft);
+    background-image: repeating-conic-gradient(
+      color-mix(in srgb, var(--c-ink) 7%, var(--c-soft)) 0 25%,
+      var(--c-soft) 0 50%
+    );
+    background-size: 16px 16px;
+  }
+
   /* ===== 数式 (LaTeX サブセット) =====
    * 分数・根号・上下限・行列を CSS だけで組む。色は既存トークンだけを使い、
    * 6 テーマの再定義を不要にする (インライン style は本番の CSP で効かない)。 */

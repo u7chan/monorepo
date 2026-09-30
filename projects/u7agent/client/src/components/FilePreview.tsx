@@ -16,6 +16,7 @@ import {
   type PreviewResults,
 } from "../lib/fileTabs";
 import { fileTreeBreadcrumbs, fileTreeFetchPath } from "../lib/fileTree";
+import { imageMetaLabel, type ImageDimensions } from "../lib/imageMeta";
 import { CopyButton } from "./chat/CopyButton";
 import { CloseIcon } from "./icons";
 
@@ -37,6 +38,8 @@ export type FilePreviewProps = {
   rootPath: string;
   /** タブごとの表示モード。親が持つ (再読み込みの remount で選択を失わないため) */
   modes: PreviewModes;
+  /** 表示中のタブのサイズ (ツリーの取得済みの行から引く)。未取得は undefined で、画像のメタは寸法だけになる */
+  activeSize?: number;
   /** パンくずのクリック。ツリーと同じ画面 root 相対パスを渡す (ツリーでその位置を示す) */
   onReveal: (path: string) => void;
   onModeChange: (path: string, mode: PreviewMode) => void;
@@ -53,6 +56,7 @@ export function FilePreview({
   activePath,
   rootPath,
   modes,
+  activeSize,
   onReveal,
   onModeChange,
   onSelect,
@@ -61,6 +65,8 @@ export function FilePreview({
   const [results, setResults] = useState<PreviewResults>({});
   // 全画面を出したタブ (null は全画面でない)。表示対象が変わったら条件が false になり解除される
   const [fullscreenPath, setFullscreenPath] = useState<string | null>(null);
+  // 読み込みが終わった画像の寸法。パスを一緒に持ち、タブを切り替えたら前のタブの値を出さない
+  const [loadedImage, setLoadedImage] = useState<{ path: string; dimensions: ImageDimensions } | null>(null);
   const dialogRef = useRef<HTMLDialogElement | null>(null);
   const activeTabRef = useRef<HTMLDivElement | null>(null);
   const labels = fileTabLabels(paths);
@@ -79,6 +85,10 @@ export function FilePreview({
     () => (skipFetch || text === undefined ? null : buildPreviewCode(text, activePath)),
     [skipFetch, text, activePath],
   );
+  // 画像のメタは、読み込みが終わった寸法とツリーの行のサイズから作る。どちらも無ければ行ごと出さない
+  const imageMeta = showImage
+    ? imageMetaLabel(activeSize, loadedImage?.path === activePath ? loadedImage.dimensions : undefined)
+    : null;
 
   // 表示中のタブがバーの外 (横スクロール) へ隠れないようにする。全画面ではバーを隠すため、
   // 戻ったときにも当て直す (隠れている間のスクロール位置はブラウザーによっては失われる)
@@ -177,6 +187,9 @@ export function FilePreview({
                 {code.highlight?.lang ?? "text"} · {code.lineCount} 行
               </span>
             ) : null}
+            {imageMeta === null ? null : (
+              <span className="shrink-0 text-3xs text-ink-ghost tabular-nums">{imageMeta}</span>
+            )}
             {code === null ? null : <FileCopyButton key={activePath} text={previewCopyText(code)} />}
           </>
         )}
@@ -196,10 +209,17 @@ export function FilePreview({
           {result.error}
         </p>
       ) : showImage ? (
-        <div className="min-h-0 flex-1 overflow-auto bg-soft p-2">
+        <div className="image-canvas min-h-0 flex-1 overflow-auto p-2">
           <img
             src={fileRawUrl(fetchPath)}
             alt={`${fetchPath} のプレビュー`}
+            // 寸法は読み込み後にしか分からない。パスを一緒に持たせ、タブを切り替えたら前のタブの値を出さない
+            onLoad={(event) =>
+              setLoadedImage({
+                path: activePath,
+                dimensions: { width: event.currentTarget.naturalWidth, height: event.currentTarget.naturalHeight },
+              })
+            }
             className="mx-auto max-h-full max-w-full object-contain"
           />
         </div>

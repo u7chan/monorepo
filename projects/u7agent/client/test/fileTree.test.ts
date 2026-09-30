@@ -13,6 +13,7 @@ import {
   fileTreeDeleteConfirm,
   fileTreeDeleteDirectoryConfirm,
   fileTreeDirectoryState,
+  fileTreeEntryFor,
   fileTreeFetchPath,
   fileTreeRenamePrompt,
   invalidateFileTree,
@@ -544,4 +545,27 @@ test("パンくずの root 前置きは root 直下のファイルでは省き�
     { label: "top.txt", path: "top.txt" },
   ]);
   assert.deepEqual(fileTreeBreadcrumbs("/workspace/", "top.txt"), [{ label: "top.txt", path: "top.txt" }]);
+});
+
+test("取得済みの行は親の子から名前で引く (未取得の親と一覧の上限外は undefined)", () => {
+  const state = loaded({
+    ".": [dir("a"), file("top.txt", { size: 12 })],
+    a: [file("sheet.png", { size: 34 }), file("sheet.png.bak", { size: 56 })],
+  });
+  assert.equal(fileTreeEntryFor(state, "top.txt")?.size, 12, "root 直下も引ける");
+  assert.equal(fileTreeEntryFor(state, "a/sheet.png")?.size, 34, "前方一致で別の行を拾わない");
+  assert.equal(fileTreeEntryFor(state, "a/missing.png"), undefined, "一覧に無い名前");
+  assert.equal(fileTreeEntryFor(state, "b/sheet.png"), undefined, "未取得の親");
+});
+
+test("取得を捨てた面 (再読み込み) では行を引かない", () => {
+  const state = invalidateFileTree(loaded({ ".": [file("top.txt", { size: 12 })] }));
+  assert.equal(fileTreeEntryFor(state, "top.txt"), undefined, "取得済みの子が無いのでサイズも分からない");
+});
+
+test("__proto__ の名前のファイルも親の子から引ける", () => {
+  let state = applyFileTreeListing(createFileTreeState(), ".", { entries: [dir("__proto__")], truncated: false });
+  state = applyFileTreeListing(state, "__proto__", { entries: [file("x.png", { size: 7 })], truncated: false });
+  assert.equal(Object.getPrototypeOf(state), Object.prototype, "プロトタイプを壊す");
+  assert.equal(fileTreeEntryFor(state, "__proto__/x.png")?.size, 7);
 });
