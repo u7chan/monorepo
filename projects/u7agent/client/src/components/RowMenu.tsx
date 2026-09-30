@@ -199,7 +199,7 @@ export function RowMenu<K extends RowMenuActionKind>({ name, actions, onSelect }
         aria-labelledby={triggerId}
         onKeyDown={onKeyDown}
         onBlur={onBlur}
-        className="fixed inset-auto m-0 w-max min-w-40 overflow-visible rounded-lg border border-line bg-panel p-1 shadow-panel"
+        className="popover-panel fixed inset-auto m-0 w-max min-w-40 overflow-visible rounded-lg border border-line bg-panel p-1 shadow-panel"
       >
         {actions.map((action, index) => (
           <MenuItem

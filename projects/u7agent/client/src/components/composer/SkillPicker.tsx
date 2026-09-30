@@ -203,7 +203,7 @@ export function SkillPicker({
         popover="auto"
         role="dialog"
         aria-label="スキル一覧"
-        className="fixed inset-auto m-0 overflow-hidden rounded-lg border border-line bg-panel shadow-panel"
+        className="popover-panel fixed inset-auto m-0 overflow-hidden rounded-lg border border-line bg-panel shadow-panel"
       >
         <div ref={bodyRef} className="grid min-w-0 scrollbar-thin gap-2 overflow-x-hidden overflow-y-auto px-2.5 py-2">
           {/* 状態の 1 行。テキストの末尾に再取得を流す (エラーが長いときは折り返した行の末尾に付く) */}

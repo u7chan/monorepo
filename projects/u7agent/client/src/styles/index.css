@@ -614,6 +614,38 @@ html[data-theme="sky"] {
     }
   }
 
+  /* native popover のパネル (スキル一覧 / ⋯ メニュー / エージェント・モデルのピッカー) の出入り。
+   * 位置と大きさは各コンポーネントの place() が開いた直後の getBoundingClientRect() で決めるため、
+   * 開始フレームは scale を使えない (scale は rect の高さに乗り、top の計算が数 px ずれる)。translate は
+   * 高さを変えないので計測に影響しない。閉じる間も描画を残す display / overlay の離散遷移は Chromium 117+ の
+   * 機能で、無いブラウザーは従来どおり即時に消える (開く方は @starting-style の有無で分かれる)。
+   * display は遷移のプロパティとしてだけ書き、値を持つユーティリティを当てない (UA の「閉じている間は
+   * display: none」を消してしまうため)。 */
+  .popover-panel {
+    opacity: 0;
+    transform: translateY(4px);
+    transition:
+      opacity 120ms ease-out,
+      transform 120ms ease-out,
+      display 120ms ease-out allow-discrete,
+      overlay 120ms ease-out allow-discrete;
+  }
+  .popover-panel:popover-open {
+    opacity: 1;
+    transform: translateY(0);
+  }
+  @starting-style {
+    .popover-panel:popover-open {
+      opacity: 0;
+      transform: translateY(4px);
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .popover-panel {
+      transition: none;
+    }
+  }
+
   /* 細いスクロールバー */
   .scrollbar-thin {
     scrollbar-width: thin;
