@@ -175,10 +175,28 @@ test("単一引用符は言語ごとに文字定数 / ライフタイム / 桁�
     );
     assert.deepEqual(tokensOf("str", tokens), [], source);
   }
+  // 指数部 (10 進の `e` と 16 進浮動小数点の `p`) の区切りも数値として飲む
+  for (const source of ["1e1'0", "1.2e+1'0", "1'000e1'000", "0x1p1'0", "0x1.8p1'0"]) {
+    const tokens = highlightCode(source, "cpp");
+    assert.deepEqual(
+      tokensOf("num", tokens).map((token) => token.text),
+      [source],
+      source,
+    );
+    assert.deepEqual(tokensOf("str", tokens), [], source);
+  }
   assert.deepEqual(
     tokensOf("key", highlightCode("int n = 1'2'3; int m = 2'000;", "cpp")).map((token) => token.text),
     ["int", "int"],
   );
+  assert.deepEqual(
+    tokensOf("key", highlightCode("double a = 1e1'0; double b = 1e2'0;", "cpp")).map((token) => token.text),
+    ["double", "double"],
+  );
+  // Rust の Unicode エスケープ: `_` は桁数に数えない
+  for (const source of ["'\\u{41}'", "'\\u{1F600}'", "'\\u{0000_41}'", "'\\u{10_FFFF}'"]) {
+    assert.deepEqual(strings(source, "rust"), [source], source);
+  }
   // JS / TS / Java は従来どおり長さを制限しない
   assert.deepEqual(strings("const a = 'ab';", "ts"), ["'ab'"]);
   assert.deepEqual(strings("String a = 'ab';", "java"), ["'ab'"]);
