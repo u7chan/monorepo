@@ -42,6 +42,8 @@ async function assertIndexResponse(response: Response, message: string): Promise
   assert.match(response.headers.get("content-security-policy") || "", /default-src 'self'/, message);
   // エージェントのアイコン (data URL) を <img> で描けること (script-src は緩めない)
   assert.match(response.headers.get("content-security-policy") || "", /img-src 'self' data:/, message);
+  // 既定 (隔離) モードの同一オリジン フレームと、別オリジン (プレビュー リスナー) のフレームの両方を許可する
+  assert.match(response.headers.get("content-security-policy") || "", /frame-src 'self' http:\/\/\*:4318/, message);
   assert.equal(await response.text(), INDEX_HTML, message);
 }
 

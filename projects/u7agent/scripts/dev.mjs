@@ -14,6 +14,8 @@ const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const APP_CWD = resolve(process.env.PI_APP_CWD || ROOT);
 const SANDBOX_PORT = Number(process.env.SANDBOX_PORT) || 8080;
 const BFF_PORT = Number(process.env.PORT) || 4317;
+/** プレビュー オリジンの待受。dev はブラウザから直接開くので、見えるポートも同じ値にする */
+const FILE_PREVIEW_PORT = 4318;
 const TOKEN = randomBytes(24).toString("base64url");
 const children = [];
 let viteUrl = null;
@@ -120,6 +122,7 @@ process.on("SIGTERM", () => shutdown(0));
 async function main() {
   await assertPortFree(SANDBOX_PORT);
   await assertPortFree(BFF_PORT);
+  await assertPortFree(FILE_PREVIEW_PORT);
 
   log(`作業領域: ${APP_CWD}`);
   if (process.env.PI_SANDBOX_CWD) {
@@ -138,6 +141,7 @@ async function main() {
   log(`BFF を起動します (http://127.0.0.1:${BFF_PORT})`);
   const bff = start("bff", "dev:bff", {
     PORT: String(BFF_PORT),
+    PI_FILE_PREVIEW_PORT: String(FILE_PREVIEW_PORT),
     PI_APP_CWD: APP_CWD,
     PI_SANDBOX_URL: `http://127.0.0.1:${SANDBOX_PORT}`,
     PI_SANDBOX_TOKEN: TOKEN,

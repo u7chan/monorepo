@@ -59,6 +59,7 @@ ENV COMMIT_HASH=${COMMIT_HASH} \
     HOST=0.0.0.0 \
     PORT=4317 \
     SANDBOX_PORT=8080 \
+    PI_FILE_PREVIEW_PORT=4318 \
     PI_APP_CWD=/workspace \
     PI_SANDBOX_CWD=/workspace \
     PI_SESSION_STORE=/session-store
@@ -68,5 +69,5 @@ COPY --from=builder /app/server/src/ ./server/src/
 COPY --from=builder /app/client/dist/ ./client/dist/
 USER node
 WORKDIR /app/server
-EXPOSE 4317 8080
+EXPOSE 4317 4318 8080
 CMD ["node", "--import", "tsx", "src/index.ts"]

@@ -31,6 +31,7 @@ export function createHealthRoutes({
   store,
   appDb,
   archiveSettings,
+  filePreviewPort,
 }: {
   pi: PiBff | null;
   initError: string | undefined;
@@ -38,6 +39,8 @@ export function createHealthRoutes({
   store?: SessionStoreHealth;
   appDb?: AppDbHealth;
   archiveSettings?: ArchiveSettingsHealth;
+  /** プレビュー オリジン (別リスナー) のブラウザから見たポート。待受はこれと限らない (prod は別ポートを publish する) */
+  filePreviewPort: number;
 }) {
   return {
     health: (c: Context) => {
@@ -71,6 +74,8 @@ export function createHealthRoutes({
         tools: pi?.tools || [],
         availabilityError: pi?.availabilityError,
         sandboxConfigured: pi?.sandboxConfigured ?? false,
+        // クライアントはストレージ有効モードの iframe の URL をこれで組み立てる (client にポートを焼き込まない)
+        filePreviewPort,
         // バージョン表示はモデル診断の撤去後も残す（接続状態カードが使う）
         versions: runtimeVersionInfo(),
         // クライアントは行にダウンロードを出すかの判定に使う。設定ストアの実効値が正で、download / check も同じ値を使う

@@ -31,6 +31,11 @@ export type CreateBffAppOptions = {
    */
   runtimeDiagnostics?: SandboxRuntimeDiagnostics | null;
   clientDistDir?: string;
+  /**
+   * プレビュー オリジン (別リスナー) のブラウザから見たポート。env の解決と検証は起動時に 1 回だけ行うため、
+   * ここには検証済みの値が入る。未指定は既定 (4318)。待受は別定数で、prod は compose が publish する
+   */
+  filePreviewPort?: number;
   /** 会話ストアの絶対パス。null で永続化なし。未指定は PI_SESSION_STORE → 既定 (<agentDir>/u7agent/sessions) */
   sessionStoreDir?: string | null;
   /** 通知送信のテスト用。省略時は globalThis.fetch */

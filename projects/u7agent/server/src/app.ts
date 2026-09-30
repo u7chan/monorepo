@@ -6,6 +6,7 @@ import { zValidator } from "@hono/zod-validator";
 import type { AppDb } from "./app-db";
 import { createBffContext } from "./bootstrap";
 import type { CreateBffAppOptions } from "./bootstrap";
+import { DEFAULT_FILE_PREVIEW_PORT } from "./file-preview-port";
 import { bodyGuard, jsonBodyValidator, messageFor, statusCodeOf } from "./http";
 import { createArchiveRoutes } from "./routes/archive";
 import { createCatalogRoutes } from "./routes/catalog";
@@ -65,7 +66,7 @@ function appDataGuard(appDb: AppDb, { notStored = false }: { notStored?: boolean
 }
 
 export async function createBffApp(opts: CreateBffAppOptions = {}) {
-  const { clientDistDir = DEFAULT_CLIENT_DIST_DIR } = opts;
+  const { clientDistDir = DEFAULT_CLIENT_DIST_DIR, filePreviewPort = DEFAULT_FILE_PREVIEW_PORT } = opts;
   const {
     cwd,
     pi,
@@ -86,9 +87,11 @@ export async function createBffApp(opts: CreateBffAppOptions = {}) {
   // 変更系は「何も保存していない」ことを state でも示す
   const appDataMutation = appDataGuard(appDb, { notStored: true });
 
-  const healthRoutes = createHealthRoutes({ pi, initError, cwd, store, appDb, archiveSettings });
+  const healthRoutes = createHealthRoutes({ pi, initError, cwd, store, appDb, archiveSettings, filePreviewPort });
   const runtimeRoutes = createRuntimeRoutes({ pi, runtimeDiagnostics });
-  const fileRoutes = createFileRoutes({ workspace, archiveSettings });
+  const fileRoutes = createFileRoutes({ workspace, archiveSettings, sandbox: "isolated" });
+  // プレビュー専用リスナー (別オリジン) 用。storage を有効にするため、応答は HTML プレビューのルートだけにする
+  const previewFileRoutes = createFileRoutes({ workspace, archiveSettings, sandbox: "storage" });
   const catalogRoutes = createCatalogRoutes({ catalog, workspace, rootCwd: cwd });
   const projectRoutes = createProjectRoutes({ projects, store, workspace });
   const sessionRoutes = createSessionRoutes({ store, workspace });
@@ -307,7 +310,7 @@ export async function createBffApp(opts: CreateBffAppOptions = {}) {
     .delete("/api/settings/images/key", appDataMutation, imageSettingsRoutes.deleteKey)
     .post("/api/settings/images/catalog/refresh", (c) => imageSettingsRoutes.refreshCatalog(c))
     // Hono は登録順にマッチするため、未マッチの GET を拾う catch-all は最後に置く。
-    .get("*", serveClientAssets(clientDistDir))
+    .get("*", serveClientAssets(clientDistDir, filePreviewPort))
     .notFound((c) => c.json({ error: "Not found" }, 404))
     .onError((error, c) => {
       // hono validator の JSON パース失敗 (HTTPException 400) は契約の文言に寄せる
@@ -317,8 +320,14 @@ export async function createBffApp(opts: CreateBffAppOptions = {}) {
       return c.json({ error: messageFor(error) }, (statusCodeOf(error) ?? 500) as ContentfulStatusCode);
     });
 
+  // プレビュー専用リスナー (別オリジン)。HTML 文書とその兄弟アセットのルートだけを載せ、
+  // 書き込み系 API を置かない (storage を有効にした文書からアプリの面を叩けないようにする)。
+  const previewApp = new Hono().get("/api/files/html/:path{.+}", previewFileRoutes.html);
+
   return {
     app,
+    /** 別オリジンで配るプレビュー リスナー (server/src/index.ts が 2 本目の serve() に渡す) */
+    previewApp,
     store,
     catalog,
     projects,

@@ -3,7 +3,13 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createBffApp } from "../src/app";
-import { HTML_PREVIEW_CSP_BY_POLICY, HTML_PREVIEW_POLICY } from "../src/routes/files";
+import {
+  HTML_PREVIEW_CSP_BY_POLICY,
+  HTML_PREVIEW_POLICY,
+  HTML_PREVIEW_SANDBOX_FLAGS,
+  htmlPreviewCsp,
+  type HtmlPreviewPolicy,
+} from "../src/routes/files";
 import { SandboxRequestError, type SandboxWorkspaceClient } from "../src/sandbox/client";
 import type { SandboxFileListing } from "../src/sandbox/protocol";
 
@@ -85,18 +91,33 @@ const CSP_ASSETS =
   "sandbox allow-scripts; default-src 'none'; style-src 'unsafe-inline' 'self'; script-src 'unsafe-inline' 'self'; img-src data: blob: 'self'; font-src data: 'self'; media-src data: blob: 'self'; form-action 'none'";
 const CSP_CDN =
   "sandbox allow-scripts; default-src 'none'; style-src 'unsafe-inline' 'self' https:; script-src 'unsafe-inline' 'self' https:; img-src data: blob: 'self' https:; font-src data: 'self' https:; media-src data: blob: 'self' https:; form-action 'none'";
+/** 別のリスナー (プレビュー オリジン) の sandbox 段。storage と、ゲームのマウスルック用の pointer lock を足す */
+const CSP_STORAGE_CDN = CSP_CDN.replace(
+  "sandbox allow-scripts;",
+  "sandbox allow-scripts allow-same-origin allow-pointer-lock;",
+);
 
 test("HTML プレビューのポリシーは段階ごとの CSP に固定する", () => {
-  assert.equal(HTML_PREVIEW_CSP_BY_POLICY.inline, CSP_INLINE);
-  assert.equal(HTML_PREVIEW_CSP_BY_POLICY.assets, CSP_ASSETS);
-  assert.equal(HTML_PREVIEW_CSP_BY_POLICY.cdn, CSP_CDN);
+  assert.equal(htmlPreviewCsp("inline", "isolated"), CSP_INLINE);
+  assert.equal(htmlPreviewCsp("assets", "isolated"), CSP_ASSETS);
+  assert.equal(htmlPreviewCsp("cdn", "isolated"), CSP_CDN);
   assert.equal(HTML_PREVIEW_POLICY, "cdn", "既定は Lv2 (相対アセット + https:) を想定する");
+  // ストレージ有効モードは sandbox 段だけが変わる (読み込めるリソースの段階は同じ)
+  assert.equal(HTML_PREVIEW_SANDBOX_FLAGS.isolated, "allow-scripts");
+  assert.equal(HTML_PREVIEW_SANDBOX_FLAGS.storage, "allow-scripts allow-same-origin allow-pointer-lock");
+  assert.equal(htmlPreviewCsp("cdn", "storage"), CSP_STORAGE_CDN);
   // 外部 URL は Lv2 からのみ許可する
-  assert.ok(!HTML_PREVIEW_CSP_BY_POLICY.inline.includes("https:"), "inline で外部 URL を許可している");
-  assert.ok(!HTML_PREVIEW_CSP_BY_POLICY.assets.includes("https:"), "assets で外部 URL を許可している");
-  // connect-src を足すとオペークオリジンから POST できてしまうため、どの段階にも入れない
-  for (const [level, csp] of Object.entries(HTML_PREVIEW_CSP_BY_POLICY)) {
-    assert.ok(!csp.includes("connect-src"), `${level} に connect-src がある`);
+  assert.ok(!htmlPreviewCsp("inline", "isolated").includes("https:"), "inline で外部 URL を許可している");
+  assert.ok(!htmlPreviewCsp("assets", "isolated").includes("https:"), "assets で外部 URL を許可している");
+  // connect-src を足すとプレビューから fetch / POST できてしまうため、どの段階にも入れない
+  for (const level of Object.keys(HTML_PREVIEW_CSP_BY_POLICY) as HtmlPreviewPolicy[]) {
+    assert.ok(!htmlPreviewCsp(level, "isolated").includes("connect-src"), `${level} に connect-src がある`);
+    assert.ok(!htmlPreviewCsp(level, "storage").includes("connect-src"), `${level} (storage) に connect-src がある`);
+    assert.equal(
+      htmlPreviewCsp(level, "storage"),
+      `sandbox ${HTML_PREVIEW_SANDBOX_FLAGS.storage}; ${HTML_PREVIEW_CSP_BY_POLICY[level]}`,
+      `${level} の storage で sandbox 段以外が変わっている`,
+    );
   }
 });
 
@@ -495,6 +516,116 @@ test("GET /api/files/html/<path> answers 503 as JSON for assets when the sandbox
       assert.match(response.headers.get("Content-Type") ?? "", /^application\/json/, url);
       assert.match((await jsonBody(response)).error, /PI_SANDBOX_URL/);
     }
+  } finally {
+    await bff.close();
+  }
+});
+
+// 別オリジン (プレビュー専用リスナー)。同じルートを配るが、文書は storage を有効にした CSP になり、
+// 書き込み系の面は載せない (リスナーごとに CSP を選べることをここで固定する)
+test("previewApp returns HTML documents with the storage-enabled CSP", async () => {
+  const { workspace } = stubFiles();
+  const bff = await createBffApp({ cwd: "/tmp/project", sessionStoreDir: null, pi: null, workspace });
+  try {
+    workspace.previewFile = async (path) => ({ text: `<h1>${path}</h1>` });
+    const response = await bff.previewApp.request("/api/files/html/report%2Fchart.html");
+    assert.equal(response.status, 200);
+    assert.match(response.headers.get("Content-Type") ?? "", /^text\/html/);
+    assert.equal(response.headers.get("Content-Security-Policy"), CSP_STORAGE_CDN);
+    assert.equal(response.headers.get("Cache-Control"), "no-store");
+    assert.equal(response.headers.get("X-Content-Type-Options"), "nosniff");
+    assert.equal(await response.text(), "<h1>report/chart.html</h1>");
+  } finally {
+    await bff.close();
+  }
+});
+
+test("previewApp maps document failures to HTML with the storage-enabled CSP", async () => {
+  // サンドボックス未設定 (503) も契約外の応答 (502) も、文書のエラーは HTML 文書で返す
+  const notConfigured = await createBffApp({ cwd: "/tmp/project", sessionStoreDir: null, pi: null, workspace: null });
+  try {
+    const response = await notConfigured.previewApp.request("/api/files/html/chart.html");
+    assert.equal(response.status, 503);
+    assert.match(response.headers.get("Content-Type") ?? "", /^text\/html/);
+    assert.equal(response.headers.get("Content-Security-Policy"), CSP_STORAGE_CDN);
+    assert.match(await response.text(), /PI_SANDBOX_URL/);
+  } finally {
+    await notConfigured.close();
+  }
+
+  for (const item of [
+    { error: new SandboxRequestError("Path not found: /workspace/nope", 404), status: 404, message: /Path not found/ },
+    { error: new Error("unexpected"), status: 502, message: /unexpected/ },
+  ]) {
+    const { workspace } = stubFiles();
+    workspace.previewFile = async () => {
+      throw item.error;
+    };
+    const bff = await createBffApp({ cwd: "/tmp/project", sessionStoreDir: null, pi: null, workspace });
+    try {
+      const response = await bff.previewApp.request("/api/files/html/chart.html");
+      assert.equal(response.status, item.status, item.error.message);
+      assert.match(response.headers.get("Content-Type") ?? "", /^text\/html/);
+      assert.equal(response.headers.get("Content-Security-Policy"), CSP_STORAGE_CDN);
+      assert.match(await response.text(), item.message);
+    } finally {
+      await bff.close();
+    }
+  }
+});
+
+test("previewApp keeps asset failures as JSON without a CSP", async () => {
+  const { workspace } = stubFiles();
+  const bff = await createBffApp({ cwd: "/tmp/project", sessionStoreDir: null, pi: null, workspace });
+  try {
+    // allowlist 外 (400)
+    const rejected = await bff.previewApp.request("/api/files/html/dir%2Flogo.svg");
+    assert.equal(rejected.status, 400);
+    assert.match(rejected.headers.get("Content-Type") ?? "", /^application\/json/);
+    assert.equal(rejected.headers.get("Content-Security-Policy"), null);
+    assert.match((await jsonBody(rejected)).error, /^Not a servable asset: /);
+
+    workspace.previewFile = async () => {
+      throw new SandboxRequestError("2 MiB を超えています", 400);
+    };
+    const failed = await bff.previewApp.request("/api/files/html/dir%2Fapp.js");
+    assert.equal(failed.status, 400);
+    assert.match(failed.headers.get("Content-Type") ?? "", /^application\/json/);
+    assert.equal(failed.headers.get("Content-Security-Policy"), null);
+  } finally {
+    await bff.close();
+  }
+
+  const notConfigured = await createBffApp({ cwd: "/tmp/project", sessionStoreDir: null, pi: null, workspace: null });
+  try {
+    const response = await notConfigured.previewApp.request("/api/files/html/dir%2Fapp.js");
+    assert.equal(response.status, 503);
+    assert.match(response.headers.get("Content-Type") ?? "", /^application\/json/);
+    assert.equal(response.headers.get("Content-Security-Policy"), null);
+    assert.match((await jsonBody(response)).error, /PI_SANDBOX_URL/);
+  } finally {
+    await notConfigured.close();
+  }
+});
+
+test("previewApp serves only the HTML preview route", async () => {
+  const { workspace, deleted } = stubFiles();
+  const bff = await createBffApp({ cwd: "/tmp/project", sessionStoreDir: null, pi: null, workspace });
+  try {
+    // 書き込み系 (削除 / リネーム / アップロード) と、アプリ側の読み取り面は載せない
+    const requests: Array<[string, string]> = [
+      ["GET", "/api/files?path=."],
+      ["GET", "/api/health"],
+      ["GET", "/api/files/preview?path=a.txt"],
+      ["POST", "/api/files/rename"],
+      ["GET", "/api/sessions"],
+    ];
+    for (const [method, path] of requests) {
+      const response = await bff.previewApp.request(path, { method });
+      assert.equal(response.status, 404, `${method} ${path}`);
+    }
+    assert.equal((await bff.previewApp.request("/api/files?path=a.txt", { method: "DELETE" })).status, 404);
+    assert.deepEqual(deleted, [], "プレビュー オリジンから削除できている");
   } finally {
     await bff.close();
   }

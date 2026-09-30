@@ -21,12 +21,16 @@ const CONTENT_TYPES: Record<string, string> = {
 };
 
 // エージェントのアイコンは data URL を <img> で描くため、img-src だけ data: を許す (script-src は 'self' のまま)
-const STATIC_CSP = "default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; connect-src 'self'";
+const staticCsp = (filePreviewPort: number) =>
+  "default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; connect-src 'self'; " +
+  // 既定 (隔離) モードの同一オリジン フレームと、別オリジンのプレビュー フレームを許可する。
+  // 'self' を落とすと frame-src が default-src にフォールバックしなくなり、既定モードのプレビューが拒否される
+  `frame-src 'self' http://*:${filePreviewPort}`;
 
 /** SPA フォールバックの対象外にする prefix。`/api` と `/assets` そのものも含める (`/apix` とは区別する) */
 const FALLBACK_EXCLUDED_PREFIXES = ["/api", "/assets"];
 
-export function serveClientAssets(clientDistDir: string) {
+export function serveClientAssets(clientDistDir: string, filePreviewPort: number) {
   return async (c: Context) => {
     let pathname: string;
     try {
@@ -35,19 +39,25 @@ export function serveClientAssets(clientDistDir: string) {
       // 不正な percent encoding は静的な解決にもフォールバックにも回さない (例外を index.html の 200 にしない)
       return c.json({ error: "Not found" }, 404);
     }
-    const response = await serveClientAsset(pathname, c.req.method, c.req.header("accept"), clientDistDir);
+    const response = await serveClientAsset(
+      pathname,
+      c.req.method,
+      c.req.header("accept"),
+      clientDistDir,
+      filePreviewPort,
+    );
     return response ?? c.json({ error: "Not found" }, 404);
   };
 }
 
-function clientBuildMissingResponse(): Response {
+function clientBuildMissingResponse(filePreviewPort: number): Response {
   return new Response("Client build missing. Run: pnpm build", {
     status: 503,
     headers: {
       "Content-Type": "text/plain; charset=utf-8",
       "Cache-Control": "no-store",
       "X-Content-Type-Options": "nosniff",
-      "Content-Security-Policy": STATIC_CSP,
+      "Content-Security-Policy": staticCsp(filePreviewPort),
     },
   });
 }
@@ -62,6 +72,7 @@ async function serveClientAsset(
   method: string,
   accept: string | undefined,
   clientDistDir: string,
+  filePreviewPort: number,
 ): Promise<Response | null> {
   if (pathname !== "/" && !pathname.startsWith("/")) return null;
   const relativePath = pathname === "/" || pathname === "/index.html" ? "index.html" : pathname.slice(1);
@@ -70,15 +81,17 @@ async function serveClientAsset(
   if (filePath !== clientDistDir && !filePath.startsWith(clientDistDir + sep)) return null;
 
   const result = await readDistFile(filePath);
-  if (result.kind === "ok") return staticFileResponse(result.body, relativePath);
+  if (result.kind === "ok") return staticFileResponse(result.body, relativePath, filePreviewPort);
   // 未ビルドなら案内を出し、それ以外は 404 にする。
-  if (relativePath === "index.html") return result.kind === "missing" ? clientBuildMissingResponse() : null;
+  if (relativePath === "index.html") {
+    return result.kind === "missing" ? clientBuildMissingResponse(filePreviewPort) : null;
+  }
   if (result.kind === "error") return null;
 
   if (!isSpaFallback(pathname, method, accept)) return null;
   const index = await readDistFile(resolve(clientDistDir, "index.html"));
-  if (index.kind === "ok") return staticFileResponse(index.body, "index.html");
-  return index.kind === "missing" ? clientBuildMissingResponse() : null;
+  if (index.kind === "ok") return staticFileResponse(index.body, "index.html", filePreviewPort);
+  return index.kind === "missing" ? clientBuildMissingResponse(filePreviewPort) : null;
 }
 
 /**
@@ -123,7 +136,7 @@ async function readDistFile(filePath: string): Promise<DistFile> {
   }
 }
 
-function staticFileResponse(body: Buffer, relativePath: string): Response {
+function staticFileResponse(body: Buffer, relativePath: string, filePreviewPort: number): Response {
   // Vite はハッシュ付きファイルを assets/ 配下に出すため長期キャッシュ、それ以外は no-cache。
   // キャッシュは要求された URL ではなく実際に配信するファイルで決める (フォールバックの index.html は no-cache)。
   const isHashedAsset = relativePath.startsWith("assets/");
@@ -132,7 +145,7 @@ function staticFileResponse(body: Buffer, relativePath: string): Response {
       "Content-Type": CONTENT_TYPES[extname(relativePath)] ?? "application/octet-stream",
       "Cache-Control": isHashedAsset ? "public, max-age=31536000, immutable" : "no-cache",
       "X-Content-Type-Options": "nosniff",
-      "Content-Security-Policy": STATIC_CSP,
+      "Content-Security-Policy": staticCsp(filePreviewPort),
     },
   });
 }

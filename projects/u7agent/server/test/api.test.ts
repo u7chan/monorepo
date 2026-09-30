@@ -571,6 +571,29 @@ test("health exposes the model picker options and the app default thinking level
   }
 });
 
+test("health reports the browser-facing preview port", async () => {
+  // 未指定は既定 (4318)。クライアントはこの値から別オリジンの iframe の URL を組み立てる
+  const defaults = await createBffApp({ cwd: "/tmp/project", sessionStoreDir: null, pi: asPiBff(createStubPi()) });
+  try {
+    assert.equal((await jsonBody(defaults.app.request("/api/health"))).filePreviewPort, 4318);
+  } finally {
+    await defaults.close();
+  }
+
+  // prod は publish したポートを inject する (待受は 4318 のまま)
+  const published = await createBffApp({
+    cwd: "/tmp/project",
+    sessionStoreDir: null,
+    pi: asPiBff(createStubPi()),
+    filePreviewPort: 8017,
+  });
+  try {
+    assert.equal((await jsonBody(published.app.request("/api/health"))).filePreviewPort, 8017);
+  } finally {
+    await published.close();
+  }
+});
+
 test("health drops the model diagnostics while runtime models expose the catalog", async () => {
   const modelCatalog = {
     catalogCount: 3,
@@ -1360,6 +1383,8 @@ test("static files are served with cache and security headers", async () => {
     assert.equal(root.headers.get("cache-control"), "no-cache");
     assert.equal(root.headers.get("x-content-type-options"), "nosniff");
     assert.match(root.headers.get("content-security-policy") || "", /default-src 'self'/);
+    // 既定 (隔離) モードの同一オリジン フレームと、別オリジン (プレビュー リスナー) のフレームの両方を許可する
+    assert.match(root.headers.get("content-security-policy") || "", /frame-src 'self' http:\/\/\*:4318/);
 
     const asset = await bff.app.request("/assets/app.js");
     assert.equal(asset.status, 200);
