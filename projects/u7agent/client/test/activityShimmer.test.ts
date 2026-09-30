@@ -3,7 +3,8 @@
 //      行の色と同じ基準色のグラデーションを文字へクリップして動かす
 //   2. 無効化: prefers-reduced-motion ではグラデーションごと外して通常色へ戻し、
 //      forced-colors では CanvasText に戻す (アニメーションを止めるだけでは文字が薄い / 消える)
-//   3. 配線: ComposerStatus は activityState が thinking のときだけラベルに当てる
+//   3. 配線: ComposerStatus は activityState が thinking のときだけラベルに当て、
+//      App は文言と由来を activityDisplay の結果から組で渡す (生の state を渡すと再試行の文言に光が当たる)
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
@@ -12,7 +13,11 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { ComposerStatus } from "../src/components/composer/ComposerStatus";
 
-const css = readFileSync(fileURLToPath(new URL("../src/styles/index.css", import.meta.url)), "utf8");
+function read(relativePath: string): string {
+  return readFileSync(fileURLToPath(new URL(`../${relativePath}`, import.meta.url)), "utf8");
+}
+
+const css = read("src/styles/index.css");
 
 /** 位置 from 以降で最初に現れる selector の宣言ブロックを、閉じ括弧まで切り出す */
 function blockAt(selector: string, from = 0): string {
@@ -71,4 +76,17 @@ test("描画: 生成中のときだけ活動ラベルへ光を当てる", () => 
     !html({ activity: "実行中…（タブを閉じても処理は続きます）", runningSince }).includes("activity-shimmer"),
     "由来が無い (再接続前など) のに装飾している",
   );
+});
+
+test("配線: App は activityDisplay の結果だけを Composer へ渡す", () => {
+  const app = read("src/App.tsx");
+  const start = app.indexOf("<Composer");
+  const props = app.slice(start, app.indexOf("/>", start));
+
+  assert.ok(app.includes("activityDisplay("), "文言と由来を組で決めていない");
+  assert.ok(props.includes("activity={activity.text}"), "文言を activityDisplay の結果から渡していない");
+  assert.ok(props.includes("activityState={activity.state}"), "由来を activityDisplay の結果から渡していない");
+  // 生の state を渡すと、再試行の文言 (再実行の試行中は state が thinking のまま) に光が当たる。
+  // helper と ComposerStatus の描画テストでは検知できないので、配線そのものをここで固定する
+  assert.ok(!props.includes("app.chat.activityState"), "由来を生の state で渡している");
 });
