@@ -12,6 +12,11 @@ const KINDS: MdTokenKind[] = ["key", "str", "num", "com", "fn", "type", "op", "p
 
 const SAMPLES: Record<string, string> = {
   ts: 'export function parseMarkdown(input: string): MdBlock[] {\n  // 純関数\n  return scanBlocks(input.split(/\\r?\\n/), "tsx", 1.5);\n}\n',
+  c: '#include <stdio.h>\n\n/* 配列を並べ替える */\nvoid sort(int *a, size_t n) {\n  for (size_t i = 0; i < n; i++) printf("%d\\n", a[i]);\n}\n',
+  cpp: "#include <vector>\n\nclass Box final {\npublic:\n  explicit Box(std::vector<int> values) : values_(std::move(values)) {}\n\nprivate:\n  std::vector<int> values_;\n};\n",
+  java: "import java.util.List;\n\npublic final class Box<T> {\n  private final List<T> values; // 値\n\n  Box(List<T> values) {\n    this.values = values;\n  }\n}\n",
+  go: 'package main\n\nimport "fmt"\n\nfunc main() {\n\tvalues := []int{1, 2, 3}\n\tfor i, v := range values {\n\t\tfmt.Println(i, v)\n\t}\n}\n',
+  rust: "use std::collections::HashMap;\n\n/// 数を数える\nfn count(values: &[u32]) -> HashMap<u32, usize> {\n    let mut counts = HashMap::new();\n    for value in values {\n        *counts.entry(*value).or_insert(0) += 1;\n    }\n    counts\n}\n",
   json: '{\n  "name": "u7agent",\n  "count": 12,\n  "ok": true,\n  "none": null\n}\n',
   bash: '# 実行\npnpm --filter client test -- --test-name-pattern markdown\ngit switch -c "feat/x"\necho $HOME > out.txt\n',
   python: 'import os\n\n\ndef main(x: int) -> str:\n    """doc"""\n    return f"{x}"  # 文字列\n',
@@ -61,6 +66,29 @@ test("TypeScript はキーワード / 関数 / 文字列 / コメント / 数値
   assert.deepEqual(
     tokensOf("type", tokens).map((token) => token.text),
     ["string", "MdBlock"],
+  );
+});
+
+test("C はプリプロセッサ / キーワード / 型名 / マクロ / コメントを塗り分ける", () => {
+  const tokens = highlightCode(
+    "#include <stdio.h>\n\n/* 配列を並べ替える */\nvoid sort(int *a, size_t n) {\n  FILE *out = NULL;\n}\n",
+    "c",
+  );
+  assert.deepEqual(
+    tokensOf("key", tokens).map((token) => token.text),
+    ["#include", "void", "int"],
+  );
+  assert.deepEqual(
+    tokensOf("fn", tokens).map((token) => token.text),
+    ["sort"],
+  );
+  assert.deepEqual(
+    tokensOf("type", tokens).map((token) => token.text),
+    ["size_t", "FILE", "NULL"],
+  );
+  assert.deepEqual(
+    tokensOf("com", tokens).map((token) => token.text),
+    ["/* 配列を並べ替える */"],
   );
 });
 
@@ -125,6 +153,21 @@ test("別名の言語も同じルールでハイライトする", () => {
   for (const alias of ["ts", "tsx", "typescript", "js", "jsx", "javascript", "mjs", "cjs"]) {
     assert.equal(JSON.stringify(highlightCode(source, alias)), base, alias);
   }
+  // C 系 / Go / Rust の別名 (拡張子とフェンスの info 文字列の両方から同じ規則で引ける)
+  const cSource = "#include <stdio.h>\nint main(void) { return 0; }\n";
+  const cBase = JSON.stringify(highlightCode(cSource, "c"));
+  for (const alias of ["c", "h"]) assert.equal(JSON.stringify(highlightCode(cSource, alias)), cBase, alias);
+  const cppSource = "class Box final {\npublic:\n  int v = 0;\n};\n";
+  const cppBase = JSON.stringify(highlightCode(cppSource, "cpp"));
+  for (const alias of ["cpp", "c++", "cc", "cxx", "hh", "hpp", "hxx"])
+    assert.equal(JSON.stringify(highlightCode(cppSource, alias)), cppBase, alias);
+  const goSource = "func main() {\n\tfmt.Println(len(os.Args))\n}\n";
+  const goBase = JSON.stringify(highlightCode(goSource, "go"));
+  for (const alias of ["go", "golang"]) assert.equal(JSON.stringify(highlightCode(goSource, alias)), goBase, alias);
+  const rustSource = "pub fn count(v: &[u32]) -> usize { v.len() }\n";
+  const rustBase = JSON.stringify(highlightCode(rustSource, "rust"));
+  for (const alias of ["rs", "rust"]) assert.equal(JSON.stringify(highlightCode(rustSource, alias)), rustBase, alias);
+  assert.notEqual(highlightCode("public static void main(String[] a) {}", "java"), null);
   assert.notEqual(highlightCode("pnpm x", "sh"), null);
   assert.notEqual(highlightCode("py = 1", "py"), null);
   assert.notEqual(highlightCode("# h", "markdown"), null);

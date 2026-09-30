@@ -1009,13 +1009,37 @@ html[data-theme="sky"] {
     letter-spacing: 0;
     text-transform: none;
   }
+  /* コードフェンスの本文。行番号は本文と同じ行送りの別列にするため、文字サイズと行送りは
+   * 両者が継承するこの箱に置く (番号側で上書きすると 1 対 1 が崩れる) */
   .md-code-body {
-    margin: 0;
-    padding: 10px 12px;
     overflow-x: auto;
     font-size: 12px;
     line-height: 1.6;
     color: var(--c-ink);
+  }
+  .md-code-row {
+    display: flex;
+    width: max-content;
+    min-width: 100%;
+  }
+  /* 横スクロールしても行番号を左端に残す。下を本文が通るため背景は不透明にする。
+   * 番号は読み上げの対象にせず (aria-hidden)、選択にも入らない (user-select) */
+  .md-code-gutter {
+    position: sticky;
+    left: 0;
+    flex: none;
+    padding: 10px 6px 10px 12px;
+    background: var(--c-panel);
+    color: var(--c-ink-ghost);
+    text-align: right;
+    white-space: pre;
+    font-variant-numeric: tabular-nums;
+    user-select: none;
+  }
+  .md-code-pre {
+    margin: 0;
+    padding: 10px 12px 10px 8px;
+    white-space: pre;
   }
   /* コードブロックの中の code はインラインコードの装飾を打ち消す (上の .md code より後に置く) */
   .md-code-body code {

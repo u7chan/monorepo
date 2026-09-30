@@ -115,6 +115,143 @@ const TS_SPEC: LangSpec = {
   },
 };
 
+const C_KEYWORDS = new Set([
+  "alignas",
+  "alignof",
+  "auto",
+  "break",
+  "case",
+  "char",
+  "const",
+  "continue",
+  "default",
+  "do",
+  "double",
+  "else",
+  "enum",
+  "extern",
+  "float",
+  "for",
+  "goto",
+  "if",
+  "inline",
+  "int",
+  "long",
+  "register",
+  "restrict",
+  "return",
+  "short",
+  "signed",
+  "sizeof",
+  "static",
+  "static_assert",
+  "struct",
+  "switch",
+  "thread_local",
+  "typedef",
+  "union",
+  "unsigned",
+  "void",
+  "volatile",
+  "while",
+  "_Alignas",
+  "_Alignof",
+  "_Atomic",
+  "_Bool",
+  "_Complex",
+  "_Generic",
+  "_Noreturn",
+  "_Static_assert",
+  "_Thread_local",
+]);
+
+/** C のプリプロセッサ。`#` は地の文に出ないため、行頭に限らず命令名で拾う */
+const C_PREPROCESSOR: Rule = {
+  kind: "key",
+  re: /#\s*(?:ifdef|ifndef|include|define|elif|else|endif|undef|pragma|error|warning|line|if)\b/y,
+};
+
+const C_RULES: Rule[] = [C_PREPROCESSOR, ...C_LIKE_RULES];
+
+/**
+ * C / C++ の塗り分け。型名 (`size_t` / `uint32_t`) やマクロ (`NULL` / `EOF`) はキーワード表に無く、
+ * 名前だけでは型と値の区別が付かないため、字面の規則で型として寄せる。
+ */
+function cFamilySpec(keywords: Set<string>): LangSpec {
+  return {
+    rules: C_RULES,
+    classify: (word, context) => {
+      if (keywords.has(word)) return "key";
+      if (/^\s*\(/.test(context.rest)) return "fn";
+      return word.endsWith("_t") || /^[A-Z][A-Z0-9_]*$/.test(word) ? "type" : null;
+    },
+  };
+}
+
+const C_SPEC: LangSpec = cFamilySpec(C_KEYWORDS);
+
+const CPP_KEYWORDS = new Set([
+  ...C_KEYWORDS,
+  "and",
+  "asm",
+  "bitand",
+  "bitor",
+  "bool",
+  "catch",
+  "char16_t",
+  "char32_t",
+  "char8_t",
+  "class",
+  "co_await",
+  "co_return",
+  "co_yield",
+  "compl",
+  "concept",
+  "const_cast",
+  "consteval",
+  "constexpr",
+  "constinit",
+  "decltype",
+  "delete",
+  "dynamic_cast",
+  "explicit",
+  "export",
+  "false",
+  "final",
+  "friend",
+  "import",
+  "module",
+  "mutable",
+  "namespace",
+  "new",
+  "noexcept",
+  "not",
+  "not_eq",
+  "nullptr",
+  "operator",
+  "or",
+  "override",
+  "private",
+  "protected",
+  "public",
+  "reinterpret_cast",
+  "requires",
+  "static_cast",
+  "template",
+  "this",
+  "throw",
+  "true",
+  "try",
+  "typeid",
+  "typename",
+  "using",
+  "virtual",
+  "xor",
+  "xor_eq",
+]);
+
+const CPP_SPEC: LangSpec = cFamilySpec(CPP_KEYWORDS);
+
 const JSON_SPEC: LangSpec = {
   rules: [
     { kind: "key", re: /"(?:\\[\s\S]|[^\\"]){0,4000}"(?=\s*:)/y },
@@ -181,6 +318,237 @@ const PYTHON_SPEC: LangSpec = {
   },
 };
 
+const JAVA_KEYWORDS = new Set([
+  "abstract",
+  "assert",
+  "boolean",
+  "break",
+  "byte",
+  "case",
+  "catch",
+  "char",
+  "class",
+  "const",
+  "continue",
+  "default",
+  "do",
+  "double",
+  "else",
+  "enum",
+  "extends",
+  "false",
+  "final",
+  "finally",
+  "float",
+  "for",
+  "goto",
+  "if",
+  "implements",
+  "import",
+  "instanceof",
+  "int",
+  "interface",
+  "long",
+  "native",
+  "new",
+  "null",
+  "package",
+  "private",
+  "protected",
+  "public",
+  "record",
+  "return",
+  "sealed",
+  "short",
+  "static",
+  "strictfp",
+  "super",
+  "switch",
+  "synchronized",
+  "this",
+  "throw",
+  "throws",
+  "transient",
+  "true",
+  "try",
+  "var",
+  "void",
+  "volatile",
+  "while",
+  "yield",
+]);
+
+const JAVA_SPEC: LangSpec = {
+  rules: C_LIKE_RULES,
+  classify: (word, context) => {
+    if (JAVA_KEYWORDS.has(word)) return "key";
+    if (/^\s*\(/.test(context.rest)) return "fn";
+    // String / List のようなクラス名
+    return /^[A-Z]/.test(word) ? "type" : null;
+  },
+};
+
+const GO_KEYWORDS = new Set([
+  "break",
+  "case",
+  "chan",
+  "const",
+  "continue",
+  "default",
+  "defer",
+  "else",
+  "fallthrough",
+  "false",
+  "for",
+  "func",
+  "go",
+  "goto",
+  "if",
+  "import",
+  "interface",
+  "iota",
+  "map",
+  "nil",
+  "package",
+  "range",
+  "return",
+  "select",
+  "struct",
+  "switch",
+  "true",
+  "type",
+  "var",
+]);
+
+/** 組み込みの型。Go は型名も小文字なので、キーワードと同じ字面の規則では分けられない */
+const GO_TYPES = new Set([
+  "any",
+  "bool",
+  "byte",
+  "comparable",
+  "complex128",
+  "complex64",
+  "error",
+  "float32",
+  "float64",
+  "int",
+  "int16",
+  "int32",
+  "int64",
+  "int8",
+  "rune",
+  "string",
+  "uint",
+  "uint16",
+  "uint32",
+  "uint64",
+  "uint8",
+  "uintptr",
+]);
+
+/** 組み込みの関数。`len(x)` は直後の `(` でも拾えるが、値として渡す形も同じ色にする */
+const GO_BUILTINS = new Set([
+  "append",
+  "cap",
+  "clear",
+  "close",
+  "complex",
+  "copy",
+  "delete",
+  "imag",
+  "len",
+  "make",
+  "max",
+  "min",
+  "new",
+  "panic",
+  "print",
+  "println",
+  "real",
+  "recover",
+]);
+
+const GO_SPEC: LangSpec = {
+  rules: C_LIKE_RULES,
+  classify: (word, context) => {
+    if (GO_KEYWORDS.has(word)) return "key";
+    if (GO_TYPES.has(word)) return "type";
+    if (GO_BUILTINS.has(word)) return "fn";
+    return /^\s*\(/.test(context.rest) ? "fn" : null;
+  },
+};
+
+const RUST_KEYWORDS = new Set([
+  "as",
+  "async",
+  "await",
+  "break",
+  "const",
+  "continue",
+  "crate",
+  "dyn",
+  "else",
+  "enum",
+  "extern",
+  "false",
+  "fn",
+  "for",
+  "if",
+  "impl",
+  "in",
+  "let",
+  "loop",
+  "match",
+  "mod",
+  "move",
+  "mut",
+  "pub",
+  "ref",
+  "return",
+  "self",
+  "static",
+  "struct",
+  "super",
+  "trait",
+  "true",
+  "type",
+  "unsafe",
+  "use",
+  "where",
+  "while",
+]);
+
+/** 組み込みの型。`Self` / `Vec` / `Option` のような型は大文字の規則で拾う */
+const RUST_TYPES = new Set([
+  "bool",
+  "char",
+  "f32",
+  "f64",
+  "i128",
+  "i16",
+  "i32",
+  "i64",
+  "i8",
+  "isize",
+  "str",
+  "u128",
+  "u16",
+  "u32",
+  "u64",
+  "u8",
+  "usize",
+]);
+
+const RUST_SPEC: LangSpec = {
+  rules: C_LIKE_RULES,
+  classify: (word, context) => {
+    if (RUST_KEYWORDS.has(word)) return "key";
+    if (RUST_TYPES.has(word)) return "type";
+    if (/^\s*\(/.test(context.rest)) return "fn";
+    return /^[A-Z]/.test(word) ? "type" : null;
+  },
+};
+
 const BASH_SPEC: LangSpec = {
   rules: [
     { kind: "com", re: /#[^\n]*/y },
@@ -233,6 +601,11 @@ const MD_SPEC: LangSpec = {
 
 const SPECS: Record<string, LangSpec> = {
   ts: TS_SPEC,
+  c: C_SPEC,
+  cpp: CPP_SPEC,
+  java: JAVA_SPEC,
+  go: GO_SPEC,
+  rust: RUST_SPEC,
   json: JSON_SPEC,
   python: PYTHON_SPEC,
   bash: BASH_SPEC,
@@ -252,6 +625,20 @@ const ALIASES: Record<string, string> = {
   cjs: "ts",
   json: "json",
   jsonc: "json",
+  c: "c",
+  h: "c",
+  cpp: "cpp",
+  "c++": "cpp",
+  cc: "cpp",
+  cxx: "cpp",
+  hh: "cpp",
+  hpp: "cpp",
+  hxx: "cpp",
+  java: "java",
+  go: "go",
+  golang: "go",
+  rs: "rust",
+  rust: "rust",
   sh: "bash",
   shell: "bash",
   bash: "bash",

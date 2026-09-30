@@ -40,12 +40,23 @@ MessageView (assistant の本文)
 | 箇条書き / 番号付き / 入れ子 / タスクリスト `- [ ]` | ✓ | 番号付きは開始番号を保つ |
 | 引用 `>` / 水平線 | ✓ | |
 | 表（パイプテーブル、`:---:` の整列） | ✓ | 横スクロール。区切り行の列数がヘッダと違うときは表にしない |
-| コードフェンス | ✓ | ts / tsx / js / json / bash / python / css / html / diff / md。未知の言語はハイライトなし |
+| コードフェンス | ✓ | ts / tsx / js / json / bash / python / css / html / c / cpp / java / go / rust / diff / md。未知の言語はハイライトなし。本文の左に行番号を出す（[コードブロックの行番号](#コードブロックの行番号)） |
 | 生 HTML | △ | 下記の許可リストのみ |
 | 実体参照 `&amp;` `&#65;` | △ | 生 HTML の中のテキストだけ標準 5 種（`&amp;` `&lt;` `&gt;` `&quot;` `&apos;`）と数値参照を戻す。markdown 本文（生 HTML の外）はそのまま表示する |
 | 数式 `$…$` `\(…\)` `$$…$$` `\[…\]` | ✓ | 前後に空白が無い `$` だけでインライン数式にする。対応コマンドは下記 |
 | 図 ` ```mermaid ` | ✓ | `flowchart TD` / `TB` / `LR` と `sequenceDiagram`。フェンスが閉じてからのみ描画する（下記） |
 | HTML ブロック / 脚注 / 定義リスト / 表のセル内改行 / 遅延継続行 | ✗ | 原文表示 |
+
+## コードブロックの行番号
+
+コードフェンス（`CodeBlock`）は本文の左に行番号の列を出す。番号は表示だけのもので、本文の文字列（コピー・選択・ハイライト）には含めない。番号の文字列と行数は `client/src/lib/codeLines.ts` の純関数が返す（ファイルプレビューと同じ実装。`client/test/markdownCodeBlock.test.ts` が固定する）。
+
+- 番号の列は 1 から行数までを改行で繋いだ**1 つのテキストノード**にする（`.md-code-gutter`）。行ごとの要素も CSS カウンタも使わないため、番号のために行数分の DOM を積まない
+- 番号の列は本文と同じ行送りで重ねる。文字サイズと行送りは両者が継承する `.md-code-body` に置き、上下の余白は `.md-code-gutter`（`padding` の上下）と `.md-code-pre` で同じ値にする（`client/src/styles/index.css`）
+- 横スクロールでも左端に残す（`position: sticky`）。下を本文が通るため背景は不透明（`--c-panel`）にする
+- 番号は読み上げの対象にしない（`aria-hidden`）し、コピーにも選択にも入らない（`user-select: none`）。コピー操作は従来どおり `CopyButton` が本文（`text`）だけを渡す
+- 行数は本文から数える（`codeLineCount`。末尾の改行 1 つは行に数えない）。空白だけの本文は 0 行で、番号の列もヘッダの `N 行` も出さない
+- 図（mermaid）の解析に失敗して原文を出す場合も同じ描画になる（番号が付く）
 
 ## インラインコードのファイル参照
 
@@ -213,7 +224,9 @@ Markdown 記法側の URL（`[t](url)` / `![alt](src)`）も同じ `safeUrl` を
 | `client/test/markdownParse.test.ts` | 見出し / 段落 / リスト / 引用 / 表 / フェンス / 未終端 / CRLF / 空行 / 例外を投げない |
 | `client/test/markdownInline.test.ts` | 強調の入れ子 / コードスパン / リンク / 自動リンク / エスケープ / 改行 / 無言で消さない |
 | `client/test/markdownHtml.test.ts` | 許可リスト / 属性の除去 / `on*` `javascript:` の拒否 / 未閉じは原文 / `safeUrl` |
-| `client/test/markdownHighlight.test.ts` | 言語判定 / 未知言語と上限超過 / トークンが入力を欠落させない / CSS との対応 |
+| `client/test/markdownHighlight.test.ts` | 言語判定 / 未知言語と上限超過 / トークンが入力を欠落させない / 言語ごとの塗り分け (C のプリプロセッサ・型名を含む) / CSS との対応 |
+| `client/test/codeLines.test.ts` | 行数の数え方（末尾の改行と空のブロック）/ 行番号の列 |
+| `client/test/markdownCodeBlock.test.ts` | 行番号の列（本文の外に出して 1 対 1 にする / 空のブロックには出さない / 本文と同じ行送り・同じ上下余白 / sticky / `aria-hidden` と `user-select: none` / コピーは本文だけ） |
 | `client/test/markdownLatex.test.ts` | `\frac` `\sqrt` 上下限 行列 cases の AST とレイアウトモデル / 決定性 / `$` の判定と通貨記号 / `$$` のブロック検出 / 失敗が `ok: false` になる / 例外を投げない |
 | `client/test/markdownDiagram.test.ts` | 形状 4 種 / エッジの種類とラベル / チェーン / TD と LR のランク方向 / 境界で止まるエッジ / 戻るエッジと外側レーン / エッジラベルと線の余白 / 長いラベルの折り返しと 6 行上限 / sequenceDiagram の順序と Note / 決定性 / 未対応が `ok: false` になる / 上限 / 固定シードのランダム入力でエッジがノードを横切らずラベルも線に貫かれない / SSR した HTML にインライン style が出ない |
 | `client/test/markdownSafety.test.ts` | `lib/markdown` と `components/markdown` に DOM 文字列の生成・インライン style が現れない（ソース走査） |

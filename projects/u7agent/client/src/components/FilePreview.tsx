@@ -3,7 +3,8 @@ import { fileHtmlPreviewUrl, fileRawUrl, getFilePreview } from "../api";
 import { useMessageCopy } from "../hooks/useMessageCopy";
 import { isImageName } from "../lib/attachments";
 import { cn } from "../lib/cn";
-import { buildPreviewCode, isHtmlPath, previewCopyText, previewLineNumbers } from "../lib/fileCode";
+import { lineNumbers } from "../lib/codeLines";
+import { buildPreviewCode, isHtmlPath, previewCopyText } from "../lib/fileCode";
 import {
   dropClosedPreviews,
   fileTabLabels,
@@ -242,7 +243,7 @@ export function FilePreview({
         <div tabIndex={0} className="file-code min-h-0 flex-1 scrollbar-thin font-mono">
           <div className="file-code-row">
             <div aria-hidden="true" className="file-code-gutter">
-              {previewLineNumbers(code.lineCount)}
+              {lineNumbers(code.lineCount)}
             </div>
             <pre className="file-code-body">
               <code>

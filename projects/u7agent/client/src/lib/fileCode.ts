@@ -1,8 +1,9 @@
 /**
- * ファイルプレビュー本文の描画用モデル。行番号は描画側が本文と同じ行送りの別列として作るため、
- * ここでは本文の正規化・行数・言語判定・ハイライトだけを決める (DOM に依存させない)。
+ * ファイルプレビュー本文の描画用モデル。行番号の列は描画側が本文と同じ行送りの別列として作るため
+ * (`lib/codeLines.ts`)、ここでは本文の正規化・行数・言語判定・ハイライトだけを決める (DOM に依存させない)。
  * パイプラインと上限の理由は docs/file-preview.md を参照する。
  */
+import { codeLineCount } from "./codeLines";
 import { highlightCode, normalizeLang, type MdToken } from "./markdown/highlight";
 
 /**
@@ -34,7 +35,7 @@ export function buildPreviewCode(text: string, path: string): PreviewCode {
   const tokens = lang === null ? null : highlightCode(normalized, lang, FILE_PREVIEW_MAX_LENGTH);
   const highlight =
     lang === null || tokens === null || tokens.length > FILE_PREVIEW_MAX_TOKENS ? null : { lang, tokens };
-  return { text: normalized, lineCount: normalized === "" ? 0 : normalized.split("\n").length, highlight };
+  return { text: normalized, lineCount: codeLineCount(normalized), highlight };
 }
 
 /**
@@ -55,19 +56,6 @@ export function previewLang(path: string): string | null {
   const dot = name.lastIndexOf(".");
   if (dot > 0) return normalizeLang(name.slice(dot + 1));
   return name === "dockerfile" ? "bash" : null;
-}
-
-/**
- * 行番号の列 (1 から lineCount までを改行で繋いだ 1 つの文字列)。本文と同じ行送りの列として出すため、
- * 行ごとの要素は作らない (行数分の DOM を積まない)。
- */
-export function previewLineNumbers(lineCount: number): string {
-  let numbers = "";
-  for (let line = 1; line <= lineCount; line++) {
-    if (line > 1) numbers += "\n";
-    numbers += line;
-  }
-  return numbers;
 }
 
 /**
