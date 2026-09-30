@@ -23,6 +23,7 @@ import { CompactIcon, RefreshIcon, RunSpinnerIcon } from "../icons";
  */
 export function ComposerStatus({
   activity,
+  activityState,
   runningSince,
   context,
   model,
@@ -39,6 +40,13 @@ export function ComposerStatus({
   retryDisabledReason,
 }: {
   activity: string;
+  /**
+   * 活動表示の由来 (SSE `status` の state)。thinking のときだけ活動ラベルに光を流す
+   * (ツール実行中や待機の文言まで流すと、演出ではなく装飾になる。docs/frontend.md)。
+   * 由来が付くのは run 自身の短いラベルだけで、復帰の長い文言と再試行の文言には付かない
+   * (折り返すと帯が行ごとに切れる。保証するのは chatReducer と App 側)
+   */
+  activityState?: string;
   /** 実行中 / 圧縮中だけ渡す (活動行の経過時間の起点) */
   runningSince?: number;
   context?: ContextUsage;
@@ -66,6 +74,9 @@ export function ComposerStatus({
   retryDisabledReason?: string;
 }) {
   const reasonId = useId();
+  // モデルの生成中だけ活動ラベルに光を流す。活動の文言 (activity) で判定しないのは、
+  // BFF の文面変更で演出が消えないようにするため (由来はサーバーが配る state)
+  const shimmer = activityState === "thinking";
   const gauge = contextGauge(context);
   const elapsedMs = useElapsedMs(runningSince);
   const elapsed = elapsedMs === undefined ? null : formatElapsed(elapsedMs);
@@ -124,7 +135,7 @@ export function ComposerStatus({
         {showActivity ? (
           // 活動テキストがあるときは下限幅を置き、0 幅まで潰れる前に組を折り返させる
           <span className={cn("flex flex-1 items-baseline gap-1.5", activity ? "min-w-40" : "min-w-0")}>
-            <span aria-live="polite" className="min-w-0 break-words">
+            <span aria-live="polite" className={cn("min-w-0 break-words", shimmer && "activity-shimmer")}>
               {activity}
             </span>
             {/* 毎秒変わる数字は aria-live の外に置く (読み上げの連発を避ける) */}

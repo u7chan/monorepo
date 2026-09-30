@@ -1120,3 +1120,35 @@ test("保留中の run 側カードは新しい toolStart より先に並ぶ (�
   );
   assert.deepEqual(withTool.toolBubbleIds, { t1: targetId, t2: targetId }, "索引も同じバブルを指す");
 });
+
+// --- 生成中の活動表示 (activityState) ---
+
+test("status の state が活動表示の由来になり、run_end で消える", () => {
+  const started = chatReducer(initialChatState, { type: "runStart", prompt: "聞いて", at: 1, startedAt: 1 });
+  assert.equal(started.activityState, undefined, "run_start の時点ではモデルは動いていない");
+
+  const thinking = chatReducer(started, { type: "status", state: "thinking", text: "考え中…" });
+  assert.equal(thinking.activityState, "thinking");
+  assert.equal(thinking.activity, "考え中…");
+
+  const tool = chatReducer(thinking, { type: "status", state: "tool", text: "read を実行中…" });
+  assert.equal(tool.activityState, "tool", "由来は文言ではなくサーバーの state から取る");
+
+  const ended = chatReducer(tool, { type: "runEnd", status: "completed", queueDepth: 0 });
+  assert.equal(ended.activityState, undefined, "終わった run の由来を残さない");
+});
+
+test("resync の実行中は由来を持たない (文言が長く、次の status で再開する)", () => {
+  const running = chatReducer(initialChatState, { type: "resync", payload: runningPayload() });
+  assert.equal(running.runStatus, "running");
+  assert.equal(running.activityState, undefined, "復帰の長い文言に光を当てている");
+
+  const thinking = chatReducer(running, { type: "status", state: "thinking", text: "考え中…" });
+  assert.equal(thinking.activityState, "thinking", "run 自身の短いラベルが出た時点で再開する");
+
+  const finished = chatReducer(thinking, {
+    type: "resync",
+    payload: { ...runningPayload(), status: "completed" as const },
+  });
+  assert.equal(finished.activityState, undefined, "run_end を取りこぼした復帰でも残さない");
+});

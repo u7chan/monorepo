@@ -74,6 +74,12 @@ export type ChatState = {
   pendingEchoIds: number[];
   queueDepth: number;
   activity: string;
+  /**
+   * 活動表示の由来 (SSE `status` の state)。状態そのものではなく表示の補助で、
+   * 「モデルがトークンを生成中」(thinking) だけを活動ラベルの演出に使う。
+   * 文言 (activity) で判定すると BFF の文面変更で演出が消えるため、サーバーが配る state を持つ
+   */
+  activityState?: string;
   sessionModel?: string;
   sessionThinkingLevel?: string;
   /** セッション作成時のエージェントのスナップショット (定義を編集しても既存セッションの表示は変わらない) */
@@ -133,7 +139,7 @@ export type ChatAction =
   | { type: "toolEnd"; id: string; isError: boolean; output: string }
   | { type: "usage"; usage?: Usage; metrics?: MessageMetrics; context?: ContextUsage }
   | { type: "compaction"; compaction: CompactionInfo; count: number }
-  | { type: "status"; text: string }
+  | { type: "status"; state: string; text: string }
   | { type: "queued"; position: number; queueDepth: number }
   | { type: "queueCleared" }
   | { type: "retry"; retry: RunRetryState | null; totalRetryCount: number; serverNow: number; receivedAt: number }
@@ -180,6 +186,7 @@ export const initialChatState: ChatState = {
   pendingEchoIds: [],
   queueDepth: 0,
   activity: "",
+  activityState: undefined,
   sessionModel: undefined,
   sessionThinkingLevel: undefined,
   sessionAgentId: undefined,
@@ -504,6 +511,8 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
         compactionStartedAt: status === "compacting" ? payload.compactionStartedAt : undefined,
         queueDepth: payload.queueDepth || 0,
         activity: "",
+        // 活動の由来は status イベントだけが入れる (復帰時の文言は状態ではなくお知らせなので持たない)
+        activityState: undefined,
         sessionModel: payload.model,
         sessionThinkingLevel: payload.thinkingLevel,
         sessionAgentId: payload.agent?.id,
@@ -522,8 +531,11 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
       // 未投影の run 側カードを現在ターンの assistant へ補う (補完先が無ければ保留)。
       // currentAssistantId は実行中のときだけ補完先へ向ける
       next = attachRunToolCards(next, status === "running");
-      if (status === "running") next = { ...next, activity: "実行中…（タブを閉じても処理は続きます）" };
-      else if (status === "compacting") next = { ...next, activity: "会話を整理中…" };
+      if (status === "running") {
+        // 復帰の文言は長い 1 文 (「実行中…（タブを閉じても処理は続きます）」) なので由来を持たせない
+        // (折り返すと帯が行ごとに切れる)。run 自身の短いラベルを配る次の status で再開する
+        next = { ...next, activity: "実行中…（タブを閉じても処理は続きます）" };
+      } else if (status === "compacting") next = { ...next, activity: "会話を整理中…" };
       else if (status === "queued")
         next = { ...next, activity: `待機中のメッセージがあります（${payload.queueDepth}件）` };
       else if (status === "error")
@@ -713,6 +725,7 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
         // 圧縮の終端では run_start より先に終端 resync が届く (回復時も残さない)
         compactionStartedAt: undefined,
         activity: "実行を開始しました",
+        activityState: undefined,
         // 前の run の保留値・再試行状態を引き継がない (累計は結果表示用に残す)
         pendingUsage: undefined,
         pendingMetrics: undefined,
@@ -735,6 +748,7 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
         bubbles: next.bubbles.map((bubble) => (bubble.id === echoId ? { ...bubble, since } : bubble)),
         currentAssistantId: null,
         activity: "送信中…",
+        activityState: undefined,
         pendingEchoIds: [...state.pendingEchoIds, echoId],
         // 送信の合図。post が失敗して echo を戻しても減らさない (最下部に居続ける方が都合が良い)
         sendSeq: state.sendSeq + 1,
@@ -867,11 +881,14 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
         // 区切りの位置は次の resync の履歴ページが正。旧 payload では beforeMessageIndex から復元する
         dividers: state.history.supported ? state.dividers : legacyMarkers(compactions),
         activity: `会話を圧縮しました（${action.count}回目）`,
+        // 圧縮の通知は状態ではなく 1 回きりのお知らせなので、活動ラベルの演出は外す
+        activityState: undefined,
       };
     }
 
     case "status":
-      return { ...state, activity: action.text || "処理中…" };
+      // state は演出の条件 (thinking のときだけ活動ラベルに光を流す)、text は表示文言
+      return { ...state, activity: action.text || "処理中…", activityState: action.state || undefined };
 
     case "queued":
       return {
@@ -883,10 +900,11 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
           state.runStatus === "compacting"
             ? `圧縮中のため待機キューに追加しました（${action.position}件目）`
             : `実行中のため待機キューに追加しました（${action.position}件目）`,
+        activityState: undefined,
       };
 
     case "queueCleared":
-      return { ...state, queueDepth: 0, activity: "待機キューを取り消しました" };
+      return { ...state, queueDepth: 0, activity: "待機キューを取り消しました", activityState: undefined };
 
     case "retry": {
       const retryState = mergeRetrySnapshot(state, action.retry, action.serverNow, action.receivedAt);
@@ -894,6 +912,8 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
         ...state,
         ...retryState,
         retryCount: action.totalRetryCount,
+        // 再試行の待機は生成中ではない (状態行の文言はクライアントが導出する)
+        activityState: undefined,
       };
     }
 
@@ -928,6 +948,7 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
         currentAssistantId: null,
         toolBubbleIds: {},
         activity,
+        activityState: undefined,
         // run が終わったことを取り直しの合図として数える (描画を挟まず reducer で進める)
         runEndSeq: settled.runEndSeq + 1,
         runStartedAt: undefined,
@@ -956,11 +977,14 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
         compactionStartedAt: action.runStatus === "compacting" ? state.compactionStartedAt : undefined,
         queueDepth: action.queueDepth ?? state.queueDepth,
         activity: action.activity ?? state.activity,
+        // 応答で権威ある状態へ移した時点で演出も外す (status が来ない経路で光り続けない)
+        activityState: undefined,
         // 送信の応答や停止の応答で権威ある状態へ移った時点でカードを消す (run_start が遅れても古い失敗を残さない)
         runError: undefined,
       };
 
     case "setActivity":
-      return { ...state, activity: action.text };
+      // 実行とは別の知らせ (設定変更 / 接続エラーなど) を活動行へ出す。演出の対象外
+      return { ...state, activity: action.text, activityState: undefined };
   }
 }

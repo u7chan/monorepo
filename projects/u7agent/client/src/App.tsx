@@ -39,7 +39,7 @@ import {
   notifyUnavailableNote,
 } from "./lib/notifications";
 import { sessionFilesDefaultOpen, sessionFilesRoot } from "./lib/sessionFiles";
-import { retryActivityText, retryRemainingMs } from "./lib/retryState";
+import { activityDisplay, retryRemainingMs } from "./lib/retryState";
 import { RUN_RETRY_PROMPT } from "./lib/runRetry";
 import {
   DEFAULT_MODELS_SUBSECTION,
@@ -73,6 +73,13 @@ export default function App() {
   const mainView = route.view;
   // 再試行待機の残り時間表示。受信後の経過だけを毎秒測る (retryReceivedAt が無ければ tick しない)
   const retryElapsed = useElapsedMs(app.chat.retryReceivedAt);
+  // 状態行に出す活動の文言と由来。再試行の文言で上書きしている間は run の由来を渡さない
+  const activity = activityDisplay(
+    app.chat.activity,
+    app.chat.activityState,
+    app.chat.retry,
+    retryRemainingMs(app.chat.retryRemainingMs, retryElapsed),
+  );
   // 作業先 (バーのチップ / 空状態の見出し)。未作成チャットは作成先、セッションはその所属が作業先になる
   const scope = chatScope({
     cwd: app.cwd,
@@ -417,10 +424,8 @@ export default function App() {
             </FileRefProvider>
             <Composer
               visible={mainView === "chat"}
-              activity={
-                retryActivityText(app.chat.retry, retryRemainingMs(app.chat.retryRemainingMs, retryElapsed)) ??
-                app.chat.activity
-              }
+              activity={activity.text}
+              activityState={activity.state}
               runningSince={
                 app.chat.runStatus === "running"
                   ? app.chat.runStartedAt

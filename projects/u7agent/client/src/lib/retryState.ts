@@ -27,3 +27,19 @@ export function retryActivityText(retry: RunRetryState | undefined, remaining: n
   const label = retry.reason === "rate_limit" ? "レート制限中" : "エラー発生";
   return `${label}。約${Math.ceil(remaining / 1000)}秒後に再試行予定${progress}`;
 }
+
+/**
+ * 状態行に出す活動の文言と由来。再試行の待機 / 再実行の文言で上書きしている間は run の由来
+ * (SSE `status` の `state`) を渡さない。演出 (`activity-shimmer`) は run 自身の「考え中…」
+ * に当てるもので、再実行の試行中 (`phase: "retrying"`) は `state` が `thinking` でも行に
+ * 出ているのは「再実行中（1/2）」なので、文言と由来は同じ経路から決める。
+ */
+export function activityDisplay(
+  activity: string,
+  activityState: string | undefined,
+  retry: RunRetryState | undefined,
+  remaining: number | undefined,
+): { text: string; state: string | undefined } {
+  const override = retryActivityText(retry, remaining);
+  return override === undefined ? { text: activity, state: activityState } : { text: override, state: undefined };
+}

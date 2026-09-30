@@ -183,3 +183,11 @@ test("passes the failure code from run_end to the reducer", () => {
   assert.equal(action.type, "runEnd");
   assert.equal(action.errorCode, "rate_limit", "再実行カードの判断に分類コードを渡す");
 });
+
+test("passes the activity state of status events to the reducer", () => {
+  const { record, deps } = createHarness();
+
+  applySessionEvent({ seq: 1, type: "status", data: { state: "thinking", text: "考え中…" }, at: 1 }, deps);
+
+  assert.deepEqual(record.actions, [{ type: "status", state: "thinking", text: "考え中…" }]);
+});
