@@ -213,13 +213,13 @@ export default function App() {
     [app, compact],
   );
 
-  // エージェントの切替は「新しい会話」と同じで、現在の会話はセッション一覧に残す。作業先だけは
-  // いま見ている会話から引き継ぐ (エージェントを変えただけで書き込み先が動くと取り違える)
+  // セッション中のエージェントは作成時に固定される (定義は meta の promptSnapshot) ため、この入口は
+  // 未作成チャットの選択だけ。作成先はそのチャットが持っている選択 (いまの作成先) をそのまま使う
   const handleAgentChange = useCallback(
     (agentId: string) => {
-      handleNewChat(agentId, app.sessionId === "" ? app.selectedProjectId : (activeSession?.projectId ?? ""));
+      handleNewChat(agentId, app.selectedProjectId);
     },
-    [activeSession, app, handleNewChat],
+    [app.selectedProjectId, handleNewChat],
   );
 
   // プロジェクトの追加も「そのディレクトリで作業を始める」入口なので、成功後は ＋ と同じ新規会話へ入る。
@@ -342,6 +342,9 @@ export default function App() {
   // 未作成チャットでは選択中のエージェントを出し、作成後に payload の値へ切り替わる
   const chatAgentName = app.chat.sessionAgentName || app.selectedAgent?.name;
   const chatAgentIcon = agentIconOf(app.agents, app.chat.sessionAgentId ?? app.agentId);
+  // 会話中のエージェントは作成時に固定され、選び直しても新しい会話になるだけなので、欄は読み取り専用のラベルにする。
+  // 選べるのは未作成チャットだけで、そのときは選択中の値をプルダウンで出す
+  const composerAgent = app.sessionId ? { name: barAgentName ?? "", icon: chatAgentIcon } : undefined;
 
   // 設定ページは main を丸ごと使う (チャットとは排他)。compact ではヘッダが CompactBar の代わりになり、
   // 狭い desktop では左バーが overlay になるため、どちらも nav の導線をページへ渡す
@@ -441,6 +444,7 @@ export default function App() {
               settings={app.composerSettings}
               agents={app.agents}
               agentId={app.agentId}
+              sessionAgent={composerAgent}
               mode={layout}
               attachments={app.attachments}
               rootCwd={app.health?.cwd ?? ""}

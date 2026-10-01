@@ -3,8 +3,9 @@
 //   1. 既定オープン (プロジェクト配下なら開) を適用するのは App の handleNewChat だけ。
 //      起動時は常に未所属の新規会話なので閉で、派生 state (projects 一覧の到着や root の解決) を契機にしない
 //   2. 作成先はプロジェクトを指定する入口 (プロジェクト行の ⋯ / プロジェクトの追加) だけが決める。
-//      サイドバーの「新しい会話」と起動は未所属、エージェント切替は今見ている会話の作業先を引き継ぐ
-//   3. サイドバー / ドロワー / エージェント切替 / プロジェクトの追加の 4 入口は handleNewChat を通り、
+//      サイドバーの「新しい会話」と起動は未所属。未作成チャットのエージェント選択は作成先を変えず、
+//      セッション中のエージェント欄は読み取り専用のラベルなので選び直せない (test/agentLabel.test.ts)
+//   3. サイドバー / ドロワー / プロジェクトの追加の 3 入口は handleNewChat を通り、
 //      useSessions の内部フォールバック (newChat の直接呼び出し 6 箇所) は通らない
 //   4. compact のシートは Effect ではなく描画中の同期で閉じ、監視キーは compact / mainView / filesRoot
 //      (route オブジェクト全体は比べない)
@@ -151,13 +152,11 @@ test("作成先はプロジェクトを指定する入口でだけ決まる (「
   assert.ok(projectRow.includes("onClick={onToggle}"), "プロジェクト行のクリックが折りたたみになっていない");
   assert.doesNotMatch(projectRow, /^\s+onSelect[?:,]/m, "プロジェクト行が作成先を選択している");
   assert.doesNotMatch(projectRow, /^\s+selected[?:,]/m, "プロジェクト行が選択ハイライトを持っている");
-  // App の入口は未所属を既定にし、エージェント切替だけ今の作業先を引き継ぐ
+  // App の入口は未所属を既定にする。エージェントの選択は未作成チャットでだけ起き、その作成先を変えない
   assert.ok(app.includes('const target = projectId ?? "";'), "新規会話の既定が未所属になっていない");
   assert.ok(
-    app.includes(
-      'handleNewChat(agentId, app.sessionId === "" ? app.selectedProjectId : (activeSession?.projectId ?? ""));',
-    ),
-    "エージェント切替が今の作業先を引き継いでいない",
+    app.includes("handleNewChat(agentId, app.selectedProjectId)"),
+    "エージェントの選択が未作成チャットの作成先を変えている",
   );
 });
 
@@ -183,10 +182,13 @@ test("プロジェクトの追加は、成功後にそのプロジェクトを�
   assert.ok(!wrapper.includes("catch"), "ラッパーが作成の失敗を握りつぶしている");
 });
 
-test("新規会話の 4 入口は handleNewChat を通り、内部フォールバックは通らない", () => {
+test("新規会話の 3 入口は handleNewChat を通り、内部フォールバックは通らない", () => {
   assert.ok(app.includes("newChat: handleNewChat,"), "docked の Sidebar が handleNewChat を通っていない");
   assert.ok(app.includes("handleNewChat(agentId, projectId);"), "ドロワーの入口が handleNewChat を通っていない");
-  assert.ok(app.includes("handleNewChat(agentId,"), "エージェント切替が handleNewChat を通っていない");
+  assert.ok(
+    app.includes("handleNewChat(agentId, app.selectedProjectId)"),
+    "未作成チャットのエージェント選択が handleNewChat を通っていない",
+  );
   assert.ok(app.includes("handleNewChat(undefined, project.id)"), "プロジェクトの追加が handleNewChat を通っていない");
   assert.equal((app.match(/app\.newChat\(/g) ?? []).length, 1, "handleNewChat 以外から newChat を呼んでいる");
   // 内部フォールバック (開けない / 削除 / SSE 閉鎖 / リンク解決失敗) は useSessions が直接呼ぶ
