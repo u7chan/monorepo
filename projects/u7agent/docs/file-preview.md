@@ -86,7 +86,7 @@ FilePreview                 取得した本文をタブごとに保持（表示�
 
 描画は iframe の src に `GET /api/files/html/<root 相対>` を指定し、応答ヘッダと iframe 属性の両方で隔離する。同じルートが要求パスの拡張子で分岐し、文書と同じディレクトリを基準にした相対参照（`./cat.png` / `../app.css`）を解決できるようにする（`<base>` の注入はしない）。
 
-同じルートは BFF の **2 つのリスナー**に載る。アプリと同じリスナー（dev 4317 / prod 8015）は現行どおり隔離し、プレビュー専用リスナー（待受は定数 4318。ブラウザから見たポートは env `PI_FILE_PREVIEW_PORT` で、prod は `8017:4318` を publish して 8017 を載せる）は storage を有効にする。プレビュー オリジンに載せるのはこのルート 1 本だけで、書き込み系（削除 / rename / アップロード / セッション API）は載せない（有効モードの文書からアプリの面を叩けないようにする）。どちらのオリジンで開くかはクライアントのタブごとのスイッチで選び（**既定はプレビュー オリジン**）、リクエストにフラグは付けない。
+同じルートは BFF の **2 つのリスナー**に載る。アプリと同じリスナー（dev 4317 / prod 8015）は現行どおり隔離し、プレビュー専用リスナー（待受は env `PI_FILE_PREVIEW_LISTEN_PORT`、ブラウザから見たポートは env `PI_FILE_PREVIEW_PORT` で、既定はいずれも 4318。prod は `8017:4318` を publish してブラウザ側に 8017 を載せる）は storage を有効にする。プレビュー オリジンに載せるのはこのルート 1 本だけで、書き込み系（削除 / rename / アップロード / セッション API）は載せない（有効モードの文書からアプリの面を叩けないようにする）。どちらのオリジンで開くかはクライアントのタブごとのスイッチで選び（**既定はプレビュー オリジン**）、リクエストにフラグは付けない。
 
 | 要求 | 応答 |
 | --- | --- |
@@ -101,7 +101,7 @@ FilePreview                 取得した本文をタブごとに保持（表示�
 - 音声は raw のストリームをそのまま返す（`Range` / 206 は返さないので、シークで未バッファ位置へ飛ぶと全体を取り直す）
 - `.json` は CSP に `connect-src` が無いため、現状のプレビュー内から読む手段が無い（`fetch` も classic script も不可）
 - path はクライアントがセグメント単位で percent encoding する（`client/src/lib/fileUrl.ts`）。Hono 側（`:path{.+}`）は 1 回だけ decode する。文書 / アセット / エラー文書の分岐と応答ヘッダ（`Cache-Control: no-store` / `X-Content-Type-Options: nosniff`）は 2 つのオリジンで同じで、CORS ヘッダは付けない
-- プレビュー オリジンは認証を持たない（アプリと同じ）。待受は 4318 の定数で、ポート使用中は BFF の起動が止まる（`scripts/dev.mjs` も 4318 の空きを先に確認する）
+- プレビュー オリジンは認証を持たない（アプリと同じ）。待受は env `PI_FILE_PREVIEW_LISTEN_PORT`（既定 4318）で、ポート使用中は BFF の起動が止まる（`scripts/dev.mjs` も同じ値の空きを先に確認する）。**待受とブラウザから見た値は独立で、ずれると iframe は繋がらない**ため、`pnpm dev` は `PI_FILE_PREVIEW_PORT` を正として両方を揃える（待受 env しか無いときはその値へ寄せる）
 
 クライアント内で HTML 文字列を iframe へ流す方法（`srcdoc` / Blob URL / `data:` URL）は使わない。アプリの本番 CSP（`default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; connect-src 'self'; frame-src 'self' http://*:<プレビュー ポート>`）は `srcdoc` / `blob:` の iframe に継承され、インラインの style / script がブロックされるため描画できない（`frame-src` を明示した後は `blob:` / `data:` がこの一覧に含まれないため、フレーム自体も拒否される）。Chromium に本番相当の CSP を当てて確認済み。`frame-src` に `'self'` を残すのは、落とすとスイッチで保存を OFF にした（隔離へ戻した）ときの同一オリジン フレームが拒否されるため。
 
@@ -112,7 +112,7 @@ CSP は `server/src/routes/files.ts` の `HTML_PREVIEW_POLICY` 1 箇所から導
 | オリジン | リスナー | CSP と iframe 属性の sandbox フラグ | 用途 |
 | --- | --- | --- | --- |
 | アプリ | 4317（prod 8015） | `allow-scripts` | 隔離モード（スイッチで保存を OFF にしたときだけ） |
-| プレビュー | 4318（prod は `8017:4318` を publish） | `allow-scripts allow-same-origin allow-pointer-lock` | 既定のストレージ有効モード（`localStorage` など + ゲームの pointer lock） |
+| プレビュー | `PI_FILE_PREVIEW_LISTEN_PORT`（既定 4318。prod は `8017:4318` を publish） | `allow-scripts allow-same-origin allow-pointer-lock` | 既定のストレージ有効モード（`localStorage` など + ゲームの pointer lock） |
 
 | 段階 | 追加で読み込めるもの |
 | --- | --- |
@@ -130,7 +130,7 @@ Content-Security-Policy: sandbox allow-scripts; default-src 'none'; style-src 'u
 
 - `connect-src` はどの段階にも無い。`fetch` / XHR は `default-src 'none'` にフォールバックして止まる
 - アプリ オリジンの `sandbox allow-scripts` によりオペークオリジンになり、親 DOM へ触れない（`localStorage` / cookie は SecurityError）
-- 有効モードの文書のオリジンはプレビュー オリジンになり、`localStorage` / `sessionStorage` / IndexedDB はそのオリジン（scheme + host + port）の保存領域へ入る。**アプリの storage とは分離される**が、同じオリジンを使う他のプレビューとは共有される（サーバーには保存しない）。cookie はオリジンではなくホスト単位で決まるため分離されない（後述の[できないこと](#できないこと残リスク)）
+- 有効モードの文書のオリジンはプレビュー オリジンになり、`localStorage` / `sessionStorage` / IndexedDB はそのオリジン（scheme + host + port）の保存領域へ入る。**アプリの storage とは分離される**が、同じオリジンを使う他のプレビューとは共有される（サーバーには保存しない）。**ポートを変えると保存領域も別になる**ので、`PI_FILE_PREVIEW_PORT=4319 pnpm dev` でプレビューだけ 4319 にした dev は既定の 4318 とは別の `localStorage` を見る（`pnpm dev` の並行起動にはサンドボックス / BFF / Vite のポートも別に要る。[frontend.md](frontend.md#開発フローと配信)）。cookie はオリジンではなくホスト単位で決まるため分離されない（後述の[できないこと](#できないこと残リスク)）
 - iframe 属性は CSP と同じフラグを書く。スクリプトの有効 / 無効は切り替えない（クライアントの切替は ソース / プレビュー の 2 択 + 保存の ON / OFF）
 - 本文は 2 MiB のテキストとして取得する（`FilePreviewSchema` を通す）。サンドボックス側の API は増やさず、新規依存も足さない
 - 200 の応答は文書 / アセットとも `Cache-Control: no-store` と `X-Content-Type-Options: nosniff` を付ける（文書は CSP も）
@@ -165,7 +165,7 @@ HTML プレビューのパス行のアイコンボタンで、描画中の文書
 - テキスト（`.js` / `.css` など）は 2 MiB、画像 / 音声は 100 MiB が上限で、超えるとプレビューから読めない
 - `<script type="module">` と動的 `import()` は隔離モード（保存を OFF）では読み込めない。オペークオリジンからの module 取得は CORS になり、BFF は CORS ヘッダを付けないため（classic script だけが動く）。既定のストレージ有効モードでは別オリジンの同じルートが `'self'` になるため読める（Lv0 `inline` は `script-src` に `'self'` が無いので、有効モードでも読めない）
 - `localStorage` / `sessionStorage` / IndexedDB を読む HTML は既定（ストレージ有効モード）では使える。保存先はプレビュー オリジン = scheme + host + port の保存領域で、アプリの `u7agent-*` とは分離される（同じオリジンの他のプレビューとは共有される）。保存を OFF にした**隔離モードでは動かない**（オペークオリジン）。`localStorage` の読み取りでは `SecurityError: Failed to read the 'localStorage' property from 'Window': The document is sandboxed and lacks the 'allow-same-origin' flag.` が投げられる
-- **保存を有効にしたままプレビュー オリジンへ到達できないと iframe は白くなる**（接続できないのでエラー文書も届かない）。アプリは到達性を確認せず、UI にも通知を出さない。dev で LAN / 別端末から使うときは `HOST=0.0.0.0` と 4318 の到達（WSL2 なら portproxy の追加）が要る。保存を OFF にすると隔離モードで表示できる（[frontend.md](frontend.md#開発フローと配信) / [README](../README.md#セキュリティ)）
+- **保存を有効にしたままプレビュー オリジンへ到達できないと iframe は白くなる**（接続できないのでエラー文書も届かない）。アプリは到達性を確認せず、UI にも通知を出さない。dev で LAN / 別端末から使うときは `HOST=0.0.0.0` とブラウザから見たポートの到達（既定 4318。WSL2 なら portproxy の追加）が要る。保存を OFF にすると隔離モードで表示できる（[frontend.md](frontend.md#開発フローと配信) / [README](../README.md#セキュリティ)）
 - **cookie はポートでは分離されない**（RFC 6265 §8.5。cookie はオリジンではなくホスト単位で、`Path` が一致する非 HttpOnly cookie は有効モードの文書からも読み書きできる）。アプリと hostname を共用するため、有効モードのプレビューをアプリの cookie から隔離しない（アプリは現状 cookie を使わない。将来 cookie を足すときは同じホストで共有される前提で扱う）
 - 保存を OFF にした隔離モードでは、storage を使うインライン script の途中で例外が出るとその script の残りは実行されない（「JS が動かない」ように見える）。既定は ON なので、OFF にしたときだけ起きる
 - `fetch` / `eval` / `new Worker` は使えない（CSP 違反。`connect-src` は足さない）
@@ -436,7 +436,8 @@ assistant 本文のインラインコードが指すファイルを、右パネ�
 | `client/test/route.test.ts` | pathname と画面の対応（大文字・末尾スラッシュ・percent encoding・不正な入力の畳み方）と往復 |
 | `client/test/fileUrl.test.ts` | パスのセグメント単位 encode（`#` / `?` / `%` / `+` / 日本語 / 1 回の decode で戻ること）/ `fileHtmlPreviewUrl` がクエリでなくパス形式で組み立てること / `fileStoragePreviewUrl` が hostname + ポートで別オリジンの URL を組み立てること |
 | `server/test/files.test.ts` | HTML プレビューのポリシー定数（段階ごとの CSP / `connect-src` なし / リスナーごとの sandbox 段）/ `GET /api/files/html/<path>` の文書・画像・音声・テキストアセット・400 の分岐と percent decoding（音声は raw・テキストは preview の使い分けと動画 / フォントの 400 を含む）/ ヘッダ（CSP / `no-store` / `nosniff`）/ `previewApp` の storage 有効 CSP（文書は HTML・アセットは CSP 無しの JSON）とマウント範囲（HTML プレビュー ルートだけ）/ `GET /api/files/raw` が音声を 400 で拒むこと / 文書は HTML・アセットは JSON のエラー写像 / `DELETE /api/files` の委譲（`recursive=true` は `deleteDirectory`）と 204・`recursive` の検証・エラー写像 / `POST /api/files/rename` の委譲と body 検証・エラー写像（409 の透過を含む）・契約外の応答の 502 |
-| `server/test/file-preview-port.test.ts` | プレビュー オリジンのポート解決（待受は 4318 の定数 / 未設定は既定 / 1〜65535 の整数 / 不正値は throw） |
+| `server/test/file-preview-port.test.ts` | プレビュー オリジンのポート解決（待受とブラウザから見た値の既定はどちらも 4318 / 未設定は既定 / 1〜65535 の整数 / 不正値は throw して指定した env を名指しする / `pnpm dev` 用の統一（`PI_FILE_PREVIEW_PORT` が正・待受 env しか無いときはその値へ寄せる・空白だけは未設定）） |
+| `server/test/dev-file-preview-port.test.ts` | `pnpm dev` が解決した 1 つの値を待受の空き確認と BFF の両 env（`PI_FILE_PREVIEW_PORT` / `PI_FILE_PREVIEW_LISTEN_PORT`）へ渡し、既定ポートを直書きしないこと（ソース走査） |
 | `server/test/archive-rules.test.ts` | 既定の除外名（再生成物 / ビルド成果物 / `vendor` などを入れない）/ 上書きの解決（空配列は全解除・trim と重複の除去・呼び出し側の変更から既定を守る）/ 正規化（trim / 空落とし / 先勝ちの重複 / 順序と大文字小文字の保持）/ 検証（`.`・`..`・区切り・制御文字・200 文字超・100 件超）/ `GET /api/health` が実効値を返すこと |
 | `server/test/archive-settings.test.ts` | 設定ストア（未設定 = 既定 / 保存の正規化と明示空 / リセットで行を消す / 検証エラーの 400 と非破壊 / DB 不可のフォールバックと 503）とルート（GET / PUT / DELETE の同じ形 / zod の 400 / 再起動後の保持 / DB 不可の 503）/ 整合（PUT の直後に health と download / check が同じ実効値を見る） |
 | `server/test/zip-writer.test.ts` | ZIP ライタ（既知ベクタの CRC32 と分割入力 / store と deflate の選択 / UTF-8 名と bit 3・bit 11 / 空ファイル・空ディレクトリ / 複数チャンク / 途中失敗でストリームを失敗させる） |

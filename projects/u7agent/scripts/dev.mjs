@@ -8,14 +8,14 @@ import { randomBytes } from "node:crypto";
 import { createServer } from "node:net";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+// Node 24 の型ストリッピングで .ts をそのまま読む (ポートの検証を JS 側へ写すと二重管理になる)
+import { resolveDevFilePreviewPort } from "../server/src/file-preview-port.ts";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 /** 作業領域。BFF とサンドボックスで同じパスを使う (パス解決を一致させる) */
 const APP_CWD = resolve(process.env.PI_APP_CWD || ROOT);
 const SANDBOX_PORT = Number(process.env.SANDBOX_PORT) || 8080;
 const BFF_PORT = Number(process.env.PORT) || 4317;
-/** プレビュー オリジンの待受。dev はブラウザから直接開くので、見えるポートも同じ値にする */
-const FILE_PREVIEW_PORT = 4318;
 const TOKEN = randomBytes(24).toString("base64url");
 const children = [];
 let viteUrl = null;
@@ -120,9 +120,11 @@ process.on("SIGINT", () => shutdown(0));
 process.on("SIGTERM", () => shutdown(0));
 
 async function main() {
+  // プレビュー オリジンの待受と、ブラウザから見たポート。dev はブラウザが直接開くため同じ値に揃える
+  const filePreviewPort = resolveDevFilePreviewPort(process.env);
   await assertPortFree(SANDBOX_PORT);
   await assertPortFree(BFF_PORT);
-  await assertPortFree(FILE_PREVIEW_PORT);
+  await assertPortFree(filePreviewPort);
 
   log(`作業領域: ${APP_CWD}`);
   if (process.env.PI_SANDBOX_CWD) {
@@ -141,7 +143,8 @@ async function main() {
   log(`BFF を起動します (http://127.0.0.1:${BFF_PORT})`);
   const bff = start("bff", "dev:bff", {
     PORT: String(BFF_PORT),
-    PI_FILE_PREVIEW_PORT: String(FILE_PREVIEW_PORT),
+    PI_FILE_PREVIEW_PORT: String(filePreviewPort),
+    PI_FILE_PREVIEW_LISTEN_PORT: String(filePreviewPort),
     PI_APP_CWD: APP_CWD,
     PI_SANDBOX_URL: `http://127.0.0.1:${SANDBOX_PORT}`,
     PI_SANDBOX_TOKEN: TOKEN,

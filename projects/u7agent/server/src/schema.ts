@@ -685,7 +685,7 @@ export const HealthSchema = z.object({
   tools: z.array(z.string()).optional(),
   availabilityError: z.string().optional(),
   sandboxConfigured: z.boolean().optional(),
-  /** プレビュー オリジン (別リスナー) のブラウザから見たポート。待受は常に 4318 で、prod は compose が publish */
+  /** プレビュー オリジン (別リスナー) のブラウザから見たポート。待受は別 env で、prod は compose が publish */
   filePreviewPort: z.number().optional(),
   /** 実行中の SDK バージョン。ランタイムの診断とは独立に出し続ける */
   versions: RuntimeVersionsSchema.optional(),
