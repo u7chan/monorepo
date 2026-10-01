@@ -9,7 +9,6 @@ import {
   dropClosedPreviews,
   fileTabLabels,
   isMiddleClick,
-  keepsFullscreenPreview,
   previewModeFor,
   previewOriginFor,
   readPreview,
@@ -21,6 +20,7 @@ import {
 } from "../lib/fileTabs";
 import { fileTreeBreadcrumbs, fileTreeFetchPath } from "../lib/fileTree";
 import { imageMetaLabel, type ImageDimensions } from "../lib/imageMeta";
+import { ToggleSwitch } from "./ToggleSwitch";
 import { CopyButton } from "./chat/CopyButton";
 import { CloseIcon, ExternalLinkIcon } from "./icons";
 
@@ -80,11 +80,8 @@ export function FilePreview({
   onClose,
 }: FilePreviewProps) {
   const [results, setResults] = useState<PreviewResults>({});
-  // 全画面を出したタブ (null は全画面でない)。表示対象が変わったら条件が false になり解除される
-  const [fullscreenPath, setFullscreenPath] = useState<string | null>(null);
   // 読み込みが終わった画像の寸法。パスを一緒に持ち、タブを切り替えたら前のタブの値を出さない
   const [loadedImage, setLoadedImage] = useState<{ path: string; dimensions: ImageDimensions } | null>(null);
-  const dialogRef = useRef<HTMLDialogElement | null>(null);
   const activeTabRef = useRef<HTMLDivElement | null>(null);
   const labels = fileTabLabels(paths);
   const fetchPath = fileTreeFetchPath(rootPath, activePath);
@@ -95,14 +92,16 @@ export function FilePreview({
   const showHtml = mode === "preview" && isHtmlPath(activePath);
   const showImage = mode === "preview" && isImageName(activePath);
   const skipFetch = showHtml || showImage;
-  // 全画面を続ける条件 (HTML のプレビュー + 出すときのタブから動いていない)。判定は lib/fileTabs.ts が正
-  const fullscreen = keepsFullscreenPreview(fullscreenPath, activePath, mode);
   // ストレージ有効モードはブラウザから見たポートが分かってからだけ選べる (client にポートを焼き込まない)
   const storageEnabled = filePreviewPort !== undefined && previewOriginFor(origins, activePath) === "storage";
   const htmlPreviewSrc =
     filePreviewPort !== undefined && storageEnabled
       ? fileStoragePreviewUrl(fetchPath, filePreviewPort)
       : fileHtmlPreviewUrl(fetchPath);
+  // 新しいタブはパス行の切替と関係なく常に別オリジンで開く (storage を使えるのが別タブを出す目的)。
+  // ポート未取得の間だけ同一オリジンへ倒す
+  const newTabSrc =
+    filePreviewPort === undefined ? fileHtmlPreviewUrl(fetchPath) : fileStoragePreviewUrl(fetchPath, filePreviewPort);
   // ハイライトは表示中のタブの本文についてだけ計算する (タブごとに保持しない理由は docs/file-preview.md)
   const code = useMemo(
     () => (skipFetch || text === undefined ? null : buildPreviewCode(text, activePath)),
@@ -113,11 +112,10 @@ export function FilePreview({
     ? imageMetaLabel(activeSize, loadedImage?.path === activePath ? loadedImage.dimensions : undefined)
     : null;
 
-  // 表示中のタブがバーの外 (横スクロール) へ隠れないようにする。全画面ではバーを隠すため、
-  // 戻ったときにも当て直す (隠れている間のスクロール位置はブラウザーによっては失われる)
+  // 表示中のタブがバーの外 (横スクロール) へ隠れないようにする
   useEffect(() => {
     activeTabRef.current?.scrollIntoView({ block: "nearest", inline: "nearest" });
-  }, [activePath, fullscreen]);
+  }, [activePath]);
 
   // 表示中のタブだけ取得する。取得中に切り替えたら中断して結果を捨てる (再表示で取り直す)
   useEffect(() => {
@@ -139,45 +137,14 @@ export function FilePreview({
     setResults((prev) => dropClosedPreviews(prev, paths));
   }, [paths]);
 
-  // 全画面を続ける条件が false になったら dialog を閉じる (通常の箱へ戻る)。dialog は常に置き、
-  // 全画面のときだけ top layer へ出す。作り直すと中の iframe が再読み込みされる。
-  // 解除の条件 (他タブ・繰り上がり・ソース表示) は lib/fileTabs.ts の keepsFullscreenPreview が持ち、
-  // 全画面の印はここで呼ぶ close() の close イベントを拾った onClose が消す (元のタブへ戻っても復帰しない)
-  useEffect(() => {
-    const dialog = dialogRef.current;
-    if (dialog === null) return;
-    if (fullscreen && !dialog.open) dialog.showModal();
-    if (!fullscreen && dialog.open) dialog.close();
-  }, [fullscreen]);
-
   return (
-    // 幅が足りないときはツリーの下 (border-t)、コンテナが @2xl 以上ならツリーの右 (border-l) へ置く。
-    // 通常時は UA の dialog スタイルを打ち消して普通の箱として使う (打ち消しが残る理由は docs/file-preview.md)
-    <dialog
-      ref={dialogRef}
+    // 幅が足りないときはツリーの下 (border-t)、コンテナが @2xl 以上ならツリーの右 (border-l) へ置く
+    <section
       aria-label="ファイルプレビュー"
-      aria-modal={fullscreen ? "true" : undefined}
-      onClose={() => setFullscreenPath(null)}
-      // 全画面のときだけ止める (通常時に止めると設定ページの「Escape でチャットへ戻る」を食う)
-      onKeyDown={(event) => {
-        if (event.key === "Escape" && fullscreen) event.stopPropagation();
-      }}
-      className={cn(
-        "m-0 flex max-h-none max-w-none flex-col border-0 p-0",
-        fullscreen
-          ? "h-dvh w-screen overflow-hidden bg-base text-ink"
-          : "static h-auto min-h-40 w-auto min-w-0 flex-1 border-t border-line bg-transparent text-inherit @2xl:min-h-0 @2xl:border-t-0 @2xl:border-l",
-      )}
+      className="flex min-h-40 min-w-0 flex-1 flex-col border-t border-line @2xl:min-h-0 @2xl:border-t-0 @2xl:border-l"
     >
-      {/* タブは横スクロールにし、増えても行の高さと本文の幅を変えない。全画面では隠す
-          (タブの選択は全画面の解除でもあるため、出しておくと押した結果と見た目が食い違う。
-          unmount せず display だけ切って、横スクロールの位置を保つ) */}
-      <div
-        className={cn(
-          "flex shrink-0 scrollbar-thin items-stretch gap-1 overflow-x-auto border-b border-line px-2 py-1.5",
-          fullscreen && "hidden",
-        )}
-      >
+      {/* タブは横スクロールにし、増えても行の高さと本文の幅を変えない */}
+      <div className="flex shrink-0 scrollbar-thin items-stretch gap-1 overflow-x-auto border-b border-line px-2 py-1.5">
         {paths.map((path, index) => (
           <FileTab
             key={path}
@@ -190,61 +157,44 @@ export function FilePreview({
           />
         ))}
       </div>
-      {/* パス行。全画面ではタブとパスの表示を落とし、戻るボタンだけの行にする
-          (プレビューの上へ重ねると下の HTML の右上を隠して押せなくするため、全画面でも行として残す。
-          padding は三項で入れ替える。同じ property のクラスを並べると CSS 側の順序で負ける) */}
-      <div
-        className={cn(
-          "flex items-center gap-3",
-          fullscreen ? "justify-end border-b border-line px-2 py-1" : "px-4 py-1.5",
-        )}
-      >
-        {fullscreen ? null : (
-          <>
-            <FileBreadcrumb rootPath={rootPath} activePath={activePath} onReveal={onReveal} />
-            {isHtmlPath(activePath) ? (
-              <PreviewModeToggle mode={mode} onChange={(next) => onModeChange(activePath, next)} />
-            ) : null}
-            {showHtml ? (
-              <PreviewStorageToggle
-                enabled={storageEnabled}
-                disabled={filePreviewPort === undefined}
-                onToggle={(next) => onOriginChange(activePath, next ? "storage" : "app")}
-              />
-            ) : null}
-            {code !== null && code.lineCount > 0 ? (
-              <span className="shrink-0 text-3xs text-ink-ghost">
-                {code.highlight?.lang ?? "text"} · {code.lineCount} 行
-              </span>
-            ) : null}
-            {imageMeta === null ? null : (
-              <span className="shrink-0 text-3xs text-ink-ghost tabular-nums">{imageMeta}</span>
-            )}
-            {code === null ? null : <FileCopyButton key={activePath} text={previewCopyText(code)} />}
-            {/* プレビュー中だけ出す (ソース表示から開くと、見えている本文と違う描画結果が出る) */}
-            {showHtml ? (
-              <a
-                href={fileHtmlPreviewUrl(fetchPath)}
-                target="_blank"
-                rel="noreferrer noopener"
-                aria-label="新しいタブで開く"
-                title="新しいタブで開く"
-                className="grid size-6 shrink-0 place-items-center rounded-md text-ink-faint transition-colors hover:text-accent-text"
-              >
-                <ExternalLinkIcon />
-              </a>
-            ) : null}
-          </>
-        )}
+      {/* パス行 (パンくず / 切替 / メタ)。プレビューの上へ重ねると下の HTML の右上を隠して押せなくするため、
+          行として本文の外に残す */}
+      <div className="flex items-center gap-3 px-4 py-1.5">
+        <FileBreadcrumb rootPath={rootPath} activePath={activePath} onReveal={onReveal} />
+        {isHtmlPath(activePath) ? (
+          <PreviewModeToggle mode={mode} onChange={(next) => onModeChange(activePath, next)} />
+        ) : null}
         {showHtml ? (
-          <button
-            type="button"
-            aria-pressed={fullscreen}
-            onClick={() => setFullscreenPath(fullscreen ? null : activePath)}
-            className="btn-quiet shrink-0"
+          // 押すと iframe の src が変わってプレビューが開き直る。既定は ON (別オリジン) で、
+          // ポート未取得の間は押せない (client にポートを焼き込まない)
+          <ToggleSwitch
+            size="sm"
+            checked={storageEnabled}
+            disabled={filePreviewPort === undefined}
+            label="保存"
+            title={storageEnabled ? STORAGE_PREVIEW_OFF_NOTE : STORAGE_PREVIEW_ON_NOTE}
+            onChange={(next) => onOriginChange(activePath, next ? "storage" : "app")}
+          />
+        ) : null}
+        {code !== null && code.lineCount > 0 ? (
+          <span className="shrink-0 text-3xs text-ink-ghost">
+            {code.highlight?.lang ?? "text"} · {code.lineCount} 行
+          </span>
+        ) : null}
+        {imageMeta === null ? null : <span className="shrink-0 text-3xs text-ink-ghost tabular-nums">{imageMeta}</span>}
+        {code === null ? null : <FileCopyButton key={activePath} text={previewCopyText(code)} />}
+        {/* プレビュー中だけ出す (ソース表示から開くと、見えている本文と違う描画結果が出る) */}
+        {showHtml ? (
+          <a
+            href={newTabSrc}
+            target="_blank"
+            rel="noreferrer noopener"
+            aria-label="新しいタブで開く"
+            title="新しいタブで開く"
+            className="grid size-6 shrink-0 place-items-center rounded-md text-ink-faint transition-colors hover:text-accent-text"
           >
-            {fullscreen ? "全画面をやめる" : "全画面"}
-          </button>
+            <ExternalLinkIcon />
+          </a>
         ) : null}
       </div>
       {result?.error && !skipFetch ? (
@@ -308,7 +258,7 @@ export function FilePreview({
           </div>
         </div>
       )}
-    </dialog>
+    </section>
   );
 }
 
@@ -392,36 +342,6 @@ function PreviewModeToggle({ mode, onChange }: { mode: PreviewMode; onChange: (m
         </button>
       ))}
     </div>
-  );
-}
-
-/**
- * ストレージ有効モード (別オリジン) の切替。押すと iframe の src が変わってプレビューが開き直る。
- * `aria-pressed` で状態を示し、ポート未取得の間は押せない (client にポートを焼き込まない)。
- */
-function PreviewStorageToggle({
-  enabled,
-  disabled,
-  onToggle,
-}: {
-  enabled: boolean;
-  disabled: boolean;
-  onToggle: (enabled: boolean) => void;
-}) {
-  return (
-    <button
-      type="button"
-      aria-pressed={enabled}
-      disabled={disabled}
-      onClick={() => onToggle(!enabled)}
-      title={enabled ? STORAGE_PREVIEW_OFF_NOTE : STORAGE_PREVIEW_ON_NOTE}
-      className={cn(
-        "btn-quiet shrink-0 disabled:cursor-not-allowed disabled:opacity-45",
-        enabled && "bg-accent-wash text-accent-text",
-      )}
-    >
-      保存を有効化
-    </button>
   );
 }
 

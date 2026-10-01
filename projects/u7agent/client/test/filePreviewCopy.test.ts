@@ -15,8 +15,11 @@ function read(relativePath: string): string {
 
 test("本文のコピーボタンはソース表示のパス行に置き、表示中の本文だけを渡す", () => {
   const preview = read("src/components/FilePreview.tsx");
-  // パス行 (パス / 表示の切替 / 行数) の中だけを見る。本文の描画側や全画面側に置いても通らないようにする
-  const pathRow = preview.slice(preview.indexOf("{fullscreen ? null : ("), preview.indexOf("{result?.error"));
+  // パス行 (パス / 表示の切替 / 行数) の中だけを見る。本文の描画側に置いても通らないようにする
+  const pathRow = preview.slice(
+    preview.indexOf("flex items-center gap-3 px-4 py-1.5"),
+    preview.indexOf("{result?.error"),
+  );
   assert.ok(pathRow.includes("<FileCopyButton"), "パス行にコピーボタンが無い");
   // 呼び出し側で文字列を組み立てられないよう、渡す props を式ごと固定する (行番号を前へ足す変更も落ちる)
   assert.match(pathRow, /<FileCopyButton[^>]*\btext=\{previewCopyText\(code\)\}/, "表示中の本文だけを渡していない");

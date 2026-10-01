@@ -38,16 +38,6 @@ export function dropClosedPreviewModes(modes: PreviewModes, paths: string[]): Pr
   return kept.length === Object.keys(modes).length ? modes : Object.fromEntries(kept);
 }
 
-/**
- * 全画面を続ける条件。全画面を出したタブ (`fullscreenPath`) をそのまま HTML のプレビューで表示している間だけ
- * true になる。表示対象が変わったとき (他タブへの切替・閉じて繰り上がった場合。HTML 同士でも) と、
- * ソース表示へ切り替えたときは false になり、全画面を解除する。
- */
-export function keepsFullscreenPreview(fullscreenPath: string | null, activePath: string, mode: PreviewMode): boolean {
-  if (fullscreenPath === null || fullscreenPath !== activePath) return false;
-  return isHtmlPath(activePath) && mode === "preview";
-}
-
 export type FileTabsState = {
   /** 開いた順。選択では並びを変えない (IDE のタブと同じ) */
   paths: string[];
@@ -165,19 +155,20 @@ export function renamePreviewModes(modes: PreviewModes, path: string, nextPath: 
   return Object.fromEntries(entries);
 }
 
-/** タブのプレビューを配るオリジン。既定はアプリ オリジン (隔離) で、storage は別オリジンで保存領域を有効にする */
+/** タブのプレビューを配るオリジン。既定は保存を有効にした別オリジンで、app は隔離へ戻すときだけ保存する */
 export type PreviewOrigin = "app" | "storage";
 
 /** タブごとに保持するプレビューの配信元。キーはページ root 相対パス */
 export type PreviewOrigins = Record<string, PreviewOrigin>;
 
 /**
- * プレビューの配信元。既定はアプリ オリジン (隔離)。モードと同じく own property だけを見る
+ * プレビューの配信元。既定は別オリジン (`storage` = 保存を有効)。モードと同じく own property だけを見る
  * (`constructor` や `__proto__` のような名前のパスを「選択済み」と誤認しないため)。
+ * ブラウザから見たポートが未取得の間は呼び出し側が隔離へ倒す (client にポートを焼き込まない)。
  */
 export function previewOriginFor(origins: PreviewOrigins, path: string): PreviewOrigin {
   const origin = Object.hasOwn(origins, path) ? origins[path] : undefined;
-  return origin ?? "app";
+  return origin ?? "storage";
 }
 
 /** 配信元を選び直す。computed key で書く (own property になり、`__proto__` でもプロトタイプを書き換えない) */

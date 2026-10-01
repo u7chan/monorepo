@@ -122,7 +122,7 @@ export function FileBrowser({
   const [previewVersion, setPreviewVersion] = useState(0);
   // 表示モードは再読み込みの remount を跨ぐ必要がある (選択はタブを閉じるまで保持する) ため親が持つ (docs/file-preview.md)
   const [previewModes, setPreviewModes] = useState<PreviewModes>(() => restored?.modes ?? {});
-  // ストレージ有効モードは保存しない (F5 とタブを閉じるで隔離に戻すため、snapshot に載せず mount ごとに空から始める)
+  // ストレージ有効モードの選択は保存しない (F5 とタブを閉じるで既定の ON に戻すため、snapshot に載せず mount ごとに空から始める)
   const [previewOrigins, setPreviewOrigins] = useState<PreviewOrigins>({});
   // 幅は左右 2 段のときだけ効く。ツリーの親 (@container) 自身を測り、--file-tree-width をそこへ入れる
   const treeWidth = useFileTreeWidth();
