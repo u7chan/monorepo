@@ -50,6 +50,9 @@ export function applySessionEvent(entry: EventEntry, deps: SessionStreamDeps): v
         at: entry.at,
         startedAt: entry.data.startedAt,
       });
+      // このタブで開いている会話は run_start が届くので、ポーリングを待たずに一覧 (左バーの実行中) へ出す
+      // (別の会話を別タブが始めた場合は run_start が届かず、4 秒ポーリングまで一覧が古いまま)
+      void refreshSessions();
       return;
     case "text":
       dispatch({ type: "text", delta: entry.data.delta, at: entry.at });

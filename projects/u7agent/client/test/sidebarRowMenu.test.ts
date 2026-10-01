@@ -5,6 +5,8 @@
 //   2. セッション行の項目は 名前を変更 → セッションを削除 (danger) の 2 つで、通知のベルは行に残る
 //   3. ⋯ は常時表示 (hoverOnly をやめた) で、読み上げ名は <名前> の操作、削除はゴミ箱
 //   4. 行の選択 button と ⋯ は兄弟で、RowAction.tsx は残っていない
+//   5. 状態ラベルは truncate する部分 (エージェント名 + 時刻) の外の縮まない要素で、選択 button の中の
+//      右端 (ベルと ⋯ の左) に出す。待機件数と終端のラベルは行に出さない
 import assert from "node:assert/strict";
 import { existsSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
@@ -79,6 +81,13 @@ function menuTrigger(html: string): string {
   return match[0];
 }
 
+/** meta 行 (<small>) の内側。状態ラベルは「truncate する部分」の兄弟としてここに出る */
+function metaRow(html: string): string {
+  const match = /<small[^>]*>([\s\S]*?)<\/small>/.exec(html);
+  assert.ok(match, "meta 行 (small) が無い");
+  return match[1];
+}
+
 test("出し分け: プロジェクト行は 新しい会話 → 削除、セッション行は 名前を変更 → 削除 を返す", () => {
   assert.deepEqual(projectRowActions(), [
     { kind: "new-chat", label: "このプロジェクトに新しい会話" },
@@ -150,6 +159,60 @@ test("圧縮中のセッションは行に「圧縮中」を出し、実行中�
   assert.ok(html.includes("dot-pulse"), "実行中と同じ動きのある点で示す");
   // 色と点は実行中と同じなので、区別はラベルが担う
   assert.ok(html.includes("dot-accent"), "アクセント色の点でない");
+});
+
+test("状態ラベルは truncate の兄弟で、選択 button の中の右端 (ベルと ⋯ の左) に並ぶ", () => {
+  for (const status of ["running", "queued"] as const) {
+    // 実行中と同じ行を、待機件数 3 件と通知 On で描く (待機件数は行に出さない)
+    const html = renderSessionRow({ status, queueDepth: 3, notify: true });
+    const meta = metaRow(html);
+
+    // truncate する部分 (エージェント名 + 時刻) は伸びる側で、状態ラベルを含まない
+    const truncate = /<span class="([^"]*)">([^<]+)<\/span>/.exec(meta);
+    assert.ok(truncate, `${status}: truncate する部分が無い`);
+    assert.ok(truncate[1].includes("flex-1"), `${status}: truncate 側が伸びない`);
+    assert.ok(truncate[1].includes("truncate"), `${status}: truncate 側が切れない`);
+    assert.match(truncate[2], /汎用アシスタント · /, `${status}: エージェント名と時刻が出ていない`);
+
+    // ラベルは truncate 側の兄弟で、縮まない要素 (右端 = meta 行の末尾) に置く
+    const label = /<span class="([^"]*)" title="([^"]*)">([^<]*)<\/span>/.exec(meta);
+    assert.ok(label, `${status}: 状態ラベルが無い`);
+    assert.equal(label[2], "実行中", `${status}: ラベルに title が無い`);
+    assert.equal(label[3], "実行中", `${status}: ラベルが実行中でない`);
+    assert.ok(label[1].includes("shrink-0"), `${status}: ラベルが縮む側にある`);
+    assert.ok(!label[1].includes("truncate"), `${status}: ラベルが truncate される`);
+    assert.ok(meta.indexOf(truncate[0]) < meta.indexOf(label[0]), `${status}: ラベルが truncate の手前にある`);
+    assert.ok(meta.endsWith(label[0]), `${status}: ラベルが右端に無い`);
+
+    // ラベルは選択 button の中にあり、ベルと ⋯ より手前 (左) にある
+    assert.ok(html.indexOf(label[0]) < html.indexOf("</button>"), `${status}: ラベルが選択 button の外にある`);
+    assert.ok(html.indexOf(label[0]) < html.indexOf('aria-label="通知オン"'), `${status}: ラベルがベルの右にある`);
+    assert.ok(html.indexOf(label[0]) < html.indexOf('aria-haspopup="menu"'), `${status}: ラベルが ⋯ の右にある`);
+
+    // queued は独立したラベルにせず、待機件数も行に出さない (待機は Composer が示す)
+    assert.ok(!html.includes("キュー待ち"), `${status}: queued を独立したラベルにしている`);
+    assert.ok(!html.includes("待機"), `${status}: 待機件数が行に残っている`);
+    // live の点は実行中 / 圧縮中で共通
+    assert.ok(
+      html.includes('<span class="dot dot-accent dot-pulse" aria-hidden="true">'),
+      `${status}: live の点でない`,
+    );
+  }
+});
+
+test("終端と idle の行は状態ラベルも title も出さず、idle の点にする", () => {
+  for (const status of ["completed", "stopped", "error", "idle"] as const) {
+    const html = renderSessionRow({ status });
+    const meta = metaRow(html);
+    assert.ok(!meta.includes("実行中"), `${status}: 実行中が出ている`);
+    assert.ok(!meta.includes("圧縮中"), `${status}: 圧縮中が出ている`);
+    assert.ok(
+      !html.includes('title="実行中"') && !html.includes('title="圧縮中"'),
+      `${status}: 状態の title が残っている`,
+    );
+    assert.ok(html.includes('<span class="dot dot-idle" aria-hidden="true">'), `${status}: idle の点でない`);
+    assert.ok(html.includes("汎用アシスタント"), `${status}: エージェント名まで消えている`);
+  }
 });
 
 test("削除の印はゴミ箱で、設定 → エージェント / スキル と共有する", () => {

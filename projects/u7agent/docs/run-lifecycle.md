@@ -81,13 +81,13 @@ message_end(assistant, error, usage.total = 0)  失敗試行
 | --- | --- |
 | `idle` | ランなし |
 | `running` | ラン実行中 |
-| `queued` | 待機メッセージあり |
+| `queued` | 待機メッセージあり（`running` が無い短い過渡。通常は次のランが始まるまでで、手動圧縮の終端でも配られる） |
 | `compacting` | 手動圧縮の実行中（SDK 実行中と保存待ちの両方） |
 | `completed` | 最後のランが完了 |
 | `stopped` | 最後のランがユーザー停止 |
 | `error` | 最後のランがエラー |
 
-`compacting` は queue より優先して返る（圧縮中の送信はキューに積まれるが、表示は圧縮中）。手動圧縮のライフサイクル・排他・終端の順序は [compaction.md](compaction.md#手動圧縮) を正とする。
+`statusOf()` は compacting → running → queued → 終端 の順に見るため、実行中に送ったメッセージでは `queued` にならない。`compacting` は queue より優先して返る（圧縮中の送信はキューに積まれるが、表示は圧縮中）。手動圧縮のライフサイクル・排他・終端の順序は [compaction.md](compaction.md#手動圧縮) を正とする。終端（`completed` / `stopped` / `error`）は一覧 API には出るが、左バーは live のみを出す（表示規則は [ui-layout.md](ui-layout.md#nav-モード) を正とする）。
 
 ## イベントログと SSE
 

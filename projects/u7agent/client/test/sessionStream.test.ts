@@ -106,6 +106,14 @@ test("applies resync snapshots without dispatching chat actions", () => {
   assert.deepEqual(record.actions, []);
 });
 
+test("refreshes the session list when a run starts", () => {
+  const { record, deps } = createHarness();
+
+  applySessionEvent({ seq: 1, type: "run_start", data: { runId: "r-1", prompt: "go", startedAt: 900 }, at: 1 }, deps);
+
+  assert.equal(record.refreshed, 1, "このタブで開いている会話のラン開始を、ポーリングを待たずに一覧へ出す");
+});
+
 test("refreshes the session list on queue changes", () => {
   const { record, deps } = createHarness();
 
