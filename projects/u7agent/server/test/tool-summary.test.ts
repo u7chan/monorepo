@@ -1,11 +1,17 @@
 // ツール履歴 (引数 / 出力) の表示文字列。cwd 配下の絶対パスは `./` 付きの cwd 相対へ畳み、cwd の外は
 // 絶対のまま残す (root 相対へ寄せると基準が 2 つになり、`lib/x.js` がどちらの基準か読めなくなる)。
-// 境界の判定と、ライブ / 履歴の両方が同じ cwd で畳むことを固定する。
+// 表示文字列はコピーにもそのまま使われるため、畳む条件 (境界) とマスクとの順序がそのまま値の正しさになる。
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createSecretMasker, REDACTED } from "../src/redact";
 import { createRunEventBridge } from "../src/run-events";
-import { cwdRelativeText, projectMessages, toolArgsSummary, toolResultSummary } from "../src/session-projection";
+import {
+  cwdRelativePath,
+  cwdRelativeText,
+  projectMessages,
+  toolArgsSummary,
+  toolResultSummary,
+} from "../src/session-projection";
 import type { MessageMetrics, ToolCall } from "../src/schema";
 import type { PiSessionEvent, PiSessionLike } from "../src/sessions";
 
@@ -16,44 +22,67 @@ function text(value: string): unknown {
   return { type: "text", text: value };
 }
 
-test("cwdRelativeText は cwd 配下を ./ 付きの相対へ畳み、cwd 自身は . にする", () => {
-  assert.equal(cwdRelativeText(`${CWD}/lib/engine/physics2d.js`, CWD), "./lib/engine/physics2d.js");
-  assert.equal(cwdRelativeText(CWD, CWD), ".");
-  assert.equal(cwdRelativeText(`ls "${CWD}"`, CWD), 'ls "."');
-  assert.equal(cwdRelativeText(`cd ${CWD}/lib && npm test`, CWD), "cd ./lib && npm test");
-  // 末尾スラッシュ付きの cwd でも同じ結果にする
-  assert.equal(cwdRelativeText(`${CWD}/lib/x.js`, `${CWD}/`), "./lib/x.js");
-  // 同じ本文に複数あってもすべて畳む
+test("cwdRelativePath は構造化されたパス引数だけを前置きの一致で畳む", () => {
+  assert.equal(cwdRelativePath(`${CWD}/lib/engine/physics2d.js`, CWD), "./lib/engine/physics2d.js");
+  assert.equal(cwdRelativePath(CWD, CWD), ".");
+  assert.equal(cwdRelativePath(`${CWD}/`, CWD), "./");
+  assert.equal(cwdRelativePath(`${CWD}//lib/x.js`, CWD), "./lib/x.js");
+  // 末尾スラッシュ付きの cwd でも同じ
+  assert.equal(cwdRelativePath(`${CWD}/lib/x.js`, `${CWD}/`), "./lib/x.js");
+  for (const path of [
+    // 接頭辞が同じだけの兄弟ディレクトリ / ファイル
+    `${CWD}+backup/a.txt`,
+    `${CWD}-old/a.txt`,
+    `${CWD}.bak`,
+    // cwd の外と、元から相対の引数
+    "/workspace/projects/u7agent/README.md",
+    "lib/engine/physics2d.js",
+    "~/x.js",
+    "",
+  ]) {
+    assert.equal(cwdRelativePath(path, CWD), path);
+  }
+  // cwd 未確定 ("") は root と同義なので畳まない
+  assert.equal(cwdRelativePath("/a/b.js", ""), "/a/b.js");
+});
+
+test("cwdRelativeText は本文中の cwd 配下のパスを区切りが直前のときだけ畳む", () => {
+  assert.equal(cwdRelativeText(`saved ${CWD}/a.js`, CWD), "saved ./a.js");
   assert.equal(cwdRelativeText(`${CWD}/a.js -> ${CWD}/b.js`, CWD), "./a.js -> ./b.js");
-  // JSON フォールバックの引数にも当たる
+  assert.equal(cwdRelativeText(`ls "(${CWD}/lib)"`, CWD), 'ls "(./lib)"');
   assert.equal(cwdRelativeText(JSON.stringify({ file_path: `${CWD}/a b.js` }), CWD), '{"file_path":"./a b.js"}');
+  // 本文では cwd 自身を畳まない (後ろに何が続くかを字種だけでは決められない)
+  assert.equal(cwdRelativeText(`ls ${CWD}`, CWD), `ls ${CWD}`);
+  // 区切りの直前でなければ、接頭辞が同じだけの別のパスを畳まない
+  for (const body of [
+    `${CWD}+backup/a.txt`,
+    `${CWD}-old/a.txt`,
+    `${CWD}.bak`,
+    `${CWD} copy/a.txt`,
+    `${CWD}#old/a.txt`,
+    `/mnt${CWD}/a.txt`,
+    `assets@${CWD}/a.txt`,
+    `sqlite:${CWD}/private.db`,
+    `foo${CWD}/a.txt`,
+  ]) {
+    assert.equal(cwdRelativeText(body, CWD), body);
+  }
   // cwd 未確定 ("") は root と同義なので畳まない
   assert.equal(cwdRelativeText("/a/b.js", ""), "/a/b.js");
 });
 
-test("cwdRelativeText は cwd を接頭辞 / 接尾に含むだけの別のパスを畳まない", () => {
-  for (const path of [
-    // 兄弟ディレクトリと、名前が伸びただけのファイル
-    `${CWD}-old/lib/x.js`,
-    `${CWD}.bak`,
-    `/tmp/${CWD}/lib/x.js`,
-    // セグメントとして cwd を末尾に含む長いパス
-    "/a/b/c/d",
-    // cwd の外 (プロジェクトや共通スキル)
-    "/workspace/projects/u7agent/README.md",
-  ]) {
-    const cwd = path === "/a/b/c/d" ? "/b/c" : CWD;
-    assert.equal(cwdRelativeText(path, cwd), path);
-  }
-});
-
-test("toolArgsSummary は path の絶対パスだけを畳み、元から相対の引数はそのまま残す", () => {
+test("toolArgsSummary は引数の形ごとに cwd 相対へ畳む", () => {
   assert.equal(toolArgsSummary({ path: `${CWD}/lib/engine/physics2d.js` }, masker, CWD), "./lib/engine/physics2d.js");
+  assert.equal(toolArgsSummary({ file_path: CWD }, masker, CWD), ".");
   assert.equal(toolArgsSummary({ file_path: `${CWD}/lib/x.js`, offset: 3 }, masker, CWD), "./lib/x.js");
   assert.equal(toolArgsSummary({ file_path: "lib/engine/physics2d.js" }, masker, CWD), "lib/engine/physics2d.js");
-  assert.equal(toolArgsSummary({ file_path: "~/x.js" }, masker, CWD), "~/x.js");
-  assert.equal(toolArgsSummary({ command: `cd ${CWD} && rg -n fix lib` }, masker, CWD), "$ cd . && rg -n fix lib");
-  assert.equal(toolArgsSummary({ unknown: `${CWD}/x.js` }, masker, CWD), `{"unknown":"./x.js"}`);
+  assert.equal(toolArgsSummary({ path: `${CWD}+backup/a.txt` }, masker, CWD), `${CWD}+backup/a.txt`);
+  assert.equal(
+    toolArgsSummary({ command: `cd "${CWD}/lib" && rg -n fix .` }, masker, CWD),
+    '$ cd "./lib" && rg -n fix .',
+  );
+  assert.equal(toolArgsSummary({ command: `ls ${CWD}` }, masker, CWD), `$ ls ${CWD}`);
+  assert.equal(toolArgsSummary({ unknown: `${CWD}/x.js` }, masker, CWD), '{"unknown":"./x.js"}');
 });
 
 test("toolResultSummary は出力本文中の絶対パスも畳む", () => {
@@ -64,12 +93,18 @@ test("toolResultSummary は出力本文中の絶対パスも畳む", () => {
   );
 });
 
-test("相対化はマスクより先に当て、畳んだ後の文字列にもマスクを掛ける", () => {
-  const secret = "sk-display-dummy-0123456789";
+test("相対化はマスクの後に当て、cwd をまたぐ秘密値も漏らさない", () => {
+  const secret = `sqlite:${CWD}/private.db?key=dummy-password-12345678`;
   const masking = createSecretMasker([secret]);
-  assert.equal(toolArgsSummary({ path: `${CWD}/keys/${secret}.txt` }, masking, CWD), `./keys/${REDACTED}.txt`);
+  // 完全一致マスクの後に畳むため、cwd をまたぐ秘密値はそのまま [REDACTED] になる
+  assert.equal(toolArgsSummary({ command: `connect "${secret}"` }, masking, CWD), '$ connect "[REDACTED]"');
+  assert.equal(toolResultSummary({ content: [text(`dsn ${secret}`)] }, masking, CWD), "dsn [REDACTED]");
+  // 秘密値がパスの内側にあるときは、畳んだ後の文字列にもマスクが掛かる
+  const key = "sk-display-dummy-0123456789";
+  const withKey = createSecretMasker([key]);
+  assert.equal(toolArgsSummary({ path: `${CWD}/keys/${key}.txt` }, withKey, CWD), `./keys/${REDACTED}.txt`);
   assert.equal(
-    toolResultSummary({ content: [text(`saved ${CWD}/out.json with ${secret}`)] }, masking, CWD),
+    toolResultSummary({ content: [text(`saved ${CWD}/out.json with ${key}`)] }, withKey, CWD),
     `saved ./out.json with ${REDACTED}`,
   );
 });

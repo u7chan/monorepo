@@ -30,43 +30,67 @@ export function contentText(content: unknown): string {
     .join("");
 }
 
-/** パスの一部として扱う文字。cwd の前後にこれが付くときは別のパス (`<dir>/<cwd>`) の一部なので畳まない */
-const PATH_CHAR = /[\p{L}\p{N}._~\\/-]/u;
+/**
+ * cwd の前置きとして認める直前の文字 (区切り)。これ以外の文字が続くときは別のパスの一部とみなす。
+ * 「ファイル名に使える文字」を列挙する側で判定すると `+` / `@` / 空白 / `#` を取りこぼし、cwd の外の
+ * パス (`/mnt<cwd>/x`) や元から相対のパス (`assets@<cwd>/x`) を別の値へ書き換えてしまうため、
+ * 区切りの方が許可リストで判定する。`:` は `scheme:/cwd/x` を壊すので含めない。
+ */
+const BEFORE_DELIMITER = /[\s"'`([{<,;=|>]/u;
+
+/** 表示用の文字列から剥がす前置き。末尾のスラッシュは落として区切りを 1 つに揃える */
+function cwdPrefix(cwd: string): string {
+  return cwd.replace(/\/+$/, "");
+}
 
 /**
- * 表示用: cwd 配下の絶対パスを `./` 付きの cwd 相対へ畳む (cwd 自身は `.`)。マスク前の実パスに当てる。
- * cwd の外は絶対のまま残す: root 相対へ寄せると基準が 2 つになり、`lib/x.js` がどちらの基準か読めなくなる。
+ * 表示用: 本文中の cwd 配下の絶対パス (`<cwd>/x`) を `./` 付きの cwd 相対へ畳む。マスク後の文字列に当てる
+ * (先に畳むと cwd をまたぐ秘密値が完全一致しなくなり、後段のマスクをすり抜ける)。
+ * cwd 自身は畳まない: 本文では「cwd の後ろに何が続くか」を字種だけでは決められない。構造化されたパスの
+ * 引数は cwdRelativePath が扱う。マスク済みの本文に `./` を挿入しても、秘密値の内側の文字は変えない。
  */
 export function cwdRelativeText(text: string, cwd: string): string {
-  const base = cwd.replace(/\/+$/, "");
-  if (base === "" || !text.includes(base)) return text;
+  const base = cwdPrefix(cwd);
+  if (base === "" || !text.includes(`${base}/`)) return text;
   let result = "";
   let index = 0;
   for (;;) {
-    const at = text.indexOf(base, index);
+    const at = text.indexOf(`${base}/`, index);
     if (at === -1) return result + text.slice(index);
     const before = at === 0 ? "" : (text[at - 1] ?? "");
-    const after = text[at + base.length] ?? "";
-    if (PATH_CHAR.test(before) || (after !== "/" && PATH_CHAR.test(after))) {
-      result += text.slice(index, at + base.length);
-      index = at + base.length;
+    if (before === "" || BEFORE_DELIMITER.test(before)) {
+      result += `${text.slice(index, at)}./`;
+      index = at + base.length + 1;
       continue;
     }
-    result += text.slice(index, at) + (after === "/" ? "./" : ".");
-    index = at + base.length + (after === "/" ? 1 : 0);
+    result += text.slice(index, at + base.length);
+    index = at + base.length;
   }
+}
+
+/**
+ * 構造化されたパスの引数用: 引数全体が 1 つのパスなので、字種に依存せず前置きの一致だけで判定できる。
+ * cwd 自身は `.`、cwd 配下は `./` 付きの cwd 相対、cwd の外はそのまま (`<cwd>+backup` のような
+ * 接頭辞が同じだけの別のパスを含む)。
+ */
+export function cwdRelativePath(path: string, cwd: string): string {
+  const base = cwdPrefix(cwd);
+  if (base === "" || !path.startsWith(base)) return path;
+  const rest = path.slice(base.length);
+  if (rest === "") return ".";
+  return rest.startsWith("/") ? `./${rest.replace(/^\/+/, "")}` : path;
 }
 
 export function toolArgsSummary(args: unknown, masker: SecretMasker, cwd: string): string {
   if (!args || typeof args !== "object") return "";
   const record = args as Record<string, unknown>;
   if (typeof record.command === "string") {
-    return `$ ${truncate(masker.mask(cwdRelativeText(record.command, cwd)), ARGS_TEXT_MAX)}`;
+    return `$ ${truncate(cwdRelativeText(masker.mask(record.command), cwd), ARGS_TEXT_MAX)}`;
   }
   const path = record.path || record.file_path || record.filePath;
-  if (typeof path === "string") return masker.mask(cwdRelativeText(path, cwd));
+  if (typeof path === "string") return cwdRelativePath(masker.mask(path), cwd);
   try {
-    return truncate(masker.mask(cwdRelativeText(JSON.stringify(args), cwd)), ARGS_TEXT_MAX);
+    return truncate(cwdRelativeText(masker.mask(JSON.stringify(args)), cwd), ARGS_TEXT_MAX);
   } catch {
     return "";
   }
@@ -75,7 +99,7 @@ export function toolArgsSummary(args: unknown, masker: SecretMasker, cwd: string
 export function toolResultSummary(result: unknown, masker: SecretMasker, cwd: string): string {
   // SDK 側の切り詰めで先頭が欠けた場合に備え maskSafe を使う。
   const text = contentText((result as { content?: unknown } | null)?.content);
-  return truncate(masker.maskSafe(cwdRelativeText(text, cwd)), SUMMARY_TEXT_MAX);
+  return truncate(cwdRelativeText(masker.maskSafe(text), cwd), SUMMARY_TEXT_MAX);
 }
 
 /**
