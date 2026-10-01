@@ -30,37 +30,68 @@ export function contentText(content: unknown): string {
     .join("");
 }
 
-/** 引用符で囲まれたトークン (シェル / JSON の引用) は、中身全体が 1 つのパス */
-const QUOTED_TOKEN = /^(["'`])([\s\S]*)\1$/;
+/** 引用符。これで囲まれた範囲は空白を含んでも 1 つのトークン */
+const QUOTES = "\"'`";
 
 /** 表示用の文字列から剥がす前置き。末尾のスラッシュは落として区切りを 1 つに揃える */
 function cwdPrefix(cwd: string): string {
   return cwd.replace(/\/+$/, "");
 }
 
-/**
- * トークン 1 つ分。引用符を剥がした中身が cwd 配下のパスで始まるときだけ畳む。
- * 「cwd の直前にある文字」で判定すると `(` や `+` や空白のようにファイル名にも使える文字を区切りと
- * 誤認し、`cat "(<cwd>/a.txt)"` や `assets@<cwd>/a.txt` を別のパスへ書き換えるため、位置ではなく
- * トークンの先頭で判定する。
- */
+/** トークンの解釈 (引用符を剥がした中身)。引用符が対応していない / 中に同じ引用符があるときは null */
+function tokenContent(token: string): string | null {
+  const quote = token[0] ?? "";
+  // 引用符なしのトークンは、引用符を含むなら解釈が混ざっている (シェルの連結) として畳まない
+  if (!QUOTES.includes(quote)) return /["'`]/.test(token) ? null : token;
+  if (token.length < 2 || (token[token.length - 1] ?? "") !== quote) return null;
+  const inner = token.slice(1, -1);
+  return inner.includes(quote) ? null : inner;
+}
+
+/** トークン 1 つ分。引用符を剥がした中身が cwd 配下のパスで始まるときだけ畳む。 */
 function foldToken(token: string, base: string): string {
-  const quoted = QUOTED_TOKEN.exec(token);
-  const quote = quoted?.[1] ?? "";
-  const inner = quoted?.[2] ?? token;
-  if (!inner.startsWith(`${base}/`)) return token;
-  return `${quote}./${inner.slice(base.length + 1)}${quote}`;
+  const content = tokenContent(token);
+  if (content === null || !content.startsWith(`${base}/`)) return token;
+  const folded = `./${content.slice(base.length + 1)}`;
+  return content === token ? folded : `${token[0]}${folded}${token[0]}`;
 }
 
 /**
- * 表示用: トークン全体が cwd 配下のパス (`<cwd>/x`) のときだけ `./` 付きの cwd 相対へ畳む。
- * マスク後の文字列に当てる (先に畳むと cwd をまたぐ秘密値が完全一致しなくなり、後段のマスクを
- * すり抜ける)。cwd 自身は畳まない: 本文では「cwd の後ろに何が続くか」を字種だけでは決められない。
+ * 表示用: トークンの解釈 (引用符を剥がした中身) が cwd 配下のパス (`<cwd>/x`) で始まるときだけ
+ * `./` 付きの cwd 相対へ畳む。マスク後の文字列に当てる (先に畳むと cwd をまたぐ秘密値が完全一致
+ * しなくなり、後段のマスクをすり抜ける)。
+ * 区切りは引用符の外側の空白だけにする: 引用符の中の空白で割ると `cat "backup <cwd>/a.txt"` の
+ * 断片をトークンの先頭と誤認し、cwd の外の相対パスを別の値へ書き換える。cwd 自身は畳まない
+ * (本文では「cwd の後ろに何が続くか」を字種だけでは決められない)。
  */
 export function cwdRelativeText(text: string, cwd: string): string {
   const base = cwdPrefix(cwd);
   if (base === "" || !text.includes(`${base}/`)) return text;
-  return text.replace(/\S+/g, (token) => foldToken(token, base));
+  let result = "";
+  let token = "";
+  let quote = "";
+  for (const char of text) {
+    if (quote !== "") {
+      token += char;
+      if (char === quote) quote = "";
+      continue;
+    }
+    if (QUOTES.includes(char)) {
+      quote = char;
+      token += char;
+      continue;
+    }
+    if (/\s/.test(char)) {
+      if (token !== "") {
+        result += foldToken(token, base);
+        token = "";
+      }
+      result += char;
+      continue;
+    }
+    token += char;
+  }
+  return token === "" ? result : result + foldToken(token, base);
 }
 
 /**
@@ -84,13 +115,10 @@ export function toolArgsSummary(args: unknown, masker: SecretMasker, cwd: string
   }
   const path = record.path || record.file_path || record.filePath;
   if (typeof path === "string") return cwdRelativePath(masker.mask(path), cwd);
-  // フォールバックは値ごとに マスク → 畳む を掛けてから文字列化し、最後にもう一度マスクを掛ける
-  // (値ごとなのは秘密値の `"` や `\\` が JSON エスケープで一致しなくなるため、後段はキーの取りこぼし対策)。
+  // JSON フォールバック (path / command を持たないツール) は畳まない: 文書全体が秘密値のときに
+  // 値の書き換えが完全一致マスクを壊し、値を 1 つずつ畳んでも構文からパスかどうかは決められない。
   try {
-    const json = JSON.stringify(args, (_key, value) =>
-      typeof value === "string" ? cwdRelativePath(masker.mask(value), cwd) : value,
-    );
-    return truncate(masker.mask(json ?? ""), ARGS_TEXT_MAX);
+    return truncate(masker.mask(JSON.stringify(args)), ARGS_TEXT_MAX);
   } catch {
     return "";
   }

@@ -1,6 +1,6 @@
 // ツール履歴 (引数 / 出力) の表示文字列。cwd 配下の絶対パスは `./` 付きの cwd 相対へ畳み、cwd の外は
 // 絶対のまま残す (root 相対へ寄せると基準が 2 つになり、`lib/x.js` がどちらの基準か読めなくなる)。
-// 表示文字列はコピーにもそのまま使われるため、畳む条件 (トークン / 値の境界) とマスクとの順序が
+// 表示文字列はコピーにもそのまま使われるため、畳む条件 (値 / トークンの境界) とマスクとの順序が
 // そのままコピーした値の正しさになる。
 import assert from "node:assert/strict";
 import test from "node:test";
@@ -47,17 +47,23 @@ test("cwdRelativePath は値全体が 1 つのパスの引数だけを前置き�
   assert.equal(cwdRelativePath("/a/b.js", ""), "/a/b.js");
 });
 
-test("cwdRelativeText はトークン全体が cwd 配下のパスのときだけ畳む", () => {
+test("cwdRelativeText は引用符の外側の空白だけで区切り、トークンの解釈が cwd 配下のときだけ畳む", () => {
   assert.equal(cwdRelativeText(`saved ${CWD}/a.js`, CWD), "saved ./a.js");
   assert.equal(cwdRelativeText(`ls "${CWD}/lib"`, CWD), 'ls "./lib"');
+  assert.equal(cwdRelativeText(`open '${CWD}/my file.txt'`, CWD), "open './my file.txt'");
   assert.equal(cwdRelativeText(`${CWD}/a.js -> ${CWD}/b.js`, CWD), "./a.js -> ./b.js");
   assert.equal(cwdRelativeText(`${CWD}/lib/x.js, ok`, CWD), "./lib/x.js, ok");
   // 本文では cwd 自身を畳まない (後ろに何が続くかを字種だけでは決められない)
   assert.equal(cwdRelativeText(`ls ${CWD}`, CWD), `ls ${CWD}`);
-  // cwd の直前の文字は区切りとは限らない (ファイル名に使える文字) ため、位置ではなくトークンの先頭で見る
+  // cwd の直前の文字は区切りとは限らず、引用符の中の空白でもトークンを割らない
   for (const body of [
     `cat "(${CWD}/a.txt)"`,
     `cat (${CWD}/a.txt)`,
+    `cat "backup ${CWD}/a.txt"`,
+    `cat "backup ${CWD}/a b.txt"`,
+    `cat '/cwd/../${CWD}/a.txt'`,
+    `cat "${CWD}/a.txt`,
+    `cat '${CWD}/a.txt"`,
     `${CWD}+backup/a.txt`,
     `${CWD} copy/a.txt`,
     `${CWD}#old/a.txt`,
@@ -83,13 +89,11 @@ test("toolArgsSummary は引数の形ごとに cwd 相対へ畳む", () => {
     '$ cd "./lib" && rg -n fix .',
   );
   assert.equal(toolArgsSummary({ command: `cat "(${CWD}/a.txt)"` }, masker, CWD), `$ cat "(${CWD}/a.txt)"`);
+  assert.equal(toolArgsSummary({ command: `cat "backup ${CWD}/a.txt"` }, masker, CWD), `$ cat "backup ${CWD}/a.txt"`);
   assert.equal(toolArgsSummary({ command: `ls ${CWD}` }, masker, CWD), `$ ls ${CWD}`);
-  // JSON フォールバックは値だけを畳む
-  assert.equal(toolArgsSummary({ unknown: `${CWD}/x.js` }, masker, CWD), '{"unknown":"./x.js"}');
-  assert.equal(
-    toolArgsSummary({ unknown: `x ${CWD}/x.js` }, masker, CWD),
-    '{"unknown":"x /workspace/.u7agent/sessions/364cfbf2c1/x.js"}',
-  );
+  // JSON フォールバック (path / command を持たないツール) は畳まない
+  assert.equal(toolArgsSummary({ unknown: `${CWD}/x.js` }, masker, CWD), `{"unknown":"${CWD}/x.js"}`);
+  assert.equal(toolArgsSummary({ glob: `${CWD}/**/*.ts` }, masker, CWD), `{"glob":"${CWD}/**/*.ts"}`);
 });
 
 test("toolResultSummary は出力本文中の絶対パスも畳む", () => {
@@ -97,6 +101,10 @@ test("toolResultSummary は出力本文中の絶対パスも畳む", () => {
   assert.equal(
     toolResultSummary({ content: [text(body)] }, masker, CWD),
     "Successfully replaced 1 block(s) in ./lib/engine/physics2d.js",
+  );
+  assert.equal(
+    toolResultSummary({ content: [text(`open '${CWD}/my file.txt' failed`)] }, masker, CWD),
+    "open './my file.txt' failed",
   );
 });
 
@@ -114,12 +122,9 @@ test("相対化はマスクの後に当て、cwd をまたぐ秘密値も漏ら�
     toolResultSummary({ content: [text(`saved ${CWD}/out.json with ${key}`)] }, withKey, CWD),
     `saved ./out.json with ${REDACTED}`,
   );
-  // JSON フォールバックは値ごとにマスクするため、秘密値の `"` が JSON エスケープで一致しなくなっても落ちる
-  const quoted = 'sk-"quoted"-0123456789';
-  assert.equal(
-    toolArgsSummary({ unknown: `note ${quoted}` }, createSecretMasker([quoted]), CWD),
-    '{"unknown":"note [REDACTED]"}',
-  );
+  // JSON フォールバックの文書全体が秘密値のときも、畳まないので完全一致マスクがそのまま効く
+  const document = `{"glob":"${CWD}/**/*.ts","pattern":"dummy-password-12345678"}`;
+  assert.equal(toolArgsSummary(JSON.parse(document), createSecretMasker([document]), CWD), REDACTED);
   // キーに現れた秘密値は文字列化した後のマスクが落とす
   assert.equal(toolArgsSummary({ [key]: 1 }, withKey, CWD), '{"[REDACTED]":1}');
 });
