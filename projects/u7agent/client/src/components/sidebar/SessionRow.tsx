@@ -2,38 +2,11 @@ import { agentIconOf } from "../../lib/agentIcon";
 import { cn } from "../../lib/cn";
 import { messageTimeLabel } from "../../lib/messageTime";
 import { sessionRowActions, type SessionRowKind } from "../../lib/sidebarRowMenu";
+import { sidebarStatus } from "../../lib/sidebarStatus";
 import type { AgentDef, SessionSummary } from "../../types";
 import { AgentIcon } from "../AgentIcon";
 import { BellIcon } from "../icons";
 import { RowMenu } from "../RowMenu";
-
-const STATUS_LABELS: Record<string, string> = {
-  running: "実行中",
-  queued: "キュー待ち",
-  compacting: "圧縮中",
-  completed: "完了",
-  stopped: "停止",
-  error: "エラー",
-  idle: "",
-};
-
-function statusDotClass(status: string): string {
-  switch (status) {
-    case "running":
-    case "compacting":
-      // 圧縮も「サーバーが動いている」ので同じ点で示す (ラベルで区別する)
-      return cn("dot dot-accent dot-pulse");
-    case "queued":
-    case "stopped":
-      return cn("dot dot-warn");
-    case "error":
-      return cn("dot dot-danger");
-    case "completed":
-      return cn("dot dot-ok");
-    default:
-      return cn("dot dot-idle");
-  }
-}
 
 /** 行の選択と ⋯ の操作は別の button にする (入れ子の interactive control を作らない) */
 export function SessionRow({
@@ -52,12 +25,11 @@ export function SessionRow({
   onRename: () => void;
   onDelete: () => void;
 }) {
+  const status = sidebarStatus(item.status);
   const bits = [
     item.agentName,
     // 同じ表記をセッション一覧にも使う (locale 依存の toLocaleTimeString をやめる)
     messageTimeLabel(item.lastUsedAt),
-    STATUS_LABELS[item.status],
-    item.queueDepth > 0 ? `待機${item.queueDepth}件` : "",
   ].filter(Boolean);
   // kind から行の props を引く表。actions と同じ種別に狭め、表の無い kind を型で検出する
   const handlers: Record<SessionRowKind, () => void> = { rename: onRename, delete: onDelete };
@@ -75,13 +47,21 @@ export function SessionRow({
         aria-current={active ? "true" : undefined}
         className="flex min-w-0 flex-1 items-center gap-2.5 px-2.5 py-2 text-left"
       >
-        <span className={statusDotClass(item.status)} aria-hidden />
+        {/* 圧縮も「サーバーが動いている」ので実行中と同じ点で示す (区別はラベルが担う) */}
+        <span className={cn("dot", status.tone === "live" ? "dot-accent dot-pulse" : "dot-idle")} aria-hidden />
         <span className="grid min-w-0 flex-1 gap-0.5">
           <strong className="truncate text-xs text-ink">{item.title || "無題のセッション"}</strong>
           <small className="flex min-w-0 items-center gap-1 text-2xs text-ink-muted">
             {/* アイコンはエージェント名の隣にだけ置く (名前が無いセッションでは時刻から始める) */}
             {item.agentName ? <AgentIcon icon={agentIconOf(agents, item.agentId)} variant="inline" /> : null}
-            <span className="truncate">{bits.join(" · ")}</span>
+            <span className="flex-1 truncate">{bits.join(" · ")}</span>
+            {/* 状態ラベルは truncate の外に置く (長いエージェント名でも切れない)。
+                ラベルは button 内の可視テキストなので、読み上げ名にはそのまま入る */}
+            {status.label ? (
+              <span className="shrink-0" title={status.label}>
+                {status.label}
+              </span>
+            ) : null}
           </small>
         </span>
       </button>

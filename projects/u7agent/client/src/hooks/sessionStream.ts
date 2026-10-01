@@ -50,6 +50,8 @@ export function applySessionEvent(entry: EventEntry, deps: SessionStreamDeps): v
         at: entry.at,
         startedAt: entry.data.startedAt,
       });
+      // 別タブ / 別クライアントが始めたランも、ポーリングを待たずに一覧 (左バーの実行中) へ出す
+      void refreshSessions();
       return;
     case "text":
       dispatch({ type: "text", delta: entry.data.delta, at: entry.at });
