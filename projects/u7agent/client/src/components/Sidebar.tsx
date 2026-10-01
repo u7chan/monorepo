@@ -5,7 +5,7 @@ import { cn } from "../lib/cn";
 import { type SettingsSection, type SidebarMode } from "../lib/settingsNav";
 import { groupSessionsByProject } from "../lib/sessionsByProject";
 import { sidebarProjectsStore } from "../lib/sidebarProjects";
-import { CloseIcon, GearIcon, PlusIcon } from "./icons";
+import { CloseIcon, GearIcon, LogoStarIcon, PlusIcon } from "./icons";
 import { MenuItem } from "./MenuItem";
 import { ProjectRow } from "./sidebar/ProjectRow";
 import { SessionRow } from "./sidebar/SessionRow";
@@ -90,8 +90,8 @@ export function Sidebar({
       )}
     >
       <div className="flex items-center gap-3">
-        <div className="grid size-8 shrink-0 place-items-center rounded-xl border border-accent/25 bg-accent-wash text-sm text-accent-strong">
-          ✦
+        <div className="grid size-8 shrink-0 place-items-center rounded-xl border border-accent/25 bg-accent-wash text-accent-strong">
+          <LogoStarIcon />
         </div>
         <div className="min-w-0 flex-1">
           <div className="text-sm font-semibold text-ink-strong">u7agent</div>

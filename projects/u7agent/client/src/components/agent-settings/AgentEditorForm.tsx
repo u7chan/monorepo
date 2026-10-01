@@ -226,7 +226,7 @@ export function AgentEditorForm({
                           ) : null}
                         </div>
                         <p className="text-2xs leading-relaxed text-ink-ghost">
-                          256×256 に縮小して保存します。未設定なら ✦ で表示します。
+                          256×256 に縮小して保存します。未設定なら星のマークで表示します。
                         </p>
                       </div>
                     </div>

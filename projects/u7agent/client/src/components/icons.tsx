@@ -302,6 +302,18 @@ export function GearIcon() {
   );
 }
 
+/**
+ * アプリのマーク (左バーのロゴ)。文字の「✦」は自前ホストのフォントにグリフが無く OS のフォントへ
+ * フォールバックするため、字形・大きさ・位置が端末ごとに変わる (favicon.svg の星は 16px では腕が細い)。
+ */
+export function LogoStarIcon() {
+  return (
+    <svg aria-hidden="true" viewBox="0 0 16 16" fill="currentColor" className="size-4 shrink-0">
+      <path d="M8 2.5Q9.17 6.83 13.5 8Q9.17 9.17 8 13.5Q6.83 9.17 2.5 8Q6.83 6.83 8 2.5Z" />
+    </svg>
+  );
+}
+
 /** エージェント (設定ナビ)。エージェントごとの違いは文字で示すので、行の印はこの 1 種類で足りる */
 export function SparkleIcon() {
   return (
