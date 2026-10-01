@@ -3,7 +3,7 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { serve } from "@hono/node-server";
 import { createBffApp } from "./app";
-import { FILE_PREVIEW_LISTEN_PORT, resolveFilePreviewPort } from "./file-preview-port";
+import { resolveFilePreviewListenPort, resolveFilePreviewPort } from "./file-preview-port";
 
 // pnpm --filter で起動すると cwd が server/ になるため、既定はリポジトリルートにする
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
@@ -12,7 +12,9 @@ if (existsSync(ENV_FILE)) process.loadEnvFile(ENV_FILE);
 
 const PORT = Number(process.env.PORT) || 4317;
 const HOST = process.env.HOST || "127.0.0.1";
-// ブラウザから見たポート。待受は FILE_PREVIEW_LISTEN_PORT (prod は別ポートを publish してここに載せる)
+// 2 本目のリスナー (プレビュー オリジン) の待受。prod は 8017:4318 を publish するので既定のまま
+const FILE_PREVIEW_LISTEN_PORT = resolveFilePreviewListenPort(process.env.PI_FILE_PREVIEW_LISTEN_PORT);
+// ブラウザから見たポート。待受とは独立で、prod は publish したポートをここに載せる
 const FILE_PREVIEW_PORT = resolveFilePreviewPort(process.env.PI_FILE_PREVIEW_PORT);
 
 async function main() {

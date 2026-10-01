@@ -71,7 +71,7 @@ DTO の正は `server/src/schema.ts`（zod）。リクエストボディは `@ho
 
 `archive.excludeNames` はダウンロード ZIP から落とす名前の**実効値**（[ダウンロード](#ダウンロード)）。設定ストア（[アーカイブの除外名](#アーカイブの除外名)）が唯一の決定点で、未設定なら既定の一覧、上書きされていればその一覧になる。UI は行にダウンロードを出すかの判定だけに使い、実際の拒否は `GET /api/files/download/check` が行う（このフィールドの形と意味は変えない）。
 
-`filePreviewPort` は**ブラウザから見た**プレビュー オリジンのポート（env `PI_FILE_PREVIEW_PORT`、既定 4318）で、クライアントは別オリジンの iframe の URL をこれで組み立てる。BFF の待受は定数 4318 で、prod は compose が `8017:4318` を publish して `PI_FILE_PREVIEW_PORT=8017` を渡す（値の解決と検証は起動時に 1 回で、1〜65535 の整数以外は起動が止まる）。
+`filePreviewPort` は**ブラウザから見た**プレビュー オリジンのポート（env `PI_FILE_PREVIEW_PORT`、既定 4318）で、クライアントは別オリジンの iframe の URL をこれで組み立てる。BFF の待受は別 env `PI_FILE_PREVIEW_LISTEN_PORT`（既定 4318）で、prod は compose が `8017:4318` を publish して `PI_FILE_PREVIEW_PORT=8017` を渡す（値の解決と検証は起動時に 1 回で、1〜65535 の整数以外は起動が止まる。2 つの env は独立で、同じ値へ揃えるのは `pnpm dev` だけ）。
 
 `modelOptions` は認証済みで利用可能なモデルのみ。設定 → モデル の「利用可能なモデル」を保存したときは、その許可リストと利用可能モデルの積だけになる（保存された既定モデルが許可リスト外なら `defaultModelError`、積が空なら `ready: false` と `設定 → モデル` を名指しした `error`。`errorCode` は互換のため `model_whitelist_empty` のまま）。能力情報（`supportsThinking` / `thinkingLevels`）は pi SDK の公開ヘルパー（`getSupportedThinkingLevels`）から得る。`defaultThinkingLevel` は `PI_THINKING` → `medium` の順で決まる。解決の詳細は [model-effort.md](model-effort.md)。
 
@@ -242,13 +242,13 @@ iframe の src になる HTML 文書と、その文書が相対参照するア�
 
 iframe の中身は応答ヘッダと iframe 属性の両方で隔離する（親の CSP を継承させないために別ルートにする）。CSP は `server/src/routes/files.ts` の `HTML_PREVIEW_POLICY` 1 箇所から導出し、既定は Lv2（相対アセットの `'self'` と `https:`）。
 
-**同じルートが 2 つのオリジンに載る**。BFF はアプリと同じリスナー（`PORT`）と、プレビュー専用の 2 つ目のリスナー（待受は定数 4318、ブラウザから見たポートは env `PI_FILE_PREVIEW_PORT`）を立て、`previewApp` にはこのルート 1 本だけを載せる（書き込み系の API は載せない）。文書の CSP はリスナーごとに `sandbox` 段だけが変わり、アプリ オリジンは `sandbox allow-scripts`（オペークオリジン = 隔離）、プレビュー オリジンは `sandbox allow-scripts allow-same-origin allow-pointer-lock`（ストレージ有効モード）。どちらで開くかはクライアントのタブごとの保存スイッチが iframe の src と属性で選び（既定はプレビュー オリジン）、リクエストにはフラグを付けない（[file-preview.md](file-preview.md#html-プレビュー)）。
+**同じルートが 2 つのオリジンに載る**。BFF はアプリと同じリスナー（`PORT`）と、プレビュー専用の 2 つ目のリスナー（待受は env `PI_FILE_PREVIEW_LISTEN_PORT`、ブラウザから見たポートは env `PI_FILE_PREVIEW_PORT`。既定はいずれも 4318）を立て、`previewApp` にはこのルート 1 本だけを載せる（書き込み系の API は載せない）。文書の CSP はリスナーごとに `sandbox` 段だけが変わり、アプリ オリジンは `sandbox allow-scripts`（オペークオリジン = 隔離）、プレビュー オリジンは `sandbox allow-scripts allow-same-origin allow-pointer-lock`（ストレージ有効モード）。どちらで開くかはクライアントのタブごとの保存スイッチが iframe の src と属性で選び（既定はプレビュー オリジン）、リクエストにはフラグを付けない（[file-preview.md](file-preview.md#html-プレビュー)）。
 
 ```
 Content-Security-Policy: sandbox allow-scripts; default-src 'none'; style-src 'unsafe-inline' 'self' https:; script-src 'unsafe-inline' 'self' https:; img-src data: blob: 'self' https:; font-src data: 'self' https:; media-src data: blob: 'self' https:; form-action 'none'
 ```
 
-プレビュー オリジンの CSP はこの `sandbox` 段だけが `sandbox allow-scripts allow-same-origin allow-pointer-lock;` になる（`connect-src` はどちらにも足さない）。`PI_FILE_PREVIEW_PORT` が指すのはブラウザから見たポートで、待受は常に 4318。アプリ面の CSP は `frame-src 'self' http://*:<PI_FILE_PREVIEW_PORT>` を持ち、`'self'` は保存を OFF にした（隔離へ戻した）ときの同一オリジン フレームのために残す。
+プレビュー オリジンの CSP はこの `sandbox` 段だけが `sandbox allow-scripts allow-same-origin allow-pointer-lock;` になる（`connect-src` はどちらにも足さない）。`PI_FILE_PREVIEW_PORT` が指すのはブラウザから見たポートで、待受は `PI_FILE_PREVIEW_LISTEN_PORT`（既定 4318）で独立に決まる。アプリ面の CSP は `frame-src 'self' http://*:<PI_FILE_PREVIEW_PORT>` を持ち、`'self'` は保存を OFF にした（隔離へ戻した）ときの同一オリジン フレームのために残す。
 
 文書のエラーは iframe の中で読めるように HTML 文書で返し、サンドボックス由来の文言は HTML エスケープする。アセットのエラーは JSON で返す（サブリソースに `text/html` を返さない）。方式と残リスクは [file-preview.md](file-preview.md)。
 
