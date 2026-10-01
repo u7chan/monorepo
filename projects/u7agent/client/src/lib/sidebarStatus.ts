@@ -205,14 +205,42 @@ export function createSeenRunsStore(
   const notify = (): void => {
     for (const listener of listeners) listener();
   };
+  /**
+   * 保存値を取り込み、合流結果を保存値へ収束させる。書く直前に保存値を読み直すため、別タブの
+   * write を上書きしない (read-modify-write)。Web Storage には read-modify-write の排他がないので、
+   * 2 タブの write が重なると保存値に片方しか残らない。合流結果が保存値より進んでいるときだけ書き、
+   * 書き直しの連鎖を作らない。メモリの内容が変わったら true を返す
+   */
+  const converge = (): boolean => {
+    const target = resolveStorage();
+    const previous = state();
+    if (!target) return false;
+    let stored: SeenRuns;
+    try {
+      stored = decodeSeenRuns(target.getItem(SEEN_RUNS_KEY));
+    } catch {
+      return false;
+    }
+    const merged = mergeSeenRuns(stored, previous);
+    const changed = !sameSeenRuns(merged, previous);
+    if (changed) memory = merged;
+    if (sameSeenRuns(stored, merged)) return changed;
+    try {
+      target.setItem(SEEN_RUNS_KEY, encodeSeenRuns(merged));
+    } catch {
+      // 保存できない。次の mark / イベントでまた試す (ここでは再試行しない)
+    }
+    return changed;
+  };
   const attachEvents = (): void => {
     const target = resolveEvents();
     if (!target) return;
     const handler = (event: SeenStorageEvent): void => {
-      const next = applySeenStorageEvent(state(), event);
-      if (next === memory) return;
-      memory = next;
-      notify();
+      const previous = state();
+      const next = applySeenStorageEvent(previous, event);
+      if (next !== previous) memory = next;
+      // 取り込んだだけでは、競合した write で保存値に残った片方しか直らない。合流結果で収束させる
+      if (converge() || next !== previous) notify();
     };
     target.addEventListener("storage", handler);
     detachEvents = () => target.removeEventListener("storage", handler);
@@ -222,7 +250,12 @@ export function createSeenRunsStore(
     snapshot: state,
     subscribe(listener) {
       listeners.add(listener);
-      if (listeners.size === 1) attachEvents();
+      if (listeners.size === 1) {
+        attachEvents();
+        // 購読が外れている間の別タブの既読を取り込む (overlay 配置ではドロワーを閉じると Sidebar が
+        // unmount し、listener も外れるため、購読時に保存値を読み直さないと取りこぼす)
+        if (converge()) notify();
+      }
       return () => {
         listeners.delete(listener);
         if (listeners.size > 0) return;
@@ -232,20 +265,11 @@ export function createSeenRunsStore(
     },
     mark(sessionId, runId) {
       if (!sessionId || !runId) return;
-      const current = state();
-      if (isRunSeen(current, sessionId, runId)) return;
-      // 2 タブが別々の会話を既読にしても片方が落ちないよう、保存値を読み直してから和集合で書く
-      const merged = mergeSeenRuns(mergeSeenRuns(readStored(), current), new Map([[sessionId, [runId]]]));
-      memory = merged;
-      const target = resolveStorage();
-      if (target) {
-        try {
-          target.setItem(SEEN_RUNS_KEY, encodeSeenRuns(merged));
-        } catch {
-          // 保存できない。次の mark でまた試す (ここでは再試行しない)
-        }
-      }
-      notify();
+      const before = state();
+      if (!isRunSeen(before, sessionId, runId)) memory = mergeSeenRuns(before, new Map([[sessionId, [runId]]]));
+      // 既読の run でも、別タブの write と重なって保存値から落ちていることがある。早期 return すると
+      // リロードで未見が戻るため、保存値へ収束させる
+      if (converge() || memory !== before) notify();
     },
   };
 }
@@ -278,6 +302,16 @@ function capSeenSessions(state: SeenRuns): SeenRuns {
 function parseRunIds(value: unknown): string[] {
   if (!Array.isArray(value)) return [];
   return unionRunIds([], value);
+}
+
+/** 内容が同じか (会話の並び順は見ない)。書き直しと再描画を無駄に起こさないための比較 */
+function sameSeenRuns(a: ReadonlyMap<string, readonly string[]>, b: ReadonlyMap<string, readonly string[]>): boolean {
+  if (a.size !== b.size) return false;
+  for (const [sessionId, runIds] of a) {
+    const other = b.get(sessionId);
+    if (!other || !sameRunIds(runIds, other)) return false;
+  }
+  return true;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

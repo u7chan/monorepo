@@ -66,6 +66,27 @@ class MemoryStorage implements SeenRunsStorage {
   }
 }
 
+/**
+ * read と write の間に別タブの write を差し込む MemoryStorage。Web Storage には
+ * read-modify-write の排他が無いため、getItem が返す値を確定してから `interleave` を呼ぶ
+ */
+class RacyStorage implements SeenRunsStorage {
+  value: string | null = null;
+  interleave?: () => void;
+
+  getItem(): string | null {
+    const value = this.value;
+    const interleave = this.interleave;
+    this.interleave = undefined;
+    interleave?.();
+    return value;
+  }
+
+  setItem(_key: string, next: string): void {
+    this.value = next;
+  }
+}
+
 /** window の代わり。storage イベントを手で配る */
 class MemoryEvents implements SeenRunsEventTarget {
   listeners = new Set<(event: SeenStorageEvent) => void>();
@@ -301,6 +322,69 @@ test("storage イベントの購読は最初の購読者で張り、最後の解
   assert.equal(events.listeners.size, 1, "購読者が残っているのに listener を外している");
   unsubscribeB();
   assert.equal(events.listeners.size, 0, "最後の購読解除で listener を外していない");
+});
+
+test("2 タブの write が重なっても、合流した既読が保存値へ収束する (リロードで戻らない)", () => {
+  const storage = new RacyStorage();
+  const events = new MemoryEvents();
+  const tabA = createSeenRunsStore(storage, events);
+  const tabB = createSeenRunsStore(storage, events);
+  const unsubA = tabA.subscribe(() => {});
+  const unsubB = tabB.subscribe(() => {});
+  // 両タブが空の保存値を読む
+  assert.deepEqual(tabA.snapshot(), new Map());
+  assert.deepEqual(tabB.snapshot(), new Map());
+  // A の read と write の間に B の write (Y) を挟む = 後勝ちで保存値は A の X だけになる
+  storage.interleave = () => {
+    tabB.mark("s-y", "run-y");
+  };
+  tabA.mark("s-x", "run-x");
+  assert.equal(decodeSeenRuns(storage.value).has("s-y"), false, "前提: 競合で保存値から Y が落ちている");
+  // 遅れて届いた B の write をイベントで取り込み、合流結果を保存値へ収束させる
+  events.emit({ key: SEEN_RUNS_KEY, newValue: encodeSeenRuns(new Map([["s-y", ["run-y"]]])) });
+  const reloaded = createSeenRunsStore(storage, null).snapshot();
+  assert.deepEqual(reloaded.get("s-x"), ["run-x"]);
+  assert.deepEqual(reloaded.get("s-y"), ["run-y"], "リロードで Y のバッジが復活する");
+  unsubA();
+  unsubB();
+});
+
+test("storage イベントで取り込んだ既読も保存値へ収束する (競合した write の修復)", () => {
+  const storage = new MemoryStorage();
+  const events = new MemoryEvents();
+  const tab = createSeenRunsStore(storage, events);
+  tab.subscribe(() => {});
+  // このタブは X を既読にして保存値にも X がある
+  tab.mark("s-x", "run-x");
+  assert.equal(decodeSeenRuns(storage.value).has("s-y"), false);
+  // 競合した write で保存値から落ちていた他タブの既読 (Y) が storage イベントで届く。
+  // メモリだけでなく保存値も合流結果へ直さないと、リロードで Y のバッジが戻る
+  events.emit({ key: SEEN_RUNS_KEY, newValue: encodeSeenRuns(new Map([["s-y", ["run-y"]]])) });
+  assert.deepEqual(tab.snapshot().get("s-y"), ["run-y"]);
+  const stored = decodeSeenRuns(storage.value);
+  assert.deepEqual(stored.get("s-x"), ["run-x"]);
+  assert.deepEqual(stored.get("s-y"), ["run-y"], "取り込んだ既読が保存値へ書かれていない");
+});
+
+test("購読を張り直すと、外れている間の別タブの既読を取り込む (ドロワーを閉じた間)", () => {
+  const storage = new MemoryStorage();
+  const events = new MemoryEvents();
+  const sidebar = createSeenRunsStore(storage, events);
+  const other = createSeenRunsStore(storage, null);
+  const unsubscribe = sidebar.subscribe(() => {});
+  assert.equal(events.listeners.size, 1);
+  // React は描画で snapshot を読むため、購読中にメモリが初始化されている
+  assert.deepEqual(sidebar.snapshot(), new Map());
+  // overlay 配置ではドロワーを閉じると Sidebar が unmount し、最後の購読解除で listener も外れる
+  unsubscribe();
+  assert.equal(events.listeners.size, 0);
+  // その間の別タブの既読は storage イベントを受け取れない
+  other.mark("s-x", "run-x");
+  // 再購読では listener を張り直すだけでなく、保存値を読み直して合流する
+  const resubscribe = sidebar.subscribe(() => {});
+  assert.deepEqual(sidebar.snapshot().get("s-x"), ["run-x"]);
+  assert.equal(events.listeners.size, 1, "listener を張り直していない");
+  resubscribe();
 });
 
 test("保存領域が使えない環境はメモリだけへフォールバックする", () => {

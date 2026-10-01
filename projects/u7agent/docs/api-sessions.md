@@ -33,7 +33,7 @@
 
 `status` は `idle` / `running` / `queued` / `compacting` / `completed` / `stopped` / `error`（導出は [run-lifecycle.md](run-lifecycle.md#状態)）。`queued` は実行中の送信では返らず、`pump` を待つ 200ms の遷移でだけ現れる。
 
-`lastRun` は**最後に終わったラン**の要約（`{ id, status, endedAt }`。`status` は `completed` / `stopped` / `error` の 3 種）で、一度も終わっていない会話はキーを省略する。実行中のランは入れない（再起動で走っていないランを復元しないため）ので、実行中は前回の値を返し、終了時の保存でそのランへ更新される。SWEEP / 再起動後も `meta.json` の値から同じ形で返る。サイドバーの「未見の結果」はこの `id` を端末の既読集合と突き合わせて出すため、表示の寿命は `status` の寿命（BFF のメモリ）とは別になる（[ui-layout.md](ui-layout.md#サイドバー)、[frontend.md](frontend.md#保存キーと保存範囲)）。
+`lastRun` は**最後に終わったラン**の要約（`{ id, status, endedAt }`。`status` は `completed` / `stopped` / `error` の 3 種）で、一度も終わっていない会話はキーを省略する。実行中のランは入れない（再起動で走っていないランを復元しないため）ので、実行中は前回の値を返し、ランが終わった時点でそのランへ進む（meta への保存が詰まっていても、一覧は BFF の record が控えた終端を返す）。SWEEP / 再起動後も `meta.json` の値から同じ形で返る。サイドバーの「未見の結果」はこの `id` を端末の既読集合と突き合わせて出すため、表示の寿命は `status` の寿命（BFF のメモリ）とは別になる（[ui-layout.md](ui-layout.md#サイドバー)、[frontend.md](frontend.md#保存キーと保存範囲)）。
 
 ## `POST /api/sessions`
 

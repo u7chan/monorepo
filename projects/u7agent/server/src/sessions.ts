@@ -979,8 +979,9 @@ export class SessionStore {
     return projectSessionSummary({
       record,
       status: this.statusOf(record),
-      // live な record でも run は null になり得る (再起動直後の loadSession)。meta へ落として未見を消さない
-      lastRun: terminalRunSummary(record.run) ?? record.meta.lastRun,
+      // live な record でも run は null になり得る (再起動直後の loadSession)。record 側 (保存待ちの終端) と
+      // meta へ順に落ち、未見の結果を保存の完了まで待たせない
+      lastRun: terminalRunSummary(record.run) ?? record.lastRun ?? record.meta.lastRun,
       projectId: this.projectIdOf(record),
       masker: this.masker,
     });
@@ -1123,8 +1124,9 @@ export class SessionStore {
         delete meta.projectCwd;
         delete meta.projectName;
       }
-      // 終端したランだけを書く (実行中に上書きすると、再起動で走っていないランが lastRun に残る)
-      const lastRun = terminalRunSummary(record.run);
+      // 終端したランだけを書く (実行中に上書きすると、再起動で走っていないランが lastRun に残る)。
+      // 保存は record.run が次のランへ差し替わった後に実行され得るため、record 側の控えも見る
+      const lastRun = terminalRunSummary(record.run) ?? record.lastRun;
       if (lastRun) meta.lastRun = lastRun;
       // record.meta の古い値を残さない (Off へ戻した会話が再起動で On に戻らないように)
       if (record.notify) meta.notify = true;
@@ -1267,6 +1269,10 @@ export class SessionStore {
       const wasStopped = stopped || run.stopRequested === true;
       run.status = wasStopped ? "stopped" : error ? "error" : "completed";
       run.endedAt = Date.now();
+      // 保存タスクは実行時に record.run を読むため、キューから次のランが始まると終端を拾えない。
+      // 確定したここで record へ控え、保存待ちの persist と一覧のフォールバックが同じ値を見る
+      const ended = terminalRunSummary(run);
+      if (ended) record.lastRun = ended;
       // アクティブな再試行は終了で消す。累計は結果表示のため残す
       delete run.retry;
       if (error) run.error = this.masker.mask(composeRunError(error, run.totalRetryCount));

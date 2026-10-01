@@ -115,6 +115,45 @@ test("persist は終端したランだけを書き、実行中は前回の lastR
   }
 });
 
+test("保存キューが詰まっていても、次のランが始まる前に終わったランを lastRun として保つ", async () => {
+  const storeDir = await mkdtemp(join(tmpdir(), "u7agent-last-run-queued-"));
+  try {
+    const store = createStore(storeDir, createStubPi({ chunkDelayMs: 120 }));
+    const record = await store.create();
+    // 保存キューを保留し、A の終了保存が実行されないまま次のランが始まる状況を作る (実際は保存が
+    // 詰まっているときの順序)
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    record.persistTail = held;
+
+    const runA = store.postMessage(record, "A").runId;
+    // 実行中に送った B はキューに積まれ、A の終了の 200ms 後に次のランとして始まる
+    const runB = store.postMessage(record, "B").runId;
+    assert.ok(runA && runB && runA !== runB);
+
+    await waitFor(() => record.run?.id === runB, 4000, "run B started");
+    assert.equal(record.run?.status, "running");
+    // 保存が終わっていなくても、一覧は直前に終わった A を返す
+    assert.equal(store.list()[0].lastRun?.id, runA, "次のランで lastRun が消えている");
+
+    // 保留した保存を解放すると、B の実行中でも A が meta へ書かれる (実行中のランで上書きしない)
+    release();
+    await store.flush(record);
+    assert.equal(lastRunOf(await readMeta(record.id, storeDir))?.id, runA, "実行中の保存で A が消えている");
+
+    // B が終われば lastRun は B に進む
+    await waitFor(() => record.run?.status === "completed", 4000, "run B completed");
+    await store.flush(record);
+    assert.equal(lastRunOf(await readMeta(record.id, storeDir))?.id, runB);
+    assert.equal(store.list()[0].lastRun?.id, runB);
+    await store.close();
+  } finally {
+    await rm(storeDir, { recursive: true, force: true });
+  }
+});
+
 test("再起動後は meta.lastRun から一覧が復元され、live な record でも run は null のまま保たれる", async () => {
   const storeDir = await mkdtemp(join(tmpdir(), "u7agent-last-run-restart-"));
   try {

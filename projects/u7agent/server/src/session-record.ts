@@ -6,6 +6,7 @@ import type {
   AgentPayloadInfo,
   CompactionReason,
   EventEntry,
+  LastRunSummary,
   MessageMetrics,
   ModelRef,
   RunErrorCode,
@@ -91,6 +92,11 @@ export interface SessionRecord {
   subscribers: Set<SessionSubscriber>;
   queue: QueuedMessage[];
   run: RunState | null;
+  /**
+   * 最後に終わったラン。meta / 一覧の保存は `persist()` のタスクが実行された時点で行われるため、
+   * 次のランに `run` が差し替わった後でも終端を書けるよう record 側で控える
+   */
+  lastRun?: LastRunSummary;
   tools: Map<string, ToolCall>;
   /** SDK のメッセージオブジェクト -> BFF 計測の応答時間 (履歴へ写すときに同じ参照で引く) */
   messageMetrics: WeakMap<object, MessageMetrics>;
