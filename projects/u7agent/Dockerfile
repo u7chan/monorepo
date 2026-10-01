@@ -26,6 +26,8 @@ COPY server/ ./server/
 # CI: no credentials or live model calls; API tests use a stub runtime.
 FROM dependencies AS test
 COPY --from=fd /usr/local/bin/fd /usr/local/bin/fd
+# server のテストがルートの scripts/dev.mjs を読む (dependencies は client/ と server/ しか持たない)
+COPY scripts/dev.mjs ./scripts/dev.mjs
 ARG COMMIT_HASH=""
 ENV COMMIT_HASH=${COMMIT_HASH}
 RUN pnpm check

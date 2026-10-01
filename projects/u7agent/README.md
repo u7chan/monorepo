@@ -68,7 +68,7 @@ pnpm dev   # サンドボックス + BFF + Vite をまとめて起動 → http:/
 | `PI_SANDBOX_URL` / `PI_SANDBOX_TOKEN` | 外部のサンドボックスへ繋ぐ場合のみ（`pnpm dev` は自動で設定） |
 | `PI_SECRET_ENV_VARS` | 追加でマスクする独自の秘密環境変数 |
 
-プレビュー オリジンの 2 つの env は 1〜65535 の整数以外だと起動時にエラーで停止します。`pnpm dev` は待受とブラウザから見た値を同じ値に揃える（`PI_FILE_PREVIEW_PORT` を正とし、待受 env しか無いときはその値へ寄せる）ので、同じマシンで 2 つ目の dev を立てるときは `PI_FILE_PREVIEW_PORT=4319 pnpm dev` で済みます。**ポートを変えるとプレビューの `localStorage` の保存領域も別になる**点に注意してください（[docs/file-preview.md](docs/file-preview.md#隔離csp-と-sandbox)）。
+プレビュー オリジンの 2 つの env は 1〜65535 の整数以外だと起動時にエラーで停止します。`pnpm dev` は待受とブラウザから見た値を同じ値に揃える（`PI_FILE_PREVIEW_PORT` を正とし、待受 env しか無いときはその値へ寄せる）ので、`PI_FILE_PREVIEW_PORT=4319 pnpm dev` はプレビュー オリジンだけを 4319 にできます。**`pnpm dev` をもう 1 つ並行して起動するには、プレビュー以外のポートも別にする必要があります**（サンドボックス `SANDBOX_PORT` / BFF `PORT`。Vite は `strictPort` の 3000 で `pnpm dev` からは変えられないため、Vite まで分けるときは `pnpm dev:bff` と `pnpm dev:web --port <n>` を別々に起動します）。**ポートを変えるとプレビューの `localStorage` の保存領域も別になる**点に注意してください（[docs/file-preview.md](docs/file-preview.md#隔離csp-と-sandbox)）。
 
 **利用可能なモデル**と**アプリ既定モデル**、プロバイダーAPIキーは起動後に **設定 → モデル** から設定するのが既定です（アプリのデータベースへ保存し、再起動せずにモデル候補へ反映します）。選択の入口は GUI に一本化したため、`PI_MODEL` / `PI_MODELS` / `PI_PROVIDER` は読みません（設定されていても無視し、画面と起動ログに移行を促します）。プロバイダーAPIキーを環境変数（`.env`）や `~/.pi/agent/auth.json` で渡す場合は、これまでどおり再起動が必要です。移行の手順と残存リスクは [docs/model-settings.md](docs/model-settings.md) を参照してください。
 
