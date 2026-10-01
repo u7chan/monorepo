@@ -258,7 +258,7 @@ export function createRunEventBridge(deps: RunEventBridgeDeps): RunEventBridge {
           break;
         }
         case "tool_execution_end": {
-          const output = toolResultSummary(event.result, masker, cwd);
+          const output = toolResultSummary(event.result, masker);
           const tool = tools.get(event.toolCallId ?? "");
           if (tool) {
             tool.done = true;

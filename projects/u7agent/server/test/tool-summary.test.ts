@@ -1,18 +1,12 @@
-// ツール履歴 (引数 / 出力) の表示文字列。cwd 配下の絶対パスは `./` 付きの cwd 相対へ畳み、cwd の外は
-// 絶対のまま残す (root 相対へ寄せると基準が 2 つになり、`lib/x.js` がどちらの基準か読めなくなる)。
-// 表示文字列はコピーにもそのまま使われるため、畳む条件 (値 / トークンの境界) とマスクとの順序が
-// そのままコピーした値の正しさになる。
+// ツール履歴の表示文字列。畳むのはツール契約で値がパスと決まっている引数 (path / file_path / filePath)
+// だけで、本文 (command / output / JSON) は書き換えない。本文の `<cwd>/…` に見える語はパスとは限らず
+// (grep の検索語、case / [ ] の照合語)、書き換えるとコピーしたコマンドの挙動が変わるため。
+// 表示文字列はコピーにもそのまま使われるので、畳む条件とマスクとの順序がそのまま値の正しさになる。
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createSecretMasker, REDACTED } from "../src/redact";
 import { createRunEventBridge } from "../src/run-events";
-import {
-  cwdRelativePath,
-  cwdRelativeText,
-  projectMessages,
-  toolArgsSummary,
-  toolResultSummary,
-} from "../src/session-projection";
+import { cwdRelativePath, projectMessages, toolArgsSummary, toolResultSummary } from "../src/session-projection";
 import type { MessageMetrics, ToolCall } from "../src/schema";
 import type { PiSessionEvent, PiSessionLike } from "../src/sessions";
 
@@ -47,96 +41,42 @@ test("cwdRelativePath は値全体が 1 つのパスの引数だけを前置き�
   assert.equal(cwdRelativePath("/a/b.js", ""), "/a/b.js");
 });
 
-test("cwdRelativeText は引用符・エスケープ・改行の無い本文だけを畳む", () => {
-  assert.equal(cwdRelativeText(`saved ${CWD}/a.js`, CWD), "saved ./a.js");
-  assert.equal(cwdRelativeText(`cd ${CWD}/lib && npm test`, CWD), "cd ./lib && npm test");
-  assert.equal(cwdRelativeText(`${CWD}/a.js -> ${CWD}/b.js`, CWD), "./a.js -> ./b.js");
-  assert.equal(cwdRelativeText(`${CWD}/lib/x.js, ok`, CWD), "./lib/x.js, ok");
-  assert.equal(cwdRelativeText(`in ${CWD}/my file.txt`, CWD), "in ./my file.txt");
-  // 接頭辞が同じだけの別のパス / cwd の外 / 元から相対はそのまま
-  // (cwd 自身も畳まない: 空白は語の区切りともパスに含まれる空白とも読める)
-  for (const body of [
-    `${CWD}`,
-    `cd ${CWD} && npm test`,
-    `${CWD}+backup/a.txt`,
-    `${CWD}-old/a.txt`,
-    `${CWD} copy/a.txt`,
-    `${CWD}#old/a.txt`,
-    `/mnt${CWD}/a.txt`,
-    `assets@${CWD}/a.txt`,
-    `sqlite:${CWD}/private.db`,
-    `foo${CWD}/a.txt`,
-  ]) {
-    assert.equal(cwdRelativeText(body, CWD), body);
-  }
-  // 引用符・バックスラッシュ・改行があると、語の境界がシェルの解釈で変わるため畳まない
-  for (const body of [
-    `ls "${CWD}/lib"`,
-    `cat '${CWD}/a.txt'`,
-    `cat "${CWD}/a.txt`,
-    `cat "(${CWD}/a.txt)"`,
-    `cat "backup ${CWD}/a.txt"`,
-    `cat backup\\ ${CWD}/a.txt`,
-    `cat "backup \\" ${CWD}/a.txt suffix"`,
-    `cat $'${CWD}/a.txt'`,
-    `cat \`${CWD}/a.txt\``,
-    `cat > f <<EOF\n${CWD}/a.txt\nEOF`,
-    `first\n${CWD}/a.txt`,
-    `${CWD}/a.js\n${CWD}/b.js`,
-  ]) {
-    assert.equal(cwdRelativeText(body, CWD), body);
-  }
-  // cwd 未確定 ("") は root と同義なので畳まない
-  assert.equal(cwdRelativeText("/a/b.js", ""), "/a/b.js");
-});
-
-test("toolArgsSummary は引数の形ごとに cwd 相対へ畳む", () => {
+test("toolArgsSummary はパスの引数だけを畳み、本文は書き換えない", () => {
   assert.equal(toolArgsSummary({ path: `${CWD}/lib/engine/physics2d.js` }, masker, CWD), "./lib/engine/physics2d.js");
   assert.equal(toolArgsSummary({ file_path: CWD }, masker, CWD), ".");
   assert.equal(toolArgsSummary({ file_path: `${CWD}/lib/x.js`, offset: 3 }, masker, CWD), "./lib/x.js");
   assert.equal(toolArgsSummary({ file_path: "lib/engine/physics2d.js" }, masker, CWD), "lib/engine/physics2d.js");
   assert.equal(toolArgsSummary({ path: `${CWD}+backup/a.txt` }, masker, CWD), `${CWD}+backup/a.txt`);
-  assert.equal(toolArgsSummary({ command: `cd ${CWD}/lib && rg -n fix .` }, masker, CWD), "$ cd ./lib && rg -n fix .");
-  assert.equal(toolArgsSummary({ command: `cat "(${CWD}/a.txt)"` }, masker, CWD), `$ cat "(${CWD}/a.txt)"`);
-  assert.equal(toolArgsSummary({ command: `cat "backup ${CWD}/a.txt"` }, masker, CWD), `$ cat "backup ${CWD}/a.txt"`);
-  assert.equal(toolArgsSummary({ command: `cat backup\\ ${CWD}/a.txt` }, masker, CWD), `$ cat backup\\ ${CWD}/a.txt`);
-  assert.equal(toolArgsSummary({ command: `ls ${CWD}` }, masker, CWD), `$ ls ${CWD}`);
-  // JSON フォールバック (path / command を持たないツール) は畳まない
+  // command も JSON フォールバックも畳まない
+  assert.equal(toolArgsSummary({ command: `cd ${CWD}/lib && npm test` }, masker, CWD), `$ cd ${CWD}/lib && npm test`);
   assert.equal(toolArgsSummary({ unknown: `${CWD}/x.js` }, masker, CWD), `{"unknown":"${CWD}/x.js"}`);
   assert.equal(toolArgsSummary({ glob: `${CWD}/**/*.ts` }, masker, CWD), `{"glob":"${CWD}/**/*.ts"}`);
 });
 
-test("toolResultSummary は出力本文中の絶対パスも畳む", () => {
+test("toolResultSummary は出力を書き換えずマスクだけを掛ける", () => {
   const body = `Successfully replaced 1 block(s) in ${CWD}/lib/engine/physics2d.js`;
-  assert.equal(
-    toolResultSummary({ content: [text(body)] }, masker, CWD),
-    "Successfully replaced 1 block(s) in ./lib/engine/physics2d.js",
-  );
-  assert.equal(
-    toolResultSummary({ content: [text(`Successfully wrote to ${CWD}/my file.txt`)] }, masker, CWD),
-    "Successfully wrote to ./my file.txt",
-  );
-  // 引用符を含む出力は、語の境界をシェルの解釈から決められないので畳まない
-  assert.equal(
-    toolResultSummary({ content: [text(`open '${CWD}/my file.txt' failed`)] }, masker, CWD),
-    `open '${CWD}/my file.txt' failed`,
-  );
+  assert.equal(toolResultSummary({ content: [text(body)] }, masker), body);
+  // 本文の `<cwd>/…` はパスとは限らない (grep の検索語 / case のパターン / 文字列比較)
+  for (const body of [
+    `$ grep -n -F ${CWD}/lib/a.txt ${CWD}/haystack.txt`,
+    `f=${CWD}/lib/a.txt; case $f in ${CWD}/*) echo inside;; esac`,
+    `f=${CWD}/lib/a.txt; [ $f = ${CWD}/lib/a.txt ] && echo equal`,
+  ]) {
+    assert.equal(toolArgsSummary({ command: body }, masker, CWD), `$ ${body}`);
+    assert.equal(toolResultSummary({ content: [text(body)] }, masker), body);
+  }
 });
 
-test("相対化はマスクの後に当て、cwd をまたぐ秘密値も漏らさない", () => {
+test("マスクは畳む前後どちらでも秘密値を落とす", () => {
   const secret = `sqlite:${CWD}/private.db?key=dummy-password-12345678`;
   const masking = createSecretMasker([secret]);
-  // 完全一致マスクの後に畳むため、cwd をまたぐ秘密値はそのまま [REDACTED] になる
+  // cwd をまたぐ秘密値は、畳む前にマスクされるので [REDACTED] のまま残る
   assert.equal(toolArgsSummary({ command: `connect "${secret}"` }, masking, CWD), '$ connect "[REDACTED]"');
-  assert.equal(toolResultSummary({ content: [text(`dsn ${secret}`)] }, masking, CWD), "dsn [REDACTED]");
-  // 秘密値がパスの内側にあるときは、畳んだ後の文字列にもマスクが掛かる
+  assert.equal(toolResultSummary({ content: [text(`dsn ${secret}`)] }, masking), "dsn [REDACTED]");
+  // 秘密値がパスの引数の内側にあるときは、畳んだ後の値もマスクされる
   const key = "sk-display-dummy-0123456789";
   const withKey = createSecretMasker([key]);
   assert.equal(toolArgsSummary({ path: `${CWD}/keys/${key}.txt` }, withKey, CWD), `./keys/${REDACTED}.txt`);
-  assert.equal(
-    toolResultSummary({ content: [text(`saved ${CWD}/out.json with ${key}`)] }, withKey, CWD),
-    `saved ./out.json with ${REDACTED}`,
-  );
   // JSON フォールバックの文書全体が秘密値のときも、畳まないので完全一致マスクがそのまま効く
   const document = `{"glob":"${CWD}/**/*.ts","pattern":"dummy-password-12345678"}`;
   assert.equal(toolArgsSummary(JSON.parse(document), createSecretMasker([document]), CWD), REDACTED);
@@ -144,7 +84,7 @@ test("相対化はマスクの後に当て、cwd をまたぐ秘密値も漏ら�
   assert.equal(toolArgsSummary({ [key]: 1 }, withKey, CWD), '{"[REDACTED]":1}');
 });
 
-test("履歴のツールカードはセッション cwd で相対化した引数と出力を持つ", () => {
+test("履歴のツールカードはセッション cwd で相対化した引数を持つ", () => {
   const messages = [
     { role: "user", content: "直して", timestamp: 1 },
     {
@@ -167,10 +107,13 @@ test("履歴のツールカードはセッション cwd で相対化した引数
   const session = { messages } as unknown as PiSessionLike;
   const projected = projectMessages(session, new WeakMap<object, MessageMetrics>(), masker, CWD);
   assert.deepEqual(projected.at(-1)?.tools?.[0]?.args, "./lib/engine/physics2d.js");
-  assert.equal(projected.at(-1)?.tools?.[0]?.output, "Successfully replaced 1 block(s) in ./lib/engine/physics2d.js");
+  assert.equal(
+    projected.at(-1)?.tools?.[0]?.output,
+    `Successfully replaced 1 block(s) in ${CWD}/lib/engine/physics2d.js`,
+  );
 });
 
-test("ライブの tool_start / tool_end も履歴と同じ cwd 相対の文字列を配る", () => {
+test("ライブの tool_start / tool_end も履歴と同じ文字列を配る", () => {
   const events: Array<{ type: string; data: unknown }> = [];
   const bridge = createRunEventBridge({
     session: { messages: [] } as unknown as PiSessionLike,
@@ -203,5 +146,5 @@ test("ライブの tool_start / tool_end も履歴と同じ cwd 相対の文字�
   const started = events.find((event) => event.type === "tool_start")?.data as { args: string } | undefined;
   const ended = events.find((event) => event.type === "tool_end")?.data as { output: string } | undefined;
   assert.equal(started?.args, "./lib/engine/physics2d.js");
-  assert.equal(ended?.output, "Successfully replaced 1 block(s) in ./lib/engine/physics2d.js");
+  assert.equal(ended?.output, `Successfully replaced 1 block(s) in ${CWD}/lib/engine/physics2d.js`);
 });

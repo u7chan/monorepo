@@ -197,7 +197,7 @@ test("長い path でも使用モデルは投影の切詰め内に残る", async
   const longDir = Array.from({ length: 5 }, () => "d".repeat(180)).join("/");
   const text = await run(tool({ capture, settings }), { prompt: "cafe", path: `${longDir}/cafe.png` });
   // ライブ / 復元後のツール履歴と同じ投影を通してもモデル行が見える
-  const projected = toolResultSummary({ content: [{ type: "text", text }] }, createMutableSecretMasker([]), "/tmp/cwd");
+  const projected = toolResultSummary({ content: [{ type: "text", text }] }, createMutableSecretMasker([]));
   assert.ok(projected.includes("モデル: openai/gpt-image-2"), projected.slice(0, 120));
 });
 

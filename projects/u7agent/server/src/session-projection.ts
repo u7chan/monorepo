@@ -36,26 +36,7 @@ function cwdPrefix(cwd: string): string {
 }
 
 /**
- * 本文の畳み込みを許す条件。引用符・バックスラッシュ・改行があると、空白で区切った語がシェルの
- * 引用・エスケープ・ヒアドキュメントで別の語になり得て、語の境界をテキストからは決められない。
- * 畳まない側に倒しても表示が長くなるだけで、コピーした値が別のパスを指す危険は無くなる。
- */
-const FOLDABLE_TEXT = /^[^"'`\\\r\n]*$/;
-
-/**
- * 表示用: 語の先頭が cwd 配下のパス (`<cwd>/x`) のときだけ `./` 付きの cwd 相対へ畳む。
- * マスク後の文字列に当てる (先に畳むと cwd をまたぐ秘密値が完全一致しなくなり、後段のマスクを
- * すり抜ける)。cwd 自身は畳まない: 本文の空白は「語の区切り」とも「パスに含まれる空白」とも読め、
- * `<cwd> copy` のような別のパスを畳んでしまう。
- */
-export function cwdRelativeText(text: string, cwd: string): string {
-  const base = cwdPrefix(cwd);
-  if (base === "" || !FOLDABLE_TEXT.test(text) || !text.includes(`${base}/`)) return text;
-  return text.replace(/\S+/g, (token) => (token.startsWith(`${base}/`) ? `./${token.slice(base.length + 1)}` : token));
-}
-
-/**
- * 構造化されたパスの値用: 値全体が 1 つのパスなので、字種に依存せず前置きの一致だけで判定できる。
+ * 構造化されたパスの値用: 値全体が 1 つのパスなので、前置きの一致だけで判定できる。
  * cwd 自身は `.`、cwd 配下は `./` 付きの cwd 相対、cwd の外はそのまま (`<cwd>+backup` のような
  * 接頭辞が同じだけの別のパスを含む)。
  */
@@ -71,12 +52,13 @@ export function toolArgsSummary(args: unknown, masker: SecretMasker, cwd: string
   if (!args || typeof args !== "object") return "";
   const record = args as Record<string, unknown>;
   if (typeof record.command === "string") {
-    return `$ ${truncate(cwdRelativeText(masker.mask(record.command), cwd), ARGS_TEXT_MAX)}`;
+    return `$ ${truncate(masker.mask(record.command), ARGS_TEXT_MAX)}`;
   }
+  // 畳むのはツール契約で値がパスと決まっている引数だけにする。本文 (command / output / JSON) の
+  // `<cwd>/…` に見える語はパスとは限らず (grep の検索語、case / [ ] の照合語)、`./…` へ書き換えると
+  // コピーしたコマンドの挙動が変わる。
   const path = record.path || record.file_path || record.filePath;
   if (typeof path === "string") return cwdRelativePath(masker.mask(path), cwd);
-  // JSON フォールバック (path / command を持たないツール) は畳まない: 文書全体が秘密値のときに
-  // 値の書き換えが完全一致マスクを壊し、値を 1 つずつ畳んでも構文からパスかどうかは決められない。
   try {
     return truncate(masker.mask(JSON.stringify(args)), ARGS_TEXT_MAX);
   } catch {
@@ -84,10 +66,9 @@ export function toolArgsSummary(args: unknown, masker: SecretMasker, cwd: string
   }
 }
 
-export function toolResultSummary(result: unknown, masker: SecretMasker, cwd: string): string {
+export function toolResultSummary(result: unknown, masker: SecretMasker): string {
   // SDK 側の切り詰めで先頭が欠けた場合に備え maskSafe を使う。
-  const text = contentText((result as { content?: unknown } | null)?.content);
-  return truncate(cwdRelativeText(masker.maskSafe(text), cwd), SUMMARY_TEXT_MAX);
+  return truncate(masker.maskSafe(contentText((result as { content?: unknown } | null)?.content)), SUMMARY_TEXT_MAX);
 }
 
 /**
@@ -228,7 +209,7 @@ function toolCallsOf(
       args: toolArgsSummary(call.arguments, masker, cwd),
       isError: result.isError === true,
       done: true,
-      output: toolResultSummary(result, masker, cwd),
+      output: toolResultSummary(result, masker),
     });
   }
   return calls;
