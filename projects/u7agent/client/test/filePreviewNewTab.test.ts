@@ -1,9 +1,9 @@
 // HTML プレビューの「新しいタブで開く」を成立させている実装を突き合わせる。どれかが崩れると、見えている本文と
-// 違う文書が開く / 相対アセットの基準が iframe とずれる / 別タブで保存が使えない、のどれかになる。
+// 違う文書が開く / 相対アセットの基準が iframe とずれる / 別タブで localStorage が使えない、のどれかになる。
 // どれも型では防げない。
 //   1. 出すのはプレビュー中だけ。置き場はパス行
 //   2. 開く先は別オリジン (fileStoragePreviewUrl) の同じ html ルート。ポート未取得の間だけ同一オリジンへ倒す
-//      (別タブを出す目的が localStorage を使えることなので、iframe の保存スイッチとは連動させない)
+//      (別タブを出す目的が localStorage を使えることなので、iframe の別オリジンのスイッチとは連動させない)
 //   3. target="_blank" と rel="noreferrer noopener" を持つ (window.open は使わない)
 //   4. アイコンだけのリンクなので aria-label / title で名前を持たせる
 import assert from "node:assert/strict";
@@ -37,7 +37,7 @@ test("iframe と同じ html ルートを別オリジンで開き、相対アセ�
     /fileStoragePreviewUrl\(fetchPath, filePreviewPort\)/,
     "有効モードの iframe URL を使っていない",
   );
-  // 新しいタブは常に別オリジン (保存を有効にした側)。ポート未取得の間だけ同一オリジンへ倒す
+  // 新しいタブは常に別オリジン (ストレージ有効側)。ポート未取得の間だけ同一オリジンへ倒す
   assert.match(
     preview,
     /const newTabSrc =\s*\n\s*filePreviewPort === undefined \? fileHtmlPreviewUrl\(fetchPath\) : fileStoragePreviewUrl\(fetchPath, filePreviewPort\)/,

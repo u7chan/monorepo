@@ -1,4 +1,4 @@
-// client に DOM テスト基盤が無いため、iframe の属性と保存スイッチの状態は react-dom/server の静的描画で固定し、
+// client に DOM テスト基盤が無いため、iframe の属性と別オリジンのスイッチの状態は react-dom/server の静的描画で固定し、
 // 配線はソース走査で固定する (sandbox フラグが読まれる時点は DOM の実挙動なので E2E で見る)。
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
@@ -38,35 +38,44 @@ function renderPreview(overrides: Partial<FilePreviewProps> = {}): string {
   );
 }
 
-/** パス行の保存スイッチの開始タグ (ラベルまで)。属性の並びに依存しない */
-function storageSwitchTag(html: string): string {
-  const label = html.indexOf(">保存<");
-  assert.ok(label > 0, "保存スイッチが描画されていない");
+/** パス行の別オリジンのスイッチの開始タグ (ラベルまで)。属性の並びに依存しない */
+function originSwitchTag(html: string): string {
+  const label = html.indexOf(">別オリジン<");
+  assert.ok(label > 0, "別オリジンのスイッチが描画されていない");
   return html.slice(html.lastIndexOf("<button", label), label);
 }
 
-test("既定は保存を有効にした別オリジンで、スイッチは ON", () => {
+test("既定は別オリジンで、スイッチは ON", () => {
   const html = renderPreview();
   // CSP と両方に同じフラグを書く (片方だけ緩めてもオペークのまま)
   assert.match(html, /sandbox="allow-scripts allow-same-origin allow-pointer-lock"/, "既定の sandbox 属性が違う");
   assert.match(html, /src="http:\/\/localhost:4318\/api\/files\/html\/chart\.html"/, "既定の src が別オリジンでない");
-  const toggle = storageSwitchTag(html);
+  const toggle = originSwitchTag(html);
   assert.ok(toggle.includes('role="switch"'), "スイッチになっていない");
   assert.ok(toggle.includes('aria-checked="true"'), "既定なのに OFF の表示になっている");
   assert.ok(!toggle.includes('disabled=""'), "ポートがあるのに切替が無効になっている");
+  // ラベルは配信元 (別オリジン) を名指し、押した結果 (localStorage などが使えなくなる) は title で補う
+  assert.ok(
+    toggle.includes('title="アプリと同じオリジンで開き直し、localStorage などを使えなくします"'),
+    "ON のスイッチの title が押した結果になっていない",
+  );
 });
 
 test("隔離へ戻す選択はアプリ オリジンの src と allow-scripts を使う", () => {
   const html = renderPreview({ origins: { "chart.html": "app" } });
   assert.match(html, /sandbox="allow-scripts"/, "隔離モードの sandbox 属性が違う");
   assert.match(html, /src="http:\/\/localhost:3000\/api\/files\/html\/chart\.html"/, "隔離モードの src が違う");
-  const toggle = storageSwitchTag(html);
+  const toggle = originSwitchTag(html);
   assert.ok(toggle.includes('aria-checked="false"'), "隔離なのに ON の表示になっている");
   assert.ok(!toggle.includes('disabled=""'), "隔離モードなのに切替が無効になっている");
+  assert.ok(
+    toggle.includes('title="別オリジンで開き直し、localStorage などを使えるようにします"'),
+    "OFF のスイッチの title が押した結果になっていない",
+  );
 });
 
 test("新しいタブはパス行の切替と関係なく常に別オリジンで開く", () => {
-  // 保存を有効にしたオリジンで開くのが別タブを出す目的なので、iframe を隔離へ戻していても別オリジンを使う
+  // ストレージ有効モードで開くのが別タブを出す目的なので、iframe を隔離へ戻していても別オリジンを使う
   const href = /href="http:\/\/localhost:4318\/api\/files\/html\/chart\.html"/;
   assert.match(renderPreview(), href, "新しいタブが別オリジンで開かない");
   assert.match(renderPreview({ origins: { "chart.html": "app" } }), href, "隔離へ戻すと新しいタブも隔離になっている");
@@ -87,7 +96,7 @@ test("ポート未取得の間はスイッチを無効にし、ポートを焼�
     /href="http:\/\/localhost:3000\/api\/files\/html\/chart\.html"/,
     "ポート無しで別オリジンへ出そうとしている",
   );
-  const toggle = storageSwitchTag(html);
+  const toggle = originSwitchTag(html);
   assert.ok(toggle.includes('aria-checked="false"'), "実体と違って ON の表示になっている");
   assert.ok(toggle.includes('disabled=""'), "ポート未取得でも切替が押せる");
   assert.ok(!html.includes("4318"), "client にポートを焼き込んでいる");
