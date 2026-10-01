@@ -224,6 +224,7 @@ function renderProjectRow(open: boolean): string {
       sessions: [session],
       agents: [],
       sessionId: "s-1",
+      seenRuns: new Map(),
       open,
       onToggle: () => {},
       onNewChat: () => {},

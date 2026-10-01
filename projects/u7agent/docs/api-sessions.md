@@ -16,6 +16,7 @@
       "agentName": "汎用アシスタント",
       "status": "running",
       "queueDepth": 0,
+      "lastRun": { "id": "…", "status": "completed", "endedAt": 1700000000500 },
       "messageCount": 4,
       "createdAt": 1700000000000,
       "lastUsedAt": 1700000001000,
@@ -29,6 +30,10 @@
 `projectId` は所属プロジェクト（未所属はキーを省略する）。所属は保存された `projectCwd` をプロジェクト一覧と突き合わせて読み取り時に解決するため、プロジェクトを解除すると配下セッションは未所属として返る（セッションと履歴は残る）。復元したセッションも同じ規則で解決する。
 
 `messageCount` は表示メッセージ数（`user` と、テキストを持つ `assistant`。ツール呼び出しだけのターンは数えない）で、履歴の生件数ではない。未ロードのセッションは保存された `meta.json` の値、ロード済みは現在の履歴から数えた値を返す（ずれの扱いは [session-files.md](session-files.md)）。
+
+`status` は `idle` / `running` / `queued` / `compacting` / `completed` / `stopped` / `error`（導出は [run-lifecycle.md](run-lifecycle.md#状態)）。`queued` は実行中の送信では返らず、`pump` を待つ 200ms の遷移でだけ現れる。
+
+`lastRun` は**最後に終わったラン**の要約（`{ id, status, endedAt }`。`status` は `completed` / `stopped` / `error` の 3 種）で、一度も終わっていない会話はキーを省略する。実行中のランは入れない（再起動で走っていないランを復元しないため）ので、実行中は前回の値を返し、終了時の保存でそのランへ更新される。SWEEP / 再起動後も `meta.json` の値から同じ形で返る。サイドバーの「未見の結果」はこの `id` を端末の既読集合と突き合わせて出すため、表示の寿命は `status` の寿命（BFF のメモリ）とは別になる（[ui-layout.md](ui-layout.md#サイドバー)、[frontend.md](frontend.md#保存キーと保存範囲)）。
 
 ## `POST /api/sessions`
 

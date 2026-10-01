@@ -349,6 +349,17 @@ export const SessionPayloadSchema = z.object({
 });
 export type SessionPayload = z.infer<typeof SessionPayloadSchema>;
 
+/**
+ * 最後に終わったラン (終端 3 種だけ)。status に running を入れないのは、再起動後に
+ * 走っていないランを実行中として復元しないため。サイドバーは `id` を既読 (seen) と突き合わせる
+ */
+export const LastRunSummarySchema = z.object({
+  id: z.string(),
+  status: z.enum(["completed", "stopped", "error"]),
+  endedAt: z.number(),
+});
+export type LastRunSummary = z.infer<typeof LastRunSummarySchema>;
+
 export const SessionSummarySchema = z.object({
   sessionId: z.string(),
   title: z.string(),
@@ -358,6 +369,8 @@ export const SessionSummarySchema = z.object({
   queueDepth: z.number(),
   /** この会話の完了を Discord へ送るか。サーバーは常に載せ、読む側は省略を false として扱う */
   notify: z.boolean().optional(),
+  /** 最後に終わったラン。一度も終端していない / 旧 meta の会話はキーを省略する (未見なしとして扱う) */
+  lastRun: LastRunSummarySchema.optional(),
   messageCount: z.number(),
   createdAt: z.number(),
   lastUsedAt: z.number(),

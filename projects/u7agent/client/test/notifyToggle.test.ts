@@ -460,6 +460,7 @@ test("サイドバーのセッション行は On の会話だけ鳴っている�
         item: session,
         agents: [],
         active: false,
+        seenRuns: new Map(),
         onSelect: () => {},
         onRename: () => {},
         onDelete: () => {},

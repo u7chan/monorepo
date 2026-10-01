@@ -8,7 +8,7 @@ import { contextUsageOf } from "./pi-runtime";
 import type { SecretMasker } from "./redact";
 import type { SessionRecord } from "./session-record";
 import { displayableMessages, projectMessages, truncate } from "./session-projection";
-import type { RunStatus, SessionPayload, SessionSummary, ThinkingLevel } from "./schema";
+import type { LastRunSummary, RunStatus, SessionPayload, SessionSummary, ThinkingLevel } from "./schema";
 
 const PROMPT_TEXT_MAX = 300;
 
@@ -87,11 +87,14 @@ export function projectSessionSummary({
   record,
   status,
   projectId,
+  lastRun,
   masker,
 }: {
   record: SessionRecord;
   status: RunStatus;
   projectId?: string;
+  /** 最後に終わったラン。無い (一度も終端していない) 会話はキーを省略する */
+  lastRun?: LastRunSummary;
   masker: SecretMasker;
 }): SessionSummary {
   return {
@@ -102,6 +105,7 @@ export function projectSessionSummary({
     status,
     queueDepth: record.queue.length,
     notify: record.notify,
+    ...(lastRun ? { lastRun } : {}),
     messageCount: displayableMessages(record.session, masker).length,
     createdAt: record.createdAt,
     lastUsedAt: record.lastUsedAt,

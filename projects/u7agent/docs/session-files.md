@@ -66,13 +66,16 @@ $PI_SESSION_STORE/u7agent.db  # アプリデータ（プロジェクト / カタ
   "projectCwd": "projects/u7agent",
   "projectName": "u7agent",
   "model": "openai-codex/gpt-6-astra",
-  "thinkingLevel": "medium"
+  "thinkingLevel": "medium",
+  "lastRun": { "id": "f6a1…", "status": "completed", "endedAt": 1760000100000 }
 }
 ```
 
 - `promptSnapshot` は作成時の agent / skill 本文。定義を編集・削除しても復元後の実行内容を変えない（現行の「定義変更を遡及させない」と同じ）。`agent` は system prompt へ入れる。カタログのスキルはモデルのファイルスキルと混同させないため `<agent_skill name="…">` で本文を固定し、system prompt へは索引（name / description / 仮想パス）だけを `skillsOverride` で渡す。本文は必要時に `read` で読み、BFF がこのスナップショットから返す（形式の正は `server/src/agent.ts` の `composePromptSnapshot`、索引は `server/src/catalog-skills.ts`）。アプリ共通の system prompt は現行を使う（アプリ側の変更は全セッションに効く）。
 - ファイルスキル（`.agents/skills`）は `promptSnapshot` に含めない。SDK の `skillsOverride` でセッション作成・復元のたびに注入し、セッションが持つのは発見一覧・説明・優先順位だけ。本文は `read` 時点のファイル内容になる（[persistence.md](persistence.md#スキルの扱い)）。
-- `title` は最初のメッセージで作り、GUI の ⋯「名前を変更」（`PATCH /api/sessions/:id/title`）で上書きできる（正規化は自動タイトルと同じで、空・空白だけは 400。改名後は以降のメッセージで作り直さない。[api-sessions.md](api-sessions.md#patch-apisessionsidtitle)）。`lastUsedAt` / `messageCount` はラン終了時に更新する。`messageCount` は一覧 API と同じ表示メッセージ数（`user` と、テキストを持つ `assistant`）を数え、ツール呼び出しだけのターンは数えない。保存済みの値がこの定義と食い違う meta は、そのセッションを開いたときに書き戻す（[復元](#復元)）。
+- `title` は最初のメッセージで作り、GUI の ⋯「名前を変更」（`PATCH /api/sessions/:id/title`）で上書きできる（正規化は自動タイトルと同じで、空・空白だけは 400。改名後は以降のメッセージで作り直さない。[api-sessions.md](api-sessions.md#patch-apisessionsidtitle)）。`messageCount` は一覧 API と同じ表示メッセージ数（`user` と、テキストを持つ `assistant`）を数え、ツール呼び出しだけのターンは数えない。保存済みの値がこの定義と食い違う meta は、そのセッションを開いたときに書き戻す（[復元](#復元)）。
+- `lastUsedAt` は**送信（`POST /messages`）・ランの開始・停止・設定変更**で進める。ラン終了では進めない（進行中の長いランを終了時刻で延命しない。未見の表示は `lastRun` が担い、1 時間放置した会話も SWEEP の対象になり得る）。`messageCount` は保存（`persist()`）のたびに現在の履歴から数え直す。
+- `lastRun` は**最後に終わったランだけ**（`{ id, status, endedAt }`。`status` は `completed` / `stopped` / `error` に限る）。実行中は前回の値を保ち、実行中のランを書かない（再起動後に走っていないランを running として復元しないため）。壊れた値（`id` が文字列でない / 終端以外の `status` / `endedAt` が有限数でない）は読み込み時に捨て、その会話は「未見なし」になる。[run-lifecycle.md](run-lifecycle.md#状態)
 - 書込みは一時ファイル + rename で原子的に行い、id ごとの書込みキューで直列化する。読めない `meta.json` は壊れたセッションとして一覧から除外し、ログに残す（フォルダは消さない）。
 
 ## 会話の保存

@@ -42,6 +42,7 @@ function createHarness() {
     snapshots: [] as SessionPayload[],
     refreshed: 0,
     statuses: [] as RuntimeStatus[],
+    marked: [] as (string | undefined)[],
   };
   const dispatch: Dispatch<ChatAction> = (value) => {
     record.actions.push(value as ChatAction);
@@ -55,6 +56,9 @@ function createHarness() {
     refreshSessions: async (): Promise<SessionSummary[]> => {
       record.refreshed += 1;
       return [];
+    },
+    markRunSeen: (runId) => {
+      record.marked.push(runId);
     },
     setRuntimeStatus: (status) => {
       record.statuses.push(status);
@@ -113,6 +117,28 @@ test("refreshes the session list on queue changes", () => {
   applySessionEvent({ seq: 2, type: "run_end", data: { status: "completed", queueDepth: 0 }, at: 2 }, deps);
 
   assert.equal(record.refreshed, 2, "キュー残数と一覧の run 状態を揃える");
+});
+
+test("refreshes the session list on run_start so the row turns live before the polling", () => {
+  const { record, deps } = createHarness();
+
+  applySessionEvent({ seq: 1, type: "run_start", data: { runId: "r-1", prompt: "go", startedAt: 900 }, at: 1 }, deps);
+
+  assert.equal(record.refreshed, 1, "次のポーリング (4 秒) まで行が古いままになる");
+});
+
+test("marks the ended run as seen", () => {
+  const { record, deps } = createHarness();
+
+  applySessionEvent(
+    { seq: 1, type: "run_end", data: { runId: "r-1", status: "completed", queueDepth: 0 }, at: 1 },
+    deps,
+  );
+
+  assert.deepEqual(record.marked, ["r-1"], "選択中の会話に完了バッジを出してしまう");
+  // runId の無い旧イベントは mark しない (undefined を渡し、store 側が無視する)
+  applySessionEvent({ seq: 2, type: "run_end", data: { status: "completed", queueDepth: 0 }, at: 2 }, deps);
+  assert.deepEqual(record.marked, ["r-1", undefined]);
 });
 
 test("reports a failed run through runtimeStatus", () => {

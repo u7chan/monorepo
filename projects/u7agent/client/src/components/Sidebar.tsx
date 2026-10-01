@@ -1,9 +1,10 @@
-import { useState } from "react";
+import { useState, useSyncExternalStore } from "react";
 import type { SidebarResize } from "../hooks/useSidebarWidth";
 import type { U7Agent } from "../hooks/useU7Agent";
 import { cn } from "../lib/cn";
 import { type SettingsSection, type SidebarMode } from "../lib/settingsNav";
 import { groupSessionsByProject } from "../lib/sessionsByProject";
+import { seenRunsStore } from "../lib/sidebarStatus";
 import { sidebarProjectsStore } from "../lib/sidebarProjects";
 import { CloseIcon, GearIcon, PlusIcon } from "./icons";
 import { MenuItem } from "./MenuItem";
@@ -63,6 +64,9 @@ export function Sidebar({
     props;
   // 既定は畳み (保存値が無ければ空 = 全行 closed)。書き込みは Effect ではなくクリック時に済ませる
   const [expanded, setExpanded] = useState<string[]>(() => sidebarProjectsStore.read());
+  // 未見の判定は seen ストアを正とする。mark は useSessions が行い、ここは購読して再描画するだけ
+  // (別タブの storage イベントも store が合流して通知する)
+  const seenRuns = useSyncExternalStore(seenRunsStore.subscribe, seenRunsStore.snapshot, seenRunsStore.snapshot);
   const { groups, unassigned } = groupSessionsByProject(sessions, projects);
 
   /** 展開の集合を差し替えて保存する (末尾 = 今回開いた cwd) */
@@ -154,6 +158,7 @@ export function Sidebar({
                       sessions={group.sessions}
                       agents={agents}
                       sessionId={sessionId}
+                      seenRuns={seenRuns}
                       open={expanded.includes(group.project.cwd)}
                       onToggle={() => setProjectOpen(group.project.cwd, !expanded.includes(group.project.cwd))}
                       onNewChat={() => {
@@ -187,6 +192,7 @@ export function Sidebar({
                       item={item}
                       agents={agents}
                       active={item.sessionId === sessionId}
+                      seenRuns={seenRuns}
                       onSelect={() => selectSession(item.sessionId)}
                       onRename={() => renameSession(item.sessionId)}
                       onDelete={() => deleteSession(item.sessionId)}

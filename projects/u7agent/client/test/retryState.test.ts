@@ -270,6 +270,7 @@ test("routes run_retry SSE events to the reducer with the browser receipt time",
     },
     applySnapshot: () => {},
     refreshSessions: async () => [],
+    markRunSeen: () => {},
     setRuntimeStatus: () => {},
   };
   applySessionEvent(

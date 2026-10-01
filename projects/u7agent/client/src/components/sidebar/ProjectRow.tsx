@@ -1,4 +1,5 @@
 import { projectRowActions, type ProjectRowKind } from "../../lib/sidebarRowMenu";
+import type { SeenRuns } from "../../lib/sidebarStatus";
 import type { AgentDef, Project, SessionSummary } from "../../types";
 import { FolderIcon } from "../icons";
 import { RowMenu } from "../RowMenu";
@@ -9,6 +10,7 @@ export function ProjectRow({
   sessions,
   agents,
   sessionId,
+  seenRuns,
   open,
   onToggle,
   onNewChat,
@@ -21,6 +23,8 @@ export function ProjectRow({
   sessions: SessionSummary[];
   agents: AgentDef[];
   sessionId: string;
+  /** 既読の run id (会話 id -> run id)。配下の行へそのまま渡す */
+  seenRuns: SeenRuns;
   open: boolean;
   onToggle: () => void;
   onNewChat: () => void;
@@ -64,6 +68,7 @@ export function ProjectRow({
                 item={item}
                 agents={agents}
                 active={item.sessionId === sessionId}
+                seenRuns={seenRuns}
                 onSelect={() => onSelectSession(item.sessionId)}
                 onRename={() => onRenameSession(item.sessionId)}
                 onDelete={() => onDeleteSession(item.sessionId)}

@@ -56,6 +56,7 @@ import type {
   AgentSkillInfo,
   CompactionInfo,
   EventEntry,
+  LastRunSummary,
   ModelRef,
   Project,
   RunStatus,
@@ -145,6 +146,16 @@ function messageFor(error: unknown): string {
 function modelLabel(model?: { provider: string; id: string } | null): string | undefined {
   if (!model) return undefined;
   return `${model.provider}/${model.id}`;
+}
+
+/**
+ * 終端したランだけを一覧 / meta 用の要約へ落とす。実行中 (endedAt 無し) は undefined を返し、
+ * 呼び出し側は前回の `lastRun` を保つ
+ */
+function terminalRunSummary(run: RunState | null): LastRunSummary | undefined {
+  if (!run?.endedAt) return undefined;
+  if (run.status !== "completed" && run.status !== "stopped" && run.status !== "error") return undefined;
+  return { id: run.id, status: run.status, endedAt: run.endedAt };
 }
 
 function parseModelLabel(value: string | undefined): ModelRef | undefined {
@@ -968,6 +979,8 @@ export class SessionStore {
     return projectSessionSummary({
       record,
       status: this.statusOf(record),
+      // live な record でも run は null になり得る (再起動直後の loadSession)。meta へ落として未見を消さない
+      lastRun: terminalRunSummary(record.run) ?? record.meta.lastRun,
       projectId: this.projectIdOf(record),
       masker: this.masker,
     });
@@ -982,6 +995,7 @@ export class SessionStore {
       status: "idle",
       queueDepth: 0,
       notify: meta.notify === true,
+      ...(meta.lastRun ? { lastRun: meta.lastRun } : {}),
       messageCount: meta.messageCount,
       createdAt: meta.createdAt,
       lastUsedAt: meta.lastUsedAt,
@@ -1109,6 +1123,9 @@ export class SessionStore {
         delete meta.projectCwd;
         delete meta.projectName;
       }
+      // 終端したランだけを書く (実行中に上書きすると、再起動で走っていないランが lastRun に残る)
+      const lastRun = terminalRunSummary(record.run);
+      if (lastRun) meta.lastRun = lastRun;
       // record.meta の古い値を残さない (Off へ戻した会話が再起動で On に戻らないように)
       if (record.notify) meta.notify = true;
       else delete meta.notify;

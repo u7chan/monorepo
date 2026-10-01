@@ -16,6 +16,7 @@ import type { ChatHistoryState } from "../lib/chatTypes";
 import { adoptKnownAgentId } from "../lib/agentSelection";
 import { createFileRefRequests } from "../lib/fileRefRequest";
 import { missingLinkNote, type SessionOpenResult } from "../lib/notifications";
+import { endedRunId, seenRunsStore } from "../lib/sidebarStatus";
 import { sessionRenamePrompt } from "../lib/sidebarRowMenu";
 import type { AgentDef, EventEntry, Health, ModelRef, SessionPayload, SessionSummary, ThinkingLevel } from "../types";
 import type { ChatAction } from "./chatReducer";
@@ -147,6 +148,10 @@ export function useSessions({
         setSessions(list);
         // 成功のときだけ立てる (失敗時は前回のリストと状態を保つ)
         setSessionsLoaded(true);
+        // 選択中の会話の結果は、一覧が届いた時点で既読にする (起動直後に通知リンク `/s/<id>` を
+        // 開いたときの取りこぼしを塞ぐ。lastRun が変わるたびにここを通る)
+        const current = sessionIdRef.current;
+        if (current) seenRunsStore.mark(current, list.find((item) => item.sessionId === current)?.lastRun?.id);
         return list;
       } catch {
         // サーバーが一時的に届かないときは前回のリストを保持
@@ -181,6 +186,13 @@ export function useSessions({
     (payload: SessionPayload) => {
       // 切替待機中に旧セッションの本文から作られた要求を、確定時にも落とす (開始時の破棄だけでは残る)
       if (sessionIdRef.current !== payload.sessionId) fileRefRequests.clear();
+      // 開いた時点でその会話の結果を既読にする。一覧の lastRun (済みの結果) と、payload が終端なら
+      // run の id (実行中は mark しない = 未確定の結果を既読にしない) の両方を見る
+      seenRunsStore.mark(
+        payload.sessionId,
+        sessionsRef.current.find((item) => item.sessionId === payload.sessionId)?.lastRun?.id,
+      );
+      seenRunsStore.mark(payload.sessionId, endedRunId(payload.run));
       // 旧セッションのカーソルを持ち越さない (in-flight の応答も seq で無効化する)
       historyRef.current.seq += 1;
       historyLoadingRef.current = false;
@@ -485,7 +497,18 @@ export function useSessions({
 
   const onEvent = useCallback(
     (entry: EventEntry) => {
-      applySessionEvent(entry, { lastSeqRef, dispatch, applySnapshot, refreshSessions, setRuntimeStatus });
+      applySessionEvent(entry, {
+        lastSeqRef,
+        dispatch,
+        applySnapshot,
+        refreshSessions,
+        setRuntimeStatus,
+        // 選択中の会話で run が終わったら、その場で既読にする (見ている会話にバッジを出さない)
+        markRunSeen: (runId) => {
+          const current = sessionIdRef.current;
+          if (current) seenRunsStore.mark(current, runId);
+        },
+      });
     },
     [applySnapshot, dispatch, refreshSessions, setRuntimeStatus],
   );

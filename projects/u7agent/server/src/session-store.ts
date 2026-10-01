@@ -18,7 +18,7 @@ import { mkdir, readFile, readdir, rename, rm, writeFile } from "node:fs/promise
 import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { CURRENT_SESSION_VERSION, getAgentDir } from "@earendil-works/pi-coding-agent";
 import { SESSION_DIR_REL, assertSessionId, isSessionId, sessionWorkdirRel } from "./app-paths";
-import type { AgentPayloadInfo, ThinkingLevel } from "./schema";
+import type { AgentPayloadInfo, LastRunSummary, ThinkingLevel } from "./schema";
 
 // 配置 (appdir / スクラッチ / 添付) の正は app-paths。既存の import 先を保つため再輸出する
 export { SESSION_DIR_REL, assertSessionId, sessionWorkdirRel };
@@ -52,6 +52,11 @@ export interface SessionMeta {
   thinkingLevel?: string;
   /** 完了を Discord へ送るか (既定 false)。v1 の meta には無いので optional のままにする */
   notify?: boolean;
+  /**
+   * 最後に終わったラン。表示の寿命をメモリ (SWEEP / 再起動) から切り離すために meta へ持つ。
+   * 実行中のランの情報は入れない (再起動後に running のまま残るため)
+   */
+  lastRun?: LastRunSummary;
 }
 
 export interface SessionHeader {
@@ -152,6 +157,7 @@ function parseMeta(value: unknown, id: string): SessionMeta | undefined {
   if (!meta.agent || typeof meta.agent !== "object") return undefined;
   const prompt = meta.promptSnapshot;
   if (!prompt || typeof prompt.agent !== "string" || !Array.isArray(prompt.skills)) return undefined;
+  const lastRun = parseLastRun(meta.lastRun);
   return {
     version: 1,
     id,
@@ -168,7 +174,18 @@ function parseMeta(value: unknown, id: string): SessionMeta | undefined {
     ...(typeof meta.thinkingLevel === "string" ? { thinkingLevel: meta.thinkingLevel } : {}),
     // boolean 以外は無視する (手で書き換えられた meta で通知が勝手に有効にならないように)
     ...(typeof meta.notify === "boolean" ? { notify: meta.notify } : {}),
+    // 壊れた lastRun は捨てる (手で書き換えられた meta で未見が勝手に出ないように)
+    ...(lastRun ? { lastRun } : {}),
   };
+}
+
+/** 壊れた lastRun は undefined を返す (実行中や未知の status を未見の結果として扱わない) */
+function parseLastRun(value: unknown): LastRunSummary | undefined {
+  if (!isRecord(value)) return undefined;
+  if (typeof value.id !== "string" || value.id === "") return undefined;
+  if (value.status !== "completed" && value.status !== "stopped" && value.status !== "error") return undefined;
+  if (typeof value.endedAt !== "number" || !Number.isFinite(value.endedAt)) return undefined;
+  return { id: value.id, status: value.status, endedAt: value.endedAt };
 }
 
 /** 読めない meta は「壊れたセッション」として undefined を返す (一覧から除外する) */

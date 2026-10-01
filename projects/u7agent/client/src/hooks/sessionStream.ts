@@ -10,6 +10,8 @@ export type SessionStreamDeps = {
   applySnapshot: (payload: SessionPayload) => void;
   /** 一覧を取り直す。取得できなかったときは null (空の成功と区別する) */
   refreshSessions: () => Promise<SessionSummary[] | null>;
+  /** "run_end" の run を既読にする (選択中の会話で終わった結果にバッジを出さない) */
+  markRunSeen: (runId: string | undefined) => void;
   setRuntimeStatus: (status: RuntimeStatus) => void;
 };
 
@@ -36,7 +38,7 @@ export function nextRetryDelayMs(retryCount: number): number {
 }
 
 export function applySessionEvent(entry: EventEntry, deps: SessionStreamDeps): void {
-  const { lastSeqRef, dispatch, applySnapshot, refreshSessions, setRuntimeStatus } = deps;
+  const { lastSeqRef, dispatch, applySnapshot, refreshSessions, markRunSeen, setRuntimeStatus } = deps;
   if (Number.isFinite(entry.seq)) lastSeqRef.current = Math.max(lastSeqRef.current, entry.seq);
   switch (entry.type) {
     case "resync":
@@ -50,6 +52,9 @@ export function applySessionEvent(entry: EventEntry, deps: SessionStreamDeps): v
         at: entry.at,
         startedAt: entry.data.startedAt,
       });
+      // 行の「実行中」を次のポーリング (4 秒) まで待たせない。queued は live へ畳むので、
+      // この取り直しはキュー由来の古い表示を解消する役割だけを持つ
+      void refreshSessions();
       return;
     case "text":
       dispatch({ type: "text", delta: entry.data.delta, at: entry.at });
@@ -115,6 +120,7 @@ export function applySessionEvent(entry: EventEntry, deps: SessionStreamDeps): v
       if (entry.data.status === "error" && entry.data.error) {
         setRuntimeStatus(runtimeStatusForError(new Error(entry.data.error)));
       }
+      markRunSeen(entry.data.runId);
       void refreshSessions();
       return;
   }

@@ -89,6 +89,10 @@ message_end(assistant, error, usage.total = 0)  失敗試行
 
 `compacting` は queue より優先して返る（圧縮中の送信はキューに積まれるが、表示は圧縮中）。手動圧縮のライフサイクル・排他・終端の順序は [compaction.md](compaction.md#手動圧縮) を正とする。
 
+`queued` が返るのは `finish()` が `pump` を 200ms 後に張ってから次のランが始まるまで（`QUEUE_DELAY_MS`）で、実行中の送信は `running` のままになる。**API の契約は変えない**が、左バーはこの遷移を独立したラベルにせず `running` へ畳む（[ui-layout.md](ui-layout.md#サイドバー)）。
+
+終端したランは `SessionSummary.lastRun`（`{ id, status, endedAt }`）として `meta.json` に保存する。**実行中のランは入れない**（再起動で走っていないランが残るため）ので、`lastRun` は常に「最後に終わったラン」になる。サイドバーの「未見の結果」はこの `id` を端末の既読集合と突き合わせて出し、BFF のメモリの寿命（TTL 1 時間 / SWEEP 10 分・再起動）から切り離す（[ui-layout.md](ui-layout.md#サイドバー)、[frontend.md](frontend.md#保存キーと保存範囲)）。
+
 ## イベントログと SSE
 
 - ログは `{ seq, type, data, at }` の配列。セッションごとに直近 2000 件を保持。
@@ -125,7 +129,7 @@ message_end(assistant, error, usage.total = 0)  失敗試行
 ## ライフサイクル / 制限
 
 - 会話は BFF 専用ストアへ永続化し、起動時に一覧を復元する（[persistence.md](persistence.md)）。プロジェクトの登録はアプリデータの SQLite へ保存し、所属は `projectCwd` から読み取り時に解決する。
-- 1 時間未使用のアイドルセッションは SWEEP でメモリから外す（実行中・キューあり・SSE 購読中は対象外）。ストアと作業フォルダは残り、次回アクセス時に SDK セッションを復元する。
+- 1 時間未使用のアイドルセッションは SWEEP でメモリから外す（実行中・キューあり・SSE 購読中は対象外）。ストアと作業フォルダは残り、次回アクセス時に SDK セッションを復元する。SWEEP / 再起動でメモリから外れても、一覧は `lastRun`（meta）を返すためサイドバーの表示は変わらない（未見の解除は端末の既読だけで決まる）。
 - id ごとの状態（未ロード / loading / live / evicting / deleting）とライフサイクルの Promise チェーンで、ロード・sweep・削除の競合を直列化する。読み書きするファイルは `session-store` の書込みキューでも直列化する。
 - サーバ終了時は進行中の書込みを flush してから全セッションを abort + dispose する。
 - テスト（`server/test/`）は pi をスタブし、`createBffApp({ pi })` に注入して検証する。HTTP 層は `app.request()` で叩き（listen なし）、store 挙動は直接検証する。実 API は呼ばない。
