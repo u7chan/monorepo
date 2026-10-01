@@ -30,13 +30,8 @@ export function contentText(content: unknown): string {
     .join("");
 }
 
-/**
- * cwd の前置きとして認める直前の文字 (区切り)。これ以外の文字が続くときは別のパスの一部とみなす。
- * 「ファイル名に使える文字」を列挙する側で判定すると `+` / `@` / 空白 / `#` を取りこぼし、cwd の外の
- * パス (`/mnt<cwd>/x`) や元から相対のパス (`assets@<cwd>/x`) を別の値へ書き換えてしまうため、
- * 区切りの方が許可リストで判定する。`:` は `scheme:/cwd/x` を壊すので含めない。
- */
-const BEFORE_DELIMITER = /[\s"'`([{<,;=|>]/u;
+/** 引用符で囲まれたトークン (シェル / JSON の引用) は、中身全体が 1 つのパス */
+const QUOTED_TOKEN = /^(["'`])([\s\S]*)\1$/;
 
 /** 表示用の文字列から剥がす前置き。末尾のスラッシュは落として区切りを 1 つに揃える */
 function cwdPrefix(cwd: string): string {
@@ -44,32 +39,32 @@ function cwdPrefix(cwd: string): string {
 }
 
 /**
- * 表示用: 本文中の cwd 配下の絶対パス (`<cwd>/x`) を `./` 付きの cwd 相対へ畳む。マスク後の文字列に当てる
- * (先に畳むと cwd をまたぐ秘密値が完全一致しなくなり、後段のマスクをすり抜ける)。
- * cwd 自身は畳まない: 本文では「cwd の後ろに何が続くか」を字種だけでは決められない。構造化されたパスの
- * 引数は cwdRelativePath が扱う。マスク済みの本文に `./` を挿入しても、秘密値の内側の文字は変えない。
+ * トークン 1 つ分。引用符を剥がした中身が cwd 配下のパスで始まるときだけ畳む。
+ * 「cwd の直前にある文字」で判定すると `(` や `+` や空白のようにファイル名にも使える文字を区切りと
+ * 誤認し、`cat "(<cwd>/a.txt)"` や `assets@<cwd>/a.txt` を別のパスへ書き換えるため、位置ではなく
+ * トークンの先頭で判定する。
+ */
+function foldToken(token: string, base: string): string {
+  const quoted = QUOTED_TOKEN.exec(token);
+  const quote = quoted?.[1] ?? "";
+  const inner = quoted?.[2] ?? token;
+  if (!inner.startsWith(`${base}/`)) return token;
+  return `${quote}./${inner.slice(base.length + 1)}${quote}`;
+}
+
+/**
+ * 表示用: トークン全体が cwd 配下のパス (`<cwd>/x`) のときだけ `./` 付きの cwd 相対へ畳む。
+ * マスク後の文字列に当てる (先に畳むと cwd をまたぐ秘密値が完全一致しなくなり、後段のマスクを
+ * すり抜ける)。cwd 自身は畳まない: 本文では「cwd の後ろに何が続くか」を字種だけでは決められない。
  */
 export function cwdRelativeText(text: string, cwd: string): string {
   const base = cwdPrefix(cwd);
   if (base === "" || !text.includes(`${base}/`)) return text;
-  let result = "";
-  let index = 0;
-  for (;;) {
-    const at = text.indexOf(`${base}/`, index);
-    if (at === -1) return result + text.slice(index);
-    const before = at === 0 ? "" : (text[at - 1] ?? "");
-    if (before === "" || BEFORE_DELIMITER.test(before)) {
-      result += `${text.slice(index, at)}./`;
-      index = at + base.length + 1;
-      continue;
-    }
-    result += text.slice(index, at + base.length);
-    index = at + base.length;
-  }
+  return text.replace(/\S+/g, (token) => foldToken(token, base));
 }
 
 /**
- * 構造化されたパスの引数用: 引数全体が 1 つのパスなので、字種に依存せず前置きの一致だけで判定できる。
+ * 構造化されたパスの値用: 値全体が 1 つのパスなので、字種に依存せず前置きの一致だけで判定できる。
  * cwd 自身は `.`、cwd 配下は `./` 付きの cwd 相対、cwd の外はそのまま (`<cwd>+backup` のような
  * 接頭辞が同じだけの別のパスを含む)。
  */
@@ -89,8 +84,13 @@ export function toolArgsSummary(args: unknown, masker: SecretMasker, cwd: string
   }
   const path = record.path || record.file_path || record.filePath;
   if (typeof path === "string") return cwdRelativePath(masker.mask(path), cwd);
+  // フォールバックは値ごとに マスク → 畳む を掛けてから文字列化し、最後にもう一度マスクを掛ける
+  // (値ごとなのは秘密値の `"` や `\\` が JSON エスケープで一致しなくなるため、後段はキーの取りこぼし対策)。
   try {
-    return truncate(cwdRelativeText(masker.mask(JSON.stringify(args)), cwd), ARGS_TEXT_MAX);
+    const json = JSON.stringify(args, (_key, value) =>
+      typeof value === "string" ? cwdRelativePath(masker.mask(value), cwd) : value,
+    );
+    return truncate(masker.mask(json ?? ""), ARGS_TEXT_MAX);
   } catch {
     return "";
   }

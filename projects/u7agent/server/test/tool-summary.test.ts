@@ -1,6 +1,7 @@
 // ツール履歴 (引数 / 出力) の表示文字列。cwd 配下の絶対パスは `./` 付きの cwd 相対へ畳み、cwd の外は
 // 絶対のまま残す (root 相対へ寄せると基準が 2 つになり、`lib/x.js` がどちらの基準か読めなくなる)。
-// 表示文字列はコピーにもそのまま使われるため、畳む条件 (境界) とマスクとの順序がそのまま値の正しさになる。
+// 表示文字列はコピーにもそのまま使われるため、畳む条件 (トークン / 値の境界) とマスクとの順序が
+// そのままコピーした値の正しさになる。
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createSecretMasker, REDACTED } from "../src/redact";
@@ -22,7 +23,7 @@ function text(value: string): unknown {
   return { type: "text", text: value };
 }
 
-test("cwdRelativePath は構造化されたパス引数だけを前置きの一致で畳む", () => {
+test("cwdRelativePath は値全体が 1 つのパスの引数だけを前置きの一致で畳む", () => {
   assert.equal(cwdRelativePath(`${CWD}/lib/engine/physics2d.js`, CWD), "./lib/engine/physics2d.js");
   assert.equal(cwdRelativePath(CWD, CWD), ".");
   assert.equal(cwdRelativePath(`${CWD}/`, CWD), "./");
@@ -46,18 +47,18 @@ test("cwdRelativePath は構造化されたパス引数だけを前置きの一�
   assert.equal(cwdRelativePath("/a/b.js", ""), "/a/b.js");
 });
 
-test("cwdRelativeText は本文中の cwd 配下のパスを区切りが直前のときだけ畳む", () => {
+test("cwdRelativeText はトークン全体が cwd 配下のパスのときだけ畳む", () => {
   assert.equal(cwdRelativeText(`saved ${CWD}/a.js`, CWD), "saved ./a.js");
+  assert.equal(cwdRelativeText(`ls "${CWD}/lib"`, CWD), 'ls "./lib"');
   assert.equal(cwdRelativeText(`${CWD}/a.js -> ${CWD}/b.js`, CWD), "./a.js -> ./b.js");
-  assert.equal(cwdRelativeText(`ls "(${CWD}/lib)"`, CWD), 'ls "(./lib)"');
-  assert.equal(cwdRelativeText(JSON.stringify({ file_path: `${CWD}/a b.js` }), CWD), '{"file_path":"./a b.js"}');
+  assert.equal(cwdRelativeText(`${CWD}/lib/x.js, ok`, CWD), "./lib/x.js, ok");
   // 本文では cwd 自身を畳まない (後ろに何が続くかを字種だけでは決められない)
   assert.equal(cwdRelativeText(`ls ${CWD}`, CWD), `ls ${CWD}`);
-  // 区切りの直前でなければ、接頭辞が同じだけの別のパスを畳まない
+  // cwd の直前の文字は区切りとは限らない (ファイル名に使える文字) ため、位置ではなくトークンの先頭で見る
   for (const body of [
+    `cat "(${CWD}/a.txt)"`,
+    `cat (${CWD}/a.txt)`,
     `${CWD}+backup/a.txt`,
-    `${CWD}-old/a.txt`,
-    `${CWD}.bak`,
     `${CWD} copy/a.txt`,
     `${CWD}#old/a.txt`,
     `/mnt${CWD}/a.txt`,
@@ -81,8 +82,14 @@ test("toolArgsSummary は引数の形ごとに cwd 相対へ畳む", () => {
     toolArgsSummary({ command: `cd "${CWD}/lib" && rg -n fix .` }, masker, CWD),
     '$ cd "./lib" && rg -n fix .',
   );
+  assert.equal(toolArgsSummary({ command: `cat "(${CWD}/a.txt)"` }, masker, CWD), `$ cat "(${CWD}/a.txt)"`);
   assert.equal(toolArgsSummary({ command: `ls ${CWD}` }, masker, CWD), `$ ls ${CWD}`);
+  // JSON フォールバックは値だけを畳む
   assert.equal(toolArgsSummary({ unknown: `${CWD}/x.js` }, masker, CWD), '{"unknown":"./x.js"}');
+  assert.equal(
+    toolArgsSummary({ unknown: `x ${CWD}/x.js` }, masker, CWD),
+    '{"unknown":"x /workspace/.u7agent/sessions/364cfbf2c1/x.js"}',
+  );
 });
 
 test("toolResultSummary は出力本文中の絶対パスも畳む", () => {
@@ -107,6 +114,14 @@ test("相対化はマスクの後に当て、cwd をまたぐ秘密値も漏ら�
     toolResultSummary({ content: [text(`saved ${CWD}/out.json with ${key}`)] }, withKey, CWD),
     `saved ./out.json with ${REDACTED}`,
   );
+  // JSON フォールバックは値ごとにマスクするため、秘密値の `"` が JSON エスケープで一致しなくなっても落ちる
+  const quoted = 'sk-"quoted"-0123456789';
+  assert.equal(
+    toolArgsSummary({ unknown: `note ${quoted}` }, createSecretMasker([quoted]), CWD),
+    '{"unknown":"note [REDACTED]"}',
+  );
+  // キーに現れた秘密値は文字列化した後のマスクが落とす
+  assert.equal(toolArgsSummary({ [key]: 1 }, withKey, CWD), '{"[REDACTED]":1}');
 });
 
 test("履歴のツールカードはセッション cwd で相対化した引数と出力を持つ", () => {
