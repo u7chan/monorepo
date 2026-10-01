@@ -30,24 +30,52 @@ export function contentText(content: unknown): string {
     .join("");
 }
 
-export function toolArgsSummary(args: unknown, masker: SecretMasker): string {
+/** パスの一部として扱う文字。cwd の前後にこれが付くときは別のパス (`<dir>/<cwd>`) の一部なので畳まない */
+const PATH_CHAR = /[\p{L}\p{N}._~\\/-]/u;
+
+/**
+ * 表示用: cwd 配下の絶対パスを `./` 付きの cwd 相対へ畳む (cwd 自身は `.`)。マスク前の実パスに当てる。
+ * cwd の外は絶対のまま残す: root 相対へ寄せると基準が 2 つになり、`lib/x.js` がどちらの基準か読めなくなる。
+ */
+export function cwdRelativeText(text: string, cwd: string): string {
+  const base = cwd.replace(/\/+$/, "");
+  if (base === "" || !text.includes(base)) return text;
+  let result = "";
+  let index = 0;
+  for (;;) {
+    const at = text.indexOf(base, index);
+    if (at === -1) return result + text.slice(index);
+    const before = at === 0 ? "" : (text[at - 1] ?? "");
+    const after = text[at + base.length] ?? "";
+    if (PATH_CHAR.test(before) || (after !== "/" && PATH_CHAR.test(after))) {
+      result += text.slice(index, at + base.length);
+      index = at + base.length;
+      continue;
+    }
+    result += text.slice(index, at) + (after === "/" ? "./" : ".");
+    index = at + base.length + (after === "/" ? 1 : 0);
+  }
+}
+
+export function toolArgsSummary(args: unknown, masker: SecretMasker, cwd: string): string {
   if (!args || typeof args !== "object") return "";
   const record = args as Record<string, unknown>;
   if (typeof record.command === "string") {
-    return `$ ${truncate(masker.mask(record.command), ARGS_TEXT_MAX)}`;
+    return `$ ${truncate(masker.mask(cwdRelativeText(record.command, cwd)), ARGS_TEXT_MAX)}`;
   }
   const path = record.path || record.file_path || record.filePath;
-  if (typeof path === "string") return masker.mask(path);
+  if (typeof path === "string") return masker.mask(cwdRelativeText(path, cwd));
   try {
-    return truncate(masker.mask(JSON.stringify(args)), ARGS_TEXT_MAX);
+    return truncate(masker.mask(cwdRelativeText(JSON.stringify(args), cwd)), ARGS_TEXT_MAX);
   } catch {
     return "";
   }
 }
 
-export function toolResultSummary(result: unknown, masker: SecretMasker): string {
+export function toolResultSummary(result: unknown, masker: SecretMasker, cwd: string): string {
   // SDK 側の切り詰めで先頭が欠けた場合に備え maskSafe を使う。
-  return truncate(masker.maskSafe(contentText((result as { content?: unknown } | null)?.content)), SUMMARY_TEXT_MAX);
+  const text = contentText((result as { content?: unknown } | null)?.content);
+  return truncate(masker.maskSafe(cwdRelativeText(text, cwd)), SUMMARY_TEXT_MAX);
 }
 
 /**
@@ -185,10 +213,10 @@ function toolCallsOf(
     calls.push({
       id: call.id,
       name: call.name,
-      args: toolArgsSummary(call.arguments, masker),
+      args: toolArgsSummary(call.arguments, masker, cwd),
       isError: result.isError === true,
       done: true,
-      output: toolResultSummary(result, masker),
+      output: toolResultSummary(result, masker, cwd),
     });
   }
   return calls;
