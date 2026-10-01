@@ -30,68 +30,28 @@ export function contentText(content: unknown): string {
     .join("");
 }
 
-/** 引用符。これで囲まれた範囲は空白を含んでも 1 つのトークン */
-const QUOTES = "\"'`";
-
 /** 表示用の文字列から剥がす前置き。末尾のスラッシュは落として区切りを 1 つに揃える */
 function cwdPrefix(cwd: string): string {
   return cwd.replace(/\/+$/, "");
 }
 
-/** トークンの解釈 (引用符を剥がした中身)。引用符が対応していない / 中に同じ引用符があるときは null */
-function tokenContent(token: string): string | null {
-  const quote = token[0] ?? "";
-  // 引用符なしのトークンは、引用符を含むなら解釈が混ざっている (シェルの連結) として畳まない
-  if (!QUOTES.includes(quote)) return /["'`]/.test(token) ? null : token;
-  if (token.length < 2 || (token[token.length - 1] ?? "") !== quote) return null;
-  const inner = token.slice(1, -1);
-  return inner.includes(quote) ? null : inner;
-}
-
-/** トークン 1 つ分。引用符を剥がした中身が cwd 配下のパスで始まるときだけ畳む。 */
-function foldToken(token: string, base: string): string {
-  const content = tokenContent(token);
-  if (content === null || !content.startsWith(`${base}/`)) return token;
-  const folded = `./${content.slice(base.length + 1)}`;
-  return content === token ? folded : `${token[0]}${folded}${token[0]}`;
-}
+/**
+ * 本文の畳み込みを許す条件。引用符・バックスラッシュ・改行があると、空白で区切った語がシェルの
+ * 引用・エスケープ・ヒアドキュメントで別の語になり得て、語の境界をテキストからは決められない。
+ * 畳まない側に倒しても表示が長くなるだけで、コピーした値が別のパスを指す危険は無くなる。
+ */
+const FOLDABLE_TEXT = /^[^"'`\\\r\n]*$/;
 
 /**
- * 表示用: トークンの解釈 (引用符を剥がした中身) が cwd 配下のパス (`<cwd>/x`) で始まるときだけ
- * `./` 付きの cwd 相対へ畳む。マスク後の文字列に当てる (先に畳むと cwd をまたぐ秘密値が完全一致
- * しなくなり、後段のマスクをすり抜ける)。
- * 区切りは引用符の外側の空白だけにする: 引用符の中の空白で割ると `cat "backup <cwd>/a.txt"` の
- * 断片をトークンの先頭と誤認し、cwd の外の相対パスを別の値へ書き換える。cwd 自身は畳まない
- * (本文では「cwd の後ろに何が続くか」を字種だけでは決められない)。
+ * 表示用: 語の先頭が cwd 配下のパス (`<cwd>/x`) のときだけ `./` 付きの cwd 相対へ畳む。
+ * マスク後の文字列に当てる (先に畳むと cwd をまたぐ秘密値が完全一致しなくなり、後段のマスクを
+ * すり抜ける)。cwd 自身は畳まない: 本文の空白は「語の区切り」とも「パスに含まれる空白」とも読め、
+ * `<cwd> copy` のような別のパスを畳んでしまう。
  */
 export function cwdRelativeText(text: string, cwd: string): string {
   const base = cwdPrefix(cwd);
-  if (base === "" || !text.includes(`${base}/`)) return text;
-  let result = "";
-  let token = "";
-  let quote = "";
-  for (const char of text) {
-    if (quote !== "") {
-      token += char;
-      if (char === quote) quote = "";
-      continue;
-    }
-    if (QUOTES.includes(char)) {
-      quote = char;
-      token += char;
-      continue;
-    }
-    if (/\s/.test(char)) {
-      if (token !== "") {
-        result += foldToken(token, base);
-        token = "";
-      }
-      result += char;
-      continue;
-    }
-    token += char;
-  }
-  return token === "" ? result : result + foldToken(token, base);
+  if (base === "" || !FOLDABLE_TEXT.test(text) || !text.includes(`${base}/`)) return text;
+  return text.replace(/\S+/g, (token) => (token.startsWith(`${base}/`) ? `./${token.slice(base.length + 1)}` : token));
 }
 
 /**

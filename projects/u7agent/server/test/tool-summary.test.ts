@@ -47,30 +47,42 @@ test("cwdRelativePath は値全体が 1 つのパスの引数だけを前置き�
   assert.equal(cwdRelativePath("/a/b.js", ""), "/a/b.js");
 });
 
-test("cwdRelativeText は引用符の外側の空白だけで区切り、トークンの解釈が cwd 配下のときだけ畳む", () => {
+test("cwdRelativeText は引用符・エスケープ・改行の無い本文だけを畳む", () => {
   assert.equal(cwdRelativeText(`saved ${CWD}/a.js`, CWD), "saved ./a.js");
-  assert.equal(cwdRelativeText(`ls "${CWD}/lib"`, CWD), 'ls "./lib"');
-  assert.equal(cwdRelativeText(`open '${CWD}/my file.txt'`, CWD), "open './my file.txt'");
+  assert.equal(cwdRelativeText(`cd ${CWD}/lib && npm test`, CWD), "cd ./lib && npm test");
   assert.equal(cwdRelativeText(`${CWD}/a.js -> ${CWD}/b.js`, CWD), "./a.js -> ./b.js");
   assert.equal(cwdRelativeText(`${CWD}/lib/x.js, ok`, CWD), "./lib/x.js, ok");
-  // 本文では cwd 自身を畳まない (後ろに何が続くかを字種だけでは決められない)
-  assert.equal(cwdRelativeText(`ls ${CWD}`, CWD), `ls ${CWD}`);
-  // cwd の直前の文字は区切りとは限らず、引用符の中の空白でもトークンを割らない
+  assert.equal(cwdRelativeText(`in ${CWD}/my file.txt`, CWD), "in ./my file.txt");
+  // 接頭辞が同じだけの別のパス / cwd の外 / 元から相対はそのまま
+  // (cwd 自身も畳まない: 空白は語の区切りともパスに含まれる空白とも読める)
   for (const body of [
-    `cat "(${CWD}/a.txt)"`,
-    `cat (${CWD}/a.txt)`,
-    `cat "backup ${CWD}/a.txt"`,
-    `cat "backup ${CWD}/a b.txt"`,
-    `cat '/cwd/../${CWD}/a.txt'`,
-    `cat "${CWD}/a.txt`,
-    `cat '${CWD}/a.txt"`,
+    `${CWD}`,
+    `cd ${CWD} && npm test`,
     `${CWD}+backup/a.txt`,
+    `${CWD}-old/a.txt`,
     `${CWD} copy/a.txt`,
     `${CWD}#old/a.txt`,
     `/mnt${CWD}/a.txt`,
     `assets@${CWD}/a.txt`,
     `sqlite:${CWD}/private.db`,
     `foo${CWD}/a.txt`,
+  ]) {
+    assert.equal(cwdRelativeText(body, CWD), body);
+  }
+  // 引用符・バックスラッシュ・改行があると、語の境界がシェルの解釈で変わるため畳まない
+  for (const body of [
+    `ls "${CWD}/lib"`,
+    `cat '${CWD}/a.txt'`,
+    `cat "${CWD}/a.txt`,
+    `cat "(${CWD}/a.txt)"`,
+    `cat "backup ${CWD}/a.txt"`,
+    `cat backup\\ ${CWD}/a.txt`,
+    `cat "backup \\" ${CWD}/a.txt suffix"`,
+    `cat $'${CWD}/a.txt'`,
+    `cat \`${CWD}/a.txt\``,
+    `cat > f <<EOF\n${CWD}/a.txt\nEOF`,
+    `first\n${CWD}/a.txt`,
+    `${CWD}/a.js\n${CWD}/b.js`,
   ]) {
     assert.equal(cwdRelativeText(body, CWD), body);
   }
@@ -84,12 +96,10 @@ test("toolArgsSummary は引数の形ごとに cwd 相対へ畳む", () => {
   assert.equal(toolArgsSummary({ file_path: `${CWD}/lib/x.js`, offset: 3 }, masker, CWD), "./lib/x.js");
   assert.equal(toolArgsSummary({ file_path: "lib/engine/physics2d.js" }, masker, CWD), "lib/engine/physics2d.js");
   assert.equal(toolArgsSummary({ path: `${CWD}+backup/a.txt` }, masker, CWD), `${CWD}+backup/a.txt`);
-  assert.equal(
-    toolArgsSummary({ command: `cd "${CWD}/lib" && rg -n fix .` }, masker, CWD),
-    '$ cd "./lib" && rg -n fix .',
-  );
+  assert.equal(toolArgsSummary({ command: `cd ${CWD}/lib && rg -n fix .` }, masker, CWD), "$ cd ./lib && rg -n fix .");
   assert.equal(toolArgsSummary({ command: `cat "(${CWD}/a.txt)"` }, masker, CWD), `$ cat "(${CWD}/a.txt)"`);
   assert.equal(toolArgsSummary({ command: `cat "backup ${CWD}/a.txt"` }, masker, CWD), `$ cat "backup ${CWD}/a.txt"`);
+  assert.equal(toolArgsSummary({ command: `cat backup\\ ${CWD}/a.txt` }, masker, CWD), `$ cat backup\\ ${CWD}/a.txt`);
   assert.equal(toolArgsSummary({ command: `ls ${CWD}` }, masker, CWD), `$ ls ${CWD}`);
   // JSON フォールバック (path / command を持たないツール) は畳まない
   assert.equal(toolArgsSummary({ unknown: `${CWD}/x.js` }, masker, CWD), `{"unknown":"${CWD}/x.js"}`);
@@ -103,8 +113,13 @@ test("toolResultSummary は出力本文中の絶対パスも畳む", () => {
     "Successfully replaced 1 block(s) in ./lib/engine/physics2d.js",
   );
   assert.equal(
+    toolResultSummary({ content: [text(`Successfully wrote to ${CWD}/my file.txt`)] }, masker, CWD),
+    "Successfully wrote to ./my file.txt",
+  );
+  // 引用符を含む出力は、語の境界をシェルの解釈から決められないので畳まない
+  assert.equal(
     toolResultSummary({ content: [text(`open '${CWD}/my file.txt' failed`)] }, masker, CWD),
-    "open './my file.txt' failed",
+    `open '${CWD}/my file.txt' failed`,
   );
 });
 
