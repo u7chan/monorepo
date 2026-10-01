@@ -6,17 +6,21 @@ import {
   closeFileTabsUnder,
   createFileTabsState,
   dropClosedPreviewModes,
+  dropClosedPreviewOrigins,
   dropClosedPreviews,
   FILE_TAB_LIMIT,
   fileTabLabels,
   keepsFullscreenPreview,
   openFileTab,
   previewModeFor,
+  previewOriginFor,
   readPreview,
   renameFileTabs,
   renamePreviewModes,
+  renamePreviewOrigins,
   restoreFileTabsState,
   withPreviewMode,
+  withPreviewOrigin,
 } from "../src/lib/fileTabs";
 
 test("開いたタブは末尾に積み、そのタブを表示する", () => {
@@ -272,4 +276,47 @@ test("リネームは表示モードの経路も張り替える", () => {
   // 対象が無いときは同じ object を返す
   assert.equal(renamePreviewModes(modes, "other", "renamed"), modes);
   assert.equal(renamePreviewModes(modes, "dir/a.html", "dir/a.html"), modes, "未変更");
+});
+
+// 配信元 (ストレージ有効モード)。表示モードと同じ規則で、タブごとに保持してタブを閉じるまで残す
+test("配信元の既定はアプリ オリジンで、選び直したタブは選択を優先する", () => {
+  assert.equal(previewOriginFor({}, "a.html"), "app");
+  const origins = withPreviewOrigin(withPreviewOrigin({}, "a.html", "storage"), "b.html", "app");
+  assert.equal(previewOriginFor(origins, "a.html"), "storage");
+  assert.equal(previewOriginFor(origins, "b.html"), "app");
+  assert.equal(previewOriginFor(origins, "c.html"), "app", "未選択のタブは隔離のまま");
+});
+
+test("配信元の選択も Object.prototype の名前のパスで壊れない", () => {
+  for (const name of ["constructor", "toString", "__proto__", "hasOwnProperty"]) {
+    // 未選択として既定 (隔離) を返す
+    assert.equal(previewOriginFor({}, name), "app");
+    const origins = withPreviewOrigin({}, name, "storage");
+    assert.equal(Object.hasOwn(origins, name), true, name);
+    assert.equal(Object.getPrototypeOf(origins), Object.prototype, name);
+    assert.equal(previewOriginFor(origins, name), "storage");
+  }
+});
+
+test("閉じたタブの配信元だけを捨てる", () => {
+  const origins = { "a.html": "storage", "dir/b.html": "storage" } as const;
+  assert.deepEqual(dropClosedPreviewOrigins(origins, ["a.html"]), { "a.html": "storage" });
+  // 中身が変わらないときは同じ object を返す (setState の再 render を起こさない)
+  assert.equal(dropClosedPreviewOrigins(origins, ["a.html", "dir/b.html"]), origins);
+  assert.deepEqual(dropClosedPreviewOrigins(origins, []), {}, "タブが無ければ隔離に戻る");
+});
+
+test("リネームは配信元の経路も張り替える", () => {
+  const origins = withPreviewOrigin(withPreviewOrigin({}, "dir/a.html", "storage"), "dir/b.html", "storage");
+  assert.deepEqual(renamePreviewOrigins(origins, "dir", "renamed"), {
+    "renamed/a.html": "storage",
+    "renamed/b.html": "storage",
+  });
+  assert.deepEqual(renamePreviewOrigins(origins, "dir/a.html", "dir/c.html"), {
+    "dir/c.html": "storage",
+    "dir/b.html": "storage",
+  });
+  // 対象が無いときは同じ object を返す
+  assert.equal(renamePreviewOrigins(origins, "other", "renamed"), origins);
+  assert.equal(renamePreviewOrigins(origins, "dir/a.html", "dir/a.html"), origins, "未変更");
 });

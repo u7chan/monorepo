@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type MouseEvent, type Ref } from "react";
-import { fileHtmlPreviewUrl, fileRawUrl, getFilePreview } from "../api";
+import { fileHtmlPreviewUrl, fileRawUrl, fileStoragePreviewUrl, getFilePreview } from "../api";
 import { useMessageCopy } from "../hooks/useMessageCopy";
 import { isImageName } from "../lib/attachments";
 import { cn } from "../lib/cn";
@@ -11,9 +11,12 @@ import {
   isMiddleClick,
   keepsFullscreenPreview,
   previewModeFor,
+  previewOriginFor,
   readPreview,
   type PreviewMode,
   type PreviewModes,
+  type PreviewOrigin,
+  type PreviewOrigins,
   type PreviewResults,
 } from "../lib/fileTabs";
 import { fileTreeBreadcrumbs, fileTreeFetchPath } from "../lib/fileTree";
@@ -25,6 +28,11 @@ const PREVIEW_MODES: { value: PreviewMode; label: string }[] = [
   { value: "source", label: "ソース" },
   { value: "preview", label: "プレビュー" },
 ];
+
+/** ストレージ有効モードの切替説明。押すと iframe が開き直ることをラベルだけでなく title でも示す */
+const STORAGE_PREVIEW_ON_NOTE =
+  "別オリジンで開き直し、localStorage などを使えるようにします（同じオリジンの他のプレビューと保存領域を共有します）";
+const STORAGE_PREVIEW_OFF_NOTE = "アプリと同じオリジンで開き直し、隔離した状態へ戻します（保存領域は使えなくなります）";
 
 function errorText(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
@@ -39,11 +47,16 @@ export type FilePreviewProps = {
   rootPath: string;
   /** タブごとの表示モード。親が持つ (再読み込みの remount で選択を失わないため) */
   modes: PreviewModes;
+  /** タブごとのプレビューの配信元。親が持つ (表示モードと同じく remount で失わないため) */
+  origins: PreviewOrigins;
+  /** プレビュー オリジンのブラウザから見たポート (health の filePreviewPort)。未取得の間は切替を無効にする */
+  filePreviewPort?: number;
   /** 表示中のタブのサイズ (ツリーの取得済みの行から引く)。未取得は undefined で、画像のメタは寸法だけになる */
   activeSize?: number;
   /** パンくずのクリック。ツリーと同じ画面 root 相対パスを渡す (ツリーでその位置を示す) */
   onReveal: (path: string) => void;
   onModeChange: (path: string, mode: PreviewMode) => void;
+  onOriginChange: (path: string, origin: PreviewOrigin) => void;
   onSelect: (path: string) => void;
   onClose: (path: string) => void;
 };
@@ -57,9 +70,12 @@ export function FilePreview({
   activePath,
   rootPath,
   modes,
+  origins,
+  filePreviewPort,
   activeSize,
   onReveal,
   onModeChange,
+  onOriginChange,
   onSelect,
   onClose,
 }: FilePreviewProps) {
@@ -81,6 +97,12 @@ export function FilePreview({
   const skipFetch = showHtml || showImage;
   // 全画面を続ける条件 (HTML のプレビュー + 出すときのタブから動いていない)。判定は lib/fileTabs.ts が正
   const fullscreen = keepsFullscreenPreview(fullscreenPath, activePath, mode);
+  // ストレージ有効モードはブラウザから見たポートが分かってからだけ選べる (client にポートを焼き込まない)
+  const storageEnabled = filePreviewPort !== undefined && previewOriginFor(origins, activePath) === "storage";
+  const htmlPreviewSrc =
+    filePreviewPort !== undefined && storageEnabled
+      ? fileStoragePreviewUrl(fetchPath, filePreviewPort)
+      : fileHtmlPreviewUrl(fetchPath);
   // ハイライトは表示中のタブの本文についてだけ計算する (タブごとに保持しない理由は docs/file-preview.md)
   const code = useMemo(
     () => (skipFetch || text === undefined ? null : buildPreviewCode(text, activePath)),
@@ -183,6 +205,13 @@ export function FilePreview({
             {isHtmlPath(activePath) ? (
               <PreviewModeToggle mode={mode} onChange={(next) => onModeChange(activePath, next)} />
             ) : null}
+            {showHtml ? (
+              <PreviewStorageToggle
+                enabled={storageEnabled}
+                disabled={filePreviewPort === undefined}
+                onToggle={(next) => onOriginChange(activePath, next ? "storage" : "app")}
+              />
+            ) : null}
             {code !== null && code.lineCount > 0 ? (
               <span className="shrink-0 text-3xs text-ink-ghost">
                 {code.highlight?.lang ?? "text"} · {code.lineCount} 行
@@ -238,11 +267,14 @@ export function FilePreview({
           />
         </div>
       ) : showHtml ? (
-        // 相対パスは同じルート配下 (画像 / テキストアセット) へ解決する。sandbox 属性はポリシーに関わらず allow-scripts 固定
+        // 相対パスは同じルート配下 (画像 / テキストアセット) へ解決する。sandbox フラグは CSP と両方に書く。
+        // Chromium はナビゲーション開始時の sandbox フラグで文書を作るため、src と sandbox を同じ更新で
+        // 変えると古いフラグで読み込まれる (CSP 側では打ち消せない)。切替時は key を変えて要素ごと作り直す
         <iframe
-          src={fileHtmlPreviewUrl(fetchPath)}
+          key={storageEnabled ? "storage" : "isolated"}
+          src={htmlPreviewSrc}
           title={`${fetchPath} のプレビュー`}
-          sandbox="allow-scripts"
+          sandbox={storageEnabled ? "allow-scripts allow-same-origin allow-pointer-lock" : "allow-scripts"}
           className="min-h-0 w-full flex-1 border-0 bg-white"
         />
       ) : code === null ? (
@@ -360,6 +392,36 @@ function PreviewModeToggle({ mode, onChange }: { mode: PreviewMode; onChange: (m
         </button>
       ))}
     </div>
+  );
+}
+
+/**
+ * ストレージ有効モード (別オリジン) の切替。押すと iframe の src が変わってプレビューが開き直る。
+ * `aria-pressed` で状態を示し、ポート未取得の間は押せない (client にポートを焼き込まない)。
+ */
+function PreviewStorageToggle({
+  enabled,
+  disabled,
+  onToggle,
+}: {
+  enabled: boolean;
+  disabled: boolean;
+  onToggle: (enabled: boolean) => void;
+}) {
+  return (
+    <button
+      type="button"
+      aria-pressed={enabled}
+      disabled={disabled}
+      onClick={() => onToggle(!enabled)}
+      title={enabled ? STORAGE_PREVIEW_OFF_NOTE : STORAGE_PREVIEW_ON_NOTE}
+      className={cn(
+        "btn-quiet shrink-0 disabled:cursor-not-allowed disabled:opacity-45",
+        enabled && "bg-accent-wash text-accent-text",
+      )}
+    >
+      保存を有効化
+    </button>
   );
 }
 

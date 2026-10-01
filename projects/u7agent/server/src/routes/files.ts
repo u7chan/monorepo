@@ -24,8 +24,8 @@ import {
 import type { SandboxWorkspaceClient } from "../sandbox/client";
 
 /**
- * iframe へ流す HTML プレビューの CSP。iframe 側の `sandbox="allow-scripts"` と両方で隔離し、
- * 読み込めるリソースを段階 (Lv) で絞る。親 (client/dist) の CSP を継承させると iframe 内で何も動かないため、この応答だけ別の規則にする (docs/file-preview.md)。
+ * iframe へ流す HTML プレビューの CSP。iframe 属性と両方で隔離し、読み込めるリソースを段階 (Lv) で絞る。
+ * `sandbox` 段はリスナーごとに固定する (アプリ オリジンは現行の隔離、プレビュー専用リスナーは storage を有効にした別オリジン)。親 (client/dist) の CSP を継承させると iframe 内で何も動かないため、この応答だけ別の規則にする (docs/file-preview.md)。
  */
 export type HtmlPreviewPolicy = "inline" | "assets" | "cdn";
 
@@ -35,20 +35,31 @@ export type HtmlPreviewPolicy = "inline" | "assets" | "cdn";
  */
 export const HTML_PREVIEW_POLICY: HtmlPreviewPolicy = "cdn";
 
-export const HTML_PREVIEW_CSP_BY_POLICY: Record<HtmlPreviewPolicy, string> = {
-  inline:
-    "sandbox allow-scripts; default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; img-src data: blob:; font-src data:; media-src data: blob:; form-action 'none'",
-  assets:
-    "sandbox allow-scripts; default-src 'none'; style-src 'unsafe-inline' 'self'; script-src 'unsafe-inline' 'self'; img-src data: blob: 'self'; font-src data: 'self'; media-src data: blob: 'self'; form-action 'none'",
-  cdn: "sandbox allow-scripts; default-src 'none'; style-src 'unsafe-inline' 'self' https:; script-src 'unsafe-inline' 'self' https:; img-src data: blob: 'self' https:; font-src data: 'self' https:; media-src data: blob: 'self' https:; form-action 'none'",
+/**
+ * プレビューを配るリスナーの隔離。アプリと同じリスナーは現行の隔離のまま、プレビュー専用リスナーは
+ * 別オリジンになることを前提に storage (とゲーム用の pointer lock) を有効にする。
+ */
+export type HtmlPreviewSandbox = "isolated" | "storage";
+
+/** CSP の `sandbox` 段と iframe 属性へ同じ値を書く (有効になる能力は禁止フラグの積になる) */
+export const HTML_PREVIEW_SANDBOX_FLAGS: Record<HtmlPreviewSandbox, string> = {
+  isolated: "allow-scripts",
+  storage: "allow-scripts allow-same-origin allow-pointer-lock",
 };
 
-/** プレビューの応答は本文もエラーも常に no-store (一覧の再読み込みで取り直す前提)。 */
-const HTML_PREVIEW_HEADERS = {
-  "Content-Security-Policy": HTML_PREVIEW_CSP_BY_POLICY[HTML_PREVIEW_POLICY],
-  "Cache-Control": "no-store",
-  "X-Content-Type-Options": "nosniff",
+/** 段階ごとの CSP (`sandbox` 段より後ろ)。読み込めるリソースを段階 (Lv) ごとに絞る */
+export const HTML_PREVIEW_CSP_BY_POLICY: Record<HtmlPreviewPolicy, string> = {
+  inline:
+    "default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; img-src data: blob:; font-src data:; media-src data: blob:; form-action 'none'",
+  assets:
+    "default-src 'none'; style-src 'unsafe-inline' 'self'; script-src 'unsafe-inline' 'self'; img-src data: blob: 'self'; font-src data: 'self'; media-src data: blob: 'self'; form-action 'none'",
+  cdn: "default-src 'none'; style-src 'unsafe-inline' 'self' https:; script-src 'unsafe-inline' 'self' https:; img-src data: blob: 'self' https:; font-src data: 'self' https:; media-src data: blob: 'self' https:; form-action 'none'",
 };
+
+/** 段階と隔離の組み合わせから CSP を組む (sandbox 段はリスナーごとに固定する) */
+export function htmlPreviewCsp(policy: HtmlPreviewPolicy, sandbox: HtmlPreviewSandbox): string {
+  return `sandbox ${HTML_PREVIEW_SANDBOX_FLAGS[sandbox]}; ${HTML_PREVIEW_CSP_BY_POLICY[policy]}`;
+}
 
 /**
  * プレビューの文書が相対参照するテキストアセットと Content-Type。HTML / SVG は同一オリジンでスクリプトが動くため載せず、
@@ -91,7 +102,7 @@ function previewAssetContentType(path: string): string | undefined {
 }
 
 /** iframe の中でも理由が読めるように、エラーも HTML 文書で返す (サンドボックス由来の文言はエスケープする)。 */
-function htmlError(c: Context, status: number, message: string) {
+function htmlError(c: Context, headers: Record<string, string>, status: number, message: string) {
   const body = `<!doctype html>
 <html lang="ja">
 <head>
@@ -104,18 +115,28 @@ function htmlError(c: Context, status: number, message: string) {
 </body>
 </html>
 `;
-  return c.html(body, status as ContentfulStatusCode, HTML_PREVIEW_HEADERS);
+  return c.html(body, status as ContentfulStatusCode, headers);
 }
 
 /** セッションに依存させない (セッションが無くても開ける必要がある) ため、トップレベルのルートにする。 */
 export function createFileRoutes({
   workspace,
   archiveSettings,
+  sandbox,
 }: {
   workspace: SandboxWorkspaceClient | null;
   /** ダウンロードの走査に渡す除外名の実効値（設定ストア）。サンドボックスは設定を持たない */
   archiveSettings: ArchiveSettings;
+  /** CSP の sandbox 段。アプリ オリジンは isolated、別オリジンのプレビュー専用リスナーは storage */
+  sandbox: HtmlPreviewSandbox;
 }) {
+  /** プレビューの応答は本文もエラーも常に no-store (一覧の再読み込みで取り直す前提)。 */
+  const htmlPreviewHeaders = {
+    "Content-Security-Policy": htmlPreviewCsp(HTML_PREVIEW_POLICY, sandbox),
+    "Cache-Control": "no-store",
+    "X-Content-Type-Options": "nosniff",
+  };
+
   /** 画像 / 音声は allowlist を BFF でも見て、それ以外を同一オリジンで配らない (SVG / HTML の XSS 回避)。 */
   async function serveRawAsset(c: Context, path: string) {
     if (!workspace) return sandboxNotConfigured(c);
@@ -163,14 +184,14 @@ export function createFileRoutes({
 
   /** 文書分岐の失敗は iframe に読ませるため HTML 文書で返す (エラーだけは HTML のまま)。 */
   async function serveHtmlDocument(c: Context, path: string) {
-    if (!workspace) return htmlError(c, 503, SANDBOX_NOT_CONFIGURED_MESSAGE);
+    if (!workspace) return htmlError(c, htmlPreviewHeaders, 503, SANDBOX_NOT_CONFIGURED_MESSAGE);
     try {
       // 本文はテキストプレビューと同じ経路 (サンドボックスの GET /v1/files/preview、UTF-8 テキスト 2 MiB 上限)
       const parsed = FilePreviewSchema.safeParse(await workspace.previewFile(path));
-      if (!parsed.success) return htmlError(c, 502, "サンドボックスのプレビューが不正です");
-      return c.html(parsed.data.text, 200, HTML_PREVIEW_HEADERS);
+      if (!parsed.success) return htmlError(c, htmlPreviewHeaders, 502, "サンドボックスのプレビューが不正です");
+      return c.html(parsed.data.text, 200, htmlPreviewHeaders);
     } catch (error) {
-      return htmlError(c, sandboxFailureStatus(error), messageFor(error));
+      return htmlError(c, htmlPreviewHeaders, sandboxFailureStatus(error), messageFor(error));
     }
   }
 

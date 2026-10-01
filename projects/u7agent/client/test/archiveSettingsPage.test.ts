@@ -175,7 +175,7 @@ test("配線: 行の出し分けは app 状態の実効値を使い、保存の�
     "ページの配線が無い",
   );
   // 設定 → ファイルとチャット右パネルの両方が同じ値を使う
-  assert.match(app, /<FileTreePage \{[^}]*\} cwd="" excludeNames=\{excludeNames\} \/>/);
+  assert.match(app, /<FileTreePage[\s\S]*?cwd=""[\s\S]*?excludeNames=\{excludeNames\}/);
   assert.match(app, /<SessionFilesPanel[\s\S]*?excludeNames=\{excludeNames\}/);
 
   // FileBrowser は health を取りに行かず、prop だけを使う（保存直後の追随と取得元の一本化）

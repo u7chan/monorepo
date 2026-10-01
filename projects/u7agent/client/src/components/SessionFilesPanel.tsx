@@ -15,6 +15,8 @@ export type SessionFilesPanelProps = {
   root: string;
   /** アーカイブの除外名の実効値（app 状態）。行のダウンロードの出し分けに使う */
   excludeNames: readonly string[];
+  /** プレビュー オリジンのブラウザから見たポート (health)。未取得は undefined */
+  filePreviewPort?: number;
   /** run が終わった回数 (ChatState.runEndSeq)。増えるたびに一覧と開いている本文を取り直す */
   runEndSeq: number;
   onClose: () => void;
@@ -27,6 +29,7 @@ export type SessionFilesPanelProps = {
 function SessionFilesContent({
   root,
   excludeNames,
+  filePreviewPort,
   runEndSeq,
   onClose,
   openRequest,
@@ -82,6 +85,7 @@ function SessionFilesContent({
         root={root}
         reloadToken={reloadToken}
         excludeNames={excludeNames}
+        filePreviewPort={filePreviewPort}
         openRequest={openRequest}
         onHandled={onHandled}
         canRef={!compact}

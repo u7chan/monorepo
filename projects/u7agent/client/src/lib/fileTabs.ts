@@ -165,6 +165,40 @@ export function renamePreviewModes(modes: PreviewModes, path: string, nextPath: 
   return Object.fromEntries(entries);
 }
 
+/** タブのプレビューを配るオリジン。既定はアプリ オリジン (隔離) で、storage は別オリジンで保存領域を有効にする */
+export type PreviewOrigin = "app" | "storage";
+
+/** タブごとに保持するプレビューの配信元。キーはページ root 相対パス */
+export type PreviewOrigins = Record<string, PreviewOrigin>;
+
+/**
+ * プレビューの配信元。既定はアプリ オリジン (隔離)。モードと同じく own property だけを見る
+ * (`constructor` や `__proto__` のような名前のパスを「選択済み」と誤認しないため)。
+ */
+export function previewOriginFor(origins: PreviewOrigins, path: string): PreviewOrigin {
+  const origin = Object.hasOwn(origins, path) ? origins[path] : undefined;
+  return origin ?? "app";
+}
+
+/** 配信元を選び直す。computed key で書く (own property になり、`__proto__` でもプロトタイプを書き換えない) */
+export function withPreviewOrigin(origins: PreviewOrigins, path: string, origin: PreviewOrigin): PreviewOrigins {
+  return { ...origins, [path]: origin };
+}
+
+/** 閉じたタブの配信元を捨てる (選択はタブを閉じるまで)。中身が変わらないときは同じ object を返す */
+export function dropClosedPreviewOrigins(origins: PreviewOrigins, paths: string[]): PreviewOrigins {
+  const kept = Object.entries(origins).filter(([path]) => paths.includes(path));
+  return kept.length === Object.keys(origins).length ? origins : Object.fromEntries(kept);
+}
+
+/** リネームしたエントリの配信元の経路を張り替える (選択はタブを閉じるまで保持する)。 */
+export function renamePreviewOrigins(origins: PreviewOrigins, path: string, nextPath: string): PreviewOrigins {
+  const keys = Object.keys(origins);
+  const entries = Object.entries(origins).map(([key, origin]) => [rekeyPath(key, path, nextPath), origin] as const);
+  if (entries.every(([key], index) => key === keys[index])) return origins;
+  return Object.fromEntries(entries);
+}
+
 /** リネームしたエントリ自身と配下の経路を差し替える (接頭辞は区切りまで含めて見る)。 */
 function rekeyPath(item: string, path: string, nextPath: string): string {
   if (item === path) return nextPath;

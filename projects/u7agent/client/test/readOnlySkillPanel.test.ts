@@ -89,7 +89,7 @@ test("ファイルタブは root 相対のスキルだけに出し、読み取�
   assert.ok(source.includes("fileSkillDir(skill)"), "ファイルタブの root を純関数で判定していない");
   assert.match(
     source,
-    /<FileBrowser\s+root=\{skillDir\} reloadToken=\{0\} readOnly excludeNames=\{\[\]\}/,
+    /<FileBrowser\s+root=\{skillDir\}\s+reloadToken=\{0\}\s+readOnly\s+excludeNames=\{\[\]\}\s+filePreviewPort=\{filePreviewPort\}/,
     "FileBrowser の配線が違う",
   );
   // 初回に開いたときだけ mount し、以降は display で隠して保持する

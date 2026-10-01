@@ -3,6 +3,7 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { serve } from "@hono/node-server";
 import { createBffApp } from "./app";
+import { FILE_PREVIEW_LISTEN_PORT, resolveFilePreviewPort } from "./file-preview-port";
 
 // pnpm --filter で起動すると cwd が server/ になるため、既定はリポジトリルートにする
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
@@ -11,9 +12,11 @@ if (existsSync(ENV_FILE)) process.loadEnvFile(ENV_FILE);
 
 const PORT = Number(process.env.PORT) || 4317;
 const HOST = process.env.HOST || "127.0.0.1";
+// ブラウザから見たポート。待受は FILE_PREVIEW_LISTEN_PORT (prod は別ポートを publish してここに載せる)
+const FILE_PREVIEW_PORT = resolveFilePreviewPort(process.env.PI_FILE_PREVIEW_PORT);
 
 async function main() {
-  const bff = await createBffApp({ cwd: process.env.PI_APP_CWD || REPO_ROOT });
+  const bff = await createBffApp({ cwd: process.env.PI_APP_CWD || REPO_ROOT, filePreviewPort: FILE_PREVIEW_PORT });
   serve({ fetch: bff.app.fetch, port: PORT, hostname: HOST }, (info) => {
     console.log(`[u7agent] http://${HOST}:${info.port}`);
     console.log(`[u7agent] working directory: ${bff.pi?.cwd || process.cwd()}`);
@@ -36,6 +39,11 @@ async function main() {
         "[u7agent] sandbox is not configured (PI_SANDBOX_URL / PI_SANDBOX_TOKEN): tool execution and new sessions fail with 503. See the local startup steps in README.",
       );
     }
+  });
+
+  // 2 本目のリスナー = プレビュー オリジン。ポート使用中はここで例外になり起動が止まる
+  serve({ fetch: bff.previewApp.fetch, port: FILE_PREVIEW_LISTEN_PORT, hostname: HOST }, (info) => {
+    console.log(`[u7agent] preview: http://${HOST}:${info.port} (browser: ${FILE_PREVIEW_PORT})`);
   });
 
   const shutdown = async () => {

@@ -31,7 +31,10 @@ test("ファイルパスはセグメント単位で encode し、区切りの / 
 
 test("fileHtmlPreviewUrl はクエリではなくパス形式で同一オリジンの URL を組み立てる", async () => {
   // api.ts は module の読み込み時に location.origin を参照する (node のテストには DOM が無い)
-  Object.defineProperty(globalThis, "location", { value: { origin: "http://localhost:5173" }, configurable: true });
+  Object.defineProperty(globalThis, "location", {
+    value: { origin: "http://localhost:5173", hostname: "localhost" },
+    configurable: true,
+  });
   const { fileHtmlPreviewUrl } = await import("../src/api");
   const cases: Array<[string, string]> = [
     ["a.html", "http://localhost:5173/api/files/html/a.html"],
@@ -43,8 +46,31 @@ test("fileHtmlPreviewUrl はクエリではなくパス形式で同一オリジ�
   for (const [path, url] of cases) assert.equal(fileHtmlPreviewUrl(path), url, path);
 });
 
+test("fileStoragePreviewUrl は hostname と health のポートで別オリジンの URL を組み立てる", async () => {
+  // dev はアプリが Vite の 3000 に居るため、location.host (3000) ではなく hostname + health のポートを使う
+  Object.defineProperty(globalThis, "location", {
+    value: { origin: "http://localhost:3000", hostname: "localhost" },
+    configurable: true,
+  });
+  const { fileStoragePreviewUrl } = await import("../src/api");
+  const cases: Array<[string, number, string]> = [
+    ["a.html", 4318, "http://localhost:4318/api/files/html/a.html"],
+    ["dir/a b.png", 8017, "http://localhost:8017/api/files/html/dir/a%20b.png"],
+    ["a#b.txt", 4318, "http://localhost:4318/api/files/html/a%23b.txt"],
+    [
+      "日本語/画像.png",
+      4318,
+      "http://localhost:4318/api/files/html/%E6%97%A5%E6%9C%AC%E8%AA%9E/%E7%94%BB%E5%83%8F.png",
+    ],
+  ];
+  for (const [path, port, url] of cases) assert.equal(fileStoragePreviewUrl(path, port), url, path);
+});
+
 test("fileDownloadUrl は path をクエリで渡し、サーバー側の 1 回の decode で元に戻る", async () => {
-  Object.defineProperty(globalThis, "location", { value: { origin: "http://localhost:5173" }, configurable: true });
+  Object.defineProperty(globalThis, "location", {
+    value: { origin: "http://localhost:5173", hostname: "localhost" },
+    configurable: true,
+  });
   const { fileDownloadUrl } = await import("../src/api");
   for (const path of ["a.txt", "src/nested 日本語", "a+b#c.txt", ""]) {
     const url = new URL(fileDownloadUrl(path));

@@ -228,6 +228,14 @@ export const fileHtmlPreviewUrl = (path: string): string =>
   client.api.files.html[":path{.+}"].$url({ param: { path: encodeFilePathParam(path) } }).toString();
 
 /**
+ * ストレージ有効モードの HTML プレビュー URL (別オリジンの iframe の src)。ポートは health から受ける
+ * (client に焼き込まない)。location.host ではなく hostname + port を組むのは、dev でアプリが Vite の
+ * 3000 に居り BFF が別ポートのため (相対ルートはアプリ オリジンに解決されてしまう)。
+ */
+export const fileStoragePreviewUrl = (path: string, filePreviewPort: number): string =>
+  `http://${location.hostname}:${filePreviewPort}/api/files/html/${encodeFilePathParam(path)}`;
+
+/**
  * 画像プレビュー用の raw URL。path はワークスペース root 相対で、配信できるのは allowlist の画像だけ。
  * 生配信に載せるため bodyGuard の上限を通らず、Content-Type はサーバーが決める。
  */

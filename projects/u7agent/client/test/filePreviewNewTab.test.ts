@@ -27,9 +27,15 @@ test("新しいタブのリンクはパス行に置き、HTML プレビューの
 
 test("iframe と同じ html ルートを開き、相対アセットの基準を共有する", () => {
   const preview = read("src/components/FilePreview.tsx");
-  assert.match(preview, /src=\{fileHtmlPreviewUrl\(fetchPath\)\}/, "iframe と同じ URL を使っていない");
+  // 隔離モードは同一オリジン、ストレージ有効モードは別オリジン。どちらも同じ html ルート・同じ encode を使う
+  assert.match(preview, /fileHtmlPreviewUrl\(fetchPath\)/, "隔離モードの iframe URL を使っていない");
+  assert.match(
+    preview,
+    /fileStoragePreviewUrl\(fetchPath, filePreviewPort\)/,
+    "有効モードの iframe URL を使っていない",
+  );
   // path を組み立て直すと encode と (文書と同じディレクトリを基準にする) 相対参照の前提がずれる
-  assert.match(preview, /href=\{fileHtmlPreviewUrl\(fetchPath\)\}/, "URL を組み立て直している");
+  assert.match(preview, /href=\{fileHtmlPreviewUrl\(fetchPath\)\}/, "新しいタブの URL を組み立て直している");
 });
 
 test("新しいタブとして開き、遷移元 (アプリのタブ) へ触れさせない", () => {
