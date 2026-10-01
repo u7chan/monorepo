@@ -36,6 +36,8 @@ export type ComposerProps = {
   onRetry?: () => void;
   agents: AgentDef[];
   agentId: string;
+  /** セッションを開いているときのエージェント表示 (作成時のスナップショット)。渡すと選べるプルダウンにしない */
+  sessionAgent?: { name: string; icon?: string };
   mode: LayoutMode;
   /** 選択中 / 送信待ちの添付。アップロード中・失敗がある間は送信できない */
   attachments: Attachment[];
@@ -118,6 +120,7 @@ export function Composer({
   settings,
   agents,
   agentId,
+  sessionAgent,
   mode,
   attachments,
   rootCwd,
@@ -338,7 +341,13 @@ export function Composer({
         )}
       >
         <div className={cn("flex flex-wrap items-center", compact ? "gap-2" : "gap-x-3 gap-y-1.5 px-0.5")}>
-          <AgentField agents={agents} agentId={agentId} compact={compact} onChangeAgent={onChangeAgent} />
+          <AgentField
+            agents={agents}
+            agentId={agentId}
+            compact={compact}
+            sessionAgent={sessionAgent}
+            onChangeAgent={onChangeAgent}
+          />
           <ModelEffortToggle open={settingsOpen} compact={compact} onToggle={() => setSettingsOpen((open) => !open)} />
           <SkillPicker
             state={skills}

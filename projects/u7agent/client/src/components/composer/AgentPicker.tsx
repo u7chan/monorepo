@@ -14,6 +14,7 @@ import { cn } from "../../lib/cn";
 import type { AgentDef } from "../../types";
 import { AgentIcon } from "../AgentIcon";
 import { MenuItem } from "../MenuItem";
+import { agentBoxClass, agentFrameClass } from "./fieldStyles";
 
 /**
  * コンポーザーのエージェント選択。native `<select>` の `<option>` には画像を描画できないため、
@@ -169,9 +170,7 @@ export function AgentPicker({
 
   return (
     <>
-      <span
-        className={cn("relative inline-flex min-w-0 items-center", compact ? "min-w-0 flex-1" : "max-w-50 min-w-0")}
-      >
+      <span className={agentFrameClass(compact)}>
         <button
           type="button"
           ref={triggerRef}
@@ -194,10 +193,7 @@ export function AgentPicker({
           }}
           onClick={toggle}
           onKeyDown={onTriggerKeyDown}
-          className={cn(
-            "field peer grid w-full cursor-pointer py-1 pr-8 pl-6.5 text-left disabled:cursor-not-allowed disabled:opacity-55",
-            compact ? "text-md" : "text-1xs",
-          )}
+          className={cn("peer cursor-pointer disabled:cursor-not-allowed disabled:opacity-55", agentBoxClass(compact))}
         >
           {/* 不可視の sizer を全候補ぶん同じセルに重ね、実際の描画幅の最大値を欄の幅にする。文字数では
               幅の広い名前を取りこぼし、選択のたびに欄と chevron が動く (選択で幅を動かさない) */}
