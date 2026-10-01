@@ -169,6 +169,15 @@ test("woff2 assets are served as font/woff2", async () => {
   });
 });
 
+test("png assets are served as image/png", async () => {
+  await withDist({ "index.html": INDEX_HTML, "apple-touch-icon.png": "\x89PNG" }, async (request) => {
+    const icon = await request("/apple-touch-icon.png", { headers: { Accept: BROWSER_ACCEPT } });
+    assert.equal(icon.status, 200);
+    assert.equal(icon.headers.get("content-type"), "image/png");
+    assert.equal(icon.headers.get("cache-control"), "no-cache");
+  });
+});
+
 test("missing client build answers 503 for page URLs too", async () => {
   await withDist({}, async (request) => {
     for (const path of ["/", "/settings/files"]) {
