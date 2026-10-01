@@ -29,10 +29,9 @@ const PREVIEW_MODES: { value: PreviewMode; label: string }[] = [
   { value: "preview", label: "プレビュー" },
 ];
 
-/** ストレージ有効モードの切替説明。押すと iframe が開き直ることをラベルだけでなく title でも示す */
-const STORAGE_PREVIEW_ON_NOTE =
-  "別オリジンで開き直し、localStorage などを使えるようにします（同じオリジンの他のプレビューと保存領域を共有します）";
-const STORAGE_PREVIEW_OFF_NOTE = "アプリと同じオリジンで開き直し、隔離した状態へ戻します（保存領域は使えなくなります）";
+/** 別オリジン (ストレージ有効) の切替説明。押すと iframe が開き直ることをラベルだけでなく title でも示す */
+const PREVIEW_ORIGIN_ON_NOTE = "別オリジンで開き直し、localStorage などを使えるようにします";
+const PREVIEW_ORIGIN_OFF_NOTE = "アプリと同じオリジンで開き直し、localStorage などを使えなくします";
 
 function errorText(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
@@ -171,8 +170,8 @@ export function FilePreview({
             size="sm"
             checked={storageEnabled}
             disabled={filePreviewPort === undefined}
-            label="保存"
-            title={storageEnabled ? STORAGE_PREVIEW_OFF_NOTE : STORAGE_PREVIEW_ON_NOTE}
+            label="別オリジン"
+            title={storageEnabled ? PREVIEW_ORIGIN_OFF_NOTE : PREVIEW_ORIGIN_ON_NOTE}
             onChange={(next) => onOriginChange(activePath, next ? "storage" : "app")}
           />
         ) : null}

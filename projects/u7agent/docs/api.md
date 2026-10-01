@@ -242,13 +242,13 @@ iframe の src になる HTML 文書と、その文書が相対参照するア�
 
 iframe の中身は応答ヘッダと iframe 属性の両方で隔離する（親の CSP を継承させないために別ルートにする）。CSP は `server/src/routes/files.ts` の `HTML_PREVIEW_POLICY` 1 箇所から導出し、既定は Lv2（相対アセットの `'self'` と `https:`）。
 
-**同じルートが 2 つのオリジンに載る**。BFF はアプリと同じリスナー（`PORT`）と、プレビュー専用の 2 つ目のリスナー（待受は env `PI_FILE_PREVIEW_LISTEN_PORT`、ブラウザから見たポートは env `PI_FILE_PREVIEW_PORT`。既定はいずれも 4318）を立て、`previewApp` にはこのルート 1 本だけを載せる（書き込み系の API は載せない）。文書の CSP はリスナーごとに `sandbox` 段だけが変わり、アプリ オリジンは `sandbox allow-scripts`（オペークオリジン = 隔離）、プレビュー オリジンは `sandbox allow-scripts allow-same-origin allow-pointer-lock`（ストレージ有効モード）。どちらで開くかはクライアントのタブごとの保存スイッチが iframe の src と属性で選び（既定はプレビュー オリジン）、リクエストにはフラグを付けない（[file-preview.md](file-preview.md#html-プレビュー)）。
+**同じルートが 2 つのオリジンに載る**。BFF はアプリと同じリスナー（`PORT`）と、プレビュー専用の 2 つ目のリスナー（待受は env `PI_FILE_PREVIEW_LISTEN_PORT`、ブラウザから見たポートは env `PI_FILE_PREVIEW_PORT`。既定はいずれも 4318）を立て、`previewApp` にはこのルート 1 本だけを載せる（書き込み系の API は載せない）。文書の CSP はリスナーごとに `sandbox` 段だけが変わり、アプリ オリジンは `sandbox allow-scripts`（オペークオリジン = 隔離）、プレビュー オリジンは `sandbox allow-scripts allow-same-origin allow-pointer-lock`（ストレージ有効モード）。どちらで開くかはクライアントのタブごとのスイッチが iframe の src と属性で選び（既定はプレビュー オリジン）、リクエストにはフラグを付けない（[file-preview.md](file-preview.md#html-プレビュー)）。
 
 ```
 Content-Security-Policy: sandbox allow-scripts; default-src 'none'; style-src 'unsafe-inline' 'self' https:; script-src 'unsafe-inline' 'self' https:; img-src data: blob: 'self' https:; font-src data: 'self' https:; media-src data: blob: 'self' https:; form-action 'none'
 ```
 
-プレビュー オリジンの CSP はこの `sandbox` 段だけが `sandbox allow-scripts allow-same-origin allow-pointer-lock;` になる（`connect-src` はどちらにも足さない）。`PI_FILE_PREVIEW_PORT` が指すのはブラウザから見たポートで、待受は `PI_FILE_PREVIEW_LISTEN_PORT`（既定 4318）で独立に決まる。アプリ面の CSP は `frame-src 'self' http://*:<PI_FILE_PREVIEW_PORT>` を持ち、`'self'` は保存を OFF にした（隔離へ戻した）ときの同一オリジン フレームのために残す。
+プレビュー オリジンの CSP はこの `sandbox` 段だけが `sandbox allow-scripts allow-same-origin allow-pointer-lock;` になる（`connect-src` はどちらにも足さない）。`PI_FILE_PREVIEW_PORT` が指すのはブラウザから見たポートで、待受は `PI_FILE_PREVIEW_LISTEN_PORT`（既定 4318）で独立に決まる。アプリ面の CSP は `frame-src 'self' http://*:<PI_FILE_PREVIEW_PORT>` を持ち、`'self'` は別オリジンを OFF にした（隔離へ戻した）ときの同一オリジン フレームのために残す。
 
 文書のエラーは iframe の中で読めるように HTML 文書で返し、サンドボックス由来の文言は HTML エスケープする。アセットのエラーは JSON で返す（サブリソースに `text/html` を返さない）。方式と残リスクは [file-preview.md](file-preview.md)。
 

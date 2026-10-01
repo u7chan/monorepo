@@ -179,8 +179,8 @@ test("閉じたタブの表示モードだけを捨てる", () => {
 });
 
 // 配信元 (ストレージ有効モード)。表示モードと同じ規則で、タブごとに保持してタブを閉じるまで残す
-// (既定は storage = 保存を有効にした別オリジン)
-test("配信元の既定は別オリジン (保存を有効) で、選び直したタブは選択を優先する", () => {
+// (既定は storage = ストレージ有効の別オリジン)
+test("配信元の既定は別オリジン (ストレージ有効) で、選び直したタブは選択を優先する", () => {
   assert.equal(previewOriginFor({}, "a.html"), "storage");
   const origins = withPreviewOrigin(withPreviewOrigin({}, "a.html", "app"), "b.html", "storage");
   assert.equal(previewOriginFor(origins, "a.html"), "app");

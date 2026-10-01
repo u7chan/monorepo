@@ -155,14 +155,14 @@ export function renamePreviewModes(modes: PreviewModes, path: string, nextPath: 
   return Object.fromEntries(entries);
 }
 
-/** タブのプレビューを配るオリジン。既定は保存を有効にした別オリジンで、app は隔離へ戻すときだけ保存する */
+/** タブのプレビューを配るオリジン。既定は storage (別オリジン = ストレージ有効) で、隔離へ戻したタブだけが app を持つ */
 export type PreviewOrigin = "app" | "storage";
 
 /** タブごとに保持するプレビューの配信元。キーはページ root 相対パス */
 export type PreviewOrigins = Record<string, PreviewOrigin>;
 
 /**
- * プレビューの配信元。既定は別オリジン (`storage` = 保存を有効)。モードと同じく own property だけを見る
+ * プレビューの配信元。既定は別オリジン (`storage` = ストレージ有効)。モードと同じく own property だけを見る
  * (`constructor` や `__proto__` のような名前のパスを「選択済み」と誤認しないため)。
  * ブラウザから見たポートが未取得の間は呼び出し側が隔離へ倒す (client にポートを焼き込まない)。
  */

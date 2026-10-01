@@ -1383,7 +1383,7 @@ test("static files are served with cache and security headers", async () => {
     assert.equal(root.headers.get("cache-control"), "no-cache");
     assert.equal(root.headers.get("x-content-type-options"), "nosniff");
     assert.match(root.headers.get("content-security-policy") || "", /default-src 'self'/);
-    // 保存を OFF にしたときの同一オリジン フレームと、別オリジン (プレビュー リスナー) のフレームの両方を許可する
+    // 別オリジンを OFF にしたときの同一オリジン フレームと、別オリジン (プレビュー リスナー) のフレームの両方を許可する
     assert.match(root.headers.get("content-security-policy") || "", /frame-src 'self' http:\/\/\*:4318/);
 
     const asset = await bff.app.request("/assets/app.js");
