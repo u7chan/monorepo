@@ -141,6 +141,42 @@ export function mergeSeenRuns(base: SeenRuns, add: ReadonlyMap<string, readonly 
   return changed ? capSeenSessions(new Map(entries)) : base;
 }
 
+/**
+ * `base` (保存値) を土台に、`add` (メモリ) の既読を上限の空きがある分だけ足す。`mergeSeenRuns` と
+ * 違い、**土台の既読は落とさない**。上限の空きが無い会話 / 会話数の上限に達した分は捨てる
+ * (add の新しい方を残す)。書き戻しが保存値を単調に増やすだけになるため、2 タブの write が
+ * 重なっても書き直しが止まる (上限に達した会話は土台のままになる)
+ */
+export function mergeKeepingStored(base: SeenRuns, add: ReadonlyMap<string, readonly string[]>): SeenRuns {
+  if (add.size === 0) return base;
+  const entries = [...base];
+  let changed = false;
+  for (const [sessionId, runIds] of add) {
+    if (typeof sessionId !== "string" || sessionId === "") continue;
+    const index = entries.findIndex(([id]) => id === sessionId);
+    if (index === -1) {
+      // 会話数の上限に達したら新しい会話は足さない (土台を消さない)
+      if (entries.length >= SEEN_RUNS_SESSION_LIMIT) continue;
+      const next = unionRunIds([], runIds);
+      if (next.length === 0) continue;
+      entries.push([sessionId, next]);
+      changed = true;
+      continue;
+    }
+    const current = entries[index][1];
+    const room = SEEN_RUNS_PER_SESSION_LIMIT - current.length;
+    if (room <= 0) continue;
+    const known = new Set(current);
+    const extras = runIds.filter((runId) => runId !== "" && !known.has(runId));
+    // 空きより多い分は古い方を捨てる (Issue の「新しい順に残す」)
+    const appended = extras.slice(-room);
+    if (appended.length === 0) continue;
+    entries[index] = [sessionId, [...current, ...appended]];
+    changed = true;
+  }
+  return changed ? new Map(entries) : base;
+}
+
 export type SeenStorageEvent = { key: string | null; newValue: string | null };
 
 /** 並びまで同じか (上限に達した後は、長さが同じでも中身が入れ替わる) */
@@ -175,10 +211,12 @@ export type SeenRunsStore = {
 };
 
 /**
- * 既読の run id を localStorage の 1 キーで読み書きする。write は必ず保存値を読み直してから
- * 和集合で合流する (メモリをそのまま書くと、2 タブが別々の会話を既読にしたときに片方が落ちる)。
- * 1 タブ内のメモリは read のキャッシュとして持ち、別タブの write は storage イベントで合流する。
- * 保存領域が使えない環境 (private browsing 等) はメモリだけへフォールバックする。
+ * 既読の run id を localStorage の 1 キーで読み書きする。write は必ず保存値を読み直し、
+ * 保存値の既読を落とさない合流 (`mergeKeepingStored`) で書き戻す (新しい run を mark したときだけ、
+ * 上限のため古い既読を落とす)。メモリのそのまま書きは 2 タブが別々の会話を既読にしたときに片方を
+ * 落とし、無条件の書き戻しは上限に達した会話でタブ間の書き直しが止まらなくなる。1 タブ内のメモリは
+ * read のキャッシュとして持ち、別タブの write は storage イベントで合流する。保存領域が使えない環境
+ * (private browsing 等) はメモリだけへフォールバックする。
  */
 export function createSeenRunsStore(
   storage?: SeenRunsStorage | null,
@@ -206,12 +244,13 @@ export function createSeenRunsStore(
     for (const listener of listeners) listener();
   };
   /**
-   * 保存値を取り込み、合流結果を保存値へ収束させる。書く直前に保存値を読み直すため、別タブの
-   * write を上書きしない (read-modify-write)。Web Storage には read-modify-write の排他がないので、
-   * 2 タブの write が重なると保存値に片方しか残らない。合流結果が保存値より進んでいるときだけ書き、
-   * 書き直しの連鎖を作らない。メモリの内容が変わったら true を返す
+   * 保存値とメモリを合流させ、足りない既読を保存値へ書き戻す。合流は `mergeKeepingStored`
+   * (保存値の既読を落とさない) に限るので、書き込みは保存値の内容が増えるときだけ起きる。
+   * `evict: true` は mark が新しい run を足したときだけで、上限のため古い既読を落とす。
+   * 書き込みが成功していれば、終わったあとのメモリと保存値の内容は一致する (次の合流で
+   * 書き直しが起きない)。メモリの内容が変わったら true を返す
    */
-  const converge = (): boolean => {
+  const converge = ({ evict = false }: { evict?: boolean } = {}): boolean => {
     const target = resolveStorage();
     const previous = state();
     if (!target) return false;
@@ -221,7 +260,7 @@ export function createSeenRunsStore(
     } catch {
       return false;
     }
-    const merged = mergeSeenRuns(stored, previous);
+    const merged = evict ? mergeSeenRuns(stored, previous) : mergeKeepingStored(stored, previous);
     const changed = !sameSeenRuns(merged, previous);
     if (changed) memory = merged;
     if (sameSeenRuns(stored, merged)) return changed;
@@ -266,10 +305,11 @@ export function createSeenRunsStore(
     mark(sessionId, runId) {
       if (!sessionId || !runId) return;
       const before = state();
-      if (!isRunSeen(before, sessionId, runId)) memory = mergeSeenRuns(before, new Map([[sessionId, [runId]]]));
-      // 既読の run でも、別タブの write と重なって保存値から落ちていることがある。早期 return すると
-      // リロードで未見が戻るため、保存値へ収束させる
-      if (converge() || memory !== before) notify();
+      const added = !isRunSeen(before, sessionId, runId);
+      // 新しい run は上限のため古い既読を落としてでも保存する。既読の run の mark は、
+      // 別タブの write と重なって保存値から落ちていないかを確かめるだけ (落とさない合流)
+      if (added) memory = mergeSeenRuns(before, new Map([[sessionId, [runId]]]));
+      if (converge({ evict: added }) || memory !== before) notify();
     },
   };
 }

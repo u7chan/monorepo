@@ -18,6 +18,7 @@ import {
   encodeSeenRuns,
   endedRunId,
   isRunSeen,
+  mergeKeepingStored,
   mergeSeenRuns,
   SEEN_RUNS_KEY,
   SEEN_RUNS_PER_SESSION_LIMIT,
@@ -385,6 +386,90 @@ test("購読を張り直すと、外れている間の別タブの既読を取�
   assert.deepEqual(sidebar.snapshot().get("s-x"), ["run-x"]);
   assert.equal(events.listeners.size, 1, "listener を張り直していない");
   resubscribe();
+});
+
+test("上限に達した 2 タブが別々の run を mark しても、書き戻しが止まって同じ保存値へ収束する", () => {
+  const storage = new MemoryStorage();
+  const eventsA = new MemoryEvents();
+  const eventsB = new MemoryEvents();
+  // storage イベントは書き込んだタブ以外へ配る (ブラウザの挙動)。配信は保留キューに積み、
+  // 2 タブの mark が終わってから順に届ける
+  const pending: Array<() => void> = [];
+  const tabStorage = (deliverTo: MemoryEvents): SeenRunsStorage => ({
+    getItem: () => storage.value,
+    setItem: (key, value) => {
+      const changed = storage.value !== value;
+      storage.setItem(key, value);
+      if (changed) pending.push(() => deliverTo.emit({ key: SEEN_RUNS_KEY, newValue: value }));
+    },
+  });
+  const tabA = createSeenRunsStore(tabStorage(eventsB), eventsA);
+  const tabB = createSeenRunsStore(tabStorage(eventsA), eventsB);
+  // 会話あたりの上限 (8 件) まで既読にした状態から始める
+  const full = Array.from({ length: SEEN_RUNS_PER_SESSION_LIMIT }, (_, index) => `run-${index}`);
+  storage.value = encodeSeenRuns(new Map([["s-1", full]]));
+  const unsubA = tabA.subscribe(() => {});
+  const unsubB = tabB.subscribe(() => {});
+  assert.deepEqual(tabA.snapshot().get("s-1"), full);
+  assert.deepEqual(tabB.snapshot().get("s-1"), full);
+
+  // 配信前に両タブが別々の run を既読にする (storage が満杯なので mark は古い方を落とす)
+  tabA.mark("s-1", "run-8");
+  tabB.mark("s-1", "run-9");
+  const writesAfterMarks = storage.writes;
+  assert.equal(writesAfterMarks, 2, "mark の書き込みが 2 回でない");
+
+  // 保留イベントを配る。空きが無いので書き戻しは起きず、有限回で止まる
+  let delivered = 0;
+  while (pending.length > 0 && delivered < 50) {
+    const deliver = pending.shift();
+    delivered += 1;
+    deliver?.();
+  }
+  assert.equal(pending.length, 0, "書き戻しが止まらない (上限の会話でタブ間が循環している)");
+  assert.equal(storage.writes, writesAfterMarks, "イベントの配信で書き戻しが起きている");
+
+  // 両タブのメモリと保存値が同じ既読に収束する (この後 mark が無ければ何も起きない)
+  const stored = decodeSeenRuns(storage.value);
+  assert.deepEqual(stored.get("s-1"), ["run-2", "run-3", "run-4", "run-5", "run-6", "run-7", "run-8", "run-9"]);
+  assert.deepEqual(tabA.snapshot().get("s-1"), stored.get("s-1"));
+  assert.deepEqual(tabB.snapshot().get("s-1"), stored.get("s-1"));
+  unsubA();
+  unsubB();
+});
+
+test("mergeKeepingStored は保存値の既読を落とさず、空きがある分だけ新しい側を足す", () => {
+  const base: SeenRuns = new Map([
+    ["s-1", ["run-0", "run-1"]],
+    ["s-2", ["run-0"]],
+  ]);
+  const merged = mergeKeepingStored(
+    base,
+    new Map([
+      ["s-1", ["run-1", "run-2"]],
+      ["s-3", ["run-3"]],
+    ]),
+  );
+  assert.deepEqual(merged.get("s-1"), ["run-0", "run-1", "run-2"]);
+  assert.deepEqual(merged.get("s-2"), ["run-0"], "土台の会話を消している");
+  assert.deepEqual(merged.get("s-3"), ["run-3"], "新しい会話を足していない");
+  // 空きが無い会話は土台のまま (書き直しを起こさない)
+  const full: SeenRuns = new Map([
+    ["s-1", Array.from({ length: SEEN_RUNS_PER_SESSION_LIMIT }, (_, index) => `run-${index}`)],
+  ]);
+  assert.equal(mergeKeepingStored(full, new Map([["s-1", ["run-9"]]])), full);
+  // 空きより多い分は古い方を捨てる (新しい順に残す)
+  const room: SeenRuns = new Map([["s-1", ["run-0", "run-1", "run-2", "run-3", "run-4", "run-5"]]]);
+  assert.deepEqual(mergeKeepingStored(room, new Map([["s-1", ["run-6", "run-7", "run-8"]]])).get("s-1"), [
+    "run-0",
+    "run-1",
+    "run-2",
+    "run-3",
+    "run-4",
+    "run-5",
+    "run-7",
+    "run-8",
+  ]);
 });
 
 test("保存領域が使えない環境はメモリだけへフォールバックする", () => {
