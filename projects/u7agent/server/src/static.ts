@@ -23,8 +23,8 @@ const CONTENT_TYPES: Record<string, string> = {
 // エージェントのアイコンは data URL を <img> で描くため、img-src だけ data: を許す (script-src は 'self' のまま)
 const staticCsp = (filePreviewPort: number) =>
   "default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; connect-src 'self'; " +
-  // 既定 (隔離) モードの同一オリジン フレームと、別オリジンのプレビュー フレームを許可する。
-  // 'self' を落とすと frame-src が default-src にフォールバックしなくなり、既定モードのプレビューが拒否される
+  // 保存を OFF にしたときの同一オリジン フレームと、別オリジン (プレビュー リスナー) のフレームを許可する。
+  // 'self' を落とすと frame-src が default-src にフォールバックしなくなり、OFF のときのプレビューが拒否される
   `frame-src 'self' http://*:${filePreviewPort}`;
 
 /** SPA フォールバックの対象外にする prefix。`/api` と `/assets` そのものも含める (`/apix` とは区別する) */

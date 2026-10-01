@@ -1,6 +1,6 @@
+import { ToggleSwitch } from "../ToggleSwitch";
 import { DiscordIcon } from "../icons";
 import { NotificationCard } from "./NotificationCard";
-import { ToggleSwitch } from "./ToggleSwitch";
 
 export type DiscordCardProps = {
   enabled: boolean;

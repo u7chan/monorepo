@@ -8,7 +8,7 @@
 2. **外部ライブラリを足さない**: 色付けはチャット本文と同じ `lib/markdown/highlight.ts` のトークナイザを使う（対応言語は [markdown.md](markdown.md)）。ファイル用の別実装を持たない。
 3. **DOM 文字列を作らない**: `innerHTML` / `dangerouslySetInnerHTML` / インライン `style` を使わない（本番の CSP は `style-src 'self'`）。行番号もクラスと CSS だけで出す。`client/test/fileCode.test.ts` がソース走査で固定する。
 4. **行番号と本文を 1 対 1 にする**: 番号の列は本文と同じ行送りで重ね、行数は本文から数える。ブラウザーの末尾改行の扱いに依存させない。
-5. **HTML の描画は応答ヘッダと iframe 属性で隔離する**: iframe の src は `GET /api/files/html/<root 相対>` で、既定はアプリと同一オリジン、パス行のトグルで別オリジン（別リスナー）へ切り替えられる（後述）。同じルートが文書と相対アセット（画像 / テキスト）を配るが、拡張子ごとに CSP / Content-Type を分ける。クライアント内で HTML 文字列を iframe へ流す方法（`srcdoc` / Blob URL / `data:` URL）は、親の CSP を継承してインライン style / script が動かないため使わない。
+5. **HTML の描画は応答ヘッダと iframe 属性で隔離する**: iframe の src は `GET /api/files/html/<root 相対>` で、既定は保存を有効にした別オリジン（別リスナー）、パス行のスイッチでアプリと同一オリジンの隔離へ戻せる（後述）。同じルートが文書と相対アセット（画像 / テキスト）を配るが、拡張子ごとに CSP / Content-Type を分ける。クライアント内で HTML 文字列を iframe へ流す方法（`srcdoc` / Blob URL / `data:` URL）は、親の CSP を継承してインライン style / script が動かないため使わない。
 
 ## パイプライン
 
@@ -86,7 +86,7 @@ FilePreview                 取得した本文をタブごとに保持（表示�
 
 描画は iframe の src に `GET /api/files/html/<root 相対>` を指定し、応答ヘッダと iframe 属性の両方で隔離する。同じルートが要求パスの拡張子で分岐し、文書と同じディレクトリを基準にした相対参照（`./cat.png` / `../app.css`）を解決できるようにする（`<base>` の注入はしない）。
 
-同じルートは BFF の **2 つのリスナー**に載る。アプリと同じリスナー（dev 4317 / prod 8015）は現行どおり隔離し、プレビュー専用リスナー（待受は定数 4318。ブラウザから見たポートは env `PI_FILE_PREVIEW_PORT` で、prod は `8017:4318` を publish して 8017 を載せる）は storage を有効にする。プレビュー オリジンに載せるのはこのルート 1 本だけで、書き込み系（削除 / rename / アップロード / セッション API）は載せない（有効モードの文書からアプリの面を叩けないようにする）。どちらのオリジンで開くかはクライアントのタブごとのトグルで選び、リクエストにフラグは付けない。
+同じルートは BFF の **2 つのリスナー**に載る。アプリと同じリスナー（dev 4317 / prod 8015）は現行どおり隔離し、プレビュー専用リスナー（待受は定数 4318。ブラウザから見たポートは env `PI_FILE_PREVIEW_PORT` で、prod は `8017:4318` を publish して 8017 を載せる）は storage を有効にする。プレビュー オリジンに載せるのはこのルート 1 本だけで、書き込み系（削除 / rename / アップロード / セッション API）は載せない（有効モードの文書からアプリの面を叩けないようにする）。どちらのオリジンで開くかはクライアントのタブごとのスイッチで選び（**既定はプレビュー オリジン**）、リクエストにフラグは付けない。
 
 | 要求 | 応答 |
 | --- | --- |
@@ -103,7 +103,7 @@ FilePreview                 取得した本文をタブごとに保持（表示�
 - path はクライアントがセグメント単位で percent encoding する（`client/src/lib/fileUrl.ts`）。Hono 側（`:path{.+}`）は 1 回だけ decode する。文書 / アセット / エラー文書の分岐と応答ヘッダ（`Cache-Control: no-store` / `X-Content-Type-Options: nosniff`）は 2 つのオリジンで同じで、CORS ヘッダは付けない
 - プレビュー オリジンは認証を持たない（アプリと同じ）。待受は 4318 の定数で、ポート使用中は BFF の起動が止まる（`scripts/dev.mjs` も 4318 の空きを先に確認する）
 
-クライアント内で HTML 文字列を iframe へ流す方法（`srcdoc` / Blob URL / `data:` URL）は使わない。アプリの本番 CSP（`default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; connect-src 'self'; frame-src 'self' http://*:<プレビュー ポート>`）は `srcdoc` / `blob:` の iframe に継承され、インラインの style / script がブロックされるため描画できない（`frame-src` を明示した後は `blob:` / `data:` がこの一覧に含まれないため、フレーム自体も拒否される）。Chromium に本番相当の CSP を当てて確認済み。`frame-src` に `'self'` を残すのは、落とすと既定（隔離）モードの同一オリジン フレームが拒否されるため。
+クライアント内で HTML 文字列を iframe へ流す方法（`srcdoc` / Blob URL / `data:` URL）は使わない。アプリの本番 CSP（`default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; connect-src 'self'; frame-src 'self' http://*:<プレビュー ポート>`）は `srcdoc` / `blob:` の iframe に継承され、インラインの style / script がブロックされるため描画できない（`frame-src` を明示した後は `blob:` / `data:` がこの一覧に含まれないため、フレーム自体も拒否される）。Chromium に本番相当の CSP を当てて確認済み。`frame-src` に `'self'` を残すのは、落とすとスイッチで保存を OFF にした（隔離へ戻した）ときの同一オリジン フレームが拒否されるため。
 
 ### 隔離（CSP と sandbox）
 
@@ -111,8 +111,8 @@ CSP は `server/src/routes/files.ts` の `HTML_PREVIEW_POLICY` 1 箇所から導
 
 | オリジン | リスナー | CSP と iframe 属性の sandbox フラグ | 用途 |
 | --- | --- | --- | --- |
-| アプリ | 4317（prod 8015） | `allow-scripts` | 既定（隔離）モード |
-| プレビュー | 4318（prod は `8017:4318` を publish） | `allow-scripts allow-same-origin allow-pointer-lock` | ストレージ有効モード（`localStorage` など + ゲームの pointer lock） |
+| アプリ | 4317（prod 8015） | `allow-scripts` | 隔離モード（スイッチで保存を OFF にしたときだけ） |
+| プレビュー | 4318（prod は `8017:4318` を publish） | `allow-scripts allow-same-origin allow-pointer-lock` | 既定のストレージ有効モード（`localStorage` など + ゲームの pointer lock） |
 
 | 段階 | 追加で読み込めるもの |
 | --- | --- |
@@ -131,57 +131,48 @@ Content-Security-Policy: sandbox allow-scripts; default-src 'none'; style-src 'u
 - `connect-src` はどの段階にも無い。`fetch` / XHR は `default-src 'none'` にフォールバックして止まる
 - アプリ オリジンの `sandbox allow-scripts` によりオペークオリジンになり、親 DOM へ触れない（`localStorage` / cookie は SecurityError）
 - 有効モードの文書のオリジンはプレビュー オリジンになり、`localStorage` / `sessionStorage` / IndexedDB はそのオリジン（scheme + host + port）の保存領域へ入る。**アプリの storage とは分離される**が、同じオリジンを使う他のプレビューとは共有される（サーバーには保存しない）。cookie はオリジンではなくホスト単位で決まるため分離されない（後述の[できないこと](#できないこと残リスク)）
-- iframe 属性は CSP と同じフラグを書く。スクリプトの有効 / 無効は切り替えない（クライアントのトグルは ソース / プレビュー の 2 択 + オリジンの 2 択）
+- iframe 属性は CSP と同じフラグを書く。スクリプトの有効 / 無効は切り替えない（クライアントの切替は ソース / プレビュー の 2 択 + 保存の ON / OFF）
 - 本文は 2 MiB のテキストとして取得する（`FilePreviewSchema` を通す）。サンドボックス側の API は増やさず、新規依存も足さない
 - 200 の応答は文書 / アセットとも `Cache-Control: no-store` と `X-Content-Type-Options: nosniff` を付ける（文書は CSP も）
 - 文書のエラーは iframe の中で読めるよう HTML 文書で返し（サンドボックス由来の文言はエスケープ）、この 2 つのヘッダも付ける。アセットのエラーはサブリソースに `text/html` を返さないよう JSON で返し、この 2 つのヘッダは付けない
 
 ### クライアントの振る舞い
 
-- 既定はプレビュー。他の拡張子は従来どおりソース表示で、トグル（ソース / プレビュー と 保存を有効化）は HTML のタブにだけ出す
-- iframe の src は `client/src/api.ts` の `fileHtmlPreviewUrl(path)` が組み立てるパス形式の URL で、path はセグメント単位で encode する（`client/src/lib/fileUrl.ts`）。有効モードの URL は `fileStoragePreviewUrl(path, port)` で組み立てる（`http://<location.hostname>:<port>` の別オリジン。`location.host` は使わない = dev はアプリが Vite の 3000 に居るため）。ポリシー（CSP の段階）はクライアントへ配らない
-- パス行の `保存を有効化` がタブごとの配信元を切り替える（`aria-pressed`）。ON は別オリジンの URL + iframe 属性 `allow-scripts allow-same-origin allow-pointer-lock`、OFF は現行どおりの URL + `allow-scripts`。切替は iframe の src が変わる = プレビューが再読み込みされるので、そのことと同じオリジンの他のプレビューと保存領域を共有することを `title` に書く
-- ポートは health の `filePreviewPort`（ブラウザから見たポート）で受ける。未取得の間はトグルを無効にし、client にポートを焼き込まない。有効モードを選んでいてもポートが無ければ隔離のまま開く（`aria-pressed` も実体に合わせる）。`App` が health から受けて、ファイルを開ける 4 面（設定 → ファイル / チャット右パネル / チャットの sheet / スキルのファイルタブ）の `FileBrowser` へ prop で渡す（面ごとに health を取り直さない）
-- 配信元の選択はタブごとに保持し、タブを閉じると隔離へ戻る（`previewOriginFor` / `withPreviewOrigin` / `dropClosedPreviewOrigins` / `renamePreviewOrigins`）。表示モードと違い**保存はしない**ので、F5 と タブを閉じて開き直すと隔離から始まる。全画面ではパス行の中身を描かないためトグルも出ず、戻ると保持している切替が効く
+- 既定はプレビュー。他の拡張子は従来どおりソース表示で、切替（ソース / プレビュー と 保存のスイッチ）は HTML のタブにだけ出す
+- iframe の src は `client/src/api.ts` の `fileHtmlPreviewUrl(path)` が組み立てるパス形式の URL で、path はセグメント単位で encode する（`client/src/lib/fileUrl.ts`）。保存を有効にした側の URL は `fileStoragePreviewUrl(path, port)` で組み立てる（`http://<location.hostname>:<port>` の別オリジン。`location.host` は使わない = dev はアプリが Vite の 3000 に居るため）。ポリシー（CSP の段階）はクライアントへ配らない
+- パス行の保存のスイッチ（`ToggleSwitch` の `size="sm"`。パス行の ソース / プレビュー と同じ高さに揃える）がタブごとの配信元を切り替える（`role="switch"` + `aria-checked`）。**既定は ON（別オリジン）**で、OFF にすると現行どおりの同一オリジン URL + `allow-scripts` へ戻る。切替は iframe の src が変わる = プレビューが再読み込みされるので、そのことと同じオリジンの他のプレビューと保存領域を共有することを `title` に書く
+- ポートは health の `filePreviewPort`（ブラウザから見たポート）で受ける。未取得の間はスイッチを無効にし、client にポートを焼き込まない。既定が ON でもポートが無ければ隔離のまま開く（`aria-checked` も実体に合わせる）。`App` が health から受けて、ファイルを開ける 4 面（設定 → ファイル / チャット右パネル / チャットの sheet / スキルのファイルタブ）の `FileBrowser` へ prop で渡す（面ごとに health を取り直さない）
+- 配信元の選択はタブごとに保持し、タブを閉じると既定（保存を有効）へ戻る（`previewOriginFor` / `withPreviewOrigin` / `dropClosedPreviewOrigins` / `renamePreviewOrigins`）。表示モードと違い**保存はしない**ので、F5 と タブを閉じて開き直すと既定（ON）から始まる
 - **配信元の切替は iframe の `key` を変えて要素ごと作り直す**。Chromium はナビゲーション開始時の sandbox フラグで文書を作るため、同じ更新で `src` と `sandbox` を書き換えると古いフラグ（`allow-scripts`）のまま読み込まれ、後から属性を直しても再ナビゲーションされない（CSP の `sandbox allow-scripts allow-same-origin allow-pointer-lock` は要素側の制限を打ち消せない = 和集合）。sandbox 属性が変わらないタブ間の切替は作り直さない（`src` だけが変わり、フラグはそのまま正しい）
 - 表示モードの選択もタブごとに保持し、タブを閉じると捨てる（`previewModeFor` / `withPreviewMode` / `dropClosedPreviewModes`）。state は `FileBrowser` が持つ。選択は「タブを閉じるまで」が条件で、「再読み込み」は `FilePreview` を remount して本文だけを捨てる（本文はタブごとに保持するが、選択は再取得では戻さない）
 - プレビュー中はソース本文を取得しない（`lang · N 行` も本文のコピーもソース表示のときだけ出す）
 - 「再読み込み」は `FilePreview` の remount（`FileBrowser` の `key` 差し替え）で iframe も取り直す（プレビュー用の追加実装は無い）
-
-### 全画面
-
-パス行のボタン（HTML のプレビュー中だけ出す）で、プレビューをアプリの viewport いっぱいに出す。ブラウザの Fullscreen API（`requestFullscreen`）は使わない（iPhone Safari で使えない。ブラウザの全画面は F11 で代替できる）。
-
-- 方式はアプリ内のモーダル dialog（`showModal()` = top layer）。`position: fixed` のオーバーレイは使わない。`@container`（`container-type: inline-size`）配下では 2024-10 より前のブラウザが layout containment を当てて fixed を祖先基準にするため viewport を覆えず、背面を inert にもできない
-- 全画面に残すのは戻るボタンだけにする。タブバーは `hidden` で消し（タブの選択は全画面の解除でもあるため、出しておくと押した結果と見た目が食い違う。unmount せず display だけ切るので、横スクロールの位置は保たれ、戻ったときに `scrollIntoView` を当て直す）、パス行は パス / 表示の切替 / 行数を落として `全画面をやめる` だけの行（右寄せ + `border-b`、高さ 44px）にする。ボタンをプレビューの上へ重ねる（絶対配置）と下の HTML の右上を隠して押せなくするため、行として残す
-- **dialog は全画面でなくても常に置く**。通常時は UA の dialog スタイル（`display: none` / `position` / `width`・`height: fit-content` / `margin: auto` / `border` / `padding` / `background: Canvas`）を打ち消して普通の箱として使い、全画面のときだけ `showModal()` する。全画面専用の 2 つ目の箱を作ると、出入りのたびに iframe が再読み込みされてプレビューを取り直すため
-- 全画面は「全画面を出したタブをそのまま HTML のプレビューで表示している間」だけ続く。条件は `lib/fileTabs.ts` の `keepsFullscreenPreview`（出すときのタブ + HTML + プレビュー）で、他タブへ切り替えたとき（HTML 同士でも）/ 全画面のタブを閉じて次が繰り上がったとき / ソース表示へ切り替えたときに解除する。状態は保存しない（切替で解除した後、元のタブへ戻っても復帰しない。F5 と チャット ⇄ 設定 の往復でも復帰しない）
-- `Escape` は全画面のときだけ dialog が受け取り（`stopPropagation`）、1 回で全画面だけを解除する。通常時も止めると設定ページの「Escape でチャットへ戻る」を食う。**プレビューの中（iframe）にフォーカスがあると Escape は親 document へ届かない**ので、そのときは `全画面をやめる` ボタンで戻る
-- 全画面中は背面が inert になる（モーダルの標準挙動）。背面の SSE と実行中のランは止まらない（表示だけ）
-- 見た目は `h-dvh w-screen max-h-none max-w-none m-0 border-0 bg-base` + `aria-modal` で、ツリーやタブの幅に依存しない（compact でも同じ）
 
 ### 新しいタブで開く
 
 HTML プレビューのパス行のアイコンボタンで、描画中の文書をブラウザの新しいタブで開く（`client/src/components/FilePreview.tsx` の `ExternalLinkIcon`。アイコンだけなので `aria-label` / `title` に `新しいタブで開く` を持つ）。
 
 - `<a href target="_blank" rel="noreferrer noopener">` にする。`window.open` は使わない（ポップアップブロッカー / 中クリック / URL のコピーをブラウザの標準に任せる）
-- 開く先は iframe と同じ `fileHtmlPreviewUrl(fetchPath)`（`GET /api/files/html/<root 相対>`）。path を組み立て直さないのは、セグメント単位の encode と「相対参照を文書と同じディレクトリで解決する」前提を iframe と共有するため
-- 出すのはプレビュー中だけ（`showHtml`）。ソース表示から開くと、見えている本文と違うもの（描画された文書）が出る。全画面は戻るボタンだけを残す規則に合わせて出さない（パス行の中身を描かないブロックに置く）
-- **隔離は緩くならない**。アプリ オリジンの応答の CSP（`sandbox allow-scripts`）はトップレベル文書にも効くため、classic script は動くが `localStorage` は SecurityError、`fetch` / XHR は `connect-src` 無しで止まる（Chromium で確認済み）。`rel="noreferrer noopener"` と合わせて、新しいタブからアプリ側の面へは触れない。新しいタブのリンクは現行どおりアプリ オリジンの URL を使う（有効モードの別オリジンは iframe のためだけ）
+- 開く先は**常に別オリジンの `fileStoragePreviewUrl(fetchPath, filePreviewPort)`**（iframe と同じ `GET /api/files/html/<root 相対>`）。別タブを出す目的が `localStorage` を使えることなので、パス行の保存スイッチとは連動させない（OFF にしていても別タブは保存を有効にした側で開く）。path を組み立て直さないのは、セグメント単位の encode と「相対参照を文書と同じディレクトリで解決する」前提を iframe と共有するため
+- ポート未取得の間だけ同一オリジンの `fileHtmlPreviewUrl(fetchPath)` へ倒す（client にポートを焼き込まない）
+- 出すのはプレビュー中だけ（`showHtml`）。ソース表示から開くと、見えている本文と違うもの（描画された文書）が出る
+- 別タブの文書にもプレビュー オリジンの CSP（`sandbox allow-scripts allow-same-origin allow-pointer-lock`）がトップレベル文書として効く。オリジンが文書自身のものなので `localStorage` / `IndexedDB` / pointer lock が使え、iframe の保存を ON にしたときと同じ保存領域を共有する（ゲームのセーブを別タブで続けられる）。`allow-modals` / `allow-downloads` / `allow-popups` は足していないため `alert` / `confirm` とダウンロードは動かない（`form-action 'none'` と `connect-src` 無しも iframe と同じ）。`rel="noreferrer noopener"` と合わせて、アプリ側の面へは触れない
+- プレビュー オリジンへ到達できない環境では、新しいタブは接続できない（iframe は保存を OFF にすれば隔離で表示できる。[できないこと](#できないこと残リスク)）
 
 ### できないこと（残リスク）
 
 - 相対参照で読めるのは同じルートの allowlist に入ったアセット（画像 / 音声 / `.js` / `.mjs` / `.css` / `.json` / `.txt`）だけ。`.svg`、動画、フォント、他の拡張子は 400 になる
 - テキスト（`.js` / `.css` など）は 2 MiB、画像 / 音声は 100 MiB が上限で、超えるとプレビューから読めない
-- `<script type="module">` と動的 `import()` は隔離モードでは読み込めない。オペークオリジンからの module 取得は CORS になり、BFF は CORS ヘッダを付けないため（classic script だけが動く）。ストレージ有効モードでは別オリジンの同じルートが `'self'` になるため読める（Lv0 `inline` は `script-src` に `'self'` が無いので、有効モードでも読めない）
-- `localStorage` / `sessionStorage` / IndexedDB を読む HTML は**隔離モードでは動かない**（オペークオリジン）。`localStorage` の読み取りでは `SecurityError: Failed to read the 'localStorage' property from 'Window': The document is sandboxed and lacks the 'allow-same-origin' flag.` が投げられる。ストレージ有効モードでは使える（保存先はプレビュー オリジン = scheme + host + port の保存領域で、アプリの `u7agent-*` とは分離される。同じオリジンの他のプレビューとは共有される）
+- `<script type="module">` と動的 `import()` は隔離モード（保存を OFF）では読み込めない。オペークオリジンからの module 取得は CORS になり、BFF は CORS ヘッダを付けないため（classic script だけが動く）。既定のストレージ有効モードでは別オリジンの同じルートが `'self'` になるため読める（Lv0 `inline` は `script-src` に `'self'` が無いので、有効モードでも読めない）
+- `localStorage` / `sessionStorage` / IndexedDB を読む HTML は既定（ストレージ有効モード）では使える。保存先はプレビュー オリジン = scheme + host + port の保存領域で、アプリの `u7agent-*` とは分離される（同じオリジンの他のプレビューとは共有される）。保存を OFF にした**隔離モードでは動かない**（オペークオリジン）。`localStorage` の読み取りでは `SecurityError: Failed to read the 'localStorage' property from 'Window': The document is sandboxed and lacks the 'allow-same-origin' flag.` が投げられる
+- **保存を有効にしたままプレビュー オリジンへ到達できないと iframe は白くなる**（接続できないのでエラー文書も届かない）。アプリは到達性を確認せず、UI にも通知を出さない。dev で LAN / 別端末から使うときは `HOST=0.0.0.0` と 4318 の到達（WSL2 なら portproxy の追加）が要る。保存を OFF にすると隔離モードで表示できる（[frontend.md](frontend.md#開発フローと配信) / [README](../README.md#セキュリティ)）
 - **cookie はポートでは分離されない**（RFC 6265 §8.5。cookie はオリジンではなくホスト単位で、`Path` が一致する非 HttpOnly cookie は有効モードの文書からも読み書きできる）。アプリと hostname を共用するため、有効モードのプレビューをアプリの cookie から隔離しない（アプリは現状 cookie を使わない。将来 cookie を足すときは同じホストで共有される前提で扱う）
-- 隔離モードでは、storage を使うインライン script の途中で例外が出るとその script の残りは実行されない（「JS が動かない」ように見える）。storage を読む HTML はトグルを ON にするか、例外を捕まえて続ける
+- 保存を OFF にした隔離モードでは、storage を使うインライン script の途中で例外が出るとその script の残りは実行されない（「JS が動かない」ように見える）。既定は ON なので、OFF にしたときだけ起きる
 - `fetch` / `eval` / `new Worker` は使えない（CSP 違反。`connect-src` は足さない）
 - プレビュー自身は外部 URL へ自己遷移できる（持ち出せるのは自分自身の内容だけ）
 - 別オリジンの面が 1 つ増える（CORS ヘッダを付けず、`no-store` と CSP + sandbox で無害化する）。prod では**無認証でワークスペースの allowlist ファイルを読める面が 1 つ増える**が、載るのは GET の HTML プレビュー ルート 1 本だけ（書き込み系は載せない）
-- 有効モードはプレビュー オリジン 1 つを全プレビューで共有するため、同じオリジンの別ファイルの storage も読める（キー衝突は自己責任）。ファイルごとの名前空間を UI で誘導するのは将来の話
-- 有効モードで読めるアセットは隔離モードと同じ allowlist のまま（`.wasm` / `.svg` / フォント / 動画は 400）
+- 保存を有効にしたモードはプレビュー オリジン 1 つを全プレビューで共有するため、同じオリジンの別ファイルの storage も読める（キー衝突は自己責任）。ファイルごとの名前空間を UI で誘導するのは将来の話
+- 保存を有効にしたモードで読めるアセットは隔離モードと同じ allowlist のまま（`.wasm` / `.svg` / フォント / 動画は 400）
 
 ## 画像プレビュー
 
@@ -193,7 +184,7 @@ HTML プレビューのパス行のアイコンボタンで、描画中の文書
 - **パス行の右端に 寸法 · サイズ を出す**（例: `1536 × 1536 · 24.4 KB`）。寸法は `<img>` の `onLoad` の `naturalWidth` / `naturalHeight`（内在ピクセル。表示倍率は持たない）、サイズは `FileBrowser` がツリーの取得済みの行（`FileEntry.size`）から引いて `activeSize` で渡す。表記の組み立ては `client/src/lib/imageMeta.ts` の純関数で、**分かる項目だけを並べ、どちらも分からなければ行ごと出さない**
 - サイズの取得に一覧を取り直さない（1 タブごとに余分な往復を作らない）。このため親ディレクトリが未取得の面（F5 で親を閉じていた場合、一覧の上限 500 件で載っていない場合）ではサイズが出ず、寸法だけになる。ツリーのサイズは「再読み込み」で画像本体と一緒に新しくなる（`invalidateFileTree` が取得済みの子を捨て、プレビューは `key` の張り替えで取り直す）ため、表示中の画像とメタの鮮度は揃う
 - 寸法は表示中のタブのものだけを出す（読み込み結果をパスと一緒に持ち、タブを切り替えたら前のタブの値を使わない）。メタは `shrink-0` で、幅が足りないぶんはパンくずの横スクロールが吸収する（compact も同じ 1 行）
-- 表示モードの切替は画像には出さない（ソース表示はバイナリなので意味が無い）。本文を取得しないので、コピーボタンも出さない。`keepsFullscreenPreview` も HTML だけを対象にする（全画面も HTML 専用）
+- 表示モードの切替は画像には出さない（ソース表示はバイナリなので意味が無い）。本文を取得しないので、コピーボタンも出さない
 - 失敗したとき（404 / 400 / 画像以外の配信拒否）はブラウザーの読み込み失敗表示になる（`alt` は `<パス> のプレビュー`）。テキスト / HTML のようなアプリ側のエラー文言は出さない（タブは勝手に閉じない。`<img>` に `onError` を持たせるのは別 Issue）
 
 ## 画面と root
@@ -292,7 +283,7 @@ assistant 本文のインラインコードが指すファイルを、右パネ�
 - 要求の寿命は選択中セッションの滞在期間に限る。`selectSession` / `newChat` の開始時と、`applySelectedSession` で ID が変わるときに破棄する（A→B→A と戻っても復活しない。`cwd` はセッション識別子にならず、同一プロジェクトの別セッションでも選択が変われば破棄する）
 - パネル / sheet は条件付き mount なので、`FileBrowser` が mount 後の Effect で未消費の要求を適用し、`onHandled(seq)` で App へ返す（`reloadToken` の「mount 時の値は無視する」方式は初回クリックを取り落とすため使わない）。App の ack は現在の pending の `seq` と照合し、古い ack で新しい要求を消さない
 - 適用の印は `FileBrowser` の ref が持ち、適用の直前に記録する。Effect の再実行（StrictMode）では二重に適用しない。`openFileTab` は同一パスでも新しい state を返すため、「タブが増えない」ことは 1 回適用の根拠にならない
-- 復元は `useState` の初期化、要求は Effect で適用するため、要求が最後に効く（表示中のタブが要求のパスになる）。要求の適用時はツリーの祖先を開いて対象の行を示す（[ツリーの reveal](#ツリーの-reveal)）。プレビューは自動で全画面にしない
+- 復元は `useState` の初期化、要求は Effect で適用するため、要求が最後に効く（表示中のタブが要求のパスになる）。要求の適用時はツリーの祖先を開いて対象の行を示す（[ツリーの reveal](#ツリーの-reveal)）
 - 表示モードは既存の選択規則のまま（未選択の HTML だけ既定でプレビュー。ユーザーがソースを選んだタブはソースのまま）
 - compact の sheet は閉じたときに、クリックした button を `App` が保持して focus を戻す（`document.activeElement` はクリックした button を指すとは限らない）。起点がセッション切替などで消えていたら focus を移さない。トグルから開いたときは戻さない。Escape は dialog の標準動作で閉じる（プレビューの中にフォーカスがあると親へ届かない既知制約は HTML プレビューと同じ）
 - provider は `App` が `rootCwd` / `cwd` / callback だけの memo 値で配る。要求 `seq` やパネル開閉を value に混ぜず、SSE の更新で過去の本文を再解析・再描画させない。インラインコード側だけが context を購読するため、独自 comparator を持つ `MdBlockView` / `MdList` / `MdListItemView` / `MdTable` に callback を通す必要がない
@@ -317,7 +308,7 @@ assistant 本文のインラインコードが指すファイルを、右パネ�
 - **外装は native `popover="auto"`**。top layer に載るのでツリーのスクロール枠（`overflow-y-auto`）に切られず、外側クリックと `Escape` は標準の light dismiss に任せる。本体は常時 mount し、React の条件付き mount で出し入れしない（閉じている間の非表示は UA 既定の `display: none`）。開閉の正は popover の状態で、React は `toggle` イベントで `aria-expanded` を写すだけにする
 - **⋯ には `popoverTarget` を付け、`onClick` で既定動作を打ち消してから `showPopover()` / `hidePopover()` を呼ぶ**。popover の外にある ⋯ の click は light dismiss（pointerup）の後に届くため、`popoverTarget` が無いと「開いた状態で ⋯ を押す」たびに閉じて開き直り、トグルが効かない。`popoverTarget` は UA の activation behavior も持つので、同じトグルを二重に走らせないよう `preventDefault()` する。開閉の入口はこの 1 つで、標準の close（Escape / 外側クリック）も含めて状態は `toggle` イベントで観測する
 - **位置は開いた時に `getBoundingClientRect()` から計算する**。UA 既定（`inset: 0` / `margin: auto` / `border` / `padding` / `overflow`）をクラスで打ち消してから `fixed` の `left` / `top` を直接書く（React の `style` では持たない）。純関数 `rowMenuPlacement` が ⋯ の右下（右端をそろえる）を既定に、右端 / 下端で収まらないときは左 / 上へ倒して viewport へ clamp する。スクロール（capture）と resize で取り直し、⋯ がツリーのスクロール枠 / viewport の外へ出たら閉じる（`rowMenuAnchorVisible`）。**React の再レンダーでレイアウトが変わるリサイズ（左サイドバーの docked ⇄ overlay はファイルツリーの幅も動かす）は resize イベントより後に DOM へ届く**ため、commit 後（`useLayoutEffect`）にも置き直す。これが無いと、境界をまたぐ 1 回のリサイズで ⋯ だけが左バーの幅の分だけ動き、次のイベントまでメニューが取り残される。この追従は境界を跨いでも生存する行（メイン列のファイルツリー）の話で、左サイドバーの行は境界で `Sidebar` ごと unmount されて ⋯ も行と一緒に消える（メニューだけが取り残されない。追従はしない）。CSS anchor positioning は Baseline 2026-01 で動く環境の下限を揃えられないため使わない
-- **キーボードは親の `role="menu"` の容器で受ける**。項目は `role="menuitem"` / `tabIndex={-1}` で、↑↓ は `nextRowMenuIndex` で移動し端では止まる（循環しない）。`Tab` / `Shift+Tab` は既定のフォーカス移動に任せ、`focusout`（`relatedTarget` がメニューの外）で閉じる。`Escape` は閉じるのを標準挙動に任せ、伝播だけ止める（`App` の「設定ページからチャットへ戻る」に届かせない。[ImageZoom](#全画面) と同じ扱い）
+- **キーボードは親の `role="menu"` の容器で受ける**。項目は `role="menuitem"` / `tabIndex={-1}` で、↑↓ は `nextRowMenuIndex` で移動し端では止まる（循環しない）。`Tab` / `Shift+Tab` は既定のフォーカス移動に任せ、`focusout`（`relatedTarget` がメニューの外）で閉じる。`Escape` は閉じるのを標準挙動に任せ、伝播だけ止める（`App` の「設定ページからチャットへ戻る」に届かせない。[ImageZoom](markdown.md#画像の拡大表示) と同じ扱い）
 - **開いた直後に座標を確定してから先頭項目へフォーカスを移す**。`Escape` は native の復帰で ⋯ へ戻す。**項目の選択では ⋯ へ戻さない**（native の復帰は閉じる時にフォーカスが popover 内にあるときだけ起きるので、隠す前にフォーカスを外へ退避させてから `hidePopover()` する）。外側クリック / `focusout` / 行の消滅では戻り先が無いので何もしない（明示的な `focus()` は足さない）。⋯ 自身の押下で focusout が走る場合は、直後の click がトグルとして働くよう閉じるのを保留する
 - **削除の項目は danger のトーン**（`MenuItem` の `danger`）。寸法は `MenuItem` の 1 箇所のまま（`min-h-7.5` / `px-2` / `text-xs` / `size-4` のアイコン箱）で、メニュー側に新しい寸法を書かない。⋯ の読み上げ名は `<名前> の操作`（どの行の操作かを含める）
 - 項目の選択・`focusout` で閉じるときは、`window.confirm` / `window.prompt` を出す前に `hidePopover()` を通す（開いたままだとダイアログがメニューの背後に残る）
@@ -405,7 +396,7 @@ assistant 本文のインラインコードが指すファイルを、右パネ�
 
 ファイル画面は、F5 や チャット ⇄ 設定 の往復、パネルの閉じ開き、セッションの切替でも直前の状態に戻る（`client/src/lib/filePreviewState.ts`）。復帰は `FileBrowser` の mount ごとに 1 回で、root が変わるたび（設定を離れて戻る / パネルを開き直す / セッションを切り替える / スキルのファイルタブを開き直す）に再適用し、通常の render やツリーの再取得・「再読み込み」では適用しない。保存は cwd ごとに分かれ、設定 → ファイル は常に `"."`（ワークスペース root 固定）、パネルは `payload.cwd`、スキルのファイルタブは SKILL.md の親ディレクトリを使うので、同じファイルを別の面で開いてもタブは混ざらない。保存値に残った他 cwd はそのまま残す（掃除はしない）。
 
-- 復帰するのは タブの並び / 表示中のタブ / タブごとの表示モード / 開いているディレクトリ。ストレージ有効モードの選択は**保存しない**（F5 とタブを閉じるで隔離に戻る）。本文・children・loading・error は保存しない（他キーや複数 cwd と合算した容量と、鮮度の問題）。復帰後に本文を取得し直すため、表示中のタブ以外は選択したときに取得する（HTML は `/api/files/html/<path>`、ソースは `/api/files/preview`）
+- 復帰するのは タブの並び / 表示中のタブ / タブごとの表示モード / 開いているディレクトリ。保存の選択は**保存しない**（F5 とタブを閉じるで既定の ON に戻る）。本文・children・loading・error は保存しない（他キーや複数 cwd と合算した容量と、鮮度の問題）。復帰後に本文を取得し直すため、表示中のタブ以外は選択したときに取得する（HTML は `/api/files/html/<path>`、ソースは `/api/files/preview`）
 - 親を閉じた子の open は保持し、保存された子のために親を勝手に開かない。root は常に開く。取得は既存の「可視の親から子へ」の経路のままで、親を開いた時点で子の open が効く
 - 消えていたファイルのタブは残し、本文の取得エラーをそのまま出す（勝手に閉じない）。削除済みディレクトリの枝は一覧の取得で落ちる。listing が `truncated` のとき未掲載の枝も落ちるため、完全な復元は保証しない
 - 「再読み込み」はタブ・表示モード・展開を保ったまま本文だけを取り直す。最後のタブを閉じた状態（保存する内容が無い）は cwd ごと消すので、F5 後も空のままになる
@@ -417,10 +408,10 @@ assistant 本文のインラインコードが指すファイルを、右パネ�
 | テスト | 固定すること |
 | --- | --- |
 | `client/test/fileCode.test.ts` | 拡張子の言語判定 / 正規化と行数 / コピーする本文（正規化後・行番号なし・空文字）/ 上限でのフォールバック / 例外を投げない / 描画側が DOM 文字列とインライン style を使わない / HTML の判定 / iframe が sandbox 付きで 2 つの URL ヘルパ（隔離 / 有効）を使う（行番号の列と行数の数え方はチャット本文と共通で [markdown.md](markdown.md#コードブロックの行番号)） |
-| `client/test/fileTabs.test.ts` | 表示モードの既定（HTML と画像だけプレビュー）/ 表示モードと配信元の選択の保持と破棄 / 全画面を続ける条件 / タブの開閉と上限 / ディレクトリ配下のタブの一括削除（接頭辞境界と繰り上がり）/ リネームの経路の張り替え（並び・表示中の保持、配下、重複の排除、表示モードと配信元）/ 保存値からの復元（表示中の繰り上がりと上限） |
-| `client/test/filePreviewStorageMode.test.ts` | ストレージ有効モードの切替（既定はアプリ オリジン + `allow-scripts` / 有効は別オリジン + `allow-scripts allow-same-origin allow-pointer-lock` / ポート未取得では無効で隔離のまま / `aria-pressed` と `disabled` / ポートを client に焼き込まない / health から `FileBrowser` 経由で受ける / 切替で iframe を作り直す `key`）（`react-dom/server` の描画 + ソース走査。sandbox フラグが読まれる時点は Chromium の実挙動なので E2E で見る） |
-| `client/test/filePreviewFullscreen.test.ts` | HTML プレビューの全画面（`showModal()` で開く / Escape を全画面のときだけ止める / iframe は 1 つだけ / 出すときのタブに紐づける / 残すのは戻るボタンだけで、配信元のトグルはパス行の中に置く） |
-| `client/test/filePreviewNewTab.test.ts` | 新しいタブで開く（パス行に置いて HTML プレビュー中だけ出す / iframe と同じ `fileHtmlPreviewUrl(fetchPath)` を開く / `target="_blank"` + `rel="noreferrer noopener"` で `window.open` を使わない / アイコンだけのリンクに `aria-label` と `title`）（ソース走査） |
+| `client/test/fileTabs.test.ts` | 表示モードの既定（HTML と画像だけプレビュー）/ 表示モードと配信元の選択の保持と破棄（配信元の既定は別オリジン = 保存を有効）/ タブの開閉と上限 / ディレクトリ配下のタブの一括削除（接頭辞境界と繰り上がり）/ リネームの経路の張り替え（並び・表示中の保持、配下、重複の排除、表示モードと配信元）/ 保存値からの復元（表示中の繰り上がりと上限） |
+| `client/test/toggleSwitch.test.ts` | 共有スイッチの寸法（既定の md は通知設定の旧寸法のまま / `sm` はプレビューのパス行と同じ高さ）/ `role="switch"` と `aria-checked`・丸の印・`disabled` / 押下で `checked` を反転 |
+| `client/test/filePreviewStorageMode.test.ts` | 保存のスイッチ（既定は別オリジン + `allow-scripts allow-same-origin allow-pointer-lock` / OFF はアプリ オリジン + `allow-scripts` / ポート未取得では無効で隔離のまま / `role="switch"` と `aria-checked`、`ToggleSwitch` の `size="sm"` / 新しいタブは切替と無関係に常に別オリジン / ポートを client に焼き込まない / health から `FileBrowser` 経由で受ける / 切替で iframe を作り直す `key`）（`react-dom/server` の描画 + ソース走査。sandbox フラグが読まれる時点は Chromium の実挙動なので E2E で見る） |
+| `client/test/filePreviewNewTab.test.ts` | 新しいタブで開く（パス行に置いて HTML プレビュー中だけ出す / 常に別オリジンの `fileStoragePreviewUrl(fetchPath, filePreviewPort)` を開き、ポート未取得のときだけ `fileHtmlPreviewUrl(fetchPath)` へ倒す / `target="_blank"` + `rel="noreferrer noopener"` で `window.open` を使わない / アイコンだけのリンクに `aria-label` と `title`）（ソース走査） |
 | `client/test/filePreviewCopy.test.ts` | 本文のコピー（パス行に置く / `reveal` を渡さない / 表示中の本文を渡す / 画像と HTML のプレビューでは出さない / タブを切り替えたら成功表示を捨てる） |
 | `client/test/filePreviewImage.test.ts` | 画像プレビューの下地とメタ（メタはパス行に置いて画像タブだけに出る / `.image-canvas` が市松で、色はテーマのトークンだけで作り 1 タイルの大きさを持つ / 寸法は `onLoad` の内在ピクセルから取り、表示中のタブの値だけを出す / サイズはツリーの行から引いて `activeSize` で渡す）（ソース走査） |
 | `client/test/imageMeta.test.ts` | 画像メタの表記（寸法とサイズの両方 / 片方だけ / どちらも無ければ null / 不正値の落とし方と 0 B） |

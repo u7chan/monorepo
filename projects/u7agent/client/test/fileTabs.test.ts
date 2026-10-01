@@ -10,7 +10,6 @@ import {
   dropClosedPreviews,
   FILE_TAB_LIMIT,
   fileTabLabels,
-  keepsFullscreenPreview,
   openFileTab,
   previewModeFor,
   previewOriginFor,
@@ -179,22 +178,25 @@ test("閉じたタブの表示モードだけを捨てる", () => {
   assert.equal(dropClosedPreviewModes(modes, ["a.html", "dir/b.html"]), modes);
 });
 
-// 全画面を続ける条件。全画面を出したタブ (第 1 引数) をそのまま表示している間だけ true になる
-test("全画面を続けるのは 全画面を出したタブの HTML プレビューだけ", () => {
-  assert.equal(keepsFullscreenPreview("a.html", "a.html", "preview"), true);
-  assert.equal(keepsFullscreenPreview("dir/b.htm", "dir/b.htm", "preview"), true);
-  // 他のタブへ切り替えると解除する (HTML 同士でも続けない)
-  assert.equal(keepsFullscreenPreview("a.html", "b.html", "preview"), false);
-  assert.equal(keepsFullscreenPreview("a.html", "dir/b.html", "preview"), false);
-  // 全画面のタブを閉じて次が繰り上がったときも、表示対象が変わるので解除する
-  assert.equal(keepsFullscreenPreview("a.html", "b.html", "source"), false, "繰り上がった先がソース表示");
-  // ソース表示へ切り替えると続けない
-  assert.equal(keepsFullscreenPreview("a.html", "a.html", "source"), false);
-  // HTML 以外 (他拡張子のタブ・拡張子の無いパス) はプレビューでも続けない
-  assert.equal(keepsFullscreenPreview("a.ts", "a.ts", "preview"), false);
-  assert.equal(keepsFullscreenPreview("a.xhtml", "a.xhtml", "preview"), false);
-  // 全画面でない (null) ときは常に false
-  assert.equal(keepsFullscreenPreview(null, "a.html", "preview"), false);
+// 配信元 (ストレージ有効モード)。表示モードと同じ規則で、タブごとに保持してタブを閉じるまで残す
+// (既定は storage = 保存を有効にした別オリジン)
+test("配信元の既定は別オリジン (保存を有効) で、選び直したタブは選択を優先する", () => {
+  assert.equal(previewOriginFor({}, "a.html"), "storage");
+  const origins = withPreviewOrigin(withPreviewOrigin({}, "a.html", "app"), "b.html", "storage");
+  assert.equal(previewOriginFor(origins, "a.html"), "app");
+  assert.equal(previewOriginFor(origins, "b.html"), "storage");
+  assert.equal(previewOriginFor(origins, "c.html"), "storage", "未選択のタブは既定 (別オリジン) のまま");
+});
+
+test("配信元の選択も Object.prototype の名前のパスで壊れない", () => {
+  for (const name of ["constructor", "toString", "__proto__", "hasOwnProperty"]) {
+    // 未選択として既定 (別オリジン) を返す
+    assert.equal(previewOriginFor({}, name), "storage");
+    const origins = withPreviewOrigin({}, name, "app");
+    assert.equal(Object.hasOwn(origins, name), true, name);
+    assert.equal(Object.getPrototypeOf(origins), Object.prototype, name);
+    assert.equal(previewOriginFor(origins, name), "app");
+  }
 });
 
 // 保存値からの復元。復元後は通常のタブ操作 (開閉・上限) にそのまま乗る
@@ -278,32 +280,13 @@ test("リネームは表示モードの経路も張り替える", () => {
   assert.equal(renamePreviewModes(modes, "dir/a.html", "dir/a.html"), modes, "未変更");
 });
 
-// 配信元 (ストレージ有効モード)。表示モードと同じ規則で、タブごとに保持してタブを閉じるまで残す
-test("配信元の既定はアプリ オリジンで、選び直したタブは選択を優先する", () => {
-  assert.equal(previewOriginFor({}, "a.html"), "app");
-  const origins = withPreviewOrigin(withPreviewOrigin({}, "a.html", "storage"), "b.html", "app");
-  assert.equal(previewOriginFor(origins, "a.html"), "storage");
-  assert.equal(previewOriginFor(origins, "b.html"), "app");
-  assert.equal(previewOriginFor(origins, "c.html"), "app", "未選択のタブは隔離のまま");
-});
-
-test("配信元の選択も Object.prototype の名前のパスで壊れない", () => {
-  for (const name of ["constructor", "toString", "__proto__", "hasOwnProperty"]) {
-    // 未選択として既定 (隔離) を返す
-    assert.equal(previewOriginFor({}, name), "app");
-    const origins = withPreviewOrigin({}, name, "storage");
-    assert.equal(Object.hasOwn(origins, name), true, name);
-    assert.equal(Object.getPrototypeOf(origins), Object.prototype, name);
-    assert.equal(previewOriginFor(origins, name), "storage");
-  }
-});
-
+// 配信元 (ストレージ有効モード) の破棄とリネーム。表示モードと同じ規則で、タブを閉じるまで残す
 test("閉じたタブの配信元だけを捨てる", () => {
   const origins = { "a.html": "storage", "dir/b.html": "storage" } as const;
   assert.deepEqual(dropClosedPreviewOrigins(origins, ["a.html"]), { "a.html": "storage" });
   // 中身が変わらないときは同じ object を返す (setState の再 render を起こさない)
   assert.equal(dropClosedPreviewOrigins(origins, ["a.html", "dir/b.html"]), origins);
-  assert.deepEqual(dropClosedPreviewOrigins(origins, []), {}, "タブが無ければ隔離に戻る");
+  assert.deepEqual(dropClosedPreviewOrigins(origins, []), {}, "タブが無ければ既定に戻る");
 });
 
 test("リネームは配信元の経路も張り替える", () => {

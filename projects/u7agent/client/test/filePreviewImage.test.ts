@@ -17,7 +17,10 @@ function read(relativePath: string): string {
 test("画像のメタはパス行に置き、画像のタブのときだけ出す", () => {
   const preview = read("src/components/FilePreview.tsx");
   // パス行 (パンくず / 表示の切替 / 行数) の中だけを見る。本文の描画側に足しても通らないようにする
-  const pathRow = preview.slice(preview.indexOf("{fullscreen ? null : ("), preview.indexOf("{result?.error"));
+  const pathRow = preview.slice(
+    preview.indexOf("flex items-center gap-3 px-4 py-1.5"),
+    preview.indexOf("{result?.error"),
+  );
   assert.match(pathRow, /<span className="[^"]*shrink-0 text-3xs[^"]*">\{imageMeta\}<\/span>/, "パス行にメタが無い");
   assert.match(preview, /const imageMeta = showImage\s*\?/, "画像以外のタブにもメタを出す条件になっている");
   // 分かる項目だけを並べる判定は lib/imageMeta.ts が正 (寸法もサイズも無ければ null)
