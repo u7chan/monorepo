@@ -284,11 +284,11 @@ test("履歴ツールのマスクと切り詰めはライブの summary 関数�
   ];
 
   const tools = project(messages, secretMasker).at(-1)?.tools ?? [];
-  assert.equal(tools[0]?.args, toolArgsSummary(commandArgs, secretMasker));
+  assert.equal(tools[0]?.args, toolArgsSummary(commandArgs, secretMasker, CWD));
   assert.equal(tools[0]?.output, toolResultSummary({ content: [{ type: "text", text: output }] }, secretMasker));
   assert.ok((tools[0]?.args.length ?? 0) <= 263, "command args は接頭辞・既定上限・省略記号までに切る");
   assert.ok((tools[1]?.args.length ?? 0) > 260, "path は切り詰めない");
-  assert.equal(tools[1]?.args, toolArgsSummary(pathArgs, secretMasker));
+  assert.equal(tools[1]?.args, toolArgsSummary(pathArgs, secretMasker, CWD));
   assert.ok((tools[0]?.output.length ?? 0) <= 901, "output は既定上限+省略記号で切る");
   assert.ok(!JSON.stringify(tools).includes(secret));
 });

@@ -246,7 +246,7 @@ export function createRunEventBridge(deps: RunEventBridgeDeps): RunEventBridge {
           const tool: ToolCall = {
             id,
             name: event.toolName ?? "",
-            args: toolArgsSummary(event.args, masker),
+            args: toolArgsSummary(event.args, masker, cwd),
             isError: false,
             done: false,
             output: "",

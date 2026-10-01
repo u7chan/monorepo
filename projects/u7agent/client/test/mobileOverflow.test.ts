@@ -14,6 +14,7 @@ const compactBar = source("../src/components/CompactBar.tsx");
 const chatArea = source("../src/components/ChatArea.tsx");
 const composer = source("../src/components/Composer.tsx");
 const messageView = source("../src/components/chat/MessageView.tsx");
+const toolHistory = source("../src/components/chat/ToolHistory.tsx");
 
 test("compact と overlay の左バーは単一列 Grid を grid-cols-1 で幅を拘束する", () => {
   assert.ok(
@@ -44,4 +45,13 @@ test("composer の form と中身は intrinsic width で広がらない", () => 
   assert.ok(composer.includes('"grid grid-cols-1 rounded-xl border bg-panel/90 shadow-panel"'));
   assert.ok(composer.includes('landscape ? "grid-cols-2" : "grid-cols-1"'));
   assert.ok(composer.includes("min-w-0 flex-1 resize-none"));
+});
+
+// Grid item の min-width: auto が残ると、break-words は intrinsic 幅を縮めないため折り返さず、
+// カードの外まで広がって ChatArea の overflow-x-hidden で切れる (横スクロールもできない)
+test("ツール履歴の引数と出力はカード幅で折り返す", () => {
+  assert.ok(toolHistory.includes('<code className="min-w-0 break-words whitespace-pre-wrap">{card.args}</code>'));
+  assert.ok(
+    toolHistory.includes('<pre className="m-0 min-w-0 font-mono break-words whitespace-pre-wrap">{card.output}</pre>'),
+  );
 });

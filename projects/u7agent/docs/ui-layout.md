@@ -69,6 +69,12 @@ assistant のメッセージ列は `flex-1` で列幅いっぱい（desktop は 
 
 ツール履歴は代表ステータスを持たない（1 件の失敗で全体がエラーに見え、成功したコールの情報が消えるため）。畳んだ状態でも実行中だけは分かるようにサマリーへ `実行中` を出し、それ以外の位相は各コールの行が持つ。コールの行は入れ子の `<details>` で、開くまで引数と出力は出さない（件数が多い履歴でも一覧できる）。各コールは丸枠の面を持ち、失敗したコールは `border-danger/50` の枠と右端の `エラー` ラベルで示す。
 
+引数と出力はカード幅で折り返す（`code` / `pre` に `min-w-0` を置く。置かないと Grid item の `min-width: auto` が残り、`overflow-wrap: break-word` は intrinsic 幅を縮めないため折り返さずにカードの外へ広がって、`ChatArea` の `overflow-x-hidden` で切れる。横スクロールもできない）。
+
+ツール契約で値がパスと決まっている引数（`path` / `file_path` / `filePath`）は、BFF がマスクの後に `./` 付きの cwd 相対へ畳む（[api-sessions.md](api-sessions.md#get-apisessionsid)）ので、長いパスのコールでもサマリーの 96 文字がファイル名を消さない。基準はセッションの作業フォルダの 1 つだけで、cwd の外のパス（プロジェクト外 / 共通スキル）は絶対のまま「作業フォルダの外」と分かる。
+
+本文（`command` / `output` / JSON 引数）は書き換えない — 本文の `<cwd>/…` はパスとは限らず（grep の検索語、`case` / `[ ]` の照合語）、書き換えるとコピーしたコマンドの挙動が変わるため（`assets@<cwd>/a.txt` のような別のパスもそのまま）。本文に現れる長い絶対パスは折り返しで読む。サマリーは 96 文字で切り詰めるので、こちらは畳まない分だけ見切れ得る。
+
 スキル読み込み（`read` で basename が `SKILL.md`）はツールではなく、assistant バブル上部の専用バッジ（チップ行）で見せる（`client/src/components/chat/SkillLoadList.tsx`）。表記は `[skill] <name>[:start-end]`、既定は閉じで、展開すると解決後の絶対パス・行範囲・失敗理由（1行。ライブのカード出力が無ければ「読み込み失敗」）を確認できる（本文の展開は非ゴール）。成功 / 失敗 / 実行中（未確定）は色だけで区別し、名前は常に出す（実行中は展開に「読み込み中…」を出す）。4 件以上は 3 件 + `+N` に畳み、`+N` の展開で残りを出す。行範囲は `client/src/lib/skillLoad.ts` の `formatReadLineRange()` が pi ネイティブと同じ規則（`offset` 省略は 1 行目、`limit` 省略は最終行まで）で整形する。
 
 スキル読み込みは `ツール履歴 N件` の件数・サマリー（`abbreviatedToolSummary` / `historyPreview`）・コピー本文（`client/src/lib/copy-content.ts`）にも含めない。表示側が `nonSkillToolCards()` で外してからツール履歴へ渡すため、スキルしかないバブルはツール履歴ブロックごと出ない（コピー本文の `#N` は UI の行番号と一致し続ける）。

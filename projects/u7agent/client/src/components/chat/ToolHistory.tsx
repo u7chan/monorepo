@@ -52,7 +52,8 @@ function ToolCallRow({
           {card.args ? (
             <div className="grid min-w-0 gap-0.5">
               <span className="font-sans text-3xs tracking-wide text-ink-faint uppercase">引数</span>
-              <code className="break-words whitespace-pre-wrap">{card.args}</code>
+              {/* min-w-0 が無いと Grid item の min-width: auto が残り、break-words では折り返さずにカードの外へ広がる */}
+              <code className="min-w-0 break-words whitespace-pre-wrap">{card.args}</code>
             </div>
           ) : null}
           {card.phase === "running" ? (
@@ -60,7 +61,7 @@ function ToolCallRow({
           ) : card.output ? (
             <div className="grid min-w-0 gap-0.5">
               <span className="font-sans text-3xs tracking-wide text-ink-faint uppercase">出力</span>
-              <pre className="m-0 font-mono break-words whitespace-pre-wrap">{card.output}</pre>
+              <pre className="m-0 min-w-0 font-mono break-words whitespace-pre-wrap">{card.output}</pre>
             </div>
           ) : null}
         </div>

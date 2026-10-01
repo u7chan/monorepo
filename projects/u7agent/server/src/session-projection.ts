@@ -30,14 +30,35 @@ export function contentText(content: unknown): string {
     .join("");
 }
 
-export function toolArgsSummary(args: unknown, masker: SecretMasker): string {
+/** 表示用の文字列から剥がす前置き。末尾のスラッシュは落として区切りを 1 つに揃える */
+function cwdPrefix(cwd: string): string {
+  return cwd.replace(/\/+$/, "");
+}
+
+/**
+ * 構造化されたパスの値用: 値全体が 1 つのパスなので、前置きの一致だけで判定できる。
+ * cwd 自身は `.`、cwd 配下は `./` 付きの cwd 相対、cwd の外はそのまま (`<cwd>+backup` のような
+ * 接頭辞が同じだけの別のパスを含む)。
+ */
+export function cwdRelativePath(path: string, cwd: string): string {
+  const base = cwdPrefix(cwd);
+  if (base === "" || !path.startsWith(base)) return path;
+  const rest = path.slice(base.length);
+  if (rest === "") return ".";
+  return rest.startsWith("/") ? `./${rest.replace(/^\/+/, "")}` : path;
+}
+
+export function toolArgsSummary(args: unknown, masker: SecretMasker, cwd: string): string {
   if (!args || typeof args !== "object") return "";
   const record = args as Record<string, unknown>;
   if (typeof record.command === "string") {
     return `$ ${truncate(masker.mask(record.command), ARGS_TEXT_MAX)}`;
   }
+  // 畳むのはツール契約で値がパスと決まっている引数だけにする。本文 (command / output / JSON) の
+  // `<cwd>/…` に見える語はパスとは限らず (grep の検索語、case / [ ] の照合語)、`./…` へ書き換えると
+  // コピーしたコマンドの挙動が変わる。
   const path = record.path || record.file_path || record.filePath;
-  if (typeof path === "string") return masker.mask(path);
+  if (typeof path === "string") return cwdRelativePath(masker.mask(path), cwd);
   try {
     return truncate(masker.mask(JSON.stringify(args)), ARGS_TEXT_MAX);
   } catch {
@@ -185,7 +206,7 @@ function toolCallsOf(
     calls.push({
       id: call.id,
       name: call.name,
-      args: toolArgsSummary(call.arguments, masker),
+      args: toolArgsSummary(call.arguments, masker, cwd),
       isError: result.isError === true,
       done: true,
       output: toolResultSummary(result, masker),
