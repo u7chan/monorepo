@@ -22,6 +22,7 @@ const noop = () => {};
 function renderPreview(overrides: Partial<FilePreviewProps> = {}): string {
   return renderToStaticMarkup(
     createElement(FilePreview, {
+      previewVersion: 0,
       paths: ["chart.html"],
       activePath: "chart.html",
       rootPath: ".",

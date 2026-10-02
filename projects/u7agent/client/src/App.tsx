@@ -56,6 +56,8 @@ export default function App() {
     pendingSessionId: route.view === "chat" ? route.pendingSessionId : undefined,
     onPendingSessionResolved: consumePendingEntry,
   });
+  const { runEndSeq } = app.chat;
+  const markdownImageRawUrl = useCallback((path: string) => fileRawUrl(path, runEndSeq), [runEndSeq]);
   // desktop shell は幅と高さの両方が要る (lib/layout.ts)。足りない側で portrait / landscape を選ぶ
   const layout = useLayoutMode();
   const compactMode = layout === "desktop" ? null : layout;
@@ -382,7 +384,7 @@ export default function App() {
               />
             )}
             <FileRefProvider rootCwd={app.health?.cwd ?? ""} cwd={app.cwd} onOpen={openFileRef}>
-              <MarkdownImageProvider rootCwd={app.health?.cwd ?? ""} cwd={app.cwd} rawUrl={fileRawUrl}>
+              <MarkdownImageProvider rootCwd={app.health?.cwd ?? ""} cwd={app.cwd} rawUrl={markdownImageRawUrl}>
                 <ChatArea
                   visible={mainView === "chat"}
                   bubbles={app.chat.bubbles}

@@ -53,3 +53,13 @@ test("画像のサイズは取得済みのツリーの行から引く (メタ表
   assert.match(browser, /fileTreeEntryFor\(tree, tabs\.active\)\?\.size/, "ツリーの行からサイズを引いていない");
   assert.match(browser, /activeSize=\{activeSize\}/, "FilePreview へサイズを渡していない");
 });
+
+test("画像の再読み込みは remount だけでなく previewVersion を raw URL に渡す", () => {
+  const browser = read("src/components/FileBrowser.tsx");
+  assert.match(browser, /<FilePreview\b[^>]*key=\{previewVersion\}[^>]*previewVersion=\{previewVersion\}/);
+  const preview = read("src/components/FilePreview.tsx");
+  assert.match(preview, /previewVersion: number;/);
+  assert.match(preview, /export function FilePreview\(\{\s*previewVersion,/);
+  assert.match(preview, /src=\{fileRawUrl\(fetchPath, previewVersion\)\}/);
+  assert.ok(!preview.includes("src={fileRawUrl(fetchPath)}"), "同じ URL のままでは画像キャッシュが残る");
+});

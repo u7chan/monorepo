@@ -38,6 +38,8 @@ function errorText(error: unknown): string {
 }
 
 export type FilePreviewProps = {
+  /** 一覧と本文の再読み込みの版。画像の raw URL にも使う */
+  previewVersion: number;
   /** 開いているタブ (ページ root 相対・開いた順) */
   paths: string[];
   /** 表示中のタブ。paths の中にある */
@@ -65,6 +67,7 @@ export type FilePreviewProps = {
  * 親が `key` を変えたとき (一覧の再読み込み) は全タブの本文を捨てて取り直す。
  */
 export function FilePreview({
+  previewVersion,
   paths,
   activePath,
   rootPath,
@@ -203,7 +206,7 @@ export function FilePreview({
       ) : showImage ? (
         <div className="image-canvas min-h-0 flex-1 overflow-auto p-2">
           <img
-            src={fileRawUrl(fetchPath)}
+            src={fileRawUrl(fetchPath, previewVersion)}
             alt={`${fetchPath} のプレビュー`}
             // 寸法は読み込み後にしか分からない。パスを一緒に持たせ、タブを切り替えたら前のタブの値を出さない
             onLoad={(event) =>

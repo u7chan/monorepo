@@ -74,6 +74,23 @@ SVG を返す vectorization モデル（`recraft/*-vector` など）は**製品�
 - 拒否規則は write / edit と同じ思想で、`..` / 絶対パス / バックスラッシュ / 空の name（末尾 `/` を含む）を BFF が拒む。upload API は root 配下の任意ディレクトリへ書けるため、cwd 配下チェックは必ず BFF 側で行う
 - 保存上限はサンドボックスの upload 既定（100 MiB）に従う
 
+### 会話履歴を保つ生成手順
+
+会話の画像はファイルへのライブ参照で、生成時点の画像バイトを保存するスナップショットではない。過去の表示を保つため、生成した一意ファイルは上書き・移動せずに残す。
+
+- 本文の Markdown 画像には、**必ずツール結果が返した実際の保存パス**を使う。要求した `path` と結果が異なる場合も、結果のパスを正とする
+- 既存の生成ファイルを上書きしない。`generate_image` は同名衝突時に新しい生成物へ `-1` などを付け、既存ファイルを保つ
+- 固定名の「最新コピー」が必要なら、一意ファイルを残したまま `cp` で別の場所へ置く。会話が参照するファイルを `mv` で動かさない。本文には最新コピーではなく、一意ファイルのパスを使う
+
+例えば結果が `generated/cafe-1.png` なら、本文は `![cafe](generated/cafe-1.png)` とし、固定名が必要な場合だけ次を実行する。
+
+```bash
+mkdir -p assets
+cp generated/cafe-1.png assets/cafe-latest.png
+```
+
+`generated/cafe-1.png` はそのまま残す。最新コピー用の追加ツール引数は設けず、`path` の説明と system prompt のガイドラインでこの運用を指示する。参照元を別ツールで上書き・削除した場合の履歴保護は保証しない。
+
 ## 有効化（ゲート）
 
 `image_settings` の行の有無だけがゲートで、`PiBff.imageGenerationEnabled` と `PiBff.setImageGeneration()` がその写し先になる。
@@ -133,7 +150,8 @@ SDK(pi-ai 0.87.1) の `openrouter-images` は `chat/completions` へ投げるが
 - ツール結果本文には保存パスと一緒に使用モデル（実行時に読んだ `model`）を行で残す。会話履歴は `session.jsonl` の `toolResult` の生 content を正とするため、別途 DB へは保存せず、ライブ・復元後の両方でツール履歴の出力から何で生成したかを追える。設定を変更した後の実行にはその時点のモデルが入る
 - モデル行は結果本文の先頭に置く。投影（`toolResultSummary`）は先頭 900 文字（`SUMMARY_TEXT_MAX`）で切るため、長い `path` を指定しても表示からモデルが欠けないようにする
 - 生成物の確認は `read`。SDK の `read` は画像を返せる
-- チャットのプレビューは Markdown 画像の cwd 相対解決で行う。`![alt](generated/cafe.png)` を 1) `resolveFileRef(src, rootCwd, cwd)` → 2) `fileTreeFetchPath(cwd, resolved)` → 3) `fileRawUrl(rootRelative)` の 3 段で解決し、添付画像と同じ `ZoomableImage`（variant `markdown`）で表示する（[markdown.md](markdown.md#画像の-src-解決)）。解決できなければ従来どおり src をそのまま描く（外部 URL は CSP で読み込めない）
+- チャットのプレビューは Markdown 画像の cwd 相対解決で行う。`![alt](generated/cafe.png)` を 1) `resolveFileRef(src, rootCwd, cwd)` → 2) `fileTreeFetchPath(cwd, resolved)` → 3) `fileRawUrl(rootRelative, runEndSeq)` の 3 段で解決し、添付画像と同じ `ZoomableImage`（variant `markdown`）で表示する（[markdown.md](markdown.md#画像の-src-解決)）。解決できなければ従来どおり src をそのまま描く（外部 URL は CSP で読み込めない）
+- raw URL の `v` は `ChatState.runEndSeq`。run 終了で URL を変え、同一パスが差し替わっていてもブラウザの in-document 画像キャッシュを使わずに取り直す。これは現在のファイルへの追随であり、履歴を不変にするのは上記の[生成手順](#会話履歴を保つ生成手順)。添付画像はアップロードごとの一意名で不変なので版を付けない
 
 ## API
 
@@ -159,11 +177,11 @@ SDK(pi-ai 0.87.1) の `openrouter-images` は `chat/completions` へ投げるが
 | --- | --- |
 | `server/test/images.test.ts` | カタログ / `chat/completions` へ戻らないこと（`/images` の送信先・ヘッダ・本文）/ `media_type` の落とし方 / 失敗分類（401・403・402・429・5xx・timeout・ユーザー中断・原因不明）/ 画像 0 件の失敗（2xx の生本文と `error.message`）/ provider メッセージのマスク / SDK 同梱カタログから `openrouter/*` を落とすこと / SDK の一覧に無い id（live のみのモデル）も provider の URL で送ること |
 | `server/test/image-catalog.test.ts` | live の採用とキャッシュ保存（認証ヘッダを付けない / id と表示名と形式の宣言）/ 出力形式の取り込みと一覧の絞り込み（不明・形違いは落とさない）/ 宣言がキャッシュから読めること / 一覧から落ちた id の `outputFormatsOf` / 重複 id と表示名の欠落 / 失敗分類（429・5xx・契約外・空・timeout）と一覧の保持 / キャッシュの読込と live 失敗時の維持 / キャッシュの読取・保存失敗 |
-| `server/test/image-tools.test.ts` | ツールの組み立て（有効時だけ）/ path の拒否規則 / slug と拡張子 / 生成前ガード（保存できない形式だけを宣言したモデルで provider を叩かない・宣言なしと不明は止めない）/ 保存段の失敗文言（クレジット消費済み）/ root 相対への前置き / 同名衝突で実際の保存名と使用モデルを返す / 長い path でも投影の切詰めにモデルが残る / execute が毎回設定を読む / throw のマスク / signal の伝播 |
+| `server/test/image-tools.test.ts` | ツールの組み立て（有効時だけ）/ path の拒否規則 / slug と拡張子 / 結果パスの参照・一意ファイルの保持・最新コピーのガイドライン / 生成前ガード（保存できない形式だけを宣言したモデルで provider を叩かない・宣言なしと不明は止めない）/ 保存段の失敗文言（クレジット消費済み）/ root 相対への前置き / 同名衝突で実際の保存名と使用モデルを返す / 長い path でも投影の切詰めにモデルが残る / execute が毎回設定を読む / throw のマスク / signal の伝播 |
 | `server/test/image-settings.test.ts` | GET / PUT / DELETE の契約、マスカー登録の順序、既定行、行が無い / provider / カタログ外の 400、runtime 無しの 503、DB 失敗の 503、起動時の適用（キャッシュ読込と、行があるときだけの live 取得）/ キー保存が取得を待たないこと / 再取得の失敗文言 / 注入する config の形式宣言 |
 | `server/test/image-settings-api.test.ts` | HTTP 契約と DB 例外のマスク、起動時の有効化、キーが応答・health・ログへ出ないこと、カタログの出どころ / 再取得の 200 と `catalogError` / `models` の形（宣言を載せない） |
 | `server/test/app-db.test.ts` | v7 → v8 / v8 → v9 の加算移行、`image_settings` の CRUD、空文字行 = 未設定、`image_catalog` の upsert と壊れた行（health を落とさない）、形式宣言の往復と形違いの読み方 |
-| `client/test/markdownImage.test.ts` | Markdown 画像の 3 段解決 / 解決できない src / `components/markdown/` が `api.ts` を import しないこと |
+| `client/test/markdownImage.test.ts` | Markdown 画像の 3 段解決 / version が変わったときだけ解決 URL が変わること / App の `runEndSeq` 配線 / 解決できない src / `components/markdown/` が `api.ts` を import しないこと |
 | `client/test/imageSettings.test.ts` / `client/test/imageSettingsTab.test.ts` | 選択肢（カタログ順・同名への id 添え・カタログ外の現在値）/ 現在値と PUT の本文 / 保存成功時だけキー入力を消す / キーの登録状態バッジと provider の id・表示名 / 見出しの provider（ロゴ・未設定でも OpenRouter・対応表に無い provider は頭文字）と `カタログ <n>` のチップ / 一覧の出どころのチップと最終取得 / 再取得の注記 / タブの初期描画（未設定はキーのみ・設定済みは削除とモデル選択・キーを再表示しない・runtime 不可の disable・[再取得] の出し分け） |
 
 ## 非ゴール

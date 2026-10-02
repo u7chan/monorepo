@@ -43,6 +43,31 @@ test("描画: cwd 相対の src を root 相対へ前置して配信 URL にす�
   assert.ok(html.includes('<button type="button"'), "拡大表示の button で包まれていない");
 });
 
+test("描画: 同じ画像の解決 URL は version が変わったときだけ変わる", async () => {
+  Object.defineProperty(globalThis, "location", {
+    value: { origin: "http://localhost:5173", hostname: "localhost" },
+    configurable: true,
+  });
+  const { fileRawUrl } = await import("../src/api");
+  const imageUrl = (version: number, suffix = ""): URL => {
+    const html = render(`![cafe](generated/cafe.png)${suffix}`, {
+      raw: (path) => fileRawUrl(path, version),
+    });
+    const src = html.match(/<img\b[^>]*\bsrc="([^"]+)"/)?.[1];
+    assert.ok(src, html);
+    return new URL(src.replaceAll("&amp;", "&"));
+  };
+  const initial = imageUrl(0);
+  assert.equal(initial.searchParams.get("path"), "projects/u7agent/generated/cafe.png");
+  assert.equal(initial.searchParams.get("v"), "0");
+  assert.equal(imageUrl(0, "\n\n生成中の追記").toString(), initial.toString());
+  const ended = imageUrl(1);
+  assert.notEqual(ended.toString(), initial.toString());
+  assert.equal(ended.searchParams.get("path"), initial.searchParams.get("path"));
+  assert.equal(ended.searchParams.get("v"), "1");
+  assert.equal(imageUrl(1).toString(), ended.toString());
+});
+
 test("描画: rootCwd 前置きの絶対パスは cwd 相対へ剥がして解決する", () => {
   const html = render("![cafe](/workspace/projects/u7agent/generated/cafe.png)");
   assert.ok(html.includes('src="/api/files/raw?path=projects/u7agent/generated/cafe.png"'), html);
@@ -92,4 +117,14 @@ test("ソース走査: MarkdownView は解決した src だけを描画に渡す
   assert.ok(source.includes('useMarkdownImageSrc(node.kind === "image" ? node.src : "")'), "resolver を通していない");
   assert.ok(source.includes("src={imageSrc}"), "解決した src を描画していない");
   assert.ok(!source.includes("src={node.src}"), "未解決の src を直接描画している");
+});
+
+test("ソース走査: App は runEndSeq が変わったときだけ version 付き rawUrl を作り直す", () => {
+  const source = read("src/App.tsx");
+  assert.match(source, /const \{ runEndSeq \} = app\.chat;/);
+  assert.match(
+    source,
+    /const markdownImageRawUrl = useCallback\(\(path: string\) => fileRawUrl\(path, runEndSeq\), \[runEndSeq\]\)/,
+  );
+  assert.match(source, /<MarkdownImageProvider\b[^>]*rawUrl=\{markdownImageRawUrl\}/);
 });

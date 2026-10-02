@@ -110,9 +110,11 @@ assistant 本文の `![alt](src)` は、次の 3 段で配信 URL へ解決す�
 
 1. `resolveFileRef(src, rootCwd, cwd)` で cwd 相対へ（`client/src/lib/fileRef.ts`）
 2. `fileTreeFetchPath(cwd, resolved)` で root 相対へ（`client/src/lib/fileTree.ts`）
-3. `fileRawUrl(rootRelative)` で URL へ（`client/src/api.ts`。組み立ては App 側に置く）
+3. `fileRawUrl(rootRelative, runEndSeq)` で版付き URL へ（`client/src/api.ts`。組み立ては App 側に置く）
 
 - **`client/src/api.ts` は module 評価時に `location.origin` を読むため、`components/markdown/` から直接 import しない**（`react-dom/server` の静的描画テストが落ちる）。既存の `FileRefProvider` と同じ形で resolver context から `rawUrl` を受け取り、`components/markdown/` は `resolveFileRef` と `fileTreeFetchPath` だけを呼ぶ
+- App は `ChatState.runEndSeq` を閉じ込めた `rawUrl` を `useCallback` で渡す。版が進むのは `run_end` と `running` を抜けた `resync` で、同じパスの URL は版が変わったときだけ `v` query が変わる（通常の再描画やストリーミングでは変えない）。provider の `useMemo` は `rawUrl` の変更を拾い、ライトボックスもサムネイルと同じ解決済み `src` に追随する
+- `Cache-Control: no-store` でも同一 document 内の同じ画像 URL は再取得されないため、この版で URL を変える。ファイル単位の版ではなくセッション単位なので、run 終了ごとに表示中の履歴画像も取り直す。完全なスナップショットは持たず、生成時点の表示を保つには[一意ファイルを残す運用](image-generation.md#会話履歴を保つ生成手順)を使う
 - 外部 URL / `..` / cwd 外の絶対パス / 拡張子のない字面は `resolveFileRef` が解決せず、素の `src` のままになる（外部の画像は `safeUrl` がパース段階で弾き、Markdown の原文表示に落ちる）
 - リンクの中の画像（`[![alt](img)](url)` など）は従来どおり素の `img` で、クリック拡大の対象外
 
@@ -241,4 +243,4 @@ Markdown 記法側の URL（`[t](url)` / `![alt](src)`）も同じ `safeUrl` を
 | `client/test/markdownDiagram.test.ts` | 形状 4 種 / エッジの種類とラベル / チェーン / TD と LR のランク方向 / 境界で止まるエッジ / 戻るエッジと外側レーン / エッジラベルと線の余白 / 長いラベルの折り返しと 6 行上限 / sequenceDiagram の順序と Note / 決定性 / 未対応が `ok: false` になる / 上限 / 固定シードのランダム入力でエッジがノードを横切らずラベルも線に貫かれない / SSR した HTML にインライン style が出ない |
 | `client/test/markdownSafety.test.ts` | `lib/markdown` と `components/markdown` に DOM 文字列の生成・インライン style が現れない（ソース走査） |
 | `client/test/imageZoom.test.ts` | 画像の拡大表示（開いている間だけ body へ portal する `dialog` / `showModal()` / Escape の `stopPropagation` / 背景クリックの判定 / リンク内の画像を button にしない・リンク内の判定を HTML の子へ伝搬する） |
-| `client/test/markdownImage.test.ts` | 画像 src の 3 段解決 / 解決できない src は従来どおり / `components/markdown/` が `api.ts` を import しないこと（SSR テストが通ること） |
+| `client/test/markdownImage.test.ts` | 画像 src の 3 段解決 / version が変わったときだけ解決 URL が変わること / App の `runEndSeq` 配線 / 解決できない src は従来どおり / `components/markdown/` が `api.ts` を import しないこと（SSR テストが通ること） |

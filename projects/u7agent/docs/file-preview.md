@@ -180,11 +180,13 @@ HTML プレビューのパス行のアイコンボタンで、描画中の文書
 
 画像（`png` / `jpg` / `jpeg` / `gif` / `webp` / `avif` / `bmp` / `ico`）の既定モードはプレビューで、`GET /api/files/raw` の URL を `<img>` の src にする（[api.md](api.md#画像配信raw)）。`GET /api/files/preview` はバイナリを 400 で拒否するため呼ばない（本文を取得しないので、"読み込み中…" も行数も出さない）。
 
+`FileBrowser` は手動再読み込みと run 終了で進む `previewVersion` を、remount 用の `key` と `FilePreview` の prop の両方に渡す。画像 URL は `fileRawUrl(fetchPath, previewVersion)` で `v` query を付ける。同じ URL のまま remount しても、`no-store` にかかわらずブラウザの in-document 画像キャッシュが使われるため、URL 自体を変えて同一パスの差し替えを取り直す。
+
 - 配信は画像だけに制限し、SVG / HTML は allowlist 外として 400 になる（同一オリジンでスクリプトを実行させない）
 - 表示は `object-contain` で親の幅・高さに合わせる。ピクセル等倍の切替や拡大縮小の UI は持たない
 - **透過は本文の枠の市松で示す**（`styles/index.css` の `.image-canvas`）。色は `--c-soft` と `--c-ink` の `color-mix` で作り、6 テーマぶんの定義を足さずに追随する（1 タイル 16px = 8px 角）。市松は本文の枠いっぱいに敷き、画像の外側（`p-2` の余白）にも出る（VS Code などと同じ扱い。画像の箱の下だけに敷く案は、小さい透過画像で周囲が平らなままになるため採らない）。透明度の有無による出し分けはしない（判定に canvas の縮小が必要で、誤判定とモバイルのデコード負荷に見合わない）
 - **パス行の右端に 寸法 · サイズ を出す**（例: `1536 × 1536 · 24.4 KB`）。寸法は `<img>` の `onLoad` の `naturalWidth` / `naturalHeight`（内在ピクセル。表示倍率は持たない）、サイズは `FileBrowser` がツリーの取得済みの行（`FileEntry.size`）から引いて `activeSize` で渡す。表記の組み立ては `client/src/lib/imageMeta.ts` の純関数で、**分かる項目だけを並べ、どちらも分からなければ行ごと出さない**
-- サイズの取得に一覧を取り直さない（1 タブごとに余分な往復を作らない）。このため親ディレクトリが未取得の面（F5 で親を閉じていた場合、一覧の上限 500 件で載っていない場合）ではサイズが出ず、寸法だけになる。ツリーのサイズは「再読み込み」で画像本体と一緒に新しくなる（`invalidateFileTree` が取得済みの子を捨て、プレビューは `key` の張り替えで取り直す）ため、表示中の画像とメタの鮮度は揃う
+- サイズの取得に一覧を取り直さない（1 タブごとに余分な往復を作らない）。このため親ディレクトリが未取得の面（F5 で親を閉じていた場合、一覧の上限 500 件で載っていない場合）ではサイズが出ず、寸法だけになる。ツリーのサイズは「再読み込み」で画像本体と一緒に新しくなる（`invalidateFileTree` が取得済みの子を捨て、プレビューは `key` と raw URL の版を変えて取り直す）ため、表示中の画像とメタの鮮度は揃う
 - 寸法は表示中のタブのものだけを出す（読み込み結果をパスと一緒に持ち、タブを切り替えたら前のタブの値を使わない）。メタは `shrink-0` で、幅が足りないぶんはパンくずの横スクロールが吸収する（compact も同じ 1 行）
 - 表示モードの切替は画像には出さない（ソース表示はバイナリなので意味が無い）。本文を取得しないので、コピーボタンも出さない
 - 失敗したとき（404 / 400 / 画像以外の配信拒否）はブラウザーの読み込み失敗表示になる（`alt` は `<パス> のプレビュー`）。テキスト / HTML のようなアプリ側のエラー文言は出さない（タブは勝手に閉じない。`<img>` に `onError` を持たせるのは別 Issue）
@@ -415,7 +417,7 @@ assistant 本文のインラインコードが指すファイルを、右パネ�
 | `client/test/filePreviewStorageMode.test.ts` | 別オリジンのスイッチ（既定は ON = 別オリジン + `allow-scripts allow-same-origin allow-pointer-lock` / OFF はアプリ オリジン + `allow-scripts` / ポート未取得では無効で隔離のまま / `role="switch"` と `aria-checked`、`ToggleSwitch` の `size="sm"` / ラベルが `別オリジン` で `title` が押した結果になること / 新しいタブは切替と無関係に常に別オリジン / ポートを client に焼き込まない / health から `FileBrowser` 経由で受ける / 切替で iframe を作り直す `key`）（`react-dom/server` の描画 + ソース走査。sandbox フラグが読まれる時点は Chromium の実挙動なので E2E で見る） |
 | `client/test/filePreviewNewTab.test.ts` | 新しいタブで開く（パス行に置いて HTML プレビュー中だけ出す / 常に別オリジンの `fileStoragePreviewUrl(fetchPath, filePreviewPort)` を開き、ポート未取得のときだけ `fileHtmlPreviewUrl(fetchPath)` へ倒す / `target="_blank"` + `rel="noreferrer noopener"` で `window.open` を使わない / アイコンだけのリンクに `aria-label` と `title`）（ソース走査） |
 | `client/test/filePreviewCopy.test.ts` | 本文のコピー（パス行に置く / `reveal` を渡さない / 表示中の本文を渡す / 画像と HTML のプレビューでは出さない / タブを切り替えたら成功表示を捨てる） |
-| `client/test/filePreviewImage.test.ts` | 画像プレビューの下地とメタ（メタはパス行に置いて画像タブだけに出る / `.image-canvas` が市松で、色はテーマのトークンだけで作り 1 タイルの大きさを持つ / 寸法は `onLoad` の内在ピクセルから取り、表示中のタブの値だけを出す / サイズはツリーの行から引いて `activeSize` で渡す）（ソース走査） |
+| `client/test/filePreviewImage.test.ts` | 画像プレビューの下地とメタ（メタはパス行に置いて画像タブだけに出る / `.image-canvas` が市松で、色はテーマのトークンだけで作り 1 タイルの大きさを持つ / 寸法は `onLoad` の内在ピクセルから取り、表示中のタブの値だけを出す / サイズはツリーの行から引いて `activeSize` で渡す）/ `previewVersion` が remount の key と画像 URL の両方へ渡ること（ソース走査） |
 | `client/test/imageMeta.test.ts` | 画像メタの表記（寸法とサイズの両方 / 片方だけ / どちらも無ければ null / 不正値の落とし方と 0 B） |
 | `client/test/filePreviewTabClose.test.ts` | タブを中クリックで閉じる契約（`button === 1` だけ / タブの箱で受ける / down 側の既定動作を止める / `×` を残す） |
 | `client/test/fileTree.test.ts` | 開閉・子のマージ・エラー保持 / 削除した行だけを落として他を保つこと / 削除の confirm 文言（ファイル / 配下ごとのディレクトリ、画面の root 相対パス）/ ディレクトリ削除後の枝の prune（接頭辞境界と own プロパティ契約）/ リネームの prompt 文言と、親の行の名前差し替え・配下キーの張り替え・開閉と取得済みの子の保持（接頭辞境界・未取得の親・`__proto__`）/ 取得中のリネームで loading を落として新しいキーで取り直すこと（旧キーの応答で新キーを汚さない）/ 保存する展開の抽出と復元（root の初期化、親を閉じた子の open、truncated）/ reveal の祖先（root から近い順・root 直下は空・同 object を返す条件・loading と子の保持・`__proto__`）/ パンくずの項目（root 相対の祖先とファイル）/ 取得済みの行の引き（未取得の親・一覧の上限外・前方一致・`__proto__`・再読み込み後） |
@@ -436,7 +438,7 @@ assistant 本文のインラインコードが指すファイルを、右パネ�
 | `client/test/sessionFiles.test.ts` | 右パネルの出し分け（desktop × チャット画面 × 作業フォルダあり） |
 | `client/test/chatReducer.test.ts` | `runEndSeq` が `run_end` と `running` を抜けた `resync` でだけ進むこと（同じバッチで届いた `run_start` / `run_end` でも 1 回、新規チャットでも戻らない） |
 | `client/test/route.test.ts` | pathname と画面の対応（大文字・末尾スラッシュ・percent encoding・不正な入力の畳み方）と往復 |
-| `client/test/fileUrl.test.ts` | パスのセグメント単位 encode（`#` / `?` / `%` / `+` / 日本語 / 1 回の decode で戻ること）/ `fileHtmlPreviewUrl` がクエリでなくパス形式で組み立てること / `fileStoragePreviewUrl` が hostname + ポートで別オリジンの URL を組み立てること |
+| `client/test/fileUrl.test.ts` | パスのセグメント単位 encode（`#` / `?` / `%` / `+` / 日本語 / 1 回の decode で戻ること）/ `fileRawUrl` が version 指定時だけ `v` を付け、未指定時の URL を保つこと / `fileHtmlPreviewUrl` がクエリでなくパス形式で組み立てること / `fileStoragePreviewUrl` が hostname + ポートで別オリジンの URL を組み立てること |
 | `server/test/files.test.ts` | HTML プレビューのポリシー定数（段階ごとの CSP / `connect-src` なし / リスナーごとの sandbox 段）/ `GET /api/files/html/<path>` の文書・画像・音声・テキストアセット・400 の分岐と percent decoding（音声は raw・テキストは preview の使い分けと動画 / フォントの 400 を含む）/ ヘッダ（CSP / `no-store` / `nosniff`）/ `previewApp` の storage 有効 CSP（文書は HTML・アセットは CSP 無しの JSON）とマウント範囲（HTML プレビュー ルートだけ）/ `GET /api/files/raw` が音声を 400 で拒むこと / 文書は HTML・アセットは JSON のエラー写像 / `DELETE /api/files` の委譲（`recursive=true` は `deleteDirectory`）と 204・`recursive` の検証・エラー写像 / `POST /api/files/rename` の委譲と body 検証・エラー写像（409 の透過を含む）・契約外の応答の 502 |
 | `server/test/file-preview-port.test.ts` | プレビュー オリジンのポート解決（待受とブラウザから見た値の既定はどちらも 4318 / 未設定は既定 / 1〜65535 の整数 / 不正値は throw して指定した env を名指しする / `pnpm dev` 用の統一（`PI_FILE_PREVIEW_PORT` が正・待受 env しか無いときはその値へ寄せる・空白だけは未設定）） |
 | `server/test/dev-file-preview-port.test.ts` | `pnpm dev` が解決した 1 つの値を待受の空き確認と BFF の両 env（`PI_FILE_PREVIEW_PORT` / `PI_FILE_PREVIEW_LISTEN_PORT`）へ渡し、既定ポートを直書きしないこと（ソース走査） |

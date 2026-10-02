@@ -417,6 +417,7 @@ export function FileBrowser({
         {tabs.paths.length > 0 && tabs.active ? (
           <FilePreview
             key={previewVersion}
+            previewVersion={previewVersion}
             paths={tabs.paths}
             activePath={tabs.active}
             rootPath={rootPath}
