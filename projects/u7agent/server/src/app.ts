@@ -19,6 +19,7 @@ import { createNotificationRoutes } from "./routes/notifications";
 import { createModelSettingsRoutes } from "./routes/models";
 import { createProjectRoutes } from "./routes/projects";
 import { createRuntimeRoutes } from "./routes/runtime";
+import { createServeRoutes } from "./routes/serve";
 import { createSessionRoutes } from "./routes/sessions";
 import { DEFAULT_CLIENT_DIST_DIR, serveClientAssets } from "./static";
 import {
@@ -40,6 +41,8 @@ import {
   UpdateSessionSettingsBodySchema,
   UpdateSessionTitleBodySchema,
   UpdateSkillBodySchema,
+  ServeStartBodySchema,
+  ServeStopBodySchema,
 } from "./schema";
 
 // client は本ファイルを型ソースとして参照するため DTO 型を再配布する
@@ -88,6 +91,7 @@ export async function createBffApp(opts: CreateBffAppOptions = {}) {
     runtimeDiagnostics,
     modelSettings,
     imageSettings,
+    serve,
   } = await createBffContext(opts);
   const appData = appDataGuard(appDb);
   // 変更系は「何も保存していない」ことを state でも示す
@@ -114,6 +118,9 @@ export async function createBffApp(opts: CreateBffAppOptions = {}) {
   const archiveRoutes = createArchiveRoutes({ archiveSettings });
   const modelSettingsRoutes = createModelSettingsRoutes({ modelSettings });
   const imageSettingsRoutes = createImageSettingsRoutes({ imageSettings });
+  // serve は実績 (app-db) と稼働判定 (プローブ / サンドボックス) の両方を読むため、
+  // アプリデータが使えないときは 503 で止める (空の実績へ黙って落とさない)
+  const serveRoutes = createServeRoutes({ serve });
 
   const app = new Hono()
     .use("/api/*", mutationOriginGuard)
@@ -259,6 +266,23 @@ export async function createBffApp(opts: CreateBffAppOptions = {}) {
       (c) => sessionRoutes.postMessage(c, c.req.valid("json")),
     )
     .get("/api/sessions/:id/events", appData, sessionRoutes.events)
+    .get("/api/serve/status", appData, serveRoutes.status)
+    .post(
+      "/api/serve/start",
+      appData,
+      jsonBodyValidator(ServeStartBodySchema, (result, c) =>
+        result.success ? undefined : c.json({ error: "Invalid request body" }, 400),
+      ),
+      (c) => serveRoutes.start(c, c.req.valid("json")),
+    )
+    .post(
+      "/api/serve/stop",
+      appData,
+      jsonBodyValidator(ServeStopBodySchema, (result, c) =>
+        result.success ? undefined : c.json({ error: "Invalid request body" }, 400),
+      ),
+      (c) => serveRoutes.stop(c, c.req.valid("json")),
+    )
     .get("/api/notifications", appData, notificationRoutes.get)
     .put(
       "/api/notifications",
@@ -355,6 +379,7 @@ export async function createBffApp(opts: CreateBffAppOptions = {}) {
     archiveSettings,
     modelSettings,
     imageSettings,
+    serve,
     close: async () => {
       // 未完了の送信結果は記録しない (プロセス終了時に破棄する)
       notifications.close();

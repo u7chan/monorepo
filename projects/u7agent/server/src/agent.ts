@@ -21,6 +21,7 @@ import { createImageToolDefinitions, IMAGE_GENERATION_PROMPT_LINES, sessionToolN
 import { createImagesGenerator, type ImageGenerationConfig } from "./images";
 import { resolveWorkspaceCwd } from "./projects";
 import { ThinkingLevelSchema } from "./schema";
+import { createServeToolDefinitions, withServeTool, type ServeToolHost } from "./serve-tool";
 import { createSandboxToolClientFromEnv } from "./sandbox/client";
 import { createRemoteToolDefinitions } from "./sandbox/remote-tools";
 import { createMutableSecretMasker, type SecretMasker } from "./redact";
@@ -87,10 +88,7 @@ Prefer curl over one-off \`node -e\` fetch scripts; use node fetch only as a fal
 In the deployed container: node 24, npm/npx, git, ripgrep (rg), fd, tar/gzip, unzip, zip, jq, file, xz, openssl, python 3.13, uv.
 Not installed there: wget, ffmpeg, imagemagick.
 
-To let the user inspect a served app in their browser, listen on 0.0.0.0:8080. The UI's shared served-app link opens that server, not a server specific to this conversation.
-Only one server can occupy this port across all conversations. Before replacing it, identify and stop the existing server by its PID; do not kill unrelated processes or the sandbox tool API on 9418.
-Start it in the background with \`nohup <command> > <log> 2>&1 < /dev/null &\` and record its PID. For Vite use \`--host 0.0.0.0 --port 8080 --strictPort\` so a busy port fails instead of silently switching ports.
-Verify it with \`curl -fsS http://127.0.0.1:8080/\` and inspect the log before telling the user to open the served-app link. Container recreation stops the server; the UI does not start, stop, detect, or restore it.
+To let the user inspect a served app in their browser, drive it with the \`serve\` tool (the UI calls it a service) and follow the bundled \`serve\` skill. The app must listen on 0.0.0.0:8080; only one app is served across all conversations, and starting replaces whatever is served now. Container recreation stops it, and the UI does not restore it.
 
 Python: keep dependencies inside the working directory. Create the environment at \`.venv\` directly under it (\`uv venv .venv\`) and install packages with \`uv pip install --python .venv/bin/python <package>\`; \`python3 -m venv .venv\` also works and \`uv venv --seed\` adds pip. Do not install into the system area (PEP 668 and the non-root user refuse it).
 
@@ -115,6 +113,8 @@ export interface CreateSessionInput {
   cwd?: string;
   /** 復元時: アプリのセッション ID (SDK の inMemory セッションへ渡す) */
   sessionId?: string;
+  /** 所有権の束縛に使う会話 id。永続化なしでも渡す (SDK の inMemory へ渡す id とは条件が違う) */
+  ownerSessionId?: string;
   /** 復元時: JSONL から読んだ entries (header は含めない) */
   entries?: unknown[];
   /** 復元時: 作成時のプロンプトスナップショット。無ければ agent / skills から組む */
@@ -187,6 +187,11 @@ export interface PiBff {
    * `read` は常に差し替える（既存セッションの execute は削除後も現在の行を見に行く）
    */
   setImageGeneration(config: ImageGenerationConfig): void;
+  /**
+   * serve ツールの実体を注入する。bootstrap がアプリデータ (実績) とサンドボックスの両方を持つため、
+   * ツール定義はこのホストへ委譲する (GUI と同じ ServeService を通る)
+   */
+  setServe(host: ServeToolHost): void;
 }
 
 export function errorMessage(error: unknown): string {
@@ -584,6 +589,8 @@ export async function createPiBff({ cwd = process.cwd() }: { cwd?: string } = {}
   // ツール定義はセッション作成時にこの値を見る（既存会話へ遡及しない）
   const imageGeneration: { config: ImageGenerationConfig | undefined } = { config: undefined };
   const imagesGenerator = createImagesGenerator({ maskText: maskError });
+  // serve ツールの実体は bootstrap (アプリデータとサンドボックスを持つ層) が注入する。未注入なら公開しない
+  const serveHost: { value: ServeToolHost | null } = { value: null };
 
   const current = { value: unavailableModelState() };
   /** 公開 state の差し替え。ロックの内側でだけ呼び、例外は出さない (lock を壊さない)。 */
@@ -614,6 +621,7 @@ export async function createPiBff({ cwd = process.cwd() }: { cwd?: string } = {}
     thinkingLevel,
     cwd: requestedCwd = "",
     sessionId,
+    ownerSessionId,
     entries,
     promptSnapshot,
     agentSkills = [],
@@ -651,6 +659,7 @@ export async function createPiBff({ cwd = process.cwd() }: { cwd?: string } = {}
     const snapshot = promptSnapshot ?? composePromptSnapshot(agent, skills);
     // ツール一覧はセッション作成時に固定する。画像ツールの有効化は新しい会話と復元から効く
     const imageGenerationEnabled = imageGeneration.config?.enabled === true;
+    const serveToolEnabled = serveHost.value?.configured === true;
     const baseTools = configuredTools();
     // ファイルスキルは SDK のネイティブ発見を使わず、サンドボックスで発見した一覧を skillsOverride で渡す
     // (発見に失敗してもスキル無しでセッション作成を続行する)
@@ -692,9 +701,9 @@ export async function createPiBff({ cwd = process.cwd() }: { cwd?: string } = {}
         sessionId ? { id: sessionId } : undefined,
         entries as Parameters<typeof SessionManager.inMemory>[2],
       ),
-      tools: sessionToolNames(baseTools, imageGenerationEnabled),
+      tools: withServeTool(sessionToolNames(baseTools, imageGenerationEnabled), serveToolEnabled),
       // 組込み定義を「サンドボックスの実行API を呼ぶリモート定義」で置き換え、BFF 上で作業コードを実行しない。
-      // 画像生成は BFF ローカルの customTool として足す（サンドボックスには送らない）
+      // 画像生成と serve は BFF ローカルの customTool として足す（サンドボックスには送らない）
       customTools: [
         ...createRemoteToolDefinitions({
           cwd: sessionCwd,
@@ -713,6 +722,11 @@ export async function createPiBff({ cwd = process.cwd() }: { cwd?: string } = {}
           readSettings: () => imageGeneration.config?.read(),
           readOutputFormats: (model) => imageGeneration.config?.readOutputFormats(model),
           generate: imagesGenerator.generate,
+        }),
+        ...createServeToolDefinitions({
+          enabled: serveToolEnabled,
+          sessionId: ownerSessionId ?? sessionId,
+          host: serveHost.value as ServeToolHost,
         }),
       ],
     };
@@ -762,6 +776,9 @@ export async function createPiBff({ cwd = process.cwd() }: { cwd?: string } = {}
     },
     setImageGeneration(config) {
       imageGeneration.config = config;
+    },
+    setServe(host) {
+      serveHost.value = host;
     },
     refreshModelState,
   };

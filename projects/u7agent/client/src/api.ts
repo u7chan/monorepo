@@ -34,6 +34,7 @@ import type {
   SessionSkillsResponse,
   SessionSummary,
   SessionTitleResponse,
+  ServeStatus,
   SkillDef,
   StopResult,
   ThinkingLevel,
@@ -559,4 +560,34 @@ export const refreshImageCatalog = async (): Promise<ImageCatalogRefreshResponse
   const res = await client.api.settings.images.catalog.refresh.$post();
   if (!res.ok) throw await apiError(res);
   return (await res.json()) as ImageCatalogRefreshResponse;
+};
+
+/**
+ * serve (サービス) の状態。閲覧中の会話 id を送り、作業ディレクトリはサーバーが解決する。
+ * 到達可の判定はプローブで、取得失敗 (502 / 503) は「到達不可」とは別物として扱う。
+ */
+export const getServeStatus = async (sessionId: string, signal?: AbortSignal): Promise<ServeStatus> => {
+  const res = await client.api.serve.status.$get({ query: { sessionId } }, { init: { signal } });
+  if (!res.ok) throw await apiError(res);
+  return (await res.json()) as ServeStatus;
+};
+
+/**
+ * サービスの起動。到達可なら他会話のプロセスを停止して置き換える (確認は UI が取る)。
+ * `generation` は確認した状態の世代で、実行時に変わっていれば 409 になる。
+ */
+export const startServe = async (
+  input: { sessionId: string; generation: string | null },
+  signal?: AbortSignal,
+): Promise<ServeStatus> => {
+  const res = await client.api.serve.start.$post({ json: input }, { init: { signal } });
+  if (!res.ok) throw await apiError(res);
+  return (await res.json()) as ServeStatus;
+};
+
+/** サービスの停止。所有者以外は 403、停止後の解放を確認できないときは 502 */
+export const stopServe = async (input: { sessionId: string; generation: string | null }): Promise<ServeStatus> => {
+  const res = await client.api.serve.stop.$post({ json: input });
+  if (!res.ok) throw await apiError(res);
+  return (await res.json()) as ServeStatus;
 };

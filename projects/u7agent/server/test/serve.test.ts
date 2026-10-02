@@ -1,0 +1,367 @@
+// serve (サービス) の状態・起動・停止の分岐。サンドボックスはスクリプトを解釈するスタブへ差し替える。
+//   - 稼働判定は常にプローブで、記録は表示と操作権限にだけ使う
+//   - 所有者の照合 (pid + 起動時刻)、所有者以外の停止拒否、起動元不明の停止許可
+//   - 置き換えの世代照合 (409)、同時要求の直列化、期限つきの到達確認
+//   - プローブ / サンドボックスの失敗は停止中へ丸めない (502 / 503)
+import assert from "node:assert/strict";
+import test from "node:test";
+import { ServeService } from "../src/serve";
+import {
+  createCommandStore,
+  createProbe,
+  createServeSandboxStub,
+  createSessionLookup,
+  putRecord,
+  readRecord,
+} from "./serve-stub";
+
+const SESSION = "aaaa000001";
+const OTHER = "bbbb000002";
+const CWD = "projects/foo";
+const NOW = 1_700_000_000_000;
+
+/** 検証の共通組み立て。sessions は閲覧中の会話 + 他会話 (所有者) の 2 件 */
+function setup(
+  options: {
+    reachable?: boolean;
+    command?: string;
+    owner?: string | null;
+    /** 到達可のまま待受 PID を特定できない状態を作る (観測スクリプトが何も返さない) */
+    listenerUnknown?: boolean;
+  } = {},
+) {
+  const sandbox = createServeSandboxStub();
+  const commands = createCommandStore(options.command ? [{ cwd: CWD, command: options.command, updatedAt: NOW }] : []);
+  const sessions = createSessionLookup({
+    [SESSION]: { cwd: CWD, title: "トップページの改修" },
+    [OTHER]: { cwd: "projects/bar", title: "決済画面の検証" },
+  });
+  // 稼働判定は待受プロセスの有無で決まる (launch すると listen が始まり、kill で消える)
+  let probeCalls = 0;
+  const probe = async (): Promise<boolean> => {
+    probeCalls += 1;
+    if (options.listenerUnknown) return true;
+    return sandbox.state.listener !== null;
+  };
+  // 期限つきの待ちが終わるよう、sleep で時計を進める (実時間は使わない)
+  const clock = { value: NOW };
+  const service = new ServeService({
+    appDb: commands.db,
+    sessions,
+    sandbox: sandbox.sandbox,
+    probe: probe,
+    now: () => clock.value,
+    sleep: async (ms: number) => {
+      clock.value += ms;
+    },
+  });
+  if (options.owner) {
+    putRecord(sandbox.state, {
+      sessionId: options.owner,
+      cwd: options.owner === OTHER ? "projects/bar" : CWD,
+      command: "pnpm dev",
+      pid: 100,
+      startedAt: NOW - 5_000,
+      generation: "gen-1",
+    });
+    sandbox.state.listener = { pid: 100, startedAt: NOW - 5_000 };
+  }
+  // 到達不可だが記録だけ残っている状態 (コンテナ再作成相当)
+  if (options.reachable === false && options.owner) sandbox.state.listener = null;
+  return { service, sandbox, commands, probe: { calls: () => probeCalls }, clock };
+}
+
+test("到達不可なら実績だけで停止中になり、記録は見せない", async () => {
+  const { service, sandbox } = setup({ command: "pnpm dev", owner: OTHER, reachable: false });
+  // 記録は残っていても、プローブが到達不可なら稼働中とは言わない
+  const status = await service.status(SESSION);
+  assert.deepEqual(status, {
+    reachable: false,
+    owner: { kind: "none" },
+    generation: null,
+    command: { cwd: CWD, command: "pnpm dev" },
+  });
+  // 到達不可のときはサンドボックスの観測を走らせない (記録も待受 PID も表示に使わない)
+  assert.equal(sandbox.cwds.length, 0);
+});
+
+test("実績が無ければ command は null で、別の作業ディレクトリの実績は返さない", async () => {
+  const { service, commands } = setup({ command: "pnpm dev" });
+  commands.rows.set("projects/bar", { cwd: "projects/bar", command: "pnpm start", updatedAt: NOW });
+  const status = await service.status(SESSION);
+  assert.equal(status.command?.command, "pnpm dev");
+  const other = await service.status(OTHER);
+  assert.equal(other.command?.command, "pnpm start");
+});
+
+test("記録と待受プロセスが一致すれば所有者を mine / other に分ける", async () => {
+  const mine = setup({ reachable: true, owner: SESSION });
+  assert.deepEqual((await mine.service.status(SESSION)).owner, { kind: "mine", title: "トップページの改修" });
+
+  const other = setup({ reachable: true, owner: OTHER });
+  assert.deepEqual((await other.service.status(SESSION)).owner, { kind: "other", title: "決済画面の検証" });
+  // 所有者の会話から見れば mine (同じ記録でも見る会話で変わる)
+  assert.deepEqual((await other.service.status(OTHER)).owner, { kind: "mine", title: "決済画面の検証" });
+});
+
+test("記録があっても待受 PID / 起動時刻が一致しなければ起動元不明にする", async () => {
+  const pidMismatch = setup({ reachable: true, owner: OTHER });
+  pidMismatch.sandbox.state.listener = { pid: 999, startedAt: NOW - 5_000 };
+  assert.deepEqual((await pidMismatch.service.status(SESSION)).owner, { kind: "unknown" });
+
+  const timeMismatch = setup({ reachable: true, owner: OTHER });
+  timeMismatch.sandbox.state.listener = { pid: 100, startedAt: NOW - 60_000 };
+  assert.deepEqual((await timeMismatch.service.status(SESSION)).owner, { kind: "unknown" });
+
+  // 記録が壊れていても所有者とみなさない
+  const broken = setup({ reachable: true });
+  broken.sandbox.state.stateFile = "{ not json";
+  broken.sandbox.state.listener = { pid: 100, startedAt: NOW };
+  const status = await broken.service.status(SESSION);
+  assert.deepEqual(status.owner, { kind: "unknown" });
+  assert.equal(status.generation, null);
+});
+
+test("所有者の会話が消えていれば他会話ではなく起動元不明として扱う", async () => {
+  const { service, sandbox } = setup({ reachable: true, owner: "cccc000003" });
+  assert.deepEqual((await service.status(SESSION)).owner, { kind: "unknown" });
+  // 会話ストアの一覧に無い id は「他会話」と呼ばない (削除済みの記録)
+  assert.equal(readRecord(sandbox.state)?.sessionId, "cccc000003");
+});
+
+test("未知の会話は 404 にする", async () => {
+  const { service } = setup();
+  await assert.rejects(
+    () => service.status("unknown000"),
+    (error: unknown) => (error as { statusCode?: number }).statusCode === 404,
+  );
+});
+
+test("停止は所有者以外を 403 で拒み、所有者と起動元不明は許可する", async () => {
+  const owned = setup({ reachable: true, owner: OTHER });
+  await assert.rejects(
+    () => owned.service.stop(SESSION, { generation: "gen-1" }),
+    (error: unknown) => (error as { statusCode?: number }).statusCode === 403,
+  );
+  assert.deepEqual(owned.sandbox.state.killed, [], "拒否したときは kill しない");
+
+  const mine = setup({ reachable: true, owner: SESSION });
+  const stopped = await mine.service.stop(SESSION, { generation: "gen-1" });
+  assert.equal(stopped.reachable, false);
+  assert.deepEqual(mine.sandbox.state.killed, [100], "記録の PID ではなく待受 PID を止める");
+  assert.equal(mine.sandbox.state.stateFile, null, "停止後は記録を残さない");
+
+  // 起動元不明 (記録と一致しない) は誰でも止められる
+  const unknown = setup({ reachable: true, owner: OTHER });
+  unknown.sandbox.state.listener = { pid: 777, startedAt: NOW };
+  await unknown.service.stop(SESSION, { generation: "gen-1" });
+  assert.deepEqual(unknown.sandbox.state.killed, [777]);
+});
+
+test("待受 PID を特定できないときは停止せず、エージェントへ依頼する理由を返す", async () => {
+  const { service, sandbox } = setup({ listenerUnknown: true });
+  await assert.rejects(
+    () => service.stop(SESSION, { generation: null }),
+    (error: unknown) => {
+      assert.equal((error as { statusCode?: number }).statusCode, 409);
+      assert.match((error as Error).message, /待受プロセスを特定できません/);
+      assert.match((error as Error).message, /エージェント/);
+      return true;
+    },
+  );
+  assert.deepEqual(sandbox.state.killed, []);
+});
+
+test("停止後の解放を確認できないときは 502 にする", async () => {
+  const { service, sandbox } = setup({ reachable: true, owner: SESSION });
+  // kill してもポートが空かない (解放の確認に失敗する) 状態を作る
+  sandbox.state.killWorks = false;
+  await assert.rejects(
+    () => service.stop(SESSION, { generation: "gen-1" }),
+    (error: unknown) => {
+      assert.equal((error as { statusCode?: number }).statusCode, 502);
+      assert.match((error as Error).message, /解放されていません/);
+      return true;
+    },
+  );
+});
+
+test("到達不可の停止は何も止めずに停止済みとして返す (冪等)", async () => {
+  const { service, sandbox } = setup({ command: "pnpm dev", owner: OTHER });
+  sandbox.state.listener = null;
+  const status = await service.stop(SESSION, { generation: null });
+  assert.equal(status.reachable, false);
+  assert.deepEqual(sandbox.state.killed, []);
+  // 到達不可のときはサンドボックスへ触らない (記録の後始末も含めて何もしない)
+  assert.deepEqual(sandbox.cwds, []);
+});
+
+test("起動は実績のコマンドを作業ディレクトリで実行し、成功時だけ実績を更新する", async () => {
+  const { service, sandbox, commands } = setup({ command: "pnpm dev" });
+  const status = await service.start(SESSION, {});
+  assert.equal(status.reachable, true);
+  assert.deepEqual(sandbox.state.launched, [{ workdir: CWD, command: "pnpm dev", log: ".u7agent/serve/app.log" }]);
+  // 起動 → 到達可 → 待受 PID を正として記録し直す (2 回書く)
+  assert.equal(sandbox.state.writes, 2);
+  const record = readRecord(sandbox.state);
+  assert.equal(record?.sessionId, SESSION);
+  assert.equal(record?.cwd, CWD);
+  assert.equal(record?.command, "pnpm dev");
+  assert.equal(record?.pid, 4242, "待受 PID で上書きする");
+  assert.equal(typeof record?.generation, "string");
+  assert.equal(commands.rows.get(CWD)?.command, "pnpm dev");
+  assert.deepEqual((await service.status(SESSION)).owner, { kind: "mine", title: "トップページの改修" });
+});
+
+test("起動の失敗は実績を上書きせず、試みた事実だけを残す", async () => {
+  const { service, sandbox, commands } = setup({ command: "pnpm dev" });
+  sandbox.state.launchListens = false;
+  await assert.rejects(
+    () => service.start(SESSION, { command: "pnpm start" }),
+    (error: unknown) => {
+      assert.equal((error as { statusCode?: number }).statusCode, 502);
+      assert.match((error as Error).message, /到達できませんでした/);
+      return true;
+    },
+  );
+  // 仮の記録 (起動 PID) は残るが、以前の成功コマンドは上書きしない
+  assert.equal(readRecord(sandbox.state)?.pid, 4242);
+  assert.equal(commands.rows.get(CWD)?.command, "pnpm dev");
+  assert.equal(sandbox.state.writes, 1);
+});
+
+test("実績が無ければ起動せず 400 にする", async () => {
+  const { service, sandbox } = setup();
+  await assert.rejects(
+    () => service.start(SESSION, {}),
+    (error: unknown) => (error as { statusCode?: number }).statusCode === 400,
+  );
+  assert.deepEqual(sandbox.state.launched, []);
+});
+
+test("到達可のときの起動は待受プロセスを置き換え、世代が違えば 409 で止める", async () => {
+  const replaced = setup({ reachable: true, owner: OTHER, command: "pnpm dev" });
+  await replaced.service.start(SESSION, { generation: "gen-1" });
+  assert.deepEqual(replaced.sandbox.state.killed, [100], "所有者のプロセスを停止してから置き換える");
+  assert.deepEqual(
+    replaced.sandbox.state.launched.map((item) => item.workdir),
+    [CWD],
+  );
+
+  const conflict = setup({ reachable: true, owner: OTHER, command: "pnpm dev" });
+  await assert.rejects(
+    () => conflict.service.start(SESSION, { generation: "old-generation" }),
+    (error: unknown) => {
+      assert.equal((error as { statusCode?: number }).statusCode, 409);
+      assert.match((error as Error).message, /確認し直してください/);
+      return true;
+    },
+  );
+  assert.deepEqual(conflict.sandbox.state.killed, [], "照合不一致では何も止めない");
+  assert.deepEqual(conflict.sandbox.state.launched, []);
+
+  // 到達不可なら世代は null のまま一致し、置き換えの停止は起こらない
+  const stopped = setup({ command: "pnpm dev" });
+  await stopped.service.start(SESSION, { generation: null });
+  assert.deepEqual(stopped.sandbox.state.killed, []);
+});
+
+test("同時の起動要求は直列化し、古い確認のままの要求は 409 で止める", async () => {
+  const { service, sandbox } = setup({ command: "pnpm dev" });
+  // 到達確認の途中で別の要求が入っても、ロックの内側で判定し直す (二重起動を作らない)。
+  // 2 本目は 1 本目が立てた世代と合わないため、UI に確認をやり直させる
+  const results = await Promise.allSettled([service.start(SESSION, {}), service.start(SESSION, {})]);
+  assert.equal(results[0].status, "fulfilled");
+  assert.equal(results[1].status, "rejected");
+  assert.equal(
+    (results[1] as PromiseRejectedResult).reason.statusCode,
+    409,
+    "古い状態で確認した要求は置き換えを実行しない",
+  );
+  assert.equal(sandbox.state.launched.length, 1, "二重起動しない");
+
+  // 世代を揃えた要求は直列に置き換える (所有者のプロセスを止めてから起動する)
+  const replace = setup({ reachable: true, owner: OTHER, command: "pnpm dev" });
+  const settled = await Promise.allSettled([
+    replace.service.start(SESSION, { generation: "gen-1" }),
+    replace.service.start(SESSION, { generation: "gen-1" }),
+  ]);
+  assert.equal(settled[0].status, "fulfilled");
+  assert.equal(settled[1].status, "rejected");
+  assert.equal(replace.sandbox.state.launched.length, 1);
+  assert.deepEqual(replace.sandbox.state.killed, [100]);
+});
+
+test("状態の判定は短くキャッシュし、起動・停止の直後に捨てる", async () => {
+  const sandbox = createServeSandboxStub();
+  const probe = createProbe(false);
+  const now = { value: NOW };
+  const cached = new ServeService({
+    appDb: createCommandStore([{ cwd: CWD, command: "pnpm dev", updatedAt: NOW }]).db,
+    sessions: createSessionLookup({ [SESSION]: { cwd: CWD, title: "トップページの改修" } }),
+    sandbox: sandbox.sandbox,
+    probe: probe.probe,
+    now: () => now.value,
+    sleep: async () => {},
+  });
+  await cached.status(SESSION);
+  await cached.status(SESSION);
+  assert.equal(probe.calls(), 1, "期限内は同じ判定を使い回す");
+  now.value = NOW + 5_000;
+  await cached.status(SESSION);
+  assert.equal(probe.calls(), 2);
+});
+
+test("プローブの失敗は 502 にし、到達不可へ丸めない", async () => {
+  const sandbox = createServeSandboxStub();
+  const commands = createCommandStore();
+  const service = new ServeService({
+    appDb: commands.db,
+    sessions: createSessionLookup({ [SESSION]: { cwd: CWD, title: "t" } }),
+    sandbox: sandbox.sandbox,
+    probe: async () => {
+      const error = new Error("サンドボックス (sandbox:8080) へ接続できません: getaddrinfo ENOTFOUND") as Error & {
+        statusCode?: number;
+      };
+      error.statusCode = 502;
+      throw error;
+    },
+    now: () => NOW,
+  });
+  await assert.rejects(
+    () => service.status(SESSION),
+    (error: unknown) => (error as { statusCode?: number }).statusCode === 502,
+  );
+});
+
+test("サンドボックス未設定とサンドボックス障害は 503 / 502 にする", async () => {
+  const unconfigured = new ServeService({
+    appDb: createCommandStore().db,
+    sessions: createSessionLookup({ [SESSION]: { cwd: CWD, title: "t" } }),
+    sandbox: null,
+    probe: async () => true,
+    now: () => NOW,
+  });
+  assert.equal(unconfigured.configured, false);
+  await assert.rejects(
+    () => unconfigured.status(SESSION),
+    (error: unknown) => (error as { statusCode?: number }).statusCode === 503,
+  );
+
+  const failing = setup({ reachable: true, owner: SESSION });
+  failing.sandbox.state.fail = true;
+  await assert.rejects(
+    () => failing.service.status(SESSION),
+    (error: unknown) => {
+      assert.equal((error as { statusCode?: number }).statusCode, 502);
+      assert.match((error as Error).message, /serve 操作に失敗しました/);
+      return true;
+    },
+  );
+});
+
+test("app-db の失敗はそのまま伝える (空の実績へ黙って落とさない)", async () => {
+  const { service, commands } = setup({ reachable: true, owner: SESSION });
+  commands.state.fail = true;
+  await assert.rejects(() => service.status(SESSION));
+});

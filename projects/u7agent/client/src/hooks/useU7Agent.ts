@@ -11,6 +11,7 @@ import { useArchiveSettings } from "./useArchiveSettings";
 import { useNotifications } from "./useNotifications";
 import { useProjects } from "./useProjects";
 import { useRuntimeCatalog } from "./useRuntimeCatalog";
+import { useServeStatus } from "./useServeStatus";
 import { useSessionSkills } from "./useSessionSkills";
 import { useSessions, type PendingEntry } from "./useSessions";
 
@@ -128,8 +129,7 @@ export function useU7Agent({ pendingSessionId, onPendingSessionResolved }: UseU7
     setRuntimeStatus,
   });
 
-  const stopVisible = chat.runStatus === "running" || chat.runStatus === "compacting" || chat.queueDepth > 0;
-  // await を挟む判定 (送信 / 停止の応答) が、最新の状態を ref から読むために使う
+  const stopVisible = chat.runStatus === "running" || chat.runStatus === "compacting" || chat.queueDepth > 0; // await を挟む判定 (送信 / 停止の応答) が、最新の状態を ref から読むために使う
   const runStatusRef = useRef<RunStatus>(chat.runStatus);
   runStatusRef.current = chat.runStatus;
   // run の終了回数も同じ用途 (要求の後に run が終わった送信の応答を捨てる)
@@ -144,6 +144,9 @@ export function useU7Agent({ pendingSessionId, onPendingSessionResolved }: UseU7
     agentId,
     enabled: Boolean(sessionId) || Boolean(selectedAgent),
   });
+
+  // サービスの状態は会話ごとの値なので、選択中の id で取り直す (切替時の古い応答は hook が捨てる)
+  const serve = useServeStatus({ sessionId });
 
   /** 1 ファイル = 1 チップ。作成 (セッション確定) 後にアップロードし、失敗もチップで見せる */
   const uploadOne = useCallback(
@@ -358,12 +361,14 @@ export function useU7Agent({ pendingSessionId, onPendingSessionResolved }: UseU7
         // 一覧が届いたら、起動時に取得できなかった入口をここで解決する
         if (list) void resolvePendingEntry(list, isCurrent);
       });
+      // サービスの状態も同じリズムで取り直す (起動の期限つきプローブはクライアントで待たない)
+      void serve.refresh();
     }, 4000);
     return () => {
       cancelled = true;
       window.clearInterval(timer);
     };
-  }, [refreshSessions]);
+  }, [refreshSessions, serve.refresh]);
 
   const composerSettings = deriveComposerSettings({
     health,
@@ -407,6 +412,7 @@ export function useU7Agent({ pendingSessionId, onPendingSessionResolved }: UseU7
     archiveSettings,
     notify,
     toggleNotify,
+    serve,
     attachments: attachmentsForSession(attachments, sessionId),
     loadCatalog,
     refreshHealth,

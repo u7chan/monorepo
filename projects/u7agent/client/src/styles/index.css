@@ -123,6 +123,8 @@
   /* 線・リング用途 (フォーカス枠 / アクティブ表示の下線 / checkbox)。面用途の --color-accent とは別トークンにする */
   --color-focus: var(--c-focus);
   --color-ok: var(--c-ok);
+  /* 緑の文字色。面 (--c-ok) のまま文字に使うと暗いテーマで沈むため別トークンにする */
+  --color-ok-text: var(--c-ok-text);
   --color-warn: var(--c-warn);
   --color-danger: var(--c-danger);
   --color-danger-text: var(--c-danger-text);
@@ -158,6 +160,7 @@ html[data-theme="midnight"] {
   --c-accent-text: #c4b5fd;
   --c-focus: #a78bfa;
   --c-ok: #65d6a2;
+  --c-ok-text: #8ee0b6;
   --c-warn: #f4b46b;
   --c-danger: #ee778b;
   --c-danger-text: #ee9aaa;
@@ -199,6 +202,7 @@ html[data-theme="daylight"] {
   --c-accent-text: #5b34c9;
   --c-focus: #6d4ae0;
   --c-ok: #167f56;
+  --c-ok-text: #146b4a;
   --c-warn: #ad6800;
   --c-danger: #d6455f;
   --c-danger-text: #bb2d48;
@@ -240,6 +244,7 @@ html[data-theme="mocha"] {
   --c-accent-text: #f2c185;
   --c-focus: #e0a458;
   --c-ok: #97c07a;
+  --c-ok-text: #b0cf94;
   --c-warn: #e0905f;
   --c-danger: #e07a6a;
   --c-danger-text: #eda094;
@@ -281,6 +286,7 @@ html[data-theme="forest"] {
   --c-accent-text: #93ddab;
   --c-focus: #6fce8f;
   --c-ok: #58c9a2;
+  --c-ok-text: #7ed6b6;
   --c-warn: #d9b163;
   --c-danger: #e2777c;
   --c-danger-text: #eb9fa2;
@@ -322,6 +328,7 @@ html[data-theme="sakura"] {
   --c-accent-text: #b3496d;
   --c-focus: #b3496d;
   --c-ok: #23875d;
+  --c-ok-text: #2a8f66;
   --c-warn: #a96a10;
   --c-danger: #d24d61;
   --c-danger-text: #b93348;
@@ -363,6 +370,7 @@ html[data-theme="sky"] {
   --c-accent-text: #0a6b91;
   --c-focus: #0a6b91;
   --c-ok: #107a56;
+  --c-ok-text: #177f5c;
   --c-warn: #a06200;
   --c-danger: #d4495f;
   --c-danger-text: #b72f47;
@@ -509,6 +517,51 @@ html[data-theme="sky"] {
   }
   .dot-pulse {
     animation: dot-pulse 1.2s ease-in-out infinite;
+  }
+
+  /* サービスの状態表示 (トップバー)。状態は色だけでなく形 (塗りドット / 薄いドット / ! / スピナー) でも区別する */
+  .serve-badge {
+    @apply inline-flex h-7.5 items-center gap-1.5 rounded-full border border-line px-2.5 text-1xs whitespace-nowrap text-ink-soft;
+  }
+  .serve-badge-ok {
+    border-color: color-mix(in srgb, var(--c-ok) 42%, transparent);
+    background: color-mix(in srgb, var(--c-ok) 10%, transparent);
+    color: var(--c-ok-text);
+  }
+  .serve-badge-warn {
+    border-color: color-mix(in srgb, var(--c-warn) 42%, transparent);
+    background: color-mix(in srgb, var(--c-warn) 10%, transparent);
+    color: color-mix(in srgb, var(--c-warn) 78%, var(--c-ink));
+  }
+  .serve-badge-accent {
+    border-color: color-mix(in srgb, var(--c-accent) 42%, transparent);
+    background: color-mix(in srgb, var(--c-accent) 10%, transparent);
+    color: var(--c-accent-text);
+  }
+  /* compact の状態アイコン。押せる状態 (稼働中 / 起動元不明 / 起動中) だけがこの外装を持つ */
+  .serve-icon-ok {
+    border-color: color-mix(in srgb, var(--c-ok) 42%, transparent);
+    color: var(--c-ok-text);
+  }
+  .serve-icon-idle {
+    border-color: var(--c-line);
+    color: var(--c-ink-ghost);
+  }
+  .serve-icon-warn {
+    border-color: color-mix(in srgb, var(--c-warn) 42%, transparent);
+    color: color-mix(in srgb, var(--c-warn) 78%, var(--c-ink));
+  }
+  .serve-icon-accent {
+    border-color: color-mix(in srgb, var(--c-accent) 42%, transparent);
+    color: var(--c-accent-text);
+  }
+  /* 停止中はボタンの外装を持たない押せない状態表示 (メニューも出さない) */
+  .serve-indicator {
+    @apply grid size-9 shrink-0 place-items-center;
+  }
+  .serve-indicator .dot {
+    width: 9px;
+    height: 9px;
   }
 
   /* 実行中スピナー。steps の段数はドット数 (icons.tsx の RunSpinnerIcon) に合わせる */

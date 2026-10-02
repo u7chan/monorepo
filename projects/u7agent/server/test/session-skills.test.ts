@@ -9,7 +9,7 @@ import { parseSkillBlock, stripFrontmatter } from "@earendil-works/pi-coding-age
 import type { Hono } from "hono";
 import { createBffApp } from "../src/app";
 import { catalogSkillPath } from "../src/catalog-skills";
-import { BUILTIN_SKILLS, builtinSkillPath } from "../src/builtin-skills";
+import { BUILTIN_SKILLS, builtinSkillByName, builtinSkillPath } from "../src/builtin-skills";
 import { SandboxRequestError, type SandboxWorkspaceClient } from "../src/sandbox/client";
 import type { SandboxSkillEntry } from "../src/sandbox/protocol";
 import { SessionSkillsPreviewSchema } from "../src/schema";
@@ -68,7 +68,9 @@ function stubWorkspace(input: { skills?: Record<string, SandboxSkillEntry[]>; bo
   };
 }
 
-const BUILTIN = BUILTIN_SKILLS[0] as (typeof BUILTIN_SKILLS)[number];
+const BUILTIN = builtinSkillByName("serve") as (typeof BUILTIN_SKILLS)[number];
+/** serve 以外の組み込み。組み込みが 2 件になった前提の期待値を組む */
+const OTHER_BUILTINS = BUILTIN_SKILLS.filter((skill) => skill.name !== BUILTIN.name);
 
 test("parseSkillCommand は SDK と同じ規則で接頭辞と最初の空白だけを見る", () => {
   assert.deepEqual(parseSkillCommand("/skill:foo"), { name: "foo", args: "" });
@@ -136,18 +138,24 @@ test("resolveSessionSkills は project > user > builtin > catalog の順で一�
       [BUILTIN.name, "user", false, null, true],
       // 組み込みは上書きされても行として残り、優先される側を指す
       [BUILTIN.name, "builtin", true, overridingPath, false],
+      // 上書きされていない組み込みはそのまま並ぶ
+      ...OTHER_BUILTINS.map((skill) => [skill.name, "builtin", false, null, skill.disableModelInvocation]),
       // カタログは最低優先なので、ファイルスキルと同名なら選ばれない
       ["shared", "catalog", true, projectPath, false],
       ["legacy", "catalog", false, null, false],
     ],
   );
-  assert.deepEqual(resolved[0]?.info.shadows, [commonPath]);
-  assert.equal(resolved[0]?.info.relativePath, "proj/.agents/skills/shared/SKILL.md");
-  assert.equal(resolved[2]?.info.relativePath, ".u7agent/builtin-skills/skill-creator/SKILL.md");
-  assert.equal(resolved[3]?.info.location, catalogSkillPath(root, "shared"));
-  assert.equal(resolved[3]?.info.relativePath, ".u7agent/agent-skills/shared/SKILL.md");
+  const shared = resolved.find((item) => item.info.name === "shared" && item.info.scope === "project");
+  const overridden = resolved.find((item) => item.info.name === BUILTIN.name && item.info.scope === "builtin");
+  const catalogShared = resolved.find((item) => item.info.name === "shared" && item.info.scope === "catalog");
+  const catalogLegacy = resolved.find((item) => item.info.name === "legacy" && item.info.scope === "catalog");
+  assert.deepEqual(shared?.info.shadows, [commonPath]);
+  assert.equal(shared?.info.relativePath, "proj/.agents/skills/shared/SKILL.md");
+  assert.equal(overridden?.info.relativePath, `.u7agent/builtin-skills/${BUILTIN.name}/SKILL.md`);
+  assert.equal(catalogShared?.info.location, catalogSkillPath(root, "shared"));
+  assert.equal(catalogShared?.info.relativePath, ".u7agent/agent-skills/shared/SKILL.md");
   // 説明はセッションのエージェントスナップショットから引く (本文には説明が無い)
-  assert.equal(resolved[4]?.info.description, "旧スナップショットの説明");
+  assert.equal(catalogLegacy?.info.description, "旧スナップショットの説明");
 });
 
 test("resolveSessionSkills はサンドボックス無しでも組み込みとカタログを返す", async () => {
@@ -159,10 +167,28 @@ test("resolveSessionSkills はサンドボックス無しでも組み込みと�
   });
   assert.deepEqual(
     resolved.map((item) => [item.info.name, item.info.scope]),
-    [
-      [BUILTIN.name, "builtin"],
-      ["only-catalog", "catalog"],
-    ],
+    [...BUILTIN_SKILLS.map((skill) => [skill.name, "builtin"]), ["only-catalog", "catalog"]],
+  );
+});
+
+test("組み込みの serve スキルは仮想パスで解決し、/skill:serve で展開する", async () => {
+  const root = mkdtempSync(join(tmpdir(), "u7agent-serve-skill-"));
+  const serve = builtinSkillByName("serve");
+  assert.ok(serve, "serve スキルが同梱されている");
+
+  const resolved = await resolveSessionSkills({ rootCwd: root, relativeCwd: "proj" });
+  const info = resolved.find((item) => item.info.name === "serve")?.info;
+  assert.equal(info?.scope, "builtin");
+  assert.equal(info?.location, builtinSkillPath(root, "serve"));
+  assert.equal(info?.relativePath, ".u7agent/builtin-skills/serve/SKILL.md");
+  assert.equal(info?.disableModelInvocation, false);
+
+  const expanded = await expandSkillCommand("/skill:serve", { rootCwd: root, relativeCwd: "proj" });
+  const block = parseSkillBlock(expanded);
+  assert.equal(block?.location, builtinSkillPath(root, "serve"));
+  assert.equal(
+    block?.content,
+    `References are relative to ${dirname(builtinSkillPath(root, "serve"))}.\n\n${stripFrontmatter(serve.body).trim()}`,
   );
 });
 
@@ -192,7 +218,7 @@ function expansionFixture(options: { builtinOverridden?: boolean; previewError?:
   const bodies: Record<string, string> = {
     [projectPath]: "---\nname: writer\ndescription: プロジェクト側\n---\n\nプロジェクトの本文\n",
     [commonPath]: "---\nname: writer\ndescription: 共通側\n---\n\n共通の本文\n",
-    [overridingPath]: "---\nname: skill-creator\n---\n\n上書きした本文\n",
+    [overridingPath]: `---\nname: ${BUILTIN.name}\n---\n\n上書きした本文\n`,
   };
   const { workspace, previewed } = stubWorkspace({
     skills: {
@@ -251,7 +277,7 @@ test("expandSkillCommand は引数なし・組み込み・カタログをそれ�
   assert.equal(noArgs, noArgs.trimEnd());
 
   // 組み込み: 仮想パスと registry の本文 (ファイルが無いので preview は呼ばない)
-  const builtin = await expandSkillCommand("/skill:skill-creator", input);
+  const builtin = await expandSkillCommand(`/skill:${BUILTIN.name}`, input);
   const builtinBlock = parseSkillBlock(builtin);
   assert.equal(builtinBlock?.location, builtinSkillPath(root, BUILTIN.name));
   assert.equal(
@@ -284,7 +310,7 @@ test("expandSkillCommand は未知の名前と対象外の本文を素通しす�
 
 test("expandSkillCommand は上書きされた組み込みではなく採用側の本文を使う", async () => {
   const { input, overridingPath } = expansionFixture({ builtinOverridden: true });
-  const expanded = await expandSkillCommand("/skill:skill-creator", input);
+  const expanded = await expandSkillCommand(`/skill:${BUILTIN.name}`, input);
   assert.equal(parseSkillBlock(expanded)?.location, overridingPath);
   assert.equal(parseSkillBlock(expanded)?.content.includes("上書きした本文"), true);
 });
@@ -366,10 +392,7 @@ test("GET /api/sessions/:id/skills はセッションのスキルを優先順位
         skill.scope,
         skill.shadowed,
       ]),
-      [
-        ["writer", "project", false],
-        [BUILTIN.name, "builtin", false],
-      ],
+      [["writer", "project", false], ...BUILTIN_SKILLS.map((skill) => [skill.name, "builtin", false])],
     );
 
     // 未知のセッションは 404、サンドボックス未設定は 503
@@ -401,7 +424,7 @@ test("一覧 API は発見の失敗を 502 にし、置き場が無い 404 は�
     assert.equal(response.status, 200);
     assert.deepEqual(
       (await jsonBody(response)).skills.map((skill: { name: string }) => skill.name),
-      [BUILTIN.name],
+      BUILTIN_SKILLS.map((skill) => skill.name),
     );
   } finally {
     await empty.close();
@@ -456,7 +479,7 @@ test("未所属セッションの一覧は projectSkills=false でプロジェ�
     assert.equal(body.cwd, "");
     assert.deepEqual(
       body.skills.map((skill: { scope: string }) => skill.scope),
-      ["builtin"],
+      BUILTIN_SKILLS.map(() => "builtin"),
     );
   } finally {
     await bff.close();
@@ -539,10 +562,7 @@ test("GET /api/skills/session はセッション無しで一覧を返し、同�
     assert.equal(bare.projectSkills, false);
     assert.deepEqual(
       bare.skills.map((skill: { name: string; scope: string }) => [skill.name, skill.scope]),
-      [
-        ["writer", "user"],
-        [BUILTIN.name, "builtin"],
-      ],
+      [["writer", "user"], ...BUILTIN_SKILLS.map((skill) => [skill.name, "builtin"])],
     );
 
     // プロジェクト選択 × エージェント選択は優先順位 (project > user > builtin > catalog) と影を返す
@@ -559,7 +579,7 @@ test("GET /api/skills/session はセッション無しで一覧を返し、同�
       ]),
       [
         ["writer", "project", false],
-        [BUILTIN.name, "builtin", false],
+        ...BUILTIN_SKILLS.map((skill) => [skill.name, "builtin", false]),
         ["catalog-writer", "catalog", false],
       ],
     );
@@ -579,7 +599,7 @@ test("GET /api/skills/session はセッション無しで一覧を返し、同�
     const withoutAgent = await jsonBody(await bff.app.request(`/api/skills/session?projectId=${projectId}`));
     assert.deepEqual(
       withoutAgent.skills.map((skill: { name: string }) => skill.name),
-      ["writer", BUILTIN.name],
+      ["writer", ...BUILTIN_SKILLS.map((skill) => skill.name)],
     );
   } finally {
     await bff.close();
@@ -656,7 +676,7 @@ test("GET /api/skills/session は探索の 404 を空、サンドボックス由
       if (status === 200) {
         assert.deepEqual(
           body.skills.map((skill: { name: string }) => skill.name),
-          [BUILTIN.name],
+          BUILTIN_SKILLS.map((skill) => skill.name),
         );
       } else {
         assert.match(body.error, message);
@@ -695,10 +715,7 @@ test("セッション確定後は保存された projectCwd で解決し、登�
     assert.equal(restored.cwd, "proj", "meta.projectCwd をそのまま使う");
     assert.deepEqual(
       restored.skills.map((skill: { name: string; scope: string }) => [skill.name, skill.scope]),
-      [
-        ["writer", "project"],
-        [BUILTIN.name, "builtin"],
-      ],
+      [["writer", "project"], ...BUILTIN_SKILLS.map((skill) => [skill.name, "builtin"])],
     );
 
     // 解除済みの id はプレビューでは解決できない (セッションがある間は既存 API だけを使う根拠)

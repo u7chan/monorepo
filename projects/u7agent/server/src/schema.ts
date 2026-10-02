@@ -987,6 +987,50 @@ export type UpdateSessionNotifyBody = z.infer<typeof UpdateSessionNotifyBodySche
 export const UpdateSessionTitleBodySchema = z.object({ title: z.string() });
 export type UpdateSessionTitleBody = z.infer<typeof UpdateSessionTitleBodySchema>;
 
+/**
+ * serve (UI 上の呼称は「サービス」) の状態。稼働判定は常にプローブで、記録は表示と操作権限にだけ使う。
+ * `owner.kind` の `mine` / `other` は記録と「いま待受しているプロセス」が一致したときだけ立つ。
+ */
+export const ServeOwnerKindSchema = z.enum(["mine", "other", "unknown", "none"]);
+export type ServeOwnerKind = z.infer<typeof ServeOwnerKindSchema>;
+
+export const ServeOwnerSchema = z.object({
+  kind: ServeOwnerKindSchema,
+  /** `mine` / `other` のときだけ載る会話名 */
+  title: z.string().optional(),
+});
+
+export const ServeCommandSchema = z.object({
+  /** ワークスペース root 相対の作業ディレクトリ */
+  cwd: z.string(),
+  command: z.string(),
+});
+
+export const ServeStatusSchema = z.object({
+  reachable: z.boolean(),
+  owner: ServeOwnerSchema,
+  /** 置き換えの再照合用。記録が無ければ null */
+  generation: z.string().nullable(),
+  /** 閲覧中の会話の作業ディレクトリの実績。無ければ null */
+  command: ServeCommandSchema.nullable(),
+});
+export type ServeStatus = z.infer<typeof ServeStatusSchema>;
+export type ServeCommand = z.infer<typeof ServeCommandSchema>;
+
+/** 起動。command はエージェントの serve ツールだけが渡す (GUI は実績をそのまま使う) */
+export const ServeStartBodySchema = z.object({
+  sessionId: z.string().min(1),
+  command: z.string().min(1).optional(),
+  generation: z.string().nullable().optional(),
+});
+export type ServeStartBody = z.infer<typeof ServeStartBodySchema>;
+
+export const ServeStopBodySchema = z.object({
+  sessionId: z.string().min(1),
+  generation: z.string().nullable().optional(),
+});
+export type ServeStopBody = z.infer<typeof ServeStopBodySchema>;
+
 /** 通知設定の更新。キー省略は現在値の維持、webhookUrl / baseUrl の null は解除 */
 export const UpdateNotificationsBodySchema = z.object({
   enabled: z.boolean().optional(),

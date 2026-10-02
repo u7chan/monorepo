@@ -2,10 +2,11 @@ import type { RuntimeStatus } from "../hooks/runtimeStatus";
 import { cn } from "../lib/cn";
 import type { ChatScope } from "../lib/chatScope";
 import type { LayoutMode } from "../lib/layout";
+import { servedAppErrorText } from "../lib/servedApp";
 import { BellIcon, FolderIcon, MenuIcon } from "./icons";
 import { NotifyNote } from "./NotifyNote";
 import { RuntimeAlert } from "./RuntimeAlert";
-import { ServedAppLink } from "./ServedAppLink";
+import { ServedAppIndicator, type ServedAppProps } from "./ServedAppStatus";
 
 export type CompactBarProps = {
   mode: Exclude<LayoutMode, "desktop">;
@@ -13,7 +14,8 @@ export type CompactBarProps = {
   agentName?: string;
   /** 作業先。エージェント名の行 (landscape はタイトルの左) に前置する */
   scope: ChatScope;
-  previewPort?: number;
+  /** サービスの状態と操作。状態アイコン 1 個をナビの次・通知の左に置く */
+  serve: ServedAppProps;
   runtimeStatus: RuntimeStatus;
   /**
    * 会話の通知トグル。deliverable は今の On が実際に送られるか (色とラベルの根拠)。
@@ -29,7 +31,7 @@ export function CompactBar({
   title,
   agentName,
   scope,
-  previewPort,
+  serve,
   runtimeStatus,
   notify,
   sessionFiles,
@@ -40,6 +42,7 @@ export function CompactBar({
   const scopeLine = `${scope.label} · ${agentName || "エージェント未選択"}`;
   // 配信できない On は、押しても切り替わらない理由を読み上げ名と title でも示す (色だけに頼らない)
   const notifyLabel = notify.on && !notify.deliverable ? "通知（停止中）" : "通知";
+  const serveError = servedAppErrorText(serve.error);
 
   return (
     <header className="grid min-w-0 grid-cols-1 border-b border-line bg-panel/85">
@@ -47,12 +50,14 @@ export function CompactBar({
         <button type="button" onClick={onOpenNav} aria-label="ナビゲーションを開く" className="icon-button">
           <MenuIcon />
         </button>
+        {/* 状態はナビの次・通知の左。停止中はボタンの外装を持たない押せない状態表示になる */}
+        <ServedAppIndicator {...serve} />
         {landscape ? (
           // プロジェクト名に長さ制限は無い。行の半分を上限にして収縮と省略を許し、タイトルと固定幅の
           // ボタンを viewport 内に残す (shrink-0 だと名前の分だけ右へ押し出す)
           <span className="max-w-1/2 min-w-0 shrink truncate text-2xs text-ink-faint">{scopeLine}</span>
         ) : null}
-        <div className="min-w-0 flex-1">
+        <div className={cn("min-w-0 flex-1", landscape ? null : "text-right")}>
           {landscape ? null : <div className="truncate text-2xs text-ink-faint">{scopeLine}</div>}
           <div className={cn("truncate font-medium text-ink-strong", landscape ? "text-xs" : "text-1sm")}>{title}</div>
         </div>
@@ -79,13 +84,13 @@ export function CompactBar({
             <FolderIcon />
           </button>
         ) : null}
-        <ServedAppLink port={previewPort} compact />
       </div>
       {runtimeStatus.error ? (
         <div className="px-2.5 pb-2">
           <RuntimeAlert runtimeStatus={runtimeStatus} compact />
         </div>
       ) : null}
+      {serveError ? <NotifyNote text={serveError} className="mx-3 mb-2" /> : null}
       {notify.note ? (
         <NotifyNote text={notify.note} onOpenSettings={notify.onOpenSettings} className="mx-3 mb-2" />
       ) : null}

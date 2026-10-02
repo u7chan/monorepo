@@ -29,18 +29,14 @@ test("health は serve と HTML プレビューの公開ポートを別々に返
   }
 });
 
-test("ツール API の既定を移設し、serve の運用はプロンプトへ誘導する", () => {
+test("ツール API の既定を移設し、serve の運用は組み込みスキルへ移す", () => {
   assert.equal(SANDBOX_DEFAULT_PORT, 9418);
   const dev = readFileSync(new URL("../../scripts/dev.mjs", import.meta.url), "utf8");
   assert.match(dev, /const SANDBOX_PORT = Number\(process\.env\.SANDBOX_PORT\) \|\| 9418/);
+  // serve の作法 (nohup / --strictPort / curl 検証) は同梱の serve スキルが正で、
+  // system prompt はツールとスキルへ 1 行で誘導するだけにする
   const prompt = appendSystemPrompt("/workspace");
-  for (const text of [
-    "0.0.0.0:8080",
-    "nohup",
-    "--strictPort",
-    "curl -fsS http://127.0.0.1:8080/",
-    "across all conversations",
-  ]) {
-    assert.ok(prompt.includes(text), text);
-  }
+  assert.ok(prompt.includes("`serve` tool"), prompt);
+  assert.ok(prompt.includes("`serve` skill"), prompt);
+  assert.ok(!prompt.includes("nohup"), "起動の作法はスキル側に置く");
 });

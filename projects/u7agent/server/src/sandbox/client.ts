@@ -172,6 +172,13 @@ export type SandboxWorkspaceClient = Pick<
 >;
 
 /**
+ * serve の記録の読み書きと起動・停止が使うサンドボックス機能。workspace のスタブへ execute を
+ * 要求しないよう型を分ける (docs/sandbox.md の「新しいサンドボックス API は追加しない」方針で、
+ * 使うのは既存のツール実行だけ)。
+ */
+export type SandboxExecClient = Pick<SandboxToolClient, "execute">;
+
+/**
  * status は BFF がそのまま応答に使うステータス。サンドボックス由来の 4xx (不正パス・不存在) は透過し、
  * 接続失敗・認証失敗・サンドボックス側障害は 502 に寄せる。
  */

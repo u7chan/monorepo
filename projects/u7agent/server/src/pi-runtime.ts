@@ -109,6 +109,8 @@ export interface PiRuntimeLike {
     cwd?: string;
     /** 復元時: アプリのセッション ID */
     sessionId?: string;
+    /** 所有権の束縛に使う会話 id。永続化なしでも渡す (SDK の inMemory へ渡す id とは条件が違う) */
+    ownerSessionId?: string;
     /** 復元時: JSONL から読んだ entries (header は含めない) */
     entries?: unknown[];
     /** 復元時: 作成時のプロンプトスナップショット */

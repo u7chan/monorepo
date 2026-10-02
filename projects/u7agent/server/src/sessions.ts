@@ -318,6 +318,8 @@ export class SessionStore {
       thinkingLevel: thinkingLevel ?? agent.thinkingLevel,
       cwd: workdir,
       ...(this.storeDir ? { sessionId: id } : {}),
+      // 所有権の束縛は永続化の有無に依らない (serve ツールは常に会話 id を持つ)
+      ownerSessionId: id,
       promptSnapshot,
     });
     // 上記の await 中に DELETE /api/projects/:id が走ると、このセッションは破棄対象の
@@ -490,6 +492,7 @@ export class SessionStore {
     const restored = this.restoreInputs(meta, entries);
     const created = await (this.pi as PiRuntimeLike).createSession({
       sessionId: id,
+      ownerSessionId: id,
       entries,
       promptSnapshot: meta.promptSnapshot,
       // 復元では定義を引き直さず、セッションのスナップショットだけで索引を組む (遡及させない)
@@ -988,6 +991,23 @@ export class SessionStore {
       ...(meta.model ? { model: meta.model } : {}),
       ...(this.projectIdOfCwd(meta.projectCwd) ? { projectId: this.projectIdOfCwd(meta.projectCwd) } : {}),
     };
+  }
+
+  /** 一覧に出る会話のタイトル。未知の会話は undefined */
+  titleOfId(id: string): string | undefined {
+    return this.list().find((summary) => summary.sessionId === id)?.title;
+  }
+
+  /**
+   * 会話の作業ディレクトリ (root 相対)。SDK セッションを開かずに解決する (serve の状態 API が
+   * 閲覧中の会話から見た実績を引くために使う)。live でも descriptor でも同じ規則で、未知は undefined。
+   */
+  workdirOfId(id: string): string | undefined {
+    const live = this.records.get(id);
+    if (live) return live.workdir;
+    const meta = this.descriptors.get(id);
+    if (!meta) return undefined;
+    return meta.projectCwd ?? (this.storeDir ? sessionWorkdirRel(id) : "");
   }
 
   /** SessionPayload.cwd は rootCwd 相対。所属があれば登録ディレクトリ、未所属はスクラッチ (永続化なしは root) */
