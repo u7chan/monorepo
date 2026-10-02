@@ -118,6 +118,8 @@ test("モーダルを開く New Project は、退場と unmount が済んでか�
   // "ドロワーの焦点復帰より前" にならない
   const handler = sheet.slice(sheet.indexOf("onClose={() =>"), sheet.indexOf("tabIndex={-1}"));
   assert.ok(handler.indexOf("onClose();") < handler.indexOf("after?.();"), "unmount と別のコミットで実行している");
+  // docked へ戻る経路では App がドロワーを直接 unmount して dialog の close が来ないので、そこで落とさない
+  assert.ok(sheet.includes("useEffect(() => () => afterCloseRef.current?.(), []);"), "unmount で待たせた操作が消える");
 });
 
 test("App は退場アニメの完了までドロワーを描き続ける", () => {

@@ -73,6 +73,10 @@ export function NavSheet({ mode, onClose, ...sidebarProps }: NavSheetProps) {
     focusFirstAvailable(dialog, FOCUS_IN_DIALOG_SELECTORS);
   }, [mode]);
 
+  // 幅を広げて docked へ戻ると App はドロワーを直接 unmount する (dialog の close が来ない)。待たせた操作を
+  // ここで拾わないと、押した New Project が追加ダイアログを開かないまま消える
+  useEffect(() => () => afterCloseRef.current?.(), []);
+
   /** 閉じる要求 (× / 背景クリック / Escape / 項目の選択) の唯一の入口。dialog は退場アニメの後に閉じる */
   const requestClose = () => setClosing(true);
 
