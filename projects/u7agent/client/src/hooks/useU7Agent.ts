@@ -123,6 +123,7 @@ export function useU7Agent({ pendingSessionId, onPendingSessionResolved }: UseU7
     loadOlderHistory,
     fillHistoryGap,
     toggleNotify,
+    resyncSession,
   } = useSessions({
     dispatch,
     agentId,
@@ -297,12 +298,13 @@ export function useU7Agent({ pendingSessionId, onPendingSessionResolved }: UseU7
         runStatusRef,
         runEndSeqRef,
         resend: resendMessage,
+        recover: resyncSession,
         refreshSessions,
         dispatch,
         setRuntimeStatus,
       });
     },
-    [dispatch, refreshSessions, runEndSeqRef, sessionIdRef, sessionOpsRef, setRuntimeStatus],
+    [dispatch, refreshSessions, resyncSession, runEndSeqRef, sessionIdRef, sessionOpsRef, setRuntimeStatus],
   );
 
   /** 未送信メッセージの破棄。再送が実行中の分はサーバーが 409 で拒否する */

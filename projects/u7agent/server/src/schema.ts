@@ -277,16 +277,17 @@ export const HistoryItemSchema = z.discriminatedUnion("kind", [HistoryMessageIte
 export type HistoryItem = z.infer<typeof HistoryItemSchema>;
 
 /**
- * 受理済み (202) だが user entry として保存されていない送信。サーバー再起動でキューごと消えた分を、
- * 履歴の item に黙って吸収させず「未送信」として見せるために payload へ載せる。
+ * 202 で受理したが user entry としてまだ保存されていない送信。サーバー再起動でキューごと消えた分は
+ * `unsent` として見せ、実行中 / キュー待ちの分は pending エコーのまま扱わせる (表示から消さない)。
  * `text` は表示用にマスク済み (再送は本文を送り直さず `runId` でサーバーへ依頼する)。
  */
-export const UnsentMessageSchema = z.object({
+export const PendingSendSchema = z.object({
   runId: z.string(),
   text: z.string(),
   at: z.number(),
+  state: z.enum(["unsent", "queued", "running"]),
 });
-export type UnsentMessage = z.infer<typeof UnsentMessageSchema>;
+export type PendingSend = z.infer<typeof PendingSendSchema>;
 
 /**
  * カーソル型の履歴ページ。items は古い→新しい、nextCursor はさらに古いページを取るための
@@ -346,8 +347,8 @@ export const SessionPayloadSchema = z.object({
   /** この payload を組み立てた時刻 (epoch ms)。retry.retryAt との差でクライアントが残り時間を出す */
   serverNow: z.number(),
   queueDepth: z.number(),
-  /** 保存されなかった送信 (古い→新しい)。旧サーバーは載せないため省略可 (省略 = 0 件ではなく未対応) */
-  unsentMessages: z.array(UnsentMessageSchema).optional(),
+  /** 受理済みでまだ保存されていない送信 (古い→新しい)。旧サーバーは載せないため省略可 (省略 = 未対応) */
+  pendingSends: z.array(PendingSendSchema).optional(),
   /** 手動圧縮の開始時刻 (epoch ms)。status === "compacting" のときだけ載る */
   compactionStartedAt: z.number().optional(),
   /** この会話の完了を Discord へ送るか。サーバーは常に載せ、読む側は省略を false として扱う */

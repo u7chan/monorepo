@@ -867,10 +867,14 @@ export class SessionStore {
    * JSONL に載った user entry と run の対応を控え、保存済みになった分を「未送信」から外す。
    * `persist` が JSONL の書込みを確定させてから呼ぶ (書けていない entry を保存済みにしない)。
    */
-  private syncSendMap(record: SessionRecord): void {
+  /**
+   * 渡された entry スナップショットのうち、JSONL へ書けた user entry の run 対応を控え、保存済みに
+   * なった分を「未送信」から外す。`persist` が writer へ渡したのと同じ配列を渡す (await 中に SDK が
+   * 追記した entry を保存済みにしないため)。
+   */
+  private syncSendMap(record: SessionRecord, entries: SessionEntryLike[]): void {
     if (!record.writer || !this.storeDir) return;
     let changed = false;
-    const entries = entriesOf(record.session);
     for (const entry of entries) {
       if (entry.type !== "message" || typeof entry.id !== "string" || entry.id === "") continue;
       const message = entry.message as { role?: unknown } | undefined;
@@ -1252,13 +1256,13 @@ export class SessionStore {
       this.descriptors.set(record.id, meta);
       // 今回の保存だけを評価する (過去の失敗は成功で消す)
       let failure: string | undefined;
+      // writer へ渡すのと同じスナップショットを使う。await 中に SDK が追記した entry を
+      // 保存済みとして対応表へ入れない (次の保存で書かれる)
+      const entries = entriesOf(session);
       try {
         await writeSessionMeta(storeDir, meta);
         if (jsonl) {
-          await record.writer?.schedule(
-            sessionHeaderOf(meta, workspaceAbs(this.rootCwd, record.workdir)),
-            entriesOf(session),
-          );
+          await record.writer?.schedule(sessionHeaderOf(meta, workspaceAbs(this.rootCwd, record.workdir)), entries);
         }
       } catch (error) {
         failure = messageFor(error);
@@ -1266,7 +1270,7 @@ export class SessionStore {
       failure = failure ?? record.writer?.error;
       // JSONL に載った user entry だけを保存済みとして扱う (書けていない entry を対応表へ入れない)。
       // meta だけの保存 (jsonl: false) では entry の保存を確かめられないので触らない
-      if (jsonl && !failure) this.syncSendMap(record);
+      if (jsonl && !failure) this.syncSendMap(record, entries);
       // 送信対応記録は失敗しても dirty を残し、次の persist / flush でやり直す
       this.writeSends(record);
       record.persistError = failure;
@@ -1281,11 +1285,11 @@ export class SessionStore {
     return record.persistTail;
   }
 
-  async flush(record: SessionRecord): Promise<void> {
+  async flush(record: SessionRecord): Promise<boolean> {
     await record.persistTail.catch(() => {});
     await record.writer?.flush();
     // 最後の persist で書けなかった送信対応記録をここでも試す (close / sweep の最終保存)
-    this.writeSends(record);
+    return this.writeSends(record);
   }
 
   async sweep(): Promise<void> {
@@ -1299,10 +1303,11 @@ export class SessionStore {
         if (this.deleting.has(id) || this.lifecycle.has(id)) continue;
         if (record.lastUsedAt >= cutoff) continue;
         const promise = (async () => {
-          // 最終保存を試み、成功したときだけメモリから外す (失敗は次の sweep で再試行する)
+          // 最終保存を試み、成功したときだけメモリから外す (失敗は次の sweep で再試行する)。
+          // sends だけ失敗していても外さない (未送信の本文と再試行元を失わない)
           await this.persist(record);
           await this.flush(record);
-          if (record.persistError || record.writer?.error) return;
+          if (record.persistError || record.writer?.error || record.sendsError) return;
           record.session.dispose?.();
           this.records.delete(id);
         })();

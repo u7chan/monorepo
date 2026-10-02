@@ -1,7 +1,7 @@
 // 送信対応記録 (sends.json) の検証。再起動を跨いだ送信エコーの同一性と、保存されなかった送信の
 // 「未送信」表示を stub で再現する。実 API は使わない。
 import assert from "node:assert/strict";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -9,7 +9,15 @@ import { createAgentCatalog } from "../src/agents";
 import { createBffApp } from "../src/app";
 import { createSecretMasker, REDACTED } from "../src/redact";
 import type { SandboxWorkspaceClient } from "../src/sandbox/client";
-import { readSessionSends, sessionSendsPath, writeSessionSends, type SessionSends } from "../src/session-store";
+import {
+  readSessionSends,
+  serializeSession,
+  sessionHeaderOf,
+  sessionJsonlPath,
+  sessionSendsPath,
+  writeSessionSends,
+  type SessionSends,
+} from "../src/session-store";
 import { SessionStore } from "../src/sessions";
 import type { EventEntry, HistoryItem, HistoryPage, SessionPayload } from "../src/schema";
 import { asPiBff, createStubPi, waitFor, type StubSession } from "./stub-pi";
@@ -54,7 +62,7 @@ function pageOf(store: SessionStore, record: Parameters<SessionStore["history"]>
 }
 
 function unsentOf(payload: SessionPayload) {
-  return (payload.unsentMessages ?? []).map((item) => [item.text, item.runId]);
+  return (payload.pendingSends ?? []).map((item) => [item.text, item.runId]);
 }
 
 /** 実行中の送信 (別タブ相当) と同じ本文をキューへ積み、entry が保存された状態で再起動する */
@@ -339,7 +347,7 @@ test("POST /messages の resendRunId と DELETE /unsent で、未送信の再送
     const bff2 = await createBffApp({ cwd: "/tmp/project", sessionStoreDir: storeDir, workspace, pi: asPiBff(pi2) });
     const payload = (await (await bff2.app.request(`/api/sessions/${created.sessionId}`)).json()) as SessionPayload;
     assert.deepEqual(unsentOf(payload), [["同じ本文", queued.runId]]);
-    assert.equal(payload.unsentMessages?.[0]?.at !== undefined, true, "受理時刻を載せる");
+    assert.equal(payload.pendingSends?.[0]?.at !== undefined, true, "受理時刻を載せる");
 
     const history = (await (
       await bff2.app.request(`/api/sessions/${created.sessionId}/history`)
@@ -399,7 +407,12 @@ test("POST /messages の resendRunId と DELETE /unsent で、未送信の再送
       runId: queued2.runId,
     });
     await waitFor(() => (pi2.sessions[0] as StubSession).entries.length >= 6, 5000, "resent entries persisted");
-    const after = (await (await bff2.app.request(`/api/sessions/${created.sessionId}`)).json()) as SessionPayload;
+    // 再送した run の entry が保存され、未送信の一覧から消えるまで待つ
+    let after = (await (await bff2.app.request(`/api/sessions/${created.sessionId}`)).json()) as SessionPayload;
+    for (let attempt = 0; attempt < 100 && (after.pendingSends ?? []).length > 0; attempt += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      after = (await (await bff2.app.request(`/api/sessions/${created.sessionId}`)).json()) as SessionPayload;
+    }
     assert.deepEqual(unsentOf(after), [], "再送が entry になれば未送信から消える");
     await bff2.close();
   } finally {
@@ -552,7 +565,7 @@ test("user entry を残さず終わった run は、未送信として載り再�
     assert.equal(store.discardUnsent(record, first.runId), "ok", "終了した run の送信は破棄できる");
     const resyncs = events.filter((entry) => entry.type === "resync");
     assert.equal(resyncs.length > 0, true, "破棄は購読者へ resync で配る");
-    assert.deepEqual(resyncs.at(-1)?.data.unsentMessages, [], "破棄した送信は配らない");
+    assert.deepEqual(resyncs.at(-1)?.data.pendingSends, [], "破棄した送信は配らない");
 
     // 再送は同じ run id で実行し直す (status が error の run を実行中扱いにしない)
     const second = store.postMessage(record, "再送する本文");
@@ -568,9 +581,9 @@ test("user entry を残さず終わった run は、未送信として載り再�
       "同じ run id でも実行し直す",
     );
     assert.deepEqual(
-      events.filter((entry) => entry.type === "resync")[0]?.data.unsentMessages,
-      [],
-      "再送の受付直後は実行中として配る (別タブの未送信表示を更新する)",
+      events.filter((entry) => entry.type === "resync")[0]?.data.pendingSends?.map((item) => [item.runId, item.state]),
+      [[second.runId, "running"]],
+      "再送の受付直後は実行中として配る (別タブは未送信の表示を戻す)",
     );
     await waitFor(() => store.statusOf(record) === "error", 3000, "resent run error");
     await store.flush(record);
@@ -578,10 +591,203 @@ test("user entry を残さず終わった run は、未送信として載り再�
       events
         .filter((entry) => entry.type === "resync")
         .at(-1)
-        ?.data.unsentMessages?.map((item) => item.runId),
+        ?.data.pendingSends?.map((item) => item.runId),
       [second.runId],
       "再送も user entry を残さず終わったら未送信として配る",
     );
+    await store.close();
+  } finally {
+    await rm(storeDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+  }
+});
+
+test("SDK 形式 (content part 配列) の user entry でも run 対応を復元する", async () => {
+  const storeDir = await mkdtemp(join(tmpdir(), "u7agent-sends-"));
+  try {
+    const store1 = createStore(storeDir, createStubPi({ chunkDelayMs: 1 }));
+    await store1.init();
+    const record = await store1.create();
+    const posted = store1.postMessage(record, "SDK形式の本文");
+    assert.ok(posted.runId);
+    await waitFor(() => store1.statusOf(record) === "completed", 3000, "run completion");
+    await store1.flush(record);
+    await store1.close();
+
+    // 実 SDK 0.87 は user message を part 配列で書く。保存済みの entry をその形式に置き換える
+    const text = await readFile(sessionJsonlPath(record.id, storeDir), "utf8");
+    const parsed = JSON.parse(text.split("\n").filter((line) => line !== "")[1]) as {
+      id: string;
+      message: { content: unknown };
+    };
+    assert.equal(parsed.message.content, "SDK形式の本文");
+    parsed.message.content = [{ type: "text", text: "SDK形式の本文" }];
+    await writeFile(
+      sessionJsonlPath(record.id, storeDir),
+      serializeSession(sessionHeaderOf({ id: record.id, createdAt: 1 }, "."), [parsed]),
+    );
+
+    // 対応表を失った状態 (記録の書込みだけ失敗) から復元する
+    await writeFile(
+      sessionSendsPath(record.id, storeDir),
+      JSON.stringify({ entries: {}, unsent: [{ runId: posted.runId, text: "SDK形式の本文", at: 1 }] }),
+    );
+    const store2 = createStore(storeDir, createStubPi());
+    await store2.init();
+    const restored = await store2.resolve(record.id);
+    assert.ok(restored);
+    assert.deepEqual(unsentOf(store2.payload(restored)), [], "part 配列でも突き合わせる");
+    assert.deepEqual(
+      userItems(pageOf(store2, restored)).map((item) => [item.text, item.runId]),
+      [["SDK形式の本文", posted.runId]],
+      "本文と run 対応を復元する",
+    );
+    assert.deepEqual(readSessionSends(storeDir, record.id).entries, { [parsed.id]: posted.runId });
+    await store2.close();
+
+    // 正常な対応表は part 配列の entry でも消さない
+    const store3 = createStore(storeDir, createStubPi());
+    await store3.init();
+    const restored3 = await store3.resolve(record.id);
+    assert.ok(restored3);
+    assert.deepEqual(
+      userItems(pageOf(store3, restored3)).map((item) => item.runId),
+      [posted.runId],
+      "対応を失わない",
+    );
+    await store3.close();
+  } finally {
+    await rm(storeDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+  }
+});
+
+test("復元の突き合わせは、送信時刻より前の同一文面 entry を未送信の根拠にしない", async () => {
+  const storeDir = await mkdtemp(join(tmpdir(), "u7agent-sends-"));
+  try {
+    const store1 = createStore(storeDir, createStubPi());
+    await store1.init();
+    const record = await store1.create();
+    await store1.flush(record);
+    await store1.close();
+
+    // 旧保存データ: run 対応を持たない古い user entry (timestamp は送信より前)
+    const oldEntry = {
+      type: "message",
+      id: "entry-old",
+      parentId: null,
+      timestamp: new Date(1).toISOString(),
+      message: { role: "user", content: "同じ本文", timestamp: 1 },
+    };
+    await writeFile(
+      sessionJsonlPath(record.id, storeDir),
+      serializeSession(sessionHeaderOf({ id: record.id, createdAt: 1 }, "."), [oldEntry]),
+    );
+    await writeFile(
+      sessionSendsPath(record.id, storeDir),
+      JSON.stringify({
+        entries: {},
+        unsent: [{ runId: "run-new", text: "同じ本文", at: Date.now() }],
+      }),
+    );
+
+    const store2 = createStore(storeDir, createStubPi());
+    await store2.init();
+    const restored = await store2.resolve(record.id);
+    assert.ok(restored);
+    assert.deepEqual(
+      unsentOf(store2.payload(restored)),
+      [["同じ本文", "run-new"]],
+      "古い entry へ黙って吸収しない (未送信として残す)",
+    );
+    assert.deepEqual(
+      userItems(pageOf(store2, restored)).map((item) => [item.id, item.runId]),
+      [["entry-old", undefined]],
+      "古い entry には run 対応を付けない",
+    );
+    await store2.close();
+  } finally {
+    await rm(storeDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+  }
+});
+
+test("保存中に SDK が追記した entry は、次の保存まで保存済みにしない", async () => {
+  const storeDir = await mkdtemp(join(tmpdir(), "u7agent-sends-"));
+  try {
+    // run を保留したままにして、message_end の persist 以外が走らないようにする
+    const store = createStore(storeDir, createStubPi({ chunkDelayMs: 60_000 }));
+    await store.init();
+    const record = await store.create();
+    const session = record.session as StubSession;
+    store.postMessage(record, "保存する本文");
+    await waitFor(() => userItems(pageOf(store, record)).length === 1, 3000, "first entry");
+    await store.flush(record);
+
+    // writer.schedule の await 中に SDK が user entry を追記する状況を再現する
+    const writer = record.writer;
+    assert.ok(writer);
+    const original = writer.schedule.bind(writer);
+    let lateEntryId: string | undefined;
+    writer.schedule = (header, entries) => {
+      const pending = original(header, entries);
+      if (lateEntryId === undefined) {
+        const late = { role: "user", content: "あとから積まれた本文", timestamp: Date.now() };
+        lateEntryId = session.appendMessage(late).id;
+        record.userMessageRuns.set(late, "run-late");
+        record.unsentSends.push({ runId: "run-late", text: "あとから積まれた本文", at: Date.now() });
+        record.sendsDirty = true;
+      }
+      return pending;
+    };
+
+    await store.persist(record);
+    assert.ok(lateEntryId !== undefined, "追記を再現できた");
+    const afterFirst = readSessionSends(storeDir, record.id);
+    assert.equal(afterFirst.entries[lateEntryId], undefined, "await 中の追記を保存済みにしない");
+    assert.deepEqual(
+      afterFirst.unsent.map((item) => item.runId),
+      ["run-late"],
+    );
+
+    // 次の保存で確定する
+    await store.persist(record);
+    const afterSecond = readSessionSends(storeDir, record.id);
+    assert.equal(afterSecond.entries[lateEntryId], "run-late");
+    assert.deepEqual(afterSecond.unsent, []);
+    await store.close();
+  } finally {
+    await rm(storeDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+  }
+});
+
+test("sends.json だけ書けない record は sweep で破棄しない", async () => {
+  const storeDir = await mkdtemp(join(tmpdir(), "u7agent-sends-"));
+  let failWrites = false;
+  try {
+    const store = createStore(storeDir, createStubPi({ chunkDelayMs: 1 }), {
+      writeSends: (dir, id, sends) => {
+        if (failWrites) throw new Error("simulated EIO");
+        writeSessionSends(dir, id, sends);
+      },
+    });
+    await store.init();
+    const record = await store.create();
+    store.postMessage(record, "保存される本文");
+    await waitFor(() => store.statusOf(record) === "completed", 3000, "run completion");
+    await store.flush(record);
+
+    // sends だけ書けない状態を作り、sweep の対象にする
+    failWrites = true;
+    record.unsentSends.push({ runId: "run-dirty", text: "未送信の本文", at: Date.now() });
+    record.sendsDirty = true;
+    record.lastUsedAt = Date.now() - 2 * 60 * 60 * 1000;
+    await store.sweep();
+    assert.equal(record.sendsError !== undefined, true, "失敗を記録する");
+    assert.equal(store.records.has(record.id), true, "sends の失敗中はメモリから外さない");
+
+    // 回復したら破棄できる
+    failWrites = false;
+    await store.flush(record);
+    await store.sweep();
+    assert.equal(store.records.has(record.id), false);
     await store.close();
   } finally {
     await rm(storeDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });

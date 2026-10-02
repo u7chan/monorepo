@@ -164,6 +164,11 @@ export type ResendUnsentDeps = {
   runEndSeqRef: RefObject<number>;
   /** 未送信メッセージの再送。本文はサーバーが保存済みの生テキストを使う */
   resend: (sessionId: string, runId: string) => Promise<PostMessageResult>;
+  /**
+   * 権威ある payload を取り直す。応答から状態を確定できない失敗 (通信断など) で、未送信 / 実行中 /
+   * 保存済みのどれかをサーバーへ確かめるために使う。取得できなければ false
+   */
+  recover: () => Promise<boolean>;
   refreshSessions: () => Promise<SessionSummary[] | null>;
   dispatch: Dispatch<ChatAction>;
   setRuntimeStatus: (status: RuntimeStatus) => void;
@@ -199,11 +204,12 @@ export async function resendUnsentMessage(runId: string, deps: ResendUnsentDeps)
     void deps.refreshSessions();
   } catch (error) {
     if (deps.sessionIdRef.current !== id) return;
-    // 応答が遅れている間に run が終わった / 新しい要求が入った場合、その再送は受理されて実行されている。
-    // 実行済みの送信を未送信へ戻さない (未受理のまま残った分は次の payload が拾う)
-    if (deps.opsRef.current !== ops || deps.runEndSeqRef.current !== runSeq) return;
-    // 通常の送信済みに見せないよう未送信へ戻し、理由を状態行へ出す
-    deps.dispatch({ type: "resendFailed", runId });
+    // 応答が届かないだけの失敗 (受理済みだが応答が失われた) と、未受理の失敗を区別できない。
+    // 権威ある payload を取り直して、未送信 / 実行中 / 保存済みのどれかへ収束させる
+    const recovered = await deps.recover();
+    if (deps.sessionIdRef.current !== id) return;
+    // 取り直せなかったときだけ未送信へ戻す (次の payload が権威ある状態を配る)
+    if (!recovered && deps.opsRef.current === ops) deps.dispatch({ type: "resendFailed", runId });
     deps.dispatch({ type: "setActivity", text: messageFor(error) });
     // 400 / 409 は操作の結果 (理由は文言が持つ)。接続状態に倒すのは通信自体の失敗だけ
     if (!isApiFailure(error)) deps.setRuntimeStatus(runtimeStatusForError(error));

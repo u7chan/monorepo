@@ -127,7 +127,7 @@
       "beforeMessageIndex": 4
     }
   ],
-  "unsentMessages": [{ "runId": "…", "text": "送信が保存されなかった本文", "at": 1700000000000 }]
+  "pendingSends": [{ "runId": "…", "text": "送信が保存されなかった本文", "at": 1700000000000, "state": "unsent" }]
 }
 ```
 
@@ -145,7 +145,7 @@
 
 `eventGeneration` は SSE の世代（[イベント購読](#get-apisessionsidevents) を参照）。`lastSeq` と組でカーソルの整合判定に使う。
 
-`unsentMessages` は 202 で受理したが user entry として保存されず、実行中 / キュー待ちにも無い送信（古い→新しい）。要素は `{ runId, text, at }` で、`text` は表示用にマスク済み。クライアントは同じ `runId` の pending エコーを「未送信」へ切り替え、手元にバブルが無ければ末尾へ足す（[frontend.md](frontend.md#チャット状態とレンダリング)）。再送は本文を送り直さず `POST /api/sessions/:id/messages` の `resendRunId` へ `runId` を渡す（マスク済みの本文をモデルへ送らないため）。「実行中」は `run.status === "running"` か SDK が streaming のときだけで、**終了した run は載る**（`record.run` は終了後も status 付きで残るため、`error` で終わって user entry を残さなかった送信も再送 / 破棄できる）。旧サーバーはこのキーを載せないので、省略 = 0 件ではなく未対応として扱う。
+`pendingSends` は 202 で受理したが user entry としてまだ保存されていない送信（古い→新しい）。要素は `{ runId, text, at, state }` で、`text` は表示用にマスク済み。`state` は `unsent`（再起動・停止・entry を残さない終了で実行されなかった）/ `queued`（待機中）/ `running`（実行中）。クライアントは `unsent` を「未送信」へ切り替え、`queued` / `running` は pending エコーのまま保つ（別タブの再送中に表示から消さない）。手元にバブルが無い `unsent` は末尾へ足し、一覧から消えた未送信は別タブの再送 / 破棄として落とす（[frontend.md](frontend.md#チャット状態とレンダリング)）。再送は本文を送り直さず `POST /api/sessions/:id/messages` の `resendRunId` へ `runId` を渡す（マスク済みの本文をモデルへ送らないため）。「実行中」は `run.status === "running"` か SDK が streaming のときだけで、**終了した run は `unsent` になる**（`record.run` は終了後も status 付きで残るため、`error` で終わって user entry を残さなかった送信も再送 / 破棄できる）。旧サーバーはこのキーを載せないので、省略 = 0 件ではなく未対応として扱う。
 
 JSONL が破損している（SDK が追記する entry type / message role を store が知らない、途中の行が壊れている等）セッションを開く要求は 409（store のパスを含む文言）で拒否する。原本は書き換えず、一覧にも残る（[session-files.md](session-files.md#会話の保存)）。開けなかったときのクライアントの移り先は [frontend.md](frontend.md#クライアントの-effect-契約) を参照。
 
@@ -270,11 +270,11 @@ GET /api/sessions/:id/history?limit=50&before=<itemId>
 
 - `attachments` は root 相対のパスで、そのセッションの保存先 `<appdir>/uploads/<sessionId>/` 配下だけを許可する（`./` は正規化、`..`・絶対パス・ディレクトリ自体・別セッションの保存先は 400）。最大 10 件、文字列以外は 400。
 - `text` は空でも添付があれば送れる（本文も添付も無いときだけ 400）。
-- `resendRunId` は payload の `unsentMessages` の `runId` を指定する。本文はストアに保存済みの生テキストを使い、同じ run id で実行し直す（表示用のマスク済み本文を送り直さない）。実行中 / キュー待ちの run への二重の再送は重ねず、現在の状態を返す。記録が無い（保存済み / 破棄済み）run id は 409。受理の記録はそのままで、user entry が保存された時点で未送信から外れる。受付後は `resync` を 1 件配り、別タブの未送信表示を更新する（キュー受付の `queued` は run id を載せないため）
+- `resendRunId` は payload の `pendingSends` の `runId` を指定する。本文はストアに保存済みの生テキストを使い、同じ run id で実行し直す（表示用のマスク済み本文を送り直さない）。実行中 / キュー待ちの run への二重の再送は重ねず、現在の状態を返す。記録が無い（保存済み / 破棄済み）run id は 409。受理の記録はそのままで、user entry が保存された時点で未送信から外れる。受付後は `resync` を 1 件配り、別タブの未送信表示を更新する（キュー受付の `queued` は run id を載せないため）
 - `text` が `/skill:` で始まるときは、BFF が本文ブロックへ展開してから送る（[`/skill:` の展開](#skill-の展開)）。
 - BFF は本文の末尾に注記を合成してから `SessionStore.postMessage` へ渡す（[注記](#添付の注記)）。
 - 圧縮中に送るとキューに積まれ、`queued: true` と `queueDepth` を返す（受け付けた時点で `runId` を振る）。圧縮の終端処理の後に 1 回だけ pump し、同じ 202 の応答で次のランが始まる（排他の判定は BFF の `compacting` フラグ。SDK は保存待ちの間 idle に見える）。
-- 受理した送信は user entry が保存されるまで `sends.json` の `unsent` に残る（[session-files.md](session-files.md#sendsjson)）。サーバー再起動でキューごと消えた分は payload の `unsentMessages` に載り、クライアントは「未送信」として見せる（[frontend.md](frontend.md#チャット状態とレンダリング)）。
+- 受理した送信は user entry が保存されるまで `sends.json` の `unsent` に残る（[session-files.md](session-files.md#sendsjson)）。サーバー再起動でキューごと消えた分は payload の `pendingSends` に載り、クライアントは「未送信」として見せる（[frontend.md](frontend.md#チャット状態とレンダリング)）。
 
 ### `DELETE /api/sessions/:id/unsent/:runId`
 

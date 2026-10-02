@@ -74,7 +74,7 @@ export type {
   StopResult,
   ThinkingLevel,
   ToolCall,
-  UnsentMessage,
+  PendingSend,
   UpdateAgentBody,
   UpdateArchiveSettingsBody,
   UpdateImageSelectionBody,

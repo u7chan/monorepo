@@ -27,6 +27,11 @@ export { SESSION_DIR_REL, assertSessionId, sessionWorkdirRel };
 export const SESSION_STORE_ENV = "PI_SESSION_STORE";
 /** 部分書込みの再試行回数。超えたらエラーを記録して次の保存に委ねる */
 const MAX_WRITE_ATTEMPTS = 3;
+/**
+ * 復元の突き合わせで、未送信の送信時刻と entry の timestamp を比べるときの許容幅 (ms)。
+ * 同じプロセスの時計なので通常は entry の方が後になるが、小さな巻き戻りで取りこぼさない
+ */
+const CLOCK_MARGIN_MS = 1_000;
 
 export interface PromptSnapshot {
   /** 作成時の agent プロファイル (appendSystemPrompt へ入れたもの) */
@@ -276,42 +281,71 @@ export function writeSessionSends(storeDir: string, id: string, sends: SessionSe
 }
 
 /**
+ * SDK の user message content から本文を取り出す。SDK 0.87 は `[{ type: "text", text }]` の
+ * part 配列を作る (画像を添付したときは text 以外も混ざる) が、旧保存データやスタブは文字列を書く
+ */
+export function userMessageText(content: unknown): string | undefined {
+  if (typeof content === "string") return content === "" ? undefined : content;
+  if (!Array.isArray(content)) return undefined;
+  const text = content
+    .flatMap((part) => (isRecord(part) && part.type === "text" && typeof part.text === "string" ? [part.text] : []))
+    .join("");
+  return text === "" ? undefined : text;
+}
+
+/**
  * 復元時の突き合わせ。記録の書込みだけ失敗した (entry は JSONL にあるのに run 対応が無い) ときに、
  * 未送信の記録と run 対応の無い user entry を本文で 1:1 に対にする。同じ本文の entry が複数あっても
- * 「まだ run 対応が無い entry」だけを数えるため、保存済みの別 run の entry を未送信の根拠にしない
- * (対にならなかった記録だけが未送信として残る)。JSONL に無い entry の対応は落とす。
+ * 「まだ run 対応が無い entry」だけを数え、**送信時刻より前の entry は候補にしない** (旧保存データの
+ * 同じ本文の発言を、未開始の送信の根拠にして黙って吸収しないため)。対にならなかった記録だけが
+ * 未送信として残る。JSONL に無い entry の対応は落とす。
  */
 export function reconcileSessionSends(
   entries: SessionEntryLike[],
   entryRunIds: Map<string, string>,
   unsent: UnsentSend[],
 ): { entryRunIds: Map<string, string>; unsent: UnsentSend[]; changed: boolean } {
-  const userEntries: { id: string; text: string }[] = [];
+  const userEntries: { id: string; text?: string; at?: number }[] = [];
   for (const entry of entries) {
     if (entry.type !== "message" || typeof entry.id !== "string" || entry.id === "") continue;
     const message = entry.message as { role?: unknown; content?: unknown } | undefined;
-    if (!message || message.role !== "user" || typeof message.content !== "string") continue;
-    userEntries.push({ id: entry.id, text: message.content });
+    if (!message || message.role !== "user") continue;
+    const text = userMessageText(message.content);
+    const at = typeof entry.timestamp === "string" ? Date.parse(entry.timestamp) : Number.NaN;
+    userEntries.push({
+      id: entry.id,
+      ...(text !== undefined ? { text } : {}),
+      ...(Number.isFinite(at) ? { at } : {}),
+    });
   }
   const known = new Set(userEntries.map((entry) => entry.id));
   const nextEntryRunIds = new Map([...entryRunIds].filter(([entryId]) => known.has(entryId)));
   const unmatched = new Map<string, string[]>();
   for (const entry of userEntries) {
-    if (nextEntryRunIds.has(entry.id)) continue;
+    if (entry.text === undefined || nextEntryRunIds.has(entry.id)) continue;
     const list = unmatched.get(entry.text);
     if (list) list.push(entry.id);
     else unmatched.set(entry.text, [entry.id]);
   }
   const remaining: UnsentSend[] = [];
+  const atById = new Map(
+    userEntries.flatMap((entry) => (entry.at === undefined ? [] : [[entry.id, entry.at] as const])),
+  );
   for (const item of unsent) {
     const candidates = unmatched.get(item.text);
-    const entryId = candidates?.shift();
-    if (entryId === undefined) {
+    // 送信時刻より前の entry は対応先にしない (時計のずれ分だけ許容する)
+    const index =
+      candidates?.findIndex((entryId) => {
+        const at = atById.get(entryId);
+        return at !== undefined && at >= item.at - CLOCK_MARGIN_MS;
+      }) ?? -1;
+    if (candidates === undefined || index === -1) {
       remaining.push(item);
       continue;
     }
+    const [entryId] = candidates.splice(index, 1);
     nextEntryRunIds.set(entryId, item.runId);
-    if (candidates && candidates.length === 0) unmatched.delete(item.text);
+    if (candidates.length === 0) unmatched.delete(item.text);
   }
   return {
     entryRunIds: nextEntryRunIds,

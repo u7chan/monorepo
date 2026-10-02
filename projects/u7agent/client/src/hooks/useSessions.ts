@@ -177,6 +177,24 @@ export function useSessions({
     [dispatch, refreshHistory, refreshSessions],
   );
 
+  /**
+   * 権威ある payload を取り直して適用する。応答から状態を確定できない失敗 (再送の通信断など) の
+   * 回復に使う。取得できなければ何もしない (次の resync に任せる)。
+   */
+  const resyncSession = useCallback(async (): Promise<boolean> => {
+    const id = sessionIdRef.current;
+    if (!id) return false;
+    try {
+      const payload = await getSession(id);
+      if (sessionIdRef.current !== id) return false;
+      applySnapshot(payload);
+      return true;
+    } catch {
+      // 取れなければ次の resync に任せる
+      return false;
+    }
+  }, [applySnapshot, sessionIdRef]);
+
   const applySelectedSession = useCallback(
     (payload: SessionPayload) => {
       // 切替待機中に旧セッションの本文から作られた要求を、確定時にも落とす (開始時の破棄だけでは残る)
@@ -616,5 +634,6 @@ export function useSessions({
     loadOlderHistory,
     fillHistoryGap,
     toggleNotify,
+    resyncSession,
   };
 }

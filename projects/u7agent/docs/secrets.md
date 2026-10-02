@@ -10,7 +10,7 @@
 - 画像生成の APIキー（`image_settings`）も同じ扱いで、`PUT /api/settings/images/key` が DB へ書く前に `retainSecret()` で登録し、起動時の `ImageSettingsService.applyStored()` も保存行のキーを登録する（[image-generation.md](image-generation.md#キーの扱い)）。画像の provider 呼び出しは BFF 内で完結し、キーはサンドボックスへ渡らない
 - SQLite の失敗文言にキーが載る経路（`AppDb.#query` と `open()`）は `AppDb.open({ sanitizeError })` でマスカーを通してからログ・`#error`（health / 503）へ渡す。`model-settings.ts` は固定文言だけを応答へ返し、ログには provider id と分類だけを残す
 - 設定 → モデルの provider メモは秘密情報ではないため保護対象へ足さない（`retainSecret` に渡さない）。任意の自由文を登録すると、短いメモでも `createMutableSecretMasker` が値をマスクし、よくある単語が会話表示で赤塗りされる誤爆の方が実害より大きい。代わりに `model-settings.ts` はログ・health・エラー文言のどの経路にもメモ値を載せない（値は API 応答と画面にだけ出す）
-- ユーザーがチャットへ直接入力したキーはモデルへはそのまま渡る（対象はツール出力由来の値）。ただしエコー（タイトル・プロンプト表示・メッセージ履歴・text delta・未送信メッセージの表示本文 `unsentMessages[].text`）はマスクする
+- ユーザーがチャットへ直接入力したキーはモデルへはそのまま渡る（対象はツール出力由来の値）。ただしエコー（タイトル・プロンプト表示・メッセージ履歴・text delta・未送信メッセージの表示本文 `pendingSends[].text`）はマスクする
 - 会話は BFF 専用ストアの `session.jsonl` / `meta.json` に保存される。生のユーザー入力・モデル出力を含むが、ツール出力は LLM・履歴へ渡す前にマスクされるため保存後も `[REDACTED]` のままになる。ストアはサンドボックスへマウントしない（[persistence.md](persistence.md)）
 - ツール引数・出力の要約は、切り詰めの前にマスクする。先に切り詰めると要約上限の境界でキーの末尾が欠け、大部分がそのまま残るため
 - スキル読み込みの導出値（`ChatMessage.skillLoads[].name` / `path`、`ToolCall.skill.name` / `path`）もマスクしてから配る。ただし basename の判定は raw path で行う必要があるため、**解決 → 分類 → mask** の順を守る（先にマスクすると、`/` を含む秘密値で `SKILL.md` 判定が壊れ、行ごと消える）

@@ -584,6 +584,7 @@ function createResendHarness(overrides: Partial<ResendUnsentDeps> = {}) {
     runStatusRef: { current: "idle" },
     runEndSeqRef: { current: 0 },
     resend: async () => ({ queued: false, queueDepth: 0, runId: "run-x" }),
+    recover: async () => false,
     refreshSessions: async () => [],
     dispatch,
     setRuntimeStatus: (status) => {
@@ -612,6 +613,8 @@ test("再送が受理されないまま失敗したら未送信へ戻し、理�
     resend: async () => {
       throw new Error("network reset");
     },
+    // 権威ある状態を取り直せなかった (通信断)
+    recover: async () => false,
   });
   await resendUnsentMessage("run-x", deps);
   assert.deepEqual(
@@ -622,25 +625,30 @@ test("再送が受理されないまま失敗したら未送信へ戻し、理�
   assert.equal(statuses.length, 1, "通信自体の失敗は接続状態にも出す");
 });
 
-test("応答が遅れて失敗しても、run が終わっていれば実行済みの送信を未送信へ戻さない", async () => {
+test("応答が遅れて失敗しても、権威ある payload を取り直せたら未送信へ戻さない", async () => {
   const pending = deferred<PostMessageResult>();
-  const { actions, statuses, deps } = createResendHarness({
+  let recovered = 0;
+  const { actions, deps } = createResendHarness({
     resend: () => pending.promise,
+    recover: async () => {
+      recovered += 1;
+      return true;
+    },
   });
   const running = resendUnsentMessage("run-x", deps);
-  // サーバーは受理して run が実行・完了している (runEndSeq が進む)
+  // サーバーは受理して run が実行・完了している。payload の取り直しで state が収束する
   deps.runEndSeqRef.current = 1;
   pending.reject(new Error("network reset"));
   await running;
-  assert.deepEqual(actionsOfType(actions, "resendFailed"), [], "権威ある状態を古い応答で戻さない");
-  assert.deepEqual(actionsOfType(actions, "setActivity"), []);
-  assert.deepEqual(statuses, []);
+  assert.equal(recovered, 1, "失敗時は権威ある payload を取り直す");
+  assert.deepEqual(actionsOfType(actions, "resendFailed"), [], "取り直した状態を古い応答で戻さない");
 });
 
-test("応答が遅れて失敗しても、操作世代が進んでいれば表示を戻さない", async () => {
+test("取り直しも失敗し、操作世代が進んでいれば表示を戻さない", async () => {
   const pending = deferred<PostMessageResult>();
   const { actions, deps } = createResendHarness({
     resend: () => pending.promise,
+    recover: async () => false,
   });
   const running = resendUnsentMessage("run-x", deps);
   deps.opsRef.current = 1;
