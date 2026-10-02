@@ -199,6 +199,9 @@ export async function resendUnsentMessage(runId: string, deps: ResendUnsentDeps)
     void deps.refreshSessions();
   } catch (error) {
     if (deps.sessionIdRef.current !== id) return;
+    // 応答が遅れている間に run が終わった / 新しい要求が入った場合、その再送は受理されて実行されている。
+    // 実行済みの送信を未送信へ戻さない (未受理のまま残った分は次の payload が拾う)
+    if (deps.opsRef.current !== ops || deps.runEndSeqRef.current !== runSeq) return;
     // 通常の送信済みに見せないよう未送信へ戻し、理由を状態行へ出す
     deps.dispatch({ type: "resendFailed", runId });
     deps.dispatch({ type: "setActivity", text: messageFor(error) });

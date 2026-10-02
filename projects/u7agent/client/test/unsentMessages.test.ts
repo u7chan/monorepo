@@ -265,3 +265,59 @@ test("セッションを切り替えた resync では、前のセッションの
   assert.deepEqual(switched.bubbles, []);
   assert.deepEqual(switched.pendingEchoIds, []);
 });
+
+test("停止の queue_cleared が送信応答より先に届いても、run id が付いた時点で未送信になる", () => {
+  const sent = chatReducer(withHistory(), { type: "localUser", text: "待機の本文", at: 2 });
+  const echoId = sent.pendingEchoIds[0];
+  // 停止が応答より先に届く (破棄された run id は分かるが、エコーにまだ run id が無い)
+  const cleared = chatReducer(sent, { type: "queueCleared", runIds: ["run-cleared"] });
+  assert.deepEqual(cleared.pendingEchoIds, [echoId], "特定できないうちは pending のまま");
+  assert.deepEqual(cleared.clearedRunIds, ["run-cleared"]);
+
+  const assigned = chatReducer(cleared, { type: "echoRunId", runId: "run-cleared" });
+  const echo = assigned.bubbles.find((bubble) => bubble.id === echoId);
+  assert.equal(echo?.runId, "run-cleared");
+  assert.equal(echo?.unsent, true, "対応付いた時点で未送信へ切り替える");
+  assert.deepEqual(assigned.pendingEchoIds, []);
+  assert.deepEqual(assigned.clearedRunIds, [], "使い切った控えは消える");
+});
+
+test("payload の未送信が送信応答より先に届いても、run id の対応付けでバブルを重複させない", () => {
+  const sent = chatReducer(withHistory(), { type: "localUser", text: "同じ本文", at: 2 });
+  const echoId = sent.pendingEchoIds[0];
+  const resynced = chatReducer(sent, {
+    type: "resync",
+    payload: payload([{ runId: "run-x", text: "同じ本文", at: 5 }]),
+  });
+  assert.equal(resynced.bubbles.filter((bubble) => bubble.runId === "run-x").length, 1, "payload が先に足す");
+
+  const assigned = chatReducer(resynced, { type: "echoRunId", runId: "run-x" });
+  assert.deepEqual(
+    assigned.bubbles.filter((bubble) => bubble.runId === "run-x").map((bubble) => [bubble.id, bubble.unsent === true]),
+    [[echoId, true]],
+    "ローカルのエコーへ寄せて 1 件にする",
+  );
+  assert.deepEqual(assigned.pendingEchoIds, []);
+});
+
+test("別タブの再送 (run_start) で、接続中のタブの未送信バブルが送信中へ戻る", () => {
+  const fresh = chatReducer(withHistory(), {
+    type: "resync",
+    payload: payload([{ runId: "run-x", text: "未送信の本文", at: 5 }]),
+  });
+  const started = chatReducer(fresh, {
+    type: "runStart",
+    runId: "run-x",
+    prompt: "未送信の本文",
+    at: 6,
+    startedAt: 6,
+  });
+  assert.deepEqual(
+    started.bubbles
+      .filter((bubble) => bubble.role === "user" && bubble.text === "未送信の本文")
+      .map((bubble) => [bubble.runId, bubble.unsent === true]),
+    [["run-x", false]],
+    "未送信の表示を戻し、二重に足さない",
+  );
+  assert.deepEqual(started.pendingEchoIds, [], "実行開始後は pending に残さない");
+});

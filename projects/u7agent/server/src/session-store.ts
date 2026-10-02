@@ -275,6 +275,51 @@ export function writeSessionSends(storeDir: string, id: string, sends: SessionSe
   renameSync(temp, join(dir, "sends.json"));
 }
 
+/**
+ * 復元時の突き合わせ。記録の書込みだけ失敗した (entry は JSONL にあるのに run 対応が無い) ときに、
+ * 未送信の記録と run 対応の無い user entry を本文で 1:1 に対にする。同じ本文の entry が複数あっても
+ * 「まだ run 対応が無い entry」だけを数えるため、保存済みの別 run の entry を未送信の根拠にしない
+ * (対にならなかった記録だけが未送信として残る)。JSONL に無い entry の対応は落とす。
+ */
+export function reconcileSessionSends(
+  entries: SessionEntryLike[],
+  entryRunIds: Map<string, string>,
+  unsent: UnsentSend[],
+): { entryRunIds: Map<string, string>; unsent: UnsentSend[]; changed: boolean } {
+  const userEntries: { id: string; text: string }[] = [];
+  for (const entry of entries) {
+    if (entry.type !== "message" || typeof entry.id !== "string" || entry.id === "") continue;
+    const message = entry.message as { role?: unknown; content?: unknown } | undefined;
+    if (!message || message.role !== "user" || typeof message.content !== "string") continue;
+    userEntries.push({ id: entry.id, text: message.content });
+  }
+  const known = new Set(userEntries.map((entry) => entry.id));
+  const nextEntryRunIds = new Map([...entryRunIds].filter(([entryId]) => known.has(entryId)));
+  const unmatched = new Map<string, string[]>();
+  for (const entry of userEntries) {
+    if (nextEntryRunIds.has(entry.id)) continue;
+    const list = unmatched.get(entry.text);
+    if (list) list.push(entry.id);
+    else unmatched.set(entry.text, [entry.id]);
+  }
+  const remaining: UnsentSend[] = [];
+  for (const item of unsent) {
+    const candidates = unmatched.get(item.text);
+    const entryId = candidates?.shift();
+    if (entryId === undefined) {
+      remaining.push(item);
+      continue;
+    }
+    nextEntryRunIds.set(entryId, item.runId);
+    if (candidates && candidates.length === 0) unmatched.delete(item.text);
+  }
+  return {
+    entryRunIds: nextEntryRunIds,
+    unsent: remaining,
+    changed: nextEntryRunIds.size !== entryRunIds.size || remaining.length !== unsent.length,
+  };
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }

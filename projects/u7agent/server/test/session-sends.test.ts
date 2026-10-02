@@ -9,9 +9,9 @@ import { createAgentCatalog } from "../src/agents";
 import { createBffApp } from "../src/app";
 import { createSecretMasker, REDACTED } from "../src/redact";
 import type { SandboxWorkspaceClient } from "../src/sandbox/client";
-import { readSessionSends, sessionSendsPath } from "../src/session-store";
+import { readSessionSends, sessionSendsPath, writeSessionSends, type SessionSends } from "../src/session-store";
 import { SessionStore } from "../src/sessions";
-import type { HistoryItem, HistoryPage, SessionPayload } from "../src/schema";
+import type { EventEntry, HistoryItem, HistoryPage, SessionPayload } from "../src/schema";
 import { asPiBff, createStubPi, waitFor, type StubSession } from "./stub-pi";
 
 function stubWorkspace(): SandboxWorkspaceClient {
@@ -24,7 +24,11 @@ function stubWorkspace(): SandboxWorkspaceClient {
 function createStore(
   storeDir: string,
   pi: ReturnType<typeof createStubPi>,
-  masker?: ReturnType<typeof createSecretMasker>,
+  options: {
+    masker?: ReturnType<typeof createSecretMasker>;
+    /** 送信対応記録の書込みを差し替える (書込み失敗の再試行の検証用) */
+    writeSends?: (storeDir: string, id: string, sends: SessionSends) => void;
+  } = {},
 ): SessionStore {
   return new SessionStore({
     pi,
@@ -32,7 +36,8 @@ function createStore(
     storeDir,
     workspace: stubWorkspace(),
     rootCwd: "/tmp/project",
-    ...(masker ? { masker } : {}),
+    ...(options.masker ? { masker: options.masker } : {}),
+    ...(options.writeSends ? { writeSends: options.writeSends } : {}),
   });
 }
 
@@ -92,7 +97,7 @@ test("再起動後も保存済み user item の run id が載り、未保存の�
     );
     await store2.close();
   } finally {
-    await rm(storeDir, { recursive: true, force: true });
+    await rm(storeDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
   }
 });
 
@@ -125,7 +130,7 @@ test("同一文面を2件保存したあとの再起動でも、item の run id 
     assert.deepEqual(unsentOf(store2.payload(restored)), [], "保存済みの送信は未送信に残らない");
     await store2.close();
   } finally {
-    await rm(storeDir, { recursive: true, force: true });
+    await rm(storeDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
   }
 });
 
@@ -136,7 +141,7 @@ test("未送信メッセージは同じ run id で再送でき、保存済みの
   try {
     const ids = await restartWithQueuedSameText(storeDir, raw);
     const pi2 = createStubPi();
-    const store2 = createStore(storeDir, pi2, masker);
+    const store2 = createStore(storeDir, pi2, { masker });
     await store2.init();
     const restored = await store2.resolve(ids.recordId);
     assert.ok(restored);
@@ -172,7 +177,7 @@ test("未送信メッセージは同じ run id で再送でき、保存済みの
     assert.deepEqual(readSessionSends(storeDir, ids.recordId).unsent, []);
     await store2.close();
   } finally {
-    await rm(storeDir, { recursive: true, force: true });
+    await rm(storeDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
   }
 });
 
@@ -200,11 +205,13 @@ test("未送信メッセージは破棄でき、再送が実行中の分は消�
     assert.ok(queued.runId);
     assert.equal(store2.discardUnsent(restored, queued.runId), "running", "キュー待ちも実行中として扱う");
     await store2.stop(restored);
+    // 停止は最終保存を待たないため、保存済みの run を未送信から外すまで待つ
+    await store2.flush(restored);
     assert.equal(store2.discardUnsent(restored, queued.runId), "ok", "キューを破棄したあとは消せる");
     assert.deepEqual(unsentOf(store2.payload(restored)), []);
     await store2.close();
   } finally {
-    await rm(storeDir, { recursive: true, force: true });
+    await rm(storeDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
   }
 });
 
@@ -247,7 +254,7 @@ test("旧保存データ (sends.json が無い / 壊れている) でも復元�
     );
     await store3.close();
   } finally {
-    await rm(storeDir, { recursive: true, force: true });
+    await rm(storeDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
   }
 });
 
@@ -262,7 +269,10 @@ test("停止でキューを破棄した送信は、次の payload で未送信�
     const queued = store.postMessage(record, "破棄される本文");
     assert.equal(queued.queued, true);
     await waitFor(() => userItems(pageOf(store, record)).length === 1, 3000, "first entry persisted");
+    // 停止は最終保存を待たないため、保存済みの run を未送信から外すまで待つ
+    await store.flush(record);
     await store.stop(record);
+    await store.flush(record);
     assert.deepEqual(
       record.events.find((entry) => entry.type === "queue_cleared")?.data,
       { runIds: [queued.runId] },
@@ -280,7 +290,7 @@ test("停止でキューを破棄した送信は、次の payload で未送信�
     );
     await store.close();
   } finally {
-    await rm(storeDir, { recursive: true, force: true });
+    await rm(storeDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
   }
 });
 
@@ -393,6 +403,187 @@ test("POST /messages の resendRunId と DELETE /unsent で、未送信の再送
     assert.deepEqual(unsentOf(after), [], "再送が entry になれば未送信から消える");
     await bff2.close();
   } finally {
-    await rm(storeDir, { recursive: true, force: true });
+    await rm(storeDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+  }
+});
+
+test("sends.json の書込みに失敗しても次の保存で再試行し、保存済みの送信を未送信に残さない", async () => {
+  const storeDir = await mkdtemp(join(tmpdir(), "u7agent-sends-"));
+  let failures = 1;
+  const attempts: string[] = [];
+  try {
+    const pi = createStubPi({ chunkDelayMs: 1 });
+    const store = createStore(storeDir, pi, {
+      writeSends: (dir, id, sends) => {
+        attempts.push(id);
+        if (failures > 0) {
+          failures -= 1;
+          throw new Error("stub disk full");
+        }
+        writeSessionSends(dir, id, sends);
+      },
+    });
+    await store.init();
+    const record = await store.create();
+    const posted = store.postMessage(record, "保存される本文");
+    assert.ok(posted.runId);
+    assert.equal(attempts.length, 1, "受理時に一度書く (ここでは失敗する)");
+    await waitFor(() => store.statusOf(record) === "completed", 3000, "run completion");
+    await store.flush(record);
+    assert.equal(failures, 0, "次の保存で再試行する");
+    assert.ok(attempts.length >= 2, "失敗した記録は dirty のまま残り、再試行される");
+    const sends = readSessionSends(storeDir, record.id);
+    assert.deepEqual(sends.unsent, [], "保存済みの送信は未送信に残らない");
+    assert.deepEqual(Object.values(sends.entries), [posted.runId]);
+    await store.close();
+
+    // 再起動しても run id が載り、未送信は空 (古いディスクのまま復元されない)
+    const store2 = createStore(storeDir, createStubPi());
+    await store2.init();
+    const restored = await store2.resolve(record.id);
+    assert.ok(restored);
+    assert.deepEqual(unsentOf(store2.payload(restored)), []);
+    assert.deepEqual(
+      userItems(pageOf(store2, restored)).map((item) => item.runId),
+      [posted.runId],
+    );
+    await store2.close();
+  } finally {
+    await rm(storeDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+  }
+});
+
+test("sends.json の entry 対応が欠けたまま再起動しても、JSONL の entry を正として未送信から外す", async () => {
+  const storeDir = await mkdtemp(join(tmpdir(), "u7agent-sends-"));
+  try {
+    const pi1 = createStubPi({ chunkDelayMs: 1 });
+    const store1 = createStore(storeDir, pi1);
+    await store1.init();
+    const record = await store1.create();
+    const posted = store1.postMessage(record, "保存される本文");
+    assert.ok(posted.runId);
+    await waitFor(() => store1.statusOf(record) === "completed", 3000, "run completion");
+    await store1.flush(record);
+    await store1.close();
+
+    // 記録の書込みだけ失敗した状態 (JSONL に entry はあるが entry 対応が無く、未送信が残る) を作る
+    const entryId = Object.keys(readSessionSends(storeDir, record.id).entries)[0];
+    assert.ok(entryId);
+    await writeFile(
+      sessionSendsPath(record.id, storeDir),
+      JSON.stringify({ entries: {}, unsent: [{ runId: posted.runId, text: "保存される本文", at: 1 }] }),
+    );
+
+    const store2 = createStore(storeDir, createStubPi());
+    await store2.init();
+    const restored = await store2.resolve(record.id);
+    assert.ok(restored);
+    assert.deepEqual(unsentOf(store2.payload(restored)), [], "JSONL の entry を正とする");
+    assert.deepEqual(
+      userItems(pageOf(store2, restored)).map((item) => [item.id, item.runId]),
+      [[entryId, posted.runId]],
+      "entry 対応も突き合わせて復元する",
+    );
+    assert.equal(store2.resend(restored, posted.runId), undefined, "保存済みの送信は再送できない");
+    const after = readSessionSends(storeDir, record.id);
+    assert.deepEqual(after.unsent, [], "突き合わせの結果を書き直す");
+    assert.deepEqual(after.entries, { [entryId]: posted.runId });
+    await store2.close();
+  } finally {
+    await rm(storeDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+  }
+});
+
+test("meta だけの保存では、JSONL にまだ書いていない entry を保存済みにしない", async () => {
+  const storeDir = await mkdtemp(join(tmpdir(), "u7agent-sends-"));
+  try {
+    const pi = createStubPi({ chunkDelayMs: 300 });
+    const store = createStore(storeDir, pi);
+    await store.init();
+    const record = await store.create();
+    const session = record.session as StubSession;
+
+    // SDK の entry (メモリ) に user メッセージを足し、run 対応だけを控えた「保存待ち」の状態を作る
+    const message = { role: "user", content: "メタ保存だけでは確定しない本文", timestamp: Date.now() };
+    const entry = session.appendMessage(message);
+    record.userMessageRuns.set(message, "run-meta-only");
+    record.unsentSends.push({ runId: "run-meta-only", text: "メタ保存だけでは確定しない本文", at: Date.now() });
+    record.sendsDirty = true;
+
+    await store.persist(record, { jsonl: false });
+    const sends = readSessionSends(storeDir, record.id);
+    assert.equal(sends.entries[entry.id], undefined, "JSONL に無い entry を保存済みにしない");
+    assert.deepEqual(
+      sends.unsent.map((item) => item.runId),
+      ["run-meta-only"],
+      "未送信のまま残る",
+    );
+
+    // JSONL の保存が確定した時点で対応を写す
+    await store.persist(record);
+    const after = readSessionSends(storeDir, record.id);
+    assert.deepEqual(after.entries, { [entry.id]: "run-meta-only" });
+    assert.deepEqual(after.unsent, []);
+    await store.close();
+  } finally {
+    await rm(storeDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+  }
+});
+
+test("user entry を残さず終わった run は、未送信として載り再送 / 破棄できる", async () => {
+  const storeDir = await mkdtemp(join(tmpdir(), "u7agent-sends-"));
+  try {
+    const pi = createStubPi({ promptFailureBeforeUser: "No API key for stub/model" });
+    const store = createStore(storeDir, pi);
+    await store.init();
+    const record = await store.create();
+    const events: EventEntry[] = [];
+    store.subscribe(record, `${record.generation}:${record.seq}`, (entry) => events.push(entry));
+
+    const first = store.postMessage(record, "認証エラーで送れなかった本文");
+    assert.ok(first.runId);
+    await waitFor(() => store.statusOf(record) === "error", 3000, "run error");
+    await store.flush(record);
+    assert.deepEqual(
+      unsentOf(store.payload(record)),
+      [["認証エラーで送れなかった本文", first.runId]],
+      "終了した run も未送信として載る (実行中扱いにしない)",
+    );
+    assert.equal(store.discardUnsent(record, first.runId), "ok", "終了した run の送信は破棄できる");
+    const resyncs = events.filter((entry) => entry.type === "resync");
+    assert.equal(resyncs.length > 0, true, "破棄は購読者へ resync で配る");
+    assert.deepEqual(resyncs.at(-1)?.data.unsentMessages, [], "破棄した送信は配らない");
+
+    // 再送は同じ run id で実行し直す (status が error の run を実行中扱いにしない)
+    const second = store.postMessage(record, "再送する本文");
+    assert.ok(second.runId);
+    await waitFor(() => store.statusOf(record) === "error", 3000, "second run error");
+    await store.flush(record);
+    events.length = 0;
+    const resent = store.resend(record, second.runId);
+    assert.deepEqual(resent, { queued: false, queueDepth: 0, runId: second.runId });
+    assert.equal(
+      events.filter((entry) => entry.type === "run_start" && entry.data.runId === second.runId).length,
+      1,
+      "同じ run id でも実行し直す",
+    );
+    assert.deepEqual(
+      events.filter((entry) => entry.type === "resync")[0]?.data.unsentMessages,
+      [],
+      "再送の受付直後は実行中として配る (別タブの未送信表示を更新する)",
+    );
+    await waitFor(() => store.statusOf(record) === "error", 3000, "resent run error");
+    await store.flush(record);
+    assert.deepEqual(
+      events
+        .filter((entry) => entry.type === "resync")
+        .at(-1)
+        ?.data.unsentMessages?.map((item) => item.runId),
+      [second.runId],
+      "再送も user entry を残さず終わったら未送信として配る",
+    );
+    await store.close();
+  } finally {
+    await rm(storeDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
   }
 });

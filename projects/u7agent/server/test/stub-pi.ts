@@ -122,6 +122,11 @@ export interface StubSessionOptions {
   preflightCompactions?: Array<StubCompactionOptions | null>;
   /** BFF からの手動 compaction (引数なしの compact()) に使う options */
   manualCompaction?: StubCompactionOptions;
+  /**
+   * prompt が user message を履歴へ積む前に失敗する (認証エラー等)。BFF は user entry の無いまま
+   * error で終端するため、受理済みの送信が未送信として残る経路を再現できる
+   */
+  promptFailureBeforeUser?: string;
 }
 
 /** SDK の SessionEntry と同じ形の append-only ログ。getBranch() が返す */
@@ -475,6 +480,8 @@ export function createStubSession(options: StubSessionOptions = {}): StubSession
       session.abortRequested = false;
       session.isStreaming = true;
       try {
+        // 実 SDK は送信メッセージを組み立てる前に失敗し得る (認証エラー等)。user entry を積まない
+        if (options.promptFailureBeforeUser) throw new Error(options.promptFailureBeforeUser);
         // 実 SDK は送信メッセージを組み立てる前に preflight の compaction を走らせる
         const preflight = options.preflightCompactions?.shift();
         if (preflight) await session.compact(preflight);
@@ -525,7 +532,9 @@ export function createStubSession(options: StubSessionOptions = {}): StubSession
           historyUpdated = true;
         }
       } finally {
-        session.emit({ type: "agent_settled" });
+        // user message を積む前の失敗 (認証エラー等) は agent が開始していないため settled を出さない。
+        // BFF は prompt() の reject で run を error として終端する
+        if (!options.promptFailureBeforeUser) session.emit({ type: "agent_settled" });
         session.isStreaming = false;
       }
     },
@@ -572,6 +581,8 @@ export interface StubPiOptions {
   preflightCompactions?: Array<StubCompactionOptions | null>;
   /** BFF からの手動 compaction (引数なしの compact()) に使う options */
   manualCompaction?: StubCompactionOptions;
+  /** prompt が user message を積む前に失敗する (StubSessionOptions と同じ) */
+  promptFailureBeforeUser?: string;
   availableModels?: PiAiModel<Api>[];
   /** モデルカタログ (設定 → モデルのモデル一覧表示と診断が使う) */
   catalogModels?: PiAiModel<Api>[];

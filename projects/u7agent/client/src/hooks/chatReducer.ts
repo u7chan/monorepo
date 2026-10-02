@@ -73,6 +73,11 @@ export type ChatState = {
    * 同じ本文を続けて送っても、届いた注記を正しいバブルに割り当てるために必要 (配列の末尾だけを見ると取り違える)。
    */
   pendingEchoIds: number[];
+  /**
+   * 停止で破棄された run id (queue_cleared)。応答 (`echoRunId`) より先に届くことがあり、そのときは
+   * エコーに run id が無いため未送信へ切り替えられない。対応付いた時点で切り替えるために控える
+   */
+  clearedRunIds: string[];
   queueDepth: number;
   activity: string;
   /**
@@ -138,8 +143,10 @@ export type ChatAction =
   /** 再送の受付に失敗した。pending を解除して未送信へ戻す */
   | { type: "resendFailed"; runId: string }
   /** 未送信メッセージを破棄した (サーバーの記録も消えている) */
-  | { type: "unsentDiscarded"; runId: string }
-  /** 送信に失敗したローカルエコーを戻す (待ち行列の末尾 = 直前に送った分) */
+  | {
+      type: "unsentDiscarded";
+      runId: string;
+    } /** 送信に失敗したローカルエコーを戻す (待ち行列の末尾 = 直前に送った分) */
   | { type: "dropLocalUser" }
   | { type: "text"; delta: string; at: number }
   | { type: "toolStart"; id: string; name: string; args: string; skill?: SkillLoad; at: number }
@@ -192,6 +199,7 @@ export const initialChatState: ChatState = {
   runEndSeq: 0,
   sendSeq: 0,
   pendingEchoIds: [],
+  clearedRunIds: [],
   queueDepth: 0,
   activity: "",
   activityState: undefined,
@@ -569,6 +577,8 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
         // 履歴モードでは区切りを履歴ページが正とし、旧 payload では messages の index から復元する
         dividers: keepHistory ? state.dividers : legacyMarkers(payload.compactions ?? []),
         history: sessionChanged ? initialChatState.history : state.history,
+        // 別の会話の停止で破棄された run id を持ち越さない
+        clearedRunIds: sessionChanged ? [] : state.clearedRunIds,
         sessionId: payload.sessionId,
         runStatus: status,
         runStartedAt: status === "running" ? payload.run?.startedAt : undefined,
@@ -736,44 +746,57 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
 
     case "runStart": {
       // 自分の送信を実行する run は run id で厳密に照合する。run id が分からないエコー (応答待ち) は
-      // 照合せず保持し、別クライアントの同一文面 entry を誤って自分のものにしない
+      // 照合せず保持し、別クライアントの同一文面 entry を誤って自分のものにしない。
+      // 別タブが未送信メッセージを再送した場合は、その run_start で未送信の表示を送信中へ戻す
+      const resent =
+        action.runId === undefined
+          ? undefined
+          : state.bubbles.find((bubble) => bubble.unsent === true && bubble.runId === action.runId);
+      const base =
+        resent === undefined
+          ? state
+          : {
+              ...state,
+              bubbles: state.bubbles.map((bubble) => (bubble.id === resent.id ? { ...bubble, unsent: false } : bubble)),
+              pendingEchoIds: [...state.pendingEchoIds, resent.id],
+            };
       const promptBody = canonicalUserText(action.prompt);
       const echoIndex =
         action.runId !== undefined
-          ? state.pendingEchoIds.findIndex((id) => state.bubbles.find((item) => item.id === id)?.runId === action.runId)
-          : state.pendingEchoIds.findIndex((id) => {
-              const bubble = state.bubbles.find((item) => item.id === id);
+          ? base.pendingEchoIds.findIndex((id) => base.bubbles.find((item) => item.id === id)?.runId === action.runId)
+          : base.pendingEchoIds.findIndex((id) => {
+              const bubble = base.bubbles.find((item) => item.id === id);
               return bubble !== undefined && canonicalUserText(bubble.text) === promptBody;
             });
-      const echo = echoIndex === -1 ? undefined : state.bubbles.find((b) => b.id === state.pendingEchoIds[echoIndex]);
+      const echo = echoIndex === -1 ? undefined : base.bubbles.find((b) => b.id === base.pendingEchoIds[echoIndex]);
       // 対応が取れた 1 件だけ待ち行列から外す。run id 不明の旧経路は送信順に届く前提を保つ
       const pendingEchoIds =
         echoIndex === -1
-          ? state.pendingEchoIds
+          ? base.pendingEchoIds
           : action.runId !== undefined
-            ? state.pendingEchoIds.filter((_, index) => index !== echoIndex)
-            : state.pendingEchoIds.slice(echoIndex + 1);
-      const pending = new Set(state.pendingEchoIds);
+            ? base.pendingEchoIds.filter((_, index) => index !== echoIndex)
+            : base.pendingEchoIds.slice(echoIndex + 1);
+      const pending = new Set(base.pendingEchoIds);
       let next: ChatState;
       if (echo !== undefined) {
-        const absorb = echoAbsorbTarget(state.bubbles, state.dividers, echo);
+        const absorb = echoAbsorbTarget(base.bubbles, base.dividers, echo);
         if (absorb !== undefined) {
           // preflight compaction などで自分の entry が既に履歴へ載っている。エコーを履歴 item へ
           // 吸収し、同じ発言の二重表示を防ぐ
-          next = { ...state, bubbles: state.bubbles.filter((bubble) => bubble.id !== echo.id) };
+          next = { ...base, bubbles: base.bubbles.filter((bubble) => bubble.id !== echo.id) };
         } else {
           next =
             echo.text === action.prompt
-              ? state
-              : updateBubble(state, echo.id, (bubble) => ({ ...bubble, text: action.prompt }));
+              ? base
+              : updateBubble(base, echo.id, (bubble) => ({ ...bubble, text: action.prompt }));
         }
       } else {
         // 待ち行列のエコーが本文の正規形で一致するなら、自分の run_start が応答より先に届いた場合なので
         // 二重に足さない (別クライアントの同一文面はページの item を正とする)
         const known =
-          state.bubbles.some((bubble) => bubble.role === "user" && bubble.text === action.prompt) ||
-          state.bubbles.some((bubble) => pending.has(bubble.id) && canonicalUserText(bubble.text) === promptBody);
-        next = known ? state : appendBubble(state, "user", action.prompt, action.at);
+          base.bubbles.some((bubble) => bubble.role === "user" && bubble.text === action.prompt) ||
+          base.bubbles.some((bubble) => pending.has(bubble.id) && canonicalUserText(bubble.text) === promptBody);
+        next = known ? base : appendBubble(base, "user", action.prompt, action.at);
       }
       return {
         ...next,
@@ -829,15 +852,35 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
         return bubble !== undefined && bubble.runId === undefined;
       });
       if (echoId === undefined) return state;
+      // payload が先に未送信バブルを足していたら、ローカルのエコーへ寄せて重複を作らない
+      // (同じ run id のバブルが 2 件残ると再送 / 破棄が二重に見える)。履歴 item は下の吸収が担う
+      const duplicate = state.bubbles.find(
+        (bubble) => bubble.id !== echoId && bubble.unsent === true && bubble.runId === action.runId,
+      );
       // run_start が応答より先に届いていれば、控えた本文でローカルエコーを差し替える
       const prompt = state.runPrompts[action.runId];
-      const withRunId = updateBubble(state, echoId, (bubble) => ({
-        ...bubble,
-        runId: action.runId,
-        ...(prompt !== undefined ? { text: prompt } : {}),
-      }));
+      const withRunId = updateBubble(
+        duplicate === undefined ? state : { ...state, bubbles: state.bubbles.filter((b) => b.id !== duplicate.id) },
+        echoId,
+        (bubble) => ({
+          ...bubble,
+          runId: action.runId,
+          ...(prompt !== undefined ? { text: prompt } : {}),
+        }),
+      );
       const runPrompts = { ...state.runPrompts };
       delete runPrompts[action.runId];
+      // 停止で破棄された run か、payload が未送信として配った run なら、通常の送信済みに見せず
+      // 未送信へ切り替える (重複して足された未送信バブルはローカルのエコーへ寄せる)
+      if (state.clearedRunIds.includes(action.runId) || duplicate !== undefined) {
+        return {
+          ...withRunId,
+          runPrompts,
+          bubbles: withRunId.bubbles.map((bubble) => (bubble.id === echoId ? { ...bubble, unsent: true } : bubble)),
+          pendingEchoIds: withRunId.pendingEchoIds.filter((id) => id !== echoId),
+          clearedRunIds: state.clearedRunIds.filter((id) => id !== action.runId),
+        };
+      }
       // preflight compaction などで自分の entry が先にページへ載っていたら、ここで吸収する
       const target = withRunId.bubbles.find(
         (bubble) => bubble.entryId !== undefined && bubble.role === "user" && bubble.runId === action.runId,
@@ -864,6 +907,8 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
         ),
         currentAssistantId: null,
         pendingEchoIds: [...state.pendingEchoIds, echo.id],
+        // 停止で破棄された記録を再送するときは、未送信へ戻す控えを消す
+        clearedRunIds: state.clearedRunIds.filter((id) => id !== action.runId),
         activity: "送信中…",
         activityState: undefined,
         // 送信と同じく最下部への追従の合図を進める
@@ -1009,7 +1054,8 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
 
     case "queueCleared": {
       // 破棄された待機メッセージは実行されない。run id が分かる分を未送信へ切り替え、
-      // 「送信済み」の見た目のまま残さない (run id が未着のエコーは次の payload が扱う)
+      // 「送信済み」の見た目のまま残さない。応答 (echoRunId) がまだ届いていないエコーは run id が
+      // 無いため特定できず、控えを残して対応付いた時点で切り替える
       const cleared = new Set(action.runIds ?? []);
       const bubbles = state.bubbles.map((bubble) =>
         bubble.runId !== undefined && cleared.has(bubble.runId) && bubble.unsent !== true
@@ -1024,6 +1070,8 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
         ...state,
         bubbles,
         pendingEchoIds,
+        // 取りこぼしを防ぐため直近の分だけ持ち、対応が取れたら消す
+        clearedRunIds: [...state.clearedRunIds, ...cleared].slice(-20),
         queueDepth: 0,
         activity: "待機キューを取り消しました",
         activityState: undefined,

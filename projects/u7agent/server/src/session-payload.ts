@@ -37,9 +37,11 @@ export function projectSessionPayload({
   const availableThinkingLevels = (session.getAvailableThinkingLevels() ??
     (session.thinkingLevel ? [session.thinkingLevel] : [])) as ThinkingLevel[];
   const context = contextUsageOf(session);
-  // 実行中 / キュー待ちの run id。未送信の一覧から外し、送信中は pending エコーのまま見せる
+  // 実行中 / キュー待ちの run id。未送信の一覧から外し、送信中は pending エコーのまま見せる。
+  // record.run は終了後も status 付きで残るため、running / streaming のときだけ実行中として扱う
+  // (終了した run の送信を未送信として再送 / 破棄できるようにする)
   const activeRunIds = new Set<string>([
-    ...(record.run ? [record.run.id] : []),
+    ...(record.run && (record.run.status === "running" || session.isStreaming) ? [record.run.id] : []),
     ...record.queue.map((item) => item.runId),
   ]);
   return {
