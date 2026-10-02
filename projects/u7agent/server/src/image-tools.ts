@@ -31,17 +31,19 @@ export const IMAGE_TOOL_DESCRIPTION =
 
 export const IMAGE_TOOL_GUIDELINES = [
   "Use generate_image only when the user asks for a new image; it costs provider credits.",
-  "After generating, show the saved file as a Markdown image with its working-directory-relative path instead of pasting the path alone.",
+  "After generating, show the saved file as a Markdown image using the working-directory-relative path returned by the tool instead of pasting the path alone.",
 ];
 
 /** 保存できる形式を 1 つも宣言していないモデルを生成前に止めるときの文言。課金前であることを明示する */
 export const IMAGE_TOOL_UNSAVEABLE_MODEL_MESSAGE =
   "この画像モデルは png / jpeg / webp を返さないため、生成は行っていません（クレジットは消費していません）。設定 → モデル で別の画像モデルを選んでください";
 
-/** 有効なときだけ system prompt へ足す 2 行。生成物の場所と本文での示し方を固定する */
+/** 有効なときだけ system prompt へ足す。生成物の場所と本文での示し方を固定する */
 export const IMAGE_GENERATION_PROMPT_LINES = [
   "generate_image saves generated images under the working directory (by default `generated/`) and returns the working-directory-relative path.",
-  "When you generate an image, show it in your reply as a Markdown image using that path, for example ![description](generated/name.png).",
+  "When you generate an image, always show it in your reply as a Markdown image using the actual saved path returned by the tool, for example ![description](generated/name.png), not the requested path or a fixed-name latest copy.",
+  "Do not overwrite existing generated files; keep each unique saved file unchanged so past conversation images remain intact.",
+  "If a fixed-name latest copy is needed, use `cp` to a separate path while keeping the unique generated file. Never use `mv` to move a file referenced by the conversation.",
 ];
 
 /** SDK の tools へ渡す登録名。画像ツールは有効なときだけ足す */
@@ -54,7 +56,7 @@ const generateImageSchema = Type.Object({
   path: Type.Optional(
     Type.String({
       description:
-        "Optional path relative to the working directory (for example `generated/cafe.png`). Parent directories are created, and an existing file is kept and saved with a `-1` suffix.",
+        "Optional path relative to the working directory (for example `generated/cafe.png`). Parent directories are created. Existing files are not overwritten; the new file gets a suffix such as `-1` if the name is taken. Always use the actual saved path returned by the tool in your reply, and keep that unique file unchanged. If a fixed-name latest copy is needed, use `cp` to a separate path while retaining the generated file; never `mv` a file referenced by the conversation.",
     }),
   ),
 });

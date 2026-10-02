@@ -240,7 +240,11 @@ export const fileStoragePreviewUrl = (path: string, filePreviewPort: number): st
  * 画像プレビュー用の raw URL。path はワークスペース root 相対で、配信できるのは allowlist の画像だけ。
  * 生配信に載せるため bodyGuard の上限を通らず、Content-Type はサーバーが決める。
  */
-export const fileRawUrl = (path: string): string => client.api.files.raw.$url({ query: { path } }).toString();
+export const fileRawUrl = (path: string, version?: number): string => {
+  const url = client.api.files.raw.$url({ query: { path } });
+  if (version !== undefined) url.searchParams.set("v", String(version));
+  return url.toString();
+};
 
 /**
  * ダウンロードの事前チェック。download と同じ走査の見積り（種別 / 保存名 / 除外名 / 合計サイズ / 件数）を返し、

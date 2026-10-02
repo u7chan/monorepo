@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type CSSProperties, type RefObject, type ReactNode } from "react";
 import { deleteDirectory, deleteFile, fileDownloadUrl, getFileDownloadCheck, getFiles, renameEntry } from "../api";
 import { useFileTreeWidth } from "../hooks/useFileTreeWidth";
+import { useImageVersion } from "../hooks/useImageVersion";
 import { FileTreeResizeHandle } from "./file-tree/FileTreeResizeHandle";
 import { FilePreview } from "./FilePreview";
 import { cn } from "../lib/cn";
@@ -119,7 +120,7 @@ export function FileBrowser({
     restoreFileTabsState(restored?.paths ?? [], restored?.active ?? null),
   );
   // 一覧の再読み込みでプレビュー本文も捨てる (開いているタブは保つ)
-  const [previewVersion, setPreviewVersion] = useState(0);
+  const previewVersion = useImageVersion(reloadToken);
   // 表示モードは再読み込みの remount を跨ぐ必要がある (選択はタブを閉じるまで保持する) ため親が持つ (docs/file-preview.md)
   const [previewModes, setPreviewModes] = useState<PreviewModes>(() => restored?.modes ?? {});
   // ストレージ有効モードの選択は保存しない (F5 とタブを閉じるで既定の ON に戻すため、snapshot に載せず mount ごとに空から始める)
@@ -241,7 +242,6 @@ export function FileBrowser({
   useEffect(() => {
     if (lastReloadTokenRef.current === reloadToken) return;
     lastReloadTokenRef.current = reloadToken;
-    setPreviewVersion((version) => version + 1);
     setTree((prev) => invalidateFileTree(prev));
   }, [reloadToken]);
 
@@ -417,6 +417,7 @@ export function FileBrowser({
         {tabs.paths.length > 0 && tabs.active ? (
           <FilePreview
             key={previewVersion}
+            previewVersion={previewVersion}
             paths={tabs.paths}
             activePath={tabs.active}
             rootPath={rootPath}

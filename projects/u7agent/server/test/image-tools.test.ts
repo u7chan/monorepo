@@ -7,6 +7,7 @@ import {
   cwdRelativePath,
   imageExtensionFor,
   imageSlug,
+  IMAGE_GENERATION_PROMPT_LINES,
   IMAGE_TOOL_NAME,
   parseImageToolPath,
   rootRelativeDir,
@@ -149,6 +150,21 @@ test("ツール一覧は有効なときだけ generate_image を足す", () => {
   );
 });
 
+test("path の説明と system prompt は結果パスの参照と一意な生成ファイルの保持を指示する", () => {
+  const capture: Capture = { uploads: [], bodies: [], generated: [] };
+  const definition = tool({ capture, settings });
+  assert.deepEqual(Object.keys(definition.parameters.properties), ["prompt", "path"], "引数は増やさない");
+  const pathDescription = definition.parameters.properties.path.description;
+  assert.equal(typeof pathDescription, "string");
+  for (const instructions of [pathDescription, IMAGE_GENERATION_PROMPT_LINES.join("\n")]) {
+    assert.match(instructions, /not overwritten|Do not overwrite/);
+    assert.match(instructions, /actual saved path returned by the tool/);
+    assert.match(instructions, /unique.*file.*unchanged/);
+    assert.match(instructions, /`cp` to a separate path/);
+    assert.match(instructions, /never.*`mv`.*file referenced by the conversation/i);
+  }
+});
+
 test("省略時は generated/<slug>.<ext> へ保存し、実際の cwd 相対パスを結果に載せる", async () => {
   const capture: Capture = { uploads: [], bodies: [], generated: [] };
   const text = await run(tool({ capture, settings, sessionCwd: "projects/u7agent" }), { prompt: "A Cafe in Kyoto!" });
@@ -189,6 +205,8 @@ test("同名衝突ではサンドボックスが返した実際の名前を結�
     { prompt: "a cafe" },
   );
   assert.ok(text.includes("generated/a-cafe-1.png"), text);
+  assert.ok(text.includes("![alt](generated/a-cafe-1.png)"), "本文にも実際の保存パスを使わせる");
+  assert.ok(!text.includes("![alt](generated/a-cafe.png)"), "要求した元のパスを本文に使わせない");
 });
 
 test("長い path でも使用モデルは投影の切詰め内に残る", async () => {

@@ -29,6 +29,30 @@ test("ファイルパスはセグメント単位で encode し、区切りの / 
   }
 });
 
+test("fileRawUrl は version 指定時だけ v を付け、未指定時は従来の URL を保つ", async () => {
+  Object.defineProperty(globalThis, "location", {
+    value: { origin: "http://localhost:5173", hostname: "localhost" },
+    configurable: true,
+  });
+  const { fileRawUrl } = await import("../src/api");
+  assert.equal(fileRawUrl("generated/cafe.png"), "http://localhost:5173/api/files/raw?path=generated%2Fcafe.png");
+  assert.equal(fileRawUrl("generated/cafe.png", undefined), fileRawUrl("generated/cafe.png"));
+  for (const path of ["generated/cafe.png", "日本語/画像.png", "a+b#c&v=99.png"]) {
+    const original = new URL(fileRawUrl(path));
+    assert.equal(original.searchParams.get("path"), path);
+    assert.equal(original.searchParams.has("v"), false);
+    for (const version of [0, 1, 42]) {
+      const url = new URL(fileRawUrl(path, version));
+      assert.equal(url.origin, original.origin);
+      assert.equal(url.pathname, "/api/files/raw");
+      assert.equal(url.searchParams.get("path"), path);
+      assert.equal(url.searchParams.get("v"), String(version));
+      url.searchParams.delete("v");
+      assert.equal(url.toString(), original.toString());
+    }
+  }
+});
+
 test("fileHtmlPreviewUrl はクエリではなくパス形式で同一オリジンの URL を組み立てる", async () => {
   // api.ts は module の読み込み時に location.origin を参照する (node のテストには DOM が無い)
   Object.defineProperty(globalThis, "location", {
