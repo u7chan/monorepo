@@ -20,6 +20,7 @@ import {
   notifyUnavailableNote,
 } from "../src/lib/notifications";
 import type { NotificationsResponse, SessionNotifyResponse, SessionSummary } from "../src/types";
+import { serveProps } from "./serve-fixture";
 
 const IDLE: RuntimeStatus = { text: "", error: false };
 /** 鳴っているベルの目印 (BellIcon の ringing でだけ描かれる線) */
@@ -327,6 +328,7 @@ function renderTopbar(notify: {
 }): string {
   return renderToStaticMarkup(
     createElement(Topbar, {
+      serve: serveProps(),
       scope: SCOPE,
       runtimeStatus: IDLE,
       notify: { deliverable: true, onToggle: () => {}, ...notify },
@@ -364,6 +366,7 @@ test("desktop のバーは通知トグルを「作業フォルダ」の左に置
 function renderCompactBar(notify: { on: boolean; note?: string; deliverable?: boolean } = { on: true }): string {
   return renderToStaticMarkup(
     createElement(CompactBar, {
+      serve: serveProps(),
       mode: "portrait",
       title: "パンくずの折り返しを直す",
       agentName: "実装担当",
@@ -380,6 +383,12 @@ test("compact のバーは ☰ を左端に置き、通知 → ファイルの�
   const html = renderCompactBar();
   assert.ok(!html.includes("✦"), "装飾の ✦ が残っている");
   assert.ok(html.indexOf('aria-label="ナビゲーションを開く"') < html.indexOf("実装担当"), "☰ が左端に無い");
+  // サービスの状態はナビの次・通知の左 (Issue #1680 のモック)
+  assert.ok(
+    html.indexOf('aria-label="ナビゲーションを開く"') < html.indexOf('aria-label="サービスは停止中"'),
+    "状態がナビの次に無い",
+  );
+  assert.ok(html.indexOf('aria-label="サービスは停止中"') < html.indexOf('aria-label="通知"'), "状態が通知の左に無い");
   assert.ok(
     html.indexOf('aria-label="通知"') < html.indexOf('aria-label="作業フォルダ"'),
     "通知がファイルより右にある",
@@ -429,7 +438,11 @@ test("compact のアイコンボタンは @layer components の .icon-button で
   }
 
   const compact = source("src/components/CompactBar.tsx");
+  // ☰ / 通知 / 作業フォルダの 3 つは CompactBar が持ち、サービスの状態アイコンは ServedAppStatus が持つ
   assert.equal((compact.match(/"icon-button"/g) ?? []).length, 3, "compact の 3 つが .icon-button を使っていない");
+  const serve = source("src/components/ServedAppStatus.tsx");
+  assert.ok(serve.includes('cn("icon-button shrink-0", tone)'), "サービスの状態アイコンが .icon-button を使っていない");
+  assert.ok(!serve.includes("grid size-9"), "見た目が utilities に戻っている");
   assert.ok(
     compact.includes('cn("icon-button", notify.on && notify.deliverable && "border-accent/50 text-accent-text")'),
     "通知の On が utilities で上書きされていない",
@@ -439,8 +452,10 @@ test("compact のアイコンボタンは @layer components の .icon-button で
     "ファイルの開閉が utilities で上書きされていない",
   );
   assert.ok(!compact.includes("grid size-9"), "見た目が utilities に戻っている");
-  // 描画された HTML はクラス名だけを持つ (実測の 36px は .icon-button が保証する)
-  assert.equal((renderCompactBar().match(/icon-button/g) ?? []).length, 4);
+  // 描画された HTML はクラス名だけを持つ (実測の 36px は .icon-button が保証する)。
+  // 停止中はサービスの状態が押せない表示 (.serve-indicator) になるため、icon-button は 3 つ
+  assert.equal((renderCompactBar().match(/icon-button/g) ?? []).length, 3);
+  assert.ok(renderCompactBar().includes("serve-indicator"), "停止中の状態表示が出ていない");
 });
 
 test("サイドバーのセッション行は On の会話だけ鳴っているベルを出す", () => {

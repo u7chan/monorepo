@@ -39,6 +39,7 @@ import {
   notifyUnavailableNote,
 } from "./lib/notifications";
 import { sessionFilesDefaultOpen, sessionFilesRoot } from "./lib/sessionFiles";
+import { servedAppReplaceConfirm, servedAppView } from "./lib/servedApp";
 import { activityDisplay, retryRemainingMs } from "./lib/retryState";
 import { RUN_RETRY_PROMPT } from "./lib/runRetry";
 import {
@@ -214,6 +215,25 @@ export default function App() {
     setNotifyAttempted(false);
   }, [app.sessionId]);
 
+  // サービスの状態と操作。バーの表示条件は lib/servedApp が決める (会話ごとの値なので facade が持つ)
+  const serve = app.serve;
+  // 置き換えは他会話のプロセスを止めるため、押した後に確認してから実行する (取り消したら実行しない)
+  const handleServeStart = useCallback(() => {
+    const view = servedAppView(app.serve.status);
+    if ((view.kind === "other" || view.kind === "unknown") && !window.confirm(servedAppReplaceConfirm(view))) return;
+    void app.serve.start();
+  }, [app.serve]);
+  const serveProps = {
+    port: app.health?.previewPort,
+    status: serve.status,
+    failed: serve.failed,
+    starting: serve.starting,
+    error: serve.error,
+    onStart: handleServeStart,
+    onStop: serve.stop,
+    onCancel: serve.cancel,
+  };
+
   // 表示中のセッション。エージェント切替で引き継ぐ作業先 (所属) の解決にも使う
   const activeSession = app.sessions.find((item) => item.sessionId === app.sessionId);
 
@@ -376,7 +396,7 @@ export default function App() {
           >
             {compactMode ? (
               <CompactBar
-                previewPort={app.health?.previewPort}
+                serve={serveProps}
                 mode={compactMode}
                 title={barTitle}
                 agentName={barAgentName}
@@ -388,7 +408,7 @@ export default function App() {
               />
             ) : (
               <Topbar
-                previewPort={app.health?.previewPort}
+                serve={serveProps}
                 scope={scope}
                 runtimeStatus={app.runtimeStatus}
                 notify={notifyToggle}

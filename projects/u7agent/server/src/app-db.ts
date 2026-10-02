@@ -17,7 +17,7 @@ import type {
 
 export const APP_DB_FILENAME = "u7agent.db";
 /** テーブル定義を変えたら上げる。新規作成と加算移行はこの版へ揃え、未知の版は作り直す */
-export const APP_DB_SCHEMA_VERSION = 9;
+export const APP_DB_SCHEMA_VERSION = 10;
 
 /** プロバイダー API キーの保存行。平文なのでアクセス権の管理は docs/secrets.md を正とする */
 export interface ProviderCredentialRow {
@@ -67,6 +67,17 @@ export interface ImageCatalogRow {
   /** 最後に live を取得できた時刻 (epoch ms) */
   fetchedAt: number;
   models: ImageCatalogModelRow[];
+}
+
+/**
+ * serve (サービス) の起動実績。**作業ディレクトリ単位**で、同じプロジェクトの他会話でも使える。
+ * 稼働記録 (誰が動かしているか) ではないため、プロセスが消えても残る。
+ */
+export interface ServeCommandRow {
+  /** ワークスペース root 相対の作業ディレクトリ (`""` は root) */
+  cwd: string;
+  command: string;
+  updatedAt: number;
 }
 
 export interface AppDbStatus {
@@ -175,6 +186,18 @@ CREATE TABLE IF NOT EXISTS image_catalog (
 `;
 
 /**
+ * v9 -> v10 で足したテーブル。serve の起動に成功したコマンドを作業ディレクトリ単位で持つ
+ * (**行が無い = 実績なし**)。稼働記録 (サンドボックスの作業領域) とは別物で、こちらは実績の再利用だけに使う。
+ */
+const SERVE_COMMANDS_TABLE = `
+CREATE TABLE IF NOT EXISTS serve_commands (
+  cwd       TEXT PRIMARY KEY,
+  command   TEXT NOT NULL,
+  updatedAt INTEGER NOT NULL
+);
+`;
+
+/**
  * provider メモは retainSecret に登録しない方針なので、SQLite の例外文言に値が写り得る。
  * ログ・health・503 へは、この値を含まない固定文言だけを渡す。
  */
@@ -210,7 +233,8 @@ ${PROVIDER_CREDENTIALS_TABLE}
 ${MODEL_SETTINGS_TABLE}
 ${PROVIDER_MEMOS_TABLE}
 ${IMAGE_SETTINGS_TABLE}
-${IMAGE_CATALOG_TABLE}`;
+${IMAGE_CATALOG_TABLE}
+${SERVE_COMMANDS_TABLE}`;
 
 /** アプリ所有のテーブルだけを落とす (同じ DB に足した別機能のテーブルを巻き込まない) */
 const DROP_TABLES = `
@@ -224,6 +248,7 @@ DROP TABLE IF EXISTS model_settings;
 DROP TABLE IF EXISTS provider_memos;
 DROP TABLE IF EXISTS image_settings;
 DROP TABLE IF EXISTS image_catalog;
+DROP TABLE IF EXISTS serve_commands;
 `;
 
 /**
@@ -342,6 +367,10 @@ function imageCatalogModelsOf(value: unknown): ImageCatalogModelRow[] | undefine
     models.push(formats.length > 0 ? { id, name, outputFormats: formats } : { id, name });
   }
   return models;
+}
+
+function serveCommandOf(row: Row): ServeCommandRow {
+  return { cwd: text(row.cwd), command: text(row.command), updatedAt: Number(row.updatedAt) };
 }
 
 function notificationSettingsOf(row: Row): NotificationSettings {
@@ -579,6 +608,7 @@ export class AppDb {
       this.#query((db) => db.exec(PROVIDER_MEMOS_TABLE));
       this.#query((db) => db.exec(IMAGE_SETTINGS_TABLE));
       this.#query((db) => db.exec(IMAGE_CATALOG_TABLE));
+      this.#query((db) => db.exec(SERVE_COMMANDS_TABLE));
       // 列追加は CREATE TABLE IF NOT EXISTS の後 (既存テーブルでは CREATE が何もしないため)。DDL も
       // トランザクション対象なので、途中失敗で列だけが残らない
       this.#addColumnIfMissing("provider_credentials", "updatedAt", "INTEGER");
@@ -909,6 +939,34 @@ export class AppDb {
 
   deleteAgent(id: string): boolean {
     return this.#query((db) => db.prepare("DELETE FROM agents WHERE id = ?").run(id).changes > 0);
+  }
+
+  // --- serve (サービスの起動実績) ---
+
+  /** 作成順ではなく更新順。UI とエージェントが直近の実績を引きやすい */
+  listServeCommands(): ServeCommandRow[] {
+    return this.#query((db) =>
+      (db.prepare("SELECT * FROM serve_commands ORDER BY updatedAt").all() as Row[]).map(serveCommandOf),
+    );
+  }
+
+  getServeCommand(cwd: string): ServeCommandRow | undefined {
+    const row = this.#query(
+      (db) => db.prepare("SELECT * FROM serve_commands WHERE cwd = ?").get(cwd) as Row | undefined,
+    );
+    return row ? serveCommandOf(row) : undefined;
+  }
+
+  /** 成功した起動だけを記録する (失敗したコマンドで以前の成功を上書きしない) */
+  saveServeCommand(row: ServeCommandRow): void {
+    this.#query((db) =>
+      db
+        .prepare(
+          `INSERT INTO serve_commands (cwd, command, updatedAt) VALUES (?, ?, ?)
+           ON CONFLICT(cwd) DO UPDATE SET command = excluded.command, updatedAt = excluded.updatedAt`,
+        )
+        .run(row.cwd, row.command, row.updatedAt),
+    );
   }
 
   // --- 複数テーブルにまたがる更新 (部分適用を残さない) ---

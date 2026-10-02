@@ -22,6 +22,7 @@ import {
 const ROOT = "/workspace";
 const BUNDLED_DIR = fileURLToPath(new URL("../src/builtin-skills/", import.meta.url));
 const SKILL_CREATOR = builtinSkillByName("skill-creator");
+const SERVE = builtinSkillByName("serve");
 
 test("同梱 SKILL.md は SDK の frontmatter 検証を通り、registry と名前が一致する", () => {
   const loaded = loadSkillsFromDir({ dir: BUNDLED_DIR, source: "u7agent" });
@@ -49,6 +50,25 @@ test("同梱スキルは name / description / version の規約を満たす", ()
     assert.match(skill.body, /^---\n/, `${skill.name}: frontmatter から始まる`);
     assert.match(skill.body, new RegExp(`\\nname: ${skill.name}\\n`), `${skill.name}: name が一致する`);
   }
+});
+
+test("同梱の serve スキルは到達条件と検証ループを本文に持つ", () => {
+  assert.ok(SERVE, "serve が同梱されている");
+  // 以前は appendSystemPrompt が名指ししていた作法。契約の正はこの本文へ移した
+  for (const text of [
+    "0.0.0.0",
+    "8080",
+    "--strictPort",
+    "curl -fsS http://127.0.0.1:8080/",
+    ".u7agent/serve/app.log",
+    "nohup",
+    "serve` ツール",
+  ]) {
+    assert.ok(SERVE.body.includes(text), text);
+  }
+  // モデルが自分で起動するスキルなので、自動起動を止めない
+  assert.equal(SERVE.disableModelInvocation, false);
+  assert.match(SERVE.description, /8080|サービス/);
 });
 
 test("同梱物の読み込みは空 dir・壊れた frontmatter・版の不足で落ちる", () => {

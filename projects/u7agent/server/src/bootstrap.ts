@@ -15,7 +15,9 @@ import { ModelSettingsService, type CredentialCommit, type ProviderKeyRuntime } 
 import { NotificationService } from "./notifications";
 import { ProjectStore } from "./projects";
 import { createSandboxToolClientFromEnv } from "./sandbox/client";
-import type { SandboxRuntimeDiagnostics, SandboxWorkspaceClient } from "./sandbox/client";
+import type { SandboxExecClient, SandboxRuntimeDiagnostics, SandboxWorkspaceClient } from "./sandbox/client";
+import { ServeService, sandboxHostFromUrl, type ServeProbe } from "./serve";
+import { createServeToolHost } from "./serve-tool";
 import { SessionStore } from "./sessions";
 import { prepareSessionStore, resolveSessionStoreDir } from "./session-store";
 
@@ -44,6 +46,15 @@ export type CreateBffAppOptions = {
   notificationFetch?: typeof fetch;
   /** 画像モデル一覧取得のテスト用。省略時は globalThis.fetch */
   imageCatalogFetch?: typeof fetch;
+  /**
+   * serve の記録の読み書きと起動・停止に使うサンドボックス実行。未指定なら env から生成した
+   * サンドボックスクライアントを再利用する (workspace を差し替えたテストでは null)。
+   */
+  serveSandbox?: SandboxExecClient | null;
+  /** serve の稼働判定に使うプローブ。テストで差し替える */
+  serveProbe?: ServeProbe;
+  /** プローブ先のホスト。未指定は PI_SANDBOX_URL のホスト (同一ホストのサンドボックス) */
+  serveHost?: string;
 };
 
 export type SessionStoreStatus = {
@@ -74,6 +85,8 @@ export type BffContext = {
   modelSettings: ModelSettingsService;
   /** 画像生成の provider / model / APIキー (設定 → モデルの画像生成タブ)。行の有無をツール公開へ写す */
   imageSettings: ImageSettingsService;
+  /** serve (サービス) の状態と起動・停止。GUI とエージェントの serve ツールが同じ実体を使う */
+  serve: ServeService;
 };
 
 export async function createBffContext(opts: CreateBffAppOptions = {}): Promise<BffContext> {
@@ -194,6 +207,18 @@ export async function createBffContext(opts: CreateBffAppOptions = {}): Promise<
       console.error(`[u7agent] session store init failed: ${sessionStoreError}`);
     }
   }
+  // serve の実体はアプリデータ (実績) とサンドボックスの両方を持つここで作り、GUI のルートと
+  // エージェントの serve ツールの両方へ同じものを渡す (所有者の判定経路を 1 本に保つ)
+  const serveSandbox =
+    opts.serveSandbox !== undefined ? opts.serveSandbox : sandboxClient !== undefined ? sandboxClient : null;
+  const serve = new ServeService({
+    appDb,
+    sessions: store,
+    sandbox: serveSandbox,
+    sandboxHost: opts.serveHost ?? sandboxHostFromUrl(process.env.PI_SANDBOX_URL),
+    ...(opts.serveProbe ? { probe: opts.serveProbe } : {}),
+  });
+  pi?.setServe(createServeToolHost(serve));
   return {
     cwd,
     pi,
@@ -209,6 +234,7 @@ export async function createBffContext(opts: CreateBffAppOptions = {}): Promise<
     archiveSettings,
     modelSettings,
     imageSettings,
+    serve,
   };
 }
 

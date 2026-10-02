@@ -8,6 +8,10 @@ import { resolve } from "node:path";
 export const APP_DIR_REL = ".u7agent";
 export const SESSION_DIR_REL = `${APP_DIR_REL}/sessions`;
 export const UPLOADS_DIR_REL = `${APP_DIR_REL}/uploads`;
+/** serve (サービス) の稼働記録とログ。公開枠が 1 本なので固定パス 1 組 */
+export const SERVE_DIR_REL = `${APP_DIR_REL}/serve`;
+export const SERVE_STATE_REL = `${SERVE_DIR_REL}/state.json`;
+export const SERVE_LOG_REL = `${SERVE_DIR_REL}/app.log`;
 
 const SESSION_ID_PATTERN = /^[0-9a-f]{10}$/;
 

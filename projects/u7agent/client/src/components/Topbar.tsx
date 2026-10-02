@@ -1,15 +1,17 @@
 import { cn } from "../lib/cn";
 import type { ChatScope } from "../lib/chatScope";
 import type { RuntimeStatus } from "../hooks/runtimeStatus";
+import { servedAppErrorText } from "../lib/servedApp";
 import { NotifyNote } from "./NotifyNote";
 import { RuntimeAlert } from "./RuntimeAlert";
-import { ServedAppLink } from "./ServedAppLink";
+import { ServedAppGroup, type ServedAppProps } from "./ServedAppStatus";
 import { BellIcon, FolderIcon, MenuIcon } from "./icons";
 
 export type TopbarProps = {
   /** 作業先。プロジェクト名 (引けなければ「未所属」) と、チップの title に出す作業フォルダ */
   scope: ChatScope;
-  previewPort?: number;
+  /** サービスの状態と操作。条件で出るグループを右寄せクラスタの左端に置く */
+  serve: ServedAppProps;
   runtimeStatus: RuntimeStatus;
   /**
    * 会話の通知トグル。deliverable は今の On が実際に送られるか (色とラベルの根拠)。
@@ -22,11 +24,12 @@ export type TopbarProps = {
   nav?: { onOpen: () => void };
 };
 
-export function Topbar({ scope, previewPort, runtimeStatus, notify, sessionFiles, nav }: TopbarProps) {
+export function Topbar({ scope, serve, runtimeStatus, notify, sessionFiles, nav }: TopbarProps) {
   // accent は「実際に送られる」の意味に保つ (設定が無効 / Webhook 未登録の On は青くしない)
   const delivering = notify.on && notify.deliverable;
   // 配信できない On は、押しても切り替わらない理由をラベルでも示す (色だけに頼らない)
   const notifyLabel = notify.on && !notify.deliverable ? "通知（停止中）" : "通知";
+  const serveError = servedAppErrorText(serve.error);
   return (
     <header className="grid gap-3 px-6 pt-5 pb-3 wide:px-8 wide:pt-6">
       <div className="flex items-start justify-between gap-4">
@@ -52,6 +55,8 @@ export function Topbar({ scope, previewPort, runtimeStatus, notify, sessionFiles
           </div>
         </div>
         <div className="flex shrink-0 items-center gap-2">
+          {/* 状態で出るグループは右寄せクラスタの左端に置く (出ても通知・作業フォルダの位置が動かない) */}
+          <ServedAppGroup {...serve} />
           {/* 正常時のモデルは入力欄の上の状態行、接続状態は画面の様子から分かるので、エラーのときだけ出す */}
           {runtimeStatus.error ? (
             <div className="inline-flex max-w-full min-w-0 items-center gap-2 rounded-full border border-danger/40 px-2.5 py-1.5 text-1xs text-danger-text">
@@ -80,10 +85,10 @@ export function Topbar({ scope, previewPort, runtimeStatus, notify, sessionFiles
               作業フォルダ
             </button>
           ) : null}
-          <ServedAppLink port={previewPort} />
         </div>
       </div>
       <RuntimeAlert runtimeStatus={runtimeStatus} />
+      {serveError ? <NotifyNote text={serveError} /> : null}
       {notify.note ? <NotifyNote text={notify.note} onOpenSettings={notify.onOpenSettings} /> : null}
     </header>
   );

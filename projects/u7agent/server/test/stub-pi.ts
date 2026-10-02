@@ -7,6 +7,7 @@ import type { Api, Model as PiAiModel } from "@earendil-works/pi-ai";
 import type { PiBff } from "../src/agent";
 import type { ModelSelection } from "../src/agent";
 import type { ImageGenerationConfig } from "../src/images";
+import type { ServeToolHost } from "../src/serve-tool";
 import { createMutableSecretMasker } from "../src/redact";
 import type {
   AgentDef,
@@ -679,6 +680,8 @@ export function createStubPi(options: StubPiOptions = {}) {
   const modelStateEvents: string[] = [];
   const modelSelections: ModelSelection[] = [];
   const imageGenerationConfigs: ImageGenerationConfig[] = [];
+  // serve ツールの実体 (bootstrap が注入する)。ツールの配線はここに記録して検証する
+  const serveHosts: ServeToolHost[] = [];
   let refreshCount = 0;
   return {
     cwd: "/tmp/project",
@@ -708,6 +711,10 @@ export function createStubPi(options: StubPiOptions = {}) {
     },
     setImageGeneration: (config: ImageGenerationConfig) => {
       imageGenerationConfigs.push(config);
+    },
+    serveHosts,
+    setServe: (host: ServeToolHost) => {
+      serveHosts.push(host);
     },
     retainSecret: (value: string) => {
       retainedSecrets.push(value);

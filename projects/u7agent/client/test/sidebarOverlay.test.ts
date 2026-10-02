@@ -14,6 +14,7 @@ import test from "node:test";
 import { SettingsPageLayout } from "../src/components/SettingsPageLayout";
 import { Topbar } from "../src/components/Topbar";
 import type { RuntimeStatus } from "../src/hooks/runtimeStatus";
+import { serveProps } from "./serve-fixture";
 
 const IDLE: RuntimeStatus = { text: "", error: false };
 /** 作業先チップ。☰ の位置だけを見るテストなので値は固定でよい */
@@ -28,6 +29,7 @@ function read(relativePath: string): string {
 function renderTopbar(nav?: { onOpen: () => void }): string {
   return renderToStaticMarkup(
     createElement(Topbar, {
+      serve: serveProps(),
       scope: SCOPE,
       runtimeStatus: IDLE,
       notify: { on: false, deliverable: true, onToggle: () => {} },

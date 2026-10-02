@@ -174,12 +174,16 @@ test("composeFileSkills は組み込みを最低優先にし、上書きされ�
     root,
   );
 
-  // 注入は同名を畳む (ユーザー側が勝ち、組み込みは入らない)
+  // 注入は同名を畳む (ユーザー側が勝ち、組み込みは入らない)。上書きされていない組み込みはそのまま入る
   assert.deepEqual(
     composed.skills.map((skill) => [skill.name, skill.filePath]),
     [
       ["skill-creator", userSkill],
       ["other", other],
+      ...BUILTIN_SKILLS.filter((skill) => skill.name !== "skill-creator").map((skill) => [
+        skill.name,
+        builtinSkillPath(root, skill.name),
+      ]),
     ],
   );
   const userRow = composed.response.skills.find((row) => row.scope === "user" && row.name === "skill-creator");

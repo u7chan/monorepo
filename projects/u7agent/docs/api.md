@@ -26,6 +26,7 @@ DTO の正は `server/src/schema.ts`（zod）。リクエストボディは `@ho
 | アーカイブの除外名 | `GET/PUT/DELETE /api/settings/archive` | このファイル |
 | プロバイダーAPIキーとメモ（設定 → モデル） | `GET /api/settings/models`、`PUT/DELETE /api/settings/models/:provider/key`、`PUT /api/settings/models/:provider/memo`、`POST /api/settings/models/:provider/resync` | このファイル |
 | 画像生成（設定 → モデル） | `GET/PUT /api/settings/images`、`PUT/DELETE /api/settings/images/key`、`POST /api/settings/images/catalog/refresh` | このファイル、[image-generation.md](image-generation.md) |
+| サービス（serve）の状態と起動・停止 | `GET /api/serve/status`、`POST /api/serve/start`、`POST /api/serve/stop` | このファイル、[sandbox.md](sandbox.md#serveサービスの公開と起動停止) |
 | エージェント / スキル | `/api/agents`、`/api/skills`、`/api/skills/files`、`/api/skills/session` | [api-catalog.md](api-catalog.md)、[api-sessions.md](api-sessions.md) |
 | サンドボックス（内部） | `/v1/*`（BFF からは見えない） | [sandbox-api.md](sandbox-api.md) |
 
@@ -80,7 +81,7 @@ DTO の正は `server/src/schema.ts`（zod）。リクエストボディは `@ho
 
 `filePreviewPort` は**ブラウザから見た**プレビュー オリジンのポート（env `PI_FILE_PREVIEW_PORT`、既定 4318）で、クライアントは別オリジンの iframe の URL をこれで組み立てる。BFF の待受は別 env `PI_FILE_PREVIEW_LISTEN_PORT`（既定 4318）で、prod は compose が `8017:4318` を publish して `PI_FILE_PREVIEW_PORT=8017` を渡す（値の解決と検証は起動時に 1 回で、1〜65535 の整数以外は起動が止まる。2 つの env は独立で、同じ値へ揃えるのは `pnpm dev` だけ）。
 
-`previewPort` はサンドボックスで serve した成果物のブラウザから見たポート（env `PI_PREVIEW_PORT`、既定 8080、prod は 8016）。`filePreviewPort` とは別で、常に返す。起動時に 1〜65535 の整数として検証し、不正値は起動を止める。稼働中かどうかを示す値ではなく、client は `location.hostname` と組み合わせて別タブの URL を作る（[serve の契約](sandbox.md#serve-した成果物の公開)）。
+`previewPort` はサンドボックスで serve したサービスのブラウザから見たポート（env `PI_PREVIEW_PORT`、既定 8080、prod は 8016）。`filePreviewPort` とは別で、常に返す。起動時に 1〜65535 の整数として検証し、不正値は起動を止める。稼働中かどうかを示す値ではなく、client は `location.hostname` と組み合わせて別タブの URL を作る（[serve の契約](sandbox.md#serveサービスの公開と起動停止)）。
 
 `modelOptions` は認証済みで利用可能なモデルのみ。設定 → モデル の「利用可能なモデル」を保存したときは、その許可リストと利用可能モデルの積だけになる（保存された既定モデルが許可リスト外なら `defaultModelError`、積が空なら `ready: false` と `設定 → モデル` を名指しした `error`。`errorCode` は互換のため `model_whitelist_empty` のまま）。能力情報（`supportsThinking` / `thinkingLevels`）は pi SDK の公開ヘルパー（`getSupportedThinkingLevels`）から得る。`defaultThinkingLevel` は `PI_THINKING` → `medium` の順で決まる。解決の詳細は [model-effort.md](model-effort.md)。
 
@@ -431,6 +432,36 @@ Content-Security-Policy: sandbox allow-scripts; default-src 'none'; style-src 'u
 - 変更系の応答は GET と同じ形 + `state: "applied"`。SDK への反映を持たないため `applied_unsynced` は無い。DB 書込に失敗したときだけ 503 `{ error, state: "not_stored" }`
 - 400: 行が無いのに PUT（`画像APIキーが未設定です。先にキーを登録してください`）、`openrouter` 以外の provider、カタログ外の model、8..2048 文字外のキー、形が違う本文
 - キー登録の既定は provider `openrouter` / model `openai/gpt-image-2`。削除すると行ごと消え、`generate_image` ツールは次のセッション作成から公開されなくなる（既存セッションの execute は実行時にキー無効エラーを返す）
+
+## サービス（serve）の状態と起動・停止
+
+閲覧中の会話から見た、サンドボックスで公開中のサービス（旧称「成果物」）の状態と、起動 / 停止の操作。設計と表示規則は [sandbox.md](sandbox.md#serveサービスの公開と起動停止) と [ui-layout.md](ui-layout.md) を正とする。
+
+| メソッド | パス | 用途 |
+| --- | --- | --- |
+| GET | `/api/serve/status?sessionId=<id>` | 閲覧中の会話から見た状態（`sessionId` は必須） |
+| POST | `/api/serve/start` | 起動（到達可なら他会話のプロセスを停止して置き換える） |
+| POST | `/api/serve/stop` | 停止 |
+
+作業ディレクトリはサーバーが会話ストアから解決する（client は `cwd` を送らない）。応答は 3 経路とも同じ形で、起動 / 停止の応答も実行後のプローブ結果と新しい世代を含む（押した時点で UI の状態が確定する）。
+
+```json
+{
+  "reachable": true,
+  "owner": { "kind": "mine", "title": "サービスを作る会話" },
+  "generation": "8f3c1d2e",
+  "command": { "cwd": "projects/foo", "command": "pnpm dev" }
+}
+```
+
+- `reachable`: プローブ（BFF → サンドボックスの listen ポート 8080 への TCP connect）の結果。HTTP は叩かないので、500 を返すアプリでも到達可なら `true`。**「稼働中」は閲覧中の会話のサービスが公開されている意味**で、ポートの空き状況ではない。
+- `owner.kind`: `mine`（閲覧中の会話が所有者）/ `other`（他会話が所有者）/ `unknown`（到達可だが記録と一致しない）/ `none`（到達不可で所有者なし）。所有者は記録（PID + 起動時刻）と「いま待受しているプロセス」の照合で決め、記録があるだけでは所有者とみなさない。`mine` / `other` のときだけ `title` が載る。
+- `generation`: 置き換えの再照合用の不透明な値。起動のたびに変わり、**記録を残したまま生の bash で待受プロセスが入れ替わった場合も変わる**（起動世代と、いま待受しているソケットの inode を合わせたハッシュ）。到達不可（置き換える対象が無い）は `null`。
+- `command`: **閲覧中の会話の作業ディレクトリ**の成功実績（`serve_commands`）。無ければ `null` で、他会話の実績は返さない。
+
+`POST /api/serve/start` の body は `{ sessionId, command?, generation? }`。`command` はエージェントの `serve` ツールだけが渡し（GUI は実績を使う）、省略時はその作業ディレクトリの実績を使う。**実績の解決と検証は置き換えの停止より先**で、実績が無ければ既存のサービスを止めずに 400 を返す。`generation` は確認した状態の値で、実行時に変わっていれば 409（UI は新しい状態で確認をやり直す）。`POST /api/serve/stop` の body は `{ sessionId, generation? }`。
+
+エラー: 所有者以外の停止は 403、待受 PID を特定できないときと照合不一致は 409、起動が期限（10 秒）内に到達可にならないとき・到達した待受プロセスがその起動に由来しないとき・停止の解放を確認できないときは 502、サンドボックス未設定は 503、アプリデータ（実績）が使えないときは 503（変更系は `state: "not_stored"` を付ける）。**プローブやサンドボックス呼び出しの失敗は 502 / 503 で返し、`reachable: false` へ丸めない**（UI はリンクも操作も出さない）。
 
 ## セッションへのファイルアップロード
 

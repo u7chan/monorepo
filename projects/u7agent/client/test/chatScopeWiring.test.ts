@@ -21,6 +21,7 @@ import { CompactBar } from "../src/components/CompactBar";
 import { Topbar } from "../src/components/Topbar";
 import type { RuntimeStatus } from "../src/hooks/runtimeStatus";
 import type { ChatScope } from "../src/lib/chatScope";
+import { serveProps } from "./serve-fixture";
 
 const IDLE: RuntimeStatus = { text: "", error: false };
 const PROJECT_SCOPE: ChatScope = { label: "work/hello", project: true, root: "work/hello" };
@@ -65,6 +66,7 @@ function effectBodies(source: string): string[] {
 test("バーは作業先を出し、空状態の見出しは作業先の有無で分岐する", () => {
   const topbar = renderToStaticMarkup(
     createElement(Topbar, {
+      serve: serveProps(),
       scope: PROJECT_SCOPE,
       runtimeStatus: IDLE,
       notify: { on: false, deliverable: true, onToggle: () => {} },
@@ -79,6 +81,7 @@ test("バーは作業先を出し、空状態の見出しは作業先の有無�
 
   const compact = renderToStaticMarkup(
     createElement(CompactBar, {
+      serve: serveProps(),
       mode: "portrait",
       title: "会話",
       agentName: "実装担当",
@@ -206,6 +209,7 @@ test("compact の作業先行は長い名前でも収縮して省略される (�
   // プロジェクト名に長さ制限は無い。shrink-0 のままだと名前の分だけ右へ伸び、通知 / 作業フォルダを押し出す
   const html = renderToStaticMarkup(
     createElement(CompactBar, {
+      serve: serveProps(),
       mode: "landscape",
       title: "会話",
       agentName: "実装担当",

@@ -231,6 +231,24 @@ export function ExternalLinkIcon() {
   );
 }
 
+/** サービスの起動 (塗りの三角)。押せることを形で示す */
+export function PlayIcon() {
+  return (
+    <svg aria-hidden="true" viewBox="0 0 16 16" fill="currentColor" className="size-3.5 shrink-0">
+      <path d="M5 3.5v9l7.5-4.5z" />
+    </svg>
+  );
+}
+
+/** サービスの停止 (塗りの四角)。起動と形で区別する */
+export function StopIcon() {
+  return (
+    <svg aria-hidden="true" viewBox="0 0 16 16" fill="currentColor" className="size-3.5 shrink-0">
+      <rect x="4" y="4" width="8" height="8" rx="1.5" />
+    </svg>
+  );
+}
+
 /** 行の ⋯ ボタン (横並びの点 3 つ) */
 export function MoreIcon() {
   return (
