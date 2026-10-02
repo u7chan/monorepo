@@ -145,7 +145,7 @@
 
 `eventGeneration` は SSE の世代（[イベント購読](#get-apisessionsidevents) を参照）。`lastSeq` と組でカーソルの整合判定に使う。
 
-`pendingSends` は 202 で受理したが user entry としてまだ保存されていない送信（古い→新しい）。要素は `{ runId, text, at, state }` で、`text` は表示用にマスク済み。`state` は `unsent`（再起動・停止・entry を残さない終了で実行されなかった）/ `queued`（待機中）/ `running`（実行中）。クライアントは `unsent` を「未送信」へ切り替え、`queued` / `running` は pending エコーのまま保つ（別タブの再送中に表示から消さない）。手元にバブルが無い `unsent` は末尾へ足し、一覧から消えた未送信は別タブの再送 / 破棄として落とす（[frontend.md](frontend.md#チャット状態とレンダリング)）。再送は本文を送り直さず `POST /api/sessions/:id/messages` の `resendRunId` へ `runId` を渡す（マスク済みの本文をモデルへ送らないため）。「実行中」は `run.status === "running"` か SDK が streaming のときだけで、**終了した run は `unsent` になる**（`record.run` は終了後も status 付きで残るため、`error` で終わって user entry を残さなかった送信も再送 / 破棄できる）。旧サーバーはこのキーを載せないので、省略 = 0 件ではなく未対応として扱う。
+`pendingSends` は 202 で受理したが user entry としてまだ保存されていない送信（古い→新しい）。要素は `{ runId, text, at, state }` で、`text` は表示用にマスク済み。`state` は `unsent`（再起動・停止・entry を残さない終了で実行されなかった）/ `queued`（待機中）/ `running`（実行中）。クライアントは `unsent` を「未送信」へ切り替え、`queued` / `running` は受理済みの pending として保つ（別タブの再送中に表示から消さない。履歴の初回応答前でもバブルを足す）。手元にバブルが無い `unsent` は末尾へ足し、一覧から消えた未送信は別タブの再送 / 破棄として落とす（[frontend.md](frontend.md#チャット状態とレンダリング)）。再送は本文を送り直さず `POST /api/sessions/:id/messages` の `resendRunId` へ `runId` を渡す（マスク済みの本文をモデルへ送らないため）。「実行中」は `run.status === "running"` か SDK が streaming のときだけで、**終了した run は `unsent` になる**（`record.run` は終了後も status 付きで残るため、`error` で終わって user entry を残さなかった送信も再送 / 破棄できる）。旧サーバーはこのキーを載せないので、省略 = 0 件ではなく未対応として扱う。
 
 JSONL が破損している（SDK が追記する entry type / message role を store が知らない、途中の行が壊れている等）セッションを開く要求は 409（store のパスを含む文言）で拒否する。原本は書き換えず、一覧にも残る（[session-files.md](session-files.md#会話の保存)）。開けなかったときのクライアントの移り先は [frontend.md](frontend.md#クライアントの-effect-契約) を参照。
 
@@ -212,7 +212,7 @@ GET /api/sessions/:id/history?limit=50&before=<itemId>
 - `prevCursor` はページ先頭 item の直前にある item の id（無ければ `null`）。クライアントはこれでページ間の連続性を判定し、保持分と繋がらない（別タブで `limit` 以上追記された / 分岐が変わった）ときは欠落区間を `before` で取り直し、1 ページに収まらなければ最新ページで組み直す
 - 存在しないカーソルは空の成功へ縮退させず 400（`{ "error": "Unknown history cursor" }`）。存在しないセッションは 404
 - item の `id` は SDK entry の id（id を持たない旧履歴だけ `legacy-<entry index>`）。`context` は `active`（現在も生の context にある）/ `summarized`（最新の compaction の `firstKeptEntryId` より手前）/ `excluded`（`context_edit` で外れた）で、判定は [compaction.md](compaction.md#全履歴の表示閲覧と段階読み込み) を正とする
-- user item には、その発言を送信した run の `runId` が載る（送信応答 `POST /api/sessions/:id/messages` の `runId` と同じ値）。実行時の対応表（SDK メッセージ → run id）を先に引き、再起動後はストアの送信対応記録（`sends.json` の entry id → run id。[session-files.md](session-files.md#sendsjson)）から復元する。クライアントはこの値で自分の送信エコーを他クライアントの同一文面 item と区別し、`run_start` やページ適用で正しい item へ吸収する。対応が無い旧保存データの item だけが、文書化済みの本文正規形（+ 送信時点の位置 `since`）での縮退対象になる（[frontend.md](frontend.md)）。未送信（下記）の item は存在しないため、同一文面の item が別 run で載っていても吸収されない
+- user item には、その発言を送信した run の `runId` が載る（送信応答 `POST /api/sessions/:id/messages` の `runId` と同じ値）。実行時の対応表（SDK メッセージ → run id）を先に引き、再起動後は JSONL の entry に写した注記（`u7agentRunId`。[session-files.md](session-files.md#sendsjson-と-run-id-の注記)）から復元する。クライアントはこの値で自分の送信エコーを他クライアントの同一文面 item と区別し、`run_start` やページ適用で正しい item へ吸収する。対応が無い旧保存データの item だけが、文書化済みの本文正規形（+ 送信時点の位置 `since`）での縮退対象になる（[frontend.md](frontend.md)）。未送信（下記）の item は存在しないため、同一文面の item が別 run で載っていても吸収されない
 - キュー待ちの送信にも受け付けた時点で `runId` を振り、応答と、そのメッセージから始まる run の `run_start` で同じ値を使う（旧サーバーは実行中の run の id を返していた）
 - `firstKeptEntryId` は metadata entry を指し得る。その場合も「その entry 以降が有効」として位置だけを使い、メッセージ検索で境界をずらさない
 - `messageCount` / `summarizedMessageCount` はページではなく現行ブランチ全体の値。クライアントは保持済みの古いページの `summarized` を更新するのに使う（この 2 つだけがページ外の全体量を表す）
@@ -274,7 +274,7 @@ GET /api/sessions/:id/history?limit=50&before=<itemId>
 - `text` が `/skill:` で始まるときは、BFF が本文ブロックへ展開してから送る（[`/skill:` の展開](#skill-の展開)）。
 - BFF は本文の末尾に注記を合成してから `SessionStore.postMessage` へ渡す（[注記](#添付の注記)）。
 - 圧縮中に送るとキューに積まれ、`queued: true` と `queueDepth` を返す（受け付けた時点で `runId` を振る）。圧縮の終端処理の後に 1 回だけ pump し、同じ 202 の応答で次のランが始まる（排他の判定は BFF の `compacting` フラグ。SDK は保存待ちの間 idle に見える）。
-- 受理した送信は user entry が保存されるまで `sends.json` の `unsent` に残る（[session-files.md](session-files.md#sendsjson)）。サーバー再起動でキューごと消えた分は payload の `pendingSends` に載り、クライアントは「未送信」として見せる（[frontend.md](frontend.md#チャット状態とレンダリング)）。
+- 受理した送信は user entry が保存されるまで `sends.json` の `unsent` に残る（[session-files.md](session-files.md#sendsjson-と-run-id-の注記)）。サーバー再起動でキューごと消えた分は payload の `pendingSends` に載り、クライアントは「未送信」として見せる（[frontend.md](frontend.md#チャット状態とレンダリング)）。
 
 ### `DELETE /api/sessions/:id/unsent/:runId`
 

@@ -76,23 +76,38 @@ $PI_SESSION_STORE/u7agent.db  # アプリデータ（プロジェクト / カタ
 - `title` は最初のメッセージで作り、GUI の ⋯「名前を変更」（`PATCH /api/sessions/:id/title`）で上書きできる（正規化は自動タイトルと同じで、空・空白だけは 400。改名後は以降のメッセージで作り直さない。[api-sessions.md](api-sessions.md#patch-apisessionsidtitle)）。`lastUsedAt` / `messageCount` はラン終了時に更新する。`messageCount` は一覧 API と同じ表示メッセージ数（`user` と、テキストを持つ `assistant`）を数え、ツール呼び出しだけのターンは数えない。保存済みの値がこの定義と食い違う meta は、そのセッションを開いたときに書き戻す（[復元](#復元)）。
 - 書込みは一時ファイル + rename で原子的に行い、id ごとの書込みキューで直列化する。読めない `meta.json` は壊れたセッションとして一覧から除外し、ログに残す（フォルダは消さない）。
 
-## sends.json
+## sends.json と run id の注記
 
-送信と run の対応を BFF が別ファイルへ控える。`session.jsonl` は pi SDK 形式のまま変えない。
+送信と run の対応は **JSONL の user message entry 自身** に写し（`u7agentRunId`）、まだ entry に
+なっていない送信（未送信）だけを `sends.json` へ控える。別ファイルの書込みだけ失敗しても対応を
+失わず、本文や時刻での推測（同じ本文の別 run を誤って結び付ける）をしないための分担。
 
-```json
-{
-  "entries": { "entry-3": "a1b2c3d4e5f60718" },
-  "unsent": [{ "runId": "55b1923a93c1579b", "text": "同じ本文", "at": 1760000200000 }]
-}
+```jsonl
+{"type":"message","id":"entry-3","parentId":"entry-1","timestamp":"…","u7agentRunId":"a1b2c3d4e5f60718","message":{"role":"user","content":[{"type":"text","text":"本文"}]}}
 ```
 
-- `entries` は保存済み user entry の id → その送信の run id。SDK のメッセージオブジェクトをキーにした実行時の対応表は再起動で消えるため、履歴 item の `runId`（[api-sessions.md](api-sessions.md#get-apisessionsidhistory)）を再起動後も保つために使う。`userMessageRuns`（メモリ）が先で、無いときだけこの対応を引く
-- `unsent` は 202 で受理したが user entry として保存されていない送信（古い→新しい）。JSONL に載った時点で `entries` へ移して消す。停止でキューを破棄した分もここへ残る
-- 受理時に同期で書く（`postMessage` は同期で 202 を返すため。受理直後に落ちても「未送信」の表示が消えない）。書込みは temp + rename、権限 0600。JSONL の書込みが失敗したときは `entries` へ移さない（保存できていない entry を保存済みにしない）。meta だけの保存（`persist({ jsonl: false })`）でも確定しない。JSONL の確定は **writer へ渡した entry のスナップショット** を正とし、保存の await 中に SDK が追記した entry は次の保存まで確定しない
-- 書込みに失敗したら dirty を残し、次の persist / flush（close / sweep の最終保存を含む）で再試行する。失敗中は health の `dirty` にも数え、sweep はその record をメモリから外さない（未送信の本文と再試行元を失わない）
-- 無い / 壊れているファイルは空として読む（補助データなので復元を止めない）。旧保存データはこのファイルを持たず、その user item は `runId` 無しの縮退になる
-- 記録の書込みだけ失敗した状態（JSONL に entry があるのに `entries` が空で `unsent` が残る）で復元したときは、**未送信の記録と「run 対応の無い user entry」を本文で 1:1 に突き合わせる**。本文は実 SDK の content part 配列（`[{ type: "text", text }]`）と文字列の両方を受け付け、**送信時刻より前の entry は候補にしない**（旧保存データの同じ本文の発言を、未開始の送信の根拠にして黙って吸収しないため。時計のずれ分だけ許容する）。対になった分は entry 対応を復元して未送信から外し、余った記録だけを未送信として残す。JSONL に無い entry の対応は落とし、突き合わせが変わったら書き直す（再送による二重実行を防ぐ）
+```json
+{ "unsent": [{ "runId": "55b1923a93c1579b", "text": "同じ本文", "at": 1760000200000 }] }
+```
+
+- `u7agentRunId` は BFF が JSONL へ書くときだけ付ける追加フィールド。SDK は未知のフィールドを
+  そのまま保持し（`parseSessionEntryLine` は `JSON.parse` だけ）、store の検証も未知キーを無視する
+  ため、pi SDK 形式は壊れない。`session.jsonl` の読み書きは従来どおり BFF だけが行う
+- 履歴 item の `runId`（[api-sessions.md](api-sessions.md#get-apisessionsidhistory)）は、実行中は
+  メモリの対応表（SDK メッセージ → run id）、復元後はこの注記から引く。注記の無い旧保存データは
+  従来どおり `runId` 無しの縮退になる
+- `unsent` は 202 で受理したが user entry として保存されていない送信（古い→新しい）。entry が
+  保存された時点（注記が JSONL に載った時点）で消す。停止でキューを破棄した分もここへ残る
+- 受理時に同期で書く（`postMessage` は同期で 202 を返すため。受理直後に落ちても「未送信」の表示が
+  消えない）。書込みは temp + rename、権限 0600。**JSONL へ渡した entry のスナップショット**を正と
+  し、保存の await 中に SDK が追記した entry は次の保存まで確定しない（meta だけの保存
+  `persist({ jsonl: false })` でも確定しない）
+- 書込みに失敗したら dirty を残し、次の persist / flush（close / sweep の最終保存を含む）で再試行
+  する。失敗中は health の `dirty` にも数え、sweep はその record をメモリから外さない（未送信の
+  本文と再試行元を失わない）
+- 無い / 壊れているファイルは空として読む（補助データなので復元を止めない）。復元は注記を正として
+  `unsent` から保存済みの run を外すだけで、本文での突き合わせはしない（曖昧な同一本文から対応を
+  確定しない）
 - セッションの DELETE はフォルダごと消すため、このファイルも消える
 
 ## 会話の保存

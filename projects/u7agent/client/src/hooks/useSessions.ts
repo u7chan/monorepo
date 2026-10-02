@@ -22,7 +22,7 @@ import type { ChatAction } from "./chatReducer";
 import { createRequestGate } from "./requestGate";
 import { createNotifyCarry, createNotifyToggleRunner } from "./notifyToggle";
 import { createSessionCreation } from "./sessionCreation";
-import { applySessionEvent } from "./sessionStream";
+import { applySessionEvent, recoverDecision } from "./sessionStream";
 import { applySettingsChange, type SettingsSelection } from "./settingsChange";
 import { compactChat } from "./sessionActions";
 import { nextAfterFailure } from "./sessionFallback";
@@ -181,12 +181,31 @@ export function useSessions({
    * 権威ある payload を取り直して適用する。応答から状態を確定できない失敗 (再送の通信断など) の
    * 回復に使う。取得できなければ何もしない (次の resync に任せる)。
    */
+  /**
+   * 権威ある payload を取り直して適用する。応答から状態を確定できない失敗 (再送の通信断など) の
+   * 回復に使う。取得中に新しい SSE が届いていたら古い snapshot を適用せず true を返す
+   * (すでに新しい状態がある)。世代が変わった / 取得できなかったときは false。
+   */
   const resyncSession = useCallback(async (): Promise<boolean> => {
     const id = sessionIdRef.current;
     if (!id) return false;
+    const generation = generationRef.current;
+    const seq = lastSeqRef.current;
     try {
       const payload = await getSession(id);
       if (sessionIdRef.current !== id) return false;
+      const decision = recoverDecision({
+        generation,
+        seq,
+        currentGeneration: generationRef.current,
+        currentSeq: lastSeqRef.current,
+        payloadGeneration: payload.eventGeneration,
+        payloadSeq: payload.lastSeq,
+      });
+      // 別世代 (再起動) の payload は適用しない。取得中に新しいイベントが入っていた / 応答が既知の
+      // 位置より古いときは、すでに新しい状態があるので適用せず回復済みとして返す
+      if (decision === "stale") return false;
+      if (decision === "superseded") return true;
       applySnapshot(payload);
       return true;
     } catch {

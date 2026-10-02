@@ -84,7 +84,7 @@ GUI の会話履歴は **BFF 専用の会話ストア**（`PI_SESSION_STORE`）�
 会話は BFF 専用ストアの `PI_SESSION_STORE/<id>/{meta.json,session.jsonl,sends.json}` に保存する。
 `meta.json` は表示用メタデータ（タイトル / エージェントのスナップショット / 所属プロジェクトの cwd / 使用モデル / 会話ごとの通知トグル `notify`）を持ち、
 `session.jsonl` は pi SDK 形式（header + entries、compaction entry を含む）で、読み書きは BFF の `session-store` が行う。
-`sends.json` は送信と run の対応（保存済み entry の run id と、まだ entry になっていない送信）を持つ BFF 専用の補助ファイル（[session-files.md](session-files.md#sendsjson)）。
+`sends.json` は送信と run の対応（保存済み entry の run id と、まだ entry になっていない送信）を持つ BFF 専用の補助ファイル（[session-files.md](session-files.md#sendsjson-と-run-id-の注記)）。
 
 - 起動時にストアを走査して一覧（descriptor）を復元し、セッションを開いたときに SDK セッションを遅延生成する。表示メッセージ数（`messageCount`）の定義を変えた場合は、古い値のままの meta を開いたときに書き戻すため、開いていないセッションの一覧は古い値を返し続ける（[session-files.md](session-files.md)）。
 - アイドル 1 時間の sweep はメモリから外すだけで、ストアと作業ディレクトリ・添付は残る。SSE 購読中のセッションは対象外。
@@ -121,7 +121,7 @@ GUI の全履歴（[compaction.md](compaction.md#全履歴の表示閲覧と段�
 （性能計測で必要になった場合の次段階とする）。
 
 - 再起動後も `getBranch()` の entry から同じ item が同じ id で復元される（圧縮前の元メッセージ・過去の compaction イベントを含む）
-- user item の `runId`（送信した run の id）は実行時の参照（SDK メッセージ → run id）から写し、保存した entry は `sends.json` の対応（entry id → run id）で再起動後も保つ。クライアントはこの値で自分の送信エコーを他クライアントの同一文面 item と区別し、`run_start` やページ適用で正しい item へ吸収する。対応が無い旧保存データの item だけが、本文の正規形（+ 送信時点の位置 `since`）での縮退対象になる。202 で受理したがまだ entry になっていない送信は `sends.json` の `unsent` に残り、再起動後に「未送信」として配る（履歴の同一文面 item へ黙って吸収させない）
+- user item の `runId`（送信した run の id）は実行時の参照（SDK メッセージ → run id）から写し、保存した entry は JSONL の entry 自身へ写した注記（`u7agentRunId`。[session-files.md](session-files.md#sendsjson-と-run-id-の注記)）で再起動後も保つ。クライアントはこの値で自分の送信エコーを他クライアントの同一文面 item と区別し、`run_start` やページ適用で正しい item へ吸収する。対応が無い旧保存データの item だけが、本文の正規形（+ 送信時点の位置 `since`）での縮退対象になる。202 で受理したがまだ entry になっていない送信は `sends.json` の `unsent` に残り、再起動後に「未送信」として配る（履歴の同一文面 item へ黙って吸収させない）
 - `context_edit` で agent state から外れたメッセージも entry には残るため、`excluded` として読める（要約済みとは区別する）
 - ページ取得は JSONL を読み直さずメモリ上の entry 列を走査する。表示文字列へ写すのは選んだページ範囲だけで、既存のマスカーを共有する
 

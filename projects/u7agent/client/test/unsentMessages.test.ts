@@ -405,3 +405,69 @@ test("run_start が届いたら停止の控えを消し、遅れて届いた run
     false,
   );
 });
+
+test("履歴の初回応答前でも、別タブの再送 (queued) を未送信として失わない", () => {
+  // history 未対応の初期表示 (payload.messages から組む) の状態
+  const cold = chatReducer(initialChatState, { type: "resync", payload: payload([], "session-a") });
+  assert.equal(cold.history.supported, false);
+
+  const queued = chatReducer(cold, {
+    type: "resync",
+    payload: payload([{ runId: "run-x", text: "未送信の本文", at: 5, state: "queued" }]),
+  });
+  const bubble = queued.bubbles.find((item) => item.runId === "run-x");
+  assert.ok(bubble, "受理済みのバブルを足す");
+  assert.equal(bubble.accepted, true);
+  assert.equal(bubble.unsent, undefined);
+  assert.deepEqual(queued.pendingEchoIds, [bubble.id]);
+
+  // 停止でキューが破棄されたら未送信へ戻る (消えていたら戻せない)
+  const stopped = chatReducer(queued, { type: "queueCleared", runIds: ["run-x"] });
+  assert.equal(stopped.bubbles.find((item) => item.runId === "run-x")?.unsent, true);
+  assert.deepEqual(stopped.pendingEchoIds, []);
+});
+
+test("停止の控えは payload の queued で消え、後着の 202 が未送信へ戻さない", () => {
+  const sent = chatReducer(withHistory(), { type: "localUser", text: "同じ本文", at: 2 });
+  const echoId = sent.pendingEchoIds[0];
+  const cleared = chatReducer(sent, { type: "queueCleared", runIds: ["run-x"] });
+  assert.deepEqual(cleared.clearedRunIds, ["run-x"]);
+
+  // payload が未送信として配り、次に別タブの再送で queued へ進む
+  const unsent = chatReducer(cleared, {
+    type: "resync",
+    payload: payload([{ runId: "run-x", text: "同じ本文", at: 2, state: "unsent" }]),
+  });
+  const queued = chatReducer(unsent, {
+    type: "resync",
+    payload: payload([{ runId: "run-x", text: "同じ本文", at: 2, state: "queued" }]),
+  });
+  assert.deepEqual(queued.clearedRunIds, [], "payload の queued で控えを消す");
+
+  const assigned = chatReducer(queued, { type: "echoRunId", runId: "run-x" });
+  assert.deepEqual(
+    assigned.bubbles
+      .filter((item) => item.runId === "run-x")
+      .map((item) => [item.id, item.unsent === true, item.accepted === true]),
+    [[echoId, false, true]],
+    "ローカルのエコーへ統合し、受理済みとして保つ",
+  );
+  assert.equal(
+    assigned.bubbles.some((item) => item.unsent === true),
+    false,
+  );
+});
+
+test("payload の running でも受理済みバブルを 1 件に統合する", () => {
+  const sent = chatReducer(withHistory(), { type: "localUser", text: "同じ本文", at: 2 });
+  const echoId = sent.pendingEchoIds[0];
+  const running = chatReducer(sent, {
+    type: "resync",
+    payload: payload([{ runId: "run-x", text: "同じ本文", at: 2, state: "running" }]),
+  });
+  const assigned = chatReducer(running, { type: "echoRunId", runId: "run-x" });
+  assert.deepEqual(
+    assigned.bubbles.filter((item) => item.runId === "run-x").map((item) => [item.id, item.accepted === true]),
+    [[echoId, true]],
+  );
+});

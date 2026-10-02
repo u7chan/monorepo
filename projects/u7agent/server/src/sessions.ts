@@ -42,13 +42,14 @@ import {
   prepareSessionStore,
   readSessionFile,
   readSessionMeta,
+  entryRunIdsFromJsonl,
   readSessionSends,
-  reconcileSessionSends,
   removeSessionDir,
   sessionHeaderOf,
   sessionJsonlPath,
   sessionWorkdirRel,
   writeSessionMeta,
+  RUN_ID_FIELD,
   writeSessionSends,
   type PromptSnapshot,
   type SessionEntryLike,
@@ -539,14 +540,13 @@ export class SessionStore {
     record.projectCwd = meta.projectCwd;
     record.projectName = meta.projectName;
     record.projectId = this.projectIdOfCwd(meta.projectCwd);
-    // 送信対応記録を復元し、JSONL を正として突き合わせる。記録の書込みだけ失敗していた場合は
-    // 「run 対応の無い user entry」と「未送信の記録」を本文で 1:1 に対にし、保存済みの送信を
-    // 未送信として再実行させない (突き合わせが変わったら dirty にして次の保存で書き直す)
+    // run 対応は JSONL の entry へ写した注記を正とする (entry の存在が証跡なので、本文や時刻での
+    // 推測をしない)。未送信の記録は、その注記に載っている run だけを保存済みとして外す
     const sends = this.storeDir ? readSessionSends(this.storeDir, id) : emptySessionSends();
-    const reconciled = reconcileSessionSends(entries, new Map(Object.entries(sends.entries)), sends.unsent);
-    record.entryRunIds = reconciled.entryRunIds;
-    record.unsentSends = reconciled.unsent;
-    record.sendsDirty = reconciled.changed;
+    record.entryRunIds = entryRunIdsFromJsonl(entries);
+    const persistedRuns = new Set(record.entryRunIds.values());
+    record.unsentSends = sends.unsent.filter((item) => !persistedRuns.has(item.runId));
+    record.sendsDirty = record.unsentSends.length !== sends.unsent.length;
     if (this.storeDir) {
       record.writer = new SessionFileWriter(this.storeDir, id, {
         completeBytes: parsed.kind === "ok" ? parsed.completeBytes : 0,
@@ -901,18 +901,31 @@ export class SessionStore {
     if (!record.writer || !this.storeDir) return true;
     if (!record.sendsDirty) return true;
     try {
-      this.writeSendsFile(this.storeDir, record.id, {
-        entries: Object.fromEntries(record.entryRunIds),
-        unsent: record.unsentSends,
-      });
+      this.writeSendsFile(this.storeDir, record.id, { unsent: record.unsentSends });
       record.sendsDirty = false;
       record.sendsError = undefined;
       return true;
     } catch (error) {
       record.sendsError = messageFor(error);
-      console.warn(`[u7agent] 送信対応記録の保存に失敗しました (${record.id}): ${record.sendsError}`);
+      console.warn(`[u7agent] 未送信記録の保存に失敗しました (${record.id}): ${record.sendsError}`);
       return false;
     }
+  }
+
+  /**
+   * user message entry へ送信の run id を写す。entry と run の対応を JSONL 自身に持たせ、
+   * 別ファイル (sends.json) の書込みだけ失敗しても再起動後に対応を失わない。SDK は未知の
+   * フィールドをそのまま保持するため、SDK 形式は壊れない。
+   */
+  private annotateRunIds(record: SessionRecord, entries: SessionEntryLike[]): SessionEntryLike[] {
+    return entries.map((entry) => {
+      if (entry.type !== "message" || typeof entry.id !== "string" || entry.id === "") return entry;
+      const message = entry.message as { role?: unknown } | undefined;
+      if (!message || message.role !== "user") return entry;
+      const runId = record.userMessageRuns.get(message) ?? record.entryRunIds.get(entry.id);
+      if (runId === undefined || entry[RUN_ID_FIELD] === runId) return entry;
+      return { ...entry, [RUN_ID_FIELD]: runId };
+    });
   }
 
   /** 実行中のランを中断し、キューに積まれたメッセージも捨てる。 */
@@ -1257,8 +1270,8 @@ export class SessionStore {
       // 今回の保存だけを評価する (過去の失敗は成功で消す)
       let failure: string | undefined;
       // writer へ渡すのと同じスナップショットを使う。await 中に SDK が追記した entry を
-      // 保存済みとして対応表へ入れない (次の保存で書かれる)
-      const entries = entriesOf(session);
+      // 保存済みとして対応表へ入れない (次の保存で書かれる)。run id は entry 自身へ写す
+      const entries = this.annotateRunIds(record, entriesOf(session));
       try {
         await writeSessionMeta(storeDir, meta);
         if (jsonl) {

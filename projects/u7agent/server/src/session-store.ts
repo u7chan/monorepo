@@ -27,11 +27,6 @@ export { SESSION_DIR_REL, assertSessionId, sessionWorkdirRel };
 export const SESSION_STORE_ENV = "PI_SESSION_STORE";
 /** 部分書込みの再試行回数。超えたらエラーを記録して次の保存に委ねる */
 const MAX_WRITE_ATTEMPTS = 3;
-/**
- * 復元の突き合わせで、未送信の送信時刻と entry の timestamp を比べるときの許容幅 (ms)。
- * 同じプロセスの時計なので通常は entry の方が後になるが、小さな巻き戻りで取りこぼさない
- */
-const CLOCK_MARGIN_MS = 1_000;
 
 export interface PromptSnapshot {
   /** 作成時の agent プロファイル (appendSystemPrompt へ入れたもの) */
@@ -222,22 +217,23 @@ export interface UnsentSend {
 }
 
 /**
- * BFF 専用の送信対応記録。run id は実行時のメモリにしか無く、再起動で履歴 item から消えると
- * 送信エコーの同一性が崩れる (他クライアントの同一文面 item と取り違える) ため、entry と run の
- * 対応と、まだ entry になっていない送信をここへ残す。session.jsonl は SDK の形式のまま触らない。
+ * BFF 専用の未送信記録。受理済みでまだ user entry になっていない送信を残し、再起動後に
+ * 「未送信」として見せる。entry と run の対応は JSONL の entry 自身へ写す (RUN_ID_FIELD) ため、
+ * このファイルの書込みだけ失敗しても対応は失われない。
  */
 export interface SessionSends {
-  /** user message entry の id -> その送信の run id */
-  entries: Record<string, string>;
   unsent: UnsentSend[];
 }
+
+/** user message entry へ写す run id のフィールド名 (SDK は未知フィールドをそのまま保持する) */
+export const RUN_ID_FIELD = "u7agentRunId";
 
 export function sessionSendsPath(id: string, storeDir: string): string {
   return join(sessionDirPath(storeDir, id), "sends.json");
 }
 
 export function emptySessionSends(): SessionSends {
-  return { entries: {}, unsent: [] };
+  return { unsent: [] };
 }
 
 /** 壊れた記録は空へ縮退する (補助データなので復元を止めない) */
@@ -251,12 +247,6 @@ export function readSessionSends(storeDir: string, id: string): SessionSends {
 
 function parseSessionSends(value: unknown): SessionSends {
   if (!isRecord(value)) return emptySessionSends();
-  const entries: Record<string, string> = {};
-  if (isRecord(value.entries)) {
-    for (const [entryId, runId] of Object.entries(value.entries)) {
-      if (typeof runId === "string" && runId !== "") entries[entryId] = runId;
-    }
-  }
   const unsent: UnsentSend[] = [];
   if (Array.isArray(value.unsent)) {
     for (const item of value.unsent) {
@@ -265,7 +255,7 @@ function parseSessionSends(value: unknown): SessionSends {
       unsent.push({ runId: item.runId, text: item.text, at: item.at });
     }
   }
-  return { entries, unsent };
+  return { unsent };
 }
 
 /**
@@ -281,77 +271,19 @@ export function writeSessionSends(storeDir: string, id: string, sends: SessionSe
 }
 
 /**
- * SDK の user message content から本文を取り出す。SDK 0.87 は `[{ type: "text", text }]` の
- * part 配列を作る (画像を添付したときは text 以外も混ざる) が、旧保存データやスタブは文字列を書く
+ * JSONL の user message entry に写した run id (entry id -> runId) を集める。run 対応の正はここで、
+ * sends.json の書込みだけ失敗しても再起動後に対応を失わない。entry の存在は JSONL が証明する。
  */
-export function userMessageText(content: unknown): string | undefined {
-  if (typeof content === "string") return content === "" ? undefined : content;
-  if (!Array.isArray(content)) return undefined;
-  const text = content
-    .flatMap((part) => (isRecord(part) && part.type === "text" && typeof part.text === "string" ? [part.text] : []))
-    .join("");
-  return text === "" ? undefined : text;
-}
-
-/**
- * 復元時の突き合わせ。記録の書込みだけ失敗した (entry は JSONL にあるのに run 対応が無い) ときに、
- * 未送信の記録と run 対応の無い user entry を本文で 1:1 に対にする。同じ本文の entry が複数あっても
- * 「まだ run 対応が無い entry」だけを数え、**送信時刻より前の entry は候補にしない** (旧保存データの
- * 同じ本文の発言を、未開始の送信の根拠にして黙って吸収しないため)。対にならなかった記録だけが
- * 未送信として残る。JSONL に無い entry の対応は落とす。
- */
-export function reconcileSessionSends(
-  entries: SessionEntryLike[],
-  entryRunIds: Map<string, string>,
-  unsent: UnsentSend[],
-): { entryRunIds: Map<string, string>; unsent: UnsentSend[]; changed: boolean } {
-  const userEntries: { id: string; text?: string; at?: number }[] = [];
+export function entryRunIdsFromJsonl(entries: SessionEntryLike[]): Map<string, string> {
+  const runs = new Map<string, string>();
   for (const entry of entries) {
     if (entry.type !== "message" || typeof entry.id !== "string" || entry.id === "") continue;
-    const message = entry.message as { role?: unknown; content?: unknown } | undefined;
+    const message = entry.message as { role?: unknown } | undefined;
     if (!message || message.role !== "user") continue;
-    const text = userMessageText(message.content);
-    const at = typeof entry.timestamp === "string" ? Date.parse(entry.timestamp) : Number.NaN;
-    userEntries.push({
-      id: entry.id,
-      ...(text !== undefined ? { text } : {}),
-      ...(Number.isFinite(at) ? { at } : {}),
-    });
+    const runId = entry[RUN_ID_FIELD];
+    if (typeof runId === "string" && runId !== "") runs.set(entry.id, runId);
   }
-  const known = new Set(userEntries.map((entry) => entry.id));
-  const nextEntryRunIds = new Map([...entryRunIds].filter(([entryId]) => known.has(entryId)));
-  const unmatched = new Map<string, string[]>();
-  for (const entry of userEntries) {
-    if (entry.text === undefined || nextEntryRunIds.has(entry.id)) continue;
-    const list = unmatched.get(entry.text);
-    if (list) list.push(entry.id);
-    else unmatched.set(entry.text, [entry.id]);
-  }
-  const remaining: UnsentSend[] = [];
-  const atById = new Map(
-    userEntries.flatMap((entry) => (entry.at === undefined ? [] : [[entry.id, entry.at] as const])),
-  );
-  for (const item of unsent) {
-    const candidates = unmatched.get(item.text);
-    // 送信時刻より前の entry は対応先にしない (時計のずれ分だけ許容する)
-    const index =
-      candidates?.findIndex((entryId) => {
-        const at = atById.get(entryId);
-        return at !== undefined && at >= item.at - CLOCK_MARGIN_MS;
-      }) ?? -1;
-    if (candidates === undefined || index === -1) {
-      remaining.push(item);
-      continue;
-    }
-    const [entryId] = candidates.splice(index, 1);
-    nextEntryRunIds.set(entryId, item.runId);
-    if (candidates.length === 0) unmatched.delete(item.text);
-  }
-  return {
-    entryRunIds: nextEntryRunIds,
-    unsent: remaining,
-    changed: nextEntryRunIds.size !== entryRunIds.size || remaining.length !== unsent.length,
-  };
+  return runs;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
