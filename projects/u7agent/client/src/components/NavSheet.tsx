@@ -1,7 +1,9 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
+import { cn } from "../lib/cn";
 import { Sidebar, type SidebarProps } from "./Sidebar";
 
-export type NavSheetProps = SidebarProps & {
+export type NavSheetProps = Omit<SidebarProps, "onClose"> & {
+  /** 閉じ切った (退場アニメの完了後に dialog が閉じた)。App はここでドロワーを unmount する */
   onClose: () => void;
 };
 
@@ -27,10 +29,15 @@ function focusFirstAvailable(root: ParentNode, selectors: readonly string[]): vo
   }
 }
 
-/** モーダル dialog にして、背面の inert 化と Escape での終了を標準挙動に任せる */
+/**
+ * モーダル dialog にして、背面の inert 化と Escape での終了を標準挙動に任せる。Escape だけは `cancel` で
+ * 受けて標準挙動を止め、退場アニメへ載せ替える (即時に閉じるとアニメが出ない)
+ */
 export function NavSheet({ mode, onClose, ...sidebarProps }: NavSheetProps) {
   const dialogRef = useRef<HTMLDialogElement>(null);
   const previousFocusRef = useRef<HTMLElement | null>(null);
+  // 退場アニメの最中か。閉じる要求では unmount せず、まずパネルを抜けさせてから dialog を閉じる
+  const [closing, setClosing] = useState(false);
 
   useEffect(() => {
     const dialog = dialogRef.current;
@@ -64,20 +71,63 @@ export function NavSheet({ mode, onClose, ...sidebarProps }: NavSheetProps) {
     focusFirstAvailable(dialog, FOCUS_IN_DIALOG_SELECTORS);
   }, [mode]);
 
+  /** 閉じる要求 (× / 背景クリック / Escape / 項目の選択) の唯一の入口。dialog は退場アニメの後に閉じる */
+  const requestClose = () => setClosing(true);
+
+  /**
+   * ドロワーの項目を押したときに使う。選んだ内容 (セッションなど) は退場アニメを待たずに進める
+   * (待つと、選んだ画面が出るまで 180ms 遅れる)。
+   */
+  const closeThen =
+    <A extends unknown[]>(action: (...args: A) => void) =>
+    (...args: A) => {
+      requestClose();
+      action(...args);
+    };
+
   return (
     <dialog
       ref={dialogRef}
       onClose={onClose}
+      // 背景の暗転をパネルと同じ 180ms で薄くする印 (styles/index.css の .nav-sheet)
+      data-closing={closing}
       tabIndex={-1}
       aria-label="ナビゲーション"
+      // Escape は標準挙動 (即時に閉じる) を止めて退場アニメへ載せる
+      onCancel={(event) => {
+        event.preventDefault();
+        requestClose();
+      }}
       // パネル外 (dialog 自身) のクリックで閉じる。背景の暗転は dialog::backdrop が担う
       onClick={(event) => {
-        if (event.target === dialogRef.current) dialogRef.current?.close();
+        if (event.target === dialogRef.current) requestClose();
       }}
-      className="m-0 h-dvh max-h-none w-screen max-w-none overflow-hidden bg-transparent p-0"
+      className="nav-sheet m-0 h-dvh max-h-none w-screen max-w-none overflow-hidden bg-transparent p-0"
     >
-      <div className="flex h-full w-[min(320px,86vw)] animate-drawer flex-col border-r border-line bg-panel shadow-panel">
-        <Sidebar variant="sheet" mode={mode} onClose={onClose} {...sidebarProps} />
+      <div
+        // ここで dialog を閉じるため、この animation を切ると (prefers-reduced-motion など) 閉じられなくなる。
+        // animationend は子の animation からも上がるので、自分の分だけを見る
+        onAnimationEnd={(event) => {
+          if (!closing || event.target !== event.currentTarget) return;
+          dialogRef.current?.close();
+        }}
+        className={cn(
+          "flex h-full w-[min(320px,86vw)] flex-col border-r border-line bg-panel shadow-panel",
+          closing ? "animate-drawer-out" : "animate-drawer",
+        )}
+      >
+        <Sidebar
+          variant="sheet"
+          mode={mode}
+          onClose={requestClose}
+          {...sidebarProps}
+          // 選んだらドロワーを閉じる。削除とリネームは確認 / 入力の後も開いたまま残す (連続操作しうる)。
+          // モードの切替 (設定 / アプリに戻る) とプロジェクトの折りたたみは選択ではないので閉じない
+          newChat={closeThen(sidebarProps.newChat)}
+          selectSession={closeThen(sidebarProps.selectSession)}
+          onNewProject={closeThen(sidebarProps.onNewProject)}
+          onOpenSettingsSection={closeThen(sidebarProps.onOpenSettingsSection)}
+        />
       </div>
     </dialog>
   );

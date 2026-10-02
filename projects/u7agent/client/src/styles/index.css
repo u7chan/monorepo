@@ -59,6 +59,21 @@
     }
   }
 
+  /* ナビゲーションドロワー (NavSheet) の退場用。出現 (--animate-drawer) の逆再生で、左へ抜けながら消える。
+   * fill は forwards が要る (NavSheet は animationend で dialog を閉じるため、既定の none だと閉じるまでの
+   * 1 フレームだけ元の位置と不透明度で描かれる) */
+  --animate-drawer-out: drawer-out 180ms ease-out forwards;
+  @keyframes drawer-out {
+    from {
+      opacity: 1;
+      transform: translateX(0);
+    }
+    to {
+      opacity: 0;
+      transform: translateX(-12px);
+    }
+  }
+
   /* 追従が外れたときに浮かぶ「最新へ」ボタンの出現用 (下からふわっと)。呼び出し側の
    * -translate-x-1/2 は Tailwind v4 では translate プロパティなので、ここで translate を
    * 動かすと中央寄せが崩れる。transform と scale だけを動かす */
@@ -687,6 +702,15 @@ html[data-theme="sky"] {
     .popover-panel {
       transition: none;
     }
+  }
+
+  /* ナビゲーションドロワー (NavSheet) の退場中の背景。パネルは animate-drawer-out が動かすので、ここは
+   * 暗転だけを同じ 180ms で薄くする。unmount まで暗転を残すと、閉じ切った瞬間に画面が急に明るくなる */
+  .nav-sheet::backdrop {
+    transition: opacity 180ms ease-out;
+  }
+  .nav-sheet[data-closing="true"]::backdrop {
+    opacity: 0;
   }
 
   /* 細いスクロールバー */
