@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { cn } from "../lib/cn";
-import { maxDurationMs } from "../lib/cssTime";
+import { finishOnAnimationEnd } from "../lib/animationEnd";
 import { Sidebar, type SidebarProps } from "./Sidebar";
 
 export type NavSheetProps = Omit<SidebarProps, "onClose"> & {
@@ -8,19 +8,12 @@ export type NavSheetProps = Omit<SidebarProps, "onClose"> & {
   onClose: () => void;
 };
 
-/**
- * 起点が切れていた / 隠れていたときの受け皿。docked の Sidebar の先頭操作要素と、いま表示されている ☰
- * (画面遷移でチャットが `display: none` になると、☰ は DOM に残るが focus を受け取れない)
- */
+// 起点が消えた場合の焦点復帰は docs/ui-layout.md の「左バー」を参照。
 const FOCUS_FALLBACK_SELECTORS = ['[data-nav-root="docked"] button', '[aria-label="ナビゲーションを開く"]'];
 
-/** モードの切替で中身が入れ替わったときに focus を引き戻す先。sheet はブランド行の「閉じる」 */
 const FOCUS_IN_DIALOG_SELECTORS = ["button:not([disabled])"];
 
-/**
- * focus を移せる最初の候補へ移す。非表示の要素では `focus()` が何もしないため、実際に移せたか
- * (`document.activeElement`) で判定する。どの候補にも移せなければ何もしない (body のままにする)。
- */
+// 非表示の要素の focus() は成功しないため、移せたかを activeElement で確認する。
 function focusFirstAvailable(root: ParentNode, selectors: readonly string[]): void {
   for (const selector of selectors) {
     for (const element of root.querySelectorAll<HTMLElement>(selector)) {
@@ -30,15 +23,10 @@ function focusFirstAvailable(root: ParentNode, selectors: readonly string[]): vo
   }
 }
 
-/**
- * モーダル dialog にして、背面の inert 化と Escape での終了を標準挙動に任せる。Escape だけは `cancel` で
- * 受けて標準挙動を止め、退場アニメへ載せ替える (即時に閉じるとアニメが出ない)
- */
 export function NavSheet({ mode, onClose, ...sidebarProps }: NavSheetProps) {
   const dialogRef = useRef<HTMLDialogElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
   const previousFocusRef = useRef<HTMLElement | null>(null);
-  // 退場アニメの最中か。閉じる要求では unmount せず、まずパネルを抜けさせてから dialog を閉じる
   const [closing, setClosing] = useState(false);
   // 退場アニメと unmount が済んでから実行する操作 (ドロワーを閉じた後にモーダルを開く導線)
   const afterCloseRef = useRef<(() => void) | null>(null);
@@ -57,12 +45,8 @@ export function NavSheet({ mode, onClose, ...sidebarProps }: NavSheetProps) {
       const previous = previousFocusRef.current;
       if (previous?.isConnected) {
         previous.focus();
-        // 設定ページへ移ると起点 (Topbar / CompactBar の ☰) は display: none になり focus を受け取れない。
-        // ここで戻すのを諦めると、閉じた dialog の後始末で focus が body へ落ちる
         if (document.activeElement === previous) return;
       }
-      // 幅を広げて ☰ ごと消えた場合は docked になった Sidebar へ、画面遷移で隠れた場合は
-      // 表示されている ☰ へ移す (sheet の中の Sidebar は選択子で除外する)
       focusFirstAvailable(document, FOCUS_FALLBACK_SELECTORS);
     };
   }, []);
@@ -79,38 +63,22 @@ export function NavSheet({ mode, onClose, ...sidebarProps }: NavSheetProps) {
   // ここで拾わないと、押した New Project が追加ダイアログを開かないまま消える
   useEffect(() => () => afterCloseRef.current?.(), []);
 
-  // 閉じるのは本則では animationend (panel の onAnimationEnd) だが、animation を切る環境 (user style /
-  // 拡張機能) では animationend が来ず、Escape も止めているためモーダルを閉じられなくなる。CSS の長さを読んで
-  // その倍 + 余裕を待つ保険を置く (アニメーションが動くときは animationend のほうが先に来る)
   useEffect(() => {
     if (!closing) return;
     const panel = panelRef.current;
     const dialog = dialogRef.current;
     if (!panel || !dialog) return;
-    // 保険の待ちは CSS が持つ値から決める。リストの最大を取るのは、外部 CSS が
-    // `animation-duration: 0s, 180ms` のように重ねたときに先頭 (0s) を読むと、実際に動いている 180ms の
-    // 退場アニメを短い保険が先に切ってしまうため
-    const duration = maxDurationMs(getComputedStyle(panel).animationDuration);
-    const timer = setTimeout(() => dialog.close(), duration * 2 + 100);
-    return () => clearTimeout(timer);
+    return finishOnAnimationEnd(panel, getComputedStyle(panel).animationDuration, () => dialog.close());
   }, [closing]);
 
-  /** 閉じる要求 (× / 背景クリック / Escape / 項目の選択) の唯一の入口。dialog は退場アニメの後に閉じる */
   const requestClose = () => setClosing(true);
 
-  /**
-   * モーダル (ProjectDialog) を開く導線用の閉じる要求。開くのを退場後に遅らせるのは、退場中に開くとその
-   * モーダルが戻り先として掴むドロワー内の要素が unmount で消え、モーダルを閉じた後に focus が body へ落ちるため。
-   */
+  // モーダルを開く順序と焦点復帰の理由は docs/ui-layout.md の「左バー」を参照。
   const closeAfter = (after: () => void) => () => {
     afterCloseRef.current = after;
     setClosing(true);
   };
 
-  /**
-   * ドロワーの項目を押したときに使う。選んだ内容 (セッションなど) は退場アニメを待たずに進める
-   * (待つと、選んだ画面が出るまで 180ms 遅れる)。
-   */
   const closeThen =
     <A extends unknown[]>(action: (...args: A) => void) =>
     (...args: A) => {
@@ -121,15 +89,12 @@ export function NavSheet({ mode, onClose, ...sidebarProps }: NavSheetProps) {
   return (
     <dialog
       ref={dialogRef}
-      // 退場後に実行する操作は unmount と同じコミットで走らせ、開いたモーダルの戻り先がドロワーの焦点復帰より
-      // 前にならないようにする
       onClose={() => {
         const after = afterCloseRef.current;
         afterCloseRef.current = null;
         onClose();
         after?.();
       }}
-      // 背景の暗転をパネルと同じ 180ms で薄くする印 (styles/index.css の .nav-sheet)
       data-closing={closing}
       tabIndex={-1}
       aria-label="ナビゲーション"
@@ -138,7 +103,6 @@ export function NavSheet({ mode, onClose, ...sidebarProps }: NavSheetProps) {
         event.preventDefault();
         requestClose();
       }}
-      // パネル外 (dialog 自身) のクリックで閉じる。背景の暗転は dialog::backdrop が担う
       onClick={(event) => {
         if (event.target === dialogRef.current) requestClose();
       }}
@@ -146,12 +110,6 @@ export function NavSheet({ mode, onClose, ...sidebarProps }: NavSheetProps) {
     >
       <div
         ref={panelRef}
-        // ここで dialog を閉じるため、この animation を切ると (prefers-reduced-motion など) 閉じられなくなる。
-        // animationend は子の animation からも上がるので、自分の分だけを見る
-        onAnimationEnd={(event) => {
-          if (!closing || event.target !== event.currentTarget) return;
-          dialogRef.current?.close();
-        }}
         className={cn(
           "flex h-full w-[min(320px,86vw)] flex-col border-r border-line bg-panel shadow-panel",
           closing ? "animate-drawer-out" : "animate-drawer",
@@ -162,8 +120,6 @@ export function NavSheet({ mode, onClose, ...sidebarProps }: NavSheetProps) {
           mode={mode}
           onClose={requestClose}
           {...sidebarProps}
-          // 選んだらドロワーを閉じる。削除とリネームは確認 / 入力の後も開いたまま残す (連続操作しうる)。
-          // モードの切替 (設定 / アプリに戻る) とプロジェクトの折りたたみは選択ではないので閉じない
           newChat={closeThen(sidebarProps.newChat)}
           selectSession={closeThen(sidebarProps.selectSession)}
           onNewProject={closeAfter(sidebarProps.onNewProject)}

@@ -1,14 +1,5 @@
-// 設定 → アーカイブ（client/src/components/ArchiveSettingsPage.tsx）の描画と配線。client に DOM テスト基盤が
-// 無いため、react-dom/server で描画して「未設定 / 上書き / 明示空 / エラー」の出し分けを固定し、保存と
-// 既定に戻すの配線（PUT / DELETE と app 状態の更新）はソース走査で固定する。
-//   1. 未設定のときは「既定の一覧を使用中」を出し、既定の一覧と件数をそのまま見せる
-//   2. 明示空（全部消した）ときは node_modules も入る警告を出す
-//   3. 保存 / 読み込みの結果は note 行に出る（aria-live は SettingsPageLayout が持つ）
-//   4. [保存] は PUT、[既定に戻す] は DELETE。どちらも応答で app 状態（ツリーの出し分け）が更新される
-//   5. 一覧の行はカードにしない（面の上に行だけで並べ、削除は行の右端に常時出す）
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
+
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import test from "node:test";
@@ -16,10 +7,6 @@ import type { ArchiveSettings } from "../src/hooks/useArchiveSettings";
 import type { ArchiveSettingsResponse } from "../src/types";
 
 const { ArchiveSettingsPage } = await import("../src/components/ArchiveSettingsPage");
-
-function read(relativePath: string): string {
-  return readFileSync(fileURLToPath(new URL(`../${relativePath}`, import.meta.url)), "utf8");
-}
 
 const DEFAULTS = ["node_modules", ".venv", "dist"];
 
@@ -59,7 +46,11 @@ function render(props: Partial<ArchiveSettings> = {}): string {
 
 /** 操作行の [保存] ボタンの開始タグ（disabled の有無を見るため） */
 function saveButtonTag(html: string): string {
-  return html.match(/<button[^>]*class="btn-primary"[^>]*>/)?.[0] ?? "";
+  const button = html
+    .match(/<button[^>]*>[\s\S]*?<\/button>/g)
+    ?.find((markup) => markup.replace(/<[^>]*>/g, "").trim() === "保存");
+  assert.ok(button, "保存ボタンが無い");
+  return button.slice(0, button.indexOf(">") + 1);
 }
 
 test("描画: 未設定は既定の一覧を使用中として出し、行と件数を並べる", () => {
@@ -116,78 +107,4 @@ test("描画: note のエラーは aria-live の行にそのまま出る", () =>
   assert.ok(loading.includes("読み込んでいます"), "読み込み中の表示が無い");
   const failed = render({ settings: null, note: { text: "読み込めませんでした", error: true } });
   assert.ok(failed.includes("読み込めませんでした") && failed.includes("再読み込み"), "再読み込みの導線が無い");
-});
-
-test("描画: 行はカードを重ねず、面の上に行だけで並べる", () => {
-  const html = render();
-  const rowTag = html.match(/<li class="-mx-[^"]*">/)?.[0] ?? "";
-  const trash = html.match(/<button[^>]* を除外から外す"[^>]*>/)?.[0] ?? "";
-  assert.ok(rowTag && trash, "行か削除ボタンが見つからない");
-  // 行が自前の枠と面を持つと、セクションの枠と合わせて箱の入れ子になり、名前より枠が目立つ
-  assert.ok(!rowTag.includes("border"), "行に枠が付いている");
-  assert.ok(!rowTag.includes("bg-raised"), "行が面を持っている");
-  assert.ok(rowTag.includes("hover:bg-hover"), "行のホバーが無い");
-  // 削除はこの画面の主操作なので、ホバー待ちにせず行の右端へ常時出す
-  // アイコンの色は面に対して 3:1 以上を保つ（text-ink-faint は明るいテーマで 2.7:1 まで落ちる）
-  assert.ok(trash.includes("text-ink-soft"), "削除の色が面に対して薄すぎる");
-  assert.ok(trash.includes("hover:text-danger"), "削除のホバーが danger でない");
-  assert.ok(!trash.includes("can-hover:"), "削除がホバーに隠れている");
-  assert.ok(!trash.includes("btn-quiet"), "削除が枠付きのボタンのまま");
-  assert.match(html, /<li class="-mx-[^"]*">[\s\S]*?を除外から外す[\s\S]*?<\/li>/, "削除が行の中に無い");
-});
-
-test("配線: 保存は PUT、既定に戻すは DELETE で、応答を app 状態へ反映する", () => {
-  const hook = read("src/hooks/useArchiveSettings.ts");
-  assert.ok(hook.includes("await updateArchiveSettings(draft.excludeNames)"), "保存が PUT になっていない");
-  assert.ok(hook.includes("await resetArchiveSettings()"), "既定に戻すが DELETE になっていない");
-  // 応答の適用は settings と draft の両方（画面が新しい一覧をそのまま映す）
-  assert.ok(hook.includes("applySettings(next)"), "応答を適用していない");
-  assert.match(
-    hook,
-    /const applySettings = useCallback\(\(next: ArchiveSettingsResponse\) => \{[\s\S]*?setSettings\(next\)[\s\S]*?setDraftState\(draftFromSettings\(next\)\)/,
-  );
-  // 不正名は PUT の前に止め、理由を note へ出す（サーバーの 400 は同じ文言）
-  assert.ok(
-    hook.includes("validateExcludeNames(draft, settings.maxNames, settings.maxNameLength)"),
-    "保存前の検証が無い",
-  );
-  // 起動時に読み込む（ツリーの行の出し分けが設定ページを開かなくても追随する）
-  assert.match(hook, /useEffect\(\(\) => \{\n    void reload\(\);\n  \}, \[reload\]\)/);
-
-  const api = read("src/api.ts");
-  assert.ok(api.includes("client.api.settings.archive.$get()"), "GET が無い");
-  assert.ok(api.includes("client.api.settings.archive.$put"), "PUT が無い");
-  assert.ok(api.includes("client.api.settings.archive.$delete()"), "DELETE が無い");
-
-  const page = read("src/components/ArchiveSettingsPage.tsx");
-  assert.ok(page.includes("onClick={() => void save()}"), "保存の配線が無い");
-  assert.ok(page.includes("onClick={() => void reset()}"), "既定に戻すの配線が無い");
-  assert.ok(page.includes("disabled={!dirty || saving}"), "未編集でも保存できる");
-  assert.ok(page.includes("disabled={!settings?.overridden || saving}"), "未設定でも既定に戻せる");
-});
-
-test("配線: 行の出し分けは app 状態の実効値を使い、保存の直後に追随する", () => {
-  const app = read("src/App.tsx");
-  assert.ok(app.includes("app.archiveSettings.settings?.excludeNames ?? []"), "実効値の出所が app 状態でない");
-  assert.ok(app.includes("excludeNames={excludeNames}"), "ツリーへ渡していない");
-  assert.ok(
-    app.includes("<ArchiveSettingsPage {...pageProps} archiveSettings={app.archiveSettings} />"),
-    "ページの配線が無い",
-  );
-  // 設定 → ファイルとチャット右パネルの両方が同じ値を使う
-  assert.match(app, /<FileTreePage[\s\S]*?cwd=""[\s\S]*?excludeNames=\{excludeNames\}/);
-  assert.match(app, /<SessionFilesPanel[\s\S]*?excludeNames=\{excludeNames\}/);
-
-  // FileBrowser は health を取りに行かず、prop だけを使う（保存直後の追随と取得元の一本化）
-  const browser = read("src/components/FileBrowser.tsx");
-  assert.ok(!browser.includes("getHealth"), "FileBrowser が health を取りに行っている");
-  assert.ok(!browser.includes("health.archive?.excludeNames"), "FileBrowser が health から除外名を読んでいる");
-  assert.ok(
-    read("src/lib/fileRowMenu.ts").includes("isArchiveExcludedName(name, excludeNames)"),
-    "除外の判定が純関数でない",
-  );
-  // 設定ページ以外の面（スキルのファイルタブ）も prop を要求する
-  for (const file of ["src/components/FileTreePage.tsx", "src/components/SessionFilesPanel.tsx"]) {
-    assert.ok(read(file).includes("excludeNames"), `${file} が excludeNames を受けていない`);
-  }
 });

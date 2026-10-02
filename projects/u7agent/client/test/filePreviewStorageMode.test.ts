@@ -1,8 +1,5 @@
-// client に DOM テスト基盤が無いため、iframe の属性と別オリジンのスイッチの状態は react-dom/server の静的描画で固定し、
-// 配線はソース走査で固定する (sandbox フラグが読まれる時点は DOM の実挙動なので E2E で見る)。
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
+
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import test from "node:test";
@@ -12,10 +9,6 @@ import type { FilePreviewProps } from "../src/components/FilePreview";
 // (dev はアプリが Vite の 3000 に居る想定にして、iframe が BFF の 4318 へ向くことを見る)
 globalThis.location ??= { origin: "http://localhost:3000", hostname: "localhost" } as Location;
 const { FilePreview } = await import("../src/components/FilePreview");
-
-function read(relativePath: string): string {
-  return readFileSync(fileURLToPath(new URL(`../${relativePath}`, import.meta.url)), "utf8");
-}
 
 const noop = () => {};
 
@@ -80,6 +73,8 @@ test("新しいタブはパス行の切替と関係なく常に別オリジン�
   const href = /href="http:\/\/localhost:4318\/api\/files\/html\/chart\.html"/;
   assert.match(renderPreview(), href, "新しいタブが別オリジンで開かない");
   assert.match(renderPreview({ origins: { "chart.html": "app" } }), href, "隔離へ戻すと新しいタブも隔離になっている");
+  const html = renderPreview();
+  assert.match(html, /<a[^>]*target="_blank"[^>]*rel="noreferrer noopener"[^>]*aria-label="新しいタブで開く"/);
 });
 
 test("ポート未取得の間はスイッチを無効にし、ポートを焼き込まない", () => {
@@ -103,43 +98,11 @@ test("ポート未取得の間はスイッチを無効にし、ポートを焼�
   assert.ok(!html.includes("4318"), "client にポートを焼き込んでいる");
 });
 
-test("スイッチは配信元の state だけを変え、iframe の属性と src と新しいタブはその state から導く", () => {
-  const preview = read("src/components/FilePreview.tsx");
-  assert.match(preview, /checked=\{storageEnabled\}/, "スイッチへ状態を渡していない");
-  assert.match(preview, /disabled=\{filePreviewPort === undefined\}/, "ポート未取得の判定が違う");
-  assert.match(
-    preview,
-    /onChange=\{\(next\) => onOriginChange\(activePath, next \? "storage" : "app"\)\}/,
-    "タブの配信元を切り替えていない",
-  );
-  // スイッチは共有の ToggleSwitch を使い、パス行の高さに合わせる (aria-checked は ToggleSwitch が出す)
-  assert.match(preview, /<ToggleSwitch[\s\S]*?size="sm"/, "パス行用の小さいスイッチを使っていない");
-  assert.match(
-    preview,
-    /filePreviewPort !== undefined && storageEnabled\s*\?\s*fileStoragePreviewUrl\(fetchPath, filePreviewPort\)\s*:\s*fileHtmlPreviewUrl\(fetchPath\)/,
-    "iframe の src を配信元から導いていない",
-  );
-  assert.match(
-    preview,
-    /filePreviewPort === undefined \? fileHtmlPreviewUrl\(fetchPath\) : fileStoragePreviewUrl\(fetchPath, filePreviewPort\)/,
-    "新しいタブの URL をポートの有無から導いていない",
-  );
-  assert.ok(!preview.includes("4318"), "client にポートを焼き込んでいる");
-  // 配信元の切替は src と sandbox を同時に変えるため、要素を作り直さないと Chromium は古い sandbox フラグで
-  // 新文書を作る (属性の適用順に依存させない)
-  assert.match(
-    preview,
-    /<iframe[\s\S]*?key=\{storageEnabled \? "storage" : "isolated"\}/,
-    "配信元の切替で iframe を作り直す key が無い",
-  );
-
-  // state は FileBrowser が持ち、health から受けたポートをそのまま渡す (画面ごとに取得し直さない)
-  const browser = read("src/components/FileBrowser.tsx");
-  assert.match(browser, /withPreviewOrigin\(prev, path, origin\)/, "配信元を保持していない");
-  assert.match(browser, /filePreviewPort=\{filePreviewPort\}/, "FilePreview へポートを渡していない");
-  assert.match(
-    read("src/App.tsx"),
-    /filePreviewPort=\{app\.health\?\.filePreviewPort\}/,
-    "health からポートを渡していない",
-  );
+test("画像は raw URL とサイズを表示し、HTML 用の切替や本文コピーは出さない", () => {
+  const html = renderPreview({ paths: ["chart.png"], activePath: "chart.png", activeSize: 2_048, previewVersion: 7 });
+  assert.match(html, /<img[^>]*src="[^"]*\/api\/files\/raw\?path=chart.png[^"]*v=7"[^>]*alt="chart.png のプレビュー"/);
+  assert.ok(html.includes("2.0 KB"));
+  assert.ok(!html.includes("別オリジン"));
+  assert.ok(!html.includes('aria-label="本文をコピー"'));
+  assert.ok(!html.includes('aria-label="新しいタブで開く"'));
 });

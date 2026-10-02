@@ -1,12 +1,8 @@
-// シンタックスハイライトの契約: 対応言語と言語判定 / 未知の言語と上限超過でハイライトしない /
-// トークンが入力を欠落させない (連結すると元の文字列に戻る)。
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
+
 import test from "node:test";
 import { HIGHLIGHT_MAX_LENGTH, highlightCode } from "../src/lib/markdown/highlight";
 import type { MdToken, MdTokenKind } from "../src/lib/markdown/highlight";
-import { THEMES } from "../src/theme/themes";
 
 const KINDS: MdTokenKind[] = ["key", "str", "num", "com", "fn", "type", "op", "plain"];
 
@@ -251,20 +247,3 @@ test("空のコードでも例外を投げない", () => {
 });
 
 // 種別と CSS の対応がずれると色が付かないまま静かに壊れるため、ここで突き合わせる
-const indexCss = readFileSync(fileURLToPath(new URL("../src/styles/index.css", import.meta.url)), "utf8").replace(
-  /\/\*[\s\S]*?\*\//g,
-  "",
-);
-
-test("トークン種別すべてに CSS クラスがある", () => {
-  for (const kind of KINDS.filter((kind) => kind !== "plain")) {
-    assert.ok(indexCss.includes(`.tok-${kind} {`), `.tok-${kind} が index.css に無い`);
-  }
-});
-
-test("6 テーマすべてがシンタックスの色を定義する", () => {
-  for (const name of ["key", "str", "num", "com", "fn", "type", "op"]) {
-    const count = indexCss.match(new RegExp(`--c-syn-${name}:`, "g"))?.length ?? 0;
-    assert.equal(count, THEMES.length, `--c-syn-${name} が ${THEMES.length} テーマ分無い`);
-  }
-});

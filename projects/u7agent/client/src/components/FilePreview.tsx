@@ -29,7 +29,6 @@ const PREVIEW_MODES: { value: PreviewMode; label: string }[] = [
   { value: "preview", label: "プレビュー" },
 ];
 
-/** 別オリジン (ストレージ有効) の切替説明。押すと iframe が開き直ることをラベルだけでなく title でも示す */
 const PREVIEW_ORIGIN_ON_NOTE = "別オリジンで開き直し、localStorage などを使えるようにします";
 const PREVIEW_ORIGIN_OFF_NOTE = "アプリと同じオリジンで開き直し、localStorage などを使えなくします";
 
@@ -104,12 +103,11 @@ export function FilePreview({
   // ポート未取得の間だけ同一オリジンへ倒す
   const newTabSrc =
     filePreviewPort === undefined ? fileHtmlPreviewUrl(fetchPath) : fileStoragePreviewUrl(fetchPath, filePreviewPort);
-  // ハイライトは表示中のタブの本文についてだけ計算する (タブごとに保持しない理由は docs/file-preview.md)
+  // ハイライトをタブごとに保持しない理由は docs/file-preview.md。
   const code = useMemo(
     () => (skipFetch || text === undefined ? null : buildPreviewCode(text, activePath)),
     [skipFetch, text, activePath],
   );
-  // 画像のメタは、読み込みが終わった寸法とツリーの行のサイズから作る。どちらも無ければ行ごと出さない
   const imageMeta = showImage
     ? imageMetaLabel(activeSize, loadedImage?.path === activePath ? loadedImage.dimensions : undefined)
     : null;
@@ -145,7 +143,6 @@ export function FilePreview({
       aria-label="ファイルプレビュー"
       className="flex min-h-40 min-w-0 flex-1 flex-col border-t border-line @2xl:min-h-0 @2xl:border-t-0 @2xl:border-l"
     >
-      {/* タブは横スクロールにし、増えても行の高さと本文の幅を変えない */}
       <div className="flex shrink-0 scrollbar-thin items-stretch gap-1 overflow-x-auto border-b border-line px-2 py-1.5">
         {paths.map((path, index) => (
           <FileTab
@@ -208,7 +205,6 @@ export function FilePreview({
           <img
             src={fileRawUrl(fetchPath, previewVersion)}
             alt={`${fetchPath} のプレビュー`}
-            // 寸法は読み込み後にしか分からない。パスを一緒に持たせ、タブを切り替えたら前のタブの値を出さない
             onLoad={(event) =>
               setLoadedImage({
                 path: activePath,
@@ -264,11 +260,7 @@ export function FilePreview({
   );
 }
 
-/**
- * プレビューのパンくず。表示中のファイルまでの各セグメントを root 相対で並べ、クリックでツリー上のその位置を示す (reveal)。
- * 画面 root は出さない (ツリーの起点でその行が無く押せないうえ、パネルのヘッダが同じパスを出す)。
- * 全体パスは取得時と同じ表記 (fetchPath) で tooltip に残す。
- */
+// 画面 root はツリーに対応する行がなく押せないため、パンくずへ出さない。
 export function FileBreadcrumb({
   rootPath,
   activePath,
@@ -311,10 +303,6 @@ export function FileBreadcrumb({
   );
 }
 
-/**
- * 本文をコピーするボタン。成功表示は表示中のタブに紐づけ、呼び出し側の key でタブが変わったら捨てる
- * (見えている本文が変わるため)。reveal は渡さない (hover できる端末でも常時表示する)。
- */
 function FileCopyButton({ text }: { text: string }) {
   const { copiedId, copyMessage } = useMessageCopy();
   return (

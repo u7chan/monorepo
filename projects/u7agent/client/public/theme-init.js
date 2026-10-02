@@ -1,6 +1,4 @@
-// テーマの初回描画前適用 (CSP 対応のため外部 classic script)。
-// localStorage の "u7agent-theme" を読み、html の data-theme 属性を設定する。
-// THEMES / FALLBACK / light の解決先は themeSync テストで themes.ts と突き合わせる。
+// 初回描画の点滅を避けるため React より先に実行する。CSP に合わせ外部 classic script に置く。
 (function () {
   var THEMES = ["midnight", "daylight", "mocha", "forest", "sakura", "sky"];
   var FALLBACK = "midnight";

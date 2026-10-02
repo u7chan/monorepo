@@ -15,15 +15,10 @@ export type ZoomableImageProps = {
   compact?: boolean;
 };
 
-/**
- * クリックでライトボックスを開く画像。dialog は body へ portal する。
- * 置いた場に <dialog> を出すと段落 (<p>) の中で DOM が不正になり、`.md img` の枠・角丸が拡大画像にも当たる。
- */
+// dialog の配置と焦点復帰は docs/markdown.md の「画像の拡大表示」を参照。
 export function ZoomableImage({ src, alt, title, variant, compact = false }: ZoomableImageProps) {
   const [open, setOpen] = useState(false);
-  // 読み込みに失敗した img は intrinsic 幅を持たない。button は fit-content の包含ブロックになり、
-  // 失敗 img のサムネイルが alt テキスト幅まで縮む (main は段落幅で解決していた)。失敗した src だけを
-  // 持つのは、src が変わったときに再度失敗するまで button へ戻すため
+  // 失敗画像を button で包まない理由は docs/markdown.md の「画像の拡大表示」を参照。
   const [failedSrc, setFailedSrc] = useState<string | null>(null);
   const failed = failedSrc === src;
   const dialogRef = useRef<HTMLDialogElement | null>(null);

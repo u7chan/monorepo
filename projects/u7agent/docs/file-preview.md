@@ -393,7 +393,7 @@ assistant 本文のインラインコードが指すファイルを、右パネ�
 - テキストはファイル行専用の `fileTimeLabel`（`client/src/lib/messageTime.ts`。今日 → `08:53` / 今年 → `9/21 08:53` / それ以前 → `2026/9/21 08:53`）。メッセージの `messageTimeLabel` は今年の分を `9/21` と日付だけで出すが、一覧では更新の前後を比べたいので月日を出すときも時刻を添える（今日 / 今年 / それ以前の分岐は両者で `timeScope` を共有する）。`title` に `messageFullTimeLabel`（`2026/9/21(日) 08:53`）を出す。`<time dateTime={new Date(mtime).toISOString()} title={…}>` の形の前例はチャットの吹き出し（`MessageView.tsx`）。数字の幅で行ごとにガタつかないよう `tabular-nums` を付ける
 - 時刻に時間を添えた分だけ名前の幅が減る。**コンテナ幅が `@2xs`（288px）未満では、時刻と末尾スロットを入れた `RowTail` を `basis-full` で次の段へ落とし、行を 2 段にする**（`@2xs:basis-auto` で 1 段に戻る）。右パネルの下限は `min(360px, 30vw)`（未指定のときの幅。幅はハンドルで選べる。[ui-layout.md](ui-layout.md#モードごとの構成)）なので desktop の最小幅 720px では 216px になり、ここで 1 段に押し込むと名前の幅が先に尽きる。名前の幅が 0 になっても flex は行のアイコン（ディレクトリは chevron 16 + folder 16 + gap 8 = 40px）を縮められないため、1 段のままだとアイコンが時刻の上へはみ出す（実測: 幅 216px・`2025/9/5 23:05` の行でファイルアイコンが時刻に 9.92px 重なり、名前の幅は 0px）。2 段にすると名前は行幅いっぱいを使え（実測: 幅 216px で `node_modules` 87.17px・`package.json` 79.02px）、行高は 30px から 52px になる
 - **ディレクトリ行もファイル行と同じ「div + 操作 button」の形にする**（以前は行全体が 1 つの `button`）。時刻を `button` の中に入れると accessible name に時刻が混ざり、時刻のクリックでも開閉してしまうため。`button` は `flex-1` のままなので、行のクリック領域は実質変わらない
-- 時刻の右端をそろえるため、両行の右 padding を `pr-2` にそろえ、行の末尾に `size-6` の ⋯ のスロットを 1 つ置く（行の右端は共通の `EntryRowActions`、その入れ物は `RowTail`）。時刻とスロットが接して見えないよう、行の `gap-x-1.5` を名前 / 時刻 / スロットの間隔にし、一覧の左右の余白は `px-4`（行全体の外側）で持つ。項目の無い行（symlink）だけ `aria-hidden` の空きスロット `EmptySlot` になり、設定 → ファイル と チャット右パネル の差はメニューの中身だけになる（[行の操作メニュー](#行の操作メニュー)、[ダウンロード](#ダウンロード)）。⋯ は常時表示なので、設定 → ファイル は移行前に比べて名前へ 60px（`size-6` + `gap-x-1.5` の 2 スロット分）広がる。px の一致は client に DOM テスト基盤が無いため自動では固定せず、**手動確認**とする（`client/test/fileBrowserRowTime.test.ts` は両行が同じ形であることまでを、`client/test/fileRowMenu.test.ts` は⋯ の幅と空きスロットの一致と出し分けを固定する）
+- 時刻の右端をそろえるため、両行の右 padding を `pr-2` にそろえ、行の末尾に `size-6` の ⋯ のスロットを 1 つ置く（行の右端は共通の `EntryRowActions`、その入れ物は `RowTail`）。時刻とスロットが接して見えないよう、行の `gap-x-1.5` を名前 / 時刻 / スロットの間隔にし、一覧の左右の余白は `px-4`（行全体の外側）で持つ。項目の無い行（symlink）だけ `aria-hidden` の空きスロット `EmptySlot` になり、設定 → ファイル と チャット右パネル の差はメニューの中身だけになる（[行の操作メニュー](#行の操作メニュー)、[ダウンロード](#ダウンロード)）。⋯ は常時表示なので、設定 → ファイル は移行前に比べて名前へ 60px（`size-6` + `gap-x-1.5` の 2 スロット分）広がる。px の一致は client に DOM テスト基盤が無いため自動では固定せず、**手動確認**とする。操作の採否と公開属性は `client/test/fileRowMenu.test.ts`、幅と配置は [GUI 受入](testing.md#gui-の最小受入) で確認する。
 - 意味は「更新」。サンドボックスが返せるのは mtime で、`birthtime` は overlayfs 等で 0 になり得るため使わない（アップロード / エージェントの書き出しでは実質の作成時刻と一致する）
 - **サンドボックスの一覧はディレクトリにも `mtime` を付ける**（`size` はファイルだけ。ディレクトリの `size` はファイルの内容量を表さない）。規則は symlink は辿った先（`stat`）、それ以外は `lstat` を全エントリに適用し、`classifyEntry` が種別判定に使った `stat` は捨てずに再利用する（増える syscall は素のディレクトリの `lstat` 1 回）。ディレクトリ symlink にはリンク先の mtime が付く（一覧が実体で表す既存契約と一致）
 - 一覧は追加の更新を持たないので、**行の時刻は「再読み込み」と run 終了でしか更新されない**。削除しても親ディレクトリ行の `mtime` は次の取得まで古いまま
@@ -411,32 +411,28 @@ assistant 本文のインラインコードが指すファイルを、右パネ�
 
 ## テスト
 
+方針と実ブラウザでの確認は [testing.md](testing.md)。具体的な CSS・component の配線名は固定しない。
+
 | テスト | 固定すること |
 | --- | --- |
-| `client/test/fileCode.test.ts` | 拡張子の言語判定 / 正規化と行数 / コピーする本文（正規化後・行番号なし・空文字）/ 上限でのフォールバック / 例外を投げない / 描画側が DOM 文字列とインライン style を使わない / HTML の判定 / iframe が sandbox 付きで 2 つの URL ヘルパ（隔離 / 有効）を使う（行番号の列と行数の数え方はチャット本文と共通で [markdown.md](markdown.md#コードブロックの行番号)） |
+| `client/test/fileCode.test.ts` | 拡張子の言語判定 / 正規化・行数・コピー本文 / 上限での fallback / HTML の判定 / 例外を投げない |
 | `client/test/fileTabs.test.ts` | 表示モードの既定（HTML と画像だけプレビュー）/ 表示モードと配信元の選択の保持と破棄（配信元の既定は別オリジン = ストレージ有効）/ タブの開閉と上限 / ディレクトリ配下のタブの一括削除（接頭辞境界と繰り上がり）/ リネームの経路の張り替え（並び・表示中の保持、配下、重複の排除、表示モードと配信元）/ 保存値からの復元（表示中の繰り上がりと上限） |
-| `client/test/toggleSwitch.test.ts` | 共有スイッチの寸法（既定の md は通知設定の旧寸法のまま / `sm` はプレビューのパス行と同じ高さ）/ `role="switch"` と `aria-checked`・丸の印・`disabled` / 押下で `checked` を反転 |
-| `client/test/filePreviewStorageMode.test.ts` | 別オリジンのスイッチ（既定は ON = 別オリジン + `allow-scripts allow-same-origin allow-pointer-lock` / OFF はアプリ オリジン + `allow-scripts` / ポート未取得では無効で隔離のまま / `role="switch"` と `aria-checked`、`ToggleSwitch` の `size="sm"` / ラベルが `別オリジン` で `title` が押した結果になること / 新しいタブは切替と無関係に常に別オリジン / ポートを client に焼き込まない / health から `FileBrowser` 経由で受ける / 切替で iframe を作り直す `key`）（`react-dom/server` の描画 + ソース走査。sandbox フラグが読まれる時点は Chromium の実挙動なので E2E で見る） |
-| `client/test/filePreviewNewTab.test.ts` | 新しいタブで開く（パス行に置いて HTML プレビュー中だけ出す / 常に別オリジンの `fileStoragePreviewUrl(fetchPath, filePreviewPort)` を開き、ポート未取得のときだけ `fileHtmlPreviewUrl(fetchPath)` へ倒す / `target="_blank"` + `rel="noreferrer noopener"` で `window.open` を使わない / アイコンだけのリンクに `aria-label` と `title`）（ソース走査） |
-| `client/test/filePreviewCopy.test.ts` | 本文のコピー（パス行に置く / `reveal` を渡さない / 表示中の本文を渡す / 画像と HTML のプレビューでは出さない / タブを切り替えたら成功表示を捨てる） |
-| `client/test/filePreviewImage.test.ts` | 画像プレビューの下地とメタ（メタはパス行に置いて画像タブだけに出る / `.image-canvas` が市松で、色はテーマのトークンだけで作り 1 タイルの大きさを持つ / 寸法は `onLoad` の内在ピクセルから取り、表示中のタブの値だけを出す / サイズはツリーの行から引いて `activeSize` で渡す）（ソース走査） |
+| `client/test/toggleSwitch.test.ts` | 名前付きの role=switch / aria-checked / disabled / 実 handler の状態反転 |
+| `client/test/filePreviewStorageMode.test.ts` | HTML の sandbox・配信元・切替の公開状態とポート未取得時の隔離 / 別タブの noopener と操作名 / 画像の raw URL・メタ・HTML 用操作の非表示（SSR） |
 | `client/test/imageRefresh.test.ts` | 実フックの同一 mount での再描画安定性・run 終了・手動更新 / 実 Markdown と FileBrowser → FilePreview の描画を通した面間・再 mount の URL 非衝突（SSR） |
 | `client/test/imageMeta.test.ts` | 画像メタの表記（寸法とサイズの両方 / 片方だけ / どちらも無ければ null / 不正値の落とし方と 0 B） |
-| `client/test/filePreviewTabClose.test.ts` | タブを中クリックで閉じる契約（`button === 1` だけ / タブの箱で受ける / down 側の既定動作を止める / `×` を残す） |
+| `client/test/filePreviewTabClose.test.ts` | 中クリックの button 判定。タブの ×・中クリックの実操作はブラウザで確認 |
 | `client/test/fileTree.test.ts` | 開閉・子のマージ・エラー保持 / 削除した行だけを落として他を保つこと / 削除の confirm 文言（ファイル / 配下ごとのディレクトリ、画面の root 相対パス）/ ディレクトリ削除後の枝の prune（接頭辞境界と own プロパティ契約）/ リネームの prompt 文言と、親の行の名前差し替え・配下キーの張り替え・開閉と取得済みの子の保持（接頭辞境界・未取得の親・`__proto__`）/ 取得中のリネームで loading を落として新しいキーで取り直すこと（旧キーの応答で新キーを汚さない）/ 保存する展開の抽出と復元（root の初期化、親を閉じた子の open、truncated）/ reveal の祖先（root から近い順・root 直下は空・同 object を返す条件・loading と子の保持・`__proto__`）/ パンくずの項目（root 相対の祖先とファイル）/ 取得済みの行の引き（未取得の親・一覧の上限外・前方一致・`__proto__`・再読み込み後） |
-| `client/test/fileTreeReveal.test.ts` | reveal の配線（参照の適用時に祖先を開く / パンくずと `revealRow` を共有 / 行が現れてからスクロール / 一時ハイライトとタイマーの掃除 / 対象の行だけが ref とハイライトを持つ / 合わせ直しはその入れ物自身の遷移だけを対象にすること（泡で届いた兄弟の枝の遷移を弾く））と、パンくずの構造（画面 root を出さない / root 相対の祖先とファイルはボタン / 全体パスは `title` / `aria-current` / クリックは画面 root 相対のまま）（`react-dom/server` の描画 + ソース走査） |
-| `client/test/fileTreeFold.test.ts` | ディレクトリの開閉（`.tree-fold` が grid の行を 0fr → 1fr へ遷移させる / 子を潰す `min-height` と `overflow` / 入れ物を開く前から置き、読み込み中と内容を別の入れ物にして閉じた枝の内容も残すこと / 閉じている入れ物の `inert` / `prefers-reduced-motion` で遷移しないこと / reveal の合わせ直しが遷移の長さを JS に写さず `transitionend` を合図にすること）（ソース走査） |
-| `client/test/fileRowMenu.test.ts` | 行の操作の出し分け（readOnly は `null` / symlink は `[]` / ダウンロード → リネーム → 削除 の順と条件 / ディレクトリの ZIP ラベルと 2 行目の開示）/ ⋯ の `aria-haspopup`・`aria-expanded` と本体の `role="menu"`・`aria-labelledby`、項目の `role="menuitem"`・`tabIndex=-1`・並び順と danger / 位置の純関数（右端・下端での反転と clamp）/ 可視判定 / ↑↓ の端止まり / 自前の close が `hidePopover()` を通り、`Escape` が伝播だけ止めること（`react-dom/server` の描画 + ソース走査） |
-| `client/test/fileBrowserRowTime.test.ts` | ディレクトリ行とファイル行が同じ形の時刻と ⋯ を持つこと（`<EntryTime at={entry.mtime}>` / `flex-wrap … gap-x-1.5 gap-y-1 rounded-lg pr-2` / 共通の `RowTail` + `EntryRowActions`）/ 狭い面で行を 2 段にする契約（`RowTail` の `basis-full` と `@2xs:basis-auto`）/ 行の右端が ⋯ 1 個で、項目 0 の行だけ空きスロット（`aria-hidden` の `size-6`）へ落ちること / `readOnly` では両行とも行の操作ごと消えること / 時刻が開閉の `button` の外にあること / 削除が種類ごとに confirm と API を分けること（ディレクトリは `deleteDirectory` と配下の state / タブの除去）/ 時刻が `fileTimeLabel` と `title` の完全な表記を使い、`mtime` 無しの行には出ないこと |
-| `client/test/fileDownloadRow.test.ts` | ダウンロードの出し分け（ファイル / フォルダ行のラベルと 2 行目の開示 / 除外名・symlink 行には出ない / `readOnly` は行の操作ごと消える）/ 確認文言（実際の除外名 / 件数 / サイズ表記 / ディレクトリだけ）/ `check` を先に通して `<a download>` で開始すること / 失敗をツリー内のエラー行へ出すこと / 除外名を app 状態から prop で受け取り、`FileBrowser` が health を取りに行かないこと（純関数 + ソース走査） |
+| `client/test/fileTreeReveal.test.ts` | パンくずの操作名 / root 相対の祖先とファイル / 全体パスの title / aria-current（SSR） |
+| `client/test/fileRowMenu.test.ts` | 操作の採否・順序 / menu と menuitem の公開属性 / 位置・可視判定・キーボード移動の純関数 |
+| `client/test/fileDownloadRow.test.ts` | 種類・symlink・除外名・readOnly ごとの操作の採否 / 確認文言とサイズ表記 |
 | `client/test/archiveSettings.test.ts` | 除外名の下書きの純関数（実効値からの初期化と配列を共有しないこと / dirty の比較（未設定のまま既定を保存させない）/ 追加の trim・空・重複・上限 / 削除 / 検証（サーバーと同じ 1 セグメント名の規則と件数上限）） |
-| `client/test/archiveSettingsPage.test.ts` | 設定 → アーカイブの描画（未設定バッジ / 上書き中 / 行と件数 / 明示空の警告 / note のエラー / 読み込み中と失敗 / 行がカードの入れ子になっていないこと（枠と面を持たず、削除が行の右端に常時出る））と配線（保存 → `PUT` / 既定に戻す → `DELETE` / 応答を app 状態へ反映 / 行の出し分けが app 状態の実効値を使う）（`react-dom/server` の描画 + ソース走査） |
-| `client/test/fileBrowserRename.test.ts` | リネームの出し分け（`canRename` のフォルダ行だけ / ダウンロードの後ろ・削除の前 / ファイル行と symlink 行には出ない / 既定は出さない）/ `readOnly` は行の操作ごと消えること / prompt の初期値と空・未変更の no-op / API への委譲とツリー・タブ・表示モードの張り替え・失敗の表示 / 渡すのは `FileTreePage` だけ、`readOnly` はスキルのファイルタブだけ（純関数 + ソース走査） |
-| `client/test/readOnlySkillPanel.test.ts` | 読み取り専用スキルの本文の取得元（選択のたびに `GET /api/files/preview` / 組み込みは一覧の `body`）/ 本文 / ファイル タブの出し分け（`fileSkillDir` / 読み取り専用の `FileBrowser` / root の caption / 初回 mount と `display` の保持）/ 本文のコピーが表示と同じ生テキストであること（`react-dom/server` の描画 + ソース走査） |
+| `client/test/archiveSettingsPage.test.ts` | 未設定・上書き・明示空・差分と保存可否・読み込み中・失敗・状態通知（SSR）。HTTP は apiContracts で検査 |
+| `client/test/readOnlySkillPanel.test.ts` | ファイルタブの採否 / 組み込み本文の表示（SSR）。取得・タブ間の操作はブラウザで確認 |
 | `client/test/fileRef.test.ts` | matcher の採否表（正規化と別表記の同ービキー / 制御文字 U+0000 / Unicode 空白 U+00A0・U+3000 / dotfile / scheme / `..` / 末尾ドット）と、解決の表（rootCwd 前置き / cwd 外 / rootCwd 未取得 / 明示的な相対 / cwd 未確定） |
-| `client/test/fileMention.test.ts` | ドラッグの種類の判定（参照の型は添付の `Files` より優先 / 対象外は null）/ 参照の字面（空白・引用符・バックスラッシュを含むパスの引用とエスケープ）/ 挿入規則（空・末尾・語中・選択の置換・既に空白がある位置・改行の後ろ、カーソルは参照の直後）/ 送信時の `trim` を通してもパスが変わらないこと / 配線のソース走査（ファイル行が積む型と `text/plain` / `canRef` を渡すのは desktop の右パネルだけ / Composer が参照を添付より先に見ること / ドロップ座標の解決と挿入） |
-| `client/test/fileRefRequest.test.ts` | 未消費は 1 件で最新優先 / ack は seq が一致するときだけ消す（request1 → request2 → ack1）/ 選択変更の破棄後に復活しない / 旧 ack で新しい要求を消さない / sessionId の一致判定 / 購読の通知 / 配線のソース走査（選択変更の 3 経路、App の受け渡し、`FileBrowser` の seq ガード、sheet の focus 復帰） |
-| `client/test/markdownFileRef.test.ts` | 参照になるインラインコードだけ button にする / provider の外と参照でない字面は code のまま / rootCwd 前置きと cwd 外の解決 / リンク内 code の除外 / 引用・リスト・表の中の code / 長文フォールバックの例外（描画 + ソース走査） |
+| `client/test/fileMention.test.ts` | ドラッグの種類の判定 / 参照の引用とエスケープ / 挿入・カーソルの位置 / trim を通したパスの保持 |
+| `client/test/fileRefRequest.test.ts` | 最新要求だけを保持 / seq が一致する ack だけを消費 / 選択変更と sessionId の採否 / 購読・解除 |
+| `client/test/markdownFileRef.test.ts` | 参照になる code だけ操作にする / provider 外・cwd 外・リンク内の除外 / 引用・リスト・表での描画 |
 | `client/test/filePreviewState.test.ts` | 保存 schema の encode / decode / 検証と上限 / 壊れた入力の捨て方 / 他 cwd を消さない merge / read・write の例外とメモリ snapshot / 配信元（ストレージ有効モード）を保存しないこと |
 | `client/test/sessionFiles.test.ts` | 右パネルの出し分け（desktop × チャット画面 × 作業フォルダあり） |
 | `client/test/chatReducer.test.ts` | `runEndSeq` が `run_end` と `running` を抜けた `resync` でだけ進むこと（同じバッチで届いた `run_start` / `run_end` でも 1 回、新規チャットでも戻らない） |

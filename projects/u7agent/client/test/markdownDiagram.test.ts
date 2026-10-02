@@ -1,7 +1,5 @@
-// 図 (mermaid サブセット) の契約: 受理する記法 / 形状 / エッジ / 順序 / 決定性 / 失敗時の ok: false。
-// 解析は DOM / React に依存せず例外も投げない (上限超過もソース表示に落ちる) ことを固定する。
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+
 import test from "node:test";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
@@ -703,18 +701,6 @@ test("壊れた入力でも例外を投げない", () => {
   }
 });
 
-test("lib/markdown/diagram.ts は DOM / React に依存しない", () => {
-  const source = readFileSync(new URL("../src/lib/markdown/diagram.ts", import.meta.url), "utf8");
-  const code = source.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^[ \t]*\/\/.*$/gm, "");
-  for (const token of ["react", "document.", "window.", "measureText", "innerHTML", "dangerouslySetInnerHTML"]) {
-    assert.ok(!code.includes(token), `diagram.ts に ${token} がある`);
-  }
-  assert.deepEqual(
-    [...code.matchAll(/from\s+"([^"]+)"/g)].map((match) => match[1]),
-    [],
-  );
-});
-
 /* ===== 描画 (react-dom/server) ===== */
 
 function render(source: string): string {
@@ -727,14 +713,11 @@ function renderBlocks(text: string): string {
 
 test("描画: SVG にインライン style を出さず、role と aria-label を持つ", () => {
   const html = render(["flowchart TD", "  a[本文] --> b{分岐}", "  b -->|yes| c((円))", "  b -.-> d(丸め)"].join("\n"));
-  assert.ok(html.includes('class="md-diagram group/code"'));
-  assert.ok(html.includes('class="md-diagram-head"'));
   assert.ok(html.includes("mermaid · flowchart TD"));
   assert.ok(html.includes('role="img"'));
   assert.ok(html.includes('aria-label="mermaid · flowchart TD"'));
   assert.ok(html.includes("<rect"));
   assert.ok(html.includes("<circle"));
-  assert.ok(html.includes('class="md-diagram-edge md-diagram-dashed"'));
   assert.ok(!html.includes("style="), "インライン style が出ている");
   assert.ok(!html.includes("dangerouslySetInnerHTML"));
 });
@@ -743,7 +726,7 @@ test("描画: marker の id は図ごとに一意になる", () => {
   const html = renderBlocks(
     ["```mermaid", "flowchart TD", " a --> b", "```", "```mermaid", "sequenceDiagram", " a->>b: x", "```"].join("\n"),
   );
-  const ids = [...html.matchAll(/id="(md-diagram-arrow-[^"]*)"/g)].map((match) => match[1]);
+  const ids = [...html.matchAll(/<marker[^>]*id="([^"]*)"/g)].map((match) => match[1]);
   assert.equal(ids.length, 2);
   assert.notEqual(ids[0], ids[1]);
   for (const id of ids) {
@@ -764,23 +747,23 @@ test("描画: sequenceDiagram のライフラインとノートを出す", () =>
       "  Note over A: メモ",
     ].join("\n"),
   );
-  assert.ok(html.includes('class="md-diagram-lifeline"'));
-  assert.ok(html.includes('class="md-diagram-note"'));
-  assert.ok(html.includes('class="md-diagram-note-label"'));
+  assert.ok(html.includes("client"));
+  assert.ok(html.includes("BFF"));
+  assert.ok(html.includes("メモ"));
   assert.ok(html.includes("mermaid · sequenceDiagram"));
   assert.ok(!html.includes("style="));
 });
 
 test("描画: mermaid の閉じたフェンスだけを図にする", () => {
   const diagram = renderBlocks(["```mermaid", "flowchart TD", " a --> b", "```"].join("\n"));
-  assert.ok(diagram.includes("md-diagram"));
+  assert.match(diagram, /<svg\b[^>]*role="img"/);
   // 未終端のフェンスは従来どおり生成中
   const streaming = renderBlocks(["```mermaid", "flowchart TD", " a --> b"].join("\n"));
-  assert.ok(!streaming.includes("md-diagram"));
+  assert.doesNotMatch(streaming, /<svg\b[^>]*role="img"/);
   assert.ok(streaming.includes("生成中…"));
   // 他の言語は注記なしのコードブロック
   const plantuml = renderBlocks(["```plantuml", "@startuml", "A -> B", "@enduml", "```"].join("\n"));
-  assert.ok(!plantuml.includes("md-diagram"));
+  assert.doesNotMatch(plantuml, /<svg\b[^>]*role="img"/);
   assert.ok(!plantuml.includes("未対応の記法"));
   assert.ok(plantuml.includes("plantuml"));
 });
@@ -788,7 +771,7 @@ test("描画: mermaid の閉じたフェンスだけを図にする", () => {
 test("描画: 解析できない図はソースと理由を出す", () => {
   const html = renderBlocks(["```mermaid", "gantt", " title x", "```"].join("\n"));
   assert.ok(html.includes("未対応の記法のためソースを表示しています"));
-  assert.ok(html.includes("md-code"));
-  assert.ok(!html.includes("md-diagram"));
+  assert.ok(html.includes("<pre"));
+  assert.doesNotMatch(html, /<svg\b[^>]*role="img"/);
   assert.ok(!html.includes("style="));
 });

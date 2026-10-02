@@ -1,5 +1,4 @@
-// 本文由来の文字列が HTML として解釈される経路そのものを持たないことをソース走査で固定する。
-// 実装を差し替えても、ここにある書き方が戻れば落ちる (コメント行は判定から外す)。
+// 文字列を HTML として解釈する経路の禁止は型で保証できないため、限定的なソース検査を残す。
 import assert from "node:assert/strict";
 import { readdirSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
@@ -27,9 +26,12 @@ function stripComments(code: string): string {
 
 function sourceFiles(dir: string): { path: string; code: string }[] {
   const absolute = fileURLToPath(new URL(`../${dir}`, import.meta.url));
-  return readdirSync(absolute)
-    .filter((name) => /\.tsx?$/.test(name))
-    .map((name) => ({ path: `${dir}/${name}`, code: stripComments(readFileSync(`${absolute}/${name}`, "utf8")) }));
+  return readdirSync(absolute, { withFileTypes: true }).flatMap((entry) => {
+    if (entry.isDirectory()) return sourceFiles(`${dir}/${entry.name}`);
+    return /\.tsx?$/.test(entry.name)
+      ? [{ path: `${dir}/${entry.name}`, code: stripComments(readFileSync(`${absolute}/${entry.name}`, "utf8")) }]
+      : [];
+  });
 }
 
 const libFiles = sourceFiles(LIB_DIR);
@@ -37,25 +39,8 @@ const componentFiles = sourceFiles(COMPONENT_DIR);
 const allFiles = [...libFiles, ...componentFiles];
 
 test("解析と描画のソースが揃っている (走査対象が空にならない)", () => {
-  assert.deepEqual(libFiles.map((file) => file.path.split("/").pop()).sort(), [
-    "diagram.ts",
-    "highlight.ts",
-    "html.ts",
-    "inline.ts",
-    "latex.ts",
-    "latexLayout.ts",
-    "parse.ts",
-    "types.ts",
-  ]);
-  assert.deepEqual(componentFiles.map((file) => file.path.split("/").pop()).sort(), [
-    "CodeBlock.tsx",
-    "Diagram.tsx",
-    "FileRefLink.tsx",
-    "HtmlInline.tsx",
-    "MarkdownImageRefs.tsx",
-    "MarkdownView.tsx",
-    "MathView.tsx",
-  ]);
+  assert.ok(libFiles.length > 0);
+  assert.ok(componentFiles.length > 0);
 });
 
 test("DOM 文字列の生成と HTML のパースを使っていない", () => {

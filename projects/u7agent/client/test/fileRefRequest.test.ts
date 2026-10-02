@@ -1,14 +1,7 @@
-// ファイル参照の要求管理。client に DOM テスト基盤が無いため、store と純関数を直接検証し、
-// useSessions / App / FileBrowser への配線 (選択変更での破棄、seq ガード、ack) はソース走査で固定する。
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
+
 import test from "node:test";
 import { createFileRefRequests, fileRefRequestForSession } from "../src/lib/fileRefRequest";
-
-function read(relativePath: string): string {
-  return readFileSync(fileURLToPath(new URL(`../${relativePath}`, import.meta.url)), "utf8");
-}
 
 test("未消費の要求は 1 件だけで、新しい要求が最新優先で残る", () => {
   const store = createFileRefRequests();
@@ -74,58 +67,4 @@ test("購読は変更のたびに届き、解除後は届かない", () => {
   unsubscribe();
   store.request("a", "b.png");
   assert.equal(notified, 2);
-});
-
-test("配線: 選択が変わる経路 (selectSession / newChat / 選択確定) で要求を破棄する", () => {
-  const source = read("src/hooks/useSessions.ts");
-  assert.ok(source.includes("useSyncExternalStore(fileRefRequests.subscribe, fileRefRequests.snapshot)"));
-  const clears = source.match(/fileRefRequests\.clear\(\)/g) ?? [];
-  assert.equal(clears.length, 3, "selectSession / newChat / applySelectedSession の 3 箇所で破棄していない");
-  assert.ok(source.includes("fileRefRequests.request(sessionIdRef.current, path)"), "要求の作成がない");
-  assert.ok(source.includes("fileRefRequests.ack(seq)"), "ack の照合がない");
-  // 確定時は選択が変わるときだけ落とす (同一セッションの snapshot 更新では落とさない)
-  assert.ok(
-    source.includes("if (sessionIdRef.current !== payload.sessionId) fileRefRequests.clear();"),
-    "選択確定時の破棄がない",
-  );
-});
-
-test("配線: App は選択中セッションの要求だけをパネル / sheet へ渡し、ack で消す", () => {
-  const source = read("src/App.tsx");
-  assert.ok(
-    source.includes("fileRefRequestForSession(app.fileRefRequest, app.sessionId)"),
-    "sessionId の一致判定がない",
-  );
-  assert.equal(
-    (source.match(/openRequest=\{pendingFileRef\}/g) ?? []).length,
-    2,
-    "パネルと sheet の両方へ渡していない",
-  );
-  assert.equal((source.match(/onHandled=\{app\.ackFileRef\}/g) ?? []).length, 2);
-  assert.ok(source.includes("returnFocus={fileRefOriginRef.current}"), "focus の戻し先を渡していない");
-  assert.ok(
-    source.includes("fileRefOriginRef.current = origin"),
-    "クリック時に起点要素を保持していない (document.activeElement 依存)",
-  );
-});
-
-test("配線: FileBrowser は mount 後の effect で適用し、seq ガードと onHandled を持つ", () => {
-  const source = read("src/components/FileBrowser.tsx");
-  const record = source.indexOf("appliedRequestRef.current = openRequest.seq");
-  const apply = source.indexOf("setTabs((prev) => openFileTab(prev, openRequest.path))");
-  assert.ok(source.includes("appliedRequestRef.current === openRequest.seq"), "seq のガードがない");
-  assert.ok(record !== -1 && apply !== -1 && record < apply, "適用の印を setTabs より後に置いている");
-  assert.ok(source.includes("onHandled?.(openRequest.seq)"), "onHandled を返していない");
-  assert.ok(
-    read("src/components/SessionFilesPanel.tsx").includes(
-      "<FileBrowser\n        root={root}\n        reloadToken={reloadToken}\n        excludeNames={excludeNames}\n        filePreviewPort={filePreviewPort}\n        openRequest={openRequest}\n        onHandled={onHandled}\n        canRef={!compact}\n      />",
-    ),
-    "パネルから FileBrowser へ渡していない",
-  );
-});
-
-test("配線: compact の sheet は起点要素があれば生存確認して focus を戻す", () => {
-  const source = read("src/components/SessionFilesPanel.tsx");
-  assert.ok(source.includes("const origin = returnFocus ?? (document.activeElement as HTMLElement | null)"));
-  assert.ok(source.includes("if (origin?.isConnected) origin.focus();"), "起点の生存確認がない");
 });

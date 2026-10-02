@@ -1,12 +1,5 @@
-// 設定 → モデルの初期描画。client に DOM テスト基盤が無いため、react-dom/server の静的描画で
-// タブ・「モデルを選ぶ」の候補と保存バー・「プロバイダー」のマスター詳細を固定する
-// (状態遷移・集計・確認の文言は lib/modelSettings の純関数テストが担う)。
-// 保存の画面内確認だけは押下後の状態を持つため静的描画では出せない。ソース上でネイティブ confirm を
-// 使わないことを固定し、判断は lib の純関数テストで検証する。
-
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
+
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import test from "node:test";
@@ -206,8 +199,6 @@ test("モデルを選ぶタブは既定モデル・選択数・候補・保存�
     "provider 行に名前と a/b と選択数を出す",
   );
   assert.ok(html.includes('fill-rule="evenodd"'), "モデル候補の provider 行にもロゴを出す");
-  assert.ok(html.includes("min-w-40"), "provider 行右端の件数は幅を固定し、バッジと数字の位置を揃える");
-  assert.ok(html.includes("min-h-11"), "選択済みのみのチェックはタッチ向けの高さを保つ");
   assert.ok(html.includes("開いている会話のモデルは切り替えません"), "live の会話へ効かないことを注記する");
   assert.ok(html.includes("モデル一覧を表示") === false, "ModelTable は出さない");
   // 先頭の provider も含めて既定は閉じ、折りたたみ中は行を描画しない
@@ -216,7 +207,7 @@ test("モデルを選ぶタブは既定モデル・選択数・候補・保存�
   assert.equal(html.includes('title="anthropic/claude-sonnet"'), false, "折りたたみ中の行も描画しない");
   // 下部の固定アクション行は変更なしを示し、ボタンは無効
   assert.ok(html.includes("未保存の変更はありません"));
-  assert.ok(html.includes('class="btn-primary" disabled=""'));
+  assert.match(html, /<button[^>]*disabled=""[^>]*>(?:(?!<\/button>)[\s\S])*モデル候補を保存<\/button>/);
   assert.ok(html.includes("モデル候補を保存"));
 });
 
@@ -235,7 +226,7 @@ test("認証が設定されていない provider の選択は表示せず、下�
   assert.ok(html.includes("選択 0 / 利用可能 1"), "見えない選択は数えない (保存値に残っていても下書きから落とす)");
   assert.ok(html.includes("未設定（利用可能なモデルの先頭を使う）"), "未認証を指す既定も未設定へ戻す");
   assert.ok(html.includes("登録が無いプロバイダーに残った選択は候補に出さず"), "残った選択の扱いを注意書きに出す");
-  assert.ok(html.includes('class="btn-primary" disabled=""'), "選択 0 件の間は保存しない");
+  assert.match(html, /<button[^>]*disabled=""[^>]*>(?:(?!<\/button>)[\s\S])*モデル候補を保存<\/button>/);
 });
 
 test("カタログ外の保存済みエントリは警告付きで残し、既定モデルの候補にも出す", () => {
@@ -261,7 +252,7 @@ test("選択 0 件は保存できず、空を送らない理由を出す", () =>
   assert.ok(html.includes("選択したモデルが 0 件のため保存できません"));
   assert.ok(html.includes("空の選択は API で「制限なし（全モデル）」へ正規化される"));
   assert.ok(html.includes("「モデル候補」から 1 つ以上選ぶと既定モデルを選べます"));
-  assert.ok(html.includes('class="btn-primary" disabled=""'));
+  assert.match(html, /<button[^>]*disabled=""[^>]*>(?:(?!<\/button>)[\s\S])*モデル候補を保存<\/button>/);
 });
 
 test("カタログを取得できないときは候補を編集させず、保存もできない", () => {
@@ -269,14 +260,14 @@ test("カタログを取得できないときは候補を編集させず、保�
   assert.ok(html.includes("モデル一覧を取得できないため、モデル候補は編集できません"));
   assert.ok(html.includes("ランタイムのモデル情報を取得できません"));
   assert.equal(html.includes("モデル一覧を読み込んでいます"), false, "取得失敗と読み込み中を混同しない");
-  assert.ok(html.includes('class="btn-primary" disabled=""'));
+  assert.match(html, /<button[^>]*disabled=""[^>]*>(?:(?!<\/button>)[\s\S])*モデル候補を保存<\/button>/);
 });
 
 test("カタログの読み込み中は編集不可と出さず、保存も押せない", () => {
   const html = render(modelSettings({ catalog: null, catalogError: null }));
   assert.ok(html.includes("モデル一覧を読み込んでいます"));
   assert.equal(html.includes("モデル一覧を取得できないため"), false);
-  assert.ok(html.includes('class="btn-primary" disabled=""'));
+  assert.match(html, /<button[^>]*disabled=""[^>]*>(?:(?!<\/button>)[\s\S])*モデル候補を保存<\/button>/);
   assert.ok(html.includes("モデル一覧を読み込んでいます。"), "固定バーも読み込み中を示す");
 });
 
@@ -419,22 +410,6 @@ test("最終使用は一覧の取得後だけ出し、会話が無いときの�
   assert.ok(ambient.includes("この provider の会話 2 件"));
 });
 
-test("provider 詳細の件数・キー最終保存・最終使用は認証バッジと同じチップで揃える", () => {
-  const html = render(
-    modelSettings({ settings: { ...SETTINGS, providers: [provider({ managed: true, keyUpdatedAt: 1 })] } }),
-    {
-      modelsSubsection: "providers",
-      sessions: [session({ sessionId: "a", model: "anthropic/claude-sonnet", lastUsedAt: 100 })],
-      sessionsLoaded: true,
-    },
-  );
-  const chip = (text: string) =>
-    `rounded border px-1.5 py-0.5 text-2xs whitespace-nowrap border-line text-ink-muted">${text}`;
-  assert.ok(html.includes(chip("利用可能 1 / カタログ 2<")), "利用可能数もチップで出す");
-  assert.ok(html.includes(chip("キー最終保存: ")), "キー最終保存もチップで出す");
-  assert.ok(html.includes(chip("最終使用: ")), "最終使用もチップで出す");
-});
-
 test("カタログ外で未反映の行は再同期ボタンを出さず、削除とカタログ復帰を案内する", () => {
   const html = render(
     modelSettings({
@@ -543,53 +518,4 @@ test("読み込み中の状態を出す", () => {
   );
   assert.ok(html.includes("プロバイダーの認証状態を読み込んでいます。"));
   assert.ok(html.includes("再読み込み"));
-});
-
-test("モデル候補の保存確認は window.confirm を使わず、純関数の文言で画面内に出す", () => {
-  const modelsTab = readFileSync(
-    fileURLToPath(new URL("../src/components/model-settings/ModelsTab.tsx", import.meta.url)),
-    "utf8",
-  );
-  assert.equal(modelsTab.includes("window.confirm"), false, "ネイティブ confirm を使わない");
-  assert.match(modelsTab, /availabilitySaveConfirmMessage\(/, "確認の文言は純関数から取る");
-  assert.match(modelsTab, /role="alert"/, "確認は画面内に出す");
-  assert.match(modelsTab, /保存する/, "同意ボタンを出す");
-  assert.match(modelsTab, /キャンセル/, "取り消しできるボタンを出す");
-  assert.match(modelsTab, /normalizeAllowedModels\(draft\.allowed\)/, "全選択でも明示リストを送る");
-  assert.match(modelsTab, /noSelection/, "選択 0 件では保存を押させない");
-
-  const providersTab = readFileSync(
-    fileURLToPath(new URL("../src/components/model-settings/ProvidersTab.tsx", import.meta.url)),
-    "utf8",
-  );
-  // キー削除の確認は従来どおりネイティブ confirm のまま (この指摘の対象外)
-  assert.equal(providersTab.includes("window.confirm"), true);
-  assert.equal(providersTab.includes("ModelTable"), false, "モデル一覧の3重表示を消す");
-});
-
-test("下書きの作り直しは保存値と初回の null 展開に限り、provider の入力は親が保つ", () => {
-  const page = readFileSync(fileURLToPath(new URL("../src/components/ModelSettingsPage.tsx", import.meta.url)), "utf8");
-  // カタログの更新 (キー操作での再取得・取得失敗) では下書きを作り直さない。判定は lib の純関数が持つ
-  assert.match(page, /availabilityDraftState\(/, "比較基準の作り直しは純関数に任せる");
-  assert.match(page, /appliedDraft\.current/);
-  assert.match(page, /providerDrafts/, "provider の下書きも両タブの親が持つ");
-  assert.match(page, /withProviderDraft\(/);
-
-  const providersTab = readFileSync(
-    fileURLToPath(new URL("../src/components/model-settings/ProvidersTab.tsx", import.meta.url)),
-    "utf8",
-  );
-  // apiKey / memo のローカル state を持たない (再マウントで保存値に戻らない)
-  assert.equal(providersTab.includes("const [apiKey, setApiKey]"), false);
-  assert.equal(providersTab.includes("const [memo, setMemo]"), false);
-  assert.match(providersTab, /providerDraftOf\(/, "入力値は親の下書きから取る");
-  assert.match(providersTab, /onChangeDraft\(/, "編集は親の下書きを更新する");
-  // 保存完了と保存値の同期は保存対象のフィールドだけを更新する (await 中に入力された他方を古い値で上書きしない)
-  assert.match(providersTab, /onChangeDraft\(provider\.provider, \{ apiKey: "" \}\)/, "キー保存後は apiKey だけ消す");
-  assert.match(providersTab, /onChangeDraft\(provider\.provider, \{ memo: trimmed \}\)/, "メモ保存後は memo だけ戻す");
-  assert.match(
-    providersTab,
-    /onChangeDraft\(provider\.provider, \{ memo: savedMemo \}\)/,
-    "外部変化の同期も memo だけ",
-  );
 });

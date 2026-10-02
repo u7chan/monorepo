@@ -23,6 +23,7 @@
 | APIキーのマスク | `server/src/redact.ts`、`server/src/secret-guard.ts` | [secrets.md](secrets.md) |
 | Discord 通知（会話ごとの On/Off と設定画面） | `server/src/notifications.ts`、`server/src/routes/notifications.ts`、`client/src/components/NotificationSettingsPage.tsx`、`client/src/components/notifications/` | [notifications.md](notifications.md) |
 | フロントエンドの状態 / テーマ / レイアウト | `client/src/hooks/`、`client/src/theme/`、`client/src/components/` | [frontend.md](frontend.md)、[ui-layout.md](ui-layout.md) |
+| テスト方針 / client の検査の分類 / GUI 受入 | `client/test/`、`server/test/`、`AGENTS.md` | [testing.md](testing.md) |
 | チャット本文の Markdown 描画 | `client/src/lib/markdown/`、`client/src/lib/codeLines.ts`、`client/src/components/markdown/` | [markdown.md](markdown.md) |
 | 永続化 / 再デプロイ時の挙動 | - | [persistence.md](persistence.md) |
 | 移植の経緯 | - | [migration.md](migration.md) |

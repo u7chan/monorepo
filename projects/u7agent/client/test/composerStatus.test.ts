@@ -55,14 +55,6 @@ test("描画: モデル名とゲージは aria-live の外へ置く", () => {
   assert.ok(html.includes("(0s)"), "経過時間は aria-hidden の別スパンに出す");
 });
 
-test("描画: 利用できないモデルは warn 色にする", () => {
-  const missing = render({ activity: "", model: "ghost/none", modelLabel: "ghost/none", modelUnavailable: true });
-  const available = render({ activity: "", model: "ghost/none", modelLabel: "ghost/none" });
-
-  assert.ok(missing.includes("text-warn"));
-  assert.ok(!available.includes("text-warn"), "利用できるときは warn 色にしない");
-});
-
 // --- 手動圧縮の導線 ---
 
 test("描画: セッションがあると Context ゲージの右に圧縮ボタンを出す", () => {

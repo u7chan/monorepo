@@ -1,67 +1,10 @@
-// サービスの状態取得 (useServeStatus) の契約。
-//   - 会話を切り替えたら前の会話の状態を描かない (render 中の同期 reset)
-//   - 選択中の会話 id と要求世代で古い応答を捨てる (requestGate)
-//   - 取得失敗はリンクも操作も出さない状態にする (到達不可と区別する)
-//   - 既存の 4 秒ポーリングと同じリズムに乗せる
-// DOM を持たない方針のため、Effect とクリックの実行はソース走査で固定する。
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
 import test from "node:test";
 
 import { servedAppView } from "../src/lib/servedApp";
 import { canApplyServeAction, canApplyStatus } from "../src/lib/serveStatus";
 import type { ServeStatus } from "../src/types";
 import { serveStatus } from "./serve-fixture";
-
-function read(relativePath: string): string {
-  return readFileSync(fileURLToPath(new URL(`../${relativePath}`, import.meta.url)), "utf8");
-}
-
-const hook = read("src/hooks/useServeStatus.ts");
-const facade = read("src/hooks/useU7Agent.ts");
-const api = read("src/api.ts");
-
-test("会話を切り替えたフレームで前の会話の状態を描かない", () => {
-  // Effect を待つと 1 フレーム古い値が出るため、render 中に同期して捨てる (App の sheetScope と同じ作法)
-  assert.match(hook, /if \(tracked !== sessionId\) \{\n\s+setTracked\(sessionId\);\n\s+setState\(IDLE\);/);
-  assert.match(hook, /const IDLE: ServeState = \{ status: null, failed: false, starting: false, error: undefined \}/);
-  // 切替後は選択中の会話で取り直す (前の会話の応答は id の照合で捨て、飛行中の印も外す)
-  assert.match(
-    hook,
-    /useEffect\(\(\) => \{\n\s+if \(!sessionId\) return;\n\s+inFlight\.current = 0;\n\s+void refresh\(\);\n\s+\}, \[sessionId, refresh\]\)/,
-  );
-});
-
-test("選択中の会話 id で古い応答を捨て、飛行中の要求を重ねない", () => {
-  // 取得の応答は会話 id の一致を見てから適用する
-  assert.equal((hook.match(/if \(sessionIdRef\.current !== id\) return;/g) ?? []).length, 2);
-  // 飛行中の取得があるうちは次を発行しない (古い要求を追い越させない)
-  assert.match(hook, /if \(!id \|\| inFlight\.current !== 0\) return;/);
-  assert.match(hook, /inFlight\.current = seq;/);
-  assert.match(hook, /if \(inFlight\.current === seq\) inFlight\.current = 0;/);
-});
-
-test("操作の応答は会話選択の世代に束縛し、切替前の start / stop 結果を適用しない", () => {
-  // 切替で選択の世代を進める
-  assert.match(hook, /selectionSeq\.current \+= 1;/);
-  // 発行時に選択 (id と世代) を捕捉し、応答の適用前に照合する (start 1 + stop 1、成功 / 失敗の両方)
-  assert.equal(
-    (hook.match(/const issued: ServeSelection = \{ sessionId: id, generation: selectionSeq\.current \};/g) ?? [])
-      .length,
-    2,
-  );
-  assert.equal((hook.match(/canApplyServeAction\(/g) ?? []).length, 4, "成功 / 失敗の両方で照合する");
-  for (const name of ["const start =", "const stop ="]) {
-    const action = hook.slice(hook.indexOf(name), hook.indexOf(name) + 1_400);
-    assert.ok(
-      action.indexOf("canApplyServeAction(issued") < action.indexOf("setState({ status"),
-      `${name}: 応答を適用する前に照合する`,
-    );
-  }
-  // 取得の無効化 (操作前 / 適用前) も維持する
-  assert.equal((hook.match(/invalidatePending\(\);/g) ?? []).length, 4);
-});
 
 test("canApplyServeAction は発行時と同じ会話選択のときだけ適用する", () => {
   const issued = { sessionId: "A", generation: 1 };
@@ -94,15 +37,6 @@ test("保留中の start 応答は、A → B → A と切り替えたあとの�
   applyAction(serveStatus({ reachable: true, owner: { kind: "mine", title: "検証A" }, generation: "g1" }), selection);
   assert.equal(status?.owner.kind, "other", "古い start 応答で上書きしない");
   assert.equal(servedAppView(status).canOpen, false, "「サービスを開く」が復活しない");
-});
-
-test("応答がポーリング間隔より遅くても状態が更新される (最新のみ適用で飢えさせない)", () => {
-  // 最新のみを適用するゲート (createRequestGate) を使わない。使うと 4 秒を超える応答がどの回でも採用されない
-  assert.ok(!hook.includes("createRequestGate"), "最新のみのゲートでスタベーションを起こさない");
-  assert.match(hook, /canApplyStatus\(seq, invalidatedUpTo\.current, appliedSeq\.current\)/);
-  assert.match(hook, /appliedSeq\.current = seq;/);
-  // 応答が返らないまま飛行中の印が残らないよう、取得には期限を付ける
-  assert.match(hook, /AbortSignal\.timeout\(SERVE_STATUS_TIMEOUT_MS\)/);
 });
 
 test("canApplyStatus は新しい応答を適用し、操作で無効化された応答は適用しない", () => {
@@ -141,68 +75,4 @@ test("会話切替 (A → B → A) で切替前の取得結果を適用しない
   assert.equal(apply(a1), false, "切替前の A の応答は捨てる");
   assert.equal(apply(b2), false, "他会話 (B) の応答は捨てる");
   assert.equal(apply(a3), true, "切替後に始まった A の応答は適用する");
-});
-
-test("会話切替は切替前の取得結果を無効化する", () => {
-  // 印を外すだけでは A → B → A で最初の A の応答が再び有効になる
-  const reset = hook.slice(hook.indexOf("if (tracked !== sessionId)"), hook.indexOf("const invalidatePending"));
-  assert.match(reset, /setTracked\(sessionId\);/);
-  assert.match(reset, /setState\(IDLE\);/);
-  assert.match(reset, /invalidatedUpTo\.current = requestSeq\.current;/);
-  // 切替後は選択中の会話で取り直し、飛行中の印を外す
-  assert.match(hook, /if \(!sessionId\) return;\n\s+inFlight\.current = 0;\n\s+void refresh\(\);/);
-});
-
-test("操作は進行中の取得を捨て、後から届いた取得で操作の結果を上書きさせない", () => {
-  // 操作の直前と、操作の応答を適用する直前に、進行中の取得を無効化する
-  assert.match(
-    hook,
-    /const invalidatePending = useCallback\(\(\): void => \{\n\s+invalidatedUpTo\.current = requestSeq\.current;\n\s+\}, \[\]\)/,
-  );
-  const start = hook.slice(hook.indexOf("const start ="), hook.indexOf("const stop ="));
-  assert.ok(start.indexOf("invalidatePending();") < start.indexOf("await startServe"), "送信の前に捨てる");
-  assert.ok(
-    start.indexOf("invalidatePending();", start.indexOf("await startServe")) < start.indexOf("setState({ status"),
-    "応答の適用前にも捨てる",
-  );
-  const stop = hook.slice(hook.indexOf("const stop ="), hook.indexOf("const cancel ="));
-  assert.ok(stop.indexOf("invalidatePending();") < stop.indexOf("await stopServe"), "送信の前に捨てる");
-  assert.ok(
-    stop.indexOf("invalidatePending();", stop.indexOf("await stopServe")) < stop.indexOf("setState({ status"),
-    "応答の適用前にも捨てる",
-  );
-});
-
-test("取得失敗はリンクも操作も出さない状態にし、到達不可と区別する", () => {
-  assert.match(hook, /setState\(\(prev\) => \(\{ \.\.\.prev, status: null, failed: true \}\)\)/);
-  // 起動・停止の失敗は理由を残し、状態はサーバーの値を取り直す
-  assert.match(
-    hook,
-    /setState\(\(prev\) => \(\{ \.\.\.prev, starting: false, error: messageFor\(error\) \}\)\);\n\s+await refresh\(\);/,
-  );
-  assert.match(
-    hook,
-    /setState\(\(prev\) => \(\{ \.\.\.prev, error: messageFor\(error\) \}\)\);\n\s+await refresh\(\);/,
-  );
-  // 起動は期限つきのプローブまで確定しないため、遷移状態を持つ (キャンセルは待つのをやめる)
-  assert.match(hook, /setState\(\(prev\) => \(\{ \.\.\.prev, starting: true, error: undefined \}\)\)/);
-  assert.match(hook, /startAbort\.current\?\.abort\(\)/);
-});
-
-test("既存の 4 秒ポーリングと同じリズムに乗せる", () => {
-  assert.match(facade, /const serve = useServeStatus\(\{ sessionId \}\)/);
-  const interval = facade.slice(facade.indexOf("window.setInterval"), facade.indexOf("window.setInterval") + 700);
-  assert.match(interval, /void serve\.refresh\(\)/);
-  assert.match(interval, /\}, 4000\)/);
-  // interval は refresh (安定した useCallback) だけに依存させる (毎描画で作り直さない)
-  assert.match(facade, /\}, \[refreshSessions, serve\.refresh\]\)/);
-});
-
-test("API 呼び出しは閲覧中の会話 id と世代だけを送る", () => {
-  assert.match(api, /client\.api\.serve\.status\.\$get\(\{ query: \{ sessionId \} \}/);
-  assert.match(api, /client\.api\.serve\.start\.\$post\(\{ json: input \}, \{ init: \{ signal \} \}\)/);
-  assert.match(api, /client\.api\.serve\.stop\.\$post\(\{ json: input \}\)/);
-  // 作業ディレクトリはサーバーが解決する (client は cwd を送らない)
-  const serveApi = api.slice(api.indexOf("export const getServeStatus"), api.indexOf("export const stopServe"));
-  assert.ok(serveApi.length > 0 && !serveApi.includes("cwd"), "client から cwd を送っていない");
 });

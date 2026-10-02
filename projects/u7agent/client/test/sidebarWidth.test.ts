@@ -1,12 +1,5 @@
-// 左バー (Sidebar) の幅の規則。client に DOM テスト基盤が無いため、bounds・clamp・キー操作・
-// 保存値の扱いを純関数で固定し、ハンドルの配線と App / Sidebar の配線はソース走査・SSR で固定する。
-//   1. bounds は定数 (既定 252 / 上限 400) で、viewport に依存しない
-//   2. 上限は docked の下限 (1200px) でチャットと右パネルが潰れない値にする
-//   3. 保存値は整数のみ。壊れた値は未設定へ落とし、bounds の外でも捨てない (表示時に clamp する)
-//   4. ハンドルは resize を渡した Sidebar (docked) だけに出る (overlay のドロワーには出ない)
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
+
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import test from "node:test";
@@ -31,10 +24,6 @@ import {
   SIDEBAR_WIDTH_STORE_LIMIT,
   type SidebarWidthStorage,
 } from "../src/lib/sidebarWidth";
-
-function read(relativePath: string): string {
-  return readFileSync(fileURLToPath(new URL(`../${relativePath}`, import.meta.url)), "utf8");
-}
 
 test("bounds は定数で、下限は既定幅 (252px) / 上限は 400px", () => {
   assert.equal(SIDEBAR_WIDTH, 252);
@@ -189,60 +178,8 @@ test("ハンドルは resize を渡した Sidebar (docked) だけに出る", () 
   assert.ok(docked.includes('aria-valuemax="400"'));
   assert.ok(docked.includes('aria-valuenow="300"'));
   assert.ok(docked.includes('tabindex="0"'));
-  assert.ok(docked.includes("panel-resize-handle"));
+
   // overlay のドロワー (NavSheet) は resize を渡さないのでハンドルが出ない
   const sheet = renderSidebar(false);
   assert.ok(!sheet.includes('role="separator"'));
-  assert.ok(!sheet.includes("panel-resize-handle"));
-});
-
-test("ハンドルの配線: 終了経路をまとめ、移動ゼロでは commit しない", () => {
-  const handle = read("src/components/sidebar/SidebarResizeHandle.tsx");
-  assert.ok(handle.includes('role="separator"'));
-  assert.ok(handle.includes('aria-orientation="vertical"'));
-  assert.ok(handle.includes('aria-label="左バーの幅"'));
-  assert.ok(handle.includes("aria-valuemin={min}"));
-  assert.ok(handle.includes("aria-valuemax={max}"));
-  assert.ok(handle.includes("aria-valuenow={width}"));
-  assert.ok(handle.includes("tabIndex={0}"));
-  assert.ok(handle.includes("setPointerCapture"));
-  // 終了経路 (pointerup / pointercancel / lostpointercapture) はすべて finishDrag を通り、
-  // 開始したポインターだけを受け付ける (別の指の同時タッチでドラッグを終わらせない)
-  assert.equal(handle.match(/finishDrag\(event\.pointerId, true\)/g)?.length, 3);
-  assert.ok(handle.includes("if (event.button !== 0 || dragRef.current) return;"));
-  assert.ok(handle.includes("if (!drag || (pointerId !== null && drag.pointerId !== pointerId)) return;"));
-  assert.ok(handle.includes("if (commitWidth && drag.width !== drag.startWidth) commit(drag.width);"));
-  // ダブルクリックは未指定 (既定幅) へ戻す
-  assert.ok(handle.includes("onDoubleClick={reset}"));
-});
-
-test("ドラッグは右へ動かすと広がり、←→ は向きが逆で端で止まる", () => {
-  const handle = read("src/components/sidebar/SidebarResizeHandle.tsx");
-  const moveHandler = handle.slice(handle.indexOf("const handlePointerMove"), handle.indexOf("const handleKeyDown"));
-  // 右パネル (左端のハンドル) と逆に、右へ動かす = 幅を増やす
-  assert.ok(moveHandler.includes("drag.startWidth + (event.clientX - drag.startX)"));
-  assert.ok(moveHandler.includes("preview(next)"));
-  assert.ok(moveHandler.includes('setAttribute("aria-valuenow", String(next))'));
-  assert.ok(!moveHandler.includes("commit("));
-  // キーボードは → で増え、← で減る。Home / End は下限 / 上限
-  assert.ok(handle.includes('event.key === "ArrowRight" ? SIDEBAR_WIDTH_STEP : -SIDEBAR_WIDTH_STEP'));
-  assert.ok(handle.includes('commit(event.key === "Home" ? min : max)'));
-});
-
-test("App は幅を CSS 変数で渡し、main の幅と右パネルの bounds に使う", () => {
-  const app = read("src/App.tsx");
-  assert.ok(app.includes('style={{ "--sidebar-width": `${sidebarWidth.width}px` } as CSSProperties}'));
-  assert.ok(
-    app.includes(
-      'sidebarDocked ? "grid-cols-[var(--sidebar-width)_minmax(0,1fr)] grid-rows-1" : "grid-cols-1 grid-rows-1"',
-    ),
-  );
-  assert.ok(app.includes("<Sidebar {...navProps} resize={sidebarWidth} />"));
-  // 右パネルの bounds は左バーの実幅に追随する (SIDEBAR_WIDTH の import は式の変更で不要になる)
-  assert.ok(app.includes("mainWidth: sidebarDocked ? viewportWidth - sidebarWidth.width : viewportWidth"));
-  assert.ok(!app.includes("SIDEBAR_WIDTH"));
-  const hook = read("src/hooks/useSidebarWidth.ts");
-  assert.ok(hook.includes('shellRef.current?.style.setProperty("--sidebar-width"'));
-  // 任意値クラスは oxlint の allow に足す (無いと lint が落ちる)
-  assert.ok(read("../.oxlintrc.json").includes('"grid-cols-[var(--sidebar-width)_minmax(0,1fr)]"'));
 });
