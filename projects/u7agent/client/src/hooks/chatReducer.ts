@@ -784,20 +784,28 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
     case "runStart": {
       // 自分の送信を実行する run は run id で厳密に照合する。run id が分からないエコー (応答待ち) は
       // 照合せず保持し、別クライアントの同一文面 entry を誤って自分のものにしない。
-      // 別タブが未送信メッセージを再送した場合は、その run_start で未送信の表示を送信中へ戻す
-      const resent =
+      // 未送信 / 受理済みのバブルは、この run_start で「サーバーが実行を開始した」ことを確認済みに
+      // する (楽観的に再送したバブルも含める。遅れて届いた失敗で未送信へ戻さない)
+      const started =
         action.runId === undefined
           ? undefined
-          : state.bubbles.find((bubble) => bubble.unsent === true && bubble.runId === action.runId);
+          : state.bubbles.find(
+              (bubble) =>
+                bubble.runId === action.runId &&
+                bubble.entryId === undefined &&
+                (bubble.unsent === true || bubble.accepted === true),
+            );
       const base =
-        resent === undefined
+        started === undefined
           ? state
           : {
               ...state,
               bubbles: state.bubbles.map((bubble) =>
-                bubble.id === resent.id ? { ...bubble, unsent: false, accepted: true, confirmed: true } : bubble,
+                bubble.id === started.id ? { ...bubble, unsent: false, accepted: true, confirmed: true } : bubble,
               ),
-              pendingEchoIds: [...state.pendingEchoIds, resent.id],
+              pendingEchoIds: state.pendingEchoIds.includes(started.id)
+                ? state.pendingEchoIds
+                : [...state.pendingEchoIds, started.id],
             };
       const promptBody = canonicalUserText(action.prompt);
       const echoIndex =

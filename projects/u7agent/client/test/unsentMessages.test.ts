@@ -534,3 +534,28 @@ test("受理済みのバブルは本文の縮退で旧 entry へ吸収されな�
   const stopped = chatReducer(merged, { type: "queueCleared", runIds: ["run-x"] });
   assert.equal(stopped.bubbles.find((item) => item.runId === "run-x")?.unsent, true);
 });
+
+test("自分の楽観的な再送も run_start で確認済みになり、遅延した失敗で未送信へ戻らない", () => {
+  const fresh = chatReducer(withHistory(), {
+    type: "resync",
+    payload: payload([{ runId: "run-x", text: "未送信の本文", at: 5, state: "unsent" }]),
+  });
+  const resent = chatReducer(fresh, { type: "resendUnsent", runId: "run-x" });
+  assert.equal(resent.bubbles.find((item) => item.runId === "run-x")?.confirmed, false, "楽観的な受理");
+
+  // 当該 run の run_start が届いた = サーバーが実行を開始した
+  const started = chatReducer(resent, {
+    type: "runStart",
+    runId: "run-x",
+    prompt: "未送信の本文",
+    at: 6,
+    startedAt: 6,
+  });
+  assert.equal(started.bubbles.find((item) => item.runId === "run-x")?.confirmed, true);
+
+  // その後で HTTP 失敗が届いても、実行済みの送信を未送信へ戻さない
+  const failed = chatReducer(started, { type: "resendFailed", runId: "run-x" });
+  const bubble = failed.bubbles.find((item) => item.runId === "run-x");
+  assert.equal(bubble?.unsent, false);
+  assert.equal(bubble?.accepted, true);
+});

@@ -33,7 +33,7 @@
 $PI_SESSION_STORE/<id>/
   meta.json      # 会話以外のアプリメタデータ
   session.jsonl  # pi SDK 形式の会話（header + entries）
-  sends.json     # 送信対応記録（entry id → run id / 未保存の送信。任意・無ければ縮退）
+  sends.json     # 未送信の記録（受理済みでまだ entry になっていない送信。任意・無ければ縮退）
 $PI_SESSION_STORE/u7agent.db  # アプリデータ（プロジェクト / カタログ。persistence.md）
 
 # 2) 未所属セッションのスクラッチ（サンドボックスが読み書き。ファイル画面の root）
