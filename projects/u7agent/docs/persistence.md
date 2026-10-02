@@ -75,7 +75,7 @@ GUI の会話履歴は **BFF 専用の会話ストア**（`PI_SESSION_STORE`）�
 会話ストアと同じ規約（メモリだけの黙ったフォールバックをしない）。
 
 - 起動は継続し、`GET /api/health` の `appDb` に `{ path, ok, error }` を返す。
-- アプリデータを読む API は 503 になる。カタログ（`/api/agents` / `/api/skills`）、プロジェクト（`/api/projects`）、セッションの作成・一覧・取得・設定変更・送信・SSE 接続（所属の解決と `create()` のカタログ参照を通るため）、設定のアーカイブ（`/api/settings/archive`）、設定のモデル（`/api/settings/models`。変更系の 503 は `state: "not_stored"` を付ける）、画像生成の設定（`/api/settings/images`。変更系の 503 は同じく `state: "not_stored"`）、サービスの状態と起動・停止（`/api/serve/*`。実績を読めないまま空の実績を見せない）。
+- アプリデータを読む API は 503 になる。カタログ（`/api/agents` / `/api/skills`）、プロジェクト（`/api/projects`）、セッションの作成・一覧・取得・設定変更・送信・SSE 接続（所属の解決と `create()` のカタログ参照を通るため）、設定のアーカイブ（`/api/settings/archive`）、設定のモデル（`/api/settings/models`）、画像生成の設定（`/api/settings/images`）、サービスの状態（`/api/serve/status`。実績を読めないまま空の実績を見せない）。**変更系は 503 に `state: "not_stored"` を付け、何も保存していないことを示す**（モデル設定 / 画像生成の設定 / サービスの起動・停止 `/api/serve/start` `/api/serve/stop`）。
 - 削除は会話ストアだけで完結するため通す。停止も live なセッションなら通る（未ロードのセッションは復元時に所属を解決するため、DB が使えないと 503 になる）。
 - SSE は接続時に 503 で拒否し、配信中の payload 生成で失敗したらその接続を閉じる（未所属へ落として配信を続けない）。
 - 起動時だけでなく稼働中の読み書き失敗も同じ扱いにする。失敗状態のときは入口ガードが `SELECT 1` で読み直し、成功すれば解除される（復旧に再起動は要らない）。

@@ -196,6 +196,35 @@ test("desktop の停止は常時表示にする (ホバー待ちにしない)", 
   }
 });
 
+test("compact のメニューは RowMenu と同じ矢印キー移動を持つ", () => {
+  const source = read("src/components/ServedAppStatus.tsx");
+  const keyboard = source.slice(source.indexOf("const onKeyDown"), source.indexOf("const items: Array<"));
+  assert.match(keyboard, /event\.key !== "ArrowDown" && event\.key !== "ArrowUp"/);
+  assert.match(
+    keyboard,
+    /nextRowMenuIndex\(current, items\.length, event\.key === "ArrowDown" \? "next" : "previous"\)/,
+    "RowMenu と同じ規則でフォーカスを移す",
+  );
+  assert.match(keyboard, /\]\?\.focus\(\)/);
+  // Escape は App の Escape (設定ページからチャットへ戻る) まで届かせない
+  assert.match(keyboard, /event\.stopPropagation\(\)/);
+  assert.match(source, /onKeyDown=\{onKeyDown\}/);
+  assert.match(source, /tabIndex=\{-1\}/, "項目は Tab で飛ばさず、矢印で移動する");
+});
+
+test("popover の toggle 購読は mount / unmount に合わせて更新する", () => {
+  const source = read("src/components/ServedAppStatus.tsx");
+  // status の取得前は popover を描画しないため、依存配列が空の Effect では購読できない
+  assert.match(source, /ref=\{attachPopover\}/);
+  assert.match(source, /element\.addEventListener\("toggle", onToggle\)/);
+  assert.match(source, /previous\.removeEventListener\("toggle", onToggle\)/);
+  assert.match(source, /setOpen\(element\.matches\(":popover-open"\)\)/, "mount 時の開閉状態を取り込む");
+  assert.ok(
+    !source.includes("const onToggle = (event: Event) => setOpen"),
+    "購読は ref の付け外しで行う (Effect の依存配列に頼らない)",
+  );
+});
+
 test("置き換えの確認文言は所有者名と起動コマンドを出す", () => {
   const other = servedAppView(serveStatus({ reachable: true, owner: { kind: "other", title: "決済画面の検証" } }));
   assert.equal(

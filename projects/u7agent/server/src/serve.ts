@@ -3,11 +3,11 @@
  * 誰が動かしているかはサンドボックスの作業領域 (`<appdir>/serve/state.json`) の記録と
  * 「いま待受しているプロセス」の照合で決める。設計は docs/sandbox.md の serve の節を正とする。
  */
-import { randomBytes } from "node:crypto";
+import { randomBytes, createHash } from "node:crypto";
 import { createConnection } from "node:net";
 import { SERVE_LOG_REL, SERVE_STATE_REL } from "./app-paths";
 import type { ServeCommandRow } from "./app-db";
-import { httpError } from "./http";
+import { SANDBOX_NOT_CONFIGURED_MESSAGE, httpError } from "./http";
 import { MutationLock } from "./model-settings";
 import type { SandboxExecClient } from "./sandbox/client";
 
@@ -98,11 +98,18 @@ export function sandboxHostFromUrl(value: string | undefined): string | undefine
   }
 }
 
+/** いま listen しているプロセス。ancestors は自身から親をたどった PID (起動との照合に使う) */
+export interface ServeListener {
+  pid: number;
+  startedAt: number;
+  ancestors: number[];
+}
+
 interface ServeObservation {
   reachable: boolean;
   record: ServeRecord | null;
   /** いま listen しているプロセス。特定できなければ null */
-  listener: { pid: number; startedAt: number } | null;
+  listener: ServeListener | null;
   at: number;
 }
 
@@ -210,6 +217,15 @@ if [ -n "$listener" ]; then
     started=$(( btime * 1000 + ticks * 1000 / hz ))
   fi
   printf 'listener\\t%s\\t%s\\n' "$listener" "\${started:-}"
+  # 自身から親をたどった PID。到達したプロセスが今回の起動に由来するかを BFF が判定する
+  chain=""
+  cur=$listener
+  while [ -n "$cur" ] && [ "$cur" != "0" ] && [ "$cur" != "1" ]; do
+    chain="$chain $cur"
+    rest=$(sed 's/^.*) //' "/proc/$cur/stat" 2>/dev/null) || break
+    cur=$(printf '%s' "$rest" | awk '{ print $2 }')
+  done
+  printf 'ancestors\\t%s\\n' "\${chain# }"
 fi
 if [ -f "$state" ]; then
   printf 'record\\t'
@@ -220,7 +236,10 @@ echo ${SCRIPT_OK}
 `;
 }
 
-/** バックグラウンド起動。ログは固定パスへ出し、起動した PID を返す */
+/**
+ * バックグラウンド起動。ログは固定パスへ出し、起動した PID を返す。
+ * 作業ディレクトリも base64 で渡す (shell へ値を直接埋め込まない。パス中の `$` やバッククォートを評価させない)。
+ */
 function launchScript(input: { workdir: string; command: string }): string {
   return `set -u
 root=$PWD
@@ -228,7 +247,8 @@ dir="$root/.u7agent/serve"
 mkdir -p "$dir" || { echo "serve: mkdir failed" >&2; exit 1; }
 log="$root/${SERVE_LOG_REL}"
 : > "$log" || { echo "serve: cannot open the log" >&2; exit 1; }
-cd "$root/${input.workdir}" || { echo "serve: cannot enter the working directory" >&2; exit 1; }
+workdir=$(printf '%s' '${encode(input.workdir)}' | base64 -d) || exit 1
+cd "$root/$workdir" || { echo "serve: cannot enter the working directory" >&2; exit 1; }
 cmd=$(printf '%s' '${encode(input.command)}' | base64 -d) || exit 1
 nohup bash -c "$cmd" > "$log" 2>&1 < /dev/null &
 printf 'pid\\t%s\\n' "$!"
@@ -284,10 +304,17 @@ function parseRecord(raw: string): ServeRecord | null {
 /** スクリプトの出力を観測値へ。印の確認は呼び出し側 (#run) が行う */
 function parseObservation(output: string, at: number): Omit<ServeObservation, "reachable"> {
   let record: ServeRecord | null = null;
-  let listener: { pid: number; startedAt: number } | null = null;
+  let listener: ServeListener | null = null;
+  let ancestors: number[] = [];
   for (const line of output.split("\n")) {
     if (line.startsWith("record\t")) {
       record = parseRecord(line.slice("record\t".length));
+    } else if (line.startsWith("ancestors\t")) {
+      ancestors = line
+        .slice("ancestors\t".length)
+        .split(" ")
+        .map((value) => Number(value))
+        .filter((value) => Number.isInteger(value) && value > 0);
     } else if (line.startsWith("listener\t")) {
       const [, pid, startedAt] = line.split("\t");
       const parsedPid = Number(pid);
@@ -297,11 +324,17 @@ function parseObservation(output: string, at: number): Omit<ServeObservation, "r
           pid: parsedPid,
           // 起動時刻を引けなかったときは 0 (不明) とし、照合は pid だけで行う
           startedAt: Number.isFinite(parsedStartedAt) ? parsedStartedAt : 0,
+          ancestors,
         };
       }
     }
   }
   return { record, listener, at };
+}
+
+/** 到達した待受プロセスが今回の起動に由来するか (起動 PID 自身か、その子孫) */
+export function isFromLaunch(listener: ServeListener, launchedPid: number): boolean {
+  return listener.pid === launchedPid || listener.ancestors.includes(launchedPid);
 }
 
 export class ServeService {
@@ -351,14 +384,15 @@ export class ServeService {
     const explicit = input.command?.trim();
     return this.#lock.run(async () => {
       this.#cached = null;
+      // 実績の解決と検証は置き換えの停止より先に行う (コマンドが無いのに既存を止めない)
+      const command = explicit || this.#db.getServeCommand(view.cwd)?.command;
+      if (!command) throw httpError(400, "この作業ディレクトリには serve の実績がありません");
       const before = await this.#observe({ fresh: true });
       if (before.reachable) {
         this.#assertGeneration(before, input.generation ?? null);
         // 置き換えは所有者を問わない (UI が所有者名を出して確認してから呼ぶ)
         await this.#stopListener(before);
       }
-      const command = explicit || this.#db.getServeCommand(view.cwd)?.command;
-      if (!command) throw httpError(400, "この作業ディレクトリには serve の実績がありません");
       const generation = randomBytes(4).toString("hex");
       const pid = await this.#launch(view, command);
       // 失敗しても「起動を試みた事実」は残す。以前の成功コマンドは上書きしない
@@ -371,19 +405,21 @@ export class ServeService {
         generation,
       };
       await this.#writeRecord(record);
-      if (!(await this.#waitForReachable())) {
+      // 到達しただけでは成功としない。待受プロセスがこの起動に由来することまで確かめる
+      // (期限超過した別の起動が遅れて listen した場合、それを今回の成功として記録しない)
+      const waited = await this.#waitForOwnListener(pid);
+      if (!waited.ok) {
         this.#cached = null;
         throw httpError(
           502,
-          `serve を起動しましたが、期限内に ${this.#listenPort} 番ポートへ到達できませんでした。${SERVE_LOG_REL} のログを確認してください`,
+          waited.reachable
+            ? `serve を起動しましたが、${this.#listenPort} 番ポートはこの起動に由来しないプロセスが使用しています。エージェントに確認を依頼してください`
+            : `serve を起動しましたが、期限内に ${this.#listenPort} 番ポートへ到達できませんでした。${SERVE_LOG_REL} のログを確認してください`,
         );
       }
       // 到達できたら「いま待受しているプロセス」を正として記録し直す (所有者の照合を効かせる)
-      const after = await this.#observe({ fresh: true });
-      if (after.listener) {
-        record = { ...record, pid: after.listener.pid, startedAt: after.listener.startedAt };
-        await this.#writeRecord(record);
-      }
+      record = { ...record, pid: waited.listener.pid, startedAt: waited.listener.startedAt };
+      await this.#writeRecord(record);
       // 実績の更新は成功時だけ (失敗したコマンドで以前の成功を上書きしない)
       this.#db.saveServeCommand({ cwd: view.cwd, command, updatedAt: this.#now() });
       this.#cached = null;
@@ -424,10 +460,24 @@ export class ServeService {
     return { sessionId, cwd, title: this.#sessions.titleOfId(sessionId) ?? "" };
   }
 
-  /** 置き換えの再照合。確認した世代と実行時の世代が違えば、UI に確認をやり直させる */
+  /**
+   * 置き換えの再照合に使う不透明な値。起動世代と「いま待受しているプロセス」の同一性 (PID と起動時刻) を
+   * 合わせて持つため、記録を残したまま生の bash で入れ替わった場合も確認が通らない。
+   * 到達不可 (置き換える対象が無い) は null。
+   */
+  #confirmationToken(observation: ServeObservation): string | null {
+    if (!observation.reachable) return null;
+    const identity = observation.record && this.#matches(observation) ? observation.record.generation : "unknown";
+    const listener = observation.listener;
+    return createHash("sha256")
+      .update(`${identity}:${listener?.pid ?? 0}:${listener?.startedAt ?? 0}`)
+      .digest("hex")
+      .slice(0, 8);
+  }
+
+  /** 置き換えの再照合。確認した値と実行時の値が違えば、UI に確認をやり直させる */
   #assertGeneration(observation: ServeObservation, expected: string | null): void {
-    const current = observation.record?.generation ?? null;
-    if (current === expected) return;
+    if (this.#confirmationToken(observation) === expected) return;
     throw httpError(409, "サービスの状態が変わりました。最新の状態で確認し直してください");
   }
 
@@ -436,6 +486,9 @@ export class ServeService {
    * (コンテナ再作成後に記録が残っていても「稼働中」と嘘をつかないため)。
    */
   async #observe(options: { fresh?: boolean } = {}): Promise<ServeObservation> {
+    // サンドボックス未設定は「状態を取得できない」なので、プローブより先に 503 で止める
+    // (プローブが false のときに 200 の停止状態を返さない)
+    this.#requireSandbox();
     const cached = this.#cached;
     if (!options.fresh && cached && this.#now() - cached.at < this.#cacheMs) return cached;
     const reachable = await this.#probe();
@@ -476,7 +529,7 @@ export class ServeService {
     return {
       reachable: observation.reachable,
       owner: this.#ownerOf(view, observation),
-      generation: observation.record?.generation ?? null,
+      generation: this.#confirmationToken(observation),
       command: stored ? { cwd: stored.cwd, command: stored.command } : null,
     };
   }
@@ -513,11 +566,20 @@ export class ServeService {
     throw httpError(502, "serve の停止を確認できませんでした (ポートが解放されていません)");
   }
 
-  async #waitForReachable(): Promise<boolean> {
+  async #waitForOwnListener(
+    launchedPid: number,
+  ): Promise<{ ok: true; listener: ServeListener } | { ok: false; reachable: boolean }> {
     const deadline = this.#now() + this.#startTimeoutMs;
+    let reachable = false;
     for (;;) {
-      if (await this.#probe()) return true;
-      if (this.#now() >= deadline) return false;
+      if (await this.#probe()) {
+        reachable = true;
+        const observation = await this.#observe({ fresh: true });
+        if (observation.listener && isFromLaunch(observation.listener, launchedPid)) {
+          return { ok: true, listener: observation.listener };
+        }
+      }
+      if (this.#now() >= deadline) return { ok: false, reachable };
       await this.#sleep(SERVE_POLL_INTERVAL_MS);
     }
   }
@@ -531,12 +593,15 @@ export class ServeService {
     }
   }
 
+  /** サンドボックス未設定は 503。プローブより先に呼び、到達不可へ丸めない */
+  #requireSandbox(): SandboxExecClient {
+    if (!this.#sandbox) throw httpError(503, SANDBOX_NOT_CONFIGURED_MESSAGE);
+    return this.#sandbox;
+  }
+
   /** サンドボックスの bash 実行。作業領域の読み書きも起動・停止もこの 1 経路に集める */
   async #run(script: string): Promise<string> {
-    const sandbox = this.#sandbox;
-    if (!sandbox) {
-      throw httpError(503, "サンドボックスが設定されていません (PI_SANDBOX_URL / PI_SANDBOX_TOKEN)");
-    }
+    const sandbox = this.#requireSandbox();
     const result = await sandbox
       .execute("bash", {
         params: { command: script, timeout: SANDBOX_SCRIPT_TIMEOUT_SECONDS },

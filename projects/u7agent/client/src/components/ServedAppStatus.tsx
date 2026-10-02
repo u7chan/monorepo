@@ -1,6 +1,6 @@
-import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import { useCallback, useId, useLayoutEffect, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import { cn } from "../lib/cn";
-import { rowMenuPlacement } from "../lib/rowMenu";
+import { nextRowMenuIndex, rowMenuPlacement } from "../lib/rowMenu";
 import {
   openServedApp,
   servedAppMenuSub,
@@ -158,17 +158,29 @@ export function ServedAppIndicator({ port, status, failed, starting, onStart, on
     if (open) place();
   });
 
-  // 開閉の正は popover の状態 (Escape / 外側クリックの light dismiss もここで観測する)
-  useEffect(() => {
-    const popover = popoverRef.current;
-    if (popover === null) return;
-    const onToggle = (event: Event) => setOpen((event as ToggleEvent).newState === "open");
-    popover.addEventListener("toggle", onToggle);
-    return () => popover.removeEventListener("toggle", onToggle);
+  const onToggle = useCallback((event: Event) => {
+    setOpen((event as ToggleEvent).newState === "open");
   }, []);
 
+  /**
+   * 開閉の正は popover の状態 (Escape / 外側クリックの light dismiss もここで観測する)。
+   * status の取得前は popover 自体を描画しないため、Effect ではなく ref の付け外しで購読を更新する
+   * (依存配列が空の Effect だと、初回取得後に mount した popover を購読できない)。
+   */
+  const attachPopover = useCallback(
+    (element: HTMLDivElement | null) => {
+      const previous = popoverRef.current;
+      if (previous) previous.removeEventListener("toggle", onToggle);
+      popoverRef.current = element;
+      if (element === null) return;
+      element.addEventListener("toggle", onToggle);
+      setOpen(element.matches(":popover-open"));
+    },
+    [onToggle],
+  );
+
   // 起動の確認待ちが終わったらメニューを閉じる (古い状態のメニューを残さない)
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (starting) return;
     popoverRef.current?.hidePopover();
   }, [starting]);
@@ -195,6 +207,19 @@ export function ServedAppIndicator({ port, status, failed, starting, onStart, on
     }
   };
   const close = () => popoverRef.current?.hidePopover();
+  // 矢印キーは RowMenu と同じ規則で項目のフォーカスを移す (tabIndex=-1 の項目を Tab でたどらせない)
+  const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+    if (event.key === "Escape") {
+      // 止めないと App の Escape (設定ページからチャットへ戻る) まで届く。閉じるのは標準挙動に任せる
+      event.stopPropagation();
+      return;
+    }
+    if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
+    event.preventDefault();
+    const items = itemsRef.current.filter((item): item is HTMLButtonElement => item !== null);
+    const current = items.findIndex((item) => item === document.activeElement);
+    items[nextRowMenuIndex(current, items.length, event.key === "ArrowDown" ? "next" : "previous")]?.focus();
+  };
   const href = view.canOpen ? servedAppUrl(location.hostname, port) : undefined;
   const items: Array<{
     key: string;
@@ -269,11 +294,12 @@ export function ServedAppIndicator({ port, status, failed, starting, onStart, on
         {starting ? <RunSpinnerIcon /> : <ServeMark view={view} />}
       </button>
       <div
-        ref={popoverRef}
+        ref={attachPopover}
         id={menuId}
         popover="auto"
         role="menu"
         aria-labelledby={triggerId}
+        onKeyDown={onKeyDown}
         className="popover-panel fixed inset-auto m-0 w-max min-w-52 overflow-visible rounded-lg border border-line bg-panel p-1 shadow-panel"
       >
         <div className="grid gap-1 px-2 pt-1.5 pb-2">

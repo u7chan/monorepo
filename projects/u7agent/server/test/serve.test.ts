@@ -20,6 +20,11 @@ const OTHER = "bbbb000002";
 const CWD = "projects/foo";
 const NOW = 1_700_000_000_000;
 
+/** 画面と同じく、状態 API が返した照合値をそのまま返す */
+async function token(service: ServeService, sessionId: string): Promise<string | null> {
+  return (await service.status(sessionId)).generation;
+}
+
 /** 検証の共通組み立て。sessions は閲覧中の会話 + 他会話 (所有者) の 2 件 */
 function setup(
   options: {
@@ -64,7 +69,7 @@ function setup(
       startedAt: NOW - 5_000,
       generation: "gen-1",
     });
-    sandbox.state.listener = { pid: 100, startedAt: NOW - 5_000 };
+    sandbox.state.listener = { pid: 100, startedAt: NOW - 5_000, ancestors: [100] };
   }
   // 到達不可だが記録だけ残っている状態 (コンテナ再作成相当)
   if (options.reachable === false && options.owner) sandbox.state.listener = null;
@@ -106,20 +111,21 @@ test("記録と待受プロセスが一致すれば所有者を mine / other に
 
 test("記録があっても待受 PID / 起動時刻が一致しなければ起動元不明にする", async () => {
   const pidMismatch = setup({ reachable: true, owner: OTHER });
-  pidMismatch.sandbox.state.listener = { pid: 999, startedAt: NOW - 5_000 };
+  pidMismatch.sandbox.state.listener = { pid: 999, startedAt: NOW - 5_000, ancestors: [999] };
   assert.deepEqual((await pidMismatch.service.status(SESSION)).owner, { kind: "unknown" });
 
   const timeMismatch = setup({ reachable: true, owner: OTHER });
-  timeMismatch.sandbox.state.listener = { pid: 100, startedAt: NOW - 60_000 };
+  timeMismatch.sandbox.state.listener = { pid: 100, startedAt: NOW - 60_000, ancestors: [100] };
   assert.deepEqual((await timeMismatch.service.status(SESSION)).owner, { kind: "unknown" });
 
   // 記録が壊れていても所有者とみなさない
   const broken = setup({ reachable: true });
   broken.sandbox.state.stateFile = "{ not json";
-  broken.sandbox.state.listener = { pid: 100, startedAt: NOW };
+  broken.sandbox.state.listener = { pid: 100, startedAt: NOW, ancestors: [100] };
   const status = await broken.service.status(SESSION);
   assert.deepEqual(status.owner, { kind: "unknown" });
-  assert.equal(status.generation, null);
+  // 到達可なら置き換えの照合値は必ず載る (記録が無くても「いまの待受プロセス」を表す)
+  assert.equal(typeof status.generation, "string");
 });
 
 test("所有者の会話が消えていれば他会話ではなく起動元不明として扱う", async () => {
@@ -139,29 +145,31 @@ test("未知の会話は 404 にする", async () => {
 
 test("停止は所有者以外を 403 で拒み、所有者と起動元不明は許可する", async () => {
   const owned = setup({ reachable: true, owner: OTHER });
+  const ownedToken = await token(owned.service, SESSION);
   await assert.rejects(
-    () => owned.service.stop(SESSION, { generation: "gen-1" }),
+    () => owned.service.stop(SESSION, { generation: ownedToken }),
     (error: unknown) => (error as { statusCode?: number }).statusCode === 403,
   );
   assert.deepEqual(owned.sandbox.state.killed, [], "拒否したときは kill しない");
 
   const mine = setup({ reachable: true, owner: SESSION });
-  const stopped = await mine.service.stop(SESSION, { generation: "gen-1" });
+  const stopped = await mine.service.stop(SESSION, { generation: await token(mine.service, SESSION) });
   assert.equal(stopped.reachable, false);
   assert.deepEqual(mine.sandbox.state.killed, [100], "記録の PID ではなく待受 PID を止める");
   assert.equal(mine.sandbox.state.stateFile, null, "停止後は記録を残さない");
 
   // 起動元不明 (記録と一致しない) は誰でも止められる
   const unknown = setup({ reachable: true, owner: OTHER });
-  unknown.sandbox.state.listener = { pid: 777, startedAt: NOW };
-  await unknown.service.stop(SESSION, { generation: "gen-1" });
+  unknown.sandbox.state.listener = { pid: 777, startedAt: NOW, ancestors: [777] };
+  await unknown.service.stop(SESSION, { generation: await token(unknown.service, SESSION) });
   assert.deepEqual(unknown.sandbox.state.killed, [777]);
 });
 
 test("待受 PID を特定できないときは停止せず、エージェントへ依頼する理由を返す", async () => {
   const { service, sandbox } = setup({ listenerUnknown: true });
+  const listenerToken = await token(service, SESSION);
   await assert.rejects(
-    () => service.stop(SESSION, { generation: null }),
+    () => service.stop(SESSION, { generation: listenerToken }),
     (error: unknown) => {
       assert.equal((error as { statusCode?: number }).statusCode, 409);
       assert.match((error as Error).message, /待受プロセスを特定できません/);
@@ -176,14 +184,44 @@ test("停止後の解放を確認できないときは 502 にする", async () 
   const { service, sandbox } = setup({ reachable: true, owner: SESSION });
   // kill してもポートが空かない (解放の確認に失敗する) 状態を作る
   sandbox.state.killWorks = false;
+  const releaseToken = await token(service, SESSION);
   await assert.rejects(
-    () => service.stop(SESSION, { generation: "gen-1" }),
+    () => service.stop(SESSION, { generation: releaseToken }),
     (error: unknown) => {
       assert.equal((error as { statusCode?: number }).statusCode, 502);
       assert.match((error as Error).message, /解放されていません/);
       return true;
     },
   );
+});
+
+test("待受プロセスが入れ替われば、記録が同じでも照合値が変わる (生の bash の置き換えを検知)", async () => {
+  const { service, sandbox, clock } = setup({ reachable: true, owner: SESSION });
+  const before = await token(service, SESSION);
+  // 記録はそのままに、生の bash が新しい PID へ入れ替える
+  sandbox.state.listener = { pid: 555, startedAt: NOW + 1_000, ancestors: [555] };
+  clock.value += 5_000;
+  assert.notEqual(await token(service, SESSION), before);
+  // 古い確認のままの停止は、記録の世代が同じでも 409 になる
+  await assert.rejects(
+    () => service.stop(SESSION, { generation: before }),
+    (error: unknown) => (error as { statusCode?: number }).statusCode === 409,
+  );
+  assert.deepEqual(sandbox.state.killed, [], "古い確認では新しいプロセスを止めない");
+});
+
+test("到達不可のあとに記録なしのプロセスが起動しても、確認なしの置き換えは通らない", async () => {
+  const { service, sandbox } = setup({ command: "pnpm dev" });
+  // 停止中の状態 (照合値 null) を確認したあとで、生の bash が記録なしで listen する
+  const stopped = await token(service, SESSION);
+  assert.equal(stopped, null);
+  sandbox.state.listener = { pid: 888, startedAt: NOW, ancestors: [888] };
+  await assert.rejects(
+    () => service.start(SESSION, { generation: stopped }),
+    (error: unknown) => (error as { statusCode?: number }).statusCode === 409,
+  );
+  assert.deepEqual(sandbox.state.killed, []);
+  assert.deepEqual(sandbox.state.launched, []);
 });
 
 test("到達不可の停止は何も止めずに停止済みとして返す (冪等)", async () => {
@@ -230,18 +268,65 @@ test("起動の失敗は実績を上書きせず、試みた事実だけを残�
   assert.equal(sandbox.state.writes, 1);
 });
 
-test("実績が無ければ起動せず 400 にする", async () => {
+test("到達してもこの起動に由来しないプロセスなら成功としない (遅れて listen した別の起動を拾わない)", async () => {
+  const { service, sandbox, commands } = setup({ command: "pnpm dev" });
+  // 期限超過した別の起動が、今回の起動の直後に遅れて listen した状態を作る
+  sandbox.state.listenerOnLaunch = { pid: 777, startedAt: NOW + 500, ancestors: [777, 666] };
+  await assert.rejects(
+    () => service.start(SESSION, { command: "pnpm start" }),
+    (error: unknown) => {
+      assert.equal((error as { statusCode?: number }).statusCode, 502);
+      assert.match((error as Error).message, /この起動に由来しない/);
+      return true;
+    },
+  );
+  // 別の起動の PID を自分のものとして記録せず、実績も上書きしない
+  assert.equal(readRecord(sandbox.state)?.pid, 4242);
+  assert.equal(commands.rows.get(CWD)?.command, "pnpm dev");
+  assert.equal(sandbox.state.writes, 1);
+});
+
+test("実績が無ければ起動せず 400 にする (公開中のサービスを先に止めない)", async () => {
   const { service, sandbox } = setup();
   await assert.rejects(
     () => service.start(SESSION, {}),
     (error: unknown) => (error as { statusCode?: number }).statusCode === 400,
   );
   assert.deepEqual(sandbox.state.launched, []);
+
+  // 他会話が公開中でも、実績の無い会話の起動は停止の前に 400 で止まる (何も壊さない)
+  const published = setup({ reachable: true, owner: OTHER });
+  const publishedToken = await token(published.service, SESSION);
+  await assert.rejects(
+    () => published.service.start(SESSION, { generation: publishedToken }),
+    (error: unknown) => (error as { statusCode?: number }).statusCode === 400,
+  );
+  assert.deepEqual(published.sandbox.state.killed, [], "コマンドが無いのに既存を止めない");
+  assert.deepEqual(published.sandbox.state.launched, []);
+});
+
+test("起動コマンドと作業ディレクトリは shell の構文として評価されない (文字列データとして渡す)", async () => {
+  // `$` やバッククォートを含む作業ディレクトリは登録できる (normalizeProjectCwd は禁止しない)
+  const sandbox = createServeSandboxStub();
+  const commands = createCommandStore([{ cwd: "projects/cash$flow", command: 'echo "$(id)" `id`', updatedAt: NOW }]);
+  const service = new ServeService({
+    appDb: commands.db,
+    sessions: createSessionLookup({ [SESSION]: { cwd: "projects/cash$flow", title: "t" } }),
+    sandbox: sandbox.sandbox,
+    probe: async () => sandbox.state.listener !== null,
+    now: () => NOW,
+    sleep: async () => {},
+  });
+  await service.start(SESSION, {});
+  // スクリプトは値を base64 で運び、stub はそれを復号して受け取る (shell が評価する形で埋め込まない)
+  assert.deepEqual(sandbox.state.launched, [
+    { workdir: "projects/cash$flow", command: 'echo "$(id)" `id`', log: ".u7agent/serve/app.log" },
+  ]);
 });
 
 test("到達可のときの起動は待受プロセスを置き換え、世代が違えば 409 で止める", async () => {
   const replaced = setup({ reachable: true, owner: OTHER, command: "pnpm dev" });
-  await replaced.service.start(SESSION, { generation: "gen-1" });
+  await replaced.service.start(SESSION, { generation: await token(replaced.service, SESSION) });
   assert.deepEqual(replaced.sandbox.state.killed, [100], "所有者のプロセスを停止してから置き換える");
   assert.deepEqual(
     replaced.sandbox.state.launched.map((item) => item.workdir),
@@ -282,9 +367,10 @@ test("同時の起動要求は直列化し、古い確認のままの要求は 4
 
   // 世代を揃えた要求は直列に置き換える (所有者のプロセスを止めてから起動する)
   const replace = setup({ reachable: true, owner: OTHER, command: "pnpm dev" });
+  const replaceToken = await token(replace.service, SESSION);
   const settled = await Promise.allSettled([
-    replace.service.start(SESSION, { generation: "gen-1" }),
-    replace.service.start(SESSION, { generation: "gen-1" }),
+    replace.service.start(SESSION, { generation: replaceToken }),
+    replace.service.start(SESSION, { generation: replaceToken }),
   ]);
   assert.equal(settled[0].status, "fulfilled");
   assert.equal(settled[1].status, "rejected");
@@ -335,18 +421,22 @@ test("プローブの失敗は 502 にし、到達不可へ丸めない", async 
 });
 
 test("サンドボックス未設定とサンドボックス障害は 503 / 502 にする", async () => {
-  const unconfigured = new ServeService({
-    appDb: createCommandStore().db,
-    sessions: createSessionLookup({ [SESSION]: { cwd: CWD, title: "t" } }),
-    sandbox: null,
-    probe: async () => true,
-    now: () => NOW,
-  });
-  assert.equal(unconfigured.configured, false);
-  await assert.rejects(
-    () => unconfigured.status(SESSION),
-    (error: unknown) => (error as { statusCode?: number }).statusCode === 503,
-  );
+  // プローブが false でも「未設定」は状態を返さず 503 (停止中として 200 を返さない)
+  for (const reachable of [true, false]) {
+    const unconfigured = new ServeService({
+      appDb: createCommandStore([{ cwd: CWD, command: "pnpm dev", updatedAt: NOW }]).db,
+      sessions: createSessionLookup({ [SESSION]: { cwd: CWD, title: "t" } }),
+      sandbox: null,
+      probe: async () => reachable,
+      now: () => NOW,
+    });
+    assert.equal(unconfigured.configured, false);
+    await assert.rejects(
+      () => unconfigured.status(SESSION),
+      (error: unknown) => (error as { statusCode?: number }).statusCode === 503,
+      `reachable=${reachable}`,
+    );
+  }
 
   const failing = setup({ reachable: true, owner: SESSION });
   failing.sandbox.state.fail = true;

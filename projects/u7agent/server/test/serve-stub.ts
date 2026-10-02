@@ -9,12 +9,17 @@ import type { ServeCommandStore, ServeProbe, ServeSessionLookup } from "../src/s
 export interface ServeSandboxState {
   /** 仮想の `<appdir>/serve/state.json` の中身 */
   stateFile: string | null;
-  /** いま listen しているプロセス (観測スクリプトが返す値) */
-  listener: { pid: number; startedAt: number } | null;
+  /** いま listen しているプロセス (観測スクリプトが返す値)。ancestors は自身から親をたどった PID */
+  listener: { pid: number; startedAt: number; ancestors: number[] } | null;
   /** launch スクリプトが起動したと見なす PID */
   launchPid: number;
   /** launch で listen が始まるか。false で「起動したが到達しない」を再現する */
   launchListens: boolean;
+  /**
+   * launch と同時に listen を始める別のプロセス (遅れて listen した別の起動の再現)。
+   * 設定されていると launch はこちらの listener を返す
+   */
+  listenerOnLaunch: { pid: number; startedAt: number; ancestors: number[] } | null;
   /** launch したプロセスの起動時刻 (観測スクリプトが返す値) */
   launchStartedAt: number;
   launched: Array<{ workdir: string; command: string; log: string }>;
@@ -34,10 +39,11 @@ export interface ServeSandboxStub {
   cwds: string[];
 }
 
-/** スクリプトに埋め込まれた base64 を取り出す (値は 1 つだけ埋め込む規約) */
-function embedded(script: string): string {
-  const match = /printf '%s' '([A-Za-z0-9+/=]+)' \| base64 -d/.exec(script);
-  return match ? Buffer.from(match[1], "base64").toString("utf8") : "";
+/** スクリプトに埋め込まれた base64 を取り出す (launch は workdir → command の順に埋め込む) */
+function embedded(script: string): string[] {
+  return [...script.matchAll(/printf '%s' '([A-Za-z0-9+/=]*)' \| base64 -d/g)].map((match) =>
+    Buffer.from(match[1], "base64").toString("utf8"),
+  );
 }
 
 export function createServeSandboxStub(): ServeSandboxStub {
@@ -46,6 +52,7 @@ export function createServeSandboxStub(): ServeSandboxStub {
     listener: null,
     launchPid: 4242,
     launchListens: true,
+    listenerOnLaunch: null,
     launchStartedAt: 1_700_000_000_000,
     launched: [],
     killed: [],
@@ -61,12 +68,21 @@ export function createServeSandboxStub(): ServeSandboxStub {
       const { command } = (input.params ?? {}) as { command?: string };
       const script = command ?? "";
       if (script.includes("nohup bash -c")) {
+        const [workdir, command] = embedded(script);
         state.launched.push({
-          workdir: /cd "\$root\/([^"]*)"/.exec(script)?.[1] ?? "",
-          command: embedded(script),
+          workdir: workdir ?? "",
+          command: command ?? "",
           log: /log="\$root\/([^"]*)"/.exec(script)?.[1] ?? "",
         });
-        if (state.launchListens) state.listener = { pid: state.launchPid, startedAt: state.launchStartedAt };
+        if (state.listenerOnLaunch) {
+          state.listener = state.listenerOnLaunch;
+        } else if (state.launchListens) {
+          state.listener = {
+            pid: state.launchPid,
+            startedAt: state.launchStartedAt,
+            ancestors: [state.launchPid],
+          };
+        }
         return { content: [{ type: "text", text: `pid\t${state.launchPid}\nserve:ok\n` }] };
       }
       if (script.includes("rm -f")) {
@@ -79,13 +95,16 @@ export function createServeSandboxStub(): ServeSandboxStub {
         return { content: [{ type: "text", text: "serve:ok\n" }] };
       }
       if (script.includes("state.json") && script.includes("base64 -d")) {
-        state.stateFile = embedded(script);
+        state.stateFile = embedded(script)[0] ?? null;
         state.writes += 1;
         return { content: [{ type: "text", text: "serve:ok\n" }] };
       }
       // 観測スクリプト
       const lines: string[] = [];
-      if (state.listener) lines.push(`listener\t${state.listener.pid}\t${state.listener.startedAt}`);
+      if (state.listener) {
+        lines.push(`listener\t${state.listener.pid}\t${state.listener.startedAt}`);
+        lines.push(`ancestors\t${state.listener.ancestors.join(" ")}`);
+      }
       if (state.stateFile) lines.push(`record\t${state.stateFile}`);
       return { content: [{ type: "text", text: `${lines.join("\n")}\nserve:ok\n` }] };
     },

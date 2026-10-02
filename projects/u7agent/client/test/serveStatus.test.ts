@@ -37,6 +37,26 @@ test("選択中の会話 id と要求世代で古い応答を捨てる", () => {
   assert.equal((hook.match(/if \(sessionIdRef\.current !== id\) return;/g) ?? []).length, 4);
 });
 
+test("操作は進行中の取得を捨て、後から届いた取得で操作の結果を上書きさせない", () => {
+  // 操作の直前と、操作の応答を適用する直前に、進行中の取得を無効化する
+  assert.match(
+    hook,
+    /const invalidatePending = useCallback\(\(\): void => \{\n\s+gate\(\(\) => false\);\n\s+\}, \[gate\]\)/,
+  );
+  const start = hook.slice(hook.indexOf("const start ="), hook.indexOf("const stop ="));
+  assert.ok(start.indexOf("invalidatePending();") < start.indexOf("await startServe"), "送信の前に捨てる");
+  assert.ok(
+    start.indexOf("invalidatePending();", start.indexOf("await startServe")) < start.indexOf("setState({ status"),
+    "応答の適用前にも捨てる",
+  );
+  const stop = hook.slice(hook.indexOf("const stop ="), hook.indexOf("const cancel ="));
+  assert.ok(stop.indexOf("invalidatePending();") < stop.indexOf("await stopServe"), "送信の前に捨てる");
+  assert.ok(
+    stop.indexOf("invalidatePending();", stop.indexOf("await stopServe")) < stop.indexOf("setState({ status"),
+    "応答の適用前にも捨てる",
+  );
+});
+
 test("取得失敗はリンクも操作も出さない状態にし、到達不可と区別する", () => {
   assert.match(hook, /setState\(\(prev\) => \(\{ \.\.\.prev, status: null, failed: true \}\)\)/);
   // 起動・停止の失敗は理由を残し、状態はサーバーの値を取り直す

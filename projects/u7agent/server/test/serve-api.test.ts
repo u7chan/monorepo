@@ -191,9 +191,15 @@ test("アプリデータが使えないときは serve の API も 503 にする
   else process.env.PI_SESSION_STORE = previous;
   try {
     assert.equal(bff.appDb.status().ok, false);
-    assert.equal((await bff.app.request("/api/serve/status?sessionId=aaaa000001")).status, 503);
-    assert.equal((await bff.app.request("/api/serve/start", jsonPost({ sessionId: "aaaa000001" }))).status, 503);
-    assert.equal((await bff.app.request("/api/serve/stop", jsonPost({ sessionId: "aaaa000001" }))).status, 503);
+    const status = await bff.app.request("/api/serve/status?sessionId=aaaa000001");
+    assert.equal(status.status, 503);
+    // 読み取りは 503 だけ、変更系は「何も保存していない」ことを state でも示す
+    assert.equal((await jsonBody(status)).state, undefined);
+    for (const path of ["/api/serve/start", "/api/serve/stop"]) {
+      const response = await bff.app.request(path, jsonPost({ sessionId: "aaaa000001" }));
+      assert.equal(response.status, 503, path);
+      assert.equal((await jsonBody(response)).state, "not_stored", path);
+    }
   } finally {
     await bff.close();
   }

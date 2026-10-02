@@ -38,6 +38,14 @@ export function useServeStatus({ sessionId }: { sessionId: string }) {
   const gate = useRef(createRequestGate()).current;
   const startAbort = useRef<AbortController | null>(null);
 
+  /**
+   * 進行中の取得を捨てる。操作の前と、操作の応答を適用する直前に呼び、操作で確定した状態より
+   * 古い取得結果で上書きさせない (会話 id が同じでも応答の到着順は入れ替わり得る)。
+   */
+  const invalidatePending = useCallback((): void => {
+    gate(() => false);
+  }, [gate]);
+
   /** 取得。古い応答 (会話切替 / 後続の要求) は捨てる */
   const refresh = useCallback(async (): Promise<void> => {
     const id = sessionIdRef.current;
@@ -66,10 +74,13 @@ export function useServeStatus({ sessionId }: { sessionId: string }) {
     const generation = state.status?.generation ?? null;
     const controller = new AbortController();
     startAbort.current = controller;
+    invalidatePending();
     setState((prev) => ({ ...prev, starting: true, error: undefined }));
     try {
       const status = await startServe({ sessionId: id, generation }, controller.signal);
       if (sessionIdRef.current !== id) return;
+      // 操作中に始まった取得より操作の結果を優先する
+      invalidatePending();
       setState({ status, failed: false, starting: false, error: undefined });
     } catch (error) {
       if (sessionIdRef.current !== id) return;
@@ -79,22 +90,24 @@ export function useServeStatus({ sessionId }: { sessionId: string }) {
     } finally {
       if (startAbort.current === controller) startAbort.current = null;
     }
-  }, [refresh, state.status?.generation]);
+  }, [invalidatePending, refresh, state.status?.generation]);
 
   const stop = useCallback(async (): Promise<void> => {
     const id = sessionIdRef.current;
     if (!id) return;
+    invalidatePending();
     setState((prev) => ({ ...prev, error: undefined }));
     try {
       const status = await stopServe({ sessionId: id, generation: state.status?.generation ?? null });
       if (sessionIdRef.current !== id) return;
+      invalidatePending();
       setState({ status, failed: false, starting: false, error: undefined });
     } catch (error) {
       if (sessionIdRef.current !== id) return;
       setState((prev) => ({ ...prev, error: messageFor(error) }));
       await refresh();
     }
-  }, [refresh, state.status?.generation]);
+  }, [invalidatePending, refresh, state.status?.generation]);
 
   /**
    * 起動の確認待ちをやめる。サーバー側の起動は続くため、状態は次回の取得で確定する

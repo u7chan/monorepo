@@ -269,7 +269,8 @@ export async function createBffApp(opts: CreateBffAppOptions = {}) {
     .get("/api/serve/status", appData, serveRoutes.status)
     .post(
       "/api/serve/start",
-      appData,
+      // 起動は実績を書き換える変更系なので、503 では何も保存していないことを state でも示す
+      appDataMutation,
       jsonBodyValidator(ServeStartBodySchema, (result, c) =>
         result.success ? undefined : c.json({ error: "Invalid request body" }, 400),
       ),
@@ -277,7 +278,7 @@ export async function createBffApp(opts: CreateBffAppOptions = {}) {
     )
     .post(
       "/api/serve/stop",
-      appData,
+      appDataMutation,
       jsonBodyValidator(ServeStopBodySchema, (result, c) =>
         result.success ? undefined : c.json({ error: "Invalid request body" }, 400),
       ),
