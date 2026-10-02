@@ -21,12 +21,11 @@ export const SERVE_STOP_TIMEOUT_MS = 5_000;
 export const SERVE_PROBE_TIMEOUT_MS = 1_000;
 /** 判定の使い回し。複数タブが同じ結果を使う。起動・停止の直後は必ず捨てる */
 export const SERVE_STATUS_CACHE_MS = 2_000;
-/** 期限つき待ちの再確認間隔 */
+/** 期限つき待ちの再確認間隔 (到達不可の間は軽いプローブだけ) */
 const SERVE_POLL_INTERVAL_MS = 250;
-/** 記録の pid と /proc の起動時刻の許容差。秒未満の丸めだけを吸収する */
-const SERVE_RECORD_TOLERANCE_MS = 2_000;
-/** サンドボックスの bash 実行に渡す期限 (秒)。待ちは BFF 側で行うため、スクリプト自体は短命 */
-const SANDBOX_SCRIPT_TIMEOUT_SECONDS = 20;
+/** 到達可だがまだ自分のプロセスでないときの再確認間隔 (fd 走査を連打しない) */
+const SERVE_OWN_LISTENER_INTERVAL_MS = 1_000;
+/** サンドボックスの bash 実行に渡す期限 (秒)。待ちは BFF 側で行うため、スクリプト自体は短命 */ const SANDBOX_SCRIPT_TIMEOUT_SECONDS = 20;
 /** スクリプトが最後に出す印。欠けていればサンドボックス側の失敗として扱う */
 const SCRIPT_OK = "serve:ok";
 
@@ -61,9 +60,15 @@ export interface ServeRecord {
   /** 起動時の作業ディレクトリ (root 相対) */
   cwd: string;
   command: string;
-  /** 起動時の PID (到達できたら「いま待受しているプロセス」の PID で上書きする) */
+  /** 起動時の PID (起動を試みた事実。照合には inodes を使う) */
   pid: number;
   startedAt: number;
+  /**
+   * 起動時に特定した「いま待受しているプロセス」の待受ソケット inode (昇順)。
+   * プロセスの同一性の照合はこれで行う (fd 走査を伴う PID の特定を待たずに判定できる)。
+   * この項目を持たない古い記録だけは pid + 起動時刻で照合する。
+   */
+  inodes: number[];
   /** 起動のたびに変わる値 */
   generation: string;
 }
@@ -102,13 +107,17 @@ export function sandboxHostFromUrl(value: string | undefined): string | undefine
 export interface ServeListener {
   pid: number;
   startedAt: number;
+  /** このプロセスが待受しているソケットの inode (昇順)。記録の照合に使う */
+  inodes: number[];
   ancestors: number[];
 }
 
 interface ServeObservation {
   reachable: boolean;
   record: ServeRecord | null;
-  /** いま listen しているプロセス。特定できなければ null */
+  /** いま listen しているソケットの inode (昇順)。安い観測でも取れる */
+  listenInodes: number[];
+  /** いま listen しているプロセス。fd 走査をしたときだけ分かる */
   listener: ServeListener | null;
   at: number;
 }
@@ -181,59 +190,76 @@ function encode(value: string): string {
 }
 
 /**
- * 記録と待受プロセスを 1 回の bash 実行で読む。待受 PID は `/proc/net/tcp` の listen エントリの inode と
- * `/proc/<pid>/fd` の照合で引く (ss / fuser / lsof はイメージに入っていない)。
- * 起動時刻は clock tick を秒へ直すため `getconf CLK_TCK` を使い、`/proc/stat` の btime と足して epoch ms にする。
+ * 記録と待受ソケットを 1 回の実行で読む。
+ *
+ * 重い fd 走査（待受 PID の特定）は `scanPids` のときだけ行う。状態表示は `/proc/net/tcp` の listen inode
+ * だけで所有者を分類でき（記録の inode と照合する）、PID は停止対象の決定と「起動したプロセスが待受を
+ * 始めたか」の判定にしか使わない。走査は node の 1 プロセスで行い、fd ごとに外部コマンドを起動しない
+ * （高負荷時に 15 秒以上かかり、状態取得のタイムアウトと表示のスタックを起こしていた）。
  */
-function observeScript(port: number): string {
-  return `set -u
-root=$PWD
-state="$root/${SERVE_STATE_REL}"
-hex=$(printf '%04X' ${port})
-inodes=$(awk -v p=":$hex" '$4 == "0A" && substr($2, length($2) - 4) == p { print $10 }' /proc/net/tcp /proc/net/tcp6 2>/dev/null | sort -u)
-listener=
-if [ -n "$inodes" ]; then
-  for fd in /proc/[0-9]*/fd/*; do
-    link=$(readlink "$fd" 2>/dev/null) || continue
-    case "$link" in
-      socket:\\[*) ino=\${link#socket:[}; ino=\${ino%]} ;;
-      *) continue ;;
-    esac
-    case " $inodes " in
-      *" $ino "*) ;;
-      *) continue ;;
-    esac
-    listener=\${fd#/proc/}
-    listener=\${listener%%/*}
-    break
-  done
-fi
-if [ -n "$listener" ]; then
-  ticks=$(sed 's/^.*) //' "/proc/$listener/stat" 2>/dev/null | awk '{ print $20 }')
-  hz=$(getconf CLK_TCK 2>/dev/null || echo 100)
-  btime=$(awk '/^btime /{ print $2 }' /proc/stat 2>/dev/null)
-  started=
-  if [ -n "$ticks" ] && [ -n "$btime" ]; then
-    started=$(( btime * 1000 + ticks * 1000 / hz ))
-  fi
-  printf 'listener\\t%s\\t%s\\n' "$listener" "\${started:-}"
-  # 自身から親をたどった PID。到達したプロセスが今回の起動に由来するかを BFF が判定する
-  chain=""
-  cur=$listener
-  while [ -n "$cur" ] && [ "$cur" != "0" ] && [ "$cur" != "1" ]; do
-    chain="$chain $cur"
-    rest=$(sed 's/^.*) //' "/proc/$cur/stat" 2>/dev/null) || break
-    cur=$(printf '%s' "$rest" | awk '{ print $2 }')
-  done
-  printf 'ancestors\\t%s\\n' "\${chain# }"
-fi
-if [ -f "$state" ]; then
-  printf 'record\\t'
-  cat "$state"
-  printf '\\n'
-fi
-echo ${SCRIPT_OK}
-`;
+function observeScript(port: number, options: { scanPids: boolean }): string {
+  return `node --input-type=commonjs -e '${[
+    'const fs = require("node:fs");',
+    `const SUFFIX = ":${port.toString(16).toUpperCase().padStart(4, "0")}";`,
+    `const SCAN = ${options.scanPids ? "true" : "false"};`,
+    "const inodes = [];",
+    'for (const file of ["/proc/net/tcp", "/proc/net/tcp6"]) {',
+    '  let text = "";',
+    '  try { text = fs.readFileSync(file, "utf8"); } catch (error) { continue; }',
+    "  for (const line of text.split(String.fromCharCode(10)).slice(1)) {",
+    "    const parts = line.trim().split(/ +/);",
+    '    if (parts.length < 10 || parts[3] !== "0A") continue;',
+    '    if (!(parts[1] || "").endsWith(SUFFIX)) continue;',
+    "    const inode = Number(parts[9]);",
+    "    if (Number.isInteger(inode) && inodes.indexOf(inode) === -1) inodes.push(inode);",
+    "  }",
+    "}",
+    "inodes.sort((a, b) => a - b);",
+    'const lines = ["inodes\\t" + inodes.join(" ")];',
+    "if (SCAN) {",
+    '  const wanted = inodes.map((inode) => "socket:[" + inode + "]");',
+    "  let pid = 0;",
+    '  for (const entry of fs.readdirSync("/proc")) {',
+    "    if (!/^[0-9]+$/.test(entry)) continue;",
+    "    let fds = [];",
+    '    try { fds = fs.readdirSync("/proc/" + entry + "/fd"); } catch (error) { continue; }',
+    "    for (const fd of fds) {",
+    '      let link = "";',
+    '      try { link = fs.readlinkSync("/proc/" + entry + "/fd/" + fd); } catch (error) { continue; }',
+    "      if (wanted.indexOf(link) === -1) continue;",
+    "      pid = Number(entry);",
+    "      break;",
+    "    }",
+    "    if (pid) break;",
+    "  }",
+    "  if (pid) {",
+    "    let startedAt = 0;",
+    "    try {",
+    '      const stat = fs.readFileSync("/proc/" + pid + "/stat", "utf8");',
+    '      const ticks = Number(stat.slice(stat.lastIndexOf(")") + 2).split(" ")[19]);',
+    '      const btime = Number((/btime ([0-9]+)/.exec(fs.readFileSync("/proc/stat", "utf8")) || [])[1]);',
+    "      if (Number.isFinite(ticks) && Number.isFinite(btime)) startedAt = btime * 1000 + Math.round(ticks * 10);",
+    "    } catch (error) { startedAt = 0; }",
+    '    lines.push("listener\\t" + pid + "\\t" + startedAt);',
+    "    const chain = [];",
+    "    let cur = pid;",
+    "    while (cur && cur !== 1 && chain.length < 32) {",
+    "      chain.push(cur);",
+    "      let parent = 0;",
+    "      try {",
+    '        const stat = fs.readFileSync("/proc/" + cur + "/stat", "utf8");',
+    '        parent = Number(stat.slice(stat.lastIndexOf(")") + 2).split(" ")[1]);',
+    "      } catch (error) { parent = 0; }",
+    "      cur = Number.isInteger(parent) ? parent : 0;",
+    "    }",
+    '    lines.push("ancestors\\t" + chain.join(" "));',
+    "  }",
+    "}",
+    `try { lines.push("record\\t" + fs.readFileSync("${SERVE_STATE_REL}", "utf8").trim()); } catch (error) {}`,
+    "console.log(lines.join(String.fromCharCode(10)));",
+    "' || { echo 'serve: scan failed' >&2; exit 1; }",
+    `echo ${SCRIPT_OK}`,
+  ].join("\n")}`;
 }
 
 /**
@@ -291,30 +317,32 @@ function parseRecord(raw: string): ServeRecord | null {
     return null;
   }
   if (!parsed || typeof parsed !== "object") return null;
-  const { sessionId, cwd, command, pid, startedAt, generation } = parsed as Record<string, unknown>;
+  const { sessionId, cwd, command, pid, startedAt, inodes, generation } = parsed as Record<string, unknown>;
   if (typeof sessionId !== "string" || sessionId === "") return null;
   if (typeof cwd !== "string") return null;
   if (typeof command !== "string" || command === "") return null;
   if (typeof pid !== "number" || !Number.isInteger(pid)) return null;
   if (typeof startedAt !== "number" || !Number.isFinite(startedAt)) return null;
   if (typeof generation !== "string" || generation === "") return null;
-  return { sessionId, cwd, command, pid, startedAt, generation };
+  const parsedInodes = Array.isArray(inodes)
+    ? inodes.filter((value): value is number => Number.isInteger(value) && value > 0).sort((a, b) => a - b)
+    : [];
+  return { sessionId, cwd, command, pid, startedAt, inodes: parsedInodes, generation };
 }
 
 /** スクリプトの出力を観測値へ。印の確認は呼び出し側 (#run) が行う */
 function parseObservation(output: string, at: number): Omit<ServeObservation, "reachable"> {
   let record: ServeRecord | null = null;
   let listener: ServeListener | null = null;
+  let listenInodes: number[] = [];
   let ancestors: number[] = [];
   for (const line of output.split("\n")) {
     if (line.startsWith("record\t")) {
       record = parseRecord(line.slice("record\t".length));
+    } else if (line.startsWith("inodes\t")) {
+      listenInodes = numberList(line.slice("inodes\t".length));
     } else if (line.startsWith("ancestors\t")) {
-      ancestors = line
-        .slice("ancestors\t".length)
-        .split(" ")
-        .map((value) => Number(value))
-        .filter((value) => Number.isInteger(value) && value > 0);
+      ancestors = numberList(line.slice("ancestors\t".length));
     } else if (line.startsWith("listener\t")) {
       const [, pid, startedAt] = line.split("\t");
       const parsedPid = Number(pid);
@@ -324,12 +352,28 @@ function parseObservation(output: string, at: number): Omit<ServeObservation, "r
           pid: parsedPid,
           // 起動時刻を引けなかったときは 0 (不明) とし、照合は pid だけで行う
           startedAt: Number.isFinite(parsedStartedAt) ? parsedStartedAt : 0,
+          inodes: [...listenInodes],
           ancestors,
         };
       }
     }
   }
-  return { record, listener, at };
+  return { record, listenInodes, listener, at };
+}
+
+/** 空白区切りの数値列。範囲外は落とす */
+function numberList(value: string): number[] {
+  return value
+    .trim()
+    .split(" ")
+    .map((entry) => Number(entry))
+    .filter((entry) => Number.isInteger(entry) && entry > 0);
+}
+
+/** 待受ソケットの inode が同じか。空同士は一致とみなさない (不明を同じ扱いにしない) */
+function sameInodes(left: readonly number[], right: readonly number[]): boolean {
+  if (left.length === 0 || left.length !== right.length) return false;
+  return left.every((value, index) => value === right[index]);
 }
 
 /** 到達した待受プロセスが今回の起動に由来するか (起動 PID 自身か、その子孫) */
@@ -387,7 +431,7 @@ export class ServeService {
       // 実績の解決と検証は置き換えの停止より先に行う (コマンドが無いのに既存を止めない)
       const command = explicit || this.#db.getServeCommand(view.cwd)?.command;
       if (!command) throw httpError(400, "この作業ディレクトリには serve の実績がありません");
-      const before = await this.#observe({ fresh: true });
+      const before = await this.#observe({ fresh: true, scanPids: true });
       if (before.reachable) {
         this.#assertGeneration(before, input.generation ?? null);
         // 置き換えは所有者を問わない (UI が所有者名を出して確認してから呼ぶ)
@@ -402,6 +446,7 @@ export class ServeService {
         command,
         pid,
         startedAt: this.#now(),
+        inodes: [],
         generation,
       };
       await this.#writeRecord(record);
@@ -418,7 +463,12 @@ export class ServeService {
         );
       }
       // 到達できたら「いま待受しているプロセス」を正として記録し直す (所有者の照合を効かせる)
-      record = { ...record, pid: waited.listener.pid, startedAt: waited.listener.startedAt };
+      record = {
+        ...record,
+        pid: waited.listener.pid,
+        startedAt: waited.listener.startedAt,
+        inodes: [...waited.listener.inodes],
+      };
       await this.#writeRecord(record);
       // 実績の更新は成功時だけ (失敗したコマンドで以前の成功を上書きしない)
       this.#db.saveServeCommand({ cwd: view.cwd, command, updatedAt: this.#now() });
@@ -435,12 +485,18 @@ export class ServeService {
     const view = this.#view(sessionId);
     return this.#lock.run(async () => {
       this.#cached = null;
-      const before = await this.#observe({ fresh: true });
+      const before = await this.#observe({ fresh: true, scanPids: true });
       if (!before.reachable) {
         // 到達不可なら止めるものが無い。記録だけ片付ける (停止済みとして扱う)
         if (before.record) await this.#clearRecord();
         this.#cached = null;
-        return this.#compose(view, { reachable: false, record: null, listener: null, at: this.#now() });
+        return this.#compose(view, {
+          reachable: false,
+          record: null,
+          listenInodes: [],
+          listener: null,
+          at: this.#now(),
+        });
       }
       this.#assertGeneration(before, input.generation ?? null);
       const owner = this.#ownerOf(view, before);
@@ -450,7 +506,7 @@ export class ServeService {
       await this.#stopListener(before);
       await this.#clearRecord();
       this.#cached = null;
-      return this.#compose(view, { reachable: false, record: null, listener: null, at: this.#now() });
+      return this.#compose(view, { reachable: false, record: null, listenInodes: [], listener: null, at: this.#now() });
     });
   }
 
@@ -461,16 +517,15 @@ export class ServeService {
   }
 
   /**
-   * 置き換えの再照合に使う不透明な値。起動世代と「いま待受しているプロセス」の同一性 (PID と起動時刻) を
+   * 置き換えの再照合に使う不透明な値。起動世代と「いま待受しているソケット」の同一性 (listen inode) を
    * 合わせて持つため、記録を残したまま生の bash で入れ替わった場合も確認が通らない。
    * 到達不可 (置き換える対象が無い) は null。
    */
   #confirmationToken(observation: ServeObservation): string | null {
     if (!observation.reachable) return null;
     const identity = observation.record && this.#matches(observation) ? observation.record.generation : "unknown";
-    const listener = observation.listener;
     return createHash("sha256")
-      .update(`${identity}:${listener?.pid ?? 0}:${listener?.startedAt ?? 0}`)
+      .update(`${identity}:${observation.listenInodes.join(",")}`)
       .digest("hex")
       .slice(0, 8);
   }
@@ -484,34 +539,39 @@ export class ServeService {
   /**
    * 稼働判定は常にプローブ。記録は表示と操作権限のためだけに使い、到達可の根拠にはしない
    * (コンテナ再作成後に記録が残っていても「稼働中」と嘘をつかないため)。
+   *
+   * `scanPids` は待受 PID の特定 (fd 走査) を伴う。状態表示では不要なので既定は false で、
+   * 停止対象の決定と起動の照合をするときだけ true にする。
    */
-  async #observe(options: { fresh?: boolean } = {}): Promise<ServeObservation> {
+  async #observe(options: { fresh?: boolean; scanPids?: boolean } = {}): Promise<ServeObservation> {
     // サンドボックス未設定は「状態を取得できない」なので、プローブより先に 503 で止める
     // (プローブが false のときに 200 の停止状態を返さない)
     this.#requireSandbox();
     const cached = this.#cached;
-    if (!options.fresh && cached && this.#now() - cached.at < this.#cacheMs) return cached;
+    if (!options.scanPids && !options.fresh && cached && this.#now() - cached.at < this.#cacheMs) return cached;
     const reachable = await this.#probe();
     // 到達不可なら記録も待受 PID も表示に使わない (サンドボックスの呼び出しを増やさない)
     const observation: ServeObservation = reachable
-      ? { reachable: true, ...(await this.#readObservation()) }
-      : { reachable: false, record: null, listener: null, at: this.#now() };
+      ? { reachable: true, ...(await this.#readObservation(options.scanPids === true)) }
+      : { reachable: false, record: null, listenInodes: [], listener: null, at: this.#now() };
     this.#cached = observation;
     return observation;
   }
 
-  async #readObservation(): Promise<Omit<ServeObservation, "reachable">> {
+  async #readObservation(scanPids: boolean): Promise<Omit<ServeObservation, "reachable">> {
     const at = this.#now();
-    return parseObservation(await this.#run(observeScript(this.#listenPort)), at);
+    return parseObservation(await this.#run(observeScript(this.#listenPort, { scanPids })), at);
   }
 
-  /** 記録と待受プロセスの照合。記録があるだけでは所有者とみなさない */
+  /**
+   * 記録と「いま待受しているプロセス」の照合。記録があるだけでは所有者とみなさない。
+   * 根拠は待受ソケットの inode (fd 走査を伴う PID の特定を待たずに判定でき、状態表示と操作で同じ結果になる)。
+   * inode を持たない記録 (この項目より前の版が書いたもの) は一致とみなさない。
+   */
   #matches(observation: ServeObservation): boolean {
-    const { record, listener } = observation;
-    if (!record || !listener) return false;
-    if (record.pid !== listener.pid) return false;
-    if (listener.startedAt === 0) return true;
-    return Math.abs(record.startedAt - listener.startedAt) <= SERVE_RECORD_TOLERANCE_MS;
+    const { record, listenInodes } = observation;
+    if (!record || record.inodes.length === 0) return false;
+    return sameInodes(record.inodes, listenInodes);
   }
 
   #ownerOf(view: { sessionId: string; title: string }, observation: ServeObservation): ServeOwner {
@@ -574,10 +634,14 @@ export class ServeService {
     for (;;) {
       if (await this.#probe()) {
         reachable = true;
-        const observation = await this.#observe({ fresh: true });
+        const observation = await this.#observe({ fresh: true, scanPids: true });
         if (observation.listener && isFromLaunch(observation.listener, launchedPid)) {
           return { ok: true, listener: observation.listener };
         }
+        // 別のプロセスが使用中。次の確認まで長めに間を置く (fd 走査を連打しない)
+        if (this.#now() >= deadline) return { ok: false, reachable };
+        await this.#sleep(SERVE_OWN_LISTENER_INTERVAL_MS);
+        continue;
       }
       if (this.#now() >= deadline) return { ok: false, reachable };
       await this.#sleep(SERVE_POLL_INTERVAL_MS);

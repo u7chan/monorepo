@@ -67,9 +67,10 @@ function setup(
       command: "pnpm dev",
       pid: 100,
       startedAt: NOW - 5_000,
+      inodes: [500],
       generation: "gen-1",
     });
-    sandbox.state.listener = { pid: 100, startedAt: NOW - 5_000, ancestors: [100] };
+    sandbox.state.listener = { pid: 100, startedAt: NOW - 5_000, inodes: [500], ancestors: [100] };
   }
   // 到達不可だが記録だけ残っている状態 (コンテナ再作成相当)
   if (options.reachable === false && options.owner) sandbox.state.listener = null;
@@ -109,22 +110,31 @@ test("記録と待受プロセスが一致すれば所有者を mine / other に
   assert.deepEqual((await other.service.status(OTHER)).owner, { kind: "mine", title: "決済画面の検証" });
 });
 
-test("記録があっても待受 PID / 起動時刻が一致しなければ起動元不明にする", async () => {
-  const pidMismatch = setup({ reachable: true, owner: OTHER });
-  pidMismatch.sandbox.state.listener = { pid: 999, startedAt: NOW - 5_000, ancestors: [999] };
-  assert.deepEqual((await pidMismatch.service.status(SESSION)).owner, { kind: "unknown" });
+test("待受ソケットが記録と一致しなければ起動元不明にする", async () => {
+  // 生の bash が別のソケットで listen し直した状態 (inode が変わる)
+  const replaced = setup({ reachable: true, owner: OTHER });
+  replaced.sandbox.state.listener = { pid: 999, startedAt: NOW - 5_000, inodes: [999], ancestors: [999] };
+  assert.deepEqual((await replaced.service.status(SESSION)).owner, { kind: "unknown" });
 
-  const timeMismatch = setup({ reachable: true, owner: OTHER });
-  timeMismatch.sandbox.state.listener = { pid: 100, startedAt: NOW - 60_000, ancestors: [100] };
-  assert.deepEqual((await timeMismatch.service.status(SESSION)).owner, { kind: "unknown" });
+  // inode を持たない記録 (この項目より前の版が書いたもの) は一致とみなさない
+  const legacy = setup({ reachable: true, owner: OTHER });
+  legacy.sandbox.state.stateFile = JSON.stringify({
+    sessionId: OTHER,
+    cwd: "projects/bar",
+    command: "pnpm dev",
+    pid: 100,
+    startedAt: NOW - 5_000,
+    generation: "gen-1",
+  });
+  assert.deepEqual((await legacy.service.status(SESSION)).owner, { kind: "unknown" });
 
   // 記録が壊れていても所有者とみなさない
   const broken = setup({ reachable: true });
   broken.sandbox.state.stateFile = "{ not json";
-  broken.sandbox.state.listener = { pid: 100, startedAt: NOW, ancestors: [100] };
+  broken.sandbox.state.listener = { pid: 100, startedAt: NOW, inodes: [500], ancestors: [100] };
   const status = await broken.service.status(SESSION);
   assert.deepEqual(status.owner, { kind: "unknown" });
-  // 到達可なら置き換えの照合値は必ず載る (記録が無くても「いまの待受プロセス」を表す)
+  // 到達可なら置き換えの照合値は必ず載る (記録が無くても「いまの待受ソケット」を表す)
   assert.equal(typeof status.generation, "string");
 });
 
@@ -158,9 +168,9 @@ test("停止は所有者以外を 403 で拒み、所有者と起動元不明は
   assert.deepEqual(mine.sandbox.state.killed, [100], "記録の PID ではなく待受 PID を止める");
   assert.equal(mine.sandbox.state.stateFile, null, "停止後は記録を残さない");
 
-  // 起動元不明 (記録と一致しない) は誰でも止められる
+  // 起動元不明 (記録と一致しないソケット) は誰でも止められる
   const unknown = setup({ reachable: true, owner: OTHER });
-  unknown.sandbox.state.listener = { pid: 777, startedAt: NOW, ancestors: [777] };
+  unknown.sandbox.state.listener = { pid: 777, startedAt: NOW, inodes: [777], ancestors: [777] };
   await unknown.service.stop(SESSION, { generation: await token(unknown.service, SESSION) });
   assert.deepEqual(unknown.sandbox.state.killed, [777]);
 });
@@ -198,8 +208,8 @@ test("停止後の解放を確認できないときは 502 にする", async () 
 test("待受プロセスが入れ替われば、記録が同じでも照合値が変わる (生の bash の置き換えを検知)", async () => {
   const { service, sandbox, clock } = setup({ reachable: true, owner: SESSION });
   const before = await token(service, SESSION);
-  // 記録はそのままに、生の bash が新しい PID へ入れ替える
-  sandbox.state.listener = { pid: 555, startedAt: NOW + 1_000, ancestors: [555] };
+  // 記録はそのままに、生の bash が新しいソケットへ入れ替える
+  sandbox.state.listener = { pid: 555, startedAt: NOW + 1_000, inodes: [555], ancestors: [555] };
   clock.value += 5_000;
   assert.notEqual(await token(service, SESSION), before);
   // 古い確認のままの停止は、記録の世代が同じでも 409 になる
@@ -215,7 +225,7 @@ test("到達不可のあとに記録なしのプロセスが起動しても、�
   // 停止中の状態 (照合値 null) を確認したあとで、生の bash が記録なしで listen する
   const stopped = await token(service, SESSION);
   assert.equal(stopped, null);
-  sandbox.state.listener = { pid: 888, startedAt: NOW, ancestors: [888] };
+  sandbox.state.listener = { pid: 888, startedAt: NOW, inodes: [888], ancestors: [888] };
   await assert.rejects(
     () => service.start(SESSION, { generation: stopped }),
     (error: unknown) => (error as { statusCode?: number }).statusCode === 409,
@@ -271,7 +281,7 @@ test("起動の失敗は実績を上書きせず、試みた事実だけを残�
 test("到達してもこの起動に由来しないプロセスなら成功としない (遅れて listen した別の起動を拾わない)", async () => {
   const { service, sandbox, commands } = setup({ command: "pnpm dev" });
   // 期限超過した別の起動が、今回の起動の直後に遅れて listen した状態を作る
-  sandbox.state.listenerOnLaunch = { pid: 777, startedAt: NOW + 500, ancestors: [777, 666] };
+  sandbox.state.listenerOnLaunch = { pid: 777, startedAt: NOW + 500, inodes: [777], ancestors: [777, 666] };
   await assert.rejects(
     () => service.start(SESSION, { command: "pnpm start" }),
     (error: unknown) => {
@@ -376,6 +386,17 @@ test("同時の起動要求は直列化し、古い確認のままの要求は 4
   assert.equal(settled[1].status, "rejected");
   assert.equal(replace.sandbox.state.launched.length, 1);
   assert.deepEqual(replace.sandbox.state.killed, [100]);
+});
+
+test("状態の取得は fd 走査をせず、停止と起動の判定でだけ待受 PID を特定する", async () => {
+  const { service, sandbox } = setup({ reachable: true, owner: SESSION });
+  const status = await service.status(SESSION);
+  assert.deepEqual(status.owner, { kind: "mine", title: "トップページの改修" });
+  assert.equal(sandbox.state.scans, 0, "状態表示では /proc の fd 走査をしない");
+
+  // 停止は待受 PID が要るので走査する (必要なときだけ)
+  await service.stop(SESSION, { generation: status.generation });
+  assert.equal(sandbox.state.scans, 1);
 });
 
 test("状態の判定は短くキャッシュし、起動・停止の直後に捨てる", async () => {

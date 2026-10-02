@@ -10,7 +10,7 @@ export interface ServeSandboxState {
   /** 仮想の `<appdir>/serve/state.json` の中身 */
   stateFile: string | null;
   /** いま listen しているプロセス (観測スクリプトが返す値)。ancestors は自身から親をたどった PID */
-  listener: { pid: number; startedAt: number; ancestors: number[] } | null;
+  listener: { pid: number; startedAt: number; inodes: number[]; ancestors: number[] } | null;
   /** launch スクリプトが起動したと見なす PID */
   launchPid: number;
   /** launch で listen が始まるか。false で「起動したが到達しない」を再現する */
@@ -19,7 +19,11 @@ export interface ServeSandboxState {
    * launch と同時に listen を始める別のプロセス (遅れて listen した別の起動の再現)。
    * 設定されていると launch はこちらの listener を返す
    */
-  listenerOnLaunch: { pid: number; startedAt: number; ancestors: number[] } | null;
+  listenerOnLaunch: { pid: number; startedAt: number; inodes: number[]; ancestors: number[] } | null;
+  /** launch で listen を始めるソケットの inode */
+  launchInodes: number[];
+  /** listen しているが PID を特定できない状態の inode (fd 走査をしても listener 行を返さない) */
+  orphanInodes: number[];
   /** launch したプロセスの起動時刻 (観測スクリプトが返す値) */
   launchStartedAt: number;
   launched: Array<{ workdir: string; command: string; log: string }>;
@@ -28,6 +32,8 @@ export interface ServeSandboxState {
   killWorks: boolean;
   /** 記録を書いた回数 (起動の成功では仮の記録と待受 PID の 2 回) */
   writes: number;
+  /** fd 走査つきの観測回数 (状態表示では増えない) */
+  scans: number;
   /** サンドボックス側の失敗を再現する (印を返さない) */
   fail: boolean;
 }
@@ -53,10 +59,13 @@ export function createServeSandboxStub(): ServeSandboxStub {
     launchPid: 4242,
     launchListens: true,
     listenerOnLaunch: null,
+    launchInodes: [4242],
+    orphanInodes: [],
     launchStartedAt: 1_700_000_000_000,
     launched: [],
     killed: [],
     writes: 0,
+    scans: 0,
     fail: false,
     killWorks: true,
   };
@@ -80,6 +89,7 @@ export function createServeSandboxStub(): ServeSandboxStub {
           state.listener = {
             pid: state.launchPid,
             startedAt: state.launchStartedAt,
+            inodes: [...state.launchInodes],
             ancestors: [state.launchPid],
           };
         }
@@ -99,9 +109,12 @@ export function createServeSandboxStub(): ServeSandboxStub {
         state.writes += 1;
         return { content: [{ type: "text", text: "serve:ok\n" }] };
       }
-      // 観測スクリプト
+      // 観測スクリプト。fd 走査つきの観測 (SCAN = true) だけが listener / ancestors を返す
+      const scan = script.includes("const SCAN = true;");
+      if (scan) state.scans += 1;
       const lines: string[] = [];
-      if (state.listener) {
+      lines.push(`inodes\t${(state.listener ? state.listener.inodes : state.orphanInodes).join(" ")}`);
+      if (scan && state.listener) {
         lines.push(`listener\t${state.listener.pid}\t${state.listener.startedAt}`);
         lines.push(`ancestors\t${state.listener.ancestors.join(" ")}`);
       }
