@@ -486,14 +486,14 @@ function applyPendingSends(
     if (send?.state === "unsent") {
       pending.delete(bubble.id);
       seen.add(bubble.runId);
-      next.push({ ...bubble, unsent: true, accepted: false });
+      next.push({ ...bubble, unsent: true, accepted: false, confirmed: false });
       continue;
     }
     if (send !== undefined) {
       // 実行中 / キュー待ち。未送信の表示を戻し、entry が載ったときの吸収に載せる
       seen.add(bubble.runId);
       if (bubble.entryId === undefined) pending.add(bubble.id);
-      next.push({ ...bubble, unsent: false, accepted: true });
+      next.push({ ...bubble, unsent: false, accepted: true, confirmed: true });
       continue;
     }
     // 一覧に無い = 保存済みか破棄済み。未送信のバブルはここで落とす (保存済みは entry が担う)
@@ -795,7 +795,7 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
           : {
               ...state,
               bubbles: state.bubbles.map((bubble) =>
-                bubble.id === resent.id ? { ...bubble, unsent: false, accepted: true } : bubble,
+                bubble.id === resent.id ? { ...bubble, unsent: false, accepted: true, confirmed: true } : bubble,
               ),
               pendingEchoIds: [...state.pendingEchoIds, resent.id],
             };
@@ -908,8 +908,10 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
           ...bubble,
           runId: action.runId,
           // 先にあったバブルの状態 (未送信 / 受理済み) を引き継ぐ
-          ...(duplicate?.unsent === true ? { unsent: true, accepted: false } : {}),
-          ...(duplicate?.accepted === true ? { unsent: false, accepted: true } : {}),
+          ...(duplicate?.unsent === true ? { unsent: true, accepted: false, confirmed: false } : {}),
+          ...(duplicate?.accepted === true
+            ? { unsent: false, accepted: true, confirmed: duplicate.confirmed === true }
+            : {}),
           ...(prompt !== undefined ? { text: prompt } : {}),
         }),
       );
@@ -935,7 +937,7 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
           ...withRunId,
           runPrompts,
           bubbles: withRunId.bubbles.map((bubble) =>
-            bubble.id === echoId ? { ...bubble, unsent: true, accepted: false } : bubble,
+            bubble.id === echoId ? { ...bubble, unsent: true, accepted: false, confirmed: false } : bubble,
           ),
           pendingEchoIds: withRunId.pendingEchoIds.filter((id) => id !== echoId),
           clearedRunIds: state.clearedRunIds.filter((id) => id !== action.runId),
@@ -953,7 +955,7 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
       return {
         ...state,
         bubbles: state.bubbles.map((bubble, i) =>
-          i === index ? { ...bubble, unsent: false, accepted: true, at: Date.now() } : bubble,
+          i === index ? { ...bubble, unsent: false, accepted: true, confirmed: false, at: Date.now() } : bubble,
         ),
         currentAssistantId: null,
         pendingEchoIds: [...state.pendingEchoIds, echo.id],
@@ -967,14 +969,15 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
     }
 
     case "resendFailed": {
-      // 再送を受け付けてもらえなかった。通常の送信済みに見せないよう未送信へ戻す
+      // 再送を受け付けてもらえなかった。通常の送信済みに見せないよう未送信へ戻す。ただし
+      // payload / run_start でサーバーの受理を確認済みの run は実行されているので戻さない
       const index = state.bubbles.findIndex((bubble) => bubble.unsent === false && bubble.runId === action.runId);
-      if (index === -1) return state;
+      if (index === -1 || state.bubbles[index].confirmed === true) return state;
       const echo = state.bubbles[index];
       return {
         ...state,
         bubbles: state.bubbles.map((bubble, i) =>
-          i === index ? { ...bubble, unsent: true, accepted: false } : bubble,
+          i === index ? { ...bubble, unsent: true, accepted: false, confirmed: false } : bubble,
         ),
         pendingEchoIds: state.pendingEchoIds.filter((id) => id !== echo.id),
       };
@@ -1111,7 +1114,7 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
       const cleared = new Set(action.runIds ?? []);
       const bubbles = state.bubbles.map((bubble) =>
         bubble.runId !== undefined && cleared.has(bubble.runId) && bubble.unsent !== true
-          ? { ...bubble, unsent: true, accepted: false }
+          ? { ...bubble, unsent: true, accepted: false, confirmed: false }
           : bubble,
       );
       const pendingEchoIds = state.pendingEchoIds.filter((id) => {

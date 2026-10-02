@@ -234,6 +234,9 @@ function absorbPendingEchoes(pendingLives: Bubble[], items: HistoryItem[]): Set<
  * 対応付ける。`since` が見つからないときは何も返さない (誤った吸収をしない)。
  */
 export function fallbackEchoTarget(bubbles: Bubble[], markers: CompactionMarker[], echo: Bubble): Bubble | undefined {
+  // 未送信 / 受理済み (サーバーが状態を明示している送信) は本文の縮退に使わない。新しく payload から
+  // 作ったバブルは `since` が無く全保持履歴が候補になるため、旧 entry へ黙って吸収され得る
+  if (echo.unsent || echo.accepted) return undefined;
   const after = historyIdsAfter(bubbles, markers, echo.since);
   const text = canonicalUserText(echo.text);
   for (let index = bubbles.length - 1; index >= 0; index -= 1) {

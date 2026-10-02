@@ -49,6 +49,11 @@ export type Bubble = {
    */
   accepted?: boolean;
   /**
+   * その受理をサーバーが確認済み (payload の queued / running か run_start)。楽観的に受理済みへ
+   * 切り替えた再送と区別し、応答が届かない失敗で実行済みの送信を未送信へ戻さないために使う
+   */
+  confirmed?: boolean;
+  /**
    * run が終わって確定したライブバブル (履歴ページがまだ拾っていない分)。resync で捨てずに残し、
    * 履歴ページが届いたら entryId 付きのバブルと置き換える。未確定のストリーミング中だけ false。
    */

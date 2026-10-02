@@ -205,11 +205,11 @@ export async function resendUnsentMessage(runId: string, deps: ResendUnsentDeps)
   } catch (error) {
     if (deps.sessionIdRef.current !== id) return;
     // 応答が届かないだけの失敗 (受理済みだが応答が失われた) と、未受理の失敗を区別できない。
-    // 権威ある payload を取り直して、未送信 / 実行中 / 保存済みのどれかへ収束させる
-    const recovered = await deps.recover();
+    // まず未送信へ戻し (未確認の送信を送信済みに見せない)、サーバーが受理を確認済みの run は
+    // reducer がそのまま保つ。その上で権威ある payload を取り直して状態を確定させる
+    if (deps.opsRef.current === ops) deps.dispatch({ type: "resendFailed", runId });
+    await deps.recover();
     if (deps.sessionIdRef.current !== id) return;
-    // 取り直せなかったときだけ未送信へ戻す (次の payload が権威ある状態を配る)
-    if (!recovered && deps.opsRef.current === ops) deps.dispatch({ type: "resendFailed", runId });
     deps.dispatch({ type: "setActivity", text: messageFor(error) });
     // 400 / 409 は操作の結果 (理由は文言が持つ)。接続状態に倒すのは通信自体の失敗だけ
     if (!isApiFailure(error)) deps.setRuntimeStatus(runtimeStatusForError(error));

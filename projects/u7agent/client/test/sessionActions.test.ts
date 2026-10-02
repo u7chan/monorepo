@@ -625,7 +625,7 @@ test("再送が受理されないまま失敗したら未送信へ戻し、理�
   assert.equal(statuses.length, 1, "通信自体の失敗は接続状態にも出す");
 });
 
-test("応答が遅れて失敗しても、権威ある payload を取り直せたら未送信へ戻さない", async () => {
+test("応答が遅れて失敗したら未送信へ戻し、権威ある payload の取り直しも行う", async () => {
   const pending = deferred<PostMessageResult>();
   let recovered = 0;
   const { actions, deps } = createResendHarness({
@@ -636,12 +636,16 @@ test("応答が遅れて失敗しても、権威ある payload を取り直せ�
     },
   });
   const running = resendUnsentMessage("run-x", deps);
-  // サーバーは受理して run が実行・完了している。payload の取り直しで state が収束する
+  // サーバーは受理して run が実行・完了している
   deps.runEndSeqRef.current = 1;
   pending.reject(new Error("network reset"));
   await running;
+  // 未確認の送信を送信済みに見せない。サーバーが受理を確認済みの run は reducer が保つ
+  assert.deepEqual(
+    actionsOfType(actions, "resendFailed").map((action) => action.runId),
+    ["run-x"],
+  );
   assert.equal(recovered, 1, "失敗時は権威ある payload を取り直す");
-  assert.deepEqual(actionsOfType(actions, "resendFailed"), [], "取り直した状態を古い応答で戻さない");
 });
 
 test("取り直しも失敗し、操作世代が進んでいれば表示を戻さない", async () => {
