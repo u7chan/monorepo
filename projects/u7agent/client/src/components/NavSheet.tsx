@@ -35,6 +35,7 @@ function focusFirstAvailable(root: ParentNode, selectors: readonly string[]): vo
  */
 export function NavSheet({ mode, onClose, ...sidebarProps }: NavSheetProps) {
   const dialogRef = useRef<HTMLDialogElement>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
   const previousFocusRef = useRef<HTMLElement | null>(null);
   // 退場アニメの最中か。閉じる要求では unmount せず、まずパネルを抜けさせてから dialog を閉じる
   const [closing, setClosing] = useState(false);
@@ -76,6 +77,19 @@ export function NavSheet({ mode, onClose, ...sidebarProps }: NavSheetProps) {
   // 幅を広げて docked へ戻ると App はドロワーを直接 unmount する (dialog の close が来ない)。待たせた操作を
   // ここで拾わないと、押した New Project が追加ダイアログを開かないまま消える
   useEffect(() => () => afterCloseRef.current?.(), []);
+
+  // 閉じるのは本則では animationend (panel の onAnimationEnd) だが、animation を切る環境 (user style /
+  // 拡張機能) では animationend が来ず、Escape も止めているためモーダルを閉じられなくなる。CSS の長さを読んで
+  // その倍 + 余裕を待つ保険を置く (アニメーションが動くときは animationend のほうが先に来る)
+  useEffect(() => {
+    if (!closing) return;
+    const panel = panelRef.current;
+    const dialog = dialogRef.current;
+    if (!panel || !dialog) return;
+    const duration = Number.parseFloat(getComputedStyle(panel).animationDuration) * 1000;
+    const timer = setTimeout(() => dialog.close(), duration * 2 + 100);
+    return () => clearTimeout(timer);
+  }, [closing]);
 
   /** 閉じる要求 (× / 背景クリック / Escape / 項目の選択) の唯一の入口。dialog は退場アニメの後に閉じる */
   const requestClose = () => setClosing(true);
@@ -127,6 +141,7 @@ export function NavSheet({ mode, onClose, ...sidebarProps }: NavSheetProps) {
       className="nav-sheet m-0 h-dvh max-h-none w-screen max-w-none overflow-hidden bg-transparent p-0"
     >
       <div
+        ref={panelRef}
         // ここで dialog を閉じるため、この animation を切ると (prefers-reduced-motion など) 閉じられなくなる。
         // animationend は子の animation からも上がるので、自分の分だけを見る
         onAnimationEnd={(event) => {

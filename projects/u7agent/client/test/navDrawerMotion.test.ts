@@ -132,6 +132,15 @@ test("App は退場アニメの完了までドロワーを描き続ける", () =
   assert.ok(app.includes("if (sidebarDocked) setNavOpen(false);"));
 });
 
+test("退場アニメが動かない環境でも閉じられる (animationend だけに依存しない)", () => {
+  const sheet = read("src/components/NavSheet.tsx");
+  // animation を切る user style / 拡張機能では animationend が来ず、Escape も止めているためモーダルを
+  // 閉じられなくなる。CSS の長さを読んだ保険が必要
+  assert.ok(sheet.includes("getComputedStyle(panel).animationDuration"), "CSS の長さを読む保険が無い");
+  assert.ok(sheet.includes("setTimeout(() => dialog.close()"), "時間の保険が無い");
+  assert.ok(sheet.includes("ref={panelRef}"), "保険の対象 (panel) が参照できない");
+});
+
 test("閉じるときは背景の暗転も一緒に薄くする", () => {
   const css = read("src/styles/index.css");
   const base = css.indexOf(".nav-sheet::backdrop {");
