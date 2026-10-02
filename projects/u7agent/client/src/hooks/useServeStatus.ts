@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { getServeStatus, startServe, stopServe } from "../api";
-import { canApplyStatus } from "../lib/serveStatus";
+import { canApplyServeAction, canApplyStatus, type ServeSelection } from "../lib/serveStatus";
 import type { ServeStatus } from "../types";
 
 /**
@@ -43,6 +43,8 @@ export function useServeStatus({ sessionId }: { sessionId: string }) {
   const startAbort = useRef<AbortController | null>(null);
   const sessionIdRef = useRef(sessionId);
   sessionIdRef.current = sessionId;
+  /** 会話選択の世代。切替のたびに進み、切替前の操作結果 (start / stop) の適用を防ぐ */
+  const selectionSeq = useRef(0);
   // 会話を切り替えたフレームで前の会話の状態を描かず、切替前の取得結果も無効化する。
   // 印を外すだけだと A → B → A と戻ったときに最初の A の応答が再び有効になり、
   // その間に他会話へ置き換わっていれば古い状態を描いてしまう (Effect を待つと 1 フレーム古い値が出る)
@@ -50,6 +52,7 @@ export function useServeStatus({ sessionId }: { sessionId: string }) {
     setTracked(sessionId);
     setState(IDLE);
     invalidatedUpTo.current = requestSeq.current;
+    selectionSeq.current += 1;
   }
 
   /**
@@ -99,19 +102,22 @@ export function useServeStatus({ sessionId }: { sessionId: string }) {
   const start = useCallback(async (): Promise<void> => {
     const id = sessionIdRef.current;
     if (!id) return;
+    const issued: ServeSelection = { sessionId: id, generation: selectionSeq.current };
     const generation = state.status?.generation ?? null;
     const controller = new AbortController();
     startAbort.current = controller;
     invalidatePending();
     setState((prev) => ({ ...prev, starting: true, error: undefined }));
+    const current = (): ServeSelection => ({ sessionId: sessionIdRef.current, generation: selectionSeq.current });
     try {
       const status = await startServe({ sessionId: id, generation }, controller.signal);
-      if (sessionIdRef.current !== id) return;
+      // 会話を切り替えたら (戻ってきていても) 発行時の選択とは別なので、操作の結果は捨てる
+      if (!canApplyServeAction(issued, current())) return;
       // 操作中に始まった取得より操作の結果を優先する
       invalidatePending();
       setState({ status, failed: false, starting: false, error: undefined });
     } catch (error) {
-      if (sessionIdRef.current !== id) return;
+      if (!canApplyServeAction(issued, current())) return;
       // 押した後の失敗は理由を出し、状態はサーバーの値を取り直す (停止中へ戻る)
       setState((prev) => ({ ...prev, starting: false, error: messageFor(error) }));
       await refresh();
@@ -123,15 +129,16 @@ export function useServeStatus({ sessionId }: { sessionId: string }) {
   const stop = useCallback(async (): Promise<void> => {
     const id = sessionIdRef.current;
     if (!id) return;
+    const issued: ServeSelection = { sessionId: id, generation: selectionSeq.current };
     invalidatePending();
     setState((prev) => ({ ...prev, error: undefined }));
     try {
       const status = await stopServe({ sessionId: id, generation: state.status?.generation ?? null });
-      if (sessionIdRef.current !== id) return;
+      if (!canApplyServeAction(issued, { sessionId: sessionIdRef.current, generation: selectionSeq.current })) return;
       invalidatePending();
       setState({ status, failed: false, starting: false, error: undefined });
     } catch (error) {
-      if (sessionIdRef.current !== id) return;
+      if (!canApplyServeAction(issued, { sessionId: sessionIdRef.current, generation: selectionSeq.current })) return;
       setState((prev) => ({ ...prev, error: messageFor(error) }));
       await refresh();
     }

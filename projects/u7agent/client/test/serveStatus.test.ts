@@ -9,7 +9,10 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
 
-import { canApplyStatus } from "../src/lib/serveStatus";
+import { servedAppView } from "../src/lib/servedApp";
+import { canApplyServeAction, canApplyStatus } from "../src/lib/serveStatus";
+import type { ServeStatus } from "../src/types";
+import { serveStatus } from "./serve-fixture";
 
 function read(relativePath: string): string {
   return readFileSync(fileURLToPath(new URL(`../${relativePath}`, import.meta.url)), "utf8");
@@ -31,12 +34,66 @@ test("会話を切り替えたフレームで前の会話の状態を描かな�
 });
 
 test("選択中の会話 id で古い応答を捨て、飛行中の要求を重ねない", () => {
-  // 会話 id が変わった応答は適用しない (取得 2 + 起動 / 停止の各 2)
-  assert.equal((hook.match(/if \(sessionIdRef\.current !== id\) return;/g) ?? []).length, 6);
+  // 取得の応答は会話 id の一致を見てから適用する
+  assert.equal((hook.match(/if \(sessionIdRef\.current !== id\) return;/g) ?? []).length, 2);
   // 飛行中の取得があるうちは次を発行しない (古い要求を追い越させない)
   assert.match(hook, /if \(!id \|\| inFlight\.current !== 0\) return;/);
   assert.match(hook, /inFlight\.current = seq;/);
   assert.match(hook, /if \(inFlight\.current === seq\) inFlight\.current = 0;/);
+});
+
+test("操作の応答は会話選択の世代に束縛し、切替前の start / stop 結果を適用しない", () => {
+  // 切替で選択の世代を進める
+  assert.match(hook, /selectionSeq\.current \+= 1;/);
+  // 発行時に選択 (id と世代) を捕捉し、応答の適用前に照合する (start 1 + stop 1、成功 / 失敗の両方)
+  assert.equal(
+    (hook.match(/const issued: ServeSelection = \{ sessionId: id, generation: selectionSeq\.current \};/g) ?? [])
+      .length,
+    2,
+  );
+  assert.equal((hook.match(/canApplyServeAction\(/g) ?? []).length, 4, "成功 / 失敗の両方で照合する");
+  for (const name of ["const start =", "const stop ="]) {
+    const action = hook.slice(hook.indexOf(name), hook.indexOf(name) + 1_400);
+    assert.ok(
+      action.indexOf("canApplyServeAction(issued") < action.indexOf("setState({ status"),
+      `${name}: 応答を適用する前に照合する`,
+    );
+  }
+  // 取得の無効化 (操作前 / 適用前) も維持する
+  assert.equal((hook.match(/invalidatePending\(\);/g) ?? []).length, 4);
+});
+
+test("canApplyServeAction は発行時と同じ会話選択のときだけ適用する", () => {
+  const issued = { sessionId: "A", generation: 1 };
+  // 切替なし (同じ選択) は適用する
+  assert.equal(canApplyServeAction(issued, { sessionId: "A", generation: 1 }), true);
+  // A → B → A で世代が進んでいれば、同じ会話 id でも適用しない
+  assert.equal(canApplyServeAction(issued, { sessionId: "A", generation: 2 }), false);
+  // 他会話へ切り替わった応答も適用しない
+  assert.equal(canApplyServeAction(issued, { sessionId: "B", generation: 2 }), false);
+  // 切替後の操作 (新しい世代で発行したもの) は適用する
+  assert.equal(canApplyServeAction({ sessionId: "A", generation: 2 }, { sessionId: "A", generation: 2 }), true);
+});
+
+test("保留中の start 応答は、A → B → A と切り替えたあとの状態を上書きしない", () => {
+  // フックと同じ規則 (発行時の選択を捕捉し、応答の適用前に照合する) を並べたシミュレーション。
+  // 会話 id だけの照合だと、同じ A に戻っているため古い start 応答が適用され、
+  // 「サービスを開く」が復活してしまう (その間に B が公開先を置き換えていれば B のアプリを開く)
+  let selection = 1;
+  let status: ServeStatus | null = null;
+  const issued = { sessionId: "A", generation: selection };
+  const applyAction = (next: ServeStatus, currentSelection: number) => {
+    if (!canApplyServeAction(issued, { sessionId: "A", generation: currentSelection })) return;
+    status = next;
+  };
+
+  selection += 1; // A → B
+  status = null;
+  selection += 1; // B → A
+  status = serveStatus({ reachable: true, owner: { kind: "other", title: "検証B" }, generation: "g2" });
+  applyAction(serveStatus({ reachable: true, owner: { kind: "mine", title: "検証A" }, generation: "g1" }), selection);
+  assert.equal(status?.owner.kind, "other", "古い start 応答で上書きしない");
+  assert.equal(servedAppView(status).canOpen, false, "「サービスを開く」が復活しない");
 });
 
 test("応答がポーリング間隔より遅くても状態が更新される (最新のみ適用で飢えさせない)", () => {
