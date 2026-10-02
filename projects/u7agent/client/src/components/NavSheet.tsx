@@ -38,6 +38,8 @@ export function NavSheet({ mode, onClose, ...sidebarProps }: NavSheetProps) {
   const previousFocusRef = useRef<HTMLElement | null>(null);
   // 退場アニメの最中か。閉じる要求では unmount せず、まずパネルを抜けさせてから dialog を閉じる
   const [closing, setClosing] = useState(false);
+  // 退場アニメと unmount が済んでから実行する操作 (ドロワーを閉じた後にモーダルを開く導線)
+  const afterCloseRef = useRef<(() => void) | null>(null);
 
   useEffect(() => {
     const dialog = dialogRef.current;
@@ -75,6 +77,15 @@ export function NavSheet({ mode, onClose, ...sidebarProps }: NavSheetProps) {
   const requestClose = () => setClosing(true);
 
   /**
+   * モーダル (ProjectDialog) を開く導線用の閉じる要求。開くのを退場後に遅らせるのは、退場中に開くとその
+   * モーダルが戻り先として掴むドロワー内の要素が unmount で消え、モーダルを閉じた後に focus が body へ落ちるため。
+   */
+  const closeAfter = (after: () => void) => () => {
+    afterCloseRef.current = after;
+    setClosing(true);
+  };
+
+  /**
    * ドロワーの項目を押したときに使う。選んだ内容 (セッションなど) は退場アニメを待たずに進める
    * (待つと、選んだ画面が出るまで 180ms 遅れる)。
    */
@@ -88,7 +99,14 @@ export function NavSheet({ mode, onClose, ...sidebarProps }: NavSheetProps) {
   return (
     <dialog
       ref={dialogRef}
-      onClose={onClose}
+      // 退場後に実行する操作は unmount と同じコミットで走らせ、開いたモーダルの戻り先がドロワーの焦点復帰より
+      // 前にならないようにする
+      onClose={() => {
+        const after = afterCloseRef.current;
+        afterCloseRef.current = null;
+        onClose();
+        after?.();
+      }}
       // 背景の暗転をパネルと同じ 180ms で薄くする印 (styles/index.css の .nav-sheet)
       data-closing={closing}
       tabIndex={-1}
@@ -125,7 +143,7 @@ export function NavSheet({ mode, onClose, ...sidebarProps }: NavSheetProps) {
           // モードの切替 (設定 / アプリに戻る) とプロジェクトの折りたたみは選択ではないので閉じない
           newChat={closeThen(sidebarProps.newChat)}
           selectSession={closeThen(sidebarProps.selectSession)}
-          onNewProject={closeThen(sidebarProps.onNewProject)}
+          onNewProject={closeAfter(sidebarProps.onNewProject)}
           onOpenSettingsSection={closeThen(sidebarProps.onOpenSettingsSection)}
         />
       </div>

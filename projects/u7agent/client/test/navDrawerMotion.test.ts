@@ -11,7 +11,7 @@ import { fileURLToPath } from "node:url";
 import test from "node:test";
 
 /** 閉じるときにドロワーを閉じる (退場アニメに載せる) Sidebar の props */
-const CLOSE_ON_SELECT_PROPS = ["newChat", "selectSession", "onNewProject", "onOpenSettingsSection"] as const;
+const CLOSE_ON_SELECT_PROPS = ["newChat", "selectSession", "onOpenSettingsSection"] as const;
 
 /** 開いたままにする props。削除とリネームは確認 / 入力の後も連続操作しうる */
 const STAY_OPEN_PROPS = ["renameSession", "deleteSession", "deleteProject", "onSelectMode"] as const;
@@ -105,6 +105,19 @@ test("ドロワーは選んだら閉じ、削除とリネームでは閉じな�
   for (const prop of STAY_OPEN_PROPS) {
     assert.ok(!sheet.includes(`${prop}={closeThen(`), `${prop} でドロワーを閉じている (開いたまま残す契約)`);
   }
+});
+
+test("モーダルを開く New Project は、退場と unmount が済んでから実行する", () => {
+  const sheet = read("src/components/NavSheet.tsx");
+  // 退場中に開くと、開いたモーダルが戻り先として掴むドロワー内の要素が unmount で消え、閉じた後に
+  // focus が body へ落ちる (docs/ui-layout.md の「body へは落とさない」契約が壊れる)
+  assert.ok(sheet.includes("onNewProject={closeAfter(sidebarProps.onNewProject)}"), "New Project が退場中に開く");
+  assert.ok(!sheet.includes("onNewProject={closeThen("), "New Project を即時に実行している");
+  assert.ok(sheet.includes("afterCloseRef.current = after;"), "退場後の操作を保持していない");
+  // 実行は dialog の close (App の unmount と同じコミット) で行う。別のコミットで開くと、戻り先の要素が
+  // "ドロワーの焦点復帰より前" にならない
+  const handler = sheet.slice(sheet.indexOf("onClose={() =>"), sheet.indexOf("tabIndex={-1}"));
+  assert.ok(handler.indexOf("onClose();") < handler.indexOf("after?.();"), "unmount と別のコミットで実行している");
 });
 
 test("App は退場アニメの完了までドロワーを描き続ける", () => {
