@@ -90,14 +90,26 @@ export interface ServeCommandStore {
 export type ServeProbe = () => Promise<boolean>;
 
 /**
+ * TCP 接続に渡すホスト。URL の `hostname` は IPv6 リテラルを角括弧付きで返す (`[::1]`) が、
+ * `net.connect` は角括弧を名前解決の対象にするため `getaddrinfo ENOTFOUND [::1]` になる。
+ * ソケットへは外して渡す (URL 表記では逆に角括弧が必要)。
+ */
+export function tcpHost(host: string): string {
+  const text = host.trim();
+  return text.startsWith("[") && text.endsWith("]") ? text.slice(1, -1) : text;
+}
+
+/**
  * プローブ先のホスト。BFF とサンドボックスは別コンテナ / 別プロセスなので、`PI_SANDBOX_URL` の
  * ホストへ serve listen ポートで繋ぐ (ツール API のポートとは別)。解決できなければ undefined。
+ * 返す値はソケットへ直接渡せる形 (IPv6 リテラルの角括弧は外す)。
  */
 export function sandboxHostFromUrl(value: string | undefined): string | undefined {
   const text = value?.trim();
   if (!text) return undefined;
   try {
-    return new URL(text).hostname || undefined;
+    const host = new URL(text).hostname;
+    return host ? tcpHost(host) : undefined;
   } catch {
     return undefined;
   }
@@ -127,7 +139,7 @@ export interface ServeServiceOptions {
   sessions: ServeSessionLookup;
   /** 未設定なら serve の API / ツールは 503 */
   sandbox: SandboxExecClient | null;
-  /** プローブ先のホスト。未指定は 127.0.0.1 (同一ホストのサンドボックス) */
+  /** プローブ先のホスト。未指定は 127.0.0.1 (同一ホストのサンドボックス)。IPv6 リテラルは角括弧付きでもよい */
   sandboxHost?: string;
   listenPort?: number;
   /** テストで差し替えるプローブ。未指定は listenPort への TCP connect */
@@ -409,7 +421,7 @@ export class ServeService {
     this.#sandbox = options.sandbox;
     this.#listenPort = options.listenPort ?? SERVE_LISTEN_PORT;
     this.#probe =
-      options.probe ?? tcpProbe(options.sandboxHost ?? "127.0.0.1", this.#listenPort, SERVE_PROBE_TIMEOUT_MS);
+      options.probe ?? tcpProbe(tcpHost(options.sandboxHost ?? "127.0.0.1"), this.#listenPort, SERVE_PROBE_TIMEOUT_MS);
     this.#now = options.now ?? (() => Date.now());
     this.#sleep = options.sleep ?? sleep;
     this.#startTimeoutMs = options.startTimeoutMs ?? SERVE_START_TIMEOUT_MS;

@@ -4,8 +4,9 @@
 //   - 置き換えの世代照合 (409)、同時要求の直列化、期限つきの到達確認
 //   - プローブ / サンドボックスの失敗は停止中へ丸めない (502 / 503)
 import assert from "node:assert/strict";
+import { createServer } from "node:net";
 import test from "node:test";
-import { ServeService } from "../src/serve";
+import { ServeService, sandboxHostFromUrl, tcpHost } from "../src/serve";
 import {
   createCommandStore,
   createProbe,
@@ -76,6 +77,49 @@ function setup(
   if (options.reachable === false && options.owner) sandbox.state.listener = null;
   return { service, sandbox, commands, probe: { calls: () => probeCalls }, clock };
 }
+
+test("サンドボックス URL の 3 形態から TCP 接続用の host を取り出す (IPv6 は角括弧を外す)", () => {
+  // URL.hostname は IPv6 リテラルを角括弧付きで返すが、net.connect はそれを名前解決しようとする
+  assert.equal(sandboxHostFromUrl("http://[::1]:9418"), "::1");
+  assert.equal(sandboxHostFromUrl("http://127.0.0.1:9418"), "127.0.0.1");
+  assert.equal(sandboxHostFromUrl("http://u7agent-sandbox:9418"), "u7agent-sandbox");
+  // 前後の空白と未設定・不正値は既定へ倒す
+  assert.equal(sandboxHostFromUrl("  http://[::1]:9418  "), "::1");
+  for (const value of [undefined, "", "   ", "not a url"]) {
+    assert.equal(sandboxHostFromUrl(value), undefined);
+  }
+  assert.equal(tcpHost("[::1]"), "::1");
+  assert.equal(tcpHost("::1"), "::1");
+  assert.equal(tcpHost("u7agent-sandbox"), "u7agent-sandbox");
+});
+
+test("IPv6 リテラルのサンドボックス URL でも到達確認が 502 にならない", async () => {
+  // ::1 で待受するサーバーを立て、そのポートを serve listen ポートとして渡す
+  const server = createServer((_socket) => {});
+  await new Promise<void>((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(0, "::1", resolve);
+  });
+  const address = server.address();
+  const port = typeof address === "object" && address ? address.port : 0;
+  const sandbox = createServeSandboxStub();
+  const service = new ServeService({
+    appDb: createCommandStore().db,
+    sessions: createSessionLookup({ [SESSION]: { cwd: CWD, title: "トップページの改修" } }),
+    sandbox: sandbox.sandbox,
+    // `PI_SANDBOX_URL=http://[::1]:<port>` と同じ解決を通す
+    sandboxHost: sandboxHostFromUrl(`http://[::1]:${port}`),
+    listenPort: port,
+    now: () => NOW,
+  });
+  try {
+    // 角括弧が残っていると getaddrinfo ENOTFOUND で 502 になる
+    const status = await service.status(SESSION);
+    assert.equal(status.reachable, true, "IPv6 の待受先へ接続できていない");
+  } finally {
+    server.close();
+  }
+});
 
 test("到達不可なら実績だけで停止中になり、記録は見せない", async () => {
   const { service, sandbox } = setup({ command: "pnpm dev", owner: OTHER, reachable: false });
