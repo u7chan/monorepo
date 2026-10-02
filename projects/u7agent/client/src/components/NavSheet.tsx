@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { cn } from "../lib/cn";
+import { maxDurationMs } from "../lib/cssTime";
 import { Sidebar, type SidebarProps } from "./Sidebar";
 
 export type NavSheetProps = Omit<SidebarProps, "onClose"> & {
@@ -86,7 +87,10 @@ export function NavSheet({ mode, onClose, ...sidebarProps }: NavSheetProps) {
     const panel = panelRef.current;
     const dialog = dialogRef.current;
     if (!panel || !dialog) return;
-    const duration = Number.parseFloat(getComputedStyle(panel).animationDuration) * 1000;
+    // 保険の待ちは CSS が持つ値から決める。リストの最大を取るのは、外部 CSS が
+    // `animation-duration: 0s, 180ms` のように重ねたときに先頭 (0s) を読むと、実際に動いている 180ms の
+    // 退場アニメを短い保険が先に切ってしまうため
+    const duration = maxDurationMs(getComputedStyle(panel).animationDuration);
     const timer = setTimeout(() => dialog.close(), duration * 2 + 100);
     return () => clearTimeout(timer);
   }, [closing]);

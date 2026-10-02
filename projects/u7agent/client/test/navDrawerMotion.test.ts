@@ -136,7 +136,7 @@ test("退場アニメが動かない環境でも閉じられる (animationend �
   const sheet = read("src/components/NavSheet.tsx");
   // animation を切る user style / 拡張機能では animationend が来ず、Escape も止めているためモーダルを
   // 閉じられなくなる。CSS の長さを読んだ保険が必要
-  assert.ok(sheet.includes("getComputedStyle(panel).animationDuration"), "CSS の長さを読む保険が無い");
+  assert.ok(sheet.includes("maxDurationMs(getComputedStyle(panel).animationDuration)"), "CSS の長さを読む保険が無い");
   assert.ok(sheet.includes("setTimeout(() => dialog.close()"), "時間の保険が無い");
   assert.ok(sheet.includes("ref={panelRef}"), "保険の対象 (panel) が参照できない");
 });
