@@ -119,12 +119,9 @@ test("ソース走査: MarkdownView は解決した src だけを描画に渡す
   assert.ok(!source.includes("src={node.src}"), "未解決の src を直接描画している");
 });
 
-test("ソース走査: App は runEndSeq が変わったときだけ version 付き rawUrl を作り直す", () => {
+test("ソース走査: App は検証済みの Markdown 画像 URL フックへ runEndSeq を渡す", () => {
   const source = read("src/App.tsx");
-  assert.match(source, /const \{ runEndSeq \} = app\.chat;/);
-  assert.match(
-    source,
-    /const markdownImageRawUrl = useCallback\(\(path: string\) => fileRawUrl\(path, runEndSeq\), \[runEndSeq\]\)/,
-  );
+  assert.match(source, /import \{ useMarkdownImageRawUrl \} from "\.\/hooks\/useMarkdownImageRawUrl"/);
+  assert.match(source, /useMarkdownImageRawUrl\(app\.chat\.runEndSeq\)/);
   assert.match(source, /<MarkdownImageProvider\b[^>]*rawUrl=\{markdownImageRawUrl\}/);
 });

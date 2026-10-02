@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type CSSProperties } from "react";
 import type { CreateProjectInput } from "./api";
-import { fileRawUrl } from "./api";
 import { AgentSettingsPage } from "./components/AgentSettingsPage";
 import { AppearancePage } from "./components/AppearancePage";
 import { ArchiveSettingsPage } from "./components/ArchiveSettingsPage";
@@ -22,6 +21,7 @@ import { MarkdownImageProvider } from "./components/markdown/MarkdownImageRefs";
 import { useU7Agent, type SendMessageOptions } from "./hooks/useU7Agent";
 import { useElapsedMs } from "./hooks/useElapsedMs";
 import { useLayoutMode } from "./hooks/useLayoutMode";
+import { useMarkdownImageRawUrl } from "./hooks/useMarkdownImageRawUrl";
 import { useRoute } from "./hooks/useRoute";
 import { useSessionFilesPanelWidth } from "./hooks/useSessionFilesPanelWidth";
 import { useSidebarWidth } from "./hooks/useSidebarWidth";
@@ -56,8 +56,7 @@ export default function App() {
     pendingSessionId: route.view === "chat" ? route.pendingSessionId : undefined,
     onPendingSessionResolved: consumePendingEntry,
   });
-  const { runEndSeq } = app.chat;
-  const markdownImageRawUrl = useCallback((path: string) => fileRawUrl(path, runEndSeq), [runEndSeq]);
+  const markdownImageRawUrl = useMarkdownImageRawUrl(app.chat.runEndSeq);
   // desktop shell は幅と高さの両方が要る (lib/layout.ts)。足りない側で portrait / landscape を選ぶ
   const layout = useLayoutMode();
   const compactMode = layout === "desktop" ? null : layout;

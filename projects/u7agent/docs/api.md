@@ -276,7 +276,9 @@ Content-Security-Policy: sandbox allow-scripts; default-src 'none'; style-src 'u
 
 クライアントは `client/src/api.ts` の `fileRawUrl(path, version?)` で URL を組み立て、`<img>` の src に使う（取得はブラウザに任せ、本文は JSON に載せない）。version を指定したときだけ `&v=<version>` を付け、未指定なら従来の URL のままにする。`v` は同一 document 内の画像キャッシュを避けるためのクライアント側の版で、サーバーは版別の画像を保持せず、常に現在のファイルを返す。
 
-`path` はワークスペース root 相対で、セッションの作業フォルダ配下を表示するときは `fileTreeFetchPath(cwd, path)` で前置する。ファイルプレビューは `FileBrowser.previewVersion`、assistant 本文の Markdown 画像は `ChatState.runEndSeq` を版に使う（[file-preview.md](file-preview.md#画像プレビュー)、[markdown.md](markdown.md#画像の-src-解決)）。添付はアップロードごとの一意名で不変なので、URL に版を付けない。
+版は `client/src/hooks/useImageVersion.ts` の document 内で共有する単調な採番から取得する。各面は mount 時と更新トークン変更時だけ新しい版を割り当て、通常の再描画では同じ版を保つ。`runEndSeq` とパネルの手動更新回数は採番の**合図**であり、その数値を直接 `v` に使わない。独立カウンタの数値や mount ごとのゼロ戻りを URL に使うと、別の面や前の mount で取得済みの古い画像と衝突するため。採番は localStorage へ保存しない（新しい document では in-document キャッシュも作り直される）。StrictMode や破棄された描画で番号が飛んでも、再利用しないことを優先する。
+
+`path` はワークスペース root 相対で、セッションの作業フォルダ配下を表示するときは `fileTreeFetchPath(cwd, path)` で前置する。ファイルプレビューは `reloadToken`、assistant 本文の Markdown 画像は `ChatState.runEndSeq` を更新の合図に使う（[file-preview.md](file-preview.md#画像プレビュー)、[markdown.md](markdown.md#画像の-src-解決)）。添付はアップロードごとの一意名で不変なので、URL に版を付けない。
 
 ## ダウンロード
 

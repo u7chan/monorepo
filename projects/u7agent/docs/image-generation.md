@@ -150,8 +150,8 @@ SDK(pi-ai 0.87.1) の `openrouter-images` は `chat/completions` へ投げるが
 - ツール結果本文には保存パスと一緒に使用モデル（実行時に読んだ `model`）を行で残す。会話履歴は `session.jsonl` の `toolResult` の生 content を正とするため、別途 DB へは保存せず、ライブ・復元後の両方でツール履歴の出力から何で生成したかを追える。設定を変更した後の実行にはその時点のモデルが入る
 - モデル行は結果本文の先頭に置く。投影（`toolResultSummary`）は先頭 900 文字（`SUMMARY_TEXT_MAX`）で切るため、長い `path` を指定しても表示からモデルが欠けないようにする
 - 生成物の確認は `read`。SDK の `read` は画像を返せる
-- チャットのプレビューは Markdown 画像の cwd 相対解決で行う。`![alt](generated/cafe.png)` を 1) `resolveFileRef(src, rootCwd, cwd)` → 2) `fileTreeFetchPath(cwd, resolved)` → 3) `fileRawUrl(rootRelative, runEndSeq)` の 3 段で解決し、添付画像と同じ `ZoomableImage`（variant `markdown`）で表示する（[markdown.md](markdown.md#画像の-src-解決)）。解決できなければ従来どおり src をそのまま描く（外部 URL は CSP で読み込めない）
-- raw URL の `v` は `ChatState.runEndSeq`。run 終了で URL を変え、同一パスが差し替わっていてもブラウザの in-document 画像キャッシュを使わずに取り直す。これは現在のファイルへの追随であり、履歴を不変にするのは上記の[生成手順](#会話履歴を保つ生成手順)。添付画像はアップロードごとの一意名で不変なので版を付けない
+- チャットのプレビューは Markdown 画像の cwd 相対解決で行う。`![alt](generated/cafe.png)` を 1) `resolveFileRef(src, rootCwd, cwd)` → 2) `fileTreeFetchPath(cwd, resolved)` → 3) `fileRawUrl(rootRelative, imageVersion)` の 3 段で解決し、添付画像と同じ `ZoomableImage`（variant `markdown`）で表示する（[markdown.md](markdown.md#画像の-src-解決)）。解決できなければ従来どおり src をそのまま描く（外部 URL は CSP で読み込めない）
+- raw URL の `v` は[document 内の共有採番](api.md#画像配信raw)で得る版。`ChatState.runEndSeq` の変化を合図に URL を変え、同一パスが差し替わっていてもブラウザの in-document 画像キャッシュを使わずに取り直す。これは現在のファイルへの追随であり、履歴を不変にするのは上記の[生成手順](#会話履歴を保つ生成手順)。添付画像はアップロードごとの一意名で不変なので版を付けない
 
 ## API
 
@@ -182,6 +182,7 @@ SDK(pi-ai 0.87.1) の `openrouter-images` は `chat/completions` へ投げるが
 | `server/test/image-settings-api.test.ts` | HTTP 契約と DB 例外のマスク、起動時の有効化、キーが応答・health・ログへ出ないこと、カタログの出どころ / 再取得の 200 と `catalogError` / `models` の形（宣言を載せない） |
 | `server/test/app-db.test.ts` | v7 → v8 / v8 → v9 の加算移行、`image_settings` の CRUD、空文字行 = 未設定、`image_catalog` の upsert と壊れた行（health を落とさない）、形式宣言の往復と形違いの読み方 |
 | `client/test/markdownImage.test.ts` | Markdown 画像の 3 段解決 / version が変わったときだけ解決 URL が変わること / App の `runEndSeq` 配線 / 解決できない src / `components/markdown/` が `api.ts` を import しないこと |
+| `client/test/imageRefresh.test.ts` | 実フックの再描画安定性・更新時の URL 非衝突 / 実 Markdown と FileBrowser の再 mount が過去の URL を再利用しないこと（SSR） |
 | `client/test/imageSettings.test.ts` / `client/test/imageSettingsTab.test.ts` | 選択肢（カタログ順・同名への id 添え・カタログ外の現在値）/ 現在値と PUT の本文 / 保存成功時だけキー入力を消す / キーの登録状態バッジと provider の id・表示名 / 見出しの provider（ロゴ・未設定でも OpenRouter・対応表に無い provider は頭文字）と `カタログ <n>` のチップ / 一覧の出どころのチップと最終取得 / 再取得の注記 / タブの初期描画（未設定はキーのみ・設定済みは削除とモデル選択・キーを再表示しない・runtime 不可の disable・[再取得] の出し分け） |
 
 ## 非ゴール
