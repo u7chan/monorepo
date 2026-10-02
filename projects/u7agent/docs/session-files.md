@@ -33,6 +33,7 @@
 $PI_SESSION_STORE/<id>/
   meta.json      # 会話以外のアプリメタデータ
   session.jsonl  # pi SDK 形式の会話（header + entries）
+  sends.json     # 未送信の記録（受理済みでまだ entry になっていない送信。任意・無ければ縮退）
 $PI_SESSION_STORE/u7agent.db  # アプリデータ（プロジェクト / カタログ。persistence.md）
 
 # 2) 未所属セッションのスクラッチ（サンドボックスが読み書き。ファイル画面の root）
@@ -74,6 +75,40 @@ $PI_SESSION_STORE/u7agent.db  # アプリデータ（プロジェクト / カタ
 - ファイルスキル（`.agents/skills`）は `promptSnapshot` に含めない。SDK の `skillsOverride` でセッション作成・復元のたびに注入し、セッションが持つのは発見一覧・説明・優先順位だけ。本文は `read` 時点のファイル内容になる（[persistence.md](persistence.md#スキルの扱い)）。
 - `title` は最初のメッセージで作り、GUI の ⋯「名前を変更」（`PATCH /api/sessions/:id/title`）で上書きできる（正規化は自動タイトルと同じで、空・空白だけは 400。改名後は以降のメッセージで作り直さない。[api-sessions.md](api-sessions.md#patch-apisessionsidtitle)）。`lastUsedAt` / `messageCount` はラン終了時に更新する。`messageCount` は一覧 API と同じ表示メッセージ数（`user` と、テキストを持つ `assistant`）を数え、ツール呼び出しだけのターンは数えない。保存済みの値がこの定義と食い違う meta は、そのセッションを開いたときに書き戻す（[復元](#復元)）。
 - 書込みは一時ファイル + rename で原子的に行い、id ごとの書込みキューで直列化する。読めない `meta.json` は壊れたセッションとして一覧から除外し、ログに残す（フォルダは消さない）。
+
+## sends.json と run id の注記
+
+送信と run の対応は **JSONL の user message entry 自身** に写し（`u7agentRunId`）、まだ entry に
+なっていない送信（未送信）だけを `sends.json` へ控える。別ファイルの書込みだけ失敗しても対応を
+失わず、本文や時刻での推測（同じ本文の別 run を誤って結び付ける）をしないための分担。
+
+```jsonl
+{"type":"message","id":"entry-3","parentId":"entry-1","timestamp":"…","u7agentRunId":"a1b2c3d4e5f60718","message":{"role":"user","content":[{"type":"text","text":"本文"}]}}
+```
+
+```json
+{ "unsent": [{ "runId": "55b1923a93c1579b", "text": "同じ本文", "at": 1760000200000 }] }
+```
+
+- `u7agentRunId` は BFF が JSONL へ書くときだけ付ける追加フィールド。SDK は未知のフィールドを
+  そのまま保持し（`parseSessionEntryLine` は `JSON.parse` だけ）、store の検証も未知キーを無視する
+  ため、pi SDK 形式は壊れない。`session.jsonl` の読み書きは従来どおり BFF だけが行う
+- 履歴 item の `runId`（[api-sessions.md](api-sessions.md#get-apisessionsidhistory)）は、実行中は
+  メモリの対応表（SDK メッセージ → run id）、復元後はこの注記から引く。注記の無い旧保存データは
+  従来どおり `runId` 無しの縮退になる
+- `unsent` は 202 で受理したが user entry として保存されていない送信（古い→新しい）。entry が
+  保存された時点（注記が JSONL に載った時点）で消す。停止でキューを破棄した分もここへ残る
+- 受理時に同期で書く（`postMessage` は同期で 202 を返すため。受理直後に落ちても「未送信」の表示が
+  消えない）。書込みは temp + rename、権限 0600。**JSONL へ渡した entry のスナップショット**を正と
+  し、保存の await 中に SDK が追記した entry は次の保存まで確定しない（meta だけの保存
+  `persist({ jsonl: false })` でも確定しない）
+- 書込みに失敗したら dirty を残し、次の persist / flush（close / sweep の最終保存を含む）で再試行
+  する。失敗中は health の `dirty` にも数え、sweep はその record をメモリから外さない（未送信の
+  本文と再試行元を失わない）
+- 無い / 壊れているファイルは空として読む（補助データなので復元を止めない）。復元は注記を正として
+  `unsent` から保存済みの run を外すだけで、本文での突き合わせはしない（曖昧な同一本文から対応を
+  確定しない）
+- セッションの DELETE はフォルダごと消すため、このファイルも消える
 
 ## 会話の保存
 
@@ -222,7 +257,7 @@ assistant 本文のインラインコードが指すファイルは、クリッ�
 
 ## 受け入れ条件
 
-- [ ] 会話ごとに store（`<store>/<id>/{meta.json,session.jsonl}`）が作られ、未所属チャットのスクラッチ（`.u7agent/sessions/<id>`）が作られ、ファイル画面の root になる
+- [ ] 会話ごとに store（`<store>/<id>/{meta.json,session.jsonl,sends.json}`）が作られ、未所属チャットのスクラッチ（`.u7agent/sessions/<id>`）が作られ、ファイル画面の root になる
 - [ ] プロジェクト所属セッションの cwd は登録ディレクトリになり、同一プロジェクトの複数セッションがツリーを共有し、作成・復元でプロジェクトのディレクトリを作らない（無ければ 400）
 - [ ] 添付は全セッションで `.u7agent/uploads/<id>` に保存され、注記の絶対パスで `read` でき、ファイル画面には出ない
 - [ ] `<appdir>/**` のプロジェクト登録は 400 になる

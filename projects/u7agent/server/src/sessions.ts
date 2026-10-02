@@ -36,19 +36,25 @@ import { SandboxRequestError } from "./sandbox/client";
 import {
   SessionDamagedError,
   SessionFileWriter,
+  emptySessionSends,
   generateSessionId,
   listSessionIds,
   prepareSessionStore,
   readSessionFile,
   readSessionMeta,
+  entryRunIdsFromJsonl,
+  readSessionSends,
   removeSessionDir,
   sessionHeaderOf,
   sessionJsonlPath,
   sessionWorkdirRel,
   writeSessionMeta,
+  RUN_ID_FIELD,
+  writeSessionSends,
   type PromptSnapshot,
   type SessionEntryLike,
   type SessionMeta,
+  type SessionSends,
 } from "./session-store";
 import type {
   AgentDef,
@@ -136,6 +142,11 @@ export interface SessionStoreOptions {
   rootCwd?: string;
   /** 完了通知の送信先。未指定なら通知しない (テスト・未設定のデプロイ) */
   notifications?: NotificationService | null;
+  /**
+   * 送信対応記録の書込み。既定は `writeSessionSends` で、書込み失敗の再試行をテストするためだけに
+   * 差し替えられる (SessionFileWriter の writeChunk と同じテスト用の差し込み口)
+   */
+  writeSends?: (storeDir: string, id: string, sends: SessionSends) => void;
 }
 
 function messageFor(error: unknown): string {
@@ -236,6 +247,8 @@ export class SessionStore {
   sweeping: boolean;
   /** 完了通知。null は通知なし */
   notifications: NotificationService | null;
+  /** 送信対応記録の書込み (テスト差し替え用) */
+  writeSendsFile: (storeDir: string, id: string, sends: SessionSends) => void;
 
   constructor({
     pi,
@@ -247,6 +260,7 @@ export class SessionStore {
     workspace,
     rootCwd,
     notifications,
+    writeSends,
   }: SessionStoreOptions = {}) {
     if (!catalog) throw new Error("SessionStore requires an agent catalog");
     this.pi = pi || null;
@@ -258,6 +272,7 @@ export class SessionStore {
     this.workspace = workspace ?? null;
     this.rootCwd = rootCwd ?? process.cwd();
     this.notifications = notifications ?? null;
+    this.writeSendsFile = writeSends ?? writeSessionSends;
     this.records = new Map();
     this.descriptors = new Map();
     this.lifecycle = new Map();
@@ -408,6 +423,9 @@ export class SessionStore {
       tools: new Map(),
       messageMetrics: new WeakMap(),
       userMessageRuns: new WeakMap(),
+      entryRunIds: new Map(),
+      unsentSends: [],
+      sendsDirty: false,
       compactionMeta: new Map(),
       changingSettings: false,
       compacting: false,
@@ -522,6 +540,13 @@ export class SessionStore {
     record.projectCwd = meta.projectCwd;
     record.projectName = meta.projectName;
     record.projectId = this.projectIdOfCwd(meta.projectCwd);
+    // run 対応は JSONL の entry へ写した注記を正とする (entry の存在が証跡なので、本文や時刻での
+    // 推測をしない)。未送信の記録は、その注記に載っている run だけを保存済みとして外す
+    const sends = this.storeDir ? readSessionSends(this.storeDir, id) : emptySessionSends();
+    record.entryRunIds = entryRunIdsFromJsonl(entries);
+    const persistedRuns = new Set(record.entryRunIds.values());
+    record.unsentSends = sends.unsent.filter((item) => !persistedRuns.has(item.runId));
+    record.sendsDirty = record.unsentSends.length !== sends.unsent.length;
     if (this.storeDir) {
       record.writer = new SessionFileWriter(this.storeDir, id, {
         completeBytes: parsed.kind === "ok" ? parsed.completeBytes : 0,
@@ -530,6 +555,8 @@ export class SessionStore {
       });
     }
     this.records.set(id, record);
+    // 突き合わせの結果を書き直す (書けなければ dirty のまま残り、次の persist / flush で再試行する)
+    if (record.sendsDirty) this.writeSends(record);
     // 実効モデルのフォールバックは model_change の追記ごと保存する。件数の補正だけなら履歴は同じ
     // なので、writer を通さず meta だけを書き戻す (履歴が同じでも writer は全量を書き直す)
     const backfillCount = meta.messageCount !== displayableMessages(session, this.masker).length;
@@ -732,11 +759,15 @@ export class SessionStore {
   }
 
   /**
-   * 実行中ならキューに入れ、それ以外は即座にランを始める。
-   * `titleSource` は一覧のタイトルの元本文で、省略時は text。`/skill:` の展開結果は長いため、
-   * 展開前のユーザー入力からタイトルを作るために使う。
+   * 実行中ならキューに入れ、それ以外は即座にランを始める。`titleSource` は一覧のタイトルの元本文で、
+   * 省略時は text。`/skill:` の展開結果は長いため、展開前のユーザー入力からタイトルを作るために使う。
+   * `runId` は未送信メッセージの再送で、受理済みの run id を引き継ぐために使う (未指定は新規採番)。
    */
-  postMessage(record: SessionRecord, text: string, options: { titleSource?: string } = {}): PostMessageResultInternal {
+  postMessage(
+    record: SessionRecord,
+    text: string,
+    options: { titleSource?: string; runId?: string } = {},
+  ): PostMessageResultInternal {
     // 設定変更中の送信は 409 (BFF のルートでも同じ扱い)
     if (record.changingSettings) {
       throw httpError(409, "Session settings are being changed");
@@ -759,11 +790,14 @@ export class SessionStore {
       );
     }
     record.lastUsedAt = Date.now();
+    // run id はキュー受付 / 即時開始のどちらでも先に振る。エントリ保存前に落ちた送信を「未送信」として
+    // 残す記録にも同じ id を使うため、startRun に渡す前にここで確定させる
+    const runId = options.runId ?? randomBytes(8).toString("hex");
+    this.rememberUnsent(record, runId, text);
 
     if (running || record.compacting) {
       // 圧縮中も送信はキューへ積む。run id はここで振り、キューから始まる run の id として
       // 応答へ返す (クライアントが自分の送信と run_start / 履歴 entry を対応付けるため)
-      const runId = randomBytes(8).toString("hex");
       record.queue.push({ text, runId });
       this.emit(record, "queued", {
         position: record.queue.length,
@@ -773,16 +807,135 @@ export class SessionStore {
       return { queued: true, queueDepth: record.queue.length, runId };
     }
 
-    const run = this.startRun(record, text);
+    const run = this.startRun(record, text, runId);
     return { queued: false, queueDepth: 0, runId: run.id };
+  }
+
+  /**
+   * 未送信メッセージの再送。保存済みの生の本文を使い、同じ run id で実行し直す (受理の記録は
+   * そのまま。user entry が保存された時点で `syncSendMap` が消す)。二重の再送は実行 / キュー中の
+   * run id を見て弾く。見つからない run id は undefined (既に保存済みか破棄済み)。
+   */
+  resend(record: SessionRecord, runId: string): PostMessageResultInternal | undefined {
+    const send = record.unsentSends.find((item) => item.runId === runId);
+    if (!send) return undefined;
+    if (this.isRunActive(record, runId)) {
+      // 二重の再送は重ねない。状態は既に配られているので resync も足さない
+      const queued = record.queue.some((item) => item.runId === runId);
+      return { queued, queueDepth: record.queue.length, runId };
+    }
+    const result = this.postMessage(record, send.text, { runId });
+    // 別タブの未送信表示を更新する。run_start は run id を配るが、キュー受付の `queued` は配らない
+    this.emitResync(record);
+    return result;
+  }
+
+  /**
+   * 未送信メッセージの破棄。"missing" は記録が無い (再送済み / 別タブで破棄済み)、"running" は
+   * 再送が実行中またはキュー待ちで消せないことを表す。破棄は購読者へ resync で配る (別タブの
+   * 未送信バブルを消すため)。
+   */
+  discardUnsent(record: SessionRecord, runId: string): "ok" | "missing" | "running" {
+    const index = record.unsentSends.findIndex((item) => item.runId === runId);
+    if (index === -1) return "missing";
+    if (this.isRunActive(record, runId)) return "running";
+    record.unsentSends.splice(index, 1);
+    record.sendsDirty = true;
+    this.writeSends(record);
+    this.emitResync(record);
+    return "ok";
+  }
+
+  /** その run id がまだ実行中 / キュー待ちか。終了した run は未送信の再送 / 破棄を妨げない */
+  private isRunActive(record: SessionRecord, runId: string): boolean {
+    if (record.queue.some((item) => item.runId === runId)) return true;
+    return record.run?.id === runId && (record.run.status === "running" || record.session.isStreaming);
+  }
+
+  /** 受理した送信を「未送信」として控える (同じ run id の再送では重ねない) */
+  private rememberUnsent(record: SessionRecord, runId: string, text: string): void {
+    // 永続化なしは再起動を跨がないため記録を持たない (未開始のキュー破棄は queue_cleared の
+    // runIds がクライアントへ直接伝える)
+    if (!record.writer || !this.storeDir) return;
+    if (record.unsentSends.some((item) => item.runId === runId)) return;
+    record.unsentSends.push({ runId, text, at: Date.now() });
+    record.sendsDirty = true;
+    this.writeSends(record);
+  }
+
+  /**
+   * JSONL に載った user entry と run の対応を控え、保存済みになった分を「未送信」から外す。
+   * `persist` が JSONL の書込みを確定させてから呼ぶ (書けていない entry を保存済みにしない)。
+   */
+  /**
+   * 渡された entry スナップショットのうち、JSONL へ書けた user entry の run 対応を控え、保存済みに
+   * なった分を「未送信」から外す。`persist` が writer へ渡したのと同じ配列を渡す (await 中に SDK が
+   * 追記した entry を保存済みにしないため)。
+   */
+  private syncSendMap(record: SessionRecord, entries: SessionEntryLike[]): void {
+    if (!record.writer || !this.storeDir) return;
+    let changed = false;
+    for (const entry of entries) {
+      if (entry.type !== "message" || typeof entry.id !== "string" || entry.id === "") continue;
+      const message = entry.message as { role?: unknown } | undefined;
+      if (!message || message.role !== "user") continue;
+      const runId = record.userMessageRuns.get(message);
+      if (runId === undefined || record.entryRunIds.get(entry.id) === runId) continue;
+      record.entryRunIds.set(entry.id, runId);
+      const index = record.unsentSends.findIndex((item) => item.runId === runId);
+      if (index !== -1) record.unsentSends.splice(index, 1);
+      changed = true;
+    }
+    if (changed) {
+      record.sendsDirty = true;
+      this.writeSends(record);
+    }
+  }
+
+  /**
+   * 送信対応記録の保存。失敗しても会話の実行 / 保存は止めず、dirty を残して次の persist / flush で
+   * やり直す (メモリだけ進めてディスクが古いままだと、再起動後に保存済みの送信を未送信として
+   * 再実行できてしまう)。
+   */
+  private writeSends(record: SessionRecord): boolean {
+    if (!record.writer || !this.storeDir) return true;
+    if (!record.sendsDirty) return true;
+    try {
+      this.writeSendsFile(this.storeDir, record.id, { unsent: record.unsentSends });
+      record.sendsDirty = false;
+      record.sendsError = undefined;
+      return true;
+    } catch (error) {
+      record.sendsError = messageFor(error);
+      console.warn(`[u7agent] 未送信記録の保存に失敗しました (${record.id}): ${record.sendsError}`);
+      return false;
+    }
+  }
+
+  /**
+   * user message entry へ送信の run id を写す。entry と run の対応を JSONL 自身に持たせ、
+   * 別ファイル (sends.json) の書込みだけ失敗しても再起動後に対応を失わない。SDK は未知の
+   * フィールドをそのまま保持するため、SDK 形式は壊れない。
+   */
+  private annotateRunIds(record: SessionRecord, entries: SessionEntryLike[]): SessionEntryLike[] {
+    return entries.map((entry) => {
+      if (entry.type !== "message" || typeof entry.id !== "string" || entry.id === "") return entry;
+      const message = entry.message as { role?: unknown } | undefined;
+      if (!message || message.role !== "user") return entry;
+      const runId = record.userMessageRuns.get(message) ?? record.entryRunIds.get(entry.id);
+      if (runId === undefined || entry[RUN_ID_FIELD] === runId) return entry;
+      return { ...entry, [RUN_ID_FIELD]: runId };
+    });
   }
 
   /** 実行中のランを中断し、キューに積まれたメッセージも捨てる。 */
   async stop(record: SessionRecord): Promise<{ ok: true; status: RunStatus }> {
     record.lastUsedAt = Date.now();
     if (record.queue.length > 0) {
+      // 破棄した送信は「未送信」として見せる (実行されないまま黙って消さない)
+      const clearedRunIds = record.queue.map((item) => item.runId);
       record.queue = [];
-      this.emit(record, "queue_cleared", {});
+      this.emit(record, "queue_cleared", { runIds: clearedRunIds });
     }
     // 先に task を持ち、abort の後にその settle を待つ (abort は SDK の待機で、保存待ちは覆わない)。
     // SDK の abort() は abortCompaction() も呼ぶため、圧縮中もこれ 1 つで巻き戻せる
@@ -1116,18 +1269,23 @@ export class SessionStore {
       this.descriptors.set(record.id, meta);
       // 今回の保存だけを評価する (過去の失敗は成功で消す)
       let failure: string | undefined;
+      // writer へ渡すのと同じスナップショットを使う。await 中に SDK が追記した entry を
+      // 保存済みとして対応表へ入れない (次の保存で書かれる)。run id は entry 自身へ写す
+      const entries = this.annotateRunIds(record, entriesOf(session));
       try {
         await writeSessionMeta(storeDir, meta);
         if (jsonl) {
-          await record.writer?.schedule(
-            sessionHeaderOf(meta, workspaceAbs(this.rootCwd, record.workdir)),
-            entriesOf(session),
-          );
+          await record.writer?.schedule(sessionHeaderOf(meta, workspaceAbs(this.rootCwd, record.workdir)), entries);
         }
       } catch (error) {
         failure = messageFor(error);
       }
       failure = failure ?? record.writer?.error;
+      // JSONL に載った user entry だけを保存済みとして扱う (書けていない entry を対応表へ入れない)。
+      // meta だけの保存 (jsonl: false) では entry の保存を確かめられないので触らない
+      if (jsonl && !failure) this.syncSendMap(record, entries);
+      // 送信対応記録は失敗しても dirty を残し、次の persist / flush でやり直す
+      this.writeSends(record);
       record.persistError = failure;
       if (failure && record.persistErrorLogged !== failure) {
         record.persistErrorLogged = failure;
@@ -1140,9 +1298,11 @@ export class SessionStore {
     return record.persistTail;
   }
 
-  async flush(record: SessionRecord): Promise<void> {
+  async flush(record: SessionRecord): Promise<boolean> {
     await record.persistTail.catch(() => {});
     await record.writer?.flush();
+    // 最後の persist で書けなかった送信対応記録をここでも試す (close / sweep の最終保存)
+    return this.writeSends(record);
   }
 
   async sweep(): Promise<void> {
@@ -1156,10 +1316,11 @@ export class SessionStore {
         if (this.deleting.has(id) || this.lifecycle.has(id)) continue;
         if (record.lastUsedAt >= cutoff) continue;
         const promise = (async () => {
-          // 最終保存を試み、成功したときだけメモリから外す (失敗は次の sweep で再試行する)
+          // 最終保存を試み、成功したときだけメモリから外す (失敗は次の sweep で再試行する)。
+          // sends だけ失敗していても外さない (未送信の本文と再試行元を失わない)
           await this.persist(record);
           await this.flush(record);
-          if (record.persistError || record.writer?.error) return;
+          if (record.persistError || record.writer?.error || record.sendsError) return;
           record.session.dispose?.();
           this.records.delete(id);
         })();
@@ -1178,7 +1339,7 @@ export class SessionStore {
   /** health 用のストア状態。dirty は保存に失敗している live セッション数 */
   status(): { path: string | null; ok: boolean; error?: string; dirty: number } {
     const dirty = Array.from(this.records.values()).filter(
-      (record) => record.persistError || record.writer?.error,
+      (record) => record.persistError || record.writer?.error || record.sendsError,
     ).length;
     return {
       path: this.storeDir,
@@ -1272,7 +1433,12 @@ export class SessionStore {
         context: contextUsageOf(session),
       });
       // 最後の assistant entry を取りこぼさないよう、ラン終了時に必ず保存する
-      void this.persist(record);
+      void this.persist(record).then(() => {
+        // user entry を残さずに終わった run (認証エラー等) は、購読者へ未送信として配る。
+        // 通常は user entry の保存で記録が消えるため、ここへ来るのは保存されなかった run だけ
+        if (this.records.get(record.id) !== record) return;
+        if (record.unsentSends.some((item) => item.runId === run.id)) this.emitResync(record);
+      });
 
       // 送信は fire-and-forget。run_end の記録・persist・キューの pump を待たせない
       this.notifyCompleted(record, run, bridge.settledAssistantText());

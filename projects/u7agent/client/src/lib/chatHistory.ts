@@ -186,6 +186,9 @@ function connectionFor(prev: HistoryBundle, page: HistoryPage): Connection {
 function matchesLive(bubble: Bubble, item: HistoryItem): boolean {
   if (item.kind !== "message" || item.role !== bubble.role) return false;
   if (bubble.runId !== undefined && item.runId !== undefined) return bubble.runId === item.runId;
+  // 未送信 / 受理済み (まだ entry になっていない送信) は本文の縮退に使わない。別クライアントの
+  // 同一文面 entry へ黙って吸収させず、自分の run の entry が現れたときだけ runId 一致で置き換える
+  if (bubble.unsent || bubble.accepted) return false;
   return canonicalUserText(item.text) === canonicalUserText(bubble.text);
 }
 
@@ -231,6 +234,9 @@ function absorbPendingEchoes(pendingLives: Bubble[], items: HistoryItem[]): Set<
  * 対応付ける。`since` が見つからないときは何も返さない (誤った吸収をしない)。
  */
 export function fallbackEchoTarget(bubbles: Bubble[], markers: CompactionMarker[], echo: Bubble): Bubble | undefined {
+  // 未送信 / 受理済み (サーバーが状態を明示している送信) は本文の縮退に使わない。新しく payload から
+  // 作ったバブルは `since` が無く全保持履歴が候補になるため、旧 entry へ黙って吸収され得る
+  if (echo.unsent || echo.accepted) return undefined;
   const after = historyIdsAfter(bubbles, markers, echo.since);
   const text = canonicalUserText(echo.text);
   for (let index = bubbles.length - 1; index >= 0; index -= 1) {
@@ -291,7 +297,8 @@ export function applyHistoryCounts(bubbles: Bubble[], messageCount: number, summ
 
 /**
  * live を「保持分より手前 (carried)」と「保持分より後ろ (最新ターン / 送信直後)」に分ける。
- * prev に含まれない live (テストや rebuild が別に渡す分) は手前扱い。
+ * prev に含まれない live (テストや rebuild が別に渡す分) は手前扱い。未送信 / 受理済みは履歴の位置に
+ * 関わらず末尾へ置く (まだ履歴 item になっていない送信で、保持分より手前に混ぜると位置が逆転する)。
  */
 function splitLive(prev: HistoryBundle, live: Bubble[]): { front: Bubble[]; tail: Bubble[] } {
   const firstHistory = prev.bubbles.findIndex((bubble) => bubble.entryId !== undefined);
@@ -299,7 +306,8 @@ function splitLive(prev: HistoryBundle, live: Bubble[]): { front: Bubble[]; tail
   const tail: Bubble[] = [];
   for (const bubble of live) {
     const index = prev.bubbles.indexOf(bubble);
-    if (firstHistory !== -1 && index > firstHistory) tail.push(bubble);
+    if (bubble.unsent === true || bubble.accepted === true) tail.push(bubble);
+    else if (firstHistory !== -1 && index > firstHistory) tail.push(bubble);
     else front.push(bubble);
   }
   return { front, tail };
@@ -400,7 +408,9 @@ export function prependHistoryPage(
       seenHistory = true;
       continue;
     }
-    if (seenHistory) tailLives.push(bubble);
+    // 未送信 / 受理済みは古いページを前置きしても末尾に残す
+    if (bubble.unsent === true || bubble.accepted === true) tailLives.push(bubble);
+    else if (seenHistory) tailLives.push(bubble);
     else frontLives.push(bubble);
   }
   if (fresh.length === 0) {

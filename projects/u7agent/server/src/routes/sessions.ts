@@ -205,8 +205,15 @@ export function createSessionRoutes({
     postMessage: async (c: Context, body: PostMessageBody) => {
       const record = await resolveRecord(c);
       if (!record) return c.json({ error: "Session not found" }, 404);
+      // 未送信メッセージの再送は、保存済みの生の本文をサーバー側で使う。クライアントへは表示用の
+      // マスク済みの本文しか渡らないため、本文を送り直させるとキーが欠けたまま送られる
+      if (body.resendRunId !== undefined) {
+        const result = store.resend(record, body.resendRunId);
+        if (!result) return c.json({ error: "この送信は再開できません（保存済みか破棄済みです）" }, 409);
+        return c.json({ sessionId: record.id, status: store.statusOf(record), ...result }, 202);
+      }
       const attachments = normalizeAttachmentPaths(body.attachments, sessionUploadsRel(record.id));
-      const text = body.text.trim();
+      const text = (body.text ?? "").trim();
       // 本文が空でも添付だけで送れる (注記だけのプロンプトになる)
       if (!text && attachments.length === 0) return c.json({ error: "text is required" }, 400);
       if (text.length > MAX_MESSAGE_CHARS) {
@@ -228,6 +235,19 @@ export function createSessionRoutes({
         { titleSource: text },
       );
       return c.json({ sessionId: record.id, status: store.statusOf(record), ...result }, 202);
+    },
+
+    /**
+     * 未送信メッセージの破棄。再送が実行中 / キュー待ちの分は消せず 409、記録が無い (別タブで
+     * 再送済み / 破棄済み) は 404。
+     */
+    discardUnsent: async (c: Context) => {
+      const record = await resolveRecord(c);
+      if (!record) return c.json({ error: "Session not found" }, 404);
+      const result = store.discardUnsent(record, c.req.param("runId") ?? "");
+      if (result === "missing") return c.json({ error: "未送信のメッセージが見つかりません" }, 404);
+      if (result === "running") return c.json({ error: "再送が実行中のため破棄できません" }, 409);
+      return c.json({ ok: true });
     },
 
     /**

@@ -9,9 +9,11 @@ import type { Dispatch } from "react";
 import { chatReducer, initialChatState, type ChatAction } from "../src/hooks/chatReducer";
 import {
   compactChat,
+  resendUnsentMessage,
   sendChatMessage,
   stopRun,
   type CompactChatDeps,
+  type ResendUnsentDeps,
   type SendChatMessageDeps,
 } from "../src/hooks/sessionActions";
 import type { RuntimeStatus } from "../src/hooks/runtimeStatus";
@@ -29,14 +31,17 @@ function actionsOfType<T extends ChatAction["type"]>(
 interface Deferred<T> {
   promise: Promise<T>;
   resolve: (value: T) => void;
+  reject: (error: unknown) => void;
 }
 
 function deferred<T>(): Deferred<T> {
   let resolve!: (value: T) => void;
-  const promise = new Promise<T>((resolvePromise) => {
+  let reject!: (error: unknown) => void;
+  const promise = new Promise<T>((resolvePromise, rejectPromise) => {
     resolve = resolvePromise;
+    reject = rejectPromise;
   });
-  return { promise, resolve };
+  return { promise, resolve, reject };
 }
 
 function actionRecorder(): { actions: ChatAction[]; dispatch: Dispatch<ChatAction> } {
@@ -566,4 +571,92 @@ test("compactChat は表示中のセッションが無ければ何もしない",
 
   assert.deepEqual(compacted, []);
   assert.equal(deps.opsRef.current, 0);
+});
+
+// --- 未送信メッセージの再送 ---
+
+function createResendHarness(overrides: Partial<ResendUnsentDeps> = {}) {
+  const { actions, dispatch } = actionRecorder();
+  const statuses: RuntimeStatus[] = [];
+  const deps: ResendUnsentDeps = {
+    sessionIdRef: { current: "s-1" },
+    opsRef: { current: 0 },
+    runStatusRef: { current: "idle" },
+    runEndSeqRef: { current: 0 },
+    resend: async () => ({ queued: false, queueDepth: 0, runId: "run-x" }),
+    recover: async () => false,
+    refreshSessions: async () => [],
+    dispatch,
+    setRuntimeStatus: (status) => {
+      statuses.push(status);
+    },
+    ...overrides,
+  };
+  return { actions, statuses, deps };
+}
+
+test("再送が受理されたら pending へ戻し、応答の状態を反映する", async () => {
+  const { actions, deps } = createResendHarness();
+  await resendUnsentMessage("run-x", deps);
+  assert.deepEqual(
+    actionsOfType(actions, "resendUnsent").map((action) => action.runId),
+    ["run-x"],
+  );
+  const setRun = actionsOfType(actions, "setRun");
+  assert.equal(setRun.length, 1);
+  assert.equal(setRun[0].runStatus, "running");
+  assert.deepEqual(actionsOfType(actions, "resendFailed"), []);
+});
+
+test("再送が受理されないまま失敗したら未送信へ戻し、理由を状態行へ出す", async () => {
+  const { actions, statuses, deps } = createResendHarness({
+    resend: async () => {
+      throw new Error("network reset");
+    },
+    // 権威ある状態を取り直せなかった (通信断)
+    recover: async () => false,
+  });
+  await resendUnsentMessage("run-x", deps);
+  assert.deepEqual(
+    actionsOfType(actions, "resendFailed").map((action) => action.runId),
+    ["run-x"],
+  );
+  assert.equal(actionsOfType(actions, "setActivity").length, 1);
+  assert.equal(statuses.length, 1, "通信自体の失敗は接続状態にも出す");
+});
+
+test("応答が遅れて失敗したら未送信へ戻し、権威ある payload の取り直しも行う", async () => {
+  const pending = deferred<PostMessageResult>();
+  let recovered = 0;
+  const { actions, deps } = createResendHarness({
+    resend: () => pending.promise,
+    recover: async () => {
+      recovered += 1;
+      return true;
+    },
+  });
+  const running = resendUnsentMessage("run-x", deps);
+  // サーバーは受理して run が実行・完了している
+  deps.runEndSeqRef.current = 1;
+  pending.reject(new Error("network reset"));
+  await running;
+  // 未確認の送信を送信済みに見せない。サーバーが受理を確認済みの run は reducer が保つ
+  assert.deepEqual(
+    actionsOfType(actions, "resendFailed").map((action) => action.runId),
+    ["run-x"],
+  );
+  assert.equal(recovered, 1, "失敗時は権威ある payload を取り直す");
+});
+
+test("取り直しも失敗し、操作世代が進んでいれば表示を戻さない", async () => {
+  const pending = deferred<PostMessageResult>();
+  const { actions, deps } = createResendHarness({
+    resend: () => pending.promise,
+    recover: async () => false,
+  });
+  const running = resendUnsentMessage("run-x", deps);
+  deps.opsRef.current = 1;
+  pending.reject(new Error("network reset"));
+  await running;
+  assert.deepEqual(actionsOfType(actions, "resendFailed"), []);
 });

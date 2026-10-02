@@ -35,6 +35,29 @@ export function nextRetryDelayMs(retryCount: number): number {
   return Math.min(SSE_RETRY_MAX_MS, SSE_RETRY_BASE_MS * 2 ** retryCount);
 }
 
+/**
+ * recover (GET での payload 取り直し) の応答をどう扱うか。`stale` は適用しない (別世代 / 選択が
+ * 変わった)、`superseded` は適用しないが回復済み (取得中に新しいイベントが入った / 応答が既知の
+ * 位置より古い)、`apply` は適用する。古い snapshot で SSE のカーソルと状態を巻き戻さないための判定。
+ */
+export type RecoverDecision = "apply" | "superseded" | "stale";
+
+export function recoverDecision(input: {
+  /** 取得を始めた時点の世代 / seq */
+  generation: string;
+  seq: number;
+  /** 取得完了時点の現在値 */
+  currentGeneration: string;
+  currentSeq: number;
+  /** 取得した payload の値 */
+  payloadGeneration: string;
+  payloadSeq: number;
+}): RecoverDecision {
+  if (input.currentGeneration !== input.generation || input.payloadGeneration !== input.generation) return "stale";
+  if (input.currentSeq !== input.seq || input.payloadSeq < input.seq) return "superseded";
+  return "apply";
+}
+
 export function applySessionEvent(entry: EventEntry, deps: SessionStreamDeps): void {
   const { lastSeqRef, dispatch, applySnapshot, refreshSessions, setRuntimeStatus } = deps;
   if (Number.isFinite(entry.seq)) lastSeqRef.current = Math.max(lastSeqRef.current, entry.seq);
@@ -101,7 +124,7 @@ export function applySessionEvent(entry: EventEntry, deps: SessionStreamDeps): v
       void refreshSessions();
       return;
     case "queue_cleared":
-      dispatch({ type: "queueCleared" });
+      dispatch({ type: "queueCleared", runIds: entry.data.runIds });
       return;
     case "run_end":
       dispatch({

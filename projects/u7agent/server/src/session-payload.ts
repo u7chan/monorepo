@@ -37,6 +37,10 @@ export function projectSessionPayload({
   const availableThinkingLevels = (session.getAvailableThinkingLevels() ??
     (session.thinkingLevel ? [session.thinkingLevel] : [])) as ThinkingLevel[];
   const context = contextUsageOf(session);
+  // 実行中 / キュー待ちの run id。終了した run (record.run は status が付いたまま残る) は除く
+  const queuedRunIds = new Set(record.queue.map((item) => item.runId));
+  const runningRunId =
+    record.run && (record.run.status === "running" || session.isStreaming) ? record.run.id : undefined;
   return {
     sessionId: record.id,
     piSessionId: session.sessionId,
@@ -54,6 +58,15 @@ export function projectSessionPayload({
     // retryAt との差でクライアントが残り時間を出す基準時刻 (ブラウザ時計と比較しない)
     serverNow: Date.now(),
     queueDepth: record.queue.length,
+    // 受理済みでまだ entry になっていない送信を状態付きで配る。`unsent` は「未送信」の表示へ、
+    // `queued` / `running` は pending エコーのまま扱う (表示から消さない)。本文は表示用にマスクし、
+    // 再送は run id だけを送ってもらう (マスク済みの本文を送り直させない)
+    pendingSends: record.unsentSends.map((item) => ({
+      runId: item.runId,
+      text: masker.mask(item.text),
+      at: item.at,
+      state: queuedRunIds.has(item.runId) ? "queued" : runningRunId === item.runId ? "running" : "unsent",
+    })),
     ...(record.compactionStartedAt !== undefined ? { compactionStartedAt: record.compactionStartedAt } : {}),
     notify: record.notify,
     lastSeq: record.seq,

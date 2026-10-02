@@ -258,6 +258,8 @@ export async function createBffApp(opts: CreateBffAppOptions = {}) {
       ),
       (c) => sessionRoutes.postMessage(c, c.req.valid("json")),
     )
+    // 未送信メッセージの破棄 (再送は POST /messages の resendRunId)
+    .delete("/api/sessions/:id/unsent/:runId", appData, sessionRoutes.discardUnsent)
     .get("/api/sessions/:id/events", appData, sessionRoutes.events)
     .get("/api/notifications", appData, notificationRoutes.get)
     .put(

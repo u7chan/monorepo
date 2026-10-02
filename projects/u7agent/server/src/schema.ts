@@ -277,6 +277,19 @@ export const HistoryItemSchema = z.discriminatedUnion("kind", [HistoryMessageIte
 export type HistoryItem = z.infer<typeof HistoryItemSchema>;
 
 /**
+ * 202 で受理したが user entry としてまだ保存されていない送信。サーバー再起動でキューごと消えた分は
+ * `unsent` として見せ、実行中 / キュー待ちの分は pending エコーのまま扱わせる (表示から消さない)。
+ * `text` は表示用にマスク済み (再送は本文を送り直さず `runId` でサーバーへ依頼する)。
+ */
+export const PendingSendSchema = z.object({
+  runId: z.string(),
+  text: z.string(),
+  at: z.number(),
+  state: z.enum(["unsent", "queued", "running"]),
+});
+export type PendingSend = z.infer<typeof PendingSendSchema>;
+
+/**
  * カーソル型の履歴ページ。items は古い→新しい、nextCursor はさらに古いページを取るための
  * 先頭 item の id。prevCursor は先頭 item の直前の item id (ページ間の連続性検証用)。
  * messageCount / summarizedMessageCount はページではなく現行ブランチ全体の値で、
@@ -334,6 +347,8 @@ export const SessionPayloadSchema = z.object({
   /** この payload を組み立てた時刻 (epoch ms)。retry.retryAt との差でクライアントが残り時間を出す */
   serverNow: z.number(),
   queueDepth: z.number(),
+  /** 受理済みでまだ保存されていない送信 (古い→新しい)。旧サーバーは載せないため省略可 (省略 = 未対応) */
+  pendingSends: z.array(PendingSendSchema).optional(),
   /** 手動圧縮の開始時刻 (epoch ms)。status === "compacting" のときだけ載る */
   compactionStartedAt: z.number().optional(),
   /** この会話の完了を Discord へ送るか。サーバーは常に載せ、読む側は省略を false として扱う */
@@ -907,6 +922,10 @@ export const StopResultSchema = z.object({
 });
 export type StopResult = z.infer<typeof StopResultSchema>;
 
+/** `DELETE /api/sessions/:id/unsent/:runId` の応答 */
+export const DiscardUnsentResultSchema = z.object({ ok: z.literal(true) });
+export type DiscardUnsentResult = z.infer<typeof DiscardUnsentResultSchema>;
+
 /** `POST /api/sessions/:id/compact` の応答。完了まで待って実効状態を返す */
 export const SessionCompactionResultSchema = z.object({
   sessionId: z.string(),
@@ -941,9 +960,12 @@ export type SessionTitleResponse = z.infer<typeof SessionTitleResponseSchema>;
 // ---------------------------------------------------------------------------
 
 export const PostMessageBodySchema = z.object({
-  text: z.string(),
+  /** 通常の送信は必須。`resendRunId` を指定した再送では本文を送らず、サーバーが保存済みの本文を使う */
+  text: z.string().optional(),
   /** 添付 (root 相対の `<appdir>/uploads/<sessionId>/` 配下)。件数とパスの検証は attachments.ts が正 */
   attachments: z.array(z.string()).optional(),
+  /** 未送信メッセージの再送。本文は保存済みの生テキストを使い、同じ run id で実行し直す */
+  resendRunId: z.string().optional(),
 });
 export type PostMessageBody = z.infer<typeof PostMessageBodySchema>;
 
@@ -1057,7 +1079,8 @@ export const EventDataSchemas = {
     queueDepth: z.number(),
     prompt: z.string(),
   }),
-  queue_cleared: z.object({}).strict(),
+  // 停止で破棄した待機メッセージの run id。クライアントが「未送信」へ切り替えるために使う
+  queue_cleared: z.object({ runIds: z.array(z.string()).optional() }).strict(),
   // assistant の message_end ごとに 1 件。usage はプロバイダが報告したときだけ入る
   usage: z.object({
     usage: UsageSchema.optional(),

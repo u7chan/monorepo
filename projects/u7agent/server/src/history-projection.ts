@@ -174,8 +174,12 @@ function projectItems({
       };
     }
     const item = projectedById.get(descriptor.id);
-    // 送信した run の id は、リロードや別タブの resync でもエコーと entry を対応付けるために写す
-    const runId = descriptor.message.role === "user" ? record.userMessageRuns.get(descriptor.message) : undefined;
+    // 送信した run の id は、リロードや別タブの resync でもエコーと entry を対応付けるために写す。
+    // 実行時の対応表は再起動で消えるため、保存済み entry はストアの対応 (entryRunIds) から復元する
+    const runId =
+      descriptor.message.role === "user"
+        ? (record.userMessageRuns.get(descriptor.message) ?? record.entryRunIds.get(descriptor.id))
+        : undefined;
     return {
       kind: "message",
       id: descriptor.id,

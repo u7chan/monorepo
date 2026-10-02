@@ -15,7 +15,7 @@ import type {
   ToolCall,
 } from "./schema";
 import type { PiSessionLike } from "./pi-runtime";
-import type { SessionMeta, SessionFileWriter, PromptSnapshot } from "./session-store";
+import type { SessionMeta, SessionFileWriter, PromptSnapshot, UnsentSend } from "./session-store";
 
 export interface RunState {
   id: string;
@@ -99,6 +99,24 @@ export interface SessionRecord {
    * 自分の送信エコーを他クライアントの同一文面 entry と取り違えないようにする
    */
   userMessageRuns: WeakMap<object, string>;
+  /**
+   * 保存済み user entry の id -> run id。実行時の `userMessageRuns` は再起動で消えるため、
+   * JSONL へ書いた entry の対応をストア (sends.json) から復元して履歴の runId に使う。
+   * 旧保存データには無いので、載らない item は従来どおり本文での縮退になる
+   */
+  entryRunIds: Map<string, string>;
+  /**
+   * 202 で受理したがまだ user entry として保存されていない送信 (古い→新しい)。再起動でキューごと
+   * 消えても、履歴の同一文面 item へ黙って吸収させず「未送信」として見せるために残す
+   */
+  unsentSends: UnsentSend[];
+  /**
+   * 送信対応記録がディスクと食い違っている (受理 / entry の確定で変わったが書けていない)。
+   * persist / flush のたびに書込みを再試行し、成功するまで残す
+   */
+  sendsDirty: boolean;
+  /** 直近の送信対応記録の保存失敗。成功で消える (health の dirty にも数える) */
+  sendsError?: string;
   /** compaction entry id -> entry に保存されない表示用の値 (compaction_end 受信時に控える) */
   compactionMeta: Map<string, CompactionMeta>;
   /** 設定変更中フラグ。非同期 setModel の間、送信と二重変更を 409 で拒否する */

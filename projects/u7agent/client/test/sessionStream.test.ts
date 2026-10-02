@@ -10,6 +10,7 @@ import {
   applySessionEvent,
   isSseSilent,
   nextRetryDelayMs,
+  recoverDecision,
   SSE_SILENCE_TIMEOUT_MS,
   type SessionStreamDeps,
 } from "../src/hooks/sessionStream";
@@ -198,4 +199,24 @@ test("passes the activity state of status events to the reducer", () => {
   applySessionEvent({ seq: 1, type: "status", data: { state: "thinking", text: "考え中…" }, at: 1 }, deps);
 
   assert.deepEqual(record.actions, [{ type: "status", state: "thinking", text: "考え中…" }]);
+});
+
+test("recover の応答は、取得中に新しいイベントが入ったら適用しない", () => {
+  const base = {
+    generation: "g1",
+    seq: 11,
+    currentGeneration: "g1",
+    currentSeq: 11,
+    payloadGeneration: "g1",
+    payloadSeq: 11,
+  };
+  assert.equal(recoverDecision(base), "apply");
+
+  // 取得中に queue_cleared (seq12) / run_end (seq13) が届いた
+  assert.equal(recoverDecision({ ...base, currentSeq: 13 }), "superseded");
+  // 応答が既知の位置より古い (カーソルを後退させない)
+  assert.equal(recoverDecision({ ...base, currentSeq: 12, payloadSeq: 11 }), "superseded");
+  // 世代が変わった (再起動) / 応答が別世代
+  assert.equal(recoverDecision({ ...base, currentGeneration: "g2" }), "stale");
+  assert.equal(recoverDecision({ ...base, payloadGeneration: "g2" }), "stale");
 });

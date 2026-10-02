@@ -44,6 +44,10 @@ export type ChatAreaProps = {
   /** 送信のたびに増える (reducer の localUser)。値そのものは表示に使わず、増加だけを追従の合図にする */
   sendSeq: number;
   onSuggestion: (prompt: string) => void;
+  /** 未送信メッセージの再送 (サーバーが保存済みの本文を使う) */
+  onResendUnsent?: (runId: string) => void;
+  /** 未送信メッセージの破棄 */
+  onDiscardUnsent?: (runId: string) => void;
   /** 非表示 (設定ページ) の間は scrollHeight を読めないので同期を止める */
   visible?: boolean;
 };
@@ -66,6 +70,8 @@ export function ChatArea({
   sessionId,
   sendSeq,
   onSuggestion,
+  onResendUnsent,
+  onDiscardUnsent,
   visible = true,
 }: ChatAreaProps) {
   const chatAreaRef = useRef<HTMLElement>(null);
@@ -225,6 +231,8 @@ export function ChatArea({
       return <CompactionDivider compactions={item.marker.compactions} startIndex={item.index} compact={compact} />;
     }
     const bubble = item.bubble;
+    // 未送信の再送 / 破棄は run id を持つバブルだけに出す
+    const unsentRunId = bubble.unsent === true ? bubble.runId : undefined;
     return (
       <MessageView
         bubble={bubble}
@@ -242,6 +250,8 @@ export function ChatArea({
         onCopyTool={(card) => void copyMessage(toolCallCopyText(card), `tool_${card.id}`)}
         copiedAll={copiedId === `tools_${bubble.id}`}
         onCopyAll={() => void copyMessage(toolHistoryCopyText(nonSkillToolCards(bubble.tools)), `tools_${bubble.id}`)}
+        onResend={unsentRunId === undefined ? undefined : () => onResendUnsent?.(unsentRunId)}
+        onDiscard={unsentRunId === undefined ? undefined : () => onDiscardUnsent?.(unsentRunId)}
       />
     );
   }
