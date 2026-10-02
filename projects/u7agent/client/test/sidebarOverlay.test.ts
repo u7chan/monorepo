@@ -83,7 +83,7 @@ test("App: docked は 2 カラム + Sidebar 常駐、overlay は 1 カラム + �
   assert.ok(app.includes("mainWidth: sidebarDocked ? viewportWidth - sidebarWidth.width : viewportWidth"));
   // docked へ戻ったらドロワーを閉じ、docked の Sidebar と重ねて描かない
   assert.ok(app.includes("if (sidebarDocked) setNavOpen(false);"));
-  assert.ok(app.includes("{navOpen && !sidebarDocked ? <NavSheet {...drawerProps} onClose={closeNav} /> : null}"));
+  assert.ok(app.includes("{navOpen && !sidebarDocked ? <NavSheet {...navProps} onClose={closeNav} /> : null}"));
 });
 
 test("NavSheet は起点が使えなくなったら表示中の導線へ focus を移す", () => {

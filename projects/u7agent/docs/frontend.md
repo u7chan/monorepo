@@ -79,7 +79,7 @@
 - 設定 → モデルのタブだけは `/settings/models/<sub>` の 1 セグメントを解釈する。正準形は「モデルを選ぶ」= `/settings/models`、「プロバイダー」= `/settings/models/providers` で、未知のサブセクションと既定タブの明示（`/settings/models/models`）は既定タブへ畳み、モデル画面からチャットへ飛ばさない（タブの語彙は `client/src/lib/settingsNav.ts` の `MODELS_SUBSECTIONS`、タブ行は `SettingsPageLayout` の任意スロット）
 - 画面切替は `replaceState` で、履歴は追加しない（Back / Forward はブラウザーの既存履歴に従う）。URL の置換と表示の更新は `navigate()` だけが行い、両者を独立に同期させない
 - クエリとフラグメントは解釈も破棄もしない。`#foo` のような断片リンク（チャット本文の Markdown が通す）を壊さないため、画面切替でもそのまま持ち越す
-- 「設定」の行き先は URL のセクションを優先し、`/` では保存した最後のセクションへ。直接 `/settings/<section>` を開いた場合もそのセクションを「最後」として保存する。`Sidebar` の「設定」は `onSelectMode("settings")` を呼ぶため、App は `navProps` と `drawerProps` の両方をこの経路へ接続する
+- 「設定」の行き先は URL のセクションを優先し、`/` では保存した最後のセクションへ。直接 `/settings/<section>` を開いた場合もそのセクションを「最後」として保存する。`Sidebar` の「設定」は `onSelectMode("settings")` を呼ぶため、App は `navProps` を docked の `Sidebar` と `NavSheet` の両方へ渡す（モードの切替ではドロワーを閉じない）
 - 設定 → ランタイムは health の接続状態（`ready` / 既定モデル / cwd / 会話ストア / アプリ DB / SDK バージョン）と `GET /api/runtime/environment` の実行環境だけを出す。モデル候補の診断と比率ゲージは撤去し、許可リスト・カタログ・既定モデルは 設定 → モデル が持つ
 - 設定 → モデルは「モデルを選ぶ / プロバイダー」の 2 タブで、URL を正に切り替える。`useModelSettings` は両タブの親で 1 回だけ呼び、タブ切替は親の state（モデルの選択・既定モデル・provider ごとの入力下書き・カタログ）を保ったまま行う（GET 2 本は独立に取り、片方の失敗で他方を捨てない）。モデルの下書きは保存値が変わったときと、カタログ無しで作った初期値の初回カタログ到着でだけ作り直し、カタログの更新だけでは置換しない（認証が外れた provider の選択は下書きから落とす）
   - 「モデルを選ぶ」タブは、候補を「認証済み provider のカタログ全件」と「カタログ外の残存エントリ」の和集合で組み、provider ごとの折りたたみにチェックで出す。折りたたみは既定で閉じ、検索はカタログのデータ（provider / モデル名 / ID）に当てて該当 provider を自動展開する。認証が無い provider の選択は表示せず下書きからも落とし、カタログ外の残存だけは警告付きで表示して外せる（見えないまま選択数に残さない）。provider 行にはバッジと `利用可能 a/b ・ 選択 c` を出す

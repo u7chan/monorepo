@@ -115,6 +115,7 @@ export default function App() {
   const settingsSection: SettingsSection = route.view === "settings" ? route.section : lastSettingsSection;
   const closeProjectDialog = useCallback(() => setProjectDialogOpen(false), []);
   const openNav = useCallback(() => setNavOpen(true), []);
+  // 実際に閉じる (ドロワーを unmount する)。退場アニメは NavSheet が持ち、その完了 (dialog の close) から届く
   const closeNav = useCallback(() => setNavOpen(false), []);
   const backToChat = useCallback(() => navigate({ view: "chat" }), [navigate]);
   // ファイル参照から開いたときの起点要素。compact の sheet は閉じたときにここへ focus を戻す
@@ -301,29 +302,6 @@ export default function App() {
     },
     onNewProject: () => setProjectDialogOpen(true),
     onOpenSettingsSection: openSettingsSection,
-  };
-
-  // ドロワーは選んだら閉じる。削除とリネームだけは確認 / 入力の後も開いたまま残す (連続操作しうる)。
-  // 折りたたみ (行のクリック) は選択ではないので閉じない (Sidebar 側で行を選択しない)
-  const drawerProps = {
-    ...navProps,
-    // モードの切替は閉じない (設定ナビは drawer の中で出す)
-    newChat: (agentId?: string, projectId?: string) => {
-      closeNav();
-      handleNewChat(agentId, projectId);
-    },
-    selectSession: (sessionId: string) => {
-      closeNav();
-      if (sessionId !== app.sessionId) void app.selectSession(sessionId);
-    },
-    onNewProject: () => {
-      closeNav();
-      setProjectDialogOpen(true);
-    },
-    onOpenSettingsSection: (section: SettingsSection) => {
-      closeNav();
-      openSettingsSection(section);
-    },
   };
 
   // 表示方法だけを layout で分ける (desktop は右パネル、compact は全画面シート)。設定 → ファイルは
@@ -544,8 +522,9 @@ export default function App() {
           returnFocus={fileRefOriginRef.current}
         />
       ) : null}
-      {/* overlay の左バーは docked の Sidebar と排他にする (docked へ戻ったフレームで両方を描かない) */}
-      {navOpen && !sidebarDocked ? <NavSheet {...drawerProps} onClose={closeNav} /> : null}
+      {/* overlay の左バーは docked の Sidebar と排他にする (docked へ戻ったフレームで両方を描かない)。
+          閉じるのも NavSheet 側 (退場アニメの完了 → dialog の close) なので、App は閉じる要求を持たない */}
+      {navOpen && !sidebarDocked ? <NavSheet {...navProps} onClose={closeNav} /> : null}
       {projectDialogOpen ? (
         <ProjectDialog compact={compact} onClose={closeProjectDialog} onCreate={handleCreateProject} />
       ) : null}

@@ -183,8 +183,10 @@ test("プロジェクトの追加は、成功後にそのプロジェクトを�
 });
 
 test("新規会話の 3 入口は handleNewChat を通り、内部フォールバックは通らない", () => {
-  assert.ok(app.includes("newChat: handleNewChat,"), "docked の Sidebar が handleNewChat を通っていない");
-  assert.ok(app.includes("handleNewChat(agentId, projectId);"), "ドロワーの入口が handleNewChat を通っていない");
+  // docked の Sidebar とドロワー (NavSheet) は同じ navProps を受ける。閉じる要求を挟まないので
+  // handleNewChat がそのまま入る (ドロワー側の配線は test/navDrawerMotion.test.ts が固定する)
+  assert.ok(app.includes("newChat: handleNewChat,"), "Sidebar が handleNewChat を通っていない");
+  assert.ok(app.includes("<NavSheet {...navProps} onClose={closeNav} />"), "ドロワーが navProps を通っていない");
   assert.ok(
     app.includes("handleNewChat(agentId, app.selectedProjectId)"),
     "未作成チャットのエージェント選択が handleNewChat を通っていない",
