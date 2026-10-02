@@ -330,7 +330,11 @@ function parseRecord(raw: string): ServeRecord | null {
   return { sessionId, cwd, command, pid, startedAt, inodes: parsedInodes, generation };
 }
 
-/** スクリプトの出力を観測値へ。印の確認は呼び出し側 (#run) が行う */
+/**
+ * スクリプトの出力を観測値へ。印の確認は呼び出し側 (#run) が行う。
+ * 出力は `inodes` → `listener` → `ancestors` の順だが、**行の順序に依存しない**ように全行を読んでから
+ * listener へ祖先を反映する (listener 行の時点で祖先はまだ読めていない)。
+ */
 function parseObservation(output: string, at: number): Omit<ServeObservation, "reachable"> {
   let record: ServeRecord | null = null;
   let listener: ServeListener | null = null;
@@ -352,11 +356,15 @@ function parseObservation(output: string, at: number): Omit<ServeObservation, "r
           pid: parsedPid,
           // 起動時刻を引けなかったときは 0 (不明) とし、照合は pid だけで行う
           startedAt: Number.isFinite(parsedStartedAt) ? parsedStartedAt : 0,
-          inodes: [...listenInodes],
-          ancestors,
+          inodes: [],
+          ancestors: [],
         };
       }
     }
+  }
+  // 祖先と inode は listener 行より後ろに現れるため、全行を読んだ後に反映する
+  if (listener) {
+    listener = { ...listener, inodes: [...listenInodes], ancestors };
   }
   return { record, listenInodes, listener, at };
 }

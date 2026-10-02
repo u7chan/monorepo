@@ -278,6 +278,20 @@ test("起動の失敗は実績を上書きせず、試みた事実だけを残�
   assert.equal(sandbox.state.writes, 1);
 });
 
+test("到達した待受プロセスが起動 PID の子孫なら成功とし、待受 PID を記録する", async () => {
+  const { service, sandbox, commands } = setup({ command: "pnpm dev" });
+  // `pnpm dev` のように起動 PID の子孫が待ち受ける形 (listener 行の後に ancestors 行が続く)
+  sandbox.state.listenerOnLaunch = { pid: 5000, startedAt: NOW + 200, inodes: [5000], ancestors: [5000, 4242] };
+  const status = await service.start(SESSION, {});
+  assert.equal(status.reachable, true);
+  assert.deepEqual(status.owner, { kind: "mine", title: "トップページの改修" });
+  // 待受 PID と待受ソケットの inode を正として記録する (起動を試みた PID ではない)
+  assert.equal(readRecord(sandbox.state)?.pid, 5000);
+  assert.deepEqual(readRecord(sandbox.state)?.inodes, [5000]);
+  // 成功実績も保存される
+  assert.equal(commands.rows.get(CWD)?.command, "pnpm dev");
+});
+
 test("到達してもこの起動に由来しないプロセスなら成功としない (遅れて listen した別の起動を拾わない)", async () => {
   const { service, sandbox, commands } = setup({ command: "pnpm dev" });
   // 期限超過した別の起動が、今回の起動の直後に遅れて listen した状態を作る

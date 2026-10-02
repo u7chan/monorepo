@@ -32,26 +32,30 @@ function messageFor(error: unknown): string {
 export function useServeStatus({ sessionId }: { sessionId: string }) {
   const [state, setState] = useState<ServeState>(IDLE);
   const [tracked, setTracked] = useState(sessionId);
-  // 会話を切り替えたフレームで前の会話の状態を描かない (Effect を待つと 1 フレーム古い値が出る)
-  if (tracked !== sessionId) {
-    setTracked(sessionId);
-    setState(IDLE);
-  }
-  const sessionIdRef = useRef(sessionId);
-  sessionIdRef.current = sessionId;
   /** 発行した要求の通し番号。応答の適用可否を「番号の新しさ」で決める */
   const requestSeq = useRef(0);
   /** 飛行中の取得の番号。0 なら次を発行してよい (重ねて発行しない) */
   const inFlight = useRef(0);
   /** 適用済みの最新番号。古い応答を後から適用しない */
   const appliedSeq = useRef(0);
-  /** 操作が無効化した番号。これ以前の取得結果は適用しない */
+  /** 操作と会話切替が無効化した番号。これ以前の取得結果は適用しない */
   const invalidatedUpTo = useRef(0);
   const startAbort = useRef<AbortController | null>(null);
+  const sessionIdRef = useRef(sessionId);
+  sessionIdRef.current = sessionId;
+  // 会話を切り替えたフレームで前の会話の状態を描かず、切替前の取得結果も無効化する。
+  // 印を外すだけだと A → B → A と戻ったときに最初の A の応答が再び有効になり、
+  // その間に他会話へ置き換わっていれば古い状態を描いてしまう (Effect を待つと 1 フレーム古い値が出る)
+  if (tracked !== sessionId) {
+    setTracked(sessionId);
+    setState(IDLE);
+    invalidatedUpTo.current = requestSeq.current;
+  }
 
   /**
    * 進行中の取得を捨てる。操作の前と、操作の応答を適用する直前に呼び、操作で確定した状態より
    * 古い取得結果で上書きさせない (会話 id が同じでも応答の到着順は入れ替わり得る)。
+   * 会話切替も同じ扱いで、切替前の番号までを無効化する。
    */
   const invalidatePending = useCallback((): void => {
     invalidatedUpTo.current = requestSeq.current;
@@ -84,7 +88,8 @@ export function useServeStatus({ sessionId }: { sessionId: string }) {
     }
   }, []);
 
-  // 初回と会話切替で取り直す。切替前の応答は会話 id の照合で捨てる (飛行中の印も外して次を許す)
+  // 初回と会話切替で取り直す。切替前の応答は無効化した番号と会話 id の照合で捨てる
+  // (飛行中の印も外して次を許す)
   useEffect(() => {
     if (!sessionId) return;
     inFlight.current = 0;

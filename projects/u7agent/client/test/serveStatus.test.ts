@@ -62,6 +62,40 @@ test("canApplyStatus は新しい応答を適用し、操作で無効化され�
   assert.equal(canApplyStatus(4, 0, 5), false);
 });
 
+test("会話切替 (A → B → A) で切替前の取得結果を適用しない", () => {
+  // 切替で番号を無効化しないと、最初の A の応答が戻ってきたときに適用され、
+  // reset 後の状態へ「稼働中」とサービスリンクが復活する (その間に B へ置き換わっていれば B を開く)
+  let requestSeq = 0;
+  let invalidatedUpTo = 0;
+  let appliedSeq = 0;
+  const apply = (seq: number): boolean => {
+    if (!canApplyStatus(seq, invalidatedUpTo, appliedSeq)) return false;
+    appliedSeq = seq;
+    return true;
+  };
+  const switchSession = () => {
+    invalidatedUpTo = requestSeq;
+  };
+  const a1 = (requestSeq += 1);
+  switchSession();
+  const b2 = (requestSeq += 1);
+  switchSession();
+  const a3 = (requestSeq += 1);
+  assert.equal(apply(a1), false, "切替前の A の応答は捨てる");
+  assert.equal(apply(b2), false, "他会話 (B) の応答は捨てる");
+  assert.equal(apply(a3), true, "切替後に始まった A の応答は適用する");
+});
+
+test("会話切替は切替前の取得結果を無効化する", () => {
+  // 印を外すだけでは A → B → A で最初の A の応答が再び有効になる
+  const reset = hook.slice(hook.indexOf("if (tracked !== sessionId)"), hook.indexOf("const invalidatePending"));
+  assert.match(reset, /setTracked\(sessionId\);/);
+  assert.match(reset, /setState\(IDLE\);/);
+  assert.match(reset, /invalidatedUpTo\.current = requestSeq\.current;/);
+  // 切替後は選択中の会話で取り直し、飛行中の印を外す
+  assert.match(hook, /if \(!sessionId\) return;\n\s+inFlight\.current = 0;\n\s+void refresh\(\);/);
+});
+
 test("操作は進行中の取得を捨て、後から届いた取得で操作の結果を上書きさせない", () => {
   // 操作の直前と、操作の応答を適用する直前に、進行中の取得を無効化する
   assert.match(
