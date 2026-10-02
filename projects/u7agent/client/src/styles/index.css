@@ -966,7 +966,7 @@ html[data-theme="sky"] {
     accent-color: var(--c-accent);
   }
 
-  /* 表。横に長いときは折り返さず、表だけ横スクロールする */
+  /* 表。折り返して幅に収め、入らないときだけ横スクロールする */
   .md-table-wrap {
     margin: 10px 0;
     overflow-x: auto;
@@ -980,11 +980,10 @@ html[data-theme="sky"] {
     border: 1px solid var(--c-line);
     padding: 4px 10px;
     text-align: left;
-    white-space: nowrap;
-  }
-  .md-table td:last-child,
-  .md-table th:last-child {
     white-space: normal;
+    word-break: normal;
+    overflow-wrap: break-word;
+    min-width: 5em;
   }
   .md-table th {
     background: var(--c-soft);
