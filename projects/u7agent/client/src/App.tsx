@@ -383,6 +383,7 @@ export default function App() {
           >
             {compactMode ? (
               <CompactBar
+                previewPort={app.health?.previewPort}
                 mode={compactMode}
                 title={barTitle}
                 agentName={barAgentName}
@@ -394,6 +395,7 @@ export default function App() {
               />
             ) : (
               <Topbar
+                previewPort={app.health?.previewPort}
                 scope={scope}
                 runtimeStatus={app.runtimeStatus}
                 notify={notifyToggle}

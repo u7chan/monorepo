@@ -687,6 +687,8 @@ export const HealthSchema = z.object({
   sandboxConfigured: z.boolean().optional(),
   /** プレビュー オリジン (別リスナー) のブラウザから見たポート。待受は別 env で、prod は compose が publish */
   filePreviewPort: z.number().optional(),
+  /** サンドボックスで serve した成果物のブラウザから見たポート */
+  previewPort: z.number().optional(),
   /** 実行中の SDK バージョン。ランタイムの診断とは独立に出し続ける */
   versions: RuntimeVersionsSchema.optional(),
   /** ダウンロード ZIP の除外規則の実効値。UI は行にダウンロードを出すかの判定に使う */

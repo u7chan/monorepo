@@ -4,6 +4,7 @@ import { fileURLToPath } from "node:url";
 import { serve } from "@hono/node-server";
 import { createBffApp } from "./app";
 import { resolveFilePreviewListenPort, resolveFilePreviewPort } from "./file-preview-port";
+import { resolvePreviewPort } from "./preview-port";
 
 // pnpm --filter で起動すると cwd が server/ になるため、既定はリポジトリルートにする
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
@@ -16,9 +17,14 @@ const HOST = process.env.HOST || "127.0.0.1";
 const FILE_PREVIEW_LISTEN_PORT = resolveFilePreviewListenPort(process.env.PI_FILE_PREVIEW_LISTEN_PORT);
 // ブラウザから見たポート。待受とは独立で、prod は publish したポートをここに載せる
 const FILE_PREVIEW_PORT = resolveFilePreviewPort(process.env.PI_FILE_PREVIEW_PORT);
+const PREVIEW_PORT = resolvePreviewPort(process.env.PI_PREVIEW_PORT);
 
 async function main() {
-  const bff = await createBffApp({ cwd: process.env.PI_APP_CWD || REPO_ROOT, filePreviewPort: FILE_PREVIEW_PORT });
+  const bff = await createBffApp({
+    cwd: process.env.PI_APP_CWD || REPO_ROOT,
+    filePreviewPort: FILE_PREVIEW_PORT,
+    previewPort: PREVIEW_PORT,
+  });
   serve({ fetch: bff.app.fetch, port: PORT, hostname: HOST }, (info) => {
     console.log(`[u7agent] http://${HOST}:${info.port}`);
     console.log(`[u7agent] working directory: ${bff.pi?.cwd || process.cwd()}`);

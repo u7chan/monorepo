@@ -30,7 +30,7 @@ export interface SandboxErrorEvent {
 export type SandboxEvent = SandboxStartEvent | SandboxUpdateEvent | SandboxResultEvent | SandboxErrorEvent;
 
 /** サンドボックス ツール実行 API の既定ポート (契約値) */
-export const SANDBOX_DEFAULT_PORT = 8080;
+export const SANDBOX_DEFAULT_PORT = 9418;
 
 /** write ツールのファイル内容などを想定したリクエストボディの上限。 */
 export const SANDBOX_MAX_BODY_BYTES = 8 * 1024 * 1024;

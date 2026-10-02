@@ -36,6 +36,8 @@ export type CreateBffAppOptions = {
    * ここには検証済みの値が入る。未指定は既定 (4318)。待受は別 env (PI_FILE_PREVIEW_LISTEN_PORT) で、prod は compose が publish する
    */
   filePreviewPort?: number;
+  /** serve した成果物のブラウザから見たポート。起動時に検証済みの値を渡す */
+  previewPort?: number;
   /** 会話ストアの絶対パス。null で永続化なし。未指定は PI_SESSION_STORE → 既定 (<agentDir>/u7agent/sessions) */
   sessionStoreDir?: string | null;
   /** 通知送信のテスト用。省略時は globalThis.fetch */
