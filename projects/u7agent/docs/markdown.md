@@ -39,7 +39,7 @@ MessageView (assistant の本文)
 | リンク `[t](url "title")` / 自動リンク / 画像 | ✓ | 画像は同一オリジン（相対パス）のみ。相対パスは作業フォルダ相対で解決して raw URL へ写す（下記）。クリックで拡大表示する（リンクの中は対象外。[画像の拡大表示](#画像の拡大表示)） |
 | 箇条書き / 番号付き / 入れ子 / タスクリスト `- [ ]` | ✓ | 番号付きは開始番号を保つ |
 | 引用 `>` / 水平線 | ✓ | |
-| 表（パイプテーブル、`:---:` の整列） | ✓ | 横スクロール。区切り行の列数がヘッダと違うときは表にしない |
+| 表（パイプテーブル、`:---:` の整列） | ✓ | 折り返して読み幅に収める。収まらない表は横スクロール。区切り行の列数がヘッダと違うときは表にしない |
 | コードフェンス | ✓ | ts / tsx / js / json / bash / python / css / html / c / cpp / java / go / rust / diff / md。未知の言語はハイライトなし。本文の左に行番号を出す（[コードブロックの行番号](#コードブロックの行番号)） |
 | 生 HTML | △ | 下記の許可リストのみ |
 | 実体参照 `&amp;` `&#65;` | △ | 生 HTML の中のテキストだけ標準 5 種（`&amp;` `&lt;` `&gt;` `&quot;` `&apos;`）と数値参照を戻す。markdown 本文（生 HTML の外）はそのまま表示する |
@@ -224,7 +224,9 @@ Markdown 記法側の URL（`[t](url)` / `![alt](src)`）も同じ `safeUrl` を
 - 数式は `.math-inline` / `.math-block` / `.frac` / `.bigop` / `.sqrt` / `.matrix` / `.mtx` / `.cases` / `.delim` / `.mat` / `.mop` のクラスだけで組み、色は既存の `--c-ink*` / `--c-line*` / `--c-accent*` を使う（新規カラートークンは増やさない）
 - 図は `.md-diagram*` のクラスだけで組み、色は既存の `--c-panel` / `--c-soft` / `--c-raised` / `--c-line*` / `--c-ink*` / `--c-accent*` を使う（同じく新規トークンは増やさない）
 - 種別と CSS の対応、および 6 テーマ分の定義漏れは `client/test/markdownHighlight.test.ts` が固定する
-- 横に長いもの（コード / 表 / 数式）は折り返さず、その要素だけ横スクロールする
+- 横に長いコード / 数式は折り返さず、その要素だけ横スクロールする
+- 表は全セルを `white-space: normal` / `word-break: normal` で語の境界（和文は文字間）で折り返し、読み幅に収める。本文の `.md` の `word-break: break-word` は残し、表のセルだけで打ち消す。`overflow-wrap: break-word` は min-content 幅を縮めない緊急折り返しとして残す
+- 表のセルは `min-width: 5em`（12px フォントで padding・border を含む約 60px、内容は約 39px）を下限にし、和文の列も 1 文字幅まで縮ませない。収まらない表は `.md-table-wrap`（`overflow-x: auto` / `scrollbar-thin`）だけで横スクロールする。長い URL / パスの通常の改行機会はブラウザーに依存し、列の多い表は短い値だけでも desktop で横スクロールになり得る
 - 原文表示の `md-lit` は CSS を持たない目印で、見た目は `.md code` が担う。Tailwind が生成するクラスではないため `.oxlintrc.json` の `shadcn/no-unknown-classes` の `allow` に登録する（`@utility` を宣言しても生成される CSS が無い）
 
 ## テスト
@@ -237,6 +239,7 @@ Markdown 記法側の URL（`[t](url)` / `![alt](src)`）も同じ `safeUrl` を
 | `client/test/markdownHighlight.test.ts` | 言語判定 / 未知言語と上限超過 / トークンが入力を欠落させない / 言語ごとの塗り分け (C のプリプロセッサ・型名 / 単一引用符の文字定数・ライフタイム・桁区切りの区別) / CSS との対応 |
 | `client/test/codeLines.test.ts` | 行数の数え方（本文の行ボックスと一致する / 空の本文と空白だけの本文 / 生成中のカーソルの行）/ 行番号の列 |
 | `client/test/markdownCodeBlock.test.ts` | 行番号の列（本文の外に出して 1 対 1 にする / 空のブロックには出さない / 生成中のカーソルの行 / 本文と同じ行送り・同じ上下余白 / sticky / `aria-hidden` と `user-select: none` / コピーは本文だけ） |
+| `client/test/markdownTable.test.ts` | 全セルの折り返しと下限幅 / 最終列の特例が無い / 本文の word-break は維持 / 横スクロールの受け皿の CSS と SSR 構造 / `th`・`td` の整列クラス |
 | `client/test/markdownLatex.test.ts` | `\frac` `\sqrt` 上下限 行列 cases の AST とレイアウトモデル / 決定性 / `$` の判定と通貨記号 / `$$` のブロック検出 / 失敗が `ok: false` になる / 例外を投げない |
 | `client/test/markdownDiagram.test.ts` | 形状 4 種 / エッジの種類とラベル / チェーン / TD と LR のランク方向 / 境界で止まるエッジ / 戻るエッジと外側レーン / エッジラベルと線の余白 / 長いラベルの折り返しと 6 行上限 / sequenceDiagram の順序と Note / 決定性 / 未対応が `ok: false` になる / 上限 / 固定シードのランダム入力でエッジがノードを横切らずラベルも線に貫かれない / SSR した HTML にインライン style が出ない |
 | `client/test/markdownSafety.test.ts` | `lib/markdown` と `components/markdown` に DOM 文字列の生成・インライン style が現れない（ソース走査） |
