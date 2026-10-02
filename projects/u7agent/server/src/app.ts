@@ -8,6 +8,8 @@ import { createBffContext } from "./bootstrap";
 import type { CreateBffAppOptions } from "./bootstrap";
 import { DEFAULT_FILE_PREVIEW_PORT } from "./file-preview-port";
 import { bodyGuard, jsonBodyValidator, messageFor, statusCodeOf } from "./http";
+import { mutationOriginGuard } from "./mutation-origin";
+import { DEFAULT_PREVIEW_PORT } from "./preview-port";
 import { createArchiveRoutes } from "./routes/archive";
 import { createCatalogRoutes } from "./routes/catalog";
 import { createFileRoutes } from "./routes/files";
@@ -66,7 +68,11 @@ function appDataGuard(appDb: AppDb, { notStored = false }: { notStored?: boolean
 }
 
 export async function createBffApp(opts: CreateBffAppOptions = {}) {
-  const { clientDistDir = DEFAULT_CLIENT_DIST_DIR, filePreviewPort = DEFAULT_FILE_PREVIEW_PORT } = opts;
+  const {
+    clientDistDir = DEFAULT_CLIENT_DIST_DIR,
+    filePreviewPort = DEFAULT_FILE_PREVIEW_PORT,
+    previewPort = DEFAULT_PREVIEW_PORT,
+  } = opts;
   const {
     cwd,
     pi,
@@ -87,7 +93,16 @@ export async function createBffApp(opts: CreateBffAppOptions = {}) {
   // 変更系は「何も保存していない」ことを state でも示す
   const appDataMutation = appDataGuard(appDb, { notStored: true });
 
-  const healthRoutes = createHealthRoutes({ pi, initError, cwd, store, appDb, archiveSettings, filePreviewPort });
+  const healthRoutes = createHealthRoutes({
+    pi,
+    initError,
+    cwd,
+    store,
+    appDb,
+    archiveSettings,
+    filePreviewPort,
+    previewPort,
+  });
   const runtimeRoutes = createRuntimeRoutes({ pi, runtimeDiagnostics });
   const fileRoutes = createFileRoutes({ workspace, archiveSettings, sandbox: "isolated" });
   // プレビュー専用リスナー (別オリジン) 用。storage を有効にするため、応答は HTML プレビューのルートだけにする
@@ -101,6 +116,7 @@ export async function createBffApp(opts: CreateBffAppOptions = {}) {
   const imageSettingsRoutes = createImageSettingsRoutes({ imageSettings });
 
   const app = new Hono()
+    .use("/api/*", mutationOriginGuard)
     // bodyGuard は本文を最長 64 KiB で読み切って text 化するため、raw で受けるアップロードは先に登録する
     .post("/api/sessions/:id/files", (c) => sessionRoutes.uploadFile(c))
     .use("/api/*", bodyGuard)

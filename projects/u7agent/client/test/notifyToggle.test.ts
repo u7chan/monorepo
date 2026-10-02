@@ -440,7 +440,7 @@ test("compact のアイコンボタンは @layer components の .icon-button で
   );
   assert.ok(!compact.includes("grid size-9"), "見た目が utilities に戻っている");
   // 描画された HTML はクラス名だけを持つ (実測の 36px は .icon-button が保証する)
-  assert.equal((renderCompactBar().match(/icon-button/g) ?? []).length, 3);
+  assert.equal((renderCompactBar().match(/icon-button/g) ?? []).length, 4);
 });
 
 test("サイドバーのセッション行は On の会話だけ鳴っているベルを出す", () => {

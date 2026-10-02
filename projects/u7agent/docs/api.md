@@ -29,6 +29,12 @@ DTO の正は `server/src/schema.ts`（zod）。リクエストボディは `@ho
 | エージェント / スキル | `/api/agents`、`/api/skills`、`/api/skills/files`、`/api/skills/session` | [api-catalog.md](api-catalog.md)、[api-sessions.md](api-sessions.md) |
 | サンドボックス（内部） | `/v1/*`（BFF からは見えない） | [sandbox-api.md](sandbox-api.md) |
 
+## ブラウザからの書き込み（Origin / CSRF 対策）
+
+`/api/*` の POST / PUT / PATCH / DELETE は、アップロードを含めて本文の読み取り・副作用より先に検査する。`Origin` があれば、要求 URL のオリジン（scheme + host + port）と完全一致しなければ 403 `Cross-origin mutations are forbidden`。`null` や不正な値も拒否する。`Sec-Fetch-Site` があれば `same-origin` 以外は拒否する（同じホストの別ポートも `same-site` なので許可しない）。CORS で応答を読めなくするだけでは `text/plain` の POST の副作用を止められないため、Content-Type に依存せず検査する。
+
+両ヘッダの無い curl 等の直接クライアントは従来どおり許可する。これはブラウザの CSRF 対策であり認証でもネットワーク隔離でもない。Vite の dev proxy は外部 Host を保持し、ブラウザの Origin と一致するため許可される。転送ヘッダ（`X-Forwarded-*`）は検証に使わない。リバースプロキシを追加する場合は外部 Host を保持すること。GET と HTML プレビューの契約は変えない。
+
 ## 型の共有
 
 - `server/src/app.ts` はルートをチェーン形式で定義し `AppType` を export。client は `hc<AppType>(location.origin)` で型付きクライアントを構築する（`client/src/api.ts`）。SSE は型付け対象外で、`EventEntry` のみ server から型 import する。
@@ -62,6 +68,7 @@ DTO の正は `server/src/schema.ts`（zod）。リクエストボディは `@ho
   "defaultThinkingLevel": "medium",
   "defaultModelError": "保存された既定モデルは利用できません: openai/ghost",
   "filePreviewPort": 4318,
+  "previewPort": 8080,
   "versions": { "piCodingAgent": "0.87.1", "piAi": "0.87.1" },
   "sessionStore": { "path": "/var/lib/u7agent/sessions", "ok": true, "dirty": 0 },
   "appDb": { "path": "/var/lib/u7agent/sessions/u7agent.db", "ok": true },
@@ -72,6 +79,8 @@ DTO の正は `server/src/schema.ts`（zod）。リクエストボディは `@ho
 `archive.excludeNames` はダウンロード ZIP から落とす名前の**実効値**（[ダウンロード](#ダウンロード)）。設定ストア（[アーカイブの除外名](#アーカイブの除外名)）が唯一の決定点で、未設定なら既定の一覧、上書きされていればその一覧になる。UI は行にダウンロードを出すかの判定だけに使い、実際の拒否は `GET /api/files/download/check` が行う（このフィールドの形と意味は変えない）。
 
 `filePreviewPort` は**ブラウザから見た**プレビュー オリジンのポート（env `PI_FILE_PREVIEW_PORT`、既定 4318）で、クライアントは別オリジンの iframe の URL をこれで組み立てる。BFF の待受は別 env `PI_FILE_PREVIEW_LISTEN_PORT`（既定 4318）で、prod は compose が `8017:4318` を publish して `PI_FILE_PREVIEW_PORT=8017` を渡す（値の解決と検証は起動時に 1 回で、1〜65535 の整数以外は起動が止まる。2 つの env は独立で、同じ値へ揃えるのは `pnpm dev` だけ）。
+
+`previewPort` はサンドボックスで serve した成果物のブラウザから見たポート（env `PI_PREVIEW_PORT`、既定 8080、prod は 8016）。`filePreviewPort` とは別で、常に返す。起動時に 1〜65535 の整数として検証し、不正値は起動を止める。稼働中かどうかを示す値ではなく、client は `location.hostname` と組み合わせて別タブの URL を作る（[serve の契約](sandbox.md#serve-した成果物の公開)）。
 
 `modelOptions` は認証済みで利用可能なモデルのみ。設定 → モデル の「利用可能なモデル」を保存したときは、その許可リストと利用可能モデルの積だけになる（保存された既定モデルが許可リスト外なら `defaultModelError`、積が空なら `ready: false` と `設定 → モデル` を名指しした `error`。`errorCode` は互換のため `model_whitelist_empty` のまま）。能力情報（`supportsThinking` / `thinkingLevels`）は pi SDK の公開ヘルパー（`getSupportedThinkingLevels`）から得る。`defaultThinkingLevel` は `PI_THINKING` → `medium` の順で決まる。解決の詳細は [model-effort.md](model-effort.md)。
 

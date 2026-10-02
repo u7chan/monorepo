@@ -10,7 +10,11 @@ export default defineConfig({
     strictPort: true,
     proxy: {
       // BFF (pnpm dev / pnpm start) へ API を転送する。scripts/dev.mjs は PORT を BFF と揃えて渡す
-      "/api": `http://127.0.0.1:${Number(process.env.PORT) || 4317}`,
+      "/api": {
+        target: `http://127.0.0.1:${Number(process.env.PORT) || 4317}`,
+        // Origin の検証に外部 Host を使う。文字列 shorthand は changeOrigin: true になる。
+        changeOrigin: false,
+      },
     },
   },
 });

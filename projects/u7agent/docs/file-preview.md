@@ -80,6 +80,8 @@ FilePreview                 取得した本文をタブごとに保持（表示�
 
 ## HTML プレビュー
 
+この節の CSP / iframe 制約は BFF がファイルを配るプレビューに適用される。サンドボックスで serve してチャットの「成果物」から別タブで直接開くページには適用されない（[serve した成果物の公開](sandbox.md#serve-した成果物の公開)）。
+
 `.html` / `.htm` のタブ（`isHtmlPath`）は、行番号付きのソース表示と iframe で描画したプレビューを切り替えられる（`client/src/components/FilePreview.tsx`）。
 
 ### 方式

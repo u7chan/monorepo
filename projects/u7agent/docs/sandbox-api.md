@@ -290,10 +290,10 @@ root 相対の通常ファイルを 1 つ消す。成功は本文なしの 204�
 
 | 変数 | サービス | 説明 |
 | --- | --- | --- |
-| `PI_SANDBOX_URL` | BFF | サンドボックスの到達先（例: `http://u7agent-sandbox:8080`）。未設定ならセッション作成を 503 で拒否 |
+| `PI_SANDBOX_URL` | BFF | ツール API の到達先（例: `http://u7agent-sandbox:9418`）。未設定ならセッション作成を 503 で拒否 |
 | `PI_SANDBOX_TOKEN` | BFF + サンドボックス | Bearer トークン（16 文字以上）。LLM 認証情報とは別の値。サンドボックス内では子プロセスへ継承しない |
 | `PI_SANDBOX_CWD` | サンドボックス | ツール実行の既定 cwd（既定 `/workspace`）。ホスト実行では書込み可能なディレクトリを指定し、BFF の `PI_APP_CWD` と同じパスへ揃える |
-| `SANDBOX_PORT` | サンドボックス | ポート（既定 8080。ホストへ publish しない） |
+| `SANDBOX_PORT` | サンドボックス | ツール API のポート（既定 9418。ホストへ publish しない）。8080 は serve 用に予約 |
 | `SANDBOX_HOST` | サンドボックス | bind アドレス（既定 `0.0.0.0`）。ローカルでは `127.0.0.1` を指定して LAN へ公開しない（Docker の別コンテナ構成では `0.0.0.0` のまま） |
 
 BFF 側の環境変数（`PI_APP_CWD` / `PI_SESSION_STORE` / `PI_THINKING` / `PORT` / `HOST` / `PI_SECRET_ENV_VARS`）は [README.md](../README.md#環境変数) を参照する。

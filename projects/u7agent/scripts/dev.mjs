@@ -14,7 +14,7 @@ import { resolveDevFilePreviewPort } from "../server/src/file-preview-port.ts";
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 /** 作業領域。BFF とサンドボックスで同じパスを使う (パス解決を一致させる) */
 const APP_CWD = resolve(process.env.PI_APP_CWD || ROOT);
-const SANDBOX_PORT = Number(process.env.SANDBOX_PORT) || 8080;
+const SANDBOX_PORT = Number(process.env.SANDBOX_PORT) || 9418;
 const BFF_PORT = Number(process.env.PORT) || 4317;
 const TOKEN = randomBytes(24).toString("base64url");
 const children = [];

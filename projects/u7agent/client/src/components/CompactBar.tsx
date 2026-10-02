@@ -5,6 +5,7 @@ import type { LayoutMode } from "../lib/layout";
 import { BellIcon, FolderIcon, MenuIcon } from "./icons";
 import { NotifyNote } from "./NotifyNote";
 import { RuntimeAlert } from "./RuntimeAlert";
+import { ServedAppLink } from "./ServedAppLink";
 
 export type CompactBarProps = {
   mode: Exclude<LayoutMode, "desktop">;
@@ -12,6 +13,7 @@ export type CompactBarProps = {
   agentName?: string;
   /** 作業先。エージェント名の行 (landscape はタイトルの左) に前置する */
   scope: ChatScope;
+  previewPort?: number;
   runtimeStatus: RuntimeStatus;
   /**
    * 会話の通知トグル。deliverable は今の On が実際に送られるか (色とラベルの根拠)。
@@ -27,6 +29,7 @@ export function CompactBar({
   title,
   agentName,
   scope,
+  previewPort,
   runtimeStatus,
   notify,
   sessionFiles,
@@ -76,6 +79,7 @@ export function CompactBar({
             <FolderIcon />
           </button>
         ) : null}
+        <ServedAppLink port={previewPort} compact />
       </div>
       {runtimeStatus.error ? (
         <div className="px-2.5 pb-2">

@@ -87,6 +87,11 @@ Prefer curl over one-off \`node -e\` fetch scripts; use node fetch only as a fal
 In the deployed container: node 24, npm/npx, git, ripgrep (rg), fd, tar/gzip, unzip, zip, jq, file, xz, openssl, python 3.13, uv.
 Not installed there: wget, ffmpeg, imagemagick.
 
+To let the user inspect a served app in their browser, listen on 0.0.0.0:8080. The UI's shared served-app link opens that server, not a server specific to this conversation.
+Only one server can occupy this port across all conversations. Before replacing it, identify and stop the existing server by its PID; do not kill unrelated processes or the sandbox tool API on 9418.
+Start it in the background with \`nohup <command> > <log> 2>&1 < /dev/null &\` and record its PID. For Vite use \`--host 0.0.0.0 --port 8080 --strictPort\` so a busy port fails instead of silently switching ports.
+Verify it with \`curl -fsS http://127.0.0.1:8080/\` and inspect the log before telling the user to open the served-app link. Container recreation stops the server; the UI does not start, stop, detect, or restore it.
+
 Python: keep dependencies inside the working directory. Create the environment at \`.venv\` directly under it (\`uv venv .venv\`) and install packages with \`uv pip install --python .venv/bin/python <package>\`; \`python3 -m venv .venv\` also works and \`uv venv --seed\` adds pip. Do not install into the system area (PEP 668 and the non-root user refuse it).
 
 When a task involves the project, inspect it with the available tools instead of guessing.

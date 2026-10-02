@@ -19,7 +19,7 @@
 | チャットの添付ファイル（アップロード / 画像配信 / 注記） | `server/src/attachments.ts`、`server/src/routes/sessions.ts`、`client/src/lib/attachments.ts`、`client/src/components/Composer.tsx`、`client/src/hooks/useU7Agent.ts` | [session-files.md](session-files.md)、[api-sessions.md](api-sessions.md) |
 | 入力欄へのファイル参照（ツリーの行のドラッグ） | `client/src/lib/fileMention.ts`、`client/src/components/Composer.tsx`、`client/src/components/FileBrowser.tsx`、`client/src/components/SessionFilesPanel.tsx`、`server/src/agent.ts` | [file-preview.md](file-preview.md#ツリーの行のドラッグ入力欄への参照) |
 | チャットのスキル一覧と `/skill:` の展開 | `server/src/session-skills.ts`、`server/src/sessions.ts`、`server/src/catalog-skills.ts`、`server/src/routes/sessions.ts`、`client/src/hooks/useSessionSkills.ts`、`client/src/lib/sessionSkills.ts`、`client/src/lib/skillPicker.ts`、`client/src/lib/skillBlock.ts`、`client/src/components/composer/SkillPicker.tsx`、`client/src/components/chat/SkillInvocation.tsx` | [api-sessions.md](api-sessions.md)、[persistence.md](persistence.md) |
-| サンドボックス（ツール実行） | `server/src/sandbox/` | [sandbox.md](sandbox.md)、[sandbox-api.md](sandbox-api.md) |
+| サンドボックス（ツール実行 / serve 成果物の公開） | `server/src/sandbox/`、`server/src/preview-port.ts`、`client/src/components/ServedAppLink.tsx` | [sandbox.md](sandbox.md)、[sandbox-api.md](sandbox-api.md) |
 | APIキーのマスク | `server/src/redact.ts`、`server/src/secret-guard.ts` | [secrets.md](secrets.md) |
 | Discord 通知（会話ごとの On/Off と設定画面） | `server/src/notifications.ts`、`server/src/routes/notifications.ts`、`client/src/components/NotificationSettingsPage.tsx`、`client/src/components/notifications/` | [notifications.md](notifications.md) |
 | フロントエンドの状態 / テーマ / レイアウト | `client/src/hooks/`、`client/src/theme/`、`client/src/components/` | [frontend.md](frontend.md)、[ui-layout.md](ui-layout.md) |
