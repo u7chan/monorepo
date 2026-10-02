@@ -10,8 +10,10 @@ import {
   lstatSync,
   mkdirSync,
   openSync,
+  readFileSync,
   renameSync,
   rmSync,
+  writeFileSync,
   writeSync,
 } from "node:fs";
 import { mkdir, readFile, readdir, rename, rm, writeFile } from "node:fs/promises";
@@ -204,6 +206,73 @@ export function sessionHeaderOf(meta: Pick<SessionMeta, "id" | "createdAt">, cwd
 
 export function serializeSession(header: SessionHeader, entries: SessionEntryLike[]): string {
   return [header, ...entries].map((entry) => `${JSON.stringify(entry)}\n`).join("");
+}
+
+/** 受理済みだが user entry として保存されていない送信 (古い→新しい) */
+export interface UnsentSend {
+  runId: string;
+  /** モデルへ渡す本文そのもの (再送に使う。payload へ出すときはマスクする) */
+  text: string;
+  at: number;
+}
+
+/**
+ * BFF 専用の送信対応記録。run id は実行時のメモリにしか無く、再起動で履歴 item から消えると
+ * 送信エコーの同一性が崩れる (他クライアントの同一文面 item と取り違える) ため、entry と run の
+ * 対応と、まだ entry になっていない送信をここへ残す。session.jsonl は SDK の形式のまま触らない。
+ */
+export interface SessionSends {
+  /** user message entry の id -> その送信の run id */
+  entries: Record<string, string>;
+  unsent: UnsentSend[];
+}
+
+export function sessionSendsPath(id: string, storeDir: string): string {
+  return join(sessionDirPath(storeDir, id), "sends.json");
+}
+
+export function emptySessionSends(): SessionSends {
+  return { entries: {}, unsent: [] };
+}
+
+/** 壊れた記録は空へ縮退する (補助データなので復元を止めない) */
+export function readSessionSends(storeDir: string, id: string): SessionSends {
+  try {
+    return parseSessionSends(JSON.parse(readFileSync(sessionSendsPath(id, storeDir), "utf8")));
+  } catch {
+    return emptySessionSends();
+  }
+}
+
+function parseSessionSends(value: unknown): SessionSends {
+  if (!isRecord(value)) return emptySessionSends();
+  const entries: Record<string, string> = {};
+  if (isRecord(value.entries)) {
+    for (const [entryId, runId] of Object.entries(value.entries)) {
+      if (typeof runId === "string" && runId !== "") entries[entryId] = runId;
+    }
+  }
+  const unsent: UnsentSend[] = [];
+  if (Array.isArray(value.unsent)) {
+    for (const item of value.unsent) {
+      if (!isRecord(item)) continue;
+      if (typeof item.runId !== "string" || typeof item.text !== "string" || typeof item.at !== "number") continue;
+      unsent.push({ runId: item.runId, text: item.text, at: item.at });
+    }
+  }
+  return { entries, unsent };
+}
+
+/**
+ * 一時ファイル + rename で原子的に書く。postMessage は同期で 202 を返すため、受理の記録も同期で
+ * 書く (受理直後に落ちても「未送信」の表示が消えない)。
+ */
+export function writeSessionSends(storeDir: string, id: string, sends: SessionSends): void {
+  const dir = sessionDirPath(storeDir, id);
+  mkdirSync(dir, { recursive: true, mode: 0o700 });
+  const temp = join(dir, `.sends-${randomBytes(4).toString("hex")}.json`);
+  writeFileSync(temp, `${JSON.stringify(sends)}\n`, { mode: 0o600 });
+  renameSync(temp, join(dir, "sends.json"));
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

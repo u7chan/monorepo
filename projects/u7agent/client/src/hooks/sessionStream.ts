@@ -101,7 +101,7 @@ export function applySessionEvent(entry: EventEntry, deps: SessionStreamDeps): v
       void refreshSessions();
       return;
     case "queue_cleared":
-      dispatch({ type: "queueCleared" });
+      dispatch({ type: "queueCleared", runIds: entry.data.runIds });
       return;
     case "run_end":
       dispatch({

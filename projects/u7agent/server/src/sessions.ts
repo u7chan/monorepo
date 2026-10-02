@@ -36,16 +36,19 @@ import { SandboxRequestError } from "./sandbox/client";
 import {
   SessionDamagedError,
   SessionFileWriter,
+  emptySessionSends,
   generateSessionId,
   listSessionIds,
   prepareSessionStore,
   readSessionFile,
   readSessionMeta,
+  readSessionSends,
   removeSessionDir,
   sessionHeaderOf,
   sessionJsonlPath,
   sessionWorkdirRel,
   writeSessionMeta,
+  writeSessionSends,
   type PromptSnapshot,
   type SessionEntryLike,
   type SessionMeta,
@@ -408,6 +411,8 @@ export class SessionStore {
       tools: new Map(),
       messageMetrics: new WeakMap(),
       userMessageRuns: new WeakMap(),
+      entryRunIds: new Map(),
+      unsentSends: [],
       compactionMeta: new Map(),
       changingSettings: false,
       compacting: false,
@@ -522,6 +527,12 @@ export class SessionStore {
     record.projectCwd = meta.projectCwd;
     record.projectName = meta.projectName;
     record.projectId = this.projectIdOfCwd(meta.projectCwd);
+    // 送信対応記録を復元する。JSONL に entry があるのに未送信が残っている (記録の書込みだけ失敗した)
+    // 場合は entry を正とする (保存済みの送信を未送信として見せない)
+    const sends = this.storeDir ? readSessionSends(this.storeDir, id) : emptySessionSends();
+    record.entryRunIds = new Map(Object.entries(sends.entries));
+    const persistedRuns = new Set(record.entryRunIds.values());
+    record.unsentSends = sends.unsent.filter((item) => !persistedRuns.has(item.runId));
     if (this.storeDir) {
       record.writer = new SessionFileWriter(this.storeDir, id, {
         completeBytes: parsed.kind === "ok" ? parsed.completeBytes : 0,
@@ -732,11 +743,15 @@ export class SessionStore {
   }
 
   /**
-   * 実行中ならキューに入れ、それ以外は即座にランを始める。
-   * `titleSource` は一覧のタイトルの元本文で、省略時は text。`/skill:` の展開結果は長いため、
-   * 展開前のユーザー入力からタイトルを作るために使う。
+   * 実行中ならキューに入れ、それ以外は即座にランを始める。`titleSource` は一覧のタイトルの元本文で、
+   * 省略時は text。`/skill:` の展開結果は長いため、展開前のユーザー入力からタイトルを作るために使う。
+   * `runId` は未送信メッセージの再送で、受理済みの run id を引き継ぐために使う (未指定は新規採番)。
    */
-  postMessage(record: SessionRecord, text: string, options: { titleSource?: string } = {}): PostMessageResultInternal {
+  postMessage(
+    record: SessionRecord,
+    text: string,
+    options: { titleSource?: string; runId?: string } = {},
+  ): PostMessageResultInternal {
     // 設定変更中の送信は 409 (BFF のルートでも同じ扱い)
     if (record.changingSettings) {
       throw httpError(409, "Session settings are being changed");
@@ -759,11 +774,14 @@ export class SessionStore {
       );
     }
     record.lastUsedAt = Date.now();
+    // run id はキュー受付 / 即時開始のどちらでも先に振る。エントリ保存前に落ちた送信を「未送信」として
+    // 残す記録にも同じ id を使うため、startRun に渡す前にここで確定させる
+    const runId = options.runId ?? randomBytes(8).toString("hex");
+    this.rememberUnsent(record, runId, text);
 
     if (running || record.compacting) {
       // 圧縮中も送信はキューへ積む。run id はここで振り、キューから始まる run の id として
       // 応答へ返す (クライアントが自分の送信と run_start / 履歴 entry を対応付けるため)
-      const runId = randomBytes(8).toString("hex");
       record.queue.push({ text, runId });
       this.emit(record, "queued", {
         position: record.queue.length,
@@ -773,16 +791,88 @@ export class SessionStore {
       return { queued: true, queueDepth: record.queue.length, runId };
     }
 
-    const run = this.startRun(record, text);
+    const run = this.startRun(record, text, runId);
     return { queued: false, queueDepth: 0, runId: run.id };
+  }
+
+  /**
+   * 未送信メッセージの再送。保存済みの生の本文を使い、同じ run id で実行し直す (受理の記録は
+   * そのまま。user entry が保存された時点で `syncSendMap` が消す)。二重の再送は実行 / キュー中の
+   * run id を見て弾く。見つからない run id は undefined (既に保存済みか破棄済み)。
+   */
+  resend(record: SessionRecord, runId: string): PostMessageResultInternal | undefined {
+    const send = record.unsentSends.find((item) => item.runId === runId);
+    if (!send) return undefined;
+    if (record.run?.id === runId) return { queued: false, queueDepth: record.queue.length, runId };
+    if (record.queue.some((item) => item.runId === runId)) {
+      return { queued: true, queueDepth: record.queue.length, runId };
+    }
+    return this.postMessage(record, send.text, { runId });
+  }
+
+  /**
+   * 未送信メッセージの破棄。"missing" は記録が無い (再送済み / 別タブで破棄済み)、"running" は
+   * 再送が実行中またはキュー待ちで消せないことを表す。
+   */
+  discardUnsent(record: SessionRecord, runId: string): "ok" | "missing" | "running" {
+    const index = record.unsentSends.findIndex((item) => item.runId === runId);
+    if (index === -1) return "missing";
+    if (record.run?.id === runId || record.queue.some((item) => item.runId === runId)) return "running";
+    record.unsentSends.splice(index, 1);
+    this.writeSends(record);
+    return "ok";
+  }
+
+  /** 受理した送信を「未送信」として控える (同じ run id の再送では重ねない) */
+  private rememberUnsent(record: SessionRecord, runId: string, text: string): void {
+    if (record.unsentSends.some((item) => item.runId === runId)) return;
+    record.unsentSends.push({ runId, text, at: Date.now() });
+    this.writeSends(record);
+  }
+
+  /**
+   * JSONL に載った user entry と run の対応を控え、保存済みになった分を「未送信」から外す。
+   * `persist` が JSONL の書込みを確定させてから呼ぶ (書けていない entry を保存済みにしない)。
+   */
+  private syncSendMap(record: SessionRecord): void {
+    if (!record.writer || !this.storeDir) return;
+    let changed = false;
+    const entries = entriesOf(record.session);
+    for (const entry of entries) {
+      if (entry.type !== "message" || typeof entry.id !== "string" || entry.id === "") continue;
+      const message = entry.message as { role?: unknown } | undefined;
+      if (!message || message.role !== "user") continue;
+      const runId = record.userMessageRuns.get(message);
+      if (runId === undefined || record.entryRunIds.get(entry.id) === runId) continue;
+      record.entryRunIds.set(entry.id, runId);
+      const index = record.unsentSends.findIndex((item) => item.runId === runId);
+      if (index !== -1) record.unsentSends.splice(index, 1);
+      changed = true;
+    }
+    if (changed) this.writeSends(record);
+  }
+
+  /** 送信対応記録の保存。失敗しても会話の実行 / 保存は止めず、次の保存でやり直す */
+  private writeSends(record: SessionRecord): void {
+    if (!record.writer || !this.storeDir) return;
+    try {
+      writeSessionSends(this.storeDir, record.id, {
+        entries: Object.fromEntries(record.entryRunIds),
+        unsent: record.unsentSends,
+      });
+    } catch (error) {
+      console.warn(`[u7agent] 送信対応記録の保存に失敗しました (${record.id}): ${messageFor(error)}`);
+    }
   }
 
   /** 実行中のランを中断し、キューに積まれたメッセージも捨てる。 */
   async stop(record: SessionRecord): Promise<{ ok: true; status: RunStatus }> {
     record.lastUsedAt = Date.now();
     if (record.queue.length > 0) {
+      // 破棄した送信は「未送信」として見せる (実行されないまま黙って消さない)
+      const clearedRunIds = record.queue.map((item) => item.runId);
       record.queue = [];
-      this.emit(record, "queue_cleared", {});
+      this.emit(record, "queue_cleared", { runIds: clearedRunIds });
     }
     // 先に task を持ち、abort の後にその settle を待つ (abort は SDK の待機で、保存待ちは覆わない)。
     // SDK の abort() は abortCompaction() も呼ぶため、圧縮中もこれ 1 つで巻き戻せる
@@ -1128,6 +1218,8 @@ export class SessionStore {
         failure = messageFor(error);
       }
       failure = failure ?? record.writer?.error;
+      // JSONL に載った user entry だけを保存済みとして扱う (書けていない entry を対応表へ入れない)
+      if (!failure) this.syncSendMap(record);
       record.persistError = failure;
       if (failure && record.persistErrorLogged !== failure) {
         record.persistErrorLogged = failure;

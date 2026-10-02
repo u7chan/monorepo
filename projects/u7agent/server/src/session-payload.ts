@@ -37,6 +37,11 @@ export function projectSessionPayload({
   const availableThinkingLevels = (session.getAvailableThinkingLevels() ??
     (session.thinkingLevel ? [session.thinkingLevel] : [])) as ThinkingLevel[];
   const context = contextUsageOf(session);
+  // 実行中 / キュー待ちの run id。未送信の一覧から外し、送信中は pending エコーのまま見せる
+  const activeRunIds = new Set<string>([
+    ...(record.run ? [record.run.id] : []),
+    ...record.queue.map((item) => item.runId),
+  ]);
   return {
     sessionId: record.id,
     piSessionId: session.sessionId,
@@ -54,6 +59,12 @@ export function projectSessionPayload({
     // retryAt との差でクライアントが残り時間を出す基準時刻 (ブラウザ時計と比較しない)
     serverNow: Date.now(),
     queueDepth: record.queue.length,
+    // 保存されなかった送信は「未送信」として見せる。ただし実行中 / キュー中の run は送信中なので外す
+    // (クライアントの pending エコーが担う。再送直後に未送信へ引き戻さない)。本文は表示用にマスクし、
+    // 再送は run id だけを送ってもらう (マスク済みの本文を送り直させない)
+    unsentMessages: record.unsentSends
+      .filter((item) => !activeRunIds.has(item.runId))
+      .map((item) => ({ runId: item.runId, text: masker.mask(item.text), at: item.at })),
     ...(record.compactionStartedAt !== undefined ? { compactionStartedAt: record.compactionStartedAt } : {}),
     notify: record.notify,
     lastSeq: record.seq,

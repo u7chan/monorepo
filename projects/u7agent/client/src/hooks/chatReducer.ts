@@ -24,6 +24,7 @@ import type {
   SkillLoad,
   ThinkingLevel,
   ToolCall,
+  UnsentMessage,
   Usage,
 } from "../types";
 
@@ -132,6 +133,12 @@ export type ChatAction =
   | { type: "localUser"; text: string; at: number }
   /** 送信応答の run id。未対応付けの最古のエコーへ結び付け、自分の entry を run id で特定する */
   | { type: "echoRunId"; runId: string }
+  /** 未送信メッセージの再送を開始する (保存済みの本文をサーバーが使う)。pending エコーへ戻す */
+  | { type: "resendUnsent"; runId: string }
+  /** 再送の受付に失敗した。pending を解除して未送信へ戻す */
+  | { type: "resendFailed"; runId: string }
+  /** 未送信メッセージを破棄した (サーバーの記録も消えている) */
+  | { type: "unsentDiscarded"; runId: string }
   /** 送信に失敗したローカルエコーを戻す (待ち行列の末尾 = 直前に送った分) */
   | { type: "dropLocalUser" }
   | { type: "text"; delta: string; at: number }
@@ -141,7 +148,8 @@ export type ChatAction =
   | { type: "compaction"; compaction: CompactionInfo; count: number }
   | { type: "status"; state: string; text: string }
   | { type: "queued"; position: number; queueDepth: number }
-  | { type: "queueCleared" }
+  /** 停止で待機キューを破棄した。runIds は破棄された送信で、未送信の表示へ切り替える */
+  | { type: "queueCleared"; runIds?: string[] }
   | { type: "retry"; retry: RunRetryState | null; totalRetryCount: number; serverNow: number; receivedAt: number }
   | {
       type: "runEnd";
@@ -441,6 +449,63 @@ function attachToolCalls(state: ChatState, bubbleId: number, toolCalls: ToolCall
   return next;
 }
 
+/**
+ * payload.unsentMessages (202 で受理したが、履歴 entry にもキュー / 実行中にも無い送信) をバブル列へ
+ * 写す。pending エコーに同じ run id があれば pending を外して未送信へ切り替え、手元にバブルが無い分
+ * (リロード後) は末尾へ足す。一覧から消えた run id の未送信バブルは、別タブの再送 / 破棄で記録が
+ * 消えたものとして落とす (再送が実行中なら entry 側が現れる)。`undefined` (旧サーバー) は現状維持。
+ */
+function applyUnsent(
+  bubbles: Bubble[],
+  pendingEchoIds: number[],
+  nextId: number,
+  unsentMessages: UnsentMessage[] | undefined,
+): { bubbles: Bubble[]; pendingEchoIds: number[]; nextId: number } {
+  if (unsentMessages === undefined) return { bubbles, pendingEchoIds, nextId };
+  const byRunId = new Map(unsentMessages.map((message) => [message.runId, message]));
+  const pending = new Set(pendingEchoIds);
+  const seen = new Set<string>();
+  const next: Bubble[] = [];
+  let cursor = nextId;
+  for (const bubble of bubbles) {
+    if (bubble.runId === undefined) {
+      next.push(bubble);
+      continue;
+    }
+    if (bubble.unsent) {
+      if (!byRunId.has(bubble.runId)) continue;
+      seen.add(bubble.runId);
+      next.push(bubble);
+      continue;
+    }
+    if (byRunId.has(bubble.runId)) {
+      pending.delete(bubble.id);
+      seen.add(bubble.runId);
+      next.push({ ...bubble, unsent: true });
+      continue;
+    }
+    next.push(bubble);
+  }
+  for (const message of unsentMessages) {
+    if (seen.has(message.runId)) continue;
+    next.push({
+      id: cursor++,
+      role: "user",
+      text: message.text,
+      tools: [],
+      skillLoads: [],
+      at: message.at,
+      runId: message.runId,
+      unsent: true,
+    });
+  }
+  return {
+    bubbles: next,
+    pendingEchoIds: pendingEchoIds.filter((id) => pending.has(id)),
+    nextId: cursor,
+  };
+}
+
 export function chatReducer(state: ChatState, action: ChatAction): ChatState {
   switch (action.type) {
     case "newChat":
@@ -550,7 +615,8 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
               : "前回の実行でエラーが発生しました",
         };
       else if (status === "stopped") next = { ...next, activity: "前回の実行は停止されました" };
-      return next;
+      const unsent = applyUnsent(next.bubbles, next.pendingEchoIds, next.nextId, payload.unsentMessages);
+      return { ...next, bubbles: unsent.bubbles, pendingEchoIds: unsent.pendingEchoIds, nextId: unsent.nextId };
     }
 
     case "resyncHistory": {
@@ -785,6 +851,44 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
       };
     }
 
+    case "resendUnsent": {
+      // 未送信バブルを pending エコーへ戻す。本文はサーバー側が持つ生テキストを使うため、ここでは
+      // 表示だけを通常の送信直後へ切り替える (run id は再送でも変わらない)
+      const index = state.bubbles.findIndex((bubble) => bubble.unsent === true && bubble.runId === action.runId);
+      if (index === -1) return state;
+      const echo = state.bubbles[index];
+      return {
+        ...state,
+        bubbles: state.bubbles.map((bubble, i) =>
+          i === index ? { ...bubble, unsent: false, at: Date.now() } : bubble,
+        ),
+        currentAssistantId: null,
+        pendingEchoIds: [...state.pendingEchoIds, echo.id],
+        activity: "送信中…",
+        activityState: undefined,
+        // 送信と同じく最下部への追従の合図を進める
+        sendSeq: state.sendSeq + 1,
+      };
+    }
+
+    case "resendFailed": {
+      // 再送を受け付けてもらえなかった。通常の送信済みに見せないよう未送信へ戻す
+      const index = state.bubbles.findIndex((bubble) => bubble.unsent === false && bubble.runId === action.runId);
+      if (index === -1) return state;
+      const echo = state.bubbles[index];
+      return {
+        ...state,
+        bubbles: state.bubbles.map((bubble, i) => (i === index ? { ...bubble, unsent: true } : bubble)),
+        pendingEchoIds: state.pendingEchoIds.filter((id) => id !== echo.id),
+      };
+    }
+
+    case "unsentDiscarded":
+      return {
+        ...state,
+        bubbles: state.bubbles.filter((bubble) => !(bubble.unsent === true && bubble.runId === action.runId)),
+      };
+
     case "dropLocalUser": {
       // post に失敗したエコーを戻す。残すと次の run_start (同じ本文) が失敗分を消費してしまう
       const last = state.pendingEchoIds.at(-1);
@@ -903,8 +1007,28 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
         activityState: undefined,
       };
 
-    case "queueCleared":
-      return { ...state, queueDepth: 0, activity: "待機キューを取り消しました", activityState: undefined };
+    case "queueCleared": {
+      // 破棄された待機メッセージは実行されない。run id が分かる分を未送信へ切り替え、
+      // 「送信済み」の見た目のまま残さない (run id が未着のエコーは次の payload が扱う)
+      const cleared = new Set(action.runIds ?? []);
+      const bubbles = state.bubbles.map((bubble) =>
+        bubble.runId !== undefined && cleared.has(bubble.runId) && bubble.unsent !== true
+          ? { ...bubble, unsent: true }
+          : bubble,
+      );
+      const pendingEchoIds = state.pendingEchoIds.filter((id) => {
+        const bubble = bubbles.find((item) => item.id === id);
+        return bubble?.unsent !== true;
+      });
+      return {
+        ...state,
+        bubbles,
+        pendingEchoIds,
+        queueDepth: 0,
+        activity: "待機キューを取り消しました",
+        activityState: undefined,
+      };
+    }
 
     case "retry": {
       const retryState = mergeRetrySnapshot(state, action.retry, action.serverNow, action.receivedAt);

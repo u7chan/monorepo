@@ -45,6 +45,8 @@ export function MessageView({
   onCopyTool,
   copiedAll,
   onCopyAll,
+  onResend,
+  onDiscard,
   animate = true,
 }: {
   bubble: Bubble;
@@ -63,6 +65,10 @@ export function MessageView({
   onCopyTool: (card: ToolCard) => void;
   copiedAll: boolean;
   onCopyAll: () => void;
+  /** 未送信メッセージの再送。サーバーが保存済みの本文を使って実行し直す */
+  onResend?: () => void;
+  /** 未送信メッセージの破棄。再送が実行中の分はサーバーが拒否する */
+  onDiscard?: () => void;
   /** 登場アニメーション。仮想スクロールで再マウントする履歴 item では再生しない (既定 true) */
   animate?: boolean;
 }) {
@@ -117,6 +123,14 @@ export function MessageView({
           )}
         >
           <span>{isUser ? "あなた" : agentName || "アシスタント"}</span>
+          {isUser && bubble.unsent ? (
+            <span
+              title="実行されなかった送信です（サーバーの再起動や停止で中断）。本文を確認して再送するか、破棄してください"
+              className="rounded-sm border border-warn/40 px-1 text-3xs font-normal text-warn"
+            >
+              未送信
+            </span>
+          ) : null}
           {contextTag ? (
             <span
               title={
@@ -157,6 +171,21 @@ export function MessageView({
           ) : (
             <MarkdownView text={bubble.text} />
           )
+        ) : null}
+        {isUser && bubble.unsent ? (
+          <div className="mt-1 flex flex-wrap items-center justify-end gap-2">
+            <span className="text-2xs text-warn">送信が中断されました</span>
+            {onResend ? (
+              <button type="button" onClick={onResend} className="btn-quiet min-h-7 px-2.5 text-2xs">
+                再送
+              </button>
+            ) : null}
+            {onDiscard ? (
+              <button type="button" onClick={onDiscard} className="btn-quiet min-h-7 px-2.5 text-2xs">
+                破棄
+              </button>
+            ) : null}
+          </div>
         ) : null}
         {bubble.text || bubble.at !== undefined ? (
           <div

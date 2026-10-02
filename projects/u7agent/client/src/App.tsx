@@ -177,6 +177,20 @@ export default function App() {
     handleSend(RUN_RETRY_PROMPT, { includeAttachments: false });
   }, [handleSend]);
 
+  const handleResendUnsent = useCallback(
+    (runId: string) => {
+      void app.resendUnsent(runId);
+    },
+    [app],
+  );
+
+  const handleDiscardUnsent = useCallback(
+    (runId: string) => {
+      void app.discardUnsent(runId);
+    },
+    [app],
+  );
+
   const handleCompact = useCallback(() => {
     // 戻せない操作なので、押した時点で不可逆性と課金を確認する (状態行に注意書きを開く導線は置かない)
     if (!window.confirm(compactConfirmMessage())) return;
@@ -424,6 +438,8 @@ export default function App() {
                   sessionId={app.sessionId}
                   sendSeq={app.chat.sendSeq}
                   onSuggestion={handleSend}
+                  onResendUnsent={handleResendUnsent}
+                  onDiscardUnsent={handleDiscardUnsent}
                 />
               </MarkdownImageProvider>
             </FileRefProvider>

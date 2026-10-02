@@ -7,6 +7,7 @@ import type {
   CatalogResponse,
   CreateAgentBody,
   CreateSkillBody,
+  DiscardUnsentResult,
   FileDownloadCheck,
   FileListing,
   FilePreview,
@@ -400,6 +401,26 @@ export const postMessage = async (
 ): Promise<PostMessageResult> => {
   const json = attachments.length > 0 ? { text, attachments } : { text };
   const res = await client.api.sessions[":id"].messages.$post({ json, param: { id: sessionId } });
+  if (!res.ok) throw await apiError(res);
+  return res.json();
+};
+
+/**
+ * 未送信メッセージの再送。本文はサーバーが保存済みの生テキストを使う (表示用のマスク済み本文を
+ * 送り直さない)。同じ run id で実行し直し、二重の再送はサーバーが弾く。
+ */
+export const resendMessage = async (sessionId: string, runId: string): Promise<PostMessageResult> => {
+  const res = await client.api.sessions[":id"].messages.$post({
+    json: { resendRunId: runId },
+    param: { id: sessionId },
+  });
+  if (!res.ok) throw await apiError(res);
+  return res.json();
+};
+
+/** 未送信メッセージの破棄。再送が実行中の 409 はそのまま reject する */
+export const discardUnsentMessage = async (sessionId: string, runId: string): Promise<DiscardUnsentResult> => {
+  const res = await client.api.sessions[":id"].unsent[":runId"].$delete({ param: { id: sessionId, runId } });
   if (!res.ok) throw await apiError(res);
   return res.json();
 };

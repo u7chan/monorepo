@@ -39,6 +39,11 @@ export type Bubble = {
    */
   runId?: string;
   /**
+   * 202 で受理されたがサーバー再起動で user entry として保存されなかった送信。通常の user バブルと
+   * 見分け、再送 / 破棄を出す。pendingEchoIds には残さない (履歴の item へ黙って吸収させない)
+   */
+  unsent?: boolean;
+  /**
    * run が終わって確定したライブバブル (履歴ページがまだ拾っていない分)。resync で捨てずに残し、
    * 履歴ページが届いたら entryId 付きのバブルと置き換える。未確定のストリーミング中だけ false。
    */

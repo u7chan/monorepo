@@ -1,11 +1,18 @@
 import { useCallback, useEffect, useEffectEvent, useReducer, useRef, useState } from "react";
-import { getHealth, postMessage, stopSession, uploadSessionFile } from "../api";
+import {
+  discardUnsentMessage as discardUnsentApi,
+  getHealth,
+  postMessage,
+  resendMessage,
+  stopSession,
+  uploadSessionFile,
+} from "../api";
 import { attachmentRejection, attachmentsForSend, attachmentsForSession, type Attachment } from "../lib/attachments";
 import { deriveComposerSettings } from "../lib/composerSettings";
 import type { RunStatus, SessionSummary } from "../types";
 import { chatReducer, initialChatState } from "./chatReducer";
 import { runtimeStatusForError } from "./runtimeStatus";
-import { sendChatMessage, stopRun } from "./sessionActions";
+import { discardUnsentMessage, resendUnsentMessage, sendChatMessage, stopRun } from "./sessionActions";
 import type { SettingsSelection } from "./settingsChange";
 import { useArchiveSettings } from "./useArchiveSettings";
 import { useNotifications } from "./useNotifications";
@@ -281,6 +288,31 @@ export function useU7Agent({ pendingSessionId, onPendingSessionResolved }: UseU7
     });
   }, [dispatch, sessionIdRef, sessionOpsRef]);
 
+  /** 未送信メッセージの再送 (サーバーが保存済みの本文を使う)。run id は変わらない */
+  const resendUnsent = useCallback(
+    async (runId: string): Promise<void> => {
+      await resendUnsentMessage(runId, {
+        sessionIdRef,
+        opsRef: sessionOpsRef,
+        runStatusRef,
+        runEndSeqRef,
+        resend: resendMessage,
+        refreshSessions,
+        dispatch,
+        setRuntimeStatus,
+      });
+    },
+    [dispatch, refreshSessions, runEndSeqRef, sessionIdRef, sessionOpsRef, setRuntimeStatus],
+  );
+
+  /** 未送信メッセージの破棄。再送が実行中の分はサーバーが 409 で拒否する */
+  const discardUnsent = useCallback(
+    async (runId: string): Promise<void> => {
+      await discardUnsentMessage(runId, { sessionIdRef, discard: discardUnsentApi, dispatch });
+    },
+    [dispatch, sessionIdRef],
+  );
+
   const deleteProject = useCallback(
     async (projectId: string): Promise<void> => {
       const project = projects.find((item) => item.id === projectId);
@@ -418,6 +450,8 @@ export function useU7Agent({ pendingSessionId, onPendingSessionResolved }: UseU7
     attachFiles,
     removeAttachment,
     stopAgent,
+    resendUnsent,
+    discardUnsent,
     compactSession,
     loadOlderHistory,
     deleteSession,

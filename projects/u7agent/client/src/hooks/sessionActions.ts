@@ -18,6 +18,10 @@ function isApiFailure(error: unknown): boolean {
   return error instanceof Error && typeof (error as { status?: unknown }).status === "number";
 }
 
+function messageFor(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
 export type SendChatMessageDeps = {
   health: Health | null;
   busy: boolean;
@@ -147,6 +151,80 @@ export async function stopRun({ sessionIdRef, opsRef, runStatusRef, stop, dispat
     });
   } catch (error) {
     console.error(error);
+  }
+}
+
+export type ResendUnsentDeps = {
+  sessionIdRef: RefObject<string>;
+  /** 同一セッション内の操作世代。要求の後に権威ある状態 (終端 resync / 新しい要求) が入っていれば応答を捨てる */
+  opsRef: RefObject<number>;
+  /** 現在の実行状態。圧縮中の送信キューは compacting のまま見せる */
+  runStatusRef: RefObject<RunStatus>;
+  /** run が終わった回数。要求の後に run が終わっていれば、その run の値を持つ応答は古い */
+  runEndSeqRef: RefObject<number>;
+  /** 未送信メッセージの再送。本文はサーバーが保存済みの生テキストを使う */
+  resend: (sessionId: string, runId: string) => Promise<PostMessageResult>;
+  refreshSessions: () => Promise<SessionSummary[] | null>;
+  dispatch: Dispatch<ChatAction>;
+  setRuntimeStatus: (status: RuntimeStatus) => void;
+};
+
+/**
+ * 未送信メッセージの再送。ローカルエコーは既にあるので新しく足さず、未送信の表示を送信直後へ戻す。
+ * 本文を送り直さない (payload の本文は表示用のマスク済み) ため、サーバーへは run id だけを渡す。
+ */
+export async function resendUnsentMessage(runId: string, deps: ResendUnsentDeps): Promise<void> {
+  const id = deps.sessionIdRef.current;
+  if (!id) return;
+  deps.dispatch({ type: "resendUnsent", runId });
+  const ops = deps.opsRef.current;
+  const runSeq = deps.runEndSeqRef.current;
+  try {
+    const result = await deps.resend(id, runId);
+    // 選択が変わった / 終端 resync や新しい要求が入った後の応答は、表示を戻すので捨てる
+    if (deps.sessionIdRef.current !== id) return;
+    if (deps.opsRef.current === ops && deps.runEndSeqRef.current === runSeq) {
+      const compacting = deps.runStatusRef.current === "compacting";
+      deps.dispatch({
+        type: "setRun",
+        runStatus: compacting ? "compacting" : "running",
+        queueDepth: result.queueDepth,
+        activity: result.queued
+          ? compacting
+            ? `圧縮中のため待機キューに追加しました（${result.queueDepth}件目）`
+            : `実行中のため待機キューに追加しました（${result.queueDepth}件目）`
+          : "実行を開始しました",
+      });
+    }
+    void deps.refreshSessions();
+  } catch (error) {
+    if (deps.sessionIdRef.current !== id) return;
+    // 通常の送信済みに見せないよう未送信へ戻し、理由を状態行へ出す
+    deps.dispatch({ type: "resendFailed", runId });
+    deps.dispatch({ type: "setActivity", text: messageFor(error) });
+    // 400 / 409 は操作の結果 (理由は文言が持つ)。接続状態に倒すのは通信自体の失敗だけ
+    if (!isApiFailure(error)) deps.setRuntimeStatus(runtimeStatusForError(error));
+  }
+}
+
+export type DiscardUnsentDeps = {
+  sessionIdRef: RefObject<string>;
+  /** 破棄が済んだらローカルの未送信バブルも消す */
+  discard: (sessionId: string, runId: string) => Promise<unknown>;
+  dispatch: Dispatch<ChatAction>;
+};
+
+/** 未送信メッセージの破棄。再送を実行中の分はサーバーが 409 で弾き、理由を状態行へ出す */
+export async function discardUnsentMessage(runId: string, deps: DiscardUnsentDeps): Promise<void> {
+  const id = deps.sessionIdRef.current;
+  if (!id) return;
+  try {
+    await deps.discard(id, runId);
+    if (deps.sessionIdRef.current !== id) return;
+    deps.dispatch({ type: "unsentDiscarded", runId });
+  } catch (error) {
+    if (deps.sessionIdRef.current !== id) return;
+    deps.dispatch({ type: "setActivity", text: messageFor(error) });
   }
 }
 

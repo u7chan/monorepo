@@ -105,6 +105,7 @@ message_end(assistant, error, usage.total = 0)  失敗試行
 - タイトルは最初のユーザーメッセージ（60 文字）から自動生成し、meta へ保存する。セッション一覧 `GET /api/sessions` は状態・件数・最終使用時刻付きで返す。
 - セッションの作成は最初のメッセージ送信時。未送信の新規チャットは `POST /api/sessions` を呼ばず、一覧にも出ない（「新しい会話」・起動時の `/`・未作成チャットでのエージェント選択はローカルの状態だけで完結する）。起動時に会話を開くのは通知リンク `/s/<id>` が指定された場合だけで、開いた会話を `/` に畳んだ後の F5 は未選択から始まる。作成前の Model / Effort 選択は次の作成時に `POST /api/sessions` の body として送られる。
 - ラン中に再接続したクライアント向けに、`payload.run.toolCalls` で進行中ランのツールカード状態も返す。
+- 202 で受理した送信は user entry が保存されるまで未送信（`sends.json`）として控え、再起動や停止で実行されなかった分は payload の `unsentMessages` で「未送信」として見せる（履歴の同一文面 item へ黙って吸収させない）。契約は [api-sessions.md](api-sessions.md#post-apisessionsidmessages) / [frontend.md](frontend.md#チャット状態とレンダリング)。
 - エージェント定義の編集は既存チャットに遡及しない。表示用のエージェント情報は作成時に `SessionRecord` へ、実行用プロンプトは meta の `promptSnapshot` へスナップショット化し、定義の変更・削除後も `payload.agent` と復元後の実行内容は作成時のままになる。
 - 会話の圧縮（compaction）は `payload.compactions` と `compaction` / `resync` イベントで配る。表示仕様と手動圧縮の契約は [compaction.md](compaction.md) を正とする。compaction entry も `session.jsonl` に保存され、復元後も区切りが再現される（`reason` / `estimatedTokensAfter` は復元後は欠ける）。
 - 手動圧縮（`POST /api/sessions/:id/compact`）は run と同じく HTTP リクエストから切り離して進み、状態は `statusOf` の `compacting` として現れる。完了は同期 POST と SSE（終端 `resync` → `status`）の両方で届き、正は payload。
@@ -113,7 +114,7 @@ message_end(assistant, error, usage.total = 0)  失敗試行
 
 `POST /api/sessions/:id/stop`（旧 `/abort` もエイリアスとして有効）:
 
-1. 待機キューを破棄し `queue_cleared` イベントを記録
+1. 待機キューを破棄し `queue_cleared` イベントを記録（破棄した送信の `runIds` を載せ、クライアントは該当する送信を「未送信」へ切り替える。記録は `sends.json` に残るため、再送か破棄まで未送信として読める）
 2. `session.abort()` を呼ぶ（pi が `agent_settled` / stopReason `aborted` を返す。自動再試行の backoff 待機中なら SDK がその待機を abort する。圧縮中なら `abortCompaction()` も同時に走る）
 3. 圧縮中だった場合は `compactionTask` の settle（保存と終端配信）を待つ（応答の `status` に `compacting` を残さない）
 4. `finish()` が `run_end`（status: `stopped`）を記録。キューは破棄済みなので次のランは起動しない
