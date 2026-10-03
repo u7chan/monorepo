@@ -37,6 +37,8 @@ import {
 import { Hono } from "hono";
 import { COMMON_SKILLS_DIR } from "../app-paths";
 import { DEFAULT_ARCHIVE_EXCLUDE_NAMES } from "../archive-rules";
+import { isInjectableEnvName } from "../env-names";
+import { SECRET_MASTER_KEY_ENV, SECRET_MASTER_KEY_FILE_ENV } from "../secret-crypto";
 import {
   archiveContentDisposition,
   archiveDownloadName,
@@ -669,6 +671,25 @@ function relativeToRoot(root: string, target: string): string {
   return sep === "/" ? rel : rel.split(sep).join("/");
 }
 
+/**
+ * `env` の検証。BFF が登録時に名前を検証しているが、実行 API の入口としてサンドボックスでも同じ規則を見る
+ * (予約名 / 起動制御名を子プロセスへ入れない)。空オブジェクトは「注入なし」と同じ扱いにする。
+ */
+export function parseInjectedEnv(value: unknown): Record<string, string> | undefined {
+  if (value === undefined) return undefined;
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    throw new Error("env must be an object");
+  }
+  const env: Record<string, string> = {};
+  for (const [name, raw] of Object.entries(value)) {
+    if (typeof raw !== "string") throw new Error(`env values must be strings: ${name}`);
+    if (!isInjectableEnvName(name)) throw new Error(`env name is not allowed: ${name}`);
+    if (raw.includes("\0")) throw new Error(`env value must not contain NUL: ${name}`);
+    env[name] = raw;
+  }
+  return Object.keys(env).length > 0 ? env : undefined;
+}
+
 /** listen は呼び出し側 (@hono/node-server) が行い、テストは app.request() で検証する。 */
 export function createSandboxService(options: SandboxServiceOptions): SandboxService {
   const token = options.token;
@@ -685,12 +706,24 @@ export function createSandboxService(options: SandboxServiceOptions): SandboxSer
   const probeRuntimeInfo = options.probeRuntimeInfo ?? ((workspaceRoot: string) => probeSandboxRuntime(workspaceRoot));
 
   // bash にはセッションメタ変数 (PI_SESSION_ID 等) を注入せず (サンドボックスにセッションは無い)、
-  // SDK の bash が process.env を継承しても、このプロセスの唯一の秘密値である共有トークンだけは剥がす。
-  const stripSandboxToken = (context: BashSpawnContext): BashSpawnContext => {
-    const env: NodeJS.ProcessEnv = { ...context.env };
-    delete env.PI_SANDBOX_TOKEN;
-    return { ...context, env };
-  };
+  // SDK の bash が process.env を継承しても、このプロセスの秘密値 (共有トークン / master key) だけは剥がす。
+  // 作業フォルダの変数は spawnHook の後段で足す (名前の検証は上の parseInjectedEnv で済んでいる)。
+  const spawnHookWithEnv =
+    (injected: Record<string, string> | undefined) =>
+    (context: BashSpawnContext): BashSpawnContext => {
+      const env: NodeJS.ProcessEnv = { ...context.env, ...injected };
+      delete env.PI_SANDBOX_TOKEN;
+      delete env[SECRET_MASTER_KEY_ENV];
+      delete env[SECRET_MASTER_KEY_FILE_ENV];
+      return { ...context, env };
+    };
+
+  /** bash の定義。注入する env はリクエストごとに違うため、指定があるときはキャッシュしない */
+  const bashFor = (cwd: string, injected?: Record<string, string>): AnyToolDefinition =>
+    createBashToolDefinition(cwd, {
+      exposeSessionEnvironment: false,
+      spawnHook: spawnHookWithEnv(injected),
+    });
 
   const lexicalRoot = resolve(rootCwd);
 
@@ -717,10 +750,7 @@ export function createSandboxService(options: SandboxServiceOptions): SandboxSer
       throw writeScopeError(candidate, scope.cwd, scope.skillsDir);
     };
     const definitions: AnyToolDefinition[] = [
-      createBashToolDefinition(cwd, {
-        exposeSessionEnvironment: false,
-        spawnHook: stripSandboxToken,
-      }),
+      bashFor(cwd),
       createReadToolDefinition(cwd),
       createEditToolDefinition(cwd, {
         operations: {
@@ -807,12 +837,18 @@ export function createSandboxService(options: SandboxServiceOptions): SandboxSer
       const statusCode = (error as { statusCode?: number }).statusCode ?? 400;
       return c.json({ error: messageFor(error) }, statusCode as 400);
     }
-    const { toolCallId, params, cwd } = (body ?? {}) as SandboxExecuteRequestBody;
+    const { toolCallId, params, cwd, env } = (body ?? {}) as SandboxExecuteRequestBody;
     if (params !== undefined && (typeof params !== "object" || params === null || Array.isArray(params))) {
       return c.json({ error: "params must be an object" }, 400);
     }
     if (cwd !== undefined && typeof cwd !== "string") {
       return c.json({ error: "cwd must be a string" }, 400);
+    }
+    let injected: Record<string, string> | undefined;
+    try {
+      injected = parseInjectedEnv(env);
+    } catch (error) {
+      return c.json({ error: messageFor(error) }, 400);
     }
     // 実行 cwd はリクエストごとに root 配下の実在ディレクトリへ解決する (実行時隔離ではなくパス解決の起点)
     let executionCwd: string;
@@ -822,7 +858,12 @@ export function createSandboxService(options: SandboxServiceOptions): SandboxSer
       const statusCode = (error as { statusCode?: number }).statusCode ?? 500;
       return c.json({ error: messageFor(error) }, statusCode as 400);
     }
-    const definition = registryFor(executionCwd, writeScopeFor(cwd ?? "", executionCwd)).get(toolName);
+    // bash だけが子プロセスを持つため、env は bash にだけ渡す (他のツールは値を使わないし、
+    // 渡しても値が経路に増えるだけ)。
+    const definition =
+      toolName === "bash" && injected
+        ? bashFor(executionCwd, injected)
+        : registryFor(executionCwd, writeScopeFor(cwd ?? "", executionCwd)).get(toolName);
     if (!definition) {
       return c.json({ error: `Unknown tool: ${toolName}` }, 404);
     }

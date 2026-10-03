@@ -130,6 +130,7 @@ test("到達不可なら実績だけで停止中になり、記録は見せな�
     owner: { kind: "none" },
     generation: null,
     command: { cwd: CWD, command: "pnpm dev" },
+    secretGeneration: null,
   });
   // 到達不可のときはサンドボックスの観測を走らせない (記録も待受 PID も表示に使わない)
   assert.equal(sandbox.cwds.length, 0);
@@ -533,4 +534,66 @@ test("app-db の失敗はそのまま伝える (空の実績へ黙って落と�
   const { service, commands } = setup({ reachable: true, owner: SESSION });
   commands.state.fail = true;
   await assert.rejects(() => service.status(SESSION));
+});
+
+test("起動時の環境変数はコマンド文字列へ埋め込まず、exec の env として渡す", async () => {
+  const sandbox = createServeSandboxStub();
+  const scripts: string[] = [];
+  const service = new ServeService({
+    appDb: createCommandStore([{ cwd: CWD, command: "pnpm dev", updatedAt: NOW }]).db,
+    sessions: createSessionLookup({ [SESSION]: { cwd: CWD, title: "トップページの改修" } }),
+    // 観測スクリプトも含めて、サンドボックスへ送ったスクリプト本文を控える
+    sandbox: {
+      execute: async (tool, input) => {
+        scripts.push(((input.params ?? {}) as { command?: string }).command ?? "");
+        return sandbox.sandbox.execute(tool, input);
+      },
+    },
+    secretEnv: {
+      resolveServiceEnv: (cwd) => ({
+        variables: { NODE_ENV: "production" },
+        secrets: { DATABASE_URL: "dummy-db-url-1234" },
+        generation: `gen:${cwd}`,
+      }),
+    },
+    probe: async () => sandbox.state.listener !== null,
+    now: () => NOW,
+  });
+  const status = await service.start(SESSION, {});
+  assert.deepEqual(sandbox.state.launchEnvs.at(-1), {
+    NODE_ENV: "production",
+    DATABASE_URL: "dummy-db-url-1234",
+  });
+  // 値は起動スクリプト (tool args) へ入らない (base64 化もしない)
+  const launchScript = scripts.find((script) => script.includes("nohup bash -c")) ?? "";
+  assert.ok(launchScript.includes("serve:ok"), "起動スクリプトが送られていない");
+  assert.equal(launchScript.includes("dummy-db-url-1234"), false, "シークレットがスクリプトへ埋め込まれている");
+  assert.equal(Buffer.from(launchScript, "utf8").includes(Buffer.from("dummy-db-url-1234")), false);
+  // 世代は起動時に解決した値のもの。記録にも値そのものは載らない
+  assert.equal(status.secretGeneration, `gen:${CWD}`);
+  const record = readRecord(sandbox.state);
+  assert.equal(record?.secretGeneration, `gen:${CWD}`);
+  assert.equal(JSON.stringify(record).includes("dummy-db-url-1234"), false, "記録に値が載っている");
+  // 停止すると記録ごと消えるため、起動時に解決した世代は残らない (値も残らない)
+  const stopped = await service.stop(SESSION, { generation: status.generation });
+  assert.equal(stopped.secretGeneration, null);
+});
+
+test("環境変数の解決に失敗したら起動しない (秘密なし起動へ黙って落とさない)", async () => {
+  const sandbox = createServeSandboxStub();
+  const failure = Object.assign(new Error("シークレットの master key が未設定です"), { statusCode: 503 });
+  const service = new ServeService({
+    appDb: createCommandStore([{ cwd: CWD, command: "pnpm dev", updatedAt: NOW }]).db,
+    sessions: createSessionLookup({ [SESSION]: { cwd: CWD, title: "トップページの改修" } }),
+    sandbox: sandbox.sandbox,
+    secretEnv: {
+      resolveServiceEnv: () => {
+        throw failure;
+      },
+    },
+    probe: async () => sandbox.state.listener !== null,
+    now: () => NOW,
+  });
+  await assert.rejects(() => service.start(SESSION, {}), failure);
+  assert.deepEqual(sandbox.state.launched, [], "環境変数が解決できていないのに起動している");
 });

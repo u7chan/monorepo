@@ -20,11 +20,11 @@ BFF が作業用ツール（`read` / `bash` / `edit` / `write` / `grep` / `find`
 | POST | `/v1/tools/:tool/execute` | ツール実行。NDJSON ストリームで応答 |
 | POST | `/v1/executions/:id/cancel` | 実行中のツールを中断 |
 
-認証は `Authorization: Bearer <PI_SANDBOX_TOKEN>`。未認証は 401、未知のツールは 404、`params` がオブジェクトでない場合や `cwd` / `path` が文字列でない場合は 400。
+認証は `Authorization: Bearer <PI_SANDBOX_TOKEN>`。未認証は 401、未知のツールは 404、`params` がオブジェクトでない場合や `cwd` / `path` / `env` の形が不正な場合は 400。
 
 ## `POST /v1/tools/:tool/execute`
 
-リクエストボディは `{ toolCallId?: string, params?: object, cwd?: string }`。応答は `Content-Type: application/x-ndjson` で、1 イベント 1 行:
+リクエストボディは `{ toolCallId?: string, params?: object, cwd?: string, env?: Record<string, string> }`。応答は `Content-Type: application/x-ndjson` で、1 イベント 1 行:
 
 ```jsonl
 {"type":"start","executionId":"…"}
@@ -33,6 +33,7 @@ BFF が作業用ツール（`read` / `bash` / `edit` / `write` / `grep` / `find`
 ```
 
 - `cwd` — 実行する作業ディレクトリ（root 相対。省略・空文字は root）。`..` や symlink を経由して root の外へ解決する指定、実在しないディレクトリ、ディレクトリ以外は 400 / 404（`GET /v1/files` と同じ検証を通す）。ツール定義（パス解決の起点）は解決後の実パスごとに生成して再利用する
+- `env` — この実行の子プロセスへ足す環境変数（作業フォルダの「変数」と、serve 起動時の「変数 + シークレット」）。`bash` のときだけ使い、`spawnHook` で親 env へ重ねる。名前は `isInjectableEnvName()`（大文字の `[A-Z_][A-Z0-9_]*`・64 文字以内・`PI_*` / `PI_SANDBOX_*` / `U7AGENT_*` と実行制御系を拒否）を通るものだけで、値の NUL も拒否する。`PI_SANDBOX_TOKEN` と master key（`U7AGENT_SECRET_MASTER_KEY` / `U7AGENT_SECRET_MASTER_KEY_FILE`）はこの後で必ず剥がす（子プロセスへ渡さない）
 - `write` / `edit` の書き込み先は、実行 cwd（`cwd` を解決した実パス）、要求 cwd の lexical 形（`resolve(PI_SANDBOX_CWD, cwd)`）、および `<PI_SANDBOX_CWD>/.agents/skills` の内側だけ。SDK が解決した絶対パスを `resolve()` で `..` まで畳んで比較し（symlink は解決しない）、外側は拒否する（[projects.md](projects.md#write--edit-の書き込み範囲)）
   - 対象外: 他セッションのスクラッチ、workdir を除く `.u7agent` 配下、他プロジェクト、`.u7agent/builtin-skills/**`、workspace root 直下（`PI_SESSION_STORE` 未設定の縮退では root が作業ディレクトリになるため root 直下も通る）
   - write は `mkdir` と `writeFile`、edit は `access` / `readFile` / `writeFile` のすべてで同じ判定を通す（write は `mkdir` を先に許すと拒否パスでも親ディレクトリができるため `mkdir` でも拒否する）

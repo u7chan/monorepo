@@ -51,6 +51,11 @@ export interface ServeStatus {
   generation: string | null;
   /** 閲覧中の会話の作業ディレクトリの成功実績。無ければ null (他会話の実績は返さない) */
   command: ServeCommand | null;
+  /**
+   * 起動時に解決した環境変数の世代 (記録と待受プロセスが一致するときだけ返す)。
+   * 一覧 API の generation と比べると「再起動で反映される変更」が分かる。記録が無い / 不明は null
+   */
+  secretGeneration: string | null;
 }
 
 /** 全体で 1 つの live な稼働記録。サンドボックスの作業領域へ同じ内容を書く */
@@ -71,6 +76,19 @@ export interface ServeRecord {
   inodes: number[];
   /** 起動のたびに変わる値 */
   generation: string;
+  /**
+   * 起動時に解決した環境変数 (作業環境 → 環境変数) の世代。この項目より前の版が書いた記録は ""
+   */
+  secretGeneration: string;
+}
+
+/** serve の起動時に渡す環境変数の解決元 (SecretService が構造的に満たす) */
+export interface ServeEnvSource {
+  resolveServiceEnv(cwd: string): {
+    variables: Record<string, string>;
+    secrets: Record<string, string>;
+    generation: string;
+  };
 }
 
 /** 会話 id から作業ディレクトリと会話名を引く (SessionStore が実装する) */
@@ -139,6 +157,11 @@ export interface ServeServiceOptions {
   sessions: ServeSessionLookup;
   /** 未設定なら serve の API / ツールは 503 */
   sandbox: SandboxExecClient | null;
+  /**
+   * 起動時に渡す環境変数 (作業環境 → 環境変数)。解決に失敗したら起動しない
+   * (平文へ落とす / 秘密なしで起動するのどちらもしない)。未指定は env 無しで起動する (テスト)
+   */
+  secretEnv?: ServeEnvSource;
   /** プローブ先のホスト。未指定は 127.0.0.1 (同一ホストのサンドボックス)。IPv6 リテラルは角括弧付きでもよい */
   sandboxHost?: string;
   listenPort?: number;
@@ -329,7 +352,10 @@ function parseRecord(raw: string): ServeRecord | null {
     return null;
   }
   if (!parsed || typeof parsed !== "object") return null;
-  const { sessionId, cwd, command, pid, startedAt, inodes, generation } = parsed as Record<string, unknown>;
+  const { sessionId, cwd, command, pid, startedAt, inodes, generation, secretGeneration } = parsed as Record<
+    string,
+    unknown
+  >;
   if (typeof sessionId !== "string" || sessionId === "") return null;
   if (typeof cwd !== "string") return null;
   if (typeof command !== "string" || command === "") return null;
@@ -339,7 +365,17 @@ function parseRecord(raw: string): ServeRecord | null {
   const parsedInodes = Array.isArray(inodes)
     ? inodes.filter((value): value is number => Number.isInteger(value) && value > 0).sort((a, b) => a - b)
     : [];
-  return { sessionId, cwd, command, pid, startedAt, inodes: parsedInodes, generation };
+  return {
+    sessionId,
+    cwd,
+    command,
+    pid,
+    startedAt,
+    inodes: parsedInodes,
+    generation,
+    // この項目より前の版が書いた記録は「不明」として空文字にする (値ではなく記録の欠落を表す)
+    secretGeneration: typeof secretGeneration === "string" ? secretGeneration : "",
+  };
 }
 
 /**
@@ -405,6 +441,7 @@ export class ServeService {
   #db: ServeCommandStore;
   #sessions: ServeSessionLookup;
   #sandbox: SandboxExecClient | null;
+  #secretEnv: ServeEnvSource | undefined;
   #probe: ServeProbe;
   #now: () => number;
   #sleep: (ms: number) => Promise<void>;
@@ -419,6 +456,7 @@ export class ServeService {
     this.#db = options.appDb;
     this.#sessions = options.sessions;
     this.#sandbox = options.sandbox;
+    this.#secretEnv = options.secretEnv;
     this.#listenPort = options.listenPort ?? SERVE_LISTEN_PORT;
     this.#probe =
       options.probe ?? tcpProbe(tcpHost(options.sandboxHost ?? "127.0.0.1"), this.#listenPort, SERVE_PROBE_TIMEOUT_MS);
@@ -458,7 +496,9 @@ export class ServeService {
         await this.#stopListener(before);
       }
       const generation = randomBytes(4).toString("hex");
-      const pid = await this.#launch(view, command);
+      // 値の解決は起動の直前に行う。失敗したら起動せず、部分適用もしない
+      const env = this.#secretEnv?.resolveServiceEnv(view.cwd) ?? { variables: {}, secrets: {}, generation: "" };
+      const pid = await this.#launch(view, command, { ...env.variables, ...env.secrets });
       // 失敗しても「起動を試みた事実」は残す。以前の成功コマンドは上書きしない
       let record: ServeRecord = {
         sessionId: view.sessionId,
@@ -468,6 +508,7 @@ export class ServeService {
         startedAt: this.#now(),
         inodes: [],
         generation,
+        secretGeneration: env.generation,
       };
       await this.#writeRecord(record);
       // 到達しただけでは成功としない。待受プロセスがこの起動に由来することまで確かめる
@@ -606,16 +647,19 @@ export class ServeService {
 
   #compose(view: { sessionId: string; cwd: string; title: string }, observation: ServeObservation): ServeStatus {
     const stored = this.#db.getServeCommand(view.cwd);
+    // 記録の世代は「今動いているプロセスが起動時に解決した値」なので、記録と待受が一致するときだけ返す
+    const record = observation.record;
     return {
       reachable: observation.reachable,
       owner: this.#ownerOf(view, observation),
       generation: this.#confirmationToken(observation),
       command: stored ? { cwd: stored.cwd, command: stored.command } : null,
+      secretGeneration: record && this.#matches(observation) ? record.secretGeneration : null,
     };
   }
 
-  async #launch(view: { cwd: string }, command: string): Promise<number> {
-    const output = await this.#run(launchScript({ workdir: view.cwd, command }));
+  async #launch(view: { cwd: string }, command: string, env: Record<string, string>): Promise<number> {
+    const output = await this.#run(launchScript({ workdir: view.cwd, command }), env);
     const line = output.split("\n").find((candidate) => candidate.startsWith("pid\t"));
     const pid = Number(line?.split("\t")[1]);
     if (!Number.isInteger(pid) || pid <= 0) {
@@ -683,13 +727,18 @@ export class ServeService {
     return this.#sandbox;
   }
 
-  /** サンドボックスの bash 実行。作業領域の読み書きも起動・停止もこの 1 経路に集める */
-  async #run(script: string): Promise<string> {
+  /**
+   * サンドボックスの bash 実行。作業領域の読み書きも起動・停止もこの 1 経路に集める。
+   * `env` はこの実行の子プロセスへ足す環境変数で、起動 (launch) だけが渡す。値はコマンド文字列へ
+   * 埋めず、リクエストの別フィールドとして送る (base64 化もしない)。
+   */
+  async #run(script: string, env?: Record<string, string>): Promise<string> {
     const sandbox = this.#requireSandbox();
     const result = await sandbox
       .execute("bash", {
         params: { command: script, timeout: SANDBOX_SCRIPT_TIMEOUT_SECONDS },
         cwd: "",
+        ...(env && Object.keys(env).length > 0 ? { env } : {}),
       })
       .catch((error: unknown) => {
         // サンドボックス呼び出しの失敗は「状態が取れない」なので、停止中へ丸めず 502 にする

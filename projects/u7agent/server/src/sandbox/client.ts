@@ -57,6 +57,11 @@ export interface SandboxExecuteInput {
   toolCallId?: string;
   params: unknown;
   cwd?: string;
+  /**
+   * この実行の子プロセスへ足す環境変数。作業フォルダの「変数」と、serve 起動時の「変数 + シークレット」が届く。
+   * 値は params (ツール引数) やコマンド文字列には混ぜず、リクエストの別フィールドとして送る。
+   */
+  env?: Record<string, string>;
   signal?: AbortSignal | undefined;
   onUpdate?: ((partial: { content: unknown; details?: unknown }) => void) | undefined;
 }
@@ -575,7 +580,7 @@ async function execute(
           "Content-Type": "application/json",
           Accept: "application/x-ndjson",
         },
-        body: JSON.stringify({ toolCallId: input.toolCallId, params: input.params, cwd: input.cwd }),
+        body: JSON.stringify({ toolCallId: input.toolCallId, params: input.params, cwd: input.cwd, env: input.env }),
         signal: controller.signal,
       });
     } catch (error) {

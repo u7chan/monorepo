@@ -19,12 +19,15 @@ import { createNotificationRoutes } from "./routes/notifications";
 import { createModelSettingsRoutes } from "./routes/models";
 import { createProjectRoutes } from "./routes/projects";
 import { createRuntimeRoutes } from "./routes/runtime";
+import { createSecretRoutes } from "./routes/secrets";
 import { createServeRoutes } from "./routes/serve";
 import { createSessionRoutes } from "./routes/sessions";
+import { createSecretScope } from "./secrets";
 import { DEFAULT_CLIENT_DIST_DIR, serveClientAssets } from "./static";
 import {
   CreateAgentBodySchema,
   CreateProjectBodySchema,
+  CreateSecretBodySchema,
   CreateSessionBodySchema,
   CreateSkillBodySchema,
   PostMessageBodySchema,
@@ -37,6 +40,7 @@ import {
   UpdateNotificationsBodySchema,
   UpdateProviderKeyBodySchema,
   UpdateProviderMemoBodySchema,
+  UpdateSecretBodySchema,
   UpdateSessionNotifyBodySchema,
   UpdateSessionSettingsBodySchema,
   UpdateSessionTitleBodySchema,
@@ -92,6 +96,7 @@ export async function createBffApp(opts: CreateBffAppOptions = {}) {
     modelSettings,
     imageSettings,
     serve,
+    secrets,
   } = await createBffContext(opts);
   const appData = appDataGuard(appDb);
   // 変更系は「何も保存していない」ことを state でも示す
@@ -118,6 +123,11 @@ export async function createBffApp(opts: CreateBffAppOptions = {}) {
   const archiveRoutes = createArchiveRoutes({ archiveSettings });
   const modelSettingsRoutes = createModelSettingsRoutes({ modelSettings });
   const imageSettingsRoutes = createImageSettingsRoutes({ imageSettings });
+  // 環境変数の要求元 (sessionId / projectId) を cwd へ解決する唯一の点。client は cwd を送らない
+  const secretRoutes = createSecretRoutes({
+    secrets,
+    scope: createSecretScope({ sessions: store, projects }),
+  });
   // serve は実績 (app-db) と稼働判定 (プローブ / サンドボックス) の両方を読むため、
   // アプリデータが使えないときは 503 で止める (空の実績へ黙って落とさない)
   const serveRoutes = createServeRoutes({ serve });
@@ -286,6 +296,26 @@ export async function createBffApp(opts: CreateBffAppOptions = {}) {
       ),
       (c) => serveRoutes.stop(c, c.req.valid("json")),
     )
+    .get("/api/secrets", appData, secretRoutes.list)
+    .post(
+      "/api/secrets",
+      // 登録は行を増やす変更系なので、503 では何も保存していないことを state でも示す
+      appDataMutation,
+      jsonBodyValidator(CreateSecretBodySchema, (result, c) =>
+        result.success ? undefined : c.json({ error: "Invalid request body" }, 400),
+      ),
+      (c) => secretRoutes.create(c, c.req.valid("json")),
+    )
+    .get("/api/secrets/:secretId", appData, secretRoutes.detail)
+    .put(
+      "/api/secrets/:secretId",
+      appDataMutation,
+      jsonBodyValidator(UpdateSecretBodySchema, (result, c) =>
+        result.success ? undefined : c.json({ error: "Invalid request body" }, 400),
+      ),
+      (c) => secretRoutes.update(c, c.req.valid("json")),
+    )
+    .delete("/api/secrets/:secretId", appDataMutation, secretRoutes.remove)
     .get("/api/notifications", appData, notificationRoutes.get)
     .put(
       "/api/notifications",
@@ -383,6 +413,7 @@ export async function createBffApp(opts: CreateBffAppOptions = {}) {
     modelSettings,
     imageSettings,
     serve,
+    secrets,
     close: async () => {
       // 未完了の送信結果は記録しない (プロセス終了時に破棄する)
       notifications.close();

@@ -1,5 +1,5 @@
 /** DTO の正は server/src/schema.ts。ここは再配布だけで、hooks / components の import 先を保つ。 */
-import type { EventEntry } from "server";
+import type { EventEntry, SecretItem } from "server";
 
 export type {
   AgentDef,
@@ -15,6 +15,7 @@ export type {
   CompactionReason,
   ContextUsage,
   CreateAgentBody,
+  CreateSecretBody,
   CreateSkillBody,
   DiscardUnsentResult,
   EventEntry,
@@ -43,10 +44,15 @@ export type {
   NotificationMention,
   NotificationResult,
   NotificationsResponse,
+  PendingSend,
   PostMessageResult,
   Project,
   ProjectsResponse,
   ProviderAuthSetting,
+  RunErrorCode,
+  RunPayload,
+  RunRetryState,
+  RunStatus,
   RuntimeAuth,
   RuntimeAuthSource,
   RuntimeCatalogModel,
@@ -55,12 +61,14 @@ export type {
   RuntimeEnvironmentState,
   RuntimeModelsResponse,
   RuntimeVersions,
-  RunErrorCode,
-  RunPayload,
-  RunRetryState,
-  RunStatus,
   SandboxRuntimeCommand,
   SandboxRuntimeEnvironment,
+  SecretDetailResponse,
+  SecretItem,
+  SecretMutationResponse,
+  SecretRemovalResponse,
+  SecretsListResponse,
+  ServeStatus,
   SessionCompactionResult,
   SessionNotifyResponse,
   SessionPayload,
@@ -69,22 +77,24 @@ export type {
   SessionSkillsResponse,
   SessionSummary,
   SessionTitleResponse,
-  ServeStatus,
   SkillDef,
   SkillLoad,
   StopResult,
   ThinkingLevel,
   ToolCall,
-  PendingSend,
   UpdateAgentBody,
   UpdateArchiveSettingsBody,
   UpdateImageSelectionBody,
   UpdateModelAvailabilityBody,
   UpdateNotificationsBody,
   UpdateProviderKeyBody,
+  UpdateSecretBody,
   UpdateSkillBody,
   Usage,
 } from "server";
+
+/** 環境変数の種別。正は server の DTO (SecretItem["kind"]) で、client は値を作らない */
+export type SecretKind = SecretItem["kind"];
 
 /** SSE で受ける型名。ping はサーバーが送る生存確認で、状態には流さない (server の EventEntry には現れない) */
 export type SSEEventType = EventEntry["type"] | "ping";

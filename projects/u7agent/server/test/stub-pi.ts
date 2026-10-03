@@ -8,6 +8,7 @@ import type { PiBff } from "../src/agent";
 import type { ModelSelection } from "../src/agent";
 import type { ImageGenerationConfig } from "../src/images";
 import type { ServeToolHost } from "../src/serve-tool";
+import type { SessionEnvSource } from "../src/agent";
 import { createMutableSecretMasker } from "../src/redact";
 import type {
   AgentDef,
@@ -682,6 +683,8 @@ export function createStubPi(options: StubPiOptions = {}) {
   const imageGenerationConfigs: ImageGenerationConfig[] = [];
   // serve ツールの実体 (bootstrap が注入する)。ツールの配線はここに記録して検証する
   const serveHosts: ServeToolHost[] = [];
+  // 環境変数 (作業環境 → 環境変数) の解決源。bootstrap が注入する
+  const sessionEnvs: SessionEnvSource[] = [];
   let refreshCount = 0;
   return {
     cwd: "/tmp/project",
@@ -715,6 +718,10 @@ export function createStubPi(options: StubPiOptions = {}) {
     serveHosts,
     setServe: (host: ServeToolHost) => {
       serveHosts.push(host);
+    },
+    sessionEnvs,
+    setSessionEnv: (source: SessionEnvSource) => {
+      sessionEnvs.push(source);
     },
     retainSecret: (value: string) => {
       retainedSecrets.push(value);

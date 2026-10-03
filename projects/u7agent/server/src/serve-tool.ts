@@ -18,6 +18,7 @@ export const SERVE_TOOL_DESCRIPTION =
 export const SERVE_TOOL_GUIDELINES = [
   "Use the serve tool instead of starting a background server with bash: only this path records the owner and the start command.",
   "After a start, verify the result with the serve tool (status) and tell the user the URL comes from the UI's service button.",
+  "Never put secret values in `command` and never ask the user to paste them into the chat: the user registers environment variables in the Work Environment panel and the app reads them from process.env.",
 ];
 
 const serveSchema = Type.Object({

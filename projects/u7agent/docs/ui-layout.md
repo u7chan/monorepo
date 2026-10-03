@@ -20,25 +20,25 @@ desktop の中でも viewport が 1200px 未満なら、左バー（既定 252px
 
 画面切替は履歴を追加しない（`replaceState`）。Back / Forward はブラウザーの既存履歴に従うので、アプリ内に戻れることもあれば、直リンクの新規タブのようにアプリの外へ出ることもある。
 
-- desktop: `Topbar`（eyebrow + 作業先チップ + エラー時の接続状態 + 通知トグル + 作業フォルダ。左バーが overlay の帯では eyebrow の左に ☰ を足す。配信できないときの注記は compact と同じくバーの下に出る）+ `ChatArea` + `Composer`（エージェント選択を常時表示し、Model / Effort は追加設定として畳む）
+- desktop: `Topbar`（eyebrow + 作業先チップ + エラー時の接続状態 + 通知トグル + 作業環境。左バーが overlay の帯では eyebrow の左に ☰ を足す。配信できないときの注記は compact と同じくバーの下に出る）+ `ChatArea` + `Composer`（エージェント選択を常時表示し、Model / Effort は追加設定として畳む）
 - 設定ページは エージェント（`AgentSettingsPage`）/ スキル（`SkillSettingsPage`）/ ファイル（`FileTreePage`）/ アーカイブ（`ArchiveSettingsPage`）/ 外観（`AppearancePage`）/ モデル（`ModelSettingsPage`。「モデルを選ぶ / プロバイダー」の 2 タブ）/ ランタイム（`RuntimePage`）/ 通知（`NotificationSettingsPage`）の 8 つ。並びは `client/src/lib/settingsNav.ts` の `SETTINGS_SECTIONS` が正で、アーカイブはツリーの行のダウンロード導線と対になる設定なのでファイルの直後に置く。ヘッダは 見出し + 操作で、「アプリに戻る」は置かない（desktop の戻り導線はサイドバーの 1 つだけ。2 カラムで同じボタンが並ぶのを避ける）。**compact だけはヘッダにも「アプリに戻る」を出す**（左カラムが無く、サイドバーの導線はドロワーを開かないと押せないため）。**左バーが overlay の帯では見出しの左に ☰ を出す**（compact は CompactBar の代わりに、狭い desktop は常駐する左バーが無いため。出すのは `onOpenNav` があるときだけ）。`Escape` でもチャットへ戻る（`<dialog>` の標準挙動を失った分を `App` の keydown で明示的に受ける。nav ドロワーが開いているときはドロワーを閉じる方、compact の詳細シートが開いているときはシートの方を優先する）。フォーカス拘束は無いので、desktop でも `Tab` / `Shift+Tab` の巡回でサイドバーの「アプリに戻る」に到達できる
 - `FileTreePage`（ワークスペースのファイルツリー）は設定ナビの「ファイル」から開く。root は選択中セッション / プロジェクトに追随させず、常にワークスペース root（`cwd=""`、ヘッダのタイトルは「ワークスペース」）に固定する（同じ画面が選択状態で別の場所を指すと、今どこを見ているか分からなくなる。セッションの作業ディレクトリはプロジェクトの登録ディレクトリや `.u7agent/sessions/<id>` をツリーから辿って開く）。**この root がツリーの root になり**、`GET /api/files` へは root 自身を `path=.`、配下を `path=<name>` で問い合わせる。ヘッダのパス表示も同じ root 相対（root は `/`）に揃える。絶対パスは API の `path` と単位が違うことと、ワークスペース root 自身を指す `health.cwd` が混ざるのを避けるため。設定ページの中でもヘッダは画面幅いっぱいに使う（ツリーの行は深さに比例したインデントだけを持ち、幅は viewport に追従する）。行の右端は 時刻 + ⋯（操作メニュー）の 1 スロットで、メニューのリネーム項目はこの画面だけに出し、チャット右パネルには出さない（[file-preview.md](file-preview.md#行の操作メニュー)、[file-preview.md](file-preview.md#リネーム)、[file-preview.md](file-preview.md#ダウンロード)）。ツリーの状態（`client/src/lib/fileTree.ts`）はパスをキーにするため、`__proto__` のような名前でも壊れないよう own プロパティとして読み書きする（`Object.hasOwn` と `Object.defineProperty`）
   - 本文はツリーとプレビューを、本文のコンテナ（`@container`）幅が `@2xl`（672px）以上なら左右、未満なら上下に積む。viewport ではなくコンテナ幅で判定するのは、main の幅が「左バーの実幅（既定 252px）」を引いた残りで決まるため（docked のとき。左バーが overlay の帯は main が viewport 幅いっぱいになる）、1440x900 は本文 1188px（既定幅のとき）で左右、720px 幅の desktop は左バーが overlay になって本文 720px で左右のまま。左右のときのツリー幅の規則は `client/src/lib/fileTreeWidth.ts` が正で、未指定なら `clamp(288px, 本文 ÷ 3, 400px)`（1440x900 の本文 1188px では 396px）、右端のハンドルから 288px 〜 `min(560px, 本文 − 384px)`（プレビューへ 384px は残す）の範囲で選べる。操作は ドラッグ / →←（16px）/ Home / End / ダブルクリック（未指定へ戻す）で、選んだ幅は `localStorage` の `u7agent-file-tree-width` に px の整数 1 つを保存する（壊れた値は未設定として捨て、今の bounds を外れていても捨てない）。上下 2 段と `@2xl` の境界ちょうどでは min == max になりハンドルごと出さない。上下のときはタブが無ければ全幅、あれば `max-h-64` でプレビュー本文へ高さを譲る（タブが無いときに列を空けない）。ツリーのスクロール枠は `.scrollbar-stable` を持ち、あふれの有無で内容幅が変わらない（行の truncate の切れ位置が動かない）
   - プレビューはタブ式。タブは開いた順に並び（選択では並びを変えない）、同時に開けるのは 8 枚（`client/src/lib/fileTabs.ts` の `FILE_TAB_LIMIT`）で、超えたら最も古いタブを閉じる（本文の保持量の上限でもある）。タブのラベルは名前だけで、同名のタブがあるときだけ親ディレクトリを前置する（`client/package.json`）。全体パスは tooltip とタブ下のパス行に出す。本文はタブごとに保持して切替では取り直さない（閉じたタブの本文は捨てる）。「再読み込み」はタブを保ったまま本文を捨てて取り直す。本文は行番号付きで出し、拡張子から判定できた言語は `highlight.ts` で色を付ける（[file-preview.md](file-preview.md)）
   - HTML（`.html` / `.htm`）のタブはパス行の切替で ソース / プレビュー を切り替える。既定はプレビューで、プレビューは `GET /api/files/html/<root 相対>` を src にした iframe（背景は白）。既定は別オリジン（BFF の 2 本目のリスナー、`sandbox="allow-scripts allow-same-origin allow-pointer-lock"`）で `localStorage` などを使えるようにし、同じパス行の別オリジンのスイッチでアプリ オリジン（`sandbox="allow-scripts"` の隔離）へ戻せる（ポートは health の `filePreviewPort` から受ける。[file-preview.md](file-preview.md#html-プレビュー)）。このときもソース本文を取得しない（切替はパス行の中だけに置き、他の拡張子には出さない）。プレビューはパス行のアイコンでブラウザの新しいタブにも開ける（常に別オリジン。ソース表示では出さない。[file-preview.md](file-preview.md#新しいタブで開く)）
-- desktop のチャット画面には、選択中セッションの作業ディレクトリ（`payload.cwd`。プロジェクト所属なら登録ディレクトリ、未所属なら `.u7agent/sessions/<id>`）を見る右パネル（`SessionFilesPanel`）を出せる。シェルの main 列の右に置き（3 カラム目。左バーが overlay の帯では 2 カラム目）、幅は左端のハンドルで選ぶ。ヘッダは h2「作業フォルダ」と root（root 相対の `<code>`）を出す（新規会話ではプロジェクトのフォルダを指すため、ラベルだけでは場所が分からない）。`Topbar` の「作業フォルダ」で開閉し、開閉状態は URL にも localStorage にも保存しない。既定は[作業先と作業フォルダの導線](#作業先と作業フォルダの導線)を参照
+- desktop のチャット画面には、選択中セッションの作業ディレクトリ（`payload.cwd`。プロジェクト所属なら登録ディレクトリ、未所属なら `.u7agent/sessions/<id>`）を見る右パネル（`SessionFilesPanel`。上位名は**作業環境**）を出せる。シェルの main 列の右に置き（3 カラム目。左バーが overlay の帯では 2 カラム目）、幅は左端のハンドルで選ぶ。`Topbar` の「作業環境」で開閉し、開閉状態は URL にも localStorage にも保存しない。中身は[作業環境パネル](#作業環境パネル)を参照。既定は[作業先と作業フォルダの導線](#作業先と作業フォルダの導線)を参照
   - 幅の規則は `client/src/lib/sessionFilesPanel.ts` が正。下限は `min(360px, 30vw)`（未指定のときの幅 = 従来幅。720px 幅の desktop では 216px）、上限は `min(671px, main − 320px)`。`main` は左バーを引いた列の幅で、呼び出し側が渡す（docked は `viewport − 左バーの実幅`（既定 252px。[サイドバー](#サイドバー)）、左バーが overlay の帯は `viewport`。式は配置に依存しない）。320px は上限の基準であって保証ではなく、下限が優先される帯（docked で viewport 817px 以下）ではチャットは 320px を割る（左バーが既定 252px の 720px では パネル 216 / チャット 252 で従来と同じ）
   - 上限を 671px で止めるのは `FileBrowser` の `@container` `@2xl`（672px）を発火させないため。発火するとツリーとプレビューが左右に並び、かえって読める幅が減る（実測: パネル 671 → code 670、672 → 671、700 → 410）
-  - ハンドルは ドラッグ（pointer capture、幅は開始幅からの絶対計算）/ ←→（16px）/ Home / End / ダブルクリック（未指定へ戻す）で操作する。`role="separator"` / `aria-orientation="vertical"` / `aria-valuemin|max|now` を持ち、`aria-valuenow` は値の変化に追随する（ドラッグ中は state へ入れず DOM へ直接書く）。min == max になる幅（例: 720px）ではハンドルごと出さない
+  - ハンドルは ドラッグ（pointer capture、幅は開始幅からの絶対計算）/ ←→（16px）/ Home / End / ダブルクリック（未指定へ戻す）で操作する。`role="separator"`（`aria-label` は「作業環境の幅」）/ `aria-orientation="vertical"` / `aria-valuemin|max|now` を持ち、`aria-valuenow` は値の変化に追随する（ドラッグ中は state へ入れず DOM へ直接書く）。min == max になる幅（例: 720px）ではハンドルごと出さない
   - 選んだ幅は `localStorage` の `u7agent-session-files-width` に px の整数だけを保存する（端末ごとの表示設定なのでサーバー設定には入れない）。整数でない / 0 以下 / 2000px 超の保存値は未設定として捨て、今の bounds を外れていても捨てない（表示時に clamp するだけにして、広げ直したときに選んだ幅へ戻せるようにする）。ダブルクリックの「未指定へ戻す」はキーを削除する
   - ドラッグ中は React を再描画せず、`main` の CSS 変数 `--session-files-width` だけを書き換える（右パネルはツリーとハイライトを含み、move ごとの再描画が重い）。確定は pointerup / pointercancel / lostpointercapture / アンマウントのどの経路でも同じ処理を通し、state と保存値をそこで 1 度だけ更新する（幅が変わらないドラッグは保存しない）
   - 中身は 設定 → ファイル と同じ `FileBrowser` を root 違いで使うため、タブ / プレビュー / タブ上限は同じ振る舞いになる（フォルダ行のリネームだけは設定 → ファイル 専用）。パネルの幅は 671px までなので container 幅が `@2xl`（672px）に届かず、ツリーとプレビューは常に縦積み（タブがあるときツリーは `max-h-64`）。左右 2 段にならないこの面では、ツリー幅の設定（`u7agent-file-tree-width`）は見た目に効かない
-  - セッションファイルの入口はチャット画面だけに出す。desktop は `Topbar` から右パネル、compact は `CompactBar` のフォルダボタンから全画面 `SessionFilesSheet` を開く。設定ページでは 設定 → ファイル と二重になるため出さない
+  - 入口はチャット画面だけに出す。desktop は `Topbar` から右パネル、compact は `CompactBar` のフォルダボタン（`aria-label` / `title` は作業環境）から全画面 `SessionFilesSheet` を開く。設定ページでは 設定 → ファイル と二重になるため出さない
   - トグルは作業フォルダの root が決まっているときだけ出す（`client/src/lib/sessionFiles.ts` の `sessionFilesRoot`）。root は選択中セッションの `payload.cwd`、セッション未作成では作成先プロジェクトの `cwd`（`sessionId === ""` かつ作成先が解決済みのときだけ渡す）、未所属の新規会話と設定ページは `""` にする（ワークスペース root へは落とさない）。root の可用性は layout に依存させず、表示方法だけを `App` で分ける。セッションを切り替えると `key` の張り替えでパネル / シートを作り直し、復元と取得をその root でやり直す
   - 一覧と開いている本文の取り直しは、ヘッダの「再読み込み」と reducer が `run_end` で進める `runEndSeq` の 1 回だけ（[file-preview.md](file-preview.md#画面と-root)）
 - portrait / landscape: メイン領域 = チャット or 設定ページ、ドロワー = ナビ という desktop と同じ構造にする
   - `CompactBar` はチャットのときに「作業先と、どのエージェントのどの会話か」、通知トグル、作業フォルダ、nav の導線を常時表示する（landscape は 1 行に畳む）。エージェント名の行（landscape はタイトルの左）は `〈作業先〉· 〈エージェント名〉` にする。どちらの layout も省略表示にし、landscape の作業先行は `shrink-0` にせず `min-w-0` + `max-w-1/2`（行の半分）で収縮させる（プロジェクト名に長さ制限が無いため。`shrink-0` だと名前の分だけ右へ伸び、タイトルと固定幅のボタンを viewport 外へ押し出す）。作業フォルダはチャット幅を奪う右パネルではなく全画面 modal sheet（`SessionFilesSheet`）で開き、同じ `FileBrowser` を viewport 幅いっぱいで使う
-  - `CompactBar` のコントロールは左から ☰（nav）/ サービス（1 枠。停止中は ⏻ の起動ボタン、その他の表示状態はアイコンからメニューを開く）/ 🔔（通知）/ 📁（作業フォルダ）。どれも 36px（`styles/index.css` の `.icon-button`）・間隔 10px（`gap-2.5`）で、4 個が出ると左右余白を含む固定領域は 208px。エージェント名とタイトルは残り幅を truncate する。Chromium の実測では 320x568 のタイトル列は112px、844x390 は長いプロジェクト名でも216pxを保ち、横スクロールは出ない。通知が On でも配信できないときの理由と設定導線は、従来どおりバーの下に出す。
+  - `CompactBar` のコントロールは左から ☰（nav）/ サービス（1 枠。停止中は ⏻ の起動ボタン、その他の表示状態はアイコンからメニューを開く）/ 🔔（通知）/ 📁（作業環境）。どれも 36px（`styles/index.css` の `.icon-button`）・間隔 10px（`gap-2.5`）で、4 個が出ると左右余白を含む固定領域は 208px。エージェント名とタイトルは残り幅を truncate する。Chromium の実測では 320x568 のタイトル列は112px、844x390 は長いプロジェクト名でも216pxを保ち、横スクロールは出ない。通知が On でも配信できないときの理由と設定導線は、従来どおりバーの下に出す。
   - サービスの状態は desktop / compact とも `health.previewPort` と `location.hostname` で組んだ URL を別タブで開く（`target="_blank"` / `rel="noreferrer noopener"`）。**リンクは稼働中（`owner=mine` かつ到達可）のときだけ**出す（停止中に出すと他会話のサービスを開いてしまう）。表示と操作は下の表で決める。desktop の状態バッジは 稼働中 = 緑の塗りドット / 停止中 = 灰の薄いドット / 起動元不明 = 「!」+ 橙 / 起動中 = スピナー で、並びは **[状態バッジ] [サービス] [停止/起動] ｜ [通知] [作業フォルダ]**。起動ボタンの glyph は ⏻、停止は ■ のまま。条件で出るグループを右寄せクラスタの左端に置く（出ても通知・作業フォルダの位置が動かない）。区切り線はグループと一緒に出し入れし、「停止」は常時表示にする（ホバー待ちにしない）。compact はナビの次・通知の左の 1 枠を使い、**到達不可かつ実績ありの停止中は ⏻ をタップするとその場で起動し、メニューは出さない**。稼働中は緑のドット、他会話が公開中は灰の薄いドット、起動元不明は「!」+ 橙、起動中はスピナーからメニューを開く。メニューの起動も ⏻、停止は ■ とし、色だけでなく形でも区別する。
   - **「稼働中」は「自分の会話のサービスが公開されている」の意味**で、ポートの空き状況ではない。稼働判定はサーバー（BFF → サンドボックス listen ポートの TCP connect）が行い、client は状態を取り直すだけ。会話を切り替えたら前の会話の状態を描かず、取得に失敗したらリンクも操作も出さない（到達不可と区別する）。取得は既存の 4 秒ポーリングと同じリズムに乗せ、**応答がポーリング間隔より遅くても状態は更新される**（飛行中の要求があるうちは次を発行せず、返った応答は最後に適用したものより新しければ適用する。「最新の要求だけを適用する」ゲートにすると、遅い応答が常に捨てられて表示が固まる）。
 
@@ -113,6 +113,26 @@ native `popover="auto"` のパネル（スキル一覧 / ⋯ メニュー / エ�
 - `prefers-reduced-motion: reduce` では `transition` を切る（`details::details-content` / `.tree-fold` と同じ）
 - popover の見え方と実際の開閉・キーボード操作はブラウザで確認する（[GUI 受入](testing.md#gui-の最小受入)）。CSS の実装方式や具体値は unit test で固定しない。
 
+## 作業環境パネル
+
+チャットの右パネル / compact の全画面シート（`SessionFilesPanel` / `SessionFilesSheet`）の上位名は **作業環境** で、タブを 2 つ持つ。
+
+- **作業フォルダ**: 選択中セッションの作業ディレクトリ（root 相対の `<code>` と h2 はタブ側で出さない）。ヘッダ直下の操作行に root と「再読み込み」を出し、本文は 設定 → ファイル と同じ `FileBrowser`（`docs/session-files.md` の 1 つの root を差し替えるだけ）
+- **環境変数**: 作業フォルダ（cwd）単位の値の一覧と追加・変更・削除。設計は [secrets.md](secrets.md#作業フォルダの環境変数作業環境--環境変数) を正とする
+
+タブは `ModelSettingsPage` と同じ `role="tablist"` / `.tab-item` を使い、cwd が決まっている会話では 2 つ、片方しか出せない面ではタブバーごと出さない（タブが 1 つなら押しても変わらない行を残さない）。設定ページではパネル自体を出さない（現行どおり）。
+
+- ヘッダは 上位名（compact は `WORK ENVIRONMENT` の eyebrow + h2、desktop は h2 だけ）+ 閉じる。「再読み込み」と root の表示は**作業フォルダタブ専用**で、環境変数タブは自前の toolbar（追加 / 再読み込み）を持つ
+- 一覧は単一リスト + 種別バッジ（`変数` / `シークレット`）で、行は 名前 / 種別バッジ / 更新時刻 / ⋯（値を変更・削除）。値・桁数・伏せ字は出さない。削除は確認 1 回（`window.confirm`）
+- 追加フォームは 種別（既定はシークレット）+ 名前 + 値。2 回入力はしない。名前は入力中に正規化後の値（trim + 大文字化）をプレビューする。空の名前 / 値では送信ボタンを押せない
+- 変更フォームは名前と種別を変えられない（削除して作り直す）。変数は保存済みの値をプリフィルし（詳細 API が平文を返す）、シークレットは空欄から始める
+- Eye は**入力欄だけ**（新規登録と再設定）。変数も保存済みの値を変更フォームで見せ、シークレットは保存済みの値を表示しない
+- 文言は `client/src/lib/sessionEnv.ts` が正。シークレットは「シークレットはこの会話上では参照できません」「保存後に値を再取得できません」「サービスとして起動したときだけ参照できます」、変数は「この会話のエージェントにも見えます（`bash` の `printenv` に出ます）」。タブ上部に「シークレットの変更は次回の起動から反映されます」を 1 行、プロジェクト所属では「このプロジェクトの設定です」を 1 行出す。8 文字未満のシークレットを入力中は「短い値は自動マスクされません」、前後の空白 / 改行を除去したときは「前後に空白 / 改行があったため除去しました」を出す
+- 値は入力欄の state にしか置かない。ドラフトは `localStorage` / `sessionStorage` / URL へ保存せず、パネル / シートを閉じる・`Escape`・セッション切替で破棄する（確認は出さない）。入力欄の `autocomplete` は切る
+  - desktop の右パネルは `<dialog>` ではないため、`Escape` は `EnvVarsTab` の keydown で**開いているフォームだけ**を畳む（パネルは開いたまま。compact のシートは dialog の標準終了がシートごと閉じ、`stopPropagation` でこの keydown へは届かない）
+  - **cwd を共有する会話への切替でも**ドラフトを残さない。`App` のパネルの key は `filesRoot` なので再 mount されないため、`EnvVarsTab` 側の key に要求元の識別子（`sessionEnvScopeKey` = `session:<id>` / `project:<id>`）を使い、切替で作り直す
+- エージェントへ渡してよいのは名前だけなので、「この会話で使える名前」の一覧とコピー導線をタブの下に置く（値のコピー導線は作らない）
+
 ## 作業先と作業フォルダの導線
 
 プロジェクト配下の新規会話と未所属の新規会話は、左バーが overlay になる帯では main 領域だけで区別できない。そこで作業先をバーに常時出し、空状態の見出しと作業フォルダの導線を同じ判定で分ける。判定の正は `client/src/lib/chatScope.ts` の `chatScope()` で、セッション未作成は作成先（`selectedProjectId`）、セッションありは一覧の所属（`SessionSummary.projectId`）を使う。
@@ -121,6 +141,7 @@ native `popover="auto"` のパネル（スキル一覧 / ⋯ メニュー / エ�
 - 空状態の見出しはプロジェクト配下で `${scope.label} で作業します`（作業先 + で作業します）、未所属で「プロジェクトの相棒です」（説明文と suggestion は両方で変えない）。判定の正はメッセージ 0 件なので、添付だけしたセッションも同じ規則で出る
 - 作業フォルダの root（`sessionFilesRoot`）は選択中セッションの `payload.cwd`、セッション未作成では作成先プロジェクトの `cwd`。**セッションがあるときに `projectCwd` は渡さない**（`App` の呼び出しは `sessionId === "" ? selectedProject?.cwd ?? "" : ""` の 1 式に固定する）。選択待ちの `cwd === ""` に、作成先の別プロジェクトのツリーを出さないため。未所属の新規会話は root が決まらず（`sessionId` の採番が送信時）、トグル自体を出さない
 - プロジェクト配下の新規会話は送信前からプロジェクトのツリーを出す（プロジェクトには登録時にディレクトリ実在が要る。[projects.md](projects.md)）。同一プロジェクトのセッションは同じ root を共有する
+- 環境変数タブの要求元も同じ判定を使う（`client/src/lib/sessionEnv.ts` の `sessionEnvScope`）。セッションがあれば `sessionId`、未作成でプロジェクト起点なら `projectId` を送り、cwd への解決はサーバーだけが行う（client は cwd を送らない）。未所属の新規会話は root が決まらないためタブごと出さない
 
 ### 作成先
 
@@ -188,6 +209,10 @@ desktop のパネル（`sessionFilesOpen`）と compact のシート（`sessionF
 - 手動で閉じる → 添付 → 送信 → 別セッション → 戻る、の各段階で勝手に開かない
 - 送信に失敗したとき（サーバー未接続）に見出し / チップ / パネルが壊れない
 - 設定ページ往復で開閉が変わらない。desktop でパネルを開いたまま狭めてもシートは開かず（一瞬も出ない）、desktop へ戻るとパネルは同じ開閉で出る
+- 作業環境のヘッダは「作業環境」で、タブは 作業フォルダ / 環境変数 の 2 つ（cwd が決まっている会話）。作業フォルダタブにだけ root と「再読み込み」が出て、タブを切り替えてもパネルの幅と開閉は変わらない
+- 環境変数タブで追加 → 一覧に名前 / 種別バッジ / 更新時刻が出る。登録直後に値・桁数・伏せ字はどこにも出ない。変更で Eye を押すと入力欄の値だけが見え、シークレットの保存済みの値は出ない。前後に空白のある値を保存すると「前後に空白 / 改行があったため除去しました」が 1 行出る
+- パネル / シートを閉じる・`Escape`・セッション切替・タブ切替の後に開き直すと、入力中の種別 / 名前 / 値が残っていない（確認は出ない）。desktop の `Escape` は開いているフォームだけを畳み、パネルは開いたまま。**同じプロジェクト（同じ cwd）の別会話へ切り替えたときも**残らない
+- 未所属の新規会話では作業環境の導線自体が出ず、プロジェクト起点の新規会話では開けて環境変数も保存できる（送信前）
 - desktop でパネルを開く → compact へ縮めてシートを開き ✕ / `Escape` で閉じる → desktop へ戻すと、パネルは開いたまま（シートの close がパネルの state を変えない）
 - compact でシートを開いたまま設定ページへ入って戻ると開かない。シートを開いたままセッションを切り替える / root が変わる場合も閉じる。同じプロジェクト内のセッション切替（同じ root）では閉じない。`/s/<id>` が `/` へ畳まれても閉じない
 - 選択待ち（GET 中）はチップ / 見出し / root が旧表示のままで、応答で切り替わる
@@ -298,7 +323,7 @@ docked の左バーの幅は右端のハンドル（`client/src/components/sideb
 
 - 幅の正は `client/src/lib/sidebarWidth.ts`（bounds / clamp / step / parse / store）。下限は既定幅そのもの（252px。今より狭くは選べない）、上限は `SIDEBAR_WIDTH_MAX`（400px）。上限を viewport に依存させないのは、docked になるのが 1200px 以上だけで、1200px でも main が 800px 残り、右パネルの下限（`min(360px, 30vw)` = 360px）とチャットの下限（`SESSION_FILES_CHAT_MIN_WIDTH` = 320px）の和 680px を上回るため。400px は名前 283px に相当し、実用上これ以上は不要と判断した
 - ハンドルは `<aside>` の右端（`absolute inset-y-0 right-0 w-2`）に重ねる（`<aside>` は `relative` を持つ）。右パネル（左端のハンドル）とは向きが逆で、右へ動かす = 幅を増やす。ドラッグ中の見た目とカーソル・選択抑止（`panel-resize-handle` / `body.is-resizing-panel`）は右パネルと共用する
-- 操作は ドラッグ / →←（16px）/ Home / End / ダブルクリック（未指定 = 252px へ戻して保存を消す）。`role="separator"` / `aria-orientation="vertical"` / `aria-valuemin|max|now` を持ち、読み上げ名は「左バーの幅」。`aria-valuenow` は値の変化に追随する（ドラッグ中は state へ入れず DOM へ直接書く）
+- 操作は ドラッグ / →←（16px）/ Home / End / ダブルクリック（未指定 = 252px へ戻して保存を消す）。`role="separator"`（`aria-label` は「作業環境の幅」）/ `aria-orientation="vertical"` / `aria-valuemin|max|now` を持ち、読み上げ名は「左バーの幅」。`aria-valuenow` は値の変化に追随する（ドラッグ中は state へ入れず DOM へ直接書く）
 - 選んだ幅は `localStorage` の `u7agent-sidebar-width` に px の整数だけを保存する（端末ごとの表示設定なのでサーバー設定には入れない）。整数でない / 0 以下 / 2000px 超の保存値は未設定として捨て、今の bounds を外れていても捨てない（表示時に clamp するだけ）。ダブルクリックの「未指定へ戻す」はキーを削除する（[frontend.md](frontend.md#保存キーと保存範囲)）
 - シェルは `grid-cols-[var(--sidebar-width)_minmax(0,1fr)]` で、変数は `App` が `style` で渡す。overlay のドロワーは 1 カラムなので変数を使わず、幅は今のまま（`NavSheet` の `min(320px, 86vw)`）。ハンドルを出すのは docked の面だけで、`App` が docked のときだけ `Sidebar` へ `resize` を渡す（`NavSheet` は渡さない）。min == max の帯は無い（bounds が定数で 252 < 400）ので、右パネルの `canResizeSessionFilesPanel` に当たる判定は持たない
 - ドラッグ中は React を再描画せず、シェルの CSS 変数 `--sidebar-width` だけを書き換える。確定は pointerup / pointercancel / lostpointercapture / アンマウントのどの経路でも同じ処理を通し、state と保存値をそこで 1 度だけ更新する（幅が変わらないドラッグは保存しない）。ドラッグ中は `mainWidth`（右パネルの bounds の根拠）が前の値なので、右パネルを上限まで広げているとチャットが一時的に 320px を割り得るが、離した時点で bounds が再計算されて 320px へ戻る（この一時的な縮みは許容する）

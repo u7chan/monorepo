@@ -11,6 +11,7 @@ export function serveStatus(overrides: Partial<ServeStatus> = {}): ServeStatus {
     owner: { kind: "none" },
     generation: null,
     command: { cwd: "projects/foo", command: "pnpm dev" },
+    secretGeneration: null,
     ...overrides,
   };
 }

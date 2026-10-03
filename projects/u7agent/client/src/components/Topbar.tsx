@@ -18,7 +18,7 @@ export type TopbarProps = {
    * note は配信できない理由で、On の間は常に、Off では押した後に出る
    */
   notify: { on: boolean; note?: string; deliverable: boolean; onToggle: () => void; onOpenSettings?: () => void };
-  /** 右パネル (作業フォルダ) のトグル。root が決まらないときは渡さない */
+  /** 右パネル (作業環境) のトグル。root が決まらないときは渡さない */
   sessionFiles?: { open: boolean; onToggle: () => void };
   /** 左バーが overlay のときだけ渡す (docked では左バーが常駐するので ☰ を出さない) */
   nav?: { onOpen: () => void };
@@ -55,7 +55,7 @@ export function Topbar({ scope, serve, runtimeStatus, notify, sessionFiles, nav 
           </div>
         </div>
         <div className="flex shrink-0 items-center gap-2">
-          {/* 状態で出るグループは右寄せクラスタの左端に置く (出ても通知・作業フォルダの位置が動かない) */}
+          {/* 状態で出るグループは右寄せクラスタの左端に置く (出ても通知・作業環境の位置が動かない) */}
           <ServedAppGroup {...serve} />
           {/* 正常時のモデルは入力欄の上の状態行、接続状態は画面の様子から分かるので、エラーのときだけ出す */}
           {runtimeStatus.error ? (
@@ -82,7 +82,7 @@ export function Topbar({ scope, serve, runtimeStatus, notify, sessionFiles, nav 
               className={cn("btn-quiet shrink-0", sessionFiles.open && "border-accent/50 text-accent-text")}
             >
               <FolderIcon />
-              作業フォルダ
+              作業環境
             </button>
           ) : null}
         </div>

@@ -39,6 +39,7 @@ import {
   notifyUnavailableNote,
 } from "./lib/notifications";
 import { sessionFilesDefaultOpen, sessionFilesRoot } from "./lib/sessionFiles";
+import { sessionEnvScope } from "./lib/sessionEnv";
 import { servedAppBusyKind, servedAppStartConfirm, servedAppView } from "./lib/servedApp";
 import { activityDisplay, retryRemainingMs } from "./lib/retryState";
 import { RUN_RETRY_PROMPT } from "./lib/runRetry";
@@ -95,6 +96,11 @@ export default function App() {
     chatView: mainView === "chat",
     cwd: app.cwd,
     projectCwd: app.sessionId === "" ? (app.selectedProject?.cwd ?? "") : "",
+  });
+  // 作業環境の環境変数タブの要求元。会話があれば sessionId、未作成なら作成先プロジェクトの projectId を使う
+  const envScope = sessionEnvScope({
+    sessionId: app.sessionId,
+    projectId: app.sessionId === "" ? (app.selectedProjectId ?? "") : "",
   });
   const [projectDialogOpen, setProjectDialogOpen] = useState(false);
   const [navOpen, setNavOpen] = useState(false);
@@ -541,6 +547,7 @@ export default function App() {
           <SessionFilesPanel
             key={filesRoot}
             root={filesRoot}
+            envScope={envScope ?? {}}
             excludeNames={excludeNames}
             filePreviewPort={app.health?.filePreviewPort}
             runEndSeq={app.chat.runEndSeq}
@@ -555,6 +562,7 @@ export default function App() {
         <SessionFilesSheet
           key={filesRoot}
           root={filesRoot}
+          envScope={envScope ?? {}}
           excludeNames={excludeNames}
           filePreviewPort={app.health?.filePreviewPort}
           runEndSeq={app.chat.runEndSeq}

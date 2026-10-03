@@ -61,6 +61,35 @@ async function executeLs(sandboxCwd: string, calls: StubCall[], client: SandboxT
   assert.equal(calls.length, 1);
 }
 
+test("作業フォルダの変数は bash へだけ env として渡し、シークレットは渡さない", async () => {
+  const calls: { tool: string; env?: Record<string, string> }[] = [];
+  const client = {
+    execute: async (tool: string, input: { env?: Record<string, string> }) => {
+      calls.push({ tool, ...(input.env ? { env: input.env } : {}) });
+      return { content: [{ type: "text", text: "ok" }] };
+    },
+  } as unknown as SandboxToolClient;
+  // 解決源は「変数」だけを返す (シークレットは serve の起動時 env にしか入らない)
+  const envForCwd = (cwd: string): Record<string, string> => (cwd === "nested/proj" ? { NODE_ENV: "production" } : {});
+  const definitions = createRemoteToolDefinitions({
+    cwd: `${ROOT}/nested/proj`,
+    rootCwd: ROOT,
+    sandboxCwd: "nested/proj",
+    client,
+    masker: createSecretMasker([]),
+    tools: ["bash", "ls"],
+    envForCwd,
+  });
+  for (const name of ["bash", "ls"]) {
+    const definition = definitions.find((entry) => entry.name === name);
+    assert.ok(definition, `${name} のリモート定義が作られる`);
+    await definition.execute("call-1", { command: "printenv", path: "." }, undefined, undefined, {
+      cwd: ROOT,
+    } as never);
+  }
+  assert.deepEqual(calls, [{ tool: "bash", env: { NODE_ENV: "production" } }, { tool: "ls" }]);
+});
+
 test("forwards the session cwd to the sandbox request", async () => {
   const { calls, client } = stubClient();
   await executeLs("nested/proj", calls, client);

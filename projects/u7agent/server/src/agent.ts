@@ -149,6 +149,14 @@ export interface ModelSelection {
   defaultModel: ModelRef | undefined;
 }
 
+/**
+ * エージェントの bash へ渡す「変数」の解決元 (作業フォルダ = cwd がキー)。
+ * 値ではなく解決関数を渡すのは、変更を「次の bash」から反映させるため。
+ */
+export interface SessionEnvSource {
+  variablesFor(cwd: string): Record<string, string>;
+}
+
 export interface PiBff {
   /** ワークスペース root の絶対パス (サンドボックスの rootCwd と同じパスを指す契約) */
   cwd: string;
@@ -192,6 +200,11 @@ export interface PiBff {
    * ツール定義はこのホストへ委譲する (GUI と同じ ServeService を通る)
    */
   setServe(host: ServeToolHost): void;
+  /**
+   * 作業フォルダの変数をエージェントの bash へ注入する。bootstrap がアプリデータ (secrets) を持つため、
+   * 解決はこの源へ委譲する (シークレットはここへ入れない)
+   */
+  setSessionEnv(source: SessionEnvSource): void;
 }
 
 export function errorMessage(error: unknown): string {
@@ -591,6 +604,8 @@ export async function createPiBff({ cwd = process.cwd() }: { cwd?: string } = {}
   const imagesGenerator = createImagesGenerator({ maskText: maskError });
   // serve ツールの実体は bootstrap (アプリデータとサンドボックスを持つ層) が注入する。未注入なら公開しない
   const serveHost: { value: ServeToolHost | null } = { value: null };
+  // 変数 (作業環境 → 環境変数) の解決源も同じく bootstrap が注入する。未注入なら env 無しで実行する
+  const sessionEnv: { value: SessionEnvSource | null } = { value: null };
 
   const current = { value: unavailableModelState() };
   /** 公開 state の差し替え。ロックの内側でだけ呼び、例外は出さない (lock を壊さない)。 */
@@ -713,6 +728,8 @@ export async function createPiBff({ cwd = process.cwd() }: { cwd?: string } = {}
           masker: secretMasker,
           tools: baseTools,
           catalogSkills: catalogSkillBodies,
+          // 解決は exec のたびに行う (設定の変更は次の bash から効く)
+          envForCwd: () => sessionEnv.value?.variablesFor(relativeCwd) ?? {},
         }),
         ...createImageToolDefinitions({
           enabled: imageGenerationEnabled,
@@ -779,6 +796,9 @@ export async function createPiBff({ cwd = process.cwd() }: { cwd?: string } = {}
     },
     setServe(host) {
       serveHost.value = host;
+    },
+    setSessionEnv(source) {
+      sessionEnv.value = source;
     },
     refreshModelState,
   };

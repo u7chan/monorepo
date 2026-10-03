@@ -68,12 +68,16 @@ pnpm dev   # サンドボックス + BFF + Vite をまとめて起動 → http:/
 | `PI_PREVIEW_PORT` | サンドボックスで serve したサービスをブラウザから開くポート（既定 8080、デプロイは `8016:8080` を公開して 8016）。リンク生成専用で、稼働判定は BFF がサンドボックスの listen ポート（8080）へ TCP connect して行う。不正なポート値は起動時に拒否 |
 | `PI_SANDBOX_URL` / `PI_SANDBOX_TOKEN` | 外部のサンドボックスへ繋ぐ場合のみ（`pnpm dev` は自動で設定） |
 | `PI_SECRET_ENV_VARS` | 追加でマスクする独自の秘密環境変数 |
+| `U7AGENT_SECRET_MASTER_KEY` | 作業環境 → 環境変数 の「シークレット」を暗号化する master key。書式は `<版>:<base64 の 32 バイト鍵>`（`openssl rand -base64 32` の前に `1:` を付ける）。**アプリ DB とは別経路で管理する**（未設定ならシークレットの登録と利用だけを 503 で拒否し、変数と起動は続く） |
+| `U7AGENT_SECRET_MASTER_KEY_FILE` | 同じ内容を書いたファイルのパス。env が優先で、こちらは同じ書式のテキストを読む |
 
 プレビュー オリジンの 2 つの env は 1〜65535 の整数以外だと起動時にエラーで停止します。`pnpm dev` は待受とブラウザから見た値を同じ値に揃える（`PI_FILE_PREVIEW_PORT` を正とし、待受 env しか無いときはその値へ寄せる）ので、`PI_FILE_PREVIEW_PORT=4319 pnpm dev` はプレビュー オリジンだけを 4319 にできます。**`pnpm dev` をもう 1 つ並行して起動するには、プレビュー以外のポートも別にする必要があります**（サンドボックス `SANDBOX_PORT` / BFF `PORT`。Vite は `strictPort` の 3000 で `pnpm dev` からは変えられないため、Vite まで分けるときは `pnpm dev:bff` と `pnpm dev:web --port <n>` を別々に起動します）。**ポートを変えるとプレビューの `localStorage` の保存領域も別になる**点に注意してください（[docs/file-preview.md](docs/file-preview.md#隔離csp-と-sandbox)）。
 
 **利用可能なモデル**と**アプリ既定モデル**、プロバイダーAPIキーは起動後に **設定 → モデル** から設定するのが既定です（アプリのデータベースへ保存し、再起動せずにモデル候補へ反映します）。選択の入口は GUI に一本化したため、`PI_MODEL` / `PI_MODELS` / `PI_PROVIDER` は読みません（設定されていても無視し、画面と起動ログに移行を促します）。プロバイダーAPIキーを環境変数（`.env`）や `~/.pi/agent/auth.json` で渡す場合は、これまでどおり再起動が必要です。移行の手順と残存リスクは [docs/model-settings.md](docs/model-settings.md) を参照してください。
 
 一覧は [.env.example](.env.example) と [docs/sandbox-api.md](docs/sandbox-api.md)（サンドボックス側）を参照してください。
+
+作業フォルダごとの環境変数（**作業環境 → 環境変数**）は、GUI から登録してサービス（serve）へ実行時にだけ渡す経路です。種別は 2 つあり、**変数**は平文で保存してエージェントの `bash` とサービスの両方から見え、**シークレット**は保存時に暗号化して**サービスの起動時だけ**注入します（エージェントの env には入りません）。master key はアプリ DB とは別経路（`U7AGENT_SECRET_MASTER_KEY` / `U7AGENT_SECRET_MASTER_KEY_FILE`）で渡し、未設定・誤鍵・改ざんでは平文保存や「秘密なし起動」へ静かに落ちません。値の規則・注入の境界・残存リスクは [docs/secrets.md](docs/secrets.md#作業フォルダの環境変数作業環境--環境変数) を参照してください。
 
 プロジェクトとエージェント / スキル定義は、会話ストアと同じディレクトリの `u7agent.db`（SQLite）に保存します。パスを分ける環境変数はなく、`PI_SESSION_STORE` を永続ボリュームに置けば両方残ります（[persistence.md](docs/persistence.md)）。
 
@@ -89,6 +93,7 @@ BFF の書き込み API はブラウザの別オリジンからの要求を拒�
 - ツールはサンドボックスの作業領域でコマンド実行やファイル変更ができます。信頼できる環境だけで使ってください（`write` / `edit` はセッションの作業ディレクトリと `<workspace root>/.agents/skills` に限られますが、`bash` は制限しません）
 - LLM の APIキーは BFF が持ち、サンドボックスへは共有トークンしか渡しません。設定 → モデルで登録したキーはアプリデータの SQLite（`PI_SESSION_STORE/u7agent.db`）へ**平文**で保存されるため、DB・WAL・バックアップのアクセス権を管理してください（[docs/model-settings.md](docs/model-settings.md#残存リスク)）。ツール出力に現れた既知のキーは、LLM・SSE・ログへ渡す前に `[REDACTED]` へ置換します。ただし `pnpm dev` のようにホストで別プロセスとして起動した場合、サンドボックスは起動元シェルの環境を継承するため、export 済みの APIキーと同一ユーザーが読める認証ファイルは見えます（コンテナ分離ではこの継承はありません）
 - `pnpm dev` の分離はプロセス分離です（同一ユーザー・同一環境）。コンテナ分離の設計と残存リスクは [docs/sandbox.md](docs/sandbox.md) を参照してください
+- 作業環境 → 環境変数 の**シークレットだけ**が保存時に暗号化されます（AEAD。master key は DB と別経路）。プロバイダー / 画像の APIキー、provider メモ、種別 = 変数の値は従来どおり `u7agent.db` へ**平文**で残るため、「DB 全体が暗号化された」わけではありません。シークレットはエージェントの `bash` の env に入りませんが、同一サンドボックス・同一 Unix user でサービスが動くため `/proc/<pid>/environ` などを読める可能性は残ります（[docs/secrets.md](docs/secrets.md#保証範囲と残存リスク)）
 
 ## ドキュメント
 

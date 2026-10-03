@@ -5,6 +5,7 @@
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { httpError, messageFor } from "./http";
+import type { SecretKind } from "./secret-crypto";
 import type {
   AgentDef,
   AgentSuggestion,
@@ -17,7 +18,7 @@ import type {
 
 export const APP_DB_FILENAME = "u7agent.db";
 /** テーブル定義を変えたら上げる。新規作成と加算移行はこの版へ揃え、未知の版は作り直す */
-export const APP_DB_SCHEMA_VERSION = 10;
+export const APP_DB_SCHEMA_VERSION = 11;
 
 /** プロバイダー API キーの保存行。平文なのでアクセス権の管理は docs/secrets.md を正とする */
 export interface ProviderCredentialRow {
@@ -77,6 +78,30 @@ export interface ServeCommandRow {
   /** ワークスペース root 相対の作業ディレクトリ (`""` は root) */
   cwd: string;
   command: string;
+  updatedAt: number;
+}
+
+/**
+ * 作業フォルダ単位の環境変数。所有者は cwd で、`serve_commands` と同じキー空間。
+ * 種別ごとに使う列が排他で、`variable` は plaintext、`secret` は ciphertext / nonce / keyVersion。
+ * 暗号化の書式と、値の再取得を許さない契約は docs/secrets.md を正とする。
+ */
+export interface SecretRow {
+  secretId: string;
+  /** ワークスペース root 相対の作業ディレクトリ (`""` は root) */
+  cwd: string;
+  /** 正規化済み (大文字)。変更できないため AEAD の AAD に含めてよい */
+  name: string;
+  kind: SecretKind;
+  /** kind='variable' のときだけ値を持つ */
+  plaintext: string | null;
+  /** kind='secret' の暗号文 (GCM の認証タグを末尾に含む) */
+  ciphertext: Uint8Array | null;
+  nonce: Uint8Array | null;
+  keyVersion: number | null;
+  /** 表示順。cwd 内で昇順 (削除しても詰めない) */
+  sortOrder: number;
+  createdAt: number;
   updatedAt: number;
 }
 
@@ -198,6 +223,31 @@ CREATE TABLE IF NOT EXISTS serve_commands (
 `;
 
 /**
+ * v10 -> v11 で足したテーブル。作業フォルダ (cwd) 単位の環境変数で、`serve_commands` と同じキー空間。
+ *
+ * **このテーブルは列追加だけの加算移行を恒久ルールとする** (削除・リネーム・作り直しをしない)。
+ * 秘密が消える移行は、たとえ古い版へ戻す経路でも許さない。`DROP_TABLES` にも入れない:
+ * 古いビルドへ戻したとき (#recreate) はこのテーブルを知らないので放置され、新ビルドへ戻すと
+ * #migrate() の `CREATE TABLE IF NOT EXISTS` がそのまま合流させる。
+ */
+const SECRETS_TABLE = `
+CREATE TABLE IF NOT EXISTS secrets (
+  secretId    TEXT PRIMARY KEY,
+  cwd         TEXT NOT NULL,
+  name        TEXT NOT NULL,
+  kind        TEXT NOT NULL,
+  plaintext   TEXT,
+  ciphertext  BLOB,
+  nonce       BLOB,
+  keyVersion  INTEGER,
+  sortOrder   INTEGER NOT NULL,
+  createdAt   INTEGER NOT NULL,
+  updatedAt   INTEGER NOT NULL,
+  UNIQUE (cwd, name)
+);
+`;
+
+/**
  * provider メモは retainSecret に登録しない方針なので、SQLite の例外文言に値が写り得る。
  * ログ・health・503 へは、この値を含まない固定文言だけを渡す。
  */
@@ -234,7 +284,8 @@ ${MODEL_SETTINGS_TABLE}
 ${PROVIDER_MEMOS_TABLE}
 ${IMAGE_SETTINGS_TABLE}
 ${IMAGE_CATALOG_TABLE}
-${SERVE_COMMANDS_TABLE}`;
+${SERVE_COMMANDS_TABLE}
+${SECRETS_TABLE}`;
 
 /** アプリ所有のテーブルだけを落とす (同じ DB に足した別機能のテーブルを巻き込まない) */
 const DROP_TABLES = `
@@ -250,6 +301,8 @@ DROP TABLE IF EXISTS image_settings;
 DROP TABLE IF EXISTS image_catalog;
 DROP TABLE IF EXISTS serve_commands;
 `;
+// secrets は意図的に含めない (DROP_TABLES の定義冒頭のコメントと docs/secrets.md を参照)。
+// 列追加も #migrate() にだけ足し、既存行を書き換える移行はしない。
 
 /**
  * DB を新規作成したときだけ入れるサンプル定義 (作り直しでは入れない)。
@@ -371,6 +424,28 @@ function imageCatalogModelsOf(value: unknown): ImageCatalogModelRow[] | undefine
 
 function serveCommandOf(row: Row): ServeCommandRow {
   return { cwd: text(row.cwd), command: text(row.command), updatedAt: Number(row.updatedAt) };
+}
+
+/** BLOB 列は Uint8Array。手編集で TEXT にされた行は「保存値が欠けている」として null で読む */
+function optionalBlob(value: unknown): Uint8Array | null {
+  return value instanceof Uint8Array ? value : null;
+}
+
+/** 未知の種別は秘密側へ寄せる (復号できない行を平文として扱わない) */
+function secretOf(row: Row): SecretRow {
+  return {
+    secretId: text(row.secretId),
+    cwd: text(row.cwd),
+    name: text(row.name),
+    kind: row.kind === "variable" ? "variable" : "secret",
+    plaintext: typeof row.plaintext === "string" ? row.plaintext : null,
+    ciphertext: optionalBlob(row.ciphertext),
+    nonce: optionalBlob(row.nonce),
+    keyVersion: row.keyVersion === null || row.keyVersion === undefined ? null : Number(row.keyVersion),
+    sortOrder: Number(row.sortOrder),
+    createdAt: Number(row.createdAt),
+    updatedAt: Number(row.updatedAt),
+  };
 }
 
 function notificationSettingsOf(row: Row): NotificationSettings {
@@ -609,6 +684,7 @@ export class AppDb {
       this.#query((db) => db.exec(IMAGE_SETTINGS_TABLE));
       this.#query((db) => db.exec(IMAGE_CATALOG_TABLE));
       this.#query((db) => db.exec(SERVE_COMMANDS_TABLE));
+      this.#query((db) => db.exec(SECRETS_TABLE));
       // 列追加は CREATE TABLE IF NOT EXISTS の後 (既存テーブルでは CREATE が何もしないため)。DDL も
       // トランザクション対象なので、途中失敗で列だけが残らない
       this.#addColumnIfMissing("provider_credentials", "updatedAt", "INTEGER");
@@ -967,6 +1043,88 @@ export class AppDb {
         )
         .run(row.cwd, row.command, row.updatedAt),
     );
+  }
+
+  // --- secrets (作業フォルダ単位の環境変数) ---
+
+  /** 表示順 (sortOrder 昇順、同じなら名前順)。`serve_commands` と同じく cwd がキー */
+  listSecrets(cwd: string): SecretRow[] {
+    return this.#query((db) =>
+      (db.prepare("SELECT * FROM secrets WHERE cwd = ? ORDER BY sortOrder ASC, name ASC").all(cwd) as Row[]).map(
+        secretOf,
+      ),
+    );
+  }
+
+  getSecret(secretId: string): SecretRow | undefined {
+    const row = this.#query(
+      (db) => db.prepare("SELECT * FROM secrets WHERE secretId = ?").get(secretId) as Row | undefined,
+    );
+    return row ? secretOf(row) : undefined;
+  }
+
+  /** 同じ cwd 内の一意性判定 (UNIQUE(cwd, name) の事前確認。cwd が違えば同名を許す) */
+  findSecretByName(cwd: string, name: string): SecretRow | undefined {
+    const row = this.#query(
+      (db) => db.prepare("SELECT * FROM secrets WHERE cwd = ? AND name = ?").get(cwd, name) as Row | undefined,
+    );
+    return row ? secretOf(row) : undefined;
+  }
+
+  /** 追加は MAX(sortOrder) + 1。削除で詰めないため、並びは追加順に安定する */
+  nextSecretSortOrder(cwd: string): number {
+    const row = this.#query(
+      (db) => db.prepare("SELECT COALESCE(MAX(sortOrder), 0) + 1 AS next FROM secrets WHERE cwd = ?").get(cwd) as Row,
+    );
+    return Number(row.next);
+  }
+
+  /** 値は必ずバインドして渡す (SQL 文字列へ埋め込まない)。単一ステートメントなので自動コミットで確定する */
+  insertSecret(row: SecretRow): void {
+    this.#query((db) =>
+      db
+        .prepare(
+          `INSERT INTO secrets (secretId, cwd, name, kind, plaintext, ciphertext, nonce, keyVersion, sortOrder, createdAt, updatedAt)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        )
+        .run(
+          row.secretId,
+          row.cwd,
+          row.name,
+          row.kind,
+          row.plaintext,
+          row.ciphertext,
+          row.nonce,
+          row.keyVersion,
+          row.sortOrder,
+          row.createdAt,
+          row.updatedAt,
+        ),
+    );
+  }
+
+  /** 値の上書きのみ (名前・種別・並びは変えない)。使わない列は null にして種別の排他を保つ */
+  updateSecretValue(
+    secretId: string,
+    patch: {
+      plaintext: string | null;
+      ciphertext: Uint8Array | null;
+      nonce: Uint8Array | null;
+      keyVersion: number | null;
+      updatedAt: number;
+    },
+  ): void {
+    this.#query((db) =>
+      db
+        .prepare(
+          `UPDATE secrets SET plaintext = ?, ciphertext = ?, nonce = ?, keyVersion = ?, updatedAt = ? WHERE secretId = ?`,
+        )
+        .run(patch.plaintext, patch.ciphertext, patch.nonce, patch.keyVersion, patch.updatedAt, secretId),
+    );
+  }
+
+  deleteSecret(secretId: string): boolean {
+    return this.#query((db) => db.prepare("DELETE FROM secrets WHERE secretId = ?").run(secretId).changes > 0);
   }
 
   // --- 複数テーブルにまたがる更新 (部分適用を残さない) ---

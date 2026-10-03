@@ -1,6 +1,8 @@
-# APIキー漏洩の抑制
+# 秘密情報の扱い（出力マスクと作業フォルダの環境変数）
 
 プロバイダーAPIキーを環境変数や 設定 → モデルの GUI（[model-settings.md](model-settings.md)）で BFF へ渡す運用でも、キーが LLM・ブラウザ・ログへ流れにくくする多層防御。ツール実行自体はサンドボックスへ分離済み（[sandbox.md](sandbox.md)）で、ここで述べるのは BFF 内での出力マスク（キーが作業領域のファイル等へ現れた場合の二次漏洩対策）と、SDK の公開 API だけで実装する縛り。
+
+後半の[作業フォルダの環境変数](#作業フォルダの環境変数作業環境--環境変数)は、**保存時暗号化と実行時注入**で同じ目的を別の層から支える仕組み。暗号化の対象はこの機能で登録したシークレットだけで、プロバイダー / 画像の APIキーは従来どおり平文である（[平文で残るもの](#平文で残るもの)）。
 
 ## 保護対象
 
@@ -49,7 +51,13 @@ SDK はツール出力をいくつかの方法で切り詰める。キーが切�
 - `server/test/sessions-secrets.test.ts` — SSE イベント・payload・エラー経路のマスクと、秘密を含まない出力が改変されないこと。スキル読み込みの `ToolCall.skill` / `ChatMessage.skillLoads` も対象
 - `server/test/model-settings.test.ts` / `server/test/model-settings-api.test.ts` — GUI 登録キーのマスカー登録順序、DB 例外にキーが載っても応答・health・ログに出ないこと
 - `server/test/image-settings.test.ts` / `server/test/image-settings-api.test.ts` — 画像キーのマスカー登録順序（DB より前・起動時）、DB 例外にキーが載っても応答・health・ログに出ないこと、ローカル定義（`generate_image`）の throw のマスク（`server/test/image-tools.test.ts`）
-- `server/test/app-db.test.ts` — `sanitizeError` が `#query` のログ・`#error`・`open()` の失敗の両方に効くこと
+- `server/test/app-db.test.ts` — `sanitizeError` が `#query` のログ・`#error`・`open()` の失敗の両方に効くこと。secrets の加算移行、新しい schema での作り直しでも秘密が消えないこと、並びと値列の排他
+- `server/test/secret-crypto.test.ts` — AEAD の往復、nonce を再利用しないこと、AAD 不一致 / 改ざん / 誤鍵 / 未知の鍵版の拒否、master key の書式と解決
+- `server/test/secrets.test.ts` — 名前と値の規則、cwd スコープの照合 (他会話の `secret_id` は 404)、一覧が名前・種別・更新時刻だけを返すこと、世代、起動 env の解決とマスカー登録 (8 文字未満は登録しない)
+- `server/test/secrets-api.test.ts` — API の往復、シークレットの値がどの応答にも載らないこと、別 cwd の参照 / 変更 / 削除の拒否、master key 未設定の 503 `not_stored`
+- `server/test/serve.test.ts` — 起動時の環境変数がコマンド文字列へ入らず exec の env として渡ること、`secretGeneration` が記録に載り値は載らないこと、解決失敗で起動しないこと
+- `server/test/sandbox-service.test.ts` — 注入した env が bash の子プロセスへ入り、予約名 / 不正な名前は 400、master key は子プロセスへ漏れないこと
+- `client/test/sessionEnv.test.ts` — 名前のプレビュー、種別ごとの文言、短い値の注記、追加フォームの送信可否、要求元 (sessionId / projectId) の解決
 - `server/test/redact.test.ts` — `createMutableSecretMasker` の swap（追加・置換・失敗時の原子性）と、先に作った streaming masker が swap 後の値を保留幅に使うこと
 
 ## 残存リスク
@@ -60,3 +68,71 @@ SDK はツール出力をいくつかの方法で切り詰める。キーが切�
 - 設定 → モデルで登録したキーは `PI_SESSION_STORE/u7agent.db` に**平文**で残る。WAL・バックアップ・ボリュームの読み取り権限を持つ者は読める。ログイン認証がないため BFF を LAN / インターネットへ公開しない（詳細は [model-settings.md](model-settings.md#残存リスク)）
 - 削除・上書きした旧キーの保護は**プロセス生存中だけ**。再起動後はチャットへ貼り付けた生の入力が再投影で見えうる（tombstone は将来課題）
 - ランタイム初期化に失敗したとき（`pi` が null）は可変マスカー自体が作られないため、この状態で起動したプロセスでは DB のキーを新たにマスク対象へ足せない。この場合も認証変更 API と画像キー登録 API は 503 で、キーは新規登録されない
+
+## 作業フォルダの環境変数（作業環境 → 環境変数）
+
+作業フォルダ（cwd）単位で名前と値を登録し、サービス（serve）へ実行時だけ渡す。種別は 2 つ。
+
+| 種別 | 保存 | 値が見える範囲 |
+| --- | --- | --- |
+| 変数 | 平文（`secrets.plaintext`） | エージェントの `bash`（exec ごとの env）と、サービスの起動時 env |
+| シークレット | AEAD（`ciphertext` / `nonce` / `keyVersion`） | サービスの起動時 env だけ |
+
+### 所有者とスコープ
+
+- 所有者は会話ではなく **cwd**（`rootCwd` 相対）。`serve_commands` と同じキー空間で、「そのフォルダで動くサービスにはそのフォルダの env が入る」。プロジェクト所属は登録ディレクトリ、未所属は `.u7agent/sessions/<id>` なので、同じ作業フォルダを使う会話は自動的に共有する
+- 一覧・変更・削除は、要求元セッション（`sessionId`）または未作成のプロジェクト起点の会話（`projectId`）を cwd へ解決し、行の `cwd` と照合する（`server/src/secrets.ts` の `createSecretScope` と `SecretService#find`）。他会話の `secret_id` を指定しても 404 で拒否される
+- プロジェクト行の登録解除（`DELETE /api/projects/:id`）では秘密を消さない。`cwd` がキーなので、同じディレクトリを再登録すれば設定はそのまま戻る
+- cwd が決まっている会話ではタブを出す（プロジェクト起点の新規会話でも保存できる）。未所属の新規会話は `sessionId` の採番後から。設定ページでは出さない（[ui-layout.md](ui-layout.md#作業環境パネル)）
+
+### 名前と値の規則
+
+名前（`process.env.<name>` の名前そのもの。`server/src/env-names.ts` が正）:
+
+- 使用可能文字は半角英数字と `_` だけ（先頭は英字か `_`）。長さは正規化後 1〜64 文字。前後の空白は trim してから検証する
+- trim → 大文字化して保存・一意性判定・注入・表示を揃える。UI は入力中に正規化後の名前をプレビューする。**変更はできず**、変えたいときは削除して作り直す
+- `PI_*` / `PI_SANDBOX_*` / `U7AGENT_*` と、実行制御系（`PATH` / `HOME` / `NODE_OPTIONS` / `NODE_PATH` / `LD_PRELOAD` / `LD_LIBRARY_PATH` / `PYTHONPATH` / `PYTHONSTARTUP` / `BASH_ENV` / `IFS` / `SHELLOPTS` / `PS4`）は拒否する
+- `VITE_*` / `NEXT_PUBLIC_*` / `REACT_APP_*` / `PUBLIC_*` は、値がブラウザのバンドルへ入るスタックのため**シークレットでは拒否**する（変数では許可する）
+
+値:
+
+- 変数は 1〜4096 文字、シークレットは 1〜8192 バイト（UTF-8）。NUL は拒否し、CRLF は LF へ正規化する
+- 前後の空白 / 改行は除去して保存する。除去したときだけ応答の `trimmed` が true になり、UI が「前後に空白 / 改行があったため除去しました」を 1 行出す（無言で加工しない）
+- 空値は不可（未設定にしたいときは削除する）
+- 一覧は名前・種別・更新時刻だけを返す。値を返す API は**変数**の詳細（`GET /api/secrets/:secretId`）だけで、シークレットの値は保存後にどの経路でも返らない
+- 並びは `sortOrder`（追加は `MAX + 1`、削除で詰めない）→ 名前順。並べ替え UI は無い（列だけ用意する）
+
+### 注入経路
+
+- **変数**: エージェントの `bash` へ **exec ごとの env** として渡す（`SandboxExecuteRequestBody.env`）。変更はエージェントの次の `bash` から反映する
+- **変数 + シークレット**: `serve` の起動時 env として渡す。起動スクリプト（`launchScript`）のコマンド文字列へは埋め込まない（base64 化もしない）
+- 起動時の解決は**起動元の作業フォルダ**から行い、解決に失敗したら起動しない（平文で保存し直す / 秘密なしで起動する、のどちらもしない）。既に動いているサービスは古い値のままなので、シークレットの変更は次回の起動から反映する
+- `ServeRecord.secretGeneration` に起動時に解決した世代（名前 → `secret_id` / 更新世代のハッシュ）を残し、`GET /api/secrets` の `generation` と比べると「再起動で反映される変更がある」と分かる。UI はタブ上部の説明 1 行までで、行ごとの未反映バッジと再起動ボタンは次のフェーズ
+- サンドボックスは受け取った名前を `isInjectableEnvName` で再検証し（BFF を経由しない呼び出しへの防御）、`PI_SANDBOX_TOKEN` と master key の env を子プロセスから剥がす
+
+### master key と保存時の暗号化
+
+- 方式は AES-256-GCM。nonce は保存のたびに作り直し、認証タグは暗号文の末尾に付けて `ciphertext` の 1 つの BLOB として持つ。AAD は `u7agent-secret:<kind>:<name>` で、**cwd / スコープは含めない**（スコープの変更やコピーで復号をやり直さないため。名前と種別は変更できないので固定しても破綻しない）
+- master key はアプリ DB と別経路から渡す。`U7AGENT_SECRET_MASTER_KEY`、または `U7AGENT_SECRET_MASTER_KEY_FILE` が指すファイル。書式は `<版>:<base64 の 32 バイト鍵>` をカンマ / 空白区切りで並べる（例 `1:...`）。複数の版を宣言でき、読み出しは行の `keyVersion` で選び、新しい保存は最大の版を使う（rotation の実装は別スコープで、形だけ用意する）
+- master key 未設定 / 宣言が壊れている / 未知の鍵版 / 復号失敗 / 保存値の欠落では、シークレットの登録と利用を 503 で拒否する。既存の行を新規鍵で上書きしたり、行を消したりはしない（変数は平文なので影響しない）
+- 保存時（BFF が値を受け取った直後）と起動時の復号時に、8 文字以上の値を `retainSecret()` で出力マスカーへ足す（削除・上書き後もプロセス生存中は外さない）。8 文字未満は登録せず、UI に「短い値は自動マスクされません」を出す（短い値を保護すると会話本文が軒並み `[REDACTED]` になるため）。**変数は登録しない**（エージェントに見えてよい値なので `NODE_ENV=production` などで誤爆する）
+
+### 平文で残るもの
+
+DB 全体が暗号化されるわけではない。暗号化されるのは今回のシークレットだけで、以下は従来どおり平文である。
+
+- `provider_credentials.apiKey` / `image_settings.apiKey`（[model-settings.md](model-settings.md#残存リスク)、[image-generation.md](image-generation.md#キーの扱い)）
+- `provider_memos.memo`（秘密情報として扱わない人間用メモ。マスカーへも登録しない）
+- `secrets.plaintext`（種別 = 変数）と、変数の値が現れる API 応答（変更フォーム用の詳細）
+
+### 保証範囲と残存リスク
+
+保証するのは **「エージェントの env と作業フォルダに値そのものを置かない」** ところまで。
+
+- シークレットはエージェントの `bash` の env に入らない（`printenv` / `env` では見えない）。ただし同一サンドボックス・同一 Unix user で動くため、サービスの `/proc/<pid>/environ` や ptrace の設定次第では読める可能性がある（`ptrace_scope` などホスト構成に依存し、未検証。Agent / App Runtime の分離は別 Issue）
+- アプリのコードが値を HTTP 応答などへ出せば、エージェントは `curl` / `read` で読める。マスカーは文字列の完全一致と部分一致までで、エンコード・分割は防げない
+- ランチャーは `.env` を読まない（現状維持）。パネルの値は実環境変数として起動プロセスへ渡す。アプリが `.env` を読むかはアプリ次第で、`dotenv` / `python-dotenv` / Node の `--env-file` は実 env を上書きしないのが既定だが、`override: true` や Vite のようにプレフィックス無しを `process.env` へ入れないスタックでは挙動が異なる。**同名が `.env` にあった場合の優先順位は保証しない**（衝突検知は別スコープ。値が見えないため逆転を検知できない）
+- 8 文字未満のシークレットは自動マスクの対象外
+- `pnpm dev` は master key をサンドボックスの子プロセスへ渡さない（BFF だけが受け取る。`bash` の子プロセスからはサンドボックス側でも剥がす）。デプロイ構成で同じことを保証するのは別スコープ
+- 削除しても、既にサービスへ渡った値・外部サービスの資格情報は失効しない
+- 管理 API の認証（既存の Origin 対策は認証ではない）、egress 制御、key rotation、外部 Secret Manager は別スコープ

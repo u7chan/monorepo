@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import test from "node:test";
-import { AppDb, APP_DB_FILENAME, APP_DB_SCHEMA_VERSION } from "../src/app-db";
+import { AppDb, APP_DB_FILENAME, APP_DB_SCHEMA_VERSION, type SecretRow } from "../src/app-db";
 import type { AgentDef, Project, SkillDef } from "../src/schema";
 
 function tempStoreDir(): string {
@@ -1020,4 +1020,135 @@ test("open() failure messages pass through sanitizeError", () => {
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
+});
+
+/** v10 相当のスキーマ (secrets が無い状態)。v10 の実ファイルと同じ形 */
+const V10_TABLES = `
+${V8_TABLES}
+CREATE TABLE IF NOT EXISTS image_catalog (
+  id        INTEGER PRIMARY KEY CHECK (id = 1),
+  fetchedAt INTEGER NOT NULL,
+  models    TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS serve_commands (
+  cwd       TEXT PRIMARY KEY,
+  command   TEXT NOT NULL,
+  updatedAt INTEGER NOT NULL
+);
+`;
+
+const secretRow = (overrides: Partial<SecretRow> = {}): SecretRow => ({
+  secretId: "s1",
+  cwd: "projects/alpha",
+  name: "API_KEY",
+  kind: "secret",
+  plaintext: null,
+  ciphertext: new Uint8Array([1, 2, 3]),
+  nonce: new Uint8Array([4, 5, 6]),
+  keyVersion: 1,
+  sortOrder: 1,
+  createdAt: 10,
+  updatedAt: 10,
+  ...overrides,
+});
+
+test("migrates a v10 db additively and keeps the secrets table across reopen", () => {
+  const dir = tempStoreDir();
+  try {
+    const raw = new DatabaseSync(join(dir, APP_DB_FILENAME));
+    raw.exec(V10_TABLES);
+    raw.exec("PRAGMA user_version = 10");
+    raw.prepare("INSERT INTO projects (id, name, cwd, createdAt) VALUES (?, ?, ?, ?)").run("p1", "p1", "proj-a", 1);
+    raw.prepare("INSERT INTO serve_commands (cwd, command, updatedAt) VALUES (?, ?, ?)").run("proj-a", "pnpm dev", 1);
+    raw.close();
+
+    const first = AppDb.open({ storeDir: dir });
+    assert.equal(APP_DB_SCHEMA_VERSION, 11);
+    // 加算移行なので既存の行は残り、secrets は行が無い = 未設定で始まる
+    assert.deepEqual(first.listProjects(), [project("p1", "proj-a")]);
+    assert.deepEqual(first.getServeCommand("proj-a"), { cwd: "proj-a", command: "pnpm dev", updatedAt: 1 });
+    assert.deepEqual(first.listSecrets("proj-a"), []);
+    first.insertSecret(secretRow({ cwd: "proj-a" }));
+    first.close();
+
+    const second = AppDb.open({ storeDir: dir });
+    const [row] = second.listSecrets("proj-a");
+    assert.equal(row?.name, "API_KEY");
+    assert.deepEqual([...(row?.ciphertext ?? [])], [1, 2, 3]);
+    assert.deepEqual([...(row?.nonce ?? [])], [4, 5, 6]);
+    assert.equal(row?.keyVersion, 1);
+    assert.equal(second.findSecretByName("proj-a", "API_KEY")?.secretId, "s1");
+    assert.equal(second.findSecretByName("proj-a", "MISSING"), undefined);
+    assert.equal(second.findSecretByName("proj-b", "API_KEY"), undefined, "cwd が違えば同名でも引かない");
+    second.close();
+
+    const check = new DatabaseSync(join(dir, APP_DB_FILENAME));
+    assert.equal(Number(check.prepare("PRAGMA user_version").get()?.user_version), APP_DB_SCHEMA_VERSION);
+    check.close();
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("recreating the schema (a newer code's db) keeps the secrets table and its rows", () => {
+  const dir = tempStoreDir();
+  try {
+    const first = AppDb.open({ storeDir: dir });
+    first.insertProject(project("p1", "proj-a"));
+    first.insertSecret(secretRow());
+    first.insertSecret(secretRow({ secretId: "s2", name: "NODE_ENV", kind: "variable", plaintext: "production" }));
+    first.close();
+
+    // 古いビルド (このテーブルを知らない) が開いて作り直す経路を再現する
+    const raw = new DatabaseSync(join(dir, APP_DB_FILENAME));
+    raw.exec(`PRAGMA user_version = ${APP_DB_SCHEMA_VERSION + 1}`);
+    raw.close();
+
+    const second = AppDb.open({ storeDir: dir });
+    // 既知のテーブルは作り直される (プロジェクトは消える) が、秘密は消えない
+    assert.deepEqual(second.listProjects(), []);
+    assert.deepEqual(
+      second.listSecrets("projects/alpha").map((row) => [row.secretId, row.name, row.kind]),
+      [
+        ["s1", "API_KEY", "secret"],
+        ["s2", "NODE_ENV", "variable"],
+      ],
+    );
+    second.close();
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("secrets の並びは sortOrder + name で、削除しても詰めない", () => {
+  const db = AppDb.open({ storeDir: null });
+  assert.equal(db.nextSecretSortOrder("projects/alpha"), 1);
+  db.insertSecret(secretRow({ secretId: "s1", name: "B", sortOrder: 1 }));
+  db.insertSecret(secretRow({ secretId: "s2", name: "A", sortOrder: 2 }));
+  assert.equal(db.nextSecretSortOrder("projects/alpha"), 3);
+  assert.deepEqual(
+    db.listSecrets("projects/alpha").map((row) => row.name),
+    ["B", "A"],
+    "sortOrder の昇順で、名前順は同じ sortOrder のときだけ効く",
+  );
+  assert.equal(db.deleteSecret("s1"), true);
+  assert.equal(db.deleteSecret("s1"), false);
+  assert.deepEqual(
+    db.listSecrets("projects/alpha").map((row) => row.name),
+    ["A"],
+  );
+  // 名前の上書きはできず、値の列だけが入れ替わる (種別ごとに使う列は排他)
+  db.updateSecretValue("s2", {
+    plaintext: null,
+    ciphertext: new Uint8Array([9]),
+    nonce: new Uint8Array([8]),
+    keyVersion: 3,
+    updatedAt: 99,
+  });
+  const [row] = db.listSecrets("projects/alpha");
+  assert.equal(row.name, "A");
+  assert.equal(row.updatedAt, 99);
+  assert.equal(row.keyVersion, 3);
+  assert.equal(row.plaintext, null);
+  db.close();
 });

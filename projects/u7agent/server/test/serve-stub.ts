@@ -27,6 +27,8 @@ export interface ServeSandboxState {
   /** launch したプロセスの起動時刻 (観測スクリプトが返す値) */
   launchStartedAt: number;
   launched: Array<{ workdir: string; command: string; log: string }>;
+  /** launch へ渡した env (渡さなければ undefined)。起動時の環境変数注入の検証に使う */
+  launchEnvs: (Record<string, string> | undefined)[];
   killed: number[];
   /** kill が効くか。false で「停止してもポートが空かない」状態を再現する */
   killWorks: boolean;
@@ -63,6 +65,7 @@ export function createServeSandboxStub(): ServeSandboxStub {
     orphanInodes: [],
     launchStartedAt: 1_700_000_000_000,
     launched: [],
+    launchEnvs: [],
     killed: [],
     writes: 0,
     scans: 0,
@@ -78,6 +81,7 @@ export function createServeSandboxStub(): ServeSandboxStub {
       const script = command ?? "";
       if (script.includes("nohup bash -c")) {
         const [workdir, command] = embedded(script);
+        state.launchEnvs.push(input.env);
         state.launched.push({
           workdir: workdir ?? "",
           command: command ?? "",
