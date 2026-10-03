@@ -11,7 +11,7 @@ import {
 } from "../lib/servedApp";
 import type { ServeStatus } from "../types";
 import { MenuItem } from "./MenuItem";
-import { ExternalLinkIcon, PlayIcon, RunSpinnerIcon, StopIcon } from "./icons";
+import { ExternalLinkIcon, PowerIcon, RunSpinnerIcon, StopIcon } from "./icons";
 
 export type ServedAppProps = {
   /** health の previewPort (ブラウザから見たポート)。未取得ならリンクを出さない */
@@ -114,7 +114,7 @@ export function ServedAppGroup({ port, status, failed, starting, onStart, onStop
       ) : null}
       {view.canStart ? (
         <button type="button" onClick={onStart} title={servedAppReplaceHint(view)} className="btn-quiet shrink-0">
-          <PlayIcon />
+          <PowerIcon />
           起動
         </button>
       ) : null}
@@ -128,10 +128,7 @@ function ServeSeparator() {
   return <i aria-hidden="true" className="block h-5.5 w-px shrink-0 bg-line" />;
 }
 
-/**
- * compact の状態アイコン + タップメニュー。押せるのは稼働中・起動元不明・起動中のときだけで、
- * 停止中はボタンの外装を持たない押せない状態表示にする (メニューも出さない)。
- */
+/** compact は幅を増やさないため、停止中の起動も状態メニューも同じ 1 枠に収める。 */
 export function ServedAppIndicator({ port, status, failed, starting, onStart, onStop, onCancel }: ServedAppProps) {
   const view = servedAppView(status);
   const menuId = useId();
@@ -186,12 +183,17 @@ export function ServedAppIndicator({ port, status, failed, starting, onStart, on
   }, [starting]);
 
   if (failed || (!starting && view.kind === "none")) return null;
-  // 停止中は押せない (モバイルからは起動できない。起動は desktop かエージェントから行う)
   if (!starting && view.kind === "stopped") {
     return (
-      <span role="img" aria-label={view.ariaLabel} title={view.badgeTitle} className="serve-indicator">
-        <span className="dot dot-idle" />
-      </span>
+      <button
+        type="button"
+        onClick={onStart}
+        aria-label={view.ariaLabel}
+        title={servedAppReplaceHint(view)}
+        className="icon-button shrink-0"
+      >
+        <PowerIcon />
+      </button>
     );
   }
 
@@ -265,7 +267,7 @@ export function ServedAppIndicator({ port, status, failed, starting, onStart, on
           ? [
               {
                 key: "start",
-                icon: <PlayIcon />,
+                icon: <PowerIcon />,
                 label: "起動",
                 description: servedAppReplaceHint(view),
                 run: onStart,

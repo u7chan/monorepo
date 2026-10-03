@@ -552,15 +552,6 @@ html[data-theme="sky"] {
     border-color: color-mix(in srgb, var(--c-accent) 42%, transparent);
     color: var(--c-accent-text);
   }
-  /* 停止中はボタンの外装を持たない押せない状態表示 (メニューも出さない) */
-  .serve-indicator {
-    @apply grid size-9 shrink-0 place-items-center;
-  }
-  .serve-indicator .dot {
-    width: 9px;
-    height: 9px;
-  }
-
   /* 実行中スピナー。steps の段数はドット数 (icons.tsx の RunSpinnerIcon) に合わせる */
   .run-spinner {
     transform-origin: center;

@@ -2,7 +2,7 @@
  * サービスの状態表示 (トップバー) の純関数。表示と操作は docs/ui-layout.md の表が正で、
  * ここは「どの状態をどう描くか」だけを決める (描画と API 呼び出しは component / hook が持つ)。
  */
-import type { ServeStatus } from "../types";
+import type { RunStatus, ServeStatus, SessionSummary } from "../types";
 
 export function servedAppUrl(hostname: string, port: number | undefined): string | undefined {
   if (!hostname || port === undefined || !Number.isInteger(port) || port < 1 || port > 65535) return undefined;
@@ -25,6 +25,32 @@ export function openServedApp(url: string): void {
 
 /** 表の 5 行に対応する見え方。none は何も出さない */
 export type ServeViewKind = "none" | "running" | "stopped" | "other" | "unknown";
+
+export type ServeBusyKind = "self" | "other";
+
+export function servedAppBusyKind({
+  selfStatus,
+  sessionId,
+  projectId,
+  sessions,
+}: {
+  selfStatus: RunStatus;
+  sessionId: string;
+  projectId?: string;
+  sessions: readonly Pick<SessionSummary, "sessionId" | "projectId" | "status">[];
+}): ServeBusyKind | undefined {
+  const isBusy = (status: RunStatus) => status === "running" || status === "queued";
+  if (isBusy(selfStatus)) return "self";
+  if (
+    projectId &&
+    sessions.some(
+      (session) => session.sessionId !== sessionId && session.projectId === projectId && isBusy(session.status),
+    )
+  ) {
+    return "other";
+  }
+  return undefined;
+}
 
 export interface ServeView {
   kind: ServeViewKind;
@@ -117,7 +143,7 @@ export function servedAppView(status: ServeStatus | null | undefined): ServeView
       canStop: false,
       canStart: true,
       badgeTitle: "この会話の作業ディレクトリには起動の実績があります",
-      ariaLabel: "サービスは停止中",
+      ariaLabel: "サービスを起動",
     };
   }
   return NONE;
@@ -152,8 +178,20 @@ export function servedAppReplaceConfirm(view: ServeView): string {
   ].join("\n");
 }
 
+export function servedAppStartConfirm(view: ServeView, busy: ServeBusyKind | undefined): string | undefined {
+  const parts: string[] = [];
+  if (view.kind === "other" || view.kind === "unknown") parts.push(servedAppReplaceConfirm(view));
+  if (busy === "self") {
+    parts.push("エージェントが実行中です。編集途中のファイルを読み込んだ状態で起動します。");
+  } else if (busy === "other") {
+    parts.push("同じ作業フォルダの他会話でエージェントが実行中です。編集途中のファイルを読み込んだ状態で起動します。");
+  }
+  return parts.length ? parts.join("\n\n") : undefined;
+}
+
 /** 置き換えの起動項目の説明文 (押す前の予告) */
 export function servedAppReplaceHint(view: ServeView): string {
+  if (view.kind === "stopped") return "この会話のサービスを起動";
   if (view.kind === "unknown") return "停止して置き換え";
   return view.ownerTitle ? `会話「${view.ownerTitle}」を停止して置き換え` : "停止して置き換え";
 }

@@ -50,7 +50,6 @@ export function CompactBar({
         <button type="button" onClick={onOpenNav} aria-label="ナビゲーションを開く" className="icon-button">
           <MenuIcon />
         </button>
-        {/* 状態はナビの次・通知の左。停止中はボタンの外装を持たない押せない状態表示になる */}
         <ServedAppIndicator {...serve} />
         {landscape ? (
           // プロジェクト名に長さ制限は無い。行の半分を上限にして収縮と省略を許し、タイトルと固定幅の

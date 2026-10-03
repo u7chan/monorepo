@@ -4,7 +4,14 @@ import test from "node:test";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { ServedAppGroup, ServedAppIndicator } from "../src/components/ServedAppStatus";
-import { servedAppReplaceConfirm, servedAppUrl, servedAppView } from "../src/lib/servedApp";
+import {
+  servedAppBusyKind,
+  servedAppReplaceConfirm,
+  servedAppReplaceHint,
+  servedAppStartConfirm,
+  servedAppUrl,
+  servedAppView,
+} from "../src/lib/servedApp";
 import { serveProps, serveStatus } from "./serve-fixture";
 
 /** location.hostname を使うリンク生成のための最小のグローバル (node には無い) */
@@ -123,7 +130,7 @@ test("起動中は遷移状態としてバッジとキャンセルを出し、�
   assert.match(running, /dot dot-ok/);
 });
 
-test("compact は状態アイコン 1 個。停止中は押せない状態表示でメニューも出さない", () => {
+test("compact は 1 枠で操作でき、停止中はメニューなしの起動ボタンを出す", () => {
   const running = withLocation(() =>
     renderToStaticMarkup(
       createElement(
@@ -139,11 +146,8 @@ test("compact は状態アイコン 1 個。停止中は押せない状態表示
   assert.match(running, /サービスを開く/);
   assert.match(running, /停止/);
 
-  // 停止中は role="img" の押せない状態表示 (ボタンもメニューも出さない)
   const stopped = renderToStaticMarkup(createElement(ServedAppIndicator, serveProps()));
-  assert.match(stopped, /role="img" aria-label="サービスは停止中"/);
-  assert.match(stopped, /serve-indicator/);
-  assert.ok(!stopped.includes("<button"));
+  assert.match(stopped, /^<button\b[^>]*aria-label="サービスを起動"/);
   assert.ok(!stopped.includes("popover"));
 
   // 他会話が使用中は押せて、起動は説明文で置き換えを予告する
@@ -189,4 +193,119 @@ test("置き換えの確認文言は所有者名と起動コマンドを出す",
   const unknown = servedAppView(serveStatus({ reachable: true, owner: { kind: "unknown" } }));
   assert.match(servedAppReplaceConfirm(unknown), /起動元不明のサービスが公開中です/);
   assert.match(servedAppReplaceConfirm(unknown), /pnpm dev/);
+});
+
+test("閲覧中の会話が running / queued なら、所属にかかわらず self を返す", () => {
+  for (const selfStatus of ["running", "queued"] as const) {
+    for (const projectId of ["project-a", "", undefined]) {
+      assert.equal(servedAppBusyKind({ selfStatus, sessionId: "self", projectId, sessions: [] }), "self");
+    }
+  }
+});
+
+test("圧縮中・待機中・終端の閲覧中会話だけでは実行中と判定しない", () => {
+  for (const selfStatus of ["compacting", "idle", "completed", "stopped", "error"] as const) {
+    assert.equal(servedAppBusyKind({ selfStatus, sessionId: "self", sessions: [] }), undefined);
+  }
+});
+
+test("同じプロジェクトの他会話が running / queued のときだけ other を返す", () => {
+  for (const status of ["running", "queued", "compacting", "idle", "completed", "stopped", "error"] as const) {
+    for (const selfStatus of ["idle", "compacting"] as const) {
+      assert.equal(
+        servedAppBusyKind({
+          selfStatus,
+          sessionId: "self",
+          projectId: "project-a",
+          sessions: [{ sessionId: "other", projectId: "project-a", status }],
+        }),
+        status === "running" || status === "queued" ? "other" : undefined,
+      );
+    }
+  }
+});
+
+test("他会話の所属が違う場合と、非空の所属を照合できない場合は実行中と判定しない", () => {
+  const projects = ["project-a", "project-b", "", undefined];
+  for (const projectId of projects) {
+    for (const otherProjectId of projects) {
+      assert.equal(
+        servedAppBusyKind({
+          selfStatus: "idle",
+          sessionId: "self",
+          projectId,
+          sessions: [{ sessionId: "other", projectId: otherProjectId, status: "running" }],
+        }),
+        projectId && projectId === otherProjectId ? "other" : undefined,
+      );
+    }
+  }
+});
+
+test("他会話の照合から自分自身を除き、一覧の古い実行状態で確認を増やさない", () => {
+  for (const status of ["running", "queued"] as const) {
+    assert.equal(
+      servedAppBusyKind({
+        selfStatus: "completed",
+        sessionId: "self",
+        projectId: "project-a",
+        sessions: [{ sessionId: "self", projectId: "project-a", status }],
+      }),
+      undefined,
+    );
+  }
+});
+
+test("閲覧中の会話と同じプロジェクトの他会話が実行中なら self を優先する", () => {
+  for (const selfStatus of ["running", "queued"] as const) {
+    assert.equal(
+      servedAppBusyKind({
+        selfStatus,
+        sessionId: "self",
+        projectId: "project-a",
+        sessions: [{ sessionId: "other", projectId: "project-a", status: "running" }],
+      }),
+      "self",
+    );
+  }
+});
+
+test("起動の確認は置き換えだけなら既存の文言を使い、どちらもなければ省略する", () => {
+  const stopped = servedAppView(serveStatus());
+  assert.equal(servedAppStartConfirm(stopped, undefined), undefined);
+  for (const owner of [{ kind: "other", title: "決済画面の検証" }, { kind: "unknown" }] as const) {
+    const view = servedAppView(serveStatus({ reachable: true, owner }));
+    assert.equal(servedAppStartConfirm(view, undefined), servedAppReplaceConfirm(view));
+  }
+});
+
+test("実行中だけの起動確認は、閲覧中と同じ作業フォルダの他会話で文言を分ける", () => {
+  const stopped = servedAppView(serveStatus());
+  assert.equal(
+    servedAppStartConfirm(stopped, "self"),
+    "エージェントが実行中です。編集途中のファイルを読み込んだ状態で起動します。",
+  );
+  assert.equal(
+    servedAppStartConfirm(stopped, "other"),
+    "同じ作業フォルダの他会話でエージェントが実行中です。編集途中のファイルを読み込んだ状態で起動します。",
+  );
+});
+
+test("置き換えと実行中の確認は、置き換え → 空行 → 実行中の順で 1 つにまとめる", () => {
+  for (const owner of [{ kind: "other", title: "決済画面の検証" }, { kind: "unknown" }] as const) {
+    const view = servedAppView(serveStatus({ reachable: true, owner }));
+    for (const [busy, message] of [
+      ["self", "エージェントが実行中です。編集途中のファイルを読み込んだ状態で起動します。"],
+      ["other", "同じ作業フォルダの他会話でエージェントが実行中です。編集途中のファイルを読み込んだ状態で起動します。"],
+    ] as const) {
+      assert.equal(servedAppStartConfirm(view, busy), `${servedAppReplaceConfirm(view)}\n\n${message}`);
+    }
+  }
+});
+
+test("停止中の起動ヒントは停止・置き換えを予告せず、状態の根拠とは分ける", () => {
+  const stopped = servedAppView(serveStatus());
+  assert.equal(stopped.ariaLabel, "サービスを起動");
+  assert.equal(stopped.badgeTitle, "この会話の作業ディレクトリには起動の実績があります");
+  assert.equal(servedAppReplaceHint(stopped), "この会話のサービスを起動");
 });
