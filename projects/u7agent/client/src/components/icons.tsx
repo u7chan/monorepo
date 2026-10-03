@@ -231,11 +231,20 @@ export function ExternalLinkIcon() {
   );
 }
 
-/** サービスの起動 (塗りの三角)。押せることを形で示す */
-export function PlayIcon() {
+export function PowerIcon() {
   return (
-    <svg aria-hidden="true" viewBox="0 0 16 16" fill="currentColor" className="size-3.5 shrink-0">
-      <path d="M5 3.5v9l7.5-4.5z" />
+    <svg
+      aria-hidden="true"
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.5"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className="size-3.5 shrink-0"
+    >
+      <path d="M8 2v6" />
+      <path d="M4.5 3.5a5.5 5.5 0 1 0 7 0" />
     </svg>
   );
 }

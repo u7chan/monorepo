@@ -39,7 +39,7 @@ import {
   notifyUnavailableNote,
 } from "./lib/notifications";
 import { sessionFilesDefaultOpen, sessionFilesRoot } from "./lib/sessionFiles";
-import { servedAppReplaceConfirm, servedAppView } from "./lib/servedApp";
+import { servedAppBusyKind, servedAppStartConfirm, servedAppView } from "./lib/servedApp";
 import { activityDisplay, retryRemainingMs } from "./lib/retryState";
 import { RUN_RETRY_PROMPT } from "./lib/runRetry";
 import {
@@ -215,14 +215,22 @@ export default function App() {
     setNotifyAttempted(false);
   }, [app.sessionId]);
 
+  // 表示中のセッション。エージェント切替で引き継ぐ作業先 (所属) の解決にも使う
+  const activeSession = app.sessions.find((item) => item.sessionId === app.sessionId);
+
   // サービスの状態と操作。バーの表示条件は lib/servedApp が決める (会話ごとの値なので facade が持つ)
   const serve = app.serve;
-  // 置き換えは他会話のプロセスを止めるため、押した後に確認してから実行する (取り消したら実行しない)
   const handleServeStart = useCallback(() => {
-    const view = servedAppView(app.serve.status);
-    if ((view.kind === "other" || view.kind === "unknown") && !window.confirm(servedAppReplaceConfirm(view))) return;
+    const busy = servedAppBusyKind({
+      selfStatus: app.chat.runStatus,
+      sessionId: app.sessionId,
+      projectId: activeSession?.projectId,
+      sessions: app.sessions,
+    });
+    const confirmation = servedAppStartConfirm(servedAppView(app.serve.status), busy);
+    if (confirmation !== undefined && !window.confirm(confirmation)) return;
     void app.serve.start();
-  }, [app.serve]);
+  }, [app.chat.runStatus, app.sessionId, activeSession?.projectId, app.sessions, app.serve]);
   const serveProps = {
     port: app.health?.previewPort,
     status: serve.status,
@@ -233,9 +241,6 @@ export default function App() {
     onStop: serve.stop,
     onCancel: serve.cancel,
   };
-
-  // 表示中のセッション。エージェント切替で引き継ぐ作業先 (所属) の解決にも使う
-  const activeSession = app.sessions.find((item) => item.sessionId === app.sessionId);
 
   // 利用者操作の新規会話の入口をここへ寄せる (サイドバー / ドロワー / エージェント切替 / プロジェクトの追加)。
   // 作成先はプロジェクトを指定する導線 (プロジェクト行の ⋯「このプロジェクトに新しい会話」/ 追加の成功後) が渡したときだけプロジェクトになり、

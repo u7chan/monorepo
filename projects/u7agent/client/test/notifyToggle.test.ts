@@ -356,10 +356,13 @@ test("compact のバーは ☰ を左端に置き、通知 → ファイルの�
   assert.ok(!html.includes("✦"), "装飾の ✦ が残っている");
   assert.ok(html.indexOf('aria-label="ナビゲーションを開く"') < html.indexOf("実装担当"), "☰ が左端に無い");
   assert.ok(
-    html.indexOf('aria-label="ナビゲーションを開く"') < html.indexOf('aria-label="サービスは停止中"'),
-    "状態がナビの次に無い",
+    html.indexOf('aria-label="ナビゲーションを開く"') < html.indexOf('aria-label="サービスを起動"'),
+    "サービスの起動がナビの次に無い",
   );
-  assert.ok(html.indexOf('aria-label="サービスは停止中"') < html.indexOf('aria-label="通知"'), "状態が通知の左に無い");
+  assert.ok(
+    html.indexOf('aria-label="サービスを起動"') < html.indexOf('aria-label="通知"'),
+    "サービスの起動が通知の左に無い",
+  );
   assert.ok(
     html.indexOf('aria-label="通知"') < html.indexOf('aria-label="作業フォルダ"'),
     "通知がファイルより右にある",
