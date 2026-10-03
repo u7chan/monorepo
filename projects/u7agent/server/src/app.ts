@@ -141,6 +141,8 @@ export async function createBffApp(opts: CreateBffAppOptions = {}) {
     .get("/api/runtime/models", runtimeRoutes.models)
     .get("/api/runtime/environment", runtimeRoutes.environment)
     .get("/api/files", fileRoutes.list)
+    // 一覧と同じ root 相対の path を受ける (repo の外は 200 + branch: null)
+    .get("/api/files/git", fileRoutes.git)
     // 一覧と同じパスに DELETE を重ねる (パスはクエリで受ける)
     .delete("/api/files", fileRoutes.remove)
     // パスは本文で受ける (改名先の名前をクエリに載せない)

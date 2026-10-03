@@ -13,6 +13,7 @@ import {
   FileListingSchema,
   FilePreviewSchema,
   FileRenameSchema,
+  GitInfoSchema,
   type RenameFileBody,
 } from "../schema";
 import {
@@ -234,6 +235,26 @@ export function createFileRoutes({
       if (!parsed.success) {
         return c.json({ error: "サンドボックスのファイル一覧が不正です" }, 502);
       }
+      return c.json(parsed.data);
+    },
+    /**
+     * 作業フォルダ (root 相対) が属する repo のブランチ。**repo の外はエラーにせず `branch: null`** を返し、
+     * UI はチップを出さないだけにする (ブランチは一覧の表示を止める情報ではない)。
+     */
+    git: async (c: Context) => {
+      if (!workspace) return sandboxNotConfigured(c);
+      let info: unknown;
+      try {
+        info = await workspace.getGitInfo(c.req.query("path") ?? ".");
+      } catch (error) {
+        return sandboxFailure(c, error);
+      }
+      const parsed = GitInfoSchema.safeParse(info);
+      if (!parsed.success) {
+        return c.json({ error: "サンドボックスの git 情報が不正です" }, 502);
+      }
+      // 再読み込みのたびに取り直す。ブランチは run の前後で変わりうる
+      c.header("Cache-Control", "no-store");
       return c.json(parsed.data);
     },
     /**

@@ -32,6 +32,8 @@ function stubWorkspace(): { workspace: SandboxWorkspaceClient; dirs: string[]; l
         return { path: path || ".", entries: [], truncated: false };
       },
       // ファイルスキルの発見はこのテストでは扱わない
+      // git 情報はこのテストでは扱わない
+      getGitInfo: async () => ({ branch: null }),
       listSkills: async () => ({ skills: [] }),
       createDir: async (path: string) => {
         dirs.push(path);

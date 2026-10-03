@@ -42,6 +42,8 @@ function recordingWorkspace() {
   const workspace: SandboxWorkspaceClient = {
     previewFile: async () => ({ text: "" }),
     listFiles: async () => ({ path: ".", entries: [], truncated: false }),
+    // git 情報はこのテストでは扱わない
+    getGitInfo: async () => ({ branch: null }),
     listSkills: async () => ({ skills: [] }),
     createDir: async (path: string) => ({ path }),
     renameEntry: async (path: string, name: string) => ({ path, name }),

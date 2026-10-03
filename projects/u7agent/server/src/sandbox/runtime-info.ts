@@ -98,7 +98,7 @@ function isInside(root: string, target: string): boolean {
  * 信頼ディレクトリから実行ファイルを解決する。symlink は実体まで解決し、実体が信頼ディレクトリの外なら
  * 使わない (ワークスペースや書き込み可能な場所へ置かれた実行ファイルへのすり替えを防ぐ)。
  */
-function resolveTrustedExecutable(name: string, pathDirs: readonly string[]): string | undefined {
+export function resolveTrustedExecutable(name: string, pathDirs: readonly string[]): string | undefined {
   if (!isValidCommandName(name)) return undefined;
   const trustedRoots = pathDirs.flatMap((dir) => {
     try {
@@ -149,7 +149,7 @@ export function runtimeProbeEnv(pathDirs: readonly string[]): NodeJS.ProcessEnv 
 }
 
 /** detached で作ったプロセスグループごと殺す (シェル経由の孫プロセスを残さない) */
-function killProcessTree(child: ChildProcess): void {
+export function killProcessTree(child: ChildProcess): void {
   if (child.pid === undefined) return;
   try {
     process.kill(-child.pid, "SIGKILL");

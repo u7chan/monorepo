@@ -115,6 +115,27 @@ export function RefreshIcon() {
   );
 }
 
+/** 作業フォルダの git ブランチ。線と左上の点は「いまの head」、右上の点は分岐先を表す */
+export function GitBranchIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.3"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className="size-3 shrink-0"
+    >
+      <path d="M4 2v8" />
+      <circle cx="12" cy="4" r="2" />
+      <circle cx="4" cy="12" r="2" />
+      <path d="M12 6a6 6 0 0 1-6 6" />
+    </svg>
+  );
+}
+
 /** 項目の追加 (文字の「＋」はベースラインが揃わないため図形で描く) */
 export function PlusIcon() {
   return (

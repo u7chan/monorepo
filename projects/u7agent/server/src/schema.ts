@@ -759,6 +759,13 @@ export const FileListingSchema = z.object({
 export type FileListing = z.infer<typeof FileListingSchema>;
 
 /**
+ * git 情報 (サンドボックス GET /v1/files/git の応答)。branch は HEAD のブランチ名で、detached HEAD は
+ * 短縮 SHA。repo の外・git が無い環境は null で、UI はチップを出さないだけにする。
+ */
+export const GitInfoSchema = z.object({ branch: z.string().nullable() });
+export type GitInfo = z.infer<typeof GitInfoSchema>;
+
+/**
  * テキストプレビュー (サンドボックス GET /v1/files/preview の応答)。
  * サンドボックス側の上限はバイト数で、ここは UTF-16 単位の防御。UTF-8 ではバイト数 ≥ 単位数なので通った文字列を弾かない。
  * 値は SANDBOX_MAX_PREVIEW_BYTES と揃える (変更手順は docs/file-preview.md の「上限」を参照)。

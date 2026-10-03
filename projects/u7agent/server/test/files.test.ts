@@ -11,7 +11,7 @@ import {
   type HtmlPreviewPolicy,
 } from "../src/routes/files";
 import { SandboxRequestError, type SandboxWorkspaceClient } from "../src/sandbox/client";
-import type { SandboxFileListing } from "../src/sandbox/protocol";
+import type { SandboxFileListing, SandboxGitInfo } from "../src/sandbox/protocol";
 
 const LISTING: SandboxFileListing = {
   path: "src",
@@ -23,9 +23,13 @@ const LISTING: SandboxFileListing = {
 };
 
 /** サンドボックスのメソッドが受け取った path を記録するスタブ */
-function stubFiles(result: SandboxFileListing | Error = LISTING): {
+function stubFiles(
+  result: SandboxFileListing | Error = LISTING,
+  gitResult: SandboxGitInfo | Error = { branch: null },
+): {
   workspace: SandboxWorkspaceClient;
   paths: string[];
+  gitPaths: string[];
   deleted: string[];
   deletedDirs: string[];
   renamed: Array<{ path: string; name: string }>;
@@ -33,6 +37,7 @@ function stubFiles(result: SandboxFileListing | Error = LISTING): {
   raw: string[];
 } {
   const paths: string[] = [];
+  const gitPaths: string[] = [];
   const deleted: string[] = [];
   const deletedDirs: string[] = [];
   const renamed: Array<{ path: string; name: string }> = [];
@@ -40,6 +45,7 @@ function stubFiles(result: SandboxFileListing | Error = LISTING): {
   const raw: string[] = [];
   return {
     paths,
+    gitPaths,
     deleted,
     deletedDirs,
     renamed,
@@ -54,6 +60,11 @@ function stubFiles(result: SandboxFileListing | Error = LISTING): {
         paths.push(path);
         if (result instanceof Error) throw result;
         return result;
+      },
+      getGitInfo: async (path: string) => {
+        gitPaths.push(path);
+        if (gitResult instanceof Error) throw gitResult;
+        return gitResult;
       },
       // ファイルスキルの発見はこのテストでは扱わない
       listSkills: async () => ({ skills: [] }),
@@ -675,6 +686,78 @@ test("GET /api/files answers 503 when the sandbox is not configured", async () =
     // 画面に理由を出すため、必要な環境変数を本文に含める
     assert.match(body.error, /PI_SANDBOX_URL/);
     assert.match(body.error, /PI_SANDBOX_TOKEN/);
+  } finally {
+    await bff.close();
+  }
+});
+
+test("GET /api/files/git returns the directory branch and does not cache it", async () => {
+  const { workspace, gitPaths } = stubFiles(LISTING, { branch: "feature/x" });
+  const bff = await createBffApp({ cwd: "/tmp/project", sessionStoreDir: null, pi: null, workspace });
+  try {
+    const response = await bff.app.request("/api/files/git?path=work%2Fapp");
+    assert.equal(response.status, 200);
+    assert.deepEqual(await response.json(), { branch: "feature/x" });
+    assert.equal(response.headers.get("Cache-Control"), "no-store");
+    assert.deepEqual(gitPaths, ["work/app"]);
+  } finally {
+    await bff.close();
+  }
+});
+
+test("GET /api/files/git defaults to the root and keeps null outside a repo", async () => {
+  const { workspace, gitPaths } = stubFiles();
+  const bff = await createBffApp({ cwd: "/tmp/project", sessionStoreDir: null, pi: null, workspace });
+  try {
+    const response = await bff.app.request("/api/files/git");
+    assert.equal(response.status, 200, "repo の外はエラーにしない (UI はチップを出さないだけ)");
+    assert.deepEqual(await response.json(), { branch: null });
+    assert.deepEqual(gitPaths, ["."], "path 省略時は root");
+  } finally {
+    await bff.close();
+  }
+});
+
+test("GET /api/files/git maps sandbox failures and rejects malformed responses", async () => {
+  const cases: Array<{ error: Error; status: number; message: RegExp }> = [
+    { error: new SandboxRequestError("Path not found: /workspace/nope", 404), status: 404, message: /Path not found/ },
+    { error: new Error("unexpected"), status: 502, message: /unexpected/ },
+  ];
+  for (const item of cases) {
+    const { workspace } = stubFiles(LISTING, item.error);
+    const bff = await createBffApp({ cwd: "/tmp/project", sessionStoreDir: null, pi: null, workspace });
+    try {
+      const response = await bff.app.request("/api/files/git?path=src");
+      assert.equal(response.status, item.status, item.error.message);
+      assert.match((await jsonBody(response)).error, item.message);
+    } finally {
+      await bff.close();
+    }
+  }
+
+  // 契約外の応答 (branch が文字列でも null でもない) は 502
+  const malformed = stubFiles(LISTING, { branch: 42 } as never);
+  const bff = await createBffApp({
+    cwd: "/tmp/project",
+    sessionStoreDir: null,
+    pi: null,
+    workspace: malformed.workspace,
+  });
+  try {
+    const response = await bff.app.request("/api/files/git?path=src");
+    assert.equal(response.status, 502);
+    assert.match((await jsonBody(response)).error, /git 情報が不正/);
+  } finally {
+    await bff.close();
+  }
+});
+
+test("GET /api/files/git answers 503 when the sandbox is not configured", async () => {
+  const bff = await createBffApp({ cwd: "/tmp/project", sessionStoreDir: null, pi: null, workspace: null });
+  try {
+    const response = await bff.app.request("/api/files/git?path=src");
+    assert.equal(response.status, 503);
+    assert.match((await jsonBody(response)).error, /PI_SANDBOX_URL/);
   } finally {
     await bff.close();
   }

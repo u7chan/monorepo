@@ -27,6 +27,8 @@ function stubWorkspace(): SandboxWorkspaceClient {
   return {
     previewFile: async () => ({ text: "" }),
     listFiles: async (path: string) => ({ path: path || ".", entries: [], truncated: false }),
+    // git 情報はこのテストでは扱わない
+    getGitInfo: async () => ({ branch: null }),
     listSkills: async () => ({ skills: [] }),
     createDir: async (path: string) => ({ path }),
     renameEntry: async (path: string, name: string) => ({ path, name }),

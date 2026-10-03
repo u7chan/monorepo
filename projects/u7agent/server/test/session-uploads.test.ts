@@ -42,6 +42,8 @@ function stubWorkspace() {
     previewFile: async () => ({ text: "" }),
     listFiles: async (path: string) => ({ path: path || ".", entries: [], truncated: false }),
     // ファイルスキルの発見はこのテストでは扱わない
+    // git 情報はこのテストでは扱わない
+    getGitInfo: async () => ({ branch: null }),
     listSkills: async () => ({ skills: [] }),
     createDir: async (path: string) => ({ path }),
     // 削除 / リネームはこのテストでは扱わない
