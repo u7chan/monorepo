@@ -1,21 +1,11 @@
-// サービスの状態表示 (トップバー) の契約。
-//   - 表の 5 行の描画 (到達不可 + 実績ありの停止中を含む) とリンクの出し分け
-//   - desktop の並び ([状態] [サービス] [停止/起動] | [通知] [作業フォルダ]) と区切り線
-//   - compact の状態アイコン (停止中は押せない) と状態の形 (色だけに頼らない)
-//   - 置き換えの確認文言と、確認してから実行する順序 (文言は純関数 + ソース走査)
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
+
 import test from "node:test";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { ServedAppGroup, ServedAppIndicator } from "../src/components/ServedAppStatus";
 import { servedAppReplaceConfirm, servedAppUrl, servedAppView } from "../src/lib/servedApp";
 import { serveProps, serveStatus } from "./serve-fixture";
-
-function read(relativePath: string): string {
-  return readFileSync(fileURLToPath(new URL(`../${relativePath}`, import.meta.url)), "utf8");
-}
 
 /** location.hostname を使うリンク生成のための最小のグローバル (node には無い) */
 function withLocation<T>(run: () => T): T {
@@ -187,44 +177,6 @@ test("compact は状態アイコン 1 個。停止中は押せない状態表示
   }
 });
 
-test("desktop の停止は常時表示にする (ホバー待ちにしない)", () => {
-  const source = read("src/components/ServedAppStatus.tsx");
-  const group = source.slice(source.indexOf("export function ServedAppGroup"));
-  assert.match(group, /view\.canStop \? \(/, "停止は状態の条件だけで出し分ける");
-  for (const hidden of ["group-hover:", "opacity-0", "invisible"]) {
-    assert.ok(!group.includes(hidden), `停止をホバー待ちにしない: ${hidden}`);
-  }
-});
-
-test("compact のメニューは RowMenu と同じ矢印キー移動を持つ", () => {
-  const source = read("src/components/ServedAppStatus.tsx");
-  const keyboard = source.slice(source.indexOf("const onKeyDown"), source.indexOf("const items: Array<"));
-  assert.match(keyboard, /event\.key !== "ArrowDown" && event\.key !== "ArrowUp"/);
-  assert.match(
-    keyboard,
-    /nextRowMenuIndex\(current, items\.length, event\.key === "ArrowDown" \? "next" : "previous"\)/,
-    "RowMenu と同じ規則でフォーカスを移す",
-  );
-  assert.match(keyboard, /\]\?\.focus\(\)/);
-  // Escape は App の Escape (設定ページからチャットへ戻る) まで届かせない
-  assert.match(keyboard, /event\.stopPropagation\(\)/);
-  assert.match(source, /onKeyDown=\{onKeyDown\}/);
-  assert.match(source, /tabIndex=\{-1\}/, "項目は Tab で飛ばさず、矢印で移動する");
-});
-
-test("popover の toggle 購読は mount / unmount に合わせて更新する", () => {
-  const source = read("src/components/ServedAppStatus.tsx");
-  // status の取得前は popover を描画しないため、依存配列が空の Effect では購読できない
-  assert.match(source, /ref=\{attachPopover\}/);
-  assert.match(source, /element\.addEventListener\("toggle", onToggle\)/);
-  assert.match(source, /previous\.removeEventListener\("toggle", onToggle\)/);
-  assert.match(source, /setOpen\(element\.matches\(":popover-open"\)\)/, "mount 時の開閉状態を取り込む");
-  assert.ok(
-    !source.includes("const onToggle = (event: Event) => setOpen"),
-    "購読は ref の付け外しで行う (Effect の依存配列に頼らない)",
-  );
-});
-
 test("置き換えの確認文言は所有者名と起動コマンドを出す", () => {
   const other = servedAppView(serveStatus({ reachable: true, owner: { kind: "other", title: "決済画面の検証" } }));
   assert.equal(
@@ -237,41 +189,4 @@ test("置き換えの確認文言は所有者名と起動コマンドを出す",
   const unknown = servedAppView(serveStatus({ reachable: true, owner: { kind: "unknown" } }));
   assert.match(servedAppReplaceConfirm(unknown), /起動元不明のサービスが公開中です/);
   assert.match(servedAppReplaceConfirm(unknown), /pnpm dev/);
-});
-
-test("置き換えは確認してから実行し、取り消したら実行しない (実行順序をソースで固定)", () => {
-  const source = read("src/components/ServedAppStatus.tsx");
-  // 起動の項目は説明文で予告し、押した後に確認を出す。確認が false なら onStart を呼ばない
-  const start = source.slice(source.indexOf("...(view.canStart"), source.indexOf("...(view.canStart") + 400);
-  assert.match(start, /label: "起動"/);
-  assert.match(start, /description: servedAppReplaceHint\(view\)/);
-  const group = source.slice(source.indexOf("export function ServedAppGroup"));
-  assert.match(group, /onClick=\{onStart\}/, "desktop の起動は確認なしで直接実行しない");
-  // desktop の起動ボタンは App 側で確認を挟む (バーはハンドラを受け取るだけ)
-  const app = read("src/App.tsx");
-  const handler = app.slice(app.indexOf("const handleServeStart"), app.indexOf("const handleServeStart") + 900);
-  assert.match(handler, /servedAppReplaceConfirm\(/);
-  assert.match(handler, /!window\.confirm\(/);
-  const confirmIndex = handler.indexOf("window.confirm");
-  const startIndex = handler.indexOf("serve.start");
-  assert.ok(confirmIndex !== -1 && startIndex > confirmIndex, "確認の後に実行する");
-  // 取り消しでは実行しない (早期 return)
-  assert.ok(handler.indexOf("return;") > confirmIndex && handler.indexOf("return;") < startIndex);
-});
-
-test("両バーに serve の状態を渡し、client に既定ポートを焼き込まない", () => {
-  const app = read("src/App.tsx");
-  assert.equal(app.match(/serve=\{serveProps\}/g)?.length, 2);
-  assert.match(app, /port: app\.health\?\.previewPort/);
-  for (const bar of ["Topbar", "CompactBar"]) {
-    const source = read(`src/components/${bar}.tsx`);
-    assert.match(source, /serve(\.|:)/);
-  }
-  const source = read("src/components/ServedAppStatus.tsx");
-  // 待受ポート (サーバー側の 8080) をリンクに焼き込まない。URL は health のポートと hostname で組む
-  assert.match(source, /servedAppUrl\(location\.hostname, port\)/);
-  assert.ok(!source.includes("http://"), "URL を組み立てて焼き込まない");
-  assert.ok(!source.includes("window.open"));
-  // リンクは必ず <a> か、document に繋いだ anchor の click で開く
-  assert.match(read("src/lib/servedApp.ts"), /anchor\.target = "_blank"/);
 });

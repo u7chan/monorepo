@@ -16,6 +16,17 @@ lint は `pnpm lint`。設定は root の `.oxlintrc.json` にあり、client �
 
 format は `pnpm format` で適用、`pnpm format:check` で差分の有無だけを確認する。設定は root の `.oxfmtrc.json` にあり、client / server だけが対象（root の `package.json` / `scripts/` / `docs/` は対象外）。oxfmt は `className` / `class` の静的文字列、`cn(...)` の引数、CSS の `@apply` のクラス順も揃える。順序は `sortTailwindcss.stylesheet` に指定した `client/src/styles/index.css` から `@theme` の独自トークン込みで決まるため、この CSS を動かすときは設定のパスも直す（stylesheet を読めないと `format:check` は ENOENT で失敗する）。className を実行時に組み立てるときは `client/src/lib/cn.ts` の `cn(...)` に通す（引数ごとに並べ替えられ、連結後の順序は引数の順で決まるので、並べ替えたい断片は引数に分ける）。クラス文字列は `className` / クラス属性 / `cn(...)` / `@apply` から辿れる位置にだけ置く。素の文字列や配列の `join` で組んだ className は並べ替えの対象外で、`shadcn/*` のクラス検査（`no-arbitrary-values` / `no-restyle` など）からも見えない。
 
+## テスト方針
+
+実装方法を変えてもユーザーから見た仕様が同じなら、テストはそのまま通る設計を優先する。
+
+- pure logic、state transition、API、永続化、security boundary、retry / timeout / queue と重要な操作・アクセシビリティ契約は自動テストする。
+- TSX / CSS を `readFileSync` して class 名・関数名・コード断片の存在を検査するテストは原則追加しない。例外は型で保証できない安全性・複数形式間の契約に限定し、理由と検査範囲を明記する。
+- lint / typecheck が保証する内容を unit test で重複して固定しない。
+- CSS animation、spacing、色、translate、duration 等の視覚調整は原則として自動テストしない。CSS 値を入力にする parser / fallback ロジックは別で、自動テストする。
+- 過去バグも修正方法ではなく観測できる不具合を検証する。DOM が必要なら source scan で代用せず、ブラウザで確認する。
+- GUI の短時間で確認できる見た目は手動受入でよい。最小チェックと既存テストの分類は [docs/testing.md](docs/testing.md) を参照する。
+
 ## コメント
 
 why（コードから読めない理由・制約・落とし穴）だけを1〜2行で書き、what（コードを読めば分かる説明）は書かない。長い設計論は `docs/` へ移す。同じ理由をコードと `docs/` に二重に書かない（正は `docs/` に置く）。Issue / PR 番号はコメントに残さない（経緯は git 履歴と PR が持つ）。

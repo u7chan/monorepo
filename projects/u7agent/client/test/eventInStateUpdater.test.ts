@@ -1,7 +1,4 @@
-// React の state updater は遅延評価されるため、その中で event.currentTarget を読むと
-// 入力のたびに null 参照でツリーが落ちる (白画面)。型では防げないのでソース上で禁じる。
-// コメントと文字列を伏せて括弧の対応だけを辿り、「state setter に渡した関数の中」で
-// イベントを読んでいる箇所を探す (行番号を保つため改行はそのまま残す)。
+// イベント寿命は型で保証できないため、updater 内のイベント参照を禁止する（範囲は docs/testing.md）。
 import assert from "node:assert/strict";
 import { readFileSync, readdirSync } from "node:fs";
 import { fileURLToPath } from "node:url";

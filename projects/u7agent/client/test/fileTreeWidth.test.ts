@@ -1,14 +1,5 @@
-// ファイルツリー (FileBrowser) の幅の規則。client に DOM テスト基盤が無いため、bounds・既定・
-// clamp・キー操作・保存値の扱いを純関数で固定し、ハンドルと FileBrowser の配線はソース走査・SSR で固定する。
-//   1. bounds は本文のコンテナ幅 (clientWidth) に依存する。未計測 (0 以下) は null
-//   2. 既定は clamp(288px, コンテナ ÷ 3, 400px) / 上限は min(560px, コンテナ − 384px)
-//   3. コンテナ 672px 以下では min == max になり、ハンドルを出さない
-//   4. 保存値は整数のみ。壊れた値は未設定へ落とし、bounds の外でも捨てない (表示時に clamp する)
-//   5. 移動ゼロのドラッグは commit しない / 終了経路は pointerup, pointercancel, lostpointercapture
-//      (と unmount) の 1 か所へまとめる / ハンドルはツリーのスクロール枠の兄弟に置く
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
+
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import test from "node:test";
@@ -36,10 +27,6 @@ import {
 
 /** 左右 2 段と上下 2 段を分けるコンテナ幅 (Tailwind の `@2xl` = 42rem) */
 const LAYOUT_BREAKPOINT = 672;
-
-function read(relativePath: string): string {
-  return readFileSync(fileURLToPath(new URL(`../${relativePath}`, import.meta.url)), "utf8");
-}
 
 test("bounds はコンテナ幅から上限を引き、未計測 (0 以下) は null にする", () => {
   assert.equal(FILE_TREE_WIDTH_MIN, 288);
@@ -211,58 +198,4 @@ test("ハンドルは読み上げ用の属性と境界の中央の位置を持�
   assert.ok(html.includes('tabindex="0"'));
   // 位置は --file-tree-width に追随する (8px のハンドルの中心を境界へ重ねる)
   assert.ok(html.includes("left-[calc(var(--file-tree-width)_-_4px)]"));
-  assert.ok(html.includes("panel-resize-handle"));
-});
-
-test("ハンドルの配線: 終了経路をまとめ、移動ゼロでは commit しない", () => {
-  const handle = read("src/components/file-tree/FileTreeResizeHandle.tsx");
-  assert.ok(handle.includes("setPointerCapture"));
-  // 終了経路 (pointerup / pointercancel / lostpointercapture) はすべて finishDrag を通り、
-  // 開始したポインターだけを受け付ける (別の指の同時タッチでドラッグを終わらせない)
-  assert.equal(handle.match(/finishDrag\(event\.pointerId, true\)/g)?.length, 3);
-  assert.ok(handle.includes("if (event.button !== 0 || dragRef.current) return;"));
-  assert.ok(handle.includes("if (!drag || (pointerId !== null && drag.pointerId !== pointerId)) return;"));
-  assert.ok(handle.includes("if (commitWidth && drag.width !== drag.startWidth) commit(drag.width);"));
-  // unmount (タブを全部閉じる / パネルを閉じる) でも後始末を通す
-  assert.ok(handle.includes("return () => finishDrag(null, true);"));
-  // ダブルクリックは未指定 (既定幅) へ戻す
-  assert.ok(handle.includes("onDoubleClick={reset}"));
-});
-
-test("ドラッグ中は再描画せず、CSS 変数と aria-valuenow だけを動かす", () => {
-  const handle = read("src/components/file-tree/FileTreeResizeHandle.tsx");
-  const moveHandler = handle.slice(handle.indexOf("const handlePointerMove"), handle.indexOf("const handleKeyDown"));
-  // 開始幅からの絶対計算にする (clamp で端に貼り付いても、戻せば追従する)
-  assert.ok(moveHandler.includes("drag.startWidth + (event.clientX - drag.startX)"));
-  assert.ok(moveHandler.includes("preview(next)"));
-  assert.ok(moveHandler.includes('setAttribute("aria-valuenow", String(next))'));
-  assert.ok(!moveHandler.includes("commit("));
-  // キーボードは → で増え、← で減る。Home / End は下限 / 上限
-  assert.ok(handle.includes('event.key === "ArrowRight" ? FILE_TREE_WIDTH_STEP : -FILE_TREE_WIDTH_STEP'));
-  assert.ok(handle.includes('commit(event.key === "Home" ? min : max)'));
-});
-
-test("FileBrowser は --file-tree-width を常に px で渡し、ツリー幅へ使う", () => {
-  const source = read("src/components/FileBrowser.tsx");
-  // 変数は 1 つの要素 (@container) へ書き、ツリーはそこから継承して読む
-  assert.ok(source.includes('style={{ "--file-tree-width": `${treeWidth.width}px` } as CSSProperties}'));
-  assert.ok(source.includes("ref={treeWidth.containerRef}"));
-  assert.ok(source.includes("@2xl:w-(--file-tree-width)"));
-  assert.ok(source.includes("const treeWidth = useFileTreeWidth();"));
-  const hook = read("src/hooks/useFileTreeWidth.ts");
-  assert.ok(hook.includes('containerRef.current?.style.setProperty("--file-tree-width"'));
-  assert.ok(hook.includes("fileTreeWidthStore.read()"));
-  assert.ok(hook.includes("new ResizeObserver(measure)"));
-});
-
-test("ハンドルはツリーのスクロール枠の兄弟に置く (overflow-y-auto の中に置かない)", () => {
-  const source = read("src/components/FileBrowser.tsx");
-  const treeFrame = source.indexOf("scrollbar-stable min-h-0 scrollbar-thin overflow-x-hidden overflow-y-auto");
-  const handle = source.indexOf("<FileTreeResizeHandle");
-  assert.ok(treeFrame >= 0, "ツリーのスクロール枠が見つからない");
-  assert.ok(handle > treeFrame, "ハンドルがツリーのスクロール枠より前にある");
-  // スクロール枠の開始からハンドルまでの間に枠の閉じタグがある = 兄弟である
-  assert.ok(source.slice(treeFrame, handle).includes("</div>"), "ハンドルがツリーのスクロール枠の中にある");
-  // タブ (プレビュー) があるときだけ出す
-  assert.ok(source.includes("{tabs.paths.length > 0 && treeWidth.resizable ? ("), "ハンドルの条件が無い");
 });

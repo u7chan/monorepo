@@ -1,14 +1,5 @@
-// ファイルツリーの行の ⋯ メニュー。client に DOM テスト基盤が無いため、出し分けと位置 / キーボード移動の
-// 純関数を直接固定し、描画は react-dom/server で属性と並び順だけを見る。実ブラウザーでの light dismiss /
-// top layer / フォーカス / スクロール追従は手動確認に残す (docs/file-preview.md#行の操作メニュー)。
-//   1. readOnly は null、項目 0 は []、それ以外は ダウンロード → リネーム → 削除 (条件は現行どおり)
-//   2. ⋯ は aria-haspopup / aria-expanded を持ち、本体は role="menu"、項目は role="menuitem" と tabIndex=-1
-//   3. 位置は ⋯ の右下を既定にし、右端 / 下端では反転して viewport の内側へ clamp する
-//   4. ↑↓ は端で止まる (循環しない)
-//   5. 自前の close 経路は hidePopover() を通り、Escape は伝播だけ止める
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
+
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import test from "node:test";
@@ -25,10 +16,6 @@ import {
 globalThis.location ??= { origin: "http://localhost" } as Location;
 const { EntryRowActions } = await import("../src/components/FileBrowser");
 const { RowMenu } = await import("../src/components/RowMenu");
-
-function read(relativePath: string): string {
-  return readFileSync(fileURLToPath(new URL(`../${relativePath}`, import.meta.url)), "utf8");
-}
 
 const base = {
   name: "docs",
@@ -106,11 +93,6 @@ test("描画: ⋯ は aria-haspopup / aria-expanded を持ち、本体は role=m
   // 削除だけ danger のトーンにする (ラベルとアイコンの 2 か所)
   const items = html.split("<button").filter((part) => part.includes('role="menuitem"'));
   assert.equal(items.length, 3, "項目数が違う");
-  assert.ok(items[2].includes("text-danger-text"), "削除が danger でない");
-  assert.ok(
-    !items[0].includes("text-danger-text") && !items[1].includes("text-danger-text"),
-    "削除以外に danger が付いている",
-  );
 });
 
 test("描画: 項目 0 の行は空きスロット 1 個、readOnly は何も出さない", () => {
@@ -128,7 +110,7 @@ test("描画: 項目 0 の行は空きスロット 1 個、readOnly は何も出
     }),
   );
   assert.ok(empty.includes('aria-hidden="true"'), "空きスロットが読み上げの対象になる");
-  assert.ok(empty.includes('class="size-6 shrink-0"'), "空きスロットが ⋯ と同じ size-6 でない");
+
   assert.ok(!empty.includes("aria-haspopup"), "項目 0 の行に ⋯ を出している");
   assert.equal((empty.match(/size-6/g) ?? []).length, 1, "空きスロットが 1 個でない");
 
@@ -195,81 +177,4 @@ test("↑↓ は端で止まり、フォーカスが項目の外にあるとき�
   assert.equal(nextRowMenuIndex(-1, 3, "next"), 0);
   assert.equal(nextRowMenuIndex(-1, 3, "previous"), 2);
   assert.equal(nextRowMenuIndex(0, 0, "next"), -1);
-});
-
-test("配線: 自前の close は hidePopover() を通り、Escape は伝播だけ止める", () => {
-  const source = read("src/components/RowMenu.tsx");
-  // 本体は常時 mount し、開閉は popover の状態に任せる (React の条件付き mount で出し入れしない)
-  assert.ok(source.includes('popover="auto"'), "native popover でない");
-  assert.ok(!source.includes("createPortal"), "popover を portal している");
-  assert.match(source, /addEventListener\("toggle"/, "toggle イベントを観測していない");
-  assert.match(source, /newState === "open"/, "toggle イベントの状態を aria-expanded へ写していない");
-  // 開閉は showPopover / hidePopover だけ。⋯ 自身の押下は popoverTarget で light dismiss の対象外にする
-  assert.match(source, /popover\.showPopover\(\);/);
-  assert.ok(source.includes("popoverTarget={menuId}"), "⋯ が light dismiss の対象外になっていない");
-  // 項目の選択は、フォーカスを popover の外へ退避させてから hidePopover し、⋯ への native 復帰を
-  // 抑える (戻すのは Escape だけ)。確認ダイアログ / prompt は閉じてから出す (背後に隠さない)
-  assert.match(
-    source,
-    /closeBySelection\(\);\s*\n\s*onSelect\(action\.kind\);/,
-    "項目の選択が closeBySelection を通らない",
-  );
-  assert.match(
-    source,
-    /popover\.contains\(active\)\) active\.blur\(\);\s*\n\s*popover\.hidePopover\(\);/,
-    "項目の選択が hidePopover の前にフォーカスを外へ退避させていない",
-  );
-  // Tab で外へ出たとき (focusout) も hidePopover() で閉じる
-  assert.match(source, /onBlur=\{onBlur\}/, "focusout で閉じていない");
-  assert.match(source, /popoverRef\.current\?\.hidePopover\(\);/, "focusout が hidePopover を通らない");
-  // Escape は標準の close に任せ、伝播だけ止める (App の Escape まで届かせない)
-  const escape = source.slice(
-    source.indexOf('if (event.key === "Escape")'),
-    source.indexOf('if (event.key !== "ArrowDown"'),
-  );
-  assert.ok(escape.includes("event.stopPropagation()"), "Escape の伝播を止めていない");
-  assert.ok(!escape.includes("hidePopover"), "Escape を自前で閉じている");
-  // スクロール / リサイズで座標を取り直す。scroll は capture でツリーのスクロール枠の分も拾う
-  assert.match(source, /window\.addEventListener\("scroll", onMove, true\)/, "scroll を capture で受けていない");
-  assert.match(source, /window\.addEventListener\("resize", onMove\)/, "resize に追従していない");
-  assert.match(source, /popover\.style\.left = `\$\{left\}px`;/, "座標を当てていない");
-  assert.match(source, /trigger\.getBoundingClientRect\(\)/, "位置の基準が ⋯ の矩形でない");
-  // 座標計算と index 移動は純関数へ切り出す (このファイルでは計算しない)
-  assert.ok(source.includes("rowMenuPlacement(") && source.includes("nextRowMenuIndex("));
-  // UA 既定の margin / border / padding / overflow を打ち消してからテーマのトークンを当てる
-  for (const token of ["inset-auto", "m-0", "border-line", "bg-panel", "p-1", "overflow-visible", "shadow-panel"]) {
-    assert.ok(source.includes(token), `popover の外装に ${token} が無い`);
-  }
-});
-
-test("配線: レイアウトが変わった commit の後にも位置を取り直す", () => {
-  const source = read("src/components/RowMenu.tsx");
-  // サイドバーの docked ⇄ overlay のような React の再レンダーは window の resize ハンドラより後に
-  // DOM へ届き、ハンドラ側の place() は動く前の rect を読む。commit 後の place() が無いと、1 回の
-  // 離散リサイズで ⋯ だけが動き、次のイベントまでメニューが取り残される
-  assert.match(source, /useLayoutEffect\(\(\) => \{\s*if \(open\) place\(\);\s*\}\);\n/, "commit 後の再配置が無い");
-  // CSS だけが変わるリサイズ (viewport / @container) はイベント側の place() が拾う
-  assert.match(source, /window\.addEventListener\("resize", onMove\)/, "resize での追従が無い");
-});
-
-test("アイコン: ⋯ の点 3 つを持ち、MenuIcon (ハンバーガー) とは別に使う", () => {
-  const icons = read("src/components/icons.tsx");
-  assert.match(icons, /export function MoreIcon\(\)/, "⋯ のアイコンが無い");
-  const start = icons.indexOf("export function MoreIcon()");
-  const end = icons.indexOf("export function CheckIcon()");
-  const more = icons.slice(start, end);
-  assert.equal((more.match(/<circle/g) ?? []).length, 3, "横並びの点 3 つでない");
-  assert.ok(more.includes('aria-hidden="true"'), "アイコンが単体で読み上げの対象になる");
-  assert.ok(read("src/components/RowMenu.tsx").includes("<MoreIcon />"), "⋯ が MoreIcon を使っていない");
-});
-
-test("MenuItem: danger / role / tabIndex / ref を受け、既存の呼び出しは既定のまま", () => {
-  const source = read("src/components/MenuItem.tsx");
-  assert.ok(source.includes("danger?: boolean;"), "danger の口が無い");
-  assert.ok(source.includes('role?: "menuitem" | "option";'), "role の口が無い");
-  assert.ok(source.includes("tabIndex?: number;"), "tabIndex の口が無い");
-  assert.ok(source.includes("ref?: Ref<HTMLButtonElement>;"), "ref の口が無い");
-  assert.match(source, /danger = false,/, "danger の既定が false でない");
-  // 寸法は MenuItem の 1 箇所のままにする (メニュー側で新しい寸法を書かない)
-  assert.ok(source.includes("min-h-7.5 w-full min-w-0 items-center gap-1.5 rounded-lg px-2 py-1"), "寸法が変わった");
 });

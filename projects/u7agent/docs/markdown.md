@@ -70,7 +70,7 @@ MessageView (assistant の本文)
 
 ## インラインコードのファイル参照
 
-コードスパンは、assistant 本文でファイル参照として解決できたときだけ操作要素（`button`）にする。字面の判定・cwd 相対への解決・クリック後の導線（要求の寿命・パネル / sheet の開き方・focus）は [file-preview.md](file-preview.md#メッセージからの導線ファイル参照) を正とし、ここには描画側の契約だけを置く。描画とソース走査は `client/test/markdownFileRef.test.ts` が固定する。
+コードスパンは、assistant 本文でファイル参照として解決できたときだけ操作要素（`button`）にする。字面の判定・cwd 相対への解決・クリック後の導線（要求の寿命・パネル / sheet の開き方・focus）は [file-preview.md](file-preview.md#メッセージからの導線ファイル参照) を正とし、ここには描画側の契約だけを置く。描画上の採否は `client/test/markdownFileRef.test.ts` が検査する。
 
 - **操作要素にするのは assistant 本文だけ**。user 本文は `MarkdownView` を通らず（`MessageView` が `whitespace-pre-wrap` で出す）、コードスパンも操作要素にしない
 - **Markdown リンクの children は対象外**。`` [`index.html`](https://example.com) `` の code は従来どおり `<a>` の中の `code` で、`button` を入れない。`strong` / `em` / `del` の入れ子にも同じ印（`MarkdownView` の `inLink`）を伝搬する
@@ -225,7 +225,7 @@ Markdown 記法側の URL（`[t](url)` / `![alt](src)`）も同じ `safeUrl` を
 - シンタックスの色は 6 テーマすべてが `--c-syn-{key,str,num,com,fn,type,op}` を定義し、`.tok-*` クラスだけを付ける（`client/src/styles/index.css`）。インライン `style` は使わない
 - 数式は `.math-inline` / `.math-block` / `.frac` / `.bigop` / `.sqrt` / `.matrix` / `.mtx` / `.cases` / `.delim` / `.mat` / `.mop` のクラスだけで組み、色は既存の `--c-ink*` / `--c-line*` / `--c-accent*` を使う（新規カラートークンは増やさない）
 - 図は `.md-diagram*` のクラスだけで組み、色は既存の `--c-panel` / `--c-soft` / `--c-raised` / `--c-line*` / `--c-ink*` / `--c-accent*` を使う（同じく新規トークンは増やさない）
-- 種別と CSS の対応、および 6 テーマ分の定義漏れは `client/test/markdownHighlight.test.ts` が固定する
+- 言語判定・トークン分解・上限は `client/test/markdownHighlight.test.ts`、各テーマでの可読性は [GUI 受入](testing.md#gui-の最小受入) で確認する
 - 横に長いコード / 数式は折り返さず、その要素だけ横スクロールする
 - 表は全セルを `white-space: normal` / `word-break: normal` で語の境界（和文は文字間）で折り返し、読み幅に収める。本文の `.md` の `word-break: break-word` は残し、表のセルだけで打ち消す。`overflow-wrap: break-word` は min-content 幅を縮めない緊急折り返しとして残す
 - 表のセルは `min-width: 5em`（12px フォントで padding・border を含む約 60px、内容は約 39px）を下限にし、和文の列も 1 文字幅まで縮ませない。収まらない表は `.md-table-wrap`（`overflow-x: auto` / `scrollbar-thin`）だけで横スクロールする。長い URL / パスの通常の改行機会はブラウザーに依存し、列の多い表は短い値だけでも desktop で横スクロールになり得る
@@ -238,13 +238,13 @@ Markdown 記法側の URL（`[t](url)` / `![alt](src)`）も同じ `safeUrl` を
 | `client/test/markdownParse.test.ts` | 見出し / 段落 / リスト / 引用 / 表 / フェンス / 未終端 / CRLF / 空行 / 例外を投げない |
 | `client/test/markdownInline.test.ts` | 強調の入れ子 / コードスパン / リンク / 自動リンク / エスケープ / 改行 / 無言で消さない |
 | `client/test/markdownHtml.test.ts` | 許可リスト / 属性の除去 / `on*` `javascript:` の拒否 / 未閉じは原文 / `safeUrl` |
-| `client/test/markdownHighlight.test.ts` | 言語判定 / 未知言語と上限超過 / トークンが入力を欠落させない / 言語ごとの塗り分け (C のプリプロセッサ・型名 / 単一引用符の文字定数・ライフタイム・桁区切りの区別) / CSS との対応 |
+| `client/test/markdownHighlight.test.ts` | 言語判定 / 未知言語と上限超過 / トークンが入力を欠落させない / 言語ごとの塗り分け (C のプリプロセッサ・型名 / 単一引用符の文字定数・ライフタイム・桁区切りの区別) |
 | `client/test/codeLines.test.ts` | 行数の数え方（本文の行ボックスと一致する / 空の本文と空白だけの本文 / 生成中のカーソルの行）/ 行番号の列 |
-| `client/test/markdownCodeBlock.test.ts` | 行番号の列（本文の外に出して 1 対 1 にする / 空のブロックには出さない / 生成中のカーソルの行 / 本文と同じ行送り・同じ上下余白 / sticky / `aria-hidden` と `user-select: none` / コピーは本文だけ） |
-| `client/test/markdownTable.test.ts` | 全セルの折り返しと下限幅 / 最終列の特例が無い / 本文の word-break は維持 / 横スクロールの受け皿の CSS と SSR 構造 / `th`・`td` の整列クラス |
+| `client/test/markdownCodeBlock.test.ts` | 空・生成中・複数行の行数と番号（SSR）。行数・コピー本文は codeLines の純関数で検査 |
+| `client/test/markdownTable.test.ts` | 表のヘッダ・本文のセルを列順に描画（SSR）。折り返しと横スクロールはブラウザで確認 |
 | `client/test/markdownLatex.test.ts` | `\frac` `\sqrt` 上下限 行列 cases の AST とレイアウトモデル / 決定性 / `$` の判定と通貨記号 / `$$` のブロック検出 / 失敗が `ok: false` になる / 例外を投げない |
 | `client/test/markdownDiagram.test.ts` | 形状 4 種 / エッジの種類とラベル / チェーン / TD と LR のランク方向 / 境界で止まるエッジ / 戻るエッジと外側レーン / エッジラベルと線の余白 / 長いラベルの折り返しと 6 行上限 / sequenceDiagram の順序と Note / 決定性 / 未対応が `ok: false` になる / 上限 / 固定シードのランダム入力でエッジがノードを横切らずラベルも線に貫かれない / SSR した HTML にインライン style が出ない |
 | `client/test/markdownSafety.test.ts` | `lib/markdown` と `components/markdown` に DOM 文字列の生成・インライン style が現れない（ソース走査） |
-| `client/test/imageZoom.test.ts` | 画像の拡大表示（開いている間だけ body へ portal する `dialog` / `showModal()` / Escape の `stopPropagation` / 背景クリックの判定 / リンク内の画像を button にしない・リンク内の判定を HTML の子へ伝搬する） |
-| `client/test/markdownImage.test.ts` | 画像 src の 3 段解決 / version が変わったときだけ解決 URL が変わること / App の `runEndSeq` 配線 / 解決できない src は従来どおり / `components/markdown/` が `api.ts` を import しないこと（SSR テストが通ること） |
+| `client/test/imageZoom.test.ts` | 本文画像の拡大操作名 / リンク内画像を button にしない（SSR）。dialog・Escape・焦点復帰はブラウザで確認 |
+| `client/test/markdownImage.test.ts` | src の解決・未解決時の扱い・version ごとの URL（SSR） |
 | `client/test/imageRefresh.test.ts` | 実フックの同一 mount での URL・callback の安定性 / run 終了・手動更新・面間の URL 非衝突 / 実 Markdown・FileBrowser の再 mount が古い URL へ戻らないこと（SSR） |

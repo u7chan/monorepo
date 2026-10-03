@@ -1,17 +1,10 @@
-// assistant 本文の Markdown 画像 `![alt](src)` を 3 段で配信 URL へ解決するかの描画契約。
-// client に DOM テスト基盤が無いため react-dom/server の markup で固定し、api.ts を参照しないことはソース走査で押さえる。
 import assert from "node:assert/strict";
-import { readdirSync, readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
+
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import test from "node:test";
 import { MarkdownImageProvider } from "../src/components/markdown/MarkdownImageRefs";
 import { MarkdownView } from "../src/components/markdown/MarkdownView";
-
-function read(relativePath: string): string {
-  return readFileSync(fileURLToPath(new URL(`../${relativePath}`, import.meta.url)), "utf8");
-}
 
 const ROOT_CWD = "/workspace";
 const CWD = "projects/u7agent";
@@ -98,30 +91,4 @@ test("描画: cwd 未確定の本文は解決しない", () => {
   const html = render("![cafe](generated/cafe.png)", { cwd: "" });
   assert.ok(html.includes('src="generated/cafe.png"'), html);
   assert.ok(!html.includes("/api/files/raw"));
-});
-
-test("ソース走査: components/markdown は api.ts を import しない (SSR で location.origin を読まない)", () => {
-  const dir = fileURLToPath(new URL("../src/components/markdown", import.meta.url));
-  const files = readdirSync(dir).filter((name) => /\.tsx?$/.test(name));
-  assert.ok(files.length > 0);
-  for (const name of files) {
-    const code = readFileSync(`${dir}/${name}`, "utf8");
-    for (const match of code.matchAll(/from\s+"([^"]+)"/g)) {
-      assert.ok(!/(^|\/)api$/.test(match[1]), `${name} が ${match[1]} を import している`);
-    }
-  }
-});
-
-test("ソース走査: MarkdownView は解決した src だけを描画に渡す", () => {
-  const source = read("src/components/markdown/MarkdownView.tsx");
-  assert.ok(source.includes('useMarkdownImageSrc(node.kind === "image" ? node.src : "")'), "resolver を通していない");
-  assert.ok(source.includes("src={imageSrc}"), "解決した src を描画していない");
-  assert.ok(!source.includes("src={node.src}"), "未解決の src を直接描画している");
-});
-
-test("ソース走査: App は検証済みの Markdown 画像 URL フックへ runEndSeq を渡す", () => {
-  const source = read("src/App.tsx");
-  assert.match(source, /import \{ useMarkdownImageRawUrl \} from "\.\/hooks\/useMarkdownImageRawUrl"/);
-  assert.match(source, /useMarkdownImageRawUrl\(app\.chat\.runEndSeq\)/);
-  assert.match(source, /<MarkdownImageProvider\b[^>]*rawUrl=\{markdownImageRawUrl\}/);
 });

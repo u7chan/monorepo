@@ -1,14 +1,5 @@
-// ファイルツリーのダウンロード導線。行の右端の ⋯ メニューの出し分けと文言は lib/fileRowMenu.ts の
-// 純関数が正で、ここではダウンロード固有の条件 / 文言と、配線 (check → confirm → <a download> / エラー表示)、
-// 除外名の出所を固定する (描画の属性は fileRowMenu.test.ts)。
-//   1. 通常ファイル / フォルダ行に「ダウンロード」「ZIP でダウンロード」として出る
-//   2. 除外名の行 / symlink 行 / readOnly 面には出ない (フォルダの除外開示はメニューの 2 行目)
-//   3. フォルダは確認ダイアログ 1 回 (除外があるときだけ) / ファイルは確認なし
-//   4. check が先。413 などの理由はツリー内のエラー行に出す (生 JSON を見せない)
-//   5. 除外名は app 状態（設定 → アーカイブ の実効値）から prop で受け取る
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
+
 import test from "node:test";
 import { archiveConfirmMessage, isArchiveExcludedName } from "../src/lib/archive";
 import { fileRowActions } from "../src/lib/fileRowMenu";
@@ -21,10 +12,6 @@ const base = {
   readOnly: false,
   excludeNames: [] as readonly string[],
 };
-
-function read(relativePath: string): string {
-  return readFileSync(fileURLToPath(new URL(`../${relativePath}`, import.meta.url)), "utf8");
-}
 
 test("ダウンロード: フォルダは ZIP のラベルと除外の開示、ファイルは「ダウンロード」", () => {
   const dir = fileRowActions(base) ?? [];
@@ -76,40 +63,4 @@ test("確認文言: 除外があるフォルダのときだけ出し、除外名
   assert.ok(isArchiveExcludedName("dist", ["dist"]));
   assert.ok(!isArchiveExcludedName("dist-2", ["dist"]));
   assert.ok(!isArchiveExcludedName("dist", []));
-});
-
-test("ダウンロードは check を通してから開始し、エラーはツリー内に出す", () => {
-  const source = read("src/components/FileBrowser.tsx");
-  assert.ok(source.includes("await getFileDownloadCheck(fetchPath)"), "check を通していない");
-  assert.ok(
-    source.indexOf("await getFileDownloadCheck(fetchPath)") < source.indexOf("startArchiveDownload("),
-    "開始が check より先になっている",
-  );
-  // 確認は除外があるときだけ (ディレクトリ行)
-  assert.ok(
-    source.includes(
-      'if (type === "dir" && check.skipped.length > 0 && !window.confirm(archiveConfirmMessage(name, check)))',
-    ),
-    "確認の条件が違う",
-  );
-  assert.ok(source.includes("startArchiveDownload(fileDownloadUrl(fetchPath), check.name)"));
-  // 失敗は削除 / リネームと同じく親ディレクトリの行に出す (生 JSON をブラウザに見せない)
-  assert.ok(
-    source.includes("applyFileTreeError(prev, fileTreeParentPath(path), errorText(error))"),
-    "失敗の表示がツリー内でない",
-  );
-  assert.ok(source.includes("downloadingRef.current.has(path)"), "同じ行の二重送信を弾いていない");
-  // ページ遷移しない (本文を fetch して JSON に載せない)
-  assert.ok(source.includes("fileDownloadUrl(fetchPath)"), "URL の組み立てが無い");
-  assert.ok(!source.includes("fetch(fileDownloadUrl"), "本文を fetch している");
-});
-
-test("除外名は prop で受け取り、FileBrowser は health を取りに行かない", () => {
-  const source = read("src/components/FileBrowser.tsx");
-  // 取得元は app 状態（設定ストアの実効値）。保存の直後に再 mount なしで追随させるため health は使わない
-  assert.ok(!source.includes("getHealth"), "FileBrowser が health を取りに行っている");
-  assert.ok(!source.includes("health.archive?.excludeNames"), "実効値の出所が health のままである");
-  assert.ok(source.includes("excludeNames: readonly string[]"), "excludeNames prop を受けていない");
-  assert.ok(source.includes("excludeNames={excludeNames}"), "行へ渡していない");
-  assert.ok(read("src/lib/archive.ts").includes("excludeNames.includes(name)"), "除外の判定が純関数でない");
 });

@@ -1,6 +1,4 @@
-// テーマ定義の単一ソース。id と system の解決先は client/public/theme-init.js にも (CSP 対応の
-// classic script のため)、light / dark は index.css プリセットの color-scheme にも重複して存在する。
-// ずれても型エラーにならないため themeSync テストで突き合わせる。
+// classic script / CSS との同期は themeSync.test.ts、定義の追加手順は docs/frontend.md。
 export const THEMES = [
   { id: "midnight", label: "ミッドナイト", appearance: "dark" },
   { id: "daylight", label: "デイライト", appearance: "light" },

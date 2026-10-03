@@ -1,9 +1,5 @@
-// 入力欄の Enter の分け方。IME の変換確定 Enter を送信に使わないこと (desktop / compact 共通) と、
-// compact の改行手段 (改行は Enter、送信はボタン) を固定する。jsdom を使わない方針のため、判定は
-// 純関数で、入力欄の属性は react-dom/server で、event からの配線はソース走査で確かめる。
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
+
 import test from "node:test";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
@@ -14,10 +10,6 @@ import type { AgentDef } from "../src/types";
 // Composer は api.ts (location.origin を読む) を辿るため、node では最小の shim を置いてから読み込む
 globalThis.location ??= { origin: "http://localhost" } as Location;
 const { Composer } = await import("../src/components/Composer");
-
-function source(path: string): string {
-  return readFileSync(fileURLToPath(new URL(path, import.meta.url)), "utf8");
-}
 
 const enter = (overrides: Partial<EnterKeyState> = {}): EnterKeyState => ({
   key: "Enter",
@@ -105,18 +97,4 @@ test("描画: ソフトキーボードの Enter ラベルをモードの動作�
 test("描画: Enter で送信する説明は desktop だけに出す", () => {
   assert.ok(render().includes("Enterで送信"), "desktop は入力欄に送信の説明を出す");
   assert.ok(!render({ mode: "portrait" }).includes("Enterで送信"), "compact は Enter が改行なので出さない");
-});
-
-test("配線: 入力欄の keydown は共有の判定を通ってから送信する", () => {
-  const composer = source("../src/components/Composer.tsx");
-  const start = composer.indexOf("const handleKeyDown");
-  // ハンドラの終わりの "};" は state リテラルにも現れるので、固定長で切り出す
-  const handler = composer.slice(start, start + 400);
-
-  assert.ok(handler.includes("shouldSubmitOnEnter("), "判定を Composer 側へ書き戻さない (docs/ui-layout.md)");
-  assert.ok(
-    handler.indexOf("shouldSubmitOnEnter") < handler.indexOf("preventDefault"),
-    "判定より先に preventDefault しない (IME の変換確定を潰さない)",
-  );
-  assert.ok(handler.includes("event.nativeEvent"), "isComposing / keyCode は native のイベントから読む");
 });

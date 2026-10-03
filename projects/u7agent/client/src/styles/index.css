@@ -46,7 +46,6 @@
     }
   }
 
-  /* モバイルのナビゲーションドロワー出現用 */
   --animate-drawer: drawer-in 180ms ease-out;
   @keyframes drawer-in {
     from {
@@ -59,9 +58,7 @@
     }
   }
 
-  /* ナビゲーションドロワー (NavSheet) の退場用。出現 (--animate-drawer) の逆再生で、左へ抜けながら消える。
-   * fill は forwards が要る (NavSheet は animationend で dialog を閉じるため、既定の none だと閉じるまでの
-   * 1 フレームだけ元の位置と不透明度で描かれる) */
+  /* ドロワーの終了・fill の理由は docs/ui-layout.md が正。 */
   --animate-drawer-out: drawer-out 180ms ease-out forwards;
   @keyframes drawer-out {
     from {
@@ -730,8 +727,7 @@ html[data-theme="sky"] {
     }
   }
 
-  /* native popover のパネル共通。開始フレームに scale を使うと place() の高さ計測に乗り top が数 px ずれる。
-   * 開閉の契約 (ブラウザー差 / display の扱い) は docs/ui-layout.md が正 */
+  /* popover の計測・開閉の理由は docs/ui-layout.md が正。 */
   .popover-panel {
     opacity: 0;
     transform: translateY(4px);
@@ -757,8 +753,6 @@ html[data-theme="sky"] {
     }
   }
 
-  /* ナビゲーションドロワー (NavSheet) の退場中の背景。パネルは animate-drawer-out が動かすので、ここは
-   * 暗転だけを同じ 180ms で薄くする。unmount まで暗転を残すと、閉じ切った瞬間に画面が急に明るくなる */
   .nav-sheet::backdrop {
     transition: opacity 180ms ease-out;
   }

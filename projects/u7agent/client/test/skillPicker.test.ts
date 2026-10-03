@@ -1,8 +1,5 @@
-// チャットのスキルピッカー (popover) の幅・高さの上限と位置を DOM なしで固定する。
-// 実ブラウザーでしか確かめられない「開いてもコンポーザーが伸びない」「画面外へ出ない」の根拠はここに置く。
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
+
 import test from "node:test";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
@@ -19,10 +16,6 @@ import type { SessionSkillsState } from "../src/lib/sessionSkills";
 
 globalThis.location ??= { origin: "http://localhost" } as Location;
 const { SkillPicker } = await import("../src/components/composer/SkillPicker");
-
-function source(path: string): string {
-  return readFileSync(fileURLToPath(new URL(path, import.meta.url)), "utf8");
-}
 
 const DESKTOP = { width: 1440, height: 900 };
 const COMPACT = { width: 390, height: 844 };
@@ -181,47 +174,4 @@ test("popover は常時 mount し、トリガーと dialog の関係を属性で
     }),
   );
   assert.ok(!ok.includes("再取得"), "一覧が出ているのに再取得を常設している");
-});
-
-test("場所は本文へ出さず、説明は 1 行に切って title へ逃がす", () => {
-  const picker = source("../src/components/composer/SkillPicker.tsx");
-  assert.ok(picker.includes("truncate"), "説明を 1 行に切っていない");
-  // 場所の行を持たない (3 行目は警告と手動のみの注記に空ける)
-  assert.ok(!picker.includes("sessionSkillLocation(skill, rootCwd)}<"), "場所を本文の行として出している");
-  assert.ok(picker.includes("[skill.description, location, warning]"), "全文を title へ逃がしていない");
-});
-
-test("Composer は開いたときに取り直し、送信が成立したら畳む", () => {
-  const composer = source("../src/components/Composer.tsx");
-  assert.ok(composer.includes("<SkillPicker"), "SkillPicker を使っていない");
-  assert.ok(!composer.includes("landscape={landscape}"), "ポップアップに landscape を持ち込んでいる");
-  // 開いたときだけ取り直す (閉じても再取得しない)
-  assert.ok(/if \(open\) onReloadSkills\(\)/.test(composer), "開いたときに取り直していない");
-  // 送信の成立で畳む (compact の Model / Effort と同じ合図)
-  assert.ok(/if \(sending\) setSkillsOpen\(false\)/.test(composer), "送信で畳んでいない");
-});
-
-test("useSessionSkills の再取得は一覧を消さず、いまの要求が飛んでいる間だけ待つ", () => {
-  const hook = source("../src/hooks/useSessionSkills.ts");
-  assert.ok(hook.includes("startSessionSkillsReload(previous)"), "再取得で前の一覧を保っていない");
-  assert.ok(hook.includes("if (requests.pending()) return"), "取得中の二重打ちを止めていない");
-  assert.ok(hook.includes("const done = requests.begin()"), "取得の開始を記録していない");
-  // 一覧を消すのは取得キーが変わったとき (初回 / 切替) だけにする
-  assert.ok(hook.includes(': { status: "loading" })'), "初回取得で読込表示にしていない");
-});
-
-test("フォーカスがトリガーとポップアップの外へ出たら閉じる", () => {
-  const picker = source("../src/components/composer/SkillPicker.tsx");
-  // 開いた直後のフォーカスはトリガーにあり、Shift+Tab はポップアップの中を経由しない。
-  // そのため監視はトリガーとポップアップの両方を包む要素に置く (行き先が包みの中なら閉じない)
-  assert.ok(picker.includes('className="contents"'), "トリガーとポップアップを包んでいない");
-  assert.ok(picker.includes("event.currentTarget.contains(next)"), "外への退出を中の移動と区別していない");
-  assert.ok(picker.includes("popoverRef.current?.hidePopover()"), "外への退出で閉じていない");
-});
-
-test("トリガーの title は失敗の理由を出す", () => {
-  const picker = source("../src/components/composer/SkillPicker.tsx");
-  // 本文の 1 行と同じ文言 (`notice.text`) を使う (warn のときだけ理由入りへ切り替える)
-  assert.ok(picker.includes("notice?.warn"), "失敗時に title を切り替えていない");
-  assert.ok(picker.includes("スキル一覧（${notice.text}）"), "title に理由を入れていない");
 });
