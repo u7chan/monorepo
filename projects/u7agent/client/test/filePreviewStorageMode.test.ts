@@ -106,3 +106,20 @@ test("画像は raw URL とサイズを表示し、HTML 用の切替や本文コ
   assert.ok(!html.includes('aria-label="本文をコピー"'));
   assert.ok(!html.includes('aria-label="新しいタブで開く"'));
 });
+
+test("HTML は HTTP 文書として取得し、srcdoc や blob / data URL で埋め込まない", () => {
+  const cases: Partial<FilePreviewProps>[] = [
+    {},
+    { origins: { "chart.html": "app" } },
+    { origins: { "chart.html": "storage" } },
+    { filePreviewPort: undefined },
+  ];
+  for (const props of cases) {
+    const frame = renderPreview(props).match(/<iframe\b[^>]*>/)?.[0];
+    assert.ok(frame, "HTML プレビューの iframe が無い");
+    assert.doesNotMatch(frame, /\ssrcdoc=/i);
+    const src = frame.match(/\ssrc="([^"]*)"/)?.[1];
+    assert.ok(src, "iframe の文書 URL が無い");
+    assert.ok(["http:", "https:"].includes(new URL(src).protocol), src);
+  }
+});

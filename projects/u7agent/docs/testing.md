@@ -18,7 +18,7 @@
 | 手動受入へ | `activityShimmer` / `popoverPanel` / `mobileOverflow` / `fileBrowserScrollGutter` / `sidebarScrollGutter` / `fileBrowserRowTime` / `fileTreeFold` は具体的な CSS・配置の検査を除去。`markdownTable` は表の描画を残し、折り返し・スクロール・整列はブラウザで確認 |
 | 既存契約へ集約 | `fileBrowserRename` の出し分けは `fileRowMenu`、経路の張り替えは `fileTree` / `fileTabs`、API・非破壊性は server テストで検査。`sessionRename` の PATCH は `apiContracts`、操作の表示は `sidebarRowMenu` に集約し、prompt と画面反映はブラウザで確認 |
 | lint / typecheck へ | `u7AgentContract` の facade 名・export 名、props の有無、import・関数名・hook 名の文字列検査を除去。起動・選択・古い応答の採否は `sessionFallback` / `pendingSessionOpen` / `sessionActions` 等の制御ロジックを維持 |
-| 限定的な検査を維持 | `eventInStateUpdater` / `markdownSafety` / `themeSync` / `providerIcon`。理由と範囲は次節 |
+| 限定的な検査を維持 | `eventInStateUpdater` / `markdownSafety` / `filePreviewSafety` / `themeSync` / `providerIcon`。`fileCode` に混在していた安全性検査は `filePreviewSafety` に分離。理由と範囲は次節 |
 
 source scan を消しただけではイベント伝播・実 DOM の焦点・hook 間の連携の回帰を保証できない。SSR は公開属性と内容だけを検査し、ネイティブ dialog / popover、スクロール、ResizeObserver、実際のクリック領域は次の受入で確認する。DOM / browser test の新規依存や巨大な E2E suite は追加しない。
 
@@ -26,6 +26,7 @@ source scan を消しただけではイベント伝播・実 DOM の焦点・hoo
 
 - `eventInStateUpdater.test.ts`: React の遅延 updater 内でイベントを読むと入力で画面が落ちる。型ではイベント寿命を保証できないため、禁止パターンの検査を残す。文字列走査は lint 相当の補助で、すべての alias や構文を解析するものではない。
 - `markdownSafety.test.ts`: Markdown 由来の DOM 文字列生成とインライン style の禁止を、parser / renderer のディレクトリ配下（子ディレクトリも含む）に限定して検査する。ファイル名一覧は契約にしない。入力の安全性は既存 parser の採否テストと併用する。
+- `filePreviewSafety.test.ts`: ファイルのソース表示も HTML 挿入・HTML パース・インライン style を禁止する。`lib/fileCode.ts` / `components/FilePreview.tsx` は Markdown の検査範囲外で、取得後の本文描画は SSR の初期状態では通らないため、型・SSR で代替できない安全性検査だけを残す。本文描画を移す場合は対象を追随させ、CSS・helper 名・props の wiring は検査しない。
 - `themeSync.test.ts`: 初回描画前の classic script を VM で実行し、保存値・system・利用不能時の解決を検査する。CSS と TypeScript の registry は型で結べないため、プリセット・スウォッチのキーと `color-scheme` の対応だけは走査する。配色・余白・演出は固定しない。
 - `providerIcon.test.ts`: 配布物にロゴの帰属表示とライセンスが同梱される契約。実装ソースの wiring ではなく成果物を読む。
 
