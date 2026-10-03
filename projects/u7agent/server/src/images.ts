@@ -1,13 +1,13 @@
 /**
  * 画像生成の薄い関数。provider の選択と失敗の分類をこの 1 箇所へ閉じ、
- * 将来 OpenAI を足すときは providers の差し替えで済ませる（docs/image-generation.md）。
+ * 将来 OpenAI を足すときは models の差し替えで済ませる（docs/image-generation.md）。
  *
- * 送信先は OpenRouter の画像専用 API（`POST {baseUrl}/images`）。SDK(pi-ai 0.87.1) の
- * openrouter-images は chat/completions へ投げるが、画像生成専用モデルはそちらでは
- * 404 になり `/images` でしか受け付けない。カタログだけ SDK を使い、要求は自前で組む。
+ * 送信先は OpenRouter の画像専用 API（`POST {baseUrl}/images`）。SDK の openrouter-images は
+ * chat/completions へ投げるが、画像生成専用モデルはそちらでは 404 になり `/images` でしか
+ * 受け付けない。カタログだけ SDK を使い、要求は自前で組む。
  */
-import type { ImagesModel, ImagesProvider } from "@earendil-works/pi-ai";
-import { builtinImagesProviders } from "@earendil-works/pi-ai/providers/all";
+import type { ImageApi, ImageModel } from "@earendil-works/pi-ai";
+import { builtinModels } from "@earendil-works/pi-ai/providers/all";
 
 /** 失敗の公開分類。上流の原文は出さず、マスク済みの provider メッセージだけを添える */
 export type ImageFailureCode =
@@ -98,8 +98,8 @@ export interface ImageGenerationInput {
 }
 
 export interface ImagesGeneratorOptions {
-  /** テストで stub provider を注入する。既定は builtinImagesProviders()（0.87.1 は openrouter のみ） */
-  providers?: () => readonly ImagesProvider[];
+  /** テストで stub カタログを注入する。既定は SDK 同梱の画像モデル（openrouter のみ） */
+  models?: () => readonly ImageModel<ImageApi>[];
   /** provider リクエストの期限。SDK 側の期限は渡さず、このタイマーだけに一本化する */
   timeoutMs?: number;
   /** provider メッセージをログ・応答へ出す前の境界 */
@@ -204,25 +204,34 @@ function classifyImageFailure(context: FailureContext): ImageGenerationResult {
 }
 
 /** 画像専用 API の URL。baseUrl の末尾スラッシュは 1 本へ畳む */
-function imagesEndpoint(model: ImagesModel<string>): string {
+function imagesEndpoint(model: ImageModel<ImageApi>): string {
   return `${model.baseUrl.replace(/\/+$/, "")}/images`;
 }
 
+/**
+ * SDK 同梱の画像モデル。0.99 で画像モデルは通常の Models 面へ統合され、provider は
+ * `model.provider` が持つ。同梱カタログは生成物で実行中に変わらないため 1 回だけ組む。
+ */
+let sdkImageModels: readonly ImageModel<ImageApi>[] | undefined;
+
+function builtinImageModels(): readonly ImageModel<ImageApi>[] {
+  sdkImageModels ??= builtinModels().getModelsOfType("image");
+  return sdkImageModels;
+}
+
 export interface ImagesGenerator {
-  /** builtinImagesProviders() のカタログ（provider 順・モデル順は SDK の定義順） */
+  /** SDK 同梱のカタログ（provider 順・モデル順は SDK の定義順） */
   catalog(): ImageCatalogEntry[];
   generate(input: ImageGenerationInput): Promise<ImageGenerationResult>;
 }
 
 /** カタログの組み立ては 1 箇所。generator を作らずに一覧だけを引ける */
-export function catalogOf(providers: readonly ImagesProvider[]): ImageCatalogEntry[] {
-  return providers.flatMap((provider) =>
-    provider.getModels().map((model) => ({
-      provider: provider.id,
-      id: model.id,
-      name: model.name || `${provider.id}/${model.id}`,
-    })),
-  );
+export function catalogOf(models: readonly ImageModel<ImageApi>[]): ImageCatalogEntry[] {
+  return models.map((model) => ({
+    provider: model.provider,
+    id: model.id,
+    name: model.name || `${model.provider}/${model.id}`,
+  }));
 }
 
 /**
@@ -236,32 +245,31 @@ const ROUTER_META_MODEL_PREFIX = `${IMAGE_PROVIDER_ID}/`;
  * 一覧の正は live 側 (docs/image-generation.md)。
  */
 export function imageModelCatalog(): ImageCatalogEntry[] {
-  return catalogOf(builtinImagesProviders()).filter((entry) => !entry.id.startsWith(ROUTER_META_MODEL_PREFIX));
+  return catalogOf(builtinImageModels()).filter((entry) => !entry.id.startsWith(ROUTER_META_MODEL_PREFIX));
 }
 
 export function createImagesGenerator(options: ImagesGeneratorOptions = {}): ImagesGenerator {
-  const providers = options.providers ?? (() => builtinImagesProviders());
+  const modelsOf = options.models ?? (() => builtinImageModels());
   const timeoutMs = options.timeoutMs ?? IMAGE_GENERATION_TIMEOUT_MS;
   const maskText = options.maskText ?? ((text: string) => text);
   const baseFetch = options.fetchImpl ?? fetch;
 
   return {
-    catalog: () => catalogOf(providers()),
+    catalog: () => catalogOf(modelsOf()),
 
     generate: async (input) => {
-      const provider = providers().find((candidate) => candidate.id === input.provider);
-      const models = provider?.getModels() ?? [];
+      const models = modelsOf().filter((model) => model.provider === input.provider);
       // 一覧の正は live で、SDK 同梱は遅れる。カタログに無い id も送れるように、URL / ヘッダは同じ
       // provider のモデル (openrouter は全モデルで同一) をひな形に借り、送信する id だけを差し替える
-      const template = models.find((candidate) => candidate.id === input.model) ?? models[0];
-      if (!provider || !template) {
+      const template = models.find((model) => model.id === input.model) ?? models[0];
+      if (!template) {
         return {
           ok: false,
           code: "unknown",
           message: `${IMAGE_UNKNOWN_FAILURE_MESSAGE}: 画像モデルが見つかりません (${input.provider}/${input.model})`,
         };
       }
-      const model: ImagesModel<string> = { ...template, id: input.model };
+      const model: ImageModel<ImageApi> = { ...template, id: input.model };
 
       // 期限はここでのみ掛ける。SDK と違い応答と status を自分で読むため、abort の理由は timedOut で判別する
       const controller = new AbortController();

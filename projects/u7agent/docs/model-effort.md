@@ -16,7 +16,7 @@ available とカタログは起動時に一度だけ読むのではなく、`rea
 
 `PI_MODELS` / `PI_MODEL` / `PI_PROVIDER` は読まない。設定されていても無視し、`GET /api/settings/models` の `ignoredEnvironmentVariables` と起動ログで移行（削除）を促す。
 
-モデル能力（対応する Effort の段階）は `@earendil-works/pi-ai` の公開ヘルパー `getSupportedThinkingLevels` / `clampThinkingLevel` を使う。`@earendil-works/pi-ai` は SDK と同じ 0.87.1 系を直接依存として持ち、推移依存の内部パスや dist 深部は import しない。
+モデル能力（対応する Effort の段階）は `@earendil-works/pi-ai` の公開ヘルパー `getSupportedThinkingLevels` / `clampThinkingLevel` を使う。`@earendil-works/pi-ai` は SDK と同じ 0.99.1 系を直接依存として持ち、推移依存の内部パスや dist 深部は import しない。
 
 `thinkingLevel` の非対応値は SDK がモデル能力で補正する（BFF では模倣しない）。既定の Effort は `PI_THINKING` → `medium` の順で決まる。
 

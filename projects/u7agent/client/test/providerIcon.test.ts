@@ -10,7 +10,7 @@ import { ProviderIcon } from "../src/components/ProviderIcon";
 import { providerIconKey, providerMonogram } from "../src/lib/providerIcon";
 
 /**
- * pi-ai 0.87.1 の builtin provider（41 件）と期待するロゴ。表から 1 行消えても・別のロゴへ書き換えても
+ * pi-ai 0.99.1 の builtin provider（41 件）と期待するロゴ。表から 1 行消えても・別のロゴへ書き換えても
  * 実画面は頭文字のタイルへ静かに落ちるだけなので、対応そのものをここで固定する（radius だけが意図的な fallback）。
  */
 const BUILTIN_PROVIDER_ICONS: Record<string, string | null> = {

@@ -2,7 +2,7 @@
 // 実 API は呼ばず stub provider と差し替えた fetch で検証する。
 import assert from "node:assert/strict";
 import test from "node:test";
-import type { ImagesModel, ImagesProvider } from "@earendil-works/pi-ai";
+import type { ImageApi, ImageModel } from "@earendil-works/pi-ai";
 import {
   createImagesGenerator,
   IMAGE_API_KEY_INVALID_MESSAGE,
@@ -14,9 +14,10 @@ import {
   imageModelCatalog,
 } from "../src/images";
 
-const STUB_IMAGE_MODEL: ImagesModel<string> = {
+const STUB_IMAGE_MODEL: ImageModel<ImageApi> = {
   id: "stub-image",
   name: "Stub Image",
+  type: "image",
   api: "openrouter-images",
   provider: "stub",
   baseUrl: "https://stub.invalid/api/v1",
@@ -25,13 +26,9 @@ const STUB_IMAGE_MODEL: ImagesModel<string> = {
   cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
 };
 
-function stubProvider(id = "stub"): ImagesProvider {
-  return {
-    id,
-    name: "Stub",
-    auth: {},
-    getModels: () => [{ ...STUB_IMAGE_MODEL, provider: id }],
-  } as unknown as ImagesProvider;
+/** テスト用の SDK 同梱カタログの代わり。provider ごとの URL / ヘッダのひな形として使う */
+function stubModels(id = "stub"): ImageModel<ImageApi>[] {
+  return [{ ...STUB_IMAGE_MODEL, provider: id }];
 }
 
 interface RecordedRequest {
@@ -66,7 +63,7 @@ function errorResponse(status: number, message = `provider error ${status}`): Re
 const baseInput = { provider: "stub", model: "stub-image", prompt: "a cafe", apiKey: "sk-image-dummy-key" };
 
 test("カタログは provider のモデルを provider / id / name で平坦化する", () => {
-  const generator = createImagesGenerator({ providers: () => [stubProvider()] });
+  const generator = createImagesGenerator({ models: () => stubModels() });
   assert.deepEqual(generator.catalog(), [{ provider: "stub", id: "stub-image", name: "Stub Image" }]);
 });
 
@@ -85,7 +82,7 @@ test("回帰: chat/completions ではなく画像専用 API の /images へ POST
   const { requests, fetchImpl } = stubFetch(() =>
     imageResponse({ data: [{ b64_json: "aGVsbG8=", media_type: "image/webp" }] }),
   );
-  const generator = createImagesGenerator({ providers: () => [stubProvider()], fetchImpl });
+  const generator = createImagesGenerator({ models: () => stubModels(), fetchImpl });
   const result = await generator.generate(baseInput);
   assert.deepEqual(result, { ok: true, image: { mimeType: "image/webp", data: "aGVsbG8=" } });
 
@@ -100,14 +97,14 @@ test("回帰: chat/completions ではなく画像専用 API の /images へ POST
 test("mimeType は data の media_type → 応答全体の media_type → png の順に落とす", async () => {
   const fromBody = stubFetch(() => imageResponse({ media_type: "image/jpeg", data: [{ b64_json: "aGVsbG8=" }] }));
   const bodyResult = await createImagesGenerator({
-    providers: () => [stubProvider()],
+    models: () => stubModels(),
     fetchImpl: fromBody.fetchImpl,
   }).generate(baseInput);
   assert.deepEqual(bodyResult, { ok: true, image: { mimeType: "image/jpeg", data: "aGVsbG8=" } });
 
   const missing = stubFetch(() => imageResponse({ data: [{ b64_json: "aGVsbG8=" }] }));
   const missingResult = await createImagesGenerator({
-    providers: () => [stubProvider()],
+    models: () => stubModels(),
     fetchImpl: missing.fetchImpl,
   }).generate(baseInput);
   assert.deepEqual(missingResult, { ok: true, image: { mimeType: "image/png", data: "aGVsbG8=" } });
@@ -115,7 +112,7 @@ test("mimeType は data の media_type → 応答全体の media_type → png �
 
 test("2xx でも画像 0 件は失敗にし、生の応答本文は理由にしない", async () => {
   const { fetchImpl } = stubFetch(() => imageResponse({ data: [] }));
-  const result = await createImagesGenerator({ providers: () => [stubProvider()], fetchImpl }).generate(baseInput);
+  const result = await createImagesGenerator({ models: () => stubModels(), fetchImpl }).generate(baseInput);
   assert.equal(result.ok, false);
   if (result.ok) return;
   assert.equal(result.code, "unknown");
@@ -124,7 +121,7 @@ test("2xx でも画像 0 件は失敗にし、生の応答本文は理由にし�
   // 構造化された error.message は 2xx でも添える（docs/image-generation.md の失敗分類）
   const structured = stubFetch(() => imageResponse({ data: [], error: { message: "moderation blocked" } }));
   const rejected = await createImagesGenerator({
-    providers: () => [stubProvider()],
+    models: () => stubModels(),
     fetchImpl: structured.fetchImpl,
   }).generate(baseInput);
   assert.equal(rejected.ok, false);
@@ -143,7 +140,7 @@ test("分類: 401 / 403 はキー無効、402 は残高不足、429 と 5xx は�
   ];
   for (const [status, message] of cases) {
     const { fetchImpl } = stubFetch(() => errorResponse(status));
-    const result = await createImagesGenerator({ providers: () => [stubProvider()], fetchImpl }).generate(baseInput);
+    const result = await createImagesGenerator({ models: () => stubModels(), fetchImpl }).generate(baseInput);
     assert.equal(result.ok, false, `${status} を成功にしている`);
     if (result.ok) continue;
     assert.equal(result.message, message);
@@ -154,7 +151,7 @@ test("分類: 未知の status はマスク済み provider メッセージ付き
   const key = "sk-image-dummy-key-0123456789";
   const { fetchImpl } = stubFetch(() => errorResponse(418, `teapot ${key}`));
   const generator = createImagesGenerator({
-    providers: () => [stubProvider()],
+    models: () => stubModels(),
     fetchImpl,
     maskText: (text) => text.split(key).join("[REDACTED]"),
   });
@@ -168,7 +165,7 @@ test("分類: 未知の status はマスク済み provider メッセージ付き
 
 test("分類: JSON でないエラー本文は生テキストを理由に使う", async () => {
   const { fetchImpl } = stubFetch(() => new Response("<html>bad gateway</html>", { status: 502 }));
-  const result = await createImagesGenerator({ providers: () => [stubProvider()], fetchImpl }).generate(baseInput);
+  const result = await createImagesGenerator({ models: () => stubModels(), fetchImpl }).generate(baseInput);
   assert.equal(result.ok, false);
   if (result.ok) return;
   // 5xx は混雑へ畳むため生テキストは出ない
@@ -176,7 +173,7 @@ test("分類: JSON でないエラー本文は生テキストを理由に使う"
 
   const badRequest = stubFetch(() => new Response("<html>moderation blocked</html>", { status: 400 }));
   const rejected = await createImagesGenerator({
-    providers: () => [stubProvider()],
+    models: () => stubModels(),
     fetchImpl: badRequest.fetchImpl,
   }).generate(baseInput);
   assert.equal(rejected.ok, false);
@@ -191,7 +188,7 @@ test("分類: タイムアウトは自前タイマーで abort し、ユーザ�
     })) as typeof fetch;
 
   const timedOut = createImagesGenerator({
-    providers: () => [stubProvider()],
+    models: () => stubModels(),
     fetchImpl: hangingFetch,
     timeoutMs: 20,
   });
@@ -203,7 +200,7 @@ test("分類: タイムアウトは自前タイマーで abort し、ユーザ�
 
   const controller = new AbortController();
   const user = createImagesGenerator({
-    providers: () => [stubProvider()],
+    models: () => stubModels(),
     fetchImpl: hangingFetch,
     timeoutMs: 60_000,
   });
@@ -226,7 +223,7 @@ test("分類: 開始前に中断済みの signal でもユーザー中断とし�
     })) as typeof fetch;
 
   const generator = createImagesGenerator({
-    providers: () => [stubProvider()],
+    models: () => stubModels(),
     fetchImpl: hangingFetch,
     timeoutMs: 60_000,
   });
@@ -237,7 +234,7 @@ test("分類: 開始前に中断済みの signal でもユーザー中断とし�
 });
 
 test("provider が見つからないときだけローカルで失敗にする", async () => {
-  const generator = createImagesGenerator({ providers: () => [] });
+  const generator = createImagesGenerator({ models: () => [] });
   const missingProvider = await generator.generate(baseInput);
   assert.equal(missingProvider.ok, false);
   if (missingProvider.ok) return;
@@ -247,7 +244,7 @@ test("provider が見つからないときだけローカルで失敗にする",
 
 test("SDK カタログに無い id (live のみのモデル) も provider の URL で送る", async () => {
   const { requests, fetchImpl } = stubFetch(() => imageResponse({ data: [{ b64_json: "aGVsbG8=" }] }));
-  const generator = createImagesGenerator({ providers: () => [stubProvider()], fetchImpl });
+  const generator = createImagesGenerator({ models: () => stubModels(), fetchImpl });
   const result = await generator.generate({ ...baseInput, model: "inclusionai/ming-image-0.1-design-layer" });
   assert.equal(result.ok, true);
   assert.equal(requests.length, 1);

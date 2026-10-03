@@ -6,6 +6,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import type { Hono } from "hono";
+import { VERSION } from "@earendil-works/pi-coding-agent";
 import { AUTH_REQUIRED_MESSAGE, MODEL_WHITELIST_EMPTY_MESSAGE } from "../src/agent";
 import { createBffApp } from "../src/app";
 import { BUILTIN_SKILLS } from "../src/builtin-skills";
@@ -631,7 +632,8 @@ test("health drops the model diagnostics while runtime models expose the catalog
     assert.equal(health.defaultModelError, undefined);
     assert.equal(health.errorCode, undefined);
     assert.equal("runtimeDiagnostics" in health, false, "モデル診断は health から撤去した");
-    assert.deepEqual(health.versions.piCodingAgent, "0.87.1", "バージョン表示は health 直下に残す");
+    // health 直下に残ることだけを見る。値は実 SDK の VERSION なので、依存を上げても書き換えが要らない
+    assert.deepEqual(health.versions.piCodingAgent, VERSION, "バージョン表示は health 直下に残す");
     assert.ok(!JSON.stringify(health).includes("Catalog Only Model"), "health must not include the full catalog");
 
     const response = await bff.app.request("/api/runtime/models");

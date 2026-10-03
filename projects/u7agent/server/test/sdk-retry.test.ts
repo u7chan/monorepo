@@ -1,4 +1,4 @@
-// 依存 SDK (@earendil-works/pi-coding-agent / pi-ai) v0.87.1 の実体を使った再試行の回帰テスト。
+// 依存 SDK (@earendil-works/pi-coding-agent / pi-ai) の実体を使った再試行の回帰テスト。
 //
 // 実キー・実クォータには依存せず、ローカルの OpenAI 互換モックへ 429 の TPM エラーを返して、
 // 再試行対象の判定・イベント順・失敗試行の投影からの除外・backoff の値を固定する。
