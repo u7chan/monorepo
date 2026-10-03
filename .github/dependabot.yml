@@ -76,6 +76,10 @@ updates:
     rebase-strategy: "disabled"
     labels:
       - "dependabot-auto-process"
+    # pi SDK は 0.x の minor でも破壊変更が入る（0.99.0 で画像モデル API が削除された）ため、
+    # ルーチンの更新には混ぜず migration とセットの専用 PR で手動更新する
+    ignore:
+      - dependency-name: "@earendil-works/pi-*"
     groups:
       u7agent-minor-and-patch:
         applies-to: version-updates
