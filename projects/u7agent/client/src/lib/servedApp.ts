@@ -161,21 +161,16 @@ export function servedAppMenuSub(view: ServeView): string {
 
 /**
  * 置き換えの確認文言。押す前にメニューの説明文で予告し、押した後にこの確認を出す
- * (取り消したら実行しない)。
+ * (取り消したら実行しない)。タイトルは初回メッセージ由来で最大 60 文字になるため、
+ * 1 回だけ出し、起動コマンドは文章へ混ぜず独立した行にする。
  */
 export function servedAppReplaceConfirm(view: ServeView): string {
   const command = view.command ?? "";
   if (view.kind === "unknown") {
-    return [
-      "起動元不明のサービスが公開中です。同時に 1 つしか公開できないため、停止して置き換えます。",
-      `停止するのは記録と一致しないプロセスです。この会話の起動コマンドは ${command} です。`,
-    ].join("\n");
+    return ["起動元不明のプロセスを停止して、この会話のサービスを起動します。", `起動コマンド: ${command}`].join("\n");
   }
   const title = view.ownerTitle ?? "別の会話";
-  return [
-    `「${title}」のサービスが公開中です。同時に 1 つしか公開できないため、停止して置き換えます。`,
-    `停止するのは会話「${title}」のサーバーです。この会話の起動コマンドは ${command} です。`,
-  ].join("\n");
+  return [`「${title}」を停止して、この会話のサービスを起動します。`, `起動コマンド: ${command}`].join("\n");
 }
 
 export function servedAppStartConfirm(view: ServeView, busy: ServeBusyKind | undefined): string | undefined {

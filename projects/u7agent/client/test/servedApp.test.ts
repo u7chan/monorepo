@@ -181,17 +181,16 @@ test("compact は 1 枠で操作でき、停止中はメニューなしの起動
   }
 });
 
-test("置き換えの確認文言は所有者名と起動コマンドを出す", () => {
+test("置き換えの確認文言は所有者名を 1 回だけ出し、起動コマンドを独立した行にする", () => {
   const other = servedAppView(serveStatus({ reachable: true, owner: { kind: "other", title: "決済画面の検証" } }));
   assert.equal(
     servedAppReplaceConfirm(other),
-    [
-      "「決済画面の検証」のサービスが公開中です。同時に 1 つしか公開できないため、停止して置き換えます。",
-      "停止するのは会話「決済画面の検証」のサーバーです。この会話の起動コマンドは pnpm dev です。",
-    ].join("\n"),
+    ["「決済画面の検証」を停止して、この会話のサービスを起動します。", "起動コマンド: pnpm dev"].join("\n"),
   );
+  // 初回メッセージ由来のタイトルは長いので、2 回出すと同じ文が段落になる (重複の再発を防ぐ)
+  assert.equal(servedAppReplaceConfirm(other).split("決済画面の検証").length - 1, 1);
   const unknown = servedAppView(serveStatus({ reachable: true, owner: { kind: "unknown" } }));
-  assert.match(servedAppReplaceConfirm(unknown), /起動元不明のサービスが公開中です/);
+  assert.match(servedAppReplaceConfirm(unknown), /起動元不明のプロセスを停止して/);
   assert.match(servedAppReplaceConfirm(unknown), /pnpm dev/);
 });
 
