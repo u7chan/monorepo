@@ -222,7 +222,8 @@ X-Content-Type-Options: nosniff
 
 - `branch` は `git -C <path> symbolic-ref --short -q HEAD` の 1 行目（初回コミット前の repo でもブランチ名を返す）。detached HEAD は指すブランチが無いため `rev-parse --short HEAD` の短縮 SHA になる。それも失敗すれば `null`
 - `path` の解決と検証は [`GET /v1/files`](#get-v1files) と同じ（root 外 400 / 実在しない 404 / ディレクトリ以外 400）。git は親ディレクトリへ辿って repo を見つけるため、root が repo の配下ならその repo のブランチを答える
-- 実行の制限は[実行環境の診断](#get-v1runtimeinfo)と同じ: 信頼ディレクトリ（`RUNTIME_PROBE_PATH_DIRS`）で解決した `git` の実体、固定引数（shell 無し）、`process.env` を継承しない最小環境（`HOME` は存在しない固定値）。cwd は `/` で、対象ディレクトリは `-C` だけに渡す。stdout + stderr は 4 KiB、遅くとも 2 秒（2 コマンドの合計）で打ち切る
+- 実行の制限は[実行環境の診断](#get-v1runtimeinfo)と同じ: 信頼ディレクトリ（`RUNTIME_PROBE_PATH_DIRS`）で解決した `git` の実体、固定引数（shell 無し）、`process.env` を継承しない最小環境（`HOME` は存在しない固定値）。cwd は `/` で、対象ディレクトリは `-C` だけに渡す。stdout + stderr の合計で 4 KiB、遅くとも 2 秒（2 コマンドの合計）で打ち切る
+  - 値に使うのは **stdout の 1 行目だけ**。stderr は読み切って上限に数えるだけで、`core.fsyncObjectFiles` 非推奨のような**終了コード 0 の警告をブランチ名に混ぜない**
 - `git` が無い / 期限超過 / 出力上限 / repo の外は、理由を返さず `branch: null` に寄せる。ブランチは一覧の表示を止める情報ではないので、UI はチップを出さないだけにする
 
 ## `GET /v1/skills`

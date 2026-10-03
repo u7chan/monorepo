@@ -10,8 +10,8 @@ import { killProcessTree, resolveTrustedExecutable, RUNTIME_PROBE_PATH_DIRS, run
 
 /** 2 コマンド分を合わせた期限。git は解決済みのパスを読むだけなので短く切る */
 export const GIT_INFO_TIMEOUT_MS = 2_000;
-/** stdout + stderr の合計上限。返すのは 1 行だけなので、超過は結果を捨てる */
-export const GIT_INFO_MAX_OUTPUT_BYTES = 4 * 1024;
+/** stdout + stderr の合計上限。返すのは 1 行だけなので、超過は結果を捨てる */ export const GIT_INFO_MAX_OUTPUT_BYTES =
+  4 * 1024;
 /** 子プロセスの cwd。ワークスペース内の設定を cwd 経由で読ませないための固定値 (診断と同じ) */
 export const GIT_INFO_CWD = "/";
 
@@ -26,7 +26,7 @@ export interface GitInfoOptions {
 }
 
 /**
- * 1 実行。stdout + stderr を上限まで読み、exit 0 のときだけ出力を返す。起動失敗 / 非 0 終了 /
+ * 1 実行。stdout と stderr を上限まで読み、exit 0 のときだけ stdout を返す。起動失敗 / 非 0 終了 /
  * 期限超過 / 上限超過は null (git のエラー文言は理由に使わない)。
  */
 function runGitCommand(
@@ -39,7 +39,9 @@ function runGitCommand(
 ): Promise<string | null> {
   return new Promise((resolve) => {
     let settled = false;
-    let output = "";
+    // 上限は stdout + stderr の合計で数える (どちらも読み切る)。値として取り出すのは stdout だけ。
+    // stderr の警告を branch に混ぜない (`core.fsyncObjectFiles` 非推奨の警告は終了コード 0 でも出る)
+    let stdout = "";
     let bytes = 0;
     const child = spawn(executable, [...args], {
       cwd,
@@ -56,27 +58,29 @@ function runGitCommand(
       clearTimeout(timer);
       resolve(value);
     };
-    const onChunk = (chunk: Buffer): void => {
+    /** 上限を超えたらプロセスを殺して null で確定する。stdout 側は書き込まない */
+    const countBytes = (chunk: Buffer): boolean => {
       bytes += chunk.byteLength;
-      if (bytes > maxOutputBytes) {
-        killProcessTree(child);
-        finish(null);
-        return;
-      }
-      output += chunk.toString("utf8");
+      if (bytes <= maxOutputBytes) return true;
+      killProcessTree(child);
+      finish(null);
+      return false;
     };
     const timer = setTimeout(() => {
       killProcessTree(child);
       finish(null);
     }, timeoutMs);
 
-    child.stdout?.on("data", onChunk);
-    child.stderr?.on("data", onChunk);
+    child.stdout?.on("data", (chunk: Buffer) => {
+      if (countBytes(chunk)) stdout += chunk.toString("utf8");
+    });
+    child.stderr?.on("data", (chunk: Buffer) => {
+      countBytes(chunk);
+    });
     child.on("error", () => finish(null));
-    child.on("close", (code) => finish(code === 0 ? output : null));
+    child.on("close", (code) => finish(code === 0 ? stdout : null));
   });
 }
-
 /** 出力から 1 行目だけを取る。git は複数行を返しうるが、ブランチ名も短縮 SHA も 1 行 */
 function firstLine(output: string): string | null {
   const line = output.split("\n", 1)[0]?.trim();

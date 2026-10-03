@@ -158,6 +158,33 @@ test(
 );
 
 test(
+  "readWorkspaceGitInfo ignores warnings on stderr",
+  { skip: process.platform === "win32" && "sh is not available" },
+  async () => {
+    const dir = await mkdtemp(join(tmpdir(), "pi-sbx-warn-git-"));
+    const noisy = join(dir, "noisy-git");
+    // 実 git は `core.fsyncObjectFiles` 非推奨の警告を終了コード 0 で stderr へ出し、stdout にブランチ名を出す。
+    // 警告の方が先に届くよう、stderr を書いてから間を置く (ストリームの到着順に依存させない)
+    await writeFile(
+      noisy,
+      `#!/bin/sh\nprintf 'warning: core.fsyncObjectFiles is deprecated\\n' >&2\nsleep 0.2\nprintf 'feature/review\\n'\n`,
+    );
+    await chmod(noisy, 0o755);
+    assert.deepEqual(await readWorkspaceGitInfo(dir, { gitPath: noisy }), { branch: "feature/review" });
+  },
+);
+
+test(
+  "readWorkspaceGitInfo ignores the warnings of a real git config",
+  { skip: !HAS_GIT && GIT_SKIP_REASON },
+  async () => {
+    const root = await createRepo("feature/review");
+    git(root, "config", "core.fsyncObjectFiles", "true");
+    assert.deepEqual(await readWorkspaceGitInfo(root), { branch: "feature/review" });
+  },
+);
+
+test(
   "readWorkspaceGitInfo returns the branch before the first commit",
   { skip: !HAS_GIT && GIT_SKIP_REASON },
   async () => {
