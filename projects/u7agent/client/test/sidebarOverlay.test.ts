@@ -39,9 +39,9 @@ function renderSettingsHeader(options: { onOpenNav?: () => void; compact?: boole
   );
 }
 
-test("desktop のバーは overlay のときだけ ☰ を eyebrow の左に出す", () => {
+test("desktop のバーは overlay のときだけ ☰ を作業先チップの左に出す", () => {
   const overlay = renderTopbar({ onOpen: () => {} });
-  assert.ok(overlay.indexOf(NAV_MARK) < overlay.indexOf("LOCAL WORKSPACE"), "☰ が eyebrow より右にある");
+  assert.ok(overlay.indexOf(NAV_MARK) < overlay.indexOf(SCOPE.label), "☰ が作業先チップより右にある");
   assert.match(overlay, /<button[^>]*aria-label="ナビゲーションを開く"/);
   // docked では左バーが常駐するので出さない
   assert.ok(!renderTopbar().includes(NAV_MARK));

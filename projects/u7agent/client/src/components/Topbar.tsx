@@ -40,7 +40,6 @@ export function Topbar({ scope, serve, runtimeStatus, notify, sessionFiles, nav 
               <MenuIcon />
             </button>
           ) : null}
-          <div className="text-2xs font-semibold tracking-label text-ink-ghost uppercase">LOCAL WORKSPACE</div>
           {/* プロジェクト配下の新規会話と未所属は main 領域では同じ見た目になるため、作業先を常時出す */}
           <div
             className="inline-flex min-w-0 items-center gap-1.5 rounded-full border border-line px-2.5 py-1.5 text-1xs text-ink-soft"
