@@ -75,8 +75,8 @@ export function CompactBar({
           <button
             type="button"
             onClick={sessionFiles.onToggle}
-            aria-label="作業フォルダ"
-            title="作業フォルダ"
+            aria-label="作業環境"
+            title="作業環境"
             aria-expanded={sessionFiles.open}
             className={cn("icon-button", sessionFiles.open && "border-accent/50 text-accent-text")}
           >

@@ -27,6 +27,7 @@ DTO の正は `server/src/schema.ts`（zod）。リクエストボディは `@ho
 | プロバイダーAPIキーとメモ（設定 → モデル） | `GET /api/settings/models`、`PUT/DELETE /api/settings/models/:provider/key`、`PUT /api/settings/models/:provider/memo`、`POST /api/settings/models/:provider/resync` | このファイル |
 | 画像生成（設定 → モデル） | `GET/PUT /api/settings/images`、`PUT/DELETE /api/settings/images/key`、`POST /api/settings/images/catalog/refresh` | このファイル、[image-generation.md](image-generation.md) |
 | サービス（serve）の状態と起動・停止 | `GET /api/serve/status`、`POST /api/serve/start`、`POST /api/serve/stop` | このファイル、[sandbox.md](sandbox.md#serveサービスの公開と起動停止) |
+| 作業フォルダの環境変数（作業環境 → 環境変数） | `GET/POST /api/secrets`、`GET/PUT/DELETE /api/secrets/:secretId` | このファイル、[secrets.md](secrets.md#作業フォルダの環境変数作業環境--環境変数) |
 | エージェント / スキル | `/api/agents`、`/api/skills`、`/api/skills/files`、`/api/skills/session` | [api-catalog.md](api-catalog.md)、[api-sessions.md](api-sessions.md) |
 | サンドボックス（内部） | `/v1/*`（BFF からは見えない） | [sandbox-api.md](sandbox-api.md) |
 
@@ -450,7 +451,8 @@ Content-Security-Policy: sandbox allow-scripts; default-src 'none'; style-src 'u
   "reachable": true,
   "owner": { "kind": "mine", "title": "サービスを作る会話" },
   "generation": "8f3c1d2e",
-  "command": { "cwd": "projects/foo", "command": "pnpm dev" }
+  "command": { "cwd": "projects/foo", "command": "pnpm dev" },
+  "secretGeneration": "0f1e2d3c4b5a6978"
 }
 ```
 
@@ -458,10 +460,43 @@ Content-Security-Policy: sandbox allow-scripts; default-src 'none'; style-src 'u
 - `owner.kind`: `mine`（閲覧中の会話が所有者）/ `other`（他会話が所有者）/ `unknown`（到達可だが記録と一致しない）/ `none`（到達不可で所有者なし）。所有者は記録（PID + 起動時刻）と「いま待受しているプロセス」の照合で決め、記録があるだけでは所有者とみなさない。`mine` / `other` のときだけ `title` が載る。
 - `generation`: 置き換えの再照合用の不透明な値。起動のたびに変わり、**記録を残したまま生の bash で待受プロセスが入れ替わった場合も変わる**（起動世代と、いま待受しているソケットの inode を合わせたハッシュ）。到達不可（置き換える対象が無い）は `null`。
 - `command`: **閲覧中の会話の作業ディレクトリ**の成功実績（`serve_commands`）。無ければ `null` で、他会話の実績は返さない。
+- `secretGeneration`: 起動時に解決した環境変数（作業環境 → 環境変数）の世代。記録と待受プロセスが一致するときだけ返し、`GET /api/secrets` の `generation` と比べる（[作業フォルダの環境変数](#作業フォルダの環境変数作業環境--環境変数)）。記録が無い / この項目より前の記録は `null`。
 
 `POST /api/serve/start` の body は `{ sessionId, command?, generation? }`。`command` はエージェントの `serve` ツールだけが渡し（GUI は実績を使う）、省略時はその作業ディレクトリの実績を使う。**実績の解決と検証は置き換えの停止より先**で、実績が無ければ既存のサービスを止めずに 400 を返す。`generation` は確認した状態の値で、実行時に変わっていれば 409（UI は新しい状態で確認をやり直す）。`POST /api/serve/stop` の body は `{ sessionId, generation? }`。
 
 エラー: 所有者以外の停止は 403、待受 PID を特定できないときと照合不一致は 409、起動が期限（10 秒）内に到達可にならないとき・到達した待受プロセスがその起動に由来しないとき・停止の解放を確認できないときは 502、サンドボックス未設定は 503、アプリデータ（実績）が使えないときは 503（変更系は `state: "not_stored"` を付ける）。**プローブやサンドボックス呼び出しの失敗は 502 / 503 で返し、`reachable: false` へ丸めない**（UI はリンクも操作も出さない）。
+
+## 作業フォルダの環境変数（作業環境 → 環境変数）
+
+作業フォルダ（cwd）単位の名前と値。種別は平文で保存する `variable` と、AEAD で暗号化する `secret`。設計（名前 / 値の規則、注入経路、保証範囲）は [secrets.md](secrets.md#作業フォルダの環境変数作業環境--環境変数) を正とする。
+
+| メソッド | パス | 用途 |
+| --- | --- | --- |
+| GET | `/api/secrets?sessionId=<id>` / `?projectId=<id>` | 一覧（名前・種別・更新時刻・世代・プロジェクト所属か） |
+| POST | `/api/secrets` | 登録（body: `{ sessionId? , projectId?, kind, name, value }`） |
+| GET | `/api/secrets/:secretId?sessionId=<id>` | 変更フォーム用の 1 件（`value` は**変数のときだけ**入る） |
+| PUT | `/api/secrets/:secretId` | 値の上書き（body: `{ sessionId?, projectId?, value }`。名前と種別は変えられない） |
+| DELETE | `/api/secrets/:secretId?sessionId=<id>` | 削除 |
+
+要求元は会話（`sessionId`）か、まだ会話が無いプロジェクト起点の新規会話（`projectId`）の**どちらか一方**。cwd への解決はサーバーだけが行い、行の `cwd` と照合する（他会話の `secret_id` を指定しても 404）。`sessionId` と `projectId` の両方 / どちらも無い指定は 400、未知の会話 / プロジェクトは 404。
+
+```json
+{
+  "items": [
+    { "secretId": "…", "name": "DATABASE_URL", "kind": "secret", "updatedAt": 1770000000000 },
+    { "secretId": "…", "name": "NODE_ENV", "kind": "variable", "updatedAt": 1770000000000 }
+  ],
+  "generation": "0f1e2d3c4b5a6978",
+  "projectScoped": true
+}
+```
+
+- **シークレットの値はどの応答にも載らない。** 変更フォーム用の `GET /api/secrets/:secretId` だけが `value` を持ち、それも変数のときだけ
+- `generation` は変更のたびに変わる短いハッシュ（名前 → `secret_id` / 更新世代）。`GET /api/serve/status` の `secretGeneration` と比べると「再起動で反映される変更がある」と分かる（UI はタブ上部の説明 1 行まで）
+- `projectScoped` は cwd が登録プロジェクトのディレクトリか（UI の「このプロジェクトの設定です」の根拠）
+- 変更系は 200 で `{ item, trimmed, generation }` を返す（`trimmed` は前後の空白 / 改行を除去したか。削除は `{ removed, generation }`）
+
+エラー: 名前 / 値の規則違反は 400、同名の重複は 409、別の cwd / 存在しない `secretId` は 404、シークレットで master key が未設定 / 宣言が壊れている / 復号できないときは 503（`state: "not_stored"`）。アプリデータが使えないときも 503（変更系は `state: "not_stored"`）。
 
 ## セッションへのファイルアップロード
 

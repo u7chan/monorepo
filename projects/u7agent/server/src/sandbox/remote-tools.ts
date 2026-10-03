@@ -60,11 +60,16 @@ export interface RemoteToolDefinitionOptions {
    * サンドボックスへ送らず BFF で返す (定義を編集・削除してもこのセッションの本文は変わらない)
    */
   catalogSkills?: readonly { name: string; body: string }[];
+  /**
+   * この実行の子プロセスへ足す環境変数 (作業フォルダの「変数」)。exec のたびに解決し、
+   * bash のときだけサンドボックスへ渡す。未指定なら注入なし
+   */
+  envForCwd?: (sandboxCwd: string) => Record<string, string>;
 }
 
 /** 戻り値は customTools として SDK へ渡す。すべて秘密マスクで包む。 */
 export function createRemoteToolDefinitions(options: RemoteToolDefinitionOptions): ToolDefinition[] {
-  const { cwd, rootCwd, sandboxCwd, client, masker, tools, catalogSkills = [] } = options;
+  const { cwd, rootCwd, sandboxCwd, client, masker, tools, catalogSkills = [], envForCwd } = options;
   const definitions: ToolDefinition[] = [];
   for (const name of tools) {
     if (!(REMOTE_TOOL_NAMES as readonly string[]).includes(name)) {
@@ -105,10 +110,13 @@ export function createRemoteToolDefinitions(options: RemoteToolDefinitionOptions
             }
             // BFF 側の実ファイルシステム (ctx の cwd) は渡さず、サンドボックス側だけをパス解決の源にする。
             // セッションの cwd は rootCwd 相対で渡し、サンドボックス側で root 配下の実パスへ解決させる。
+            // 環境変数 (作業フォルダの「変数」) は子プロセスを起こす bash にだけ足す。
+            const env = name === "bash" ? envForCwd?.(sandboxCwd) : undefined;
             const result = await client.execute(name, {
               toolCallId,
               params,
               cwd: sandboxCwd || undefined,
+              ...(env && Object.keys(env).length > 0 ? { env } : {}),
               signal,
               onUpdate: onUpdate as ((partial: { content: unknown; details?: unknown }) => void) | undefined,
             });

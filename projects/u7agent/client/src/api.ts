@@ -19,8 +19,8 @@ import type {
   ImageMutationResponse,
   ImageSettingsResponse,
   ModelMutationResponse,
-  ModelsSettingsResponse,
   ModelRef,
+  ModelsSettingsResponse,
   NotificationResult,
   NotificationsResponse,
   PostMessageResult,
@@ -28,6 +28,12 @@ import type {
   ProjectsResponse,
   RuntimeEnvironmentResponse,
   RuntimeModelsResponse,
+  SecretDetailResponse,
+  SecretKind,
+  SecretMutationResponse,
+  SecretRemovalResponse,
+  SecretsListResponse,
+  ServeStatus,
   SessionCompactionResult,
   SessionNotifyResponse,
   SessionPayload,
@@ -35,7 +41,6 @@ import type {
   SessionSkillsResponse,
   SessionSummary,
   SessionTitleResponse,
-  ServeStatus,
   SkillDef,
   StopResult,
   ThinkingLevel,
@@ -615,4 +620,79 @@ export const stopServe = async (input: { sessionId: string; generation: string |
   const res = await client.api.serve.stop.$post({ json: input });
   if (!res.ok) throw await apiError(res);
   return (await res.json()) as ServeStatus;
+};
+
+/**
+ * 作業環境 → 環境変数の要求元。会話 (sessionId) か、まだ会話が無いプロジェクト起点の新規会話 (projectId)。
+ * cwd はサーバーが解決するため client は送らない。
+ */
+export type SecretsScope = { sessionId?: string; projectId?: string };
+
+function scopeQuery(scope: SecretsScope): { sessionId?: string; projectId?: string } {
+  return {
+    ...(scope.sessionId ? { sessionId: scope.sessionId } : {}),
+    ...(scope.projectId ? { projectId: scope.projectId } : {}),
+  };
+}
+
+/** `/api/secrets/:secretId` の URL。hc の `$url` は param しか取らない面があるため、query は後から載せる */
+function detailUrl(scope: SecretsScope, secretId: string): URL {
+  const url = client.api.secrets[":secretId"].$url({ param: { secretId } });
+  url.search = new URLSearchParams(scopeQuery(scope)).toString();
+  return url;
+}
+
+/**
+ * 一覧。返るのは名前・種別・更新時刻だけで、シークレットの値は含まれない。
+ * `generation` は変更のたびに変わるため、serve の `secretGeneration` と比べて「再起動で反映」を出せる。
+ */
+export const getSecrets = async (scope: SecretsScope, signal?: AbortSignal): Promise<SecretsListResponse> => {
+  const res = await client.api.secrets.$get({ query: scopeQuery(scope) }, { init: { signal } });
+  if (!res.ok) throw await apiError(res);
+  return (await res.json()) as SecretsListResponse;
+};
+
+/**
+ * 変更フォーム用の 1 件。`value` は変数のときだけ入り、シークレットでは返らない。
+ * param + query のルートは hc が query を型として取らないため、history と同じく URL を組んで fetch する。
+ */
+export const getSecretDetail = async (
+  scope: SecretsScope,
+  secretId: string,
+  signal?: AbortSignal,
+): Promise<SecretDetailResponse> => {
+  const url = detailUrl(scope, secretId);
+  const res = await fetch(url, { signal });
+  if (!res.ok) throw await apiError(res);
+  return (await res.json()) as SecretDetailResponse;
+};
+
+/** 登録。名前の規則違反・重複は 400 / 409、master key 未設定のシークレットは 503 (state: not_stored) */
+export const createSecret = async (
+  input: SecretsScope & { kind: SecretKind; name: string; value: string },
+): Promise<SecretMutationResponse> => {
+  const res = await client.api.secrets.$post({ json: input });
+  if (!res.ok) throw await apiError(res);
+  return (await res.json()) as SecretMutationResponse;
+};
+
+/** 値の上書き。名前と種別は変えられない (変えたいときは削除して作り直す) */
+export const updateSecret = async (
+  scope: SecretsScope,
+  secretId: string,
+  value: string,
+): Promise<SecretMutationResponse> => {
+  const res = await client.api.secrets[":secretId"].$put({
+    param: { secretId },
+    json: { ...scopeQuery(scope), value },
+  });
+  if (!res.ok) throw await apiError(res);
+  return (await res.json()) as SecretMutationResponse;
+};
+
+/** 削除。確認 1 回は呼び出し側 (UI) が取る */
+export const deleteSecret = async (scope: SecretsScope, secretId: string): Promise<SecretRemovalResponse> => {
+  const res = await fetch(detailUrl(scope, secretId), { method: "DELETE" });
+  if (!res.ok) throw await apiError(res);
+  return (await res.json()) as SecretRemovalResponse;
 };

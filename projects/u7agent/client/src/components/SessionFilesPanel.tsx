@@ -1,5 +1,8 @@
 import { useEffect, useRef, useState, type KeyboardEvent, type PointerEvent } from "react";
+import type { SecretsScope } from "../api";
+import { sessionEnvTabs, type SessionEnvTab } from "../lib/sessionEnv";
 import type { FileRefRequest } from "../lib/fileRefRequest";
+import { cn } from "../lib/cn";
 import {
   clampSessionFilesPanelWidth,
   stepSessionFilesPanelWidth,
@@ -7,12 +10,18 @@ import {
   type SessionFilesPanelBounds,
 } from "../lib/sessionFilesPanel";
 import type { SessionFilesPanelResize } from "../hooks/useSessionFilesPanelWidth";
+import { EnvVarsTab } from "./EnvVarsTab";
 import { FileBrowser } from "./FileBrowser";
 import { CloseIcon, RefreshIcon } from "./icons";
 
 export type SessionFilesPanelProps = {
   /** 作業フォルダ (ワークスペース root 相対)。パネル / シートの root */
   root: string;
+  /**
+   * 環境変数タブの要求元。会話 (sessionId) か、まだ会話が無いプロジェクト起点の新規会話 (projectId)。
+   * 所有者は cwd なので、どちらの入口でも同じ作業フォルダの設定になる
+   */
+  envScope: SecretsScope;
   /** アーカイブの除外名の実効値（app 状態）。行のダウンロードの出し分けに使う */
   excludeNames: readonly string[];
   /** プレビュー オリジンのブラウザから見たポート (health)。未取得は undefined */
@@ -28,6 +37,7 @@ export type SessionFilesPanelProps = {
 
 function SessionFilesContent({
   root,
+  envScope,
   excludeNames,
   filePreviewPort,
   runEndSeq,
@@ -37,59 +47,82 @@ function SessionFilesContent({
   compact,
 }: SessionFilesPanelProps & { compact: boolean }) {
   const [manualReload, setManualReload] = useState(0);
+  const [tab, setTab] = useState<SessionEnvTab>("files");
   // ヘッダの「再読み込み」と run_end を 1 つの token にまとめる。どちらも単調なので、合計が
   // 変わったときだけ取り直す。描画間の runStatus の差は使わない (run_start と run_end が同じ
   // バッチで届くと running を観測できず、run_end を取りこぼす。カウンタは reducer が進める)
   const reloadToken = manualReload + runEndSeq;
+  // 出せるタブ (可用性の規則は lib/sessionEnv.ts が正)
+  const tabs = sessionEnvTabs({ root, scope: envScope.sessionId || envScope.projectId ? envScope : null });
+  const active = tabs.some((entry) => entry.id === tab) ? tab : (tabs[0]?.id ?? "files");
 
   return (
     <>
       <header
-        className={
-          compact
-            ? "flex shrink-0 items-start justify-between gap-3 border-b border-line px-4 py-3"
-            : "flex flex-wrap items-center justify-between gap-x-2 gap-y-1 border-b border-line px-4 py-2"
-        }
+        className={cn(
+          "flex shrink-0 items-start justify-between gap-3 border-b border-line px-4",
+          compact ? "py-3" : "py-2",
+        )}
       >
         <div className="min-w-0 flex-1">
           {compact ? (
-            <div className="text-2xs font-semibold tracking-label text-ink-ghost uppercase">WORK FOLDER</div>
+            <div className="text-2xs font-semibold tracking-label text-ink-ghost uppercase">WORK ENVIRONMENT</div>
           ) : null}
-          <h2
-            className={
-              compact
-                ? "truncate font-semibold text-base text-ink-strong"
-                : "truncate text-xs font-semibold text-ink-strong"
-            }
-          >
-            作業フォルダ
+          <h2 className={cn("truncate font-semibold text-ink-strong", compact ? "font-semibold text-base" : "text-xs")}>
+            作業環境
           </h2>
-          {/* 新規会話ではプロジェクトのフォルダを指すため、ラベルだけでなく root も desktop で出す */}
-          <code className="block truncate text-2xs leading-normal text-ink-muted" title={root}>
-            {root}
-          </code>
         </div>
         <div className="ml-auto flex shrink-0 items-center gap-1">
-          <button type="button" onClick={() => setManualReload((count) => count + 1)} className="btn-quiet">
-            <RefreshIcon />
-            再読み込み
-          </button>
           <button type="button" onClick={onClose} aria-label="閉じる" title="閉じる" className="btn-quiet px-2.5">
             <CloseIcon />
             {compact ? "閉じる" : null}
           </button>
         </div>
       </header>
-      {/* compact の sheet は全画面 modal で、入力欄へドロップできない */}
-      <FileBrowser
-        root={root}
-        reloadToken={reloadToken}
-        excludeNames={excludeNames}
-        filePreviewPort={filePreviewPort}
-        openRequest={openRequest}
-        onHandled={onHandled}
-        canRef={!compact}
-      />
+      {/* タブが 1 つしか出せない面ではタブバーを出さない (押しても変わらない行を残さない) */}
+      {tabs.length > 1 ? (
+        <div role="tablist" aria-label="作業環境" className="flex shrink-0 gap-1 border-b border-line px-4">
+          {tabs.map((entry) => (
+            <button
+              key={entry.id}
+              type="button"
+              role="tab"
+              aria-selected={active === entry.id}
+              onClick={() => setTab(entry.id)}
+              className={cn("tab-item", active === entry.id && "tab-item-active")}
+            >
+              {entry.label}
+            </button>
+          ))}
+        </div>
+      ) : null}
+      {active === "files" ? (
+        <div className="grid min-h-0 grid-rows-[auto_minmax(0,1fr)]">
+          {/* root と「再読み込み」は作業フォルダタブ専用 (環境変数タブは自前の toolbar を持つ) */}
+          <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1 border-b border-line px-4 py-2">
+            {/* 新規会話ではプロジェクトのフォルダを指すため、ラベルだけでなく root も出す */}
+            <code className="min-w-0 flex-1 truncate text-2xs leading-normal text-ink-muted" title={root}>
+              {root}
+            </code>
+            <button type="button" onClick={() => setManualReload((count) => count + 1)} className="btn-quiet">
+              <RefreshIcon />
+              再読み込み
+            </button>
+          </div>
+          {/* compact の sheet は全画面 modal で、入力欄へドロップできない */}
+          <FileBrowser
+            root={root}
+            reloadToken={reloadToken}
+            excludeNames={excludeNames}
+            filePreviewPort={filePreviewPort}
+            openRequest={openRequest}
+            onHandled={onHandled}
+            canRef={!compact}
+          />
+        </div>
+      ) : (
+        <EnvVarsTab scope={envScope} reloadToken={reloadToken} />
+      )}
     </>
   );
 }
@@ -178,7 +211,7 @@ function SessionFilesResizeHandle({
     <div
       ref={handleRef}
       role="separator"
-      aria-label="作業フォルダの幅"
+      aria-label="作業環境の幅"
       aria-orientation="vertical"
       aria-valuemin={min}
       aria-valuemax={max}
@@ -200,14 +233,14 @@ function SessionFilesResizeHandle({
 export type SessionFilesDesktopPanelProps = SessionFilesPanelProps & { resize: SessionFilesPanelResize };
 
 /**
- * desktop のチャット右パネル。root の切替 (セッションの切替) は呼び出し側の key が mount ごとに
+ * desktop のチャット右パネル (作業環境)。root の切替 (セッションの切替) は呼び出し側の key が mount ごとに
  * 入れ替える。幅が狭いので、ツリーとプレビューは FileBrowser 側のコンテナ判定で縦に積む。
  */
 export function SessionFilesPanel({ resize, ...props }: SessionFilesDesktopPanelProps) {
   return (
     <aside
-      aria-label="作業フォルダ"
-      className="relative grid h-full min-h-0 grid-rows-[auto_minmax(0,1fr)] overflow-hidden border-l border-line bg-panel"
+      aria-label="作業環境"
+      className="relative grid h-full min-h-0 grid-rows-[auto_auto_minmax(0,1fr)] overflow-hidden border-l border-line bg-panel"
     >
       {resize.resizable ? <SessionFilesResizeHandle {...resize} /> : null}
       <SessionFilesContent {...props} compact={false} />
@@ -216,7 +249,7 @@ export function SessionFilesPanel({ resize, ...props }: SessionFilesDesktopPanel
 }
 
 /**
- * compact のセッションファイル。チャットの表示幅を奪わないよう全画面 modal sheet にし、
+ * compact の作業環境。チャットの表示幅を奪わないよう全画面 modal sheet にし、
  * desktop と同じ FileBrowser を viewport 幅いっぱいで使う。
  */
 export type SessionFilesSheetProps = SessionFilesPanelProps & {
@@ -249,11 +282,11 @@ export function SessionFilesSheet({ returnFocus, ...props }: SessionFilesSheetPr
       onClose={props.onClose}
       tabIndex={-1}
       aria-modal="true"
-      aria-label="作業フォルダ"
+      aria-label="作業環境"
       onKeyDown={(event) => {
         if (event.key === "Escape") event.stopPropagation();
       }}
-      className="m-0 grid h-dvh max-h-none w-screen max-w-none grid-rows-[auto_minmax(0,1fr)] overflow-hidden rounded-none border-0 bg-panel p-0 text-ink"
+      className="m-0 grid h-dvh max-h-none w-screen max-w-none grid-rows-[auto_auto_minmax(0,1fr)] overflow-hidden rounded-none border-0 bg-panel p-0 text-ink"
     >
       <SessionFilesContent {...props} compact />
     </dialog>

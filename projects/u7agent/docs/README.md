@@ -21,6 +21,7 @@
 | チャットのスキル一覧と `/skill:` の展開 | `server/src/session-skills.ts`、`server/src/sessions.ts`、`server/src/catalog-skills.ts`、`server/src/routes/sessions.ts`、`client/src/hooks/useSessionSkills.ts`、`client/src/lib/sessionSkills.ts`、`client/src/lib/skillPicker.ts`、`client/src/lib/skillBlock.ts`、`client/src/components/composer/SkillPicker.tsx`、`client/src/components/chat/SkillInvocation.tsx` | [api-sessions.md](api-sessions.md)、[persistence.md](persistence.md) |
 | サンドボックス（ツール実行 / サービスの公開と起動・停止） | `server/src/sandbox/`、`server/src/serve.ts`、`server/src/serve-tool.ts`、`server/src/routes/serve.ts`、`client/src/components/ServedAppStatus.tsx`、`client/src/hooks/useServeStatus.ts` | [sandbox.md](sandbox.md)、[sandbox-api.md](sandbox-api.md)、[api.md](api.md#サービスserveの状態と起動停止) |
 | APIキーのマスク | `server/src/redact.ts`、`server/src/secret-guard.ts` | [secrets.md](secrets.md) |
+| 作業フォルダの環境変数（変数 / シークレットの登録・暗号化・注入） | `server/src/secrets.ts`、`server/src/secret-crypto.ts`、`server/src/env-names.ts`、`server/src/routes/secrets.ts`、`server/src/serve.ts`、`server/src/sandbox/`、`client/src/components/EnvVarsTab.tsx`、`client/src/lib/sessionEnv.ts` | [secrets.md](secrets.md#作業フォルダの環境変数作業環境--環境変数)、[api.md](api.md#作業フォルダの環境変数作業環境--環境変数)、[persistence.md](persistence.md#アプリデータsqlite) |
 | Discord 通知（会話ごとの On/Off と設定画面） | `server/src/notifications.ts`、`server/src/routes/notifications.ts`、`client/src/components/NotificationSettingsPage.tsx`、`client/src/components/notifications/` | [notifications.md](notifications.md) |
 | フロントエンドの状態 / テーマ / レイアウト | `client/src/hooks/`、`client/src/theme/`、`client/src/components/` | [frontend.md](frontend.md)、[ui-layout.md](ui-layout.md) |
 | テスト方針 / client の検査の分類 / GUI 受入 | `client/test/`、`server/test/`、`AGENTS.md` | [testing.md](testing.md) |
@@ -38,7 +39,7 @@
 - [image-generation.md](image-generation.md) — 画像生成（保存先とパスの空間・キーによるゲート・失敗分類・キーの扱い・Markdown 画像のプレビュー）
 - [sandbox.md](sandbox.md) — ツール実行のサンドボックス分離
 - [sandbox-api.md](sandbox-api.md) — サンドボックス内部 API と環境変数（ZIP の除外規則と上限を含む）
-- [secrets.md](secrets.md) — APIキー漏洩の抑制
+- [secrets.md](secrets.md) — APIキー漏洩の抑制と、作業フォルダの環境変数（保存時暗号化・実行時注入）
 - [notifications.md](notifications.md) — Discord 通知（送るタイミング・宛先制限・write-only な Webhook URL・設定画面）
 - [frontend.md](frontend.md) — フロントエンドの状態管理・テーマ・Effect 契約
 - [markdown.md](markdown.md) — チャット本文の Markdown 描画（対応サブセット・上限・インラインコードのファイル参照）

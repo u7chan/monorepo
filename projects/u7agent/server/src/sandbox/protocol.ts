@@ -43,6 +43,12 @@ export interface SandboxExecuteRequestBody {
   params?: Record<string, unknown>;
   /** 実行する作業ディレクトリ (rootCwd 相対)。省略・空文字は root。root 外は 400。 */
   cwd?: string;
+  /**
+   * この実行の子プロセスへ足す環境変数 (作業フォルダの変数 / serve 起動時の変数 + シークレット)。
+   * 名前は isInjectableEnvName() を通るものだけを受け付け、値は子プロセスの env にだけ置く
+   * (params やコマンド文字列には入れない)。
+   */
+  env?: Record<string, string>;
 }
 
 /** POST /v1/dirs のリクエストボディ。path は rootCwd 相対。 */

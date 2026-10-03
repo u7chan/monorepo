@@ -618,6 +618,47 @@ export function KeyIcon() {
   );
 }
 
+/**
+ * 入力欄の値を見せる / 隠す。作業環境 → 環境変数の値欄だけが使う (保存済みの値の表示には使わない)。
+ * 見せるときは瞳孔を足して、線の本数だけに頼らない。
+ */
+export function EyeIcon({ open = false }: { open?: boolean }) {
+  return (
+    <svg
+      aria-hidden="true"
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.5"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className="size-3.5 shrink-0"
+    >
+      <path d="M1.5 8S4 4 8 4s6.5 4 6.5 4-2.5 4-6.5 4-6.5-4-6.5-4Z" />
+      {open ? <circle cx="8" cy="8" r="1.9" /> : <path d="M3 13 13 3" />}
+    </svg>
+  );
+}
+
+/** 名前のコピー。エージェントへ渡してよいのは名前だけなので、値のコピー導線は作らない */
+export function CopyIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.5"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className="size-3.5 shrink-0"
+    >
+      <rect x="5.75" y="5.75" width="7.5" height="7.5" rx="1.5" />
+      <path d="M10.25 5.5V4a1.5 1.5 0 0 0-1.5-1.5h-4.5A1.5 1.5 0 0 0 2.75 4v4.5a1.5 1.5 0 0 0 1.5 1.5H5.75" />
+    </svg>
+  );
+}
+
 /** ツリーのファイル行。模様の種類は `fileKind` が拡張子から決める */
 export function FileIcon({ kind = "text" }: { kind?: FileKind }) {
   return (

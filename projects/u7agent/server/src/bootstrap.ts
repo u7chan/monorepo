@@ -16,6 +16,8 @@ import { NotificationService } from "./notifications";
 import { ProjectStore } from "./projects";
 import { createSandboxToolClientFromEnv } from "./sandbox/client";
 import type { SandboxExecClient, SandboxRuntimeDiagnostics, SandboxWorkspaceClient } from "./sandbox/client";
+import { SecretService } from "./secrets";
+import { SecretKeyError, createSecretCipher, resolveMasterKeys } from "./secret-crypto";
 import { ServeService, sandboxHostFromUrl, type ServeProbe } from "./serve";
 import { createServeToolHost } from "./serve-tool";
 import { SessionStore } from "./sessions";
@@ -87,6 +89,8 @@ export type BffContext = {
   imageSettings: ImageSettingsService;
   /** serve (サービス) の状態と起動・停止。GUI とエージェントの serve ツールが同じ実体を使う */
   serve: ServeService;
+  /** 作業フォルダ単位の環境変数。GUI の API と serve / bash への注入が同じ実体を使う */
+  secrets: SecretService;
 };
 
 export async function createBffContext(opts: CreateBffAppOptions = {}): Promise<BffContext> {
@@ -167,6 +171,32 @@ export async function createBffContext(opts: CreateBffAppOptions = {}): Promise<
     maskError,
   });
   await imageSettings.applyStored();
+  // シークレットは master key をホスト側 (環境変数 / 鍵ファイル) から受け取り、アプリ DB とは別経路で管理する。
+  // 未設定 / 壊れた宣言では「秘密の利用」だけを拒否し、変数 (平文) と起動は続行する。
+  const secrets = (() => {
+    let cipher = null;
+    let unavailableReason: string | undefined;
+    try {
+      const ring = resolveMasterKeys(process.env);
+      cipher = ring ? createSecretCipher(ring) : null;
+      if (!ring) unavailableReason = "シークレットの master key が未設定です (U7AGENT_SECRET_MASTER_KEY)";
+    } catch (error) {
+      unavailableReason =
+        error instanceof SecretKeyError
+          ? error.message
+          : `シークレットの master key を読み込めません: ${messageFor(error)}`;
+      console.error(`[u7agent] secret master key unavailable: ${unavailableReason}`);
+    }
+    return new SecretService({
+      store: appDb,
+      cipher,
+      ...(unavailableReason ? { unavailableReason } : {}),
+      retainSecret: pi ? pi.retainSecret : () => {},
+    });
+  })();
+  // エージェントの bash へ渡す変数は exec のたびに解決する (変更が「次の bash」から効く) ため、
+  // 値ではなく解決関数を注入する。シークレットはここに含めない (serve の起動時だけ渡す)。
+  pi?.setSessionEnv({ variablesFor: (cwd) => secrets.variablesFor(cwd) });
   // 組み込みスキルはサンドボックスに依らず起動時に読み込み済みなので、カタログの応答へそのまま載せる
   const catalog = createAgentCatalog({
     builtinSkills: BUILTIN_SKILLS.map((skill) => ({ name: skill.name, description: skill.description })),
@@ -215,6 +245,7 @@ export async function createBffContext(opts: CreateBffAppOptions = {}): Promise<
     appDb,
     sessions: store,
     sandbox: serveSandbox,
+    secretEnv: secrets,
     sandboxHost: opts.serveHost ?? sandboxHostFromUrl(process.env.PI_SANDBOX_URL),
     ...(opts.serveProbe ? { probe: opts.serveProbe } : {}),
   });
@@ -235,6 +266,7 @@ export async function createBffContext(opts: CreateBffAppOptions = {}): Promise<
     modelSettings,
     imageSettings,
     serve,
+    secrets,
   };
 }
 

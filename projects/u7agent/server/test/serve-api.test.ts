@@ -70,6 +70,8 @@ test("GET /api/serve/status は閲覧中の会話から見た状態を返す", a
       owner: { kind: "none" },
       generation: null,
       command: { cwd: "", command: "pnpm dev" },
+      // 環境変数の解決源を渡していないので世代は常に空 (記録は起動時に解決した値を持つ)
+      secretGeneration: null,
     });
 
     const started = await jsonBody(await bff.app.request("/api/serve/start", jsonPost({ sessionId: first })));

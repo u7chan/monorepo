@@ -131,7 +131,13 @@ async function main() {
     log(`PI_SANDBOX_CWD は使わず、BFF と同じ ${APP_CWD} をサンドボックスへ渡します`);
   }
   log(`サンドボックスを起動します (http://127.0.0.1:${SANDBOX_PORT})`);
+  // シークレットの master key は BFF だけが使う。サンドボックスのプロセス env から外し、
+  // /proc/<pid>/environ などから読める露出を増やさない (bash の子プロセスからは service 側でも剥がす)
+  const sandboxEnv = { ...process.env };
+  delete sandboxEnv.U7AGENT_SECRET_MASTER_KEY;
+  delete sandboxEnv.U7AGENT_SECRET_MASTER_KEY_FILE;
   const sandbox = start("sandbox", "start:sandbox", {
+    ...sandboxEnv,
     SANDBOX_HOST: "127.0.0.1",
     SANDBOX_PORT: String(SANDBOX_PORT),
     PI_SANDBOX_TOKEN: TOKEN,

@@ -255,6 +255,58 @@ test(
   },
 );
 
+test(
+  "exec の env は bash の子プロセスへ入り、予約名や不正な名前は 400 で拒否する",
+  { skip: !HAS_BASH && SKIP_REASON },
+  async () => {
+    const root = mkdtempSync(join(tmpdir(), "pi-sbx-inject-"));
+    const service = createSandboxService({ token: TOKEN, rootCwd: root });
+    const execute = (body: Record<string, unknown>) =>
+      service.app.request("/v1/tools/bash/execute", {
+        method: "POST",
+        headers: authHeaders(),
+        body: JSON.stringify(body),
+      });
+    // 実起動と同じく master key が process.env にある状態を再現する (子プロセスへは渡さない)
+    const previous = process.env.U7AGENT_SECRET_MASTER_KEY;
+    process.env.U7AGENT_SECRET_MASTER_KEY = `1:${Buffer.alloc(32, 3).toString("base64")}`;
+    try {
+      const response = await execute({
+        params: {
+          command: 'echo "NODE_ENV=$NODE_ENV"; if [ -n "$U7AGENT_SECRET_MASTER_KEY" ]; then echo MASTER_LEAKED; fi',
+        },
+        env: { NODE_ENV: "production" },
+      });
+      const events = await readEvents(response);
+      const result = events.find((event) => event.type === "result");
+      assert.ok(result, "command should succeed");
+      const text = eventText((result as { payload: unknown }).payload);
+      assert.match(text, /NODE_ENV=production/, "注入した env が子プロセスへ入っていない");
+      assert.ok(!text.includes("MASTER_LEAKED"), "master key を子プロセスへ渡している");
+
+      // 予約名・起動制御名・不正な名前は実行前に 400 で弾く
+      for (const env of [
+        { PATH: "/tmp" },
+        { PI_SANDBOX_TOKEN: "x" },
+        { U7AGENT_SECRET_MASTER_KEY: "x" },
+        { "1BAD": "x" },
+        { "A-B": "x" },
+        { OK: 1 },
+      ]) {
+        const bad = await execute({ params: { command: "echo hi" }, env });
+        assert.equal(bad.status, 400, JSON.stringify(env));
+      }
+      // env の形が違うときも 400
+      assert.equal((await execute({ params: { command: "echo hi" }, env: ["A"] })).status, 400);
+      // 注入する名前は正規化済み (大文字) の前提。小文字は登録側で正規化されるため受け取らない
+      assert.equal((await execute({ params: { command: "echo hi" }, env: { lower_case: "ok" } })).status, 400);
+    } finally {
+      if (previous === undefined) delete process.env.U7AGENT_SECRET_MASTER_KEY;
+      else process.env.U7AGENT_SECRET_MASTER_KEY = previous;
+    }
+  },
+);
+
 test("unknown tool and invalid params return 4xx", async () => {
   const root = mkdtempSync(join(tmpdir(), "pi-sbx-invalid-"));
   const service = createSandboxService({ token: TOKEN, rootCwd: root });

@@ -317,7 +317,7 @@ test("desktop の通知は On / Off と配信停止の状態を表示する", ()
   const off = renderTopbar({ on: false });
   const delivering = renderTopbar({ on: true });
   const stopped = renderTopbar({ on: true, deliverable: false });
-  assert.ok(off.indexOf("通知") < off.indexOf("作業フォルダ"), "通知がファイルより右にある");
+  assert.ok(off.indexOf("通知") < off.indexOf("作業環境"), "通知が作業環境より右にある");
   assert.ok(off.includes('aria-pressed="false"'), "Off の状態が読み上げに伝わらない");
   assert.ok(delivering.includes('aria-pressed="true"'), "On の状態が読み上げに伝わらない");
 
@@ -363,10 +363,7 @@ test("compact のバーは ☰ を左端に置き、通知 → ファイルの�
     html.indexOf('aria-label="サービスを起動"') < html.indexOf('aria-label="通知"'),
     "サービスの起動が通知の左に無い",
   );
-  assert.ok(
-    html.indexOf('aria-label="通知"') < html.indexOf('aria-label="作業フォルダ"'),
-    "通知がファイルより右にある",
-  );
+  assert.ok(html.indexOf('aria-label="通知"') < html.indexOf('aria-label="作業環境"'), "通知が作業環境より右にある");
 });
 
 test("compact は読み上げ名と注記で配信停止を示す", () => {
