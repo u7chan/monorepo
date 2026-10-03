@@ -8,7 +8,7 @@
     "start": "bun run db:migrate && NODE_ENV=production bun run ./src/server/bun-server.ts",
     "test": "bun test",
     "test:unit": "bun test tests/features",
-    "lint": "tsc && oxlint",
+    "lint": "bun ./node_modules/typescript/bin/tsc && oxlint",
     "lint:fix": "oxlint --fix",
     "format:check": "oxfmt --check",
     "format": "oxfmt",
