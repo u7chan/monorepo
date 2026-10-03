@@ -13,6 +13,7 @@ import type {
   FilePreview,
   FileRename,
   FileSkillsResponse,
+  GitInfo,
   Health,
   HistoryPage,
   ImageCatalogRefreshResponse,
@@ -189,6 +190,16 @@ export const getFiles = async (path = "."): Promise<FileListing> => {
   if (!res.ok) throw await apiError(res);
   // 400 (root 外) / 503 (未設定) の応答型が残るため、!ok を throw で切った後に DTO 型へ寄せる
   return (await res.json()) as FileListing;
+};
+
+/**
+ * 作業フォルダ (root 相対) が属する repo のブランチ。repo の外・git が無い環境は null で、
+ * 表示側はチップを出さないだけにする (一覧の表示を止めない)。
+ */
+export const getGitInfo = async (path = "."): Promise<GitInfo> => {
+  const res = await client.api.files.git.$get({ query: { path } });
+  if (!res.ok) throw await apiError(res);
+  return (await res.json()) as GitInfo;
 };
 
 /**

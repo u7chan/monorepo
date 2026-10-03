@@ -43,6 +43,8 @@ function stubWorkspace(input: { skills?: Record<string, SandboxSkillEntry[]>; bo
   return {
     previewed,
     workspace: {
+      // git 情報はこのテストでは扱わない
+      getGitInfo: async () => ({ branch: null }),
       listSkills: async (dir: string) => ({ skills: input.skills?.[dir] ?? [] }),
       previewFile: async (path: string) => {
         previewed.push(path);

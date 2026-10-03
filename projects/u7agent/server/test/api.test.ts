@@ -45,6 +45,8 @@ function stubWorkspace(): { workspace: SandboxWorkspaceClient; dirs: string[]; l
         return { path: path || ".", entries: [], truncated: false };
       },
       // ファイルスキルの発見はこのテストでは扱わない (専用のテストで検証する)
+      // git 情報はこのテストでは扱わない
+      getGitInfo: async () => ({ branch: null }),
       listSkills: async () => ({ skills: [] }),
       createDir: async (path: string) => {
         dirs.push(path);
@@ -259,6 +261,8 @@ test("project creation relays sandbox failures and answers 503 without a sandbox
       listFiles: async () => {
         throw new SandboxRequestError("Path not found: /workspace/nope", 404);
       },
+      // git 情報はこのテストでは扱わない
+      getGitInfo: async () => ({ branch: null }),
       listSkills: async () => ({ skills: [] }),
       createDir: async (path: string) => ({ path }),
       // 削除 / リネーム / アップロード / 生配信はこのテストでは扱わない

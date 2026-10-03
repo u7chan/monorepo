@@ -14,6 +14,7 @@ DTO の正は `server/src/schema.ts`（zod）。リクエストボディは `@ho
 | ランタイムのモデルカタログ | `GET /api/runtime/models` | このファイル |
 | 実行環境（サンドボックスの診断） | `GET /api/runtime/environment` | このファイル |
 | ファイル一覧 | `GET /api/files` | このファイル |
+| git ブランチ（作業フォルダ） | `GET /api/files/git` | このファイル |
 | ファイル削除 | `DELETE /api/files` | このファイル |
 | ファイルのリネーム | `POST /api/files/rename` | このファイル |
 | テキストプレビュー | `GET /api/files/preview` | このファイル |
@@ -216,6 +217,23 @@ client（`client/src/api.ts` の `getFiles`）は hc でこの契約を型とし
 - 503: `PI_SANDBOX_URL` / `PI_SANDBOX_TOKEN` が未設定
 
 出す導線は設定 → ファイル（ワークスペース root）のフォルダ行だけにある（[file-preview.md](file-preview.md#リネーム)）。API はファイル / ディレクトリの両方を受けるが、UI からファイルは改名できない。
+
+### git ブランチ
+
+| メソッド | パス | 説明 |
+| --- | --- | --- |
+| GET | `/api/files/git?path=<root 相対>` | `path`（省略時は root）のディレクトリが属する repo の HEAD |
+
+サンドボックスの `GET /v1/files/git`（[sandbox-api.md](sandbox-api.md#get-v1filesgit)）の応答を DTO（`GitInfo`）として返す。`path` は一覧と同じワークスペース root 相対で、検証も同じ経路を通す。
+
+```json
+{ "branch": "feature/x" }
+```
+
+- 200: `branch` は HEAD のブランチ名で、detached HEAD は短縮 SHA。**repo の外・`git` の無い環境は `branch: null`** で、UI はチップを出さないだけにする（一覧の表示は止めない）。`Cache-Control: no-store`（再読み込みで取り直す）
+- 400 / 404 / 502 / 503: パス検証とサンドボックス失敗の扱いは `GET /api/files` と同じ（400 root 外 / 404 実在しない / 502 到達不能・契約外の応答 / 503 未設定）
+
+client（`client/src/api.ts` の `getGitInfo`）は作業フォルダの行が呼ぶ。取り直しの合図は一覧と同じ `reloadToken`（パネルの「再読み込み」と run の終了）で、失敗時は古い値を消してチップを出さない（[ui-layout.md](ui-layout.md#作業環境パネル)）。
 
 ## テキストプレビュー
 

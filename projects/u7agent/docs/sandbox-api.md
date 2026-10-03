@@ -7,6 +7,7 @@ BFF が作業用ツール（`read` / `bash` / `edit` / `write` / `grep` / `find`
 | GET | `/healthz` | 無認証。Compose healthcheck 用。`{ ok, tools, cwd, runningExecutions }` |
 | GET | `/v1/runtime/info` | 実行環境の診断（認証必須・読み取り専用）。[実行環境の診断](#get-v1runtimeinfo) |
 | GET | `/v1/files` | 作業領域の一覧（JSON）。`?path=<root 相対>` |
+| GET | `/v1/files/git` | 作業フォルダが属する repo のブランチ（JSON）。`?path=<root 相対>` |
 | GET | `/v1/skills` | ファイルスキル（`SKILL.md`）の発見（JSON）。`?dir=<root 相対>` |
 | DELETE | `/v1/files` | 通常ファイルの削除。`?path=<root 相対>`。成功は本文なしの 204 |
 | POST | `/v1/files/rename` | エントリ（ファイル / ディレクトリ）のリネーム。`{ path, name }` |
@@ -210,6 +211,19 @@ X-Content-Type-Options: nosniff
 - 1 ディレクトリ 500 件（SDK の `ls` ツールの既定上限と同じ）で打ち切り、`truncated: true` を返す
 - 400: `path` が root 外へ解決される / 不正、ディレクトリでない（`Not a directory: …`）、読み取り不能。404: 実在しない（`Path not found: …`）。文言は `ls` ツールに寄せる
 - root 外の拒否は URL 経由の不正参照を防ぐ入力検証で、サンドボックスが読める範囲を絞るものではない（サンドボックスは元々 `bash` / `read` を実行でき、読み取り範囲は変わらない）
+
+## `GET /v1/files/git`
+
+`path`（root 相対、省略時は root）のディレクトリが属する repo の HEAD を返す。読み取り専用で、`git` の子プロセスを起動するのはサンドボックスだけ（BFF はプロセスを起こさない）。**repo の外と `git` の無い環境はエラーにせず `branch: null`** を返す。
+
+```json
+{ "branch": "feature/x" }
+```
+
+- `branch` は `git -C <path> symbolic-ref --short -q HEAD` の 1 行目（初回コミット前の repo でもブランチ名を返す）。detached HEAD は指すブランチが無いため `rev-parse --short HEAD` の短縮 SHA になる。それも失敗すれば `null`
+- `path` の解決と検証は [`GET /v1/files`](#get-v1files) と同じ（root 外 400 / 実在しない 404 / ディレクトリ以外 400）。git は親ディレクトリへ辿って repo を見つけるため、root が repo の配下ならその repo のブランチを答える
+- 実行の制限は[実行環境の診断](#get-v1runtimeinfo)と同じ: 信頼ディレクトリ（`RUNTIME_PROBE_PATH_DIRS`）で解決した `git` の実体、固定引数（shell 無し）、`process.env` を継承しない最小環境（`HOME` は存在しない固定値）。cwd は `/` で、対象ディレクトリは `-C` だけに渡す。stdout + stderr は 4 KiB、遅くとも 2 秒（2 コマンドの合計）で打ち切る
+- `git` が無い / 期限超過 / 出力上限 / repo の外は、理由を返さず `branch: null` に寄せる。ブランチは一覧の表示を止める情報ではないので、UI はチップを出さないだけにする
 
 ## `GET /v1/skills`
 

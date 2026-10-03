@@ -10,8 +10,10 @@ import {
   type SessionFilesPanelBounds,
 } from "../lib/sessionFilesPanel";
 import type { SessionFilesPanelResize } from "../hooks/useSessionFilesPanelWidth";
+import { useGitBranch } from "../hooks/useGitBranch";
 import { EnvVarsTab } from "./EnvVarsTab";
 import { FileBrowser } from "./FileBrowser";
+import { GitBranchBadge } from "./GitBranchBadge";
 import { CloseIcon, RefreshIcon } from "./icons";
 
 export type SessionFilesPanelProps = {
@@ -52,6 +54,8 @@ function SessionFilesContent({
   // 変わったときだけ取り直す。描画間の runStatus の差は使わない (run_start と run_end が同じ
   // バッチで届くと running を観測できず、run_end を取りこぼす。カウンタは reducer が進める)
   const reloadToken = manualReload + runEndSeq;
+  // root が属する repo のブランチ。一覧と同じ合図 (再読み込み / run 終了) で取り直す
+  const branch = useGitBranch(root, reloadToken);
   // 出せるタブ (可用性の規則は lib/sessionEnv.ts が正)
   const tabs = sessionEnvTabs({ root, scope: envScope.sessionId || envScope.projectId ? envScope : null });
   const active = tabs.some((entry) => entry.id === tab) ? tab : (tabs[0]?.id ?? "files");
@@ -101,9 +105,13 @@ function SessionFilesContent({
           {/* root と「再読み込み」は作業フォルダタブ専用 (環境変数タブは自前の toolbar を持つ) */}
           <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1 border-b border-line px-4 py-2">
             {/* 新規会話ではプロジェクトのフォルダを指すため、ラベルだけでなく root も出す */}
-            <code className="min-w-0 flex-1 truncate text-2xs leading-normal text-ink-muted" title={root}>
-              {root}
-            </code>
+            <div className="flex min-w-0 flex-1 items-center gap-1.5">
+              <code className="min-w-0 truncate text-2xs leading-normal text-ink-muted" title={root}>
+                {root}
+              </code>
+              {/* repo の外では出さない (ブランチは一覧の表示を止める情報ではない) */}
+              {branch ? <GitBranchBadge branch={branch} /> : null}
+            </div>
             <button type="button" onClick={() => setManualReload((count) => count + 1)} className="btn-quiet">
               <RefreshIcon />
               再読み込み

@@ -3,7 +3,7 @@ import test from "node:test";
 import type { HistoryPage } from "../src/types";
 
 globalThis.location ??= { origin: "http://localhost" } as Location;
-const { getSessionHistory, updateArchiveSettings, resetArchiveSettings, updateSessionTitle } =
+const { getSessionHistory, updateArchiveSettings, resetArchiveSettings, updateSessionTitle, getGitInfo } =
   await import("../src/api");
 
 const page: HistoryPage = {
@@ -75,4 +75,20 @@ test("セッション名は PATCH で送り、サーバーが確定した名前�
     return Response.json(result);
   });
   assert.deepEqual(await updateSessionTitle("session-a", "送信した名前"), result);
+});
+
+test("git 情報は root 相対の path を符号化し、repo の外の null もそのまま返す", async (t) => {
+  const queries: URLSearchParams[] = [];
+  const paths: string[] = [];
+  t.mock.method(globalThis, "fetch", async (input: string | URL | Request) => {
+    const url = new URL(new Request(input).url);
+    paths.push(url.pathname);
+    queries.push(url.searchParams);
+    return Response.json({ branch: url.searchParams.get("path") === "work/app" ? "feature/x" : null });
+  });
+  assert.deepEqual(await getGitInfo("work/app"), { branch: "feature/x" });
+  assert.deepEqual(await getGitInfo(), { branch: null });
+  assert.deepEqual(paths, ["/api/files/git", "/api/files/git"]);
+  assert.equal(queries[0].get("path"), "work/app");
+  assert.equal(queries[1].get("path"), ".", "path 省略時は root");
 });

@@ -10,6 +10,7 @@ import {
   type SandboxFileListing,
   type SandboxFilePreview,
   type SandboxFileUpload,
+  type SandboxGitInfo,
   type SandboxRenameResult,
   type SandboxRuntimeInfo,
   type SandboxSkillsResponse,
@@ -107,6 +108,7 @@ export function createSandboxToolClient(options: SandboxToolClientOptions): Sand
     execute: (toolName, input) => execute(toolName, input, baseUrl, token, fetchImpl),
     getRuntimeInfo: () => getRuntimeInfo(baseUrl, token, fetchImpl, runtimeInfoTimeoutMs),
     listFiles: (path) => listFiles(path, baseUrl, token, fetchImpl),
+    getGitInfo: (path) => getGitInfo(path, baseUrl, token, fetchImpl),
     listSkills: (dir) => listSkills(dir, baseUrl, token, fetchImpl),
     previewFile: async (path) => {
       const response = await fetchJson(
@@ -144,6 +146,8 @@ export interface SandboxToolClient extends SandboxRuntimeDiagnostics {
   previewFile(path: string): Promise<SandboxFilePreview>;
   execute(toolName: string, input: SandboxExecuteInput): Promise<SandboxExecuteResult>;
   listFiles(path: string): Promise<SandboxFileListing>;
+  /** root 相対のディレクトリが属する repo のブランチ。repo の外・git が無い環境は branch: null */
+  getGitInfo(path: string): Promise<SandboxGitInfo>;
   /** `.agents/skills` 配下の発見 (dir は root 相対)。不存在の dir は 404 */
   listSkills(dir: string): Promise<SandboxSkillsResponse>;
   createDir(path: string): Promise<SandboxCreateDirResult>;
@@ -164,6 +168,7 @@ export interface SandboxToolClient extends SandboxRuntimeDiagnostics {
 export type SandboxWorkspaceClient = Pick<
   SandboxToolClient,
   | "listFiles"
+  | "getGitInfo"
   | "listSkills"
   | "createDir"
   | "renameEntry"
@@ -242,6 +247,22 @@ async function listFiles(
   );
   if (!response.ok) throw await jsonError(response, "ファイル一覧を取得できませんでした");
   return (await response.json()) as SandboxFileListing;
+}
+
+async function getGitInfo(
+  path: string,
+  baseUrl: string,
+  token: string,
+  fetchImpl: typeof fetch,
+): Promise<SandboxGitInfo> {
+  const response = await fetchJson(
+    fetchImpl,
+    `${baseUrl}/v1/files/git?path=${encodeURIComponent(path)}`,
+    { headers: jsonHeaders(token) },
+    baseUrl,
+  );
+  if (!response.ok) throw await jsonError(response, "git 情報を取得できませんでした");
+  return (await response.json()) as SandboxGitInfo;
 }
 
 async function listSkills(

@@ -175,6 +175,14 @@ export interface SandboxFileListing {
 export const SANDBOX_MAX_FILE_ENTRIES = 500;
 
 /**
+ * GET /v1/files/git の応答。branch は HEAD が指すブランチ名で、detached HEAD では短縮 SHA。
+ * repo の外・git が無い環境では null (一覧やツリーの表示を止めるエラーではない)。
+ */
+export interface SandboxGitInfo {
+  branch: string | null;
+}
+
+/**
  * GET /v1/skills の 1 件。走査規則 (hidden / node_modules / ignore ファイル / frontmatter 検証) は
  * SDK の loadSkillsFromDir に委譲し、ここでは SKILL.md だけを返す。
  * path は realpath (= root 内の絶対パス) で、symlink を解決した実体を指す (read 時の内容と一致させる)。

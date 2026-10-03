@@ -26,6 +26,7 @@ export type {
   FileRename,
   FileSkillInfo,
   FileSkillsResponse,
+  GitInfo,
   Health,
   HistoryCompactionItem,
   HistoryContextState,

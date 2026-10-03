@@ -49,6 +49,7 @@ import {
   type ArchiveLimits,
   type ArchivePlan,
 } from "./archive";
+import { GIT_INFO_TIMEOUT_MS, readWorkspaceGitInfo } from "./git-info";
 import { SKILLS_SCAN_TIMEOUT_MS, scanSkillsWithDeadline } from "./skills-scan";
 import { probeSandboxRuntime } from "./runtime-info";
 import {
@@ -96,6 +97,8 @@ export interface SandboxServiceOptions {
   maxArchiveEntries?: number;
   /** テストで小さくできるスキル走査の期限 (既定 2s) */
   skillsScanTimeoutMs?: number;
+  /** テストで小さくできる git 情報の期限 (既定 2s) */
+  gitInfoTimeoutMs?: number;
   /** テストで差し替える実行環境の診断 (既定は実プロセスでコマンドを検出する) */
   probeRuntimeInfo?: (rootCwd: string) => Promise<SandboxRuntimeInfo>;
 }
@@ -699,6 +702,7 @@ export function createSandboxService(options: SandboxServiceOptions): SandboxSer
   const rootCwd = options.rootCwd || "/workspace";
   const maxUploadBytes = options.maxUploadBytes ?? SANDBOX_MAX_UPLOAD_BYTES;
   const skillsScanTimeoutMs = options.skillsScanTimeoutMs ?? SKILLS_SCAN_TIMEOUT_MS;
+  const gitInfoTimeoutMs = options.gitInfoTimeoutMs ?? GIT_INFO_TIMEOUT_MS;
   const archiveLimits: ArchiveLimits = {
     maxBytes: options.maxArchiveBytes ?? DEFAULT_ARCHIVE_LIMITS.maxBytes,
     maxEntries: options.maxArchiveEntries ?? DEFAULT_ARCHIVE_LIMITS.maxEntries,
@@ -981,6 +985,17 @@ export function createSandboxService(options: SandboxServiceOptions): SandboxSer
   app.get("/v1/files", async (c) => {
     try {
       return c.json(await listWorkspaceDirectory(rootCwd, c.req.query("path") ?? ""));
+    } catch (error) {
+      const statusCode = (error as { statusCode?: number }).statusCode ?? 500;
+      return c.json({ error: messageFor(error) }, statusCode as 400);
+    }
+  });
+
+  // 作業フォルダ (root 相対) が属する repo のブランチ。repo の外はエラーではなく branch: null を返す
+  app.get("/v1/files/git", async (c) => {
+    try {
+      const { target } = await resolveWorkspaceDirectory(rootCwd, c.req.query("path") ?? "");
+      return c.json(await readWorkspaceGitInfo(target, { timeoutMs: gitInfoTimeoutMs }));
     } catch (error) {
       const statusCode = (error as { statusCode?: number }).statusCode ?? 500;
       return c.json({ error: messageFor(error) }, statusCode as 400);
