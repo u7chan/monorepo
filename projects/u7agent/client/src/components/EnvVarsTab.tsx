@@ -174,7 +174,7 @@ export function EnvVarsTab({ scope, reloadToken }: EnvVarsTabProps) {
 
   return (
     <div className="min-h-0 min-w-0 scrollbar-thin overflow-y-auto">
-      <div className="flex flex-wrap items-center gap-2 border-b border-line px-4 py-2">
+      <div className="flex flex-wrap items-center justify-end gap-2 border-b border-line px-4 py-2">
         {showForm ? null : (
           <button
             type="button"
