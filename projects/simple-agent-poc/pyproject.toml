@@ -6,7 +6,9 @@ readme = "README.md"
 requires-python = ">=3.14"
 dependencies = [
     "fastapi>=0.141.1",
-    "litellm>=1.96.2",
+    # litellm 1.103.0 の rust_bridge dispatch 層で completion()/responses() の公開型が広がり、
+    # stream=True の絞り込みが消えて ty check が落ちる。上流修正まで 1.102 系に留める。
+    "litellm>=1.96.2,<1.103",
     "python-dotenv>=1.2.1",
     "pyyaml>=6.0.3",
     "uvicorn>=0.52.1",
