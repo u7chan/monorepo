@@ -181,11 +181,11 @@ test("compact は 1 枠で操作でき、停止中はメニューなしの起動
   }
 });
 
-test("置き換えの確認文言は所有者名を 1 回だけ出し、起動コマンドを独立した行にする", () => {
+test("置き換えの確認文言は所有者名を 1 回だけ出し、停止対象をサービスと明示して起動コマンドを独立した行にする", () => {
   const other = servedAppView(serveStatus({ reachable: true, owner: { kind: "other", title: "決済画面の検証" } }));
   assert.equal(
     servedAppReplaceConfirm(other),
-    ["「決済画面の検証」を停止して、この会話のサービスを起動します。", "起動コマンド: pnpm dev"].join("\n"),
+    ["「決済画面の検証」のサービスを停止して、この会話のサービスを起動します。", "起動コマンド: pnpm dev"].join("\n"),
   );
   // 初回メッセージ由来のタイトルは長いので、2 回出すと同じ文が段落になる (重複の再発を防ぐ)
   assert.equal(servedAppReplaceConfirm(other).split("決済画面の検証").length - 1, 1);
