@@ -1082,7 +1082,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "fastapi", specifier = ">=0.141.1" },
-    { name = "litellm", specifier = ">=1.96.2" },
+    { name = "litellm", specifier = ">=1.96.2,<1.103" },
     { name = "python-dotenv", specifier = ">=1.2.1" },
     { name = "pyyaml", specifier = ">=6.0.3" },
     { name = "uvicorn", specifier = ">=0.52.1" },
