@@ -127,6 +127,11 @@ updates:
     rebase-strategy: "disabled"
     labels:
       - "dependabot-auto-process"
+    # pyproject.toml の litellm 上限（<1.103）を緩めてまで更新させない
+    ignore:
+      - dependency-name: "litellm"
+        versions:
+          - ">=1.103.0"
     groups:
       simple-agent-poc-minor-and-patch:
         applies-to: version-updates
