@@ -5,6 +5,7 @@ import { cn } from "../lib/cn";
 import { fileTimeLabel, messageFullTimeLabel } from "../lib/messageTime";
 import {
   canSubmitEnvDraft,
+  canSubmitEnvValue,
   ENV_PROJECT_NOTE,
   ENV_RESTART_NOTE,
   ENV_TRIM_NOTE,
@@ -13,6 +14,8 @@ import {
   envNameList,
   envNamePreview,
   initialDraftValue,
+  sessionEnvScopeFromKey,
+  sessionEnvScopeKey,
   shortSecretNote,
 } from "../lib/sessionEnv";
 import type { SecretItem, SecretKind, SecretsListResponse } from "../types";
@@ -55,15 +58,14 @@ export function EnvVarsTab({ scope, reloadToken }: EnvVarsTabProps) {
   const [feedback, setFeedback] = useState<{ kind: "notice" | "error"; text: string } | null>(null);
   const [copied, setCopied] = useState<string | null>(null);
 
-  const scopeKey = `${scope.sessionId ?? ""}\u0000${scope.projectId ?? ""}`;
+  const scopeKey = sessionEnvScopeKey(scope);
   const token = reloadToken + manualReload;
 
   // 取得は scope と token の組でやり直す。古い要求の応答で新しい表示を上書きしない
   useEffect(() => {
     const controller = new AbortController();
-    const [sessionId, projectId] = scopeKey.split("\u0000");
     setListError(null);
-    getSecrets({ ...(sessionId ? { sessionId } : {}), ...(projectId ? { projectId } : {}) }, controller.signal)
+    getSecrets(sessionEnvScopeFromKey(scopeKey), controller.signal)
       .then((next) => setList(next))
       .catch((error: unknown) => {
         if (controller.signal.aborted) return;
@@ -79,6 +81,19 @@ export function EnvVarsTab({ scope, reloadToken }: EnvVarsTabProps) {
     setName("");
     setValue("");
   }, []);
+
+  // desktop の右パネルは dialog ではないため、Escape で開いているフォームを畳む (決定事項 4 の破棄)。
+  // compact のシートは dialog の標準終了が先に走り、stopPropagation でここへは届かない
+  const formOpen = form.mode !== "closed";
+  useEffect(() => {
+    if (!formOpen) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape" || event.defaultPrevented) return;
+      closeForm();
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [formOpen, closeForm]);
 
   const reload = useCallback(() => setManualReload((count) => count + 1), []);
 
@@ -154,7 +169,8 @@ export function EnvVarsTab({ scope, reloadToken }: EnvVarsTabProps) {
   const shortNote = shortSecretNote(kind, value);
   const showForm = form.mode !== "closed";
   const editing = form.mode === "edit" ? form.item : null;
-  const submittingDisabled = busy || !canSubmitEnvDraft({ name, value });
+  // 変更フォームは名前を送らない (名前と種別は変えられない) ため、値だけで送信可否を決める
+  const submittingDisabled = busy || (editing ? !canSubmitEnvValue(value) : !canSubmitEnvDraft({ name, value }));
 
   return (
     <div className="min-h-0 min-w-0 scrollbar-thin overflow-y-auto">

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type KeyboardEvent, type PointerEvent } from "react";
 import type { SecretsScope } from "../api";
-import { sessionEnvTabs, type SessionEnvTab } from "../lib/sessionEnv";
+import { sessionEnvScopeKey, sessionEnvTabs, type SessionEnvTab } from "../lib/sessionEnv";
 import type { FileRefRequest } from "../lib/fileRefRequest";
 import { cn } from "../lib/cn";
 import {
@@ -121,7 +121,9 @@ function SessionFilesContent({
           />
         </div>
       ) : (
-        <EnvVarsTab scope={envScope} reloadToken={reloadToken} />
+        // cwd を共有する会話の切替でも要求元が変われば別の key になり、フォームのドラフトを破棄する
+        // (決定事項 4。パネル自体は key={filesRoot} なので、cwd が同じ切替では再 mount されない)
+        <EnvVarsTab key={sessionEnvScopeKey(envScope)} scope={envScope} reloadToken={reloadToken} />
       )}
     </>
   );

@@ -57,7 +57,15 @@ export function shortSecretNote(kind: SecretItem["kind"], value: string): string
  * 名前の正規化後の内容で見るため、空白だけの名前も送らない。
  */
 export function canSubmitEnvDraft(draft: { name: string; value: string }): boolean {
-  return envNamePreview(draft.name) !== "" && draft.value.trim() !== "";
+  return envNamePreview(draft.name) !== "" && canSubmitEnvValue(draft.value);
+}
+
+/**
+ * 変更フォームの送信可否。名前と種別は変えられないため値だけで判定する
+ * (変更時は名前の入力欄を出さず、name の state も更新しない)。
+ */
+export function canSubmitEnvValue(value: string): boolean {
+  return value.trim() !== "";
 }
 
 /** 行の名前。コピー導線とエージェント向けの一覧に同じ並びを使う */
@@ -87,6 +95,27 @@ export function sessionEnvTabs(input: {
 
 /** 環境変数タブの要求元 (server の SecretsScope と同形) */
 export type SessionEnvScope = { sessionId?: string; projectId?: string };
+
+/**
+ * 要求元の識別子。パネルの key と取得の依存に使い、**cwd を共有する会話の切替でも**
+ * 別の値になるようにする (切り替えでフォームのドラフトを破棄するため)。
+ * どちらも無い (未所属の新規会話) は空文字で、タブを出さない。
+ */
+export function sessionEnvScopeKey(scope: SessionEnvScope): string {
+  if (scope.sessionId) return `session:${scope.sessionId}`;
+  if (scope.projectId) return `project:${scope.projectId}`;
+  return "";
+}
+
+/**
+ * 識別子から要求元へ戻す。取得の依存を「値が変わったか」だけで比べるために使う
+ * (scope は毎描画で新しい object になるため、effect の依存にできない)。
+ */
+export function sessionEnvScopeFromKey(key: string): SessionEnvScope {
+  if (key.startsWith("session:")) return { sessionId: key.slice("session:".length) };
+  if (key.startsWith("project:")) return { projectId: key.slice("project:".length) };
+  return {};
+}
 
 /**
  * 環境変数タブの要求元。会話があれば sessionId、未作成なら作成先プロジェクトの projectId。

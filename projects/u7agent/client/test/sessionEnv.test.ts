@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   canSubmitEnvDraft,
+  canSubmitEnvValue,
   ENV_PROJECT_NOTE,
   ENV_RESTART_NOTE,
   ENV_SECRET_NOTES,
@@ -16,6 +17,8 @@ import {
   initialDraftValue,
   SECRET_MASK_MIN_LENGTH,
   sessionEnvScope,
+  sessionEnvScopeFromKey,
+  sessionEnvScopeKey,
   sessionEnvTabs,
   SESSION_ENV_TABS,
   shortSecretNote,
@@ -65,6 +68,32 @@ test("追加フォームは名前と値のどちらも空でないときだけ�
   assert.equal(canSubmitEnvDraft({ name: "   ", value: "v" }), false);
   assert.equal(canSubmitEnvDraft({ name: "API_KEY", value: "" }), false);
   assert.equal(canSubmitEnvDraft({ name: "API_KEY", value: "   " }), false);
+});
+
+test("変更フォームの送信可否は値だけで決まる (名前と種別は変えられない)", () => {
+  // 編集時は name の state が空のままなので、追加用の判定を使うと常に送れなくなる
+  assert.equal(canSubmitEnvValue("dummy-value-1234"), true);
+  assert.equal(canSubmitEnvValue(" v "), true);
+  assert.equal(canSubmitEnvValue(""), false);
+  assert.equal(canSubmitEnvValue("   "), false);
+  assert.equal(canSubmitEnvDraft({ name: "", value: "v" }), false, "追加は名前が要る");
+});
+
+test("要求元の識別子は cwd が同じでも会話ごとに別の値になる (切替でドラフトを破棄する根拠)", () => {
+  const a = sessionEnvScopeKey({ sessionId: "s1" });
+  const b = sessionEnvScopeKey({ sessionId: "s2" });
+  assert.notEqual(a, b);
+  assert.notEqual(a, sessionEnvScopeKey({ projectId: "p1" }));
+  assert.equal(sessionEnvScopeKey({}), "");
+  assert.equal(sessionEnvScopeKey({ sessionId: "s1" }), "session:s1");
+  assert.equal(sessionEnvScopeKey({ projectId: "p1" }), "project:p1");
+});
+
+test("識別子は要求元へ戻せる (取得の依存を値の比較だけで済ませる)", () => {
+  // 一覧の取得は識別子から要求元を組み直すため、戻せないと別の id を送ってしまう
+  for (const scope of [{ sessionId: "s1" }, { projectId: "p1" }, {}]) {
+    assert.deepEqual(sessionEnvScopeFromKey(sessionEnvScopeKey(scope)), scope);
+  }
 });
 
 test("変更フォームの初期値は変数だけプリフィルし、シークレットは空欄にする", () => {
