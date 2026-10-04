@@ -17,6 +17,7 @@ import {
   fileTreeFetchPath,
   fileTreeRenamePrompt,
   invalidateFileTree,
+  isHiddenFileTreePath,
   normalizeFileTreeRoot,
   openFileTreeAncestors,
   openFileTreeDirectories,
@@ -57,6 +58,14 @@ test("隠す名前の行は一覧から除く (種別も階層も見ない)", ()
     [".gitignore", "git", "src"],
   );
   assert.deepEqual(names(visibleFileTreeEntries([dir(".git"), dir("src")], [])), [".git", "src"], "空なら隠さない");
+});
+
+test("隠す名前を含むパスは reveal の対象にしない (祖先を開く前に判定する)", () => {
+  assert.equal(isHiddenFileTreePath(".git", [".git"]), true);
+  assert.equal(isHiddenFileTreePath(".git/hooks/pre-commit.sample", [".git"]), true, "深い階層も見る");
+  assert.equal(isHiddenFileTreePath("src/.git/objects", [".git"]), true, "途中のセグメントでも見る");
+  assert.equal(isHiddenFileTreePath(".gitignore", [".git"]), false, "セグメント全体の一致だけを見る");
+  assert.equal(isHiddenFileTreePath(".git", []), false, "空なら隠さない");
 });
 
 test("隠す名前を含む経路の展開状態は復元しない (隠した枝を開いたまま保存しない)", () => {

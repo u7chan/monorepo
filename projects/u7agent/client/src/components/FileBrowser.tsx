@@ -22,6 +22,7 @@ import {
   fileTreeParentPath,
   fileTreeRenamePrompt,
   invalidateFileTree,
+  isHiddenFileTreePath,
   normalizeFileTreeRoot,
   openFileTreeAncestors,
   openFileTreeDirectories,
@@ -163,12 +164,17 @@ export function FileBrowser({
   const revealRowRef = useRef<HTMLDivElement | null>(null);
   const revealTimerRef = useRef<number | null>(null);
 
-  const revealRow = useCallback((path: string) => {
-    // 祖先を開いてから対象を指す。取得は既存の pendingFileTreeDirectories の経路が親から順に拾う
-    setTree((prev) => openFileTreeAncestors(prev, path));
-    revealSeqRef.current += 1;
-    setReveal({ path, seq: revealSeqRef.current });
-  }, []);
+  const revealRow = useCallback(
+    (path: string) => {
+      // 隠した枝は行が無い。祖先を開くと不可視の展開が state と保存値に残るので、reveal ごと持たない
+      if (isHiddenFileTreePath(path, hiddenNames)) return;
+      // 祖先を開いてから対象を指す。取得は既存の pendingFileTreeDirectories の経路が親から順に拾う
+      setTree((prev) => openFileTreeAncestors(prev, path));
+      revealSeqRef.current += 1;
+      setReveal({ path, seq: revealSeqRef.current });
+    },
+    [hiddenNames],
+  );
 
   // 対象の行が現れたらスクロールして一時ハイライトする。祖先の取得中は行が無いので、
   // tree が進むたびに再実行して取りこぼさない。ハイライトはスクロール後だけ残す

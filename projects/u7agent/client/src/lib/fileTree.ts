@@ -74,12 +74,19 @@ export function visibleFileTreeEntries(entries: FileEntry[], hiddenNames: readon
 }
 
 /**
+ * root 相対パスのセグメントに隠す名前を含むか。一覧の子だけでなく、reveal が開こうとする祖先パスにも
+ * 同じ判定を使う (隠した枝に行は無いので、開いても不可視の展開が state と保存値に残るだけ)。
+ */
+export function isHiddenFileTreePath(path: string, hiddenNames: readonly string[]): boolean {
+  return hiddenNames.length > 0 && path.split("/").some((name) => hiddenNames.includes(name));
+}
+
+/**
  * 保存された展開状態から、隠す名前を経路上のセグメントに含むディレクトリを落とす。隠した枝を
  * 「開いているが未取得」として復元すると、行が出ないまま保存値へ残り続ける。
  */
 export function visibleFileTreeDirectories(dirs: readonly string[], hiddenNames: readonly string[]): string[] {
-  if (hiddenNames.length === 0) return [...dirs];
-  return dirs.filter((dir) => !dir.split("/").some((name) => hiddenNames.includes(name)));
+  return dirs.filter((dir) => !isHiddenFileTreePath(dir, hiddenNames));
 }
 
 export function fileTreeChildPath(parent: string, name: string): string {
