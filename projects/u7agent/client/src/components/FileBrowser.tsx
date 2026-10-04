@@ -581,19 +581,28 @@ function EntryRow({
             ファイル行と同じ「div + flex-1 の操作 button」に分ける */}
         <div
           ref={revealed ? revealRef : undefined}
-          style={{ "--tree-indent": `${depth * INDENT + 8}px` } as CSSProperties}
+          style={
+            {
+              "--tree-indent": `${depth * INDENT + 8}px`,
+              // 1 段表示でも名前へ 24px を残す (インデント + chevron 16 + gap 8 + folder 16 + gap 8 + 名前 24。
+              // symlink のリンク印 33.45px + gap 8 を足す)。これを割る行は RowTail が次の段へ落ち、
+              // shrink-0 のアイコン・リンク印が時刻・⋯ へ重なるのを防ぐ。行幅を超えないよう 100% で頭打ちにする
+              // (2 段表示で深い階層のときに、最小幅が行からはみ出して切られるのを防ぐ)
+              "--name-min-width": `min(calc(var(--tree-indent) + ${entry.symlink ? 114 : 72}px), 100%)`,
+            } as CSSProperties
+          }
           className={cn(
             "flex min-h-7.5 w-full flex-wrap items-center gap-x-1.5 gap-y-1 rounded-lg pr-2 text-xs text-ink transition-colors hover:bg-hover",
             revealed && "ring-2 ring-focus ring-inset",
           )}
         >
-          {/* 1 段表示でも名前へ 24px を残す (インデント + chevron 16 + gap 8 + folder 16 + gap 8 + 名前 24 = 72)。
-              これを割る行は RowTail が次の段へ落ち、shrink-0 のアイコンが時刻・⋯ へ重なるのを防ぐ */}
+          {/* 行全体を button にすると時刻が accessible name に混ざり、時刻のクリックでも開閉するため、
+            ファイル行と同じ「div + flex-1 の操作 button」に分ける。最小幅の理由は行の --name-min-width を参照 */}
           <button
             type="button"
             aria-expanded={open}
             onClick={() => onToggle(path)}
-            className="flex min-w-[calc(var(--tree-indent)_+_72px)] flex-1 items-center gap-2 py-1 pl-(--tree-indent) text-left"
+            className="flex min-w-(--name-min-width) flex-1 items-center gap-2 py-1 pl-(--tree-indent) text-left"
           >
             <span
               className={cn(
@@ -685,20 +694,27 @@ function EntryRow({
           : undefined
       }
       title={canRef ? `${path}（ドラッグでチャットの参照にできます）` : undefined}
-      style={{ "--tree-indent": `${depth * INDENT + FILE_INDENT}px` } as CSSProperties}
+      style={
+        {
+          "--tree-indent": `${depth * INDENT + FILE_INDENT}px`,
+          // 1 段表示でも名前へ 24px を残す (インデント + アイコン 16 + gap 8 + 名前 24。
+          // symlink のリンク印 33.45px + gap 8 を足す)。これを割る行は RowTail が次の段へ落ち、
+          // shrink-0 のアイコン・リンク印がサイズ・時刻・⋯ へ重なるのを防ぐ。行幅を超えないよう 100% で頭打ちにする
+          // (2 段表示で深い階層のときに、最小幅が行からはみ出して切られるのを防ぐ)
+          "--name-min-width": `min(calc(var(--tree-indent) + ${entry.symlink ? 90 : 48}px), 100%)`,
+        } as CSSProperties
+      }
       className={cn(
         "flex min-h-7.5 w-full flex-wrap items-center gap-x-1.5 gap-y-1 rounded-lg pr-2 text-xs transition-colors",
         isSelected ? "bg-accent-wash text-accent-text" : "text-ink-soft hover:bg-hover hover:text-ink",
         revealed && "ring-2 ring-focus ring-inset",
       )}
     >
-      {/* 1 段表示でも名前へ 24px を残す (インデント + アイコン 16 + gap 8 + 名前 24 = 48)。
-          これを割る行は RowTail が次の段へ落ち、shrink-0 のアイコンがサイズ・時刻・⋯ へ重なるのを防ぐ */}
       <button
         type="button"
         aria-current={isSelected ? "true" : undefined}
         onClick={() => onSelect(path)}
-        className="flex min-w-[calc(var(--tree-indent)_+_48px)] flex-1 items-center gap-2 py-1 pl-(--tree-indent) text-left"
+        className="flex min-w-(--name-min-width) flex-1 items-center gap-2 py-1 pl-(--tree-indent) text-left"
       >
         <FileIcon kind={fileKind(entry.name)} />
         <span className="min-w-0 truncate">{entry.name}</span>
