@@ -1,6 +1,16 @@
-import { useCallback, useEffect, useRef, useState, type DragEvent, type FormEvent, type KeyboardEvent } from "react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type ClipboardEvent,
+  type DragEvent,
+  type FormEvent,
+  type KeyboardEvent,
+} from "react";
 import type { Attachment, ComposerSettings } from "../hooks/useU7Agent";
 import type { SessionSkillsState } from "../hooks/useSessionSkills";
+import { pastedImageFiles } from "../lib/clipboardImages";
 import { cn } from "../lib/cn";
 import { shouldSubmitOnEnter } from "../lib/composerKeys";
 import { composerDropKind, FILE_MENTION_MIME, insertFileMention, type ComposerDropKind } from "../lib/fileMention";
@@ -201,6 +211,17 @@ export function Composer({
     if (files.length > 0) onAttachFiles(files);
   };
 
+  /**
+   * 貼り付けた画像を添付へ回す。画像と一緒に載る `text/html` などを本文へ混ぜないよう、
+   * 添付するときだけ既定動作を止める（テキストだけの貼り付けはいじらない）。
+   */
+  const handlePaste = (event: ClipboardEvent<HTMLFormElement>) => {
+    const images = pastedImageFiles(event.clipboardData, new Date());
+    if (images.length === 0) return;
+    event.preventDefault();
+    pickFiles(images);
+  };
+
   /** 一覧の選択はコマンドの挿入だけ。本文の展開は送信時に BFF が行う (docs/api-sessions.md) */
   const insertSkillCommand = (name: string) => {
     const el = inputRef.current;
@@ -329,6 +350,7 @@ export function Composer({
       />
       <form
         onSubmit={handleSubmit}
+        onPaste={handlePaste}
         onDragOver={handleDragOver}
         onDragLeave={() => setDropKind(null)}
         onDrop={handleDrop}

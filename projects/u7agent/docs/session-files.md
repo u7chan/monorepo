@@ -138,6 +138,7 @@ $PI_SESSION_STORE/u7agent.db  # アプリデータ（プロジェクト / カタ
 チャットから添付したファイルは、所属に関係なく `<appdir>/uploads/<sessionId>/` に置く（プロジェクトのリポジトリ内には作らない。ルート相対では `.u7agent/uploads/<id>/`）。BFF は作業領域に触らないため、本文は `POST /api/sessions/:id/files` からサンドボックスの `POST /v1/files/upload` へ raw ストリームで転送し、保存名と重複回避はサンドボックスが決める。
 
 - 選択時（即時）にアップロードする。未作成チャットでは先にセッションを作る（クライアントの `ensureSession`。同時アップロードで二重作成しない）
+- 入力欄への貼り付け（PC の Ctrl+V / Cmd+V）でも画像を添付できる。扱うのは `image/*` の項目だけで、テキストだけの貼り付けは既定動作に任せる（画像と一緒に載る `text/html` などを本文へ混ぜないよう、添付するときだけ既定動作を止める）。保存名はブラウザーが付ける `image.png` / `blob` に依存せず、MIME から拡張子を決めた `pasted-<YYYYMMDD-HHmmss>.<ext>` に揃える（判定は `client/src/lib/clipboardImages.ts`。同じ秒の複数枚は他の添付と同じ連番規則が分ける）
 - API の `path` は root 相対（`.u7agent/uploads/<id>/<name>`）。クライアントはこの値をそのままチップと raw URL に使う
 - 同名ファイルは上書きせず `name-1.ext` 形式で連番にする（`link(2)` の排他作成。2 回目以降も連番）
 - 添付を外してもファイルは置き場に残す（`DELETE /api/files` の一覧から削除できる。移動 API は非ゴール）
