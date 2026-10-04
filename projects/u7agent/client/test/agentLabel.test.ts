@@ -35,6 +35,8 @@ test("セッション中のエージェント名は読み取り専用で、未�
     }),
   );
   assert.ok(inSession.includes("保存時の名前"));
+  // 欄の見出し（「エージェント」）は出さない: 欄自身が名前を持ち、compact では次の行へ折り返す
+  assert.ok(!inSession.includes("エージェント"));
   assert.ok(!inSession.includes('aria-haspopup="listbox"'));
   const newChat = renderToStaticMarkup(createElement(AgentField, props));
   assert.ok(newChat.includes('aria-haspopup="listbox"'));

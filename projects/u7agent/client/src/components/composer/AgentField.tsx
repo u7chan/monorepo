@@ -1,8 +1,11 @@
 import type { AgentDef } from "../../types";
 import { AgentLabel } from "./AgentLabel";
 import { AgentPicker } from "./AgentPicker";
-import { fieldLabelClass } from "./fieldStyles";
 
+/**
+ * コンポーザーのエージェント欄。見出しの文字は出さない: 欄自身がアイコンと名前を持ち、compact では
+ * 見出しの幅のぶんスキルのトリガーが次の行へ折り返す (読み上げ名はトリガーの aria-label が持つ)。
+ */
 export function AgentField({
   agents,
   agentId,
@@ -17,16 +20,9 @@ export function AgentField({
   sessionAgent?: { name: string; icon?: string };
   onChangeAgent: (agentId: string) => void;
 }) {
-  return (
-    // button も labelable なので label にすると、見出しのクリックがトリガーの activation へ転送されて
-    // light dismiss と二重に走り得る。読み上げ名はトリガーの aria-label が持つ
-    <div className={fieldLabelClass(compact)}>
-      <span className="shrink-0">エージェント</span>
-      {sessionAgent ? (
-        <AgentLabel agents={agents} name={sessionAgent.name} icon={sessionAgent.icon} compact={compact} />
-      ) : (
-        <AgentPicker agents={agents} agentId={agentId} compact={compact} onChangeAgent={onChangeAgent} />
-      )}
-    </div>
+  return sessionAgent ? (
+    <AgentLabel agents={agents} name={sessionAgent.name} icon={sessionAgent.icon} compact={compact} />
+  ) : (
+    <AgentPicker agents={agents} agentId={agentId} compact={compact} onChangeAgent={onChangeAgent} />
   );
 }
