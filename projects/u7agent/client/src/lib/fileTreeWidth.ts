@@ -7,6 +7,8 @@
 
 /** 選べる下限 = 従来の @2xl:w-72 (288px)。狭い窓では既定幅もここで止まる */
 export const FILE_TREE_WIDTH_MIN = 288;
+/** 左右 2 段になるコンテナ幅 (Tailwind の `@2xl` = 42rem)。これ未満は上下 2 段で、高さ (fileTreeHeight.ts) を選ぶ面 */
+export const FILE_TREE_STACK_BREAKPOINT = 672;
 /** 未指定のときの幅の上限。コンテナが広くても既定はこれ以上広げない */
 export const FILE_TREE_WIDTH_DEFAULT_MAX = 400;
 /** 未指定のときの幅のコンテナ比 (1/3)。プレビューを主、ツリーを従にする配分 */
@@ -14,8 +16,7 @@ export const FILE_TREE_WIDTH_DEFAULT_DIVISOR = 3;
 /** 選べる上限。深さ 5 でも名前が 270px 以上見える幅 */
 export const FILE_TREE_WIDTH_MAX = 560;
 /** プレビューに残す最低幅。今日の左右 2 段の境界 (@2xl = 672px) − 288px を下限として引き継ぐ */
-export const FILE_TREE_PREVIEW_MIN_WIDTH = 384;
-/** キーボード操作 (→←) の 1 歩 */
+export const FILE_TREE_PREVIEW_MIN_WIDTH = 384; /** キーボード操作 (→←) の 1 歩 */
 export const FILE_TREE_WIDTH_STEP = 16;
 /** これより大きい保存値は壊れた値として捨てる */
 export const FILE_TREE_WIDTH_STORE_LIMIT = 2000;

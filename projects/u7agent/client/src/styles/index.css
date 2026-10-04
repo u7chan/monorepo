@@ -568,6 +568,14 @@ html[data-theme="sky"] {
   body.is-resizing-panel .panel-resize-handle {
     background: var(--c-accent);
   }
+  /* 上下の境界のドラッグ中。ハンドルはツリーの中にあるので、カーソルだけ高さ向きに変える */
+  body.is-resizing-row {
+    cursor: row-resize;
+    user-select: none;
+  }
+  body.is-resizing-row .file-tree-height-handle {
+    background: var(--c-accent);
+  }
   @keyframes run-spinner-turn {
     to {
       transform: rotate(360deg);
@@ -679,6 +687,38 @@ html[data-theme="sky"] {
   @media (prefers-reduced-motion: reduce) {
     .tree-fold {
       transition: none;
+    }
+  }
+
+  /* 上下 2 段のツリーの外枠の高さ (左右 2 段では容器に従うためこのクラスを付けない)。未指定 (auto) は
+   * 内容の高さに追随し、その上限はスクロール枠が --file-tree-height-max で受ける (FileBrowser) */
+  .file-tree-height {
+    height: var(--file-tree-height, auto);
+  }
+
+  /* 高さのハンドルのつまみ。見えない帯なので、hover / focus / ドラッグ中だけ出す。タッチは hover が
+   * 無いため常時出し、掴めることを示す (当たり判定は className の h-5 で広げる) */
+  .file-tree-height-handle::after {
+    content: "";
+    position: absolute;
+    left: 50%;
+    bottom: 2px;
+    translate: -50% 0;
+    width: 44px;
+    height: 4px;
+    border-radius: 999px;
+    background: var(--c-line-strong);
+    opacity: 0;
+    transition: opacity 150ms ease-out;
+  }
+  .file-tree-height-handle:hover::after,
+  .file-tree-height-handle:focus-visible::after,
+  body.is-resizing-row .file-tree-height-handle::after {
+    opacity: 1;
+  }
+  @media (pointer: coarse) {
+    .file-tree-height-handle::after {
+      opacity: 1;
     }
   }
 

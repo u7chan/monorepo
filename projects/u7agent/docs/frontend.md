@@ -115,6 +115,7 @@
 | `u7agent-expanded-projects` | 開いているプロジェクトの `cwd`（ワークスペース root 相対）の集合（version 付き） | サイドバーのプロジェクト行の開閉（既定は畳み） |
 | `u7agent-sidebar-width` | 左バー（Sidebar）の幅（px の整数 1 つ。既定 252px / 上限 400px） | リロード後の左バーの幅（未指定は既定幅。[ui-layout.md](ui-layout.md#幅)） |
 | `u7agent-file-tree-width` | ファイルツリー（`FileBrowser`）の幅（px の整数 1 つ。未指定は本文幅の 1/3 を 288〜400px で clamp、選べる範囲は 288 〜 `min(560px, 本文 − 384px)`） | リロード後のツリー幅（未指定は既定幅。左右 2 段にならない面では効かない。[ui-layout.md](ui-layout.md#モードごとの構成)） |
+| `u7agent-file-tree-height` | ファイルツリー（`FileBrowser`）の高さ（px の整数 1 つ。未指定は内容の高さで上限 256px、選べる範囲は 0 〜 `容器 − 240px`。0 はツリーを完全に隠す） | リロード後のツリーの高さ（未指定は内容の高さ。上下 2 段にならない面では効かない。[ui-layout.md](ui-layout.md#モードごとの構成)） |
 
 会話の選択は保存しない。作業環境の「環境変数」タブの入力中ドラフト（種別 / 名前 / 値）も保存しない（パネル / シートを閉じる・`Escape`・セッション切替・タブ切替で破棄し、確認は出さない。[ui-layout.md](ui-layout.md#作業環境パネル)）。会話を指定して開く唯一の入口は通知リンクの `/s/<sessionId>` で、開いた後は `/` に畳む。
 

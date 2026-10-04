@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import test from "node:test";
-import { FileTreeResizeHandle } from "../src/components/file-tree/FileTreeResizeHandle";
+import { FileTreeWidthResizeHandle } from "../src/components/file-tree/FileTreeWidthResizeHandle";
 import {
   canResizeFileTree,
   clampFileTreeWidth,
@@ -180,7 +180,7 @@ test("保存領域が使えない環境でも操作を止めない (session 内�
 
 test("ハンドルは読み上げ用の属性と境界の中央の位置を持つ", () => {
   const html = renderToStaticMarkup(
-    createElement(FileTreeResizeHandle, {
+    createElement(FileTreeWidthResizeHandle, {
       width: 396,
       min: 288,
       max: 560,

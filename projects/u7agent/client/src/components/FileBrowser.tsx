@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useRef, useState, type CSSProperties, type RefObject, type ReactNode } from "react";
 import { deleteDirectory, deleteFile, fileDownloadUrl, getFileDownloadCheck, getFiles, renameEntry } from "../api";
+import { useFileTreeHeight } from "../hooks/useFileTreeHeight";
 import { useFileTreeWidth } from "../hooks/useFileTreeWidth";
 import { useImageVersion } from "../hooks/useImageVersion";
-import { FileTreeResizeHandle } from "./file-tree/FileTreeResizeHandle";
+import { FileTreeHeightResizeHandle } from "./file-tree/FileTreeHeightResizeHandle";
+import { FileTreeWidthResizeHandle } from "./file-tree/FileTreeWidthResizeHandle";
 import { FilePreview } from "./FilePreview";
 import { cn } from "../lib/cn";
 import { archiveConfirmMessage, startArchiveDownload } from "../lib/archive";
@@ -37,6 +39,7 @@ import {
   type FileTreeState,
 } from "../lib/fileTree";
 import { fileKind } from "../lib/fileKind";
+import { FILE_TREE_STACK_BREAKPOINT } from "../lib/fileTreeWidth";
 import { FILE_MENTION_MIME, mentionText } from "../lib/fileMention";
 import { fileRowActions, type FileRowActionKind } from "../lib/fileRowMenu";
 import { type FileRefRequest } from "../lib/fileRefRequest";
@@ -143,6 +146,13 @@ export function FileBrowser({
   const [previewOrigins, setPreviewOrigins] = useState<PreviewOrigins>({});
   // 幅は左右 2 段のときだけ効く。ツリーの親 (@container) 自身を測り、--file-tree-width をそこへ入れる
   const treeWidth = useFileTreeWidth();
+  // 高さは上下 2 段のときだけ効く (左右 2 段では容器に従う)。同じコンテナの高さを bounds の根拠にする
+  const treeHeight = useFileTreeHeight({
+    containerRef: treeWidth.containerRef,
+    containerHeight: treeWidth.containerHeight,
+  });
+  // 上下 2 段かどうかは css の `@2xl` と同じ幅で決める (高さの選択はこの面だけ)
+  const stacked = treeWidth.containerWidth < FILE_TREE_STACK_BREAKPOINT;
   // StrictMode の effect 二重実行と、取得中の再読み込みで同じディレクトリを二重に要求しない
   const inFlightRef = useRef<Set<string>>(new Set());
   // 同じ行の削除を二重に送らない (実体が消えた後の再要求で 404 を出さないため)
@@ -388,50 +398,84 @@ export function FileBrowser({
     <div
       ref={treeWidth.containerRef}
       className="@container min-h-0"
-      style={{ "--file-tree-width": `${treeWidth.width}px` } as CSSProperties}
+      style={
+        {
+          "--file-tree-width": `${treeWidth.width}px`,
+          // 未指定 (auto) は内容の高さに追随する。0px はツリーを完全に隠す
+          "--file-tree-height": treeHeight.height === null ? "auto" : `${treeHeight.height}px`,
+          "--file-tree-height-max": `${treeHeight.limit}px`,
+        } as CSSProperties
+      }
     >
       <div className="relative flex h-full min-h-0 flex-col @2xl:flex-row">
         {/* タブがあるときは shrink-0 を付けない。低い viewport でツリーが全高を取るとプレビュー本文が見えなくなるため、
             プレビューの min-h-40 へ譲る。タブが無いときはツリーを全幅に使う (空の列を作らない)。
-            左右 2 段では幅を --file-tree-width で選べる (既定はコンテナの 1/3。lib/fileTreeWidth.ts) */}
+            左右 2 段では幅を --file-tree-width で選べる (既定はコンテナの 1/3。lib/fileTreeWidth.ts)、
+            上下 2 段では高さを --file-tree-height で選べる (既定は内容の高さ。lib/fileTreeHeight.ts) */}
         <div
           className={cn(
-            "scrollbar-stable min-h-0 scrollbar-thin overflow-x-hidden overflow-y-auto px-4 py-3",
-            tabs.paths.length > 0 ? "max-h-64 @2xl:max-h-none @2xl:w-(--file-tree-width) @2xl:flex-none" : "flex-1",
+            "relative min-h-0",
+            tabs.paths.length > 0
+              ? stacked
+                ? "file-tree-height"
+                : "@2xl:w-(--file-tree-width) @2xl:flex-none"
+              : "flex-1",
           )}
         >
-          {rootNode.error ? (
-            <MessageRow depth={0} danger alert>
-              {rootNode.error}
-            </MessageRow>
-          ) : null}
-          {rootNode.children ? (
-            <Branch
-              parent={FILE_TREE_ROOT}
-              node={rootNode}
-              depth={0}
-              tree={tree}
-              selected={tabs.active}
-              canRename={canRename}
-              readOnly={readOnly}
-              canRef={canRef}
-              excludeNames={excludeNames}
-              onToggle={toggle}
-              onSelect={openTab}
-              onRename={renameRow}
-              onDelete={removeEntry}
-              onDownload={downloadRow}
-              revealPath={reveal?.path ?? null}
-              revealRef={revealRowRef}
+          <div
+            className={cn(
+              "scrollbar-stable min-h-0 w-full scrollbar-thin overflow-x-hidden overflow-y-auto px-4",
+              // 高さ 0 はツリーを完全に隠す (border-box では上下の余白が残ると 24px 見えてしまう)
+              stacked && treeHeight.height === 0 ? "py-0" : "py-3",
+              // 高さを選んでいないときは内容の高さに追随し、上限だけを容器から受ける
+              stacked && treeHeight.height === null ? "max-h-(--file-tree-height-max)" : "h-full",
+            )}
+          >
+            {rootNode.error ? (
+              <MessageRow depth={0} danger alert>
+                {rootNode.error}
+              </MessageRow>
+            ) : null}
+            {rootNode.children ? (
+              <Branch
+                parent={FILE_TREE_ROOT}
+                node={rootNode}
+                depth={0}
+                tree={tree}
+                selected={tabs.active}
+                canRename={canRename}
+                readOnly={readOnly}
+                canRef={canRef}
+                excludeNames={excludeNames}
+                onToggle={toggle}
+                onSelect={openTab}
+                onRename={renameRow}
+                onDelete={removeEntry}
+                onDownload={downloadRow}
+                revealPath={reveal?.path ?? null}
+                revealRef={revealRowRef}
+              />
+            ) : rootNode.error ? null : (
+              <MessageRow depth={0}>読み込み中…</MessageRow>
+            )}
+          </div>
+          {/* 高さのハンドルもスクロール枠の兄弟に置く (中に置くと absolute でも内容と一緒にスクロールする)。
+              プレビュー側へはみ出さないよう、境界の上 (ツリーの中) に重ねる */}
+          {stacked && tabs.paths.length > 0 && treeHeight.resizable ? (
+            <FileTreeHeightResizeHandle
+              height={treeHeight.height}
+              min={treeHeight.min}
+              max={treeHeight.max}
+              preview={treeHeight.preview}
+              commit={treeHeight.commit}
+              reset={treeHeight.reset}
             />
-          ) : rootNode.error ? null : (
-            <MessageRow depth={0}>読み込み中…</MessageRow>
-          )}
+          ) : null}
         </div>
-        {/* ハンドルはスクロール枠の兄弟に置く (中に置くと absolute でも内容と一緒にスクロールする)。
+        {/* 幅のハンドルはスクロール枠の兄弟に置く (中に置くと absolute でも内容と一緒にスクロールする)。
             位置はツリーの右端 = 境界の中心で、--file-tree-width に追随する */}
         {tabs.paths.length > 0 && treeWidth.resizable ? (
-          <FileTreeResizeHandle
+          <FileTreeWidthResizeHandle
             width={treeWidth.width}
             min={treeWidth.min}
             max={treeWidth.max}
