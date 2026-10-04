@@ -61,6 +61,30 @@ test("shows the effective values that resync put on the chat", () => {
   assert.equal(settings.thinkingLevel, "high");
   assert.equal(settings.supportsThinking, false);
   assert.deepEqual(settings.thinkingLevels, ["off"]);
+  assert.equal(settings.effortLabel, undefined, "推論に対応しないモデルの Effort は状態行に出さない");
+});
+
+test("derives the status row effort from the effective value", () => {
+  const session = deriveComposerSettings(
+    input({
+      sessionId: "s-1",
+      chat: {
+        sessionModel: "resync/model",
+        sessionThinkingLevel: "xhigh",
+        supportsThinking: true,
+        availableThinkingLevels: ["off", "xhigh"],
+        runStatus: "idle",
+      },
+      health: health({ modelOptions: [option("resync", "model")] }),
+    }),
+  );
+  assert.equal(session.effortLabel, "xHigh", "ピッカーと同じラベルを使う");
+
+  const unsent = deriveComposerSettings(input({ preselection: { thinkingLevel: "medium" } }));
+  assert.equal(unsent.effortLabel, "Medium", "未作成のチャットも「これから使う」Effort を出す");
+
+  const unresolved = deriveComposerSettings(input({}));
+  assert.equal(unresolved.effortLabel, undefined, "Effort が未解決のときは出さない");
 });
 
 test("resolves an unsent chat in the server order: preselection, agent, app default", () => {
