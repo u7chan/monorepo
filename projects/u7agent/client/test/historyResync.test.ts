@@ -3,7 +3,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { chatReducer, initialChatState } from "../src/hooks/chatReducer";
-import type { HistoryPage, SessionPayload, ToolCall, Usage } from "../src/types";
+import type { CompactionInfo, HistoryPage, SessionPayload, ToolCall, Usage } from "../src/types";
 
 function payload(messages: { role: "user" | "assistant"; text: string; tools?: ToolCall[] }[]): SessionPayload {
   return {
@@ -685,12 +685,9 @@ test("prependHistory は古いページを先頭へ足し、bubble id を衝突�
   assert.equal(prepended.history.hasMore, false);
 });
 
-test("旧サーバー (404) では payload.messages ベースの表示へ戻す", () => {
-  const withHistory = chatReducer(initialChatState, {
-    type: "resyncHistory",
-    page: historyPage([msg("m1", "active", "m1")]),
-  });
-  const unsupported = chatReducer(withHistory, { type: "historyUnsupported" });
+test("履歴ページが一度も取れない旧サーバー (404) では payload.messages ベースの表示へ戻す", () => {
+  // 履歴 API を持たないサーバー: 最初の取得から 404 になり、ページは一度も適用されない
+  const unsupported = chatReducer(initialChatState, { type: "historyUnsupported" });
   assert.equal(unsupported.history.supported, false);
   const rebuilt = chatReducer(unsupported, {
     type: "resync",
@@ -700,6 +697,26 @@ test("旧サーバー (404) では payload.messages ベースの表示へ戻す"
     rebuilt.bubbles.map((bubble) => bubble.text),
     ["旧サーバーの履歴"],
   );
+});
+
+test("取り込み済みの履歴があれば、404 で supported が落ちても payload.messages へは戻さない", () => {
+  // 途中から 404 になった場合 (再起動中の一時的な失敗など) は、取得済みの履歴のほうが完全なので残す
+  const withHistory = chatReducer(initialChatState, {
+    type: "resyncHistory",
+    page: historyPage([msg("m1", "active", "m1")], { hasMore: true, nextCursor: "m1", messageCount: 2 }),
+  });
+  const unsupported = chatReducer(withHistory, { type: "historyUnsupported" });
+  assert.equal(unsupported.history.supported, false);
+  const kept = chatReducer(unsupported, {
+    type: "resync",
+    payload: payload([{ role: "user", text: "旧サーバーの履歴" }]),
+  });
+  assert.deepEqual(
+    kept.bubbles.map((bubble) => [bubble.entryId, bubble.text]),
+    [["m1", "m1"]],
+    "payload.messages で組み直さない",
+  );
+  assert.equal(kept.history.nextCursor, "m1", "遡りのカーソルも保つ");
 });
 
 test("newChat は全履歴の状態を初期化する", () => {
@@ -1342,4 +1359,124 @@ test("prependHistory は末尾を触らず、保留中の run 側カードも補
   );
   assert.deepEqual(Object.keys(prepended.runTools), ["t1"], "run 側の保持は変えない");
   assert.equal(prepended.currentAssistantId, null);
+});
+
+test("履歴 API が失敗しても、取り込み済みの履歴は resync の payload.messages で組み直さない", () => {
+  // 全履歴ページを取り込んだ状態
+  const withPage = chatReducer(initialChatState, {
+    type: "resyncHistory",
+    page: historyPage([msg("m1", "summarized", "m1"), msg("m2", "active", "m2")], {
+      hasMore: true,
+      nextCursor: "m1",
+      messageCount: 2,
+    }),
+  });
+  // ページ取得が 404 になり、旧サーバー扱いへ落ちる
+  const degraded = chatReducer(withPage, { type: "historyUnsupported" });
+  assert.equal(degraded.history.supported, false);
+
+  // 圧縮の resync。payload.messages は圧縮後の有効コンテキスト (m2 だけ) になっている
+  const resynced = chatReducer(degraded, {
+    type: "resync",
+    payload: payload([{ role: "assistant", text: "m2" }]),
+  });
+  assert.deepEqual(
+    resynced.bubbles.map((bubble) => [bubble.entryId, bubble.text]),
+    [
+      ["m1", "m1"],
+      ["m2", "m2"],
+    ],
+    "取り込み済みの履歴を残す (圧縮後のコンテキストへ置き換えない)",
+  );
+  assert.equal(resynced.history.hasMore, true, "遡りのカーソルも保つ");
+  assert.equal(resynced.history.supported, false);
+
+  // ページ取得が戻れば supported は回復し、最新ページで表示が更新される
+  const recovered = chatReducer(resynced, {
+    type: "resyncHistory",
+    page: historyPage([msg("m1", "summarized", "m1"), msg("m2", "active", "m2")], {
+      hasMore: true,
+      nextCursor: "m1",
+      messageCount: 2,
+    }),
+  });
+  assert.equal(recovered.history.supported, true);
+  assert.deepEqual(entryIds(recovered), ["m1", "m2"]);
+});
+
+test("取り込み済みの履歴があるときの空ページは適用しない", () => {
+  const withPage = chatReducer(initialChatState, {
+    type: "resyncHistory",
+    page: historyPage([userMsg("u1", "u1"), msg("a1", "active", "a1")], {
+      prevCursor: null,
+      hasMore: true,
+      nextCursor: "u1",
+      messageCount: 3,
+      summarizedMessageCount: 1,
+    }),
+  });
+  const empty = chatReducer(withPage, {
+    type: "resyncHistory",
+    page: historyPage([], { prevCursor: null, hasMore: false, messageCount: 0, summarizedMessageCount: 0 }),
+  });
+  assert.deepEqual(entryIds(empty), ["u1", "a1"], "取得済みの会話を捨てない");
+  assert.equal(empty.history.supported, true, "取得に成功したので履歴 API は使える扱いへ戻す");
+  assert.equal(empty.history.hasMore, true, "空ページで遡りを打ち切らない");
+  assert.equal(empty.history.nextCursor, "u1");
+  assert.equal(empty.history.messageCount, 3, "件数を 0 にしない");
+
+  // 保持分が無い (新規セッション) 空ページは従来どおり適用する
+  const fresh = chatReducer(initialChatState, {
+    type: "resyncHistory",
+    page: historyPage([], { prevCursor: null, hasMore: false, messageCount: 0, summarizedMessageCount: 0 }),
+  });
+  assert.equal(fresh.history.supported, true);
+  assert.deepEqual(fresh.bubbles, []);
+});
+
+test("compaction イベントは取り込み済みの区切りを beforeMessageIndex で置き換えない", () => {
+  const compactedItem = (
+    id: string,
+    summary: string,
+  ): { kind: "compaction"; id: string; compaction: CompactionInfo } => ({
+    kind: "compaction",
+    id,
+    compaction: {
+      id,
+      parentId: null,
+      timestamp: "",
+      summary,
+      firstKeptEntryId: "u1",
+      tokensBefore: 1000,
+    },
+  });
+  const withPage = chatReducer(initialChatState, {
+    type: "resyncHistory",
+    page: historyPage([userMsg("u1", "u1"), compactedItem("c1", "1回目"), userMsg("u2", "u2")], {
+      prevCursor: null,
+      hasMore: false,
+      messageCount: 2,
+    }),
+  });
+  assert.equal(withPage.dividers.length, 1);
+  // 404 で supported=false へ落ちても、区切りは取り込んだ位置のままにする
+  const degraded = chatReducer(withPage, { type: "historyUnsupported" });
+  const next = chatReducer(degraded, {
+    type: "compaction",
+    compaction: {
+      id: "c2",
+      parentId: null,
+      timestamp: "",
+      summary: "2回目",
+      firstKeptEntryId: "u2",
+      tokensBefore: 2000,
+      beforeMessageIndex: 0,
+    },
+    count: 2,
+  });
+  assert.deepEqual(next.dividers, withPage.dividers, "legacy の位置へ置き換えない");
+  assert.deepEqual(
+    next.compactions.map((item) => item.id),
+    ["c2"],
+  );
 });
