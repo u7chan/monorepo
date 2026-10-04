@@ -25,6 +25,8 @@ import {
   removeFileTreeEntry,
   renameFileTreeEntry,
   toggleFileTreeDirectory,
+  visibleFileTreeDirectories,
+  visibleFileTreeEntries,
   type FileTreeState,
 } from "../src/lib/fileTree";
 import type { FileEntry } from "../src/types";
@@ -45,6 +47,30 @@ test("初期状態は root だけを開いた未取得にする", () => {
   const state = createFileTreeState();
   assert.deepEqual(state, { ".": { open: true, loading: false } });
   assert.deepEqual(pendingFileTreeDirectories(state), ["."]);
+});
+
+test("隠す名前の行は一覧から除く (種別も階層も見ない)", () => {
+  const names = (entries: FileEntry[]) => entries.map((entry) => entry.name);
+  // submodule の `.git` はファイルなので種別では判定せず、部分一致 (`.gitignore` / `git`) も残す
+  assert.deepEqual(
+    names(visibleFileTreeEntries([dir(".git"), file(".git"), dir(".gitignore"), file("git"), dir("src")], [".git"])),
+    [".gitignore", "git", "src"],
+  );
+  assert.deepEqual(names(visibleFileTreeEntries([dir(".git"), dir("src")], [])), [".git", "src"], "空なら隠さない");
+});
+
+test("隠す名前を含む経路の展開状態は復元しない (隠した枝を開いたまま保存しない)", () => {
+  assert.deepEqual(
+    visibleFileTreeDirectories([".git", ".git/objects", "src/.git", "src/.git/objects", "src/nested"], [".git"]),
+    ["src/nested"],
+  );
+  // セグメント全体の一致だけを見る
+  assert.deepEqual(visibleFileTreeDirectories([".gitignore", "git", "src/.gitignore"], [".git"]), [
+    ".gitignore",
+    "git",
+    "src/.gitignore",
+  ]);
+  assert.deepEqual(visibleFileTreeDirectories([".git", "src"], []), [".git", "src"], "空なら隠さない");
 });
 
 test("削除の確認文言はツリーに見えている root 相対パスを出す", () => {

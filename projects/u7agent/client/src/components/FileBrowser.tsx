@@ -30,6 +30,8 @@ import {
   removeFileTreeEntry,
   renameFileTreeEntry,
   toggleFileTreeDirectory,
+  visibleFileTreeDirectories,
+  visibleFileTreeEntries,
   type FileTreeDirectoryState,
   type FileTreeState,
 } from "../lib/fileTree";
@@ -64,6 +66,8 @@ import { RowMenu } from "./RowMenu";
 const INDENT = 16;
 /** ファイル行の左端。親の chevron (16) + gap-2 (8) + ディレクトリ行の左端 (8) と一致させる */
 const FILE_INDENT = 32;
+/** 隠す名前の既定。既定値の `[]` を render ごとに作り直すと、一覧の取得 Effect の依存が毎回変わってしまう */
+const NO_HIDDEN_NAMES: readonly string[] = [];
 /** reveal の一時ハイライトを残す時間。行が見つかってスクロールしてから数える */
 const REVEAL_HIGHLIGHT_MS = 1600;
 
@@ -82,6 +86,12 @@ export type FileBrowserProps = {
   readOnly?: boolean;
   /** ファイル行を参照としてドラッグできるようにする。ドロップ先 (入力欄) と同じ root の面だけ true */
   canRef?: boolean;
+  /**
+   * 行ごと隠す名前 (名前一致・階層を問わない)。作業環境パネルだけが `.git` を渡す
+   * (設定 → ファイル とスキルのファイルタブは渡さず、全部見える。docs/file-preview.md)。
+   * 取得済みの一覧には効かないため、mount の間で変えない (root と同じ前提)。
+   */
+  hiddenNames?: readonly string[];
   /**
    * アーカイブの除外名の実効値 (設定ストア)。除外名の行にはダウンロードを出さない。
    * 取得元を health ではなく app 状態 (prop) にすることで、設定の保存直後に再 mount なしで追随する。
@@ -107,6 +117,7 @@ export function FileBrowser({
   canRename = false,
   readOnly = false,
   canRef = false,
+  hiddenNames = NO_HIDDEN_NAMES,
   excludeNames,
   openRequest,
   onHandled,
@@ -116,7 +127,10 @@ export function FileBrowser({
   // 復元は mount ごとに 1 回。lazy initializer に置くことで、復元前の空状態を取得や保存の Effect が見ない
   // (StrictMode で初期化が 2 回走っても同じ snapshot から同じ状態になる)
   const [restored] = useState(() => filePreviewStore.read(rootPath));
-  const [tree, setTree] = useState<FileTreeState>(() => createFileTreeStateFromDirectories(restored?.dirs ?? []));
+  // 隠す枝は復元の時点で落とす (行が出ないまま保存値へ残り続けるのを避ける)
+  const [tree, setTree] = useState<FileTreeState>(() =>
+    createFileTreeStateFromDirectories(visibleFileTreeDirectories(restored?.dirs ?? [], hiddenNames)),
+  );
   const [tabs, setTabs] = useState<FileTabsState>(() =>
     restoreFileTabsState(restored?.paths ?? [], restored?.active ?? null),
   );
@@ -227,7 +241,12 @@ export function FileBrowser({
       void (async () => {
         try {
           const listing = await getFiles(fileTreeFetchPath(rootPath, path));
-          setTree((prev) => applyFileTreeListing(prev, path, listing));
+          setTree((prev) =>
+            applyFileTreeListing(prev, path, {
+              entries: visibleFileTreeEntries(listing.entries, hiddenNames),
+              truncated: listing.truncated,
+            }),
+          );
         } catch (error) {
           setTree((prev) => applyFileTreeError(prev, path, errorText(error)));
         } finally {
@@ -235,7 +254,7 @@ export function FileBrowser({
         }
       })();
     }
-  }, [tree, rootPath]);
+  }, [tree, rootPath, hiddenNames]);
 
   // 外装の「再読み込み」とラン終了を 1 つの入口にする。mount 時の token では撃たない
   // (root の切替は key の張り替えで扱うため、token の初期値が残っていても取り直さない)

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type KeyboardEvent, type PointerEvent } from "react";
 import type { SecretsScope } from "../api";
 import { sessionEnvScopeKey, sessionEnvTabs, type SessionEnvTab } from "../lib/sessionEnv";
+import { SESSION_FILES_HIDDEN_NAMES } from "../lib/sessionFiles";
 import type { FileRefRequest } from "../lib/fileRefRequest";
 import { cn } from "../lib/cn";
 import {
@@ -121,6 +122,7 @@ function SessionFilesContent({
           <FileBrowser
             root={root}
             reloadToken={reloadToken}
+            hiddenNames={SESSION_FILES_HIDDEN_NAMES}
             excludeNames={excludeNames}
             filePreviewPort={filePreviewPort}
             openRequest={openRequest}

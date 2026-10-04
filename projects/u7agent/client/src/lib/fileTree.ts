@@ -63,6 +63,25 @@ export function createFileTreeStateFromDirectories(dirs: string[]): FileTreeStat
   return state;
 }
 
+/**
+ * 面ごとに隠す行を名前で除く。種別は見ない (submodule の `.git` はファイル)。`hiddenNames` が空なら
+ * 一覧をそのまま返し、隠す面 (チャット右パネル) 以外の表示を変えない。階層は問わない (呼び出し側の一覧は
+ * その階層の子だけなので、名前一致がそのまま全階層の一致になる)。
+ */
+export function visibleFileTreeEntries(entries: FileEntry[], hiddenNames: readonly string[]): FileEntry[] {
+  if (hiddenNames.length === 0) return entries;
+  return entries.filter((entry) => !hiddenNames.includes(entry.name));
+}
+
+/**
+ * 保存された展開状態から、隠す名前を経路上のセグメントに含むディレクトリを落とす。隠した枝を
+ * 「開いているが未取得」として復元すると、行が出ないまま保存値へ残り続ける。
+ */
+export function visibleFileTreeDirectories(dirs: readonly string[], hiddenNames: readonly string[]): string[] {
+  if (hiddenNames.length === 0) return [...dirs];
+  return dirs.filter((dir) => !dir.split("/").some((name) => hiddenNames.includes(name)));
+}
+
 export function fileTreeChildPath(parent: string, name: string): string {
   return parent === FILE_TREE_ROOT ? name : `${parent}/${name}`;
 }
