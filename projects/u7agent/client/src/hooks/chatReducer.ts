@@ -270,6 +270,15 @@ function legacyMarkers(compactions: CompactionInfo[]): CompactionMarker[] {
   return [{ id: latest.id, index, compactions }];
 }
 
+/**
+ * 履歴ページから取り込んだ item を表示に持つか (entryId はページ由来のバブルにだけ付く)。
+ * ページ取得が一時的に失敗しても payload.messages (圧縮後は有効コンテキストだけ) へ
+ * 表示を戻さないための判定に使う。
+ */
+function holdsFetchedHistory(state: ChatState): boolean {
+  return state.bubbles.some((bubble) => bubble.entryId !== undefined);
+}
+
 /** 履歴ページの適用結果を chat 状態へ写す (保留中の gap は解消済みにする) */
 /**
  * run_start に対応する自分の user entry が既に履歴へ載っているか (送信直前の preflight compaction など)。
@@ -558,8 +567,10 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
       const status = payload.status || "idle";
       const sessionChanged = payload.sessionId !== state.sessionId;
       // 全履歴 API が使える間は payload.messages (有効コンテキスト) ではなく履歴ページを表示の正とする。
-      // 取得済みの古いページを消さないため、ここでは表示を組み直さない (最新ページは resyncHistory が届く)
-      const keepHistory = state.history.supported && !sessionChanged;
+      // 取得済みの古いページを消さないため、ここでは表示を組み直さない (最新ページは resyncHistory が届く)。
+      // ページ取得に一時的に失敗しても、取り込み済みの履歴がある間は payload.messages で組み直さない
+      // (messages は有効コンテキストの投影で、圧縮後の残りが tool 呼び出しだけなら空にもなる)
+      const keepHistory = !sessionChanged && (state.history.supported || holdsFetchedHistory(state));
       const legacy = keepHistory ? null : historyToBubbles(state.nextId, payload.messages ?? []);
       // 確定済みのライブバブル (前の run の応答 / 送信エコー) は、履歴ページが届くまで残す。未確定の
       // ストリーミング中の assistant だけを捨てる (context_edit の resync で失敗試行を取り消す契約)
@@ -1090,8 +1101,9 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
       return {
         ...state,
         compactions,
-        // 区切りの位置は次の resync の履歴ページが正。旧 payload では beforeMessageIndex から復元する
-        dividers: state.history.supported ? state.dividers : legacyMarkers(compactions),
+        // 区切りの位置は次の resync の履歴ページが正。取り込み済みの履歴がある間は
+        // beforeMessageIndex (payload.messages の index) では位置が合わないため触らない
+        dividers: state.history.supported || holdsFetchedHistory(state) ? state.dividers : legacyMarkers(compactions),
         activity: `会話を圧縮しました（${action.count}回目）`,
         // 圧縮の通知は状態ではなく 1 回きりのお知らせなので、活動ラベルの演出は外す
         activityState: undefined,
