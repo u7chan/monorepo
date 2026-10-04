@@ -6,6 +6,7 @@ import { ArchiveSettingsPage } from "./components/ArchiveSettingsPage";
 import { ChatArea } from "./components/ChatArea";
 import { CompactBar } from "./components/CompactBar";
 import { Composer } from "./components/Composer";
+import { useConfirm } from "./components/ConfirmProvider";
 import { FileTreePage } from "./components/FileTreePage";
 import { NavSheet } from "./components/NavSheet";
 import { ModelSettingsPage } from "./components/ModelSettingsPage";
@@ -29,7 +30,7 @@ import { useViewportWidth } from "./hooks/useViewportWidth";
 import { agentIconOf } from "./lib/agentIcon";
 import { chatScope } from "./lib/chatScope";
 import { cn } from "./lib/cn";
-import { compactConfirmMessage } from "./lib/compaction";
+import { compactConfirmRequest } from "./lib/compaction";
 import { fileRefRequestForSession } from "./lib/fileRefRequest";
 import { resolveSidebarPlacement } from "./lib/layout";
 import {
@@ -51,6 +52,8 @@ import {
 } from "./lib/settingsNav";
 
 export default function App() {
+  // 確認と入力のダイアログ。文言は各 lib の純関数で組み立てる (docs/ui-layout.md)
+  const confirm = useConfirm();
   // 画面は URL がただ 1 つの正。`/` はチャット、`/settings/<section>` は設定の各画面、
   // `/s/<id>` は通知のリンクの入口 (選択待ちの間だけ URL を保つ。lib/route.ts)
   const { route, navigate, consumePendingEntry, lastSettingsSection } = useRoute();
@@ -202,9 +205,11 @@ export default function App() {
 
   const handleCompact = useCallback(() => {
     // 戻せない操作なので、押した時点で不可逆性と課金を確認する (状態行に注意書きを開く導線は置かない)
-    if (!window.confirm(compactConfirmMessage())) return;
-    void app.compactSession();
-  }, [app]);
+    void (async () => {
+      if (!(await confirm(compactConfirmRequest()))) return;
+      void app.compactSession();
+    })();
+  }, [app, confirm]);
 
   const handleToggleNotify = useCallback(() => {
     // 送られない On を作らない。押しても切り替わらず、理由と導線をバーの下に出す
@@ -233,10 +238,13 @@ export default function App() {
       projectId: activeSession?.projectId,
       sessions: app.sessions,
     });
-    const confirmation = servedAppStartConfirm(servedAppView(app.serve.status), busy);
-    if (confirmation !== undefined && !window.confirm(confirmation)) return;
-    void app.serve.start();
-  }, [app.chat.runStatus, app.sessionId, activeSession?.projectId, app.sessions, app.serve]);
+    const request = servedAppStartConfirm(servedAppView(app.serve.status), busy);
+    void (async () => {
+      // 置き換えの確認を取ってから起動する (取り消したら何もしない)。表示した時点の状態で確認する
+      if (request && !(await confirm(request))) return;
+      void app.serve.start();
+    })();
+  }, [app.chat.runStatus, app.sessionId, activeSession?.projectId, app.sessions, app.serve, confirm]);
   const serveProps = {
     port: app.health?.previewPort,
     status: serve.status,

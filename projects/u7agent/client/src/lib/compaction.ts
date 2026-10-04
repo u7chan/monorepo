@@ -1,5 +1,6 @@
 // 表示仕様は docs/compaction.md を正とする (locale に依存させない)
 import type { CompactionInfo } from "../types";
+import type { ConfirmRequest } from "./confirmDialog";
 import { formatTokens } from "./usageFormat";
 
 const REASON_LABELS: Record<string, string> = {
@@ -9,11 +10,17 @@ const REASON_LABELS: Record<string, string> = {
 };
 
 /**
- * 手動圧縮の確認文言。押した時点で不可逆性と課金を示す (状態行に注意書きを開く導線は置かない。
- * 出す側は `App` の `handleCompact` で、`window.confirm` は DOM なしで検証できないため文言だけを切り出す)。
+ * 手動圧縮の確認。押した時点で不可逆性と課金を示す (状態行に注意書きを開く導線は置かない)。
+ * 出す側は `App` の `handleCompact` で、文言は DOM なしで検証できるようここに切り出す。
  */
-export function compactConfirmMessage(): string {
-  return "会話を圧縮します。元のメッセージは GUI から戻せません。要約の生成にモデルの利用料金がかかります。続けますか？";
+export function compactConfirmRequest(): ConfirmRequest {
+  return {
+    kind: "confirm",
+    title: "会話を圧縮",
+    body: ["元のメッセージは GUI から戻せません。要約の生成にモデルの利用料金がかかります。"],
+    confirmLabel: "圧縮する",
+    danger: true,
+  };
 }
 
 export function compactionReasonLabel(reason?: string): string | undefined {

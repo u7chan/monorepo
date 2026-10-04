@@ -18,7 +18,7 @@ import {
   candidateGroups,
   defaultModelOptions,
   degradedNotice,
-  deleteConfirmMessage,
+  deleteConfirmRequest,
   filterCandidateGroups,
   filterDefaultModelOptions,
   groupProviders,
@@ -347,10 +347,13 @@ test("変更系の注記は state ごとに再同期を案内する", () => {
 });
 
 test("削除の確認は既存会話への影響を伝える", () => {
-  const message = deleteConfirmMessage("Anthropic");
-  assert.match(message, /Anthropic/);
-  assert.match(message, /未ロードの会話/);
-  assert.match(message, /auth\.json/);
+  const request = deleteConfirmRequest("Anthropic");
+  assert.deepEqual(request.subject, { label: "削除する provider", value: "Anthropic" });
+  const body = request.body?.join("\n") ?? "";
+  assert.match(body, /未ロードの会話/);
+  assert.match(body, /auth\.json/);
+  assert.equal(request.confirmLabel, "削除する");
+  assert.ok(request.danger, "キー削除は danger にする");
 });
 
 // --- 利用可能なモデル（許可リスト）と既定モデルの編集 ---

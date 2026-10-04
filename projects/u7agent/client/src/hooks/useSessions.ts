@@ -14,9 +14,10 @@ import {
 } from "../api";
 import type { ChatHistoryState } from "../lib/chatTypes";
 import { adoptKnownAgentId } from "../lib/agentSelection";
+import { renameInputValue } from "../lib/confirmDialog";
 import { createFileRefRequests } from "../lib/fileRefRequest";
 import { missingLinkNote, type SessionOpenResult } from "../lib/notifications";
-import { sessionRenamePrompt } from "../lib/sidebarRowMenu";
+import { sessionDeleteConfirmRequest, sessionRenameRequest } from "../lib/sidebarRowMenu";
 import type { AgentDef, EventEntry, Health, ModelRef, SessionPayload, SessionSummary, ThinkingLevel } from "../types";
 import type { ChatAction } from "./chatReducer";
 import { createRequestGate } from "./requestGate";
@@ -27,6 +28,7 @@ import { applySettingsChange, type SettingsSelection } from "./settingsChange";
 import { compactChat } from "./sessionActions";
 import { nextAfterFailure } from "./sessionFallback";
 import { useSessionEvents } from "./useSessionEvents";
+import { useConfirm, usePrompt } from "../components/ConfirmProvider";
 import { runtimeStatusForError, type RuntimeStatus } from "./runtimeStatus";
 
 const alwaysCurrent = () => true;
@@ -74,6 +76,8 @@ export function useSessions({
   refreshHealth,
   setRuntimeStatus,
 }: UseSessionsParams) {
+  const confirm = useConfirm();
+  const prompt = usePrompt();
   const [sessions, setSessions] = useState<SessionSummary[]>([]);
   /** 一覧の初回取得に成功したか。空配列を「使用なし」と読んで嘘を出さないためのフラグ */
   const [sessionsLoaded, setSessionsLoaded] = useState(false);
@@ -548,12 +552,8 @@ export function useSessions({
 
   const deleteSession = useCallback(
     async (id: string): Promise<void> => {
-      if (
-        !window.confirm(
-          "このセッションの履歴を削除しますか？（作業フォルダのファイルは残ります）実行中の処理は停止されます。",
-        )
-      )
-        return;
+      const title = sessionsRef.current.find((item) => item.sessionId === id)?.title ?? "";
+      if (!(await confirm(sessionDeleteConfirmRequest(title)))) return;
       try {
         await apiDeleteSession(id);
       } catch (error) {
@@ -568,20 +568,19 @@ export function useSessions({
         else newChatRef.current();
       }
     },
-    [refreshSessions, selectSession],
+    [refreshSessions, selectSession, confirm],
   );
 
   /**
-   * 会話タイトルの変更。設定 → ファイル のフォルダと同じ window.prompt で受け取り、応答のタイトルを
-   * 一覧へ反映する (ヘッダの表示も一覧から引くため、これだけで画面が追従する)。
+   * 会話タイトルの変更。初期値は現在のタイトルで、取り消し・空・未変更はサーバーへ送らない。
+   * 応答のタイトルを一覧へ反映する (ヘッダの表示も一覧から引くため、これだけで画面が追従する)。
    * 失敗は楽観反映をしないので、理由だけを状態行へ出す。
    */
   const renameSession = useCallback(
     async (id: string): Promise<void> => {
       const current = sessionsRef.current.find((item) => item.sessionId === id)?.title ?? "";
-      const next = window.prompt(sessionRenamePrompt(), current);
-      // 取り消し (null)・空・未変更なら何もしない (空文字はサーバーも 400 で拒否する)
-      if (!next || next === current) return;
+      const next = renameInputValue(await prompt(sessionRenameRequest(current)), current);
+      if (next === undefined) return;
       try {
         const result = await updateSessionTitle(id, next);
         applyTitle(result.sessionId, result.title);
@@ -589,7 +588,7 @@ export function useSessions({
         dispatch({ type: "setActivity", text: `セッション名を変更できませんでした。${messageFor(error)}` });
       }
     },
-    [applyTitle, dispatch],
+    [applyTitle, dispatch, prompt],
   );
 
   const reselectIfMissing = useCallback(

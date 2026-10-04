@@ -5,6 +5,7 @@
  */
 import { formatBytes } from "./attachments";
 import type { FileDownloadCheck } from "../types";
+import type { ConfirmRequest } from "./confirmDialog";
 
 /** 除外規則で落とされる名前の行には導線を出さない（クリック後の 400 を事前に避ける） */
 export function isArchiveExcludedName(name: string, excludeNames: readonly string[]): boolean {
@@ -13,14 +14,20 @@ export function isArchiveExcludedName(name: string, excludeNames: readonly strin
 
 /**
  * ディレクトリの確認ダイアログ。除外があるときだけ 1 回出す（何が入らないかを開始前に示す）。
- * 件数は ZIP のエントリ数で、サイズは確認ダイアログ用の丸めた表記にする。
+ * 件数は ZIP のエントリ数で、サイズは確認ダイアログ用の丸めた表記にする。フォルダ名は clamp される
+ * 独立した行へ出し、本文は件数と除外名だけにする。
  */
-export function archiveConfirmMessage(name: string, check: FileDownloadCheck): string {
-  return [
-    `「${name}」を ZIP でダウンロードします。`,
-    `含まれるファイル数 ${check.entries} 件 / 合計サイズ ${formatBytes(check.bytes)}`,
-    `除外: ${check.skipped.join(", ")}`,
-  ].join("\n");
+export function archiveConfirmRequest(name: string, check: FileDownloadCheck): ConfirmRequest {
+  return {
+    kind: "confirm",
+    title: "ZIP でダウンロード",
+    subject: { label: "ダウンロードするフォルダ", value: name },
+    body: [
+      `含まれるファイル数 ${check.entries} 件 / 合計サイズ ${formatBytes(check.bytes)}`,
+      `除外: ${check.skipped.join(", ")}`,
+    ],
+    confirmLabel: "ダウンロードする",
+  };
 }
 
 /**

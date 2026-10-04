@@ -1,8 +1,10 @@
 import { useRef, useState, type Dispatch, type FormEvent, type SetStateAction } from "react";
 import { createAgent, deleteAgent, updateAgent } from "../../api";
 import { fileToAgentIcon } from "../../lib/agentIconFile";
+import { agentDeleteConfirmRequest } from "../../lib/settingsConfirm";
 import type { AgentDef, AgentSuggestion, CatalogResponse, ModelOption, ModelRef, ThinkingLevel } from "../../types";
 import { AgentIcon } from "../AgentIcon";
+import { useConfirm } from "../ConfirmProvider";
 import { CheckIcon, TrashIcon } from "../icons";
 import { AgentModelEffortFields } from "./AgentModelEffortFields";
 import { SkillSelector } from "./SkillSelector";
@@ -70,6 +72,7 @@ export function AgentEditorForm({
   onDone?: () => void;
 }) {
   const showHeading = variant === "page";
+  const confirm = useConfirm();
   const iconInputRef = useRef<HTMLInputElement>(null);
   const [iconBusy, setIconBusy] = useState(false);
   // 変換中に編集対象が変わるかを await の後に判定する (新しい下書きを古い選択の結果で汚さない)
@@ -116,7 +119,7 @@ export function AgentEditorForm({
 
   const removeCurrentAgent = async () => {
     if (!editingId) return;
-    if (!window.confirm("このエージェントを削除しますか？")) return;
+    if (!(await confirm(agentDeleteConfirmRequest(form.name)))) return;
     try {
       await deleteAgent(editingId);
       onSelectAgent(null);

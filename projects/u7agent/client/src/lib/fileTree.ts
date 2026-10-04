@@ -4,6 +4,7 @@
  * ページの root からワークスペース root 相対 (GET /api/files の path) への変換は fileTreeFetchPath が担う。
  */
 import type { FileEntry } from "../types";
+import type { ConfirmRequest, PromptRequest } from "./confirmDialog";
 
 export const FILE_TREE_ROOT = ".";
 
@@ -150,19 +151,35 @@ export function openFileTreeAncestors(state: FileTreeState, path: string): FileT
   return changed ? next : state;
 }
 
-/** 削除の確認文言。path は画面の root 相対で、ツリーに見えているパスと一致させる。 */
-export function fileTreeDeleteConfirm(path: string): string {
-  return `「${path}」を削除しますか？この操作は取り消せません。`;
+/**
+ * 削除の確認。path は画面の root 相対で、ツリーに見えているパスと一致させる。対象は本文へ埋めず
+ * clamp した独立した行 (subject) へ出し、長いパスでも本文が読めなくならないようにする。
+ */
+export function fileTreeDeleteConfirmRequest(path: string, type: "file" | "dir"): ConfirmRequest {
+  return {
+    kind: "confirm",
+    title: type === "dir" ? "フォルダを削除" : "ファイルを削除",
+    subject: { label: type === "dir" ? "削除するフォルダ" : "削除するファイル", value: path },
+    body: [
+      type === "dir"
+        ? "このフォルダと配下のファイルをすべて削除します。この操作は取り消せません。"
+        : "この操作は取り消せません。",
+    ],
+    confirmLabel: "削除する",
+    danger: true,
+  };
 }
 
-/** ディレクトリ削除の確認文言。配下ごと消えて元に戻せないことを示す (path は画面の root 相対)。 */
-export function fileTreeDeleteDirectoryConfirm(path: string): string {
-  return `「${path}」と配下のファイルをすべて削除しますか？この操作は取り消せません。`;
-}
-
-/** リネームの入力の見出し。初期値 (現在の名前) は呼び出し側が window.prompt の第 2 引数で渡す。 */
-export function fileTreeRenamePrompt(path: string): string {
-  return `「${path}」の新しい名前を入力してください。`;
+/** リネームの入力。初期値 (現在の名前) を入れ、対象のパスは clamp した独立した行へ出す */
+export function fileTreeRenameRequest(path: string, currentName: string): PromptRequest {
+  return {
+    kind: "prompt",
+    title: "名前を変更",
+    subject: { label: "名前を変更するフォルダ", value: path },
+    label: "新しい名前",
+    defaultValue: currentName,
+    confirmLabel: "名前を変更",
+  };
 }
 
 /**

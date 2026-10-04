@@ -11,6 +11,7 @@ import {
   SIDEBAR_PROJECTS_KEY,
   SIDEBAR_PROJECTS_LIMIT,
   SIDEBAR_PROJECTS_VERSION,
+  projectDeleteConfirmRequest,
   type SidebarProjectsStorage,
 } from "../src/lib/sidebarProjects";
 import type { Project, SessionSummary } from "../src/types";
@@ -177,4 +178,17 @@ test("ProjectRow は畳みで aria-expanded=false になり、配下セッショ
   const opened = renderProjectRow(true);
   assert.ok(opened.includes('aria-expanded="true"'), "展開で aria-expanded が true でない");
   assert.ok(opened.includes("既存の会話"), "展開で配下セッションが出ない");
+});
+
+test("登録解除の確認はプロジェクト名を独立した行へ出し、配下の停止を先に伝える", () => {
+  const request = projectDeleteConfirmRequest({ name: "決済画面の検証" }, 3);
+  assert.equal(request.kind, "confirm");
+  assert.equal(request.title, "プロジェクトの登録を解除");
+  assert.deepEqual(request.subject, { label: "登録を解除するプロジェクト", value: "決済画面の検証" });
+  assert.deepEqual(request.body, ["配下の 3 件のセッションを停止します（履歴とファイルは残ります）。"]);
+  assert.equal(request.confirmLabel, "登録を解除する");
+  assert.ok(request.danger, "配下のセッションを止める操作は danger にする");
+
+  // 一覧が古くて名前を引けないときも件数だけで確認を出す
+  assert.equal(projectDeleteConfirmRequest(undefined, 0).subject, undefined);
 });

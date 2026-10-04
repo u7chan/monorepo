@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 
 import test from "node:test";
-import { archiveConfirmMessage, isArchiveExcludedName } from "../src/lib/archive";
+import { archiveConfirmRequest, isArchiveExcludedName } from "../src/lib/archive";
 import { fileRowActions } from "../src/lib/fileRowMenu";
 import type { FileDownloadCheck } from "../src/types";
 
@@ -51,14 +51,15 @@ test("ダウンロード: 除外名 / symlink / readOnly には出さない", ()
 
 test("確認文言: 除外があるフォルダのときだけ出し、除外名と件数を示す", () => {
   const check: FileDownloadCheck = { kind: "archive", name: "src.zip", bytes: 1536, entries: 3, skipped: ["dist"] };
-  const message = archiveConfirmMessage("src", check);
-  assert.ok(message.includes("「src」を ZIP でダウンロードします。"), message);
-  assert.ok(message.includes("含まれるファイル数 3 件 / 合計サイズ 1.5 KB"), message);
-  assert.ok(message.trimEnd().endsWith("除外: dist"), message);
+  const request = archiveConfirmRequest("src", check);
+  // フォルダ名は clamp される独立した行へ出し、本文には入れない
+  assert.deepEqual(request.subject, { label: "ダウンロードするフォルダ", value: "src" });
+  assert.deepEqual(request.body, ["含まれるファイル数 3 件 / 合計サイズ 1.5 KB", "除外: dist"]);
+  assert.equal(request.confirmLabel, "ダウンロードする");
 
   // 除外は実際に落ちた名前 (サーバーの check の skipped) をそのまま出す
-  const multi = archiveConfirmMessage("src", { ...check, skipped: ["node_modules", ".git"] });
-  assert.ok(multi.includes("除外: node_modules, .git"), multi);
+  const multi = archiveConfirmRequest("src", { ...check, skipped: ["node_modules", ".git"] });
+  assert.equal(multi.body?.[1], "除外: node_modules, .git");
 
   assert.ok(isArchiveExcludedName("dist", ["dist"]));
   assert.ok(!isArchiveExcludedName("dist-2", ["dist"]));

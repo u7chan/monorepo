@@ -13,6 +13,7 @@ import type {
   RuntimeModelsResponse,
   SessionSummary,
 } from "../types";
+import type { ConfirmRequest } from "./confirmDialog";
 
 /** サーバーの検証と同じ境界。クライアントでも保存前に同じ理由で止める */
 export const API_KEY_MIN_LENGTH = 8;
@@ -204,8 +205,18 @@ export function validateMemo(value: string): string | undefined {
 export type MutationAction = "save" | "delete" | "resync" | "availability" | "memo";
 
 /** 削除の確認。既存の会話は自動でモデルを切り替えないため、影響を先に伝える */
-export function deleteConfirmMessage(name: string): string {
-  return `「${name}」のAPIキーを削除します。以降の送信が認証で失敗することがあり、未ロードの会話は復元時に別のモデルへ切り替わります。環境変数や auth.json の認証があれば、そちらが使われます。`;
+export function deleteConfirmRequest(name: string): ConfirmRequest {
+  return {
+    kind: "confirm",
+    title: "APIキーを削除",
+    subject: { label: "削除する provider", value: name },
+    body: [
+      "以降の送信が認証で失敗することがあり、未ロードの会話は復元時に別のモデルへ切り替わります。",
+      "環境変数や auth.json の認証があれば、そちらが使われます。",
+    ],
+    confirmLabel: "削除する",
+    danger: true,
+  };
 }
 
 /** 変更系の応答 (200) を操作の種類に応じた注記へ写す。applied_unsynced は再同期を案内する */

@@ -20,6 +20,7 @@ import type {
 // api.ts (location.origin を読む) を辿るため、node では最小の shim を置いてから読み込む
 globalThis.location ??= { origin: "http://localhost" } as Location;
 const { ModelSettingsPage, ModelSettingsView } = await import("../src/components/ModelSettingsPage");
+const { ConfirmProvider } = await import("../src/components/ConfirmProvider");
 
 function provider(overrides: Partial<ProviderAuthSetting> = {}): ProviderAuthSetting {
   return {
@@ -148,16 +149,21 @@ function render(
     onSelectModelsSubsection?: (subsection: ModelsSubsection) => void;
   } = {},
 ): string {
+  // 確認ダイアログの provider は app の root が持つ (main.tsx)。ここでは描画だけを検査する
   return renderToStaticMarkup(
-    createElement(ModelSettingsView, {
-      modelSettings: settings,
-      imageSettings: options.imageSettings ?? imageSettings(),
-      sessions: options.sessions ?? [],
-      sessionsLoaded: options.sessionsLoaded ?? false,
-      modelsSubsection: options.modelsSubsection ?? "models",
-      onSelectModelsSubsection: options.onSelectModelsSubsection ?? (() => {}),
-      onBack: () => {},
-    }),
+    createElement(
+      ConfirmProvider,
+      null,
+      createElement(ModelSettingsView, {
+        modelSettings: settings,
+        imageSettings: options.imageSettings ?? imageSettings(),
+        sessions: options.sessions ?? [],
+        sessionsLoaded: options.sessionsLoaded ?? false,
+        modelsSubsection: options.modelsSubsection ?? "models",
+        onSelectModelsSubsection: options.onSelectModelsSubsection ?? (() => {}),
+        onBack: () => {},
+      }),
+    ),
   );
 }
 
@@ -495,14 +501,18 @@ test("保存の警告 (applied_unsynced) は注記として出る", () => {
 test("ページ本体は取得前の初期状態 (読み込み中) を出す", () => {
   // hook が取得を始めるのは mount 後なので、react-dom/server の初期描画は読み込み中になる
   const html = renderToStaticMarkup(
-    createElement(ModelSettingsPage, {
-      onRefreshHealth: async () => null,
-      onBack: () => {},
-      sessions: [],
-      sessionsLoaded: false,
-      modelsSubsection: "models",
-      onSelectModelsSubsection: () => {},
-    }),
+    createElement(
+      ConfirmProvider,
+      null,
+      createElement(ModelSettingsPage, {
+        onRefreshHealth: async () => null,
+        onBack: () => {},
+        sessions: [],
+        sessionsLoaded: false,
+        modelsSubsection: "models",
+        onSelectModelsSubsection: () => {},
+      }),
+    ),
   );
   assert.ok(html.includes("プロバイダーの認証状態を読み込んでいます。"));
   assert.ok(html.includes('role="tablist"'), "取得前からタブは出す");

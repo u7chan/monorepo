@@ -48,6 +48,7 @@
               "max-w-[min(760px,86%)]",
               "w-[3.25em]",
               "w-[min(320px,86vw)]",
+              "w-[min(420px,92vw)]",
               "w-[min(560px,92vw)]",
               "pt-[8vh]",
               "pt-[18vh]",

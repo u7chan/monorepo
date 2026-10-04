@@ -6,7 +6,6 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { ServedAppGroup, ServedAppIndicator } from "../src/components/ServedAppStatus";
 import {
   servedAppBusyKind,
-  servedAppReplaceConfirm,
   servedAppReplaceHint,
   servedAppStartConfirm,
   servedAppUrl,
@@ -181,17 +180,25 @@ test("compact は 1 枠で操作でき、停止中はメニューなしの起動
   }
 });
 
-test("置き換えの確認文言は所有者名を 1 回だけ出し、停止対象をサービスと明示して起動コマンドを独立した行にする", () => {
+test("置き換えの確認は所有者名を 1 回だけ独立した行に出し、起動コマンドを等幅の行にする", () => {
   const other = servedAppView(serveStatus({ reachable: true, owner: { kind: "other", title: "決済画面の検証" } }));
-  assert.equal(
-    servedAppReplaceConfirm(other),
-    ["「決済画面の検証」のサービスを停止して、この会話のサービスを起動します。", "起動コマンド: pnpm dev"].join("\n"),
-  );
-  // 初回メッセージ由来のタイトルは長いので、2 回出すと同じ文が段落になる (重複の再発を防ぐ)
-  assert.equal(servedAppReplaceConfirm(other).split("決済画面の検証").length - 1, 1);
+  const request = servedAppStartConfirm(other, undefined);
+  assert.ok(request, "置き換えは確認を出す");
+  assert.equal(request.kind, "confirm");
+  assert.equal(request.title, "サービスを起動");
+  // 初回メッセージ由来のタイトルは長いので、本文へ埋めず clamp される行へ 1 回だけ出す
+  assert.deepEqual(request.subject, { label: "停止する会話", value: "決済画面の検証" });
+  assert.deepEqual(request.body, ["他会話のサービスを停止して、この会話のサービスを起動します。"]);
+  assert.ok(!(request.body ?? []).some((line) => line.includes("決済画面の検証")), "本文へ所有者名を埋めない");
+  assert.deepEqual(request.code, { label: "起動コマンド", value: "pnpm dev" });
+  assert.equal(request.confirmLabel, "停止して起動");
+  assert.ok(request.danger, "他会話のサービスを止める操作は danger にする");
+
   const unknown = servedAppView(serveStatus({ reachable: true, owner: { kind: "unknown" } }));
-  assert.match(servedAppReplaceConfirm(unknown), /起動元不明のプロセスを停止して/);
-  assert.match(servedAppReplaceConfirm(unknown), /pnpm dev/);
+  const unknownRequest = servedAppStartConfirm(unknown, undefined);
+  assert.deepEqual(unknownRequest?.body, ["起動元不明のプロセスを停止して、この会話のサービスを起動します。"]);
+  assert.equal(unknownRequest?.subject, undefined, "停止対象の会話は無い");
+  assert.deepEqual(unknownRequest?.code, { label: "起動コマンド", value: "pnpm dev" });
 });
 
 test("閲覧中の会話が running / queued なら、所属にかかわらず self を返す", () => {
@@ -269,35 +276,45 @@ test("閲覧中の会話と同じプロジェクトの他会話が実行中な�
   }
 });
 
-test("起動の確認は置き換えだけなら既存の文言を使い、どちらもなければ省略する", () => {
+test("起動の確認は置き換えだけなら出し、どちらもなければ省略する", () => {
   const stopped = servedAppView(serveStatus());
   assert.equal(servedAppStartConfirm(stopped, undefined), undefined);
   for (const owner of [{ kind: "other", title: "決済画面の検証" }, { kind: "unknown" }] as const) {
     const view = servedAppView(serveStatus({ reachable: true, owner }));
-    assert.equal(servedAppStartConfirm(view, undefined), servedAppReplaceConfirm(view));
+    const request = servedAppStartConfirm(view, undefined);
+    assert.equal(request?.confirmLabel, "停止して起動");
+    assert.equal(request?.notes, undefined, "実行中でなければ補足は出さない");
   }
 });
 
-test("実行中だけの起動確認は、閲覧中と同じ作業フォルダの他会話で文言を分ける", () => {
+test("実行中だけの起動確認は、閲覧中と同じ作業フォルダの他会話で補足を分ける", () => {
   const stopped = servedAppView(serveStatus());
-  assert.equal(
-    servedAppStartConfirm(stopped, "self"),
-    "エージェントが実行中です。編集途中のファイルを読み込んだ状態で起動します。",
-  );
-  assert.equal(
-    servedAppStartConfirm(stopped, "other"),
+  const self = servedAppStartConfirm(stopped, "self");
+  assert.equal(self?.confirmLabel, "起動する");
+  assert.deepEqual(self?.notes, ["エージェントが実行中です。編集途中のファイルを読み込んだ状態で起動します。"]);
+
+  const other = servedAppStartConfirm(stopped, "other");
+  assert.equal(other?.confirmLabel, "起動する");
+  assert.deepEqual(other?.notes, [
     "同じ作業フォルダの他会話でエージェントが実行中です。編集途中のファイルを読み込んだ状態で起動します。",
-  );
+  ]);
+  assert.equal(other?.subject, undefined, "置き換えが無ければ停止対象は出さない");
 });
 
-test("置き換えと実行中の確認は、置き換え → 空行 → 実行中の順で 1 つにまとめる", () => {
+test("置き換えと実行中の確認は 1 つのダイアログへ本文と補足にまとめる", () => {
   for (const owner of [{ kind: "other", title: "決済画面の検証" }, { kind: "unknown" }] as const) {
     const view = servedAppView(serveStatus({ reachable: true, owner }));
-    for (const [busy, message] of [
+    for (const [busy, note] of [
       ["self", "エージェントが実行中です。編集途中のファイルを読み込んだ状態で起動します。"],
       ["other", "同じ作業フォルダの他会話でエージェントが実行中です。編集途中のファイルを読み込んだ状態で起動します。"],
     ] as const) {
-      assert.equal(servedAppStartConfirm(view, busy), `${servedAppReplaceConfirm(view)}\n\n${message}`);
+      const request = servedAppStartConfirm(view, busy);
+      assert.equal(request?.confirmLabel, "停止して起動");
+      assert.deepEqual(request?.notes, [note]);
+      assert.deepEqual(
+        request?.subject,
+        owner.kind === "other" ? { label: "停止する会話", value: owner.title } : undefined,
+      );
     }
   }
 });

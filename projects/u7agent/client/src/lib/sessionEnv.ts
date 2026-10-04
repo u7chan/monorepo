@@ -3,9 +3,23 @@
  * ここは名前の見せ方と文言だけを決める純関数に閉じる。検証の正はサーバー (server/src/secrets.ts)。
  */
 import type { SecretItem } from "../types";
+import type { ConfirmRequest } from "./confirmDialog";
 
 /** 8 文字未満のシークレットは自動マスクの対象外 (server/src/redact.ts の MIN_SECRET_LENGTH と同じ値) */
 export const SECRET_MASK_MIN_LENGTH = 8;
+
+/** 削除の確認。対象は clamp した独立した行へ出し、シークレットは値が戻せないことを先に伝える */
+export function secretDeleteConfirmRequest(item: Pick<SecretItem, "name" | "kind">): ConfirmRequest {
+  const secret = item.kind === "secret";
+  return {
+    kind: "confirm",
+    title: `${secret ? "シークレット" : "環境変数"}を削除`,
+    subject: { label: secret ? "削除するシークレット" : "削除する変数", value: item.name },
+    ...(secret ? { body: ["保存した値は再取得できません。"] } : {}),
+    confirmLabel: "削除する",
+    danger: true,
+  };
+}
 
 /** タブ上部の 1 行。反映の境界は「保存」ではなく「次回の起動」 */
 export const ENV_RESTART_NOTE = "シークレットの変更は次回の起動から反映されます";

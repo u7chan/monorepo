@@ -1,6 +1,6 @@
 import { useState } from "react";
 import {
-  deleteImageKeyConfirmMessage,
+  deleteImageKeyConfirmRequest,
   imageCatalogNotice,
   imageKeyStatusBadge,
   imageModelOptions,
@@ -14,6 +14,7 @@ import {
 import { API_KEY_MIN_LENGTH } from "../../lib/modelSettings";
 import type { ImageSettingsResponse, UpdateImageSelectionBody } from "../../types";
 import { CheckIcon, RefreshIcon, TrashIcon } from "../icons";
+import { useConfirm } from "../ConfirmProvider";
 import { ProviderIcon } from "../ProviderIcon";
 import { SelectField } from "../SelectField";
 import { MetaChip } from "./MetaChip";
@@ -43,6 +44,7 @@ export function ImageSettingsTab({
   onRefreshCatalog,
 }: ImageSettingsTabProps) {
   // 保存したキーは再表示しないため、入力は常に空から始め、保存できたときだけ消す
+  const confirm = useConfirm();
   const [apiKey, setApiKey] = useState("");
   const busy = saving !== null;
   const runtimeAvailable = settings.runtimeAvailable;
@@ -53,7 +55,7 @@ export function ImageSettingsTab({
   };
 
   const removeKey = async () => {
-    if (!window.confirm(deleteImageKeyConfirmMessage())) return;
+    if (!(await confirm(deleteImageKeyConfirmRequest(providerName)))) return;
     // 削除できたときだけ入力を捨てる (失敗時に打ちかけの値を消さない)
     if (await onDeleteKey()) setApiKey("");
   };

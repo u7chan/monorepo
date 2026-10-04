@@ -3,6 +3,7 @@
  * 保存するのは「開いているプロジェクト」の cwd (ワークスペース root 相対) の集合で、
  * 閉じた (未操作の) プロジェクトはエントリを作らない。DOM に触れるのは保存先の解決だけ。
  */
+import type { ConfirmRequest } from "./confirmDialog";
 
 /** 保存キー。テーマ等と同じく端末ローカルの表示設定として持つ */
 export const SIDEBAR_PROJECTS_KEY = "u7agent-expanded-projects";
@@ -92,6 +93,24 @@ export function createSidebarProjectsStore(storage?: SidebarProjectsStorage | nu
 
 /** アプリが使う既定の store */
 export const sidebarProjectsStore = createSidebarProjectsStore();
+
+/**
+ * プロジェクトの登録解除の確認。配下のセッションを停止することを先に伝え (履歴とファイルは残る)、
+ * プロジェクト名は clamp した独立した行へ出す。名前が取れないとき (一覧が古い) は本文だけで確認する。
+ */
+export function projectDeleteConfirmRequest(
+  project: { name: string } | undefined,
+  sessionCount: number,
+): ConfirmRequest {
+  return {
+    kind: "confirm",
+    title: "プロジェクトの登録を解除",
+    ...(project?.name ? { subject: { label: "登録を解除するプロジェクト", value: project.name } } : {}),
+    body: [`配下の ${sessionCount} 件のセッションを停止します（履歴とファイルは残ります）。`],
+    confirmLabel: "登録を解除する",
+    danger: true,
+  };
+}
 
 /** localStorage の accessor 自体が例外になる環境 (private browsing 等) がある */
 function defaultStorage(): SidebarProjectsStorage | null {

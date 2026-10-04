@@ -162,6 +162,9 @@ export function RowMenu<K extends RowMenuActionKind>({ name, actions, onSelect }
     const active = document.activeElement;
     if (active instanceof HTMLElement && popover.contains(active)) active.blur();
     popover.hidePopover();
+    // 選択後は ⋯ へ焦点を戻す (メニューの項目は消えるため、この後の確認ダイアログが「開いたボタン」を
+    // 控えて閉じたときに戻せるようにする)
+    triggerRef.current?.focus();
   };
 
   return (
