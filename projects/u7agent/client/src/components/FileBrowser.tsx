@@ -517,9 +517,15 @@ function Branch({
  * `basis-full` で行を 2 段に折り返し、名前へ幅を譲る (狭い右パネルでは 1 段に収めると
  * 名前の幅が尽きた後にアイコンと時刻が重なる。実測は docs/file-preview.md#時刻)。
  * `@2xs` 以上では `basis-auto` に戻って名前の右隣に並び、`justify-end` は幅が内容ぶんしかないため効かない。
+ * `flex-wrap` は安全網: 2 段目 (行幅いっぱい) にも収まらない長いサイズ + 古い日付では、
+ * メタをさらに折り返して ⋯ を切らない (行は 3 段になり得る)。
  */
 function RowTail({ children }: { children: ReactNode }) {
-  return <div className="ml-auto flex basis-full items-center justify-end gap-1.5 @2xs:basis-auto">{children}</div>;
+  return (
+    <div className="ml-auto flex basis-full flex-wrap items-center justify-end gap-x-1.5 gap-y-1 @2xs:basis-auto">
+      {children}
+    </div>
+  );
 }
 
 function EntryRow({
@@ -577,7 +583,7 @@ function EntryRow({
           ref={revealed ? revealRef : undefined}
           style={{ "--tree-indent": `${depth * INDENT + 8}px` } as CSSProperties}
           className={cn(
-            "flex min-h-7.5 w-full flex-wrap items-center gap-x-1.5 gap-y-1 rounded-lg pr-2 pl-(--tree-indent) text-xs text-ink transition-colors hover:bg-hover",
+            "flex min-h-7.5 w-full flex-wrap items-center gap-x-1.5 gap-y-1 rounded-lg pr-2 text-xs text-ink transition-colors hover:bg-hover",
             revealed && "ring-2 ring-focus ring-inset",
           )}
         >
@@ -585,7 +591,7 @@ function EntryRow({
             type="button"
             aria-expanded={open}
             onClick={() => onToggle(path)}
-            className="flex min-w-0 flex-1 items-center gap-2 py-1 text-left"
+            className="flex min-w-0 flex-1 items-center gap-2 py-1 pl-(--tree-indent) text-left"
           >
             <span
               className={cn(
@@ -679,7 +685,7 @@ function EntryRow({
       title={canRef ? `${path}（ドラッグでチャットの参照にできます）` : undefined}
       style={{ "--tree-indent": `${depth * INDENT + FILE_INDENT}px` } as CSSProperties}
       className={cn(
-        "flex min-h-7.5 w-full flex-wrap items-center gap-x-1.5 gap-y-1 rounded-lg pr-2 pl-(--tree-indent) text-xs transition-colors",
+        "flex min-h-7.5 w-full flex-wrap items-center gap-x-1.5 gap-y-1 rounded-lg pr-2 text-xs transition-colors",
         isSelected ? "bg-accent-wash text-accent-text" : "text-ink-soft hover:bg-hover hover:text-ink",
         revealed && "ring-2 ring-focus ring-inset",
       )}
@@ -688,7 +694,7 @@ function EntryRow({
         type="button"
         aria-current={isSelected ? "true" : undefined}
         onClick={() => onSelect(path)}
-        className="flex min-w-0 flex-1 items-center gap-2 py-1 text-left"
+        className="flex min-w-0 flex-1 items-center gap-2 py-1 pl-(--tree-indent) text-left"
       >
         <FileIcon kind={fileKind(entry.name)} />
         <span className="min-w-0 truncate">{entry.name}</span>
