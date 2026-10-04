@@ -337,6 +337,7 @@ export function Composer({
         context={context}
         model={settings.model}
         modelLabel={settings.modelLabel}
+        effortLabel={settings.effortLabel}
         modelUnavailable={Boolean(settings.modelWarning)}
         onCompact={onCompact}
         compactDisabled={settings.compactDisabled}

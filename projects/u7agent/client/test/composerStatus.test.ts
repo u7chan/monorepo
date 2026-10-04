@@ -33,6 +33,34 @@ test("描画: 活動が無いときは活動欄を出さない (空行の折り�
   assert.ok(html.includes("GLM-5.3 Flash") && html.includes("Context"), "モデル名とゲージは残す");
 });
 
+test("描画: モデル名の右、ゲージの左に Effort を続けて出す", () => {
+  const html = render({
+    activity: "",
+    model: "zai/glm-5.3-flash",
+    modelLabel: "GLM-5.3 Flash",
+    effortLabel: "xHigh",
+    context,
+  });
+
+  const modelIndex = html.indexOf("GLM-5.3 Flash");
+  const effortIndex = html.indexOf("- xHigh");
+  const gaugeIndex = html.indexOf("Context");
+  assert.ok(modelIndex >= 0 && effortIndex > modelIndex, "モデル名の右に続けて出す");
+  assert.ok(gaugeIndex > effortIndex, "ゲージより左に置く");
+  assert.ok(!html.includes("Effort "), "見出し語は繰り返さない");
+});
+
+test("描画: Effort が無いときは区切りごと出さない", () => {
+  const html = render({ activity: "", model: "zai/glm-5.3-flash", modelLabel: "GLM-5.3 Flash" });
+
+  assert.ok(!html.includes(">- "), "何も無い行にハイフンだけを残さない");
+  assert.ok(!html.includes("xHigh"), "推論に対応しないモデルでは出さない");
+});
+
+test("描画: モデル名が無いときは Effort も出さない (付ける相手が無い)", () => {
+  assert.equal(render({ activity: "", effortLabel: "High" }), "");
+});
+
 test("描画: モデルも活動もコンテキストも無ければ何も出さない", () => {
   assert.equal(render({ activity: "" }), "");
 });
@@ -44,6 +72,7 @@ test("描画: モデル名とゲージは aria-live の外へ置く", () => {
     context,
     model: "zai/glm-5.3-flash",
     modelLabel: "GLM-5.3 Flash",
+    effortLabel: "High",
   });
   const liveStart = html.indexOf('aria-live="polite"');
   const liveEnd = html.indexOf("</span>", liveStart);
@@ -51,6 +80,7 @@ test("描画: モデル名とゲージは aria-live の外へ置く", () => {
 
   assert.ok(live.includes("実行中…（タブを閉じても処理は続きます）"), "活動テキストは読み上げる");
   assert.ok(!live.includes("GLM-5.3 Flash"), "モデル名は毎回読み上げない");
+  assert.ok(!live.includes("High"), "Effort は毎回読み上げない");
   assert.ok(!live.includes("Context"), "ゲージは毎回読み上げない");
   assert.ok(html.includes("(0s)"), "経過時間は aria-hidden の別スパンに出す");
 });
