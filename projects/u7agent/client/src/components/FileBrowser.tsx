@@ -6,6 +6,7 @@ import { FileTreeResizeHandle } from "./file-tree/FileTreeResizeHandle";
 import { FilePreview } from "./FilePreview";
 import { cn } from "../lib/cn";
 import { archiveConfirmMessage, startArchiveDownload } from "../lib/archive";
+import { formatBytes } from "../lib/attachments";
 import {
   applyFileTreeError,
   applyFileTreeListing,
@@ -512,15 +513,16 @@ function Branch({
 }
 
 /**
- * 行の右端 (時刻 + 末尾スロット) の入れ物。コンテナ幅が `@2xs` (288px) 未満の面では
+ * 行の右端 (サイズ + 時刻 + 末尾スロット) の入れ物。コンテナ幅が `@2xs` (288px) 未満の面では
  * `basis-full` で行を 2 段に折り返し、名前へ幅を譲る (狭い右パネルでは 1 段に収めると
  * 名前の幅が尽きた後にアイコンと時刻が重なる。実測は docs/file-preview.md#時刻)。
  * `@2xs` 以上では `basis-auto` に戻って名前の右隣に並び、`justify-end` は幅が内容ぶんしかないため効かない。
+ * `flex-wrap` は安全網: 2 段目 (行幅いっぱい) にも収まらない長いサイズ + 古い日付では、
+ * メタをさらに折り返して ⋯ を切らない (行は 3 段になり得る)。
  */
-function RowTail({ onTime, children }: { onTime: ReactNode; children: ReactNode }) {
+function RowTail({ children }: { children: ReactNode }) {
   return (
-    <div className="ml-auto flex basis-full items-center justify-end gap-1.5 @2xs:basis-auto">
-      {onTime}
+    <div className="ml-auto flex basis-full flex-wrap items-center justify-end gap-x-1.5 gap-y-1 @2xs:basis-auto">
       {children}
     </div>
   );
@@ -579,17 +581,28 @@ function EntryRow({
             ファイル行と同じ「div + flex-1 の操作 button」に分ける */}
         <div
           ref={revealed ? revealRef : undefined}
-          style={{ "--tree-indent": `${depth * INDENT + 8}px` } as CSSProperties}
+          style={
+            {
+              "--tree-indent": `${depth * INDENT + 8}px`,
+              // 1 段表示でも名前へ 24px を残す (インデント + chevron 16 + gap 8 + folder 16 + gap 8 + 名前 24。
+              // symlink のリンク印 33.45px + gap 8 を足す)。これを割る行は RowTail が次の段へ落ち、
+              // shrink-0 のアイコン・リンク印が時刻・⋯ へ重なるのを防ぐ。行幅を超えないよう 100% で頭打ちにする
+              // (2 段表示で深い階層のときに、最小幅が行からはみ出して切られるのを防ぐ)
+              "--name-min-width": `min(calc(var(--tree-indent) + ${entry.symlink ? 114 : 72}px), 100%)`,
+            } as CSSProperties
+          }
           className={cn(
-            "flex min-h-7.5 w-full flex-wrap items-center gap-x-1.5 gap-y-1 rounded-lg pr-2 pl-(--tree-indent) text-xs text-ink transition-colors hover:bg-hover",
+            "flex min-h-7.5 w-full flex-wrap items-center gap-x-1.5 gap-y-1 rounded-lg pr-2 text-xs text-ink transition-colors hover:bg-hover",
             revealed && "ring-2 ring-focus ring-inset",
           )}
         >
+          {/* 行全体を button にすると時刻が accessible name に混ざり、時刻のクリックでも開閉するため、
+            ファイル行と同じ「div + flex-1 の操作 button」に分ける。最小幅の理由は行の --name-min-width を参照 */}
           <button
             type="button"
             aria-expanded={open}
             onClick={() => onToggle(path)}
-            className="flex min-w-0 flex-1 items-center gap-2 py-1 text-left"
+            className="flex min-w-(--name-min-width) flex-1 items-center gap-2 py-1 pl-(--tree-indent) text-left"
           >
             <span
               className={cn(
@@ -603,7 +616,9 @@ function EntryRow({
             <span className="min-w-0 truncate">{entry.name}</span>
             {entry.symlink ? <SymlinkMark /> : null}
           </button>
-          <RowTail onTime={<EntryTime at={entry.mtime} />}>
+          <RowTail>
+            <EntrySize bytes={entry.size} />
+            <EntryTime at={entry.mtime} />
             <EntryRowActions
               name={entry.name}
               type={entry.type}
@@ -679,9 +694,18 @@ function EntryRow({
           : undefined
       }
       title={canRef ? `${path}（ドラッグでチャットの参照にできます）` : undefined}
-      style={{ "--tree-indent": `${depth * INDENT + FILE_INDENT}px` } as CSSProperties}
+      style={
+        {
+          "--tree-indent": `${depth * INDENT + FILE_INDENT}px`,
+          // 1 段表示でも名前へ 24px を残す (インデント + アイコン 16 + gap 8 + 名前 24。
+          // symlink のリンク印 33.45px + gap 8 を足す)。これを割る行は RowTail が次の段へ落ち、
+          // shrink-0 のアイコン・リンク印がサイズ・時刻・⋯ へ重なるのを防ぐ。行幅を超えないよう 100% で頭打ちにする
+          // (2 段表示で深い階層のときに、最小幅が行からはみ出して切られるのを防ぐ)
+          "--name-min-width": `min(calc(var(--tree-indent) + ${entry.symlink ? 90 : 48}px), 100%)`,
+        } as CSSProperties
+      }
       className={cn(
-        "flex min-h-7.5 w-full flex-wrap items-center gap-x-1.5 gap-y-1 rounded-lg pr-2 pl-(--tree-indent) text-xs transition-colors",
+        "flex min-h-7.5 w-full flex-wrap items-center gap-x-1.5 gap-y-1 rounded-lg pr-2 text-xs transition-colors",
         isSelected ? "bg-accent-wash text-accent-text" : "text-ink-soft hover:bg-hover hover:text-ink",
         revealed && "ring-2 ring-focus ring-inset",
       )}
@@ -690,13 +714,15 @@ function EntryRow({
         type="button"
         aria-current={isSelected ? "true" : undefined}
         onClick={() => onSelect(path)}
-        className="flex min-w-0 flex-1 items-center gap-2 py-1 text-left"
+        className="flex min-w-(--name-min-width) flex-1 items-center gap-2 py-1 pl-(--tree-indent) text-left"
       >
         <FileIcon kind={fileKind(entry.name)} />
         <span className="min-w-0 truncate">{entry.name}</span>
         {entry.symlink ? <SymlinkMark /> : null}
       </button>
-      <RowTail onTime={<EntryTime at={entry.mtime} />}>
+      <RowTail>
+        <EntrySize bytes={entry.size} />
+        <EntryTime at={entry.mtime} />
         <EntryRowActions
           name={entry.name}
           type={entry.type}
@@ -767,6 +793,25 @@ function EntryTime({ at }: { at: number | undefined }) {
     >
       {fileTimeLabel(at)}
     </time>
+  );
+}
+
+/**
+ * 行のサイズ。一覧が付けるのは通常ファイルとファイルへの symlink だけなので、`undefined` の行
+ * (ディレクトリ・壊れた symlink) には出さない。表記は添付チップなどと同じ `formatBytes` で、`title`
+ * に正確なバイト数を出す (`formatBytes` は不正な値で空文字を返すため、その場合も出さない)。
+ */
+function EntrySize({ bytes }: { bytes: number | undefined }) {
+  if (bytes === undefined) return null;
+  const label = formatBytes(bytes);
+  if (label === "") return null;
+  return (
+    <span
+      title={`${bytes.toLocaleString()} バイト`}
+      className="shrink-0 text-2xs whitespace-nowrap text-ink-ghost tabular-nums"
+    >
+      {label}
+    </span>
   );
 }
 
