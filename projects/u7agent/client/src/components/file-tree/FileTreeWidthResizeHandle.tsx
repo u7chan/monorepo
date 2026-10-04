@@ -25,7 +25,14 @@ type ResizeDrag = {
  * 左バーと同じ向きで、右へ動かす = 幅を増やす。位置は `--file-tree-width` に追随させる
  * (ドラッグ中は preview が変数を直接書き換えるため、state の再描画を待たずに境界へ重なり続ける)。
  */
-export function FileTreeResizeHandle({ width, min, max, preview, commit, reset }: Omit<FileTreeResize, "resizable">) {
+export function FileTreeWidthResizeHandle({
+  width,
+  min,
+  max,
+  preview,
+  commit,
+  reset,
+}: Omit<FileTreeResize, "resizable">) {
   const handleRef = useRef<HTMLDivElement>(null);
   const dragRef = useRef<ResizeDrag | null>(null);
   const bounds: FileTreeWidthBounds = { min, max };
