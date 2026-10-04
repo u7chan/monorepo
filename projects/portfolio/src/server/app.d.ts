@@ -11,7 +11,7 @@ declare const routes: import('hono/hono-base').HonoBase<HonoEnv, import('hono/ty
             };
             output: {
                 readonly success: false;
-                readonly error: readonly import("@standard-schema/spec").StandardSchemaV1.Issue[];
+                readonly error: readonly import('@standard-schema/spec').StandardSchemaV1.Issue[];
                 readonly data: any;
             };
             outputFormat: "json";
@@ -828,7 +828,7 @@ declare const routes: import('hono/hono-base').HonoBase<HonoEnv, import('hono/ty
             };
             output: {
                 readonly success: false;
-                readonly error: readonly import("@standard-schema/spec").StandardSchemaV1.Issue[];
+                readonly error: readonly import('@standard-schema/spec').StandardSchemaV1.Issue[];
                 readonly data: any;
             };
             outputFormat: "json";
@@ -1067,7 +1067,7 @@ declare const routes: import('hono/hono-base').HonoBase<HonoEnv, import('hono/ty
             };
             output: {
                 readonly success: false;
-                readonly error: readonly import("@standard-schema/spec").StandardSchemaV1.Issue[];
+                readonly error: readonly import('@standard-schema/spec').StandardSchemaV1.Issue[];
                 readonly data: any;
             };
             outputFormat: "json";
@@ -1183,7 +1183,7 @@ declare const routes: import('hono/hono-base').HonoBase<HonoEnv, import('hono/ty
             };
             output: {
                 readonly success: false;
-                readonly error: readonly import("@standard-schema/spec").StandardSchemaV1.Issue[];
+                readonly error: readonly import('@standard-schema/spec').StandardSchemaV1.Issue[];
                 readonly data: Record<string, string | string[]>;
             };
             outputFormat: "json";
@@ -1213,7 +1213,7 @@ declare const routes: import('hono/hono-base').HonoBase<HonoEnv, import('hono/ty
             };
             output: {
                 readonly success: false;
-                readonly error: readonly import("@standard-schema/spec").StandardSchemaV1.Issue[];
+                readonly error: readonly import('@standard-schema/spec').StandardSchemaV1.Issue[];
                 readonly data: Record<string, string | string[]>;
             };
             outputFormat: "json";
@@ -1273,7 +1273,7 @@ declare const routes: import('hono/hono-base').HonoBase<HonoEnv, import('hono/ty
             };
             output: {
                 readonly success: false;
-                readonly error: readonly import("@standard-schema/spec").StandardSchemaV1.Issue[];
+                readonly error: readonly import('@standard-schema/spec').StandardSchemaV1.Issue[];
                 readonly data: any;
             };
             outputFormat: "json";
@@ -1505,7 +1505,7 @@ declare const routes: import('hono/hono-base').HonoBase<HonoEnv, import('hono/ty
             };
             output: {
                 readonly success: false;
-                readonly error: readonly import("@standard-schema/spec").StandardSchemaV1.Issue[];
+                readonly error: readonly import('@standard-schema/spec').StandardSchemaV1.Issue[];
                 readonly data: any;
             };
             outputFormat: "json";
