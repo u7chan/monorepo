@@ -80,11 +80,19 @@ test("derives the status row effort from the effective value", () => {
   );
   assert.equal(session.effortLabel, "xHigh", "ピッカーと同じラベルを使う");
 
-  const unsent = deriveComposerSettings(input({ preselection: { thinkingLevel: "medium" } }));
+  const unsent = deriveComposerSettings(
+    input({
+      preselection: { model: { provider: "pre", id: "selected" }, thinkingLevel: "medium" },
+      health: health({ modelOptions: [option("pre", "selected")] }),
+    }),
+  );
   assert.equal(unsent.effortLabel, "Medium", "未作成のチャットも「これから使う」Effort を出す");
 
   const unresolved = deriveComposerSettings(input({}));
   assert.equal(unresolved.effortLabel, undefined, "Effort が未解決のときは出さない");
+
+  const noModel = deriveComposerSettings(input({ preselection: { thinkingLevel: "medium" } }));
+  assert.equal(noModel.effortLabel, undefined, "モデル名が未解決なら続けて出す相手が無いので出さない");
 });
 
 test("resolves an unsent chat in the server order: preselection, agent, app default", () => {

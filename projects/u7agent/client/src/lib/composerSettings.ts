@@ -25,7 +25,7 @@ export type ComposerSettings = {
   model?: string;
   /** 状態行に出す表示名 (候補を引ければ ModelOption.name、引けなければ provider/id) */
   modelLabel?: string;
-  /** 状態行に出す Effort のラベル (ピッカーと同じ effortLabel())。推論に対応しないモデルと未解決のときは出さない */
+  /** 状態行に出す Effort のラベル (ピッカーと同じ effortLabel())。モデル名の右へ `- xHigh` と続けて出す。推論非対応とモデル未解決では出さない */
   effortLabel?: string;
   thinkingLevel?: string;
   supportsThinking: boolean;
@@ -102,8 +102,8 @@ export function deriveComposerSettings(input: ComposerSettingsInput): ComposerSe
   const option = findOption(model);
   const thinkingLevel = inSession ? chat.sessionThinkingLevel : pendingThinkingLevel;
   const supportsThinking = inSession ? chat.supportsThinking : (option?.supportsThinking ?? true);
-  // 推論に対応しないモデルの実効 Effort は SDK が常に "off" を返すため、状態行には出さない (Effort 欄も無効)
-  const statusEffort = supportsThinking && thinkingLevel ? effortLabel(thinkingLevel) : undefined;
+  // 推論に対応しないモデルの実効 Effort は SDK が常に "off" を返し、モデル名が未解決のときは付ける相手が無い
+  const statusEffort = model && supportsThinking && thinkingLevel ? effortLabel(thinkingLevel) : undefined;
 
   return {
     modelOptions,

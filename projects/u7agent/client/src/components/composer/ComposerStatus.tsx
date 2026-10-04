@@ -15,8 +15,8 @@ import type { ContextUsage, RunStatus } from "../../types";
 import { CompactIcon, RefreshIcon, RunSpinnerIcon } from "../icons";
 
 /**
- * 入力欄の上の状態行 (活動 / モデル / Effort / Context ゲージ)。
- * モデル名・Effort・ゲージは 1 つの組にして右端へ寄せ、幅が足りないときだけ組ごと 2 行目へ折り返す
+ * 入力欄の上の状態行 (活動 / モデル - Effort / Context ゲージ)。
+ * モデル名 (Effort 付き)・ゲージ・圧縮ボタンは 1 つの組にして右端へ寄せ、幅が足りないときだけ組ごと 2 行目へ折り返す
  * (別々に置くと、狭い画面で活動テキストが 1 文字幅まで潰れる。docs/ui-layout.md)。
  * 圧縮の不可逆性と課金の注意は、押した時点の確認 (`App` の handleCompact) が担う。
  * 最終失敗の再実行カードは状態行の上に出し、文言は BFF が合成した 1 文をそのまま使う。
@@ -55,7 +55,7 @@ export function ComposerStatus({
   model?: string;
   /** 状態行に出す表示名。未作成チャットでは「これから使うモデル」になる */
   modelLabel?: string;
-  /** 状態行に出す Effort のラベル。推論に対応しないモデルでは渡さない (docs/model-effort.md) */
+  /** 状態行に出す Effort のラベル (モデル名の右へ `- xHigh` と続ける)。推論対応外とモデル未解決では渡さない */
   effortLabel?: string;
   /** 実効モデルが候補に無い (settings.modelWarning がある) とき true */
   modelUnavailable?: boolean;
@@ -89,7 +89,7 @@ export function ComposerStatus({
   const card = retryableRunError(runStatus, runError);
   const showRetry = card !== undefined && onRetry !== undefined;
   // カードだけの状態でも描画する (activity は空にして文言をカードへ移す)
-  if (!showActivity && !gauge && !modelLabel && !effortLabel && onCompact === undefined && !showRetry) return null;
+  if (!showActivity && !gauge && !modelLabel && onCompact === undefined && !showRetry) return null;
   const gaugeColor =
     gauge?.level === "danger" ? "text-danger-text" : gauge?.level === "warn" ? "text-warn" : "text-ink-faint";
   // 押せない理由は状態行の下に 1 行で出す (押せない間の説明を hover だけに閉じると、タッチ端末で読めない)
@@ -151,18 +151,20 @@ export function ComposerStatus({
         ) : null}
         <span className="flex min-w-0 shrink items-center gap-2">
           {modelLabel ? (
-            // 読み上げは本文だけで足りるので、provider/id は title (hover) だけに持つ
-            <span
-              title={model ?? modelLabel}
-              className={cn("min-w-0 truncate font-sans text-2xs", modelUnavailable ? "text-warn" : "text-ink-faint")}
-            >
-              {modelLabel}
+            // モデルと Effort は 1 つの単位として読ませる。区切りはモデル名の直後に置き、組の gap より狭くする
+            <span className="flex min-w-0 items-center gap-1">
+              {/* 読み上げは本文だけで足りるので、provider/id は title (hover) だけに持つ */}
+              <span
+                title={model ?? modelLabel}
+                className={cn("min-w-0 truncate font-sans text-2xs", modelUnavailable ? "text-warn" : "text-ink-faint")}
+              >
+                {modelLabel}
+              </span>
+              {effortLabel ? (
+                // Effort が無いときは区切りごと出さない (何も無い行にハイフンだけを残さない)
+                <span className="shrink-0 font-sans text-2xs whitespace-nowrap text-ink-faint">{`- ${effortLabel}`}</span>
+              ) : null}
             </span>
-          ) : null}
-          {effortLabel ? (
-            // 「Effort」の語まで出す (Context と同じく、値だけでは何の段階か分からない)。
-            // 切り詰めるとどの段階か読めなくなるので shrink-0 で残し、幅はモデル名が譲る
-            <span className="shrink-0 font-sans text-2xs whitespace-nowrap text-ink-faint">{`Effort ${effortLabel}`}</span>
           ) : null}
           {gauge ? (
             <span className={cn("shrink-0 font-sans text-2xs whitespace-nowrap tabular-nums", gaugeColor)}>
