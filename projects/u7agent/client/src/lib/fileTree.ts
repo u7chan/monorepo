@@ -49,14 +49,15 @@ export function openFileTreeDirectories(state: FileTreeState): string[] {
 }
 
 /**
- * 保存された展開状態から初期状態を作る。root は常に開き、保存された子は open のまま持つ
- * (親を閉じた子の open を保存どおりに戻すため、親を勝手に開かない)。取得は可視の親から子へ
- * 辿る既存の経路のままで、未取得の子は開いたときに取りに行く。
+ * 保存された展開状態から初期状態を作る。root は常に開き、祖先がすべて保存集合にあるパスだけを open にする
+ * (閉じた枝の子孫が残った旧保存値で、祖先を勝手に開かないため。配列の順序には依存しない)。
  */
 export function createFileTreeStateFromDirectories(dirs: string[]): FileTreeState {
+  const saved = new Set(dirs);
   const state = createFileTreeState();
   for (const path of dirs) {
     if (fileTreeDirectoryState(state, path)) continue;
+    if (!fileTreeAncestorPaths(path).every((ancestor) => saved.has(ancestor))) continue;
     setFileTreeDirectoryState(state, path, { open: true, loading: false });
   }
   return state;
@@ -225,11 +226,20 @@ function setFileTreeDirectoryState(state: FileTreeState, path: string, node: Fil
   Object.defineProperty(state, path, { value: node, enumerable: true, writable: true, configurable: true });
 }
 
-/** 開閉を切り替える。取得済みの子は保持するので、開き直しで再取得は起きない。 */
+/**
+ * 開閉を切り替える。閉じるときは配下の全子孫も閉じる (開き直しで以前の展開を復活させないため)。
+ * 取得済みの子・loading・error は残すので、開き直しで再取得は起きない。
+ */
 export function toggleFileTreeDirectory(state: FileTreeState, path: string): FileTreeState {
   const node = fileTreeDirectoryState(state, path) ?? { open: false, loading: false };
   const next = { ...state };
-  setFileTreeDirectoryState(next, path, { ...node, open: !node.open });
+  const open = !node.open;
+  setFileTreeDirectoryState(next, path, { ...node, open });
+  if (open) return next;
+  const prefix = `${path}/`;
+  for (const [key, child] of Object.entries(state)) {
+    if (key.startsWith(prefix)) setFileTreeDirectoryState(next, key, { ...child, open: false });
+  }
   return next;
 }
 
