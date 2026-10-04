@@ -35,6 +35,7 @@ import { confirmTargetUnchanged } from "./lib/confirmDialog";
 import { fileRefRequestForSession } from "./lib/fileRefRequest";
 import { resolveSidebarPlacement } from "./lib/layout";
 import {
+  missingLinkNote,
   notificationHasFailure,
   notifyCannotEnable,
   notifyDeliverable,
@@ -561,7 +562,10 @@ export default function App() {
                 health={app.health}
                 onRefreshHealth={app.refreshHealth}
                 onOpenSession={(sessionId) => {
-                  if (sessionId !== app.sessionId) void app.selectSession(sessionId);
+                  void app.selectSession(sessionId, undefined, { fallbackOnFailure: false }).then((result) => {
+                    const note = missingLinkNote(true, result);
+                    if (note) app.dispatch({ type: "setActivity", text: note });
+                  });
                   backToChat();
                 }}
               />
