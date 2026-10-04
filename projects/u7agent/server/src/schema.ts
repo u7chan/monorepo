@@ -1052,6 +1052,22 @@ export const ServeStatusSchema = z.object({
 export type ServeStatus = z.infer<typeof ServeStatusSchema>;
 export type ServeCommand = z.infer<typeof ServeCommandSchema>;
 
+/** 設定 → ランタイム。閲覧中の会話の実績ではなく、いま公開中のサービスを返す。 */
+export const RuntimeServeStatusSchema = z.object({
+  reachable: z.boolean(),
+  owner: z.object({ sessionId: z.string(), title: z.string() }).nullable(),
+  generation: z.string().nullable(),
+  command: ServeCommandSchema.nullable(),
+});
+export type RuntimeServeStatus = z.infer<typeof RuntimeServeStatusSchema>;
+
+export const RuntimeServeStopBodySchema = z
+  .object({
+    generation: z.string().min(1),
+  })
+  .strict();
+export type RuntimeServeStopBody = z.infer<typeof RuntimeServeStopBodySchema>;
+
 /** 起動。command はエージェントの serve ツールだけが渡す (GUI は実績をそのまま使う) */
 export const ServeStartBodySchema = z.object({
   sessionId: z.string().min(1),

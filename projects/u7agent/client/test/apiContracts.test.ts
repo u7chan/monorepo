@@ -3,8 +3,15 @@ import test from "node:test";
 import type { HistoryPage } from "../src/types";
 
 globalThis.location ??= { origin: "http://localhost" } as Location;
-const { getSessionHistory, updateArchiveSettings, resetArchiveSettings, updateSessionTitle, getGitInfo } =
-  await import("../src/api");
+const {
+  getSessionHistory,
+  updateArchiveSettings,
+  resetArchiveSettings,
+  updateSessionTitle,
+  getGitInfo,
+  getRuntimeServeStatus,
+  stopRuntimeServe,
+} = await import("../src/api");
 
 const page: HistoryPage = {
   sessionId: "session-a",
@@ -16,6 +23,35 @@ const page: HistoryPage = {
   messageCount: 0,
   summarizedMessageCount: 0,
 };
+
+test("ランタイムのサービスAPIは会話IDなしで取得し、停止には確認した世代を送る", async (t) => {
+  const requests: Request[] = [];
+  const result = { reachable: false, owner: null, generation: null, command: null };
+  t.mock.method(globalThis, "fetch", async (input: string | URL | Request, init?: RequestInit) => {
+    requests.push(new Request(input, init));
+    return Response.json(result);
+  });
+  assert.deepEqual(await getRuntimeServeStatus(), result);
+  assert.deepEqual(await stopRuntimeServe({ generation: "gen-a" }), result);
+  assert.deepEqual(
+    requests.map((request) => [request.method, new URL(request.url).pathname, new URL(request.url).search]),
+    [
+      ["GET", "/api/serve/runtime/status", ""],
+      ["POST", "/api/serve/runtime/stop", ""],
+    ],
+  );
+  assert.deepEqual(await requests[1].json(), { generation: "gen-a" });
+});
+
+test("全体停止の409は理由とHTTP statusを保つ", async (t) => {
+  t.mock.method(globalThis, "fetch", async () =>
+    Response.json({ error: "サービスの状態が変わりました" }, { status: 409 }),
+  );
+  await assert.rejects(stopRuntimeServe({ generation: "old" }), {
+    message: "サービスの状態が変わりました",
+    status: 409,
+  });
+});
 
 test("履歴 API は初回にカーソルを送らず、取得したページを返す", async (t) => {
   const fetch = t.mock.method(globalThis, "fetch", async (input: string | URL | Request) => {

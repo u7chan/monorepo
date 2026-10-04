@@ -61,6 +61,7 @@ export type {
   RuntimeEnvironmentResponse,
   RuntimeEnvironmentState,
   RuntimeModelsResponse,
+  RuntimeServeStatus,
   RuntimeVersions,
   SandboxRuntimeCommand,
   SandboxRuntimeEnvironment,

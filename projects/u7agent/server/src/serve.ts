@@ -12,6 +12,7 @@ import { MutationLock } from "./model-settings";
 // serve 契約の待受ポート。プローブも待受 PID の特定も、サービス オリジンの転送先もこの値だけを見る
 import { SERVE_LISTEN_PORT } from "./preview-port";
 import type { SandboxExecClient } from "./sandbox/client";
+import type { RuntimeServeStatus } from "./schema";
 
 /** 起動の成功境界。バックグラウンド起動の shell が終わってからこの期限までに到達可になること */
 export const SERVE_START_TIMEOUT_MS = 10_000;
@@ -477,6 +478,29 @@ export class ServeService {
     return this.#compose(view, await this.#observe());
   }
 
+  async runtimeStatus(): Promise<RuntimeServeStatus> {
+    return this.#composeRuntime(await this.#observe());
+  }
+
+  /** 全体管理からの停止も会話の操作と同じロック・世代照合を通す。 */
+  async runtimeStop(input: { generation: string }): Promise<RuntimeServeStatus> {
+    return this.#lock.run(async () => {
+      this.#cached = null;
+      const before = await this.#observe({ fresh: true, scanPids: true });
+      this.#assertGeneration(before, input.generation);
+      await this.#stopListener(before);
+      await this.#clearRecord();
+      this.#cached = null;
+      return this.#composeRuntime({
+        reachable: false,
+        record: null,
+        listenInodes: [],
+        listener: null,
+        at: this.#now(),
+      });
+    });
+  }
+
   /**
    * 起動。到達可なら所有者の有無に関わらず置き換える (所有者の確認は UI が取る)。
    * 成功境界は「バックグラウンド起動の shell が終わってから、期限つきでプローブが到達可になること」。
@@ -655,6 +679,17 @@ export class ServeService {
       generation: this.#confirmationToken(observation),
       command: stored ? { cwd: stored.cwd, command: stored.command } : null,
       secretGeneration: record && this.#matches(observation) ? record.secretGeneration : null,
+    };
+  }
+
+  #composeRuntime(observation: ServeObservation): RuntimeServeStatus {
+    const record = observation.reachable && this.#matches(observation) ? observation.record : null;
+    const title = record ? this.#sessions.titleOfId(record.sessionId) : undefined;
+    return {
+      reachable: observation.reachable,
+      owner: record && title !== undefined ? { sessionId: record.sessionId, title } : null,
+      generation: this.#confirmationToken(observation),
+      command: record ? { cwd: record.cwd, command: record.command } : null,
     };
   }
 

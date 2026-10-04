@@ -461,6 +461,8 @@ Content-Security-Policy: sandbox allow-scripts; default-src 'none'; style-src 'u
 | GET | `/api/serve/status?sessionId=<id>` | 閲覧中の会話から見た状態（`sessionId` は必須） |
 | POST | `/api/serve/start` | 起動（到達可なら他会話のプロセスを停止して置き換える） |
 | POST | `/api/serve/stop` | 停止 |
+| GET | `/api/serve/runtime/status` | 設定 → ランタイムから全体の状態を取得（会話 id は不要） |
+| POST | `/api/serve/runtime/stop` | 設定 → ランタイムから現在公開中のサーバーを停止 |
 
 作業ディレクトリはサーバーが会話ストアから解決する（client は `cwd` を送らない）。応答は 3 経路とも同じ形で、起動 / 停止の応答も実行後のプローブ結果と新しい世代を含む（押した時点で UI の状態が確定する）。
 
@@ -483,6 +485,14 @@ Content-Security-Policy: sandbox allow-scripts; default-src 'none'; style-src 'u
 `POST /api/serve/start` の body は `{ sessionId, command?, generation? }`。`command` はエージェントの `serve` ツールだけが渡し（GUI は実績を使う）、省略時はその作業ディレクトリの実績を使う。**実績の解決と検証は置き換えの停止より先**で、実績が無ければ既存のサービスを止めずに 400 を返す。`generation` は確認した状態の値で、実行時に変わっていれば 409（UI は新しい状態で確認をやり直す）。`POST /api/serve/stop` の body は `{ sessionId, generation? }`。
 
 エラー: 所有者以外の停止は 403、待受 PID を特定できないときと照合不一致は 409、起動が期限（10 秒）内に到達可にならないとき・到達した待受プロセスがその起動に由来しないとき・停止の解放を確認できないときは 502、サンドボックス未設定は 503、アプリデータ（実績）が使えないときは 503（変更系は `state: "not_stored"` を付ける）。**プローブやサンドボックス呼び出しの失敗は 502 / 503 で返し、`reachable: false` へ丸めない**（UI はリンクも操作も出さない）。
+
+### ランタイムからの全体管理
+
+`GET /api/serve/runtime/status` と `POST /api/serve/runtime/stop` の応答は `{ reachable, owner, generation, command }`。`owner` は記録と待受ソケットが一致し、会話ストアに起動元が残っているときだけ `{ sessionId, title }`、それ以外は `null`。`command` は一致する稼働記録の `{ cwd, command }` で、会話ごとの成功実績は使わない。到達不可なら `owner` / `generation` / `command` はすべて `null`。記録のない bash 起動は起動元不明とし、推測した会話リンクを返さない。
+
+全体停止の body は `{ generation: "確認した値" }`（空・null・省略・余分な項目は 400）。会話の選択と所有者に依存せず停止でき、会話未作成・起動元不明・削除済みの会話が起動したサービスも対象。既存の会話からの停止権限は変更しない。全体停止も同じロック・世代照合・待受 PID の特定・ポート解放確認を通す。確認後の入れ替わりは 409 で拒否し、自動再試行はしない。同一オリジンの書き込み検査も適用する。
+
+ランタイム画面は4秒ごとに取得し、失敗時はリンクと停止操作を隠す。稼働中なら公開ポートを別タブで開け、既知の起動元へ `/s/<sessionId>` で移動できる。通常クリックでも起動元の会話だけを取得し、削除済みなどで開けない場合は別の会話へフォールバックせず、未選択のチャットにリンク先を開けなかった旨を表示する。待機中にユーザーが別の会話を選んだ場合はその選択を優先し、失敗通知も出さない。停止には確認ダイアログを出す。公開枠は既存どおり8080の1本で、任意ポートのサーバー一覧や自動再起動は追加しない。
 
 ## 作業フォルダの環境変数（作業環境 → 環境変数）
 

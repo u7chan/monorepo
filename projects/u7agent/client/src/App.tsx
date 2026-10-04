@@ -35,6 +35,7 @@ import { confirmTargetUnchanged } from "./lib/confirmDialog";
 import { fileRefRequestForSession } from "./lib/fileRefRequest";
 import { resolveSidebarPlacement } from "./lib/layout";
 import {
+  missingLinkNote,
   notificationHasFailure,
   notifyCannotEnable,
   notifyDeliverable,
@@ -556,7 +557,18 @@ export default function App() {
                 onSelectModelsSubsection={openModelsSubsection}
               />
             ) : settingsSection === "runtime" ? (
-              <RuntimePage {...pageProps} health={app.health} onRefreshHealth={app.refreshHealth} />
+              <RuntimePage
+                {...pageProps}
+                health={app.health}
+                onRefreshHealth={app.refreshHealth}
+                onOpenSession={(sessionId) => {
+                  void app.selectSession(sessionId, undefined, { fallbackOnFailure: false }).then((result) => {
+                    const note = missingLinkNote(true, result);
+                    if (note) app.dispatch({ type: "setActivity", text: note });
+                  });
+                  backToChat();
+                }}
+              />
             ) : (
               <NotificationSettingsPage {...pageProps} notifications={app.notifications} />
             )

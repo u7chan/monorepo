@@ -1,6 +1,6 @@
 import type { Context } from "hono";
 import { sandboxFailure } from "../http";
-import type { ServeStartBody, ServeStopBody } from "../schema";
+import type { RuntimeServeStopBody, ServeStartBody, ServeStopBody } from "../schema";
 import type { ServeService } from "../serve";
 
 /**
@@ -17,6 +17,22 @@ export function createServeRoutes({ serve }: { serve: ServeService }) {
   };
 
   return {
+    runtimeStatus: async (c: Context) => {
+      try {
+        return c.json(await serve.runtimeStatus());
+      } catch (error) {
+        return failure(c, error);
+      }
+    },
+
+    runtimeStop: async (c: Context, body: RuntimeServeStopBody) => {
+      try {
+        return c.json(await serve.runtimeStop(body));
+      } catch (error) {
+        return failure(c, error);
+      }
+    },
+
     status: async (c: Context) => {
       const sessionId = (c.req.query("sessionId") ?? "").trim();
       if (!sessionId) return c.json({ error: "sessionId is required" }, 400);
