@@ -104,9 +104,9 @@ function forwardResponse(
   if (location) headers.set("location", rewriteLocation(location, browserOrigin, sandboxHost));
 
   const status = upstream.statusCode ?? 502;
-  // 204 / 304 と HEAD は本文を持てない (Response のコンストラクタが拒否する)
+  // 204 / 205 / 304 と HEAD は本文を持てない (Response のコンストラクタが拒否する)
   const body =
-    method === "HEAD" || status === 204 || status === 304
+    method === "HEAD" || status === 204 || status === 205 || status === 304
       ? null
       : (Readable.toWeb(upstream) as ReadableStream<Uint8Array>);
   return new Response(body, { status, headers });

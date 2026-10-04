@@ -8,13 +8,10 @@ import { randomBytes } from "node:crypto";
 import { createServer } from "node:net";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+// プレビュー オリジンは専用モジュール、サービス オリジンの公開ポートは preview-port.ts が正
+import { resolveDevFilePreviewPort } from "../server/src/file-preview-port.ts";
 // Node 24 の型ストリッピングで .ts をそのまま読む (ポートの検証を JS 側へ写すと二重管理になる)
-import {
-  resolveDevFilePreviewPort,
-  resolvePreviewPort,
-  resolveServiceListenPort,
-  SERVE_LISTEN_PORT,
-} from "../server/src/preview-port.ts";
+import { resolvePreviewPort, resolveServiceListenPort, SERVE_LISTEN_PORT } from "../server/src/preview-port.ts";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 /** 作業領域。BFF とサンドボックスで同じパスを使う (パス解決を一致させる) */

@@ -184,6 +184,21 @@ test("Range と Content-Encoding をそのまま透過する", async () => {
   }
 });
 
+test("本文を持てない 205 でも空ボディで返し、プロセスを落とさない", async () => {
+  const upstream = await startUpstream((_req, res) => {
+    res.writeHead(205);
+    res.end();
+  });
+  const proxy = createServiceProxy({ host: "127.0.0.1", port: upstream.port });
+  try {
+    const res = await proxy.request("http://service.test/reset", { method: "POST", body: "x" });
+    assert.equal(res.status, 205);
+    assert.equal(await res.text(), "");
+  } finally {
+    await upstream.close();
+  }
+});
+
 test("上流の応答をバッファせずストリームで返す", async () => {
   const upstream = await startUpstream(async (_req, res) => {
     res.writeHead(200, { "content-type": "text/event-stream" });
