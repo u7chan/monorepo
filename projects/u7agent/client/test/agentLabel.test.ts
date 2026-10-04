@@ -35,6 +35,8 @@ test("セッション中のエージェント名は読み取り専用で、未�
     }),
   );
   assert.ok(inSession.includes("保存時の名前"));
+  // 見出しの「エージェント」は出さない
+  assert.ok(!inSession.includes("エージェント"));
   assert.ok(!inSession.includes('aria-haspopup="listbox"'));
   const newChat = renderToStaticMarkup(createElement(AgentField, props));
   assert.ok(newChat.includes('aria-haspopup="listbox"'));
