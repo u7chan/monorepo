@@ -6,6 +6,7 @@ import { FileTreeResizeHandle } from "./file-tree/FileTreeResizeHandle";
 import { FilePreview } from "./FilePreview";
 import { cn } from "../lib/cn";
 import { archiveConfirmMessage, startArchiveDownload } from "../lib/archive";
+import { formatBytes } from "../lib/attachments";
 import {
   applyFileTreeError,
   applyFileTreeListing,
@@ -512,18 +513,13 @@ function Branch({
 }
 
 /**
- * 行の右端 (時刻 + 末尾スロット) の入れ物。コンテナ幅が `@2xs` (288px) 未満の面では
+ * 行の右端 (サイズ + 時刻 + 末尾スロット) の入れ物。コンテナ幅が `@2xs` (288px) 未満の面では
  * `basis-full` で行を 2 段に折り返し、名前へ幅を譲る (狭い右パネルでは 1 段に収めると
  * 名前の幅が尽きた後にアイコンと時刻が重なる。実測は docs/file-preview.md#時刻)。
  * `@2xs` 以上では `basis-auto` に戻って名前の右隣に並び、`justify-end` は幅が内容ぶんしかないため効かない。
  */
-function RowTail({ onTime, children }: { onTime: ReactNode; children: ReactNode }) {
-  return (
-    <div className="ml-auto flex basis-full items-center justify-end gap-1.5 @2xs:basis-auto">
-      {onTime}
-      {children}
-    </div>
-  );
+function RowTail({ children }: { children: ReactNode }) {
+  return <div className="ml-auto flex basis-full items-center justify-end gap-1.5 @2xs:basis-auto">{children}</div>;
 }
 
 function EntryRow({
@@ -603,7 +599,9 @@ function EntryRow({
             <span className="min-w-0 truncate">{entry.name}</span>
             {entry.symlink ? <SymlinkMark /> : null}
           </button>
-          <RowTail onTime={<EntryTime at={entry.mtime} />}>
+          <RowTail>
+            <EntrySize bytes={entry.size} />
+            <EntryTime at={entry.mtime} />
             <EntryRowActions
               name={entry.name}
               type={entry.type}
@@ -696,7 +694,9 @@ function EntryRow({
         <span className="min-w-0 truncate">{entry.name}</span>
         {entry.symlink ? <SymlinkMark /> : null}
       </button>
-      <RowTail onTime={<EntryTime at={entry.mtime} />}>
+      <RowTail>
+        <EntrySize bytes={entry.size} />
+        <EntryTime at={entry.mtime} />
         <EntryRowActions
           name={entry.name}
           type={entry.type}
@@ -767,6 +767,25 @@ function EntryTime({ at }: { at: number | undefined }) {
     >
       {fileTimeLabel(at)}
     </time>
+  );
+}
+
+/**
+ * 行のサイズ。一覧が付けるのは通常ファイルとファイルへの symlink だけなので、`undefined` の行
+ * (ディレクトリ・壊れた symlink) には出さない。表記は添付チップなどと同じ `formatBytes` で、`title`
+ * に正確なバイト数を出す (`formatBytes` は不正な値で空文字を返すため、その場合も出さない)。
+ */
+function EntrySize({ bytes }: { bytes: number | undefined }) {
+  if (bytes === undefined) return null;
+  const label = formatBytes(bytes);
+  if (label === "") return null;
+  return (
+    <span
+      title={`${bytes.toLocaleString()} バイト`}
+      className="shrink-0 text-2xs whitespace-nowrap text-ink-ghost tabular-nums"
+    >
+      {label}
+    </span>
   );
 }
 
