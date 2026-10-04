@@ -153,6 +153,8 @@ export function FileBrowser({
   });
   // 上下 2 段かどうかは css の `@2xl` と同じ幅で決める (高さの選択はこの面だけ)
   const stacked = treeWidth.containerWidth < FILE_TREE_STACK_BREAKPOINT;
+  // タブが 1 枚も無いときはプレビュー列を作らない (高さも選ばない)
+  const hasTabs = tabs.paths.length > 0;
   // StrictMode の effect 二重実行と、取得中の再読み込みで同じディレクトリを二重に要求しない
   const inFlightRef = useRef<Set<string>>(new Set());
   // 同じ行の削除を二重に送らない (実体が消えた後の再要求で 404 を出さないため)
@@ -401,9 +403,13 @@ export function FileBrowser({
       style={
         {
           "--file-tree-width": `${treeWidth.width}px`,
-          // 未指定 (auto) は内容の高さに追随する。0px はツリーを完全に隠す
-          "--file-tree-height": treeHeight.height === null ? "auto" : `${treeHeight.height}px`,
+          // 未指定は変数を消し、CSS の既定 (内容の高さ + 上限) に任せる。0px はツリーを完全に隠す
+          "--file-tree-height": treeHeight.height === null ? undefined : `${treeHeight.height}px`,
+          // 未指定のときだけ効く上限 (選んだ高さのときは --file-tree-height が上限を兼ねる)
           "--file-tree-height-max": `${treeHeight.limit}px`,
+          // 高さ 0 では上下の余白も落とす (border-box では余白が残ると 24px 見えてしまう)。
+          // undefined は変数を消す = CSS の既定 (0.75rem) へ戻す
+          "--file-tree-pad-block": treeHeight.height === 0 ? "0px" : undefined,
         } as CSSProperties
       }
     >
@@ -415,21 +421,19 @@ export function FileBrowser({
         <div
           className={cn(
             "relative min-h-0",
-            tabs.paths.length > 0
-              ? stacked
-                ? "file-tree-height"
-                : "@2xl:w-(--file-tree-width) @2xl:flex-none"
-              : "flex-1",
+            // タブが無いときはプレビュー列が無いので、ツリーを全高に使う
+            !hasTabs && "flex-1",
+            hasTabs && !stacked && "@2xl:w-(--file-tree-width) @2xl:flex-none",
           )}
         >
           <div
             className={cn(
               "scrollbar-stable min-h-0 w-full scrollbar-thin overflow-x-hidden overflow-y-auto px-4",
-              // 高さ 0 はツリーを完全に隠す (border-box では上下の余白が残ると 24px 見えてしまう)
-              stacked && treeHeight.height === 0 ? "py-0" : "py-3",
-              // 高さを選んでいないときは内容の高さに追随し、上限だけを容器から受ける
-              stacked && treeHeight.height === null ? "max-h-(--file-tree-height-max)" : "h-full",
+              // 選べるのは上下 2 段でタブがあるときだけ。左右 2 段とタブ無しは容器の高さに従う
+              hasTabs && stacked ? "file-tree-height" : "h-full py-3",
             )}
+            // 高さ 0 はツリーを完全に隠す。見えない行を Tab と読み上げの対象に残さない (.tree-fold と同じ)
+            inert={hasTabs && stacked && treeHeight.height === 0}
           >
             {rootNode.error ? (
               <MessageRow depth={0} danger alert>
@@ -461,7 +465,7 @@ export function FileBrowser({
           </div>
           {/* 高さのハンドルもスクロール枠の兄弟に置く (中に置くと absolute でも内容と一緒にスクロールする)。
               プレビュー側へはみ出さないよう、境界の上 (ツリーの中) に重ねる */}
-          {stacked && tabs.paths.length > 0 && treeHeight.resizable ? (
+          {hasTabs && stacked && treeHeight.resizable ? (
             <FileTreeHeightResizeHandle
               height={treeHeight.height}
               min={treeHeight.min}
@@ -474,7 +478,7 @@ export function FileBrowser({
         </div>
         {/* 幅のハンドルはスクロール枠の兄弟に置く (中に置くと absolute でも内容と一緒にスクロールする)。
             位置はツリーの右端 = 境界の中心で、--file-tree-width に追随する */}
-        {tabs.paths.length > 0 && treeWidth.resizable ? (
+        {hasTabs && treeWidth.resizable ? (
           <FileTreeWidthResizeHandle
             width={treeWidth.width}
             min={treeWidth.min}

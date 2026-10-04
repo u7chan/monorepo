@@ -690,10 +690,13 @@ html[data-theme="sky"] {
     }
   }
 
-  /* 上下 2 段のツリーの外枠の高さ (左右 2 段では容器に従うためこのクラスを付けない)。未指定 (auto) は
-   * 内容の高さに追随し、その上限はスクロール枠が --file-tree-height-max で受ける (FileBrowser) */
+  /* 上下 2 段のツリーのスクロール枠の高さ (左右 2 段とタブ無しではこのクラスを付けない)。未指定
+   * (auto) は内容の高さに追随し、上限は --file-tree-height-max が持つ。ドラッグ中は両方の変数を
+   * 書き換えるので、内側も同じ高さで追随する (内容がプレビューへはみ出さない) */
   .file-tree-height {
     height: var(--file-tree-height, auto);
+    max-height: var(--file-tree-height, var(--file-tree-height-max, 16rem));
+    padding-block: var(--file-tree-pad-block, 0.75rem);
   }
 
   /* 高さのハンドルのつまみ。見えない帯なので、hover / focus / ドラッグ中だけ出す。タッチは hover が

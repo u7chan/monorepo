@@ -59,8 +59,13 @@ export function FileTreeHeightResizeHandle({
     dragRef.current = null;
     document.body.classList.remove(RESIZING_CLASS);
     handleRef.current?.setAttribute("aria-valuenow", String(drag.height));
-    // 移動ゼロのクリックは高さを選んだ操作ではないので、commit も保存もしない
-    if (commitHeight && drag.height !== drag.startHeight) commit(drag.height);
+    // 移動ゼロのクリックは高さを選んだ操作ではないので、commit も保存もしない。未指定 (auto) から
+    // 始めたドラッグは、プレビューで書いた px をここで変数ごと auto へ戻す (再描画は起きない)
+    if (commitHeight && drag.height !== drag.startHeight) {
+      commit(drag.height);
+      return;
+    }
+    if (height === null) preview(null);
   };
 
   // ツリーが消える経路 (タブを全部閉じる / パネルを閉じる) でも、ドラッグ中の見た目と
@@ -94,8 +99,9 @@ export function FileTreeHeightResizeHandle({
   };
 
   const handleKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
-    // 未指定のときの起点は、実測した現在値 (無ければ選択値・下限)
-    const base = current ?? height ?? min;
+    // 起点は選択値。未指定のときだけ実測値を使う (計測は 1 フレーム遅れるため、選択値を実測で
+    // 上書きすると連打で同じ値を書き戻してしまう)
+    const base = height ?? current ?? min;
     // ハンドルはツリーの下端にあるため、下へ動かす = 高さを増やす
     if (event.key === "ArrowDown" || event.key === "ArrowUp") {
       const delta = event.key === "ArrowDown" ? FILE_TREE_HEIGHT_STEP : -FILE_TREE_HEIGHT_STEP;
@@ -120,7 +126,11 @@ export function FileTreeHeightResizeHandle({
       aria-valuenow={height ?? current ?? min}
       tabIndex={0}
       className="file-tree-height-handle panel-resize-handle absolute inset-x-0 bottom-0 h-2 cursor-row-resize touch-none outline-none hover:bg-accent/40 focus-visible:bg-accent/40 focus-visible:ring-1 focus-visible:ring-focus focus-visible:ring-inset pointer-coarse:h-5"
-      onDoubleClick={reset}
+      onDoubleClick={() => {
+        reset();
+        // 既に未指定 (null) のときは再描画が起きず、変数がドラッグ中の px のまま残る
+        if (height === null) preview(null);
+      }}
       onKeyDown={handleKeyDown}
       onLostPointerCapture={(event) => finishDrag(event.pointerId, true)}
       onPointerCancel={(event) => finishDrag(event.pointerId, true)}

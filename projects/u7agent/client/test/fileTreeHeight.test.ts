@@ -66,17 +66,13 @@ test("表示高さは未指定 (auto) を null のまま返し、計測後は保
   assert.equal(clampFileTreeHeight(300.6, bounds), 301);
 });
 
-test("CSS 変数へ入れる上限は、未指定なら既定の上限と容器の小さい方", () => {
-  // 未指定: 従来の max-h-64 (256px) を、容器が低いときはプレビュー下限で頭打ちにする
-  assert.equal(fileTreeHeightLimit(null, 776), 256);
-  assert.equal(fileTreeHeightLimit(null, 400), 160);
-  assert.equal(fileTreeHeightLimit(null, 240), 0);
-  // 選択済み: clamp を経た値なので、上限は容器の上限そのもの
-  assert.equal(fileTreeHeightLimit(300, 776), 536);
-  assert.equal(fileTreeHeightLimit(0, 776), 536);
-  // 未計測では選択値を切らない (計測までの 1 フレームで潰さない)
-  assert.equal(fileTreeHeightLimit(400, 0), 400);
-  assert.equal(fileTreeHeightLimit(null, 0), 256);
+test("CSS 変数へ入れる上限は、既定の上限 (256px) と容器から決まる上限の小さい方", () => {
+  // 未指定のときの上限。従来の max-h-64 (256px) を、容器が低いときはプレビュー下限で頭打ちにする
+  assert.equal(fileTreeHeightLimit(776), 256);
+  assert.equal(fileTreeHeightLimit(400), 160);
+  assert.equal(fileTreeHeightLimit(240), 0);
+  // 未計測は推測せず既定の上限 (計測後に容器ぶんまで詰める)
+  assert.equal(fileTreeHeightLimit(0), 256);
 });
 
 test("キーボードの 1 歩は 16px で、端では止まる", () => {

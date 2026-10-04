@@ -57,13 +57,12 @@ export function fileTreeHeight(requested: number | null, containerHeight: number
 }
 
 /**
- * CSS 変数 `--file-tree-height-max` に入れる値。未計測では選択値を切らない (上限が決まるまでの
- * 1 フレームで選んだ高さが潰れるのを避ける)。
+ * CSS 変数 `--file-tree-height-max` に入れる「未指定のときの上限」。未計測では既定の上限
+ * (推測せず、計測後に容器ぶんまで詰める)。
  */
-export function fileTreeHeightLimit(height: number | null, containerHeight: number): number {
+export function fileTreeHeightLimit(containerHeight: number): number {
   const bounds = fileTreeHeightBounds(containerHeight);
-  if (bounds === null) return Math.max(FILE_TREE_HEIGHT_DEFAULT_MAX, height ?? 0);
-  return height === null ? Math.min(FILE_TREE_HEIGHT_DEFAULT_MAX, bounds.max) : bounds.max;
+  return bounds === null ? FILE_TREE_HEIGHT_DEFAULT_MAX : Math.min(FILE_TREE_HEIGHT_DEFAULT_MAX, bounds.max);
 }
 
 /** キーボード操作の 1 歩。端では clamp で止まる */

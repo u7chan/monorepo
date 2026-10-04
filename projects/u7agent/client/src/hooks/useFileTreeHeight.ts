@@ -20,8 +20,9 @@ export type FileTreeHeightResize = {
   /**
    * ドラッグ中の追従。state を動かさずコンテナの CSS 変数だけを書き換える (ツリーの行と
    * スクロール位置を含み、move ごとの再描画を避ける)。clamp は呼び出し側で済ませておく。
+   * null は未指定 (auto) へ戻す (移動ゼロで終わったドラッグの後始末)。
    */
-  preview(height: number): void;
+  preview(height: number | null): void;
   /** 確定。state と保存値を更新する (ドラッグの終了 / キーボード操作) */
   commit(height: number): void;
   /** 未指定 (内容の高さ) へ戻し、保存を消す */
@@ -50,10 +51,18 @@ export function useFileTreeHeight({ containerRef, containerHeight }: FileTreeHei
   const bounds = fileTreeHeightBounds(containerHeight);
   const height = fileTreeHeight(requested, containerHeight);
 
-  // 依存を空にして identity を固定する (ハンドルのアンマウント時の後始末がこれに乗っている)
+  // 依存を空にして identity を固定する (ハンドルのアンマウント時の後始末がこれに乗っている)。
+  // 未指定は変数を消す: `--file-tree-height` に auto を入れると CSS 側の `max-height: var(--file-tree-height,
+  // ...)` が `max-height: auto` になって上限が消えるため、未指定は CSS の既定 (auto + 上限) へ返す。
+  // 高さ 0 では上下の余白も 0 にする (border-box では余白が残ると 24px 見えてしまう)
   const preview = useCallback(
-    (next: number) => {
-      containerRef.current?.style.setProperty("--file-tree-height", `${next}px`);
+    (next: number | null) => {
+      const container = containerRef.current;
+      if (!container) return;
+      if (next === null) container.style.removeProperty("--file-tree-height");
+      else container.style.setProperty("--file-tree-height", `${next}px`);
+      if (next === 0) container.style.setProperty("--file-tree-pad-block", "0px");
+      else container.style.removeProperty("--file-tree-pad-block");
     },
     [containerRef],
   );
@@ -73,7 +82,7 @@ export function useFileTreeHeight({ containerRef, containerHeight }: FileTreeHei
     min: bounds?.min ?? FILE_TREE_HEIGHT_MIN,
     max: bounds?.max ?? FILE_TREE_HEIGHT_DEFAULT_MAX,
     resizable: canResizeFileTreeHeight(bounds),
-    limit: fileTreeHeightLimit(height, containerHeight),
+    limit: fileTreeHeightLimit(containerHeight),
     preview,
     commit,
     reset,
