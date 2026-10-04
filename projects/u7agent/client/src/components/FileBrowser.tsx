@@ -407,9 +407,6 @@ export function FileBrowser({
           "--file-tree-height": treeHeight.height === null ? undefined : `${treeHeight.height}px`,
           // 未指定のときだけ効く上限 (選んだ高さのときは --file-tree-height が上限を兼ねる)
           "--file-tree-height-max": `${treeHeight.limit}px`,
-          // 高さ 0 では上下の余白も落とす (border-box では余白が残ると 24px 見えてしまう)。
-          // undefined は変数を消す = CSS の既定 (0.75rem) へ戻す
-          "--file-tree-pad-block": treeHeight.height === 0 ? "0px" : undefined,
         } as CSSProperties
       }
     >
@@ -428,40 +425,44 @@ export function FileBrowser({
         >
           <div
             className={cn(
-              "scrollbar-stable min-h-0 w-full scrollbar-thin overflow-x-hidden overflow-y-auto px-4",
+              "scrollbar-stable min-h-0 w-full scrollbar-thin overflow-x-hidden overflow-y-auto",
               // 選べるのは上下 2 段でタブがあるときだけ。左右 2 段とタブ無しは容器の高さに従う
-              hasTabs && stacked ? "file-tree-height" : "h-full py-3",
+              hasTabs && stacked ? "file-tree-height" : "h-full",
             )}
             // 高さ 0 はツリーを完全に隠す。見えない行を Tab と読み上げの対象に残さない (.tree-fold と同じ)
             inert={hasTabs && stacked && treeHeight.height === 0}
           >
-            {rootNode.error ? (
-              <MessageRow depth={0} danger alert>
-                {rootNode.error}
-              </MessageRow>
-            ) : null}
-            {rootNode.children ? (
-              <Branch
-                parent={FILE_TREE_ROOT}
-                node={rootNode}
-                depth={0}
-                tree={tree}
-                selected={tabs.active}
-                canRename={canRename}
-                readOnly={readOnly}
-                canRef={canRef}
-                excludeNames={excludeNames}
-                onToggle={toggle}
-                onSelect={openTab}
-                onRename={renameRow}
-                onDelete={removeEntry}
-                onDownload={downloadRow}
-                revealPath={reveal?.path ?? null}
-                revealRef={revealRowRef}
-              />
-            ) : rootNode.error ? null : (
-              <MessageRow depth={0}>読み込み中…</MessageRow>
-            )}
+            {/* 余白は内容側が持つ: スクロール枠が高さを選ぶ面なので、枠自身の padding は
+                border-box の高さを押し広げる (0〜24px の指定が効かなくなる) */}
+            <div className="px-4 py-3">
+              {rootNode.error ? (
+                <MessageRow depth={0} danger alert>
+                  {rootNode.error}
+                </MessageRow>
+              ) : null}
+              {rootNode.children ? (
+                <Branch
+                  parent={FILE_TREE_ROOT}
+                  node={rootNode}
+                  depth={0}
+                  tree={tree}
+                  selected={tabs.active}
+                  canRename={canRename}
+                  readOnly={readOnly}
+                  canRef={canRef}
+                  excludeNames={excludeNames}
+                  onToggle={toggle}
+                  onSelect={openTab}
+                  onRename={renameRow}
+                  onDelete={removeEntry}
+                  onDownload={downloadRow}
+                  revealPath={reveal?.path ?? null}
+                  revealRef={revealRowRef}
+                />
+              ) : rootNode.error ? null : (
+                <MessageRow depth={0}>読み込み中…</MessageRow>
+              )}
+            </div>
           </div>
           {/* 高さのハンドルもスクロール枠の兄弟に置く (中に置くと absolute でも内容と一緒にスクロールする)。
               プレビュー側へはみ出さないよう、境界の上 (ツリーの中) に重ねる */}

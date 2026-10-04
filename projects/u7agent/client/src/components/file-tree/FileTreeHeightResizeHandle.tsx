@@ -38,6 +38,9 @@ export function FileTreeHeightResizeHandle({
   // 未指定 (内容の高さ) のときの現在値は state に無いため、親 (ツリー) を測って持つ。
   // ↑↓ の起点と、ドラッグの起点と aria-valuenow に使う
   const [current, setCurrent] = useState<number | null>(null);
+  // アンマウント時の後始末 (cleanup) は mount 時の closure を掴むため、判断に使う選択状態は ref から読む
+  const heightRef = useRef(height);
+  heightRef.current = height;
   const bounds: FileTreeHeightBounds = { min, max };
 
   useLayoutEffect(() => {
@@ -65,7 +68,7 @@ export function FileTreeHeightResizeHandle({
       commit(drag.height);
       return;
     }
-    if (height === null) preview(null);
+    if (heightRef.current === null) preview(null);
   };
 
   // ツリーが消える経路 (タブを全部閉じる / パネルを閉じる) でも、ドラッグ中の見た目と
@@ -129,7 +132,7 @@ export function FileTreeHeightResizeHandle({
       onDoubleClick={() => {
         reset();
         // 既に未指定 (null) のときは再描画が起きず、変数がドラッグ中の px のまま残る
-        if (height === null) preview(null);
+        if (heightRef.current === null) preview(null);
       }}
       onKeyDown={handleKeyDown}
       onLostPointerCapture={(event) => finishDrag(event.pointerId, true)}

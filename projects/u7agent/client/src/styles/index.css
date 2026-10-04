@@ -696,7 +696,6 @@ html[data-theme="sky"] {
   .file-tree-height {
     height: var(--file-tree-height, auto);
     max-height: var(--file-tree-height, var(--file-tree-height-max, 16rem));
-    padding-block: var(--file-tree-pad-block, 0.75rem);
   }
 
   /* 高さのハンドルのつまみ。見えない帯なので、hover / focus / ドラッグ中だけ出す。タッチは hover が

@@ -53,16 +53,13 @@ export function useFileTreeHeight({ containerRef, containerHeight }: FileTreeHei
 
   // 依存を空にして identity を固定する (ハンドルのアンマウント時の後始末がこれに乗っている)。
   // 未指定は変数を消す: `--file-tree-height` に auto を入れると CSS 側の `max-height: var(--file-tree-height,
-  // ...)` が `max-height: auto` になって上限が消えるため、未指定は CSS の既定 (auto + 上限) へ返す。
-  // 高さ 0 では上下の余白も 0 にする (border-box では余白が残ると 24px 見えてしまう)
+  // ...)` が `max-height: auto` になって上限が消えるため、未指定は CSS の既定 (auto + 上限) へ返す
   const preview = useCallback(
     (next: number | null) => {
       const container = containerRef.current;
       if (!container) return;
       if (next === null) container.style.removeProperty("--file-tree-height");
       else container.style.setProperty("--file-tree-height", `${next}px`);
-      if (next === 0) container.style.setProperty("--file-tree-pad-block", "0px");
-      else container.style.removeProperty("--file-tree-pad-block");
     },
     [containerRef],
   );
