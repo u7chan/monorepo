@@ -138,7 +138,10 @@ $PI_SESSION_STORE/u7agent.db  # アプリデータ（プロジェクト / カタ
 チャットから添付したファイルは、所属に関係なく `<appdir>/uploads/<sessionId>/` に置く（プロジェクトのリポジトリ内には作らない。ルート相対では `.u7agent/uploads/<id>/`）。BFF は作業領域に触らないため、本文は `POST /api/sessions/:id/files` からサンドボックスの `POST /v1/files/upload` へ raw ストリームで転送し、保存名と重複回避はサンドボックスが決める。
 
 - 選択時（即時）にアップロードする。未作成チャットでは先にセッションを作る（クライアントの `ensureSession`。同時アップロードで二重作成しない）
-- 入力欄への貼り付け（PC の Ctrl+V / Cmd+V）でも画像を添付できる。扱うのは `image/*` の項目だけで、テキストだけの貼り付けは既定動作に任せる（画像と一緒に載る `text/html` などを本文へ混ぜないよう、添付するときだけ既定動作を止める）。保存名はブラウザーが付ける `image.png` / `blob` に依存せず、MIME から拡張子を決めた `pasted-<YYYYMMDD-HHmmss>.<ext>` に揃える（判定は `client/src/lib/clipboardImages.ts`。同じ秒の複数枚は他の添付と同じ連番規則が分ける）
+- 入力欄への貼り付け（デスクトップの Ctrl+V / Cmd+V、モバイルは長押しメニューのペースト）でも画像を添付できる。扱うのは `image/*` の項目だけで、テキストだけの貼り付けは既定動作に任せる（画像と一緒に載る `text/html` などを本文へ混ぜないよう、添付するときだけ既定動作を止める）。保存名はブラウザーが付ける `image.png` / `blob` に依存せず、MIME から拡張子を決めた `pasted-<YYYYMMDD-HHmmss>.<ext>` に揃える（判定は `client/src/lib/clipboardImages.ts`。同じ秒の複数枚は他の添付と同じ連番規則が分ける）
+- モバイル（iOS / Android の Chrome。iPhone 14 / iOS 26.6.2 と Android 9 で確認）の実機でも同じ経路で成立する。モバイルの `textarea` は貼り付けた画像を挿入しないため、貼り付け直後の入力欄は空のままに見える。`input` は `insertFromPaste` で `valueLen=0` になるが、`paste` の `clipboardData.items` には `image/*` の `File` が入る。**添付できたかはチップで判断する**（空の入力欄を失敗の合図にしない。実機の確認項目は [testing.md](testing.md#gui-の最小受入)）
+- `paste` の `clipboardData` の読み出しに secure context は要らない。`pnpm dev` の Vite を LAN の HTTP で開く使い方（`isSecureContext=false`）でも画像を拾える。secure context が要るのは `navigator.clipboard.read()` / `readText()` の側で、[sandbox.md](sandbox.md) の記述はそちらを指す
+- 入力欄の `contenteditable` 化と、一時的な `contenteditable` でペーストを受ける案は採らない。iOS の `contenteditable` に貼り付いた画像を `fetch` で取り出すと blob の型が UTI（`public.png`）になり MIME にならない（`items` 経由なら `image/png` がそのまま来る）
 - API の `path` は root 相対（`.u7agent/uploads/<id>/<name>`）。クライアントはこの値をそのままチップと raw URL に使う
 - 同名ファイルは上書きせず `name-1.ext` 形式で連番にする（`link(2)` の排他作成。2 回目以降も連番）
 - 添付を外してもファイルは置き場に残す（`DELETE /api/files` の一覧から削除できる。移動 API は非ゴール）
