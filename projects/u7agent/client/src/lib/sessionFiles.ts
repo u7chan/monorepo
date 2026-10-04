@@ -39,3 +39,10 @@ export type SessionFilesDefaultOpen = {
 export function sessionFilesDefaultOpen({ compact, projectId }: SessionFilesDefaultOpen): boolean {
   return !compact && projectId !== "";
 }
+
+/**
+ * 作業環境パネルのツリーで隠す名前。`.git` は開くと上限 (500 件) まで溢れる割に作業中に読み書きせず、
+ * ネストした repo を展開したときも同じノイズになるため、名前一致で階層を問わず隠す。設定 → ファイル は
+ * 隠さない (見たいときの逃げ道。docs/file-preview.md)。
+ */
+export const SESSION_FILES_HIDDEN_NAMES: readonly string[] = [".git"];

@@ -206,6 +206,18 @@ HTML プレビューのパス行のアイコンボタンで、描画中の文書
 - `FileBrowser` は root が変わると復元・取得・保存をやり直す必要があるので、呼び出し側が `key` を張り替える。パネルはセッションの切替で `SessionFilesPanel` ごと入れ替える（`FileBrowser` の `root` は mount の間一定）。スキルのファイルタブは選択したスキルごとに `ReadOnlySkillPanel` ごと入れ替え、初回にタブを開いたときだけ `FileBrowser` を mount する（以降は `display` で隠して保持する）
 - 取り直しの入口は外装の「再読み込み」と run_end で共通の `reloadToken` に集める（`SessionFilesPanel` は ヘッダの「再読み込み」の回数 + `ChatState.runEndSeq` の合計を渡す）。mount 時の token では撃たない（root の切替は `key` が扱うため）。run_end は描画された `runStatus` の差ではなく、reducer が `run_end` で進める `runEndSeq` を起点にする（`run_start` と `run_end` が同じバッチで届くと React は 1 回の描画にまとめるため、画面側では `running` を観測できず取りこぼす。SSE が切れて `resync` で復帰したときも、`running` を抜けていれば reducer が進める）。実行中の `tool_end` ごとの更新はしない
 - `GET /api/files` の path は root を前置する（`fileTreeFetchPath`）ので、パネルは `payload.cwd`（プロジェクト所属なら登録ディレクトリ、未所属なら `.u7agent/sessions/<id>`）を root として扱う。サンドボックス / API は変えない（同じファイルを設定 → ファイル からも開ける）
+- **作業環境パネル（右パネル / sheet）だけが `.git` を行ごと隠す**（[隠す行](#隠す行)）。設定 → ファイル とスキルのファイルタブは隠さない
+
+## 隠す行
+
+`FileBrowser` の `hiddenNames`（既定 `[]`）で、名前が一致する行を一覧から除く。渡すのは**作業環境パネル（`SessionFilesPanel`。desktop の右パネルと compact の sheet で同じ）だけ**で、`client/src/lib/sessionFiles.ts` の `SESSION_FILES_HIDDEN_NAMES = [".git"]` を渡す。**設定 → ファイル とスキルのファイルタブは渡さず、`.git` を含めて全部見える**（見たいときの逃げ道）。
+
+- **隠すのは名前一致だけで、種別も階層も見ない**（`visibleFileTreeEntries`）。`.git` は worktree / submodule ではディレクトリではなくファイルなので、種別で判定すると隠れ残る。階層を見ないのは、一覧がその階層の子だけを返すため、名前一致がそのまま「どの階層の `.git` も隠す」になる（ネスト repo を展開したときの `.git` も同じノイズになる）。部分一致はしない（`.gitignore` / `git` は残る）
+- **フィルタは一覧を state へ入れる前に行う**（`getFiles` の直後）。隠した枝を state に持たないので、開いていたとしても `.git` の中身を取得しない（行が出ないまま往復だけが増えるのを避ける）。保存値（`filePreviewStore`）から復元する展開状態も `visibleFileTreeDirectories` で落とす（以前の版で開いていた `.git` を次の mount へ持ち越さない）。**reveal（ファイル参照のファイル・パンくず）も隠す名前を含むパスでは祖先を開かない**（行が無いので、開くと不可視の展開が state と保存値に残るだけになる。判定は `isHiddenFileTreePath`）
+- **取得済みの一覧は `hiddenNames` を変えても絞り直さない**（一覧は state へ入れる時点で一度だけフィルタする）。`hiddenNames` は mount 中に固定する契約で、変えるときは呼び出し側が `key` を張り替える（root と同じ前提）
+- **ブランチのチップは増やさない**。従来どおり「パネル root が属する repo」のもので、root の配下にあるネスト repo は列挙しない（`GET /api/files/git` は path 1 本で、親へ辿って 1 つの repo を答える）。ネスト repo を見たいときは 設定 → ファイル で確認する。ネスト repo まで出すなら repo の列挙から設計する別 Issue
+- **隠した行には操作が届かない**ので、パネルから `.git` を削除 / ダウンロード / リネームする導線は無くなる（パネルは元々リネームを出さず、設定 → ファイル 側では従来どおり消せる）。行が減るぶん、`（空）` は「隠した行を除いた子が 0 件」、`上限のため N 件のみ表示しています` の N は隠した後の件数になる
+- ファイル参照（本文のインラインコード）から `.git/...` を開く導線は残る。タブは開いて本文も出るが、ツリーに行が無いので reveal のハイライトは出ない
 
 ## ディレクトリの開閉
 
