@@ -434,6 +434,10 @@ test("appendSystemPrompt は作業ディレクトリとファイル / スキル�
   assert.match(prompt, /registered project directory/);
   assert.match(prompt, /scratch directory/);
   assert.match(prompt, /relative to the working directory/);
+  assert.match(
+    prompt,
+    /When summarizing files, refer to files inside the working directory by cwd-relative path, but use their absolute paths for files under `\/workspace\/\.agents\/skills`; a cwd-relative path there points somewhere else\./,
+  );
   // 入力欄へ落とした `@<path>` の参照を read で開かせる。空白を含むパスは引用付き (`@"<path>"`)
   assert.match(prompt, /`@<path>` mention/);
   assert.match(prompt, /`@"<path>"`/);

@@ -5,6 +5,7 @@ import { isImageName } from "../lib/attachments";
 import { cn } from "../lib/cn";
 import { lineNumbers } from "../lib/codeLines";
 import { buildPreviewCode, isHtmlPath, previewCopyText } from "../lib/fileCode";
+import { filePreviewErrorHint } from "../lib/filePreviewError";
 import {
   dropClosedPreviews,
   fileTabLabels,
@@ -87,6 +88,7 @@ export function FilePreview({
   const labels = fileTabLabels(paths);
   const fetchPath = fileTreeFetchPath(rootPath, activePath);
   const result = readPreview(results, activePath);
+  const errorHint = result?.error ? filePreviewErrorHint(result.error) : undefined;
   const text = result?.text;
   const mode = previewModeFor(modes, activePath);
   // HTML を描画している間はソースを取得しない (プレビューは iframe が自分で取る)。画像も raw の <img> に任せる
@@ -199,6 +201,7 @@ export function FilePreview({
       {result?.error && !skipFetch ? (
         <p role="alert" className="px-4 py-2 text-xs break-words text-danger-text">
           {result.error}
+          {errorHint ? <span> {errorHint}</span> : null}
         </p>
       ) : showImage ? (
         <div className="image-canvas min-h-0 flex-1 overflow-auto p-2">
