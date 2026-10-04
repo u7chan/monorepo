@@ -7,7 +7,7 @@ import { join } from "node:path";
 import test from "node:test";
 import { createBffApp } from "../src/app";
 import { createSecretMasker } from "../src/redact";
-import { ServeStatusSchema } from "../src/schema";
+import { RuntimeServeStatusSchema, ServeStatusSchema } from "../src/schema";
 import { UnknownRemoteToolError, createRemoteToolDefinitions } from "../src/sandbox/remote-tools";
 import { SANDBOX_TOOL_NAMES } from "../src/sandbox/service";
 import type { SandboxWorkspaceClient } from "../src/sandbox/client";
@@ -61,6 +61,42 @@ async function setup() {
   bff.appDb.saveServeCommand({ cwd: "", command: "pnpm dev", updatedAt: 1 });
   return { bff, sandbox, pi, first: first.sessionId, second: second.sessionId };
 }
+
+test("ランタイムは会話未選択でも全体の状態を取得し、所有者のサービスを停止できる", async () => {
+  const { bff, sandbox, first } = await setup();
+  try {
+    const initial = await jsonBody(await bff.app.request("/api/serve/runtime/status"));
+    assert.deepEqual(initial, { reachable: false, owner: null, generation: null, command: null });
+    await bff.app.request("/api/serve/start", jsonPost({ sessionId: first }));
+    const status = await jsonBody(await bff.app.request("/api/serve/runtime/status"));
+    assert.equal(RuntimeServeStatusSchema.safeParse(status).success, true);
+    assert.deepEqual(status.owner, { sessionId: first, title: "無題のセッション" });
+    assert.deepEqual(status.command, { cwd: "", command: "pnpm dev" });
+    const conflict = await bff.app.request("/api/serve/runtime/stop", jsonPost({ generation: "stale" }));
+    assert.equal(conflict.status, 409);
+    assert.deepEqual(sandbox.state.killed, []);
+    for (const body of [
+      {},
+      { generation: null },
+      { generation: "" },
+      { generation: status.generation, sessionId: first },
+    ]) {
+      assert.equal((await bff.app.request("/api/serve/runtime/stop", jsonPost(body))).status, 400);
+    }
+    const csrf = await bff.app.request("http://app.test/api/serve/runtime/stop", {
+      ...jsonPost({ generation: status.generation }),
+      headers: { Origin: "http://evil.test", "Content-Type": "application/json" },
+    });
+    assert.equal(csrf.status, 403);
+    assert.deepEqual(sandbox.state.killed, []);
+    const stopped = await bff.app.request("/api/serve/runtime/stop", jsonPost({ generation: status.generation }));
+    assert.equal(stopped.status, 200);
+    assert.deepEqual(await jsonBody(stopped), initial);
+    assert.equal(sandbox.state.killed.length, 1);
+  } finally {
+    await bff.close();
+  }
+});
 
 test("GET /api/serve/status は閲覧中の会話から見た状態を返す", async () => {
   const { bff, first } = await setup();
@@ -153,6 +189,11 @@ test("サンドボックス未設定は 503、プローブの失敗は 502 に�
     };
     const response = await unconfigured.app.request(`/api/serve/status?sessionId=${created.sessionId}`);
     assert.equal(response.status, 503);
+    assert.equal((await unconfigured.app.request("/api/serve/runtime/status")).status, 503);
+    assert.equal(
+      (await unconfigured.app.request("/api/serve/runtime/stop", jsonPost({ generation: "g" }))).status,
+      503,
+    );
     assert.match((await jsonBody(response)).error, /PI_SANDBOX_URL/);
     assert.equal(pi.serveHosts.at(-1)?.configured, false, "未設定ではツールを公開しない");
   } finally {
@@ -180,6 +221,8 @@ test("サンドボックス未設定は 503、プローブの失敗は 502 に�
     };
     const response = await failing.app.request(`/api/serve/status?sessionId=${created.sessionId}`);
     assert.equal(response.status, 502);
+    assert.equal((await failing.app.request("/api/serve/runtime/status")).status, 502);
+    assert.equal((await failing.app.request("/api/serve/runtime/stop", jsonPost({ generation: "g" }))).status, 502);
     assert.match((await jsonBody(response)).error, /接続できません/);
   } finally {
     await failing.close();

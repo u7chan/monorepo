@@ -121,6 +121,56 @@ test("IPv6 リテラルのサンドボックス URL でも到達確認が 502 �
   }
 });
 
+test("ランタイムは現在の記録のコマンドと会話を返し、古い実績は使わない", async () => {
+  const { service, sandbox, commands } = setup({ owner: OTHER });
+  commands.rows.set("projects/bar", { cwd: "projects/bar", command: "outdated", updatedAt: NOW });
+  const status = await service.runtimeStatus();
+  assert.equal(status.reachable, true);
+  assert.deepEqual(status.owner, { sessionId: OTHER, title: "決済画面の検証" });
+  assert.deepEqual(status.command, { cwd: "projects/bar", command: "pnpm dev" });
+  assert.equal(sandbox.state.scans, 0, "状態表示では fd 走査しない");
+  await service.runtimeStop({ generation: status.generation! });
+  assert.deepEqual(sandbox.state.killed, [100]);
+  assert.deepEqual(await service.runtimeStatus(), { reachable: false, owner: null, generation: null, command: null });
+});
+
+test("ランタイムは一致しない記録の会話・コマンドを見せず、確認後の入れ替わりを停止しない", async () => {
+  const { service, sandbox } = setup({ owner: OTHER });
+  const previous = await service.runtimeStatus();
+  sandbox.state.listener = { pid: 999, startedAt: NOW, inodes: [999], ancestors: [999] };
+  await assert.rejects(service.runtimeStop({ generation: previous.generation! }), { statusCode: 409 });
+  assert.deepEqual(sandbox.state.killed, []);
+  const unknown = await service.runtimeStatus();
+  assert.equal(unknown.reachable, true);
+  assert.equal(unknown.owner, null);
+  assert.equal(unknown.command, null);
+  await service.runtimeStop({ generation: unknown.generation! });
+  assert.deepEqual(sandbox.state.killed, [999]);
+});
+
+test("削除済み会話のリンクやコンテナ再作成後の古い記録はランタイムへ出さない", async () => {
+  const deleted = setup({ owner: "deleted000" });
+  assert.equal((await deleted.service.runtimeStatus()).owner, null);
+  const restarted = setup({ owner: OTHER, reachable: false });
+  assert.deepEqual(await restarted.service.runtimeStatus(), {
+    reachable: false,
+    owner: null,
+    generation: null,
+    command: null,
+  });
+});
+
+test("全体停止でも待受PID不明と停止未完了を成功にしない", async () => {
+  const unknown = setup({ listenerUnknown: true });
+  const status = await unknown.service.runtimeStatus();
+  await assert.rejects(unknown.service.runtimeStop({ generation: status.generation! }), { statusCode: 409 });
+  const failed = setup({ owner: OTHER });
+  failed.sandbox.state.killWorks = false;
+  const before = await failed.service.runtimeStatus();
+  await assert.rejects(failed.service.runtimeStop({ generation: before.generation! }), { statusCode: 502 });
+  assert.equal((await failed.service.runtimeStatus()).reachable, true);
+});
+
 test("到達不可なら実績だけで停止中になり、記録は見せない", async () => {
   const { service, sandbox } = setup({ command: "pnpm dev", owner: OTHER, reachable: false });
   // 記録は残っていても、プローブが到達不可なら稼働中とは言わない

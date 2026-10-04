@@ -556,7 +556,15 @@ export default function App() {
                 onSelectModelsSubsection={openModelsSubsection}
               />
             ) : settingsSection === "runtime" ? (
-              <RuntimePage {...pageProps} health={app.health} onRefreshHealth={app.refreshHealth} />
+              <RuntimePage
+                {...pageProps}
+                health={app.health}
+                onRefreshHealth={app.refreshHealth}
+                onOpenSession={(sessionId) => {
+                  if (sessionId !== app.sessionId) void app.selectSession(sessionId);
+                  backToChat();
+                }}
+              />
             ) : (
               <NotificationSettingsPage {...pageProps} notifications={app.notifications} />
             )

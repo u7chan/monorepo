@@ -29,6 +29,7 @@ import type {
   ProjectsResponse,
   RuntimeEnvironmentResponse,
   RuntimeModelsResponse,
+  RuntimeServeStatus,
   SecretDetailResponse,
   SecretKind,
   SecretMutationResponse,
@@ -631,6 +632,21 @@ export const stopServe = async (input: { sessionId: string; generation: string |
   const res = await client.api.serve.stop.$post({ json: input });
   if (!res.ok) throw await apiError(res);
   return (await res.json()) as ServeStatus;
+};
+
+export const getRuntimeServeStatus = async (signal?: AbortSignal): Promise<RuntimeServeStatus> => {
+  const res = await client.api.serve.runtime.status.$get({}, { init: { signal } });
+  if (!res.ok) throw await apiError(res);
+  return (await res.json()) as RuntimeServeStatus;
+};
+
+export const stopRuntimeServe = async (
+  input: { generation: string },
+  signal?: AbortSignal,
+): Promise<RuntimeServeStatus> => {
+  const res = await client.api.serve.runtime.stop.$post({ json: input }, { init: { signal } });
+  if (!res.ok) throw await apiError(res);
+  return (await res.json()) as RuntimeServeStatus;
 };
 
 /**

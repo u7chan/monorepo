@@ -47,6 +47,7 @@ import {
   UpdateSkillBodySchema,
   ServeStartBodySchema,
   ServeStopBodySchema,
+  RuntimeServeStopBodySchema,
 } from "./schema";
 
 // client は本ファイルを型ソースとして参照するため DTO 型を再配布する
@@ -281,6 +282,15 @@ export async function createBffApp(opts: CreateBffAppOptions = {}) {
     .delete("/api/sessions/:id/unsent/:runId", appData, sessionRoutes.discardUnsent)
     .get("/api/sessions/:id/events", appData, sessionRoutes.events)
     .get("/api/serve/status", appData, serveRoutes.status)
+    .get("/api/serve/runtime/status", appData, serveRoutes.runtimeStatus)
+    .post(
+      "/api/serve/runtime/stop",
+      appDataMutation,
+      jsonBodyValidator(RuntimeServeStopBodySchema, (result, c) =>
+        result.success ? undefined : c.json({ error: "Invalid request body" }, 400),
+      ),
+      (c) => serveRoutes.runtimeStop(c, c.req.valid("json")),
+    )
     .post(
       "/api/serve/start",
       // 起動は実績を書き換える変更系なので、503 では何も保存していないことを state でも示す

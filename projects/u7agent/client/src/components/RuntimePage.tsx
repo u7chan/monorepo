@@ -27,6 +27,8 @@ import type { Health, RuntimeEnvironmentResponse, RuntimeEnvironmentState } from
 import { CopyButton } from "./chat/CopyButton";
 import { RefreshIcon } from "./icons";
 import { SettingsPageLayout, type SettingsPageProps } from "./SettingsPageLayout";
+import { useRuntimeServe } from "../hooks/useRuntimeServe";
+import { RuntimeServiceCard } from "./RuntimeServiceCard";
 
 type RuntimePageProps = SettingsPageProps & {
   health: Health | null;
@@ -35,13 +37,21 @@ type RuntimePageProps = SettingsPageProps & {
    * null (取得失敗 / キャンセル) は失敗として扱う。
    */
   onRefreshHealth: (isCurrent?: () => boolean) => Promise<Health | null>;
+  onOpenSession?: (sessionId: string) => void;
 };
 
 /**
- * 設定 → ランタイム。接続状態・実行環境・利用可能コマンドの診断だけを出す表示専用の画面。
- * プロバイダー認証とカタログは 設定 → モデル が持ち、モデル診断は health からも撤去した。
+ * プロバイダー認証とカタログは 設定 → モデル が持つ。
  */
-export function RuntimePage({ health, onRefreshHealth, compact = false, onBack, onOpenNav }: RuntimePageProps) {
+export function RuntimePage({
+  health,
+  onRefreshHealth,
+  onOpenSession,
+  compact = false,
+  onBack,
+  onOpenNav,
+}: RuntimePageProps) {
+  const service = useRuntimeServe();
   const [environmentState, setEnvironmentState] = useState<RuntimeFetchState<RuntimeEnvironmentResponse>>({
     status: "loading",
   });
@@ -85,7 +95,7 @@ export function RuntimePage({ health, onRefreshHealth, compact = false, onBack, 
     <SettingsPageLayout
       eyebrow="RUNTIME"
       title="ランタイム"
-      caption="接続状態・実行環境・利用可能なコマンドの診断を表示します。設定の変更は行いません。"
+      caption="接続状態・実行環境の診断と、公開中のサービスの確認・停止ができます。"
       actions={
         <>
           <CopyButton
@@ -93,7 +103,15 @@ export function RuntimePage({ health, onRefreshHealth, compact = false, onBack, 
             onClick={() => void copyMessage(diagnosticText, "diagnostic")}
             label="診断情報をコピー"
           />
-          <button type="button" className="btn-quiet" onClick={() => void runLoad(true)} disabled={pending}>
+          <button
+            type="button"
+            className="btn-quiet"
+            onClick={() => {
+              void runLoad(true);
+              void service.refresh();
+            }}
+            disabled={pending}
+          >
             <RefreshIcon />
             再読み込み
           </button>
@@ -105,6 +123,13 @@ export function RuntimePage({ health, onRefreshHealth, compact = false, onBack, 
     >
       <div className="min-h-0 min-w-0 scrollbar-thin overflow-x-hidden overflow-y-auto px-4 py-4">
         <div className="mx-auto grid max-w-4xl gap-3">
+          <RuntimeServiceCard
+            state={service}
+            hostname={location.hostname}
+            port={health?.previewPort}
+            onStop={() => void service.stop()}
+            onOpenSession={onOpenSession}
+          />
           <section className="grid gap-2 rounded-lg border border-line bg-soft p-3">
             <h3 className="text-2xs font-semibold tracking-label text-ink-faint uppercase">
               {RUNTIME_SECTION_TITLES.connection}
