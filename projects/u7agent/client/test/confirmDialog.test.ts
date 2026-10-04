@@ -1,14 +1,18 @@
 // 共通の確認ダイアログ。文言は各 lib の純関数、見た目はここ (静的描画) で固定する。
 // 開閉・焦点・Escape はブラウザで確認する (docs/testing.md の GUI の最小受入)。
+// ネイティブ呼び出しの禁止は .oxlintrc.json の no-restricted-globals / no-restricted-properties が
+// 構文で見る (文字列・コメント中の紛らわしい記述を誤検出しない)。
 import assert from "node:assert/strict";
-import { readdirSync, readFileSync } from "node:fs";
-import { join } from "node:path";
-import { fileURLToPath } from "node:url";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import test from "node:test";
 import { ConfirmDialog } from "../src/components/ConfirmDialog";
-import { renameInputValue, type ConfirmRequest, type PromptRequest } from "../src/lib/confirmDialog";
+import {
+  confirmTargetUnchanged,
+  renameInputValue,
+  type ConfirmRequest,
+  type PromptRequest,
+} from "../src/lib/confirmDialog";
 
 const longTitle = "決済画面の検証".repeat(12);
 
@@ -61,19 +65,9 @@ test("リネームの入力は取り消し・空・未変更を何もしない�
   assert.equal(renameInputValue("古い名前", "古い名前"), undefined, "未変更");
 });
 
-// ネイティブの確認は見た目も焦点も制御できず、文言も DOM が無いと検証できない。
-// 呼び出しが戻らないよう、確認は共通ダイアログだけを通す契約を source scan で固定する。
-test("client はネイティブの confirm / prompt / alert を呼ばない", () => {
-  const root = fileURLToPath(new URL("../src", import.meta.url));
-  const files = readdirSync(root, { recursive: true, encoding: "utf8" }).filter((name) => /\.tsx?$/.test(name));
-  assert.ok(files.length > 0, "走査対象が無い");
-
-  for (const name of files) {
-    const source = readFileSync(join(root, name), "utf8")
-      .replace(/\/\*[\s\S]*?\*\//g, "")
-      .replace(/^[ \t]*\/\/.*$/gm, "");
-    for (const token of ["window.confirm(", "window.prompt(", "window.alert("]) {
-      assert.ok(!source.includes(token), `src/${name} に ${token} がある`);
-    }
-  }
+// 確認を開いている間に会話が切り替わったら、確定しても後続を実行しない (未確認の別会話へ送らない)。
+test("確認の対象が変わっていないかを確定時に見る", () => {
+  assert.equal(confirmTargetUnchanged("session-a", "session-a"), true);
+  assert.equal(confirmTargetUnchanged("session-a", "session-b"), false, "会話が切り替わった");
+  assert.equal(confirmTargetUnchanged("session-a", ""), false, "会話が消えて新規へ落ちた");
 });

@@ -126,7 +126,9 @@ native `popover="auto"` のパネル（スキル一覧 / ⋯ メニュー / エ�
 - 取り消せない操作（削除・破棄・他会話のサービスの停止）は danger のトーンにする
 - 取り消したら後続の処理を呼ばない。ダイアログを開いている間に状態が変わっても、表示した時点の内容で確認を取る（現行のネイティブ確認と同じ）
 - 見た目は desktop / compact で同じ中央カード（`min(420px, 92vw)`）。開閉・焦点・Escape はブラウザで確認する（[GUI 受入](testing.md#gui-の最小受入)）
-- ネイティブの `confirm` / `prompt` / `alert` を呼ばない契約は `client/test/confirmDialog.test.ts` の source scan で固定する
+- モーダルは常に 1 つだけ出し、開いている間の要求は待ち行列（`client/src/lib/dialogQueue.ts`）へ積む。応答は先頭の要求にだけ対応付け、古い応答は無視する。先の Promise を未解決のまま捨てると、呼び出し側の `finally` が走らず二重送信のガード（実行中のパスを持つ ref）が残るため
+- 確認を開いている間に会話が切り替わったら、確定しても後続を実行しない（`confirmTargetUnchanged` で確定時の会話 id を確かめる。未確認の別会話へ圧縮や起動を送らない）。対象の id / パスを控えている削除・リネームはこの限りでない
+- ネイティブの `confirm` / `prompt` / `alert` を呼ばない契約は `.oxlintrc.json` の `no-restricted-globals` / `no-restricted-properties` で lint 時に固定する（構文で見るので、文字列やコメント中の紛らわしい記述を誤検出しない）
 
 ## 作業環境パネル
 

@@ -31,6 +31,7 @@ import { agentIconOf } from "./lib/agentIcon";
 import { chatScope } from "./lib/chatScope";
 import { cn } from "./lib/cn";
 import { compactConfirmRequest } from "./lib/compaction";
+import { confirmTargetUnchanged } from "./lib/confirmDialog";
 import { fileRefRequestForSession } from "./lib/fileRefRequest";
 import { resolveSidebarPlacement } from "./lib/layout";
 import {
@@ -203,10 +204,17 @@ export default function App() {
     [app],
   );
 
+  // 確認を開いている間に会話が切り替わったかを、確定時に ref で見る (この時点の sessionId は古い)
+  const sessionIdRef = useRef(app.sessionId);
+  sessionIdRef.current = app.sessionId;
+
   const handleCompact = useCallback(() => {
     // 戻せない操作なので、押した時点で不可逆性と課金を確認する (状態行に注意書きを開く導線は置かない)
+    const target = app.sessionId;
     void (async () => {
       if (!(await confirm(compactConfirmRequest()))) return;
+      // 会話が変わっていたら、未確認の別の会話を圧縮しない
+      if (!confirmTargetUnchanged(target, sessionIdRef.current)) return;
       void app.compactSession();
     })();
   }, [app, confirm]);
@@ -239,9 +247,12 @@ export default function App() {
       sessions: app.sessions,
     });
     const request = servedAppStartConfirm(servedAppView(app.serve.status), busy);
+    const target = app.sessionId;
     void (async () => {
       // 置き換えの確認を取ってから起動する (取り消したら何もしない)。表示した時点の状態で確認する
       if (request && !(await confirm(request))) return;
+      // 会話が変わっていたら、未確認の別の会話のサービスを起動しない
+      if (!confirmTargetUnchanged(target, sessionIdRef.current)) return;
       void app.serve.start();
     })();
   }, [app.chat.runStatus, app.sessionId, activeSession?.projectId, app.sessions, app.serve, confirm]);

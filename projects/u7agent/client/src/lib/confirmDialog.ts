@@ -46,3 +46,12 @@ export type DialogRequest = ConfirmRequest | PromptRequest;
 export function renameInputValue(value: string | null, current: string): string | undefined {
   return value && value !== current ? value : undefined;
 }
+
+/**
+ * 確認を開いた時点の対象（会話 id など）が、確定時にまだ同じかを返す。ダイアログを開いている間に
+ * 会話が切り替わったら、確定しても後続を実行しない（未確認の別会話へ圧縮や起動を送らない）。
+ * 対象の id / パスを控えている削除・リネームはこの限りでない。
+ */
+export function confirmTargetUnchanged(confirmed: string, current: string): boolean {
+  return confirmed === current;
+}
