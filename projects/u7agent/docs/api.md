@@ -71,7 +71,7 @@ DTO の正は `server/src/schema.ts`（zod）。リクエストボディは `@ho
   "defaultThinkingLevel": "medium",
   "defaultModelError": "保存された既定モデルは利用できません: openai/ghost",
   "filePreviewPort": 4318,
-  "previewPort": 8080,
+  "previewPort": 4319,
   "versions": { "piCodingAgent": "0.99.1", "piAi": "0.99.1" },
   "sessionStore": { "path": "/var/lib/u7agent/sessions", "ok": true, "dirty": 0 },
   "appDb": { "path": "/var/lib/u7agent/sessions/u7agent.db", "ok": true },
@@ -83,7 +83,7 @@ DTO の正は `server/src/schema.ts`（zod）。リクエストボディは `@ho
 
 `filePreviewPort` は**ブラウザから見た**プレビュー オリジンのポート（env `PI_FILE_PREVIEW_PORT`、既定 4318）で、クライアントは別オリジンの iframe の URL をこれで組み立てる。BFF の待受は別 env `PI_FILE_PREVIEW_LISTEN_PORT`（既定 4318）で、prod は compose が `8017:4318` を publish して `PI_FILE_PREVIEW_PORT=8017` を渡す（値の解決と検証は起動時に 1 回で、1〜65535 の整数以外は起動が止まる。2 つの env は独立で、同じ値へ揃えるのは `pnpm dev` だけ）。
 
-`previewPort` はサンドボックスで serve したサービスのブラウザから見たポート（env `PI_PREVIEW_PORT`、既定 8080、prod は 8016）。`filePreviewPort` とは別で、常に返す。起動時に 1〜65535 の整数として検証し、不正値は起動を止める。稼働中かどうかを示す値ではなく、client は `location.hostname` と組み合わせて別タブの URL を作る（[serve の契約](sandbox.md#serveサービスの公開と起動停止)）。
+`previewPort` はサンドボックスで serve したサービスのブラウザから見たポート（env `PI_PREVIEW_PORT`。未設定はサービス リスナーの待受へ寄せて既定 4319、prod は 8016）。`filePreviewPort` とは別で、常に返す。起動時に 1〜65535 の整数として検証し、不正値は起動を止める。稼働中かどうかを示す値ではなく、client は `location.hostname` と組み合わせて別タブの URL を作る。このポートを待つ BFF の 3 本目のリスナー（待受 env `PI_SERVICE_LISTEN_PORT`、既定 4319）が、受けた要求を `PI_SANDBOX_URL` のホストの 8080 へ転送し、キャッシュ ヘッダを `Cache-Control: no-store` に正規化する（転送の契約は [serve の契約](sandbox.md#serveサービスの公開と起動停止)）。
 
 `modelOptions` は認証済みで利用可能なモデルのみ。設定 → モデル の「利用可能なモデル」を保存したときは、その許可リストと利用可能モデルの積だけになる（保存された既定モデルが許可リスト外なら `defaultModelError`、積が空なら `ready: false` と `設定 → モデル` を名指しした `error`。`errorCode` は互換のため `model_whitelist_empty` のまま）。能力情報（`supportsThinking` / `thinkingLevels`）は pi SDK の公開ヘルパー（`getSupportedThinkingLevels`）から得る。`defaultThinkingLevel` は `PI_THINKING` → `medium` の順で決まる。解決の詳細は [model-effort.md](model-effort.md)。
 
@@ -474,7 +474,7 @@ Content-Security-Policy: sandbox allow-scripts; default-src 'none'; style-src 'u
 }
 ```
 
-- `reachable`: プローブ（BFF → サンドボックスの listen ポート 8080 への TCP connect）の結果。HTTP は叩かないので、500 を返すアプリでも到達可なら `true`。**「稼働中」は閲覧中の会話のサービスが公開されている意味**で、ポートの空き状況ではない。
+- `reachable`: プローブ（BFF → サンドボックスの listen ポート 8080 への TCP connect）の結果。HTTP は叩かないので、500 を返すアプリでも到達可なら `true`。**「稼働中」は閲覧中の会話のサービスが公開されている意味**で、ポートの空き状況ではない。ブラウザからの HTTP は別経路（BFF のサービス リスナー → サンドボックスの 8080 への転送）で、こちらは到達できないときに 502 を返す。
 - `owner.kind`: `mine`（閲覧中の会話が所有者）/ `other`（他会話が所有者）/ `unknown`（到達可だが記録と一致しない）/ `none`（到達不可で所有者なし）。所有者は記録（PID + 起動時刻）と「いま待受しているプロセス」の照合で決め、記録があるだけでは所有者とみなさない。`mine` / `other` のときだけ `title` が載る。
 - `generation`: 置き換えの再照合用の不透明な値。起動のたびに変わり、**記録を残したまま生の bash で待受プロセスが入れ替わった場合も変わる**（起動世代と、いま待受しているソケットの inode を合わせたハッシュ）。到達不可（置き換える対象が無い）は `null`。
 - `command`: **閲覧中の会話の作業ディレクトリ**の成功実績（`serve_commands`）。無ければ `null` で、他会話の実績は返さない。

@@ -4,7 +4,9 @@ import { fileURLToPath } from "node:url";
 import { serve } from "@hono/node-server";
 import { createBffApp } from "./app";
 import { resolveFilePreviewListenPort, resolveFilePreviewPort } from "./file-preview-port";
-import { resolvePreviewPort } from "./preview-port";
+import { resolvePreviewPort, resolveServiceListenPort } from "./preview-port";
+import { createServiceProxy } from "./service-proxy";
+import { sandboxHostFromUrl } from "./serve";
 
 // pnpm --filter で起動すると cwd が server/ になるため、既定はリポジトリルートにする
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
@@ -17,7 +19,10 @@ const HOST = process.env.HOST || "127.0.0.1";
 const FILE_PREVIEW_LISTEN_PORT = resolveFilePreviewListenPort(process.env.PI_FILE_PREVIEW_LISTEN_PORT);
 // ブラウザから見たポート。待受とは独立で、prod は publish したポートをここに載せる
 const FILE_PREVIEW_PORT = resolveFilePreviewPort(process.env.PI_FILE_PREVIEW_PORT);
-const PREVIEW_PORT = resolvePreviewPort(process.env.PI_PREVIEW_PORT);
+// 3 本目のリスナー (サービス オリジン) の待受。prod は 8016:<この値> を publish する
+const SERVICE_LISTEN_PORT = resolveServiceListenPort(process.env.PI_SERVICE_LISTEN_PORT);
+// 未設定ならサービス リスナーへ寄せる (prod は compose が 8016 を明示)
+const PREVIEW_PORT = resolvePreviewPort(process.env.PI_PREVIEW_PORT, SERVICE_LISTEN_PORT);
 
 async function main() {
   const bff = await createBffApp({
@@ -52,6 +57,12 @@ async function main() {
   // 2 本目のリスナー = プレビュー オリジン。ポート使用中はここで例外になり起動が止まる
   serve({ fetch: bff.previewApp.fetch, port: FILE_PREVIEW_LISTEN_PORT, hostname: HOST }, (info) => {
     console.log(`[u7agent] preview: http://${HOST}:${info.port} (browser: ${FILE_PREVIEW_PORT})`);
+  });
+
+  // 3 本目のリスナー = サービス オリジン。キャッシュ ヘッダを正規化してサンドボックスの 8080 へ転送する
+  const serviceApp = createServiceProxy({ host: sandboxHostFromUrl(process.env.PI_SANDBOX_URL) });
+  serve({ fetch: serviceApp.fetch, port: SERVICE_LISTEN_PORT, hostname: HOST }, (info) => {
+    console.log(`[u7agent] service: http://${HOST}:${info.port} (browser: ${PREVIEW_PORT})`);
   });
 
   const shutdown = async () => {

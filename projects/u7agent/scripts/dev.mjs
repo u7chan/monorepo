@@ -8,14 +8,18 @@ import { randomBytes } from "node:crypto";
 import { createServer } from "node:net";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-// Node 24 の型ストリッピングで .ts をそのまま読む (ポートの検証を JS 側へ写すと二重管理になる)
+// プレビュー オリジンは専用モジュール、サービス オリジンの公開ポートは preview-port.ts が正
 import { resolveDevFilePreviewPort } from "../server/src/file-preview-port.ts";
+// Node 24 の型ストリッピングで .ts をそのまま読む (ポートの検証を JS 側へ写すと二重管理になる)
+import { resolvePreviewPort, resolveServiceListenPort, SERVE_LISTEN_PORT } from "../server/src/preview-port.ts";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 /** 作業領域。BFF とサンドボックスで同じパスを使う (パス解決を一致させる) */
 const APP_CWD = resolve(process.env.PI_APP_CWD || ROOT);
 const SANDBOX_PORT = Number(process.env.SANDBOX_PORT) || 9418;
 const BFF_PORT = Number(process.env.PORT) || 4317;
+/** Vite の待受 (client/vite.config.ts の strictPort)。dev はここも同時に使う */
+const VITE_PORT = 3000;
 const TOKEN = randomBytes(24).toString("base64url");
 const children = [];
 let viteUrl = null;
@@ -33,6 +37,28 @@ function assertPortFree(port) {
     probe.once("listening", () => probe.close(ok));
     probe.listen(port, "127.0.0.1");
   });
+}
+
+/**
+ * サービス リスナーが dev の他の待受と重なると、BFF の起動が EADDRINUSE で分かりにくく失敗する。
+ * Vite (VITE_PORT) とアプリの serve (SERVE_LISTEN_PORT) はポートの空き確認より後で待ち始めるため、
+ * 使われていないことだけを見ても重複は見つからない。
+ */
+function assertServicePortDistinct(servicePort, filePreviewPort) {
+  const others = [
+    ["BFF (PORT)", BFF_PORT],
+    ["サンドボックス (SANDBOX_PORT)", SANDBOX_PORT],
+    ["プレビュー (PI_FILE_PREVIEW_PORT)", filePreviewPort],
+    ["Vite", VITE_PORT],
+    ["アプリの serve", SERVE_LISTEN_PORT],
+  ];
+  for (const [label, port] of others) {
+    if (port === servicePort) {
+      throw new Error(
+        `PI_SERVICE_LISTEN_PORT (${servicePort}) が ${label} の ${port} と重複しています。別のポートを指定してください。`,
+      );
+    }
+  }
 }
 
 /** 子プロセスの出力へ名前を付ける (3 プロセスのログが混ざっても出所を追えるように) */
@@ -122,9 +148,15 @@ process.on("SIGTERM", () => shutdown(0));
 async function main() {
   // プレビュー オリジンの待受と、ブラウザから見たポート。dev はブラウザが直接開くため同じ値に揃える
   const filePreviewPort = resolveDevFilePreviewPort(process.env);
+  // サービス オリジンの待受 (BFF の 3 本目のリスナー)。dev ではアプリ自身が 8080 で待つため別の値を使う
+  const serviceListenPort = resolveServiceListenPort(process.env.PI_SERVICE_LISTEN_PORT);
+  // ブラウザから見たポート。未設定は待受へ寄せる (dev のブラウザは BFF のリスナーを開く)
+  const previewPort = resolvePreviewPort(process.env.PI_PREVIEW_PORT, serviceListenPort);
   await assertPortFree(SANDBOX_PORT);
   await assertPortFree(BFF_PORT);
   await assertPortFree(filePreviewPort);
+  await assertPortFree(serviceListenPort);
+  assertServicePortDistinct(serviceListenPort, filePreviewPort);
 
   log(`作業領域: ${APP_CWD}`);
   if (process.env.PI_SANDBOX_CWD) {
@@ -151,6 +183,9 @@ async function main() {
     PORT: String(BFF_PORT),
     PI_FILE_PREVIEW_PORT: String(filePreviewPort),
     PI_FILE_PREVIEW_LISTEN_PORT: String(filePreviewPort),
+    // サービス オリジンはブラウザも BFF のリスナーを開く (アプリは 8080 のまま)
+    PI_SERVICE_LISTEN_PORT: String(serviceListenPort),
+    PI_PREVIEW_PORT: String(previewPort),
     PI_APP_CWD: APP_CWD,
     PI_SANDBOX_URL: `http://127.0.0.1:${SANDBOX_PORT}`,
     PI_SANDBOX_TOKEN: TOKEN,
@@ -169,6 +204,7 @@ async function main() {
   const deadline = Date.now() + 30_000;
   while (!viteUrl && Date.now() < deadline) await new Promise((done) => setTimeout(done, 200));
   log(viteUrl ? `準備完了: ${viteUrl} を開いてください` : `準備完了: Vite の URL を取得できませんでした`);
+  log(`サービス: ブラウザから http://<hostname>:${previewPort} で開きます (アプリは ${SERVE_LISTEN_PORT} のまま)`);
   log("停止するときは Ctrl-C (3 プロセスまとめて止まります)");
 }
 
