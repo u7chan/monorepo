@@ -46,6 +46,8 @@
               "max-h-[min(88dvh,760px)]",
               "max-w-[88%]",
               "max-w-[min(760px,86%)]",
+              "min-w-[calc(var(--tree-indent)_+_48px)]",
+              "min-w-[calc(var(--tree-indent)_+_72px)]",
               "w-[3.25em]",
               "w-[min(320px,86vw)]",
               "w-[min(560px,92vw)]",

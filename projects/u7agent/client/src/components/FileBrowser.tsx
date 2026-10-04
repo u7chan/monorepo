@@ -587,11 +587,13 @@ function EntryRow({
             revealed && "ring-2 ring-focus ring-inset",
           )}
         >
+          {/* 1 段表示でも名前へ 24px を残す (インデント + chevron 16 + gap 8 + folder 16 + gap 8 + 名前 24 = 72)。
+              これを割る行は RowTail が次の段へ落ち、shrink-0 のアイコンが時刻・⋯ へ重なるのを防ぐ */}
           <button
             type="button"
             aria-expanded={open}
             onClick={() => onToggle(path)}
-            className="flex min-w-0 flex-1 items-center gap-2 py-1 pl-(--tree-indent) text-left"
+            className="flex min-w-[calc(var(--tree-indent)_+_72px)] flex-1 items-center gap-2 py-1 pl-(--tree-indent) text-left"
           >
             <span
               className={cn(
@@ -690,11 +692,13 @@ function EntryRow({
         revealed && "ring-2 ring-focus ring-inset",
       )}
     >
+      {/* 1 段表示でも名前へ 24px を残す (インデント + アイコン 16 + gap 8 + 名前 24 = 48)。
+          これを割る行は RowTail が次の段へ落ち、shrink-0 のアイコンがサイズ・時刻・⋯ へ重なるのを防ぐ */}
       <button
         type="button"
         aria-current={isSelected ? "true" : undefined}
         onClick={() => onSelect(path)}
-        className="flex min-w-0 flex-1 items-center gap-2 py-1 pl-(--tree-indent) text-left"
+        className="flex min-w-[calc(var(--tree-indent)_+_48px)] flex-1 items-center gap-2 py-1 pl-(--tree-indent) text-left"
       >
         <FileIcon kind={fileKind(entry.name)} />
         <span className="min-w-0 truncate">{entry.name}</span>
