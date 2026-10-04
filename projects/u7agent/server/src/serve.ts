@@ -9,10 +9,10 @@ import { SERVE_LOG_REL, SERVE_STATE_REL } from "./app-paths";
 import type { ServeCommandRow } from "./app-db";
 import { SANDBOX_NOT_CONFIGURED_MESSAGE, httpError } from "./http";
 import { MutationLock } from "./model-settings";
+// serve 契約の待受ポート。プローブも待受 PID の特定も、サービス オリジンの転送先もこの値だけを見る
+import { SERVE_LISTEN_PORT } from "./preview-port";
 import type { SandboxExecClient } from "./sandbox/client";
 
-/** serve 契約の待受ポート。プローブも待受 PID の特定もこの値だけを見る */
-export const SERVE_LISTEN_PORT = 8080;
 /** 起動の成功境界。バックグラウンド起動の shell が終わってからこの期限までに到達可になること */
 export const SERVE_START_TIMEOUT_MS = 10_000;
 /** 停止後にポートの解放を確認する期限 */

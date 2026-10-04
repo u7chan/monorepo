@@ -22,6 +22,7 @@
 | プロジェクトと cwd | `server/src/projects.ts` | [projects.md](projects.md) |
 | ツール実行のサンドボックス | `server/src/sandbox/` | [sandbox.md](sandbox.md) |
 | サービスの状態と起動・停止 | `server/src/serve.ts`、`server/src/serve-tool.ts`、`server/src/routes/serve.ts` | [sandbox.md](sandbox.md)、[api.md](api.md#サービスserveの状態と起動停止) |
+| サービス オリジンの転送と公開ポート | `server/src/service-proxy.ts`、`server/src/preview-port.ts`、`server/src/index.ts` | [sandbox.md](sandbox.md#serveサービスの公開と起動停止) |
 | 秘密値のマスク | `server/src/redact.ts`、`server/src/secret-guard.ts` | [secrets.md](secrets.md) |
 | クライアント（状態 / テーマ / レイアウト） | `client/src/` | [frontend.md](frontend.md)、[ui-layout.md](ui-layout.md) |
 
