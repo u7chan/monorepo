@@ -192,6 +192,7 @@ export const initialChatState: ChatState = {
     activeContextStartId: null,
     gapCursor: null,
     pendingPage: null,
+    payloadEmpty: false,
   },
   runStatus: "idle",
   runStartedAt: undefined,
@@ -315,6 +316,7 @@ function applyHistoryMerge(state: ChatState, merged: HistoryMergeResult, page: H
       activeContextStartId: page.activeContextStartId,
       gapCursor: null,
       pendingPage: null,
+      payloadEmpty: state.history.payloadEmpty,
     },
   };
 }
@@ -571,6 +573,9 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
       // ページ取得に一時的に失敗しても、取り込み済みの履歴がある間は payload.messages で組み直さない
       // (圧縮後のコンテキストは古い会話を含まず、切り替えると会話が消えたように見える)
       const keepHistory = !sessionChanged && (state.history.supported || holdsFetchedHistory(state));
+      // 履歴ページが空のとき「セッションが空へ戻った」と確定してよいかの裏取り。messages を
+      // 配らない旧 payload では断定しない (その経路では履歴ページも来ない)
+      const payloadEmpty = payload.messages !== undefined && payload.messages.length === 0;
       const legacy = keepHistory ? null : historyToBubbles(state.nextId, payload.messages ?? []);
       // 確定済みのライブバブル (前の run の応答 / 送信エコー) は、履歴ページが届くまで残す。未確定の
       // ストリーミング中の assistant だけを捨てる (context_edit の resync で失敗試行を取り消す契約)
@@ -612,7 +617,7 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
         runTools,
         // 履歴モードでは区切りを履歴ページが正とし、旧 payload では messages の index から復元する
         dividers: keepHistory ? state.dividers : legacyMarkers(payload.compactions ?? []),
-        history: sessionChanged ? initialChatState.history : state.history,
+        history: sessionChanged ? { ...initialChatState.history, payloadEmpty } : { ...state.history, payloadEmpty },
         // 別の会話の停止で破棄された run id を持ち越さない
         clearedRunIds: sessionChanged ? [] : state.clearedRunIds,
         sessionId: payload.sessionId,
@@ -682,7 +687,7 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
       // 取り込み済みの履歴があるのに空のページが返るのは、サーバーと表示が食い違っている状態
       // (一時的に item を読めない / ブランチが作り直された)。適用すると取得済みの会話を捨てるため、
       // 保持分を正として次の取得で再確認する (API 自体は成功しているので supported は戻す)
-      if (page.items.length === 0 && holdsFetchedHistory(state)) {
+      if (page.items.length === 0 && holdsFetchedHistory(state) && !state.history.payloadEmpty) {
         return { ...state, history: { ...state.history, supported: true, gapCursor: null, pendingPage: null } };
       }
       const live = state.bubbles.filter((bubble) => bubble.entryId === undefined);

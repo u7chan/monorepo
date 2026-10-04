@@ -1404,7 +1404,7 @@ test("履歴 API が失敗しても、取り込み済みの履歴は resync の 
   assert.deepEqual(entryIds(recovered), ["m1", "m2"]);
 });
 
-test("取り込み済みの履歴があるときの空ページは適用しない", () => {
+test("取り込み済みの履歴があるときの空ページは、payload も空のときだけ適用する", () => {
   const withPage = chatReducer(initialChatState, {
     type: "resyncHistory",
     page: historyPage([userMsg("u1", "u1"), msg("a1", "active", "a1")], {
@@ -1415,15 +1415,28 @@ test("取り込み済みの履歴があるときの空ページは適用しな�
       summarizedMessageCount: 1,
     }),
   });
-  const empty = chatReducer(withPage, {
+
+  // payload にメッセージがある = サーバー側と食い違う空ページ (一時的な欠落)。表示とカーソルを保つ
+  const kept = chatReducer(withPage, {
     type: "resyncHistory",
     page: historyPage([], { prevCursor: null, hasMore: false, messageCount: 0, summarizedMessageCount: 0 }),
   });
-  assert.deepEqual(entryIds(empty), ["u1", "a1"], "取得済みの会話を捨てない");
-  assert.equal(empty.history.supported, true, "取得に成功したので履歴 API は使える扱いへ戻す");
-  assert.equal(empty.history.hasMore, true, "空ページで遡りを打ち切らない");
-  assert.equal(empty.history.nextCursor, "u1");
-  assert.equal(empty.history.messageCount, 3, "件数を 0 にしない");
+  assert.deepEqual(entryIds(kept), ["u1", "a1"], "取得済みの会話を捨てない");
+  assert.equal(kept.history.supported, true, "取得に成功したので履歴 API は使える扱いへ戻す");
+  assert.equal(kept.history.hasMore, true, "空ページで遡りを打ち切らない");
+  assert.equal(kept.history.nextCursor, "u1");
+  assert.equal(kept.history.messageCount, 3, "件数を 0 にしない");
+
+  // 同じ resync の payload もメッセージ無し (保存失敗後の再起動など) なら、空へ戻った確定として適用する
+  const reset = chatReducer(kept, { type: "resync", payload: payload([]) });
+  assert.deepEqual(entryIds(reset), ["u1", "a1"], "空の payload だけでは捨てない");
+  const confirmed = chatReducer(reset, {
+    type: "resyncHistory",
+    page: historyPage([], { prevCursor: null, hasMore: false, messageCount: 0, summarizedMessageCount: 0 }),
+  });
+  assert.deepEqual(confirmed.bubbles, [], "現行ブランチが空である確定を受けて捨てる");
+  assert.equal(confirmed.history.messageCount, 0, "件数も現行ブランチに合わせる");
+  assert.equal(confirmed.history.supported, true);
 
   // 保持分が無い (新規セッション) 空ページは従来どおり適用する
   const fresh = chatReducer(initialChatState, {

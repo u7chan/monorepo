@@ -86,4 +86,9 @@ export type ChatHistoryState = {
   gapCursor: string | null;
   /** 欠落区間の取得後に適用する保留中の最新ページ */
   pendingPage: HistoryPage | null;
+  /**
+   * 直近の resync の payload が「表示対象メッセージ無し」を報告したか。空の履歴ページを
+   * 「セッションが空へ戻った」確定としてよいかの裏取りに使う (一時的な欠落と区別する)
+   */
+  payloadEmpty: boolean;
 };
