@@ -3,6 +3,7 @@
  * 無いため、項目とラベルはこの純関数で固定する (`client/src/components/RowMenu.tsx` は設定 → ファイル と共有)。
  * 折りたたみ (行のボタン) と通知のベルは行に残すので、ここには出さない。
  */
+import type { ConfirmRequest, PromptRequest } from "./confirmDialog";
 import type { RowMenuAction } from "./rowMenu";
 
 /** プロジェクト行の ⋯ の種別 (開閉は行のボタン、通知はベルが持つ) */
@@ -28,10 +29,31 @@ export function sessionRowActions(): RowMenuAction<SessionRowKind>[] {
 }
 
 /**
- * リネームの入力の見出し。初期値 (現在のタイトル) は呼び出し側が window.prompt の第 2 引数で渡す。
- * 空にすると自動タイトルへは戻らない (次にメッセージを送るまで `無題のセッション` になる) ので、
- * 取り消しと同じく空入力は何もしない扱いにする。
+ * セッション削除の確認。履歴が消えること・作業フォルダのファイルは残ること・実行中の処理が止まることを伝え、
+ * 対象のタイトルは clamp した独立した行へ出す。
  */
-export function sessionRenamePrompt(): string {
-  return "セッションの新しい名前を入力してください。";
+export function sessionDeleteConfirmRequest(title: string): ConfirmRequest {
+  return {
+    kind: "confirm",
+    title: "セッションを削除",
+    ...(title ? { subject: { label: "削除するセッション", value: title } } : {}),
+    body: ["履歴を削除します。作業フォルダのファイルは残ります。実行中の処理は停止されます。"],
+    confirmLabel: "削除する",
+    danger: true,
+  };
+}
+
+/**
+ * リネームの入力。初期値 (現在のタイトル) は入力欄へ入れ、空・未変更は取り消しと同じで何もしない
+ * (空にすると自動タイトルへは戻らないため、`renameInputValue` が弾く)。
+ */
+export function sessionRenameRequest(currentTitle: string): PromptRequest {
+  return {
+    kind: "prompt",
+    title: "名前を変更",
+    body: ["セッションの新しい名前を入力してください。"],
+    label: "新しい名前",
+    defaultValue: currentTitle,
+    confirmLabel: "名前を変更",
+  };
 }

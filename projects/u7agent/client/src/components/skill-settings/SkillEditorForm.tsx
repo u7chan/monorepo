@@ -1,7 +1,9 @@
 import type { Dispatch, FormEvent, SetStateAction } from "react";
 import { createSkill, deleteSkill, updateSkill } from "../../api";
+import { skillDeleteConfirmRequest } from "../../lib/settingsConfirm";
 import type { Catalog, SkillDef } from "../../types";
 import { CheckIcon, TrashIcon } from "../icons";
+import { useConfirm } from "../ConfirmProvider";
 
 export type SkillForm = { name: string; description: string; body: string };
 
@@ -42,6 +44,7 @@ export function SkillEditorForm({
   /** 閲覧ビューへ戻る導線。既存スキルの編集のときだけ渡す (新規作成は従来どおり) */
   onCancel?: () => void;
 }) {
+  const confirm = useConfirm();
   const saveSkill = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const payload = { name: form.name, description: form.description, body: form.body };
@@ -58,7 +61,7 @@ export function SkillEditorForm({
 
   const removeCurrentSkill = async () => {
     if (!editingId) return;
-    if (!window.confirm("このスキルを削除しますか？")) return;
+    if (!(await confirm(skillDeleteConfirmRequest(form.name)))) return;
     try {
       await deleteSkill(editingId);
       onSelectSkill(null);

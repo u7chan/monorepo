@@ -8,6 +8,8 @@ import {
   uploadSessionFile,
 } from "../api";
 import { attachmentRejection, attachmentsForSend, attachmentsForSession, type Attachment } from "../lib/attachments";
+import { projectDeleteConfirmRequest } from "../lib/sidebarProjects";
+import { useConfirm } from "../components/ConfirmProvider";
 import { deriveComposerSettings } from "../lib/composerSettings";
 import type { RunStatus, SessionSummary } from "../types";
 import { chatReducer, initialChatState } from "./chatReducer";
@@ -52,6 +54,7 @@ export type SendMessageOptions = {
 };
 
 export function useU7Agent({ pendingSessionId, onPendingSessionResolved }: UseU7AgentOptions = {}) {
+  const confirm = useConfirm();
   const [chat, dispatch] = useReducer(chatReducer, initialChatState);
   // 履歴の追加取得が読むカーソル。reducer が適用したページの値だけを持ち、gap で保留した
   // ページの nextCursor を持ち込まない
@@ -322,16 +325,13 @@ export function useU7Agent({ pendingSessionId, onPendingSessionResolved }: UseU7
     async (projectId: string): Promise<void> => {
       const project = projects.find((item) => item.id === projectId);
       const count = sessions.filter((item) => item.projectId === projectId).length;
-      const head = project ? `「${project.name}」の登録を解除します。` : "";
-      if (!window.confirm(`${head}配下の ${count} 件のセッションを停止します（履歴とファイルは残ります）。`)) {
-        return;
-      }
+      if (!(await confirm(projectDeleteConfirmRequest(project, count)))) return;
       if (!(await removeProject(projectId))) return;
       // サーバーは配下セッションまで停止・破棄する。一覧が取れなければ再選択は次の一覧 (ポーリング / SSE) に任せる
       const list = await refreshSessions();
       if (list) await reselectIfMissing(list);
     },
-    [projects, refreshSessions, removeProject, reselectIfMissing, sessions],
+    [projects, refreshSessions, removeProject, reselectIfMissing, sessions, confirm],
   );
 
   /**

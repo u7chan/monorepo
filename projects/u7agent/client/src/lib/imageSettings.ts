@@ -3,6 +3,7 @@
  * 選択肢の組み立て・入力の後始末・保存後の文言・確認文をテストできるようにする。
  */
 import type { ImageSettingsResponse, ModelRef, UpdateImageSelectionBody } from "../types";
+import type { ConfirmRequest } from "./confirmDialog";
 import { messageTimeLabel, type MessageTimeOptions } from "./messageTime";
 import { modelRefKey, type ProviderBadge } from "./modelSettings";
 
@@ -124,6 +125,13 @@ export function keyDraftAfterSave(draft: string, saved: boolean): string {
 }
 
 /** 削除の確認。新しい会話で使えなくなることと、既存の会話で実行時に失敗することを先に伝える */
-export function deleteImageKeyConfirmMessage(): string {
-  return "画像APIキーを削除します。generate_image は新しい会話で使えなくなり、既存の会話で実行するとキー無効エラーになります。よろしいですか？";
+export function deleteImageKeyConfirmRequest(providerName: string): ConfirmRequest {
+  return {
+    kind: "confirm",
+    title: "画像APIキーを削除",
+    subject: { label: "対象の provider", value: providerName },
+    body: ["generate_image は新しい会話で使えなくなり、既存の会話で実行するとキー無効エラーになります。"],
+    confirmLabel: "削除する",
+    danger: true,
+  };
 }

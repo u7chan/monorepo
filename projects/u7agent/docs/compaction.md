@@ -38,7 +38,7 @@ pi SDK はコンテキストが上限に近づくと会話を自動で compactio
 
 ## 手動圧縮
 
-`ComposerStatus` の Context ゲージの右の圧縮ボタンから `POST /api/sessions/:id/compact` を呼ぶ。SDK の `AgentSession.compact()` は run の外（idle のとき）からしか呼べず、BFF は run 中しか SDK を subscribe していないため、手動経路の listener は `SessionStore` が `compaction_end` の間だけ持つ（`SessionStore.compact()`）。不可逆性（元のメッセージは GUI から戻せない）と課金は、押した時点の確認で示す（`App` の `handleCompact` が `window.confirm` で `client/src/lib/compaction.ts` の `compactConfirmMessage()` を出し、取り消したときは要求を出さない。注意を開く専用のボタンは状態行に置かない）。
+`ComposerStatus` の Context ゲージの右の圧縮ボタンから `POST /api/sessions/:id/compact` を呼ぶ。SDK の `AgentSession.compact()` は run の外（idle のとき）からしか呼べず、BFF は run 中しか SDK を subscribe していないため、手動経路の listener は `SessionStore` が `compaction_end` の間だけ持つ（`SessionStore.compact()`）。不可逆性（元のメッセージは GUI から戻せない）と課金は、押した時点の確認で示す（`App` の `handleCompact` が `client/src/lib/compaction.ts` の `compactConfirmRequest()` で共通の確認ダイアログを出し、取り消したときは要求を出さない。注意を開く専用のボタンは状態行に置かない）。
 
 ### 実行できるかどうかは総量では決まらない
 

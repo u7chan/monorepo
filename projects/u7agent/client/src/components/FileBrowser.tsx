@@ -4,8 +4,10 @@ import { useFileTreeWidth } from "../hooks/useFileTreeWidth";
 import { useImageVersion } from "../hooks/useImageVersion";
 import { FileTreeResizeHandle } from "./file-tree/FileTreeResizeHandle";
 import { FilePreview } from "./FilePreview";
+import { useConfirm, usePrompt } from "./ConfirmProvider";
 import { cn } from "../lib/cn";
-import { archiveConfirmMessage, startArchiveDownload } from "../lib/archive";
+import { renameInputValue } from "../lib/confirmDialog";
+import { archiveConfirmRequest, startArchiveDownload } from "../lib/archive";
 import { formatBytes } from "../lib/attachments";
 import {
   applyFileTreeError,
@@ -14,13 +16,12 @@ import {
   createFileTreeStateFromDirectories,
   FILE_TREE_ROOT,
   fileTreeChildPath,
-  fileTreeDeleteConfirm,
-  fileTreeDeleteDirectoryConfirm,
+  fileTreeDeleteConfirmRequest,
   fileTreeDirectoryState,
   fileTreeEntryFor,
   fileTreeFetchPath,
   fileTreeParentPath,
-  fileTreeRenamePrompt,
+  fileTreeRenameRequest,
   invalidateFileTree,
   isHiddenFileTreePath,
   normalizeFileTreeRoot,
@@ -125,6 +126,8 @@ export function FileBrowser({
   filePreviewPort,
 }: FileBrowserProps) {
   const rootPath = normalizeFileTreeRoot(root);
+  const confirm = useConfirm();
+  const prompt = usePrompt();
   // 復元は mount ごとに 1 回。lazy initializer に置くことで、復元前の空状態を取得や保存の Effect が見ない
   // (StrictMode で初期化が 2 回走っても同じ snapshot から同じ状態になる)
   const [restored] = useState(() => filePreviewStore.read(rootPath));
@@ -285,12 +288,11 @@ export function FileBrowser({
    */
   const removeEntry = (path: string, type: "file" | "dir") => {
     if (deletingRef.current.has(path)) return;
-    // 確認には画面の root 相対パスを出す (ツリーに見えているパスと合わせる)。ディレクトリは配下ごと消えることを示す
-    const message = type === "dir" ? fileTreeDeleteDirectoryConfirm(path) : fileTreeDeleteConfirm(path);
-    if (!window.confirm(message)) return;
     deletingRef.current.add(path);
     void (async () => {
       try {
+        // 確認には画面の root 相対パスを出す (ツリーに見えているパスと合わせる)。ディレクトリは配下ごと消えることを示す
+        if (!(await confirm(fileTreeDeleteConfirmRequest(path, type)))) return;
         const fetchPath = fileTreeFetchPath(rootPath, path);
         if (type === "dir") {
           await deleteDirectory(fetchPath);
@@ -310,18 +312,18 @@ export function FileBrowser({
   };
 
   /**
-   * リネームは設定ツリーだけの導線 (`canRename`)。現在の名前を初期値にした prompt で受け取り、成功したら
+   * リネームは設定ツリーだけの導線 (`canRename`)。現在の名前を初期値にした入力で受け取り、成功したら
    * ツリーとタブ・表示モードの経路を新しい名前へ張り替える (開閉と取得済みの子は保ち、本文だけ取り直す)。
    * 失敗したら親ディレクトリのエラーとして出す (他の行は残す)。
    */
   const renameRow = (path: string, currentName: string) => {
     if (renamingRef.current.has(path)) return;
-    const nextName = window.prompt(fileTreeRenamePrompt(path), currentName);
-    // 取り消し (null)・空・未変更なら何もしない
-    if (!nextName || nextName === currentName) return;
     renamingRef.current.add(path);
     void (async () => {
       try {
+        const nextName = renameInputValue(await prompt(fileTreeRenameRequest(path, currentName)), currentName);
+        // 取り消し・空・未変更なら何もしない
+        if (nextName === undefined) return;
         await renameEntry(fileTreeFetchPath(rootPath, path), nextName);
         // 応答の root 相対パスは親の実パス基準 (symlink 経由の要求でツリーのキーとずれる) なので、
         // 画面の root 相対は親 + 新しい名前で組み立てる
@@ -351,7 +353,7 @@ export function FileBrowser({
         const fetchPath = fileTreeFetchPath(rootPath, path);
         const check = await getFileDownloadCheck(fetchPath);
         // サイズ / 件数の超過は check が 413 で返すので、確認より先にエラー行へ出る
-        if (type === "dir" && check.skipped.length > 0 && !window.confirm(archiveConfirmMessage(name, check))) return;
+        if (type === "dir" && check.skipped.length > 0 && !(await confirm(archiveConfirmRequest(name, check)))) return;
         startArchiveDownload(fileDownloadUrl(fetchPath), check.name);
       } catch (error) {
         setTree((prev) => applyFileTreeError(prev, fileTreeParentPath(path), errorText(error)));

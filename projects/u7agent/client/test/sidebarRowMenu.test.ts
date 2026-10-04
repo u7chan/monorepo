@@ -5,7 +5,12 @@ import { renderToStaticMarkup } from "react-dom/server";
 import test from "node:test";
 import { ProjectRow } from "../src/components/sidebar/ProjectRow";
 import { SessionRow } from "../src/components/sidebar/SessionRow";
-import { projectRowActions, sessionRenamePrompt, sessionRowActions } from "../src/lib/sidebarRowMenu";
+import {
+  projectRowActions,
+  sessionDeleteConfirmRequest,
+  sessionRenameRequest,
+  sessionRowActions,
+} from "../src/lib/sidebarRowMenu";
 import type { Project, SessionSummary } from "../src/types";
 
 const project: Project = { id: "p-1", name: "hello", cwd: "work/hello", createdAt: 0 };
@@ -69,7 +74,21 @@ test("出し分け: プロジェクト行は 新しい会話 → 削除、セッ
     { kind: "rename", label: "名前を変更" },
     { kind: "delete", label: "セッションを削除", danger: true },
   ]);
-  assert.equal(sessionRenamePrompt(), "セッションの新しい名前を入力してください。");
+});
+
+test("セッションの削除確認は対象のタイトルを出し、リネームは現在のタイトルを初期値にする", () => {
+  const remove = sessionDeleteConfirmRequest("決済画面の検証");
+  assert.equal(remove.title, "セッションを削除");
+  assert.deepEqual(remove.subject, { label: "削除するセッション", value: "決済画面の検証" });
+  assert.equal(remove.confirmLabel, "削除する");
+  assert.ok(remove.danger, "削除は danger にする");
+  // 一覧が古くてタイトルが取れない行でも確認は出す (対象の行を省くだけ)
+  assert.equal(sessionDeleteConfirmRequest("").subject, undefined);
+
+  const rename = sessionRenameRequest("決済画面の検証");
+  assert.equal(rename.kind, "prompt");
+  assert.equal(rename.defaultValue, "決済画面の検証");
+  assert.equal(rename.confirmLabel, "名前を変更");
 });
 
 test("プロジェクト行の操作は読み上げ名と 2 項目の並びを持つ", () => {

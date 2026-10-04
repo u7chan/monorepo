@@ -2,8 +2,10 @@ import { useState } from "react";
 import { useFileSkills } from "../hooks/useFileSkills";
 import { FILE_SKILL_PANEL_HEADING } from "../lib/fileSkills";
 import { MEMORY_NOTE } from "../lib/settingsNotes";
+import { skillDiscardConfirmRequest } from "../lib/settingsConfirm";
 import type { Catalog } from "../types";
 import { DefinitionList } from "./DefinitionList";
+import { useConfirm } from "./ConfirmProvider";
 import { MenuItem } from "./MenuItem";
 import { SettingsDetailSheet } from "./SettingsDetailSheet";
 import { SettingsPageLayout, type SettingsPageProps } from "./SettingsPageLayout";
@@ -32,6 +34,7 @@ export function SkillSettingsPage({
   onOpenNav,
 }: SkillSettingsPageProps) {
   const [editingId, setEditingId] = useState<string | null>(() => catalog.skills[0]?.id ?? null);
+  const confirm = useConfirm();
   const [mode, setMode] = useState<SkillMode>("view");
   const [note, setNote] = useState<{ text: string; error: boolean }>({ text: MEMORY_NOTE, error: false });
   const [sheetOpen, setSheetOpen] = useState(false);
@@ -70,8 +73,10 @@ export function SkillSettingsPage({
 
   const cancelEditing = () => {
     // 未保存の差分があるときだけ確認する (開いてすぐ戻る操作を止めない)
-    if (skillFormDirty(skillForm, editingSkill) && !window.confirm("編集中の変更を破棄しますか？")) return;
-    setMode("view");
+    void (async () => {
+      if (skillFormDirty(skillForm, editingSkill) && !(await confirm(skillDiscardConfirmRequest()))) return;
+      setMode("view");
+    })();
   };
 
   const selectFileSkill = (path: string) => {

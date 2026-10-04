@@ -10,12 +10,11 @@ import {
   fileTreeAncestorPaths,
   fileTreeBreadcrumbs,
   fileTreeChildPath,
-  fileTreeDeleteConfirm,
-  fileTreeDeleteDirectoryConfirm,
+  fileTreeDeleteConfirmRequest,
   fileTreeDirectoryState,
   fileTreeEntryFor,
   fileTreeFetchPath,
-  fileTreeRenamePrompt,
+  fileTreeRenameRequest,
   invalidateFileTree,
   isHiddenFileTreePath,
   normalizeFileTreeRoot,
@@ -82,28 +81,32 @@ test("隠す名前を含む経路の展開状態は復元しない (隠した枝
   assert.deepEqual(visibleFileTreeDirectories([".git", "src"], []), [".git", "src"], "空なら隠さない");
 });
 
-test("削除の確認文言はツリーに見えている root 相対パスを出す", () => {
+test("削除の確認はツリーに見えている root 相対パスを対象の行へ出し、取り消せないことを示す", () => {
   // 設定 → ファイル はワークスペース root 相対、チャット右パネルはセッションの作業フォルダ相対を渡す
-  assert.equal(
-    fileTreeDeleteConfirm(".u7agent/sessions/3a7bfba36f/uploads/shot.png"),
-    "「.u7agent/sessions/3a7bfba36f/uploads/shot.png」を削除しますか？この操作は取り消せません。",
-  );
-  assert.equal(
-    fileTreeDeleteConfirm("uploads/shot.png"),
-    "「uploads/shot.png」を削除しますか？この操作は取り消せません。",
-  );
-  assert.equal(fileTreeDeleteConfirm("note.txt"), "「note.txt」を削除しますか？この操作は取り消せません。");
+  const file = fileTreeDeleteConfirmRequest(".u7agent/sessions/3a7bfba36f/uploads/shot.png", "file");
+  assert.equal(file.title, "ファイルを削除");
+  assert.deepEqual(file.subject, {
+    label: "削除するファイル",
+    value: ".u7agent/sessions/3a7bfba36f/uploads/shot.png",
+  });
+  assert.deepEqual(file.body, ["この操作は取り消せません。"]);
+  assert.equal(file.confirmLabel, "削除する");
+  assert.ok(file.danger, "削除は danger にする");
+  assert.deepEqual(fileTreeDeleteConfirmRequest("note.txt", "file").subject, {
+    label: "削除するファイル",
+    value: "note.txt",
+  });
 });
 
-test("ディレクトリ削除の確認文言は配下ごと消えることを示す", () => {
-  assert.equal(
-    fileTreeDeleteDirectoryConfirm("uploads/3a7bfba36f"),
-    "「uploads/3a7bfba36f」と配下のファイルをすべて削除しますか？この操作は取り消せません。",
-  );
-  assert.equal(
-    fileTreeDeleteDirectoryConfirm("src/components"),
-    "「src/components」と配下のファイルをすべて削除しますか？この操作は取り消せません。",
-  );
+test("ディレクトリ削除の確認は配下ごと消えることを示す", () => {
+  const dir = fileTreeDeleteConfirmRequest("uploads/3a7bfba36f", "dir");
+  assert.equal(dir.title, "フォルダを削除");
+  assert.deepEqual(dir.subject, { label: "削除するフォルダ", value: "uploads/3a7bfba36f" });
+  assert.deepEqual(dir.body, ["このフォルダと配下のファイルをすべて削除します。この操作は取り消せません。"]);
+  assert.deepEqual(fileTreeDeleteConfirmRequest("src/components", "dir").subject, {
+    label: "削除するフォルダ",
+    value: "src/components",
+  });
 });
 
 test("子のキーは root 直下とネストで変わる", () => {
@@ -534,12 +537,14 @@ test("削除した状態は再読み込みをまたいでも、再取得した�
 });
 
 // リネーム後の状態更新。名前を差し替えて配下のキーを移し、開閉と取得済みの子はそのまま残す
-test("リネームの入力の見出しはツリーに見えている root 相対パスを出す", () => {
-  assert.equal(
-    fileTreeRenamePrompt(".u7agent/sessions/3a7bfba36f/uploads"),
-    "「.u7agent/sessions/3a7bfba36f/uploads」の新しい名前を入力してください。",
-  );
-  assert.equal(fileTreeRenamePrompt("docs"), "「docs」の新しい名前を入力してください。");
+test("リネームの入力はパスを対象の行へ出し、現在の名前を初期値にする", () => {
+  const request = fileTreeRenameRequest(".u7agent/sessions/3a7bfba36f/uploads", "uploads");
+  assert.equal(request.kind, "prompt");
+  assert.equal(request.title, "名前を変更");
+  assert.deepEqual(request.subject, { label: "名前を変更するフォルダ", value: ".u7agent/sessions/3a7bfba36f/uploads" });
+  assert.equal(request.defaultValue, "uploads");
+  assert.equal(request.confirmLabel, "名前を変更");
+  assert.equal(fileTreeRenameRequest("docs", "docs").defaultValue, "docs");
 });
 
 test("リネームは親の行の名前を差し替え、配下のキーと開閉・取得済みの子を移す", () => {

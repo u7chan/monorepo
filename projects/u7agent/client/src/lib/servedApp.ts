@@ -3,6 +3,7 @@
  * ここは「どの状態をどう描くか」だけを決める (描画と API 呼び出しは component / hook が持つ)。
  */
 import type { RunStatus, ServeStatus, SessionSummary } from "../types";
+import type { ConfirmRequest } from "./confirmDialog";
 
 export function servedAppUrl(hostname: string, port: number | undefined): string | undefined {
   if (!hostname || port === undefined || !Number.isInteger(port) || port < 1 || port > 65535) return undefined;
@@ -160,29 +161,36 @@ export function servedAppMenuSub(view: ServeView): string {
 }
 
 /**
- * 置き換えの確認文言。押す前にメニューの説明文で予告し、押した後にこの確認を出す
- * (取り消したら実行しない)。タイトルは初回メッセージ由来で最大 60 文字になるため、
- * 1 回だけ出し、停止対象はサービスと明示し、起動コマンドは文章へ混ぜず独立した行にする
- * (所有者名は会話名なので、「停止」だけでは会話やエージェントを止める意味に読める)。
+ * 置き換えの確認。押す前にメニューの説明文で予告し、押した後にこの確認を出す (取り消したら実行しない)。
+ * 所有者名は本文へ埋めず clamp した独立した行 (subject) へ 1 回だけ出し、起動コマンドも等幅の別行にする
+ * (所有者名は会話名なので「停止」だけでは会話やエージェントを止める意味に読める。タイトルは初回メッセージ
+ * 由来で最大 60 文字になるため、文章へ埋めると読めなくなる)。ボタンは何をするかを書く。
  */
-export function servedAppReplaceConfirm(view: ServeView): string {
-  const command = view.command ?? "";
-  if (view.kind === "unknown") {
-    return ["起動元不明のプロセスを停止して、この会話のサービスを起動します。", `起動コマンド: ${command}`].join("\n");
-  }
-  const title = view.ownerTitle ?? "別の会話";
-  return [`「${title}」のサービスを停止して、この会話のサービスを起動します。`, `起動コマンド: ${command}`].join("\n");
-}
-
-export function servedAppStartConfirm(view: ServeView, busy: ServeBusyKind | undefined): string | undefined {
-  const parts: string[] = [];
-  if (view.kind === "other" || view.kind === "unknown") parts.push(servedAppReplaceConfirm(view));
+export function servedAppStartConfirm(view: ServeView, busy: ServeBusyKind | undefined): ConfirmRequest | undefined {
+  const replace = view.kind === "other" || view.kind === "unknown";
+  const notes: string[] = [];
   if (busy === "self") {
-    parts.push("エージェントが実行中です。編集途中のファイルを読み込んだ状態で起動します。");
+    notes.push("エージェントが実行中です。編集途中のファイルを読み込んだ状態で起動します。");
   } else if (busy === "other") {
-    parts.push("同じ作業フォルダの他会話でエージェントが実行中です。編集途中のファイルを読み込んだ状態で起動します。");
+    notes.push("同じ作業フォルダの他会話でエージェントが実行中です。編集途中のファイルを読み込んだ状態で起動します。");
   }
-  return parts.length ? parts.join("\n\n") : undefined;
+  if (!replace && notes.length === 0) return undefined;
+  return {
+    kind: "confirm",
+    title: "サービスを起動",
+    body: replace
+      ? [
+          view.kind === "unknown"
+            ? "起動元不明のプロセスを停止して、この会話のサービスを起動します。"
+            : "他会話のサービスを停止して、この会話のサービスを起動します。",
+        ]
+      : [],
+    ...(view.kind === "other" && view.ownerTitle ? { subject: { label: "停止する会話", value: view.ownerTitle } } : {}),
+    ...(replace && view.command ? { code: { label: "起動コマンド", value: view.command } } : {}),
+    ...(notes.length > 0 ? { notes } : {}),
+    confirmLabel: replace ? "停止して起動" : "起動する",
+    danger: replace,
+  };
 }
 
 /** 置き換えの起動項目の説明文 (押す前の予告) */

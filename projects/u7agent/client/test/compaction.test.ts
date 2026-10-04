@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
-  compactConfirmMessage,
+  compactConfirmRequest,
   compactionDividerIndex,
   compactionDividerLabel,
   compactionHistoryLabel,
@@ -78,9 +78,13 @@ test("区切りの index は最新の 1 件の beforeMessageIndex だけから�
 // --- 手動圧縮の確認 ---
 
 test("手動圧縮の確認は、戻せないことと課金を押した時点で示す", () => {
-  const message = compactConfirmMessage();
+  const request = compactConfirmRequest();
+  const body = request.body?.join("\n") ?? "";
 
-  assert.ok(message.includes("元のメッセージは GUI から戻せません"), "不可逆性を示す");
-  assert.ok(message.includes("利用料金"), "課金を示す");
-  assert.ok(message.includes("続けますか"), "同意を問う");
+  assert.equal(request.kind, "confirm");
+  assert.equal(request.title, "会話を圧縮");
+  assert.equal(request.confirmLabel, "圧縮する");
+  assert.ok(request.danger, "取り消せない操作は danger にする");
+  assert.ok(body.includes("元のメッセージは GUI から戻せません"), "不可逆性を示す");
+  assert.ok(body.includes("利用料金"), "課金を示す");
 });

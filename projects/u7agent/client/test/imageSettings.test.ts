@@ -4,7 +4,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
-  deleteImageKeyConfirmMessage,
+  deleteImageKeyConfirmRequest,
   imageCatalogNotice,
   imageCatalogRefreshNote,
   imageKeyStatusBadge,
@@ -72,10 +72,13 @@ test("キー入力は保存に成功したときだけ消す", () => {
 });
 
 test("削除の確認は新しい会話への影響と既存の会話の失敗を伝える", () => {
-  const message = deleteImageKeyConfirmMessage();
-  assert.match(message, /削除します/);
-  assert.match(message, /新しい会話/);
-  assert.match(message, /キー無効エラー/);
+  const request = deleteImageKeyConfirmRequest("OpenRouter");
+  assert.deepEqual(request.subject, { label: "対象の provider", value: "OpenRouter" });
+  const body = request.body?.join("\n") ?? "";
+  assert.match(body, /新しい会話/);
+  assert.match(body, /キー無効エラー/);
+  assert.equal(request.confirmLabel, "削除する");
+  assert.ok(request.danger, "削除は danger にする");
 });
 
 test("キーの登録状態バッジと provider の id / 表示名", () => {

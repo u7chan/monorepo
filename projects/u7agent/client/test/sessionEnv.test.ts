@@ -19,6 +19,7 @@ import {
   sessionEnvScope,
   sessionEnvScopeFromKey,
   sessionEnvScopeKey,
+  secretDeleteConfirmRequest,
   sessionEnvTabs,
   SESSION_ENV_TABS,
   shortSecretNote,
@@ -140,4 +141,19 @@ test("要求元は会話があれば sessionId、未作成なら作成先プロ�
   assert.deepEqual(sessionEnvScope({ sessionId: "", projectId: "p1" }), { projectId: "p1" });
   // 未所属の新規会話は cwd が決まらないため出さない (タブの対象外)
   assert.equal(sessionEnvScope({ sessionId: "", projectId: "" }), null);
+});
+
+test("削除の確認は対象の名前を独立した行へ出し、シークレットは値が戻せないことを先に伝える", () => {
+  const secret = secretDeleteConfirmRequest(item({ kind: "secret", name: "OPENAI_API_KEY" }));
+  assert.equal(secret.title, "シークレットを削除");
+  assert.deepEqual(secret.subject, { label: "削除するシークレット", value: "OPENAI_API_KEY" });
+  assert.deepEqual(secret.body, ["保存した値は再取得できません。"]);
+  assert.equal(secret.confirmLabel, "削除する");
+  assert.ok(secret.danger, "削除は danger にする");
+
+  // 変数は値を読み直せるので、シークレットの注意は出さない
+  const variable = secretDeleteConfirmRequest(item({ kind: "variable", name: "LOG_LEVEL" }));
+  assert.equal(variable.title, "環境変数を削除");
+  assert.deepEqual(variable.subject, { label: "削除する変数", value: "LOG_LEVEL" });
+  assert.equal(variable.body, undefined);
 });

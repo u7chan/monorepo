@@ -11,6 +11,7 @@ globalThis.location ??= { origin: "http://localhost:3000", hostname: "localhost"
 const { fileRawUrl } = await import("../src/api");
 const { useMarkdownImageRawUrl } = await import("../src/hooks/useMarkdownImageRawUrl");
 const { FileBrowser } = await import("../src/components/FileBrowser");
+const { ConfirmProvider } = await import("../src/components/ConfirmProvider");
 
 const root = "image-refresh-test";
 const path = `${root}/cafe.png`;
@@ -74,7 +75,11 @@ test("実 Markdown と FileBrowser の配線: run 1 → パネル → run 2 → 
   }
   const chat = (runEndSeq: number) => imageUrl(renderToStaticMarkup(createElement(Chat, { runEndSeq })));
   const panel = (reloadToken: number) =>
-    imageUrl(renderToStaticMarkup(createElement(FileBrowser, { root, reloadToken, excludeNames: [] })));
+    imageUrl(
+      renderToStaticMarkup(
+        createElement(ConfirmProvider, null, createElement(FileBrowser, { root, reloadToken, excludeNames: [] })),
+      ),
+    );
   const urls = [chat(1), panel(1), chat(2), panel(2), panel(3), panel(2), panel(3)];
   assert.equal(new Set(urls).size, urls.length, "面の切替や mount 時の token リセットでも URL を再利用しない");
   const versions = urls.map((url) => Number(new URL(url).searchParams.get("v")));

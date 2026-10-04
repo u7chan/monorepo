@@ -16,10 +16,12 @@ import {
   initialDraftValue,
   sessionEnvScopeFromKey,
   sessionEnvScopeKey,
+  secretDeleteConfirmRequest,
   shortSecretNote,
 } from "../lib/sessionEnv";
 import type { SecretItem, SecretKind, SecretsListResponse } from "../types";
 import { CheckIcon, CopyIcon, EyeIcon, PlusIcon, RefreshIcon } from "./icons";
+import { useConfirm } from "./ConfirmProvider";
 import { RowMenu } from "./RowMenu";
 
 export type EnvVarsTabProps = {
@@ -45,6 +47,7 @@ function errorText(error: unknown): string {
  * 設計は docs/secrets.md、文言は client/src/lib/sessionEnv.ts を正とする。
  */
 export function EnvVarsTab({ scope, reloadToken }: EnvVarsTabProps) {
+  const confirm = useConfirm();
   const [list, setList] = useState<SecretsListResponse | null>(null);
   const [listError, setListError] = useState<string | null>(null);
   const [manualReload, setManualReload] = useState(0);
@@ -141,7 +144,7 @@ export function EnvVarsTab({ scope, reloadToken }: EnvVarsTabProps) {
   };
 
   const remove = async (item: SecretItem) => {
-    if (!window.confirm(`「${item.name}」を削除しますか？`)) return;
+    if (!(await confirm(secretDeleteConfirmRequest(item)))) return;
     setBusy(true);
     setFeedback(null);
     try {

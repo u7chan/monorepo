@@ -7,6 +7,7 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import test from "node:test";
 import { ImageSettingsTab } from "../src/components/model-settings/ImageSettingsTab";
+import { ConfirmProvider } from "../src/components/ConfirmProvider";
 import type { ImageSettingsResponse } from "../src/types";
 
 const MODELS = [
@@ -31,15 +32,20 @@ function render(
   overrides: Partial<ImageSettingsResponse> = {},
   saving: "key" | "delete" | "selection" | "catalog" | null = null,
 ): string {
+  // 確認ダイアログの provider は app の root が持つ (main.tsx)。ここでは描画だけを検査する
   return renderToStaticMarkup(
-    createElement(ImageSettingsTab, {
-      settings: settings(overrides),
-      saving,
-      onSaveKey: async () => true,
-      onDeleteKey: async () => true,
-      onSaveSelection: async () => true,
-      onRefreshCatalog: async () => true,
-    }),
+    createElement(
+      ConfirmProvider,
+      null,
+      createElement(ImageSettingsTab, {
+        settings: settings(overrides),
+        saving,
+        onSaveKey: async () => true,
+        onDeleteKey: async () => true,
+        onSaveSelection: async () => true,
+        onRefreshCatalog: async () => true,
+      }),
+    ),
   );
 }
 

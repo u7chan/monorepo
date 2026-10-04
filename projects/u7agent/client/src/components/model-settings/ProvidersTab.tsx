@@ -5,7 +5,7 @@ import {
   API_KEY_MIN_LENGTH,
   availableCountOf,
   degradedNotice,
-  deleteConfirmMessage,
+  deleteConfirmRequest,
   groupProviders,
   MEMO_MAX_LENGTH,
   providerAuthBadge,
@@ -16,6 +16,7 @@ import {
 } from "../../lib/modelSettings";
 import type { ModelsSettingsResponse, ProviderAuthSetting, RuntimeModelsResponse, SessionSummary } from "../../types";
 import { CheckIcon, KeyIcon, RefreshIcon, TrashIcon } from "../icons";
+import { useConfirm } from "../ConfirmProvider";
 import { ProviderIcon } from "../ProviderIcon";
 import { MetaChip } from "./MetaChip";
 import { ProviderBadgeTag } from "./ProviderBadgeTag";
@@ -254,6 +255,7 @@ function ProviderDetail({
   onChangeDraft: (provider: string, patch: Partial<ProviderDraft>) => void;
   onOpenModels: () => void;
 }) {
+  const confirm = useConfirm();
   // 入力値は親が持つ下書きから取る。このコンポーネントの再マウント (タブ切替・provider 切替) で失わない
   const draft = providerDraftOf(drafts, provider);
   const { apiKey, memo } = draft;
@@ -375,8 +377,10 @@ function ProviderDetail({
               className="btn-quiet"
               disabled={busy}
               onClick={() => {
-                if (!window.confirm(deleteConfirmMessage(provider.name))) return;
-                void onDelete(provider.provider);
+                void (async () => {
+                  if (!(await confirm(deleteConfirmRequest(provider.name)))) return;
+                  void onDelete(provider.provider);
+                })();
               }}
             >
               <TrashIcon />
