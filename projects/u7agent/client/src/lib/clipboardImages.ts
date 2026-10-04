@@ -3,7 +3,6 @@
  * 拡張子も保証されないため、保存名を MIME から組み直してから添付経路へ渡す。純関数だけを置く。
  */
 
-/** paste の `clipboardData` から読む分だけ（`DataTransferItemList` をそのまま渡せる） */
 export type ClipboardItemLike = {
   kind: string;
   type: string;
@@ -43,7 +42,7 @@ export function pastedImageName(extension: string, now: Date): string {
   return `pasted-${date}-${time}.${extension}`;
 }
 
-/** paste の `clipboardData` から画像だけを取り出し、保存名を揃えた `File` にして返す */
+/** `clipboardData` は paste の処理中しか読めないため、`getAsFile()` まで済ませて `File` を返す（呼び出し側は同期で呼ぶ） */
 export function pastedImageFiles(data: ClipboardDataLike | null | undefined, now: Date): File[] {
   const items = data?.items;
   if (!items || items.length === 0) return [];
