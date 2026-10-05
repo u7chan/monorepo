@@ -366,20 +366,23 @@ export type SessionFilesSheetProps = SessionFilesPanelProps & {
 
 export function SessionFilesSheet({ returnFocus, ...props }: SessionFilesSheetProps) {
   const dialogRef = useRef<HTMLDialogElement>(null);
+  // 閉じたときの戻り先。Effect の再実行 (StrictMode) は dialog が開いた後にも走るため、
+  // そこで activeElement (sheet の中の要素) を拾うと unmount 時に起点が消えている
+  const originRef = useRef<HTMLElement | null>(null);
 
   useEffect(() => {
     const dialog = dialogRef.current;
     if (!dialog) return;
-    // showModal は最初の操作要素へ focus を移すため、戻し先は showModal の前に決める
-    const origin = returnFocus ?? (document.activeElement as HTMLElement | null);
     if (!dialog.open) {
+      // showModal は最初の操作要素へ focus を移すため、戻し先は showModal の前に決める
+      originRef.current = returnFocus ?? (document.activeElement as HTMLElement | null);
       dialog.showModal();
     } else if (!dialog.contains(document.activeElement)) {
       dialog.focus();
     }
     return () => {
       // 起点がセッション切替などで消えていたら focus を移さない (body へ落とさない)
-      if (origin?.isConnected) origin.focus();
+      if (originRef.current?.isConnected) originRef.current.focus();
     };
   }, []);
 
