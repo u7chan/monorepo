@@ -835,10 +835,11 @@
     }
   }
 
-  /* ファイルツリーのディレクトリの開閉。details と違って開閉の状態は React が持ち、このクラスは高さの遷移だけを
-   * 担う。grid の行を 0fr → 1fr へ動かし、子を min-height / overflow で潰すので、`interpolate-size` を
-   * 使う details::details-content と違って値の幅 (auto 等) に依らず、閉じた枝を DOM に残したまま畳める。
-   * 閉じた枝を行から外す (inert) のはコンポーネント側 (data-open は真偽を持つ属性として置く)。 */
+  /* 折りたたみの高さの遷移 (ファイルツリーのディレクトリと、サイドバーのプロジェクト行)。details と違って
+   * 開閉の状態は React が持ち、このクラスは高さの遷移だけを担う。grid の行を 0fr → 1fr へ動かし、子を
+   * min-height / overflow で潰すので、`interpolate-size` を使う details::details-content と違って値の幅
+   * (auto 等) に依らず、閉じた枝を DOM に残したまま畳める。閉じた枝を行から外す (inert) のは
+   * コンポーネント側 (data-open は真偽を持つ属性として置く)。 */
   .tree-fold {
     display: grid;
     grid-template-rows: 0fr;
@@ -853,6 +854,27 @@
   }
   @media (prefers-reduced-motion: reduce) {
     .tree-fold {
+      transition: none;
+    }
+  }
+
+  /* サイドバーのプロジェクト行の配下リスト。行は高さの遷移のため DOM に残るので、開いた瞬間は高さだけが
+   * 動いて内容が硬く見える。少し遅らせて薄く出し (遅延は開く側だけ)、上へ逃がした分を入れ物のクリップで
+   * 隠す。値を含む理由は docs/ui-layout.md が正。 */
+  .project-fold-rows {
+    opacity: 0;
+    transform: translateY(-4px);
+    transition:
+      opacity 130ms ease-out,
+      transform 130ms ease-out;
+  }
+  .tree-fold[data-open="true"] .project-fold-rows {
+    opacity: 1;
+    transform: translateY(0);
+    transition-delay: 50ms;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .project-fold-rows {
       transition: none;
     }
   }

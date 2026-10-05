@@ -150,11 +150,11 @@ const session: SessionSummary = {
   projectId: "p-1",
 };
 
-function renderProjectRow(open: boolean): string {
+function renderProjectRow(open: boolean, sessions: SessionSummary[] = [session]): string {
   return renderToStaticMarkup(
     createElement(ProjectRow, {
       project,
-      sessions: [session],
+      sessions,
       agents: [],
       sessionId: "s-1",
       open,
@@ -168,16 +168,24 @@ function renderProjectRow(open: boolean): string {
   );
 }
 
-test("ProjectRow は畳みで aria-expanded=false になり、配下セッションを出さない", () => {
+test("ProjectRow は畳みで aria-expanded=false になり、配下セッションを操作させない", () => {
   const closed = renderProjectRow(false);
   assert.ok(closed.includes('aria-expanded="false"'), "畳みで aria-expanded が false でない");
-  assert.ok(!closed.includes("既存の会話"), "畳みで配下セッションを出している");
-  assert.ok(!closed.includes("セッションはありません"), "畳みで空の案内を出している");
+  assert.ok(closed.includes('data-open="false"'), "畳みで高さの遷移が閉じていない");
+  // 閉じている間も行は DOM に残す (高さの遷移の前の値が要る)。見えない行をフォーカスと読み上げの
+  // 対象に残さないことは inert が担う (FileBrowser の枝と同じ契約)
+  assert.match(closed, /data-open="false"[^>]*inert/, "畳みで配下セッションが inert でない");
   assert.ok(closed.includes('aria-label="hello の操作"'), "畳みの行に ⋯ (操作メニュー) が出ていない");
 
   const opened = renderProjectRow(true);
   assert.ok(opened.includes('aria-expanded="true"'), "展開で aria-expanded が true でない");
+  assert.ok(opened.includes('data-open="true"'), "展開で高さの遷移が開いていない");
+  assert.ok(!opened.includes("inert"), "展開でも inert が残っている");
   assert.ok(opened.includes("既存の会話"), "展開で配下セッションが出ない");
+
+  // 配下が空でも案内は入れ物に残し、開いたときに同じ遷移で出す
+  assert.ok(renderProjectRow(false, []).includes("セッションはありません"), "畳みで空の案内を落としている");
+  assert.ok(renderProjectRow(true, []).includes("セッションはありません"), "展開で空の案内が出ない");
 });
 
 test("登録解除の確認はプロジェクト名を独立した行へ出し、配下の停止を先に伝える", () => {
