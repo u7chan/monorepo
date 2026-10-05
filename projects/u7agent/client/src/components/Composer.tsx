@@ -21,7 +21,7 @@ import type { AgentDef, ContextUsage, ModelRef, RunStatus, ThinkingLevel } from 
 import { AgentField } from "./composer/AgentField";
 import { AttachmentChips } from "./composer/AttachmentChips";
 import { ComposerStatus } from "./composer/ComposerStatus";
-import { ModelEffortFields, ModelEffortToggle } from "./composer/ModelEffortControls";
+import { ModelEffortPicker } from "./composer/ModelEffortControls";
 import { SkillPicker } from "./composer/SkillPicker";
 
 export type ComposerProps = {
@@ -150,8 +150,6 @@ export function Composer({
   onReloadSkills,
 }: ComposerProps) {
   const compact = mode !== "desktop";
-  // landscape は横幅が余るので、設定を開いたときの高さを抑える
-  const landscape = mode === "landscape";
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const [value, setValue] = useState("");
@@ -177,8 +175,8 @@ export function Composer({
 
   // 送信経路は入力欄に限らない (ChatArea の suggestion も同じ送信)。畳む条件の根拠は docs/ui-layout.md
   useEffect(() => {
-    if (compact && sending) setSettingsOpen(false);
-  }, [compact, sending]);
+    if (sending) setSettingsOpen(false);
+  }, [sending]);
 
   // 送信の成立でスキルピッカーも畳む (compact で入力欄の上を覆い、生成中は操作しない)。畳む合図は
   // Model / Effort と同じ `sending` に寄せる (desktop も開いたままだと応答に被る)
@@ -296,7 +294,6 @@ export function Composer({
     submit();
   };
 
-  const notice = settings.modelWarning ?? settings.effortNotice;
   // 再実行の押せない理由は送信経路と同じガードから導く (実際に遮っているものだけを出す)
   const retryBlockedReason = runRetryBlockedReason({
     sending,
@@ -304,8 +301,6 @@ export function Composer({
     attachmentsBusy,
     runtimeReady,
   });
-  // Model / Effort は追加設定。Effort の注意書きは設定の中身なので、畳んでいるときはモデルが使えない警告だけを残す
-  const rowNotice = settingsOpen ? notice : settings.modelWarning;
   const stopButton = stopVisible ? (
     <button
       type="button"
@@ -318,10 +313,11 @@ export function Composer({
       {queueDepth > 0 ? `停止（待機${queueDepth}件）` : "停止"}
     </button>
   ) : null;
-  const collapsedWarnings = [
-    compact && !settingsOpen ? settings.modelWarning : undefined,
-    settings.sendBlockedReason,
-  ].filter((text): text is string => Boolean(text));
+  // モデルが使えない理由は、popover の開閉に関係なく入力欄の下へ残す。開いている間は popover の中にも
+  // 同じ文言を出すが、footnote の行を消すとコンポーザーの高さが動く (docs/ui-layout.md)。状態行の warn 色は気付きだけを示す
+  const footnoteWarnings = [settings.modelWarning, settings.sendBlockedReason].filter((text): text is string =>
+    Boolean(text),
+  );
 
   return (
     <footer
@@ -356,7 +352,7 @@ export function Composer({
         onDragLeave={() => setDropKind(null)}
         onDrop={handleDrop}
         className={cn(
-          // 単一列 Grid の auto 列は、行の中身 (モデルの select が持つ選択肢の幅) で form の外まで
+          // 単一列 Grid の auto 列は、行の中身の intrinsic 幅 (欄と textarea) で form の外まで
           // 伸びる。minmax(0, 1fr) で form 幅に拘束する (docs/ui-layout.md)
           "grid grid-cols-1 rounded-xl border bg-panel/90 shadow-panel",
           dropKind !== null ? "border-accent" : "border-line-strong",
@@ -371,7 +367,14 @@ export function Composer({
             sessionAgent={sessionAgent}
             onChangeAgent={onChangeAgent}
           />
-          <ModelEffortToggle open={settingsOpen} compact={compact} onToggle={() => setSettingsOpen((open) => !open)} />
+          <ModelEffortPicker
+            settings={settings}
+            compact={compact}
+            open={settingsOpen}
+            onOpenChange={setSettingsOpen}
+            onChangeModel={onChangeModel}
+            onChangeThinkingLevel={onChangeThinkingLevel}
+          />
           <SkillPicker
             state={skills}
             rootCwd={rootCwd}
@@ -381,41 +384,7 @@ export function Composer({
             onSelect={insertSkillCommand}
             onReload={onReloadSkills}
           />
-          {compact ? null : (
-            <>
-              {settingsOpen ? (
-                <ModelEffortFields
-                  settings={settings}
-                  compact={compact}
-                  onChangeModel={onChangeModel}
-                  onChangeThinkingLevel={onChangeThinkingLevel}
-                />
-              ) : null}
-              {rowNotice ? <span className="min-w-0 text-2xs break-words text-warn">{rowNotice}</span> : null}
-            </>
-          )}
         </div>
-        {compact && settingsOpen ? (
-          <div
-            className={cn(
-              // ここも auto 列だと select の選択肢の幅で box が広がり、中身が form の外へ出る
-              "grid gap-1.5 rounded-lg border border-line bg-soft px-2 py-2",
-              landscape ? "grid-cols-2" : "grid-cols-1",
-            )}
-          >
-            <ModelEffortFields
-              settings={settings}
-              compact={compact}
-              onChangeModel={onChangeModel}
-              onChangeThinkingLevel={onChangeThinkingLevel}
-            />
-            {notice ? (
-              <span className={cn("min-w-0 text-2xs break-words text-warn", landscape ? "col-span-2" : "")}>
-                {notice}
-              </span>
-            ) : null}
-          </div>
-        ) : null}
         <AttachmentChips attachments={attachments} rootCwd={rootCwd} compact={compact} onRemove={onRemoveAttachment} />
         <div className={cn("flex items-end", compact ? "gap-2" : "gap-2.5")}>
           <textarea
@@ -486,10 +455,10 @@ export function Composer({
         </div>
       </form>
       {compact ? (
-        collapsedWarnings.length > 0 || stopVisible ? (
+        footnoteWarnings.length > 0 || stopVisible ? (
           <div className="flex items-center justify-end gap-2 px-1 pt-1.5 text-2xs text-ink-ghost">
-            {collapsedWarnings.length > 0 ? (
-              <span className="mr-auto min-w-0 break-words text-warn">{collapsedWarnings.join(" / ")}</span>
+            {footnoteWarnings.length > 0 ? (
+              <span className="mr-auto min-w-0 break-words text-warn">{footnoteWarnings.join(" / ")}</span>
             ) : null}
             {stopButton}
           </div>
@@ -498,7 +467,9 @@ export function Composer({
         <div className="flex items-start justify-between gap-2.5 px-1 pt-2 text-2xs text-ink-ghost">
           <span className="min-w-0 break-words">
             送信後もブラウザを閉じても処理は続きます
-            {settings.sendBlockedReason ? <span className="ml-1 text-warn">{settings.sendBlockedReason}</span> : null}
+            {footnoteWarnings.length > 0 ? (
+              <span className="ml-1 text-warn">{footnoteWarnings.join(" / ")}</span>
+            ) : null}
           </span>
           {stopButton}
         </div>
