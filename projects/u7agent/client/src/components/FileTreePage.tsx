@@ -2,7 +2,7 @@ import { useState } from "react";
 import { FILE_TREE_ROOT, normalizeFileTreeRoot } from "../lib/fileTree";
 import { FileBrowser } from "./FileBrowser";
 import { SettingsPageLayout, type SettingsPageProps } from "./SettingsPageLayout";
-import { RefreshIcon } from "./icons";
+import { ReloadButton } from "./ReloadButton";
 
 export type FileTreePageProps = SettingsPageProps & {
   /** ワークスペース root 相対 ("" や絶対パスは root へ畳まれる) */
@@ -43,12 +43,7 @@ export function FileTreePage({
       compact={compact}
       onOpenNav={onOpenNav}
       onBack={onBack}
-      actions={
-        <button type="button" onClick={() => setReloadToken((token) => token + 1)} className="btn-quiet">
-          <RefreshIcon />
-          再読み込み
-        </button>
-      }
+      actions={<ReloadButton onClick={() => setReloadToken((token) => token + 1)}>再読み込み</ReloadButton>}
     >
       <FileBrowser
         root={rootPath}

@@ -12,7 +12,8 @@ import {
 } from "../../lib/runRetry";
 import { contextGauge } from "../../lib/usageFormat";
 import type { ContextUsage, RunStatus } from "../../types";
-import { CompactIcon, RefreshIcon, RunSpinnerIcon } from "../icons";
+import { CompactIcon, RunSpinnerIcon } from "../icons";
+import { ReloadButton } from "../ReloadButton";
 
 /**
  * 入力欄の上の状態行 (活動 / モデル - Effort / Context ゲージ)。
@@ -121,16 +122,14 @@ export function ComposerStatus({
               )}
             </div>
           </div>
-          <button
-            type="button"
+          <ReloadButton
             onClick={onRetry}
             disabled={retryDisabled}
             aria-describedby={retryBlocked ? reasonId : undefined}
-            className={cn("btn-quiet", compact && "w-full")}
+            className={cn(compact && "w-full")}
           >
-            <RefreshIcon />
             {compact ? RUN_RETRY_LABEL_COMPACT : RUN_RETRY_LABEL}
-          </button>
+          </ReloadButton>
         </div>
       ) : null}
       <div className="flex min-h-5.25 flex-wrap items-center justify-end gap-x-2 gap-y-0.5 px-1 pb-1.5 text-1xs text-ink-muted">

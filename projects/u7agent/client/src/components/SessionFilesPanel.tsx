@@ -15,7 +15,8 @@ import { useGitBranch } from "../hooks/useGitBranch";
 import { EnvVarsTab } from "./EnvVarsTab";
 import { FileBrowser } from "./FileBrowser";
 import { GitBranchBadge } from "./GitBranchBadge";
-import { CloseIcon, RefreshIcon } from "./icons";
+import { CloseIcon } from "./icons";
+import { ReloadButton } from "./ReloadButton";
 
 export type SessionFilesPanelProps = {
   /** 作業フォルダ (ワークスペース root 相対)。パネル / シートの root */
@@ -113,10 +114,7 @@ function SessionFilesContent({
               {/* repo の外では出さない (ブランチは一覧の表示を止める情報ではない) */}
               {branch ? <GitBranchBadge branch={branch} /> : null}
             </div>
-            <button type="button" onClick={() => setManualReload((count) => count + 1)} className="btn-quiet">
-              <RefreshIcon />
-              再読み込み
-            </button>
+            <ReloadButton onClick={() => setManualReload((count) => count + 1)}>再読み込み</ReloadButton>
           </div>
           {/* compact の sheet は全画面 modal で、入力欄へドロップできない */}
           <FileBrowser

@@ -170,7 +170,7 @@ test("描画: 回復し得る失敗ではカードを状態行の上に出し、
     assert.ok(html.includes("前回の続きから送信します"), "デスクトップは補助行で送信内容を示す");
     const button = /<button[^>]*>.*?<\/button>/s.exec(html)?.[0] ?? "";
     assert.ok(button.includes(">再実行<"), "デスクトップのラベルは補助行の分だけ短くする");
-    assert.ok(button.includes("<svg"), "押すと何が起きるかを更新アイコンで示す (RefreshIcon)");
+    assert.ok(button.includes("<svg"), "押すと何が起きるかを取り直しのアイコンで示す (ReloadButton)");
     assert.ok(!html.includes('role="alert"'), "同じ文言を RuntimeAlert と二重に読み上げない");
     assert.ok(html.indexOf(failure.text) < html.indexOf("GLM-5.3 Flash"), "状態行 (モデル / ゲージ) の上に置く");
   }

@@ -20,7 +20,8 @@ import {
   shortSecretNote,
 } from "../lib/sessionEnv";
 import type { SecretItem, SecretKind, SecretsListResponse } from "../types";
-import { CheckIcon, CopyIcon, EyeIcon, PlusIcon, RefreshIcon } from "./icons";
+import { CheckIcon, CopyIcon, EyeIcon, PlusIcon } from "./icons";
+import { ReloadButton } from "./ReloadButton";
 import { useConfirm } from "./ConfirmProvider";
 import { RowMenu } from "./RowMenu";
 
@@ -192,10 +193,7 @@ export function EnvVarsTab({ scope, reloadToken }: EnvVarsTabProps) {
             追加
           </button>
         )}
-        <button type="button" onClick={reload} className="btn-quiet">
-          <RefreshIcon />
-          再読み込み
-        </button>
+        <ReloadButton onClick={reload}>再読み込み</ReloadButton>
       </div>
 
       <div className="grid gap-2 px-4 py-3">

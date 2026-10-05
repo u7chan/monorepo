@@ -5,6 +5,7 @@ import { DiscordCard } from "./notifications/DiscordCard";
 import { LinkCard } from "./notifications/LinkCard";
 import { MessageCard } from "./notifications/MessageCard";
 import { TestSendCard } from "./notifications/TestSendCard";
+import { ReloadButton } from "./ReloadButton";
 import { SettingsPageLayout, type SettingsPageProps } from "./SettingsPageLayout";
 
 export type NotificationSettingsPageProps = SettingsPageProps & {
@@ -74,9 +75,7 @@ export function NotificationSettingsPage({
               {note.error ? (
                 <>
                   <p role="alert">通知の設定を読み込めませんでした。</p>
-                  <button type="button" className="btn-quiet" onClick={() => void reload()}>
-                    再読み込み
-                  </button>
+                  <ReloadButton onClick={() => void reload()}>再読み込み</ReloadButton>
                 </>
               ) : (
                 <p role="status">通知の設定を読み込んでいます。</p>

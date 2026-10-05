@@ -13,7 +13,7 @@ import {
 } from "../lib/modelSettings";
 import { DEFAULT_MODELS_SUBSECTION, MODELS_SUBSECTIONS, type ModelsSubsection } from "../lib/settingsNav";
 import type { Health, SessionSummary } from "../types";
-import { RefreshIcon } from "./icons";
+import { ReloadButton } from "./ReloadButton";
 import { ModelsTab } from "./model-settings/ModelsTab";
 import { ImageSettingsTab } from "./model-settings/ImageSettingsTab";
 import { ProvidersTab } from "./model-settings/ProvidersTab";
@@ -139,15 +139,9 @@ export function ModelSettingsView({
       title="モデル"
       caption="使うモデルと、プロバイダーごとのAPIキー、画像生成の設定をします。保存した内容は再起動後も使われます。"
       actions={
-        <button
-          type="button"
-          className="btn-quiet"
-          onClick={() => void Promise.all([reload(), imageSettings.reload()])}
-          disabled={activeReloading}
-        >
-          <RefreshIcon />
+        <ReloadButton onClick={() => void Promise.all([reload(), imageSettings.reload()])} disabled={activeReloading}>
           再読み込み
-        </button>
+        </ReloadButton>
       }
       tabs={
         <div role="tablist" aria-label="モデルの設定" className="flex shrink-0 gap-1 border-b border-line px-4">
@@ -250,10 +244,9 @@ function SettingsPlaceholder({
           {note.error ? (
             <>
               <p role="alert">{label}を読み込めませんでした。</p>
-              <button type="button" className="btn-quiet" onClick={onReload} disabled={reloading}>
-                <RefreshIcon />
+              <ReloadButton onClick={onReload} disabled={reloading}>
                 再読み込み
-              </button>
+              </ReloadButton>
             </>
           ) : (
             <p role="status">{label}を読み込んでいます。</p>
