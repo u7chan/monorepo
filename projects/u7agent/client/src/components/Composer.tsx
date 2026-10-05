@@ -313,10 +313,10 @@ export function Composer({
       {queueDepth > 0 ? `停止（待機${queueDepth}件）` : "停止"}
     </button>
   ) : null;
-  // ピッカーを畳んでいるときだけ、モデルが使えない理由を入力欄の下へ残す (開いている間はポップアップの中に出る)。
-  // 警告があることは状態行の warn 色が示す (色は気付き、文は理由。docs/ui-layout.md)
-  const collapsedWarnings = [settingsOpen ? undefined : settings.modelWarning, settings.sendBlockedReason].filter(
-    (text): text is string => Boolean(text),
+  // モデルが使えない理由は、popover の開閉に関係なく入力欄の下へ残す。開いている間は popover の中にも
+  // 同じ文言を出すが、footnote の行を消すとコンポーザーの高さが動く (docs/ui-layout.md)。状態行の warn 色は気付きだけを示す
+  const footnoteWarnings = [settings.modelWarning, settings.sendBlockedReason].filter((text): text is string =>
+    Boolean(text),
   );
 
   return (
@@ -455,10 +455,10 @@ export function Composer({
         </div>
       </form>
       {compact ? (
-        collapsedWarnings.length > 0 || stopVisible ? (
+        footnoteWarnings.length > 0 || stopVisible ? (
           <div className="flex items-center justify-end gap-2 px-1 pt-1.5 text-2xs text-ink-ghost">
-            {collapsedWarnings.length > 0 ? (
-              <span className="mr-auto min-w-0 break-words text-warn">{collapsedWarnings.join(" / ")}</span>
+            {footnoteWarnings.length > 0 ? (
+              <span className="mr-auto min-w-0 break-words text-warn">{footnoteWarnings.join(" / ")}</span>
             ) : null}
             {stopButton}
           </div>
@@ -467,8 +467,8 @@ export function Composer({
         <div className="flex items-start justify-between gap-2.5 px-1 pt-2 text-2xs text-ink-ghost">
           <span className="min-w-0 break-words">
             送信後もブラウザを閉じても処理は続きます
-            {collapsedWarnings.length > 0 ? (
-              <span className="ml-1 text-warn">{collapsedWarnings.join(" / ")}</span>
+            {footnoteWarnings.length > 0 ? (
+              <span className="ml-1 text-warn">{footnoteWarnings.join(" / ")}</span>
             ) : null}
           </span>
           {stopButton}
