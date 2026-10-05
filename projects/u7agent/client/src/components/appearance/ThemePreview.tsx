@@ -7,8 +7,15 @@ import type { ThemeId } from "../../theme/themes";
  * 中身は装飾なので、読み上げはカード側のラベルに任せる。
  */
 export function ThemePreview({ themeId }: { themeId: ThemeId }) {
+  // text-ink は継承色をプレビュー自身のテーマへ向け直すため。`.tok-*` を持たない素の文字
+  // (コード行の `x` など) は画面側テーマの body 色を継承し、自分の背景に対してコントラストが崩れる
+  // (テーマの組み合わせ次第で 2:1 を切る)。
   return (
-    <div data-theme={themeId} aria-hidden="true" className="overflow-hidden rounded-md border border-line bg-base">
+    <div
+      data-theme={themeId}
+      aria-hidden="true"
+      className="overflow-hidden rounded-md border border-line bg-base text-ink"
+    >
       {/* トップバー */}
       <div className="flex h-4 items-center gap-1 border-b border-line bg-panel px-1.5">
         <span className="size-1.5 rounded-full bg-accent" />
