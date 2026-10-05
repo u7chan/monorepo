@@ -130,11 +130,13 @@
 }
 
 /* テーマプリセット。--c-focus は線・リング専用で、面用途の --c-accent を明るいまま残しつつ、
- * 各プリセットで隣接面 (base / panel / raised / soft) に対して 3:1 以上 (WCAG 1.4.11) を満たす値にする。 */
+ * 各プリセットで隣接面 (base / panel / raised / soft) に対して 3:1 以上 (WCAG 1.4.11) を満たす値にする。
+ * セレクタは html に限定しない: テーマの一覧 (components/appearance) がプレビューの要素へ
+ * data-theme を置き、その配下だけを別テーマで描くため。 */
 
 /* ミッドナイト: 濃紺×ヴァイオレット (デフォルト) */
 :root,
-html[data-theme="midnight"] {
+[data-theme="midnight"] {
   color-scheme: dark;
   --c-base: #0d1016;
   --c-panel: #11151d;
@@ -176,7 +178,7 @@ html[data-theme="midnight"] {
 }
 
 /* デイライト: 明るいブルーグレー×インディゴヴァイオレット */
-html[data-theme="daylight"] {
+[data-theme="daylight"] {
   color-scheme: light;
   --c-base: #eef0f6;
   --c-panel: #f8f9fc;
@@ -218,7 +220,7 @@ html[data-theme="daylight"] {
 }
 
 /* モカ: 暖色茶×琥珀 */
-html[data-theme="mocha"] {
+[data-theme="mocha"] {
   color-scheme: dark;
   --c-base: #171210;
   --c-panel: #1f1915;
@@ -260,7 +262,7 @@ html[data-theme="mocha"] {
 }
 
 /* フォレスト: 深緑×緑 */
-html[data-theme="forest"] {
+[data-theme="forest"] {
   color-scheme: dark;
   --c-base: #0c1310;
   --c-panel: #111a15;
@@ -302,7 +304,7 @@ html[data-theme="forest"] {
 }
 
 /* サクラ: 明るい桜色×ローズ */
-html[data-theme="sakura"] {
+[data-theme="sakura"] {
   color-scheme: light;
   --c-base: #faf3f5;
   --c-panel: #fffbfc;
@@ -344,7 +346,7 @@ html[data-theme="sakura"] {
 }
 
 /* スカイ: 明るい空色×シアン */
-html[data-theme="sky"] {
+[data-theme="sky"] {
   color-scheme: light;
   --c-base: #e9f4fb;
   --c-panel: #f8fcfe;

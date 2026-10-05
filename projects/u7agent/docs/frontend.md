@@ -13,7 +13,8 @@
 
 ## テーマシステム
 
-- テーマは `html` 要素の `data-theme` 属性で決定し、各プリセットが CSS 変数（`--c-*`）を定義する。Tailwind v4 の `@theme inline` で CSS 変数をセマンティックトークンにマップし、コンポーネントはトークンクラス（背景色・文字色など）だけで書く。プリセットの再配色は CSS 変数定義だけで完結するが、テーマの**追加**は CSS 変数（`html[data-theme]` プリセットと `.theme-swatch`）に加えて `client/src/theme/themes.ts` の `THEMES` と `client/public/theme-init.js` の id 配列も更新する（初期化スクリプトの解決結果と CSS の registry の対応を `client/test/themeSync.test.ts` が検査する）。
+- テーマは画面全体では `html` 要素の `data-theme` 属性で決定し、各プリセットが CSS 変数（`--c-*`）を定義する。Tailwind v4 の `@theme inline` で CSS 変数をセマンティックトークンにマップし、コンポーネントはトークンクラス（背景色・文字色など）だけで書く。プリセットのセレクタは `html` に限定せず `[data-theme]` に当たるため、要素に `data-theme` を置けばその配下だけを別テーマで描ける。設定 → 外観のテーマ一覧（`client/src/components/appearance/`）はこの仕組みで各テーマの実配色プレビューを並べ、テーマごとの色定義を持たない。プリセットの再配色は CSS 変数定義だけで完結するが、テーマの**追加**は CSS 変数（`[data-theme]` プリセットと `.theme-swatch`）に加えて `client/src/theme/themes.ts` の `THEMES` と `client/public/theme-init.js` の id 配列も更新する（初期化スクリプトの解決結果と CSS の registry の対応を `client/test/themeSync.test.ts` が検査する）。
+- 設定 → 外観は、テーマ選択（`ThemeSwitcher`）と 6 テーマのプレビュー一覧（`ThemeGallery`）を持つ。プレビューはトップバー / 左バー / メッセージ / コード / 入力欄の縮小画面で、カードを押すとそのテーマを選ぶ（適用と保存は選択欄と同じ経路なので、両者の表示は必ず一致する）。選択の表示（`aria-pressed` とチェック）は「システムに従う」で解決されたテーマではなく選んだ値に合わせる（従属で光るカードが移るのを避ける）。
 - アクセントは面用途（`--c-accent` / `--c-accent-bright`。送信ボタン・自分の発言バブル・テーマの色見本）と線・リング用途（`--c-focus`。入力欄の focus 枠・`focus-visible` リング・アクティブタブの下線・checkbox）でトークンを分ける。面用途は明るいまま、`--c-focus` は各プリセットで隣接面に対して 3:1 以上（WCAG 1.4.11）を満たす値にする。
 - 文字サイズは Tailwind 既定の段（`xs`=12px / `sm`=14px / `base`=16px）に加えて、小さい側の段を `@theme` に定義する（`--text-3xs`=9px / `--text-2xs`=10px / `--text-1xs`=11px / `--text-1sm`=13px / `--text-md`=16px）。数字が大きいほど小さい t-shirt 記法で、トークンはフォントサイズだけを持ち行間は使う側の `leading-*` が決める。`text-base` は色トークン `--color-base` が取るため使えない（フォントサイズではなく色になる）。uppercase の小見出しの字間は `--tracking-label`（0.14em）に集約する。
 - プリセットは 6 種類（ミッドナイト / デイライト / モカ / フォレスト / サクラ / スカイ）に加え、`prefers-color-scheme` に追従する「システム」を選択できる。
