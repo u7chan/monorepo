@@ -10,7 +10,7 @@ const PROVIDER_ICON_KEYS: Record<string, ProviderIconKey> = {
   "amazon-bedrock": "bedrock",
   "ant-ling": "antgroup",
   anthropic: "anthropic",
-  "azure-openai-responses": "azure",
+  azure: "azure",
   baseten: "baseten",
   cerebras: "cerebras",
   "cloudflare-ai-gateway": "cloudflare",
