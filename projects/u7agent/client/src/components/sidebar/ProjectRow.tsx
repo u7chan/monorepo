@@ -33,7 +33,7 @@ export function ProjectRow({
   const handlers: Record<ProjectRowKind, () => void> = { "new-chat": onNewChat, delete: onDelete };
 
   return (
-    <div className="grid gap-1">
+    <div>
       {/* 行のクリックは折りたたみのトグル。選択ハイライトは持たず (作成先は ⋯ の「このプロジェクトに新しい会話」と
           追加の成功後が明示する)、開いているセッションの行だけを強調する */}
       <div className="group flex min-h-10.5 items-center gap-1 rounded-lg border border-transparent pr-1.5 transition-colors hover:bg-hover">
@@ -53,25 +53,31 @@ export function ProjectRow({
         </button>
         <RowMenu name={project.name} actions={projectRowActions()} onSelect={(kind) => handlers[kind]()} />
       </div>
-      {open ? (
-        sessions.length === 0 ? (
-          <div className="ml-3 border-l border-line py-1 pl-2 text-1xs text-ink-faint">セッションはありません</div>
-        ) : (
-          <div className="ml-3 grid gap-1 border-l border-line pl-1.5">
-            {sessions.map((item) => (
-              <SessionRow
-                key={item.sessionId}
-                item={item}
-                agents={agents}
-                active={item.sessionId === sessionId}
-                onSelect={() => onSelectSession(item.sessionId)}
-                onRename={() => onRenameSession(item.sessionId)}
-                onDelete={() => onDeleteSession(item.sessionId)}
-              />
-            ))}
+      {/* 開閉は高さの遷移で見せる (styles/index.css の .tree-fold)。入れ物は開く前から置くので、
+          初めて開くプロジェクトも 0fr から伸びる。行の間隔 (mt-1) も遷移の内側に置く: 外側の gap は
+          畳んだ入れ物 (高さ 0) にも空く。閉じている間は inert にして、見えない行をフォーカスと読み上げの
+          対象に残さない (FileBrowser の枝と同じ) */}
+      <div className="tree-fold ml-3" data-open={open} inert={!open}>
+        <div>
+          <div className="project-fold-rows mt-1 grid gap-1 border-l border-line pl-1.5">
+            {sessions.length === 0 ? (
+              <div className="py-1 pl-0.5 text-1xs text-ink-faint">セッションはありません</div>
+            ) : (
+              sessions.map((item) => (
+                <SessionRow
+                  key={item.sessionId}
+                  item={item}
+                  agents={agents}
+                  active={item.sessionId === sessionId}
+                  onSelect={() => onSelectSession(item.sessionId)}
+                  onRename={() => onRenameSession(item.sessionId)}
+                  onDelete={() => onDeleteSession(item.sessionId)}
+                />
+              ))
+            )}
           </div>
-        )
-      ) : null}
+        </div>
+      </div>
     </div>
   );
 }
