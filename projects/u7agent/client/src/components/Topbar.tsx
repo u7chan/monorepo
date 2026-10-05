@@ -3,9 +3,10 @@ import type { ChatScope } from "../lib/chatScope";
 import type { RuntimeStatus } from "../hooks/runtimeStatus";
 import { servedAppErrorText } from "../lib/servedApp";
 import { NotifyNote } from "./NotifyNote";
+import { NotifyBell } from "./NotifyBell";
 import { RuntimeAlert } from "./RuntimeAlert";
 import { ServedAppGroup, type ServedAppProps } from "./ServedAppStatus";
-import { BellIcon, FolderIcon, MenuIcon } from "./icons";
+import { FolderIcon, MenuIcon } from "./icons";
 
 export type TopbarProps = {
   /** 作業先。プロジェクト名 (引けなければ「未所属」) と、チップの title に出す作業フォルダ */
@@ -14,10 +15,17 @@ export type TopbarProps = {
   serve: ServedAppProps;
   runtimeStatus: RuntimeStatus;
   /**
-   * 会話の通知トグル。deliverable は今の On が実際に送られるか (色とラベルの根拠)。
-   * note は配信できない理由で、On の間は常に、Off では押した後に出る
+   * 会話の通知トグル。ring は押して On にした回数 (ベルの演出の世代)、deliverable は今の On が実際に
+   * 送られるか (色とラベルの根拠)。note は配信できない理由で、On の間は常に、Off では押した後に出る
    */
-  notify: { on: boolean; note?: string; deliverable: boolean; onToggle: () => void; onOpenSettings?: () => void };
+  notify: {
+    on: boolean;
+    ring: number;
+    note?: string;
+    deliverable: boolean;
+    onToggle: () => void;
+    onOpenSettings?: () => void;
+  };
   /** 右パネル (作業環境) のトグル。root が決まらないときは渡さない */
   sessionFiles?: { open: boolean; onToggle: () => void };
   /** 左バーが overlay のときだけ渡す (docked では左バーが常駐するので ☰ を出さない) */
@@ -69,7 +77,7 @@ export function Topbar({ scope, serve, runtimeStatus, notify, sessionFiles, nav 
             onClick={notify.onToggle}
             className={cn("btn-quiet shrink-0", delivering && "border-accent/50 text-accent-text")}
           >
-            <BellIcon ringing={notify.on} />
+            <NotifyBell ringing={notify.on} ring={notify.ring} />
             {notifyLabel}
           </button>
           {sessionFiles ? (

@@ -123,6 +123,8 @@ export default function App() {
   }
   // 配信できない設定で通知を On にしようとしたか。押した後だけ出す注記の根拠で、会話を移ったら捨てる
   const [notifyAttempted, setNotifyAttempted] = useState(false);
+  // 押して On にした回数 (ベルの演出の世代)。会話の切替 / リロードで値が On に上がるだけでは進めない
+  const [notifyRing, setNotifyRing] = useState(0);
   const sidebarMode: SidebarMode = route.view === "settings" ? "settings" : "nav";
   // URL にセクションが無いときだけ「最後に開いていたセクション」を見せる (URL の指定を上書きしない)
   const settingsSection: SettingsSection = route.view === "settings" ? route.section : lastSettingsSection;
@@ -227,6 +229,9 @@ export default function App() {
       return;
     }
     setNotifyAttempted(false);
+    // ベルを鳴らすのは押して On にしたときだけ。Off への切替と、値が On へ上がるだけの経路
+    // (会話の切替 / リロード / deep link の解決) では世代を進めない
+    if (!app.notify) setNotifyRing((seq) => seq + 1);
     void app.toggleNotify();
   }, [app]);
 
@@ -337,6 +342,7 @@ export default function App() {
   // deliverable (色とラベルの根拠) と notifyCannotEnable (押下を止める根拠) を混ぜない
   const notifyToggle = {
     on: app.notify,
+    ring: notifyRing,
     note: notifyUnavailableNote(app.notify, app.notifications.settings, notifyAttempted),
     deliverable: notifyDeliverable(app.notifications.settings),
     onToggle: handleToggleNotify,
