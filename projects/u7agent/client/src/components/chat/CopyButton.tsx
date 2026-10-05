@@ -41,7 +41,8 @@ function CheckIcon() {
       strokeLinejoin="round"
       className="size-3.5"
     >
-      <path d="M3.5 8.5 6.75 11.5 12.5 4.75" />
+      {/* 経路の長さを知らずに CSS の dash で書き出せるよう、pathLength を 1 に固定する */}
+      <path className="copy-check-mark" pathLength={1} d="M3.5 8.5 6.75 11.5 12.5 4.75" />
     </svg>
   );
 }
