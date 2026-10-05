@@ -1,6 +1,6 @@
 # チャット本文の Markdown 描画
 
-assistant の本文 (`MessageView`) に含まれる Markdown を、外部ライブラリを足さずに描画する。解析は `client/src/lib/markdown/` の純関数、描画は `client/src/components/markdown/` の React 要素が持つ。見た目とテーマ / CSP の前提は [frontend.md](frontend.md)、検証コマンドは [../AGENTS.md](../AGENTS.md) を参照する。
+assistant の本文 (`MessageView`) に含まれる Markdown を、外部ライブラリを足さずに描画する。解析は `client/src/lib/markdown/` の純関数、描画は `client/src/components/markdown/` の React 要素が持つ。ファイルプレビューの `.md` も同じ `MarkdownView` を使い、画像の解決基準だけを差し替える（[file-preview.md](file-preview.md#markdown-プレビュー)）。見た目とテーマ / CSP の前提は [frontend.md](frontend.md)、検証コマンドは [../AGENTS.md](../AGENTS.md) を参照する。
 
 ## 原則
 
@@ -13,7 +13,7 @@ assistant の本文 (`MessageView`) に含まれる Markdown を、外部ライ�
 ## パイプライン
 
 ```
-MessageView (assistant の本文)
+MessageView (assistant の本文) / FilePreview (ファイルの Markdown プレビュー)
   └─ MarkdownView          text → MdBlock[]        lib/markdown/parse.ts
         ├─ コードフェンス → MdToken[]              lib/markdown/highlight.ts
         ├─ 図フェンス → SvgModel                   lib/markdown/diagram.ts
@@ -118,6 +118,8 @@ assistant 本文の `![alt](src)` は、次の 3 段で配信 URL へ解決す�
 - `Cache-Control: no-store` でも同一 document 内の同じ画像 URL は再取得されないため、この版で URL を変える。ファイル単位の版ではなくセッション単位なので、run 終了ごとに表示中の履歴画像も取り直す。完全なスナップショットは持たず、生成時点の表示を保つには[一意ファイルを残す運用](image-generation.md#会話履歴を保つ生成手順)を使う
 - 外部 URL / `..` / cwd 外の絶対パス / 拡張子のない字面は `resolveFileRef` が解決せず、素の `src` のままになる（外部の画像は `safeUrl` がパース段階で弾き、Markdown の原文表示に落ちる）。**共通スキル配下の絶対パスも `resolveFileRef` のままでは不採用**（cwd 外のため）で、画像としては描画されない
 - リンクの中の画像（`[![alt](img)](url)` など）は従来どおり素の `img` で、クリック拡大の対象外
+
+**ファイルプレビュー（`.md` タブ）は基準が違う**。`MarkdownImageProvider` の代わりに同じ context を `MarkdownFileImageProvider`（`dir` + `rawUrl`）で包み、相対 `src` を**表示中のファイルのディレクトリ基準**で root 相対へ解決する（`client/src/lib/markdownAsset.ts` の `resolveMarkdownAssetPath`。詳細と制限は [file-preview.md](file-preview.md#markdown-プレビュー)）。先頭の `/` はワークスペース root からの絶対パスで、`..` は workspace root で止める。
 
 ## 解析の上限（ストリーミング対策）
 

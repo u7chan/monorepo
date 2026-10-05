@@ -4,7 +4,7 @@
  */
 
 import { isImageName } from "./attachments";
-import { isHtmlPath } from "./fileCode";
+import { isHtmlPath, isMarkdownPath } from "./fileCode";
 
 /**
  * 同時に開けるタブ数。超えたら最も古いタブを閉じる。
@@ -12,19 +12,20 @@ import { isHtmlPath } from "./fileCode";
  */
 export const FILE_TAB_LIMIT = 8;
 
-/** タブごとの表示の切替。ソース (行番号付きの本文) か、HTML を描画したプレビューか */
+/** タブごとの表示の切替。ソース (行番号付きの本文) か、HTML / Markdown を描画したプレビューか */
 export type PreviewMode = "source" | "preview";
 
 /** タブごとに保持する表示モード。キーはページ root 相対パス */
 export type PreviewModes = Record<string, PreviewMode>;
 
 /**
- * タブの表示モード。既定は HTML (iframe) と画像 (raw の `<img>`) がプレビューで、他の拡張子はソース。
- * 本文と同じく own property だけを見る (`constructor` や `__proto__` のような名前のパスを「選択済み」と誤認しないため)。
+ * タブの表示モード。既定は HTML (iframe)・Markdown (`MarkdownView`)・画像 (raw の `<img>`) がプレビューで、
+ * 他の拡張子はソース。本文と同じく own property だけを見る (`constructor` や `__proto__` のような名前のパスを
+ * 「選択済み」と誤認しないため)。
  */
 export function previewModeFor(modes: PreviewModes, path: string): PreviewMode {
   const mode = Object.hasOwn(modes, path) ? modes[path] : undefined;
-  return mode ?? (isHtmlPath(path) || isImageName(path) ? "preview" : "source");
+  return mode ?? (isHtmlPath(path) || isMarkdownPath(path) || isImageName(path) ? "preview" : "source");
 }
 
 /** 表示モードを選び直す。computed key で書く (own property になり、`__proto__` でもプロトタイプを書き換えない) */

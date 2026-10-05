@@ -1,10 +1,10 @@
-import { useEffect, useMemo, useRef, useState, type MouseEvent, type Ref } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent, type Ref } from "react";
 import { fileHtmlPreviewUrl, fileRawUrl, fileStoragePreviewUrl, getFilePreview } from "../api";
 import { useMessageCopy } from "../hooks/useMessageCopy";
 import { isImageName } from "../lib/attachments";
 import { cn } from "../lib/cn";
 import { lineNumbers } from "../lib/codeLines";
-import { buildPreviewCode, isHtmlPath, previewCopyText } from "../lib/fileCode";
+import { buildPreviewCode, isHtmlPath, isMarkdownPath, previewCopyText } from "../lib/fileCode";
 import { filePreviewErrorHint } from "../lib/filePreviewError";
 import {
   dropClosedPreviews,
@@ -19,8 +19,9 @@ import {
   type PreviewOrigins,
   type PreviewResults,
 } from "../lib/fileTabs";
-import { fileTreeBreadcrumbs, fileTreeFetchPath } from "../lib/fileTree";
+import { fileTreeBreadcrumbs, fileTreeFetchPath, fileTreeParentPath } from "../lib/fileTree";
 import { imageMetaLabel, type ImageDimensions } from "../lib/imageMeta";
+import { MarkdownFilePreview } from "./markdown/MarkdownFilePreview";
 import { ToggleSwitch } from "./ToggleSwitch";
 import { CopyButton } from "./chat/CopyButton";
 import { CloseIcon, ExternalLinkIcon } from "./icons";
@@ -91,9 +92,11 @@ export function FilePreview({
   const errorHint = result?.error ? filePreviewErrorHint(result.error) : undefined;
   const text = result?.text;
   const mode = previewModeFor(modes, activePath);
-  // HTML を描画している間はソースを取得しない (プレビューは iframe が自分で取る)。画像も raw の <img> に任せる
+  // HTML を描画している間はソースを取得しない (プレビューは iframe が自分で取る)。画像も raw の <img> に任せる。
+  // Markdown は描画側が本文を使うため、プレビューでも取得する (HTML / 画像とはここが違う)
   const showHtml = mode === "preview" && isHtmlPath(activePath);
   const showImage = mode === "preview" && isImageName(activePath);
+  const showMarkdown = mode === "preview" && isMarkdownPath(activePath);
   const skipFetch = showHtml || showImage;
   // ストレージ有効モードはブラウザから見たポートが分かってからだけ選べる (client にポートを焼き込まない)
   const storageEnabled = filePreviewPort !== undefined && previewOriginFor(origins, activePath) === "storage";
@@ -106,10 +109,14 @@ export function FilePreview({
   const newTabSrc =
     filePreviewPort === undefined ? fileHtmlPreviewUrl(fetchPath) : fileStoragePreviewUrl(fetchPath, filePreviewPort);
   // ハイライトをタブごとに保持しない理由は docs/file-preview.md。
+  // Markdown のプレビューは本文をそのまま描くため、ソース用の変換 (ハイライト) は走らせない
   const code = useMemo(
-    () => (skipFetch || text === undefined ? null : buildPreviewCode(text, activePath)),
-    [skipFetch, text, activePath],
+    () => (skipFetch || showMarkdown || text === undefined ? null : buildPreviewCode(text, activePath)),
+    [skipFetch, showMarkdown, text, activePath],
   );
+  // プレビューの相対画像は、表示中のファイルと同じディレクトリを基準にする (fetchPath の親)
+  const markdownDir = fileTreeParentPath(fetchPath);
+  const markdownRawUrl = useCallback((path: string) => fileRawUrl(path, previewVersion), [previewVersion]);
   const imageMeta = showImage
     ? imageMetaLabel(activeSize, loadedImage?.path === activePath ? loadedImage.dimensions : undefined)
     : null;
@@ -162,7 +169,7 @@ export function FilePreview({
           行として本文の外に残す */}
       <div className="flex items-center gap-3 px-4 py-1.5">
         <FileBreadcrumb rootPath={rootPath} activePath={activePath} onReveal={onReveal} />
-        {isHtmlPath(activePath) ? (
+        {isHtmlPath(activePath) || isMarkdownPath(activePath) ? (
           <PreviewModeToggle mode={mode} onChange={(next) => onModeChange(activePath, next)} />
         ) : null}
         {showHtml ? (
@@ -228,6 +235,16 @@ export function FilePreview({
           sandbox={storageEnabled ? "allow-scripts allow-same-origin allow-pointer-lock" : "allow-scripts"}
           className="min-h-0 w-full flex-1 border-0 bg-white"
         />
+      ) : showMarkdown ? (
+        text === undefined ? (
+          <p role="status" className="px-4 py-2 text-xs text-ink-muted">
+            読み込み中…
+          </p>
+        ) : text === "" ? (
+          <p className="px-4 py-2 text-xs text-ink-muted">（空のファイル）</p>
+        ) : (
+          <MarkdownFilePreview text={text} dir={markdownDir} rawUrl={markdownRawUrl} />
+        )
       ) : code === null ? (
         <p role="status" className="px-4 py-2 text-xs text-ink-muted">
           読み込み中…

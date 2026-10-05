@@ -1,10 +1,10 @@
-# ファイルプレビューの表示（行番号 / シンタックスハイライト / HTML 描画 / 画像）
+# ファイルプレビューの表示（行番号 / シンタックスハイライト / HTML・Markdown 描画 / 画像）
 
-ファイル画面（`FileTreePage` / `SessionFilesPanel` / スキル設定のファイルタブ → `FileBrowser` → `FilePreview`）の本文は、`GET /api/files/preview` で取得したプレーンテキストを表示用に整えて出す。HTML は `GET /api/files/html/<root 相対>` を iframe で描画し、画像は `GET /api/files/raw` を `<img>` で読む。整形は `client/src/lib/fileCode.ts` の純関数、タブと表示モードは `client/src/lib/fileTabs.ts`、描画は `client/src/components/FilePreview.tsx` が担う。タブと本文のキャッシュは [api.md](api.md#テキストプレビュー) を参照する。
+ファイル画面（`FileTreePage` / `SessionFilesPanel` / スキル設定のファイルタブ → `FileBrowser` → `FilePreview`）の本文は、`GET /api/files/preview` で取得したプレーンテキストを表示用に整えて出す。HTML は `GET /api/files/html/<root 相対>` を iframe で描画し、Markdown は同じ本文をチャットと共通の `MarkdownView` で描画し、画像は `GET /api/files/raw` を `<img>` で読む。整形は `client/src/lib/fileCode.ts` の純関数、Markdown の相対パスは `client/src/lib/markdownAsset.ts`、タブと表示モードは `client/src/lib/fileTabs.ts`、描画は `client/src/components/FilePreview.tsx` が担う。タブと本文のキャッシュは [api.md](api.md#テキストプレビュー) を参照する。
 
 ## 原則
 
-1. **ソース表示の転送はプレーンテキストのまま**: 行番号も色も表示側の都合で、API / DTO / サンドボックスは変えない。Markdown を描画しない方針も変わらない（色を付けるだけ）。HTML は別ルートの応答を iframe で描画し、画像は raw の応答を `<img>` で読む（原則 5）。
+1. **ソース表示の転送はプレーンテキストのまま**: 行番号も色も表示側の都合で、API / DTO / サンドボックスは変えない。Markdown も取得したテキストをクライアントだけで描画する（サーバーに整形を持たせない）。HTML は別ルートの応答を iframe で描画し、画像は raw の応答を `<img>` で読む（原則 5）。
 2. **外部ライブラリを足さない**: 色付けはチャット本文と同じ `lib/markdown/highlight.ts` のトークナイザを使う（対応言語は [markdown.md](markdown.md)）。ファイル用の別実装を持たない。
 3. **DOM 文字列を作らない**: `innerHTML` / `dangerouslySetInnerHTML` / インライン `style` を使わない（本番の CSP は `style-src 'self'`）。行番号もクラスと CSS だけで出す。`client/test/filePreviewSafety.test.ts` の限定的な安全性検査で補助する（[検査範囲](testing.md#残す限定的な検査)）。
 4. **行番号と本文を 1 対 1 にする**: 番号の列は本文と同じ行送りで重ね、行数は本文から数える。ブラウザーの末尾改行の扱いに依存させない。
@@ -14,14 +14,18 @@
 
 ```
 FilePreview                 取得した本文をタブごとに保持（表示中のタブだけ取得・変換する）
-  └─ buildPreviewCode       text + path → PreviewCode       lib/fileCode.ts
-        ├─ previewLang      拡張子 / ファイル名 → 言語
-        ├─ 正規化           CRLF・CR → LF、末尾の空行を落とす
-        └─ highlightCode    言語別のトークン列                lib/markdown/highlight.ts
-  └─ 描画                   行番号の列 + 本文の <pre>         components/FilePreview.tsx
+  ├─ ソース表示
+  │    └─ buildPreviewCode  text + path → PreviewCode      lib/fileCode.ts
+  │          ├─ previewLang 拡張子 / ファイル名 → 言語
+  │          ├─ 正規化      CRLF・CR → LF、末尾の空行を落とす
+  │          └─ highlightCode 言語別のトークン列            lib/markdown/highlight.ts
+  │    └─ 描画              行番号の列 + 本文の <pre>       components/FilePreview.tsx
+  └─ Markdown プレビュー
+       └─ MarkdownView      text → MdBlock[]               components/markdown/MarkdownView.tsx
+             └─ 画像 src    dir 相対 → root 相対 → raw URL lib/markdownAsset.ts
 ```
 
-変換は表示中のタブの本文について `useMemo` で 1 回だけ行う。タブごとに変換結果を持つと 1 タブ 3 MB 級になるため、切り替えると変換し直す（上限内のファイルでは数十 ms）。
+ソース表示の変換は表示中のタブの本文について `useMemo` で 1 回だけ行う。タブごとに変換結果を持つと 1 タブ 3 MB 級になるため、切り替えると変換し直す（上限内のファイルでは数十 ms）。Markdown のプレビュー中はソース用の変換（ハイライト）を走らせず、取得した本文をそのまま `MarkdownView` へ渡す。
 
 ## タブ
 
@@ -58,7 +62,7 @@ FilePreview                 取得した本文をタブごとに保持（表示�
 - 空のファイル（空文字）/ 言語判定なし / トークン上限で素のテキストになった場合も同じボタンでコピーできる
 - 成功表示は既存のコピーと同じ `useMessageCopy`（チェックアイコン + `コピーしました` を 2 秒）。失敗時は成功表示にしない
 - 成功表示は表示中のタブ（`FileCopyButton` の key）に紐づけ、タブを切り替えたら捨てる。見えている本文が変わるため、戻っても表示を復帰させない
-- 画像のプレビューには出さない。HTML はプレビュー中にソースを取得しないので出さず、ソース表示へ切り替えてからコピーする
+- 画像のプレビューには出さない。HTML / Markdown のプレビュー中も出さず、ソース表示へ切り替えてからコピーする（Markdown は本文を持っているが、行数とコピーはソース表示の機能としてそろえる）
 - 2 MiB 超で本文を取得できないファイルは対象外（本文自体が無い。上限の値と変更手順は [上限](#上限)）
 - 行番号付きコピー / 範囲指定コピーは持たない（持ち出しはツリーの行のダウンロードを使う。[ダウンロード](#ダウンロード)）
 
@@ -140,14 +144,14 @@ Content-Security-Policy: sandbox allow-scripts; default-src 'none'; style-src 'u
 
 ### クライアントの振る舞い
 
-- 既定はプレビュー。他の拡張子は従来どおりソース表示で、切替（ソース / プレビュー と 別オリジンのスイッチ）は HTML のタブにだけ出す
+- 既定はプレビュー。他の拡張子は従来どおりソース表示で、ソース / プレビュー の切替は HTML と Markdown のタブに出し、別オリジンのスイッチは HTML のタブにだけ出す
 - iframe の src は `client/src/api.ts` の `fileHtmlPreviewUrl(path)` が組み立てるパス形式の URL で、path はセグメント単位で encode する（`client/src/lib/fileUrl.ts`）。ストレージ有効側の URL は `fileStoragePreviewUrl(path, port)` で組み立てる（`http://<location.hostname>:<port>` の別オリジン。`location.host` は使わない = dev はアプリが Vite の 3000 に居るため）。ポリシー（CSP の段階）はクライアントへ配らない
 - パス行の別オリジンのスイッチ（`ToggleSwitch` の `size="sm"`。パス行の ソース / プレビュー と同じ高さに揃える）がタブごとの配信元を切り替える（`role="switch"` + `aria-checked`）。**既定は ON（別オリジン）**で、OFF にすると現行どおりの同一オリジン URL + `allow-scripts` へ戻る。切替は iframe の src が変わる = プレビューが再読み込みされる。`title` には押した結果を状態別に書き、OFF のときは「別オリジンで開き直し、localStorage などを使えるようにします」、ON のときは「アプリと同じオリジンで開き直し、localStorage などを使えなくします」にする
 - ポートは health の `filePreviewPort`（ブラウザから見たポート）で受ける。未取得の間はスイッチを無効にし、client にポートを焼き込まない。既定が ON でもポートが無ければ隔離のまま開く（`aria-checked` も実体に合わせる）。`App` が health から受けて、ファイルを開ける面（設定 → ファイル / チャットの作業フォルダ面（右パネル / sheet）/ チャットのスキル面 / 設定 → スキルのファイルタブ）の `FileBrowser` へ prop で渡す（面ごとに health を取り直さない）
 - 配信元の選択はタブごとに保持し、タブを閉じると既定（ストレージ有効）へ戻る（`previewOriginFor` / `withPreviewOrigin` / `dropClosedPreviewOrigins` / `renamePreviewOrigins`）。表示モードと違い**保存はしない**ので、F5 と タブを閉じて開き直すと既定（ON）から始まる
 - **配信元の切替は iframe の `key` を変えて要素ごと作り直す**。Chromium はナビゲーション開始時の sandbox フラグで文書を作るため、同じ更新で `src` と `sandbox` を書き換えると古いフラグ（`allow-scripts`）のまま読み込まれ、後から属性を直しても再ナビゲーションされない（CSP の `sandbox allow-scripts allow-same-origin allow-pointer-lock` は要素側の制限を打ち消せない = 和集合）。sandbox 属性が変わらないタブ間の切替は作り直さない（`src` だけが変わり、フラグはそのまま正しい）
 - 表示モードの選択もタブごとに保持し、タブを閉じると捨てる（`previewModeFor` / `withPreviewMode` / `dropClosedPreviewModes`）。state は `FileBrowser` が持つ。選択は「タブを閉じるまで」が条件で、「再読み込み」は `FilePreview` を remount して本文だけを捨てる（本文はタブごとに保持するが、選択は再取得では戻さない）
-- プレビュー中はソース本文を取得しない（`lang · N 行` も本文のコピーもソース表示のときだけ出す）
+- プレビュー中はソース本文を取得しない（`lang · N 行` も本文のコピーもソース表示のときだけ出す）。Markdown は描画に本文を使うため、プレビューでも取得する（同じ本文をソース表示と共有し、切替で取り直さない）
 - 「再読み込み」は `FilePreview` の remount（`FileBrowser` の `key` 差し替え）で iframe も取り直す（プレビュー用の追加実装は無い）
 
 ### 新しいタブで開く
@@ -175,6 +179,22 @@ HTML プレビューのパス行のアイコンボタンで、描画中の文書
 - 別オリジンの面が 1 つ増える（CORS ヘッダを付けず、`no-store` と CSP + sandbox で無害化する）。prod では**無認証でワークスペースの allowlist ファイルを読める面が 1 つ増える**が、載るのは GET の HTML プレビュー ルート 1 本だけ（書き込み系は載せない）
 - ストレージ有効モードはプレビュー オリジン 1 つを全プレビューで共有するため、同じオリジンの別ファイルの storage も読める（キー衝突は自己責任）。ファイルごとの名前空間を UI で誘導するのは将来の話
 - ストレージ有効モードで読めるアセットは隔離モードと同じ allowlist のまま（`.wasm` / `.svg` / フォント / 動画は 400）
+
+## Markdown プレビュー
+
+`.md` / `.markdown` のタブ（`isMarkdownPath`）は、行番号付きのソース表示と描画したプレビューを切り替えられる。**既定はプレビュー**で、切替はパス行の ソース / プレビュー（HTML と共通の `PreviewModeToggle`。別オリジンのスイッチは出さない）。
+
+- 描画はチャット本文と同じ `components/markdown/MarkdownView.tsx` に取得した本文を渡すだけにする。`MARKDOWN_MAX_LENGTH`（200 KB）超でプレーンテキストへ落ちるのもチャットと同じで、ファイル用の別実装を持たない。対応記法・解析の上限・テーマは [markdown.md](markdown.md) を正とする
+- 本文は HTML と違い親が `GET /api/files/preview` で取得する（iframe が自分で取りに行く HTML / 画像とここが違う）。ソース表示へ切り替えても同じ本文を使い、取得し直さない
+- 画像は**表示中のファイルのディレクトリ基準**で `GET /api/files/raw` の URL へ解決する（`client/src/lib/markdownAsset.ts` の `resolveMarkdownAssetPath` と `components/markdown/MarkdownImageRefs.tsx` の `MarkdownFileImageProvider`。チャット本文の cwd 基準の provider をこの部分木だけ差し替える）
+  - 先頭の `/` はワークスペース root からの絶対パス、`..` はワークスペース root で止める（root の外へ出る src は解決しない）。ファイル名に無い `?` / `#` 以降は落とし、前後の空白は無視する
+  - 解決できない src は入力をそのまま使う。Markdown 記法側の `safeUrl` が scheme 付き・`//`・空白付きを既に落とすため、描画される画像は同一オリジンの相対パスだけになる
+  - 配信できる実体は raw の allowlist に従う（`.svg`・動画・フォントは 400 で表示できない）。URL に raw の版（`previewVersion`）を付けるので、「再読み込み」で画像も取り直す
+- 読み幅はチャットと同じ `max-w-220` に収め、広い面では中央へ寄せる（横に長いコード・表・図はそれぞれの枠で横スクロールする）
+- 本文の行数（`md · N 行`）とコピーはソース表示のときだけ出す（HTML と同じ扱い。コピーの正規化は [コピー](#コピー)）
+- 相対リンク（`[t](./other.md)`）でワークスペースのファイルをタブとして開く導線は持たない（アプリの URL へ解決され、リンク切れになる）。外部 URL のリンクは従来どおり新しいタブで開く
+- この面に `FileRefProvider` は無いため、プレビュー内のコードスパンは操作要素にならない（`<code>` のまま）
+- ソース / プレビューの選択は HTML と同じくタブごとに保持し、タブを閉じると既定（プレビュー）へ戻る
 
 ## 画像プレビュー
 
@@ -470,11 +490,13 @@ assistant 本文のインラインコードが指すファイルを、右パネ�
 
 | テスト | 固定すること |
 | --- | --- |
-| `client/test/fileCode.test.ts` | 拡張子の言語判定 / 正規化・行数・コピー本文 / 上限での fallback / HTML の判定 / 例外を投げない |
+| `client/test/fileCode.test.ts` | 拡張子の言語判定 / 正規化・行数・コピー本文 / 上限での fallback / HTML・Markdown の判定 / 例外を投げない |
 | `client/test/filePreviewSafety.test.ts` | ソース本文の HTML 挿入・HTML パース・インライン style の禁止（限定的なソース走査） |
-| `client/test/fileTabs.test.ts` | 表示モードの既定（HTML と画像だけプレビュー）/ 表示モードと配信元の選択の保持と破棄（配信元の既定は別オリジン = ストレージ有効）/ タブの開閉と上限 / ディレクトリ配下のタブの一括削除（接頭辞境界と繰り上がり）/ リネームの経路の張り替え（並び・表示中の保持、配下、重複の排除、表示モードと配信元）/ 保存値からの復元（表示中の繰り上がりと上限） |
+| `client/test/fileTabs.test.ts` | 表示モードの既定（HTML と Markdown と画像だけプレビュー）/ 表示モードと配信元の選択の保持と破棄（配信元の既定は別オリジン = ストレージ有効）/ タブの開閉と上限 / ディレクトリ配下のタブの一括削除（接頭辞境界と繰り上がり）/ リネームの経路の張り替え（並び・表示中の保持、配下、重複の排除、表示モードと配信元）/ 保存値からの復元（表示中の繰り上がりと上限） |
 | `client/test/toggleSwitch.test.ts` | 名前付きの role=switch / aria-checked / disabled / 実 handler の状態反転 |
 | `client/test/filePreviewStorageMode.test.ts` | HTML の sandbox・配信元・切替の公開状態とポート未取得時の隔離 / srcdoc・blob・data 文書の禁止 / 別タブの noopener と操作名 / 画像の raw URL・メタ・HTML 用操作の非表示（SSR） |
+| `client/test/filePreviewMarkdown.test.ts` | Markdown のタブの既定（プレビュー）とソース / プレビューの公開状態 / 他拡張子に切替を出さないこと / HTML 用の操作を出さないこと / 描画した本文と dir 基準の画像 URL / 解決できない src の扱い（SSR） |
+| `client/test/markdownAsset.test.ts` | 相対 src の解決（dir 基準 / `.` と空セグメントの畳み方 / `..` の往復と root 外の拒否 / 先頭 `/` / `?`・`#` の除去 / 前後の空白）と、外部 URL・fragment だけの不採用 |
 | `client/test/imageRefresh.test.ts` | 実フックの同一 mount での再描画安定性・run 終了・手動更新 / 実 Markdown と FileBrowser → FilePreview の描画を通した面間・再 mount の URL 非衝突（SSR） |
 | `client/test/imageMeta.test.ts` | 画像メタの表記（寸法とサイズの両方 / 片方だけ / どちらも無ければ null / 不正値の落とし方と 0 B） |
 | `client/test/filePreviewTabClose.test.ts` | 中クリックの button 判定。タブの ×・中クリックの実操作はブラウザで確認 |

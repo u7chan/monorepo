@@ -1,6 +1,7 @@
 import { createContext, useContext, useMemo, type ReactNode } from "react";
 import { resolveFileRef } from "../../lib/fileRef";
 import { fileTreeFetchPath } from "../../lib/fileTree";
+import { resolveMarkdownAssetPath } from "../../lib/markdownAsset";
 
 /** assistant 本文の画像 src を配信 URL へ解決する。解決できない src は null（本文どおりに描く） */
 export type MarkdownImageResolver = (src: string) => string | null;
@@ -32,6 +33,29 @@ export function MarkdownImageProvider({ rootCwd, cwd, rawUrl, children }: Markdo
       return rawUrl(fileTreeFetchPath(cwd, resolved));
     },
     [rootCwd, cwd, rawUrl],
+  );
+  return <MarkdownImageContext.Provider value={value}>{children}</MarkdownImageContext.Provider>;
+}
+
+export type MarkdownFileImageProviderProps = {
+  /** 表示中のファイルのディレクトリ (ワークスペース root 相対。`"."` は root) */
+  dir: string;
+  /** 解決した root 相対パスから配信 URL を組み立てる。`client/src/api.ts` を markdown 層から import しないため注入する */
+  rawUrl: (rootRelativePath: string) => string;
+  children: ReactNode;
+};
+
+/**
+ * ファイルプレビューの Markdown 画像。チャット本文の cwd 基準の解決を、表示中のファイルの
+ * ディレクトリ基準 (`../` はワークスペース root で止める) へ差し替える。
+ */
+export function MarkdownFileImageProvider({ dir, rawUrl, children }: MarkdownFileImageProviderProps) {
+  const value = useMemo<MarkdownImageResolver>(
+    () => (src: string) => {
+      const resolved = resolveMarkdownAssetPath(src, dir);
+      return resolved === null ? null : rawUrl(resolved);
+    },
+    [dir, rawUrl],
   );
   return <MarkdownImageContext.Provider value={value}>{children}</MarkdownImageContext.Provider>;
 }

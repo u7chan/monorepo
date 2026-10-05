@@ -143,10 +143,14 @@ test("閉じたタブの本文だけを捨てる", () => {
   assert.equal(dropClosedPreviews(results, ["a.txt", "dir/b.txt"]), results);
 });
 
-test("表示モードの既定は HTML と画像だけプレビュー", () => {
+test("表示モードの既定は HTML と Markdown と画像だけプレビュー", () => {
   const modes = {};
   assert.equal(previewModeFor(modes, "a.html"), "preview");
   assert.equal(previewModeFor(modes, "dir/b.htm"), "preview");
+  // Markdown は描画した本文 (MarkdownView) を既定で見せる (.mdx は描画対象にしない)
+  assert.equal(previewModeFor(modes, "README.md"), "preview");
+  assert.equal(previewModeFor(modes, "dir/guide.Markdown"), "preview");
+  assert.equal(previewModeFor(modes, "a.mdx"), "source");
   // 画像は raw の <img> で描くためプレビューが既定 (ソース表示はバイナリで失敗する)
   assert.equal(previewModeFor(modes, "photo.png"), "preview");
   assert.equal(previewModeFor(modes, "dir/logo.JPEG"), "preview");

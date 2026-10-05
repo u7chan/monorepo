@@ -69,3 +69,11 @@ export function isHtmlPath(path: string): boolean {
   const extension = name.slice(dot + 1);
   return extension === "html" || extension === "htm";
 }
+
+/**
+ * プレビューで Markdown として描画する対象か。言語判定と同じ規則で `.md` / `.markdown` だけを見る
+ * (`.mdx` は JSX を含み得るため、サブセット実装の描画対象にしない)。
+ */
+export function isMarkdownPath(path: string): boolean {
+  return previewLang(path) === "md";
+}
