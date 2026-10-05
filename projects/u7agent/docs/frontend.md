@@ -112,7 +112,7 @@
 
 | キー | 内容 | 復元するもの |
 | --- | --- | --- |
-| `u7agent-files` | cwd ごとの snapshot を 1 キーに持つ（version 付き）。cwd は 設定 → ファイル の `"."` と、チャットの右パネルで開いたセッションの作業フォルダ | タブの並び・表示中・タブごとの表示モード・開いているディレクトリ |
+| `u7agent-files` | root ごとの snapshot を 1 キーに持つ（version 付き）。root は 設定 → ファイル の `"."` と、チャットの作業フォルダ面で開いたセッションの作業フォルダ、チャットのスキル面（と設定 → スキルのファイルタブ）で開いた `.agents/skills/<name>` | タブの並び・表示中・タブごとの表示モード・開いているディレクトリ |
 | `u7agent-settings-section` | 最後に開いていた設定セクション | 「設定」で戻る先（正は URL で、これは `/` からの補助） |
 | `u7agent-expanded-projects` | 開いているプロジェクトの `cwd`（ワークスペース root 相対）の集合（version 付き） | サイドバーのプロジェクト行の開閉（既定は畳み） |
 | `u7agent-sidebar-width` | 左バー（Sidebar）の幅（px の整数 1 つ。既定 252px / 上限 400px） | リロード後の左バーの幅（未指定は既定幅。[ui-layout.md](ui-layout.md#幅)） |
@@ -122,7 +122,7 @@
 会話の選択は保存しない。作業環境の「環境変数」タブの入力中ドラフト（種別 / 名前 / 値）も保存しない（パネル / シートを閉じる・`Escape`・セッション切替・タブ切替で破棄し、確認は出さない。[ui-layout.md](ui-layout.md#作業環境パネル)）。会話を指定して開く唯一の入口は通知リンクの `/s/<sessionId>` で、開いた後は `/` に畳む。
 
 - `u7agent-files` は本文・children・loading・error を保存しない（他キーや複数 cwd と合算した容量と、鮮度の問題。復帰時は既存の取得経路で取り直す）。範囲の詳細は [file-preview.md](file-preview.md#復帰f5画面の往復)
-- 右パネルはセッションごとに cwd が増えるため、多数のセッションで開くと先に書かれた cwd から落ちる（cwd 上限）。パネルの開閉自体は保存しないので、閉じた状態では何も書かない（タブと展開が空の snapshot は cwd ごと消す）
+- 右パネルはセッションごとに cwd が増えるため、多数のセッションで開くと先に書かれた cwd から落ちる（cwd 上限）。**チャットのスキル面も同じ保存枠を root ごとに 1 つ消費する**（`FILE_SNAPSHOT_CWD_LIMIT` 件を超えて開くと、先に書かれた root から落ちる）。パネルの開閉自体は保存しないので、閉じた状態では何も書かない（タブと展開が空の snapshot は root ごと消す）
 - cwd は取得 root と同じ単位（`normalizeFileTreeRoot` の結果）で保存するため、`""` と `"."` は同じキーになり、絶対パスも root へ畳む
 - 保存値は version を持ち、形（paths の重複と上限、active が paths 内か null、modes の enum と対象タブ、root 相対の展開パス）を検証する。JSON 全体が壊れているときだけ全体を捨て、形の合わない cwd は 1 件ずつ捨てる。`__proto__` / `constructor` のような名前も合法なパスとして往復させる（own property で読み書きする）。展開パスの復元は祖先がすべて保存集合にあるものだけを開き、そろっていないパスは落とす（閉じた枝の子孫が残った旧保存値の正規化。祖先を勝手に開かない。順序には依存しない）
 - 総量の上限（cwd 20 件 / 展開 200 件 / 書き込み前の JSON 64 KiB）を超える書き込みは捨てる。cwd 数が上限を超えたら先に書かれた cwd から落とす。書き込み側も読み手と同じ検証を通し、読み手が捨てる形（上限超えや active の不整合）は書かない（書くと次の起動でその cwd のタブもモードも失われる）
@@ -140,6 +140,7 @@
 - DOM のテーマ反映・入力欄の高さ・チャットのスクロール・dialog のフォーカス同期・設定ページの Escape には Effect を残す（チャットのスクロールは設定ページを開いている間は触らず、戻ったときに追従中なら最新へ揃える。送信は `ChatState.sendSeq`（`localUser` でだけ 1 進む）の増加で拾い、バブルの形からは推測しない。追従の状態遷移としきい値は [ui-layout.md](ui-layout.md#チャットの自動追従と最下部ボタン)）。作業フォルダのシートを閉じる判定だけは、子の `showModal()` より先に state を確定させる必要があるため Effect ではなく描画中の同期にする（[ui-layout.md](ui-layout.md#既定オープンと手動操作)）。コピー完了待ちの要求は cleanup で無効化する。
 - 作業環境パネルの「環境変数」タブ（`EnvVarsTab`）は、要求元（`sessionId` / `projectId`）と取り直しの token が変わったときだけ一覧を取り直し、古い要求の応答は `AbortController` で捨てる。取得した値は入力欄の state にだけ置き、`localStorage` / `sessionStorage` / URL へは書かない（ドラフトの永続化はしない）。パネル / シートを閉じる・`Escape`・セッション切替では自然に破棄される（確認は出ない）。`EnvVarsTab` の key はパネルの `filesRoot` ではなく要求元の識別子（`sessionEnvScopeKey`）なので、cwd を共有する会話へ切り替えても再 mount される。desktop の `Escape` は dialog ではないため、フォームを開いている間だけ `EnvVarsTab` の keydown で畳む。タブの切り替えでも同じ（`EnvVarsTab` は選択中のときだけ mount する）。変更フォームの「変数の値のプリフィル」だけは詳細 API を 1 回引く（シークレットは引かない）
 - フォームの入力値は state updater の外でイベントから読む。updater は遅延評価されるため、その中で `event.currentTarget` を読むと null 参照でツリーごと落ちる（型では防げない）。この形がソースに戻っていないことは `client/test/eventInStateUpdater.test.ts` の限定的な禁止検査で補助する（[検査範囲](testing.md#残す限定的な検査)）。
-- ファイル画面の復元は `FileBrowser` の mount ごとに 1 回。設定 → ファイル の root は常にワークスペース root（`cwd=""` → `"."`）で確定し、チャットの作業フォルダ（`SessionFilesPanel` の「作業フォルダ」タブ）は選択中セッションの作業フォルダ（`payload.cwd`）、セッション未作成では作成先プロジェクトの `cwd` を root にする。どちらも起動処理（`useU7Agent` の boot）の完了を待たずに復元・取得・保存する
+- ファイル画面の復元は `FileBrowser` の mount ごとに 1 回。設定 → ファイル の root は常にワークスペース root（`cwd=""` → `"."`）で確定し、作業フォルダ面（`SessionFilesPanel` の「作業フォルダ」タブ）は選択中セッションの作業フォルダ（`payload.cwd`）、セッション未作成では作成先プロジェクトの `cwd` を root にする。チャットのスキル面は参照が指す `.agents/skills/<name>` を root にする。どちらも起動処理（`useU7Agent` の boot）の完了を待たずに復元・取得・保存する
 - チャットの作業フォルダの開閉は `App` の state で、desktop のパネルと compact のシートを分ける（保存しない。URL にも載せない）。パネルの既定は「作成先がプロジェクトなら開」で、適用するのは利用者操作の新規会話の入口（`App` の `handleNewChat`）だけ（起動時は常に未所属なので閉）。派生 state（プロジェクト一覧の到着や root の解決）を契機にしない。コンパクトのシートは既定を持たず、設定ページへの出入り / root の変更 / desktop への復帰で閉じる（Effect ではなく描画中の同期。判定は `compact` / `mainView` / `filesRoot` の 3 キーで、`route` オブジェクトは比べない）。条件と期待値の表は [ui-layout.md](ui-layout.md#作業先と作業フォルダの導線)。run_end での取り直しは `ChatState.runEndSeq`（reducer が `run_end` と、`running` を抜けた `resync` で 1 ずつ進める）を起点にし、値が変わったときだけ撃つ。描画間の `runStatus` の差では、同じバッチで届いた `run_start` / `run_end` を React が 1 回の描画にまとめるため取りこぼす
+- チャットのファイル面のモード（作業フォルダ / スキル）も `App` の state で、要求の種別から決める。既定（作業フォルダ）へ戻すのは、閉じる導線（✕ / `Escape` / トグル）/ 選択中セッションの識別子の変化 / チャット以外への移動 / compact ⇄ desktop の切替で、**`filesRoot` (cwd) だけでは同一プロジェクトのセッション切替と新規チャットを拾えない**ため識別子も見る。判定は Effect ではなくシートを閉じるのと同じ描画中の同期で行う（子の `showModal()` より先に state を確定させる必要がある）
 - 復元の順序は 検証 → tabs / modes / 開いているディレクトリを一体で初期化（lazy initializer）→ 取得と保存を許可。復元前の空状態を保存せず、復元した modes を空の `tabs.paths` で掃除しない（StrictMode の再実行でも同じ結果になる）。`u7agent-files` の書き込みは他 cwd を消さない read-modify-write で、内容が同じときは書かない

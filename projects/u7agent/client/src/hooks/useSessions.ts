@@ -16,6 +16,7 @@ import type { ChatHistoryState } from "../lib/chatTypes";
 import { adoptKnownAgentId } from "../lib/agentSelection";
 import { renameInputValue } from "../lib/confirmDialog";
 import { createFileRefRequests } from "../lib/fileRefRequest";
+import type { FileRefTarget } from "../lib/fileRef";
 import { missingLinkNote, type SessionOpenResult } from "../lib/notifications";
 import { sessionDeleteConfirmRequest, sessionRenameRequest } from "../lib/sidebarRowMenu";
 import type { AgentDef, EventEntry, Health, ModelRef, SessionPayload, SessionSummary, ThinkingLevel } from "../types";
@@ -341,8 +342,8 @@ export function useSessions({
   newChatRef.current = newChat;
 
   const requestFileRef = useCallback(
-    (path: string) => {
-      fileRefRequests.request(sessionIdRef.current, path);
+    (target: FileRefTarget) => {
+      fileRefRequests.request(sessionIdRef.current, target);
     },
     [fileRefRequests],
   );

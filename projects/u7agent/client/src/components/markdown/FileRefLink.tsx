@@ -1,11 +1,11 @@
 import { createContext, useContext, useMemo, type ReactNode } from "react";
-import { resolveFileRef } from "../../lib/fileRef";
+import { resolveFileRefTarget, type FileRefTarget } from "../../lib/fileRef";
 
 export type FileRefOpener = {
-  /** インラインコードの字面を cwd 相対のパスへ解決する (参照でなければ null) */
-  resolve: (text: string) => string | null;
+  /** インラインコードの字面を面の種別つきで解決する (参照でなければ null) */
+  resolve: (text: string) => FileRefTarget | null;
   /** origin は focus を戻す起点。クリックした要素を渡す (document.activeElement は当てにしない) */
-  open: (path: string, origin: HTMLElement | null) => void;
+  open: (target: FileRefTarget, origin: HTMLElement | null) => void;
 };
 
 const FileRefContext = createContext<FileRefOpener | null>(null);
@@ -15,7 +15,7 @@ export type FileRefProviderProps = {
   rootCwd: string;
   /** 選択中セッションの作業フォルダ (payload.cwd)。未確定 ("") のときは何も解決しない */
   cwd: string;
-  onOpen: (path: string, origin: HTMLElement | null) => void;
+  onOpen: (target: FileRefTarget, origin: HTMLElement | null) => void;
   children: ReactNode;
 };
 
@@ -25,7 +25,7 @@ export type FileRefProviderProps = {
  */
 export function FileRefProvider({ rootCwd, cwd, onOpen, children }: FileRefProviderProps) {
   const value = useMemo<FileRefOpener>(
-    () => ({ resolve: (text: string) => resolveFileRef(text, rootCwd, cwd), open: onOpen }),
+    () => ({ resolve: (text: string) => resolveFileRefTarget(text, rootCwd, cwd), open: onOpen }),
     [rootCwd, cwd, onOpen],
   );
   return <FileRefContext.Provider value={value}>{children}</FileRefContext.Provider>;
@@ -34,14 +34,14 @@ export function FileRefProvider({ rootCwd, cwd, onOpen, children }: FileRefProvi
 /** 参照にならない字面と provider の外 (設定ページの再利用など) は従来どおりのインラインコードにする */
 export function InlineFileRef({ text }: { text: string }) {
   const opener = useContext(FileRefContext);
-  const path = opener === null ? null : opener.resolve(text);
-  if (opener === null || path === null) return <code>{text}</code>;
+  const target = opener === null ? null : opener.resolve(text);
+  if (opener === null || target === null) return <code>{text}</code>;
   return (
     <button
       type="button"
       className="md-fileref"
-      title="作業フォルダで開く"
-      onClick={(event) => opener.open(path, event.currentTarget)}
+      title={target.kind === "skill" ? "スキルで開く" : "作業フォルダで開く"}
+      onClick={(event) => opener.open(target, event.currentTarget)}
     >
       <code>{text}</code>
     </button>
