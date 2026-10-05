@@ -143,7 +143,7 @@ Content-Security-Policy: sandbox allow-scripts; default-src 'none'; style-src 'u
 - 既定はプレビュー。他の拡張子は従来どおりソース表示で、切替（ソース / プレビュー と 別オリジンのスイッチ）は HTML のタブにだけ出す
 - iframe の src は `client/src/api.ts` の `fileHtmlPreviewUrl(path)` が組み立てるパス形式の URL で、path はセグメント単位で encode する（`client/src/lib/fileUrl.ts`）。ストレージ有効側の URL は `fileStoragePreviewUrl(path, port)` で組み立てる（`http://<location.hostname>:<port>` の別オリジン。`location.host` は使わない = dev はアプリが Vite の 3000 に居るため）。ポリシー（CSP の段階）はクライアントへ配らない
 - パス行の別オリジンのスイッチ（`ToggleSwitch` の `size="sm"`。パス行の ソース / プレビュー と同じ高さに揃える）がタブごとの配信元を切り替える（`role="switch"` + `aria-checked`）。**既定は ON（別オリジン）**で、OFF にすると現行どおりの同一オリジン URL + `allow-scripts` へ戻る。切替は iframe の src が変わる = プレビューが再読み込みされる。`title` には押した結果を状態別に書き、OFF のときは「別オリジンで開き直し、localStorage などを使えるようにします」、ON のときは「アプリと同じオリジンで開き直し、localStorage などを使えなくします」にする
-- ポートは health の `filePreviewPort`（ブラウザから見たポート）で受ける。未取得の間はスイッチを無効にし、client にポートを焼き込まない。既定が ON でもポートが無ければ隔離のまま開く（`aria-checked` も実体に合わせる）。`App` が health から受けて、ファイルを開ける 4 面（設定 → ファイル / チャット右パネル / チャットの sheet / スキルのファイルタブ）の `FileBrowser` へ prop で渡す（面ごとに health を取り直さない）
+- ポートは health の `filePreviewPort`（ブラウザから見たポート）で受ける。未取得の間はスイッチを無効にし、client にポートを焼き込まない。既定が ON でもポートが無ければ隔離のまま開く（`aria-checked` も実体に合わせる）。`App` が health から受けて、ファイルを開ける面（設定 → ファイル / チャットの作業フォルダ面（右パネル / sheet）/ チャットのスキル面 / 設定 → スキルのファイルタブ）の `FileBrowser` へ prop で渡す（面ごとに health を取り直さない）
 - 配信元の選択はタブごとに保持し、タブを閉じると既定（ストレージ有効）へ戻る（`previewOriginFor` / `withPreviewOrigin` / `dropClosedPreviewOrigins` / `renamePreviewOrigins`）。表示モードと違い**保存はしない**ので、F5 と タブを閉じて開き直すと既定（ON）から始まる
 - **配信元の切替は iframe の `key` を変えて要素ごと作り直す**。Chromium はナビゲーション開始時の sandbox フラグで文書を作るため、同じ更新で `src` と `sandbox` を書き換えると古いフラグ（`allow-scripts`）のまま読み込まれ、後から属性を直しても再ナビゲーションされない（CSP の `sandbox allow-scripts allow-same-origin allow-pointer-lock` は要素側の制限を打ち消せない = 和集合）。sandbox 属性が変わらないタブ間の切替は作り直さない（`src` だけが変わり、フラグはそのまま正しい）
 - 表示モードの選択もタブごとに保持し、タブを閉じると捨てる（`previewModeFor` / `withPreviewMode` / `dropClosedPreviewModes`）。state は `FileBrowser` が持つ。選択は「タブを閉じるまで」が条件で、「再読み込み」は `FilePreview` を remount して本文だけを捨てる（本文はタブごとに保持するが、選択は再取得では戻さない）
@@ -195,22 +195,23 @@ HTML プレビューのパス行のアイコンボタンで、描画中の文書
 
 ## 画面と root
 
-ツリーとプレビューの本体は `client/src/components/FileBrowser.tsx` で、root を props で受け取る。同じ実装を 3 面が別の root で使う。
+ツリーとプレビューの本体は `client/src/components/FileBrowser.tsx` で、root を props で受け取る。同じ実装を 4 面が別の root で使う。
 
 | 画面 | 外装 | root | 出す条件 |
 | --- | --- | --- | --- |
 | 設定 → ファイル | `FileTreePage`（`SettingsPageLayout` + ヘッダ） | ワークスペース root 固定（`cwd=""` → `"."`） | 常時 |
 | チャットの右パネル | `SessionFilesPanel`（ヘッダ + 閉じる） | 選択中セッションの作業フォルダ（`payload.cwd`） | desktop のチャット画面で、作業フォルダがあるときだけ（`client/src/lib/sessionFiles.ts`） |
+| チャットのスキル面 | `SessionFilesPanel` / `SessionFilesSheet` のスキルモード（`SkillFilesContent`） | 参照の絶対パスから導いた `.agents/skills/<name>`（ワークスペース root 相対） | 共通スキル配下の絶対パスの参照をクリックしたときだけ（[面のモード](#面のモード作業フォルダとスキル)） |
 | 設定 → スキルのファイルタブ | `ReadOnlySkillPanel`（`SkillDetailPanel` の中の 1 タブ） | SKILL.md の親ディレクトリ（root 相対。`client/src/lib/fileSkills.ts` の `fileSkillDir`） | `scope !== "builtin"` かつ root 相対の `.../SKILL.md` の親が取れるときだけ（組み込みの仮想パスと root 外の絶対パスは出さない）。**ダウンロード / 削除 / リネームは `readOnly` で出さない** |
 
-- `FileBrowser` は root が変わると復元・取得・保存をやり直す必要があるので、呼び出し側が `key` を張り替える。パネルはセッションの切替で `SessionFilesPanel` ごと入れ替える（`FileBrowser` の `root` は mount の間一定）。スキルのファイルタブは選択したスキルごとに `ReadOnlySkillPanel` ごと入れ替え、初回にタブを開いたときだけ `FileBrowser` を mount する（以降は `display` で隠して保持する）
-- 取り直しの入口は外装の「再読み込み」と run_end で共通の `reloadToken` に集める（`SessionFilesPanel` は ヘッダの「再読み込み」の回数 + `ChatState.runEndSeq` の合計を渡す）。mount 時の token では撃たない（root の切替は `key` が扱うため）。run_end は描画された `runStatus` の差ではなく、reducer が `run_end` で進める `runEndSeq` を起点にする（`run_start` と `run_end` が同じバッチで届くと React は 1 回の描画にまとめるため、画面側では `running` を観測できず取りこぼす。SSE が切れて `resync` で復帰したときも、`running` を抜けていれば reducer が進める）。実行中の `tool_end` ごとの更新はしない
+- `FileBrowser` は root が変わると復元・取得・保存をやり直す必要があるので、呼び出し側が `key` を張り替える。パネルはセッションの切替で `SessionFilesPanel` ごと入れ替える（`FileBrowser` の `root` は mount の間一定）。スキルのファイルタブは選択したスキルごとに `ReadOnlySkillPanel` ごと入れ替え、初回にタブを開いたときだけ `FileBrowser` を mount する（以降は `display` で隠して保持する）。チャットのスキル面も `FileBrowser` の `key` を skill root にして、root の切替で remount する
+- 取り直しの入口は外装の「再読み込み」と run_end で共通の `reloadToken` に集める（`SessionFilesPanel` は ヘッダの「再読み込み」の回数 + `ChatState.runEndSeq` の合計を渡す）。**チャットのスキル面はヘッダに「再読み込み」を持たず、`runEndSeq` だけを渡す**（設定 → スキルのファイルタブは自動の取り直しを持たない）。mount 時の token では撃たない（root の切替は `key` が扱うため）。run_end は描画された `runStatus` の差ではなく、reducer が `run_end` で進める `runEndSeq` を起点にする（`run_start` と `run_end` が同じバッチで届くと React は 1 回の描画にまとめるため、画面側では `running` を観測できず取りこぼす。SSE が切れて `resync` で復帰したときも、`running` を抜けていれば reducer が進める）。実行中の `tool_end` ごとの更新はしない
 - `GET /api/files` の path は root を前置する（`fileTreeFetchPath`）ので、パネルは `payload.cwd`（プロジェクト所属なら登録ディレクトリ、未所属なら `.u7agent/sessions/<id>`）を root として扱う。サンドボックス / API は変えない（同じファイルを設定 → ファイル からも開ける）
-- **作業環境パネル（右パネル / sheet）だけが `.git` を行ごと隠す**（[隠す行](#隠す行)）。設定 → ファイル とスキルのファイルタブは隠さない
+- **作業フォルダ面（右パネル / sheet）だけが `.git` を行ごと隠す**（[隠す行](#隠す行)）。設定 → ファイル とスキル面（設定 → スキルのファイルタブ / チャットのスキル面）は隠さない
 
 ## 隠す行
 
-`FileBrowser` の `hiddenNames`（既定 `[]`）で、名前が一致する行を一覧から除く。渡すのは**作業環境パネル（`SessionFilesPanel`。desktop の右パネルと compact の sheet で同じ）だけ**で、`client/src/lib/sessionFiles.ts` の `SESSION_FILES_HIDDEN_NAMES = [".git"]` を渡す。**設定 → ファイル とスキルのファイルタブは渡さず、`.git` を含めて全部見える**（見たいときの逃げ道）。
+`FileBrowser` の `hiddenNames`（既定 `[]`）で、名前が一致する行を一覧から除く。渡すのは**作業フォルダ面（`SessionFilesPanel`。desktop の右パネルと compact の sheet で同じ）だけ**で、`client/src/lib/sessionFiles.ts` の `SESSION_FILES_HIDDEN_NAMES = [".git"]` を渡す。**設定 → ファイル とスキル面（設定 → スキルのファイルタブ / チャットのスキル面）は渡さず、`.git` を含めて全部見える**（見たいときの逃げ道）。
 
 - **隠すのは名前一致だけで、種別も階層も見ない**（`visibleFileTreeEntries`）。`.git` は worktree / submodule ではディレクトリではなくファイルなので、種別で判定すると隠れ残る。階層を見ないのは、一覧がその階層の子だけを返すため、名前一致がそのまま「どの階層の `.git` も隠す」になる（ネスト repo を展開したときの `.git` も同じノイズになる）。部分一致はしない（`.gitignore` / `git` は残る）
 - **フィルタは一覧を state へ入れる前に行う**（`getFiles` の直後）。隠した枝を state に持たないので、開いていたとしても `.git` の中身を取得しない（行が出ないまま往復だけが増えるのを避ける）。保存値（`filePreviewStore`）から復元する展開状態も `visibleFileTreeDirectories` で落とす（以前の版で開いていた `.git` を次の mount へ持ち越さない）。**reveal（ファイル参照のファイル・パンくず）も隠す名前を含むパスでは祖先を開かない**（行が無いので、開くと不可視の展開が state と保存値に残るだけになる。判定は `isHiddenFileTreePath`）
@@ -244,11 +245,11 @@ HTML プレビューのパス行のアイコンボタンで、描画中の文書
 - スクロールは対象の行が現れてから行う（祖先の取得中は行が無い）。行は `reveal` の state と `revealRowRef` で受け、`tree` が進むたびに Effect を再実行して取りこぼさない。スクロール済みの `seq` は再実行で弾く
 - 一時ハイライト（`ring-2 ring-focus ring-inset`）はスクロールのあと `REVEAL_HIGHLIGHT_MS`（1.6 秒）で消す。タイマーは掛け直しと unmount で掃除する
 - reveal で開いた階層は通常の展開と同じく `filePreviewStore` の保存対象に入る（F5・面の往復で復帰する）。reveal の対象とハイライトは保存しない
-- パンくずは画面 root 相対の祖先と表示中のファイルだけを並べる（画面 root 自体はツリーにその行が無く押せないうえ、各面のヘッダが同じパスを出す: チャット右パネルのヘッダ / 設定の caption / スキルのファイルタブの root 行）。全体パスは `fetchPath` のまま `title` に残す。項目の組み立ては `fileTreeBreadcrumbs` の純関数
+- パンくずは画面 root 相対の祖先と表示中のファイルだけを並べる（画面 root 自体はツリーにその行が無く押せないうえ、各面のヘッダが同じパスを出す: チャット右パネルのヘッダ / 設定の caption / スキル面の root 行）。全体パスは `fetchPath` のまま `title` に残す。項目の組み立ては `fileTreeBreadcrumbs` の純関数
 
 ## メッセージからの導線（ファイル参照）
 
-assistant 本文のインラインコードが指すファイルを、右パネル / sheet のタブとして開く。字面の判定と cwd 相対への解決は `client/src/lib/fileRef.ts` の純関数、要求の保持は `client/src/lib/fileRefRequest.ts`、インラインコードの描画は `client/src/components/markdown/FileRefLink.tsx` が持つ。Markdown リンクの横取り・prompt 規約・ツール履歴（`write` / `edit` 行）からの導線は非ゴール（対応サブセットは変えない。描画側の契約は [markdown.md](markdown.md#インラインコードのファイル参照)）。
+assistant 本文のインラインコードが指すファイルを、右パネル / sheet のタブとして開く。字面の判定と面の種別つきの解決は `client/src/lib/fileRef.ts` の純関数、要求の保持と面のモードは `client/src/lib/fileRefRequest.ts`、インラインコードの描画は `client/src/components/markdown/FileRefLink.tsx` が持つ。Markdown リンクの横取り・prompt 規約・ツール履歴（`write` / `edit` 行）からの導線は非ゴール（対応サブセットは変えない。描画側の契約は [markdown.md](markdown.md#インラインコードのファイル参照)）。
 
 ### 字面の判定（matcher）
 
@@ -281,39 +282,64 @@ assistant 本文のインラインコードが指すファイルを、右パネ�
 
 `config.prod` のような見た目の文字列はリンクになり得る（見た目ではなく拡張子の形だけを見るため）。これは matcher の限界として受け入れる。
 
-### 解決（cwd 相対）
+### 解決（面の種別と座標）
 
-`rootCwd` は `health.cwd`（ワークスペース root の絶対パス）、`cwd` は選択中セッションの `payload.cwd`。解決できたパスだけがタブのキー（cwd 相対）になる。
+`rootCwd` は `health.cwd`（ワークスペース root の絶対パス）、`cwd` は選択中セッションの `payload.cwd`。コードスパンの解決は `resolveFileRefTarget(raw, rootCwd, cwd)` が行い、`{ kind: "work", path }`（作業フォルダ面。`path` は cwd 相対）か `{ kind: "skill", root, path }`（スキル面。`root` はワークスペース root 相対、`path` はその root 相対）を返す。**Markdown 画像は `resolveFileRef` のまま**で、返すのは cwd 相対の文字列だけ（[markdown.md](markdown.md#画像の-src-解決)）。
+
+作業フォルダ面を先に見て、次に絶対パスだけを共通スキルへ回す。判定はどちらも matcher の正規化後の座標で行う。
 
 | 入力の形 | 扱い |
 | --- | --- |
-| `/workspace/...`（`rootCwd` 前置きの絶対パス） | `rootCwd` を剥がす。剥がせなければ不採用。剥がした結果が cwd 配下（`cwd + "/"` 境界）なら cwd 前置きも剥がして cwd 相対にする。cwd 配下でなければ不採用 |
-| その他の絶対パス（`/etc/...` など） | 不採用。`rootCwd` 未取得（health 未取得）のときも絶対パスは不採用 |
-| `./x` / `x`（明示的な相対） | cwd 相対として扱う。**cwd 前置きの剥がしはしない**（`projects/u7agent/a.html` は `<cwd>/projects/u7agent/a.html` を意味するため） |
+| `/workspace/...`（`rootCwd` 前置きの絶対パス） | `rootCwd` を剥がす。剥がせなければ不採用。剥がした結果が cwd 配下（`cwd + "/"` 境界）なら cwd 前置きも剥がして cwd 相対にする（`kind = "work"`）。cwd 配下でないときは次の行の判定へ進む |
+| `/workspace/.agents/skills/<name>/<file>`（`rootCwd` 前置きの**共通スキル配下**） | `kind = "skill"`、`root = .agents/skills/<name>`、`path = <file>`。`<file>` は `SKILL.md` でも補助ファイル（`assets/a.png` など）でも同じ扱い |
+| `.agents/skills/<name>/<file>`（ワークスペース root 相対の字面） | スキル面へは振り分けない。cwd 相対の `kind = "work"` として現行どおりリンク化する（プロジェクトスキルと衝突するため） |
+| その他の絶対パス（`/etc/...`、`/workspace/generated/...`、`/workspace/projects/x/.agents/skills/...` など） | 不採用。`rootCwd` 未取得（health 未取得）のときも絶対パスは不採用 |
+| `./x` / `x`（明示的な相対） | cwd 相対として扱う（`kind = "work"`）。**cwd 前置きの剥がしはしない**（`projects/u7agent/a.html` は `<cwd>/projects/u7agent/a.html` を意味するため） |
 | `..` セグメントを含む | 不採用（matcher で除外） |
 
-- 裸の `.u7agent/uploads/<id>/a.png` はこの規則どおり `<cwd>/.u7agent/uploads/<id>/a.png` を指す（予約 prefix の例外は持たない）。絶対パスの `/workspace/.u7agent/uploads/<id>/a.png` は cwd 外なので不採用
-- プレビューで `Path not found` のときは元のエラーを残して補助文を表示し、共通スキル配下のファイルは 設定 → スキル から開けることを案内する（リンク化と cwd 相対解決の規則は変えない）
-- セッションの cwd が未確定（未作成チャット）の間は何も解決しない。設定 → ファイル はワークスペース root 固定なので対象外
-- 保証は**字句的な包含だけ**。symlink の実体が cwd の外を指す場合までは保証しない（サンドボックスの検証は既存契約のまま workspace root 内）
+- スキル面へ回すのは**絶対パスだけ**。`.agents/skills` 直下（`<name>` が無い）と `<name>` だけ（ファイルが無い）の階層は不採用になる。`<name>` は最初のセグメント 1 つで、`alpha-2` を `alpha` へ混ぜない
+- **絶対パスが cwd 配下でもある場合は作業フォルダ面を優先する**（プロジェクトの cwd が `.agents/skills` 配下にある場合など）。既存の採否は変えない
+- 裸の `.u7agent/uploads/<id>/a.png` はこの規則どおり `<cwd>/.u7agent/uploads/<id>/a.png` を指す（予約 prefix の例外は持たない）。絶対パスの `/workspace/.u7agent/uploads/<id>/a.png` は cwd 外で、共通スキルでもないので不採用
+- プレビューで `Path not found` のときは元のエラーを残して補助文を表示し、共通スキル配下のファイルは 設定 → スキル からも開けることを案内する（補助文の文言は変えない）
+- セッションの cwd が未確定（未作成チャット）の間は**どちらの種別も解決しない**。設定 → ファイル はワークスペース root 固定なので対象外
+- 保証は**字句的な包含だけ**。symlink の実体が cwd / 共通スキルの外を指す場合までは保証しない（サンドボックスの検証は既存契約のまま workspace root 内）。`health.cwd` が symlink のときは、サンドボックスが返す realpath と字面がずれてリンクにならないことがある
 
 ### クリックと要求
 
 - 操作要素にするのは assistant 本文のインラインコードだけ。`type="button"` で、Tab 移動 / Enter / Space / 可視 focus / 読み上げ名を持つ。**Markdown リンクの children の code は対象外**（`[`index.html`](https://example.com)` は従来どおり `<a>` の中の code で、操作要素を入れない）。user 本文と、`MARKDOWN_MAX_LENGTH` 超のプレーン表示フォールバックも対象外
-- 要求は `{ seq, sessionId, path }` として `useSessions` の store が 1 件だけ持つ。`seq` は App の存続期間で単調増加し再利用しない。消費前に複数クリックが届いたら最後の要求だけが残る（最新優先。中間クリックのタブ作成は保証しない）
+- クリックしたときの面は**解決先の種別**で決める。`kind = "work"` は作業フォルダ面、`kind = "skill"` はスキル面を開く。逆向きの参照（スキル面の表示中に作業フォルダの参照など）も面のモードを切り替えてから開き、消費されない要求を残さない。操作要素の `title` も種別に合わせる（作業フォルダは `作業フォルダで開く`、スキルは `スキルで開く`）
+- 要求は `{ seq, sessionId, kind, root?, path }` として `useSessions` の store が 1 件だけ持つ。`kind` は `"work" | "skill"` で、`root` はスキル面だけが持つ（ワークスペース root 相対）。`seq` は App の存続期間で単調増加し再利用しない。消費前に複数クリックが届いたら最後の要求だけが残る（最新優先。中間クリックのタブ作成は保証しない）
 - 要求の寿命は選択中セッションの滞在期間に限る。`selectSession` / `newChat` の開始時と、`applySelectedSession` で ID が変わるときに破棄する（A→B→A と戻っても復活しない。`cwd` はセッション識別子にならず、同一プロジェクトの別セッションでも選択が変われば破棄する）
 - パネル / sheet は条件付き mount なので、`FileBrowser` が mount 後の Effect で未消費の要求を適用し、`onHandled(seq)` で App へ返す（`reloadToken` の「mount 時の値は無視する」方式は初回クリックを取り落とすため使わない）。App の ack は現在の pending の `seq` と照合し、古い ack で新しい要求を消さない
+- **面は自分宛ての種別の要求だけを適用する**（`fileRefRequestForKind`）。作業フォルダ面はスキル要求を、スキル面は作業フォルダ要求を消費しない。モードを切り替えてから対応する面が受け取るため、相手側の面が動くのは 1 レンダーの間だけになる
 - 適用の印は `FileBrowser` の ref が持ち、適用の直前に記録する。Effect の再実行（StrictMode）では二重に適用しない。`openFileTab` は同一パスでも新しい state を返すため、「タブが増えない」ことは 1 回適用の根拠にならない
 - 復元は `useState` の初期化、要求は Effect で適用するため、要求が最後に効く（表示中のタブが要求のパスになる）。要求の適用時はツリーの祖先を開いて対象の行を示す（[ツリーの reveal](#ツリーの-reveal)）
 - 表示モードは既存の選択規則のまま（未選択の HTML だけ既定でプレビュー。ユーザーがソースを選んだタブはソースのまま）
 - compact の sheet は閉じたときに、クリックした button を `App` が保持して focus を戻す（`document.activeElement` はクリックした button を指すとは限らない）。起点がセッション切替などで消えていたら focus を移さない。トグルから開いたときは戻さない。Escape は dialog の標準動作で閉じる（プレビューの中にフォーカスがあると親へ届かない既知制約は HTML プレビューと同じ）
 - provider は `App` が `rootCwd` / `cwd` / callback だけの memo 値で配る。要求 `seq` やパネル開閉を value に混ぜず、SSE の更新で過去の本文を再解析・再描画させない。インラインコード側だけが context を購読するため、独自 comparator を持つ `MdBlockView` / `MdList` / `MdListItemView` / `MdTable` に callback を通す必要がない
 
+### 面のモード（作業フォルダとスキル）
+
+参照から開く面は `SessionFilesPanel` / `SessionFilesSheet` の 1 つのスロットに**モード**として載せる（面ごとの別ペインは追加しない）。モードは `{ kind: "work" } | { kind: "skill", root }`（`client/src/lib/fileRefRequest.ts`）で、App が要求の種別から決める。
+
+| モード | 中身 | ヘッダ |
+| --- | --- | --- |
+| 作業フォルダ（既定） | タブ（作業フォルダ / 環境変数）+ root の操作行 + `FileBrowser` | 作業環境 + 閉じる |
+| スキル | root の 1 行 + `FileBrowser`（`readOnly`） | スキル + 作業フォルダへ戻る + 閉じる |
+
+- スキル面の `FileBrowser` は root = `.agents/skills/<name>`（ワークスペース root 相対）、`readOnly`、`excludeNames={[]}`、`reloadToken` = `ChatState.runEndSeq`（ヘッダの「再読み込み」は持たないので、run 終了だけが取り直しの入口）。**`hiddenNames` と `canRef` は渡さない**（`.git` も隠さず、スキルのパスは cwd 相対ではないため入力欄への参照にもしない）。`filePreviewPort` は既存の面と同じく health から受け取り、画像 / HTML プレビューを既存タブと同じ挙動にする
+- 一覧（`GET /api/skills/files`）は**引かない**。root と path だけで開くため、作成直後のスキルや一覧に載らない配置（`SKILL.md` 以外）でも開ける（[api-catalog.md](api-catalog.md#ファイルスキルagentsskills)）
+- root は mount 中に固定する（変更は `FileBrowser` の `key` による remount）。同じ root への再要求では remount せず、開いているタブとツリーを保つ
+- 面の状態（表示中の skill root とタブ）は要求の pending と独立に持つ。ack で pending が消えても面は閉じない
+- モードを既定（作業フォルダ）へ戻す契機: 閉じる導線（パネル / sheet の ✕、sheet の `Escape`、トップバーのトグルの閉）、**選択中セッションの変化**（セッション切替 / 新規チャット。`cwd` が同じでも戻す）、チャット以外への移動、compact ⇄ desktop の切替。desktop のパネル開閉 state は既存どおり残るので、「面を閉じる」はモードを既定へ戻すことを指す（右パネルは開いたまま作業フォルダへ戻る）。作業フォルダ面（`SessionFilesPanel` / `SessionFilesSheet`）の root と開閉 state は書き換えず、モードと戻る導線で往復する
+- 作業フォルダ面とスキル面は同時に mount しない（モードで出し分ける）。作業フォルダ面へ渡すのは `kind = "work"` の要求、スキル面へ渡すのは `kind = "skill"` の要求だけ（自分宛ての種別だけを適用する）
+- `filePreviewStore` からの復帰はスキル面の root でも同じ契約で、設定 → スキルの同じ root とタブ状態を共有しうる（開き直しで新しいタブだけになることは保証しない）。compact の sheet はクリックした button を `App` が保持して閉じたときに focus を戻す（既存契約のまま）
+
 ## ツリーの行のドラッグ（入力欄への参照）
 
 デスクトップの右パネルのファイル行をチャットの入力欄へドロップすると、その行のパスが本文へ `@<作業フォルダ相対のパス>` として挿さる。**添付（アップロード）ではない**のでファイルは送られず、モデルが必要なときに `read` で開く（`@<path>` が cwd 相対の参照であることは `server/src/agent.ts` の `appendSystemPrompt` が説明する）。字面と区切りの規則は `client/src/lib/fileMention.ts` の純関数、ドロップの受け取りは `Composer` が持つ。
 
-- ドラッグできるのは参照のパスが作業フォルダと一致する面だけ（`FileBrowser` の `canRef`。渡すのは desktop の右パネル）。設定 → ファイル はワークスペース root、スキルのファイルタブは SKILL.md の親ディレクトリで、パスの意味が違う。compact の sheet は全画面 modal で入力欄へ届かない
+- ドラッグできるのは参照のパスが作業フォルダと一致する面だけ（`FileBrowser` の `canRef`。渡すのは desktop の作業フォルダ面）。設定 → ファイル はワークスペース root、スキル面（設定 → スキルのファイルタブ / チャットのスキル面）は SKILL.md の親ディレクトリで、パスの意味が違う。compact の sheet は全画面 modal で入力欄へ届かない
 - ディレクトリ行はドラッグできない（`@<dir>` はファイルとして `read` できない）
 - 積む型は参照専用の `application/x-u7agent-file-mention`（パス）と `text/plain`（`@<パス>`）。入力欄はこの専用の型を `Files` より先に見て、参照を添付へ倒さない。`text/plain` があるため、他のアプリ / 入力欄へ落とすと参照の字面になる
 - 挿入位置はドロップ座標（`caretPositionFromPoint`。`caretRangeFromPoint` は textarea で正しい位置を返さないブラウザーがある）、取れなければ現在の選択。前後が非空白なら区切りに空白を足し、カーソルは参照の直後（続きを書ける位置）へ置く
@@ -428,7 +454,7 @@ assistant 本文のインラインコードが指すファイルを、右パネ�
 
 ## 復帰（F5・画面の往復）
 
-ファイル画面は、F5 や チャット ⇄ 設定 の往復、パネルの閉じ開き、セッションの切替でも直前の状態に戻る（`client/src/lib/filePreviewState.ts`）。復帰は `FileBrowser` の mount ごとに 1 回で、root が変わるたび（設定を離れて戻る / パネルを開き直す / セッションを切り替える / スキルのファイルタブを開き直す）に再適用し、通常の render やツリーの再取得・「再読み込み」では適用しない。保存は cwd ごとに分かれ、設定 → ファイル は常に `"."`（ワークスペース root 固定）、パネルは `payload.cwd`、スキルのファイルタブは SKILL.md の親ディレクトリを使うので、同じファイルを別の面で開いてもタブは混ざらない。保存値に残った他 cwd はそのまま残す（掃除はしない）。
+ファイル画面は、F5 や チャット ⇄ 設定 の往復、パネルの閉じ開き、セッションの切替でも直前の状態に戻る（`client/src/lib/filePreviewState.ts`）。復帰は `FileBrowser` の mount ごとに 1 回で、root が変わるたび（設定を離れて戻る / パネルを開き直す / セッションを切り替える / スキルのファイルタブやチャットのスキル面を開き直す）に再適用し、通常の render やツリーの再取得・「再読み込み」では適用しない。保存は root ごとに分かれ、設定 → ファイル は常に `"."`（ワークスペース root 固定）、作業フォルダ面は `payload.cwd`、スキル面（設定 → スキルのファイルタブ / チャットのスキル面）は SKILL.md の親ディレクトリ（`.agents/skills/<name>`）を使うので、同じファイルを別の面で開いてもタブは混ざらない。保存値に残った他 root はそのまま残す（掃除はしない）。
 
 - 復帰するのは タブの並び / 表示中のタブ / タブごとの表示モード / 開いているディレクトリ。配信元の選択は**保存しない**（F5 とタブを閉じるで既定の ON に戻る）。本文・children・loading・error は保存しない（他キーや複数 cwd と合算した容量と、鮮度の問題）。復帰後に本文を取得し直すため、表示中のタブ以外は選択したときに取得する（HTML は `/api/files/html/<path>`、ソースは `/api/files/preview`）
 - 保存するのは開いているディレクトリ。閉じた枝の子孫は閉じているため保存に含まれず、復元して親を開き直しても子孫は閉じたままになる。root は常に開く。取得は既存の「可視の親から子へ」の経路のまま
@@ -436,7 +462,7 @@ assistant 本文のインラインコードが指すファイルを、右パネ�
 - 消えていたファイルのタブは残し、本文の取得エラーをそのまま出す（勝手に閉じない）。削除済みディレクトリの枝は一覧の取得で落ちる。listing が `truncated` のとき未掲載の枝も落ちるため、完全な復元は保証しない
 - 「再読み込み」はタブ・表示モード・展開を保ったまま本文だけを取り直す。最後のタブを閉じた状態（保存する内容が無い）は cwd ごと消すので、F5 後も空のままになる
 - 保存値が壊れている / 形が合わない cwd は捨てる（他の cwd は残す）。9 枚のタブを持つ保存値も捨てる。これは通常操作の 9 枚目で最古を落とす `FILE_TAB_LIMIT` とは別の契約
-- 保存領域が使えない環境（SecurityError / quota 超過）では、write が失敗した cwd をメモリ snapshot として持ち、同一セッション内の往復は復元できる。F5 を跨ぐ復元は保証しない（古い保存値が戻り得る）。保存キーと上限の全体は [frontend.md](frontend.md#保存キーと保存範囲)
+- 保存領域が使えない環境（SecurityError / quota 超過）では、write が失敗した cwd をメモリ snapshot として持ち、同一セッション内の往復は復元できる。F5 を跨ぐ復元は保証しない（古い保存値が戻り得る）。保存キーと上限の全体は [frontend.md](frontend.md#保存キーと保存範囲)。**チャットのスキル面も root ごとの保存枠を 1 つ消費する**（`FILE_SNAPSHOT_CWD_LIMIT` 件を超えて開くと、先に書かれた root から落ちる）
 
 ## テスト
 
@@ -459,10 +485,11 @@ assistant 本文のインラインコードが指すファイルを、右パネ�
 | `client/test/archiveSettings.test.ts` | 除外名の下書きの純関数（実効値からの初期化と配列を共有しないこと / dirty の比較（未設定のまま既定を保存させない）/ 追加の trim・空・重複・上限 / 削除 / 検証（サーバーと同じ 1 セグメント名の規則と件数上限）） |
 | `client/test/archiveSettingsPage.test.ts` | 未設定・上書き・明示空・差分と保存可否・読み込み中・失敗・状態通知（SSR）。HTTP は apiContracts で検査 |
 | `client/test/readOnlySkillPanel.test.ts` | ファイルタブの採否 / 組み込み本文の表示（SSR）。取得・タブ間の操作はブラウザで確認 |
-| `client/test/fileRef.test.ts` | matcher の採否表（正規化と別表記の同ービキー / 制御文字 U+0000 / Unicode 空白 U+00A0・U+3000 / dotfile / scheme / `..` / 末尾ドット）と、解決の表（rootCwd 前置き / cwd 外 / rootCwd 未取得 / 明示的な相対 / cwd 未確定） |
+| `client/test/fileRef.test.ts` | matcher の採否表（正規化と別表記の同ービキー / 制御文字 U+0000 / Unicode 空白 U+00A0・U+3000 / dotfile / scheme / `..` / 末尾ドット）と、cwd 相対の解決表（rootCwd 前置き / cwd 外 / rootCwd 未取得 / 明示的な相対 / cwd 未確定）、面つき解決（共通スキルの絶対パス → `kind = "skill"` の root / path、補助ファイル、名前の境界、`.agents/skills` 直下・プロジェクトスキル・root 外の不採用、workspace 相対の現行維持、cwd 配下の作業フォルダ面優先） |
 | `client/test/fileMention.test.ts` | ドラッグの種類の判定 / 参照の引用とエスケープ / 挿入・カーソルの位置 / trim を通したパスの保持 |
-| `client/test/fileRefRequest.test.ts` | 最新要求だけを保持 / seq が一致する ack だけを消費 / 選択変更と sessionId の採否 / 購読・解除 |
-| `client/test/markdownFileRef.test.ts` | 参照になる code だけ操作にする / provider 外・cwd 外・リンク内の除外 / 引用・リスト・表での描画 |
+| `client/test/fileRefRequest.test.ts` | 最新要求だけを保持 / 要求の種別と root / seq が一致する ack だけを消費 / 選択変更と sessionId の採否 / 面ごとの消費可否（作業フォルダ面がスキル要求を消費しない） / 種別からのモード決定 / セッション切替・画面の移動・layout 切替での既定への復帰 / 購読・解除 |
+| `client/test/markdownFileRef.test.ts` | 参照になる code だけ操作にする / provider 外・cwd 外・リンク内の除外 / 引用・リスト・表での描画 / 共通スキルの絶対パスがスキル面の操作要素になり、操作名が種別で変わること（SSR） |
+| `client/test/sessionSkillFiles.test.ts` | チャットのスキル面の外装（見出し / root / 戻る導線 / 閉じる導線）と、モードによる作業フォルダ面との出し分け（SSR）。行の操作は `fileRowMenu.test.ts` とブラウザ受入で確認する |
 | `client/test/filePreviewState.test.ts` | 保存 schema の encode / decode / 検証と上限 / 壊れた入力の捨て方 / 他 cwd を消さない merge / read・write の例外とメモリ snapshot / 配信元（ストレージ有効モード）を保存しないこと |
 | `client/test/sessionFiles.test.ts` | 右パネルの出し分け（desktop × チャット画面 × 作業フォルダあり） |
 | `client/test/chatReducer.test.ts` | `runEndSeq` が `run_end` と `running` を抜けた `resync` でだけ進むこと（同じバッチで届いた `run_start` / `run_end` でも 1 回、新規チャットでも戻らない） |

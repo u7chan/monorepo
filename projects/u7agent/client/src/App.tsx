@@ -32,7 +32,14 @@ import { chatScope } from "./lib/chatScope";
 import { cn } from "./lib/cn";
 import { compactConfirmRequest } from "./lib/compaction";
 import { confirmTargetUnchanged } from "./lib/confirmDialog";
-import { fileRefRequestForSession } from "./lib/fileRefRequest";
+import {
+  fileRefRequestForSession,
+  filesModeForTarget,
+  filesModeScopeChanged,
+  DEFAULT_FILES_MODE,
+  type FilesMode,
+} from "./lib/fileRefRequest";
+import type { FileRefTarget } from "./lib/fileRef";
 import { resolveSidebarPlacement } from "./lib/layout";
 import {
   missingLinkNote,
@@ -121,6 +128,16 @@ export default function App() {
     setSheetScope({ compact, view: mainView, root: filesRoot });
     setSessionFilesSheetOpen(false);
   }
+  // 面のモード (作業フォルダ / スキル)。要求の種別で切り替え、閉じる導線 / セッション切替 / チャット以外への
+  // 移動 / compact ⇄ desktop の切替で既定 (作業フォルダ) へ戻す
+  const [filesMode, setFilesMode] = useState<FilesMode>(DEFAULT_FILES_MODE);
+  // モードを既定へ戻す契機の監視キー。root (cwd) だけでは同一プロジェクトのセッション切替 / 新規チャットを
+  // 拾えないため、選択中セッションの識別子も見る (シートの閉じと同じ描画中の同期で反映する)
+  const [filesModeScope, setFilesModeScope] = useState(() => ({ compact, view: mainView, sessionId: app.sessionId }));
+  if (filesModeScopeChanged(filesModeScope, { compact, view: mainView, sessionId: app.sessionId })) {
+    setFilesModeScope({ compact, view: mainView, sessionId: app.sessionId });
+    setFilesMode(DEFAULT_FILES_MODE);
+  }
   // 配信できない設定で通知を On にしようとしたか。押した後だけ出す注記の根拠で、会話を移ったら捨てる
   const [notifyAttempted, setNotifyAttempted] = useState(false);
   // 押して On にした回数 (ベルの演出の世代)。会話の切替 / リロードで値が On に上がるだけでは進めない
@@ -137,27 +154,37 @@ export default function App() {
   const fileRefOriginRef = useRef<HTMLElement | null>(null);
   const { requestFileRef } = app;
   const openFileRef = useCallback(
-    (path: string, origin: HTMLElement | null) => {
+    (target: FileRefTarget, origin: HTMLElement | null) => {
       // 起点はクリック時に自分で持つ (document.activeElement がクリックした button を指すとは限らない)
       fileRefOriginRef.current = origin;
-      // ファイル参照の意味は変えず、開く先だけを layout に従わせる
+      // 面のモードを要求の種別へ切り替えてから開く (逆向きの参照も面が入れ替わって消費する)
+      setFilesMode(filesModeForTarget(target));
       if (compact) setSessionFilesSheetOpen(true);
       else setSessionFilesOpen(true);
-      requestFileRef(path);
+      requestFileRef(target);
     },
     [compact, requestFileRef],
   );
+  const backToWorkFiles = useCallback(() => setFilesMode(DEFAULT_FILES_MODE), []);
   const toggleSessionFiles = useCallback(() => {
     // トグルからの開閉ではファイル参照へ focus を戻さない
     fileRefOriginRef.current = null;
+    // 閉じる導線は面ごと既定 (作業フォルダ面) へ戻す (開き直してもスキル面を残さない)
+    setFilesMode(DEFAULT_FILES_MODE);
     // 押した面 (layout で決まる) だけを反転する
     if (compact) setSessionFilesSheetOpen((open) => !open);
     else setSessionFilesOpen((open) => !open);
   }, [compact]);
   // 閉じる導線は押した面だけを閉じる。特にシートの close で desktop のパネルを閉じると、
   // compact を往復しただけで開閉が変わる (レイアウト切替は互いの state に影響しない)
-  const closeSessionFiles = useCallback(() => setSessionFilesOpen(false), []);
-  const closeSessionFilesSheet = useCallback(() => setSessionFilesSheetOpen(false), []);
+  const closeSessionFiles = useCallback(() => {
+    setSessionFilesOpen(false);
+    setFilesMode(DEFAULT_FILES_MODE);
+  }, []);
+  const closeSessionFilesSheet = useCallback(() => {
+    setSessionFilesSheetOpen(false);
+    setFilesMode(DEFAULT_FILES_MODE);
+  }, []);
 
   // 幅を広げて左バーが docked に戻ったら、ドロワーは畳む (開いたままにしない)
   useEffect(() => {
@@ -380,7 +407,8 @@ export default function App() {
   // ワークスペース root 固定なので、作業フォルダとは別の入口にする
   const filesPanelOpen = !compact && filesRoot !== "" && sessionFilesOpen;
   const filesSheetOpen = compact && filesRoot !== "" && sessionFilesSheetOpen;
-  // 未消費の要求は選択中セッションのときだけパネルへ渡す (セッションが変われば useSessions が破棄する)
+  // 未消費の要求は選択中セッションのときだけパネルへ渡す (セッションが変われば useSessions が破棄する)。
+  // 面へ渡すのは 1 つの要求で、自分宛ての種別だけを適用する (面のモードは要求の種別で切り替える)
   const pendingFileRef = fileRefRequestForSession(app.fileRefRequest, app.sessionId);
   // ツリーの行のダウンロードの出し分け。取得前は空 = 導線を出し、実際の拒否はサーバーの check に任せる
   const excludeNames = app.archiveSettings.settings?.excludeNames ?? [];
@@ -591,6 +619,8 @@ export default function App() {
             onClose={closeSessionFiles}
             openRequest={pendingFileRef}
             onHandled={app.ackFileRef}
+            mode={filesMode}
+            onBackToWork={backToWorkFiles}
             resize={panelWidth}
           />
         ) : null}
@@ -606,6 +636,8 @@ export default function App() {
           onClose={closeSessionFilesSheet}
           openRequest={pendingFileRef}
           onHandled={app.ackFileRef}
+          mode={filesMode}
+          onBackToWork={backToWorkFiles}
           returnFocus={fileRefOriginRef.current}
         />
       ) : null}

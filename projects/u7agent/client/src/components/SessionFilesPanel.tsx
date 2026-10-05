@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type KeyboardEvent, type PointerEvent } fr
 import type { SecretsScope } from "../api";
 import { sessionEnvScopeKey, sessionEnvTabs, type SessionEnvTab } from "../lib/sessionEnv";
 import { SESSION_FILES_HIDDEN_NAMES } from "../lib/sessionFiles";
-import type { FileRefRequest } from "../lib/fileRefRequest";
+import { fileRefRequestForKind, type FileRefRequest, type FilesMode } from "../lib/fileRefRequest";
 import { cn } from "../lib/cn";
 import {
   clampSessionFilesPanelWidth,
@@ -37,6 +37,10 @@ export type SessionFilesPanelProps = {
   openRequest?: FileRefRequest | null;
   /** 適用済みの seq を App へ返し、pending を消す */
   onHandled?: (seq: number) => void;
+  /** 面のモード。スキル面は root 固定の読み取り専用ツリーを出す */
+  mode: FilesMode;
+  /** スキル面から作業フォルダ面 (既定) へ戻す */
+  onBackToWork: () => void;
 };
 
 function SessionFilesContent({
@@ -121,7 +125,7 @@ function SessionFilesContent({
             hiddenNames={SESSION_FILES_HIDDEN_NAMES}
             excludeNames={excludeNames}
             filePreviewPort={filePreviewPort}
-            openRequest={openRequest}
+            openRequest={fileRefRequestForKind(openRequest ?? null, "work")}
             onHandled={onHandled}
             canRef={!compact}
           />
@@ -237,6 +241,96 @@ function SessionFilesResizeHandle({
   );
 }
 
+/**
+ * スキル面 (チャットから開く読み取り専用のツリー)。root は要求のたびに 1 つだけ持ち、切替は呼び出し側の
+ * `key` が remount する。設定 → スキルのファイルタブと同じ見え方を使うが、一覧 (GET /api/skills/files)
+ * を引かずに root と path だけで開く (作成直後でも開ける。docs/api-catalog.md)。
+ */
+export function SkillFilesContent({
+  root,
+  compact,
+  runEndSeq,
+  filePreviewPort,
+  openRequest,
+  onHandled,
+  onBack,
+  onClose,
+}: {
+  /** スキルディレクトリ (ワークスペース root 相対) */
+  root: string;
+  compact: boolean;
+  /** run の終了回数。作業フォルダ面と同じく、増えるたびに一覧と本文を取り直す */
+  runEndSeq: number;
+  filePreviewPort?: number;
+  openRequest?: FileRefRequest | null;
+  onHandled?: (seq: number) => void;
+  onBack: () => void;
+  onClose: () => void;
+}) {
+  return (
+    <>
+      <header
+        className={cn(
+          "flex shrink-0 items-center justify-between gap-3 border-b border-line px-4",
+          compact ? "py-3" : "py-2",
+        )}
+      >
+        <div className="min-w-0 flex-1">
+          {compact ? <div className="text-2xs font-semibold tracking-label text-ink-ghost uppercase">SKILL</div> : null}
+          <h2 className={cn("truncate font-semibold text-ink-strong", compact ? "text-md" : "text-xs")}>スキル</h2>
+        </div>
+        <div className="ml-auto flex shrink-0 items-center gap-1">
+          <button type="button" onClick={onBack} className="btn-quiet">
+            作業フォルダへ戻る
+          </button>
+          <button type="button" onClick={onClose} aria-label="閉じる" title="閉じる" className="btn-quiet px-2.5">
+            <CloseIcon />
+            {compact ? "閉じる" : null}
+          </button>
+        </div>
+      </header>
+      <div className="grid min-h-0 grid-rows-[auto_minmax(0,1fr)]">
+        {/* パンくずは画面 root 相対なので、ツリーの root は面のヘッダ側に出す (設定 → スキルと同じ形) */}
+        <div className="flex items-center border-b border-line px-4 py-2">
+          <code className="min-w-0 truncate text-2xs leading-normal text-ink-muted" title={root}>
+            {root}
+          </code>
+        </div>
+        {/* 読み取り専用の面なので行の操作ごと出さない (除外名も使われない)。.git は隠さず、参照ドラッグも付けない */}
+        <FileBrowser
+          key={root}
+          root={root}
+          reloadToken={runEndSeq}
+          readOnly
+          excludeNames={[]}
+          filePreviewPort={filePreviewPort}
+          openRequest={fileRefRequestForKind(openRequest ?? null, "skill")}
+          onHandled={onHandled}
+        />
+      </div>
+    </>
+  );
+}
+
+/** 面のモードで中身を出し分ける。スキル面の root の切替は呼び出し側 (FileBrowser) の `key` が扱う */
+function SessionFilesFace({ compact, ...props }: SessionFilesPanelProps & { compact: boolean }) {
+  if (props.mode.kind === "skill") {
+    return (
+      <SkillFilesContent
+        root={props.mode.root}
+        compact={compact}
+        runEndSeq={props.runEndSeq}
+        filePreviewPort={props.filePreviewPort}
+        openRequest={props.openRequest}
+        onHandled={props.onHandled}
+        onBack={props.onBackToWork}
+        onClose={props.onClose}
+      />
+    );
+  }
+  return <SessionFilesContent {...props} compact={compact} />;
+}
+
 /** 幅のハンドルを出す desktop の面だけが resize を受け取る (compact のシートは全画面で対象外) */
 export type SessionFilesDesktopPanelProps = SessionFilesPanelProps & { resize: SessionFilesPanelResize };
 
@@ -245,13 +339,18 @@ export type SessionFilesDesktopPanelProps = SessionFilesPanelProps & { resize: S
  * 入れ替える。幅が狭いので、ツリーとプレビューは FileBrowser 側のコンテナ判定で縦に積む。
  */
 export function SessionFilesPanel({ resize, ...props }: SessionFilesDesktopPanelProps) {
+  const skill = props.mode.kind === "skill";
   return (
     <aside
-      aria-label="作業環境"
-      className="relative grid h-full min-h-0 grid-rows-[auto_auto_minmax(0,1fr)] overflow-hidden border-l border-line bg-panel"
+      aria-label={skill ? "スキル" : "作業環境"}
+      className={cn(
+        "relative grid h-full min-h-0 overflow-hidden border-l border-line bg-panel",
+        // タブバーの行は作業フォルダ面だけが持つ (残すと本文の行が auto になり、高さが容器を越える)
+        skill ? "grid-rows-[auto_minmax(0,1fr)]" : "grid-rows-[auto_auto_minmax(0,1fr)]",
+      )}
     >
       {resize.resizable ? <SessionFilesResizeHandle {...resize} /> : null}
-      <SessionFilesContent {...props} compact={false} />
+      <SessionFilesFace {...props} compact={false} />
     </aside>
   );
 }
@@ -290,13 +389,16 @@ export function SessionFilesSheet({ returnFocus, ...props }: SessionFilesSheetPr
       onClose={props.onClose}
       tabIndex={-1}
       aria-modal="true"
-      aria-label="作業環境"
+      aria-label={props.mode.kind === "skill" ? "スキル" : "作業環境"}
       onKeyDown={(event) => {
         if (event.key === "Escape") event.stopPropagation();
       }}
-      className="m-0 grid h-dvh max-h-none w-screen max-w-none grid-rows-[auto_auto_minmax(0,1fr)] overflow-hidden rounded-none border-0 bg-panel p-0 text-ink"
+      className={cn(
+        "m-0 grid h-dvh max-h-none w-screen max-w-none overflow-hidden rounded-none border-0 bg-panel p-0 text-ink",
+        props.mode.kind === "skill" ? "grid-rows-[auto_minmax(0,1fr)]" : "grid-rows-[auto_auto_minmax(0,1fr)]",
+      )}
     >
-      <SessionFilesContent {...props} compact />
+      <SessionFilesFace {...props} compact />
     </dialog>
   );
 }

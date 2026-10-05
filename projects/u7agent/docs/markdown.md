@@ -70,9 +70,10 @@ MessageView (assistant の本文)
 
 ## インラインコードのファイル参照
 
-コードスパンは、assistant 本文でファイル参照として解決できたときだけ操作要素（`button`）にする。字面の判定・cwd 相対への解決・クリック後の導線（要求の寿命・パネル / sheet の開き方・focus）は [file-preview.md](file-preview.md#メッセージからの導線ファイル参照) を正とし、ここには描画側の契約だけを置く。描画上の採否は `client/test/markdownFileRef.test.ts` が検査する。
+コードスパンは、assistant 本文でファイル参照として解決できたときだけ操作要素（`button`）にする。字面の判定・面ごとの解決・クリック後の導線（要求の寿命・モードの切替・パネル / sheet の開き方・focus）は [file-preview.md](file-preview.md#メッセージからの導線ファイル参照) を正とし、ここには描画側の契約だけを置く。描画上の採否は `client/test/markdownFileRef.test.ts` が検査する。
 
 - **操作要素にするのは assistant 本文だけ**。user 本文は `MarkdownView` を通らず（`MessageView` が `whitespace-pre-wrap` で出す）、コードスパンも操作要素にしない
+- **解決先は 2 種類ある**（作業フォルダ面 = cwd 相対、スキル面 = 共通スキル配下の絶対パス。判定は [file-preview.md](file-preview.md#解決面の種別と座標)）。描画側はどちらも同じ `button` にし、**`title` で開く先を種別に合わせる**（`作業フォルダで開く` / `スキルで開く`）
 - **Markdown リンクの children は対象外**。`` [`index.html`](https://example.com) `` の code は従来どおり `<a>` の中の `code` で、`button` を入れない。`strong` / `em` / `del` の入れ子にも同じ印（`MarkdownView` の `inLink`）を伝搬する
 - **長文のプレーン表示フォールバック（`MARKDOWN_MAX_LENGTH` 超）は対象外**。解析も描画もしないため code を作らない
 - 参照と判定されない字面（`localStorage` など）と `FileRefProvider` の外は、従来どおりの `code` で描く
@@ -108,14 +109,14 @@ MessageView (assistant の本文)
 
 assistant 本文の `![alt](src)` は、次の 3 段で配信 URL へ解決する（`client/src/components/markdown/MarkdownImageRefs.tsx`）。生成した画像（[image-generation.md](image-generation.md)）を `![cafe](generated/cafe.png)` のように cwd 相対で示せるようにするための導線で、`src` が解決できなければ従来どおりそのまま描く。
 
-1. `resolveFileRef(src, rootCwd, cwd)` で cwd 相対へ（`client/src/lib/fileRef.ts`）
+1. `resolveFileRef(src, rootCwd, cwd)` で cwd 相対へ（`client/src/lib/fileRef.ts`）。**コードスパンの `resolveFileRefTarget`（面の種別つき）は使わない**（戻り値を面の種別つきに変えると画像 URL が壊れるため。共通スキル配下の画像はコードスパンから開く）
 2. `fileTreeFetchPath(cwd, resolved)` で root 相対へ（`client/src/lib/fileTree.ts`）
 3. `fileRawUrl(rootRelative, imageVersion)` で版付き URL へ（`client/src/api.ts`。App が `useMarkdownImageRawUrl` を通して注入する）
 
 - **`client/src/api.ts` は module 評価時に `location.origin` を読むため、`components/markdown/` から直接 import しない**（`react-dom/server` の静的描画テストが落ちる）。既存の `FileRefProvider` と同じ形で resolver context から `rawUrl` を受け取り、`components/markdown/` は `resolveFileRef` と `fileTreeFetchPath` だけを呼ぶ
 - App は `useMarkdownImageRawUrl(ChatState.runEndSeq)` の返す `rawUrl` を渡す。このフックは `useImageVersion` の[共有採番](api.md#画像配信raw)で版を得て、`useCallback` で URL ビルダーを保つ。`runEndSeq` は `run_end` と `running` を抜けた `resync` で進む更新の合図で、その数値を版として直接使わない。同じ mount では版が変わったときだけ `v` query が変わる（通常の再描画やストリーミングでは変えない）。provider の `useMemo` は `rawUrl` の変更を拾い、ライトボックスもサムネイルと同じ解決済み `src` に追随する
 - `Cache-Control: no-store` でも同一 document 内の同じ画像 URL は再取得されないため、この版で URL を変える。ファイル単位の版ではなくセッション単位なので、run 終了ごとに表示中の履歴画像も取り直す。完全なスナップショットは持たず、生成時点の表示を保つには[一意ファイルを残す運用](image-generation.md#会話履歴を保つ生成手順)を使う
-- 外部 URL / `..` / cwd 外の絶対パス / 拡張子のない字面は `resolveFileRef` が解決せず、素の `src` のままになる（外部の画像は `safeUrl` がパース段階で弾き、Markdown の原文表示に落ちる）
+- 外部 URL / `..` / cwd 外の絶対パス / 拡張子のない字面は `resolveFileRef` が解決せず、素の `src` のままになる（外部の画像は `safeUrl` がパース段階で弾き、Markdown の原文表示に落ちる）。**共通スキル配下の絶対パスも `resolveFileRef` のままでは不採用**（cwd 外のため）で、画像としては描画されない
 - リンクの中の画像（`[![alt](img)](url)` など）は従来どおり素の `img` で、クリック拡大の対象外
 
 ## 解析の上限（ストリーミング対策）
