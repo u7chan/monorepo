@@ -72,16 +72,17 @@ test("保存領域や OS テーマが使えなくても初期テーマを設定�
 });
 
 // CSS のキーと registry は型で結べないため、テーマ追加時の定義漏れだけ検査する。
+// プリセットは html に限らず `[data-theme]` (テーマの一覧のプレビューが使う) に当たる。
 test("CSS のプリセット・スウォッチのキーが registry と一致する", () => {
   const expected = THEMES.map((theme) => theme.id).sort();
-  for (const pattern of [/^html\[data-theme="([^"]+)"\]$/, /^\.theme-swatch\[data-theme-id="([^"]+)"\]$/]) {
+  for (const pattern of [/^\[data-theme="([^"]+)"\]$/, /^\.theme-swatch\[data-theme-id="([^"]+)"\]$/]) {
     const ids = rules
       .filter((rule) => rule.selectors.every((selector) => selector === ":root" || pattern.test(selector)))
       .flatMap((rule) => rule.selectors.flatMap((selector) => selector.match(pattern)?.[1] ?? []));
     assert.deepEqual(ids.sort(), expected);
   }
   for (const theme of THEMES) {
-    const preset = rules.find((rule) => rule.selectors.includes(`html[data-theme="${theme.id}"]`));
+    const preset = rules.find((rule) => rule.selectors.includes(`[data-theme="${theme.id}"]`));
     assert.equal(preset?.body.match(/color-scheme:\s*(light|dark)/)?.[1], theme.appearance, theme.id);
   }
 });
