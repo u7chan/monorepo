@@ -72,7 +72,7 @@ DTO の正は `server/src/schema.ts`（zod）。リクエストボディは `@ho
   "defaultModelError": "保存された既定モデルは利用できません: openai/ghost",
   "filePreviewPort": 4318,
   "previewPort": 4319,
-  "versions": { "piCodingAgent": "0.99.1", "piAi": "0.99.1" },
+  "versions": { "piCodingAgent": "1.0.3", "piAi": "1.0.3" },
   "sessionStore": { "path": "/var/lib/u7agent/sessions", "ok": true, "dirty": 0 },
   "appDb": { "path": "/var/lib/u7agent/sessions/u7agent.db", "ok": true },
   "archive": { "excludeNames": ["node_modules", ".venv", "…"] }
@@ -99,7 +99,7 @@ DTO の正は `server/src/schema.ts`（zod）。リクエストボディは `@ho
 {
   "catalogCount": 2,
   "availableCount": 2,
-  "versions": { "piCodingAgent": "0.99.1", "piAi": "0.99.1", "commitHash": "…" },
+  "versions": { "piCodingAgent": "1.0.3", "piAi": "1.0.3", "commitHash": "…" },
   "providers": [
     {
       "provider": "<provider>",
