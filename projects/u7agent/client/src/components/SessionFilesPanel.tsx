@@ -65,7 +65,7 @@ function SessionFilesContent({
     <>
       <header
         className={cn(
-          "flex shrink-0 items-start justify-between gap-3 border-b border-line px-4",
+          "flex shrink-0 items-center justify-between gap-3 border-b border-line px-4",
           compact ? "py-3" : "py-2",
         )}
       >
