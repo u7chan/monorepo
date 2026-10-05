@@ -7,6 +7,7 @@ import {
   FILE_PREVIEW_MAX_LENGTH,
   FILE_PREVIEW_MAX_TOKENS,
   isHtmlPath,
+  isMarkdownPath,
   previewCopyText,
   previewLang,
 } from "../src/lib/fileCode";
@@ -155,5 +156,28 @@ test("HTML を描画するパスを判定する", () => {
   // 描画は .html / .htm の自己完結した HTML だけ (拡張子の判定は previewLang と同じ規則)
   for (const path of ["a.xhtml", "a.svg", "a.md", "a.txt", "html", ".html", ".htm", "dir/.html", "a.html.txt", ""]) {
     assert.equal(isHtmlPath(path), false, path);
+  }
+});
+
+test("Markdown を描画するパスを判定する", () => {
+  for (const path of ["a.md", "README.MD", "a.markdown", "dir/b.Markdown", "dir.v2/note.md"]) {
+    assert.equal(isMarkdownPath(path), true, path);
+  }
+  // 描画は言語判定と同じく md / markdown の拡張子だけ (.mdx は JSX を含み得るため対象外)
+  for (const path of [
+    "a.mdx",
+    "a.md.txt",
+    "a.html",
+    "a.txt",
+    "md",
+    "markdown",
+    ".md",
+    ".markdown",
+    "dir/.md",
+    "a.",
+    "a.constructor",
+    "",
+  ]) {
+    assert.equal(isMarkdownPath(path), false, path);
   }
 });

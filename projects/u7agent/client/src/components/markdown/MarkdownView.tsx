@@ -11,8 +11,8 @@ import { useMarkdownImageSrc } from "./MarkdownImageRefs";
 import { MathBlock, MathInline } from "./MathView";
 
 /**
- * assistant 本文の Markdown 描画の入口。
- * 巨大な本文は解析せずプレーン表示に落とし、ストリーミング中の再解析コストを抑える。
+ * チャット本文とファイルプレビューの Markdown 描画の入口。
+ * 巨大な本文は解析せずプレーン表示に落とし、1 回の描画で走る再解析のコストを抑える。
  */
 export function MarkdownView({ text }: { text: string }) {
   if (text.length > MARKDOWN_MAX_LENGTH) return <div className="md whitespace-pre-wrap">{text}</div>;
