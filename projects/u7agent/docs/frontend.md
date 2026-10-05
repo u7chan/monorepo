@@ -27,6 +27,7 @@
 - この契約は `shadcn/no-restyle`（`.oxlintrc.json` で `allow: ["layout"]`）が検査する。コンポーネントの認識は `settings.shadcn.componentImports` の正規表現で行い、client は path alias を持たずコンポーネントを相対 import でしか参照しないため `^\.\.?/` を登録している（この指定は client/src 配下の全 module に当たるが、JSX のタグとして解決されるのはコンポーネントだけ）。
 - バーやゲージなどの図形は CSS（幅と背景色）か SVG で描く。ブロック要素のグリフ（`█` / `▁` など）は端末のフォント次第で字形が崩れ、等幅にならないため `tabular-nums` も効かない。SVG で描くときは寸法と塗りを `viewBox` とクラスで決める（`style` 属性は CSP と `shadcn/no-inline-styles` で使えない）。
 - 折りたたみ（`<details>`）は `summary` のブラウザー既定マーカーを外し、`DisclosureChevronIcon` の chevron を開閉の印にする。回転は CSS（`.disclosure-chevron`）が持ち、本文の高さは `details::details-content` の `block-size` を 0 → `auto` へ遷移させる（`interpolate-size: allow-keywords` と `content-visibility` の `allow-discrete` 遷移が要る）。どちらも無いブラウザーでは瞬時に開閉するだけで、機能は落ちない。`prefers-reduced-motion` では遷移を止める。
+- コピー確定のチェック（`CopyButton`）はアイコン自身を 2 段の CSS animation で出す。尻尾（左下）から 240ms で書き出しつつ、体を左下から滑り込ませ、行き過ぎ（58% で scale 1.1 / +5°）から 320ms で収める。書き出しは `pathLength=1` を固定して dash を動かすので、経路の形を変えても長さを知らずに済む。既定値（`.copy-check-mark`）は書き終わった状態にしておき、`prefers-reduced-motion` では animation だけを切る。押した瞬間に「出た」と分かることが目的で、止める環境とアニメーションを持たない環境では静止画のチェックがそのまま残る。
 - 認識済みコンポーネントへ渡す className は静的に読める形で書く（`shadcn/require-static-classes` が error）。ヘルパー関数の戻り値や、別 module から import したクラス定数を渡すと違反になるので、その場合はコンポーネント側に props を足す。
 - 状態で見た目を切り替えるボタンの土台（`.btn-quiet` / `.icon-button`）は `client/src/styles/index.css` の `@layer components` に置く。utilities 同士で同じプロパティを並べると（`border-line` と `border-accent/50` など）生成 CSS の順序で勝敗が決まり、`cn()` の後勝ちにならない（compact の通知トグルで On の accent が出なかった原因）。
 
