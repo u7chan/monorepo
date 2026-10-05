@@ -307,7 +307,7 @@ function renderTopbar(notify: {
       serve: serveProps(),
       scope: SCOPE,
       runtimeStatus: IDLE,
-      notify: { deliverable: true, onToggle: () => {}, ...notify },
+      notify: { deliverable: true, onToggle: () => {}, ring: 0, ...notify },
       sessionFiles: { open: false, onToggle: () => {} },
     }),
   );
@@ -344,7 +344,7 @@ function renderCompactBar(notify: { on: boolean; note?: string; deliverable?: bo
       agentName: "実装担当",
       scope: SCOPE,
       runtimeStatus: IDLE,
-      notify: { deliverable: true, onToggle: () => {}, ...notify },
+      notify: { deliverable: true, onToggle: () => {}, ring: 0, ...notify },
       sessionFiles: { open: true, onToggle: () => {} },
       onOpenNav: () => {},
     }),

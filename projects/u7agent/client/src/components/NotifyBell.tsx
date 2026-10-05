@@ -1,5 +1,7 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { finishOnAnimationEnd } from "../lib/animationEnd";
 import { cn } from "../lib/cn";
+import { initialNotifyBellState, nextNotifyBellState, type NotifyBellState } from "../lib/notifyBell";
 import { BellGlyph } from "./icons";
 
 /** 4 方向へ尖るきらめき。中心を制御点にした 2 次曲線でくぼませ、菱形の点に見せない */
@@ -12,22 +14,32 @@ function sparklePath(cx: number, cy: number, radius: number): string {
 }
 
 /**
- * 会話の通知トグルのベル。Off → On になった瞬間だけ一度鳴る (揺れ・音の輪・きらめき)。
- * 立ち上がりに限るのは、On の会話を開き直した / リロードした / 別の会話へ移っただけで鳴ると、
- * 押していない操作に反応して見えるため。静止した状態印は BellIcon のままにする。
+ * トグルのベル。On の間は鳴っている印を出し、押して On にした瞬間だけ一度鳴る。
+ * 鳴るかどうかを決めるのは `ring` (操作の世代) だけで、`ringing` の立ち上がりでは鳴らさない
+ * (会話の切替 / リロード / deep link の解決でも値は On へ上がる。docs/notifications.md が正)。
  */
-export function NotifyBell({ ringing }: { ringing: boolean }) {
-  const [ring, setRing] = useState(false);
-  const [wasRinging, setWasRinging] = useState(ringing);
+export function NotifyBell({ ringing, ring }: { ringing: boolean; ring: number }) {
+  const [state, setState] = useState<NotifyBellState>(() => initialNotifyBellState(ring));
+  const svgRef = useRef<SVGSVGElement>(null);
 
   // props の変化を描画中に見て state を調整する (effect だと演出の開始が 1 コミット遅れる)
-  if (wasRinging !== ringing) {
-    setWasRinging(ringing);
-    setRing(ringing && !wasRinging);
-  }
+  const synced = nextNotifyBellState(state, { ring, on: ringing, finished: false });
+  if (synced !== state) setState(synced);
+
+  // 鳴り終わりの解除は根 (svg) の pop に合わせる (子の終了では切らない)。prefers-reduced-motion では
+  // animation が無効で animationend が来ないため、時間の保険を持って終了する
+  useEffect(() => {
+    if (!state.ringing) return;
+    const element = svgRef.current;
+    if (!element) return;
+    return finishOnAnimationEnd(element, getComputedStyle(element).animationDuration, () => {
+      setState((current) => nextNotifyBellState(current, { ring, on: ringing, finished: true }));
+    });
+  }, [state.ringing, ring, ringing]);
 
   return (
     <svg
+      ref={svgRef}
       aria-hidden="true"
       viewBox="0 0 16 16"
       fill="none"
@@ -36,13 +48,9 @@ export function NotifyBell({ ringing }: { ringing: boolean }) {
       strokeLinecap="round"
       strokeLinejoin="round"
       // 音の輪ときらめきは viewBox の外まで広がる。切り取らず、隣の操作を邪魔しない
-      className={cn("pointer-events-none size-4 shrink-0 overflow-visible", ring && "notify-bell-ring")}
-      // 根の pop の終了 = 一連の終わり。子 (音の輪・きらめき) の終了では切らない
-      onAnimationEnd={(event) => {
-        if (event.target === event.currentTarget) setRing(false);
-      }}
+      className={cn("pointer-events-none size-4 shrink-0 overflow-visible", state.ringing && "notify-bell-ring")}
     >
-      {ring ? (
+      {state.ringing ? (
         <g className="pointer-events-none">
           {/* 音の輪。中心をベル (8, 10.3) に揃えた同心の弧で、左右とも外向きへ膨らむ */}
           <path className="notify-bell-wave notify-bell-wave-left" d="M3.5 7.7A5.2 5.2 0 0 0 3.5 12.9" />

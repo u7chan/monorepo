@@ -13,7 +13,7 @@ test("バーはプロジェクトの作業先を表示する", () => {
     serve: serveProps(),
     scope,
     runtimeStatus: { text: "", error: false },
-    notify: { on: false, deliverable: true, onToggle: () => {} },
+    notify: { on: false, ring: 0, deliverable: true, onToggle: () => {} },
   };
   const topbar = renderToStaticMarkup(createElement(Topbar, props));
   assert.ok(topbar.includes("work/hello"));

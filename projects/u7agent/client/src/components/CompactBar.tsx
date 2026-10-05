@@ -19,10 +19,17 @@ export type CompactBarProps = {
   serve: ServedAppProps;
   runtimeStatus: RuntimeStatus;
   /**
-   * 会話の通知トグル。deliverable は今の On が実際に送られるか (色とラベルの根拠)。
-   * note は配信できない理由で、On の間は常に、Off では押した後に出る
+   * 会話の通知トグル。ring は押して On にした回数 (ベルの演出の世代)、deliverable は今の On が実際に
+   * 送られるか (色とラベルの根拠)。note は配信できない理由で、On の間は常に、Off では押した後に出る
    */
-  notify: { on: boolean; note?: string; deliverable: boolean; onToggle: () => void; onOpenSettings?: () => void };
+  notify: {
+    on: boolean;
+    ring: number;
+    note?: string;
+    deliverable: boolean;
+    onToggle: () => void;
+    onOpenSettings?: () => void;
+  };
   sessionFiles?: { open: boolean; onToggle: () => void };
   onOpenNav: () => void;
 };
@@ -70,7 +77,7 @@ export function CompactBar({
           title={notifyLabel}
           className={cn("icon-button", notify.on && notify.deliverable && "border-accent/50 text-accent-text")}
         >
-          <NotifyBell ringing={notify.on} />
+          <NotifyBell ringing={notify.on} ring={notify.ring} />
         </button>
         {sessionFiles ? (
           <button

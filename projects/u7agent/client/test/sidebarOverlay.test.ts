@@ -20,7 +20,7 @@ function renderTopbar(nav?: { onOpen: () => void }): string {
       serve: serveProps(),
       scope: SCOPE,
       runtimeStatus: IDLE,
-      notify: { on: false, deliverable: true, onToggle: () => {} },
+      notify: { on: false, ring: 0, deliverable: true, onToggle: () => {} },
       nav,
     }),
   );
