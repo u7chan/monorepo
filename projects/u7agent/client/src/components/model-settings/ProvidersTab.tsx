@@ -306,7 +306,7 @@ function ProviderDetail({
       <div className="grid gap-2 border-b border-line pb-2">
         <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
           <ProviderIcon provider={provider.provider} name={provider.name} variant="heading" />
-          <h2 className="font-semibold text-base text-ink-strong">{provider.name}</h2>
+          <h2 className="text-md font-semibold text-ink-strong">{provider.name}</h2>
           <code className="text-2xs text-ink-ghost">{provider.provider}</code>
           <ProviderBadgeTag badge={badge} />
           {catalogProvider ? (
