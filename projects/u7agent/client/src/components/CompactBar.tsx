@@ -3,7 +3,8 @@ import { cn } from "../lib/cn";
 import type { ChatScope } from "../lib/chatScope";
 import type { LayoutMode } from "../lib/layout";
 import { servedAppErrorText } from "../lib/servedApp";
-import { BellIcon, FolderIcon, MenuIcon } from "./icons";
+import { NotifyBell } from "./NotifyBell";
+import { FolderIcon, MenuIcon } from "./icons";
 import { NotifyNote } from "./NotifyNote";
 import { RuntimeAlert } from "./RuntimeAlert";
 import { ServedAppIndicator, type ServedAppProps } from "./ServedAppStatus";
@@ -69,7 +70,7 @@ export function CompactBar({
           title={notifyLabel}
           className={cn("icon-button", notify.on && notify.deliverable && "border-accent/50 text-accent-text")}
         >
-          <BellIcon ringing={notify.on} />
+          <NotifyBell ringing={notify.on} />
         </button>
         {sessionFiles ? (
           <button

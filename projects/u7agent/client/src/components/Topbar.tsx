@@ -3,9 +3,10 @@ import type { ChatScope } from "../lib/chatScope";
 import type { RuntimeStatus } from "../hooks/runtimeStatus";
 import { servedAppErrorText } from "../lib/servedApp";
 import { NotifyNote } from "./NotifyNote";
+import { NotifyBell } from "./NotifyBell";
 import { RuntimeAlert } from "./RuntimeAlert";
 import { ServedAppGroup, type ServedAppProps } from "./ServedAppStatus";
-import { BellIcon, FolderIcon, MenuIcon } from "./icons";
+import { FolderIcon, MenuIcon } from "./icons";
 
 export type TopbarProps = {
   /** 作業先。プロジェクト名 (引けなければ「未所属」) と、チップの title に出す作業フォルダ */
@@ -69,7 +70,7 @@ export function Topbar({ scope, serve, runtimeStatus, notify, sessionFiles, nav 
             onClick={notify.onToggle}
             className={cn("btn-quiet shrink-0", delivering && "border-accent/50 text-accent-text")}
           >
-            <BellIcon ringing={notify.on} />
+            <NotifyBell ringing={notify.on} />
             {notifyLabel}
           </button>
           {sessionFiles ? (
