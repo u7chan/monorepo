@@ -17,7 +17,7 @@ import {
   groupFileSkills,
 } from "../../lib/fileSkills";
 import type { FileSkillInfo } from "../../types";
-import { RefreshIcon } from "../icons";
+import { ReloadButton } from "../ReloadButton";
 
 export type FileSkillListProps = {
   state: FileSkillsState;
@@ -54,15 +54,9 @@ export function FileSkillList({ state, onReload, selectedPath = null, onSelect }
         <h3 className="min-w-0 truncate text-2xs font-semibold tracking-widest text-ink-faint uppercase">
           {FILE_SKILL_SECTION_LABEL}
         </h3>
-        <button
-          type="button"
-          onClick={onReload}
-          aria-label={FILE_SKILL_RELOAD_ARIA_LABEL}
-          className="btn-quiet shrink-0 gap-1 px-1.5 py-0.5"
-        >
-          <RefreshIcon />
+        <ReloadButton size="sm" onClick={onReload} aria-label={FILE_SKILL_RELOAD_ARIA_LABEL}>
           {FILE_SKILL_RELOAD_LABEL}
-        </button>
+        </ReloadButton>
       </div>
       {state.status === "loading" ? <FileSkillNote>{FILE_SKILL_LOADING_NOTE}</FileSkillNote> : null}
       {state.status === "error" ? (

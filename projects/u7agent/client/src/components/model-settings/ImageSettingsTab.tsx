@@ -13,7 +13,8 @@ import {
 } from "../../lib/imageSettings";
 import { API_KEY_MIN_LENGTH } from "../../lib/modelSettings";
 import type { ImageSettingsResponse, UpdateImageSelectionBody } from "../../types";
-import { CheckIcon, RefreshIcon, TrashIcon } from "../icons";
+import { CheckIcon, TrashIcon } from "../icons";
+import { ReloadButton } from "../ReloadButton";
 import { useConfirm } from "../ConfirmProvider";
 import { ProviderIcon } from "../ProviderIcon";
 import { SelectField } from "../SelectField";
@@ -211,10 +212,9 @@ function ImageModelSection({
             {imageCatalogNotice(settings)}
           </MetaChip>
         </p>
-        <button type="button" className="btn-quiet" disabled={busy} onClick={() => void onRefresh()}>
-          <RefreshIcon />
+        <ReloadButton disabled={busy} onClick={() => void onRefresh()}>
           {refreshing ? "取得中" : "再取得"}
-        </button>
+        </ReloadButton>
       </div>
     </section>
   );

@@ -97,21 +97,16 @@ export function ArrowDownIcon() {
   );
 }
 
-export function RefreshIcon() {
+/**
+ * 取り直しの円弧と矢印 (矢印の向きは時計回り)。
+ * 押した瞬間の 1 回転はボタン (ReloadButton) が足す (ここは静止した図形だけを持つ)。
+ */
+export function ReloadGlyph() {
   return (
-    <svg
-      aria-hidden="true"
-      viewBox="0 0 16 16"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.5"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      className="size-3.5 shrink-0"
-    >
+    <>
       <path d="M14 8a6 6 0 1 1-6-6c1.68 0 3.28.67 4.48 1.83L14 5.33" />
       <path d="M14 2v3.33h-3.33" />
-    </svg>
+    </>
   );
 }
 

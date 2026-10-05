@@ -25,7 +25,7 @@ import {
 } from "../lib/runtimeEnvironment";
 import type { Health, RuntimeEnvironmentResponse, RuntimeEnvironmentState } from "../types";
 import { CopyButton } from "./chat/CopyButton";
-import { RefreshIcon } from "./icons";
+import { ReloadButton } from "./ReloadButton";
 import { SettingsPageLayout, type SettingsPageProps } from "./SettingsPageLayout";
 import { useRuntimeServe } from "../hooks/useRuntimeServe";
 import { RuntimeServiceCard } from "./RuntimeServiceCard";
@@ -103,18 +103,15 @@ export function RuntimePage({
             onClick={() => void copyMessage(diagnosticText, "diagnostic")}
             label="診断情報をコピー"
           />
-          <button
-            type="button"
-            className="btn-quiet"
+          <ReloadButton
             onClick={() => {
               void runLoad(true);
               void service.refresh();
             }}
             disabled={pending}
           >
-            <RefreshIcon />
             再読み込み
-          </button>
+          </ReloadButton>
         </>
       }
       compact={compact}

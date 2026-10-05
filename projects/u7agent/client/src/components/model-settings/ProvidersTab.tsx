@@ -15,7 +15,8 @@ import {
   type ProviderDraft,
 } from "../../lib/modelSettings";
 import type { ModelsSettingsResponse, ProviderAuthSetting, RuntimeModelsResponse, SessionSummary } from "../../types";
-import { CheckIcon, KeyIcon, RefreshIcon, TrashIcon } from "../icons";
+import { CheckIcon, KeyIcon, TrashIcon } from "../icons";
+import { ReloadButton } from "../ReloadButton";
 import { useConfirm } from "../ConfirmProvider";
 import { ProviderIcon } from "../ProviderIcon";
 import { MetaChip } from "./MetaChip";
@@ -388,15 +389,9 @@ function ProviderDetail({
             </button>
           ) : null}
           {resyncAvailable(provider) ? (
-            <button
-              type="button"
-              className="btn-quiet"
-              disabled={busy}
-              onClick={() => void onResync(provider.provider)}
-            >
-              <RefreshIcon />
+            <ReloadButton disabled={busy} onClick={() => void onResync(provider.provider)}>
               {saving ? "再同期中" : "再同期"}
-            </button>
+            </ReloadButton>
           ) : null}
         </div>
         <p className="text-2xs leading-relaxed text-ink-muted">

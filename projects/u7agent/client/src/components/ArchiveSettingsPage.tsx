@@ -1,6 +1,7 @@
 import { useState } from "react";
 import type { ArchiveSettings } from "../hooks/useArchiveSettings";
-import { CheckIcon, PlusIcon, RefreshIcon, TrashIcon } from "./icons";
+import { CheckIcon, PlusIcon, TrashIcon } from "./icons";
+import { ReloadButton } from "./ReloadButton";
 import { SettingsPageLayout, type SettingsPageProps } from "./SettingsPageLayout";
 
 export type ArchiveSettingsPageProps = SettingsPageProps & {
@@ -140,10 +141,7 @@ export function ArchiveSettingsPage({ archiveSettings, compact = false, onBack, 
               {note.error ? (
                 <>
                   <p role="alert">アーカイブの除外名を読み込めませんでした。</p>
-                  <button type="button" className="btn-quiet" onClick={() => void reload()}>
-                    <RefreshIcon />
-                    再読み込み
-                  </button>
+                  <ReloadButton onClick={() => void reload()}>再読み込み</ReloadButton>
                 </>
               ) : (
                 <p role="status">アーカイブの除外名を読み込んでいます。</p>

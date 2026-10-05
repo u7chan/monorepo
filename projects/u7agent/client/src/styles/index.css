@@ -613,6 +613,30 @@
     }
   }
 
+  /* 取り直しの 1 回転 (ReloadButton)。押した瞬間だけ回し、取得の完了は待たない。
+   * 演出の意図と寸法は docs/frontend.md が正 */
+  .reload-spin {
+    /* 回転の中心を viewBox の中心にする。transform-box を固定しないと、bbox 基準の
+     * ブラウザーで経路の bbox 中心にずれる */
+    transform-box: view-box;
+    transform-origin: 50% 50%;
+    /* 終わりに transform を残さない (fill 無し)。アイコンを回転したままの層に残さない */
+    animation: reload-turn 400ms cubic-bezier(0.3, 0.7, 0.2, 1);
+  }
+  @keyframes reload-turn {
+    from {
+      rotate: 0deg;
+    }
+    to {
+      rotate: 360deg;
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .reload-spin {
+      animation: none;
+    }
+  }
+
   /* 幅のドラッグ中 (右パネルの SessionFilesPanel と左バーの SidebarResizeHandle が body へ付ける)。
    * ポインタがハンドルを離れてもカーソルを保ち、テキスト選択を止める。ハンドル自身の色は状態を
    * 持たずここで示す (`.panel-resize-handle` は両ハンドル共通の印) */
