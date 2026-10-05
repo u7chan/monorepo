@@ -73,9 +73,7 @@ function SessionFilesContent({
           {compact ? (
             <div className="text-2xs font-semibold tracking-label text-ink-ghost uppercase">WORK ENVIRONMENT</div>
           ) : null}
-          <h2 className={cn("truncate font-semibold text-ink-strong", compact ? "font-semibold text-base" : "text-xs")}>
-            作業環境
-          </h2>
+          <h2 className={cn("truncate font-semibold text-ink-strong", compact ? "text-md" : "text-xs")}>作業環境</h2>
         </div>
         <div className="ml-auto flex shrink-0 items-center gap-1">
           <button type="button" onClick={onClose} aria-label="閉じる" title="閉じる" className="btn-quiet px-2.5">

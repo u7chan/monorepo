@@ -51,7 +51,7 @@ export function SettingsDetailSheet({ eyebrow, title, note, onClose, children }:
       <header className="flex shrink-0 items-start justify-between gap-3 border-b border-line px-4 py-3.5">
         <div className="min-w-0">
           <div className="text-2xs font-semibold tracking-label text-ink-ghost uppercase">{eyebrow}</div>
-          <h2 className="font-semibold text-base text-ink-strong">{title}</h2>
+          <h2 className="text-md font-semibold text-ink-strong">{title}</h2>
         </div>
         <button type="button" onClick={onClose} className="btn-quiet">
           <CloseIcon />

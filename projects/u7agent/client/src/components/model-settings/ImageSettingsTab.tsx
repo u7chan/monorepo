@@ -67,7 +67,7 @@ export function ImageSettingsTab({
             件数と一覧の出どころはプロバイダータブと同じチップで揃える */}
         <section className="flex flex-wrap items-center gap-x-3 gap-y-1.5 border-b border-line pb-2">
           <ProviderIcon provider={imageProviderId(settings.provider)} name={providerName} variant="heading" />
-          <h2 className="font-semibold text-base text-ink-strong">{providerName}</h2>
+          <h2 className="text-md font-semibold text-ink-strong">{providerName}</h2>
           <code className="text-2xs text-ink-ghost">{imageProviderId(settings.provider)}</code>
           <ProviderBadgeTag badge={imageKeyStatusBadge(settings.configured)} />
           <MetaChip>カタログ {settings.models.length}</MetaChip>
