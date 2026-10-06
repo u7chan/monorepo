@@ -10,6 +10,7 @@ import { expandSkillCommand, hasProjectSkills, listSessionSkills, type SessionSk
 import { resolveAgentSkills } from "../sessions";
 import {
   FileUploadSchema,
+  type AnswerQuestionBody,
   type CreateSessionBody,
   type PostMessageBody,
   type UpdateSessionNotifyBody,
@@ -235,6 +236,20 @@ export function createSessionRoutes({
         { titleSource: text },
       );
       return c.json({ sessionId: record.id, status: store.statusOf(record), ...result }, 202);
+    },
+
+    /**
+     * ask_user の回答。回答は 1 回だけ成立し、質問ごとの「回答しない」もここで受ける。
+     * 回答待ちでない (実行前 / 終了後) は 404、回答済みは 409、内容の不一致は 400。
+     */
+    answerQuestion: async (c: Context, body: AnswerQuestionBody) => {
+      const record = await resolveRecord(c);
+      if (!record) return c.json({ error: "Session not found" }, 404);
+      const result = store.answerQuestion(record, c.req.param("toolCallId") ?? "", body.answers);
+      if (result.status === "missing") return c.json({ error: "回答待ちの質問が見つかりません" }, 404);
+      if (result.status === "answered") return c.json({ error: "この質問には回答済みです" }, 409);
+      if (result.status === "invalid") return c.json({ error: result.error }, 400);
+      return c.json({ ok: true });
     },
 
     /**

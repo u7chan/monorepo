@@ -489,6 +489,42 @@ export function BellIcon({ ringing = false }: { ringing?: boolean }) {
   );
 }
 
+/** 送りの chevron (ChevronIcon の鏡像)。質問カードの前の質問などに使う */
+export function ChevronLeftIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.6"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className="size-3.5"
+    >
+      <path d="M9.75 4.25L6 8l3.75 3.75" />
+    </svg>
+  );
+}
+
+export function ArrowRightIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.6"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className="size-4 shrink-0"
+    >
+      <path d="M3.5 8h8.75" />
+      <path d="M8.75 3.75 13 8l-4.25 4.25" />
+    </svg>
+  );
+}
+
 /** ツリーの展開 (開いているときは親側で回転させる) */
 export function ChevronIcon() {
   return (

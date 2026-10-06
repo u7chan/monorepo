@@ -15,6 +15,7 @@ import type { Api, Model as PiAiModel } from "@earendil-works/pi-ai";
 import { readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { COMMON_SKILLS_DIR } from "./app-paths";
+import { createAskUserToolDefinitions, withAskUserTool, type AskUserHost } from "./ask-user-tool";
 import { catalogSkillIndexForSession } from "./catalog-skills";
 import { discoverSessionFileSkills } from "./file-skills";
 import { createImageToolDefinitions, IMAGE_GENERATION_PROMPT_LINES, sessionToolNames } from "./image-tools";
@@ -201,6 +202,10 @@ export interface PiBff {
    * ツール定義はこのホストへ委譲する (GUI と同じ ServeService を通る)
    */
   setServe(host: ServeToolHost): void;
+  /**
+   * ask_user ツールの実体を注入する。待機の所有は SessionStore が持ち、ツールはここの ask を await する
+   */
+  setAskUser(host: AskUserHost): void;
   /**
    * 作業フォルダの変数をエージェントの bash へ注入する。bootstrap がアプリデータ (secrets) を持つため、
    * 解決はこの源へ委譲する (シークレットはここへ入れない)
@@ -605,6 +610,8 @@ export async function createPiBff({ cwd = process.cwd() }: { cwd?: string } = {}
   const imagesGenerator = createImagesGenerator({ maskText: maskError });
   // serve ツールの実体は bootstrap (アプリデータとサンドボックスを持つ層) が注入する。未注入なら公開しない
   const serveHost: { value: ServeToolHost | null } = { value: null };
+  // ask_user の実体も bootstrap が注入する。待機の所有者は SessionStore (run 状態と同じ場所に置く)
+  const askUserHost: { value: AskUserHost | null } = { value: null };
   // 変数 (作業環境 → 環境変数) の解決源も同じく bootstrap が注入する。未注入なら env 無しで実行する
   const sessionEnv: { value: SessionEnvSource | null } = { value: null };
 
@@ -676,6 +683,8 @@ export async function createPiBff({ cwd = process.cwd() }: { cwd?: string } = {}
     // ツール一覧はセッション作成時に固定する。画像ツールの有効化は新しい会話と復元から効く
     const imageGenerationEnabled = imageGeneration.config?.enabled === true;
     const serveToolEnabled = serveHost.value?.configured === true;
+    // 質問ツールは常時有効 (PI_AGENT_TOOLS の allowlist には依存させない)。実体未注入のときだけ落とす
+    const askUserEnabled = askUserHost.value !== null;
     const baseTools = configuredTools();
     // ファイルスキルは SDK のネイティブ発見を使わず、サンドボックスで発見した一覧を skillsOverride で渡す
     // (発見に失敗してもスキル無しでセッション作成を続行する)
@@ -717,7 +726,10 @@ export async function createPiBff({ cwd = process.cwd() }: { cwd?: string } = {}
         sessionId ? { id: sessionId } : undefined,
         entries as Parameters<typeof SessionManager.inMemory>[2],
       ),
-      tools: withServeTool(sessionToolNames(baseTools, imageGenerationEnabled), serveToolEnabled),
+      tools: withAskUserTool(
+        withServeTool(sessionToolNames(baseTools, imageGenerationEnabled), serveToolEnabled),
+        askUserEnabled,
+      ),
       // 組込み定義を「サンドボックスの実行API を呼ぶリモート定義」で置き換え、BFF 上で作業コードを実行しない。
       // 画像生成と serve は BFF ローカルの customTool として足す（サンドボックスには送らない）
       customTools: [
@@ -745,6 +757,11 @@ export async function createPiBff({ cwd = process.cwd() }: { cwd?: string } = {}
           enabled: serveToolEnabled,
           sessionId: ownerSessionId ?? sessionId,
           host: serveHost.value as ServeToolHost,
+        }),
+        ...createAskUserToolDefinitions({
+          enabled: askUserEnabled,
+          sessionId: ownerSessionId ?? sessionId,
+          host: askUserHost.value as AskUserHost,
         }),
       ],
     };
@@ -797,6 +814,9 @@ export async function createPiBff({ cwd = process.cwd() }: { cwd?: string } = {}
     },
     setServe(host) {
       serveHost.value = host;
+    },
+    setAskUser(host) {
+      askUserHost.value = host;
     },
     setSessionEnv(source) {
       sessionEnv.value = source;

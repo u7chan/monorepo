@@ -8,6 +8,7 @@ import test from "node:test";
 import type { Dispatch } from "react";
 import { chatReducer, initialChatState, type ChatAction } from "../src/hooks/chatReducer";
 import {
+  answerChatQuestion,
   compactChat,
   resendUnsentMessage,
   sendChatMessage,
@@ -659,4 +660,45 @@ test("取り直しも失敗し、操作世代が進んでいれば表示を戻�
   pending.reject(new Error("network reset"));
   await running;
   assert.deepEqual(actionsOfType(actions, "resendFailed"), []);
+});
+
+test("ask_user の回答は成功で ok、409 / 404 では権威ある状態を取り直す", async () => {
+  const sessionIdRef = { current: "s-1" };
+  const answers = [{ index: 0, selected: ["A"] }];
+  let recovered = 0;
+  const base = {
+    sessionIdRef,
+    recover: async () => {
+      recovered += 1;
+    },
+    answer: async () => ({ ok: true as const }),
+  };
+  assert.deepEqual(await answerChatQuestion("call-1", answers, base), { ok: true });
+  assert.equal(recovered, 0, "成功では取り直さない");
+
+  // 別タブが先に回答した 409 / 停止・再起動で消えた 404 は、理由を返して取り直しへ収束させる
+  const conflict = { ...base, answer: async () => Promise.reject(apiFailure("この質問には回答済みです", 409)) };
+  assert.deepEqual(await answerChatQuestion("call-1", answers, conflict), {
+    ok: false,
+    error: "この質問には回答済みです",
+  });
+  assert.equal(recovered, 1);
+  const missing = { ...base, answer: async () => Promise.reject(apiFailure("回答待ちの質問が見つかりません", 404)) };
+  await answerChatQuestion("call-1", answers, missing);
+  assert.equal(recovered, 2);
+
+  // 内容の不一致 (400) や通信失敗はカード内の理由だけにし、取り直しは起こさない
+  const invalid = { ...base, answer: async () => Promise.reject(apiFailure("answers must cover every question", 400)) };
+  assert.deepEqual(await answerChatQuestion("call-1", answers, invalid), {
+    ok: false,
+    error: "answers must cover every question",
+  });
+  const offline = { ...base, answer: async () => Promise.reject(new Error("Failed to fetch")) };
+  assert.deepEqual(await answerChatQuestion("call-1", answers, offline), { ok: false, error: "Failed to fetch" });
+  assert.equal(recovered, 2);
+
+  assert.deepEqual(await answerChatQuestion("call-1", answers, { ...base, sessionIdRef: { current: "" } }), {
+    ok: false,
+    error: "会話がありません",
+  });
 });

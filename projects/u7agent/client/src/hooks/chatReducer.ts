@@ -8,10 +8,13 @@ import {
   toolCardOf,
 } from "../lib/chatHistory";
 import type { HistoryMergeResult } from "../lib/chatHistory";
+import { isPendingAskUser } from "../lib/askUser";
 import { compactionDividerIndex } from "../lib/compaction";
 import type { Bubble, ChatHistoryState, CompactionMarker, ToolCard } from "../lib/chatTypes";
 import { retryableRunError, runErrorFrom, type RunErrorInfo } from "../lib/runRetry";
 import type {
+  AskUserAnswer,
+  AskUserQuestion,
   ChatMessage,
   CompactionInfo,
   ContextUsage,
@@ -154,8 +157,16 @@ export type ChatAction =
     } /** 送信に失敗したローカルエコーを戻す (待ち行列の末尾 = 直前に送った分) */
   | { type: "dropLocalUser" }
   | { type: "text"; delta: string; at: number }
-  | { type: "toolStart"; id: string; name: string; args: string; skill?: SkillLoad; at: number }
-  | { type: "toolEnd"; id: string; isError: boolean; output: string }
+  | {
+      type: "toolStart";
+      id: string;
+      name: string;
+      args: string;
+      skill?: SkillLoad;
+      questions?: AskUserQuestion[];
+      at: number;
+    }
+  | { type: "toolEnd"; id: string; isError: boolean; output: string; answers?: AskUserAnswer[] }
   | { type: "usage"; usage?: Usage; metrics?: MessageMetrics; context?: ContextUsage }
   | { type: "compaction"; compaction: CompactionInfo; count: number }
   | { type: "status"; state: string; text: string }
@@ -447,8 +458,15 @@ function currentTurnAssistantId(bubbles: Bubble[]): number | undefined {
 function attachRunToolCards(state: ChatState, focus: boolean): ChatState {
   const calls = Object.values(state.runTools);
   if (calls.length === 0) return state;
-  const targetId = currentTurnAssistantId(state.bubbles);
-  if (targetId === undefined) return state;
+  let targetId = currentTurnAssistantId(state.bubbles);
+  // 本文を持たない assistant は履歴から落ちるため、回答待ちの ask_user では補完先が無い。
+  // 待機中は次のイベントが来ず自己回復しないので、ここだけ assistant バブルを合成する
+  if (targetId === undefined) {
+    if (!calls.some(isPendingAskUser)) return state;
+    state = ensureAssistant(state);
+    targetId = state.currentAssistantId ?? undefined;
+    if (targetId === undefined) return state;
+  }
   const attached = attachToolCalls(state, targetId, calls);
   return focus ? { ...attached, currentAssistantId: targetId } : attached;
 }
@@ -1046,6 +1064,7 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
         done: false,
         output: "",
         ...(action.skill ? { skill: action.skill } : {}),
+        ...(action.questions ? { questions: action.questions } : {}),
       };
       // 保留中の run 側カードを先に補ってから新しいカードを足す (逆順だと初回の assistant バブルで
       // 新規が先頭になり、run 側の挿入順と逆のツール履歴になる)
@@ -1064,7 +1083,13 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
               ...state,
               runTools: {
                 ...state.runTools,
-                [action.id]: { ...call, done: true, isError: action.isError, output: action.output },
+                [action.id]: {
+                  ...call,
+                  done: true,
+                  isError: action.isError,
+                  output: action.output,
+                  ...(action.answers ? { answers: action.answers } : {}),
+                },
               },
             };
       const bubbleId = withRun.toolBubbleIds[action.id];
@@ -1076,7 +1101,12 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
               ...b,
               tools: b.tools.map((card) =>
                 card.id === action.id
-                  ? { ...card, phase: action.isError ? "failed" : "done", output: action.output }
+                  ? {
+                      ...card,
+                      phase: action.isError ? "failed" : "done",
+                      output: action.output,
+                      ...(action.answers ? { answers: action.answers } : {}),
+                    }
                   : card,
               ),
             }));

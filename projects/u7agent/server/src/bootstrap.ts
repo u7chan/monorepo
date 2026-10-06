@@ -250,6 +250,8 @@ export async function createBffContext(opts: CreateBffAppOptions = {}): Promise<
     ...(opts.serveProbe ? { probe: opts.serveProbe } : {}),
   });
   pi?.setServe(createServeToolHost(serve));
+  // ask_user の待機は run 状態と同じ SessionStore が持つ。ツール定義はこのホストへ委譲する
+  pi?.setAskUser(store.askUserHost());
   return {
     cwd,
     pi,

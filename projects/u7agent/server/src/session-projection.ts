@@ -3,12 +3,13 @@
  * 秘密値のマスクは切り詰めより先に行う (逆順だと上限の境界でキーの末尾が欠け、大部分が生のまま残る)。
  */
 import { basename, dirname, resolve } from "node:path";
+import { ASK_USER_TOOL_NAME, deriveAskUserQuestions, parseAskUserAnswers } from "./ask-user-tool";
 import { catalogSkillNameFromPath } from "./catalog-skills";
 import { SKILL_FILE_NAME } from "./builtin-skills";
 import type { PiSessionLike } from "./pi-runtime";
 import { parseUsage } from "./pi-runtime";
 import type { SecretMasker } from "./redact";
-import type { ChatMessage, MessageMetrics, SkillLoad, ToolCall } from "./schema";
+import type { AskUserAnswer, AskUserQuestion, ChatMessage, MessageMetrics, SkillLoad, ToolCall } from "./schema";
 
 const SUMMARY_TEXT_MAX = 900;
 const ARGS_TEXT_MAX = 260;
@@ -203,6 +204,9 @@ function toolCallsOf(
     if (classifySkillRead(call.arguments, { cwd, toolName: call.name })) continue;
     const result = toolResults.get(call.id);
     if (!result) continue;
+    // ask_user の質問 / 回答は詳細 DTO。skill と違い、ライブと履歴の両方で同じ ToolCall が持つ
+    const questions = askUserQuestionsOf(call.name, call.arguments, masker);
+    const answers = askUserAnswersOf(call.name, result.details, masker);
     calls.push({
       id: call.id,
       name: call.name,
@@ -210,9 +214,57 @@ function toolCallsOf(
       isError: result.isError === true,
       done: true,
       output: toolResultSummary(result, masker),
+      ...(questions ? { questions } : {}),
+      ...(answers ? { answers } : {}),
     });
   }
   return calls;
+}
+
+/**
+ * 質問 / 回答は args と toolResult の `details` 由来で、content に掛かる secret マスク (`secret-guard.ts`
+ * のインライン拡張) を通らない。DTO に載せる前にここで必ずマスクする。
+ */
+export function askUserQuestionsOf(
+  toolName: string,
+  args: unknown,
+  masker: SecretMasker,
+): AskUserQuestion[] | undefined {
+  if (toolName !== ASK_USER_TOOL_NAME) return undefined;
+  const questions = deriveAskUserQuestions(args);
+  if (!questions) return undefined;
+  return questions.map((question) => ({
+    ...question,
+    question: masker.mask(question.question),
+    ...(question.header !== undefined ? { header: masker.mask(question.header) } : {}),
+    ...(question.placeholder !== undefined ? { placeholder: masker.mask(question.placeholder) } : {}),
+    ...(question.options
+      ? {
+          options: question.options.map((option) => ({
+            label: masker.mask(option.label),
+            ...(option.description !== undefined && option.description !== ""
+              ? { description: masker.mask(option.description) }
+              : {}),
+          })),
+        }
+      : {}),
+  }));
+}
+
+/** 回答の復元 (通常は toolResult の `details`)。停止・中止では空配列 = 「回答なしで終了」 */
+export function askUserAnswersOf(
+  toolName: string,
+  details: unknown,
+  masker: SecretMasker,
+): AskUserAnswer[] | undefined {
+  if (toolName !== ASK_USER_TOOL_NAME) return undefined;
+  const answers = parseAskUserAnswers(details);
+  if (!answers) return undefined;
+  return answers.map((answer) => ({
+    ...answer,
+    ...(answer.selected ? { selected: answer.selected.map((label) => masker.mask(label)) } : {}),
+    ...(answer.text !== undefined ? { text: masker.mask(answer.text) } : {}),
+  }));
 }
 
 interface SkillReadRef {
