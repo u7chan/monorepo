@@ -53,6 +53,7 @@ export function MessageView({
   onResend,
   onDiscard,
   answerable = false,
+  live = false,
   onAnswerQuestion,
   animate = true,
 }: {
@@ -78,6 +79,8 @@ export function MessageView({
   onDiscard?: () => void;
   /** このバブルが実行中の run に属するか (ask_user のカードを回答可能にするかの根拠) */
   answerable?: boolean;
+  /** 進行中のターンのバブルか。ツール履歴のコピーを完了まで隠す根拠 */
+  live?: boolean;
   /** ask_user の回答。エラーはカード内に出し、入力は消さない */
   onAnswerQuestion?: (
     toolCallId: string,
@@ -97,7 +100,8 @@ export function MessageView({
   const bodyText = skill ? (skill.userMessage ?? "") : userBody;
   const metaLine = isUser ? "" : messageMetaLine(bubble.usage, bubble.metrics, compact);
   const metaTitle = isUser ? undefined : messageMetaTitle(bubble.usage, bubble.metrics);
-  // スキル読み込みはバッジ、ask_user は専用カードへ出し、ツール履歴の件数・サマリー・コピーからは外す
+  // スキル読み込みはバッジ、ask_user は専用カードへ出し、ツール履歴の件数・サマリー・コピーからは外す。
+  // 進行中のターンで実行中のカードを外すのは ToolHistoryView 側 (ターンが終われば残す)
   const toolCards = nonSkillToolCards(bubble.tools);
   const questionCards = isUser ? [] : bubble.tools.filter((card) => card.questions?.length);
   return (
@@ -164,6 +168,7 @@ export function MessageView({
           <ToolHistoryView
             cards={toolCards}
             hasResponse={Boolean(bubble.text)}
+            live={live}
             copiedId={copiedId}
             copiedAll={copiedAll}
             onCopyAll={onCopyAll}

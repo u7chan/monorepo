@@ -1,0 +1,116 @@
+// 入力欄の上のライブ表示 (実行中のツール) の表示条件と、ツール履歴のコピーを完了まで出さない契約のテスト。
+// ライブは走査順 (= runTools の挿入順) と、履歴と同じ除外規則 (スキル読み込み・ask_user) を守る。
+import assert from "node:assert/strict";
+import test from "node:test";
+import { createElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
+import { ToolHistoryView } from "../src/components/chat/ToolHistory";
+import { LiveToolCall } from "../src/components/composer/LiveToolCall";
+import type { ToolCard } from "../src/lib/chatTypes";
+import { liveToolState } from "../src/lib/liveToolCall";
+import type { RunStatus, ToolCall } from "../src/types";
+
+function call(id: string, name: string, args: string, done: boolean, extra: Partial<ToolCall> = {}): ToolCall {
+  return { id, name, args, done, isError: false, output: done ? "ok" : "", ...extra };
+}
+
+function card(id: string, name: string, phase: ToolCard["phase"]): ToolCard {
+  return { id, name, args: "", phase, output: "" };
+}
+
+test("ライブは実行中のカードだけを走査順に返し、番号は完了分も含めて数える", () => {
+  const runTools = {
+    t1: call("t1", "bash", "curl -fsSL https://example.test/a.json", true),
+    t2: call("t2", "bash", "jq -r '.areas[0]' a.json", false),
+    t3: call("t3", "read", "/work/a.json", true),
+    t4: call("t4", "grep", "-n osaka /work/a.json", false),
+  };
+
+  const state = liveToolState(runTools, "running");
+  assert.equal(state.visible, true);
+  assert.deepEqual(
+    state.rows.map((row) => [row.id, row.index]),
+    [
+      ["t2", 2],
+      ["t4", 4],
+    ],
+  );
+  assert.equal(state.rows[0].summary, "bash — jq -r '.areas[0]' a.json");
+});
+
+test("スキル読み込みと ask_user はライブに出さない (ツール履歴と同じ除外)", () => {
+  const skill = { id: "s1", name: "a", path: "skills/a/SKILL.md" };
+  const runTools = {
+    t1: call("t1", "read", "skills/a/SKILL.md", false, { skill }),
+    t2: call("t2", "ask_user", "{}", false, { questions: [{ question: "どこの地域?" }] }),
+    t3: call("t3", "bash", "ls", false),
+  };
+
+  const state = liveToolState(runTools, "running");
+  assert.deepEqual(
+    state.rows.map((row) => row.id),
+    ["t3"],
+  );
+  // 外した分は番号を詰める (履歴の行番号と同じ数え方)
+  assert.equal(state.rows[0].index, 1);
+});
+
+test("run が実行中でなければ出さない (停止で done が来なかったカードを残さない)", () => {
+  const runTools = { t1: call("t1", "bash", "sleep 100", false) };
+  for (const status of ["idle", "queued", "compacting", "completed", "stopped", "error"] as RunStatus[]) {
+    const state = liveToolState(runTools, status);
+    assert.equal(state.visible, status === "queued", `${status} の表示`);
+  }
+  assert.equal(liveToolState({}, "running").visible, false, "実行中でもツールが無ければ出さない");
+});
+
+function renderHistory(cards: ToolCard[], live: boolean): string {
+  return renderToStaticMarkup(
+    createElement(ToolHistoryView, {
+      cards,
+      hasResponse: false,
+      live,
+      copiedId: "",
+      copiedAll: false,
+      onCopyAll: () => {},
+      compact: false,
+      onCopyTool: () => {},
+    }),
+  );
+}
+
+test("ツール履歴の「すべてコピー」は進行中のターンでは出さず、完了で出す", () => {
+  const cards = [card("t1", "bash", "done")];
+  assert.equal(renderHistory(cards, true).includes("ツール履歴をすべてコピー"), false);
+  assert.equal(renderHistory(cards, false).includes("ツール履歴をすべてコピー"), true);
+});
+
+test("進行中のターンでは実行中のカードを履歴に出さず、ターンが終われば並べる", () => {
+  const cards = [card("t1", "bash", "done"), card("t2", "bash", "running")];
+
+  const live = renderHistory(cards, true);
+  assert.ok(live.includes("1件"), "実行中のカードは件数に数えない");
+  assert.equal(live.includes("実行中"), false, "実行中はライブ表示が受け持つ");
+
+  // 停止・中断で tool_end が来なかったカードは、ターンを抜けた後もここに残す
+  const finished = renderHistory(cards, false);
+  assert.ok(finished.includes("2件"));
+  assert.ok(finished.includes("実行中"));
+});
+
+function renderLive(runTools: Record<string, ToolCall>, runStatus: RunStatus): string {
+  return renderToStaticMarkup(createElement(LiveToolCall, { runTools, runStatus }));
+}
+
+test("ライブ表示は実行中のツールを行サマリーで出し、行が無ければ畳む", () => {
+  const running = renderLive({ t1: call("t1", "bash", "ls -la", false) }, "running");
+  assert.match(running, /data-visible="true"/);
+  assert.ok(running.includes("bash — ls -la"), "引数まで見える (名前だけでは何をしているか分からない)");
+
+  const finished = renderLive({ t1: call("t1", "bash", "ls -la", true) }, "running");
+  assert.match(finished, /data-visible="false"/);
+  assert.equal(finished.includes("ls -la"), false, "完了した行は履歴へ移る");
+
+  const stopped = renderLive({ t1: call("t1", "bash", "sleep 100", false) }, "stopped");
+  assert.match(stopped, /data-visible="false"/, "停止で done が来なかったカードは出さない");
+});
