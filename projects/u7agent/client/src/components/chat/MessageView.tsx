@@ -5,14 +5,19 @@ import { messageFullTimeLabel, messageTimeLabel } from "../../lib/messageTime";
 import { splitSkillBlock } from "../../lib/skillBlock";
 import { nonSkillToolCards, type SkillBadge } from "../../lib/skillLoad";
 import { messageMetaLine, messageMetaTitle } from "../../lib/usageFormat";
+import type { AskUserAnswer } from "../../types";
 import { AgentIcon } from "../AgentIcon";
 import { MarkdownView } from "../markdown/MarkdownView";
+import { AskUserCard } from "./AskUserCard";
 import { AttachedFiles } from "./AttachedFiles";
 import { CopyButton } from "./CopyButton";
 import { SkillInvocation } from "./SkillInvocation";
 import { SkillLoadList } from "./SkillLoadList";
 import { ToolHistoryView } from "./ToolHistory";
 import { UserMessageBody } from "./UserMessageBody";
+
+/** onAnswer 未接続のバブル (履歴の復元など) に渡すフォールバック。カード側の answerable も false になる */
+const rejectAnswer = async (): Promise<{ ok: false; error: string }> => ({ ok: false, error: "回答を送信できません" });
 
 function UserIcon() {
   return (
@@ -47,6 +52,8 @@ export function MessageView({
   onCopyAll,
   onResend,
   onDiscard,
+  answerable = false,
+  onAnswerQuestion,
   animate = true,
 }: {
   bubble: Bubble;
@@ -69,6 +76,13 @@ export function MessageView({
   onResend?: () => void;
   /** 未送信メッセージの破棄。再送が実行中の分はサーバーが拒否する */
   onDiscard?: () => void;
+  /** このバブルが実行中の run に属するか (ask_user のカードを回答可能にするかの根拠) */
+  answerable?: boolean;
+  /** ask_user の回答。エラーはカード内に出し、入力は消さない */
+  onAnswerQuestion?: (
+    toolCallId: string,
+    answers: AskUserAnswer[],
+  ) => Promise<{ ok: true } | { ok: false; error: string }>;
   /** 登場アニメーション。仮想スクロールで再マウントする履歴 item では再生しない (既定 true) */
   animate?: boolean;
 }) {
@@ -83,8 +97,9 @@ export function MessageView({
   const bodyText = skill ? (skill.userMessage ?? "") : userBody;
   const metaLine = isUser ? "" : messageMetaLine(bubble.usage, bubble.metrics, compact);
   const metaTitle = isUser ? undefined : messageMetaTitle(bubble.usage, bubble.metrics);
-  // スキル読み込みはバッジへ出すため、ツール履歴の件数・サマリー・コピーからは外す
+  // スキル読み込みはバッジ、ask_user は専用カードへ出し、ツール履歴の件数・サマリー・コピーからは外す
   const toolCards = nonSkillToolCards(bubble.tools);
+  const questionCards = isUser ? [] : bubble.tools.filter((card) => card.questions?.length);
   return (
     <article
       className={cn(
@@ -171,6 +186,19 @@ export function MessageView({
           ) : (
             <MarkdownView text={bubble.text} />
           )
+        ) : null}
+        {questionCards.length > 0 ? (
+          <div className={cn("grid", compact ? "mt-2 gap-2" : "mt-2.5 gap-2.5")}>
+            {questionCards.map((card) => (
+              <AskUserCard
+                key={card.id}
+                card={card}
+                answerable={answerable === true && onAnswerQuestion !== undefined}
+                onAnswer={onAnswerQuestion ?? rejectAnswer}
+                compact={compact}
+              />
+            ))}
+          </div>
         ) : null}
         {isUser && bubble.unsent ? (
           <div className="mt-1 flex flex-wrap items-center justify-end gap-2">

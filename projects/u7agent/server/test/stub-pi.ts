@@ -6,6 +6,7 @@ import { clampThinkingLevel, getSupportedThinkingLevels } from "@earendil-works/
 import type { Api, Model as PiAiModel } from "@earendil-works/pi-ai";
 import type { PiBff } from "../src/agent";
 import type { ModelSelection } from "../src/agent";
+import type { AskUserHost } from "../src/ask-user-tool";
 import type { ImageGenerationConfig } from "../src/images";
 import type { ServeToolHost } from "../src/serve-tool";
 import type { SessionEnvSource } from "../src/agent";
@@ -683,6 +684,8 @@ export function createStubPi(options: StubPiOptions = {}) {
   const imageGenerationConfigs: ImageGenerationConfig[] = [];
   // serve ツールの実体 (bootstrap が注入する)。ツールの配線はここに記録して検証する
   const serveHosts: ServeToolHost[] = [];
+  // ask_user ツールの実体 (bootstrap が注入する)。待機の所有は実物と同じく store 側にある
+  const askUserHosts: AskUserHost[] = [];
   // 環境変数 (作業環境 → 環境変数) の解決源。bootstrap が注入する
   const sessionEnvs: SessionEnvSource[] = [];
   let refreshCount = 0;
@@ -718,6 +721,10 @@ export function createStubPi(options: StubPiOptions = {}) {
     serveHosts,
     setServe: (host: ServeToolHost) => {
       serveHosts.push(host);
+    },
+    askUserHosts,
+    setAskUser: (host: AskUserHost) => {
+      askUserHosts.push(host);
     },
     sessionEnvs,
     setSessionEnv: (source: SessionEnvSource) => {

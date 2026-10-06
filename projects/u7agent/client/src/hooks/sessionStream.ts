@@ -87,11 +87,18 @@ export function applySessionEvent(entry: EventEntry, deps: SessionStreamDeps): v
         name: entry.data.name,
         args: entry.data.args,
         skill: entry.data.skill,
+        ...(entry.data.questions ? { questions: entry.data.questions } : {}),
         at: entry.at,
       });
       return;
     case "tool_end":
-      dispatch({ type: "toolEnd", id: entry.data.id, isError: entry.data.isError, output: entry.data.output });
+      dispatch({
+        type: "toolEnd",
+        id: entry.data.id,
+        isError: entry.data.isError,
+        output: entry.data.output,
+        ...(entry.data.answers ? { answers: entry.data.answers } : {}),
+      });
       return;
     case "usage":
       dispatch({

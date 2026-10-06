@@ -504,6 +504,8 @@ export default function App() {
                   onSuggestion={handleSend}
                   onResendUnsent={handleResendUnsent}
                   onDiscardUnsent={handleDiscardUnsent}
+                  answerable={app.chat.runStatus === "running"}
+                  onAnswerQuestion={app.answerQuestion}
                 />
               </MarkdownImageProvider>
             </FileRefProvider>

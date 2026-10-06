@@ -1,4 +1,5 @@
 import type { ChatState } from "../hooks/chatReducer";
+import { pendingAskUserQuestionCount } from "./askUser";
 import type { SettingsSelection } from "../hooks/settingsChange";
 import type { AgentDef, Health, ModelOption, ModelRef, ThinkingLevel } from "../types";
 
@@ -51,7 +52,7 @@ export type ComposerSettingsInput = {
   preselection: SettingsSelection;
   chat: Pick<
     ChatState,
-    "sessionModel" | "sessionThinkingLevel" | "supportsThinking" | "availableThinkingLevels" | "runStatus"
+    "sessionModel" | "sessionThinkingLevel" | "supportsThinking" | "availableThinkingLevels" | "runStatus" | "runTools"
   >;
   sending: boolean;
   settingsChanging: boolean;
@@ -105,6 +106,10 @@ export function deriveComposerSettings(input: ComposerSettingsInput): ComposerSe
   // 推論に対応しないモデルの実効 Effort は SDK が常に "off" を返し、モデル名が未解決のときは付ける相手が無い
   const statusEffort = model && supportsThinking && thinkingLevel ? effortLabel(thinkingLevel) : undefined;
 
+  // 回答待ちの質問がある間は、回答を本文へ打たずカードへ入れてもらう (待機キューに積まれる事故を防ぐ)。
+  // 送信の遮断は composerSettings が 1 箇所で担い、Composer は理由を footnote に出すだけにする
+  const pendingQuestions = pendingAskUserQuestionCount(chat.runTools, chat.runStatus);
+
   return {
     modelOptions,
     model,
@@ -121,6 +126,11 @@ export function deriveComposerSettings(input: ComposerSettingsInput): ComposerSe
     // 送信の通信中も止める (送信と同時に押すと run の開始と競合する)
     compactDisabled: compactionBusy(chat.runStatus) || sending || settingsChanging,
     compactDisabledReason: compactDisabledReason({ runStatus: chat.runStatus, sending, settingsChanging }),
-    sendBlockedReason: !inSession && !model && health?.defaultModelError ? health.defaultModelError : undefined,
+    sendBlockedReason:
+      pendingQuestions > 0
+        ? `上の質問に回答してください（${pendingQuestions}件）`
+        : !inSession && !model && health?.defaultModelError
+          ? health.defaultModelError
+          : undefined,
   };
 }

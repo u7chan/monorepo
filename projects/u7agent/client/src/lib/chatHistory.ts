@@ -37,6 +37,8 @@ export function toolCardOf(call: ToolCall): ToolCard {
     phase: call.done ? (call.isError ? "failed" : "done") : "running",
     output: call.output,
     ...(call.skill ? { skill: call.skill } : {}),
+    ...(call.questions ? { questions: call.questions } : {}),
+    ...(call.answers ? { answers: call.answers } : {}),
   };
 }
 

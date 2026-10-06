@@ -109,6 +109,50 @@ export const SkillLoadSchema = z.object({
 });
 export type SkillLoad = z.infer<typeof SkillLoadSchema>;
 
+/**
+ * ask_user の上限。ツールのパラメータ検証 (`server/src/ask-user-tool.ts` が throw) と
+ * DTO / リクエスト本体の検証が同じ値を使う。
+ */
+export const ASK_USER_QUESTIONS_MIN = 1;
+export const ASK_USER_QUESTIONS_MAX = 4;
+export const ASK_USER_OPTIONS_MAX = 6;
+export const ASK_USER_QUESTION_MAX = 500;
+export const ASK_USER_HEADER_MAX = 40;
+export const ASK_USER_LABEL_MAX = 80;
+export const ASK_USER_DESCRIPTION_MAX = 200;
+export const ASK_USER_ANSWER_TEXT_MAX = 2000;
+
+/** ask_user の選択肢。選択は入力補助で、自由記入は常に受け付ける (`docs/ask-user.md`) */
+export const AskUserOptionSchema = z.object({
+  label: z.string(),
+  description: z.string().optional(),
+});
+export type AskUserOption = z.infer<typeof AskUserOptionSchema>;
+
+export const AskUserQuestionSchema = z.object({
+  question: z.string(),
+  /** カードの短い見出し */
+  header: z.string().optional(),
+  /** 省略時は options の有無で決める (UI は options の有無だけを見る) */
+  type: z.enum(["choice", "text"]).optional(),
+  options: z.array(AskUserOptionSchema).optional(),
+  multiSelect: z.boolean().optional(),
+  placeholder: z.string().optional(),
+});
+export type AskUserQuestion = z.infer<typeof AskUserQuestionSchema>;
+
+/**
+ * 質問への回答。`index` は questions の添字で、質問文の文字列では引かない (同じ質問文が 2 つあると壊れる)。
+ * `skipped` は質問ごとの「回答しない」で、`selected` / `text` とは排他 (両方指定は 400)。
+ */
+export const AskUserAnswerSchema = z.object({
+  index: z.number().int().min(0),
+  selected: z.array(z.string().max(ASK_USER_LABEL_MAX)).max(ASK_USER_OPTIONS_MAX).optional(),
+  text: z.string().max(ASK_USER_ANSWER_TEXT_MAX).optional(),
+  skipped: z.boolean().optional(),
+});
+export type AskUserAnswer = z.infer<typeof AskUserAnswerSchema>;
+
 export const ToolCallSchema = z.object({
   id: z.string(),
   name: z.string(),
@@ -118,6 +162,16 @@ export const ToolCallSchema = z.object({
   output: z.string(),
   /** ライブでスキル読み込みだったときだけ載る (履歴側は ChatMessage.skillLoads) */
   skill: SkillLoadSchema.optional(),
+  /**
+   * ask_user の質問。skill と違い、ライブ (`tool_start` / `payload.run.toolCalls`) と履歴
+   * (`messages[].tools`) の両方で同じ ToolCall に載る (`docs/api-sessions.md`)。
+   */
+  questions: z.array(AskUserQuestionSchema).optional(),
+  /**
+   * ask_user の回答。ツール結果の `details` から導出する。停止・中止では空配列になり、
+   * カードは「回答なしで終了」として復元できる (実行中は未回答なので undefined)。
+   */
+  answers: z.array(AskUserAnswerSchema).optional(),
 });
 export type ToolCall = z.infer<typeof ToolCallSchema>;
 
@@ -977,6 +1031,13 @@ export const PostMessageBodySchema = z.object({
 });
 export type PostMessageBody = z.infer<typeof PostMessageBodySchema>;
 
+/**
+ * ask_user の回答。質問数と index の対応、`skipped` の排他は store が正 (route は JSON の形だけを見る)。
+ * 全質問に 1 つずつ回答が要り、一部だけの回答は 400 になる。
+ */
+export const AnswerQuestionBodySchema = z.object({ answers: z.array(AskUserAnswerSchema) });
+export type AnswerQuestionBody = z.infer<typeof AnswerQuestionBodySchema>;
+
 export const CreateSessionBodySchema = z.object({
   agentId: z.string().optional(),
   // 未指定ならエージェント定義 → アプリ既定の順に解決する (null は 400)
@@ -1200,12 +1261,19 @@ export const EventDataSchemas = {
   // (切断中に始まった run の `run_start` がリプレイされても開始時刻がぶれない)
   run_start: z.object({ runId: z.string(), prompt: z.string(), startedAt: z.number() }),
   text: z.object({ delta: z.string() }),
-  tool_start: z.object({ id: z.string(), name: z.string(), args: z.string(), skill: SkillLoadSchema.optional() }),
+  tool_start: z.object({
+    id: z.string(),
+    name: z.string(),
+    args: z.string(),
+    skill: SkillLoadSchema.optional(),
+    questions: z.array(AskUserQuestionSchema).optional(),
+  }),
   tool_end: z.object({
     id: z.string(),
     name: z.string().optional(),
     isError: z.boolean(),
     output: z.string(),
+    answers: z.array(AskUserAnswerSchema).optional(),
   }),
   status: z.object({ state: z.string(), text: z.string() }),
   queued: z.object({

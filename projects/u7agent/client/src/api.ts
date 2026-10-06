@@ -4,6 +4,7 @@ import { encodeFilePathParam } from "./lib/fileUrl";
 import type {
   AgentDef,
   ArchiveSettingsResponse,
+  AskUserAnswer,
   CatalogResponse,
   CreateAgentBody,
   CreateSkillBody,
@@ -443,6 +444,23 @@ export const resendMessage = async (sessionId: string, runId: string): Promise<P
 /** 未送信メッセージの破棄。再送が実行中の 409 はそのまま reject する */
 export const discardUnsentMessage = async (sessionId: string, runId: string): Promise<DiscardUnsentResult> => {
   const res = await client.api.sessions[":id"].unsent[":runId"].$delete({ param: { id: sessionId, runId } });
+  if (!res.ok) throw await apiError(res);
+  return res.json();
+};
+
+/**
+ * ask_user の回答。回答は 1 回だけ成立し、同じ質問への 2 回目は 409、回答待ちでない (停止済み・
+ * 再起動) は 404、質問数と合わない回答は 400 で reject する。
+ */
+export const answerQuestion = async (
+  sessionId: string,
+  toolCallId: string,
+  answers: AskUserAnswer[],
+): Promise<{ ok: true }> => {
+  const res = await client.api.sessions[":id"].questions[":toolCallId"].answer.$post({
+    json: { answers },
+    param: { id: sessionId, toolCallId },
+  });
   if (!res.ok) throw await apiError(res);
   return res.json();
 };

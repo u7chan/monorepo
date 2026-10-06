@@ -16,6 +16,7 @@
 - 会話は BFF 専用ストアの `session.jsonl` / `meta.json` に保存される。生のユーザー入力・モデル出力を含むが、ツール出力は LLM・履歴へ渡す前にマスクされるため保存後も `[REDACTED]` のままになる。ストアはサンドボックスへマウントしない（[persistence.md](persistence.md)）
 - ツール引数・出力の要約は、切り詰めの前にマスクする。先に切り詰めると要約上限の境界でキーの末尾が欠け、大部分がそのまま残るため
 - スキル読み込みの導出値（`ChatMessage.skillLoads[].name` / `path`、`ToolCall.skill.name` / `path`）もマスクしてから配る。ただし basename の判定は raw path で行う必要があるため、**解決 → 分類 → mask** の順を守る（先にマスクすると、`/` を含む秘密値で `SKILL.md` 判定が壊れ、行ごと消える）
+- `ask_user` の質問 / 回答（`ToolCall.questions` / `ToolCall.answers`）も mask してから配る。質問はツール引数、回答は toolResult の `details` 由来で、content に掛かる後述の layer 3 を通らないため（[ask-user.md](ask-user.md#mask-規則)）
 
 ## レイヤー
 
@@ -27,6 +28,8 @@
    - BFF ローカルの `generate_image`（`server/src/image-tools.ts`）も同じヘルパーで包む。ローカル定義は layer 2 のリモート定義生成を通らないため、execute が throw する文言（provider の失敗分類・設定の読取失敗）をここでマスクする
 3. **tool_result 拡張（同ファイル）**
    - インライン拡張（`DefaultResourceLoader` の `extensionFactories`）で `tool_result` を購読し、全ツールの最終結果を LLM・履歴・`tool_execution_end` イベントへ渡る前にマスクする。`noExtensions: true` でもインラインファクトリは読み込まれる。シェル以外のツール（read / grep 等）もここで一括して掛かる
+   - 対象は `content` だけで、`details` は掛からない。`details` から DTO を作る導出値（`ask_user` の質問 / 回答）は、載せる前に `run-events` / `session-projection` 側で個別にマスクする
+   - ユーザーが `ask_user` の回答に登録済みの秘密値を書くと、モデルにも `[REDACTED]` が届く（回答では作業を続けられない。既知の制限）
 4. **BFF の送出層（`server/src/sessions.ts` / `server/src/run-events.ts`）**
    - SSE / イベントログへ出すテキスト（text delta、メッセージ、ツール引数・出力、エラー、プロンプトのエコー、タイトル）を防御的にマスクする
    - アシスタントの差分は `createStreamingSecretMasker` で配信前に「秘密値の前方一致になり得る末尾」を保留し、チャンク境界をまたぐキーが複数回の配信から復元できないようにする。保留分は `message_end`（アシスタント確定時）と `finish()`（完了・エラー・中断のいすれでも）でフラッシュする

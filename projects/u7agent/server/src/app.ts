@@ -25,6 +25,7 @@ import { createSessionRoutes } from "./routes/sessions";
 import { createSecretScope } from "./secrets";
 import { DEFAULT_CLIENT_DIST_DIR, serveClientAssets } from "./static";
 import {
+  AnswerQuestionBodySchema,
   CreateAgentBodySchema,
   CreateProjectBodySchema,
   CreateSecretBodySchema,
@@ -277,6 +278,15 @@ export async function createBffApp(opts: CreateBffAppOptions = {}) {
         result.success ? undefined : c.json({ error: "text is required" }, 400),
       ),
       (c) => sessionRoutes.postMessage(c, c.req.valid("json")),
+    )
+    // ask_user の回答。body は質問ごとの回答の配列で、省略された質問があれば 400 になる
+    .post(
+      "/api/sessions/:id/questions/:toolCallId/answer",
+      appData,
+      zValidator("json", AnswerQuestionBodySchema, (result, c) =>
+        result.success ? undefined : c.json({ error: "Invalid request body" }, 400),
+      ),
+      (c) => sessionRoutes.answerQuestion(c, c.req.valid("json")),
     )
     // 未送信メッセージの破棄 (再送は POST /messages の resendRunId)
     .delete("/api/sessions/:id/unsent/:runId", appData, sessionRoutes.discardUnsent)

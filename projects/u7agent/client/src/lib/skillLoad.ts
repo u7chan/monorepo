@@ -74,9 +74,10 @@ export function skillBadgesOf(bubbles: readonly Bubble[]): Map<number, SkillBadg
 }
 
 /**
- * スキル読み込みは入出力を持つ操作ではないのでバッジ側で見せ、ツール履歴の件数・サマリー・
- * コピー本文からは外す (コピー本文の #N を UI の行番号と一致させ続けるため、両者で同じ関数を通す)。
+ * スキル読み込みは入出力を持つ操作ではないのでバッジ側で見せ、ask_user は専用カードで見せる。
+ * どちらもツール履歴の件数・サマリー・コピー本文からは外す (コピー本文の #N を UI の行番号と
+ * 一致させ続けるため、表示とコピーで同じ関数を通す)。
  */
 export function nonSkillToolCards(cards: readonly ToolCard[]): ToolCard[] {
-  return cards.filter((card) => !card.skill);
+  return cards.filter((card) => !card.skill && !card.questions?.length);
 }

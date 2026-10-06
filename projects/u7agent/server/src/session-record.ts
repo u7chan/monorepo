@@ -4,6 +4,8 @@
  */
 import type {
   AgentPayloadInfo,
+  AskUserAnswer,
+  AskUserQuestion,
   CompactionReason,
   EventEntry,
   MessageMetrics,
@@ -54,6 +56,17 @@ export interface QueuedMessage {
   runId: string;
 }
 
+/**
+ * ask_user の待機 1 件。settle 済みも map に残し (tools と同じ寿命)、同じ toolCallId への
+ * 2 回目の回答を「回答済み」= 409 にする。掃除は次の run の startRun が行う。
+ */
+export interface PendingQuestion {
+  questions: AskUserQuestion[];
+  resolve: (answers: AskUserAnswer[]) => void;
+  reject: (error: Error) => void;
+  settled: boolean;
+}
+
 export interface SessionRecord {
   id: string;
   session: PiSessionLike;
@@ -92,6 +105,8 @@ export interface SessionRecord {
   queue: QueuedMessage[];
   run: RunState | null;
   tools: Map<string, ToolCall>;
+  /** ask_user の待機 (toolCallId 引き)。run と同じ寿命で、次の run の開始時に初期化する */
+  questions: Map<string, PendingQuestion>;
   /** SDK のメッセージオブジェクト -> BFF 計測の応答時間 (履歴へ写すときに同じ参照で引く) */
   messageMetrics: WeakMap<object, MessageMetrics>;
   /**

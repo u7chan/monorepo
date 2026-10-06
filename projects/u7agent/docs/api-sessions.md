@@ -155,7 +155,7 @@ JSONL が破損している（SDK が追記する entry type / message role を 
 
 `messages[].metrics` は BFF がイベントの到着時刻で測った応答時間。SDK は完了時刻を持たないため BFF 側でしか作れない。`durationMs` は `message_start`(assistant) から `message_end` まで、`ttftMs` は最初の text / thinking delta まで（delta が無ければ省略）、`tokensPerSecond` は `output` を最初の delta からの時間で割った値（スパンが 0 なら `durationMs`、それも 0 なら省略）。ツールループで assistant メッセージが複数あるときはメッセージごとに付く。
 
-`messages[].tools` は表示対象の assistant バブルに属する確定済みツール履歴。対応する `toolResult` がある toolCall だけを `ToolCall` DTO（`done: true`）で投影し、結果が無い call は含めない。`args` / `output` はライブイベントと同じマスク・要約関数を通し、**マスクの後に**、ツール契約で値がパスと決まっている引数（`path` / `file_path` / `filePath`）だけを `./` 付きの cwd 相対へ畳む（先に畳むと cwd をまたぐ秘密値が完全一致しなくなり、後段のマスクをすり抜ける）。`command` / `output` / `path` を持たないツールの JSON 引数（本文）は畳まない: 本文の `<cwd>/…` に見える語はパスとは限らず（grep の検索語、`case` のパターン、`[ ]` の照合語）、`./…` へ書き換えるとコピーしたコマンドの挙動が変わる（表示文字列はコピーにもそのまま使う）。cwd の外は絶対のまま残し、root 相対と基準を混ぜない。スキル読み込み（`read` で basename が `SKILL.md`）はここに含めず、`skillLoads` のバッジだけに出す。本文の無い assistant に属するツール履歴は同じ user ターン内の次の表示 assistant へ part 順で繰り上げるが、ターン内に表示 assistant が無い場合は復元しない（表示バブル数 / `messageCount` を維持するため）。
+`messages[].tools` は表示対象の assistant バブルに属する確定済みツール履歴。対応する `toolResult` がある toolCall だけを `ToolCall` DTO（`done: true`）で投影し、結果が無い call は含めない。`args` / `output` はライブイベントと同じマスク・要約関数を通し、**マスクの後に**、ツール契約で値がパスと決まっている引数（`path` / `file_path` / `filePath`）だけを `./` 付きの cwd 相対へ畳む（先に畳むと cwd をまたぐ秘密値が完全一致しなくなり、後段のマスクをすり抜ける）。`command` / `output` / `path` を持たないツールの JSON 引数（本文）は畳まない: 本文の `<cwd>/…` に見える語はパスとは限らず（grep の検索語、`case` のパターン、`[ ]` の照合語）、`./…` へ書き換えるとコピーしたコマンドの挙動が変わる（表示文字列はコピーにもそのまま使う）。cwd の外は絶対のまま残し、root 相対と基準を混ぜない。`skill` はライブ専用で、スキル読み込み（`read` で basename が `SKILL.md`）はここに含めず `skillLoads` のバッジだけに出す。ask_user の `questions` / `answers` は逆に**ライブと履歴の両方で同じ `ToolCall` に載る**（`tool_start` / `tool_end` / `run.toolCalls` と `messages[].tools` が同じ値）。本文の無い assistant に属するツール履歴は同じ user ターン内の次の表示 assistant へ part 順で繰り上げるが、ターン内に表示 assistant が無い場合は復元しない（表示バブル数 / `messageCount` を維持するため。ask_user は回答待ちの間だけ resync が assistant バブルを合成する。[ask-user.md](ask-user.md#回答待ちカードの復帰)）。
 
 `resync` は `messages[].tools` を `ToolCard` へ変換し、`toolCallId` → バブルの索引も再構築する。重複する `run.toolCalls` は現在の実行状態を優先して該当カードを更新し、履歴に無い call だけを現在ターンの最後の assistant バブルへ追加する。`messages` は有効コンテキストの投影なので、全履歴の表示は `history` API（下記）が担う。500 件の長い履歴で payload サイズと生成・JSON 化時間を検証する（`messages` に全履歴は含めない）。
 
@@ -326,6 +326,29 @@ References are relative to /workspace/.agents/skills/writer.
 - タイトルは注記を除いた本文から作る（添付だけの送信では空のまま）
 - クライアントは注記を分解し、user バブルにチップと本文を分けて表示する（コピーも注記を除いた本文が対象）。ローカルエコーは素の本文で先に出し、送信応答の `runId` が付いた後（`echoRunId`）に `run_start` の注記込み本文へ差し替える。`run_start` が応答より先でも本文は控えておくため、別 run (別タブ) の本文では差し替えない（`client/src/hooks/chatReducer.ts`。run id が無い旧経路だけ送信順の待ち行列と本文の正規形で突き合わせる）
 
+### ask_user（`questions` / `answers`）
+
+`ask_user`（[ask-user.md](ask-user.md)）の質問と回答は、`ToolCall.questions` / `ToolCall.answers` としてライブ（`tool_start` / `tool_end` / `run.toolCalls`）と履歴（`messages[].tools`）の両方に載る。`questions` は args から、`answers` は toolResult の `details` から導出し、どちらも**DTO に載せる前に** mask する（`content` に掛かる `tool_result` 拡張を通らないため）。
+
+- `questions` は `{ question, header?, type?, options?, multiSelect?, placeholder? }` の配列（1〜4）。上限違反や形が壊れた args は DTO に載せず、通常のツール履歴のエラーとして見せる
+- `answers` は `{ index, selected?, text?, skipped? }` の配列。`skipped` は質問ごとの「回答しない」で `selected` / `text` とは排他。停止・中止では空配列になり、カードを「回答なしで終了」として復元できる（未回答 = キーが無い、とは区別する）
+- `run.toolCalls` は待機中もこのフィールドを持ち、リロード / SSE 再接続の復帰に使う。クライアントは `answers` が無く `done: false` のカードを回答待ちとして扱う
+
+## `POST /api/sessions/:id/questions/:toolCallId/answer`
+
+`ask_user` の回答。質問ごとに `selected`（選択した label）/ `text`（自由記入）/ `skipped: true`（回答しない）のどれかを載せ、**全質問に 1 つずつ**必要（質問数と合わない・範囲外・重複 index は 400）。`skipped` と `selected` / `text` の同時指定も 400。`text` は 2000 文字まで。
+
+```json
+// request
+{ "answers": [{ "index": 0, "selected": ["PostgreSQL"] }, { "index": 1, "text": "本番は東京リージョン" }, { "index": 2, "skipped": true }] }
+// response (200)
+{ "ok": true }
+```
+
+- 成立するのは 1 回だけ。同じ `toolCallId` への 2 回目は 409（別タブの先勝ち）、回答待ちでない（停止済み・再起動で消えた）は 404。`selected` の label が質問の選択肢に含まれるかの検証はしない（自由記入と同じ扱い）
+- 回答はツールの戻り値としてモデルへ渡る。`content` は `tool_result` 拡張で mask され、`details` は DTO 構築時に mask する（[secrets.md](secrets.md#レイヤー)）。回答待ちの間はランが `running` のままで、手動 compaction は 409 になる
+- 認可・CSRF は他の `POST /api/*` と同じ経路（`bodyGuard` + Origin / `Sec-Fetch-Site` 検査）。回答の権限はセッションの閲覧と同じで、新しい権限は足さない
+
 ## `GET /api/sessions/:id/skills`
 
 セッションで使えるスキルの一覧（チャットの入力補助）。**本文は載せない**（送信時に取り直す）ため、一覧と優先順位の表示に使う。
@@ -414,8 +437,8 @@ SSE（`text/event-stream`）でイベントを購読。カーソルは `Last-Eve
 | --- | --- |
 | `run_start` | `{ runId, prompt, startedAt }`（`startedAt` は payload の `run.startedAt` と同じ値） |
 | `text` | `{ delta }` |
-| `tool_start` / `tool_end` | `{ id, name, args, skill? }` / `{ id, name, isError, output }`（`skill` は `run.toolCalls[].skill` と同じスキル読み込み。結果が無い時点なので `isError` は載らない） |
-| `status` | `{ state, text }`（考え中 / ツール実行中 / 再試行 など。手動圧縮の終端では成功 / 失敗の文言を配る。自動再試行の文言は `run_retry` の構造化情報からクライアントが導出する） |
+| `tool_start` / `tool_end` | `{ id, name, args, skill?, questions? }` / `{ id, name, isError, output, answers? }`（`skill` は `run.toolCalls[].skill` と同じスキル読み込み。結果が無い時点なので `isError` は載らない。`questions` / `answers` は ask_user のときだけ載り、`run.toolCalls` と `messages[].tools` と同じ値） |
+| `status` | `{ state, text }`（`thinking` / `tool` / `question`（回答待ち）/ `compacting` / `retry` / `warning` / など。手動圧縮の終端では成功 / 失敗の文言を配る。自動再試行の文言は `run_retry` の構造化情報からクライアントが導出する） |
 | `queued` | `{ position, queueDepth, prompt }` |
 | `queue_cleared` | `{ runIds? }`（停止で破棄した待機メッセージの run id。クライアントは該当する送信を「未送信」へ切り替える。旧サーバーは載せない） |
 | `run_retry` | `{ retry, totalRetryCount, serverNow }`（自動再試行の開始 / 再実行開始 / 解除。`retry` は payload の `run.retry` と同じ形で、解除時は `null`） |

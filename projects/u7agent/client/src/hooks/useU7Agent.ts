@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useEffectEvent, useReducer, useRef, useState } from "react";
 import {
+  answerQuestion as answerQuestionApi,
   discardUnsentMessage as discardUnsentApi,
   getHealth,
   postMessage,
@@ -11,10 +12,16 @@ import { attachmentRejection, attachmentsForSend, attachmentsForSession, type At
 import { projectDeleteConfirmRequest } from "../lib/sidebarProjects";
 import { useConfirm } from "../components/ConfirmProvider";
 import { deriveComposerSettings } from "../lib/composerSettings";
-import type { RunStatus, SessionSummary } from "../types";
+import type { AskUserAnswer, RunStatus, SessionSummary } from "../types";
 import { chatReducer, initialChatState } from "./chatReducer";
 import { runtimeStatusForError } from "./runtimeStatus";
-import { discardUnsentMessage, resendUnsentMessage, sendChatMessage, stopRun } from "./sessionActions";
+import {
+  answerChatQuestion,
+  discardUnsentMessage,
+  resendUnsentMessage,
+  sendChatMessage,
+  stopRun,
+} from "./sessionActions";
 import type { SettingsSelection } from "./settingsChange";
 import { useArchiveSettings } from "./useArchiveSettings";
 import { useNotifications } from "./useNotifications";
@@ -321,6 +328,17 @@ export function useU7Agent({ pendingSessionId, onPendingSessionResolved }: UseU7
     [dispatch, sessionIdRef],
   );
 
+  /** ask_user の回答。409 / 404 は別タブの回答や停止で状態が変わっているため取り直しへ収束させる */
+  const answerQuestion = useCallback(
+    (toolCallId: string, answers: AskUserAnswer[]) =>
+      answerChatQuestion(toolCallId, answers, {
+        sessionIdRef,
+        recover: resyncSession,
+        answer: answerQuestionApi,
+      }),
+    [resyncSession, sessionIdRef],
+  );
+
   const deleteProject = useCallback(
     async (projectId: string): Promise<void> => {
       const project = projects.find((item) => item.id === projectId);
@@ -460,6 +478,7 @@ export function useU7Agent({ pendingSessionId, onPendingSessionResolved }: UseU7
     stopAgent,
     resendUnsent,
     discardUnsent,
+    answerQuestion,
     compactSession,
     loadOlderHistory,
     deleteSession,

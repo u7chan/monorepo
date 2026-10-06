@@ -12,6 +12,7 @@ import { workspaceAbs } from "./app-paths";
 import { SANDBOX_NOT_CONFIGURED_MESSAGE, type PiBff } from "./agent";
 import { composePromptSnapshot } from "./agent";
 import type { AgentCatalog } from "./agents";
+import { validateAskUserAnswers, type AskUserHost } from "./ask-user-tool";
 import { stripAttachedFiles } from "./attachments";
 import { compactionsOf, recordCompactionOutcome } from "./compaction-view";
 import { projectHistoryPage } from "./history-projection";
@@ -23,6 +24,7 @@ import { classifyRunError, composeRunError, retryWaitingText } from "./error-cla
 import { createRunEventBridge, type RunSettlement } from "./run-events";
 import type {
   CreateSessionOptions,
+  PendingQuestion,
   PostMessageResultInternal,
   RunState,
   SessionRecord,
@@ -60,6 +62,8 @@ import type {
   AgentDef,
   AgentPayloadInfo,
   AgentSkillInfo,
+  AskUserAnswer,
+  AskUserQuestion,
   CompactionInfo,
   EventEntry,
   ModelRef,
@@ -423,6 +427,7 @@ export class SessionStore {
       queue: [],
       run: null,
       tools: new Map(),
+      questions: new Map(),
       messageMetrics: new WeakMap(),
       userMessageRuns: new WeakMap(),
       entryRunIds: new Map(),
@@ -946,11 +951,90 @@ export class SessionStore {
     if (record.run?.status === "running" || record.session.isStreaming || record.compacting) {
       // 待機中は aborted の assistant が投影に残らず stopReason では判定できないため、要求を控えておく
       if (record.run?.status === "running") record.run.stopRequested = true;
+      // 回答待ちは abort シグナルでも取り消されるが、signal が届かない実装でも止まるように先に reject する
+      this.cancelQuestions(record);
       await record.session.abort().catch(() => {});
     }
     // entry を append 済み (保存待ち) の段階では圧縮を巻き戻せない。成功と保存結果を正とする
     await compaction?.catch(() => {});
     return { ok: true, status: this.statusOf(record) };
+  }
+
+  /**
+   * ask_user ツールの実体。待機の所有は record (SessionStore) 側に置き、ツールは回答を await する。
+   * 定義側が束縛した会話 id で record を引き、見つからなければツールをエラー結果へ落とす。
+   */
+  askUserHost(): AskUserHost {
+    return {
+      ask: (sessionId, toolCallId, questions, signal) => {
+        const record = this.records.get(sessionId);
+        if (!record) return Promise.reject(new Error(`Session not found: ${sessionId}`));
+        return this.askQuestion(record, toolCallId, questions, signal);
+      },
+    };
+  }
+
+  /**
+   * 回答待ちを登録する。回答・abort シグナル・取り消しのどれか 1 つで settle し、二重 settle では
+   * 何もしない (settle 済みの promise へ後から reject を送らない)。abort は signal を正とする。
+   */
+  askQuestion(
+    record: SessionRecord,
+    toolCallId: string,
+    questions: AskUserQuestion[],
+    signal: AbortSignal | undefined,
+  ): Promise<AskUserAnswer[]> {
+    return new Promise<AskUserAnswer[]>((resolve, reject) => {
+      const pending: PendingQuestion = { questions: [...questions], resolve, reject, settled: false };
+      const settle = (finish: () => void): void => {
+        if (pending.settled) return;
+        pending.settled = true;
+        signal?.removeEventListener("abort", onAbort);
+        finish();
+      };
+      // abort された質問は tombstone を残さない (回答済みではなく、回答不可能になったため)
+      const onAbort = (): void => {
+        record.questions.delete(toolCallId);
+        settle(() => reject(new Error("ask_user was aborted")));
+      };
+      record.questions.set(toolCallId, pending);
+      if (signal?.aborted) onAbort();
+      else signal?.addEventListener("abort", onAbort, { once: true });
+    });
+  }
+
+  /**
+   * 回答を 1 回だけ受け付ける。settle 済みの entry は tombstone として残すため、2 回目は「回答済み」、
+   * 未知の id は「不明」を返す (2 タブで同時に回答しても片方だけが成立する)。
+   */
+  answerQuestion(
+    record: SessionRecord,
+    toolCallId: string,
+    answers: AskUserAnswer[],
+  ): { status: "ok" } | { status: "missing" } | { status: "answered" } | { status: "invalid"; error: string } {
+    record.lastUsedAt = Date.now();
+    const pending = record.questions.get(toolCallId);
+    if (!pending) return { status: "missing" };
+    if (pending.settled) return { status: "answered" };
+    const error = validateAskUserAnswers(pending.questions, answers);
+    if (error) return { status: "invalid", error };
+    pending.settled = true;
+    // 質問順に揃える (details / モデル向け text の並びを送信順に依存させない)
+    pending.resolve([...answers].sort((a, b) => a.index - b.index));
+    return { status: "ok" };
+  }
+
+  /**
+   * 未 settle の待機を取り消す (stop / finish / delete / close)。settle 済みの tombstone は残し、
+   * 同じ toolCallId への 2 回目の回答を 409 のままにする。
+   */
+  private cancelQuestions(record: SessionRecord): void {
+    for (const [toolCallId, pending] of record.questions) {
+      if (pending.settled) continue;
+      pending.settled = true;
+      record.questions.delete(toolCallId);
+      pending.reject(new Error("ask_user was cancelled"));
+    }
   }
 
   /**
@@ -1214,6 +1298,8 @@ export class SessionStore {
       const record = this.records.get(id);
       if (record) {
         record.queue = [];
+        // 削除は finish を通らないため、回答待ちもここで取り消す (abort の signal に依存しない)
+        this.cancelQuestions(record);
         // 先に task を持ち、abort の後にその settle を待つ (削除中の保存は persist のガードが no-op にする)
         const compaction = record.compactionTask;
         if (this.isBusy(record) || record.session.isStreaming) await record.session.abort().catch(() => {});
@@ -1381,6 +1467,7 @@ export class SessionStore {
     for (const record of Array.from(this.records.values())) {
       // 先に task を持ち、abort の後にその settle を待つ (closing でも保存は行われ、終端配信と pump だけ止まる)
       const compaction = record.compactionTask;
+      this.cancelQuestions(record);
       if (this.isBusy(record)) await record.session.abort().catch(() => {});
       await compaction?.catch(() => {});
       await this.flush(record);
@@ -1406,6 +1493,8 @@ export class SessionStore {
     };
     record.run = run;
     record.tools = new Map();
+    // 質問の待機も run と同じ寿命。前の run の tombstone (回答済み) を次の run へ持ち越さない
+    record.questions = new Map();
     record.lastUsedAt = Date.now();
     this.emit(record, "run_start", { runId: run.id, prompt: run.prompt, startedAt: run.startedAt });
 
@@ -1423,6 +1512,9 @@ export class SessionStore {
     const finish = ({ error, stopped = false }: RunSettlement = {}): void => {
       if (finished) return;
       finished = true;
+
+      // listener 例外 / prompt() reject で終わる経路も含めて、未 settle の待機を必ず取り消す
+      this.cancelQuestions(record);
 
       // 保留中の差分・最終テキスト・送信メッセージ待ちの resync は run_end より先に配る
       bridge.finalize();
