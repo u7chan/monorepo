@@ -99,6 +99,8 @@ export interface SandboxServiceOptions {
   skillsScanTimeoutMs?: number;
   /** テストで小さくできる git 情報の期限 (既定 2s) */
   gitInfoTimeoutMs?: number;
+  /** テストで差し替える git の実行パス (既定は信頼ディレクトリから解決した git) */
+  gitPath?: string;
   /** テストで差し替える実行環境の診断 (既定は実プロセスでコマンドを検出する) */
   probeRuntimeInfo?: (rootCwd: string) => Promise<SandboxRuntimeInfo>;
 }
@@ -703,6 +705,7 @@ export function createSandboxService(options: SandboxServiceOptions): SandboxSer
   const maxUploadBytes = options.maxUploadBytes ?? SANDBOX_MAX_UPLOAD_BYTES;
   const skillsScanTimeoutMs = options.skillsScanTimeoutMs ?? SKILLS_SCAN_TIMEOUT_MS;
   const gitInfoTimeoutMs = options.gitInfoTimeoutMs ?? GIT_INFO_TIMEOUT_MS;
+  const gitPath = options.gitPath;
   const archiveLimits: ArchiveLimits = {
     maxBytes: options.maxArchiveBytes ?? DEFAULT_ARCHIVE_LIMITS.maxBytes,
     maxEntries: options.maxArchiveEntries ?? DEFAULT_ARCHIVE_LIMITS.maxEntries,
@@ -995,7 +998,7 @@ export function createSandboxService(options: SandboxServiceOptions): SandboxSer
   app.get("/v1/files/git", async (c) => {
     try {
       const { target } = await resolveWorkspaceDirectory(rootCwd, c.req.query("path") ?? "");
-      return c.json(await readWorkspaceGitInfo(target, { timeoutMs: gitInfoTimeoutMs }));
+      return c.json(await readWorkspaceGitInfo(target, { timeoutMs: gitInfoTimeoutMs, gitPath }));
     } catch (error) {
       const statusCode = (error as { statusCode?: number }).statusCode ?? 500;
       return c.json({ error: messageFor(error) }, statusCode as 400);
