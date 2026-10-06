@@ -114,7 +114,7 @@ test("Exa: 応答本文は data 行 → その連結 → 本文全体の順に�
   assert.equal(parseExaResponseBody(""), undefined);
 });
 
-test("Exa: results[] を共通形式へ正規化し、highlights を優先して text へ落とす", async () => {
+test("Exa: results[] を共通形式へ正規化し、highlights を優先して text へ落とし、publishedDate は string のときだけ取る", async () => {
   const body = {
     results: [
       {
@@ -127,6 +127,8 @@ test("Exa: results[] を共通形式へ正規化し、highlights を優先して
         publishedDate: "2026-01-01",
       },
       { title: "", url: "https://example.com/b", text: " fallback text " },
+      { title: "Third", url: "https://example.com/c", text: "t", publishedDate: 20260405 },
+      { title: "Fourth", url: "https://example.com/d", text: "t", publishedDate: "" },
       "not a record",
     ],
   };
@@ -135,8 +137,10 @@ test("Exa: results[] を共通形式へ正規化し、highlights を優先して
   assert.deepEqual(outcome, {
     ok: true,
     items: [
-      { title: "First", url: "https://example.com/a", excerpt: "one\ntwo" },
+      { title: "First", url: "https://example.com/a", excerpt: "one\ntwo", publishedDate: "2026-01-01" },
       { title: "", url: "https://example.com/b", excerpt: "fallback text" },
+      { title: "Third", url: "https://example.com/c", excerpt: "t" },
+      { title: "Fourth", url: "https://example.com/d", excerpt: "t", publishedDate: "" },
     ],
   });
 });
@@ -235,7 +239,7 @@ test("Tavily: /search へ Bearer で送り、query と固定の検索条件だ�
   });
 });
 
-test("Tavily: results[] を共通形式へ正規化する (使わないフィールドは取り込まない)", async () => {
+test("Tavily: results[] を共通形式へ正規化し、published_date は string のときだけ取る", async () => {
   const body = {
     query: "q",
     answer: "unused",
@@ -249,6 +253,8 @@ test("Tavily: results[] を共通形式へ正規化する (使わないフィー
         published_date: "Tue, 11 Mar 2025 17:00:00 GMT",
       },
       { url: "https://example.com/b" },
+      { title: "Third", url: "https://example.com/c", content: "c", published_date: 20260405 },
+      { title: "Fourth", url: "https://example.com/d", content: "d", published_date: "" },
     ],
     response_time: "1.67",
   };
@@ -257,8 +263,15 @@ test("Tavily: results[] を共通形式へ正規化する (使わないフィー
   assert.deepEqual(outcome, {
     ok: true,
     items: [
-      { title: "First", url: "https://example.com/a", excerpt: "excerpt one" },
+      {
+        title: "First",
+        url: "https://example.com/a",
+        excerpt: "excerpt one",
+        publishedDate: "Tue, 11 Mar 2025 17:00:00 GMT",
+      },
       { title: "", url: "https://example.com/b", excerpt: "" },
+      { title: "Third", url: "https://example.com/c", excerpt: "c" },
+      { title: "Fourth", url: "https://example.com/d", excerpt: "d", publishedDate: "" },
     ],
   });
 });

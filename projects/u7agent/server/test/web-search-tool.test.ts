@@ -25,6 +25,7 @@ import {
   WEB_SEARCH_RATE_LIMITED_MESSAGE,
   WEB_SEARCH_SETTINGS_UNAVAILABLE_MESSAGE,
   WEB_SEARCH_TIMEOUT_MESSAGE,
+  WEB_SEARCH_TIME_ZONE,
   WEB_SEARCH_TOOL_GUIDELINES,
   WEB_SEARCH_TOOL_NAME,
   WEB_SEARCH_UNEXPECTED_RESPONSE_MESSAGE,
@@ -32,6 +33,10 @@ import {
 } from "../src/web-search-tool";
 
 type AnyTool = ToolDefinition<any, any, any>;
+
+/** 日時行のテストで固定する「今」。JST の 2026-10-07 */
+const FIXED_NOW = new Date("2026-10-07T09:00:00+09:00");
+const FIXED_DATE_LINE = "現在日時: 2026-10-07 (Asia/Tokyo)";
 
 interface FetchCall {
   url: string;
@@ -68,7 +73,9 @@ function responseOf(body: string, init: ResponseInit = {}): Response {
 }
 
 /** Exa の結果 1 件 (title / url / text) を返す応答 */
-function exaResults(items: { title?: string; url?: string; text?: string; highlights?: string[] }[]): Response {
+function exaResults(
+  items: { title?: string; url?: string; text?: string; highlights?: string[]; publishedDate?: unknown }[],
+): Response {
   return sseResponse(jsonRpcResponse({ results: items }));
 }
 
@@ -80,6 +87,7 @@ function tool(
     readEnabled?: () => boolean;
     readProvider?: () => WebSearchProviderId;
     readApiKey?: (provider: WebSearchProviderId) => string | undefined;
+    now?: () => Date;
   } = {},
 ): AnyTool {
   const definitions = createWebSearchToolDefinitions({
@@ -93,6 +101,7 @@ function tool(
     ...(options.readEnabled === undefined ? {} : { readEnabled: options.readEnabled }),
     ...(options.readProvider === undefined ? {} : { readProvider: options.readProvider }),
     ...(options.readApiKey === undefined ? {} : { readApiKey: options.readApiKey }),
+    now: options.now ?? ((): Date => FIXED_NOW),
   });
   assert.equal(definitions.length, 1);
   return definitions[0];
@@ -152,6 +161,15 @@ test("引数は query だけで、説明とガイドラインは web_search と 
   assert.equal(JSON.stringify(parameters).includes("exa.ai"), false);
 });
 
+test("説明と指針は公開日・現在日時を伝え、記憶の年を仮定せず年を推測しないよう指示する", () => {
+  const definition = tool();
+  assert.match(definition.description, /published dates/);
+  const guidelines = WEB_SEARCH_TOOL_GUIDELINES.join("\n");
+  assert.match(guidelines, /never assume the current year from memory/);
+  assert.match(guidelines, /do not invent one/);
+  assert.match(guidelines, /search again with that year/);
+});
+
 test("query は空文字と空白のみを SDK の引数検証で弾く (execute は呼ばれない)", () => {
   const definition = tool();
   const validate = (query: string): unknown =>
@@ -167,19 +185,81 @@ test("query は空文字と空白のみを SDK の引数検証で弾く (execute
   assert.throws(() => validate("\n\t "), /query/);
 });
 
-test("既定は Exa で、出典一覧を先頭に置いて highlights を優先する", async () => {
+test("既定は Exa で、現在日時行と出典一覧を先頭に置いて highlights を優先する", async () => {
   const stub = stubFetch(() =>
     exaResults([
-      { title: "First", url: "https://example.com/a", text: "full text", highlights: ["one", "two"] },
+      {
+        title: "First",
+        url: "https://example.com/a",
+        text: "full text",
+        highlights: ["one", "two"],
+        publishedDate: "2026-01-01",
+      },
       { title: "", url: "https://example.com/b", text: "fallback text" },
     ]),
   );
   const text = await run(tool({ fetchImpl: stub.fetchImpl }), { query: "q" });
   assert.equal(stub.calls[0].url, EXA_ENDPOINT);
-  assert.ok(text.startsWith("出典:\n[1] First — https://example.com/a\n[2] (no title) — https://example.com/b"), text);
-  assert.ok(text.includes("[1] First — https://example.com/a\none\ntwo"), text);
+  assert.ok(
+    text.startsWith(
+      `${FIXED_DATE_LINE}\n出典:\n[1] First — https://example.com/a (2026-01-01)\n[2] (no title) — https://example.com/b`,
+    ),
+    text,
+  );
+  assert.ok(text.includes("[1] First — https://example.com/a (2026-01-01)\none\ntwo"), text);
   assert.ok(text.includes("[2] (no title) — https://example.com/b\nfallback text"), text);
   assert.ok(!text.includes("full text"), "highlights があるときは text を使わない");
+  assert.ok(!text.includes("publishedDate"), "provider のフィールド名を生のまま出さない");
+});
+
+test("出典一覧の公開日は JST の YYYY-MM-DD へ直し、無い・読めない値は括弧ごと省く", async () => {
+  const stub = stubFetch(() =>
+    exaResults([
+      { title: "A", url: "https://example.com/a", publishedDate: "2026-04-05T00:00:00.000Z" },
+      { title: "B", url: "https://example.com/b" },
+      // UTC の夕方 = JST では翌日。UTC の日付で出していないことを固定する
+      { title: "C", url: "https://example.com/c", publishedDate: "2026-04-04T16:00:00.000Z" },
+      { title: "D", url: "https://example.com/d", publishedDate: "not a date" },
+      { title: "E", url: "https://example.com/e", publishedDate: 20260405 },
+      { title: "F", url: "https://example.com/f", publishedDate: "" },
+    ]),
+  );
+  const text = await run(tool({ fetchImpl: stub.fetchImpl }), { query: "q" });
+  assert.ok(
+    text.startsWith(
+      [
+        FIXED_DATE_LINE,
+        "出典:",
+        "[1] A — https://example.com/a (2026-04-05)",
+        "[2] B — https://example.com/b",
+        "[3] C — https://example.com/c (2026-04-05)",
+        "[4] D — https://example.com/d",
+        "[5] E — https://example.com/e",
+        "[6] F — https://example.com/f",
+      ].join("\n"),
+    ),
+    text,
+  );
+  assert.ok(!text.includes("not a date"), "parse できない値を生のまま出さない");
+});
+
+test("現在日時行は JST で決まり、UTC の日付では判断しない", async () => {
+  const stub = stubFetch(() => exaResults([]));
+  // 同じ JST の 2026-01-01 を指す 2 つの瞬間
+  for (const now of [new Date("2026-01-01T00:30:00+09:00"), new Date("2025-12-31T16:00:00Z")]) {
+    const text = await run(tool({ fetchImpl: stub.fetchImpl, now: () => now }), { query: "q" });
+    assert.ok(text.startsWith("現在日時: 2026-01-01 (Asia/Tokyo)\n"), `${now.toISOString()}: ${text}`);
+  }
+});
+
+test("now を渡さない既定は実行時の現在日時を使う", async () => {
+  const stub = stubFetch(() => exaResults([]));
+  const definitions = createWebSearchToolDefinitions({
+    fetchImpl: stub.fetchImpl,
+    masker: createMutableSecretMasker([]),
+  });
+  const text = await run(definitions[0], { query: "q" });
+  assert.match(text, new RegExp(`^現在日時: \\d{4}-\\d{2}-\\d{2} \\(${WEB_SEARCH_TIME_ZONE}\\)\n`), text);
 });
 
 test("1 件の抜粋は 1,500 字、合計は 12,000 字で切る", async () => {
@@ -202,7 +282,7 @@ test("1 件の抜粋は 1,500 字、合計は 12,000 字で切る", async () => 
   const all = await run(tool({ fetchImpl: many.fetchImpl }), { query: "q" });
   assert.equal(all.length, WEB_SEARCH_OUTPUT_MAX_LENGTH);
   assert.ok(all.endsWith("... [truncated]"));
-  assert.ok(all.startsWith("出典:\n"), "出典一覧は残す");
+  assert.ok(all.startsWith(`${FIXED_DATE_LINE}\n出典:\n`), "現在日時行と出典一覧は残す");
 });
 
 test("既定 provider が次の検索から使われ、キーは Authorization へ入る", async () => {
@@ -240,7 +320,8 @@ test("provider が失敗しても他の provider へは暗黙に fallback しな
   const error = await rejection(
     run(tool({ fetchImpl: stub.fetchImpl, readProvider: () => "tavily", readApiKey: () => "k" }), { query: "q" }),
   );
-  assert.equal(error.message, WEB_SEARCH_PROVIDER_ERROR_MESSAGE);
+  assert.ok(error.message.startsWith(`${FIXED_DATE_LINE}\n`), error.message);
+  assert.ok(error.message.endsWith(WEB_SEARCH_PROVIDER_ERROR_MESSAGE), error.message);
   assert.equal(stub.calls.length, 1, "別 provider で再検索しない");
   assert.equal(stub.calls[0].url, TAVILY_ENDPOINT);
   assert.ok(!stub.calls.some((call) => call.url === EXA_ENDPOINT));
@@ -252,12 +333,14 @@ test("キーが未設定 / 拒否されたときは固定文言で失敗し、�
   const definition = tool({ fetchImpl: stub.fetchImpl, readProvider: () => "tavily", readApiKey: () => apiKey });
 
   const missing = await rejection(run(definition, { query: "q" }));
-  assert.equal(missing.message, WEB_SEARCH_KEY_MISSING_MESSAGE);
+  assert.ok(missing.message.startsWith(`${FIXED_DATE_LINE}\n`), missing.message);
+  assert.ok(missing.message.endsWith(WEB_SEARCH_KEY_MISSING_MESSAGE), missing.message);
   assert.equal(stub.calls.length, 0, "キー無しの Authorization を送らない");
 
   apiKey = "tvly-secret";
   const rejected = await rejection(run(definition, { query: "q" }));
-  assert.equal(rejected.message, WEB_SEARCH_KEY_REJECTED_MESSAGE);
+  assert.ok(rejected.message.startsWith(`${FIXED_DATE_LINE}\n`), rejected.message);
+  assert.ok(rejected.message.endsWith(WEB_SEARCH_KEY_REJECTED_MESSAGE), rejected.message);
   assert.equal(stub.calls.length, 1);
   assert.ok(!rejected.message.includes("tvly-secret"));
 });
@@ -271,7 +354,8 @@ test("失敗の種類は固定文言へ写し、上流の本文を出さない",
     ),
   );
   const rateLimited = await rejection(run(tool({ fetchImpl: exaRateLimited.fetchImpl }), { query: "q" }));
-  assert.equal(rateLimited.message, WEB_SEARCH_RATE_LIMITED_MESSAGE);
+  assert.ok(rateLimited.message.startsWith(`${FIXED_DATE_LINE}\n`), rateLimited.message);
+  assert.ok(rateLimited.message.endsWith(WEB_SEARCH_RATE_LIMITED_MESSAGE), rateLimited.message);
 
   const quota = stubFetch(() =>
     responseOf(JSON.stringify({ detail: { error: "plan limit detail" } }), { status: 432 }),
@@ -279,12 +363,14 @@ test("失敗の種類は固定文言へ写し、上流の本文を出さない",
   const quotaError = await rejection(
     run(tool({ fetchImpl: quota.fetchImpl, readProvider: () => "tavily", readApiKey: () => "k" }), { query: "q" }),
   );
-  assert.equal(quotaError.message, WEB_SEARCH_QUOTA_EXCEEDED_MESSAGE);
+  assert.ok(quotaError.message.startsWith(`${FIXED_DATE_LINE}\n`), quotaError.message);
+  assert.ok(quotaError.message.endsWith(WEB_SEARCH_QUOTA_EXCEEDED_MESSAGE), quotaError.message);
   assert.ok(!quotaError.message.includes("plan limit detail"));
 
   const unexpected = stubFetch(() => responseOf(JSON.stringify({ jsonrpc: "2.0", id: 1, error: { code: -32000 } })));
   const unexpectedError = await rejection(run(tool({ fetchImpl: unexpected.fetchImpl }), { query: "q" }));
-  assert.equal(unexpectedError.message, WEB_SEARCH_UNEXPECTED_RESPONSE_MESSAGE);
+  assert.ok(unexpectedError.message.startsWith(`${FIXED_DATE_LINE}\n`), unexpectedError.message);
+  assert.ok(unexpectedError.message.endsWith(WEB_SEARCH_UNEXPECTED_RESPONSE_MESSAGE), unexpectedError.message);
 });
 
 test("ネットワーク例外は接続できない旨へ分類し、原文をマスクして添える", async () => {
@@ -292,7 +378,7 @@ test("ネットワーク例外は接続できない旨へ分類し、原文を�
     throw new Error("connect ECONNREFUSED 127.0.0.1");
   });
   const error = await rejection(run(tool({ fetchImpl: stub.fetchImpl }), { query: "q" }));
-  assert.match(error.message, new RegExp(`^${WEB_SEARCH_NETWORK_ERROR_MESSAGE}: `));
+  assert.ok(error.message.startsWith(`${FIXED_DATE_LINE}\n${WEB_SEARCH_NETWORK_ERROR_MESSAGE}: `), error.message);
   assert.match(error.message, /ECONNREFUSED/);
 });
 
@@ -304,20 +390,21 @@ test("タイムアウトは自前タイマーで分類し、ユーザー中断�
 
   const timeoutStub = stubFetch(pendingFetch);
   const timeoutError = await rejection(run(tool({ fetchImpl: timeoutStub.fetchImpl, timeoutMs: 10 }), { query: "q" }));
-  assert.equal(timeoutError.message, WEB_SEARCH_TIMEOUT_MESSAGE);
+  assert.equal(timeoutError.message, `${FIXED_DATE_LINE}\n${WEB_SEARCH_TIMEOUT_MESSAGE}`);
 
   const controller = new AbortController();
   const abortStub = stubFetch(pendingFetch);
   const pending = run(tool({ fetchImpl: abortStub.fetchImpl }), { query: "q" }, controller.signal);
   controller.abort();
   const abortError = await rejection(pending);
-  assert.equal(abortError.message, WEB_SEARCH_ABORTED_MESSAGE);
+  assert.equal(abortError.message, `${FIXED_DATE_LINE}\n${WEB_SEARCH_ABORTED_MESSAGE}`);
 });
 
-test("results が空配列なら正常系として『結果が見つかりませんでした』を返す", async () => {
+test("results が空配列なら正常系として日時行付きの『結果が見つかりませんでした』を返す", async () => {
   const stub = stubFetch(() => exaResults([]));
-  assert.equal(await run(tool({ fetchImpl: stub.fetchImpl }), { query: "q" }), WEB_SEARCH_NO_RESULTS_MESSAGE);
-  assert.equal(formatWebSearchResults([], createMutableSecretMasker([])), WEB_SEARCH_NO_RESULTS_MESSAGE);
+  const expected = `${FIXED_DATE_LINE}\n${WEB_SEARCH_NO_RESULTS_MESSAGE}`;
+  assert.equal(await run(tool({ fetchImpl: stub.fetchImpl }), { query: "q" }), expected);
+  assert.equal(formatWebSearchResults([], createMutableSecretMasker([]), FIXED_NOW), expected);
 });
 
 test("秘密値は 1 件の切り詰めより先にマスクし、throw の文言もマスクする", async () => {
@@ -345,7 +432,7 @@ test("無効の間は検索せず固定文言で失敗し、ON に戻ると同�
   const definition = tool({ fetchImpl: stub.fetchImpl, readEnabled: () => enabled });
 
   const off = await rejection(run(definition, { query: "q" }));
-  assert.equal(off.message, WEB_SEARCH_DISABLED_MESSAGE);
+  assert.equal(off.message, WEB_SEARCH_DISABLED_MESSAGE, "設定由来の失敗には日時行を付けない");
   assert.equal(stub.calls.length, 0, "無効の間は上流へ送らない");
 
   // 同じ定義 (= 既存セッションのツール) のまま ON へ戻すと動く
@@ -381,6 +468,7 @@ test("設定を読めないときは上流へ送らずに固定文言で失敗�
       { query: "q" },
     ),
   );
-  assert.equal(error.message, WEB_SEARCH_SETTINGS_UNAVAILABLE_MESSAGE);
+  assert.ok(error.message.startsWith(`${FIXED_DATE_LINE}\n`), error.message);
+  assert.ok(error.message.endsWith(WEB_SEARCH_SETTINGS_UNAVAILABLE_MESSAGE), error.message);
   assert.equal(stub.calls.length, 0);
 });
