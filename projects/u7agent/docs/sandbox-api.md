@@ -312,4 +312,4 @@ root 相対の通常ファイルを 1 つ消す。成功は本文なしの 204�
 | `SANDBOX_PORT` | サンドボックス | ツール API のポート（既定 9418。ホストへ publish しない）。8080 は serve 用に予約 |
 | `SANDBOX_HOST` | サンドボックス | bind アドレス（既定 `0.0.0.0`）。ローカルでは `127.0.0.1` を指定して LAN へ公開しない（Docker の別コンテナ構成では `0.0.0.0` のまま） |
 
-BFF 側の環境変数（`PI_APP_CWD` / `PI_SESSION_STORE` / `PI_THINKING` / `PORT` / `HOST` / `PI_SECRET_ENV_VARS`）は [README.md](../README.md#環境変数) を参照する。
+BFF 側の環境変数（`PI_APP_CWD` / `PI_SESSION_STORE` / `PI_THINKING` / `PORT` / `HOST` / `PI_SECRET_ENV_VARS`）は [.env.example](../.env.example) を参照する。

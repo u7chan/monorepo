@@ -8,6 +8,8 @@ pi SDK を BFF に埋め込んだ小さなブラウザ GUI（`projects/u7agent`�
 
 エージェント本体（BFF + pi SDK）が会話と判断を持ち、実際の作業はサンドボックスが行います。LLM の API キーは本体の内側で止まり、サンドボックスへは共有トークンだけを渡します。ポートやマウント先の具体値はデプロイ環境ごとに決まるため、図には含めていません。
 
+設計の全体像は [docs/architecture.md](docs/architecture.md)、変更テーマ別の入口は [docs/README.md](docs/README.md) にあります。
+
 ## ローカルで起動する（Docker なし）
 
 Node.js 24 と pnpm 10.34.5 を使います。初回だけ `pnpm install`。
@@ -18,95 +20,37 @@ pnpm dev   # サンドボックス + BFF + Vite をまとめて起動 → http:/
 
 - サンドボックスは常に別プロセスです。`pnpm dev` が共有トークンを生成してサンドボックスと BFF の両方へ渡します（ローカルで Docker は不要）
 - 作業領域は既定でこのディレクトリです。変えるときは `PI_APP_CWD=/path/to/project pnpm dev`（プロジェクト登録と未所属チャットの起点になります）
-- APIキーは起動後に **設定 → モデル** から登録できます（登録したキーはアプリのデータベースに保存され、再起動後も使われます）。`cp .env.example .env` で環境変数として渡すこともでき（この場合は再起動が必要）、`~/.pi/agent/auth.json` があれば不要です（`.env` を読むのは BFF だけ）
+- APIキーは起動後に **設定 → モデル** から登録できます（アプリのデータベースに保存され、再起動後も使われます）。`~/.pi/agent/auth.json` があれば不要です
 - 停止は Ctrl-C（3 プロセスまとめて止まります）
 
-## プロジェクトとセッションの作業ディレクトリ
+## 機能
 
-登録したプロジェクトに所属するセッションは、その登録ディレクトリを cwd にして動きます（SDK セッション・ツールのパス解決・ファイル画面が同じディレクトリ）。同一プロジェクトの複数セッションはツリーを共有するため、片方で作ったファイルが他方からも見え、`git status` や `git worktree add` のようなリポジトリ前提の作業ができます。未所属チャットは `<workspace root>/.u7agent/sessions/<id>` のスクラッチで動きます。worktree はアプリが作らないので、並行作業は切った worktree をプロジェクトとして登録して分離します。詳細は [docs/projects.md](docs/projects.md)。
-
-モデルの `write` / `edit` は、そのセッションの作業ディレクトリ配下と、共通スキル置き場 `<workspace root>/.agents/skills` 配下にだけ書けます。未所属チャットで `<workspace root>` 直下を指す絶対パスを書こうとした取り違えもここで拒否され、`cafe.html` のような cwd 相対パスで再試行できます。`bash` のリダイレクトは塞げないため、これは隔離ではなくファイルツールのポリシーです（`git worktree add` しただけの未登録ディレクトリも書き込み範囲外で、登録したプロジェクトのセッションでないと書けません）。詳細は [docs/projects.md](docs/projects.md#write--edit-の書き込み範囲)。
-
-チャットの添付は、所属に関係なく `<workspace root>/.u7agent/uploads/<sessionId>/` に保存します。エージェントには注記で絶対パスを渡し、ファイル画面には出しません。`<workspace root>/.u7agent` 配下はプロジェクトとして登録できません（400）。
-
-添付とは別に、右パネルのファイル一覧のファイル行を入力欄へドラッグすると `@作業フォルダ相対のパス` の参照として本文へ入ります。ファイルは送られず、モデルが必要なときに `read` で開きます（[docs/file-preview.md](docs/file-preview.md#ツリーの行のドラッグ入力欄への参照)）。
-
-## ファイルの持ち出し（ダウンロード）
-
-設定 → ファイル と チャット右パネルのツリーの行にダウンロードのボタンがあります。ファイルは元の名前のまま生バイトで、フォルダは `<フォルダ名>.zip`（中身は直下をルートに置く）で保存されます。ZIP はサンドボックスがストリーム生成し、ブラウザには `<a download>` で渡すため、100 MiB のファイルをページのメモリに載せず、ダウンロード中も画面の状態（チャットのタブ・ツリーの開閉）は変わりません。
-
-- `node_modules` / `.git` / `dist` など再生成できるものとビルド成果物は ZIP から除外されます（ベース名の完全一致・全階層）。除外があるフォルダでは開始前に確認ダイアログが出て、実際に除外された名前を示します
-- 上限は合計 100 MiB / 10,000 エントリです（Zip64 を書かないため。単体ファイルも同じ 100 MiB）。超過や除外名のフォルダは、ブラウザに生 JSON を出さずツリー内のエラー行に理由が出ます
-- symlink は辿らず、ZIP にも入れません。正確な規則は [docs/file-preview.md](docs/file-preview.md#ダウンロード) と [docs/sandbox-api.md](docs/sandbox-api.md#get-v1filesdownload) を参照してください
-
-## スキル
-
-スキルは 3 種類あります。
-
-- **エージェント定義のスキル**（設定 → スキル）— エージェントへ割り当てる指示。アプリデータの SQLite に保存され、再起動後も残ります
-- **ファイルスキル** — `<PI_APP_CWD>/.agents/skills/<name>/SKILL.md`（共通）と、プロジェクト配下の `<project>/.agents/skills/<name>/SKILL.md`（そのプロジェクトのセッションのみ）。エージェントに紐づかない ambient なスキルとしてセッションへ注入され、モデルは必要になった時点で `SKILL.md` を `read` します（本文の編集は次に読んだ時点から効きます）
-- **組み込みスキル** — アプリに同梱した `skill-creator` など（`server/src/builtin-skills/`）。全セッションで常時有効で、ワークスペースには実体を作らず、`read` だけ BFF が同梱の本文を返します。編集の対象外です
-
-共通スキルの置き場はワークスペース root（`PI_APP_CWD`）の直下です。ローカル dev の既定は `projects/u7agent` 自身なので、モノレポ root の `.agents/skills` を使いたい場合は `PI_APP_CWD=/path/to/monorepo pnpm dev` のように指定します（サンドボックスの `PI_SANDBOX_CWD` と同じパスに揃えてください）。共通スキルと組み込みスキルは設定 → スキルで読み取り専用の一覧として並び、選ぶと本文ビューが開きます（ファイルスキルの本文は選択のたびに取り直すため、`SKILL.md` の編集内容がそのまま出ます）。
-
-チャットの入力欄の「スキル一覧」から、そのセッションで使えるスキル（プロジェクト / 共通 / 組み込み / エージェント定義）を選んで `/skill:<name>` を入力できます。`/skill:` は送信時に BFF が本文ブロックへ展開するため、Docker（BFF に作業領域が無い）でもファイルスキルと組み込みスキルが動きます。本文は送信時点の内容で、一覧が固定するのは発見一覧・説明・優先順位だけです。詳細は [docs/persistence.md](docs/persistence.md#スキルの扱い) と [docs/api-catalog.md](docs/api-catalog.md#ファイルスキルagentsskills)、展開の仕様は [docs/api-sessions.md](docs/api-sessions.md#skill-の展開) を参照してください。
-
-## 通知（Discord）
-
-会話ごとのトグルが On のとき、エージェントの応答が返ってきたら Discord の Incoming Webhook へ 1 通送ります。Webhook の登録・テスト送信・リンクのベース URL・メンションは 設定 → 通知 で行います。応答本文の先頭 200 文字までが Discord へ渡るため、機微な会話では通知を Off にしてください。詳細は [docs/notifications.md](docs/notifications.md) を参照してください。
+- **プロジェクトとセッションの作業ディレクトリ** — 登録したプロジェクトのセッションはそのディレクトリを cwd にし、未所属チャットは `<workspace root>/.u7agent/sessions/<id>` のスクラッチで動きます（[docs/projects.md](docs/projects.md)）
+- **ファイルの持ち出し（ダウンロード）** — 設定 → ファイル と右パネルのツリーの行から、ファイルは元の名前のまま生バイトで、フォルダは ZIP で保存できます。除外規則と上限は [docs/file-preview.md](docs/file-preview.md#ダウンロード)
+- **スキル** — エージェント定義スキル / ファイルスキル（`.agents/skills`）/ 組み込みスキルの 3 種類があり、入力欄から `/skill:<name>` で展開します（[docs/persistence.md](docs/persistence.md#スキルの扱い) / [docs/api-catalog.md](docs/api-catalog.md#ファイルスキルagentsskills)）
+- **サービス（serve）** — エージェントが起動した Web サーバーを別タブで開き、トップバーから起動・停止・入れ替えができます（[docs/sandbox.md](docs/sandbox.md#serveサービスの公開と起動停止)）
+- **通知（Discord）** — 会話ごとのトグルが On のとき、応答の先頭 200 文字を 1 通送ります。機微な会話では Off にしてください（[docs/notifications.md](docs/notifications.md)）
 
 ## 環境変数
 
-| 変数 | 説明 |
-| --- | --- |
-| `PI_APP_CWD` | ワークスペース root（登録したプロジェクトと未所属チャットのスクラッチの起点、および共通スキル `<PI_APP_CWD>/.agents/skills` の場所。既定: このディレクトリ） |
-| `PI_SESSION_STORE` | 会話ストアの絶対パス（既定: `<pi agentDir>/u7agent/sessions`）。ワークスペースの外を指定する。未設定でも起動するが、`null`（永続化なし）にしたいのはテストだけ |
-| `PI_THINKING` | 既定の Effort |
-| `PORT` / `HOST` | BFF の待受（既定 4317 / 127.0.0.1） |
-| `PI_FILE_PREVIEW_LISTEN_PORT` | HTML プレビューの有効モード（別オリジン）の**待受**ポート（既定 4318）。ポートが埋まっていて起動できないときは変える（`pnpm dev` はブラウザから見た値と揃える） |
-| `PI_FILE_PREVIEW_PORT` | HTML プレビューの有効モード（別オリジン）で**ブラウザから見た**ポート（既定 4318）。デプロイでは `8017:4318` を publish して 8017 を指定する（`pnpm dev` はこの env を正として待受も同じ値に揃える） |
-| `PI_SERVICE_LISTEN_PORT` | サービス オリジン（BFF の 3 本目のリスナー）の**待受**ポート（既定 4319。dev ではアプリ自身が 8080 を使うため 8080 にはしない）。BFF はここで受けた要求をサンドボックスの 8080 へ転送する（`pnpm dev` はブラウザから見た値も同じ値に揃える） |
-| `PI_PREVIEW_PORT` | サンドボックスで serve したサービスをブラウザから開くポート（未設定は上の待受へ寄せて既定 4319。デプロイは `8016:4319` を公開して 8016）。リンク生成専用で、稼働判定は BFF がサンドボックスの listen ポート（8080）へ TCP connect して行う。不正なポート値は起動時に拒否 |
-| `PI_SANDBOX_URL` / `PI_SANDBOX_TOKEN` | 外部のサンドボックスへ繋ぐ場合のみ（`pnpm dev` は自動で設定） |
-| `PI_SECRET_ENV_VARS` | 追加でマスクする独自の秘密環境変数 |
-| `U7AGENT_SECRET_MASTER_KEY` | 作業環境 → 環境変数 の「シークレット」を暗号化する master key。書式は `<版>:<base64 の 32 バイト鍵>`（`openssl rand -base64 32` の前に `1:` を付ける）。**アプリ DB とは別経路で管理する**（未設定ならシークレットの登録と利用だけを 503 で拒否し、変数と起動は続く） |
-| `U7AGENT_SECRET_MASTER_KEY_FILE` | 同じ内容を書いたファイルのパス。env が優先で、こちらは同じ書式のテキストを読む |
+設定できる変数の一覧と説明は [.env.example](.env.example) が正です（`cp .env.example .env` で読み込まれ、`.env` を読むのは BFF だけ）。サンドボックス側は [docs/sandbox-api.md](docs/sandbox-api.md)、BFF の待受とオリジンの契約は [docs/api.md](docs/api.md) を参照してください。
 
-プレビュー オリジンの 2 つの env は 1〜65535 の整数以外だと起動時にエラーで停止します。`pnpm dev` は待受とブラウザから見た値を同じ値に揃える（`PI_FILE_PREVIEW_PORT` を正とし、待受 env しか無いときはその値へ寄せる）ので、`PI_FILE_PREVIEW_PORT=4319 pnpm dev` はプレビュー オリジンだけを 4319 にできます。サービス オリジンも同じ作法で、待受は `PI_SERVICE_LISTEN_PORT`、ブラウザから見た値は `PI_PREVIEW_PORT`（未設定は待受へ寄せる）です。**`pnpm dev` をもう 1 つ並行して起動するには、プレビュー以外のポートも別にする必要があります**（サンドボックス `SANDBOX_PORT` / BFF `PORT` / サービス `PI_SERVICE_LISTEN_PORT`。Vite は `strictPort` の 3000 で `pnpm dev` からは変えられないため、Vite まで分けるときは `pnpm dev:bff` と `pnpm dev:web --port <n>` を別々に起動します）。**ポートを変えるとプレビューの `localStorage` の保存領域も別になる**点に注意してください（[docs/file-preview.md](docs/file-preview.md#隔離csp-と-sandbox)）。
-
-**利用可能なモデル**と**アプリ既定モデル**、プロバイダーAPIキーは起動後に **設定 → モデル** から設定するのが既定です（アプリのデータベースへ保存し、再起動せずにモデル候補へ反映します）。選択の入口は GUI に一本化したため、`PI_MODEL` / `PI_MODELS` / `PI_PROVIDER` は読みません（設定されていても無視し、画面と起動ログに移行を促します）。プロバイダーAPIキーを環境変数（`.env`）や `~/.pi/agent/auth.json` で渡す場合は、これまでどおり再起動が必要です。移行の手順と残存リスクは [docs/model-settings.md](docs/model-settings.md) を参照してください。
-
-一覧は [.env.example](.env.example) と [docs/sandbox-api.md](docs/sandbox-api.md)（サンドボックス側）を参照してください。
-
-作業フォルダごとの環境変数（**作業環境 → 環境変数**）は、GUI から登録してサービス（serve）へ実行時にだけ渡す経路です。種別は 2 つあり、**変数**は平文で保存してエージェントの `bash` とサービスの両方から見え、**シークレット**は保存時に暗号化して**サービスの起動時だけ**注入します（エージェントの env には入りません）。master key はアプリ DB とは別経路（`U7AGENT_SECRET_MASTER_KEY` / `U7AGENT_SECRET_MASTER_KEY_FILE`）で渡し、未設定・誤鍵・改ざんでは平文保存や「秘密なし起動」へ静かに落ちません。値の規則・注入の境界・残存リスクは [docs/secrets.md](docs/secrets.md#作業フォルダの環境変数作業環境--環境変数) を参照してください。
-
-プロジェクトとエージェント / スキル定義は、会話ストアと同じディレクトリの `u7agent.db`（SQLite）に保存します。パスを分ける環境変数はなく、`PI_SESSION_STORE` を永続ボリュームに置けば両方残ります（[persistence.md](docs/persistence.md)）。
+- **利用可能なモデル**と**アプリ既定モデル**、プロバイダーAPIキーは起動後に **設定 → モデル** から設定するのが既定です（アプリのデータベースへ保存し、再起動せずにモデル候補へ反映します）。選択の入口は GUI に一本化したため、`PI_MODEL` / `PI_MODELS` / `PI_PROVIDER` は読みません（移行は [docs/model-settings.md](docs/model-settings.md)）
+- 作業フォルダごとの環境変数（**作業環境 → 環境変数**）は GUI から登録し、**変数**は平文で保存してエージェントの `bash` とサービスの両方から見え、**シークレット**は保存時に暗号化して**サービスの起動時だけ**注入します（エージェントの `bash` の env には入りません。master key は `U7AGENT_SECRET_MASTER_KEY` / `U7AGENT_SECRET_MASTER_KEY_FILE` でアプリ DB とは別経路。値の規則と残存リスクは [docs/secrets.md](docs/secrets.md#作業フォルダの環境変数作業環境--環境変数)）
+- ポートを変えると、プレビューの `localStorage` の保存領域も別になります。`pnpm dev` をもう 1 つ並行して起動するときはプレビュー以外のポートも分けてください（[docs/frontend.md](docs/frontend.md#開発フローと配信)）
 
 ## セキュリティ
 
-チャットの「サービス」は、全会話で共有する serve 先を別タブで開きます。トップバーにはその会話から見た状態（稼働中 / 停止中 / 起動元不明）が出て、desktop / compact から起動・停止・入れ替えができます。ブラウザは BFF のサービス リスナー（dev は 4319、デプロイは 8016）を開き、BFF がサンドボックスの 8080 へ転送してキャッシュ ヘッダを `Cache-Control: no-store` に揃えます。稼働判定は BFF がサンドボックスの 8080 へ TCP connect して行い、エージェントは `serve` ツールで起動します（[serve の運用契約](docs/sandbox.md#serveサービスの公開と起動停止)）。自動復旧はせず、コンテナ再作成でプロセスは消えます。LAN / WSL2 の別端末からはサービス オリジンのポート（`HOST=0.0.0.0` に加えて、必要なら portproxy）への到達も必要です。
-
-BFF の書き込み API はブラウザの別オリジンからの要求を拒否します。ログイン認証の代わりではなく、直接の HTTP クライアントからのアクセスは制限しません（[Origin / CSRF 対策](docs/api.md#ブラウザからの書き込みorigin--csrf-対策)）。サービスも無認証で配信されるため、デプロイは信頼できる閉域 LAN に限り、外部へ公開しないでください。
-
-- **ログイン認証はありません。インターネットや LAN へ公開しないでください**（BFF と本番の待受は `127.0.0.1`）
-- HTML プレビューのストレージ有効モードは既定で ON で、BFF の 2 本目のリスナー（待受 `PI_FILE_PREVIEW_LISTEN_PORT` / ブラウザから見たポート `PI_FILE_PREVIEW_PORT`、既定はいずれも 4318）を別オリジンとして開く。この面は無認証で、ワークスペースの allowlist（画像 / 音声 / `.js` / `.mjs` / `.css` / `.json` / `.txt` / HTML）を読める経路が 1 つ増える（載るのは GET の HTML プレビュー ルート 1 本だけで、書き込み系は載せない）。アプリと同じく**インターネットや LAN へ公開しないでください**
-- `pnpm dev` の Vite だけは実機確認のため LAN へも待受けます（`0.0.0.0:3000`）。同じ LAN の端末からは認証なしの GUI と `/api`（サンドボックスでの bash 実行に到達します）が開けるため、開発用途に限り、信頼できるネットワークでだけ使ってください。**プレビュー オリジン（既定 4318。`PI_FILE_PREVIEW_LISTEN_PORT` / `PI_FILE_PREVIEW_PORT` で変えられる）とサービス オリジン（既定 4319。`PI_SERVICE_LISTEN_PORT` / `PI_PREVIEW_PORT` で変えられる）は Vite を通らずブラウザが直接開くため、LAN / 別端末から使うときは `HOST=0.0.0.0` に加えてそれらのポートの到達（WSL2 なら portproxy の追加）が要ります**。届かないときはプレビューが真っ白になり、新しいタブも開けません（UI に通知は出しません。パス行の別オリジンを OFF にすると隔離モードで表示できます）
-- ツールはサンドボックスの作業領域でコマンド実行やファイル変更ができます。信頼できる環境だけで使ってください（`write` / `edit` はセッションの作業ディレクトリと `<workspace root>/.agents/skills` に限られますが、`bash` は制限しません）
-- LLM の APIキーは BFF が持ち、サンドボックスへは共有トークンしか渡しません。設定 → モデルで登録したキーはアプリデータの SQLite（`PI_SESSION_STORE/u7agent.db`）へ**平文**で保存されるため、DB・WAL・バックアップのアクセス権を管理してください（[docs/model-settings.md](docs/model-settings.md#残存リスク)）。ツール出力に現れた既知のキーは、LLM・SSE・ログへ渡す前に `[REDACTED]` へ置換します。ただし `pnpm dev` のようにホストで別プロセスとして起動した場合、サンドボックスは起動元シェルの環境を継承するため、export 済みの APIキーと同一ユーザーが読める認証ファイルは見えます（コンテナ分離ではこの継承はありません）
-- `pnpm dev` の分離はプロセス分離です（同一ユーザー・同一環境）。コンテナ分離の設計と残存リスクは [docs/sandbox.md](docs/sandbox.md) を参照してください
-- 作業環境 → 環境変数 の**シークレットだけ**が保存時に暗号化されます（AEAD。master key は DB と別経路）。プロバイダー / 画像の APIキー、provider メモ、種別 = 変数の値は従来どおり `u7agent.db` へ**平文**で残るため、「DB 全体が暗号化された」わけではありません。シークレットはエージェントの `bash` の env に入りませんが、同一サンドボックス・同一 Unix user でサービスが動くため `/proc/<pid>/environ` などを読める可能性は残ります（[docs/secrets.md](docs/secrets.md#保証範囲と残存リスク)）
+- **ログイン認証はありません。インターネットや LAN へ公開しないでください**（BFF と本番の待受は `127.0.0.1`）。プレビュー オリジン（既定 4318）とサービス オリジン（既定 4319）も無認証で、公開するのは信頼できる閉域 LAN に限ります
+- `pnpm dev` の Vite だけは実機確認のため LAN へも待受けます（`0.0.0.0:3000`）。同じ LAN の端末からは認証なしの GUI と `/api`（サンドボックスでの `bash` 実行に到達します）が開けるため、開発用途に限ってください。プレビュー オリジンとサービス オリジンは Vite を通さずブラウザが直接開くため、LAN / 別端末から使うときは `HOST=0.0.0.0` に加えてそれらのポートの到達（WSL2 なら portproxy の追加）が要ります（届かないとプレビューは真っ白になります。[docs/frontend.md](docs/frontend.md#開発フローと配信)）
+- ツールはサンドボックスの作業領域でコマンド実行やファイル変更ができます。`write` / `edit` はセッションの作業ディレクトリと `<workspace root>/.agents/skills` に限られますが、`bash` は制限しません。信頼できる環境だけで使ってください（[docs/sandbox.md](docs/sandbox.md)）
+- LLM の APIキーは BFF が持ち、サンドボックスへは共有トークンしか渡しません。設定 → モデルで登録したキーはアプリデータの SQLite（`PI_SESSION_STORE/u7agent.db`）へ**平文**で保存されるため、DB・WAL・バックアップのアクセス権を管理してください（[docs/model-settings.md](docs/model-settings.md#残存リスク)）。ツール出力に現れた既知のキーは、LLM・SSE・ログへ渡す前に `[REDACTED]` へ置換します
+- `pnpm dev` のサンドボックスはホスト上の別プロセスで、BFF と同一ユーザー・同一環境です（親シェルから export した APIキーや、同一ユーザーが読める `~/.pi/agent/auth.json` も見えます）。コンテナ分離の設計と残存リスクは [docs/sandbox.md](docs/sandbox.md) を参照してください
+- 作業環境 → 環境変数 の**シークレットだけ**が保存時に暗号化されます（AEAD。プロバイダー / 画像の APIキー、provider メモ、種別 = 変数の値は `u7agent.db` へ**平文**で残るため、「DB 全体が暗号化された」わけではありません）。シークレットはエージェントの `bash` の env に入りませんが、同一サンドボックス・同一 Unix user でサービスが動くため `/proc/<pid>/environ` などを読める可能性は残ります（[docs/secrets.md](docs/secrets.md#保証範囲と残存リスク)）
 
 ## ドキュメント
 
-- [AGENTS.md](AGENTS.md) — エージェント向けの最小ガイド（検証コマンド・コメント方針）
+- [AGENTS.md](AGENTS.md) — エージェント向けのルール（Tech Stack・検証・テスト方針・コメント）
 - [docs/README.md](docs/README.md) — 変更テーマ別の索引（ここから必要なドキュメントだけを辿る）
-- [docs/architecture.md](docs/architecture.md) — 層構成・基本原則・責務の所在
-- [docs/run-lifecycle.md](docs/run-lifecycle.md) — 非同期実行・キュー・SSE・セッションのライフサイクル
-- [docs/sandbox.md](docs/sandbox.md) — サンドボックス分離の設計（[sandbox-api.md](docs/sandbox-api.md) に API 契約）
-- [docs/secrets.md](docs/secrets.md) — APIキー保護
-- [docs/api.md](docs/api.md) — HTTP API の規約と索引（[api-sessions.md](docs/api-sessions.md) / [api-catalog.md](docs/api-catalog.md)）
-- [docs/persistence.md](docs/persistence.md) — 永続化される範囲と再デプロイ時の挙動
-- [docs/ui-layout.md](docs/ui-layout.md) — レイアウトモードの判定
-- [docs/migration.md](docs/migration.md) — 移植元・履歴保存・CI対応の変更点
 
 配布イメージは main マージ後の CD が GHCR（`ghcr.io/u7chan/monorepo/u7agent:latest`）へ push します。CD の仕組みは [モノレポのCI/CD](../../docs/about-cicd.md) を参照してください。
