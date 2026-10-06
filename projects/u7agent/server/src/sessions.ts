@@ -1430,7 +1430,8 @@ export class SessionStore {
       // 待機中の中止は aborted の assistant が投影に残らないため、stop の要求を停止の正とする
       const wasStopped = stopped || run.stopRequested === true;
       run.status = wasStopped ? "stopped" : error ? "error" : "completed";
-      run.endedAt = Date.now();
+      const endedAt = Date.now();
+      run.endedAt = endedAt;
       // アクティブな再試行は終了で消す。累計は結果表示のため残す
       delete run.retry;
       if (error) run.error = this.masker.mask(composeRunError(error, run.totalRetryCount));
@@ -1443,6 +1444,8 @@ export class SessionStore {
       this.emit(record, "run_end", {
         runId: run.id,
         status: run.status,
+        // 完了の合計時間。キュー待ちは含めず、実際に走ったぶんだけを測る
+        durationMs: endedAt - run.startedAt,
         error: run.error,
         errorCode: run.errorCode,
         messageCount: messages.length,

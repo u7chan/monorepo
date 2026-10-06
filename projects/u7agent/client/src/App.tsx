@@ -518,6 +518,7 @@ export default function App() {
                     ? app.chat.compactionStartedAt
                     : undefined
               }
+              finishedRunDurationMs={app.chat.finishedRunDurationMs}
               runtimeReady={app.health?.ready !== false}
               sending={app.sending}
               stopVisible={app.stopVisible}

@@ -380,6 +380,11 @@ test("assistant usage reaches the client through SSE and the session payload", a
     // context は SDK の履歴反映後に run_end でも配る (usage の値は 1 応答分古い)
     const runEnd = events.find((entry) => entry.type === "run_end");
     assert.deepEqual(runEnd?.data.context, STUB_CONTEXT_USAGE);
+    // 完了の合計時間。クライアントは状態行に凍結表示する (キュー待ちは含まない)
+    assert.ok(
+      (runEnd?.data.durationMs ?? 0) >= usageEvent.data.metrics.durationMs,
+      "ラン全体の所要時間は応答 1 回分より長い",
+    );
 
     // リロード / resync の正は payload 側 (同じ値が戻る)
     const payload = await jsonBody(app.request(`/api/sessions/${created.sessionId}`));
