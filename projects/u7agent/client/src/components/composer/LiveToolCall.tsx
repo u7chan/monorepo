@@ -17,9 +17,7 @@ function LiveRowBody({ row }: { row: LiveToolRow }) {
 
 /**
  * 終わった行。高さを 0 へ畳むアニメーションが終わるまで DOM に残すため、行ごとに effect を持つ
- * (行は 1 件ずつしか走らないが、走査順が入れ替わっても取り違えないよう id で外す)。
- * `prefers-reduced-motion` では animation が無く animationend が来ないので、保険の時間で終わる
- * (このときは CSS が行ごと消すため、畳む動きは見えない)。
+ * (走査順が入れ替わっても取り違えないよう id で外す)。
  */
 function LeavingRow({ row, onFinished }: { row: LiveToolRow; onFinished: (id: string) => void }) {
   const ref = useRef<HTMLLIElement>(null);
@@ -28,12 +26,14 @@ function LeavingRow({ row, onFinished }: { row: LiveToolRow; onFinished: (id: st
   useEffect(() => {
     const element = ref.current;
     if (!element) return;
+    // animationend が来ない環境 (動きを止めた設定など) は lib/animationEnd.ts の保険の時間で終わる
     return finishOnAnimationEnd(element, getComputedStyle(element).animationDuration, () =>
       finishedRef.current(row.id),
     );
   }, [row.id]);
   return (
-    <li ref={ref} className="live-tool-item" data-leaving="true">
+    // key は残っている行と共有するため、抜け中の印を付けて衝突させない
+    <li key={`leaving-${row.id}`} ref={ref} className="live-tool-item" data-leaving="true">
       <LiveRowBody row={row} />
     </li>
   );
@@ -41,14 +41,13 @@ function LeavingRow({ row, onFinished }: { row: LiveToolRow; onFinished: (id: st
 
 /**
  * 入力欄の直上のライブ表示。実行中のツールだけを出し、終わった行は畳んでから外す
- * (完了したカードはツール履歴が持ち、コピーはターンが終わるまで出さない。docs/frontend.md)。
- * 読み上げは状態行の活動テキストが担うため、ここは視覚専用にする。
+ * (表示条件と演出の意図は docs/frontend.md)。読み上げは状態行の活動テキストが担うため視覚専用。
  */
 export function LiveToolCall({
   runTools,
   runStatus,
 }: {
-  /** 直近 run のツールカード (toolCallId → ToolCall)。順序が走査順になる */
+  /** 直近 run のツールカード (toolCallId → ToolCall)。挿入順がそのまま走査順になる */
   runTools: Readonly<Record<string, ToolCall>>;
   runStatus: RunStatus;
 }) {
@@ -56,7 +55,6 @@ export function LiveToolCall({
   const [leaving, setLeaving] = useState<LiveToolRow[]>([]);
   const previousRef = useRef(state.rows);
 
-  // 消えた行を控えておく。箱は抜けきるまで開いたままにする (先に畳むとアニメーションが切れる)
   useEffect(() => {
     const previous = previousRef.current;
     previousRef.current = state.rows;
@@ -71,15 +69,16 @@ export function LiveToolCall({
   }, []);
 
   return (
+    // 抜け中の行が残っている間は箱を開いたままにする (先に畳むとアニメーションが切れる)
     <div className="live-tool px-1" data-visible={state.visible || leaving.length > 0}>
       <div>
-        {/* 視覚専用。状態行と同じ内容を繰り返さないよう、行が無い間は箱ごと畳む */}
+        {/* 視覚専用。行が無い間は箱ごと畳む (状態行の活動テキストと重ならないようにする) */}
         <div
           aria-hidden="true"
           className="mb-1.5 overflow-hidden rounded-lg border border-accent/25 bg-accent-wash font-mono text-2xs text-ink-muted"
         >
           <div className="flex items-center gap-1.5 border-b border-accent/20 px-2 py-1 text-2xs text-ink-faint">
-            <span className="live-tool-dot" />
+            <span className="dot dot-accent dot-pulse" />
             ライブ
             <span className="text-ink-ghost">実行中のツール</span>
           </div>

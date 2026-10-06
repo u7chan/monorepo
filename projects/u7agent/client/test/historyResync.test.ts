@@ -1337,6 +1337,34 @@ test("historyGap が再構築へ落ちる経路でも保留していた run 側�
   assert.equal(rebuiltPending.currentAssistantId, rebuiltPending.bubbles.at(-1)?.id);
 });
 
+test("完了した run の履歴ページ適用では補完先へ向けない (完了ターンのコピーを隠さない)", () => {
+  const running = chatReducer(initialChatState, {
+    type: "resync",
+    payload: runningPayloadWithTools([{ role: "user", text: "1通目" }], [toolCall("t1", { done: false, output: "" })]),
+  });
+  const ended = chatReducer(running, { type: "runEnd", status: "completed", queueDepth: 0 });
+  assert.equal(ended.runStatus, "idle");
+  assert.equal(ended.currentAssistantId, null);
+  assert.deepEqual(Object.keys(ended.runTools), ["t1"], "runEnd でもカードは残る (遅れて届くページへ補う)");
+
+  const applied = chatReducer(ended, {
+    type: "resyncHistory",
+    page: historyPage(
+      [
+        userMsg("h1", "1通目"),
+        { kind: "message", id: "m2", context: "active", role: "assistant", text: "完了", tools: [toolCall("t1")] },
+      ],
+      { prevCursor: "h1", hasMore: true, nextCursor: "h1", messageCount: 2 },
+    ),
+  });
+  assert.deepEqual(
+    applied.bubbles.at(-1)?.tools.map((card) => card.id),
+    ["t1"],
+    "カードの補完はターンが終わっても続ける",
+  );
+  assert.equal(applied.currentAssistantId, null, "完了したターンを live として指さない");
+});
+
 test("prependHistory は末尾を触らず、保留中の run 側カードも補完しない", () => {
   const base = chatReducer(initialChatState, {
     type: "resyncHistory",

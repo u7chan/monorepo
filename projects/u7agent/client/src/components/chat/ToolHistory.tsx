@@ -12,11 +12,7 @@ const PHASE_LABEL_CLASS = cn("w-[3.25em] shrink-0 text-right font-sans text-3xs 
 /** 履歴へ 1 件差し込まれた合図を光らせている時間。CSS (index.css) の長さと揃える */
 const SLOT_FLASH_MS = 520;
 
-/**
- * 完了は既定なので出さず、スロットだけ残して行の右端が動かないようにする。
- * 実行中は入力欄の上のライブ表示が受け持つが、停止・中断で `tool_execution_end` が来なかった
- * カードは `running` のままターンを抜けるため、位相はここでも出し分ける。
- */
+/** 完了は既定なので出さず、スロットだけ残して行の右端が動かないようにする (位相の規則は docs/frontend.md) */
 function PhaseLabel({ phase }: { phase: ToolCard["phase"] }) {
   if (phase === "done") return <span className={PHASE_LABEL_CLASS} />;
   return (
@@ -79,8 +75,8 @@ function ToolCallRow({
 }
 
 /**
- * ツール履歴。進行中のターンでは実行中のカードを出さず (入力欄の上のライブ表示が受け持つ)、
- * 「すべてコピー」も出さない: 伸びている途中の断片をコピらせないため。
+ * ツール履歴。進行中のターンでは実行中のカードを出さず (ライブ表示が受け持つ)、「すべてコピー」も
+ * 出さない (伸びている途中の断片をコピらせない)。表示条件の根拠は docs/frontend.md が正。
  */
 export function ToolHistoryView({
   cards,
@@ -102,14 +98,11 @@ export function ToolHistoryView({
   compact: boolean;
   onCopyTool: (card: ToolCard) => void;
 }) {
-  // 進行中のターンだけ、実行中のカードを履歴から外す (ライブ表示が受け持つ)。ターンが終わればそのまま
-  // 並べる: 停止・中断で `tool_end` が来なかったカードをここから消すと、何が走っていたかを後から確かめられない
   const shown = live ? completedToolCards(cards) : cards;
-  // 畳んでいても進行が分かるよう、サマリーには実行中だけを出す (完了 / エラーは各コールが見せる)
   const running = shown.some((card) => card.phase === "running");
 
   // 1 件増えた瞬間だけ見出しを光らせる。key を変えて要素ごと作り直すので、連続で差し込まれても
-  // 毎回最初から光る (アニメーションを class の付け替えで再開させない)
+  // 毎回最初から光る
   const [flashKey, setFlashKey] = useState(0);
   const previousCount = useRef(shown.length);
   useEffect(() => {
@@ -122,6 +115,9 @@ export function ToolHistoryView({
     const timer = setTimeout(() => setFlashKey(0), SLOT_FLASH_MS);
     return () => clearTimeout(timer);
   }, [shown.length]);
+
+  // ライブ側が同内容を出している間は、空の見出し (「ツール履歴 0件」) を残さない
+  if (shown.length === 0) return null;
 
   return (
     <details

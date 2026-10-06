@@ -1,5 +1,4 @@
-// 入力欄の上のライブ表示 (実行中のツール) の表示条件と、ツール履歴のコピーを完了まで出さない契約のテスト。
-// ライブは走査順 (= runTools の挿入順) と、履歴と同じ除外規則 (スキル読み込み・ask_user) を守る。
+// 入力欄の上のライブ表示 (実行中のツール) の表示条件と、ツール履歴のコピーを完了まで出さない契約。
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createElement } from "react";
@@ -57,9 +56,9 @@ test("スキル読み込みと ask_user はライブに出さない (ツール�
 
 test("run が実行中でなければ出さない (停止で done が来なかったカードを残さない)", () => {
   const runTools = { t1: call("t1", "bash", "sleep 100", false) };
+  // queued は run が動いていない状態 (次の run のツールは run_start まで runTools に入らない)
   for (const status of ["idle", "queued", "compacting", "completed", "stopped", "error"] as RunStatus[]) {
-    const state = liveToolState(runTools, status);
-    assert.equal(state.visible, status === "queued", `${status} の表示`);
+    assert.equal(liveToolState(runTools, status).visible, false, `${status} の表示`);
   }
   assert.equal(liveToolState({}, "running").visible, false, "実行中でもツールが無ければ出さない");
 });

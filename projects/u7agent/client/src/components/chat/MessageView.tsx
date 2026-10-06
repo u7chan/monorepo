@@ -100,8 +100,7 @@ export function MessageView({
   const bodyText = skill ? (skill.userMessage ?? "") : userBody;
   const metaLine = isUser ? "" : messageMetaLine(bubble.usage, bubble.metrics, compact);
   const metaTitle = isUser ? undefined : messageMetaTitle(bubble.usage, bubble.metrics);
-  // スキル読み込みはバッジ、ask_user は専用カードへ出し、ツール履歴の件数・サマリー・コピーからは外す。
-  // 進行中のターンで実行中のカードを外すのは ToolHistoryView 側 (ターンが終われば残す)
+  // スキル読み込みはバッジ、ask_user は専用カードへ出し、ツール履歴の件数・サマリー・コピーからは外す
   const toolCards = nonSkillToolCards(bubble.tools);
   const questionCards = isUser ? [] : bubble.tools.filter((card) => card.questions?.length);
   return (

@@ -23,10 +23,7 @@ export function historyPreview(cards: ToolCard[]): string {
   return `${names.join(" / ")}${remainder}`;
 }
 
-/**
- * ツール履歴に並べるカード。進行中のターンでは実行中のカードを外し (入力欄の上のライブ表示が
- * 受け持つ)、ターンが終わればそのまま並べる (停止・中断で `tool_end` が来なかったカードを消さない)。
- */
+/** ツール履歴に並べるカード。進行中のターンだけ実行中のカードを外す (規則は docs/frontend.md) */
 export function completedToolCards(cards: readonly ToolCard[]): ToolCard[] {
   return cards.filter((card) => card.phase !== "running");
 }

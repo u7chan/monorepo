@@ -912,14 +912,6 @@
     min-height: 0;
     overflow: hidden;
   }
-  .live-tool-dot {
-    width: 6px;
-    height: 6px;
-    flex-shrink: 0;
-    border-radius: 50%;
-    background: var(--c-accent);
-    animation: dot-pulse 1.2s ease-in-out infinite;
-  }
   .live-tool-item {
     display: grid;
     grid-template-rows: 1fr;
@@ -961,9 +953,14 @@
     .live-tool-item[data-leaving="false"] > * {
       animation: none;
     }
-    /* 畳む動きを止めるので、抜けた行はその場で消す (見えるまま残すと二重に見える) */
+    /* 動きを止めるときは、animation を切って終端の見た目 (0fr / 透明) をその場で当てる。
+     * ここで見た目を作らないと、animationend が来ないぶん行が残って箱だけ開いたままになる */
     .live-tool-item[data-leaving="true"] {
-      display: none;
+      animation: none;
+      grid-template-rows: 0fr;
+    }
+    .live-tool-item[data-leaving="true"] > * {
+      opacity: 0;
     }
   }
 

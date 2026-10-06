@@ -1,6 +1,6 @@
 /**
- * 入力欄の直上に出すライブのツール行。「いま動いているツール」だけを走査順で返し、番号は
- * ツール履歴の行番号に合わせる (スキル読み込み・ask_user を外す規則も履歴と同じ)。
+ * 入力欄の直上に出すライブのツール行。実行中のカードだけを走査順で返し、番号はツール履歴の行番号に
+ * 合わせる (スキル読み込み・ask_user を外す規則も履歴と同じ)。規則の根拠は docs/frontend.md が正。
  */
 import type { RunStatus, ToolCall } from "../types";
 import { abbreviatedToolSummary } from "./toolSummary";
@@ -19,13 +19,12 @@ export type LiveToolState = {
 };
 
 /**
- * 出すのは「いま動いているツール」だけにする。run が続いていてもツールが動いていない間
- * (考え中 / 応答の生成中) は状態行の文言で足りるため、空の箱を残さない。
- * 実行の状態を条件に入れるのは、停止・中断で `tool_execution_end` が来なかったカードが
- * `done: false` のまま `runTools` に残っても、回り続ける行を出さないため。
+ * ライブ表示は「いま動いているツール」だけを出す。run が続いていてもツールが動いていない間は
+ * 状態行の文言で足りるため、空の箱を残さない。`queued` は run が動いていない状態なので含めない。
+ * 停止・中断で `tool_execution_end` が来なかったカードを回し続けないためでもある (docs/frontend.md)。
  */
 export function liveToolState(runTools: Readonly<Record<string, ToolCall>>, runStatus: RunStatus): LiveToolState {
-  if (runStatus !== "running" && runStatus !== "queued") return { rows: [], visible: false };
+  if (runStatus !== "running") return { rows: [], visible: false };
   const calls = Object.values(runTools).filter((call) => !call.skill && !call.questions?.length);
   const rows = calls
     .map((call, index) => ({ call, index }))

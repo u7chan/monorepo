@@ -453,7 +453,8 @@ function currentTurnAssistantId(bubbles: Bubble[]): number | undefined {
 /**
  * run 側のツール状態を現在ターンの assistant バブルへ反映する。補完先が無いときは補完せず
  * 保持だけする (保留)。ページを組み直す位置から呼ぶので、ID で突き合わせてべき等にする。
- * focus は running の resync 用で、true のときだけ currentAssistantId を補完先へ向ける。
+ * focus は true のときだけ currentAssistantId を補完先へ向ける。呼び出し側は実行中かどうかで決める
+ * (完了したターンを指すと、そのバブルが live 扱いのままになり履歴側のコピーが戻らない)。
  */
 function attachRunToolCards(state: ChatState, focus: boolean): ChatState {
   const calls = Object.values(state.runTools);
@@ -726,7 +727,7 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
           },
         };
       }
-      return attachRunToolCards(applyHistoryMerge(state, bundle, page), true);
+      return attachRunToolCards(applyHistoryMerge(state, bundle, page), state.runStatus === "running");
     }
 
     case "historyGap": {
@@ -748,7 +749,9 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
           live: gapMerge.bubbles.filter((bubble) => bubble.entryId === undefined),
           pendingEchoIds: gapMerge.pendingEchoIds,
         });
-        if (!latestMerge.gap) return attachRunToolCards(applyHistoryMerge(state, latestMerge, pending), true);
+        if (!latestMerge.gap) {
+          return attachRunToolCards(applyHistoryMerge(state, latestMerge, pending), state.runStatus === "running");
+        }
       }
       // 3) 欠落区間が 1 ページに収まらない / 分岐が変わった。取ってある gap ページは
       //    保留ページと連続しているので捨てずに組み込み、カーソルを gap ページ側へ進める
@@ -760,7 +763,9 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
           pendingEchoIds: rebuilt.pendingEchoIds,
         });
         // メタデータ (nextCursor / hasMore / counts) は古い方 (= gap ページ) を正とする
-        if (!withPending.gap) return attachRunToolCards(applyHistoryMerge(state, withPending, action.page), true);
+        if (!withPending.gap) {
+          return attachRunToolCards(applyHistoryMerge(state, withPending, action.page), state.runStatus === "running");
+        }
       }
       return attachRunToolCards(
         applyHistoryMerge(
@@ -768,7 +773,7 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
           rebuildHistoryPage(bundle, pending, { live, pendingEchoIds: state.pendingEchoIds }),
           pending,
         ),
-        true,
+        state.runStatus === "running",
       );
     }
 
