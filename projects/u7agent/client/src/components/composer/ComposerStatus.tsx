@@ -26,6 +26,7 @@ export function ComposerStatus({
   activity,
   activityState,
   runningSince,
+  finishedRunDurationMs,
   context,
   model,
   modelLabel,
@@ -51,6 +52,11 @@ export function ComposerStatus({
   activityState?: string;
   /** 実行中 / 圧縮中だけ渡す (活動行の経過時間の起点) */
   runningSince?: number;
+  /**
+   * 直前に終わったランの合計時間 (run_end のサーバー計測)。渡すと活動の右に凍結表示する。
+   * 実行中の `runningSince` と違い値が動かないため、こちらは読み上げの対象にする
+   */
+  finishedRunDurationMs?: number;
   context?: ContextUsage;
   /** 実効モデルの provider/id。tooltip と折り返し後の切り詰めの確認に使う */
   model?: string;
@@ -84,6 +90,8 @@ export function ComposerStatus({
   const gauge = contextGauge(context);
   const elapsedMs = useElapsedMs(runningSince);
   const elapsed = elapsedMs === undefined ? null : formatElapsed(elapsedMs);
+  // 確定した合計時間。実行中の経過と違って毎秒変わらないので、活動欄と同じ行に出しつつ読み上げに残す
+  const finishedElapsed = finishedRunDurationMs === undefined ? null : formatElapsed(finishedRunDurationMs);
   // 活動が無いときは活動欄ごと出さない (空の欄が折り返して空行が残るのを避ける)
   const showActivity = activity !== "" || elapsed !== null;
   // 再実行カードは時間をおけば回復し得る失敗だけに出す (停止・成功・キュー待ちでは出さない)
@@ -145,6 +153,10 @@ export function ComposerStatus({
               <span aria-hidden="true" className="shrink-0 font-sans text-2xs text-ink-ghost tabular-nums">
                 ({elapsed})
               </span>
+            )}
+            {/* 完了の合計時間 (動かない値)。aria-live の外に置き、読み上げの対象には残す */}
+            {finishedElapsed === null ? null : (
+              <span className="shrink-0 font-sans text-2xs text-ink-ghost tabular-nums">({finishedElapsed})</span>
             )}
           </span>
         ) : null}

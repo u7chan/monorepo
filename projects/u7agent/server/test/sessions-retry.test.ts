@@ -182,6 +182,7 @@ test("最大回数超過: 分類済みの理由 + 累計 + 案内を run_end / p
   );
   assert.equal(runEnd[0].data.totalRetryCount, 2);
   assert.equal(runEnd[0].data.errorCode, "rate_limit", "run_end (SSE) に最終失敗の分類コードを載せる");
+  assert.equal(typeof runEnd[0].data.durationMs, "number", "エラーで終わったランも合計時間を配る");
   assert.equal(record.run?.retry, undefined, "終了でアクティブな retry を消す");
   assert.equal(record.run?.totalRetryCount, 2, "累計は結果表示用に残す");
   assert.equal(record.run?.errorCode, "rate_limit", "RunState にも立てる");

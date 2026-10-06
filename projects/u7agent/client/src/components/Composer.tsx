@@ -30,6 +30,8 @@ export type ComposerProps = {
   activityState?: string;
   /** 実行中 / 圧縮中だけ渡す (活動行の経過時間の起点) */
   runningSince?: number;
+  /** 直前に終わったランの合計時間 (run_end のサーバー計測)。完了 / 停止 / エラーの状態行に凍結表示する */
+  finishedRunDurationMs?: number;
   runtimeReady: boolean;
   sending: boolean;
   stopVisible: boolean;
@@ -122,6 +124,7 @@ export function Composer({
   activity,
   activityState,
   runningSince,
+  finishedRunDurationMs,
   runtimeReady,
   sending,
   stopVisible,
@@ -330,6 +333,7 @@ export function Composer({
         activity={activity}
         activityState={activityState}
         runningSince={runningSince}
+        finishedRunDurationMs={finishedRunDurationMs}
         context={context}
         model={settings.model}
         modelLabel={settings.modelLabel}

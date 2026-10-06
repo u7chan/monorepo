@@ -1225,6 +1225,11 @@ export const EventDataSchemas = {
     runId: z.string().optional(),
     status: RunStatusSchema,
     queueDepth: z.number(),
+    /**
+     * BFF 計測のラン全体の所要時間。クライアントが完了時の合計時間として表示する。
+     * キュー待ちは含めない (開始は `startRun()` の時刻)。旧サーバーは載せない
+     */
+    durationMs: z.number().optional(),
     error: z.string().optional(),
     /** 最終失敗の分類コード。payload の `run.errorCode` と同じ値で、error と組で載る */
     errorCode: RunErrorCodeSchema.optional(),
