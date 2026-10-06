@@ -4,7 +4,7 @@ import test from "node:test";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import type { ComposerProps } from "../src/components/Composer";
-import { shouldSubmitOnEnter, type EnterKeyState } from "../src/lib/composerKeys";
+import { isImeComposingEnter, shouldSubmitOnEnter, type EnterKeyState } from "../src/lib/composerKeys";
 import type { AgentDef } from "../src/types";
 
 // Composer は api.ts (location.origin を読む) を辿るため、node では最小の shim を置いてから読み込む
@@ -34,6 +34,13 @@ test("desktop: Enter 以外のキーは送信しない", () => {
 test("IME: 変換中の Enter (isComposing) は送信しない", () => {
   assert.equal(shouldSubmitOnEnter(enter({ isComposing: true }), "desktop"), false);
   assert.equal(shouldSubmitOnEnter(enter({ isComposing: true }), "portrait"), false);
+});
+
+test("IME: 変換確定の Enter は isComposing / keyCode 229 のどちらでも判定できる", () => {
+  // ask_user の自由記入 (/ 質問カードの「次へ」) も同じ判定を通す。片方だけ直すと日本語入力の確定で進む
+  assert.equal(isImeComposingEnter({ isComposing: true, keyCode: 13 }), true);
+  assert.equal(isImeComposingEnter({ isComposing: false, keyCode: 229 }), true);
+  assert.equal(isImeComposingEnter({ isComposing: false, keyCode: 13 }), false);
 });
 
 test("IME: compositionend が先に来た Enter (keyCode 229) も送信しない", () => {

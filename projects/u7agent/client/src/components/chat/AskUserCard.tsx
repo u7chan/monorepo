@@ -15,6 +15,7 @@ import {
   type AskUserDraft,
 } from "../../lib/askUser";
 import { cn } from "../../lib/cn";
+import { isImeComposingEnter } from "../../lib/composerKeys";
 import type { AskUserAnswer, AskUserQuestion } from "../../types";
 import { ArrowRightIcon, CheckIcon, ChevronIcon, ChevronLeftIcon, CloseIcon, PencilIcon } from "../icons";
 
@@ -86,6 +87,8 @@ function OptionRow({
 function TextRow({
   question,
   draft,
+  multiSelect,
+  compact,
   disabled,
   onChange,
   onAdvance,
@@ -93,13 +96,14 @@ function TextRow({
   question: AskUserQuestion;
   draft: AskUserDraft;
   multiSelect: boolean;
+  compact: boolean;
   disabled: boolean;
   onChange: (text: string) => void;
   onAdvance: () => void;
 }) {
   return (
     <label className={cn("flex min-h-10 items-center gap-2.5 px-3 py-1.5", disabled && "cursor-not-allowed")}>
-      {question.multiSelect === true ? (
+      {multiSelect ? (
         <ChoiceMark checked={draft.text.trim() !== ""} />
       ) : (
         <span className="text-ink-faint">
@@ -114,8 +118,11 @@ function TextRow({
         placeholder={question.placeholder ?? "その他の回答（自由記入）"}
         onChange={(event) => onChange(event.target.value)}
         onKeyDown={(event) => {
-          // Enter は「次へ」と同じ (本文の改行は入れない。改行が要る長文は送信後に本文で書ける)
-          if (event.key !== "Enter") return;
+          // Enter は「次へ」と同じ。compact は送信ボタンに任せ (Composer と同じ契約)、
+          // IME の変換確定 Enter では進めない (変換しただけで質問が変わらないようにする)
+          if (compact || event.key !== "Enter" || event.shiftKey) return;
+          const { isComposing, keyCode } = event.nativeEvent;
+          if (isImeComposingEnter({ isComposing, keyCode })) return;
           event.preventDefault();
           onAdvance();
         }}
@@ -149,7 +156,7 @@ function QuestionPager({
       >
         <ChevronLeftIcon />
       </button>
-      <span className="px-0.5 text-2xs tabular-nums">
+      <span aria-live="polite" className="px-0.5 text-2xs tabular-nums">
         {index + 1} / {count}
       </span>
       <button
@@ -200,6 +207,8 @@ function AskUserForm({
   const last = index === questions.length - 1;
   // 1 問だけのカードは「他に未回答がある」ことが無いので、いまの質問の選択数を出す
   const multi = questions.length > 1;
+  // いまの質問以外の未回答。「→」が送信ではなくその質問へ戻す動きになる判定 (advance と同じ)
+  const pendingOthers = drafts.filter((item, i) => i !== index && !askUserDraftResolved(item)).length;
   const options = question.options ?? [];
   return (
     <div className="grid">
@@ -243,6 +252,7 @@ function AskUserForm({
           question={question}
           draft={draft}
           multiSelect={question.multiSelect === true}
+          compact={compact}
           disabled={sending}
           onChange={(text) => onChange({ ...draft, text, skipped: false })}
           onAdvance={onAdvance}
@@ -254,13 +264,17 @@ function AskUserForm({
           compact ? "px-2.5 py-1.5" : "px-3 py-2",
         )}
       >
-        <span className="text-2xs text-ink-faint">
+        <span aria-live="polite" className="text-2xs text-ink-faint">
           {error !== undefined ? (
             <span role="alert" className="text-danger-text">
               {error}
             </span>
+          ) : sending ? (
+            "送信中…"
           ) : multi && last && unresolved > 0 ? (
             <span className="text-warn">未回答の質問が {unresolved} 件あります</span>
+          ) : draft.skipped ? (
+            "回答しない"
           ) : selected > 0 ? (
             `${selected} 件選択`
           ) : (
@@ -268,12 +282,17 @@ function AskUserForm({
           )}
         </span>
         <div className="flex shrink-0 items-center gap-1.5">
-          <button type="button" disabled={sending} onClick={onSkip} className="btn-quiet min-h-8 px-2.5 text-2xs">
+          <button
+            type="button"
+            disabled={sending}
+            onClick={onSkip}
+            className={cn("btn-quiet min-h-8 px-2.5 text-2xs", draft.skipped && "border-accent text-accent-text")}
+          >
             回答しない
           </button>
           <button
             type="button"
-            aria-label={last ? "回答を送る" : "次の質問へ"}
+            aria-label={!last ? "次の質問へ" : pendingOthers > 0 ? "未回答の質問へ戻る" : "回答を送る"}
             disabled={sending || !resolved}
             onClick={onAdvance}
             className="grid size-8 shrink-0 place-items-center rounded-lg bg-accent text-on-accent transition-colors hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-45"

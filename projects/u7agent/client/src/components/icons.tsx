@@ -489,7 +489,7 @@ export function BellIcon({ ringing = false }: { ringing?: boolean }) {
   );
 }
 
-/** ツリーの展開 (開いているときは親側で回転させる) */
+/** 送りの chevron (ChevronIcon の鏡像)。質問カードの前の質問などに使う */
 export function ChevronLeftIcon() {
   return (
     <svg
@@ -525,6 +525,7 @@ export function ArrowRightIcon() {
   );
 }
 
+/** ツリーの展開 (開いているときは親側で回転させる) */
 export function ChevronIcon() {
   return (
     <svg
