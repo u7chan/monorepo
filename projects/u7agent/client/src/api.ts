@@ -53,6 +53,7 @@ import type {
   UpdateNotificationsBody,
   UpdateSkillBody,
   WebSearchMutationResponse,
+  WebSearchProviderId,
   WebSearchSettingsResponse,
 } from "./types";
 
@@ -627,6 +628,35 @@ export const getWebSearchSettings = async (): Promise<WebSearchSettingsResponse>
 /** Web 検索の有効 / 無効。保存した瞬間から、既存のセッションの次の呼び出しにも効く */
 export const putWebSearchSettings = async (enabled: boolean): Promise<WebSearchMutationResponse> => {
   const res = await client.api.settings["web-search"].$put({ json: { enabled } });
+  if (!res.ok) throw await apiError(res);
+  return (await res.json()) as WebSearchMutationResponse;
+};
+
+/** 既定の検索プロバイダー。選んだ時点で保存され、次の検索から使われる */
+export const putWebSearchProvider = async (provider: WebSearchProviderId): Promise<WebSearchMutationResponse> => {
+  const res = await client.api.settings["web-search"].provider.$put({ json: { provider } });
+  if (!res.ok) throw await apiError(res);
+  return (await res.json()) as WebSearchMutationResponse;
+};
+
+/** provider の APIキーの登録・上書き。値は応答へ返らず、画面は設定済みかだけを受け取る */
+export const putWebSearchApiKey = async (
+  provider: WebSearchProviderId,
+  apiKey: string,
+): Promise<WebSearchMutationResponse> => {
+  const res = await client.api.settings["web-search"].providers[":provider"].key.$put({
+    param: { provider },
+    json: { apiKey },
+  });
+  if (!res.ok) throw await apiError(res);
+  return (await res.json()) as WebSearchMutationResponse;
+};
+
+/** provider の APIキーの削除（行ごと消して未設定へ戻す）。未設定でも 200 の冪等 */
+export const deleteWebSearchApiKey = async (provider: WebSearchProviderId): Promise<WebSearchMutationResponse> => {
+  const res = await client.api.settings["web-search"].providers[":provider"].key.$delete({
+    param: { provider },
+  });
   if (!res.ok) throw await apiError(res);
   return (await res.json()) as WebSearchMutationResponse;
 };

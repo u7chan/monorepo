@@ -179,7 +179,10 @@ export function ModelSettingsView({
           <WebSearchSettingsTab
             settings={webSearchSettings.settings}
             saving={webSearchSettings.saving}
-            onChange={(enabled) => void webSearchSettings.setEnabled(enabled)}
+            onSetEnabled={webSearchSettings.setEnabled}
+            onSelectProvider={webSearchSettings.setProvider}
+            onSaveKey={webSearchSettings.saveKey}
+            onDeleteKey={webSearchSettings.removeKey}
           />
         ) : (
           <SettingsPlaceholder

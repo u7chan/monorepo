@@ -1056,6 +1056,15 @@ CREATE TABLE IF NOT EXISTS secrets (
 );
 `;
 
+/** v12 相当のスキーマ (web_search_settings に provider が無く、キーのテーブルも無い状態)。v12 の実ファイルと同じ形 */
+const V12_TABLES = `
+${V11_TABLES}
+CREATE TABLE IF NOT EXISTS web_search_settings (
+  id      INTEGER PRIMARY KEY CHECK (id = 1),
+  enabled INTEGER NOT NULL
+);
+`;
+
 const secretRow = (overrides: Partial<SecretRow> = {}): SecretRow => ({
   secretId: "s1",
   cwd: "projects/alpha",
@@ -1082,7 +1091,7 @@ test("migrates a v10 db additively and keeps the secrets table across reopen", (
     raw.close();
 
     const first = AppDb.open({ storeDir: dir });
-    assert.equal(APP_DB_SCHEMA_VERSION, 12);
+    assert.equal(APP_DB_SCHEMA_VERSION, 13);
     // 加算移行なので既存の行は残り、secrets は行が無い = 未設定で始まる
     assert.deepEqual(first.listProjects(), [project("p1", "proj-a")]);
     assert.deepEqual(first.getServeCommand("proj-a"), { cwd: "proj-a", command: "pnpm dev", updatedAt: 1 });
@@ -1182,28 +1191,80 @@ test("migrates a v11 db additively and keeps the web search toggle across reopen
     raw.close();
 
     const first = AppDb.open({ storeDir: dir });
-    // 加算移行なので既存の行は残り、web_search_settings は行が無い = 既定（有効）
+    // 加算移行なので既存の行は残り、web_search_settings は行が無い = 既定（有効 / Exa）
     assert.deepEqual(first.listProjects(), [project("p1", "proj-a")]);
     assert.equal(first.readWebSearchSettings(), undefined);
-    first.saveWebSearchSettings({ enabled: false });
-    assert.deepEqual(first.readWebSearchSettings(), { enabled: false });
+    first.saveWebSearchSettings({ enabled: false, provider: "tavily" });
+    assert.deepEqual(first.readWebSearchSettings(), { enabled: false, provider: "tavily" });
     // id = 1 の upsert なので上書きしても行は増えない
-    first.saveWebSearchSettings({ enabled: true });
-    assert.deepEqual(first.readWebSearchSettings(), { enabled: true });
+    first.saveWebSearchSettings({ enabled: true, provider: "exa" });
+    assert.deepEqual(first.readWebSearchSettings(), { enabled: true, provider: "exa" });
     first.close();
 
     const second = AppDb.open({ storeDir: dir });
-    assert.deepEqual(second.readWebSearchSettings(), { enabled: true });
+    assert.deepEqual(second.readWebSearchSettings(), { enabled: true, provider: "exa" });
     second.close();
 
     const check = new DatabaseSync(join(dir, APP_DB_FILENAME));
     const columns = check.prepare("PRAGMA table_info(web_search_settings)").all() as { name: string }[];
     assert.deepEqual(
       columns.map((column) => column.name),
-      ["id", "enabled"],
+      ["id", "enabled", "provider"],
     );
     const count = check.prepare("SELECT COUNT(*) AS count FROM web_search_settings").get() as { count: number };
     assert.equal(Number(count.count), 1, "id = 1 の 1 行だけ");
+    assert.equal(Number(check.prepare("PRAGMA user_version").get()?.user_version), APP_DB_SCHEMA_VERSION);
+    check.close();
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("migrates a v12 db additively and keeps the web search provider and keys across reopen", () => {
+  const dir = tempStoreDir();
+  try {
+    const raw = new DatabaseSync(join(dir, APP_DB_FILENAME));
+    raw.exec(V12_TABLES);
+    raw.exec("PRAGMA user_version = 12");
+    raw.prepare("INSERT INTO projects (id, name, cwd, createdAt) VALUES (?, ?, ?, ?)").run("p1", "p1", "proj-a", 1);
+    // v12 の行は id と enabled だけ。provider 列は加算移行の既定 (exa) で埋まる
+    raw.prepare("INSERT INTO web_search_settings (id, enabled) VALUES (1, 0)").run();
+    raw.close();
+
+    const first = AppDb.open({ storeDir: dir });
+    assert.deepEqual(first.listProjects(), [project("p1", "proj-a")]);
+    assert.deepEqual(
+      first.readWebSearchSettings(),
+      { enabled: false, provider: "exa" },
+      "既存行は既定 provider で読む",
+    );
+    assert.equal(first.readWebSearchProviderKey("tavily"), undefined);
+    first.saveWebSearchProviderKey("tavily", "tvly-secret");
+    first.saveWebSearchSettings({ enabled: false, provider: "tavily" });
+    first.close();
+
+    const second = AppDb.open({ storeDir: dir });
+    assert.deepEqual(second.readWebSearchSettings(), { enabled: false, provider: "tavily" });
+    assert.equal(second.readWebSearchProviderKey("tavily"), "tvly-secret");
+    // provider 主キーの upsert なので上書きしても行は増えず、削除で未設定へ戻る
+    second.saveWebSearchProviderKey("tavily", "tvly-rotated");
+    assert.equal(second.readWebSearchProviderKey("tavily"), "tvly-rotated");
+    assert.equal(second.deleteWebSearchProviderKey("tavily"), true);
+    assert.equal(second.deleteWebSearchProviderKey("tavily"), false);
+    assert.equal(second.readWebSearchProviderKey("tavily"), undefined);
+    second.close();
+
+    const check = new DatabaseSync(join(dir, APP_DB_FILENAME));
+    const columns = check.prepare("PRAGMA table_info(web_search_settings)").all() as { name: string }[];
+    assert.deepEqual(
+      columns.map((column) => column.name),
+      ["id", "enabled", "provider"],
+    );
+    const keyColumns = check.prepare("PRAGMA table_info(web_search_provider_keys)").all() as { name: string }[];
+    assert.deepEqual(
+      keyColumns.map((column) => column.name),
+      ["provider", "apiKey"],
+    );
     assert.equal(Number(check.prepare("PRAGMA user_version").get()?.user_version), APP_DB_SCHEMA_VERSION);
     check.close();
   } finally {

@@ -12,7 +12,7 @@
 | 画面 | 役割 | 内容 |
 | --- | --- | --- |
 | 設定 → ランタイム（表示専用） | 環境診断 | 接続状態 / 実行環境 / 利用可能なコマンド / SDK バージョン |
-| 設定 → モデル（編集可） | タブ 1: モデルを選ぶ（`/settings/models`）/ タブ 2: プロバイダー（`/settings/models/providers`）/ タブ 3: 画像生成（`/settings/models/images`）/ タブ 4: Web 検索（`/settings/models/web-search`） | タブ 1 はモデル候補の選択とアプリ既定モデル、タブ 2 は provider ごとの認証状態、APIキーの登録・上書き・削除、メモの保存、再同期、カタログの利用可能数、タブ 3 は画像生成専用の APIキー・モデル（[image-generation.md](image-generation.md#設定画面画像生成タブ)）、タブ 4 は `web_search` の実行時トグル（[web-search.md](web-search.md#実行時トグル設定--モデルの-web-検索タブ)）。モデル一覧の重複表示は持たない |
+| 設定 → モデル（編集可） | タブ 1: モデルを選ぶ（`/settings/models`）/ タブ 2: プロバイダー（`/settings/models/providers`）/ タブ 3: 画像生成（`/settings/models/images`）/ タブ 4: Web 検索（`/settings/models/web-search`） | タブ 1 はモデル候補の選択とアプリ既定モデル、タブ 2 は provider ごとの認証状態、APIキーの登録・上書き・削除、メモの保存、再同期、カタログの利用可能数、タブ 3 は画像生成専用の APIキー・モデル（[image-generation.md](image-generation.md#設定画面画像生成タブ)）、タブ 4 は `web_search` の実行時トグル・既定 provider・provider ごとの APIキー（[web-search.md](web-search.md#実行時トグル設定--モデルの-web-検索タブ)）。モデル一覧の重複表示は持たない |
 
 プロバイダーとカタログの表示はランタイム画面からモデル画面へ移した。ランタイム画面は `GET /api/runtime/models` を呼ばない。health に載せていたモデル診断（`runtimeDiagnostics`）は撤去し、SDK バージョンだけを health 直下の `versions` に残した。
 

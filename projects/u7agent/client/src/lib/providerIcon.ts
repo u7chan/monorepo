@@ -40,7 +40,7 @@ const PROVIDER_ICON_KEYS: Record<string, ProviderIconKey> = {
   "qwen-token-plan": "qwen",
   "qwen-token-plan-cn": "qwen",
   "qwen-token-plan-individual": "qwen",
-  // Web 検索の provider (#1776)。LLM の provider と同じ見た目のタイルで並ぶ
+  // Web 検索の provider。LLM の provider と同じ見た目のタイルで並ぶ
   tavily: "tavily",
   together: "together",
   "vercel-ai-gateway": "vercel",

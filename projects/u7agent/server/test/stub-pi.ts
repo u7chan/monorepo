@@ -722,7 +722,7 @@ export function createStubPi(options: StubPiOptions = {}) {
     },
     webSearchConfigs,
     // 注入のたびに差し替わる。実行中のセッションが同じ関数を読むことを再現する
-    setWebSearchEnabled: (config: WebSearchRuntimeConfig) => {
+    setWebSearch: (config: WebSearchRuntimeConfig) => {
       webSearchConfigs.push(config);
     },
     serveHosts,

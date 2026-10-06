@@ -96,9 +96,13 @@ export type {
   UpdateSecretBody,
   UpdateSkillBody,
   UpdateWebSearchBody,
+  UpdateWebSearchKeyBody,
+  UpdateWebSearchProviderBody,
   Usage,
   WebSearchMutationError,
   WebSearchMutationResponse,
+  WebSearchProvider,
+  WebSearchProviderId,
   WebSearchSettingsResponse,
 } from "server";
 
