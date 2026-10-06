@@ -1338,3 +1338,33 @@ type EventEntryFor<T extends SSEEventType> = {
 export type EventEntry = {
   [T in SSEEventType]: EventEntryFor<T>;
 }[SSEEventType];
+
+/**
+ * GET / PUT /api/settings/web-search。`web_search` を実行時に拒否するトグルを 1 つだけ持つ。
+ * 行が無い = 既定（有効）なので、初期状態でも `enabled: true` が返る。
+ */
+export const WebSearchSettingsResponseSchema = z.object({
+  enabled: z.boolean(),
+  /** 無効のときに `web_search` がモデルへ返す固定文言。画面は同じ文言をそのまま出す */
+  disabledMessage: z.string(),
+});
+export type WebSearchSettingsResponse = z.infer<typeof WebSearchSettingsResponseSchema>;
+
+/** 変更系（PUT）の応答。即時反映なので `applied` だけを返す（画像生成と同じ契約） */
+export const WebSearchMutationResponseSchema = WebSearchSettingsResponseSchema.extend({
+  state: z.literal("applied"),
+});
+export type WebSearchMutationResponse = z.infer<typeof WebSearchMutationResponseSchema>;
+
+/** トグルの変更。既存セッションにも次の呼び出しから効く（ツール側が毎回読む） */
+export const UpdateWebSearchBodySchema = z.object({
+  enabled: z.boolean(),
+});
+export type UpdateWebSearchBody = z.infer<typeof UpdateWebSearchBodySchema>;
+
+/** 変更系の失敗応答（何も変わっていない） */
+export const WebSearchMutationErrorSchema = z.object({
+  error: z.string(),
+  state: z.literal("not_stored"),
+});
+export type WebSearchMutationError = z.infer<typeof WebSearchMutationErrorSchema>;

@@ -11,6 +11,7 @@ import { BUILTIN_SKILLS } from "./builtin-skills";
 import { messageFor } from "./http";
 import { createImageCatalog } from "./image-catalog";
 import { ImageSettingsService } from "./image-settings";
+import { WebSearchSettingsService } from "./web-search-settings";
 import { ModelSettingsService, type CredentialCommit, type ProviderKeyRuntime } from "./model-settings";
 import { NotificationService } from "./notifications";
 import { ProjectStore } from "./projects";
@@ -87,6 +88,8 @@ export type BffContext = {
   modelSettings: ModelSettingsService;
   /** 画像生成の provider / model / APIキー (設定 → モデルの画像生成タブ)。行の有無をツール公開へ写す */
   imageSettings: ImageSettingsService;
+  /** Web 検索の実行時トグル (設定 → モデルの Web 検索タブ)。行が無い = 既定 (有効) を execute のたびに読む */
+  webSearchSettings: WebSearchSettingsService;
   /** serve (サービス) の状態と起動・停止。GUI とエージェントの serve ツールが同じ実体を使う */
   serve: ServeService;
   /** 作業フォルダ単位の環境変数。GUI の API と serve / bash への注入が同じ実体を使う */
@@ -171,6 +174,14 @@ export async function createBffContext(opts: CreateBffAppOptions = {}): Promise<
     maskError,
   });
   await imageSettings.applyStored();
+  // Web 検索は「既定 ON のトグル」なので、行が無ければ有効のまま立ち、無効のときだけ execute を拒否する。
+  // 画像生成と同じく、写しはロックの内側で差し替える (設定 API と起動時の適用を直列化する)
+  const webSearchSettings = new WebSearchSettingsService({
+    db: appDb,
+    setWebSearchEnabled: pi ? pi.setWebSearchEnabled : () => {},
+    maskError,
+  });
+  await webSearchSettings.applyStored();
   // シークレットは master key をホスト側 (環境変数 / 鍵ファイル) から受け取り、アプリ DB とは別経路で管理する。
   // 未設定 / 壊れた宣言では「秘密の利用」だけを拒否し、変数 (平文) と起動は続行する。
   const secrets = (() => {
@@ -267,6 +278,7 @@ export async function createBffContext(opts: CreateBffAppOptions = {}): Promise<
     archiveSettings,
     modelSettings,
     imageSettings,
+    webSearchSettings,
     serve,
     secrets,
   };

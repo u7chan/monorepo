@@ -1037,6 +1037,25 @@ CREATE TABLE IF NOT EXISTS serve_commands (
 );
 `;
 
+/** v11 相当のスキーマ (web_search_settings が無い状態)。v11 の実ファイルと同じ形 */
+const V11_TABLES = `
+${V10_TABLES}
+CREATE TABLE IF NOT EXISTS secrets (
+  secretId    TEXT PRIMARY KEY,
+  cwd         TEXT NOT NULL,
+  name        TEXT NOT NULL,
+  kind        TEXT NOT NULL,
+  plaintext   TEXT,
+  ciphertext  BLOB,
+  nonce       BLOB,
+  keyVersion  INTEGER,
+  sortOrder   INTEGER NOT NULL,
+  createdAt   INTEGER NOT NULL,
+  updatedAt   INTEGER NOT NULL,
+  UNIQUE (cwd, name)
+);
+`;
+
 const secretRow = (overrides: Partial<SecretRow> = {}): SecretRow => ({
   secretId: "s1",
   cwd: "projects/alpha",
@@ -1063,7 +1082,7 @@ test("migrates a v10 db additively and keeps the secrets table across reopen", (
     raw.close();
 
     const first = AppDb.open({ storeDir: dir });
-    assert.equal(APP_DB_SCHEMA_VERSION, 11);
+    assert.equal(APP_DB_SCHEMA_VERSION, 12);
     // 加算移行なので既存の行は残り、secrets は行が無い = 未設定で始まる
     assert.deepEqual(first.listProjects(), [project("p1", "proj-a")]);
     assert.deepEqual(first.getServeCommand("proj-a"), { cwd: "proj-a", command: "pnpm dev", updatedAt: 1 });
@@ -1151,4 +1170,43 @@ test("secrets の並びは sortOrder + name で、削除しても詰めない", 
   assert.equal(row.keyVersion, 3);
   assert.equal(row.plaintext, null);
   db.close();
+});
+
+test("migrates a v11 db additively and keeps the web search toggle across reopen", () => {
+  const dir = tempStoreDir();
+  try {
+    const raw = new DatabaseSync(join(dir, APP_DB_FILENAME));
+    raw.exec(V11_TABLES);
+    raw.exec("PRAGMA user_version = 11");
+    raw.prepare("INSERT INTO projects (id, name, cwd, createdAt) VALUES (?, ?, ?, ?)").run("p1", "p1", "proj-a", 1);
+    raw.close();
+
+    const first = AppDb.open({ storeDir: dir });
+    // 加算移行なので既存の行は残り、web_search_settings は行が無い = 既定（有効）
+    assert.deepEqual(first.listProjects(), [project("p1", "proj-a")]);
+    assert.equal(first.readWebSearchSettings(), undefined);
+    first.saveWebSearchSettings({ enabled: false });
+    assert.deepEqual(first.readWebSearchSettings(), { enabled: false });
+    // id = 1 の upsert なので上書きしても行は増えない
+    first.saveWebSearchSettings({ enabled: true });
+    assert.deepEqual(first.readWebSearchSettings(), { enabled: true });
+    first.close();
+
+    const second = AppDb.open({ storeDir: dir });
+    assert.deepEqual(second.readWebSearchSettings(), { enabled: true });
+    second.close();
+
+    const check = new DatabaseSync(join(dir, APP_DB_FILENAME));
+    const columns = check.prepare("PRAGMA table_info(web_search_settings)").all() as { name: string }[];
+    assert.deepEqual(
+      columns.map((column) => column.name),
+      ["id", "enabled"],
+    );
+    const count = check.prepare("SELECT COUNT(*) AS count FROM web_search_settings").get() as { count: number };
+    assert.equal(Number(count.count), 1, "id = 1 の 1 行だけ");
+    assert.equal(Number(check.prepare("PRAGMA user_version").get()?.user_version), APP_DB_SCHEMA_VERSION);
+    check.close();
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
