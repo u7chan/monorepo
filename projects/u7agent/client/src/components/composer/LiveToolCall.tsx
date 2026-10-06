@@ -32,8 +32,7 @@ function LeavingRow({ row, onFinished }: { row: LiveToolRow; onFinished: (id: st
     );
   }, [row.id]);
   return (
-    // key は残っている行と共有するため、抜け中の印を付けて衝突させない
-    <li key={`leaving-${row.id}`} ref={ref} className="live-tool-item" data-leaving="true">
+    <li ref={ref} className="live-tool-item" data-leaving="true">
       <LiveRowBody row={row} />
     </li>
   );
@@ -84,7 +83,8 @@ export function LiveToolCall({
           </div>
           <ol className="m-0 grid list-none py-0.5">
             {leaving.map((row) => (
-              <LeavingRow key={row.id} row={row} onFinished={finishLeaving} />
+              // 同じ id が rows 側にも戻り得るため、抜け中の行は key 空間を分ける
+              <LeavingRow key={`leaving-${row.id}`} row={row} onFinished={finishLeaving} />
             ))}
             {state.rows.map((row) => (
               <li key={row.id} className="live-tool-item" data-leaving="false">
