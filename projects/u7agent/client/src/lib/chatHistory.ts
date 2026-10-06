@@ -2,6 +2,7 @@
 // 上方向の追加取得 (古い側を前置き) を同じ表現で扱い、entry id で重複排除する。
 // スクロール位置の維持は ChatArea 側の責務で、ここでは順序と状態だけを決める。
 import { splitAttachedFiles } from "./attachments";
+import { isPendingAskUserCard } from "./askUser";
 import type { Bubble, CompactionMarker, ToolCard } from "./chatTypes";
 import { skillCommandForm } from "./skillBlock";
 import type { HistoryItem, HistoryPage, ToolCall } from "../types";
@@ -301,6 +302,8 @@ export function applyHistoryCounts(bubbles: Bubble[], messageCount: number, summ
  * live を「保持分より手前 (carried)」と「保持分より後ろ (最新ターン / 送信直後)」に分ける。
  * prev に含まれない live (テストや rebuild が別に渡す分) は手前扱い。未送信 / 受理済みは履歴の位置に
  * 関わらず末尾へ置く (まだ履歴 item になっていない送信で、保持分より手前に混ぜると位置が逆転する)。
+ * 回答待ちの ask_user カードも末尾へ固定する: 待機中は次のイベントが来ず、先頭へ繰り上げると
+ * 長い会話でカードが画面外に消える (本文を持たない assistant は履歴 item に現れず突き合わせもされない)。
  */
 function splitLive(prev: HistoryBundle, live: Bubble[]): { front: Bubble[]; tail: Bubble[] } {
   const firstHistory = prev.bubbles.findIndex((bubble) => bubble.entryId !== undefined);
@@ -308,7 +311,8 @@ function splitLive(prev: HistoryBundle, live: Bubble[]): { front: Bubble[]; tail
   const tail: Bubble[] = [];
   for (const bubble of live) {
     const index = prev.bubbles.indexOf(bubble);
-    if (bubble.unsent === true || bubble.accepted === true) tail.push(bubble);
+    if (bubble.unsent === true || bubble.accepted === true || bubble.tools.some(isPendingAskUserCard))
+      tail.push(bubble);
     else if (firstHistory !== -1 && index > firstHistory) tail.push(bubble);
     else front.push(bubble);
   }

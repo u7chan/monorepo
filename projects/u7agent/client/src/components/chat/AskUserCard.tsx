@@ -4,6 +4,7 @@ import {
   askUserAnswersFromDrafts,
   askUserDraftsComplete,
   emptyAskUserDrafts,
+  isPendingAskUserCard,
   toggleAskUserOption,
   type AskUserDraft,
 } from "../../lib/askUser";
@@ -222,7 +223,7 @@ export function AskUserCard({
   const [sent, setSent] = useState(false);
   const [error, setError] = useState<string>();
 
-  const waiting = answerable && card.answers === undefined && card.phase === "running";
+  const waiting = answerable && isPendingAskUserCard(card);
   const answers = recordAnswers(card, drafts, sent);
   const showForm = waiting && answers === undefined;
 

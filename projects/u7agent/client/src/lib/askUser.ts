@@ -3,6 +3,7 @@
  * ブロックが同じ判定を共有する (片方だけ変えると「回答済みなのに送信不可」が起きる)。
  */
 import type { AskUserAnswer, AskUserQuestion, RunStatus, ToolCall } from "../types";
+import type { ToolCard } from "./chatTypes";
 
 /** 質問ごとの入力。`skipped` は「回答しない」で、選択 / 自由記入とは排他 */
 export type AskUserDraft = {
@@ -14,6 +15,14 @@ export type AskUserDraft = {
 /** 質問を持ち、回答がまだ届かず、ツールも終わっていない = 回答待ち */
 export function isPendingAskUser(call: ToolCall): boolean {
   return Boolean(call.questions?.length) && call.answers === undefined && !call.done;
+}
+
+/**
+ * カード側 (ToolCard) の同じ判定。履歴ページのマージは runTools を持たないため、
+ * 回答待ちのバブルをページ先頭へ繰り上げない判定にこれを使う。
+ */
+export function isPendingAskUserCard(card: ToolCard): boolean {
+  return Boolean(card.questions?.length) && card.answers === undefined && card.phase === "running";
 }
 
 /**

@@ -65,6 +65,8 @@ export interface PendingQuestion {
   resolve: (answers: AskUserAnswer[]) => void;
   reject: (error: Error) => void;
   settled: boolean;
+  /** abort listener の解除。settle の直前に呼び、回答済みの等待を後からの abort で消さない */
+  detach?: () => void;
 }
 
 export interface SessionRecord {

@@ -1,4 +1,15 @@
 /**
+ * ask_user の待機を 1 回だけ settle する。abort listener を必ず外し、回答済みの tombstone を
+ * 同じ run の後からの abort で消さない (2 回目の回答が 404 に化けるのを防ぐ)。
+ */
+function settleQuestion(pending: PendingQuestion, finish: () => void): void {
+  if (pending.settled) return;
+  pending.settled = true;
+  pending.detach?.();
+  finish();
+}
+
+/**
  * セッションのライフサイクル。ラン (prompt() 1 回) は HTTP リクエストから切り離して
  * バックグラウンドで走り、イベントは単調増加の seq 付きでログされるため購読者は途中参加・再接続できる。
  *
@@ -985,17 +996,17 @@ export class SessionStore {
     signal: AbortSignal | undefined,
   ): Promise<AskUserAnswer[]> {
     return new Promise<AskUserAnswer[]>((resolve, reject) => {
-      const pending: PendingQuestion = { questions: [...questions], resolve, reject, settled: false };
-      const settle = (finish: () => void): void => {
-        if (pending.settled) return;
-        pending.settled = true;
-        signal?.removeEventListener("abort", onAbort);
-        finish();
+      const pending: PendingQuestion = {
+        questions: [...questions],
+        resolve,
+        reject,
+        settled: false,
+        detach: () => signal?.removeEventListener("abort", onAbort),
       };
       // abort された質問は tombstone を残さない (回答済みではなく、回答不可能になったため)
       const onAbort = (): void => {
         record.questions.delete(toolCallId);
-        settle(() => reject(new Error("ask_user was aborted")));
+        settleQuestion(pending, () => reject(new Error("ask_user was aborted")));
       };
       record.questions.set(toolCallId, pending);
       if (signal?.aborted) onAbort();
@@ -1018,9 +1029,9 @@ export class SessionStore {
     if (pending.settled) return { status: "answered" };
     const error = validateAskUserAnswers(pending.questions, answers);
     if (error) return { status: "invalid", error };
-    pending.settled = true;
     // 質問順に揃える (details / モデル向け text の並びを送信順に依存させない)
-    pending.resolve([...answers].sort((a, b) => a.index - b.index));
+    const ordered = [...answers].sort((a, b) => a.index - b.index);
+    settleQuestion(pending, () => pending.resolve(ordered));
     return { status: "ok" };
   }
 
@@ -1031,9 +1042,8 @@ export class SessionStore {
   private cancelQuestions(record: SessionRecord): void {
     for (const [toolCallId, pending] of record.questions) {
       if (pending.settled) continue;
-      pending.settled = true;
       record.questions.delete(toolCallId);
-      pending.reject(new Error("ask_user was cancelled"));
+      settleQuestion(pending, () => pending.reject(new Error("ask_user was cancelled")));
     }
   }
 

@@ -375,6 +375,26 @@ test("abort された待機は取り消され、同じ id へは回答できな�
   }
 });
 
+test("回答後に同じ run が abort しても tombstone は残る", async () => {
+  const store = createStore(createScriptedSession(() => {}));
+  try {
+    const record = await store.create();
+    const controller = new AbortController();
+    const pending = store.askUserHost().ask(record.id, "call-1", QUESTIONS, controller.signal);
+    const answers = [
+      { index: 0, selected: ["A"] },
+      { index: 1, skipped: true },
+    ];
+    assert.equal(store.answerQuestion(record, "call-1", answers).status, "ok");
+    assert.deepEqual(await pending, answers);
+    // 回答で settle した後に abort が届いても、listener が外れているので 2 回目は 409 のまま
+    controller.abort();
+    assert.equal(store.answerQuestion(record, "call-1", answers).status, "answered");
+  } finally {
+    await store.close();
+  }
+});
+
 test("stop と delete は未回答の待機を取り消し、回答を受け付けない", async () => {
   const running = createPendingSession();
   const store = createStore(running);

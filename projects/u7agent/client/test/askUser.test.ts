@@ -14,7 +14,7 @@ import {
 } from "../src/lib/askUser";
 import { deriveComposerSettings } from "../src/lib/composerSettings";
 import { nonSkillToolCards } from "../src/lib/skillLoad";
-import type { AskUserQuestion, RunPayload, SessionPayload, ToolCall } from "../src/types";
+import type { AskUserQuestion, HistoryPage, RunPayload, SessionPayload, ToolCall } from "../src/types";
 
 const QUESTIONS: AskUserQuestion[] = [
   { question: "どちらで進めますか", header: "方式", options: [{ label: "A 案" }, { label: "B 案" }] },
@@ -63,6 +63,25 @@ function payload(
 
 function assistantBubbles(bubbles: readonly Bubble[]): Bubble[] {
   return bubbles.filter((bubble) => bubble.role === "assistant");
+}
+
+/** 全履歴 API の最新ページ相当 (初回 F5 で legacy 表示の直後に届く形) */
+function historyPage(items: HistoryPage["items"]): HistoryPage {
+  const messages = items.filter((item) => item.kind === "message");
+  return {
+    sessionId: "s-1",
+    items,
+    prevCursor: null,
+    hasMore: false,
+    nextCursor: null,
+    activeContextStartId: messages.find((item) => item.context === "active")?.id ?? null,
+    messageCount: messages.length,
+    summarizedMessageCount: 0,
+  };
+}
+
+function userItem(id: string, text: string): HistoryPage["items"][number] {
+  return { kind: "message", id, context: "active", role: "user", text };
 }
 
 function askCards(bubbles: readonly Bubble[]) {
@@ -213,6 +232,44 @@ test("本文を持たない assistant の ask_user は resync でカードごと
   });
   assert.equal(askCards(again.bubbles).length, 1);
   assert.equal(pendingAskUserQuestionCount(again.runTools, again.runStatus), QUESTIONS.length);
+});
+
+test("履歴ページが届いても回答待ちカードは末尾に残り、空の assistant を足さない", () => {
+  // 初回 resync (payload.messages) → 最新履歴ページの順。本文を持たない assistant は履歴 item に
+  // 現れないため、突き合わせが効かずページ先頭へ繰り上がるとカードが画面外に消える (F5 の経路)
+  const initial = chatReducer(initialChatState, {
+    type: "resync",
+    payload: payload([{ role: "user", text: "聞いて" }], run([askCall("call-1", false)]), "running"),
+  });
+  assert.deepEqual(
+    initial.bubbles.map((bubble) => bubble.role),
+    ["user", "assistant"],
+    "legacy 表示は user の後ろに合成バブルを置く",
+  );
+
+  const merged = chatReducer(initial, { type: "resyncHistory", page: historyPage([userItem("m1", "聞いて")]) });
+  assert.deepEqual(
+    merged.bubbles.map((bubble) => bubble.role),
+    ["user", "assistant"],
+    "カードのバブルは履歴の後ろに残る (先頭へ繰り上げない)",
+  );
+  assert.deepEqual(
+    merged.bubbles.map((bubble) => bubble.entryId),
+    ["m1", undefined],
+    "履歴側だけ entryId を持つ",
+  );
+  assert.equal(askCards(merged.bubbles).length, 1);
+  assert.equal(assistantBubbles(merged.bubbles).length, 1, "空の assistant を足さない");
+  assert.equal(merged.bubbles[1]?.tools[0]?.id, "call-1");
+  assert.equal(pendingAskUserQuestionCount(merged.runTools, merged.runStatus), QUESTIONS.length);
+
+  // 続けて届いた resync でも同じ位置を保つ (回答待ちの間は次のイベントが来ない)
+  const again = chatReducer(merged, {
+    type: "resync",
+    payload: payload([{ role: "user", text: "聞いて" }], run([askCall("call-1", false)]), "running"),
+  });
+  assert.equal(askCards(again.bubbles).length, 1, "resync でカードが二重にならない");
+  assert.equal(assistantBubbles(again.bubbles).length, 1);
 });
 
 test("履歴のカードも質問と回答を写して専用カードに出せる", () => {
