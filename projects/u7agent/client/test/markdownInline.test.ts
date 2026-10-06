@@ -111,6 +111,27 @@ test("裸の URL は日本語の直後でもリンクにし、日本語の句読
   assert.deepEqual(parseInline("1https://example.com"), [text("1https://example.com")]);
 });
 
+test("全角の閉じ括弧は URL に含めない", () => {
+  const pairs = [
+    ["＜", "＞"],
+    ["［", "］"],
+    ["｛", "｝"],
+    ["《", "》"],
+    ["〈", "〉"],
+  ];
+  for (const [open, close] of pairs) {
+    assert.deepEqual(
+      parseInline(`${open}https://example.com${close}`),
+      [
+        text(open),
+        { kind: "link", href: "https://example.com", title: null, children: [text("https://example.com")] },
+        text(close),
+      ],
+      `${open} … ${close} の URL が閉じ括弧を含んでいる`,
+    );
+  }
+});
+
 test("画像は同一オリジン (相対パス) だけ描画し、外部 URL は原文に落とす", () => {
   assert.deepEqual(parseInline("![図](/assets/diagram.png)"), [
     { kind: "image", src: "/assets/diagram.png", alt: "図" },

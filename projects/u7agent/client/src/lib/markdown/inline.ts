@@ -394,7 +394,7 @@ function readBareUrl(text: string, start: number): { node: MdInline; end: number
   const before = text[start - 1];
   // 語の続きの判定は ASCII に限る (日本語の直後の URL もリンクにする)
   if (before !== undefined && /[0-9A-Za-z_]/.test(before)) return null;
-  const match = /^https?:\/\/[^\s<>"）】」』。、！？]+/i.exec(text.slice(start));
+  const match = /^https?:\/\/[^\s<>"）］｝＞」』】》〉〕〗〙〛｣。、！？]+/i.exec(text.slice(start));
   if (match === null) return null;
   let url = match[0].replace(/[.,;:!?]+$/, "");
   while (url.endsWith(")") && (url.match(/\(/g)?.length ?? 0) < (url.match(/\)/g)?.length ?? 0)) {
