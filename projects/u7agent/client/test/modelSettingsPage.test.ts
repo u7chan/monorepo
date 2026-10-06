@@ -142,12 +142,23 @@ function imageSettings(overrides: Partial<ImageSettings> = {}): ImageSettings {
 
 function webSearchSettings(overrides: Partial<WebSearchSettings> = {}): WebSearchSettings {
   return {
-    settings: { enabled: true, disabledMessage: "Web 検索は無効化されています。" },
+    settings: {
+      enabled: true,
+      provider: "exa",
+      providers: [
+        { id: "exa", name: "Exa", host: "mcp.exa.ai", keyless: true, configured: true },
+        { id: "tavily", name: "Tavily", host: "api.tavily.com", keyless: false, configured: false },
+      ],
+      disabledMessage: "Web 検索は無効化されています。",
+    },
     note: { text: "Web 検索の設定はサーバーに保存され、再起動後も残ります。", error: false },
-    saving: false,
+    saving: null,
     reloading: false,
     reload: async () => {},
     setEnabled: async () => true,
+    setProvider: async () => true,
+    saveKey: async () => true,
+    removeKey: async () => true,
     ...overrides,
   };
 }
@@ -230,7 +241,13 @@ test("Web 検索タブは URL が選んだときにだけ描画し、実行時�
   // 無効のときは、モデルへ返る固定文言をそのまま出す
   const off = render(modelSettings(), {
     modelsSubsection: "web-search",
-    webSearchSettings: webSearchSettings({ settings: { enabled: false, disabledMessage: "無効です（固定文言）" } }),
+    webSearchSettings: webSearchSettings({
+      settings: {
+        ...webSearchSettings().settings!,
+        enabled: false,
+        disabledMessage: "無効です（固定文言）",
+      },
+    }),
   });
   assert.ok(off.includes("無効です（固定文言）"));
 });

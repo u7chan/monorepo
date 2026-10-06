@@ -1,5 +1,6 @@
 /** API 契約の正。DTO のフィールド名と optional の扱いは client と揃える。 */
 import { z } from "zod";
+import { WEB_SEARCH_PROVIDER_IDS } from "./web-search-providers";
 import type { SandboxRuntimeCommand, SandboxRuntimeEnvironment } from "./sandbox/protocol";
 import type { SecretKind } from "./secret-crypto";
 
@@ -1340,17 +1341,34 @@ export type EventEntry = {
 }[SSEEventType];
 
 /**
- * GET / PUT /api/settings/web-search。`web_search` を実行時に拒否するトグルを 1 つだけ持つ。
- * 行が無い = 既定（有効）なので、初期状態でも `enabled: true` が返る。
+ * GET / PUT /api/settings/web-search。`web_search` の有効 / 無効と既定 provider を持つ。
+ * 行が無い = 既定（有効 / 先頭の provider）なので、初期状態でも `enabled: true` が返る。
  */
+export const WebSearchProviderIdSchema = z.enum(WEB_SEARCH_PROVIDER_IDS);
+export type WebSearchProviderId = z.infer<typeof WebSearchProviderIdSchema>;
+
+/** provider 1 件の公開情報。`host` は外部送信先を画面で隠さないために出し、キーの値は返さない */
+export const WebSearchProviderSchema = z.object({
+  id: WebSearchProviderIdSchema,
+  name: z.string(),
+  host: z.string(),
+  keyless: z.boolean(),
+  /** キーが登録済みか。keyless の provider は常に true */
+  configured: z.boolean(),
+});
+export type WebSearchProvider = z.infer<typeof WebSearchProviderSchema>;
+
 export const WebSearchSettingsResponseSchema = z.object({
   enabled: z.boolean(),
+  /** 既定の provider。設定した値が次の検索から使われる */
+  provider: WebSearchProviderIdSchema,
+  providers: z.array(WebSearchProviderSchema),
   /** 無効のときに `web_search` がモデルへ返す固定文言。画面は同じ文言をそのまま出す */
   disabledMessage: z.string(),
 });
 export type WebSearchSettingsResponse = z.infer<typeof WebSearchSettingsResponseSchema>;
 
-/** 変更系（PUT）の応答。即時反映なので `applied` だけを返す（画像生成と同じ契約） */
+/** 変更系（PUT / DELETE）の応答。即時反映なので `applied` だけを返す（画像生成と同じ契約） */
 export const WebSearchMutationResponseSchema = WebSearchSettingsResponseSchema.extend({
   state: z.literal("applied"),
 });
@@ -1361,6 +1379,18 @@ export const UpdateWebSearchBodySchema = z.object({
   enabled: z.boolean(),
 });
 export type UpdateWebSearchBody = z.infer<typeof UpdateWebSearchBodySchema>;
+
+/** 既定 provider の変更。provider の選択と「既定にする」は同じ操作にする（GUI もそう振る舞う） */
+export const UpdateWebSearchProviderBodySchema = z.object({
+  provider: WebSearchProviderIdSchema,
+});
+export type UpdateWebSearchProviderBody = z.infer<typeof UpdateWebSearchProviderBodySchema>;
+
+/** provider の APIキーの登録・上書き。長さは provider_credentials / 画像と同じ */
+export const UpdateWebSearchKeyBodySchema = z.object({
+  apiKey: z.string().min(PROVIDER_API_KEY_MIN_LENGTH).max(PROVIDER_API_KEY_MAX_LENGTH),
+});
+export type UpdateWebSearchKeyBody = z.infer<typeof UpdateWebSearchKeyBodySchema>;
 
 /** 変更系の失敗応答（何も変わっていない） */
 export const WebSearchMutationErrorSchema = z.object({

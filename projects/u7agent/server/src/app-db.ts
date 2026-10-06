@@ -18,7 +18,7 @@ import type {
 
 export const APP_DB_FILENAME = "u7agent.db";
 /** テーブル定義を変えたら上げる。新規作成と加算移行はこの版へ揃え、未知の版は作り直す */
-export const APP_DB_SCHEMA_VERSION = 12;
+export const APP_DB_SCHEMA_VERSION = 13;
 
 /** プロバイダー API キーの保存行。平文なのでアクセス権の管理は docs/secrets.md を正とする */
 export interface ProviderCredentialRow {
@@ -53,11 +53,13 @@ export interface ImageSettingsRow {
 }
 
 /**
- * Web 検索の実行時トグルの保存行。**行が無い = 既定（有効）**で、行があるときは enabled が正。
- * 保存値は 0 / 1 のどちらかで、API では boolean に読み替える（docs/web-search.md）。
+ * Web 検索の設定の保存行。**行が無い = 既定（有効 / Exa）**で、行があるときは enabled と provider が正。
+ * 保存値は 0 / 1 のどちらかで、API では boolean に読み替える。provider は未知の値もそのまま返し、
+ * 既定への畳み込みはサービス側で行う（docs/web-search.md）。
  */
 export interface WebSearchSettingsRow {
   enabled: boolean;
+  provider: string;
 }
 
 /** カタログ 1 件の保存形。provider は v1 では openrouter 固定なので id と表示名、あれば形式の宣言を残す */
@@ -256,14 +258,28 @@ CREATE TABLE IF NOT EXISTS secrets (
 `;
 
 /**
- * v11 -> v12 で足したテーブル。`web_search` の実行時トグルを 1 行だけ持ち、
- * **行が無い = 既定（有効）**。画像生成（`image_settings`）と並ぶツール公開の状態で、
- * 行があるときは `enabled` が正（docs/web-search.md）。
+ * v11 -> v12 で足したテーブル。`web_search` の有効 / 無効と既定 provider を 1 行だけ持ち、
+ * **行が無い = 既定（有効 / exa）**。画像生成（`image_settings`）と並ぶツール公開の状態で、
+ * 行があるときは `enabled` と `provider` が正。`provider` の列は v12 -> v13 で足した（docs/web-search.md）。
  */
 const WEB_SEARCH_SETTINGS_TABLE = `
 CREATE TABLE IF NOT EXISTS web_search_settings (
-  id      INTEGER PRIMARY KEY CHECK (id = 1),
-  enabled INTEGER NOT NULL
+  id       INTEGER PRIMARY KEY CHECK (id = 1),
+  enabled  INTEGER NOT NULL,
+  provider TEXT NOT NULL DEFAULT 'exa'
+);
+`;
+
+/**
+ * v12 -> v13 で足したテーブル。provider ごとの APIキーを 1 行 1 provider で持ち、
+ * **行が無い = キー未設定**（削除は行ごと消す）。できれば 1 列にまとめたくない理由は、
+ * キー付きの provider が増えたときに「このキーはどの provider のものか」を列が表せないため。
+ * 値は平文（アクセス権の管理と残存リスクは docs/secrets.md / docs/web-search.md）。
+ */
+const WEB_SEARCH_PROVIDER_KEYS_TABLE = `
+CREATE TABLE IF NOT EXISTS web_search_provider_keys (
+  provider TEXT PRIMARY KEY,
+  apiKey   TEXT NOT NULL
 );
 `;
 
@@ -306,6 +322,7 @@ ${IMAGE_SETTINGS_TABLE}
 ${IMAGE_CATALOG_TABLE}
 ${SERVE_COMMANDS_TABLE}
 ${WEB_SEARCH_SETTINGS_TABLE}
+${WEB_SEARCH_PROVIDER_KEYS_TABLE}
 ${SECRETS_TABLE}`;
 
 /** アプリ所有のテーブルだけを落とす (同じ DB に足した別機能のテーブルを巻き込まない) */
@@ -322,6 +339,7 @@ DROP TABLE IF EXISTS image_settings;
 DROP TABLE IF EXISTS image_catalog;
 DROP TABLE IF EXISTS serve_commands;
 DROP TABLE IF EXISTS web_search_settings;
+DROP TABLE IF EXISTS web_search_provider_keys;
 `;
 // secrets は意図的に含めない (DROP_TABLES の定義冒頭のコメントと docs/secrets.md を参照)。
 // 列追加も #migrate() にだけ足し、既存行を書き換える移行はしない。
@@ -707,10 +725,13 @@ export class AppDb {
       this.#query((db) => db.exec(IMAGE_CATALOG_TABLE));
       this.#query((db) => db.exec(SERVE_COMMANDS_TABLE));
       this.#query((db) => db.exec(WEB_SEARCH_SETTINGS_TABLE));
+      this.#query((db) => db.exec(WEB_SEARCH_PROVIDER_KEYS_TABLE));
       this.#query((db) => db.exec(SECRETS_TABLE));
       // 列追加は CREATE TABLE IF NOT EXISTS の後 (既存テーブルでは CREATE が何もしないため)。DDL も
       // トランザクション対象なので、途中失敗で列だけが残らない
       this.#addColumnIfMissing("provider_credentials", "updatedAt", "INTEGER");
+      // v12 以前の web_search_settings は id と enabled だけ。既存行は既定 (exa) で埋める
+      this.#addColumnIfMissing("web_search_settings", "provider", "TEXT NOT NULL DEFAULT 'exa'");
       // PRAGMA はパラメータ化できない (値はコード側の定数)
       this.#query((db) => db.exec(`PRAGMA user_version = ${APP_DB_SCHEMA_VERSION}`));
       this.#query((db) => db.exec("COMMIT"));
@@ -922,14 +943,18 @@ export class AppDb {
     return this.#query((db) => db.prepare("DELETE FROM image_settings WHERE id = 1").run().changes > 0);
   }
 
-  // --- web search settings (1 行だけ。行が無い = 既定（有効）) ---
+  // --- web search settings (1 行だけ。行が無い = 既定（有効 / exa）) ---
 
-  /** 行が無ければ undefined = 既定（有効）。0 / 1 以外へ手編集された行も 1 として読む */
+  /** 行が無ければ undefined = 既定（有効 / exa）。0 / 1 以外へ手編集された行も 1 として読む */
   readWebSearchSettings(): WebSearchSettingsRow | undefined {
     const row = this.#query(
       (db) => db.prepare("SELECT * FROM web_search_settings WHERE id = 1").get() as Row | undefined,
     );
-    return row ? { enabled: Number(row.enabled) !== 0 } : undefined;
+    if (!row) return undefined;
+    return {
+      enabled: Number(row.enabled) !== 0,
+      provider: typeof row.provider === "string" ? row.provider : "",
+    };
   }
 
   /** 保存は id = 1 の upsert。単一ステートメントなので自動コミットで確定する */
@@ -937,10 +962,41 @@ export class AppDb {
     this.#query((db) =>
       db
         .prepare(
-          `INSERT INTO web_search_settings (id, enabled) VALUES (1, ?)
-           ON CONFLICT(id) DO UPDATE SET enabled = excluded.enabled`,
+          `INSERT INTO web_search_settings (id, enabled, provider) VALUES (1, ?, ?)
+           ON CONFLICT(id) DO UPDATE SET enabled = excluded.enabled, provider = excluded.provider`,
         )
-        .run(settings.enabled ? 1 : 0),
+        .run(settings.enabled ? 1 : 0, settings.provider),
+    );
+  }
+
+  // --- web search provider keys (1 行 1 provider。行が無い = キー未設定) ---
+
+  /** 行が無ければ undefined。空文字へ手編集された行も未設定として読む */
+  readWebSearchProviderKey(provider: string): string | undefined {
+    const row = this.#query(
+      (db) =>
+        db.prepare("SELECT apiKey FROM web_search_provider_keys WHERE provider = ?").get(provider) as Row | undefined,
+    );
+    const apiKey = row?.apiKey;
+    return typeof apiKey === "string" && apiKey !== "" ? apiKey : undefined;
+  }
+
+  /** 登録と上書きで同じ (provider 主キーの upsert)。鍵の値はマスカーへ登録してから渡す */
+  saveWebSearchProviderKey(provider: string, apiKey: string): void {
+    this.#query((db) =>
+      db
+        .prepare(
+          `INSERT INTO web_search_provider_keys (provider, apiKey) VALUES (?, ?)
+           ON CONFLICT(provider) DO UPDATE SET apiKey = excluded.apiKey`,
+        )
+        .run(provider, apiKey),
+    );
+  }
+
+  /** 行を消して未設定へ戻す。未設定でも false を返すだけで失敗にはしない */
+  deleteWebSearchProviderKey(provider: string): boolean {
+    return this.#query(
+      (db) => db.prepare("DELETE FROM web_search_provider_keys WHERE provider = ?").run(provider).changes > 0,
     );
   }
 

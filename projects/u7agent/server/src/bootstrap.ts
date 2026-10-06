@@ -174,11 +174,12 @@ export async function createBffContext(opts: CreateBffAppOptions = {}): Promise<
     maskError,
   });
   await imageSettings.applyStored();
-  // Web 検索は「既定 ON のトグル」なので、行が無ければ有効のまま立ち、無効のときだけ execute を拒否する。
+  // Web 検索は「既定 ON / Exa」なので、行が無ければそのまま立ち、設定行とキーがあるときだけ写す。
   // 画像生成と同じく、写しはロックの内側で差し替える (設定 API と起動時の適用を直列化する)
   const webSearchSettings = new WebSearchSettingsService({
     db: appDb,
-    setWebSearchEnabled: pi ? pi.setWebSearchEnabled : () => {},
+    setWebSearch: pi ? pi.setWebSearch : () => {},
+    retainSecret: pi ? pi.retainSecret : () => {},
     maskError,
   });
   await webSearchSettings.applyStored();

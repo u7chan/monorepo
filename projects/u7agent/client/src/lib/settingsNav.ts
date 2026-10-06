@@ -39,7 +39,7 @@ export const MODELS_SUBSECTIONS: { subsection: ModelsSubsection; label: string }
   { subsection: "models", label: "モデルを選ぶ" },
   { subsection: "providers", label: "プロバイダー" },
   { subsection: "images", label: "画像生成" },
-  // 画像生成と同じく「外部サービスとキー」の面。有効 / 無効の kill switch もここに置く (#1775 / #1776)
+  // 画像生成と同じく「外部サービスとキー」の面。既定 provider と有効 / 無効の kill switch もここに置く
   { subsection: "web-search", label: "Web 検索" },
 ];
 

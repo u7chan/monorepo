@@ -1,27 +1,25 @@
 /**
- * BFF ローカルの `web_search` ツール。keyless な Exa MCP へ tools/call を 1 回送り、上位 5 件を
- * 出典一覧 + 抜粋へ整形する。サンドボックスの allowlist (`PI_AGENT_TOOLS`) の外にあり、
+ * BFF ローカルの `web_search` ツール。既定の provider（アプリ DB を正とする）を 1 回だけ呼び、
+ * 上位 5 件を出典一覧 + 抜粋へ整形する。サンドボックスの allowlist (`PI_AGENT_TOOLS`) の外にあり、
  * 上流の応答本文と失敗理由はモデル・ログ・UI へ出さない (docs/web-search.md)。
  */
 import { Type, type Static } from "@earendil-works/pi-ai";
 import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
 import type { SecretMasker } from "./redact";
 import { wrapToolDefinitionWithSecretMasker } from "./secret-guard";
+import {
+  DEFAULT_WEB_SEARCH_PROVIDER,
+  webSearchProvider,
+  type WebSearchFailureKind,
+  type WebSearchProviderId,
+  type WebSearchResultItem,
+} from "./web-search-providers";
 
 export const WEB_SEARCH_TOOL_NAME = "web_search";
-
-/** tools/call で呼ぶ Exa のツール名。advanced が消えたときの basic へのフォールバックは持たない */
-export const WEB_SEARCH_API_TOOL_NAME = "web_search_advanced_exa";
-
-/** keyless な Exa MCP。`tools` クエリで公開するツールを絞る */
-export const WEB_SEARCH_ENDPOINT = `https://mcp.exa.ai/mcp?tools=${WEB_SEARCH_API_TOOL_NAME}`;
 
 /** 上流の期限。SDK 側の期限は渡さず、この自前タイマーだけに一本化する */
 export const WEB_SEARCH_TIMEOUT_MS = 60_000;
 
-export const WEB_SEARCH_NUM_RESULTS = 5;
-/** `results[].text` の上限。highlights には効かないため、整形側で別に切る */
-export const WEB_SEARCH_TEXT_MAX_CHARACTERS = 2_000;
 /** 1 件の抜粋の上限。highlights 1 件が数千字になることがある (実測 5,711 字) */
 export const WEB_SEARCH_EXCERPT_MAX_LENGTH = 1_500;
 /** 結果全体の上限。SDK は customTool の結果を長さで丸めないため、ツール側で切る */
@@ -31,15 +29,31 @@ const WEB_SEARCH_TRUNCATED_MARKER = "... [truncated]";
 const WEB_SEARCH_DETAIL_MAX_LENGTH = 500;
 
 export const WEB_SEARCH_PROVIDER_ERROR_MESSAGE = "検索プロバイダのエラーが発生しました";
-export const WEB_SEARCH_RATE_LIMITED_MESSAGE = "検索が混雑しています（無料枠のレート制限）";
+export const WEB_SEARCH_RATE_LIMITED_MESSAGE = "検索が混雑しています（レート制限）";
+export const WEB_SEARCH_QUOTA_EXCEEDED_MESSAGE = "検索の利用上限に達しました（provider のプラン上限）";
+export const WEB_SEARCH_KEY_MISSING_MESSAGE =
+  "検索プロバイダーのAPIキーが未設定です。設定 → モデル → Web 検索 を開いて登録してください。";
+export const WEB_SEARCH_KEY_REJECTED_MESSAGE =
+  "検索プロバイダーのAPIキーが拒否されました。設定 → モデル → Web 検索 を開いて確認してください。";
 export const WEB_SEARCH_UNEXPECTED_RESPONSE_MESSAGE = "検索プロバイダが想定外の応答を返しました";
 export const WEB_SEARCH_NETWORK_ERROR_MESSAGE = "検索プロバイダに接続できませんでした";
+export const WEB_SEARCH_SETTINGS_UNAVAILABLE_MESSAGE = "検索の設定を読み取れませんでした";
 export const WEB_SEARCH_TIMEOUT_MESSAGE = "web_search がタイムアウトしました";
 export const WEB_SEARCH_ABORTED_MESSAGE = "web_search を中断しました";
 export const WEB_SEARCH_NO_RESULTS_MESSAGE = "結果が見つかりませんでした";
 /** 画面が同じ文言を出すため、設定 API もこれを `disabledMessage` として返す */
 export const WEB_SEARCH_DISABLED_MESSAGE =
   "Web 検索は無効化されています。有効にするには 設定 → モデル → Web 検索 を開いてください。";
+
+/** provider が返す失敗の種類 → モデルへ返す固定文言。provider の応答本文は使わない */
+const WEB_SEARCH_FAILURE_MESSAGES: Record<WebSearchFailureKind, string> = {
+  rate_limited: WEB_SEARCH_RATE_LIMITED_MESSAGE,
+  quota_exceeded: WEB_SEARCH_QUOTA_EXCEEDED_MESSAGE,
+  key_missing: WEB_SEARCH_KEY_MISSING_MESSAGE,
+  key_rejected: WEB_SEARCH_KEY_REJECTED_MESSAGE,
+  provider_error: WEB_SEARCH_PROVIDER_ERROR_MESSAGE,
+  unexpected_response: WEB_SEARCH_UNEXPECTED_RESPONSE_MESSAGE,
+};
 
 export const WEB_SEARCH_TOOL_DESCRIPTION =
   "Search the web and return the top results with their titles, URLs and excerpts. " +
@@ -53,101 +67,17 @@ export const WEB_SEARCH_TOOL_GUIDELINES = [
 const webSearchSchema = Type.Object({
   query: Type.String({
     minLength: 1,
-    // minLength だけでは "   " が通る。Exa へ送って isError が返る往復を消す
+    // minLength だけでは "   " が通る。上流へ送って isError が返る往復を消す
     pattern: "\\S",
-    description: "Search query. It is sent to an external search provider (mcp.exa.ai); do not include secrets.",
+    description: "Search query. It is sent to an external search provider; do not include secrets.",
   }),
 });
 type WebSearchParams = Static<typeof webSearchSchema>;
 
-/** 検索結果 1 件。v1 では使わない `id` / `image` / `publishedDate` は取り込まない */
-export interface WebSearchResultItem {
-  title: string;
-  url: string;
-  /** highlights を連結したもの。無ければ text */
-  excerpt: string;
-}
-
 type WebSearchOutcome = { ok: true; items: WebSearchResultItem[] } | { ok: false; message: string };
-
-/** JSON.parse は null / 0 も返すため、成否を型で分ける */
-type ParsedJson = { ok: true; value: unknown } | { ok: false };
-
-function tryParseJson(text: string): ParsedJson {
-  try {
-    return { ok: true, value: JSON.parse(text) };
-  } catch {
-    return { ok: false };
-  }
-}
-
-function asRecord(value: unknown): Record<string, unknown> | undefined {
-  return typeof value === "object" && value !== null ? (value as Record<string, unknown>) : undefined;
-}
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
-}
-
-/**
- * 応答本文を JSON-RPC の応答へ。`Accept` で SSE と JSON の両方を要求する契約なので、
- * `data:` 行 → その連結 → 本文全体の順に解釈する (1 イベントが複数の data 行へ分かれ得る)。
- */
-export function parseWebSearchResponseBody(text: string): unknown {
-  const payloads = text
-    .split(/\r?\n/)
-    .filter((line) => line.startsWith("data:"))
-    .map((line) => line.slice("data:".length).trim())
-    .filter((payload) => payload !== "");
-  for (const candidate of [...payloads, payloads.join("\n"), text]) {
-    if (candidate.trim() === "") continue;
-    const parsed = tryParseJson(candidate);
-    if (parsed.ok) return parsed.value;
-  }
-  return undefined;
-}
-
-/** `results[]` を読む。配列でなければ undefined (想定外の応答) */
-function readResultItems(payload: unknown): WebSearchResultItem[] | undefined {
-  const results = asRecord(payload)?.results;
-  if (!Array.isArray(results)) return undefined;
-  return results
-    .filter((entry): entry is Record<string, unknown> => asRecord(entry) !== undefined)
-    .map((entry) => {
-      const highlights = Array.isArray(entry.highlights)
-        ? entry.highlights.filter((value): value is string => typeof value === "string")
-        : [];
-      const joined = highlights.join("\n").trim();
-      const excerpt = joined !== "" ? joined : typeof entry.text === "string" ? entry.text.trim() : "";
-      return {
-        title: typeof entry.title === "string" ? entry.title : "",
-        url: typeof entry.url === "string" ? entry.url : "",
-        excerpt,
-      };
-    });
-}
-
-/**
- * 200 の応答本文を分類する。JSON-RPC の error → isError → レート制限 → 内容の順に見て、
- * 0 件は正常系として空配列で返す (JSON なので 0 件と解釈不能を区別できる)。
- */
-function outcomeFromBody(body: unknown): WebSearchOutcome {
-  const response = asRecord(body);
-  if (!response || response.error !== undefined) return { ok: false, message: WEB_SEARCH_UNEXPECTED_RESPONSE_MESSAGE };
-  const result = asRecord(response.result);
-  if (!result) return { ok: false, message: WEB_SEARCH_UNEXPECTED_RESPONSE_MESSAGE };
-  if (result.isError === true) return { ok: false, message: WEB_SEARCH_PROVIDER_ERROR_MESSAGE };
-  if (asRecord(result._meta)?.["ai.exa/rateLimited"] === true) {
-    return { ok: false, message: WEB_SEARCH_RATE_LIMITED_MESSAGE };
-  }
-  const content = Array.isArray(result.content) ? result.content : [];
-  const text = content.map((part) => asRecord(part)?.text).find((value): value is string => typeof value === "string");
-  if (text === undefined) return { ok: false, message: WEB_SEARCH_UNEXPECTED_RESPONSE_MESSAGE };
-  const parsed = tryParseJson(text);
-  if (!parsed.ok) return { ok: false, message: WEB_SEARCH_UNEXPECTED_RESPONSE_MESSAGE };
-  const items = readResultItems(parsed.value);
-  if (!items) return { ok: false, message: WEB_SEARCH_UNEXPECTED_RESPONSE_MESSAGE };
-  return { ok: true, items };
 }
 
 /** 出典 1 件の見出し。タイトルが無い結果でも位置が分かるようにする */
@@ -180,9 +110,16 @@ export function formatWebSearchResults(items: readonly WebSearchResultItem[], ma
   return `${text.slice(0, WEB_SEARCH_OUTPUT_MAX_LENGTH - WEB_SEARCH_TRUNCATED_MARKER.length)}${WEB_SEARCH_TRUNCATED_MARKER}`;
 }
 
-/** セッション作成時に凍結すると既存会話へ OFF が効かないため、execute のたびに読む */
+/**
+ * 実行中のセッションが読む写し。セッション作成時に凍結すると既存会話へ設定変更が効かないため、
+ * execute のたびに読む。設定サービスがロックの内側で差し替える
+ */
 export interface WebSearchRuntimeConfig {
   readEnabled: () => boolean;
+  /** 既定の provider。保存値が無い / 未知なら exa */
+  readProvider: () => WebSearchProviderId;
+  /** provider の登録キー。keyless では読まれない（未設定は undefined） */
+  readApiKey: (provider: WebSearchProviderId) => string | undefined;
 }
 
 export interface WebSearchToolOptions {
@@ -193,14 +130,34 @@ export interface WebSearchToolOptions {
   masker: SecretMasker;
   /** 省くと常に有効（既定 ON） */
   readEnabled?: () => boolean;
+  /** 省くと既定（Exa） */
+  readProvider?: () => WebSearchProviderId;
+  /** 省くとキー無し（keyless のみ動く） */
+  readApiKey?: (provider: WebSearchProviderId) => string | undefined;
 }
 
 export function createWebSearchToolDefinitions(options: WebSearchToolOptions): ToolDefinition[] {
   const baseFetch = options.fetchImpl ?? fetch;
   const timeoutMs = options.timeoutMs ?? WEB_SEARCH_TIMEOUT_MS;
   const readEnabled = options.readEnabled ?? ((): boolean => true);
+  const readProvider = options.readProvider ?? ((): WebSearchProviderId => DEFAULT_WEB_SEARCH_PROVIDER);
+  const readApiKey = options.readApiKey ?? ((): undefined => undefined);
+
+  /** 設定の読取は検索の前段。DB が読めないときに上流へ送って失敗を混ぜない */
+  function readTarget(): { provider: ReturnType<typeof webSearchProvider>; apiKey: string | undefined } | undefined {
+    try {
+      const provider = webSearchProvider(readProvider());
+      return { provider, apiKey: provider.keyless ? undefined : readApiKey(provider.id) };
+    } catch (error) {
+      const detail = options.masker.mask(errorMessage(error));
+      console.warn(`[u7agent] web search settings unavailable: ${detail.slice(0, WEB_SEARCH_DETAIL_MAX_LENGTH)}`);
+      return undefined;
+    }
+  }
 
   async function search(query: string, signal: AbortSignal | undefined): Promise<WebSearchOutcome> {
+    const target = readTarget();
+    if (target === undefined) return { ok: false, message: WEB_SEARCH_SETTINGS_UNAVAILABLE_MESSAGE };
     // 期限はここでのみ掛ける。fetch へ渡す signal を共有すると timeout とユーザー中断を区別できない
     const controller = new AbortController();
     let timedOut = false;
@@ -214,36 +171,16 @@ export function createWebSearchToolDefinitions(options: WebSearchToolOptions): T
     const aborted = (): boolean => signal?.aborted === true;
 
     try {
-      const response = await baseFetch(WEB_SEARCH_ENDPOINT, {
-        method: "POST",
-        headers: {
-          "content-type": "application/json",
-          // 片方だけだと Exa は HTTP 406 で拒否する (実測)
-          accept: "application/json, text/event-stream",
-        },
-        body: JSON.stringify({
-          jsonrpc: "2.0",
-          id: 1,
-          method: "tools/call",
-          params: {
-            name: WEB_SEARCH_API_TOOL_NAME,
-            arguments: {
-              query,
-              type: "auto",
-              numResults: WEB_SEARCH_NUM_RESULTS,
-              enableHighlights: true,
-              textMaxCharacters: WEB_SEARCH_TEXT_MAX_CHARACTERS,
-            },
-          },
-        }),
+      const outcome = await target.provider.search(query, {
+        apiKey: target.apiKey,
+        fetchImpl: baseFetch,
         signal: controller.signal,
       });
-      const text = await response.text();
+      // provider が応答を返した後でも、期限・中断が先に起きていればそちらを固定文言にする
       if (timedOut) return { ok: false, message: WEB_SEARCH_TIMEOUT_MESSAGE };
       if (aborted()) return { ok: false, message: WEB_SEARCH_ABORTED_MESSAGE };
-      // 406 は Accept の実装ミスで、5xx は上流障害。どちらも本文は分類に使わない
-      if (!response.ok) return { ok: false, message: WEB_SEARCH_PROVIDER_ERROR_MESSAGE };
-      return outcomeFromBody(parseWebSearchResponseBody(text));
+      if (outcome.ok) return { ok: true, items: outcome.items };
+      return { ok: false, message: WEB_SEARCH_FAILURE_MESSAGES[outcome.kind] };
     } catch (error) {
       if (timedOut) return { ok: false, message: WEB_SEARCH_TIMEOUT_MESSAGE };
       if (aborted()) return { ok: false, message: WEB_SEARCH_ABORTED_MESSAGE };

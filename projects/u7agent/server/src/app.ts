@@ -42,6 +42,8 @@ import {
   UpdateNotificationsBodySchema,
   UpdateProviderKeyBodySchema,
   UpdateWebSearchBodySchema,
+  UpdateWebSearchKeyBodySchema,
+  UpdateWebSearchProviderBodySchema,
   UpdateProviderMemoBodySchema,
   UpdateSecretBodySchema,
   UpdateSessionNotifyBodySchema,
@@ -415,7 +417,27 @@ export async function createBffApp(opts: CreateBffAppOptions = {}) {
       jsonBodyValidator(UpdateWebSearchBodySchema, (result, c) =>
         result.success ? undefined : c.json({ error: "Invalid request body" }, 400),
       ),
-      (c) => webSearchSettingsRoutes.put(c, c.req.valid("json")),
+      (c) => webSearchSettingsRoutes.putEnabled(c, c.req.valid("json")),
+    )
+    .put(
+      "/api/settings/web-search/provider",
+      appDataMutation,
+      jsonBodyValidator(UpdateWebSearchProviderBodySchema, (result, c) =>
+        result.success ? undefined : c.json({ error: "Invalid request body" }, 400),
+      ),
+      (c) => webSearchSettingsRoutes.putProvider(c, c.req.valid("json")),
+    )
+    .put(
+      "/api/settings/web-search/providers/:provider/key",
+      appDataMutation,
+      jsonBodyValidator(UpdateWebSearchKeyBodySchema, (result, c) =>
+        result.success ? undefined : c.json({ error: "Invalid request body" }, 400),
+      ),
+      // キー値はマスカー登録のあるサービス側でだけ扱い、パス / クエリへは出さない
+      (c) => webSearchSettingsRoutes.putKey(c, c.req.param("provider"), c.req.valid("json").apiKey),
+    )
+    .delete("/api/settings/web-search/providers/:provider/key", appDataMutation, (c) =>
+      webSearchSettingsRoutes.deleteKey(c, c.req.param("provider")),
     )
     // Hono は登録順にマッチするため、未マッチの GET を拾う catch-all は最後に置く。
     .get("*", serveClientAssets(clientDistDir, filePreviewPort))
