@@ -1,15 +1,22 @@
 import { useState } from "react";
 import type { ToolCard } from "../../hooks/chatReducer";
 import {
+  askUserAnswerText,
+  askUserAnswersClosing,
   askUserAnswersFromDrafts,
+  askUserDraftAt,
+  askUserDraftResolved,
+  askUserDraftSelectedCount,
   askUserDraftsComplete,
   emptyAskUserDrafts,
   isPendingAskUserCard,
+  nextUnresolvedAskUserIndex,
   toggleAskUserOption,
   type AskUserDraft,
 } from "../../lib/askUser";
 import { cn } from "../../lib/cn";
 import type { AskUserAnswer, AskUserQuestion } from "../../types";
+import { ArrowRightIcon, CheckIcon, ChevronIcon, ChevronLeftIcon, CloseIcon, PencilIcon } from "../icons";
 
 type AnswerResult = { ok: true } | { ok: false; error: string };
 
@@ -19,137 +26,267 @@ function recordAnswers(card: ToolCard, drafts: readonly AskUserDraft[], sent: bo
   return sent ? askUserAnswersFromDrafts(drafts) : undefined;
 }
 
-function QuestionHeading({ question, answered }: { question: AskUserQuestion; answered: boolean }) {
+/** multiSelect の印。選択の状態は行の button が持つため、印そのものは読み上げの対象にしない */
+function ChoiceMark({ checked }: { checked: boolean }) {
   return (
-    <legend className="grid min-w-0 gap-0.5">
-      {question.header ? (
-        <span className="font-sans text-3xs tracking-wide text-ink-faint uppercase">{question.header}</span>
-      ) : null}
-      <span className={cn("text-1sm font-medium break-words", answered ? "text-ink-soft" : "text-ink")}>
-        {question.question}
-      </span>
-    </legend>
+    <span
+      aria-hidden="true"
+      className={cn(
+        "grid size-4 shrink-0 place-items-center rounded-sm border text-on-accent",
+        checked ? "border-accent bg-accent" : "border-line-strong",
+      )}
+    >
+      {checked ? <CheckIcon /> : null}
+    </span>
   );
 }
 
-/** 選択肢と自由記入の入力。全質問が埋まるまで送信できない */
+/**
+ * 選択肢 1 行。単一選択は行そのものが選択の印になり、番号や枠は出さない (選択中は面と文字色で示す)。
+ * multiSelect のときだけチェックを出す。
+ */
+function OptionRow({
+  option,
+  pressed,
+  multiSelect,
+  disabled,
+  onToggle,
+}: {
+  option: { label: string; description?: string | undefined };
+  pressed: boolean;
+  multiSelect: boolean;
+  disabled: boolean;
+  onToggle: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      aria-pressed={pressed}
+      disabled={disabled}
+      onClick={onToggle}
+      className={cn(
+        "flex min-h-10 w-full items-center gap-2.5 px-3 py-1.5 text-left transition-colors",
+        pressed ? "bg-accent-wash text-accent-text" : "text-ink hover:bg-soft/40",
+        disabled && "cursor-not-allowed opacity-45",
+      )}
+    >
+      {multiSelect ? <ChoiceMark checked={pressed} /> : null}
+      <span className="grid min-w-0 flex-1 gap-0.5">
+        <span className="text-1sm break-words">{option.label}</span>
+        {option.description ? <span className="text-2xs break-words text-ink-faint">{option.description}</span> : null}
+      </span>
+    </button>
+  );
+}
+
+/**
+ * 自由記入の行。行のまま入力でき、入力があれば他の選択肢と同じく 1 件として数える。
+ * ラベルで包むので、行のどこを押しても入力に入る。
+ */
+function TextRow({
+  question,
+  draft,
+  disabled,
+  onChange,
+  onAdvance,
+}: {
+  question: AskUserQuestion;
+  draft: AskUserDraft;
+  multiSelect: boolean;
+  disabled: boolean;
+  onChange: (text: string) => void;
+  onAdvance: () => void;
+}) {
+  return (
+    <label className={cn("flex min-h-10 items-center gap-2.5 px-3 py-1.5", disabled && "cursor-not-allowed")}>
+      {question.multiSelect === true ? (
+        <ChoiceMark checked={draft.text.trim() !== ""} />
+      ) : (
+        <span className="text-ink-faint">
+          <PencilIcon />
+        </span>
+      )}
+      <input
+        type="text"
+        value={draft.text}
+        disabled={disabled}
+        aria-label={`${question.question} に自由記入する`}
+        placeholder={question.placeholder ?? "その他の回答（自由記入）"}
+        onChange={(event) => onChange(event.target.value)}
+        onKeyDown={(event) => {
+          // Enter は「次へ」と同じ (本文の改行は入れない。改行が要る長文は送信後に本文で書ける)
+          if (event.key !== "Enter") return;
+          event.preventDefault();
+          onAdvance();
+        }}
+        className="min-w-0 flex-1 border-0 bg-transparent p-0 text-1sm text-ink outline-none placeholder:text-ink-ghost disabled:cursor-not-allowed disabled:opacity-45"
+      />
+    </label>
+  );
+}
+
+/** 質問を 1 枚ずつ出す送り。回答の有無では止めない (未回答のまま見比べられる) */
+function QuestionPager({
+  index,
+  count,
+  disabled,
+  onMove,
+}: {
+  index: number;
+  count: number;
+  disabled: boolean;
+  onMove: (delta: number) => void;
+}) {
+  if (count <= 1) return null;
+  return (
+    <div className="flex shrink-0 items-center gap-0.5 text-ink-faint">
+      <button
+        type="button"
+        aria-label="前の質問"
+        disabled={disabled || index === 0}
+        onClick={() => onMove(-1)}
+        className="composer-status-icon size-6"
+      >
+        <ChevronLeftIcon />
+      </button>
+      <span className="px-0.5 text-2xs tabular-nums">
+        {index + 1} / {count}
+      </span>
+      <button
+        type="button"
+        aria-label="次の質問"
+        disabled={disabled || index === count - 1}
+        onClick={() => onMove(1)}
+        className="composer-status-icon size-6"
+      >
+        <ChevronIcon />
+      </button>
+    </div>
+  );
+}
+
+/** 1 問分の入力。選択肢と自由記入の行を罫線で並べ、フッターに選択数と送りを出す */
 function AskUserForm({
   questions,
   drafts,
+  index,
   sending,
   error,
   compact,
   onChange,
-  onSubmit,
+  onMove,
+  onSkip,
+  onAdvance,
+  onClose,
 }: {
   questions: AskUserQuestion[];
   drafts: AskUserDraft[];
+  index: number;
   sending: boolean;
   error?: string | undefined;
   compact: boolean;
-  onChange: (index: number, next: AskUserDraft) => void;
-  onSubmit: () => void;
+  onChange: (next: AskUserDraft) => void;
+  onMove: (delta: number) => void;
+  onSkip: () => void;
+  onAdvance: () => void;
+  onClose: () => void;
 }) {
-  const complete = askUserDraftsComplete(drafts);
+  const question = questions[index];
+  if (question === undefined) return null;
+  const draft = askUserDraftAt(drafts, index);
+  const resolved = askUserDraftResolved(draft);
+  const selected = askUserDraftSelectedCount(draft);
+  const unresolved = drafts.filter((item) => !askUserDraftResolved(item)).length;
+  const last = index === questions.length - 1;
+  // 1 問だけのカードは「他に未回答がある」ことが無いので、いまの質問の選択数を出す
+  const multi = questions.length > 1;
+  const options = question.options ?? [];
   return (
-    <form
-      className={cn("grid", compact ? "gap-3" : "gap-3.5")}
-      onSubmit={(event) => {
-        event.preventDefault();
-        onSubmit();
-      }}
-    >
-      {questions.map((question, index) => {
-        const draft = drafts[index] ?? { selected: [], text: "", skipped: false };
-        return (
-          <fieldset key={index} disabled={sending} className="grid min-w-0 gap-1.5 border-0 p-0">
-            <QuestionHeading question={question} answered={false} />
-            {question.options && question.options.length > 0 ? (
-              <div className="flex flex-wrap gap-1.5">
-                {question.options.map((option) => {
-                  const pressed = draft.selected.includes(option.label);
-                  return (
-                    <button
-                      key={option.label}
-                      type="button"
-                      aria-pressed={pressed}
-                      onClick={() =>
-                        onChange(index, toggleAskUserOption(draft, option.label, question.multiSelect === true))
-                      }
-                      className={cn(
-                        "grid min-h-8 max-w-60 cursor-pointer gap-0.5 rounded-lg border px-2.5 py-1.5 text-left text-2xs transition-colors",
-                        pressed
-                          ? "border-accent bg-accent-wash text-accent-text"
-                          : "border-line text-ink-soft hover:border-accent/50 hover:text-accent-text",
-                      )}
-                    >
-                      <span className="break-words">{option.label}</span>
-                      {option.description ? (
-                        <span className="text-3xs break-words text-ink-faint">{option.description}</span>
-                      ) : null}
-                    </button>
-                  );
-                })}
-              </div>
-            ) : null}
-            <textarea
-              rows={1}
-              value={draft.text}
-              disabled={sending}
-              placeholder={question.placeholder ?? "自由記入"}
-              onChange={(event) => onChange(index, { ...draft, text: event.target.value, skipped: false })}
-              onKeyDown={(event) => {
-                // Enter は送信、Shift+Enter は改行。未回答が残っている間は送信しない (入力を消さない)
-                if (event.key !== "Enter" || event.shiftKey) return;
-                event.preventDefault();
-                if (complete) onSubmit();
-              }}
-              className={cn(
-                "min-h-8 w-full resize-y rounded-lg border border-line bg-base px-2.5 py-1.5 text-1sm text-ink",
-                "placeholder:text-ink-ghost focus-visible:border-accent focus-visible:outline-none",
-                "disabled:cursor-not-allowed disabled:opacity-45",
-              )}
-            />
-            <label className="flex w-fit cursor-pointer items-center gap-1.5 text-2xs text-ink-muted">
-              <input
-                type="checkbox"
-                checked={draft.skipped}
-                disabled={sending}
-                onChange={(event) =>
-                  onChange(index, {
-                    selected: event.target.checked ? [] : draft.selected,
-                    text: event.target.checked ? "" : draft.text,
-                    skipped: event.target.checked,
-                  })
-                }
-                className="size-4 shrink-0 accent-focus"
-              />
-              回答しない
-            </label>
-          </fieldset>
-        );
-      })}
-      <div className="flex flex-wrap items-center justify-between gap-2">
+    <div className="grid">
+      <div
+        className={cn(
+          "flex items-start justify-between gap-2 border-b border-line/60",
+          compact ? "px-2.5 py-1.5" : "px-3 py-2",
+        )}
+      >
+        <div className="grid min-w-0 gap-0.5">
+          {question.header ? (
+            <span className="font-sans text-3xs tracking-wide text-ink-faint uppercase">{question.header}</span>
+          ) : null}
+          <p className="m-0 text-1sm font-medium break-words text-ink">{question.question}</p>
+        </div>
+        <div className="flex shrink-0 items-center gap-1">
+          <QuestionPager index={index} count={questions.length} disabled={sending} onMove={onMove} />
+          <button
+            type="button"
+            aria-label="質問を閉じる（未回答は回答なしで送る）"
+            disabled={sending}
+            onClick={onClose}
+            className="composer-status-icon size-6"
+          >
+            <CloseIcon />
+          </button>
+        </div>
+      </div>
+      <div role="group" aria-label={question.question} className="grid divide-y divide-line/60">
+        {options.map((option) => (
+          <OptionRow
+            key={option.label}
+            option={option}
+            pressed={draft.selected.includes(option.label)}
+            multiSelect={question.multiSelect === true}
+            disabled={sending}
+            onToggle={() => onChange(toggleAskUserOption(draft, option.label, question.multiSelect === true))}
+          />
+        ))}
+        <TextRow
+          question={question}
+          draft={draft}
+          multiSelect={question.multiSelect === true}
+          disabled={sending}
+          onChange={(text) => onChange({ ...draft, text, skipped: false })}
+          onAdvance={onAdvance}
+        />
+      </div>
+      <div
+        className={cn(
+          "flex items-center justify-between gap-2 border-t border-line/60",
+          compact ? "px-2.5 py-1.5" : "px-3 py-2",
+        )}
+      >
         <span className="text-2xs text-ink-faint">
-          {error ? (
+          {error !== undefined ? (
             <span role="alert" className="text-danger-text">
               {error}
             </span>
-          ) : complete ? (
-            "選択肢は入力補助です。自由記入でも送信できます"
+          ) : multi && last && unresolved > 0 ? (
+            <span className="text-warn">未回答の質問が {unresolved} 件あります</span>
+          ) : selected > 0 ? (
+            `${selected} 件選択`
           ) : (
-            "すべての質問に回答すると送信できます"
+            "未選択"
           )}
         </span>
-        <button type="submit" className="btn-primary" disabled={!complete || sending}>
-          {sending ? "送信中…" : "回答する"}
-        </button>
+        <div className="flex shrink-0 items-center gap-1.5">
+          <button type="button" disabled={sending} onClick={onSkip} className="btn-quiet min-h-8 px-2.5 text-2xs">
+            回答しない
+          </button>
+          <button
+            type="button"
+            aria-label={last ? "回答を送る" : "次の質問へ"}
+            disabled={sending || !resolved}
+            onClick={onAdvance}
+            className="grid size-8 shrink-0 place-items-center rounded-lg bg-accent text-on-accent transition-colors hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-45"
+          >
+            <ArrowRightIcon />
+          </button>
+        </div>
       </div>
-    </form>
+    </div>
   );
 }
 
-/** 回答済み / 回答なしで終了の記録。選択と自由記入を質問ごとに並べる */
+/** 回答済み / 回答なしで終了の記録。質問 (淡) と回答 (濃) の組を並べる */
 function AskUserRecord({
   questions,
   answers,
@@ -161,48 +298,26 @@ function AskUserRecord({
   compact: boolean;
   note?: string;
 }) {
-  const answered = answers !== undefined && answers.length > 0;
   return (
     <div className={cn("grid", compact ? "gap-2.5" : "gap-3")}>
       {questions.map((question, index) => {
-        const answer = answers?.find((item) => item.index === index);
-        const skipped = !answer || answer.skipped === true;
+        const text = askUserAnswerText(answers?.find((item) => item.index === index));
         return (
-          <div key={index} className="grid min-w-0 gap-1">
-            <QuestionHeading question={question} answered />
-            {skipped ? (
-              <span className="text-2xs text-ink-faint">回答なし</span>
-            ) : (
-              <div className="grid min-w-0 gap-1">
-                {answer.selected && answer.selected.length > 0 ? (
-                  <div className="flex flex-wrap gap-1.5">
-                    {answer.selected.map((label) => (
-                      <span
-                        key={label}
-                        className="rounded-md border border-line bg-soft/40 px-1.5 py-0.5 text-2xs break-words"
-                      >
-                        {label}
-                      </span>
-                    ))}
-                  </div>
-                ) : null}
-                {answer.text ? (
-                  <p className="m-0 rounded-lg border border-line/70 bg-soft/30 px-2.5 py-1.5 text-2xs break-words whitespace-pre-wrap">
-                    {answer.text}
-                  </p>
-                ) : null}
-              </div>
-            )}
+          <div key={index} className="grid min-w-0 gap-0.5">
+            <span className="text-2xs break-words text-ink-faint">{question.question}</span>
+            <span className={cn("text-1sm break-words whitespace-pre-wrap", text === undefined && "text-ink-faint")}>
+              {text ?? "回答なし"}
+            </span>
           </div>
         );
       })}
-      {note || !answered ? <span className="text-2xs text-ink-faint">{note ?? "回答なしで終了"}</span> : null}
+      {note ? <span className="text-2xs text-ink-faint">{note}</span> : null}
     </div>
   );
 }
 
 /**
- * ask_user の質問カード。回答待ちは入力フォーム、回答後は Q&A の記録として出す。
+ * ask_user の質問カード。回答待ちは 1 問ずつ出す入力 (ページ切り替え)、回答後は Q&A の記録として出す。
  * 回答の所有は run 側 (runTools) にあり、このカードは `answers` が届くまで待つ。
  */
 export function AskUserCard({
@@ -219,6 +334,7 @@ export function AskUserCard({
 }) {
   const questions = card.questions ?? [];
   const [drafts, setDrafts] = useState<AskUserDraft[]>(() => emptyAskUserDrafts(questions));
+  const [page, setPage] = useState(0);
   const [sending, setSending] = useState(false);
   const [sent, setSent] = useState(false);
   const [error, setError] = useState<string>();
@@ -226,12 +342,17 @@ export function AskUserCard({
   const waiting = answerable && isPendingAskUserCard(card);
   const answers = recordAnswers(card, drafts, sent);
   const showForm = waiting && answers === undefined;
+  const index = Math.min(page, Math.max(questions.length - 1, 0));
 
-  const submit = async (): Promise<void> => {
-    if (sending || !askUserDraftsComplete(drafts)) return;
+  const move = (delta: number): void => {
+    setError(undefined);
+    setPage(Math.min(Math.max(index + delta, 0), questions.length - 1));
+  };
+
+  const submit = async (next: AskUserAnswer[]): Promise<void> => {
     setSending(true);
     setError(undefined);
-    const result = await onAnswer(card.id, askUserAnswersFromDrafts(drafts));
+    const result = await onAnswer(card.id, next);
     setSending(false);
     if (result.ok) {
       // answers が届くまでは手元の入力を記録として見せる (tool_end は同じバッチの完了を待つことがある)
@@ -241,37 +362,66 @@ export function AskUserCard({
     setError(result.error);
   };
 
+  /** 次へ (最後の質問なら送信)。未回答を残したまま最後まで来たら、その質問へ戻す */
+  const advance = (): void => {
+    if (sending || !askUserDraftResolved(askUserDraftAt(drafts, index))) return;
+    if (index < questions.length - 1) {
+      move(1);
+      return;
+    }
+    if (!askUserDraftsComplete(drafts)) {
+      const first = nextUnresolvedAskUserIndex(drafts, index);
+      if (first !== undefined) setPage(first);
+      return;
+    }
+    void submit(askUserAnswersFromDrafts(drafts));
+  };
+
   return (
     <section
       aria-label={showForm ? "エージェントからの質問" : "エージェントからの質問と回答"}
       className={cn(
-        "grid min-w-0",
+        "grid min-w-0 overflow-hidden",
         showForm
-          ? "gap-3 rounded-xl border border-line bg-panel px-3 py-2.5"
-          : "rounded-xl border border-line/70 bg-soft/20 px-3 py-2.5",
+          ? "gap-0 rounded-xl border border-line bg-panel"
+          : "gap-3 rounded-xl border border-line/70 bg-soft/20 px-3 py-2.5",
       )}
     >
-      {!showForm ? (
-        <span className="mb-1.5 font-sans text-3xs tracking-wide text-ink-faint uppercase">
-          {answers !== undefined && answers.length > 0 ? "質問と回答" : waiting ? "回答を送信しました" : "質問"}
-        </span>
-      ) : null}
       {showForm ? (
         <AskUserForm
           questions={questions}
           drafts={drafts}
+          index={index}
           sending={sending}
           error={error}
           compact={compact}
-          onChange={(index, next) => setDrafts((current) => current.map((draft, i) => (i === index ? next : draft)))}
-          onSubmit={() => void submit()}
+          onChange={(next) => {
+            setError(undefined);
+            setDrafts((current) => current.map((draft, i) => (i === index ? next : draft)));
+          }}
+          onMove={move}
+          onSkip={() => {
+            setError(undefined);
+            setDrafts((current) =>
+              current.map((draft, i) => (i === index ? { selected: [], text: "", skipped: true } : draft)),
+            );
+            if (index < questions.length - 1) move(1);
+          }}
+          onAdvance={advance}
+          onClose={() => void submit(askUserAnswersClosing(drafts))}
         />
       ) : (
         <AskUserRecord
           questions={questions}
           answers={answers}
           compact={compact}
-          note={waiting ? "回答を送信しました。反映を待っています…" : undefined}
+          note={
+            answers !== undefined && answers.length > 0
+              ? waiting
+                ? "回答を送信しました。反映を待っています…"
+                : undefined
+              : "回答なしで終了"
+          }
         />
       )}
     </section>

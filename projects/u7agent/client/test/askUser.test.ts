@@ -4,10 +4,16 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { chatReducer, historyToBubbles, initialChatState, type Bubble } from "../src/hooks/chatReducer";
 import {
+  askUserAnswerText,
+  askUserAnswersClosing,
   askUserAnswersFromDrafts,
+  askUserDraftAt,
+  askUserDraftResolved,
+  askUserDraftSelectedCount,
   askUserDraftsComplete,
   emptyAskUserDrafts,
   isPendingAskUser,
+  nextUnresolvedAskUserIndex,
   pendingAskUserQuestionCount,
   toggleAskUserOption,
   type AskUserDraft,
@@ -299,4 +305,39 @@ test("履歴のカードも質問と回答を写して専用カードに出せ�
     ["call-2"],
     "専用カードを外しても汎用ツール履歴は残る (#N の対応を保つ)",
   );
+});
+
+test("1 問ずつ出すカードの判定は質問ごとの入力から導出する", () => {
+  const drafts: AskUserDraft[] = [
+    { selected: ["A 案", "B 案"], text: "メモ", skipped: false },
+    { selected: [], text: "  ", skipped: false },
+    { selected: [], text: "", skipped: true },
+  ];
+  // 空白だけの自由記入は未入力として扱い、選択と自由記入はどちらも 1 件として数える
+  assert.deepEqual(drafts.map(askUserDraftSelectedCount), [3, 0, 0]);
+  assert.deepEqual(drafts.map(askUserDraftResolved), [true, false, true]);
+  assert.equal(askUserDraftResolved({ selected: [], text: " 補足 ", skipped: false }), true);
+  assert.equal(askUserDraftsComplete(drafts), false);
+
+  // 未回答の質問は「いまの後ろ → 先頭」の順で探し、無ければ undefined
+  assert.equal(nextUnresolvedAskUserIndex(drafts, 0), 1);
+  assert.equal(nextUnresolvedAskUserIndex(drafts, 2), 1, "末尾から先頭へ回る");
+  assert.equal(nextUnresolvedAskUserIndex([drafts[0]!, drafts[2]!], 1), undefined, "全部回答済み");
+  assert.equal(nextUnresolvedAskUserIndex([], 0), undefined, "質問が無い");
+
+  // 閉じるときは回答済みを残し、未回答だけ「回答しない」にして送る (入力を捨てない)
+  assert.deepEqual(askUserAnswersClosing(drafts), [
+    { index: 0, selected: ["A 案", "B 案"], text: "メモ" },
+    { index: 1, skipped: true },
+    { index: 2, skipped: true },
+  ]);
+
+  // 記録の 1 行は選択と自由記入を並べ、回答なしは undefined (表示側で「回答なし」を出す)
+  assert.equal(askUserAnswerText({ index: 0, selected: ["A 案", "B 案"], text: "メモ" }), "A 案、B 案、メモ");
+  assert.equal(askUserAnswerText({ index: 1, text: "補足" }), "補足");
+  assert.equal(askUserAnswerText({ index: 2, skipped: true }), undefined);
+  assert.equal(askUserAnswerText(undefined), undefined);
+  assert.equal(askUserAnswerText({ index: 3 }), undefined, "空の回答は回答なし");
+
+  assert.deepEqual(askUserDraftAt(drafts, 9), { selected: [], text: "", skipped: false }, "範囲外は空の入力");
 });
