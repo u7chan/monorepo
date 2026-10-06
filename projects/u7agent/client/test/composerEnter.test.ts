@@ -81,6 +81,8 @@ const props: ComposerProps = {
   attachments: [],
   rootCwd: "/workspace",
   skills: { status: "unavailable" },
+  // ライブのツール行は出さない (実行中のカードが無い状態)
+  runTools: {},
   onReloadSkills: () => {},
   onSend: () => {},
   onStop: () => {},

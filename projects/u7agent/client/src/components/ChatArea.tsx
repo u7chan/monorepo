@@ -57,6 +57,9 @@ export type ChatAreaProps = {
   ) => Promise<{ ok: true } | { ok: false; error: string }>;
   /** 非表示 (設定ページ) の間は scrollHeight を読めないので同期を止める */
   visible?: boolean;
+  /** 進行中のターンの assistant バブル id (ChatState.currentAssistantId)。ツール履歴のコピーを
+   * run が終わるまで隠す根拠 (履歴ページ由来のバブルは `settled` を持たず使えない) */
+  currentAssistantId?: number | null;
 };
 
 export function ChatArea({
@@ -82,6 +85,7 @@ export function ChatArea({
   answerable = false,
   onAnswerQuestion,
   visible = true,
+  currentAssistantId = null,
 }: ChatAreaProps) {
   const chatAreaRef = useRef<HTMLElement>(null);
   // 本文ブロック。ストリーミングで bubbles が増えない伸び (行の折り返し) は resize 側で拾う
@@ -262,6 +266,8 @@ export function ChatArea({
         onResend={unsentRunId === undefined ? undefined : () => onResendUnsent?.(unsentRunId)}
         onDiscard={unsentRunId === undefined ? undefined : () => onDiscardUnsent?.(unsentRunId)}
         answerable={answerable}
+        // 進行中のターンだけ、ツール履歴のコピーを出さない
+        live={bubble.id === currentAssistantId}
         onAnswerQuestion={onAnswerQuestion}
       />
     );

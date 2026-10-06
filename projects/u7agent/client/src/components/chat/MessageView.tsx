@@ -53,6 +53,7 @@ export function MessageView({
   onResend,
   onDiscard,
   answerable = false,
+  live = false,
   onAnswerQuestion,
   animate = true,
 }: {
@@ -78,6 +79,8 @@ export function MessageView({
   onDiscard?: () => void;
   /** このバブルが実行中の run に属するか (ask_user のカードを回答可能にするかの根拠) */
   answerable?: boolean;
+  /** 進行中のターンのバブルか。ツール履歴のコピーを完了まで隠す根拠 */
+  live?: boolean;
   /** ask_user の回答。エラーはカード内に出し、入力は消さない */
   onAnswerQuestion?: (
     toolCallId: string,
@@ -164,6 +167,7 @@ export function MessageView({
           <ToolHistoryView
             cards={toolCards}
             hasResponse={Boolean(bubble.text)}
+            live={live}
             copiedId={copiedId}
             copiedAll={copiedAll}
             onCopyAll={onCopyAll}

@@ -17,10 +17,11 @@ import { composerDropKind, FILE_MENTION_MIME, insertFileMention, type ComposerDr
 import type { LayoutMode } from "../lib/layout";
 import { runRetryBlockedReason, type RunErrorInfo } from "../lib/runRetry";
 import { skillCommandText } from "../lib/sessionSkills";
-import type { AgentDef, ContextUsage, ModelRef, RunStatus, ThinkingLevel } from "../types";
+import type { AgentDef, ContextUsage, ModelRef, RunStatus, ThinkingLevel, ToolCall } from "../types";
 import { AgentField } from "./composer/AgentField";
 import { AttachmentChips } from "./composer/AttachmentChips";
 import { ComposerStatus } from "./composer/ComposerStatus";
+import { LiveToolCall } from "./composer/LiveToolCall";
 import { ModelEffortPicker } from "./composer/ModelEffortControls";
 import { SkillPicker } from "./composer/SkillPicker";
 
@@ -42,6 +43,8 @@ export type ComposerProps = {
   onCompact?: () => void;
   /** ランがエラーで終わったか (再実行カードの表示条件) */
   runStatus?: RunStatus;
+  /** 直近 run のツールカード (toolCallId → ToolCall)。順序が走査順になる */
+  runTools: Readonly<Record<string, ToolCall>>;
   /** 最後に失敗したランの分類コードと、BFF が合成した文言 */
   runError?: RunErrorInfo;
   /** 失敗カードの再実行。固定文言を通常の送信経路で送る */
@@ -149,6 +152,7 @@ export function Composer({
   onCompact,
   onRetry,
   runStatus,
+  runTools,
   runError,
   onReloadSkills,
 }: ComposerProps) {
@@ -329,6 +333,7 @@ export function Composer({
         compact ? "px-3 pb-[max(8px,env(safe-area-inset-bottom))]" : "mx-auto max-w-220 px-6 pb-5 wide:px-8",
       )}
     >
+      <LiveToolCall runTools={runTools} runStatus={runStatus ?? "idle"} />
       <ComposerStatus
         activity={activity}
         activityState={activityState}

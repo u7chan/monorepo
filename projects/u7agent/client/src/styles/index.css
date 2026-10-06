@@ -893,6 +893,99 @@
     }
   }
 
+  /* 入力欄の直上のライブ表示 (実行中のツール)。箱の出入りと、行の差し替えを CSS が持ち、
+   * 表示条件と演出の意図は docs/frontend.md が正。完了した行は高さを 0 へ畳んでから外し、
+   * 次に動くツールが無ければ箱ごと閉じる (状態行の文言と重ならないよう空の箱は残さない) */
+  .live-tool {
+    display: grid;
+    grid-template-rows: 0fr;
+    opacity: 0;
+    transition:
+      grid-template-rows 180ms ease-out,
+      opacity 180ms ease-out;
+  }
+  .live-tool[data-visible="true"] {
+    grid-template-rows: 1fr;
+    opacity: 1;
+  }
+  .live-tool > * {
+    min-height: 0;
+    overflow: hidden;
+  }
+  .live-tool-item {
+    display: grid;
+    grid-template-rows: 1fr;
+  }
+  .live-tool-item > * {
+    min-height: 0;
+    overflow: hidden;
+  }
+  .live-tool-item[data-leaving="false"] > * {
+    animation: live-tool-row-in 180ms ease-out;
+  }
+  .live-tool-item[data-leaving="true"] {
+    animation: live-tool-row-out 180ms ease-out forwards;
+  }
+  @keyframes live-tool-row-in {
+    from {
+      opacity: 0;
+      transform: translateY(4px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+  @keyframes live-tool-row-out {
+    from {
+      grid-template-rows: 1fr;
+      opacity: 1;
+    }
+    to {
+      grid-template-rows: 0fr;
+      opacity: 0;
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .live-tool {
+      transition: none;
+    }
+    .live-tool-item[data-leaving="false"] > * {
+      animation: none;
+    }
+    /* 動きを止めるときは、animation を切って終端の見た目 (0fr / 透明) をその場で当てる。
+     * ここで見た目を作らないと、animationend が来ないぶん行が残って箱だけ開いたままになる */
+    .live-tool-item[data-leaving="true"] {
+      animation: none;
+      grid-template-rows: 0fr;
+    }
+    .live-tool-item[data-leaving="true"] > * {
+      opacity: 0;
+    }
+  }
+
+  /* ライブからツール履歴へ 1 件差し込まれた合図。畳んだままでも見えるよう、見出しを一瞬光らせる。
+   * 差し込まれるたびに要素ごと作り直されるので、連続でも毎回最初から光る */
+  .tool-history-flash {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    animation: tool-history-flash 520ms ease-out forwards;
+  }
+  @keyframes tool-history-flash {
+    from {
+      background: var(--c-accent-wash);
+    }
+    to {
+      background: transparent;
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .tool-history-flash {
+      display: none;
+    }
+  }
+
   /* サイドバーのプロジェクト行の配下リスト。行は高さの遷移のため DOM に残るので、開いた瞬間は高さだけが
    * 動いて内容が硬く見える。少し遅らせて薄く出し (遅延は開く側だけ)、上へ逃がした分を入れ物のクリップで
    * 隠す。値を含む理由は docs/ui-layout.md が正。 */

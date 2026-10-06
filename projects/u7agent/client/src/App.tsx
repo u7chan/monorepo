@@ -506,6 +506,7 @@ export default function App() {
                   onDiscardUnsent={handleDiscardUnsent}
                   answerable={app.chat.runStatus === "running"}
                   onAnswerQuestion={app.answerQuestion}
+                  currentAssistantId={app.chat.currentAssistantId}
                 />
               </MarkdownImageProvider>
             </FileRefProvider>
@@ -538,6 +539,7 @@ export default function App() {
               onStop={handleStop}
               onCompact={app.sessionId ? handleCompact : undefined}
               runStatus={app.chat.runStatus}
+              runTools={app.chat.runTools}
               runError={app.chat.runError}
               onRetry={handleRetry}
               onAttachFiles={app.attachFiles}
