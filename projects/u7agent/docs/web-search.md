@@ -67,7 +67,8 @@ Exa MCP は失敗を HTTP ステータスで返さない。すべて固定文言
 ## 設定
 
 - 有効 / 無効のほかは API キー・provider 選択（Brave / Tavily 等）を持たない（v1 は keyless な Exa 固定）。有料キーによるレート制限回避も非ゴール（provider の抽象化と選択は #1776）
-- 環境変数は増やさない（[README.md](../README.md) の環境変数表に変更は無い）
+- 環境変数は増やさない（[.env.example](../.env.example) に変更は無い）
+- 常時公開で、`PI_AGENT_TOOLS` などからは外せない
 - 検索前の確認ダイアログは持たない。SDK の `ctx.ui.confirm()` は BFF（`noExtensions: true`）では使えない（`ask_user` の待機機構が入ってから別途）
 
 ## 検証
