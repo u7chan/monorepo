@@ -389,11 +389,12 @@ function parseDestination(inner: string): { url: string; title: string | null } 
   return { url, title: match[3] ?? match[4] ?? match[5] ?? null };
 }
 
-/** 裸の URL (前が区切り文字のときだけ)。文末の句読点はリンクに含めない */
+/** 裸の URL (直前が語の続きでないときだけ)。文末の句読点はリンクに含めない */
 function readBareUrl(text: string, start: number): { node: MdInline; end: number } | null {
   const before = text[start - 1];
-  if (before !== undefined && !/[\s(["'（]/.test(before)) return null;
-  const match = /^https?:\/\/[^\s<>"）]+/i.exec(text.slice(start));
+  // 語の続きの判定は ASCII に限る (日本語の直後の URL もリンクにする)
+  if (before !== undefined && /[0-9A-Za-z_]/.test(before)) return null;
+  const match = /^https?:\/\/[^\s<>"）］｝＞」』】》〉〕〗〙〛｣。、！？]+/i.exec(text.slice(start));
   if (match === null) return null;
   let url = match[0].replace(/[.,;:!?]+$/, "");
   while (url.endsWith(")") && (url.match(/\(/g)?.length ?? 0) < (url.match(/\)/g)?.length ?? 0)) {

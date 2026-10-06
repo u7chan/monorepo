@@ -89,6 +89,49 @@ test("自動リンクは山括弧と裸の URL の両方を受ける", () => {
   assert.deepEqual(parseInline("xhttps://example.com"), [text("xhttps://example.com")]);
 });
 
+test("裸の URL は日本語の直後でもリンクにし、日本語の句読点はリンクに含めない", () => {
+  // 語の続きとみなすのは ASCII の英数字だけ (`）` の直後でもリンクにする)
+  assert.deepEqual(parseInline("参考：気象庁（東京）https://example.com"), [
+    text("参考：気象庁（東京）"),
+    { kind: "link", href: "https://example.com", title: null, children: [text("https://example.com")] },
+  ]);
+  // 末尾の全角句読点は本文に残す
+  assert.deepEqual(parseInline("詳しくはhttps://example.com。"), [
+    text("詳しくは"),
+    { kind: "link", href: "https://example.com", title: null, children: [text("https://example.com")] },
+    text("。"),
+  ]);
+  // 閉じ括弧もリンクに含めない
+  assert.deepEqual(parseInline("「https://example.com」"), [
+    text("「"),
+    { kind: "link", href: "https://example.com", title: null, children: [text("https://example.com")] },
+    text("」"),
+  ]);
+  // 直前が ASCII の数字でもリンクにしない
+  assert.deepEqual(parseInline("1https://example.com"), [text("1https://example.com")]);
+});
+
+test("全角の閉じ括弧は URL に含めない", () => {
+  const pairs = [
+    ["＜", "＞"],
+    ["［", "］"],
+    ["｛", "｝"],
+    ["《", "》"],
+    ["〈", "〉"],
+  ];
+  for (const [open, close] of pairs) {
+    assert.deepEqual(
+      parseInline(`${open}https://example.com${close}`),
+      [
+        text(open),
+        { kind: "link", href: "https://example.com", title: null, children: [text("https://example.com")] },
+        text(close),
+      ],
+      `${open} … ${close} の URL が閉じ括弧を含んでいる`,
+    );
+  }
+});
+
 test("画像は同一オリジン (相対パス) だけ描画し、外部 URL は原文に落とす", () => {
   assert.deepEqual(parseInline("![図](/assets/diagram.png)"), [
     { kind: "image", src: "/assets/diagram.png", alt: "図" },
