@@ -26,7 +26,7 @@ import { createServeToolDefinitions, withServeTool, type ServeToolHost } from ".
 import { createSandboxToolClientFromEnv } from "./sandbox/client";
 import { createRemoteToolDefinitions } from "./sandbox/remote-tools";
 import { createMutableSecretMasker, type SecretMasker } from "./redact";
-import { createWebSearchToolDefinitions, withWebSearchTool } from "./web-search-tool";
+import { createWebSearchToolDefinitions, withWebSearchTool, type WebSearchRuntimeConfig } from "./web-search-tool";
 import { collectSecretValues, createSecretRedactionExtension, extraSecretVarNames } from "./secret-guard";
 import { catalogSkillsFromSnapshot } from "./session-skills";
 import type {
@@ -198,6 +198,11 @@ export interface PiBff {
    * `read` は常に差し替える（既存セッションの execute は削除後も現在の行を見に行く）
    */
   setImageGeneration(config: ImageGenerationConfig): void;
+  /**
+   * `web_search` の実行時トグルを注入する。ツールは execute のたびに `readEnabled()` を読むため、
+   * 既存セッションにも次の呼び出しから効く (#1775)。設定が未注入の間は有効 (既定 ON)
+   */
+  setWebSearchEnabled(config: WebSearchRuntimeConfig): void;
   /**
    * serve ツールの実体を注入する。bootstrap がアプリデータ (実績) とサンドボックスの両方を持つため、
    * ツール定義はこのホストへ委譲する (GUI と同じ ServeService を通る)
@@ -609,6 +614,9 @@ export async function createPiBff({ cwd = process.cwd() }: { cwd?: string } = {}
   // ツール定義はセッション作成時にこの値を見る（既存会話へ遡及しない）
   const imageGeneration: { config: ImageGenerationConfig | undefined } = { config: undefined };
   const imagesGenerator = createImagesGenerator({ maskText: maskError });
+  // web_search の実行時トグルも DB を正とする WebSearchSettingsService が写す。既定は有効で、
+  // ツールは execute のたびにここを読む（セッション作成時に凍結しない）
+  const webSearch: { readEnabled: () => boolean } = { readEnabled: () => true };
   // serve ツールの実体は bootstrap (アプリデータとサンドボックスを持つ層) が注入する。未注入なら公開しない
   const serveHost: { value: ServeToolHost | null } = { value: null };
   // ask_user の実体も bootstrap が注入する。待機の所有者は SessionStore (run 状態と同じ場所に置く)
@@ -747,7 +755,10 @@ export async function createPiBff({ cwd = process.cwd() }: { cwd?: string } = {}
           // 解決は exec のたびに行う (設定の変更は次の bash から効く)
           envForCwd: () => sessionEnv.value?.variablesFor(relativeCwd) ?? {},
         }),
-        ...createWebSearchToolDefinitions({ masker: secretMasker }),
+        ...createWebSearchToolDefinitions({
+          masker: secretMasker,
+          readEnabled: () => webSearch.readEnabled(),
+        }),
         ...createImageToolDefinitions({
           enabled: imageGenerationEnabled,
           sessionCwd: relativeCwd,
@@ -815,6 +826,9 @@ export async function createPiBff({ cwd = process.cwd() }: { cwd?: string } = {}
     },
     setImageGeneration(config) {
       imageGeneration.config = config;
+    },
+    setWebSearchEnabled(config) {
+      webSearch.readEnabled = config.readEnabled;
     },
     setServe(host) {
       serveHost.value = host;

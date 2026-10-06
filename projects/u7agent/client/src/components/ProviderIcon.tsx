@@ -2,16 +2,18 @@ import { cn } from "../lib/cn";
 import { providerIconKey, providerMonogram, PROVIDER_ICON_PATHS } from "../lib/providerIcon";
 
 /** 置く場所ごとの寸法。呼び出し側は位置だけを渡す */
-export type ProviderIconVariant = "list" | "heading";
+export type ProviderIconVariant = "field" | "list" | "heading";
 
-/** 一覧・モデル候補の行は名前の 2 行分、詳細の見出しは見出しの高さに合わせる */
+/** プルダウンの欄は 1 行の高さ、一覧・モデル候補の行は名前の 2 行分、詳細の見出しは見出しの高さに合わせる */
 const VARIANT_CLASS: Record<ProviderIconVariant, string> = {
+  field: cn("size-5 rounded-md"),
   list: cn("size-7 rounded-md"),
   heading: cn("size-8 rounded-lg"),
 };
 
-/** タイル (28 / 32px) に対して余白が残る大きさ。線の太いロゴでも潰れない */
+/** タイル (20 / 28 / 32px) に対して余白が残る大きさ。線の太いロゴでも潰れない */
 const GLYPH_CLASS: Record<ProviderIconVariant, string> = {
+  field: cn("size-3"),
   list: cn("size-4"),
   heading: cn("size-5"),
 };

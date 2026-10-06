@@ -37,6 +37,9 @@ export const WEB_SEARCH_NETWORK_ERROR_MESSAGE = "検索プロバイダに接続�
 export const WEB_SEARCH_TIMEOUT_MESSAGE = "web_search がタイムアウトしました";
 export const WEB_SEARCH_ABORTED_MESSAGE = "web_search を中断しました";
 export const WEB_SEARCH_NO_RESULTS_MESSAGE = "結果が見つかりませんでした";
+/** 画面が同じ文言を出すため、設定 API もこれを `disabledMessage` として返す */
+export const WEB_SEARCH_DISABLED_MESSAGE =
+  "Web 検索は無効化されています。有効にするには 設定 → モデル → Web 検索 を開いてください。";
 
 export const WEB_SEARCH_TOOL_DESCRIPTION =
   "Search the web and return the top results with their titles, URLs and excerpts. " +
@@ -177,17 +180,25 @@ export function formatWebSearchResults(items: readonly WebSearchResultItem[], ma
   return `${text.slice(0, WEB_SEARCH_OUTPUT_MAX_LENGTH - WEB_SEARCH_TRUNCATED_MARKER.length)}${WEB_SEARCH_TRUNCATED_MARKER}`;
 }
 
+/** セッション作成時に凍結すると既存会話へ OFF が効かないため、execute のたびに読む */
+export interface WebSearchRuntimeConfig {
+  readEnabled: () => boolean;
+}
+
 export interface WebSearchToolOptions {
   /** テストで差し替える fetch。実 API は呼ばない (docs/web-search.md) */
   fetchImpl?: typeof fetch;
   timeoutMs?: number;
   /** 切り詰めの前に掛ける。`maskSafe` は切り詰めで欠けた断片を拾えない */
   masker: SecretMasker;
+  /** 省くと常に有効（既定 ON） */
+  readEnabled?: () => boolean;
 }
 
 export function createWebSearchToolDefinitions(options: WebSearchToolOptions): ToolDefinition[] {
   const baseFetch = options.fetchImpl ?? fetch;
   const timeoutMs = options.timeoutMs ?? WEB_SEARCH_TIMEOUT_MS;
+  const readEnabled = options.readEnabled ?? ((): boolean => true);
 
   async function search(query: string, signal: AbortSignal | undefined): Promise<WebSearchOutcome> {
     // 期限はここでのみ掛ける。fetch へ渡す signal を共有すると timeout とユーザー中断を区別できない
@@ -256,6 +267,8 @@ export function createWebSearchToolDefinitions(options: WebSearchToolOptions): T
     parameters: webSearchSchema,
     constrainedSampling: { type: "json_schema", strict: "prefer" },
     async execute(_toolCallId, params: WebSearchParams, signal) {
+      // 判定を execute まで遅らせないと、OFF が既存セッションの次の呼び出しに効かない
+      if (!readEnabled()) throw new Error(WEB_SEARCH_DISABLED_MESSAGE);
       const outcome = await search(params.query, signal);
       if (!outcome.ok) throw new Error(outcome.message);
       return {

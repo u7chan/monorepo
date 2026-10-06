@@ -1,5 +1,6 @@
 import { useRef, useState } from "react";
 import { useImageSettings, type ImageSettings } from "../hooks/useImageSettings";
+import { useWebSearchSettings, type WebSearchSettings } from "../hooks/useWebSearchSettings";
 import { useModelSettings, type ModelSettings } from "../hooks/useModelSettings";
 import { cn } from "../lib/cn";
 import {
@@ -17,6 +18,7 @@ import { ReloadButton } from "./ReloadButton";
 import { ModelsTab } from "./model-settings/ModelsTab";
 import { ImageSettingsTab } from "./model-settings/ImageSettingsTab";
 import { ProvidersTab } from "./model-settings/ProvidersTab";
+import { WebSearchSettingsTab } from "./model-settings/WebSearchSettingsTab";
 import { SettingsPageLayout, type SettingsPageProps } from "./SettingsPageLayout";
 
 export type ModelSettingsPageProps = SettingsPageProps & {
@@ -32,8 +34,8 @@ export type ModelSettingsPageProps = SettingsPageProps & {
 };
 
 /**
- * 設定 → モデル。「モデルを選ぶ / プロバイダー / 画像生成」の 3 タブを持ち、表示の正は URL
- * (`/settings/models`、`/settings/models/providers`、`/settings/models/images`) に置く。
+ * 設定 → モデル。「モデルを選ぶ / プロバイダー / 画像生成 / Web 検索」の 4 タブを持ち、表示の正は URL
+ * (`/settings/models`、`/settings/models/providers`、`/settings/models/images`、`/settings/models/web-search`) に置く。
  * hook はこの画面が持つ (カタログ全件を起動のたびに読まない。開いたときだけ取得する)。
  */
 export function ModelSettingsPage({
@@ -48,10 +50,12 @@ export function ModelSettingsPage({
 }: ModelSettingsPageProps) {
   const modelSettings = useModelSettings({ onRefreshHealth });
   const imageSettings = useImageSettings();
+  const webSearchSettings = useWebSearchSettings();
   return (
     <ModelSettingsView
       modelSettings={modelSettings}
       imageSettings={imageSettings}
+      webSearchSettings={webSearchSettings}
       modelsSubsection={modelsSubsection}
       onSelectModelsSubsection={onSelectModelsSubsection}
       sessions={sessions}
@@ -70,6 +74,7 @@ const EMPTY_DRAFT: AvailabilityDraft = { allowed: [], defaultModel: null };
 export function ModelSettingsView({
   modelSettings,
   imageSettings,
+  webSearchSettings,
   sessions = [],
   sessionsLoaded = false,
   compact = false,
@@ -80,6 +85,7 @@ export function ModelSettingsView({
 }: SettingsPageProps & {
   modelSettings: ModelSettings;
   imageSettings: ImageSettings;
+  webSearchSettings: WebSearchSettings;
   sessions?: SessionSummary[];
   sessionsLoaded?: boolean;
   modelsSubsection?: ModelsSubsection;
@@ -129,17 +135,21 @@ export function ModelSettingsView({
   }
   const draftState = appliedDraft.current;
   const imagesTab = modelsSubsection === "images";
+  const webSearchTab = modelsSubsection === "web-search";
   // 注記と再読み込みは表示中のタブのものだけを出す (別タブの失敗を混ぜない)
-  const activeNote = imagesTab ? imageSettings.note : note;
-  const activeReloading = imagesTab ? imageSettings.reloading : reloading;
+  const activeNote = webSearchTab ? webSearchSettings.note : imagesTab ? imageSettings.note : note;
+  const activeReloading = webSearchTab ? webSearchSettings.reloading : imagesTab ? imageSettings.reloading : reloading;
 
   return (
     <SettingsPageLayout
       eyebrow="MODELS"
       title="モデル"
-      caption="使うモデルと、プロバイダーごとのAPIキー、画像生成の設定をします。保存した内容は再起動後も使われます。"
+      caption="使うモデルと、プロバイダーごとのAPIキー、画像生成・Web 検索の設定をします。保存した内容は再起動後も使われます。"
       actions={
-        <ReloadButton onClick={() => void Promise.all([reload(), imageSettings.reload()])} disabled={activeReloading}>
+        <ReloadButton
+          onClick={() => void Promise.all([reload(), imageSettings.reload(), webSearchSettings.reload()])}
+          disabled={activeReloading}
+        >
           再読み込み
         </ReloadButton>
       }
@@ -164,7 +174,22 @@ export function ModelSettingsView({
       onOpenNav={onOpenNav}
       onBack={onBack}
     >
-      {imagesTab ? (
+      {webSearchTab ? (
+        webSearchSettings.settings ? (
+          <WebSearchSettingsTab
+            settings={webSearchSettings.settings}
+            saving={webSearchSettings.saving}
+            onChange={(enabled) => void webSearchSettings.setEnabled(enabled)}
+          />
+        ) : (
+          <SettingsPlaceholder
+            label="Web 検索の設定"
+            note={webSearchSettings.note}
+            reloading={webSearchSettings.reloading}
+            onReload={() => void webSearchSettings.reload()}
+          />
+        )
+      ) : imagesTab ? (
         imageSettings.settings ? (
           <ImageSettingsTab
             settings={imageSettings.settings}

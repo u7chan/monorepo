@@ -64,6 +64,13 @@ test("builtin provider の全 ID が期待どおりのロゴへ対応する", ()
   }
 });
 
+test("Web 検索の provider もロゴを持つ", () => {
+  assert.equal(providerIconKey("exa"), "exa");
+  assert.equal(providerIconKey("tavily"), "tavily");
+  const html = renderToStaticMarkup(createElement(ProviderIcon, { provider: "exa", name: "Exa" }));
+  assert.ok(html.includes("<svg"), "ロゴは svg で描く");
+});
+
 test("ロゴの無い provider は null（呼び出し側は頭文字へ落とす）", () => {
   assert.equal(providerIconKey("my-custom-provider"), null);
 });

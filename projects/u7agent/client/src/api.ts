@@ -52,6 +52,8 @@ import type {
   UpdateModelAvailabilityBody,
   UpdateNotificationsBody,
   UpdateSkillBody,
+  WebSearchMutationResponse,
+  WebSearchSettingsResponse,
 } from "./types";
 
 export class ApiError extends Error {
@@ -610,6 +612,23 @@ export const deleteImageApiKey = async (): Promise<ImageMutationResponse> => {
   const res = await client.api.settings.images.key.$delete();
   if (!res.ok) throw await apiError(res);
   return (await res.json()) as ImageMutationResponse;
+};
+
+/**
+ * 設定 → モデル（Web 検索タブ）。有効 / 無効の 1 つだけを返し、無効時にモデルへ返る固定文言も載せる。
+ * 正はアプリ DB の `web_search_settings` で、行が無い = 既定（有効）。
+ */
+export const getWebSearchSettings = async (): Promise<WebSearchSettingsResponse> => {
+  const res = await client.api.settings["web-search"].$get();
+  if (!res.ok) throw await apiError(res);
+  return res.json();
+};
+
+/** Web 検索の有効 / 無効。保存した瞬間から、既存のセッションの次の呼び出しにも効く */
+export const putWebSearchSettings = async (enabled: boolean): Promise<WebSearchMutationResponse> => {
+  const res = await client.api.settings["web-search"].$put({ json: { enabled } });
+  if (!res.ok) throw await apiError(res);
+  return (await res.json()) as WebSearchMutationResponse;
 };
 
 /**

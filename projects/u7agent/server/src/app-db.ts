@@ -18,7 +18,7 @@ import type {
 
 export const APP_DB_FILENAME = "u7agent.db";
 /** テーブル定義を変えたら上げる。新規作成と加算移行はこの版へ揃え、未知の版は作り直す */
-export const APP_DB_SCHEMA_VERSION = 11;
+export const APP_DB_SCHEMA_VERSION = 12;
 
 /** プロバイダー API キーの保存行。平文なのでアクセス権の管理は docs/secrets.md を正とする */
 export interface ProviderCredentialRow {
@@ -50,6 +50,14 @@ export interface ImageSettingsRow {
   provider: string;
   model: string;
   apiKey: string;
+}
+
+/**
+ * Web 検索の実行時トグルの保存行。**行が無い = 既定（有効）**で、行があるときは enabled が正。
+ * 保存値は 0 / 1 のどちらかで、API では boolean に読み替える（docs/web-search.md）。
+ */
+export interface WebSearchSettingsRow {
+  enabled: boolean;
 }
 
 /** カタログ 1 件の保存形。provider は v1 では openrouter 固定なので id と表示名、あれば形式の宣言を残す */
@@ -248,6 +256,18 @@ CREATE TABLE IF NOT EXISTS secrets (
 `;
 
 /**
+ * v11 -> v12 で足したテーブル。`web_search` の実行時トグルを 1 行だけ持ち、
+ * **行が無い = 既定（有効）**。画像生成（`image_settings`）と並ぶツール公開の状態で、
+ * 行があるときは `enabled` が正（docs/web-search.md）。
+ */
+const WEB_SEARCH_SETTINGS_TABLE = `
+CREATE TABLE IF NOT EXISTS web_search_settings (
+  id      INTEGER PRIMARY KEY CHECK (id = 1),
+  enabled INTEGER NOT NULL
+);
+`;
+
+/**
  * provider メモは retainSecret に登録しない方針なので、SQLite の例外文言に値が写り得る。
  * ログ・health・503 へは、この値を含まない固定文言だけを渡す。
  */
@@ -285,6 +305,7 @@ ${PROVIDER_MEMOS_TABLE}
 ${IMAGE_SETTINGS_TABLE}
 ${IMAGE_CATALOG_TABLE}
 ${SERVE_COMMANDS_TABLE}
+${WEB_SEARCH_SETTINGS_TABLE}
 ${SECRETS_TABLE}`;
 
 /** アプリ所有のテーブルだけを落とす (同じ DB に足した別機能のテーブルを巻き込まない) */
@@ -300,6 +321,7 @@ DROP TABLE IF EXISTS provider_memos;
 DROP TABLE IF EXISTS image_settings;
 DROP TABLE IF EXISTS image_catalog;
 DROP TABLE IF EXISTS serve_commands;
+DROP TABLE IF EXISTS web_search_settings;
 `;
 // secrets は意図的に含めない (DROP_TABLES の定義冒頭のコメントと docs/secrets.md を参照)。
 // 列追加も #migrate() にだけ足し、既存行を書き換える移行はしない。
@@ -684,6 +706,7 @@ export class AppDb {
       this.#query((db) => db.exec(IMAGE_SETTINGS_TABLE));
       this.#query((db) => db.exec(IMAGE_CATALOG_TABLE));
       this.#query((db) => db.exec(SERVE_COMMANDS_TABLE));
+      this.#query((db) => db.exec(WEB_SEARCH_SETTINGS_TABLE));
       this.#query((db) => db.exec(SECRETS_TABLE));
       // 列追加は CREATE TABLE IF NOT EXISTS の後 (既存テーブルでは CREATE が何もしないため)。DDL も
       // トランザクション対象なので、途中失敗で列だけが残らない
@@ -897,6 +920,28 @@ export class AppDb {
   /** 行を消して未設定へ戻す (キー削除は provider / model も含めて行ごと消す) */
   deleteImageSettings(): boolean {
     return this.#query((db) => db.prepare("DELETE FROM image_settings WHERE id = 1").run().changes > 0);
+  }
+
+  // --- web search settings (1 行だけ。行が無い = 既定（有効）) ---
+
+  /** 行が無ければ undefined = 既定（有効）。0 / 1 以外へ手編集された行も 1 として読む */
+  readWebSearchSettings(): WebSearchSettingsRow | undefined {
+    const row = this.#query(
+      (db) => db.prepare("SELECT * FROM web_search_settings WHERE id = 1").get() as Row | undefined,
+    );
+    return row ? { enabled: Number(row.enabled) !== 0 } : undefined;
+  }
+
+  /** 保存は id = 1 の upsert。単一ステートメントなので自動コミットで確定する */
+  saveWebSearchSettings(settings: WebSearchSettingsRow): void {
+    this.#query((db) =>
+      db
+        .prepare(
+          `INSERT INTO web_search_settings (id, enabled) VALUES (1, ?)
+           ON CONFLICT(id) DO UPDATE SET enabled = excluded.enabled`,
+        )
+        .run(settings.enabled ? 1 : 0),
+    );
   }
 
   // --- image catalog (live カタログのキャッシュ 1 行) ---

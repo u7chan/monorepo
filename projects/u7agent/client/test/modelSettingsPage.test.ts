@@ -5,6 +5,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import test from "node:test";
 import type { ModelSettings } from "../src/hooks/useModelSettings";
 import type { ImageSettings } from "../src/hooks/useImageSettings";
+import type { WebSearchSettings } from "../src/hooks/useWebSearchSettings";
 import { IMAGE_SETTINGS_NOTE } from "../src/lib/imageSettings";
 import { MODEL_SETTINGS_NOTE } from "../src/lib/modelSettings";
 import type { ModelsSubsection } from "../src/lib/settingsNav";
@@ -139,6 +140,18 @@ function imageSettings(overrides: Partial<ImageSettings> = {}): ImageSettings {
   };
 }
 
+function webSearchSettings(overrides: Partial<WebSearchSettings> = {}): WebSearchSettings {
+  return {
+    settings: { enabled: true, disabledMessage: "Web 検索は無効化されています。" },
+    note: { text: "Web 検索の設定はサーバーに保存され、再起動後も残ります。", error: false },
+    saving: false,
+    reloading: false,
+    reload: async () => {},
+    setEnabled: async () => true,
+    ...overrides,
+  };
+}
+
 function render(
   settings: ModelSettings,
   options: {
@@ -146,6 +159,7 @@ function render(
     sessions?: SessionSummary[];
     sessionsLoaded?: boolean;
     imageSettings?: ImageSettings;
+    webSearchSettings?: WebSearchSettings;
     onSelectModelsSubsection?: (subsection: ModelsSubsection) => void;
   } = {},
 ): string {
@@ -157,6 +171,7 @@ function render(
       createElement(ModelSettingsView, {
         modelSettings: settings,
         imageSettings: options.imageSettings ?? imageSettings(),
+        webSearchSettings: options.webSearchSettings ?? webSearchSettings(),
         sessions: options.sessions ?? [],
         sessionsLoaded: options.sessionsLoaded ?? false,
         modelsSubsection: options.modelsSubsection ?? "models",
@@ -167,13 +182,14 @@ function render(
   );
 }
 
-test("タブ行は URL が決めるタブを示し、3 つのタブを出す", () => {
+test("タブ行は URL が決めるタブを示し、4 つのタブを出す", () => {
   const html = render(modelSettings());
   assert.ok(html.includes('role="tablist"'), "タブ行を出す");
-  assert.equal((html.match(/role="tab"/g) ?? []).length, 3, "タブは 3 つ");
+  assert.equal((html.match(/role="tab"/g) ?? []).length, 4, "タブは 4 つ");
   assert.match(html, /<button[^>]*aria-selected="true"[^>]*>モデルを選ぶ</, "既定は「モデルを選ぶ」");
   assert.ok(html.includes("プロバイダー"));
   assert.ok(html.includes("画像生成"));
+  assert.ok(html.includes("Web 検索"));
   // タブの切替は URL 経由で親へ渡す
   const calls: ModelsSubsection[] = [];
   render(modelSettings(), { onSelectModelsSubsection: (subsection) => calls.push(subsection) });
@@ -192,6 +208,31 @@ test("画像生成タブは URL が選んだときにだけ描画し、キー入
   assert.match(html, /<button[^>]*aria-selected="true"[^>]*>画像生成</);
   assert.ok(html.includes('type="password"'), "画像生成タブのキー入力を出す");
   assert.equal(html.includes("モデル候補を保存"), false, "他のタブの保存バーは出さない");
+});
+
+test("Web 検索タブは URL が選んだときにだけ描画し、実行時トグルの状態を出す", () => {
+  const html = render(modelSettings(), { modelsSubsection: "web-search" });
+  assert.match(html, /<button[^>]*aria-selected="true"[^>]*>Web 検索</);
+  assert.ok(html.includes('role="switch"'), "有効 / 無効のスイッチを出す");
+  assert.ok(html.includes("mcp.exa.ai"), "送信先のホストを出す");
+  assert.ok(html.includes("キー登録は不要です"), "keyless であることを書く");
+  assert.ok(html.includes("web_search ツールを実行したときだけ"), "実行したときだけ送ることを書く");
+  assert.equal(html.includes("モデル候補を保存"), false, "他のタブの保存バーは出さない");
+
+  // 取得前は本文の代わりに再読み込みの導線を出し、hook の注記をそのまま見せる
+  const loading = render(modelSettings(), {
+    modelsSubsection: "web-search",
+    webSearchSettings: webSearchSettings({ settings: null }),
+  });
+  assert.ok(loading.includes("Web 検索の設定"), "取得前の見出しを出す");
+  assert.equal(loading.includes('role="switch"'), false, "取得前はスイッチを出さない");
+
+  // 無効のときは、モデルへ返る固定文言をそのまま出す
+  const off = render(modelSettings(), {
+    modelsSubsection: "web-search",
+    webSearchSettings: webSearchSettings({ settings: { enabled: false, disabledMessage: "無効です（固定文言）" } }),
+  });
+  assert.ok(off.includes("無効です（固定文言）"));
 });
 
 test("モデルを選ぶタブは既定モデル・選択数・候補・保存バーを出し、折りたたみは既定で閉じる", () => {

@@ -4,6 +4,8 @@ import type { HistoryPage } from "../src/types";
 
 globalThis.location ??= { origin: "http://localhost" } as Location;
 const {
+  getWebSearchSettings,
+  putWebSearchSettings,
   getSessionHistory,
   updateArchiveSettings,
   resetArchiveSettings,
@@ -127,4 +129,23 @@ test("git 情報は root 相対の path を符号化し、repo の外の null �
   assert.deepEqual(paths, ["/api/files/git", "/api/files/git"]);
   assert.equal(queries[0].get("path"), "work/app");
   assert.equal(queries[1].get("path"), ".", "path 省略時は root");
+});
+
+test("Web 検索のトグルは GET と PUT の往復で、本文は enabled だけを送る", async (t) => {
+  const requests: Request[] = [];
+  t.mock.method(globalThis, "fetch", async (input: string | URL | Request, init?: RequestInit) => {
+    const request = new Request(input, init);
+    requests.push(request);
+    return Response.json({ enabled: true, disabledMessage: "無効です", state: "applied" });
+  });
+  assert.equal((await getWebSearchSettings()).enabled, true);
+  assert.equal((await putWebSearchSettings(false)).state, "applied");
+  assert.deepEqual(
+    requests.map((request) => [request.method, new URL(request.url).pathname]),
+    [
+      ["GET", "/api/settings/web-search"],
+      ["PUT", "/api/settings/web-search"],
+    ],
+  );
+  assert.deepEqual(await requests[1].json(), { enabled: false });
 });

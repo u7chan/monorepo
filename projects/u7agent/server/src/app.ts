@@ -22,6 +22,7 @@ import { createRuntimeRoutes } from "./routes/runtime";
 import { createSecretRoutes } from "./routes/secrets";
 import { createServeRoutes } from "./routes/serve";
 import { createSessionRoutes } from "./routes/sessions";
+import { createWebSearchSettingsRoutes } from "./routes/web-search";
 import { createSecretScope } from "./secrets";
 import { DEFAULT_CLIENT_DIST_DIR, serveClientAssets } from "./static";
 import {
@@ -40,6 +41,7 @@ import {
   UpdateModelAvailabilityBodySchema,
   UpdateNotificationsBodySchema,
   UpdateProviderKeyBodySchema,
+  UpdateWebSearchBodySchema,
   UpdateProviderMemoBodySchema,
   UpdateSecretBodySchema,
   UpdateSessionNotifyBodySchema,
@@ -97,6 +99,7 @@ export async function createBffApp(opts: CreateBffAppOptions = {}) {
     runtimeDiagnostics,
     modelSettings,
     imageSettings,
+    webSearchSettings,
     serve,
     secrets,
   } = await createBffContext(opts);
@@ -125,6 +128,7 @@ export async function createBffApp(opts: CreateBffAppOptions = {}) {
   const archiveRoutes = createArchiveRoutes({ archiveSettings });
   const modelSettingsRoutes = createModelSettingsRoutes({ modelSettings });
   const imageSettingsRoutes = createImageSettingsRoutes({ imageSettings });
+  const webSearchSettingsRoutes = createWebSearchSettingsRoutes({ webSearchSettings });
   // 環境変数の要求元 (sessionId / projectId) を cwd へ解決する唯一の点。client は cwd を送らない
   const secretRoutes = createSecretRoutes({
     secrets,
@@ -404,6 +408,15 @@ export async function createBffApp(opts: CreateBffAppOptions = {}) {
     )
     .delete("/api/settings/images/key", appDataMutation, imageSettingsRoutes.deleteKey)
     .post("/api/settings/images/catalog/refresh", (c) => imageSettingsRoutes.refreshCatalog(c))
+    .get("/api/settings/web-search", appData, webSearchSettingsRoutes.list)
+    .put(
+      "/api/settings/web-search",
+      appDataMutation,
+      jsonBodyValidator(UpdateWebSearchBodySchema, (result, c) =>
+        result.success ? undefined : c.json({ error: "Invalid request body" }, 400),
+      ),
+      (c) => webSearchSettingsRoutes.put(c, c.req.valid("json")),
+    )
     // Hono は登録順にマッチするため、未マッチの GET を拾う catch-all は最後に置く。
     .get("*", serveClientAssets(clientDistDir, filePreviewPort))
     .notFound((c) => c.json({ error: "Not found" }, 404))
@@ -434,6 +447,7 @@ export async function createBffApp(opts: CreateBffAppOptions = {}) {
     archiveSettings,
     modelSettings,
     imageSettings,
+    webSearchSettings,
     serve,
     secrets,
     close: async () => {

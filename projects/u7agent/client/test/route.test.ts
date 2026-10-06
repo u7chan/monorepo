@@ -66,6 +66,8 @@ test("parseRoute は pathname だけで画面を決め、表のとおりに畳�
     ["/settings%2Fmodels%2Fproviders", modelsTab("providers")],
     ["/settings/models/images", modelsTab("images")],
     ["/Settings/MODELS/IMAGES/", modelsTab("images")],
+    ["/settings/models/web-search", modelsTab("web-search")],
+    ["/Settings/MODELS/WEB-SEARCH/", modelsTab("web-search")],
     // 未知のサブセクションと既定タブの明示は既定タブへ畳む (チャットへ飛ばさない)
     ["/settings/models/models", settings("models")],
     ["/settings/models/unknown", settings("models")],
@@ -98,9 +100,11 @@ test("routePath は正準形を返し、parseRoute と往復する", () => {
   // モデルのタブは既定タブ以外をパスへ出し、既定タブは出さない
   assert.equal(routePath(modelsTab("providers")), "/settings/models/providers");
   assert.equal(routePath(modelsTab("images")), "/settings/models/images");
+  assert.equal(routePath(modelsTab("web-search")), "/settings/models/web-search");
   assert.equal(routePath(modelsTab("models")), "/settings/models");
   assert.deepEqual(parseRoute(routePath(modelsTab("providers"))), modelsTab("providers"));
   assert.deepEqual(parseRoute(routePath(modelsTab("images"))), modelsTab("images"));
+  assert.deepEqual(parseRoute(routePath(modelsTab("web-search"))), modelsTab("web-search"));
 });
 
 test("routePath は `/s/<id>` を encode して返し、parseRoute と往復する", () => {

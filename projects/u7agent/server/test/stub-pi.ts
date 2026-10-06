@@ -9,6 +9,7 @@ import type { ModelSelection } from "../src/agent";
 import type { AskUserHost } from "../src/ask-user-tool";
 import type { ImageGenerationConfig } from "../src/images";
 import type { ServeToolHost } from "../src/serve-tool";
+import type { WebSearchRuntimeConfig } from "../src/web-search-tool";
 import type { SessionEnvSource } from "../src/agent";
 import { createMutableSecretMasker } from "../src/redact";
 import type {
@@ -682,6 +683,7 @@ export function createStubPi(options: StubPiOptions = {}) {
   const modelStateEvents: string[] = [];
   const modelSelections: ModelSelection[] = [];
   const imageGenerationConfigs: ImageGenerationConfig[] = [];
+  const webSearchConfigs: WebSearchRuntimeConfig[] = [];
   // serve ツールの実体 (bootstrap が注入する)。ツールの配線はここに記録して検証する
   const serveHosts: ServeToolHost[] = [];
   // ask_user ツールの実体 (bootstrap が注入する)。待機の所有は実物と同じく store 側にある
@@ -717,6 +719,11 @@ export function createStubPi(options: StubPiOptions = {}) {
     },
     setImageGeneration: (config: ImageGenerationConfig) => {
       imageGenerationConfigs.push(config);
+    },
+    webSearchConfigs,
+    // 注入のたびに差し替わる。実行中のセッションが同じ関数を読むことを再現する
+    setWebSearchEnabled: (config: WebSearchRuntimeConfig) => {
+      webSearchConfigs.push(config);
     },
     serveHosts,
     setServe: (host: ServeToolHost) => {

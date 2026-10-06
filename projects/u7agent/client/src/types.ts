@@ -95,7 +95,11 @@ export type {
   UpdateProviderKeyBody,
   UpdateSecretBody,
   UpdateSkillBody,
+  UpdateWebSearchBody,
   Usage,
+  WebSearchMutationError,
+  WebSearchMutationResponse,
+  WebSearchSettingsResponse,
 } from "server";
 
 /** 環境変数の種別。正は server の DTO (SecretItem["kind"]) で、client は値を作らない */

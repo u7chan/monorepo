@@ -27,6 +27,7 @@ DTO の正は `server/src/schema.ts`（zod）。リクエストボディは `@ho
 | アーカイブの除外名 | `GET/PUT/DELETE /api/settings/archive` | このファイル |
 | プロバイダーAPIキーとメモ（設定 → モデル） | `GET /api/settings/models`、`PUT/DELETE /api/settings/models/:provider/key`、`PUT /api/settings/models/:provider/memo`、`POST /api/settings/models/:provider/resync` | このファイル |
 | 画像生成（設定 → モデル） | `GET/PUT /api/settings/images`、`PUT/DELETE /api/settings/images/key`、`POST /api/settings/images/catalog/refresh` | このファイル、[image-generation.md](image-generation.md) |
+| Web 検索の実行時トグル（設定 → モデル） | `GET/PUT /api/settings/web-search` | このファイル、[web-search.md](web-search.md#実行時トグル設定--モデルの-web-検索タブ) |
 | サービス（serve）の状態と起動・停止 | `GET /api/serve/status`、`POST /api/serve/start`、`POST /api/serve/stop` | このファイル、[sandbox.md](sandbox.md#serveサービスの公開と起動停止) |
 | 作業フォルダの環境変数（作業環境 → 環境変数） | `GET/POST /api/secrets`、`GET/PUT/DELETE /api/secrets/:secretId` | このファイル、[secrets.md](secrets.md#作業フォルダの環境変数作業環境--環境変数) |
 | エージェント / スキル | `/api/agents`、`/api/skills`、`/api/skills/files`、`/api/skills/session` | [api-catalog.md](api-catalog.md)、[api-sessions.md](api-sessions.md) |
@@ -410,6 +411,29 @@ Content-Security-Policy: sandbox allow-scripts; default-src 'none'; style-src 'u
 - 503 は `{ "error": "…", "state": "not_stored" }` で、何も保存されていないことを示す（DB 書込前の失敗、ランタイム初期化失敗など）。400 は `{ "error": "…" }` だけ。`PUT /api/settings/models/allowed` もランタイムが無いときは 503 `not_stored`（カタログ検証ができないため）
 - 400: 未知の provider / `canSetApiKey` が false の provider への PUT、登録行が無い provider の DELETE、再同期の対象外（カタログに無く degraded も `remove` でない）、メモの対象外 provider。サンドボックスは使わない
 - `POST /:provider/resync` は冪等。degraded でない provider に送っても現在の DB 希望状態を再適用して 200 を返す
+
+## Web 検索の実行時トグル（設定 → モデルの Web 検索タブ）
+
+| メソッド | パス | 説明 |
+| --- | --- | --- |
+| GET | `/api/settings/web-search` | `enabled` と `disabledMessage`（無効時にモデルへ返る固定文言）。純粋読取で、行が無ければ `enabled: true`（既定） |
+| PUT | `/api/settings/web-search` | `{ enabled }`。保存した瞬間から、既存のセッションの次の `web_search` 呼び出しにも効く |
+
+アプリデータの SQLite を読むため DB が使えないときは 503（[persistence.md](persistence.md#アプリデータsqlite)）。変更系は 503 に `state: "not_stored"` を付け、何も保存していないことを示す。トグルの意味と失敗時の契約は [web-search.md](web-search.md#実行時トグル設定--モデルの-web-検索タブ) を正とする。
+
+```json
+// GET /api/settings/web-search (200。行が無い = 既定（有効）)
+{
+  "enabled": true,
+  "disabledMessage": "Web 検索は無効化されています。有効にするには 設定 → モデル → Web 検索 を開いてください。"
+}
+
+// PUT /api/settings/web-search (200)
+{ "enabled": false, "disabledMessage": "…", "state": "applied" }
+
+// PUT /api/settings/web-search (503。何も保存していない)
+{ "error": "Web 検索の設定をアプリデータ（SQLite）へ保存できませんでした", "state": "not_stored" }
+```
 
 ## 画像生成（設定 → モデルの画像生成タブ）
 

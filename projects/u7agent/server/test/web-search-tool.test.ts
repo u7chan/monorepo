@@ -12,6 +12,7 @@ import {
   parseWebSearchResponseBody,
   WEB_SEARCH_ABORTED_MESSAGE,
   WEB_SEARCH_API_TOOL_NAME,
+  WEB_SEARCH_DISABLED_MESSAGE,
   WEB_SEARCH_ENDPOINT,
   WEB_SEARCH_EXCERPT_MAX_LENGTH,
   WEB_SEARCH_NETWORK_ERROR_MESSAGE,
@@ -62,7 +63,9 @@ function responseOf(body: string, init: ResponseInit = {}): Response {
   return new Response(body, { status: 200, ...init });
 }
 
-function tool(options: { fetchImpl?: typeof fetch; timeoutMs?: number; masker?: SecretMasker } = {}): AnyTool {
+function tool(
+  options: { fetchImpl?: typeof fetch; timeoutMs?: number; masker?: SecretMasker; readEnabled?: () => boolean } = {},
+): AnyTool {
   const definitions = createWebSearchToolDefinitions({
     fetchImpl:
       options.fetchImpl ??
@@ -71,6 +74,7 @@ function tool(options: { fetchImpl?: typeof fetch; timeoutMs?: number; masker?: 
       }),
     masker: options.masker ?? createMutableSecretMasker([]),
     ...(options.timeoutMs === undefined ? {} : { timeoutMs: options.timeoutMs }),
+    ...(options.readEnabled === undefined ? {} : { readEnabled: options.readEnabled }),
   });
   assert.equal(definitions.length, 1);
   return definitions[0];
@@ -366,4 +370,31 @@ test("秘密値は 1 件の切り詰めより先にマスクし、throw の文�
   const error = await rejection(run(tool({ fetchImpl: failing.fetchImpl, masker }), { query: "q" }));
   assert.ok(error.message.includes("[REDACTED]"), error.message);
   assert.ok(!error.message.includes(secret), error.message);
+});
+
+test("無効の間は検索せず固定文言で失敗し、ON に戻ると同じ定義が検索する", async () => {
+  const stub = stubFetch(() => sseResponse(jsonRpcResponse({ results: [{ title: "T", url: "https://example.com" }] })));
+  // 実行のたびに読む (セッション作成時の値で凍結しない)
+  let enabled = false;
+  const definition = tool({ fetchImpl: stub.fetchImpl, readEnabled: () => enabled });
+
+  const off = await rejection(run(definition, { query: "q" }));
+  assert.equal(off.message, WEB_SEARCH_DISABLED_MESSAGE);
+  assert.equal(stub.calls.length, 0, "無効の間は mcp.exa.ai へ送らない");
+
+  // 同じ定義 (= 既存セッションのツール) のまま ON へ戻すと動く
+  enabled = true;
+  assert.ok((await run(definition, { query: "q" })).includes("出典:"), "ON に戻すと同じ定義で検索できる");
+  assert.equal(stub.calls.length, 1);
+
+  enabled = false;
+  const offAgain = await rejection(run(definition, { query: "q" }));
+  assert.equal(offAgain.message, WEB_SEARCH_DISABLED_MESSAGE);
+  assert.equal(stub.calls.length, 1, "OFF へ戻すと再び送らなくなる");
+});
+
+test("readEnabled を渡さない既定は有効", async () => {
+  const stub = stubFetch(() => sseResponse(jsonRpcResponse({ results: [{ title: "T", url: "https://example.com" }] })));
+  assert.ok((await run(tool({ fetchImpl: stub.fetchImpl }), { query: "q" })).includes("出典:"));
+  assert.equal(stub.calls.length, 1);
 });

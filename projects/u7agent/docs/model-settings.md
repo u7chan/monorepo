@@ -12,7 +12,7 @@
 | 画面 | 役割 | 内容 |
 | --- | --- | --- |
 | 設定 → ランタイム（表示専用） | 環境診断 | 接続状態 / 実行環境 / 利用可能なコマンド / SDK バージョン |
-| 設定 → モデル（編集可） | タブ 1: モデルを選ぶ（`/settings/models`）/ タブ 2: プロバイダー（`/settings/models/providers`）/ タブ 3: 画像生成（`/settings/models/images`） | タブ 1 はモデル候補の選択とアプリ既定モデル、タブ 2 は provider ごとの認証状態、APIキーの登録・上書き・削除、メモの保存、再同期、カタログの利用可能数、タブ 3 は画像生成専用の APIキー・モデル（[image-generation.md](image-generation.md#設定画面画像生成タブ)）。モデル一覧の重複表示は持たない |
+| 設定 → モデル（編集可） | タブ 1: モデルを選ぶ（`/settings/models`）/ タブ 2: プロバイダー（`/settings/models/providers`）/ タブ 3: 画像生成（`/settings/models/images`）/ タブ 4: Web 検索（`/settings/models/web-search`） | タブ 1 はモデル候補の選択とアプリ既定モデル、タブ 2 は provider ごとの認証状態、APIキーの登録・上書き・削除、メモの保存、再同期、カタログの利用可能数、タブ 3 は画像生成専用の APIキー・モデル（[image-generation.md](image-generation.md#設定画面画像生成タブ)）、タブ 4 は `web_search` の実行時トグル（[web-search.md](web-search.md#実行時トグル設定--モデルの-web-検索タブ)）。モデル一覧の重複表示は持たない |
 
 プロバイダーとカタログの表示はランタイム画面からモデル画面へ移した。ランタイム画面は `GET /api/runtime/models` を呼ばない。health に載せていたモデル診断（`runtimeDiagnostics`）は撤去し、SDK バージョンだけを health 直下の `versions` に残した。
 
@@ -166,8 +166,8 @@ CREATE TABLE IF NOT EXISTS provider_memos (
 
 ## クライアント
 
-- 画面は `/settings/models`（モデルを選ぶ。既定）、`/settings/models/providers`（プロバイダー）、`/settings/models/images`（画像生成）の 3 タブ。タブの語彙は `client/src/lib/settingsNav.ts` の `MODELS_SUBSECTIONS` に置き、URL と `routePath` が同じ値を使う。未知のサブセクションと `/settings/models/models` は既定タブヘ畳む（モデル画面からチャットへ飛ばさない）。タブ行は `SettingsPageLayout` の任意スロットに置き、`ProjectDialog` と同じ `.tab-item` を使う
-- `useModelSettings` と `useImageSettings` は 3 タブの親（`ModelSettingsPage`）で 1 回ずつ呼び、モデル側の未保存の下書き（モデルの選択・既定モデルと、provider ごとの apiKey / メモ）も親が持つ。タブ切替・provider 切替・検索で再マウントしても下書き・note・カタログを失わない。カタログと設定は独立に取り、片方の失敗で他方を捨てない。ヘッダの [再読み込み] は両 hook の分を更新し、注記と無効化は表示中のタブのものだけを出す。取得中フラグは破棄された要求の完了でも解除する（`createLoadingTracker()`。解除を応答の適用可否で分岐すると、変更操作と重なったときに再読み込みボタンが無効のまま残る）
+- 画面は `/settings/models`（モデルを選ぶ。既定）、`/settings/models/providers`（プロバイダー）、`/settings/models/images`（画像生成）、`/settings/models/web-search`（Web 検索）の 4 タブ。タブの語彙は `client/src/lib/settingsNav.ts` の `MODELS_SUBSECTIONS` に置き、URL と `routePath` が同じ値を使う。未知のサブセクションと `/settings/models/models` は既定タブヘ畳む（モデル画面からチャットへ飛ばさない）。タブ行は `SettingsPageLayout` の任意スロットに置き、`ProjectDialog` と同じ `.tab-item` を使う
+- `useModelSettings` / `useImageSettings` / `useWebSearchSettings` は 4 タブの親（`ModelSettingsPage`）で 1 回ずつ呼び、モデル側の未保存の下書き（モデルの選択・既定モデルと、provider ごとの apiKey / メモ）も親が持つ。タブ切替・provider 切替・検索で再マウントしても下書き・note・カタログを失わない。カタログと設定は独立に取り、片方の失敗で他方を捨てない。ヘッダの [再読み込み] は 3 hook の分を更新し、注記と無効化は表示中のタブのものだけを出す。取得中フラグは破棄された要求の完了でも解除する（`createLoadingTracker()`。解除を応答の適用可否で分岐すると、変更操作と重なったときに再読み込みボタンが無効のまま残る）
 - 「モデルを選ぶ」タブは、候補を「認証済み provider のカタログ全件」と「カタログ外の残存エントリ」の和集合で組む。認証が設定されていない provider の選択は行に出さず、下書きからも落として保存しない（`pruneAvailabilityDraft()`）。カタログ外の残存だけは保存が 400 になるため、認証が無くても警告付きで出して外せる。折りたたみ中は行を描画せず、既定は全部閉じる（検索中の該当 provider と、警告のある provider だけ開く）。検索は DOM ではなくカタログのデータ（provider / モデル名 / ID）に当てて該当 provider を自動展開し、「選択済みのみ」でチェック済みだけに絞る
   - provider 行はバッジと `利用可能 a/b ・ 選択 c`（a/b はカタログ、c は下書き全体の選択数）を出し、[すべて選択] は認証済み provider だけ、[すべて解除] はカタログに無い provider でも保存済みを外せる。provider 群はカタログ順（「プロバイダー」タブと同じ）で表示する。これは表示順だけで、保存値や既定未設定時の実効先頭を変えない（実効先頭はサーバーが `getAvailable()` の順から決める）
   - 未認証の provider はカタログ外の残存があるときだけ警告付きで出し（カタログ全件は出さない）、外せる（`allowedModelsOutsideCatalog()` 相当の判定を `candidateGroups()` が行と警告に写し、認証が無い provider のカタログ内の選択は行に出さない）。選択 0 件は固定バーで保存を無効にし、理由として「空の選択は API で「制限なし（全モデル）」へ正規化されるため、この画面からは送らない」を示す
@@ -224,6 +224,6 @@ CREATE TABLE IF NOT EXISTS provider_memos (
 - `server/test/api.test.ts` — health から `runtimeDiagnostics` が消えたこと、モデルカタログ応答に whitelist 系フィールドが無いこと
 - `server/test/redact.test.ts` — `createMutableSecretMasker` の swap と streaming masker への追随
 - `client/test/modelSettings.test.ts` / `client/test/modelSettingsPage.test.ts` — 表示変換（認証バッジ・並び・入力検証・メモの検証・注記・回復案内）、`providerUsage()`（最初の `/` での分割・`model` 無し・複数セッション・空配列）、`null` の明示リスト展開（利用可能な全モデル + 既定モデルの 1 件追加）・認証済み provider の絞り込み（`pruneAvailabilityDraft()` の除去と、表示の対象を揃える `candidateGroups()` の絞り込み）・カタログ外の残存エントリの警告付き表示・候補の並び/検索/集計・既定モデルの選択肢と検索・dirty 判定・provider 一括操作・確認文、タブと保存バーの初期描画（折りたたみの既定閉・警告のある provider の自動展開・変更なしと選択 0 件では保存無効）とカタログ外・未設定・環境変数の注記・カタログ取得失敗時の編集不可、プロバイダータブの一覧と詳細（平文注意の常時表示・メモ欄・保存ボタン・runtime 停止時の disable・メモだけの orphan の案内）、キー最終保存（managed だけ・NULL は保存日不明）と最終使用（`sessionsLoaded` が false なら非表示・会話 0 件の managed は「会話はありません」・非 managed は会話があるときだけ）、`client/test/route.test.ts` のタブの正準化（未知のサブセクションと既定タブの明示は `/settings/models` へ）
-- `client/test/imageSettings.test.ts` / `client/test/imageSettingsTab.test.ts` / `client/test/settingsNav.test.ts` — 画像モデルの選択肢（カタログ順・同名への id 添え・カタログ外の現在値）、現在値と PUT の本文の解決、キー入力の後始末（成功時だけ消す）、削除の確認文、タブ見出しの provider（ロゴ・未設定でも OpenRouter・ロゴの無い provider は頭文字）と provider の id / 表示名、画像生成タブの初期描画（未設定はキーのみ / 設定済みは上書き保存・削除・モデル選択 / 保存済みキーを入力欄へ戻さない / runtime 不可の disable）、3 タブの語彙
+- `client/test/imageSettings.test.ts` / `client/test/imageSettingsTab.test.ts` / `client/test/settingsNav.test.ts` — 画像モデルの選択肢（カタログ順・同名への id 添え・カタログ外の現在値）、現在値と PUT の本文の解決、キー入力の後始末（成功時だけ消す）、削除の確認文、タブ見出しの provider（ロゴ・未設定でも OpenRouter・ロゴの無い provider は頭文字）と provider の id / 表示名、画像生成タブの初期描画（未設定はキーのみ / 設定済みは上書き保存・削除・モデル選択 / 保存済みキーを入力欄へ戻さない / runtime 不可の disable）、4 タブの語彙
 - `client/test/requestGate.test.ts` — 応答の適用可否（`createRequestGate`）、要求の追跡（`createRequestTracker`）、取得中フラグの解除（`createLoadingTracker`: 破棄された要求の完了で解除し、後続が在る間は維持する）
 - `client/test/runtimePage.test.ts` — 設定 → ランタイムから「モデル解決」が消えたこと
