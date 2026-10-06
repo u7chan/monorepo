@@ -115,9 +115,10 @@ message_end(assistant, error, usage.total = 0)  失敗試行
 `POST /api/sessions/:id/stop`（旧 `/abort` もエイリアスとして有効）:
 
 1. 待機キューを破棄し `queue_cleared` イベントを記録（破棄した送信の `runIds` を載せ、クライアントは該当する送信を「未送信」へ切り替える。記録は `sends.json` に残るため、再送か破棄まで未送信として読める）
-2. `session.abort()` を呼ぶ（pi が `agent_settled` / stopReason `aborted` を返す。自動再試行の backoff 待機中なら SDK がその待機を abort する。圧縮中なら `abortCompaction()` も同時に走る）
-3. 圧縮中だった場合は `compactionTask` の settle（保存と終端配信）を待つ（応答の `status` に `compacting` を残さない）
-4. `finish()` が `run_end`（status: `stopped`）を記録。キューは破棄済みなので次のランは起動しない
+2. 未 settle の `ask_user` の待機を取り消す（[ask-user.md](ask-user.md#待機のライフサイクル)。ツールは `isError: true` の結果を返し、カードは「回答なしで終了」として残る）
+3. `session.abort()` を呼ぶ（pi が `agent_settled` / stopReason `aborted` を返す。自動再試行の backoff 待機中なら SDK がその待機を abort する。圧縮中なら `abortCompaction()` も同時に走る）
+4. 圧縮中だった場合は `compactionTask` の settle（保存と終端配信）を待つ（応答の `status` に `compacting` を残さない）
+5. `finish()` が `run_end`（status: `stopped`）を記録。キューは破棄済みなので次のランは起動しない
 
 自動再試行の待機中の中止は、SDK が失敗試行を投影から除外済みで aborted の assistant が残らない。BFF は stop の要求を `RunState` へ控え、最終 assistant の `stopReason` に依らず `stopped` とする（`run.retry` は解除し、`totalRetryCount` は残す）。
 
@@ -127,6 +128,7 @@ message_end(assistant, error, usage.total = 0)  失敗試行
 
 - 会話は BFF 専用ストアへ永続化し、起動時に一覧を復元する（[persistence.md](persistence.md)）。プロジェクトの登録はアプリデータの SQLite へ保存し、所属は `projectCwd` から読み取り時に解決する。
 - 1 時間未使用のアイドルセッションは SWEEP でメモリから外す（実行中・キューあり・SSE 購読中は対象外）。ストアと作業フォルダは残り、次回アクセス時に SDK セッションを復元する。
+- `ask_user` の回答待ちはタイムアウトを持たず、`sweep` の対象外（busy）でもある。放置するとランは `running` のまま残り、他クライアントの送信はキュー（最大 10 件、超過は 429）に溜まり、Discord の完了通知も来ない。逃げ道は停止だけで、停止はキューを破棄する（運用影響は [ask-user.md](ask-user.md#運用影響と既知の制限)）。
 - id ごとの状態（未ロード / loading / live / evicting / deleting）とライフサイクルの Promise チェーンで、ロード・sweep・削除の競合を直列化する。読み書きするファイルは `session-store` の書込みキューでも直列化する。
 - サーバ終了時は進行中の書込みを flush してから全セッションを abort + dispose する。
 - テスト（`server/test/`）は pi をスタブし、`createBffApp({ pi })` に注入して検証する。HTTP 層は `app.request()` で叩き（listen なし）、store 挙動は直接検証する。実 API は呼ばない。

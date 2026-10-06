@@ -10,7 +10,15 @@ import { contextUsageOf, lastAssistantMessage, parseUsage } from "./pi-runtime";
 import { createStreamingSecretMasker, type SecretMasker } from "./redact";
 import type { CompactionMeta } from "./session-record";
 import type { MessageMetrics, SSEEventData, SSEEventType, ToolCall } from "./schema";
-import { classifySkillRead, contentText, skillLoadOf, toolArgsSummary, toolResultSummary } from "./session-projection";
+import {
+  classifySkillRead,
+  askUserAnswersOf,
+  askUserQuestionsOf,
+  contentText,
+  skillLoadOf,
+  toolArgsSummary,
+  toolResultSummary,
+} from "./session-projection";
 
 /**
  * 応答時間のうち BFF が測れる分を組む。tok/s は最初の delta からのスパンで割り、
@@ -243,6 +251,8 @@ export function createRunEventBridge(deps: RunEventBridgeDeps): RunEventBridge {
           // 履歴 (projectMessages) と同じ関数で判定する。結果はまだ無いので isError は載せない
           const ref = classifySkillRead(event.args, { cwd, toolName: event.toolName ?? "" });
           const skill = ref ? skillLoadOf({ id, ref, masker }) : undefined;
+          // ask_user は質問を args から導出する。導出できる間はカードを出す (tool_end で回答が付く)
+          const questions = askUserQuestionsOf(event.toolName ?? "", event.args, masker);
           const tool: ToolCall = {
             id,
             name: event.toolName ?? "",
@@ -251,25 +261,46 @@ export function createRunEventBridge(deps: RunEventBridgeDeps): RunEventBridge {
             done: false,
             output: "",
             ...(skill ? { skill } : {}),
+            ...(questions ? { questions } : {}),
           };
           tools.set(tool.id, tool);
-          emit("tool_start", { id: tool.id, name: tool.name, args: tool.args, ...(skill ? { skill } : {}) });
-          emit("status", { state: "tool", text: `${tool.name} を実行中…` });
+          emit("tool_start", {
+            id: tool.id,
+            name: tool.name,
+            args: tool.args,
+            ...(skill ? { skill } : {}),
+            ...(questions ? { questions } : {}),
+          });
+          // 待機中を「実行中」と同じ文言で出さない (複数待機では後から来た文言が勝つが、カード側で分かる)
+          emit(
+            "status",
+            questions
+              ? { state: "question", text: "回答を待っています…" }
+              : { state: "tool", text: `${tool.name} を実行中…` },
+          );
           break;
         }
         case "tool_execution_end": {
           const output = toolResultSummary(event.result, masker);
           const tool = tools.get(event.toolCallId ?? "");
+          // 回答は toolResult の details から導出する。停止・中止は空配列で届き、「回答なしで終了」になる
+          const answers = askUserAnswersOf(
+            event.toolName ?? "",
+            (event.result as { details?: unknown } | null | undefined)?.details,
+            masker,
+          );
           if (tool) {
             tool.done = true;
             tool.isError = Boolean(event.isError);
             tool.output = output;
+            if (answers) tool.answers = answers;
           }
           emit("tool_end", {
             id: event.toolCallId ?? "",
             name: event.toolName ?? "",
             isError: Boolean(event.isError),
             output,
+            ...(answers ? { answers } : {}),
           });
           break;
         }

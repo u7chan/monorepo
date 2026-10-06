@@ -1,5 +1,14 @@
 // チャット表示の型。reducer (chatReducer) と純関数 (lib/chatHistory) の双方から使うため独立させる。
-import type { CompactionInfo, HistoryContextState, HistoryPage, MessageMetrics, SkillLoad, Usage } from "../types";
+import type {
+  AskUserAnswer,
+  AskUserQuestion,
+  CompactionInfo,
+  HistoryContextState,
+  HistoryPage,
+  MessageMetrics,
+  SkillLoad,
+  Usage,
+} from "../types";
 
 export type ToolPhase = "running" | "done" | "failed";
 
@@ -11,6 +20,10 @@ export type ToolCard = {
   output: string;
   /** スキル読み込みのときだけ載る (履歴 / ライブのどちらから来ても同じ DTO) */
   skill?: SkillLoad;
+  /** ask_user の質問。あるカードはツール履歴ではなく専用カードで描画する */
+  questions?: AskUserQuestion[];
+  /** ask_user の回答。未回答は undefined、停止・中止の結果は空配列 (回答なしで終了) */
+  answers?: AskUserAnswer[];
 };
 
 export type Bubble = {

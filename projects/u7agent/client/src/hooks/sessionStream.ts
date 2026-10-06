@@ -87,11 +87,18 @@ export function applySessionEvent(entry: EventEntry, deps: SessionStreamDeps): v
         name: entry.data.name,
         args: entry.data.args,
         skill: entry.data.skill,
+        ...(entry.data.questions ? { questions: entry.data.questions } : {}),
         at: entry.at,
       });
       return;
     case "tool_end":
-      dispatch({ type: "toolEnd", id: entry.data.id, isError: entry.data.isError, output: entry.data.output });
+      dispatch({
+        type: "toolEnd",
+        id: entry.data.id,
+        isError: entry.data.isError,
+        output: entry.data.output,
+        ...(entry.data.answers ? { answers: entry.data.answers } : {}),
+      });
       return;
     case "usage":
       dispatch({
@@ -132,6 +139,8 @@ export function applySessionEvent(entry: EventEntry, deps: SessionStreamDeps): v
         runId: entry.data.runId,
         status: entry.data.status,
         queueDepth: entry.data.queueDepth,
+        // 旧サーバーは載せない (undefined のまま = 状態行に合計時間を出さない)
+        durationMs: entry.data.durationMs,
         error: entry.data.error,
         // 分類コードは status が error のときだけサーバーが載せる (後方互換のため undefined があり得る)
         errorCode: entry.data.errorCode,

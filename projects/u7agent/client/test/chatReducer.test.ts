@@ -708,6 +708,39 @@ test("runStartedAt は受信時刻ではなくサーバーの開始時刻を使�
   assert.equal(chatReducer(started, { type: "newChat" }).runStartedAt, undefined);
 });
 
+test("runEnd の合計時間は状態行に残し、次の run_start と resync で消す", () => {
+  const started = chatReducer(initialChatState, { type: "runStart", prompt: "聞いて", at: 100, startedAt: 100 });
+  const ended = chatReducer(started, { type: "runEnd", status: "completed", queueDepth: 0, durationMs: 72_000 });
+
+  assert.equal(ended.finishedRunDurationMs, 72_000, "サーバー計測の値をそのまま持つ");
+  assert.equal(ended.runStatus, "idle", "completion の表示は runStatus が idle へ戻っても残る");
+  // 実行中の経過時間は終了と同時に落とす (合計時間と二重に出さない)
+  assert.equal(ended.runStartedAt, undefined);
+
+  // 次の run_start では実行中の経過時間へ切り替わる
+  assert.equal(
+    chatReducer(ended, { type: "runStart", prompt: "次", at: 200, startedAt: 200 }).finishedRunDurationMs,
+    undefined,
+  );
+  // resync (リロード / 再接続) では復元しない
+  assert.equal(chatReducer(ended, { type: "resync", payload: runningPayload() }).finishedRunDurationMs, undefined);
+  // 実行とは別の知らせの横に前のランの時間を残すと何の時間か読めないため、そこでも消す
+  assert.equal(
+    chatReducer(ended, { type: "setActivity", text: "設定を変更しました" }).finishedRunDurationMs,
+    undefined,
+  );
+  assert.equal(chatReducer(ended, { type: "newChat" }).finishedRunDurationMs, undefined);
+});
+
+test("durationMs を載せない run_end (旧サーバー) では合計時間を出さない", () => {
+  const started = chatReducer(initialChatState, { type: "runStart", prompt: "聞いて", at: 100, startedAt: 100 });
+
+  assert.equal(
+    chatReducer(started, { type: "runEnd", status: "completed", queueDepth: 0 }).finishedRunDurationMs,
+    undefined,
+  );
+});
+
 // --- 手動圧縮 (compacting) ---
 
 /** 圧縮中の payload。開始時刻は payload の compactionStartedAt だけを正とする */

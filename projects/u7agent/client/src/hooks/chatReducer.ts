@@ -8,10 +8,13 @@ import {
   toolCardOf,
 } from "../lib/chatHistory";
 import type { HistoryMergeResult } from "../lib/chatHistory";
+import { isPendingAskUser } from "../lib/askUser";
 import { compactionDividerIndex } from "../lib/compaction";
 import type { Bubble, ChatHistoryState, CompactionMarker, ToolCard } from "../lib/chatTypes";
 import { retryableRunError, runErrorFrom, type RunErrorInfo } from "../lib/runRetry";
 import type {
+  AskUserAnswer,
+  AskUserQuestion,
   ChatMessage,
   CompactionInfo,
   ContextUsage,
@@ -52,6 +55,11 @@ export type ChatState = {
   runStatus: RunStatus;
   /** 実行中ランの開始時刻 (epoch ms)。サーバーが配る値だけを使う (受信時刻は使わない) */
   runStartedAt?: number;
+  /**
+   * 直前に終わったランの合計時間 (サーバー計測)。run_end で入り、完了 / 停止 / エラーの状態行に
+   * 凍結表示する。次の run_start と resync (リロード / 再接続) で消える
+   */
+  finishedRunDurationMs?: number;
   /**
    * 手動圧縮の開始時刻 (epoch ms)。payload の compactionStartedAt だけを使う
    * (runStartedAt とは別に持ち、圧縮の経過時間に使う)
@@ -149,8 +157,16 @@ export type ChatAction =
     } /** 送信に失敗したローカルエコーを戻す (待ち行列の末尾 = 直前に送った分) */
   | { type: "dropLocalUser" }
   | { type: "text"; delta: string; at: number }
-  | { type: "toolStart"; id: string; name: string; args: string; skill?: SkillLoad; at: number }
-  | { type: "toolEnd"; id: string; isError: boolean; output: string }
+  | {
+      type: "toolStart";
+      id: string;
+      name: string;
+      args: string;
+      skill?: SkillLoad;
+      questions?: AskUserQuestion[];
+      at: number;
+    }
+  | { type: "toolEnd"; id: string; isError: boolean; output: string; answers?: AskUserAnswer[] }
   | { type: "usage"; usage?: Usage; metrics?: MessageMetrics; context?: ContextUsage }
   | { type: "compaction"; compaction: CompactionInfo; count: number }
   | { type: "status"; state: string; text: string }
@@ -164,6 +180,8 @@ export type ChatAction =
       runId?: string;
       status: RunStatus;
       queueDepth: number;
+      /** BFF 計測のラン全体の所要時間。旧サーバーは載せない */
+      durationMs?: number;
       error?: string;
       /** 最終失敗の分類コード。`status === "error"` のときだけサーバーが載せる */
       errorCode?: RunErrorCode;
@@ -195,6 +213,7 @@ export const initialChatState: ChatState = {
   },
   runStatus: "idle",
   runStartedAt: undefined,
+  finishedRunDurationMs: undefined,
   compactionStartedAt: undefined,
   runEndSeq: 0,
   sendSeq: 0,
@@ -439,8 +458,15 @@ function currentTurnAssistantId(bubbles: Bubble[]): number | undefined {
 function attachRunToolCards(state: ChatState, focus: boolean): ChatState {
   const calls = Object.values(state.runTools);
   if (calls.length === 0) return state;
-  const targetId = currentTurnAssistantId(state.bubbles);
-  if (targetId === undefined) return state;
+  let targetId = currentTurnAssistantId(state.bubbles);
+  // 本文を持たない assistant は履歴から落ちるため、回答待ちの ask_user では補完先が無い。
+  // 待機中は次のイベントが来ず自己回復しないので、ここだけ assistant バブルを合成する
+  if (targetId === undefined) {
+    if (!calls.some(isPendingAskUser)) return state;
+    state = ensureAssistant(state);
+    targetId = state.currentAssistantId ?? undefined;
+    if (targetId === undefined) return state;
+  }
   const attached = attachToolCalls(state, targetId, calls);
   return focus ? { ...attached, currentAssistantId: targetId } : attached;
 }
@@ -618,6 +644,8 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
         sessionId: payload.sessionId,
         runStatus: status,
         runStartedAt: status === "running" ? payload.run?.startedAt : undefined,
+        // 合計時間は run_end の 1 回分だけ見せる (リロード / 再接続では前のランの値を復元しない)
+        finishedRunDurationMs: undefined,
         // 圧縮の起点は payload の値だけ。終端 resync で status が抜ければ解除される
         compactionStartedAt: status === "compacting" ? payload.compactionStartedAt : undefined,
         queueDepth: payload.queueDepth || 0,
@@ -869,6 +897,8 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
         runTools: {},
         runStatus: "running",
         runStartedAt: action.startedAt,
+        // 前のランの合計時間は新しいランの開始で消す (実行中の経過時間へ切り替わる)
+        finishedRunDurationMs: undefined,
         // 圧縮の終端では run_start より先に終端 resync が届く (回復時も残さない)
         compactionStartedAt: undefined,
         activity: "実行を開始しました",
@@ -1034,6 +1064,7 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
         done: false,
         output: "",
         ...(action.skill ? { skill: action.skill } : {}),
+        ...(action.questions ? { questions: action.questions } : {}),
       };
       // 保留中の run 側カードを先に補ってから新しいカードを足す (逆順だと初回の assistant バブルで
       // 新規が先頭になり、run 側の挿入順と逆のツール履歴になる)
@@ -1052,7 +1083,13 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
               ...state,
               runTools: {
                 ...state.runTools,
-                [action.id]: { ...call, done: true, isError: action.isError, output: action.output },
+                [action.id]: {
+                  ...call,
+                  done: true,
+                  isError: action.isError,
+                  output: action.output,
+                  ...(action.answers ? { answers: action.answers } : {}),
+                },
               },
             };
       const bubbleId = withRun.toolBubbleIds[action.id];
@@ -1064,7 +1101,12 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
               ...b,
               tools: b.tools.map((card) =>
                 card.id === action.id
-                  ? { ...card, phase: action.isError ? "failed" : "done", output: action.output }
+                  ? {
+                      ...card,
+                      phase: action.isError ? "failed" : "done",
+                      output: action.output,
+                      ...(action.answers ? { answers: action.answers } : {}),
+                    }
                   : card,
               ),
             }));
@@ -1196,6 +1238,8 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
         toolBubbleIds: {},
         activity,
         activityState: undefined,
+        // サーバー計測のラン全体。run_end を受け取れない復帰では復元しない (resync が消す)
+        finishedRunDurationMs: action.durationMs,
         // run が終わったことを取り直しの合図として数える (描画を挟まず reducer で進める)
         runEndSeq: settled.runEndSeq + 1,
         runStartedAt: undefined,
@@ -1236,7 +1280,8 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
       };
 
     case "setActivity":
-      // 実行とは別の知らせ (設定変更 / 接続エラーなど) を活動行へ出す。演出の対象外
-      return { ...state, activity: action.text, activityState: undefined };
+      // 実行とは別の知らせ (設定変更 / 接続エラーなど) を活動行へ出す。演出の対象外。
+      // 知らせの横に前のランの合計時間を残すと何の時間か読めないため、ここでも消す
+      return { ...state, activity: action.text, activityState: undefined, finishedRunDurationMs: undefined };
   }
 }

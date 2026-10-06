@@ -32,7 +32,7 @@ function input(overrides: Partial<ComposerSettingsInput> = {}): ComposerSettings
     selectedAgent: undefined,
     sessionId: "",
     preselection: {},
-    chat: { supportsThinking: true, availableThinkingLevels: ALL_THINKING_LEVELS, runStatus: "idle" },
+    chat: { supportsThinking: true, availableThinkingLevels: ALL_THINKING_LEVELS, runStatus: "idle", runTools: {} },
     sending: false,
     settingsChanging: false,
     stopVisible: false,
@@ -52,6 +52,7 @@ test("shows the effective values that resync put on the chat", () => {
         supportsThinking: false,
         availableThinkingLevels: ["off"],
         runStatus: "idle",
+        runTools: {},
       },
       health: health({ model: "app/default", modelOptions: [option("resync", "model")] }),
     }),
@@ -74,6 +75,7 @@ test("derives the status row effort from the effective value", () => {
         supportsThinking: true,
         availableThinkingLevels: ["off", "xhigh"],
         runStatus: "idle",
+        runTools: {},
       },
       health: health({ modelOptions: [option("resync", "model")] }),
     }),
@@ -206,6 +208,7 @@ const chatWith = (runStatus: RunStatus): ComposerSettingsInput["chat"] => ({
   supportsThinking: true,
   availableThinkingLevels: ALL_THINKING_LEVELS,
   runStatus,
+  runTools: {},
 });
 
 test("手動圧縮は実効 busy (running / queued / compacting) と通信中に押せない", () => {

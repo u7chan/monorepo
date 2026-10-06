@@ -11,11 +11,19 @@ export type EnterKeyState = {
   keyCode: number;
 };
 
+/**
+ * IME の変換確定 Enter か。送信 / 「次へ」に使ってはいけない Enter で、keyCode 229 は
+ * isComposing が false で届く実装があるため両方を見る (docs/ui-layout.md の入力欄の契約)。
+ * Enter を確定に使う UI が増えたらこの判定を通す (片方だけ直すと変換の確定で送ってしまう)。
+ */
+export function isImeComposingEnter(state: Pick<EnterKeyState, "isComposing" | "keyCode">): boolean {
+  return state.isComposing || state.keyCode === 229;
+}
+
 /** 通常の Enter で送信するか。true のときだけ呼び出し側が preventDefault して送信する */
 export function shouldSubmitOnEnter(state: EnterKeyState, mode: LayoutMode): boolean {
   // compact は Enter を改行に残す (タッチ入力では Shift+Enter を前提にできない)。送信は送信ボタンだけ
   if (mode !== "desktop") return false;
   if (state.key !== "Enter" || state.shiftKey) return false;
-  // IME の変換確定 Enter。keyCode 229 は isComposing が false で届く実装がある
-  return !state.isComposing && state.keyCode !== 229;
+  return !isImeComposingEnter(state);
 }

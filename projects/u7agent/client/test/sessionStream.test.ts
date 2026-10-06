@@ -145,6 +145,20 @@ test("leaves runtimeStatus alone when a run ends normally", () => {
   assert.deepEqual(record.statuses, []);
 });
 
+test("passes the run total duration from run_end to the reducer", () => {
+  const { record, deps } = createHarness();
+
+  applySessionEvent(
+    { seq: 1, type: "run_end", data: { status: "completed", queueDepth: 0, durationMs: 72_000 }, at: 1 },
+    deps,
+  );
+
+  // 合計時間は状態行の凍結表示にだけ使う。型が optional のため、写し忘れはコンパイルでは検出できない
+  const action = record.actions[0] as { type: string; durationMs?: number };
+  assert.equal(action.type, "runEnd");
+  assert.equal(action.durationMs, 72_000);
+});
+
 test("takes the run start from the event data, not from the receive time", () => {
   const { record, deps } = createHarness();
 

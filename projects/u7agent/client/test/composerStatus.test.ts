@@ -85,6 +85,25 @@ test("描画: モデル名とゲージは aria-live の外へ置く", () => {
   assert.ok(html.includes("(0s)"), "経過時間は aria-hidden の別スパンに出す");
 });
 
+test("描画: 完了の合計時間を活動の右に出し、読み上げに残す (実行中の経過とは別扱い)", () => {
+  const html = render({
+    activity: "完了",
+    model: "zai/glm-5.3-flash",
+    modelLabel: "GLM-5.3 Flash",
+    finishedRunDurationMs: 72_000,
+  });
+
+  assert.ok(html.includes(">完了<") && html.indexOf("(1m 12s)") > html.indexOf(">完了<"), "活動の右に出す");
+  const finished = /<span([^>]*)>\(1m 12s\)<\/span>/.exec(html);
+  assert.ok(finished, "formatElapsed と同じ表記で出す");
+  assert.ok(!finished[1].includes("aria-hidden"), "確定した値は読み上げの対象に残す");
+  assert.ok(!html.includes("run-spinner"), "完了後にスピナーを出さない");
+});
+
+test("描画: 合計時間だけでは活動欄を出さない (再実行カードの横に裸の数字を作らない)", () => {
+  assert.equal(render({ activity: "", finishedRunDurationMs: 72_000 }), "");
+});
+
 // --- 手動圧縮の導線 ---
 
 test("描画: セッションがあると Context ゲージの右に圧縮ボタンを出す", () => {

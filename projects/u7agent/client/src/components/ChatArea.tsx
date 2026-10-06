@@ -8,7 +8,7 @@ import type { ChatScope } from "../lib/chatScope";
 import { cn } from "../lib/cn";
 import { toolCallCopyText, toolHistoryCopyText } from "../lib/copy-content";
 import { nonSkillToolCards, skillBadgesOf } from "../lib/skillLoad";
-import type { AgentSuggestion, CompactionInfo } from "../types";
+import type { AgentSuggestion, AskUserAnswer, CompactionInfo } from "../types";
 import { AgentIcon } from "./AgentIcon";
 import { CompactionDivider } from "./chat/CompactionDivider";
 import { ContextBoundary } from "./chat/ContextBoundary";
@@ -48,6 +48,13 @@ export type ChatAreaProps = {
   onResendUnsent?: (runId: string) => void;
   /** 未送信メッセージの破棄 */
   onDiscardUnsent?: (runId: string) => void;
+  /** 実行中の run か (ask_user の回答を受け付けるかの根拠) */
+  answerable?: boolean;
+  /** ask_user の回答。エラーはカード内に出し、入力は消さない */
+  onAnswerQuestion?: (
+    toolCallId: string,
+    answers: AskUserAnswer[],
+  ) => Promise<{ ok: true } | { ok: false; error: string }>;
   /** 非表示 (設定ページ) の間は scrollHeight を読めないので同期を止める */
   visible?: boolean;
 };
@@ -72,6 +79,8 @@ export function ChatArea({
   onSuggestion,
   onResendUnsent,
   onDiscardUnsent,
+  answerable = false,
+  onAnswerQuestion,
   visible = true,
 }: ChatAreaProps) {
   const chatAreaRef = useRef<HTMLElement>(null);
@@ -252,6 +261,8 @@ export function ChatArea({
         onCopyAll={() => void copyMessage(toolHistoryCopyText(nonSkillToolCards(bubble.tools)), `tools_${bubble.id}`)}
         onResend={unsentRunId === undefined ? undefined : () => onResendUnsent?.(unsentRunId)}
         onDiscard={unsentRunId === undefined ? undefined : () => onDiscardUnsent?.(unsentRunId)}
+        answerable={answerable}
+        onAnswerQuestion={onAnswerQuestion}
       />
     );
   }

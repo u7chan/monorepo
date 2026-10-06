@@ -1,5 +1,6 @@
 import type { Dispatch, RefObject } from "react";
 import type {
+  AskUserAnswer,
   Health,
   PostMessageResult,
   RunStatus,
@@ -234,6 +235,35 @@ export async function discardUnsentMessage(runId: string, deps: DiscardUnsentDep
   } catch (error) {
     if (deps.sessionIdRef.current !== id) return;
     deps.dispatch({ type: "setActivity", text: messageFor(error) });
+  }
+}
+
+export type AnswerQuestionDeps = {
+  sessionIdRef: RefObject<string>;
+  /** 権威ある状態を取り直す (409: 別タブが先に回答 / 404: 停止・再起動で質問が消えた) */
+  recover: () => Promise<unknown>;
+  answer: (sessionId: string, toolCallId: string, answers: AskUserAnswer[]) => Promise<{ ok: true }>;
+};
+
+/**
+ * ask_user の回答。成功しても tool_end が届くまではカード側が手元の入力を記録として見せる。
+ * 状態が変わっている可能性のある失敗では取り直しを併せて起こす。
+ */
+export async function answerChatQuestion(
+  toolCallId: string,
+  answers: AskUserAnswer[],
+  deps: AnswerQuestionDeps,
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const id = deps.sessionIdRef.current;
+  if (!id) return { ok: false, error: "会話がありません" };
+  try {
+    const result = await deps.answer(id, toolCallId, answers);
+    if (deps.sessionIdRef.current !== id) return { ok: false, error: "会話が切り替わりました" };
+    return result;
+  } catch (error) {
+    const status = isApiFailure(error) ? (error as { status: number }).status : undefined;
+    if (status === 409 || status === 404) void deps.recover();
+    return { ok: false, error: messageFor(error) };
   }
 }
 
