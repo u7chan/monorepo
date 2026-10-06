@@ -25,7 +25,7 @@
    - サンドボックスには LLM 認証情報を渡さない。bash が何を読んでも（`BASH_ENV`・`~/.bashrc` 等）、キーはそこに存在しない
 2. **ツール定義のフック（`server/src/secret-guard.ts`）**
    - `createRemoteToolDefinitions` が作るリモート定義を `wrapToolDefinitionWithSecretMasker` で包み、途中出力（`onUpdate`。bash は累積スナップショットが来るので末尾保留・先頭部分一致付きでマスク）・最終結果・エラーメッセージをマスクする。エラーは完全一致のときのみ元の Error を保持する
-   - BFF ローカルの `generate_image`（`server/src/image-tools.ts`）も同じヘルパーで包む。ローカル定義は layer 2 のリモート定義生成を通らないため、execute が throw する文言（provider の失敗分類・設定の読取失敗）をここでマスクする
+   - BFF ローカルの `generate_image`（`server/src/image-tools.ts`）と `web_search`（`server/src/web-search-tool.ts`）も同じヘルパーで包む。ローカル定義は layer 2 のリモート定義生成を通らないため、execute が throw する文言（provider の失敗分類・設定の読取失敗・接続例外）をここでマスクする
 3. **tool_result 拡張（同ファイル）**
    - インライン拡張（`DefaultResourceLoader` の `extensionFactories`）で `tool_result` を購読し、全ツールの最終結果を LLM・履歴・`tool_execution_end` イベントへ渡る前にマスクする。`noExtensions: true` でもインラインファクトリは読み込まれる。シェル以外のツール（read / grep 等）もここで一括して掛かる
    - 対象は `content` だけで、`details` は掛からない。`details` から DTO を作る導出値（`ask_user` の質問 / 回答）は、載せる前に `run-events` / `session-projection` 側で個別にマスクする
@@ -53,7 +53,7 @@ SDK はツール出力をいくつかの方法で切り詰める。キーが切�
 - `server/test/redact.test.ts` — マスク本体（重複値、チャンク境界、中断時のフラッシュ）
 - `server/test/sessions-secrets.test.ts` — SSE イベント・payload・エラー経路のマスクと、秘密を含まない出力が改変されないこと。スキル読み込みの `ToolCall.skill` / `ChatMessage.skillLoads` も対象
 - `server/test/model-settings.test.ts` / `server/test/model-settings-api.test.ts` — GUI 登録キーのマスカー登録順序、DB 例外にキーが載っても応答・health・ログに出ないこと
-- `server/test/image-settings.test.ts` / `server/test/image-settings-api.test.ts` — 画像キーのマスカー登録順序（DB より前・起動時）、DB 例外にキーが載っても応答・health・ログに出ないこと、ローカル定義（`generate_image`）の throw のマスク（`server/test/image-tools.test.ts`）
+- `server/test/image-settings.test.ts` / `server/test/image-settings-api.test.ts` — 画像キーのマスカー登録順序（DB より前・起動時）、DB 例外にキーが載っても応答・health・ログに出ないこと、ローカル定義（`generate_image`）の throw のマスク（`server/test/image-tools.test.ts`）。`web_search` も切り詰めの前のマスクと throw のマスクを `server/test/web-search-tool.test.ts` で固定する
 - `server/test/app-db.test.ts` — `sanitizeError` が `#query` のログ・`#error`・`open()` の失敗の両方に効くこと。secrets の加算移行、新しい schema での作り直しでも秘密が消えないこと、並びと値列の排他
 - `server/test/secret-crypto.test.ts` — AEAD の往復、nonce を再利用しないこと、AAD 不一致 / 改ざん / 誤鍵 / 未知の鍵版の拒否、master key の書式と解決
 - `server/test/secrets.test.ts` — 名前と値の規則、cwd スコープの照合 (他会話の `secret_id` は 404)、一覧が名前・種別・更新時刻だけを返すこと、世代、起動 env の解決とマスカー登録 (8 文字未満は登録しない)

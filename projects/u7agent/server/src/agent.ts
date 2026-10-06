@@ -26,6 +26,7 @@ import { createServeToolDefinitions, withServeTool, type ServeToolHost } from ".
 import { createSandboxToolClientFromEnv } from "./sandbox/client";
 import { createRemoteToolDefinitions } from "./sandbox/remote-tools";
 import { createMutableSecretMasker, type SecretMasker } from "./redact";
+import { createWebSearchToolDefinitions, withWebSearchTool } from "./web-search-tool";
 import { collectSecretValues, createSecretRedactionExtension, extraSecretVarNames } from "./secret-guard";
 import { catalogSkillsFromSnapshot } from "./session-skills";
 import type {
@@ -726,12 +727,14 @@ export async function createPiBff({ cwd = process.cwd() }: { cwd?: string } = {}
         sessionId ? { id: sessionId } : undefined,
         entries as Parameters<typeof SessionManager.inMemory>[2],
       ),
+      // web_search と ask_user はどちらも BFF ローカルの customTool。allowlist (tools) には
+      // それぞれの追加分を足すだけで、片方が他方を上書きしない
       tools: withAskUserTool(
-        withServeTool(sessionToolNames(baseTools, imageGenerationEnabled), serveToolEnabled),
+        withWebSearchTool(withServeTool(sessionToolNames(baseTools, imageGenerationEnabled), serveToolEnabled)),
         askUserEnabled,
       ),
       // 組込み定義を「サンドボックスの実行API を呼ぶリモート定義」で置き換え、BFF 上で作業コードを実行しない。
-      // 画像生成と serve は BFF ローカルの customTool として足す（サンドボックスには送らない）
+      // web_search・画像生成・serve は BFF ローカルの customTool として足す（サンドボックスには送らない）
       customTools: [
         ...createRemoteToolDefinitions({
           cwd: sessionCwd,
@@ -744,6 +747,7 @@ export async function createPiBff({ cwd = process.cwd() }: { cwd?: string } = {}
           // 解決は exec のたびに行う (設定の変更は次の bash から効く)
           envForCwd: () => sessionEnv.value?.variablesFor(relativeCwd) ?? {},
         }),
+        ...createWebSearchToolDefinitions({ masker: secretMasker }),
         ...createImageToolDefinitions({
           enabled: imageGenerationEnabled,
           sessionCwd: relativeCwd,
