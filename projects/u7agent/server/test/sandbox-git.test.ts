@@ -45,6 +45,15 @@ async function createRepo(branch: string): Promise<string> {
   return root;
 }
 
+/** 期限まで答えない偽 git。実 git の終了と期限の競争をテストに持ち込まない */
+async function createSlowGit(): Promise<string> {
+  const dir = await mkdtemp(join(tmpdir(), "pi-sbx-slowgit-"));
+  const file = join(dir, "slow-git");
+  await writeFile(file, "#!/bin/sh\nsleep 5\nprintf 'main\\n'\n");
+  await chmod(file, 0o755);
+  return file;
+}
+
 async function fetchGit(
   app: ReturnType<typeof createSandboxService>["app"],
   path: string,
@@ -121,10 +130,16 @@ test(
 
 test(
   "GET /v1/files/git gives up within the deadline without failing",
-  { skip: !HAS_GIT && GIT_SKIP_REASON },
+  { skip: (!HAS_GIT && GIT_SKIP_REASON) || (process.platform === "win32" && "sh is not available") },
   async () => {
+    // 期限まで答えない偽 git を差し替えて競争を無くす (差し替えが外れると実 git が branch を返して落ちる)
     const root = await createRepo("main");
-    const service = createSandboxService({ token: TOKEN, rootCwd: root, gitInfoTimeoutMs: 1 });
+    const service = createSandboxService({
+      token: TOKEN,
+      rootCwd: root,
+      gitInfoTimeoutMs: 200,
+      gitPath: await createSlowGit(),
+    });
     try {
       const { status, body } = await fetchGit(service.app, ".");
       assert.equal(status, 200, "期限超過もエラーにせず branch: null にする");
@@ -147,11 +162,8 @@ test(
   { skip: process.platform === "win32" && "sh is not available" },
   async () => {
     const dir = await mkdtemp(join(tmpdir(), "pi-sbx-slowgit-"));
-    const slow = join(dir, "slow-git");
-    await writeFile(slow, "#!/bin/sh\nsleep 5\nprintf 'main\\n'\n");
-    await chmod(slow, 0o755);
     const started = Date.now();
-    const info = await readWorkspaceGitInfo(dir, { gitPath: slow, timeoutMs: 200 });
+    const info = await readWorkspaceGitInfo(dir, { gitPath: await createSlowGit(), timeoutMs: 200 });
     assert.deepEqual(info, { branch: null }, "期限を過ぎた git は branch: null にする");
     assert.ok(Date.now() - started < GIT_INFO_TIMEOUT_MS, "テストの期限 (200ms) で打ち切る");
   },
