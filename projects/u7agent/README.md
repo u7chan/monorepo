@@ -46,7 +46,7 @@ pnpm dev   # サンドボックス + BFF + Vite をまとめて起動 → http:/
 - ツールはサンドボックスの作業領域でコマンド実行やファイル変更ができます。`write` / `edit` はセッションの作業ディレクトリと `<workspace root>/.agents/skills` に限られますが、`bash` は制限しません。信頼できる環境だけで使ってください（[docs/sandbox.md](docs/sandbox.md)）
 - LLM の APIキーは BFF が持ち、サンドボックスへは共有トークンしか渡しません。設定 → モデルで登録したキーはアプリデータの SQLite（`PI_SESSION_STORE/u7agent.db`）へ**平文**で保存されるため、DB・WAL・バックアップのアクセス権を管理してください（[docs/model-settings.md](docs/model-settings.md#残存リスク)）。ツール出力に現れた既知のキーは、LLM・SSE・ログへ渡す前に `[REDACTED]` へ置換します
 - `pnpm dev` のサンドボックスはホスト上の別プロセスで、BFF と同一ユーザー・同一環境です（親シェルから export した APIキーや、同一ユーザーが読める `~/.pi/agent/auth.json` も見えます）。コンテナ分離の設計と残存リスクは [docs/sandbox.md](docs/sandbox.md) を参照してください
-- 作業環境 → 環境変数 の**シークレットだけ**が保存時に暗号化されます（AEAD。プロバイダー / 画像の APIキー、provider メモ、種別 = 変数の値は `u7agent.db` へ**平文**で残るため、「DB 全体が暗号化された」わけではありません）。シークレットはエージェントの `bash` の env に入りませんが、同一サンドボックス・同一 Unix user でサービスが動くため `/proc/<pid>/environ` などを読める可能性は残ります（[docs/secrets.md](docs/secrets.md#保証範囲と残存リスク)）
+- 作業環境 → 環境変数 の**シークレットだけ**が保存時に暗号化されます（AEAD。プロバイダー / 画像 / Web 検索の APIキー、provider メモ、種別 = 変数の値は `u7agent.db` へ**平文**で残るため、「DB 全体が暗号化された」わけではありません）。シークレットはエージェントの `bash` の env に入りませんが、同一サンドボックス・同一 Unix user でサービスが動くため `/proc/<pid>/environ` などを読める可能性は残ります（[docs/secrets.md](docs/secrets.md#保証範囲と残存リスク)）
 
 ## ドキュメント
 
