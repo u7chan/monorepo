@@ -52,7 +52,7 @@ provider ごとの差はここで吸収し、`WebSearchResultItem[]` へ正規�
 
 - Exa: `result.content[0].text` → JSON → `results[]`（`highlights` 優先、無ければ `text`）
 - Tavily: `results[]`（`content`）
-- 公開日は Exa の `publishedDate` / Tavily の `published_date` を `publishedDate`（string）として取り込む。無い / 非文字列は項目ごと落とす（表示の整形は下の「結果の整形」）。provider 固有のフィールド名はここで吸収する
+- 公開日は Exa の `publishedDate` / Tavily の `published_date` を `publishedDate`（string）として取り込む。無い / 非文字列は `publishedDate` を付けない（結果自体は残し、表示は下の「結果の整形」で括弧ごと省く）。provider 固有のフィールド名はここで吸収する
 - `results` が配列でなければ「想定外の応答」。空配列は **正常系**で「結果が見つかりませんでした」を返す（JSON なので 0 件と解釈不能を区別できる）
 
 ## 結果の整形
