@@ -1,6 +1,6 @@
 /**
  * BFF ローカルの `web_search` ツール。既定の provider（アプリ DB を正とする）を 1 回だけ呼び、
- * 上位 5 件を出典一覧 + 抜粋へ整形する。サンドボックスの allowlist (`PI_AGENT_TOOLS`) の外にあり、
+ * 上位 5 件を現在日時行 + 出典一覧 + 抜粋へ整形する。サンドボックスの allowlist (`PI_AGENT_TOOLS`) の外にあり、
  * 上流の応答本文と失敗理由はモデル・ログ・UI へ出さない (docs/web-search.md)。
  */
 import { Type, type Static } from "@earendil-works/pi-ai";
@@ -27,6 +27,8 @@ export const WEB_SEARCH_OUTPUT_MAX_LENGTH = 12_000;
 const WEB_SEARCH_TRUNCATED_MARKER = "... [truncated]";
 /** 接続例外に添える詳細の上限 */
 const WEB_SEARCH_DETAIL_MAX_LENGTH = 500;
+/** 日時行と公開日に使うタイムゾーン。UI は日本語で利用者は JST (設定化は非ゴール、docs/web-search.md) */
+export const WEB_SEARCH_TIME_ZONE = "Asia/Tokyo";
 
 export const WEB_SEARCH_PROVIDER_ERROR_MESSAGE = "検索プロバイダのエラーが発生しました";
 export const WEB_SEARCH_RATE_LIMITED_MESSAGE = "検索が混雑しています（レート制限）";
@@ -56,12 +58,14 @@ const WEB_SEARCH_FAILURE_MESSAGES: Record<WebSearchFailureKind, string> = {
 };
 
 export const WEB_SEARCH_TOOL_DESCRIPTION =
-  "Search the web and return the top results with their titles, URLs and excerpts. " +
+  "Search the web and return the top results with their titles, URLs, published dates and excerpts. " +
   "Use it to find URLs to open or cite; use `curl` in bash to read a URL you already know.";
 
 export const WEB_SEARCH_TOOL_GUIDELINES = [
   "Use web_search when you need candidate URLs or current information; when you already know the URL, read its content with `curl` in bash instead.",
   "Cite only the URLs web_search returned and never invent a URL or a source the results do not contain.",
+  "Results start with the current date and time zone; treat it as the source of truth for today and never assume the current year from memory.",
+  "When the user does not give a year, do not invent one: search without a year first, then, if the question depends on the current date (this year, latest, new release, next installment) and the results are clearly older than the date at the head of the results, search again with that year.",
 ];
 
 const webSearchSchema = Type.Object({
@@ -80,32 +84,64 @@ function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
+// Intl.DateTimeFormat の生成は重い。呼び出しごとに作らないよう 1 つだけ持つ
+const webSearchDateFormatter = new Intl.DateTimeFormat("en-US", {
+  timeZone: WEB_SEARCH_TIME_ZONE,
+  year: "numeric",
+  month: "2-digit",
+  day: "2-digit",
+});
+
+/** JST の YYYY-MM-DD。locale を固定し、`en-CA` の出力書式には依存しない (実行環境の LANG / ICU を避ける) */
+function formatWebSearchDate(date: Date): string {
+  const parts = webSearchDateFormatter.formatToParts(date);
+  const part = (type: "year" | "month" | "day"): string => parts.find((value) => value.type === type)?.value ?? "";
+  return `${part("year")}-${part("month")}-${part("day")}`;
+}
+
+/** 結果と失敗文言の先頭に置く現在日時行。日付だけで「今年」の判断には足り、表示と cache が安定する */
+function currentDateLine(now: Date): string {
+  return `現在日時: ${formatWebSearchDate(now)} (${WEB_SEARCH_TIME_ZONE})`;
+}
+
+/** 公開日を JST の YYYY-MM-DD へ。値が無い / parse できないときは括弧ごと省く */
+function publishedDateLabel(publishedDate: string | undefined): string {
+  if (publishedDate === undefined) return "";
+  const date = new Date(publishedDate);
+  return Number.isNaN(date.getTime()) ? "" : ` (${formatWebSearchDate(date)})`;
+}
+
 /** 出典 1 件の見出し。タイトルが無い結果でも位置が分かるようにする */
-function sourceLine(item: { title: string; url: string }, index: number): string {
+function sourceLine(item: WebSearchResultItem, index: number): string {
   const title = item.title.trim() === "" ? "(no title)" : item.title.trim();
-  return item.url.trim() === "" ? `[${index + 1}] ${title}` : `[${index + 1}] ${title} — ${item.url.trim()}`;
+  const suffix = publishedDateLabel(item.publishedDate);
+  return item.url.trim() === ""
+    ? `[${index + 1}] ${title}${suffix}`
+    : `[${index + 1}] ${title} — ${item.url.trim()}${suffix}`;
 }
 
 function clip(text: string, max: number): string {
   return text.length > max ? `${text.slice(0, max)}…` : text;
 }
 
-/** 出典一覧を先頭に、続けて各件の抜粋を並べる。履歴は先頭 900 字しか出さないため順序に意味がある */
-export function formatWebSearchResults(items: readonly WebSearchResultItem[], masker: SecretMasker): string {
-  if (items.length === 0) return WEB_SEARCH_NO_RESULTS_MESSAGE;
+/** 現在日時行と出典一覧を先頭に、続けて各件の抜粋を並べる。履歴は先頭 900 字しか出さないため順序に意味がある */
+export function formatWebSearchResults(items: readonly WebSearchResultItem[], masker: SecretMasker, now: Date): string {
+  const header = `${currentDateLine(now)}\n`;
+  if (items.length === 0) return `${header}${WEB_SEARCH_NO_RESULTS_MESSAGE}`;
   // 上流の本文は出典や抜粋へ混ざる。1 件の切り詰めが秘密値の途中で切ると完全一致で拾えなくなるため、
   // 切り詰めより先にマスクする
   const masked = items.map((item) => ({
     title: masker.mask(item.title),
     url: masker.mask(item.url),
     excerpt: masker.mask(item.excerpt),
+    publishedDate: item.publishedDate,
   }));
   const sources = masked.map((item, index) => sourceLine(item, index));
   const entries = masked.map((item, index) => {
     const excerpt = clip(item.excerpt, WEB_SEARCH_EXCERPT_MAX_LENGTH);
     return excerpt === "" ? sources[index] : `${sources[index]}\n${excerpt}`;
   });
-  const text = `出典:\n${sources.join("\n")}\n\n${entries.join("\n\n")}`;
+  const text = `${header}出典:\n${sources.join("\n")}\n\n${entries.join("\n\n")}`;
   if (text.length <= WEB_SEARCH_OUTPUT_MAX_LENGTH) return text;
   return `${text.slice(0, WEB_SEARCH_OUTPUT_MAX_LENGTH - WEB_SEARCH_TRUNCATED_MARKER.length)}${WEB_SEARCH_TRUNCATED_MARKER}`;
 }
@@ -134,6 +170,8 @@ export interface WebSearchToolOptions {
   readProvider?: () => WebSearchProviderId;
   /** 省くとキー無し（keyless のみ動く） */
   readApiKey?: (provider: WebSearchProviderId) => string | undefined;
+  /** テストで固定する現在日時。execute で 1 回だけ評価する */
+  now?: () => Date;
 }
 
 export function createWebSearchToolDefinitions(options: WebSearchToolOptions): ToolDefinition[] {
@@ -142,6 +180,7 @@ export function createWebSearchToolDefinitions(options: WebSearchToolOptions): T
   const readEnabled = options.readEnabled ?? ((): boolean => true);
   const readProvider = options.readProvider ?? ((): WebSearchProviderId => DEFAULT_WEB_SEARCH_PROVIDER);
   const readApiKey = options.readApiKey ?? ((): undefined => undefined);
+  const readNow = options.now ?? ((): Date => new Date());
 
   /** 設定の読取は検索の前段。DB が読めないときに上流へ送って失敗を混ぜない */
   function readTarget(): { provider: ReturnType<typeof webSearchProvider>; apiKey: string | undefined } | undefined {
@@ -206,10 +245,12 @@ export function createWebSearchToolDefinitions(options: WebSearchToolOptions): T
     async execute(_toolCallId, params: WebSearchParams, signal) {
       // 判定を execute まで遅らせないと、OFF が既存セッションの次の呼び出しに効かない
       if (!readEnabled()) throw new Error(WEB_SEARCH_DISABLED_MESSAGE);
+      const now = readNow();
       const outcome = await search(params.query, signal);
-      if (!outcome.ok) throw new Error(outcome.message);
+      // 検索に失敗したときこそモデルは記憶で答えるため、日付が最も要る
+      if (!outcome.ok) throw new Error(`${currentDateLine(now)}\n${outcome.message}`);
       return {
-        content: [{ type: "text", text: formatWebSearchResults(outcome.items, options.masker) }],
+        content: [{ type: "text", text: formatWebSearchResults(outcome.items, options.masker, now) }],
         details: undefined,
       };
     },

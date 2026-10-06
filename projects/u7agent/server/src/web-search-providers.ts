@@ -22,6 +22,8 @@ export interface WebSearchResultItem {
   url: string;
   /** 抜粋。Exa は highlights（無ければ text）、Tavily は content */
   excerpt: string;
+  /** 公開日。provider が string で返したときだけ入り、生のままは出さず整形側で JST の日付にする */
+  publishedDate?: string;
 }
 
 /**
@@ -81,15 +83,20 @@ function asRecord(value: unknown): Record<string, unknown> | undefined {
 function readResultItems(
   entries: unknown,
   excerptOf: (entry: Record<string, unknown>) => string,
+  publishedDateOf: (entry: Record<string, unknown>) => string | undefined,
 ): WebSearchResultItem[] | undefined {
   if (!Array.isArray(entries)) return undefined;
   return entries
     .filter((entry): entry is Record<string, unknown> => asRecord(entry) !== undefined)
-    .map((entry) => ({
-      title: typeof entry.title === "string" ? entry.title : "",
-      url: typeof entry.url === "string" ? entry.url : "",
-      excerpt: excerptOf(entry),
-    }));
+    .map((entry) => {
+      const publishedDate = publishedDateOf(entry);
+      return {
+        title: typeof entry.title === "string" ? entry.title : "",
+        url: typeof entry.url === "string" ? entry.url : "",
+        excerpt: excerptOf(entry),
+        ...(publishedDate === undefined ? {} : { publishedDate }),
+      };
+    });
 }
 
 /* --- Exa (keyless な MCP へ JSON-RPC の tools/call を 1 回送る) --- */
@@ -129,6 +136,11 @@ function exaExcerptOf(entry: Record<string, unknown>): string {
   return joined !== "" ? joined : typeof entry.text === "string" ? entry.text.trim() : "";
 }
 
+/** string のときだけ採用する。無い / 非文字列は整形側で括弧ごと省かれる */
+function exaPublishedDateOf(entry: Record<string, unknown>): string | undefined {
+  return typeof entry.publishedDate === "string" ? entry.publishedDate : undefined;
+}
+
 /**
  * 200 の応答本文を分類する。JSON-RPC の error → isError → レート制限 → 内容の順に見て、
  * 0 件は正常系として空配列で返す (JSON なので 0 件と解釈不能を区別できる)。
@@ -145,7 +157,7 @@ function exaOutcomeFromBody(body: unknown): WebSearchProviderOutcome {
   if (text === undefined) return { ok: false, kind: "unexpected_response" };
   const parsed = tryParseJson(text);
   if (!parsed.ok) return { ok: false, kind: "unexpected_response" };
-  const items = readResultItems(asRecord(parsed.value)?.results, exaExcerptOf);
+  const items = readResultItems(asRecord(parsed.value)?.results, exaExcerptOf, exaPublishedDateOf);
   if (!items) return { ok: false, kind: "unexpected_response" };
   return { ok: true, items };
 }
@@ -203,8 +215,13 @@ function tavilyExcerptOf(entry: Record<string, unknown>): string {
   return typeof entry.content === "string" ? entry.content.trim() : "";
 }
 
+/** string のときだけ採用する。無い / 非文字列は整形側で括弧ごと省かれる */
+function tavilyPublishedDateOf(entry: Record<string, unknown>): string | undefined {
+  return typeof entry.published_date === "string" ? entry.published_date : undefined;
+}
+
 function tavilyOutcomeFromBody(body: unknown): WebSearchProviderOutcome {
-  const items = readResultItems(asRecord(body)?.results, tavilyExcerptOf);
+  const items = readResultItems(asRecord(body)?.results, tavilyExcerptOf, tavilyPublishedDateOf);
   if (!items) return { ok: false, kind: "unexpected_response" };
   return { ok: true, items };
 }
