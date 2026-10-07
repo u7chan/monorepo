@@ -300,6 +300,15 @@ desktop のパネル（`sessionFilesOpen`）と compact のシート（`sessionF
 - compact は Enter を改行に残す。タッチ入力では `Shift+Enter` を前提にできず、改行の逃げ道が無いため。送信は送信ボタンに寄せ、`preventDefault` をしないので変換確定も既定の改行処理もブラウザーに任せる（compact の入力欄のヒントにも Enter 送信を出さない）
 - `enterkeyhint` はモードに合わせる（desktop = `send` / compact = `enter`）。キーのラベル / アイコンのヒントなので動作は変えず、ソフトキーボード上の表示だけを揃える
 
+## 送信後の入力欄のフォーカス
+
+送信が成立したときに入力欄のフォーカスを戻すか外すかは、**送信の時点のポインタ**で決める（`client/src/lib/composerFocus.ts` の `composerFocusAfterSend` / `hasCoarsePointer`）。
+
+- タッチ入力（`(pointer: coarse)`）では外す（`blur()`）。戻すとソフトキーボードが閉じない（iOS Safari は送信ボタンのタップで入力欄のフォーカスが外れず、同じ要素への `focus()` が no-op になる。Android Chrome はタップで外れたフォーカスを `focus()` が戻してキーボードを開き直す。実機での確認は [GUI の最小受入](testing.md#gui-の最小受入)）。`blur()` は送信の click / submit と同じ同期処理の中で呼ぶ（ユーザー操作の外へ遅らせると閉じない端末がある）
+- マウス / トラックパッド（`(pointer: fine)`）では入力欄へ戻す。送信ボタンのクリックでフォーカスがボタンへ移るので、戻さないと次の入力を書き始められない。**compact でも同じ**で、幅 / 高さが足りない desktop の窓で連投する経路を残す（モードでは分けない）
+- `any-pointer: coarse` は見ない。マウス併用のタッチ PC までタッチ扱いになり、マウス操作の連投でフォーカスが落ちるため（`pointer-coarse:` の CSS バリアントと同じ「一次ポインタ」の見方）
+- キーボードが閉じると viewport の高さが伸びるが、追従中のチャットは `ChatArea` の ResizeObserver が最下部へ揃える（[チャットの自動追従と最下部ボタン](#チャットの自動追従と最下部ボタン)）。Android Chrome がソフトキーボードの表示中だけ landscape になる件（[制約](#制約)）も、送信でキーボードが閉じれば戻る
+
 ## 設定の編集フォーム（エージェント / スキル）
 
 設定 → エージェント の編集列（`client/src/components/agent-settings/`）は、可変長の「定型プロンプト」「スキル」を持つため、確定操作の位置が件数に比例して下がる。これを避けるため次のように組む。スキル（`skill-settings/SkillEditorForm.tsx`）は項目が固定なので、シートのときだけこれに揃える。
@@ -398,6 +407,6 @@ docked の左バーの幅は右端のハンドル（`client/src/components/sideb
 
 ## 制約
 
-- Android Chrome はソフトキーボード表示で `window.innerHeight` が縮むため、desktop 表示中に入力すると一時的に landscape へ切り替わることがある（キーボードを閉じると戻る）。高さの判定に `visualViewport` は使っていない
+- Android Chrome はソフトキーボード表示で `window.innerHeight` が縮むため、desktop 表示中に入力すると一時的に landscape へ切り替わることがある（キーボードを閉じると戻る。タッチ入力の送信はキーボードを閉じるので、送信後に戻る。`Composer` の[送信後の入力欄のフォーカス](#送信後の入力欄のフォーカス)）。高さの判定に `visualViewport` は使っていない
 - 幅 720px 未満のタブレット（例: 600x960）は portrait になり、Sidebar はドロワーへ退避する
 - iOS Safari の safe-area は `Composer` の下余白（`max(8px, env(safe-area-inset-bottom))`）で扱う。viewport meta は変更しておらず、`viewport-fit=cover` は指定していない
