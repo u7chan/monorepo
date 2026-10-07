@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useImageSettings, type ImageSettings } from "../hooks/useImageSettings";
 import { useWebSearchSettings, type WebSearchSettings } from "../hooks/useWebSearchSettings";
 import { useModelSettings, type ModelSettings } from "../hooks/useModelSettings";
@@ -139,12 +139,20 @@ export function ModelSettingsView({
   // 注記と再読み込みは表示中のタブのものだけを出す (別タブの失敗を混ぜない)
   const activeNote = webSearchTab ? webSearchSettings.note : imagesTab ? imageSettings.note : note;
   const activeReloading = webSearchTab ? webSearchSettings.reloading : imagesTab ? imageSettings.reloading : reloading;
+  const activeTabRef = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    if (compact) activeTabRef.current?.scrollIntoView({ block: "nearest", inline: "nearest" });
+  }, [compact, modelsSubsection]);
 
   return (
     <SettingsPageLayout
       eyebrow="MODELS"
       title="モデル"
-      caption="使うモデルと、プロバイダーごとのAPIキー、画像生成・Web 検索の設定をします。保存した内容は再起動後も使われます。"
+      caption={
+        compact
+          ? "モデルとプロバイダーを設定します。"
+          : "使うモデルと、プロバイダーごとのAPIキー、画像生成・Web 検索の設定をします。保存した内容は再起動後も使われます。"
+      }
       actions={
         <ReloadButton
           onClick={() => void Promise.all([reload(), imageSettings.reload(), webSearchSettings.reload()])}
@@ -154,15 +162,24 @@ export function ModelSettingsView({
         </ReloadButton>
       }
       tabs={
-        <div role="tablist" aria-label="モデルの設定" className="flex shrink-0 gap-1 border-b border-line px-4">
+        <div
+          role="tablist"
+          aria-label="モデルの設定"
+          className={cn("flex min-w-0 shrink-0 gap-1 overflow-x-auto border-b border-line", compact ? "px-2" : "px-4")}
+        >
           {MODELS_SUBSECTIONS.map((item) => (
             <button
               key={item.subsection}
+              ref={modelsSubsection === item.subsection ? activeTabRef : undefined}
               type="button"
               role="tab"
               aria-selected={modelsSubsection === item.subsection}
               onClick={() => onSelectModelsSubsection?.(item.subsection)}
-              className={cn("tab-item", modelsSubsection === item.subsection && "tab-item-active")}
+              className={cn(
+                "tab-item shrink-0 whitespace-nowrap",
+                compact && "px-1.5",
+                modelsSubsection === item.subsection && "tab-item-active",
+              )}
             >
               {item.label}
             </button>

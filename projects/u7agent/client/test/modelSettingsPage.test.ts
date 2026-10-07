@@ -172,6 +172,7 @@ function render(
     imageSettings?: ImageSettings;
     webSearchSettings?: WebSearchSettings;
     onSelectModelsSubsection?: (subsection: ModelsSubsection) => void;
+    compact?: boolean;
   } = {},
 ): string {
   // 確認ダイアログの provider は app の root が持つ (main.tsx)。ここでは描画だけを検査する
@@ -187,6 +188,7 @@ function render(
         sessionsLoaded: options.sessionsLoaded ?? false,
         modelsSubsection: options.modelsSubsection ?? "models",
         onSelectModelsSubsection: options.onSelectModelsSubsection ?? (() => {}),
+        compact: options.compact,
         onBack: () => {},
       }),
     ),
@@ -212,6 +214,18 @@ test("タブ行は URL が決めるタブを示し、4 つのタブを出す", (
   assert.ok(providersHtml.includes("provider 名 / ID で絞り込み"));
   assert.ok(providersHtml.includes('fill-rule="evenodd"'), "ロゴのある provider は一覧にロゴを出す");
   assert.ok(providersHtml.includes(">L<"), "ロゴの無い provider は頭文字を出す");
+});
+
+test("compact のプロバイダー詳細は一覧を畳んでキー入力を表示する", () => {
+  const html = render(modelSettings(), { modelsSubsection: "providers", compact: true });
+  assert.match(html, /<button[^>]*aria-expanded="false"[^>]*>.*プロバイダーを変更.*<\/button>/s);
+  assert.ok(html.includes('type="password"'), "選択中の provider のキー欄を出す");
+  assert.equal(html.includes('aria-label="プロバイダーを絞り込む"'), false, "一覧の検索は閉じている");
+  assert.ok(html.includes("SQLite"), "キーの保存に関する警告を詳細に残す");
+
+  const desktop = render(modelSettings(), { modelsSubsection: "providers" });
+  assert.ok(desktop.includes('aria-label="プロバイダーを絞り込む"'), "desktop は一覧と詳細を同時に出す");
+  assert.equal(desktop.includes("プロバイダーを変更"), false);
 });
 
 test("画像生成タブは URL が選んだときにだけ描画し、キー入力を出す", () => {

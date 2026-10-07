@@ -15,7 +15,7 @@ import {
   type ProviderDraft,
 } from "../../lib/modelSettings";
 import type { ModelsSettingsResponse, ProviderAuthSetting, RuntimeModelsResponse, SessionSummary } from "../../types";
-import { CheckIcon, KeyIcon, TrashIcon } from "../icons";
+import { CheckIcon, DisclosureChevronIcon, KeyIcon, TrashIcon } from "../icons";
 import { ReloadButton } from "../ReloadButton";
 import { useConfirm } from "../ConfirmProvider";
 import { ProviderIcon } from "../ProviderIcon";
@@ -45,7 +45,7 @@ export type ProvidersTabProps = {
 
 /**
  * 「プロバイダー」タブ。左の一覧（全 provider）と右の詳細（キー・メモ・削除・再同期）を
- * 分け、モデル一覧は「モデルを選ぶ」タブへ一本化する。平文保存の注意は詳細ペインの上部に
+ * 分け、compact では一覧と詳細を切り替える。平文保存の注意は詳細ペインの上部に
  * 常時出し、provider を切り替えても消えない。
  */
 export function ProvidersTab({
@@ -66,6 +66,14 @@ export function ProvidersTab({
 }: ProvidersTabProps) {
   const [query, setQuery] = useState("");
   const [selectedProvider, setSelectedProvider] = useState<string | null>(null);
+  const [listOpen, setListOpen] = useState(false);
+  const selectorRef = useRef<HTMLButtonElement>(null);
+  const focusAfterSelection = useRef(false);
+  useEffect(() => {
+    if (!compact || listOpen || !focusAfterSelection.current) return;
+    focusAfterSelection.current = false;
+    selectorRef.current?.focus();
+  }, [compact, listOpen]);
   const needle = query.trim().toLowerCase();
   const matched = (provider: ProviderAuthSetting) =>
     needle === "" || provider.provider.toLowerCase().includes(needle) || provider.name.toLowerCase().includes(needle);
@@ -75,118 +83,150 @@ export function ProvidersTab({
     { label: `未設定 ${groups.unconfigured.length}`, providers: groups.unconfigured.filter(matched) },
   ];
   const visible = sections.flatMap((section) => section.providers);
-  // 検索で選択中の行が消えたら先頭へ寄せる (詳細が空のままにならない)
-  const active = visible.find((provider) => provider.provider === selectedProvider) ?? visible[0];
+  const selected = settings.providers.find((provider) => provider.provider === selectedProvider);
+  // compact では検索中も表示中の詳細を変えない。一覧を選び直したときだけ切り替える
+  const active = compact
+    ? (selected ?? groups.configured[0] ?? groups.unconfigured[0])
+    : (visible.find((provider) => provider.provider === selectedProvider) ?? visible[0]);
   const busy = saving !== null;
+  const saveNote = (
+    <div className="border-t border-line bg-soft px-4 py-2.5 text-2xs leading-relaxed text-ink-muted">
+      このタブの変更は、各項目の保存ボタンでその場で保存されます（横断の一括保存はありません）。
+    </div>
+  );
 
   return (
     <div className="flex min-h-0 min-w-0 flex-1 flex-col">
-      <div className={cn("flex min-h-0 min-w-0 flex-1", compact ? "flex-col" : "flex-row")}>
-        <div
-          className={cn(
-            "flex min-h-0 shrink-0 flex-col",
-            compact ? "max-h-[42dvh] border-b border-line" : "w-72 border-r border-line",
-          )}
+      {compact ? (
+        <button
+          ref={selectorRef}
+          type="button"
+          aria-expanded={listOpen}
+          onClick={() => setListOpen((open) => !open)}
+          className="flex min-h-11 min-w-0 shrink-0 items-center gap-2 border-b border-line px-4 text-left text-xs text-ink-soft"
         >
-          <div className="border-b border-line p-2">
-            <input
-              type="search"
-              className="field min-w-0 text-xs"
-              value={query}
-              placeholder="provider 名 / ID で絞り込み"
-              aria-label="プロバイダーを絞り込む"
-              onChange={(event) => setQuery(event.currentTarget.value)}
-            />
-          </div>
-          <div className="min-h-0 flex-1 scrollbar-thin overflow-x-hidden overflow-y-auto p-2">
-            {visible.length === 0 ? (
-              <p className="px-1.5 py-1.5 text-2xs text-ink-muted">該当するプロバイダーがありません。</p>
-            ) : (
-              sections.map((section) =>
-                section.providers.length === 0 ? null : (
-                  <div key={section.label} className="grid gap-0.5">
-                    <div className="px-1.5 pt-2 pb-0.5 text-3xs tracking-label text-ink-ghost uppercase">
-                      {section.label}
-                    </div>
-                    {section.providers.map((provider) => {
-                      const meta = providerListMeta(provider, catalog);
-                      const isActive = provider.provider === active?.provider;
-                      return (
-                        <button
-                          key={provider.provider}
-                          type="button"
-                          aria-current={isActive ? "true" : undefined}
-                          onClick={() => setSelectedProvider(provider.provider)}
-                          className={cn(
-                            "flex w-full items-center gap-2 rounded-lg border px-2 py-1.5 text-left transition-colors",
-                            isActive ? "border-accent/40 bg-accent-wash" : "border-transparent hover:bg-hover",
-                          )}
-                        >
-                          <ProviderIcon provider={provider.provider} name={provider.name} />
-                          <span className="grid min-w-0 flex-1 gap-0.5">
-                            <span className="flex min-w-0 items-center gap-2">
-                              <span className="min-w-0 flex-1 truncate text-xs text-ink">{provider.name}</span>
-                              <span
-                                className={cn("text-2xs whitespace-nowrap", meta.warn ? "text-warn" : "text-ink-muted")}
-                              >
-                                {meta.text}
-                              </span>
-                            </span>
-                            <code className="truncate text-2xs text-ink-ghost">{provider.provider}</code>
-                          </span>
-                        </button>
-                      );
-                    })}
-                  </div>
-                ),
-              )
-            )}
-          </div>
-        </div>
-
-        <div className="min-h-0 min-w-0 flex-1 scrollbar-thin overflow-x-hidden overflow-y-auto px-4 py-4">
-          <div className="mx-auto grid max-w-3xl gap-3">
-            {settings.runtimeAvailable ? null : (
-              <p role="alert" className="rounded-lg border border-warn/40 bg-raised px-2.5 py-2 text-2xs text-warn">
-                ランタイムが利用できないため、APIキーとメモの変更はできません。サーバーの起動ログを確認してください。
-              </p>
-            )}
-            <SecurityNotice />
-            {catalogError ? (
-              <p role="alert" className="rounded-lg border border-line bg-soft px-2.5 py-2 text-2xs text-ink-muted">
-                モデル一覧を取得できませんでした。{catalogError}（認証状態の表示は保っています）
-              </p>
-            ) : null}
-            {active ? (
-              <ProviderDetail
-                key={active.provider}
-                provider={active}
-                catalog={catalog}
-                runtimeAvailable={settings.runtimeAvailable}
-                sessions={sessions}
-                sessionsLoaded={sessionsLoaded}
-                saving={saving === active.provider}
-                busy={busy}
-                onSave={onSave}
-                onSaveMemo={onSaveMemo}
-                onDelete={onDelete}
-                onResync={onResync}
-                drafts={drafts}
-                onChangeDraft={onChangeDraft}
-                onOpenModels={onOpenModels}
+          {active ? <ProviderIcon provider={active.provider} name={active.name} variant="field" /> : null}
+          <span className="min-w-0 flex-1 truncate">{active?.name ?? "プロバイダーがありません"}</span>
+          <span className="shrink-0 text-accent-text">{listOpen ? "詳細に戻る" : "プロバイダーを変更"}</span>
+          <DisclosureChevronIcon />
+        </button>
+      ) : null}
+      <div className="flex min-h-0 min-w-0 flex-1">
+        {!compact || listOpen ? (
+          <div
+            className={cn("flex min-h-0 flex-col", compact ? "min-w-0 flex-1" : "w-72 shrink-0 border-r border-line")}
+          >
+            <div className="border-b border-line p-2">
+              <input
+                type="search"
+                className="field min-w-0 text-xs"
+                value={query}
+                placeholder="provider 名 / ID で絞り込み"
+                aria-label="プロバイダーを絞り込む"
+                onChange={(event) => setQuery(event.currentTarget.value)}
               />
-            ) : (
-              <p className="rounded-lg border border-line bg-soft px-2.5 py-2 text-xs text-ink-muted">
-                プロバイダーがありません。
-              </p>
-            )}
+            </div>
+            <div className="min-h-0 flex-1 scrollbar-thin overflow-x-hidden overflow-y-auto p-2">
+              {visible.length === 0 ? (
+                <p className="px-1.5 py-1.5 text-2xs text-ink-muted">該当するプロバイダーがありません。</p>
+              ) : (
+                sections.map((section) =>
+                  section.providers.length === 0 ? null : (
+                    <div key={section.label} className="grid gap-0.5">
+                      <div className="px-1.5 pt-2 pb-0.5 text-3xs tracking-label text-ink-ghost uppercase">
+                        {section.label}
+                      </div>
+                      {section.providers.map((provider) => {
+                        const meta = providerListMeta(provider, catalog);
+                        const isActive = provider.provider === active?.provider;
+                        return (
+                          <button
+                            key={provider.provider}
+                            type="button"
+                            aria-current={isActive ? "true" : undefined}
+                            onClick={() => {
+                              setSelectedProvider(provider.provider);
+                              if (compact) {
+                                setQuery("");
+                                focusAfterSelection.current = true;
+                                setListOpen(false);
+                              }
+                            }}
+                            className={cn(
+                              "flex w-full items-center gap-2 rounded-lg border px-2 py-1.5 text-left transition-colors",
+                              isActive ? "border-accent/40 bg-accent-wash" : "border-transparent hover:bg-hover",
+                            )}
+                          >
+                            <ProviderIcon provider={provider.provider} name={provider.name} />
+                            <span className="grid min-w-0 flex-1 gap-0.5">
+                              <span className="flex min-w-0 items-center gap-2">
+                                <span className="min-w-0 flex-1 truncate text-xs text-ink">{provider.name}</span>
+                                <span
+                                  className={cn(
+                                    "text-2xs whitespace-nowrap",
+                                    meta.warn ? "text-warn" : "text-ink-muted",
+                                  )}
+                                >
+                                  {meta.text}
+                                </span>
+                              </span>
+                              <code className="truncate text-2xs text-ink-ghost">{provider.provider}</code>
+                            </span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  ),
+                )
+              )}
+            </div>
           </div>
-        </div>
+        ) : null}
+
+        {!compact || !listOpen ? (
+          <div className="min-h-0 min-w-0 flex-1 scrollbar-thin overflow-x-hidden overflow-y-auto px-4 py-4">
+            <div className="mx-auto grid max-w-3xl gap-3">
+              {settings.runtimeAvailable ? null : (
+                <p role="alert" className="rounded-lg border border-warn/40 bg-raised px-2.5 py-2 text-2xs text-warn">
+                  ランタイムが利用できないため、APIキーとメモの変更はできません。サーバーの起動ログを確認してください。
+                </p>
+              )}
+              <SecurityNotice />
+              {catalogError ? (
+                <p role="alert" className="rounded-lg border border-line bg-soft px-2.5 py-2 text-2xs text-ink-muted">
+                  モデル一覧を取得できませんでした。{catalogError}（認証状態の表示は保っています）
+                </p>
+              ) : null}
+              {active ? (
+                <ProviderDetail
+                  key={active.provider}
+                  provider={active}
+                  catalog={catalog}
+                  runtimeAvailable={settings.runtimeAvailable}
+                  sessions={sessions}
+                  sessionsLoaded={sessionsLoaded}
+                  saving={saving === active.provider}
+                  busy={busy}
+                  onSave={onSave}
+                  onSaveMemo={onSaveMemo}
+                  onDelete={onDelete}
+                  onResync={onResync}
+                  drafts={drafts}
+                  onChangeDraft={onChangeDraft}
+                  onOpenModels={onOpenModels}
+                />
+              ) : (
+                <p className="rounded-lg border border-line bg-soft px-2.5 py-2 text-xs text-ink-muted">
+                  プロバイダーがありません。
+                </p>
+              )}
+            </div>
+            {compact ? <div className="-mx-4 mt-4">{saveNote}</div> : null}
+          </div>
+        ) : null}
       </div>
 
-      <div className="shrink-0 border-t border-line bg-soft px-4 py-2.5 text-2xs leading-relaxed text-ink-muted">
-        このタブの変更は、各項目の保存ボタンでその場で保存されます（横断の一括保存はありません）。
-      </div>
+      {!compact ? saveNote : null}
     </div>
   );
 }
