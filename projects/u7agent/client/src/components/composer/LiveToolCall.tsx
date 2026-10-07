@@ -1,18 +1,17 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { finishOnAnimationEnd } from "../../lib/animationEnd";
-import { liveToolState, type LiveToolRow } from "../../lib/liveToolCall";
-import { toolDurationMs } from "../../lib/toolTiming";
+import {
+  initialLiveTracker,
+  liveToolState,
+  trackLiveHolds,
+  type LiveToolRow,
+  type LiveToolTracker,
+} from "../../lib/liveToolCall";
 import { formatDurationMs } from "../../lib/usageFormat";
 import type { RunStatus, ToolCall } from "../../types";
 
-/**
- * 行を出してから畳み始めるまでの最短時間。一瞬で終わるツールでも「何が走ったか」を読めるようにする
- * (即座に畳むと、開始のアニメーションの途中で消えて見えない。docs/frontend.md)。
- */
-export const LIVE_ROW_MIN_VISIBLE_MS = 900;
-
 /** 行の本文。番号はツール履歴の行番号と同じ桁揃えにする */
-function LiveRowBody({ row, durationMs }: { row: LiveToolRow; durationMs?: number }) {
+function LiveRowBody({ row }: { row: LiveToolRow }) {
   return (
     <div className="flex items-center gap-2 px-2 py-0.5">
       <span className="w-4.5 shrink-0 text-right font-sans text-3xs text-ink-ghost tabular-nums">
@@ -20,21 +19,16 @@ function LiveRowBody({ row, durationMs }: { row: LiveToolRow; durationMs?: numbe
       </span>
       <span className="min-w-0 flex-1 truncate">{row.summary}</span>
       {/* 実行時間は終わった行だけに出る (BFF 計測)。出ている間は畳む前の見せている時間になる */}
-      {durationMs === undefined ? null : (
+      {row.durationMs === undefined ? null : (
         <span className="shrink-0 font-sans text-3xs whitespace-nowrap text-ink-ghost tabular-nums">
-          {formatDurationMs(durationMs)}
+          {formatDurationMs(row.durationMs)}
         </span>
       )}
     </div>
   );
 }
 
-type ExitingRow = {
-  row: LiveToolRow;
-  durationMs?: number;
-  /** 最短表示時間の残り。0 ならそのまま畳む */
-  holdMs: number;
-};
+type ExitingRow = { row: LiveToolRow; holdMs: number };
 
 /**
  * 終わった行。最短表示時間までは終わった行としてそのまま出し、そこから高さを 0 へ畳む。畳み終わるまで
@@ -64,54 +58,54 @@ function ExitingRow({ item, onFinished }: { item: ExitingRow; onFinished: (id: s
 
   return (
     <li ref={ref} className="live-tool-item" data-leaving={leaving} data-done={!leaving}>
-      <LiveRowBody row={item.row} durationMs={item.durationMs} />
+      <LiveRowBody row={item.row} />
     </li>
   );
 }
 
 /**
- * 入力欄の直上のライブ表示。実行中のツールだけを出し、終わった行は最短表示時間だけ残してから
- * 畳んで外す (表示条件と演出の意図は docs/frontend.md)。読み上げは状態行の活動テキストが担うため
- * 視覚専用。
+ * 入力欄の直上のライブ表示。実行中のツールを出し、終わった行は最短表示時間だけ残してから畳んで外す
+ * (表示条件と畳み方の意図は docs/frontend.md)。読み上げは状態行の活動テキストが担うため視覚専用。
  */
 export function LiveToolCall({
   runTools,
   runStatus,
+  sessionId,
 }: {
   /** 直近 run のツールカード (toolCallId → ToolCall)。挿入順がそのまま走査順になる */
   runTools: Readonly<Record<string, ToolCall>>;
   runStatus: RunStatus;
+  /** 表示中のセッション。変わったら前のセッションの行を持ち越さない (未作成チャットは undefined) */
+  sessionId?: string;
 }) {
   const state = useMemo(() => liveToolState(runTools, runStatus), [runTools, runStatus]);
   const [exiting, setExiting] = useState<ExitingRow[]>([]);
-  const previousRef = useRef(state.rows);
-  /** 行ごとに最初に表示した時刻。最短表示時間の残りを出すために控える */
-  const seenRef = useRef(new Map<string, number>());
+  const trackerRef = useRef<{ key: string | undefined; tracker: LiveToolTracker } | null>(null);
 
   useEffect(() => {
     const now = Date.now();
-    const previous = previousRef.current;
-    previousRef.current = state.rows;
-    for (const row of state.rows) {
-      if (!seenRef.current.has(row.id)) seenRef.current.set(row.id, now);
+    // セッションが変わると runTools ごと入れ替わる。前のセッションの行を畳む対象に持ち越さない
+    const known = trackerRef.current;
+    const switched = known === null || known.key !== sessionId;
+    const tracker = known !== null && !switched ? known.tracker : initialLiveTracker(runTools);
+    const next = trackLiveHolds(tracker, {
+      rows: state.rows,
+      allRows: state.allRows,
+      runStatus,
+      now,
+    });
+    trackerRef.current = { key: sessionId, tracker: next.tracker };
+    if (switched) {
+      setExiting([]);
+      return;
     }
-    const current = new Set(state.rows.map((row) => row.id));
-    const gone = previous.filter((row) => !current.has(row.id));
-    if (gone.length === 0) return;
+    if (next.holds.length === 0) return;
     setExiting((list) => [
-      ...list.filter((item) => !gone.some((row) => row.id === item.row.id)),
-      ...gone.map((row) => {
-        const seen = seenRef.current.get(row.id);
-        seenRef.current.delete(row.id);
-        return {
-          row,
-          // 実行時間は BFF 計測。落ちた直後の runTools を引く (running のままの行には無い)
-          durationMs: toolDurationMs(runTools[row.id] ?? {}),
-          holdMs: Math.max(0, LIVE_ROW_MIN_VISIBLE_MS - (now - (seen ?? now))),
-        };
-      }),
+      // 同じ id がもう一度現れたときは、古い抜け中の行を残さない (key 空間は分けたまま)
+      ...list.filter((item) => !next.holds.some((hold) => hold.row.id === item.row.id)),
+      ...next.holds,
     ]);
-  }, [state.rows, runTools]);
+  }, [state, runStatus, sessionId, runTools]);
 
   const finishLeaving = useCallback((id: string) => {
     setExiting((list) => list.filter((item) => item.row.id !== id));
