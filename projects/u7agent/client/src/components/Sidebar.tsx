@@ -5,7 +5,8 @@ import { cn } from "../lib/cn";
 import { type SettingsSection, type SidebarMode } from "../lib/settingsNav";
 import { groupSessionsByProject } from "../lib/sessionsByProject";
 import { sidebarProjectsStore } from "../lib/sidebarProjects";
-import { CloseIcon, GearIcon, LogoStarIcon, PlusIcon } from "./icons";
+import { sidebarSectionsStore, type SidebarSectionId } from "../lib/sidebarSections";
+import { CloseIcon, DisclosureChevronIcon, GearIcon, LogoStarIcon, PlusIcon } from "./icons";
 import { MenuItem } from "./MenuItem";
 import { ProjectRow } from "./sidebar/ProjectRow";
 import { SessionRow } from "./sidebar/SessionRow";
@@ -63,6 +64,7 @@ export function Sidebar({
     props;
   // 既定は畳み (保存値が無ければ空 = 全行 closed)。書き込みは Effect ではなくクリック時に済ませる
   const [expanded, setExpanded] = useState<string[]>(() => sidebarProjectsStore.read());
+  const [expandedSections, setExpandedSections] = useState<SidebarSectionId[]>(() => sidebarSectionsStore.read());
   const { groups, unassigned } = groupSessionsByProject(sessions, projects);
 
   /** 展開の集合を差し替えて保存する (末尾 = 今回開いた cwd) */
@@ -72,6 +74,16 @@ export function Sidebar({
     setExpanded(next);
     sidebarProjectsStore.write(next);
   };
+
+  const setSectionOpen = (section: SidebarSectionId, open: boolean) => {
+    const next = expandedSections.filter((item) => item !== section);
+    if (open) next.push(section);
+    setExpandedSections(next);
+    sidebarSectionsStore.write(next);
+  };
+
+  const projectsOpen = expandedSections.includes("projects");
+  const unassignedOpen = expandedSections.includes("unassigned");
 
   return (
     <aside
@@ -131,69 +143,105 @@ export function Sidebar({
           </button>
 
           <div className="scrollbar-stable grid min-h-0 flex-1 scrollbar-thin content-start gap-4 overflow-y-auto pr-0.5">
-            <section className="grid gap-2">
+            <section className="grid">
               <div className="flex items-center justify-between gap-2">
-                <div className="text-2xs font-semibold tracking-widest text-ink-faint uppercase">Projects</div>
                 <button
                   type="button"
-                  onClick={onNewProject}
+                  aria-expanded={projectsOpen}
+                  aria-controls="sidebar-projects-content"
+                  onClick={() => setSectionOpen("projects", !projectsOpen)}
+                  className="sidebar-category-toggle flex min-h-7 min-w-0 flex-1 items-center gap-1 rounded-md text-left outline-none focus-visible:ring-1 focus-visible:ring-focus"
+                >
+                  <DisclosureChevronIcon />
+                  <span className="truncate text-2xs font-semibold tracking-widest text-ink-faint uppercase">
+                    Projects
+                  </span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSectionOpen("projects", true);
+                    onNewProject();
+                  }}
                   className="inline-flex min-h-7 items-center gap-1 rounded-lg border border-dashed border-line px-2 text-1xs text-ink-soft transition-colors hover:border-accent/50 hover:text-accent-text"
                 >
                   <PlusIcon />
                   New Project
                 </button>
               </div>
-              {groups.length === 0 ? (
-                <div className="rounded-lg px-1 py-1 text-1xs text-ink-faint">プロジェクトはまだありません</div>
-              ) : (
-                <div className="grid gap-1.5">
-                  {groups.map((group) => (
-                    <ProjectRow
-                      key={group.project.id}
-                      project={group.project}
-                      sessions={group.sessions}
-                      agents={agents}
-                      sessionId={sessionId}
-                      open={expanded.includes(group.project.cwd)}
-                      onToggle={() => setProjectOpen(group.project.cwd, !expanded.includes(group.project.cwd))}
-                      onNewChat={() => {
-                        setProjectOpen(group.project.cwd, true);
-                        newChat(undefined, group.project.id);
-                      }}
-                      onDelete={() => deleteProject(group.project.id)}
-                      onSelectSession={selectSession}
-                      onRenameSession={renameSession}
-                      onDeleteSession={deleteSession}
-                    />
-                  ))}
+              <div id="sidebar-projects-content" className="tree-fold" data-open={projectsOpen} inert={!projectsOpen}>
+                <div>
+                  <div className="sidebar-category-content mt-2 grid gap-2">
+                    {groups.length === 0 ? (
+                      <div className="rounded-lg px-1 py-1 text-1xs text-ink-faint">プロジェクトはまだありません</div>
+                    ) : (
+                      <div className="grid gap-1.5">
+                        {groups.map((group) => (
+                          <ProjectRow
+                            key={group.project.id}
+                            project={group.project}
+                            sessions={group.sessions}
+                            agents={agents}
+                            sessionId={sessionId}
+                            open={expanded.includes(group.project.cwd)}
+                            onToggle={() => setProjectOpen(group.project.cwd, !expanded.includes(group.project.cwd))}
+                            onNewChat={() => {
+                              setProjectOpen(group.project.cwd, true);
+                              newChat(undefined, group.project.id);
+                            }}
+                            onDelete={() => deleteProject(group.project.id)}
+                            onSelectSession={selectSession}
+                            onRenameSession={renameSession}
+                            onDeleteSession={deleteSession}
+                          />
+                        ))}
+                      </div>
+                    )}
+                  </div>
                 </div>
-              )}
+              </div>
             </section>
 
-            {/* 見出しはラベルだけ。作成先は「新しい会話」(未所属) とプロジェクトを指定する導線 (行の ⋯ / 追加の成功後) で決まる。
-                0 件でも見出しとプレースホルダを出す */}
-            <section className="grid gap-2">
-              <div className="flex min-h-8.5 items-center gap-2 px-2.5">
-                <span className="text-2xs font-semibold tracking-widest text-ink-faint uppercase">Chats</span>
+            <section className="grid">
+              <button
+                type="button"
+                aria-expanded={unassignedOpen}
+                aria-controls="sidebar-unassigned-content"
+                onClick={() => setSectionOpen("unassigned", !unassignedOpen)}
+                className="sidebar-category-toggle flex min-h-8.5 min-w-0 items-center gap-2 rounded-md px-2.5 text-left outline-none focus-visible:ring-1 focus-visible:ring-focus"
+              >
+                <DisclosureChevronIcon />
+                <span className="shrink-0 text-2xs font-semibold tracking-widest text-ink-faint uppercase">Chats</span>
                 <span className="min-w-0 flex-1 truncate text-2xs text-ink-ghost">未所属</span>
-              </div>
-              {unassigned.length === 0 ? (
-                <div className="rounded-lg px-1 py-1 text-1xs text-ink-faint">未所属のセッションはありません</div>
-              ) : (
-                <div className="grid gap-1">
-                  {unassigned.map((item) => (
-                    <SessionRow
-                      key={item.sessionId}
-                      item={item}
-                      agents={agents}
-                      active={item.sessionId === sessionId}
-                      onSelect={() => selectSession(item.sessionId)}
-                      onRename={() => renameSession(item.sessionId)}
-                      onDelete={() => deleteSession(item.sessionId)}
-                    />
-                  ))}
+              </button>
+              <div
+                id="sidebar-unassigned-content"
+                className="tree-fold"
+                data-open={unassignedOpen}
+                inert={!unassignedOpen}
+              >
+                <div>
+                  <div className="sidebar-category-content mt-2 grid gap-2">
+                    {unassigned.length === 0 ? (
+                      <div className="rounded-lg px-1 py-1 text-1xs text-ink-faint">未所属のセッションはありません</div>
+                    ) : (
+                      <div className="grid gap-1">
+                        {unassigned.map((item) => (
+                          <SessionRow
+                            key={item.sessionId}
+                            item={item}
+                            agents={agents}
+                            active={item.sessionId === sessionId}
+                            onSelect={() => selectSession(item.sessionId)}
+                            onRename={() => renameSession(item.sessionId)}
+                            onDelete={() => deleteSession(item.sessionId)}
+                          />
+                        ))}
+                      </div>
+                    )}
+                  </div>
                 </div>
-              )}
+              </div>
             </section>
           </div>
         </>

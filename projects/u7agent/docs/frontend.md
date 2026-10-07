@@ -119,6 +119,7 @@
 | `u7agent-files` | root ごとの snapshot を 1 キーに持つ（version 付き）。root は 設定 → ファイル の `"."` と、チャットの作業フォルダ面で開いたセッションの作業フォルダ、チャットのスキル面（と設定 → スキルのファイルタブ）で開いた `.agents/skills/<name>` | タブの並び・表示中・タブごとの表示モード・開いているディレクトリ |
 | `u7agent-settings-section` | 最後に開いていた設定セクション | 「設定」で戻る先（正は URL で、これは `/` からの補助） |
 | `u7agent-expanded-projects` | 開いているプロジェクトの `cwd`（ワークスペース root 相対）の集合（version 付き） | サイドバーのプロジェクト行の開閉（既定は畳み） |
+| `u7agent-expanded-sidebar-sections` | 開いているカテゴリ（`projects` / `unassigned`）の集合（version 付き） | サイドバーのカテゴリ開閉（保存値が無ければ両方開く） |
 | `u7agent-sidebar-width` | 左バー（Sidebar）の幅（px の整数 1 つ。既定 252px / 上限 400px） | リロード後の左バーの幅（未指定は既定幅。[ui-layout.md](ui-layout.md#幅)） |
 | `u7agent-file-tree-width` | ファイルツリー（`FileBrowser`）の幅（px の整数 1 つ。未指定は本文幅の 1/3 を 288〜400px で clamp、選べる範囲は 288 〜 `min(560px, 本文 − 384px)`） | リロード後のツリー幅（未指定は既定幅。左右 2 段にならない面では効かない。[ui-layout.md](ui-layout.md#モードごとの構成)） |
 | `u7agent-file-tree-height` | ファイルツリー（`FileBrowser`）の高さ（px の整数 1 つ。未指定は内容の高さで上限 256px、選べる範囲は 0 〜 `容器 − 240px`。0 はツリーを完全に隠す） | リロード後のツリーの高さ（未指定は内容の高さ。上下 2 段にならない面では効かない。[ui-layout.md](ui-layout.md#モードごとの構成)） |
@@ -131,6 +132,7 @@
 - 保存値は version を持ち、形（paths の重複と上限、active が paths 内か null、modes の enum と対象タブ、root 相対の展開パス）を検証する。JSON 全体が壊れているときだけ全体を捨て、形の合わない cwd は 1 件ずつ捨てる。`__proto__` / `constructor` のような名前も合法なパスとして往復させる（own property で読み書きする）。展開パスの復元は祖先がすべて保存集合にあるものだけを開き、そろっていないパスは落とす（閉じた枝の子孫が残った旧保存値の正規化。祖先を勝手に開かない。順序には依存しない）
 - 総量の上限（cwd 20 件 / 展開 200 件 / 書き込み前の JSON 64 KiB）を超える書き込みは捨てる。cwd 数が上限を超えたら先に書かれた cwd から落とす。書き込み側も読み手と同じ検証を通し、読み手が捨てる形（上限超えや active の不整合）は書かない（書くと次の起動でその cwd のタブもモードも失われる）
 - `u7agent-expanded-projects` は「開いているプロジェクト」の `cwd`（ワークスペース root 相対）の集合を version 付きで持ち、未操作のプロジェクトはエントリを作らない（既定は畳み）。`project.id` は `randomUUID()` で削除 → 再登録を跨がないため id ではなく `cwd` を使い、`project.cwd` はサーバーが root 相対へ正規化済みで `"."` にならないため `normalizeFileTreeRoot` は通さない。配列の非文字列・空文字・重複を落とし、20 件を超えた分は先に書かれた `cwd` から落とし、空になったらキーごと消す。保存領域が使えない環境でも write が失敗した後はメモリ側が最新になり、同一セッション内の開閉は保たれる（F5 では古い保存値が戻り得る）
+- `u7agent-expanded-sidebar-sections` は `projects` / `unassigned` の開閉を version 付きで保存する。キーが無い場合は既存表示を保つため両方開き、空配列は両方畳んだ状態として保存する。未知の値・重複は読み書き時に除き、保存領域が使えない場合も同一ページ内の状態を保つ
 - 保存キーの read / write は例外を握り、保存領域が使えない環境でも操作を止めず、無限リトライもしない（例外は `u7agent-agent` だけ。次項）。`u7agent-files` は write が失敗した cwd がメモリ snapshot で最新になるため、同一セッション内の往復（設定を離れて戻る等）は復元できる。ただし write 失敗後の F5 では古い保存値が戻り得る（復元は保証しない）
 - `u7agent-agent`（選択中のエージェント）の `localStorage` 直接アクセスは例外を握っていない。**保存領域が使えない環境では現状すでに起動が失敗する**（頑健化は別 Issue）。未作成チャットの作成先（旧 `u7agent-project`）は保存しない（[ui-layout.md](ui-layout.md#作成先)）
 
