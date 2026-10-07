@@ -150,7 +150,7 @@ export function Sidebar({
                   aria-expanded={projectsOpen}
                   aria-controls="sidebar-projects-content"
                   onClick={() => setSectionOpen("projects", !projectsOpen)}
-                  className="sidebar-category-toggle flex min-h-7 min-w-0 flex-1 items-center gap-1 rounded-md text-left outline-none focus-visible:ring-1 focus-visible:ring-focus"
+                  className="sidebar-category-toggle flex min-h-7 min-w-0 flex-1 items-center gap-2 rounded-md px-2.5 text-left outline-none focus-visible:ring-1 focus-visible:ring-focus focus-visible:ring-inset"
                 >
                   <DisclosureChevronIcon />
                   <span className="truncate text-2xs font-semibold tracking-widest text-ink-faint uppercase">
@@ -208,7 +208,7 @@ export function Sidebar({
                 aria-expanded={unassignedOpen}
                 aria-controls="sidebar-unassigned-content"
                 onClick={() => setSectionOpen("unassigned", !unassignedOpen)}
-                className="sidebar-category-toggle flex min-h-8.5 min-w-0 items-center gap-2 rounded-md px-2.5 text-left outline-none focus-visible:ring-1 focus-visible:ring-focus"
+                className="sidebar-category-toggle flex min-h-8.5 min-w-0 items-center gap-2 rounded-md px-2.5 text-left outline-none focus-visible:ring-1 focus-visible:ring-focus focus-visible:ring-inset"
               >
                 <DisclosureChevronIcon />
                 <span className="shrink-0 text-2xs font-semibold tracking-widest text-ink-faint uppercase">Chats</span>
