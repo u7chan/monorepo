@@ -1,24 +1,12 @@
-/**
- * 送信後の入力欄のフォーカス。タッチ端末ではフォーカスを戻すとソフトキーボードが閉じないため、
- * 送信の時点のポインタで決める。設計と端末差は docs/ui-layout.md を参照。
- */
+/** 送信後の入力欄のフォーカス。判定の理由と端末差は docs/ui-layout.md を参照。 */
 
-/**
- * タッチ入力では外してキーボードを閉じ、マウス / トラックパッドでは戻す (送信ボタンのクリックで
- * フォーカスがボタンへ移るため、戻さないと次の入力を書き始められない)。判定にモードを使わないのは、
- * compact でもマウスの狭いウィンドウがあるため。
- */
+/** タッチ入力ではソフトキーボードを閉じるため外し、それ以外は入力欄へ戻す */
 export function composerFocusAfterSend(coarsePointer: boolean): "focus" | "blur" {
   return coarsePointer ? "blur" : "focus";
 }
 
-/**
- * 今の一次ポインタが粗いか。送信のたびに読み直すので、ハイブリッド端末でポインタが変わっても追従し、
- * 購読の state を持たない。読み取りはテストで差し替える。
- */
+/** 今の一次ポインタが粗いか。送信のたびに読む */
 export function hasCoarsePointer(read: (query: string) => boolean = defaultRead): boolean {
-  // `any-pointer: coarse` は見ない。マウス併用のタッチ PC まで粗い扱いになり、マウス操作の連投で
-  // フォーカスが落ちるため (docs/ui-layout.md)
   return read("(pointer: coarse)");
 }
 

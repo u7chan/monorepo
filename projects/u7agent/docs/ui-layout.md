@@ -302,11 +302,11 @@ desktop のパネル（`sessionFilesOpen`）と compact のシート（`sessionF
 
 ## 送信後の入力欄のフォーカス
 
-送信が成立したときに入力欄のフォーカスを戻すか外すかは、**送信の時点のポインタ**で決める（`client/src/lib/composerFocus.ts` の `composerFocusAfterSend` / `hasCoarsePointer`）。
+`Composer` の入力欄から送信したとき（`submit()` を通る入力欄の Enter / 送信ボタン / 添付のみの送信）に、フォーカスを戻すか外すかを**送信の時点のポインタ**で決める（`client/src/lib/composerFocus.ts`）。`ChatArea` の suggestion と再実行カードの送信は `submit()` を通らず入力欄のフォーカスに触れないので、ここには含めない。
 
 - タッチ入力（`(pointer: coarse)`）では外す（`blur()`）。戻すとソフトキーボードが閉じない（iOS Safari は送信ボタンのタップで入力欄のフォーカスが外れず、同じ要素への `focus()` が no-op になる。Android Chrome はタップで外れたフォーカスを `focus()` が戻してキーボードを開き直す。実機での確認は [GUI の最小受入](testing.md#gui-の最小受入)）。`blur()` は送信の click / submit と同じ同期処理の中で呼ぶ（ユーザー操作の外へ遅らせると閉じない端末がある）
 - マウス / トラックパッド（`(pointer: fine)`）では入力欄へ戻す。送信ボタンのクリックでフォーカスがボタンへ移るので、戻さないと次の入力を書き始められない。**compact でも同じ**で、幅 / 高さが足りない desktop の窓で連投する経路を残す（モードでは分けない）
-- `any-pointer: coarse` は見ない。マウス併用のタッチ PC までタッチ扱いになり、マウス操作の連投でフォーカスが落ちるため（`pointer-coarse:` の CSS バリアントと同じ「一次ポインタ」の見方）
+- `any-pointer: coarse` は見ない。マウス併用のタッチ PC までタッチ扱いになり、マウス操作の連投でフォーカスが落ちるため（`pointer-coarse:` の CSS バリアントと同じ「一次ポインタ」の見方）。この判定は**直前の入力方式ではなく、UA が選ぶ一次ポインタの能力**なので、一次が coarse のまま副次的なマウスや外付けキーボードを使う端末では、その送信でもフォーカスが落ちる（[Media Queries](https://www.w3.org/TR/mediaqueries-4/#mf-interaction) では一次ポインタの動的変更も UA の裁量で、キーボードの有無は判定しない）。守れるのは「一次が fine のマウス併用タッチ PC」で、ハイブリッド機器全般で退行しないとは言えない
 - キーボードが閉じると viewport の高さが伸びるが、追従中のチャットは `ChatArea` の ResizeObserver が最下部へ揃える（[チャットの自動追従と最下部ボタン](#チャットの自動追従と最下部ボタン)）。Android Chrome がソフトキーボードの表示中だけ landscape になる件（[制約](#制約)）も、送信でキーボードが閉じれば戻る
 
 ## 設定の編集フォーム（エージェント / スキル）
