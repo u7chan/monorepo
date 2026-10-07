@@ -1,7 +1,7 @@
 import { cn } from "../lib/cn";
 
 /**
- * 有効 / 無効のスイッチ。文字だけでは状態が読み取りにくいので、丸の印と塗りでも分ける。
+ * 有効 / 無効のトグルスイッチ。文字だけでは押せると分からないので、トラックとつまみの形で示す。
  * `size="sm"` はプレビューのパス行のように高さを詰めた行で使う (ソース / プレビューの切替と同じ高さ)。
  */
 export function ToggleSwitch({
@@ -30,14 +30,21 @@ export function ToggleSwitch({
       title={title}
       onClick={() => onChange(!checked)}
       className={cn(
-        "inline-flex shrink-0 items-center rounded-full border transition-colors disabled:cursor-not-allowed disabled:opacity-55",
-        size === "md" ? "min-h-7.5 gap-1.5 px-2.5 text-1xs" : "min-h-5.5 gap-1 px-2 text-3xs",
-        checked
-          ? "border-accent/50 bg-accent-wash text-accent-text"
-          : "border-line text-ink-soft hover:border-accent/50 hover:text-accent-text",
+        "switch",
+        size === "md" ? "min-h-7.5 gap-2 text-1xs" : "min-h-5.5 gap-1.5 text-3xs",
+        checked ? "text-accent-text" : "text-ink-faint",
       )}
     >
-      <span className={cn("dot", checked ? "dot-accent" : "dot-idle")} aria-hidden />
+      <span
+        className={cn(
+          "switch-track",
+          size === "sm" && "switch-track-sm",
+          checked ? "switch-track-on" : "switch-track-off",
+        )}
+        aria-hidden
+      >
+        <span className="switch-knob" />
+      </span>
       {label}
     </button>
   );
