@@ -1,16 +1,13 @@
 import { useCallback, useRef, useState } from "react";
-import {
-  createProject as apiCreateProject,
-  deleteProject as apiDeleteProject,
-  listProjects,
-  type CreateProjectInput,
-} from "../api";
+import type { CreateProjectInput } from "../api";
+import { useSpaceApi } from "../SpaceContext";
 import type { Project } from "../types";
 import { createRequestGate } from "./requestGate";
 
 const alwaysCurrent = () => true;
 
 export function useProjects() {
+  const { createProject: apiCreateProject, deleteProject: apiDeleteProject, listProjects } = useSpaceApi();
   const [projects, setProjects] = useState<Project[]>([]);
   // 未作成チャットの作成先。プロジェクトを指定する入口 (プロジェクト行の ⋯「このプロジェクトに新しい会話」/ プロジェクトの追加) で
   // 明示されたときだけ設定し、保存もしない (起動や「新しい会話」で、最後に開いたプロジェクトを引き継がないため)

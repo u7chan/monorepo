@@ -10,10 +10,11 @@ import {
   SETTINGS_SECTION_KEY,
 } from "../src/lib/settingsNav";
 
-test("設定ナビはエージェント / スキル / ファイル / アーカイブ / 外観 / モデル / ランタイム / 通知 の 8 項目をこの順で持つ", () => {
+test("設定ナビはスペースと既存の 8 項目をこの順で持つ", () => {
   assert.deepEqual(
     SETTINGS_SECTIONS.map((item) => [item.section, item.label]),
     [
+      ["spaces", "スペース"],
       ["agents", "エージェント"],
       ["skills", "スキル"],
       ["files", "ファイル"],
@@ -49,6 +50,6 @@ test("保存された最後のセクションは既知の値だけを受け、�
   assert.equal(parseStoredSettingsSection(""), DEFAULT_SETTINGS_SECTION);
   assert.equal(parseStoredSettingsSection("nope"), DEFAULT_SETTINGS_SECTION);
   assert.equal(parseStoredSettingsSection("Files"), DEFAULT_SETTINGS_SECTION, "URL と違い保存値は厳密に見る");
-  assert.equal(DEFAULT_SETTINGS_SECTION, SETTINGS_SECTIONS[0].section);
+  assert.equal(DEFAULT_SETTINGS_SECTION, "agents", "新しい項目を加えても既定の入口は変えない");
   assert.equal(SETTINGS_SECTION_KEY, "u7agent-settings-section");
 });

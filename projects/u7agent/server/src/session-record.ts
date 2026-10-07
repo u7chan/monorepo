@@ -158,6 +158,7 @@ export interface SessionRecord {
 }
 
 export interface CreateSessionOptions {
+  spaceId?: string;
   agentId?: string;
   model?: ModelRef;
   thinkingLevel?: ThinkingLevel;

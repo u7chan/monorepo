@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type CSSProperties } from "react";
 import type { CreateProjectInput } from "./api";
+import { useSpace } from "./SpaceContext";
+import { SpaceSettingsPage } from "./components/SpaceSettingsPage";
 import { AgentSettingsPage } from "./components/AgentSettingsPage";
 import { AppearancePage } from "./components/AppearancePage";
 import { ArchiveSettingsPage } from "./components/ArchiveSettingsPage";
@@ -61,6 +63,7 @@ import {
 } from "./lib/settingsNav";
 
 export default function App() {
+  const space = useSpace();
   // 確認と入力のダイアログ。文言は各 lib の純関数で組み立てる (docs/ui-layout.md)
   const confirm = useConfirm();
   // 画面は URL がただ 1 つの正。`/` はチャット、`/settings/<section>` は設定の各画面、
@@ -377,6 +380,8 @@ export default function App() {
   };
 
   const navProps = {
+    spaceName: space.selected.name,
+    conversationOnly: space.selected.id !== "default",
     mode: sidebarMode,
     onSelectMode: selectMode,
     activeSettingsSection: settingsSection,
@@ -559,7 +564,9 @@ export default function App() {
             {emptyPortrait ? <div aria-hidden="true" className="min-h-0" /> : null}
           </div>
           {mainView === "settings" ? (
-            settingsSection === "agents" ? (
+            settingsSection === "spaces" ? (
+              <SpaceSettingsPage {...pageProps} />
+            ) : settingsSection === "agents" ? (
               <AgentSettingsPage
                 {...pageProps}
                 catalog={app.catalog}

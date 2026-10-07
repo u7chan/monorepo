@@ -21,6 +21,7 @@ import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { CURRENT_SESSION_VERSION, getAgentDir } from "@earendil-works/pi-coding-agent";
 import { SESSION_DIR_REL, assertSessionId, isSessionId, sessionWorkdirRel } from "./app-paths";
 import type { AgentPayloadInfo, ThinkingLevel } from "./schema";
+import { isSpaceId } from "./spaces";
 
 // 配置 (appdir / スクラッチ / 添付) の正は app-paths。既存の import 先を保つため再輸出する
 export { SESSION_DIR_REL, assertSessionId, sessionWorkdirRel };
@@ -39,6 +40,7 @@ export interface PromptSnapshot {
 }
 
 export interface SessionMeta {
+  spaceId?: string;
   version: 1;
   id: string;
   title: string;
@@ -148,6 +150,8 @@ export async function listSessionIds(storeDir: string): Promise<string[]> {
 function parseMeta(value: unknown, id: string): SessionMeta | undefined {
   if (!value || typeof value !== "object") return undefined;
   const meta = value as Partial<SessionMeta>;
+  if (meta.spaceId !== undefined && !isSpaceId(meta.spaceId)) return undefined;
+  if (meta.spaceId !== undefined && meta.spaceId !== "default" && meta.projectCwd !== undefined) return undefined;
   if (meta.version !== 1 || meta.id !== id || typeof meta.title !== "string") return undefined;
   if (typeof meta.createdAt !== "number" || typeof meta.lastUsedAt !== "number") return undefined;
   if (typeof meta.messageCount !== "number" || typeof meta.agentId !== "string") return undefined;
@@ -156,6 +160,7 @@ function parseMeta(value: unknown, id: string): SessionMeta | undefined {
   if (!prompt || typeof prompt.agent !== "string" || !Array.isArray(prompt.skills)) return undefined;
   return {
     version: 1,
+    ...(meta.spaceId !== undefined ? { spaceId: meta.spaceId } : {}),
     id,
     title: meta.title,
     createdAt: meta.createdAt,

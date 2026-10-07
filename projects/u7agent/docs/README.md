@@ -4,6 +4,7 @@
 
 | 変更テーマ | 主に読むコード | 主に読む docs |
 | --- | --- | --- |
+| デモ用スペース（会話専用・タブ別選択） | `server/src/spaces.ts`、`server/src/space-context.ts`、`server/src/app-paths.ts`、`client/src/SpacesApp.tsx`、`client/src/SpaceContext.ts` | [persistence.md](persistence.md#スペース)、[api.md](api.md#スペース)、[frontend.md](frontend.md#スペースの選択)、[ui-layout.md](ui-layout.md#スペース)、[testing.md](testing.md#スペースの受入) |
 | ランの送信 / キュー / 停止 / SSE | `server/src/routes/sessions.ts`、`server/src/sessions.ts`、`server/src/run-events.ts` | [run-lifecycle.md](run-lifecycle.md)、[api-sessions.md](api-sessions.md) |
 | エージェントからユーザーへの質問カード（ask_user） | `server/src/ask-user-tool.ts`、`server/src/sessions.ts`、`client/src/lib/askUser.ts`、`client/src/components/chat/AskUserCard.tsx` | [ask-user.md](ask-user.md)、[api-sessions.md](api-sessions.md) |
 | セッションの状態 / 履歴 / compaction 表示 | `server/src/session-record.ts`、`server/src/session-projection.ts`、`server/src/history-projection.ts`、`server/src/compaction-view.ts`、`server/src/session-payload.ts`、`client/src/lib/chatHistory.ts`、`client/src/lib/chatItems.ts` | [run-lifecycle.md](run-lifecycle.md)、[compaction.md](compaction.md)、[api-sessions.md](api-sessions.md) |

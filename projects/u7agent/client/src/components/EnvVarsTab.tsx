@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
-import { createSecret, deleteSecret, getSecretDetail, getSecrets, updateSecret, type SecretsScope } from "../api";
+import type { SecretsScope } from "../api";
+import { useSpaceApi } from "../SpaceContext";
 import { copyToClipboard } from "../lib/copyToClipboard";
 import { cn } from "../lib/cn";
 import { fileTimeLabel, messageFullTimeLabel } from "../lib/messageTime";
@@ -48,6 +49,7 @@ function errorText(error: unknown): string {
  * 設計は docs/secrets.md、文言は client/src/lib/sessionEnv.ts を正とする。
  */
 export function EnvVarsTab({ scope, reloadToken }: EnvVarsTabProps) {
+  const { createSecret, deleteSecret, getSecretDetail, getSecrets, updateSecret } = useSpaceApi();
   const confirm = useConfirm();
   const [list, setList] = useState<SecretsListResponse | null>(null);
   const [listError, setListError] = useState<string | null>(null);

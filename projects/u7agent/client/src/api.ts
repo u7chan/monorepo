@@ -72,6 +72,104 @@ export class ApiError extends Error {
 // Vite dev は /api を 4317 へプロキシするため同一オリジンで扱える
 const client = hc<AppType>(location.origin);
 
+export function createSpaceApi(spaceId: string) {
+  const scope = (url: URL): URL => {
+    url.searchParams.set("spaceId", spaceId);
+    return url;
+  };
+  const scoped = hc<AppType>(location.origin, {
+    fetch: (input: RequestInfo | URL, init?: RequestInit) =>
+      fetch(scope(new URL(input instanceof Request ? input.url : String(input), location.origin)), init),
+  });
+  const read = async <T>(response: Promise<Response>): Promise<T> => {
+    const res = await response;
+    if (!res.ok) throw await apiError(res);
+    return res.json() as Promise<T>;
+  };
+  const session = scoped.api.sessions[":id"];
+  return {
+    listSessions: () => read<{ sessions: SessionSummary[] }>(scoped.api.sessions.$get()),
+    createSession: (agentId?: string, overrides: CreateSessionOverrides = {}) =>
+      read<SessionPayload>(scoped.api.sessions.$post({ json: { ...overrides, agentId, spaceId } })),
+    getSession: (id: string) => read<SessionPayload>(session.$get({ param: { id } })),
+    getSessionHistory: (id: string, options: { before?: string | null; limit?: number } = {}) => {
+      const url = scope(session.history.$url({ param: { id } }));
+      if (options.before) url.searchParams.set("before", options.before);
+      if (options.limit !== undefined) url.searchParams.set("limit", String(options.limit));
+      return read<HistoryPage>(fetch(url));
+    },
+    deleteSession: (id: string) => read<unknown>(session.$delete({ param: { id } })),
+    updateSessionSettings: (id: string, json: SessionOverrides) =>
+      read<SessionPayload>(session.settings.$patch({ param: { id }, json })),
+    updateSessionNotify: (id: string, notify: boolean) =>
+      read<SessionNotifyResponse>(session.notify.$patch({ param: { id }, json: { notify } })),
+    updateSessionTitle: (id: string, title: string) =>
+      read<SessionTitleResponse>(session.title.$patch({ param: { id }, json: { title } })),
+    stopSession: (id: string) => read<StopResult>(session.stop.$post({ param: { id } })),
+    compactSession: (id: string) => read<SessionCompactionResult>(session.compact.$post({ param: { id } })),
+    postMessage: (id: string, text: string, attachments: string[] = []) =>
+      read<PostMessageResult>(session.messages.$post({ param: { id }, json: { text, attachments } })),
+    resendMessage: (id: string, runId: string) =>
+      read<PostMessageResult>(session.messages.$post({ param: { id }, json: { resendRunId: runId } })),
+    discardUnsentMessage: (id: string, runId: string) =>
+      read<DiscardUnsentResult>(session.unsent[":runId"].$delete({ param: { id, runId } })),
+    answerQuestion: (id: string, toolCallId: string, answers: AskUserAnswer[]) =>
+      read<{ ok: true }>(
+        session.questions[":toolCallId"].answer.$post({ param: { id, toolCallId }, json: { answers } }),
+      ),
+    uploadSessionFile: (id: string, file: File) =>
+      read<SessionFileUpload>(
+        fetch(scope(session.files.$url({ param: { id }, query: { name: file.name } })), {
+          method: "POST",
+          body: file,
+        }),
+      ),
+    getSessionSkills: (id: string) => read<SessionSkillsResponse>(session.skills.$get({ param: { id } })),
+    getSessionSkillsPreview: (input: { projectId: string; agentId: string }) =>
+      read<SessionSkillsPreview>(
+        scoped.api.skills.session.$get({
+          query: {
+            ...(input.projectId ? { projectId: input.projectId } : {}),
+            ...(input.agentId ? { agentId: input.agentId } : {}),
+          },
+        }),
+      ),
+    listProjects: () => read<ProjectsResponse>(scoped.api.projects.$get()),
+    createProject: (json: CreateProjectInput) => read<{ project: Project }>(scoped.api.projects.$post({ json })),
+    deleteProject: (id: string) => read<unknown>(scoped.api.projects[":id"].$delete({ param: { id } })),
+    getServeStatus: (sessionId: string, signal?: AbortSignal) =>
+      read<ServeStatus>(scoped.api.serve.status.$get({ query: { sessionId } }, { init: { signal } })),
+    startServe: (json: { sessionId: string; generation: string | null }, signal?: AbortSignal) =>
+      read<ServeStatus>(scoped.api.serve.start.$post({ json }, { init: { signal } })),
+    stopServe: (json: { sessionId: string; generation: string | null }) =>
+      read<ServeStatus>(scoped.api.serve.stop.$post({ json })),
+    getSecrets: (input: SecretsScope, signal?: AbortSignal) =>
+      read<SecretsListResponse>(scoped.api.secrets.$get({ query: scopeQuery(input) }, { init: { signal } })),
+    getSecretDetail: (input: SecretsScope, secretId: string, signal?: AbortSignal) =>
+      read<SecretDetailResponse>(fetch(scope(detailUrl(input, secretId)), { signal })),
+    createSecret: (json: SecretsScope & { kind: SecretKind; name: string; value: string }) =>
+      read<SecretMutationResponse>(scoped.api.secrets.$post({ json })),
+    updateSecret: (input: SecretsScope, secretId: string, value: string) =>
+      read<SecretMutationResponse>(
+        scoped.api.secrets[":secretId"].$put({ param: { secretId }, json: { ...scopeQuery(input), value } }),
+      ),
+    deleteSecret: (input: SecretsScope, secretId: string) =>
+      read<SecretRemovalResponse>(fetch(scope(detailUrl(input, secretId)), { method: "DELETE" })),
+  };
+}
+
+export const listSpaces = async (): Promise<{ spaces: import("server").Space[] }> => {
+  const res = await client.api.spaces.$get();
+  if (!res.ok) throw await apiError(res);
+  return res.json();
+};
+
+export const createSpace = async (name: string): Promise<{ space: import("server").Space }> => {
+  const res = await client.api.spaces.$post({ json: { name } });
+  if (!res.ok) throw await apiError(res);
+  return res.json();
+};
+
 async function apiError(res: Response): Promise<ApiError> {
   const body: unknown = await res.json().catch(() => null);
   const message =
@@ -158,35 +256,6 @@ export const getFileSkills = async (): Promise<FileSkillsResponse> => {
   const res = await client.api.skills.files.$get();
   if (!res.ok) throw await apiError(res);
   return (await res.json()) as FileSkillsResponse;
-};
-
-/**
- * セッションで使えるスキル (プロジェクト / 共通 / 組み込み / エージェント割り当て)。
- * 本文は載らないため、本文の取得は送信時の BFF が行う。
- */
-export const getSessionSkills = async (sessionId: string): Promise<SessionSkillsResponse> => {
-  const res = await client.api.sessions[":id"].skills.$get({ param: { id: sessionId } });
-  if (!res.ok) throw await apiError(res);
-  return (await res.json()) as SessionSkillsResponse;
-};
-
-/**
- * セッション未確定 (新規チャット) のスキル一覧。作成前に選んでいるプロジェクト / エージェントで解決するため、
- * セッションが確定したら getSessionSkills へ切り替える (セッションは保存されたスナップショットで解決する)。
- */
-export const getSessionSkillsPreview = async (input: {
-  projectId: string;
-  agentId: string;
-}): Promise<SessionSkillsPreview> => {
-  // 未所属 / 未選択はキーを送らず、初期値の解決はサーバーに任せる (createSession と同じ規則)
-  const res = await client.api.skills.session.$get({
-    query: {
-      ...(input.projectId ? { projectId: input.projectId } : {}),
-      ...(input.agentId ? { agentId: input.agentId } : {}),
-    },
-  });
-  if (!res.ok) throw await apiError(res);
-  return (await res.json()) as SessionSkillsPreview;
 };
 
 // 並び順と件数上限はサーバーが決めるため、クライアントでは再ソートしない
@@ -284,36 +353,10 @@ export const getFileDownloadCheck = async (path: string): Promise<FileDownloadCh
  */
 export const fileDownloadUrl = (path: string): string => client.api.files.download.$url({ query: { path } }).toString();
 
-export const listProjects = async (): Promise<ProjectsResponse> => {
-  const res = await client.api.projects.$get();
-  if (!res.ok) throw await apiError(res);
-  return res.json();
-};
-
 export type CreateProjectInput = {
   cwd: string;
   name?: string;
   create?: boolean;
-};
-
-export const createProject = async (input: CreateProjectInput): Promise<{ project: Project }> => {
-  const res = await client.api.projects.$post({ json: input });
-  if (!res.ok) throw await apiError(res);
-  // 400 (cwd 不正) / 409 (登録済み) / 503 (未設定) の応答型が残るため、!ok を throw で切った後に DTO 型へ寄せる
-  return (await res.json()) as { project: Project };
-};
-
-// 配下セッションは停止・破棄される (ワークスペースのディレクトリは残る)
-export const deleteProject = async (projectId: string): Promise<unknown> => {
-  const res = await client.api.projects[":id"].$delete({ param: { id: projectId } });
-  if (!res.ok) throw await apiError(res);
-  return res.json();
-};
-
-export const listSessions = async (): Promise<{ sessions: SessionSummary[] }> => {
-  const res = await client.api.sessions.$get();
-  if (!res.ok) throw await apiError(res);
-  return res.json();
 };
 
 export type SessionOverrides = {
@@ -323,169 +366,13 @@ export type SessionOverrides = {
 
 export type CreateSessionOverrides = SessionOverrides & { projectId?: string; notify?: boolean };
 
-export const createSession = async (
-  agentId?: string,
-  overrides: CreateSessionOverrides = {},
-): Promise<SessionPayload> => {
-  const json: {
-    agentId?: string;
-    model?: ModelRef;
-    thinkingLevel?: ThinkingLevel;
-    projectId?: string;
-    notify?: boolean;
-  } = {
-    ...overrides,
-  };
-  if (agentId) json.agentId = agentId;
-  const res = await client.api.sessions.$post({ json });
-  if (!res.ok) throw await apiError(res);
-  return res.json();
-};
-
-export const getSession = async (sessionId: string): Promise<SessionPayload> => {
-  const res = await client.api.sessions[":id"].$get({ param: { id: sessionId } });
-  if (!res.ok) throw await apiError(res);
-  return res.json();
-};
-
-/**
- * 全履歴のカーソルページ。`before` より古い範囲を返し、初回 (before 無し) は最新ページだけを取る。
- * カーソルは entry id なので、追記・圧縮・再接続を跨いでも同じ item を二度返さない。
- */
-export const getSessionHistory = async (
-  sessionId: string,
-  options: { before?: string | null; limit?: number } = {},
-): Promise<HistoryPage> => {
-  const query: Record<string, string> = {};
-  if (options.before) query.before = options.before;
-  if (options.limit !== undefined) query.limit = String(options.limit);
-  // query validator を持たないルートのため、hc の $get ではなく URL を組んで fetch する
-  const url = client.api.sessions[":id"].history.$url({ param: { id: sessionId } });
-  url.search = new URLSearchParams(query).toString();
-  const res = await fetch(url);
-  if (!res.ok) throw await apiError(res);
-  return res.json();
-};
-
-export const deleteSession = async (sessionId: string): Promise<unknown> => {
-  const res = await client.api.sessions[":id"].$delete({ param: { id: sessionId } });
-  if (!res.ok) throw await apiError(res);
-  return res.json();
-};
-
-export const updateSessionSettings = async (sessionId: string, settings: SessionOverrides): Promise<SessionPayload> => {
-  const res = await client.api.sessions[":id"].settings.$patch({
-    param: { id: sessionId },
-    json: settings,
-  });
-  if (!res.ok) throw await apiError(res);
-  return res.json();
-};
-
-/**
- * 会話ごとの通知トグル。Model / Effort の設定変更とは別の経路で、実行中でも切り替えられる。
- * 応答は会話全文を含まない (`{ sessionId, notify }`)。
- */
-export const updateSessionNotify = async (sessionId: string, notify: boolean): Promise<SessionNotifyResponse> => {
-  const res = await client.api.sessions[":id"].notify.$patch({ param: { id: sessionId }, json: { notify } });
-  if (!res.ok) throw await apiError(res);
-  return res.json();
-};
-
-/**
- * 会話タイトルの変更。通知トグルと同じ専用経路で、実行中でも変えられる。
- * 応答の `title` は正規化 (trim / マスク / 上限) 後で、一覧の表示にそのまま使える。
- */
-export const updateSessionTitle = async (sessionId: string, title: string): Promise<SessionTitleResponse> => {
-  const res = await client.api.sessions[":id"].title.$patch({ param: { id: sessionId }, json: { title } });
-  if (!res.ok) throw await apiError(res);
-  return res.json();
-};
-
-export const stopSession = async (sessionId: string): Promise<StopResult> => {
-  const res = await client.api.sessions[":id"].stop.$post({ param: { id: sessionId } });
-  if (!res.ok) throw await apiError(res);
-  return res.json();
-};
-
-/**
- * 手動でのコンテキスト圧縮。body なしで、完了まで待って実効状態を返す（途中経過は SSE が配る）。
- * 失敗は 400（要約できる履歴が無い）/ 409（実行中・中止・圧縮済み）/ 500（保存失敗）で reject する。
- */
-export const compactSession = async (sessionId: string): Promise<SessionCompactionResult> => {
-  const res = await client.api.sessions[":id"].compact.$post({ param: { id: sessionId } });
-  if (!res.ok) throw await apiError(res);
-  return res.json();
-};
-
-// 202 を即時返す。実行は裏で続き、進捗は SSE で届く。attachments は root 相対の `<appdir>/uploads/<sessionId>/` 配下
-// (本文が空でも添付だけで送れる)
-export const postMessage = async (
-  sessionId: string,
-  text: string,
-  attachments: string[] = [],
-): Promise<PostMessageResult> => {
-  const json = attachments.length > 0 ? { text, attachments } : { text };
-  const res = await client.api.sessions[":id"].messages.$post({ json, param: { id: sessionId } });
-  if (!res.ok) throw await apiError(res);
-  return res.json();
-};
-
-/**
- * 未送信メッセージの再送。本文はサーバーが保存済みの生テキストを使う (表示用のマスク済み本文を
- * 送り直さない)。同じ run id で実行し直し、二重の再送はサーバーが弾く。
- */
-export const resendMessage = async (sessionId: string, runId: string): Promise<PostMessageResult> => {
-  const res = await client.api.sessions[":id"].messages.$post({
-    json: { resendRunId: runId },
-    param: { id: sessionId },
-  });
-  if (!res.ok) throw await apiError(res);
-  return res.json();
-};
-
-/** 未送信メッセージの破棄。再送が実行中の 409 はそのまま reject する */
-export const discardUnsentMessage = async (sessionId: string, runId: string): Promise<DiscardUnsentResult> => {
-  const res = await client.api.sessions[":id"].unsent[":runId"].$delete({ param: { id: sessionId, runId } });
-  if (!res.ok) throw await apiError(res);
-  return res.json();
-};
-
-/**
- * ask_user の回答。回答は 1 回だけ成立し、同じ質問への 2 回目は 409、回答待ちでない (停止済み・
- * 再起動) は 404、質問数と合わない回答は 400 で reject する。
- */
-export const answerQuestion = async (
-  sessionId: string,
-  toolCallId: string,
-  answers: AskUserAnswer[],
-): Promise<{ ok: true }> => {
-  const res = await client.api.sessions[":id"].questions[":toolCallId"].answer.$post({
-    json: { answers },
-    param: { id: sessionId, toolCallId },
-  });
-  if (!res.ok) throw await apiError(res);
-  return res.json();
-};
-
 export type SessionFileUpload = {
   sessionId: string;
-  /** root 相対の保存パス (`.u7agent/uploads/<sessionId>/…`)。raw URL にそのまま使える */
+  /** root 相対の保存パス。通常 / 追加スペースの添付置き場をそのまま raw URL に使える */
   path: string;
   name: string;
   renamed: boolean;
   size: number;
-};
-
-/**
- * 選択時の即時アップロード。本文は File をそのまま raw ストリームで送る (JSON / base64 にしない) ため、
- * hc の型付き呼び出しではなく $url で組み立てた URL へ fetch する。
- */
-export const uploadSessionFile = async (sessionId: string, file: File): Promise<SessionFileUpload> => {
-  const url = client.api.sessions[":id"].files.$url({ param: { id: sessionId }, query: { name: file.name } });
-  const res = await fetch(url, { method: "POST", body: file });
-  if (!res.ok) throw await apiError(res);
-  return (await res.json()) as SessionFileUpload;
 };
 
 /**
@@ -671,36 +558,6 @@ export const refreshImageCatalog = async (): Promise<ImageCatalogRefreshResponse
   return (await res.json()) as ImageCatalogRefreshResponse;
 };
 
-/**
- * serve (サービス) の状態。閲覧中の会話 id を送り、作業ディレクトリはサーバーが解決する。
- * 到達可の判定はプローブで、取得失敗 (502 / 503) は「到達不可」とは別物として扱う。
- */
-export const getServeStatus = async (sessionId: string, signal?: AbortSignal): Promise<ServeStatus> => {
-  const res = await client.api.serve.status.$get({ query: { sessionId } }, { init: { signal } });
-  if (!res.ok) throw await apiError(res);
-  return (await res.json()) as ServeStatus;
-};
-
-/**
- * サービスの起動。到達可なら他会話のプロセスを停止して置き換える (確認は UI が取る)。
- * `generation` は確認した状態の世代で、実行時に変わっていれば 409 になる。
- */
-export const startServe = async (
-  input: { sessionId: string; generation: string | null },
-  signal?: AbortSignal,
-): Promise<ServeStatus> => {
-  const res = await client.api.serve.start.$post({ json: input }, { init: { signal } });
-  if (!res.ok) throw await apiError(res);
-  return (await res.json()) as ServeStatus;
-};
-
-/** サービスの停止。所有者以外は 403、停止後の解放を確認できないときは 502 */
-export const stopServe = async (input: { sessionId: string; generation: string | null }): Promise<ServeStatus> => {
-  const res = await client.api.serve.stop.$post({ json: input });
-  if (!res.ok) throw await apiError(res);
-  return (await res.json()) as ServeStatus;
-};
-
 export const getRuntimeServeStatus = async (signal?: AbortSignal): Promise<RuntimeServeStatus> => {
   const res = await client.api.serve.runtime.status.$get({}, { init: { signal } });
   if (!res.ok) throw await apiError(res);
@@ -735,58 +592,3 @@ function detailUrl(scope: SecretsScope, secretId: string): URL {
   url.search = new URLSearchParams(scopeQuery(scope)).toString();
   return url;
 }
-
-/**
- * 一覧。返るのは名前・種別・更新時刻だけで、シークレットの値は含まれない。
- * `generation` は変更のたびに変わるため、serve の `secretGeneration` と比べて「再起動で反映」を出せる。
- */
-export const getSecrets = async (scope: SecretsScope, signal?: AbortSignal): Promise<SecretsListResponse> => {
-  const res = await client.api.secrets.$get({ query: scopeQuery(scope) }, { init: { signal } });
-  if (!res.ok) throw await apiError(res);
-  return (await res.json()) as SecretsListResponse;
-};
-
-/**
- * 変更フォーム用の 1 件。`value` は変数のときだけ入り、シークレットでは返らない。
- * param + query のルートは hc が query を型として取らないため、history と同じく URL を組んで fetch する。
- */
-export const getSecretDetail = async (
-  scope: SecretsScope,
-  secretId: string,
-  signal?: AbortSignal,
-): Promise<SecretDetailResponse> => {
-  const url = detailUrl(scope, secretId);
-  const res = await fetch(url, { signal });
-  if (!res.ok) throw await apiError(res);
-  return (await res.json()) as SecretDetailResponse;
-};
-
-/** 登録。名前の規則違反・重複は 400 / 409、master key 未設定のシークレットは 503 (state: not_stored) */
-export const createSecret = async (
-  input: SecretsScope & { kind: SecretKind; name: string; value: string },
-): Promise<SecretMutationResponse> => {
-  const res = await client.api.secrets.$post({ json: input });
-  if (!res.ok) throw await apiError(res);
-  return (await res.json()) as SecretMutationResponse;
-};
-
-/** 値の上書き。名前と種別は変えられない (変えたいときは削除して作り直す) */
-export const updateSecret = async (
-  scope: SecretsScope,
-  secretId: string,
-  value: string,
-): Promise<SecretMutationResponse> => {
-  const res = await client.api.secrets[":secretId"].$put({
-    param: { secretId },
-    json: { ...scopeQuery(scope), value },
-  });
-  if (!res.ok) throw await apiError(res);
-  return (await res.json()) as SecretMutationResponse;
-};
-
-/** 削除。確認 1 回は呼び出し側 (UI) が取る */
-export const deleteSecret = async (scope: SecretsScope, secretId: string): Promise<SecretRemovalResponse> => {
-  const res = await fetch(detailUrl(scope, secretId), { method: "DELETE" });
-  if (!res.ok) throw await apiError(res);
-  return (await res.json()) as SecretRemovalResponse;
-};

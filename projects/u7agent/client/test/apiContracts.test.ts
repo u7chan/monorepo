@@ -9,14 +9,14 @@ const {
   putWebSearchApiKey,
   putWebSearchProvider,
   putWebSearchSettings,
-  getSessionHistory,
+  createSpaceApi,
   updateArchiveSettings,
   resetArchiveSettings,
-  updateSessionTitle,
   getGitInfo,
   getRuntimeServeStatus,
   stopRuntimeServe,
 } = await import("../src/api");
+const { getSessionHistory, updateSessionTitle } = createSpaceApi("default");
 
 const page: HistoryPage = {
   sessionId: "session-a",
@@ -63,7 +63,7 @@ test("履歴 API は初回にカーソルを送らず、取得したページを
     const request = new Request(input);
     assert.equal(request.method, "GET");
     assert.equal(new URL(request.url).pathname, "/api/sessions/session-a/history");
-    assert.equal(new URL(request.url).search, "");
+    assert.equal(new URL(request.url).search, "?spaceId=default");
     return Response.json(page);
   });
   assert.deepEqual(await getSessionHistory("session-a"), page);

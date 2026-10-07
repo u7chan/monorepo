@@ -14,11 +14,12 @@ import type {
   NotificationSettings,
   Project,
   SkillDef,
+  Space,
 } from "./schema";
 
 export const APP_DB_FILENAME = "u7agent.db";
 /** テーブル定義を変えたら上げる。新規作成と加算移行はこの版へ揃え、未知の版は作り直す */
-export const APP_DB_SCHEMA_VERSION = 13;
+export const APP_DB_SCHEMA_VERSION = 14;
 
 /** プロバイダー API キーの保存行。平文なのでアクセス権の管理は docs/secrets.md を正とする */
 export interface ProviderCredentialRow {
@@ -291,6 +292,10 @@ CREATE TABLE IF NOT EXISTS web_search_provider_keys (
  */
 const PROVIDER_MEMO_QUERY_FAILED = "provider memo query failed";
 
+const SPACES_TABLE = `CREATE TABLE IF NOT EXISTS spaces (
+  id TEXT PRIMARY KEY, name TEXT NOT NULL, createdAt INTEGER NOT NULL
+);`;
+
 const CREATE_TABLES = `
 CREATE TABLE projects (
   id TEXT PRIMARY KEY,
@@ -325,7 +330,8 @@ ${IMAGE_CATALOG_TABLE}
 ${SERVE_COMMANDS_TABLE}
 ${WEB_SEARCH_SETTINGS_TABLE}
 ${WEB_SEARCH_PROVIDER_KEYS_TABLE}
-${SECRETS_TABLE}`;
+${SECRETS_TABLE}
+${SPACES_TABLE}`;
 
 /** アプリ所有のテーブルだけを落とす (同じ DB に足した別機能のテーブルを巻き込まない) */
 const DROP_TABLES = `
@@ -727,6 +733,7 @@ export class AppDb {
       this.#query((db) => db.exec(WEB_SEARCH_SETTINGS_TABLE));
       this.#query((db) => db.exec(WEB_SEARCH_PROVIDER_KEYS_TABLE));
       this.#query((db) => db.exec(SECRETS_TABLE));
+      this.#query((db) => db.exec(SPACES_TABLE));
       // 列追加は CREATE TABLE IF NOT EXISTS の後 (既存テーブルでは CREATE が何もしないため)。DDL も
       // トランザクション対象なので、途中失敗で列だけが残らない
       this.#addColumnIfMissing("provider_credentials", "updatedAt", "INTEGER");
@@ -1020,6 +1027,26 @@ export class AppDb {
            ON CONFLICT(id) DO UPDATE SET fetchedAt = excluded.fetchedAt, models = excluded.models`,
         )
         .run(row.fetchedAt, JSON.stringify(row.models)),
+    );
+  }
+
+  // --- spaces ---
+
+  listSpaces(): Space[] {
+    return this.#query((db) =>
+      (db.prepare("SELECT * FROM spaces ORDER BY rowid").all() as Row[]).map((row) => ({
+        id: text(row.id),
+        name: text(row.name),
+        createdAt: Number(row.createdAt),
+      })),
+    );
+  }
+
+  insertSpace(space: Space): void {
+    this.#query((db) =>
+      db
+        .prepare("INSERT INTO spaces (id, name, createdAt) VALUES (?, ?, ?)")
+        .run(space.id, space.name, space.createdAt),
     );
   }
 

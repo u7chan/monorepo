@@ -53,6 +53,7 @@ test("parseRoute は pathname だけで画面を決め、表のとおりに畳�
     ["//settings//files//", settings("files")],
     ["/settings%2Ffiles", settings("files")],
     ["/settings/agents", settings("agents")],
+    ["/settings/spaces", settings("spaces")],
     ["/settings/skills", settings("skills")],
     ["/settings/appearance", settings("appearance")],
     ["/settings/models", settings("models")],
@@ -83,6 +84,7 @@ test("routePath は正準形を返し、parseRoute と往復する", () => {
   assert.deepEqual(
     SETTINGS_SECTIONS.map((item) => routePath({ view: "settings", section: item.section })),
     [
+      "/settings/spaces",
       "/settings/agents",
       "/settings/skills",
       "/settings/files",

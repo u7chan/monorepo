@@ -11,6 +11,7 @@ DTO の正は `server/src/schema.ts`（zod）。リクエストボディは `@ho
 | 領域 | エンドポイント | ドキュメント |
 | --- | --- | --- |
 | ヘルス | `GET /api/health` | このファイル |
+| スペース | `GET/POST /api/spaces` | このファイル |
 | ランタイムのモデルカタログ | `GET /api/runtime/models` | このファイル |
 | 実行環境（サンドボックスの診断） | `GET /api/runtime/environment` | このファイル |
 | ファイル一覧 | `GET /api/files` | このファイル |
@@ -32,6 +33,16 @@ DTO の正は `server/src/schema.ts`（zod）。リクエストボディは `@ho
 | 作業フォルダの環境変数（作業環境 → 環境変数） | `GET/POST /api/secrets`、`GET/PUT/DELETE /api/secrets/:secretId` | このファイル、[secrets.md](secrets.md#作業フォルダの環境変数作業環境--環境変数) |
 | エージェント / スキル | `/api/agents`、`/api/skills`、`/api/skills/files`、`/api/skills/session` | [api-catalog.md](api-catalog.md)、[api-sessions.md](api-sessions.md) |
 | サンドボックス（内部） | `/v1/*`（BFF からは見えない） | [sandbox-api.md](sandbox-api.md) |
+
+## スペース
+
+- `GET /api/spaces` → `{ spaces: [{ id, name, createdAt }] }`。固定の通常 `{ id: "default", name: "通常", createdAt: 0 }` と保存済み追加スペースを返す。
+- `POST /api/spaces` の本文 `{ name }` → 201 `{ space: { id, name, createdAt } }`。name は trim 後 1〜80 文字。内部 ID はサーバーが生成し、指定・改名・削除・リセット API は無い。DB 障害は一覧・作成とも 503。
+- 会話作成は本文の `spaceId`、それ以外の会話 API・EventSource・プロジェクト API・作成前スキルプレビュー・作業環境の環境変数 / サービス API は query の `spaceId` を使う。欠落だけ `default` として扱う。不正 ID は 400、未知の追加スペースは 404。会話作成では query ではなく本文が正。
+- 会話 ID と要求スペースの不一致は 404。descriptor / live record の所属で SDK 復元・作業生成・変更の前に拒否し、取得・履歴・設定・タイトル・通知・削除・停止・圧縮・送信・未送信・回答・添付・スキル・SSE に同じ規則を適用する。環境変数・サービスの `sessionId` にも適用する。
+- 追加スペースでは `GET /api/projects` は `{ projects: [] }`、プロジェクト変更と `projectId` の利用は 400。通常のプロジェクト契約は変更しない。
+- 共通カタログ・共通設定・汎用ファイル API、ランタイムのサービス診断 / 全体停止は分割しない。共有サービスの所有者は全会話から解決する。`spaceId` は認証・権限ではなく、指定を変えれば別スペースを選べる。
+- 通常の既知会話の削除・live 停止は DB 障害でも通し、壊れた JSONL の未ロード会話も SDK 復元なしで削除する。それ以外の既存 DB / 会話ストア障害の 503 契約は維持する。
 
 ## ブラウザからの書き込み（Origin / CSRF 対策）
 

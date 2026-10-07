@@ -4,6 +4,40 @@
 
 サービスの公開経路は server 側の振る舞いテストで固定する。`server/test/service-proxy.test.ts` が、3 本目のリスナーからサンドボックスの 8080 への転送（メソッド / パス / クエリ / ボディ / ストリーミング / `Range` / `Content-Encoding` の透過、ホップバイホップ ヘッダの除去）、キャッシュ ヘッダの `Cache-Control: no-store` への正規化、GET / HEAD の再検証ヘッダの遮断、`Location` の書き換え、上流停止時の 502 を検査する。ポートの解決（`PI_SERVICE_LISTEN_PORT` / `PI_PREVIEW_PORT`）と `pnpm dev` が同じ値を渡すことは `server/test/preview-port.test.ts` が検査する。
 
+## スペースの受入
+
+自動検証は `server/test/spaces-api.test.ts`（加算移行・複数所属・live / 未ロード / sweep / 再起動・添付 / cwd・復元前の所属拒否・プロジェクト利用拒否・DB 障害時の通常停止 / 削除）、`client/test/spaces.test.ts`（選択の fail-closed・タブ別保存・各 API の文脈・作成待ちの要求元固定・遅い一覧応答）と既存の session / API / fallback / 通知リンクテストで行う。GUI は専用の一時ストア / workspace / ポートと stub pi を使い、実データや有料 API に触れない。
+
+desktop と compact の両方で次を確認する。
+
+- 通常から新しい追加スペースへ切り替えると空の会話一覧・新規会話になり、Projects / New Project と「未所属」が出ない。左バーの選択名が合う。
+- 会話を送信し、添付・作業フォルダ・環境変数・サービス操作が追加スペースの cwd を使う。共通スキルは利用でき、設定 → ファイルは workspace 全体を表示する。
+- 通常へ戻ると既存のプロジェクトと会話が戻り、追加スペースへ戻るとデモ会話が残る。切替だけではランを停止せず、戻って結果を確認できる。
+- 入力中・添付中・作成待ち・実行中に切り替え、旧下書き・添付・ファイル面・先行選択・遅い成功 / 失敗 / busy が新しい表示へ混ざらない。後続の送信 / upload は開始元の所属で続行する。
+- リロードで同じスペースが復元される。保存 ID を未知 / 不正へ変更するか一覧取得を失敗させると、理由と選び直し / 再取得を出し、通常の会話を誤表示しない。
+- タブ A の追加スペースを維持してタブ B を通常へ変更しても A は変わらず、A のリロード後も追加スペースを維持する。
+- 他スペースの `/s/<sessionId>` は会話を開かず既存の見つからない旨を出し、自動切替しない。プロジェクト dialog / ファイル面の残存や操作不能、SSE 再接続・削除後 fallback の混線が無い。
+
+### 有料 API を使わない GUI fixture
+
+プロジェクト root で `ROOT=$(mktemp -d /tmp/u7agent-spaces-e2e-XXXXXX)` を作成し、同じ ROOT を各ターミナルに渡す。既存の `.env` や本番ストアを使わない。ポートが空いていることを確認して次を別プロセスで起動する（競合時は 3 ポートとも別の空き値へ変える）。
+
+```bash
+# terminal 1: 実ファイル操作用の一時サンドボックス
+PI_SANDBOX_CWD="$ROOT/workspace" PI_SANDBOX_TOKEN=spaces-e2e-local-token \
+  SANDBOX_HOST=127.0.0.1 SANDBOX_PORT=17991 pnpm --filter server start:sandbox
+
+# terminal 2: 認証情報・LLM を使わない stub pi の BFF
+U7AGENT_FIXTURE_ROOT="$ROOT" PI_SANDBOX_URL=http://127.0.0.1:17991 \
+  PI_SANDBOX_TOKEN=spaces-e2e-local-token PORT=17990 \
+  pnpm --filter server exec tsx test/spaces-fixture.ts
+
+# terminal 3: UI（通常の pnpm dev は起動しない）
+PORT=17990 pnpm --filter client exec vite --host 127.0.0.1 --port 17992 --strictPort
+```
+
+`http://127.0.0.1:17992` を開く。fixture は通常のプロジェクトと会話を 1 件ずつ用意し、再起動時は既存データを保持する。stub の応答は実ツールを呼ばないため、モデルによるファイル生成は受入結果に含めない。添付 / ファイル画面は実サンドボックス経由で確認できる。遅い要求や取得失敗はブラウザの routing で注入する。実サービスの公開・モデル / 画像 / 検索設定の外部通信は使わない。終了後は全プロセスを停止して、この ROOT だけを削除する。
+
 ## client の棚卸し
 
 整理前のローカル checkout は `client/test/*.test.ts` が 119 ファイル、うち `readFileSync` を使うものが 61 ファイルだった。ファイル数ではなくテストケース単位で分類し、混在する純関数・SSR の検査は残した。以下のファイル名は `client/test/` 相対。

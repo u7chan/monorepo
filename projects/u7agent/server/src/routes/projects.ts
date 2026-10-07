@@ -16,7 +16,8 @@ export function createProjectRoutes({
   workspace: SandboxWorkspaceClient | null;
 }) {
   return {
-    list: (c: Context) => c.json({ projects: projects.list() }),
+    list: (c: Context) =>
+      c.json({ projects: (c.req.query("spaceId") ?? "default") === "default" ? projects.list() : [] }),
 
     create: async (c: Context, body: CreateProjectBody) => {
       let cwd: string;

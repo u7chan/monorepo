@@ -24,9 +24,12 @@ import { createServeRoutes } from "./routes/serve";
 import { createSessionRoutes } from "./routes/sessions";
 import { createWebSearchSettingsRoutes } from "./routes/web-search";
 import { createSecretScope } from "./secrets";
+import { SpaceStore } from "./spaces";
+import { sessionSpaceGuard, spaceContextGuard } from "./space-context";
 import { DEFAULT_CLIENT_DIST_DIR, serveClientAssets } from "./static";
 import {
   AnswerQuestionBodySchema,
+  CreateSpaceBodySchema,
   CreateAgentBodySchema,
   CreateProjectBodySchema,
   CreateSecretBodySchema,
@@ -106,6 +109,7 @@ export async function createBffApp(opts: CreateBffAppOptions = {}) {
     secrets,
   } = await createBffContext(opts);
   const appData = appDataGuard(appDb);
+  const spaces = new SpaceStore(appDb);
   // 変更系は「何も保存していない」ことを state でも示す
   const appDataMutation = appDataGuard(appDb, { notStored: true });
 
@@ -142,9 +146,20 @@ export async function createBffApp(opts: CreateBffAppOptions = {}) {
 
   const app = new Hono()
     .use("/api/*", mutationOriginGuard)
+    .use("/api/sessions/*", sessionSpaceGuard(spaces, store))
     // bodyGuard は本文を最長 64 KiB で読み切って text 化するため、raw で受けるアップロードは先に登録する
     .post("/api/sessions/:id/files", (c) => sessionRoutes.uploadFile(c))
     .use("/api/*", bodyGuard)
+    .use("/api/*", spaceContextGuard(spaces, store))
+    .get("/api/spaces", appData, (c) => c.json({ spaces: spaces.list() }))
+    .post(
+      "/api/spaces",
+      appDataMutation,
+      jsonBodyValidator(CreateSpaceBodySchema, (result, c) =>
+        result.success ? undefined : c.json({ error: "Invalid request body" }, 400),
+      ),
+      (c) => c.json({ space: spaces.create(c.req.valid("json").name) }, 201),
+    )
     .get("/api/health", healthRoutes.health)
     .get("/api/runtime/models", runtimeRoutes.models)
     .get("/api/runtime/environment", runtimeRoutes.environment)
@@ -237,7 +252,7 @@ export async function createBffApp(opts: CreateBffAppOptions = {}) {
     .post(
       "/api/sessions",
       appData,
-      zValidator("json", CreateSessionBodySchema, (result, c) =>
+      jsonBodyValidator(CreateSessionBodySchema, (result, c) =>
         result.success ? undefined : c.json({ error: "Invalid request body" }, 400),
       ),
       (c) => sessionRoutes.create(c, c.req.valid("json")),
@@ -446,6 +461,16 @@ export async function createBffApp(opts: CreateBffAppOptions = {}) {
       // hono validator の JSON パース失敗 (HTTPException 400) は契約の文言に寄せる
       if (error instanceof HTTPException && error.status === 400) {
         return c.json({ error: "Request body must be valid JSON" }, 400);
+      }
+      const path = c.req.path;
+      if (
+        statusCodeOf(error) === 503 &&
+        ["POST", "PUT", "DELETE"].includes(c.req.method) &&
+        (path === "/api/spaces" ||
+          path.startsWith("/api/secrets") ||
+          ["/api/serve/start", "/api/serve/stop"].includes(path))
+      ) {
+        return c.json({ error: messageFor(error), state: "not_stored" as const }, 503);
       }
       return c.json({ error: messageFor(error) }, (statusCodeOf(error) ?? 500) as ContentfulStatusCode);
     });
