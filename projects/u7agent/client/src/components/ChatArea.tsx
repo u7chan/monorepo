@@ -30,6 +30,8 @@ export type ChatAreaProps = {
   prependSeq?: number;
   onLoadOlder?: () => void;
   compact?: boolean;
+  /** 縦向きの空状態では案内を入力欄の直上に寄せる */
+  centerEmpty?: boolean;
   suggestions?: AgentSuggestion[];
   /** assistant の表示名 (セッションのスナップショット)。未作成チャットでは選択中のエージェント */
   agentName?: string;
@@ -72,6 +74,7 @@ export function ChatArea({
   prependSeq = 0,
   onLoadOlder,
   compact = false,
+  centerEmpty = false,
   suggestions = [],
   agentName,
   agentIcon,
@@ -297,9 +300,18 @@ export function ChatArea({
           compact ? "px-3 pb-4" : "px-6 pb-6 wide:px-8",
         )}
       >
-        <div ref={contentRef} className={cn("mx-auto w-full min-w-0", compact ? null : "max-w-220")}>
+        <div
+          ref={contentRef}
+          className={cn(
+            "mx-auto w-full min-w-0",
+            compact ? null : "max-w-220",
+            centerEmpty && items.length === 0 ? "flex min-h-full flex-col justify-end" : null,
+          )}
+        >
           {items.length === 0 ? (
-            <div className={cn("mx-auto max-w-md text-center", compact ? "pt-[8vh]" : "pt-[18vh]")}>
+            <div
+              className={cn("mx-auto max-w-md text-center", centerEmpty ? "pt-4" : compact ? "pt-[8vh]" : "pt-[18vh]")}
+            >
               <div className="mx-auto mb-4 w-fit">
                 <AgentIcon icon={agentIcon} variant="hero" />
               </div>
