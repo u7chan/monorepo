@@ -437,6 +437,10 @@
 
 /* 共有コンポーネントクラス */
 @layer components {
+  .chat-empty-portrait {
+    grid-template-rows: auto minmax(0, 1fr) auto minmax(0, 1fr);
+  }
+
   /* input / select / textarea 共通 */
   .field {
     @apply w-full rounded-lg border border-line bg-raised px-2.5 py-2 text-ink transition-colors outline-none focus:border-focus;

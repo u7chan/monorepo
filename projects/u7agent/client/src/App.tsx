@@ -420,6 +420,7 @@ export default function App() {
   // 未作成チャットでは選択中のエージェントを出し、作成後に payload の値へ切り替わる
   const chatAgentName = app.chat.sessionAgentName || app.selectedAgent?.name;
   const chatAgentIcon = agentIconOf(app.agents, app.chat.sessionAgentId ?? app.agentId);
+  const emptyPortrait = layout === "portrait" && app.chat.bubbles.length === 0;
   // 会話中のエージェントは作成時に固定され、選び直しても新しい会話になるだけなので、欄は読み取り専用のラベルにする。
   // 選べるのは未作成チャットだけで、そのときは選択中の値をプルダウンで出す
   const composerAgent = app.sessionId ? { name: barAgentName ?? "", icon: chatAgentIcon } : undefined;
@@ -456,7 +457,10 @@ export default function App() {
             className={
               mainView === "settings"
                 ? "hidden"
-                : "grid min-h-0 min-w-0 grid-cols-1 grid-rows-[auto_minmax(0,1fr)_auto] overflow-hidden"
+                : cn(
+                    "grid min-h-0 min-w-0 grid-cols-1 overflow-hidden",
+                    emptyPortrait ? "chat-empty-portrait" : "grid-rows-[auto_minmax(0,1fr)_auto]",
+                  )
             }
           >
             {compactMode ? (
@@ -485,6 +489,7 @@ export default function App() {
               <MarkdownImageProvider rootCwd={app.health?.cwd ?? ""} cwd={app.cwd} rawUrl={markdownImageRawUrl}>
                 <ChatArea
                   visible={mainView === "chat"}
+                  centerEmpty={emptyPortrait}
                   bubbles={app.chat.bubbles}
                   dividers={app.chat.dividers}
                   compactions={app.chat.compactions}
@@ -551,6 +556,7 @@ export default function App() {
               onReloadSkills={app.revalidateSessionSkills}
               onChangeAgent={handleAgentChange}
             />
+            {emptyPortrait ? <div aria-hidden="true" className="min-h-0" /> : null}
           </div>
           {mainView === "settings" ? (
             settingsSection === "agents" ? (
