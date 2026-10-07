@@ -528,6 +528,9 @@
 
   /* 仮想スクロールのキャンバス高さとアイテム位置。動的な値は inline style で CSS 変数へ入れる
      (高さ / transform を直に書くと shadcn/no-inline-styles に觸れる) */
+  .chat-following {
+    overflow-anchor: none;
+  }
   .virtual-canvas {
     height: var(--virtual-total-height);
   }

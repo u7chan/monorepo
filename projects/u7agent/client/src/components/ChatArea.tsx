@@ -123,6 +123,7 @@ export function ChatArea({
     overscan: 8,
     useAnimationFrameWithResizeObserver: true,
   });
+  const totalSize = virtualizer.getTotalSize();
 
   const loadOlderRef = useRef(onLoadOlder);
   loadOlderRef.current = onLoadOlder;
@@ -137,9 +138,8 @@ export function ChatArea({
     setFollowBoth(true);
     const el = chatAreaRef.current;
     if (!visible || !el) return;
+    // scrollToIndex の継続補正と、ここでの末尾追従を競合させない。
     el.scrollTop = el.scrollHeight;
-    // 未計測ぶんは推定高さなので、末尾 index へも明示的に寄せる (計測後のずれは observer が拾う)
-    if (items.length > 0) virtualizer.scrollToIndex(items.length - 1, { align: "end" });
     // 代入の後に読んだ位置を基準にする (位置が変わらない代入でも更新する。基準が古いままだと、
     // 直後にレイアウト起因で届く scroll を上へ戻す操作と誤認する)
     lastTopRef.current = el.scrollTop;
@@ -152,9 +152,7 @@ export function ChatArea({
     loadOlderRef.current?.();
   }
 
-  function handleScroll(): void {
-    const el = chatAreaRef.current;
-    if (!el) return;
+  function readScrollFollow(el: HTMLElement) {
     const top = el.scrollTop;
     const next = resolveScrollFollow({
       follow: followRef.current,
@@ -164,6 +162,14 @@ export function ChatArea({
       clientHeight: el.clientHeight,
     });
     lastTopRef.current = top;
+    return next;
+  }
+
+  function handleScroll(): void {
+    const el = chatAreaRef.current;
+    if (!el) return;
+    const top = el.scrollTop;
+    const next = readScrollFollow(el);
     if (next.snap) snapToBottom();
     else setFollowBoth(next.follow);
     if (shouldLoadOlder({ scrollTop: top, hasMore: historyHasMore, loading: historyLoading })) {
@@ -171,11 +177,17 @@ export function ChatArea({
     }
   }
 
-  // 内容が伸びても、読み返し中 (follow が外れている) は位置を動かさない
-  useEffect(() => {
-    if (!followRef.current) return;
+  // passive effect では本文の伸びと仮想キャンバスの計測が別フレームに見えるため、描画前に揃える。
+  useLayoutEffect(() => {
+    const el = chatAreaRef.current;
+    if (!visible || !el || !followRef.current) return;
+    // scroll イベントの配送前に追従すると、直前の読み返し操作を取り消してしまう。
+    if (!readScrollFollow(el).follow) {
+      setFollowBoth(false);
+      return;
+    }
     snapToBottom();
-  }, [items]);
+  }, [items, totalSize]);
 
   // ページが 1 画面に収まる (scroll イベントが来ない) ときも、古いページがあれば読み込む
   useEffect(() => {
@@ -281,6 +293,7 @@ export function ChatArea({
         onScroll={handleScroll}
         className={cn(
           "min-h-0 min-w-0 flex-1 scrollbar-thin overflow-x-hidden overflow-y-auto",
+          follow ? "chat-following" : null,
           compact ? "px-3 pb-4" : "px-6 pb-6 wide:px-8",
         )}
       >
@@ -314,7 +327,7 @@ export function ChatArea({
           ) : (
             <div
               className="virtual-canvas relative mt-2 w-full"
-              style={{ "--virtual-total-height": `${virtualizer.getTotalSize()}px` } as CSSProperties}
+              style={{ "--virtual-total-height": `${totalSize}px` } as CSSProperties}
             >
               {virtualizer.getVirtualItems().map((virtualItem) => (
                 <div

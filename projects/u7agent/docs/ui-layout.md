@@ -269,10 +269,10 @@ desktop のパネル（`sessionFilesOpen`）と compact のシート（`sessionF
 - 会話の切替は `""` からの遷移も含めて最下部へ揃える。新規チャットの作成は送信だけでなく添付のアップロードでも起き、空のチャットでも内容が viewport を超えればスクロールできるため、例外を作らない
 - ボタン押下と追従の書き込みは instant（`scrollTop = scrollHeight`）。`behavior: "smooth"` はアニメーション中の `scroll` で追従が戻る競合と `prefers-reduced-motion` の分岐が増えるため使わない
 - 追従を外せるのはユーザーが上へ戻した（位置が減る）ときだけ。位置が増える `scroll` は、自分の snap の代入か、レイアウトの再折り返しでブラウザーが動かした位置で、どちらもユーザー操作ではない。右パネルを開くとチャット幅が 1188 → 828px に変わって本文が折り返し直り、Chrome のスクロールアンカリングが `scrollTop` を増やして最下部から離れた位置（実測 `dist 136〜227`）の `scroll` を配る。この `scroll` は同じフレームの `ResizeObserver` callback より先に届くため、距離だけで判定すると追従が外れ、直後の callback も `follow` が false で書き戻さない（実測: 追従中に開くと 70/71 で外れ、開→閉の「開いた瞬間」も必ず外れる）。`resolveScrollFollow()` が向きで判定し、追従中に離れていたらその場で書き戻す（snap の代入で書いた位置を控えて照合する旧方式は、自分が書いた位置しか除外できずこの経路を塞げない）
-- `overflow-anchor: none` でアンカリングを止める案は採らない。注入すれば 8/8 → 0/8 で欠陥は消えるが、読み返し中にレイアウトが変わったときの読み位置を保つ役目（ブラウザー任せだが実測で効いている）を失うため、判定側で除外する
+- アンカリングは追従中だけ `overflow-anchor: none` で止める。表の折り返しで DOM の高さが縮むと、仮想キャンバスの再計測前にブラウザーが位置を上へ補正し、読み返し操作と誤判定することがあるため。読み返し中は既定の `auto` に戻し、レイアウト変更時の読み位置を保つ役目はブラウザーに残す
 - 追従中は `scroll` の向きを見るだけで、距離の判定は位置が減る `scroll` に限る。ウィンドウリサイズ（1440 → 820、同じ再折り返しが起きる）は実測 0/24 で外れず、in-page の列幅変更（右パネルを開く）だけが引き金だった
 - `ScrollToBottomButton` は追従中とメッセージ 0 件（suggestion 表示）では出さない。`aria-live="polite"` の外側（section の後ろ）に `absolute bottom-4 left-1/2 -translate-x-1/2` で浮かせ、見た目は `client/src/components/chat/ScrollToBottomButton.tsx` が持ち、位置だけを呼び出し側の className で渡す
-- Effect は 内容（`bubbles`）/ `sendSeq` / `sessionId` / `visible` / `ResizeObserver`（section と本文ブロック）の 5 つ。DOM への書き込みは `visible` を見て follow を立ててから書く `snapToBottom()` に閉じ、非表示中は書かない（設定ページ中は祖先が `display: none`）。observer は `visible` の間だけ張り、callback でも `visible` と 0 サイズ（非表示中の通知）を除外する。callback からサイズを変える更新はしない（loop 警告を避ける）
+- 本文と仮想キャンバスの総高の更新は layout effect で描画前に追従する。`sendSeq` / `sessionId` / `visible` / `ResizeObserver`（section と本文ブロック）は別の Effect で扱う。DOM への書き込みは `visible` を見て follow を立ててから書く `snapToBottom()` に閉じ、非表示中は書かない（設定ページ中は祖先が `display: none`）。observer は `visible` の間だけ張り、callback でも `visible` と 0 サイズ（非表示中の通知）を除外する。callback からサイズを変える更新はしない（loop 警告を避ける）
 - 非ゴール: スムーススクロール、新着のドット / 件数バッジ、位置の永続化（リロード・会話を跨いだ復元）、設定ページ往復後の読み位置の復元、resync をまたいで同じメッセージを見続けること（全バブルの id が振り直される）、「一番上へ」ボタン
 
 ### 追従の検証
