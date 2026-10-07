@@ -12,6 +12,7 @@ import type { Attachment, ComposerSettings } from "../hooks/useU7Agent";
 import type { SessionSkillsState } from "../hooks/useSessionSkills";
 import { pastedImageFiles } from "../lib/clipboardImages";
 import { cn } from "../lib/cn";
+import { composerFocusAfterSend, hasCoarsePointer } from "../lib/composerFocus";
 import { shouldSubmitOnEnter } from "../lib/composerKeys";
 import { composerDropKind, FILE_MENTION_MIME, insertFileMention, type ComposerDropKind } from "../lib/fileMention";
 import type { LayoutMode } from "../lib/layout";
@@ -209,7 +210,9 @@ export function Composer({
       return;
     setValue("");
     onSend(text);
-    inputRef.current?.focus();
+    // 送信後のフォーカスはポインタで決める (docs/ui-layout.md)
+    if (composerFocusAfterSend(hasCoarsePointer()) === "focus") inputRef.current?.focus();
+    else inputRef.current?.blur();
   };
 
   const pickFiles = (files: File[]) => {
