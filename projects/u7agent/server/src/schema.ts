@@ -437,10 +437,6 @@ export const SessionSummarySchema = z.object({
 });
 export type SessionSummary = z.infer<typeof SessionSummarySchema>;
 
-/** 通知のメンション指定。Discord の allowed_mentions は本文ではなくこの値だけで決める */
-export const NotificationMentionSchema = z.enum(["none", "here"]);
-export type NotificationMention = z.infer<typeof NotificationMentionSchema>;
-
 /**
  * 直近の送信結果 (通常通知とテスト送信で共通の 1 件)。URL とレスポンス原文は入れない。
  * 応答が返らなかった (タイムアウト / ネットワーク / リダイレクト拒否) ときは status を省略する。
@@ -463,7 +459,6 @@ export const NotificationSettingsSchema = z.object({
   enabled: z.boolean(),
   webhookUrl: z.string().optional(),
   baseUrl: z.string().optional(),
-  mention: NotificationMentionSchema,
   lastResult: NotificationResultSchema.optional(),
 });
 export type NotificationSettings = z.infer<typeof NotificationSettingsSchema>;
@@ -475,7 +470,6 @@ export const NotificationsResponseSchema = z.object({
   configured: z.boolean(),
   webhookHint: z.string().optional(),
   baseUrl: z.string().optional(),
-  mention: NotificationMentionSchema,
   lastResult: NotificationResultSchema.optional(),
 });
 export type NotificationsResponse = z.infer<typeof NotificationsResponseSchema>;
@@ -1210,7 +1204,6 @@ export const UpdateNotificationsBodySchema = z.object({
   enabled: z.boolean().optional(),
   webhookUrl: z.string().nullish(),
   baseUrl: z.string().nullish(),
-  mention: NotificationMentionSchema.optional(),
 });
 export type UpdateNotificationsBody = z.infer<typeof UpdateNotificationsBodySchema>;
 

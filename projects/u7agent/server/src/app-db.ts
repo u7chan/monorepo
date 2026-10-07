@@ -132,6 +132,7 @@ export interface OpenAppDbOptions {
   sanitizeError?: (text: string) => string;
 }
 
+// 既存 DB のテーブル再構築を避けるため旧 mention 列は残し、現行アプリからは参照しない。
 /**
  * v1 -> v2 で足したテーブル。`IF NOT EXISTS` で定義を 1 つに保ち、新規作成と加算移行の両方から使う
  * (加算移行では既存の projects / agents / skills を消さない)。
@@ -491,8 +492,6 @@ function secretOf(row: Row): SecretRow {
 function notificationSettingsOf(row: Row): NotificationSettings {
   const settings: NotificationSettings = {
     enabled: Number(row.enabled) === 1,
-    // 保存側は none / here しか書かないが、未知の値は既定へ寄せる
-    mention: row.mention === "here" ? "here" : "none",
   };
   const webhookUrl = optionalText(row.webhookUrl);
   const baseUrl = optionalText(row.baseUrl);
@@ -760,15 +759,14 @@ export class AppDb {
       db
         .prepare(
           `INSERT INTO notification_settings (id, enabled, webhookUrl, baseUrl, mention, lastResult)
-           VALUES (1, ?, ?, ?, ?, ?)
+           VALUES (1, ?, ?, ?, 'none', ?)
            ON CONFLICT(id) DO UPDATE SET enabled = excluded.enabled, webhookUrl = excluded.webhookUrl,
-             baseUrl = excluded.baseUrl, mention = excluded.mention, lastResult = excluded.lastResult`,
+             baseUrl = excluded.baseUrl, mention = 'none', lastResult = excluded.lastResult`,
         )
         .run(
           settings.enabled ? 1 : 0,
           settings.webhookUrl ?? null,
           settings.baseUrl ?? null,
-          settings.mention,
           settings.lastResult ? JSON.stringify(settings.lastResult) : null,
         ),
     );

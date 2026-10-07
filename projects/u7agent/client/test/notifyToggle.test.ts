@@ -30,7 +30,6 @@ const SETTINGS: NotificationsResponse = {
   configured: true,
   webhookHint: "a1b2",
   baseUrl: "http://127.0.0.1:5173",
-  mention: "none",
 };
 
 /** 応答を保留したままの PATCH。解決するまで次の要求が送られないことを確かめる */
