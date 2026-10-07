@@ -644,6 +644,11 @@
       animation: none;
     }
   }
+  @media (forced-colors: active) {
+    .typing-dots > span {
+      background: CanvasText;
+    }
+  }
 
   /* コピー確定のチェック (CopyButton)。既定値を「書き終わった静止画」にしてあるため、
    * animation を切る環境 (prefers-reduced-motion) でもチェックはそのまま出る。
