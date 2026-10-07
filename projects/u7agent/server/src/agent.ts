@@ -60,6 +60,13 @@ const MODEL_UNAVAILABLE_MESSAGE =
 export const MODEL_WHITELIST_EMPTY_MESSAGE =
   "利用可能なモデルが 1 つもありません。設定 → モデル で利用可能なモデルとプロバイダーの認証を確認してください。";
 
+/**
+ * 保存された既定モデルが無い状態。候補の先頭で代用すると契約で使えないモデルを勝手に選び、
+ * 原因の分からない初回失敗を生むため、ここで止めて選択を促す。
+ */
+export const MODEL_UNSET_MESSAGE =
+  "使用するモデルが未設定です。設定 → モデル で既定モデルを選ぶか、モデルを指定してから送信してください。";
+
 /** 設定の入口を GUI へ移した後も process.env に残りうる、読み取らなくなった環境変数 */
 export const IGNORED_MODEL_ENVIRONMENT_VARIABLES = ["PI_MODELS", "PI_MODEL", "PI_PROVIDER"] as const;
 
@@ -145,7 +152,8 @@ export function composePromptSnapshot(agent?: AgentDef, skills: SkillDef[] = [])
 }
 
 /**
- * 設定 → モデル から保存された実効選択。どちらも undefined は未設定 (制限なし・候補の先頭)。
+ * 設定 → モデル から保存された実効選択。allowedModels の undefined は制限なし、
+ * defaultModel の undefined は「既定が未設定」で、候補の先頭では代用しない。
  * 保存の正はアプリ DB で、この値は `ModelSettingsService` が起動時と保存のたびに写す。
  */
 export interface ModelSelection {
@@ -172,6 +180,8 @@ export interface PiBff {
   defaultThinkingLevel: ThinkingLevel;
   /** 保存された既定モデルが利用不能なときの理由 (他候補があれば ready のまま) */
   defaultModelError: string | undefined;
+  /** 保存された既定モデルが無い (候補はある)。新規会話はモデル無指定では作れない */
+  defaultModelUnset: boolean;
   availabilityError: string | undefined;
   /** 許可リストが候補を全部落とした (ready: false の原因が許可リストだと health が判定するため) */
   modelWhitelistExcludesAll: boolean;
@@ -359,6 +369,8 @@ export interface ModelState {
   modelOptions: ModelOption[];
   selectedModel?: PiAiModel<Api>;
   defaultModelError?: string;
+  /** 候補はあるが保存された既定が無い状態。モデルを選ばずに新規会話を作ると 503 になる */
+  defaultModelUnset: boolean;
   availabilityError?: string;
   modelWhitelistExcludesAll: boolean;
   catalog?: RuntimeModelsResponse;
@@ -370,6 +382,7 @@ export function unavailableModelState(availabilityError?: string): ModelState {
     availableModels: [],
     modelOptions: [],
     modelWhitelistExcludesAll: false,
+    defaultModelUnset: false,
     ...(availabilityError ? { availabilityError } : {}),
   };
 }
@@ -385,7 +398,7 @@ export async function readModelSnapshot(modelRuntime: ModelRuntime): Promise<Mod
 
 export interface ModelStateInput {
   snapshot: ModelSnapshot;
-  /** 保存されたアプリ既定モデル (undefined = available の先頭) */
+  /** 保存されたアプリ既定モデル (undefined = 未設定。候補の先頭では代用しない) */
   requested: ModelRef | undefined;
   whitelist: ModelRef[] | undefined;
   versions: RuntimeVersions;
@@ -450,14 +463,17 @@ export function deriveModelState({ snapshot, requested, whitelist, versions }: M
   // getModel() は認証の有無を見ないため、保存された既定モデルも getAvailable() と突き合わせる。
   const selectedModel = requested
     ? availableModelList.find((model) => model.provider === requested.provider && model.id === requested.id)
-    : availableModelList[0];
+    : undefined;
   let defaultModelError: string | undefined;
   if (requested && !selectedModel) {
     // 利用不能でも他候補へ黙ってフォールバックせず、ready のままエラーとして伝える。
     defaultModelError = `保存された既定モデルは利用できません: ${requested.provider}/${requested.id}`;
   }
+  // 保存された既定が無い状態は「未設定」として公開する。候補の先頭を勝手に既定にすると、
+  // 契約で使えないモデルを選んでしまい、原因の分からない初回失敗になる。
+  const defaultModelUnset = !requested && availableModelList.length > 0;
 
-  if (!selectedModel && !defaultModelError && !availabilityError) {
+  if (availableModelList.length === 0 && !availabilityError && !defaultModelError) {
     const requestedProvider = requested?.provider;
     const hasConfiguredProvider = requestedProvider
       ? sanitizeRuntimeAuth(snapshot.authStatuses.get(requestedProvider)).configured
@@ -485,6 +501,7 @@ export function deriveModelState({ snapshot, requested, whitelist, versions }: M
     modelOptions: availableModelList.map(modelOptionOf),
     selectedModel,
     defaultModelError,
+    defaultModelUnset,
     availabilityError,
     modelWhitelistExcludesAll,
     catalog,
@@ -607,7 +624,7 @@ export async function createPiBff({ cwd = process.cwd() }: { cwd?: string } = {}
   const sandboxClient = createSandboxToolClientFromEnv(process.env);
 
   // 実効選択は DB を正とする ModelSettingsService が setModelSelection() で写す。ここでは「制限なし・
-  // 既定は候補の先頭」で初回 state を立て、DB を開いた後の applyStored() が保存値へ確定させる。
+  // 既定は未設定」で初回 state を立て、DB を開いた後の applyStored() が保存値へ確定させる。
   const selection: ModelSelection = { allowedModels: undefined, defaultModel: undefined };
   const versions = runtimeVersionInfo();
   const maskError = (error: unknown): string => secretMasker.mask(errorMessage(error));
@@ -678,7 +695,9 @@ export async function createPiBff({ cwd = process.cwd() }: { cwd?: string } = {}
     }
     if (!modelObject) {
       const error = new Error(
-        current.value.defaultModelError || current.value.availabilityError || AUTH_REQUIRED_MESSAGE,
+        current.value.defaultModelError ||
+          current.value.availabilityError ||
+          (current.value.defaultModelUnset ? MODEL_UNSET_MESSAGE : AUTH_REQUIRED_MESSAGE),
       ) as Error & {
         statusCode?: number;
       };
@@ -809,6 +828,9 @@ export async function createPiBff({ cwd = process.cwd() }: { cwd?: string } = {}
     defaultThinkingLevel,
     get defaultModelError() {
       return current.value.defaultModelError;
+    },
+    get defaultModelUnset() {
+      return current.value.defaultModelUnset;
     },
     get availabilityError() {
       return current.value.availabilityError;

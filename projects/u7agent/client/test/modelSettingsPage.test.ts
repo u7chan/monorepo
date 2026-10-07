@@ -7,7 +7,7 @@ import type { ModelSettings } from "../src/hooks/useModelSettings";
 import type { ImageSettings } from "../src/hooks/useImageSettings";
 import type { WebSearchSettings } from "../src/hooks/useWebSearchSettings";
 import { IMAGE_SETTINGS_NOTE } from "../src/lib/imageSettings";
-import { MODEL_SETTINGS_NOTE } from "../src/lib/modelSettings";
+import { MODEL_SETTINGS_NOTE, UNSET_DEFAULT_MODEL_LABEL } from "../src/lib/modelSettings";
 import type { ModelsSubsection } from "../src/lib/settingsNav";
 import type {
   ModelsSettingsResponse,
@@ -255,7 +255,7 @@ test("Web 検索タブは URL が選んだときにだけ描画し、実行時�
 test("モデルを選ぶタブは既定モデル・選択数・候補・保存バーを出し、折りたたみは既定で閉じる", () => {
   const html = render(modelSettings());
   assert.ok(html.includes("既定モデル"), "既定モデルの見出しを出す");
-  assert.ok(html.includes("未設定（利用可能なモデルの先頭を使う）"), "既定の未設定を残す");
+  assert.ok(html.includes(UNSET_DEFAULT_MODEL_LABEL), "既定の未設定を残す");
   assert.ok(html.includes("選択 1 / 利用可能 1"), "選択数と利用可能数を出す");
   assert.ok(html.includes("チェックしたモデルだけが候補になります"));
   assert.ok(
@@ -288,7 +288,7 @@ test("認証が設定されていない provider の選択は表示せず、下�
   assert.equal(html.includes("Local A"), false, "未認証 provider の行は出さない");
   assert.equal(html.includes("認証が設定されていない provider"), false, "警告付きの未認証グループも出さない");
   assert.ok(html.includes("選択 0 / 利用可能 1"), "見えない選択は数えない (保存値に残っていても下書きから落とす)");
-  assert.ok(html.includes("未設定（利用可能なモデルの先頭を使う）"), "未認証を指す既定も未設定へ戻す");
+  assert.ok(html.includes(UNSET_DEFAULT_MODEL_LABEL), "未認証を指す既定も未設定へ戻す");
   assert.ok(html.includes("登録が無いプロバイダーに残った選択は候補に出さず"), "残った選択の扱いを注意書きに出す");
   assert.match(html, /<button[^>]*disabled=""[^>]*>(?:(?!<\/button>)[\s\S])*モデル候補を保存<\/button>/);
 });

@@ -54,12 +54,13 @@ test("保存された許可リストの積から選択肢を導出し、既定�
     ["stub-model", "stub-plain"],
   );
   assert.equal(state.selectedModel?.id, "stub-plain");
+  assert.equal(state.defaultModelUnset, false);
   assert.equal(state.defaultModelError, undefined);
   assert.equal(state.availabilityError, undefined);
   assert.equal(state.modelOptions[0]?.supportsThinking, true);
 });
 
-test("保存された許可リストで絞り、既定が未設定なら先頭を使う", () => {
+test("保存された許可リストで絞り、既定が未設定ならモデルを選ばない", () => {
   const state = deriveModelState({
     snapshot: snapshot(),
     requested: undefined,
@@ -70,8 +71,10 @@ test("保存された許可リストで絞り、既定が未設定なら先頭�
     state.availableModels.map((model) => model.id),
     ["stub-plain"],
   );
-  assert.equal(state.selectedModel?.id, "stub-plain", "既定が未設定なら絞り込み後の先頭");
+  assert.equal(state.selectedModel, undefined, "既定が未設定なら候補の先頭で代用しない");
+  assert.equal(state.defaultModelUnset, true);
   assert.equal(state.defaultModelError, undefined);
+  assert.equal(state.availabilityError, undefined);
 });
 
 test("許可リストの積が空なら許可リスト起因のエラーにする", () => {
@@ -97,6 +100,7 @@ test("認証済みプロバイダーが無ければ APIキー未設定の案内�
     versions: VERSIONS,
   });
   assert.equal(unauthenticated.availabilityError, AUTH_REQUIRED_MESSAGE);
+  assert.equal(unauthenticated.defaultModelUnset, false, "候補が 0 件なら「未設定」ではなく原因を示す");
 
   const configured = deriveModelState({
     snapshot: snapshot({ available: [] }),
@@ -115,6 +119,7 @@ test("保存された既定モデルが利用不能でも他候補へフォー�
     versions: VERSIONS,
   });
   assert.equal(state.selectedModel, undefined);
+  assert.equal(state.defaultModelUnset, false, "保存値があるなら「未設定」ではない");
   assert.equal(state.defaultModelError, "保存された既定モデルは利用できません: stub/ghost");
 });
 

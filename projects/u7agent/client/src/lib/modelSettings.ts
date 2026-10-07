@@ -693,7 +693,11 @@ export function availabilityDefaultChoices(
 }
 
 /** 既定モデルのピッカーの先頭に残す「未設定」の表示 */
-export const UNSET_DEFAULT_MODEL_LABEL = "未設定（利用可能なモデルの先頭を使う）";
+export const UNSET_DEFAULT_MODEL_LABEL = "未設定";
+
+/** 既定モデルの保存が無いときの案内。設定 → モデル と入力欄の Model の両方の入口を示す */
+export const MODEL_UNSET_GUIDE =
+  "アプリ既定モデルが未設定です。設定 → モデル で既定モデルを選ぶか、入力欄の Model から使用するモデルを選んでください。";
 
 /** 既定モデルのピッカーの 1 行。key null は「未設定」 */
 export interface DefaultModelOption {

@@ -1,4 +1,5 @@
 import type { ChatState } from "../hooks/chatReducer";
+import { MODEL_UNSET_GUIDE } from "./modelSettings";
 import { pendingAskUserQuestionCount } from "./askUser";
 import type { SettingsSelection } from "../hooks/settingsChange";
 import type { AgentDef, Health, ModelOption, ModelRef, ThinkingLevel } from "../types";
@@ -129,8 +130,8 @@ export function deriveComposerSettings(input: ComposerSettingsInput): ComposerSe
     sendBlockedReason:
       pendingQuestions > 0
         ? `上の質問に回答してください（${pendingQuestions}件）`
-        : !inSession && !model && health?.defaultModelError
-          ? health.defaultModelError
+        : !inSession && !model
+          ? (health?.defaultModelError ?? (health?.defaultModelUnset ? MODEL_UNSET_GUIDE : undefined))
           : undefined,
   };
 }

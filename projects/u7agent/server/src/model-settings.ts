@@ -51,7 +51,7 @@ export interface ModelSettingsDb {
   saveModelSettings(settings: ModelSettingsRow): void;
 }
 
-/** 保存値としての利用可能なモデル / アプリ既定モデル。null は未設定 (制限なし・候補の先頭) */
+/** 保存値としての利用可能なモデル / アプリ既定モデル。allowedModels の null は制限なし、defaultModel の null は既定なし */
 export interface StoredModelSelection {
   allowedModels: ModelRef[] | null;
   defaultModel: string | null;
@@ -69,7 +69,7 @@ export interface ModelSettingsOptions {
   refreshModelState: () => Promise<void>;
   /**
    * 保存値の適用。公開 state へ効かせるのは refreshModelState() なので、必ず setter → refresh の順に呼ぶ。
-   * undefined は未設定 (制限なし・候補の先頭) を表す。
+   * undefined は未設定を表す (allowedModels は制限なし、defaultModel は既定なし)。
    */
   setModelSelection: (selection: { allowedModels: ModelRef[] | undefined; defaultModel: ModelRef | undefined }) => void;
   /** 残っていて無視している移行前の環境変数名。画面の注記と起動ログが同じ値を使う */
@@ -455,7 +455,7 @@ export class ModelSettingsService {
     return this.#notStored(error);
   }
 
-  /** 保存値の読取。行が無ければ未設定 (制限なし・候補の先頭) */
+  /** 保存値の読取。行が無ければ未設定 (制限なし・既定なし) */
   #readSelection(): StoredModelSelection {
     const row = this.#db.readModelSettings();
     return { allowedModels: row?.allowedModels ?? null, defaultModel: row?.defaultModel ?? null };

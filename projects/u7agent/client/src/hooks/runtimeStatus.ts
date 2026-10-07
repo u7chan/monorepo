@@ -1,3 +1,4 @@
+import { MODEL_UNSET_GUIDE } from "../lib/modelSettings";
 import type { Health } from "../types";
 
 /** モデルは含めない (会話モデルの表示は別コンポーネントが持つ) */
@@ -11,6 +12,7 @@ export type RuntimeStatus = {
 
 export const AUTH_REQUIRED_TEXT = "APIキー未設定";
 export const SANDBOX_REQUIRED_TEXT = "実行環境（サンドボックス）が未設定";
+export const MODEL_UNSET_TEXT = "モデル未設定";
 
 /** バッククォートの部分は RuntimeAlert が <code> で描画する */
 export const AUTH_REQUIRED_GUIDE =
@@ -64,6 +66,9 @@ export function runtimeStatusForHealth(health: Health): RuntimeStatus {
       detail: SANDBOX_REQUIRED_REASON,
       sandboxRequired: true,
     };
+  }
+  if (health.defaultModelUnset) {
+    return { text: MODEL_UNSET_TEXT, error: true, detail: MODEL_UNSET_GUIDE };
   }
   if (health.defaultModelError) {
     return { text: "モデル未選択", error: true, detail: health.defaultModelError };

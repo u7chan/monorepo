@@ -180,6 +180,7 @@ export type ToolCall = z.infer<typeof ToolCallSchema>;
 export const RunErrorCodeSchema = z.enum([
   "auth_required",
   "insufficient_quota",
+  "model_unavailable",
   "context_overflow",
   "rate_limit",
   "unknown",
@@ -584,7 +585,7 @@ export const ModelsSettingsResponseSchema = z.object({
   runtimeAvailable: z.boolean(),
   /** `provider/model` の一覧。未設定 (null) = 制限なし。許可されているかの正はこのフィールドだけ */
   allowedModels: z.array(z.string()).nullable(),
-  /** 保存値。null は未設定 (利用可能なモデルの先頭を使う)。実効値は health.model */
+  /** 保存値。null は未設定 (既定なし)。実効値は health.model */
   defaultModel: z.string().nullable(),
   /** 設定されていても無視する移行前の環境変数名 */
   ignoredEnvironmentVariables: z.array(z.string()),
@@ -747,6 +748,8 @@ export const HealthSchema = z.object({
   defaultThinkingLevel: ThinkingLevelSchema.optional(),
   /** 保存された既定モデルが利用不能なときの理由 (ready は true のまま) */
   defaultModelError: z.string().optional(),
+  /** 保存された既定モデルが無い状態。候補があっても新規会話はモデル未指定では作れない */
+  defaultModelUnset: z.boolean().optional(),
   tools: z.array(z.string()).optional(),
   availabilityError: z.string().optional(),
   sandboxConfigured: z.boolean().optional(),

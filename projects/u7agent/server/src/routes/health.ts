@@ -73,6 +73,7 @@ export function createHealthRoutes({
         modelOptions: pi?.modelOptions ?? [],
         defaultThinkingLevel: pi?.defaultThinkingLevel ?? "medium",
         defaultModelError: pi?.defaultModelError,
+        defaultModelUnset: pi?.defaultModelUnset ?? false,
         tools: pi?.tools || [],
         availabilityError: pi?.availabilityError,
         sandboxConfigured: pi?.sandboxConfigured ?? false,

@@ -51,7 +51,7 @@ DTO の正は `server/src/schema.ts`（zod）。リクエストボディは `@ho
 | --- | --- | --- |
 | GET | `/api/health` | pi ランタイムの状態（`ready` / `model` / `modelOptions` / `defaultThinkingLevel` / `cwd` / `versions` / `filePreviewPort`）と永続化の状態。認証が無い場合は `errorCode: "authentication_required"`、保存された許可リストと利用可能モデルが交差しない場合は `errorCode: "model_whitelist_empty"` |
 
-`ready` は「ランタイムが使え、利用可能モデルが 1 つ以上ある」の意で、アプリ既定モデル（`model`）が使えるかとは独立している。`model` はあくまでアプリ既定（新規セッションで明示も定義も無いときに使う値）で、チャットごとの実効モデルではない。チャットの実効モデルはセッションの payload / 一覧の `model` を参照する。設定 → モデル で保存した既定モデルが利用不能でも候補が他にあれば `ready: true` と `defaultModelError` を返し、別モデルへは自動で切り替えない。`sandboxConfigured` は `PI_SANDBOX_URL` / `PI_SANDBOX_TOKEN` が揃っているか（未設定ならセッション作成が 503 になる）を示す。`PI_MODEL` / `PI_MODELS` / `PI_PROVIDER` は読まない（設定されていても無視する）。
+`ready` は「ランタイムが使え、利用可能モデルが 1 つ以上ある」の意で、アプリ既定モデル（`model`）が使えるかとは独立している。`model` はあくまでアプリ既定（新規セッションで明示も定義も無いときに使う値）で、チャットごとの実効モデルではない。チャットの実効モデルはセッションの payload / 一覧の `model` を参照する。保存された既定モデルが無いときは `model` を返さず `defaultModelUnset: true` にする（候補の先頭で代用しない。この状態でモデル無指定のセッション作成は 503）。設定 → モデル で保存した既定モデルが利用不能でも候補が他にあれば `ready: true` と `defaultModelError` を返し、別モデルへは自動で切り替えない。`sandboxConfigured` は `PI_SANDBOX_URL` / `PI_SANDBOX_TOKEN` が揃っているか（未設定ならセッション作成が 503 になる）を示す。`PI_MODEL` / `PI_MODELS` / `PI_PROVIDER` は読まない（設定されていても無視する）。
 
 ```json
 {
@@ -71,6 +71,7 @@ DTO の正は `server/src/schema.ts`（zod）。リクエストボディは `@ho
   ],
   "defaultThinkingLevel": "medium",
   "defaultModelError": "保存された既定モデルは利用できません: openai/ghost",
+  "defaultModelUnset": false,
   "filePreviewPort": 4318,
   "previewPort": 4319,
   "versions": { "piCodingAgent": "1.0.3", "piAi": "1.0.3" },
@@ -395,7 +396,7 @@ Content-Security-Policy: sandbox allow-scripts; default-src 'none'; style-src 'u
 ```
 
 - `allowedModels` は保存された許可リスト（`provider/model` の配列）で、`null` は「未設定 = 制限なし（全モデル）」。空配列で保存しても `null` へ正規化する。**許可されているかどうかの正はこのフィールドだけ**で、`GET /api/runtime/models` には同じ情報を載せない
-- `defaultModel` は保存値（`null` は未設定 = 利用可能なモデルの先頭）。**実効値は `GET /api/health` の `model`** で、保存値が利用できないときは `defaultModelError` が付く
+- `defaultModel` は保存値（`null` は未設定 = 既定なし）。**実効値は `GET /api/health` の `model`** で、未設定のときは `defaultModelUnset: true`、保存値が利用できないときは `defaultModelError` が付く
 - `ignoredEnvironmentVariables` は、設定されていても読まなくなった環境変数（`PI_MODELS` / `PI_MODEL` / `PI_PROVIDER`）の名前。設定画面は移行のため削除を促す注記に使う
 - `PUT /api/settings/models/allowed` は `provider/model` 形式・重複なし・カタログ内・既定が許可リスト内（制限なしのときはカタログ内）を検証し、400 で理由を返す（`カタログに無いモデルは指定できません: <provider>/<id>` など）。「許可リスト内だが未認証」の既定は保存できる（画面が警告と確認を出す）。応答は GET と同じ形 + `state: "applied"`
 - `state: "applied"` は「アプリ DB へ保存し、公開 state（availableModels / modelOptions / selectedModel / resolveModel）を再計算した」ことを表す。SDK 呼び出しを含まないため `applied_unsynced` は無い。`null` の保存（未設定へ戻す）で行が消え、再起動後も維持される
