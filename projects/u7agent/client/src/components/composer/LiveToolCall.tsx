@@ -70,18 +70,19 @@ function ExitingRow({ item, onFinished }: { item: ExitingRow; onFinished: (id: s
 export function LiveToolCall({
   runTools,
   runStatus,
-  toolEventSeq,
+  liveToolIds,
   sessionId,
 }: {
   /** 直近 run のツールカード (toolCallId → ToolCall)。挿入順がそのまま走査順になる */
   runTools: Readonly<Record<string, ToolCall>>;
   runStatus: RunStatus;
-  /** ライブのツールイベントの回数 (`ChatState.toolEventSeq`)。payload 経由の復元カードと区別する */
-  toolEventSeq: number;
+  /** ライブのツールイベントで観測した toolCallId (`ChatState.liveToolIds`)。復元カードと区別する */
+  liveToolIds: string[];
   /** 表示中のセッション。変わったら前のセッションの行を持ち越さない (未作成チャットは undefined) */
   sessionId?: string;
 }) {
   const state = useMemo(() => liveToolState(runTools, runStatus), [runTools, runStatus]);
+  const liveIds = useMemo(() => new Set(liveToolIds), [liveToolIds]);
   const [exiting, setExiting] = useState<ExitingRow[]>([]);
   const trackerRef = useRef<{ key: string | undefined; tracker: LiveToolTracker } | null>(null);
 
@@ -90,11 +91,11 @@ export function LiveToolCall({
     // セッションが変わると runTools ごと入れ替わる。前のセッションの行を畳む対象に持ち越さない
     const known = trackerRef.current;
     const switched = known === null || known.key !== sessionId;
-    const tracker = known !== null && !switched ? known.tracker : initialLiveTracker(runTools, toolEventSeq);
+    const tracker = known !== null && !switched ? known.tracker : initialLiveTracker(runTools);
     const next = trackLiveHolds(tracker, {
       rows: state.rows,
       allRows: state.allRows,
-      eventSeq: toolEventSeq,
+      liveIds,
       now,
     });
     trackerRef.current = { key: sessionId, tracker: next.tracker };
@@ -108,7 +109,7 @@ export function LiveToolCall({
       ...list.filter((item) => !next.holds.some((hold) => hold.row.id === item.row.id)),
       ...next.holds,
     ]);
-  }, [state, runStatus, toolEventSeq, sessionId, runTools]);
+  }, [state, runStatus, liveIds, sessionId, runTools]);
 
   const finishLeaving = useCallback((id: string) => {
     setExiting((list) => list.filter((item) => item.row.id !== id));

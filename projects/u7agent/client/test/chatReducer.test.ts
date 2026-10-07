@@ -1063,6 +1063,31 @@ test("runTools は runStart / newChat / セッション切替で初期化し、r
   assert.deepEqual(chatReducer(running, { type: "newChat" }).runTools, {});
 });
 
+test("liveToolIds はライブのイベントでだけ増え、セッション切替 / 新規チャットで消える", () => {
+  // payload が持ち込んだカードはライブ観測ではない (ライブ表示が復元カードを抱えない根拠)
+  const restored = chatReducer(initialChatState, {
+    type: "resync",
+    payload: payloadWithRunTools([{ role: "user", text: "聞いて" }], [toolCall("t1")]),
+  });
+  assert.deepEqual(restored.liveToolIds, []);
+
+  const started = chatReducer(restored, { type: "toolStart", id: "t2", name: "bash", args: "ls", at: 1 });
+  assert.deepEqual(started.liveToolIds, ["t2"]);
+  const ended = chatReducer(started, { type: "toolEnd", id: "t2", isError: false, output: "ok" });
+  assert.deepEqual(ended.liveToolIds, ["t2"], "同じ id を二重に持たない");
+  assert.deepEqual(chatReducer(ended, { type: "toolStart", id: "t3", name: "read", args: "a", at: 2 }).liveToolIds, [
+    "t2",
+    "t3",
+  ]);
+
+  // 別の会話へ切り替えたら持ち越さない (古い id を新しい会話のライブ観測と誤読させない)
+  assert.deepEqual(
+    chatReducer(ended, { type: "resync", payload: { ...runningPayload(), sessionId: "session-b" } }).liveToolIds,
+    [],
+  );
+  assert.deepEqual(chatReducer(ended, { type: "newChat" }).liveToolIds, []);
+});
+
 test("resync の run 側カードは前ターンへ付かず、text / usage も前ターンへ混ぜない (legacy)", () => {
   const resynced = chatReducer(initialChatState, {
     type: "resync",

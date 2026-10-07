@@ -540,7 +540,7 @@ export default function App() {
               onCompact={app.sessionId ? handleCompact : undefined}
               runStatus={app.chat.runStatus}
               runTools={app.chat.runTools}
-              toolEventSeq={app.chat.toolEventSeq}
+              liveToolIds={app.chat.liveToolIds}
               sessionId={app.sessionId}
               runError={app.chat.runError}
               onRetry={handleRetry}

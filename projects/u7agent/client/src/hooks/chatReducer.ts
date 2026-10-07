@@ -77,11 +77,11 @@ export type ChatState = {
    */
   sendSeq: number;
   /**
-   * ライブのツールイベント (`tool_start` / `tool_end`) の回数。値そのものは表示に使わず、入力欄の上の
+   * ライブのツールイベント (`tool_start` / `tool_end`) で観測した toolCallId (古い→新しい)。入力欄の上の
    * ライブ表示が「この描画で新しく観測したツール」を、payload (resync) が持ち込んだ復元カードと
-   * 区別する合図に使う。両者を runTools の形では区別できない (docs/frontend.md)。
+   * 区別するために使う。両者は runTools の形では区別できない (docs/frontend.md)。
    */
-  toolEventSeq: number;
+  liveToolIds: string[];
   /**
    * run_start 待ちのローカルエコー (user バブル id)。送信した順に並び、run_start が先頭から消費する。
    * 同じ本文を続けて送っても、届いた注記を正しいバブルに割り当てるために必要 (配列の末尾だけを見ると取り違える)。
@@ -233,7 +233,7 @@ export const initialChatState: ChatState = {
   compactionStartedAt: undefined,
   runEndSeq: 0,
   sendSeq: 0,
-  toolEventSeq: 0,
+  liveToolIds: [],
   pendingEchoIds: [],
   clearedRunIds: [],
   queueDepth: 0,
@@ -604,8 +604,6 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
         runEndSeq: state.runEndSeq,
         // sendSeq も単調に保つ (新規チャットへの切替を「送信」と誤読させない)
         sendSeq: state.sendSeq,
-        // toolEventSeq も単調に保つ (切替前の観測値を live イベントと誤読させない)
-        toolEventSeq: state.toolEventSeq,
       };
 
     case "resync": {
@@ -661,6 +659,8 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
         history: sessionChanged ? initialChatState.history : state.history,
         // 別の会話の停止で破棄された run id を持ち越さない
         clearedRunIds: sessionChanged ? [] : state.clearedRunIds,
+        // ライブで観測したツール id も持ち越さない (古い id を新しい会話のライブ観測と誤読させない)
+        liveToolIds: sessionChanged ? [] : state.liveToolIds,
         sessionId: payload.sessionId,
         runStatus: status,
         runStartedAt: status === "running" ? payload.run?.startedAt : undefined,
@@ -1094,9 +1094,15 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
       // 保留中の run 側カードを先に補ってから新しいカードを足す (逆順だと初回の assistant バブルで
       // 新規が先頭になり、run 側の挿入順と逆のツール履歴になる)
       const withBubble = attachRunToolCards(ensureAssistant(state, action.at), false);
-      const withRun = { ...withBubble, runTools: { ...withBubble.runTools, [action.id]: call } };
-      // ライブ表示が「今観測したツール」を見分ける合図 (payload 経由の復元カードと区別する)
-      return addToolCard({ ...withRun, toolEventSeq: withRun.toolEventSeq + 1 }, toolCardOf(call), action.at);
+      const withRun = {
+        ...withBubble,
+        // ライブ表示が「今観測したツール」を見分けるための控え (payload 経由の復元カードと区別する)
+        liveToolIds: withBubble.liveToolIds.includes(action.id)
+          ? withBubble.liveToolIds
+          : [...withBubble.liveToolIds, action.id],
+        runTools: { ...withBubble.runTools, [action.id]: call },
+      };
+      return addToolCard(withRun, toolCardOf(call), action.at);
     }
 
     case "toolEnd": {
@@ -1107,7 +1113,9 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
           ? state
           : {
               ...state,
-              toolEventSeq: state.toolEventSeq + 1,
+              liveToolIds: state.liveToolIds.includes(action.id)
+                ? state.liveToolIds
+                : [...state.liveToolIds, action.id],
               runTools: {
                 ...state.runTools,
                 [action.id]: {

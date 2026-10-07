@@ -67,13 +67,11 @@ export type LiveToolTracker = {
   accounted: Set<string>;
   /** 直前の描画で実行中だった行。run ごと消えた行も畳めるようにする */
   running: Map<string, LiveToolRow>;
-  /** 最後に観測した `tool_start` / `tool_end` の回数 (ChatState.toolEventSeq)。復元カードと区別する */
-  eventSeq: number;
 };
 
 /** mount 時点の呼び出しは「観測済み」にする。復元直後に前の run の完了カードを光らせない */
-export function initialLiveTracker(runTools: Readonly<Record<string, ToolCall>>, eventSeq: number): LiveToolTracker {
-  return { shownAt: new Map(), accounted: new Set(Object.keys(runTools)), running: new Map(), eventSeq };
+export function initialLiveTracker(runTools: Readonly<Record<string, ToolCall>>): LiveToolTracker {
+  return { shownAt: new Map(), accounted: new Set(Object.keys(runTools)), running: new Map() };
 }
 
 export type LiveToolHold = { row: LiveToolRow; holdMs: number };
@@ -83,14 +81,20 @@ export type LiveToolHold = { row: LiveToolRow; holdMs: number };
  *
  * 1. ライブのツールイベントで新しく現れたのに、実行中の行として出ていない呼び出しは、最短表示時間の
  *    ぶんここで出す (開始と終了が同じ描画にまとまった一瞬のツール、run の終了と同時に届いた分)。
- *    条件に `eventSeq` を使うのは、runTools の形だけではライブの出来事と `resync` が持ち込んだ復元
- *    カードを区別できないため (後者を光らせない)。
+ *    ライブで観測した id (`liveIds`) を条件にするのは、runTools の形だけではライブの出来事と
+ *    `resync` が持ち込んだ復元カードを区別できないため。同じ描画に両方が混ざっても、復元カードは
+ *    出さない。
  * 2. 実行中として出ていた行が終わった / run ごと消えた場合は、出ていた時間の残りだけ残す
  *    (長く動いていたツールはその場で畳む)。
  */
 export function trackLiveHolds(
   tracker: LiveToolTracker,
-  { rows, allRows, eventSeq, now }: { rows: LiveToolRow[]; allRows: LiveToolRow[]; eventSeq: number; now: number },
+  {
+    rows,
+    allRows,
+    liveIds,
+    now,
+  }: { rows: LiveToolRow[]; allRows: LiveToolRow[]; liveIds: ReadonlySet<string>; now: number },
 ): { tracker: LiveToolTracker; holds: LiveToolHold[] } {
   const shownAt = new Map(tracker.shownAt);
   const accounted = new Set(tracker.accounted);
@@ -101,13 +105,11 @@ export function trackLiveHolds(
 
   const byId = new Map(allRows.map((row) => [row.id, row]));
   const holds: LiveToolHold[] = [];
-  if (eventSeq !== tracker.eventSeq) {
-    for (const row of allRows) {
-      // 実行中として出る行は、そのまま出せばよいので保持しない
-      if (accounted.has(row.id) || runningIds.has(row.id)) continue;
-      accounted.add(row.id);
-      holds.push({ row, holdMs: LIVE_ROW_MIN_VISIBLE_MS });
-    }
+  for (const row of allRows) {
+    // 実行中として出る行は、そのまま出せばよいので保持しない
+    if (accounted.has(row.id) || runningIds.has(row.id) || !liveIds.has(row.id)) continue;
+    accounted.add(row.id);
+    holds.push({ row, holdMs: LIVE_ROW_MIN_VISIBLE_MS });
   }
   for (const [id, row] of tracker.running) {
     if (runningIds.has(id)) continue;
@@ -120,8 +122,5 @@ export function trackLiveHolds(
   }
   // 観測した id はライブかどうかに関係なく記録する。次の描画で過去のカードを光らせない
   for (const row of allRows) accounted.add(row.id);
-  return {
-    tracker: { shownAt, accounted, running: new Map(rows.map((row) => [row.id, row])), eventSeq },
-    holds,
-  };
+  return { tracker: { shownAt, accounted, running: new Map(rows.map((row) => [row.id, row])) }, holds };
 }
