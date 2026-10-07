@@ -12,7 +12,7 @@ import {
 } from "../../lib/runRetry";
 import { contextGauge } from "../../lib/usageFormat";
 import type { ContextUsage, RunStatus } from "../../types";
-import { CompactIcon, RunSpinnerIcon } from "../icons";
+import { CompactIcon, TypingDots } from "../icons";
 import { ReloadButton } from "../ReloadButton";
 
 /**
@@ -141,7 +141,7 @@ export function ComposerStatus({
         </div>
       ) : null}
       <div className="flex min-h-5.25 flex-wrap items-center justify-end gap-x-2 gap-y-0.5 px-1 pb-1.5 text-1xs text-ink-muted">
-        {elapsed === null ? null : <RunSpinnerIcon />}
+        {elapsed === null ? null : <TypingDots />}
         {showActivity ? (
           // 活動テキストがあるときは下限幅を置き、0 幅まで潰れる前に組を折り返させる
           <span className={cn("flex flex-1 items-baseline gap-1.5", activity ? "min-w-40" : "min-w-0")}>
