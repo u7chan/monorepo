@@ -23,7 +23,7 @@ Discord 通知リンク `/s/<sessionId>` は、会話を指定して開く唯一
 ```
 
 - 本文は **mask → truncate** の順（逆順だと上限の境界でキーの末尾が欠ける）。mask は APIキーの masker と Webhook URL の専用マスクの両方
-- メンションは本文ではなく `allowed_mentions` だけで決める（なし = `parse: []` / @here = `parse: ["everyone"]`）。本文中の `@everyone` やロールメンションは無効
+- 通知本文は Discord の embed として送る。embed 内の文字列からメンション通知は発生しないため、メンション設定は提供しない
 - **会話のタイトル・エージェント名・応答本文の先頭 200 文字が Discord へ送られる。** 機微な内容を扱う会話は通知を Off にする
 - テスト送信は実通知と区別できる本文（`🧪 テスト通知  u7agent`）で、保存済み設定を使って 1 通送る。通知の有効 / 無効には関係しない
 
@@ -43,8 +43,8 @@ Discord 通知リンク `/s/<sessionId>` は、会話を指定して開く唯一
 
 | メソッド | パス | 内容 |
 | --- | --- | --- |
-| GET | `/api/notifications` | `{ enabled, provider: "discord", configured, webhookHint?, baseUrl?, mention, lastResult? }` |
-| PUT | `/api/notifications` | `{ enabled?, webhookUrl?（null で解除）, baseUrl?（null で解除）, mention? }`。宛先とベース URL を検証し、保存時に送信テストはしない |
+| GET | `/api/notifications` | `{ enabled, provider: "discord", configured, webhookHint?, baseUrl?, lastResult? }` |
+| PUT | `/api/notifications` | `{ enabled?, webhookUrl?（null で解除）, baseUrl?（null で解除） }`。宛先とベース URL を検証し、保存時に送信テストはしない。旧クライアントの `mention` は無視する |
 | POST | `/api/notifications/test` | 保存済み設定で 1 通。`{ ok, status, latencyMs, message?, code?, retryAfter?, at }` を 200 で返す（アプリ側のエラーだけ 4xx）。タイムアウトは 5 秒 |
 | PATCH | `/api/sessions/:id/notify` | `{ notify: boolean }` → `{ sessionId, notify }` を 200 で返す |
 | POST | `/api/sessions` | `notify?: boolean`（新規チャットで選んだ値を、作成されるセッションへ引き継ぐ） |
@@ -79,7 +79,7 @@ Discord 通知リンク `/s/<sessionId>` は、会話を指定して開く唯一
 - **Discord カード**: 有効トグルと Webhook URL。保存済みなら「登録済み（末尾 xxxx）」+ `[変更]` を出し、`[変更]` を押したときだけ入力欄を出す（保存済みの値は入れない）。`[取り消し]` で編集をやめる
 - **テスト送信カード**: 未設定なら無効 + 「Webhook URL を保存するとテストできます。」。URL に未保存の変更があるときはラベルが「保存してテスト」になり、保存してから送る。直近結果（日時 / status / latencyMs）と失敗理由を出す。429 のときは `retryAfter` があれば「Retry-After N 秒待ってから再試行してください。」、無ければ「時間を置いて再試行してください。」を出す
 - **リンクカード**: 通知から会話を開く URL のベース。`[今開いている URL を使う]` で `location.origin` を入れる。空にするとリンク行を載せない
-- **メッセージカード**: メンション（なし / @here）とプレビュー。プレビューは見本で、実データはサーバーが組み立てる
+- **メッセージカード**: プレビューを表示する。プレビューは見本で、実データはサーバーが組み立てる
 - 編集はすべて下書きで、`[保存]` が PUT、`[破棄]` が保存済みの値へ戻す。`webhookUrl` は「変更」で新しく入力したときだけ送り、空にすると解除（null）。`baseUrl` は空なら null
 - 設定ナビの「通知」の行には、直近の送信が失敗しているときだけ ⚠ を出す。直近結果は 4 秒ごとに取り直すため、バックグラウンドのラン完了で失敗してもリロードなしで反映される
 

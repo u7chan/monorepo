@@ -64,11 +64,7 @@ export function NotificationSettingsPage({
                 onTest={() => void test(needsSave)}
               />
               <LinkCard value={draft.baseUrl} onChange={(baseUrl) => setDraft({ baseUrl })} />
-              <MessageCard
-                mention={draft.mention}
-                previewLines={notificationPreviewLines(draft)}
-                onChangeMention={(mention) => setDraft({ mention })}
-              />
+              <MessageCard previewLines={notificationPreviewLines(draft)} />
             </>
           ) : (
             <div className="grid justify-items-start gap-2 rounded-lg border border-line bg-soft p-3 text-xs text-ink-muted">

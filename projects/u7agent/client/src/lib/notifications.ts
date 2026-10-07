@@ -2,14 +2,13 @@
  * 通知設定の下書き (PUT の body) と、テスト結果・プレビューの表示文言。DOM に依存しない純ロジックだけを置き、
  * 画面はここが返す値を描くだけにする (文言の出し分けをテストで固定するため)。
  */
-import type { NotificationMention, NotificationResult, NotificationsResponse, UpdateNotificationsBody } from "../types";
+import type { NotificationResult, NotificationsResponse, UpdateNotificationsBody } from "../types";
 
 export type NotificationDraft = {
   enabled: boolean;
   /** null = 保存済みを維持する。文字列は「変更」で入力した新しい値で、空文字は解除 (null 送信) を表す */
   webhookUrl: string | null;
   baseUrl: string;
-  mention: NotificationMention;
 };
 
 /** 設定の読み込み前と下書きの破棄で使う初期値 */
@@ -17,7 +16,6 @@ export const EMPTY_NOTIFICATION_DRAFT: NotificationDraft = {
   enabled: false,
   webhookUrl: null,
   baseUrl: "",
-  mention: "none",
 };
 
 /** 保存済みの設定から下書きを作る。URL は write-only なので常に空 (変更時にだけ入れ直す) */
@@ -26,7 +24,6 @@ export function draftFromSettings(settings: NotificationsResponse | null): Notif
     enabled: settings?.enabled ?? false,
     webhookUrl: null,
     baseUrl: settings?.baseUrl ?? "",
-    mention: settings?.mention ?? "none",
   };
 }
 
@@ -37,8 +34,7 @@ export function draftIsDirty(draft: NotificationDraft, settings: NotificationsRe
     draft.enabled !== settings.enabled ||
     // 保存済み URL は再表示しないため、入力が始まった時点で変更として扱う
     draft.webhookUrl !== null ||
-    draft.baseUrl.trim() !== (settings.baseUrl ?? "") ||
-    draft.mention !== settings.mention
+    draft.baseUrl.trim() !== (settings.baseUrl ?? "")
   );
 }
 
@@ -61,7 +57,6 @@ export function syncDraft(
     enabled: draft.enabled === base.enabled ? updated.enabled : draft.enabled,
     webhookUrl: draft.webhookUrl === null ? null : draft.webhookUrl,
     baseUrl: draft.baseUrl.trim() === base.baseUrl ? updated.baseUrl : draft.baseUrl,
-    mention: draft.mention === base.mention ? updated.mention : draft.mention,
   };
 }
 
@@ -69,7 +64,6 @@ export function syncDraft(
 export function draftBody(draft: NotificationDraft): UpdateNotificationsBody {
   const body: UpdateNotificationsBody = {
     enabled: draft.enabled,
-    mention: draft.mention,
     baseUrl: draft.baseUrl.trim() || null,
   };
   if (draft.webhookUrl !== null) body.webhookUrl = draft.webhookUrl.trim() || null;

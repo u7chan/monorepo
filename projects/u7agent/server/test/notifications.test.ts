@@ -176,7 +176,7 @@ test("a test send posts an embed and stores the shared last result", async () =>
   const { impl, calls } = fakeFetch(() => new Response(null, { status: 204 }));
   const { db, service } = createService({ fetchImpl: impl });
   try {
-    assert.deepEqual(service.settings(), { enabled: false, provider: "discord", configured: false, mention: "none" });
+    assert.deepEqual(service.settings(), { enabled: false, provider: "discord", configured: false });
     // 設定の保存では送信しない
     assert.equal(calls.length, 0);
 
@@ -184,12 +184,10 @@ test("a test send posts an embed and stores the shared last result", async () =>
       webhookUrl: WEBHOOK,
       enabled: true,
       baseUrl: "http://127.0.0.1:5173",
-      mention: "here",
     });
     assert.equal(saved.configured, true);
     assert.equal(saved.webhookHint, "wxyz");
     assert.equal(saved.baseUrl, "http://127.0.0.1:5173");
-    assert.equal(saved.mention, "here");
     assert.equal(calls.length, 0);
 
     const result = await service.test();
@@ -203,7 +201,7 @@ test("a test send posts an embed and stores the shared last result", async () =>
     // リダイレクトは追わない (3xx でもトークンを転送しない)
     assert.equal(calls[0].init?.redirect, "error");
     const payload = payloadOf(calls[0]);
-    assert.deepEqual(payload.allowed_mentions, { parse: ["everyone"] });
+    assert.equal("allowed_mentions" in payload, false);
     assert.match(payload.embeds[0].title, /テスト通知/);
     assert.deepEqual(service.settings().lastResult, result);
   } finally {
@@ -369,7 +367,7 @@ test("a session notification masks first and truncates after", async () => {
     await waitFor(() => service.settings().lastResult !== undefined);
     const payload = payloadOf(calls[0]);
     assert.equal(payload.embeds[0].title, "✅ 完了  パンくずの折り返しを直す");
-    assert.deepEqual(payload.allowed_mentions, { parse: [] });
+    assert.equal("allowed_mentions" in payload, false);
     const [summary, body, link] = String(payload.embeds[0].description).split("\n");
     assert.equal(summary, "実装担当 ・ 4分12秒 ・ ツール 12件");
     // マスクしてから切り詰める (切り詰めてからでは秘密値の先頭が残る)
@@ -406,7 +404,6 @@ test("the notifications API keeps the webhook URL write-only", async () => {
         enabled: false,
         provider: "discord",
         configured: false,
-        mention: "none",
       });
 
       const rejected = await bff.app.request(
@@ -421,10 +418,11 @@ test("the notifications API keeps the webhook URL write-only", async () => {
       const saved = await jsonBody(
         bff.app.request(
           "/api/notifications",
-          jsonPut({ webhookUrl: WEBHOOK, enabled: true, baseUrl: "http://127.0.0.1:5173" }),
+          jsonPut({ webhookUrl: WEBHOOK, enabled: true, baseUrl: "http://127.0.0.1:5173", mention: "here" }),
         ),
       );
       assert.equal(saved.configured, true);
+      assert.equal("mention" in saved, false);
       assert.equal(saved.webhookHint, "wxyz");
       assert.equal(JSON.stringify(saved).includes("discord.com/api/webhooks"), false);
       assert.equal(JSON.stringify(saved).includes("abcdefghijklmnopqrstuv"), false);
@@ -445,7 +443,6 @@ test("the notifications API keeps the webhook URL write-only", async () => {
         enabled: true,
         provider: "discord",
         configured: false,
-        mention: "none",
         baseUrl: "http://127.0.0.1:5173",
       });
       assert.equal((await bff.app.request("/api/notifications/test", { method: "POST" })).status, 400);
@@ -462,7 +459,7 @@ test("notification settings and the last result survive a restart", async () => 
     );
     const first = await createBffApp({ cwd: "/tmp/project", sessionStoreDir: dir, pi: null, notificationFetch: impl });
     const tested = await (async () => {
-      await first.app.request("/api/notifications", jsonPut({ webhookUrl: WEBHOOK, enabled: true, mention: "here" }));
+      await first.app.request("/api/notifications", jsonPut({ webhookUrl: WEBHOOK, enabled: true }));
       const result = await jsonBody(first.app.request("/api/notifications/test", { method: "POST" }));
       await first.close();
       return result as NotificationResult;
@@ -474,7 +471,7 @@ test("notification settings and the last result survive a restart", async () => 
       assert.equal(restored.enabled, true);
       assert.equal(restored.configured, true);
       assert.equal(restored.webhookHint, "wxyz");
-      assert.equal(restored.mention, "here");
+      assert.equal("mention" in restored, false);
       assert.deepEqual(restored.lastResult, tested);
     } finally {
       await second.close();

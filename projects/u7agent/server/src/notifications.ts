@@ -7,7 +7,6 @@ import { httpError, messageFor } from "./http";
 import { createSecretMasker, REDACTED, type SecretMasker } from "./redact";
 import { truncate } from "./session-projection";
 import type {
-  NotificationMention,
   NotificationResult,
   NotificationSettings,
   NotificationsResponse,
@@ -133,11 +132,6 @@ export function deepLink(baseUrl: string | undefined, sessionId: string): string
   }
 }
 
-/** メンションは本文ではなくこの値だけで決める (本文中の @everyone やロールメンションは無効) */
-function allowedMentions(mention: NotificationMention): { parse: string[] } {
-  return { parse: mention === "here" ? ["everyone"] : [] };
-}
-
 /** Discord の retry_after は秒 (小数)。表示用に切り上げ、読めない値は載せない */
 function retryAfterSeconds(value: unknown): number | undefined {
   if (typeof value !== "number" || !Number.isFinite(value) || value < 0) return undefined;
@@ -185,7 +179,6 @@ export class NotificationService {
       enabled: settings.enabled,
       provider: "discord",
       configured: Boolean(settings.webhookUrl),
-      mention: settings.mention,
       ...(settings.webhookUrl ? { webhookHint: webhookHint(settings.webhookUrl) } : {}),
       ...(settings.baseUrl ? { baseUrl: settings.baseUrl } : {}),
       ...(settings.lastResult ? { lastResult: settings.lastResult } : {}),
@@ -197,7 +190,6 @@ export class NotificationService {
     const current = this.#read();
     const next: NotificationSettings = { ...current };
     if (input.enabled !== undefined) next.enabled = input.enabled;
-    if (input.mention !== undefined) next.mention = input.mention;
     if (input.webhookUrl !== undefined) {
       const webhookUrl = input.webhookUrl === null ? undefined : normalizeWebhookUrl(input.webhookUrl);
       // URL を変えたら直近結果を捨てる。進行中の送信結果も世代で採用しない
@@ -223,7 +215,7 @@ export class NotificationService {
   async test(): Promise<NotificationResult> {
     const settings = this.#read();
     if (!settings.webhookUrl) throw httpError(400, "Webhook URL が設定されていません");
-    return this.#send(settings.webhookUrl, testPayload(settings.mention));
+    return this.#send(settings.webhookUrl, testPayload());
   }
 
   /** ラン完了通知。fire-and-forget で、例外はここで握る (呼び出し側のランを止めない) */
@@ -262,7 +254,6 @@ export class NotificationService {
           description: [summary, body, ...(link ? [link] : [])].filter(Boolean).join("\n"),
         },
       ],
-      allowed_mentions: allowedMentions(settings.mention),
     };
   }
 
@@ -346,7 +337,7 @@ export class NotificationService {
   }
 
   #read(): NotificationSettings {
-    return this.#db.getNotificationSettings() ?? { enabled: false, mention: "none" };
+    return this.#db.getNotificationSettings() ?? { enabled: false };
   }
 
   #mask(text: string): string {
@@ -359,7 +350,7 @@ export class NotificationService {
 }
 
 /** テスト送信の本文。実通知と区別できるようにする */
-function testPayload(mention: NotificationMention): unknown {
+function testPayload(): unknown {
   return {
     embeds: [
       {
@@ -367,6 +358,5 @@ function testPayload(mention: NotificationMention): unknown {
         description: "このメッセージは設定の「テスト送信」から送信されました。\nWebhook URL は正常に動作しています。",
       },
     ],
-    allowed_mentions: allowedMentions(mention),
   };
 }

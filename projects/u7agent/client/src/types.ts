@@ -45,7 +45,6 @@ export type {
   ModelOption,
   ModelRef,
   ModelsSettingsResponse,
-  NotificationMention,
   NotificationResult,
   NotificationsResponse,
   PendingSend,

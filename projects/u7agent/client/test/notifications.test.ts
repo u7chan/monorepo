@@ -27,7 +27,6 @@ const SETTINGS: NotificationsResponse = {
   configured: true,
   webhookHint: "a1b2",
   baseUrl: "http://127.0.0.1:5173",
-  mention: "none",
 };
 
 const TIME_ZONE = "Asia/Tokyo";
@@ -37,29 +36,26 @@ test("draftFromSettings は保存済みの値から下書きを作り、URL は�
     enabled: true,
     webhookUrl: null,
     baseUrl: "http://127.0.0.1:5173",
-    mention: "none",
   });
   assert.deepEqual(draftFromSettings(null), EMPTY_NOTIFICATION_DRAFT);
 });
 
-test("draftIsDirty は enabled / URL の入力開始 / baseUrl / mention の差だけを見る", () => {
+test("draftIsDirty は enabled / URL の入力開始 / baseUrl の差だけを見る", () => {
   const base = draftFromSettings(SETTINGS);
   assert.equal(draftIsDirty(base, SETTINGS), false);
   assert.equal(draftIsDirty(base, null), false);
   assert.equal(draftIsDirty({ ...base, enabled: false }, SETTINGS), true);
   assert.equal(draftIsDirty({ ...base, webhookUrl: "" }, SETTINGS), true);
   assert.equal(draftIsDirty({ ...base, baseUrl: "http://127.0.0.1:5174" }, SETTINGS), true);
-  assert.equal(draftIsDirty({ ...base, mention: "here" }, SETTINGS), true);
   // 前後の空白は保存時に落ちるため、変わっていない扱いにする
   assert.equal(draftIsDirty({ ...base, baseUrl: `  ${SETTINGS.baseUrl}  ` }, SETTINGS), false);
 });
 
 test("draftBody は URL を触っていなければ送らず、空の baseUrl は null (解除) にする", () => {
   const base = draftFromSettings(SETTINGS);
-  assert.deepEqual(draftBody(base), { enabled: true, mention: "none", baseUrl: "http://127.0.0.1:5173" });
+  assert.deepEqual(draftBody(base), { enabled: true, baseUrl: "http://127.0.0.1:5173" });
   assert.deepEqual(draftBody({ ...base, webhookUrl: "https://discord.com/api/webhooks/1/token" }), {
     enabled: true,
-    mention: "none",
     baseUrl: "http://127.0.0.1:5173",
     webhookUrl: "https://discord.com/api/webhooks/1/token",
   });
@@ -73,22 +69,21 @@ test("draftBody は URL を触っていなければ送らず、空の baseUrl �
 
 test("syncDraft は未編集のフィールドだけ新しい保存値へ追従させる", () => {
   const base = draftFromSettings(SETTINGS);
-  // 他タブの保存で enabled / baseUrl / mention が変わっても、A の未編集の下書きは追従する
+  // 他タブの保存で enabled / baseUrl が変わっても、A の未編集の下書きは追従する
   const next: NotificationsResponse = {
     ...SETTINGS,
     enabled: false,
     baseUrl: "http://127.0.0.1:5174",
-    mention: "here",
   };
   const synced = syncDraft(base, SETTINGS, next);
-  assert.deepEqual(synced, { enabled: false, webhookUrl: null, baseUrl: "http://127.0.0.1:5174", mention: "here" });
+  assert.deepEqual(synced, { enabled: false, webhookUrl: null, baseUrl: "http://127.0.0.1:5174" });
   // 追従後の下書きは保存済みと同じなので、古い値を PUT しない (dirty が立たない)
   assert.equal(draftIsDirty(synced, next), false);
 
   // 未編集のフィールドは追従し、編集中のフィールドは残る (同じ下書き内で混ざってもよい)
-  const edited = { ...base, enabled: true, baseUrl: "http://127.0.0.1:5175", mention: "none" as const };
+  const edited = { ...base, enabled: true, baseUrl: "http://127.0.0.1:5175" };
   const kept = syncDraft(edited, SETTINGS, next);
-  assert.deepEqual(kept, { enabled: false, webhookUrl: null, baseUrl: "http://127.0.0.1:5175", mention: "here" });
+  assert.deepEqual(kept, { enabled: false, webhookUrl: null, baseUrl: "http://127.0.0.1:5175" });
   // baseUrl の編集だけが残るため dirty は立つ (保存すればその値が送られる)
   assert.equal(draftIsDirty(kept, next), true);
 

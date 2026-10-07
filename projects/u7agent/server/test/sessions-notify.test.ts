@@ -178,7 +178,7 @@ test("a completed run with an empty assistant text does not notify", async () =>
   });
 });
 
-test("a completed run posts one embed with the link, mention and masked body", async () => {
+test("a completed run posts one embed with the link and masked body", async () => {
   await withStoreDir(async (dir) => {
     const { impl, calls } = fakeFetch(() => new Response(null, { status: 204 }));
     const bff = await openBff(dir, {
@@ -188,7 +188,7 @@ test("a completed run posts one embed with the link, mention and masked body", a
     try {
       await bff.app.request(
         "/api/notifications",
-        jsonPut({ webhookUrl: WEBHOOK, enabled: true, baseUrl: "http://127.0.0.1:5173", mention: "here" }),
+        jsonPut({ webhookUrl: WEBHOOK, enabled: true, baseUrl: "http://127.0.0.1:5173" }),
       );
       const created = await jsonBody(bff.app.request("/api/sessions", jsonPost({ notify: true })));
       await bff.app.request(`/api/sessions/${created.sessionId}/messages`, jsonPost({ text: "実行して" }));
@@ -196,7 +196,7 @@ test("a completed run posts one embed with the link, mention and masked body", a
 
       const payload = JSON.parse(String(calls[0].init?.body));
       assert.equal(payload.embeds[0].title, "✅ 完了  実行して");
-      assert.deepEqual(payload.allowed_mentions, { parse: ["everyone"] });
+      assert.equal("allowed_mentions" in payload, false);
       const lines = String(payload.embeds[0].description).split("\n");
       assert.match(lines[0], /^汎用アシスタント ・ \d+秒 ・ ツール 0件$/);
       // 通知本文の Webhook URL は専用マスクで潰す
