@@ -13,8 +13,8 @@ function call(id: string, name: string, args: string, done: boolean, extra: Part
   return { id, name, args, done, isError: false, output: done ? "ok" : "", ...extra };
 }
 
-function card(id: string, name: string, phase: ToolCard["phase"]): ToolCard {
-  return { id, name, args: "", phase, output: "" };
+function card(id: string, name: string, phase: ToolCard["phase"], timing: Partial<ToolCard> = {}): ToolCard {
+  return { id, name, args: "", phase, output: "", ...timing };
 }
 
 test("ライブは実行中のカードだけを走査順に返し、番号は完了分も含めて数える", () => {
@@ -95,6 +95,28 @@ test("進行中のターンでは実行中のカードを履歴に出さず、�
   const finished = renderHistory(cards, false);
   assert.ok(finished.includes("2件"));
   assert.ok(finished.includes("実行中"));
+});
+
+test("ツール履歴の行は実行時間を出し、見出しは重なりを除いた合計を出す", () => {
+  const cards = [
+    card("t1", "bash", "done", { startedAt: 0, endedAt: 1_000 }),
+    card("t2", "grep", "done", { startedAt: 500, endedAt: 1_500 }),
+  ];
+  const html = renderHistory(cards, false);
+  assert.ok(html.includes("1.0s"), "行ごとの実行時間が出る");
+  assert.ok(html.includes("計 1.5s"), "重なった 1 秒を二重に数えない合計を出す");
+});
+
+test("実行時間の控えが無いカード (旧サーバー / 停止) では合計を出さない", () => {
+  const missing = renderHistory([card("t1", "bash", "done")], false);
+  assert.equal(missing.includes("計 "), false, "1 枚でも区間が閉じていなければ出さない");
+
+  // 停止・中断で tool_end が来なかったカードは終了時刻を持たない
+  const stopped = renderHistory(
+    [card("t1", "bash", "done", { startedAt: 0, endedAt: 1_000 }), card("t2", "bash", "running", { startedAt: 2_000 })],
+    false,
+  );
+  assert.equal(stopped.includes("計 "), false);
 });
 
 function renderLive(runTools: Record<string, ToolCall>, runStatus: RunStatus): string {

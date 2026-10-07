@@ -90,7 +90,7 @@ export function projectSessionPayload({
           totalRetryCount: record.run.totalRetryCount,
         }
       : null,
-    messages: projectMessages(session, record.messageMetrics, masker, workspaceAbs(rootCwd, cwd)),
+    messages: projectMessages(session, record.messageMetrics, masker, workspaceAbs(rootCwd, cwd), record.toolTimings),
     compactions: compactionsOf(record, masker),
     ...(context ? { context } : {}),
   };

@@ -438,6 +438,7 @@ export class SessionStore {
       queue: [],
       run: null,
       tools: new Map(),
+      toolTimings: new Map(),
       questions: new Map(),
       messageMetrics: new WeakMap(),
       userMessageRuns: new WeakMap(),
@@ -1579,6 +1580,7 @@ export class SessionStore {
       // 履歴側と同じ絶対 cwd。root 相対と絶対を混ぜると解決結果が経路でずれる
       cwd: workspaceAbs(this.rootCwd, record.workdir),
       tools: record.tools,
+      toolTimings: record.toolTimings,
       messageMetrics: record.messageMetrics,
       compactionMeta: record.compactionMeta,
       emit: (type, data) => this.emit(record, type, data),

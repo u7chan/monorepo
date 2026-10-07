@@ -1,12 +1,11 @@
 import { cn } from "../../lib/cn";
 
 /** コピーボタンの出し方。group 名は使う側の親要素と対にする */
-export type CopyReveal = "message" | "tool" | "code";
+export type CopyReveal = "message" | "code";
 
 /** ホバーできる端末だけホバー / フォーカスで出し、タッチ端末は常に表示する */
 const REVEAL_CLASS: Record<CopyReveal, string> = {
   message: cn("focus-visible:opacity-100 can-hover:opacity-0 can-hover:group-hover/bubble:opacity-100"),
-  tool: cn("focus-visible:opacity-100 can-hover:opacity-0 can-hover:group-hover/row:opacity-100"),
   code: cn("focus-visible:opacity-100 can-hover:opacity-0 can-hover:group-hover/code:opacity-100"),
 };
 

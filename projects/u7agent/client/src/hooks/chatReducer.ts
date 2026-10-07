@@ -164,9 +164,19 @@ export type ChatAction =
       args: string;
       skill?: SkillLoad;
       questions?: AskUserQuestion[];
+      /** BFF 計測の開始時刻。旧サーバーは載せない (実行時間を出さない) */
+      startedAt?: number;
       at: number;
     }
-  | { type: "toolEnd"; id: string; isError: boolean; output: string; answers?: AskUserAnswer[] }
+  | {
+      type: "toolEnd";
+      id: string;
+      isError: boolean;
+      output: string;
+      /** BFF 計測の終了時刻。旧サーバーは載せない (実行時間を出さない) */
+      endedAt?: number;
+      answers?: AskUserAnswer[];
+    }
   | { type: "usage"; usage?: Usage; metrics?: MessageMetrics; context?: ContextUsage }
   | { type: "compaction"; compaction: CompactionInfo; count: number }
   | { type: "status"; state: string; text: string }
@@ -1068,6 +1078,7 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
         isError: false,
         done: false,
         output: "",
+        ...(action.startedAt !== undefined ? { startedAt: action.startedAt } : {}),
         ...(action.skill ? { skill: action.skill } : {}),
         ...(action.questions ? { questions: action.questions } : {}),
       };
@@ -1093,6 +1104,7 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
                   done: true,
                   isError: action.isError,
                   output: action.output,
+                  ...(action.endedAt !== undefined ? { endedAt: action.endedAt } : {}),
                   ...(action.answers ? { answers: action.answers } : {}),
                 },
               },
@@ -1110,6 +1122,7 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
                       ...card,
                       phase: action.isError ? "failed" : "done",
                       output: action.output,
+                      ...(action.endedAt !== undefined ? { endedAt: action.endedAt } : {}),
                       ...(action.answers ? { answers: action.answers } : {}),
                     }
                   : card,

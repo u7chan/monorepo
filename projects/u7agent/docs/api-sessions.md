@@ -155,6 +155,8 @@ JSONL が破損している（SDK が追記する entry type / message role を 
 
 `messages[].metrics` は BFF がイベントの到着時刻で測った応答時間。SDK は完了時刻を持たないため BFF 側でしか作れない。`durationMs` は `message_start`(assistant) から `message_end` まで、`ttftMs` は最初の text / thinking delta まで（delta が無ければ省略）、`tokensPerSecond` は `output` を最初の delta からの時間で割った値（スパンが 0 なら `durationMs`、それも 0 なら省略）。ツールループで assistant メッセージが複数あるときはメッセージごとに付く。
 
+`ToolCall.startedAt` / `endedAt` は BFF が `tool_execution_start` / `tool_execution_end` の到着時刻で測ったツール実行の開始 / 終了（epoch ms）。`metrics` と同じく SDK は実行時刻を持たないため BFF 側でしか作れず、run を跨いで控えた値を `messages[].tools` / `run.toolCalls` / `tool_start` / `tool_end` の同じ toolCall に同じ値で載せる（クライアントは差分を実行時間として出す）。片方でも欠けたカードは実行時間を出さない（停止・中止で `tool_execution_end` が来なかったカードは `endedAt` が無い）。**この 2 つは BFF のメモリにしか無く、再起動とアイドル sweep で消える**（pi entry はツール実行の開始時刻を持たず、同じ assistant メッセージの複数ツールを `toolResult` の `timestamp` から区別できない。[persistence.md](persistence.md#会話履歴の扱い)）。
+
 `messages[].tools` は表示対象の assistant バブルに属する確定済みツール履歴。対応する `toolResult` がある toolCall だけを `ToolCall` DTO（`done: true`）で投影し、結果が無い call は含めない。`args` / `output` はライブイベントと同じマスク・要約関数を通し、**マスクの後に**、ツール契約で値がパスと決まっている引数（`path` / `file_path` / `filePath`）だけを `./` 付きの cwd 相対へ畳む（先に畳むと cwd をまたぐ秘密値が完全一致しなくなり、後段のマスクをすり抜ける）。`command` / `output` / `path` を持たないツールの JSON 引数（本文）は畳まない: 本文の `<cwd>/…` に見える語はパスとは限らず（grep の検索語、`case` のパターン、`[ ]` の照合語）、`./…` へ書き換えるとコピーしたコマンドの挙動が変わる（表示文字列はコピーにもそのまま使う）。cwd の外は絶対のまま残し、root 相対と基準を混ぜない。`skill` はライブ専用で、スキル読み込み（`read` で basename が `SKILL.md`）はここに含めず `skillLoads` のバッジだけに出す。ask_user の `questions` / `answers` は逆に**ライブと履歴の両方で同じ `ToolCall` に載る**（`tool_start` / `tool_end` / `run.toolCalls` と `messages[].tools` が同じ値）。本文の無い assistant に属するツール履歴は同じ user ターン内の次の表示 assistant へ part 順で繰り上げるが、ターン内に表示 assistant が無い場合は復元しない（表示バブル数 / `messageCount` を維持するため。ask_user は回答待ちの間だけ resync が assistant バブルを合成する。[ask-user.md](ask-user.md#回答待ちカードの復帰)）。
 
 `resync` は `messages[].tools` を `ToolCard` へ変換し、`toolCallId` → バブルの索引も再構築する。重複する `run.toolCalls` は現在の実行状態を優先して該当カードを更新し、履歴に無い call だけを現在ターンの最後の assistant バブルへ追加する。`messages` は有効コンテキストの投影なので、全履歴の表示は `history` API（下記）が担う。500 件の長い履歴で payload サイズと生成・JSON 化時間を検証する（`messages` に全履歴は含めない）。
@@ -437,7 +439,7 @@ SSE（`text/event-stream`）でイベントを購読。カーソルは `Last-Eve
 | --- | --- |
 | `run_start` | `{ runId, prompt, startedAt }`（`startedAt` は payload の `run.startedAt` と同じ値） |
 | `text` | `{ delta }` |
-| `tool_start` / `tool_end` | `{ id, name, args, skill?, questions? }` / `{ id, name, isError, output, answers? }`（`skill` は `run.toolCalls[].skill` と同じスキル読み込み。結果が無い時点なので `isError` は載らない。`questions` / `answers` は ask_user のときだけ載り、`run.toolCalls` と `messages[].tools` と同じ値） |
+| `tool_start` / `tool_end` | `{ id, name, args, skill?, questions?, startedAt? }` / `{ id, name, isError, output, answers?, endedAt? }`（`skill` は `run.toolCalls[].skill` と同じスキル読み込み。結果が無い時点なので `isError` は載らない。`questions` / `answers` は ask_user のときだけ載り、`run.toolCalls` と `messages[].tools` と同じ値。`startedAt` / `endedAt` は BFF 計測のツール実行の開始 / 終了で、`run.toolCalls` / `messages[].tools` と同じ値。旧サーバーは載せない） |
 | `status` | `{ state, text }`（`thinking` / `tool` / `question`（回答待ち）/ `compacting` / `retry` / `warning` / など。手動圧縮の終端では成功 / 失敗の文言を配る。自動再試行の文言は `run_retry` の構造化情報からクライアントが導出する） |
 | `queued` | `{ position, queueDepth, prompt }` |
 | `queue_cleared` | `{ runIds? }`（停止で破棄した待機メッセージの run id。クライアントは該当する送信を「未送信」へ切り替える。旧サーバーは載せない） |
