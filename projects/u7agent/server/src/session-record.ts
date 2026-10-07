@@ -15,6 +15,7 @@ import type {
   RunStatus,
   ThinkingLevel,
   ToolCall,
+  ToolTiming,
 } from "./schema";
 import type { PiSessionLike } from "./pi-runtime";
 import type { SessionMeta, SessionFileWriter, PromptSnapshot, UnsentSend } from "./session-store";
@@ -107,6 +108,11 @@ export interface SessionRecord {
   queue: QueuedMessage[];
   run: RunState | null;
   tools: Map<string, ToolCall>;
+  /**
+   * toolCallId -> BFF 計測の実行時間。`tools` は run と同じ寿命 (次の run で作り直す) だが、
+   * 履歴の投影は前の run のカードも写すため、セッションの寿命で溜める
+   */
+  toolTimings: Map<string, ToolTiming>;
   /** ask_user の待機 (toolCallId 引き)。run と同じ寿命で、次の run の開始時に初期化する */
   questions: Map<string, PendingQuestion>;
   /** SDK のメッセージオブジェクト -> BFF 計測の応答時間 (履歴へ写すときに同じ参照で引く) */

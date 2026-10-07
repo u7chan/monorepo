@@ -9,7 +9,15 @@ import { SKILL_FILE_NAME } from "./builtin-skills";
 import type { PiSessionLike } from "./pi-runtime";
 import { parseUsage } from "./pi-runtime";
 import type { SecretMasker } from "./redact";
-import type { AskUserAnswer, AskUserQuestion, ChatMessage, MessageMetrics, SkillLoad, ToolCall } from "./schema";
+import type {
+  AskUserAnswer,
+  AskUserQuestion,
+  ChatMessage,
+  MessageMetrics,
+  SkillLoad,
+  ToolCall,
+  ToolTiming,
+} from "./schema";
 
 const SUMMARY_TEXT_MAX = 900;
 const ARGS_TEXT_MAX = 260;
@@ -95,6 +103,7 @@ export interface MessageProjectionContext {
   toolResults: Map<string, PiSessionLike["messages"][number]>;
   toolErrors: Map<string, boolean>;
   messageMetrics: WeakMap<object, MessageMetrics>;
+  toolTimings: ReadonlyMap<string, ToolTiming>;
   masker: SecretMasker;
   cwd: string;
 }
@@ -105,9 +114,11 @@ export function messageProjectionContext(
   messageMetrics: WeakMap<object, MessageMetrics>,
   masker: SecretMasker,
   cwd: string,
+  /** toolCallId -> BFF 計測の実行時間 (履歴の投影にだけ使う)。省略時は実行時間を載せない */
+  toolTimings: ReadonlyMap<string, ToolTiming> = new Map(),
 ): MessageProjectionContext {
   const { errors, results } = toolResultsOf(messages);
-  return { toolResults: results, toolErrors: errors, messageMetrics, masker, cwd };
+  return { toolResults: results, toolErrors: errors, messageMetrics, toolTimings, masker, cwd };
 }
 
 /**
@@ -122,7 +133,7 @@ export function projectMessagesRange(
 ): { index: number; message: ChatMessage }[] {
   const from = Math.max(0, Math.min(messages.length, range.from ?? 0));
   const to = Math.max(from, Math.min(messages.length, range.to ?? messages.length));
-  const { messageMetrics, masker, cwd } = context;
+  const { messageMetrics, toolTimings, masker, cwd } = context;
   const projected: { index: number; message: ChatMessage }[] = [];
   let carried: SkillLoad[] = [];
   let carriedTools: ToolCall[] = [];
@@ -134,7 +145,8 @@ export function projectMessagesRange(
       carriedTools = [];
     }
     const loads = message.role === "assistant" ? skillLoadsOf(message, context.toolErrors, cwd, masker) : [];
-    const tools = message.role === "assistant" ? toolCallsOf(message, context.toolResults, cwd, masker) : [];
+    const tools =
+      message.role === "assistant" ? toolCallsOf(message, context.toolResults, cwd, masker, toolTimings) : [];
     if (!isDisplayableMessage(message, masker)) {
       carried.push(...loads);
       carriedTools.push(...tools);
@@ -170,8 +182,9 @@ export function projectMessages(
   messageMetrics: WeakMap<object, MessageMetrics>,
   masker: SecretMasker,
   cwd: string,
+  toolTimings: ReadonlyMap<string, ToolTiming> = new Map(),
 ): ChatMessage[] {
-  const context = messageProjectionContext(session.messages, messageMetrics, masker, cwd);
+  const context = messageProjectionContext(session.messages, messageMetrics, masker, cwd, toolTimings);
   return projectMessagesRange(session.messages, context).map(({ message }) => message);
 }
 
@@ -194,6 +207,7 @@ function toolCallsOf(
   toolResults: Map<string, PiSessionLike["messages"][number]>,
   cwd: string,
   masker: SecretMasker,
+  toolTimings: ReadonlyMap<string, ToolTiming>,
 ): ToolCall[] {
   if (!Array.isArray(message.content)) return [];
   const calls: ToolCall[] = [];
@@ -207,6 +221,7 @@ function toolCallsOf(
     // ask_user の質問 / 回答は詳細 DTO。skill と違い、ライブと履歴の両方で同じ ToolCall が持つ
     const questions = askUserQuestionsOf(call.name, call.arguments, masker);
     const answers = askUserAnswersOf(call.name, result.details, masker);
+    const timing = toolTimings.get(call.id);
     calls.push({
       id: call.id,
       name: call.name,
@@ -214,6 +229,7 @@ function toolCallsOf(
       isError: result.isError === true,
       done: true,
       output: toolResultSummary(result, masker),
+      ...(timing ? { startedAt: timing.startedAt, endedAt: timing.endedAt } : {}),
       ...(questions ? { questions } : {}),
       ...(answers ? { answers } : {}),
     });

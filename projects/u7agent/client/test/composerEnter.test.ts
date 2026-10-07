@@ -83,6 +83,7 @@ const props: ComposerProps = {
   skills: { status: "unavailable" },
   // ライブのツール行は出さない (実行中のカードが無い状態)
   runTools: {},
+  liveToolIds: [],
   onReloadSkills: () => {},
   onSend: () => {},
   onStop: () => {},

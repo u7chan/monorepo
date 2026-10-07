@@ -173,8 +173,18 @@ export const ToolCallSchema = z.object({
    * カードは「回答なしで終了」として復元できる (実行中は未回答なので undefined)。
    */
   answers: z.array(AskUserAnswerSchema).optional(),
+  /**
+   * ツール実行の開始 / 終了 (BFF 計測のサーバー時計, epoch ms)。SDK は実行時刻を持たないため、
+   * イベントの到着時刻で測った値だけを載せる (`docs/api-sessions.md`)。両方揃ったカードだけが
+   * 実行時間を出せる (停止・中止で `tool_execution_end` が来なかったカードは `endedAt` が無い)。
+   */
+  startedAt: z.number().optional(),
+  endedAt: z.number().optional(),
 });
 export type ToolCall = z.infer<typeof ToolCallSchema>;
+
+/** ツール実行 1 件の開始 / 終了 (BFF 計測)。run を跨いでセッションに控え、履歴の投影へ写す */
+export type ToolTiming = { startedAt: number; endedAt: number };
 
 /** ラン失敗の公開分類。上流の原文は公開せず、このコードだけを SSE / payload に載せる */
 export const RunErrorCodeSchema = z.enum([
@@ -1264,6 +1274,8 @@ export const EventDataSchemas = {
     args: z.string(),
     skill: SkillLoadSchema.optional(),
     questions: z.array(AskUserQuestionSchema).optional(),
+    /** BFF がイベントの到着時刻で測った開始時刻。`run.toolCalls[].startedAt` と同じ値 */
+    startedAt: z.number().optional(),
   }),
   tool_end: z.object({
     id: z.string(),
@@ -1271,6 +1283,8 @@ export const EventDataSchemas = {
     isError: z.boolean(),
     output: z.string(),
     answers: z.array(AskUserAnswerSchema).optional(),
+    /** BFF がイベントの到着時刻で測った終了時刻。`run.toolCalls[].endedAt` と同じ値 */
+    endedAt: z.number().optional(),
   }),
   status: z.object({ state: z.string(), text: z.string() }),
   queued: z.object({

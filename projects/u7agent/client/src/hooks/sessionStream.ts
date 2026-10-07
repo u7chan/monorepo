@@ -88,6 +88,7 @@ export function applySessionEvent(entry: EventEntry, deps: SessionStreamDeps): v
         args: entry.data.args,
         skill: entry.data.skill,
         ...(entry.data.questions ? { questions: entry.data.questions } : {}),
+        ...(entry.data.startedAt !== undefined ? { startedAt: entry.data.startedAt } : {}),
         at: entry.at,
       });
       return;
@@ -97,6 +98,7 @@ export function applySessionEvent(entry: EventEntry, deps: SessionStreamDeps): v
         id: entry.data.id,
         isError: entry.data.isError,
         output: entry.data.output,
+        ...(entry.data.endedAt !== undefined ? { endedAt: entry.data.endedAt } : {}),
         ...(entry.data.answers ? { answers: entry.data.answers } : {}),
       });
       return;

@@ -2,12 +2,20 @@ import { useEffect, useRef, useState } from "react";
 import type { ToolCard } from "../../hooks/chatReducer";
 import { cn } from "../../lib/cn";
 import { abbreviatedToolSummary, completedToolCards, historyPreview } from "../../lib/toolSummary";
+import { toolDurationMs, toolTimeTotalMs } from "../../lib/toolTiming";
+import { formatDurationMs } from "../../lib/usageFormat";
 import { DisclosureChevronIcon } from "../icons";
 import { CopyButton } from "./CopyButton";
 
-// 位相で文字幅が変わると (実測 実行中 27 / エラー 25.3px) 右隣のコピーボタンとサマリーの
-// truncate 境界が動く。幅を rem にすると既定フォント 14px で折り返すため 3.25em + nowrap で固定する
+// 位相ラベルの幅を固定する。位相で文字幅が変わると (実測 実行中 27 / エラー 25.3px) 右隣の実行時間と
+// サマリーの truncate 境界が動く。幅を rem にすると既定フォント 14px で折り返すため 3.25em + nowrap で固定する
 const PHASE_LABEL_CLASS = cn("w-[3.25em] shrink-0 text-right font-sans text-3xs whitespace-nowrap");
+
+// 実行時間の列。値が無い行でもスロットを残し、行の右端とサマリーの truncate 境界を動かさない
+// (計測前 / 停止で終了イベントが来なかったカードは空になる)。幅は位相ラベルと同じ桁に揃える
+const DURATION_CLASS = cn(
+  "w-[3.25em] shrink-0 text-right font-sans text-3xs whitespace-nowrap text-ink-faint tabular-nums",
+);
 
 /** 履歴へ 1 件差し込まれた合図を光らせている時間。CSS (index.css) の長さと揃える */
 const SLOT_FLASH_MS = 520;
@@ -35,8 +43,9 @@ function ToolCallRow({
   compact: boolean;
   onCopy: () => void;
 }) {
+  const durationMs = toolDurationMs(card);
   return (
-    <li className="group/row min-w-0">
+    <li className="min-w-0">
       <details
         className={cn(
           "rounded-lg border bg-soft/20 transition-colors",
@@ -50,24 +59,30 @@ function ToolCallRow({
           </span>
           <span className="min-w-0 flex-1 truncate">{abbreviatedToolSummary(card)}</span>
           <PhaseLabel phase={card.phase} />
-          <CopyButton copied={copied} onClick={onCopy} label="ツールコールをコピー" reveal="tool" />
+          <span className={DURATION_CLASS}>{durationMs === undefined ? "" : formatDurationMs(durationMs)}</span>
         </summary>
-        <div className={cn("grid gap-1.5 border-t border-line/70 py-2 pr-2 text-ink-muted", compact ? "pl-3" : "pl-6")}>
-          {card.args ? (
-            <div className="grid min-w-0 gap-0.5">
-              <span className="font-sans text-3xs tracking-wide text-ink-faint uppercase">引数</span>
-              {/* min-w-0 が無いと Grid item の min-width: auto が残り、break-words では折り返さずにカードの外へ広がる */}
-              <code className="min-w-0 break-words whitespace-pre-wrap">{card.args}</code>
+        {/* コピーは行に常時出すと実行時間の列と競合するため、展開した本文の右上に置く (行の hover では出さない) */}
+        <div className={cn("border-t border-line/70 py-2 pr-2 text-ink-muted", compact ? "pl-3" : "pl-6")}>
+          <div className="flex items-start gap-2">
+            <div className="grid min-w-0 flex-1 gap-1.5">
+              {card.args ? (
+                <div className="grid min-w-0 gap-0.5">
+                  <span className="font-sans text-3xs tracking-wide text-ink-faint uppercase">引数</span>
+                  {/* min-w-0 が無いと Grid item の min-width: auto が残り、break-words では折り返さずにカードの外へ広がる */}
+                  <code className="min-w-0 break-words whitespace-pre-wrap">{card.args}</code>
+                </div>
+              ) : null}
+              {card.phase === "running" ? (
+                <div className="text-accent-text">実行中…</div>
+              ) : card.output ? (
+                <div className="grid min-w-0 gap-0.5">
+                  <span className="font-sans text-3xs tracking-wide text-ink-faint uppercase">出力</span>
+                  <pre className="m-0 min-w-0 font-mono break-words whitespace-pre-wrap">{card.output}</pre>
+                </div>
+              ) : null}
             </div>
-          ) : null}
-          {card.phase === "running" ? (
-            <div className="text-accent-text">実行中…</div>
-          ) : card.output ? (
-            <div className="grid min-w-0 gap-0.5">
-              <span className="font-sans text-3xs tracking-wide text-ink-faint uppercase">出力</span>
-              <pre className="m-0 min-w-0 font-mono break-words whitespace-pre-wrap">{card.output}</pre>
-            </div>
-          ) : null}
+            <CopyButton copied={copied} onClick={onCopy} label="ツールコールをコピー" />
+          </div>
         </div>
       </details>
     </li>
@@ -100,6 +115,8 @@ export function ToolHistoryView({
 }) {
   const shown = live ? completedToolCards(cards) : cards;
   const running = shown.some((card) => card.phase === "running");
+  // 並列実行の重なりを 1 回だけ数えた合計。区間が閉じたカードが揃わないときは出さない
+  const totalMs = toolTimeTotalMs(shown);
 
   // 1 件増えた瞬間だけ見出しを光らせる。key を変えて要素ごと作り直すので、連続で差し込まれても
   // 毎回最初から光る
@@ -130,6 +147,14 @@ export function ToolHistoryView({
         <DisclosureChevronIcon />
         <span className="shrink-0 font-sans text-2xs text-ink-soft">ツール履歴</span>
         <span className="shrink-0 font-sans text-3xs text-ink-faint">{shown.length}件</span>
+        {totalMs === undefined ? null : (
+          <span
+            title="ツール実行時間の合計（並列に走った分の重なりは 1 回だけ数えます）"
+            className="shrink-0 font-sans text-3xs whitespace-nowrap text-ink-faint tabular-nums"
+          >
+            計 {formatDurationMs(totalMs)}
+          </span>
+        )}
         <span className="min-w-0 flex-1 truncate">{historyPreview(shown)}</span>
         {flashKey === 0 ? null : <span key={flashKey} aria-hidden="true" className="tool-history-flash" />}
         {running ? <PhaseLabel phase="running" /> : null}

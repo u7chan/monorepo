@@ -982,6 +982,11 @@
   .live-tool-item[data-leaving="false"] > * {
     animation: live-tool-row-in 180ms ease-out;
   }
+  /* 終わった行を最短表示時間のあいだ残している間は、開始のアニメーションを当て直さない。行が作り直されて
+   * もう一度薄く出ると、新しい行が増えたように見える。畳むときは data-done が外れて out 側が動く */
+  .live-tool-item[data-done="true"] > * {
+    animation: none;
+  }
   .live-tool-item[data-leaving="true"] {
     animation: live-tool-row-out 180ms ease-out forwards;
   }

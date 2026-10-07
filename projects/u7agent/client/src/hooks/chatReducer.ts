@@ -77,6 +77,12 @@ export type ChatState = {
    */
   sendSeq: number;
   /**
+   * ライブのツールイベント (`tool_start` / `tool_end`) で観測した toolCallId (古い→新しい)。入力欄の上の
+   * ライブ表示が「この描画で新しく観測したツール」を、payload (resync) が持ち込んだ復元カードと
+   * 区別するために使う。両者は runTools の形では区別できない (docs/frontend.md)。
+   */
+  liveToolIds: string[];
+  /**
    * run_start 待ちのローカルエコー (user バブル id)。送信した順に並び、run_start が先頭から消費する。
    * 同じ本文を続けて送っても、届いた注記を正しいバブルに割り当てるために必要 (配列の末尾だけを見ると取り違える)。
    */
@@ -164,9 +170,19 @@ export type ChatAction =
       args: string;
       skill?: SkillLoad;
       questions?: AskUserQuestion[];
+      /** BFF 計測の開始時刻。旧サーバーは載せない (実行時間を出さない) */
+      startedAt?: number;
       at: number;
     }
-  | { type: "toolEnd"; id: string; isError: boolean; output: string; answers?: AskUserAnswer[] }
+  | {
+      type: "toolEnd";
+      id: string;
+      isError: boolean;
+      output: string;
+      /** BFF 計測の終了時刻。旧サーバーは載せない (実行時間を出さない) */
+      endedAt?: number;
+      answers?: AskUserAnswer[];
+    }
   | { type: "usage"; usage?: Usage; metrics?: MessageMetrics; context?: ContextUsage }
   | { type: "compaction"; compaction: CompactionInfo; count: number }
   | { type: "status"; state: string; text: string }
@@ -217,6 +233,7 @@ export const initialChatState: ChatState = {
   compactionStartedAt: undefined,
   runEndSeq: 0,
   sendSeq: 0,
+  liveToolIds: [],
   pendingEchoIds: [],
   clearedRunIds: [],
   queueDepth: 0,
@@ -642,6 +659,8 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
         history: sessionChanged ? initialChatState.history : state.history,
         // 別の会話の停止で破棄された run id を持ち越さない
         clearedRunIds: sessionChanged ? [] : state.clearedRunIds,
+        // ライブで観測したツール id も持ち越さない (古い id を新しい会話のライブ観測と誤読させない)
+        liveToolIds: sessionChanged ? [] : state.liveToolIds,
         sessionId: payload.sessionId,
         runStatus: status,
         runStartedAt: status === "running" ? payload.run?.startedAt : undefined,
@@ -1068,13 +1087,21 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
         isError: false,
         done: false,
         output: "",
+        ...(action.startedAt !== undefined ? { startedAt: action.startedAt } : {}),
         ...(action.skill ? { skill: action.skill } : {}),
         ...(action.questions ? { questions: action.questions } : {}),
       };
       // 保留中の run 側カードを先に補ってから新しいカードを足す (逆順だと初回の assistant バブルで
       // 新規が先頭になり、run 側の挿入順と逆のツール履歴になる)
       const withBubble = attachRunToolCards(ensureAssistant(state, action.at), false);
-      const withRun = { ...withBubble, runTools: { ...withBubble.runTools, [action.id]: call } };
+      const withRun = {
+        ...withBubble,
+        // ライブ表示が「今観測したツール」を見分けるための控え (payload 経由の復元カードと区別する)
+        liveToolIds: withBubble.liveToolIds.includes(action.id)
+          ? withBubble.liveToolIds
+          : [...withBubble.liveToolIds, action.id],
+        runTools: { ...withBubble.runTools, [action.id]: call },
+      };
       return addToolCard(withRun, toolCardOf(call), action.at);
     }
 
@@ -1086,6 +1113,9 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
           ? state
           : {
               ...state,
+              liveToolIds: state.liveToolIds.includes(action.id)
+                ? state.liveToolIds
+                : [...state.liveToolIds, action.id],
               runTools: {
                 ...state.runTools,
                 [action.id]: {
@@ -1093,6 +1123,7 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
                   done: true,
                   isError: action.isError,
                   output: action.output,
+                  ...(action.endedAt !== undefined ? { endedAt: action.endedAt } : {}),
                   ...(action.answers ? { answers: action.answers } : {}),
                 },
               },
@@ -1110,6 +1141,7 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
                       ...card,
                       phase: action.isError ? "failed" : "done",
                       output: action.output,
+                      ...(action.endedAt !== undefined ? { endedAt: action.endedAt } : {}),
                       ...(action.answers ? { answers: action.answers } : {}),
                     }
                   : card,

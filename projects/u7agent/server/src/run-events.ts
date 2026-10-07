@@ -9,7 +9,7 @@ import type { PiSessionEventListener, PiSessionLike } from "./pi-runtime";
 import { contextUsageOf, lastAssistantMessage, parseUsage } from "./pi-runtime";
 import { createStreamingSecretMasker, type SecretMasker } from "./redact";
 import type { CompactionMeta } from "./session-record";
-import type { MessageMetrics, SSEEventData, SSEEventType, ToolCall } from "./schema";
+import type { MessageMetrics, SSEEventData, SSEEventType, ToolCall, ToolTiming } from "./schema";
 import {
   classifySkillRead,
   askUserAnswersOf,
@@ -73,6 +73,8 @@ export interface RunEventBridgeDeps {
   cwd: string;
   /** 実行中ラン payload.run.toolCalls の実体 */
   tools: Map<string, ToolCall>;
+  /** BFF 計測の実行時間を run を跨いで控える (履歴の投影へ写す) */
+  toolTimings: Map<string, ToolTiming>;
   /** BFF 計測の応答時間を履歴のメッセージ参照へ結び付ける (同じ参照で引き当てる) */
   messageMetrics: WeakMap<object, MessageMetrics>;
   /** compaction entry に残らない値を entry id で控える */
@@ -110,6 +112,7 @@ export function createRunEventBridge(deps: RunEventBridgeDeps): RunEventBridge {
     masker,
     cwd,
     tools,
+    toolTimings,
     messageMetrics,
     compactionMeta,
     emit,
@@ -140,6 +143,8 @@ export function createRunEventBridge(deps: RunEventBridgeDeps): RunEventBridge {
   let promptRecorded = false;
   let pendingCompactionResync = false;
   let retryActive = false;
+  /** toolCallId -> tool_execution_start の到着時刻。run の寿命で足りるので session へは残さない */
+  const toolStartedAt = new Map<string, number>();
 
   const pushText = (delta: string): void => {
     if (!delta) return;
@@ -253,6 +258,8 @@ export function createRunEventBridge(deps: RunEventBridgeDeps): RunEventBridge {
           const skill = ref ? skillLoadOf({ id, ref, masker }) : undefined;
           // ask_user は質問を args から導出する。導出できる間はカードを出す (tool_end で回答が付く)
           const questions = askUserQuestionsOf(event.toolName ?? "", event.args, masker);
+          // SDK は実行時刻を持たないため、イベントの到着時刻で測る (messageMetrics と同じ流儀)
+          const startedAt = Date.now();
           const tool: ToolCall = {
             id,
             name: event.toolName ?? "",
@@ -260,14 +267,17 @@ export function createRunEventBridge(deps: RunEventBridgeDeps): RunEventBridge {
             isError: false,
             done: false,
             output: "",
+            startedAt,
             ...(skill ? { skill } : {}),
             ...(questions ? { questions } : {}),
           };
+          toolStartedAt.set(id, startedAt);
           tools.set(tool.id, tool);
           emit("tool_start", {
             id: tool.id,
             name: tool.name,
             args: tool.args,
+            startedAt,
             ...(skill ? { skill } : {}),
             ...(questions ? { questions } : {}),
           });
@@ -282,7 +292,14 @@ export function createRunEventBridge(deps: RunEventBridgeDeps): RunEventBridge {
         }
         case "tool_execution_end": {
           const output = toolResultSummary(event.result, masker);
-          const tool = tools.get(event.toolCallId ?? "");
+          const id = event.toolCallId ?? "";
+          const endedAt = Date.now();
+          const startedAt = toolStartedAt.get(id);
+          // 開始を観測できなかったカード (run の外で始まった等) には時間を付けない。片方だけ載せると
+          // 表示側が「閉じた区間」として扱ってしまう
+          if (startedAt !== undefined) toolTimings.set(id, { startedAt, endedAt });
+          toolStartedAt.delete(id);
+          const tool = tools.get(id);
           // 回答は toolResult の details から導出する。停止・中止は空配列で届き、「回答なしで終了」になる
           const answers = askUserAnswersOf(
             event.toolName ?? "",
@@ -293,13 +310,15 @@ export function createRunEventBridge(deps: RunEventBridgeDeps): RunEventBridge {
             tool.done = true;
             tool.isError = Boolean(event.isError);
             tool.output = output;
+            if (startedAt !== undefined) tool.endedAt = endedAt;
             if (answers) tool.answers = answers;
           }
           emit("tool_end", {
-            id: event.toolCallId ?? "",
+            id,
             name: event.toolName ?? "",
             isError: Boolean(event.isError),
             output,
+            ...(startedAt === undefined ? {} : { endedAt }),
             ...(answers ? { answers } : {}),
           });
           break;

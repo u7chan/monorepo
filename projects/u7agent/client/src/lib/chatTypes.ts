@@ -18,6 +18,9 @@ export type ToolCard = {
   args: string;
   phase: ToolPhase;
   output: string;
+  /** BFF 計測の実行開始 / 終了 (epoch ms)。両方が揃ったカードだけが実行時間を出せる */
+  startedAt?: number;
+  endedAt?: number;
   /** スキル読み込みのときだけ載る (履歴 / ライブのどちらから来ても同じ DTO) */
   skill?: SkillLoad;
   /** ask_user の質問。あるカードはツール履歴ではなく専用カードで描画する */

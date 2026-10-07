@@ -132,7 +132,7 @@ function projectItems({
 }): HistoryItem[] {
   const { session } = record;
   const { messages, entryIndexByMessage } = buildMessageIndex(entries);
-  const context = messageProjectionContext(messages, record.messageMetrics, masker, cwd);
+  const context = messageProjectionContext(messages, record.messageMetrics, masker, cwd, record.toolTimings);
   // 繰り上げ (本文の無い assistant の tools / skillLoads) はターンを跨がないため、直近の user
   // から投影すればページ先頭の項目も同じ結果になる (projected 側ではページ先頭以降だけを拾う)。
   let projectionStartIndex = 0;
