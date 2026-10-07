@@ -35,7 +35,8 @@ export interface ProviderMemoRow {
 }
 
 /**
- * 利用可能なモデル / アプリ既定モデルの保存行。null は未設定 (制限なし・候補の先頭) を表す
+ * 利用可能なモデル / アプリ既定モデルの保存行。allowedModels の null は制限なし、
+ * defaultModel の null は「既定なし」を表す (候補の先頭では代用しない)
  */
 export interface ModelSettingsRow {
   allowedModels: ModelRef[] | null;

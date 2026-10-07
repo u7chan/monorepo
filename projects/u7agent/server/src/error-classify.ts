@@ -1,7 +1,7 @@
 /**
  * SDK / プロバイダー由来のラン失敗を公開用に分類する純関数群。上流の原文は公開経路へ返さず、
  * コードと定型の日本語文言だけを返す (組織ID・APIキーなどの再公開を構造的に防ぐ)。
- * 優先順位は恒久的な利用枠 / 認証 / コンテキスト超過 → 一時的な rate limit → unknown の順。
+ * 優先順位は恒久的な利用枠 / 認証 / モデルの可用性 → コンテキスト超過 → 一時的な rate limit → unknown の順。
  */
 import { AUTH_REQUIRED_MESSAGE } from "./agent";
 import type { RunErrorCode } from "./schema";
@@ -13,6 +13,21 @@ const QUOTA_PATTERN =
 /** 認証・設定の不足。SDK の定型文とプロバイダーの 401 を拾う */
 const AUTH_PATTERN =
   /No API key found|Provider is not configured|No model selected|Authentication failed|invalid_api_key|invalid api key|incorrect api key|unauthorized|\b401\b/i;
+
+/**
+ * 契約・アカウント種別で許可されていないモデル。カタログ上は使えるように見えるため事前には弾けず、
+ * 選び直しだけが復旧手段になる。恒久的なので rate limit より先に見る。
+ */
+const MODEL_UNAVAILABLE_PATTERN = new RegExp(
+  [
+    "model.{0,48}(?:not supported|unsupported|not available|unavailable|not found|does not exist|no longer exists)",
+    "unknown[_ ]?model",
+    "model[_ ]?not[_ ]?found",
+    "no such model",
+    "invalid[_ ]?model",
+  ].join("|"),
+  "i",
+);
 
 /** コンテキスト超過。SDK は通常 compaction で回復するため、ここへ来るのは回復しきれなかったとき */
 const CONTEXT_PATTERN =
@@ -39,6 +54,7 @@ export function classifyRunError(error: unknown): RunErrorClassification | undef
   if (message === "") return undefined;
   if (QUOTA_PATTERN.test(message)) return { code: "insufficient_quota" };
   if (AUTH_PATTERN.test(message)) return { code: "auth_required" };
+  if (MODEL_UNAVAILABLE_PATTERN.test(message)) return { code: "model_unavailable" };
   if (CONTEXT_PATTERN.test(message)) return { code: "context_overflow" };
   if (RATE_LIMIT_PATTERN.test(message)) return { code: "rate_limit" };
   return { code: "unknown" };
@@ -51,6 +67,8 @@ export function runErrorMessage(code: RunErrorCode): string {
       return "利用枠またはクレジットの不足により実行できませんでした";
     case "auth_required":
       return AUTH_REQUIRED_MESSAGE;
+    case "model_unavailable":
+      return "選択したモデルは現在の契約では利用できません";
     case "context_overflow":
       return "入力がモデルのコンテキスト上限を超えました";
     case "rate_limit":
@@ -67,6 +85,10 @@ export function runErrorAction(code: RunErrorCode): string | undefined {
       return "プロバイダーの利用枠・支払い設定を確認してください（時間をおいても自動では回復しません）";
     case "auth_required":
       return undefined;
+    case "model_unavailable":
+      // 設定 → モデル の保存はアプリ既定と候補を変えるだけで、失敗した会話のモデルは変えない。
+      // 復旧は入力欄の Model で会話モデルを選び直す経路だけなので、そちらを名指しする。
+      return "入力欄の Model でこの会話のモデルを選び直してください";
     case "context_overflow":
       return "会話を圧縮するか、新しいチャットで短い入力から再実行してください";
     case "rate_limit":

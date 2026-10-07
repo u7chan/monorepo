@@ -30,7 +30,7 @@ CREATE TABLE IF NOT EXISTS provider_credentials (
 CREATE TABLE IF NOT EXISTS model_settings (
   id          INTEGER PRIMARY KEY CHECK (id = 1),
   allowedModels TEXT,  -- JSON 配列。NULL または空配列 = 制限なし
-  defaultModel  TEXT   -- "provider/model"。NULL = 利用可能なモデルの先頭
+  defaultModel  TEXT   -- "provider/model"。NULL = 未設定 (既定なし)
 );
 
 CREATE TABLE IF NOT EXISTS provider_memos (
@@ -48,13 +48,13 @@ CREATE TABLE IF NOT EXISTS provider_memos (
 
 ## モデル候補（選択）とアプリ既定モデル
 
-`model_settings` は 1 行だけで、**行が無い = 未設定**（制限なし・既定は候補の先頭）。
+`model_settings` は 1 行だけで、**行が無い = 未設定**（制限なし・既定なし）。
 
 - `allowedModels` は `provider/model`（model id の `/` は許す）の一覧で、API の応答もこの文字列で返す。保存時に**重複を先勝ちで畳み**、**空配列は制限なし（NULL）へ正規化**する。両方が NULL になった保存は行ごと消して未設定へ戻す
 - UI は選択を**常に明示リスト**で扱い、`allowedModels: null`（旧・制限なし）は「利用可能な全モデルが選択済み」として表示する。空配列は API が制限なしへ正規化して意図と逆になるため、選択 0 件の間は保存ボタンを無効にする（`normalizeAllowedModels()` の空→NULL はサーバーと同じ安全網として残す）。候補として扱うのは認証済み provider のモデルとカタログ外の残存だけで、認証が無い provider の選択は候補に行に出さず下書きからも落とす（`pruneAvailabilityDraft()`。保存値に残っていても次の保存では送らない）
-- `defaultModel` は保存値で、`GET /api/settings/models` が返す。**実効値は `GET /api/health` の `model`**（保存値 → available の先頭の順で決まる）。UI では選択済みモデルを検索できるピッカーで選び、「未設定（利用可能なモデルの先頭を使う）」を先頭に残す。保存値の `null` 展開時に既定モデルが利用可能な集合に無ければ 1 件だけ足す（別の差分の保存を 400 にしないため）
+- `defaultModel` は保存値で、`GET /api/settings/models` が返す。**実効値は `GET /api/health` の `model`**（保存値だけ。利用可能な候補があるのに未設定なら候補の先頭で代用せず、`defaultModelUnset: true` を返す。候補 0 件は可用性エラーで、このフラグは立てない）。UI では選択済みモデルを検索できるピッカーで選び、「未設定」を先頭に残す。保存値の `null` 展開時に既定モデルが利用可能な集合に無ければ 1 件だけ足す（別の差分の保存を 400 にしないため）
 - **選択されているかどうかの正は `GET /api/settings/models` の `allowedModels` だけ**。`GET /api/runtime/models` のカタログは候補の表示と available 判定にしか使わず、同じ情報（`inWhitelist` のような形）を持たない
-- 実効値の向きは「DB を正とする `ModelSettingsService` → pi の state」。`PiBff.setModelSelection({ allowedModels, defaultModel })` で実行時選択を差し替え、`refreshModelState()` を 1 回呼んで公開 state を再計算する。起動時の初回 state は「制限なし・既定は候補の先頭」で立ち、DB を開いた後の `applyStored()` が保存値へ確定させる
+- 実効値の向きは「DB を正とする `ModelSettingsService` → pi の state」。`PiBff.setModelSelection({ allowedModels, defaultModel })` で実行時選択を差し替え、`refreshModelState()` を 1 回呼んで公開 state を再計算する。起動時の初回 state は「制限なし・既定は未設定」で立ち、DB を開いた後の `applyStored()` が保存値へ確定させる
 - 絞り込みは `filterModelsByWhitelist()` の 1 箇所だけに保つ（個別にフィルタを足すと `PATCH /api/sessions/:id/settings` の経路から漏れる）
 - 選択リストの変更は**起動中の live セッションのモデルを変えない**。効くのは新しい会話と、未ロードの会話の復元時フォールバックだけ（[model-effort.md](model-effort.md#既存の会話への影響認証の変更)）
 
@@ -132,7 +132,7 @@ CREATE TABLE IF NOT EXISTS provider_memos (
 
 ## 起動時の適用
 
-`bootstrap.ts` は `createPiBff()` → `AppDb.open({ storeDir, sanitizeError })` → `applyStored()` → `SessionStore` / `NotificationService` の順に組み立てる。DB を開く前に pi の初回 state（制限なし・既定は候補の先頭）が立つため、`applyStored()` は listen 前に setter → `refreshModelState()` を必ず 1 回通す。
+`bootstrap.ts` は `createPiBff()` → `AppDb.open({ storeDir, sanitizeError })` → `applyStored()` → `SessionStore` / `NotificationService` の順に組み立てる。DB を開く前に pi の初回 state（制限なし・既定は未設定）が立つため、`applyStored()` は listen 前に setter → `refreshModelState()` を必ず 1 回通す。
 
 1. `readModelSettings()` を読み、`setModelSelection()` で保存値を写す。失敗したら「未設定（制限なし）」で続行し、警告だけを残す（health の `appDb` が失敗を示し、設定 API は 503 になる。この失敗は `provider_credentials` の読取成功では消えない）
 2. `listProviderCredentials()`。失敗しても 1 の適用と最後の再計算は行う（警告のみ。空 DB として黙って続行はしない）
@@ -169,9 +169,9 @@ CREATE TABLE IF NOT EXISTS provider_memos (
 - 画面は `/settings/models`（モデルを選ぶ。既定）、`/settings/models/providers`（プロバイダー）、`/settings/models/images`（画像生成）、`/settings/models/web-search`（Web 検索）の 4 タブ。タブの語彙は `client/src/lib/settingsNav.ts` の `MODELS_SUBSECTIONS` に置き、URL と `routePath` が同じ値を使う。未知のサブセクションと `/settings/models/models` は既定タブヘ畳む（モデル画面からチャットへ飛ばさない）。タブ行は `SettingsPageLayout` の任意スロットに置き、`ProjectDialog` と同じ `.tab-item` を使う
 - `useModelSettings` / `useImageSettings` / `useWebSearchSettings` は 4 タブの親（`ModelSettingsPage`）で 1 回ずつ呼び、モデル側の未保存の下書き（モデルの選択・既定モデルと、provider ごとの apiKey / メモ）も親が持つ。タブ切替・provider 切替・検索で再マウントしても下書き・note・カタログを失わない。カタログと設定は独立に取り、片方の失敗で他方を捨てない。ヘッダの [再読み込み] は 3 hook の分を更新し、注記と無効化は表示中のタブのものだけを出す。取得中フラグは破棄された要求の完了でも解除する（`createLoadingTracker()`。解除を応答の適用可否で分岐すると、変更操作と重なったときに再読み込みボタンが無効のまま残る）
 - 「モデルを選ぶ」タブは、候補を「認証済み provider のカタログ全件」と「カタログ外の残存エントリ」の和集合で組む。認証が設定されていない provider の選択は行に出さず、下書きからも落として保存しない（`pruneAvailabilityDraft()`）。カタログ外の残存だけは保存が 400 になるため、認証が無くても警告付きで出して外せる。折りたたみ中は行を描画せず、既定は全部閉じる（検索中の該当 provider と、警告のある provider だけ開く）。検索は DOM ではなくカタログのデータ（provider / モデル名 / ID）に当てて該当 provider を自動展開し、「選択済みのみ」でチェック済みだけに絞る
-  - provider 行はバッジと `利用可能 a/b ・ 選択 c`（a/b はカタログ、c は下書き全体の選択数）を出し、[すべて選択] は認証済み provider だけ、[すべて解除] はカタログに無い provider でも保存済みを外せる。provider 群はカタログ順（「プロバイダー」タブと同じ）で表示する。これは表示順だけで、保存値や既定未設定時の実効先頭を変えない（実効先頭はサーバーが `getAvailable()` の順から決める）
+  - provider 行はバッジと `利用可能 a/b ・ 選択 c`（a/b はカタログ、c は下書き全体の選択数）を出し、[すべて選択] は認証済み provider だけ、[すべて解除] はカタログに無い provider でも保存済みを外せる。provider 群はカタログ順（「プロバイダー」タブと同じ）で表示する。これは表示順の説明だけで、保存値と既定モデルの解決には関係しない（未設定でもアプリが `getAvailable()` の先頭を既定にすることはない）
   - 未認証の provider はカタログ外の残存があるときだけ警告付きで出し（カタログ全件は出さない）、外せる（`allowedModelsOutsideCatalog()` 相当の判定を `candidateGroups()` が行と警告に写し、認証が無い provider のカタログ内の選択は行に出さない）。選択 0 件は固定バーで保存を無効にし、理由として「空の選択は API で「制限なし（全モデル）」へ正規化されるため、この画面からは送らない」を示す
-  - アプリ既定モデルは `ModelDefaultPicker`（native popover + listbox。`composer/AgentPicker.tsx` と同じ組み方）で選び、先頭に「未設定（利用可能なモデルの先頭を使う）」を残す。選択が 0 件のときは選べない理由をピッカーの下に出す。行は名前と ID を分け、検索は名前 / ID に当てる
+  - アプリ既定モデルは `ModelDefaultPicker`（native popover + listbox。`composer/AgentPicker.tsx` と同じ組み方）で選び、先頭に「未設定」を残す。選択が 0 件のときは選べない理由をピッカーの下に出す。行は名前と ID を分け、検索は名前 / ID に当てる
   - 保存は本文の外に固定した下部バーにまとめ、変更がなければ [モデル候補を保存] を無効にし、差分があれば [変更を破棄] / [モデル候補を保存] を出す。保存で利用可能なモデルが 0 件になるときと既定が未認証のときは、純関数の文言で画面内の確認（[保存する] / [キャンセル]）を出し、後者は保存前から警告を出す（固定バーの中で完結させ、共通の確認ダイアログは使わない。判定は `availabilitySaveOnSubmit()` の純関数で固定し、同意するまで PUT を送らない）。成功時は応答値から下書きを作り直す。設定 API の保存値が実際に変わった場合も下書きを戻すが、配列参照だけが変わって内容が同じ場合は編集中の下書きを保つ。カタログの更新（キー操作での再取得・再取得の失敗で `catalog: null` になる場合）だけでは下書きを置換しない（`availabilityDraftState()` が保存値の変更と、カタログ無しで作った初期値の初回カタログ到着だけを作り直しの条件にし、認証が外れた provider の選択は `pruneAvailabilityDraft()` で下書きと比較基準から落とす）
   - 選択の正は `GET /api/settings/models` の `allowedModels` だけで、カタログは available と候補の表示にしか使わない。カタログを取得できないときは `catalogError` で編集不可を出し、プロバイダータブのキー操作は妨げない（`catalog === null` は初期ロード中も真になるため、編集可否の判定には使わない）
   - 保存後は health とカタログを取り直して、入力欄のモデル候補を追随させる。live の会話のモデルを切り替えないことを画面に注記する（[model-effort.md](model-effort.md#既存の会話への影響認証の変更)）

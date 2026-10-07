@@ -10,7 +10,7 @@ available とカタログは起動時に一度だけ読むのではなく、`rea
 
 ## アプリ既定の決定
 
-アプリ既定モデルは、設定 → モデル の「モデルを選ぶ」タブで保存した値（`model_settings.defaultModel`）を使う。保存値が無ければ `ModelRuntime.getAvailable()` の先頭（認証済みモデルのみ）を使う。保存値が利用できない場合は別のモデルへ黙ってフォールバックせず `health.defaultModelError` として返す（`ready` は候補が 1 つ以上あれば true のまま）。選択リストに未認証のモデルを既定として保存することはでき、その場合は保存時と画面表示で警告する（このとき候補ゼロなら `ready: false` になる）。
+アプリ既定モデルは、設定 → モデル の「モデルを選ぶ」タブで保存した値（`model_settings.defaultModel`）を使う。**保存値が無ければ既定は未設定**で、`ModelRuntime.getAvailable()` の先頭は使わない（先頭が契約で使えないモデルだと原因の分からない初回失敗になるため）。**利用可能な候補があるのに保存値が無い間**は `health.defaultModelUnset` を立て（候補 0 件は既定の話ではなく可用性エラーで、フラグは立てない）、新規会話はモデルを指定するまで 503 になる。保存値が利用できない場合は別のモデルへ黙ってフォールバックせず `health.defaultModelError` として返す（`ready` は候補が 1 つ以上あれば true のまま）。選択リストに未認証のモデルを既定として保存することはでき、その場合は保存時と画面表示で警告する（このとき候補ゼロなら `ready: false` になる）。
 
 選択リスト（設定 → モデル の「モデルを選ぶ」タブ）を保存すると、available を組み立てる 1 箇所でその積を取り、そこから導出する `availableModels` / `modelOptions` / `selectedModel` / `resolveModel()` を一貫して絞り込む。個別にフィルタを足すと `PATCH /api/sessions/:id/settings` の経路から漏れるため、絞り込みはこの 1 箇所だけに置く。選択リスト未設定は全件表示。選択リストと available の積が空なら（available の取得自体が例外になったときはそのエラーを優先）、`availabilityError` に `MODEL_WHITELIST_EMPTY_MESSAGE` を入れて `health.ready` を false にし、`errorCode: "model_whitelist_empty"`（互換のための名前。文言は 設定 → モデル へ誘導する）で原因が選択リストだと分かるようにする。認証が無い場合も選択リストが効いている以上候補は空になるため、このエラーは認証エラーより優先する。
 
@@ -26,17 +26,17 @@ available とカタログは起動時に一度だけ読むのではなく、`rea
 
 ```
 POST /api/sessions { model?, thinkingLevel? }
-  └─ create(): request ?? agent def ?? undefined (undefined はランタイムのアプリ既定)
+  └─ create(): request ?? agent def ?? undefined (undefined はランタイムのアプリ既定。未設定なら 503)
        └─ pi.createSession(): available と厳密照合してから SDK 作成 (不在は 400 / 候補ゼロは 503)
 ```
 
 ## 復元時の解決
 
-保存済みセッションを開くとき（BFF 再起動後・sweep 後の復元）は、保存値（`session.jsonl` の最後の `model_change` → meta の `model`）を `availableModels`（利用可能なモデルで絞った候補）と厳密照合し、候補があればそれを、無ければアプリ既定を使って `createAgentSession()` に渡す。`model` を明示しない SDK の自動復元は選択リストの絞り込みを迂回するため使わない。
+保存済みセッションを開くとき（BFF 再起動後・sweep 後の復元）は、保存値（`session.jsonl` の最後の `model_change` → meta の `model`）を `availableModels`（利用可能なモデルで絞った候補）と厳密照合し、候補があればそれを、無ければアプリ既定を使って `createAgentSession()` に渡す（アプリ既定も未設定なら復元は 503 になる）。`model` を明示しない SDK の自動復元は選択リストの絞り込みを迂回するため使わない。
 
 - フォールバックしたときは実効モデルを `model_change` entry へ追記して保存し、meta の `model` も更新する。元モデルが後で候補に戻っても、続きを別モデルで進めたセッションは元へ戻らない
 - 利用可能なモデルが 1 つも無いときはセッションを開く要求を 503 で拒否し、一覧（meta）からは消さない
-- 設定 → モデルでキーを削除した provider の会話も同じ規則で解決する。未ロードの会話は次の復元時に候補が無ければアプリ既定へフォールバックし、フォールバックした実効値を保存する
+- 設定 → モデルでキーを削除した provider の会話も同じ規則で解決する。未ロードの会話は次の復元時に候補が無ければアプリ既定へフォールバックし、フォールバックした実効値を保存する（アプリ既定が未設定だとフォールバック先が無く、設定 → モデル で既定を選ぶまで開けない）
 - Effort は JSONL の最後の `thinking_level_change` を使い、現在のモデル能力で clamp する（clamp は決定的なので補正後の値を entry へ必ず追記する必要はない）。payload には SDK が持つ実効値を返す
 
 ## チャット単位の変更
@@ -64,6 +64,6 @@ POST /api/sessions { model?, thinkingLevel? }
 
 モデル候補とアプリ既定モデルは 設定 → モデル の「モデルを選ぶ」タブで編集する（候補は常に明示リスト。認証済み provider のモデルのチェック・既定モデルの選択・カタログ外の残存エントリの削除。認証が無い provider の選択は候補に行に出さず下書きからも落とす。空の選択は保存不可で、旧・制限なしの保存値は利用可能な全モデルを選択済みとして表示する）。保存すると health とカタログを取り直し、未作成チャットの候補が追随する。開いている会話のモデルは切り替えない（[model-settings.md](model-settings.md#クライアント)）。
 
-入力欄の Model / Effort ピッカーは `Composer` に置く。セッションがあれば `resync` で受け取った実効値、未作成のチャットでは「作成前の選択 → 選択中エージェントの定義 → health のアプリ既定」をサーバーと同じ優先順位で表示する（導出は `client/src/lib/composerSettings.ts`）。同じ実効値は入力欄の上の状態行（`client/src/components/composer/ComposerStatus.tsx`）にも出し、ピッカーを畳んでいても使用中モデルが分かるようにする。Effort も `- xHigh` のようにモデル名の右へ続けて出す（ラベルはピッカーと同じ `effortLabel()`。推論に対応しないモデルの実効 Effort は SDK が常に `off` を返すため出さない。モデル名が未解決のときも、付ける相手が無いので出さない）。状態行の表示名は候補を引ければ `ModelOption.name`、引けなければ `provider/id` を使う。ピッカーの選択肢のラベルは `client/src/lib/modelChoices.ts` が決め、`ModelOption.name` を基本に、同名が別 provider にもあるときだけ `name（provider）`、同じ provider 内でも id が割れるときは `name（provider/id）` を添える。状態行の表示名はこの規則へ揃えず変更しない。ピッカーを開いている間も表示は実効値のままで、変更したときは `resync` が返った時点で入れ替わる（クライアントでは楽観的に書き換えない。サーバーが SDK 補正後の値を返すまで実際の送信先と食い違い得るため）。生成中・キュー待ち・設定変更通信中はピッカーを無効化し、設定変更通信中は送信も待たせる。モデルが利用できない警告と送信できない理由は、ピッカーの開閉に関係なく入力欄の下に出る（警告があることは状態行の warn 色が示す。開閉で footnote の行を消すとコンポーザーの高さが動くため、開いている間も popover 内の同じ文言と合わせて残す）。
+入力欄の Model / Effort ピッカーは `Composer` に置く。セッションがあれば `resync` で受け取った実効値、未作成のチャットでは「作成前の選択 → 選択中エージェントの定義 → health のアプリ既定」をサーバーと同じ優先順位で表示する（導出は `client/src/lib/composerSettings.ts`）。health のアプリ既定も無いときは Model を「未選択」で出し、送信を止めて設定先を示す。同じ実効値は入力欄の上の状態行（`client/src/components/composer/ComposerStatus.tsx`）にも出し、ピッカーを畳んでいても使用中モデルが分かるようにする。Effort も `- xHigh` のようにモデル名の右へ続けて出す（ラベルはピッカーと同じ `effortLabel()`。推論に対応しないモデルの実効 Effort は SDK が常に `off` を返すため出さない。モデル名が未解決のときも、付ける相手が無いので出さない）。状態行の表示名は候補を引ければ `ModelOption.name`、引けなければ `provider/id` を使う。ピッカーの選択肢のラベルは `client/src/lib/modelChoices.ts` が決め、`ModelOption.name` を基本に、同名が別 provider にもあるときだけ `name（provider）`、同じ provider 内でも id が割れるときは `name（provider/id）` を添える。状態行の表示名はこの規則へ揃えず変更しない。ピッカーを開いている間も表示は実効値のままで、変更したときは `resync` が返った時点で入れ替わる（クライアントでは楽観的に書き換えない。サーバーが SDK 補正後の値を返すまで実際の送信先と食い違い得るため）。生成中・キュー待ち・設定変更通信中はピッカーを無効化し、設定変更通信中は送信も待たせる。モデルが利用できない警告と送信できない理由は、ピッカーの開閉に関係なく入力欄の下に出る（警告があることは状態行の warn 色が示す。開閉で footnote の行を消すとコンポーザーの高さが動くため、開いている間も popover 内の同じ文言と合わせて残す）。
 
 Model / Effort の入力はエージェント選択の右のボタンで開く popover に出し、desktop / compact とも同じ経路にする。開閉でコンポーザーの高さが動かないよう、位置と大きさはスキル一覧と同じ `client/src/lib/popoverPlacement.ts` の計算を使い、注意文（`settings.modelWarning` / `settings.effortNotice`）も popover の中に出す（[ui-layout.md](ui-layout.md)）。**送信が成立した時点で畳む**（desktop も開いたままだと応答に被り、実行中はピッカーを無効化していて操作できないため。畳む合図は送信の成立 = `sending` の立ち上がりで、入力欄からの送信だけでなく `ChatArea` の suggestion からの送信も同じ扱いにする。送信が成立しなかったときは `sending` が立たないので畳まない）。

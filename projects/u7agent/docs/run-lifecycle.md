@@ -67,7 +67,7 @@ message_end(assistant, error, usage.total = 0)  失敗試行
 
 `server/src/error-classify.ts` の純関数が、`agent_settled` の最終エラー・`prompt()` の reject・`run_end.error`・`SessionPayload.run.error`・`resync` のすべてで共通に使う。
 
-- 優先順位は **恒久的な利用枠 / 課金（`insufficient_quota` など）→ 認証・設定 → コンテキスト超過 → 一時的な `rate_limit`（429 / TPM / RPM）→ `unknown`**。SDK 自身の再試行可否判定を BFF で上書きはしない（分類は表示と案内のためだけに使う）。
+- 優先順位は **恒久的な利用枠 / 課金（`insufficient_quota` など）→ 認証・設定 → モデルの可用性（`model_unavailable`。契約・アカウント種別で許可されていないモデル）→ コンテキスト超過 → 一時的な `rate_limit`（429 / TPM / RPM）→ `unknown`**。SDK 自身の再試行可否判定を BFF で上書きはしない（分類は表示と案内のためだけに使う）。`model_unavailable` は選び直しだけが復旧手段なので、時間をおけば直ると案内しない（設定 → モデル の保存は live の会話モデルを変えないため、案内は入力欄の Model での選び直しを指す）。
 - 公開文言はコードごとの定型日本語（理由 + 原因別の操作案内 + 再試行累計）だけとし、上流の原文・組織ID・APIキーを UI へ出さない。クレジット不足や認証失敗を「時間を置けば復旧する」と案内しない。
 - `retry.reason` も同じコードだけを配る。
 - 最終失敗の分類コードは `RunState.errorCode` に控え、`run_end.errorCode` と `payload.run.errorCode` として公開する。載せるのは `run.status === "error"` のときだけとし、停止要求（`stopRequested`）と listener 例外 / `prompt()` reject が同時に起きたときは `stopped` のままコードを載せない（停止直後に再実行カードを出さない）。成功・停止・実行中の `run` はキーを持たない（payload 上は後方互換のため optional）。

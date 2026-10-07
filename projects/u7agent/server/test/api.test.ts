@@ -7,7 +7,7 @@ import { join } from "node:path";
 import test from "node:test";
 import type { Hono } from "hono";
 import { VERSION } from "@earendil-works/pi-coding-agent";
-import { AUTH_REQUIRED_MESSAGE, MODEL_WHITELIST_EMPTY_MESSAGE } from "../src/agent";
+import { AUTH_REQUIRED_MESSAGE, MODEL_UNSET_MESSAGE, MODEL_WHITELIST_EMPTY_MESSAGE } from "../src/agent";
 import { createBffApp } from "../src/app";
 import { BUILTIN_SKILLS } from "../src/builtin-skills";
 import { SandboxRequestError, type SandboxWorkspaceClient } from "../src/sandbox/client";
@@ -713,6 +713,31 @@ test("an unusable stored default model keeps ready true and surfaces a default m
     const payload = await jsonBody(created);
     assert.equal(payload.model, "stub/stub-plain");
     assert.deepEqual(pi.createInputs.at(-1)?.model, { provider: "stub", id: "stub-plain" });
+  } finally {
+    await bff.close();
+  }
+});
+
+test("an unset app default model keeps ready true and blocks creating a session without a model", async () => {
+  const pi = createStubPi({ selectedModel: null, defaultModelUnset: true });
+  const bff = await createBffApp({ cwd: "/tmp/project", sessionStoreDir: null, pi: asPiBff(pi) });
+  const { app } = bff;
+  try {
+    const health = await jsonBody(app.request("/api/health"));
+    assert.equal(health.ready, true, "候補があるなら ready のままにする");
+    assert.equal(health.model, undefined);
+    assert.equal(health.defaultModelUnset, true);
+    assert.equal(health.defaultModelError, undefined);
+
+    // 候補の先頭へ黙って落とさず、選び直しを促す 503 で止める
+    const blocked = await app.request("/api/sessions", jsonPost({}));
+    assert.equal(blocked.status, 503);
+    assert.equal((await jsonBody(blocked)).error, MODEL_UNSET_MESSAGE);
+
+    // モデルを明示すれば作成できる
+    const created = await app.request("/api/sessions", jsonPost({ model: { provider: "stub", id: "stub-plain" } }));
+    assert.equal(created.status, 201);
+    assert.equal((await jsonBody(created)).model, "stub/stub-plain");
   } finally {
     await bff.close();
   }

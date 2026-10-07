@@ -6,6 +6,7 @@ import {
   effortLabel,
   type ComposerSettingsInput,
 } from "../src/lib/composerSettings";
+import { MODEL_UNSET_GUIDE } from "../src/lib/modelSettings";
 import type { AgentDef, Health, ModelOption, RunStatus, ThinkingLevel } from "../src/types";
 
 const health = (overrides: Partial<Health> = {}): Health => ({ ready: true, ...overrides });
@@ -175,6 +176,18 @@ test("blocks sending only when an unsent chat cannot resolve a model", () => {
       .sendBlockedReason,
     undefined,
     "作成済みセッションには関係しない",
+  );
+  assert.equal(
+    deriveComposerSettings(input({ health: health({ defaultModelUnset: true }) })).sendBlockedReason,
+    MODEL_UNSET_GUIDE,
+    "既定が未設定なら選択先を示して送信を止める",
+  );
+  assert.equal(
+    deriveComposerSettings(
+      input({ health: health({ defaultModelUnset: true }), preselection: { model: { provider: "ok", id: "model" } } }),
+    ).sendBlockedReason,
+    undefined,
+    "チャットで使うモデルを選んでいれば送れる",
   );
 });
 

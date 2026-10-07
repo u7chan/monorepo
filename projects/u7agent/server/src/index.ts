@@ -38,7 +38,11 @@ async function main() {
         ? `[u7agent] session store: ${bff.sessionStore.path ?? "disabled"}`
         : `[u7agent] session store unavailable: ${bff.sessionStore.error ?? "unknown"}`,
     );
-    if (!bff.pi?.selectedModel) {
+    if (bff.pi?.defaultModelUnset) {
+      console.log(
+        "[u7agent] no app default model is selected. Choose one in Settings > Models before sending a message.",
+      );
+    } else if (!bff.pi?.selectedModel) {
       console.log("[u7agent] API key or pi authentication is required before sending a message.");
     }
     const appDb = bff.appDb.status();

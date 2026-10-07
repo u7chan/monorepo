@@ -39,6 +39,36 @@ test("keeps quota, auth, and context overflow ahead of the transient rate limit"
   });
 });
 
+test("classifies a model the account cannot use as model_unavailable", () => {
+  assert.deepEqual(
+    classifyRunError(
+      new Error(
+        "Codex error: The 'gpt-5.3-codex-spark' model is not supported when using Codex with a ChatGPT account.",
+      ),
+    ),
+    { code: "model_unavailable" },
+  );
+  assert.deepEqual(classifyRunError(new Error("The model `gpt-4o` does not exist or you do not have access to it.")), {
+    code: "model_unavailable",
+  });
+  assert.deepEqual(classifyRunError(new Error("models/gemini-3-pro is not found for API version v1beta")), {
+    code: "model_unavailable",
+  });
+  assert.deepEqual(classifyRunError(new Error("ModelNotFoundError: no such model")), { code: "model_unavailable" });
+});
+
+test("model_unavailable is permanent and never advised as a retry", () => {
+  const composed = composeRunError({ code: "model_unavailable" }, 0);
+  assert.equal(
+    composed,
+    "選択したモデルは現在の契約では利用できません。入力欄の Model でこの会話のモデルを選び直してください",
+  );
+  // 設定 → モデル の保存は live の会話モデルを変えないため、そちらを案内しない
+  assert.doesNotMatch(composed, /設定 → モデル/);
+  assert.doesNotMatch(composed, /時間をおいて再実行/);
+  assert.equal(composeRunError({ code: "model_unavailable" }, 2).includes("（自動再試行2回）"), true);
+});
+
 test("does not classify an unpaid 429 as a transient rate limit", () => {
   // 恒久的な利用枠エラーへ時間を置けば直ると案内しない (分類が先)
   const quota = classifyRunError(new Error(`${INSUFFICIENT_QUOTA} 429`));

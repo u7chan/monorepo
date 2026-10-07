@@ -7,11 +7,13 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   AUTH_REQUIRED_TEXT,
+  MODEL_UNSET_TEXT,
   SANDBOX_REQUIRED_GUIDE,
   SANDBOX_REQUIRED_TEXT,
   runtimeStatusForError,
   runtimeStatusForHealth,
 } from "../src/hooks/runtimeStatus";
+import { MODEL_UNSET_GUIDE } from "../src/lib/modelSettings";
 import type { Health } from "../src/types";
 
 // server/src/agent.ts の AUTH_REQUIRED_MESSAGE / SANDBOX_NOT_CONFIGURED_MESSAGE と同じ形の本文
@@ -97,6 +99,14 @@ test("既定モデルが使えないときはモデル未選択として知ら�
   );
   assert.equal(status.text, "モデル未選択");
   assert.equal(status.detail, "Model is not available: a/b");
+  assert.notEqual(status.authRequired, true);
+});
+
+test("既定モデルが未設定のときはモデル未設定として設定先を知らせる", () => {
+  const status = runtimeStatusForHealth(health({ sandboxConfigured: true, defaultModelUnset: true }));
+  assert.equal(status.text, MODEL_UNSET_TEXT);
+  assert.equal(status.detail, MODEL_UNSET_GUIDE);
+  assert.equal(status.error, true);
   assert.notEqual(status.authRequired, true);
 });
 

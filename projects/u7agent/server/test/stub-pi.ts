@@ -6,6 +6,7 @@ import { clampThinkingLevel, getSupportedThinkingLevels } from "@earendil-works/
 import type { Api, Model as PiAiModel } from "@earendil-works/pi-ai";
 import type { PiBff } from "../src/agent";
 import type { ModelSelection } from "../src/agent";
+import { MODEL_UNSET_MESSAGE } from "../src/agent";
 import type { AskUserHost } from "../src/ask-user-tool";
 import type { ImageGenerationConfig } from "../src/images";
 import type { ServeToolHost } from "../src/serve-tool";
@@ -594,6 +595,8 @@ export interface StubPiOptions {
   selectedModel?: PiAiModel<Api> | null;
   defaultThinkingLevel?: ThinkingLevel;
   defaultModelError?: string;
+  /** true で「アプリ既定モデルが未設定 (候補はある)」を再現する */
+  defaultModelUnset?: boolean;
   availabilityError?: string;
   /** true で許可リストが候補を全部落とした状態 (ready: false の許可リスト起因エラー) を再現する */
   modelWhitelistExcludesAll?: boolean;
@@ -698,6 +701,7 @@ export function createStubPi(options: StubPiOptions = {}) {
     modelOptions: available.map(modelOptionOf),
     defaultThinkingLevel: options.defaultThinkingLevel ?? "medium",
     defaultModelError: options.defaultModelError,
+    defaultModelUnset: options.defaultModelUnset ?? false,
     availabilityError: options.availabilityError,
     modelWhitelistExcludesAll: options.modelWhitelistExcludesAll ?? false,
     modelCatalog: options.modelCatalog,
@@ -777,7 +781,9 @@ export function createStubPi(options: StubPiOptions = {}) {
       }
       if (!model) {
         const error = new Error(
-          options.defaultModelError ?? options.availabilityError ?? "Model is not available",
+          options.defaultModelError ??
+            options.availabilityError ??
+            (options.defaultModelUnset ? MODEL_UNSET_MESSAGE : "Model is not available"),
         ) as Error & { statusCode?: number };
         error.statusCode = 503;
         throw error;
