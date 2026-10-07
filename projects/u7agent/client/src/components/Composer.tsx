@@ -45,6 +45,8 @@ export type ComposerProps = {
   runStatus?: RunStatus;
   /** 直近 run のツールカード (toolCallId → ToolCall)。順序が走査順になる */
   runTools: Readonly<Record<string, ToolCall>>;
+  /** ライブのツールイベントの回数。ライブ表示が復元カードと区別する合図に使う */
+  toolEventSeq: number;
   /** 表示中のセッション。変わったらライブ表示の行を持ち越さない (未作成チャットは undefined) */
   sessionId?: string;
   /** 最後に失敗したランの分類コードと、BFF が合成した文言 */
@@ -155,6 +157,7 @@ export function Composer({
   onRetry,
   runStatus,
   runTools,
+  toolEventSeq,
   sessionId,
   runError,
   onReloadSkills,
@@ -336,7 +339,12 @@ export function Composer({
         compact ? "px-3 pb-[max(8px,env(safe-area-inset-bottom))]" : "mx-auto max-w-220 px-6 pb-5 wide:px-8",
       )}
     >
-      <LiveToolCall runTools={runTools} runStatus={runStatus ?? "idle"} sessionId={sessionId} />
+      <LiveToolCall
+        runTools={runTools}
+        runStatus={runStatus ?? "idle"}
+        toolEventSeq={toolEventSeq}
+        sessionId={sessionId}
+      />
       <ComposerStatus
         activity={activity}
         activityState={activityState}

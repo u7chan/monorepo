@@ -59,7 +59,7 @@ export function liveToolState(runTools: Readonly<Record<string, ToolCall>>, runS
   return { rows, allRows, visible: rows.length > 0 };
 }
 
-/** 終わった行を最短表示時間まで残すための状態。コンポーネントは ref で持ち、毎回の描画で進める */
+/** 終わった行を最短表示時間まで残すための状態。コンポーネントは ref で持ち、描画のたびに進める */
 export type LiveToolTracker = {
   /** 実行中の行として出した時刻。残りの最短表示時間を出す */
   shownAt: Map<string, number>;
@@ -67,11 +67,13 @@ export type LiveToolTracker = {
   accounted: Set<string>;
   /** 直前の描画で実行中だった行。run ごと消えた行も畳めるようにする */
   running: Map<string, LiveToolRow>;
+  /** 最後に観測した `tool_start` / `tool_end` の回数 (ChatState.toolEventSeq)。復元カードと区別する */
+  eventSeq: number;
 };
 
 /** mount 時点の呼び出しは「観測済み」にする。復元直後に前の run の完了カードを光らせない */
-export function initialLiveTracker(runTools: Readonly<Record<string, ToolCall>>): LiveToolTracker {
-  return { shownAt: new Map(), accounted: new Set(Object.keys(runTools)), running: new Map() };
+export function initialLiveTracker(runTools: Readonly<Record<string, ToolCall>>, eventSeq: number): LiveToolTracker {
+  return { shownAt: new Map(), accounted: new Set(Object.keys(runTools)), running: new Map(), eventSeq };
 }
 
 export type LiveToolHold = { row: LiveToolRow; holdMs: number };
@@ -79,15 +81,16 @@ export type LiveToolHold = { row: LiveToolRow; holdMs: number };
 /**
  * どの行を畳む前にもう少し出しておくかを決める。次の 2 経路を同じ規則で扱う。
  *
- * 1. 開始と終了が同じ描画にまとまった呼び出し (一瞬で終わるツール) は、実行中の行として一度も
- *    出ないため、ここで終わった行として最短表示時間のぶん出す。run が動いていない復元では、
- *    payload が持ち込んだ前の run の完了カードを出さない。
+ * 1. ライブのツールイベントで新しく現れたのに、実行中の行として出ていない呼び出しは、最短表示時間の
+ *    ぶんここで出す (開始と終了が同じ描画にまとまった一瞬のツール、run の終了と同時に届いた分)。
+ *    条件に `eventSeq` を使うのは、runTools の形だけではライブの出来事と `resync` が持ち込んだ復元
+ *    カードを区別できないため (後者を光らせない)。
  * 2. 実行中として出ていた行が終わった / run ごと消えた場合は、出ていた時間の残りだけ残す
  *    (長く動いていたツールはその場で畳む)。
  */
 export function trackLiveHolds(
   tracker: LiveToolTracker,
-  { rows, allRows, runStatus, now }: { rows: LiveToolRow[]; allRows: LiveToolRow[]; runStatus: RunStatus; now: number },
+  { rows, allRows, eventSeq, now }: { rows: LiveToolRow[]; allRows: LiveToolRow[]; eventSeq: number; now: number },
 ): { tracker: LiveToolTracker; holds: LiveToolHold[] } {
   const shownAt = new Map(tracker.shownAt);
   const accounted = new Set(tracker.accounted);
@@ -98,9 +101,10 @@ export function trackLiveHolds(
 
   const byId = new Map(allRows.map((row) => [row.id, row]));
   const holds: LiveToolHold[] = [];
-  if (runStatus === "running") {
+  if (eventSeq !== tracker.eventSeq) {
     for (const row of allRows) {
-      if (!row.done || accounted.has(row.id)) continue;
+      // 実行中として出る行は、そのまま出せばよいので保持しない
+      if (accounted.has(row.id) || runningIds.has(row.id)) continue;
       accounted.add(row.id);
       holds.push({ row, holdMs: LIVE_ROW_MIN_VISIBLE_MS });
     }
@@ -114,6 +118,10 @@ export function trackLiveHolds(
       holdMs: Math.max(0, LIVE_ROW_MIN_VISIBLE_MS - (now - (shown ?? now))),
     });
   }
-  for (const row of rows) accounted.add(row.id);
-  return { tracker: { shownAt, accounted, running: new Map(rows.map((row) => [row.id, row])) }, holds };
+  // 観測した id はライブかどうかに関係なく記録する。次の描画で過去のカードを光らせない
+  for (const row of allRows) accounted.add(row.id);
+  return {
+    tracker: { shownAt, accounted, running: new Map(rows.map((row) => [row.id, row])), eventSeq },
+    holds,
+  };
 }

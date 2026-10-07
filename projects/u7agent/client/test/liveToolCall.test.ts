@@ -105,57 +105,72 @@ function track(
   runTools: Record<string, ToolCall>,
   runStatus: RunStatus,
   now: number,
+  eventSeq: number,
 ): ReturnType<typeof trackLiveHolds> {
   const state = liveToolState(runTools, runStatus);
-  return trackLiveHolds(tracker, { rows: state.rows, allRows: state.allRows, runStatus, now });
+  return trackLiveHolds(tracker, { rows: state.rows, allRows: state.allRows, eventSeq, now });
 }
 
-test("開始と終了が同じ描画にまとまった行も、最短表示時間だけ出してから畳む", () => {
-  // React が toolStart / toolEnd を同じ描画にまとめると、実行中の行として一度も出ない。
-  // ここで出さないと一瞬のツールが本当に見えなくなる
-  const runTools = { t1: call("t1", "bash", "ls", true, { startedAt: 1_000, endedAt: 1_005 }) };
-
-  const { holds } = track(initialLiveTracker({}), runTools, "running", 2_000);
-  assert.deepEqual(
-    holds.map((hold) => [hold.row.id, hold.row.index, hold.row.summary, hold.row.durationMs, hold.holdMs]),
-    [["t1", 1, "bash — ls", 5, LIVE_ROW_MIN_VISIBLE_MS]],
-  );
+test("ライブのツールイベントで現れた完了カードは、最短表示時間だけ出してから畳む", () => {
+  // React が toolStart / toolEnd を同じ描画にまとめると実行中の行として一度も出ない。run の終了が
+  // 同じ描画にまとまっても (status が completed でも) 出さないと、一瞬のツールが本当に見えなくなる
+  const done = { t1: call("t1", "bash", "ls", true, { startedAt: 1_000, endedAt: 1_005 }) };
+  for (const status of ["running", "completed", "stopped"] as RunStatus[]) {
+    const { holds } = track(initialLiveTracker({}, 0), done, status, 2_000, 1);
+    assert.deepEqual(
+      holds.map((hold) => [hold.row.id, hold.row.index, hold.row.summary, hold.row.durationMs, hold.holdMs]),
+      [["t1", 1, "bash — ls", 5, LIVE_ROW_MIN_VISIBLE_MS]],
+      `${status} の描画`,
+    );
+  }
 });
 
 test("実行中として出ていた行は、出ていた時間の残りだけ畳む前に残す", () => {
   const running = { t1: call("t1", "bash", "sleep 3", false, { startedAt: 1_000 }) };
-  const first = track(initialLiveTracker({}), running, "running", 1_000);
+  const first = track(initialLiveTracker({}, 0), running, "running", 1_000, 1);
   assert.deepEqual(first.holds, [], "実行中の行はまだ畳まない");
 
   const finished = { t1: call("t1", "bash", "sleep 3", true, { startedAt: 1_000, endedAt: 4_000 }) };
-  const short = track(first.tracker, finished, "running", 1_400);
+  const short = track(first.tracker, finished, "running", 1_400, 2);
   assert.deepEqual(
     short.holds.map((hold) => [hold.row.id, hold.row.durationMs, hold.holdMs]),
     [["t1", 3_000, 500]],
     "出てから 400ms で終わったので、残り 500ms を残す",
   );
 
-  const long = track(first.tracker, finished, "running", 3_000);
+  const long = track(first.tracker, finished, "running", 3_000, 2);
   assert.equal(long.holds[0].holdMs, 0, "最短表示時間より長く出ていた行はその場で畳む");
 });
 
-test("mount 時点の完了カードと、run が動いていない復元の完了カードは畳む対象にしない", () => {
+test("mount 時の完了カードと、resync が持ち込んだ完了カードは畳む対象にしない", () => {
   const done = { t1: call("t1", "bash", "ls", true, { startedAt: 1_000, endedAt: 1_005 }) };
   assert.deepEqual(
-    track(initialLiveTracker(done), done, "running", 2_000).holds,
+    track(initialLiveTracker(done, 3), done, "completed", 2_000, 3).holds,
     [],
-    "復元直後に前の run の完了カードを光らせない",
+    "mount 時からあるカードはイベントを観測していない",
   );
-  assert.deepEqual(
-    track(initialLiveTracker({}), done, "completed", 2_000).holds,
-    [],
-    "payload が持ち込んだ完了カードを走っていない run で出さない",
-  );
+
+  // 非実行中の resync が持ち込んだカード。たとえ次の送信で setRun (running) に変わっても、
+  // ツールイベントを観測していないので抱えない
+  const tracker = track(initialLiveTracker({}, 3), done, "completed", 2_000, 3).tracker;
+  assert.deepEqual(track(tracker, done, "running", 2_100, 3).holds, [], "送信応答の setRun では出さない");
+});
+
+test("同じカードを2度抱えない (別のツールのイベントで古い完了カードを出さない)", () => {
+  const first = track(initialLiveTracker({}, 0), { t1: call("t1", "bash", "ls", true) }, "running", 1_000, 1);
+  assert.equal(first.holds.length, 1, "初回は出す");
+
+  const runTools = {
+    t1: call("t1", "bash", "ls", true),
+    t2: call("t2", "read", "a.md", false, { startedAt: 1_100 }),
+  };
+  const second = track(first.tracker, runTools, "running", 1_100, 2);
+  assert.deepEqual(second.holds, [], "観測済みの完了カードを再表示しない");
 });
 
 test("run ごと入れ替わって消えた実行中の行も畳む (実行時間は出せない)", () => {
-  const first = track(initialLiveTracker({}), { t1: call("t1", "bash", "sleep 5", false) }, "running", 1_000);
-  const replaced = track(first.tracker, { t2: call("t2", "read", "a.md", false) }, "running", 1_300);
+  const first = track(initialLiveTracker({}, 0), { t1: call("t1", "bash", "sleep 5", false) }, "running", 1_000, 1);
+  const replaced = track(first.tracker, { t2: call("t2", "read", "a.md", false) }, "running", 1_300, 2);
   assert.deepEqual(
     replaced.holds.map((hold) => [hold.row.id, hold.row.index, hold.row.durationMs, hold.holdMs]),
     [["t1", 1, undefined, 600]],
@@ -219,7 +234,7 @@ test("実行時間の控えが無いカード (旧サーバー / 停止) では�
 });
 
 function renderLive(runTools: Record<string, ToolCall>, runStatus: RunStatus): string {
-  return renderToStaticMarkup(createElement(LiveToolCall, { runTools, runStatus }));
+  return renderToStaticMarkup(createElement(LiveToolCall, { runTools, runStatus, toolEventSeq: 0 }));
 }
 
 test("ライブ表示は実行中のツールを行サマリーで出し、行が無ければ畳む", () => {

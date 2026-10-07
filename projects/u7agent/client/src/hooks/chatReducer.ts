@@ -77,6 +77,12 @@ export type ChatState = {
    */
   sendSeq: number;
   /**
+   * ライブのツールイベント (`tool_start` / `tool_end`) の回数。値そのものは表示に使わず、入力欄の上の
+   * ライブ表示が「この描画で新しく観測したツール」を、payload (resync) が持ち込んだ復元カードと
+   * 区別する合図に使う。両者を runTools の形では区別できない (docs/frontend.md)。
+   */
+  toolEventSeq: number;
+  /**
    * run_start 待ちのローカルエコー (user バブル id)。送信した順に並び、run_start が先頭から消費する。
    * 同じ本文を続けて送っても、届いた注記を正しいバブルに割り当てるために必要 (配列の末尾だけを見ると取り違える)。
    */
@@ -227,6 +233,7 @@ export const initialChatState: ChatState = {
   compactionStartedAt: undefined,
   runEndSeq: 0,
   sendSeq: 0,
+  toolEventSeq: 0,
   pendingEchoIds: [],
   clearedRunIds: [],
   queueDepth: 0,
@@ -597,6 +604,8 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
         runEndSeq: state.runEndSeq,
         // sendSeq も単調に保つ (新規チャットへの切替を「送信」と誤読させない)
         sendSeq: state.sendSeq,
+        // toolEventSeq も単調に保つ (切替前の観測値を live イベントと誤読させない)
+        toolEventSeq: state.toolEventSeq,
       };
 
     case "resync": {
@@ -1086,7 +1095,8 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
       // 新規が先頭になり、run 側の挿入順と逆のツール履歴になる)
       const withBubble = attachRunToolCards(ensureAssistant(state, action.at), false);
       const withRun = { ...withBubble, runTools: { ...withBubble.runTools, [action.id]: call } };
-      return addToolCard(withRun, toolCardOf(call), action.at);
+      // ライブ表示が「今観測したツール」を見分ける合図 (payload 経由の復元カードと区別する)
+      return addToolCard({ ...withRun, toolEventSeq: withRun.toolEventSeq + 1 }, toolCardOf(call), action.at);
     }
 
     case "toolEnd": {
@@ -1097,6 +1107,7 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
           ? state
           : {
               ...state,
+              toolEventSeq: state.toolEventSeq + 1,
               runTools: {
                 ...state.runTools,
                 [action.id]: {
