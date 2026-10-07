@@ -29,6 +29,16 @@ export function RunSpinnerIcon({ tone = "soft" }: { tone?: "soft" | "on-accent" 
   );
 }
 
+export function TypingDots() {
+  return (
+    <span aria-hidden="true" className="typing-dots text-ink-soft">
+      <span />
+      <span />
+      <span />
+    </span>
+  );
+}
+
 export function MenuIcon() {
   return (
     <svg
