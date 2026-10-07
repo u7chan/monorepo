@@ -470,6 +470,62 @@
     @apply border-focus text-accent-text;
   }
 
+  /* 有効 / 無効のトグルスイッチ (ToggleSwitch)。状態で見た目が変わるため、utilities ではなく
+     ここへ置く (utilities 同士だと生成 CSS の順序で勝敗が決まる)。つまみの移動量は
+     トラックの内側に合わせた固定値で、寸法を変えるときは両方を直す */
+  .switch {
+    @apply inline-flex shrink-0 items-center rounded-full transition-colors disabled:cursor-not-allowed disabled:opacity-55;
+    outline: none;
+  }
+  /* 輪郭 (outline) で示すのは、box-shadow の ring が強制配色で落ちるため */
+  .switch:focus-visible {
+    outline: 2px solid var(--c-focus);
+    outline-offset: 1px;
+  }
+  .switch-track {
+    @apply relative block h-4.5 w-8 shrink-0 rounded-full transition-colors;
+    --switch-knob-bg: var(--c-ink-soft);
+  }
+  .switch-track-sm {
+    @apply h-4 w-7;
+  }
+  .switch-track-on {
+    @apply bg-accent;
+    --switch-knob-bg: var(--c-on-accent);
+  }
+  .switch-track-off {
+    @apply bg-line-strong;
+  }
+  /* 塗りは変数経由にする。直接書くと .switch-track-on の子孫セレクタが強制配色の上書きに勝つ */
+  .switch-knob {
+    @apply absolute top-0.5 left-0.5 block size-3.5 rounded-full;
+    background: var(--switch-knob-bg);
+    translate: 0 0;
+    transition:
+      translate 150ms ease,
+      background-color 150ms ease;
+  }
+  .switch-track-sm .switch-knob {
+    @apply size-3;
+  }
+  .switch-track-on .switch-knob {
+    translate: 14px 0;
+  }
+  .switch-track-sm.switch-track-on .switch-knob {
+    translate: 12px 0;
+  }
+  /* 強制配色ではトラックの塗りが落ちてつまみが見えなくなるため、文字色で描き直す */
+  @media (forced-colors: active) {
+    .switch-knob {
+      background: CanvasText;
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .switch-knob {
+      transition: none;
+    }
+  }
+
   /* 仮想スクロールのキャンバス高さとアイテム位置。動的な値は inline style で CSS 変数へ入れる
      (高さ / transform を直に書くと shadcn/no-inline-styles に觸れる) */
   .virtual-canvas {
