@@ -10,7 +10,7 @@ available とカタログは起動時に一度だけ読むのではなく、`rea
 
 ## アプリ既定の決定
 
-アプリ既定モデルは、設定 → モデル の「モデルを選ぶ」タブで保存した値（`model_settings.defaultModel`）を使う。**保存値が無ければ既定は未設定**で、`ModelRuntime.getAvailable()` の先頭は使わない（先頭が契約で使えないモデルだと原因の分からない初回失敗になるため）。未設定の間は `health.defaultModelUnset` を立て、新規会話はモデルを指定するまで 503 になる。保存値が利用できない場合は別のモデルへ黙ってフォールバックせず `health.defaultModelError` として返す（`ready` は候補が 1 つ以上あれば true のまま）。選択リストに未認証のモデルを既定として保存することはでき、その場合は保存時と画面表示で警告する（このとき候補ゼロなら `ready: false` になる）。
+アプリ既定モデルは、設定 → モデル の「モデルを選ぶ」タブで保存した値（`model_settings.defaultModel`）を使う。**保存値が無ければ既定は未設定**で、`ModelRuntime.getAvailable()` の先頭は使わない（先頭が契約で使えないモデルだと原因の分からない初回失敗になるため）。**利用可能な候補があるのに保存値が無い間**は `health.defaultModelUnset` を立て（候補 0 件は既定の話ではなく可用性エラーで、フラグは立てない）、新規会話はモデルを指定するまで 503 になる。保存値が利用できない場合は別のモデルへ黙ってフォールバックせず `health.defaultModelError` として返す（`ready` は候補が 1 つ以上あれば true のまま）。選択リストに未認証のモデルを既定として保存することはでき、その場合は保存時と画面表示で警告する（このとき候補ゼロなら `ready: false` になる）。
 
 選択リスト（設定 → モデル の「モデルを選ぶ」タブ）を保存すると、available を組み立てる 1 箇所でその積を取り、そこから導出する `availableModels` / `modelOptions` / `selectedModel` / `resolveModel()` を一貫して絞り込む。個別にフィルタを足すと `PATCH /api/sessions/:id/settings` の経路から漏れるため、絞り込みはこの 1 箇所だけに置く。選択リスト未設定は全件表示。選択リストと available の積が空なら（available の取得自体が例外になったときはそのエラーを優先）、`availabilityError` に `MODEL_WHITELIST_EMPTY_MESSAGE` を入れて `health.ready` を false にし、`errorCode: "model_whitelist_empty"`（互換のための名前。文言は 設定 → モデル へ誘導する）で原因が選択リストだと分かるようにする。認証が無い場合も選択リストが効いている以上候補は空になるため、このエラーは認証エラーより優先する。
 

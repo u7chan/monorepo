@@ -61,8 +61,10 @@ test("model_unavailable is permanent and never advised as a retry", () => {
   const composed = composeRunError({ code: "model_unavailable" }, 0);
   assert.equal(
     composed,
-    "選択したモデルは現在の契約では利用できません。設定 → モデル で利用できる別のモデルを選んでください",
+    "選択したモデルは現在の契約では利用できません。入力欄の Model でこの会話のモデルを選び直してください",
   );
+  // 設定 → モデル の保存は live の会話モデルを変えないため、そちらを案内しない
+  assert.doesNotMatch(composed, /設定 → モデル/);
   assert.doesNotMatch(composed, /時間をおいて再実行/);
   assert.equal(composeRunError({ code: "model_unavailable" }, 2).includes("（自動再試行2回）"), true);
 });
