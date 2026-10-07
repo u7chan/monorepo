@@ -1,6 +1,6 @@
 // チャットの自動追従 (最下部付近にいるときだけ最新へ付ける) の判定。
 // client のテストに DOM 基盤が無いため、DOM を触らない純関数だけをここに置く。
-// 配線 (Effect / scroll ハンドラ / ResizeObserver) は ChatArea が持ち、ソース走査で固定する。
+// 配線 (Effect / scroll ハンドラ / ResizeObserver) は ChatArea が持つ。
 
 /**
  * 最下部からの距離がこれ以内なら追従を続ける (px)。本文の行高は 22.75px (styles/index.css の .md) なので、
@@ -47,8 +47,8 @@ export type ScrollFollowOutcome = {
  * 届くため、距離だけで判定すると追従が外れ、直後の callback も follow が false で書き戻さなくなる
  * (実測: 追従中に右パネルを開くと 70/71 で外れた)。
  *
- * 追従中に離れていたら書き戻す。アンカリングを止める (`overflow-anchor: none`) 案は採らない。読み返し中
- * (follow が false) にレイアウトが変わったときの読み位置を保つ役目をブラウザーに残すため。
+ * 追従中に離れていたら書き戻す。アンカリングは追従中だけ止め、読み返し中 (follow が false) に
+ * レイアウトが変わったときの読み位置を保つ役目はブラウザーに残す。
  */
 export function resolveScrollFollow(input: ScrollFollowInput): ScrollFollowOutcome {
   const atBottom = isAtBottom(input);

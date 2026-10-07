@@ -34,6 +34,16 @@ source scan を消しただけではイベント伝播・実 DOM の焦点・hoo
 
 ## GUI の最小受入
 
+チャットの末尾追従は、`pnpm dev` で起動した実画面に対し、Playwright スキルの `pw.sh` から次の受入スクリプトを実行できる（モノレポルートを cwd にする）。API と SSE をブラウザ内でスタブするため LLM は呼び出さない。新しい headless セッションで実行し、終わったら `close` する。
+
+```sh
+pw.sh open http://localhost:3000/
+pw.sh run-code --filename=projects/u7agent/scripts/check-chat-scroll.js
+pw.sh close
+```
+
+`?narrow` を URL に付けると 390×844 で検証する。300 行の表の配信中、rAF で測った末尾からの距離が 1px 以内であること、読み返し中は追従せず、最新へ戻る操作と容器のリサイズで追従することを検査する。表そのものの折り返しや、履歴の前置き・会話切替の受入は次のチェックリストで別途確認する。
+
 desktop（例: 1280×900）と narrow（例: 390×844）で確認する。関連する変更では landscape（844×390）も見る。視覚調整の変更ごとに全画面の pixel-perfect 比較はしない。
 
 - [ ] チャットと設定（エージェント・スキル・ファイル・モデル）で長い名前・パス・本文が viewport の横にはみ出さず、操作が押せる。表・コードの内部横スクロールは許容する。
