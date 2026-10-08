@@ -126,6 +126,49 @@ test("unloaded sessions pin without restoring the SDK and missing metadata defau
   });
 });
 
+test("unloaded title, pin, and notification writes preserve every value when requested together", async () => {
+  await withStoreDir(async (dir) => {
+    const first = await openBff(dir);
+    const created = await jsonBody(first.app.request("/api/sessions", jsonPost({})));
+    await first.close();
+
+    const offline = await openBff(dir, { pi: null });
+    try {
+      const results = await Promise.all([
+        offline.store.setTitle(created.sessionId, "renamed"),
+        offline.store.setPinned(created.sessionId, true),
+        offline.store.setNotify(created.sessionId, true),
+      ]);
+      assert.deepEqual(results, [
+        { sessionId: created.sessionId, title: "renamed" },
+        { sessionId: created.sessionId, pinned: true },
+        { sessionId: created.sessionId, notify: true },
+      ]);
+
+      const summary = (await jsonBody(offline.app.request("/api/sessions"))).sessions[0];
+      assert.equal(summary.title, "renamed");
+      assert.equal(summary.pinned, true);
+      assert.equal(summary.notify, true);
+      assert.deepEqual(
+        (({ title, pinned, notify }) => ({ title, pinned, notify }))(await readMeta(created.sessionId, dir)),
+        { title: "renamed", pinned: true, notify: true },
+      );
+    } finally {
+      await offline.close();
+    }
+
+    const restarted = await openBff(dir, { pi: null });
+    try {
+      const summary = (await jsonBody(restarted.app.request("/api/sessions"))).sessions[0];
+      assert.equal(summary.title, "renamed");
+      assert.equal(summary.pinned, true);
+      assert.equal(summary.notify, true);
+    } finally {
+      await restarted.close();
+    }
+  });
+});
+
 test("a restore started during an unloaded pin write receives the updated metadata", async () => {
   await withStoreDir(async (dir) => {
     const first = await openBff(dir);
@@ -236,10 +279,20 @@ test("pin storage failures return 500 for live and unloaded sessions", async () 
     const offline = await openBff(dir, { pi: null });
     try {
       const path = sessionMetaPath(created.sessionId, dir);
+      const originalMeta = await readFile(path, "utf8");
       await rm(path, { force: true });
       await mkdir(path);
       const response = await offline.app.request(`/api/sessions/${created.sessionId}/pin`, jsonPatch({ pinned: true }));
       assert.equal(response.status, 500, "未ロードの保存失敗を成功にした");
+
+      await rm(path, { recursive: true, force: true });
+      await writeFile(path, originalMeta);
+      const recovered = await offline.app.request(
+        `/api/sessions/${created.sessionId}/notify`,
+        jsonPatch({ notify: true }),
+      );
+      assert.equal(recovered.status, 200, "先行失敗後の meta 更新キューが継続しなかった");
+      assert.equal((await readMeta(created.sessionId, dir)).notify, true);
     } finally {
       await offline.close();
     }

@@ -40,7 +40,7 @@ export function createPinnedToggleRunner(deps: PinnedToggleDeps): PinnedToggleRu
     toggle(sessionId, current, spaceId): void {
       if (!sessionId || !deps.isCurrentSpace(spaceId)) return;
       const key = keyOf(spaceId, sessionId);
-      if (!confirmed.has(key)) confirmed.set(key, current);
+      if (!chains.has(key) || !confirmed.has(key)) confirmed.set(key, current);
       const token = (seq += 1);
       latest.set(key, token);
       const next = !current;

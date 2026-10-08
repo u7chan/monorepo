@@ -71,6 +71,30 @@ test("保存失敗は理由を出し、確定済みの状態へ戻す", async ()
   assert.equal((errors[0] as Error).message, "保存に失敗しました");
 });
 
+test("保留中の要求が無いときは一覧で取得した他ブラウザの値を失敗時に復元する", async () => {
+  const pending = pendingRequests();
+  const applied: boolean[] = [];
+  const runner = createPinnedToggleRunner({
+    request: pending.request,
+    apply: (_id, pinned) => applied.push(pinned),
+    isCurrentSpace: () => true,
+    onError: () => {},
+  });
+
+  runner.toggle("s-1", false, "space-a");
+  await pending.flush();
+  pending.gates[0]!.resolve(true);
+  await pending.flush();
+
+  // 一覧取得で別ブラウザの解除 (false) が反映されてから再度固定し、保存を失敗させる。
+  runner.toggle("s-1", false, "space-a");
+  await pending.flush();
+  pending.gates[1]!.reject(new Error("保存に失敗しました"));
+  await pending.flush();
+
+  assert.deepEqual(applied, [true, true, true, false]);
+});
+
 test("別スペースへ切り替えた後に届く応答は一覧へ適用しない", async () => {
   const pending = pendingRequests();
   const applied: [string, boolean, string][] = [];
