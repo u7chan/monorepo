@@ -141,7 +141,7 @@ test("平文の注意は既定で畳み、1 行の要点を出す", () => {
     /<summary[^>]*>[\s\S]*キーは平文で保存されます。ログインがないため公開しないでください。[\s\S]*<\/summary>/,
     "畳んだ 1 行にキーの保存と公開の注意を出す",
   );
-  assert.equal(html.includes("<details open"), false, "既定は畳む");
+  assert.doesNotMatch(html, /<details\b[^>]*\sopen(?:[\s=>])/, "既定は畳む");
   assert.ok(html.includes("登録したキーはアプリのデータベース（SQLite）へ平文で保存され"), "展開で元の本文を読める");
 });
 

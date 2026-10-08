@@ -372,7 +372,7 @@ test("プロバイダータブは一覧と詳細を分け、平文の注意を�
     /<summary[^>]*>[\s\S]*キーとメモは平文で保存されます。ログインがないため公開しないでください。[\s\S]*<\/summary>/,
     "畳んだ 1 行にキー・メモの保存と公開の注意を出す",
   );
-  assert.equal(html.includes("<details open"), false, "平文の注意は既定で畳む");
+  assert.doesNotMatch(html, /<details\b[^>]*\sopen(?:[\s=>])/, "平文の注意は既定で畳む");
   assert.ok(html.includes("BFF をインターネットや LAN へ公開しないでください"), "展開で公開しない注意を読める");
   assert.ok(html.includes("キーの有効性は保存時に確認しません"));
   assert.ok(html.includes("キーを保存して「モデルを選ぶ」タブに戻ると"));

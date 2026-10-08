@@ -119,7 +119,7 @@ test("データの流れと、無効でもツールが残ることを既定で�
     /<summary[^>]*>[\s\S]*web_search ツールの実行時にだけ、クエリは Exa（mcp.exa.ai）へ送信されます。[\s\S]*<\/summary>/,
     "畳んだ 1 行に送信先を出す",
   );
-  assert.equal(html.includes("<details open"), false, "既定は畳む");
+  assert.doesNotMatch(html, /<details\b[^>]*\sopen(?:[\s=>])/, "既定は畳む");
   assert.ok(html.includes("web_search ツールを実行したときだけ"), "実行したときだけ送ることを書く");
   assert.ok(html.includes("モデル（LLM プロバイダー）へ渡ります"));
   assert.ok(html.includes("BFF をインターネットや LAN へ公開しないでください"));
