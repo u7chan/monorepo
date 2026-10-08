@@ -31,7 +31,7 @@
    - 対象は `content` だけで、`details` は掛からない。`details` から DTO を作る導出値（`ask_user` の質問 / 回答）は、載せる前に `run-events` / `session-projection` 側で個別にマスクする
    - ユーザーが `ask_user` の回答に登録済みの秘密値を書くと、モデルにも `[REDACTED]` が届く（回答では作業を続けられない。既知の制限）
 4. **BFF の送出層（`server/src/sessions.ts` / `server/src/run-events.ts`）**
-   - SSE / イベントログへ出すテキスト（text delta、メッセージ、ツール引数・出力、`tool_progress` の進捗本文、エラー、プロンプトのエコー、タイトル）を防御的にマスクする
+   - SSE / イベントログへ出すテキスト（text delta、メッセージ、ツール引数・出力、`tool_progress` の進捗本文、エラー、プロンプトのエコー、タイトル）を防御的にマスクする。`tool_progress` は累積スナップショットとして扱い、末尾の不完全な秘密値もこの層で保留する（[subagent.md](subagent.md#進捗)）
    - アシスタントの差分は `createStreamingSecretMasker` で配信前に「秘密値の前方一致になり得る末尾」を保留し、チャンク境界をまたぐキーが複数回の配信から復元できないようにする。保留分は `message_end`（アシスタント確定時）と `finish()`（完了・エラー・中断のいすれでも）でフラッシュする
 
 ## 切り詰め境界への対応

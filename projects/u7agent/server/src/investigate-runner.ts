@@ -158,7 +158,12 @@ function createProgressEmitter(
     pending = undefined;
     lastAt = now();
     if (!next || !onProgress) return;
-    onProgress({ activity: masker.maskSafe(next.activity), text: tailText(masker.maskSafe(next.text)) });
+    // 累積原文の末尾を本文上限で切る前に保留する。切った後では、生成途中の秘密値が先頭を失った
+    // 中間の断片になり、完全一致でも先頭部分一致でも検出できなくなる (maskAccumulated)
+    onProgress({
+      activity: masker.maskSafe(next.activity),
+      text: tailText(masker.maskSafe(masker.maskAccumulated(next.text))),
+    });
   };
 
   return {
