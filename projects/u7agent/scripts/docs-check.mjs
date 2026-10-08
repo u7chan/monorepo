@@ -64,7 +64,7 @@ function collectMarkdown(target) {
   });
 }
 
-/** GitHub の見出しアンカー。記号を落として空白を hyphen にし、日本語はそのまま残す。 */
+/** GitHub の見出しアンカー。記号を落として空白を hyphen にし、日本語はそのまま残す。同名の見出しは GitHub と同じく `-1` の連番を付ける。 */
 function slugify(heading) {
   return heading
     .trim()
@@ -76,9 +76,14 @@ function slugify(heading) {
 
 function headingsOf(file) {
   const slugs = new Set();
+  const seen = new Map();
   for (const line of readFileSync(file, "utf8").split("\n")) {
     const match = /^#{1,6}\s+(.*)$/.exec(line);
-    if (match) slugs.add(slugify(match[1]));
+    if (!match) continue;
+    const base = slugify(match[1]);
+    const count = seen.get(base) ?? 0;
+    seen.set(base, count + 1);
+    slugs.add(count === 0 ? base : `${base}-${count}`);
   }
   return slugs;
 }
@@ -97,11 +102,18 @@ function proseOf(text) {
     .replace(/`[^`\n]*`/g, "");
 }
 
+/**
+ * リンクの参照先。title (`[t](url "title")`) と angle (`[t](<url with space>)`) も GitHub の記法として通す。
+ * ここを狭めると、その形式で書いたリンクが無検査で残る。
+ */
+const linkPattern = /\[[^\]]*\]\(\s*(<[^>]+>|[^\s)]+)(?:\s+(?:"[^"]*"|'[^']*'|\([^)]*\)))?\s*\)/g;
+
 function checkFile(file) {
   const text = readFileSync(file, "utf8");
   const shown = relative(root, file);
 
-  for (const [, target] of proseOf(text).matchAll(/\[[^\]]*\]\(([^)\s]+)\)/g)) {
+  for (const [, raw] of proseOf(text).matchAll(linkPattern)) {
+    const target = raw.startsWith("<") ? raw.slice(1, -1) : raw;
     if (/^[a-z][a-z0-9+.-]*:/i.test(target) || target.startsWith("/")) continue;
     const [path, anchor] = target.split("#");
     const resolved = path === "" ? file : resolve(dirname(file), path);
