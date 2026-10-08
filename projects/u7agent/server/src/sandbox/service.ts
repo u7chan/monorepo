@@ -61,8 +61,7 @@ import {
   isValidEntryName,
   parseArchiveExcludeQuery,
   parseRecursiveQuery,
-  rawImageContentType,
-  rawMediaContentType,
+  rawContentType,
   RECURSIVE_QUERY_ERROR,
   type SandboxCreateDirRequestBody,
   type SandboxDownloadCheck,
@@ -695,6 +694,45 @@ export function parseInjectedEnv(value: unknown): Record<string, string> | undef
   return Object.keys(env).length > 0 ? env : undefined;
 }
 
+/**
+ * `Range` ヘッダの解釈結果。`none` はレンジ指定なしとして扱う (応答は 200)。構文的に不正な値と
+ * `bytes` 以外の単位、複数レンジは解釈しない (RFC 9110 はレンジを無視した 200 を許す)。
+ */
+type ByteRange = { kind: "none" } | { kind: "unsatisfiable" } | { kind: "satisfiable"; start: number; end: number };
+
+/** 桁だけの数字を size (100 MiB 以下) と比較できる整数へ読む。先頭の 0 を落としても 16 桁以上ある値は size より必ず大きい。 */
+function byteIndex(text: string): number {
+  const digits = text.replace(/^0+/, "");
+  return digits.length > 15 ? Number.MAX_SAFE_INTEGER : Number(digits);
+}
+
+/**
+ * 単一の `bytes=` レンジだけを解釈する (マルチパート / 複数レンジは対象外)。416 は「範囲として
+ * 解釈できて満たせない」ときだけ返すため、先頭 > 末尾などの構文不正は none に倒す。end は inclusive。
+ */
+function parseByteRange(header: string | undefined, size: number): ByteRange {
+  if (header === undefined) return { kind: "none" };
+  const match = /^bytes=(\d*)-(\d*)$/.exec(header.trim());
+  if (!match) return { kind: "none" };
+  const [, firstText, lastText] = match;
+  if (firstText === "" && lastText === "") return { kind: "none" };
+  if (firstText === "") {
+    // `bytes=-N` は末尾 N バイト。表現より長い要求は全体を使い、空の範囲 (N = 0) と 0 バイトは満たせない
+    const suffix = byteIndex(lastText);
+    if (suffix === 0 || size === 0) return { kind: "unsatisfiable" };
+    return { kind: "satisfiable", start: Math.max(size - suffix, 0), end: size - 1 };
+  }
+  const start = byteIndex(firstText);
+  if (lastText === "") {
+    if (start >= size) return { kind: "unsatisfiable" };
+    return { kind: "satisfiable", start, end: size - 1 };
+  }
+  const end = byteIndex(lastText);
+  if (start > end) return { kind: "none" };
+  if (start >= size) return { kind: "unsatisfiable" };
+  return { kind: "satisfiable", start, end: Math.min(end, size - 1) };
+}
+
 /** listen は呼び出し側 (@hono/node-server) が行い、テストは app.request() で検証する。 */
 export function createSandboxService(options: SandboxServiceOptions): SandboxService {
   const token = options.token;
@@ -1026,10 +1064,10 @@ export function createSandboxService(options: SandboxServiceOptions): SandboxSer
     }
   });
 
-  // 画像と音声をストリームで返す。BFF は Content-Type / 長さ / no-store / nosniff を付け直して配る
+  // 画像と音声をストリームで返す。BFF は status / Content-Type / 長さ / Range 系ヘッダ / no-store / nosniff を付け直して配る
   app.get("/v1/files/raw", async (c) => {
     const requested = c.req.query("path") ?? "";
-    const contentType = rawImageContentType(requested) ?? rawMediaContentType(requested);
+    const contentType = rawContentType(requested);
     if (!contentType) return c.json({ error: `Not a servable file: ${requested}` }, 400);
     try {
       const { target } = await resolveWorkspaceDirectory(rootCwd, requested, false);
@@ -1037,11 +1075,38 @@ export function createSandboxService(options: SandboxServiceOptions): SandboxSer
       if (stats.size > maxUploadBytes) {
         return c.json({ error: `File is too large (max ${maxUploadBytes} bytes)` }, 413);
       }
+      const range = parseByteRange(c.req.header("range"), stats.size);
+      if (range.kind === "unsatisfiable") {
+        // 416 の Content-Range は「全体の長さ」を表す (bytes */<size>)
+        return c.json({ error: "Range is not satisfiable" }, 416, {
+          "Content-Range": `bytes */${stats.size}`,
+          "Accept-Ranges": "bytes",
+        });
+      }
+      if (range.kind === "satisfiable") {
+        return new Response(
+          Readable.toWeb(
+            createReadStream(target, { start: range.start, end: range.end }),
+          ) as ReadableStream<Uint8Array>,
+          {
+            status: 206,
+            headers: {
+              "Content-Type": contentType,
+              "Content-Length": String(range.end - range.start + 1),
+              "Content-Range": `bytes ${range.start}-${range.end}/${stats.size}`,
+              "Accept-Ranges": "bytes",
+              "Cache-Control": "no-store",
+              "X-Content-Type-Options": "nosniff",
+            },
+          },
+        );
+      }
       return new Response(Readable.toWeb(createReadStream(target)) as ReadableStream<Uint8Array>, {
         status: 200,
         headers: {
           "Content-Type": contentType,
           "Content-Length": String(stats.size),
+          "Accept-Ranges": "bytes",
           "Cache-Control": "no-store",
           "X-Content-Type-Options": "nosniff",
         },

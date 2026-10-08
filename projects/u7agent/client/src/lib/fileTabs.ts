@@ -3,7 +3,7 @@
  * 取得と描画は FilePreview が担う。キーは fileTree と同じページ root 相対パス。
  */
 
-import { isImageName } from "./attachments";
+import { isAudioName, isImageName } from "./attachments";
 import { isHtmlPath, isMarkdownPath } from "./fileCode";
 
 /**
@@ -19,13 +19,15 @@ export type PreviewMode = "source" | "preview";
 export type PreviewModes = Record<string, PreviewMode>;
 
 /**
- * タブの表示モード。既定は HTML (iframe)・Markdown (`MarkdownView`)・画像 (raw の `<img>`) がプレビューで、
+ * タブの表示モード。既定は HTML (iframe)・Markdown (`MarkdownView`)・画像 (raw の `<img>`)・音声 (raw の `<audio>`) がプレビューで、
  * 他の拡張子はソース。本文と同じく own property だけを見る (`constructor` や `__proto__` のような名前のパスを
  * 「選択済み」と誤認しないため)。
  */
 export function previewModeFor(modes: PreviewModes, path: string): PreviewMode {
   const mode = Object.hasOwn(modes, path) ? modes[path] : undefined;
-  return mode ?? (isHtmlPath(path) || isMarkdownPath(path) || isImageName(path) ? "preview" : "source");
+  return (
+    mode ?? (isHtmlPath(path) || isMarkdownPath(path) || isImageName(path) || isAudioName(path) ? "preview" : "source")
+  );
 }
 
 /** 表示モードを選び直す。computed key で書く (own property になり、`__proto__` でもプロトタイプを書き換えない) */

@@ -35,6 +35,8 @@ function stubFiles(
   renamed: Array<{ path: string; name: string }>;
   previewed: string[];
   raw: string[];
+  /** rawFile へ中継した `Range` (ヘッダ無しは undefined) */
+  rawRanges: Array<string | undefined>;
 } {
   const paths: string[] = [];
   const gitPaths: string[] = [];
@@ -43,6 +45,7 @@ function stubFiles(
   const renamed: Array<{ path: string; name: string }> = [];
   const previewed: string[] = [];
   const raw: string[] = [];
+  const rawRanges: Array<string | undefined> = [];
   return {
     paths,
     gitPaths,
@@ -51,6 +54,7 @@ function stubFiles(
     renamed,
     previewed,
     raw,
+    rawRanges,
     workspace: {
       previewFile: async (path: string) => {
         previewed.push(path);
@@ -82,9 +86,10 @@ function stubFiles(
       },
       // アップロードはこのテストでは扱わない
       uploadFile: async ({ name }) => ({ path: `uploads/${name}`, name, renamed: false, size: 0 }),
-      rawFile: async (path: string) => {
+      rawFile: async (path: string, options?: { range?: string }) => {
         raw.push(path);
-        return { contentType: "image/png", body: null };
+        rawRanges.push(options?.range);
+        return { status: 200, contentType: "image/png", body: null };
       },
       // ダウンロードは BFF の中継を file-download.test.ts で見る
       downloadEntry: async () => ({ contentType: "application/zip", contentDisposition: "attachment", body: null }),
@@ -219,14 +224,17 @@ test("GET /api/files/html without a path is a JSON 404, not an HTML document", a
 });
 
 test("GET /api/files/html/<path> serves images from the sandbox raw path", async () => {
-  const { workspace, previewed, raw } = stubFiles();
+  const { workspace, previewed, raw, rawRanges } = stubFiles();
   const bff = await createBffApp({ cwd: "/tmp/project", sessionStoreDir: null, pi: null, workspace });
   try {
-    workspace.rawFile = async (path) => {
+    workspace.rawFile = async (path, options) => {
       raw.push(path);
+      rawRanges.push(options?.range);
       return {
+        status: 200,
         contentType: "image/png",
         contentLength: 3,
+        acceptRanges: "bytes",
         body: new Blob([new Uint8Array([1, 2, 3])]).stream(),
       };
     };
@@ -234,12 +242,14 @@ test("GET /api/files/html/<path> serves images from the sandbox raw path", async
     assert.equal(response.status, 200);
     assert.equal(response.headers.get("Content-Type"), "image/png");
     assert.equal(response.headers.get("Content-Length"), "3");
+    assert.equal(response.headers.get("Accept-Ranges"), "bytes");
     assert.equal(response.headers.get("Cache-Control"), "no-store");
     assert.equal(response.headers.get("X-Content-Type-Options"), "nosniff");
     // 文書だけに CSP を当てる (画像はサブリソース)
     assert.equal(response.headers.get("Content-Security-Policy"), null);
     assert.deepEqual(new Uint8Array(await response.arrayBuffer()), new Uint8Array([1, 2, 3]));
     assert.deepEqual(raw, ["dir/cat.PNG"]);
+    assert.deepEqual(rawRanges, [undefined], "Range が無い要求でレンジを送っている");
     assert.deepEqual(previewed, [], "画像を preview 経路で読んでいる");
   } finally {
     await bff.close();
@@ -247,14 +257,17 @@ test("GET /api/files/html/<path> serves images from the sandbox raw path", async
 });
 
 test("GET /api/files/html/<path> serves audio from the sandbox raw path", async () => {
-  const { workspace, previewed, raw } = stubFiles();
+  const { workspace, previewed, raw, rawRanges } = stubFiles();
   const bff = await createBffApp({ cwd: "/tmp/project", sessionStoreDir: null, pi: null, workspace });
   try {
-    workspace.rawFile = async (path) => {
+    workspace.rawFile = async (path, options) => {
       raw.push(path);
+      rawRanges.push(options?.range);
       return {
+        status: 200,
         contentType: "audio/mpeg",
         contentLength: 4,
+        acceptRanges: "bytes",
         body: new Blob([new Uint8Array([1, 2, 3, 4])]).stream(),
       };
     };
@@ -285,7 +298,7 @@ test("GET /api/files/html/<path> accepts every allowlisted audio extension and m
   try {
     workspace.rawFile = async (path) => {
       raw.push(path);
-      return { contentType: "audio/mpeg", body: new Blob([new Uint8Array([1])]).stream() };
+      return { status: 200, contentType: "audio/mpeg", body: new Blob([new Uint8Array([1])]).stream() };
     };
     const paths = [
       "assets/bgm.mp3",
@@ -306,16 +319,91 @@ test("GET /api/files/html/<path> accepts every allowlisted audio extension and m
   }
 });
 
-test("GET /api/files/raw keeps serving images only and rejects audio", async () => {
-  const { workspace, raw } = stubFiles();
+test("GET /api/files/raw serves audio and rejects non-allowlisted extensions", async () => {
+  const { workspace, raw, rawRanges } = stubFiles();
   const bff = await createBffApp({ cwd: "/tmp/project", sessionStoreDir: null, pi: null, workspace });
   try {
-    for (const path of ["assets/bgm.mp3", "assets/voice.oga", "assets/page.html", "assets/vector.svg"]) {
-      const response = await bff.app.request(`/api/files/raw?path=${encodeURIComponent(path)}`);
-      assert.equal(response.status, 400, path);
-      assert.match((await jsonBody(response)).error, /^Not a servable image: /, path);
+    workspace.rawFile = async (path, options) => {
+      raw.push(path);
+      rawRanges.push(options?.range);
+      return {
+        status: 200,
+        contentType: "audio/mpeg",
+        contentLength: 4,
+        acceptRanges: "bytes",
+        body: new Blob([new Uint8Array([1, 2, 3, 4])]).stream(),
+      };
+    };
+    const response = await bff.app.request("/api/files/raw?path=assets%2Fbgm.mp3");
+    assert.equal(response.status, 200);
+    assert.equal(response.headers.get("Content-Type"), "audio/mpeg");
+    assert.equal(response.headers.get("Content-Length"), "4");
+    assert.equal(response.headers.get("Accept-Ranges"), "bytes");
+    assert.equal(response.headers.get("Cache-Control"), "no-store");
+    assert.equal(response.headers.get("X-Content-Type-Options"), "nosniff");
+    assert.deepEqual(new Uint8Array(await response.arrayBuffer()), new Uint8Array([1, 2, 3, 4]));
+    assert.deepEqual(raw, ["assets/bgm.mp3"]);
+
+    for (const path of ["assets/page.html", "assets/vector.svg", "assets/movie.mp4", "assets/notes.txt"]) {
+      const rejected = await bff.app.request(`/api/files/raw?path=${encodeURIComponent(path)}`);
+      assert.equal(rejected.status, 400, path);
+      assert.match((await jsonBody(rejected)).error, /^Not a servable file: /, path);
     }
-    assert.deepEqual(raw, [], "配信対象外の拡張子をサンドボックスへ読ませている");
+    assert.deepEqual(raw, ["assets/bgm.mp3"], "配信対象外の拡張子をサンドボックスへ読ませている");
+  } finally {
+    await bff.close();
+  }
+});
+
+test("GET /api/files/raw relays the range status and headers from the sandbox", async () => {
+  const { workspace, raw, rawRanges } = stubFiles();
+  const bff = await createBffApp({ cwd: "/tmp/project", sessionStoreDir: null, pi: null, workspace });
+  try {
+    workspace.rawFile = async (path, options) => {
+      raw.push(path);
+      rawRanges.push(options?.range);
+      return {
+        status: 206,
+        contentType: "audio/mpeg",
+        contentLength: 2,
+        contentRange: "bytes 1-2/4",
+        acceptRanges: "bytes",
+        body: new Blob([new Uint8Array([2, 3])]).stream(),
+      };
+    };
+    const partial = await bff.app.request("/api/files/raw?path=assets%2Fbgm.mp3", {
+      headers: { Range: "bytes=1-2" },
+    });
+    assert.equal(partial.status, 206);
+    assert.equal(partial.headers.get("Content-Type"), "audio/mpeg");
+    assert.equal(partial.headers.get("Content-Length"), "2");
+    assert.equal(partial.headers.get("Content-Range"), "bytes 1-2/4");
+    assert.equal(partial.headers.get("Accept-Ranges"), "bytes");
+    assert.equal(partial.headers.get("Cache-Control"), "no-store");
+    assert.deepEqual(new Uint8Array(await partial.arrayBuffer()), new Uint8Array([2, 3]));
+
+    // 416 も例外にせず、Content-Range (全体の長さ) を中継する
+    const notSatisfiable = JSON.stringify({ error: "Range is not satisfiable" });
+    workspace.rawFile = async (path, options) => {
+      raw.push(path);
+      rawRanges.push(options?.range);
+      return {
+        status: 416,
+        contentType: "application/json",
+        contentLength: notSatisfiable.length,
+        contentRange: "bytes */4",
+        acceptRanges: "bytes",
+        body: new Blob([notSatisfiable]).stream(),
+      };
+    };
+    const unsatisfiable = await bff.app.request("/api/files/raw?path=assets%2Fbgm.mp3", {
+      headers: { Range: "bytes=9-" },
+    });
+    assert.equal(unsatisfiable.status, 416);
+    assert.equal(unsatisfiable.headers.get("Content-Range"), "bytes */4");
+    assert.deepEqual(await jsonBody(unsatisfiable), { error: "Range is not satisfiable" });
+    // Range ヘッダをそのままサンドボックスへ中継している (両方の要求で 1 回ずつ)
+    assert.deepEqual(rawRanges, ["bytes=1-2", "bytes=9-"]);
   } finally {
     await bff.close();
   }

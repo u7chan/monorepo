@@ -16,12 +16,7 @@ import {
   GitInfoSchema,
   type RenameFileBody,
 } from "../schema";
-import {
-  parseRecursiveQuery,
-  rawImageContentType,
-  rawMediaContentType,
-  RECURSIVE_QUERY_ERROR,
-} from "../sandbox/protocol";
+import { parseRecursiveQuery, rawContentType, RECURSIVE_QUERY_ERROR } from "../sandbox/protocol";
 import type { SandboxWorkspaceClient } from "../sandbox/client";
 
 /**
@@ -138,15 +133,21 @@ export function createFileRoutes({
     "X-Content-Type-Options": "nosniff",
   };
 
-  /** 画像 / 音声は allowlist を BFF でも見て、それ以外を同一オリジンで配らない (SVG / HTML の XSS 回避)。 */
+  /**
+   * 画像 / 音声の生配信をサンドボックスから中継する。status (200 / 206 / 416) と `Range` 系ヘッダは
+   * サンドボックスが決め、BFF は Content-Type / 長さ / no-store / nosniff を揃えて素通しする。
+   */
   async function serveRawAsset(c: Context, path: string) {
     if (!workspace) return sandboxNotConfigured(c);
     try {
-      const file = await workspace.rawFile(path);
+      const range = c.req.header("Range");
+      const file = await workspace.rawFile(path, range === undefined ? undefined : { range });
       if (!file.body) return c.json({ error: "サンドボックスが本文を返しませんでした" }, 502);
-      return c.body(file.body, 200, {
+      return c.body(file.body, file.status as ContentfulStatusCode, {
         "Content-Type": file.contentType,
         ...(file.contentLength === undefined ? {} : { "Content-Length": String(file.contentLength) }),
+        ...(file.contentRange === undefined ? {} : { "Content-Range": file.contentRange }),
+        ...(file.acceptRanges === undefined ? {} : { "Accept-Ranges": file.acceptRanges }),
         "Cache-Control": "no-store",
         "X-Content-Type-Options": "nosniff",
       });
@@ -155,11 +156,11 @@ export function createFileRoutes({
     }
   }
 
-  /** 画像配信 (`/api/files/raw`、チャットのサムネイル / ファイル画面のプレビュー)。配信対象は画像だけ。 */
-  async function serveRawImage(c: Context, path: string) {
+  /** 生配信 (`/api/files/raw`、チャットのサムネイル / ファイル画面のプレビュー)。配信対象は画像と音声だけ。 */
+  async function serveRawMedia(c: Context, path: string) {
     // 未設定の診断を拡張子より先に返す (パス次第で 400 になると設定不足が分からなくなる)
     if (!workspace) return sandboxNotConfigured(c);
-    if (!rawImageContentType(path)) return c.json({ error: `Not a servable image: ${path}` }, 400);
+    if (!rawContentType(path)) return c.json({ error: `Not a servable file: ${path}` }, 400);
     return serveRawAsset(c, path);
   }
 
@@ -216,8 +217,8 @@ export function createFileRoutes({
       // `:path{.+}` は Hono が 1 回だけ percent decoding する (path に空文字は来ない)
       const path = c.req.param("path") ?? "";
       if (isHtmlDocumentPath(path)) return serveHtmlDocument(c, path);
-      // 音声も raw の経路に相乗りさせる (Content-Length と nosniff を付けて返す。Range / 206 は非対応)
-      if (rawImageContentType(path) || rawMediaContentType(path)) return serveRawAsset(c, path);
+      // 音声も raw の経路に相乗りさせる (Content-Length と nosniff を付けて返す。対応する `Range` は中継する)
+      if (rawContentType(path)) return serveRawAsset(c, path);
       const contentType = previewAssetContentType(path);
       if (!contentType) return c.json({ error: `Not a servable asset: ${path}` }, 400);
       return serveTextAsset(c, path, contentType);
@@ -291,8 +292,8 @@ export function createFileRoutes({
         return sandboxFailure(c, error);
       }
     },
-    /** 画像の生配信 (チャットのサムネイル / ファイル画面のプレビュー)。音声は HTML プレビューのアセット経路だけ。 */
-    raw: async (c: Context) => serveRawImage(c, c.req.query("path") ?? ""),
+    /** 画像 / 音声の生配信 (チャットのサムネイル / ファイル画面のプレビュー)。判定は BFF とサンドボックスの両方で行う。 */
+    raw: async (c: Context) => serveRawMedia(c, c.req.query("path") ?? ""),
     /**
      * ダウンロード (通常ファイルは raw / ディレクトリは ZIP)。本文は JSON に載せず、サンドボックスの
      * ストリームと Content-Type / Content-Disposition / 長さをそのまま中継する。判定はサンドボックスが行う。

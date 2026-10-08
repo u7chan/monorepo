@@ -107,6 +107,21 @@ test("画像は raw URL とサイズを表示し、HTML 用の切替や本文コ
   assert.ok(!html.includes('aria-label="新しいタブで開く"'));
 });
 
+test("音声は raw URL の <audio controls> で再生し、本文の取得もエラー帯も出さない", () => {
+  const html = renderPreview({ paths: ["bgm.mp3"], activePath: "bgm.mp3", previewVersion: 7 });
+  const audio = html.match(/<audio\b[^>]*>/)?.[0];
+  assert.ok(audio, "audio 要素が無い");
+  assert.ok(audio.includes("controls"), "controls が無い");
+  assert.match(audio, /src="[^"]*\/api\/files\/raw\?path=bgm\.mp3[^"]*v=7"/);
+  assert.ok(audio.includes('aria-label="bgm.mp3 のプレビュー"'), "操作名が無い");
+  // 画像と同じく本文を取得しない (取得しないので "読み込み中…" も行数もエラー帯も出ない)
+  assert.ok(!html.includes("読み込み中"), "本文を取得している");
+  assert.ok(!html.includes('role="alert"'));
+  assert.ok(!html.includes("別オリジン"));
+  assert.ok(!html.includes('aria-label="本文をコピー"'));
+  assert.ok(!html.includes('aria-label="新しいタブで開く"'));
+});
+
 test("HTML は HTTP 文書として取得し、srcdoc や blob / data URL で埋め込まない", () => {
   const cases: Partial<FilePreviewProps>[] = [
     {},

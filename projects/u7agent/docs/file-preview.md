@@ -1,10 +1,10 @@
-# ファイルプレビューの表示（行番号 / シンタックスハイライト / HTML・Markdown 描画 / 画像）
+# ファイルプレビューの表示（行番号 / シンタックスハイライト / HTML・Markdown 描画 / 画像・音声）
 
-ファイル画面（`FileTreePage` / `SessionFilesPanel` / スキル設定のファイルタブ → `FileBrowser` → `FilePreview`）の本文は、`GET /api/files/preview` で取得したプレーンテキストを表示用に整えて出す。HTML は `GET /api/files/html/<root 相対>` を iframe で描画し、Markdown は同じ本文をチャットと共通の `MarkdownView` で描画し、画像は `GET /api/files/raw` を `<img>` で読む。整形は `client/src/lib/fileCode.ts` の純関数、Markdown の相対パスは `client/src/lib/markdownAsset.ts`、タブと表示モードは `client/src/lib/fileTabs.ts`、描画は `client/src/components/FilePreview.tsx` が担う。タブと本文のキャッシュは [api.md](api.md#テキストプレビュー) を参照する。
+ファイル画面（`FileTreePage` / `SessionFilesPanel` / スキル設定のファイルタブ → `FileBrowser` → `FilePreview`）の本文は、`GET /api/files/preview` で取得したプレーンテキストを表示用に整えて出す。HTML は `GET /api/files/html/<root 相対>` を iframe で描画し、Markdown は同じ本文をチャットと共通の `MarkdownView` で描画し、画像 / 音声は `GET /api/files/raw` を `<img>` / `<audio>` で読む。整形は `client/src/lib/fileCode.ts` の純関数、Markdown の相対パスは `client/src/lib/markdownAsset.ts`、タブと表示モードは `client/src/lib/fileTabs.ts`、描画は `client/src/components/FilePreview.tsx` が担う。タブと本文のキャッシュは [api.md](api.md#テキストプレビュー) を参照する。
 
 ## 原則
 
-1. **ソース表示の転送はプレーンテキストのまま**: 行番号も色も表示側の都合で、API / DTO / サンドボックスは変えない。Markdown も取得したテキストをクライアントだけで描画する（サーバーに整形を持たせない）。HTML は別ルートの応答を iframe で描画し、画像は raw の応答を `<img>` で読む（原則 5）。
+1. **ソース表示の転送はプレーンテキストのまま**: 行番号も色も表示側の都合で、API / DTO / サンドボックスは変えない。Markdown も取得したテキストをクライアントだけで描画する（サーバーに整形を持たせない）。HTML は別ルートの応答を iframe で描画し、画像 / 音声は raw の応答を `<img>` / `<audio>` で読む（原則 5）。
 2. **外部ライブラリを足さない**: 色付けはチャット本文と同じ `lib/markdown/highlight.ts` のトークナイザを使う（対応言語は [markdown.md](markdown.md)）。ファイル用の別実装を持たない。
 3. **DOM 文字列を作らない**: `innerHTML` / `dangerouslySetInnerHTML` / インライン `style` を使わない（本番の CSP は `style-src 'self'`）。行番号もクラスと CSS だけで出す。`client/test/filePreviewSafety.test.ts` の限定的な安全性検査で補助する（[検査範囲](testing.md#残す限定的な検査)）。
 4. **行番号と本文を 1 対 1 にする**: 番号の列は本文と同じ行送りで重ね、行数は本文から数える。ブラウザーの末尾改行の扱いに依存させない。
@@ -104,7 +104,7 @@ FilePreview                 取得した本文をタブごとに保持（表示�
 
 - 文書以外は CSP を付けず、Content-Type と `nosniff` で守る。`.svg` と HTML はアセットとして配らない（同一オリジンでスクリプトを動かさない）。動画 / フォントは対象外
 - アセットの上限はテキストが 2 MiB（UTF-8）、画像 / 音声の raw が 100 MiB。超える `.js` / `.css` は 400、100 MiB 超の画像 / 音声は 413 になり、プレビューから読めない
-- 音声は raw のストリームをそのまま返す（`Range` / 206 は返さないので、シークで未バッファ位置へ飛ぶと全体を取り直す）
+- 音声は raw のストリームをそのまま返す（単一の `Range` / 206 / 416 を中継するので、シークで未バッファ位置へ飛んでも全体を取り直さない。契約は [api.md](api.md#画像配信raw)）
 - `.json` は CSP に `connect-src` が無いため、現状のプレビュー内から読む手段が無い（`fetch` も classic script も不可）
 - path はクライアントがセグメント単位で percent encoding する（`client/src/lib/fileUrl.ts`）。Hono 側（`:path{.+}`）は 1 回だけ decode する。文書 / アセット / エラー文書の分岐と応答ヘッダ（`Cache-Control: no-store` / `X-Content-Type-Options: nosniff`）は 2 つのオリジンで同じで、CORS ヘッダは付けない
 - プレビュー オリジンは認証を持たない（アプリと同じ）。待受は env `PI_FILE_PREVIEW_LISTEN_PORT`（既定 4318）で、ポート使用中は BFF の起動が止まる（`scripts/dev.mjs` も同じ値の空きを先に確認する）。**待受とブラウザから見た値は独立で、ずれると iframe は繋がらない**ため、`pnpm dev` は `PI_FILE_PREVIEW_PORT` を正として両方を揃える（待受 env しか無いときはその値へ寄せる）
@@ -212,6 +212,15 @@ HTML プレビューのパス行のアイコンボタンで、描画中の文書
 - 寸法は表示中のタブのものだけを出す（読み込み結果をパスと一緒に持ち、タブを切り替えたら前のタブの値を使わない）。メタは `shrink-0` で、幅が足りないぶんはパンくずの横スクロールが吸収する（compact も同じ 1 行）
 - 表示モードの切替は画像には出さない（ソース表示はバイナリなので意味が無い）。本文を取得しないので、コピーボタンも出さない
 - 失敗したとき（404 / 400 / 画像以外の配信拒否）はブラウザーの読み込み失敗表示になる（`alt` は `<パス> のプレビュー`）。テキスト / HTML のようなアプリ側のエラー文言は出さない（タブは勝手に閉じない。`<img>` に `onError` を持たせるのは別 Issue）
+
+## 音声プレビュー
+
+音声（`mp3` / `m4a` / `ogg` / `oga` / `wav` / `flac`）の既定モードもプレビューで、画像と同じく `GET /api/files/raw` の URL を `<audio controls>` の src にする（[api.md](api.md#画像配信raw)）。`GET /api/files/preview` はバイナリを 400 で拒否するため呼ばない。判定は `client/src/lib/attachments.ts` の `isAudioName` で、画像の allowlist とは別に持つ（添付のアップロード制限と混ぜないため）。
+
+- **`skipFetch` に音声を含める**。含めないと `<audio>` の上に本文取得のエラー帯（`result?.error && !skipFetch`）が出る。画像と同じく本文を取得しないので、「読み込み中…」も行数もコピーボタンも出さない
+- src は画像と同じ `fileRawUrl(fetchPath, previewVersion)`。再生 / シークの要求はブラウザーが `Range` を付けて送り、サーバーが単一レンジを 206 で返す。再生位置・音量・再生速度は保存しない（タブを閉じても再開位置を持たない）
+- ソース / プレビューの切替は出さない（バイナリのソース表示に意味が無い）。パス行のメタも出さず、再生時間 / ビットレートは取得しない
+- 再生できる形式はブラウザーのコーデックに依る（`flac` / `ogg` は環境により差が出る）。配信は allowlist にある限り 200 / 206 を返すため、再生できない形式は操作の失敗としてブラウザー側に出る（形式ごとに配信を絞る判断は未実施）
 
 ## 画面と root
 
@@ -492,9 +501,9 @@ assistant 本文のインラインコードが指すファイルを、右パネ�
 | --- | --- |
 | `client/test/fileCode.test.ts` | 拡張子の言語判定 / 正規化・行数・コピー本文 / 上限での fallback / HTML・Markdown の判定 / 例外を投げない |
 | `client/test/filePreviewSafety.test.ts` | ソース本文の HTML 挿入・HTML パース・インライン style の禁止（限定的なソース走査） |
-| `client/test/fileTabs.test.ts` | 表示モードの既定（HTML と Markdown と画像だけプレビュー）/ 表示モードと配信元の選択の保持と破棄（配信元の既定は別オリジン = ストレージ有効）/ タブの開閉と上限 / ディレクトリ配下のタブの一括削除（接頭辞境界と繰り上がり）/ リネームの経路の張り替え（並び・表示中の保持、配下、重複の排除、表示モードと配信元）/ 保存値からの復元（表示中の繰り上がりと上限） |
+| `client/test/fileTabs.test.ts` | 表示モードの既定（HTML と Markdown と画像と音声だけプレビュー）/ 表示モードと配信元の選択の保持と破棄（配信元の既定は別オリジン = ストレージ有効）/ タブの開閉と上限 / ディレクトリ配下のタブの一括削除（接頭辞境界と繰り上がり）/ リネームの経路の張り替え（並び・表示中の保持、配下、重複の排除、表示モードと配信元）/ 保存値からの復元（表示中の繰り上がりと上限） |
 | `client/test/toggleSwitch.test.ts` | 名前付きの role=switch / aria-checked / disabled / 実 handler の状態反転 |
-| `client/test/filePreviewStorageMode.test.ts` | HTML の sandbox・配信元・切替の公開状態とポート未取得時の隔離 / srcdoc・blob・data 文書の禁止 / 別タブの noopener と操作名 / 画像の raw URL・メタ・HTML 用操作の非表示（SSR） |
+| `client/test/filePreviewStorageMode.test.ts` | HTML の sandbox・配信元・切替の公開状態とポート未取得時の隔離 / srcdoc・blob・data 文書の禁止 / 別タブの noopener と操作名 / 画像の raw URL・メタ・HTML 用操作の非表示 / 音声の `<audio controls>`・raw URL・本文を取得しないこと（SSR） |
 | `client/test/filePreviewMarkdown.test.ts` | Markdown のタブの既定（プレビュー）とソース / プレビューの公開状態 / 他拡張子に切替を出さないこと / HTML 用の操作を出さないこと / 描画した本文と dir 基準の画像 URL / 解決できない src の扱い（SSR） |
 | `client/test/markdownAsset.test.ts` | 相対 src の解決（dir 基準 / `.` と空セグメントの畳み方 / `..` の往復と root 外の拒否 / 先頭 `/` / `?`・`#` の除去 / 前後の空白）と、外部 URL・fragment だけの不採用 |
 | `client/test/imageRefresh.test.ts` | 実フックの同一 mount での再描画安定性・run 終了・手動更新 / 実 Markdown と FileBrowser → FilePreview の描画を通した面間・再 mount の URL 非衝突（SSR） |
@@ -517,7 +526,7 @@ assistant 本文のインラインコードが指すファイルを、右パネ�
 | `client/test/chatReducer.test.ts` | `runEndSeq` が `run_end` と `running` を抜けた `resync` でだけ進むこと（同じバッチで届いた `run_start` / `run_end` でも 1 回、新規チャットでも戻らない） |
 | `client/test/route.test.ts` | pathname と画面の対応（大文字・末尾スラッシュ・percent encoding・不正な入力の畳み方）と往復 |
 | `client/test/fileUrl.test.ts` | パスのセグメント単位 encode（`#` / `?` / `%` / `+` / 日本語 / 1 回の decode で戻ること）/ `fileRawUrl` が version 指定時だけ `v` を付け、未指定時の URL を保つこと / `fileHtmlPreviewUrl` がクエリでなくパス形式で組み立てること / `fileStoragePreviewUrl` が hostname + ポートで別オリジンの URL を組み立てること |
-| `server/test/files.test.ts` | HTML プレビューのポリシー定数（段階ごとの CSP / `connect-src` なし / リスナーごとの sandbox 段）/ `GET /api/files/html/<path>` の文書・画像・音声・テキストアセット・400 の分岐と percent decoding（音声は raw・テキストは preview の使い分けと動画 / フォントの 400 を含む）/ ヘッダ（CSP / `no-store` / `nosniff`）/ `previewApp` の storage 有効 CSP（文書は HTML・アセットは CSP 無しの JSON）とマウント範囲（HTML プレビュー ルートだけ）/ `GET /api/files/raw` が音声を 400 で拒むこと / 文書は HTML・アセットは JSON のエラー写像 / `DELETE /api/files` の委譲（`recursive=true` は `deleteDirectory`）と 204・`recursive` の検証・エラー写像 / `POST /api/files/rename` の委譲と body 検証・エラー写像（409 の透過を含む）・契約外の応答の 502 |
+| `server/test/files.test.ts` | HTML プレビューのポリシー定数（段階ごとの CSP / `connect-src` なし / リスナーごとの sandbox 段）/ `GET /api/files/html/<path>` の文書・画像・音声・テキストアセット・400 の分岐と percent decoding（音声は raw・テキストは preview の使い分けと動画 / フォントの 400 を含む）/ ヘッダ（CSP / `no-store` / `nosniff`）/ `previewApp` の storage 有効 CSP（文書は HTML・アセットは CSP 無しの JSON）とマウント範囲（HTML プレビュー ルートだけ）/ `GET /api/files/raw` が画像と音声を配り、`.svg` / `.html` / 動画 / テキストを 400 で拒むこと / `Range` の status・`Content-Range`・`Accept-Ranges` の中継（206 と 416）/ 文書は HTML・アセットは JSON のエラー写像 / `DELETE /api/files` の委譲（`recursive=true` は `deleteDirectory`）と 204・`recursive` の検証・エラー写像 / `POST /api/files/rename` の委譲と body 検証・エラー写像（409 の透過を含む）・契約外の応答の 502 |
 | `server/test/file-preview-port.test.ts` | プレビュー オリジンのポート解決（待受とブラウザから見た値の既定はどちらも 4318 / 未設定は既定 / 1〜65535 の整数 / 不正値は throw して指定した env を名指しする / `pnpm dev` 用の統一（`PI_FILE_PREVIEW_PORT` が正・待受 env しか無いときはその値へ寄せる・空白だけは未設定）） |
 | `server/test/dev-file-preview-port.test.ts` | `pnpm dev` が解決した 1 つの値を待受の空き確認と BFF の両 env（`PI_FILE_PREVIEW_PORT` / `PI_FILE_PREVIEW_LISTEN_PORT`）へ渡し、既定ポートを直書きしないこと（ソース走査） |
 | `server/test/archive-rules.test.ts` | 既定の除外名（再生成物 / ビルド成果物 / `vendor` などを入れない）/ 上書きの解決（空配列は全解除・trim と重複の除去・呼び出し側の変更から既定を守る）/ 正規化（trim / 空落とし / 先勝ちの重複 / 順序と大文字小文字の保持）/ 検証（`.`・`..`・区切り・制御文字・200 文字超・100 件超）/ `GET /api/health` が実効値を返すこと |
@@ -526,7 +535,7 @@ assistant 本文のインラインコードが指すファイルを、右パネ�
 | `server/test/sandbox-archive.test.ts` | `GET /v1/files/download` と `/check`（zip の中身と除外 / skipped の内容 / `exclude` の省略 = 既定と空値のみ = 除外なし / 繰り返しの一覧 / 不正名と 100 件超の 400 / 除外名のディレクトリの 400 / symlink の 400 と配下 symlink の除外 / 単体ファイルの生配信とヘッダ / root の zip / 空ディレクトリ / 末尾スラッシュ / 404・root 外 400・`..` の 400 / 上限 413 / 認証） |
 | `server/test/file-download.test.ts` | BFF の `GET /api/files/download` と `/check`（ストリーム中継とヘッダ / `Content-Disposition` の透過 / `Content-Length` の有無 / 設定ストアの実効値を `exclude` の繰り返しで渡すこと（未設定 = 既定 / 明示空 = 空のまま）/ 400・404・413・502・503 の写像 / 契約外の check 応答の 502） |
 | `server/test/sandbox-delete-dir.test.ts` | `DELETE /v1/dirs`（`recursive` の解釈 / 空ディレクトリ / 非空の 400 と部分削除なし / 配下ごとの削除と接頭辞境界 / パス形式と root 外・不存在・非ディレクトリ・symlink の 400・404 / 配下 symlink のリンクだけの削除 / 一覧上限外の子 / `__proto__` / 認証） |
-| `server/test/sandbox-client.test.ts` | NDJSON / JSON 経路の写像と、`deleteDirectory` が `DELETE /v1/dirs?recursive=true` を呼び 204 の本文を読まないこと / `renameEntry` が `POST /v1/files/rename` を呼び、409 を文言ごと透過すること |
+| `server/test/sandbox-client.test.ts` | NDJSON / JSON 経路の写像と、`deleteDirectory` が `DELETE /v1/dirs?recursive=true` を呼び 204 の本文を読まないこと / `renameEntry` が `POST /v1/files/rename` を呼び、409 を文言ごと透過すること / `rawFile` が `Range` を付けて送り status・`Content-Range`・`Accept-Ranges` を中継すること（416 は例外にしない） |
 | `server/test/sandbox-rename.test.ts` | `POST /v1/files/rename`（ファイル / ディレクトリの改名と応答パス / 大文字小文字だけの変更 / 同名 409 と変更なし / 不正な名前・パス形式の 400 / 不存在 404 / root 外 400 / symlink の 400 とリンク先の維持・symlink への上書きの 409 / symlink ディレクトリ経由 / 認証） |
 | `server/test/static.test.ts` | SPA フォールバック（拡張子なしの画面 URL / `/api`・`/assets` の境界 / `Accept` / 未ビルド 503）と、アプリ CSP の `frame-src`（`'self'` + プレビュー オリジンのポート） |
 

@@ -50,7 +50,7 @@ function recordingWorkspace() {
     deleteFile: async () => {},
     deleteDirectory: async () => {},
     uploadFile: async ({ name }) => ({ path: name, name, renamed: false, size: 0 }),
-    rawFile: async () => ({ contentType: "image/png", body: null }),
+    rawFile: async () => ({ status: 200, contentType: "image/png", body: null }),
     downloadEntry: async (_path: string, excludeNames: readonly string[]) => {
       excludes.push([...excludeNames]);
       return {

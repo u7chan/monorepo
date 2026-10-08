@@ -72,11 +72,20 @@ export interface SandboxExecuteResult {
   details?: unknown;
 }
 
-/** raw 配信の応答。BFF はヘッダを付け直してストリームをそのまま流す。 */
+/** raw 配信の応答。BFF は status / ヘッダを付け直してストリームをそのまま流す。 */
 export interface SandboxRawFile {
+  /** 200 (全体) / 206 (部分) / 416 (範囲を満たせない)。416 も `Content-Range` を中継するため例外にしない */
+  status: number;
   contentType: string;
   contentLength?: number;
+  contentRange?: string;
+  acceptRanges?: string;
   body: ReadableStream<Uint8Array> | null;
+}
+
+/** raw 配信へ中継する要求条件。range は BFF が受けた `Range` ヘッダをそのまま渡す。 */
+export interface SandboxRawFileOptions {
+  range?: string;
 }
 
 /** ダウンロードの応答。ファイル名はサンドボックスが決め、BFF は Content-Disposition ごと中継する。 */
@@ -125,7 +134,7 @@ export function createSandboxToolClient(options: SandboxToolClientOptions): Sand
     deleteFile: (path) => deleteFile(path, baseUrl, token, fetchImpl),
     deleteDirectory: (path) => deleteDirectory(path, baseUrl, token, fetchImpl),
     uploadFile: (input) => uploadFile(input, baseUrl, token, fetchImpl),
-    rawFile: (path) => rawFile(path, baseUrl, token, fetchImpl),
+    rawFile: (path, options) => rawFile(path, options, baseUrl, token, fetchImpl),
     downloadEntry: (path, excludeNames) => downloadEntry(path, excludeNames, baseUrl, token, fetchImpl),
     checkDownload: (path, excludeNames) => checkDownload(path, excludeNames, baseUrl, token, fetchImpl),
   };
@@ -157,7 +166,7 @@ export interface SandboxToolClient extends SandboxRuntimeDiagnostics {
   /** 配下ごとのディレクトリ削除 (recursive はサンドボックスが true 固定で受ける) */
   deleteDirectory(path: string): Promise<void>;
   uploadFile(input: SandboxUploadInput): Promise<SandboxFileUpload>;
-  rawFile(path: string): Promise<SandboxRawFile>;
+  rawFile(path: string, options?: SandboxRawFileOptions): Promise<SandboxRawFile>;
   /** 通常ファイルは生配信、ディレクトリは ZIP。保存名と `Content-Disposition` はサンドボックスが決める */
   downloadEntry(path: string, excludeNames: readonly string[]): Promise<SandboxDownloadFile>;
   /** download と同じ走査の見積り（除外名 / 合計サイズ / エントリ数）。上限超過は 413 で拒否される */
@@ -384,19 +393,33 @@ async function deleteDirectory(path: string, baseUrl: string, token: string, fet
   if (!response.ok) throw await jsonError(response, "ディレクトリを削除できませんでした");
 }
 
-/** 画像 / 音声の生配信。4xx (不正パス・不存在・上限超過) は文言ごと透過する。 */
-async function rawFile(path: string, baseUrl: string, token: string, fetchImpl: typeof fetch): Promise<SandboxRawFile> {
+/**
+ * 画像 / 音声の生配信。range を渡すとサンドボックスが単一レンジを解釈して 206 / 416 を返す。
+ * 4xx (不正パス・不存在・上限超過) は文言ごと透過するが、416 は `Content-Range` を中継したいので例外にしない。
+ */
+async function rawFile(
+  path: string,
+  options: SandboxRawFileOptions | undefined,
+  baseUrl: string,
+  token: string,
+  fetchImpl: typeof fetch,
+): Promise<SandboxRawFile> {
   const response = await fetchJson(
     fetchImpl,
     `${baseUrl}/v1/files/raw?path=${encodeURIComponent(path)}`,
-    { headers: jsonHeaders(token) },
+    { headers: { ...jsonHeaders(token), ...(options?.range === undefined ? {} : { Range: options.range }) } },
     baseUrl,
   );
-  if (!response.ok) throw await rawError(response, "ファイルを配信できませんでした");
+  if (!response.ok && response.status !== 416) throw await rawError(response, "ファイルを配信できませんでした");
   const contentLength = Number.parseInt(response.headers.get("content-length") ?? "", 10);
+  const contentRange = response.headers.get("content-range");
+  const acceptRanges = response.headers.get("accept-ranges");
   return {
+    status: response.status,
     contentType: response.headers.get("content-type") ?? "application/octet-stream",
     ...(Number.isFinite(contentLength) ? { contentLength } : {}),
+    ...(contentRange === null ? {} : { contentRange }),
+    ...(acceptRanges === null ? {} : { acceptRanges }),
     body: response.body,
   };
 }

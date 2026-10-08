@@ -143,7 +143,7 @@ test("閉じたタブの本文だけを捨てる", () => {
   assert.equal(dropClosedPreviews(results, ["a.txt", "dir/b.txt"]), results);
 });
 
-test("表示モードの既定は HTML と Markdown と画像だけプレビュー", () => {
+test("表示モードの既定は HTML と Markdown と画像と音声だけプレビュー", () => {
   const modes = {};
   assert.equal(previewModeFor(modes, "a.html"), "preview");
   assert.equal(previewModeFor(modes, "dir/b.htm"), "preview");
@@ -155,6 +155,12 @@ test("表示モードの既定は HTML と Markdown と画像だけプレビュ�
   assert.equal(previewModeFor(modes, "photo.png"), "preview");
   assert.equal(previewModeFor(modes, "dir/logo.JPEG"), "preview");
   assert.equal(previewModeFor(modes, "icon.ico"), "preview");
+  // 音声も raw の <audio> で再生するためプレビューが既定 (画像と同じ扱い)
+  assert.equal(previewModeFor(modes, "bgm.mp3"), "preview");
+  assert.equal(previewModeFor(modes, "dir/voice.OGG"), "preview");
+  assert.equal(previewModeFor(modes, "clip.flac"), "preview");
+  // 音声以外のバイナリ (動画) はソース表示のまま
+  assert.equal(previewModeFor(modes, "movie.mp4"), "source");
   assert.equal(previewModeFor(modes, "a.svg"), "source");
   assert.equal(previewModeFor(modes, "a.ts"), "source");
   assert.equal(previewModeFor(modes, "a.xhtml"), "source");

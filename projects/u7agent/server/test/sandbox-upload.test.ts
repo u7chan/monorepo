@@ -154,6 +154,7 @@ test("raw streams allowlisted images and audio with their type and length", asyn
     assert.equal(image.status, 200);
     assert.equal(image.headers.get("content-type"), "image/png");
     assert.equal(image.headers.get("content-length"), String(png.byteLength));
+    assert.equal(image.headers.get("accept-ranges"), "bytes");
     assert.equal(image.headers.get("cache-control"), "no-store");
     assert.equal(image.headers.get("x-content-type-options"), "nosniff");
     assert.deepEqual(Buffer.from(await image.arrayBuffer()), png);
@@ -162,9 +163,134 @@ test("raw streams allowlisted images and audio with their type and length", asyn
     assert.equal(audio.status, 200);
     assert.equal(audio.headers.get("content-type"), "audio/mpeg");
     assert.equal(audio.headers.get("content-length"), String(mp3.byteLength));
+    assert.equal(audio.headers.get("accept-ranges"), "bytes");
     assert.equal(audio.headers.get("cache-control"), "no-store");
     assert.equal(audio.headers.get("x-content-type-options"), "nosniff");
     assert.deepEqual(Buffer.from(await audio.arrayBuffer()), mp3);
+  } finally {
+    service.close();
+  }
+});
+
+/** range 付きの raw 要求。応答本文はバイト列で返す (音声も画像も同じ経路)。 */
+async function rawRange(
+  app: App,
+  path: string,
+  range: string,
+): Promise<{ status: number; contentRange: string | null; bytes: Buffer }> {
+  const response = await app.request(`/v1/files/raw?path=${encodeURIComponent(path)}`, {
+    headers: { ...authHeaders(), Range: range },
+  });
+  return {
+    status: response.status,
+    contentRange: response.headers.get("content-range"),
+    bytes: Buffer.from(await response.arrayBuffer()),
+  };
+}
+
+test("raw serves a single byte range with 206 and Content-Range", async () => {
+  const root = await makeRoot("raw-range");
+  const service = createSandboxService({ token: TOKEN, rootCwd: root });
+  try {
+    await mkdir(join(root, "uploads"), { recursive: true });
+    await writeFile(join(root, "uploads", "clip.mp3"), Buffer.from("abcdefgh"));
+
+    // 先頭 / 中間 / 末尾開放 / 末尾 N バイト / 末尾を超える end は、
+    // 実在する範囲へ丸めて 206 と `bytes <start>-<end>/<size>` を返す
+    const cases: Array<[string, string, string]> = [
+      ["bytes=0-1", "bytes 0-1/8", "ab"],
+      ["bytes=2-5", "bytes 2-5/8", "cdef"],
+      ["bytes=5-", "bytes 5-7/8", "fgh"],
+      ["bytes=-3", "bytes 5-7/8", "fgh"],
+      ["bytes=-100", "bytes 0-7/8", "abcdefgh"],
+      ["bytes=6-100", "bytes 6-7/8", "gh"],
+      ["bytes=0-0", "bytes 0-0/8", "a"],
+      // 先頭の 0 は無視し、桁が大きくても size と比較できる (16 桁以上は size より大きい)
+      ["bytes=0000000000000000000002-3", "bytes 2-3/8", "cd"],
+      ["bytes=0-999999999999999999999999", "bytes 0-7/8", "abcdefgh"],
+    ];
+    for (const [range, contentRange, expected] of cases) {
+      const response = await service.app.request("/v1/files/raw?path=uploads%2Fclip.mp3", {
+        headers: { ...authHeaders(), Range: range },
+      });
+      assert.equal(response.status, 206, range);
+      assert.equal(response.headers.get("content-range"), contentRange, range);
+      assert.equal(response.headers.get("accept-ranges"), "bytes", range);
+      assert.equal(response.headers.get("content-type"), "audio/mpeg", range);
+      assert.equal(response.headers.get("content-length"), String(Buffer.byteLength(expected)), range);
+      assert.equal(response.headers.get("cache-control"), "no-store", range);
+      assert.equal(response.headers.get("x-content-type-options"), "nosniff", range);
+      assert.equal(Buffer.from(await response.arrayBuffer()).toString(), expected, range);
+    }
+
+    // 画像も同じ経路で部分取得できる
+    await writeFile(join(root, "uploads", "icon.png"), Buffer.from([1, 2, 3, 4]));
+    const image = await service.app.request("/v1/files/raw?path=uploads%2Ficon.png", {
+      headers: { ...authHeaders(), Range: "bytes=1-2" },
+    });
+    assert.equal(image.status, 206);
+    assert.equal(image.headers.get("content-range"), "bytes 1-2/4");
+    assert.equal(image.headers.get("content-type"), "image/png");
+    assert.deepEqual(Buffer.from(await image.arrayBuffer()), Buffer.from([2, 3]));
+  } finally {
+    service.close();
+  }
+});
+
+test("raw answers 416 only when the range cannot be satisfied", async () => {
+  const root = await makeRoot("raw-range-416");
+  const service = createSandboxService({ token: TOKEN, rootCwd: root });
+  try {
+    await mkdir(join(root, "uploads"), { recursive: true });
+    await writeFile(join(root, "uploads", "clip.mp3"), Buffer.from("abcdefgh"));
+    await writeFile(join(root, "uploads", "empty.wav"), Buffer.alloc(0));
+
+    for (const range of ["bytes=8-", "bytes=100-200", "bytes=-0", "bytes=99999999999999999999-"]) {
+      const response = await rawRange(service.app, "uploads/clip.mp3", range);
+      assert.equal(response.status, 416, range);
+      // 416 は「全体の長さ」を Content-Range で伝える (ブラウザーはこれで分割を取り直す)
+      assert.equal(response.contentRange, "bytes */8", range);
+    }
+    // 0 バイトのファイルはどの範囲も満たせない
+    const empty = await rawRange(service.app, "uploads/empty.wav", "bytes=0-");
+    assert.equal(empty.status, 416);
+    assert.equal(empty.contentRange, "bytes */0");
+    // Range 無しの 0 バイトは従来どおり 200
+    const whole = await service.app.request("/v1/files/raw?path=uploads%2Fempty.wav", { headers: authHeaders() });
+    assert.equal(whole.status, 200);
+    assert.equal(whole.headers.get("content-length"), "0");
+  } finally {
+    service.close();
+  }
+});
+
+test("raw ignores a Range it cannot interpret and answers 200", async () => {
+  const root = await makeRoot("raw-range-ignore");
+  const service = createSandboxService({ token: TOKEN, rootCwd: root });
+  try {
+    await mkdir(join(root, "uploads"), { recursive: true });
+    await writeFile(join(root, "uploads", "clip.mp3"), Buffer.from("abcdefgh"));
+
+    // 構文不正 (先頭 > 末尾 / 空 / 数字以外)・複数レンジ・bytes 以外の単位は、レンジ指定なしに倒す
+    const cases = [
+      "bytes=5-4",
+      "bytes=",
+      "bytes=-",
+      "bytes=abc",
+      "bytes=0-1-2",
+      "bytes=0-1,3-4",
+      "items=0-1",
+      "bytes = 0-1",
+    ];
+    for (const range of cases) {
+      const response = await service.app.request("/v1/files/raw?path=uploads%2Fclip.mp3", {
+        headers: { ...authHeaders(), Range: range },
+      });
+      assert.equal(response.status, 200, range);
+      assert.equal(response.headers.get("content-range"), null, range);
+      assert.equal(response.headers.get("accept-ranges"), "bytes", range);
+      assert.equal(Buffer.from(await response.arrayBuffer()).toString(), "abcdefgh", range);
+    }
   } finally {
     service.close();
   }

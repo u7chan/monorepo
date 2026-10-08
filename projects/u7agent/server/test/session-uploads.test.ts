@@ -34,6 +34,7 @@ function stubWorkspace() {
   const uploads: UploadCall[] = [];
   const rawPaths: string[] = [];
   let rawResult: () => Promise<Awaited<ReturnType<SandboxWorkspaceClient["rawFile"]>>> = async () => ({
+    status: 200,
     contentType: "image/png",
     contentLength: 5,
     body: new Response("image").body,
@@ -322,7 +323,7 @@ test("GET /api/files/raw passes sandbox errors through and answers 502 for conne
       throw new SandboxRequestError("サンドボックス (http://sbx) に接続できません", 502);
     });
     assert.equal((await bff.app.request("/api/files/raw?path=uploads%2Fx.png")).status, 502);
-    setRawResult(async () => ({ contentType: "image/png", body: null }));
+    setRawResult(async () => ({ status: 200, contentType: "image/png", body: null }));
     assert.equal((await bff.app.request("/api/files/raw?path=uploads%2Fx.png")).status, 502);
   } finally {
     await bff.close();
@@ -426,7 +427,7 @@ test("an oversize upload is rejected by the sandbox stream limit as 413", async 
   }
 });
 
-test("uploaded images are servable and other extensions are not", async () => {
+test("uploaded images and audio are servable and other extensions are not", async () => {
   const root = await mkdtemp(join(tmpdir(), "pi-sbx-e2e-raw-"));
   const { bff, close } = await appWithRealSandbox({ rootCwd: root });
   try {
@@ -434,8 +435,19 @@ test("uploaded images are servable and other extensions are not", async () => {
     await writeFile(join(root, ".u7agent", "uploads", "note.txt"), "text");
     await writeFile(join(root, ".u7agent", "uploads", "bgm.mp3"), Buffer.from([0x49, 0x44, 0x33]));
     assert.equal((await bff.app.request("/api/files/raw?path=.u7agent%2Fuploads%2Fnote.txt")).status, 400);
-    // 音声を配るのは HTML プレビューのアセット経路だけで、公開 raw は画像専用のまま
-    assert.equal((await bff.app.request("/api/files/raw?path=.u7agent%2Fuploads%2Fbgm.mp3")).status, 400);
+    // 公開 raw も画像 + 音声を配る (音声のプレビューがここを使う)
+    const audio = await bff.app.request("/api/files/raw?path=.u7agent%2Fuploads%2Fbgm.mp3");
+    assert.equal(audio.status, 200);
+    assert.equal(audio.headers.get("content-type"), "audio/mpeg");
+    assert.equal(audio.headers.get("accept-ranges"), "bytes");
+    // Range は BFF からサンドボックスまで中継され、部分取得になる (シークの要求)
+    const partial = await bff.app.request("/api/files/raw?path=.u7agent%2Fuploads%2Fbgm.mp3", {
+      headers: { Range: "bytes=1-2" },
+    });
+    assert.equal(partial.status, 206);
+    assert.equal(partial.headers.get("content-range"), "bytes 1-2/3");
+    assert.equal(partial.headers.get("content-length"), "2");
+    assert.deepEqual(Buffer.from(await partial.arrayBuffer()), Buffer.from([0x44, 0x33]));
     assert.equal((await bff.app.request("/api/files/raw?path=.u7agent%2Fuploads%2Fmissing.png")).status, 404);
   } finally {
     await close();

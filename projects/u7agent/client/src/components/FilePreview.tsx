@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent, type Ref } from "react";
 import { fileHtmlPreviewUrl, fileRawUrl, fileStoragePreviewUrl, getFilePreview } from "../api";
 import { useMessageCopy } from "../hooks/useMessageCopy";
-import { isImageName } from "../lib/attachments";
+import { isAudioName, isImageName } from "../lib/attachments";
 import { cn } from "../lib/cn";
 import { lineNumbers } from "../lib/codeLines";
 import { buildPreviewCode, isHtmlPath, isMarkdownPath, previewCopyText } from "../lib/fileCode";
@@ -92,12 +92,13 @@ export function FilePreview({
   const errorHint = result?.error ? filePreviewErrorHint(result.error) : undefined;
   const text = result?.text;
   const mode = previewModeFor(modes, activePath);
-  // HTML を描画している間はソースを取得しない (プレビューは iframe が自分で取る)。画像も raw の <img> に任せる。
-  // Markdown は描画側が本文を使うため、プレビューでも取得する (HTML / 画像とはここが違う)
+  // HTML を描画している間はソースを取得しない (プレビューは iframe が自分で取る)。画像 / 音声も raw の
+  // <img> / <audio> に任せる。Markdown は描画側が本文を使うため、プレビューでも取得する (HTML / 画像 / 音声とはここが違う)
   const showHtml = mode === "preview" && isHtmlPath(activePath);
   const showImage = mode === "preview" && isImageName(activePath);
+  const showAudio = mode === "preview" && isAudioName(activePath);
   const showMarkdown = mode === "preview" && isMarkdownPath(activePath);
-  const skipFetch = showHtml || showImage;
+  const skipFetch = showHtml || showImage || showAudio;
   // ストレージ有効モードはブラウザから見たポートが分かってからだけ選べる (client にポートを焼き込まない)
   const storageEnabled = filePreviewPort !== undefined && previewOriginFor(origins, activePath) === "storage";
   const htmlPreviewSrc =
@@ -222,6 +223,16 @@ export function FilePreview({
               })
             }
             className="mx-auto max-h-full max-w-full object-contain"
+          />
+        </div>
+      ) : showAudio ? (
+        // 再生とシークはブラウザの操作に任せ、再生位置は保存しない。src は画像と同じ版付きの raw URL
+        <div className="min-h-0 flex-1 overflow-auto p-4">
+          <audio
+            controls
+            src={fileRawUrl(fetchPath, previewVersion)}
+            aria-label={`${fetchPath} のプレビュー`}
+            className="w-full"
           />
         </div>
       ) : showHtml ? (

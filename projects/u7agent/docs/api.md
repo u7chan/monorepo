@@ -270,7 +270,7 @@ iframe の src になる HTML 文書と、その文書が相対参照するア�
 | --- | --- |
 | `.html` / `.htm` | HTML 文書（UTF-8、2 MiB 以下）。CSP + `sandbox` 付きの `text/html` |
 | 画像（`png` / `jpg` / `jpeg` / `gif` / `webp` / `avif` / `bmp` / `ico`） | `GET /v1/files/raw` を流用した生配信（100 MiB 以下） |
-| 音声（`mp3` / `m4a` / `ogg` / `oga` / `wav` / `flac`） | 画像と同じ raw の生配信（100 MiB 以下） |
+| 音声（`mp3` / `m4a` / `ogg` / `oga` / `wav` / `flac`） | 画像と同じ raw の生配信（100 MiB 以下。`Range` / 206 / 416 も同じ契約） |
 | `.js` / `.mjs` / `.css` / `.json` / `.txt` | `GET /v1/files/preview` を流用した UTF-8 テキスト（2 MiB 以下） |
 | それ以外（`.svg` を含む） | 400 `Not a servable asset: <path>` |
 | パスなし（`/api/files/html`、`/api/files/html/`） | 404（HTML 文書は返さない） |
@@ -279,7 +279,7 @@ iframe の src になる HTML 文書と、その文書が相対参照するア�
 - テキストアセットも同じ `workspace.previewFile()` を通るため、バイナリ・UTF-8 として不正なバイト列・上限超過・ディレクトリ・root 外は 400、実在しない場合は 404（サンドボックス側の文言をそのまま返す）。画像 / 音声は raw の経路で `Content-Type` / `Content-Length` / `no-store` / `nosniff` を付けて返す
 - 文書以外には CSP を付けず、拡張子から決めた Content-Type と `nosniff` で守る。`.svg` / HTML をアセットとして配らない（CSP の無い応答を同一オリジンで動かさない。この方針はプレビュー オリジンでも同じ）。動画 / フォントは対象外
 - アセットの上限はテキスト（`.js` / `.mjs` / `.css` / `.json` / `.txt`）が 2 MiB、画像 / 音声の raw が 100 MiB。超えるテキストは 400、超える画像 / 音声は 413 でプレビューから読めない。`<script type="module">` はアプリ オリジン（オペーク）では CORS ヘッダが無いため読めず、プレビュー オリジンでは同じルートが `'self'` になるため読める
-- 音声も画像と同じ生配信で、`Range` / 206 は返さない（シークのたびに全体を取り直す）
+- 音声も画像と同じ生配信で、単一の `Range` を解釈して 206 / 416 を返す（シークで未バッファ位置へ飛んでも全体を取り直さない。契約は[画像配信（raw）](#画像配信raw)）
 - 400 / 404: テキストプレビューと同じ分類。502: サンドボックスへ到達できない / 認証失敗 / 契約外の応答（BFF が zod で検証して弾く）。503: `PI_SANDBOX_URL` / `PI_SANDBOX_TOKEN` が未設定
 
 iframe の中身は応答ヘッダと iframe 属性の両方で隔離する（親の CSP を継承させないために別ルートにする）。CSP は `server/src/routes/files.ts` の `HTML_PREVIEW_POLICY` 1 箇所から導出し、既定は Lv2（相対アセットの `'self'` と `https:`）。
@@ -298,18 +298,20 @@ Content-Security-Policy: sandbox allow-scripts; default-src 'none'; style-src 'u
 
 | メソッド | パス | 説明 |
 | --- | --- | --- |
-| GET | `/api/files/raw?path=<root 相対>` | 画像の生配信（チャットの添付サムネイル・ファイル画面のプレビュー） |
+| GET | `/api/files/raw?path=<root 相対>` | 画像 / 音声の生配信（チャットの添付サムネイル・ファイル画面のプレビュー） |
 
-サンドボックスの `GET /v1/files/raw` に委譲し、応答をそのままストリームで返す。配信するのは画像だけで、allowlist は `png` / `jpg` / `jpeg` / `gif` / `webp` / `avif` / `bmp` / `ico`（SVG / HTML は同一オリジンでスクリプトが動くため配信しない）。判定は BFF とサンドボックスの両方で行う。**音声を配るのは `GET /api/files/html/<path>` のアセット経路だけで、この公開 raw は画像専用のまま**（内部 `GET /v1/files/raw` は画像 + 音声を受け付ける。サンドボックス側の一覧は [sandbox-api.md](sandbox-api.md#get-v1filesraw)）。
+サンドボックスの `GET /v1/files/raw` に委譲し、status と `Range` 系ヘッダを含めて応答をそのままストリームで返す。配信するのは画像（`png` / `jpg` / `jpeg` / `gif` / `webp` / `avif` / `bmp` / `ico`）と音声（`mp3` / `m4a` / `ogg` / `oga` / `wav` / `flac`）で、SVG / HTML は同一オリジンでスクリプトが動くため配信しない。判定は BFF とサンドボックスの両方で行う。**節の見出しはアンカー（`#画像配信raw`）を保つために据え置き**で、音声を含むようになったのは本文だけ（[sandbox-api.md](sandbox-api.md#get-v1filesraw)）。
 
-- 200: 本文 + `Content-Type`（拡張子から決める）/ `Content-Length` / `Cache-Control: no-store` / `X-Content-Type-Options: nosniff`
-- 400 / 404 / 413: allowlist 外（`Not a servable image: …`）/ 未作成・root 外 / 上限（100 MiB）超過。サンドボックス側の文言をそのまま返す。**413 の文言は `File is too large (max … bytes)`**（内部 raw が画像 + 音声の一般文言になったのに追随する）
+- 200: 本文 + `Content-Type`（拡張子から決める）/ `Content-Length` / `Accept-Ranges: bytes` / `Cache-Control: no-store` / `X-Content-Type-Options: nosniff`
+- 206: 単一の `Range`（`bytes=<start>-<end>` / `bytes=<start>-` / `bytes=-<suffix>`）を満たした部分本文 + `Content-Range: bytes <start>-<end>/<size>` / `Content-Length`（部分の長さ）/ `Accept-Ranges: bytes`。マルチパート / 複数レンジは対象外で、解釈できない `Range`（構文不正・`bytes` 以外の単位・複数レンジ）は無視して 200 を返す（RFC 9110）
+- 416: 範囲として解釈できて満たせないときだけ（`bytes=100-` や 0 バイトへの `bytes=0-`、`bytes=-0`）+ `Content-Range: bytes */<size>`。本文は JSON のエラー
+- 400 / 404 / 413: allowlist 外（`Not a servable file: …`）/ 未作成・root 外 / 上限（100 MiB）超過。サンドボックス側の文言をそのまま返す。**413 の文言は `File is too large (max … bytes)`**
 - 502: サンドボックスへ到達できない / 認証失敗 / 本文が無い
 - 503: `PI_SANDBOX_URL` / `PI_SANDBOX_TOKEN` が未設定
 
-クライアントは `client/src/api.ts` の `fileRawUrl(path, version?)` で URL を組み立て、`<img>` の src に使う（取得はブラウザに任せ、本文は JSON に載せない）。version を指定したときだけ `&v=<version>` を付け、未指定なら従来の URL のままにする。`v` は同一 document 内の画像キャッシュを避けるためのクライアント側の版で、サーバーは版別の画像を保持せず、常に現在のファイルを返す。
+クライアントは `client/src/api.ts` の `fileRawUrl(path, version?)` で URL を組み立て、`<img>` / `<audio>` の src に使う（取得はブラウザに任せ、本文は JSON に載せない。再生 / シークの要求はブラウザが `Range` を付けて送る）。version を指定したときだけ `&v=<version>` を付け、未指定なら従来の URL のままにする。`v` は同一 document 内の raw キャッシュを避けるためのクライアント側の版で、サーバーは版別のファイルを保持せず、常に現在のファイルを返す。
 
-版は `client/src/hooks/useImageVersion.ts` の document 内で共有する単調な採番から取得する。各面は mount 時と更新トークン変更時だけ新しい版を割り当て、通常の再描画では同じ版を保つ。`runEndSeq` とパネルの手動更新回数は採番の**合図**であり、その数値を直接 `v` に使わない。独立カウンタの数値や mount ごとのゼロ戻りを URL に使うと、別の面や前の mount で取得済みの古い画像と衝突するため。採番は localStorage へ保存しない（新しい document では in-document キャッシュも作り直される）。StrictMode や破棄された描画で番号が飛んでも、再利用しないことを優先する。
+版は `client/src/hooks/useImageVersion.ts` の document 内で共有する単調な採番から取得する。各面は mount 時と更新トークン変更時だけ新しい版を割り当て、通常の再描画では同じ版を保つ。`runEndSeq` とパネルの手動更新回数は採番の**合図**であり、その数値を直接 `v` に使わない。独立カウンタの数値や mount ごとのゼロ戻りを URL に使うと、別の面や前の mount で取得済みの古い応答と衝突するため。採番は localStorage へ保存しない（新しい document では in-document キャッシュも作り直される）。StrictMode や破棄された描画で番号が飛んでも、再利用しないことを優先する。画像と音声は同じ版を共有する（どちらも raw の応答で、同じファイルを差し替えたら両方を取り直す）。
 
 `path` はワークスペース root 相対で、セッションの作業フォルダ配下を表示するときは `fileTreeFetchPath(cwd, path)` で前置する。ファイルプレビューは `reloadToken`、assistant 本文の Markdown 画像は `ChatState.runEndSeq` を更新の合図に使う（[file-preview.md](file-preview.md#画像プレビュー)、[markdown.md](markdown.md#画像の-src-解決)）。添付はアップロードごとの一意名で不変なので、URL に版を付けない。
 

@@ -12,6 +12,12 @@ export const MAX_ATTACHMENT_LABEL = "100 MiB";
 /** raw 配信 (画像プレビュー) に対応する拡張子。SVG は同一オリジンでスクリプトが動くため含めない。 */
 const IMAGE_EXTENSIONS = ["png", "jpg", "jpeg", "gif", "webp", "avif", "bmp", "ico"];
 
+/**
+ * raw 配信 (音声プレビュー) に対応する拡張子。再生できる形式はブラウザのコーデックに依るため、
+ * ここではサーバーの allowlist と同じものを並べる (docs/api.md)。
+ */
+const AUDIO_EXTENSIONS = ["mp3", "m4a", "ogg", "oga", "wav", "flac"];
+
 export type AttachmentStatus = "uploading" | "done" | "error";
 
 export type Attachment = {
@@ -31,12 +37,25 @@ const ATTACHED_FILES_OPEN = "<attached_files>";
 const ATTACHED_FILES_CLOSE = "</attached_files>";
 const ATTACHMENT_LINE_PREFIX = "- ";
 
-/** 拡張子で画像か判定する (内容は見ない。raw 配信の allowlist と同じ規則)。 */
-export function isImageName(name: string): boolean {
+/** パスの最終セグメントの拡張子が一覧にあるか見る (内容は見ない)。拡張子なしとドットファイルは false。 */
+function hasListedExtension(name: string, extensions: readonly string[]): boolean {
   const base = name.slice(name.lastIndexOf("/") + 1);
   const dot = base.lastIndexOf(".");
   if (dot <= 0) return false;
-  return IMAGE_EXTENSIONS.includes(base.slice(dot + 1).toLowerCase());
+  return extensions.includes(base.slice(dot + 1).toLowerCase());
+}
+
+/** 拡張子で画像か判定する (raw 配信の allowlist と同じ規則)。 */
+export function isImageName(name: string): boolean {
+  return hasListedExtension(name, IMAGE_EXTENSIONS);
+}
+
+/**
+ * 拡張子で音声か判定する。`isImageName` と実装は同じでも allowlist は共有しない
+ * (共有すると添付チップのサムネイル表示が音声へ広がり、`isImageName` の意味が変わるため)。
+ */
+export function isAudioName(name: string): boolean {
+  return hasListedExtension(name, AUDIO_EXTENSIONS);
 }
 
 /** チップに出すサイズ表記。KB 以上は小数 1 桁で丸める。 */

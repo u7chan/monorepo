@@ -385,6 +385,78 @@ test("createDir relays sandbox 4xx messages and maps the rest to 502", async () 
 });
 
 // ---------------------------------------------------------------------------
+// rawFile (GET /v1/files/raw。ストリーム中継)
+// ---------------------------------------------------------------------------
+
+test("rawFile relays the status and range headers and sends Range only when it is given", async () => {
+  const { calls, impl } = stubFetch((call) => {
+    const range = (call.init?.headers as Record<string, string> | undefined)?.Range;
+    return new Response(new Uint8Array([2, 3]), {
+      status: range === undefined ? 200 : 206,
+      headers: {
+        "Content-Type": "audio/mpeg",
+        "Content-Length": "2",
+        ...(range === undefined ? {} : { "Content-Range": "bytes 1-2/4" }),
+        "Accept-Ranges": "bytes",
+      },
+    });
+  });
+  const client = createSandboxToolClient({ baseUrl: "http://sandbox.test:8080/", token: TOKEN, fetchImpl: impl });
+  const partial = await client.rawFile("uploads/bgm.mp3", { range: "bytes=1-2" });
+  assert.equal(calls[0].url, "http://sandbox.test:8080/v1/files/raw?path=uploads%2Fbgm.mp3");
+  const partialInit = calls[0].init;
+  assert.ok(partialInit, "fetch が init 付きで呼ばれる");
+  assert.equal((partialInit.headers as Record<string, string>).Range, "bytes=1-2");
+  assert.equal((partialInit.headers as Record<string, string>).Authorization, `Bearer ${TOKEN}`);
+  assert.equal(partial.status, 206);
+  assert.equal(partial.contentType, "audio/mpeg");
+  assert.equal(partial.contentLength, 2);
+  assert.equal(partial.contentRange, "bytes 1-2/4");
+  assert.equal(partial.acceptRanges, "bytes");
+  assert.deepEqual(new Uint8Array(await new Response(partial.body).arrayBuffer()), new Uint8Array([2, 3]));
+
+  const whole = await client.rawFile("uploads/bgm.mp3");
+  assert.equal(whole.status, 200);
+  const wholeInit = calls[1].init;
+  assert.ok(wholeInit, "fetch が init 付きで呼ばれる");
+  assert.equal((wholeInit.headers as Record<string, string>).Range, undefined, "Range が無いのに送っている");
+});
+
+test("rawFile keeps 416 as a response and relays other 4xx messages", async () => {
+  // 416 は Content-Range (全体の長さ) を中継するため例外にしない
+  const notSatisfiable = stubFetch(
+    () =>
+      new Response(JSON.stringify({ error: "Range is not satisfiable" }), {
+        status: 416,
+        headers: { "Content-Type": "application/json", "Content-Range": "bytes */4" },
+      }),
+  ).impl;
+  const client = createSandboxToolClient({ baseUrl: "http://sandbox.test", token: TOKEN, fetchImpl: notSatisfiable });
+  const response = await client.rawFile("uploads/bgm.mp3", { range: "bytes=9-" });
+  assert.equal(response.status, 416);
+  assert.equal(response.contentRange, "bytes */4");
+  assert.deepEqual(await new Response(response.body).json(), { error: "Range is not satisfiable" });
+
+  const missing = createSandboxToolClient({
+    baseUrl: "http://sandbox.test",
+    token: TOKEN,
+    fetchImpl: stubFetch(
+      () =>
+        new Response(JSON.stringify({ error: "Path not found: x" }), {
+          status: 404,
+          headers: { "Content-Type": "application/json" },
+        }),
+    ).impl,
+  });
+  await assert.rejects(missing.rawFile("nope.png"), (error: unknown) => {
+    assert.ok(error instanceof SandboxRequestError);
+    assert.equal(error.status, 404);
+    assert.equal(error.message, "Path not found: x");
+    return true;
+  });
+});
+
+// ---------------------------------------------------------------------------
 // deleteDirectory (DELETE /v1/dirs。JSON 経路)
 // ---------------------------------------------------------------------------
 

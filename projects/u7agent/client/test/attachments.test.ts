@@ -11,6 +11,7 @@ import {
   attachmentsForSend,
   attachmentsForSession,
   formatBytes,
+  isAudioName,
   isImageName,
   splitAttachedFiles,
   type Attachment,
@@ -80,6 +81,18 @@ test("isImageName only accepts the raw-servable extensions", () => {
   for (const name of ["a.svg", "a.html", "a.txt", "noext", ".env", "uploads/.png", "a.png.exe"]) {
     assert.equal(isImageName(name), false, name);
   }
+});
+
+test("isAudioName accepts only the audio extensions and keeps them apart from images", () => {
+  for (const name of ["a.mp3", "song.M4A", "voice.ogg", "voice.oga", "beat.wav", "master.flac"]) {
+    assert.equal(isAudioName(name), true, name);
+  }
+  for (const name of ["a.png", "photo.JPG", "a.mp4", "a.webm", "noext", ".mp3", "uploads/.ogg", "a.mp3.exe"]) {
+    assert.equal(isAudioName(name), false, name);
+  }
+  // 添付アップロードの制限は画像の allowlist のままで、音声を足しても広がらない
+  assert.equal(isImageName("a.mp3"), false);
+  assert.equal(isAudioName("a.png"), false);
 });
 
 test("formatBytes shows a compact size for chips", () => {

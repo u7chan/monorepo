@@ -652,6 +652,13 @@ const FILE_MARKS: Record<FileKind, ReactNode> = {
       <path d="M5.8 11.3l1.9-1.9c.2-.2.52-.2.72 0l1.55 1.55" />
     </>
   ),
+  audio: (
+    <>
+      <path d="M7.35 11.05V7.15l3.3-.75v3.7" />
+      <circle cx="6.6" cy="11.05" r=".75" />
+      <circle cx="9.9" cy="10.3" r=".75" />
+    </>
+  ),
   shell: (
     <>
       <path d="M6.35 7.4 7.6 9.3 6.35 11.2" />
