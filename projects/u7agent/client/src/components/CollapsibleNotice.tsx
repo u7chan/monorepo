@@ -9,7 +9,7 @@ export type CollapsibleNoticeProps = {
 
 /**
  * 常時出す注意書きを既定で畳む箱。開閉の高さは既存の details::details-content が持ち、
- * 対応していないブラウザーでは瞬時に開閉する (docs/frontend.md#折りたたみ)。
+ * 対応していないブラウザーでは瞬時に開閉する (docs/frontend.md#コンポーネントの契約)。
  */
 export function CollapsibleNotice({ summary, children }: CollapsibleNoticeProps) {
   return (

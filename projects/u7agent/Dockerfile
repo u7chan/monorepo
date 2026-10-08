@@ -28,6 +28,11 @@ FROM dependencies AS test
 COPY --from=fd /usr/local/bin/fd /usr/local/bin/fd
 # server のテストがルートの scripts/dev.mjs を読む (dependencies は client/ と server/ しか持たない)
 COPY scripts/dev.mjs ./scripts/dev.mjs
+# docs:check は docs / AGENTS.md / README.md / .env.example のリンクとパスを実ファイルと突き合わせる。
+# 渡さないと検査対象が空になり、docs のリンク切れを見逃したまま test が通る (final へは入れない)。
+COPY docs/ ./docs/
+COPY AGENTS.md README.md .env.example ./
+COPY scripts/docs-check.mjs ./scripts/docs-check.mjs
 ARG COMMIT_HASH=""
 ENV COMMIT_HASH=${COMMIT_HASH}
 RUN pnpm check

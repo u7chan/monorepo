@@ -1,6 +1,19 @@
-# 検証（lint / format）
+# 検証（lint / format / docs）
 
-実装後は `pnpm check`（lint → format:check → 型チェック → テスト → クライアントビルド）を実行する。テストの判断基準と手動受入は [testing.md](testing.md)。
+実装後は `pnpm check`（lint → format:check → docs:check → 型チェック → テスト → クライアントビルド）を実行する。テストの判断基準と手動受入は [testing.md](testing.md)。
+
+## docs
+
+`pnpm docs:check`（`scripts/docs-check.mjs`）。次を検査する。
+
+- `docs/` / `AGENTS.md` / `README.md` の相対リンクの参照先と `#anchor` が実在すること（リンク記法の例示はコード span とコードブロックを除いて判定する）
+- 本文中の `client/src/...` などのパスが実在すること
+- `client/src` / `client/test` / `server/src` / `server/test` のコメントにある `docs/xxx.md#anchor` の参照先が実在すること
+- フロントエンドの docs（`ui-layout.md` / `frontend.md`）が行数予算に収まっていること。予算は現在の実測値の ratchet で、上げるときは diff に出してレビューで合意する
+
+**project root の外を指すリンク（モノレポ全体への参照）は未検査**にする。CI は project 単位のビルドコンテキストでこの script を走らせるため、`../../AGENTS.md` のような参照先が存在せず、検査すると常に失敗する。未検査の件数は結果に出す。
+
+検査しないのは「その文が実装の写像かどうか」で、そこは review で見る（判定式は [AGENTS.md](../AGENTS.md#docs)）。
 
 ## lint
 

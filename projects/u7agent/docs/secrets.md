@@ -124,7 +124,7 @@ SDK はツール出力をいくつかの方法で切り詰める。キーが切�
 
 DB 全体が暗号化されるわけではない。暗号化されるのは今回のシークレットだけで、以下は従来どおり平文である。
 
-- `provider_credentials.apiKey` / `image_settings.apiKey` / `web_search_provider_keys.apiKey`（[model-settings.md](model-settings.md#残存リスク)、[image-generation.md](image-generation.md#キーの扱い)、[web-search.md](web-search.md#設定既定-provider-と-apikey)）
+- `provider_credentials.apiKey` / `image_settings.apiKey` / `web_search_provider_keys.apiKey`（[model-settings.md](model-settings.md#残存リスク)、[image-generation.md](image-generation.md#キーの扱い)、[web-search.md](web-search.md#設定既定-provider-と-apiキー)）
 - `provider_memos.memo`（秘密情報として扱わない人間用メモ。マスカーへも登録しない）
 - `secrets.plaintext`（種別 = 変数）と、変数の値が現れる API 応答（変更フォーム用の詳細）
 
