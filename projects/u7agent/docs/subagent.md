@@ -17,7 +17,7 @@ compaction（[compaction.md](compaction.md)）は会話全体を要約に置き�
 - ツール名を `task` にしないのは、実装も頼めるという誤解をモデルへ与えないため
 - 有効化は常時で、`PI_AGENT_TOOLS` の allowlist には依存させない（`ask_user` と同じ）。実体（host）未注入のときだけ落とす
 - 報告は**子の最後の assistant メッセージ本文**。子のプロンプトで「結論 → 根拠 → 参照ファイル」の順を指示し、実際に読んだファイルのパスを必ず含めさせる
-- `content`（モデルが読む本文）は 4,000 文字で切り詰め、末尾に `…` を付ける（最大 4,001 文字）。会話履歴のカードに出るのは `session-projection.ts` の `SUMMARY_TEXT_MAX`（900 文字）までで、全文を読む導線は無い
+- `content`（モデルが読む本文）は**全文を mask してから** 4,000 文字で切り詰め、末尾に `…` を付ける（最大 4,001 文字）。切り詰めの後では、境界に掛かった秘密値が末尾を欠いた断片になり、後段の maskSafe（完全一致と先頭部分一致）でも検出できない。会話履歴のカードに出るのは `session-projection.ts` の `SUMMARY_TEXT_MAX`（900 文字）までで、全文を読む導線は無い
 - `details` に子のツール実行回数・usage・終了理由（`completed` / `timeout` / `aborted` / `error`）・compaction 回数を載せる。`details` が provider へ渡る前提は置かない（provider 変換は `content` だけを読む）
 - 打ち切り・失敗は **throw せず `isError: true` + `content`（理由 + 部分報告）** で返す。throw すると SDK の `createErrorToolResult` が `details` を空にするため（[ask-user.md](ask-user.md) と同じ理由）。子セッション作成の失敗（モデルが許可リストから外れていた場合の 400 など）も同じ形に変換する
 - 空の `prompt` だけは throw する（残すデータが無く、モデルにやり直させる）
@@ -41,6 +41,7 @@ compaction（[compaction.md](compaction.md)）は会話全体を要約に置き�
 - タイムアウトの既定値は 10 分（`INVESTIGATE_TIMEOUT_MS`）。`createInvestigateToolDefinitions({ timeoutMs })` の getter で `execute()` のたびに解決する。設定 UI / env は持たない
 - `AbortSignal.any([親 run の signal, タイムアウト])` を子 runner へ渡し、`AbortController` + `clearTimeout` でタイマーを execute の間だけ保持する（`AbortSignal.timeout` の 10 分保持を残さない）
 - 親の stop（`POST /stop`）とタイムアウトのどちらでも、そこまでの部分報告を `isError` で返す。理由は「停止しました」/「時間切れで打ち切りました」で、`details.outcome` は `aborted` / `timeout` になる
+- 子自身の失敗（SDK が `prompt()` を resolve しても最後の assistant の `stopReason` が `error` になる provider の失敗や retry 枯渇、`prompt()` の reject）も `isError` + `details.outcome: "error"` にする。`prompt()` の解決だけでは子の成功を判定できない
 - `stop` / `deleteSession` / `close` はいずれも `session.abort()` を通り、ツールの signal が発火するので、子専用の掃除フックは持たない（[ask-user.md](ask-user.md) と同じ扱い）
 
 ## 並列と待ち行列
@@ -63,7 +64,7 @@ compaction（[compaction.md](compaction.md)）は会話全体を要約に置き�
 
 ## mask 規則
 
-- 子の報告は `content` としてインライン拡張（`createSecretRedactionExtension`）を通ってから LLM・履歴・`tool_execution_end` へ渡る
+- 子の報告は `content` としてインライン拡張（`createSecretRedactionExtension`）を通ってから LLM・履歴・`tool_execution_end` へ渡る。ツール自身も切り詰めの前に全文を mask する（[ツール契約](#ツール契約investigate)）
 - `details` はこの拡張の対象外なので、載せる値に文字列を入れない（回数・usage・終了理由だけ）。進捗は runner が `maskSafe` する
 
 ## 残るリスク
@@ -76,5 +77,5 @@ compaction（[compaction.md](compaction.md)）は会話全体を要約に置き�
 
 ## 検証
 
-- `server/test/investigate.test.ts` — ツール契約（引数 / 報告の切り詰めと `details` / `isError` / mask）、タイムアウトと親 stop での部分報告、子セッションの生成条件、進捗の間引きと mask、並列上限 3 と待ち行列、親 stop での待機分の打ち切り、子の過程が親の会話ストアに残らないこと
+- `server/test/investigate.test.ts` — ツール契約（引数 / 報告の切り詰めと `details` / `isError` / mask / 切り詰め境界の秘密値）、タイムアウトと親 stop での部分報告、子の `stopReason: "error"` の失敗、子セッションの生成条件、進捗の間引きと mask、並列上限 3 と待ち行列、親 stop での待機分の打ち切り、子の過程が親の会話ストアに残らないこと
 - `server/test/agents.test.ts` — 子の追加プロンプトと読み取り専用ツールの積

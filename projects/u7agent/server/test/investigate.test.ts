@@ -67,7 +67,15 @@ function runTool(
 }
 
 /** 子セッションを差し替え可能にした runner。作られた子と入力は検証のために残す */
-function createHarness(options: { reply?: string; chunkDelayMs?: number; masker?: SecretMasker } = {}) {
+function createHarness(
+  options: {
+    reply?: string;
+    chunkDelayMs?: number;
+    masker?: SecretMasker;
+    /** 子セッションをテスト側で差し替える (SDK の異常終了などを再現する) */
+    patchSession?: (session: StubSession) => void;
+  } = {},
+) {
   const inputs: InvestigateChildInput[] = [];
   const sessions: StubSession[] = [];
   const runner = createInvestigateRunner({
@@ -79,6 +87,7 @@ function createHarness(options: { reply?: string; chunkDelayMs?: number; masker?
         reply: options.reply ?? "子の報告",
         chunkDelayMs: options.chunkDelayMs ?? 0,
       });
+      options.patchSession?.(session);
       sessions.push(session);
       return session;
     },
@@ -218,6 +227,28 @@ test("報告の秘密値は mask して返す", async () => {
   assert.equal(toolText(result), `トークン: ${REDACTED}`);
 });
 
+test("切り詰めの境界に掛かる秘密値も成功・部分報告の両方で漏らさない", async () => {
+  const secret = "sk-real-long-secret-value";
+  const report = `${"x".repeat(INVESTIGATE_REPORT_MAX - secret.length + 1)}${secret}${"y".repeat(50)}`;
+  const completed = await runTool(
+    { investigate: async () => ({ outcome: "completed", report, toolCalls: 1 }) },
+    "調べて",
+    { masker: createSecretMasker([secret]) },
+  );
+  assert.equal(completed.isError, undefined);
+  assert.ok(!toolText(completed).includes(secret));
+  assert.ok(!toolText(completed).includes(secret.slice(0, 8)));
+  assert.ok(toolText(completed).includes(REDACTED));
+  assert.equal(toolText(completed).length, INVESTIGATE_REPORT_MAX + 1);
+
+  const aborted = await runTool({ investigate: async () => ({ outcome: "aborted", report, toolCalls: 1 }) }, "調べて", {
+    masker: createSecretMasker([secret]),
+  });
+  assert.equal(aborted.isError, true);
+  assert.ok(!toolText(aborted).includes(secret));
+  assert.ok(!toolText(aborted).includes(secret.slice(0, 8)));
+});
+
 test("進捗は onUpdate へ活動と本文をそのまま渡す", async () => {
   const seen: string[] = [];
   await runTool(
@@ -305,14 +336,51 @@ test("進捗は活動と本文末尾だけを間引いて渡し、秘密値を m
   assert.ok(last.text.endsWith(reply.slice(reply.length - 50)));
 });
 
-test("タイムアウトでは子を止め、部分報告と理由を isError で返す", async () => {
-  const { runner, sessions } = createHarness({ reply: "ここまでの調査結果", chunkDelayMs: 1000 });
+test("タイムアウトでは子を止め、受信済みの部分報告と理由を isError で返す", async () => {
+  const partial = "ここまでの調査結果";
+  const { runner, sessions } = createHarness({
+    // 本文を 1 回流したまま解決しない (timeout は本文が届いた後に発火する)
+    patchSession: (session) => {
+      session.prompt = () => {
+        session.isStreaming = true;
+        session.emit({ type: "message_start", message: { role: "assistant" } });
+        session.appendMessage({ role: "assistant", content: [{ type: "text", text: partial }] });
+        session.emit({ type: "message_update", assistantMessageEvent: { type: "text_delta", delta: partial } });
+        return new Promise(() => {});
+      };
+    },
+  });
   const result = await runTool(runnerHost(runner), "調べて", { timeoutMs: 20 });
   assert.equal(result.isError, true);
   assert.match(toolText(result), /時間切れで打ち切りました/);
+  assert.match(toolText(result), new RegExp(partial));
   assert.equal(result.details?.outcome, "timeout");
   assert.equal(sessions.length, 1);
   assert.equal(sessions[0].abortRequested, true);
+});
+
+test("子の最後の assistant が stopReason error なら isError と outcome error を返す", async () => {
+  const { runner } = createHarness({
+    // SDK は provider の失敗や retry 枯渇を最後の assistant の stopReason に載せ、prompt() は resolve する
+    patchSession: (session) => {
+      session.prompt = async () => {
+        session.emit({ type: "message_start", message: { role: "assistant" } });
+        session.appendMessage({
+          role: "assistant",
+          content: [{ type: "text", text: "調査の途中で失敗しました" }],
+          stopReason: "error",
+          errorMessage: "401 unauthorized",
+        });
+        session.emit({ type: "message_end", message: { role: "assistant" } });
+        session.emit({ type: "agent_settled" });
+      };
+    },
+  });
+  const result = await runTool(runnerHost(runner), "調べて");
+  assert.equal(result.isError, true);
+  assert.match(toolText(result), /子エージェントの実行に失敗しました/);
+  assert.match(toolText(result), /調査の途中で失敗しました/);
+  assert.equal(result.details?.outcome, "error");
 });
 
 test("親の stop では子を止め、部分報告と理由を isError で返す", async () => {

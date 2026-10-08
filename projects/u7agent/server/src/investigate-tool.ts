@@ -86,8 +86,16 @@ function messageFor(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-function formatFailure(reason: string, report: string): string {
-  const partial = truncate(report.trim(), INVESTIGATE_REPORT_MAX);
+/**
+ * 報告の本文を作る。先に全文を mask する: 切り詰めてからでは、境界に掛かった秘密値が
+ * 末尾を欠いた断片になり、後段の maskSafe (完全一致と先頭部分一致) でも検出できない。
+ */
+function formatReport(report: string, masker: SecretMasker): string {
+  return truncate(masker.mask(report.trim()), INVESTIGATE_REPORT_MAX);
+}
+
+function formatFailure(reason: string, report: string, masker: SecretMasker): string {
+  const partial = formatReport(report, masker);
   return partial === "" ? `${reason}。報告はありません` : `${reason}。途中までの報告:\n${partial}`;
 }
 
@@ -168,11 +176,18 @@ export function createInvestigateToolDefinitions(options: {
         ...(result.compactions ? { compactions: result.compactions } : {}),
       };
       if (outcome === "completed") {
-        return { content: [{ type: "text", text: truncate(result.report.trim(), INVESTIGATE_REPORT_MAX) }], details };
+        return {
+          content: [{ type: "text", text: formatReport(result.report, options.masker) }],
+          details,
+        };
       }
       const reason =
         outcome === "timeout" ? TIMED_OUT_MESSAGE : outcome === "aborted" ? STOPPED_MESSAGE : FAILED_MESSAGE;
-      return { content: [{ type: "text", text: formatFailure(reason, result.report) }], details, isError: true };
+      return {
+        content: [{ type: "text", text: formatFailure(reason, result.report, options.masker) }],
+        details,
+        isError: true,
+      };
     },
   };
   return [wrapToolDefinitionWithSecretMasker(definition, options.masker)];

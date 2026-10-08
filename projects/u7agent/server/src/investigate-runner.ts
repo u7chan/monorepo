@@ -309,7 +309,9 @@ export function createInvestigateRunner(options: InvestigateRunnerOptions): Inve
         await session.abort().catch(() => {});
         return { outcome: "aborted", report: reportOf(session, streamed), ...counters };
       }
-      if (settled === "failed") {
+      if (settled === "failed" || lastAssistantMessage(session)?.stopReason === "error") {
+        // prompt() の解決は成功を意味しない (SDK は provider の失敗や retry 枯渇を最後の assistant の
+        // stopReason に載せる) ため、解決後も終了理由を確かめてから失敗へ寄せる
         return { outcome: "error", report: reportOf(session, streamed), ...counters };
       }
       return { outcome: "completed", report: reportOf(session, streamed), ...counters };
