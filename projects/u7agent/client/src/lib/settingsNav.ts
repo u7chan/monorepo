@@ -18,17 +18,18 @@ export type SettingsSection =
   | "spaces";
 
 export const SETTINGS_SECTIONS: { section: SettingsSection; label: string }[] = [
+  // 会話を組み立てる設定 (エージェント / スキル / モデル) を先、アプリ全体と見るだけの設定を後に置く
   { section: "spaces", label: "スペース" },
   { section: "agents", label: "エージェント" },
   { section: "skills", label: "スキル" },
+  { section: "models", label: "モデル" },
+  { section: "notifications", label: "通知" },
+  { section: "appearance", label: "外観" },
   { section: "files", label: "ファイル" },
   // ファイルの次に置く (ツリーの行のダウンロード導線と対になる設定のため)
-  { section: "archive", label: "アーカイブ" },
-  { section: "appearance", label: "外観" },
-  // モデルは編集する設定 (プロバイダー認証)、ランタイムは診断だけの表示画面
-  { section: "models", label: "モデル" },
+  { section: "archive", label: "ダウンロード" },
+  // 編集を持たない診断だけの画面なので最後に置く
   { section: "runtime", label: "ランタイム" },
-  { section: "notifications", label: "通知" },
 ];
 
 /**

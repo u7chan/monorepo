@@ -93,7 +93,7 @@ export function AgentSettingsPage({
 
   return (
     <SettingsPageLayout
-      eyebrow="CONFIGURATION"
+      eyebrow="AGENTS"
       title="エージェント"
       caption="会話の役割と、割り当てるスキルを定義します。"
       compact={compact}

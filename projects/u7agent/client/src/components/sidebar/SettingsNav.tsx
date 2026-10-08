@@ -2,10 +2,11 @@ import type { ReactNode } from "react";
 import { SETTINGS_SECTIONS, type SettingsSection, type SidebarMode } from "../../lib/settingsNav";
 import { MenuItem } from "../MenuItem";
 import {
-  ArchiveIcon,
   ArrowLeftIcon,
   BellIcon,
   BoltIcon,
+  DownloadIcon,
+  FileIcon,
   FolderIcon,
   GaugeIcon,
   KeyIcon,
@@ -19,12 +20,12 @@ const SECTION_ICONS: Record<SettingsSection, ReactNode> = {
   spaces: <FolderIcon />,
   agents: <SparkleIcon />,
   skills: <BoltIcon />,
-  files: <FolderIcon />,
-  archive: <ArchiveIcon />,
-  appearance: <ThemeIcon />,
   models: <KeyIcon />,
-  runtime: <GaugeIcon />,
   notifications: <BellIcon />,
+  appearance: <ThemeIcon />,
+  files: <FileIcon />,
+  archive: <DownloadIcon />,
+  runtime: <GaugeIcon />,
 };
 
 export function SettingsNav({

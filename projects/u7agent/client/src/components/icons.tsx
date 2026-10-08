@@ -196,8 +196,8 @@ export function PencilIcon() {
   );
 }
 
-/** 設定ナビの「アーカイブ」。箱 (除外される成果物の入れ物) の絵 */
-export function ArchiveIcon() {
+/** ダウンロードの矢印。行の操作では small を使い、リネーム / 削除と寸法をそろえる */
+export function DownloadIcon({ small = false }: { small?: boolean } = {}) {
   return (
     <svg
       aria-hidden="true"
@@ -207,27 +207,7 @@ export function ArchiveIcon() {
       strokeWidth="1.5"
       strokeLinecap="round"
       strokeLinejoin="round"
-      className="size-4 shrink-0"
-    >
-      <path d="M2.25 5.25h11.5v7.5H2.25z" />
-      <path d="M2.75 2.75h10.5v2.5H2.75z" />
-      <path d="M6.25 8.25h3.5" />
-    </svg>
-  );
-}
-
-/** 行のダウンロードボタン (リネーム / 削除と同じ寸法にそろえる) */
-export function DownloadIcon() {
-  return (
-    <svg
-      aria-hidden="true"
-      viewBox="0 0 16 16"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.5"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      className="size-3.5 shrink-0"
+      className={cn("shrink-0", small ? "size-3.5" : "size-4")}
     >
       <path d="M8 2.75v7.5" />
       <path d="M4.75 7l3.25 3.25L11.25 7" />

@@ -9,7 +9,7 @@ export type ArchiveSettingsPageProps = SettingsPageProps & {
   archiveSettings: ArchiveSettings;
 };
 
-/** 設定 → アーカイブ。編集は下書きで、[保存] で一覧を丸ごと PUT する（[既定に戻す] は行を消す DELETE） */
+/** 設定 → ダウンロード。編集は下書きで、[保存] で一覧を丸ごと PUT する（[既定に戻す] は行を消す DELETE） */
 export function ArchiveSettingsPage({ archiveSettings, compact = false, onBack, onOpenNav }: ArchiveSettingsPageProps) {
   const { settings, draft, dirty, saving, note, add, remove, reload, save, reset, discard } = archiveSettings;
   const [input, setInput] = useState("");
@@ -21,8 +21,8 @@ export function ArchiveSettingsPage({ archiveSettings, compact = false, onBack, 
 
   return (
     <SettingsPageLayout
-      eyebrow="ARCHIVE"
-      title="アーカイブの除外"
+      eyebrow="DOWNLOADS"
+      title="ダウンロードの除外"
       caption="ファイルツリーのダウンロード（フォルダは ZIP）から落とす名前を決めます。"
       actions={
         <>
@@ -143,11 +143,11 @@ export function ArchiveSettingsPage({ archiveSettings, compact = false, onBack, 
             <div className="grid justify-items-start gap-2 rounded-lg border border-line bg-soft p-3 text-xs text-ink-muted">
               {note.error ? (
                 <>
-                  <p role="alert">アーカイブの除外名を読み込めませんでした。</p>
+                  <p role="alert">ダウンロードの除外名を読み込めませんでした。</p>
                   <ReloadButton onClick={() => void reload()}>再読み込み</ReloadButton>
                 </>
               ) : (
-                <p role="status">アーカイブの除外名を読み込んでいます。</p>
+                <p role="status">ダウンロードの除外名を読み込んでいます。</p>
               )}
             </div>
           )}
