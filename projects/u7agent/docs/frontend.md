@@ -15,7 +15,7 @@ React 19 + Vite + TypeScript + Tailwind CSS v4。ソースは `client/src`、エ
 
 ## テーマシステム
 
-- テーマは `html` の `data-theme` で決まり、各プリセットが CSS 変数（`--c-*`）を定義する。`@theme inline` でセマンティックトークンにマップし、コンポーネントはトークンクラスだけで書く。**プリセットのセレクタは `html` に限定せず `[data-theme]` に当てる**（要素に置けばその配下だけを別テーマで描ける。設定 → 外観の配色プレビューがこの仕組みを使う）
+- テーマは `html` の `data-theme` で決まり、各プリセットが CSS 変数（`--c-*`）を定義する。`@theme inline` でセマンティックトークンにマップし、コンポーネントはトークンクラスだけで書く。**プリセットのセレクタは `html` に限定せず `[data-theme]` に当てる**（要素に置けばその配下だけを別テーマで描ける。設定 → 外観（/settings/appearance）の配色プレビューがこの仕組みを使う）
 - **テーマの追加は CSS 変数・`client/src/theme/themes.ts`・`client/public/theme-init.js` の 3 箇所**。初期化スクリプトの解決結果と CSS registry の対応は `client/test/themeSync.test.ts` が検査する
 - `theme-init.js` は React 初回描画より前に `data-theme` を当てる classic script。**React 側でやると初期化完了までテーマなしで点滅する**ため意図的に React の外に置く。ロジック（保存キーと system 追従の解決）は `ThemeProvider` と同じ結果になるよう同期を取る
 - 無効な保存値（削除済みのテーマ id など）は system 追従として解決し、**保存値は書き換えない**（新しく知るテーマを選び直したときに初めて上書きされる）
@@ -75,11 +75,11 @@ React 19 + Vite + TypeScript + Tailwind CSS v4。ソースは `client/src`、エ
 **画面は URL がただ 1 つの正で、サイドバーのモードや表示中のセクションを state では持たない**（`parseRoute` / `routePath` が pathname と画面を相互変換し、`useRoute` が `popstate` の購読と URL の置換を 1 箇所に集約する）。
 
 - 大文字・末尾スラッシュ・連続スラッシュ・percent encoding は正準形（小文字・末尾スラッシュなし）へ畳む。セクションを特定できない URL はチャットにする
-- 設定 → モデルのタブだけは `/settings/models/<sub>` の 1 セグメントを解釈する。**未知のサブセクションと既定タブの明示は既定タブへ畳み、モデル画面からチャットへ飛ばさない**（語彙は `client/src/lib/settingsNav.ts`）
+- 設定 → モデル（/settings/models）のタブだけは `/settings/models/<sub>` の 1 セグメントを解釈する。**未知のサブセクションと既定タブの明示は既定タブへ畳み、モデル画面からチャットへ飛ばさない**（語彙は `client/src/lib/settingsNav.ts`）
 - 画面切替は `replaceState` で履歴を追加しない。URL の置換と表示の更新は `navigate()` だけが行い、両者を独立に同期させない
 - **クエリとフラグメントは解釈も破棄もしない**（本文の Markdown が通す `#foo` のような断片リンクを壊さないため）
 - 「設定」の行き先は URL のセクションを優先し、`/` では保存した最後のセクションへ。直接 `/settings/<section>` を開いた場合もそれを「最後」として保存する
-- 設定 → ランタイムは接続状態と実行環境だけを出す。**HTTP ステータスや文言を解釈せず、応答の `state` だけで分岐する**
+- 設定 → ランタイム（/settings/runtime）は接続状態と実行環境だけを出す。**HTTP ステータスや文言を解釈せず、応答の `state` だけで分岐する**
 - 診断情報のコピー本文は画面と同じ行ビルダーから組み立てる（表示とコピーで値・注記・状態文言がずれないようにする）。**取得できていないセクションは「取得できていない」と書き、黙って省かない**（省くと、貼った先では正常な環境に見える）
 
 ## 通知のディープリンク
