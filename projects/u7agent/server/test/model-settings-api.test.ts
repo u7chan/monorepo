@@ -792,6 +792,11 @@ test("POST catalog/refresh は allowNetwork / force 付きで 1 回取得し、�
         "SDK へ allowNetwork / force を明示して 1 回だけ呼ぶ",
       );
       assert.equal(pi.refreshCount, before + 1, "取得の後で公開 state を 1 回だけ再計算する");
+      assert.equal(
+        pi.modelStateRefreshSignals.at(-1),
+        pi.catalogRefreshCalls.at(-1)?.signal,
+        "取得と再計算で同じ期限を共有する (伝播しないと auth.json.lock 待ちで期限を超える)",
+      );
     } finally {
       await bff.close();
     }

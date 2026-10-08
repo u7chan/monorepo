@@ -239,7 +239,8 @@ function createService(options: {
   runtime: ProviderKeyRuntime | null;
   retained?: string[];
   log?: string[];
-  refresh?: () => Promise<void>;
+  /** 公開 state の再計算。期限が来るまで解決しない fake を差し込めるよう signal を渡す */
+  refresh?: (signal?: AbortSignal) => void | Promise<void>;
   masker?: (text: string) => string;
   ignoredEnvironmentVariables?: string[];
   catalogTimeoutMs?: number;
@@ -258,10 +259,10 @@ function createService(options: {
       retained.push(value);
     },
     maskError: (text) => options.masker?.(text) ?? text,
-    refreshModelState: async () => {
+    refreshModelState: async (refreshOptions) => {
       events.push("refresh");
       refreshes.push(1);
-      await options.refresh?.();
+      await options.refresh?.(refreshOptions?.signal);
     },
     setModelSelection: (selection) => {
       events.push("set");
@@ -1380,4 +1381,46 @@ test("カタログ更新はキー変更と同じロックを通り、後から�
   await refresh;
   await put;
   assert.deepEqual(order, ["catalog:start", "catalog:end", "key:apply"]);
+});
+
+test("期限は状態再計算にも伝播し、期限後は現在の一覧を保ってロックを解放する", async () => {
+  const refreshSignals: AbortSignal[] = [];
+  const stateSignals: (AbortSignal | undefined)[] = [];
+  const runtime = fakeRuntime({
+    catalogSnapshot: CATALOG_SNAPSHOT,
+    refreshCatalog: (options) => {
+      refreshSignals.push(options.signal);
+      return { aborted: false, failedProviders: 0 };
+    },
+    apply: () => ({ outcome: "applied", synced: true }),
+  });
+  const { service } = createService({
+    db: fakeDb().db,
+    runtime: runtime.runtime,
+    catalogTimeoutMs: 20,
+    refresh: (signal) => {
+      stateSignals.push(signal);
+      // 実 SDK は auth.json.lock を期限なしで待ち得る。期限 (signal) が来るまで解決しない
+      if (!signal) return;
+      return new Promise<void>((resolve) => {
+        if (signal.aborted) resolve();
+        else signal.addEventListener("abort", () => resolve(), { once: true });
+      });
+    },
+  });
+
+  const started = Date.now();
+  const refresh = service.refreshCatalog();
+  // 共有ロックが期限後も塞がれないことを、更新の完了を待つキー変更で確かめる
+  const put = service.putKey("anthropic", KEY_A);
+  const [outcome, keyOutcome] = await Promise.all([refresh, put]);
+  const elapsed = Date.now() - started;
+
+  const response = catalogBody(outcome);
+  assert.equal(response.catalogError, MODEL_CATALOG_ERROR_TIMEOUT, "再計算の途中でもタイムアウトとして返す");
+  assert.deepEqual(response.providers, CATALOG_SNAPSHOT.providers, "期限後も一覧は現在値のまま");
+  assert.equal(okBody(keyOutcome).state, "applied", "期限後もキー変更が通る (ロックを保持し続けない)");
+  assert.equal(refreshSignals.length, 1);
+  assert.equal(stateSignals[0], refreshSignals[0], "取得と再計算で同じ期限を共有する");
+  assert.ok(elapsed < 2_000, `期限 (20ms) で閉じる (elapsed=${elapsed}ms)`);
 });

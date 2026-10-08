@@ -82,8 +82,11 @@ export interface ModelSettingsOptions {
   retainSecret: (value: string) => void;
   /** health / ログへ出す前の文言境界 (可変マスカー) */
   maskError: (text: string) => string;
-  /** 公開 state の再計算。例外を出さない契約 */
-  refreshModelState: () => Promise<void>;
+  /**
+   * 公開 state の再計算。例外を出さない契約。`signal` は取得と同じ期限で、期限切れの結果で state を差し替えない
+   * (取得の失敗と読み取りの中断を混ぜず、一覧を現在値のまま保つため)。
+   */
+  refreshModelState: (options?: { signal?: AbortSignal }) => Promise<void>;
   /**
    * 保存値の適用。公開 state へ効かせるのは refreshModelState() なので、必ず setter → refresh の順に呼ぶ。
    * undefined は未設定を表す (allowedModels は制限なし、defaultModel は既定なし)。
@@ -201,7 +204,7 @@ export class ModelSettingsService {
   #runtime: ProviderKeyRuntime | null;
   #retainSecret: (value: string) => void;
   #maskError: (text: string) => string;
-  #refreshModelState: () => Promise<void>;
+  #refreshModelState: (options?: { signal?: AbortSignal }) => Promise<void>;
   #setModelSelection: ModelSettingsOptions["setModelSelection"];
   #ignoredEnvironmentVariables: string[];
   #timeoutMs: number;
@@ -455,11 +458,15 @@ export class ModelSettingsService {
   async refreshCatalog(): Promise<CatalogRefreshOutcome> {
     return this.#lock.run(async () => {
       if (!this.#runtime) return this.#runtimeUnavailable(RUNTIME_MODELS_UNAVAILABLE_MESSAGE);
-      const catalogError = await this.#refreshCatalog(this.#runtime);
-      await this.#refresh();
+      // 取得と再計算で 1 つの期限を共有する。再計算も SDK の読み取りなので、切れたら現在の一覧を保って閉じる
+      const signal = AbortSignal.timeout(this.#catalogTimeoutMs);
+      const attempted = await this.#refreshCatalog(this.#runtime, signal);
+      await this.#refresh(signal);
       const snapshot = this.#runtime.catalogSnapshot();
       // スナップショットが無い = 一覧そのものを返せない。取得試行の失敗は混ぜず、GET と同じ 503 にする
       if (!snapshot) return { status: 503, error: RUNTIME_MODELS_UNAVAILABLE_MESSAGE };
+      // 再計算中に切れた場合は、取得が成功していても一覧を確定できていないためタイムアウトとして返す
+      const catalogError = signal.aborted ? MODEL_CATALOG_ERROR_TIMEOUT : attempted;
       return { status: 200, response: { ...snapshot, catalogError } };
     });
   }
@@ -468,15 +475,11 @@ export class ModelSettingsService {
    * カタログ取得を 1 回だけ試し、失敗を固定文言へ寄せる。offline は SDK へ allowNetwork: true を
    * 渡す前にここで止める (渡すと SDK の offline 意思を上書きしてしまう)。
    */
-  async #refreshCatalog(runtime: ProviderKeyRuntime): Promise<string | null> {
+  async #refreshCatalog(runtime: ProviderKeyRuntime, signal: AbortSignal): Promise<string | null> {
     if (process.env.PI_OFFLINE !== undefined) return MODEL_CATALOG_ERROR_OFFLINE;
     let attempt: ModelCatalogRefreshAttempt;
     try {
-      attempt = await runtime.refreshCatalog({
-        allowNetwork: true,
-        force: true,
-        signal: AbortSignal.timeout(this.#catalogTimeoutMs),
-      });
+      attempt = await runtime.refreshCatalog({ allowNetwork: true, force: true, signal });
     } catch (error) {
       // 生の文言は応答へ出さず、マスカーを通した分類だけをログへ残す
       console.warn(`[u7agent] model catalog refresh failed: ${this.#maskError(messageFor(error))}`);
@@ -517,9 +520,9 @@ export class ModelSettingsService {
   }
 
   /** refresh は例外を出さない契約だが、実装差で lock を壊さないようここでも囲む */
-  async #refresh(): Promise<void> {
+  async #refresh(signal?: AbortSignal): Promise<void> {
     try {
-      await this.#refreshModelState();
+      await this.#refreshModelState(signal ? { signal } : undefined);
     } catch (error) {
       console.warn(`[u7agent] model state refresh failed: ${this.#maskError(messageFor(error))}`);
     }

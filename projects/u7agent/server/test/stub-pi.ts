@@ -636,11 +636,13 @@ export interface StubModelRuntimeCall {
   apiKey?: string;
 }
 
-/** カタログ更新の SDK 呼び出し。実 SDK へ渡す契約 (allowNetwork / force) と呼び出し時の abort を記録する */
+/** カタログ更新の SDK 呼び出し。実 SDK へ渡す契約 (allowNetwork / force) と呼び出し時の signal を記録する */
 export interface StubCatalogRefreshCall {
   allowNetwork: boolean;
   force: boolean;
   aborted: boolean;
+  /** 取得に渡された期限。状態再計算へ同じ期限が伝わっているかの検証に使う */
+  signal: AbortSignal;
 }
 
 export interface StubModelRuntime {
@@ -703,6 +705,8 @@ export function createStubPi(options: StubPiOptions = {}) {
   const secretMasker = createMutableSecretMasker([]);
   // setter が refresh より先に呼ばれることを順序で確かめられるよう、同じログへ積む
   const modelStateEvents: string[] = [];
+  // 取得と再計算が同じ期限を共有すること (signal が同一オブジェクトか) を検証できるようにする
+  const modelStateRefreshSignals: (AbortSignal | undefined)[] = [];
   const modelSelections: ModelSelection[] = [];
   const imageGenerationConfigs: ImageGenerationConfig[] = [];
   const webSearchConfigs: WebSearchRuntimeConfig[] = [];
@@ -776,10 +780,12 @@ export function createStubPi(options: StubPiOptions = {}) {
       modelStateEvents.push("set");
       modelSelections.push(selection);
     },
-    refreshModelState: async () => {
+    refreshModelState: async (refreshOptions: { signal?: AbortSignal } = {}) => {
       modelStateEvents.push("refresh");
       refreshCount += 1;
+      modelStateRefreshSignals.push(refreshOptions.signal);
     },
+    modelStateRefreshSignals,
     // カタログ更新 (bootstrap の createProviderKeyRuntime) が触る SDK 面の模倣。
     // 実 SDK の refresh と同じく、呼び出し時の signal が既に abort 済みなら即座に aborted で返す。
     refreshModelCatalog: async (refreshOptions: { allowNetwork: boolean; force: boolean; signal: AbortSignal }) => {
@@ -787,6 +793,7 @@ export function createStubPi(options: StubPiOptions = {}) {
         allowNetwork: refreshOptions.allowNetwork,
         force: refreshOptions.force,
         aborted: refreshOptions.signal.aborted,
+        signal: refreshOptions.signal,
       });
       if (refreshOptions.signal.aborted) return { aborted: true, failedProviders: 0 };
       return options.onRefreshModelCatalog

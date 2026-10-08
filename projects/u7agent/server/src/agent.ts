@@ -210,8 +210,11 @@ export interface PiBff {
   retainSecret(value: string): void;
   /** 実効選択を差し替える。公開 state への反映は refreshModelState() が担う (setter → refresh の順) */
   setModelSelection(selection: ModelSelection): void;
-  /** SDK のモデル状態を読み直して公開 state を差し替える。throw しない (lock を壊さない) */
-  refreshModelState(): Promise<void>;
+  /**
+   * SDK のモデル状態を読み直して公開 state を差し替える。throw しない (lock を壊さない)。
+   * `signal` は SDK の読み取り (`getAvailable()` の認証ストア読み) へ伝え、期限切れの結果では差し替えない。
+   */
+  refreshModelState(options?: { signal?: AbortSignal }): Promise<void>;
   /**
    * pi.dev の provider 別カタログを取り直す。offline の判定と総時間の上限は呼び出し側 (設定サービス) が持ち、
    * ここは SDK の refresh へ写すだけ (例外は呼び出し側が固定文言へ寄せる)。
@@ -406,13 +409,25 @@ export function unavailableModelState(availabilityError?: string): ModelState {
   };
 }
 
-export async function readModelSnapshot(modelRuntime: ModelRuntime): Promise<ModelSnapshot> {
-  const available = [...(await modelRuntime.getAvailable())];
+/**
+ * SDK から読むスナップショット。`signal` は SDK の認証ストアのロック待ちへも伝わるため、
+ * 期限を共有した呼び出し側が「期限後は公開 state を差し替えない」を決められる (読み取りの中断と失敗を混ぜない)。
+ */
+export async function readModelSnapshot(
+  modelRuntime: ModelRuntime,
+  options: { signal?: AbortSignal } = {},
+): Promise<ModelSnapshot> {
+  const available = [...(await modelRuntime.getAvailable(undefined, signalOptions(options.signal)))];
   const providerIds = modelRuntime.getProviders().map((provider) => provider.id);
   const authStatuses = new Map(
     providerIds.map((provider) => [provider, modelRuntime.getProviderAuthStatus(provider)] as const),
   );
   return { available, catalog: [...modelRuntime.getModels()], providerIds, authStatuses };
+}
+
+/** 期限が無いときは SDK へ undefined を渡し、既存の呼び出しと同じ形を保つ */
+function signalOptions(signal: AbortSignal | undefined): { signal: AbortSignal } | undefined {
+  return signal ? { signal } : undefined;
 }
 
 export interface ModelStateInput {
@@ -434,10 +449,12 @@ export async function readModelState(input: {
   versions: RuntimeVersions;
   /** health / availabilityError に出るため、SDK の例外文言はここで必ずマスクする */
   maskError: (error: unknown) => string;
+  /** 読み取りの期限。abort はここでは例外にせず、可用 0 の安全な state へ寄せる (保持の判断は呼び出し側) */
+  signal?: AbortSignal;
 }): Promise<ModelState> {
   let snapshot: ModelSnapshot;
   try {
-    snapshot = await readModelSnapshot(input.modelRuntime);
+    snapshot = await readModelSnapshot(input.modelRuntime, signalOptions(input.signal) ?? {});
   } catch (error) {
     let catalog: PiAiModel<Api>[] = [];
     try {
@@ -668,15 +685,21 @@ export async function createPiBff({ cwd = process.cwd() }: { cwd?: string } = {}
   const sessionEnv: { value: SessionEnvSource | null } = { value: null };
 
   const current = { value: unavailableModelState() };
-  /** 公開 state の差し替え。ロックの内側でだけ呼び、例外は出さない (lock を壊さない)。 */
-  async function refreshModelState(): Promise<void> {
-    current.value = await readModelState({
+  /**
+   * 公開 state の差し替え。ロックの内側でだけ呼び、例外は出さない (lock を壊さない)。
+   * 期限切れの読み取りは現在値を保つ: 期限に当たったのは取得の失敗と同じではなく、一覧を空で確定できないため。
+   */
+  async function refreshModelState(options: { signal?: AbortSignal } = {}): Promise<void> {
+    const next = await readModelState({
       modelRuntime,
       requested: selection.defaultModel,
       whitelist: selection.allowedModels,
       versions,
       maskError,
+      ...signalOptions(options.signal),
     });
+    if (options.signal?.aborted) return;
+    current.value = next;
   }
   await refreshModelState();
 
