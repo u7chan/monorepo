@@ -20,6 +20,7 @@ function session(sessionId: string, projectId?: string): SessionSummary {
     messageCount: 1,
     createdAt: 1,
     lastUsedAt: 1,
+    pinned: false,
     projectId,
   };
 }

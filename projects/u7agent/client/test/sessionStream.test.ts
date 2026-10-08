@@ -29,6 +29,7 @@ function payload(sessionId: string, lastSeq: number): SessionPayload {
     lastUsedAt: 1,
     serverNow: 1,
     queueDepth: 0,
+    pinned: false,
     lastSeq,
     run: null,
     messages: [],

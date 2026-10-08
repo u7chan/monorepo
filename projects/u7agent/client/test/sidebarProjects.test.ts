@@ -147,6 +147,7 @@ const session: SessionSummary = {
   messageCount: 1,
   createdAt: 0,
   lastUsedAt: 0,
+  pinned: false,
   projectId: "p-1",
 };
 
@@ -164,6 +165,7 @@ function renderProjectRow(open: boolean, sessions: SessionSummary[] = [session])
       onSelectSession: () => {},
       onRenameSession: () => {},
       onDeleteSession: () => {},
+      onTogglePinnedSession: () => {},
     }),
   );
 }

@@ -22,6 +22,7 @@
       "agentName": "汎用アシスタント",
       "status": "running",
       "queueDepth": 0,
+      "pinned": false,
       "messageCount": 4,
       "createdAt": 1700000000000,
       "lastUsedAt": 1700000001000,
@@ -32,7 +33,7 @@
 }
 ```
 
-`projectId` は所属プロジェクト（未所属はキーを省略する）。所属は保存された `projectCwd` をプロジェクト一覧と突き合わせて読み取り時に解決するため、プロジェクトを解除すると配下セッションは未所属として返る（セッションと履歴は残る）。復元したセッションも同じ規則で解決する。
+`pinned` はサイドバーで固定するかを示す（常に boolean）。`projectId` は所属プロジェクト（未所属はキーを省略する）。所属は保存された `projectCwd` をプロジェクト一覧と突き合わせて読み取り時に解決するため、プロジェクトを解除すると配下セッションは未所属として返る（セッションと履歴・ピン状態は残る）。復元したセッションも同じ規則で解決する。
 
 `messageCount` は表示メッセージ数（`user` と、テキストを持つ `assistant`。ツール呼び出しだけのターンは数えない）で、履歴の生件数ではない。未ロードのセッションは保存された `meta.json` の値、ロード済みは現在の履歴から数えた値を返す（ずれの扱いは [session-files.md](session-files.md)）。
 
@@ -60,6 +61,7 @@
   "sessionId": "…",
   "status": "running",
   "queueDepth": 0,
+  "pinned": false,
   "lastSeq": 42,
   "eventGeneration": "a1b2c3d4",
   "title": "…",
@@ -260,6 +262,22 @@ GET /api/sessions/:id/history?limit=50&before=<itemId>
 - 改名した会話は、以降のメッセージから自動タイトルを作り直さない（自動タイトルは `title` が空のときだけ最初のメッセージで作る。[session-files.md](session-files.md#metajson)）。
 - 保存に失敗したら 500 を返し、成功扱いにしない（in-memory の表示は新しい値のまま）。
 - 一覧とチャットのヘッダは一覧 API を正とするため、クライアントは応答の `title` を手元の一覧へ反映する（他タブは一覧のポーリングで追随する。notify と同じ）。
+
+## `PATCH /api/sessions/:id/pin`
+
+会話のサイドバー固定を切り替える。
+
+```json
+// request
+{ "pinned": true }
+// response (200)
+{ "sessionId": "…", "pinned": true }
+```
+
+- live / 未ロードのどちらも同じ小さな DTO を返す。未ロードでは SDK を開かず `meta.json` だけを更新し、実行中でも切り替えられる。未知の id は 404。
+- `lastUsedAt` / タイトル / 履歴は変えない。プロジェクトの登録解除後もピン状態は保持する。古い `meta.json` で `pinned` が無い場合は false。
+- 保存に失敗したら 500 を返し、成功扱いにしない。クライアントは失敗時に理由を表示し、未確定の表示を戻す。
+- スペース文脈は他の会話 API と同じく `?spaceId=<id>` で照合し、不一致を変更前に 404 とする。
 
 ## `POST /api/sessions/:id/messages`
 

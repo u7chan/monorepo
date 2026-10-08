@@ -79,6 +79,7 @@ meta の optional `spaceId` は欠落だけが `default`。追加スペースで
   "promptSnapshot": { "agent": "<agent プロンプト>", "skills": ["<agent_skill 本文>"] },
   "projectCwd": "projects/u7agent",
   "projectName": "u7agent",
+  "pinned": true,
   "model": "openai-codex/gpt-6-astra",
   "thinkingLevel": "medium"
 }
@@ -86,7 +87,7 @@ meta の optional `spaceId` は欠落だけが `default`。追加スペースで
 
 - `promptSnapshot` は作成時の agent / skill 本文。定義を編集・削除しても復元後の実行内容を変えない（現行の「定義変更を遡及させない」と同じ）。`agent` は system prompt へ入れる。カタログのスキルはモデルのファイルスキルと混同させないため `<agent_skill name="…">` で本文を固定し、system prompt へは索引（name / description / 仮想パス）だけを `skillsOverride` で渡す。本文は必要時に `read` で読み、BFF がこのスナップショットから返す（形式の正は `server/src/agent.ts` の `composePromptSnapshot`、索引は `server/src/catalog-skills.ts`）。アプリ共通の system prompt は現行を使う（アプリ側の変更は全セッションに効く）。
 - ファイルスキル（`.agents/skills`）は `promptSnapshot` に含めない。SDK の `skillsOverride` でセッション作成・復元のたびに注入し、セッションが持つのは発見一覧・説明・優先順位だけ。本文は `read` 時点のファイル内容になる（[persistence.md](persistence.md#スキルの扱い)）。
-- `title` は最初のメッセージで作り、GUI の ⋯「名前を変更」（`PATCH /api/sessions/:id/title`）で上書きできる（正規化は自動タイトルと同じで、空・空白だけは 400。改名後は以降のメッセージで作り直さない。[api-sessions.md](api-sessions.md#patch-apisessionsidtitle)）。`lastUsedAt` / `messageCount` はラン終了時に更新する。`messageCount` は一覧 API と同じ表示メッセージ数（`user` と、テキストを持つ `assistant`）を数え、ツール呼び出しだけのターンは数えない。保存済みの値がこの定義と食い違う meta は、そのセッションを開いたときに書き戻す（[復元](#復元)）。
+- `title` は最初のメッセージで作り、GUI の ⋯「名前を変更」（`PATCH /api/sessions/:id/title`）で上書きできる（正規化は自動タイトルと同じで、空・空白だけは 400。改名後は以降のメッセージで作り直さない。[api-sessions.md](api-sessions.md#patch-apisessionsidtitle)）。`pinned` はサイドバーの固定状態で、古い meta に無い場合は false とする。GUI の ⋯ から SDK を開かず切り替え、タイトル・履歴・`lastUsedAt` は変えない。`lastUsedAt` / `messageCount` はラン終了時に更新する。`messageCount` は一覧 API と同じ表示メッセージ数（`user` と、テキストを持つ `assistant`）を数え、ツール呼び出しだけのターンは数えない。保存済みの値がこの定義と食い違う meta は、そのセッションを開いたときに書き戻す（[復元](#復元)）。
 - 書込みは一時ファイル + rename で原子的に行い、id ごとの書込みキューで直列化する。読めない `meta.json` は壊れたセッションとして一覧から除外し、ログに残す（フォルダは消さない）。
 
 ## sends.json と run id の注記
@@ -216,7 +217,7 @@ assistant 本文のインラインコードが指すファイルは、クリッ�
 - sweep は「購読者（SSE 接続）がいない・実行中でない・書込みが残っていない」ときだけ `evicting` を予約してメモリから外す。flush に失敗したときは破棄を見送って記録を残す（次の sweep で再試行）。開いているタブが握っているセッションを復元先へ付け替える競合は作らない。
 - `close()` は最初に全体の受付を閉じ（新規リクエストは 503）、進行中のロードと書込みキューを回収してから全 record を dispose する。最終 flush の失敗はログに残して終了する。
 - `DELETE` は履歴だけ消し、作業ディレクトリと添付は残す（誤アップロードのファイル / ディレクトリ単位の削除は 設定 → ファイル からできるが、セッション単位ではフォルダを消さない）。confirm は「このセッションの履歴を削除しますか？（作業フォルダのファイルは残ります）実行中の処理は停止されます。」と表示する。
-- プロジェクト解除（`DELETE /api/projects/:id`）: 先に解除対象の `projectCwd` を捕捉 → 登録解除 → 配下 live のランを abort して停止（削除はしない）→ 購読中のタブへ `resync` を送る（所属が外れた payload になり、`session_deleted` は送らない）→ store / 作業フォルダ / meta の `projectCwd` は触らない。`projectId` は保存せず読み取り時に `projectCwd` → `ProjectStore.findByCwd` で解決するため、解除後は未所属として一覧に出て、同じ cwd を再登録すれば所属が戻る（ロード中に完了したセッションも同じ規則で解決される）。プロジェクトの自動再登録はしない。
+- プロジェクト解除（`DELETE /api/projects/:id`）: 先に解除対象の `projectCwd` を捕捉 → 登録解除 → 配下 live のランを abort して停止（削除はしない）→ 購読中のタブへ `resync` を送る（所属が外れた payload になり、`session_deleted` は送らない）→ store / 作業フォルダ / meta の `projectCwd` と `pinned` は触らない。`projectId` は保存せず読み取り時に `projectCwd` → `ProjectStore.findByCwd` で解決するため、解除後は未所属として一覧に出て、同じ cwd を再登録すれば所属が戻る（ロード中に完了したセッションも同じ規則で解決される）。プロジェクトの自動再登録はしない。
 - プロジェクト解除の confirm は `「<プロジェクト名>」の登録を解除します。配下の <件数> 件のセッションを停止します（履歴とファイルは残ります）。` のように、対象のプロジェクト名と配下のセッション数を示す。
 
 ## SSE の世代

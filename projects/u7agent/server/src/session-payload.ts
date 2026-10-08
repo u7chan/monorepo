@@ -70,6 +70,7 @@ export function projectSessionPayload({
     })),
     ...(record.compactionStartedAt !== undefined ? { compactionStartedAt: record.compactionStartedAt } : {}),
     notify: record.notify,
+    pinned: record.pinned,
     lastSeq: record.seq,
     agent: {
       ...record.agent,
@@ -117,6 +118,7 @@ export function projectSessionSummary({
     status,
     queueDepth: record.queue.length,
     notify: record.notify,
+    pinned: record.pinned,
     messageCount: displayableMessages(record.session, masker).length,
     createdAt: record.createdAt,
     lastUsedAt: record.lastUsedAt,

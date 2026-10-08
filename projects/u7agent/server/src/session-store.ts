@@ -56,6 +56,8 @@ export interface SessionMeta {
   thinkingLevel?: string;
   /** 完了を Discord へ送るか (既定 false)。v1 の meta には無いので optional のままにする */
   notify?: boolean;
+  /** サイドバーに固定するか (既定 false)。既存 meta では欠落するので optional のままにする */
+  pinned?: boolean;
 }
 
 export interface SessionHeader {
@@ -175,6 +177,8 @@ function parseMeta(value: unknown, id: string): SessionMeta | undefined {
     ...(typeof meta.thinkingLevel === "string" ? { thinkingLevel: meta.thinkingLevel } : {}),
     // boolean 以外は無視する (手で書き換えられた meta で通知が勝手に有効にならないように)
     ...(typeof meta.notify === "boolean" ? { notify: meta.notify } : {}),
+    // 欠落や不正値は未固定として扱い、既存データの読み込みを妨げない。
+    ...(typeof meta.pinned === "boolean" ? { pinned: meta.pinned } : {}),
   };
 }
 

@@ -499,6 +499,24 @@ export function BellIcon({ ringing = false }: { ringing?: boolean }) {
   );
 }
 
+export function PinIcon({ small = false }: { small?: boolean } = {}) {
+  return (
+    <svg
+      aria-hidden="true"
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.4"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={cn("shrink-0", small ? "size-3" : "size-4")}
+    >
+      <path d="M5 2.5h6l-.55 4.15L13 9v1H3V9l2.55-2.35L5 2.5Z" />
+      <path d="M8 10v3.5" />
+    </svg>
+  );
+}
+
 /** 送りの chevron (ChevronIcon の鏡像)。質問カードの前の質問などに使う */
 export function ChevronLeftIcon() {
   return (

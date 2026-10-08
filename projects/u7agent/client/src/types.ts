@@ -75,6 +75,7 @@ export type {
   ServeStatus,
   SessionCompactionResult,
   SessionNotifyResponse,
+  SessionPinnedResponse,
   SessionPayload,
   SessionSkillInfo,
   SessionSkillsPreview,

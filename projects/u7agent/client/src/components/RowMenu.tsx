@@ -19,12 +19,13 @@ import {
   type RowMenuRect,
 } from "../lib/rowMenu";
 import { MenuItem } from "./MenuItem";
-import { DownloadIcon, MoreIcon, PencilIcon, PlusIcon, TrashIcon } from "./icons";
+import { DownloadIcon, MoreIcon, PencilIcon, PinIcon, PlusIcon, TrashIcon } from "./icons";
 
 /** 種別ごとのアイコン。描画側に条件分岐を残さないため、種別からここで引く (全画面ぶんを 1 箇所に置く) */
 const ACTION_ICONS: Record<RowMenuActionKind, ReactNode> = {
   download: <DownloadIcon />,
   rename: <PencilIcon />,
+  pin: <PinIcon />,
   delete: <TrashIcon />,
   "new-chat": <PlusIcon />,
 };

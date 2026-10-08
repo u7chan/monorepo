@@ -155,6 +155,8 @@ export interface SessionRecord {
   compactionTask?: Promise<unknown>;
   /** 完了を Discord へ送るか。正は meta.notify (live な record はここを更新して永続化する) */
   notify: boolean;
+  /** サイドバーに固定するか。meta の欠落は false として復元する */
+  pinned: boolean;
 }
 
 export interface CreateSessionOptions {

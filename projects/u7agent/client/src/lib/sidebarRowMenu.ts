@@ -17,12 +17,13 @@ export function projectRowActions(): RowMenuAction<ProjectRowKind>[] {
   ];
 }
 
-/** セッション行の ⋯ の種別 (通知のベルは状態の印なのでメニューへ移さない) */
-export type SessionRowKind = "rename" | "delete";
+/** セッション行の ⋯ の種別 (通知のベルとピンは状態の印として行にも残す) */
+export type SessionRowKind = "pin" | "rename" | "delete";
 
-/** 設定 → ファイル のフォルダと同じく、リネームは削除の手前に置く (取り消せる操作を先に出す) */
-export function sessionRowActions(): RowMenuAction<SessionRowKind>[] {
+/** ピンの切替を先頭に置き、リネームは削除の手前に残す。 */
+export function sessionRowActions(pinned = false): RowMenuAction<SessionRowKind>[] {
   return [
+    { kind: "pin", label: pinned ? "ピン留めを解除" : "ピン留め" },
     { kind: "rename", label: "名前を変更" },
     { kind: "delete", label: "セッションを削除", danger: true },
   ];

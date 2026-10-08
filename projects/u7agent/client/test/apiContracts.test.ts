@@ -118,6 +118,21 @@ test("セッション名は PATCH で送り、サーバーが確定した名前�
   assert.deepEqual(await updateSessionTitle("session-a", "送信した名前"), result);
 });
 
+test("ピン留め API は選択スペースを付けて pinned を PATCH する", async (t) => {
+  const api = createSpaceApi("space-a");
+  const result = { sessionId: "session-a", pinned: true };
+  t.mock.method(globalThis, "fetch", async (input: string | URL | Request, init?: RequestInit) => {
+    const request = new Request(input, init);
+    const url = new URL(request.url);
+    assert.equal(request.method, "PATCH");
+    assert.equal(url.pathname, "/api/sessions/session-a/pin");
+    assert.equal(url.searchParams.get("spaceId"), "space-a");
+    assert.deepEqual(await request.json(), { pinned: true });
+    return Response.json(result);
+  });
+  assert.deepEqual(await api.updateSessionPinned("session-a", true), result);
+});
+
 test("git 情報は root 相対の path を符号化し、repo の外の null もそのまま返す", async (t) => {
   const queries: URLSearchParams[] = [];
   const paths: string[] = [];

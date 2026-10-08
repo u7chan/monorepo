@@ -39,6 +39,7 @@ import type {
   ServeStatus,
   SessionCompactionResult,
   SessionNotifyResponse,
+  SessionPinnedResponse,
   SessionPayload,
   SessionSkillsPreview,
   SessionSkillsResponse,
@@ -103,6 +104,8 @@ export function createSpaceApi(spaceId: string) {
       read<SessionPayload>(session.settings.$patch({ param: { id }, json })),
     updateSessionNotify: (id: string, notify: boolean) =>
       read<SessionNotifyResponse>(session.notify.$patch({ param: { id }, json: { notify } })),
+    updateSessionPinned: (id: string, pinned: boolean) =>
+      read<SessionPinnedResponse>(session.pin.$patch({ param: { id }, json: { pinned } })),
     updateSessionTitle: (id: string, title: string) =>
       read<SessionTitleResponse>(session.title.$patch({ param: { id }, json: { title } })),
     stopSession: (id: string) => read<StopResult>(session.stop.$post({ param: { id } })),

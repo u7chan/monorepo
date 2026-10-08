@@ -183,6 +183,7 @@ test("所属不一致の全 API と SSE は SDK 復元・作業生成・会話�
     ["/settings", json({ thinkingLevel: "low" }, "PATCH")],
     ["/title", json({ title: "変更" }, "PATCH")],
     ["/notify", json({ notify: true }, "PATCH")],
+    ["/pin", json({ pinned: true }, "PATCH")],
     ["", { method: "DELETE" }],
     ["/stop", { method: "POST" }],
     ["/abort", { method: "POST" }],

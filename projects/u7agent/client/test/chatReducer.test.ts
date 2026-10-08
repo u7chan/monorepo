@@ -25,6 +25,7 @@ function runningPayload(): SessionPayload {
     lastUsedAt: 2,
     serverNow: 2,
     queueDepth: 2,
+    pinned: false,
     lastSeq: 7,
     run: null,
     messages: [

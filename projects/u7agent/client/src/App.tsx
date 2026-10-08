@@ -381,6 +381,7 @@ export default function App() {
 
   const navProps = {
     spaceName: space.selected.name,
+    pinError: app.pinnedError,
     conversationOnly: space.selected.id !== "default",
     mode: sidebarMode,
     onSelectMode: selectMode,
@@ -401,6 +402,7 @@ export default function App() {
     deleteSession: (sessionId: string) => {
       void app.deleteSession(sessionId);
     },
+    togglePinned: (sessionId: string) => app.togglePinned(sessionId),
     deleteProject: (projectId: string) => {
       void app.deleteProject(projectId);
     },

@@ -23,6 +23,7 @@ function payload(overrides: Partial<SessionPayload> = {}): SessionPayload {
     lastUsedAt: 1,
     serverNow: 10_000,
     queueDepth: 0,
+    pinned: false,
     lastSeq: 3,
     run: {
       id: "run-1",
