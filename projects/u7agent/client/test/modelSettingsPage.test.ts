@@ -48,6 +48,7 @@ function session(overrides: Partial<SessionSummary> = {}): SessionSummary {
     messageCount: 0,
     createdAt: 1,
     lastUsedAt: 2,
+    pinned: false,
     ...overrides,
   };
 }

@@ -386,6 +386,7 @@ test("サイドバーのセッション行は On の会話だけ鳴っている�
     messageCount: 2,
     createdAt: 0,
     lastUsedAt: 0,
+    pinned: false,
   };
   const render = (session: SessionSummary) =>
     renderToStaticMarkup(
@@ -396,6 +397,7 @@ test("サイドバーのセッション行は On の会話だけ鳴っている�
         onSelect: () => {},
         onRename: () => {},
         onDelete: () => {},
+        onTogglePin: () => {},
       }),
     );
   const off = render(item);

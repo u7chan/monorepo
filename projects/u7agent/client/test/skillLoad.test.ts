@@ -49,6 +49,7 @@ function payload(
     lastUsedAt: 1,
     serverNow: 1,
     queueDepth: 0,
+    pinned: false,
     lastSeq: 3,
     run,
     messages,

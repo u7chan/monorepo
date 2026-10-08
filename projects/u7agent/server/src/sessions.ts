@@ -83,6 +83,7 @@ import type {
   RunStatus,
   SessionCompactionResult,
   SessionNotifyResponse,
+  SessionPinnedResponse,
   SessionPayload,
   SessionSummary,
   SessionTitleResponse,
@@ -253,6 +254,8 @@ export class SessionStore {
   descriptors: Map<string, SessionMeta>;
   /** id ごとのライフサイクル (load / evict)。完了まで同じ id の再ロードを待たせる */
   lifecycle: Map<string, Promise<unknown>>;
+  /** 同一会話のピン更新。save / restore / delete と競合しないよう直列化する */
+  pinUpdates: Map<string, Promise<void>>;
   /** 削除予約中の id */
   deleting: Set<string>;
   /** close 中は新規の利用を受け付けない */
@@ -292,6 +295,7 @@ export class SessionStore {
     this.records = new Map();
     this.descriptors = new Map();
     this.lifecycle = new Map();
+    this.pinUpdates = new Map();
     this.deleting = new Set();
     this.closing = false;
     this.sweeping = false;
@@ -397,6 +401,7 @@ export class SessionStore {
     title,
     createdAt,
     notify,
+    pinned = false,
   }: {
     spaceId?: string;
     id: string;
@@ -409,6 +414,7 @@ export class SessionStore {
     title: string;
     createdAt: number;
     notify: boolean;
+    pinned?: boolean;
   }): SessionRecord {
     const meta: SessionMeta = {
       spaceId,
@@ -425,6 +431,7 @@ export class SessionStore {
       ...(modelLabel(session.model) ? { model: modelLabel(session.model) } : {}),
       ...(session.thinkingLevel ? { thinkingLevel: session.thinkingLevel } : {}),
       ...(notify ? { notify: true } : {}),
+      ...(pinned ? { pinned: true } : {}),
     };
     return {
       id,
@@ -458,6 +465,7 @@ export class SessionStore {
       changingSettings: false,
       compacting: false,
       notify,
+      pinned,
     };
   }
 
@@ -498,7 +506,7 @@ export class SessionStore {
   async resolve(id: string): Promise<SessionRecord | undefined> {
     for (;;) {
       if (this.deleting.has(id) || this.closing) return undefined;
-      const pending = this.lifecycle.get(id);
+      const pending = this.lifecycle.get(id) ?? this.pinUpdates.get(id);
       if (pending) {
         // eviction / 先行ロードの完了を待ち、状態を取り直してから判断する
         await pending.catch(() => {});
@@ -563,6 +571,7 @@ export class SessionStore {
       title: meta.title,
       createdAt: meta.createdAt,
       notify: meta.notify === true,
+      pinned: meta.pinned === true,
     });
     record.lastUsedAt = meta.lastUsedAt;
     record.meta = meta;
@@ -677,6 +686,69 @@ export class SessionStore {
       if (this.lifecycle.get(id) === write) this.lifecycle.delete(id);
     }
     return { sessionId: id, notify };
+  }
+
+  /** ピン留めは SDK の設定・履歴・最終使用時刻に触れず、live / 未ロードとも meta だけを更新する。 */
+  async setPinned(id: string, pinned: boolean): Promise<SessionPinnedResponse | undefined> {
+    const previous = this.pinUpdates.get(id) ?? Promise.resolve();
+    const update = previous.then(
+      () => this.setPinnedState(id, pinned),
+      () => this.setPinnedState(id, pinned),
+    );
+    const settled = update.then(
+      () => {},
+      () => {},
+    );
+    this.pinUpdates.set(id, settled);
+    try {
+      return await update;
+    } finally {
+      if (this.pinUpdates.get(id) === settled) this.pinUpdates.delete(id);
+    }
+  }
+
+  private async setPinnedState(id: string, pinned: boolean): Promise<SessionPinnedResponse | undefined> {
+    if (this.deleting.has(id) || this.closing) return undefined;
+    // 復元中の id は完了を待ち、古い descriptor から作った record で更新を上書きしない。
+    const pending = this.lifecycle.get(id);
+    if (pending) await pending.catch(() => {});
+    if (this.deleting.has(id) || this.closing) return undefined;
+    const live = this.records.get(id);
+    if (live) {
+      const previous = live.pinned;
+      live.pinned = pinned;
+      const failure = await this.persist(live, { jsonl: false });
+      if (failure) {
+        live.pinned = previous;
+        if (previous) live.meta.pinned = true;
+        else delete live.meta.pinned;
+        this.descriptors.set(id, live.meta);
+        // 後続の通常保存が失敗した変更を引き継がないよう、旧値も直列化して確定する。
+        await this.persist(live, { jsonl: false });
+        throw httpError(500, `セッションの保存に失敗しました: ${failure}`);
+      }
+      return { sessionId: live.id, pinned: live.pinned };
+    }
+    const meta = this.descriptors.get(id);
+    if (!meta || !this.storeDir) return undefined;
+    const updated: SessionMeta = { ...meta };
+    if (pinned) updated.pinned = true;
+    else delete updated.pinned;
+    const storeDir = this.storeDir;
+    // 未ロードの書込みも lifecycle に載せ、並行する GET が古い descriptor を復元しないようにする。
+    const write = (async () => {
+      await writeSessionMeta(storeDir, updated);
+      this.descriptors.set(id, updated);
+    })();
+    this.lifecycle.set(id, write);
+    try {
+      await write;
+    } catch (error) {
+      throw httpError(500, `セッションの保存に失敗しました: ${messageFor(error)}`);
+    } finally {
+      if (this.lifecycle.get(id) === write) this.lifecycle.delete(id);
+    }
+    return { sessionId: id, pinned };
   }
 
   /**
@@ -1246,6 +1318,7 @@ export class SessionStore {
       status: "idle",
       queueDepth: 0,
       notify: meta.notify === true,
+      pinned: meta.pinned === true,
       messageCount: meta.messageCount,
       createdAt: meta.createdAt,
       lastUsedAt: meta.lastUsedAt,
@@ -1324,6 +1397,8 @@ export class SessionStore {
     try {
       const pending = this.lifecycle.get(id);
       if (pending) await pending.catch(() => {});
+      const pendingPin = this.pinUpdates.get(id);
+      if (pendingPin) await pendingPin.catch(() => {});
       const record = this.records.get(id);
       if (record) {
         record.queue = [];
@@ -1372,12 +1447,12 @@ export class SessionStore {
    * meta と JSONL の書込みを直列化する。失敗は record.persistError に残す (in-memory の実行は止めない)。
    * `jsonl: false` は履歴が変わっていない呼び出し用 (meta だけを書く)。
    */
-  persist(record: SessionRecord, { jsonl = true }: { jsonl?: boolean } = {}): Promise<void> {
-    if (!record.writer || !this.storeDir) return Promise.resolve();
+  persist(record: SessionRecord, { jsonl = true }: { jsonl?: boolean } = {}): Promise<string | undefined> {
+    if (!record.writer || !this.storeDir) return Promise.resolve(undefined);
     const storeDir = this.storeDir;
-    const run = async (): Promise<void> => {
+    const run = async (): Promise<string | undefined> => {
       // 削除済み・別世代に差し替わった record は書かない (store を復活させない)
-      if (this.deleting.has(record.id) || this.records.get(record.id) !== record) return;
+      if (this.deleting.has(record.id) || this.records.get(record.id) !== record) return undefined;
       const session = record.session;
       const meta: SessionMeta = {
         ...record.meta,
@@ -1400,6 +1475,8 @@ export class SessionStore {
       // record.meta の古い値を残さない (Off へ戻した会話が再起動で On に戻らないように)
       if (record.notify) meta.notify = true;
       else delete meta.notify;
+      if (record.pinned) meta.pinned = true;
+      else delete meta.pinned;
       record.meta = meta;
       this.descriptors.set(record.id, meta);
       // 今回の保存だけを評価する (過去の失敗は成功で消す)
@@ -1427,10 +1504,20 @@ export class SessionStore {
         console.warn(`[u7agent] セッションの保存に失敗しました (${record.id}): ${failure}`);
       }
       if (!failure) record.persistErrorLogged = undefined;
+      return failure;
     };
     const next = record.persistTail.then(run, run);
-    record.persistTail = next.catch(() => {});
-    return record.persistTail;
+    const result = next.catch((error: unknown) => {
+      const failure = messageFor(error);
+      record.persistError = failure;
+      if (record.persistErrorLogged !== failure) {
+        record.persistErrorLogged = failure;
+        console.warn(`[u7agent] セッションの保存に失敗しました (${record.id}): ${failure}`);
+      }
+      return failure;
+    });
+    record.persistTail = result.then(() => {});
+    return result;
   }
 
   async flush(record: SessionRecord): Promise<boolean> {
@@ -1448,7 +1535,7 @@ export class SessionStore {
       // 破棄中に records を変更するため、走査対象は先に固める
       for (const [id, record] of Array.from(this.records)) {
         if (this.isBusy(record) || record.subscribers.size > 0 || record.changingSettings) continue;
-        if (this.deleting.has(id) || this.lifecycle.has(id)) continue;
+        if (this.deleting.has(id) || this.lifecycle.has(id) || this.pinUpdates.has(id)) continue;
         if (record.lastUsedAt >= cutoff) continue;
         const promise = (async () => {
           // 最終保存を試み、成功したときだけメモリから外す (失敗は次の sweep で再試行する)。
@@ -1492,6 +1579,7 @@ export class SessionStore {
   async close(): Promise<void> {
     this.closing = true;
     clearInterval(this.sweeper);
+    await Promise.allSettled(Array.from(this.pinUpdates.values()));
     await Promise.allSettled(Array.from(this.lifecycle.values()));
     for (const record of Array.from(this.records.values())) {
       // 先に task を持ち、abort の後にその settle を待つ (closing でも保存は行われ、終端配信と pump だけ止まる)

@@ -25,10 +25,12 @@ export type SidebarProps = Omit<
     | "renameSession"
     | "deleteSession"
     | "deleteProject"
+    | "togglePinned"
   >,
-  "newChat" | "selectSession" | "renameSession" | "deleteSession" | "deleteProject"
+  "newChat" | "selectSession" | "renameSession" | "deleteSession" | "deleteProject" | "togglePinned"
 > & {
   spaceName?: string;
+  pinError?: string;
   conversationOnly?: boolean;
   mode: SidebarMode;
   onSelectMode: (mode: SidebarMode) => void;
@@ -40,6 +42,7 @@ export type SidebarProps = Omit<
   renameSession: (sessionId: string) => void;
   deleteSession: (sessionId: string) => void;
   deleteProject: (projectId: string) => void;
+  togglePinned: (sessionId: string) => void;
   onNewProject: () => void;
   onOpenSettingsSection: (section: SettingsSection) => void;
   /** sheet variant のときだけ使う (モバイルのドロワーを閉じる) */
@@ -60,12 +63,23 @@ export function Sidebar({
   variant = "sidebar",
   resize,
   spaceName,
+  pinError,
   conversationOnly = false,
   ...props
 }: SidebarProps) {
   const sheet = variant === "sheet";
-  const { sessions, sessionId, agents, projects, newChat, selectSession, renameSession, deleteSession, deleteProject } =
-    props;
+  const {
+    sessions,
+    sessionId,
+    agents,
+    projects,
+    newChat,
+    selectSession,
+    renameSession,
+    deleteSession,
+    deleteProject,
+    togglePinned,
+  } = props;
   // 既定は畳み (保存値が無ければ空 = 全行 closed)。書き込みは Effect ではなくクリック時に済ませる
   const [expanded, setExpanded] = useState<string[]>(() => sidebarProjectsStore.read());
   const [expandedSections, setExpandedSections] = useState<SidebarSectionId[]>(() => sidebarSectionsStore.read());
@@ -203,6 +217,7 @@ export function Sidebar({
                               onSelectSession={selectSession}
                               onRenameSession={renameSession}
                               onDeleteSession={deleteSession}
+                              onTogglePinnedSession={togglePinned}
                             />
                           ))}
                         </div>
@@ -250,6 +265,7 @@ export function Sidebar({
                             onSelect={() => selectSession(item.sessionId)}
                             onRename={() => renameSession(item.sessionId)}
                             onDelete={() => deleteSession(item.sessionId)}
+                            onTogglePin={() => togglePinned(item.sessionId)}
                           />
                         ))}
                       </div>
@@ -263,6 +279,14 @@ export function Sidebar({
       )}
 
       <div className="mt-auto grid gap-2">
+        {pinError ? (
+          <p
+            role="alert"
+            className="rounded-lg border border-danger/40 bg-raised px-2.5 py-2 text-2xs leading-relaxed text-danger-text"
+          >
+            {pinError}
+          </p>
+        ) : null}
         <div className="text-2xs leading-relaxed text-ink-ghost">ローカル実行 · セッションはサーバーに保存</div>
         {mode === "nav" ? (
           <MenuItem variant="nav" icon={<GearIcon />} label="設定" onClick={() => onSelectMode("settings")} />

@@ -14,6 +14,7 @@ import {
   type CreateSessionBody,
   type PostMessageBody,
   type UpdateSessionNotifyBody,
+  type UpdateSessionPinnedBody,
   type UpdateSessionSettingsBody,
   type UpdateSessionTitleBody,
 } from "../schema";
@@ -121,6 +122,13 @@ export function createSessionRoutes({
     /** 通知トグル。busy でも成功し、応答は live / 未ロード共通の `{ sessionId, notify }` */
     updateNotify: async (c: Context, body: UpdateSessionNotifyBody) => {
       const result = await store.setNotify(c.req.param("id") ?? "", body.notify);
+      if (!result) return c.json({ error: "Session not found" }, 404);
+      return c.json(result);
+    },
+
+    /** ピン留め。live / 未ロード共通で busy でも成功し、保存に失敗したときは 500 を返す。 */
+    updatePinned: async (c: Context, body: UpdateSessionPinnedBody) => {
+      const result = await store.setPinned(c.req.param("id") ?? "", body.pinned);
       if (!result) return c.json({ error: "Session not found" }, 404);
       return c.json(result);
     },

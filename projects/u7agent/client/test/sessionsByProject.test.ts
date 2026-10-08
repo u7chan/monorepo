@@ -20,6 +20,7 @@ const session = (sessionId: string, lastUsedAt: number, projectId?: string): Ses
   messageCount: 0,
   createdAt: lastUsedAt,
   lastUsedAt,
+  pinned: false,
   ...(projectId ? { projectId } : {}),
 });
 
@@ -78,5 +79,29 @@ test("セッションが無いプロジェクトも空配列で返し、入力�
   assert.deepEqual(
     sessions.map((item) => item.sessionId),
     ["old", "new"],
+  );
+});
+
+test("プロジェクト内と未所属の両方でピン留めを先にし、同時刻の元順を保つ", () => {
+  const projects = [project("p1", "work/a", 1)];
+  const sessions = [
+    session("project-unpinned-new", 300, "p1"),
+    { ...session("project-pinned-old", 100, "p1"), pinned: true },
+    { ...session("project-pinned-first", 300, "p1"), pinned: true },
+    { ...session("project-pinned-tied", 300, "p1"), pinned: true },
+    session("loose-unpinned-new", 300),
+    { ...session("loose-pinned-old", 100), pinned: true },
+    { ...session("loose-pinned-first", 300), pinned: true },
+    { ...session("loose-pinned-tied", 300), pinned: true },
+  ];
+
+  const { groups, unassigned } = groupSessionsByProject(sessions, projects);
+  assert.deepEqual(
+    groups[0]?.sessions.map((item) => item.sessionId),
+    ["project-pinned-first", "project-pinned-tied", "project-pinned-old", "project-unpinned-new"],
+  );
+  assert.deepEqual(
+    unassigned.map((item) => item.sessionId),
+    ["loose-pinned-first", "loose-pinned-tied", "loose-pinned-old", "loose-unpinned-new"],
   );
 });

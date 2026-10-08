@@ -50,6 +50,7 @@ import {
   UpdateProviderMemoBodySchema,
   UpdateSecretBodySchema,
   UpdateSessionNotifyBodySchema,
+  UpdateSessionPinnedBodySchema,
   UpdateSessionSettingsBodySchema,
   UpdateSessionTitleBodySchema,
   UpdateSkillBodySchema,
@@ -273,6 +274,15 @@ export async function createBffApp(opts: CreateBffAppOptions = {}) {
         result.success ? undefined : c.json({ error: "notify is required" }, 400),
       ),
       (c) => sessionRoutes.updateNotify(c, c.req.valid("json")),
+    )
+    // ピン留めは SDK に触れないため、実行中・未ロードでも meta.json だけを更新できる
+    .patch(
+      "/api/sessions/:id/pin",
+      appData,
+      zValidator("json", UpdateSessionPinnedBodySchema, (result, c) =>
+        result.success ? undefined : c.json({ error: "pinned is required" }, 400),
+      ),
+      (c) => sessionRoutes.updatePinned(c, c.req.valid("json")),
     )
     // タイトルの変更も通知と同じ専用経路 (SDK に触らないため、実行中でも変えられる)
     .patch(

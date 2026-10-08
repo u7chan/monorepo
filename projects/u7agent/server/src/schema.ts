@@ -425,6 +425,8 @@ export const SessionPayloadSchema = z.object({
   compactionStartedAt: z.number().optional(),
   /** この会話の完了を Discord へ送るか。サーバーは常に載せ、読む側は省略を false として扱う */
   notify: z.boolean().optional(),
+  /** サイドバーに固定するか */
+  pinned: z.boolean(),
   lastSeq: z.number(),
   agent: AgentPayloadInfoSchema.optional(),
   run: RunPayloadSchema.nullable(),
@@ -446,6 +448,8 @@ export const SessionSummarySchema = z.object({
   queueDepth: z.number(),
   /** この会話の完了を Discord へ送るか。サーバーは常に載せ、読む側は省略を false として扱う */
   notify: z.boolean().optional(),
+  /** サイドバーに固定するか。未指定の旧データは false として扱う */
+  pinned: z.boolean(),
   messageCount: z.number(),
   createdAt: z.number(),
   lastUsedAt: z.number(),
@@ -1019,6 +1023,13 @@ export const SessionNotifyResponseSchema = z.object({
 });
 export type SessionNotifyResponse = z.infer<typeof SessionNotifyResponseSchema>;
 
+/** `PATCH /api/sessions/:id/pin` の応答。live / 未ロードで同じ小さな DTO を返す。 */
+export const SessionPinnedResponseSchema = z.object({
+  sessionId: z.string(),
+  pinned: z.boolean(),
+});
+export type SessionPinnedResponse = z.infer<typeof SessionPinnedResponseSchema>;
+
 /**
  * `PATCH /api/sessions/:id/title` の応答。notify と同じく live / 未ロードで同じ形にし、
  * SDK セッションを開かない未ロードでも返せるよう会話全文 (`messages`) は載せない。
@@ -1085,6 +1096,10 @@ export type UpdateSessionSettingsBody = z.infer<typeof UpdateSessionSettingsBody
  */
 export const UpdateSessionNotifyBodySchema = z.object({ notify: z.boolean() });
 export type UpdateSessionNotifyBody = z.infer<typeof UpdateSessionNotifyBodySchema>;
+
+/** 会話ごとのサイドバー固定。SDK に触れず busy 中も更新できる。 */
+export const UpdateSessionPinnedBodySchema = z.object({ pinned: z.boolean() });
+export type UpdateSessionPinnedBody = z.infer<typeof UpdateSessionPinnedBodySchema>;
 
 /**
  * 会話タイトルの変更。notify と同じく SDK に触らないため実行中でも変えられる。

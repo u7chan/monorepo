@@ -17,6 +17,7 @@ function payload(messages: { role: "user" | "assistant"; text: string; tools?: T
     lastUsedAt: 1,
     serverNow: 1,
     queueDepth: 0,
+    pinned: false,
     lastSeq: 1,
     run: null,
     messages,

@@ -29,6 +29,7 @@ function renderProjectRow(): string {
       onSelectSession: () => {},
       onRenameSession: () => {},
       onDeleteSession: () => {},
+      onTogglePinnedSession: () => {},
     }),
   );
 }
@@ -44,6 +45,7 @@ function renderSessionRow(overrides: Partial<SessionSummary> = {}): string {
     messageCount: 2,
     createdAt: 0,
     lastUsedAt: 0,
+    pinned: false,
     ...overrides,
   };
   return renderToStaticMarkup(
@@ -54,6 +56,7 @@ function renderSessionRow(overrides: Partial<SessionSummary> = {}): string {
       onSelect: () => {},
       onRename: () => {},
       onDelete: () => {},
+      onTogglePin: () => {},
     }),
   );
 }
@@ -65,15 +68,17 @@ function menuTrigger(html: string): string {
   return match[0];
 }
 
-test("出し分け: プロジェクト行は 新しい会話 → 削除、セッション行は 名前を変更 → 削除 を返す", () => {
+test("出し分け: プロジェクト行とセッション行で必要な操作を返す", () => {
   assert.deepEqual(projectRowActions(), [
     { kind: "new-chat", label: "このプロジェクトに新しい会話" },
     { kind: "delete", label: "プロジェクトを削除", danger: true },
   ]);
   assert.deepEqual(sessionRowActions(), [
+    { kind: "pin", label: "ピン留め" },
     { kind: "rename", label: "名前を変更" },
     { kind: "delete", label: "セッションを削除", danger: true },
   ]);
+  assert.equal(sessionRowActions(true)[0]?.label, "ピン留めを解除");
 });
 
 test("セッションの削除確認は対象のタイトルを出し、リネームは現在のタイトルを初期値にする", () => {
@@ -109,16 +114,22 @@ test("プロジェクト行の操作は読み上げ名と 2 項目の並びを�
   assert.ok(html.includes('aria-expanded="false"'), "行の button が aria-expanded を持たない");
 });
 
-test("セッション行の ⋯ は 名前を変更 → 削除 の 2 項目で、通知のベルは行に残る", () => {
+test("セッション行はピン状態を示し、⋯ に切替・改名・削除を出して通知のベルも残す", () => {
   const html = renderSessionRow();
   const trigger = menuTrigger(html);
   assert.ok(trigger.includes('aria-label="テスト の操作"'), "⋯ の読み上げ名にセッション名が入っていない");
 
   const items = html.split("<button").filter((part) => part.includes('role="menuitem"'));
-  assert.equal(items.length, 2, "項目数が違う");
+  assert.equal(items.length, 3, "項目数が違う");
+  const pin = html.indexOf("ピン留め");
   const rename = html.indexOf("名前を変更");
   const remove = html.indexOf("セッションを削除");
-  assert.ok(rename >= 0 && rename < remove, "並びが 名前を変更 → 削除 でない");
+  assert.ok(pin >= 0 && pin < rename && rename < remove, "並びが ピン留め → 名前を変更 → 削除 でない");
+
+  const pinned = renderSessionRow({ pinned: true });
+  assert.ok(pinned.includes('aria-label="ピン留め中"'), "ピン留めの状態印が無い");
+  assert.ok(pinned.includes("ピン留めを解除"), "ピン留め解除の操作が出ない");
+  assert.ok(!html.includes('aria-label="ピン留め中"'), "未固定なのに状態印が出ている");
 
   assert.ok(!html.includes("×"), "× が残っている");
 

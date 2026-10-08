@@ -161,6 +161,7 @@ function renderSidebar(withResize: boolean): string {
       renameSession: () => {},
       deleteSession: () => {},
       deleteProject: () => {},
+      togglePinned: () => {},
       onNewProject: () => {},
       onOpenSettingsSection: () => {},
       variant: "sidebar",

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import type { Dispatch, RefObject } from "react";
 import { ApiError } from "../api";
-import { useSpaceApi } from "../SpaceContext";
+import { useSpace } from "../SpaceContext";
 import type { ChatHistoryState } from "../lib/chatTypes";
 import { adoptKnownAgentId } from "../lib/agentSelection";
 import { renameInputValue } from "../lib/confirmDialog";
@@ -13,6 +13,7 @@ import type { AgentDef, EventEntry, Health, ModelRef, SessionPayload, SessionSum
 import type { ChatAction } from "./chatReducer";
 import { createRequestGate } from "./requestGate";
 import { createNotifyCarry, createNotifyToggleRunner } from "./notifyToggle";
+import { createPinnedToggleRunner } from "./pinnedToggle";
 import { createSessionCreation } from "./sessionCreation";
 import { applySessionEvent, recoverDecision } from "./sessionStream";
 import { applySettingsChange, type SettingsSelection } from "./settingsChange";
@@ -67,6 +68,7 @@ export function useSessions({
   refreshHealth,
   setRuntimeStatus,
 }: UseSessionsParams) {
+  const space = useSpace();
   const {
     compactSession: requestCompaction,
     createSession,
@@ -75,12 +77,14 @@ export function useSessions({
     getSessionHistory,
     listSessions,
     updateSessionNotify,
+    updateSessionPinned,
     updateSessionSettings,
     updateSessionTitle,
-  } = useSpaceApi();
+  } = space.api;
   const confirm = useConfirm();
   const prompt = usePrompt();
   const [sessions, setSessions] = useState<SessionSummary[]>([]);
+  const [pinnedError, setPinnedError] = useState("");
   /** 一覧の初回取得に成功したか。空配列を「使用なし」と読んで嘘を出さないためのフラグ */
   const [sessionsLoaded, setSessionsLoaded] = useState(false);
   const [sessionId, setSessionId] = useState("");
@@ -95,6 +99,10 @@ export function useSessions({
   /** newChat / selectSession で選択が変わった世代 (作成待ちの応答で選択を奪わないため) */
   const selectionSeqRef = useRef(0);
   const mountedRef = useRef(true);
+  const spaceIdRef = useRef(space.selected.id);
+  spaceIdRef.current = space.selected.id;
+  const pinnedRequestRef = useRef(updateSessionPinned);
+  pinnedRequestRef.current = updateSessionPinned;
   useEffect(() => {
     mountedRef.current = true;
     return () => {
@@ -254,6 +262,11 @@ export function useSessions({
     setSessions((prev) => prev.map((item) => (item.sessionId === id ? { ...item, notify } : item)));
   }, []);
 
+  const applyPinned = useCallback((id: string, pinned: boolean): void => {
+    sessionsRef.current = sessionsRef.current.map((item) => (item.sessionId === id ? { ...item, pinned } : item));
+    setSessions((prev) => prev.map((item) => (item.sessionId === id ? { ...item, pinned } : item)));
+  }, []);
+
   /** 一覧のタイトルを差し替える。応答の正規化後タイトルを正とし、次のポーリングでも同じ値になる */
   const applyTitle = useCallback((id: string, title: string): void => {
     sessionsRef.current = sessionsRef.current.map((item) => (item.sessionId === id ? { ...item, title } : item));
@@ -269,6 +282,21 @@ export function useSessions({
       onError: (error) => {
         // 実行の成否とは別の操作なので、接続状態 (runtimeStatus) ではなく状態行へ理由を出す
         dispatch({ type: "setActivity", text: `通知を切り替えられませんでした。${messageFor(error)}` });
+      },
+    }),
+  );
+
+  const [pinnedToggles] = useState(() =>
+    createPinnedToggleRunner({
+      request: (id, pinned) => pinnedRequestRef.current(id, pinned),
+      apply: (id, pinned, spaceId) => {
+        if (mountedRef.current && spaceIdRef.current === spaceId) applyPinned(id, pinned);
+      },
+      isCurrentSpace: (spaceId) => mountedRef.current && spaceIdRef.current === spaceId,
+      onError: (error, spaceId) => {
+        if (mountedRef.current && spaceIdRef.current === spaceId) {
+          setPinnedError(`ピン留めを切り替えられませんでした。${messageFor(error)}`);
+        }
       },
     }),
   );
@@ -536,6 +564,15 @@ export function useSessions({
     notifyToggles.toggle(id, current);
   }, [notifyCarry, notifyToggles]);
 
+  const togglePinned = useCallback(
+    (id: string): void => {
+      const current = sessionsRef.current.find((item) => item.sessionId === id)?.pinned === true;
+      setPinnedError("");
+      pinnedToggles.toggle(id, current, spaceIdRef.current);
+    },
+    [pinnedToggles],
+  );
+
   const onEvent = useCallback(
     (entry: EventEntry) => {
       applySessionEvent(entry, { lastSeqRef, dispatch, applySnapshot, refreshSessions, setRuntimeStatus });
@@ -649,6 +686,7 @@ export function useSessions({
     preselection,
     settingsChanging,
     notify,
+    pinnedError,
     refreshSessions,
     selectSession,
     newChat,
@@ -664,6 +702,7 @@ export function useSessions({
     loadOlderHistory,
     fillHistoryGap,
     toggleNotify,
+    togglePinned,
     resyncSession,
   };
 }

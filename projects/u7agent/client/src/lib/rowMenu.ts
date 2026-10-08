@@ -5,7 +5,7 @@
  */
 
 /** 画面ごとに出せる種別が違うため、メニュー項目の型は種別を型引数に取る (出し分け側が種別を狭める) */
-export type RowMenuActionKind = "download" | "rename" | "delete" | "new-chat";
+export type RowMenuActionKind = "download" | "rename" | "pin" | "delete" | "new-chat";
 
 export type RowMenuAction<K extends RowMenuActionKind = RowMenuActionKind> = {
   kind: K;

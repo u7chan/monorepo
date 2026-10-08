@@ -46,6 +46,7 @@ test("カテゴリの保存値が無い場合は Projects と未所属を開き�
       renameSession: () => {},
       deleteSession: () => {},
       deleteProject: () => {},
+      togglePinned: () => {},
       onNewProject: () => {},
       onOpenSettingsSection: () => {},
     }),
