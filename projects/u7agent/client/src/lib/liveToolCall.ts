@@ -11,6 +11,19 @@ import { toolDurationMs } from "./toolTiming";
  */
 export const LIVE_ROW_MIN_VISIBLE_MS = 900;
 
+/**
+ * ライブ行に出す子の本文の上限。サーバー (runner) も間引くが、行の高さを揃えるのは表示側の都合。
+ */
+export const LIVE_PROGRESS_BODY_LINES = 3;
+export const LIVE_PROGRESS_BODY_MAX = 200;
+
+export type LiveToolProgress = {
+  /** 直近の子ツール実行の 1 行要約 */
+  activity: string;
+  /** 生成中の子の本文末尾 (上限まで) */
+  body: string;
+};
+
 export type LiveToolRow = {
   id: string;
   /** ツール履歴に並ぶ通し番号 (スキル読み込み・ask_user を除いた並び) */
@@ -20,6 +33,8 @@ export type LiveToolRow = {
   done: boolean;
   /** 終了済みの行だけ入る (BFF 計測)。開始 / 終了が揃わない行は undefined */
   durationMs?: number;
+  /** investigate の進捗 (ライブの `tool_progress` だけが入れる。履歴には残らない) */
+  progress?: LiveToolProgress;
 };
 
 export type LiveToolState = {
@@ -29,6 +44,18 @@ export type LiveToolState = {
   allRows: LiveToolRow[];
   visible: boolean;
 };
+
+/**
+ * `tool_progress` の本文をライブ行の 2 段 (現在の活動 / 子の本文末尾) へ分ける。runner は両者を 1 本の
+ * 本文へ詰めて流すため、先頭行を活動、残りを本文として読む。本文は末尾だけを上限まで残す。
+ */
+export function liveToolProgress(text: string): LiveToolProgress {
+  const [first = "", ...rest] = text.split("\n");
+  const lines = rest.filter((line) => line.trim() !== "");
+  const tail = lines.slice(-LIVE_PROGRESS_BODY_LINES).join("\n");
+  const body = tail.length > LIVE_PROGRESS_BODY_MAX ? `…${tail.slice(tail.length - LIVE_PROGRESS_BODY_MAX)}` : tail;
+  return { activity: first.trim(), body };
+}
 
 /** 直近 run のツール行。`done` はフィルタせず、表示側が実行中だけを選ぶ */
 export function liveToolRows(runTools: Readonly<Record<string, ToolCall>>): LiveToolRow[] {
@@ -43,6 +70,7 @@ export function liveToolRows(runTools: Readonly<Record<string, ToolCall>>): Live
         summary: abbreviatedToolSummary(call),
         done: call.done,
         ...(durationMs === undefined ? {} : { durationMs }),
+        ...(call.progress === undefined ? {} : { progress: liveToolProgress(call.progress) }),
       };
     });
 }

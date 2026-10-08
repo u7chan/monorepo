@@ -1211,3 +1211,42 @@ test("resync の実行中は由来を持たない (文言が長く、次の stat
   });
   assert.equal(finished.activityState, undefined, "run_end を取りこぼした復帰でも残さない");
 });
+
+// --- investigate の live 進捗 (tool_progress) ---
+
+test("tool_progress は該当 ID の progress だけを更新し、カードや履歴は変えない", () => {
+  const state = stateWithSession();
+  const next = chatReducer(state, { type: "toolProgress", id: "tool-1", text: "bash rg -n investigate" });
+
+  assert.equal(next.runTools["tool-1"]?.progress, "bash rg -n investigate");
+  // バブル側 (履歴寄りの状態) へは写さない。進捗は live 行だけが読む
+  assert.deepEqual(next.bubbles, state.bubbles);
+  assert.deepEqual(next.toolBubbleIds, state.toolBubbleIds);
+  assert.equal("progress" in (state.runTools["tool-1"] ?? {}), false, "元の状態を書き換えている");
+
+  // run 側にカードが無い id は無視する (復元カードを live の出来事として作らない)
+  assert.equal(chatReducer(state, { type: "toolProgress", id: "unknown", text: "x" }), state);
+});
+
+test("progress は resync で消える (payload が正の復元に live 値を残さない)", () => {
+  const progressed = chatReducer(stateWithSession(), {
+    type: "toolProgress",
+    id: "tool-1",
+    text: "結論: docs/subagent.md にある",
+  });
+  assert.equal(progressed.runTools["tool-1"]?.progress, "結論: docs/subagent.md にある");
+
+  const payload = runningPayload();
+  payload.run = {
+    id: "run-1",
+    status: "running",
+    startedAt: 10,
+    prompt: "続けて",
+    toolCalls: [{ id: "tool-1", name: "investigate", args: "docs", isError: false, done: false, output: "" }],
+    totalRetryCount: 0,
+  };
+  const resynced = chatReducer(progressed, { type: "resync", payload });
+
+  assert.equal(resynced.runTools["tool-1"]?.done, false, "カードは payload から残る");
+  assert.equal("progress" in (resynced.runTools["tool-1"] ?? {}), false, "progress を残している");
+});

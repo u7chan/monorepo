@@ -129,6 +129,11 @@ export interface StubSessionOptions {
   /** BFF からの手動 compaction (引数なしの compact()) に使う options */
   manualCompaction?: StubCompactionOptions;
   /**
+   * investigate の呼び出しと進捗。実モデルの代わりに、prompt 中へ tool_execution_start →
+   * tool_execution_update ×N → tool_execution_end を流し、live 行の配信経路だけを再現する
+   */
+  investigateProgress?: StubInvestigateProgress;
+  /**
    * prompt が user message を履歴へ積む前に失敗する (認証エラー等)。BFF は user entry の無いまま
    * error で終端するため、受理済みの送信が未送信として残る経路を再現できる
    */
@@ -164,6 +169,17 @@ export interface StubSessionEntry {
   modelId?: string;
   /** type === "thinking_level_change" */
   thinkingLevel?: string;
+}
+
+/** investigate の進捗を模す。progress の各要素が 1 回の tool_execution_update になる */
+export interface StubInvestigateProgress {
+  /** モデルが渡す依頼文 (ツールカードの引数になる) */
+  prompt?: string;
+  /** 子の進捗。runner と同じく「現在の活動」と「本文末尾」を 1 本の本文へ詰めて流す */
+  progress?: string[];
+  /** tool_execution_end の報告本文 */
+  result?: string;
+  toolCallId?: string;
 }
 
 export interface StubCompactionOptions {
@@ -499,9 +515,28 @@ export function createStubSession(options: StubSessionOptions = {}): StubSession
         session.emit({ type: "message_start", message: userMessage });
         session.emit({ type: "message_end", message: userMessage });
         session.emit({ type: "message_start", message: { role: "assistant" } });
+        // investigate の呼び出しを模す (live 行の配信経路を作る)。tool_end は本文の後で出す
+        const investigate = options.investigateProgress;
+        const investigateToolCallId = investigate?.toolCallId ?? "call-investigate-1";
+        const investigateArgs = { prompt: investigate?.prompt ?? "スタブの調査依頼" };
+        if (investigate) {
+          session.emit({
+            type: "tool_execution_start",
+            toolCallId: investigateToolCallId,
+            toolName: "investigate",
+            args: investigateArgs,
+          });
+        }
+        // 実 SDK と同じく toolCall は assistant の本文へ入る (リロード後もカードが履歴から復元される)
+        const assistantText = { type: "text", text: "" };
         const assistant = {
           role: "assistant",
-          content: [{ type: "text", text: "" }],
+          content: [
+            ...(investigate
+              ? [{ type: "toolCall", id: investigateToolCallId, name: "investigate", arguments: investigateArgs }]
+              : []),
+            assistantText,
+          ],
           stopReason: "stop",
           timestamp: Date.now(),
           // usage 非対応プロバイダを再現するときはキー自体を作らない
@@ -518,17 +553,50 @@ export function createStubSession(options: StubSessionOptions = {}): StubSession
             });
           }
         }
+        // 子の進捗 (tool_execution_update) を本文の前に流す。間隔は本文 delta と同じ chunkDelayMs に合わせる
+        for (const text of investigate?.progress ?? []) {
+          await sleep(chunkDelayMs);
+          if (session.abortRequested) break;
+          session.emit({
+            type: "tool_execution_update",
+            toolCallId: investigateToolCallId,
+            toolName: "investigate",
+            args: investigateArgs,
+            partialResult: { content: [{ type: "text", text }] },
+          });
+        }
         const chunks = [reply.slice(0, 3), reply.slice(3)].filter(Boolean);
         for (const chunk of chunks) {
           await sleep(chunkDelayMs);
           if (session.abortRequested) break;
-          (assistant.content[0] as { text: string }).text += chunk;
+          assistantText.text += chunk;
           session.emit({
             type: "message_update",
             assistantMessageEvent: { type: "text_delta", delta: chunk },
           });
         }
         if (session.abortRequested) assistant.stopReason = "aborted";
+        if (investigate && !session.abortRequested) {
+          const resultText = investigate.result ?? "スタブの調査結果";
+          session.emit({
+            type: "tool_execution_end",
+            toolCallId: investigateToolCallId,
+            toolName: "investigate",
+            isError: false,
+            result: {
+              content: [{ type: "text", text: resultText }],
+              details: { outcome: "completed", toolCalls: (investigate.progress ?? []).length },
+            },
+          });
+          // 実 SDK と同じく toolResult も履歴へ積む (履歴のカードはこのメッセージから投影される)
+          session.appendMessage({
+            role: "toolResult",
+            content: [{ type: "text", text: resultText }],
+            toolCallId: investigateToolCallId,
+            isError: false,
+            timestamp: Date.now(),
+          });
+        }
         // SDK は確定したメッセージを agent state へ入れてから (同じ参照で) message_end を出す
         historyUpdated = false;
         try {
@@ -589,6 +657,8 @@ export interface StubPiOptions {
   preflightCompactions?: Array<StubCompactionOptions | null>;
   /** BFF からの手動 compaction (引数なしの compact()) に使う options */
   manualCompaction?: StubCompactionOptions;
+  /** investigate の live 行を fixture で見るための進捗 (StubSessionOptions と同じ) */
+  investigateProgress?: StubInvestigateProgress;
   /** prompt が user message を積む前に失敗する (StubSessionOptions と同じ) */
   promptFailureBeforeUser?: string;
   availableModels?: PiAiModel<Api>[];

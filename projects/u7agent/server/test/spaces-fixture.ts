@@ -14,7 +14,22 @@ const store = join(root, "store");
 await mkdir(store, { recursive: true });
 const workspace = createSandboxToolClientFromEnv(process.env);
 if (!workspace) throw new Error("別プロセスの一時サンドボックス URL / token が必要です");
-const pi = Object.assign(createStubPi({ chunkDelayMs: 150 }), { cwd, sandboxConfigured: true });
+const pi = Object.assign(
+  createStubPi({
+    chunkDelayMs: 150,
+    // live 行の受入用: 実モデルの代わりに investigate の呼び出しと進捗を流す
+    investigateProgress: {
+      prompt: "リポジトリの docs 構成を調べ、investigate の記述箇所を報告して",
+      progress: [
+        "grep -rn investigate docs/",
+        "grep -rn investigate docs/\nREADME.md と subagent.md に記述があります",
+        "grep -rn investigate docs/\nREADME.md と subagent.md に記述があります\n結論: 索引は docs/README.md、契約は docs/subagent.md にあります",
+      ],
+      result: "結論: 索引は docs/README.md、契約は docs/subagent.md にあります",
+    },
+  }),
+  { cwd, sandboxConfigured: true },
+);
 const bff = await createBffApp({ cwd, sessionStoreDir: store, workspace, pi: asPiBff(pi) });
 if (bff.projects.list().length === 0) {
   await workspace.createDir("normal-project");

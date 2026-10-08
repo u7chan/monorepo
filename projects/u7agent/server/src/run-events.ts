@@ -5,6 +5,7 @@
  */
 import { recordCompactionOutcome } from "./compaction-view";
 import { classifyRunError, type RunErrorClassification } from "./error-classify";
+import { INVESTIGATE_TOOL_NAME } from "./investigate-tool";
 import type { PiSessionEventListener, PiSessionLike } from "./pi-runtime";
 import { contextUsageOf, lastAssistantMessage, parseUsage } from "./pi-runtime";
 import { createStreamingSecretMasker, type SecretMasker } from "./redact";
@@ -321,6 +322,19 @@ export function createRunEventBridge(deps: RunEventBridgeDeps): RunEventBridge {
             ...(startedAt === undefined ? {} : { endedAt }),
             ...(answers ? { answers } : {}),
           });
+          break;
+        }
+        case "tool_execution_update": {
+          // 途中結果を live 表示に使うのは investigate だけ。bash / grep など他のツールの update は
+          // 今まで通り捨てる (イベントログをトークン単位の進捗で埋めない) ため、ツール名で絞る
+          if ((event.toolName ?? "") !== INVESTIGATE_TOOL_NAME) break;
+          // 送出層は最後の防衛線。ツール側とは別の masker でも効くよう、先頭部分一致の置換と
+          // 末尾の不完全な秘密値の保留までここで重ねる (切り詰め後の断片は完全一致では検出できない)
+          const text = masker.maskAccumulated(
+            contentText((event.partialResult as { content?: unknown } | null)?.content),
+          );
+          if (text === "") break;
+          emit("tool_progress", { id: event.toolCallId ?? "", text });
           break;
         }
         case "compaction_start":

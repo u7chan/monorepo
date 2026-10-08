@@ -8,6 +8,9 @@ import { LiveToolCall } from "../src/components/composer/LiveToolCall";
 import type { ToolCard } from "../src/lib/chatTypes";
 import {
   initialLiveTracker,
+  LIVE_PROGRESS_BODY_LINES,
+  LIVE_PROGRESS_BODY_MAX,
+  liveToolProgress,
   liveToolState,
   LIVE_ROW_MIN_VISIBLE_MS,
   trackLiveHolds,
@@ -268,4 +271,45 @@ test("ライブ表示は実行中のツールを行サマリーで出し、行�
 
   const stopped = renderLive({ t1: call("t1", "bash", "sleep 100", false) }, "stopped");
   assert.match(stopped, /data-visible="false"/, "停止で done が来なかったカードは出さない");
+});
+
+// --- investigate の進捗 (live 専用) ---
+
+test("進捗の本文は先頭行を活動、残りを子の本文末尾として読む", () => {
+  assert.deepEqual(liveToolProgress("bash rg -n foo\n結論: docs にある"), {
+    activity: "bash rg -n foo",
+    body: "結論: docs にある",
+  });
+  // 1 行だけの進捗 (活動だけ / 本文だけ) は活動として出す。分けられない以上、1 行として見せれば足りる
+  assert.deepEqual(liveToolProgress("生成中です"), { activity: "生成中です", body: "" });
+  assert.deepEqual(liveToolProgress("bash ls\n\n本文 1\n本文 2"), { activity: "bash ls", body: "本文 1\n本文 2" });
+});
+
+test("子の本文末尾は行数の上限まで残し、末尾を優先する", () => {
+  const body = Array.from({ length: LIVE_PROGRESS_BODY_LINES + 2 }, (_, index) => `本文${index + 1}`).join("\n");
+  const result = liveToolProgress(`bash ls\n${body}`);
+
+  assert.equal(result.body.split("\n").length, LIVE_PROGRESS_BODY_LINES, "行数の上限まで残す");
+  assert.ok(result.body.endsWith(`本文${LIVE_PROGRESS_BODY_LINES + 2}`), "末尾を優先する");
+  assert.equal(result.body.includes("本文1"), false, "先頭の行は落とす");
+
+  const long = `bash ls\n${"あ".repeat(LIVE_PROGRESS_BODY_MAX + 20)}`;
+  const { body: clipped } = liveToolProgress(long);
+  assert.equal(clipped.length, LIVE_PROGRESS_BODY_MAX + 1, "長さの上限まで残す");
+  assert.ok(clipped.startsWith("…"), "切ったことを示す");
+  assert.ok(clipped.endsWith("あ"));
+});
+
+test("ライブ行は investigate の活動と子の本文末尾を出し、進捗が無ければ出さない", () => {
+  const running = renderLive(
+    { t1: call("t1", "investigate", "docs を調べて", false, { progress: "bash rg -n foo\n結論: docs にある" }) },
+    "running",
+  );
+  assert.match(running, /data-visible="true"/);
+  assert.ok(running.includes("investigate — docs を調べて"));
+  assert.ok(running.includes("bash rg -n foo"), "現在の活動が出る");
+  assert.ok(running.includes("結論: docs にある"), "子の本文末尾が出る");
+
+  const withoutProgress = renderLive({ t1: call("t1", "investigate", "docs を調べて", false) }, "running");
+  assert.equal(withoutProgress.includes("結論:"), false);
 });

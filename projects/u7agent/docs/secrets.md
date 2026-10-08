@@ -25,13 +25,13 @@
    - サンドボックスには LLM 認証情報を渡さない。bash が何を読んでも（`BASH_ENV`・`~/.bashrc` 等）、キーはそこに存在しない
 2. **ツール定義のフック（`server/src/secret-guard.ts`）**
    - `createRemoteToolDefinitions` が作るリモート定義を `wrapToolDefinitionWithSecretMasker` で包み、途中出力（`onUpdate`。bash は累積スナップショットが来るので末尾保留・先頭部分一致付きでマスク）・最終結果・エラーメッセージをマスクする。エラーは完全一致のときのみ元の Error を保持する
-   - BFF ローカルの `generate_image`（`server/src/image-tools.ts`）と `web_search`（`server/src/web-search-tool.ts`）も同じヘルパーで包む。ローカル定義は layer 2 のリモート定義生成を通らないため、execute が throw する文言（provider の失敗分類・設定の読取失敗・接続例外）をここでマスクする
+   - BFF ローカルの `generate_image`（`server/src/image-tools.ts`）、`web_search`（`server/src/web-search-tool.ts`）、`investigate`（`server/src/investigate-tool.ts`）も同じヘルパーで包む。ローカル定義は layer 2 のリモート定義生成を通らないため、execute が throw する文言（provider の失敗分類・設定の読取失敗・接続例外）をここでマスクする。`investigate` は子の進捗（`onUpdate`）もここでマスクし、SSE の `tool_progress` としてブラウザへ渡る前に落とす
 3. **tool_result 拡張（同ファイル）**
    - インライン拡張（`DefaultResourceLoader` の `extensionFactories`）で `tool_result` を購読し、全ツールの最終結果を LLM・履歴・`tool_execution_end` イベントへ渡る前にマスクする。`noExtensions: true` でもインラインファクトリは読み込まれる。シェル以外のツール（read / grep 等）もここで一括して掛かる
    - 対象は `content` だけで、`details` は掛からない。`details` から DTO を作る導出値（`ask_user` の質問 / 回答）は、載せる前に `run-events` / `session-projection` 側で個別にマスクする
    - ユーザーが `ask_user` の回答に登録済みの秘密値を書くと、モデルにも `[REDACTED]` が届く（回答では作業を続けられない。既知の制限）
 4. **BFF の送出層（`server/src/sessions.ts` / `server/src/run-events.ts`）**
-   - SSE / イベントログへ出すテキスト（text delta、メッセージ、ツール引数・出力、エラー、プロンプトのエコー、タイトル）を防御的にマスクする
+   - SSE / イベントログへ出すテキスト（text delta、メッセージ、ツール引数・出力、`tool_progress` の進捗本文、エラー、プロンプトのエコー、タイトル）を防御的にマスクする。`tool_progress` は累積スナップショットとして扱い、末尾の不完全な秘密値もこの層で保留する（[subagent.md](subagent.md#進捗)）
    - アシスタントの差分は `createStreamingSecretMasker` で配信前に「秘密値の前方一致になり得る末尾」を保留し、チャンク境界をまたぐキーが複数回の配信から復元できないようにする。保留分は `message_end`（アシスタント確定時）と `finish()`（完了・エラー・中断のいすれでも）でフラッシュする
 
 ## 切り詰め境界への対応

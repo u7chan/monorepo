@@ -235,3 +235,12 @@ test("recover の応答は、取得中に新しいイベントが入ったら適
   assert.equal(recoverDecision({ ...base, currentGeneration: "g2" }), "stale");
   assert.equal(recoverDecision({ ...base, payloadGeneration: "g2" }), "stale");
 });
+
+test("routes investigate progress to the run tool card", () => {
+  const { record, deps } = createHarness();
+
+  applySessionEvent({ seq: 2, type: "tool_progress", data: { id: "call-1", text: "bash rg -n foo" }, at: 9 }, deps);
+
+  // 型が optional のため、経路の写し忘れはコンパイルでは検出できない (ここで固定する)
+  assert.deepEqual(record.actions, [{ type: "toolProgress", id: "call-1", text: "bash rg -n foo" }]);
+});

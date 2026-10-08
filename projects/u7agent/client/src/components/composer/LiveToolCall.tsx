@@ -4,26 +4,42 @@ import {
   initialLiveTracker,
   liveToolState,
   trackLiveHolds,
+  type LiveToolProgress,
   type LiveToolRow,
   type LiveToolTracker,
 } from "../../lib/liveToolCall";
 import { formatDurationMs } from "../../lib/usageFormat";
 import type { RunStatus, ToolCall } from "../../types";
 
+/** investigate の進捗。現在の活動を 1 行、子の本文末尾をその下に出す (live 専用で復元しない) */
+function LiveProgress({ progress }: { progress: LiveToolProgress }) {
+  return (
+    <div className="flex flex-col gap-0.5 pb-0.5 pl-6.5">
+      {progress.activity === "" ? null : <span className="truncate text-ink-faint">{progress.activity}</span>}
+      {progress.body === "" ? null : (
+        <span className="break-words whitespace-pre-wrap text-ink-ghost">{progress.body}</span>
+      )}
+    </div>
+  );
+}
+
 /** 行の本文。番号はツール履歴の行番号と同じ桁揃えにする */
 function LiveRowBody({ row }: { row: LiveToolRow }) {
   return (
-    <div className="flex items-center gap-2 px-2 py-0.5">
-      <span className="w-4.5 shrink-0 text-right font-sans text-3xs text-ink-ghost tabular-nums">
-        {String(row.index).padStart(2, "0")}
-      </span>
-      <span className="min-w-0 flex-1 truncate">{row.summary}</span>
-      {/* 実行時間は終わった行だけに出る (BFF 計測)。出ている間は畳む前の見せている時間になる */}
-      {row.durationMs === undefined ? null : (
-        <span className="shrink-0 font-sans text-3xs whitespace-nowrap text-ink-ghost tabular-nums">
-          {formatDurationMs(row.durationMs)}
+    <div className="px-2 py-0.5">
+      <div className="flex items-center gap-2">
+        <span className="w-4.5 shrink-0 text-right font-sans text-3xs text-ink-ghost tabular-nums">
+          {String(row.index).padStart(2, "0")}
         </span>
-      )}
+        <span className="min-w-0 flex-1 truncate">{row.summary}</span>
+        {/* 実行時間は終わった行だけに出る (BFF 計測)。出ている間は畳む前の見せている時間になる */}
+        {row.durationMs === undefined ? null : (
+          <span className="shrink-0 font-sans text-3xs whitespace-nowrap text-ink-ghost tabular-nums">
+            {formatDurationMs(row.durationMs)}
+          </span>
+        )}
+      </div>
+      {row.progress ? <LiveProgress progress={row.progress} /> : null}
     </div>
   );
 }
