@@ -87,12 +87,12 @@ test("routePath は正準形を返し、parseRoute と往復する", () => {
       "/settings/spaces",
       "/settings/agents",
       "/settings/skills",
+      "/settings/models",
+      "/settings/notifications",
+      "/settings/appearance",
       "/settings/files",
       "/settings/archive",
-      "/settings/appearance",
-      "/settings/models",
       "/settings/runtime",
-      "/settings/notifications",
     ],
   );
   for (const item of SETTINGS_SECTIONS) {

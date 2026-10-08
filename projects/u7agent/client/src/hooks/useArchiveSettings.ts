@@ -41,7 +41,7 @@ export function useArchiveSettings() {
       applySettings(next);
     } catch (error) {
       if (canApply()) {
-        setNote({ text: `アーカイブの除外名を読み込めませんでした。${messageFor(error)}`, error: true });
+        setNote({ text: `ダウンロードの除外名を読み込めませんでした。${messageFor(error)}`, error: true });
       }
     }
   }, [applySettings, beginLoad]);
@@ -93,7 +93,7 @@ export function useArchiveSettings() {
       // 保存中に始まった読み込みの応答で上書きされないよう、適用の前に世代を進める
       beginLoad();
       applySettings(next);
-      setNote({ text: "アーカイブの除外名を保存しました。", error: false });
+      setNote({ text: "ダウンロードの除外名を保存しました。", error: false });
       return true;
     } catch (error) {
       setNote({ text: `保存できませんでした。${messageFor(error)}`, error: true });

@@ -55,8 +55,8 @@ function saveButtonTag(html: string): string {
 
 test("描画: 未設定は既定の一覧を使用中として出し、行と件数を並べる", () => {
   const html = render();
-  assert.ok(html.includes("ARCHIVE"), "eyebrow が無い");
-  assert.ok(html.includes("アーカイブの除外"), "タイトルが無い");
+  assert.ok(html.includes("DOWNLOADS"), "eyebrow が無い");
+  assert.ok(html.includes("ダウンロードの除外"), "タイトルが無い");
   assert.ok(html.includes("既定の一覧を使用中"), "未設定のバッジが無い");
   assert.ok(html.includes("3 / 100"), "件数が出ていない");
   for (const name of DEFAULTS) assert.ok(html.includes(name), `既定の名前が出ていない: ${name}`);
