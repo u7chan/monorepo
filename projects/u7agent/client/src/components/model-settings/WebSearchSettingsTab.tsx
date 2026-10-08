@@ -198,7 +198,7 @@ export function WebSearchSettingsTab({
           ) : null}
         </section>
 
-        {/* 外部送信とキーの保存は、設定を変える前に読める位置へ既定で畳んで出す（画像生成タブと同じ作法） */}
+        {/* 外部送信とキーの保存は、設定を変える前に読める位置へ既定で畳んで出す（コンテンツ生成タブと同じ作法） */}
         <CollapsibleNotice summary={webSearchNoticeSummary(providerDef, enabled)}>
           <p>{webSearchDataFlowNotice(providerDef, enabled)}</p>
           {providerDef.keyless ? null : <p>選んだ provider のAPIキーは平文で保存し、保存したキーは再表示しません。</p>}

@@ -13,7 +13,7 @@ export const WEB_SEARCH_TOOL_NAME = "web_search";
 /** 読み込み時の注記。再起動後も残ることを最初に伝える */
 export const WEB_SEARCH_SETTINGS_NOTE = "Web 検索の設定はサーバーに保存され、再起動後も残ります。";
 
-/** キーの保存方式。画像生成と同じで、保存時に暗号化しないことを隠さない */
+/** キーの保存方式。コンテンツ生成と同じで、保存時に暗号化しないことを隠さない */
 export const WEB_SEARCH_KEY_PLAINTEXT_NOTE =
   "APIキーはアプリのデータベース（SQLite）へ平文で保存し、再起動後も使われます。保存したキーは再表示しません。";
 

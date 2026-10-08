@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { useImageSettings, type ImageSettings } from "../hooks/useImageSettings";
+import { useContentSettings, type ContentSettings } from "../hooks/useContentSettings";
 import { useWebSearchSettings, type WebSearchSettings } from "../hooks/useWebSearchSettings";
 import { useModelSettings, type ModelSettings } from "../hooks/useModelSettings";
 import { cn } from "../lib/cn";
@@ -16,7 +16,7 @@ import { DEFAULT_MODELS_SUBSECTION, MODELS_SUBSECTIONS, type ModelsSubsection } 
 import type { Health, SessionSummary } from "../types";
 import { ReloadButton } from "./ReloadButton";
 import { ModelsTab } from "./model-settings/ModelsTab";
-import { ImageSettingsTab } from "./model-settings/ImageSettingsTab";
+import { ContentSettingsTab } from "./model-settings/ContentSettingsTab";
 import { ProvidersTab } from "./model-settings/ProvidersTab";
 import { WebSearchSettingsTab } from "./model-settings/WebSearchSettingsTab";
 import { SettingsPageLayout, type SettingsPageProps } from "./SettingsPageLayout";
@@ -34,8 +34,8 @@ export type ModelSettingsPageProps = SettingsPageProps & {
 };
 
 /**
- * 設定 → モデル。「モデルを選ぶ / プロバイダー / 画像生成 / Web 検索」の 4 タブを持ち、表示の正は URL
- * (`/settings/models`、`/settings/models/providers`、`/settings/models/images`、`/settings/models/web-search`) に置く。
+ * 設定 → モデル。「モデルを選ぶ / プロバイダー / コンテンツ生成 / Web 検索」の 4 タブを持ち、表示の正は URL
+ * (`/settings/models`、`/settings/models/providers`、`/settings/models/content`、`/settings/models/web-search`) に置く。
  * hook はこの画面が持つ (カタログ全件を起動のたびに読まない。開いたときだけ取得する)。
  */
 export function ModelSettingsPage({
@@ -49,12 +49,12 @@ export function ModelSettingsPage({
   sessionsLoaded,
 }: ModelSettingsPageProps) {
   const modelSettings = useModelSettings({ onRefreshHealth });
-  const imageSettings = useImageSettings();
+  const contentSettings = useContentSettings();
   const webSearchSettings = useWebSearchSettings();
   return (
     <ModelSettingsView
       modelSettings={modelSettings}
-      imageSettings={imageSettings}
+      contentSettings={contentSettings}
       webSearchSettings={webSearchSettings}
       modelsSubsection={modelsSubsection}
       onSelectModelsSubsection={onSelectModelsSubsection}
@@ -70,10 +70,10 @@ export function ModelSettingsPage({
 /** 取得前の下書きの置き場。settings が届くと同じ render で保存値から作り直す */
 const EMPTY_DRAFT: AvailabilityDraft = { allowed: [], defaultModel: null };
 
-/** 表示だけを持つ部分。取得の成否は modelSettings / imageSettings が持ち、ここはタブと描画に徹する */
+/** 表示だけを持つ部分。取得の成否は modelSettings / contentSettings が持ち、ここはタブと描画に徹する */
 export function ModelSettingsView({
   modelSettings,
-  imageSettings,
+  contentSettings,
   webSearchSettings,
   sessions = [],
   sessionsLoaded = false,
@@ -84,7 +84,7 @@ export function ModelSettingsView({
   onOpenNav,
 }: SettingsPageProps & {
   modelSettings: ModelSettings;
-  imageSettings: ImageSettings;
+  contentSettings: ContentSettings;
   webSearchSettings: WebSearchSettings;
   sessions?: SessionSummary[];
   sessionsLoaded?: boolean;
@@ -136,13 +136,17 @@ export function ModelSettingsView({
     }
   }
   const draftState = appliedDraft.current;
-  const imagesTab = modelsSubsection === "images";
+  const contentTab = modelsSubsection === "content";
   const webSearchTab = modelsSubsection === "web-search";
   // カタログ更新を出すのはカタログを表示する 2 タブだけ。無効化は GET 失敗 = 編集不可と同じ判定を使う
-  const catalogTab = !imagesTab && !webSearchTab;
+  const catalogTab = !contentTab && !webSearchTab;
   // 注記と再読み込みは表示中のタブのものだけを出す (別タブの失敗を混ぜない)
-  const activeNote = webSearchTab ? webSearchSettings.note : imagesTab ? imageSettings.note : note;
-  const activeReloading = webSearchTab ? webSearchSettings.reloading : imagesTab ? imageSettings.reloading : reloading;
+  const activeNote = webSearchTab ? webSearchSettings.note : contentTab ? contentSettings.note : note;
+  const activeReloading = webSearchTab
+    ? webSearchSettings.reloading
+    : contentTab
+      ? contentSettings.reloading
+      : reloading;
   const activeTabRef = useRef<HTMLButtonElement>(null);
   useEffect(() => {
     if (compact) activeTabRef.current?.scrollIntoView({ block: "nearest", inline: "nearest" });
@@ -155,7 +159,7 @@ export function ModelSettingsView({
       caption={
         compact
           ? "モデルとプロバイダーを設定します。"
-          : "使うモデルと、プロバイダーごとのAPIキー、画像生成・Web 検索の設定をします。保存した内容は再起動後も使われます。"
+          : "使うモデルと、プロバイダーごとのAPIキー、コンテンツ生成・Web 検索の設定をします。保存した内容は再起動後も使われます。"
       }
       actions={
         <>
@@ -168,7 +172,7 @@ export function ModelSettingsView({
             </ReloadButton>
           ) : null}
           <ReloadButton
-            onClick={() => void Promise.all([reload(), imageSettings.reload(), webSearchSettings.reload()])}
+            onClick={() => void Promise.all([reload(), contentSettings.reload(), webSearchSettings.reload()])}
             disabled={activeReloading}
           >
             再読み込み
@@ -223,22 +227,22 @@ export function ModelSettingsView({
             onReload={() => void webSearchSettings.reload()}
           />
         )
-      ) : imagesTab ? (
-        imageSettings.settings ? (
-          <ImageSettingsTab
-            settings={imageSettings.settings}
-            saving={imageSettings.saving}
-            onSaveKey={imageSettings.saveKey}
-            onDeleteKey={imageSettings.removeKey}
-            onSaveSelection={imageSettings.saveSelection}
-            onRefreshCatalog={imageSettings.refreshCatalog}
+      ) : contentTab ? (
+        contentSettings.settings ? (
+          <ContentSettingsTab
+            settings={contentSettings.settings}
+            saving={contentSettings.saving}
+            onSaveKey={contentSettings.saveKey}
+            onDeleteKey={contentSettings.removeKey}
+            onSaveSelection={contentSettings.saveSelection}
+            onRefreshCatalog={contentSettings.refreshCatalog}
           />
         ) : (
           <SettingsPlaceholder
-            label="画像生成の設定"
-            note={imageSettings.note}
-            reloading={imageSettings.reloading}
-            onReload={() => void imageSettings.reload()}
+            label="コンテンツ生成の設定"
+            note={contentSettings.note}
+            reloading={contentSettings.reloading}
+            onReload={() => void contentSettings.reload()}
           />
         )
       ) : settings ? (

@@ -1,22 +1,22 @@
 import { useCallback, useEffect, useState } from "react";
 import {
   ApiError,
-  deleteImageApiKey,
-  getImageSettings,
-  putImageApiKey,
-  putImageSettings,
+  deleteContentApiKey,
+  getContentSettings,
+  putContentApiKey,
+  putContentImageSettings,
   refreshImageCatalog,
 } from "../api";
 import {
-  IMAGE_KEY_DELETED_NOTE,
-  IMAGE_KEY_SAVED_NOTE,
-  IMAGE_MODEL_SAVED_NOTE,
-  IMAGE_SETTINGS_NOTE,
+  CONTENT_KEY_DELETED_NOTE,
+  CONTENT_KEY_SAVED_NOTE,
+  CONTENT_MODEL_SAVED_NOTE,
+  CONTENT_SETTINGS_NOTE,
   imageCatalogRefreshNote,
-  type ImageSavingAction,
-} from "../lib/imageSettings";
+  type ContentSavingAction,
+} from "../lib/contentSettings";
 import { validateApiKey } from "../lib/modelSettings";
-import type { ImageSettingsResponse, UpdateImageSelectionBody } from "../types";
+import type { ContentSettingsResponse, UpdateContentImageBody } from "../types";
 import { createLoadingTracker, createRequestGate } from "./requestGate";
 
 function messageFor(error: unknown): string {
@@ -24,14 +24,14 @@ function messageFor(error: unknown): string {
 }
 
 /**
- * 設定 → モデル（画像生成タブ）の state と操作。GET はこの画面を開いたときだけ取り、
+ * 設定 → モデル（コンテンツ生成タブ）の state と操作。GET はこの画面を開いたときだけ取り、
  * 変更系の応答は GET と同じ形なので、注記を付けてそのまま次の状態にできる。
  * SDK への認証反映を持たないため、health / カタログの再取得は通さない。
  */
-export function useImageSettings() {
-  const [settings, setSettings] = useState<ImageSettingsResponse | null>(null);
-  const [note, setNote] = useState<{ text: string; error: boolean }>({ text: IMAGE_SETTINGS_NOTE, error: false });
-  const [saving, setSaving] = useState<ImageSavingAction | null>(null);
+export function useContentSettings() {
+  const [settings, setSettings] = useState<ContentSettingsResponse | null>(null);
+  const [note, setNote] = useState<{ text: string; error: boolean }>({ text: CONTENT_SETTINGS_NOTE, error: false });
+  const [saving, setSaving] = useState<ContentSavingAction | null>(null);
   const [reloading, setReloading] = useState(false);
   const [beginLoad] = useState(createRequestGate);
   // 破棄された取得でも進行中を解除するため、適用の可否とは別に追う
@@ -41,13 +41,13 @@ export function useImageSettings() {
     const canApply = beginLoad();
     const finishReload = reloadTracker.begin();
     try {
-      const next = await getImageSettings();
+      const next = await getContentSettings();
       if (!canApply()) return;
       setSettings(next);
-      setNote({ text: IMAGE_SETTINGS_NOTE, error: false });
+      setNote({ text: CONTENT_SETTINGS_NOTE, error: false });
     } catch (error) {
       if (canApply()) {
-        setNote({ text: `画像生成の設定を読み込めませんでした。${messageFor(error)}`, error: true });
+        setNote({ text: `コンテンツ生成の設定を読み込めませんでした。${messageFor(error)}`, error: true });
       }
     } finally {
       finishReload();
@@ -60,9 +60,9 @@ export function useImageSettings() {
 
   const runMutation = useCallback(
     async (
-      action: ImageSavingAction,
+      action: ContentSavingAction,
       successNote: string,
-      run: () => Promise<ImageSettingsResponse>,
+      run: () => Promise<ContentSettingsResponse>,
     ): Promise<boolean> => {
       setSaving(action);
       try {
@@ -91,19 +91,19 @@ export function useImageSettings() {
         setNote({ text: invalid, error: true });
         return false;
       }
-      return runMutation("key", IMAGE_KEY_SAVED_NOTE, () => putImageApiKey(apiKey));
+      return runMutation("key", CONTENT_KEY_SAVED_NOTE, () => putContentApiKey(apiKey));
     },
     [runMutation],
   );
 
   const removeKey = useCallback(
-    (): Promise<boolean> => runMutation("delete", IMAGE_KEY_DELETED_NOTE, () => deleteImageApiKey()),
+    (): Promise<boolean> => runMutation("delete", CONTENT_KEY_DELETED_NOTE, () => deleteContentApiKey()),
     [runMutation],
   );
 
   const saveSelection = useCallback(
-    (input: UpdateImageSelectionBody): Promise<boolean> =>
-      runMutation("selection", IMAGE_MODEL_SAVED_NOTE, () => putImageSettings(input)),
+    (input: UpdateContentImageBody): Promise<boolean> =>
+      runMutation("selection", CONTENT_MODEL_SAVED_NOTE, () => putContentImageSettings(input)),
     [runMutation],
   );
 
@@ -121,9 +121,12 @@ export function useImageSettings() {
           ? previous
           : {
               ...previous,
-              models: response.models,
-              catalogSource: response.catalogSource,
-              fetchedAt: response.fetchedAt,
+              image: {
+                ...previous.image,
+                models: response.models,
+                catalogSource: response.catalogSource,
+                fetchedAt: response.fetchedAt,
+              },
             },
       );
       setNote({ text: imageCatalogRefreshNote(response.catalogError), error: response.catalogError !== null });
@@ -139,4 +142,4 @@ export function useImageSettings() {
   return { settings, note, saving, reloading, reload, saveKey, removeKey, saveSelection, refreshCatalog };
 }
 
-export type ImageSettings = ReturnType<typeof useImageSettings>;
+export type ContentSettings = ReturnType<typeof useContentSettings>;

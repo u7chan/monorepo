@@ -69,7 +69,7 @@ export function isUnsaveableOutputOnly(outputFormats: readonly string[] | undefi
 /** 画像生成の provider。v1 は openrouter 固定で、他は設定 API が 400 にする */
 export const IMAGE_PROVIDER_ID = "openrouter";
 
-/** アプリ DB の image_settings 行と同じ形。実行のたびに読み直す現在の設定を表す */
+/** 実行のたびに読み直す現在の設定。DB の列名 `imageModel` は ContentSettingsService が `model` へ写す */
 export interface ImageGenerationSettings {
   provider: string;
   model: string;
@@ -77,7 +77,7 @@ export interface ImageGenerationSettings {
 }
 
 /** PiBff へ注入する有効状態と読取口。`enabled` はセッション作成時のツール一覧にだけ使う */
-export interface ImageGenerationConfig {
+export interface ContentGenerationConfig {
   enabled: boolean;
   /** 実行のたびに現在の設定を読む。行が無ければ undefined（未設定・削除後） */
   read: () => ImageGenerationSettings | undefined;

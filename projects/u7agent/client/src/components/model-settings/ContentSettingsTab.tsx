@@ -1,18 +1,18 @@
 import { useState } from "react";
 import {
-  deleteImageKeyConfirmRequest,
+  deleteContentKeyConfirmRequest,
   imageCatalogNotice,
-  imageKeyStatusBadge,
+  contentKeyStatusBadge,
   imageModelOptions,
   imageModelSelection,
   imageModelValue,
-  imageProviderId,
-  imageProviderLabel,
+  contentProviderId,
+  contentProviderLabel,
   keyDraftAfterSave,
-  type ImageSavingAction,
-} from "../../lib/imageSettings";
+  type ContentSavingAction,
+} from "../../lib/contentSettings";
 import { API_KEY_MIN_LENGTH } from "../../lib/modelSettings";
-import type { ImageSettingsResponse, UpdateImageSelectionBody } from "../../types";
+import type { ContentSettingsResponse, UpdateContentImageBody } from "../../types";
 import { CollapsibleNotice } from "../CollapsibleNotice";
 import { CheckIcon, TrashIcon } from "../icons";
 import { ReloadButton } from "../ReloadButton";
@@ -22,42 +22,42 @@ import { SelectField } from "../SelectField";
 import { MetaChip } from "./MetaChip";
 import { ProviderBadgeTag } from "./ProviderBadgeTag";
 
-export type ImageSettingsTabProps = {
-  settings: ImageSettingsResponse;
+export type ContentSettingsTabProps = {
+  settings: ContentSettingsResponse;
   /** 実行中の操作。null なら操作なし */
-  saving: ImageSavingAction | null;
+  saving: ContentSavingAction | null;
   onSaveKey: (apiKey: string) => Promise<boolean>;
   onDeleteKey: () => Promise<boolean>;
-  onSaveSelection: (input: UpdateImageSelectionBody) => Promise<boolean>;
+  onSaveSelection: (input: UpdateContentImageBody) => Promise<boolean>;
   /** モデル一覧の再取得。失敗しても一覧は前のまま残る */
   onRefreshCatalog: () => Promise<boolean>;
 };
 
 /**
- * 「画像生成」タブ。キー登録・モデル選択・削除の最小 UI に絞り、未設定ではキー入力だけを出す。
- * `PUT /api/settings/images` は行が無いと 400 のため、モデル選択はキー保存に成功してから現れる。
+ * 「コンテンツ生成」タブ。キー登録・モデル選択・削除の最小 UI に絞り、未設定ではキー入力だけを出す。
+ * `PUT /api/settings/content/image` は行が無いと 400 のため、モデル選択はキー保存に成功してから現れる。
  */
-export function ImageSettingsTab({
+export function ContentSettingsTab({
   settings,
   saving,
   onSaveKey,
   onDeleteKey,
   onSaveSelection,
   onRefreshCatalog,
-}: ImageSettingsTabProps) {
+}: ContentSettingsTabProps) {
   // 保存したキーは再表示しないため、入力は常に空から始め、保存できたときだけ消す
   const confirm = useConfirm();
   const [apiKey, setApiKey] = useState("");
   const busy = saving !== null;
   const runtimeAvailable = settings.runtimeAvailable;
-  const providerName = imageProviderLabel(settings.provider);
+  const providerName = contentProviderLabel(settings.provider);
 
   const submitKey = async () => {
     setApiKey(keyDraftAfterSave(apiKey, await onSaveKey(apiKey)));
   };
 
   const removeKey = async () => {
-    if (!(await confirm(deleteImageKeyConfirmRequest(providerName)))) return;
+    if (!(await confirm(deleteContentKeyConfirmRequest(providerName)))) return;
     // 削除できたときだけ入力を捨てる (失敗時に打ちかけの値を消さない)
     if (await onDeleteKey()) setApiKey("");
   };
@@ -68,11 +68,11 @@ export function ImageSettingsTab({
         {/* このタブがどの provider の設定かを最初に示す。provider が増えたら settings.provider に追随する。
             件数と一覧の出どころはプロバイダータブと同じチップで揃える */}
         <section className="flex flex-wrap items-center gap-x-3 gap-y-1.5 border-b border-line pb-2">
-          <ProviderIcon provider={imageProviderId(settings.provider)} name={providerName} variant="heading" />
+          <ProviderIcon provider={contentProviderId(settings.provider)} name={providerName} variant="heading" />
           <h2 className="text-md font-semibold text-ink-strong">{providerName}</h2>
-          <code className="text-2xs text-ink-ghost">{imageProviderId(settings.provider)}</code>
-          <ProviderBadgeTag badge={imageKeyStatusBadge(settings.configured)} />
-          <MetaChip>カタログ {settings.models.length}</MetaChip>
+          <code className="text-2xs text-ink-ghost">{contentProviderId(settings.provider)}</code>
+          <ProviderBadgeTag badge={contentKeyStatusBadge(settings.configured)} />
+          <MetaChip>カタログ {settings.image.models.length}</MetaChip>
         </section>
         {runtimeAvailable ? null : (
           <p role="alert" className="rounded-lg border border-warn/40 bg-raised px-2.5 py-2 text-2xs text-warn">
@@ -96,7 +96,7 @@ export function ImageSettingsTab({
                 type="password"
                 value={apiKey}
                 placeholder={settings.configured ? "新しい画像APIキー（上書き）" : "画像APIキー"}
-                aria-label="画像生成のAPIキー"
+                aria-label="コンテンツ生成のAPIキー"
                 autoComplete="off"
                 spellCheck={false}
                 disabled={!runtimeAvailable}
@@ -159,10 +159,10 @@ function ImageModelSection({
   onSave,
   onRefresh,
 }: {
-  settings: ImageSettingsResponse;
+  settings: ContentSettingsResponse;
   busy: boolean;
   refreshing: boolean;
-  onSave: (input: UpdateImageSelectionBody) => Promise<boolean>;
+  onSave: (input: UpdateContentImageBody) => Promise<boolean>;
   onRefresh: () => Promise<boolean>;
 }) {
   // null は保存値へ追随する。保存できたら null へ戻し、次の保存値で選択を描き直す
@@ -183,7 +183,7 @@ function ImageModelSection({
       <div className="flex min-w-0 flex-wrap items-center gap-2">
         <SelectField
           wrapperClassName="min-w-0 flex-1"
-          aria-label="画像生成のモデル"
+          aria-label="コンテンツ生成のモデル"
           value={selectedModel}
           disabled={busy}
           onChange={(event) => setDraftModel(event.currentTarget.value)}
@@ -209,8 +209,8 @@ function ImageModelSection({
       <div className="flex flex-wrap items-center gap-2">
         {/* 段落のセマンティクスを残すため、チップ (span) は <p> の中に置く */}
         <p className="min-w-0">
-          <MetaChip wrap tone={settings.catalogSource === "live" ? "muted" : "warn"}>
-            {imageCatalogNotice(settings)}
+          <MetaChip wrap tone={settings.image.catalogSource === "live" ? "muted" : "warn"}>
+            {imageCatalogNotice(settings.image)}
           </MetaChip>
         </p>
         <ReloadButton disabled={busy} onClick={() => void onRefresh()}>

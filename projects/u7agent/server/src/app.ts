@@ -14,7 +14,7 @@ import { createArchiveRoutes } from "./routes/archive";
 import { createCatalogRoutes } from "./routes/catalog";
 import { createFileRoutes } from "./routes/files";
 import { createHealthRoutes } from "./routes/health";
-import { createImageSettingsRoutes } from "./routes/images";
+import { createContentSettingsRoutes } from "./routes/content";
 import { createNotificationRoutes } from "./routes/notifications";
 import { createModelSettingsRoutes } from "./routes/models";
 import { createProjectRoutes } from "./routes/projects";
@@ -39,8 +39,8 @@ import {
   RenameFileBodySchema,
   UpdateAgentBodySchema,
   UpdateArchiveSettingsBodySchema,
-  UpdateImageKeyBodySchema,
-  UpdateImageSelectionBodySchema,
+  UpdateContentImageBodySchema,
+  UpdateContentKeyBodySchema,
   UpdateModelAvailabilityBodySchema,
   UpdateNotificationsBodySchema,
   UpdateProviderKeyBodySchema,
@@ -104,7 +104,7 @@ export async function createBffApp(opts: CreateBffAppOptions = {}) {
     archiveSettings,
     runtimeDiagnostics,
     modelSettings,
-    imageSettings,
+    contentSettings,
     webSearchSettings,
     serve,
     secrets,
@@ -134,7 +134,7 @@ export async function createBffApp(opts: CreateBffAppOptions = {}) {
   const notificationRoutes = createNotificationRoutes({ notifications });
   const archiveRoutes = createArchiveRoutes({ archiveSettings });
   const modelSettingsRoutes = createModelSettingsRoutes({ modelSettings });
-  const imageSettingsRoutes = createImageSettingsRoutes({ imageSettings });
+  const contentSettingsRoutes = createContentSettingsRoutes({ contentSettings });
   const webSearchSettingsRoutes = createWebSearchSettingsRoutes({ webSearchSettings });
   // 環境変数の要求元 (sessionId / projectId) を cwd へ解決する唯一の点。client は cwd を送らない
   const secretRoutes = createSecretRoutes({
@@ -419,25 +419,25 @@ export async function createBffApp(opts: CreateBffAppOptions = {}) {
       (c) => modelSettingsRoutes.putMemo(c, c.req.valid("json").memo),
     )
     .post("/api/settings/models/:provider/resync", appDataMutation, modelSettingsRoutes.resync)
-    .get("/api/settings/images", appData, imageSettingsRoutes.list)
+    .get("/api/settings/content", appData, contentSettingsRoutes.list)
     .put(
-      "/api/settings/images",
+      "/api/settings/content/image",
       appDataMutation,
-      jsonBodyValidator(UpdateImageSelectionBodySchema, (result, c) =>
+      jsonBodyValidator(UpdateContentImageBodySchema, (result, c) =>
         result.success ? undefined : c.json({ error: "Invalid request body" }, 400),
       ),
-      (c) => imageSettingsRoutes.putSelection(c, c.req.valid("json")),
+      (c) => contentSettingsRoutes.putSelection(c, c.req.valid("json")),
     )
     .put(
-      "/api/settings/images/key",
+      "/api/settings/content/key",
       appDataMutation,
-      jsonBodyValidator(UpdateImageKeyBodySchema, (result, c) =>
+      jsonBodyValidator(UpdateContentKeyBodySchema, (result, c) =>
         result.success ? undefined : c.json({ error: "Invalid request body" }, 400),
       ),
-      (c) => imageSettingsRoutes.putKey(c, c.req.valid("json").apiKey),
+      (c) => contentSettingsRoutes.putKey(c, c.req.valid("json").apiKey),
     )
-    .delete("/api/settings/images/key", appDataMutation, imageSettingsRoutes.deleteKey)
-    .post("/api/settings/images/catalog/refresh", (c) => imageSettingsRoutes.refreshCatalog(c))
+    .delete("/api/settings/content/key", appDataMutation, contentSettingsRoutes.deleteKey)
+    .post("/api/settings/content/image/catalog/refresh", (c) => contentSettingsRoutes.refreshCatalog(c))
     .get("/api/settings/web-search", appData, webSearchSettingsRoutes.list)
     .put(
       "/api/settings/web-search",
@@ -506,7 +506,7 @@ export async function createBffApp(opts: CreateBffAppOptions = {}) {
     notifications,
     archiveSettings,
     modelSettings,
-    imageSettings,
+    contentSettings,
     webSearchSettings,
     serve,
     secrets,

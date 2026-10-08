@@ -4,15 +4,15 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import test from "node:test";
 import type { ModelSettings } from "../src/hooks/useModelSettings";
-import type { ImageSettings } from "../src/hooks/useImageSettings";
+import type { ContentSettings } from "../src/hooks/useContentSettings";
 import type { WebSearchSettings } from "../src/hooks/useWebSearchSettings";
-import { IMAGE_SETTINGS_NOTE } from "../src/lib/imageSettings";
+import { CONTENT_SETTINGS_NOTE } from "../src/lib/contentSettings";
 import { MODEL_SETTINGS_NOTE, UNSET_DEFAULT_MODEL_LABEL } from "../src/lib/modelSettings";
 import type { ModelsSubsection } from "../src/lib/settingsNav";
 import type {
   ModelsSettingsResponse,
   ModelMutationResponse,
-  ImageSettingsResponse,
+  ContentSettingsResponse,
   ProviderAuthSetting,
   RuntimeModelsResponse,
   SessionSummary,
@@ -115,23 +115,25 @@ function modelSettings(overrides: Partial<ModelSettings> = {}): ModelSettings {
   };
 }
 
-const IMAGE_SETTINGS: ImageSettingsResponse = {
+const CONTENT_SETTINGS: ContentSettingsResponse = {
   configured: true,
   provider: "openrouter",
-  model: "openai/gpt-image-2",
-  models: [
-    { provider: "openrouter", id: "openai/gpt-image-2", name: "GPT Image 2" },
-    { provider: "openrouter", id: "google/gemini-image", name: "Gemini Image" },
-  ],
-  catalogSource: "live",
-  fetchedAt: null,
   runtimeAvailable: true,
+  image: {
+    model: "openai/gpt-image-2",
+    models: [
+      { provider: "openrouter", id: "openai/gpt-image-2", name: "GPT Image 2" },
+      { provider: "openrouter", id: "google/gemini-image", name: "Gemini Image" },
+    ],
+    catalogSource: "live",
+    fetchedAt: null,
+  },
 };
 
-function imageSettings(overrides: Partial<ImageSettings> = {}): ImageSettings {
+function contentSettings(overrides: Partial<ContentSettings> = {}): ContentSettings {
   return {
-    settings: IMAGE_SETTINGS,
-    note: { text: IMAGE_SETTINGS_NOTE, error: false },
+    settings: CONTENT_SETTINGS,
+    note: { text: CONTENT_SETTINGS_NOTE, error: false },
     saving: null,
     reloading: false,
     reload: async () => {},
@@ -172,7 +174,7 @@ function render(
     modelsSubsection?: ModelsSubsection;
     sessions?: SessionSummary[];
     sessionsLoaded?: boolean;
-    imageSettings?: ImageSettings;
+    contentSettings?: ContentSettings;
     webSearchSettings?: WebSearchSettings;
     onSelectModelsSubsection?: (subsection: ModelsSubsection) => void;
     compact?: boolean;
@@ -185,7 +187,7 @@ function render(
       null,
       createElement(ModelSettingsView, {
         modelSettings: settings,
-        imageSettings: options.imageSettings ?? imageSettings(),
+        contentSettings: options.contentSettings ?? contentSettings(),
         webSearchSettings: options.webSearchSettings ?? webSearchSettings(),
         sessions: options.sessions ?? [],
         sessionsLoaded: options.sessionsLoaded ?? false,
@@ -204,7 +206,7 @@ test("タブ行は URL が決めるタブを示し、4 つのタブを出す", (
   assert.equal((html.match(/role="tab"/g) ?? []).length, 4, "タブは 4 つ");
   assert.match(html, /<button[^>]*aria-selected="true"[^>]*>モデルを選ぶ</, "既定は「モデルを選ぶ」");
   assert.ok(html.includes("プロバイダー"));
-  assert.ok(html.includes("画像生成"));
+  assert.ok(html.includes("コンテンツ生成"));
   assert.ok(html.includes("Web 検索"));
   // タブの切替は URL 経由で親へ渡す
   const calls: ModelsSubsection[] = [];
@@ -231,10 +233,10 @@ test("compact のプロバイダー詳細は一覧を畳んでキー入力を表
   assert.equal(desktop.includes("プロバイダーを変更"), false);
 });
 
-test("画像生成タブは URL が選んだときにだけ描画し、キー入力を出す", () => {
-  const html = render(modelSettings(), { modelsSubsection: "images" });
-  assert.match(html, /<button[^>]*aria-selected="true"[^>]*>画像生成</);
-  assert.ok(html.includes('type="password"'), "画像生成タブのキー入力を出す");
+test("コンテンツ生成タブは URL が選んだときにだけ描画し、キー入力を出す", () => {
+  const html = render(modelSettings(), { modelsSubsection: "content" });
+  assert.match(html, /<button[^>]*aria-selected="true"[^>]*>コンテンツ生成</);
+  assert.ok(html.includes('type="password"'), "コンテンツ生成タブのキー入力を出す");
   assert.equal(html.includes("モデル候補を保存"), false, "他のタブの保存バーは出さない");
 });
 
@@ -648,8 +650,8 @@ test("カタログ更新はカタログを見るタブだけに出し、更新�
 
   const providers = render(modelSettings(), { modelsSubsection: "providers" });
   assert.ok(providers.includes("カタログ更新"), "プロバイダータブにも出す");
-  const images = render(modelSettings(), { modelsSubsection: "images" });
-  assert.equal(images.includes("カタログ更新"), false, "画像生成タブには出さない");
+  const content = render(modelSettings(), { modelsSubsection: "content" });
+  assert.equal(content.includes("カタログ更新"), false, "コンテンツ生成タブには出さない");
   const webSearch = render(modelSettings(), { modelsSubsection: "web-search" });
   assert.equal(webSearch.includes("カタログ更新"), false, "Web 検索タブには出さない");
 });

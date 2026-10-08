@@ -1,4 +1,4 @@
-// 画像生成の設定 API（GET / PUT / PUT key / DELETE key）。実 API は呼ばず stub pi とアプリ DB で検証する。
+// コンテンツ生成の設定 API（GET / PUT / PUT key / DELETE key）。実 API は呼ばず stub pi とアプリ DB で検証する。
 import assert from "node:assert/strict";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { DatabaseSync } from "node:sqlite";
@@ -7,7 +7,7 @@ import { join } from "node:path";
 import test from "node:test";
 import { APP_DB_FILENAME } from "../src/app-db";
 import { createBffApp } from "../src/app";
-import { DEFAULT_IMAGE_MODEL } from "../src/image-settings";
+import { DEFAULT_IMAGE_MODEL } from "../src/content-settings";
 import { IMAGE_PROVIDER_ID } from "../src/images";
 import { asPiBff, createStubPi } from "./stub-pi";
 
@@ -24,7 +24,7 @@ const jsonPut = (payload: unknown): RequestInit => ({
 });
 
 async function withStoreDir<T>(run: (dir: string) => Promise<T>): Promise<T> {
-  const dir = await mkdtemp(join(tmpdir(), "u7agent-image-settings-"));
+  const dir = await mkdtemp(join(tmpdir(), "u7agent-content-settings-"));
   try {
     return await run(dir);
   } finally {
@@ -53,67 +53,72 @@ test("GET / PUT / DELETE の往復で設定が変わり、キーは応答に載�
     const pi = createStubPi();
     const bff = await openBff({ cwd: "/tmp/project", sessionStoreDir: dir, pi: asPiBff(pi), workspace: null });
     try {
-      const before = await jsonBody(await bff.app.request("/api/settings/images"));
+      const before = await jsonBody(await bff.app.request("/api/settings/content"));
       assert.equal(before.configured, false);
       assert.equal(before.provider, null);
-      assert.equal(before.model, null);
+      assert.equal(before.image.model, null);
       assert.equal(before.runtimeAvailable, true);
-      assert.ok(before.models.length > 0, "カタログが空");
+      assert.ok(before.image.models.length > 0, "カタログが空");
       // キー未設定では live を取りに行かないので、SDK 同梱カタログから始まる
-      assert.equal(before.catalogSource, "sdk");
-      assert.equal(before.fetchedAt, null);
+      assert.equal(before.image.catalogSource, "sdk");
+      assert.equal(before.image.fetchedAt, null);
       assert.ok(
-        before.models.some((model: any) => model.provider === IMAGE_PROVIDER_ID && model.id === DEFAULT_IMAGE_MODEL),
+        before.image.models.some(
+          (model: any) => model.provider === IMAGE_PROVIDER_ID && model.id === DEFAULT_IMAGE_MODEL,
+        ),
       );
-      for (const model of before.models) {
+      for (const model of before.image.models) {
         assert.deepEqual(Object.keys(model).sort(), ["id", "name", "provider"]);
       }
 
       // 行が無い状態の選択変更は 400（キー登録が先）
       const unset = bff.app.request(
-        "/api/settings/images",
+        "/api/settings/content/image",
         jsonPut({ provider: IMAGE_PROVIDER_ID, model: DEFAULT_IMAGE_MODEL }),
       );
       assert.equal((await unset).status, 400);
 
       // キー登録前の applyStored() が無効を注入している
-      assert.equal(pi.imageGenerationEnabled, false);
+      assert.equal(pi.contentGenerationEnabled, false);
 
-      const put = await jsonBody(await bff.app.request("/api/settings/images/key", jsonPut({ apiKey: KEY })));
+      const put = await jsonBody(await bff.app.request("/api/settings/content/key", jsonPut({ apiKey: KEY })));
       assert.equal(put.state, "applied");
       assert.equal(put.configured, true);
       assert.equal(put.provider, IMAGE_PROVIDER_ID);
-      assert.equal(put.model, DEFAULT_IMAGE_MODEL);
-      assert.equal(put.catalogSource, "sdk", "キー保存では live を取りに行かない");
-      assert.equal(put.fetchedAt, null);
+      assert.equal(put.image.model, DEFAULT_IMAGE_MODEL);
+      assert.equal(put.image.catalogSource, "sdk", "キー保存では live を取りに行かない");
+      assert.equal(put.image.fetchedAt, null);
       assert.ok(
-        put.models.some((model: any) => model.id === DEFAULT_IMAGE_MODEL),
+        put.image.models.some((model: any) => model.id === DEFAULT_IMAGE_MODEL),
         "SDK 同梱の一覧を返す",
       );
       assert.ok(!JSON.stringify(put).includes(KEY), "応答にキーを載せない");
       assert.ok(pi.retainedSecrets.includes(KEY), "DB より前にマスカーへ登録していない");
-      assert.equal(pi.imageGenerationEnabled, true, "次に作るセッション向けに即時反映する");
-      const config = pi.imageGenerationConfigs.at(-1);
+      assert.equal(pi.contentGenerationEnabled, true, "次に作るセッション向けに即時反映する");
+      const config = pi.contentGenerationConfigs.at(-1);
       assert.deepEqual(config?.read(), { provider: IMAGE_PROVIDER_ID, model: DEFAULT_IMAGE_MODEL, apiKey: KEY });
 
       const changed = await jsonBody(
-        await bff.app.request("/api/settings/images", jsonPut({ provider: IMAGE_PROVIDER_ID, model: CATALOG_MODEL })),
+        await bff.app.request(
+          "/api/settings/content/image",
+          jsonPut({ provider: IMAGE_PROVIDER_ID, model: CATALOG_MODEL }),
+        ),
       );
       assert.equal(changed.state, "applied");
-      assert.equal(changed.model, CATALOG_MODEL);
+      assert.equal(changed.image.model, CATALOG_MODEL);
       assert.deepEqual(config?.read(), { provider: IMAGE_PROVIDER_ID, model: CATALOG_MODEL, apiKey: KEY });
 
-      const after = await jsonBody(await bff.app.request("/api/settings/images"));
+      const after = await jsonBody(await bff.app.request("/api/settings/content"));
       assert.equal(after.configured, true);
-      assert.equal(after.model, CATALOG_MODEL);
+      assert.equal(after.image.model, CATALOG_MODEL);
       assert.ok(!JSON.stringify(after).includes(KEY));
 
-      const deleted = await jsonBody(await bff.app.request("/api/settings/images/key", { method: "DELETE" }));
+      const deleted = await jsonBody(await bff.app.request("/api/settings/content/key", { method: "DELETE" }));
       assert.equal(deleted.state, "applied");
       assert.equal(deleted.configured, false);
       assert.equal(deleted.provider, null);
-      assert.equal(deleted.model, null);
-      assert.equal(pi.imageGenerationEnabled, false);
+      assert.equal(deleted.image.model, null);
+      assert.equal(pi.contentGenerationEnabled, false);
       assert.equal(config?.read(), undefined, "execute が読む現在の設定も未設定へ戻る");
     } finally {
       await bff.close();
@@ -127,20 +132,20 @@ test("入力と対象の検証: 短い / 長いキー、provider、カタログ�
     const bff = await openBff({ cwd: "/tmp/project", sessionStoreDir: dir, pi: asPiBff(pi), workspace: null });
     try {
       for (const apiKey of ["short", "x".repeat(2049)]) {
-        const response = bff.app.request("/api/settings/images/key", jsonPut({ apiKey }));
+        const response = bff.app.request("/api/settings/content/key", jsonPut({ apiKey }));
         assert.equal((await response).status, 400, `${apiKey.length} 文字のキーを受け付けている`);
       }
       assert.deepEqual(pi.retainedSecrets, [], "検証で落ちたキーはマスカーへ足さない");
 
-      await bff.app.request("/api/settings/images/key", jsonPut({ apiKey: KEY }));
+      await bff.app.request("/api/settings/content/key", jsonPut({ apiKey: KEY }));
       for (const body of [
         { provider: "openai", model: DEFAULT_IMAGE_MODEL },
         { provider: IMAGE_PROVIDER_ID, model: "ghost/model" },
       ]) {
-        const response = bff.app.request("/api/settings/images", jsonPut(body));
+        const response = bff.app.request("/api/settings/content/image", jsonPut(body));
         assert.equal((await response).status, 400, JSON.stringify(body));
       }
-      const invalid = bff.app.request("/api/settings/images", jsonPut({ provider: IMAGE_PROVIDER_ID }));
+      const invalid = bff.app.request("/api/settings/content/image", jsonPut({ provider: IMAGE_PROVIDER_ID }));
       assert.equal((await invalid).status, 400);
     } finally {
       await bff.close();
@@ -153,9 +158,12 @@ test("カタログ外 model の 400 は登録済みキーを反射しない", as
     const pi = createStubPi();
     const bff = await openBff({ cwd: "/tmp/project", sessionStoreDir: dir, pi: asPiBff(pi), workspace: null });
     try {
-      await bff.app.request("/api/settings/images/key", jsonPut({ apiKey: KEY }));
+      await bff.app.request("/api/settings/content/key", jsonPut({ apiKey: KEY }));
       // 登録済みキーを model に誤って渡しても、エラー文言から再露出させない
-      const response = bff.app.request("/api/settings/images", jsonPut({ provider: IMAGE_PROVIDER_ID, model: KEY }));
+      const response = bff.app.request(
+        "/api/settings/content/image",
+        jsonPut({ provider: IMAGE_PROVIDER_ID, model: KEY }),
+      );
       assert.equal((await response).status, 400);
       const body = await jsonBody(response);
       assert.ok(!JSON.stringify(body).includes(KEY), `400 応答にキーを出さない: ${JSON.stringify(body)}`);
@@ -171,17 +179,17 @@ test("ランタイムが無いときの GET は runtimeAvailable: false、キー
   await withStoreDir(async (dir) => {
     const bff = await openBff({ cwd: "/tmp/project", sessionStoreDir: dir, pi: null, workspace: null });
     try {
-      const response = await jsonBody(await bff.app.request("/api/settings/images"));
+      const response = await jsonBody(await bff.app.request("/api/settings/content"));
       assert.equal(response.runtimeAvailable, false);
       assert.equal(response.configured, false);
 
-      const put = bff.app.request("/api/settings/images/key", jsonPut({ apiKey: KEY }));
+      const put = bff.app.request("/api/settings/content/key", jsonPut({ apiKey: KEY }));
       assert.equal((await put).status, 503);
       assert.deepEqual(await jsonBody(put), {
         error: "ランタイムが利用できないため、画像APIキーを登録できません",
         state: "not_stored",
       });
-      const stored = await jsonBody(await bff.app.request("/api/settings/images"));
+      const stored = await jsonBody(await bff.app.request("/api/settings/content"));
       assert.equal(stored.configured, false, "失敗した登録を保存していない");
     } finally {
       await bff.close();
@@ -202,10 +210,10 @@ test("アプリ DB が使えないときは GET / 変更系とも 503 になる"
       workspace: null,
     });
     try {
-      const read = bff.app.request("/api/settings/images");
+      const read = bff.app.request("/api/settings/content");
       assert.equal((await read).status, 503);
 
-      const put = bff.app.request("/api/settings/images/key", jsonPut({ apiKey: KEY }));
+      const put = bff.app.request("/api/settings/content/key", jsonPut({ apiKey: KEY }));
       assert.equal((await put).status, 503);
       assert.equal((await jsonBody(put)).state, "not_stored");
     } finally {
@@ -229,15 +237,15 @@ test("起動時に保存行があればツールを有効化し、行が無け�
 
     const seed = new DatabaseSync(join(dir, APP_DB_FILENAME));
     seed
-      .prepare("INSERT INTO image_settings (id, provider, model, apiKey) VALUES (1, ?, ?, ?)")
+      .prepare("INSERT INTO content_settings (id, provider, imageModel, apiKey) VALUES (1, ?, ?, ?)")
       .run(IMAGE_PROVIDER_ID, DEFAULT_IMAGE_MODEL, KEY);
     seed.close();
 
     const pi = createStubPi();
     const bff = await openBff({ cwd: "/tmp/project", sessionStoreDir: dir, pi: asPiBff(pi), workspace: null });
     try {
-      assert.equal(pi.imageGenerationEnabled, true);
-      assert.deepEqual(pi.imageGenerationConfigs.at(-1)?.read(), {
+      assert.equal(pi.contentGenerationEnabled, true);
+      assert.deepEqual(pi.contentGenerationConfigs.at(-1)?.read(), {
         provider: IMAGE_PROVIDER_ID,
         model: DEFAULT_IMAGE_MODEL,
         apiKey: KEY,
@@ -258,16 +266,16 @@ test("登録済みキーを含む DB 例外が応答・health・ログに現れ�
     console.warn = (...args: unknown[]) => logged.push(args.map(String).join(" "));
     console.error = (...args: unknown[]) => logged.push(args.map(String).join(" "));
     try {
-      await bff.app.request("/api/settings/images/key", jsonPut({ apiKey: KEY }));
+      await bff.app.request("/api/settings/content/key", jsonPut({ apiKey: KEY }));
       // SQLite の例外文言にキーが載る経路を作り、DB エラー境界を通す
       const raw = new DatabaseSync(join(dir, APP_DB_FILENAME));
       raw.exec(
-        `CREATE TRIGGER leak BEFORE DELETE ON image_settings
+        `CREATE TRIGGER leak BEFORE DELETE ON content_settings
          BEGIN SELECT RAISE(ABORT, 'boom ' || OLD.apiKey); END`,
       );
       raw.close();
 
-      const response = await bff.app.request("/api/settings/images/key", { method: "DELETE" });
+      const response = await bff.app.request("/api/settings/content/key", { method: "DELETE" });
       assert.equal(response.status, 503);
       const body = await jsonBody(response);
       assert.equal(body.state, "not_stored");
@@ -293,11 +301,11 @@ test("同じキーの上書き保存でもマスカーの登録は増えず、2 
     const pi = createStubPi();
     const bff = await openBff({ cwd: "/tmp/project", sessionStoreDir: dir, pi: asPiBff(pi), workspace: null });
     try {
-      await bff.app.request("/api/settings/images/key", jsonPut({ apiKey: KEY }));
-      await bff.app.request("/api/settings/images/key", jsonPut({ apiKey: OTHER_KEY }));
+      await bff.app.request("/api/settings/content/key", jsonPut({ apiKey: KEY }));
+      await bff.app.request("/api/settings/content/key", jsonPut({ apiKey: OTHER_KEY }));
       assert.deepEqual(pi.retainedSecrets, [KEY, OTHER_KEY]);
-      const response = await jsonBody(await bff.app.request("/api/settings/images"));
-      assert.equal(response.model, DEFAULT_IMAGE_MODEL);
+      const response = await jsonBody(await bff.app.request("/api/settings/content"));
+      assert.equal(response.image.model, DEFAULT_IMAGE_MODEL);
       assert.ok(!JSON.stringify(response).includes(OTHER_KEY));
     } finally {
       await bff.close();
@@ -315,7 +323,7 @@ test("モデル一覧の再取得は 200 で一覧を返し、失敗は catalogE
     });
     try {
       const refreshed = await jsonBody(
-        await bff.app.request("/api/settings/images/catalog/refresh", { method: "POST" }),
+        await bff.app.request("/api/settings/content/image/catalog/refresh", { method: "POST" }),
       );
       assert.equal(refreshed.catalogError, null);
       assert.equal(refreshed.catalogSource, "live");
@@ -338,7 +346,7 @@ test("モデル一覧の再取得は 200 で一覧を返し、失敗は catalogE
       imageCatalogFetch: async () => new Response("boom", { status: 503 }),
     });
     try {
-      const response = await bff.app.request("/api/settings/images/catalog/refresh", { method: "POST" });
+      const response = await bff.app.request("/api/settings/content/image/catalog/refresh", { method: "POST" });
       assert.equal(response.status, 200, "取得できなくても 200 で一覧を失わせない");
       const body = await jsonBody(response);
       assert.equal(body.catalogError, "モデル一覧の取得が混雑しています（レート制限またはプロバイダー障害）");

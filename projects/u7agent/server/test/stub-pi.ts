@@ -8,8 +8,8 @@ import type { ModelCatalogRefreshAttempt, PiBff } from "../src/agent";
 import type { ModelSelection } from "../src/agent";
 import { MODEL_UNSET_MESSAGE } from "../src/agent";
 import type { AskUserHost } from "../src/ask-user-tool";
+import type { ContentGenerationConfig } from "../src/images";
 import type { InvestigateHost } from "../src/investigate-tool";
-import type { ImageGenerationConfig } from "../src/images";
 import type { ServeToolHost } from "../src/serve-tool";
 import type { WebSearchRuntimeConfig } from "../src/web-search-tool";
 import type { SessionEnvSource } from "../src/agent";
@@ -711,7 +711,7 @@ export function createStubPi(options: StubPiOptions = {}) {
   // 取得と再計算が同じ期限を共有すること (signal が同一オブジェクトか) を検証できるようにする
   const modelStateRefreshSignals: (AbortSignal | undefined)[] = [];
   const modelSelections: ModelSelection[] = [];
-  const imageGenerationConfigs: ImageGenerationConfig[] = [];
+  const contentGenerationConfigs: ContentGenerationConfig[] = [];
   const webSearchConfigs: WebSearchRuntimeConfig[] = [];
   // serve ツールの実体 (bootstrap が注入する)。ツールの配線はここに記録して検証する
   const serveHosts: ServeToolHost[] = [];
@@ -750,12 +750,12 @@ export function createStubPi(options: StubPiOptions = {}) {
     modelSelections,
     modelStateEvents,
     // 画像生成の注入面（bootstrap が AppDb.open 後に写す）。記録だけしてセッション作成には使わない
-    imageGenerationConfigs,
-    get imageGenerationEnabled() {
-      return imageGenerationConfigs.at(-1)?.enabled === true;
+    contentGenerationConfigs,
+    get contentGenerationEnabled() {
+      return contentGenerationConfigs.at(-1)?.enabled === true;
     },
-    setImageGeneration: (config: ImageGenerationConfig) => {
-      imageGenerationConfigs.push(config);
+    setContentGeneration: (config: ContentGenerationConfig) => {
+      contentGenerationConfigs.push(config);
     },
     webSearchConfigs,
     // 注入のたびに差し替わる。実行中のセッションが同じ関数を読むことを再現する

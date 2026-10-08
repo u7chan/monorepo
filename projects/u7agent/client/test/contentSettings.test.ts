@@ -1,35 +1,42 @@
-// 画像生成タブの表示変換。選択肢の組み立て・現在値の解決・PUT の本文・入力の後始末を純関数で固定する
-// (画面の描画は client/test/imageSettingsTab.test.ts の静的描画が担う)。
+// コンテンツ生成タブの表示変換。選択肢の組み立て・現在値の解決・PUT の本文・入力の後始末を純関数で固定する
+// (画面の描画は client/test/contentSettingsTab.test.ts の静的描画が担う)。
 
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
-  deleteImageKeyConfirmRequest,
+  contentKeyStatusBadge,
+  contentProviderId,
+  contentProviderLabel,
+  deleteContentKeyConfirmRequest,
   imageCatalogNotice,
   imageCatalogRefreshNote,
-  imageKeyStatusBadge,
   imageModelOptions,
   imageModelSelection,
   imageModelValue,
-  imageProviderId,
-  imageProviderLabel,
   keyDraftAfterSave,
-} from "../src/lib/imageSettings";
-import type { ImageSettingsResponse } from "../src/types";
+} from "../src/lib/contentSettings";
+import type { ContentImageSettings, ContentSettingsResponse } from "../src/types";
 
-function settings(overrides: Partial<ImageSettingsResponse> = {}): ImageSettingsResponse {
+/** `image` の中身を差し替える (provider は設定面の値なので別引数) */
+function settings(
+  image: Partial<ContentImageSettings> = {},
+  overrides: Partial<ContentSettingsResponse> = {},
+): ContentSettingsResponse {
   return {
     configured: true,
     provider: "openrouter",
-    model: "openai/gpt-image-2",
-    models: [
-      { provider: "openrouter", id: "openai/gpt-image-2", name: "GPT Image 2" },
-      { provider: "openrouter", id: "google/gemini-image", name: "Gemini Image" },
-      { provider: "openrouter", id: "mystery/image", name: "GPT Image 2" },
-    ],
-    catalogSource: "live",
-    fetchedAt: null,
     runtimeAvailable: true,
+    image: {
+      model: "openai/gpt-image-2",
+      models: [
+        { provider: "openrouter", id: "openai/gpt-image-2", name: "GPT Image 2" },
+        { provider: "openrouter", id: "google/gemini-image", name: "Gemini Image" },
+        { provider: "openrouter", id: "mystery/image", name: "GPT Image 2" },
+      ],
+      catalogSource: "live",
+      fetchedAt: null,
+      ...image,
+    },
     ...overrides,
   };
 }
@@ -56,7 +63,7 @@ test("カタログ外の保存済みモデルは現在値として先頭に足�
 
 test("現在値と PUT の本文を選択肢から解決する", () => {
   assert.equal(imageModelValue(settings()), "openrouter/openai/gpt-image-2");
-  assert.equal(imageModelValue({ provider: null, model: null }), "", "行が無ければ空文字");
+  assert.equal(imageModelValue(settings({ model: null }, { provider: null })), "", "行が無ければ空文字");
 
   const options = imageModelOptions(settings());
   assert.deepEqual(imageModelSelection(options, options[1].value), {
@@ -72,7 +79,7 @@ test("キー入力は保存に成功したときだけ消す", () => {
 });
 
 test("削除の確認は新しい会話への影響と既存の会話の失敗を伝える", () => {
-  const request = deleteImageKeyConfirmRequest("OpenRouter");
+  const request = deleteContentKeyConfirmRequest("OpenRouter");
   assert.deepEqual(request.subject, { label: "対象の provider", value: "OpenRouter" });
   const body = request.body?.join("\n") ?? "";
   assert.match(body, /新しい会話/);
@@ -82,15 +89,15 @@ test("削除の確認は新しい会話への影響と既存の会話の失敗�
 });
 
 test("キーの登録状態バッジと provider の id / 表示名", () => {
-  assert.deepEqual(imageKeyStatusBadge(true), { label: "設定済み", tone: "ok" });
-  assert.deepEqual(imageKeyStatusBadge(false), { label: "未設定", tone: "muted" });
+  assert.deepEqual(contentKeyStatusBadge(true), { label: "設定済み", tone: "ok" });
+  assert.deepEqual(contentKeyStatusBadge(false), { label: "未設定", tone: "muted" });
   // v1 は openrouter だけなので、未設定 (null) も同じ provider へ寄せる (見出しのロゴも同じ id を引く)
-  assert.equal(imageProviderId(null), "openrouter");
-  assert.equal(imageProviderId("openrouter"), "openrouter");
-  assert.equal(imageProviderId("other"), "other");
-  assert.equal(imageProviderLabel(null), "OpenRouter");
-  assert.equal(imageProviderLabel("openrouter"), "OpenRouter");
-  assert.equal(imageProviderLabel("other"), "other", "知らない provider は id のまま出す");
+  assert.equal(contentProviderId(null), "openrouter");
+  assert.equal(contentProviderId("openrouter"), "openrouter");
+  assert.equal(contentProviderId("other"), "other");
+  assert.equal(contentProviderLabel(null), "OpenRouter");
+  assert.equal(contentProviderLabel("openrouter"), "OpenRouter");
+  assert.equal(contentProviderLabel("other"), "other", "知らない provider は id のまま出す");
 });
 
 test("モデル一覧の注記は取得元と最終取得時刻を示す", () => {

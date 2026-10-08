@@ -36,13 +36,13 @@ export const SETTINGS_SECTIONS: { section: SettingsSection; label: string }[] = 
  * 設定 → モデル のタブ。URL は `/settings/models` と `/settings/models/<sub>` を正とし、
  * 既定タブ (models) はパスへ出さない (lib/route.ts の routePath)。
  */
-export type ModelsSubsection = "models" | "providers" | "images" | "web-search";
+export type ModelsSubsection = "models" | "providers" | "content" | "web-search";
 
 export const MODELS_SUBSECTIONS: { subsection: ModelsSubsection; label: string }[] = [
   { subsection: "models", label: "モデルを選ぶ" },
   { subsection: "providers", label: "プロバイダー" },
-  { subsection: "images", label: "画像生成" },
-  // 画像生成と同じく「外部サービスとキー」の面。既定 provider と有効 / 無効の kill switch もここに置く
+  { subsection: "content", label: "コンテンツ生成" },
+  // コンテンツ生成と同じく「外部サービスとキー」の面。既定 provider と有効 / 無効の kill switch もここに置く
   { subsection: "web-search", label: "Web 検索" },
 ];
 
