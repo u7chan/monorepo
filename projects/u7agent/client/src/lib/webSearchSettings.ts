@@ -77,6 +77,13 @@ export function webSearchDataFlowNotice(provider: WebSearchProvider, enabled: bo
     : `検索は無効です。検索のクエリは ${provider.name}（${provider.host}）へ送信されません。`;
 }
 
+/** 注意書きを畳んだときの 1 行。送信先は展開前から読めるようにし、切り替えで見落とさないようにする */
+export function webSearchNoticeSummary(provider: WebSearchProvider, enabled: boolean): string {
+  if (!enabled) return `検索は無効です。クエリは ${provider.name}（${provider.host}）へ送信されません。`;
+  const key = provider.keyless ? "" : "キーは平文で保存されます。";
+  return `${WEB_SEARCH_TOOL_NAME} ツールの実行時にだけ、クエリは ${provider.name}（${provider.host}）へ送信されます。${key}`;
+}
+
 /**
  * 既定の provider を選んでいるのにキーが未設定のときの注意。選択とキーの登録が別の行にあるため、
  * 「選んだだけで検索できる」と誤解されたまま保存されるのを防ぐ。

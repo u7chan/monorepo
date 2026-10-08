@@ -15,6 +15,7 @@ import {
   type ProviderDraft,
 } from "../../lib/modelSettings";
 import type { ModelsSettingsResponse, ProviderAuthSetting, RuntimeModelsResponse, SessionSummary } from "../../types";
+import { CollapsibleNotice } from "../CollapsibleNotice";
 import { CheckIcon, DisclosureChevronIcon, KeyIcon, TrashIcon } from "../icons";
 import { ReloadButton } from "../ReloadButton";
 import { useConfirm } from "../ConfirmProvider";
@@ -247,10 +248,10 @@ function providerListMeta(
   return { text: `${availableCountOf(catalog, provider.provider)}/${entry.models.length}`, warn: false };
 }
 
-/** キーが平文で保存されることと、BFF を公開しない注意。詳細ペインの共通位置に常時出す */
+/** キーが平文で保存されることと、BFF を公開しない注意。詳細ペインの共通位置に既定で畳んで出す */
 function SecurityNotice() {
   return (
-    <section className="grid gap-1 rounded-lg border border-warn/40 bg-raised px-2.5 py-2 text-2xs leading-relaxed text-warn">
+    <CollapsibleNotice summary="キーとメモは平文で保存されます。ログインがないため公開しないでください。">
       <p>
         登録したキーはアプリのデータベース（SQLite）へ平文で保存され、再起動後も使われます。保存したキーは再表示しません。
       </p>
@@ -261,7 +262,7 @@ function SecurityNotice() {
         APIキーは {API_KEY_MIN_LENGTH} 文字以上で入力します。環境変数（<code>.env</code>）や保存済みの{" "}
         <code>auth.json</code> の認証はそのまま使われます。
       </p>
-    </section>
+    </CollapsibleNotice>
   );
 }
 

@@ -92,6 +92,12 @@ test("描画: 明示空は node_modules も入る警告を出す", () => {
     draft: { excludeNames: [] },
   });
   assert.ok(html.includes("除外なし。"), "空の警告が無い");
+  assert.match(
+    html,
+    /<summary[^>]*>[\s\S]*除外なし。node_modules なども ZIP に入るため、失敗しやすくなります。[\s\S]*<\/summary>/,
+    "畳んだ 1 行の要点が無い",
+  );
+  assert.doesNotMatch(html, /<details\b[^>]*\sopen(?:[\s=>])/, "警告は既定で畳む");
   assert.ok(html.includes("node_modules なども ZIP に入る"), "何が入るかの説明が無い");
   assert.ok(html.includes("100 MiB"), "上限の説明が無い");
   assert.ok(html.includes("0 / 100"), "件数が出ていない");

@@ -1,5 +1,6 @@
 import { useState } from "react";
 import type { ArchiveSettings } from "../hooks/useArchiveSettings";
+import { CollapsibleNotice } from "./CollapsibleNotice";
 import { CheckIcon, PlusIcon, TrashIcon } from "./icons";
 import { ReloadButton } from "./ReloadButton";
 import { SettingsPageLayout, type SettingsPageProps } from "./SettingsPageLayout";
@@ -102,10 +103,12 @@ export function ArchiveSettingsPage({ archiveSettings, compact = false, onBack, 
                 </form>
 
                 {draft.excludeNames.length === 0 ? (
-                  <p className="rounded-lg border border-warn/40 bg-raised px-2.5 py-2 text-2xs leading-relaxed text-warn">
-                    除外なし。node_modules なども ZIP に入るため、100 MiB
-                    の上限に届いて失敗しやすくなります。ビルド成果物と依存を落とすなら既定に戻してください。
-                  </p>
+                  <CollapsibleNotice summary="除外なし。node_modules なども ZIP に入るため、失敗しやすくなります。">
+                    <p>
+                      除外なし。node_modules なども ZIP に入るため、100 MiB
+                      の上限に届いて失敗しやすくなります。ビルド成果物と依存を落とすなら既定に戻してください。
+                    </p>
+                  </CollapsibleNotice>
                 ) : (
                   <ul className="grid min-w-0 gap-0.5">
                     {draft.excludeNames.map((name) => (

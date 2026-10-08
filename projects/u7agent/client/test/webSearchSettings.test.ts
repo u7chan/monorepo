@@ -15,6 +15,7 @@ import {
   webSearchKeyDeletedNote,
   webSearchKeyMissingNotice,
   webSearchKeySavedNote,
+  webSearchNoticeSummary,
   webSearchProviderDef,
   webSearchProviderOptions,
   webSearchProviderSavedNote,
@@ -74,6 +75,21 @@ test("データの流れは、実行したときだけ外へ出ることを明�
   assert.equal(
     webSearchDataFlowNotice(TAVILY, false),
     "検索は無効です。検索のクエリは Tavily（api.tavily.com）へ送信されません。",
+  );
+});
+
+test("折りたたみの 1 行は、そのまま送信先とキーの保存を見せる", () => {
+  assert.equal(
+    webSearchNoticeSummary(EXA, true),
+    "web_search ツールの実行時にだけ、クエリは Exa（mcp.exa.ai）へ送信されます。",
+  );
+  assert.equal(
+    webSearchNoticeSummary(TAVILY, true),
+    "web_search ツールの実行時にだけ、クエリは Tavily（api.tavily.com）へ送信されます。キーは平文で保存されます。",
+  );
+  assert.equal(
+    webSearchNoticeSummary(TAVILY, false),
+    "検索は無効です。クエリは Tavily（api.tavily.com）へ送信されません。",
   );
 });
 

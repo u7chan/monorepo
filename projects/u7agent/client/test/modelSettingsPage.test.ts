@@ -358,7 +358,7 @@ test("無限に無視される環境変数を注記する", () => {
   assert.ok(html.includes("デプロイ設定からは削除"), "環境変数の削除を促す");
 });
 
-test("プロバイダータブは一覧と詳細を分け、平文の注意を上部に常時出す", () => {
+test("プロバイダータブは一覧と詳細を分け、平文の注意を既定で畳んで出す", () => {
   const html = render(modelSettings(), { modelsSubsection: "providers" });
   assert.ok(html.includes("設定済み 3") && html.includes("未設定 2"), "全件を設定済み / 未設定に分けて出す");
   for (const name of ["Anthropic", "OpenAI", "Local", "ghost", "Stale"]) {
@@ -367,7 +367,13 @@ test("プロバイダータブは一覧と詳細を分け、平文の注意を�
   assert.ok(html.includes("環境変数（ANTHROPIC_API_KEY）"), "詳細の認証バッジを出す");
   assert.ok(html.includes("利用可能 1 / カタログ 2"), "カタログから数えたモデル数を出す");
   assert.ok(html.includes('type="password"'), "キー入力はマスクする");
-  assert.ok(html.includes("BFF をインターネットや LAN へ公開しないでください"), "公開しない注意を常時出す");
+  assert.match(
+    html,
+    /<summary[^>]*>[\s\S]*キーとメモは平文で保存されます。ログインがないため公開しないでください。[\s\S]*<\/summary>/,
+    "畳んだ 1 行にキー・メモの保存と公開の注意を出す",
+  );
+  assert.doesNotMatch(html, /<details\b[^>]*\sopen(?:[\s=>])/, "平文の注意は既定で畳む");
+  assert.ok(html.includes("BFF をインターネットや LAN へ公開しないでください"), "展開で公開しない注意を読める");
   assert.ok(html.includes("キーの有効性は保存時に確認しません"));
   assert.ok(html.includes("キーを保存して「モデルを選ぶ」タブに戻ると"));
   assert.ok(html.includes("各項目の保存ボタンでその場で保存されます"), "キー・メモは即時保存だと区別する");
