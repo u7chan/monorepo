@@ -448,6 +448,13 @@ test("uploaded images and audio are servable and other extensions are not", asyn
     assert.equal(partial.headers.get("content-range"), "bytes 1-2/3");
     assert.equal(partial.headers.get("content-length"), "2");
     assert.deepEqual(Buffer.from(await partial.arrayBuffer()), Buffer.from([0x44, 0x33]));
+    // 先頭 > 末尾の不正な Range は無視して全文を返す (16 桁以上の値でも 416 にしない)
+    const invalid = await bff.app.request("/api/files/raw?path=.u7agent%2Fuploads%2Fbgm.mp3", {
+      headers: { Range: "bytes=1000000000000001-1000000000000000" },
+    });
+    assert.equal(invalid.status, 200);
+    assert.equal(invalid.headers.get("content-range"), null);
+    assert.deepEqual(Buffer.from(await invalid.arrayBuffer()), Buffer.from([0x49, 0x44, 0x33]));
     assert.equal((await bff.app.request("/api/files/raw?path=.u7agent%2Fuploads%2Fmissing.png")).status, 404);
   } finally {
     await close();

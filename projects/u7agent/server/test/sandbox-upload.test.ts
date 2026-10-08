@@ -207,7 +207,10 @@ test("raw serves a single byte range with 206 and Content-Range", async () => {
       ["bytes=0-0", "bytes 0-0/8", "a"],
       // 先頭の 0 は無視し、桁が大きくても size と比較できる (16 桁以上は size より大きい)
       ["bytes=0000000000000000000002-3", "bytes 2-3/8", "cd"],
+      ["bytes=0000000000000000001-3", "bytes 1-3/8", "bcd"],
       ["bytes=0-999999999999999999999999", "bytes 0-7/8", "abcdefgh"],
+      // 表現より長い suffix-length は全体を使う (RFC 9110)。数値が大きくても末尾 N バイトの規則は同じ
+      ["bytes=-99999999999999999", "bytes 0-7/8", "abcdefgh"],
     ];
     for (const [range, contentRange, expected] of cases) {
       const response = await service.app.request("/v1/files/raw?path=uploads%2Fclip.mp3", {
@@ -245,7 +248,14 @@ test("raw answers 416 only when the range cannot be satisfied", async () => {
     await writeFile(join(root, "uploads", "clip.mp3"), Buffer.from("abcdefgh"));
     await writeFile(join(root, "uploads", "empty.wav"), Buffer.alloc(0));
 
-    for (const range of ["bytes=8-", "bytes=100-200", "bytes=-0", "bytes=99999999999999999999-"]) {
+    // size 以上から始まる範囲は満たせない。数値が大きくて size と直接比べられなくても同じ
+    for (const range of [
+      "bytes=8-",
+      "bytes=100-200",
+      "bytes=-0",
+      "bytes=99999999999999999999-",
+      "bytes=1000000000000000-1000000000000001",
+    ]) {
       const response = await rawRange(service.app, "uploads/clip.mp3", range);
       assert.equal(response.status, 416, range);
       // 416 は「全体の長さ」を Content-Range で伝える (ブラウザーはこれで分割を取り直す)
@@ -271,7 +281,8 @@ test("raw ignores a Range it cannot interpret and answers 200", async () => {
     await mkdir(join(root, "uploads"), { recursive: true });
     await writeFile(join(root, "uploads", "clip.mp3"), Buffer.from("abcdefgh"));
 
-    // 構文不正 (先頭 > 末尾 / 空 / 数字以外)・複数レンジ・bytes 以外の単位は、レンジ指定なしに倒す
+    // 構文不正 (先頭 > 末尾 / 空 / 数字以外)・複数レンジ・bytes 以外の単位は、レンジ指定なしに倒す。
+    // 先頭 > 末尾の判定は桁を丸める前に行う (16 桁以上の値でも 200 になる)
     const cases = [
       "bytes=5-4",
       "bytes=",
@@ -281,6 +292,8 @@ test("raw ignores a Range it cannot interpret and answers 200", async () => {
       "bytes=0-1,3-4",
       "items=0-1",
       "bytes = 0-1",
+      "bytes=1000000000000001-1000000000000000",
+      "bytes=0000000000000000002-1",
     ];
     for (const range of cases) {
       const response = await service.app.request("/v1/files/raw?path=uploads%2Fclip.mp3", {
