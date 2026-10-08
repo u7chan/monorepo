@@ -364,10 +364,9 @@ References are relative to /workspace/.agents/skills/writer.
 
 `investigate`（[subagent.md](subagent.md)）は BFF ローカルのツールで、引数は `prompt` 1 本だけ。親のランでは通常のツール呼び出し（`tool_start` / `tool_end` と `messages[].tools`）として見え、完了すると要約カードになる。**結果のための専用 DTO フィールドは持たず**、`content`（子の報告）と `details`（内訳）だけで表す。
 
-- モデルへ返る `content` は子の報告で、全文を mask してから 4,000 文字に切り詰める。カードに出るのは `SUMMARY_TEXT_MAX`（900 文字）まで
-- `details` は `{ outcome, toolCalls, usage?, compactions? }`。`outcome` は `completed` / `timeout` / `aborted` / `error` で、打ち切り・失敗（子自身の失敗を含む）は `isError: true` と理由 + 部分報告の `content` になる
-- 子は読み取り専用ツールだけを持つ使い捨てのセッションで、親の `session.jsonl` にも `SessionStore` にも残らない（親には toolResult だけが残る）
-- 打ち切りは親の stop（`POST /stop`）と 10 分のタイムアウトの両方で同じ経路（`AbortSignal`）。`stop` に専用のフックは無い
+- 打ち切り・失敗（子自身の失敗を含む）も `isError: true` で返り、`details` に終了理由が載る
+- 子は読み取り専用の使い捨てセッションで、親の `session.jsonl` にも `SessionStore` にも残らない（親には toolResult だけが残る）
+- 打ち切りは親の stop（`POST /stop`）と同じ経路（`AbortSignal`）。`stop` に専用のフックは無い
 
 ## `POST /api/sessions/:id/questions/:toolCallId/answer`
 
