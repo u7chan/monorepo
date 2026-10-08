@@ -2,7 +2,12 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createSecretMasker } from "../src/redact";
+import type { ModelCatalogRefreshAttempt } from "../src/agent";
 import {
+  MODEL_CATALOG_ERROR_OFFLINE,
+  MODEL_CATALOG_ERROR_PARTIAL,
+  MODEL_CATALOG_ERROR_TIMEOUT,
+  MODEL_CATALOG_ERROR_UNKNOWN,
   MODEL_SELECTION_DEFAULT_NOT_ALLOWED_MESSAGE,
   MODEL_SELECTION_FORMAT_MESSAGE,
   MODEL_SELECTION_NOT_IN_CATALOG_MESSAGE,
@@ -16,12 +21,18 @@ import {
   PROVIDER_MEMO_TARGET_MESSAGE,
   PROVIDER_RESYNC_TARGET_MESSAGE,
   type CredentialCommit,
+  type CatalogRefreshOutcome,
   type ModelSettingsDb,
   type MutationOutcome,
   type ProviderKeyRuntime,
   type StoredModelSelection,
 } from "../src/model-settings";
-import { PROVIDER_API_KEY_MIN_LENGTH, type ModelRef } from "../src/schema";
+import {
+  PROVIDER_API_KEY_MIN_LENGTH,
+  RUNTIME_MODELS_UNAVAILABLE_MESSAGE,
+  type ModelRef,
+  type RuntimeModelsResponse,
+} from "../src/schema";
 
 const KEY_A = "sk-ant-dummy-key-a-0123456789";
 const KEY_B = "sk-openai-dummy-key-b-0123456789";
@@ -42,11 +53,39 @@ interface RuntimeCall {
   aborted: boolean;
 }
 
-/** SDK 面の fake。apply / remove の実装だけテストごとに差し替え、呼び出しを記録する */
+/** カタログ更新の呼び出し。実 SDK へ渡す契約 (allowNetwork / force) を検証できるようにする */
+interface CatalogRefreshCall {
+  allowNetwork: boolean;
+  force: boolean;
+  aborted: boolean;
+}
+
+/** GET /api/runtime/models と カタログ更新 が返すデフォルトのスナップショット。実 API の形を最小で満たす */
+const CATALOG_SNAPSHOT: RuntimeModelsResponse = {
+  catalogCount: 1,
+  availableCount: 1,
+  versions: { piCodingAgent: "1.0.0" },
+  providers: [
+    {
+      provider: "anthropic",
+      auth: { configured: true, source: "environment", environmentVariables: [] },
+      models: [{ id: "claude-sonnet-4-5", name: "Claude Sonnet 4.5", available: true }],
+    },
+  ],
+};
+
+/** SDK 面の fake。apply / remove / カタログ更新の実装だけテストごとに差し替え、呼び出しを記録する */
 function fakeRuntime(
   options: {
     providers?: FakeProvider[];
     catalog?: ModelRef[];
+    /** null = `GET /api/runtime/models` と同じく一覧を返せない状態。未指定は既定のスナップショット */
+    catalogSnapshot?: RuntimeModelsResponse | null;
+    refreshCatalog?: (options: {
+      allowNetwork: boolean;
+      force: boolean;
+      signal: AbortSignal;
+    }) => ModelCatalogRefreshAttempt | Promise<ModelCatalogRefreshAttempt>;
     apply?: (provider: string, apiKey: string, signal: AbortSignal) => CredentialCommit | Promise<CredentialCommit>;
     remove?: (provider: string, signal: AbortSignal) => CredentialCommit | Promise<CredentialCommit>;
   } = {},
@@ -54,6 +93,7 @@ function fakeRuntime(
   const providers = options.providers ?? [{ provider: "anthropic", configured: true }];
   const configured = new Map(providers.map((entry) => [entry.provider, entry.configured ?? false]));
   const calls: RuntimeCall[] = [];
+  const catalogRefreshCalls: CatalogRefreshCall[] = [];
   const runtime: ProviderKeyRuntime = {
     list: () =>
       providers.map((entry) => ({
@@ -70,6 +110,19 @@ function fakeRuntime(
         : { configured: false };
     },
     catalog: () => options.catalog ?? [{ provider: "anthropic", id: "claude-sonnet-4-5" }],
+    refreshCatalog: async (refreshOptions) => {
+      catalogRefreshCalls.push({
+        allowNetwork: refreshOptions.allowNetwork,
+        force: refreshOptions.force,
+        aborted: refreshOptions.signal.aborted,
+      });
+      // 実 SDK と同じく、開始前に abort 済みなら通信せず aborted で返す
+      if (refreshOptions.signal.aborted) return { aborted: true, failedProviders: 0 };
+      return options.refreshCatalog ? options.refreshCatalog(refreshOptions) : { aborted: false, failedProviders: 0 };
+    },
+    // 既存の fake は「カタログがある」を既定にし、null を明示したときだけ 503 経路を作る
+    catalogSnapshot: () =>
+      options.catalogSnapshot === null ? undefined : (options.catalogSnapshot ?? CATALOG_SNAPSHOT),
     applyApiKey: async (provider, apiKey, { signal }) => {
       calls.push({ operation: "apply", provider, apiKey, aborted: signal.aborted });
       const commit = options.apply
@@ -87,7 +140,7 @@ function fakeRuntime(
       return commit;
     },
   };
-  return { runtime, providers, calls, configured };
+  return { runtime, providers, calls, catalogRefreshCalls, configured };
 }
 
 /** DB 面の fake。失敗フラグで AppDb の失敗経路を再現する */
@@ -186,9 +239,11 @@ function createService(options: {
   runtime: ProviderKeyRuntime | null;
   retained?: string[];
   log?: string[];
-  refresh?: () => Promise<void>;
+  /** 公開 state の再計算。期限が来るまで解決しない fake を差し込めるよう signal を渡す */
+  refresh?: (signal?: AbortSignal) => void | Promise<void>;
   masker?: (text: string) => string;
   ignoredEnvironmentVariables?: string[];
+  catalogTimeoutMs?: number;
 }) {
   const retained = options.retained ?? [];
   const refreshes: number[] = [];
@@ -204,16 +259,17 @@ function createService(options: {
       retained.push(value);
     },
     maskError: (text) => options.masker?.(text) ?? text,
-    refreshModelState: async () => {
+    refreshModelState: async (refreshOptions) => {
       events.push("refresh");
       refreshes.push(1);
-      await options.refresh?.();
+      await options.refresh?.(refreshOptions?.signal);
     },
     setModelSelection: (selection) => {
       events.push("set");
       selections.push(selection);
     },
     ignoredEnvironmentVariables: options.ignoredEnvironmentVariables ?? [],
+    ...(options.catalogTimeoutMs !== undefined ? { catalogTimeoutMs: options.catalogTimeoutMs } : {}),
   });
   return { service, retained, refreshCount: () => refreshes.length, selections, events };
 }
@@ -1169,4 +1225,202 @@ test("起動適用は手で壊された既定モデルを未設定として続�
   const { logs } = await captureConsole(() => service.applyStored());
   assert.deepEqual(selections, [{ allowedModels: undefined, defaultModel: undefined }]);
   assert.ok(logs.join("\n").includes("stored default model is invalid"));
+});
+
+// --- カタログの手動更新 (POST /api/settings/models/catalog/refresh) ---
+
+function catalogBody(outcome: CatalogRefreshOutcome) {
+  if (outcome.status !== 200) throw new Error(`expected 200, got ${outcome.status}: ${outcome.error}`);
+  return outcome.response;
+}
+
+function catalogErrorOf(outcome: CatalogRefreshOutcome) {
+  if (outcome.status !== 503) throw new Error(`expected 503, got ${outcome.status}`);
+  return outcome.error;
+}
+
+test("カタログ更新は allowNetwork / force 付きで 1 回だけ試し、再計算後に読んだ一覧を返す", async () => {
+  const after: RuntimeModelsResponse = { ...CATALOG_SNAPSHOT, catalogCount: 2, availableCount: 2 };
+  const runtimeOptions: NonNullable<Parameters<typeof fakeRuntime>[0]> = {
+    catalogSnapshot: CATALOG_SNAPSHOT,
+    refreshCatalog: () => {
+      // 実 SDK は取得できた provider を overlay へ写す。再計算後に読む値が変わることをここで再現する
+      runtimeOptions.catalogSnapshot = after;
+      return { aborted: false, failedProviders: 0 };
+    },
+  };
+  const runtime = fakeRuntime(runtimeOptions);
+  const { service, refreshCount } = createService({ db: fakeDb().db, runtime: runtime.runtime });
+
+  const response = catalogBody(await service.refreshCatalog());
+  assert.deepEqual(runtime.catalogRefreshCalls, [{ allowNetwork: true, force: true, aborted: false }]);
+  assert.equal(refreshCount(), 1, "取得の後で公開 state を 1 回だけ再計算する");
+  assert.equal(response.catalogError, null);
+  assert.equal(response.catalogCount, 2, "応答は更新後の一覧");
+  assert.deepEqual(response.providers, after.providers);
+});
+
+test("一部 provider の失敗は 200 と固定文言に寄せ、一覧は現在値のまま返す", async () => {
+  const runtime = fakeRuntime({
+    catalogSnapshot: CATALOG_SNAPSHOT,
+    refreshCatalog: () => ({ aborted: false, failedProviders: 2 }),
+  });
+  const { service } = createService({ db: fakeDb().db, runtime: runtime.runtime });
+
+  const { value: outcome, logs } = await captureConsole(() => service.refreshCatalog());
+  const response = catalogBody(outcome);
+  assert.equal(response.catalogError, MODEL_CATALOG_ERROR_PARTIAL);
+  assert.deepEqual(response.providers, CATALOG_SNAPSHOT.providers, "取得できた範囲の一覧は残す");
+  assert.ok(logs.join("\n").includes("model catalog refresh incomplete"), "ログには件数だけを残す");
+  assert.ok(!logs.join("\n").includes("anthropic"), "provider の内訳はログへ出さない");
+});
+
+test("期限で abort した取得は一覧を保ち、provider の失敗と同時でもタイムアウトを優先する", async () => {
+  const runtime = fakeRuntime({
+    catalogSnapshot: CATALOG_SNAPSHOT,
+    refreshCatalog: ({ signal }) =>
+      new Promise((resolve) => {
+        // 実 SDK は期限の signal で中断し、aborted と部分的な errors を同時に返し得る
+        signal.addEventListener("abort", () => resolve({ aborted: true, failedProviders: 3 }), { once: true });
+      }),
+  });
+  const { service } = createService({ db: fakeDb().db, runtime: runtime.runtime, catalogTimeoutMs: 5 });
+
+  const response = catalogBody(await service.refreshCatalog());
+  assert.equal(response.catalogError, MODEL_CATALOG_ERROR_TIMEOUT);
+  assert.deepEqual(response.providers, CATALOG_SNAPSHOT.providers);
+  assert.equal(runtime.catalogRefreshCalls.length, 1);
+  assert.equal(runtime.catalogRefreshCalls[0]?.aborted, false, "期限はサービスが作る (開始時には abort していない)");
+});
+
+test("refresh の例外は固定文言へ寄せ、生の文言を応答へ出さずログはマスカーを通す", async () => {
+  const secret = "sk-live-RAW-0123456789";
+  const raw = `ModelConfig.load failed: /root/.pi/agent/models.json ${secret}`;
+  const runtime = fakeRuntime({
+    catalogSnapshot: CATALOG_SNAPSHOT,
+    refreshCatalog: () => {
+      throw new Error(raw);
+    },
+  });
+  const { service } = createService({
+    db: fakeDb().db,
+    runtime: runtime.runtime,
+    masker: (text) => text.replaceAll(secret, "<masked>"),
+  });
+
+  const { value: outcome, logs } = await captureConsole(() => service.refreshCatalog());
+  const response = catalogBody(outcome);
+  assert.equal(response.catalogError, MODEL_CATALOG_ERROR_UNKNOWN);
+  assert.ok(!JSON.stringify(response).includes("ModelConfig.load failed"), "生の例外文言を応答へ出さない");
+  assert.ok(!JSON.stringify(response).includes(secret), "秘密も応答へ出さない");
+  assert.ok(logs.join("\n").includes("<masked>"), "ログはマスカーを通す");
+  assert.ok(!logs.join("\n").includes(secret), "マスク前の値をログにも残さない");
+});
+
+test("PI_OFFLINE では取得せず、現在の一覧と固定文言を返す", async () => {
+  const runtime = fakeRuntime({ catalogSnapshot: CATALOG_SNAPSHOT });
+  const { service } = createService({ db: fakeDb().db, runtime: runtime.runtime });
+  const original = process.env.PI_OFFLINE;
+  process.env.PI_OFFLINE = "1";
+  try {
+    const response = catalogBody(await service.refreshCatalog());
+    assert.equal(response.catalogError, MODEL_CATALOG_ERROR_OFFLINE);
+    assert.deepEqual(runtime.catalogRefreshCalls, [], "SDK の refresh は呼ばない");
+    assert.deepEqual(response.providers, CATALOG_SNAPSHOT.providers);
+  } finally {
+    if (original === undefined) delete process.env.PI_OFFLINE;
+    else process.env.PI_OFFLINE = original;
+  }
+});
+
+test("カタログを返せないときは 503 (GET /api/runtime/models と同じ契約)", async () => {
+  const runtime = fakeRuntime({ catalogSnapshot: null });
+  const { service } = createService({ db: fakeDb().db, runtime: runtime.runtime });
+  const outcome = await service.refreshCatalog();
+  assert.equal(catalogErrorOf(outcome), RUNTIME_MODELS_UNAVAILABLE_MESSAGE);
+  assert.equal(runtime.catalogRefreshCalls.length, 1, "取得は試みる (失敗を一覧の不在と言い換えない)");
+});
+
+test("ランタイム無しのカタログ更新は既存の設定 API と同じ 503", async () => {
+  const { service } = createService({ db: fakeDb().db, runtime: null });
+  const outcome = await service.refreshCatalog();
+  assert.equal(catalogErrorOf(outcome), RUNTIME_MODELS_UNAVAILABLE_MESSAGE);
+});
+
+test("カタログ更新はキー変更と同じロックを通り、後から来たキー変更を待たせる", async () => {
+  const order: string[] = [];
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const runtime = fakeRuntime({
+    catalogSnapshot: CATALOG_SNAPSHOT,
+    refreshCatalog: async () => {
+      order.push("catalog:start");
+      await gate;
+      order.push("catalog:end");
+      return { aborted: false, failedProviders: 0 };
+    },
+    apply: () => {
+      order.push("key:apply");
+      return { outcome: "applied", synced: true };
+    },
+  });
+  const { service } = createService({ db: fakeDb().db, runtime: runtime.runtime });
+
+  const refresh = service.refreshCatalog();
+  const deadline = Date.now() + 1000;
+  while (!order.includes("catalog:start") && Date.now() < deadline) {
+    await new Promise((resolve) => setTimeout(resolve, 1));
+  }
+  assert.ok(order.includes("catalog:start"), "更新がロックを取り始める");
+  const put = service.putKey("anthropic", KEY_A);
+  await new Promise((resolve) => setTimeout(resolve, 10));
+  assert.deepEqual(order, ["catalog:start"], "更新の完了前にはキー変更が入らない");
+  release();
+  await refresh;
+  await put;
+  assert.deepEqual(order, ["catalog:start", "catalog:end", "key:apply"]);
+});
+
+test("期限は状態再計算にも伝播し、期限後は現在の一覧を保ってロックを解放する", async () => {
+  const refreshSignals: AbortSignal[] = [];
+  const stateSignals: (AbortSignal | undefined)[] = [];
+  const runtime = fakeRuntime({
+    catalogSnapshot: CATALOG_SNAPSHOT,
+    refreshCatalog: (options) => {
+      refreshSignals.push(options.signal);
+      return { aborted: false, failedProviders: 0 };
+    },
+    apply: () => ({ outcome: "applied", synced: true }),
+  });
+  const { service } = createService({
+    db: fakeDb().db,
+    runtime: runtime.runtime,
+    catalogTimeoutMs: 20,
+    refresh: (signal) => {
+      stateSignals.push(signal);
+      // 実 SDK は auth.json.lock を期限なしで待ち得る。期限 (signal) が来るまで解決しない
+      if (!signal) return;
+      return new Promise<void>((resolve) => {
+        if (signal.aborted) resolve();
+        else signal.addEventListener("abort", () => resolve(), { once: true });
+      });
+    },
+  });
+
+  const started = Date.now();
+  const refresh = service.refreshCatalog();
+  // 共有ロックが期限後も塞がれないことを、更新の完了を待つキー変更で確かめる
+  const put = service.putKey("anthropic", KEY_A);
+  const [outcome, keyOutcome] = await Promise.all([refresh, put]);
+  const elapsed = Date.now() - started;
+
+  const response = catalogBody(outcome);
+  assert.equal(response.catalogError, MODEL_CATALOG_ERROR_TIMEOUT, "再計算の途中でもタイムアウトとして返す");
+  assert.deepEqual(response.providers, CATALOG_SNAPSHOT.providers, "期限後も一覧は現在値のまま");
+  assert.equal(okBody(keyOutcome).state, "applied", "期限後もキー変更が通る (ロックを保持し続けない)");
+  assert.equal(refreshSignals.length, 1);
+  assert.equal(stateSignals[0], refreshSignals[0], "取得と再計算で同じ期限を共有する");
+  assert.ok(elapsed < 2_000, `期限 (20ms) で閉じる (elapsed=${elapsed}ms)`);
 });

@@ -20,6 +20,7 @@ import type {
   ImageCatalogRefreshResponse,
   ImageMutationResponse,
   ImageSettingsResponse,
+  ModelCatalogRefreshResponse,
   ModelMutationResponse,
   ModelRef,
   ModelsSettingsResponse,
@@ -431,6 +432,16 @@ export const getModelsSettings = async (): Promise<ModelsSettingsResponse> => {
   const res = await client.api.settings.models.$get();
   if (!res.ok) throw await apiError(res);
   return res.json();
+};
+
+/**
+ * pi.dev のモデルカタログを取り直す。取得できなくても 200 で、失敗は `catalogError` にだけ載る
+ * （一覧は手元に残る）。設定は変わらないため、応答は `GET /api/runtime/models` と同じ形 + この 1 フィールド。
+ */
+export const refreshModelCatalog = async (): Promise<ModelCatalogRefreshResponse> => {
+  const res = await client.api.settings.models.catalog.refresh.$post();
+  if (!res.ok) throw await apiError(res);
+  return (await res.json()) as ModelCatalogRefreshResponse;
 };
 
 /**

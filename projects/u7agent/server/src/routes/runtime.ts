@@ -2,9 +2,7 @@ import type { Context } from "hono";
 import type { PiBff } from "../agent";
 import { messageFor } from "../http";
 import { SandboxRuntimeError, type SandboxRuntimeDiagnostics } from "../sandbox/client";
-import { SandboxRuntimeInfoSchema } from "../schema";
-
-export const RUNTIME_MODELS_UNAVAILABLE_MESSAGE = "ランタイムのモデル情報を取得できません";
+import { RUNTIME_MODELS_UNAVAILABLE_MESSAGE, SandboxRuntimeInfoSchema } from "../schema";
 
 export function createRuntimeRoutes({
   pi,

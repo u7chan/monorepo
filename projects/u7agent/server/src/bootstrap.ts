@@ -305,6 +305,8 @@ export function createProviderKeyRuntime(pi: PiBff): ProviderKeyRuntime {
     auth: (provider) => modelRuntime.getProviderAuthStatus(provider),
     // 認証の有無を見ない getModels() を引く (未認証のモデルも許可リストには入れられる)
     catalog: () => modelRuntime.getModels().map((model) => ({ provider: model.provider, id: model.id })),
+    refreshCatalog: (options) => pi.refreshModelCatalog(options),
+    catalogSnapshot: () => pi.modelCatalog,
     applyApiKey: (provider, apiKey, { signal }) =>
       commitCredential("setRuntimeApiKey", provider, signal, () =>
         modelRuntime.setRuntimeApiKey(provider, apiKey, { signal }),

@@ -26,7 +26,7 @@ DTO の正は `server/src/schema.ts`（zod）。リクエストボディは `@ho
 | セッション | `/api/sessions`、`/api/sessions/:id`、`/skills`、`/files`、`/messages`、`/questions/:toolCallId/answer`、`/events`、`/settings`、`/title`、`/stop`、`/compact` | [api-sessions.md](api-sessions.md) |
 | 通知（Discord） | `GET/PUT /api/notifications`、`POST /api/notifications/test`、`PATCH /api/sessions/:id/notify` | [notifications.md](notifications.md) |
 | アーカイブの除外名 | `GET/PUT/DELETE /api/settings/archive` | このファイル |
-| プロバイダーAPIキーとメモ（設定 → モデル） | `GET /api/settings/models`、`PUT/DELETE /api/settings/models/:provider/key`、`PUT /api/settings/models/:provider/memo`、`POST /api/settings/models/:provider/resync` | このファイル |
+| プロバイダーAPIキーとメモ（設定 → モデル） | `GET /api/settings/models`、`PUT/DELETE /api/settings/models/:provider/key`、`PUT /api/settings/models/:provider/memo`、`POST /api/settings/models/:provider/resync`、`POST /api/settings/models/catalog/refresh` | このファイル |
 | 画像生成（設定 → モデル） | `GET/PUT /api/settings/images`、`PUT/DELETE /api/settings/images/key`、`POST /api/settings/images/catalog/refresh` | このファイル、[image-generation.md](image-generation.md) |
 | Web 検索の設定（設定 → モデル） | `GET/PUT /api/settings/web-search`、`PUT /api/settings/web-search/provider`、`PUT/DELETE /api/settings/web-search/providers/:provider/key` | このファイル、[web-search.md](web-search.md) |
 | サービス（serve）の状態と起動・停止 | `GET /api/serve/status`、`POST /api/serve/start`、`POST /api/serve/stop` | このファイル、[sandbox.md](sandbox.md#serveサービスの公開と起動停止) |
@@ -133,7 +133,7 @@ DTO の正は `server/src/schema.ts`（zod）。リクエストボディは `@ho
 - 200: カタログ応答。0 件でも空の `providers` / count を返す
 - 503: カタログを取得できない（ランタイム初期化失敗・`getAvailable()` の失敗）。生のエラーを含めず、`{ "error": "ランタイムのモデル情報を取得できません" }` を返す
 
-カタログ全件は通常約 90KB（pi SDK の同梱版で変動）となるため、health には載せない。この API は設定画面を開いたときにだけ要求する。
+カタログ全件は通常約 90KB（pi SDK の同梱版で変動）となるため、health には載せない。この API は設定画面を開いたとき、設定の変更後、それに [カタログ更新](#利用可能なモデルとプロバイダーapiキー設定--モデル) を押したときにだけ要求する（定期取得はしない）。
 
 `sessionStore` は会話ストア、`appDb` はプロジェクト / カタログを保存する SQLite の状態。`ok: false` のときは `error` に理由が入り、その保存先を読む API は 503 になる。`path` が `null` なのは永続化なしのとき（`sessionStore` は未設定、`appDb` はテストのメモリ DB）で、パス解決に失敗した `appDb` は `ok: false` と `path: null` の組み合わせになる。詳細は [persistence.md](persistence.md)。
 
@@ -379,6 +379,7 @@ Content-Security-Policy: sandbox allow-scripts; default-src 'none'; style-src 'u
 | PUT | `/api/settings/models/:provider/memo` | provider のメモを保存（`trim` して空なら行を削除）。body は `{ "memo": "…" }`（0..500 文字） |
 | DELETE | `/api/settings/models/:provider/key` | この画面で登録したキーを削除 |
 | POST | `/api/settings/models/:provider/resync` | degraded（保存済み・未反映）の回復。body 無し |
+| POST | `/api/settings/models/catalog/refresh` | pi.dev の provider 別モデルカタログを取り直す。body 無し。取得失敗でも 200 で、理由は `catalogError` にだけ載せる |
 
 アプリデータの SQLite を読むため DB が使えないときは 503（[persistence.md](persistence.md#アプリデータsqlite)）。設計と残存リスクは [model-settings.md](model-settings.md) を正とする。
 
@@ -423,6 +424,8 @@ Content-Security-Policy: sandbox allow-scripts; default-src 'none'; style-src 'u
 - 503 は `{ "error": "…", "state": "not_stored" }` で、何も保存されていないことを示す（DB 書込前の失敗、ランタイム初期化失敗など）。400 は `{ "error": "…" }` だけ。`PUT /api/settings/models/allowed` もランタイムが無いときは 503 `not_stored`（カタログ検証ができないため）
 - 400: 未知の provider / `canSetApiKey` が false の provider への PUT、登録行が無い provider の DELETE、再同期の対象外（カタログに無く degraded も `remove` でない）、メモの対象外 provider。サンドボックスは使わない
 - `POST /:provider/resync` は冪等。degraded でない provider に送っても現在の DB 希望状態を再適用して 200 を返す
+- `POST /api/settings/models/catalog/refresh` は body 無し。pi.dev の provider 別カタログを取り直し、キー変更と同じロックの内側で「取得 → 公開 state の再計算 → 応答の組み立て」を 1 回ずつ行う。取得と再計算は同じ期限を共有し、期限到達後は読み取りを中断して公開 state を差し替えない（一覧と available は現在値のまま。ロックも期限以上には保持しない）
+- 200 の応答は `GET /api/runtime/models` と同じ形 + `catalogError`（`null` なら今回の取得成功）。一部 provider の失敗・期限の abort・取得の例外・`PI_OFFLINE` でも 200 とし、一覧は更新できた範囲（期限で中断したときは更新前）を返す。設定を変えないため `state` を持たず、カタログそのものを返せないときだけ `GET /api/runtime/models` と同じ 503 を返す。失敗しても一覧は失わせない（分類と文言の契約は [model-settings.md](model-settings.md#モデルカタログの取得と更新)）
 
 ## Web 検索の設定（設定 → モデルの Web 検索タブ）
 

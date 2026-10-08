@@ -75,6 +75,27 @@ CREATE TABLE IF NOT EXISTS provider_memos (
 
 `PI_MODELS` / `PI_MODEL` / `PI_PROVIDER` は読まない。設定されていても無視し、`GET /api/settings/models` の `ignoredEnvironmentVariables`（設定されている名前だけ）と起動ログの警告で削除を促す。カタログ外の残存エントリがある間は保存できず（400）、画面の選択リストの行から外す。
 
+## モデルカタログの取得と更新
+
+チャットのモデル一覧（`GET /api/runtime/models`）は BFF のメモリ上にある SDK のカタログを正とし、アプリ側のカタログキャッシュは持たない。BFF が pi.dev のカタログへネットワークで取りに行くのは、設定 → モデル（`/settings/models`）の [カタログ更新] を押したときだけ。定期自動更新・起動時更新・キー保存に連動した自動更新は持たない。
+
+- 起動時と通常の再計算は、SDK 同梱カタログと SDK が持つ overlay から組む。ネットワークは取らない
+- [カタログ更新] は pi.dev の provider 別カタログを取り直し、取得結果は SDK が overlay へ永続化する。アプリ DB には保存しない（[persistence.md](persistence.md#モデルカタログのキャッシュsdk)）
+- 取りに行く provider は SDK が credential を解決できる範囲に限る。キー未登録の provider が同梱カタログのままなのは仕様
+- 更新でカタログから消えた保存済みの `allowedModels` / `defaultModel` は、既存の「カタログ外」表示に任せ、新しい救済 UI は作らない（次の保存では 400 になり得る）
+- OpenRouter live の直接取得・合成は行わない。画像生成タブのカタログとは取得元も保存先も別として扱う
+
+### [カタログ更新] の契約
+
+- キー変更と同じロックで直列化し、取得・公開 state の再計算・応答の組み立てをその内側で 1 回ずつ行う。設定は変えないため、応答は `GET /api/runtime/models` と同じ形に `catalogError` を足したもの（`state` は持たない）
+- 失敗の分類: 一部の provider が失敗した場合を部分成功、期限に当たった取得をタイムアウト、それ以外の例外を不明の失敗、`PI_OFFLINE` を取得しなかったこと、として区別する。期限切れと provider の失敗が同時のときは期限切れを優先し、成功時は `catalogError` を `null` にする
+- 失敗しても 200 で一覧を返し、理由は `catalogError` にだけ載せる。カタログそのものを返せないときだけ `GET /api/runtime/models` と同じ 503 にする。生の例外・provider ごとの内訳は応答に出さない（ログは秘密マスクを通した分類だけ）
+- この `catalogError` は今回の取得試行の失敗理由で、`GET /api/runtime/models` の失敗（一覧を取れない = 編集不可）とは別物。クライアントは注記にだけ使い、一覧の取得失敗としては記録しない
+- 文言の正はサーバー側の定数（`server/src/model-settings.ts`）に置く。失敗は完結した 1 文で、クライアントは受け取った文と成功時の完了文言をそのまま出すだけにし、一覧が変わる / 変わらないをクライアント側の固定 suffix で補わない（部分成功と `PI_OFFLINE` で実際の変化が異なるため）
+- 総時間の上限を設け、取得とそれに続く公開 state の再計算で同じ期限を共有する。期限に当たったら SDK の読み取りを中断し、公開 state は差し替えない（一覧と available は現在値のまま）。共有ロックを期限以上に保持せず、後続のキー変更を塞がない
+- `PI_OFFLINE` が設定されているときは取りに行かない。SDK はネットワーク取得を明示すると offline の判定を上書きするため、その前に BFF で止める。この場合も一覧は返す（`.env.example` に載せ、Dockerfile では設定しない）
+- SDK の鮮度窓は更新のたびに無視して再検証するが、内容が同じなら再取得されない（ETag による 304 があり得る）。「更新しました」は「モデル数が増えた」を意味しない
+
 ## プロバイダーごとのメモ
 
 `provider_memos` は「この provider にどのキーを入れたか」（無料枠 / 課金枠、個人 / 会社アカウントなど）を人間が思い出すための任意文字列で、**キーの登録有無（`managed`）とは独立**している。キーは再表示しないため、画面からでは見分けられない。
@@ -161,6 +182,7 @@ CREATE TABLE IF NOT EXISTS provider_memos (
 | PUT | `/api/settings/models/:provider/memo` | provider のメモを保存（`trim` して空なら行を削除）。上限 500 文字 |
 | DELETE | `/api/settings/models/:provider/key` | この画面で登録したキーを削除（行が無ければ 400） |
 | POST | `/api/settings/models/:provider/resync` | degraded の回復。body 無し |
+| POST | `/api/settings/models/catalog/refresh` | pi.dev の provider 別カタログを取り直す。body 無し。取得失敗でも 200 で、理由は `catalogError` にだけ載せる |
 
 `canSetApiKey` は SDK の `auth.apiKey.login` の有無で判定する（ambient / keyless provider は login を持たない）。詳細な DTO と応答は [api.md](api.md#利用可能なモデルとプロバイダーapiキー設定--モデル)。
 
@@ -168,6 +190,7 @@ CREATE TABLE IF NOT EXISTS provider_memos (
 
 - 画面は `/settings/models`（モデルを選ぶ。既定）、`/settings/models/providers`（プロバイダー）、`/settings/models/images`（画像生成）、`/settings/models/web-search`（Web 検索）の 4 タブ。タブの語彙は `client/src/lib/settingsNav.ts` の `MODELS_SUBSECTIONS` に置き、URL と `routePath` が同じ値を使う。未知のサブセクションと `/settings/models/models` は既定タブヘ畳む（モデル画面からチャットへ飛ばさない）。タブ行は `SettingsPageLayout` の任意スロットに置き、`ProjectDialog` と同じ `.tab-item` を使う
 - `useModelSettings` / `useImageSettings` / `useWebSearchSettings` は 4 タブの親（`ModelSettingsPage`）で 1 回ずつ呼び、モデル側の未保存の下書き（モデルの選択・既定モデルと、provider ごとの apiKey / メモ）も親が持つ。タブ切替・provider 切替・検索で再マウントしても下書き・note・カタログを失わない。カタログと設定は独立に取り、片方の失敗で他方を捨てない。ヘッダの [再読み込み] は 3 hook の分を更新し、注記と無効化は表示中のタブのものだけを出す。取得中フラグは破棄された要求の完了でも解除する（`createLoadingTracker()`。解除を応答の適用可否で分岐すると、変更操作と重なったときに再読み込みボタンが無効のまま残る）
+- ヘッダの [カタログ更新] は `/settings/models` と `/settings/models/providers` でだけ出し、更新中・ランタイム不可・カタログ取得失敗（編集不可と同じ判定）では無効にする。押下すると応答の一覧をその場で反映し、直後に `GET /api/runtime/models` は取り直さない（二重取得と、直後の取得失敗で反映済みの一覧を消す事故を避ける）。health の再取得は変更系と同じ順序でだけ揃える。結果は 1 行の注記に、成功時は完了文言、失敗時はサーバーが返した文をそのまま出す。HTTP が失敗したとき（503 を含む）は一覧と取得エラーを変えず、注記だけを差し替える
 - 「モデルを選ぶ」タブは、候補を「認証済み provider のカタログ全件」と「カタログ外の残存エントリ」の和集合で組む。認証が設定されていない provider の選択は行に出さず、下書きからも落として保存しない（`pruneAvailabilityDraft()`）。カタログ外の残存だけは保存が 400 になるため、認証が無くても警告付きで出して外せる。折りたたみ中は行を描画せず、既定は全部閉じる（検索中の該当 provider と、警告のある provider だけ開く）。検索は DOM ではなくカタログのデータ（provider / モデル名 / ID）に当てて該当 provider を自動展開し、「選択済みのみ」でチェック済みだけに絞る
   - provider 行はバッジと `利用可能 a/b ・ 選択 c`（a/b はカタログ、c は下書き全体の選択数）を出し、[すべて選択] は認証済み provider だけ、[すべて解除] はカタログに無い provider でも保存済みを外せる。provider 群はカタログ順（「プロバイダー」タブと同じ）で表示する。これは表示順の説明だけで、保存値と既定モデルの解決には関係しない（未設定でもアプリが `getAvailable()` の先頭を既定にすることはない）
   - 未認証の provider はカタログ外の残存があるときだけ警告付きで出し（カタログ全件は出さない）、外せる（`allowedModelsOutsideCatalog()` 相当の判定を `candidateGroups()` が行と警告に写し、認証が無い provider のカタログ内の選択は行に出さない）。選択 0 件は固定バーで保存を無効にし、理由として「空の選択は API で「制限なし（全モデル）」へ正規化されるため、この画面からは送らない」を示す
@@ -211,19 +234,23 @@ CREATE TABLE IF NOT EXISTS provider_memos (
 - `PI_SECRET_ENV_VARS` は環境変数名の指定なので、GUI 登録のキーには不要
 - メモは平文で DB に入り、GET 応答にも平文で載る（ログインの無い BFF は LAN 越しに読める）。画面の注意書きと placeholder でキー本体を書かないよう誘導するが、短いメモでも会話表示のマスクは掛からない
 - OAuth のブラウザログイン、`models.json` のカスタム provider / baseUrl の編集、既定 Effort（`PI_THINKING`）の GUI 化、プロジェクト / エージェント単位のモデル制限は対象外
+- [カタログ更新] は pi.dev の応答遅延・レート制限で失敗し得る（期限と固定文言で閉じ、リトライはしない）。更新後の一覧内容は pi.dev 側に依存するため、テストで固定できるのは呼び出し契約まで
+- 「最後にいつ更新したか」は画面から分からない。`models-store.json` の overlay は再起動後も効くが、一覧の出どころ（同梱 / overlay / live）は示さない
+- 更新で消えたモデルを使っていた未ロードの会話は、復元時に別モデルへフォールバックし `model_change` として保存され得る（アプリ既定が未設定だと開けない。既存挙動）
 
 ## 検証
 
 実 API は呼ばず、ダミーキーと fake / stub で検証する。
 
 - `server/test/app-db.test.ts` — v4 → v5 / v5 → v6 / v6 → v7 の加算移行、`model_settings` の CRUD、空配列 = 制限なしの正規化、両方 NULL の行削除、壊れた JSON の 503、`provider_memos` の CRUD（上書き・削除・空文字行 = 未設定）、`provider_credentials.updatedAt` の移行（既存行は NULL のまま・キーは消えない）と再実行の冪等性、新規 DB の列、`sanitizeError` の境界
-- `server/test/model-settings.test.ts` — GET / PUT / DELETE / resync の契約、DB-first、1 回だけの再試行、degraded の解除と記録と DTO を組めないときの `managed` の補正、利用可能なモデルの正規化・検証（カタログ外・既定が選択外・形式・重複）と 503、メモの `trim`・空で削除・対象外 400・DB 失敗 503・メモ値を応答とログへ出さないこと・degraded を作らないこと、GET の 4 経路（カタログ / credential 行 / メモ行 / degraded）とメモだけの orphan の扱い、キー削除後もメモが残ること、`keyUpdatedAt` が GET / PUT に載り移行前は null で resync / 削除では変わらないこと、起動適用（model_settings と provider_credentials の独立した読取・setter → refresh の順序・マスク登録の順序）、別 provider の並行 PUT の直列化、lock の rejected Promise、キー値を含む例外が応答とログへ漏れないこと
-- `server/test/model-settings-api.test.ts` — HTTP 契約（200 `applied` / `applied_unsynced`、503 `not_stored`、400）、メモの 200 / 400（500 文字超は route の zod）/ 503 と再起動後の読み出し、再起動後の適用、DB 不通、health とログのマスク、`ignoredEnvironmentVariables`、`keyUpdatedAt` が GET / PUT に載ることと移行前の行が null になること
+- `server/test/model-settings.test.ts` — GET / PUT / DELETE / resync の契約、DB-first、1 回だけの再試行、degraded の解除と記録と DTO を組めないときの `managed` の補正、利用可能なモデルの正規化・検証（カタログ外・既定が選択外・形式・重複）と 503、メモの `trim`・空で削除・対象外 400・DB 失敗 503・メモ値を応答とログへ出さないこと・degraded を作らないこと、GET の 4 経路（カタログ / credential 行 / メモ行 / degraded）とメモだけの orphan の扱い、キー削除後もメモが残ること、`keyUpdatedAt` が GET / PUT に載り移行前は null で resync / 削除では変わらないこと、起動適用（model_settings と provider_credentials の独立した読取・setter → refresh の順序・マスク登録の順序）、別 provider の並行 PUT の直列化、lock の rejected Promise、キー値を含む例外が応答とログへ漏れないこと、カタログ更新の分類（成功・一部失敗・期限の優先・例外の固定文言と秘密マスク・`PI_OFFLINE`・一覧を返せないときの 503）とキー変更との直列化、期限が取得と再計算で共有され、期限後も一覧を保ってロックを解放すること
+- `server/test/model-catalog-refresh.test.ts` — 実 SDK + 隔離した agent dir で、他プロセスが SDK の認証ストアのロックを保持していても状態再計算が期限どおり閉じ、公開 state（一覧）を現在値のまま保つこと（期限が伝わらないとロック待ちで期限を超える）
+- `server/test/model-settings-api.test.ts` — HTTP 契約（200 `applied` / `applied_unsynced`、503 `not_stored`、400）、メモの 200 / 400（500 文字超は route の zod）/ 503 と再起動後の読み出し、再起動後の適用、DB 不通、health とログのマスク、`ignoredEnvironmentVariables`、`keyUpdatedAt` が GET / PUT に載ることと移行前の行が null になること、カタログ更新（`allowNetwork: true` / `force: true` 付きで 1 回だけ呼ぶこと、一部 provider 失敗・abort・取得の例外・`PI_OFFLINE` が 200 と固定文言になること、生の例外文言を応答へ出さないこと、カタログを返せないときとランタイム無しの 503、キー変更 PUT との直列化、状態再計算が取得と同じ期限を受け取ること）
 - `server/test/provider-key-runtime.test.ts` — `CredentialCommit` の写像（CSE の照合・開始前 abort・実行中 abort・未知の例外）
 - `server/test/model-state.test.ts` — `deriveModelState` / `readModelState`（選択リストの積・既定モデル・カタログの導出・可用 0・失敗時の安全な state）、`filterModelsByWhitelist()`
 - `server/test/api.test.ts` — health から `runtimeDiagnostics` が消えたこと、モデルカタログ応答に whitelist 系フィールドが無いこと
 - `server/test/redact.test.ts` — `createMutableSecretMasker` の swap と streaming masker への追随
-- `client/test/modelSettings.test.ts` / `client/test/modelSettingsPage.test.ts` — 表示変換（認証バッジ・並び・入力検証・メモの検証・注記・回復案内）、`providerUsage()`（最初の `/` での分割・`model` 無し・複数セッション・空配列）、`null` の明示リスト展開（利用可能な全モデル + 既定モデルの 1 件追加）・認証済み provider の絞り込み（`pruneAvailabilityDraft()` の除去と、表示の対象を揃える `candidateGroups()` の絞り込み）・カタログ外の残存エントリの警告付き表示・候補の並び/検索/集計・既定モデルの選択肢と検索・dirty 判定・provider 一括操作・確認文、タブと保存バーの初期描画（折りたたみの既定閉・警告のある provider の自動展開・変更なしと選択 0 件では保存無効）とカタログ外・未設定・環境変数の注記・カタログ取得失敗時の編集不可、プロバイダータブの一覧と詳細（平文注意の既定折りたたみ・メモ欄・保存ボタン・runtime 停止時の disable・メモだけの orphan の案内）、キー最終保存（managed だけ・NULL は保存日不明）と最終使用（`sessionsLoaded` が false なら非表示・会話 0 件の managed は「会話はありません」・非 managed は会話があるときだけ）、`client/test/route.test.ts` のタブの正準化（未知のサブセクションと既定タブの明示は `/settings/models` へ）
+- `client/test/modelSettings.test.ts` / `client/test/modelSettingsPage.test.ts` — 表示変換（認証バッジ・並び・入力検証・メモの検証・注記・回復案内）、`providerUsage()`（最初の `/` での分割・`model` 無し・複数セッション・空配列）、`null` の明示リスト展開（利用可能な全モデル + 既定モデルの 1 件追加）・認証済み provider の絞り込み（`pruneAvailabilityDraft()` の除去と、表示の対象を揃える `candidateGroups()` の絞り込み）・カタログ外の残存エントリの警告付き表示・候補の並び/検索/集計・既定モデルの選択肢と検索・dirty 判定・provider 一括操作・確認文、タブと保存バーの初期描画（折りたたみの既定閉・警告のある provider の自動展開・変更なしと選択 0 件では保存無効）とカタログ外・未設定・環境変数の注記・カタログ取得失敗時の編集不可、プロバイダータブの一覧と詳細（平文注意の既定折りたたみ・メモ欄・保存ボタン・runtime 停止時の disable・メモだけの orphan の案内）、キー最終保存（managed だけ・NULL は保存日不明）と最終使用（`sessionsLoaded` が false なら非表示・会話 0 件の managed は「会話はありません」・非 managed は会話があるときだけ）、カタログ更新の注記（成功文言 / サーバー文言をそのまま / 503 は一覧を差し替えない）とボタン（カタログを見る 2 タブだけに出し、更新中・runtime 不可・`catalogError !== null` で無効）、`client/test/route.test.ts` のタブの正準化（未知のサブセクションと既定タブの明示は `/settings/models` へ）
 - `client/test/imageSettings.test.ts` / `client/test/imageSettingsTab.test.ts` / `client/test/settingsNav.test.ts` — 画像モデルの選択肢（カタログ順・同名への id 添え・カタログ外の現在値）、現在値と PUT の本文の解決、キー入力の後始末（成功時だけ消す）、削除の確認文、タブ見出しの provider（ロゴ・未設定でも OpenRouter・ロゴの無い provider は頭文字）と provider の id / 表示名、画像生成タブの初期描画（未設定はキーのみ / 設定済みは上書き保存・削除・モデル選択 / 保存済みキーを入力欄へ戻さない / runtime 不可の disable）、4 タブの語彙
 - `client/test/requestGate.test.ts` — 応答の適用可否（`createRequestGate`）、要求の追跡（`createRequestTracker`）、取得中フラグの解除（`createLoadingTracker`: 破棄された要求の完了で解除し、後続が在る間は維持する）
 - `client/test/runtimePage.test.ts` — 設定 → ランタイムから「モデル解決」が消えたこと

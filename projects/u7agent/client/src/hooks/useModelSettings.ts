@@ -7,11 +7,13 @@ import {
   putModelAvailability,
   putProviderApiKey,
   putProviderMemo,
+  refreshModelCatalog,
   resyncProviderApiKey,
 } from "../api";
 import {
   MODEL_SETTINGS_NOTE,
   mutationNote,
+  runModelCatalogRefresh,
   validateApiKey,
   validateMemo,
   type MutationAction,
@@ -46,9 +48,11 @@ export function useModelSettings({ onRefreshHealth }: ModelSettingsParams) {
   const [saving, setSaving] = useState<string | null>(null);
   const [savingAvailability, setSavingAvailability] = useState(false);
   const [reloading, setReloading] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
   const [beginLoad] = useState(createRequestGate);
   // 破棄された取得でも進行中を解除するため、適用の可否とは別に追う
   const [reloadTracker] = useState(() => createLoadingTracker(setReloading));
+  const [refreshTracker] = useState(() => createLoadingTracker(setRefreshing));
 
   /** カタログだけ取り直す (モデル数と一覧の表示を変更直後に追随させる) */
   const loadCatalog = useCallback(async (canApply: () => boolean) => {
@@ -190,6 +194,30 @@ export function useModelSettings({ onRefreshHealth }: ModelSettingsParams) {
     [runMutation],
   );
 
+  /**
+   * カタログの手動更新。応答は `GET /api/runtime/models` と同じ形なのでその場で一覧を差し替え、
+   * 直後の `loadCatalog()` は呼ばない (二重取得と、直後の GET 失敗で適用済みの一覧を消す事故を避ける)。
+   * health の再取得は変更系と同じ順序 (`beginLoad` → 適用 → `onRefreshHealth`) でだけ揃える
+   * (refresh の応答には `state` が無いため `applyMutation` は使えない)。
+   */
+  const refreshCatalog = useCallback(async (): Promise<void> => {
+    const finishRefresh = refreshTracker.begin();
+    try {
+      const result = await runModelCatalogRefresh(refreshModelCatalog);
+      // 進行中の読み込みの応答で、いま適用した結果を上書きさせない
+      const canApply = beginLoad();
+      // 失敗 (503 を含む) は注記だけで、一覧と catalogError は手元のままにする
+      if (result.applied) {
+        setCatalog(result.catalog);
+        setCatalogError(null);
+      }
+      setNote(result.note);
+      await onRefreshHealth(canApply);
+    } finally {
+      finishRefresh();
+    }
+  }, [beginLoad, onRefreshHealth, refreshTracker]);
+
   return {
     settings,
     catalog,
@@ -198,7 +226,9 @@ export function useModelSettings({ onRefreshHealth }: ModelSettingsParams) {
     saving,
     savingAvailability,
     reloading,
+    refreshing,
     reload,
+    refreshCatalog,
     save,
     saveMemo,
     saveAvailability,

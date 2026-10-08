@@ -40,6 +40,7 @@ export type {
   ImageMutationResponse,
   ImageSettingsResponse,
   MessageMetrics,
+  ModelCatalogRefreshResponse,
   ModelMutationError,
   ModelMutationResponse,
   ModelOption,
