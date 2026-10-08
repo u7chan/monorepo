@@ -1,6 +1,6 @@
 # docs 索引
 
-変更テーマから、読むべきコードと設計ドキュメントを引く。設計の全体像は [architecture.md](architecture.md)、起動と環境変数は [README.md](../README.md)（人間向け）を参照する。
+変更テーマから、読むべきコードと設計ドキュメントを引く。設計の全体像は [architecture.md](architecture.md)、起動と環境変数は [README.md](../README.md)（人間向け）を参照する。**何を docs に書くかの判断は [AGENTS.md](../AGENTS.md#docs) を参照する**（状態の一覧・件数・並び・既定値・実測値はコード / テストが正で、ここには書かない）。
 
 | 変更テーマ | 主に読むコード | 主に読む docs |
 | --- | --- | --- |
@@ -9,7 +9,7 @@
 | エージェントからユーザーへの質問カード（ask_user） | `server/src/ask-user-tool.ts`、`server/src/sessions.ts`、`client/src/lib/askUser.ts`、`client/src/components/chat/AskUserCard.tsx` | [ask-user.md](ask-user.md)、[api-sessions.md](api-sessions.md) |
 | セッションの状態 / 履歴 / compaction 表示 | `server/src/session-record.ts`、`server/src/session-projection.ts`、`server/src/history-projection.ts`、`server/src/compaction-view.ts`、`server/src/session-payload.ts`、`client/src/lib/chatHistory.ts`、`client/src/lib/chatItems.ts` | [run-lifecycle.md](run-lifecycle.md)、[compaction.md](compaction.md)、[api-sessions.md](api-sessions.md) |
 | HTTP の契約 / DTO / ルート追加 | `server/src/schema.ts`、`server/src/app.ts`、`server/src/routes/` | [api.md](api.md)、[api-sessions.md](api-sessions.md)、[api-catalog.md](api-catalog.md) |
-| エージェント / スキル定義とファイルスキル | `server/src/agents.ts`、`server/src/catalog-skills.ts`、`server/src/file-skills.ts`、`server/src/builtin-skills.ts`、`server/src/session-skills.ts`、`client/src/components/AgentSettingsPage.tsx`、`client/src/components/SkillSettingsPage.tsx`、`client/src/components/composer/SkillField.tsx` | [api-catalog.md](api-catalog.md)、[api-sessions.md](api-sessions.md) |
+| エージェント / スキル定義とファイルスキル | `server/src/agents.ts`、`server/src/catalog-skills.ts`、`server/src/file-skills.ts`、`server/src/builtin-skills.ts`、`server/src/session-skills.ts`、`client/src/components/AgentSettingsPage.tsx`、`client/src/components/SkillSettingsPage.tsx`、`client/src/components/composer/SkillPicker.tsx` | [api-catalog.md](api-catalog.md)、[api-sessions.md](api-sessions.md) |
 | モデル / Effort の解決と変更 | `server/src/agent.ts`、`server/src/sessions.ts`、`client/src/lib/composerSettings.ts`、`client/src/lib/modelChoices.ts`、`client/src/lib/popoverPlacement.ts`、`client/src/components/composer/ModelEffortControls.tsx`、`client/src/components/composer/ComposerStatus.tsx` | [model-effort.md](model-effort.md)、[api-sessions.md](api-sessions.md) |
 | モデル候補 / 既定モデル / プロバイダー API キー（設定 → モデル） | `server/src/model-settings.ts`、`server/src/routes/models.ts`、`server/src/app-db.ts`、`server/src/bootstrap.ts`、`client/src/hooks/useModelSettings.ts`、`client/src/lib/modelSettings.ts`、`client/src/components/ModelSettingsPage.tsx`、`client/src/components/model-settings/` | [model-settings.md](model-settings.md)、[secrets.md](secrets.md)、[api.md](api.md#利用可能なモデルとプロバイダーapiキー設定--モデル) |
 | 画像生成（generate_image ツール / 画像APIキーの設定 / Markdown 画像のプレビュー） | `server/src/images.ts`、`server/src/image-tools.ts`、`server/src/image-settings.ts`、`server/src/routes/images.ts`、`server/src/agent.ts`、`client/src/components/markdown/MarkdownImageRefs.tsx` | [image-generation.md](image-generation.md)、[markdown.md](markdown.md#画像の-src-解決)、[api.md](api.md#画像生成設定--モデルの画像生成タブ) |
@@ -48,7 +48,7 @@
 - [sandbox-api.md](sandbox-api.md) — サンドボックス内部 API と環境変数（ZIP の除外規則と上限を含む）
 - [secrets.md](secrets.md) — APIキー漏洩の抑制と、作業フォルダの環境変数（保存時暗号化・実行時注入）
 - [notifications.md](notifications.md) — Discord 通知（送るタイミング・宛先制限・write-only な Webhook URL・設定画面）
-- [frontend.md](frontend.md) — フロントエンドの状態管理・テーマ・Effect 契約
+- [frontend.md](frontend.md) — フロントエンドの契約（URL が画面の正・状態の所有と正・テーマと CSP・保存範囲・Effect 契約）
 - [markdown.md](markdown.md) — チャット本文とファイルプレビューの Markdown 描画（対応サブセット・上限・インラインコードのファイル参照）
 - [file-preview.md](file-preview.md) — ファイルプレビューの行番号・シンタックスハイライト・HTML / Markdown / 画像の描画と、ツリー行の ⋯ メニュー（削除 / リネーム / ダウンロード、除外名の設定を含む）
 - [api.md](api.md) — HTTP API の規約と索引（health / files / projects）
@@ -57,7 +57,7 @@
 - [compaction.md](compaction.md) — 会話の圧縮表示
 - [persistence.md](persistence.md) — 永続化と再デプロイ
 - [session-files.md](session-files.md) — セッション別ファイル管理・添付ファイル・会話の永続化の設計
-- [ui-layout.md](ui-layout.md) — レイアウトモードの判定
+- [ui-layout.md](ui-layout.md) — レイアウトモードの判定理由と、モード・導線・追従・入力欄・サイドバーの契約
 - [verification.md](verification.md) — 検証（lint / format の設定と落とし穴）
 - [testing.md](testing.md) — テスト方針と GUI の最小受入
 - [migration.md](migration.md) — モノレポへの移植

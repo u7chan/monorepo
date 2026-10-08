@@ -6,3 +6,7 @@
 .env.*
 *.log
 *.bundle
+
+# .env.* は実値入りの env をイメージへ入れないための除外。.env.example は全キーが
+# コメントアウトされた雛形で docs がリンクするため、docs:check の対象として通す。
+!.env.example

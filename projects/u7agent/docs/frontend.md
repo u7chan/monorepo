@@ -1,168 +1,122 @@
 # フロントエンド
 
-チャット UI は `client/` ワークスペースに切り出し、React 19 + Vite + TypeScript + Tailwind CSS v4 で実装している。ソースは `client/src` 配下に置き、エントリは `main.tsx`（`index.html` から読み込む）。SSE イベントは reducer で状態に変換し、旧実装（命令的な DOM 操作）の挙動を忠実に再現する。レイアウトの判定は [ui-layout.md](ui-layout.md)、API 呼び出しの型は [api.md](api.md) を参照する。
+React 19 + Vite + TypeScript + Tailwind CSS v4。ソースは `client/src`、エントリは `main.tsx`。SSE イベントは reducer で状態へ変換し、旧実装（命令的な DOM 操作）の挙動を再現する。レイアウトの判定は [ui-layout.md](ui-layout.md) を参照する。
 
 ## スペースの選択
 
-`SpacesApp` がスペース一覧とこのタブの `sessionStorage`（`u7agent-space`）を読み、所属を確認してから `App` を表示する。選択欠落だけ通常を使い、未知・不正な保存 ID、ストレージの読取失敗、一覧取得失敗は理由と明示的な選び直し / 再取得を表示する。通常の会話を黙って表示しない。他タブの切り替えには追随しない。
+`SpacesApp` がスペース一覧とこのタブの `sessionStorage` を読み、所属を確認してから `App` を表示する。**選択の欠落だけ通常を使い、未知・不正な保存 ID、ストレージの読取失敗、一覧取得失敗は理由と明示的な選び直し / 再取得を表示する。通常の会話を黙って表示しない。**
 
-選択した ID ごとに `ConfirmProvider` と `App` の subtree を作り直す。会話・作成先・履歴・下書き・添付・Model / Effort / 通知の先行選択・ファイル面・プロジェクト dialog は破棄し、新規会話へ戻る。共通エージェント選択と設定は既存の共通保存から読み直す。旧 SSE とポーリングは cleanup し、実行中ランは停止しない。
+選択した ID ごとに `App` の subtree を作り直す（会話・作成先・履歴・下書き・添付・先行選択・ファイル面・dialog を破棄し、新規会話へ戻る）。**共通エージェント選択と設定は既存の共通保存から読み直す。** 実行中のランは切替で停止しない。
 
-`SpaceContext` の API は生成時の ID を immutable に閉じ込める。送信・添付の会話作成待ちで切り替えても、後続要求は開始元の ID と会話 ID を使う。ピン留めも同じ scoped API を使い、要求の待機中にスペースが変わった場合は旧 subtree の世代で遅延応答を捨てる。古い結果・エラー・busy 更新は旧 subtree の状態だけを参照し、新しい状態を変更しない。旧会話選択 / 作成の応答は選択世代の cleanup で失効させ、共通エージェント選択を奪わせない。
-
-共通カタログの再取得にも開始元の mount 世代を適用する。設定保存後の再取得など呼び出し側が有効性を指定しない経路でも、旧 mount の応答はカタログ・選択を反映せず、共有の `u7agent-agent` 保存値を変更しない。cleanup 後の再 setup で古い世代を復活させない。
-
-一覧・fallback・通知リンク・SSE 再接続は scoped API の範囲内。`/s/<sessionId>` が他スペースなら「リンク先の会話が見つかりませんでした。」を表示し、自動でスペースを切り替えない。共通設定・ファイル・ランタイム診断は従来の unscoped API を使う（[api.md](api.md#スペース)）。
-
-## フォント
-
-- `--font-sans` の第一候補は自前ホストの **Noto Sans JP**（可変 100〜900）。`@fontsource-variable/noto-sans-jp` を `client/package.json` の `devDependencies` に固定し、`client/src/styles/index.css` の先頭で `@import "@fontsource-variable/noto-sans-jp";` として読み込む。latin サブセットも同じパッケージに入っているため、以前の `Inter`（Web フォントとしては読んでおらず、実際は OS のフォールバックだった）は `--font-sans` から外した。ファミリ名は fontsource の `@font-face` が付ける `Noto Sans JP Variable`（`Noto Sans JP` ではない）。
-- `devDependencies` に置くのは、ビルド段（`Dockerfile` の builder）で `client/dist/assets/` へ焼き込まれ、実行時には要らないため。`dependencies` にすると実行イメージの `node_modules` が約 5.3 MB 増え、monorepo の license check（`pnpm install --prod` で収集する）の対象にもなる。配布物の woff2 には OFL-1.1 が及び、条文は `client/public/fonts/OFL.txt`（ビルド後は `/fonts/OFL.txt`）で配る。
-- 外部 CDN（Google Fonts 等）は使わない。本番の CSP は `server/src/static.ts` の `default-src 'self'` で、フォントの取得先も `'self'` に限られる。パッケージの CSS は `unicode-range` で 124 分割された `@font-face` を持ち、その画面で使う字のチャンクだけが落ちてくる。`font-display: swap` なので、初回は OS のフォールバック（和文は OS 依存）で描かれてから置き換わる。
-- 字詰め（`palt`）は `@layer base` の `body` 全体に当てる。等幅の面（`font-mono`）は同じ層の `.font-mono` が `font-feature-settings: normal` で打ち消す。`code` / `pre` は Tailwind preflight が既定で外しているため手当て不要。
-- `--font-mono` は Tailwind の既定スタックの末尾に `Noto Sans JP Variable` を足し、和文も OS 任せにしない（全角グリッドに載せる等幅の和文フォントは別の課題）。`@theme` の `--font-mono` は `--default-mono-font-family` 経由で `code` / `pre` のフォントにも効く。
-- 配信は `server/src/static.ts` の `CONTENT_TYPES` が `.woff2` を `font/woff2` で返す。Vite は woff2 をハッシュ付きで `assets/` へ出すため、長期キャッシュ（`immutable`）にそのまま乗る。
+- `SpaceContext` の API は生成時の ID を immutable に閉じ込める。送信・添付の会話作成待ちで切り替えても、後続要求は開始元の ID と会話 ID を使う
+- 古い結果・エラー・busy 更新は旧 subtree の状態だけを参照し、新しい状態を変更しない。**共通カタログの再取得にも開始元の mount 世代を適用し、旧 mount の応答が共有の保存値を変更しない**（`client/test/mountScope.test.ts`）
+- 他スペースの `/s/<sessionId>` は会話を開かず「見つからない」を表示し、**自動でスペースを切り替えない**
+- 共通設定・ファイル・ランタイム診断は従来の unscoped API を使う（[api.md](api.md#スペース)）
 
 ## テーマシステム
 
-- テーマは画面全体では `html` 要素の `data-theme` 属性で決定し、各プリセットが CSS 変数（`--c-*`）を定義する。Tailwind v4 の `@theme inline` で CSS 変数をセマンティックトークンにマップし、コンポーネントはトークンクラス（背景色・文字色など）だけで書く。プリセットのセレクタは `html` に限定せず `[data-theme]` に当たるため、要素に `data-theme` を置けばその配下だけを別テーマで描ける。設定 → 外観のテーマ一覧（`client/src/components/appearance/`）はこの仕組みで各テーマの実配色プレビューを並べ、テーマごとの色定義を持たない。プリセットの再配色は CSS 変数定義だけで完結するが、テーマの**追加**は CSS 変数（`[data-theme]` プリセットと `.theme-swatch`）に加えて `client/src/theme/themes.ts` の `THEMES` と `client/public/theme-init.js` の id 配列も更新する（初期化スクリプトの解決結果と CSS の registry の対応を `client/test/themeSync.test.ts` が検査する）。
-- 設定 → 外観は、テーマ選択（`ThemeSwitcher`）と 6 テーマのプレビュー一覧（`ThemeGallery`）を持つ。プレビューはトップバー / 左バー / メッセージ / コード / 入力欄の縮小画面で、カードを押すとそのテーマを選ぶ（適用と保存は選択欄と同じ経路なので、両者の表示は必ず一致する）。選択の表示（`aria-pressed` とチェック）は「システムに従う」で解決されたテーマではなく選んだ値に合わせる（従属で光るカードが移るのを避ける）。
-- アクセントは面用途（`--c-accent` / `--c-accent-bright`。送信ボタン・自分の発言バブル・テーマの色見本）と線・リング用途（`--c-focus`。入力欄の focus 枠・`focus-visible` リング・アクティブタブの下線・checkbox）でトークンを分ける。面用途は明るいまま、`--c-focus` は各プリセットで隣接面に対して 3:1 以上（WCAG 1.4.11）を満たす値にする。
-- 文字サイズは Tailwind 既定の段（`xs`=12px / `sm`=14px / `base`=16px）に加えて、小さい側の段を `@theme` に定義する（`--text-3xs`=9px / `--text-2xs`=10px / `--text-1xs`=11px / `--text-1sm`=13px / `--text-md`=16px）。数字が大きいほど小さい t-shirt 記法で、トークンはフォントサイズだけを持ち行間は使う側の `leading-*` が決める。`text-base` は色トークン `--color-base` が取るため使えない（フォントサイズではなく色になる）。uppercase の小見出しの字間は `--tracking-label`（0.14em）に集約する。
-- プリセットは 6 種類（ミッドナイト / デイライト / モカ / フォレスト / サクラ / スカイ）に加え、`prefers-color-scheme` に追従する「システム」を選択できる。
-- 状態は `ThemeProvider`（`useTheme` フックで参照・変更）が持ち、選択は `localStorage` に保存される。削除済みのテーマ id など無効な値が残っていても system 追従として解決し、保存値は書き換えない（新しく知るテーマを選び直したときに初めて上書きされる）。
-- `client/public/theme-init.js` は React 初回描画より前に `data-theme` を適用する外部 classic script。ここを React 側でやると初期化完了までテーマなしで点滅するため、意図的に React の外に置いている。ロジック（localStorage のキー、system 追従の解決）は `ThemeProvider` と同じ選択結果になるよう同期を取る（`client/test/themeSync.test.ts` はスクリプトを VM で実行して解決結果を検査する）。
-- BFF の CSP は `style-src 'self'`（インラインスタイル不可）のため、テーマはすべて外部 CSS + 属性切替で実装する。`<style>` の注入やインライン `style` 属性には頼らない。エージェントのアイコン（`AgentDef.icon` の data URL）を `<img>` で描くため、`img-src` だけ `'self' data:` を許す（`script-src` は `'self'` のまま）。
+- テーマは `html` の `data-theme` で決まり、各プリセットが CSS 変数（`--c-*`）を定義する。`@theme inline` でセマンティックトークンにマップし、コンポーネントはトークンクラスだけで書く。**プリセットのセレクタは `html` に限定せず `[data-theme]` に当てる**（要素に置けばその配下だけを別テーマで描ける。設定 → 外観の配色プレビューがこの仕組みを使う）
+- **テーマの追加は CSS 変数・`client/src/theme/themes.ts`・`client/public/theme-init.js` の 3 箇所**。初期化スクリプトの解決結果と CSS registry の対応は `client/test/themeSync.test.ts` が検査する
+- `theme-init.js` は React 初回描画より前に `data-theme` を当てる classic script。**React 側でやると初期化完了までテーマなしで点滅する**ため意図的に React の外に置く。ロジック（保存キーと system 追従の解決）は `ThemeProvider` と同じ結果になるよう同期を取る
+- 無効な保存値（削除済みのテーマ id など）は system 追従として解決し、**保存値は書き換えない**（新しく知るテーマを選び直したときに初めて上書きされる）
+- アクセントは面用途と線・リング用途でトークンを分ける。線・リング用途は各プリセットで隣接面に対して 3:1 以上（WCAG 1.4.11）を満たす
+- 文字サイズは Tailwind 既定の段に加えて小さい側の段を `@theme` に定義する。**`text-base` は色トークン `--color-base` が取るため使えない**（フォントサイズではなく色になる）
+- 字詰め（`palt`）は `body` 全体に当て、等幅の面だけ打ち消す
+- **BFF の CSP は `style-src 'self'`（インライン style 不可）。** テーマは外部 CSS + 属性切替だけで実装し、`<style>` の注入やインライン `style` 属性に頼らない。`img-src` だけ `data:` を許すのはエージェントのアイコン用（`script-src` は `'self'` のまま）
+- フォントは自前ホストに限る（外部 CDN を使わない）。`devDependencies` に置くのはビルド段で焼き込み、実行時には要らないため（実行イメージと license check の対象を増やさない）。OFL の条文は `client/public/fonts/` で配る
 
 ## コンポーネントの契約
 
-- コンポーネントは自分の見た目（余白・文字サイズ・色・効果）を持ち、呼び出し側が `className` / `wrapperClassName` で上書きできるのは layout（位置・幅・伸縮）だけにする。見た目の切替は props で表す（例: `SelectField` の `density`（`sm` / `md` / `lg`）と `compact`、`CopyButton` の `reveal`）。
-- この契約は `shadcn/no-restyle`（`.oxlintrc.json` で `allow: ["layout"]`）が検査する。コンポーネントの認識は `settings.shadcn.componentImports` の正規表現で行い、client は path alias を持たずコンポーネントを相対 import でしか参照しないため `^\.\.?/` を登録している（この指定は client/src 配下の全 module に当たるが、JSX のタグとして解決されるのはコンポーネントだけ）。
-- バーやゲージなどの図形は CSS（幅と背景色）か SVG で描く。ブロック要素のグリフ（`█` / `▁` など）は端末のフォント次第で字形が崩れ、等幅にならないため `tabular-nums` も効かない。SVG で描くときは寸法と塗りを `viewBox` とクラスで決める（`style` 属性は CSP と `shadcn/no-inline-styles` で使えない）。
-- 折りたたみ（`<details>`）は `summary` のブラウザー既定マーカーを外し、`DisclosureChevronIcon` の chevron を開閉の印にする。回転は CSS（`.disclosure-chevron`）が持ち、本文の高さは `details::details-content` の `block-size` を 0 → `auto` へ遷移させる（`interpolate-size: allow-keywords` と `content-visibility` の `allow-discrete` 遷移が要る）。どちらも無いブラウザーでは瞬時に開閉するだけで、機能は落ちない。`prefers-reduced-motion` では遷移を止める。
-- 常時出すオレンジの注意書き（プロバイダー / 画像生成 / Web 検索 / アーカイブ）は `client/src/components/CollapsibleNotice.tsx` で既定に畳む。閉じている間も要点（平文保存・公開しない・送信先など）が 1 行で読めるようにし、展開すると元の全文を出す。`role="alert"` の状態表示（runtime 不可・未反映・キー未設定など）は対処が必要なその場の情報なので畳まない
-- コピー確定のチェック（`CopyButton`）はアイコン自身を 2 段の CSS animation で出す。尻尾（左下）から 240ms で書き出しつつ、体を左下から滑り込ませ、行き過ぎ（58% で scale 1.1 / +5°）から 320ms で収める。書き出しは `pathLength=1` を固定して dash を動かすので、経路の形を変えても長さを知らずに済む。既定値（`.copy-check-mark`）は書き終わった状態にしておき、`prefers-reduced-motion` では animation だけを切る。押した瞬間に「出た」と分かることが目的で、止める環境とアニメーションを持たない環境では静止画のチェックがそのまま残る。
-- 取り直しのボタン（`ReloadButton`。再読み込み / 再取得 / 再同期と、run をやり直す再実行）は、押した瞬間だけアイコン（`ReloadGlyph`）を 400ms で 1 回転させる（`.reload-spin`。回転の向きは矢印と同じ時計回り）。**取得の完了には紐づけない**: 完了まで回すと、速い応答では何も見えず、応答が返らないときは回りっぱなしになって「止まった」と区別できない。押した回数を `key` にして要素を作り直し、animation をやり直すため、連打でも 1 回転目から回る（初回の描画は回数 0 なので class が付かず、回らない）。回転の中心は `transform-box: view-box` で viewBox の中心に固定し（経路の bbox 基準にすると、図形を変えたときに中心がずれる）、`fill` を持たないので終了後に transform を残さない。`prefers-reduced-motion` では animation だけを切る（静止したアイコンはそのまま出る。押した結果は画面の表示が示す）。寸法は `size` が持ち（`sm` は設定のサイドバーの節見出し向け）、呼び出し側は layout だけを渡す。
-- 有効 / 無効のスイッチ（`ToggleSwitch`）は、押せることが形で分かるようにトラック + つまみで描き、状態はつまみの位置と塗りで示す（OFF = `--c-line-strong` のトラック + `--c-ink-soft` のつまみ / ON = `--c-accent` のトラック + `--c-on-accent` のつまみ）。ラベル（`有効` / `別オリジン`）はつまみの横に出し、押した結果の補足は `title` へ逃がす。土台は `@layer components` の `.switch*`（`sm` = `.switch-track-sm`）に置き、フォーカスは box-shadow の ring ではなく輪郭で示し（強制配色で ring が落ちるため）、強制配色ではつまみを `CanvasText` で描き直し、`prefers-reduced-motion` では移動のアニメーションだけを切る。`sm` はパス行の ソース / プレビュー と同じ高さに揃える（[file-preview.md](file-preview.md#html-プレビュー)）
-- 認識済みコンポーネントへ渡す className は静的に読める形で書く（`shadcn/require-static-classes` が error）。ヘルパー関数の戻り値や、別 module から import したクラス定数を渡すと違反になるので、その場合はコンポーネント側に props を足す。
-- 状態で見た目を切り替えるボタンの土台（`.btn-quiet` / `.icon-button`）は `client/src/styles/index.css` の `@layer components` に置く。utilities 同士で同じプロパティを並べると（`border-line` と `border-accent/50` など）生成 CSS の順序で勝敗が決まり、`cn()` の後勝ちにならない（compact の通知トグルで On の accent が出なかった原因）。
+- コンポーネントは自分の見た目（余白・文字サイズ・色・効果）を持ち、**呼び出し側が `className` / `wrapperClassName` で上書きできるのは layout（位置・幅・伸縮）だけ**にする。見た目の切替は props で表す。この契約は `shadcn/no-restyle`（`.oxlintrc.json` で `allow: ["layout"]`）が検査する
+- 認識済みコンポーネントへ渡す className は静的に読める形で書く（`shadcn/require-static-classes`）。ヘルパーの戻り値や、別 module から import したクラス定数を渡すと違反になるので、その場合はコンポーネント側に props を足す
+- 図形は CSS（幅と背景色）か SVG で描く。**ブロック要素のグリフ（`█` / `▁` など）は端末のフォント次第で字形が崩れ、等幅にならない**ため `tabular-nums` も効かない。`style` 属性は CSP と `shadcn/no-inline-styles` で使えない
+- **状態で見た目を切り替えるボタンの土台は `@layer components` に置く。** utilities 同士で同じプロパティを並べると（`border-line` と `border-accent/50` など）生成 CSS の順序で勝敗が決まり、`cn()` の後勝ちにならない
+- 折りたたみ（`<details>`）は browser 既定のマーカーを外し、本文の高さを `details::details-content` の遷移で見せる。未対応のブラウザーでは瞬時に開閉するだけで機能は落ちない
+- コピー確定や再取得の演出は**取得の完了に紐づけない**（速い応答では何も見えず、応答が返らないときは回りっぱなしになって「止まった」と区別できない）。`prefers-reduced-motion` では animation だけを切る
 
 ## チャット状態とレンダリング
 
-- SSE イベント（`text` / `tool_start` / `tool_end` / `run_end` など）を React の reducer で受け、イベントログから UI 状態（メッセージ列、ツールカード、実行状態）を導出して仮想 DOM へ反映する。旧 `app.js` のようにイベントハンドラで DOM を直接書き換えるのではなく、「イベントの適用」を純粋な状態遷移として書くことで、再接続時のリプレイ / `resync` も同じ reducer で処理できる。
-- 接続管理（`EventSource` の再接続、`Last-Event-ID`、`resync` の検知）はカスタムフックに集約し、コンポーネントは描画に集中する。
-- セッション一覧（左バーの行の状態表示）の取り直しは、SSE の `queued` / `run_end` に加えて `run_start` でも行う（`client/src/hooks/sessionStream.ts` の `applySessionEvent`）。SSE はこのタブで開いている会話（`GET /api/sessions/:id/events` の購読中セッション）のイベントなので、`run_start` で速くなるのはその会話のランだけ（そのランを別タブ / 別クライアントが始めても `run_start` は届く）。**別の会話**を別タブ / 別クライアントが始めた場合は `run_start` が届かず、4 秒ごとのポーリング（`client/src/hooks/useU7Agent.ts`。据え置き）まで行が古いままになる。`run_start` で取り直すのは一覧の 1 回だけにし、履歴や payload は取り直さない。同一タブの送信は `POST /messages` の後に取り直すため、`run_start` に依らず行が実行中になる（`client/src/hooks/sessionActions.ts`）
-- セッションの作成は送信経路（`sendMessage` → `ensureSession`）に置く。未作成チャットで送信したときだけ `POST /api/sessions` を呼び、その応答で sessionId / 履歴 / 実効 Model を差し替えてから SSE を張り直して送信する。作成待ちの間に別のチャットへ切り替えられたら選択は奪わず、送信先は `ensureSession` の戻り値を使う（入力も作成済みセッションも捨てず、空のセッション行を残さない）。作成に失敗したときは未作成チャットのままエラーを表示する。
-- 実行中インジケータの経過時間の起点は `ChatState.runStartedAt`。`run_start` はサーバーが配る `startedAt`、reload / 再接続の `resync` は `payload.run.startedAt` を使い、どちらもサーバー時計になる（受信時刻は使わない。時計がずれた環境では差分が負になり 0 秒に丸まる）。`run_end` と `running` を抜けた `resync` で `undefined` に戻る
-- 完了時の合計時間は `run_end.durationMs`（BFF 計測のラン全体。キュー待ちは含まない）を `ChatState.finishedRunDurationMs` へ写し、状態行の活動の右に「完了（1m 12s）」のように凍結表示する。実行中の経過と違い値が動かないため、こちらは読み上げの対象に残す。再実行カードを出す失敗（活動欄の文言をカードへ移す）では活動欄ごと出ないため、合計時間も出さない。次の `run_start`、`resync`、`setActivity`、`newChat` で消える（リロード / 再接続では復元しない）
-- 活動表示の由来は `ChatState.activityState`（SSE `status` の `state`）。`thinking` のときだけ活動ラベルに光を流し（`styles/index.css` の `.activity-shimmer`。2.4s / 帯は `--shimmer-band: 1.5em`）、ツール実行中や待機の文言には当てない。文言（`activity`）で判定しないのは、BFF の文面変更で演出が消えないようにするため。`setRun` / `runEnd` / `queued` / `retry` / `setActivity` と圧縮の通知では消す。行に出す文言と由来は `client/src/lib/retryState.ts` の `activityDisplay` が組で決め、再試行の待機 / 再実行の文言で上書きしている間は由来を渡さない（再実行の試行中は `state` が `thinking` でも行に出るのは「再実行中（1/2）」）。`resync`（リロード / 再接続）の実行中は長い 1 文（`実行中…（タブを閉じても処理は続きます）`）を出すので由来を持たず、次の `status` で再開する（折り返す文言に当てると帯が行ごとに切れ、移動ではなく汚れに見える）。無効化は 2 つで、`prefers-reduced-motion` ではグラデーションごと外して通常色へ戻し（止めるだけだと帯が途中で固まる）、`forced-colors` では背景画像が落ちて `color: transparent` だけが残るため `CanvasText` へ戻す。状態の導出は `client/test/retryState.test.ts`、演出の reduced motion / forced colors は [GUI 受入](testing.md#gui-の最小受入) で確認する。
-- 自動再試行の状態行は `resync` の `payload.run.retry` と `run_retry` イベントから `ChatState.retry` へ写し、文言は `client/src/lib/retryState.ts` が導出する（状態の正は payload。`status` イベントの文言は使わない）。残り時間は `retryAt - serverNow` を受信時に控え、受信後の経過分だけを毎秒引く（ブラウザ時計とサーバー時刻を直接比較しない）。同じ待機の再受信では既に得た期限を後ろへずらさず、予定時刻を過ぎたら「再実行の開始待ち」に切り替え、`run_end` で `retry` を消し `retryCount` は残す
-- 最終失敗の分類コードは `run_end.errorCode` と `resync` の `payload.run.errorCode`（`run.status === "error"` のときだけ）から `ChatState.runError = { code, text }` へ写す（text は BFF が合成した `run.error`）。`runStart` / 成功・停止の `runEnd` / 実行中へ移す `setRun` / `newChat` で消す。カードを出すのは `rate_limit` / `unknown` かつ `runStatus === "error"` のときだけなので、状態行のエラー文言はそのときに限り空にして二重表示を避ける（キュー待ちを挟んだ `runEnd` は `runStatus: "queued"` になるためカードを出さず、現行の文言を残す）。表示条件と押せない理由は `client/src/lib/runRetry.ts` の純関数が持ち、`ComposerStatus` が状態行の上にカードを描く。押すと `App` の `handleRetry` が固定文言「前回の続きから再開してください」を `handleSend` へ渡す（再実行専用の API は作らず、BFF から `prompt()` も再発行しない）。再実行は `sendMessage` の `includeAttachments: false` で送り、編集中の添付チップは送らず消費もしない（送信に載せる添付の選択と消費は `client/src/lib/attachments.ts` の `attachmentsForSend` に集約する）
-- 手動圧縮（compaction）も同じ流儀で、`resync` の `status === "compacting"` から `runStatus` / activity（`会話を整理中…`）/ `compactionStartedAt` を導出し、終端 `resync` で解除する。経過時間の起点は payload の `compactionStartedAt`（サーバー時計）で、`runStartedAt` は再利用しない。`status` イベントは表示文言だけを担う（状態の正は payload）。圧縮中の `queued` は `compacting` を維持し（実際に走っているのは圧縮）、文言も「圧縮中のため待機キューに追加しました」にする。次の `run_start` では開始時刻を引き継がない
-- 圧縮の同期 POST（`POST /api/sessions/:id/compact`）と `stop` の応答は、表示の正ではなく補助として扱う。応答の到着が SSE の終端 `resync` より遅くなっても表示を戻さないよう、`useSessions` の操作世代（新しい要求と、`compacting` を抜けた payload で進む）と選択中のセッション id を await の後に確認し、一致しなければ捨てる。圧縮中は `stop` の応答 status（圧縮前の run の値）で解除しない（終端 `resync` / `status` が正）。`sendChatMessage` も圧縮中の `setRun` を `compacting` のままにするほか、`POST /messages` の応答（`queued` の `queueDepth` と `runStatus`）には、同じ世代と選択の確認に加えて要求の後で run が終わっていないこと（`ChatState.runEndSeq` が進んでいないこと）を確認する。世代は選択・終端 `resync`・新しい要求でしか進まないため、通常の run の `run_end` と pump の `run_start` を挟んで遅れて届いた応答が、終わった run の `queueDepth` で表示を実行中へ戻すのをこの 1 条件で防ぐ
-- 手動圧縮のボタンの活性は実効 busy（`running` / `queued` / `compacting`）と送信 / 設定変更の通信中で判定する（`client/src/lib/composerSettings.ts` の `compactDisabled`）。`runStatus === "idle"` は同期義ではない（`statusOf` は idle 相当でも `completed` / `stopped` / `error` を返すため）
-- 設定変更の応答適用は `client/src/hooks/settingsChange.ts` に切り出す。応答や回復 GET を待っている間にサイドバーで別のチャットへ切り替えられるため、各 await の後に「要求したセッションがまだ選択中か」を確認し、切替済みの古い応答では履歴 / Model / Effort / `lastSeq` / 活動表示を更新しない。
-- フックの分割は `useU7Agent` を facade とし、`useRuntimeCatalog`（health / catalog）、`useProjects`、`useSessions`（一覧・lifecycle・SSE）、`sessionActions`（送信 / 停止の手順）が実装を持つ。
-- チャットのスキルピッカー（`client/src/components/composer/SkillPicker.tsx`）は入力欄の補助で、選択すると `/skill:<name> ` を挿入するだけ。展開は送信時に BFF が行う（ファイルは送信時点の内容、組み込みは同梱の registry、カタログはセッション作成時の本文）。一覧はセッションが確定していれば `GET /api/sessions/:id/skills`、新規チャットなら `GET /api/skills/session`（作成前の選択で解決するプレビュー）から `useSessionSkills` が取得し、同名の影になった行は注意書きを付けて出す（それでも選択はでき、優先順位で一意に解決される）。置き場は行に出さず `title` へ逃がす（説明の全文と一緒に hover で読める。カタログは仮想パス）。
-- 一覧の取り直しは「ポップアップを開いたとき」と「状態の行の `再取得`」の 2 つだけ。開いたときの取り直し（`revalidate`）は**持っている一覧を消さない**（消すと読込表示へ戻り、ポップアップの高さが跳ねる）。**いまの要求が飛んでいる間**は何もしない（開いた直後の二重打ちを避ける。取得先が変わって新しい要求が始まったら、前の要求が返らなくても塞がない = `client/src/hooks/requestGate.ts` の `createRequestTracker`）。**失敗しても一覧は残し**、理由を `reloadError` として重ねて 1 行で出す（索引として使える一覧を一瞬の失敗で捨てない。`reduceSessionSkills`）。一覧が無いときの失敗と 0 件は行を出さず、「状態の 1 行 + `再取得`」だけを出す。
-- 一覧の取得キーは `sessionId`、無ければ `(projectId, agentId)` の組で、これが変わるときだけ取り直す（セッションを開いている間のプロジェクト / エージェントの切替では取り直さない）。切替中に届いた古い応答は `createRequestGate` で捨てる（`ensureSession` の await 中に画面が変わっても、古いプレビューを新しいチャットへ混ぜない）。状態は `SessionSkillsState` の 4 つで、`unavailable` は取得先がまだ判明していないとき（起動直後でカタログ未読み込み）だけ＝ボタンを押せない。取得先がある状態での失敗（サンドボックス未設定の 503 など）は `error` としてポップアップに理由を出し、トリガーは押せるままにする。
-- 履歴の user 本文には添付の注記と `/skill:` の展開結果が入る。表示は注記を落とし、スキルブロックは `client/src/lib/skillBlock.ts` で分解して畳んで見せる（引数だけを吹き出しに残す）。送信エコーの照合も同じ分解を使い、展開前の入力と `run_start` の本文を同じ形へ寄せてから突き合わせる（`chatReducer.ts`）。
-- user の長い本文は `UserMessageBody` が折りたたむ。切り取る高さは CSS（`.user-message-clamp` の `max-block-size: 15rem`）が持ち、本文がそれを超えるときだけ「続きを表示 / 折りたたむ」とフェードを出す。あふれは、あふれた時点の `clientHeight` を clamp の高さとして確定してから `scrollHeight` と比べる（縮小の遷移中に `clientHeight` が動いてもボタンが消えない。幅が広がって収まれば外す）。開いた高さは実測した `scrollHeight` を CSS 変数で渡し、`max-block-size` の遷移だけで開閉する（`interpolate-size` / `calc-size()` が無いブラウザーでも機能とアニメーションが落ちない）。仮想スクロールの見積りは長い user 本文を clamp の高さで頭打ちにし、計測で縮む量を抑える（`lib/userMessage.ts` / `lib/chatItems.ts`）。
-- 直近 run のツールカードは `ChatState.runTools`（toolCallId → `ToolCall`）で持つ。ライブの `tool_start` / `tool_end` と `resync` の `payload.run.toolCalls` を写し、`resync` は `run` が無ければ空へ置き換える（実行直後の空配列で前の run のカードを残さない）。初期化は `runStart` / `newChat` / セッション切替（`resync` の sessionId 変化）で、`runEnd` では消さない（終了後に遅れて適用される履歴ページへ補うため）。`tool_end` は `runTools` を更新してからバブル側へ反映する
-- 入力欄の直上には、実行中のツールだけを出すライブの箱（`client/src/lib/liveToolCall.ts` の `liveToolState` と `client/src/components/composer/LiveToolCall.tsx`）を置く。ツール履歴を展開しないと何が起きているか分からないため、`name — args` の行サマリー（`abbreviatedToolSummary` を共用）を状態行の上に出す。出すのは走査順（`runTools` の挿入順）で、スキル読み込み（バッジ）と ask_user（専用カード）は履歴と同じ規則で外し、行番号も履歴の行番号に揃える。表示条件は `runStatus` が `running` のときだけで（`queued` は run が動いていない状態なので含めない）、ツールが動いていない間（考え中 / 応答の生成中）は状態行の文言で足りるので箱ごと畳む（空の箱を残さない）。実行の状態を条件に入れるのは、停止や中断で `tool_execution_end` が来なかったカードが `done: false` のまま `runTools` に残っても、回り続ける行を出さないため。**一瞬で終わるツール（`bash ls` など）でも行が読めるよう、行は出てから `LIVE_ROW_MIN_VISIBLE_MS`（900ms。`client/src/lib/liveToolCall.ts`）までは終わった行として残し、BFF 計測の実行時間（`ToolCall.startedAt` / `endedAt`）を本文の右に出してから畳む**（即座に畳むと開始のアニメーションの途中で消える）。畳む判定は `trackLiveHolds` が持ち、「この描画で新しく観測したツール」を `ChatState.liveToolIds`（ライブの `tool_start` / `tool_end` で観測した toolCallId）で見分ける。`runTools` の形は `resync` が持ち込んだ復元カードと同じなので、形では区別しない（同じ描画に復元カードとライブのカードが混ざっても、復元カードは出さない）。(1) ライブのイベントで新しく現れたのに実行中の行として出ていない呼び出しは、ここで最短表示時間のぶん出す（開始と終了、または run の終了が同じ描画にまとまった場合。React の自動バッチで起きる）。(2) 実行中として出ていた行が終わった / run ごと消えた場合は、出ていた時間の残りだけ残す（長く動いた行はその場で畳む）。mount 時から存在した呼び出しと `resync` が持ち込んだ復元カードは、ライブのイベントを観測していないので出さない（次の送信応答の `setRun` で `running` に変わっても同じ）。セッションが変わったら行を持ち越さない（`LiveToolCall` の `sessionId`）。その間は終わった行の DOM へ開始のアニメーションを当て直さない（`.live-tool-item[data-done="true"]`。行が作り直されてもう一度薄く出ると、行が増えたように見える）。終わった行は高さを 0 へ畳むアニメーションが終わってから外す（`lib/animationEnd.ts` の `finishOnAnimationEnd` を行ごとに使い、`prefers-reduced-motion` では animation を切って終端の見た目（`0fr` / 透明）をその場で当て、保険の時間で外す）。読み上げは状態行の活動テキスト（`aria-live`）が担うため、箱は `aria-hidden` の視覚専用にする
-- ツール履歴は、進行中のターンに限って実行中のカードを出さない（`client/src/lib/toolSummary.ts` の `completedToolCards`。実行中は入力欄の上のライブ表示が受け持つ）。ターンが終わればそのまま並べる: 停止や中断で `tool_execution_end` が来なかったカードを消すと、何が走っていたかを後から確かめられないため（位相ラベルもその場合のために残す）。表示とコピー本文は同じ集合（`nonSkillToolCards`）から組み、**進行中のターンでは「ツール履歴をすべてコピー」を出さない**（伸びている途中の断片をコピらせない）。判定にバブル側の情報は使えない: `Bubble.settled` は `runEnd` で現在の assistant バブルにだけ付き、履歴ページから復元したバブルは持たないため、過去ターンのコピーまで消える。`App` が `ChatState.currentAssistantId` を `ChatArea → MessageView` へ渡し、そのバブルだけを進行中として扱う（履歴ページの適用が補完先へ向けるのは実行中だけで、完了したターンを指したままにしない）。ライブから 1 件差し込まれると、畳んだままでも分かるよう見出しが一瞬光る（`.tool-history-flash`。key を変えて要素ごと作り直すので、連続でも毎回最初から光る）。**行の実行時間は位相ラベルの右の固定スロットに出し、値が無い行でもスロットを残して行の右端とサマリーの `truncate` 境界を動かさない**（値は `client/src/lib/toolTiming.ts` の `toolDurationMs` が `ToolCall.startedAt` / `endedAt` から出し、片方が欠けたカードでは出さない）。**1 件のコピーは行の hover ではなく展開した本文の右上に置く**（hover のボタンは実行時間の列と競合し、行の右端が目的ごとに 2 つになる）。見出しの合計は重なった区間を 1 回だけ数えた値（`toolTimeTotalMs`。並列実行の和で実経過より大きくしない）を「計 1.2s」として出し、区間が閉じていないカードが 1 枚でもあればその回は出さない（過小な合計を出さない）
+- SSE イベントを React の reducer で受け、イベントログから UI 状態（メッセージ列、ツールカード、実行状態）を導出して仮想 DOM へ反映する。**イベントハンドラで DOM を直接書き換えず、「イベントの適用」を純粋な状態遷移として書く**ことで、再接続時のリプレイ / `resync` も同じ reducer で処理できる
+- 接続管理（`EventSource` の再接続、`Last-Event-ID`、`resync` の検知）はカスタムフックに集約し、コンポーネントは描画に集中する
+- **実行・待機・圧縮の状態の正は payload（`resync`）で、SSE の `status` イベントは表示文言だけを担う。** 文言で演出や状態を判定しない（BFF の文面変更で演出が消えないようにする）
+- **表示の正は全履歴 API**（`payload.messages` は有効コンテキストの同期用で、履歴表示には使わない）
+- セッションの作成は送信経路へ置く。作成待ちの間に別のチャットへ切り替えられたら選択は奪わず、送信先は作成経路の戻り値を使う（入力も作成済みセッションも捨てず、空のセッション行を残さない）
+- 設定変更の応答適用は各 await の後に「要求したセッションがまだ選択中か」を確認する（応答待ちの間にサイドバーで別のチャットへ切り替えられるため）
+- セッション一覧の取り直しは SSE の run 系イベントで速くするが、**SSE はこのタブで開いている会話のイベントなので、別の会話を別タブが始めた場合は次のポーリングまで行が古いままになる**（据え置き）
+- スキルピッカーは入力欄の補助で、選択すると `/skill:<name> ` を挿入するだけ。展開は送信時に BFF が行う。**一覧の取り直しは「ポップアップを開いたとき」と「状態行の `再取得`」の 2 つだけ**で、開いたときの取り直しは持っている一覧を消さず（消すと読込表示へ戻って高さが跳ねる）、失敗しても一覧を残して理由を 1 行で重ねる（索引として使える一覧を一瞬の失敗で捨てない）
+- ツール履歴は**進行中のターンに限って実行中のカードを出さない**（実行中は入力欄の上のライブ表示が受け持つ）。ターンが終われば `tool_execution_end` が来なかったカードも並べる（何が走っていたかを後から確かめられなくしない）
+- ツール契約で値がパスと決まっている引数は、BFF がマスクの後に cwd 相対へ畳む。**本文（`command` / `output` / JSON 引数）は書き換えない** — 本文の `<cwd>/…` はパスとは限らず（grep の検索語、`case` / `[ ]` の照合語）、書き換えるとコピーしたコマンドの挙動が変わる
+- フックの分割は `useU7Agent` を facade とし、`useRuntimeCatalog`（health / catalog）、`useProjects`、`useSessions`（一覧・lifecycle・SSE）、`sessionActions`（送信 / 停止の手順）が実装を持つ
 
 ## 全履歴のタイムラインと仮想スクロール
 
-圧縮後も元の会話を閲覧できるように、表示の正は `GET /api/sessions/:id/history` の全履歴ページとする（`SessionPayload.messages` は有効コンテキストの同期用で、履歴表示には使わない）。
+圧縮後も元の会話を閲覧できるように、**表示の正は全履歴ページとする**。
 
-- セッションを開くと `resync` の直後に最新ページを取り、`resyncHistory` でバブル列を組む。`resync`（再接続 / 圧縮 / `context_edit` / 設定変更）のたびに最新ページを取り直し、`prevCursor` が保持分の item を指すときだけ新しい側を差し替えて取得済みの古いページを残す（保持中に entryId 付き item が無い legacy 初期状態では marker の有無に関わらず最新ページをそのまま適用する）。指さない（別タブで `limit` 以上追記された / 分岐が変わった）ときは欠落区間を `before` で取り直してから適用し、1 ページに収まらなければ取得済みの gap ページも組み込んで最新ページで組み直す（カーソルは古い方へ進め、同じ `before` を再取得しない。`client/src/lib/chatHistory.ts` の `mergeHistoryPage` / `rebuildHistoryPage`）。取得中の古い応答は要求の seq で捨てる。追加取得のカーソルは reducer が適用したページの値だけを使い（gap で保留したページの `nextCursor` を先読みに使わない）、`prependHistory` は要求時に読んだカーソルと今の先頭 item が一致したときだけ適用する（取得中に同一セッションのブランチが切り替わった古い応答は捨てる）。ページ取得が失敗しても取り込み済みの item がある間は `payload.messages`（有効コンテキスト）へ戻さず、次の `resync` の再取得で追いつく（表示の規則は [compaction.md](compaction.md#全履歴の表示閲覧と段階読み込み)）
-- ライブバブルはページの新しい領域（保持分に無い item）と同一性で後ろから突き合わせ、一致した分だけ entryId 付きの item へ置き換える。同一性は送信した run の `runId`（送信応答と history item の値）を最優先し、run id が無いときだけ role + 正規形の本文へ縮退する。**送信直後の pending エコー（`pendingEchoIds`）は run id が一致する自分の entry 以外とは突き合わせない**ので、別クライアントの同一文面 entry ではエコーが消えない。サーバー再起動を跨いでも item の `runId` は JSONL の entry に写した注記（`u7agentRunId`。[session-files.md](session-files.md#sendsjson-と-run-id-の注記)）から復元されるため、同じ本文の2件でも各エコーが distinct な item へ 1:1 で対応する。**runId を持たない item（旧保存データ）に限り、pending エコーにも文書化済みの本文正規形 + `since` の縮退を適用**して吸収する（`fallbackEchoTarget`。runId を持つ別 run の entry と未送信のバブルは対象外）。run id が分からないエコー（応答待ち）も消費せず、応答の `echoRunId` で結び付いた後、自分の entry がページに載った時点（または `run_start` / `echoRunId` 時に既に載っていればその時点）で吸収し、二重表示しない。run が終わったエコーは `pendingEchoIds` を抜けて本文での突き合わせへ戻る。上方向の追加取得でも、保持分より手前にある carried のライブバブル（legacy 初期表示の残り）は追加分の item と順序で突き合わせて消費し、残りは追加分の手前へ戻す。未一致の確定分は保持分の手前、`run_start` 待ちのローカルエコーと保持分より後のターンは末尾へ置く。未送信のバブルは履歴の位置に関わらず末尾へ置く
-- 202 で受理したが user entry にならなかった送信（サーバー再起動でキューごと消えた / 停止でキューを破棄した / run が user entry を残さず error で終わった）は、payload の `pendingSends`（`state: "unsent"`）から「未送信」のバブル（`unsent: true`）にする。同じ `runId` の pending エコーは pending を外して未送信へ切り替え、手元にバブルが無いリロード後は末尾へ足す。`state: "queued"` / `"running"` は受理済み（`accepted: true`）の pending として保つ（別タブの再送中に表示から消さない。手元にバブルが無ければ payload から足す）。未送信バブルは本文の縮退で別の履歴 item へ吸収せず、payload から消えたら（別タブの再送完了 / 破棄）落とす。`runId` が一致する entry がページに載れば通常のバブルへ吸収する。表示は `MessageView` が「未送信」バッジと再送 / 破棄のボタンを出し、再送はサーバーが保存済みの本文を使って同じ run id で実行する（reducer は `resendUnsent` / `resendFailed` / `unsentDiscarded`、API は [api-sessions.md](api-sessions.md#post-apisessionsidmessages)）
-- 未送信の反映は順序に依存しない。停止の `queue_cleared` が送信応答より先に届いたときは破棄された run id を `clearedRunIds` に控え、後から `echoRunId` で対応付いた時点で未送信へ切り替える（`run_start` / `run_end` / payload の `queued` / `running` で控えは消し、**保存済み entry があれば吸収を先に**行うので、遅れて届いた 202 で保存済みの送信を未送信へ戻さない）。payload の `pendingSends` が先に未送信バブルを足していた場合は、後から届いた `echoRunId` がローカルのエコーへ寄せて重複を消す（未送信の表示も引き継ぐ）。別タブの再送は `run_start` でその未送信バブルを送信中へ戻し、二重に足さない。再送の応答が届かない失敗は、まず未送信へ戻し（未確認の送信を送信済みに見せない）、その上で権威ある payload を取り直して（`resyncSession`）未送信 / 実行中 / 保存済みのどれかへ収束させる。サーバーが受理を確認済みの run（payload の `queued` / `running` か `run_start` で `confirmed` を立てたバブル）は戻さない。取り直しの応答は世代 / `lastSeq` を検証し、取得中に新しい SSE が届いていたら適用しない（古い snapshot でカーソルと状態を巻き戻さない）
-- 履歴ページの適用後（`resyncHistory` / `historyGap` の適用経路）は、ページに無い `ChatState.runTools` のカードを現在ターンの最後の assistant バブル（最後の user より後の最後の assistant。`entryId` の有無は問わない）へ補い、`currentAssistantId` を補完先へ向ける。補完先が無ければ保留し、`text` / `toolStart` が補完先を作った時点（または次のページ適用）で補う。既にある ID は所属バブルを保って run 側の位相で更新し、`toolBubbleIds` も同じ突き合わせで組み直す（`client/src/hooks/chatReducer.ts` の `attachRunToolCards`。`prependHistory` は末尾を触らないため対象外）
-- 上端付近（`CHAT_PREPEND_THRESHOLD` = 200px）で古いページを取り、`prependHistory` で前置きする。前置きの前後で `scrollHeight` の差を `scrollTop` に足し、閲覧位置を飛ばさない（`client/src/lib/chatItems.ts` の `anchoredScrollTop`）。カーソルは entry id なので、取得中に追記・圧縮されても同じ item を二度返さない
-- 描画は `@tanstack/react-virtual` の `useVirtualizer` で、可視範囲 + overscan だけを DOM に載せる。アイテムは entry id をキーにし、可変高さ（Markdown / ツール履歴 / 折りたたみ要約）は `measureElement` で計測する。計測は `useAnimationFrameWithResizeObserver` で rAF へずらし、ResizeObserver callback 内の同期レイアウト変更（`ResizeObserver loop completed with undelivered notifications`）を避ける。位置と高さは CSS 変数（`--virtual-start` / `--virtual-total-height`）で渡し、inline style は変数の代入に限定する（CSP の `style-src` と `shadcn/no-inline-styles` のため。React は custom property を `style.setProperty` で設定する）
-- 末尾への追従は、本文更新と仮想キャンバスの総高（`totalSize`）の更新を `useLayoutEffect` で拾い、描画前に実 DOM の `scrollHeight` へ揃える。本文だけを passive effect で追うと、巨大な表で実 DOM と仮想キャンバスの高さが追いつくまで末尾から離れたフレームが見える。`scrollToIndex` の継続補正は併用しない。同期前にも `resolveScrollFollow` で現在位置を判定し、まだ `scroll` イベントが届いていない読み返し操作を上書きしない。読み返し中はこの同期を止め、容器のリサイズや遅延ロードは既存の ResizeObserver が扱う。表そのものの折り返しで行高が変わることは抑止しない。
-- 追従中だけ scroll container のアンカリングを止める。表の高さが縮んだ際、仮想キャンバスの計測前にブラウザーが位置を補正すると、後続の末尾追従との間で画面が一時的に揺れるため。読み返し中は `auto` に戻す（[自動追従の契約](ui-layout.md#チャットの自動追従と最下部ボタン)）。
-- コンテキスト状態はバブルごとの `context`（`active` / `summarized` / `excluded`）で持ち、`chatRenderItems` が区切りと境界ラベルを並べる。境界は「要約済みのバブルが実際に読み込まれている」ときだけ、`activeContextStartId` の直前に出す（未取得の古いページに隠れた境界では出さない）。薄暗い表示とタグの仕様は [compaction.md](compaction.md#全履歴の表示閲覧と段階読み込み)
-- 圧縮イベントの区切りは全履歴の entry 順（`HistoryItem` の compaction item）で位置を決める。旧 payload（履歴 API 無し）のときだけ `beforeMessageIndex` から復元する
+- `resync`（再接続 / 圧縮 / `context_edit` / 設定変更）のたびに最新ページを取り直し、保持分と繋がるときだけ新しい側を差し替える。繋がらないときは欠落区間を取り直してから適用する。**取得中の古い応答は要求の seq で捨てる**
+- ライブバブルはページの新しい領域と**同一性（run id を最優先）**で突き合わせて置き換える。run id が無いときだけ role + 正規形の本文へ縮退する。**送信直後の pending エコーは run id が一致する自分の entry 以外とは突き合わせない**（別クライアントの同一文面 entry でエコーが消えない）
+- 202 で受理したが user entry にならなかった送信は「未送信」のバブルにする（別タブの再送中に表示から消さない）。**未送信の反映は順序に依存させない**（停止の `queue_cleared` が送信応答より先に届く経路がある）
+- 上端付近で古いページを取り、前置きする。**前置きの前後で閲覧位置を飛ばさない。** カーソルは entry id なので、取得中に追記・圧縮されても同じ item を二度返さない
+- 描画は可視範囲 + overscan だけを DOM に載せ、アイテムは entry id をキーにする。位置と高さは CSS 変数で渡し、**inline style は変数の代入に限定する**（CSP の `style-src` と `shadcn/no-inline-styles`。React は custom property を `style.setProperty` で設定する）
+- 計測は rAF へずらす（ResizeObserver callback 内の同期レイアウト変更で `ResizeObserver loop` 警告になる）
+- コンテキスト状態（有効 / 要約済み / 除外）はバブルごとに持ち、**境界は「要約済みのバブルが実際に読み込まれている」ときだけ出す**（未取得の古いページに隠れた境界では出さない）
+- 圧縮イベントの区切りは全履歴の entry 順で位置を決める。旧 payload（履歴 API 無し）のときだけ `beforeMessageIndex` から復元する
 
 ## 開発フローと配信
 
-- 開発時は `pnpm dev`（BFF :4317 + プレビュー オリジン :4318）と `pnpm dev:web`（Vite :3000、HMR 付き）を併用する。Vite は `/api` を 4317 へプロキシするため、フロントエンドは同一オリジンの API としてそのまま動く。**プレビュー オリジンの待受（`PI_FILE_PREVIEW_LISTEN_PORT`）とブラウザから見たポート（`PI_FILE_PREVIEW_PORT`）は env で変えられ、既定はいずれも 4318。`pnpm dev` は `PI_FILE_PREVIEW_PORT` を正として両方を揃える（待受 env しか無いときはその値へ寄せる）ので、`PI_FILE_PREVIEW_PORT=4319 pnpm dev` はプレビュー オリジンだけを 4319 にする。**`pnpm dev` をもう 1 つ並行起動するには、プレビュー以外のポートも別にする必要がある**（サンドボックス `SANDBOX_PORT` / BFF `PORT` / サービス `PI_SERVICE_LISTEN_PORT` / Vite 3000。`pnpm dev` は Vite へポートを渡さないため、2 つ目は `strictPort` の 3000 で止まる）。ポートを変えるとプレビューの `localStorage` も別の保存領域になる**（[file-preview.md](file-preview.md#隔離csp-と-sandbox)）。プレビュー オリジンは Vite を通さず、ブラウザがそのポートを直接開くため、LAN / 別端末から使うときは `HOST=0.0.0.0` に加えてそのポートの到達が必要になる（[README](../README.md#セキュリティ)）。3000 で LAN へ待受けるのは、Windows + WSL2 NAT の実機確認が Windows 側 portproxy の `0.0.0.0:3000` にそのまま乗るため（WSL 側が `0.0.0.0` で待受けないと `<WSL IP>:3000` へ届かない）。`strictPort` なので 3000 が埋まっていれば別ポートへずれずに失敗する。`pnpm dev:web --port 5173` のように引数を直接渡せば上書きできる（`--` を挟むと引数が Vite へ届かず 3000 のままになる。`pnpm dev` は Vite を引数なしで起動するので、`pnpm dev` からは変えられない）
-- 本番は `pnpm build` の産物 `client/dist/` を BFF が配信する。静的配信はリクエストパスを `client/dist` 内のファイルに解決し（ディレクトリ外は 404）、`index.html` は `no-cache`、Vite のハッシュ付き `assets/` 配下は `immutable` でキャッシュする。未ビルドのときは 503 で案内を出す。CSP は `default-src 'self'` に画像だけ `img-src 'self' data:` を足した形（エージェントのアイコン用）で、`frame-src 'self' http://*:<PI_FILE_PREVIEW_PORT>` を明示する（`'self'` は別オリジンを OFF にしたときの同一オリジン フレーム、`http://*:<ポート>` は既定のストレージ有効モードの別オリジン フレーム用。`'self'` を落とすと別オリジンを OFF にしたときのプレビューがブロックされる）。ビルド産物も同一オリジンのアセットと data URL 画像だけで動く。iOS のホーム画面アイコンは `client/public/apple-touch-icon.png`（favicon.svg と同じ図形を角丸なし・透明なしで 180x180 に描いた不透明の PNG）を `index.html` の `<link rel="apple-touch-icon" sizes="180x180">` で指す。Safari 26.0 は SVG のアイコン（Home Screen を含む）に対応したが、それ以前の iOS は apple-touch-icon に PNG を要求し、指定が無いとタイトルの頭文字のタイルになる。OS が角丸マスクを掛け、透明部分は黒い縁の原因になるため角丸も透明も入れない。図形を変えたときは `<rect>` の `rx` を外して全面を塗った SVG を 180x180 でラスタライズし直し、同じ PNG を作る（両者の同期を検査する仕組みは無い）。Android のホーム画面追加は今回の受け入れ対象外（Chromium も apple-touch-icon や favicon を候補にするため、Manifest だけを見るわけではない）。
-- SPA フォールバック（`server/src/static.ts`）: 既存の静的ファイルを優先し、見つからない GET / HEAD のうち**拡張子なしのパス**に限って `index.html` を `/` と同じ本文・`no-cache`・CSP で返す。「拡張子なし」は最後の非空セグメントに `.` を含まない意味で、末尾スラッシュは許容し、dotfile と末尾ドットは対象外にする。`/api` と `/assets` は prefix の境界ごと（`/api` と `/api/` 配下、`/assets` と `/assets/` 配下）対象外にし、除外判定は decode 後のパスで行う（`%2F` で迂回させない）。`Accept` に `text/html` が `q>0` で含まれるときだけ返し（`text/html;q=0`・`application/json`・ワイルドカードのみは対象外）、POST 等も対象外にする。不正な percent encoding と `client/dist` 外へのパスはフォールバックに回さず 404 にする。
-- このフォールバックは存在しない拡張子なしパスにも HTTP 200 と `index.html` を返す（soft 404）。**HTTP 200 はパスの存在確認には使えない**。`/foo.txt`・`/assets/missing`・`/api/unknown` は 404 のままで SPA も起動しない。
+- 開発時は BFF と Vite を併用し、Vite が `/api` をプロキシする。**プレビュー オリジンは Vite を通さず、ブラウザがそのポートを直接開く**ため、LAN / 別端末から使うときはそのポートの到達が要る（環境変数は [README](../README.md)）
+- 本番はビルド産物を BFF が配信する。`index.html` は `no-cache`、ハッシュ付き `assets/` は `immutable`。未ビルドのときは 503 で案内を出す
+- **CSP は `default-src 'self'`** に画像だけ `img-src 'self' data:` を足し、プレビュー用の `frame-src` を明示する（`'self'` を落とすと別オリジンを OFF にしたときのプレビューがブロックされる）
+- SPA フォールバックは既存の静的ファイルを優先し、**拡張子なしの GET / HEAD に限って** `index.html` を返す。`/api` と `/assets` は prefix の境界ごと対象外にし、除外判定は decode 後のパスで行う（`%2F` で迂回させない）。`Accept` に `text/html` が `q>0` で含まれるときだけ返す
+- **soft 404: 存在しない拡張子なしパスにも HTTP 200 と `index.html` を返す。HTTP 200 はパスの存在確認に使えない**
+- ホーム画面アイコンは OS が角丸マスクを掛け、透明部分が黒い縁の原因になるため、**角丸も透明も入れない** PNG を指す
 
 ## URL と画面の対応
 
-画面は URL がただ 1 つの正で、サイドバーのモードや表示中のセクションを state では持たない（`client/src/lib/route.ts` の `parseRoute` / `routePath` が pathname と画面を相互変換し、`client/src/hooks/useRoute.ts` が `popstate` の購読と URL の置換を 1 箇所に集約する）。
+**画面は URL がただ 1 つの正で、サイドバーのモードや表示中のセクションを state では持たない**（`parseRoute` / `routePath` が pathname と画面を相互変換し、`useRoute` が `popstate` の購読と URL の置換を 1 箇所に集約する）。
 
-- `/` は未選択のチャット、`/settings/<section>` は設定の 8 画面（`agents` / `skills` / `files` / `archive` / `appearance` / `models` / `runtime` / `notifications`）、`/settings/models/providers` は 設定 → モデル の「プロバイダー」タブ、`/s/<sessionId>` は通知のリンクから会話を指定して開く入口（[通知のディープリンク](#通知のディープリンク)）。大文字・末尾スラッシュ・連続スラッシュ・percent encoding は正準形（小文字・末尾スラッシュなし）へ畳む。`/settings` 単体は画面を特定できないため、未知のセクションや不正な encoding と同じくチャットにする
-- 設定 → モデルのタブだけは `/settings/models/<sub>` の 1 セグメントを解釈する。正準形は「モデルを選ぶ」= `/settings/models`、「プロバイダー」= `/settings/models/providers` で、未知のサブセクションと既定タブの明示（`/settings/models/models`）は既定タブへ畳み、モデル画面からチャットへ飛ばさない（タブの語彙は `client/src/lib/settingsNav.ts` の `MODELS_SUBSECTIONS`、タブ行は `SettingsPageLayout` の任意スロット）
-- 画面切替は `replaceState` で、履歴は追加しない（Back / Forward はブラウザーの既存履歴に従う）。URL の置換と表示の更新は `navigate()` だけが行い、両者を独立に同期させない
-- クエリとフラグメントは解釈も破棄もしない。`#foo` のような断片リンク（チャット本文の Markdown が通す）を壊さないため、画面切替でもそのまま持ち越す
-- 「設定」の行き先は URL のセクションを優先し、`/` では保存した最後のセクションへ。直接 `/settings/<section>` を開いた場合もそのセクションを「最後」として保存する。`Sidebar` の「設定」は `onSelectMode("settings")` を呼ぶため、App は `navProps` を docked の `Sidebar` と `NavSheet` の両方へ渡す（モードの切替ではドロワーを閉じない）
-- 設定 → ランタイムは health の接続状態（`ready` / 既定モデル / cwd / 会話ストア / アプリ DB / SDK バージョン）と `GET /api/runtime/environment` の実行環境だけを出す。モデル候補の診断と比率ゲージは撤去し、許可リスト・カタログ・既定モデルは 設定 → モデル が持つ
-- 設定 → モデルは「モデルを選ぶ / プロバイダー / 画像生成 / Web 検索」の 4 タブで、URL を正に切り替える。`useModelSettings` はタブの親で 1 回だけ呼び、タブ切替は親の state（モデルの選択・既定モデル・provider ごとの入力下書き・カタログ）を保ったまま行う（GET 2 本は独立に取り、片方の失敗で他方を捨てない）。モデルの下書きは保存値が変わったときと、カタログ無しで作った初期値の初回カタログ到着でだけ作り直し、カタログの更新だけでは置換しない（認証が外れた provider の選択は下書きから落とす）
-  - 「モデルを選ぶ」タブは、候補を「認証済み provider のカタログ全件」と「カタログ外の残存エントリ」の和集合で組み、provider ごとの折りたたみにチェックで出す。折りたたみは既定で閉じ、検索はカタログのデータ（provider / モデル名 / ID）に当てて該当 provider を自動展開する。認証が無い provider の選択は表示せず下書きからも落とし、カタログ外の残存だけは警告付きで表示して外せる（見えないまま選択数に残さない）。provider 行にはバッジと `利用可能 a/b ・ 選択 c` を出す
-  - アプリ既定モデルは選択済みモデルを検索できるピッカー（native popover + listbox。`ModelDefaultPicker`）で選び、先頭の「未設定」は残す（未設定の間は新規会話の送信を止め、設定先を示す）。保存済みの `allowedModels: null`（旧・制限なし）は「利用可能な全モデルが選択済み」として明示リストへ展開し、既定モデルがその集合に無ければ 1 件足す
-  - 選択 0 件は保存できず、空配列を API が制限なしへ正規化すること（意図と逆）を理由として出す。保存は本文外の固定バーにまとめ、`モデル候補に未保存の変更があります` / `モデル候補を保存` と対象を明示する。利用可能 0 件と既定の未認証の確認は純関数の文言で画面内に出す（保存ボタンのある固定バーを動かさないため、共通の確認ダイアログは使わない）
-  - 「プロバイダー」タブは一覧（`GET /api/settings/models` の全件。検索は provider 名 / ID。件数メタは `available/catalog` または未反映・カタログ外）と詳細（APIキーの登録・上書き、メモ、削除、再同期、利用可能数、`degraded` の案内）を分ける。desktop は左右に並べ、compact は選択ボタンから一覧へ切り替え、選択すると詳細へ戻す。旧 ModelTable（モデル一覧の重複表示）は持たない。キーの平文保存と「BFF を LAN / インターネットへ公開しない」注意は詳細ペインの上部へ既定で畳んで出し（1 行の要点 + 展開で全文）、プロバイダーを切り替えても消さない。キー保存後に「モデルを選ぶ」タブへ戻る導線を置き、キー・メモが各保存ボタンで即時保存される注記は desktop では固定バー、compact では詳細末尾に出す
-  - provider カードのメモ欄はキー入力とは別の `<form>`（`rows={2}` / 500 文字上限）。`runtimeAvailable: false` のときはキーとメモの両方を編集不可にし、メモの保存は SDK に触れないため health / カタログを取り直さず、先行ロードの無効化だけ行って応答を反映する。`catalogError` は両タブで独立した注記として出す。キー最終保存（`managed` だけ・`null` は「保存日不明」）と最終使用（`sessionsLoaded` が true のときだけ。`model` + `lastUsedAt` を `providerUsage()` で集計）は詳細に出す。一覧を持っているのは `App` で、この画面は再取得しない
-- 実行環境カードは `GET /api/runtime/environment` の `state`（`connected` / `not_configured` / `unreachable` / `unauthorized` / `timeout` / `probe_failed`）だけで分岐し、HTTP ステータスや文言を解釈しない。`connected` のときだけ OS / アーキテクチャ / 実行ユーザー / ワークスペースを出し、検出できたコマンドだけを名前とバージョンの表にする（バージョンを取れなかったものは「バージョン不明」。存在しないコマンドの一覧やインストール・実行の UI は持たない）。接続状態カードの「サンドボックス = 設定済み」は設定の有無で、実行環境カードの「接続中」は診断 API の正常応答だけを指す
-- 開いたときの取得はカタログと実行環境の 2 系統で、health は親が持つ値を使う。再読み込みは親の `refreshHealth()` を含む 3 系統を `Promise.allSettled` 相当でまとめて取り直し、全 settled までボタンを処理中にする。各結果は独立して保持し、1 系統の失敗で他を消さない。`refreshHealth()` は失敗もキャンセルも `null` を返す契約なので、画面側で `null` を失敗へ変換し、health の失敗は「前回値を表示中」と明示する。古い応答の適用は世代番号（`client/src/lib/runtimeEnvironment.ts` の `createRuntimeReloadGate`）で排除し、その判定は親の `refreshHealth(isCurrent)` にもそのまま渡す（画面の state だけでなく親が持つ health も、アンマウント後 / 新しい取得後の応答で上書きしない）
-- 診断情報はヘッダの 1 ボタンで一括コピーする（セクション単位のコピーは持たない）。本文は `runtimeDiagnosticText` が画面と同じ行ビルダー（`runtimeConnectionRows` / `runtimeVersionRows` / `runtimeEnvironmentStatusRow` / `runtimeEnvironmentRows` / `runtimeCommandRows`）と文言定数から組み立て、表示とコピーで値・注記・状態文言がずれないようにする。どの見出しをどこへ出すかを決める分岐は画面と共有できないため、`client/test/runtimeEnvironment.test.ts` で本文の全体を固定する。取得できていないセクションは「取得できていない」と書き、黙って省かない（省くと、貼った先では正常な環境に見える）。本文は Markdown の見出しと `- ラベル: 値` で、値の改行は空白 1 つへ畳んで行構造を壊さない。成功・失敗の表示はチャットと同じ `CopyButton` / `useMessageCopy` を使う
-- Vite dev は SPA フォールバックを持つが、本番は BFF が返す（[配信](#開発フローと配信) の SPA フォールバック）。存在しない拡張子なしパスも 200 と `index.html` になる **soft 404** なので、HTTP 200 はパスの存在確認には使えない
+- 大文字・末尾スラッシュ・連続スラッシュ・percent encoding は正準形（小文字・末尾スラッシュなし）へ畳む。セクションを特定できない URL はチャットにする
+- 設定 → モデルのタブだけは `/settings/models/<sub>` の 1 セグメントを解釈する。**未知のサブセクションと既定タブの明示は既定タブへ畳み、モデル画面からチャットへ飛ばさない**（語彙は `client/src/lib/settingsNav.ts`）
+- 画面切替は `replaceState` で履歴を追加しない。URL の置換と表示の更新は `navigate()` だけが行い、両者を独立に同期させない
+- **クエリとフラグメントは解釈も破棄もしない**（本文の Markdown が通す `#foo` のような断片リンクを壊さないため）
+- 「設定」の行き先は URL のセクションを優先し、`/` では保存した最後のセクションへ。直接 `/settings/<section>` を開いた場合もそれを「最後」として保存する
+- 設定 → ランタイムは接続状態と実行環境だけを出す。**HTTP ステータスや文言を解釈せず、応答の `state` だけで分岐する**
+- 診断情報のコピー本文は画面と同じ行ビルダーから組み立てる（表示とコピーで値・注記・状態文言がずれないようにする）。**取得できていないセクションは「取得できていない」と書き、黙って省かない**（省くと、貼った先では正常な環境に見える）
 
 ## 通知のディープリンク
 
-`/s/<sessionId>` は通知のリンクから会話を開くための**一時的な入口**（入口専用ルート）で、`Route` ではチャット + 保留中の入口（`pendingSessionId`）として表す。リンクの生成（ベース URL + `encodeURIComponent`）はサーバー側（設定 → 通知）が担い、クライアントは受け側だけを持つ。
+`/s/<sessionId>` は通知のリンクから会話を開く**一時的な入口**で、`Route` ではチャット + 保留中の入口として表す。リンクの生成（ベース URL + `encodeURIComponent`）はサーバー側が担い、クライアントは受け側だけを持つ。
 
-- `parseRoute` は `/s/<id>` を `pendingSessionId` 付きのチャットとして返し、`routePath` も `/s/<id>` を返す。起動時の正準化は `routePath(parseRoute(pathname))` の比較なので、これが一致しないと選択前に URL が消える（ここが「保留」の実装）
-- 起動処理（`useU7Agent` の boot）は、保留の `/s/<id>` があるときだけ一覧からその id を選ぶ。保留が無い `/` は常に未選択のままで、セッション一覧の先頭や以前開いた会話を自動では開かない
-- 選択が確定したら `useRoute` の `consumePendingEntry` が `replaceState` で `/` へ畳む（履歴は増やさない）。既に別の画面へ移っていたら何もしない
-- 見つからない / 削除済みの id は「リンク先の会話が見つかりませんでした。」を状態行に出し、未選択のチャットのまま `/` へ畳む。一覧に無い場合だけでなく、一覧に載っていた会話が取得までに削除された場合や `GET /api/sessions/:id` が失敗した場合も、別の会話へフォールバックしない
-- 遅延した応答が後からのユーザー選択を奪わないよう、**起動処理を始めた時点**の選択世代（`selectionSeqRef`）と比べる（health / catalog / projects の待ちの間の選択も「後からの選択」に含める）。待機中に別の会話や「新しい会話」を選んでいたら、その選択を残して URL だけを畳む（`GET /api/sessions/:id` の待機中も同じ）
-- 不正な percent encoding は既存どおりチャットへ畳む（入口にしない）。id は decode した値を使い、URL へ戻すときだけ `encodeURIComponent` する。id に `/` を含む形（`%2F`）はセグメントが余るため入口にしない
-- 一覧の取得に失敗したときは入口を解決しない（空の一覧として畳まない）。URL を保ち、次に届いた一覧（4 秒のポーリング）で改めて解決する。サーバー未接続で起動処理が health の時点で止まったときも同じく URL を保ち、リロードで再試行できる
+- `parseRoute` と `routePath` が `/s/<id>` を往復する（一致しないと選択前に URL が消える）
+- 起動処理は保留があるときだけ一覧からその id を選ぶ。**保留が無い `/` は常に未選択のまま**で、一覧の先頭や以前開いた会話を自動では開かない
+- 選択が確定したら `replaceState` で `/` へ畳む（履歴は増やさない）
+- 見つからない / 削除済みの id は理由を状態行に出し、**別の会話へフォールバックしない**
+- **遅延した応答が後からのユーザー選択を奪わないよう、起動処理を始めた時点の選択世代と比べる**（health / catalog / projects の待ちの間の選択も「後からの選択」に含める）
+- 一覧の取得に失敗したときは入口を解決しない（空の一覧として畳まない）。URL を保ち、次に届いた一覧で改めて解決する
 
 ## 保存キーと保存範囲
 
-| キー | 内容 | 復元するもの |
-| --- | --- | --- |
-| `u7agent-files` | root ごとの snapshot を 1 キーに持つ（version 付き）。root は 設定 → ファイル の `"."` と、チャットの作業フォルダ面で開いたセッションの作業フォルダ、チャットのスキル面（と設定 → スキルのファイルタブ）で開いた `.agents/skills/<name>` | タブの並び・表示中・タブごとの表示モード・開いているディレクトリ |
-| `u7agent-settings-section` | 最後に開いていた設定セクション | 「設定」で戻る先（正は URL で、これは `/` からの補助） |
-| `u7agent-expanded-projects` | 開いているプロジェクトの `cwd`（ワークスペース root 相対）の集合（version 付き） | サイドバーのプロジェクト行の開閉（既定は畳み） |
-| `u7agent-expanded-sidebar-sections` | 開いているカテゴリ（`projects` / `unassigned`）の集合（version 付き） | サイドバーのカテゴリ開閉（保存値が無ければ両方開く） |
-| `u7agent-sidebar-width` | 左バー（Sidebar）の幅（px の整数 1 つ。既定 252px / 上限 400px） | リロード後の左バーの幅（未指定は既定幅。[ui-layout.md](ui-layout.md#幅)） |
-| `u7agent-file-tree-width` | ファイルツリー（`FileBrowser`）の幅（px の整数 1 つ。未指定は本文幅の 1/3 を 288〜400px で clamp、選べる範囲は 288 〜 `min(560px, 本文 − 384px)`） | リロード後のツリー幅（未指定は既定幅。左右 2 段にならない面では効かない。[ui-layout.md](ui-layout.md#モードごとの構成)） |
-| `u7agent-file-tree-height` | ファイルツリー（`FileBrowser`）の高さ（px の整数 1 つ。未指定は内容の高さで上限 256px、選べる範囲は 0 〜 `容器 − 240px`。0 はツリーを完全に隠す） | リロード後のツリーの高さ（未指定は内容の高さ。上下 2 段にならない面では効かない。[ui-layout.md](ui-layout.md#モードごとの構成)） |
+**`localStorage` に入れるのは端末ごとの表示設定だけ**にする。各キーの意味・形の検証・上限は実装（`client/src/lib/` の各 store）が正で、docs にキーを列挙しない。
 
-会話の選択は保存しない。作業環境の「環境変数」タブの入力中ドラフト（種別 / 名前 / 値）も保存しない（パネル / シートを閉じる・`Escape`・セッション切替・タブ切替で破棄し、確認は出さない。[ui-layout.md](ui-layout.md#作業環境パネル)）。会話を指定して開く唯一の入口は通知リンクの `/s/<sessionId>` で、開いた後は `/` に畳む。
+| 内容 | 保存する |
+| --- | --- |
+| テーマ / 最後の設定セクション / サイドバーとツリーの開閉 / パネルとツリーの幅 / ファイルタブと表示モード | する |
+| 会話の選択 / パネルとシートの開閉 / 入力中のドラフト / 作成先（最後に開いたプロジェクト） | しない |
 
-- `u7agent-files` は本文・children・loading・error を保存しない（他キーや複数 cwd と合算した容量と、鮮度の問題。復帰時は既存の取得経路で取り直す）。範囲の詳細は [file-preview.md](file-preview.md#復帰f5画面の往復)
-- 右パネルはセッションごとに cwd が増えるため、多数のセッションで開くと先に書かれた cwd から落ちる（cwd 上限）。**チャットのスキル面も同じ保存枠を root ごとに 1 つ消費する**（`FILE_SNAPSHOT_CWD_LIMIT` 件を超えて開くと、先に書かれた root から落ちる）。パネルの開閉自体は保存しないので、閉じた状態では何も書かない（タブと展開が空の snapshot は root ごと消す）
-- cwd は取得 root と同じ単位（`normalizeFileTreeRoot` の結果）で保存するため、`""` と `"."` は同じキーになり、絶対パスも root へ畳む
-- 保存値は version を持ち、形（paths の重複と上限、active が paths 内か null、modes の enum と対象タブ、root 相対の展開パス）を検証する。JSON 全体が壊れているときだけ全体を捨て、形の合わない cwd は 1 件ずつ捨てる。`__proto__` / `constructor` のような名前も合法なパスとして往復させる（own property で読み書きする）。展開パスの復元は祖先がすべて保存集合にあるものだけを開き、そろっていないパスは落とす（閉じた枝の子孫が残った旧保存値の正規化。祖先を勝手に開かない。順序には依存しない）
-- 総量の上限（cwd 20 件 / 展開 200 件 / 書き込み前の JSON 64 KiB）を超える書き込みは捨てる。cwd 数が上限を超えたら先に書かれた cwd から落とす。書き込み側も読み手と同じ検証を通し、読み手が捨てる形（上限超えや active の不整合）は書かない（書くと次の起動でその cwd のタブもモードも失われる）
-- `u7agent-expanded-projects` は「開いているプロジェクト」の `cwd`（ワークスペース root 相対）の集合を version 付きで持ち、未操作のプロジェクトはエントリを作らない（既定は畳み）。`project.id` は `randomUUID()` で削除 → 再登録を跨がないため id ではなく `cwd` を使い、`project.cwd` はサーバーが root 相対へ正規化済みで `"."` にならないため `normalizeFileTreeRoot` は通さない。配列の非文字列・空文字・重複を落とし、20 件を超えた分は先に書かれた `cwd` から落とし、空になったらキーごと消す。保存領域が使えない環境でも write が失敗した後はメモリ側が最新になり、同一セッション内の開閉は保たれる（F5 では古い保存値が戻り得る）
-- `u7agent-expanded-sidebar-sections` は `projects` / `unassigned` の開閉を version 付きで保存する。キーが無い場合は既存表示を保つため両方開き、空配列は両方畳んだ状態として保存する。未知の値・重複は読み書き時に除き、保存領域が使えない場合も同一ページ内の状態を保つ
-- 保存キーの read / write は例外を握り、保存領域が使えない環境でも操作を止めず、無限リトライもしない（例外は `u7agent-agent` だけ。次項）。`u7agent-files` は write が失敗した cwd がメモリ snapshot で最新になるため、同一セッション内の往復（設定を離れて戻る等）は復元できる。ただし write 失敗後の F5 では古い保存値が戻り得る（復元は保証しない）
-- `u7agent-agent`（選択中のエージェント）の `localStorage` 直接アクセスは例外を握っていない。**保存領域が使えない環境では現状すでに起動が失敗する**（頑健化は別 Issue）。未作成チャットの作成先（旧 `u7agent-project`）は保存しない（[ui-layout.md](ui-layout.md#作成先)）
+- 保存値は version 付きで形を検証する。**JSON 全体が壊れているときだけ全体を捨て、形の合わない項目は 1 件ずつ捨てる**
+- `__proto__` / `constructor` のような名前も合法なパスとして往復させる（own property で読み書きする）
+- **書き込み側も読み手と同じ検証を通す**（読み手が捨てる形を書くと、次の起動でその項目が失われる）
+- 読み書きは例外を握り、保存領域が使えない環境でも操作を止めず、無限リトライもしない。**write が失敗した後はメモリ側が最新になり、同一セッション内の往復は保たれるが、F5 では古い保存値が戻り得る**（復元は保証しない）
+- cwd は取得 root と同じ単位へ正規化して保存する（空文字と `"."` が同じキーになる）
+- 会話を指定して開く唯一の入口は通知リンクで、開いた後は `/` に畳む
 
 ## クライアントの Effect 契約
 
-- 起動時の `/s/<id>` 解決とセッション一覧のポーリングは別の Effect とする。起動処理は表示期間に一度開始し、エージェント選択の変更では再実行しない。保留 URL が無ければセッションを開かず未作成チャットのまま表示し、最初の送信で作成する。
-- 左バーで選択したセッションを開く要求（`GET /api/sessions/:id`）が失敗したときの移り先は、一覧の未試行の先頭とする。**1 回の選択で試すのは一覧 1 周まで**とし、全滅したら未作成チャットへ落として理由（サーバーの文言）を状態行に出す。破損が複数あると「自分以外の先頭」が互いを指して同じ 2 つを往復し、1 回の選択で数百リクエストになるため（判定は `client/src/hooks/sessionFallback.ts`、`client/test/sessionFallback.test.ts` が固定する）。通知リンク `/s/<id>` の失敗時はこのフォールバックを使わず、未選択のまま警告を出す。
-- cleanup 後は、起動処理から呼ぶカタログ取得・一覧取得・セッション復元・health 取得の応答を適用しない。一覧取得は後から開始した要求を優先する。送信経路（`sendMessage` → `ensureSession`）のセッション作成 POST 自体を取り消す保証はない。
-- SSE はセッション ID・再接続カウンタに同期し、通知処理は `useEffectEvent` で最新の callback を参照する。OS テーマは `useSyncExternalStore` で購読する。
-- 管理フォームの下書き（選択中の定義の編集値）はページが持つ。選択対象とカタログの変更を render 中に検出して初期化し、カタログ再読込でも未保存入力をリセットする既存の挙動を維持する（置き場所の理由は [ui-layout.md](ui-layout.md) の「compact の詳細シート」）。
-- DOM のテーマ反映・入力欄の高さ・チャットのスクロール・dialog のフォーカス同期・設定ページの Escape には Effect を残す（チャットのスクロールは設定ページを開いている間は触らず、戻ったときに追従中なら最新へ揃える。送信は `ChatState.sendSeq`（`localUser` でだけ 1 進む）の増加で拾い、バブルの形からは推測しない。追従の状態遷移としきい値は [ui-layout.md](ui-layout.md#チャットの自動追従と最下部ボタン)）。作業フォルダのシートを閉じる判定だけは、子の `showModal()` より先に state を確定させる必要があるため Effect ではなく描画中の同期にする（[ui-layout.md](ui-layout.md#既定オープンと手動操作)）。コピー完了待ちの要求は cleanup で無効化する。
-- 作業環境パネルの「環境変数」タブ（`EnvVarsTab`）は、要求元（`sessionId` / `projectId`）と取り直しの token が変わったときだけ一覧を取り直し、古い要求の応答は `AbortController` で捨てる。取得した値は入力欄の state にだけ置き、`localStorage` / `sessionStorage` / URL へは書かない（ドラフトの永続化はしない）。パネル / シートを閉じる・`Escape`・セッション切替では自然に破棄される（確認は出ない）。`EnvVarsTab` の key はパネルの `filesRoot` ではなく要求元の識別子（`sessionEnvScopeKey`）なので、cwd を共有する会話へ切り替えても再 mount される。desktop の `Escape` は dialog ではないため、フォームを開いている間だけ `EnvVarsTab` の keydown で畳む。タブの切り替えでも同じ（`EnvVarsTab` は選択中のときだけ mount する）。変更フォームの「変数の値のプリフィル」だけは詳細 API を 1 回引く（シークレットは引かない）
-- フォームの入力値は state updater の外でイベントから読む。updater は遅延評価されるため、その中で `event.currentTarget` を読むと null 参照でツリーごと落ちる（型では防げない）。この形がソースに戻っていないことは `client/test/eventInStateUpdater.test.ts` の限定的な禁止検査で補助する（[検査範囲](testing.md#残す限定的な検査)）。
-- ファイル画面の復元は `FileBrowser` の mount ごとに 1 回。設定 → ファイル の root は常にワークスペース root（`cwd=""` → `"."`）で確定し、作業フォルダ面（`SessionFilesPanel` の「作業フォルダ」タブ）は選択中セッションの作業フォルダ（`payload.cwd`）、セッション未作成では作成先プロジェクトの `cwd` を root にする。チャットのスキル面は参照が指す `.agents/skills/<name>` を root にする。どちらも起動処理（`useU7Agent` の boot）の完了を待たずに復元・取得・保存する
-- チャットの作業フォルダの開閉は `App` の state で、desktop のパネルと compact のシートを分ける（保存しない。URL にも載せない）。パネルの既定は「作成先がプロジェクトなら開」で、適用するのは利用者操作の新規会話の入口（`App` の `handleNewChat`）だけ（起動時は常に未所属なので閉）。派生 state（プロジェクト一覧の到着や root の解決）を契機にしない。コンパクトのシートは既定を持たず、設定ページへの出入り / root の変更 / desktop への復帰で閉じる（Effect ではなく描画中の同期。判定は `compact` / `mainView` / `filesRoot` の 3 キーで、`route` オブジェクトは比べない）。条件と期待値の表は [ui-layout.md](ui-layout.md#作業先と作業フォルダの導線)。run_end での取り直しは `ChatState.runEndSeq`（reducer が `run_end` と、`running` を抜けた `resync` で 1 ずつ進める）を起点にし、値が変わったときだけ撃つ。描画間の `runStatus` の差では、同じバッチで届いた `run_start` / `run_end` を React が 1 回の描画にまとめるため取りこぼす
-- チャットのファイル面のモード（作業フォルダ / スキル）も `App` の state で、要求の種別から決める。既定（作業フォルダ）へ戻すのは、閉じる導線（✕ / `Escape` / トグル）/ 選択中セッションの識別子の変化 / チャット以外への移動 / compact ⇄ desktop の切替で、**`filesRoot` (cwd) だけでは同一プロジェクトのセッション切替と新規チャットを拾えない**ため識別子も見る。判定は Effect ではなくシートを閉じるのと同じ描画中の同期で行う（子の `showModal()` より先に state を確定させる必要がある）
-- 復元の順序は 検証 → tabs / modes / 開いているディレクトリを一体で初期化（lazy initializer）→ 取得と保存を許可。復元前の空状態を保存せず、復元した modes を空の `tabs.paths` で掃除しない（StrictMode の再実行でも同じ結果になる）。`u7agent-files` の書き込みは他 cwd を消さない read-modify-write で、内容が同じときは書かない
+- 起動時の `/s/<id>` 解決とセッション一覧のポーリングは別の Effect とする。起動処理は表示期間に一度開始し、エージェント選択の変更では再実行しない
+- セッションを開く要求が失敗したときの移り先は一覧の未試行の先頭とし、**1 回の選択で試すのは一覧 1 周まで**にする（破損が複数あると「自分以外の先頭」が互いを指して同じ 2 つを往復し、1 回の選択で数百リクエストになる）。通知リンクの失敗時はこのフォールバックを使わない
+- cleanup 後は起動処理から呼ぶカタログ取得・一覧取得・セッション復元・health 取得の応答を適用しない。一覧取得は後から開始した要求を優先する。**送信経路のセッション作成 POST 自体を取り消す保証はない**
+- SSE はセッション ID・再接続カウンタに同期し、通知処理は `useEffectEvent` で最新の callback を参照する。OS テーマは `useSyncExternalStore` で購読する
+- 管理フォームの下書き（選択中の定義の編集値）はページが持つ。選択対象とカタログの変更を render 中に検出して初期化する（置き場所の理由は [compact の詳細シート](ui-layout.md#compact-の詳細シート)）
+- DOM のテーマ反映・入力欄の高さ・チャットのスクロール・dialog のフォーカス同期・設定ページの Escape には Effect を残す。送信は `sendSeq` の増加で拾い、バブルの形からは推測しない（[ui-layout.md](ui-layout.md#チャットの自動追従と最下部ボタン)）。作業環境のシートを閉じる判定だけは、子の `showModal()` より先に state を確定させる必要があるため Effect ではなく描画中の同期にする（[ui-layout.md](ui-layout.md#既定オープンと手動操作)）
+- **フォームの入力値は state updater の外でイベントから読む。** updater は遅延評価されるため、その中で `event.currentTarget` を読むと null 参照でツリーごと落ちる（型では防げない）。ソースに戻っていないことは `client/test/eventInStateUpdater.test.ts` の限定的な禁止検査で補助する
+- ファイル画面の復元は mount ごとに 1 回で、起動処理の完了を待たない。**復元の順序は 検証 → 初期化（lazy initializer）→ 取得と保存の許可**とし、復元前の空状態を保存せず、復元した表示モードを空のタブ一覧で掃除しない（StrictMode の再実行でも同じ結果になる）
+- チャットの作業フォルダ / スキル面の開閉とモードは `App` の state で、desktop のパネルと compact のシートを分ける（保存しない。URL にも載せない）。run 終了での取り直しは `runEndSeq` の変化で撃つ（描画間の `runStatus` の差では、同じバッチの `run_start` / `run_end` を React が 1 回にまとめて取りこぼす）
