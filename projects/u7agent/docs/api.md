@@ -424,24 +424,8 @@ Content-Security-Policy: sandbox allow-scripts; default-src 'none'; style-src 'u
 - 503 は `{ "error": "…", "state": "not_stored" }` で、何も保存されていないことを示す（DB 書込前の失敗、ランタイム初期化失敗など）。400 は `{ "error": "…" }` だけ。`PUT /api/settings/models/allowed` もランタイムが無いときは 503 `not_stored`（カタログ検証ができないため）
 - 400: 未知の provider / `canSetApiKey` が false の provider への PUT、登録行が無い provider の DELETE、再同期の対象外（カタログに無く degraded も `remove` でない）、メモの対象外 provider。サンドボックスは使わない
 - `POST /:provider/resync` は冪等。degraded でない provider に送っても現在の DB 希望状態を再適用して 200 を返す
-- `POST /api/settings/models/catalog/refresh` は `modelRuntime.refresh({ allowNetwork: true, force: true, signal })` と `refreshModelState()` を、キー変更と同じロックの内側で 1 回ずつ通す。応答は `GET /api/runtime/models` と同じ形 + `catalogError`（`null` なら今回の取得成功）。一部 provider の失敗・期限の abort・`refresh()` の例外・`PI_OFFLINE` でも 200 とし、一覧は「更新後の現在値」を返す（固定文言と分類は [model-settings.md](model-settings.md#モデルカタログの取得と更新)）。設定は変えないため `state` を持たず、カタログそのものを返せないときだけ 503 `{ "error": "ランタイムのモデル情報を取得できません" }` を返す。失敗しても一覧は失わせない
-
-```json
-// POST /api/settings/models/catalog/refresh (200)
-{
-  "catalogCount": 402,
-  "availableCount": 12,
-  "versions": { "piCodingAgent": "1.0.3" },
-  "providers": [
-    {
-      "provider": "<provider>",
-      "auth": { "configured": true, "source": "runtime", "environmentVariables": [] },
-      "models": [{ "id": "<id>", "name": "…", "available": true }]
-    }
-  ],
-  "catalogError": null
-}
-```
+- `POST /api/settings/models/catalog/refresh` は body 無し。pi.dev の provider 別カタログを取り直し、キー変更と同じロックの内側で「取得 → 公開 state の再計算 → 応答の組み立て」を 1 回ずつ行う。取得と再計算は同じ期限を共有し、期限到達後は読み取りを中断して公開 state を差し替えない（一覧と available は現在値のまま。ロックも期限以上には保持しない）
+- 200 の応答は `GET /api/runtime/models` と同じ形 + `catalogError`（`null` なら今回の取得成功）。一部 provider の失敗・期限の abort・取得の例外・`PI_OFFLINE` でも 200 とし、一覧は更新できた範囲（期限で中断したときは更新前）を返す。設定を変えないため `state` を持たず、カタログそのものを返せないときだけ `GET /api/runtime/models` と同じ 503 を返す。失敗しても一覧は失わせない（分類と文言の契約は [model-settings.md](model-settings.md#モデルカタログの取得と更新)）
 
 ## Web 検索の設定（設定 → モデルの Web 検索タブ）
 

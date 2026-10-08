@@ -95,9 +95,9 @@ GUI の会話履歴は **BFF 専用の会話ストア**（`PI_SESSION_STORE`）�
 
 ## モデルカタログのキャッシュ（SDK）
 
-設定 → モデルの [カタログ更新] が取得する pi.dev 由来のカタログは、pi SDK が `getAgentDir()` 配下の `models-store.json`（既定は `$HOME/.pi/agent/models-store.json`。BFF は `PI_CODING_AGENT_DIR` を設定しない）へ保存する。**アプリのデータではない**ので、アプリ DB には列も行も増やさない。
+設定 → モデル（`/settings/models`）の [カタログ更新] が取得する pi.dev 由来のカタログは、pi SDK がエージェント設定ディレクトリ配下の `models-store.json`（BFF は置き場所を変える環境変数を設定しないため、既定は `$HOME/.pi/agent/models-store.json`）へ保存する。**アプリのデータではない**ので、アプリ DB には列も行も増やさない。
 
-- 書くのは SDK だけ。BFF は `modelRuntime.refresh()` を通して間接的に更新し、取得結果の永続化は SDK に任せる
+- 書くのは SDK だけ。BFF は SDK の取得 API を通して間接的に更新し、取得結果の永続化は SDK に任せる
 - BFF のプロセス再起動では残り、起動時に overlay として読まれる（同梱カタログへの上書き）。コンテナを作り直すと消え、同梱カタログへ戻る。永続ボリュームにはならない（`PI_CODING_AGENT_DIR` で置き場所を変えない限り）
 - 失われてもアプリの起動・設定 API・会話は壊れない。恒久化と `PI_CODING_AGENT_DIR` の変更は非ゴール（[model-settings.md](model-settings.md#モデルカタログの取得と更新)）
 - このファイルを削除しても、GUI で登録したキー（アプリ DB）と `auth.json` は消えない
