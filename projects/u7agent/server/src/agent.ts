@@ -8,6 +8,7 @@ import {
   SettingsManager,
   VERSION,
   type CreateAgentSessionOptions,
+  type ResourceDiagnostic,
   type Skill,
 } from "@earendil-works/pi-coding-agent";
 import { getSupportedThinkingLevels } from "@earendil-works/pi-ai";
@@ -19,6 +20,7 @@ import { createAskUserToolDefinitions, withAskUserTool, type AskUserHost } from 
 import { catalogSkillIndexForSession } from "./catalog-skills";
 import { discoverSessionFileSkills } from "./file-skills";
 import { createImageToolDefinitions, IMAGE_GENERATION_PROMPT_LINES, sessionToolNames } from "./image-tools";
+import { createInvestigateToolDefinitions, withInvestigateTool, type InvestigateHost } from "./investigate-tool";
 import { createImagesGenerator, type ImageGenerationConfig } from "./images";
 import { resolveWorkspaceCwd } from "./projects";
 import { ThinkingLevelSchema } from "./schema";
@@ -110,6 +112,30 @@ ${options.imageGeneration ? IMAGE_GENERATION_PROMPT_LINES.join("\n") : ""}
 `.trim();
 }
 
+/**
+ * 子セッション (investigate) の追加プロンプト。読み取り専用の調査だけを担うため、ファイル変更・
+ * serve・スキル作成・画像生成・Python の環境構築の案内は落とす (`docs/subagent.md`)。
+ */
+export function investigationSystemPrompt(): string {
+  return `
+You are running as a read-only investigation sub-agent inside a small browser UI. Another agent asked you to investigate, and the caller reads only your final message.
+Never change files: you have no \`edit\` / \`write\` tool, and every command you run must be read-only. You cannot ask the user questions and cannot delegate another investigation.
+Answer in the language of the request unless it asks for another language.
+The working directory is the registered project directory for a project session, or a per-session scratch directory for a standalone chat.
+User messages may reference files by an \`@<path>\` mention, or \`@"<path>"\` when the path contains spaces or quotes. Treat the path as relative to the working directory and open the referenced files with \`read\` when they matter.
+
+Environment: the tools run in a dedicated sandbox, not in the user's editor process.
+In deployment it is a non-root Linux container where apt-get install fails.
+
+Networking: use curl for HTTP(S) (e.g. \`curl -fsSL <url>\`).
+In the deployed container: node 24, npm/npx, git, ripgrep (rg), fd, tar/gzip, unzip, zip, jq, file, xz, openssl, python 3.13, uv.
+Not installed there: wget, ffmpeg, imagemagick.
+
+When summarizing files, refer to files inside the working directory by cwd-relative path.
+Prefer a few targeted reads over dumping whole files; report the paths you actually read.
+`.trim();
+}
+
 const DEFAULT_TOOLS =
   process.platform === "win32"
     ? ["read", "powershell", "edit", "write", "grep", "find", "ls"]
@@ -132,7 +158,11 @@ export interface CreateSessionInput {
   promptSnapshot?: PromptSnapshot;
   /** セッションのエージェントスナップショット (カタログスキルの説明の出所。復元でも渡す) */
   agentSkills?: AgentSkillInfo[];
+  /** 子モード。読み取り専用ツールだけを公開し、常時有効群とスキル発見を落とす (既定 "chat") */
+  mode?: SessionMode;
 }
+
+export type SessionMode = "chat" | "investigation";
 
 /**
  * 作成時の agent / skill スナップショット。agent は appendSystemPrompt へ入れる。skills は本文の出所
@@ -223,6 +253,11 @@ export interface PiBff {
    * ask_user ツールの実体を注入する。待機の所有は SessionStore が持ち、ツールはここの ask を await する
    */
   setAskUser(host: AskUserHost): void;
+  /**
+   * investigate ツールの実体を注入する。子の生成と並列の所有は SessionStore 側の runner が持ち、
+   * ツールはここの investigate を await する
+   */
+  setInvestigate(host: InvestigateHost): void;
   /**
    * 作業フォルダの変数をエージェントの bash へ注入する。bootstrap がアプリデータ (secrets) を持つため、
    * 解決はこの源へ委譲する (シークレットはここへ入れない)
@@ -530,6 +565,14 @@ function configuredTools(): string[] {
   return tools.length > 0 ? tools : DEFAULT_TOOLS;
 }
 
+/** 子 (investigation モード) へ渡してよいツール。読み取り専用で、project のファイルを変えない */
+export const INVESTIGATION_TOOLS = ["read", "grep", "find", "ls", "bash"] as const;
+
+/** 子の allowlist。`PI_AGENT_TOOLS` で絞られている運用では子にも入らない (積を取る) */
+export function investigationTools(base: readonly string[]): string[] {
+  return INVESTIGATION_TOOLS.filter((tool) => base.includes(tool));
+}
+
 /** SDK の compaction の既定値 (SettingsManager と同じ) */
 const DEFAULT_COMPACTION_RESERVE_TOKENS = 16_384;
 const DEFAULT_COMPACTION_KEEP_RECENT_TOKENS = 20_000;
@@ -570,6 +613,8 @@ export interface SessionResourceLoaderInput {
   fileSkills?: Skill[];
   /** カタログ (Agent 割り当て) スキルの索引。本文は持たず、仮想パスを read させる */
   catalogSkills?: Skill[];
+  /** 子セッションは索引を渡さない (発見もしない)。既定 true */
+  injectSkills?: boolean;
 }
 
 /**
@@ -590,10 +635,14 @@ export function createSessionResourceLoader(input: SessionResourceLoaderInput): 
     noContextFiles: true,
     extensionFactories: [createSecretRedactionExtension(input.secretMasker)],
     appendSystemPrompt: input.appendSystemPrompt,
-    skillsOverride: (base) => ({
-      skills: [...base.skills, ...(input.fileSkills ?? []), ...(input.catalogSkills ?? [])],
-      diagnostics: base.diagnostics,
-    }),
+    ...(input.injectSkills === false
+      ? {}
+      : {
+          skillsOverride: (base: { skills: Skill[]; diagnostics: ResourceDiagnostic[] }) => ({
+            skills: [...base.skills, ...(input.fileSkills ?? []), ...(input.catalogSkills ?? [])],
+            diagnostics: base.diagnostics,
+          }),
+        }),
   });
 }
 
@@ -645,6 +694,8 @@ export async function createPiBff({ cwd = process.cwd() }: { cwd?: string } = {}
   const serveHost: { value: ServeToolHost | null } = { value: null };
   // ask_user の実体も bootstrap が注入する。待機の所有者は SessionStore (run 状態と同じ場所に置く)
   const askUserHost: { value: AskUserHost | null } = { value: null };
+  // investigate の実体も bootstrap が注入する。子の生成と並列の所有者は SessionStore 側の runner
+  const investigateHost: { value: InvestigateHost | null } = { value: null };
   // 変数 (作業環境 → 環境変数) の解決源も同じく bootstrap が注入する。未注入なら env 無しで実行する
   const sessionEnv: { value: SessionEnvSource | null } = { value: null };
 
@@ -681,7 +732,9 @@ export async function createPiBff({ cwd = process.cwd() }: { cwd?: string } = {}
     entries,
     promptSnapshot,
     agentSkills = [],
+    mode = "chat",
   }: CreateSessionInput = {}): Promise<{ session: unknown; promptSnapshot: PromptSnapshot }> {
+    const investigation = mode === "investigation";
     // 不正な cwd はモデル解決より先に 400 にする (実行できない指定を 503 の裏に隠さない)
     const { relative: relativeCwd, absolute: sessionCwd } = resolveWorkspaceCwd(rootCwd, requestedCwd);
     // 明示されたモデルは利用可能一覧と厳密照合する
@@ -720,30 +773,40 @@ export async function createPiBff({ cwd = process.cwd() }: { cwd?: string } = {}
     const serveToolEnabled = serveHost.value?.configured === true;
     // 質問ツールは常時有効 (PI_AGENT_TOOLS の allowlist には依存させない)。実体未注入のときだけ落とす
     const askUserEnabled = askUserHost.value !== null;
-    const baseTools = configuredTools();
+    const investigateEnabled = investigateHost.value !== null;
+    // 子は読み取り専用の調査に限る。serve / ask_user と同じく allowlist には依存させず、
+    // 逆に allowlist (PI_AGENT_TOOLS) で絞られている分は子にも引き継ぐ
+    const baseTools = investigation ? investigationTools(configuredTools()) : configuredTools();
     // ファイルスキルは SDK のネイティブ発見を使わず、サンドボックスで発見した一覧を skillsOverride で渡す
-    // (発見に失敗してもスキル無しでセッション作成を続行する)
-    const fileSkills = await discoverSessionFileSkills(sandboxClient, { rootCwd, relativeCwd });
+    // (発見に失敗してもスキル無しでセッション作成を続行する)。子はスキルを使わないので往復もしない
+    const fileSkills = investigation
+      ? { skills: [] }
+      : await discoverSessionFileSkills(sandboxClient, { rootCwd, relativeCwd });
     // カタログスキルは索引 (name / description / location) だけを渡し、本文は promptSnapshot から
     // read / `/skill:` の展開が取り出す。ファイル / 組み込みと同名の行は索引からも落とす (一覧と一致)
-    const catalogSkillBodies = catalogSkillsFromSnapshot(snapshot);
-    const catalogIndex = catalogSkillIndexForSession(
-      rootCwd,
-      catalogSkillBodies,
-      agentSkills,
-      fileSkills.skills.map((skill) => skill.name),
-    );
+    const catalogSkillBodies = investigation ? [] : catalogSkillsFromSnapshot(snapshot);
+    const catalogIndex = investigation
+      ? []
+      : catalogSkillIndexForSession(
+          rootCwd,
+          catalogSkillBodies,
+          agentSkills,
+          fileSkills.skills.map((skill) => skill.name),
+        );
     const resourceLoader = createSessionResourceLoader({
       cwd: sessionCwd,
       agentDir,
       settingsManager,
       secretMasker,
       appendSystemPrompt: [
-        appendSystemPrompt(rootCwd, { imageGeneration: imageGenerationEnabled }),
+        investigation
+          ? investigationSystemPrompt()
+          : appendSystemPrompt(rootCwd, { imageGeneration: imageGenerationEnabled }),
         snapshot.agent,
       ].filter(Boolean),
       fileSkills: fileSkills.skills,
       catalogSkills: catalogIndex,
+      injectSkills: !investigation,
     });
     await resourceLoader.reload();
 
@@ -761,14 +824,20 @@ export async function createPiBff({ cwd = process.cwd() }: { cwd?: string } = {}
         sessionId ? { id: sessionId } : undefined,
         entries as Parameters<typeof SessionManager.inMemory>[2],
       ),
-      // web_search と ask_user はどちらも BFF ローカルの customTool。allowlist (tools) には
-      // それぞれの追加分を足すだけで、片方が他方を上書きしない
-      tools: withAskUserTool(
-        withWebSearchTool(withServeTool(sessionToolNames(baseTools, imageGenerationEnabled), serveToolEnabled)),
-        askUserEnabled,
-      ),
+      // web_search / ask_user / investigate はどれも BFF ローカルの customTool。allowlist (tools) には
+      // それぞれの追加分を足すだけで、片方が他方を上書きしない。子モードでは常時有効群を一切足さない
+      tools: investigation
+        ? baseTools
+        : withInvestigateTool(
+            withAskUserTool(
+              withWebSearchTool(withServeTool(sessionToolNames(baseTools, imageGenerationEnabled), serveToolEnabled)),
+              askUserEnabled,
+            ),
+            investigateEnabled,
+          ),
       // 組込み定義を「サンドボックスの実行API を呼ぶリモート定義」で置き換え、BFF 上で作業コードを実行しない。
-      // web_search・画像生成・serve は BFF ローカルの customTool として足す（サンドボックスには送らない）
+      // web_search・画像生成・serve・ask_user・investigate は BFF ローカルの customTool として足す
+      // (サンドボックスには送らない)
       customTools: [
         ...createRemoteToolDefinitions({
           cwd: sessionCwd,
@@ -781,31 +850,41 @@ export async function createPiBff({ cwd = process.cwd() }: { cwd?: string } = {}
           // 解決は exec のたびに行う (設定の変更は次の bash から効く)
           envForCwd: () => sessionEnv.value?.variablesFor(relativeCwd) ?? {},
         }),
-        ...createWebSearchToolDefinitions({
-          masker: secretMasker,
-          readEnabled: () => webSearch.config.readEnabled(),
-          readProvider: () => webSearch.config.readProvider(),
-          readApiKey: (provider) => webSearch.config.readApiKey(provider),
-        }),
-        ...createImageToolDefinitions({
-          enabled: imageGenerationEnabled,
-          sessionCwd: relativeCwd,
-          workspace: sandboxClient,
-          masker: secretMasker,
-          readSettings: () => imageGeneration.config?.read(),
-          readOutputFormats: (model) => imageGeneration.config?.readOutputFormats(model),
-          generate: imagesGenerator.generate,
-        }),
-        ...createServeToolDefinitions({
-          enabled: serveToolEnabled,
-          sessionId: ownerSessionId ?? sessionId,
-          host: serveHost.value as ServeToolHost,
-        }),
-        ...createAskUserToolDefinitions({
-          enabled: askUserEnabled,
-          sessionId: ownerSessionId ?? sessionId,
-          host: askUserHost.value as AskUserHost,
-        }),
+        ...(investigation
+          ? []
+          : [
+              ...createWebSearchToolDefinitions({
+                masker: secretMasker,
+                readEnabled: () => webSearch.config.readEnabled(),
+                readProvider: () => webSearch.config.readProvider(),
+                readApiKey: (provider) => webSearch.config.readApiKey(provider),
+              }),
+              ...createImageToolDefinitions({
+                enabled: imageGenerationEnabled,
+                sessionCwd: relativeCwd,
+                workspace: sandboxClient,
+                masker: secretMasker,
+                readSettings: () => imageGeneration.config?.read(),
+                readOutputFormats: (model) => imageGeneration.config?.readOutputFormats(model),
+                generate: imagesGenerator.generate,
+              }),
+              ...createServeToolDefinitions({
+                enabled: serveToolEnabled,
+                sessionId: ownerSessionId ?? sessionId,
+                host: serveHost.value as ServeToolHost,
+              }),
+              ...createAskUserToolDefinitions({
+                enabled: askUserEnabled,
+                sessionId: ownerSessionId ?? sessionId,
+                host: askUserHost.value as AskUserHost,
+              }),
+              ...createInvestigateToolDefinitions({
+                enabled: investigateEnabled,
+                sessionId: ownerSessionId ?? sessionId,
+                host: investigateHost.value as InvestigateHost,
+                masker: secretMasker,
+              }),
+            ]),
       ],
     };
 
@@ -866,6 +945,9 @@ export async function createPiBff({ cwd = process.cwd() }: { cwd?: string } = {}
     },
     setAskUser(host) {
       askUserHost.value = host;
+    },
+    setInvestigate(host) {
+      investigateHost.value = host;
     },
     setSessionEnv(source) {
       sessionEnv.value = source;

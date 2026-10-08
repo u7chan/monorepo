@@ -360,6 +360,15 @@ References are relative to /workspace/.agents/skills/writer.
 - `answers` は `{ index, selected?, text?, skipped? }` の配列。`skipped` は質問ごとの「回答しない」で `selected` / `text` とは排他。停止・中止では空配列になり、カードを「回答なしで終了」として復元できる（未回答 = キーが無い、とは区別する）
 - `run.toolCalls` は待機中もこのフィールドを持ち、リロード / SSE 再接続の復帰に使う。クライアントは `answers` が無く `done: false` のカードを回答待ちとして扱う
 
+### investigate（調査の委譲）
+
+`investigate`（[subagent.md](subagent.md)）は BFF ローカルのツールで、引数は `prompt` 1 本だけ。親のランでは通常のツール呼び出し（`tool_start` / `tool_end` と `messages[].tools`）として見え、完了すると要約カードになる。**結果のための専用 DTO フィールドは持たず**、`content`（子の報告）と `details`（内訳）だけで表す。
+
+- モデルへ返る `content` は子の報告で、4,000 文字に切り詰める。カードに出るのは `SUMMARY_TEXT_MAX`（900 文字）まで
+- `details` は `{ outcome, toolCalls, usage?, compactions? }`。`outcome` は `completed` / `timeout` / `aborted` / `error` で、打ち切り・失敗は `isError: true` と理由 + 部分報告の `content` になる
+- 子は読み取り専用ツールだけを持つ使い捨てのセッションで、親の `session.jsonl` にも `SessionStore` にも残らない（親には toolResult だけが残る）
+- 打ち切りは親の stop（`POST /stop`）と 10 分のタイムアウトの両方で同じ経路（`AbortSignal`）。`stop` に専用のフックは無い
+
 ## `POST /api/sessions/:id/questions/:toolCallId/answer`
 
 `ask_user` の回答。質問ごとに `selected`（選択した label）/ `text`（自由記入）/ `skipped: true`（回答しない）のどれかを載せ、**全質問に 1 つずつ**必要（質問数と合わない・範囲外・重複 index は 400）。`skipped` と `selected` / `text` の同時指定も 400。`text` は 2000 文字まで。

@@ -8,6 +8,7 @@ import type { PiBff } from "../src/agent";
 import type { ModelSelection } from "../src/agent";
 import { MODEL_UNSET_MESSAGE } from "../src/agent";
 import type { AskUserHost } from "../src/ask-user-tool";
+import type { InvestigateHost } from "../src/investigate-tool";
 import type { ImageGenerationConfig } from "../src/images";
 import type { ServeToolHost } from "../src/serve-tool";
 import type { WebSearchRuntimeConfig } from "../src/web-search-tool";
@@ -566,6 +567,8 @@ export interface StubCreateInput {
   promptSnapshot?: { agent: string; skills: string[] };
   /** セッションのエージェントスナップショット (スタブでは使わない) */
   agentSkills?: AgentSkillInfo[];
+  /** 子モード (investigate の子セッション)。呼び出し側の検証用に記録するだけ */
+  mode?: "chat" | "investigation";
 }
 
 export interface StubPiOptions {
@@ -691,6 +694,8 @@ export function createStubPi(options: StubPiOptions = {}) {
   const serveHosts: ServeToolHost[] = [];
   // ask_user ツールの実体 (bootstrap が注入する)。待機の所有は実物と同じく store 側にある
   const askUserHosts: AskUserHost[] = [];
+  // investigate ツールの実体 (bootstrap が注入する)。子は record に載らないので、記録するだけ
+  const investigateHosts: InvestigateHost[] = [];
   // 環境変数 (作業環境 → 環境変数) の解決源。bootstrap が注入する
   const sessionEnvs: SessionEnvSource[] = [];
   let refreshCount = 0;
@@ -736,6 +741,10 @@ export function createStubPi(options: StubPiOptions = {}) {
     askUserHosts,
     setAskUser: (host: AskUserHost) => {
       askUserHosts.push(host);
+    },
+    investigateHosts,
+    setInvestigate: (host: InvestigateHost) => {
+      investigateHosts.push(host);
     },
     sessionEnvs,
     setSessionEnv: (source: SessionEnvSource) => {
