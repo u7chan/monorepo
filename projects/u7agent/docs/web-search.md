@@ -101,7 +101,7 @@ provider が「成功 / 失敗 / 失敗の種類」を返し、共通側が種�
 - 正はアプリ DB の `web_search_settings`（id = 1 の 1 行、`enabled` と `provider`）で、**行が無い = 既定（有効 / Exa）**。無効化のためにデプロイを要する設計にしないことが目的なので、既定は ON（[persistence.md](persistence.md#アプリデータsqlite)）
 - ツールは `execute` のたびに `readEnabled()` を読む。**セッション作成時に凍結しない**ため、OFF にした瞬間から既存のセッションの次の呼び出しにも効く（ツール一覧は新しい会話にしか効かないので、実行時に拒否する）
 - OFF の間は検索も送信もしない。provider の `fetch` を呼ばず、固定文言 `WEB_SEARCH_DISABLED_MESSAGE`（「Web 検索は無効化されています。有効にするには 設定 → モデル → Web 検索 を開いてください。」）で throw する。設定画面は API が返す `disabledMessage` をそのまま出す
-- 経路は 設定サービス（`server/src/web-search-settings.ts`）→ `PiBff.setWebSearch()` → ツールの `readEnabled()` / `readProvider()` / `readApiKey()`。書き込みと `applyStored()` は `MutationLock` の内側で直列化する（画像生成と同じ形）
+- 経路は 設定サービス（`server/src/web-search-settings.ts`）→ `PiBff.setWebSearch()` → ツールの `readEnabled()` / `readProvider()` / `readApiKey()`。書き込みと `applyStored()` は `MutationLock` の内側で直列化する（コンテンツ生成と同じ形）
 - DB を読めない起動でも**有効 / Exa** で立ち、警告だけを残す（行が無い = 既定と同じ扱いにし、読めないだけで検索を黙って止めない）。設定 API は DB の 503 で気付ける（[persistence.md](persistence.md#アプリデータsqlite)）
 - モデルから見るとツールは存在したままなので、無効時もモデルは呼べて、そのたびに固定文言の失敗が返る（無駄な往復を避けたくなったら system prompt / `promptGuidelines` への反映を別途検討する）。日時依存の質問を `web_search` へ誘導する指針のぶん、OFF 中の空振り呼び出しは増える
 
@@ -111,7 +111,7 @@ provider が「成功 / 失敗 / 失敗の種類」を返し、共通側が種�
 
 - 既定 provider は `web_search_settings.provider` へ保存する。選択肢は API が返す `providers[]`（id / 名前 / 送信先 / キーの要否 / 設定済みか）から作り、**選んだ時点で既定になり保存される**（別の「〜を既定にする」ボタンは置かない）。選択中の provider の設定だけを下に出す
 - キーは `web_search_provider_keys`（1 行 1 provider）へ保存し、**値は API の応答へ返さない**（`configured` だけを返す）。削除は行ごと消し、未設定でも 200 の冪等
-- キーの保存方式は**平文**（画像生成・プロバイダー APIキーと同じ。暗号化するのは 作業環境 → 環境変数 のシークレットだけ）。保存した値は `retainSecret()` へ渡してマスカーへ登録し、起動時にも全 provider の保存済みキーを登録する。したがって保護されるのは**出力・ログ・会話の時点**で、DB・WAL・バックアップの残存リスクは [secrets.md](secrets.md) を正とする
+- キーの保存方式は**平文**（コンテンツ生成・プロバイダー APIキーと同じ。暗号化するのは 作業環境 → 環境変数 のシークレットだけ）。保存した値は `retainSecret()` へ渡してマスカーへ登録し、起動時にも全 provider の保存済みキーを登録する。したがって保護されるのは**出力・ログ・会話の時点**で、DB・WAL・バックアップの残存リスクは [secrets.md](secrets.md) を正とする
 - キーが未設定のまま provider を既定にすることは**できる**。画面は警告行を出し、検索すると `key_missing` の固定文言で失敗する（選択とキー登録の順序を強制しない）
 - 外部送信の注意（クエリがどこへ出るか・キーの平文保存・ログイン無しで公開しない）は、設定を変える前に読めるよう既定で畳んで出す。折りたたみ中も `webSearchNoticeSummary()` が送信先とキーの扱いを 1 行で見せる
 - 環境変数は増やさない（[.env.example](../.env.example) に変更は無い）

@@ -20,8 +20,8 @@ import { createAskUserToolDefinitions, withAskUserTool, type AskUserHost } from 
 import { catalogSkillIndexForSession } from "./catalog-skills";
 import { discoverSessionFileSkills } from "./file-skills";
 import { createImageToolDefinitions, IMAGE_GENERATION_PROMPT_LINES, sessionToolNames } from "./image-tools";
+import { createImagesGenerator, type ContentGenerationConfig } from "./images";
 import { createInvestigateToolDefinitions, withInvestigateTool, type InvestigateHost } from "./investigate-tool";
-import { createImagesGenerator, type ImageGenerationConfig } from "./images";
 import { resolveWorkspaceCwd } from "./projects";
 import { ThinkingLevelSchema } from "./schema";
 import { createServeToolDefinitions, withServeTool, type ServeToolHost } from "./serve-tool";
@@ -255,12 +255,12 @@ export interface PiBff {
     signal: AbortSignal;
   }): Promise<ModelCatalogRefreshAttempt>;
   /** 画像生成ツールを公開しているか。セッション作成時に読み、ツール一覧を固定する */
-  imageGenerationEnabled: boolean;
+  contentGenerationEnabled: boolean;
   /**
-   * 画像生成の設定を注入する。DB を正とする ImageSettingsService が同じロックの内側で呼び、
+   * コンテンツ生成の設定を注入する。DB を正とする ContentSettingsService が同じロックの内側で呼び、
    * `read` は常に差し替える（既存セッションの execute は削除後も現在の行を見に行く）
    */
-  setImageGeneration(config: ImageGenerationConfig): void;
+  setContentGeneration(config: ContentGenerationConfig): void;
   /**
    * `web_search` の実行時設定（有効 / 無効・既定 provider・provider のキー）を注入する。ツールは
    * execute のたびに読むため、既存セッションにも次の呼び出しから効く。設定が未注入の間は有効 / Exa
@@ -713,9 +713,9 @@ export async function createPiBff({ cwd = process.cwd() }: { cwd?: string } = {}
   const selection: ModelSelection = { allowedModels: undefined, defaultModel: undefined };
   const versions = runtimeVersionInfo();
   const maskError = (error: unknown): string => secretMasker.mask(errorMessage(error));
-  // 画像生成は DB を正とする ImageSettingsService が setImageGeneration() で写す。初期値は無効で、
+  // コンテンツ生成の設定は DB を正とする ContentSettingsService が setContentGeneration() で写す。初期値は無効で、
   // ツール定義はセッション作成時にこの値を見る（既存会話へ遡及しない）
-  const imageGeneration: { config: ImageGenerationConfig | undefined } = { config: undefined };
+  const imageGeneration: { config: ContentGenerationConfig | undefined } = { config: undefined };
   const imagesGenerator = createImagesGenerator({ maskText: maskError });
   // Web 検索の設定も DB を正とする WebSearchSettingsService が写す。既定は有効 / Exa で、
   // ツールは execute のたびにここを読む（セッション作成時に凍結しない）
@@ -986,10 +986,10 @@ export async function createPiBff({ cwd = process.cwd() }: { cwd?: string } = {}
       selection.allowedModels = next.allowedModels;
       selection.defaultModel = next.defaultModel;
     },
-    get imageGenerationEnabled() {
+    get contentGenerationEnabled() {
       return imageGeneration.config?.enabled === true;
     },
-    setImageGeneration(config) {
+    setContentGeneration(config) {
       imageGeneration.config = config;
     },
     setWebSearch(config) {

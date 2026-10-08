@@ -27,7 +27,7 @@ DTO の正は `server/src/schema.ts`（zod）。リクエストボディは `@ho
 | 通知（Discord） | `GET/PUT /api/notifications`、`POST /api/notifications/test`、`PATCH /api/sessions/:id/notify` | [notifications.md](notifications.md) |
 | アーカイブの除外名 | `GET/PUT/DELETE /api/settings/archive` | このファイル |
 | プロバイダーAPIキーとメモ（設定 → モデル） | `GET /api/settings/models`、`PUT/DELETE /api/settings/models/:provider/key`、`PUT /api/settings/models/:provider/memo`、`POST /api/settings/models/:provider/resync`、`POST /api/settings/models/catalog/refresh` | このファイル |
-| 画像生成（設定 → モデル） | `GET/PUT /api/settings/images`、`PUT/DELETE /api/settings/images/key`、`POST /api/settings/images/catalog/refresh` | このファイル、[image-generation.md](image-generation.md) |
+| コンテンツ生成（設定 → モデル） | `GET /api/settings/content`、`PUT /api/settings/content/image`、`PUT/DELETE /api/settings/content/key`、`POST /api/settings/content/image/catalog/refresh` | このファイル、[image-generation.md](image-generation.md) |
 | Web 検索の設定（設定 → モデル） | `GET/PUT /api/settings/web-search`、`PUT /api/settings/web-search/provider`、`PUT/DELETE /api/settings/web-search/providers/:provider/key` | このファイル、[web-search.md](web-search.md) |
 | サービス（serve）の状態と起動・停止 | `GET /api/serve/status`、`POST /api/serve/start`、`POST /api/serve/stop` | このファイル、[sandbox.md](sandbox.md#serveサービスの公開と起動停止) |
 | 作業フォルダの環境変数（作業環境 → 環境変数） | `GET/POST /api/secrets`、`GET/PUT/DELETE /api/secrets/:secretId` | このファイル、[secrets.md](secrets.md#作業フォルダの環境変数作業環境--環境変数) |
@@ -458,31 +458,33 @@ Content-Security-Policy: sandbox allow-scripts; default-src 'none'; style-src 'u
 { "error": "Web 検索の設定をアプリデータ（SQLite）へ保存できませんでした", "state": "not_stored" }
 ```
 
-## 画像生成（設定 → モデルの画像生成タブ）
+## コンテンツ生成（設定 → モデルのコンテンツ生成タブ）
 
 | メソッド | パス | 説明 |
 | --- | --- | --- |
-| GET | `/api/settings/images` | `configured` / `provider` / `model` / `models`（カタログ）/ `catalogSource` / `fetchedAt` / `runtimeAvailable`。純粋読取で、APIキーは返さない |
-| PUT | `/api/settings/images` | `{ provider, model }`。キーを保持したまま選択を更新（行が無ければ 400） |
-| PUT | `/api/settings/images/key` | `{ apiKey }`。登録・上書き（行が無ければ既定 provider / model で作成） |
-| DELETE | `/api/settings/images/key` | 行ごと削除して未設定へ戻す（冪等） |
-| POST | `/api/settings/images/catalog/refresh` | live カタログの再取得。常に 200 で `{ models, catalogSource, fetchedAt, catalogError }` を返す（失敗時も前の一覧を返し、`catalogError` に固定文言を載せる） |
+| GET | `/api/settings/content` | `configured` / `provider` / `runtimeAvailable` / `image`（`model` / `models`（カタログ）/ `catalogSource` / `fetchedAt`）。純粋読取で、APIキーは返さない |
+| PUT | `/api/settings/content/image` | `{ provider, model }`。キーを保持したまま画像モデルの選択を更新（行が無ければ 400） |
+| PUT | `/api/settings/content/key` | `{ apiKey }`。登録・上書き（行が無ければ既定 provider / model で作成） |
+| DELETE | `/api/settings/content/key` | 行ごと削除して未設定へ戻す（冪等） |
+| POST | `/api/settings/content/image/catalog/refresh` | live カタログの再取得。常に 200 で `{ models, catalogSource, fetchedAt, catalogError }` を返す（失敗時も前の一覧を返し、`catalogError` に固定文言を載せる） |
 
 アプリデータの SQLite を読むため DB が使えないときは 503（[persistence.md](persistence.md#アプリデータsqlite)）。モデル、保存先、ゲート、失敗分類は [image-generation.md](image-generation.md) を正とする。
 
 ```json
-// GET /api/settings/images (200)
+// GET /api/settings/content (200)
 {
   "configured": true,
   "provider": "openrouter",
-  "model": "openai/gpt-image-2",
-  "models": [{ "provider": "openrouter", "id": "openai/gpt-image-2", "name": "OpenAI: GPT Image 2" }],
-  "catalogSource": "live",
-  "fetchedAt": 1740000000000,
-  "runtimeAvailable": true
+  "runtimeAvailable": true,
+  "image": {
+    "model": "openai/gpt-image-2",
+    "models": [{ "provider": "openrouter", "id": "openai/gpt-image-2", "name": "OpenAI: GPT Image 2" }],
+    "catalogSource": "live",
+    "fetchedAt": 1740000000000
+  }
 }
 
-// POST /api/settings/images/catalog/refresh (200。取得に失敗しても 200 で一覧は前のまま)
+// POST /api/settings/content/image/catalog/refresh (200。取得に失敗しても 200 で一覧は前のまま)
 {
   "models": [{ "provider": "openrouter", "id": "openai/gpt-image-2", "name": "OpenAI: GPT Image 2" }],
   "catalogSource": "stored",
@@ -491,8 +493,9 @@ Content-Security-Policy: sandbox allow-scripts; default-src 'none'; style-src 'u
 }
 ```
 
-- `configured` は `image_settings` に行があるか。`false` のとき `provider` / `model` は `null`（行が無い = 未設定）
-- `models` は live カタログ（OpenRouter の画像モデル API）で、UI はこの一覧からだけモデルを選べる。`catalogSource` は `live` / `stored` / `sdk` で、`live` 以外は取得に失敗した状態（`stored` = 前回の成功を DB キャッシュから、`sdk` = SDK 同梱）を表し、`fetchedAt` は最後に live を取得できた時刻（`sdk` は `null`）。キー値はどの応答にも含めない（[image-generation.md](image-generation.md#モデルカタログ)）
+- `configured` は `content_settings` に行があるか。`false` のとき `provider` / `image.model` は `null`（行が無い = 未設定）
+- `image` は画像に関する項目（いまはこれだけ）。音声などを足すときは同じ階層に項目を増やし、`image` の形は変えない
+- `image.models` は live カタログ（OpenRouter の画像モデル API）で、UI はこの一覧からだけモデルを選べる。`catalogSource` は `live` / `stored` / `sdk` で、`live` 以外は取得に失敗した状態（`stored` = 前回の成功を DB キャッシュから、`sdk` = SDK 同梱）を表し、`fetchedAt` は最後に live を取得できた時刻（`sdk` は `null`）。キー値はどの応答にも含めない（[image-generation.md](image-generation.md#モデルカタログ)）
 - `runtimeAvailable` は `/api/settings/models` と同じく「SDK ランタイムの初期化に成功したか」。`false` のときキー登録は 503 `not_stored`（`retainSecret` が no-op になり保護できないため）。選択変更と削除は runtime に依存しない
 - POST の `catalogError` は**今回の取得だけ**の結果で、`null` なら成功。失敗しても一覧と `catalogSource` は前のままで、503 にはしない（設定ではなくキャッシュの更新なので `state` も付けない）
 - 変更系の応答は GET と同じ形 + `state: "applied"`。SDK への反映を持たないため `applied_unsynced` は無い。DB 書込に失敗したときだけ 503 `{ error, state: "not_stored" }`

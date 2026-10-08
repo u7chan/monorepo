@@ -28,13 +28,13 @@ test("設定ナビはスペースと既存の 8 項目をこの順で持つ", ()
   );
 });
 
-test("設定 → モデルのタブは「モデルを選ぶ / プロバイダー / 画像生成 / Web 検索」の 4 項目で、既定はモデルを選ぶ", () => {
+test("設定 → モデルのタブは「モデルを選ぶ / プロバイダー / コンテンツ生成 / Web 検索」の 4 項目で、既定はモデルを選ぶ", () => {
   assert.deepEqual(
     MODELS_SUBSECTIONS.map((item) => [item.subsection, item.label]),
     [
       ["models", "モデルを選ぶ"],
       ["providers", "プロバイダー"],
-      ["images", "画像生成"],
+      ["content", "コンテンツ生成"],
       ["web-search", "Web 検索"],
     ],
   );

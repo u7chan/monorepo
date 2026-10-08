@@ -19,7 +19,7 @@ import type {
 
 export const APP_DB_FILENAME = "u7agent.db";
 /** テーブル定義を変えたら上げる。新規作成と加算移行はこの版へ揃え、未知の版は作り直す */
-export const APP_DB_SCHEMA_VERSION = 14;
+export const APP_DB_SCHEMA_VERSION = 15;
 
 /** プロバイダー API キーの保存行。平文なのでアクセス権の管理は docs/secrets.md を正とする */
 export interface ProviderCredentialRow {
@@ -45,12 +45,12 @@ export interface ModelSettingsRow {
 }
 
 /**
- * 画像生成の保存行。**行が無い = 未設定**で、キー削除は行ごと消す。apiKey は平文
+ * コンテンツ生成の保存行。**行が無い = 未設定**で、キー削除は行ごと消す。apiKey は平文
  * (アクセス権の管理と残存リスクは docs/secrets.md / docs/image-generation.md を正とする)
  */
-export interface ImageSettingsRow {
+export interface ContentSettingsRow {
   provider: string;
-  model: string;
+  imageModel: string;
   apiKey: string;
 }
 
@@ -198,16 +198,17 @@ CREATE TABLE IF NOT EXISTS provider_memos (
 `;
 
 /**
- * v7 -> v8 で足したテーブル。画像生成の provider / model / APIキーを 1 行だけ持ち、
- * **行が無い = 未設定**（キー削除は行ごと消す）。provider_credentials とは別管理にし、
- * プロバイダー登録キーを画像生成へ流用しない（docs/image-generation.md）。
+ * v7 -> v8 で足したテーブル。v14 -> v15 で `image_settings`（provider / model / apiKey）から
+ * コンテンツ生成の `content_settings`（provider / imageModel / apiKey）へ改名した。
+ * 1 行だけ持ち、**行が無い = 未設定**（キー削除は行ごと消す）。provider_credentials とは別管理にし、
+ * プロバイダー登録キーを生成へ流用しない（docs/image-generation.md）。
  */
-const IMAGE_SETTINGS_TABLE = `
-CREATE TABLE IF NOT EXISTS image_settings (
-  id       INTEGER PRIMARY KEY CHECK (id = 1),
-  provider TEXT NOT NULL,
-  model    TEXT NOT NULL,
-  apiKey   TEXT NOT NULL
+const CONTENT_SETTINGS_TABLE = `
+CREATE TABLE IF NOT EXISTS content_settings (
+  id         INTEGER PRIMARY KEY CHECK (id = 1),
+  provider   TEXT NOT NULL,
+  imageModel TEXT NOT NULL,
+  apiKey     TEXT NOT NULL
 );
 `;
 
@@ -262,7 +263,7 @@ CREATE TABLE IF NOT EXISTS secrets (
 
 /**
  * v11 -> v12 で足したテーブル。`web_search` の有効 / 無効と既定 provider を 1 行だけ持ち、
- * **行が無い = 既定（有効 / exa）**。画像生成（`image_settings`）と並ぶツール公開の状態で、
+ * **行が無い = 既定（有効 / exa）**。コンテンツ生成（`content_settings`）と並ぶツール公開の状態で、
  * 行があるときは `enabled` と `provider` が正。`provider` の列は v12 -> v13 で足した（docs/web-search.md）。
  */
 const WEB_SEARCH_SETTINGS_TABLE = `
@@ -325,7 +326,7 @@ ${ARCHIVE_SETTINGS_TABLE}
 ${PROVIDER_CREDENTIALS_TABLE}
 ${MODEL_SETTINGS_TABLE}
 ${PROVIDER_MEMOS_TABLE}
-${IMAGE_SETTINGS_TABLE}
+${CONTENT_SETTINGS_TABLE}
 ${IMAGE_CATALOG_TABLE}
 ${SERVE_COMMANDS_TABLE}
 ${WEB_SEARCH_SETTINGS_TABLE}
@@ -343,7 +344,7 @@ DROP TABLE IF EXISTS archive_settings;
 DROP TABLE IF EXISTS provider_credentials;
 DROP TABLE IF EXISTS model_settings;
 DROP TABLE IF EXISTS provider_memos;
-DROP TABLE IF EXISTS image_settings;
+DROP TABLE IF EXISTS content_settings;
 DROP TABLE IF EXISTS image_catalog;
 DROP TABLE IF EXISTS serve_commands;
 DROP TABLE IF EXISTS web_search_settings;
@@ -436,12 +437,12 @@ function providerMemoOf(row: Row): ProviderMemoRow | undefined {
 }
 
 /** 列は NOT NULL だが、手編集で空文字にされた行は未設定として読む (メモと同じ規約) */
-function imageSettingsOf(row: Row): ImageSettingsRow | undefined {
+function contentSettingsOf(row: Row): ContentSettingsRow | undefined {
   const provider = optionalText(row.provider);
-  const model = optionalText(row.model);
+  const imageModel = optionalText(row.imageModel);
   const apiKey = optionalText(row.apiKey);
-  if (!provider || !model || !apiKey) return undefined;
-  return { provider, model, apiKey };
+  if (!provider || !imageModel || !apiKey) return undefined;
+  return { provider, imageModel, apiKey };
 }
 
 /**
@@ -691,6 +692,34 @@ export class AppDb {
     });
   }
 
+  /**
+   * v14 -> v15 の改名。`CREATE TABLE IF NOT EXISTS` を先に走らせると空テーブルができて RENAME が
+   * 失敗するため、CREATE より先に通す。両方あるときは移行先を正として触らない（行は移行先だけが持つ）。
+   */
+  #renameTableIfNeeded(from: string, to: string): void {
+    this.#query((db) => {
+      if (!this.#tableExists(from) || this.#tableExists(to)) return;
+      db.exec(`ALTER TABLE ${from} RENAME TO ${to}`);
+    });
+  }
+
+  /** 列の改名。存在確認は `#addColumnIfMissing` と同じ理由で毎回 PRAGMA を引く */
+  #renameColumnIfNeeded(table: string, from: string, to: string): void {
+    this.#query((db) => {
+      const columns = db.prepare(`PRAGMA table_info(${table})`).all() as Row[];
+      const names = columns.map((row) => row.name);
+      if (!names.includes(from) || names.includes(to)) return;
+      db.exec(`ALTER TABLE ${table} RENAME COLUMN ${from} TO ${to}`);
+    });
+  }
+
+  /** テーブル名は sqlite_master で確かめる (PRAGMA と違い、値はバインドで渡せる) */
+  #tableExists(table: string): boolean {
+    return Boolean(
+      this.#query((db) => db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?").get(table)),
+    );
+  }
+
   /** DROP → CREATE → user_version → (未初期化なら) seed を 1 トランザクションで行う */
   #recreate(seed: boolean): void {
     this.#query((db) => db.exec("BEGIN"));
@@ -718,7 +747,10 @@ export class AppDb {
     for (const agent of SEED_AGENTS) this.saveAgent(agent);
   }
 
-  /** 古い版からの加算的な移行。足りないテーブルと列だけを足し、既存の定義は触らない */
+  /**
+   * 古い版からの加算的な移行。足りないテーブルと列だけを足し、既存の定義は触らない。
+   * 改名 (v14 -> v15) だけが例外で、CREATE TABLE IF NOT EXISTS より先に RENAME を通す。
+   */
   #migrate(): void {
     this.#query((db) => db.exec("BEGIN"));
     try {
@@ -727,7 +759,10 @@ export class AppDb {
       this.#query((db) => db.exec(PROVIDER_CREDENTIALS_TABLE));
       this.#query((db) => db.exec(MODEL_SETTINGS_TABLE));
       this.#query((db) => db.exec(PROVIDER_MEMOS_TABLE));
-      this.#query((db) => db.exec(IMAGE_SETTINGS_TABLE));
+      // 改名は CREATE より先。順序を逆にすると v14 の DB で RENAME が失敗し、DB を使えないまま起動する
+      this.#renameTableIfNeeded("image_settings", "content_settings");
+      this.#renameColumnIfNeeded("content_settings", "model", "imageModel");
+      this.#query((db) => db.exec(CONTENT_SETTINGS_TABLE));
       this.#query((db) => db.exec(IMAGE_CATALOG_TABLE));
       this.#query((db) => db.exec(SERVE_COMMANDS_TABLE));
       this.#query((db) => db.exec(WEB_SEARCH_SETTINGS_TABLE));
@@ -924,29 +959,29 @@ export class AppDb {
     return this.#query((db) => db.prepare("DELETE FROM model_settings WHERE id = 1").run().changes > 0);
   }
 
-  // --- image settings (1 行だけ。行が無い = 未設定) ---
+  // --- content settings (1 行だけ。行が無い = 未設定) ---
 
   /** 行が無ければ undefined。空文字へ手編集された行も未設定として読む */
-  readImageSettings(): ImageSettingsRow | undefined {
-    const row = this.#query((db) => db.prepare("SELECT * FROM image_settings WHERE id = 1").get() as Row | undefined);
-    return row ? imageSettingsOf(row) : undefined;
+  readContentSettings(): ContentSettingsRow | undefined {
+    const row = this.#query((db) => db.prepare("SELECT * FROM content_settings WHERE id = 1").get() as Row | undefined);
+    return row ? contentSettingsOf(row) : undefined;
   }
 
   /** 登録と上書きで同じ (id = 1 の upsert)。単一ステートメントなので自動コミットで確定する */
-  saveImageSettings(settings: ImageSettingsRow): void {
+  saveContentSettings(settings: ContentSettingsRow): void {
     this.#query((db) =>
       db
         .prepare(
-          `INSERT INTO image_settings (id, provider, model, apiKey) VALUES (1, ?, ?, ?)
-           ON CONFLICT(id) DO UPDATE SET provider = excluded.provider, model = excluded.model, apiKey = excluded.apiKey`,
+          `INSERT INTO content_settings (id, provider, imageModel, apiKey) VALUES (1, ?, ?, ?)
+           ON CONFLICT(id) DO UPDATE SET provider = excluded.provider, imageModel = excluded.imageModel, apiKey = excluded.apiKey`,
         )
-        .run(settings.provider, settings.model, settings.apiKey),
+        .run(settings.provider, settings.imageModel, settings.apiKey),
     );
   }
 
-  /** 行を消して未設定へ戻す (キー削除は provider / model も含めて行ごと消す) */
-  deleteImageSettings(): boolean {
-    return this.#query((db) => db.prepare("DELETE FROM image_settings WHERE id = 1").run().changes > 0);
+  /** 行を消して未設定へ戻す (キー削除は provider / imageModel も含めて行ごと消す) */
+  deleteContentSettings(): boolean {
+    return this.#query((db) => db.prepare("DELETE FROM content_settings WHERE id = 1").run().changes > 0);
   }
 
   // --- web search settings (1 行だけ。行が無い = 既定（有効 / exa）) ---

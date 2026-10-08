@@ -4,7 +4,7 @@ import type { UpdateWebSearchBody, UpdateWebSearchProviderBody } from "../schema
 
 /**
  * 設定 → モデル（Web 検索）の設定 API。画面が「保存されていない」を区別できるよう、
- * 変更系の 503 には `state: "not_stored"` を付ける（画像生成と同じ契約）。
+ * 変更系の 503 には `state: "not_stored"` を付ける（コンテンツ生成と同じ契約）。
  */
 export function createWebSearchSettingsRoutes({ webSearchSettings }: { webSearchSettings: WebSearchSettingsService }) {
   return {

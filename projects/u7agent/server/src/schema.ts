@@ -673,12 +673,10 @@ export const ImageCatalogSourceSchema = z.enum(["live", "stored", "sdk"]);
 export type ImageCatalogSource = z.infer<typeof ImageCatalogSourceSchema>;
 
 /**
- * GET /api/settings/images。`configured: false` のとき provider / model は null（行が無い = 未設定）。
- * APIキーは返さない。
+ * GET /api/settings/content の `image`。`configured: false` のとき `model` は null（行が無い = 未設定）。
+ * 音声など別の生成物を足すときは、この兄弟として項目を増やす（`image` の形は変えない）。
  */
-export const ImageSettingsResponseSchema = z.object({
-  configured: z.boolean(),
-  provider: z.string().nullable(),
+export const ContentImageSettingsSchema = z.object({
   model: z.string().nullable(),
   /** 選択肢。live カタログ（取得できないときは前回の一覧 / SDK 同梱） */
   models: z.array(ImageModelSchema),
@@ -686,19 +684,30 @@ export const ImageSettingsResponseSchema = z.object({
   catalogSource: ImageCatalogSourceSchema,
   /** live を最後に取得できた時刻 (epoch ms)。SDK 同梱を表示しているときは null */
   fetchedAt: z.number().nullable(),
-  /** SDK ランタイムの初期化に成功したか。false のときキー登録は 503（model-settings と同じ） */
-  runtimeAvailable: z.boolean(),
 });
-export type ImageSettingsResponse = z.infer<typeof ImageSettingsResponseSchema>;
-
-/** 変更系（PUT / DELETE）の応答。SDK への反映を持たないため `applied` だけを返す */
-export const ImageMutationResponseSchema = ImageSettingsResponseSchema.extend({
-  state: z.literal("applied"),
-});
-export type ImageMutationResponse = z.infer<typeof ImageMutationResponseSchema>;
+export type ContentImageSettings = z.infer<typeof ContentImageSettingsSchema>;
 
 /**
- * POST /api/settings/images/catalog/refresh。設定は変えず、取得できなくても 200 で現在の一覧を返す
+ * GET /api/settings/content。`configured: false` のとき provider は null（行が無い = 未設定）。
+ * APIキーは返さない。
+ */
+export const ContentSettingsResponseSchema = z.object({
+  configured: z.boolean(),
+  provider: z.string().nullable(),
+  /** SDK ランタイムの初期化に成功したか。false のときキー登録は 503（model-settings と同じ） */
+  runtimeAvailable: z.boolean(),
+  image: ContentImageSettingsSchema,
+});
+export type ContentSettingsResponse = z.infer<typeof ContentSettingsResponseSchema>;
+
+/** 変更系（PUT / DELETE）の応答。SDK への反映を持たないため `applied` だけを返す */
+export const ContentMutationResponseSchema = ContentSettingsResponseSchema.extend({
+  state: z.literal("applied"),
+});
+export type ContentMutationResponse = z.infer<typeof ContentMutationResponseSchema>;
+
+/**
+ * POST /api/settings/content/image/catalog/refresh。設定は変えず、取得できなくても 200 で現在の一覧を返す
  * （`catalogError` にだけ失敗の固定文言を載せる。一覧を失わせない）。
  */
 export const ImageCatalogRefreshResponseSchema = z.object({
@@ -711,24 +720,24 @@ export const ImageCatalogRefreshResponseSchema = z.object({
 export type ImageCatalogRefreshResponse = z.infer<typeof ImageCatalogRefreshResponseSchema>;
 
 /** 変更系の失敗応答（何も変わっていない）。400 は error のみ */
-export const ImageMutationErrorSchema = z.object({
+export const ContentMutationErrorSchema = z.object({
   error: z.string(),
   state: z.literal("not_stored"),
 });
-export type ImageMutationError = z.infer<typeof ImageMutationErrorSchema>;
+export type ContentMutationError = z.infer<typeof ContentMutationErrorSchema>;
 
 /** provider / model の変更。キーは保持したまま差し替える（行が無ければ 400） */
-export const UpdateImageSelectionBodySchema = z.object({
+export const UpdateContentImageBodySchema = z.object({
   provider: z.string(),
   model: z.string(),
 });
-export type UpdateImageSelectionBody = z.infer<typeof UpdateImageSelectionBodySchema>;
+export type UpdateContentImageBody = z.infer<typeof UpdateContentImageBodySchema>;
 
 /** 画像APIキーの登録・上書き。長さは provider_credentials と同じ */
-export const UpdateImageKeyBodySchema = z.object({
+export const UpdateContentKeyBodySchema = z.object({
   apiKey: z.string().min(PROVIDER_API_KEY_MIN_LENGTH).max(PROVIDER_API_KEY_MAX_LENGTH),
 });
-export type UpdateImageKeyBody = z.infer<typeof UpdateImageKeyBodySchema>;
+export type UpdateContentKeyBody = z.infer<typeof UpdateContentKeyBodySchema>;
 
 /**
  * 設定 → ランタイムの実行環境カードが使う状態。`connected` だけが情報を持ち、他は理由の分類だけを返す
@@ -1416,7 +1425,7 @@ export const WebSearchSettingsResponseSchema = z.object({
 });
 export type WebSearchSettingsResponse = z.infer<typeof WebSearchSettingsResponseSchema>;
 
-/** 変更系（PUT / DELETE）の応答。即時反映なので `applied` だけを返す（画像生成と同じ契約） */
+/** 変更系（PUT / DELETE）の応答。即時反映なので `applied` だけを返す（コンテンツ生成と同じ契約） */
 export const WebSearchMutationResponseSchema = WebSearchSettingsResponseSchema.extend({
   state: z.literal("applied"),
 });

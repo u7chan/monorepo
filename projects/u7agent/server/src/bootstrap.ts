@@ -9,8 +9,8 @@ import { createArchiveSettings } from "./archive-settings";
 import type { ArchiveSettings } from "./archive-settings";
 import { BUILTIN_SKILLS } from "./builtin-skills";
 import { messageFor } from "./http";
+import { ContentSettingsService } from "./content-settings";
 import { createImageCatalog } from "./image-catalog";
-import { ImageSettingsService } from "./image-settings";
 import { WebSearchSettingsService } from "./web-search-settings";
 import { ModelSettingsService, type CredentialCommit, type ProviderKeyRuntime } from "./model-settings";
 import { NotificationService } from "./notifications";
@@ -86,8 +86,8 @@ export type BffContext = {
   archiveSettings: ArchiveSettings;
   /** プロバイダー API キー (設定 → モデル)。DB を希望状態として SDK へ写す */
   modelSettings: ModelSettingsService;
-  /** 画像生成の provider / model / APIキー (設定 → モデルの画像生成タブ)。行の有無をツール公開へ写す */
-  imageSettings: ImageSettingsService;
+  /** コンテンツ生成の provider / 画像モデル / APIキー (設定 → モデルのコンテンツ生成タブ)。行の有無をツール公開へ写す */
+  contentSettings: ContentSettingsService;
   /** Web 検索の実行時トグル (設定 → モデルの Web 検索タブ)。行が無い = 既定 (有効) を execute のたびに読む */
   webSearchSettings: WebSearchSettingsService;
   /** serve (サービス) の状態と起動・停止。GUI とエージェントの serve ツールが同じ実体を使う */
@@ -161,21 +161,21 @@ export async function createBffContext(opts: CreateBffAppOptions = {}): Promise<
     ignoredEnvironmentVariables,
   });
   await modelSettings.applyStored();
-  // 画像生成は provider キーとは独立した 1 行で、行の有無を PiBff のツール公開へ写す。
+  // コンテンツ生成は provider キーとは独立した 1 行で、行の有無を PiBff のツール公開へ写す。
   // 書込は自分のロックで直列化し、applyStored() も同じロックを通す（model-settings と同じ順序）。
   // モデル一覧は live を正とし、取得できないときは前回の成功（アプリ DB）→ SDK 同梱へ落ちる。
   const imageCatalog = createImageCatalog({ store: appDb, fetchImpl: opts.imageCatalogFetch });
-  const imageSettings = new ImageSettingsService({
+  const contentSettings = new ContentSettingsService({
     db: appDb,
     runtimeAvailable: pi !== null,
     retainSecret: pi ? pi.retainSecret : () => {},
     catalog: imageCatalog,
-    setImageGeneration: pi ? pi.setImageGeneration : () => {},
+    setContentGeneration: pi ? pi.setContentGeneration : () => {},
     maskError,
   });
-  await imageSettings.applyStored();
+  await contentSettings.applyStored();
   // Web 検索は「既定 ON / Exa」なので、行が無ければそのまま立ち、設定行とキーがあるときだけ写す。
-  // 画像生成と同じく、写しはロックの内側で差し替える (設定 API と起動時の適用を直列化する)
+  // コンテンツ生成と同じく、写しはロックの内側で差し替える (設定 API と起動時の適用を直列化する)
   const webSearchSettings = new WebSearchSettingsService({
     db: appDb,
     setWebSearch: pi ? pi.setWebSearch : () => {},
@@ -280,7 +280,7 @@ export async function createBffContext(opts: CreateBffAppOptions = {}): Promise<
     notifications,
     archiveSettings,
     modelSettings,
-    imageSettings,
+    contentSettings,
     webSearchSettings,
     serve,
     secrets,

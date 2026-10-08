@@ -666,13 +666,13 @@ test("migrates a v6 db additively and adds provider credential timestamps", () =
   }
 });
 
-/** v7 相当のスキーマ (image_settings が無い状態)。v7 の実ファイルと同じ形 */
+/** v7 相当のスキーマ (content_settings が無い状態)。v7 の実ファイルと同じ形 */
 const V7_TABLES = `
 ${V6_TABLES}
 ALTER TABLE provider_credentials ADD COLUMN updatedAt INTEGER;
 `;
 
-test("migrates a v7 db additively and keeps image settings across reopen", () => {
+test("migrates a v7 db additively and keeps content settings across reopen", () => {
   const dir = tempStoreDir();
   try {
     const raw = new DatabaseSync(join(dir, APP_DB_FILENAME));
@@ -685,40 +685,40 @@ test("migrates a v7 db additively and keeps image settings across reopen", () =>
     raw.close();
 
     const first = AppDb.open({ storeDir: dir });
-    // 加算移行なので既存の定義とキーは消えない。image_settings は行が無い = 未設定で始まる
+    // 加算移行なので既存の定義とキーは消えない。content_settings は行が無い = 未設定で始まる
     assert.deepEqual(first.listProjects(), [project("p1", "proj-a")]);
     assert.deepEqual(first.listProviderCredentials(), [{ provider: "anthropic", apiKey: "sk-ant-1", updatedAt: 10 }]);
-    assert.equal(first.readImageSettings(), undefined);
-    first.saveImageSettings({ provider: "openrouter", model: "openai/gpt-image-2", apiKey: "sk-image-1" });
+    assert.equal(first.readContentSettings(), undefined);
+    first.saveContentSettings({ provider: "openrouter", imageModel: "openai/gpt-image-2", apiKey: "sk-image-1" });
     // id = 1 の upsert なので上書きしても行は増えない
-    first.saveImageSettings({
+    first.saveContentSettings({
       provider: "openrouter",
-      model: "black-forest-labs/flux.2-max",
+      imageModel: "black-forest-labs/flux.2-max",
       apiKey: "sk-image-2",
     });
-    assert.deepEqual(first.readImageSettings(), {
+    assert.deepEqual(first.readContentSettings(), {
       provider: "openrouter",
-      model: "black-forest-labs/flux.2-max",
+      imageModel: "black-forest-labs/flux.2-max",
       apiKey: "sk-image-2",
     });
     first.close();
 
     const second = AppDb.open({ storeDir: dir });
-    assert.deepEqual(second.readImageSettings(), {
+    assert.deepEqual(second.readContentSettings(), {
       provider: "openrouter",
-      model: "black-forest-labs/flux.2-max",
+      imageModel: "black-forest-labs/flux.2-max",
       apiKey: "sk-image-2",
     });
-    assert.equal(second.deleteImageSettings(), true);
-    assert.equal(second.readImageSettings(), undefined);
-    assert.equal(second.deleteImageSettings(), false, "無い行の削除は false");
+    assert.equal(second.deleteContentSettings(), true);
+    assert.equal(second.readContentSettings(), undefined);
+    assert.equal(second.deleteContentSettings(), false, "無い行の削除は false");
     second.close();
 
     const check = new DatabaseSync(join(dir, APP_DB_FILENAME));
-    const columns = check.prepare("PRAGMA table_info(image_settings)").all() as { name: string }[];
+    const columns = check.prepare("PRAGMA table_info(content_settings)").all() as { name: string }[];
     assert.deepEqual(
       columns.map((column) => column.name),
-      ["id", "provider", "model", "apiKey"],
+      ["id", "provider", "imageModel", "apiKey"],
     );
     assert.equal(Number(check.prepare("PRAGMA user_version").get()?.user_version), APP_DB_SCHEMA_VERSION);
     check.close();
@@ -727,7 +727,7 @@ test("migrates a v7 db additively and keeps image settings across reopen", () =>
   }
 });
 
-/** v8 相当のスキーマ (image_catalog が無い状態)。v8 の実ファイルと同じ形 */
+/** v8 相当のスキーマ (image_catalog が無い状態)。v8 の実ファイルと同じ形 (v14 -> v15 で改名する前の image_settings) */
 const V8_TABLES = `
 ${V7_TABLES}
 CREATE TABLE IF NOT EXISTS image_settings (
@@ -750,10 +750,10 @@ test("migrates a v8 db additively and keeps the image catalog cache across reope
     raw.close();
 
     const first = AppDb.open({ storeDir: dir });
-    // 加算移行なので既存の設定は消えない。カタログは行が無い = 未取得で始まる
-    assert.deepEqual(first.readImageSettings(), {
+    // 既存の設定は改名して残り、カタログは行が無い = 未取得で始まる
+    assert.deepEqual(first.readContentSettings(), {
       provider: "openrouter",
-      model: "openai/gpt-image-2",
+      imageModel: "openai/gpt-image-2",
       apiKey: "sk-image-1",
     });
     assert.equal(first.readImageCatalog(), undefined);
@@ -859,7 +859,7 @@ test("a broken image catalog cache row reads as unset", () => {
   }
 });
 
-test("an image settings row with empty values reads as unset", () => {
+test("a content settings row with empty values reads as unset", () => {
   const dir = tempStoreDir();
   try {
     const raw = new DatabaseSync(join(dir, APP_DB_FILENAME));
@@ -869,8 +869,8 @@ test("an image settings row with empty values reads as unset", () => {
 
     const db = AppDb.open({ storeDir: dir });
     // 手編集で壊れた行を「設定済み」と読み違えない (メモと同じ規約)
-    db.saveImageSettings({ provider: "", model: "", apiKey: "" });
-    assert.equal(db.readImageSettings(), undefined);
+    db.saveContentSettings({ provider: "", imageModel: "", apiKey: "" });
+    assert.equal(db.readContentSettings(), undefined);
     db.close();
   } finally {
     rmSync(dir, { recursive: true, force: true });
@@ -1097,7 +1097,7 @@ test("migrates a v10 db additively and keeps the secrets table across reopen", (
     raw.close();
 
     const first = AppDb.open({ storeDir: dir });
-    assert.equal(APP_DB_SCHEMA_VERSION, 14);
+    assert.equal(APP_DB_SCHEMA_VERSION, 15);
     // 加算移行なので既存の行は残り、secrets は行が無い = 未設定で始まる
     assert.deepEqual(first.listProjects(), [project("p1", "proj-a")]);
     assert.deepEqual(first.getServeCommand("proj-a"), { cwd: "proj-a", command: "pnpm dev", updatedAt: 1 });
@@ -1273,6 +1273,153 @@ test("migrates a v12 db additively and keeps the web search provider and keys ac
     );
     assert.equal(Number(check.prepare("PRAGMA user_version").get()?.user_version), APP_DB_SCHEMA_VERSION);
     check.close();
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+/** v14 相当のスキーマ (content_settings が無く、image_settings が model 列を持つ状態)。v14 の実ファイルと同じ形 */
+const V14_TABLES = `
+${V12_TABLES}
+CREATE TABLE IF NOT EXISTS web_search_provider_keys (
+  provider TEXT PRIMARY KEY,
+  apiKey   TEXT NOT NULL
+);
+ALTER TABLE web_search_settings ADD COLUMN provider TEXT NOT NULL DEFAULT 'exa';
+CREATE TABLE IF NOT EXISTS spaces (
+  id TEXT PRIMARY KEY, name TEXT NOT NULL, createdAt INTEGER NOT NULL
+);
+`;
+
+/**
+ * v14 の古いビルドの #recreate 相当。content_settings を知らないので DROP の対象に入らず、行は残る。
+ * 新しい版へ戻す往復 (v15 -> v14 -> v15) の途中状態を再現する。
+ */
+const V14_RECREATE = `
+DROP TABLE IF EXISTS agents;
+DROP TABLE IF EXISTS skills;
+DROP TABLE IF EXISTS projects;
+DROP TABLE IF EXISTS notification_settings;
+DROP TABLE IF EXISTS archive_settings;
+DROP TABLE IF EXISTS provider_credentials;
+DROP TABLE IF EXISTS model_settings;
+DROP TABLE IF EXISTS provider_memos;
+DROP TABLE IF EXISTS image_settings;
+DROP TABLE IF EXISTS image_catalog;
+DROP TABLE IF EXISTS serve_commands;
+DROP TABLE IF EXISTS web_search_settings;
+DROP TABLE IF EXISTS web_search_provider_keys;
+${V14_TABLES}
+`;
+
+test("migrates a v14 db by renaming image_settings to content_settings", () => {
+  const dir = tempStoreDir();
+  try {
+    const raw = new DatabaseSync(join(dir, APP_DB_FILENAME));
+    raw.exec(V14_TABLES);
+    raw.exec("PRAGMA user_version = 14");
+    raw
+      .prepare("INSERT INTO image_settings (id, provider, model, apiKey) VALUES (1, ?, ?, ?)")
+      .run("openrouter", "openai/gpt-image-2", "sk-image-1");
+    raw.close();
+
+    const first = AppDb.open({ storeDir: dir });
+    // 改名してもキーと選択は読める (列名は imageModel になる)
+    assert.deepEqual(first.readContentSettings(), {
+      provider: "openrouter",
+      imageModel: "openai/gpt-image-2",
+      apiKey: "sk-image-1",
+    });
+    first.saveContentSettings({
+      provider: "openrouter",
+      imageModel: "black-forest-labs/flux.2-max",
+      apiKey: "sk-image-2",
+    });
+    first.close();
+
+    const reopened = AppDb.open({ storeDir: dir });
+    assert.deepEqual(reopened.readContentSettings(), {
+      provider: "openrouter",
+      imageModel: "black-forest-labs/flux.2-max",
+      apiKey: "sk-image-2",
+    });
+    reopened.close();
+
+    const check = new DatabaseSync(join(dir, APP_DB_FILENAME));
+    const tables = check.prepare("SELECT name FROM sqlite_master WHERE type = 'table'").all() as { name: string }[];
+    assert.ok(!tables.some((table) => table.name === "image_settings"), "改名後に古いテーブルを残さない");
+    const columns = check.prepare("PRAGMA table_info(content_settings)").all() as { name: string }[];
+    assert.deepEqual(
+      columns.map((column) => column.name),
+      ["id", "provider", "imageModel", "apiKey"],
+    );
+    assert.equal(Number(check.prepare("PRAGMA user_version").get()?.user_version), APP_DB_SCHEMA_VERSION);
+    check.close();
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("a db with both image_settings and content_settings reads the content_settings row", () => {
+  const dir = tempStoreDir();
+  try {
+    const raw = new DatabaseSync(join(dir, APP_DB_FILENAME));
+    raw.exec(V14_TABLES);
+    // v14 -> v15 の改名を経た content_settings と、古いビルドが作り直した image_settings が並ぶ状態
+    raw.exec(`
+CREATE TABLE content_settings (
+  id         INTEGER PRIMARY KEY CHECK (id = 1),
+  provider   TEXT NOT NULL,
+  imageModel TEXT NOT NULL,
+  apiKey     TEXT NOT NULL
+);`);
+    raw.exec("PRAGMA user_version = 14");
+    raw
+      .prepare("INSERT INTO content_settings (id, provider, imageModel, apiKey) VALUES (1, ?, ?, ?)")
+      .run("openrouter", "openai/gpt-image-2", "sk-content-1");
+    raw
+      .prepare("INSERT INTO image_settings (id, provider, model, apiKey) VALUES (1, ?, ?, ?)")
+      .run("openrouter", "ghost/stale", "sk-stale");
+    raw.close();
+
+    const db = AppDb.open({ storeDir: dir });
+    // 併存時は content_settings を正とし、image_settings の行は読まない
+    assert.deepEqual(db.readContentSettings(), {
+      provider: "openrouter",
+      imageModel: "openai/gpt-image-2",
+      apiKey: "sk-content-1",
+    });
+    db.close();
+
+    const check = new DatabaseSync(join(dir, APP_DB_FILENAME));
+    assert.equal(Number(check.prepare("PRAGMA user_version").get()?.user_version), APP_DB_SCHEMA_VERSION);
+    check.close();
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("a round trip through the v14 schema keeps content settings readable", () => {
+  const dir = tempStoreDir();
+  try {
+    const first = AppDb.open({ storeDir: dir });
+    first.saveContentSettings({ provider: "openrouter", imageModel: "openai/gpt-image-2", apiKey: "sk-image-1" });
+    first.close();
+
+    // 古いビルド (v14) が開いて #recreate する経路。content_settings は知られないため行が残る
+    const raw = new DatabaseSync(join(dir, APP_DB_FILENAME));
+    raw.exec(V14_RECREATE);
+    raw.exec("PRAGMA user_version = 14");
+    raw.close();
+
+    const second = AppDb.open({ storeDir: dir });
+    assert.deepEqual(second.readContentSettings(), {
+      provider: "openrouter",
+      imageModel: "openai/gpt-image-2",
+      apiKey: "sk-image-1",
+    });
+    assert.deepEqual(second.listProjects(), [], "既知のテーブルは作り直される");
+    second.close();
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

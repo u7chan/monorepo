@@ -6,6 +6,8 @@ import type {
   ArchiveSettingsResponse,
   AskUserAnswer,
   CatalogResponse,
+  ContentMutationResponse,
+  ContentSettingsResponse,
   CreateAgentBody,
   CreateSkillBody,
   DiscardUnsentResult,
@@ -18,8 +20,6 @@ import type {
   Health,
   HistoryPage,
   ImageCatalogRefreshResponse,
-  ImageMutationResponse,
-  ImageSettingsResponse,
   ModelCatalogRefreshResponse,
   ModelMutationResponse,
   ModelRef,
@@ -50,7 +50,7 @@ import type {
   StopResult,
   ThinkingLevel,
   UpdateAgentBody,
-  UpdateImageSelectionBody,
+  UpdateContentImageBody,
   UpdateModelAvailabilityBody,
   UpdateNotificationsBody,
   UpdateSkillBody,
@@ -486,34 +486,34 @@ export const resyncProviderApiKey = async (provider: string): Promise<ModelMutat
 };
 
 /**
- * 設定 → モデルの画像生成タブ（純粋読取）。APIキーは含まれず、登録済みでも値は返らない。
- * モデルの選択肢はカタログ（models）で、キー未設定なら configured: false。
+ * 設定 → モデルのコンテンツ生成タブ（純粋読取）。APIキーは含まれず、登録済みでも値は返らない。
+ * 画像モデルの選択肢は `image.models` で、キー未設定なら configured: false。
  */
-export const getImageSettings = async (): Promise<ImageSettingsResponse> => {
-  const res = await client.api.settings.images.$get();
+export const getContentSettings = async (): Promise<ContentSettingsResponse> => {
+  const res = await client.api.settings.content.$get();
   if (!res.ok) throw await apiError(res);
   return res.json();
 };
 
-/** 画像生成の provider / model の変更。キーは保持され、行が無ければ 400 */
-export const putImageSettings = async (input: UpdateImageSelectionBody): Promise<ImageMutationResponse> => {
-  const res = await client.api.settings.images.$put({ json: input });
+/** 画像モデルの変更。キーは保持され、行が無ければ 400 */
+export const putContentImageSettings = async (input: UpdateContentImageBody): Promise<ContentMutationResponse> => {
+  const res = await client.api.settings.content.image.$put({ json: input });
   if (!res.ok) throw await apiError(res);
-  return (await res.json()) as ImageMutationResponse;
+  return (await res.json()) as ContentMutationResponse;
 };
 
-/** 画像専用APIキーの登録・上書き。行が無ければ既定 provider / model で作成される */
-export const putImageApiKey = async (apiKey: string): Promise<ImageMutationResponse> => {
-  const res = await client.api.settings.images.key.$put({ json: { apiKey } });
+/** 画像のAPIキーの登録・上書き。行が無ければ既定 provider / model で作成される */
+export const putContentApiKey = async (apiKey: string): Promise<ContentMutationResponse> => {
+  const res = await client.api.settings.content.key.$put({ json: { apiKey } });
   if (!res.ok) throw await apiError(res);
-  return (await res.json()) as ImageMutationResponse;
+  return (await res.json()) as ContentMutationResponse;
 };
 
-/** 画像専用APIキーの削除（行ごと消して未設定へ戻す）。未設定でも 200 の冪等 */
-export const deleteImageApiKey = async (): Promise<ImageMutationResponse> => {
-  const res = await client.api.settings.images.key.$delete();
+/** 画像のAPIキーの削除（行ごと消して未設定へ戻す）。未設定でも 200 の冪等 */
+export const deleteContentApiKey = async (): Promise<ContentMutationResponse> => {
+  const res = await client.api.settings.content.key.$delete();
   if (!res.ok) throw await apiError(res);
-  return (await res.json()) as ImageMutationResponse;
+  return (await res.json()) as ContentMutationResponse;
 };
 
 /**
@@ -567,7 +567,7 @@ export const deleteWebSearchApiKey = async (provider: WebSearchProviderId): Prom
  * 設定は変わらないため、応答は一覧と出どころだけを返す。
  */
 export const refreshImageCatalog = async (): Promise<ImageCatalogRefreshResponse> => {
-  const res = await client.api.settings.images.catalog.refresh.$post();
+  const res = await client.api.settings.content.image.catalog.refresh.$post();
   if (!res.ok) throw await apiError(res);
   return (await res.json()) as ImageCatalogRefreshResponse;
 };
