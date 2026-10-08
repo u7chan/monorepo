@@ -6,6 +6,7 @@
  * 下書きの組み立て・集計・確認文だけをここで純関数的に扱う (DOM に依存させない)。
  */
 import type {
+  ModelCatalogRefreshResponse,
   ModelMutationResponse,
   ModelRef,
   ModelsSettingsResponse,
@@ -248,6 +249,46 @@ export function mutationNote(
     case "memo":
       // SDK に触れないため applied_unsynced にはならない
       return { text: memoCleared ? "メモを消しました。" : "メモを保存しました。", error: false };
+  }
+}
+
+// --- カタログの手動更新 (POST /api/settings/models/catalog/refresh) ---
+
+/** サーバーが取得失敗を `catalogError` に載せなかったときの完了文言 */
+export const MODEL_CATALOG_REFRESH_NOTE = "カタログを更新しました。";
+/** 応答自体が得られなかったときの前置き。応答が得られた失敗はサーバーの文言をそのまま出す */
+export const MODEL_CATALOG_REFRESH_FAILURE_PREFIX = "モデル一覧を取得できませんでした。";
+
+/** [カタログ更新] の反映内容。applied が false のときは一覧も catalogError も変えず、注記だけを差し替える */
+export type ModelCatalogRefreshApply =
+  | { applied: true; catalog: RuntimeModelsResponse; note: { text: string; error: boolean } }
+  | { applied: false; note: { text: string; error: boolean } };
+
+/**
+ * [カタログ更新] の 1 行注記。サーバーが完結した 1 文を返す契約なので、クライアントは固定 suffix を足さない
+ * (部分成功と PI_OFFLINE で「一覧が変わる / 変わらない」が異なり、一律の suffix では正しく書けない)。
+ */
+export function modelCatalogRefreshNote(catalogError: string | null): string {
+  return catalogError ?? MODEL_CATALOG_REFRESH_NOTE;
+}
+
+/**
+ * カタログ更新の API 呼び出しと、応答から一覧・注記への反映内容の決定。HTTP の失敗 (503 を含む) は
+ * 例外にせず `applied: false` へ寄せ、呼び出し側は手元の一覧を差し替えずに注記だけを出す。
+ */
+export async function runModelCatalogRefresh(
+  fetchCatalog: () => Promise<ModelCatalogRefreshResponse>,
+): Promise<ModelCatalogRefreshApply> {
+  try {
+    const { catalogError, ...catalog } = await fetchCatalog();
+    return {
+      applied: true,
+      catalog,
+      note: { text: modelCatalogRefreshNote(catalogError), error: catalogError !== null },
+    };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return { applied: false, note: { text: `${MODEL_CATALOG_REFRESH_FAILURE_PREFIX}${message}`, error: true } };
   }
 }
 

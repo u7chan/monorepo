@@ -7,8 +7,19 @@ import { join } from "node:path";
 import test from "node:test";
 import { APP_DB_FILENAME } from "../src/app-db";
 import { createBffApp } from "../src/app";
-import { PROVIDER_API_KEY_MIN_LENGTH, PROVIDER_MEMO_MAX_LENGTH } from "../src/schema";
-import { asPiBff, createStubPi, STUB_MODEL, STUB_PLAIN_MODEL, type StubPiOptions } from "./stub-pi";
+import {
+  MODEL_CATALOG_ERROR_OFFLINE,
+  MODEL_CATALOG_ERROR_PARTIAL,
+  MODEL_CATALOG_ERROR_TIMEOUT,
+  MODEL_CATALOG_ERROR_UNKNOWN,
+} from "../src/model-settings";
+import {
+  PROVIDER_API_KEY_MIN_LENGTH,
+  PROVIDER_MEMO_MAX_LENGTH,
+  RUNTIME_MODELS_UNAVAILABLE_MESSAGE,
+  type RuntimeModelsResponse,
+} from "../src/schema";
+import { asPiBff, createStubPi, STUB_MODEL, STUB_PLAIN_MODEL, waitFor, type StubPiOptions } from "./stub-pi";
 
 const KEY = "sk-ant-dummy-key-0123456789abcdef";
 const OTHER_KEY = "sk-openai-dummy-key-0123456789";
@@ -731,6 +742,208 @@ test("壊れた model_settings は制限なしで起動し、health と設定 AP
       assert.equal(again.appDb.ok, false, "別テーブルの読取成功で失敗状態を消さない");
     } finally {
       await reopened.close();
+    }
+  });
+});
+
+// --- カタログの手動更新 (POST /api/settings/models/catalog/refresh) ---
+
+/** pi.dev の取得結果として返す固定の一覧。実カタログは pi.dev 側に依存するため、形と契約だけを固定する */
+const RUNTIME_CATALOG: RuntimeModelsResponse = {
+  catalogCount: 2,
+  availableCount: 1,
+  versions: { piCodingAgent: "1.0.0" },
+  providers: [
+    {
+      provider: "stub",
+      auth: { configured: true, source: "environment", environmentVariables: [] },
+      models: [
+        { id: "stub-model", name: "Stub Model", available: true },
+        { id: "stub-plain", name: "Stub Plain", available: false },
+      ],
+    },
+  ],
+};
+
+const refreshRequest = (): RequestInit => ({ method: "POST" });
+
+test("POST catalog/refresh は allowNetwork / force 付きで 1 回取得し、更新後のカタログを返す", async () => {
+  await withStoreDir(async (dir) => {
+    const after: RuntimeModelsResponse = { ...RUNTIME_CATALOG, catalogCount: 3, availableCount: 2 };
+    const pi = createStubPi(
+      stubOptions({
+        modelCatalog: RUNTIME_CATALOG,
+        onRefreshModelCatalog: () => {
+          // 実 SDK は取得できた provider を overlay へ写す。公開 state の再計算後に読む値をここで差し替える
+          pi.setModelCatalog(after);
+          return { aborted: false, failedProviders: 0 };
+        },
+      }),
+    );
+    const bff = await createBffApp({ cwd: "/tmp/project", sessionStoreDir: dir, pi: asPiBff(pi), workspace: null });
+    try {
+      const before = pi.refreshCount;
+      const response = await jsonBody(await bff.app.request("/api/settings/models/catalog/refresh", refreshRequest()));
+      assert.equal(response.catalogError, null);
+      assert.equal(response.catalogCount, 3, "更新後の一覧を返す");
+      assert.deepEqual(
+        pi.catalogRefreshCalls.map((call) => [call.allowNetwork, call.force]),
+        [[true, true]],
+        "SDK へ allowNetwork / force を明示して 1 回だけ呼ぶ",
+      );
+      assert.equal(pi.refreshCount, before + 1, "取得の後で公開 state を 1 回だけ再計算する");
+    } finally {
+      await bff.close();
+    }
+  });
+});
+
+test("一部 provider の失敗は 200 と固定文言に寄せ、一覧は現在値のまま返す", async () => {
+  await withStoreDir(async (dir) => {
+    const pi = createStubPi(
+      stubOptions({
+        modelCatalog: RUNTIME_CATALOG,
+        onRefreshModelCatalog: () => ({ aborted: false, failedProviders: 1 }),
+      }),
+    );
+    const bff = await createBffApp({ cwd: "/tmp/project", sessionStoreDir: dir, pi: asPiBff(pi), workspace: null });
+    try {
+      const response = await bff.app.request("/api/settings/models/catalog/refresh", refreshRequest());
+      assert.equal(response.status, 200, "一部失敗でも 200 (一覧は返せる)");
+      const body = await jsonBody(response);
+      assert.equal(body.catalogError, MODEL_CATALOG_ERROR_PARTIAL);
+      assert.equal(body.catalogCount, RUNTIME_CATALOG.catalogCount, "取得できた範囲の一覧を返す");
+    } finally {
+      await bff.close();
+    }
+  });
+});
+
+test("abort された取得は失敗扱いで現在の一覧を保つ", async () => {
+  await withStoreDir(async (dir) => {
+    const pi = createStubPi(
+      stubOptions({
+        modelCatalog: RUNTIME_CATALOG,
+        // SDK の refresh は期限で中断すると aborted: true を返す (例外にはしない)
+        onRefreshModelCatalog: () => ({ aborted: true, failedProviders: 2 }),
+      }),
+    );
+    const bff = await createBffApp({ cwd: "/tmp/project", sessionStoreDir: dir, pi: asPiBff(pi), workspace: null });
+    try {
+      const body = await jsonBody(await bff.app.request("/api/settings/models/catalog/refresh", refreshRequest()));
+      assert.equal(body.catalogError, MODEL_CATALOG_ERROR_TIMEOUT);
+      assert.equal(body.catalogCount, RUNTIME_CATALOG.catalogCount, "一覧は現在値のまま");
+    } finally {
+      await bff.close();
+    }
+  });
+});
+
+test("refresh の例外は固定文言になり、生の例外文言を応答へ出さない", async () => {
+  await withStoreDir(async (dir) => {
+    const raw = "ModelConfig.load failed: /root/.pi/agent/models.json";
+    const pi = createStubPi(
+      stubOptions({
+        modelCatalog: RUNTIME_CATALOG,
+        onRefreshModelCatalog: () => {
+          throw new Error(raw);
+        },
+      }),
+    );
+    const bff = await createBffApp({ cwd: "/tmp/project", sessionStoreDir: dir, pi: asPiBff(pi), workspace: null });
+    try {
+      const body = await jsonBody(await bff.app.request("/api/settings/models/catalog/refresh", refreshRequest()));
+      assert.equal(body.catalogError, MODEL_CATALOG_ERROR_UNKNOWN);
+      assert.ok(!JSON.stringify(body).includes("ModelConfig.load failed"), "生の例外文言を応答へ出さない");
+      assert.equal(body.catalogCount, RUNTIME_CATALOG.catalogCount);
+    } finally {
+      await bff.close();
+    }
+  });
+});
+
+test("PI_OFFLINE では取得せず、現在の一覧と固定文言を返す", async () => {
+  await withStoreDir(async (dir) => {
+    const pi = createStubPi(stubOptions({ modelCatalog: RUNTIME_CATALOG }));
+    const bff = await createBffApp({ cwd: "/tmp/project", sessionStoreDir: dir, pi: asPiBff(pi), workspace: null });
+    const original = process.env.PI_OFFLINE;
+    process.env.PI_OFFLINE = "1";
+    try {
+      const body = await jsonBody(await bff.app.request("/api/settings/models/catalog/refresh", refreshRequest()));
+      assert.equal(body.catalogError, MODEL_CATALOG_ERROR_OFFLINE);
+      assert.equal(body.catalogCount, RUNTIME_CATALOG.catalogCount, "一覧は返す");
+      assert.deepEqual(pi.catalogRefreshCalls, [], "SDK の refresh は呼ばない");
+    } finally {
+      if (original === undefined) delete process.env.PI_OFFLINE;
+      else process.env.PI_OFFLINE = original;
+      await bff.close();
+    }
+  });
+});
+
+test("カタログを返せないときは 503 (GET /api/runtime/models と同じ契約)", async () => {
+  await withStoreDir(async (dir) => {
+    const pi = createStubPi(catalogOptions());
+    const bff = await createBffApp({ cwd: "/tmp/project", sessionStoreDir: dir, pi: asPiBff(pi), workspace: null });
+    try {
+      const response = await bff.app.request("/api/settings/models/catalog/refresh", refreshRequest());
+      assert.equal(response.status, 503);
+      assert.deepEqual(await jsonBody(response), { error: RUNTIME_MODELS_UNAVAILABLE_MESSAGE });
+    } finally {
+      await bff.close();
+    }
+  });
+});
+
+test("ランタイム無しのカタログ更新は 503", async () => {
+  await withStoreDir(async (dir) => {
+    const bff = await createBffApp({ cwd: "/tmp/project", sessionStoreDir: dir, pi: null, workspace: null });
+    try {
+      const response = await bff.app.request("/api/settings/models/catalog/refresh", refreshRequest());
+      assert.equal(response.status, 503);
+      assert.deepEqual(await jsonBody(response), { error: RUNTIME_MODELS_UNAVAILABLE_MESSAGE });
+    } finally {
+      await bff.close();
+    }
+  });
+});
+
+test("カタログ更新と同時のキー変更 PUT は同じロックで直列化される", async () => {
+  await withStoreDir(async (dir) => {
+    const order: string[] = [];
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const pi = createStubPi(
+      stubOptions({
+        modelCatalog: RUNTIME_CATALOG,
+        onRefreshModelCatalog: async () => {
+          order.push("catalog:start");
+          await gate;
+          order.push("catalog:end");
+          return { aborted: false, failedProviders: 0 };
+        },
+        onSetRuntimeApiKey: () => {
+          order.push("key:apply");
+        },
+      }),
+    );
+    const bff = await createBffApp({ cwd: "/tmp/project", sessionStoreDir: dir, pi: asPiBff(pi), workspace: null });
+    try {
+      const refresh = bff.app.request("/api/settings/models/catalog/refresh", refreshRequest());
+      await waitFor(() => order.includes("catalog:start"), 1000, "catalog refresh start");
+      const put = bff.app.request("/api/settings/models/anthropic/key", jsonPut({ apiKey: KEY }));
+      // 更新がロックを持っている間はキー変更が SDK へ入らない
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      assert.deepEqual(order, ["catalog:start"]);
+      release();
+      assert.equal((await refresh).status, 200);
+      assert.equal((await put).status, 200);
+      assert.deepEqual(order, ["catalog:start", "catalog:end", "key:apply"]);
+    } finally {
+      release();
+      await bff.close();
     }
   });
 });

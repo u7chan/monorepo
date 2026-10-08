@@ -23,6 +23,8 @@ import {
   filterDefaultModelOptions,
   groupProviders,
   MEMO_MAX_LENGTH,
+  modelCatalogRefreshNote,
+  MODEL_CATALOG_REFRESH_NOTE,
   modelKeyProvider,
   modelRefKey,
   mutationNote,
@@ -33,6 +35,7 @@ import {
   providerUsage,
   pruneAvailabilityDraft,
   resyncAvailable,
+  runModelCatalogRefresh,
   sameAvailabilitySettings,
   setAvailabilityProviderModels,
   UNSET_DEFAULT_MODEL_LABEL,
@@ -41,6 +44,7 @@ import {
   withProviderDraft,
 } from "../src/lib/modelSettings";
 import type {
+  ModelCatalogRefreshResponse,
   ModelMutationResponse,
   ModelsSettingsResponse,
   ProviderAuthSetting,
@@ -736,4 +740,45 @@ test("利用可能なモデルの保存は確認を画面内で出し、同意�
   });
   // キャンセルは初期状態へ戻すだけ (コンポーネントはこの定数をセットし、PUT を送らない)
   assert.equal(AVAILABILITY_SAVE_INITIAL.confirming, false);
+});
+
+// --- カタログの手動更新 (POST /api/settings/models/catalog/refresh) ---
+
+const CATALOG_REFRESH: ModelCatalogRefreshResponse = {
+  catalogCount: 2,
+  availableCount: 1,
+  versions: { piCodingAgent: "1.0.0" },
+  providers: [],
+  catalogError: null,
+};
+
+test("カタログ更新の注記は成功文言とサーバー文言をそのまま使う", () => {
+  assert.equal(modelCatalogRefreshNote(null), MODEL_CATALOG_REFRESH_NOTE);
+  const partial = "一部のプロバイダーからモデル一覧を取得できませんでした。取得できた範囲で一覧を更新しています。";
+  assert.equal(modelCatalogRefreshNote(partial), partial, "サーバーの完結した 1 文をそのまま出す");
+  assert.equal(
+    modelCatalogRefreshNote(partial).includes("表示中の一覧は変わりません"),
+    false,
+    "部分成功と PI_OFFLINE で一覧の変化が異なるため、クライアントで suffix を足さない",
+  );
+});
+
+test("カタログ更新の成功は応答のカタログを返し、catalogError は注記にだけ使う", async () => {
+  const offline = "PI_OFFLINE が設定されているためモデル一覧を取得しませんでした。表示中の一覧は変わりません。";
+  const result = await runModelCatalogRefresh(async () => ({ ...CATALOG_REFRESH, catalogError: offline }));
+  assert.equal(result.applied, true);
+  assert.equal(result.applied ? result.catalog.catalogCount : 0, 2);
+  assert.equal(result.applied && "catalogError" in result.catalog, false, "一覧の state へ catalogError を混ぜない");
+  assert.deepEqual(result.note, { text: offline, error: true });
+});
+
+test("カタログ更新の 503 は一覧を差し替えず、失敗の注記だけを返す", async () => {
+  const result = await runModelCatalogRefresh(async () => {
+    throw new Error("ランタイムのモデル情報を取得できません");
+  });
+  assert.equal(result.applied, false, "一覧も catalogError も変えない");
+  assert.deepEqual(result.note, {
+    text: "モデル一覧を取得できませんでした。ランタイムのモデル情報を取得できません",
+    error: true,
+  });
 });

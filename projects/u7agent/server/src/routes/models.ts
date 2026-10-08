@@ -43,5 +43,15 @@ export function createModelSettingsRoutes({ modelSettings }: { modelSettings: Mo
       if (outcome.status === 503) return c.json({ error: outcome.error, state: "not_stored" as const }, 503);
       return c.json(outcome.response, 200);
     },
+
+    /**
+     * pi.dev のカタログを取り直す。取得できなくても 200 で現在の一覧を返し、失敗は `catalogError` にだけ載せる
+     * (一覧そのものを返せないときだけ、GET /api/runtime/models と同じ 503)。
+     */
+    catalogRefresh: async (c: Context) => {
+      const outcome = await modelSettings.refreshCatalog();
+      if (outcome.status === 503) return c.json({ error: outcome.error }, 503);
+      return c.json(outcome.response, 200);
+    },
   };
 }

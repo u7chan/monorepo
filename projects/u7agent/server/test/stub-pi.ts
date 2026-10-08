@@ -4,7 +4,7 @@
  */
 import { clampThinkingLevel, getSupportedThinkingLevels } from "@earendil-works/pi-ai";
 import type { Api, Model as PiAiModel } from "@earendil-works/pi-ai";
-import type { PiBff } from "../src/agent";
+import type { ModelCatalogRefreshAttempt, PiBff } from "../src/agent";
 import type { ModelSelection } from "../src/agent";
 import { MODEL_UNSET_MESSAGE } from "../src/agent";
 import type { AskUserHost } from "../src/ask-user-tool";
@@ -602,6 +602,15 @@ export interface StubPiOptions {
   modelWhitelistExcludesAll?: boolean;
   /** GET /api/runtime/models が返すカタログを直接与える (未指定は undefined = 503) */
   modelCatalog?: RuntimeModelsResponse;
+  /**
+   * カタログ更新の SDK 面の模倣。throw すると例外経路、`aborted` / `failedProviders` で失敗分類を検証できる。
+   * 取得に成功した見せかけは `setModelCatalog()` で新しい一覧へ差し替える。
+   */
+  onRefreshModelCatalog?: (options: {
+    allowNetwork: boolean;
+    force: boolean;
+    signal: AbortSignal;
+  }) => ModelCatalogRefreshAttempt | Promise<ModelCatalogRefreshAttempt>;
   createSessionRejects?: number;
   /** 設定 → モデルの API が返すプロバイダー。省略時は stub 1 件 (キー登録可) */
   providers?: StubProvider[];
@@ -625,6 +634,13 @@ export interface StubModelRuntimeCall {
   operation: "setRuntimeApiKey" | "removeRuntimeApiKey";
   provider: string;
   apiKey?: string;
+}
+
+/** カタログ更新の SDK 呼び出し。実 SDK へ渡す契約 (allowNetwork / force) と呼び出し時の abort を記録する */
+export interface StubCatalogRefreshCall {
+  allowNetwork: boolean;
+  force: boolean;
+  aborted: boolean;
 }
 
 export interface StubModelRuntime {
@@ -680,6 +696,9 @@ export function createStubPi(options: StubPiOptions = {}) {
   const createInputs: StubCreateInput[] = [];
   // 設定 → モデル用の記録。bootstrap がメソッドを剥ぎ取っても動くよう、配列はクロージャで持つ
   const modelRuntimeCalls: StubModelRuntimeCall[] = [];
+  const catalogRefreshCalls: StubCatalogRefreshCall[] = [];
+  // refresh 成功でカタログが差し替わる様子を再現できるよう、GET が読む値を可変にする
+  const catalogHolder: { value: RuntimeModelsResponse | undefined } = { value: options.modelCatalog };
   const retainedSecrets: string[] = [];
   const secretMasker = createMutableSecretMasker([]);
   // setter が refresh より先に呼ばれることを順序で確かめられるよう、同じログへ積む
@@ -704,7 +723,12 @@ export function createStubPi(options: StubPiOptions = {}) {
     defaultModelUnset: options.defaultModelUnset ?? false,
     availabilityError: options.availabilityError,
     modelWhitelistExcludesAll: options.modelWhitelistExcludesAll ?? false,
-    modelCatalog: options.modelCatalog,
+    get modelCatalog() {
+      return catalogHolder.value;
+    },
+    setModelCatalog: (next: RuntimeModelsResponse | undefined) => {
+      catalogHolder.value = next;
+    },
     tools: ["read"],
     sessions,
     createInputs,
@@ -756,6 +780,20 @@ export function createStubPi(options: StubPiOptions = {}) {
       modelStateEvents.push("refresh");
       refreshCount += 1;
     },
+    // カタログ更新 (bootstrap の createProviderKeyRuntime) が触る SDK 面の模倣。
+    // 実 SDK の refresh と同じく、呼び出し時の signal が既に abort 済みなら即座に aborted で返す。
+    refreshModelCatalog: async (refreshOptions: { allowNetwork: boolean; force: boolean; signal: AbortSignal }) => {
+      catalogRefreshCalls.push({
+        allowNetwork: refreshOptions.allowNetwork,
+        force: refreshOptions.force,
+        aborted: refreshOptions.signal.aborted,
+      });
+      if (refreshOptions.signal.aborted) return { aborted: true, failedProviders: 0 };
+      return options.onRefreshModelCatalog
+        ? options.onRefreshModelCatalog(refreshOptions)
+        : { aborted: false, failedProviders: 0 };
+    },
+    catalogRefreshCalls,
     resolveModel: (ref: ModelRef) => available.find((model) => model.provider === ref.provider && model.id === ref.id),
     createSession: async (input: StubCreateInput = {}) => {
       if ((options.createSessionRejects ?? 0) > 0) {

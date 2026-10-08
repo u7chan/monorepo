@@ -398,6 +398,9 @@ export async function createBffApp(opts: CreateBffAppOptions = {}) {
       ),
       (c) => modelSettingsRoutes.putAllowed(c, c.req.valid("json")),
     )
+    // pi.dev への外向き通信だけで DB に触れないため appData のゲートは通さず、
+    // `:provider` より先に置いて静的パスがパラメータへ食われないようにする
+    .post("/api/settings/models/catalog/refresh", modelSettingsRoutes.catalogRefresh)
     .put(
       "/api/settings/models/:provider/key",
       appDataMutation,

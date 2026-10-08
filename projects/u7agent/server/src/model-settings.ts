@@ -5,15 +5,18 @@
  * 契約と残存リスクは docs/model-settings.md を正とする。
  */
 import type { ModelSettingsRow, ProviderCredentialRow, ProviderMemoRow } from "./app-db";
-import { sanitizeRuntimeAuth, type RuntimeAuthStatusLike } from "./agent";
+import { sanitizeRuntimeAuth, type ModelCatalogRefreshAttempt, type RuntimeAuthStatusLike } from "./agent";
 import { httpError, messageFor } from "./http";
 import {
   PROVIDER_API_KEY_MIN_LENGTH,
+  RUNTIME_MODELS_UNAVAILABLE_MESSAGE,
+  type ModelCatalogRefreshResponse,
   type ModelRef,
   type ModelsSettingsResponse,
   type ModelMutationResponse,
   type ProviderAuthSetting,
   type RuntimeAuth,
+  type RuntimeModelsResponse,
 } from "./schema";
 
 /** SDK 操作の結果。CSE は「commit 済み・同期失敗」、unknown は commit の有無を断定しない。 */
@@ -32,6 +35,20 @@ export interface ProviderKeyRuntime {
    * 依存させない (未認証でも許可リストには入れられる)。
    */
   catalog(): ModelRef[];
+  /**
+   * pi.dev の provider 別カタログを取り直す。offline の判定と総時間の上限は呼び出し側が持ち、
+   * ここは SDK へ写すだけ (例外は呼び出し側が固定文言へ寄せる)。
+   */
+  refreshCatalog(options: {
+    allowNetwork: boolean;
+    force: boolean;
+    signal: AbortSignal;
+  }): Promise<ModelCatalogRefreshAttempt>;
+  /**
+   * いま公開しているカタログ応答。取得できなかった回は undefined で、`GET /api/runtime/models` と同じ 503 にする。
+   * lock の内側で `refreshModelState()` の後に読む契約。
+   */
+  catalogSnapshot(): RuntimeModelsResponse | undefined;
   applyApiKey(provider: string, apiKey: string, options: { signal: AbortSignal }): Promise<CredentialCommit>;
   removeApiKey(provider: string, options: { signal: AbortSignal }): Promise<CredentialCommit>;
 }
@@ -76,8 +93,11 @@ export interface ModelSettingsOptions {
   ignoredEnvironmentVariables: string[];
   /** SDK 操作の期限。timeout は「未適用」と断定せず unknown に倒す */
   timeoutMs?: number;
+  /** pi.dev へのカタログ取得の総時間の上限。provider ごとの試行より外側の期限 */
+  catalogTimeoutMs?: number;
 }
 export const PROVIDER_KEY_SYNC_TIMEOUT_MS = 20_000;
+export const MODEL_CATALOG_REFRESH_TIMEOUT_MS = 20_000;
 
 export const PROVIDER_KEY_RUNTIME_UNAVAILABLE_MESSAGE = "ランタイムが利用できないため、APIキーを変更できません";
 export const PROVIDER_KEY_NOT_STORED_MESSAGE = "APIキーをアプリデータ（SQLite）へ保存できませんでした";
@@ -93,8 +113,20 @@ export const MODEL_SELECTION_NOT_STORED_MESSAGE = "利用可能なモデルを�
 export const MODEL_SELECTION_FORMAT_MESSAGE = "モデルは provider/model 形式で指定してください";
 export const MODEL_SELECTION_NOT_IN_CATALOG_MESSAGE = "カタログに無いモデルは指定できません";
 export const MODEL_SELECTION_DEFAULT_NOT_ALLOWED_MESSAGE = "既定モデルは利用可能なモデルから選んでください";
+export const MODEL_CATALOG_ERROR_PARTIAL =
+  "一部のプロバイダーからモデル一覧を取得できませんでした。取得できた範囲で一覧を更新しています。";
+export const MODEL_CATALOG_ERROR_TIMEOUT =
+  "モデル一覧の取得がタイムアウトしました。取得できた範囲で一覧を更新しています。";
+export const MODEL_CATALOG_ERROR_OFFLINE =
+  "PI_OFFLINE が設定されているためモデル一覧を取得しませんでした。表示中の一覧は変わりません。";
+export const MODEL_CATALOG_ERROR_UNKNOWN = "モデル一覧を取得できませんでした。表示中の一覧は変わりません。";
 
 export type MutationOutcome = { status: 200; response: ModelMutationResponse } | { status: 503; error: string };
+
+/** カタログ更新の応答。503 は一覧そのものを返せないときだけで、取得失敗は 200 の `catalogError` に載せる */
+export type CatalogRefreshOutcome =
+  | { status: 200; response: ModelCatalogRefreshResponse }
+  | { status: 503; error: string };
 
 /**
  * 認証変更・DB 書込・state 公開を直列化する 1 本のロック。画像生成の設定も同じ型のロックで直列化する。
@@ -173,6 +205,7 @@ export class ModelSettingsService {
   #setModelSelection: ModelSettingsOptions["setModelSelection"];
   #ignoredEnvironmentVariables: string[];
   #timeoutMs: number;
+  #catalogTimeoutMs: number;
   #lock = new MutationLock();
   /** このプロセスのメモリだけが持つ未反映の印。再起動で消える */
   #degraded = new Map<string, "apply" | "remove">();
@@ -186,6 +219,7 @@ export class ModelSettingsService {
     this.#setModelSelection = options.setModelSelection;
     this.#ignoredEnvironmentVariables = options.ignoredEnvironmentVariables;
     this.#timeoutMs = options.timeoutMs ?? PROVIDER_KEY_SYNC_TIMEOUT_MS;
+    this.#catalogTimeoutMs = options.catalogTimeoutMs ?? MODEL_CATALOG_REFRESH_TIMEOUT_MS;
   }
 
   /** GET。純粋読取で、SDK の呼び出しも修復も行わない (DB の失敗は 503 のまま伝える) */
@@ -414,6 +448,50 @@ export class ModelSettingsService {
     });
   }
 
+  /**
+   * カタログの手動更新。キー変更と同じロックを通し、取得できなくても一覧は現在値のまま 200 で返す
+   * (失敗は `catalogError` にだけ載せる)。応答は `GET /api/runtime/models` + `catalogError`。
+   */
+  async refreshCatalog(): Promise<CatalogRefreshOutcome> {
+    return this.#lock.run(async () => {
+      if (!this.#runtime) return this.#runtimeUnavailable(RUNTIME_MODELS_UNAVAILABLE_MESSAGE);
+      const catalogError = await this.#refreshCatalog(this.#runtime);
+      await this.#refresh();
+      const snapshot = this.#runtime.catalogSnapshot();
+      // スナップショットが無い = 一覧そのものを返せない。取得試行の失敗は混ぜず、GET と同じ 503 にする
+      if (!snapshot) return { status: 503, error: RUNTIME_MODELS_UNAVAILABLE_MESSAGE };
+      return { status: 200, response: { ...snapshot, catalogError } };
+    });
+  }
+
+  /**
+   * カタログ取得を 1 回だけ試し、失敗を固定文言へ寄せる。offline は SDK へ allowNetwork: true を
+   * 渡す前にここで止める (渡すと SDK の offline 意思を上書きしてしまう)。
+   */
+  async #refreshCatalog(runtime: ProviderKeyRuntime): Promise<string | null> {
+    if (process.env.PI_OFFLINE !== undefined) return MODEL_CATALOG_ERROR_OFFLINE;
+    let attempt: ModelCatalogRefreshAttempt;
+    try {
+      attempt = await runtime.refreshCatalog({
+        allowNetwork: true,
+        force: true,
+        signal: AbortSignal.timeout(this.#catalogTimeoutMs),
+      });
+    } catch (error) {
+      // 生の文言は応答へ出さず、マスカーを通した分類だけをログへ残す
+      console.warn(`[u7agent] model catalog refresh failed: ${this.#maskError(messageFor(error))}`);
+      return MODEL_CATALOG_ERROR_UNKNOWN;
+    }
+    // abort (期限) は provider の失敗と同時でも「取得できなかった」主体は期限側なので、こちらを優先する
+    if (attempt.aborted) return MODEL_CATALOG_ERROR_TIMEOUT;
+    if (attempt.failedProviders > 0) {
+      // provider id も生の文言も出さない。件数だけを分類として残す
+      console.warn(`[u7agent] model catalog refresh incomplete: ${attempt.failedProviders} provider(s)`);
+      return MODEL_CATALOG_ERROR_PARTIAL;
+    }
+    return null;
+  }
+
   /** 成功・失敗のどちらでも再計算を 1 回だけ公開し、degraded を更新して応答を組む */
   async #settle(provider: string, commit: CredentialCommit, operation: "apply" | "remove"): Promise<MutationOutcome> {
     await this.#refresh();
@@ -447,11 +525,11 @@ export class ModelSettingsService {
     }
   }
 
-  #notStored(error: string = PROVIDER_KEY_NOT_STORED_MESSAGE): MutationOutcome {
+  #notStored(error: string = PROVIDER_KEY_NOT_STORED_MESSAGE): { status: 503; error: string } {
     return { status: 503, error };
   }
 
-  #runtimeUnavailable(error: string = PROVIDER_KEY_RUNTIME_UNAVAILABLE_MESSAGE): MutationOutcome {
+  #runtimeUnavailable(error: string = PROVIDER_KEY_RUNTIME_UNAVAILABLE_MESSAGE): { status: 503; error: string } {
     return this.#notStored(error);
   }
 

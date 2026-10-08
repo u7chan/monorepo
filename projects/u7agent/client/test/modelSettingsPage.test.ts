@@ -103,7 +103,9 @@ function modelSettings(overrides: Partial<ModelSettings> = {}): ModelSettings {
     saving: null,
     savingAvailability: false,
     reloading: false,
+    refreshing: false,
     reload: async () => {},
+    refreshCatalog: async () => {},
     save: async () => true,
     saveMemo: async () => true,
     saveAvailability: async () => SETTINGS,
@@ -607,4 +609,47 @@ test("読み込み中の状態を出す", () => {
   );
   assert.ok(html.includes("プロバイダーの認証状態を読み込んでいます。"));
   assert.ok(html.includes("再読み込み"));
+});
+
+test("カタログ更新はカタログを見るタブだけに出し、更新中・runtime 不可・カタログ取得失敗で無効にする", () => {
+  const enabled = render(modelSettings());
+  assert.equal((enabled.match(/カタログ更新/g) ?? []).length, 1, "既定タブに 1 つ出す");
+  assert.match(
+    enabled,
+    /<button[^>]*class="btn-quiet"[^>]*>(?:(?!<\/button>)[\s\S])*カタログ更新<\/button>/,
+    "再読み込みと同じ寸法の取り直しボタンにする",
+  );
+  assert.equal(
+    /<button[^>]*disabled=""[^>]*>(?:(?!<\/button>)[\s\S])*カタログ更新<\/button>/.test(enabled),
+    false,
+    "runtime とカタログが使えるときは押せる",
+  );
+
+  const refreshing = render(modelSettings({ refreshing: true }));
+  assert.match(
+    refreshing,
+    /<button[^>]*disabled=""[^>]*>(?:(?!<\/button>)[\s\S])*更新中<\/button>/,
+    "更新中は連打できない",
+  );
+
+  const unavailable = render(modelSettings({ settings: { ...SETTINGS, runtimeAvailable: false } }));
+  assert.match(
+    unavailable,
+    /<button[^>]*disabled=""[^>]*>(?:(?!<\/button>)[\s\S])*カタログ更新<\/button>/,
+    "runtime が無いときは押せない",
+  );
+
+  const failed = render(modelSettings({ catalogError: "ランタイムのモデル情報を取得できません" }));
+  assert.match(
+    failed,
+    /<button[^>]*disabled=""[^>]*>(?:(?!<\/button>)[\s\S])*カタログ更新<\/button>/,
+    "カタログを取得できていないときは押せない",
+  );
+
+  const providers = render(modelSettings(), { modelsSubsection: "providers" });
+  assert.ok(providers.includes("カタログ更新"), "プロバイダータブにも出す");
+  const images = render(modelSettings(), { modelsSubsection: "images" });
+  assert.equal(images.includes("カタログ更新"), false, "画像生成タブには出さない");
+  const webSearch = render(modelSettings(), { modelsSubsection: "web-search" });
+  assert.equal(webSearch.includes("カタログ更新"), false, "Web 検索タブには出さない");
 });

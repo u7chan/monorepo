@@ -557,6 +557,12 @@ export const RuntimeCatalogProviderSchema = z.object({
 });
 export type RuntimeCatalogProvider = z.infer<typeof RuntimeCatalogProviderSchema>;
 
+/**
+ * GET /api/runtime/models と カタログ更新 の 503。カタログを取れなかった回に空の一覧で 200 を返さず、
+ * 全 provider 未認証と区別できるようにする。
+ */
+export const RUNTIME_MODELS_UNAVAILABLE_MESSAGE = "ランタイムのモデル情報を取得できません";
+
 /** GET /api/runtime/models。モデル一覧はこの API を開いたときだけ取得する。 */
 export const RuntimeModelsResponseSchema = z.object({
   catalogCount: z.number().int().nonnegative(),
@@ -618,6 +624,16 @@ export const ModelMutationResponseSchema = ModelsSettingsResponseSchema.extend({
   state: z.enum(["applied", "applied_unsynced"]),
 });
 export type ModelMutationResponse = z.infer<typeof ModelMutationResponseSchema>;
+
+/**
+ * POST /api/settings/models/catalog/refresh。設定は変えず、取得できなくても 200 で現在のカタログを返す
+ * (`catalogError` にだけ今回の取得結果の固定文言を載せる。一覧を失わせない)。
+ */
+export const ModelCatalogRefreshResponseSchema = RuntimeModelsResponseSchema.extend({
+  /** 今回の取得試行の結果。null なら成功 */
+  catalogError: z.string().nullable(),
+});
+export type ModelCatalogRefreshResponse = z.infer<typeof ModelCatalogRefreshResponseSchema>;
 
 /** 変更系の失敗応答 (何も変わっていない)。400 は error のみ */
 export const ModelMutationErrorSchema = z.object({

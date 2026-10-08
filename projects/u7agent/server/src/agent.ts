@@ -169,6 +169,16 @@ export interface SessionEnvSource {
   variablesFor(cwd: string): Record<string, string>;
 }
 
+/**
+ * カタログ更新の試行結果。provider ごとの失敗は件数だけを返し、内訳は応答にもログにも出さない
+ * (どの provider が落ちたかは SDK の credential 解決に依存し、利用者の設定を写さないため)。
+ */
+export interface ModelCatalogRefreshAttempt {
+  /** SDK が呼び出し元の signal で中断した (総時間の上限に当たった) */
+  aborted: boolean;
+  failedProviders: number;
+}
+
 export interface PiBff {
   /** ワークスペース root の絶対パス (サンドボックスの rootCwd と同じパスを指す契約) */
   cwd: string;
@@ -202,6 +212,15 @@ export interface PiBff {
   setModelSelection(selection: ModelSelection): void;
   /** SDK のモデル状態を読み直して公開 state を差し替える。throw しない (lock を壊さない) */
   refreshModelState(): Promise<void>;
+  /**
+   * pi.dev の provider 別カタログを取り直す。offline の判定と総時間の上限は呼び出し側 (設定サービス) が持ち、
+   * ここは SDK の refresh へ写すだけ (例外は呼び出し側が固定文言へ寄せる)。
+   */
+  refreshModelCatalog(options: {
+    allowNetwork: boolean;
+    force: boolean;
+    signal: AbortSignal;
+  }): Promise<ModelCatalogRefreshAttempt>;
   /** 画像生成ツールを公開しているか。セッション作成時に読み、ツール一覧を固定する */
   imageGenerationEnabled: boolean;
   /**
@@ -661,6 +680,19 @@ export async function createPiBff({ cwd = process.cwd() }: { cwd?: string } = {}
   }
   await refreshModelState();
 
+  async function refreshModelCatalog({
+    allowNetwork,
+    force,
+    signal,
+  }: {
+    allowNetwork: boolean;
+    force: boolean;
+    signal: AbortSignal;
+  }): Promise<ModelCatalogRefreshAttempt> {
+    const result = await modelRuntime.refresh({ allowNetwork, force, signal });
+    return { aborted: result.aborted, failedProviders: result.errors.size };
+  }
+
   const defaultThinkingLevel = parseThinkingLevelFromEnv();
 
   const resolveModel = (model: ModelRef): PiAiModel<Api> | undefined =>
@@ -871,5 +903,6 @@ export async function createPiBff({ cwd = process.cwd() }: { cwd?: string } = {}
       sessionEnv.value = source;
     },
     refreshModelState,
+    refreshModelCatalog,
   };
 }

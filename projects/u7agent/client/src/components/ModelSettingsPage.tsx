@@ -99,7 +99,9 @@ export function ModelSettingsView({
     saving,
     savingAvailability,
     reloading,
+    refreshing,
     reload,
+    refreshCatalog,
     save,
     saveMemo,
     saveAvailability,
@@ -136,6 +138,8 @@ export function ModelSettingsView({
   const draftState = appliedDraft.current;
   const imagesTab = modelsSubsection === "images";
   const webSearchTab = modelsSubsection === "web-search";
+  // カタログ更新を出すのはカタログを表示する 2 タブだけ。無効化は GET 失敗 = 編集不可と同じ判定を使う
+  const catalogTab = !imagesTab && !webSearchTab;
   // 注記と再読み込みは表示中のタブのものだけを出す (別タブの失敗を混ぜない)
   const activeNote = webSearchTab ? webSearchSettings.note : imagesTab ? imageSettings.note : note;
   const activeReloading = webSearchTab ? webSearchSettings.reloading : imagesTab ? imageSettings.reloading : reloading;
@@ -154,12 +158,22 @@ export function ModelSettingsView({
           : "使うモデルと、プロバイダーごとのAPIキー、画像生成・Web 検索の設定をします。保存した内容は再起動後も使われます。"
       }
       actions={
-        <ReloadButton
-          onClick={() => void Promise.all([reload(), imageSettings.reload(), webSearchSettings.reload()])}
-          disabled={activeReloading}
-        >
-          再読み込み
-        </ReloadButton>
+        <>
+          {catalogTab ? (
+            <ReloadButton
+              onClick={() => void refreshCatalog()}
+              disabled={refreshing || settings?.runtimeAvailable === false || catalogError !== null}
+            >
+              {refreshing ? "更新中" : "カタログ更新"}
+            </ReloadButton>
+          ) : null}
+          <ReloadButton
+            onClick={() => void Promise.all([reload(), imageSettings.reload(), webSearchSettings.reload()])}
+            disabled={activeReloading}
+          >
+            再読み込み
+          </ReloadButton>
+        </>
       }
       tabs={
         <div
