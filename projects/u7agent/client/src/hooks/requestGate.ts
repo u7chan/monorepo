@@ -7,6 +7,26 @@ export function createRequestGate() {
   };
 }
 
+export function createMountScope() {
+  let active = true;
+  let generation = 0;
+  return {
+    isActive: () => active,
+    setup() {
+      active = true;
+      return () => {
+        active = false;
+        generation += 1;
+      };
+    },
+    capture() {
+      const startedActive = active;
+      const startedGeneration = generation;
+      return () => startedActive && active && startedGeneration === generation;
+    },
+  };
+}
+
 /**
  * 「いま飛んでいる要求」だけを追う。`begin()` は開始を記録して完了時に呼ぶ関数を返し、その間だけ
  * `pending()` が真になる。**後から始まった要求は前の要求を数えなくする**ので、取得先が変わったときに
