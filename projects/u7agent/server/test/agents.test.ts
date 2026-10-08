@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { appendSystemPrompt, composePromptSnapshot } from "../src/agent";
+import { appendSystemPrompt, composePromptSnapshot, investigationSystemPrompt, investigationTools } from "../src/agent";
 import { createAgentCatalog } from "../src/agents";
 
 const DEFAULT_SUGGESTIONS = [
@@ -465,4 +465,31 @@ test("appendSystemPrompt はサンドボックスの python / uv と .venv の�
   assert.match(prompt, /`\.venv` directly under it/);
   assert.match(prompt, /uv pip install --python \.venv\/bin\/python/);
   assert.doesNotMatch(prompt, /Not installed there:.*\bpython3\b/);
+});
+
+test("investigationSystemPrompt は読み取り専用と調査に要る案内だけを残す", () => {
+  const prompt = investigationSystemPrompt();
+  assert.match(prompt, /read-only investigation sub-agent/);
+  assert.match(prompt, /Never change files/);
+  assert.match(prompt, /`@<path>` mention/);
+  assert.match(prompt, /curl for HTTP\(S\)/);
+  assert.match(prompt, /working directory/);
+  // 子に渡さないツールの案内は入れない (存在しない操作を促さない)
+  assert.doesNotMatch(prompt, /\bserve\b/);
+  assert.doesNotMatch(prompt, /generate_image/);
+  assert.doesNotMatch(prompt, /\.agents\/skills/);
+  assert.doesNotMatch(prompt, /uv venv/);
+});
+
+test("investigationTools は読み取り専用ツールと allowlist の積になる", () => {
+  assert.deepEqual(investigationTools(["read", "bash", "edit", "write", "grep", "find", "ls"]), [
+    "read",
+    "grep",
+    "find",
+    "ls",
+    "bash",
+  ]);
+  // PI_AGENT_TOOLS で bash を外している運用では子にも入らない
+  assert.deepEqual(investigationTools(["read", "grep"]), ["read", "grep"]);
+  assert.deepEqual(investigationTools(["edit", "write"]), []);
 });

@@ -119,6 +119,8 @@ export interface PiRuntimeLike {
     promptSnapshot?: PromptSnapshot;
     /** セッションのエージェントスナップショット (カタログスキルの説明の出所。復元でも渡す) */
     agentSkills?: AgentSkillInfo[];
+    /** 子モード。読み取り専用ツールだけを公開し、常時有効群とスキル発見を落とす (既定 "chat") */
+    mode?: "chat" | "investigation";
   }): Promise<{ session: unknown; promptSnapshot?: PromptSnapshot }>;
   /** availableModels との厳密一致。スタブでは未実装でもよい */
   resolveModel?(model: ModelRef): unknown;

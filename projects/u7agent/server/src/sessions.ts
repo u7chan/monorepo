@@ -24,6 +24,8 @@ import { workspaceAbs } from "./app-paths";
 import { SANDBOX_NOT_CONFIGURED_MESSAGE, type PiBff } from "./agent";
 import { composePromptSnapshot } from "./agent";
 import type { AgentCatalog } from "./agents";
+import { createInvestigateRunner, type InvestigateRunner } from "./investigate-runner";
+import type { InvestigateHost } from "./investigate-tool";
 import { validateAskUserAnswers, type AskUserHost } from "./ask-user-tool";
 import { stripAttachedFiles } from "./attachments";
 import { compactionsOf, recordCompactionOutcome } from "./compaction-view";
@@ -270,6 +272,8 @@ export class SessionStore {
   notifications: NotificationService | null;
   /** 送信対応記録の書込み (テスト差し替え用) */
   writeSendsFile: (storeDir: string, id: string, sends: SessionSends) => void;
+  /** investigate の子 runner。子は record に載せず、並列と待ち行列の在庫をここに持つ */
+  investigator: InvestigateRunner;
 
   constructor({
     pi,
@@ -294,6 +298,22 @@ export class SessionStore {
     this.rootCwd = rootCwd ?? process.cwd();
     this.notifications = notifications ?? null;
     this.writeSendsFile = writeSends ?? writeSessionSends;
+    this.investigator = createInvestigateRunner({
+      masker: this.masker,
+      // 子モードの固定はここが持つ (ツール定義と runner は mode を知らない)
+      createChildSession: async (input) => {
+        const pi = this.pi;
+        if (!pi) throw new Error("ランタイムを利用できません");
+        const created = await pi.createSession({
+          mode: "investigation",
+          agent: input.agent,
+          cwd: input.cwd,
+          ...(input.model ? { model: input.model } : {}),
+          ownerSessionId: input.ownerSessionId,
+        });
+        return created.session as PiSessionLike;
+      },
+    });
     this.records = new Map();
     this.descriptors = new Map();
     this.lifecycle = new Map();
@@ -1090,6 +1110,29 @@ export class SessionStore {
         const record = this.records.get(sessionId);
         if (!record) return Promise.reject(new Error(`Session not found: ${sessionId}`));
         return this.askQuestion(record, toolCallId, questions, signal);
+      },
+    };
+  }
+
+  /**
+   * investigate ツールの実体。親 (cwd と現在のモデル) をここで解決して runner へ渡す。
+   * 子の掃除は親 run の signal に寄せるため、専用のフックは持たない。
+   */
+  investigateHost(): InvestigateHost {
+    return {
+      investigate: (request) => {
+        const record = this.records.get(request.sessionId);
+        if (!record) return Promise.reject(new Error(`Session not found: ${request.sessionId}`));
+        return this.investigator.investigate({
+          sessionId: record.id,
+          cwd: record.workdir,
+          ...(record.session.model
+            ? { model: { provider: record.session.model.provider, id: record.session.model.id } }
+            : {}),
+          prompt: request.prompt,
+          signal: request.signal,
+          ...(request.onProgress ? { onProgress: request.onProgress } : {}),
+        });
       },
     };
   }

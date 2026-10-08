@@ -13,6 +13,7 @@
 | 責務 | 正 | 変更テーマ |
 | --- | --- | --- |
 | ラン / キュー / 購読 / セッション状態 | `server/src/sessions.ts` | [run-lifecycle.md](run-lifecycle.md) |
+| 調査の子セッション（investigate） | `server/src/investigate-tool.ts`、`server/src/investigate-runner.ts` | [subagent.md](subagent.md) |
 | 会話ストア（永続化 / 復元） | `server/src/session-store.ts` | [session-files.md](session-files.md)、[persistence.md](persistence.md) |
 | pi イベント → SSE イベント変換 | `server/src/run-events.ts` | [run-lifecycle.md](run-lifecycle.md) |
 | 履歴 / payload / compaction の DTO 組み立て | `server/src/session-projection.ts`、`session-payload.ts`、`compaction-view.ts` | [run-lifecycle.md](run-lifecycle.md)、[compaction.md](compaction.md) |
@@ -33,6 +34,7 @@
 変更テーマ別の入口は [README.md](README.md) の索引にまとめている。個別の設計は次のドキュメントを正とする。
 
 - ランとセッション: [run-lifecycle.md](run-lifecycle.md)
+- 調査の委譲: [subagent.md](subagent.md)
 - プロジェクトと cwd: [projects.md](projects.md)
 - モデル / Effort: [model-effort.md](model-effort.md)
 - サンドボックス: [sandbox.md](sandbox.md) / [sandbox-api.md](sandbox-api.md)
