@@ -10,12 +10,14 @@ import {
   webSearchDataFlowNotice,
   webSearchKeyBadge,
   webSearchKeyMissingNotice,
+  webSearchNoticeSummary,
   webSearchProviderDef,
   webSearchProviderOptions,
   webSearchStatusBadge,
   type WebSearchSavingAction,
 } from "../../lib/webSearchSettings";
 import type { WebSearchProviderId, WebSearchSettingsResponse } from "../../types";
+import { CollapsibleNotice } from "../CollapsibleNotice";
 import { useConfirm } from "../ConfirmProvider";
 import { KeyIcon, TrashIcon } from "../icons";
 import { ProviderIcon } from "../ProviderIcon";
@@ -196,12 +198,12 @@ export function WebSearchSettingsTab({
           ) : null}
         </section>
 
-        {/* 外部送信とキーの保存は、設定を変える前に読める位置へ常時出す（画像生成タブと同じ作法） */}
-        <section className="grid gap-1 rounded-lg border border-warn/40 bg-raised px-2.5 py-2 text-2xs leading-relaxed text-warn">
+        {/* 外部送信とキーの保存は、設定を変える前に読める位置へ既定で畳んで出す（画像生成タブと同じ作法） */}
+        <CollapsibleNotice summary={webSearchNoticeSummary(providerDef, enabled)}>
           <p>{webSearchDataFlowNotice(providerDef, enabled)}</p>
           {providerDef.keyless ? null : <p>選んだ provider のAPIキーは平文で保存し、保存したキーは再表示しません。</p>}
           <p>{WEB_SEARCH_NO_LOGIN_NOTE}</p>
-        </section>
+        </CollapsibleNotice>
 
         <section className="grid gap-1 border-t border-line pt-3 text-2xs leading-relaxed text-ink-muted">
           <p>{WEB_SEARCH_SETTINGS_NOTE}</p>

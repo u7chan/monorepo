@@ -134,6 +134,17 @@ test("カタログ外の保存済みモデルも選択肢に残す", () => {
   assert.ok(html.includes("Gemini Image"), "カタログの他の候補も失わない");
 });
 
+test("平文の注意は既定で畳み、1 行の要点を出す", () => {
+  const html = render();
+  assert.match(
+    html,
+    /<summary[^>]*>[\s\S]*キーは平文で保存されます。ログインがないため公開しないでください。[\s\S]*<\/summary>/,
+    "畳んだ 1 行にキーの保存と公開の注意を出す",
+  );
+  assert.equal(html.includes("<details open"), false, "既定は畳む");
+  assert.ok(html.includes("登録したキーはアプリのデータベース（SQLite）へ平文で保存され"), "展開で元の本文を読める");
+});
+
 test("runtimeAvailable: false ではキー操作だけを無効化し、モデル変更は残す", () => {
   const html = render({ runtimeAvailable: false });
   assert.ok(html.includes("ランタイムが利用できないため"), "変更できないことを先に伝える");

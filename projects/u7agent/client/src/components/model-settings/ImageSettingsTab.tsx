@@ -13,6 +13,7 @@ import {
 } from "../../lib/imageSettings";
 import { API_KEY_MIN_LENGTH } from "../../lib/modelSettings";
 import type { ImageSettingsResponse, UpdateImageSelectionBody } from "../../types";
+import { CollapsibleNotice } from "../CollapsibleNotice";
 import { CheckIcon, TrashIcon } from "../icons";
 import { ReloadButton } from "../ReloadButton";
 import { useConfirm } from "../ConfirmProvider";
@@ -220,15 +221,15 @@ function ImageModelSection({
   );
 }
 
-/** キーが平文で保存されることと、BFF を公開しない注意。詳細の上部に常時出す */
+/** キーが平文で保存されることと、BFF を公開しない注意。詳細の上部に既定で畳んで出す */
 function SecurityNotice() {
   return (
-    <section className="grid gap-1 rounded-lg border border-warn/40 bg-raised px-2.5 py-2 text-2xs leading-relaxed text-warn">
+    <CollapsibleNotice summary="キーは平文で保存されます。ログインがないため公開しないでください。">
       <p>
         登録したキーはアプリのデータベース（SQLite）へ平文で保存され、再起動後も使われます。保存したキーは再表示しません。
       </p>
       <p>この GUI にはログインがありません。BFF をインターネットや LAN へ公開しないでください。</p>
       <p>キーの有効性は保存時に確認しません。生成に失敗したときは、キーの誤りや残高不足の可能性があります。</p>
-    </section>
+    </CollapsibleNotice>
   );
 }

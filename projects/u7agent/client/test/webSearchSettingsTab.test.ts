@@ -112,8 +112,14 @@ test("キー付きで設定済みの provider では、上書きと削除を出�
   assert.equal(html.includes("既定の Tavily のAPIキーが未設定です。"), false, "警告は出さない");
 });
 
-test("データの流れと、無効でもツールが残ることを常時出す", () => {
+test("データの流れと、無効でもツールが残ることを既定で畳んで出す", () => {
   const html = render(settings());
+  assert.match(
+    html,
+    /<summary[^>]*>[\s\S]*web_search ツールの実行時にだけ、クエリは Exa（mcp.exa.ai）へ送信されます。[\s\S]*<\/summary>/,
+    "畳んだ 1 行に送信先を出す",
+  );
+  assert.equal(html.includes("<details open"), false, "既定は畳む");
   assert.ok(html.includes("web_search ツールを実行したときだけ"), "実行したときだけ送ることを書く");
   assert.ok(html.includes("モデル（LLM プロバイダー）へ渡ります"));
   assert.ok(html.includes("BFF をインターネットや LAN へ公開しないでください"));
