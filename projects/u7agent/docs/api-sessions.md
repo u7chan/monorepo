@@ -2,6 +2,12 @@
 
 規約と索引は [api.md](api.md) を参照する。設計の背景は [run-lifecycle.md](run-lifecycle.md)、compaction は [compaction.md](compaction.md)、Model / Effort は [model-effort.md](model-effort.md) を正とする。
 
+## スペース文脈
+
+作成の本文以外は、全会話 API（SSE・添付も含む）へ `?spaceId=<id>` を渡す。省略は通常 `default`。所属不一致は SDK 復元や変更の前に 404 とする（[api.md](api.md#スペース)）。一覧は要求スペースだけを返し、未指定一覧に追加スペースを混ぜない。`SessionSummary` / `SessionPayload` は正規化した `spaceId` を返す。
+
+`POST /api/sessions` の optional `spaceId` は本文で指定し、会話の所属は作成後に変更しない。追加スペースと `projectId` の併用は 400。追加スペースの cwd は `.u7agent/spaces/<spaceId>/sessions/<sessionId>`、添付は同階層の `uploads/<sessionId>` とし、その会話の添付だけを送信時に許容する。通常の cwd・添付・既存参照は変えない。未確定会話の `GET /api/skills/session` も query の所属を確認し、追加スペースでは `projectId` を拒否する。
+
 ## `GET /api/sessions`
 
 セッション一覧（最終使用の新しい順）。

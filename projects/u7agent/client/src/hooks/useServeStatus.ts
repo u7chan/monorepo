@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { getServeStatus, startServe, stopServe } from "../api";
+import { useSpaceApi } from "../SpaceContext";
 import { canApplyServeAction, canApplyStatus, type ServeSelection } from "../lib/serveStatus";
 import type { ServeStatus } from "../types";
 
@@ -30,6 +30,7 @@ function messageFor(error: unknown): string {
 }
 
 export function useServeStatus({ sessionId }: { sessionId: string }) {
+  const { getServeStatus, startServe, stopServe } = useSpaceApi();
   const [state, setState] = useState<ServeState>(IDLE);
   const [tracked, setTracked] = useState(sessionId);
   /** 発行した要求の通し番号。応答の適用可否を「番号の新しさ」で決める */

@@ -28,6 +28,8 @@ export type SidebarProps = Omit<
   >,
   "newChat" | "selectSession" | "renameSession" | "deleteSession" | "deleteProject"
 > & {
+  spaceName?: string;
+  conversationOnly?: boolean;
   mode: SidebarMode;
   onSelectMode: (mode: SidebarMode) => void;
   activeSettingsSection: SettingsSection;
@@ -57,6 +59,8 @@ export function Sidebar({
   onClose,
   variant = "sidebar",
   resize,
+  spaceName,
+  conversationOnly = false,
   ...props
 }: SidebarProps) {
   const sheet = variant === "sheet";
@@ -121,6 +125,11 @@ export function Sidebar({
         ) : null}
       </div>
 
+      {spaceName ? (
+        <div className="truncate px-2 text-xs text-ink-soft" title={spaceName}>
+          スペース: {spaceName}
+        </div>
+      ) : null}
       {mode === "settings" ? (
         <SettingsNav
           activeSettingsSection={activeSettingsSection}
@@ -143,64 +152,66 @@ export function Sidebar({
           </button>
 
           <div className="scrollbar-stable grid min-h-0 flex-1 scrollbar-thin content-start gap-4 overflow-y-auto pr-0.5">
-            <section className="grid">
-              <div className="flex items-center justify-between gap-2">
-                <button
-                  type="button"
-                  aria-expanded={projectsOpen}
-                  aria-controls="sidebar-projects-content"
-                  onClick={() => setSectionOpen("projects", !projectsOpen)}
-                  className="sidebar-category-toggle flex min-h-7 min-w-0 flex-1 items-center gap-2 rounded-md px-2.5 text-left outline-none focus-visible:ring-1 focus-visible:ring-focus focus-visible:ring-inset"
-                >
-                  <DisclosureChevronIcon />
-                  <span className="truncate text-2xs font-semibold tracking-widest text-ink-faint uppercase">
-                    Projects
-                  </span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setSectionOpen("projects", true);
-                    onNewProject();
-                  }}
-                  className="inline-flex min-h-7 items-center gap-1 rounded-lg border border-dashed border-line px-2 text-1xs text-ink-soft transition-colors hover:border-accent/50 hover:text-accent-text"
-                >
-                  <PlusIcon />
-                  New Project
-                </button>
-              </div>
-              <div id="sidebar-projects-content" className="tree-fold" data-open={projectsOpen} inert={!projectsOpen}>
-                <div>
-                  <div className="sidebar-category-content mt-2 grid gap-2">
-                    {groups.length === 0 ? (
-                      <div className="rounded-lg px-1 py-1 text-1xs text-ink-faint">プロジェクトはまだありません</div>
-                    ) : (
-                      <div className="grid gap-1.5">
-                        {groups.map((group) => (
-                          <ProjectRow
-                            key={group.project.id}
-                            project={group.project}
-                            sessions={group.sessions}
-                            agents={agents}
-                            sessionId={sessionId}
-                            open={expanded.includes(group.project.cwd)}
-                            onToggle={() => setProjectOpen(group.project.cwd, !expanded.includes(group.project.cwd))}
-                            onNewChat={() => {
-                              setProjectOpen(group.project.cwd, true);
-                              newChat(undefined, group.project.id);
-                            }}
-                            onDelete={() => deleteProject(group.project.id)}
-                            onSelectSession={selectSession}
-                            onRenameSession={renameSession}
-                            onDeleteSession={deleteSession}
-                          />
-                        ))}
-                      </div>
-                    )}
+            {!conversationOnly ? (
+              <section className="grid">
+                <div className="flex items-center justify-between gap-2">
+                  <button
+                    type="button"
+                    aria-expanded={projectsOpen}
+                    aria-controls="sidebar-projects-content"
+                    onClick={() => setSectionOpen("projects", !projectsOpen)}
+                    className="sidebar-category-toggle flex min-h-7 min-w-0 flex-1 items-center gap-2 rounded-md px-2.5 text-left outline-none focus-visible:ring-1 focus-visible:ring-focus focus-visible:ring-inset"
+                  >
+                    <DisclosureChevronIcon />
+                    <span className="truncate text-2xs font-semibold tracking-widest text-ink-faint uppercase">
+                      Projects
+                    </span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSectionOpen("projects", true);
+                      onNewProject();
+                    }}
+                    className="inline-flex min-h-7 items-center gap-1 rounded-lg border border-dashed border-line px-2 text-1xs text-ink-soft transition-colors hover:border-accent/50 hover:text-accent-text"
+                  >
+                    <PlusIcon />
+                    New Project
+                  </button>
+                </div>
+                <div id="sidebar-projects-content" className="tree-fold" data-open={projectsOpen} inert={!projectsOpen}>
+                  <div>
+                    <div className="sidebar-category-content mt-2 grid gap-2">
+                      {groups.length === 0 ? (
+                        <div className="rounded-lg px-1 py-1 text-1xs text-ink-faint">プロジェクトはまだありません</div>
+                      ) : (
+                        <div className="grid gap-1.5">
+                          {groups.map((group) => (
+                            <ProjectRow
+                              key={group.project.id}
+                              project={group.project}
+                              sessions={group.sessions}
+                              agents={agents}
+                              sessionId={sessionId}
+                              open={expanded.includes(group.project.cwd)}
+                              onToggle={() => setProjectOpen(group.project.cwd, !expanded.includes(group.project.cwd))}
+                              onNewChat={() => {
+                                setProjectOpen(group.project.cwd, true);
+                                newChat(undefined, group.project.id);
+                              }}
+                              onDelete={() => deleteProject(group.project.id)}
+                              onSelectSession={selectSession}
+                              onRenameSession={renameSession}
+                              onDeleteSession={deleteSession}
+                            />
+                          ))}
+                        </div>
+                      )}
+                    </div>
                   </div>
                 </div>
-              </div>
-            </section>
+              </section>
+            ) : null}
 
             <section className="grid">
               <button
@@ -212,7 +223,9 @@ export function Sidebar({
               >
                 <DisclosureChevronIcon />
                 <span className="shrink-0 text-2xs font-semibold tracking-widest text-ink-faint uppercase">Chats</span>
-                <span className="min-w-0 flex-1 truncate text-2xs text-ink-ghost">未所属</span>
+                <span className="min-w-0 flex-1 truncate text-2xs text-ink-ghost">
+                  {conversationOnly ? "会話" : "未所属"}
+                </span>
               </button>
               <div
                 id="sidebar-unassigned-content"
@@ -223,7 +236,9 @@ export function Sidebar({
                 <div>
                   <div className="sidebar-category-content mt-2 grid gap-2">
                     {unassigned.length === 0 ? (
-                      <div className="rounded-lg px-1 py-1 text-1xs text-ink-faint">未所属のセッションはありません</div>
+                      <div className="rounded-lg px-1 py-1 text-1xs text-ink-faint">
+                        {conversationOnly ? "会話はまだありません" : "未所属のセッションはありません"}
+                      </div>
                     ) : (
                       <div className="grid gap-1">
                         {unassigned.map((item) => (

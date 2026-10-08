@@ -4,6 +4,10 @@ import { WEB_SEARCH_PROVIDER_IDS } from "./web-search-providers";
 import type { SandboxRuntimeCommand, SandboxRuntimeEnvironment } from "./sandbox/protocol";
 import type { SecretKind } from "./secret-crypto";
 
+export const SpaceSchema = z.object({ id: z.string(), name: z.string(), createdAt: z.number() });
+export type Space = z.infer<typeof SpaceSchema>;
+export const CreateSpaceBodySchema = z.object({ name: z.string().trim().min(1).max(80) });
+
 export const RunStatusSchema = z.enum(["idle", "running", "queued", "compacting", "completed", "stopped", "error"]);
 export type RunStatus = z.infer<typeof RunStatusSchema>;
 
@@ -395,6 +399,7 @@ export const ProjectsResponseSchema = z.object({
 export type ProjectsResponse = z.infer<typeof ProjectsResponseSchema>;
 
 export const SessionPayloadSchema = z.object({
+  spaceId: z.string().optional(),
   sessionId: z.string(),
   piSessionId: z.string(),
   /** rootCwd 相対の作業ディレクトリ (未所属は "" = root) */
@@ -432,6 +437,7 @@ export const SessionPayloadSchema = z.object({
 export type SessionPayload = z.infer<typeof SessionPayloadSchema>;
 
 export const SessionSummarySchema = z.object({
+  spaceId: z.string().optional(),
   sessionId: z.string(),
   title: z.string(),
   agentId: z.string(),
@@ -1047,6 +1053,7 @@ export const AnswerQuestionBodySchema = z.object({ answers: z.array(AskUserAnswe
 export type AnswerQuestionBody = z.infer<typeof AnswerQuestionBodySchema>;
 
 export const CreateSessionBodySchema = z.object({
+  spaceId: z.string().optional(),
   agentId: z.string().optional(),
   // 未指定ならエージェント定義 → アプリ既定の順に解決する (null は 400)
   model: ModelRefSchema.optional(),

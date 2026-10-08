@@ -19,6 +19,7 @@ function settleQuestion(pending: PendingQuestion, finish: () => void): void {
  * 純関数・アダプタへ出す。
  */
 import { randomBytes } from "node:crypto";
+import { spaceIdOf } from "./spaces";
 import { workspaceAbs } from "./app-paths";
 import { SANDBOX_NOT_CONFIGURED_MESSAGE, type PiBff } from "./agent";
 import { composePromptSnapshot } from "./agent";
@@ -317,12 +318,16 @@ export class SessionStore {
   }
 
   async create({
+    spaceId: requestedSpaceId,
     agentId,
     model,
     thinkingLevel,
     projectId,
     notify,
   }: CreateSessionOptions = {}): Promise<SessionRecord> {
+    const spaceId = spaceIdOf(requestedSpaceId);
+    if (spaceId !== "default" && projectId !== undefined)
+      throw httpError(400, "追加スペースではプロジェクトを利用できません");
     if (this.closing) throw httpError(503, "サーバーを終了しています");
     if (this.storeError) throw httpError(503, `会話ストアを利用できません: ${this.storeError}`);
     if (!this.pi) {
@@ -334,8 +339,8 @@ export class SessionStore {
     const id = this.storeDir ? generateSessionId(this.storeDir) : randomBytes(5).toString("hex");
     // 所属セッションの cwd は登録ディレクトリそのもの。プロジェクトのディレクトリは作らず存在だけ確かめる。
     // スクラッチを作るのは未所属だけ (永続化なしでは作業フォルダのライフサイクルを持たない)
-    const workdir = this.workdirOf(id, project?.cwd);
-    if (this.storeDir) {
+    const workdir = this.workdirOf(id, project?.cwd, spaceId);
+    if (this.storeDir || spaceId !== "default") {
       if (project) await this.requireProjectDir(project.cwd);
       else await this.ensureWorkdir(workdir);
     }
@@ -360,6 +365,7 @@ export class SessionStore {
       throw httpError(400, `Project not found: ${projectId}`);
     }
     const record = this.buildRecord({
+      spaceId,
       id,
       session: created.session as PiSessionLike,
       agentId: agent.id,
@@ -380,6 +386,7 @@ export class SessionStore {
   }
 
   private buildRecord({
+    spaceId = "default",
     id,
     session,
     agentId,
@@ -391,6 +398,7 @@ export class SessionStore {
     createdAt,
     notify,
   }: {
+    spaceId?: string;
     id: string;
     session: PiSessionLike;
     agentId: string;
@@ -403,6 +411,7 @@ export class SessionStore {
     notify: boolean;
   }): SessionRecord {
     const meta: SessionMeta = {
+      spaceId,
       version: 1,
       id,
       title,
@@ -453,7 +462,7 @@ export class SessionStore {
   }
 
   private async ensureWorkdir(workdirRel: string): Promise<void> {
-    if (!this.storeDir) return;
+    if (!workdirRel) return;
     if (!this.workspace) throw httpError(503, SANDBOX_NOT_CONFIGURED_MESSAGE);
     await this.workspace.createDir(workdirRel);
   }
@@ -462,9 +471,9 @@ export class SessionStore {
    * セッションの作業ディレクトリ (root 相対)。所属があれば登録ディレクトリ、無ければ永続化ありのときだけ
    * セッション専用のスクラッチ。永続化なしの未所属は root ("") のまま (既存のテスト・未設定デプロイ)。
    */
-  private workdirOf(id: string, projectCwd?: string): string {
+  private workdirOf(id: string, projectCwd?: string, spaceId = "default"): string {
     if (projectCwd) return projectCwd;
-    return this.storeDir ? sessionWorkdirRel(id) : "";
+    return this.storeDir || spaceId !== "default" ? sessionWorkdirRel(id, spaceId) : "";
   }
 
   /**
@@ -522,7 +531,7 @@ export class SessionStore {
     const entries = parsed.kind === "ok" ? parsed.entries : [];
     // cwd は保存値の projectCwd をそのまま使う (登録解除・消失していても復元先を変えない)。
     // 未所属 (projectCwd なし) のときだけスクラッチを保証する
-    const workdir = this.workdirOf(id, meta.projectCwd);
+    const workdir = this.workdirOf(id, meta.projectCwd, meta.spaceId);
     if (!meta.projectCwd) await this.ensureWorkdir(workdir);
     const restored = this.restoreInputs(meta, entries);
     const created = await (this.pi as PiRuntimeLike).createSession({
@@ -543,6 +552,7 @@ export class SessionStore {
     }
     const modelRecorded = this.recordEffectiveModel(session, restored.recordedModel);
     const record = this.buildRecord({
+      spaceId: meta.spaceId ?? "default",
       id,
       session,
       agentId: meta.agentId,
@@ -756,13 +766,15 @@ export class SessionStore {
     return payload;
   }
 
-  list(): SessionSummary[] {
+  list(spaceId?: string): SessionSummary[] {
     const live = [...this.records.values()].map((record) => this.summary(record));
     const liveIds = new Set(this.records.keys());
     const persisted = [...this.descriptors.values()]
       .filter((meta) => !liveIds.has(meta.id))
       .map((meta) => this.summaryOfMeta(meta));
-    return [...live, ...persisted].sort((a, b) => b.lastUsedAt - a.lastUsedAt);
+    return [...live, ...persisted]
+      .filter((item) => spaceId === undefined || item.spaceId === spaceId)
+      .sort((a, b) => b.lastUsedAt - a.lastUsedAt);
   }
 
   statusOf(record: SessionRecord): RunStatus {
@@ -1227,6 +1239,7 @@ export class SessionStore {
   private summaryOfMeta(meta: SessionMeta): SessionSummary {
     return {
       sessionId: meta.id,
+      spaceId: meta.spaceId ?? "default",
       title: meta.title || "無題のセッション",
       agentId: meta.agentId,
       agentName: meta.agent.name,
@@ -1255,7 +1268,12 @@ export class SessionStore {
     if (live) return live.workdir;
     const meta = this.descriptors.get(id);
     if (!meta) return undefined;
-    return meta.projectCwd ?? (this.storeDir ? sessionWorkdirRel(id) : "");
+    return this.workdirOf(id, meta.projectCwd, meta.spaceId);
+  }
+
+  spaceOfId(id: string): string | undefined {
+    const meta = this.records.get(id)?.meta ?? this.descriptors.get(id);
+    return meta ? (meta.spaceId ?? "default") : undefined;
   }
 
   /** SessionPayload.cwd は rootCwd 相対。所属があれば登録ディレクトリ、未所属はスクラッチ (永続化なしは root) */

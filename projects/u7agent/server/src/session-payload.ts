@@ -43,6 +43,7 @@ export function projectSessionPayload({
     record.run && (record.run.status === "running" || session.isStreaming) ? record.run.id : undefined;
   return {
     sessionId: record.id,
+    spaceId: record.meta.spaceId ?? "default",
     piSessionId: session.sessionId,
     cwd,
     eventGeneration: record.generation,
@@ -109,6 +110,7 @@ export function projectSessionSummary({
 }): SessionSummary {
   return {
     sessionId: record.id,
+    spaceId: record.meta.spaceId ?? "default",
     title: record.title || "無題のセッション",
     agentId: record.agentId,
     agentName: record.agent.name,

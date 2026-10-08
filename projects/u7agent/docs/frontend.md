@@ -2,6 +2,18 @@
 
 チャット UI は `client/` ワークスペースに切り出し、React 19 + Vite + TypeScript + Tailwind CSS v4 で実装している。ソースは `client/src` 配下に置き、エントリは `main.tsx`（`index.html` から読み込む）。SSE イベントは reducer で状態に変換し、旧実装（命令的な DOM 操作）の挙動を忠実に再現する。レイアウトの判定は [ui-layout.md](ui-layout.md)、API 呼び出しの型は [api.md](api.md) を参照する。
 
+## スペースの選択
+
+`SpacesApp` がスペース一覧とこのタブの `sessionStorage`（`u7agent-space`）を読み、所属を確認してから `App` を表示する。選択欠落だけ通常を使い、未知・不正な保存 ID、ストレージの読取失敗、一覧取得失敗は理由と明示的な選び直し / 再取得を表示する。通常の会話を黙って表示しない。他タブの切り替えには追随しない。
+
+選択した ID ごとに `ConfirmProvider` と `App` の subtree を作り直す。会話・作成先・履歴・下書き・添付・Model / Effort / 通知の先行選択・ファイル面・プロジェクト dialog は破棄し、新規会話へ戻る。共通エージェント選択と設定は既存の共通保存から読み直す。旧 SSE とポーリングは cleanup し、実行中ランは停止しない。
+
+`SpaceContext` の API は生成時の ID を immutable に閉じ込める。送信・添付の会話作成待ちで切り替えても、後続要求は開始元の ID と会話 ID を使う。古い結果・エラー・busy 更新は旧 subtree の状態だけを参照し、新しい状態を変更しない。旧会話選択 / 作成の応答は選択世代の cleanup で失効させ、共通エージェント選択を奪わせない。
+
+共通カタログの再取得にも開始元の mount 世代を適用する。設定保存後の再取得など呼び出し側が有効性を指定しない経路でも、旧 mount の応答はカタログ・選択を反映せず、共有の `u7agent-agent` 保存値を変更しない。cleanup 後の再 setup で古い世代を復活させない。
+
+一覧・fallback・通知リンク・SSE 再接続は scoped API の範囲内。`/s/<sessionId>` が他スペースなら「リンク先の会話が見つかりませんでした。」を表示し、自動でスペースを切り替えない。共通設定・ファイル・ランタイム診断は従来の unscoped API を使う（[api.md](api.md#スペース)）。
+
 ## フォント
 
 - `--font-sans` の第一候補は自前ホストの **Noto Sans JP**（可変 100〜900）。`@fontsource-variable/noto-sans-jp` を `client/package.json` の `devDependencies` に固定し、`client/src/styles/index.css` の先頭で `@import "@fontsource-variable/noto-sans-jp";` として読み込む。latin サブセットも同じパッケージに入っているため、以前の `Inter`（Web フォントとしては読んでおらず、実際は OS のフォールバックだった）は `--font-sans` から外した。ファミリ名は fontsource の `@font-face` が付ける `Noto Sans JP Variable`（`Noto Sans JP` ではない）。

@@ -4,6 +4,7 @@
  * スクラッチ・添付の保存先) をここ 1 箇所で決める。
  */
 import { resolve } from "node:path";
+import { spaceIdOf } from "./spaces";
 
 export const APP_DIR_REL = ".u7agent";
 export const SESSION_DIR_REL = `${APP_DIR_REL}/sessions`;
@@ -33,15 +34,19 @@ export function isAppDirPath(relative: string): boolean {
 }
 
 /** 未所属セッションのスクラッチ (root 相対)。永続化ありでのみ作る。 */
-export function sessionWorkdirRel(id: string): string {
+export function sessionWorkdirRel(id: string, spaceId = "default"): string {
   assertSessionId(id);
-  return `${SESSION_DIR_REL}/${id}`;
+  return spaceIdOf(spaceId) === "default"
+    ? `${SESSION_DIR_REL}/${id}`
+    : `${APP_DIR_REL}/spaces/${spaceId}/sessions/${id}`;
 }
 
 /** 添付の保存先 (root 相対)。所属に関係なく全セッションで `<appdir>/uploads/<id>` に統一する。 */
-export function sessionUploadsRel(id: string): string {
+export function sessionUploadsRel(id: string, spaceId = "default"): string {
   assertSessionId(id);
-  return `${UPLOADS_DIR_REL}/${id}`;
+  return spaceIdOf(spaceId) === "default"
+    ? `${UPLOADS_DIR_REL}/${id}`
+    : `${APP_DIR_REL}/spaces/${spaceId}/uploads/${id}`;
 }
 
 /** root 相対のディレクトリを BFF 側の絶対パスへ。`""` は root 自身。 */

@@ -1,6 +1,7 @@
 import { useEffect, useEffectEvent, useRef, type RefObject } from "react";
 import type { EventEntry, SSEEventType } from "../types";
 import { isSseSilent, nextRetryDelayMs, SSE_SILENCE_CHECK_MS } from "./sessionStream";
+import { useSpace } from "../SpaceContext";
 
 const EVENT_TYPES: SSEEventType[] = [
   "run_start",
@@ -36,6 +37,7 @@ export function useSessionEvents({
   onEvent,
   onClosed,
 }: UseSessionEventsParams): void {
+  const spaceId = useSpace().selected.id;
   // 常に最新の処理を呼ぶが、コールバックの変更では再接続させない。
   const handleEvent = useEffectEvent(onEvent);
   const handleClosed = useEffectEvent(onClosed);
@@ -52,6 +54,7 @@ export function useSessionEvents({
     }
     lastActivityRef.current = Date.now();
     const query = new URLSearchParams({
+      spaceId,
       after: String(lastSeqRef.current),
       ...(generationRef.current ? { generation: generationRef.current } : {}),
     });
@@ -118,5 +121,5 @@ export function useSessionEvents({
       window.clearTimeout(retryTimer);
       source.close();
     };
-  }, [sessionId, epoch, lastSeqRef, generationRef]);
+  }, [sessionId, epoch, lastSeqRef, generationRef, spaceId]);
 }

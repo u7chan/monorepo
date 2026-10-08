@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useEffectEvent, useRef, useState } from "react";
-import { getSessionSkills, getSessionSkillsPreview } from "../api";
+import { useSpaceApi } from "../SpaceContext";
 import {
   fetchSessionSkills,
   sessionSkillsSource,
@@ -38,6 +38,7 @@ export function useSessionSkills({
   /** 開いたとき / 再取得ボタンの取り直し。一覧を持っていればそのまま出す */
   revalidate: () => void;
 } {
+  const { getSessionSkills, getSessionSkillsPreview } = useSpaceApi();
   const [state, setState] = useState<SessionSkillsState>({ status: "unavailable" });
   const [beginRequest] = useState(createRequestGate);
   const [requests] = useState(createRequestTracker);

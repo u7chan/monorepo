@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useMemo, useRef, useState, type ReactNode } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { ConfirmRequest, DialogRequest, PromptRequest } from "../lib/confirmDialog";
 import { createDialogQueue } from "../lib/dialogQueue";
 import { ConfirmDialog } from "./ConfirmDialog";
@@ -23,6 +23,17 @@ export function ConfirmProvider({ children }: { children: ReactNode }) {
   const [queue] = useState(() => createDialogQueue<Pending>());
   const [pending, setPending] = useState<Pending | null>(null);
   const seq = useRef(0);
+  useEffect(
+    () => () => {
+      let entry = queue.head();
+      while (entry) {
+        queue.settle(entry.id);
+        entry.resolve(null);
+        entry = queue.head();
+      }
+    },
+    [queue],
+  );
 
   const open = useCallback(
     (request: DialogRequest): Promise<string | null> => {

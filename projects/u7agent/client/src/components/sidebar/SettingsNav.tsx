@@ -16,6 +16,7 @@ import {
 
 /** セクションの印。文字だけでは並びの違いが読み取りにくいので行の左に置く */
 const SECTION_ICONS: Record<SettingsSection, ReactNode> = {
+  spaces: <FolderIcon />,
   agents: <SparkleIcon />,
   skills: <BoltIcon />,
   files: <FolderIcon />,

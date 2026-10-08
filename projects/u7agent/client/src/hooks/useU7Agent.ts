@@ -1,13 +1,6 @@
 import { useCallback, useEffect, useEffectEvent, useReducer, useRef, useState } from "react";
-import {
-  answerQuestion as answerQuestionApi,
-  discardUnsentMessage as discardUnsentApi,
-  getHealth,
-  postMessage,
-  resendMessage,
-  stopSession,
-  uploadSessionFile,
-} from "../api";
+import { getHealth } from "../api";
+import { useSpaceApi } from "../SpaceContext";
 import { attachmentRejection, attachmentsForSend, attachmentsForSession, type Attachment } from "../lib/attachments";
 import { projectDeleteConfirmRequest } from "../lib/sidebarProjects";
 import { useConfirm } from "../components/ConfirmProvider";
@@ -61,6 +54,14 @@ export type SendMessageOptions = {
 };
 
 export function useU7Agent({ pendingSessionId, onPendingSessionResolved }: UseU7AgentOptions = {}) {
+  const {
+    answerQuestion: answerQuestionApi,
+    discardUnsentMessage: discardUnsentApi,
+    postMessage,
+    resendMessage,
+    stopSession,
+    uploadSessionFile,
+  } = useSpaceApi();
   const confirm = useConfirm();
   const [chat, dispatch] = useReducer(chatReducer, initialChatState);
   // 履歴の追加取得が読むカーソル。reducer が適用したページの値だけを持ち、gap で保留した

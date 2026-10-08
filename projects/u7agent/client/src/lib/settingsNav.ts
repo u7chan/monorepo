@@ -14,9 +14,11 @@ export type SettingsSection =
   | "appearance"
   | "models"
   | "runtime"
-  | "notifications";
+  | "notifications"
+  | "spaces";
 
 export const SETTINGS_SECTIONS: { section: SettingsSection; label: string }[] = [
+  { section: "spaces", label: "スペース" },
   { section: "agents", label: "エージェント" },
   { section: "skills", label: "スキル" },
   { section: "files", label: "ファイル" },

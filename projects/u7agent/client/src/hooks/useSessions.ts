@@ -1,17 +1,7 @@
-import { useCallback, useRef, useState, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import type { Dispatch, RefObject } from "react";
-import {
-  ApiError,
-  compactSession as requestCompaction,
-  createSession,
-  deleteSession as apiDeleteSession,
-  getSession,
-  getSessionHistory,
-  listSessions,
-  updateSessionNotify,
-  updateSessionSettings,
-  updateSessionTitle,
-} from "../api";
+import { ApiError } from "../api";
+import { useSpaceApi } from "../SpaceContext";
 import type { ChatHistoryState } from "../lib/chatTypes";
 import { adoptKnownAgentId } from "../lib/agentSelection";
 import { renameInputValue } from "../lib/confirmDialog";
@@ -77,6 +67,17 @@ export function useSessions({
   refreshHealth,
   setRuntimeStatus,
 }: UseSessionsParams) {
+  const {
+    compactSession: requestCompaction,
+    createSession,
+    deleteSession: apiDeleteSession,
+    getSession,
+    getSessionHistory,
+    listSessions,
+    updateSessionNotify,
+    updateSessionSettings,
+    updateSessionTitle,
+  } = useSpaceApi();
   const confirm = useConfirm();
   const prompt = usePrompt();
   const [sessions, setSessions] = useState<SessionSummary[]>([]);
@@ -93,6 +94,14 @@ export function useSessions({
   const generationRef = useRef("");
   /** newChat / selectSession で選択が変わった世代 (作成待ちの応答で選択を奪わないため) */
   const selectionSeqRef = useRef(0);
+  const mountedRef = useRef(true);
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      selectionSeqRef.current += 1;
+    };
+  }, []);
   /**
    * 同一セッション内の操作世代。新しい要求と、compacting を抜けた権威ある状態 (終端 resync /
    * 選択し直し) で進み、遅れて届いた stop / compact の応答を適用しない判定に使う
@@ -221,6 +230,7 @@ export function useSessions({
 
   const applySelectedSession = useCallback(
     (payload: SessionPayload) => {
+      if (!mountedRef.current) return;
       // 切替待機中に旧セッションの本文から作られた要求を、確定時にも落とす (開始時の破棄だけでは残る)
       if (sessionIdRef.current !== payload.sessionId) fileRefRequests.clear();
       // 旧セッションのカーソルを持ち越さない (in-flight の応答も seq で無効化する)
@@ -269,6 +279,7 @@ export function useSessions({
       isCurrent = alwaysCurrent,
       { fallbackOnFailure = true }: { fallbackOnFailure?: boolean } = {},
     ): Promise<SessionOpenResult> => {
+      if (!mountedRef.current) return "superseded";
       // getSession の待機中にセッション作成が返っても、この選択を奪わせない
       const selection = (selectionSeqRef.current += 1);
       // 選択が変わったら旧セッションの要求を持ち越さない (同じ ID に戻っても復活させない)

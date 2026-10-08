@@ -60,10 +60,11 @@ export function createSessionRoutes({
   };
 
   return {
-    list: (c: Context) => c.json({ sessions: store.list() }),
+    list: (c: Context) => c.json({ sessions: store.list(c.req.query("spaceId") ?? "default") }),
 
     create: async (c: Context, body: CreateSessionBody) => {
       const record = await store.create({
+        spaceId: body.spaceId,
         agentId: body.agentId,
         model: body.model,
         thinkingLevel: body.thinkingLevel,
@@ -213,7 +214,7 @@ export function createSessionRoutes({
         if (!result) return c.json({ error: "この送信は再開できません（保存済みか破棄済みです）" }, 409);
         return c.json({ sessionId: record.id, status: store.statusOf(record), ...result }, 202);
       }
-      const attachments = normalizeAttachmentPaths(body.attachments, sessionUploadsRel(record.id));
+      const attachments = normalizeAttachmentPaths(body.attachments, sessionUploadsRel(record.id, record.meta.spaceId));
       const text = (body.text ?? "").trim();
       // 本文が空でも添付だけで送れる (注記だけのプロンプトになる)
       if (!text && attachments.length === 0) return c.json({ error: "text is required" }, 400);
@@ -281,7 +282,7 @@ export function createSessionRoutes({
       if (Number.isFinite(declared) && declared > MAX_ATTACHMENT_BYTES) {
         return c.json({ error: `File is too large (max ${MAX_ATTACHMENT_BYTES} bytes)` }, 413);
       }
-      const uploadsDirRel = sessionUploadsRel(record.id);
+      const uploadsDirRel = sessionUploadsRel(record.id, record.meta.spaceId);
       try {
         const uploaded = await workspace.uploadFile({
           dir: uploadsDirRel,
