@@ -477,3 +477,58 @@ test("子の過程は親の会話ストアに残らない", async () => {
     await rm(dir, { recursive: true, force: true });
   }
 });
+
+test("進捗は親の live イベントとしてだけ配り、payload の run.toolCalls には載せない", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "u7agent-investigate-"));
+  // 実モデルの代わりにスタブが investigate の呼び出しと進捗を流す (fixture と同じ経路)
+  const pi = createStubPi({
+    reply: "親の応答",
+    chunkDelayMs: 1,
+    investigateProgress: {
+      prompt: "docs を調べて",
+      progress: ["bash rg -n investigate docs/", "bash rg -n investigate docs/\n結論: 契約は docs/subagent.md にある"],
+      result: "結論: 契約は docs/subagent.md にある",
+    },
+  });
+  const store = new SessionStore({
+    pi: pi as never,
+    catalog: createAgentCatalog(),
+    storeDir: dir,
+    workspace: stubWorkspace(),
+    rootCwd: "/tmp/project",
+  });
+  try {
+    const record = await store.create();
+    store.postMessage(record, "調べて");
+    await waitFor(() => store.statusOf(record) === "completed", 3000, "parent run");
+
+    // tool_start / tool_progress / tool_end が同じ id で並ぶ (live 行とカードが同じキーで対応する)
+    const types = record.events
+      .filter((event) => "id" in event.data && event.data.id === "call-investigate-1")
+      .map((event) => event.type);
+    assert.deepEqual(types, ["tool_start", "tool_progress", "tool_progress", "tool_end"]);
+    const progresses = record.events.filter((event) => event.type === "tool_progress");
+    assert.equal(
+      progresses.map((event) => event.data.text).join("|"),
+      "bash rg -n investigate docs/|bash rg -n investigate docs/\n結論: 契約は docs/subagent.md にある",
+    );
+
+    const payload = store.payload(record);
+    const call = payload.run?.toolCalls.find((candidate) => candidate.id === "call-investigate-1");
+    assert.ok(call, "live カードが payload に無い");
+    // 進捗は live 専用。payload が正の resync (リロード / 再接続) では復元されない
+    assert.equal(Object.hasOwn(call, "progress"), false);
+
+    // 履歴にはカードが残る (リロード後も復元されるのは完了した要約カードだけ)
+    const historyCard = payload.messages
+      .flatMap((message) => message.tools ?? [])
+      .find((card) => card.id === "call-investigate-1");
+    assert.ok(historyCard, "履歴に investigate のカードが無い");
+    assert.equal(historyCard.done, true);
+    assert.equal(historyCard.output, "結論: 契約は docs/subagent.md にある");
+    assert.equal(Object.hasOwn(historyCard, "progress"), false);
+  } finally {
+    await store.close();
+    await rm(dir, { recursive: true, force: true });
+  }
+});

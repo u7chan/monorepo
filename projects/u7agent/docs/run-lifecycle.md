@@ -16,6 +16,7 @@ startRun():
   3. session.subscribe() で pi のイベントを変換して記録（変換は `server/src/run-events.ts`）
      - message_update / text_delta → text
      - tool_execution_start/end    → tool_start / tool_end
+     - tool_execution_update       → tool_progress（investigate の進捗だけ。live 専用）
      - auto_retry_start/end        → run_retry / status（後述）
      - entry_appended(context_edit) → 失敗試行の取り消し resync（後述）
      - agent_settled               → 終了判定

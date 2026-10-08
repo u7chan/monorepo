@@ -168,6 +168,11 @@ export const ToolCallSchema = z.object({
   /** ライブでスキル読み込みだったときだけ載る (履歴側は ChatMessage.skillLoads) */
   skill: SkillLoadSchema.optional(),
   /**
+   * investigate の進捗 (現在の活動 + 子の本文末尾)。SSE の `tool_progress` だけが作るライブ専用で、
+   * payload (`run.toolCalls`) と履歴 (`messages[].tools`) には載らない (`docs/api-sessions.md`)。
+   */
+  progress: z.string().optional(),
+  /**
    * ask_user の質問。skill と違い、ライブ (`tool_start` / `payload.run.toolCalls`) と履歴
    * (`messages[].tools`) の両方で同じ ToolCall に載る (`docs/api-sessions.md`)。
    */
@@ -1333,6 +1338,9 @@ export const EventDataSchemas = {
     /** BFF がイベントの到着時刻で測った終了時刻。`run.toolCalls[].endedAt` と同じ値 */
     endedAt: z.number().optional(),
   }),
+  // investigate の子の進捗。`id` は tool_start / tool_end と同じ toolCallId で、ライブの
+  // `ToolCall.progress` だけを更新する (payload の `run.toolCalls` には載せない)
+  tool_progress: z.object({ id: z.string(), text: z.string() }),
   status: z.object({ state: z.string(), text: z.string() }),
   queued: z.object({
     position: z.number(),

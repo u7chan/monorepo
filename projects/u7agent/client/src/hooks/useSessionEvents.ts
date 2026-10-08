@@ -8,6 +8,7 @@ const EVENT_TYPES: SSEEventType[] = [
   "text",
   "tool_start",
   "tool_end",
+  "tool_progress",
   "status",
   "queued",
   "queue_cleared",

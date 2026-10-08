@@ -19,6 +19,8 @@ export interface PiSessionEvent {
   toolCallId?: string;
   toolName?: string;
   args?: unknown;
+  /** tool_execution_update: ツールが onUpdate へ渡した途中結果 (live 表示に使う investigate の進捗) */
+  partialResult?: unknown;
   isError?: boolean;
   result?: unknown;
   /** auto_retry_start: SDK が現在の連続失敗系列へ付けた番号と待機幅 */

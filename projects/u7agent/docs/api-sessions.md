@@ -367,6 +367,7 @@ References are relative to /workspace/.agents/skills/writer.
 - 打ち切り・失敗（子自身の失敗を含む）も `isError: true` で返り、`details` に終了理由が載る
 - 子は読み取り専用の使い捨てセッションで、親の `session.jsonl` にも `SessionStore` にも残らない（親には toolResult だけが残る）
 - 打ち切りは親の stop（`POST /stop`）と同じ経路（`AbortSignal`）。`stop` に専用のフックは無い
+- 実行中の進捗は SSE の `tool_progress` でだけ届き、ライブの `ToolCall.progress`（現在の活動 + 子の本文末尾）になる。**payload の `run.toolCalls` には載らない live 専用**で、リロード / SSE 再接続では消える（残るのは `tool_start` / `tool_end` のカードだけ）
 
 ## `POST /api/sessions/:id/questions/:toolCallId/answer`
 
@@ -472,6 +473,7 @@ SSE（`text/event-stream`）でイベントを購読。カーソルは `Last-Eve
 | `run_start` | `{ runId, prompt, startedAt }`（`startedAt` は payload の `run.startedAt` と同じ値） |
 | `text` | `{ delta }` |
 | `tool_start` / `tool_end` | `{ id, name, args, skill?, questions?, startedAt? }` / `{ id, name, isError, output, answers?, endedAt? }`（`skill` は `run.toolCalls[].skill` と同じスキル読み込み。結果が無い時点なので `isError` は載らない。`questions` / `answers` は ask_user のときだけ載り、`run.toolCalls` と `messages[].tools` と同じ値。`startedAt` / `endedAt` は BFF 計測のツール実行の開始 / 終了で、`run.toolCalls` / `messages[].tools` と同じ値。旧サーバーは載せない） |
+| `tool_progress` | `{ id, text }`（`investigate` の子の進捗。`id` は `tool_start` / `tool_end` と同じ toolCallId で、ライブの `ToolCall.progress` だけを更新する。payload には載らない live 専用） |
 | `status` | `{ state, text }`（`thinking` / `tool` / `question`（回答待ち）/ `compacting` / `retry` / `warning` / など。手動圧縮の終端では成功 / 失敗の文言を配る。自動再試行の文言は `run_retry` の構造化情報からクライアントが導出する） |
 | `queued` | `{ position, queueDepth, prompt }` |
 | `queue_cleared` | `{ runIds? }`（停止で破棄した待機メッセージの run id。クライアントは該当する送信を「未送信」へ切り替える。旧サーバーは載せない） |
@@ -483,7 +485,7 @@ SSE（`text/event-stream`）でイベントを購読。カーソルは `Last-Eve
 | `session_deleted` | `{ sessionId }`（削除時。送出後に接続を閉じる） |
 | `ping` | `{}`（接続直後と 15 秒ごとの生存確認。`id` 無し = カーソルを動かさない） |
 
-テキスト系イベント（`text` / `tool_start` / `tool_end` / `run_start` / `queued` / `run_end` のエラーや `resync` の `messages`・`compactions[].summary`、`compaction` の `compaction.summary` など）は、既知のプロバイダーAPIキーの値が `[REDACTED]` に置換されて配信される。対象キーと保証範囲は [secrets.md](secrets.md) を参照。
+テキスト系イベント（`text` / `tool_start` / `tool_end` / `tool_progress` / `run_start` / `queued` / `run_end` のエラーや `resync` の `messages`・`compactions[].summary`、`compaction` の `compaction.summary` など）は、既知のプロバイダーAPIキーの値が `[REDACTED]` に置換されて配信される。対象キーと保証範囲は [secrets.md](secrets.md) を参照。
 
 ### 失敗試行の取り消しとエラーの公開契約
 

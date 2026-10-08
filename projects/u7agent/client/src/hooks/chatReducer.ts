@@ -183,6 +183,8 @@ export type ChatAction =
       endedAt?: number;
       answers?: AskUserAnswer[];
     }
+  /** investigate の子の進捗。ライブの ToolCall.progress だけを更新する */
+  | { type: "toolProgress"; id: string; text: string }
   | { type: "usage"; usage?: Usage; metrics?: MessageMetrics; context?: ContextUsage }
   | { type: "compaction"; compaction: CompactionInfo; count: number }
   | { type: "status"; state: string; text: string }
@@ -1148,6 +1150,13 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
               ),
             }));
       return attachRunToolCards(withCard, false);
+    }
+
+    case "toolProgress": {
+      // ライブ専用の進捗。カードが無ければ作らない (resync が持ち込んだ復元カードへ後から足さない)
+      const call = state.runTools[action.id];
+      if (call === undefined) return state;
+      return { ...state, runTools: { ...state.runTools, [action.id]: { ...call, progress: action.text } } };
     }
 
     case "usage": {

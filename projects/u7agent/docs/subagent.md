@@ -54,7 +54,8 @@ compaction（[compaction.md](compaction.md)）は会話全体を要約に置き�
 
 - 子 runner は `onUpdate` に「現在の活動（直近のツール実行の要約）」と「生成中の本文末尾」を渡し、本文 delta は間引いて流す（量と間隔はコードが正。ツール境界では間引かない）
 - 文字列は runner 側で `maskSafe` を通し、ツール定義側の `wrapToolDefinitionWithSecretMasker` でも重ねてマスクする
-- SDK はこれを親ランの `tool_execution_update` として配る。親の画面は完了時の要約カードだけで、実行中の進捗を live に出す経路はまだ無い
+- SDK はこれを親ランの `tool_execution_update` として配る。`run-events.ts` は **`investigate` のときだけ** SSE の `tool_progress` へ変換する（他のツールが `onUpdate` を出しても live 表示には使わない。イベントログをトークン単位の進捗で埋めないため）
+- `tool_progress` は `tool_start` / `tool_end` と同じ toolCallId をキーにした **live 専用**の値で、payload（`resync`）には載らない。リロード / SSE 再接続では進捗が消え、完了した要約カードだけが残る（親の live 行の表示は [frontend.md](frontend.md#チャット状態とレンダリング)）
 
 ## 記録に残らないこと
 
@@ -65,14 +66,14 @@ compaction（[compaction.md](compaction.md)）は会話全体を要約に置き�
 ## mask 規則
 
 - 子の報告は `content` としてインライン拡張（`createSecretRedactionExtension`）を通ってから LLM・履歴・`tool_execution_end` へ渡る。ツール自身も切り詰めの前に全文を mask する（[ツール契約](#ツール契約investigate)）
-- `details` はこの拡張の対象外なので、載せる値に文字列を入れない。進捗は runner が `maskSafe` する
+- `details` はこの拡張の対象外なので、秘密を含み得る自由記述の文字列を載せない。進捗は runner が `maskSafe` し、`run-events` も配る前に mask する（[secrets.md](secrets.md#レイヤー)）
 
 ## 残るリスク
 
 - 子が compaction した場合、初期の調査結果が報告から抜けうる（compaction 回数（`details`）が切り分けの手がかり）
 - `INVESTIGATE_REPORT_MAX` の切り詰めで末尾が落ちる（結論先頭フォーマットで緩和。子がフォーマットを守るかは実測しないと不明）
 - 報告はカードの表示上限（`SUMMARY_TEXT_MAX`）で切られ、全文を読む導線は無い
-- 子セッション生成コストは子モードでスキル発見を省く分だけ下がるが、`resourceLoader.reload()` は残る
+- 子セッションの生成コストは子モードでも残る（スキル発見以外の初期化は親と同じ）
 - 子の `bash` による書き込みは防げない（[子の制約](#子の制約)）
 
 ## 検証

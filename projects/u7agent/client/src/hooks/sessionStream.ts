@@ -102,6 +102,9 @@ export function applySessionEvent(entry: EventEntry, deps: SessionStreamDeps): v
         ...(entry.data.answers ? { answers: entry.data.answers } : {}),
       });
       return;
+    case "tool_progress":
+      dispatch({ type: "toolProgress", id: entry.data.id, text: entry.data.text });
+      return;
     case "usage":
       dispatch({
         type: "usage",
