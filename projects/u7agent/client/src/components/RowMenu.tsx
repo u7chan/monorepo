@@ -23,7 +23,7 @@ import { DownloadIcon, MoreIcon, PencilIcon, PinIcon, PlusIcon, TrashIcon } from
 
 /** 種別ごとのアイコン。描画側に条件分岐を残さないため、種別からここで引く (全画面ぶんを 1 箇所に置く) */
 const ACTION_ICONS: Record<RowMenuActionKind, ReactNode> = {
-  download: <DownloadIcon />,
+  download: <DownloadIcon small />,
   rename: <PencilIcon />,
   pin: <PinIcon />,
   delete: <TrashIcon />,

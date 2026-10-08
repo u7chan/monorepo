@@ -196,8 +196,8 @@ export function PencilIcon() {
   );
 }
 
-/** 行のダウンロードボタン (リネーム / 削除と同じ寸法にそろえる) */
-export function DownloadIcon() {
+/** ダウンロードの矢印。行の操作では small を使い、リネーム / 削除と寸法をそろえる */
+export function DownloadIcon({ small = false }: { small?: boolean } = {}) {
   return (
     <svg
       aria-hidden="true"
@@ -207,7 +207,7 @@ export function DownloadIcon() {
       strokeWidth="1.5"
       strokeLinecap="round"
       strokeLinejoin="round"
-      className="size-3.5 shrink-0"
+      className={cn("shrink-0", small ? "size-3.5" : "size-4")}
     >
       <path d="M8 2.75v7.5" />
       <path d="M4.75 7l3.25 3.25L11.25 7" />
