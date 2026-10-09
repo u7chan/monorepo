@@ -438,7 +438,8 @@ export default function App() {
   // 狭い desktop では左バーが overlay になるため、どちらも nav の導線をページへ渡す
   const pageProps = { compact, onBack: backToChat, onOpenNav: sidebarDocked ? undefined : openNav };
 
-  // 設定のセクション → 画面。網羅は SettingsSection の union が型で守る (URL の解釈は lib/route.ts)
+  // 設定のセクション → 画面。case の書き忘れは default の `satisfies never` が型エラーにする
+  // (client の tsconfig は noImplicitReturns が無いので、union を足しただけでは気付けない)
   const settingsScreen = () => {
     switch (settingsSection) {
       case "spaces":
@@ -516,6 +517,12 @@ export default function App() {
         );
       case "notifications":
         return <NotificationSettingsPage {...pageProps} notifications={app.notifications} />;
+      default: {
+        // 保存値も URL も SETTINGS_SECTIONS の既知の値だけを渡すため到達しない。
+        // 空の設定画面を出すより、気付ける形で落とす
+        settingsSection satisfies never;
+        throw new Error(`未知の設定セクション: ${settingsSection}`);
+      }
     }
   };
 

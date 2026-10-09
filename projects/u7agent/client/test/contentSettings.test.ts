@@ -1,4 +1,4 @@
-// コンテンツ生成タブの表示変換。選択肢の組み立て・現在値の解決・PUT の本文・入力の後始末を純関数で固定する
+// 設定 → コンテンツ生成（`/settings/content`）の表示変換。選択肢の組み立て・現在値の解決・PUT の本文・入力の後始末を純関数で固定する
 // (画面の描画は client/test/contentSettingsTab.test.ts の静的描画が担う)。
 
 import assert from "node:assert/strict";
