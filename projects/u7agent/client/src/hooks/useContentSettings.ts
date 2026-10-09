@@ -16,6 +16,7 @@ import {
   CONTENT_SETTINGS_NOTE,
   CONTENT_SPEECH_SAVED_NOTE,
   catalogRefreshNote,
+  speechSettingsAfterRefresh,
   type ContentSavingAction,
 } from "../lib/contentSettings";
 import { validateApiKey } from "../lib/modelSettings";
@@ -148,25 +149,23 @@ export function useContentSettings() {
     }
   }, [beginLoad]);
 
-  /** 音声モデル一覧の再取得。形も失敗の扱いも画像と同じ（一覧と出どころだけを差し替える） */
+  /**
+   * 音声モデル一覧の再取得。形も失敗の扱いも画像と同じだが、一覧の並びが変わると NULL ボイスの
+   * フォールバック（先頭）も変わるため、表示を server の現在値へ合わせる（実行時と食い違わせない）。
+   */
   const refreshSpeechCatalog = useCallback(async (): Promise<boolean> => {
     setSaving("speech-catalog");
     try {
       const response = await requestSpeechCatalogRefresh();
       beginLoad();
-      setSettings((previous) =>
-        previous === null
-          ? previous
-          : {
-              ...previous,
-              speech: {
-                ...previous.speech,
-                models: response.models,
-                catalogSource: response.catalogSource,
-                fetchedAt: response.fetchedAt,
-              },
-            },
-      );
+      let current: ContentSettingsResponse | null = null;
+      try {
+        current = await getContentSettings();
+      } catch {
+        // 一覧は取れているので、選べる候補だけを新しいものへ差し替える（表示のボイスは据え置き）
+      }
+      beginLoad();
+      setSettings((previous) => speechSettingsAfterRefresh(previous, response, current));
       setNote({ text: catalogRefreshNote(response.catalogError), error: response.catalogError !== null });
       return response.catalogError === null;
     } catch (error) {

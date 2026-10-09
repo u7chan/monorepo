@@ -78,10 +78,28 @@ export class ContentSettingsService {
     this.#maskError = options.maskError;
   }
 
+  /**
+   * 応答と実行時の両方で使う値へ落とす。マスカーが値を変える（登録済みキーと一致する / 含む）ときは
+   * 未設定として扱い、マスク済みの文字列もそのまま使わない。ボイス欄へキーを誤って保存しても応答から
+   * 再露出させず、表示と実行時の解決も食い違わせないため。保存値そのものは消さない。
+   */
+  #usableSpeechValue(value: string | null): string | null {
+    if (value === null || value === "") return null;
+    return this.#maskError(value) === value ? value : null;
+  }
+
   /** 行があるときの音声の実効値。音声列が NULL の既存行も既定モデル / 先頭ボイスへ寄せる（画面に「（未設定）」を出さない） */
   #speechSelection(speechModel: string | null, speechVoice: string | null): { model: string; voice: string } {
-    const model = speechModel ?? DEFAULT_SPEECH_MODEL;
-    return { model, voice: speechVoice ?? this.#speechCatalog.voicesOf(model)?.[0] ?? "" };
+    const model = this.#usableSpeechValue(speechModel) ?? DEFAULT_SPEECH_MODEL;
+    return { model, voice: this.#usableSpeechValue(speechVoice) ?? this.#speechCatalog.voicesOf(model)?.[0] ?? "" };
+  }
+
+  /** 音声ツールの語彙（`model` / `voice`）へ写す。応答と同じ解決を使い、表示と実行時を食い違わせない */
+  #currentSpeechSettings(): SpeechGenerationSettings | undefined {
+    const row = this.#db.readContentSettings();
+    if (!row) return undefined;
+    const speech = this.#speechSelection(row.speechModel, row.speechVoice);
+    return { provider: row.provider, model: speech.model, voice: speech.voice, apiKey: row.apiKey };
   }
 
   /** GET。純粋読取で、キー値は返さない（DB の失敗は 503 のまま伝える） */
@@ -89,7 +107,7 @@ export class ContentSettingsService {
     const row = this.#db.readContentSettings();
     const catalog = this.#catalog.snapshot();
     const speechCatalog = this.#speechCatalog.snapshot();
-    const speech = row ? this.#speechSelection(row.speechModel, row.speechVoice) : { model: null, voice: "" };
+    const speech = row ? this.#speechSelection(row.speechModel, row.speechVoice) : null;
     return {
       configured: row !== undefined,
       provider: row?.provider ?? null,
@@ -101,8 +119,8 @@ export class ContentSettingsService {
         fetchedAt: catalog.fetchedAt,
       },
       speech: {
-        model: speech.model,
-        voice: speech.voice,
+        model: speech?.model ?? null,
+        voice: speech?.voice ?? "",
         models: speechCatalog.entries,
         catalogSource: speechCatalog.source,
         fetchedAt: speechCatalog.fetchedAt,
@@ -330,7 +348,7 @@ export class ContentSettingsService {
       read: () => currentImageSettings(this.#db),
       // 実行のたびに現在のカタログを引く。形式の宣言を一覧から絞り込んだあとも、保存済みの選択はここで拾える
       readOutputFormats: (model) => this.#catalog.outputFormatsOf(model),
-      readSpeech: () => currentSpeechSettings(this.#db, (model) => this.#speechCatalog.voicesOf(model)),
+      readSpeech: () => this.#currentSpeechSettings(),
       readVoices: (model) => this.#speechCatalog.voicesOf(model),
     });
   }
@@ -378,25 +396,6 @@ export class ContentSettingsService {
 function currentImageSettings(db: ContentSettingsDb): ImageGenerationSettings | undefined {
   const row = db.readContentSettings();
   return row ? { provider: row.provider, model: row.imageModel, apiKey: row.apiKey } : undefined;
-}
-
-/**
- * 音声ツールの語彙（`model` / `voice`）へ写す。`voice` は保存値 → 選択中モデルが宣言する先頭ボイスの順に
- * 解決し、宣言が無いモデルは空文字（送らない）にする。
- */
-function currentSpeechSettings(
-  db: ContentSettingsDb,
-  voicesOf: (model: string) => readonly string[] | undefined,
-): SpeechGenerationSettings | undefined {
-  const row = db.readContentSettings();
-  if (!row) return undefined;
-  const model = row.speechModel ?? DEFAULT_SPEECH_MODEL;
-  return {
-    provider: row.provider,
-    model,
-    voice: row.speechVoice ?? voicesOf(model)?.[0] ?? "",
-    apiKey: row.apiKey,
-  };
 }
 
 function badRequest(message: string): Error & { statusCode: number } {

@@ -7,6 +7,7 @@ import type {
   ContentSettingsResponse,
   ContentSpeechSettings,
   ModelRef,
+  SpeechCatalogRefreshResponse,
   SpeechModel,
   UpdateContentImageBody,
   UpdateContentSpeechBody,
@@ -204,6 +205,38 @@ export function speechVoiceValue(option: SpeechModelOption | undefined, savedVoi
   const voices = option?.model?.voices;
   if (!voices || voices.length === 0) return savedVoice;
   return voices.includes(savedVoice) ? savedVoice : voices[0];
+}
+
+/** モデル切替時の既定ボイス。新しいモデルが宣言する先頭へ寄せ、宣言が無ければ空（送らない） */
+export function speechDefaultVoice(option: SpeechModelOption | undefined): string {
+  return option?.model?.voices?.[0] ?? "";
+}
+
+/**
+ * ボイス欄の値。入力中の値 →（モデルを切り替えた直後は新しいモデルの既定）→ 保存値の順に決める。
+ * 切替時に旧モデルのボイスを持ち越さないことを 1 箇所に閉じる。
+ */
+export function speechVoiceDraft(input: {
+  draft: string | null;
+  modelChanged: boolean;
+  option: SpeechModelOption | undefined;
+  savedVoice: string;
+}): string {
+  if (input.draft !== null) return input.draft;
+  return input.modelChanged ? speechDefaultVoice(input.option) : speechVoiceValue(input.option, input.savedVoice);
+}
+
+/**
+ * 音声カタログ再取得後の状態。一覧の並びが変わると NULL ボイスのフォールバック（先頭）も変わるため、
+ * server の現在値（GET）が取れていればそれを正とし、取れなかったときだけ一覧の項目を差し替える。
+ */
+export function speechSettingsAfterRefresh(
+  previous: ContentSettingsResponse | null,
+  refreshed: Pick<SpeechCatalogRefreshResponse, "models" | "catalogSource" | "fetchedAt">,
+  current: ContentSettingsResponse | null,
+): ContentSettingsResponse | null {
+  if (current !== null) return current;
+  return previous === null ? null : { ...previous, speech: { ...previous.speech, ...refreshed } };
 }
 
 /** 選択中の選択肢を PUT の本文へ。provider を決められないときは null (保存させない) */

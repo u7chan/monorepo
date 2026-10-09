@@ -13,8 +13,8 @@ import {
   speechModelOptions,
   speechModelValue,
   speechSelection,
+  speechVoiceDraft,
   speechVoiceMode,
-  speechVoiceValue,
   type ContentSavingAction,
 } from "../../lib/contentSettings";
 import { API_KEY_MIN_LENGTH } from "../../lib/modelSettings";
@@ -272,8 +272,13 @@ function SpeechSection({
   const selectedModel = draftModel ?? savedModel;
   const selectedOption = options.find((option) => option.value === selectedModel);
   const textMode = speechVoiceMode(selectedOption) === "text";
-  // モデルを切り替えると、ボイスは選択中モデルの宣言に合わせて選び直される
-  const selectedVoice = draftVoice ?? speechVoiceValue(selectedOption, savedVoice);
+  // モデルを切り替えたら、ボイスは新しいモデルの既定（先頭、宣言が無ければ空）へ寄せる
+  const selectedVoice = speechVoiceDraft({
+    draft: draftVoice,
+    modelChanged: draftModel !== null,
+    option: selectedOption,
+    savedVoice,
+  });
 
   const submit = async () => {
     const input = speechSelection(options, selectedModel, selectedVoice);

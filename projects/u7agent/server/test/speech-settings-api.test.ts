@@ -140,6 +140,34 @@ test("キー登録後の GET / PUT は音声の既定へフォールバックし
   });
 });
 
+test("宣言が無いモデルへキーをボイスとして保存しても、成功応答 / GET にキーを出さない", async () => {
+  await withStoreDir(async (dir) => {
+    const pi = createStubPi();
+    const bff = await openBff({ cwd: "/tmp/project", sessionStoreDir: dir, pi: asPiBff(pi), workspace: null });
+    try {
+      // live の一覧を読み込んでから、宣言が無い fish/audio にキーをボイスとして保存する
+      await bff.app.request("/api/settings/content/speech/catalog/refresh", { method: "POST" });
+      await bff.app.request("/api/settings/content/key", jsonPut({ apiKey: KEY }));
+      const put = await bff.app.request("/api/settings/content/speech", jsonPut({ model: OTHER_MODEL, voice: KEY }));
+      assert.equal((await put).status, 200, "自由記述のボイスは保存自体は成功する");
+      const body = await jsonBody(put);
+      assert.equal(body.speech.voice, "", "マスク済みの文字列もそのまま返さない");
+      assert.ok(!JSON.stringify(body).includes(KEY), "成功応答にキーを出さない");
+
+      const after = await jsonBody(await bff.app.request("/api/settings/content"));
+      assert.equal(after.speech.voice, "");
+      assert.ok(!JSON.stringify(after).includes(KEY), "GET にキーを出さない");
+      assert.equal(
+        pi.contentGenerationConfigs.at(-1)?.readSpeech()?.voice,
+        after.speech.voice,
+        "実行時の解決も表示と同じにする",
+      );
+    } finally {
+      await bff.close();
+    }
+  });
+});
+
 test("カタログ外モデル / 宣言外の声 / 形が違う本文は 400", async () => {
   await withStoreDir(async (dir) => {
     const bff = await openBff({

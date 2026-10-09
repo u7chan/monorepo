@@ -15,9 +15,12 @@ import {
   imageModelValue,
   keyDraftAfterSave,
   speechCatalogNotice,
+  speechDefaultVoice,
   speechModelOptions,
   speechModelValue,
   speechSelection,
+  speechSettingsAfterRefresh,
+  speechVoiceDraft,
   speechVoiceMode,
   speechVoiceValue,
 } from "../src/lib/contentSettings";
@@ -194,6 +197,59 @@ test("音声の PUT 本文と、モデルごとのボイス欄の規則", () => 
   assert.equal(speechVoiceValue(declared, ""), "Zephyr", "未設定は先頭にする");
   assert.equal(speechVoiceValue(free, "any-voice-id"), "any-voice-id", "自由記述は保存値のまま");
   assert.equal(speechVoiceValue(free, ""), "");
+});
+
+test("モデル切替時のボイスは新しいモデルの先頭へ寄せ、宣言が無ければ空にする", () => {
+  const options = speechModelOptions(settings());
+  const gemini = options.find((option) => option.value === "google/gemini-3.8-flash-tts");
+  const fish = options.find((option) => option.value === "fish/audio");
+
+  assert.equal(speechDefaultVoice(gemini), "Zephyr");
+  assert.equal(speechDefaultVoice(fish), "", "宣言が無いモデルは空（送らない）");
+  assert.equal(speechDefaultVoice(undefined), "");
+
+  // 同じモデルでは保存値に追随する（宣言内なら維持、宣言外なら先頭）
+  assert.equal(speechVoiceDraft({ draft: null, modelChanged: false, option: gemini, savedVoice: "Kore" }), "Kore");
+  assert.equal(speechVoiceDraft({ draft: null, modelChanged: false, option: gemini, savedVoice: "Ghost" }), "Zephyr");
+  assert.equal(
+    speechVoiceDraft({ draft: null, modelChanged: false, option: fish, savedVoice: "any-voice-id" }),
+    "any-voice-id",
+  );
+
+  // 切替直後は旧モデルのボイスを持ち越さない（宣言が無いモデルでは空、宣言があっても先頭）
+  assert.equal(speechVoiceDraft({ draft: null, modelChanged: true, option: fish, savedVoice: "Zephyr" }), "");
+  assert.equal(speechVoiceDraft({ draft: null, modelChanged: true, option: gemini, savedVoice: "Kore" }), "Zephyr");
+  assert.equal(speechVoiceDraft({ draft: null, modelChanged: true, option: gemini, savedVoice: "Zephyr" }), "Zephyr");
+
+  // 選択欄を触った後の値は切替でも尊重する（ユーザーの選択を上書きしない）
+  assert.equal(speechVoiceDraft({ draft: "Kore", modelChanged: true, option: fish, savedVoice: "Zephyr" }), "Kore");
+});
+
+test("音声カタログ再取得後は server の現在値へ同期し、表示と実行時のボイスを食い違わせない", () => {
+  const reordered = [
+    {
+      provider: "openrouter",
+      id: "google/gemini-3.8-flash-tts",
+      name: "Google: Gemini 3.8 Flash TTS",
+      voices: ["Kore", "Zephyr"],
+    },
+  ];
+  const previous = settings({}, {}, { voice: "Zephyr" });
+  const refreshed = { models: reordered, catalogSource: "live" as const, fetchedAt: 2000 };
+  const current = settings({}, {}, { voice: "Kore", models: reordered, fetchedAt: 2000 });
+
+  assert.deepEqual(
+    speechSettingsAfterRefresh(previous, refreshed, current),
+    current,
+    "GET が取れていれば server の現在値（NULL ボイスのフォールバックを含む）を正とする",
+  );
+
+  // GET が取れなかったときだけ、一覧と出どころを差し替える（ボイスは据え置き）
+  const patched = speechSettingsAfterRefresh(previous, refreshed, null);
+  assert.equal(patched?.speech.voice, "Zephyr");
+  assert.equal(patched?.speech.fetchedAt, 2000);
+  assert.deepEqual(patched?.speech.models, reordered);
+  assert.equal(speechSettingsAfterRefresh(null, refreshed, null), null);
 });
 
 test("音声モデル一覧の注記は取得元と最終取得時刻を示し、default は同梱を見ていることを伝える", () => {

@@ -337,3 +337,58 @@ test("キーの登録は音声の選択を巻き戻さない", async () => {
   assert.equal(outcome.response.speech.voice, "Kore");
   assert.equal(db.row?.apiKey, "sk-speech-new-key-0123456789");
 });
+
+test("ボイス / モデルに保護済みキーがあっても、応答と実行時の解決はどちらも未設定として扱う", async () => {
+  // 宣言が無いモデルは自由記述を許すため、キーを誤ってボイス欄へ貼ると保存は成功する
+  const free = createService();
+  free.db.row = rowWith(null, null);
+  const saved = await free.service.putSpeechSelection({ model: "fish/audio", voice: KEY });
+  assert.equal(saved.status, 200);
+  if (saved.status !== 200) return;
+  assert.equal(saved.response.speech.voice, "", "マスク済みの文字列もそのまま返さない");
+  assert.ok(!JSON.stringify(saved.response).includes(KEY), "成功応答にキーを出さない");
+  assert.equal(free.service.settings().speech.voice, "");
+  assert.ok(!JSON.stringify(free.service.settings()).includes(KEY), "GET にキーを出さない");
+  assert.equal(
+    free.latest()?.readSpeech()?.voice,
+    free.service.settings().speech.voice,
+    "実行時の解決も表示と同じ（保存値のキーをボイスとして送らない）",
+  );
+  assert.equal(free.db.row?.speechVoice, KEY, "保存値そのものは消さない");
+
+  // 別の成功 mutation（キー登録）の応答も同じ境界を通る
+  const rotated = await free.service.putKey("sk-speech-rotated-key-0123456789");
+  assert.equal(rotated.status, 200);
+  if (rotated.status === 200) {
+    assert.ok(!JSON.stringify(rotated.response).includes(KEY), "キー登録の成功応答にも出さない");
+  }
+
+  // default はカタログ照合をしないため、モデルにもキーを保存できる
+  const defaulted = createService({ speechSource: "default", speechFetchedAt: null });
+  defaulted.db.row = rowWith(null, null);
+  const savedModel = await defaulted.service.putSpeechSelection({ model: KEY, voice: "" });
+  assert.equal(savedModel.status, 200);
+  if (savedModel.status !== 200) return;
+  assert.equal(savedModel.response.speech.model, DEFAULT_SPEECH_MODEL, "キーは既定モデルへ落とす");
+  assert.ok(!JSON.stringify(savedModel.response).includes(KEY));
+  assert.equal(defaulted.service.settings().speech.model, DEFAULT_SPEECH_MODEL);
+  assert.ok(!JSON.stringify(defaulted.service.settings()).includes(KEY));
+  assert.equal(defaulted.latest()?.readSpeech()?.model, DEFAULT_SPEECH_MODEL);
+  assert.equal(defaulted.db.row?.speechModel, KEY, "保存値そのものは消さない");
+});
+
+test("ボイスが NULL の行はカタログの並びが変われば、応答も実行時も同じ先頭ボイスへ寄る", async () => {
+  // NULL のボイスは「そのモデルが宣言する先頭」へフォールバックする。並びが変われば実効値も変わる
+  const { db, service, latest, catalog } = createService();
+  db.row = rowWith(DEFAULT_SPEECH_MODEL, null);
+  await service.applyStored();
+  assert.equal(service.settings().speech.voice, "Zephyr");
+  catalog.snapshot = {
+    ...catalog.snapshot,
+    entries: catalog.snapshot.entries.map((entry) =>
+      entry.id === DEFAULT_SPEECH_MODEL ? { ...entry, voices: ["Kore", "Zephyr"] } : entry,
+    ),
+  };
+  assert.equal(service.settings().speech.voice, "Kore", "GET は新しい並びの先頭を返す");
+  assert.equal(latest()?.readSpeech()?.voice, "Kore", "実行時も GET と同じ値へ解決する");
+});
