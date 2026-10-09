@@ -27,6 +27,21 @@ const pi = Object.assign(
       ],
       result: "結論: 索引は docs/README.md、契約は docs/subagent.md にあります",
     },
+    // live 行の枠・ホールド・畳みの受入用: 速い順次 + 並列の連続ツール呼び出し (本文に「連続ツール」で発動)
+    toolBurst: {
+      prompt: "連続ツール",
+      calls: [
+        { name: "read", args: { path: "client/src/lib/liveToolCall.ts" }, at: 0, endAt: 120 },
+        { name: "bash", args: { command: "pnpm -C client test:unit" }, at: 220, endAt: 400 },
+        { name: "read", args: { path: "docs/frontend.md" }, at: 480, endAt: 620 },
+        { name: "edit", args: { path: "client/src/components/Composer.tsx" }, at: 700, endAt: 900 },
+        { name: "bash", args: { command: "git diff --stat" }, at: 980, endAt: 1080 },
+        // 並列 (同じ時刻に始まる) の 2 件
+        { name: "grep", args: { command: "grep -rn chat-live-reserve client/src" }, at: 1060, endAt: 1240 },
+        { name: "read", args: { path: "client/src/styles/index.css" }, at: 1060, endAt: 1300 },
+        { name: "bash", args: { command: "pnpm check" }, at: 1400, endAt: 1900 },
+      ],
+    },
   }),
   { cwd, sandboxConfigured: true },
 );

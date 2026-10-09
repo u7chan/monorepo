@@ -10,12 +10,17 @@ import {
   initialLiveTracker,
   LIVE_PROGRESS_BODY_LINES,
   LIVE_PROGRESS_BODY_MAX,
+  LIVE_ROW_MIN_VISIBLE_MS,
+  LIVE_ROW_SLOTS,
+  liveToolHoldRemainingMs,
+  liveToolPhase,
   liveToolProgress,
   liveToolState,
-  LIVE_ROW_MIN_VISIBLE_MS,
+  liveToolWindow,
   trackLiveHolds,
   type LiveToolTracker,
 } from "../src/lib/liveToolCall";
+import type { LiveToolCallView } from "../src/hooks/useLiveToolCall";
 import type { RunStatus, ToolCall } from "../src/types";
 
 function call(id: string, name: string, args: string, done: boolean, extra: Partial<ToolCall> = {}): ToolCall {
@@ -121,10 +126,12 @@ test("ライブのツールイベントで現れた完了カードは、最短�
   for (const status of ["running", "completed", "stopped"] as RunStatus[]) {
     const { holds } = track(initialLiveTracker({}), done, status, 2_000, ["t1"]);
     assert.deepEqual(
-      holds.map((hold) => [hold.row.id, hold.row.index, hold.row.summary, hold.row.durationMs, hold.holdMs]),
-      [["t1", 1, "bash — ls", 5, LIVE_ROW_MIN_VISIBLE_MS]],
+      holds.map((hold) => [hold.row.id, hold.row.index, hold.row.summary, hold.row.durationMs]),
+      [["t1", 1, "bash — ls", 5]],
       `${status} の描画`,
     );
+    assert.equal(liveToolHoldRemainingMs(holds[0], 2_000), LIVE_ROW_MIN_VISIBLE_MS);
+    assert.equal(liveToolHoldRemainingMs(holds[0], 2_000 + LIVE_ROW_MIN_VISIBLE_MS), 0, "ホールドが切れたら畳める");
   }
 });
 
@@ -136,13 +143,13 @@ test("実行中として出ていた行は、出ていた時間の残りだけ�
   const finished = { t1: call("t1", "bash", "sleep 3", true, { startedAt: 1_000, endedAt: 4_000 }) };
   const short = track(first.tracker, finished, "running", 1_400, ["t1"]);
   assert.deepEqual(
-    short.holds.map((hold) => [hold.row.id, hold.row.durationMs, hold.holdMs]),
-    [["t1", 3_000, 500]],
-    "出てから 400ms で終わったので、残り 500ms を残す",
+    short.holds.map((hold) => [hold.row.id, hold.row.durationMs]),
+    [["t1", 3_000]],
   );
+  assert.equal(liveToolHoldRemainingMs(short.holds[0], 1_400), 500, "出てから 400ms で終わったので、残り 500ms を残す");
 
   const long = track(first.tracker, finished, "running", 3_000, ["t1"]);
-  assert.equal(long.holds[0].holdMs, 0, "最短表示時間より長く出ていた行はその場で畳む");
+  assert.equal(liveToolHoldRemainingMs(long.holds[0], 3_000), 0, "最短表示時間より長く出ていた行はその場で畳む");
 });
 
 test("同じ描画に復元カードとライブのカードが混ざっても、復元カードは抱えない", () => {
@@ -195,9 +202,64 @@ test("run ごと入れ替わって消えた実行中の行も畳む (実行時�
   const first = track(initialLiveTracker({}), { t1: call("t1", "bash", "sleep 5", false) }, "running", 1_000, ["t1"]);
   const replaced = track(first.tracker, { t2: call("t2", "read", "a.md", false) }, "running", 1_300, ["t1", "t2"]);
   assert.deepEqual(
-    replaced.holds.map((hold) => [hold.row.id, hold.row.index, hold.row.durationMs, hold.holdMs]),
-    [["t1", 1, undefined, 600]],
+    replaced.holds.map((hold) => [hold.row.id, hold.row.index, hold.row.durationMs]),
+    [["t1", 1, undefined]],
   );
+  assert.equal(liveToolHoldRemainingMs(replaced.holds[0], 1_300), 600);
+});
+
+// --- 枠の選択・集約と、箱の段 ---
+
+function rowsOf(count: number) {
+  return Array.from({ length: count }, (_, index) => ({
+    id: `t${index + 1}`,
+    index: index + 1,
+    summary: `read — file-${index + 1}.md`,
+    done: false,
+  }));
+}
+
+test("枠は最新の行だけを残し、溢れた件数を返す", () => {
+  assert.deepEqual(liveToolWindow([], []), { rows: [], hidden: 0 });
+
+  const few = liveToolWindow(rowsOf(2), []);
+  assert.deepEqual(
+    few.rows.map((row) => row.id),
+    ["t1", "t2"],
+  );
+  assert.equal(few.hidden, 0, "枠に収まる間は畳まない");
+
+  const many = liveToolWindow(rowsOf(LIVE_ROW_SLOTS + 2), []);
+  assert.deepEqual(
+    many.rows.map((row) => row.id),
+    ["t3", "t4", "t5"],
+    "古い行から落とす",
+  );
+  assert.equal(many.hidden, 2, "落とした件数は「…他 N 件」に使う");
+});
+
+test("実行中の行とホールド中の行は走査順に並べ、同じ行は実行中として出す", () => {
+  const held = { id: "t1", index: 1, summary: "bash — ls", done: true };
+  const running = { id: "t2", index: 2, summary: "read — a.md", done: false };
+  // 同じ id がホールドにも実行中にもある場合は、実行中の見た目 (実行時間なし) を優先する
+  const window = liveToolWindow([running], [held, { ...running, done: true }]);
+  assert.deepEqual(
+    window.rows.map((row) => [row.id, row.done]),
+    [
+      ["t1", true],
+      ["t2", false],
+    ],
+  );
+});
+
+test("ホールドが切れるまで箱を開き、全部切れたら閉じはじめる", () => {
+  const row = { id: "t1", index: 1, summary: "bash — ls", done: true };
+  const hold = { row, holdUntilMs: 1_900 };
+  assert.equal(liveToolPhase([row], [], 1_000), "open", "実行中の行があれば開く");
+  assert.equal(liveToolPhase([], [hold], 1_800), "open", "ホールドの残りがある間は開いたまま");
+  assert.equal(liveToolPhase([], [hold], 1_900), "closing", "ホールドが全部切れたら畳みはじめる");
+  assert.equal(liveToolPhase([], [], 1_900), "hidden", "行が無ければ箱ごと消える");
+  assert.equal(liveToolPhase([row], [hold], 2_500), "open", "畳みはじめに次のツールが動いたら畳まない");
 });
 
 function renderHistory(cards: ToolCard[], live: boolean): string {
@@ -256,33 +318,67 @@ test("実行時間の控えが無いカード (旧サーバー / 停止) では�
   assert.equal(stopped.includes("計 "), false);
 });
 
-function renderLive(runTools: Record<string, ToolCall>, runStatus: RunStatus): string {
-  return renderToStaticMarkup(createElement(LiveToolCall, { runTools, runStatus, liveToolIds: [] }));
+/** 実行中のカードから表示を組み立てる (コンポーネントは表示だけを持ち、段と行は純関数が決める) */
+function liveView(runTools: Record<string, ToolCall>, runStatus: RunStatus): LiveToolCallView {
+  const state = liveToolState(runTools, runStatus);
+  const { rows, hidden } = liveToolWindow(state.rows, []);
+  return { rows, hidden, phase: liveToolPhase(state.rows, [], 1_000) };
+}
+
+function renderLive(view: LiveToolCallView): string {
+  return renderToStaticMarkup(createElement(LiveToolCall, view));
 }
 
 test("ライブ表示は実行中のツールを行サマリーで出し、行が無ければ畳む", () => {
-  const running = renderLive({ t1: call("t1", "bash", "ls -la", false) }, "running");
+  const running = renderLive(liveView({ t1: call("t1", "bash", "ls -la", false) }, "running"));
   assert.match(running, /data-visible="true"/);
   assert.ok(running.includes("bash — ls -la"), "引数まで見える (名前だけでは何をしているか分からない)");
 
-  const finished = renderLive({ t1: call("t1", "bash", "ls -la", true) }, "running");
+  const finished = renderLive(liveView({ t1: call("t1", "bash", "ls -la", true) }, "running"));
   assert.match(finished, /data-visible="false"/);
   assert.equal(finished.includes("ls -la"), false, "完了した行は履歴へ移る");
 
-  const stopped = renderLive({ t1: call("t1", "bash", "sleep 100", false) }, "stopped");
+  const stopped = renderLive(liveView({ t1: call("t1", "bash", "sleep 100", false) }, "stopped"));
   assert.match(stopped, /data-visible="false"/, "停止で done が来なかったカードは出さない");
+});
+
+test("枠から溢れた行は落とし、読めなかったことを 1 行で示す", () => {
+  const runTools = Object.fromEntries(
+    rowsOf(LIVE_ROW_SLOTS + 2).map((_row, index) => [
+      `t${index + 1}`,
+      call(`t${index + 1}`, "read", `file-${index + 1}.md`, false),
+    ]),
+  );
+  const html = renderLive(liveView(runTools, "running"));
+  assert.ok(html.includes("…他 2 件"), "溢れた件数を出す");
+  assert.equal(html.includes("file-1.md"), false, "古い行は出さない");
+  assert.equal(html.includes("file-2.md"), false, "古い行は出さない");
+  for (const kept of ["file-3.md", "file-4.md", "file-5.md"]) assert.ok(html.includes(kept), `${kept} は残る`);
+});
+
+test("閉じはじめは箱を畳みながら行を残す", () => {
+  const [row] = liveToolState({ t1: call("t1", "bash", "ls", true) }, "running").allRows;
+  const closing = renderLive({ rows: [row], hidden: 0, phase: "closing" });
+  assert.match(closing, /data-visible="false"/);
+  assert.match(closing, /data-closing="true"/);
+  assert.ok(closing.includes("bash — ls"), "畳みの間は行を残す (空になった箱を畳まない)");
+
+  const empty = renderLive({ rows: [], hidden: 0, phase: "hidden" });
+  assert.match(empty, /data-closing="false"/);
+  assert.equal(empty.includes("bash"), false);
 });
 
 // --- investigate の進捗 (live 専用) ---
 
-test("進捗の本文は先頭行を活動、残りを子の本文末尾として読む", () => {
+test("進捗の本文は先頭行を活動、末尾の 1 行を子の本文として読む (ライブは 1 行)", () => {
   assert.deepEqual(liveToolProgress("bash rg -n foo\n結論: docs にある"), {
     activity: "bash rg -n foo",
     body: "結論: docs にある",
   });
   // 1 行だけの進捗 (活動だけ / 本文だけ) は活動として出す。分けられない以上、1 行として見せれば足りる
   assert.deepEqual(liveToolProgress("生成中です"), { activity: "生成中です", body: "" });
-  assert.deepEqual(liveToolProgress("bash ls\n\n本文 1\n本文 2"), { activity: "bash ls", body: "本文 1\n本文 2" });
+  const multi = liveToolProgress("bash ls\n\n本文 1\n本文 2");
+  assert.deepEqual(multi, { activity: "bash ls", body: "本文 2" }, "行の高さを予約するため 1 行だけ残す");
 });
 
 test("子の本文末尾は行数の上限まで残し、末尾を優先する", () => {
@@ -302,14 +398,16 @@ test("子の本文末尾は行数の上限まで残し、末尾を優先する",
 
 test("ライブ行は investigate の活動と子の本文末尾を出し、進捗が無ければ出さない", () => {
   const running = renderLive(
-    { t1: call("t1", "investigate", "docs を調べて", false, { progress: "bash rg -n foo\n結論: docs にある" }) },
-    "running",
+    liveView(
+      { t1: call("t1", "investigate", "docs を調べて", false, { progress: "bash rg -n foo\n結論: docs にある" }) },
+      "running",
+    ),
   );
   assert.match(running, /data-visible="true"/);
   assert.ok(running.includes("investigate — docs を調べて"));
   assert.ok(running.includes("bash rg -n foo"), "現在の活動が出る");
   assert.ok(running.includes("結論: docs にある"), "子の本文末尾が出る");
 
-  const withoutProgress = renderLive({ t1: call("t1", "investigate", "docs を調べて", false) }, "running");
+  const withoutProgress = renderLive(liveView({ t1: call("t1", "investigate", "docs を調べて", false) }, "running"));
   assert.equal(withoutProgress.includes("結論:"), false);
 });

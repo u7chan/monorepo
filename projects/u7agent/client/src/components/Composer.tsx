@@ -9,6 +9,7 @@ import {
   type KeyboardEvent,
 } from "react";
 import type { Attachment, ComposerSettings } from "../hooks/useU7Agent";
+import type { LiveToolCallView } from "../hooks/useLiveToolCall";
 import type { SessionSkillsState } from "../hooks/useSessionSkills";
 import { pastedImageFiles } from "../lib/clipboardImages";
 import { cn } from "../lib/cn";
@@ -18,7 +19,7 @@ import { composerDropKind, FILE_MENTION_MIME, insertFileMention, type ComposerDr
 import type { LayoutMode } from "../lib/layout";
 import { runRetryBlockedReason, type RunErrorInfo } from "../lib/runRetry";
 import { skillCommandText } from "../lib/sessionSkills";
-import type { AgentDef, ContextUsage, ModelRef, RunStatus, ThinkingLevel, ToolCall } from "../types";
+import type { AgentDef, ContextUsage, ModelRef, RunStatus, ThinkingLevel } from "../types";
 import { AgentField } from "./composer/AgentField";
 import { AttachmentChips } from "./composer/AttachmentChips";
 import { ComposerStatus } from "./composer/ComposerStatus";
@@ -45,12 +46,8 @@ export type ComposerProps = {
   onCompact?: () => void;
   /** ランがエラーで終わったか (再実行カードの表示条件) */
   runStatus?: RunStatus;
-  /** 直近 run のツールカード (toolCallId → ToolCall)。順序が走査順になる */
-  runTools: Readonly<Record<string, ToolCall>>;
-  /** ライブのツールイベントで観測した toolCallId。ライブ表示が復元カードと区別するのに使う */
-  liveToolIds: string[];
-  /** 表示中のセッション。変わったらライブ表示の行を持ち越さない (未作成チャットは undefined) */
-  sessionId?: string;
+  /** 直近 run のライブ表示 (実行中と、ホールド中のツール)。App が作る (余白をチャットと共有するため) */
+  liveTools: LiveToolCallView;
   /** 最後に失敗したランの分類コードと、BFF が合成した文言 */
   runError?: RunErrorInfo;
   /** 失敗カードの再実行。固定文言を通常の送信経路で送る */
@@ -140,9 +137,7 @@ export function Composer({
   onCompact,
   onRetry,
   runStatus,
-  runTools,
-  liveToolIds,
-  sessionId,
+  liveTools,
   runError,
   onReloadSkills,
 }: ComposerProps) {
@@ -319,167 +314,171 @@ export function Composer({
   );
 
   return (
-    <footer
-      className={cn(
-        "w-full min-w-0",
-        compact ? "px-3 pb-[max(8px,env(safe-area-inset-bottom))]" : "mx-auto max-w-220 px-6 pb-5 wide:px-8",
-      )}
-    >
-      <LiveToolCall
-        runTools={runTools}
-        runStatus={runStatus ?? "idle"}
-        liveToolIds={liveToolIds}
-        sessionId={sessionId}
-      />
-      <ComposerStatus
-        activity={activity}
-        activityState={activityState}
-        runningSince={runningSince}
-        finishedRunDurationMs={finishedRunDurationMs}
-        context={context}
-        model={settings.model}
-        modelLabel={settings.modelLabel}
-        effortLabel={settings.effortLabel}
-        modelUnavailable={Boolean(settings.modelWarning)}
-        onCompact={onCompact}
-        compactDisabled={settings.compactDisabled}
-        compactDisabledReason={settings.compactDisabledReason}
-        compact={compact}
-        runStatus={runStatus}
-        runError={runError}
-        onRetry={onRetry}
-        retryDisabled={retryBlockedReason !== undefined}
-        retryDisabledReason={retryBlockedReason}
-      />
-      <form
-        onSubmit={handleSubmit}
-        onPaste={handlePaste}
-        onDragOver={handleDragOver}
-        onDragLeave={() => setDropKind(null)}
-        onDrop={handleDrop}
+    <footer className="w-full min-w-0">
+      <div
         className={cn(
-          // 単一列 Grid の auto 列は、行の中身の intrinsic 幅 (欄と textarea) で form の外まで
-          // 伸びる。minmax(0, 1fr) で form 幅に拘束する (docs/ui-layout.md)
-          "grid grid-cols-1 rounded-xl border bg-panel/90 shadow-panel",
-          dropKind !== null ? "border-accent" : "border-line-strong",
-          compact ? "gap-1.5 p-2" : "gap-2 p-2.5",
+          compact ? "px-3 pb-[max(8px,env(safe-area-inset-bottom))]" : "mx-auto max-w-220 px-6 pb-5 wide:px-8",
         )}
       >
-        <div className={cn("flex flex-wrap items-center", compact ? "gap-2" : "gap-x-3 gap-y-1.5 px-0.5")}>
-          <AgentField
-            agents={agents}
-            agentId={agentId}
+        {/* 浮かせる基準は内容の欄 (padding の内側)。padding の外を基準にすると、狭い幅で箱が composer からはみ出す */}
+        <div className="relative">
+          <LiveToolCall {...liveTools} className="absolute inset-x-0 bottom-full z-10" />
+          <ComposerStatus
+            activity={activity}
+            activityState={activityState}
+            runningSince={runningSince}
+            finishedRunDurationMs={finishedRunDurationMs}
+            context={context}
+            model={settings.model}
+            modelLabel={settings.modelLabel}
+            effortLabel={settings.effortLabel}
+            modelUnavailable={Boolean(settings.modelWarning)}
+            onCompact={onCompact}
+            compactDisabled={settings.compactDisabled}
+            compactDisabledReason={settings.compactDisabledReason}
             compact={compact}
-            sessionAgent={sessionAgent}
-            onChangeAgent={onChangeAgent}
+            runStatus={runStatus}
+            runError={runError}
+            onRetry={onRetry}
+            retryDisabled={retryBlockedReason !== undefined}
+            retryDisabledReason={retryBlockedReason}
           />
-          <ModelEffortPicker
-            settings={settings}
-            compact={compact}
-            open={settingsOpen}
-            onOpenChange={setSettingsOpen}
-            onChangeModel={onChangeModel}
-            onChangeThinkingLevel={onChangeThinkingLevel}
-          />
-          <SkillPicker
-            state={skills}
-            rootCwd={rootCwd}
-            compact={compact}
-            open={skillsOpen}
-            onOpenChange={handleSkillsOpenChange}
-            onSelect={insertSkillCommand}
-            onReload={onReloadSkills}
-          />
-        </div>
-        <AttachmentChips attachments={attachments} rootCwd={rootCwd} compact={compact} onRemove={onRemoveAttachment} />
-        <div className={cn("flex items-end", compact ? "gap-2" : "gap-2.5")}>
-          <textarea
-            ref={inputRef}
-            rows={1}
-            value={value}
-            placeholder={
-              runtimeReady
-                ? compact
-                  ? "メッセージを入力…"
-                  : "メッセージを入力… (Enterで送信 / Shift+Enterで改行)"
-                : "APIキーを設定すると送信できます"
-            }
+          <form
+            onSubmit={handleSubmit}
+            onPaste={handlePaste}
+            onDragOver={handleDragOver}
+            onDragLeave={() => setDropKind(null)}
+            onDrop={handleDrop}
             className={cn(
-              // min-w-0 が無いと cols 既定値の intrinsic 幅 (textarea の自動最小サイズ) が下限になり、
-              // 狭い viewport で入力欄が縮まずに送信 / 添付ボタンを画面外へ押し出す
-              "min-w-0 flex-1 resize-none bg-transparent px-0.5 leading-normal text-ink outline-none placeholder:text-ink-ghost",
-              compact ? "max-h-30 min-h-9 py-1.5 text-md" : "max-h-45 min-h-6 py-1",
-            )}
-            enterKeyHint={compact ? "enter" : "send"}
-            onChange={(event) => setValue(event.currentTarget.value)}
-            onKeyDown={handleKeyDown}
-          />
-          <input
-            ref={fileRef}
-            type="file"
-            multiple
-            tabIndex={-1}
-            aria-hidden="true"
-            className="hidden"
-            onChange={(event) => {
-              const files = [...(event.currentTarget.files ?? [])];
-              // 同じファイルを選び直せるよう、選択を毎回リセットする
-              event.currentTarget.value = "";
-              pickFiles(files);
-            }}
-          />
-          <button
-            type="button"
-            aria-label="ファイルを添付"
-            title="ファイルを添付（最大10件・100 MiBまで）"
-            onClick={() => fileRef.current?.click()}
-            className={cn(
-              "grid shrink-0 cursor-pointer place-items-center rounded-full border border-line text-ink-soft transition-colors hover:border-accent/50 hover:text-accent-text",
-              compact ? "size-9" : "size-8",
+              // 単一列 Grid の auto 列は、行の中身の intrinsic 幅 (欄と textarea) で form の外まで
+              // 伸びる。minmax(0, 1fr) で form 幅に拘束する (docs/ui-layout.md)
+              "grid grid-cols-1 rounded-xl border bg-panel/90 shadow-panel",
+              dropKind !== null ? "border-accent" : "border-line-strong",
+              compact ? "gap-1.5 p-2" : "gap-2 p-2.5",
             )}
           >
-            <ClipIcon />
-          </button>
-          <button
-            type="submit"
-            aria-label="送信"
-            disabled={
-              !runtimeReady ||
-              sending ||
-              attachmentsBusy ||
-              settings.changing ||
-              Boolean(settings.sendBlockedReason) ||
-              (value.trim().length === 0 && !hasAttachment)
-            }
-            className={cn(
-              "grid shrink-0 cursor-pointer place-items-center rounded-full bg-accent text-on-accent transition-colors hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-45",
-              compact ? "size-9" : "size-8",
-            )}
-          >
-            <ArrowUpIcon />
-          </button>
+            <div className={cn("flex flex-wrap items-center", compact ? "gap-2" : "gap-x-3 gap-y-1.5 px-0.5")}>
+              <AgentField
+                agents={agents}
+                agentId={agentId}
+                compact={compact}
+                sessionAgent={sessionAgent}
+                onChangeAgent={onChangeAgent}
+              />
+              <ModelEffortPicker
+                settings={settings}
+                compact={compact}
+                open={settingsOpen}
+                onOpenChange={setSettingsOpen}
+                onChangeModel={onChangeModel}
+                onChangeThinkingLevel={onChangeThinkingLevel}
+              />
+              <SkillPicker
+                state={skills}
+                rootCwd={rootCwd}
+                compact={compact}
+                open={skillsOpen}
+                onOpenChange={handleSkillsOpenChange}
+                onSelect={insertSkillCommand}
+                onReload={onReloadSkills}
+              />
+            </div>
+            <AttachmentChips
+              attachments={attachments}
+              rootCwd={rootCwd}
+              compact={compact}
+              onRemove={onRemoveAttachment}
+            />
+            <div className={cn("flex items-end", compact ? "gap-2" : "gap-2.5")}>
+              <textarea
+                ref={inputRef}
+                rows={1}
+                value={value}
+                placeholder={
+                  runtimeReady
+                    ? compact
+                      ? "メッセージを入力…"
+                      : "メッセージを入力… (Enterで送信 / Shift+Enterで改行)"
+                    : "APIキーを設定すると送信できます"
+                }
+                className={cn(
+                  // min-w-0 が無いと cols 既定値の intrinsic 幅 (textarea の自動最小サイズ) が下限になり、
+                  // 狭い viewport で入力欄が縮まずに送信 / 添付ボタンを画面外へ押し出す
+                  "min-w-0 flex-1 resize-none bg-transparent px-0.5 leading-normal text-ink outline-none placeholder:text-ink-ghost",
+                  compact ? "max-h-30 min-h-9 py-1.5 text-md" : "max-h-45 min-h-6 py-1",
+                )}
+                enterKeyHint={compact ? "enter" : "send"}
+                onChange={(event) => setValue(event.currentTarget.value)}
+                onKeyDown={handleKeyDown}
+              />
+              <input
+                ref={fileRef}
+                type="file"
+                multiple
+                tabIndex={-1}
+                aria-hidden="true"
+                className="hidden"
+                onChange={(event) => {
+                  const files = [...(event.currentTarget.files ?? [])];
+                  // 同じファイルを選び直せるよう、選択を毎回リセットする
+                  event.currentTarget.value = "";
+                  pickFiles(files);
+                }}
+              />
+              <button
+                type="button"
+                aria-label="ファイルを添付"
+                title="ファイルを添付（最大10件・100 MiBまで）"
+                onClick={() => fileRef.current?.click()}
+                className={cn(
+                  "grid shrink-0 cursor-pointer place-items-center rounded-full border border-line text-ink-soft transition-colors hover:border-accent/50 hover:text-accent-text",
+                  compact ? "size-9" : "size-8",
+                )}
+              >
+                <ClipIcon />
+              </button>
+              <button
+                type="submit"
+                aria-label="送信"
+                disabled={
+                  !runtimeReady ||
+                  sending ||
+                  attachmentsBusy ||
+                  settings.changing ||
+                  Boolean(settings.sendBlockedReason) ||
+                  (value.trim().length === 0 && !hasAttachment)
+                }
+                className={cn(
+                  "grid shrink-0 cursor-pointer place-items-center rounded-full bg-accent text-on-accent transition-colors hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-45",
+                  compact ? "size-9" : "size-8",
+                )}
+              >
+                <ArrowUpIcon />
+              </button>
+            </div>
+          </form>
+          {compact ? (
+            footnoteWarnings.length > 0 || stopVisible ? (
+              <div className="flex items-center justify-end gap-2 px-1 pt-1.5 text-2xs text-ink-ghost">
+                {footnoteWarnings.length > 0 ? (
+                  <span className="mr-auto min-w-0 break-words text-warn">{footnoteWarnings.join(" / ")}</span>
+                ) : null}
+                {stopButton}
+              </div>
+            ) : null
+          ) : (
+            <div className="flex items-start justify-between gap-2.5 px-1 pt-2 text-2xs text-ink-ghost">
+              <span className="min-w-0 break-words">
+                送信後もブラウザを閉じても処理は続きます
+                {footnoteWarnings.length > 0 ? (
+                  <span className="ml-1 text-warn">{footnoteWarnings.join(" / ")}</span>
+                ) : null}
+              </span>
+              {stopButton}
+            </div>
+          )}
         </div>
-      </form>
-      {compact ? (
-        footnoteWarnings.length > 0 || stopVisible ? (
-          <div className="flex items-center justify-end gap-2 px-1 pt-1.5 text-2xs text-ink-ghost">
-            {footnoteWarnings.length > 0 ? (
-              <span className="mr-auto min-w-0 break-words text-warn">{footnoteWarnings.join(" / ")}</span>
-            ) : null}
-            {stopButton}
-          </div>
-        ) : null
-      ) : (
-        <div className="flex items-start justify-between gap-2.5 px-1 pt-2 text-2xs text-ink-ghost">
-          <span className="min-w-0 break-words">
-            送信後もブラウザを閉じても処理は続きます
-            {footnoteWarnings.length > 0 ? (
-              <span className="ml-1 text-warn">{footnoteWarnings.join(" / ")}</span>
-            ) : null}
-          </span>
-          {stopButton}
-        </div>
-      )}
+      </div>
     </footer>
   );
 }

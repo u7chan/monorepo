@@ -1,24 +1,14 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { finishOnAnimationEnd } from "../../lib/animationEnd";
-import {
-  initialLiveTracker,
-  liveToolState,
-  trackLiveHolds,
-  type LiveToolProgress,
-  type LiveToolRow,
-  type LiveToolTracker,
-} from "../../lib/liveToolCall";
+import { cn } from "../../lib/cn";
+import type { LiveToolCallView } from "../../hooks/useLiveToolCall";
 import { formatDurationMs } from "../../lib/usageFormat";
-import type { RunStatus, ToolCall } from "../../types";
+import type { LiveToolProgress, LiveToolRow } from "../../lib/liveToolCall";
 
-/** investigate の進捗。現在の活動を 1 行、子の本文末尾をその下に出す (live 専用で復元しない) */
+/** investigate の進捗。現在の活動と子の本文末尾を 1 行ずつ出し、左罫線で行の要約と分ける */
 function LiveProgress({ progress }: { progress: LiveToolProgress }) {
   return (
-    <div className="flex flex-col gap-0.5 pb-0.5 pl-6.5">
+    <div className="ml-5 flex flex-col gap-0.5 border-l border-accent/30 py-0.5 pl-1.5">
       {progress.activity === "" ? null : <span className="truncate text-ink-faint">{progress.activity}</span>}
-      {progress.body === "" ? null : (
-        <span className="break-words whitespace-pre-wrap text-ink-ghost">{progress.body}</span>
-      )}
+      {progress.body === "" ? null : <span className="truncate text-ink-ghost">{progress.body}</span>}
     </div>
   );
 }
@@ -44,114 +34,43 @@ function LiveRowBody({ row }: { row: LiveToolRow }) {
   );
 }
 
-type ExitingRow = { row: LiveToolRow; holdMs: number };
-
 /**
- * 終わった行。最短表示時間までは終わった行としてそのまま出し、そこから高さを 0 へ畳む。畳み終わるまで
- * DOM に残すため、行ごとに effect を持つ (走査順が入れ替わっても取り違えないよう id で外す)。
- */
-function ExitingRow({ item, onFinished }: { item: ExitingRow; onFinished: (id: string) => void }) {
-  const [leaving, setLeaving] = useState(item.holdMs <= 0);
-  const ref = useRef<HTMLLIElement>(null);
-  const finishedRef = useRef(onFinished);
-  finishedRef.current = onFinished;
-
-  useEffect(() => {
-    if (leaving) return;
-    const timer = window.setTimeout(() => setLeaving(true), item.holdMs);
-    return () => window.clearTimeout(timer);
-  }, [leaving, item.holdMs]);
-
-  useEffect(() => {
-    if (!leaving) return;
-    const element = ref.current;
-    if (!element) return;
-    // animationend が来ない環境 (動きを止めた設定など) は lib/animationEnd.ts の保険の時間で終わる
-    return finishOnAnimationEnd(element, getComputedStyle(element).animationDuration, () =>
-      finishedRef.current(item.row.id),
-    );
-  }, [leaving, item.row.id]);
-
-  return (
-    <li ref={ref} className="live-tool-item" data-leaving={leaving} data-done={!leaving}>
-      <LiveRowBody row={item.row} />
-    </li>
-  );
-}
-
-/**
- * 入力欄の直上のライブ表示。実行中のツールを出し、終わった行は最短表示時間だけ残してから畳んで外す
- * (表示条件と畳み方の意図は docs/frontend.md)。読み上げは状態行の活動テキストが担うため視覚専用。
+ * 入力欄の直上のライブ表示。実行中のツールを最新の枠まで出し、終わった行はホールドのあいだ残す。
+ * 箱は composer のフローへ参加させずに浮かせ、閉じるときだけ行・箱・余白をまとめて畳む。読み上げは
+ * 状態行の活動テキストが担うため視覚専用 (段と行の決め方は lib/liveToolCall.ts、意図は docs/frontend.md)。
  */
 export function LiveToolCall({
-  runTools,
-  runStatus,
-  liveToolIds,
-  sessionId,
-}: {
-  /** 直近 run のツールカード (toolCallId → ToolCall)。挿入順がそのまま走査順になる */
-  runTools: Readonly<Record<string, ToolCall>>;
-  runStatus: RunStatus;
-  /** ライブのツールイベントで観測した toolCallId (`ChatState.liveToolIds`)。復元カードと区別する */
-  liveToolIds: string[];
-  /** 表示中のセッション。変わったら前のセッションの行を持ち越さない (未作成チャットは undefined) */
-  sessionId?: string;
+  rows,
+  hidden,
+  phase,
+  className,
+}: LiveToolCallView & {
+  /** 浮かせる位置 (layout)。見た目はこのコンポーネントが持つ (shadcn/no-restyle) */
+  className?: string;
 }) {
-  const state = useMemo(() => liveToolState(runTools, runStatus), [runTools, runStatus]);
-  const liveIds = useMemo(() => new Set(liveToolIds), [liveToolIds]);
-  const [exiting, setExiting] = useState<ExitingRow[]>([]);
-  const trackerRef = useRef<{ key: string | undefined; tracker: LiveToolTracker } | null>(null);
-
-  useEffect(() => {
-    const now = Date.now();
-    // セッションが変わると runTools ごと入れ替わる。前のセッションの行を畳む対象に持ち越さない
-    const known = trackerRef.current;
-    const switched = known === null || known.key !== sessionId;
-    const tracker = known !== null && !switched ? known.tracker : initialLiveTracker(runTools);
-    const next = trackLiveHolds(tracker, {
-      rows: state.rows,
-      allRows: state.allRows,
-      liveIds,
-      now,
-    });
-    trackerRef.current = { key: sessionId, tracker: next.tracker };
-    if (switched) {
-      setExiting([]);
-      return;
-    }
-    if (next.holds.length === 0) return;
-    setExiting((list) => [
-      // 同じ id がもう一度現れたときは、古い抜け中の行を残さない (key 空間は分けたまま)
-      ...list.filter((item) => !next.holds.some((hold) => hold.row.id === item.row.id)),
-      ...next.holds,
-    ]);
-  }, [state, runStatus, liveIds, sessionId, runTools]);
-
-  const finishLeaving = useCallback((id: string) => {
-    setExiting((list) => list.filter((item) => item.row.id !== id));
-  }, []);
-
   return (
-    // 抜け中の行が残っている間は箱を開いたままにする (先に畳むとアニメーションが切れる)
-    <div className="live-tool px-1" data-visible={state.visible || exiting.length > 0}>
+    <div
+      aria-hidden="true"
+      className={cn("live-tool", className)}
+      data-visible={phase === "open"}
+      data-closing={phase === "closing"}
+    >
       <div>
-        {/* 視覚専用。行が無い間は箱ごと畳む (状態行の活動テキストと重ならないようにする) */}
-        <div
-          aria-hidden="true"
-          className="mb-1.5 overflow-hidden rounded-lg border border-accent/25 bg-accent-wash font-mono text-2xs text-ink-muted"
-        >
-          <div className="flex items-center gap-1.5 border-b border-accent/20 px-2 py-1 text-2xs text-ink-faint">
+        <div className="mb-1.5 overflow-hidden rounded-lg border border-accent/25 bg-panel/95 font-mono text-2xs text-ink-muted shadow-panel backdrop-blur-md">
+          <div className="flex items-center gap-1.5 border-b border-accent/20 px-2 py-1 text-2xs leading-4 text-ink-faint">
             <span className="dot dot-accent dot-pulse" />
             ライブ
             <span className="text-ink-ghost">実行中のツール</span>
           </div>
           <ol className="m-0 grid list-none py-0.5">
-            {exiting.map((item) => (
-              // 同じ id が rows 側にも戻り得るため、抜け中の行は key 空間を分ける
-              <ExitingRow key={`leaving-${item.row.id}`} item={item} onFinished={finishLeaving} />
-            ))}
-            {state.rows.map((row) => (
-              <li key={row.id} className="live-tool-item" data-leaving="false">
+            {/* 枠から溢れた行は古い順に落とし、読めなかったことは 1 行で示す (行そのものは持たない) */}
+            {hidden > 0 ? (
+              <li key="others" className="live-tool-row truncate px-2 py-0.5 leading-4 text-ink-ghost">
+                …他 {hidden} 件
+              </li>
+            ) : null}
+            {rows.map((row) => (
+              <li key={row.id} className="live-tool-row leading-4">
                 <LiveRowBody row={row} />
               </li>
             ))}

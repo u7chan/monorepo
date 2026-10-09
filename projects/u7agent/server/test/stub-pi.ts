@@ -134,6 +134,11 @@ export interface StubSessionOptions {
    */
   investigateProgress?: StubInvestigateProgress;
   /**
+   * 連続するツール呼び出し (ライブ表示の受入用)。速い順次と並列を実 SDK と同じ順序で流す。
+   * 本文 (reply) は最後の呼び出しの後に流すため、本文が出ている間にホールドと畳みが見える
+   */
+  toolBurst?: StubToolBurst;
+  /**
    * prompt が user message を履歴へ積む前に失敗する (認証エラー等)。BFF は user entry の無いまま
    * error で終端するため、受理済みの送信が未送信として残る経路を再現できる
    */
@@ -180,6 +185,65 @@ export interface StubInvestigateProgress {
   /** tool_execution_end の報告本文 */
   result?: string;
   toolCallId?: string;
+}
+
+/** 連続するツール呼び出し。at / endAt が同じ呼び出しは並列になる */
+export interface StubToolBurst {
+  /** この語を本文に含む送信のときだけ流す (省略すると常に) */
+  prompt?: string;
+  calls?: StubToolBurstCall[];
+}
+
+export interface StubToolBurstCall {
+  name?: string;
+  /** SDK が渡す引数。`toolArgsSummary` が command / path を拾い、それ以外は JSON になる */
+  args?: unknown;
+  /** tool_execution_start を出す時刻 (prompt 開始からの相対 ms) */
+  at?: number;
+  /** tool_execution_end を出す時刻。省略すると at と同じ (一瞬で終わるツール) */
+  endAt?: number;
+  /** investigate と同じ子の進捗 (start と end の間に等間隔で流す) */
+  progress?: string[];
+  /** tool_execution_end の報告本文 */
+  result?: string;
+}
+
+type StubToolBurstEvent = {
+  at: number;
+  id: string;
+  kind: "start" | "update" | "end";
+  call: StubToolBurstCall;
+  text?: string;
+};
+
+const BURST_KIND_ORDER: Record<StubToolBurstEvent["kind"], number> = { start: 0, update: 1, end: 2 };
+
+/** burst を時刻順のイベント列へ潰す。同じ時刻の start が並列になり、進捗は start と end の間へ均す */
+function toolBurstTimeline(calls: StubToolBurstCall[]): StubToolBurstEvent[] {
+  const events: StubToolBurstEvent[] = [];
+  calls.forEach((call, index) => {
+    const id = `call-burst-${index + 1}`;
+    const at = call.at ?? 0;
+    const endAt = Math.max(at, call.endAt ?? at);
+    const progress = call.progress ?? [];
+    events.push({ at, id, kind: "start", call });
+    progress.forEach((text, line) => {
+      events.push({
+        at: Math.round(at + ((endAt - at) * (line + 1)) / (progress.length + 1)),
+        id,
+        kind: "update",
+        call,
+        text,
+      });
+    });
+    events.push({ at: endAt, id, kind: "end", call });
+  });
+  return events.sort((a, b) => a.at - b.at || BURST_KIND_ORDER[a.kind] - BURST_KIND_ORDER[b.kind]);
+}
+
+/** burst のツール名 (未指定は読み取り) */
+function toolBurstName(call: StubToolBurstCall): string {
+  return call.name ?? "read";
 }
 
 export interface StubCompactionOptions {
@@ -527,6 +591,11 @@ export function createStubSession(options: StubSessionOptions = {}): StubSession
             args: investigateArgs,
           });
         }
+        // 連続ツール呼び出しも同じく呼び出しだけ先に知らせ、end は本文の後で出す
+        const burst = options.toolBurst;
+        const burstActive = burst !== undefined && (burst.prompt === undefined || text.includes(burst.prompt));
+        const burstCalls = burstActive ? (burst.calls ?? []) : [];
+        const burstEvents = toolBurstTimeline(burstCalls);
         // 実 SDK と同じく toolCall は assistant の本文へ入る (リロード後もカードが履歴から復元される)
         const assistantText = { type: "text", text: "" };
         const assistant = {
@@ -535,6 +604,12 @@ export function createStubSession(options: StubSessionOptions = {}): StubSession
             ...(investigate
               ? [{ type: "toolCall", id: investigateToolCallId, name: "investigate", arguments: investigateArgs }]
               : []),
+            ...burstCalls.map((call, index) => ({
+              type: "toolCall",
+              id: `call-burst-${index + 1}`,
+              name: toolBurstName(call),
+              arguments: call.args ?? {},
+            })),
             assistantText,
           ],
           stopReason: "stop",
@@ -566,6 +641,46 @@ export function createStubSession(options: StubSessionOptions = {}): StubSession
           });
         }
         const chunks = [reply.slice(0, 3), reply.slice(3)].filter(Boolean);
+        // 連続ツール呼び出しを時刻どおりに流す (速い順次と並列を同じタイムラインで再現する)
+        let burstAt = 0;
+        for (const event of burstEvents) {
+          await sleep(event.at - burstAt);
+          burstAt = event.at;
+          if (session.abortRequested) break;
+          const toolCallId = event.id;
+          const toolName = toolBurstName(event.call);
+          const args = event.call.args ?? {};
+          if (event.kind === "start") {
+            session.emit({ type: "tool_execution_start", toolCallId, toolName, args });
+            continue;
+          }
+          if (event.kind === "update") {
+            session.emit({
+              type: "tool_execution_update",
+              toolCallId,
+              toolName,
+              args,
+              partialResult: { content: [{ type: "text", text: event.text ?? "" }] },
+            });
+            continue;
+          }
+          const resultText = event.call.result ?? `${toolName} の結果`;
+          session.emit({
+            type: "tool_execution_end",
+            toolCallId,
+            toolName,
+            isError: false,
+            result: { content: [{ type: "text", text: resultText }] },
+          });
+          // 実 SDK と同じく toolResult も履歴へ積む (履歴のカードはこのメッセージから投影される)
+          session.appendMessage({
+            role: "toolResult",
+            content: [{ type: "text", text: resultText }],
+            toolCallId,
+            isError: false,
+            timestamp: Date.now(),
+          });
+        }
         for (const chunk of chunks) {
           await sleep(chunkDelayMs);
           if (session.abortRequested) break;
@@ -659,6 +774,8 @@ export interface StubPiOptions {
   manualCompaction?: StubCompactionOptions;
   /** investigate の live 行を fixture で見るための進捗 (StubSessionOptions と同じ) */
   investigateProgress?: StubInvestigateProgress;
+  /** 連続するツール呼び出しの live 受入 (StubSessionOptions と同じ) */
+  toolBurst?: StubToolBurst;
   /** prompt が user message を積む前に失敗する (StubSessionOptions と同じ) */
   promptFailureBeforeUser?: string;
   availableModels?: PiAiModel<Api>[];
