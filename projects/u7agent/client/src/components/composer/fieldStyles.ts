@@ -16,3 +16,10 @@ export const agentFrameClass = (compact: boolean): string =>
 
 export const agentBoxClass = (compact: boolean): string =>
   cn("field grid w-full py-1 pr-8 pl-6.5 text-left", compact ? "text-md" : "text-1xs");
+
+/**
+ * セッション中のラベルは選び直せないので、箱の寸法だけ借りて枠と塗りは出さない (入力欄の見た目にしない)。
+ * `border-0` で消すと 2px 縮んで最初の送信で行が動くため、透明な色で消す。
+ */
+export const agentLabelBoxClass = (compact: boolean): string =>
+  cn(agentBoxClass(compact), "border-transparent bg-transparent");
