@@ -25,6 +25,8 @@ export interface SandboxToolClientOptions {
   fetchImpl?: typeof fetch;
   /** テストで短くできる診断専用の期限 (既定 8s) */
   runtimeInfoTimeoutMs?: number;
+  /** テストで短くできる待受観測の期限 (既定 5s) */
+  listenerScanTimeoutMs?: number;
 }
 
 /**
@@ -55,6 +57,12 @@ export class SandboxRuntimeError extends Error {
  * この経路だけ接続待ちと本文受信の両方に適用する (本文が止まっても UI を待たせない)。
  */
 export const SANDBOX_RUNTIME_INFO_TIMEOUT_MS = 8000;
+
+/**
+ * 待受観測 (`GET /v1/procs/listeners`) の期限。実測 0.06〜0.08 秒で、停止・起動確認がサンドボックス側の
+ * 停止で待ち続けないようにする (serve の操作は直列化されており、待ちは後続の操作を詰まらせる)。
+ */
+export const SANDBOX_LISTENER_SCAN_TIMEOUT_MS = 5000;
 
 export interface SandboxExecuteInput {
   toolCallId?: string;
@@ -117,6 +125,7 @@ export function createSandboxToolClient(options: SandboxToolClientOptions): Sand
   const token = options.token.trim();
   const fetchImpl = options.fetchImpl ?? fetch;
   const runtimeInfoTimeoutMs = options.runtimeInfoTimeoutMs ?? SANDBOX_RUNTIME_INFO_TIMEOUT_MS;
+  const listenerScanTimeoutMs = options.listenerScanTimeoutMs ?? SANDBOX_LISTENER_SCAN_TIMEOUT_MS;
   if (!baseUrl || !token) {
     throw new Error("Sandbox tool client requires baseUrl and token");
   }
@@ -144,7 +153,7 @@ export function createSandboxToolClient(options: SandboxToolClientOptions): Sand
     rawFile: (path, options) => rawFile(path, options, baseUrl, token, fetchImpl),
     downloadEntry: (path, excludeNames) => downloadEntry(path, excludeNames, baseUrl, token, fetchImpl),
     checkDownload: (path, excludeNames) => checkDownload(path, excludeNames, baseUrl, token, fetchImpl),
-    scanListeners: (port, options) => scanListeners(port, options, baseUrl, token, fetchImpl),
+    scanListeners: (port, options) => scanListeners(port, options, baseUrl, token, fetchImpl, listenerScanTimeoutMs),
   };
 }
 
@@ -292,23 +301,45 @@ async function getGitInfo(
   return (await response.json()) as SandboxGitInfo;
 }
 
-/** 待受ソケットと所有 PID の観測。`scan` は停止と起動の確認でだけ true にする (重い fd 走査を避ける) */
+/**
+ * 待受ソケットと所有 PID の観測。`scan` は停止と起動の確認でだけ true にする (重い fd 走査を避ける)。
+ * 期限は接続と本文の両方に掛ける: fetch や本文読み取りが signal を無視する実装でも待ち続けない。
+ */
 async function scanListeners(
   port: number,
   options: { scan: boolean },
   baseUrl: string,
   token: string,
   fetchImpl: typeof fetch,
+  timeoutMs: number,
 ): Promise<SandboxListenerScan> {
-  const query = new URLSearchParams({ port: String(port), scan: String(options.scan) });
-  const response = await fetchJson(
-    fetchImpl,
-    `${baseUrl}/v1/procs/listeners?${query.toString()}`,
-    { headers: jsonHeaders(token) },
-    baseUrl,
-  );
-  if (!response.ok) throw await jsonError(response, "待受プロセスの観測に失敗しました");
-  return (await response.json()) as SandboxListenerScan;
+  const controller = new AbortController();
+  let rejectTimeout: ((error: Error) => void) | undefined;
+  const timeout = new Promise<never>((_resolve, reject) => {
+    rejectTimeout = reject;
+  });
+  const timer = setTimeout(() => {
+    controller.abort();
+    rejectTimeout?.(new Error("サンドボックスの待受観測がタイムアウトしました"));
+  }, timeoutMs);
+  try {
+    const query = new URLSearchParams({ port: String(port), scan: String(options.scan) });
+    const response = await Promise.race([
+      fetchJson(
+        fetchImpl,
+        `${baseUrl}/v1/procs/listeners?${query.toString()}`,
+        { headers: jsonHeaders(token), signal: controller.signal },
+        baseUrl,
+      ),
+      timeout,
+    ]);
+    if (!response.ok) {
+      throw await Promise.race([jsonError(response, "待受プロセスの観測に失敗しました"), timeout]);
+    }
+    return await Promise.race([response.json() as Promise<SandboxListenerScan>, timeout]);
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 async function listSkills(

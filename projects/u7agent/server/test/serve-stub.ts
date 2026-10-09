@@ -37,6 +37,8 @@ export interface ServeSandboxState {
   writes: number;
   /** fd 走査つきの観測回数 (状態表示では増えない) */
   scans: number;
+  /** 待受観測を失敗させる残り回数 (期限切れの写像とロック解放の検証に使う) */
+  scanFailures: number;
   /** サンドボックス側の失敗を再現する (印を返さない) */
   fail: boolean;
 }
@@ -72,6 +74,7 @@ export function createServeSandboxStub(): ServeSandboxStub {
     killed: [],
     writes: 0,
     scans: 0,
+    scanFailures: 0,
     fail: false,
     killWorks: true,
   };
@@ -127,6 +130,10 @@ export function createServeSandboxStub(): ServeSandboxStub {
     },
     // 待受ソケットの inode は常に返し、fd 走査つき (scan) のときだけ listener / ancestors を返す
     scanListeners: async (_port, { scan }) => {
+      if (state.scanFailures > 0) {
+        state.scanFailures -= 1;
+        throw new Error("サンドボックスの待受観測が失敗しました (HTTP 500)");
+      }
       if (state.fail) throw new Error("サンドボックスの待受観測が失敗しました (HTTP 500)");
       if (scan) state.scans += 1;
       const listener = state.listener;

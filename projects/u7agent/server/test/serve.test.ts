@@ -610,6 +610,20 @@ test("app-db の失敗はそのまま伝える (空の実績へ黙って落と�
   await assert.rejects(() => service.status(SESSION));
 });
 
+test("待受観測が失敗してもロックを解放し、次の操作を進める", async () => {
+  const { service, sandbox } = setup({ reachable: true, owner: SESSION });
+  const before = await service.runtimeStatus();
+  sandbox.state.scanFailures = 1;
+  await assert.rejects(
+    () => service.runtimeStop({ generation: before.generation! }),
+    (error: unknown) => (error as { statusCode?: number }).statusCode === 502,
+  );
+  // ロックが戻っていなければここで詰まる (以下の停止が完了することで解放を確認する)
+  const stopped = await service.runtimeStop({ generation: before.generation! });
+  assert.equal(stopped.reachable, false);
+  assert.deepEqual(sandbox.state.killed, [100]);
+});
+
 test("起動時の環境変数はコマンド文字列へ埋め込まず、exec の env として渡す", async () => {
   const sandbox = createServeSandboxStub();
   const scripts: string[] = [];

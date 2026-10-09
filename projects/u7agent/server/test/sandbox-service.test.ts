@@ -904,6 +904,54 @@ test(
   },
 );
 
+test(
+  "未作成の共通スキル置き場へ後から symlink を置いても write / edit は拒否する",
+  { skip: !CAN_RUN_BASH && SKIP_REASON },
+  async () => {
+    const root = mkdtempSync(join(tmpdir(), "pi-sbx-skills-link-"));
+    const scratch = ".u7agent/sessions/aaaa111111";
+    const victim = ".u7agent/sessions/bbbb222222";
+    await mkdir(join(root, scratch), { recursive: true });
+    await mkdir(join(root, victim), { recursive: true });
+    await writeFile(join(root, victim, "victim.txt"), "original", "utf8");
+    const service = createSandboxService({ token: TOKEN, rootCwd: root });
+
+    // `.agents` が無い状態で write する (以前はここで共通スキル root の実在祖先が固定された)
+    const warm = await executeTool(service.app, "write", {
+      params: { path: "warmup.txt", content: "warm" },
+      cwd: scratch,
+    });
+    assert.ok(warm.events.some((event) => event.type === "result"));
+    assert.equal(existsSync(join(root, ".agents")), false);
+
+    // bash が `.agents/skills` を作り、他会話を指す symlink を置く
+    const linked = await executeTool(service.app, "bash", {
+      params: { command: `ln -s ${join(root, victim)} ${join(root, ".agents", "skills", "escape")}` },
+      cwd: scratch,
+    });
+    assert.ok(linked.events.some((event) => event.type === "result"));
+    assert.equal(lstatSync(join(root, ".agents", "skills", "escape")).isSymbolicLink(), true);
+
+    for (const [tool, params] of [
+      ["write", { path: join(root, ".agents", "skills", "escape", "victim.txt"), content: "pwned" }],
+      [
+        "edit",
+        {
+          path: join(root, ".agents", "skills", "escape", "victim.txt"),
+          edits: [{ oldText: "original", newText: "pwned" }],
+        },
+      ],
+      ["write", { path: join(root, ".agents", "skills", "escape", "new.txt"), content: "new" }],
+    ] as const) {
+      const denied = await executeTool(service.app, tool, { params, cwd: scratch });
+      assert.equal(denied.status, 200, `${tool} ${JSON.stringify(params)}`);
+      assert.ok(errorEvent(denied.events), `${tool} ${JSON.stringify(params)}`);
+    }
+    assert.equal(await readFile(join(root, victim, "victim.txt"), "utf8"), "original");
+    assert.equal(existsSync(join(root, victim, "new.txt")), false);
+  },
+);
+
 test("dirs endpoint creates nested directories and treats an existing one as success", async () => {
   const root = mkdtempSync(join(tmpdir(), "pi-sbx-dirs-"));
   const service = createSandboxService({ token: TOKEN, rootCwd: root });

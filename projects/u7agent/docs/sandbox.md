@@ -60,7 +60,7 @@ pi SDK (BFF)                       sandbox service (別プロセス / 別コン�
   - ラッパーは許可 root の外の固定パス（イメージは `/usr/local/bin`、dev は `$HOME/.local/libexec/u7agent`）に置き、PATH ではなく実体（realpath）を確認してから使う。見つからない / カーネルが Landlock に対応しない / ABI 3 未満では**bash を実行しない**（fail-closed）。`bash` の実行は 200 の `error` イベントで理由を返し、サービス自体は起動して診断（設定 → ランタイム）で理由を見られる
   - Landlock は存在するパスにしか rule を付けられない。無ければ作ってよいと宣言された root（`<root>/.agents/skills`、`<root>/.u7agent/serve`、ホームのキャッシュ）だけを mkdir してから rule を追加し、要求由来のパスは作らない
   - 権利は ABI に応じて決める（ABI 3 未満は実行しない）。`LANDLOCK_ACCESS_FS_TRUNCATE` は ABI 3、`LANDLOCK_ACCESS_FS_REFER` は ABI 2 で追加された。ディレクトリ以外のパス（`/dev/null`）にはディレクトリ向けの権利を渡さない（`LANDLOCK_ACCESS_FS_MAKE_*` を渡すと `landlock_add_rule` が `EINVAL` になる）
-- `write` / `edit` はセッションの作業ディレクトリと `<root>/.agents/skills` の内側だけに書ける。判定は SDK が解決した絶対パスを `resolve()` で `..` まで畳んだうえで行うが、**実在する候補は `realpath` で解決した実パスと許可 root の実パスを比較する**ため、cwd 内に置いた外部向け symlink 経由の脱出も拒否する（root 内を指す symlink は通す）。拒否は 200 の `error` イベントで返す（HTTP 400 の JSON ラッパーをモデルに見せない）。`read` / `grep` / `find` / `ls` は制限しない（[projects.md](projects.md#write--edit-の書き込み範囲)）
+- `write` / `edit` はセッションの作業ディレクトリと `<root>/.agents/skills` の内側だけに書ける。判定は SDK が解決した絶対パスを `resolve()` で `..` まで畳んだうえで行うが、**実在する候補は `realpath` で解決した実パスと許可 root の実パスを比較する**ため、cwd 内に置いた外部向け symlink 経由の脱出も拒否する（root 内を指す symlink は通す）。**許可 root の実パスは判定のたびに解決し直す**（未作成の root を祖先で固定すると、後から symlink に置き換えられたときに root 外を通してしまう）。拒否は 200 の `error` イベントで返す（HTTP 400 の JSON ラッパーをモデルに見せない）。`read` / `grep` / `find` / `ls` は制限しない（[projects.md](projects.md#write--edit-の書き込み範囲)）
 - 実行は toolCallId / executionId 単位で独立し、複数セッションの並行実行でも要求と出力が混線しない。ブラウザ切断はランに影響せず、明示停止（`POST /stop` → `session.abort()`）だけが対象のツール実行を中断する
 
 ## 配布イメージと起動契約

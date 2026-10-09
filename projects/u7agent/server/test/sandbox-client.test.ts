@@ -680,3 +680,36 @@ test("scanListeners は port と scan を query で送り、応答をそのま�
     },
   );
 });
+
+// 待受観測は serve の操作を直列化するロックの内側で走るため、無期限に待つと後続の操作が全部詰まる。
+// fetch / 本文が止まっても期限で抜けて abort を伝えることを固定する。
+test("scanListeners は本文が止まっても期限で打ち切り、abort を伝える", async () => {
+  let signal: AbortSignal | undefined;
+  const hanging = (async (_url: Parameters<typeof fetch>[0], init?: RequestInit) => {
+    signal = init?.signal ?? undefined;
+    return new Response(
+      new ReadableStream<Uint8Array>({
+        start() {
+          // 本文を閉じない (サンドボックス側が固まった状態)
+        },
+      }),
+      { status: 200, headers: { "Content-Type": "application/json" } },
+    );
+  }) as typeof fetch;
+  const client = createSandboxToolClient({
+    baseUrl: "http://sandbox.test",
+    token: TOKEN,
+    fetchImpl: hanging,
+    listenerScanTimeoutMs: 50,
+  });
+  const began = Date.now();
+  await assert.rejects(
+    () => client.scanListeners(8080, { scan: true }),
+    (error: unknown) => {
+      assert.match((error as Error).message, /タイムアウト/);
+      return true;
+    },
+  );
+  assert.ok(Date.now() - began < 4000, "期限で抜ける");
+  assert.equal(signal?.aborted, true, "期限超過では fetch を abort する");
+});

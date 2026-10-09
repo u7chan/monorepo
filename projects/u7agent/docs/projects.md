@@ -35,7 +35,7 @@
 - 要求 cwd の lexical 形（`resolve(PI_SANDBOX_CWD, リクエスト cwd)`）。workspace root や登録プロジェクトが symlink のとき、system prompt に出る `Current working directory` の形の絶対パスでも書けるようにするため
 - `<root>/.agents/skills`（未所属でも所属でも書ける。所属セッションのプロジェクトスキルは cwd 配下なので 1 つ目の root に含まれる）
 
-判定はサンドボックス（`server/src/sandbox/service.ts` の `registryFor`）が担う。SDK が `resolveToCwd` で解決した絶対パスを `resolve()` で `..` まで畳み、**実在する候補は `realpath` で解決した実パスと許可 root の実パスを比較する**（root 内を指す symlink は通す）。未作成の候補は最も深い実在祖先の realpath で判定し、壊れた symlink は拒否する（未作成の許可 root は lexical の収まりも見る。BFF に二重実装しない）。write は `mkdir` と `writeFile`、edit は `access` / `readFile` / `writeFile` のすべてが同じ判定を通り、write の `mkdir` を先に許すと拒否パスでも workdir 外に親ディレクトリができるため `mkdir` でも拒否する。
+判定はサンドボックス（`server/src/sandbox/service.ts` の `registryFor`）が担う。SDK が `resolveToCwd` で解決した絶対パスを `resolve()` で `..` まで畳み、**実在する候補は `realpath` で解決した実パスと許可 root の実パスを比較する**（root 内を指す symlink は通す）。未作成の候補は最も深い実在祖先の realpath で判定し、壊れた symlink は拒否する（未作成の許可 root は lexical の収まりも見る。BFF に二重実装しない）。**許可 root の実パスは判定のたびに解決し直し、結果をキャッシュしない**（未作成の root を最寄りの実在祖先で固定すると、後から symlink に置き換えられたときに root 外の実パスを内側と誤認する）。write は `mkdir` と `writeFile`、edit は `access` / `readFile` / `writeFile` のすべてが同じ判定を通り、write の `mkdir` を先に許すと拒否パスでも workdir 外に親ディレクトリができるため `mkdir` でも拒否する。
 
 拒否は HTTP 200 の `error` イベントとして返し（404 / 400 は使わない）、文言に許可場所（実行 cwd の絶対パスと `<root>/.agents/skills`）と cwd 相対の再試行例（`cafe.html`）を含める。`cwd` 自体の検証（実在しない・ディレクトリ以外・root 外）は従来どおり実行前の 400 / 404 のままで、モデルのツールエラーにはならない（[sandbox-api.md](sandbox-api.md#post-v1toolstoolexecute)）。
 

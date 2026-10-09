@@ -646,8 +646,9 @@ interface WriteScope {
  * 実パスで見た許可 root。`lexical` は root が未作成のときだけ入り、候補が lexical にも収まることを要求する
  * (未作成 root の最寄りの実在祖先は他の root と同じディレクトリになり得るため)。
  */
-interface ResolvedWriteScope {
-  roots: Array<{ real: string; lexical: string | undefined }>;
+interface WriteRoot {
+  real: string;
+  lexical: string | undefined;
 }
 
 /** 実在する最も深い祖先 (自身を含む) とその実パス。壊れた symlink では解決できないので undefined にする。 */
@@ -665,25 +666,29 @@ async function deepestExistingReal(target: string): Promise<{ path: string; real
   }
 }
 
-async function resolveWriteScope(scope: WriteScope): Promise<ResolvedWriteScope> {
-  const roots: ResolvedWriteScope["roots"] = [];
+async function resolveWriteRoots(scope: WriteScope): Promise<WriteRoot[]> {
+  const roots: WriteRoot[] = [];
   for (const lexical of [scope.cwd, scope.lexicalCwd, scope.skillsDir]) {
     const anchor = await deepestExistingReal(lexical);
     if (!anchor) continue;
     roots.push({ real: anchor.real, lexical: anchor.path === lexical ? undefined : lexical });
   }
-  return { roots };
+  return roots;
 }
 
 /**
  * 許可 root の実パスと比較する。候補が実在すれば realpath(candidate) を、未作成なら最寄りの実在祖先の
  * realpath を使う。最終要素が壊れた symlink の候補は解決できないため拒否し、root 内を指す symlink は通す。
+ *
+ * 許可 root は呼び出しごとに解決し直す (結果をキャッシュしない)。未作成の root を最寄りの実在祖先の実パスで
+ * 固定すると、root が後から symlink に置き換わったときに root 外の実パスを内側と誤認する。
  */
-async function isWritablePath(candidate: string, scope: ResolvedWriteScope): Promise<boolean> {
+async function isWritablePath(candidate: string, scope: WriteScope): Promise<boolean> {
   const target = resolve(candidate);
+  const roots = await resolveWriteRoots(scope);
   // 未作成 root の `real` は最寄りの実在祖先なので、lexical の収まりも一緒に見る
   const inside = (real: string): boolean =>
-    scope.roots.some(
+    roots.some(
       (root) => isInsideRoot(root.real, real) && (root.lexical === undefined || isInsideRoot(root.lexical, target)),
     );
   const real = await realpathNative(target).catch(() => undefined);
@@ -944,10 +949,8 @@ export function createSandboxService(options: SandboxServiceOptions): SandboxSer
     const key = JSON.stringify([cwd, scope.lexicalCwd]);
     const cached = registries.get(key);
     if (cached) return cached;
-    let resolvedScope: Promise<ResolvedWriteScope> | undefined;
     const assertWritable = async (candidate: string): Promise<void> => {
-      resolvedScope ??= resolveWriteScope(scope);
-      if (await isWritablePath(candidate, await resolvedScope)) return;
+      if (await isWritablePath(candidate, scope)) return;
       throw writeScopeError(candidate, scope.cwd, scope.skillsDir);
     };
     const definitions: AnyToolDefinition[] = [
