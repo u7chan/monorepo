@@ -2,7 +2,7 @@
 
 会話（セッション）ごとのトグルが On のとき、エージェントの応答が返ってきたら Discord の Incoming Webhook へ 1 通送る。ブラウザを閉じてもランは BFF で続く（[run-lifecycle.md](run-lifecycle.md)）ため、離席中に終わったことを Discord で知るための仕組み。プロバイダーは Discord だけを対象にする。
 
-Discord 通知リンク `/s/<sessionId>` は、会話を指定して開く唯一の入口。通常の `/` は会話を自動復元せず、リンク先を開けない場合も別の会話へ移らない。
+Discord 通知リンク `/s/<sessionId>?space=<spaceId>` は、会話を指定して開く入口（同じ形のリンクを設定 → ランタイムの「起動元の会話」も使う）。`space` は開くスペースの明示で、通常スペースは `default`。通常の `/` は会話を自動復元せず、リンク先を開けない場合も別の会話へ移らない。
 
 正は `server/src/notifications.ts`（設定の読み書き・宛先検証・送信・直近結果・専用マスク）で、ルートは `server/src/routes/notifications.ts`、per-session のトグルは `server/src/sessions.ts` の `setNotify()` が持つ。設定画面は `client/src/components/NotificationSettingsPage.tsx` と `client/src/components/notifications/`。
 
@@ -19,9 +19,10 @@ Discord 通知リンク `/s/<sessionId>` は、会話を指定して開く唯一
 ✅ 完了  <会話のタイトル>
 <エージェント名> ・ <実行時間> ・ ツール <n>件
 <最終 assistant テキストの先頭 200 文字>
-<ベース URL>/s/<sessionId>          ← ベース URL 未設定なら行ごと出さない
+<ベース URL>/s/<sessionId>?space=<spaceId>   ← 会話の所属。ベース URL 未設定なら行ごと出さない
 ```
 
+- `space` はその会話の所属スペース。**保存値に依存させず、そのスペースで開くために常に載せる**（通常スペースも `default` として載せる）。所属が引けない / 不正な値のときは `?space=` を付けずに送り、保存値で解決させる（正規化は通知層で行い、通知そのものは失わない）
 - 本文は **mask → truncate** の順（逆順だと上限の境界でキーの末尾が欠ける）。mask は APIキーの masker と Webhook URL の専用マスクの両方
 - 通知本文は Discord の embed として送る。embed 内の文字列からメンション通知は発生しないため、メンション設定は提供しない
 - **会話のタイトル・エージェント名・応答本文の先頭 200 文字が Discord へ送られる。** 機微な内容を扱う会話は通知を Off にする
@@ -66,7 +67,7 @@ Discord 通知リンク `/s/<sessionId>` は、会話を指定して開く唯一
 
 - `PUT /api/notifications` が許可するのは `https://discord.com/api/webhooks/<id>/<token>` の形だけ。host は `discord.com` 固定（`discordapp.com` やサブドメインは不可）、パスは `/api/webhooks/` で始まる 2 セグメントで、userinfo / クエリ / フラグメント / 非標準ポートは 400
 - 送信は `redirect: "error"` でリダイレクトを追わない（3xx でもトークンを転送しない）。例外のメッセージへ URL を入れない（`server/src/app.ts` の onError がそのまま応答本文へ載せる経路があるため）
-- ベース URL は `http` / `https` の origin だけを許可する。`/s/<id>` の組み立ては `new URL()` + `encodeURIComponent` で行う
+- ベース URL は `http` / `https` の origin だけを許可する。`/s/<id>` の組み立ては `new URL()` + `encodeURIComponent` + `space` クエリ（`searchParams.set`）で行う
 
 ## 保存先と再起動後
 
@@ -79,7 +80,7 @@ Discord 通知リンク `/s/<sessionId>` は、会話を指定して開く唯一
 - **Discord カード**: 有効トグルと Webhook URL。保存済みなら「登録済み（末尾 xxxx）」+ `[変更]` を出し、`[変更]` を押したときだけ入力欄を出す（保存済みの値は入れない）。`[取り消し]` で編集をやめる
 - **テスト送信カード**: 未設定なら無効 + 「Webhook URL を保存するとテストできます。」。URL に未保存の変更があるときはラベルが「保存してテスト」になり、保存してから送る。直近結果（日時 / status / latencyMs）と失敗理由を出す。429 のときは `retryAfter` があれば「Retry-After N 秒待ってから再試行してください。」、無ければ「時間を置いて再試行してください。」を出す
 - **リンクカード**: 通知から会話を開く URL のベース。`[今開いている URL を使う]` で `location.origin` を入れる。空にするとリンク行を載せない
-- **メッセージカード**: プレビューを表示する。プレビューは見本で、実データはサーバーが組み立てる
+- **メッセージカード**: プレビューを表示する。プレビューは見本（`?space=` 付きのリンク）で、実データはサーバーが組み立てる
 - 編集はすべて下書きで、`[保存]` が PUT、`[破棄]` が保存済みの値へ戻す。`webhookUrl` は「変更」で新しく入力したときだけ送り、空にすると解除（null）。`baseUrl` は空なら null
 - 設定ナビの「通知」の行には、直近の送信が失敗しているときだけ ⚠ を出す。直近結果は 4 秒ごとに取り直すため、バックグラウンドのラン完了で失敗してもリロードなしで反映される
 

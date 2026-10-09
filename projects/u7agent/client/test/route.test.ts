@@ -1,7 +1,17 @@
 // pathname → 画面 → pathname の表。クエリ・フラグメントは pathname の契約外なので境界側で扱う。
 import assert from "node:assert/strict";
 import test from "node:test";
-import { CHAT_ROUTE, foldPendingEntry, parseRoute, pendingSessionIdOf, routePath, type Route } from "../src/lib/route";
+import {
+  CHAT_ROUTE,
+  entrySpaceOf,
+  foldPendingEntry,
+  parseRoute,
+  pendingSessionIdOf,
+  routePath,
+  sessionEntryHref,
+  withoutEntrySpace,
+  type Route,
+} from "../src/lib/route";
 import { SETTINGS_SECTIONS, type ModelsSubsection, type SettingsSection } from "../src/lib/settingsNav";
 
 const settings = (section: SettingsSection): Route => ({ view: "settings", section });
@@ -134,4 +144,42 @@ test("入口を持たない route は畳まず、同じ object を返す", () =>
   assert.equal(foldPendingEntry(CHAT_ROUTE), CHAT_ROUTE);
   const section = settings("agents");
   assert.equal(foldPendingEntry(section), section);
+});
+
+test("`/s/<id>` の `space` だけを読み、他の画面と他のクエリは解釈しない", () => {
+  assert.equal(entrySpaceOf(entry("abc123"), "?space=space-1111111111111111"), "space-1111111111111111");
+  assert.equal(entrySpaceOf(entry("abc123"), "?space=default"), "default");
+  assert.equal(entrySpaceOf(entry("abc123"), "?x=1&space=demo"), "demo");
+  // 値が空・欠落なら無いものとして扱う (保存値で解決する)
+  assert.equal(entrySpaceOf(entry("abc123"), ""), null);
+  assert.equal(entrySpaceOf(entry("abc123"), "?space="), null);
+  assert.equal(entrySpaceOf(entry("abc123"), "?other=demo"), null);
+  // 入口以外では pathname と同じく解釈しない
+  assert.equal(entrySpaceOf(CHAT_ROUTE, "?space=demo"), null);
+  assert.equal(entrySpaceOf(settings("spaces"), "?space=demo"), null);
+  // 不正な値も「不正な指定」として渡し、通常スペースへ黙って落とさない
+  assert.equal(entrySpaceOf(entry("abc123"), "?space=../bad"), "../bad");
+});
+
+test("入口の `space` キーだけを落とし、他のクエリは書き方ごと残す", () => {
+  assert.equal(withoutEntrySpace(entry("abc123"), "?space=demo"), "");
+  assert.equal(withoutEntrySpace(entry("abc123"), "?space=demo&x=1"), "?x=1");
+  assert.equal(withoutEntrySpace(entry("abc123"), "?x=1&space=demo&y=2"), "?x=1&y=2");
+  assert.equal(withoutEntrySpace(entry("abc123"), "?x=1&space="), "?x=1");
+  // 他のクエリのパーセントエンコーディングは組み直さない
+  assert.equal(withoutEntrySpace(entry("abc123"), "?x=%20b&space=demo"), "?x=%20b");
+  // 解釈できないキーは落とさない (他のクエリを壊すより残す)
+  assert.equal(withoutEntrySpace(entry("abc123"), "?%zz=1&space=demo"), "?%zz=1");
+  // 入口以外と `space` を持たない URL はそのまま (クエリは解釈も破棄もしない)
+  for (const search of ["", "?space=demo", "?x=1&y=%20"]) {
+    assert.equal(withoutEntrySpace(CHAT_ROUTE, search), search);
+    assert.equal(withoutEntrySpace(settings("files"), search), search);
+  }
+});
+
+test("会話を指定して開くリンクは所属スペースを載せ、不明なら載せない", () => {
+  assert.equal(sessionEntryHref("abc123"), "/s/abc123");
+  assert.equal(sessionEntryHref("a b"), "/s/a%20b");
+  assert.equal(sessionEntryHref("a b", "default"), "/s/a%20b?space=default");
+  assert.equal(sessionEntryHref("abc123", "space-1111111111111111"), "/s/abc123?space=space-1111111111111111");
 });

@@ -25,7 +25,7 @@ const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
  */
 const DOC_LINE_BUDGET = {
   "docs/ui-layout.md": 196,
-  "docs/frontend.md": 122,
+  "docs/frontend.md": 124,
 };
 
 /**

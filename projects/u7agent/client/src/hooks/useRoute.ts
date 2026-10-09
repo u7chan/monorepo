@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { foldPendingEntry, parseRoute, routePath, type Route } from "../lib/route";
+import { foldPendingEntry, parseRoute, routePath, withoutEntrySpace, type Route } from "../lib/route";
 import {
   DEFAULT_SETTINGS_SECTION,
   parseStoredSettingsSection,
@@ -12,6 +12,7 @@ import {
  * 画面切替の反映と URL の更新を必ず同じ `navigate` から行う (独立に同期させない)。
  * 切替は `replaceState` なので履歴は追加しない (Back / Forward はブラウザーの既存履歴に従う)。
  * クエリとフラグメントは解釈も破棄もしない (チャット本文の `#foo` 断片リンクを壊さないため持ち越す)。
+ * 例外は `/s/<id>` の入口の `space` だけで、初期 mount で読んだ後はキー単位で落とす (再読込では戻らない)。
  */
 export type RouteState = {
   route: Route;
@@ -33,8 +34,13 @@ export function useRoute(): RouteState {
 
   // 起動時に URL が正準形でなければ置き換える (画面は上の初期値で既に正しい)
   useEffect(() => {
-    const canonical = routePath(parseRoute(window.location.pathname));
-    if (canonical !== window.location.pathname) replacePath(canonical);
+    const mounted = parseRoute(window.location.pathname);
+    const canonical = routePath(mounted);
+    // 入口の `space` は SpacesApp が初期 mount で読んだ使い捨ての値なので、URL からは落とす
+    const search = withoutEntrySpace(mounted, window.location.search);
+    if (canonical !== window.location.pathname || search !== window.location.search) {
+      replacePath(canonical, search);
+    }
   }, []);
 
   useEffect(() => {
@@ -59,18 +65,18 @@ export function useRoute(): RouteState {
     const next = foldPendingEntry(routeRef.current);
     // 既に別の画面へ移っていたら、その画面と URL の対応を壊さない
     if (next === routeRef.current) return;
-    replacePath(routePath(next));
+    replacePath(routePath(next), withoutEntrySpace(routeRef.current, window.location.search));
     setRoute(next);
   }, []);
 
   return { route, navigate, consumePendingEntry, lastSettingsSection };
 }
 
-/** pathname だけを差し替える。クエリとフラグメントは現在の URL のものを残す */
-function replacePath(pathname: string): void {
-  const { pathname: current, search, hash } = window.location;
+/** pathname と search を差し替える。search を省くと現在の値を残す (フラグメントは常に残す) */
+function replacePath(pathname: string, search = window.location.search): void {
+  const { pathname: current, search: currentSearch, hash } = window.location;
   const url = `${pathname}${search}${hash}`;
-  if (url === `${current}${search}${hash}`) return;
+  if (url === `${current}${currentSearch}${hash}`) return;
   window.history.replaceState(window.history.state, "", url);
 }
 

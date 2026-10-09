@@ -1,6 +1,13 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { readSpaceSelection, selectedSpace, writeSpaceSelection, SPACE_SELECTION_KEY } from "../src/lib/spaceSelection";
+import {
+  createSpaceSelectionStore,
+  initialSpaceSelection,
+  selectedSpace,
+  spaceSelectionStore,
+  SPACE_SELECTION_KEY,
+  type SpaceSelectionStorage,
+} from "../src/lib/spaceSelection";
 import { createSessionCreation } from "../src/hooks/sessionCreation";
 import { sendChatMessage, type SendChatMessageDeps } from "../src/hooks/sessionActions";
 import { createRequestGate } from "../src/hooks/requestGate";
@@ -24,35 +31,85 @@ test("選択欠落だけ通常を選び、不正・未知の保存値や未取�
   assert.equal(selectedSpace([normal, demo], demo.id), demo);
   for (const value of ["", "../bad", "unknown"]) assert.equal(selectedSpace([normal, demo], value), undefined);
   assert.equal(selectedSpace([], null), undefined);
-  assert.throws(
-    () =>
-      readSpaceSelection({
-        getItem: () => {
-          throw new Error("blocked");
-        },
-      }),
-    /blocked/,
-  );
 });
 
-test("選択はタブ固有のストレージへ保存し、他タブの変更やリロードと混ざらない", () => {
-  const tab = () => {
-    const data = new Map<string, string>();
-    return {
+/** 保存領域 1 つ分。window が無い Node でも store を検査できるよう注入する */
+function fakeStorage(): SpaceSelectionStorage & { data: Map<string, string> } {
+  const data = new Map<string, string>();
+  return {
+    data,
+    getItem: (key) => data.get(key) ?? null,
+    setItem: (key, value) => {
+      data.set(key, value);
+    },
+  };
+}
+
+test("注入した Storage で往復し、書き込みの失敗は握り、読み取りの失敗は握らない", () => {
+  const storage = fakeStorage();
+  const store = createSpaceSelectionStore(storage);
+  assert.equal(store.read(), null);
+  store.write(demo.id);
+  assert.equal(store.read(), demo.id);
+  assert.equal(storage.data.get(SPACE_SELECTION_KEY), demo.id);
+
+  // 読み取りの例外は呼び出し側 (SpacesApp) が受け取り、通常スペースを黙って出さない
+  const blocked = createSpaceSelectionStore({
+    getItem: () => {
+      throw new Error("blocked");
+    },
+    setItem: () => {},
+  });
+  assert.throws(() => blocked.read(), /blocked/);
+
+  // 書き込みの失敗 (SecurityError / quota 等) は切替を塞がない。次の起動では前の値に戻り得る
+  const failing = createSpaceSelectionStore({
+    getItem: () => null,
+    setItem: () => {
+      throw new Error("quota");
+    },
+  });
+  failing.write(demo.id);
+});
+
+test("既定の保存先は都度 window.localStorage を解決し、解決できないときは fail-closed にする", () => {
+  const data = new Map<string, string>();
+  const globals = globalThis as { window?: unknown };
+  const previous = globals.window;
+  globals.window = {
+    localStorage: {
       getItem: (key: string) => data.get(key) ?? null,
       setItem: (key: string, value: string) => {
         data.set(key, value);
       },
-      data,
-    };
+    },
   };
-  const a = tab();
-  const b = tab();
-  writeSpaceSelection(a, demo.id);
-  writeSpaceSelection(b, normal.id);
-  assert.equal(readSpaceSelection(a), demo.id);
-  assert.equal(readSpaceSelection(b), normal.id);
-  assert.equal(a.data.get(SPACE_SELECTION_KEY), demo.id);
+  try {
+    // import 時に解決せず、呼び出しごとに引く (accessor が例外になる環境がある)
+    assert.equal(spaceSelectionStore.read(), null);
+    spaceSelectionStore.write(demo.id);
+    assert.equal(spaceSelectionStore.read(), demo.id);
+    assert.equal(data.get(SPACE_SELECTION_KEY), demo.id);
+  } finally {
+    globals.window = previous;
+  }
+  // window が無い / storage を渡さない場合は、通常スペースを選ばずに読み取りを失敗させる
+  assert.throws(() => spaceSelectionStore.read());
+  assert.throws(() => createSpaceSelectionStore(null).read());
+  createSpaceSelectionStore(null).write(demo.id);
+});
+
+test("初期選択は URL の space → 保存値 → 既定の順に決め、一覧に無い値は復旧画面へ回す", () => {
+  assert.equal(initialSpaceSelection(null, null).id, "default");
+  assert.deepEqual(initialSpaceSelection(null, null), { id: "default", fromUrl: false });
+  assert.deepEqual(initialSpaceSelection(null, demo.id), { id: demo.id, fromUrl: false });
+  // URL の明示指定は保存値に勝ち、確定後に保存値も更新する (開いたスペースが次の初期表示になる)
+  assert.deepEqual(initialSpaceSelection(demo.id, normal.id), { id: demo.id, fromUrl: true });
+  assert.deepEqual(initialSpaceSelection(demo.id, null), { id: demo.id, fromUrl: true });
+  // 未知の値は通常へ黙って落とさない (一覧との突き合わせは selectedSpace が持つ)
+  const unknown = initialSpaceSelection("unknown", normal.id);
+  assert.deepEqual(unknown, { id: "unknown", fromUrl: true });
+  assert.equal(selectedSpace([normal, demo], unknown.id), undefined);
 });
 
 test("会話・プロジェクト・作業環境の全操作へ固定スペースを渡し、共通 API は分割しない", async (t) => {

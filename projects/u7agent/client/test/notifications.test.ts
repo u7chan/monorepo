@@ -231,7 +231,10 @@ test("プレビューは baseUrl があるときだけリンク行を足す", ()
     "実装担当 ・ 4分12秒 ・ ツール 12件",
     "テストが 3 件失敗しています。修正して再実行してください。",
   ]);
-  assert.equal(notificationPreviewLines(base).at(-1), "http://127.0.0.1:5173/s/a1b2c3d4e5");
+  assert.equal(
+    notificationPreviewLines(base).at(-1),
+    "http://127.0.0.1:5173/s/a1b2c3d4e5?space=space-a1b2c3d4e5f6a7b8",
+  );
   assert.equal(notificationPreviewLines({ ...base, baseUrl: "" }).length, 3);
   // 不正な URL はリンク行を出さない (保存はサーバーが 400 で拒否する)
   assert.equal(previewLink("not a url"), undefined);

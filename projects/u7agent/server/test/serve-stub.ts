@@ -179,11 +179,14 @@ export function createCommandStore(rows: ServeCommandRow[] = []): {
   };
 }
 
-/** 会話 id → 作業ディレクトリ / 会話名の解決 (SessionStore の代替) */
-export function createSessionLookup(sessions: Record<string, { cwd: string; title: string }>): ServeSessionLookup {
+/** 会話 id → 作業ディレクトリ / 会話名 / 所属スペースの解決 (SessionStore の代替) */
+export function createSessionLookup(
+  sessions: Record<string, { cwd: string; title: string; spaceId?: string }>,
+): ServeSessionLookup {
   return {
     workdirOfId: (id) => sessions[id]?.cwd,
     titleOfId: (id) => sessions[id]?.title,
+    spaceOfId: (id) => sessions[id]?.spaceId,
   };
 }
 

@@ -1836,6 +1836,7 @@ export class SessionStore {
     if (!body?.trim()) return;
     this.notifications.notifySession({
       sessionId: record.id,
+      spaceId: record.meta.spaceId,
       title: record.title,
       agentName: record.agent.name,
       body,
