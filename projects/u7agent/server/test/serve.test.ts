@@ -329,6 +329,30 @@ test("到達不可のあとに記録なしのプロセスが起動しても、�
   assert.deepEqual(sandbox.state.launched, []);
 });
 
+test("内部実行は要求 cwd (root) ではなく、呼び出しごとの writeScope だけを渡す", async () => {
+  const { service, sandbox } = setup({ command: "pnpm dev", owner: OTHER });
+  // 観測 (状態取得) は作業領域だけで、作成はしない
+  await service.runtimeStatus();
+  assert.deepEqual(sandbox.scopes.at(-1), [{ path: ".u7agent/serve" }]);
+  // cwd は従来どおり root だが、許可 root は scope でしか渡さない
+  assert.equal(sandbox.cwds.at(-1), "");
+
+  sandbox.scopes.length = 0;
+  await service.start(SESSION, { generation: (await service.status(SESSION)).generation });
+  // 起動は起動対象の workdir + 作業領域 (作業領域だけ作成を許可する)
+  assert.ok(
+    sandbox.scopes.some(
+      (scope) =>
+        scope?.length === 2 && scope[0]?.path === CWD && scope[1]?.path === ".u7agent/serve" && scope[1]?.create,
+    ),
+  );
+  // どの実行も作業領域を作業 root に持ち、空の scope  (要求 cwd からの導出) へは落ちない
+  assert.ok(sandbox.scopes.length > 0);
+  for (const scope of sandbox.scopes) {
+    assert.ok(scope?.some((entry) => entry.path === ".u7agent/serve"));
+  }
+});
+
 test("到達不可の停止は何も止めずに停止済みとして返す (冪等)", async () => {
   const { service, sandbox } = setup({ command: "pnpm dev", owner: OTHER });
   sandbox.state.listener = null;

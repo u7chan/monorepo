@@ -257,13 +257,19 @@ async function environmentInfo(rootCwd: string): Promise<SandboxRuntimeEnvironme
 }
 
 /**
+ * `probeSandboxRuntime` の戻り値。`landlock` はラッパーの解決を持つ service が足す
+ * (このモジュールはコマンド検出だけを担う)。
+ */
+export type SandboxRuntimeProbeResult = Omit<SandboxRuntimeInfo, "landlock">;
+
+/**
  * allowlist の各コマンドを解決し、実在するものだけを検出順 (allowlist の順) で返す。
  * 全体の期限を過ぎたら残りは起動せず、存在を確認できているコマンドは version: null として返す。
  */
 export async function probeSandboxRuntime(
   rootCwd: string,
   options: RuntimeProbeOptions = {},
-): Promise<SandboxRuntimeInfo> {
+): Promise<SandboxRuntimeProbeResult> {
   const pathDirs = options.pathDirs ?? RUNTIME_PROBE_PATH_DIRS;
   const cwd = options.cwd ?? RUNTIME_PROBE_CWD;
   const commands = options.commands ?? RUNTIME_PROBE_COMMANDS;

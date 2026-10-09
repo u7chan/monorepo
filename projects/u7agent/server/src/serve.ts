@@ -5,13 +5,14 @@
  */
 import { randomBytes, createHash } from "node:crypto";
 import { createConnection } from "node:net";
-import { SERVE_LOG_REL, SERVE_STATE_REL } from "./app-paths";
+import { SERVE_DIR_REL, SERVE_LOG_REL, SERVE_STATE_REL } from "./app-paths";
 import type { ServeCommandRow } from "./app-db";
 import { SANDBOX_NOT_CONFIGURED_MESSAGE, httpError } from "./http";
 import { MutationLock } from "./model-settings";
 // serve 契約の待受ポート。プローブも待受 PID の特定も、サービス オリジンの転送先もこの値だけを見る
 import { SERVE_LISTEN_PORT } from "./preview-port";
 import type { SandboxExecClient } from "./sandbox/client";
+import type { SandboxWriteScopeEntry } from "./sandbox/protocol";
 import type { RuntimeServeStatus } from "./schema";
 
 /** 起動の成功境界。バックグラウンド起動の shell が終わってからこの期限までに到達可になること */
@@ -29,6 +30,14 @@ const SERVE_OWN_LISTENER_INTERVAL_MS = 1_000;
 /** サンドボックスの bash 実行に渡す期限 (秒)。待ちは BFF 側で行うため、スクリプト自体は短命 */ const SANDBOX_SCRIPT_TIMEOUT_SECONDS = 20;
 /** スクリプトが最後に出す印。欠けていればサンドボックス側の失敗として扱う */
 const SCRIPT_OK = "serve:ok";
+
+/**
+ * 内部実行が書き込める範囲 (root 相対)。起動したアプリも含め、作業ディレクトリと作業領域の外へは
+ * 書かせない (`/tmp` とホームのキャッシュ、デバイスファイルはサンドボックスが全実行へ足す)。
+ */
+const SERVE_WRITE_SCOPE = [{ path: SERVE_DIR_REL }] as const;
+/** 記録の書き込みと起動は作業領域を作ってから書くため、作成を許可する */
+const SERVE_WRITE_SCOPE_CREATE = [{ path: SERVE_DIR_REL, create: true }] as const;
 
 export type ServeOwnerKind = "mine" | "other" | "unknown" | "none";
 
@@ -645,7 +654,7 @@ export class ServeService {
 
   async #readObservation(scanPids: boolean): Promise<Omit<ServeObservation, "reachable">> {
     const at = this.#now();
-    return parseObservation(await this.#run(observeScript(this.#listenPort, { scanPids })), at);
+    return parseObservation(await this.#run(observeScript(this.#listenPort, { scanPids }), SERVE_WRITE_SCOPE), at);
   }
 
   /**
@@ -694,7 +703,12 @@ export class ServeService {
   }
 
   async #launch(view: { cwd: string }, command: string, env: Record<string, string>): Promise<number> {
-    const output = await this.#run(launchScript({ workdir: view.cwd, command }), env);
+    // 起動対象の作業ディレクトリと作業領域だけを渡す (要求 cwd (= root) を混ぜない)
+    const output = await this.#run(
+      launchScript({ workdir: view.cwd, command }),
+      [{ path: view.cwd }, ...SERVE_WRITE_SCOPE_CREATE],
+      env,
+    );
     const line = output.split("\n").find((candidate) => candidate.startsWith("pid\t"));
     const pid = Number(line?.split("\t")[1]);
     if (!Number.isInteger(pid) || pid <= 0) {
@@ -704,11 +718,11 @@ export class ServeService {
   }
 
   async #writeRecord(record: ServeRecord): Promise<void> {
-    await this.#run(writeRecordScript(record));
+    await this.#run(writeRecordScript(record), SERVE_WRITE_SCOPE_CREATE);
   }
 
   async #clearRecord(): Promise<void> {
-    await this.#run(clearRecordScript());
+    await this.#run(clearRecordScript(), SERVE_WRITE_SCOPE);
   }
 
   /** 停止の実行。待受 PID を特定できないときは止めず、エージェントへ依頼する導線を案内する */
@@ -720,7 +734,7 @@ export class ServeService {
         `${this.#listenPort} 番ポートの待受プロセスを特定できませんでした。エージェントに停止を依頼してください`,
       );
     }
-    await this.#run(killScript(listener.pid));
+    await this.#run(killScript(listener.pid), SERVE_WRITE_SCOPE);
     if (await this.#waitForRelease()) return;
     throw httpError(502, "serve の停止を確認できませんでした (ポートが解放されていません)");
   }
@@ -764,15 +778,17 @@ export class ServeService {
 
   /**
    * サンドボックスの bash 実行。作業領域の読み書きも起動・停止もこの 1 経路に集める。
+   * `scope` はこの実行が書き込める root 相対の範囲 (必須)。要求 cwd (`cwd: ""` = root) からは導出しない。
    * `env` はこの実行の子プロセスへ足す環境変数で、起動 (launch) だけが渡す。値はコマンド文字列へ
    * 埋めず、リクエストの別フィールドとして送る (base64 化もしない)。
    */
-  async #run(script: string, env?: Record<string, string>): Promise<string> {
+  async #run(script: string, scope: readonly SandboxWriteScopeEntry[], env?: Record<string, string>): Promise<string> {
     const sandbox = this.#requireSandbox();
     const result = await sandbox
       .execute("bash", {
         params: { command: script, timeout: SANDBOX_SCRIPT_TIMEOUT_SECONDS },
         cwd: "",
+        writeScope: [...scope],
         ...(env && Object.keys(env).length > 0 ? { env } : {}),
       })
       .catch((error: unknown) => {

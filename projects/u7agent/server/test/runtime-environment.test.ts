@@ -21,6 +21,7 @@ const INFO: SandboxRuntimeInfo = {
     { name: "node", version: "24.18.0" },
     { name: "npm", version: null },
   ],
+  landlock: { state: "enabled", abi: 6, minAbi: 3 },
 };
 
 async function createApp(runtimeDiagnostics: SandboxRuntimeDiagnostics | null): Promise<Hono> {
@@ -59,7 +60,12 @@ test("returns the sandbox environment and commands as connected", async () => {
   const app = await createApp({ getRuntimeInfo: async () => INFO });
   const { status, body } = await readEnvironment(app);
   assert.equal(status, 200);
-  assert.deepEqual(body, { state: "connected", environment: INFO.environment, commands: INFO.commands });
+  assert.deepEqual(body, {
+    state: "connected",
+    environment: INFO.environment,
+    commands: INFO.commands,
+    landlock: INFO.landlock,
+  });
 });
 
 test("maps every failure classification to its own state without leaking details", async () => {

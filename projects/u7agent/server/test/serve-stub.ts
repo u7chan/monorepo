@@ -4,6 +4,7 @@
  */
 import type { ServeCommandRow } from "../src/app-db";
 import type { SandboxExecClient } from "../src/sandbox/client";
+import type { SandboxWriteScopeEntry } from "../src/sandbox/protocol";
 import type { ServeCommandStore, ServeProbe, ServeSessionLookup } from "../src/serve";
 
 export interface ServeSandboxState {
@@ -45,6 +46,8 @@ export interface ServeSandboxStub {
   state: ServeSandboxState;
   /** execute に渡された cwd (作業領域の読み書きは root で行う) */
   cwds: string[];
+  /** execute に渡された writeScope (内部実行は要求 cwd から導出させない) */
+  scopes: (readonly SandboxWriteScopeEntry[] | undefined)[];
 }
 
 /** スクリプトに埋め込まれた base64 を取り出す (launch は workdir → command の順に埋め込む) */
@@ -73,9 +76,11 @@ export function createServeSandboxStub(): ServeSandboxStub {
     killWorks: true,
   };
   const cwds: string[] = [];
+  const scopes: (readonly SandboxWriteScopeEntry[] | undefined)[] = [];
   const sandbox: SandboxExecClient = {
     execute: async (_tool, input) => {
       cwds.push(input.cwd ?? "");
+      scopes.push(input.writeScope);
       if (state.fail) throw new Error("サンドボックスのツール実行が失敗しました (HTTP 500)");
       const { command } = (input.params ?? {}) as { command?: string };
       const script = command ?? "";
@@ -126,7 +131,7 @@ export function createServeSandboxStub(): ServeSandboxStub {
       return { content: [{ type: "text", text: `${lines.join("\n")}\nserve:ok\n` }] };
     },
   };
-  return { sandbox, state, cwds };
+  return { sandbox, state, cwds, scopes };
 }
 
 /** 記録を直接置く (コンテナ再作成後や、生の bash で起動された状態の再現) */

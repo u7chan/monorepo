@@ -67,6 +67,7 @@ export type {
   RuntimeModelsResponse,
   RuntimeServeStatus,
   RuntimeVersions,
+  SandboxLandlockStatus,
   SandboxRuntimeCommand,
   SandboxRuntimeEnvironment,
   SecretDetailResponse,

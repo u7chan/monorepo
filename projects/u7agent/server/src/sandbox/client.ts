@@ -14,6 +14,7 @@ import {
   type SandboxRenameResult,
   type SandboxRuntimeInfo,
   type SandboxSkillsResponse,
+  type SandboxWriteScopeEntry,
 } from "./protocol";
 
 export interface SandboxToolClientOptions {
@@ -58,6 +59,11 @@ export interface SandboxExecuteInput {
   toolCallId?: string;
   params: unknown;
   cwd?: string;
+  /**
+   * この実行だけの書き込み許可 root (root 相対)。BFF 内部実行 (serve) が指定する。
+   * 省略時はエージェントの bash として要求 cwd から導出される。
+   */
+  writeScope?: SandboxWriteScopeEntry[];
   /**
    * この実行の子プロセスへ足す環境変数。作業フォルダの「変数」と、serve 起動時の「変数 + シークレット」が届く。
    * 値は params (ツール引数) やコマンド文字列には混ぜず、リクエストの別フィールドとして送る。
@@ -624,7 +630,13 @@ async function execute(
           "Content-Type": "application/json",
           Accept: "application/x-ndjson",
         },
-        body: JSON.stringify({ toolCallId: input.toolCallId, params: input.params, cwd: input.cwd, env: input.env }),
+        body: JSON.stringify({
+          toolCallId: input.toolCallId,
+          params: input.params,
+          cwd: input.cwd,
+          writeScope: input.writeScope,
+          env: input.env,
+        }),
         signal: controller.signal,
       });
     } catch (error) {

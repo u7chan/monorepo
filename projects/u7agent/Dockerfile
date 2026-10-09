@@ -25,6 +25,10 @@ COPY server/ ./server/
 
 # CI: no credentials or live model calls; API tests use a stub runtime.
 FROM dependencies AS test
+# Landlock ラッパー (scripts/landlock-exec.py) は python3 で動く。テストの skip に頼らず、
+# ビルド時の probe (下の RUN) でラッパーの同梱とカーネルの対応可否を検査する。
+RUN apt-get update && apt-get install -y --no-install-recommends python3 \
+    && rm -rf /var/lib/apt/lists/*
 COPY --from=fd /usr/local/bin/fd /usr/local/bin/fd
 # server のテストがルートの scripts/dev.mjs を読む (dependencies は client/ と server/ しか持たない)
 COPY scripts/dev.mjs ./scripts/dev.mjs
@@ -33,6 +37,21 @@ COPY scripts/dev.mjs ./scripts/dev.mjs
 COPY docs/ ./docs/
 COPY AGENTS.md README.md .env.example ./
 COPY scripts/docs-check.mjs ./scripts/docs-check.mjs
+# ラッパーが無い / 動かないイメージを出さないための probe。許可 root の外への書き込みが
+# EACCES になることまで見る (テスト側の skip 条件ではなくビルドを失敗させる)。
+COPY scripts/landlock-exec.py /usr/local/bin/u7agent-landlock
+RUN chmod 0755 /usr/local/bin/u7agent-landlock \
+    && test "$(/usr/local/bin/u7agent-landlock --abi)" -ge 3 \
+    && mkdir -p /tmp/landlock-probe/allowed /tmp/landlock-probe/denied \
+    && U7AGENT_LANDLOCK_SHELL=/bin/bash \
+       U7AGENT_LANDLOCK_RULES='[{"path":"/tmp/landlock-probe/allowed","create":true},{"path":"/dev/null"}]' \
+       /usr/local/bin/u7agent-landlock -c 'echo ok > /tmp/landlock-probe/allowed/written' \
+    && test -f /tmp/landlock-probe/allowed/written \
+    && ! U7AGENT_LANDLOCK_SHELL=/bin/bash \
+         U7AGENT_LANDLOCK_RULES='[{"path":"/tmp/landlock-probe/allowed","create":true},{"path":"/dev/null"}]' \
+         /usr/local/bin/u7agent-landlock -c 'echo no > /tmp/landlock-probe/denied/written' 2>/dev/null \
+    && test ! -f /tmp/landlock-probe/denied/written \
+    && rm -rf /tmp/landlock-probe
 ARG COMMIT_HASH=""
 ENV COMMIT_HASH=${COMMIT_HASH}
 RUN pnpm check
@@ -59,6 +78,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends bash git ripgre
     && for tool in bash git rg curl jq file unzip xz zip python3 uv; do command -v "$tool" >/dev/null || exit 1; done \
     && rm -rf /var/lib/apt/lists/* \
     && mkdir -p /workspace /session-store && chown node:node /workspace /session-store
+# bash の書き込みを許可 root の外へ広げない Landlock ラッパー (server/src/sandbox/landlock.ts)。
+# python3 は上の apt で入る。
+COPY scripts/landlock-exec.py /usr/local/bin/u7agent-landlock
+RUN chmod 0755 /usr/local/bin/u7agent-landlock
 COPY --from=fd /usr/local/bin/fd /usr/local/bin/fd
 ARG COMMIT_HASH=""
 ENV COMMIT_HASH=${COMMIT_HASH} \

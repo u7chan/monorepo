@@ -31,6 +31,7 @@ import {
   createLsToolDefinition,
   createReadToolDefinition,
   createWriteToolDefinition,
+  getShellConfig,
   type BashSpawnContext,
   type ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
@@ -50,6 +51,15 @@ import {
   type ArchivePlan,
 } from "./archive";
 import { GIT_INFO_TIMEOUT_MS, readWorkspaceGitInfo } from "./git-info";
+import {
+  fixedLandlockWriteRoots,
+  landlockRulesEnv,
+  landlockUnavailableMessage,
+  LANDLOCK_MIN_ABI,
+  probeLandlockStatus,
+  resolveLandlockWrapper,
+  type LandlockWriteRoot,
+} from "./landlock";
 import { SKILLS_SCAN_TIMEOUT_MS, scanSkillsWithDeadline } from "./skills-scan";
 import { probeSandboxRuntime } from "./runtime-info";
 import {
@@ -70,12 +80,14 @@ import {
   type SandboxFileEntry,
   type SandboxFileListing,
   type SandboxFileUpload,
+  type SandboxLandlockStatus,
   type SandboxRenameRequestBody,
   type SandboxRenameResult,
-  type SandboxRuntimeInfo,
   type SandboxSkillEntry,
   type SandboxSkillsResponse,
+  type SandboxWriteScopeEntry,
 } from "./protocol";
+import type { SandboxRuntimeProbeResult } from "./runtime-info";
 import { createZipStream } from "./zip";
 
 /** サンドボックスが提供する作業用ツール名 (bash のみローカル出力をストリームする) */
@@ -101,7 +113,11 @@ export interface SandboxServiceOptions {
   /** テストで差し替える git の実行パス (既定は信頼ディレクトリから解決した git) */
   gitPath?: string;
   /** テストで差し替える実行環境の診断 (既定は実プロセスでコマンドを検出する) */
-  probeRuntimeInfo?: (rootCwd: string) => Promise<SandboxRuntimeInfo>;
+  probeRuntimeInfo?: (rootCwd: string) => Promise<SandboxRuntimeProbeResult>;
+  /** テストで差し替えるラッパーの解決 (既定は固定パスの実体を確認して解決する) */
+  resolveLandlockExec?: () => string | undefined;
+  /** テストで差し替える Landlock の診断 (既定はラッパーの `--abi` を実行する) */
+  probeLandlock?: () => Promise<SandboxLandlockStatus>;
 }
 
 export interface SandboxService {
@@ -615,9 +631,9 @@ function isInsideRoot(root: string, target: string): boolean {
 }
 
 /**
- * write / edit が書ける範囲。モデルの取り違え (workspace root への絶対パス) を防ぐファイルツールのポリシーで、
- * 実行隔離ではない (bash は塞げない)。許可 root は実行 cwd (realpath)・要求 cwd の lexical 形
- * (root / 登録ディレクトリが symlink でも system prompt に出た絶対パスを通す)・共通スキル置き場の 3 つ。
+ * write / edit が書ける範囲 (ファイルツールのポリシー)。許可 root は実行 cwd (realpath)・要求 cwd の
+ * lexical 形 (root / 登録ディレクトリが symlink でも system prompt に出た絶対パスを通す)・共通スキル置き場の 3 つ。
+ * bash 側の強制は Landlock (このファイルの writeScope 導出) が担い、ここはモデルの取り違えを防ぐ。
  */
 interface WriteScope {
   cwd: string;
@@ -625,10 +641,55 @@ interface WriteScope {
   skillsDir: string;
 }
 
-/** 判定は lexical。SDK が解決済みの絶対パスを resolve() で `..` まで畳んでから比較する (realpath / lstat は使わない)。 */
-function isWritablePath(candidate: string, cwd: string, lexicalCwd: string, skillsDir: string): boolean {
+/**
+ * 実パスで見た許可 root。`lexical` は root が未作成のときだけ入り、候補が lexical にも収まることを要求する
+ * (未作成 root の最寄りの実在祖先は他の root と同じディレクトリになり得るため)。
+ */
+interface ResolvedWriteScope {
+  roots: Array<{ real: string; lexical: string | undefined }>;
+}
+
+/** 実在する最も深い祖先 (自身を含む) とその実パス。壊れた symlink では解決できないので undefined にする。 */
+async function deepestExistingReal(target: string): Promise<{ path: string; real: string } | undefined> {
+  let current = target;
+  for (;;) {
+    const stats = await lstat(current).catch(() => undefined);
+    if (stats) {
+      const real = await realpathNative(current).catch(() => undefined);
+      return real ? { path: current, real } : undefined;
+    }
+    const parent = dirname(current);
+    if (parent === current) return undefined;
+    current = parent;
+  }
+}
+
+async function resolveWriteScope(scope: WriteScope): Promise<ResolvedWriteScope> {
+  const roots: ResolvedWriteScope["roots"] = [];
+  for (const lexical of [scope.cwd, scope.lexicalCwd, scope.skillsDir]) {
+    const anchor = await deepestExistingReal(lexical);
+    if (!anchor) continue;
+    roots.push({ real: anchor.real, lexical: anchor.path === lexical ? undefined : lexical });
+  }
+  return { roots };
+}
+
+/**
+ * 許可 root の実パスと比較する。候補が実在すれば realpath(candidate) を、未作成なら最寄りの実在祖先の
+ * realpath を使う。最終要素が壊れた symlink の候補は解決できないため拒否し、root 内を指す symlink は通す。
+ */
+async function isWritablePath(candidate: string, scope: ResolvedWriteScope): Promise<boolean> {
   const target = resolve(candidate);
-  return isInsideRoot(cwd, target) || isInsideRoot(lexicalCwd, target) || isInsideRoot(skillsDir, target);
+  // 未作成 root の `real` は最寄りの実在祖先なので、lexical の収まりも一緒に見る
+  const inside = (real: string): boolean =>
+    scope.roots.some(
+      (root) => isInsideRoot(root.real, real) && (root.lexical === undefined || isInsideRoot(root.lexical, target)),
+    );
+  const real = await realpathNative(target).catch(() => undefined);
+  if (real !== undefined) return inside(real);
+  const anchor = await deepestExistingReal(target);
+  if (!anchor) return false;
+  return inside(anchor.real);
 }
 
 /**
@@ -692,6 +753,26 @@ export function parseInjectedEnv(value: unknown): Record<string, string> | undef
     env[name] = raw;
   }
   return Object.keys(env).length > 0 ? env : undefined;
+}
+
+/**
+ * `writeScope` の検証。root 相対のディレクトリと、無ければ作ってよいかの宣言だけを受け付ける。
+ * BFF 内部実行 (serve) 専用で、モデルはツール引数から指定できない。
+ */
+export function parseWriteScope(value: unknown): SandboxWriteScopeEntry[] | undefined {
+  if (value === undefined) return undefined;
+  if (!Array.isArray(value)) throw new Error("writeScope must be an array");
+  return value.map((entry) => {
+    if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
+      throw new Error("writeScope entries must be objects");
+    }
+    const { path, create } = entry as { path?: unknown; create?: unknown };
+    if (typeof path !== "string") throw new Error("writeScope entries need a string path");
+    if (create !== undefined && typeof create !== "boolean") {
+      throw new Error("writeScope create must be a boolean");
+    }
+    return create === true ? { path, create: true } : { path };
+  });
 }
 
 /**
@@ -764,25 +845,62 @@ export function createSandboxService(options: SandboxServiceOptions): SandboxSer
     maxEntries: options.maxArchiveEntries ?? DEFAULT_ARCHIVE_LIMITS.maxEntries,
   };
   const probeRuntimeInfo = options.probeRuntimeInfo ?? ((workspaceRoot: string) => probeSandboxRuntime(workspaceRoot));
+  // ラッパーは PATH からではなく固定パスから解決する (解決できなければ bash を実行しない)
+  const landlockExec = options.resolveLandlockExec ? options.resolveLandlockExec() : resolveLandlockWrapper();
+  /** ラッパーが exec する本物の shell。SDK の既定の解決結果をそのまま使う (PATH の二重管理をしない) */
+  const targetShell = (() => {
+    try {
+      return getShellConfig(undefined).shell;
+    } catch {
+      return undefined;
+    }
+  })();
+  const fixedLandlockRoots = fixedLandlockWriteRoots();
+  const probeLandlock = options.probeLandlock ?? (() => probeLandlockStatus(landlockExec));
+  let landlockProbe: Promise<SandboxLandlockStatus> | undefined;
+  /** 診断と bash の入口が同じ結果を使う (ラッパーが使えない環境ではコマンドを実行しない) */
+  const landlockStatus = (): Promise<SandboxLandlockStatus> => (landlockProbe ??= probeLandlock());
+
+  /** bash を実行できない理由。実行できるときだけ undefined を返す (fail-closed の入口) */
+  const bashUnavailableReason = async (): Promise<string | undefined> => {
+    if (!landlockExec) {
+      return landlockUnavailableMessage({
+        state: "unavailable",
+        abi: null,
+        minAbi: LANDLOCK_MIN_ABI,
+        reason: "wrapper_missing",
+      });
+    }
+    if (!targetShell) return "bash を実行する shell が見つかりません";
+    const status = await landlockStatus();
+    return status.state === "enabled" ? undefined : landlockUnavailableMessage(status);
+  };
 
   // bash にはセッションメタ変数 (PI_SESSION_ID 等) を注入せず (サンドボックスにセッションは無い)、
   // SDK の bash が process.env を継承しても、このプロセスの秘密値 (共有トークン / master key) だけは剥がす。
   // 作業フォルダの変数は spawnHook の後段で足す (名前の検証は上の parseInjectedEnv で済んでいる)。
   const spawnHookWithEnv =
-    (injected: Record<string, string> | undefined) =>
+    (injected: Record<string, string> | undefined, landlock: Record<string, string>) =>
     (context: BashSpawnContext): BashSpawnContext => {
-      const env: NodeJS.ProcessEnv = { ...context.env, ...injected };
+      // ラッパーの制御変数は injected より後に置き、子から再注入させない
+      const env: NodeJS.ProcessEnv = { ...context.env, ...injected, ...landlock };
       delete env.PI_SANDBOX_TOKEN;
       delete env[SECRET_MASTER_KEY_ENV];
       delete env[SECRET_MASTER_KEY_FILE_ENV];
       return { ...context, env };
     };
 
-  /** bash の定義。注入する env はリクエストごとに違うため、指定があるときはキャッシュしない */
-  const bashFor = (cwd: string, injected?: Record<string, string>): AnyToolDefinition =>
+  /** bash の定義。注入する env と許可 root はリクエストごとに違うため、差があるときはキャッシュしない */
+  const bashFor = (
+    cwd: string,
+    roots: readonly LandlockWriteRoot[],
+    injected?: Record<string, string>,
+  ): AnyToolDefinition =>
     createBashToolDefinition(cwd, {
       exposeSessionEnvironment: false,
-      spawnHook: spawnHookWithEnv(injected),
+      // 未解決でも SDK の既定 shell へは落とさず、実行の入口 (bashUnavailableReason) で断る
+      shellPath: landlockExec,
+      spawnHook: spawnHookWithEnv(injected, landlockRulesEnv({ shell: targetShell ?? "", roots })),
     });
 
   const lexicalRoot = resolve(rootCwd);
@@ -793,6 +911,26 @@ export function createSandboxService(options: SandboxServiceOptions): SandboxSer
     lexicalCwd: resolve(lexicalRoot, requestedCwd || "."),
     skillsDir: join(lexicalRoot, COMMON_SKILLS_DIR),
   });
+
+  /** エージェントの bash の許可 root。要求 cwd から導出する (BFF 内部実行は要求 scope だけを使う) */
+  const agentBashRoots = (executionCwd: string, scope: WriteScope): LandlockWriteRoot[] => [
+    { path: executionCwd },
+    { path: scope.skillsDir, create: true },
+    ...fixedLandlockRoots,
+  ];
+
+  /**
+   * BFF 内部実行の writeScope (root 相対) を実パスへ。要求由来の値を root 外へ出さず、作成は呼び出し側の
+   * 宣言 (create) だけを尊重する (既存の作業ディレクトリは作らない)。
+   */
+  const requestBashRoots = (entries: readonly SandboxWriteScopeEntry[]): LandlockWriteRoot[] =>
+    entries.map((entry) => {
+      const target = resolve(lexicalRoot, entry.path || ".");
+      if (!isInsideRoot(lexicalRoot, target)) {
+        throw pathError(400, `writeScope is outside the workspace: ${entry.path}`);
+      }
+      return { path: target, create: entry.create === true };
+    });
 
   /**
    * cwd ごとのツール定義。パス解決の起点が定義に焼き込まれるため、実行 cwd ごとに生成して再利用する。
@@ -805,26 +943,28 @@ export function createSandboxService(options: SandboxServiceOptions): SandboxSer
     const key = JSON.stringify([cwd, scope.lexicalCwd]);
     const cached = registries.get(key);
     if (cached) return cached;
-    const assertWritable = (candidate: string): void => {
-      if (isWritablePath(candidate, scope.cwd, scope.lexicalCwd, scope.skillsDir)) return;
+    let resolvedScope: Promise<ResolvedWriteScope> | undefined;
+    const assertWritable = async (candidate: string): Promise<void> => {
+      resolvedScope ??= resolveWriteScope(scope);
+      if (await isWritablePath(candidate, await resolvedScope)) return;
       throw writeScopeError(candidate, scope.cwd, scope.skillsDir);
     };
     const definitions: AnyToolDefinition[] = [
-      bashFor(cwd),
+      bashFor(cwd, agentBashRoots(cwd, scope)),
       createReadToolDefinition(cwd),
       createEditToolDefinition(cwd, {
         operations: {
           access: async (target) => {
             // 判定を実際の access より先に行う (実在しないパスでも SDK に ENOENT を先に出させない)
-            assertWritable(target);
+            await assertWritable(target);
             await access(target, constants.R_OK | constants.W_OK);
           },
           readFile: async (target) => {
-            assertWritable(target);
+            await assertWritable(target);
             return readFile(target);
           },
           writeFile: async (target, content) => {
-            assertWritable(target);
+            await assertWritable(target);
             await writeFile(target, content, "utf-8");
           },
         },
@@ -833,11 +973,11 @@ export function createSandboxService(options: SandboxServiceOptions): SandboxSer
         operations: {
           // mkdir も判定する (先に許すと拒否パスでも workdir 外に親ディレクトリができる)
           mkdir: async (dir) => {
-            assertWritable(dir);
+            await assertWritable(dir);
             await mkdir(dir, { recursive: true });
           },
           writeFile: async (target, content) => {
-            assertWritable(target);
+            await assertWritable(target);
             await writeFile(target, content, "utf-8");
           },
         },
@@ -874,10 +1014,12 @@ export function createSandboxService(options: SandboxServiceOptions): SandboxSer
     await next();
   });
 
-  // 実行環境の診断。応答は分類だけを返し、内部エラーの詳細はプロセスのログに限る
+  // 実行環境の診断。応答は分類だけを返し、内部エラーの詳細はプロセスのログに限る。
+  // Landlock の状態はラッパーの解決を持つこの service が足す (probeSandboxRuntime はコマンド検出だけ)。
   app.get("/v1/runtime/info", async (c) => {
     try {
-      return c.json(await probeRuntimeInfo(rootCwd));
+      const [info, landlock] = await Promise.all([probeRuntimeInfo(rootCwd), landlockStatus()]);
+      return c.json({ ...info, landlock });
     } catch (error) {
       console.warn(`[u7agent-sandbox] runtime info failed: ${messageFor(error)}`);
       return c.json({ error: "実行環境の診断に失敗しました" }, 500);
@@ -897,7 +1039,7 @@ export function createSandboxService(options: SandboxServiceOptions): SandboxSer
       const statusCode = (error as { statusCode?: number }).statusCode ?? 400;
       return c.json({ error: messageFor(error) }, statusCode as 400);
     }
-    const { toolCallId, params, cwd, env } = (body ?? {}) as SandboxExecuteRequestBody;
+    const { toolCallId, params, cwd, env, writeScope } = (body ?? {}) as SandboxExecuteRequestBody;
     if (params !== undefined && (typeof params !== "object" || params === null || Array.isArray(params))) {
       return c.json({ error: "params must be an object" }, 400);
     }
@@ -910,6 +1052,12 @@ export function createSandboxService(options: SandboxServiceOptions): SandboxSer
     } catch (error) {
       return c.json({ error: messageFor(error) }, 400);
     }
+    let requestedScope: SandboxWriteScopeEntry[] | undefined;
+    try {
+      requestedScope = parseWriteScope(writeScope);
+    } catch (error) {
+      return c.json({ error: messageFor(error) }, 400);
+    }
     // 実行 cwd はリクエストごとに root 配下の実在ディレクトリへ解決する (実行時隔離ではなくパス解決の起点)
     let executionCwd: string;
     try {
@@ -918,11 +1066,25 @@ export function createSandboxService(options: SandboxServiceOptions): SandboxSer
       const statusCode = (error as { statusCode?: number }).statusCode ?? 500;
       return c.json({ error: messageFor(error) }, statusCode as 400);
     }
+    // bash の許可 root。エージェントの bash は要求 cwd から導出し、BFF 内部実行は要求 scope だけを使う
+    // (内部実行で root へ落ちる既定経路を作らない)。
+    let bashRoots: LandlockWriteRoot[] | undefined;
+    if (toolName === "bash") {
+      try {
+        bashRoots =
+          requestedScope === undefined
+            ? agentBashRoots(executionCwd, writeScopeFor(cwd ?? "", executionCwd))
+            : [...requestBashRoots(requestedScope), ...fixedLandlockRoots];
+      } catch (error) {
+        const statusCode = (error as { statusCode?: number }).statusCode ?? 400;
+        return c.json({ error: messageFor(error) }, statusCode as 400);
+      }
+    }
     // bash だけが子プロセスを持つため、env は bash にだけ渡す (他のツールは値を使わないし、
-    // 渡しても値が経路に増えるだけ)。
+    // 渡しても値が経路に増えるだけ)。scope も定義に焼き込む必要があるため、指定があるときはキャッシュしない。
     const definition =
-      toolName === "bash" && injected
-        ? bashFor(executionCwd, injected)
+      toolName === "bash" && (injected !== undefined || requestedScope !== undefined)
+        ? bashFor(executionCwd, bashRoots ?? [], injected)
         : registryFor(executionCwd, writeScopeFor(cwd ?? "", executionCwd)).get(toolName);
     if (!definition) {
       return c.json({ error: `Unknown tool: ${toolName}` }, 404);
@@ -958,6 +1120,11 @@ export function createSandboxService(options: SandboxServiceOptions): SandboxSer
             write({ type: "update", payload: { content: payload?.content, details: payload?.details } });
           };
           try {
+            // Landlock が使えない環境では bash を実行しない (SDK の無制限な既定 shell へ落とさない)
+            if (toolName === "bash") {
+              const reason = await bashUnavailableReason();
+              if (reason) throw new Error(`bash を実行できません: ${reason}`);
+            }
             const ctx = { cwd: executionCwd } as Parameters<AnyToolDefinition["execute"]>[4];
             const result = await definition.execute(
               normalizeToolCallId(toolCallId),
