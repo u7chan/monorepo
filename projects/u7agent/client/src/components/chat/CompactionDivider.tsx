@@ -1,5 +1,6 @@
 import { cn } from "../../lib/cn";
 import { compactionDividerLabel, compactionHistoryLabel, compactionSummaryHeading } from "../../lib/compaction";
+import { messageColumnClass } from "../../lib/messageColumn";
 import type { CompactionInfo } from "../../types";
 import { DisclosureChevronIcon } from "../icons";
 
@@ -21,7 +22,9 @@ export function CompactionDivider({
   if (!latest) return null;
   const historyLabel = compactionHistoryLabel(compactions.length);
   return (
-    <details className="min-w-0 rounded-xl border border-line bg-soft/20 text-ink-muted">
+    <details
+      className={cn("min-w-0 rounded-xl border border-line bg-soft/20 text-ink-muted", messageColumnClass(compact))}
+    >
       <summary
         className={cn(
           "disclosure-summary flex min-w-0 cursor-pointer items-center gap-2 transition-colors outline-none hover:bg-soft/40 focus-visible:ring-1 focus-visible:ring-focus focus-visible:ring-inset",

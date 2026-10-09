@@ -1,6 +1,7 @@
 import type { Bubble, ToolCard } from "../../hooks/chatReducer";
 import { splitAttachedFiles } from "../../lib/attachments";
 import { cn } from "../../lib/cn";
+import { MESSAGE_MEASURE_CLASS } from "../../lib/messageColumn";
 import { messageFullTimeLabel, messageTimeLabel } from "../../lib/messageTime";
 import { splitSkillBlock } from "../../lib/skillBlock";
 import { nonSkillToolCards, type SkillBadge } from "../../lib/skillLoad";
@@ -130,7 +131,7 @@ export function MessageView({
         className={cn(
           "min-w-0",
           isUser ? "" : "flex-1",
-          compact ? (isUser ? "max-w-[88%]" : "max-w-full") : "max-w-[min(760px,86%)]",
+          compact ? (isUser ? "max-w-[88%]" : "max-w-full") : MESSAGE_MEASURE_CLASS,
         )}
       >
         <div
