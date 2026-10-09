@@ -157,6 +157,7 @@ function contentSettings(overrides: Partial<ContentSettings> = {}): ContentSetti
     saveSpeech: async () => true,
     refreshCatalog: async () => true,
     refreshSpeechCatalog: async () => true,
+    speechSynced: true,
     ...overrides,
   };
 }

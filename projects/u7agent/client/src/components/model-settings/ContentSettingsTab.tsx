@@ -13,6 +13,7 @@ import {
   speechModelOptions,
   speechModelValue,
   speechSelection,
+  speechSaveDisabled,
   speechVoiceDraft,
   speechVoiceMode,
   type ContentSavingAction,
@@ -40,6 +41,8 @@ export type ContentSettingsTabProps = {
   onSaveSpeech: (input: UpdateContentSpeechBody) => Promise<boolean>;
   /** 音声モデル一覧の再取得。失敗しても一覧は前のまま残る */
   onRefreshSpeechCatalog: () => Promise<boolean>;
+  /** 音声の表示が server の実効値と一致しているか。false の間は保存を止める */
+  speechSynced: boolean;
 };
 
 /**
@@ -56,6 +59,7 @@ export function ContentSettingsTab({
   onRefreshCatalog,
   onSaveSpeech,
   onRefreshSpeechCatalog,
+  speechSynced,
 }: ContentSettingsTabProps) {
   // 保存したキーは再表示しないため、入力は常に空から始め、保存できたときだけ消す
   const confirm = useConfirm();
@@ -154,6 +158,7 @@ export function ContentSettingsTab({
             <SpeechSection
               settings={settings}
               busy={busy}
+              synced={speechSynced}
               refreshing={saving === "speech-catalog"}
               onSave={onSaveSpeech}
               onRefresh={onRefreshSpeechCatalog}
@@ -253,12 +258,14 @@ function ImageModelSection({
 function SpeechSection({
   settings,
   busy,
+  synced,
   refreshing,
   onSave,
   onRefresh,
 }: {
   settings: ContentSettingsResponse;
   busy: boolean;
+  synced: boolean;
   refreshing: boolean;
   onSave: (input: UpdateContentSpeechBody) => Promise<boolean>;
   onRefresh: () => Promise<boolean>;
@@ -279,8 +286,10 @@ function SpeechSection({
     option: selectedOption,
     savedVoice,
   });
+  const dirty = selectedModel !== savedModel || selectedVoice !== savedVoice;
 
   const submit = async () => {
+    if (!synced) return;
     const input = speechSelection(options, selectedModel, selectedVoice);
     if (!input) return;
     if (await onSave(input)) {
@@ -292,17 +301,24 @@ function SpeechSection({
   return (
     <section className="grid gap-1.5 border-t border-line pt-3">
       <div className="text-2xs font-semibold tracking-label text-ink-faint uppercase">音声（TTS）</div>
+      {/* 同期できていない間は、旧い表示を現在値として見せない（保存も speechSaveDisabled が止める） */}
+      {synced ? null : (
+        <p role="alert" className="rounded-lg border border-warn/40 bg-raised px-2.5 py-2 text-2xs text-warn">
+          サーバーから現在の設定を取得できなかったため、表示しているモデルとボイスが最新とは限りません。再読み込みするまで保存できません。
+        </p>
+      )}
       <div className="flex min-w-0 flex-wrap items-center gap-2">
         <SelectField
           wrapperClassName="min-w-0 flex-1"
           aria-label="音声生成のモデル"
-          value={selectedModel}
-          disabled={busy}
+          value={synced ? selectedModel : ""}
+          disabled={busy || !synced}
           onChange={(event) => {
             setDraftModel(event.currentTarget.value);
             setDraftVoice(null);
           }}
         >
+          {synced ? null : <option value="">（未確認）</option>}
           {options.map((option) => (
             <option key={option.value} value={option.value}>
               {option.label}
@@ -314,22 +330,23 @@ function SpeechSection({
         {textMode ? (
           <input
             className="field min-w-0 flex-1 text-xs"
-            value={selectedVoice}
+            value={synced ? selectedVoice : ""}
             aria-label="音声生成のボイス"
-            placeholder="モデル既定（空欄のまま送ります）"
+            placeholder={synced ? "モデル既定（空欄のまま送ります）" : "（未確認）"}
             autoComplete="off"
             spellCheck={false}
-            disabled={busy}
+            disabled={busy || !synced}
             onChange={(event) => setDraftVoice(event.currentTarget.value)}
           />
         ) : (
           <SelectField
             wrapperClassName="min-w-0 flex-1"
             aria-label="音声生成のボイス"
-            value={selectedVoice}
-            disabled={busy}
+            value={synced ? selectedVoice : ""}
+            disabled={busy || !synced}
             onChange={(event) => setDraftVoice(event.currentTarget.value)}
           >
+            {synced ? null : <option value="">（未確認）</option>}
             {(selectedOption?.model?.voices ?? []).map((voice) => (
               <option key={voice} value={voice}>
                 {voice}
@@ -340,7 +357,7 @@ function SpeechSection({
         <button
           type="button"
           className="btn-primary"
-          disabled={busy || (selectedModel === savedModel && selectedVoice === savedVoice)}
+          disabled={speechSaveDisabled({ busy, synced, dirty })}
           onClick={() => void submit()}
         >
           <CheckIcon />

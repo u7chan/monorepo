@@ -168,6 +168,42 @@ test("宣言が無いモデルへキーをボイスとして保存しても、�
   });
 });
 
+test("ランタイムなしで再起動しても、保存済みキーをボイスとして GET に出さない", async () => {
+  await withStoreDir(async (dir) => {
+    // 1) ランタイムありで、宣言が無いモデルのボイスへキーと同じ文字列を保存する
+    const first = await openBff({
+      cwd: "/tmp/project",
+      sessionStoreDir: dir,
+      pi: asPiBff(createStubPi()),
+      workspace: null,
+    });
+    try {
+      await first.app.request("/api/settings/content/speech/catalog/refresh", { method: "POST" });
+      await first.app.request("/api/settings/content/key", jsonPut({ apiKey: KEY }));
+      const saved = await first.app.request(
+        "/api/settings/content/speech",
+        jsonPut({ model: OTHER_MODEL, voice: KEY }),
+      );
+      assert.equal((await saved).status, 200, "自由記述のボイスは保存自体は成功する");
+    } finally {
+      await first.close();
+    }
+
+    // 2) 同じ DB をランタイムなし（マスカーが保存済みキーを知らない）で開き直す
+    const bff = await openBff({ cwd: "/tmp/project", sessionStoreDir: dir, pi: null, workspace: null });
+    try {
+      const body = await jsonBody(await bff.app.request("/api/settings/content"));
+      assert.equal(body.runtimeAvailable, false);
+      assert.equal(body.configured, true);
+      assert.equal(body.speech.model, OTHER_MODEL);
+      assert.equal(body.speech.voice, "", "保存済みキーをボイスとして返さない");
+      assert.ok(!JSON.stringify(body).includes(KEY), `GET にキーを出さない: ${JSON.stringify(body.speech)}`);
+    } finally {
+      await bff.close();
+    }
+  });
+});
+
 test("カタログ外モデル / 宣言外の声 / 形が違う本文は 400", async () => {
   await withStoreDir(async (dir) => {
     const bff = await openBff({

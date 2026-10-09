@@ -26,6 +26,10 @@ export const CONTENT_KEY_DELETED_NOTE =
 export const CONTENT_MODEL_SAVED_NOTE = "画像生成のモデルを保存しました。";
 export const CONTENT_SPEECH_SAVED_NOTE = "音声生成のモデルとボイスを保存しました。";
 
+/** 音声カタログ更新後に現在値を確認できなかったときの注記。確認できるまで音声の設定を保存させない */
+export const SPEECH_SYNC_FAILED_NOTE =
+  "音声モデル一覧は取得しましたが、現在の設定を確認できませんでした。再読み込みするまで音声の設定は保存できません。";
+
 /** 実行中の操作。null なら操作なし */
 export type ContentSavingAction = "key" | "delete" | "selection" | "catalog" | "speech" | "speech-catalog";
 
@@ -229,6 +233,8 @@ export function speechVoiceDraft(input: {
 /**
  * 音声カタログ再取得後の状態。一覧の並びが変わると NULL ボイスのフォールバック（先頭）も変わるため、
  * server の現在値（GET）が取れていればそれを正とし、取れなかったときだけ一覧の項目を差し替える。
+ * 差し替えた状態を現在値とみなすかは `speechSyncedAfterRefresh` が決める（確認できない間は
+ * 「（未確認）」として保存を止める）。
  */
 export function speechSettingsAfterRefresh(
   previous: ContentSettingsResponse | null,
@@ -237,6 +243,22 @@ export function speechSettingsAfterRefresh(
 ): ContentSettingsResponse | null {
   if (current !== null) return current;
   return previous === null ? null : { ...previous, speech: { ...previous.speech, ...refreshed } };
+}
+
+/**
+ * 再取得後に server の実効値を確認できたか。一覧が変わった（取得に成功した）のに現在値を取れない間は、
+ * 旧い表示を現在値とみなさず、音声の設定を保存させない（表示・保存可否・実行時解決を食い違わせない）。
+ */
+export function speechSyncedAfterRefresh(
+  response: Pick<SpeechCatalogRefreshResponse, "catalogError">,
+  current: ContentSettingsResponse | null,
+): boolean {
+  return current !== null || response.catalogError !== null;
+}
+
+/** 音声の保存を止める条件。同期できていない間は、表示が現在値と限らないため保存させない */
+export function speechSaveDisabled(input: { busy: boolean; synced: boolean; dirty: boolean }): boolean {
+  return input.busy || !input.synced || !input.dirty;
 }
 
 /** 選択中の選択肢を PUT の本文へ。provider を決められないときは null (保存させない) */

@@ -79,26 +79,35 @@ export class ContentSettingsService {
   }
 
   /**
-   * 応答と実行時の両方で使う値へ落とす。マスカーが値を変える（登録済みキーと一致する / 含む）ときは
-   * 未設定として扱い、マスク済みの文字列もそのまま使わない。ボイス欄へキーを誤って保存しても応答から
-   * 再露出させず、表示と実行時の解決も食い違わせないため。保存値そのものは消さない。
+   * 応答と実行時の両方で使う値へ落とす。同じ行の APIキーと一致・包含する値と、マスカーが値を変える値は
+   * 未設定として扱う。`pi: null`（ランタイムなしで起動したとき）はマスカーが identity になり、保存値だけでは
+   * 安全と判定できないため、同梱の照合を実行時のマスカーの状態に依存させない。マスク済みの文字列もそのまま
+   * 使わない。保存値そのものは消さない。
    */
-  #usableSpeechValue(value: string | null): string | null {
+  #usableSpeechValue(value: string | null, apiKey: string): string | null {
     if (value === null || value === "") return null;
+    if (apiKey !== "" && value.includes(apiKey)) return null;
     return this.#maskError(value) === value ? value : null;
   }
 
   /** 行があるときの音声の実効値。音声列が NULL の既存行も既定モデル / 先頭ボイスへ寄せる（画面に「（未設定）」を出さない） */
-  #speechSelection(speechModel: string | null, speechVoice: string | null): { model: string; voice: string } {
-    const model = this.#usableSpeechValue(speechModel) ?? DEFAULT_SPEECH_MODEL;
-    return { model, voice: this.#usableSpeechValue(speechVoice) ?? this.#speechCatalog.voicesOf(model)?.[0] ?? "" };
+  #speechSelection(
+    speechModel: string | null,
+    speechVoice: string | null,
+    apiKey: string,
+  ): { model: string; voice: string } {
+    const model = this.#usableSpeechValue(speechModel, apiKey) ?? DEFAULT_SPEECH_MODEL;
+    return {
+      model,
+      voice: this.#usableSpeechValue(speechVoice, apiKey) ?? this.#speechCatalog.voicesOf(model)?.[0] ?? "",
+    };
   }
 
   /** 音声ツールの語彙（`model` / `voice`）へ写す。応答と同じ解決を使い、表示と実行時を食い違わせない */
   #currentSpeechSettings(): SpeechGenerationSettings | undefined {
     const row = this.#db.readContentSettings();
     if (!row) return undefined;
-    const speech = this.#speechSelection(row.speechModel, row.speechVoice);
+    const speech = this.#speechSelection(row.speechModel, row.speechVoice, row.apiKey);
     return { provider: row.provider, model: speech.model, voice: speech.voice, apiKey: row.apiKey };
   }
 
@@ -107,7 +116,7 @@ export class ContentSettingsService {
     const row = this.#db.readContentSettings();
     const catalog = this.#catalog.snapshot();
     const speechCatalog = this.#speechCatalog.snapshot();
-    const speech = row ? this.#speechSelection(row.speechModel, row.speechVoice) : null;
+    const speech = row ? this.#speechSelection(row.speechModel, row.speechVoice, row.apiKey) : null;
     return {
       configured: row !== undefined,
       provider: row?.provider ?? null,
@@ -200,6 +209,7 @@ export class ContentSettingsService {
           imageModel: existing?.imageModel ?? DEFAULT_IMAGE_MODEL,
           speechModel: existing?.speechModel ?? null,
           speechVoice: existing?.speechVoice ?? null,
+          apiKey,
         }),
       };
     });
@@ -237,6 +247,7 @@ export class ContentSettingsService {
           imageModel: input.model,
           speechModel: existing.speechModel,
           speechVoice: existing.speechVoice,
+          apiKey: existing.apiKey,
         }),
       };
     });
@@ -285,6 +296,7 @@ export class ContentSettingsService {
           imageModel: existing.imageModel,
           speechModel: input.model,
           speechVoice,
+          apiKey: existing.apiKey,
         }),
       };
     });
@@ -311,6 +323,7 @@ export class ContentSettingsService {
           imageModel: null,
           speechModel: null,
           speechVoice: null,
+          apiKey: null,
         }),
       };
     });
@@ -363,13 +376,16 @@ export class ContentSettingsService {
     imageModel: string | null;
     speechModel: string | null;
     speechVoice: string | null;
+    /** この行の APIキー。応答へ音声の値を出す前に保護対象と照合する（未設定の行は null） */
+    apiKey: string | null;
   }): ContentMutationResponse {
     const catalog = this.#catalog.snapshot();
     const speechCatalog = this.#speechCatalog.snapshot();
-    // 未設定の行を「音声の既定」へ寄せないため、行の有無で分ける
-    const speech = result.configured
-      ? this.#speechSelection(result.speechModel, result.speechVoice)
-      : { model: null, voice: "" };
+    // 未設定の行を「音声の既定」へ寄せないため、キーの有無で分ける
+    const speech =
+      result.apiKey === null
+        ? { model: null, voice: "" }
+        : this.#speechSelection(result.speechModel, result.speechVoice, result.apiKey);
     return {
       configured: result.configured,
       provider: result.provider,

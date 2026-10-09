@@ -103,6 +103,8 @@ function createService(
     speechSource?: SpeechCatalogSnapshot["source"];
     speechFetchedAt?: number | null;
     refreshError?: string | null;
+    /** ランタイムなし（`pi: null`）の起動を模す。既定は保存済みキーを知るマスカー */
+    identityMasker?: boolean;
   } = {},
 ) {
   const db = options.db ?? new FakeContentDb();
@@ -123,7 +125,7 @@ function createService(
       configs.push(config);
       db.events.push(`inject:${config.enabled ? "on" : "off"}`);
     },
-    maskError: (text) => text.split(KEY).join("[REDACTED]"),
+    maskError: options.identityMasker ? (text) => text : (text) => text.split(KEY).join("[REDACTED]"),
   });
   return { db, service, catalog: fake.state, latest: () => configs.at(-1) };
 }
@@ -370,6 +372,34 @@ test("ボイス / モデルに保護済みキーがあっても、応答と実�
   assert.equal(savedModel.status, 200);
   if (savedModel.status !== 200) return;
   assert.equal(savedModel.response.speech.model, DEFAULT_SPEECH_MODEL, "キーは既定モデルへ落とす");
+  assert.ok(!JSON.stringify(savedModel.response).includes(KEY));
+  assert.equal(defaulted.service.settings().speech.model, DEFAULT_SPEECH_MODEL);
+  assert.ok(!JSON.stringify(defaulted.service.settings()).includes(KEY));
+  assert.equal(defaulted.latest()?.readSpeech()?.model, DEFAULT_SPEECH_MODEL);
+  assert.equal(defaulted.db.row?.speechModel, KEY, "保存値そのものは消さない");
+});
+
+test("マスカーがキーを知らない起動でも、同じ行の APIキーをボイス / モデルとして出さない", async () => {
+  // pi: null の起動（bootstrap が identity masker を渡す経路）。マスカーだけに頼ると保存値が再露出する
+  const free = createService({ identityMasker: true });
+  free.db.row = rowWith(null, null);
+  const saved = await free.service.putSpeechSelection({ model: "fish/audio", voice: KEY });
+  assert.equal(saved.status, 200);
+  if (saved.status !== 200) return;
+  assert.equal(saved.response.speech.voice, "", "成功応答にキーを出さない");
+  assert.ok(!JSON.stringify(saved.response).includes(KEY));
+  assert.equal(free.service.settings().speech.voice, "", "GET にもキーを出さない");
+  assert.ok(!JSON.stringify(free.service.settings()).includes(KEY));
+  assert.equal(free.latest()?.readSpeech()?.voice, "", "実行時解決にもキーを出さない");
+  assert.equal(free.db.row?.speechVoice, KEY, "保存値そのものは消さない");
+
+  // default の自由なモデル指定も同じ境界を通る
+  const defaulted = createService({ identityMasker: true, speechSource: "default", speechFetchedAt: null });
+  defaulted.db.row = rowWith(null, null);
+  const savedModel = await defaulted.service.putSpeechSelection({ model: KEY, voice: "" });
+  assert.equal(savedModel.status, 200);
+  if (savedModel.status !== 200) return;
+  assert.equal(savedModel.response.speech.model, DEFAULT_SPEECH_MODEL);
   assert.ok(!JSON.stringify(savedModel.response).includes(KEY));
   assert.equal(defaulted.service.settings().speech.model, DEFAULT_SPEECH_MODEL);
   assert.ok(!JSON.stringify(defaulted.service.settings()).includes(KEY));

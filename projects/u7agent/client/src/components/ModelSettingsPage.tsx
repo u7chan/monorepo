@@ -238,6 +238,7 @@ export function ModelSettingsView({
             onRefreshCatalog={contentSettings.refreshCatalog}
             onSaveSpeech={contentSettings.saveSpeech}
             onRefreshSpeechCatalog={contentSettings.refreshSpeechCatalog}
+            speechSynced={contentSettings.speechSynced}
           />
         ) : (
           <SettingsPlaceholder

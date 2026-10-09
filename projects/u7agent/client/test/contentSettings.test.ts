@@ -18,8 +18,10 @@ import {
   speechDefaultVoice,
   speechModelOptions,
   speechModelValue,
+  speechSaveDisabled,
   speechSelection,
   speechSettingsAfterRefresh,
+  speechSyncedAfterRefresh,
   speechVoiceDraft,
   speechVoiceMode,
   speechVoiceValue,
@@ -250,6 +252,20 @@ test("音声カタログ再取得後は server の現在値へ同期し、表示
   assert.equal(patched?.speech.fetchedAt, 2000);
   assert.deepEqual(patched?.speech.models, reordered);
   assert.equal(speechSettingsAfterRefresh(null, refreshed, null), null);
+
+  // 再現条件: 保存ボイスが NULL（旧一覧の先頭 Zephyr を見せている）で、再取得が [Kore, Zephyr] を返して成功し、
+  // 直後の GET だけ失敗する。実行時は Kore へ解決するため、旧 Zephyr を現在値として扱ってはいけない
+  assert.equal(speechSyncedAfterRefresh({ catalogError: null }, null), false, "一覧が変わったのに現在値を確認できない");
+  assert.equal(speechSyncedAfterRefresh({ catalogError: null }, current), true);
+  assert.equal(
+    speechSyncedAfterRefresh({ catalogError: "モデル一覧の取得がタイムアウトしました" }, null),
+    true,
+    "一覧が変わっていなければ以前の値を現在値のまま保つ",
+  );
+  assert.equal(speechSaveDisabled({ busy: false, synced: false, dirty: true }), true, "同期できない間は保存させない");
+  assert.equal(speechSaveDisabled({ busy: false, synced: true, dirty: true }), false);
+  assert.equal(speechSaveDisabled({ busy: false, synced: true, dirty: false }), true, "変更が無ければ保存しない");
+  assert.equal(speechSaveDisabled({ busy: true, synced: true, dirty: true }), true);
 });
 
 test("音声モデル一覧の注記は取得元と最終取得時刻を示し、default は同梱を見ていることを伝える", () => {

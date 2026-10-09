@@ -54,6 +54,7 @@ function render(
     image?: Partial<ContentImageSettings>;
     speech?: Partial<ContentSpeechSettings>;
     saving?: ContentSavingAction | null;
+    speechSynced?: boolean;
   } & Omit<Partial<ContentSettingsResponse>, "image" | "speech"> = {},
 ): string {
   const { image, speech, saving = null, ...overrides } = options;
@@ -71,6 +72,7 @@ function render(
         onRefreshCatalog: async () => true,
         onSaveSpeech: async () => true,
         onRefreshSpeechCatalog: async () => true,
+        speechSynced: options.speechSynced ?? true,
       }),
     ),
   );
@@ -207,6 +209,20 @@ test("音声カタログも取得できていないときは警告色のチッ�
   const html = render({ speech: { catalogSource: "default", fetchedAt: null } });
   assert.ok(html.includes("OpenRouter から取得できていないため、同梱の既定の音声モデルを表示しています"));
   assert.match(html, /border-warn\/40 text-warn"[^>]*>OpenRouter から取得できていない/);
+});
+
+test("現在の設定を確認できないときは音声を「（未確認）」にして保存させない", () => {
+  const html = render({ speechSynced: false });
+  assert.equal(html.match(/（未確認）/g)?.length, 2, "モデルとボイスの両方を未確認として出す");
+  assert.ok(
+    html.includes("サーバーから現在の設定を取得できなかったため、表示しているモデルとボイスが最新とは限りません"),
+    "同期できていないことを知らせる",
+  );
+  assert.match(html, /aria-label="音声生成のモデル"[^>]*disabled=""/, "モデルを触らせない");
+  assert.match(html, /aria-label="音声生成のボイス"[^>]*disabled=""/, "ボイスを触らせない");
+  // 同期できたら未確認の表示は出さない
+  const synced = render();
+  assert.equal(synced.includes("（未確認）"), false);
 });
 
 test("音声カタログの再取得中は音声側のボタンだけを取得中にする", () => {

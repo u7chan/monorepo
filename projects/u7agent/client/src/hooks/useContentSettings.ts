@@ -15,8 +15,10 @@ import {
   CONTENT_MODEL_SAVED_NOTE,
   CONTENT_SETTINGS_NOTE,
   CONTENT_SPEECH_SAVED_NOTE,
+  SPEECH_SYNC_FAILED_NOTE,
   catalogRefreshNote,
   speechSettingsAfterRefresh,
+  speechSyncedAfterRefresh,
   type ContentSavingAction,
 } from "../lib/contentSettings";
 import { validateApiKey } from "../lib/modelSettings";
@@ -37,6 +39,8 @@ export function useContentSettings() {
   const [note, setNote] = useState<{ text: string; error: boolean }>({ text: CONTENT_SETTINGS_NOTE, error: false });
   const [saving, setSaving] = useState<ContentSavingAction | null>(null);
   const [reloading, setReloading] = useState(false);
+  /** 音声の表示が server の実効値と一致しているか。再取得後の確認に失敗すると false になり、保存を止める */
+  const [speechSynced, setSpeechSynced] = useState(true);
   const [beginLoad] = useState(createRequestGate);
   // 破棄された取得でも進行中を解除するため、適用の可否とは別に追う
   const [reloadTracker] = useState(() => createLoadingTracker(setReloading));
@@ -48,6 +52,7 @@ export function useContentSettings() {
       const next = await getContentSettings();
       if (!canApply()) return;
       setSettings(next);
+      setSpeechSynced(true);
       setNote({ text: CONTENT_SETTINGS_NOTE, error: false });
     } catch (error) {
       if (canApply()) {
@@ -74,6 +79,8 @@ export function useContentSettings() {
         // 進行中の読み込みの応答で、いま適用した応答を上書きさせない
         beginLoad();
         setSettings(response);
+        // 変更系の応答は server の現在値なので、音声の表示も同期済みにする
+        setSpeechSynced(true);
         setNote({ text: successNote, error: false });
         return true;
       } catch (error) {
@@ -151,7 +158,8 @@ export function useContentSettings() {
 
   /**
    * 音声モデル一覧の再取得。形も失敗の扱いも画像と同じだが、一覧の並びが変わると NULL ボイスの
-   * フォールバック（先頭）も変わるため、表示を server の現在値へ合わせる（実行時と食い違わせない）。
+   * フォールバック（先頭）も変わるため、表示を server の現在値へ合わせる。確認できないまま
+   * 古い表示を現在値として扱うと実行時の解決と食い違うので、その間は保存を止める。
    */
   const refreshSpeechCatalog = useCallback(async (): Promise<boolean> => {
     setSaving("speech-catalog");
@@ -162,12 +170,18 @@ export function useContentSettings() {
       try {
         current = await getContentSettings();
       } catch {
-        // 一覧は取れているので、選べる候補だけを新しいものへ差し替える（表示のボイスは据え置き）
+        // 一覧は取れているので、選べる候補だけを新しいものへ差し替える（下で同期状態を落とす）
       }
+      const synced = speechSyncedAfterRefresh(response, current);
       beginLoad();
       setSettings((previous) => speechSettingsAfterRefresh(previous, response, current));
-      setNote({ text: catalogRefreshNote(response.catalogError), error: response.catalogError !== null });
-      return response.catalogError === null;
+      setSpeechSynced(synced);
+      setNote(
+        synced
+          ? { text: catalogRefreshNote(response.catalogError), error: response.catalogError !== null }
+          : { text: SPEECH_SYNC_FAILED_NOTE, error: true },
+      );
+      return synced && response.catalogError === null;
     } catch (error) {
       setNote({ text: `モデル一覧を取得できませんでした。${messageFor(error)}`, error: true });
       return false;
@@ -188,6 +202,7 @@ export function useContentSettings() {
     saveSpeech,
     refreshCatalog,
     refreshSpeechCatalog,
+    speechSynced,
   };
 }
 
