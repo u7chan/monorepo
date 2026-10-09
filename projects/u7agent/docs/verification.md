@@ -9,6 +9,7 @@
 - `docs/` / `AGENTS.md` / `README.md` の相対リンクの参照先と `#anchor` が実在すること（リンク記法の例示はコード span とコードブロックを除いて判定する）
 - 本文中の `client/src/...` などのパスが実在すること
 - `client/src` / `client/test` / `server/src` / `server/test` のコメントにある `docs/xxx.md#anchor` の参照先が実在すること
+- `docs/` の見出しに UI の階層（`設定 → 通知`）を書かないこと（見出しがアンカーの正のため。コードブロックとコード span は除いて判定する）
 - フロントエンドの docs（`ui-layout.md` / `frontend.md`）が行数予算に収まっていること。予算は現在の実測値の ratchet で、上げるときは diff に出してレビューで合意する
 
 **project root の外を指すリンク（モノレポ全体への参照）は未検査**にする。CI は project 単位のビルドコンテキストでこの script を走らせるため、`../../AGENTS.md` のような参照先が存在せず、検査すると常に失敗する。未検査の件数は結果に出す。
