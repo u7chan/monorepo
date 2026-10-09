@@ -1,5 +1,5 @@
 /**
- * 入力欄の直上に出すライブのツール行。行は走査順で、番号はツール履歴の行番号に合わせる
+ * 入力欄の直上に浮かせるライブのツール行。行は走査順で、番号はツール履歴の行番号に合わせる
  * (スキル読み込み・ask_user を外す規則も履歴と同じ)。表示条件と畳み方の規則の根拠は docs/frontend.md が正。
  */
 import type { RunStatus, ToolCall } from "../types";
@@ -8,13 +8,23 @@ import { toolDurationMs } from "./toolTiming";
 
 /**
  * 行を出してから畳み始めるまでの最短時間。一瞬で終わるツールでも「何が走ったか」を読めるようにする。
+ * 出現は遅らせない (詰まらせない側のつまみ)。
  */
 export const LIVE_ROW_MIN_VISIBLE_MS = 900;
 
+/** 箱に出す行数。溢れた行は古い順に落とし、件数だけを「…他 N 件」の 1 行に畳む (キューは持たない) */
+export const LIVE_ROW_SLOTS = 3;
+
 /**
- * ライブ行に出す子の本文の上限。サーバー (runner) も間引くが、行の高さを揃えるのは表示側の都合。
+ * 行を箱から外すまで。行・箱・余白を同じ時間で畳むので、CSS の畳みと同じ値でなければならない。
  */
-export const LIVE_PROGRESS_BODY_LINES = 3;
+export const LIVE_CLOSE_MS = 180;
+
+/**
+ * ライブ行に出す子の本文の行数。行の下の左罫線が行の要約との区切りになり、箱の高さは
+ * styles/index.css の `.chat-live-reserve` が同じ行数から見積もる (ライブでは 1 行)。
+ */
+export const LIVE_PROGRESS_BODY_LINES = 1;
 export const LIVE_PROGRESS_BODY_MAX = 200;
 
 export type LiveToolProgress = {
@@ -102,7 +112,13 @@ export function initialLiveTracker(runTools: Readonly<Record<string, ToolCall>>)
   return { shownAt: new Map(), accounted: new Set(Object.keys(runTools)), running: new Map() };
 }
 
-export type LiveToolHold = { row: LiveToolRow; holdMs: number };
+/** 実行中として出せなかった行を、いつまで箱に残すか (絶対時刻) */
+export type LiveToolHold = { row: LiveToolRow; holdUntilMs: number };
+
+/** 行を畳むまでに残っているホールド (ミリ秒)。0 なら畳んでよい */
+export function liveToolHoldRemainingMs(hold: LiveToolHold, now: number): number {
+  return Math.max(0, hold.holdUntilMs - now);
+}
 
 /**
  * どの行を畳む前にもう少し出しておくかを決める。次の 2 経路を同じ規則で扱う。
@@ -137,18 +153,59 @@ export function trackLiveHolds(
     // 実行中として出る行は、そのまま出せばよいので保持しない
     if (accounted.has(row.id) || runningIds.has(row.id) || !liveIds.has(row.id)) continue;
     accounted.add(row.id);
-    holds.push({ row, holdMs: LIVE_ROW_MIN_VISIBLE_MS });
+    holds.push({ row, holdUntilMs: now + LIVE_ROW_MIN_VISIBLE_MS });
   }
   for (const [id, row] of tracker.running) {
     if (runningIds.has(id)) continue;
     const shown = shownAt.get(id);
     shownAt.delete(id);
-    holds.push({
-      row: byId.get(id) ?? row,
-      holdMs: Math.max(0, LIVE_ROW_MIN_VISIBLE_MS - (now - (shown ?? now))),
-    });
+    // 出ていた時間の残りだけを残す (長く出ていた行は 0 = その場で畳む)
+    holds.push({ row: byId.get(id) ?? row, holdUntilMs: (shown ?? now) + LIVE_ROW_MIN_VISIBLE_MS });
   }
   // 観測した id はライブかどうかに関係なく記録する。次の描画で過去のカードを光らせない
   for (const row of allRows) accounted.add(row.id);
   return { tracker: { shownAt, accounted, running: new Map(rows.map((row) => [row.id, row])) }, holds };
+}
+
+/** 箱の段。`hidden` は箱ごと消えている (浮かせる前の余白も確保しない) */
+export type LiveToolPhase = "hidden" | "open" | "closing";
+
+/**
+ * 箱の段を決める。実行中の行があれば開き、無ければ残っている行をホールドの切れるまで見せる。
+ * 閉じは 1 段にまとめる (行・箱・余白を同じ時間で畳む) ため、ホールドが全部切れた時点で `closing` にし、
+ * 行は畳みの間だけ残す (実際に外すのは LIVE_CLOSE_MS 後)。
+ */
+export function liveToolPhase(
+  running: readonly LiveToolRow[],
+  held: readonly LiveToolHold[],
+  now: number,
+): LiveToolPhase {
+  if (running.length > 0) return "open";
+  if (held.length === 0) return "hidden";
+  return held.every((hold) => liveToolHoldRemainingMs(hold, now) <= 0) ? "closing" : "open";
+}
+
+export type LiveToolWindow = {
+  /** 箱に出す行 (古い順のまま、最新の枠まで) */
+  rows: LiveToolRow[];
+  /** 枠から溢れて「…他 N 件」に畳んだ行数 */
+  hidden: number;
+};
+
+/**
+ * 箱に出す行を最新の枠まで切り、溢れた件数を返す。実行中の行とホールド中の行は同じ箱に並ぶため、
+ * id で重複を落として (実行中を優先) 走査順に並べる。**実行中の行は必ず残し、残りの枠を新しい
+ * 完了行で埋める** (いま動いているものを見せるのがライブ表示の目的で、並列実行でも消さない)。
+ * 並列が枠を超えるときだけ古い実行中の行を落とす (箱を予約した高さに収めるため)。
+ */
+export function liveToolWindow(running: readonly LiveToolRow[], held: readonly LiveToolRow[]): LiveToolWindow {
+  const runningIds = new Set(running.map((row) => row.id));
+  const byIndex = (a: LiveToolRow, b: LiveToolRow) => a.index - b.index;
+  const shownRunning = [...running].sort(byIndex).slice(-LIVE_ROW_SLOTS);
+  const rest = [...held].filter((row) => !runningIds.has(row.id)).sort(byIndex);
+  const room = Math.max(0, LIVE_ROW_SLOTS - shownRunning.length);
+  // slice(-0) は全件になるため、枠が無いときは明示的に落とす
+  const shownHeld = room === 0 ? [] : rest.slice(-room);
+  const rows = [...shownRunning, ...shownHeld].sort(byIndex);
+  return { rows, hidden: running.length + rest.length - rows.length };
 }

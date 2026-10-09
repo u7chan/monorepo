@@ -526,6 +526,35 @@
     transform: translateY(var(--virtual-start));
   }
 
+  /* 入力欄の上に浮かぶライブ表示が占める高さ。箱は composer のフローから外れているため、
+   * 最後の本文が箱に隠れないよう、チャットの内容の下端へこの固定値だけを確保する。
+   * 箱の実測には追従させない (毎フレーム動くと浮かせた意味が消える)。各値は同じ index.css の
+   * ライブ表示の寸法を写したもので、箱の余白 (py-*) と行間 (leading-4) を変えるときはここも直す */
+  .chat-live-reserve {
+    --live-tool-line-height: 1rem; /* leading-4 */
+    --live-tool-border-height: 2px; /* 箱の border (上下 1px) */
+    --live-tool-header-height: calc(1px + 0.5rem + var(--live-tool-line-height)); /* border-b + py-1 + 1 行 */
+    --live-tool-row-height: calc(var(--live-tool-line-height) + 0.25rem); /* 行 = 1 行 + py-0.5 */
+    --live-tool-progress-height: calc(var(--live-tool-line-height) * 2 + 0.375rem); /* 進捗 = 2 行 + gap-0.5 + py-0.5 */
+    /* 箱の最大高 = border + ヘッダ + ol の py-0.5 + (行 3 + 溢れ 1 行) + 進捗。畳むときは箱と同じ
+     * 時間をかけ、読み返し中は即時で放す */
+    --live-tool-reserve-height: calc(
+      var(--live-tool-border-height) + var(--live-tool-header-height) + 0.25rem + var(--live-tool-row-height) * 4 +
+        var(--live-tool-progress-height)
+    );
+  }
+  .chat-live-reserve[data-live-reserve="true"] {
+    padding-bottom: var(--live-tool-reserve-height);
+  }
+  .chat-live-reserve[data-live-closing="true"] {
+    transition: padding-bottom 180ms ease-out;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .chat-live-reserve[data-live-closing="true"] {
+      transition: none;
+    }
+  }
+
   /* 「最新のメッセージへ移動」ボタンの出入り (下からふわっと出て、下へふわっと消える)。退場の終わりを
    * 待って unmount する state を持たなくて済むよう、ボタンは常に置いて状態だけを切り替える。隠れている
    * 間は visibility で押せなくし、フォーカスと読み上げから外す。呼び出し側の -translate-x-1/2 は
@@ -1012,13 +1041,15 @@
     }
   }
 
-  /* 入力欄の直上のライブ表示 (実行中のツール)。箱の出入りと、行の差し替えを CSS が持ち、
-   * 表示条件と演出の意図は docs/frontend.md が正。完了した行は高さを 0 へ畳んでから外し、
-   * 次に動くツールが無ければ箱ごと閉じる (状態行の文言と重ならないよう空の箱は残さない) */
+  /* 入力欄の直上のライブ表示 (実行中のツール)。箱の出入りと行の出現を CSS が持ち、
+   * 表示条件と演出の意図は docs/frontend.md が正。行は最新の枠だけを出し (溢れた分は 1 行に畳む)、
+   * 箱は composer のフローへ参加しない (高さが動いてもチャットの最下部が動かない)。
+   * 視覚専用なのでクリックは通し、下のチャットをホイールでスクロールできるようにする */
   .live-tool {
     display: grid;
     grid-template-rows: 0fr;
     opacity: 0;
+    pointer-events: none;
     transition:
       grid-template-rows 180ms ease-out,
       opacity 180ms ease-out;
@@ -1027,28 +1058,18 @@
     grid-template-rows: 1fr;
     opacity: 1;
   }
+  /* 閉じは 1 段。行・箱・余白を同じ 180ms で畳み、不透明度だけ 120ms で先に落とす */
+  .live-tool[data-closing="true"] {
+    transition:
+      grid-template-rows 180ms ease-out,
+      opacity 120ms ease-out;
+  }
   .live-tool > * {
     min-height: 0;
     overflow: hidden;
   }
-  .live-tool-item {
-    display: grid;
-    grid-template-rows: 1fr;
-  }
-  .live-tool-item > * {
-    min-height: 0;
-    overflow: hidden;
-  }
-  .live-tool-item[data-leaving="false"] > * {
+  .live-tool-row {
     animation: live-tool-row-in 180ms ease-out;
-  }
-  /* 終わった行を最短表示時間のあいだ残している間は、開始のアニメーションを当て直さない。行が作り直されて
-   * もう一度薄く出ると、新しい行が増えたように見える。畳むときは data-done が外れて out 側が動く */
-  .live-tool-item[data-done="true"] > * {
-    animation: none;
-  }
-  .live-tool-item[data-leaving="true"] {
-    animation: live-tool-row-out 180ms ease-out forwards;
   }
   @keyframes live-tool-row-in {
     from {
@@ -1060,31 +1081,15 @@
       transform: translateY(0);
     }
   }
-  @keyframes live-tool-row-out {
-    from {
-      grid-template-rows: 1fr;
-      opacity: 1;
-    }
-    to {
-      grid-template-rows: 0fr;
-      opacity: 0;
-    }
-  }
   @media (prefers-reduced-motion: reduce) {
-    .live-tool {
+    /* 閉じる側の transition は .live-tool[data-closing="true"] が持つため、詳細度を揃えないと
+     * 上の .live-tool の transition: none が負ける (余白側 [data-live-closing] と同じ形にそろえる) */
+    .live-tool,
+    .live-tool[data-closing="true"] {
       transition: none;
     }
-    .live-tool-item[data-leaving="false"] > * {
+    .live-tool-row {
       animation: none;
-    }
-    /* 動きを止めるときは、animation を切って終端の見た目 (0fr / 透明) をその場で当てる。
-     * ここで見た目を作らないと、animationend が来ないぶん行が残って箱だけ開いたままになる */
-    .live-tool-item[data-leaving="true"] {
-      animation: none;
-      grid-template-rows: 0fr;
-    }
-    .live-tool-item[data-leaving="true"] > * {
-      opacity: 0;
     }
   }
 
