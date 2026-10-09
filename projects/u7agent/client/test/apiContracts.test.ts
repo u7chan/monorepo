@@ -4,8 +4,10 @@ import type { HistoryPage } from "../src/types";
 
 globalThis.location ??= { origin: "http://localhost" } as Location;
 const {
+  ApiError,
   deleteWebSearchApiKey,
   getWebSearchSettings,
+  isNotStoredError,
   putWebSearchApiKey,
   putWebSearchProvider,
   putWebSearchSettings,
@@ -56,6 +58,22 @@ test("全体停止の409は理由とHTTP statusを保つ", async (t) => {
     message: "サービスの状態が変わりました",
     status: 409,
   });
+});
+
+test("変更系の503は not_stored だけを、保存されていない失敗として区別する", async (t) => {
+  t.mock.method(globalThis, "fetch", async () =>
+    Response.json({ error: "DB に接続できません", state: "not_stored" }, { status: 503 }),
+  );
+  const failure = await putWebSearchSettings(true).then(
+    () => null,
+    (reason: unknown) => reason,
+  );
+  assert.ok(failure instanceof ApiError);
+  assert.equal(failure.state, "not_stored");
+  assert.equal(isNotStoredError(failure), true);
+  // state を持たない 503 と、ApiError でない失敗は区別しない
+  assert.equal(isNotStoredError(new ApiError("DB に接続できません", 503)), false);
+  assert.equal(isNotStoredError(Object.assign(new Error("DB に接続できません"), { status: 503 })), false);
 });
 
 test("履歴 API は初回にカーソルを送らず、取得したページを返す", async (t) => {

@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useState } from "react";
 import {
-  ApiError,
   deleteProviderApiKey,
   getModelsSettings,
   getRuntimeModels,
+  isNotStoredError,
   putModelAvailability,
   putProviderApiKey,
   putProviderMemo,
@@ -18,6 +18,7 @@ import {
   validateMemo,
   type MutationAction,
 } from "../lib/modelSettings";
+import { messageFor, mutationErrorNote } from "../lib/settingsResource";
 import type {
   Health,
   ModelMutationResponse,
@@ -26,10 +27,6 @@ import type {
   UpdateModelAvailabilityBody,
 } from "../types";
 import { createLoadingTracker, createRequestGate } from "./requestGate";
-
-function messageFor(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}
 
 export type ModelSettingsParams = {
   /** APIキーの変更後に composer のモデル候補を更新する (health は親が持つ) */
@@ -111,9 +108,7 @@ export function useModelSettings({ onRefreshHealth }: ModelSettingsParams) {
         await applyMutation(action, await run());
         return true;
       } catch (error) {
-        // 何も保存されなかった (503 not_stored / 400) ことを文言で区別する
-        const prefix = error instanceof ApiError && error.state === "not_stored" ? "変更は保存されていません。" : "";
-        setNote({ text: `${prefix}${messageFor(error)}`, error: true });
+        setNote({ text: mutationErrorNote(error, isNotStoredError(error)), error: true });
         return false;
       } finally {
         setSaving(null);
@@ -143,9 +138,7 @@ export function useModelSettings({ onRefreshHealth }: ModelSettingsParams) {
         await applyMutation("availability", response);
         return response;
       } catch (error) {
-        // 何も保存されなかった (503 not_stored / 400) ことを文言で区別する
-        const prefix = error instanceof ApiError && error.state === "not_stored" ? "変更は保存されていません。" : "";
-        setNote({ text: `${prefix}${messageFor(error)}`, error: true });
+        setNote({ text: mutationErrorNote(error, isNotStoredError(error)), error: true });
         return null;
       } finally {
         setSavingAvailability(false);
@@ -178,9 +171,7 @@ export function useModelSettings({ onRefreshHealth }: ModelSettingsParams) {
         setNote(mutationNote("memo", response, memo.trim().length === 0));
         return true;
       } catch (error) {
-        // 何も保存されなかった (503 not_stored / 400) ことを文言で区別する
-        const prefix = error instanceof ApiError && error.state === "not_stored" ? "変更は保存されていません。" : "";
-        setNote({ text: `${prefix}${messageFor(error)}`, error: true });
+        setNote({ text: mutationErrorNote(error, isNotStoredError(error)), error: true });
         return false;
       } finally {
         setSaving(null);

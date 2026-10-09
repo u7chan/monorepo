@@ -73,6 +73,11 @@ export class ApiError extends Error {
   }
 }
 
+/** 変更系の 503 だけが返す `state: "not_stored"`。何も保存されていないことを UI が区別できる */
+export function isNotStoredError(error: unknown): boolean {
+  return error instanceof ApiError && error.state === "not_stored";
+}
+
 // Vite dev は /api を 4317 へプロキシするため同一オリジンで扱える
 const client = hc<AppType>(location.origin);
 
