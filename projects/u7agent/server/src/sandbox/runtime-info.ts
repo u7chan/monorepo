@@ -73,7 +73,8 @@ export interface RuntimeProbeOptions {
 }
 
 /** バージョンらしい最初のトークン (数字 + ドット 1 つ以上) だけを返す。生の出力や内部パスは返さない */
-const VERSION_PATTERN = /\b(\d+(?:\.\d+){1,3})\b/;
+// `v` や `go` を特別扱いで剥がさないのは、allowlist の外の接頭辞や接頭辞なしの出力を取りこぼすため。
+const VERSION_PATTERN = /(?<![\d.])(\d+(?:\.\d+){1,3})/;
 
 const ARCH_NAMES: Record<string, string> = {
   x64: "x86_64",
