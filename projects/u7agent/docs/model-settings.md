@@ -1,6 +1,6 @@
-# 利用可能なモデルとプロバイダーAPIキーの設定（設定 → モデル）
+# 利用可能なモデルとプロバイダーAPIキーの設定
 
-設定 → モデルから、**モデル候補（選択リスト）**・**アプリ既定モデル**・**プロバイダーごとのAPIキーとメモ**を GUI で設定する。保存した内容はアプリデータの SQLite に残り（再起動後も使え）、SDK の非永続の runtime overlay と公開 state へ写して起動中のモデル候補へ反映する。プロバイダーの認証に `.env` の環境変数と `~/.pi/agent/auth.json` を使う経路はこれまでどおり使え、GUI はそれらを変更しない。
+設定 → モデル（`/settings/models`）から、**モデル候補（選択リスト）**・**アプリ既定モデル**・**プロバイダーごとのAPIキーとメモ**を GUI で設定する。保存した内容はアプリデータの SQLite に残り（再起動後も使え）、SDK の非永続の runtime overlay と公開 state へ写して起動中のモデル候補へ反映する。プロバイダーの認証に `.env` の環境変数と `~/.pi/agent/auth.json` を使う経路はこれまでどおり使え、GUI はそれらを変更しない。
 
 - 保存の正は **アプリ DB**（`provider_credentials` / `model_settings` / `provider_memos`）。SDK の runtime overlay は実効状態で、再起動で消える
 - APIキーの変更系は「DB を希望状態として先に確定」し、SDK への反映に失敗しても DB を戻さない（補償ロールバックを持たない）。反映できなかった変更は **degraded（保存済み・未反映）** として画面に出し、`resync` / 次回の変更 / 再起動で収束させる
@@ -13,8 +13,8 @@
 | --- | --- | --- |
 | 設定 → ランタイム（表示専用） | 環境診断 | 接続状態 / 実行環境 / 利用可能なコマンド / SDK バージョン |
 | 設定 → モデル（編集可） | モデルを選ぶ（`/settings/models`。既定）/ プロバイダー（`/settings/models/providers`）の 2 タブ | モデル候補の選択とアプリ既定モデル、provider ごとの認証状態、APIキーの登録・上書き・削除、メモの保存、再同期、カタログの利用可能数。モデル一覧の重複表示は持たない |
-| 設定 → コンテンツ生成（編集可）（`/settings/content`） | 画像 / 音声の生成設定 | コンテンツ生成の APIキー（画像 / 音声で共有）・画像モデル（[image-generation.md](image-generation.md#設定画面コンテンツ生成タブ)）・音声モデルとボイス（[speech-generation.md](speech-generation.md#設定画面コンテンツ生成タブ)） |
-| 設定 → Web 検索（編集可）（`/settings/web-search`） | 検索の実行時設定 | `web_search` の実行時トグル・既定 provider・provider ごとの APIキー（[web-search.md](web-search.md#実行時トグル設定--モデルの-web-検索タブ)） |
+| 設定 → コンテンツ生成（編集可）（`/settings/content`） | 画像 / 音声の生成設定 | コンテンツ生成の APIキー（画像 / 音声で共有）・画像モデル（[image-generation.md](image-generation.md#設定画面)）・音声モデルとボイス（[speech-generation.md](speech-generation.md#設定画面)） |
+| 設定 → Web 検索（編集可）（`/settings/web-search`） | 検索の実行時設定 | `web_search` の実行時トグル・既定 provider・provider ごとの APIキー（[web-search.md](web-search.md#実行時トグル)） |
 
 プロバイダーとカタログの表示はランタイム画面からモデル画面へ移した。ランタイム画面は `GET /api/runtime/models` を呼ばない。health に載せていたモデル診断（`runtimeDiagnostics`）は撤去し、SDK バージョンだけを health 直下の `versions` に残した。
 
@@ -186,7 +186,7 @@ CREATE TABLE IF NOT EXISTS provider_memos (
 | POST | `/api/settings/models/:provider/resync` | degraded の回復。body 無し |
 | POST | `/api/settings/models/catalog/refresh` | pi.dev の provider 別カタログを取り直す。body 無し。取得失敗でも 200 で、理由は `catalogError` にだけ載せる |
 
-`canSetApiKey` は SDK の `auth.apiKey.login` の有無で判定する（ambient / keyless provider は login を持たない）。詳細な DTO と応答は [api.md](api.md#利用可能なモデルとプロバイダーapiキー設定--モデル)。
+`canSetApiKey` は SDK の `auth.apiKey.login` の有無で判定する（ambient / keyless provider は login を持たない）。詳細な DTO と応答は [api.md](api.md#利用可能なモデルとプロバイダーapiキー)。
 
 ## クライアント
 
@@ -205,7 +205,7 @@ CREATE TABLE IF NOT EXISTS provider_memos (
   - 見出しの 1 行メタ（`利用可能 a / カタログ b`・`キー最終保存: …`・`最終使用: …`）は、認証バッジと同じ寸法のチップ（`client/src/components/model-settings/MetaChip.tsx`）で組む。チップの色は警告の有無にだけ使い、日時や件数の値では変えない（情報の種別ではなく、対処が要るかを見せる）
   - 未反映の案内文（`degradedNotice`）は、その詳細で実際に押せる回復操作に合わせる。カタログ外（`orphan`）の `apply` は resync API も 400 にするため [再同期] を案内せず、[削除] とカタログ復帰を案内する
 - メモ欄はキー入力とは別の `<form>` にした `<textarea rows={2} maxLength={500}>` と [メモを保存] で、Enter がキーの保存を走らせない。入力値は `provider.memo` が変わったときだけ同期し、dirty（`trim` 後の値が保存値と違う）のときだけ保存を有効にし、未保存の印を出す。保存に成功したら応答の `trim` 済みの値で入力値を戻す。メモの保存は SDK に触れないので health / カタログを取り直さず、進行中の `reload()` の応答で保存直後を上書きされないよう先行ロードの無効化だけ行う。`runtimeAvailable: false` のときは入力欄と保存を disable し、runtime 停止時の注意書きにメモも含める。カタログ外のメモだけの provider には「キーの登録はできません（メモは保存できます）」と案内し、キー入力は出さない
-- 画像と音声の設定は設定 → コンテンツ生成（`/settings/content`）が 1 画面で扱い、APIキーは共有する。操作と注意書きの詳細は [image-generation.md](image-generation.md#設定画面コンテンツ生成タブ) と [speech-generation.md](speech-generation.md#設定画面コンテンツ生成タブ)
+- 画像と音声の設定は設定 → コンテンツ生成（`/settings/content`）が 1 画面で扱い、APIキーは共有する。操作と注意書きの詳細は [image-generation.md](image-generation.md#設定画面) と [speech-generation.md](speech-generation.md#設定画面)
 - APIキーの登録後は health と `GET /api/runtime/models` を取り直し、入力欄のモデル候補とモデル数を追随させる。カタログの取得失敗は設定 API の表示を壊さず、両タブで別の注記として出す
 - 8 文字未満は保存前に同じ理由で止める（サーバーも 400）。モデルの選択・既定で使う語彙は「利用可能（available）」と「選択」の 2 語に統一する
 

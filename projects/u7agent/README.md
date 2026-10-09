@@ -37,7 +37,7 @@ pnpm dev   # サンドボックス + BFF + Vite をまとめて起動 → http:/
 設定できる変数の一覧と説明は [.env.example](.env.example) が正です（`cp .env.example .env` で読み込まれ、`.env` を読むのは BFF だけ）。サンドボックス側は [docs/sandbox-api.md](docs/sandbox-api.md)、BFF の待受とオリジンの契約は [docs/api.md](docs/api.md) を参照してください。
 
 - **利用可能なモデル**と**アプリ既定モデル**、プロバイダーAPIキーは起動後に **設定 → モデル** から設定するのが既定です（アプリのデータベースへ保存し、再起動せずにモデル候補へ反映します）。選択の入口は GUI に一本化したため、`PI_MODEL` / `PI_MODELS` / `PI_PROVIDER` は読みません（移行は [docs/model-settings.md](docs/model-settings.md)）
-- 作業フォルダごとの環境変数（**作業環境 → 環境変数**）は GUI から登録し、**変数**は平文で保存してエージェントの `bash` とサービスの両方から見え、**シークレット**は保存時に暗号化して**サービスの起動時だけ**注入します（エージェントの `bash` の env には入りません。master key は `U7AGENT_SECRET_MASTER_KEY` / `U7AGENT_SECRET_MASTER_KEY_FILE` でアプリ DB とは別経路。値の規則と残存リスクは [docs/secrets.md](docs/secrets.md#作業フォルダの環境変数作業環境--環境変数)）
+- 作業フォルダごとの環境変数（**作業環境 → 環境変数**）は GUI から登録し、**変数**は平文で保存してエージェントの `bash` とサービスの両方から見え、**シークレット**は保存時に暗号化して**サービスの起動時だけ**注入します（エージェントの `bash` の env には入りません。master key は `U7AGENT_SECRET_MASTER_KEY` / `U7AGENT_SECRET_MASTER_KEY_FILE` でアプリ DB とは別経路。値の規則と残存リスクは [docs/secrets.md](docs/secrets.md#作業フォルダの環境変数)）
 - ポートを変えると、プレビューの `localStorage` の保存領域も別になります。`pnpm dev` をもう 1 つ並行して起動するときはプレビュー以外のポートも分けてください（[docs/frontend.md](docs/frontend.md#開発フローと配信)）
 
 ## セキュリティ

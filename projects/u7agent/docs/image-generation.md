@@ -6,7 +6,7 @@
 - キーが有効（`content_settings` に行がある）ときだけ、モデルへ `generate_image` を見せる。未設定ならツール一覧に現れない
 - ツールは **BFF ローカル**（`server/src/image-tools.ts`）。サンドボックスのリモート定義ではなく、`createRemoteToolDefinitions` / `REMOTE_TOOL_NAMES` の外にあり、`PI_AGENT_TOOLS` の影響を受けない
 - 保存は `workspace.uploadFile({ dir, name })`。`dir` は root 相対で渡す（BFF がセッション cwd を前置する 1 段。`projects.ts` の cwd 解決とは混ぜない）
-- 設定画面は 設定 → コンテンツ生成（`/settings/content`）で操作する。API は [api.md](api.md#コンテンツ生成設定--モデルのコンテンツ生成タブ) を参照
+- 設定画面は 設定 → コンテンツ生成（`/settings/content`）で操作する。API は [api.md](api.md#コンテンツ生成) を参照
 
 ## モデルカタログ
 
@@ -131,7 +131,7 @@ SDK(pi-ai 1.0.3) の `openrouter-images` は `chat/completions` へ投げるが�
 
 残存リスクは model-settings と同様で、キーはアプリ DB に平文で残る。ログイン認証のない BFF を LAN / インターネットへ公開しない。
 
-## 設定画面（コンテンツ生成タブ）
+## 設定画面
 
 設定 → コンテンツ生成（`/settings/content`）。表示の正は `client/src/lib/contentSettings.ts` の純関数、取得と操作は `client/src/hooks/useContentSettings.ts`、描画は `client/src/components/content-settings/ContentSettingsTab.tsx` に閉じる。
 
@@ -167,7 +167,7 @@ SDK(pi-ai 1.0.3) の `openrouter-images` は `chat/completions` へ投げるが�
 
 - 変更系の応答は GET と同じ形 + `state: "applied"`。SDK への反映が無いため `applied_unsynced` は無い。DB 書込に失敗したときだけ 503 `{ error, state: "not_stored" }`
 - キー登録の既定は provider `openrouter` / model `openai/gpt-image-2`（直後に画面から変更できる）
-- 詳細と例は [api.md](api.md#コンテンツ生成設定--モデルのコンテンツ生成タブ)
+- 詳細と例は [api.md](api.md#コンテンツ生成)
 
 ## テスト
 

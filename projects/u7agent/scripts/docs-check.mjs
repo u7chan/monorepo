@@ -6,6 +6,7 @@
  *  - リンクの #anchor が参照先の見出しに存在する
  *  - 本文中の `client/src/...` などのパスが実在する
  *  - ソースのコメントにある `docs/xxx.md#anchor` の参照先が実在する
+ *  - 見出しに UI の階層 (`設定 → 通知`) を書かない (見出しがアンカーの正のため)
  *  - フロントエンドの docs が行数予算に収まっている
  *
  * 検査しない: 文が「振る舞いが変わらない変更で書き換えが要る」内容かどうか (review で判断する)。
@@ -94,12 +95,14 @@ function hasHeading(file, anchor) {
   return headingCache.get(file).has(anchor);
 }
 
+/** fenced code block と複数行のコード span を落とす (中身の記法は本文ではない)。 */
+function withoutCodeBlocks(text) {
+  return text.replace(/^```[\s\S]*?^```/gm, "").replace(/``[\s\S]*?``/g, "");
+}
+
 /** コード例の中の記法は参照ではないので、リンク検査の前に落とす。 */
 function proseOf(text) {
-  return text
-    .replace(/^```[\s\S]*?^```/gm, "")
-    .replace(/``[\s\S]*?``/g, "")
-    .replace(/`[^`\n]*`/g, "");
+  return withoutCodeBlocks(text).replace(/`[^`\n]*`/g, "");
 }
 
 /**
@@ -133,6 +136,12 @@ function checkFile(file) {
   for (const [, token] of text.matchAll(/`([^`\n]+)`/g)) {
     if (!pathPattern.test(token) || pathAllowlist.has(token)) continue;
     if (!existsSync(join(root, token))) errors.push(`${shown}: パスがない → ${token}`);
+  }
+
+  // 見出しはアンカーとして外部から参照される。UI の階層を書くと、階層が変わるたびにリンクが死ぬ。
+  // 見出しの中の単一のコード span は見出しの一部なので、コードブロックと複数行のコード span だけを外して判定する
+  for (const [, heading] of withoutCodeBlocks(text).matchAll(/^#{1,6}[ \t]+(.*)$/gm)) {
+    if (heading.includes("→")) errors.push(`${shown}: 見出しに「→」を書かない → ${heading}`);
   }
 
   const budget = DOC_LINE_BUDGET[shown];

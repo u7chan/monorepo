@@ -112,7 +112,7 @@ APIキーは画像と**同じ 1 つを共有**する（`content_settings.apiKey`
 - 音声のモデル / ボイスとして保存された値が、同じ行の APIキーと一致・包含するときは未設定として扱う。実行時のマスカーの状態に依存させないためで、ランタイムなしで起動したとき（マスカーが値を見ない構成）も GET・成功応答・実行時解決のどこにもその値を出さない。`400` の文言へ入力を反射するときも（どの値が不正かという形は残して）伏せ字にする
 - 音声の要求は BFF 内で完結し、キーはサンドボックスへ渡らない。詳細は [secrets.md](secrets.md#保護対象)
 
-## 設定画面（コンテンツ生成タブ）
+## 設定画面
 
 画像と同じ画面に音声のセクションを置く（provider の見出しとキー欄は共有）。表示の正は `client/src/lib/contentSettings.ts` の純関数、取得と操作は `client/src/hooks/useContentSettings.ts`、描画は `client/src/components/content-settings/ContentSettingsTab.tsx` に閉じる。
 
@@ -131,7 +131,7 @@ APIキーは画像と**同じ 1 つを共有**する（`content_settings.apiKey`
 
 - `GET /api/settings/content` の `speech` は `model` / `voice` / `models`（`voices` を含む）/ `catalogSource` / `fetchedAt`。`models` は live が取得できれば live、できなければ前回の一覧、どちらも無ければ同梱の 1 件
 - 400: 行が無い、`catalogSource` が `live` / `stored` でカタログ外のモデル、宣言があるモデルで宣言外のボイス（`default` のときは照合しない）
-- 変更系の応答は GET と同じ形 + `state: "applied"`。DB 書込に失敗したときだけ 503 `{ error, state: "not_stored" }`。詳細と例は [api.md](api.md#コンテンツ生成設定--モデルのコンテンツ生成タブ)
+- 変更系の応答は GET と同じ形 + `state: "applied"`。DB 書込に失敗したときだけ 503 `{ error, state: "not_stored" }`。詳細と例は [api.md](api.md#コンテンツ生成)
 
 ## テスト
 
