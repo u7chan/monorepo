@@ -1,6 +1,5 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useState } from "react";
 import {
-  ApiError,
   deleteContentApiKey,
   getContentSettings,
   putContentApiKey,
@@ -22,12 +21,9 @@ import {
   type ContentSavingAction,
 } from "../lib/contentSettings";
 import { validateApiKey } from "../lib/modelSettings";
+import { messageFor } from "../lib/settingsResource";
 import type { ContentSettingsResponse, UpdateContentImageBody, UpdateContentSpeechBody } from "../types";
-import { createLoadingTracker, createRequestGate } from "./requestGate";
-
-function messageFor(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}
+import { useSettingsResource } from "./useSettingsResource";
 
 /**
  * 設定 → モデル（コンテンツ生成タブ）の state と操作。GET はこの画面を開いたときだけ取り、
@@ -35,65 +31,27 @@ function messageFor(error: unknown): string {
  * SDK への認証反映を持たないため、health / カタログの再取得は通さない。
  */
 export function useContentSettings() {
-  const [settings, setSettings] = useState<ContentSettingsResponse | null>(null);
-  const [note, setNote] = useState<{ text: string; error: boolean }>({ text: CONTENT_SETTINGS_NOTE, error: false });
-  const [saving, setSaving] = useState<ContentSavingAction | null>(null);
-  const [reloading, setReloading] = useState(false);
   /** 音声の表示が server の実効値と一致しているか。再取得後の確認に失敗すると false になり、保存を止める */
   const [speechSynced, setSpeechSynced] = useState(true);
-  const [beginLoad] = useState(createRequestGate);
-  // 破棄された取得でも進行中を解除するため、適用の可否とは別に追う
-  const [reloadTracker] = useState(() => createLoadingTracker(setReloading));
-
-  const reload = useCallback(async (): Promise<void> => {
-    const canApply = beginLoad();
-    const finishReload = reloadTracker.begin();
-    try {
-      const next = await getContentSettings();
-      if (!canApply()) return;
-      setSettings(next);
-      setSpeechSynced(true);
-      setNote({ text: CONTENT_SETTINGS_NOTE, error: false });
-    } catch (error) {
-      if (canApply()) {
-        setNote({ text: `コンテンツ生成の設定を読み込めませんでした。${messageFor(error)}`, error: true });
-      }
-    } finally {
-      finishReload();
-    }
-  }, [beginLoad, reloadTracker]);
-
-  useEffect(() => {
-    void reload();
-  }, [reload]);
-
-  const runMutation = useCallback(
-    async (
-      action: ContentSavingAction,
-      successNote: string,
-      run: () => Promise<ContentSettingsResponse>,
-    ): Promise<boolean> => {
-      setSaving(action);
-      try {
-        const response = await run();
-        // 進行中の読み込みの応答で、いま適用した応答を上書きさせない
-        beginLoad();
-        setSettings(response);
-        // 変更系の応答は server の現在値なので、音声の表示も同期済みにする
-        setSpeechSynced(true);
-        setNote({ text: successNote, error: false });
-        return true;
-      } catch (error) {
-        // 何も保存されなかった (503 not_stored / 400) ことを文言で区別する
-        const prefix = error instanceof ApiError && error.state === "not_stored" ? "変更は保存されていません。" : "";
-        setNote({ text: `${prefix}${messageFor(error)}`, error: true });
-        return false;
-      } finally {
-        setSaving(null);
-      }
-    },
-    [beginLoad],
-  );
+  // 読み込み / 変更の応答は server の現在値なので、音声の表示も同期済みにする
+  const markSpeechSynced = useCallback(() => setSpeechSynced(true), []);
+  const {
+    settings,
+    note,
+    saving,
+    reloading,
+    reload,
+    runMutation,
+    setSettings,
+    setNote,
+    setSaving,
+    invalidatePendingLoads,
+  } = useSettingsResource<ContentSettingsResponse, ContentSavingAction>({
+    defaultNote: CONTENT_SETTINGS_NOTE,
+    loadErrorLabel: "コンテンツ生成の設定を読み込めませんでした。",
+    load: getContentSettings,
+    onApply: markSpeechSynced,
+  });
 
   const saveKey = useCallback(
     async (apiKey: string): Promise<boolean> => {
@@ -104,7 +62,7 @@ export function useContentSettings() {
       }
       return runMutation("key", CONTENT_KEY_SAVED_NOTE, () => putContentApiKey(apiKey));
     },
-    [runMutation],
+    [runMutation, setNote],
   );
 
   const removeKey = useCallback(
@@ -126,13 +84,13 @@ export function useContentSettings() {
 
   /**
    * モデル一覧の再取得。設定は変わらないので、一覧と出どころだけを差し替える
-   * （GET と同じ形の応答を待っている別の読み込みに上書きさせないため、beginLoad で無効化する）。
+   * （GET と同じ形の応答を待っている別の読み込みに上書きさせないため、invalidatePendingLoads で無効化する）。
    */
   const refreshCatalog = useCallback(async (): Promise<boolean> => {
     setSaving("catalog");
     try {
       const response = await refreshImageCatalog();
-      beginLoad();
+      invalidatePendingLoads();
       setSettings((previous) =>
         previous === null
           ? previous
@@ -154,7 +112,7 @@ export function useContentSettings() {
     } finally {
       setSaving(null);
     }
-  }, [beginLoad]);
+  }, [invalidatePendingLoads, setNote, setSaving, setSettings]);
 
   /**
    * 音声モデル一覧の再取得。形も失敗の扱いも画像と同じだが、一覧の並びが変わると NULL ボイスの
@@ -165,7 +123,7 @@ export function useContentSettings() {
     setSaving("speech-catalog");
     try {
       const response = await requestSpeechCatalogRefresh();
-      beginLoad();
+      invalidatePendingLoads();
       let current: ContentSettingsResponse | null = null;
       try {
         current = await getContentSettings();
@@ -173,7 +131,7 @@ export function useContentSettings() {
         // 一覧は取れているので、選べる候補だけを新しいものへ差し替える（下で同期状態を落とす）
       }
       const synced = speechSyncedAfterRefresh(speechSynced, response, current);
-      beginLoad();
+      invalidatePendingLoads();
       setSettings((previous) => speechSettingsAfterRefresh(previous, response, current));
       setSpeechSynced(synced);
       setNote(
@@ -188,7 +146,7 @@ export function useContentSettings() {
     } finally {
       setSaving(null);
     }
-  }, [beginLoad, speechSynced]);
+  }, [invalidatePendingLoads, setNote, setSaving, setSettings, speechSynced]);
 
   return {
     settings,
