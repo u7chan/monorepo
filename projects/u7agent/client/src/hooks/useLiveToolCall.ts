@@ -57,8 +57,10 @@ export function useLiveToolCall({
     const tracker = known !== null && !switched ? known.tracker : initialLiveTracker(runTools);
     const next = trackLiveHolds(tracker, { rows: state.rows, allRows: state.allRows, liveIds, now: at });
     trackerRef.current = { key: sessionId, tracker: next.tracker };
-    // 新しいツールが動き出したら畳みをやめる (タイマーの後始末は畳みの effect が持つ)
-    if (state.visible) setClosing(false);
+    // 新しいツールが動き出したら、あるいは畳みはじめに新しい行が現れたら畳みをやめる。後者を state.visible
+    // だけで見ると、開始と終了が同じ描画にまとまった行 (実行中として一度も出ない) を 900ms のホールドごと
+    // 畳んでしまう (タイマーの後始末は畳みの effect が持つ)
+    if (state.visible || next.holds.length > 0) setClosing(false);
     if (switched) {
       setHeld([]);
       setClosing(false);

@@ -1043,11 +1043,13 @@
 
   /* 入力欄の直上のライブ表示 (実行中のツール)。箱の出入りと行の出現を CSS が持ち、
    * 表示条件と演出の意図は docs/frontend.md が正。行は最新の枠だけを出し (溢れた分は 1 行に畳む)、
-   * 箱は composer のフローへ参加しない (高さが動いてもチャットの最下部が動かない) */
+   * 箱は composer のフローへ参加しない (高さが動いてもチャットの最下部が動かない)。
+   * 視覚専用なのでクリックは通し、下のチャットをホイールでスクロールできるようにする */
   .live-tool {
     display: grid;
     grid-template-rows: 0fr;
     opacity: 0;
+    pointer-events: none;
     transition:
       grid-template-rows 180ms ease-out,
       opacity 180ms ease-out;
@@ -1080,7 +1082,10 @@
     }
   }
   @media (prefers-reduced-motion: reduce) {
-    .live-tool {
+    /* 閉じる側の transition は .live-tool[data-closing="true"] が持つため、詳細度を揃えないと
+     * 上の .live-tool の transition: none が負ける (余白側 [data-live-closing] と同じ形にそろえる) */
+    .live-tool,
+    .live-tool[data-closing="true"] {
       transition: none;
     }
     .live-tool-row {

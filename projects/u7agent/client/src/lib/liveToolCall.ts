@@ -194,11 +194,18 @@ export type LiveToolWindow = {
 
 /**
  * 箱に出す行を最新の枠まで切り、溢れた件数を返す。実行中の行とホールド中の行は同じ箱に並ぶため、
- * id で重複を落として (実行中を優先) 走査順に並べ、古い行から枠を落とす。
+ * id で重複を落として (実行中を優先) 走査順に並べる。**実行中の行は必ず残し、残りの枠を新しい
+ * 完了行で埋める** (いま動いているものを見せるのがライブ表示の目的で、並列実行でも消さない)。
+ * 並列が枠を超えるときだけ古い実行中の行を落とす (箱を予約した高さに収めるため)。
  */
 export function liveToolWindow(running: readonly LiveToolRow[], held: readonly LiveToolRow[]): LiveToolWindow {
-  const byId = new Map(held.map((row) => [row.id, row]));
-  for (const row of running) byId.set(row.id, row);
-  const ordered = [...byId.values()].sort((a, b) => a.index - b.index);
-  return { rows: ordered.slice(-LIVE_ROW_SLOTS), hidden: Math.max(0, ordered.length - LIVE_ROW_SLOTS) };
+  const runningIds = new Set(running.map((row) => row.id));
+  const byIndex = (a: LiveToolRow, b: LiveToolRow) => a.index - b.index;
+  const shownRunning = [...running].sort(byIndex).slice(-LIVE_ROW_SLOTS);
+  const rest = [...held].filter((row) => !runningIds.has(row.id)).sort(byIndex);
+  const room = Math.max(0, LIVE_ROW_SLOTS - shownRunning.length);
+  // slice(-0) は全件になるため、枠が無いときは明示的に落とす
+  const shownHeld = room === 0 ? [] : rest.slice(-room);
+  const rows = [...shownRunning, ...shownHeld].sort(byIndex);
+  return { rows, hidden: running.length + rest.length - rows.length };
 }

@@ -252,6 +252,36 @@ test("実行中の行とホールド中の行は走査順に並べ、同じ行�
   );
 });
 
+test("枠が埋まっていても実行中の行は残し、残りの枠を新しい完了行で埋める", () => {
+  // 並列実行では完了行の index が大きくなるため、走査順の末尾だけを取ると実行中の行が窓から消える
+  const running = { id: "t1", index: 1, summary: "investigate — docs を調べて", done: false };
+  const held = [2, 3, 4, 5].map((index) => ({
+    id: `t${index}`,
+    index,
+    summary: `read — file-${index}.md`,
+    done: true,
+  }));
+  const window = liveToolWindow([running], held);
+  assert.deepEqual(
+    window.rows.map((row) => row.id),
+    ["t1", "t4", "t5"],
+    "実行中の行を先に確保し、残りの枠は新しい完了行で埋める",
+  );
+  assert.equal(window.rows[0].done, false, "実行中の行は実行中のまま出す");
+  assert.equal(window.hidden, 2, "枠から落ちた件数は「…他 N 件」に使う");
+
+  // 並列が枠を超えるときだけ、古い実行中の行から落とす (箱を予約した高さに収める)
+  const parallel = liveToolWindow(
+    [1, 2, 3, 4].map((index) => ({ id: `r${index}`, index, summary: `bash — run ${index}`, done: false })),
+    [{ id: "h5", index: 5, summary: "read — e.md", done: true }],
+  );
+  assert.deepEqual(
+    parallel.rows.map((row) => row.id),
+    ["r2", "r3", "r4"],
+  );
+  assert.equal(parallel.hidden, 2);
+});
+
 test("ホールドが切れるまで箱を開き、全部切れたら閉じはじめる", () => {
   const row = { id: "t1", index: 1, summary: "bash — ls", done: true };
   const hold = { row, holdUntilMs: 1_900 };

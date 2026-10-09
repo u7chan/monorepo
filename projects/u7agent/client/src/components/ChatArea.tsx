@@ -371,7 +371,8 @@ export function ChatArea({
       <ScrollToBottomButton
         visible={!follow && items.length > 0}
         onClick={snapToBottom}
-        className="absolute bottom-4 left-1/2 -translate-x-1/2"
+        // 浮かせたライブ表示 (z-10) より上へ出す。箱が開いている間も押せるようにするため
+        className="absolute bottom-4 left-1/2 z-20 -translate-x-1/2"
       />
     </div>
   );
