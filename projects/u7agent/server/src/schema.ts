@@ -1,7 +1,7 @@
 /** API 契約の正。DTO のフィールド名と optional の扱いは client と揃える。 */
 import { z } from "zod";
 import { WEB_SEARCH_PROVIDER_IDS } from "./web-search-providers";
-import type { SandboxRuntimeCommand, SandboxRuntimeEnvironment } from "./sandbox/protocol";
+import type { SandboxLandlockStatus, SandboxRuntimeCommand, SandboxRuntimeEnvironment } from "./sandbox/protocol";
 import type { SecretKind } from "./secret-crypto";
 
 export const SpaceSchema = z.object({ id: z.string(), name: z.string(), createdAt: z.number() });
@@ -833,6 +833,12 @@ export const SandboxRuntimeInfoSchema = z.object({
     workspace: z.string(),
   }),
   commands: z.array(z.object({ name: z.string(), version: z.string().nullable() })),
+  landlock: z.object({
+    state: z.enum(["enabled", "unavailable"]),
+    abi: z.number().nullable(),
+    minAbi: z.number(),
+    reason: z.enum(["wrapper_missing", "unsupported", "abi_unsupported", "probe_failed"]).optional(),
+  }),
 });
 
 /**
@@ -840,11 +846,16 @@ export const SandboxRuntimeInfoSchema = z.object({
  * 文言ではなく `state` で分岐する。共通の項目は `sandbox/protocol.ts` の型をそのまま使う。
  */
 export type RuntimeEnvironmentResponse =
-  | { state: "connected"; environment: SandboxRuntimeEnvironment; commands: SandboxRuntimeCommand[] }
+  | {
+      state: "connected";
+      environment: SandboxRuntimeEnvironment;
+      commands: SandboxRuntimeCommand[];
+      landlock: SandboxLandlockStatus;
+    }
   | { state: Exclude<RuntimeEnvironmentState, "connected"> };
 
 /** クライアントへ配るため、ワイヤ契約の共通項目も schema 経由で再 export する */
-export type { SandboxRuntimeCommand, SandboxRuntimeEnvironment };
+export type { SandboxLandlockStatus, SandboxRuntimeCommand, SandboxRuntimeEnvironment };
 
 /** client/src/types.ts の Health に加え、ルート固有のフィールドを optional で許容する。 */
 export const HealthSchema = z.object({

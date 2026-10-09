@@ -11,9 +11,11 @@ import {
   type SandboxFilePreview,
   type SandboxFileUpload,
   type SandboxGitInfo,
+  type SandboxListenerScan,
   type SandboxRenameResult,
   type SandboxRuntimeInfo,
   type SandboxSkillsResponse,
+  type SandboxWriteScopeEntry,
 } from "./protocol";
 
 export interface SandboxToolClientOptions {
@@ -23,6 +25,8 @@ export interface SandboxToolClientOptions {
   fetchImpl?: typeof fetch;
   /** テストで短くできる診断専用の期限 (既定 8s) */
   runtimeInfoTimeoutMs?: number;
+  /** テストで短くできる待受観測の期限 (既定 5s) */
+  listenerScanTimeoutMs?: number;
 }
 
 /**
@@ -54,10 +58,21 @@ export class SandboxRuntimeError extends Error {
  */
 export const SANDBOX_RUNTIME_INFO_TIMEOUT_MS = 8000;
 
+/**
+ * 待受観測 (`GET /v1/procs/listeners`) の期限。実測 0.06〜0.08 秒で、停止・起動確認がサンドボックス側の
+ * 停止で待ち続けないようにする (serve の操作は直列化されており、待ちは後続の操作を詰まらせる)。
+ */
+export const SANDBOX_LISTENER_SCAN_TIMEOUT_MS = 5000;
+
 export interface SandboxExecuteInput {
   toolCallId?: string;
   params: unknown;
   cwd?: string;
+  /**
+   * この実行だけの書き込み許可 root (root 相対)。BFF 内部実行 (serve) が指定する。
+   * 省略時はエージェントの bash として要求 cwd から導出される。
+   */
+  writeScope?: SandboxWriteScopeEntry[];
   /**
    * この実行の子プロセスへ足す環境変数。作業フォルダの「変数」と、serve 起動時の「変数 + シークレット」が届く。
    * 値は params (ツール引数) やコマンド文字列には混ぜず、リクエストの別フィールドとして送る。
@@ -110,6 +125,7 @@ export function createSandboxToolClient(options: SandboxToolClientOptions): Sand
   const token = options.token.trim();
   const fetchImpl = options.fetchImpl ?? fetch;
   const runtimeInfoTimeoutMs = options.runtimeInfoTimeoutMs ?? SANDBOX_RUNTIME_INFO_TIMEOUT_MS;
+  const listenerScanTimeoutMs = options.listenerScanTimeoutMs ?? SANDBOX_LISTENER_SCAN_TIMEOUT_MS;
   if (!baseUrl || !token) {
     throw new Error("Sandbox tool client requires baseUrl and token");
   }
@@ -137,6 +153,7 @@ export function createSandboxToolClient(options: SandboxToolClientOptions): Sand
     rawFile: (path, options) => rawFile(path, options, baseUrl, token, fetchImpl),
     downloadEntry: (path, excludeNames) => downloadEntry(path, excludeNames, baseUrl, token, fetchImpl),
     checkDownload: (path, excludeNames) => checkDownload(path, excludeNames, baseUrl, token, fetchImpl),
+    scanListeners: (port, options) => scanListeners(port, options, baseUrl, token, fetchImpl, listenerScanTimeoutMs),
   };
 }
 
@@ -171,6 +188,11 @@ export interface SandboxToolClient extends SandboxRuntimeDiagnostics {
   downloadEntry(path: string, excludeNames: readonly string[]): Promise<SandboxDownloadFile>;
   /** download と同じ走査の見積り（除外名 / 合計サイズ / エントリ数）。上限超過は 413 で拒否される */
   checkDownload(path: string, excludeNames: readonly string[]): Promise<SandboxDownloadCheck>;
+  /**
+   * 指定ポートの待受 inode と、`scan: true` のときだけ所有 PID を返す。serve の所有者照合が使う。
+   * bash 実行は Landlock の ptrace 制限で他ドメインの `/proc/<pid>/fd` を読めないため、service 本体が走査する。
+   */
+  scanListeners(port: number, options: { scan: boolean }): Promise<SandboxListenerScan>;
 }
 
 /** /api/files とプロジェクト作成・アップロードが使うサンドボックス機能 (テストはこれを stub に差し替える)。 */
@@ -192,10 +214,15 @@ export type SandboxWorkspaceClient = Pick<
 
 /**
  * serve の記録の読み書きと起動・停止が使うサンドボックス機能。workspace のスタブへ execute を
- * 要求しないよう型を分ける (docs/sandbox.md の「新しいサンドボックス API は追加しない」方針で、
- * 使うのは既存のツール実行だけ)。
+ * 要求しないよう型を分ける。使うのは既存のツール実行と、待受プロセスの観測だけ。
  */
 export type SandboxExecClient = Pick<SandboxToolClient, "execute">;
+
+/** 待受プロセスの観測 (serve の所有者照合) が使うサンドボックス機能 */
+export type SandboxProcessScanClient = Pick<SandboxToolClient, "scanListeners">;
+
+/** serve が使うサンドボックス機能。実行と観測の両方を満たすものを注入する */
+export type SandboxServeClient = SandboxExecClient & SandboxProcessScanClient;
 
 /**
  * status は BFF がそのまま応答に使うステータス。サンドボックス由来の 4xx (不正パス・不存在) は透過し、
@@ -272,6 +299,47 @@ async function getGitInfo(
   );
   if (!response.ok) throw await jsonError(response, "git 情報を取得できませんでした");
   return (await response.json()) as SandboxGitInfo;
+}
+
+/**
+ * 待受ソケットと所有 PID の観測。`scan` は停止と起動の確認でだけ true にする (重い fd 走査を避ける)。
+ * 期限は接続と本文の両方に掛ける: fetch や本文読み取りが signal を無視する実装でも待ち続けない。
+ */
+async function scanListeners(
+  port: number,
+  options: { scan: boolean },
+  baseUrl: string,
+  token: string,
+  fetchImpl: typeof fetch,
+  timeoutMs: number,
+): Promise<SandboxListenerScan> {
+  const controller = new AbortController();
+  let rejectTimeout: ((error: Error) => void) | undefined;
+  const timeout = new Promise<never>((_resolve, reject) => {
+    rejectTimeout = reject;
+  });
+  const timer = setTimeout(() => {
+    controller.abort();
+    rejectTimeout?.(new Error("サンドボックスの待受観測がタイムアウトしました"));
+  }, timeoutMs);
+  try {
+    const query = new URLSearchParams({ port: String(port), scan: String(options.scan) });
+    const response = await Promise.race([
+      fetchJson(
+        fetchImpl,
+        `${baseUrl}/v1/procs/listeners?${query.toString()}`,
+        { headers: jsonHeaders(token), signal: controller.signal },
+        baseUrl,
+      ),
+      timeout,
+    ]);
+    if (!response.ok) {
+      throw await Promise.race([jsonError(response, "待受プロセスの観測に失敗しました"), timeout]);
+    }
+    return await Promise.race([response.json() as Promise<SandboxListenerScan>, timeout]);
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 async function listSkills(
@@ -624,7 +692,13 @@ async function execute(
           "Content-Type": "application/json",
           Accept: "application/x-ndjson",
         },
-        body: JSON.stringify({ toolCallId: input.toolCallId, params: input.params, cwd: input.cwd, env: input.env }),
+        body: JSON.stringify({
+          toolCallId: input.toolCallId,
+          params: input.params,
+          cwd: input.cwd,
+          writeScope: input.writeScope,
+          env: input.env,
+        }),
         signal: controller.signal,
       });
     } catch (error) {

@@ -434,6 +434,9 @@ test("appendSystemPrompt は作業ディレクトリとファイル / スキル�
   assert.match(prompt, /registered project directory/);
   assert.match(prompt, /scratch directory/);
   assert.match(prompt, /relative to the working directory/);
+  // bash の書き込みは許可 root の外で EACCES になる。リダイレクトではなく write / edit を使わせる
+  assert.match(prompt, /writes elsewhere fail with `EACCES`/);
+  assert.match(prompt, /Use the `write` \/ `edit` tools instead of shell redirection/);
   assert.match(
     prompt,
     /When summarizing files, refer to files inside the working directory by cwd-relative path, but use their absolute paths for files under `\/workspace\/\.agents\/skills`; a cwd-relative path there points somewhere else\./,

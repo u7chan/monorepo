@@ -10,6 +10,7 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 // プレビュー オリジンは専用モジュール、サービス オリジンの公開ポートは preview-port.ts が正
 import { resolveDevFilePreviewPort } from "../server/src/file-preview-port.ts";
+import { installLandlockWrapper } from "./install-landlock.mjs";
 // Node 24 の型ストリッピングで .ts をそのまま読む (ポートの検証を JS 側へ写すと二重管理になる)
 import { resolvePreviewPort, resolveServiceListenPort, SERVE_LISTEN_PORT } from "../server/src/preview-port.ts";
 
@@ -161,6 +162,13 @@ async function main() {
   log(`作業領域: ${APP_CWD}`);
   if (process.env.PI_SANDBOX_CWD) {
     log(`PI_SANDBOX_CWD は使わず、BFF と同じ ${APP_CWD} をサンドボックスへ渡します`);
+  }
+  // ラッパーが無いとサンドボックスは bash を実行しない (fail-closed)。許可 root の外へ配置する
+  try {
+    const installed = await installLandlockWrapper({ log: (message) => log(message) });
+    if (!installed.python) log("python3 が見つかりません。bash の実行には python3 が必要です");
+  } catch (error) {
+    log(`Landlock ラッパーを配置できませんでした (${error.message})。bash は実行できません`);
   }
   log(`サンドボックスを起動します (http://127.0.0.1:${SANDBOX_PORT})`);
   // シークレットの master key は BFF だけが使う。サンドボックスのプロセス env から外し、

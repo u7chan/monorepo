@@ -6,6 +6,7 @@ import type {
   Health,
   RuntimeEnvironmentResponse,
   RuntimeEnvironmentState,
+  SandboxLandlockStatus,
   SandboxRuntimeCommand,
   SandboxRuntimeEnvironment,
 } from "../types";
@@ -122,7 +123,10 @@ export function runtimeEnvironmentStatusRow(state: RuntimeEnvironmentState): Run
 }
 
 /** connected のときに出す実行環境の行 */
-export function runtimeEnvironmentRows(environment: SandboxRuntimeEnvironment): RuntimeInfoRow[] {
+export function runtimeEnvironmentRows(
+  environment: SandboxRuntimeEnvironment,
+  landlock: SandboxLandlockStatus,
+): RuntimeInfoRow[] {
   return [
     { label: "OS", value: environment.os },
     { label: "アーキテクチャ", value: environment.arch },
@@ -132,7 +136,37 @@ export function runtimeEnvironmentRows(environment: SandboxRuntimeEnvironment): 
       note: environment.isRoot ? RUNTIME_ROOT_USER_NOTE : undefined,
     },
     { label: "ワークスペース", value: environment.workspace },
+    runtimeLandlockRow(landlock),
   ];
+}
+
+/** Landlock の状態行。ABI と適用可否だけを出し、ラッパーのパスや内部エラーは出さない */
+export function runtimeLandlockRow(landlock: SandboxLandlockStatus): RuntimeInfoRow {
+  if (landlock.state === "enabled") {
+    return {
+      label: "Landlock",
+      value: `有効（ABI ${landlock.abi ?? "不明"}）`,
+      note: "bash の作成・書き込み・削除は許可 root の外で EACCES になります。",
+    };
+  }
+  return {
+    label: "Landlock",
+    value: "利用不可",
+    note: `${runtimeLandlockReason(landlock)}。bash は実行できません。`,
+  };
+}
+
+function runtimeLandlockReason(landlock: SandboxLandlockStatus): string {
+  switch (landlock.reason) {
+    case "wrapper_missing":
+      return "ラッパーが見つかりません（pnpm dev が配置します）";
+    case "unsupported":
+      return "カーネルが Landlock に対応していません（Linux 6.2 以上が必要です）";
+    case "abi_unsupported":
+      return `ABI ${landlock.abi ?? "不明"} は ${landlock.minAbi} 未満です（Linux 6.2 以上が必要です）`;
+    default:
+      return "診断に失敗しました";
+  }
 }
 
 export function runtimeStoreStatus(store: Health["sessionStore"]): string {
@@ -256,9 +290,10 @@ function environmentLines(environment: RuntimeFetchState<RuntimeEnvironmentRespo
   if (environment.status === "loading") return [RUNTIME_ENVIRONMENT_LOADING];
   if (environment.status === "error") return [inline(`${RUNTIME_ENVIRONMENT_ERROR_LEAD}${environment.message}`)];
   if (environment.value.state !== "connected") return [rowLine(runtimeEnvironmentStatusRow(environment.value.state))];
-  return [runtimeEnvironmentStatusRow("connected"), ...runtimeEnvironmentRows(environment.value.environment)].map(
-    rowLine,
-  );
+  return [
+    runtimeEnvironmentStatusRow("connected"),
+    ...runtimeEnvironmentRows(environment.value.environment, environment.value.landlock),
+  ].map(rowLine);
 }
 
 function commandLines(environment: RuntimeFetchState<RuntimeEnvironmentResponse>): string[] {

@@ -37,6 +37,7 @@ const CONNECTED: RuntimeEnvironmentResponse = {
     workspace: "/workspace",
   },
   commands: [{ name: "curl", version: "8.14.1" }],
+  landlock: { state: "enabled", abi: 6, minAbi: 3 },
 };
 
 interface Deferred<T> {
@@ -270,6 +271,7 @@ test("一括コピー本文は画面と同じ見出し・値・注記を markdow
       "- アーキテクチャ: x86_64",
       "- 実行ユーザー: node（非 root）",
       "- ワークスペース: /workspace",
+      "- Landlock: 有効（ABI 6）（bash の作成・書き込み・削除は許可 root の外で EACCES になります。）",
       "",
       "## 利用可能なコマンド",
       "- curl: 8.14.1",
@@ -340,6 +342,7 @@ test("root 実行とコマンドなしとバージョン不明をそのままコ
         state: "connected",
         environment: { os: "Debian", arch: "aarch64", user: "root", isRoot: true, workspace: "/workspace" },
         commands: [{ name: "xz", version: null }],
+        landlock: { state: "unavailable", abi: null, minAbi: 3, reason: "wrapper_missing" },
       },
     },
   });
@@ -347,11 +350,15 @@ test("root 実行とコマンドなしとバージョン不明をそのままコ
   assert.ok(text.includes("- 実行ユーザー: root（root）"));
   assert.ok(text.includes("（root で動いています。コンテナ外への影響を避けるため、非 root 実行を推奨します。）"));
   assert.ok(text.includes("- xz: バージョン不明"));
+  assert.ok(text.includes("- Landlock: 利用不可（ラッパーが見つかりません"));
 
   const empty = runtimeDiagnosticText({
     health: HEALTH,
     healthFailed: false,
-    environment: { status: "ready", value: { state: "connected", environment: CONNECTED.environment, commands: [] } },
+    environment: {
+      status: "ready",
+      value: { state: "connected", environment: CONNECTED.environment, commands: [], landlock: CONNECTED.landlock },
+    },
   });
   assert.ok(empty.includes("検出できたコマンドはありません。"));
   assert.ok(!empty.includes("実際に検出できたコマンドだけを表示します。"), "行が無いときは注記も出さない");
@@ -367,6 +374,7 @@ test("値の改行は空白へ畳み、コピー本文の行構造を壊さな�
         state: "connected",
         environment: { os: "Debian", arch: "x86_64", user: "node", isRoot: false, workspace: "/w" },
         commands: [{ name: "bash", version: "5.2.37\n(extra)" }],
+        landlock: CONNECTED.landlock,
       },
     },
   });

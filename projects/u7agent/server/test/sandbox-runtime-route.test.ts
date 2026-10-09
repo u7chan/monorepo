@@ -7,7 +7,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import { createSandboxService } from "../src/sandbox/service";
-import type { SandboxRuntimeInfo } from "../src/sandbox/protocol";
+import type { SandboxRuntimeProbeResult } from "../src/sandbox/runtime-info";
 
 const TOKEN = "runtime-route-token-0123456789abcdef";
 const HAS_SH = existsSync("/bin/sh");
@@ -21,13 +21,14 @@ test("serves the runtime info only with a valid token and keeps /healthz public"
   const service = createSandboxService({
     token: TOKEN,
     rootCwd: root,
-    probeRuntimeInfo: async (workspaceRoot): Promise<SandboxRuntimeInfo> => ({
+    probeRuntimeInfo: async (workspaceRoot): Promise<SandboxRuntimeProbeResult> => ({
       environment: { os: "Test OS 1.0", arch: "x86_64", user: "tester", isRoot: false, workspace: workspaceRoot },
       commands: [
         { name: "curl", version: "8.14.1" },
         { name: "node", version: null },
       ],
     }),
+    probeLandlock: async () => ({ state: "enabled", abi: 4, minAbi: 3 }),
   });
 
   const unauthorized = await service.app.request("/v1/runtime/info");
@@ -55,6 +56,7 @@ test("serves the runtime info only with a valid token and keeps /healthz public"
       { name: "curl", version: "8.14.1" },
       { name: "node", version: null },
     ],
+    landlock: { state: "enabled", abi: 4, minAbi: 3 },
   });
 });
 
@@ -82,7 +84,7 @@ test("detects the real workspace without running a fake command from the workspa
   const service = createSandboxService({ token: TOKEN, rootCwd: root });
   const response = await service.app.request("/v1/runtime/info", { headers: authHeaders() });
   assert.equal(response.status, 200);
-  const info = (await response.json()) as SandboxRuntimeInfo;
+  const info = (await response.json()) as SandboxRuntimeProbeResult;
   assert.equal(info.environment.workspace, root);
   assert.equal(
     info.commands.some((command) => command.name === "bash" && command.version === "9.9.9"),

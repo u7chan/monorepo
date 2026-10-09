@@ -3,7 +3,8 @@
  * (記録 / 待受 PID) を仮想的に持つ。実スクリプトの文言を変えたらここも追随させる。
  */
 import type { ServeCommandRow } from "../src/app-db";
-import type { SandboxExecClient } from "../src/sandbox/client";
+import type { SandboxServeClient } from "../src/sandbox/client";
+import type { SandboxWriteScopeEntry } from "../src/sandbox/protocol";
 import type { ServeCommandStore, ServeProbe, ServeSessionLookup } from "../src/serve";
 
 export interface ServeSandboxState {
@@ -36,15 +37,19 @@ export interface ServeSandboxState {
   writes: number;
   /** fd 走査つきの観測回数 (状態表示では増えない) */
   scans: number;
+  /** 待受観測を失敗させる残り回数 (期限切れの写像とロック解放の検証に使う) */
+  scanFailures: number;
   /** サンドボックス側の失敗を再現する (印を返さない) */
   fail: boolean;
 }
 
 export interface ServeSandboxStub {
-  sandbox: SandboxExecClient;
+  sandbox: SandboxServeClient;
   state: ServeSandboxState;
   /** execute に渡された cwd (作業領域の読み書きは root で行う) */
   cwds: string[];
+  /** execute に渡された writeScope (内部実行は要求 cwd から導出させない) */
+  scopes: (readonly SandboxWriteScopeEntry[] | undefined)[];
 }
 
 /** スクリプトに埋め込まれた base64 を取り出す (launch は workdir → command の順に埋め込む) */
@@ -69,13 +74,16 @@ export function createServeSandboxStub(): ServeSandboxStub {
     killed: [],
     writes: 0,
     scans: 0,
+    scanFailures: 0,
     fail: false,
     killWorks: true,
   };
   const cwds: string[] = [];
-  const sandbox: SandboxExecClient = {
+  const scopes: (readonly SandboxWriteScopeEntry[] | undefined)[] = [];
+  const sandbox: SandboxServeClient = {
     execute: async (_tool, input) => {
       cwds.push(input.cwd ?? "");
+      scopes.push(input.writeScope);
       if (state.fail) throw new Error("サンドボックスのツール実行が失敗しました (HTTP 500)");
       const { command } = (input.params ?? {}) as { command?: string };
       const script = command ?? "";
@@ -113,20 +121,29 @@ export function createServeSandboxStub(): ServeSandboxStub {
         state.writes += 1;
         return { content: [{ type: "text", text: "serve:ok\n" }] };
       }
-      // 観測スクリプト。fd 走査つきの観測 (SCAN = true) だけが listener / ancestors を返す
-      const scan = script.includes("const SCAN = true;");
-      if (scan) state.scans += 1;
-      const lines: string[] = [];
-      lines.push(`inodes\t${(state.listener ? state.listener.inodes : state.orphanInodes).join(" ")}`);
-      if (scan && state.listener) {
-        lines.push(`listener\t${state.listener.pid}\t${state.listener.startedAt}`);
-        lines.push(`ancestors\t${state.listener.ancestors.join(" ")}`);
+      // 稼働記録の読み取り (待受ソケットと PID は scanListeners が返す)
+      if (script.includes("readFileSync") && script.includes("state.json")) {
+        const record = state.stateFile ? `record\t${state.stateFile}\n` : "";
+        return { content: [{ type: "text", text: `${record}serve:ok\n` }] };
       }
-      if (state.stateFile) lines.push(`record\t${state.stateFile}`);
-      return { content: [{ type: "text", text: `${lines.join("\n")}\nserve:ok\n` }] };
+      throw new Error(`unexpected serve script: ${script.slice(0, 64)}`);
+    },
+    // 待受ソケットの inode は常に返し、fd 走査つき (scan) のときだけ listener / ancestors を返す
+    scanListeners: async (_port, { scan }) => {
+      if (state.scanFailures > 0) {
+        state.scanFailures -= 1;
+        throw new Error("サンドボックスの待受観測が失敗しました (HTTP 500)");
+      }
+      if (state.fail) throw new Error("サンドボックスの待受観測が失敗しました (HTTP 500)");
+      if (scan) state.scans += 1;
+      const listener = state.listener;
+      return {
+        inodes: listener ? [...listener.inodes] : [...state.orphanInodes],
+        listener: scan && listener ? { ...listener, inodes: [...listener.inodes] } : null,
+      };
     },
   };
-  return { sandbox, state, cwds };
+  return { sandbox, state, cwds, scopes };
 }
 
 /** 記録を直接置く (コンテナ再作成後や、生の bash で起動された状態の再現) */

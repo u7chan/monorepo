@@ -35,19 +35,21 @@
 - 要求 cwd の lexical 形（`resolve(PI_SANDBOX_CWD, リクエスト cwd)`）。workspace root や登録プロジェクトが symlink のとき、system prompt に出る `Current working directory` の形の絶対パスでも書けるようにするため
 - `<root>/.agents/skills`（未所属でも所属でも書ける。所属セッションのプロジェクトスキルは cwd 配下なので 1 つ目の root に含まれる）
 
-判定はサンドボックス（`server/src/sandbox/service.ts` の `registryFor`）が担う。SDK が `resolveToCwd` で解決した絶対パスを `resolve()` で `..` まで畳んで比較し、realpath / `lstat` は使わない（BFF に二重実装しない）。write は `mkdir` と `writeFile`、edit は `access` / `readFile` / `writeFile` のすべてが同じ判定を通り、write の `mkdir` を先に許すと拒否パスでも workdir 外に親ディレクトリができるため `mkdir` でも拒否する。
+判定はサンドボックス（`server/src/sandbox/service.ts` の `registryFor`）が担う。SDK が `resolveToCwd` で解決した絶対パスを `resolve()` で `..` まで畳み、**実在する候補は `realpath` で解決した実パスと許可 root の実パスを比較する**（root 内を指す symlink は通す）。未作成の候補は最も深い実在祖先の realpath で判定し、壊れた symlink は拒否する（未作成の許可 root は lexical の収まりも見る。BFF に二重実装しない）。**許可 root の実パスは判定のたびに解決し直し、結果をキャッシュしない**（未作成の root を最寄りの実在祖先で固定すると、後から symlink に置き換えられたときに root 外の実パスを内側と誤認する）。write は `mkdir` と `writeFile`、edit は `access` / `readFile` / `writeFile` のすべてが同じ判定を通り、write の `mkdir` を先に許すと拒否パスでも workdir 外に親ディレクトリができるため `mkdir` でも拒否する。
 
 拒否は HTTP 200 の `error` イベントとして返し（404 / 400 は使わない）、文言に許可場所（実行 cwd の絶対パスと `<root>/.agents/skills`）と cwd 相対の再試行例（`cafe.html`）を含める。`cwd` 自体の検証（実在しない・ディレクトリ以外・root 外）は従来どおり実行前の 400 / 404 のままで、モデルのツールエラーにはならない（[sandbox-api.md](sandbox-api.md#post-v1toolstoolexecute)）。
 
-- `read` / `grep` / `find` / `ls` / `bash` は変えない。`read` は添付（`<appdir>/uploads/<id>`）・ファイルスキル・pi docs を読むため広いままにする。`bash` のリダイレクトは原理的に塞げない（`echo x > /workspace/cafe.html`）
-- 対象外: 他セッションのスクラッチ、workdir を除く `.u7agent` 配下（添付は BFF が `POST /v1/files/upload` で書く）、他プロジェクト、`<appdir>/builtin-skills/**`、workspace root 直下（下記の永続化なしの縮退を除く）
-- 作業ディレクトリ内の既存 symlink / 壊れた symlink 経由の脱出は検知しない（判定が lexical のため。実行隔離として別に扱う）
+- `read` / `grep` / `find` / `ls` は変えない。`read` は添付（`<appdir>/uploads/<id>`）・ファイルスキル・pi docs を読むため広いままにする。`bash` はこのファイルツールのポリシーでは絞らないが、**Landlock で書き込みを作業ディレクトリ・共通スキル・`/tmp`・ホームのキャッシュ・デバイスファイルに限る**（`bash` のリダイレクトも同じ制限を受ける。[sandbox.md](sandbox.md#パスと並行実行)）
+- 対象外: 他会話のスクラッチ、workdir を除く `.u7agent` 配下（添付は BFF が `POST /v1/files/upload` で書く）、他プロジェクト、`<appdir>/builtin-skills/**`、workspace root 直下（下記の永続化なしの縮退を除く）
+- 作業ディレクトリ内の symlink は実パスで判定する。root 内を指すリンクは通し、root 外を指すリンク（壊れたリンクを含む）は拒否する
 - worktree はアプリが作らない。`git worktree add` しただけの未登録ディレクトリは作業ディレクトリではないため、そのパスへの `write` / `edit` は拒否される。切った worktree をプロジェクトとして登録し、新しいセッションを作る既存フローでカバーする
 - 会話の永続化が無効（`PI_SESSION_STORE` 未設定）の未所属は `workdirOf` が root（`""`）を返すため、境界は workspace root だけになる。分岐は足さず、root 直下への `write` / `edit` は通る（root 外だけを拒否する縮退）
 
 ## 実行時の隔離ではない
 
-プロジェクトは**実行時の隔離ではない**。cwd はツールのパス解決の起点を変えるだけで、サンドボックス内のファイル・ポート・プロセスは全セッションで共有される（bash がある以上、未所属セッションから他プロジェクトのディレクトリも操作できる）。`write` / `edit` の書き込み範囲（[前節](#write--edit-の書き込み範囲)）も同じで、モデルの取り違えを防ぐファイルツールのポリシーであり、実行隔離ではない。隔離が必要になった時点でコンテナ・データ領域分離として別に設計する。
+プロジェクトは**実行時の完全な隔離ではない**。cwd はツールのパス解決の起点を変え、**`write` / `edit` とエージェントの `bash`（とその子プロセス）の書き込み範囲を同じ作業ディレクトリへ閉じ込める**（[前節](#write--edit-の書き込み範囲)）が、読み取り・ポート・プロセスは全セッションで共有される。同じプロジェクトの複数セッションは cwd を共有するため互いのファイルは壊せ、`/tmp` と `/dev/shm` も共有される。読み取りを制限しないため、他会話のスクラッチや他プロジェクトの内容を `read` / `bash` から見ることはできる。プロセス・ユーザー分離が必要になった時点でコンテナ・データ領域分離として別に設計する。
+
+Landlock の保証範囲と残りの限界（`chmod` / `chown` / `utime` / `setxattr` は制限できない、ABI 4 では device ioctl が対象外など）は [sandbox.md の残存リスク](sandbox.md#残存リスク)を正とする。dev は `PI_SESSION_STORE` 未設定だと未所属 cwd が root になり、この境界が workspace root まで広がる縮退になるため、書き込み制限を検証するときは store を設定する。
 
 ツール実行はリクエストごとの `cwd`（root 相対）を受け取り、サンドボックスが root 配下の実在ディレクトリへ解決してから、その実パス（write / edit の許可 root も定義に焼き込むため、要求 cwd の lexical 形との組）ごとに生成・キャッシュしたツール定義で実行する。`..` や symlink で root の外へ出る指定は 400。この検証も cwd の起点を決めるだけで、サンドボックスが読める範囲を絞るものではない。
 

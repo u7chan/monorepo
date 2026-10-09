@@ -166,9 +166,11 @@ export function RuntimePage({
             ) : environmentState.value.state === "connected" ? (
               <dl className="grid gap-2 text-xs sm:grid-cols-2">
                 <EnvironmentStatusItem state="connected" />
-                {runtimeEnvironmentRows(environmentState.value.environment).map((row) => (
-                  <InfoItem key={row.label} {...row} />
-                ))}
+                {runtimeEnvironmentRows(environmentState.value.environment, environmentState.value.landlock).map(
+                  (row) => (
+                    <InfoItem key={row.label} {...row} />
+                  ),
+                )}
               </dl>
             ) : (
               <EnvironmentStatusItem state={environmentState.value.state} />

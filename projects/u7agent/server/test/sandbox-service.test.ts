@@ -8,6 +8,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import { createSandboxService } from "../src/sandbox/service";
+import { LANDLOCK_MIN_ABI, resolveLandlockWrapper } from "../src/sandbox/landlock";
 import {
   SANDBOX_MAX_FILE_ENTRIES,
   type SandboxErrorEvent,
@@ -17,7 +18,21 @@ import {
 
 const TOKEN = "test-sandbox-token-0123456789abcdef";
 const HAS_BASH = existsSync("/bin/bash");
-const SKIP_REASON = "bash is not available on this platform";
+/** 解決済みのラッパー。テスト中に HOME を差し替えても同じ実体を使う */
+const LANDLOCK_WRAPPER = resolveLandlockWrapper();
+/**
+ * bash の実行には Landlock ラッパーの同梱と ABI 3 以上が必要 (使えない環境ではサンドボックスが実行を拒否する)。
+ * ローカルでは HAS_BASH と同じ作法で skip し、CI は Dockerfile の probe で検査する。
+ */
+const HAS_LANDLOCK = (() => {
+  if (!LANDLOCK_WRAPPER) return false;
+  const probe = spawnSync(LANDLOCK_WRAPPER, ["--abi"], { encoding: "utf8" });
+  return probe.status === 0 && Number.parseInt(probe.stdout, 10) >= LANDLOCK_MIN_ABI;
+})();
+const CAN_RUN_BASH = HAS_BASH && HAS_LANDLOCK;
+const SKIP_REASON = HAS_BASH
+  ? "Landlock (ABI 3+) is not available on this platform"
+  : "bash is not available on this platform";
 const HAS_FD = (() => {
   for (const name of ["fd", "fdfind"]) {
     const probe = spawnSync(name, ["--version"], { stdio: "pipe" });
@@ -97,6 +112,18 @@ function eventText(payload: unknown): string {
   return content.map((part) => (part.type === "text" ? (part.text ?? "") : "")).join("");
 }
 
+/** bash を 1 回実行し、結果のテキスト (失敗時は error イベントの文言) を返す */
+async function bashText(
+  app: ReturnType<typeof createSandboxService>["app"],
+  command: string,
+  body: Record<string, unknown> = {},
+): Promise<string> {
+  const executed = await executeTool(app, "bash", { params: { command }, ...body });
+  const result = executed.events.find((event) => event.type === "result");
+  if (result) return eventText((result as { payload: unknown }).payload);
+  return errorEvent(executed.events)?.message ?? "";
+}
+
 test("healthz is public and reports tools without secrets", async () => {
   const service = createSandboxService({ token: TOKEN, rootCwd: join(tmpdir(), "pi-sbx-health") });
   const response = await service.app.request("/healthz");
@@ -123,7 +150,7 @@ test("rejects unauthenticated requests to /v1/*", async () => {
   assert.equal(unknown.status, 404);
 });
 
-test("executes bash and streams start/update/result events", { skip: !HAS_BASH && SKIP_REASON }, async () => {
+test("executes bash and streams start/update/result events", { skip: !CAN_RUN_BASH && SKIP_REASON }, async () => {
   const root = mkdtempSync(join(tmpdir(), "pi-sbx-bash-"));
   const service = createSandboxService({ token: TOKEN, rootCwd: root });
   const response = await service.app.request("/v1/tools/bash/execute", {
@@ -174,7 +201,7 @@ test("read tool returns file content from the sandbox filesystem", async () => {
   assert.match(eventText((result as { payload: unknown }).payload), /sample-body/);
 });
 
-test("cancels a running execution via the cancel endpoint", { skip: !HAS_BASH && SKIP_REASON }, async () => {
+test("cancels a running execution via the cancel endpoint", { skip: !CAN_RUN_BASH && SKIP_REASON }, async () => {
   const root = mkdtempSync(join(tmpdir(), "pi-sbx-cancel-"));
   const service = createSandboxService({ token: TOKEN, rootCwd: root });
   const began = Date.now();
@@ -224,7 +251,7 @@ test("cancels a running execution via the cancel endpoint", { skip: !HAS_BASH &&
 
 test(
   "sandbox bash does not expose the shared token or session env to child processes",
-  { skip: !HAS_BASH && SKIP_REASON },
+  { skip: !CAN_RUN_BASH && SKIP_REASON },
   async () => {
     const root = mkdtempSync(join(tmpdir(), "pi-sbx-env-"));
     const service = createSandboxService({ token: TOKEN, rootCwd: root });
@@ -257,7 +284,7 @@ test(
 
 test(
   "exec の env は bash の子プロセスへ入り、予約名や不正な名前は 400 で拒否する",
-  { skip: !HAS_BASH && SKIP_REASON },
+  { skip: !CAN_RUN_BASH && SKIP_REASON },
   async () => {
     const root = mkdtempSync(join(tmpdir(), "pi-sbx-inject-"));
     const service = createSandboxService({ token: TOKEN, rootCwd: root });
@@ -306,6 +333,149 @@ test(
     }
   },
 );
+
+test(
+  "bash の書き込みは cwd・共通スキル・/tmp に限られ、root 直下と他会話へ届かない",
+  { skip: !CAN_RUN_BASH && SKIP_REASON },
+  async () => {
+    // ルートを /tmp の下に置くと /tmp の許可で全部通ってしまうため、/var/tmp を使う
+    const root = mkdtempSync(join("/var/tmp", "pi-sbx-landlock-"));
+    const scratch = ".u7agent/sessions/aaaa111111";
+    const other = ".u7agent/sessions/bbbb222222";
+    await mkdir(join(root, scratch), { recursive: true });
+    await mkdir(join(root, other), { recursive: true });
+    await writeFile(join(root, "level.txt"), "root", "utf8");
+    await writeFile(join(root, other, "keep.txt"), "keep", "utf8");
+    const service = createSandboxService({ token: TOKEN, rootCwd: root });
+
+    // 許可 root の外は作成・書き込み・削除・rename・truncate・mkdir・symlink のどれも EACCES になる
+    // (子プロセスの `sh` へも Landlock は継承される)
+    for (const command of [
+      `touch ${root}/created.txt`,
+      `echo x > ${root}/level.txt`,
+      `rm -f ${root}/level.txt`,
+      `mv ${root}/${other}/keep.txt ${root}/${other}/renamed.txt`,
+      `: > ${root}/${other}/keep.txt`,
+      `mkdir ${root}/newdir`,
+      `ln -s /etc/passwd ${root}/evil-link`,
+      `sh -c "touch ${root}/nested.txt"`,
+    ]) {
+      const text = await bashText(service.app, `${command} 2>/dev/null && echo allowed || echo denied`, {
+        cwd: scratch,
+      });
+      assert.match(text, /denied/, command);
+    }
+    assert.equal(await readFile(join(root, "level.txt"), "utf8"), "root");
+    assert.equal(await readFile(join(root, other, "keep.txt"), "utf8"), "keep");
+    for (const created of ["created.txt", "newdir", "evil-link", "nested.txt"]) {
+      assert.equal(existsSync(join(root, created)), false, created);
+    }
+
+    // 基準集合 (cwd・共通スキル・/tmp) とデバイスファイルへの書き込みは通る。
+    // ラッパーの制御変数は子へ残さず、rename / truncate / 子プロセスへの継承も同じ範囲で効く
+    for (const command of [
+      `echo cwd > ${root}/${scratch}/cwd.txt`,
+      `mv ${root}/${scratch}/cwd.txt ${root}/${scratch}/cwd-moved.txt`,
+      `: > ${root}/${scratch}/cwd-moved.txt`,
+      `mkdir -p ${root}/.agents/skills/demo && echo skill > ${root}/.agents/skills/demo/SKILL.md`,
+      'f=$(mktemp) && echo tmp > "$f" && rm -f "$f"',
+      `sh -c "echo nested > ${root}/${scratch}/nested.txt"`,
+      `echo device > /dev/null`,
+      'test -z "$(env | grep U7AGENT_LANDLOCK || true)"',
+    ]) {
+      const text = await bashText(service.app, `${command} 2>/dev/null && echo allowed || echo denied`, {
+        cwd: scratch,
+      });
+      assert.match(text, /allowed/, command);
+    }
+    assert.equal(await readFile(join(root, scratch, "cwd-moved.txt"), "utf8"), "");
+    assert.equal(await readFile(join(root, scratch, "nested.txt"), "utf8"), "nested\n");
+    assert.match(await readFile(join(root, ".agents/skills/demo/SKILL.md"), "utf8"), /skill/);
+  },
+);
+
+test("bash はホーム配下のキャッシュへ書ける", { skip: !CAN_RUN_BASH && SKIP_REASON }, async () => {
+  const home = mkdtempSync(join(tmpdir(), "pi-sbx-landlock-home-"));
+  const root = mkdtempSync(join(tmpdir(), "pi-sbx-landlock-cache-"));
+  const previousHome = process.env.HOME;
+  process.env.HOME = home;
+  try {
+    // HOME を差し替えてもラッパーは解決済みの実体を渡す (探索先も HOME 配下になるため)
+    const service = createSandboxService({
+      token: TOKEN,
+      rootCwd: root,
+      resolveLandlockExec: () => LANDLOCK_WRAPPER,
+    });
+    for (const dir of [".cache/pi-sbx", ".npm/pi-sbx", ".local/share/pnpm/pi-sbx"]) {
+      const command = `mkdir -p "$HOME/${dir}" && echo x > "$HOME/${dir}/cache.txt"`;
+      const text = await bashText(service.app, `${command} 2>/dev/null && echo allowed || echo denied`);
+      assert.match(text, /allowed/, dir);
+    }
+    assert.equal(await readFile(join(home, ".cache/pi-sbx/cache.txt"), "utf8"), "x\n");
+    assert.equal(await readFile(join(home, ".npm/pi-sbx/cache.txt"), "utf8"), "x\n");
+  } finally {
+    process.env.HOME = previousHome;
+  }
+});
+
+test(
+  "実行 API の writeScope は root 内の宣言だけを受け付け、その範囲に閉じ込める",
+  { skip: !CAN_RUN_BASH && SKIP_REASON },
+  async () => {
+    // ルートを /tmp の下に置くと /tmp の許可で全部通ってしまうため、/var/tmp を使う
+    const root = mkdtempSync(join("/var/tmp", "pi-sbx-landlock-scope-"));
+    await mkdir(join(root, "sub"));
+    const service = createSandboxService({ token: TOKEN, rootCwd: root });
+    // BFF 内部実行を模して cwd は root のまま、scope だけを sub にする
+    const text = await bashText(
+      service.app,
+      `echo x > ${root}/sub/ok.txt && ! echo y > ${root}/denied.txt && echo scoped`,
+      { writeScope: [{ path: "sub" }] },
+    );
+    assert.match(text, /scoped/);
+    assert.equal(await readFile(join(root, "sub/ok.txt"), "utf8"), "x\n");
+    assert.equal(existsSync(join(root, "denied.txt")), false);
+
+    for (const writeScope of [[{ path: "../outside" }], [{ path: "sub", create: "yes" }], [{ path: 1 }], "sub"]) {
+      const bad = await executeTool(service.app, "bash", { params: { command: "echo hi" }, writeScope });
+      assert.equal(bad.status, 400, JSON.stringify(writeScope));
+    }
+  },
+);
+
+test("ラッパーが無い・ABI が古い環境では bash を実行せず、error イベントで失敗する", async () => {
+  const root = mkdtempSync(join(tmpdir(), "pi-sbx-landlock-missing-"));
+  const marker = join(root, "ran");
+  const cases = [
+    {
+      exec: () => undefined,
+      status: { state: "unavailable", abi: null, minAbi: LANDLOCK_MIN_ABI, reason: "wrapper_missing" },
+      message: /ラッパーが見つかりません/,
+    },
+    {
+      // ラッパーはあるが ABI が古い (実行時はラッパー自身も拒否するが、入口の文言を固定する)
+      exec: () => "/bin/true",
+      status: { state: "unavailable", abi: 2, minAbi: LANDLOCK_MIN_ABI, reason: "abi_unsupported" },
+      message: /Landlock ABI 2/,
+    },
+  ] as const;
+  for (const { exec, status, message } of cases) {
+    const service = createSandboxService({
+      token: TOKEN,
+      rootCwd: root,
+      resolveLandlockExec: () => exec(),
+      probeLandlock: async () => status,
+    });
+    const executed = await executeTool(service.app, "bash", { params: { command: `touch ${marker}` } });
+    assert.equal(executed.status, 200, "サービスは起動し、NDJSON の error で返す");
+    const error = errorEvent(executed.events);
+    assert.ok(error, status.reason);
+    assert.match(error.message, /bash を実行できません/);
+    assert.match(error.message, message);
+    assert.ok(!executed.events.some((event) => event.type === "result"));
+    assert.equal(existsSync(marker), false, "無制限の bash へは落ちない");
+  }
+});
 
 test("unknown tool and invalid params return 4xx", async () => {
   const root = mkdtempSync(join(tmpdir(), "pi-sbx-invalid-"));
@@ -684,6 +854,104 @@ test(
   },
 );
 
+test(
+  "cwd 内の外部向け symlink への write / edit は拒否し、root 内を指す symlink は通す",
+  { skip: !HAS_SYMLINK && SYMLINK_SKIP_REASON },
+  async () => {
+    const root = mkdtempSync(join(tmpdir(), "pi-sbx-write-link-escape-"));
+    const outside = mkdtempSync(join(tmpdir(), "pi-sbx-write-link-outside-"));
+    const scratch = ".u7agent/sessions/aaaa111111";
+    await mkdir(join(root, scratch, "inside-dir"), { recursive: true });
+    await writeFile(join(outside, "secret.txt"), "secret", "utf8");
+    await symlink(outside, join(root, scratch, "outside-dir"));
+    await symlink(join(outside, "secret.txt"), join(root, scratch, "outside-file"));
+    await symlink(join(outside, "missing.txt"), join(root, scratch, "broken-link"));
+    await symlink(join(root, scratch, "inside-dir"), join(root, scratch, "inside-link"));
+    const service = createSandboxService({ token: TOKEN, rootCwd: root });
+
+    for (const [tool, params] of [
+      ["write", { path: "outside-dir/new.txt", content: "x" }],
+      ["write", { path: "outside-file", content: "x" }],
+      ["edit", { path: "outside-file", edits: [{ oldText: "secret", newText: "x" }] }],
+      ["write", { path: "broken-link", content: "x" }],
+    ] as const) {
+      const denied = await executeTool(service.app, tool, { params, cwd: scratch });
+      assert.equal(denied.status, 200, `${tool} ${JSON.stringify(params)}`);
+      assert.ok(errorEvent(denied.events), `${tool} ${JSON.stringify(params)}`);
+    }
+    assert.equal(await readFile(join(outside, "secret.txt"), "utf8"), "secret");
+    assert.equal(existsSync(join(outside, "new.txt")), false);
+
+    // root 内を指す symlink は正当な別名として通す
+    const allowed = await executeTool(service.app, "write", {
+      params: { path: "inside-link/ok.txt", content: "ok" },
+      cwd: scratch,
+    });
+    assert.ok(allowed.events.some((event) => event.type === "result"));
+    assert.equal(await readFile(join(root, scratch, "inside-dir", "ok.txt"), "utf8"), "ok");
+
+    // pnpm の node_modules のように symlink を挟むパスも編集できる
+    const packageDir = join(root, scratch, "node_modules/.pnpm/pkg@1.0.0/node_modules/pkg");
+    await mkdir(packageDir, { recursive: true });
+    await writeFile(join(packageDir, "index.js"), "before", "utf8");
+    await symlink(packageDir, join(root, scratch, "node_modules/pkg"));
+    const edited = await executeTool(service.app, "edit", {
+      params: { path: "node_modules/pkg/index.js", edits: [{ oldText: "before", newText: "after" }] },
+      cwd: scratch,
+    });
+    assert.ok(edited.events.some((event) => event.type === "result"));
+    assert.equal(await readFile(join(packageDir, "index.js"), "utf8"), "after");
+  },
+);
+
+test(
+  "未作成の共通スキル置き場へ後から symlink を置いても write / edit は拒否する",
+  { skip: !CAN_RUN_BASH && SKIP_REASON },
+  async () => {
+    const root = mkdtempSync(join(tmpdir(), "pi-sbx-skills-link-"));
+    const scratch = ".u7agent/sessions/aaaa111111";
+    const victim = ".u7agent/sessions/bbbb222222";
+    await mkdir(join(root, scratch), { recursive: true });
+    await mkdir(join(root, victim), { recursive: true });
+    await writeFile(join(root, victim, "victim.txt"), "original", "utf8");
+    const service = createSandboxService({ token: TOKEN, rootCwd: root });
+
+    // `.agents` が無い状態で write する (以前はここで共通スキル root の実在祖先が固定された)
+    const warm = await executeTool(service.app, "write", {
+      params: { path: "warmup.txt", content: "warm" },
+      cwd: scratch,
+    });
+    assert.ok(warm.events.some((event) => event.type === "result"));
+    assert.equal(existsSync(join(root, ".agents")), false);
+
+    // bash が `.agents/skills` を作り、他会話を指す symlink を置く
+    const linked = await executeTool(service.app, "bash", {
+      params: { command: `ln -s ${join(root, victim)} ${join(root, ".agents", "skills", "escape")}` },
+      cwd: scratch,
+    });
+    assert.ok(linked.events.some((event) => event.type === "result"));
+    assert.equal(lstatSync(join(root, ".agents", "skills", "escape")).isSymbolicLink(), true);
+
+    for (const [tool, params] of [
+      ["write", { path: join(root, ".agents", "skills", "escape", "victim.txt"), content: "pwned" }],
+      [
+        "edit",
+        {
+          path: join(root, ".agents", "skills", "escape", "victim.txt"),
+          edits: [{ oldText: "original", newText: "pwned" }],
+        },
+      ],
+      ["write", { path: join(root, ".agents", "skills", "escape", "new.txt"), content: "new" }],
+    ] as const) {
+      const denied = await executeTool(service.app, tool, { params, cwd: scratch });
+      assert.equal(denied.status, 200, `${tool} ${JSON.stringify(params)}`);
+      assert.ok(errorEvent(denied.events), `${tool} ${JSON.stringify(params)}`);
+    }
+    assert.equal(await readFile(join(root, victim, "victim.txt"), "utf8"), "original");
+    assert.equal(existsSync(join(root, victim, "new.txt")), false);
+  },
+);
+
 test("dirs endpoint creates nested directories and treats an existing one as success", async () => {
   const root = mkdtempSync(join(tmpdir(), "pi-sbx-dirs-"));
   const service = createSandboxService({ token: TOKEN, rootCwd: root });
@@ -728,7 +996,7 @@ test("dirs endpoint rejects a path outside the workspace", { skip: !HAS_SYMLINK 
   assert.equal((await createDir(service.app, "file.txt")).status, 400);
 });
 
-test("close aborts all running executions", { skip: !HAS_BASH && SKIP_REASON }, async () => {
+test("close aborts all running executions", { skip: !CAN_RUN_BASH && SKIP_REASON }, async () => {
   const root = mkdtempSync(join(tmpdir(), "pi-sbx-close-"));
   const service = createSandboxService({ token: TOKEN, rootCwd: root });
   Promise.resolve(

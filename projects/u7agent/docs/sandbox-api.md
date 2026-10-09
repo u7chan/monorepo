@@ -6,6 +6,7 @@ BFF が作業用ツール（`read` / `bash` / `edit` / `write` / `grep` / `find`
 | --- | --- | --- |
 | GET | `/healthz` | 無認証。Compose healthcheck 用。`{ ok, tools, cwd, runningExecutions }` |
 | GET | `/v1/runtime/info` | 実行環境の診断（認証必須・読み取り専用）。[実行環境の診断](#get-v1runtimeinfo) |
+| GET | `/v1/procs/listeners` | 待受ソケットと所有 PID の観測（認証必須・読み取り専用）。[待受プロセスの観測](#get-v1procslisteners) |
 | GET | `/v1/files` | 作業領域の一覧（JSON）。`?path=<root 相対>` |
 | GET | `/v1/files/git` | 作業フォルダが属する repo のブランチ（JSON）。`?path=<root 相対>` |
 | GET | `/v1/skills` | ファイルスキル（`SKILL.md`）の発見（JSON）。`?dir=<root 相対>` |
@@ -25,7 +26,7 @@ BFF が作業用ツール（`read` / `bash` / `edit` / `write` / `grep` / `find`
 
 ## `POST /v1/tools/:tool/execute`
 
-リクエストボディは `{ toolCallId?: string, params?: object, cwd?: string, env?: Record<string, string> }`。応答は `Content-Type: application/x-ndjson` で、1 イベント 1 行:
+リクエストボディは `{ toolCallId?: string, params?: object, cwd?: string, writeScope?: Array<{ path: string, create?: boolean }>, env?: Record<string, string> }`。応答は `Content-Type: application/x-ndjson` で、1 イベント 1 行:
 
 ```jsonl
 {"type":"start","executionId":"…"}
@@ -34,11 +35,13 @@ BFF が作業用ツール（`read` / `bash` / `edit` / `write` / `grep` / `find`
 ```
 
 - `cwd` — 実行する作業ディレクトリ（root 相対。省略・空文字は root）。`..` や symlink を経由して root の外へ解決する指定、実在しないディレクトリ、ディレクトリ以外は 400 / 404（`GET /v1/files` と同じ検証を通す）。ツール定義（パス解決の起点）は解決後の実パスごとに生成して再利用する
+- `writeScope` — **BFF 内部実行（serve の観測・記録・起動・停止）専用の書き込み許可 root**（root 相対の配列。`create: true` は実在しなければ mkdir してから許可する）。省略時はエージェントの `bash` として要求 cwd から基準集合を導出し、指定時は**その配列だけ**を要求由来の root にする（`cwd: ""` の root へは落ちない）。`..` で root の外を指す指定や形の不正は 400。モデルはツール引数から指定できず、BFF の serve 操作だけが渡す（[sandbox.md](sandbox.md#serveサービスの公開と起動停止)）。固定の `/tmp`・ホームのキャッシュ・デバイスファイルは全実行で共通
 - `env` — この実行の子プロセスへ足す環境変数（作業フォルダの「変数」と、serve 起動時の「変数 + シークレット」）。`bash` のときだけ使い、`spawnHook` で親 env へ重ねる。名前は `isInjectableEnvName()`（大文字の `[A-Z_][A-Z0-9_]*`・64 文字以内・`PI_*` / `PI_SANDBOX_*` / `U7AGENT_*` と実行制御系を拒否）を通るものだけで、値の NUL も拒否する。`PI_SANDBOX_TOKEN` と master key（`U7AGENT_SECRET_MASTER_KEY` / `U7AGENT_SECRET_MASTER_KEY_FILE`）はこの後で必ず剥がす（子プロセスへ渡さない）
-- `write` / `edit` の書き込み先は、実行 cwd（`cwd` を解決した実パス）、要求 cwd の lexical 形（`resolve(PI_SANDBOX_CWD, cwd)`）、および `<PI_SANDBOX_CWD>/.agents/skills` の内側だけ。SDK が解決した絶対パスを `resolve()` で `..` まで畳んで比較し（symlink は解決しない）、外側は拒否する（[projects.md](projects.md#write--edit-の書き込み範囲)）
-  - 対象外: 他セッションのスクラッチ、workdir を除く `.u7agent` 配下、他プロジェクト、`.u7agent/builtin-skills/**`、workspace root 直下（`PI_SESSION_STORE` 未設定の縮退では root が作業ディレクトリになるため root 直下も通る）
+- `bash` は **Landlock のラッパー経由で実行**し、ファイルの作成・書き込み・削除・rename・truncate を許可 root の外側で `EACCES` にする（起動 cwd は基準集合に含み、子孫へ継承される）。ラッパーが使えない / ABI 3 未満の環境では実行せず、`error` イベントで理由を返す
+- `write` / `edit` の書き込み先は、実行 cwd（`cwd` を解決した実パス）、要求 cwd の lexical 形（`resolve(PI_SANDBOX_CWD, cwd)`）、および `<PI_SANDBOX_CWD>/.agents/skills` の内側だけ。SDK が解決した絶対パスを `resolve()` で `..` まで畳み、**実在する候補は `realpath` で許可 root の実パスと比較する**（root 内を指す symlink は通し、root 外を指す symlink と壊れた symlink は拒否する）。**許可 root の実パスは判定のたびに解決し直す**（未作成の root を祖先の実パスで固定しない）。外側は拒否する（[projects.md](projects.md#write--edit-の書き込み範囲)）
+  - 対象外: 他会話のスクラッチ、workdir を除く `.u7agent` 配下、他プロジェクト、`.u7agent/builtin-skills/**`、workspace root 直下（`PI_SESSION_STORE` 未設定の縮退では root が作業ディレクトリになるため root 直下も通る）
   - write は `mkdir` と `writeFile`、edit は `access` / `readFile` / `writeFile` のすべてで同じ判定を通す（write は `mkdir` を先に許すと拒否パスでも親ディレクトリができるため `mkdir` でも拒否する）
-  - `read` / `grep` / `find` / `ls` / `bash` は制限しない。`bash` のリダイレクトは原理的に塞げないため、これは隔離ではなくファイルツールのポリシーである
+  - `read` / `grep` / `find` / `ls` は制限しない。`bash` の書き込みはファイルツールのポリシーではなく Landlock で強制する（[sandbox.md](sandbox.md#パスと並行実行)）
 - `start` — 実行開始。`executionId` は cancel に使う
 - `update` — SDK ツールの `onUpdate`（bash の累積出力スナップショット等）を relay
 - `result` — 正常終了。ストリームはここで閉じる
@@ -283,12 +286,14 @@ root 相対の通常ファイルを 1 つ消す。成功は本文なしの 204�
   "commands": [
     { "name": "curl", "version": "8.14.1" },
     { "name": "npm", "version": null }
-  ]
+  ],
+  "landlock": { "state": "enabled", "abi": 6, "minAbi": 3 }
 }
 ```
 
 - `environment` は OS の名称と版（`/etc/os-release` の `PRETTY_NAME`。取れなければ `不明`）、正規化した CPU アーキテクチャ（`x86_64` / `aarch64` など）、実行ユーザー名、UID 0 で動いているか、ワークスペース root。環境変数の値・認証ファイル・ホストの情報は返さない
 - `commands` は固定 allowlist（`curl` / `node` / `npm` / `npx` / `python3` / `uv` / `git` / `rg` / `fd` / `jq` / `file` / `tar` / `gzip` / `unzip` / `zip` / `xz` / `openssl` / `bash`）のうち実在したものだけを allowlist の順で返す。Dockerfile のビルド用ステージにしか無いツールは含まれない。`version` は出力から抽出・正規化した値で、存在は確認できたが取れなかったときは `null`（UI は「バージョン不明」）。検出できなかったコマンドは一覧に含めない
+- `landlock` は bash に適用する Landlock の状態。`state` は `enabled` / `unavailable`、`abi` はカーネルが対応する ABI（取れなければ `null`）、`minAbi` は実行に要求する最低 ABI（3）。`unavailable` のときだけ `reason`（`wrapper_missing` / `unsupported` / `abi_unsupported` / `probe_failed`）を付け、`enabled` 以外では bash を実行しない。ラッパーのパスや内部エラーは返さない（[sandbox.md](sandbox.md#パスと並行実行)）
 - `version` は生の stdout / stderr を返さない。抽出は数字とドットだけの最初のトークンで、警告や内部パスは落とす
 
 ### 検出の安全性と上限
@@ -302,6 +307,34 @@ root 相対の通常ファイルを 1 つ消す。成功は本文なしの 204�
 - 出力は stdout + stderr の合計 64 KiB（`RUNTIME_PROBE_MAX_OUTPUT_BYTES`）を上限とし、読み込み完了を待たずストリーム受信中に打ち切る。打ち切りと期限超過では `detached` で作ったプロセスグループごと SIGKILL し、孫プロセスを残さない
 
 この対応は診断用子プロセスからの漏えいを防ぐもので、同一ユーザーが読めるファイルや、すでに許可された `bash` 実行に対する完全な秘密隔離を保証しない（[sandbox.md](sandbox.md#残存リスク)）。
+
+## `GET /v1/procs/listeners`
+
+指定ポートの待受ソケット inode と、`scan=true` のときだけその所有プロセスを返す。serve の所有者照合（起動の確認と停止対象の特定）が使う内部 API。
+
+```
+GET /v1/procs/listeners?port=8080&scan=true
+```
+
+```json
+// response
+{
+  "inodes": [1270278],
+  "listener": {
+    "pid": 237424,
+    "startedAt": 1700000000000,
+    "inodes": [1270278],
+    "ancestors": [237424, 237400]
+  }
+}
+```
+
+- `inodes` — `/proc/net/tcp` と `/proc/net/tcp6` の LISTEN エントリから取った、指定ポートの待受ソケット inode（昇順）。待受が無ければ空配列。状態表示はこれと記録の inode の照合だけで所有者を分類する
+- `listener` — `scan=true`（文字列の完全一致）のときだけ特定する。`pid` / `startedAt`（`/proc/<pid>/stat` の起動時刻。PID 再利用の照合に使う。0 は不明）/ `inodes` / `ancestors`（自身から親をたどった PID。起動 PID の子孫かの判定に使う）。特定できなければ `null`。`scan` が省略・他の値なら inode だけを返し、fd 走査をしない
+- **この走査だけは bash 実行ではなくサンドボックス service 本体のプロセスで行う**。bash 実行は Landlock の ptrace 制限で他ドメインの `/proc/<pid>/fd` を読めない（自分の子孫は読める）ため、制限の外にいる service が代行する。`/proc/<pid>/fd` は readlink できるプロセス（同一ユーザーで生存中）だけを見る
+- `port` が 1..65535 の整数でなければ 400。読み取り専用で、ファイルは変更しない
+- BFF 側はこの API の接続と本文に期限（既定 5 秒）を掛け、超過は他のサンドボックス失敗と同じ 502 にする（serve の操作は直列化されており、待ち続けると後続の操作が詰まるため）
+- 認証は他の `/v1/*` と同じ Bearer 必須。BFF の serve 実装だけが呼び、モデルはツール引数から指定できない
 
 ## 環境変数
 

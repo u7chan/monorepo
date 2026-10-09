@@ -35,6 +35,7 @@ export function createRuntimeRoutes({
           state: "connected" as const,
           environment: parsed.data.environment,
           commands: parsed.data.commands,
+          landlock: parsed.data.landlock,
         });
       } catch (error) {
         const failure = error instanceof SandboxRuntimeError ? error.failure : "probe_failed";

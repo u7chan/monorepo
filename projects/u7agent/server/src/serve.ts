@@ -5,13 +5,14 @@
  */
 import { randomBytes, createHash } from "node:crypto";
 import { createConnection } from "node:net";
-import { SERVE_LOG_REL, SERVE_STATE_REL } from "./app-paths";
+import { SERVE_DIR_REL, SERVE_LOG_REL, SERVE_STATE_REL } from "./app-paths";
 import type { ServeCommandRow } from "./app-db";
 import { SANDBOX_NOT_CONFIGURED_MESSAGE, httpError } from "./http";
 import { MutationLock } from "./model-settings";
 // serve 契約の待受ポート。プローブも待受 PID の特定も、サービス オリジンの転送先もこの値だけを見る
 import { SERVE_LISTEN_PORT } from "./preview-port";
-import type { SandboxExecClient } from "./sandbox/client";
+import type { SandboxServeClient } from "./sandbox/client";
+import type { SandboxListenerScan, SandboxWriteScopeEntry } from "./sandbox/protocol";
 import type { RuntimeServeStatus } from "./schema";
 
 /** 起動の成功境界。バックグラウンド起動の shell が終わってからこの期限までに到達可になること */
@@ -29,6 +30,14 @@ const SERVE_OWN_LISTENER_INTERVAL_MS = 1_000;
 /** サンドボックスの bash 実行に渡す期限 (秒)。待ちは BFF 側で行うため、スクリプト自体は短命 */ const SANDBOX_SCRIPT_TIMEOUT_SECONDS = 20;
 /** スクリプトが最後に出す印。欠けていればサンドボックス側の失敗として扱う */
 const SCRIPT_OK = "serve:ok";
+
+/**
+ * 内部実行が書き込める範囲 (root 相対)。起動したアプリも含め、作業ディレクトリと作業領域の外へは
+ * 書かせない (`/tmp` とホームのキャッシュ、デバイスファイルはサンドボックスが全実行へ足す)。
+ */
+const SERVE_WRITE_SCOPE = [{ path: SERVE_DIR_REL }] as const;
+/** 記録の書き込みと起動は作業領域を作ってから書くため、作成を許可する */
+const SERVE_WRITE_SCOPE_CREATE = [{ path: SERVE_DIR_REL, create: true }] as const;
 
 export type ServeOwnerKind = "mine" | "other" | "unknown" | "none";
 
@@ -157,7 +166,7 @@ export interface ServeServiceOptions {
   appDb: ServeCommandStore;
   sessions: ServeSessionLookup;
   /** 未設定なら serve の API / ツールは 503 */
-  sandbox: SandboxExecClient | null;
+  sandbox: SandboxServeClient | null;
   /**
    * 起動時に渡す環境変数 (作業環境 → 環境変数)。解決に失敗したら起動しない
    * (平文へ落とす / 秘密なしで起動するのどちらもしない)。未指定は env 無しで起動する (テスト)
@@ -226,74 +235,15 @@ function encode(value: string): string {
 }
 
 /**
- * 記録と待受ソケットを 1 回の実行で読む。
- *
- * 重い fd 走査（待受 PID の特定）は `scanPids` のときだけ行う。状態表示は `/proc/net/tcp` の listen inode
- * だけで所有者を分類でき（記録の inode と照合する）、PID は停止対象の決定と「起動したプロセスが待受を
- * 始めたか」の判定にしか使わない。走査は node の 1 プロセスで行い、fd ごとに外部コマンドを起動しない
- * （高負荷時に 15 秒以上かかり、状態取得のタイムアウトと表示のスタックを起こしていた）。
+ * 稼働記録を 1 行で読む。待受ソケットと PID の観測は service 本体 (`GET /v1/procs/listeners`) が行う:
+ * bash 実行は Landlock の ptrace 制限で他ドメインの `/proc/<pid>/fd` を読めないため。
+ * 重い fd 走査は `scan` のときだけ走らせ、状態表示は `/proc/net/tcp` の inode と記録の照合だけで分類する。
  */
-function observeScript(port: number, options: { scanPids: boolean }): string {
+function recordScript(): string {
   return `node --input-type=commonjs -e '${[
     'const fs = require("node:fs");',
-    `const SUFFIX = ":${port.toString(16).toUpperCase().padStart(4, "0")}";`,
-    `const SCAN = ${options.scanPids ? "true" : "false"};`,
-    "const inodes = [];",
-    'for (const file of ["/proc/net/tcp", "/proc/net/tcp6"]) {',
-    '  let text = "";',
-    '  try { text = fs.readFileSync(file, "utf8"); } catch (error) { continue; }',
-    "  for (const line of text.split(String.fromCharCode(10)).slice(1)) {",
-    "    const parts = line.trim().split(/ +/);",
-    '    if (parts.length < 10 || parts[3] !== "0A") continue;',
-    '    if (!(parts[1] || "").endsWith(SUFFIX)) continue;',
-    "    const inode = Number(parts[9]);",
-    "    if (Number.isInteger(inode) && inodes.indexOf(inode) === -1) inodes.push(inode);",
-    "  }",
-    "}",
-    "inodes.sort((a, b) => a - b);",
-    'const lines = ["inodes\\t" + inodes.join(" ")];',
-    "if (SCAN) {",
-    '  const wanted = inodes.map((inode) => "socket:[" + inode + "]");',
-    "  let pid = 0;",
-    '  for (const entry of fs.readdirSync("/proc")) {',
-    "    if (!/^[0-9]+$/.test(entry)) continue;",
-    "    let fds = [];",
-    '    try { fds = fs.readdirSync("/proc/" + entry + "/fd"); } catch (error) { continue; }',
-    "    for (const fd of fds) {",
-    '      let link = "";',
-    '      try { link = fs.readlinkSync("/proc/" + entry + "/fd/" + fd); } catch (error) { continue; }',
-    "      if (wanted.indexOf(link) === -1) continue;",
-    "      pid = Number(entry);",
-    "      break;",
-    "    }",
-    "    if (pid) break;",
-    "  }",
-    "  if (pid) {",
-    "    let startedAt = 0;",
-    "    try {",
-    '      const stat = fs.readFileSync("/proc/" + pid + "/stat", "utf8");',
-    '      const ticks = Number(stat.slice(stat.lastIndexOf(")") + 2).split(" ")[19]);',
-    '      const btime = Number((/btime ([0-9]+)/.exec(fs.readFileSync("/proc/stat", "utf8")) || [])[1]);',
-    "      if (Number.isFinite(ticks) && Number.isFinite(btime)) startedAt = btime * 1000 + Math.round(ticks * 10);",
-    "    } catch (error) { startedAt = 0; }",
-    '    lines.push("listener\\t" + pid + "\\t" + startedAt);',
-    "    const chain = [];",
-    "    let cur = pid;",
-    "    while (cur && cur !== 1 && chain.length < 32) {",
-    "      chain.push(cur);",
-    "      let parent = 0;",
-    "      try {",
-    '        const stat = fs.readFileSync("/proc/" + cur + "/stat", "utf8");',
-    '        parent = Number(stat.slice(stat.lastIndexOf(")") + 2).split(" ")[1]);',
-    "      } catch (error) { parent = 0; }",
-    "      cur = Number.isInteger(parent) ? parent : 0;",
-    "    }",
-    '    lines.push("ancestors\\t" + chain.join(" "));',
-    "  }",
-    "}",
-    `try { lines.push("record\\t" + fs.readFileSync("${SERVE_STATE_REL}", "utf8").trim()); } catch (error) {}`,
-    "console.log(lines.join(String.fromCharCode(10)));",
-    "' || { echo 'serve: scan failed' >&2; exit 1; }",
+    `try { console.log("record\\t" + fs.readFileSync("${SERVE_STATE_REL}", "utf8").trim()); } catch (error) {}`,
+    "' || { echo 'serve: read failed' >&2; exit 1; }",
     `echo ${SCRIPT_OK}`,
   ].join("\n")}`;
 }
@@ -380,51 +330,17 @@ function parseRecord(raw: string): ServeRecord | null {
 }
 
 /**
- * スクリプトの出力を観測値へ。印の確認は呼び出し側 (#run) が行う。
- * 出力は `inodes` → `listener` → `ancestors` の順だが、**行の順序に依存しない**ように全行を読んでから
- * listener へ祖先を反映する (listener 行の時点で祖先はまだ読めていない)。
+ * 記録の出力と service 本体の観測を ServeObservation へ。印の確認は呼び出し側 (#run) が行う。
+ * 待受ソケットと PID は service の走査結果をそのまま使い、bash 側の出力は記録だけを見る。
  */
-function parseObservation(output: string, at: number): Omit<ServeObservation, "reachable"> {
+function parseObservation(output: string, scan: SandboxListenerScan, at: number): Omit<ServeObservation, "reachable"> {
   let record: ServeRecord | null = null;
-  let listener: ServeListener | null = null;
-  let listenInodes: number[] = [];
-  let ancestors: number[] = [];
   for (const line of output.split("\n")) {
     if (line.startsWith("record\t")) {
       record = parseRecord(line.slice("record\t".length));
-    } else if (line.startsWith("inodes\t")) {
-      listenInodes = numberList(line.slice("inodes\t".length));
-    } else if (line.startsWith("ancestors\t")) {
-      ancestors = numberList(line.slice("ancestors\t".length));
-    } else if (line.startsWith("listener\t")) {
-      const [, pid, startedAt] = line.split("\t");
-      const parsedPid = Number(pid);
-      const parsedStartedAt = Number(startedAt);
-      if (Number.isInteger(parsedPid) && parsedPid > 0) {
-        listener = {
-          pid: parsedPid,
-          // 起動時刻を引けなかったときは 0 (不明) とし、照合は pid だけで行う
-          startedAt: Number.isFinite(parsedStartedAt) ? parsedStartedAt : 0,
-          inodes: [],
-          ancestors: [],
-        };
-      }
     }
   }
-  // 祖先と inode は listener 行より後ろに現れるため、全行を読んだ後に反映する
-  if (listener) {
-    listener = { ...listener, inodes: [...listenInodes], ancestors };
-  }
-  return { record, listenInodes, listener, at };
-}
-
-/** 空白区切りの数値列。範囲外は落とす */
-function numberList(value: string): number[] {
-  return value
-    .trim()
-    .split(" ")
-    .map((entry) => Number(entry))
-    .filter((entry) => Number.isInteger(entry) && entry > 0);
+  return { record, listenInodes: scan.inodes, listener: scan.listener, at };
 }
 
 /** 待受ソケットの inode が同じか。空同士は一致とみなさない (不明を同じ扱いにしない) */
@@ -441,7 +357,7 @@ export function isFromLaunch(listener: ServeListener, launchedPid: number): bool
 export class ServeService {
   #db: ServeCommandStore;
   #sessions: ServeSessionLookup;
-  #sandbox: SandboxExecClient | null;
+  #sandbox: SandboxServeClient | null;
   #secretEnv: ServeEnvSource | undefined;
   #probe: ServeProbe;
   #now: () => number;
@@ -625,8 +541,8 @@ export class ServeService {
    * 稼働判定は常にプローブ。記録は表示と操作権限のためだけに使い、到達可の根拠にはしない
    * (コンテナ再作成後に記録が残っていても「稼働中」と嘘をつかないため)。
    *
-   * `scanPids` は待受 PID の特定 (fd 走査) を伴う。状態表示では不要なので既定は false で、
-   * 停止対象の決定と起動の照合をするときだけ true にする。
+   * `scanPids` は待受 PID の特定 (service 本体での `/proc/<pid>/fd` 走査) を伴う。状態表示では不要なので
+   * 既定は false で、停止対象の決定と起動の照合をするときだけ true にする。
    */
   async #observe(options: { fresh?: boolean; scanPids?: boolean } = {}): Promise<ServeObservation> {
     // サンドボックス未設定は「状態を取得できない」なので、プローブより先に 503 で止める
@@ -645,7 +561,22 @@ export class ServeService {
 
   async #readObservation(scanPids: boolean): Promise<Omit<ServeObservation, "reachable">> {
     const at = this.#now();
-    return parseObservation(await this.#run(observeScript(this.#listenPort, { scanPids })), at);
+    // 記録の読み取りは Landlock の下の bash 実行、待受ソケットと PID の観測は制限の外の service 本体へ依頼する
+    const [output, scan] = await Promise.all([
+      this.#run(recordScript(), SERVE_WRITE_SCOPE),
+      this.#scanListeners(scanPids),
+    ]);
+    return parseObservation(output, scan, at);
+  }
+
+  /** 待受ソケットと所有 PID の観測。bash 実行は他ドメインの fd を読めないので service 本体へ任せる */
+  async #scanListeners(scanPids: boolean): Promise<SandboxListenerScan> {
+    const sandbox = this.#requireSandbox();
+    try {
+      return await sandbox.scanListeners(this.#listenPort, { scan: scanPids });
+    } catch (error) {
+      throw sandboxFailure(error);
+    }
   }
 
   /**
@@ -694,7 +625,12 @@ export class ServeService {
   }
 
   async #launch(view: { cwd: string }, command: string, env: Record<string, string>): Promise<number> {
-    const output = await this.#run(launchScript({ workdir: view.cwd, command }), env);
+    // 起動対象の作業ディレクトリと作業領域だけを渡す (要求 cwd (= root) を混ぜない)
+    const output = await this.#run(
+      launchScript({ workdir: view.cwd, command }),
+      [{ path: view.cwd }, ...SERVE_WRITE_SCOPE_CREATE],
+      env,
+    );
     const line = output.split("\n").find((candidate) => candidate.startsWith("pid\t"));
     const pid = Number(line?.split("\t")[1]);
     if (!Number.isInteger(pid) || pid <= 0) {
@@ -704,11 +640,11 @@ export class ServeService {
   }
 
   async #writeRecord(record: ServeRecord): Promise<void> {
-    await this.#run(writeRecordScript(record));
+    await this.#run(writeRecordScript(record), SERVE_WRITE_SCOPE_CREATE);
   }
 
   async #clearRecord(): Promise<void> {
-    await this.#run(clearRecordScript());
+    await this.#run(clearRecordScript(), SERVE_WRITE_SCOPE);
   }
 
   /** 停止の実行。待受 PID を特定できないときは止めず、エージェントへ依頼する導線を案内する */
@@ -720,7 +656,7 @@ export class ServeService {
         `${this.#listenPort} 番ポートの待受プロセスを特定できませんでした。エージェントに停止を依頼してください`,
       );
     }
-    await this.#run(killScript(listener.pid));
+    await this.#run(killScript(listener.pid), SERVE_WRITE_SCOPE);
     if (await this.#waitForRelease()) return;
     throw httpError(502, "serve の停止を確認できませんでした (ポートが解放されていません)");
   }
@@ -757,29 +693,28 @@ export class ServeService {
   }
 
   /** サンドボックス未設定は 503。プローブより先に呼び、到達不可へ丸めない */
-  #requireSandbox(): SandboxExecClient {
+  #requireSandbox(): SandboxServeClient {
     if (!this.#sandbox) throw httpError(503, SANDBOX_NOT_CONFIGURED_MESSAGE);
     return this.#sandbox;
   }
 
   /**
    * サンドボックスの bash 実行。作業領域の読み書きも起動・停止もこの 1 経路に集める。
+   * `scope` はこの実行が書き込める root 相対の範囲 (必須)。要求 cwd (`cwd: ""` = root) からは導出しない。
    * `env` はこの実行の子プロセスへ足す環境変数で、起動 (launch) だけが渡す。値はコマンド文字列へ
    * 埋めず、リクエストの別フィールドとして送る (base64 化もしない)。
    */
-  async #run(script: string, env?: Record<string, string>): Promise<string> {
+  async #run(script: string, scope: readonly SandboxWriteScopeEntry[], env?: Record<string, string>): Promise<string> {
     const sandbox = this.#requireSandbox();
     const result = await sandbox
       .execute("bash", {
         params: { command: script, timeout: SANDBOX_SCRIPT_TIMEOUT_SECONDS },
         cwd: "",
+        writeScope: [...scope],
         ...(env && Object.keys(env).length > 0 ? { env } : {}),
       })
       .catch((error: unknown) => {
-        // サンドボックス呼び出しの失敗は「状態が取れない」なので、停止中へ丸めず 502 にする
-        const status = (error as { statusCode?: number }).statusCode;
-        if (typeof status === "number") throw error;
-        throw httpError(502, `サンドボックスの serve 操作に失敗しました: ${messageFor(error)}`);
+        throw sandboxFailure(error);
       });
     const text = textOfContent(result.content);
     if (!text.includes(SCRIPT_OK)) {
@@ -787,4 +722,11 @@ export class ServeService {
     }
     return text;
   }
+}
+
+/** サンドボックス呼び出しの失敗は「状態が取れない」なので、停止中へ丸めず 502 にする (状態コード付きはそのまま) */
+function sandboxFailure(error: unknown): Error {
+  const status = (error as { statusCode?: number }).statusCode;
+  if (typeof status === "number") return error as Error;
+  return httpError(502, `サンドボックスの serve 操作に失敗しました: ${messageFor(error)}`);
 }

@@ -35,6 +35,17 @@ export const SANDBOX_DEFAULT_PORT = 9418;
 /** write ツールのファイル内容などを想定したリクエストボディの上限。 */
 export const SANDBOX_MAX_BODY_BYTES = 8 * 1024 * 1024;
 
+/**
+ * 実行の書き込み許可 root の 1 件。BFF が組み立てる (モデルはツール引数から指定できない)。
+ * エージェントの bash では省略でき、その場合は要求 cwd から導出する。
+ */
+export interface SandboxWriteScopeEntry {
+  /** rootCwd 相対のディレクトリ */
+  path: string;
+  /** 実在しなければ mkdir -p してから許可する。既存の作業ディレクトリでは付けない */
+  create?: boolean;
+}
+
 /** POST /v1/tools/:tool/execute のリクエストボディ。 */
 export interface SandboxExecuteRequestBody {
   /** BFF 側 SDK のツール呼び出し ID (出力対応付け用)。省略時は払い出す。 */
@@ -43,6 +54,12 @@ export interface SandboxExecuteRequestBody {
   params?: Record<string, unknown>;
   /** 実行する作業ディレクトリ (rootCwd 相対)。省略・空文字は root。root 外は 400。 */
   cwd?: string;
+  /**
+   * この実行だけの書き込み許可 root (rootCwd 相対)。指定すると要求 cwd を使わず、この範囲だけを
+   * 要求由来の root にする (BFF 内部実行の serve 操作用)。省略時はエージェントの bash として
+   * 要求 cwd と共通スキル置き場から導出する。
+   */
+  writeScope?: SandboxWriteScopeEntry[];
   /**
    * この実行の子プロセスへ足す環境変数 (作業フォルダの変数 / serve 起動時の変数 + シークレット)。
    * 名前は isInjectableEnvName() を通るものだけを受け付け、値は子プロセスの env にだけ置く
@@ -84,10 +101,48 @@ export interface SandboxRuntimeCommand {
   version: string | null;
 }
 
+/**
+ * bash の子プロセスへ適用する Landlock の状態。`enabled` 以外では bash を実行しない (fail-closed)。
+ * カーネルの対応可否・ラッパーの実体・ABI を 1 回の診断にまとめ、UI は分類だけを出す。
+ */
+export interface SandboxLandlockStatus {
+  state: "enabled" | "unavailable";
+  /** カーネルが対応する Landlock ABI。取得できなければ null */
+  abi: number | null;
+  /** 実行に要求する最低 ABI。ABI 3 未満では truncate を制限できない */
+  minAbi: number;
+  /** `unavailable` のときだけ入る理由分類 */
+  reason?: "wrapper_missing" | "unsupported" | "abi_unsupported" | "probe_failed";
+}
+
 /** GET /v1/runtime/info の応答。検出できなかったコマンドは commands に含めない。 */
 export interface SandboxRuntimeInfo {
   environment: SandboxRuntimeEnvironment;
   commands: SandboxRuntimeCommand[];
+  landlock: SandboxLandlockStatus;
+}
+
+/**
+ * 待受ソケットを持つプロセス。serve の所有者照合に使う。
+ * bash 実行は Landlock の ptrace 制限で他ドメインの `/proc/<pid>/fd` を読めないため、
+ * この観測は制限の外にいる service 本体が行う (GET /v1/procs/listeners)。
+ */
+export interface SandboxListenerProcess {
+  pid: number;
+  /** `/proc/<pid>/stat` の起動時刻 (epoch ms)。PID 再利用の照合に使う。0 は不明 */
+  startedAt: number;
+  /** この待受に使われているソケットの inode (昇順) */
+  inodes: number[];
+  /** 自身から親をたどった PID (自身を含む) */
+  ancestors: number[];
+}
+
+/** GET /v1/procs/listeners の応答。scan が false のときは inode だけを返し、PID は探さない。 */
+export interface SandboxListenerScan {
+  /** 指定ポートの待受ソケット inode (昇順)。待受が無ければ空配列 */
+  inodes: number[];
+  /** scan=true のときだけ特定する。特定できなければ null */
+  listener: SandboxListenerProcess | null;
 }
 
 /** POST /v1/files/rename のリクエストボディ。path は root 相対のエントリ (ファイル / ディレクトリ)、name は 1 セグメント。 */
