@@ -111,11 +111,12 @@ POST /v1/files/rename
 
 ## `GET /v1/files/raw`
 
-root 相対の画像 / 音声を `createReadStream` でストリーム返却する。配信できる拡張子は画像が `png` / `jpg` / `jpeg` / `gif` / `webp` / `avif` / `bmp` / `ico`、音声が `mp3` / `m4a` / `ogg` / `oga` / `wav` / `flac` だけで、それ以外（SVG / HTML / 動画 / フォント / 拡張子なし / dotfile）は 400 `Not a servable file: …`。root 外・実在しない・ディレクトリは通常のパス検証と同じ 400 / 404 になる。
+root 相対の画像 / 音声を `createReadStream` でストリーム返却する。配信できる拡張子は画像が `png` / `jpg` / `jpeg` / `gif` / `webp` / `avif` / `bmp` / `ico`、音声が `mp3` / `m4a` / `ogg` / `oga` / `wav` / `flac` だけで、それ以外（SVG / HTML / 動画 / フォント / 拡張子なし / dotfile）は 400 `Not a servable file: …`。root 外・実在しない・ディレクトリは通常のパス検証と同じ 400 / 404 になる。単一レンジの `Range` に対応し、HTML プレビューのアセット経路（`GET /api/files/html/<path>`）からも同じ応答を返す。
 
-- 200: `Content-Type`（拡張子）/ `Content-Length` / `Cache-Control: no-store` / `X-Content-Type-Options: nosniff`
+- 200: `Content-Type`（拡張子）/ `Content-Length` / `Accept-Ranges: bytes` / `Cache-Control: no-store` / `X-Content-Type-Options: nosniff`
+- 206 / 416: 単一の `Range`（`bytes=<start>-<end>` / `bytes=<start>-` / `bytes=-<suffix>`）を解釈し、満たせれば 206 + `Content-Range: bytes <start>-<end>/<size>`、解釈できて満たせないときだけ 416 + `Content-Range: bytes */<size>`。解釈できない `Range`（構文不正 / `bytes` 以外の単位 / 複数レンジ）は無視して 200 を返す。マルチパートは返さない。契約は [api.md](api.md#画像配信raw) を参照
 - 413: サイズが上限（100 MiB）を超える（`{ error: "File is too large (max … bytes)" }` の JSON を返す。ファイルの本文と `Content-Length` は送出しない）
-- BFF はこの応答をそのまま中継し、本文を JSON に載せない。ただし **BFF の公開 `GET /api/files/raw` は画像だけを渡し、音声は `GET /api/files/html/<path>` のアセット経路だけが使う**（[api.md](api.md#画像配信raw)）
+- BFF はこの応答をそのまま中継し、本文を JSON に載せない。**公開 `GET /api/files/raw` も画像と音声の両方を渡し**、同じ allowlist と `Range` の契約を見る（[api.md](api.md#画像配信raw)）
 
 ## `GET /v1/files/download`
 

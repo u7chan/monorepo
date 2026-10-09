@@ -19,7 +19,7 @@
 | ファイル / フォルダのダウンロード（ZIP） | `server/src/archive-rules.ts`、`server/src/sandbox/zip.ts`、`server/src/sandbox/archive.ts`、`server/src/routes/files.ts`、`client/src/lib/archive.ts`、`client/src/lib/fileRowMenu.ts`、`client/src/components/FileBrowser.tsx` | [file-preview.md](file-preview.md#ダウンロード)、[api.md](api.md#ダウンロード)、[sandbox-api.md](sandbox-api.md#get-v1filesdownload) |
 | アーカイブの除外（設定） | `server/src/archive-settings.ts`、`server/src/routes/archive.ts`、`server/src/app-db.ts`、`client/src/hooks/useArchiveSettings.ts`、`client/src/components/ArchiveSettingsPage.tsx`、`client/src/lib/archiveSettings.ts` | [api.md](api.md#アーカイブの除外名)、[persistence.md](persistence.md#アプリデータsqlite)、[file-preview.md](file-preview.md#ダウンロード) |
 | セッションの保存・復元（会話ストア / 作業フォルダ） | `server/src/session-store.ts`、`server/src/sessions.ts`、`server/src/agent.ts` | [session-files.md](session-files.md)、[persistence.md](persistence.md) |
-| ファイルプレビューの表示（行番号 / ハイライト / HTML・Markdown・画像の描画） | `client/src/lib/fileCode.ts`、`client/src/lib/fileTabs.ts`、`client/src/lib/markdownAsset.ts`、`client/src/lib/imageMeta.ts`、`client/src/lib/attachments.ts`、`client/src/components/FileBrowser.tsx`、`client/src/components/FilePreview.tsx`、`client/src/components/markdown/MarkdownFilePreview.tsx`、`server/src/routes/files.ts` | [file-preview.md](file-preview.md)、[api.md](api.md) |
+| ファイルプレビューの表示（行番号 / ハイライト / HTML・Markdown・画像・音声の描画） | `client/src/lib/fileCode.ts`、`client/src/lib/fileTabs.ts`、`client/src/lib/markdownAsset.ts`、`client/src/lib/imageMeta.ts`、`client/src/lib/attachments.ts`、`client/src/components/FileBrowser.tsx`、`client/src/components/FilePreview.tsx`、`client/src/components/markdown/MarkdownFilePreview.tsx`、`server/src/routes/files.ts` | [file-preview.md](file-preview.md)、[api.md](api.md) |
 | チャットの添付ファイル（アップロード / 画像配信 / 注記） | `server/src/attachments.ts`、`server/src/routes/sessions.ts`、`client/src/lib/attachments.ts`、`client/src/components/Composer.tsx`、`client/src/hooks/useU7Agent.ts` | [session-files.md](session-files.md)、[api-sessions.md](api-sessions.md) |
 | 入力欄へのファイル参照（ツリーの行のドラッグ） | `client/src/lib/fileMention.ts`、`client/src/components/Composer.tsx`、`client/src/components/FileBrowser.tsx`、`client/src/components/SessionFilesPanel.tsx`、`server/src/agent.ts` | [file-preview.md](file-preview.md#ツリーの行のドラッグ入力欄への参照) |
 | チャットのスキル一覧と `/skill:` の展開 | `server/src/session-skills.ts`、`server/src/sessions.ts`、`server/src/catalog-skills.ts`、`server/src/routes/sessions.ts`、`client/src/hooks/useSessionSkills.ts`、`client/src/lib/sessionSkills.ts`、`client/src/lib/skillPicker.ts`、`client/src/lib/skillBlock.ts`、`client/src/components/composer/SkillPicker.tsx`、`client/src/components/chat/SkillInvocation.tsx` | [api-sessions.md](api-sessions.md)、[persistence.md](persistence.md) |
@@ -52,7 +52,7 @@
 - [notifications.md](notifications.md) — Discord 通知（送るタイミング・宛先制限・write-only な Webhook URL・設定画面）
 - [frontend.md](frontend.md) — フロントエンドの契約（URL が画面の正・状態の所有と正・テーマと CSP・保存範囲・Effect 契約）
 - [markdown.md](markdown.md) — チャット本文とファイルプレビューの Markdown 描画（対応サブセット・上限・インラインコードのファイル参照）
-- [file-preview.md](file-preview.md) — ファイルプレビューの行番号・シンタックスハイライト・HTML / Markdown / 画像の描画と、ツリー行の ⋯ メニュー（削除 / リネーム / ダウンロード、除外名の設定を含む）
+- [file-preview.md](file-preview.md) — ファイルプレビューの行番号・シンタックスハイライト・HTML / Markdown / 画像 / 音声の描画と、ツリー行の ⋯ メニュー（削除 / リネーム / ダウンロード、除外名の設定を含む）
 - [api.md](api.md) — HTTP API の規約と索引（health / files / projects）
 - [api-sessions.md](api-sessions.md) — セッション API と SSE イベント
 - [api-catalog.md](api-catalog.md) — エージェント / スキル API

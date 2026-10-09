@@ -260,8 +260,8 @@ export const RAW_IMAGE_CONTENT_TYPES: Record<string, string> = {
 };
 
 /**
- * 同じく音声の拡張子と Content-Type。動画 / フォントは載せず、HTML プレビューのアセット経路だけが使う
- * (公開 `GET /api/files/raw` は画像専用のまま。docs/api.md)。
+ * 同じく音声の拡張子と Content-Type。動画 / フォントは載せず、公開 raw と HTML プレビューのアセット経路が
+ * 画像と同じ allowlist として見る (BFF とサンドボックスの両方で判定する。docs/api.md)。
  */
 export const RAW_MEDIA_CONTENT_TYPES: Record<string, string> = {
   mp3: "audio/mpeg",
@@ -294,6 +294,11 @@ export function rawImageContentType(path: string): string | undefined {
 /** 音声の配信用 Content-Type。判定規則は画像と同じ。 */
 export function rawMediaContentType(path: string): string | undefined {
   return contentTypeFor(RAW_MEDIA_CONTENT_TYPES, path);
+}
+
+/** 画像 / 音声の配信用 Content-Type。公開 raw とサンドボックスの raw が同じ許可範囲を引く。 */
+export function rawContentType(path: string): string | undefined {
+  return rawImageContentType(path) ?? rawMediaContentType(path);
 }
 
 /**

@@ -43,7 +43,7 @@ function fixtureWorkspace() {
       uploads.push(dir);
       return { path: `${dir}/${name}`, name, renamed: false, size: 1 };
     },
-    rawFile: async () => ({ contentType: "image/png", body: null }),
+    rawFile: async () => ({ status: 200, contentType: "image/png", body: null }),
     downloadEntry: async () => ({
       contentType: "application/octet-stream",
       contentDisposition: "attachment",

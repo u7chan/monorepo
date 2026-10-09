@@ -1,9 +1,9 @@
 /**
- * ファイルツリーの行に出すアイコンの模様の種類。拡張子 (一部は慣用のファイル名) からこの 8 種へ畳む。
+ * ファイルツリーの行に出すアイコンの模様の種類。拡張子 (一部は慣用のファイル名) から少数の模様へ畳む。
  * プレビューの言語判定 (previewLang) より粗いのは、行のアイコンが 12px の文字の隣で 16px で描かれ、
  * 言語ごとに増やしても模様が潰れて見分けられなくなるため。列挙した拡張子以外は既定 (text) にする。
  */
-export type FileKind = "code" | "markup" | "style" | "data" | "image" | "shell" | "lock" | "text";
+export type FileKind = "code" | "markup" | "style" | "data" | "image" | "audio" | "shell" | "lock" | "text";
 
 const KINDS: Record<string, FileKind> = {
   // 拡張子だけをキーにする (拡張子を持たないファイルの扱いは fileKind 側)
@@ -79,6 +79,13 @@ const KINDS: Record<string, FileKind> = {
   avif: "image",
   bmp: "image",
   ico: "image",
+  // 音声 (プレビューが音声として配信する拡張子に合わせる)
+  mp3: "audio",
+  m4a: "audio",
+  ogg: "audio",
+  oga: "audio",
+  wav: "audio",
+  flac: "audio",
   // シェルスクリプト (Dockerfile は previewLang が bash として扱うのに合わせる)
   sh: "shell",
   bash: "shell",

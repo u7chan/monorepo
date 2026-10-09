@@ -163,7 +163,7 @@ meta の optional `spaceId` は欠落だけが `default`。追加スペースで
 - ファイル画面の root は作業ディレクトリ（プロジェクト所属なら登録ディレクトリ、未所属ならスクラッチ）なので、`<appdir>/uploads/<id>` はファイル画面には出ない
 - 添付は作業ディレクトリの外にあるため `read` はできるが、モデルの `write` / `edit` は拒否される（書き込み範囲は [projects.md](projects.md#write--edit-の書き込み範囲)）
 - 履歴と `run_start.prompt` には注記込みの本文が入る。クライアントは注記を分解し、user バブルにチップと本文を分けて表示する（コピーは注記を除いた本文）
-- 画像の表示は `GET /api/files/raw`（画像のみの allowlist。SVG / HTML は配信しない）
+- 画像の表示は `GET /api/files/raw`（画像 / 音声の allowlist。SVG / HTML は配信しない。チップのサムネイルは画像だけを描く）
 - 履歴の画像はクリックで拡大表示する（ライトボックス）。部品は Markdown 本文の画像と同じ `client/src/components/ImageZoom.tsx` の `ZoomableImage`（`variant="attachment"`）で、サムネイルの高さだけ compact で切り替える。開閉と focus の扱いは [markdown.md](markdown.md#画像の拡大表示) を正とする
 - 入力欄の添付チップも同じ部品（`variant="chip"`）で拡大表示する。押せるのは 28px のサムネイルだけで、チップ全体は押せない（× と競合させない）。チップのサイズと行の高さは変えない。未完了 / 失敗のチップはサムネイル自体を持たない（[markdown.md](markdown.md#画像の拡大表示)）
 
