@@ -70,6 +70,24 @@ test(
   },
 );
 
+// Node.js の `--version` は `v24.21.0` のように出力し、`v` と数字の間に単語境界は無い。
+// 接頭辞の種類によらず、先頭を落とさずに最初のバージョンらしい値を取ることを固定する。
+test("extracts the leading version from outputs whose digits follow a letter", { skip: !HAS_SH }, async () => {
+  const trusted = tempDir("pi-probe-trusted-");
+  writeScript(trusted, "rtprobe-vnode", "printf 'v24.21.0\\n'");
+  writeScript(trusted, "rtprobe-vzero", "printf 'v21.0.0\\n'");
+  writeScript(trusted, "rtprobe-go", "printf 'go1.22.1\\n'");
+  const result = await probe(
+    [trusted, ...SYSTEM_DIRS],
+    [command("rtprobe-vnode"), command("rtprobe-vzero"), command("rtprobe-go")],
+  );
+  assert.deepEqual(result.commands, [
+    { name: "rtprobe-vnode", version: "24.21.0" },
+    { name: "rtprobe-vzero", version: "21.0.0" },
+    { name: "rtprobe-go", version: "1.22.1" },
+  ]);
+});
+
 test("ignores fake commands placed in the workspace and on PATH", { skip: !HAS_SH }, async () => {
   const trusted = tempDir("pi-probe-trusted-");
   const workspace = tempDir("pi-probe-workspace-");
