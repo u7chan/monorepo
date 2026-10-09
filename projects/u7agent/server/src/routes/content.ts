@@ -3,7 +3,7 @@ import type { ContentSettingsService, ContentMutationOutcome } from "../content-
 import type { UpdateContentImageBody, UpdateContentSpeechBody } from "../schema";
 
 /**
- * 設定 → モデル（コンテンツ生成）の provider / model / APIキー API。GET は純粋読取、
+ * 設定 → コンテンツ生成の provider / model / APIキー API。GET は純粋読取、
  * 変更系（PUT / DELETE）は 200 の応答に必ず `state: "applied"` を載せ、
  * DB に何も保存されなかったときだけ 503 `{ error, state: "not_stored" }` を返す。
  */

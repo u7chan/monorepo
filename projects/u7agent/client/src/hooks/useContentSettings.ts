@@ -26,7 +26,7 @@ import type { ContentSettingsResponse, UpdateContentImageBody, UpdateContentSpee
 import { useSettingsResource } from "./useSettingsResource";
 
 /**
- * 設定 → モデル（コンテンツ生成タブ）の state と操作。GET はこの画面を開いたときだけ取り、
+ * 設定 → コンテンツ生成の state と操作。GET はこの画面を開いたときだけ取り、
  * 変更系の応答は GET と同じ形なので、注記を付けてそのまま次の状態にできる。
  * SDK への認証反映を持たないため、health / カタログの再取得は通さない。
  */

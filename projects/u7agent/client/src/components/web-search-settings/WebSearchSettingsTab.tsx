@@ -23,8 +23,8 @@ import { KeyIcon, TrashIcon } from "../icons";
 import { ProviderIcon } from "../ProviderIcon";
 import { SelectMenu, type SelectMenuOption } from "../SelectMenu";
 import { ToggleSwitch } from "../ToggleSwitch";
-import { MetaChip } from "./MetaChip";
-import { ProviderBadgeTag } from "./ProviderBadgeTag";
+import { MetaChip } from "../model-settings/MetaChip";
+import { ProviderBadgeTag } from "../model-settings/ProviderBadgeTag";
 
 export type WebSearchSettingsTabProps = {
   settings: WebSearchSettingsResponse;
@@ -37,7 +37,7 @@ export type WebSearchSettingsTabProps = {
 };
 
 /**
- * 設定 → モデル（Web 検索タブ）。有効 / 無効（実行時 OFF スイッチ）と、既定の provider +
+ * 設定 → Web 検索の本文。有効 / 無効（実行時 OFF スイッチ）と、既定の provider +
  * provider ごとのキーを 1 面にまとめる。
  *
  * provider を選ぶと下の 1 枚がその provider の設定に入れ替わり、選んだ時点で既定が保存される
@@ -198,7 +198,7 @@ export function WebSearchSettingsTab({
           ) : null}
         </section>
 
-        {/* 外部送信とキーの保存は、設定を変える前に読める位置へ既定で畳んで出す（コンテンツ生成タブと同じ作法） */}
+        {/* 外部送信とキーの保存は、設定を変える前に読める位置へ既定で畳んで出す（コンテンツ生成と同じ作法） */}
         <CollapsibleNotice summary={webSearchNoticeSummary(providerDef, enabled)}>
           <p>{webSearchDataFlowNotice(providerDef, enabled)}</p>
           {providerDef.keyless ? null : <p>選んだ provider のAPIキーは平文で保存し、保存したキーは再表示しません。</p>}

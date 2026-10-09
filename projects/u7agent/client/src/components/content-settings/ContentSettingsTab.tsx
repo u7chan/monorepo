@@ -26,8 +26,8 @@ import { ReloadButton } from "../ReloadButton";
 import { useConfirm } from "../ConfirmProvider";
 import { ProviderIcon } from "../ProviderIcon";
 import { SelectField } from "../SelectField";
-import { MetaChip } from "./MetaChip";
-import { ProviderBadgeTag } from "./ProviderBadgeTag";
+import { MetaChip } from "../model-settings/MetaChip";
+import { ProviderBadgeTag } from "../model-settings/ProviderBadgeTag";
 
 export type ContentSettingsTabProps = {
   settings: ContentSettingsResponse;
@@ -46,7 +46,7 @@ export type ContentSettingsTabProps = {
 };
 
 /**
- * 「コンテンツ生成」タブ。キー登録・モデル選択・削除の最小 UI に絞り、未設定ではキー入力だけを出す。
+ * 設定 → コンテンツ生成の本文。キー登録・モデル選択・削除の最小 UI に絞り、未設定ではキー入力だけを出す。
  * `PUT /api/settings/content/image` と `.../speech` は行が無いと 400 のため、モデル選択はキー保存に成功してから現れる。
  * APIキーは画像と音声で 1 つ共有する（音声だけを無効にするトグルは持たない）。
  */

@@ -1,12 +1,12 @@
 # 画像生成（generate_image ツール）
 
-チャットから画像を生成し、セッションの作業フォルダへ保存する。生成そのものは BFF が provider（v1 は OpenRouter）の画像専用 API（`POST {baseUrl}/images`）へ要求し、保存だけをサンドボックスの upload API へ委譲する（BFF は作業領域に触らない）。provider の APIキーは 設定 → コンテンツ生成（`/settings/models/content`）で登録し、アプリ DB の `content_settings` に**平文**で保存する。モデルの選択肢は OpenRouter の画像モデル API（`GET /api/v1/images/models`）を正とし、取得できないときは前回の成功（アプリ DB のキャッシュ）→ SDK 同梱の順に落ちる。保存名を決められない形式（svg など）しか返さないモデルは選択肢から外し、生成前にも止める（[保存できない形式のモデル](#保存できない形式のモデル)）。
+チャットから画像を生成し、セッションの作業フォルダへ保存する。生成そのものは BFF が provider（v1 は OpenRouter）の画像専用 API（`POST {baseUrl}/images`）へ要求し、保存だけをサンドボックスの upload API へ委譲する（BFF は作業領域に触らない）。provider の APIキーは 設定 → コンテンツ生成（`/settings/content`）で登録し、アプリ DB の `content_settings` に**平文**で保存する。モデルの選択肢は OpenRouter の画像モデル API（`GET /api/v1/images/models`）を正とし、取得できないときは前回の成功（アプリ DB のキャッシュ）→ SDK 同梱の順に落ちる。保存名を決められない形式（svg など）しか返さないモデルは選択肢から外し、生成前にも止める（[保存できない形式のモデル](#保存できない形式のモデル)）。
 
-- 画像専用のキー・モデルを `provider_credentials` とは別に管理する。プロバイダー登録済みキーは流用せず、コンテンツ生成タブで登録したキーだけを使う（別 provider のキーへ黙って切り替えない）
+- 画像専用のキー・モデルを `provider_credentials` とは別に管理する。プロバイダー登録済みキーは流用せず、設定 → コンテンツ生成で登録したキーだけを使う（別 provider のキーへ黙って切り替えない）
 - キーが有効（`content_settings` に行がある）ときだけ、モデルへ `generate_image` を見せる。未設定ならツール一覧に現れない
 - ツールは **BFF ローカル**（`server/src/image-tools.ts`）。サンドボックスのリモート定義ではなく、`createRemoteToolDefinitions` / `REMOTE_TOOL_NAMES` の外にあり、`PI_AGENT_TOOLS` の影響を受けない
 - 保存は `workspace.uploadFile({ dir, name })`。`dir` は root 相対で渡す（BFF がセッション cwd を前置する 1 段。`projects.ts` の cwd 解決とは混ぜない）
-- 設定画面は 設定 → コンテンツ生成（`/settings/models/content`）で操作する。API は [api.md](api.md#コンテンツ生成設定--モデルのコンテンツ生成タブ) を参照
+- 設定画面は 設定 → コンテンツ生成（`/settings/content`）で操作する。API は [api.md](api.md#コンテンツ生成設定--モデルのコンテンツ生成タブ) を参照
 
 ## モデルカタログ
 
@@ -50,8 +50,8 @@ SVG を返す vectorization モデル（`recraft/*-vector` など）は**製品�
 
 | 止めた場所 | 文言 |
 | --- | --- |
-| 生成前ガード | この画像モデルは png / jpeg / webp を返さないため、生成は行っていません（クレジットは消費していません）。設定 → モデル で別の画像モデルを選んでください |
-| 保存段（`imageExtensionFor`） | 対応していない画像形式です: `<mimeType>`（生成は完了しており、クレジットは消費されています）。設定 → モデル で別の画像モデルを選んでください |
+| 生成前ガード | この画像モデルは png / jpeg / webp を返さないため、生成は行っていません（クレジットは消費していません）。設定 → コンテンツ生成 で別の画像モデルを選んでください |
+| 保存段（`imageExtensionFor`） | 対応していない画像形式です: `<mimeType>`（生成は完了しており、クレジットは消費されています）。設定 → コンテンツ生成 で別の画像モデルを選んでください |
 
 `output_format` の明示送信はしない（モデルごとに対応差があり、対応表が要る。今のカタログに svg とラスタを両方宣言するモデルは無いため効果も無い）。実行分類（`RunErrorCode` / `error-classify.ts`）にも専用コードは足さず、`unknown` のままにする。
 
@@ -133,7 +133,7 @@ SDK(pi-ai 1.0.3) の `openrouter-images` は `chat/completions` へ投げるが�
 
 ## 設定画面（コンテンツ生成タブ）
 
-設定 → コンテンツ生成（`/settings/models/content`）。表示の正は `client/src/lib/contentSettings.ts` の純関数、取得と操作は `client/src/hooks/useContentSettings.ts`、描画は `client/src/components/model-settings/ContentSettingsTab.tsx` に閉じる。
+設定 → コンテンツ生成（`/settings/content`）。表示の正は `client/src/lib/contentSettings.ts` の純関数、取得と操作は `client/src/hooks/useContentSettings.ts`、描画は `client/src/components/content-settings/ContentSettingsTab.tsx` に閉じる。
 
 - 未設定ではキー入力だけを出す。`PUT /api/settings/content/image` は行が無いと 400 のため、モデル選択と削除はキー保存（`PUT /api/settings/content/key`）に成功してから現れる
 - タブの上部に provider の見出し（ロゴ + 表示名 + provider id + 登録状態バッジ + `カタログ <n>`）を出す。ロゴは `client/src/components/ProviderIcon.tsx` の `providerIconKey()` で引き、表示名と id は `contentProviderId()` / `contentProviderLabel()` が決める。v1 は openrouter だけなので未設定（`null`）でも OpenRouter を出し、provider が増えれば `settings.provider` に追随して同じ見出しのロゴが切り替わる（対応表に無い provider は頭文字のタイルへ落ちる）。件数と登録状態のチップはプロバイダータブと同じ `MetaChip` を使う
@@ -142,7 +142,7 @@ SDK(pi-ai 1.0.3) の `openrouter-images` は `chat/completions` へ投げるが�
 - モデルは native `<select>`（`SelectField`）でカタログから 1 件選ぶ。保存済みのモデルがカタログに無いときは「（カタログ外）」として現在の id を先頭に足す（何が保存されているかを見失わせない）。サイズ / 品質 / 出力形式の UI は持たず、本文にはその理由（provider の既定を使う）だけを書く。provider 名は見出しにあるため繰り返さない
 - 注意書きは詳細の上部で既定に畳んで出す（1 行の要点 + 展開で全文。平文保存・再表示しない・ログイン無しで公開しない・有効性は保存時に見ない・キーは 8 文字以上・プロバイダー登録キーとは別管理）。下部に「保存したキーは新しい会話から使える（ツール一覧はセッション作成時に固定）」と、生成物の保存先（作業フォルダの `generated/`）を注記する
 - `runtimeAvailable: false` のときはキー登録・上書き・削除を disable し、プロバイダータブと同じ理由（サーバーの起動ログ）を出す。モデルの変更は SDK に触れないため残す。変更系の 503 `state: "not_stored"` は「変更は保存されていません。」を付けて画面の注記へ出す
-- 画面の [再読み込み] はモデル設定と画像設定の両方を取り直す。キーの登録・削除は再起動を待たず、次に作るセッションから効く
+- 画面の [再読み込み] はこの画面の設定だけを取り直す（設定 → モデルの [再読み込み] はモデル側だけを取り直す）。キーの登録・削除は再起動を待たず、次に作るセッションから効く
 
 ## ツールとプレビュー
 

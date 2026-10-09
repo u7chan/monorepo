@@ -406,6 +406,44 @@ export function SkillListIcon() {
   );
 }
 
+/** コンテンツ生成 (設定ナビ)。生成する素材 (画像・音声) の代表として絵の枠で表す */
+export function ImageIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.5"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className="size-4 shrink-0"
+    >
+      <rect x="2.25" y="3.25" width="11.5" height="9.5" rx="1.5" />
+      <circle cx="5.65" cy="6.4" r="1" />
+      <path d="M3 11.9 6.35 8.6c.3-.3.78-.3 1.08 0L11 12.1" />
+    </svg>
+  );
+}
+
+/** Web 検索 (設定ナビ)。虫眼鏡 */
+export function SearchIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.5"
+      strokeLinecap="round"
+      className="size-4 shrink-0"
+    >
+      <circle cx="7" cy="7" r="4.25" />
+      <path d="M10.15 10.15 13.5 13.5" />
+    </svg>
+  );
+}
+
 /** 外観 (設定ナビ)。明暗の半円でテーマ切替を表す (この画面の内容はテーマの選択だけ) */
 export function ThemeIcon() {
   return (

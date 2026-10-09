@@ -13,16 +13,22 @@ export type SettingsSection =
   | "archive"
   | "appearance"
   | "models"
+  | "content"
+  | "web-search"
   | "runtime"
   | "notifications"
   | "spaces";
 
 export const SETTINGS_SECTIONS: { section: SettingsSection; label: string }[] = [
-  // 会話を組み立てる設定 (エージェント / スキル / モデル) を先、アプリ全体と見るだけの設定を後に置く
+  // 会話を組み立てる設定 (エージェント / スキル / モデル / コンテンツ生成 / Web 検索) を先、
+  // アプリ全体と見るだけの設定を後に置く
   { section: "spaces", label: "スペース" },
   { section: "agents", label: "エージェント" },
   { section: "skills", label: "スキル" },
   { section: "models", label: "モデル" },
+  // コンテンツ生成と Web 検索はモデルと同じ「外部サービスとキー」の面だが、独自の API と hook を持つ
+  { section: "content", label: "コンテンツ生成" },
+  { section: "web-search", label: "Web 検索" },
   { section: "notifications", label: "通知" },
   { section: "appearance", label: "外観" },
   { section: "files", label: "ファイル" },
@@ -35,15 +41,15 @@ export const SETTINGS_SECTIONS: { section: SettingsSection; label: string }[] = 
 /**
  * 設定 → モデル のタブ。URL は `/settings/models` と `/settings/models/<sub>` を正とし、
  * 既定タブ (models) はパスへ出さない (lib/route.ts の routePath)。
+ *
+ * タブにするのは、同じデータを同じ hook で見方を切り替えるときだけ (モデルの選択と、そのモデルの
+ * プロバイダー認証)。独自の API と hook を持つ面はルートのセクション (content / web-search) に置く。
  */
-export type ModelsSubsection = "models" | "providers" | "content" | "web-search";
+export type ModelsSubsection = "models" | "providers";
 
 export const MODELS_SUBSECTIONS: { subsection: ModelsSubsection; label: string }[] = [
   { subsection: "models", label: "モデルを選ぶ" },
   { subsection: "providers", label: "プロバイダー" },
-  { subsection: "content", label: "コンテンツ生成" },
-  // コンテンツ生成と同じく「外部サービスとキー」の面。既定 provider と有効 / 無効の kill switch もここに置く
-  { subsection: "web-search", label: "Web 検索" },
 ];
 
 export const DEFAULT_MODELS_SUBSECTION: ModelsSubsection = "models";

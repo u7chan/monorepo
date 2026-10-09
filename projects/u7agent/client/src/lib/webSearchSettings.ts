@@ -1,5 +1,5 @@
 /**
- * 設定 → モデル（Web 検索タブ）の表示変換と文言。DOM に依存しない純関数だけを置く。
+ * 設定 → Web 検索の表示変換と文言。DOM に依存しない純関数だけを置く。
  * provider の一覧・送信先・キーの要否はサーバー（`GET /api/settings/web-search`）が返し、ここは語彙だけを持つ。
  * 有効 / 無効と既定 provider の正はサーバー（`web_search_settings`）で、キーは provider ごとの行（docs/web-search.md）。
  */
@@ -23,7 +23,7 @@ export const WEB_SEARCH_NO_LOGIN_NOTE =
 /** 実行中の操作。null なら操作なし */
 export type WebSearchSavingAction = "enabled" | "provider" | "key" | "delete";
 
-/** ツール全体の有効 / 無効。設定 → モデル の他のタブと同じチップで出す */
+/** ツール全体の有効 / 無効。設定の他のページと同じチップで出す */
 export function webSearchStatusBadge(enabled: boolean): ProviderBadge {
   return enabled ? { label: "有効", tone: "ok" } : { label: "停止中", tone: "warn" };
 }

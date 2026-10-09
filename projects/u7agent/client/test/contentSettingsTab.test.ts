@@ -6,7 +6,7 @@ import assert from "node:assert/strict";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import test from "node:test";
-import { ContentSettingsTab } from "../src/components/model-settings/ContentSettingsTab";
+import { ContentSettingsTab } from "../src/components/content-settings/ContentSettingsTab";
 import { ConfirmProvider } from "../src/components/ConfirmProvider";
 import type { ContentSavingAction } from "../src/lib/contentSettings";
 import type { ContentImageSettings, ContentSettingsResponse, ContentSpeechSettings } from "../src/types";

@@ -34,9 +34,9 @@ export const WEB_SEARCH_PROVIDER_ERROR_MESSAGE = "検索プロバイダのエラ
 export const WEB_SEARCH_RATE_LIMITED_MESSAGE = "検索が混雑しています（レート制限）";
 export const WEB_SEARCH_QUOTA_EXCEEDED_MESSAGE = "検索の利用上限に達しました（provider のプラン上限）";
 export const WEB_SEARCH_KEY_MISSING_MESSAGE =
-  "検索プロバイダーのAPIキーが未設定です。設定 → モデル → Web 検索 を開いて登録してください。";
+  "検索プロバイダーのAPIキーが未設定です。設定 → Web 検索 を開いて登録してください。";
 export const WEB_SEARCH_KEY_REJECTED_MESSAGE =
-  "検索プロバイダーのAPIキーが拒否されました。設定 → モデル → Web 検索 を開いて確認してください。";
+  "検索プロバイダーのAPIキーが拒否されました。設定 → Web 検索 を開いて確認してください。";
 export const WEB_SEARCH_UNEXPECTED_RESPONSE_MESSAGE = "検索プロバイダが想定外の応答を返しました";
 export const WEB_SEARCH_NETWORK_ERROR_MESSAGE = "検索プロバイダに接続できませんでした";
 export const WEB_SEARCH_SETTINGS_UNAVAILABLE_MESSAGE = "検索の設定を読み取れませんでした";
@@ -45,7 +45,7 @@ export const WEB_SEARCH_ABORTED_MESSAGE = "web_search を中断しました";
 export const WEB_SEARCH_NO_RESULTS_MESSAGE = "結果が見つかりませんでした";
 /** 画面が同じ文言を出すため、設定 API もこれを `disabledMessage` として返す */
 export const WEB_SEARCH_DISABLED_MESSAGE =
-  "Web 検索は無効化されています。有効にするには 設定 → モデル → Web 検索 を開いてください。";
+  "Web 検索は無効化されています。有効にするには 設定 → Web 検索 を開いてください。";
 
 /** provider が返す失敗の種類 → モデルへ返す固定文言。provider の応答本文は使わない */
 const WEB_SEARCH_FAILURE_MESSAGES: Record<WebSearchFailureKind, string> = {

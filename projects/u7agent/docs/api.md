@@ -27,8 +27,8 @@ DTO の正は `server/src/schema.ts`（zod）。リクエストボディは `@ho
 | 通知（Discord） | `GET/PUT /api/notifications`、`POST /api/notifications/test`、`PATCH /api/sessions/:id/notify` | [notifications.md](notifications.md) |
 | アーカイブの除外名 | `GET/PUT/DELETE /api/settings/archive` | このファイル |
 | プロバイダーAPIキーとメモ（設定 → モデル） | `GET /api/settings/models`、`PUT/DELETE /api/settings/models/:provider/key`、`PUT /api/settings/models/:provider/memo`、`POST /api/settings/models/:provider/resync`、`POST /api/settings/models/catalog/refresh` | このファイル |
-| コンテンツ生成（設定 → モデル） | `GET /api/settings/content`、`PUT /api/settings/content/image`、`PUT /api/settings/content/speech`、`PUT/DELETE /api/settings/content/key`、`POST /api/settings/content/image/catalog/refresh`、`POST /api/settings/content/speech/catalog/refresh` | このファイル、[image-generation.md](image-generation.md)、[speech-generation.md](speech-generation.md) |
-| Web 検索の設定（設定 → モデル） | `GET/PUT /api/settings/web-search`、`PUT /api/settings/web-search/provider`、`PUT/DELETE /api/settings/web-search/providers/:provider/key` | このファイル、[web-search.md](web-search.md) |
+| コンテンツ生成（設定 → コンテンツ生成） | `GET /api/settings/content`、`PUT /api/settings/content/image`、`PUT /api/settings/content/speech`、`PUT/DELETE /api/settings/content/key`、`POST /api/settings/content/image/catalog/refresh`、`POST /api/settings/content/speech/catalog/refresh` | このファイル、[image-generation.md](image-generation.md)、[speech-generation.md](speech-generation.md) |
+| Web 検索の設定（設定 → Web 検索） | `GET/PUT /api/settings/web-search`、`PUT /api/settings/web-search/provider`、`PUT/DELETE /api/settings/web-search/providers/:provider/key` | このファイル、[web-search.md](web-search.md) |
 | サービス（serve）の状態と起動・停止 | `GET /api/serve/status`、`POST /api/serve/start`、`POST /api/serve/stop` | このファイル、[sandbox.md](sandbox.md#serveサービスの公開と起動停止) |
 | 作業フォルダの環境変数（作業環境 → 環境変数） | `GET/POST /api/secrets`、`GET/PUT/DELETE /api/secrets/:secretId` | このファイル、[secrets.md](secrets.md#作業フォルダの環境変数作業環境--環境変数) |
 | エージェント / スキル | `/api/agents`、`/api/skills`、`/api/skills/files`、`/api/skills/session` | [api-catalog.md](api-catalog.md)、[api-sessions.md](api-sessions.md) |
@@ -451,7 +451,7 @@ Content-Security-Policy: sandbox allow-scripts; default-src 'none'; style-src 'u
     { "id": "exa", "name": "Exa", "host": "mcp.exa.ai", "keyless": true, "configured": true },
     { "id": "tavily", "name": "Tavily", "host": "api.tavily.com", "keyless": false, "configured": false }
   ],
-  "disabledMessage": "Web 検索は無効化されています。有効にするには 設定 → モデル → Web 検索 を開いてください。"
+  "disabledMessage": "Web 検索は無効化されています。有効にするには 設定 → Web 検索 を開いてください。"
 }
 
 // PUT /api/settings/web-search (200。変更系は GET と同じ形 + state)
