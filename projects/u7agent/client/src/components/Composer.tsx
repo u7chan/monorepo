@@ -25,6 +25,7 @@ import { ComposerStatus } from "./composer/ComposerStatus";
 import { LiveToolCall } from "./composer/LiveToolCall";
 import { ModelEffortPicker } from "./composer/ModelEffortControls";
 import { SkillPicker } from "./composer/SkillPicker";
+import { ArrowUpIcon } from "./icons";
 
 export type ComposerProps = {
   activity: string;
@@ -91,24 +92,6 @@ function caretOffsetAt(textarea: HTMLTextAreaElement, x: number, y: number): num
   if (position === null) return null;
   if (position.offsetNode !== textarea && !textarea.contains(position.offsetNode)) return null;
   return Math.min(Math.max(position.offset, 0), textarea.value.length);
-}
-
-function ArrowUpIcon() {
-  return (
-    <svg
-      aria-hidden="true"
-      viewBox="0 0 16 16"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      className="size-4"
-    >
-      <path d="M8 13.25V2.75" />
-      <path d="M3.5 7.25 8 2.75l4.5 4.5" />
-    </svg>
-  );
 }
 
 function ClipIcon() {

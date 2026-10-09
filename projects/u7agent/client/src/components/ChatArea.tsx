@@ -356,10 +356,13 @@ export function ChatArea({
           )}
         </div>
       </section>
-      {/* aria-live の中に入れると読み上げに混ざるため、section の外へ浮かせる */}
-      {!follow && items.length > 0 ? (
-        <ScrollToBottomButton onClick={snapToBottom} className="absolute bottom-4 left-1/2 -translate-x-1/2" />
-      ) : null}
+      {/* aria-live の中に入れると読み上げに混ざるため、section の外へ浮かせる。退場アニメの完了後に消す
+          ための状態を持たなくて済むよう、出す条件だけを渡して置いたままにする */}
+      <ScrollToBottomButton
+        visible={!follow && items.length > 0}
+        onClick={snapToBottom}
+        className="absolute bottom-4 left-1/2 -translate-x-1/2"
+      />
     </div>
   );
 }
