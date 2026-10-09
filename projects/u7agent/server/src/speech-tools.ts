@@ -9,7 +9,7 @@ import { messageFor } from "./http";
 import type { SandboxWorkspaceClient } from "./sandbox/client";
 import { wrapToolDefinitionWithSecretMasker } from "./secret-guard";
 import type { SecretMasker } from "./redact";
-import type { SpeechGenerationResult, SpeechGenerationSettings } from "./speech";
+import type { SpeechAudioFormat, SpeechGenerationResult, SpeechGenerationSettings } from "./speech";
 import { cwdRelativePath, parseToolPath, rootRelativeDir } from "./workspace-path";
 
 export const SPEECH_TOOL_NAME = "generate_speech";
@@ -36,9 +36,9 @@ export const SPEECH_TOOL_GUIDELINES = [
 /** 上限超過。分割はエージェントの仕事で、連結の道具はサンドボックスに無いことを文言で伝える */
 export const SPEECH_TOOL_TEXT_TOO_LONG_MESSAGE = `音声にする文章が長すぎます（${SPEECH_TOOL_TEXT_MAX_LENGTH.toLocaleString("en-US")} 文字まで）。分割して複数回呼んでください（クレジットは消費していません）`;
 
-/** 保存できるのは mp3 だけ。拡張子の省略時は付ける（pcm を mp3 の名前で保存しない） */
+/** 保存名の拡張子は .mp3 / .wav だけを許し、省略は実形式に任せる */
 export const SPEECH_TOOL_EXTENSION_MESSAGE =
-  "保存できるのは .mp3 だけです（拡張子を省略したときは .mp3 を付けます。クレジットは消費していません）";
+  "保存できるのは .mp3 / .wav だけです（保存名の拡張子は実際の音声形式に合わせます。クレジットは消費していません）";
 
 export const SPEECH_TOOL_VOICE_MESSAGE =
   "このモデルは選択された声に対応していません（クレジットは消費していません）。設定 → モデル → コンテンツ生成 で選び直すか、対応する声を指定してください";
@@ -68,7 +68,7 @@ const generateSpeechSchema = Type.Object({
   path: Type.Optional(
     Type.String({
       description:
-        "Optional path relative to the working directory ending with `.mp3` (for example `generated/narration.mp3`). The `.mp3` extension is added when omitted, and other extensions are refused. Parent directories are created. Existing files are not overwritten; the new file gets a suffix such as `-1` if the name is taken. Always use the actual saved path returned by the tool in your reply.",
+        "Optional path relative to the working directory ending with `.mp3` or `.wav` (for example `generated/narration.mp3`). Other extensions are refused. The saved file always carries the extension of the format the model returns (`.wav` for models that only return raw pcm), so the name may use a different extension than the one requested. The extension is added when omitted. Parent directories are created. Existing files are not overwritten; the new file gets a suffix such as `-1` if the name is taken. Always use the actual saved path returned by the tool in your reply.",
     }),
   ),
 });
@@ -88,11 +88,57 @@ export function speechSlug(text: string, now: number): string {
   return `speech-${stamp}`;
 }
 
-/** 保存名。`.mp3` 以外は拒否し、拡張子が無いときだけ付ける */
-export function speechFileName(name: string): string {
-  if (name.toLowerCase().endsWith(".mp3")) return name;
-  if (!name.includes(".")) return `${name}.mp3`;
-  throw new Error(SPEECH_TOOL_EXTENSION_MESSAGE);
+/** 実形式の拡張子。pcm は RIFF ヘッダを付けて wav として保存する */
+const SPEECH_EXTENSION_BY_FORMAT: Record<SpeechAudioFormat, string> = { mp3: "mp3", pcm: "wav" };
+
+/** 課金前に許す保存名の拡張子。省略は許し、実形式の決定は生成後へ残す */
+const SAVEABLE_EXTENSIONS = ["mp3", "wav"];
+
+/** 課金前の検証。.mp3 / .wav 以外は拒否し、拡張子の省略は生成後の形式次第にする */
+export function assertSpeechFileName(name: string): void {
+  const separator = name.lastIndexOf(".");
+  if (separator < 0) return;
+  if (!SAVEABLE_EXTENSIONS.includes(name.slice(separator + 1).toLowerCase())) {
+    throw new Error(SPEECH_TOOL_EXTENSION_MESSAGE);
+  }
+}
+
+/**
+ * 生成後の保存名。要求した拡張子ではなく実形式へ寄せる（pcm を mp3 の名前で保存しない）。
+ * 画像の `imageExtensionFor` が明示 path の拡張子をそのまま使うのとは意図的に非対称にする。
+ */
+export function speechFileName(name: string, format: SpeechAudioFormat): string {
+  const extension = SPEECH_EXTENSION_BY_FORMAT[format];
+  const separator = name.lastIndexOf(".");
+  return separator <= 0 ? `${name}.${extension}` : `${name.slice(0, separator)}.${extension}`;
+}
+
+/**
+ * pcm の生バイトへ 44 バイトの RIFF ヘッダを付ける。ビット深度は API が宣言しないため、
+ * 実測どおり 16-bit LE を前提にする（ヘッダと実データが食い違う形式は検出できない）。
+ */
+export function pcmToWav(pcm: ArrayBuffer, sampleRate: number, channels: number): ArrayBuffer {
+  const size = pcm.byteLength;
+  const bytes = new ArrayBuffer(44 + size);
+  const view = new DataView(bytes);
+  const ascii = (offset: number, text: string): void => {
+    for (let index = 0; index < text.length; index += 1) view.setUint8(offset + index, text.charCodeAt(index));
+  };
+  ascii(0, "RIFF");
+  view.setUint32(4, 36 + size, true);
+  ascii(8, "WAVE");
+  ascii(12, "fmt ");
+  view.setUint32(16, 16, true);
+  view.setUint16(20, 1, true);
+  view.setUint16(22, channels, true);
+  view.setUint32(24, sampleRate, true);
+  view.setUint32(28, sampleRate * channels * 2, true);
+  view.setUint16(32, channels * 2, true);
+  view.setUint16(34, 16, true);
+  ascii(36, "data");
+  view.setUint32(40, size, true);
+  new Uint8Array(bytes).set(new Uint8Array(pcm), 44);
+  return bytes;
 }
 
 export interface SpeechToolDefinitionOptions {
@@ -133,7 +179,8 @@ export function createSpeechToolDefinitions(options: SpeechToolDefinitionOptions
           ? undefined
           : (() => {
               const target = parseToolPath(params.path);
-              return { dir: target.dir, name: speechFileName(target.name) };
+              assertSpeechFileName(target.name);
+              return { dir: target.dir, name: target.name };
             })();
       if (params.text.length > SPEECH_TOOL_TEXT_MAX_LENGTH) throw new Error(SPEECH_TOOL_TEXT_TOO_LONG_MESSAGE);
       const settings = readCurrentSettings(options.readSettings);
@@ -155,11 +202,15 @@ export function createSpeechToolDefinitions(options: SpeechToolDefinitionOptions
       if (!result.ok) throw new Error(result.message);
 
       const dir = explicit?.dir ?? SPEECH_TOOL_DEFAULT_DIR;
-      const name = explicit?.name ?? `${speechSlug(params.text, Date.now())}.mp3`;
+      const name = speechFileName(explicit?.name ?? speechSlug(params.text, Date.now()), result.speech.format);
+      const audio =
+        result.speech.format === "pcm"
+          ? pcmToWav(result.speech.audio, result.speech.sampleRate, result.speech.channels)
+          : result.speech.audio;
       const uploaded = await options.workspace.uploadFile({
         dir: rootRelativeDir(options.sessionCwd, dir),
         name,
-        body: new Blob([result.speech.audio]).stream(),
+        body: new Blob([audio]).stream(),
         signal,
       });
       // 同名はサンドボックスが `-1` を付けて退避するため、実際に保存された名前を返す

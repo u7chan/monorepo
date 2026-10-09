@@ -366,7 +366,8 @@ function SpeechSection({
       </div>
       {/* 演技指示は `instructions` の非ゴールに合わせて渡さない。長文は分割がエージェントの仕事 */}
       <p className="text-2xs leading-relaxed text-ink-muted">
-        出力は mp3 固定です。読み上げる文章だけを渡し、演技指示は本文に書かせません。長文は分けて複数回呼ばせます。
+        出力形式はモデルに合わせて mp3 / wav
+        で保存します。読み上げる文章だけを渡し、演技指示は本文に書かせません。長文は分けて複数回呼ばせます。
       </p>
       <div className="flex flex-wrap items-center gap-2">
         {/* 段落のセマンティクスを残すため、チップ (span) は <p> の中に置く */}

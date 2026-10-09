@@ -189,7 +189,10 @@ test("設定済みでは音声のモデルとボイスを出し、宣言のあ�
   assert.ok(html.includes('value="Zephyr"'), "保存済みボイスを選択した状態で出す");
   assert.ok(html.includes(">Kore</option>"), "宣言されている他のボイスも候補に出す");
   assert.ok(html.includes("音声モデル一覧は OpenRouter から取得しました"), "一覧の出どころを出す");
-  assert.ok(html.includes("出力は mp3 固定です"), "出力形式と演技指示を書かせない方針を出す");
+  assert.ok(
+    html.includes("出力形式はモデルに合わせて mp3 / wav で保存します"),
+    "出力形式と演技指示を書かせない方針を出す",
+  );
 });
 
 test("宣言が無い音声モデルはボイスを自由記述にし、空欄を許す", () => {
