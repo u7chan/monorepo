@@ -36,7 +36,8 @@ export function SpaceSettingsPage({ compact = false, onBack, onOpenNav }: Settin
               {space.spaces.map((item) => (
                 <MenuItem
                   key={item.id}
-                  label={`${item.name}${item.id === space.selected.id ? "（選択中）" : ""}`}
+                  label={item.name}
+                  variant="choice"
                   selected={item.id === space.selected.id}
                   current="true"
                   onClick={() => {

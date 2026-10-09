@@ -1,5 +1,6 @@
 import type { ReactNode, Ref } from "react";
 import { cn } from "../lib/cn";
+import { CheckIcon } from "./icons";
 
 export type MenuItemProps = {
   /** 左に置くアイコン (icons.tsx の size-4 のもの) */
@@ -8,10 +9,13 @@ export type MenuItemProps = {
   /** 2 行目。行の高さは min-height で決めるので、1 行の行と基準が揃う */
   description?: ReactNode;
   /**
-   * 選択の表現。nav = ページの選択 (塗り)、list = 一覧の項目の選択 (淡い塗り)、add = 追加アクション (破線)。
+   * 選択の表現。nav = ページの選択 (塗り)、list = 一覧の項目の選択 (淡い塗り)、
+   * choice = 択一の一覧 (枠 + 選択のチェック)、add = 追加アクション (破線)。
    * 塗りと淡い塗りを分けるのは、どちらがページでどちらが項目かを一目で見分けるため。
+   * choice だけ枠とチェックを持つのは、選択の淡い塗りだけでは行の範囲が地に埋もれ、
+   * 押せる行かどうかが一目で分からないため。
    */
-  variant?: "nav" | "list" | "add";
+  variant?: "nav" | "list" | "choice" | "add";
   selected?: boolean;
   /** nav は "page"、一覧の選択は "true" */
   current?: "page" | "true";
@@ -33,6 +37,8 @@ const TONE = {
   add: "border border-dashed border-line text-ink-soft hover:border-accent/50 hover:bg-hover hover:text-accent-text",
   "nav-active": "bg-accent text-on-accent",
   "list-active": "bg-accent-wash text-accent-text",
+  choice: "border border-line text-ink hover:border-accent/50 hover:bg-hover",
+  "choice-active": "border border-accent/60 bg-accent-wash text-accent-text",
   idle: "text-ink hover:bg-hover",
   danger: "text-danger-text hover:bg-hover",
 } as const;
@@ -41,9 +47,14 @@ const ICON_TONE = {
   add: "text-accent-text",
   "nav-active": "text-on-accent",
   "list-active": "text-accent-text",
+  choice: "text-ink-soft",
+  "choice-active": "text-accent-text",
   idle: "text-ink-soft",
   danger: "text-danger-text",
 } as const;
+
+/** 未選択の行のトーン。枠を持つ choice だけ idle と別にする */
+const IDLE_TONE = { nav: "idle", list: "idle", choice: "choice", add: "add" } as const;
 
 /**
  * 設定のナビと一覧で共通の行。寸法 (高さ / 左右の余白 / 角丸 / アイコンと文字の間隔) を
@@ -64,7 +75,7 @@ export function MenuItem({
   onClick,
 }: MenuItemProps) {
   const active = selected && variant !== "add";
-  const tone = variant === "add" ? "add" : active ? (`${variant}-active` as const) : danger ? "danger" : "idle";
+  const tone = active ? (`${variant}-active` as const) : danger ? "danger" : IDLE_TONE[variant];
   return (
     <button
       type="button"
@@ -106,6 +117,14 @@ export function MenuItem({
           </span>
         ) : null}
       </span>
+      {/* 選択のチェックは添えるだけなので読み上げない (選択は aria-current が伝える) */}
+      {active && variant === "choice" ? (
+        <span
+          className={cn("grid size-4 shrink-0 place-items-center", description ? "self-start" : null, ICON_TONE[tone])}
+        >
+          <CheckIcon />
+        </span>
+      ) : null}
       {trailing ? (
         <span
           className={cn(
