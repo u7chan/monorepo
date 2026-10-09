@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { isNotStoredError } from "../api";
 import { messageFor, mutationErrorNote, successNoteText, type SettingsSuccessNote } from "../lib/settingsResource";
 import { createLoadingTracker, createRequestGate } from "./requestGate";
 
@@ -71,7 +72,7 @@ export function useSettingsResource<TResponse, TAction extends string>(options: 
         setNote({ text: successNoteText(successNote, response), error: false });
         return true;
       } catch (error) {
-        setNote({ text: mutationErrorNote(error), error: true });
+        setNote({ text: mutationErrorNote(error, isNotStoredError(error)), error: true });
         return false;
       } finally {
         setSaving(null);

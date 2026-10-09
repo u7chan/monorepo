@@ -3,6 +3,7 @@ import {
   deleteProviderApiKey,
   getModelsSettings,
   getRuntimeModels,
+  isNotStoredError,
   putModelAvailability,
   putProviderApiKey,
   putProviderMemo,
@@ -107,7 +108,7 @@ export function useModelSettings({ onRefreshHealth }: ModelSettingsParams) {
         await applyMutation(action, await run());
         return true;
       } catch (error) {
-        setNote({ text: mutationErrorNote(error), error: true });
+        setNote({ text: mutationErrorNote(error, isNotStoredError(error)), error: true });
         return false;
       } finally {
         setSaving(null);
@@ -137,7 +138,7 @@ export function useModelSettings({ onRefreshHealth }: ModelSettingsParams) {
         await applyMutation("availability", response);
         return response;
       } catch (error) {
-        setNote({ text: mutationErrorNote(error), error: true });
+        setNote({ text: mutationErrorNote(error, isNotStoredError(error)), error: true });
         return null;
       } finally {
         setSavingAvailability(false);
@@ -170,7 +171,7 @@ export function useModelSettings({ onRefreshHealth }: ModelSettingsParams) {
         setNote(mutationNote("memo", response, memo.trim().length === 0));
         return true;
       } catch (error) {
-        setNote({ text: mutationErrorNote(error), error: true });
+        setNote({ text: mutationErrorNote(error, isNotStoredError(error)), error: true });
         return false;
       } finally {
         setSaving(null);
