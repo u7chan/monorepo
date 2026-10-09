@@ -458,6 +458,19 @@ test("appendSystemPrompt は画像生成ツールの案内を有効時だけ足�
   assert.match(on, /generated\/name\.png/);
 });
 
+test("appendSystemPrompt は音声生成ツールの案内を有効時だけ足し、演技指示と連結を約束しない", () => {
+  const off = appendSystemPrompt("/workspace");
+  assert.doesNotMatch(off, /generate_speech/);
+  const on = appendSystemPrompt("/workspace", { speechGeneration: true });
+  assert.match(on, /generate_speech writes only the words to read/);
+  assert.match(on, /verbatim/);
+  assert.match(on, /multiple times with separate parts/);
+  assert.match(on, /concatenating them is out of scope/);
+  assert.match(on, /actual saved path/);
+  // 連結の道具はサンドボックスに無いので、やることを約束しない
+  assert.doesNotMatch(on, /concatenate the files|join the parts for the user/);
+});
+
 test("appendSystemPrompt はサンドボックスの python / uv と .venv の運用を説明する", () => {
   const prompt = appendSystemPrompt("/workspace");
   // ベースイメージの Python が上がったらプロンプトの記述も見直す (node 24 と同じ性質のドリフト)

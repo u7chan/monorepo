@@ -21,6 +21,8 @@ import { catalogSkillIndexForSession } from "./catalog-skills";
 import { discoverSessionFileSkills } from "./file-skills";
 import { createImageToolDefinitions, IMAGE_GENERATION_PROMPT_LINES, sessionToolNames } from "./image-tools";
 import { createImagesGenerator, type ContentGenerationConfig } from "./images";
+import { createSpeechGenerator } from "./speech";
+import { createSpeechToolDefinitions, SPEECH_GENERATION_PROMPT_LINES } from "./speech-tools";
 import { createInvestigateToolDefinitions, withInvestigateTool, type InvestigateHost } from "./investigate-tool";
 import { resolveWorkspaceCwd } from "./projects";
 import { ThinkingLevelSchema } from "./schema";
@@ -80,9 +82,12 @@ export function ignoredModelEnvironmentVariables(env: NodeJS.ProcessEnv = proces
 /**
  * セッション共通の追加プロンプト。作業ディレクトリの意味とファイル / スキルの置き場はセッションの cwd で
  * 変わるため rootCwd を受けて組み立てる (promptSnapshot に含めず、作成・復元のたびに評価する)。
- * 画像生成の案内はツールを公開したセッションだけが受け取る (無効時に存在しないツールを案内しない)。
+ * 画像 / 音声生成の案内はツールを公開したセッションだけが受け取る (無効時に存在しないツールを案内しない)。
  */
-export function appendSystemPrompt(rootCwd: string, options: { imageGeneration?: boolean } = {}): string {
+export function appendSystemPrompt(
+  rootCwd: string,
+  options: { imageGeneration?: boolean; speechGeneration?: boolean } = {},
+): string {
   return `
 You are running inside a small browser UI.
 Respond in Japanese by default, unless the user asks for another language.
@@ -109,6 +114,7 @@ When a task involves the project, inspect it with the available tools instead of
 When the user asks to create or change a reusable skill, put it in the \`.agents/skills\` directory under the working directory, or in \`${join(rootCwd, COMMON_SKILLS_DIR)}\` for a standalone chat, and follow the bundled \`skill-creator\` skill for the location, layout, frontmatter and verification.
 Do not reveal private chain-of-thought; provide a short useful summary of your reasoning instead.
 ${options.imageGeneration ? IMAGE_GENERATION_PROMPT_LINES.join("\n") : ""}
+${options.speechGeneration ? SPEECH_GENERATION_PROMPT_LINES.join("\n") : ""}
 `.trim();
 }
 
@@ -715,8 +721,9 @@ export async function createPiBff({ cwd = process.cwd() }: { cwd?: string } = {}
   const maskError = (error: unknown): string => secretMasker.mask(errorMessage(error));
   // コンテンツ生成の設定は DB を正とする ContentSettingsService が setContentGeneration() で写す。初期値は無効で、
   // ツール定義はセッション作成時にこの値を見る（既存会話へ遡及しない）
-  const imageGeneration: { config: ContentGenerationConfig | undefined } = { config: undefined };
+  const contentGeneration: { config: ContentGenerationConfig | undefined } = { config: undefined };
   const imagesGenerator = createImagesGenerator({ maskText: maskError });
+  const speechGenerator = createSpeechGenerator({ maskText: maskError });
   // Web 検索の設定も DB を正とする WebSearchSettingsService が写す。既定は有効 / Exa で、
   // ツールは execute のたびにここを読む（セッション作成時に凍結しない）
   const webSearch: { config: WebSearchRuntimeConfig } = {
@@ -823,8 +830,8 @@ export async function createPiBff({ cwd = process.cwd() }: { cwd?: string } = {}
       retry: { enabled: true, maxRetries: 2 },
     });
     const snapshot = promptSnapshot ?? composePromptSnapshot(agent, skills);
-    // ツール一覧はセッション作成時に固定する。画像ツールの有効化は新しい会話と復元から効く
-    const imageGenerationEnabled = imageGeneration.config?.enabled === true;
+    // ツール一覧はセッション作成時に固定する。コンテンツ生成の有効化は新しい会話と復元から効く
+    const contentGenerationEnabled = contentGeneration.config?.enabled === true;
     const serveToolEnabled = serveHost.value?.configured === true;
     // 質問ツールは常時有効 (PI_AGENT_TOOLS の allowlist には依存させない)。実体未注入のときだけ落とす
     const askUserEnabled = askUserHost.value !== null;
@@ -856,7 +863,10 @@ export async function createPiBff({ cwd = process.cwd() }: { cwd?: string } = {}
       appendSystemPrompt: [
         investigation
           ? investigationSystemPrompt()
-          : appendSystemPrompt(rootCwd, { imageGeneration: imageGenerationEnabled }),
+          : appendSystemPrompt(rootCwd, {
+              imageGeneration: contentGenerationEnabled,
+              speechGeneration: contentGenerationEnabled,
+            }),
         snapshot.agent,
       ].filter(Boolean),
       fileSkills: fileSkills.skills,
@@ -885,7 +895,12 @@ export async function createPiBff({ cwd = process.cwd() }: { cwd?: string } = {}
         ? baseTools
         : withInvestigateTool(
             withAskUserTool(
-              withWebSearchTool(withServeTool(sessionToolNames(baseTools, imageGenerationEnabled), serveToolEnabled)),
+              withWebSearchTool(
+                withServeTool(
+                  sessionToolNames(baseTools, { image: contentGenerationEnabled, speech: contentGenerationEnabled }),
+                  serveToolEnabled,
+                ),
+              ),
               askUserEnabled,
             ),
             investigateEnabled,
@@ -915,13 +930,22 @@ export async function createPiBff({ cwd = process.cwd() }: { cwd?: string } = {}
                 readApiKey: (provider) => webSearch.config.readApiKey(provider),
               }),
               ...createImageToolDefinitions({
-                enabled: imageGenerationEnabled,
+                enabled: contentGenerationEnabled,
                 sessionCwd: relativeCwd,
                 workspace: sandboxClient,
                 masker: secretMasker,
-                readSettings: () => imageGeneration.config?.read(),
-                readOutputFormats: (model) => imageGeneration.config?.readOutputFormats(model),
+                readSettings: () => contentGeneration.config?.read(),
+                readOutputFormats: (model) => contentGeneration.config?.readOutputFormats(model),
                 generate: imagesGenerator.generate,
+              }),
+              ...createSpeechToolDefinitions({
+                enabled: contentGenerationEnabled,
+                sessionCwd: relativeCwd,
+                workspace: sandboxClient,
+                masker: secretMasker,
+                readSettings: () => contentGeneration.config?.readSpeech(),
+                readVoices: (model) => contentGeneration.config?.readVoices(model),
+                generate: speechGenerator.generate,
               }),
               ...createServeToolDefinitions({
                 enabled: serveToolEnabled,
@@ -987,10 +1011,10 @@ export async function createPiBff({ cwd = process.cwd() }: { cwd?: string } = {}
       selection.defaultModel = next.defaultModel;
     },
     get contentGenerationEnabled() {
-      return imageGeneration.config?.enabled === true;
+      return contentGeneration.config?.enabled === true;
     },
     setContentGeneration(config) {
-      imageGeneration.config = config;
+      contentGeneration.config = config;
     },
     setWebSearch(config) {
       webSearch.config = config;

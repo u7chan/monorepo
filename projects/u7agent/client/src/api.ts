@@ -47,10 +47,12 @@ import type {
   SessionSummary,
   SessionTitleResponse,
   SkillDef,
+  SpeechCatalogRefreshResponse,
   StopResult,
   ThinkingLevel,
   UpdateAgentBody,
   UpdateContentImageBody,
+  UpdateContentSpeechBody,
   UpdateModelAvailabilityBody,
   UpdateNotificationsBody,
   UpdateSkillBody,
@@ -502,7 +504,17 @@ export const putContentImageSettings = async (input: UpdateContentImageBody): Pr
   return (await res.json()) as ContentMutationResponse;
 };
 
-/** 画像のAPIキーの登録・上書き。行が無ければ既定 provider / model で作成される */
+/**
+ * 音声モデル / ボイスの変更。キーと画像モデルは保持され、行が無ければ 400。
+ * `voice` の空文字は「指定なし」（宣言が無いモデルで送らない）を表す。
+ */
+export const putContentSpeechSettings = async (input: UpdateContentSpeechBody): Promise<ContentMutationResponse> => {
+  const res = await client.api.settings.content.speech.$put({ json: input });
+  if (!res.ok) throw await apiError(res);
+  return (await res.json()) as ContentMutationResponse;
+};
+
+/** コンテンツ生成（画像 / 音声）のAPIキーの登録・上書き。行が無ければ既定 provider / model で作成される */
 export const putContentApiKey = async (apiKey: string): Promise<ContentMutationResponse> => {
   const res = await client.api.settings.content.key.$put({ json: { apiKey } });
   if (!res.ok) throw await apiError(res);
@@ -570,6 +582,15 @@ export const refreshImageCatalog = async (): Promise<ImageCatalogRefreshResponse
   const res = await client.api.settings.content.image.catalog.refresh.$post();
   if (!res.ok) throw await apiError(res);
   return (await res.json()) as ImageCatalogRefreshResponse;
+};
+
+/**
+ * 音声モデル一覧の再取得。形と失敗の扱いは画像と同じ（常に 200 で、失敗は catalogError にだけ載る）。
+ */
+export const refreshSpeechCatalog = async (): Promise<SpeechCatalogRefreshResponse> => {
+  const res = await client.api.settings.content.speech.catalog.refresh.$post();
+  if (!res.ok) throw await apiError(res);
+  return (await res.json()) as SpeechCatalogRefreshResponse;
 };
 
 export const getRuntimeServeStatus = async (signal?: AbortSignal): Promise<RuntimeServeStatus> => {

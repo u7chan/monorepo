@@ -236,6 +236,8 @@ export function ModelSettingsView({
             onDeleteKey={contentSettings.removeKey}
             onSaveSelection={contentSettings.saveSelection}
             onRefreshCatalog={contentSettings.refreshCatalog}
+            onSaveSpeech={contentSettings.saveSpeech}
+            onRefreshSpeechCatalog={contentSettings.refreshSpeechCatalog}
           />
         ) : (
           <SettingsPlaceholder

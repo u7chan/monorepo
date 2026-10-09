@@ -41,6 +41,7 @@ import {
   UpdateArchiveSettingsBodySchema,
   UpdateContentImageBodySchema,
   UpdateContentKeyBodySchema,
+  UpdateContentSpeechBodySchema,
   UpdateModelAvailabilityBodySchema,
   UpdateNotificationsBodySchema,
   UpdateProviderKeyBodySchema,
@@ -436,8 +437,17 @@ export async function createBffApp(opts: CreateBffAppOptions = {}) {
       ),
       (c) => contentSettingsRoutes.putKey(c, c.req.valid("json").apiKey),
     )
+    .put(
+      "/api/settings/content/speech",
+      appDataMutation,
+      jsonBodyValidator(UpdateContentSpeechBodySchema, (result, c) =>
+        result.success ? undefined : c.json({ error: "Invalid request body" }, 400),
+      ),
+      (c) => contentSettingsRoutes.putSpeechSelection(c, c.req.valid("json")),
+    )
     .delete("/api/settings/content/key", appDataMutation, contentSettingsRoutes.deleteKey)
     .post("/api/settings/content/image/catalog/refresh", (c) => contentSettingsRoutes.refreshCatalog(c))
+    .post("/api/settings/content/speech/catalog/refresh", (c) => contentSettingsRoutes.refreshSpeechCatalog(c))
     .get("/api/settings/web-search", appData, webSearchSettingsRoutes.list)
     .put(
       "/api/settings/web-search",

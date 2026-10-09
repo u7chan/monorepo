@@ -8,15 +8,18 @@
  */
 import type { ImageApi, ImageModel } from "@earendil-works/pi-ai";
 import { builtinModels } from "@earendil-works/pi-ai/providers/all";
+import {
+  classifyProviderFailure,
+  parseJsonBody,
+  providerMessageOf,
+  type ProviderFailureCode,
+  type ProviderFailureContext,
+  type ProviderFailureMessages,
+} from "./provider-failure";
+import type { SpeechGenerationSettings } from "./speech";
 
-/** 失敗の公開分類。上流の原文は出さず、マスク済みの provider メッセージだけを添える */
-export type ImageFailureCode =
-  | "invalid_key"
-  | "insufficient_credit"
-  | "rate_limited"
-  | "timeout"
-  | "aborted"
-  | "unknown";
+/** 失敗の公開分類。分類の規則と provider メッセージの扱いは provider-failure.ts を正とする */
+export type ImageFailureCode = ProviderFailureCode;
 
 export interface GeneratedImage {
   mimeType: string;
@@ -86,6 +89,10 @@ export interface ContentGenerationConfig {
    * 保存できる形式を 1 つも宣言していないモデルを provider へ送る前に止めるために使う。
    */
   readOutputFormats: (model: string) => readonly string[] | undefined;
+  /** 実行のたびに現在の音声設定を読む。行が無ければ undefined（未設定・削除後） */
+  readSpeech: () => SpeechGenerationSettings | undefined;
+  /** 実行のたびにカタログの話者の宣言を引く。未知名・宣言なしは undefined（＝止めない） */
+  readVoices: (model: string) => readonly string[] | undefined;
 }
 
 export interface ImageGenerationInput {
@@ -117,29 +124,17 @@ export const IMAGE_TIMEOUT_MESSAGE = "画像生成がタイムアウトしまし
 export const IMAGE_ABORTED_MESSAGE = "画像生成を中断しました";
 export const IMAGE_UNKNOWN_FAILURE_MESSAGE = "画像生成に失敗しました";
 
-/** 応答に添える provider メッセージの上限。長文のエラー本文をそのまま会話へ載せない */
-const PROVIDER_MESSAGE_MAX_LENGTH = 500;
+const IMAGE_FAILURE_MESSAGES: ProviderFailureMessages = {
+  invalidKey: IMAGE_API_KEY_INVALID_MESSAGE,
+  insufficientCredit: IMAGE_INSUFFICIENT_CREDIT_MESSAGE,
+  rateLimited: IMAGE_RATE_LIMITED_MESSAGE,
+  timeout: IMAGE_TIMEOUT_MESSAGE,
+  aborted: IMAGE_ABORTED_MESSAGE,
+  unknown: IMAGE_UNKNOWN_FAILURE_MESSAGE,
+};
 
 /** media_type が読めないときの画像形式。OpenRouter は識別できるときだけ返す */
 const DEFAULT_IMAGE_MIME_TYPE = "image/png";
-
-interface FailureContext {
-  status: number | undefined;
-  timedOut: boolean;
-  aborted: boolean;
-  providerMessage: string | undefined;
-  maskText: (text: string) => string;
-}
-
-/** 本文を JSON として読む。JSON でない本文（プロキシの HTML など）は生テキストのまま扱う */
-function parseJson(text: string): unknown {
-  if (text === "") return undefined;
-  try {
-    return JSON.parse(text);
-  } catch {
-    return undefined;
-  }
-}
 
 /** 画像本体を取り出す。media_type は data の各件 → 応答全体 → png の順に落とす */
 function imageOf(body: unknown): GeneratedImage | undefined {
@@ -162,45 +157,12 @@ function imageOf(body: unknown): GeneratedImage | undefined {
   return undefined;
 }
 
-/** OpenRouter の `error.message` を優先して理由を取り出す。非 2xx で形が違えば生テキストへ落とす */
-function providerMessageOf(body: unknown, raw: string, includeRaw: boolean): string | undefined {
-  if (typeof body === "object" && body !== null) {
-    const error = (body as { error?: unknown }).error;
-    if (typeof error === "string" && error !== "") return error;
-    if (typeof error === "object" && error !== null) {
-      const message = (error as { message?: unknown }).message;
-      if (typeof message === "string" && message !== "") return message;
-    }
-  }
-  if (!includeRaw) return undefined;
-  const trimmed = raw.trim();
-  return trimmed === "" ? undefined : trimmed;
-}
-
 /**
- * 失敗の分類。タイムアウト → ユーザー中断 → 記録した status → 原因不明の順に見る。
- * 画像 0 件は失敗として扱い、理由の分からない応答本文をそのまま会話へ載せない。
+ * 失敗の分類。画像 0 件は失敗として扱い、理由の分からない応答本文をそのまま会話へ載せない
+ * （分類の規則は provider-failure.ts の 1 つを使う）。
  */
-function classifyImageFailure(context: FailureContext): ImageGenerationResult {
-  if (context.timedOut) return { ok: false, code: "timeout", message: IMAGE_TIMEOUT_MESSAGE };
-  if (context.aborted) return { ok: false, code: "aborted", message: IMAGE_ABORTED_MESSAGE };
-  const { status } = context;
-  if (status === 401 || status === 403)
-    return { ok: false, code: "invalid_key", message: IMAGE_API_KEY_INVALID_MESSAGE };
-  if (status === 402) {
-    return { ok: false, code: "insufficient_credit", message: IMAGE_INSUFFICIENT_CREDIT_MESSAGE };
-  }
-  if (status === 429 || (status !== undefined && status >= 500)) {
-    return { ok: false, code: "rate_limited", message: IMAGE_RATE_LIMITED_MESSAGE };
-  }
-  const detail = context.providerMessage;
-  return {
-    ok: false,
-    code: "unknown",
-    message: detail
-      ? `${IMAGE_UNKNOWN_FAILURE_MESSAGE}: ${context.maskText(detail).slice(0, PROVIDER_MESSAGE_MAX_LENGTH)}`
-      : `${IMAGE_UNKNOWN_FAILURE_MESSAGE}（原因不明）`,
-  };
+function classifyImageFailure(context: ProviderFailureContext): ImageGenerationResult {
+  return classifyProviderFailure(context, IMAGE_FAILURE_MESSAGES);
 }
 
 /** 画像専用 API の URL。baseUrl の末尾スラッシュは 1 本へ畳む */
@@ -297,7 +259,7 @@ export function createImagesGenerator(options: ImagesGeneratorOptions = {}): Ima
         });
         if (!response.ok) status = response.status;
         const text = await response.text();
-        const body = parseJson(text);
+        const body = parseJsonBody(text);
         const image = imageOf(body);
         if (image) return { ok: true, image };
         return classifyImageFailure({

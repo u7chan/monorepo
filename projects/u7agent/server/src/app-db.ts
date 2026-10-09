@@ -19,7 +19,7 @@ import type {
 
 export const APP_DB_FILENAME = "u7agent.db";
 /** テーブル定義を変えたら上げる。新規作成と加算移行はこの版へ揃え、未知の版は作り直す */
-export const APP_DB_SCHEMA_VERSION = 15;
+export const APP_DB_SCHEMA_VERSION = 16;
 
 /** プロバイダー API キーの保存行。平文なのでアクセス権の管理は docs/secrets.md を正とする */
 export interface ProviderCredentialRow {
@@ -46,11 +46,15 @@ export interface ModelSettingsRow {
 
 /**
  * コンテンツ生成の保存行。**行が無い = 未設定**で、キー削除は行ごと消す。apiKey は平文
- * (アクセス権の管理と残存リスクは docs/secrets.md / docs/image-generation.md を正とする)
+ * (アクセス権の管理と残存リスクは docs/secrets.md / docs/image-generation.md を正とする)。
+ * 音声の 2 列は v15 -> v16 で足した nullable 列で、NULL は既定（モデル）と「宣言する先頭ボイス」
+ * （voice）へフォールバックして読む。
  */
 export interface ContentSettingsRow {
   provider: string;
   imageModel: string;
+  speechModel: string | null;
+  speechVoice: string | null;
   apiKey: string;
 }
 
@@ -80,6 +84,24 @@ export interface ImageCatalogRow {
   /** 最後に live を取得できた時刻 (epoch ms) */
   fetchedAt: number;
   models: ImageCatalogModelRow[];
+}
+
+/** 音声カタログ 1 件の保存形。provider は v1 では openrouter 固定なので id と表示名、話者の宣言を残す */
+export interface SpeechCatalogModelRow {
+  id: string;
+  name: string;
+  /** live が宣言する話者。無い行（宣言の無いモデル・この項目より前のキャッシュ）は「宣言なし」として読む */
+  voices?: string[] | undefined;
+}
+
+/**
+ * live 音声カタログのキャッシュ行。テーブルの形は `image_catalog` と同型だが、item の JSON は違う
+ * （`voices` を持つ）。行が無い = 取得できておらず、同梱の既定 1 件へ落ちる。
+ */
+export interface SpeechCatalogRow {
+  /** 最後に live を取得できた時刻 (epoch ms) */
+  fetchedAt: number;
+  models: SpeechCatalogModelRow[];
 }
 
 /**
@@ -202,13 +224,17 @@ CREATE TABLE IF NOT EXISTS provider_memos (
  * コンテンツ生成の `content_settings`（provider / imageModel / apiKey）へ改名した。
  * 1 行だけ持ち、**行が無い = 未設定**（キー削除は行ごと消す）。provider_credentials とは別管理にし、
  * プロバイダー登録キーを生成へ流用しない（docs/image-generation.md）。
+ * 音声の `speechModel` / `speechVoice` は v15 -> v16 の列追加で、既存行は NULL になる
+ * （NULL は既定へフォールバックする。docs/speech-generation.md）。
  */
 const CONTENT_SETTINGS_TABLE = `
 CREATE TABLE IF NOT EXISTS content_settings (
-  id         INTEGER PRIMARY KEY CHECK (id = 1),
-  provider   TEXT NOT NULL,
-  imageModel TEXT NOT NULL,
-  apiKey     TEXT NOT NULL
+  id          INTEGER PRIMARY KEY CHECK (id = 1),
+  provider    TEXT NOT NULL,
+  imageModel  TEXT NOT NULL,
+  speechModel TEXT,
+  speechVoice TEXT,
+  apiKey      TEXT NOT NULL
 );
 `;
 
@@ -218,6 +244,18 @@ CREATE TABLE IF NOT EXISTS content_settings (
  */
 const IMAGE_CATALOG_TABLE = `
 CREATE TABLE IF NOT EXISTS image_catalog (
+  id        INTEGER PRIMARY KEY CHECK (id = 1),
+  fetchedAt INTEGER NOT NULL,
+  models    TEXT NOT NULL
+);
+`;
+
+/**
+ * v15 -> v16 で足したテーブル。`image_catalog` と同型で、音声モデルの live 一覧を 1 行だけ残す
+ * （item の JSON は `voices` を含むため違う。docs/speech-generation.md）。
+ */
+const SPEECH_CATALOG_TABLE = `
+CREATE TABLE IF NOT EXISTS speech_catalog (
   id        INTEGER PRIMARY KEY CHECK (id = 1),
   fetchedAt INTEGER NOT NULL,
   models    TEXT NOT NULL
@@ -328,6 +366,7 @@ ${MODEL_SETTINGS_TABLE}
 ${PROVIDER_MEMOS_TABLE}
 ${CONTENT_SETTINGS_TABLE}
 ${IMAGE_CATALOG_TABLE}
+${SPEECH_CATALOG_TABLE}
 ${SERVE_COMMANDS_TABLE}
 ${WEB_SEARCH_SETTINGS_TABLE}
 ${WEB_SEARCH_PROVIDER_KEYS_TABLE}
@@ -346,6 +385,7 @@ DROP TABLE IF EXISTS model_settings;
 DROP TABLE IF EXISTS provider_memos;
 DROP TABLE IF EXISTS content_settings;
 DROP TABLE IF EXISTS image_catalog;
+DROP TABLE IF EXISTS speech_catalog;
 DROP TABLE IF EXISTS serve_commands;
 DROP TABLE IF EXISTS web_search_settings;
 DROP TABLE IF EXISTS web_search_provider_keys;
@@ -442,7 +482,14 @@ function contentSettingsOf(row: Row): ContentSettingsRow | undefined {
   const imageModel = optionalText(row.imageModel);
   const apiKey = optionalText(row.apiKey);
   if (!provider || !imageModel || !apiKey) return undefined;
-  return { provider, imageModel, apiKey };
+  return {
+    provider,
+    imageModel,
+    // 空文字も NULL と同じく「未設定」として既定へフォールバックさせる
+    speechModel: optionalText(row.speechModel) ?? null,
+    speechVoice: optionalText(row.speechVoice) ?? null,
+    apiKey,
+  };
 }
 
 /**
@@ -467,6 +514,32 @@ function imageCatalogModelsOf(value: unknown): ImageCatalogModelRow[] | undefine
       ? outputFormats.filter((format): format is string => typeof format === "string" && format !== "")
       : [];
     models.push(formats.length > 0 ? { id, name, outputFormats: formats } : { id, name });
+  }
+  return models;
+}
+
+/**
+ * 音声キャッシュ行の JSON 配列。`image_catalog` と同じく派生データなので、JSON が壊れていても、
+ * 形が違っても、空でも「未取得」として読む（同梱の既定カタログへ落ち、次の取得成功が行を上書きする）。
+ */
+function speechCatalogModelsOf(value: unknown): SpeechCatalogModelRow[] | undefined {
+  let parsed: unknown;
+  try {
+    parsed = typeof value === "string" ? JSON.parse(value) : undefined;
+  } catch {
+    return undefined;
+  }
+  if (!Array.isArray(parsed) || parsed.length === 0) return undefined;
+  const models: SpeechCatalogModelRow[] = [];
+  for (const entry of parsed) {
+    if (typeof entry !== "object" || entry === null) return undefined;
+    const { id, name, voices } = entry as { id?: unknown; name?: unknown; voices?: unknown };
+    if (typeof id !== "string" || id === "" || typeof name !== "string") return undefined;
+    // 話者の宣言は任意フィールド。形が違えば「宣言なし」として読み、id / 表示名が正しい行まで捨てない
+    const names = Array.isArray(voices)
+      ? voices.filter((voice): voice is string => typeof voice === "string" && voice !== "")
+      : [];
+    models.push(names.length > 0 ? { id, name, voices: names } : { id, name });
   }
   return models;
 }
@@ -764,6 +837,7 @@ export class AppDb {
       this.#renameColumnIfNeeded("content_settings", "model", "imageModel");
       this.#query((db) => db.exec(CONTENT_SETTINGS_TABLE));
       this.#query((db) => db.exec(IMAGE_CATALOG_TABLE));
+      this.#query((db) => db.exec(SPEECH_CATALOG_TABLE));
       this.#query((db) => db.exec(SERVE_COMMANDS_TABLE));
       this.#query((db) => db.exec(WEB_SEARCH_SETTINGS_TABLE));
       this.#query((db) => db.exec(WEB_SEARCH_PROVIDER_KEYS_TABLE));
@@ -774,6 +848,9 @@ export class AppDb {
       this.#addColumnIfMissing("provider_credentials", "updatedAt", "INTEGER");
       // v12 以前の web_search_settings は id と enabled だけ。既存行は既定 (exa) で埋める
       this.#addColumnIfMissing("web_search_settings", "provider", "TEXT NOT NULL DEFAULT 'exa'");
+      // v15 以前の content_settings に無い音声の 2 列。既存行は NULL = 既定へのフォールバック
+      this.#addColumnIfMissing("content_settings", "speechModel", "TEXT");
+      this.#addColumnIfMissing("content_settings", "speechVoice", "TEXT");
       // PRAGMA はパラメータ化できない (値はコード側の定数)
       this.#query((db) => db.exec(`PRAGMA user_version = ${APP_DB_SCHEMA_VERSION}`));
       this.#query((db) => db.exec("COMMIT"));
@@ -972,10 +1049,11 @@ export class AppDb {
     this.#query((db) =>
       db
         .prepare(
-          `INSERT INTO content_settings (id, provider, imageModel, apiKey) VALUES (1, ?, ?, ?)
-           ON CONFLICT(id) DO UPDATE SET provider = excluded.provider, imageModel = excluded.imageModel, apiKey = excluded.apiKey`,
+          `INSERT INTO content_settings (id, provider, imageModel, speechModel, speechVoice, apiKey) VALUES (1, ?, ?, ?, ?, ?)
+           ON CONFLICT(id) DO UPDATE SET provider = excluded.provider, imageModel = excluded.imageModel,
+             speechModel = excluded.speechModel, speechVoice = excluded.speechVoice, apiKey = excluded.apiKey`,
         )
-        .run(settings.provider, settings.imageModel, settings.apiKey),
+        .run(settings.provider, settings.imageModel, settings.speechModel, settings.speechVoice, settings.apiKey),
     );
   }
 
@@ -1059,6 +1137,30 @@ export class AppDb {
       db
         .prepare(
           `INSERT INTO image_catalog (id, fetchedAt, models) VALUES (1, ?, ?)
+           ON CONFLICT(id) DO UPDATE SET fetchedAt = excluded.fetchedAt, models = excluded.models`,
+        )
+        .run(row.fetchedAt, JSON.stringify(row.models)),
+    );
+  }
+
+  // --- speech catalog (live カタログのキャッシュ 1 行) ---
+
+  /** 行が無い / 形が崩れているときは undefined（未取得として同梱の既定カタログへ落とす。health の失敗にはしない） */
+  readSpeechCatalog(): SpeechCatalogRow | undefined {
+    const row = this.#query((db) => db.prepare("SELECT * FROM speech_catalog WHERE id = 1").get() as Row | undefined);
+    if (!row) return undefined;
+    const models = speechCatalogModelsOf(row.models);
+    const fetchedAt = Number(row.fetchedAt);
+    if (!models || !Number.isFinite(fetchedAt)) return undefined;
+    return { fetchedAt, models };
+  }
+
+  /** 取得成功時の上書き (id = 1 の upsert)。キャッシュなので、失敗しても呼び出し側は続行する */
+  saveSpeechCatalog(row: SpeechCatalogRow): void {
+    this.#query((db) =>
+      db
+        .prepare(
+          `INSERT INTO speech_catalog (id, fetchedAt, models) VALUES (1, ?, ?)
            ON CONFLICT(id) DO UPDATE SET fetchedAt = excluded.fetchedAt, models = excluded.models`,
         )
         .run(row.fetchedAt, JSON.stringify(row.models)),

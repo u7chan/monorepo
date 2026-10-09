@@ -2,14 +2,14 @@
 
 プロバイダーAPIキーを環境変数や 設定 → モデルの GUI（[model-settings.md](model-settings.md)）で BFF へ渡す運用でも、キーが LLM・ブラウザ・ログへ流れにくくする多層防御。ツール実行自体はサンドボックスへ分離済み（[sandbox.md](sandbox.md)）で、ここで述べるのは BFF 内での出力マスク（キーが作業領域のファイル等へ現れた場合の二次漏洩対策）と、SDK の公開 API だけで実装する縛り。
 
-後半の[作業フォルダの環境変数](#作業フォルダの環境変数作業環境--環境変数)は、**保存時暗号化と実行時注入**で同じ目的を別の層から支える仕組み。暗号化の対象はこの機能で登録したシークレットだけで、プロバイダー / 画像 / Web 検索の APIキーは従来どおり平文である（[平文で残るもの](#平文で残るもの)）。
+後半の[作業フォルダの環境変数](#作業フォルダの環境変数作業環境--環境変数)は、**保存時暗号化と実行時注入**で同じ目的を別の層から支える仕組み。暗号化の対象はこの機能で登録したシークレットだけで、プロバイダー / コンテンツ生成（画像 / 音声） / Web 検索の APIキーは従来どおり平文である（[平文で残るもの](#平文で残るもの)）。
 
 ## 保護対象
 
 - `createRuntimeSecretMasker()`（`server/src/secret-guard.ts`）が `ModelRuntime.getProviders()` の各プロバイダーに対し pi-ai の公開ヘルパー `findEnvKeys()` で「設定済みのキー変数」を解決し、その非空値を保護対象にする。findEnvKeys が解決しない既知プロバイダーのキー変数（Bedrock の `AWS_BEARER_TOKEN_BEDROCK`）は補完テーブルで埋める。独自プロバイダー分は `PI_SECRET_ENV_VARS` で変数名を追加する
 - 自動解決された値は 8 文字未満を通常出力の過剰改変防止のため対象外にする。`PI_SECRET_ENV_VARS` で明示指定された変数は運用者の意図なので長さに関係なく保護する。重複・包含する値は長い順に置換する
 - 設定 → モデルで登録したキーは `createMutableSecretMasker` の `setSecrets` で保護対象へ足す。登録は **SDK / DB へ渡す前**に行い、起動時は DB から読めた全行（orphan・不正値・適用失敗を含む）を適用前に登録する。削除・上書き後も**プロセス生存中は保護対象から外さない**（`session.jsonl` の raw 入力を再投影しても旧キーを出さないため。入力は 8..2048 文字で、これより短いキーは GUI の対象外）
-- 画像の APIキー（`content_settings`）も同じ扱いで、`PUT /api/settings/content/key` が DB へ書く前に `retainSecret()` で登録し、起動時の `ContentSettingsService.applyStored()` も保存行のキーを登録する（[image-generation.md](image-generation.md#キーの扱い)）。画像の provider 呼び出しは BFF 内で完結し、キーはサンドボックスへ渡らない
+- コンテンツ生成の APIキー（`content_settings`。画像と音声で 1 つを共有する）も同じ扱いで、`PUT /api/settings/content/key` が DB へ書く前に `retainSecret()` で登録し、起動時の `ContentSettingsService.applyStored()` も保存行のキーを登録する（[image-generation.md](image-generation.md#キーの扱い)）。画像 / 音声の provider 呼び出しは BFF 内で完結し、キーはサンドボックスへ渡らない
 - SQLite の失敗文言にキーが載る経路（`AppDb.#query` と `open()`）は `AppDb.open({ sanitizeError })` でマスカーを通してからログ・`#error`（health / 503）へ渡す。`model-settings.ts` は固定文言だけを応答へ返し、ログには provider id と分類だけを残す
 - 設定 → モデルの provider メモは秘密情報ではないため保護対象へ足さない（`retainSecret` に渡さない）。任意の自由文を登録すると、短いメモでも `createMutableSecretMasker` が値をマスクし、よくある単語が会話表示で赤塗りされる誤爆の方が実害より大きい。代わりに `model-settings.ts` はログ・health・エラー文言のどの経路にもメモ値を載せない（値は API 応答と画面にだけ出す）
 - ユーザーがチャットへ直接入力したキーはモデルへはそのまま渡る（対象はツール出力由来の値）。ただしエコー（タイトル・プロンプト表示・メッセージ履歴・text delta・未送信メッセージの表示本文 `pendingSends[].text`）はマスクする
@@ -124,7 +124,7 @@ SDK はツール出力をいくつかの方法で切り詰める。キーが切�
 
 DB 全体が暗号化されるわけではない。暗号化されるのは今回のシークレットだけで、以下は従来どおり平文である。
 
-- `provider_credentials.apiKey` / `content_settings.apiKey` / `web_search_provider_keys.apiKey`（[model-settings.md](model-settings.md#残存リスク)、[image-generation.md](image-generation.md#キーの扱い)、[web-search.md](web-search.md#設定既定-provider-と-apiキー)）
+- `provider_credentials.apiKey` / `content_settings.apiKey`（画像 / 音声で共有） / `web_search_provider_keys.apiKey`（[model-settings.md](model-settings.md#残存リスク)、[image-generation.md](image-generation.md#キーの扱い)、[web-search.md](web-search.md#設定既定-provider-と-apiキー)）
 - `provider_memos.memo`（秘密情報として扱わない人間用メモ。マスカーへも登録しない）
 - `secrets.plaintext`（種別 = 変数）と、変数の値が現れる API 応答（変更フォーム用の詳細）
 

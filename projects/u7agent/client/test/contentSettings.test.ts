@@ -4,23 +4,30 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  catalogRefreshNote,
   contentKeyStatusBadge,
   contentProviderId,
   contentProviderLabel,
   deleteContentKeyConfirmRequest,
   imageCatalogNotice,
-  imageCatalogRefreshNote,
   imageModelOptions,
   imageModelSelection,
   imageModelValue,
   keyDraftAfterSave,
+  speechCatalogNotice,
+  speechModelOptions,
+  speechModelValue,
+  speechSelection,
+  speechVoiceMode,
+  speechVoiceValue,
 } from "../src/lib/contentSettings";
-import type { ContentImageSettings, ContentSettingsResponse } from "../src/types";
+import type { ContentImageSettings, ContentSettingsResponse, ContentSpeechSettings } from "../src/types";
 
-/** `image` の中身を差し替える (provider は設定面の値なので別引数) */
+/** `image` / `speech` の中身を差し替える (provider は設定面の値なので別引数) */
 function settings(
   image: Partial<ContentImageSettings> = {},
   overrides: Partial<ContentSettingsResponse> = {},
+  speech: Partial<ContentSpeechSettings> = {},
 ): ContentSettingsResponse {
   return {
     configured: true,
@@ -36,6 +43,23 @@ function settings(
       catalogSource: "live",
       fetchedAt: null,
       ...image,
+    },
+    speech: {
+      model: "google/gemini-3.8-flash-tts",
+      voice: "Zephyr",
+      models: [
+        {
+          provider: "openrouter",
+          id: "google/gemini-3.8-flash-tts",
+          name: "Google: Gemini 3.8 Flash TTS",
+          voices: ["Zephyr", "Kore"],
+        },
+        { provider: "openrouter", id: "fish/audio", name: "Fish Audio" },
+        { provider: "openrouter", id: "mystery/tts", name: "Google: Gemini 3.8 Flash TTS", voices: ["Aoede"] },
+      ],
+      catalogSource: "live",
+      fetchedAt: null,
+      ...speech,
     },
     ...overrides,
   };
@@ -116,9 +140,73 @@ test("モデル一覧の注記は取得元と最終取得時刻を示す", () =>
 });
 
 test("再取得の注記は成功と失敗を区別し、失敗でも一覧が残ることを伝える", () => {
-  assert.equal(imageCatalogRefreshNote(null), "モデル一覧を取得しました。");
+  assert.equal(catalogRefreshNote(null), "モデル一覧を取得しました。");
   assert.equal(
-    imageCatalogRefreshNote("モデル一覧の取得がタイムアウトしました"),
+    catalogRefreshNote("モデル一覧の取得がタイムアウトしました"),
     "モデル一覧の取得がタイムアウトしました。表示中の一覧は変わりません。",
+  );
+});
+
+test("音声モデルの選択肢はカタログ順に並べ、同名は id を添え、カタログ外の現在値を先頭に残す", () => {
+  const options = speechModelOptions(settings());
+  assert.deepEqual(
+    options.map((option) => option.label),
+    [
+      "Google: Gemini 3.8 Flash TTS（google/gemini-3.8-flash-tts）",
+      "Fish Audio",
+      "Google: Gemini 3.8 Flash TTS（mystery/tts）",
+    ],
+  );
+  assert.deepEqual(
+    options.map((option) => option.value),
+    ["google/gemini-3.8-flash-tts", "fish/audio", "mystery/tts"],
+    "音声の provider は v1 では openrouter 固定なので id だけを使う",
+  );
+
+  const stale = speechModelOptions(settings({}, {}, { model: "stale/tts" }));
+  assert.equal(stale[0].value, "stale/tts");
+  assert.equal(stale[0].label, "stale/tts（カタログ外）");
+  assert.equal(stale[0].model?.provider, "openrouter", "未設定の provider も既定へ寄せる");
+  assert.equal(stale.length, 4, "カタログの 3 件を失わない");
+
+  assert.equal(speechModelValue(settings()), "google/gemini-3.8-flash-tts");
+  assert.equal(speechModelValue(settings({}, {}, { model: null })), "", "行が無ければ空文字");
+});
+
+test("音声の PUT 本文と、モデルごとのボイス欄の規則", () => {
+  const options = speechModelOptions(settings());
+  assert.deepEqual(speechSelection(options, "fish/audio", ""), { model: "fish/audio", voice: "" });
+  assert.deepEqual(speechSelection(options, "google/gemini-3.8-flash-tts", "Kore"), {
+    model: "google/gemini-3.8-flash-tts",
+    voice: "Kore",
+  });
+  assert.equal(speechSelection(options, "ghost", "Zephyr"), null, "選択肢に無い値は保存しない");
+
+  const declared = options.find((option) => option.value === "google/gemini-3.8-flash-tts");
+  const free = options.find((option) => option.value === "fish/audio");
+  assert.equal(speechVoiceMode(declared), "select");
+  assert.equal(speechVoiceMode(free), "text", "宣言が無いモデルは自由記述を許す");
+  assert.equal(speechVoiceMode(undefined), "text");
+
+  assert.equal(speechVoiceValue(declared, "Kore"), "Kore", "宣言にある保存値は維持する");
+  assert.equal(speechVoiceValue(declared, "Zephyr"), "Zephyr");
+  assert.equal(speechVoiceValue(declared, "Ghost"), "Zephyr", "宣言外へ変わった後は先頭へ寄せる");
+  assert.equal(speechVoiceValue(declared, ""), "Zephyr", "未設定は先頭にする");
+  assert.equal(speechVoiceValue(free, "any-voice-id"), "any-voice-id", "自由記述は保存値のまま");
+  assert.equal(speechVoiceValue(free, ""), "");
+});
+
+test("音声モデル一覧の注記は取得元と最終取得時刻を示し、default は同梱を見ていることを伝える", () => {
+  assert.equal(
+    speechCatalogNotice({ catalogSource: "live", fetchedAt: 0 }, { timeZone: "Asia/Tokyo", now: 0 }),
+    "音声モデル一覧は OpenRouter から取得しました（最終取得: 09:00）",
+  );
+  assert.equal(
+    speechCatalogNotice({ catalogSource: "stored", fetchedAt: 0 }, { timeZone: "Asia/Tokyo", now: 0 }),
+    "OpenRouter から取得できなかったため、前回の音声モデル一覧を表示しています（最終取得: 09:00）",
+  );
+  assert.equal(
+    speechCatalogNotice({ catalogSource: "default", fetchedAt: null }),
+    "OpenRouter から取得できていないため、同梱の既定の音声モデルを表示しています",
   );
 });

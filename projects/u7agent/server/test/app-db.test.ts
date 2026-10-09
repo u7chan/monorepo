@@ -689,16 +689,26 @@ test("migrates a v7 db additively and keeps content settings across reopen", () 
     assert.deepEqual(first.listProjects(), [project("p1", "proj-a")]);
     assert.deepEqual(first.listProviderCredentials(), [{ provider: "anthropic", apiKey: "sk-ant-1", updatedAt: 10 }]);
     assert.equal(first.readContentSettings(), undefined);
-    first.saveContentSettings({ provider: "openrouter", imageModel: "openai/gpt-image-2", apiKey: "sk-image-1" });
+    first.saveContentSettings({
+      provider: "openrouter",
+      imageModel: "openai/gpt-image-2",
+      speechModel: null,
+      speechVoice: null,
+      apiKey: "sk-image-1",
+    });
     // id = 1 の upsert なので上書きしても行は増えない
     first.saveContentSettings({
       provider: "openrouter",
       imageModel: "black-forest-labs/flux.2-max",
+      speechModel: "google/gemini-3.8-flash-tts",
+      speechVoice: "Kore",
       apiKey: "sk-image-2",
     });
     assert.deepEqual(first.readContentSettings(), {
       provider: "openrouter",
       imageModel: "black-forest-labs/flux.2-max",
+      speechModel: "google/gemini-3.8-flash-tts",
+      speechVoice: "Kore",
       apiKey: "sk-image-2",
     });
     first.close();
@@ -707,6 +717,8 @@ test("migrates a v7 db additively and keeps content settings across reopen", () 
     assert.deepEqual(second.readContentSettings(), {
       provider: "openrouter",
       imageModel: "black-forest-labs/flux.2-max",
+      speechModel: "google/gemini-3.8-flash-tts",
+      speechVoice: "Kore",
       apiKey: "sk-image-2",
     });
     assert.equal(second.deleteContentSettings(), true);
@@ -718,7 +730,7 @@ test("migrates a v7 db additively and keeps content settings across reopen", () 
     const columns = check.prepare("PRAGMA table_info(content_settings)").all() as { name: string }[];
     assert.deepEqual(
       columns.map((column) => column.name),
-      ["id", "provider", "imageModel", "apiKey"],
+      ["id", "provider", "imageModel", "speechModel", "speechVoice", "apiKey"],
     );
     assert.equal(Number(check.prepare("PRAGMA user_version").get()?.user_version), APP_DB_SCHEMA_VERSION);
     check.close();
@@ -754,6 +766,8 @@ test("migrates a v8 db additively and keeps the image catalog cache across reope
     assert.deepEqual(first.readContentSettings(), {
       provider: "openrouter",
       imageModel: "openai/gpt-image-2",
+      speechModel: null,
+      speechVoice: null,
       apiKey: "sk-image-1",
     });
     assert.equal(first.readImageCatalog(), undefined);
@@ -869,7 +883,7 @@ test("a content settings row with empty values reads as unset", () => {
 
     const db = AppDb.open({ storeDir: dir });
     // 手編集で壊れた行を「設定済み」と読み違えない (メモと同じ規約)
-    db.saveContentSettings({ provider: "", imageModel: "", apiKey: "" });
+    db.saveContentSettings({ provider: "", imageModel: "", speechModel: null, speechVoice: null, apiKey: "" });
     assert.equal(db.readContentSettings(), undefined);
     db.close();
   } finally {
@@ -1097,7 +1111,7 @@ test("migrates a v10 db additively and keeps the secrets table across reopen", (
     raw.close();
 
     const first = AppDb.open({ storeDir: dir });
-    assert.equal(APP_DB_SCHEMA_VERSION, 15);
+    assert.equal(APP_DB_SCHEMA_VERSION, 16);
     // 加算移行なので既存の行は残り、secrets は行が無い = 未設定で始まる
     assert.deepEqual(first.listProjects(), [project("p1", "proj-a")]);
     assert.deepEqual(first.getServeCommand("proj-a"), { cwd: "proj-a", command: "pnpm dev", updatedAt: 1 });
@@ -1328,11 +1342,15 @@ test("migrates a v14 db by renaming image_settings to content_settings", () => {
     assert.deepEqual(first.readContentSettings(), {
       provider: "openrouter",
       imageModel: "openai/gpt-image-2",
+      speechModel: null,
+      speechVoice: null,
       apiKey: "sk-image-1",
     });
     first.saveContentSettings({
       provider: "openrouter",
       imageModel: "black-forest-labs/flux.2-max",
+      speechModel: null,
+      speechVoice: null,
       apiKey: "sk-image-2",
     });
     first.close();
@@ -1341,6 +1359,8 @@ test("migrates a v14 db by renaming image_settings to content_settings", () => {
     assert.deepEqual(reopened.readContentSettings(), {
       provider: "openrouter",
       imageModel: "black-forest-labs/flux.2-max",
+      speechModel: null,
+      speechVoice: null,
       apiKey: "sk-image-2",
     });
     reopened.close();
@@ -1351,7 +1371,8 @@ test("migrates a v14 db by renaming image_settings to content_settings", () => {
     const columns = check.prepare("PRAGMA table_info(content_settings)").all() as { name: string }[];
     assert.deepEqual(
       columns.map((column) => column.name),
-      ["id", "provider", "imageModel", "apiKey"],
+      // 加算移行の列追加は末尾に付く（新規作成の定義順とは異なる。読み書きは名前で行う）
+      ["id", "provider", "imageModel", "apiKey", "speechModel", "speechVoice"],
     );
     assert.equal(Number(check.prepare("PRAGMA user_version").get()?.user_version), APP_DB_SCHEMA_VERSION);
     check.close();
@@ -1387,6 +1408,8 @@ CREATE TABLE content_settings (
     assert.deepEqual(db.readContentSettings(), {
       provider: "openrouter",
       imageModel: "openai/gpt-image-2",
+      speechModel: null,
+      speechVoice: null,
       apiKey: "sk-content-1",
     });
     db.close();
@@ -1403,7 +1426,13 @@ test("a round trip through the v14 schema keeps content settings readable", () =
   const dir = tempStoreDir();
   try {
     const first = AppDb.open({ storeDir: dir });
-    first.saveContentSettings({ provider: "openrouter", imageModel: "openai/gpt-image-2", apiKey: "sk-image-1" });
+    first.saveContentSettings({
+      provider: "openrouter",
+      imageModel: "openai/gpt-image-2",
+      speechModel: null,
+      speechVoice: null,
+      apiKey: "sk-image-1",
+    });
     first.close();
 
     // 古いビルド (v14) が開いて #recreate する経路。content_settings は知られないため行が残る
@@ -1416,9 +1445,118 @@ test("a round trip through the v14 schema keeps content settings readable", () =
     assert.deepEqual(second.readContentSettings(), {
       provider: "openrouter",
       imageModel: "openai/gpt-image-2",
+      speechModel: null,
+      speechVoice: null,
       apiKey: "sk-image-1",
     });
     assert.deepEqual(second.listProjects(), [], "既知のテーブルは作り直される");
+    second.close();
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+/** v15 相当のスキーマ (content_settings に音声の列が無い状態)。v15 の実ファイルと同じ形 */
+const V15_TABLES = `
+${V14_TABLES}
+ALTER TABLE image_settings RENAME TO content_settings;
+ALTER TABLE content_settings RENAME COLUMN model TO imageModel;
+`;
+
+test("migrates a v15 db additively by adding the speech columns", () => {
+  const dir = tempStoreDir();
+  try {
+    const raw = new DatabaseSync(join(dir, APP_DB_FILENAME));
+    raw.exec(V15_TABLES);
+    raw.exec("PRAGMA user_version = 15");
+    raw
+      .prepare("INSERT INTO content_settings (id, provider, imageModel, apiKey) VALUES (1, ?, ?, ?)")
+      .run("openrouter", "openai/gpt-image-2", "sk-image-1");
+    raw.close();
+
+    const first = AppDb.open({ storeDir: dir });
+    // 音声の列は NULL で足され、既存行は未設定として読める
+    assert.deepEqual(first.readContentSettings(), {
+      provider: "openrouter",
+      imageModel: "openai/gpt-image-2",
+      speechModel: null,
+      speechVoice: null,
+      apiKey: "sk-image-1",
+    });
+    first.saveContentSettings({
+      provider: "openrouter",
+      imageModel: "openai/gpt-image-2",
+      speechModel: "google/gemini-3.8-flash-tts",
+      speechVoice: "Kore",
+      apiKey: "sk-image-1",
+    });
+    first.close();
+
+    const check = new DatabaseSync(join(dir, APP_DB_FILENAME));
+    const columns = check.prepare("PRAGMA table_info(content_settings)").all() as { name: string }[];
+    assert.deepEqual(
+      columns.map((column) => column.name),
+      // 加算移行の列追加は末尾に付く（新規作成の定義順とは異なる。読み書きは名前で行う）
+      ["id", "provider", "imageModel", "apiKey", "speechModel", "speechVoice"],
+    );
+    assert.equal(check.prepare("SELECT count(*) AS n FROM speech_catalog").get()?.n, 0, "キャッシュは未取得で始まる");
+    assert.equal(Number(check.prepare("PRAGMA user_version").get()?.user_version), APP_DB_SCHEMA_VERSION);
+    check.close();
+
+    const reopened = AppDb.open({ storeDir: dir });
+    assert.deepEqual(reopened.readContentSettings(), {
+      provider: "openrouter",
+      imageModel: "openai/gpt-image-2",
+      speechModel: "google/gemini-3.8-flash-tts",
+      speechVoice: "Kore",
+      apiKey: "sk-image-1",
+    });
+    reopened.close();
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("the speech catalog cache keeps the voice declaration across reopen", () => {
+  const dir = tempStoreDir();
+  try {
+    const db = AppDb.open({ storeDir: dir });
+    assert.equal(db.readSpeechCatalog(), undefined);
+    db.saveSpeechCatalog({
+      fetchedAt: 1000,
+      models: [
+        { id: "google/gemini-3.8-flash-tts", name: "Google: Gemini 3.8 Flash TTS", voices: ["Zephyr", "Kore"] },
+        { id: "fish/audio", name: "Fish Audio" },
+      ],
+    });
+    assert.deepEqual(db.readSpeechCatalog(), {
+      fetchedAt: 1000,
+      models: [
+        { id: "google/gemini-3.8-flash-tts", name: "Google: Gemini 3.8 Flash TTS", voices: ["Zephyr", "Kore"] },
+        { id: "fish/audio", name: "Fish Audio" },
+      ],
+    });
+    // id = 1 の upsert なので、保存し直すと行は増えずに置き換わる
+    db.saveSpeechCatalog({ fetchedAt: 2000, models: [{ id: "mine/voice", name: "Mine", voices: ["A"] }] });
+    assert.deepEqual(db.readSpeechCatalog(), {
+      fetchedAt: 2000,
+      models: [{ id: "mine/voice", name: "Mine", voices: ["A"] }],
+    });
+    db.close();
+
+    const second = AppDb.open({ storeDir: dir });
+    assert.deepEqual(second.readSpeechCatalog(), {
+      fetchedAt: 2000,
+      models: [{ id: "mine/voice", name: "Mine", voices: ["A"] }],
+    });
+    // 形が違う行 / 空配列 / JSON でない行は「未取得」として読む（キャッシュを理由に health を落とさない）
+    const raw = new DatabaseSync(join(dir, APP_DB_FILENAME));
+    for (const models of ['[{"id":1}]', "[]", "not json"]) {
+      raw.prepare("UPDATE speech_catalog SET models = ? WHERE id = 1").run(models);
+      assert.equal(second.readSpeechCatalog(), undefined);
+    }
+    raw.close();
+    assert.equal(second.status().ok, true, "壊れたキャッシュ行を保存値の失敗として扱わない");
     second.close();
   } finally {
     rmSync(dir, { recursive: true, force: true });

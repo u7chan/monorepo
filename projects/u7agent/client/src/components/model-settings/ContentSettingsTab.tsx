@@ -9,10 +9,16 @@ import {
   contentProviderId,
   contentProviderLabel,
   keyDraftAfterSave,
+  speechCatalogNotice,
+  speechModelOptions,
+  speechModelValue,
+  speechSelection,
+  speechVoiceMode,
+  speechVoiceValue,
   type ContentSavingAction,
 } from "../../lib/contentSettings";
 import { API_KEY_MIN_LENGTH } from "../../lib/modelSettings";
-import type { ContentSettingsResponse, UpdateContentImageBody } from "../../types";
+import type { ContentSettingsResponse, UpdateContentImageBody, UpdateContentSpeechBody } from "../../types";
 import { CollapsibleNotice } from "../CollapsibleNotice";
 import { CheckIcon, TrashIcon } from "../icons";
 import { ReloadButton } from "../ReloadButton";
@@ -29,13 +35,17 @@ export type ContentSettingsTabProps = {
   onSaveKey: (apiKey: string) => Promise<boolean>;
   onDeleteKey: () => Promise<boolean>;
   onSaveSelection: (input: UpdateContentImageBody) => Promise<boolean>;
-  /** モデル一覧の再取得。失敗しても一覧は前のまま残る */
+  /** 画像モデル一覧の再取得。失敗しても一覧は前のまま残る */
   onRefreshCatalog: () => Promise<boolean>;
+  onSaveSpeech: (input: UpdateContentSpeechBody) => Promise<boolean>;
+  /** 音声モデル一覧の再取得。失敗しても一覧は前のまま残る */
+  onRefreshSpeechCatalog: () => Promise<boolean>;
 };
 
 /**
  * 「コンテンツ生成」タブ。キー登録・モデル選択・削除の最小 UI に絞り、未設定ではキー入力だけを出す。
- * `PUT /api/settings/content/image` は行が無いと 400 のため、モデル選択はキー保存に成功してから現れる。
+ * `PUT /api/settings/content/image` と `.../speech` は行が無いと 400 のため、モデル選択はキー保存に成功してから現れる。
+ * APIキーは画像と音声で 1 つ共有する（音声だけを無効にするトグルは持たない）。
  */
 export function ContentSettingsTab({
   settings,
@@ -44,6 +54,8 @@ export function ContentSettingsTab({
   onDeleteKey,
   onSaveSelection,
   onRefreshCatalog,
+  onSaveSpeech,
+  onRefreshSpeechCatalog,
 }: ContentSettingsTabProps) {
   // 保存したキーは再表示しないため、入力は常に空から始め、保存できたときだけ消す
   const confirm = useConfirm();
@@ -73,10 +85,11 @@ export function ContentSettingsTab({
           <code className="text-2xs text-ink-ghost">{contentProviderId(settings.provider)}</code>
           <ProviderBadgeTag badge={contentKeyStatusBadge(settings.configured)} />
           <MetaChip>カタログ {settings.image.models.length}</MetaChip>
+          <MetaChip>音声 {settings.speech.models.length}</MetaChip>
         </section>
         {runtimeAvailable ? null : (
           <p role="alert" className="rounded-lg border border-warn/40 bg-raised px-2.5 py-2 text-2xs text-warn">
-            ランタイムが利用できないため、画像APIキーの登録・上書き・削除はできません。サーバーの起動ログを確認してください。
+            ランタイムが利用できないため、コンテンツ生成のAPIキーの登録・上書き・削除はできません。サーバーの起動ログを確認してください。
           </p>
         )}
         <SecurityNotice />
@@ -95,7 +108,9 @@ export function ContentSettingsTab({
                 className="field min-w-0 flex-1 text-xs"
                 type="password"
                 value={apiKey}
-                placeholder={settings.configured ? "新しい画像APIキー（上書き）" : "画像APIキー"}
+                placeholder={
+                  settings.configured ? "新しいコンテンツ生成のAPIキー（上書き）" : "コンテンツ生成のAPIキー"
+                }
                 aria-label="コンテンツ生成のAPIキー"
                 autoComplete="off"
                 spellCheck={false}
@@ -120,20 +135,30 @@ export function ContentSettingsTab({
             ) : null}
           </div>
           <p className="text-2xs leading-relaxed text-ink-muted">
-            {providerName} の画像生成専用のキーです。プロバイダータブで登録したキーとは別に管理し、流用しません。 キーは{" "}
+            {providerName} のコンテンツ生成（画像 /
+            音声）で共有するキーです。プロバイダータブで登録したキーとは別に管理し、 流用しません。キーは{" "}
             {API_KEY_MIN_LENGTH} 文字以上で入力します。
           </p>
         </section>
 
         {/* 行が消えると unmount するため、未保存の選択は未設定へ戻った時点で捨てる */}
         {settings.configured ? (
-          <ImageModelSection
-            settings={settings}
-            busy={busy}
-            refreshing={saving === "catalog"}
-            onSave={onSaveSelection}
-            onRefresh={onRefreshCatalog}
-          />
+          <>
+            <ImageModelSection
+              settings={settings}
+              busy={busy}
+              refreshing={saving === "catalog"}
+              onSave={onSaveSelection}
+              onRefresh={onRefreshCatalog}
+            />
+            <SpeechSection
+              settings={settings}
+              busy={busy}
+              refreshing={saving === "speech-catalog"}
+              onSave={onSaveSpeech}
+              onRefresh={onRefreshSpeechCatalog}
+            />
+          </>
         ) : null}
 
         <section className="grid gap-1 border-t border-line pt-3 text-2xs leading-relaxed text-ink-muted">
@@ -142,8 +167,8 @@ export function ContentSettingsTab({
             から使えます（ツール一覧はセッション作成時に固定されます）。削除しても既存の会話にはツールが残り、実行時にキー無効エラーになります。
           </p>
           <p>
-            生成物はセッションの作業フォルダの <code>generated/</code> に保存され、チャットの Markdown
-            画像としてプレビューできます。
+            生成物はセッションの作業フォルダの <code>generated/</code> に保存され、チャットの画像 /
+            音声としてプレビューできます。
           </p>
         </section>
       </div>
@@ -211,6 +236,121 @@ function ImageModelSection({
         <p className="min-w-0">
           <MetaChip wrap tone={settings.image.catalogSource === "live" ? "muted" : "warn"}>
             {imageCatalogNotice(settings.image)}
+          </MetaChip>
+        </p>
+        <ReloadButton disabled={busy} onClick={() => void onRefresh()}>
+          {refreshing ? "取得中" : "再取得"}
+        </ReloadButton>
+      </div>
+    </section>
+  );
+}
+
+/**
+ * 音声のモデルとボイス。画像と同じ行（`content_settings`）の別の列で、生成のたびにツールが読み直す。
+ * 宣言が無いモデルは空欄を許し、自由記述の入力欄へ切り替える（送らない場合は空のまま保存する）。
+ */
+function SpeechSection({
+  settings,
+  busy,
+  refreshing,
+  onSave,
+  onRefresh,
+}: {
+  settings: ContentSettingsResponse;
+  busy: boolean;
+  refreshing: boolean;
+  onSave: (input: UpdateContentSpeechBody) => Promise<boolean>;
+  onRefresh: () => Promise<boolean>;
+}) {
+  // null は保存値へ追随する。保存できたら null へ戻し、次の保存値で選択を描き直す
+  const [draftModel, setDraftModel] = useState<string | null>(null);
+  const [draftVoice, setDraftVoice] = useState<string | null>(null);
+  const options = speechModelOptions(settings);
+  const savedModel = speechModelValue(settings);
+  const savedVoice = settings.speech.voice;
+  const selectedModel = draftModel ?? savedModel;
+  const selectedOption = options.find((option) => option.value === selectedModel);
+  const textMode = speechVoiceMode(selectedOption) === "text";
+  // モデルを切り替えると、ボイスは選択中モデルの宣言に合わせて選び直される
+  const selectedVoice = draftVoice ?? speechVoiceValue(selectedOption, savedVoice);
+
+  const submit = async () => {
+    const input = speechSelection(options, selectedModel, selectedVoice);
+    if (!input) return;
+    if (await onSave(input)) {
+      setDraftModel(null);
+      setDraftVoice(null);
+    }
+  };
+
+  return (
+    <section className="grid gap-1.5 border-t border-line pt-3">
+      <div className="text-2xs font-semibold tracking-label text-ink-faint uppercase">音声（TTS）</div>
+      <div className="flex min-w-0 flex-wrap items-center gap-2">
+        <SelectField
+          wrapperClassName="min-w-0 flex-1"
+          aria-label="音声生成のモデル"
+          value={selectedModel}
+          disabled={busy}
+          onChange={(event) => {
+            setDraftModel(event.currentTarget.value);
+            setDraftVoice(null);
+          }}
+        >
+          {options.map((option) => (
+            <option key={option.value} value={option.value}>
+              {option.label}
+            </option>
+          ))}
+        </SelectField>
+      </div>
+      <div className="flex min-w-0 flex-wrap items-center gap-2">
+        {textMode ? (
+          <input
+            className="field min-w-0 flex-1 text-xs"
+            value={selectedVoice}
+            aria-label="音声生成のボイス"
+            placeholder="モデル既定（空欄のまま送ります）"
+            autoComplete="off"
+            spellCheck={false}
+            disabled={busy}
+            onChange={(event) => setDraftVoice(event.currentTarget.value)}
+          />
+        ) : (
+          <SelectField
+            wrapperClassName="min-w-0 flex-1"
+            aria-label="音声生成のボイス"
+            value={selectedVoice}
+            disabled={busy}
+            onChange={(event) => setDraftVoice(event.currentTarget.value)}
+          >
+            {(selectedOption?.model?.voices ?? []).map((voice) => (
+              <option key={voice} value={voice}>
+                {voice}
+              </option>
+            ))}
+          </SelectField>
+        )}
+        <button
+          type="button"
+          className="btn-primary"
+          disabled={busy || (selectedModel === savedModel && selectedVoice === savedVoice)}
+          onClick={() => void submit()}
+        >
+          <CheckIcon />
+          保存
+        </button>
+      </div>
+      {/* 演技指示は `instructions` の非ゴールに合わせて渡さない。長文は分割がエージェントの仕事 */}
+      <p className="text-2xs leading-relaxed text-ink-muted">
+        出力は mp3 固定です。読み上げる文章だけを渡し、演技指示は本文に書かせません。長文は分けて複数回呼ばせます。
+      </p>
+      <div className="flex flex-wrap items-center gap-2">
+        {/* 段落のセマンティクスを残すため、チップ (span) は <p> の中に置く */}
+        <p className="min-w-0">
+          <MetaChip wrap tone={settings.speech.catalogSource === "live" ? "muted" : "warn"}>
+            {speechCatalogNotice(settings.speech)}
           </MetaChip>
         </p>
         <ReloadButton disabled={busy} onClick={() => void onRefresh()}>

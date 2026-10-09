@@ -5,18 +5,21 @@ import {
   getContentSettings,
   putContentApiKey,
   putContentImageSettings,
+  putContentSpeechSettings,
   refreshImageCatalog,
+  refreshSpeechCatalog as requestSpeechCatalogRefresh,
 } from "../api";
 import {
   CONTENT_KEY_DELETED_NOTE,
   CONTENT_KEY_SAVED_NOTE,
   CONTENT_MODEL_SAVED_NOTE,
   CONTENT_SETTINGS_NOTE,
-  imageCatalogRefreshNote,
+  CONTENT_SPEECH_SAVED_NOTE,
+  catalogRefreshNote,
   type ContentSavingAction,
 } from "../lib/contentSettings";
 import { validateApiKey } from "../lib/modelSettings";
-import type { ContentSettingsResponse, UpdateContentImageBody } from "../types";
+import type { ContentSettingsResponse, UpdateContentImageBody, UpdateContentSpeechBody } from "../types";
 import { createLoadingTracker, createRequestGate } from "./requestGate";
 
 function messageFor(error: unknown): string {
@@ -107,6 +110,12 @@ export function useContentSettings() {
     [runMutation],
   );
 
+  const saveSpeech = useCallback(
+    (input: UpdateContentSpeechBody): Promise<boolean> =>
+      runMutation("speech", CONTENT_SPEECH_SAVED_NOTE, () => putContentSpeechSettings(input)),
+    [runMutation],
+  );
+
   /**
    * モデル一覧の再取得。設定は変わらないので、一覧と出どころだけを差し替える
    * （GET と同じ形の応答を待っている別の読み込みに上書きさせないため、beginLoad で無効化する）。
@@ -129,7 +138,7 @@ export function useContentSettings() {
               },
             },
       );
-      setNote({ text: imageCatalogRefreshNote(response.catalogError), error: response.catalogError !== null });
+      setNote({ text: catalogRefreshNote(response.catalogError), error: response.catalogError !== null });
       return response.catalogError === null;
     } catch (error) {
       setNote({ text: `モデル一覧を取得できませんでした。${messageFor(error)}`, error: true });
@@ -139,7 +148,48 @@ export function useContentSettings() {
     }
   }, [beginLoad]);
 
-  return { settings, note, saving, reloading, reload, saveKey, removeKey, saveSelection, refreshCatalog };
+  /** 音声モデル一覧の再取得。形も失敗の扱いも画像と同じ（一覧と出どころだけを差し替える） */
+  const refreshSpeechCatalog = useCallback(async (): Promise<boolean> => {
+    setSaving("speech-catalog");
+    try {
+      const response = await requestSpeechCatalogRefresh();
+      beginLoad();
+      setSettings((previous) =>
+        previous === null
+          ? previous
+          : {
+              ...previous,
+              speech: {
+                ...previous.speech,
+                models: response.models,
+                catalogSource: response.catalogSource,
+                fetchedAt: response.fetchedAt,
+              },
+            },
+      );
+      setNote({ text: catalogRefreshNote(response.catalogError), error: response.catalogError !== null });
+      return response.catalogError === null;
+    } catch (error) {
+      setNote({ text: `モデル一覧を取得できませんでした。${messageFor(error)}`, error: true });
+      return false;
+    } finally {
+      setSaving(null);
+    }
+  }, [beginLoad]);
+
+  return {
+    settings,
+    note,
+    saving,
+    reloading,
+    reload,
+    saveKey,
+    removeKey,
+    saveSelection,
+    saveSpeech,
+    refreshCatalog,
+    refreshSpeechCatalog,
+  };
 }
 
 export type ContentSettings = ReturnType<typeof useContentSettings>;

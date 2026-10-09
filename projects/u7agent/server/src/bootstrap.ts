@@ -11,6 +11,7 @@ import { BUILTIN_SKILLS } from "./builtin-skills";
 import { messageFor } from "./http";
 import { ContentSettingsService } from "./content-settings";
 import { createImageCatalog } from "./image-catalog";
+import { createSpeechCatalog } from "./speech-catalog";
 import { WebSearchSettingsService } from "./web-search-settings";
 import { ModelSettingsService, type CredentialCommit, type ProviderKeyRuntime } from "./model-settings";
 import { NotificationService } from "./notifications";
@@ -49,6 +50,8 @@ export type CreateBffAppOptions = {
   notificationFetch?: typeof fetch;
   /** 画像モデル一覧取得のテスト用。省略時は globalThis.fetch */
   imageCatalogFetch?: typeof fetch;
+  /** 音声モデル一覧取得のテスト用。省略時は globalThis.fetch */
+  speechCatalogFetch?: typeof fetch;
   /**
    * serve の記録の読み書きと起動・停止に使うサンドボックス実行。未指定なら env から生成した
    * サンドボックスクライアントを再利用する (workspace を差し替えたテストでは null)。
@@ -165,11 +168,15 @@ export async function createBffContext(opts: CreateBffAppOptions = {}): Promise<
   // 書込は自分のロックで直列化し、applyStored() も同じロックを通す（model-settings と同じ順序）。
   // モデル一覧は live を正とし、取得できないときは前回の成功（アプリ DB）→ SDK 同梱へ落ちる。
   const imageCatalog = createImageCatalog({ store: appDb, fetchImpl: opts.imageCatalogFetch });
+  // 音声モデルは SDK にカタログが無いため、取得できないときは前回の成功（アプリ DB）→ 同梱の既定 1 件へ落ちる。
+  // 取得は画像と同じくキーを見ない（一覧 API は認証不要）
+  const speechCatalog = createSpeechCatalog({ store: appDb, fetchImpl: opts.speechCatalogFetch });
   const contentSettings = new ContentSettingsService({
     db: appDb,
     runtimeAvailable: pi !== null,
     retainSecret: pi ? pi.retainSecret : () => {},
     catalog: imageCatalog,
+    speechCatalog,
     setContentGeneration: pi ? pi.setContentGeneration : () => {},
     maskError,
   });

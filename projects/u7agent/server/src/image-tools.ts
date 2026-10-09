@@ -17,6 +17,8 @@ import {
 import type { SandboxWorkspaceClient } from "./sandbox/client";
 import { wrapToolDefinitionWithSecretMasker } from "./secret-guard";
 import type { SecretMasker } from "./redact";
+import { SPEECH_TOOL_NAME } from "./speech-tools";
+import { cwdRelativePath, parseToolPath, rootRelativeDir } from "./workspace-path";
 
 export const IMAGE_TOOL_NAME = "generate_image";
 
@@ -46,9 +48,9 @@ export const IMAGE_GENERATION_PROMPT_LINES = [
   "If a fixed-name latest copy is needed, use `cp` to a separate path while keeping the unique generated file. Never use `mv` to move a file referenced by the conversation.",
 ];
 
-/** SDK の tools へ渡す登録名。画像ツールは有効なときだけ足す */
-export function sessionToolNames(base: readonly string[], imageGenerationEnabled: boolean): string[] {
-  return imageGenerationEnabled ? [...base, IMAGE_TOOL_NAME] : [...base];
+/** SDK の tools へ渡す登録名。画像 / 音声のツールは有効なときだけ足す */
+export function sessionToolNames(base: readonly string[], enabled: { image: boolean; speech: boolean }): string[] {
+  return [...base, ...(enabled.image ? [IMAGE_TOOL_NAME] : []), ...(enabled.speech ? [SPEECH_TOOL_NAME] : [])];
 }
 
 const generateImageSchema = Type.Object({
@@ -61,37 +63,6 @@ const generateImageSchema = Type.Object({
   ),
 });
 type GenerateImageParams = Static<typeof generateImageSchema>;
-
-export interface ImageToolTarget {
-  /** セッション cwd 相対の保存先ディレクトリ（"" は cwd 直下） */
-  dir: string;
-  /** 保存名（basename） */
-  name: string;
-}
-
-/** `/` 区切りの相対パスを字句的に畳む。空セグメントと `.` は落とす */
-function segmentsOf(value: string): string[] {
-  return value.split("/").filter((segment) => segment !== "" && segment !== ".");
-}
-
-/**
- * `path` を cwd 相対の dir / name へ分ける。拒否規則は write / edit と同じ思想で、
- * `..` / 絶対パス / バックスラッシュ / 空の name（末尾 `/` を含む）を拒む。
- * root 相対への前置きは `rootRelativeDir` だけが行う。
- */
-export function parseImageToolPath(rawPath: string): ImageToolTarget {
-  if (rawPath.trim() === "") throw new Error("path が空です");
-  if (rawPath.includes("\\")) throw new Error(`path にバックスラッシュは使えません: ${rawPath}`);
-  if (rawPath.startsWith("/") || /^[A-Za-z]:/.test(rawPath)) {
-    throw new Error(`作業フォルダの外には保存できません: ${rawPath}`);
-  }
-  if (rawPath.endsWith("/")) throw new Error(`ファイル名が必要です: ${rawPath}`);
-  const segments = segmentsOf(rawPath);
-  if (segments.includes("..")) throw new Error(`作業フォルダの外には保存できません: ${rawPath}`);
-  const name = segments.pop();
-  if (!name) throw new Error(`ファイル名が必要です: ${rawPath}`);
-  return { dir: segments.join("/"), name };
-}
 
 /** プロンプトから既定の保存名を作る。`[a-z0-9-]` へ正規化した 40 文字まで */
 export function imageSlug(prompt: string, now: number): string {
@@ -117,20 +88,6 @@ export function imageExtensionFor(mimeType: string): SaveableImageFormat {
   throw new Error(
     `対応していない画像形式です: ${mimeType}（生成は完了しており、クレジットは消費されています）。設定 → モデル で別の画像モデルを選んでください`,
   );
-}
-
-/** セッション cwd（root 相対）を前置する 1 段。projects.ts の cwd 解決とは混ぜない */
-export function rootRelativeDir(cwd: string, dir: string): string {
-  const root = segmentsOf(cwd).join("/");
-  const child = segmentsOf(dir).join("/");
-  if (root === "") return child;
-  return child === "" ? root : `${root}/${child}`;
-}
-
-/** cwd 相対の保存先。ツール結果と read / Markdown の起点を揃えるため root 相対は返さない */
-export function cwdRelativePath(dir: string, name: string): string {
-  const child = segmentsOf(dir).join("/");
-  return child === "" ? name : `${child}/${name}`;
 }
 
 /** base64 の画像をアップロード用のストリームにする */
@@ -170,7 +127,7 @@ export function createImageToolDefinitions(options: ImageToolDefinitionOptions):
     constrainedSampling: { type: "json_schema", strict: "prefer" },
     async execute(_toolCallId, params: GenerateImageParams, signal) {
       // 支出の前に path と形式を検証する。dir と name は実際に保存するまで確定しない
-      const explicit = params.path === undefined ? undefined : parseImageToolPath(params.path);
+      const explicit = params.path === undefined ? undefined : parseToolPath(params.path);
       const settings = readCurrentSettings(options.readSettings);
       // 保存名を決める段で初めて分かると生成だけが成功して課金が残るため、provider を叩く前に止める
       if (isUnsaveableOutputOnly(options.readOutputFormats(settings.model))) {
