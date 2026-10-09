@@ -128,6 +128,20 @@ const CONTENT_SETTINGS: ContentSettingsResponse = {
     catalogSource: "live",
     fetchedAt: null,
   },
+  speech: {
+    model: "google/gemini-3.8-flash-tts",
+    voice: "Zephyr",
+    models: [
+      {
+        provider: "openrouter",
+        id: "google/gemini-3.8-flash-tts",
+        name: "Google: Gemini 3.8 Flash TTS",
+        voices: ["Zephyr", "Kore"],
+      },
+    ],
+    catalogSource: "live",
+    fetchedAt: null,
+  },
 };
 
 function contentSettings(overrides: Partial<ContentSettings> = {}): ContentSettings {
@@ -140,7 +154,10 @@ function contentSettings(overrides: Partial<ContentSettings> = {}): ContentSetti
     saveKey: async () => true,
     removeKey: async () => true,
     saveSelection: async () => true,
+    saveSpeech: async () => true,
     refreshCatalog: async () => true,
+    refreshSpeechCatalog: async () => true,
+    speechSynced: true,
     ...overrides,
   };
 }

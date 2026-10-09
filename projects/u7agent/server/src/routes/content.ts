@@ -1,6 +1,6 @@
 import type { Context } from "hono";
 import type { ContentSettingsService, ContentMutationOutcome } from "../content-settings";
-import type { UpdateContentImageBody } from "../schema";
+import type { UpdateContentImageBody, UpdateContentSpeechBody } from "../schema";
 
 /**
  * 設定 → モデル（コンテンツ生成）の provider / model / APIキー API。GET は純粋読取、
@@ -14,12 +14,17 @@ export function createContentSettingsRoutes({ contentSettings }: { contentSettin
     putSelection: async (c: Context, body: UpdateContentImageBody) =>
       respond(c, await contentSettings.putSelection(body)),
 
+    putSpeechSelection: async (c: Context, body: UpdateContentSpeechBody) =>
+      respond(c, await contentSettings.putSpeechSelection(body)),
+
     putKey: async (c: Context, apiKey: string) => respond(c, await contentSettings.putKey(apiKey)),
 
     deleteKey: async (c: Context) => respond(c, await contentSettings.deleteKey()),
 
     // 取得できなくても 200。一覧を失わせず、失敗は catalogError だけに載せる（DB のガードも通さない）
     refreshCatalog: async (c: Context) => c.json(await contentSettings.refreshCatalog()),
+
+    refreshSpeechCatalog: async (c: Context) => c.json(await contentSettings.refreshSpeechCatalog()),
   };
 }
 

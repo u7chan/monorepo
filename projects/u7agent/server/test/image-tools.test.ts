@@ -4,18 +4,16 @@ import test from "node:test";
 import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
 import {
   createImageToolDefinitions,
-  cwdRelativePath,
   imageExtensionFor,
   imageSlug,
   IMAGE_GENERATION_PROMPT_LINES,
   IMAGE_TOOL_NAME,
-  parseImageToolPath,
-  rootRelativeDir,
   sessionToolNames,
 } from "../src/image-tools";
 import { createMutableSecretMasker } from "../src/redact";
 import { toolResultSummary } from "../src/session-projection";
 import type { SandboxUploadInput, SandboxWorkspaceClient } from "../src/sandbox/client";
+import { cwdRelativePath, parseToolPath, rootRelativeDir } from "../src/workspace-path";
 
 type AnyTool = ToolDefinition<any, any, any>;
 
@@ -87,9 +85,9 @@ async function run(tool: AnyTool, params: Record<string, unknown>, signal?: Abor
 const settings = { provider: "openrouter", model: "openai/gpt-image-2", apiKey: "sk-image-dummy-key" };
 
 test("path の拒否規則: `..` / 絶対パス / バックスラッシュ / 空の name", () => {
-  assert.deepEqual(parseImageToolPath("generated/cafe.png"), { dir: "generated", name: "cafe.png" });
-  assert.deepEqual(parseImageToolPath("cafe.png"), { dir: "", name: "cafe.png" });
-  assert.deepEqual(parseImageToolPath("./a//b.png"), { dir: "a", name: "b.png" });
+  assert.deepEqual(parseToolPath("generated/cafe.png"), { dir: "generated", name: "cafe.png" });
+  assert.deepEqual(parseToolPath("cafe.png"), { dir: "", name: "cafe.png" });
+  assert.deepEqual(parseToolPath("./a//b.png"), { dir: "a", name: "b.png" });
   for (const bad of [
     "",
     "  ",
@@ -102,7 +100,7 @@ test("path の拒否規則: `..` / 絶対パス / バックスラッシュ / 空
     "generated/",
     "generated/..",
   ]) {
-    assert.throws(() => parseImageToolPath(bad), Error, bad);
+    assert.throws(() => parseToolPath(bad), Error, bad);
   }
 });
 
@@ -134,8 +132,8 @@ test("root 相対への前置きと cwd 相対の結果パス", () => {
 });
 
 test("ツール一覧は有効なときだけ generate_image を足す", () => {
-  assert.deepEqual(sessionToolNames(["read", "bash"], false), ["read", "bash"]);
-  assert.deepEqual(sessionToolNames(["read"], true), ["read", IMAGE_TOOL_NAME]);
+  assert.deepEqual(sessionToolNames(["read", "bash"], { image: false, speech: false }), ["read", "bash"]);
+  assert.deepEqual(sessionToolNames(["read"], { image: true, speech: false }), ["read", IMAGE_TOOL_NAME]);
   assert.deepEqual(
     createImageToolDefinitions({
       enabled: false,

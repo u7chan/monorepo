@@ -678,6 +678,25 @@ export const ImageCatalogSourceSchema = z.enum(["live", "stored", "sdk"]);
 export type ImageCatalogSource = z.infer<typeof ImageCatalogSourceSchema>;
 
 /**
+ * 音声カタログ 1 件。`voices` は live が宣言する話者で、宣言が無いとき（Fish Audio / Seed Audio など）は
+ * 載せない（UI は自由記述を許し、サーバーも生成前ガードをしない）。
+ */
+export const SpeechModelSchema = z.object({
+  provider: z.string(),
+  id: z.string(),
+  name: z.string(),
+  voices: z.array(z.string()).optional(),
+});
+export type SpeechModel = z.infer<typeof SpeechModelSchema>;
+
+/**
+ * 音声カタログの出どころ。live 以外は取得に失敗しており、前回の一覧か同梱の既定 1 件を表示している。
+ * 画像の `sdk` と同じ位置付けだが、同梱が SDK ではなく 1 件だけなので別名にする（docs/speech-generation.md）。
+ */
+export const SpeechCatalogSourceSchema = z.enum(["live", "stored", "default"]);
+export type SpeechCatalogSource = z.infer<typeof SpeechCatalogSourceSchema>;
+
+/**
  * GET /api/settings/content の `image`。`configured: false` のとき `model` は null（行が無い = 未設定）。
  * 音声など別の生成物を足すときは、この兄弟として項目を増やす（`image` の形は変えない）。
  */
@@ -693,6 +712,24 @@ export const ContentImageSettingsSchema = z.object({
 export type ContentImageSettings = z.infer<typeof ContentImageSettingsSchema>;
 
 /**
+ * GET /api/settings/content の `speech`。行があるときは `model` / `voice` を返し、`NULL` の既存列は
+ * 既定モデルと「そのモデルが宣言する先頭ボイス」へフォールバックして返す（UI に「（未設定）」を出さない）。
+ * `configured: false` のときは `model` が null で、`voice` は空文字になる。
+ */
+export const ContentSpeechSettingsSchema = z.object({
+  model: z.string().nullable(),
+  /** 再開時に送る話者。空文字は「指定なし」（宣言が無いモデル）で、本文から `voice` を落とす */
+  voice: z.string(),
+  /** 選択肢。live カタログ（取得できないときは前回の一覧 / 同梱の既定 1 件）。話者の宣言を含む */
+  models: z.array(SpeechModelSchema),
+  /** 上の models の出どころ。live 以外は取得に失敗した状態 */
+  catalogSource: SpeechCatalogSourceSchema,
+  /** live を最後に取得できた時刻 (epoch ms)。同梱の既定を表示しているときは null */
+  fetchedAt: z.number().nullable(),
+});
+export type ContentSpeechSettings = z.infer<typeof ContentSpeechSettingsSchema>;
+
+/**
  * GET /api/settings/content。`configured: false` のとき provider は null（行が無い = 未設定）。
  * APIキーは返さない。
  */
@@ -702,6 +739,7 @@ export const ContentSettingsResponseSchema = z.object({
   /** SDK ランタイムの初期化に成功したか。false のときキー登録は 503（model-settings と同じ） */
   runtimeAvailable: z.boolean(),
   image: ContentImageSettingsSchema,
+  speech: ContentSpeechSettingsSchema,
 });
 export type ContentSettingsResponse = z.infer<typeof ContentSettingsResponseSchema>;
 
@@ -724,6 +762,19 @@ export const ImageCatalogRefreshResponseSchema = z.object({
 });
 export type ImageCatalogRefreshResponse = z.infer<typeof ImageCatalogRefreshResponseSchema>;
 
+/**
+ * POST /api/settings/content/speech/catalog/refresh。形は画像の再取得と同じで、取得できなくても 200 で
+ * 現在の一覧を返し、`catalogError` にだけ失敗の固定文言を載せる（一覧を失わせない）。
+ */
+export const SpeechCatalogRefreshResponseSchema = z.object({
+  models: z.array(SpeechModelSchema),
+  catalogSource: SpeechCatalogSourceSchema,
+  fetchedAt: z.number().nullable(),
+  /** 今回の取得結果。null なら成功 */
+  catalogError: z.string().nullable(),
+});
+export type SpeechCatalogRefreshResponse = z.infer<typeof SpeechCatalogRefreshResponseSchema>;
+
 /** 変更系の失敗応答（何も変わっていない）。400 は error のみ */
 export const ContentMutationErrorSchema = z.object({
   error: z.string(),
@@ -737,6 +788,16 @@ export const UpdateContentImageBodySchema = z.object({
   model: z.string(),
 });
 export type UpdateContentImageBody = z.infer<typeof UpdateContentImageBodySchema>;
+
+/**
+ * 音声モデル / 話者の変更。キーと provider は保持したまま差し替える（行が無ければ 400）。
+ * `voice` の空文字は「指定なし」で、宣言が無いモデルへの自由記述もここを通す（照合はサービス側）。
+ */
+export const UpdateContentSpeechBodySchema = z.object({
+  model: z.string(),
+  voice: z.string(),
+});
+export type UpdateContentSpeechBody = z.infer<typeof UpdateContentSpeechBodySchema>;
 
 /** 画像APIキーの登録・上書き。長さは provider_credentials と同じ */
 export const UpdateContentKeyBodySchema = z.object({

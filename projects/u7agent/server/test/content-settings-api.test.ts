@@ -186,7 +186,7 @@ test("ランタイムが無いときの GET は runtimeAvailable: false、キー
       const put = bff.app.request("/api/settings/content/key", jsonPut({ apiKey: KEY }));
       assert.equal((await put).status, 503);
       assert.deepEqual(await jsonBody(put), {
-        error: "ランタイムが利用できないため、画像APIキーを登録できません",
+        error: "ランタイムが利用できないため、コンテンツ生成のAPIキーを登録できません",
         state: "not_stored",
       });
       const stored = await jsonBody(await bff.app.request("/api/settings/content"));

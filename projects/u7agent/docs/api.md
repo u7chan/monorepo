@@ -27,7 +27,7 @@ DTO の正は `server/src/schema.ts`（zod）。リクエストボディは `@ho
 | 通知（Discord） | `GET/PUT /api/notifications`、`POST /api/notifications/test`、`PATCH /api/sessions/:id/notify` | [notifications.md](notifications.md) |
 | アーカイブの除外名 | `GET/PUT/DELETE /api/settings/archive` | このファイル |
 | プロバイダーAPIキーとメモ（設定 → モデル） | `GET /api/settings/models`、`PUT/DELETE /api/settings/models/:provider/key`、`PUT /api/settings/models/:provider/memo`、`POST /api/settings/models/:provider/resync`、`POST /api/settings/models/catalog/refresh` | このファイル |
-| コンテンツ生成（設定 → モデル） | `GET /api/settings/content`、`PUT /api/settings/content/image`、`PUT/DELETE /api/settings/content/key`、`POST /api/settings/content/image/catalog/refresh` | このファイル、[image-generation.md](image-generation.md) |
+| コンテンツ生成（設定 → モデル） | `GET /api/settings/content`、`PUT /api/settings/content/image`、`PUT /api/settings/content/speech`、`PUT/DELETE /api/settings/content/key`、`POST /api/settings/content/image/catalog/refresh`、`POST /api/settings/content/speech/catalog/refresh` | このファイル、[image-generation.md](image-generation.md)、[speech-generation.md](speech-generation.md) |
 | Web 検索の設定（設定 → モデル） | `GET/PUT /api/settings/web-search`、`PUT /api/settings/web-search/provider`、`PUT/DELETE /api/settings/web-search/providers/:provider/key` | このファイル、[web-search.md](web-search.md) |
 | サービス（serve）の状態と起動・停止 | `GET /api/serve/status`、`POST /api/serve/start`、`POST /api/serve/stop` | このファイル、[sandbox.md](sandbox.md#serveサービスの公開と起動停止) |
 | 作業フォルダの環境変数（作業環境 → 環境変数） | `GET/POST /api/secrets`、`GET/PUT/DELETE /api/secrets/:secretId` | このファイル、[secrets.md](secrets.md#作業フォルダの環境変数作業環境--環境変数) |
@@ -464,13 +464,15 @@ Content-Security-Policy: sandbox allow-scripts; default-src 'none'; style-src 'u
 
 | メソッド | パス | 説明 |
 | --- | --- | --- |
-| GET | `/api/settings/content` | `configured` / `provider` / `runtimeAvailable` / `image`（`model` / `models`（カタログ）/ `catalogSource` / `fetchedAt`）。純粋読取で、APIキーは返さない |
+| GET | `/api/settings/content` | `configured` / `provider` / `runtimeAvailable` / `image` / `speech`（各 `model` / `models`（カタログ）/ `catalogSource` / `fetchedAt`。音声は `voice` も返す）。純粋読取で、APIキーは返さない |
 | PUT | `/api/settings/content/image` | `{ provider, model }`。キーを保持したまま画像モデルの選択を更新（行が無ければ 400） |
+| PUT | `/api/settings/content/speech` | `{ model, voice }`。キーと画像モデルを保持したまま音声モデル / ボイスを更新（行が無ければ 400） |
 | PUT | `/api/settings/content/key` | `{ apiKey }`。登録・上書き（行が無ければ既定 provider / model で作成） |
 | DELETE | `/api/settings/content/key` | 行ごと削除して未設定へ戻す（冪等） |
 | POST | `/api/settings/content/image/catalog/refresh` | live カタログの再取得。常に 200 で `{ models, catalogSource, fetchedAt, catalogError }` を返す（失敗時も前の一覧を返し、`catalogError` に固定文言を載せる） |
+| POST | `/api/settings/content/speech/catalog/refresh` | 音声カタログの再取得。応答は画像と同じ形 |
 
-アプリデータの SQLite を読むため DB が使えないときは 503（[persistence.md](persistence.md#アプリデータsqlite)）。モデル、保存先、ゲート、失敗分類は [image-generation.md](image-generation.md) を正とする。
+アプリデータの SQLite を読むため DB が使えないときは 503（[persistence.md](persistence.md#アプリデータsqlite)）。モデル、保存先、ゲート、失敗分類は [image-generation.md](image-generation.md) / [speech-generation.md](speech-generation.md) を正とする。
 
 ```json
 // GET /api/settings/content (200)
@@ -483,6 +485,15 @@ Content-Security-Policy: sandbox allow-scripts; default-src 'none'; style-src 'u
     "models": [{ "provider": "openrouter", "id": "openai/gpt-image-2", "name": "OpenAI: GPT Image 2" }],
     "catalogSource": "live",
     "fetchedAt": 1740000000000
+  },
+  "speech": {
+    "model": "google/gemini-3.8-flash-tts",
+    "voice": "Zephyr",
+    "models": [
+      { "provider": "openrouter", "id": "google/gemini-3.8-flash-tts", "name": "Google: Gemini 3.8 Flash TTS", "voices": ["Zephyr", "Kore"] }
+    ],
+    "catalogSource": "live",
+    "fetchedAt": 1740000000000
   }
 }
 
@@ -493,16 +504,25 @@ Content-Security-Policy: sandbox allow-scripts; default-src 'none'; style-src 'u
   "fetchedAt": 1740000000000,
   "catalogError": "モデル一覧の取得がタイムアウトしました"
 }
+
+// POST /api/settings/content/speech/catalog/refresh (200。形は画像と同じ)
+{
+  "models": [{ "provider": "openrouter", "id": "google/gemini-3.8-flash-tts", "name": "Google: Gemini 3.8 Flash TTS", "voices": ["Zephyr", "Kore"] }],
+  "catalogSource": "default",
+  "fetchedAt": null,
+  "catalogError": "モデル一覧の取得が混雑しています（レート制限またはプロバイダー障害）"
+}
 ```
 
-- `configured` は `content_settings` に行があるか。`false` のとき `provider` / `image.model` は `null`（行が無い = 未設定）
-- `image` は画像に関する項目（いまはこれだけ）。音声などを足すときは同じ階層に項目を増やし、`image` の形は変えない
+- `configured` は `content_settings` に行があるか。`false` のとき `provider` / `image.model` / `speech.model` は `null`（行が無い = 未設定）
+- `image` / `speech` は生成物の種類ごとの項目で、音声を足しても `image` の形は変えない
 - `image.models` は live カタログ（OpenRouter の画像モデル API）で、UI はこの一覧からだけモデルを選べる。`catalogSource` は `live` / `stored` / `sdk` で、`live` 以外は取得に失敗した状態（`stored` = 前回の成功を DB キャッシュから、`sdk` = SDK 同梱）を表し、`fetchedAt` は最後に live を取得できた時刻（`sdk` は `null`）。キー値はどの応答にも含めない（[image-generation.md](image-generation.md#モデルカタログ)）
+- `speech.models` は live カタログ（OpenRouter の音声モデル一覧 API）で、`voices` に話者の宣言を含む。`catalogSource` は `live` / `stored` / `default` で、`default` は「live もキャッシュも無く、同梱の既定 1 件を見ている」を表す。`voice` の空文字は「指定なし」（宣言が無いモデルで送らない）。`content_settings` の音声列が `NULL` の既存行は、既定モデルと先頭ボイスへフォールバックして返す（[speech-generation.md](speech-generation.md#モデルカタログ)）
 - `runtimeAvailable` は `/api/settings/models` と同じく「SDK ランタイムの初期化に成功したか」。`false` のときキー登録は 503 `not_stored`（`retainSecret` が no-op になり保護できないため）。選択変更と削除は runtime に依存しない
 - POST の `catalogError` は**今回の取得だけ**の結果で、`null` なら成功。失敗しても一覧と `catalogSource` は前のままで、503 にはしない（設定ではなくキャッシュの更新なので `state` も付けない）
 - 変更系の応答は GET と同じ形 + `state: "applied"`。SDK への反映を持たないため `applied_unsynced` は無い。DB 書込に失敗したときだけ 503 `{ error, state: "not_stored" }`
-- 400: 行が無いのに PUT（`画像APIキーが未設定です。先にキーを登録してください`）、`openrouter` 以外の provider、カタログ外の model、8..2048 文字外のキー、形が違う本文
-- キー登録の既定は provider `openrouter` / model `openai/gpt-image-2`。削除すると行ごと消え、`generate_image` ツールは次のセッション作成から公開されなくなる（既存セッションの execute は実行時にキー無効エラーを返す）
+- 400: 行が無いのに PUT（`コンテンツ生成のAPIキーが未設定です。先にキーを登録してください`）、`openrouter` 以外の provider、カタログ外の model、画像 / 音声のカタログ外モデル、宣言があるモデルで宣言外のボイス、8..2048 文字外のキー、形が違う本文。音声カタログが `default` のときはカタログ照合をしない（[speech-generation.md](speech-generation.md#モデルカタログ)）
+- キー登録の既定は provider `openrouter` / model `openai/gpt-image-2`。削除すると行ごと消え、`generate_image` / `generate_speech` は次のセッション作成から公開されなくなる（既存セッションの execute は実行時にキー無効エラーを返す）
 
 ## サービス（serve）の状態と起動・停止
 

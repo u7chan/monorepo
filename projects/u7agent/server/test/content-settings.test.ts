@@ -15,6 +15,28 @@ import {
   type ContentSettingsDb,
 } from "../src/content-settings";
 import { IMAGE_PROVIDER_ID, type ContentGenerationConfig } from "../src/images";
+import { SPEECH_PROVIDER_ID } from "../src/speech";
+import { DEFAULT_SPEECH_MODEL, type SpeechCatalog } from "../src/speech-catalog";
+
+const SPEECH_STUB = {
+  provider: SPEECH_PROVIDER_ID,
+  id: DEFAULT_SPEECH_MODEL,
+  name: "Google: Gemini 3.8 Flash TTS",
+  voices: ["Zephyr", "Kore"],
+};
+
+/**
+ * 音声カタログの最小 stub。内容の検証は speech-settings.test.ts が持ち、ここでは設定サービスの
+ * 音声部分が応答の形へ漏れないことだけを見る（既定の全件を返すと期待値が long になる）。
+ */
+function stubSpeechCatalog(): SpeechCatalog {
+  return {
+    snapshot: () => ({ entries: [SPEECH_STUB], source: "default", fetchedAt: null }),
+    voicesOf: (model) => (model === SPEECH_STUB.id ? SPEECH_STUB.voices : undefined),
+    loadStored: () => {},
+    refresh: async () => null,
+  };
+}
 
 const KEY = "sk-image-dummy-key-0123456789abcdef";
 
@@ -108,6 +130,7 @@ function createService(
       db.events.push("retain");
     },
     catalog: fake.catalog,
+    speechCatalog: stubSpeechCatalog(),
     setContentGeneration: (config) => {
       configs.push(config);
       db.events.push(`inject:${config.enabled ? "on" : "off"}`);
@@ -133,6 +156,13 @@ test("GET は行が無いとき未設定を返し、キーを載せない", () =
       catalogSource: "live",
       fetchedAt: null,
     },
+    speech: {
+      model: null,
+      voice: "",
+      models: [SPEECH_STUB],
+      catalogSource: "default",
+      fetchedAt: null,
+    },
   });
 });
 
@@ -146,7 +176,13 @@ test("キー登録はマスカー → DB → 注入の順に通し、行が無�
   assert.equal(outcome.response.provider, IMAGE_PROVIDER_ID);
   assert.equal(outcome.response.image.model, DEFAULT_IMAGE_MODEL);
   assert.equal(outcome.response.image.catalogSource, "live");
-  assert.deepEqual(db.row, { provider: IMAGE_PROVIDER_ID, imageModel: DEFAULT_IMAGE_MODEL, apiKey: KEY });
+  assert.deepEqual(db.row, {
+    provider: IMAGE_PROVIDER_ID,
+    imageModel: DEFAULT_IMAGE_MODEL,
+    speechModel: null,
+    speechVoice: null,
+    apiKey: KEY,
+  });
   assert.deepEqual(retained, [KEY], "マスカー登録は 1 回");
   assert.deepEqual(db.events, ["retain", "save", "inject:on"]);
   assert.equal(catalog.refreshes, 0, "キー保存は外部 API を待たない");
@@ -192,10 +228,22 @@ test("カタログの再取得は失敗しても一覧を返し、固定文言�
 
 test("キー上書きは選択済みの provider / model を保つ", async () => {
   const { db, service } = createService();
-  db.row = { provider: IMAGE_PROVIDER_ID, imageModel: "black-forest-labs/flux.2-max", apiKey: "old-key" };
+  db.row = {
+    provider: IMAGE_PROVIDER_ID,
+    imageModel: "black-forest-labs/flux.2-max",
+    speechModel: null,
+    speechVoice: null,
+    apiKey: "old-key",
+  };
   const outcome = await service.putKey(KEY);
   assert.equal(outcome.status, 200);
-  assert.deepEqual(db.row, { provider: IMAGE_PROVIDER_ID, imageModel: "black-forest-labs/flux.2-max", apiKey: KEY });
+  assert.deepEqual(db.row, {
+    provider: IMAGE_PROVIDER_ID,
+    imageModel: "black-forest-labs/flux.2-max",
+    speechModel: null,
+    speechVoice: null,
+    apiKey: KEY,
+  });
 });
 
 test("provider / model の変更はキーを保持し、行が無い / provider が違う / カタログ外は 400", async () => {
@@ -210,7 +258,13 @@ test("provider / model の変更はキーを保持し、行が無い / provider 
     }
   }, "行が無いのに選択だけ変えられる");
 
-  db.row = { provider: IMAGE_PROVIDER_ID, imageModel: DEFAULT_IMAGE_MODEL, apiKey: KEY };
+  db.row = {
+    provider: IMAGE_PROVIDER_ID,
+    imageModel: DEFAULT_IMAGE_MODEL,
+    speechModel: null,
+    speechVoice: null,
+    apiKey: KEY,
+  };
   await assert.rejects(async () => {
     try {
       await service.putSelection({ provider: "openai", model: DEFAULT_IMAGE_MODEL });
@@ -243,12 +297,28 @@ test("provider / model の変更はキーを保持し、行が無い / provider 
   assert.equal(outcome.status, 200);
   if (outcome.status !== 200) return;
   assert.equal(outcome.response.state, "applied");
-  assert.deepEqual(db.row, { provider: IMAGE_PROVIDER_ID, imageModel: DEFAULT_IMAGE_MODEL, apiKey: KEY }, "キーを保つ");
+  assert.deepEqual(
+    db.row,
+    {
+      provider: IMAGE_PROVIDER_ID,
+      imageModel: DEFAULT_IMAGE_MODEL,
+      speechModel: null,
+      speechVoice: null,
+      apiKey: KEY,
+    },
+    "キーを保つ",
+  );
 });
 
 test("キー削除は行ごと消して注入を無効にし、未設定でも 200 を返す", async () => {
   const { db, service, configs } = createService();
-  db.row = { provider: IMAGE_PROVIDER_ID, imageModel: DEFAULT_IMAGE_MODEL, apiKey: KEY };
+  db.row = {
+    provider: IMAGE_PROVIDER_ID,
+    imageModel: DEFAULT_IMAGE_MODEL,
+    speechModel: null,
+    speechVoice: null,
+    apiKey: KEY,
+  };
   const first = await service.deleteKey();
   assert.equal(first.status, 200);
   if (first.status !== 200) return;
@@ -279,7 +349,13 @@ test("DB 失敗は 503 not_stored にして理由の分類だけを残す", asyn
   assert.deepEqual(await service.putKey(KEY), { status: 503, error: CONTENT_KEY_NOT_STORED_MESSAGE });
 
   db.failSave = false;
-  db.row = { provider: IMAGE_PROVIDER_ID, imageModel: DEFAULT_IMAGE_MODEL, apiKey: KEY };
+  db.row = {
+    provider: IMAGE_PROVIDER_ID,
+    imageModel: DEFAULT_IMAGE_MODEL,
+    speechModel: null,
+    speechVoice: null,
+    apiKey: KEY,
+  };
   db.failRead = true;
   assert.deepEqual(await service.putKey(KEY), { status: 503, error: CONTENT_KEY_NOT_STORED_MESSAGE });
   assert.deepEqual(await service.putSelection({ provider: IMAGE_PROVIDER_ID, model: DEFAULT_IMAGE_MODEL }), {
@@ -308,12 +384,24 @@ test("書込成功後の読取失敗でも applied を返す（not_stored と誤
   assert.equal(outcome.response.state, "applied");
   assert.equal(outcome.response.configured, true);
   assert.equal(outcome.response.provider, IMAGE_PROVIDER_ID);
-  assert.deepEqual(db.row, { provider: IMAGE_PROVIDER_ID, imageModel: DEFAULT_IMAGE_MODEL, apiKey: KEY });
+  assert.deepEqual(db.row, {
+    provider: IMAGE_PROVIDER_ID,
+    imageModel: DEFAULT_IMAGE_MODEL,
+    speechModel: null,
+    speechVoice: null,
+    apiKey: KEY,
+  });
 });
 
 test("起動時の適用は行の有無を注入し、読めないときは無効で立ち警告だけを残す", async () => {
   const configured = createService();
-  configured.db.row = { provider: IMAGE_PROVIDER_ID, imageModel: DEFAULT_IMAGE_MODEL, apiKey: KEY };
+  configured.db.row = {
+    provider: IMAGE_PROVIDER_ID,
+    imageModel: DEFAULT_IMAGE_MODEL,
+    speechModel: null,
+    speechVoice: null,
+    apiKey: KEY,
+  };
   await configured.service.applyStored();
   assert.equal(configured.latest()?.enabled, true);
   assert.deepEqual(configured.latest()?.read(), {

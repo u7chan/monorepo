@@ -9,46 +9,70 @@ import test from "node:test";
 import { ContentSettingsTab } from "../src/components/model-settings/ContentSettingsTab";
 import { ConfirmProvider } from "../src/components/ConfirmProvider";
 import type { ContentSavingAction } from "../src/lib/contentSettings";
-import type { ContentImageSettings, ContentSettingsResponse } from "../src/types";
+import type { ContentImageSettings, ContentSettingsResponse, ContentSpeechSettings } from "../src/types";
 
 const MODELS = [
   { provider: "openrouter", id: "openai/gpt-image-2", name: "GPT Image 2" },
   { provider: "openrouter", id: "google/gemini-image", name: "Gemini Image" },
 ];
 
-/** `image` の中身を差し替える (provider など設定面の値は render の引数から渡す) */
+const SPEECH_MODELS = [
+  {
+    provider: "openrouter",
+    id: "google/gemini-3.8-flash-tts",
+    name: "Google: Gemini 3.8 Flash TTS",
+    voices: ["Zephyr", "Kore"],
+  },
+  { provider: "openrouter", id: "fish/audio", name: "Fish Audio" },
+];
+
+/** `image` / `speech` の中身を差し替える (provider など設定面の値は render の引数から渡す) */
 function settings(
   image: Partial<ContentImageSettings> = {},
   overrides: Partial<ContentSettingsResponse> = {},
+  speech: Partial<ContentSpeechSettings> = {},
 ): ContentSettingsResponse {
   return {
     configured: true,
     provider: "openrouter",
     runtimeAvailable: true,
     image: { model: "openai/gpt-image-2", models: MODELS, catalogSource: "live", fetchedAt: null, ...image },
+    speech: {
+      model: "google/gemini-3.8-flash-tts",
+      voice: "Zephyr",
+      models: SPEECH_MODELS,
+      catalogSource: "live",
+      fetchedAt: null,
+      ...speech,
+    },
     ...overrides,
   };
 }
 
 function render(
-  options: { image?: Partial<ContentImageSettings>; saving?: ContentSavingAction | null } & Omit<
-    Partial<ContentSettingsResponse>,
-    "image"
-  > = {},
+  options: {
+    image?: Partial<ContentImageSettings>;
+    speech?: Partial<ContentSpeechSettings>;
+    saving?: ContentSavingAction | null;
+    speechSynced?: boolean;
+  } & Omit<Partial<ContentSettingsResponse>, "image" | "speech"> = {},
 ): string {
-  const { image, saving = null, ...overrides } = options;
+  const { image, speech, saving = null, ...overrides } = options;
   // 確認ダイアログの provider は app の root が持つ (main.tsx)。ここでは描画だけを検査する
   return renderToStaticMarkup(
     createElement(
       ConfirmProvider,
       null,
       createElement(ContentSettingsTab, {
-        settings: settings(image, overrides),
+        settings: settings(image, overrides, speech),
         saving,
         onSaveKey: async () => true,
         onDeleteKey: async () => true,
         onSaveSelection: async () => true,
         onRefreshCatalog: async () => true,
+        onSaveSpeech: async () => true,
+        onRefreshSpeechCatalog: async () => true,
+        speechSynced: options.speechSynced ?? true,
       }),
     ),
   );
@@ -62,12 +86,17 @@ test("未設定ではキー入力だけを出し、モデル選択と削除は�
   });
   assert.ok(html.includes('type="password"'), "キー入力を出す");
   assert.match(html, /<input[^>]*(?:autoComplete|autocomplete)="off"/, "再表示しない前提なので autocomplete を切る");
-  assert.ok(html.includes("OpenRouter の画像生成専用のキーです"), "どの provider のキーかと、別管理であることを出す");
+  assert.ok(
+    html.includes("OpenRouter のコンテンツ生成（画像 / 音声）で共有するキーです"),
+    "どの provider のキーかと、別管理であることを出す",
+  );
+  assert.equal(html.includes("画像生成専用のキー"), false, "音声と共有するため画像専用とは書かない");
   assert.ok(html.includes(">未設定<"), "未設定バッジを出す");
   assert.equal(html.includes("設定済み"), false, "未設定では設定済みと言わない");
   assert.equal(html.includes("<select"), false, "モデル選択はキー保存後にだけ出す");
   assert.equal(html.includes(">削除</button>"), false, "削除もキー保存後にだけ出す");
   assert.equal(html.includes(">再取得</button>"), false, "再取得もモデル欄と同じくキー保存後にだけ出す");
+  assert.equal(html.includes("音声（TTS）"), false, "音声の欄もキー保存後にだけ出す");
 });
 
 test("見出しに provider のロゴ・名前・id とキーの登録状態を出す", () => {
@@ -79,6 +108,10 @@ test("見出しに provider のロゴ・名前・id とキーの登録状態を�
   assert.ok(
     html.includes('rounded border px-1.5 py-0.5 text-2xs whitespace-nowrap border-line text-ink-muted">カタログ 2<'),
     "カタログの件数もプロバイダータブと同じチップで出す",
+  );
+  assert.ok(
+    html.includes('rounded border px-1.5 py-0.5 text-2xs whitespace-nowrap border-line text-ink-muted">音声 2<'),
+    "音声カタログの件数も同じチップで出す",
   );
 });
 
@@ -147,6 +180,56 @@ test("カタログ外の保存済みモデルも選択肢に残す", () => {
   assert.ok(html.includes("Gemini Image"), "カタログの他の候補も失わない");
 });
 
+test("設定済みでは音声のモデルとボイスを出し、宣言のあるボイスを選択肢にする", () => {
+  const html = render();
+  assert.ok(html.includes("音声（TTS）"), "音声のセクションを出す");
+  assert.ok(html.includes('aria-label="音声生成のモデル"'), "音声モデルの選択を出す");
+  assert.ok(html.includes('aria-label="音声生成のボイス"'), "ボイスの選択を出す");
+  assert.ok(html.includes('value="google/gemini-3.8-flash-tts"'), "保存済みモデルを選択した状態で出す");
+  assert.ok(html.includes('value="Zephyr"'), "保存済みボイスを選択した状態で出す");
+  assert.ok(html.includes(">Kore</option>"), "宣言されている他のボイスも候補に出す");
+  assert.ok(html.includes("音声モデル一覧は OpenRouter から取得しました"), "一覧の出どころを出す");
+  assert.ok(html.includes("出力は mp3 固定です"), "出力形式と演技指示を書かせない方針を出す");
+});
+
+test("宣言が無い音声モデルはボイスを自由記述にし、空欄を許す", () => {
+  const html = render({ speech: { model: "fish/audio", voice: "my-voice" } });
+  assert.ok(html.includes('value="fish/audio"'), "保存済みモデルを選択した状態で出す");
+  assert.match(html, /<input[^>]*aria-label="音声生成のボイス"[^>]*value="my-voice"/, "自由記述の入力欄へ切り替える");
+  assert.ok(html.includes("モデル既定（空欄のまま送ります）"), "空欄の意味を出す");
+});
+
+test("音声カタログ外の保存済みモデルも選択肢に残す", () => {
+  const html = render({ speech: { model: "stale/tts", voice: "Zephyr" } });
+  assert.ok(html.includes("stale/tts（カタログ外）"));
+  assert.ok(html.includes('value="stale/tts"'));
+});
+
+test("音声カタログも取得できていないときは警告色のチップで出す", () => {
+  const html = render({ speech: { catalogSource: "default", fetchedAt: null } });
+  assert.ok(html.includes("OpenRouter から取得できていないため、同梱の既定の音声モデルを表示しています"));
+  assert.match(html, /border-warn\/40 text-warn"[^>]*>OpenRouter から取得できていない/);
+});
+
+test("現在の設定を確認できないときは音声を「（未確認）」にして保存させない", () => {
+  const html = render({ speechSynced: false });
+  assert.equal(html.match(/（未確認）/g)?.length, 2, "モデルとボイスの両方を未確認として出す");
+  assert.ok(
+    html.includes("サーバーから現在の設定を取得できなかったため、表示しているモデルとボイスが最新とは限りません"),
+    "同期できていないことを知らせる",
+  );
+  assert.match(html, /aria-label="音声生成のモデル"[^>]*disabled=""/, "モデルを触らせない");
+  assert.match(html, /aria-label="音声生成のボイス"[^>]*disabled=""/, "ボイスを触らせない");
+  // 同期できたら未確認の表示は出さない
+  const synced = render();
+  assert.equal(synced.includes("（未確認）"), false);
+});
+
+test("音声カタログの再取得中は音声側のボタンだけを取得中にする", () => {
+  const html = render({ saving: "speech-catalog" });
+  assert.equal(html.match(/取得中/g)?.length, 1, "音声側の 1 つだけを取得中にする");
+});
+
 test("平文の注意は既定で畳み、1 行の要点を出す", () => {
   const html = render();
   assert.match(
@@ -165,4 +248,10 @@ test("runtimeAvailable: false ではキー操作だけを無効化し、モデ�
   assert.match(html, /<button[^>]*class="btn-quiet"[^>]*disabled=""/, "削除を disable する");
   // モデルの変更は SDK に触れないため、runtime が無くてもサーバーは受け付ける
   assert.doesNotMatch(html, /<select[^>]*disabled=""/, "モデル選択は disable しない");
+});
+
+test("runtimeAvailable: false でも音声の選択は残す", () => {
+  const html = render({ runtimeAvailable: false });
+  assert.ok(html.includes('aria-label="音声生成のモデル"'));
+  assert.ok(html.includes('aria-label="音声生成のボイス"'));
 });
