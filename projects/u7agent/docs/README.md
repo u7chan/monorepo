@@ -46,7 +46,7 @@
 - [model-effort.md](model-effort.md) — モデル / Effort の解決と変更
 - [model-settings.md](model-settings.md) — モデル候補（選択）/ アプリ既定モデルとプロバイダーAPIキーの GUI 設定（保存先・応答契約・degraded・残存リスク）
 - [image-generation.md](image-generation.md) — 画像生成（保存先とパスの空間・キーによるゲート・失敗分類・キーの扱い・Markdown 画像のプレビュー）
-- [speech-generation.md](speech-generation.md) — 音声生成（mp3 固定・モデルとボイスのカタログ・キー共有・失敗分類・保存先）
+- [speech-generation.md](speech-generation.md) — 音声生成（mp3 / wav の保存形式・モデルとボイスのカタログ・キー共有・失敗分類・保存先）
 - [web-search.md](web-search.md) — Web 検索（Exa / Tavily の provider 抽象化・引数と結果の整形・失敗の分類・実行時トグルとキーの設定）
 - [sandbox.md](sandbox.md) — ツール実行のサンドボックス分離
 - [sandbox-api.md](sandbox-api.md) — サンドボックス内部 API と環境変数（ZIP の除外規則と上限を含む）
