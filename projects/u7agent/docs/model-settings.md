@@ -12,7 +12,9 @@
 | 画面 | 役割 | 内容 |
 | --- | --- | --- |
 | 設定 → ランタイム（表示専用） | 環境診断 | 接続状態 / 実行環境 / 利用可能なコマンド / SDK バージョン |
-| 設定 → モデル（編集可） | タブ 1: モデルを選ぶ（`/settings/models`）/ タブ 2: プロバイダー（`/settings/models/providers`）/ タブ 3: コンテンツ生成（`/settings/models/content`）/ タブ 4: Web 検索（`/settings/models/web-search`） | タブ 1 はモデル候補の選択とアプリ既定モデル、タブ 2 は provider ごとの認証状態、APIキーの登録・上書き・削除、メモの保存、再同期、カタログの利用可能数、タブ 3 はコンテンツ生成の APIキー（画像 / 音声で共有）・画像モデル（[image-generation.md](image-generation.md#設定画面コンテンツ生成タブ)）・音声モデルとボイス（[speech-generation.md](speech-generation.md#設定画面コンテンツ生成タブ)）、タブ 4 は `web_search` の実行時トグル・既定 provider・provider ごとの APIキー（[web-search.md](web-search.md#実行時トグル設定--モデルの-web-検索タブ)）。モデル一覧の重複表示は持たない |
+| 設定 → モデル（編集可） | モデルを選ぶ（`/settings/models`。既定）/ プロバイダー（`/settings/models/providers`）の 2 タブ | モデル候補の選択とアプリ既定モデル、provider ごとの認証状態、APIキーの登録・上書き・削除、メモの保存、再同期、カタログの利用可能数。モデル一覧の重複表示は持たない |
+| 設定 → コンテンツ生成（編集可）（`/settings/content`） | 画像 / 音声の生成設定 | コンテンツ生成の APIキー（画像 / 音声で共有）・画像モデル（[image-generation.md](image-generation.md#設定画面コンテンツ生成タブ)）・音声モデルとボイス（[speech-generation.md](speech-generation.md#設定画面コンテンツ生成タブ)） |
+| 設定 → Web 検索（編集可）（`/settings/web-search`） | 検索の実行時設定 | `web_search` の実行時トグル・既定 provider・provider ごとの APIキー（[web-search.md](web-search.md#実行時トグル設定--モデルの-web-検索タブ)） |
 
 プロバイダーとカタログの表示はランタイム画面からモデル画面へ移した。ランタイム画面は `GET /api/runtime/models` を呼ばない。health に載せていたモデル診断（`runtimeDiagnostics`）は撤去し、SDK バージョンだけを health 直下の `versions` に残した。
 
@@ -83,7 +85,7 @@ CREATE TABLE IF NOT EXISTS provider_memos (
 - [カタログ更新] は pi.dev の provider 別カタログを取り直し、取得結果は SDK が overlay へ永続化する。アプリ DB には保存しない（[persistence.md](persistence.md#モデルカタログのキャッシュsdk)）
 - 取りに行く provider は SDK が credential を解決できる範囲に限る。キー未登録の provider が同梱カタログのままなのは仕様
 - 更新でカタログから消えた保存済みの `allowedModels` / `defaultModel` は、既存の「カタログ外」表示に任せ、新しい救済 UI は作らない（次の保存では 400 になり得る）
-- OpenRouter live の直接取得・合成は行わない。コンテンツ生成タブのカタログとは取得元も保存先も別として扱う
+- OpenRouter live の直接取得・合成は行わない。設定 → コンテンツ生成のカタログとは取得元も保存先も別として扱う
 
 ### [カタログ更新] の契約
 
@@ -188,8 +190,8 @@ CREATE TABLE IF NOT EXISTS provider_memos (
 
 ## クライアント
 
-- 画面は `/settings/models`（モデルを選ぶ。既定）、`/settings/models/providers`（プロバイダー）、`/settings/models/content`（コンテンツ生成）、`/settings/models/web-search`（Web 検索）の 4 タブ。タブの語彙は `client/src/lib/settingsNav.ts` の `MODELS_SUBSECTIONS` に置き、URL と `routePath` が同じ値を使う。未知のサブセクションと `/settings/models/models` は既定タブヘ畳む（モデル画面からチャットへ飛ばさない）。タブ行は `SettingsPageLayout` の任意スロットに置き、`ProjectDialog` と同じ `.tab-item` を使う
-- `useModelSettings` / `useContentSettings` / `useWebSearchSettings` は 4 タブの親（`ModelSettingsPage`）で 1 回ずつ呼び、モデル側の未保存の下書き（モデルの選択・既定モデルと、provider ごとの apiKey / メモ）も親が持つ。タブ切替・provider 切替・検索で再マウントしても下書き・note・カタログを失わない。カタログと設定は独立に取り、片方の失敗で他方を捨てない。ヘッダの [再読み込み] は 3 hook の分を更新し、注記と無効化は表示中のタブのものだけを出す。取得中フラグは破棄された要求の完了でも解除する（`createLoadingTracker()`。解除を応答の適用可否で分岐すると、変更操作と重なったときに再読み込みボタンが無効のまま残る）
+- 画面は `/settings/models`（モデルを選ぶ。既定）と `/settings/models/providers`（プロバイダー）の 2 タブ。タブにするのは同じデータを同じ hook で見る面だけで、コンテンツ生成（`/settings/content`）と Web 検索（`/settings/web-search`）は独自の API と hook を持つルートのセクションに置く。タブの語彙は `client/src/lib/settingsNav.ts` の `MODELS_SUBSECTIONS` に置き、URL と `routePath` が同じ値を使う。旧 `/settings/models/content`・`/settings/models/web-search` のエイリアスは持たず、未知のサブセクションや `/settings/models/models` と同じく既定タブへ畳む（モデル画面からチャットへ飛ばさない）。タブ行は `SettingsPageLayout` の任意スロットに置き、`ProjectDialog` と同じ `.tab-item` を使う
+- hook は設定の面ごとにその面のページが持つ（`ModelSettingsPage` は `useModelSettings`、`ContentSettingsPage` は `useContentSettings`、`WebSearchSettingsPage` は `useWebSearchSettings`）。開いたときだけ取得するため、どの画面も他の面の設定を読み込まない。モデル画面の未保存の下書き（モデルの選択・既定モデルと、provider ごとの apiKey / メモ）は `ModelSettingsPage` の親が持ち、タブ切替・provider 切替・検索で再マウントしても下書き・note・カタログを失わない。カタログと設定は独立に取り、片方の失敗で他方を捨てない。ヘッダの [再読み込み] はその画面の hook だけを取り直し、他の面の注記を消さない。取得中フラグは破棄された要求の完了でも解除する（`createLoadingTracker()`。解除を応答の適用可否で分岐すると、変更操作と重なったときに再読み込みボタンが無効のまま残る）
 - ヘッダの [カタログ更新] は `/settings/models` と `/settings/models/providers` でだけ出し、更新中・ランタイム不可・カタログ取得失敗（編集不可と同じ判定）では無効にする。押下すると応答の一覧をその場で反映し、直後に `GET /api/runtime/models` は取り直さない（二重取得と、直後の取得失敗で反映済みの一覧を消す事故を避ける）。health の再取得は変更系と同じ順序でだけ揃える。結果は 1 行の注記に、成功時は完了文言、失敗時はサーバーが返した文をそのまま出す。HTTP が失敗したとき（503 を含む）は一覧と取得エラーを変えず、注記だけを差し替える
 - 「モデルを選ぶ」タブは、候補を「認証済み provider のカタログ全件」と「カタログ外の残存エントリ」の和集合で組む。認証が設定されていない provider の選択は行に出さず、下書きからも落として保存しない（`pruneAvailabilityDraft()`）。カタログ外の残存だけは保存が 400 になるため、認証が無くても警告付きで出して外せる。折りたたみ中は行を描画せず、既定は全部閉じる（検索中の該当 provider と、警告のある provider だけ開く）。検索は DOM ではなくカタログのデータ（provider / モデル名 / ID）に当てて該当 provider を自動展開し、「選択済みのみ」でチェック済みだけに絞る
   - provider 行はバッジと `利用可能 a/b ・ 選択 c`（a/b はカタログ、c は下書き全体の選択数）を出し、[すべて選択] は認証済み provider だけ、[すべて解除] はカタログに無い provider でも保存済みを外せる。provider 群はカタログ順（「プロバイダー」タブと同じ）で表示する。これは表示順の説明だけで、保存値と既定モデルの解決には関係しない（未設定でもアプリが `getAvailable()` の先頭を既定にすることはない）
@@ -203,7 +205,7 @@ CREATE TABLE IF NOT EXISTS provider_memos (
   - 見出しの 1 行メタ（`利用可能 a / カタログ b`・`キー最終保存: …`・`最終使用: …`）は、認証バッジと同じ寸法のチップ（`client/src/components/model-settings/MetaChip.tsx`）で組む。チップの色は警告の有無にだけ使い、日時や件数の値では変えない（情報の種別ではなく、対処が要るかを見せる）
   - 未反映の案内文（`degradedNotice`）は、その詳細で実際に押せる回復操作に合わせる。カタログ外（`orphan`）の `apply` は resync API も 400 にするため [再同期] を案内せず、[削除] とカタログ復帰を案内する
 - メモ欄はキー入力とは別の `<form>` にした `<textarea rows={2} maxLength={500}>` と [メモを保存] で、Enter がキーの保存を走らせない。入力値は `provider.memo` が変わったときだけ同期し、dirty（`trim` 後の値が保存値と違う）のときだけ保存を有効にし、未保存の印を出す。保存に成功したら応答の `trim` 済みの値で入力値を戻す。メモの保存は SDK に触れないので health / カタログを取り直さず、進行中の `reload()` の応答で保存直後を上書きされないよう先行ロードの無効化だけ行う。`runtimeAvailable: false` のときは入力欄と保存を disable し、runtime 停止時の注意書きにメモも含める。カタログ外のメモだけの provider には「キーの登録はできません（メモは保存できます）」と案内し、キー入力は出さない
-- 「コンテンツ生成」タブは画像と音声を 1 つのタブで扱い、APIキーは共有する。上部に provider（v1 は OpenRouter）の見出し（ロゴ・表示名・id・キーの登録状態）を出し、`settings.provider` に追随してロゴが切り替わる。未設定ではキー入力だけを出す（キー保存で行ができてからモデル選択と削除が現れ、音声の欄も現れる）。キーは常に空の入力欄へ再表示し、本物のキーは GET 応答にも載せない。`runtimeAvailable: false` のときはキー登録・上書き・削除を disable する（モデル / ボイスの変更は SDK に触れないため残す）。操作と注意書きの詳細は [image-generation.md](image-generation.md#設定画面コンテンツ生成タブ) と [speech-generation.md](speech-generation.md#設定画面コンテンツ生成タブ)
+- 画像と音声の設定は設定 → コンテンツ生成（`/settings/content`）が 1 画面で扱い、APIキーは共有する。操作と注意書きの詳細は [image-generation.md](image-generation.md#設定画面コンテンツ生成タブ) と [speech-generation.md](speech-generation.md#設定画面コンテンツ生成タブ)
 - APIキーの登録後は health と `GET /api/runtime/models` を取り直し、入力欄のモデル候補とモデル数を追随させる。カタログの取得失敗は設定 API の表示を壊さず、両タブで別の注記として出す
 - 8 文字未満は保存前に同じ理由で止める（サーバーも 400）。モデルの選択・既定で使う語彙は「利用可能（available）」と「選択」の 2 語に統一する
 
@@ -250,8 +252,8 @@ CREATE TABLE IF NOT EXISTS provider_memos (
 - `server/test/model-state.test.ts` — `deriveModelState` / `readModelState`（選択リストの積・既定モデル・カタログの導出・可用 0・失敗時の安全な state）、`filterModelsByWhitelist()`
 - `server/test/api.test.ts` — health から `runtimeDiagnostics` が消えたこと、モデルカタログ応答に whitelist 系フィールドが無いこと
 - `server/test/redact.test.ts` — `createMutableSecretMasker` の swap と streaming masker への追随
-- `client/test/modelSettings.test.ts` / `client/test/modelSettingsPage.test.ts` — 表示変換（認証バッジ・並び・入力検証・メモの検証・注記・回復案内）、`providerUsage()`（最初の `/` での分割・`model` 無し・複数セッション・空配列）、`null` の明示リスト展開（利用可能な全モデル + 既定モデルの 1 件追加）・認証済み provider の絞り込み（`pruneAvailabilityDraft()` の除去と、表示の対象を揃える `candidateGroups()` の絞り込み）・カタログ外の残存エントリの警告付き表示・候補の並び/検索/集計・既定モデルの選択肢と検索・dirty 判定・provider 一括操作・確認文、タブと保存バーの初期描画（折りたたみの既定閉・警告のある provider の自動展開・変更なしと選択 0 件では保存無効）とカタログ外・未設定・環境変数の注記・カタログ取得失敗時の編集不可、プロバイダータブの一覧と詳細（平文注意の既定折りたたみ・メモ欄・保存ボタン・runtime 停止時の disable・メモだけの orphan の案内）、キー最終保存（managed だけ・NULL は保存日不明）と最終使用（`sessionsLoaded` が false なら非表示・会話 0 件の managed は「会話はありません」・非 managed は会話があるときだけ）、`client/test/route.test.ts` のタブの正準化（未知のサブセクションと既定タブの明示は `/settings/models` へ）
-- `client/test/contentSettings.test.ts` / `client/test/contentSettingsTab.test.ts` / `client/test/settingsNav.test.ts` — 画像 / 音声モデルの選択肢（カタログ順・同名への id 添え・カタログ外の現在値）、現在値と PUT の本文の解決、音声のボイス欄（宣言の有無による選択 / 自由記述の切替と、宣言外の保存値を先頭へ寄せる規則）、キー入力の後始末（成功時だけ消す）、削除の確認文、タブ見出しの provider（ロゴ・未設定でも OpenRouter・ロゴの無い provider は頭文字）と provider の id / 表示名、コンテンツ生成タブの初期描画（未設定はキーのみ / 設定済みは上書き保存・削除・モデル選択と音声欄 / 保存済みキーを入力欄へ戻さない / runtime 不可の disable）、2 つのカタログの出どころのチップと再取得の注記、4 タブの語彙
+- `client/test/modelSettings.test.ts` / `client/test/modelSettingsPage.test.ts` — 表示変換（認証バッジ・並び・入力検証・メモの検証・注記・回復案内）、`providerUsage()`（最初の `/` での分割・`model` 無し・複数セッション・空配列）、`null` の明示リスト展開（利用可能な全モデル + 既定モデルの 1 件追加）・認証済み provider の絞り込み（`pruneAvailabilityDraft()` の除去と、表示の対象を揃える `candidateGroups()` の絞り込み）・カタログ外の残存エントリの警告付き表示・候補の並び/検索/集計・既定モデルの選択肢と検索・dirty 判定・provider 一括操作・確認文、タブと保存バーの初期描画（折りたたみの既定閉・警告のある provider の自動展開・変更なしと選択 0 件では保存無効）とカタログ外・未設定・環境変数の注記・カタログ取得失敗時の編集不可、プロバイダータブの一覧と詳細（平文注意の既定折りたたみ・メモ欄・保存ボタン・runtime 停止時の disable・メモだけの orphan の案内）、キー最終保存（managed だけ・NULL は保存日不明）と最終使用（`sessionsLoaded` が false なら非表示・会話 0 件の managed は「会話はありません」・非 managed は会話があるときだけ）、`client/test/route.test.ts` のタブの正準化（未知のサブセクションと既定タブの明示、旧 `/settings/models/content`・`/settings/models/web-search` は `/settings/models` へ）
+- `client/test/contentSettings.test.ts` / `client/test/contentSettingsTab.test.ts` / `client/test/contentSettingsPage.test.ts` / `client/test/settingsNav.test.ts` — 画像 / 音声モデルの選択肢（カタログ順・同名への id 添え・カタログ外の現在値）、現在値と PUT の本文の解決、音声のボイス欄（宣言の有無による選択 / 自由記述の切替と、宣言外の保存値を先頭へ寄せる規則）、キー入力の後始末（成功時だけ消す）、削除の確認文、タブ見出しの provider（ロゴ・未設定でも OpenRouter・ロゴの無い provider は頭文字）と provider の id / 表示名、コンテンツ生成の初期描画（未設定はキーのみ / 設定済みは上書き保存・削除・モデル選択と音声欄 / 保存済みキーを入力欄へ戻さない / runtime 不可の disable）、2 つのカタログの出どころのチップと再取得の注記、コンテンツ生成ページの見出しと取得前の出し分け（この画面の注記と再読み込みだけを出す）、11 項目 / 2 タブの語彙
 - `server/test/speech.test.ts` / `server/test/speech-catalog.test.ts` / `server/test/speech-tools.test.ts` / `server/test/speech-settings.test.ts` / `server/test/speech-settings-api.test.ts` — 音声生成の契約（[speech-generation.md](speech-generation.md#テスト)）
 - `client/test/requestGate.test.ts` — 応答の適用可否（`createRequestGate`）、要求の追跡（`createRequestTracker`）、取得中フラグの解除（`createLoadingTracker`: 破棄された要求の完了で解除し、後続が在る間は維持する）
 - `client/test/runtimePage.test.ts` — 設定 → ランタイムから「モデル解決」が消えたこと

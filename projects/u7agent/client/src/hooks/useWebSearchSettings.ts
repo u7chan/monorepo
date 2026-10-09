@@ -24,7 +24,7 @@ function providerName(response: WebSearchSettingsResponse, provider: WebSearchPr
 }
 
 /**
- * 設定 → モデル（Web 検索タブ）の state と操作。GET はこの画面を開いたときだけ取り、
+ * 設定 → Web 検索の state と操作。GET はこの画面を開いたときだけ取り、
  * 変更系の応答は GET と同じ形なので、注記を付けてそのまま次の状態にできる。
  * 保存は「その場で効く」前提なので、失敗したら状態を変えずに理由だけを出す。
  */

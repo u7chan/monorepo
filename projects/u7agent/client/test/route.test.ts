@@ -70,18 +70,26 @@ test("parseRoute は pathname だけで画面を決め、表のとおりに畳�
     ["/settings/runtime", settings("runtime")],
     ["/settings/notifications", settings("notifications")],
     ["/Settings/RUNTIME/", settings("runtime")],
+    // コンテンツ生成と Web 検索はモデルの下ではなくルートのセクション
+    ["/settings/content", settings("content")],
+    ["/Settings/CONTENT/", settings("content")],
+    ["/settings%2Fcontent", settings("content")],
+    ["/settings/web-search", settings("web-search")],
+    ["/Settings/WEB-SEARCH/", settings("web-search")],
+    ["//settings//web-search//", settings("web-search")],
     // 設定 → モデルのタブ。正準形は「モデルを選ぶ」= /settings/models、「プロバイダー」= /providers
     ["/settings/models/providers", modelsTab("providers")],
     ["/Settings/MODELS/PROVIDERS/", modelsTab("providers")],
     ["//settings//models//providers//", modelsTab("providers")],
     ["/settings%2Fmodels%2Fproviders", modelsTab("providers")],
-    ["/settings/models/content", modelsTab("content")],
-    ["/Settings/MODELS/CONTENT/", modelsTab("content")],
-    ["/settings/models/web-search", modelsTab("web-search")],
-    ["/Settings/MODELS/WEB-SEARCH/", modelsTab("web-search")],
-    // 未知のサブセクションと既定タブの明示は既定タブへ畳む (チャットへ飛ばさない)
+    // 未知のサブセクションと既定タブの明示は既定タブへ畳む (チャットへ飛ばさない)。
+    // 旧 URL のエイリアスは足さないので、元タブのパスもここで既定タブへ畳まれる
     ["/settings/models/models", settings("models")],
     ["/settings/models/unknown", settings("models")],
+    ["/settings/models/content", settings("models")],
+    ["/Settings/MODELS/CONTENT/", settings("models")],
+    ["/settings/models/web-search", settings("models")],
+    ["/Settings/MODELS/WEB-SEARCH/", settings("models")],
     ["/settings/models/PROVIDERS/unknown", CHAT_ROUTE],
   ];
   for (const [pathname, expected] of table) {
@@ -98,6 +106,8 @@ test("routePath は正準形を返し、parseRoute と往復する", () => {
       "/settings/agents",
       "/settings/skills",
       "/settings/models",
+      "/settings/content",
+      "/settings/web-search",
       "/settings/notifications",
       "/settings/appearance",
       "/settings/files",
@@ -111,12 +121,13 @@ test("routePath は正準形を返し、parseRoute と往復する", () => {
   }
   // モデルのタブは既定タブ以外をパスへ出し、既定タブは出さない
   assert.equal(routePath(modelsTab("providers")), "/settings/models/providers");
-  assert.equal(routePath(modelsTab("content")), "/settings/models/content");
-  assert.equal(routePath(modelsTab("web-search")), "/settings/models/web-search");
   assert.equal(routePath(modelsTab("models")), "/settings/models");
   assert.deepEqual(parseRoute(routePath(modelsTab("providers"))), modelsTab("providers"));
-  assert.deepEqual(parseRoute(routePath(modelsTab("content"))), modelsTab("content"));
-  assert.deepEqual(parseRoute(routePath(modelsTab("web-search"))), modelsTab("web-search"));
+  // コンテンツ生成と Web 検索はルートのセクションとして往復する
+  for (const section of ["content", "web-search"] as const) {
+    assert.equal(routePath(settings(section)), `/settings/${section}`);
+    assert.deepEqual(parseRoute(routePath(settings(section))), settings(section));
+  }
 });
 
 test("routePath は `/s/<id>` を encode して返し、parseRoute と往復する", () => {

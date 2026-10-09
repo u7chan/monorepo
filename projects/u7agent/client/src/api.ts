@@ -493,7 +493,7 @@ export const resyncProviderApiKey = async (provider: string): Promise<ModelMutat
 };
 
 /**
- * 設定 → モデルのコンテンツ生成タブ（純粋読取）。APIキーは含まれず、登録済みでも値は返らない。
+ * 設定 → コンテンツ生成の設定（純粋読取）。APIキーは含まれず、登録済みでも値は返らない。
  * 画像モデルの選択肢は `image.models` で、キー未設定なら configured: false。
  */
 export const getContentSettings = async (): Promise<ContentSettingsResponse> => {
@@ -534,7 +534,7 @@ export const deleteContentApiKey = async (): Promise<ContentMutationResponse> =>
 };
 
 /**
- * 設定 → モデル（Web 検索タブ）。有効 / 無効の 1 つだけを返し、無効時にモデルへ返る固定文言も載せる。
+ * 設定 → Web 検索。有効 / 無効の 1 つだけを返し、無効時にモデルへ返る固定文言も載せる。
  * 正はアプリ DB の `web_search_settings` で、行が無い = 既定（有効）。
  */
 export const getWebSearchSettings = async (): Promise<WebSearchSettingsResponse> => {

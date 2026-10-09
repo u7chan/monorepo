@@ -1,6 +1,6 @@
 # 音声生成（generate_speech ツール）
 
-チャットから音声（TTS）を生成し、セッションの作業フォルダへ保存する。目的は素材生成（ナレーション・セリフなど、あとで使うファイル）で、エージェントの返答の読み上げは作らない。生成は BFF が OpenRouter の音声専用 API（`POST https://openrouter.ai/api/v1/audio/speech`）へ要求し、保存だけをサンドボックスの upload API へ委譲する（BFF は作業領域に触らない）。設定は画像と同じ「コンテンツ生成」タブ（[`/settings/models/content`](model-settings.md#クライアント)）で、APIキーも `content_settings` の同じ行を共有する。
+チャットから音声（TTS）を生成し、セッションの作業フォルダへ保存する。目的は素材生成（ナレーション・セリフなど、あとで使うファイル）で、エージェントの返答の読み上げは作らない。生成は BFF が OpenRouter の音声専用 API（`POST https://openrouter.ai/api/v1/audio/speech`）へ要求し、保存だけをサンドボックスの upload API へ委譲する（BFF は作業領域に触らない）。設定は画像と同じ 設定 → コンテンツ生成（[`/settings/content`](model-settings.md#クライアント)）で、APIキーも `content_settings` の同じ行を共有する。
 
 - 出力形式は **mp3 優先**。OpenRouter の音声 API が受け付ける `response_format` は `mp3` / `pcm` の 2 つで、どちらが通るかはモデルごとに違い、一覧 API も endpoints API もそれを宣言しない。このためまず mp3 で送り、**形式違いを示す 400 のときだけ**他方へ 1 回再試行して、通った方をプロセス内に学習する（形式のマスタはアプリ側に持たない）
 - pcm が返ったときは RIFF ヘッダを付けて `.wav` として保存する。再エンコードは行わず、要求した拡張子も実形式へ寄せる（`.pcm` という保存形式は持たない）
@@ -114,7 +114,7 @@ APIキーは画像と**同じ 1 つを共有**する（`content_settings.apiKey`
 
 ## 設定画面（コンテンツ生成タブ）
 
-画像と同じタブの下に音声のセクションを置く（provider の見出しとキー欄は共有）。表示の正は `client/src/lib/contentSettings.ts` の純関数、取得と操作は `client/src/hooks/useContentSettings.ts`、描画は `client/src/components/model-settings/ContentSettingsTab.tsx` に閉じる。
+画像と同じ画面に音声のセクションを置く（provider の見出しとキー欄は共有）。表示の正は `client/src/lib/contentSettings.ts` の純関数、取得と操作は `client/src/hooks/useContentSettings.ts`、描画は `client/src/components/content-settings/ContentSettingsTab.tsx` に閉じる。
 
 - 未設定（行が無い）ではキー入力だけを出し、音声の欄もモデルと同じくキー保存後に現れる
 - モデルとボイスの選択は、保存済みの値がカタログから落ちていても現在値を見失わせない。ボイス欄は選択中モデルの宣言に応じて選択 / 自由記述を切り替え、空欄は「送らない」を表す

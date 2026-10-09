@@ -1,5 +1,5 @@
 /**
- * 設定 → モデル（コンテンツ生成タブ）の表示変換。DOM に依存しない純関数だけを置き、
+ * 設定 → コンテンツ生成の表示変換。DOM に依存しない純関数だけを置き、
  * 選択肢の組み立て・入力の後始末・保存後の文言・確認文をテストできるようにする。
  */
 import type {
@@ -16,7 +16,7 @@ import type { ConfirmRequest } from "./confirmDialog";
 import { messageTimeLabel, type MessageTimeOptions } from "./messageTime";
 import { modelRefKey, type ProviderBadge } from "./modelSettings";
 
-/** コンテンツ生成タブの初期注記。キーの有無に関わらず出す */
+/** コンテンツ生成の初期注記。キーの有無に関わらず出す */
 export const CONTENT_SETTINGS_NOTE = "コンテンツ生成の設定はサーバーに保存され、再起動後も残ります。";
 
 export const CONTENT_KEY_SAVED_NOTE =

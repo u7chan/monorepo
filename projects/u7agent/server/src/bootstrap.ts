@@ -89,9 +89,9 @@ export type BffContext = {
   archiveSettings: ArchiveSettings;
   /** プロバイダー API キー (設定 → モデル)。DB を希望状態として SDK へ写す */
   modelSettings: ModelSettingsService;
-  /** コンテンツ生成の provider / 画像モデル / APIキー (設定 → モデルのコンテンツ生成タブ)。行の有無をツール公開へ写す */
+  /** コンテンツ生成の provider / 画像モデル / APIキー (設定 → コンテンツ生成)。行の有無をツール公開へ写す */
   contentSettings: ContentSettingsService;
-  /** Web 検索の実行時トグル (設定 → モデルの Web 検索タブ)。行が無い = 既定 (有効) を execute のたびに読む */
+  /** Web 検索の実行時トグル (設定 → Web 検索)。行が無い = 既定 (有効) を execute のたびに読む */
   webSearchSettings: WebSearchSettingsService;
   /** serve (サービス) の状態と起動・停止。GUI とエージェントの serve ツールが同じ実体を使う */
   serve: ServeService;

@@ -41,10 +41,10 @@ export const SPEECH_TOOL_EXTENSION_MESSAGE =
   "保存できるのは .mp3 / .wav だけです（保存名の拡張子は実際の音声形式に合わせます。クレジットは消費していません）";
 
 export const SPEECH_TOOL_VOICE_MESSAGE =
-  "このモデルは選択された声に対応していません（クレジットは消費していません）。設定 → モデル → コンテンツ生成 で選び直すか、対応する声を指定してください";
+  "このモデルは選択された声に対応していません（クレジットは消費していません）。設定 → コンテンツ生成 で選び直すか、対応する声を指定してください";
 
 export const SPEECH_TOOL_KEY_UNSET_MESSAGE =
-  "音声APIキーが未設定です。設定 → モデル → コンテンツ生成 でAPIキーを登録してください（画像と共有）";
+  "音声APIキーが未設定です。設定 → コンテンツ生成 でAPIキーを登録してください（画像と共有）";
 
 /** 有効なときだけ system prompt へ足す。生成物の場所と本文での示し方を固定する */
 export const SPEECH_GENERATION_PROMPT_LINES = [

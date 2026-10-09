@@ -1,4 +1,4 @@
-// 設定 → モデル（Web 検索タブ）の表示変換。provider の一覧・送信先・キー状態・文言を純関数で固定する
+// 設定 → Web 検索（`/settings/web-search`）の表示変換。provider の一覧・送信先・キー状態・文言を純関数で固定する
 // (画面の描画は webSearchSettingsTab.test.ts)。
 
 import assert from "node:assert/strict";

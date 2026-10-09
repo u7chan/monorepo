@@ -4,15 +4,11 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import test from "node:test";
 import type { ModelSettings } from "../src/hooks/useModelSettings";
-import type { ContentSettings } from "../src/hooks/useContentSettings";
-import type { WebSearchSettings } from "../src/hooks/useWebSearchSettings";
-import { CONTENT_SETTINGS_NOTE } from "../src/lib/contentSettings";
 import { MODEL_SETTINGS_NOTE, UNSET_DEFAULT_MODEL_LABEL } from "../src/lib/modelSettings";
 import type { ModelsSubsection } from "../src/lib/settingsNav";
 import type {
   ModelsSettingsResponse,
   ModelMutationResponse,
-  ContentSettingsResponse,
   ProviderAuthSetting,
   RuntimeModelsResponse,
   SessionSummary,
@@ -115,84 +111,12 @@ function modelSettings(overrides: Partial<ModelSettings> = {}): ModelSettings {
   };
 }
 
-const CONTENT_SETTINGS: ContentSettingsResponse = {
-  configured: true,
-  provider: "openrouter",
-  runtimeAvailable: true,
-  image: {
-    model: "openai/gpt-image-2",
-    models: [
-      { provider: "openrouter", id: "openai/gpt-image-2", name: "GPT Image 2" },
-      { provider: "openrouter", id: "google/gemini-image", name: "Gemini Image" },
-    ],
-    catalogSource: "live",
-    fetchedAt: null,
-  },
-  speech: {
-    model: "google/gemini-3.8-flash-tts",
-    voice: "Zephyr",
-    models: [
-      {
-        provider: "openrouter",
-        id: "google/gemini-3.8-flash-tts",
-        name: "Google: Gemini 3.8 Flash TTS",
-        voices: ["Zephyr", "Kore"],
-      },
-    ],
-    catalogSource: "live",
-    fetchedAt: null,
-  },
-};
-
-function contentSettings(overrides: Partial<ContentSettings> = {}): ContentSettings {
-  return {
-    settings: CONTENT_SETTINGS,
-    note: { text: CONTENT_SETTINGS_NOTE, error: false },
-    saving: null,
-    reloading: false,
-    reload: async () => {},
-    saveKey: async () => true,
-    removeKey: async () => true,
-    saveSelection: async () => true,
-    saveSpeech: async () => true,
-    refreshCatalog: async () => true,
-    refreshSpeechCatalog: async () => true,
-    speechSynced: true,
-    ...overrides,
-  };
-}
-
-function webSearchSettings(overrides: Partial<WebSearchSettings> = {}): WebSearchSettings {
-  return {
-    settings: {
-      enabled: true,
-      provider: "exa",
-      providers: [
-        { id: "exa", name: "Exa", host: "mcp.exa.ai", keyless: true, configured: true },
-        { id: "tavily", name: "Tavily", host: "api.tavily.com", keyless: false, configured: false },
-      ],
-      disabledMessage: "Web 検索は無効化されています。",
-    },
-    note: { text: "Web 検索の設定はサーバーに保存され、再起動後も残ります。", error: false },
-    saving: null,
-    reloading: false,
-    reload: async () => {},
-    setEnabled: async () => true,
-    setProvider: async () => true,
-    saveKey: async () => true,
-    removeKey: async () => true,
-    ...overrides,
-  };
-}
-
 function render(
   settings: ModelSettings,
   options: {
     modelsSubsection?: ModelsSubsection;
     sessions?: SessionSummary[];
     sessionsLoaded?: boolean;
-    contentSettings?: ContentSettings;
-    webSearchSettings?: WebSearchSettings;
     onSelectModelsSubsection?: (subsection: ModelsSubsection) => void;
     compact?: boolean;
   } = {},
@@ -204,8 +128,6 @@ function render(
       null,
       createElement(ModelSettingsView, {
         modelSettings: settings,
-        contentSettings: options.contentSettings ?? contentSettings(),
-        webSearchSettings: options.webSearchSettings ?? webSearchSettings(),
         sessions: options.sessions ?? [],
         sessionsLoaded: options.sessionsLoaded ?? false,
         modelsSubsection: options.modelsSubsection ?? "models",
@@ -217,14 +139,14 @@ function render(
   );
 }
 
-test("タブ行は URL が決めるタブを示し、4 つのタブを出す", () => {
+test("タブ行は URL が決めるタブを示し、2 つのタブを出す", () => {
   const html = render(modelSettings());
   assert.ok(html.includes('role="tablist"'), "タブ行を出す");
-  assert.equal((html.match(/role="tab"/g) ?? []).length, 4, "タブは 4 つ");
+  assert.equal((html.match(/role="tab"/g) ?? []).length, 2, "タブは 2 つ");
   assert.match(html, /<button[^>]*aria-selected="true"[^>]*>モデルを選ぶ</, "既定は「モデルを選ぶ」");
   assert.ok(html.includes("プロバイダー"));
-  assert.ok(html.includes("コンテンツ生成"));
-  assert.ok(html.includes("Web 検索"));
+  assert.equal(html.includes("コンテンツ生成"), false, "独立したセクションはタブに出さない");
+  assert.equal(html.includes("Web 検索"), false, "独立したセクションはタブに出さない");
   // タブの切替は URL 経由で親へ渡す
   const calls: ModelsSubsection[] = [];
   render(modelSettings(), { onSelectModelsSubsection: (subsection) => calls.push(subsection) });
@@ -248,44 +170,6 @@ test("compact のプロバイダー詳細は一覧を畳んでキー入力を表
   const desktop = render(modelSettings(), { modelsSubsection: "providers" });
   assert.ok(desktop.includes('aria-label="プロバイダーを絞り込む"'), "desktop は一覧と詳細を同時に出す");
   assert.equal(desktop.includes("プロバイダーを変更"), false);
-});
-
-test("コンテンツ生成タブは URL が選んだときにだけ描画し、キー入力を出す", () => {
-  const html = render(modelSettings(), { modelsSubsection: "content" });
-  assert.match(html, /<button[^>]*aria-selected="true"[^>]*>コンテンツ生成</);
-  assert.ok(html.includes('type="password"'), "コンテンツ生成タブのキー入力を出す");
-  assert.equal(html.includes("モデル候補を保存"), false, "他のタブの保存バーは出さない");
-});
-
-test("Web 検索タブは URL が選んだときにだけ描画し、実行時トグルの状態を出す", () => {
-  const html = render(modelSettings(), { modelsSubsection: "web-search" });
-  assert.match(html, /<button[^>]*aria-selected="true"[^>]*>Web 検索</);
-  assert.ok(html.includes('role="switch"'), "有効 / 無効のスイッチを出す");
-  assert.ok(html.includes("mcp.exa.ai"), "送信先のホストを出す");
-  assert.ok(html.includes("キー登録は不要です"), "keyless であることを書く");
-  assert.ok(html.includes("web_search ツールを実行したときだけ"), "実行したときだけ送ることを書く");
-  assert.equal(html.includes("モデル候補を保存"), false, "他のタブの保存バーは出さない");
-
-  // 取得前は本文の代わりに再読み込みの導線を出し、hook の注記をそのまま見せる
-  const loading = render(modelSettings(), {
-    modelsSubsection: "web-search",
-    webSearchSettings: webSearchSettings({ settings: null }),
-  });
-  assert.ok(loading.includes("Web 検索の設定"), "取得前の見出しを出す");
-  assert.equal(loading.includes('role="switch"'), false, "取得前はスイッチを出さない");
-
-  // 無効のときは、モデルへ返る固定文言をそのまま出す
-  const off = render(modelSettings(), {
-    modelsSubsection: "web-search",
-    webSearchSettings: webSearchSettings({
-      settings: {
-        ...webSearchSettings().settings!,
-        enabled: false,
-        disabledMessage: "無効です（固定文言）",
-      },
-    }),
-  });
-  assert.ok(off.includes("無効です（固定文言）"));
 });
 
 test("モデルを選ぶタブは既定モデル・選択数・候補・保存バーを出し、折りたたみは既定で閉じる", () => {
@@ -630,7 +514,7 @@ test("読み込み中の状態を出す", () => {
   assert.ok(html.includes("再読み込み"));
 });
 
-test("カタログ更新はカタログを見るタブだけに出し、更新中・runtime 不可・カタログ取得失敗で無効にする", () => {
+test("カタログ更新は両タブに出し、更新中・runtime 不可・カタログ取得失敗で無効にする", () => {
   const enabled = render(modelSettings());
   assert.equal((enabled.match(/カタログ更新/g) ?? []).length, 1, "既定タブに 1 つ出す");
   assert.match(
@@ -667,8 +551,4 @@ test("カタログ更新はカタログを見るタブだけに出し、更新�
 
   const providers = render(modelSettings(), { modelsSubsection: "providers" });
   assert.ok(providers.includes("カタログ更新"), "プロバイダータブにも出す");
-  const content = render(modelSettings(), { modelsSubsection: "content" });
-  assert.equal(content.includes("カタログ更新"), false, "コンテンツ生成タブには出さない");
-  const webSearch = render(modelSettings(), { modelsSubsection: "web-search" });
-  assert.equal(webSearch.includes("カタログ更新"), false, "Web 検索タブには出さない");
 });

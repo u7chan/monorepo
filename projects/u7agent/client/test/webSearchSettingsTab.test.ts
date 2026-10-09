@@ -6,13 +6,12 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import test from "node:test";
 import { ConfirmProvider } from "../src/components/ConfirmProvider";
-import { WebSearchSettingsTab } from "../src/components/model-settings/WebSearchSettingsTab";
+import { WebSearchSettingsTab } from "../src/components/web-search-settings/WebSearchSettingsTab";
 import type { WebSearchSavingAction } from "../src/lib/webSearchSettings";
 import type { WebSearchProvider, WebSearchSettingsResponse } from "../src/types";
 
 /** API が返す文言（正は server/src/web-search-tool.ts）。画面は受け取った文字列をそのまま出す */
-const WEB_SEARCH_DISABLED_MESSAGE =
-  "Web 検索は無効化されています。有効にするには 設定 → モデル → Web 検索 を開いてください。";
+const WEB_SEARCH_DISABLED_MESSAGE = "Web 検索は無効化されています。有効にするには 設定 → Web 検索 を開いてください。";
 
 const EXA: WebSearchProvider = { id: "exa", name: "Exa", host: "mcp.exa.ai", keyless: true, configured: true };
 const TAVILY: WebSearchProvider = {

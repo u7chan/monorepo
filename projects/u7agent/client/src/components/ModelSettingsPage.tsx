@@ -1,6 +1,4 @@
 import { useEffect, useRef, useState } from "react";
-import { useContentSettings, type ContentSettings } from "../hooks/useContentSettings";
-import { useWebSearchSettings, type WebSearchSettings } from "../hooks/useWebSearchSettings";
 import { useModelSettings, type ModelSettings } from "../hooks/useModelSettings";
 import { cn } from "../lib/cn";
 import {
@@ -16,10 +14,9 @@ import { DEFAULT_MODELS_SUBSECTION, MODELS_SUBSECTIONS, type ModelsSubsection } 
 import type { Health, SessionSummary } from "../types";
 import { ReloadButton } from "./ReloadButton";
 import { ModelsTab } from "./model-settings/ModelsTab";
-import { ContentSettingsTab } from "./model-settings/ContentSettingsTab";
 import { ProvidersTab } from "./model-settings/ProvidersTab";
-import { WebSearchSettingsTab } from "./model-settings/WebSearchSettingsTab";
 import { SettingsPageLayout, type SettingsPageProps } from "./SettingsPageLayout";
+import { SettingsPlaceholder } from "./SettingsPlaceholder";
 
 export type ModelSettingsPageProps = SettingsPageProps & {
   /** キーの変更後に composer のモデル候補を更新する (画面を開いている間だけ使う) */
@@ -34,9 +31,9 @@ export type ModelSettingsPageProps = SettingsPageProps & {
 };
 
 /**
- * 設定 → モデル。「モデルを選ぶ / プロバイダー / コンテンツ生成 / Web 検索」の 4 タブを持ち、表示の正は URL
- * (`/settings/models`、`/settings/models/providers`、`/settings/models/content`、`/settings/models/web-search`) に置く。
- * hook はこの画面が持つ (カタログ全件を起動のたびに読まない。開いたときだけ取得する)。
+ * 設定 → モデル。「モデルを選ぶ / プロバイダー」の 2 タブを持ち、表示の正は URL
+ * (`/settings/models`、`/settings/models/providers`) に置く。hook はこの画面が持ち
+ * (カタログ全件を起動のたびに読まない。開いたときだけ取得する)。
  */
 export function ModelSettingsPage({
   onRefreshHealth,
@@ -49,13 +46,9 @@ export function ModelSettingsPage({
   sessionsLoaded,
 }: ModelSettingsPageProps) {
   const modelSettings = useModelSettings({ onRefreshHealth });
-  const contentSettings = useContentSettings();
-  const webSearchSettings = useWebSearchSettings();
   return (
     <ModelSettingsView
       modelSettings={modelSettings}
-      contentSettings={contentSettings}
-      webSearchSettings={webSearchSettings}
       modelsSubsection={modelsSubsection}
       onSelectModelsSubsection={onSelectModelsSubsection}
       sessions={sessions}
@@ -70,11 +63,9 @@ export function ModelSettingsPage({
 /** 取得前の下書きの置き場。settings が届くと同じ render で保存値から作り直す */
 const EMPTY_DRAFT: AvailabilityDraft = { allowed: [], defaultModel: null };
 
-/** 表示だけを持つ部分。取得の成否は modelSettings / contentSettings が持ち、ここはタブと描画に徹する */
+/** 表示だけを持つ部分。取得の成否は modelSettings が持ち、ここはタブと描画に徹する */
 export function ModelSettingsView({
   modelSettings,
-  contentSettings,
-  webSearchSettings,
   sessions = [],
   sessionsLoaded = false,
   compact = false,
@@ -84,8 +75,6 @@ export function ModelSettingsView({
   onOpenNav,
 }: SettingsPageProps & {
   modelSettings: ModelSettings;
-  contentSettings: ContentSettings;
-  webSearchSettings: WebSearchSettings;
   sessions?: SessionSummary[];
   sessionsLoaded?: boolean;
   modelsSubsection?: ModelsSubsection;
@@ -136,17 +125,6 @@ export function ModelSettingsView({
     }
   }
   const draftState = appliedDraft.current;
-  const contentTab = modelsSubsection === "content";
-  const webSearchTab = modelsSubsection === "web-search";
-  // カタログ更新を出すのはカタログを表示する 2 タブだけ。無効化は GET 失敗 = 編集不可と同じ判定を使う
-  const catalogTab = !contentTab && !webSearchTab;
-  // 注記と再読み込みは表示中のタブのものだけを出す (別タブの失敗を混ぜない)
-  const activeNote = webSearchTab ? webSearchSettings.note : contentTab ? contentSettings.note : note;
-  const activeReloading = webSearchTab
-    ? webSearchSettings.reloading
-    : contentTab
-      ? contentSettings.reloading
-      : reloading;
   const activeTabRef = useRef<HTMLButtonElement>(null);
   useEffect(() => {
     if (compact) activeTabRef.current?.scrollIntoView({ block: "nearest", inline: "nearest" });
@@ -159,22 +137,17 @@ export function ModelSettingsView({
       caption={
         compact
           ? "モデルとプロバイダーを設定します。"
-          : "使うモデルと、プロバイダーごとのAPIキー、コンテンツ生成・Web 検索の設定をします。保存した内容は再起動後も使われます。"
+          : "使うモデルと、プロバイダーごとのAPIキーを設定します。保存した内容は再起動後も使われます。"
       }
       actions={
         <>
-          {catalogTab ? (
-            <ReloadButton
-              onClick={() => void refreshCatalog()}
-              disabled={refreshing || settings?.runtimeAvailable === false || catalogError !== null}
-            >
-              {refreshing ? "更新中" : "カタログ更新"}
-            </ReloadButton>
-          ) : null}
           <ReloadButton
-            onClick={() => void Promise.all([reload(), contentSettings.reload(), webSearchSettings.reload()])}
-            disabled={activeReloading}
+            onClick={() => void refreshCatalog()}
+            disabled={refreshing || settings?.runtimeAvailable === false || catalogError !== null}
           >
+            {refreshing ? "更新中" : "カタログ更新"}
+          </ReloadButton>
+          <ReloadButton onClick={() => void reload()} disabled={reloading}>
             再読み込み
           </ReloadButton>
         </>
@@ -204,51 +177,12 @@ export function ModelSettingsView({
           ))}
         </div>
       }
-      note={activeNote}
+      note={note}
       compact={compact}
       onOpenNav={onOpenNav}
       onBack={onBack}
     >
-      {webSearchTab ? (
-        webSearchSettings.settings ? (
-          <WebSearchSettingsTab
-            settings={webSearchSettings.settings}
-            saving={webSearchSettings.saving}
-            onSetEnabled={webSearchSettings.setEnabled}
-            onSelectProvider={webSearchSettings.setProvider}
-            onSaveKey={webSearchSettings.saveKey}
-            onDeleteKey={webSearchSettings.removeKey}
-          />
-        ) : (
-          <SettingsPlaceholder
-            label="Web 検索の設定"
-            note={webSearchSettings.note}
-            reloading={webSearchSettings.reloading}
-            onReload={() => void webSearchSettings.reload()}
-          />
-        )
-      ) : contentTab ? (
-        contentSettings.settings ? (
-          <ContentSettingsTab
-            settings={contentSettings.settings}
-            saving={contentSettings.saving}
-            onSaveKey={contentSettings.saveKey}
-            onDeleteKey={contentSettings.removeKey}
-            onSaveSelection={contentSettings.saveSelection}
-            onRefreshCatalog={contentSettings.refreshCatalog}
-            onSaveSpeech={contentSettings.saveSpeech}
-            onRefreshSpeechCatalog={contentSettings.refreshSpeechCatalog}
-            speechSynced={contentSettings.speechSynced}
-          />
-        ) : (
-          <SettingsPlaceholder
-            label="コンテンツ生成の設定"
-            note={contentSettings.note}
-            reloading={contentSettings.reloading}
-            onReload={() => void contentSettings.reload()}
-          />
-        )
-      ) : settings ? (
+      {settings ? (
         modelsSubsection === "providers" ? (
           <ProvidersTab
             settings={settings}
@@ -288,37 +222,5 @@ export function ModelSettingsView({
         />
       )}
     </SettingsPageLayout>
-  );
-}
-
-/** 取得前の本文。読み込み中と取得失敗で同じ枠を使い、失敗のときだけ再読み込みの導線を出す */
-function SettingsPlaceholder({
-  label,
-  note,
-  reloading,
-  onReload,
-}: {
-  label: string;
-  note: { text: string; error: boolean };
-  reloading: boolean;
-  onReload: () => void;
-}) {
-  return (
-    <div className="min-h-0 min-w-0 scrollbar-thin overflow-x-hidden overflow-y-auto px-4 py-4">
-      <div className="mx-auto grid max-w-3xl gap-3">
-        <div className="grid justify-items-start gap-2 rounded-lg border border-line bg-soft p-3 text-xs text-ink-muted">
-          {note.error ? (
-            <>
-              <p role="alert">{label}を読み込めませんでした。</p>
-              <ReloadButton onClick={onReload} disabled={reloading}>
-                再読み込み
-              </ReloadButton>
-            </>
-          ) : (
-            <p role="status">{label}を読み込んでいます。</p>
-          )}
-        </div>
-      </div>
-    </div>
   );
 }

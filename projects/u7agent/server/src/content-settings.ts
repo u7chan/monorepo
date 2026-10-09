@@ -1,5 +1,5 @@
 /**
- * 設定 → モデル（コンテンツ生成タブ）のサービス。アプリ DB の `content_settings`（id = 1 の 1 行）を
+ * 設定 → コンテンツ生成のサービス。アプリ DB の `content_settings`（id = 1 の 1 行）を
  * 希望状態の正とし、行の有無を PiBff のツール公開 state へロックの内側で写す。
  * SDK への認証反映が無いため degraded は持たず、変更系の応答は常に `applied` になる。
  * 契約は docs/image-generation.md / docs/speech-generation.md を正とする。

@@ -10,7 +10,7 @@ import {
   SETTINGS_SECTION_KEY,
 } from "../src/lib/settingsNav";
 
-test("設定ナビはスペースと既存の 8 項目をこの順で持つ", () => {
+test("設定ナビは 11 項目をこの順で持つ", () => {
   assert.deepEqual(
     SETTINGS_SECTIONS.map((item) => [item.section, item.label]),
     [
@@ -18,6 +18,9 @@ test("設定ナビはスペースと既存の 8 項目をこの順で持つ", ()
       ["agents", "エージェント"],
       ["skills", "スキル"],
       ["models", "モデル"],
+      // 独自の API と hook を持つ面はモデルのタブではなくルートに置く
+      ["content", "コンテンツ生成"],
+      ["web-search", "Web 検索"],
       ["notifications", "通知"],
       ["appearance", "外観"],
       ["files", "ファイル"],
@@ -28,14 +31,12 @@ test("設定ナビはスペースと既存の 8 項目をこの順で持つ", ()
   );
 });
 
-test("設定 → モデルのタブは「モデルを選ぶ / プロバイダー / コンテンツ生成 / Web 検索」の 4 項目で、既定はモデルを選ぶ", () => {
+test("設定 → モデルのタブは「モデルを選ぶ / プロバイダー」の 2 項目で、既定はモデルを選ぶ", () => {
   assert.deepEqual(
     MODELS_SUBSECTIONS.map((item) => [item.subsection, item.label]),
     [
       ["models", "モデルを選ぶ"],
       ["providers", "プロバイダー"],
-      ["content", "コンテンツ生成"],
-      ["web-search", "Web 検索"],
     ],
   );
   assert.equal(DEFAULT_MODELS_SUBSECTION, MODELS_SUBSECTIONS[0].subsection);

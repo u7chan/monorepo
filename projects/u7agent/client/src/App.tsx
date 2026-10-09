@@ -9,6 +9,7 @@ import { ChatArea } from "./components/ChatArea";
 import { CompactBar } from "./components/CompactBar";
 import { Composer } from "./components/Composer";
 import { useConfirm } from "./components/ConfirmProvider";
+import { ContentSettingsPage } from "./components/ContentSettingsPage";
 import { FileTreePage } from "./components/FileTreePage";
 import { NavSheet } from "./components/NavSheet";
 import { ModelSettingsPage } from "./components/ModelSettingsPage";
@@ -19,6 +20,7 @@ import { Sidebar } from "./components/Sidebar";
 import { SessionFilesPanel, SessionFilesSheet } from "./components/SessionFilesPanel";
 import { SkillSettingsPage } from "./components/SkillSettingsPage";
 import { Topbar } from "./components/Topbar";
+import { WebSearchSettingsPage } from "./components/WebSearchSettingsPage";
 import { FileRefProvider } from "./components/markdown/FileRefLink";
 import { MarkdownImageProvider } from "./components/markdown/MarkdownImageRefs";
 import { useU7Agent, type SendMessageOptions } from "./hooks/useU7Agent";
@@ -436,6 +438,94 @@ export default function App() {
   // 狭い desktop では左バーが overlay になるため、どちらも nav の導線をページへ渡す
   const pageProps = { compact, onBack: backToChat, onOpenNav: sidebarDocked ? undefined : openNav };
 
+  // 設定のセクション → 画面。case の書き忘れは default の `satisfies never` が型エラーにする
+  // (client の tsconfig は noImplicitReturns が無いので、union を足しただけでは気付けない)
+  const settingsScreen = () => {
+    switch (settingsSection) {
+      case "spaces":
+        return <SpaceSettingsPage {...pageProps} />;
+      case "agents":
+        return (
+          <AgentSettingsPage
+            {...pageProps}
+            catalog={app.catalog}
+            agentId={app.agentId}
+            refreshCatalog={refreshCatalog}
+            modelOptions={app.health?.modelOptions ?? []}
+            defaultModel={app.health?.model}
+            defaultThinkingLevel={app.health?.defaultThinkingLevel}
+          />
+        );
+      case "skills":
+        return (
+          <SkillSettingsPage
+            {...pageProps}
+            catalog={app.catalog}
+            refreshCatalog={refreshCatalog}
+            filePreviewPort={app.health?.filePreviewPort}
+          />
+        );
+      case "files":
+        // root を選択中の session / project に追随させると、選択を変えると同じ画面が別の場所を指して分かりにくい。
+        // 設定のファイルはワークスペース全体に固定し、セッションの作業フォルダはツリーから辿って開く
+        return (
+          <FileTreePage
+            {...pageProps}
+            cwd=""
+            excludeNames={excludeNames}
+            filePreviewPort={app.health?.filePreviewPort}
+          />
+        );
+      case "archive":
+        return <ArchiveSettingsPage {...pageProps} archiveSettings={app.archiveSettings} />;
+      case "appearance":
+        return <AppearancePage {...pageProps} />;
+      case "models":
+        // 最終使用の導出元は起動時から facade が持つ一覧。この画面だけに渡す (再取得はしない)
+        return (
+          <ModelSettingsPage
+            {...pageProps}
+            onRefreshHealth={app.refreshHealth}
+            sessions={app.sessions}
+            sessionsLoaded={app.sessionsLoaded}
+            modelsSubsection={
+              route.view === "settings" && route.section === "models"
+                ? (route.modelsSubsection ?? DEFAULT_MODELS_SUBSECTION)
+                : DEFAULT_MODELS_SUBSECTION
+            }
+            onSelectModelsSubsection={openModelsSubsection}
+          />
+        );
+      case "content":
+        return <ContentSettingsPage {...pageProps} />;
+      case "web-search":
+        return <WebSearchSettingsPage {...pageProps} />;
+      case "runtime":
+        return (
+          <RuntimePage
+            {...pageProps}
+            health={app.health}
+            onRefreshHealth={app.refreshHealth}
+            onOpenSession={(sessionId) => {
+              void app.selectSession(sessionId, undefined, { fallbackOnFailure: false }).then((result) => {
+                const note = missingLinkNote(true, result);
+                if (note) app.dispatch({ type: "setActivity", text: note });
+              });
+              backToChat();
+            }}
+          />
+        );
+      case "notifications":
+        return <NotificationSettingsPage {...pageProps} notifications={app.notifications} />;
+      default: {
+        // 保存値も URL も SETTINGS_SECTIONS の既知の値だけを渡すため到達しない。
+        // 空の設定画面を出すより、気付ける形で落とす
+        settingsSection satisfies never;
+        throw new Error(`未知の設定セクション: ${settingsSection}`);
+      }
+    }
+  };
+
   return (
     <div
       ref={sidebarWidth.shellRef}
@@ -565,70 +655,7 @@ export default function App() {
             />
             {emptyPortrait ? <div aria-hidden="true" className="min-h-0" /> : null}
           </div>
-          {mainView === "settings" ? (
-            settingsSection === "spaces" ? (
-              <SpaceSettingsPage {...pageProps} />
-            ) : settingsSection === "agents" ? (
-              <AgentSettingsPage
-                {...pageProps}
-                catalog={app.catalog}
-                agentId={app.agentId}
-                refreshCatalog={refreshCatalog}
-                modelOptions={app.health?.modelOptions ?? []}
-                defaultModel={app.health?.model}
-                defaultThinkingLevel={app.health?.defaultThinkingLevel}
-              />
-            ) : settingsSection === "skills" ? (
-              <SkillSettingsPage
-                {...pageProps}
-                catalog={app.catalog}
-                refreshCatalog={refreshCatalog}
-                filePreviewPort={app.health?.filePreviewPort}
-              />
-            ) : settingsSection === "files" ? (
-              // root を選択中の session / project に追随させると、選択を変えると同じ画面が別の場所を指して分かりにくい。
-              // 設定のファイルはワークスペース全体に固定し、セッションの作業フォルダはツリーから辿って開く
-              <FileTreePage
-                {...pageProps}
-                cwd=""
-                excludeNames={excludeNames}
-                filePreviewPort={app.health?.filePreviewPort}
-              />
-            ) : settingsSection === "archive" ? (
-              <ArchiveSettingsPage {...pageProps} archiveSettings={app.archiveSettings} />
-            ) : settingsSection === "appearance" ? (
-              <AppearancePage {...pageProps} />
-            ) : settingsSection === "models" ? (
-              // 最終使用の導出元は起動時から facade が持つ一覧。この画面だけに渡す (再取得はしない)
-              <ModelSettingsPage
-                {...pageProps}
-                onRefreshHealth={app.refreshHealth}
-                sessions={app.sessions}
-                sessionsLoaded={app.sessionsLoaded}
-                modelsSubsection={
-                  route.view === "settings" && route.section === "models"
-                    ? (route.modelsSubsection ?? DEFAULT_MODELS_SUBSECTION)
-                    : DEFAULT_MODELS_SUBSECTION
-                }
-                onSelectModelsSubsection={openModelsSubsection}
-              />
-            ) : settingsSection === "runtime" ? (
-              <RuntimePage
-                {...pageProps}
-                health={app.health}
-                onRefreshHealth={app.refreshHealth}
-                onOpenSession={(sessionId) => {
-                  void app.selectSession(sessionId, undefined, { fallbackOnFailure: false }).then((result) => {
-                    const note = missingLinkNote(true, result);
-                    if (note) app.dispatch({ type: "setActivity", text: note });
-                  });
-                  backToChat();
-                }}
-              />
-            ) : (
-              <NotificationSettingsPage {...pageProps} notifications={app.notifications} />
-            )
-          ) : null}
+          {mainView === "settings" ? settingsScreen() : null}
         </div>
         {filesPanelOpen ? (
           <SessionFilesPanel

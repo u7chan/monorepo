@@ -83,8 +83,8 @@ provider が「成功 / 失敗 / 失敗の種類」を返し、共通側が種�
 | --- | --- | --- | --- |
 | `rate_limited` | 検索が混雑しています（レート制限） | `result._meta["ai.exa/rateLimited"] === true`（HTTP 200） | HTTP 429 |
 | `quota_exceeded` | 検索の利用上限に達しました（provider のプラン上限） | — | HTTP 432 / 433 |
-| `key_missing` | 検索プロバイダーのAPIキーが未設定です。設定 → モデル → Web 検索 を開いて登録してください。 | — | キー行が無い（上流へ送らない） |
-| `key_rejected` | 検索プロバイダーのAPIキーが拒否されました。設定 → モデル → Web 検索 を開いて確認してください。 | — | HTTP 401 / 403 |
+| `key_missing` | 検索プロバイダーのAPIキーが未設定です。設定 → Web 検索 を開いて登録してください。 | — | キー行が無い（上流へ送らない） |
+| `key_rejected` | 検索プロバイダーのAPIキーが拒否されました。設定 → Web 検索 を開いて確認してください。 | — | HTTP 401 / 403 |
 | `provider_error` | 検索プロバイダのエラーが発生しました | `result.isError === true`（HTTP 200） / HTTP 406 / 5xx / その他 | HTTP 400 / 422 / 5xx / その他 |
 | `unexpected_response` | 検索プロバイダが想定外の応答を返しました | JSON-RPC の `error` / `content[0].text` が JSON でない / `results` が配列でない | 本文が JSON でない / `results` が配列でない |
 | （共通の失敗） | 検索プロバイダに接続できませんでした（例外の文言はマスクして 500 字まで添える） | ネットワーク例外 | ネットワーク例外 |
@@ -100,14 +100,14 @@ provider が「成功 / 失敗 / 失敗の種類」を返し、共通側が種�
 
 - 正はアプリ DB の `web_search_settings`（id = 1 の 1 行、`enabled` と `provider`）で、**行が無い = 既定（有効 / Exa）**。無効化のためにデプロイを要する設計にしないことが目的なので、既定は ON（[persistence.md](persistence.md#アプリデータsqlite)）
 - ツールは `execute` のたびに `readEnabled()` を読む。**セッション作成時に凍結しない**ため、OFF にした瞬間から既存のセッションの次の呼び出しにも効く（ツール一覧は新しい会話にしか効かないので、実行時に拒否する）
-- OFF の間は検索も送信もしない。provider の `fetch` を呼ばず、固定文言 `WEB_SEARCH_DISABLED_MESSAGE`（「Web 検索は無効化されています。有効にするには 設定 → モデル → Web 検索 を開いてください。」）で throw する。設定画面は API が返す `disabledMessage` をそのまま出す
+- OFF の間は検索も送信もしない。provider の `fetch` を呼ばず、固定文言 `WEB_SEARCH_DISABLED_MESSAGE`（「Web 検索は無効化されています。有効にするには 設定 → Web 検索 を開いてください。」）で throw する。設定画面は API が返す `disabledMessage` をそのまま出す
 - 経路は 設定サービス（`server/src/web-search-settings.ts`）→ `PiBff.setWebSearch()` → ツールの `readEnabled()` / `readProvider()` / `readApiKey()`。書き込みと `applyStored()` は `MutationLock` の内側で直列化する（コンテンツ生成と同じ形）
 - DB を読めない起動でも**有効 / Exa** で立ち、警告だけを残す（行が無い = 既定と同じ扱いにし、読めないだけで検索を黙って止めない）。設定 API は DB の 503 で気付ける（[persistence.md](persistence.md#アプリデータsqlite)）
 - モデルから見るとツールは存在したままなので、無効時もモデルは呼べて、そのたびに固定文言の失敗が返る（無駄な往復を避けたくなったら system prompt / `promptGuidelines` への反映を別途検討する）。日時依存の質問を `web_search` へ誘導する指針のぶん、OFF 中の空振り呼び出しは増える
 
 ## 設定（既定 provider と APIキー）
 
-設定 → モデル → Web 検索タブが、**有効 / 無効 + 既定 provider + provider ごとの APIキー**を 1 面に持つ。provider の選択と kill switch が別の場所にあると、障害時にどちらを見るか分からなくなるため。
+設定 → Web 検索（`/settings/web-search`）が、**有効 / 無効 + 既定 provider + provider ごとの APIキー**を 1 面に持つ。provider の選択と kill switch が別の場所にあると、障害時にどちらを見るか分からなくなるため。
 
 - 既定 provider は `web_search_settings.provider` へ保存する。選択肢は API が返す `providers[]`（id / 名前 / 送信先 / キーの要否 / 設定済みか）から作り、**選んだ時点で既定になり保存される**（別の「〜を既定にする」ボタンは置かない）。選択中の provider の設定だけを下に出す
 - キーは `web_search_provider_keys`（1 行 1 provider）へ保存し、**値は API の応答へ返さない**（`configured` だけを返す）。削除は行ごと消し、未設定でも 200 の冪等
@@ -138,7 +138,7 @@ provider が「成功 / 失敗 / 失敗の種類」を返し、共通側が種�
 | `server/test/web-search-settings.test.ts` | 行が無い = 既定（有効 / Exa）/ PUT の往復と写しの差し替え（enabled / provider / キー）/ 未知の provider とキー不要 provider へのキー操作が 400 / マスカー登録が DB より前 / 応答にキー値を載せない / キー削除の冪等 / 保存できないときは 503 で写しも変えない / 保存後の読取失敗でも 200 / 起動時に DB を読めないときは既定で立つ / 起動時に保存済みのキーを保護対象へ入れる |
 | `server/test/web-search-settings-api.test.ts` | `GET` / `PUT /api/settings/web-search`、`PUT /provider`、`PUT`・`DELETE /providers/:provider/key` の往復、`state: "applied"`、再起動後も残ること、Zod 検証での 400、応答にキー値を出さないこと |
 | `server/test/app-db.test.ts` | v11 → v12 → v13 の加算移行、`web_search_settings.provider` の既定、`web_search_provider_keys` の往復と upsert・削除 |
-| `client/test/selectMenu.test.ts` / `client/test/webSearchSettings.test.ts` / `client/test/webSearchSettingsTab.test.ts` / `client/test/modelSettingsPage.test.ts` | 自前 select の位置とキーボード移動、provider 一覧・送信先・キー状態の文言、有効 / 無効と provider 切替の描画、キー未設定の警告、保存中の disable、タブの語彙と URL |
+| `client/test/selectMenu.test.ts` / `client/test/webSearchSettings.test.ts` / `client/test/webSearchSettingsTab.test.ts` / `client/test/webSearchSettingsPage.test.ts` | 自前 select の位置とキーボード移動、provider 一覧・送信先・キー状態の文言、有効 / 無効と provider 切替の描画、キー未設定の警告、保存中の disable、ページの見出しと取得前の出し分け、セクションの語彙と URL |
 
 実セッション（GUI）での受入は手動で 1 回行う。`mcp.exa.ai` / `api.tavily.com` への実到達とデプロイ先コンテナからの到達性、GUI の停止ボタンで中断できること、ツール履歴の先頭 900 字に現在日時行と出典一覧が入ることを確かめる。
 

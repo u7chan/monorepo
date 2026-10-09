@@ -38,7 +38,7 @@ export const IMAGE_TOOL_GUIDELINES = [
 
 /** 保存できる形式を 1 つも宣言していないモデルを生成前に止めるときの文言。課金前であることを明示する */
 export const IMAGE_TOOL_UNSAVEABLE_MODEL_MESSAGE =
-  "この画像モデルは png / jpeg / webp を返さないため、生成は行っていません（クレジットは消費していません）。設定 → モデル で別の画像モデルを選んでください";
+  "この画像モデルは png / jpeg / webp を返さないため、生成は行っていません（クレジットは消費していません）。設定 → コンテンツ生成 で別の画像モデルを選んでください";
 
 /** 有効なときだけ system prompt へ足す。生成物の場所と本文での示し方を固定する */
 export const IMAGE_GENERATION_PROMPT_LINES = [
@@ -86,7 +86,7 @@ export function imageExtensionFor(mimeType: string): SaveableImageFormat {
   const extension = saveableImageFormat(mimeType);
   if (extension) return extension;
   throw new Error(
-    `対応していない画像形式です: ${mimeType}（生成は完了しており、クレジットは消費されています）。設定 → モデル で別の画像モデルを選んでください`,
+    `対応していない画像形式です: ${mimeType}（生成は完了しており、クレジットは消費されています）。設定 → コンテンツ生成 で別の画像モデルを選んでください`,
   );
 }
 
@@ -182,6 +182,6 @@ function readCurrentSettings(read: () => ImageGenerationSettings | undefined): I
   } catch (error) {
     throw new Error(`画像生成の設定を読み取れませんでした: ${messageFor(error)}`);
   }
-  if (!settings) throw new Error("画像APIキーが未設定です。設定 → モデル で画像APIキーを登録してください");
+  if (!settings) throw new Error("画像APIキーが未設定です。設定 → コンテンツ生成 で画像APIキーを登録してください");
   return settings;
 }
