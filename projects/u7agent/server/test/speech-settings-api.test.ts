@@ -204,6 +204,45 @@ test("ランタイムなしで再起動しても、保存済みキーをボイ�
   });
 });
 
+test("ランタイムなしでも 400 の文言にキーを反射しない", async () => {
+  await withStoreDir(async (dir) => {
+    // 1) キーを登録し、live の一覧をキャッシュへ残す
+    const first = await openBff({
+      cwd: "/tmp/project",
+      sessionStoreDir: dir,
+      pi: asPiBff(createStubPi()),
+      workspace: null,
+    });
+    try {
+      await first.app.request("/api/settings/content/speech/catalog/refresh", { method: "POST" });
+      await first.app.request("/api/settings/content/key", jsonPut({ apiKey: KEY }));
+    } finally {
+      await first.close();
+    }
+
+    // 2) マスカーが保存済みキーを知らない構成で、宣言ありモデル + キーを反射させる
+    const bff = await openBff({ cwd: "/tmp/project", sessionStoreDir: dir, pi: null, workspace: null });
+    try {
+      const voice = await bff.app.request(
+        "/api/settings/content/speech",
+        jsonPut({ model: DEFAULT_SPEECH_MODEL, voice: KEY }),
+      );
+      assert.equal(voice.status, 400);
+      const voiceBody = await jsonBody(voice);
+      assert.ok(!JSON.stringify(voiceBody).includes(KEY), `400 の文言にキーが出ている: ${voiceBody.error}`);
+      assert.ok(String(voiceBody.error).includes("[REDACTED]"));
+
+      const model = await bff.app.request("/api/settings/content/speech", jsonPut({ model: KEY, voice: "" }));
+      assert.equal(model.status, 400);
+      const modelBody = await jsonBody(model);
+      assert.ok(!JSON.stringify(modelBody).includes(KEY), `400 の文言にキーが出ている: ${modelBody.error}`);
+      assert.ok(String(modelBody.error).includes("[REDACTED]"));
+    } finally {
+      await bff.close();
+    }
+  });
+});
+
 test("カタログ外モデル / 宣言外の声 / 形が違う本文は 400", async () => {
   await withStoreDir(async (dir) => {
     const bff = await openBff({

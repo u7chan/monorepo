@@ -6,6 +6,7 @@
  */
 import { messageFor } from "./http";
 import { MutationLock } from "./model-settings";
+import { REDACTED } from "./redact";
 import type { ContentSettingsRow } from "./app-db";
 import type { ImageCatalog } from "./image-catalog";
 import { IMAGE_PROVIDER_ID, type ContentGenerationConfig, type ImageGenerationSettings } from "./images";
@@ -101,6 +102,15 @@ export class ContentSettingsService {
       model,
       voice: this.#usableSpeechValue(speechVoice, apiKey) ?? this.#speechCatalog.voicesOf(model)?.[0] ?? "",
     };
+  }
+
+  /**
+   * 400 の文言へ入力を反射するときの値。同じ行の APIキーと一致・包含する値は、実行時のマスカーが
+   * identity（`pi: null` の起動）でも伏せ字にして返す。どの値が不正かという形は残し、値そのものは返さない。
+   */
+  #reflectedValue(value: string, apiKey: string): string {
+    const masked = this.#maskError(value);
+    return apiKey !== "" && masked.includes(apiKey) ? masked.split(apiKey).join(REDACTED) : masked;
   }
 
   /** 音声ツールの語彙（`model` / `voice`）へ写す。応答と同じ解決を使い、表示と実行時を食い違わせない */
@@ -231,7 +241,10 @@ export class ContentSettingsService {
         .snapshot()
         .entries.some((entry) => entry.provider === input.provider && entry.id === input.model);
       // 入力を反射する文言はマスカーを通す（model にキーを誤って渡されたとき、400 応答から再露出させない）
-      if (!inCatalog) throw badRequest(`${CONTENT_MODEL_NOT_IN_CATALOG_MESSAGE}: ${this.#maskError(input.model)}`);
+      if (!inCatalog)
+        throw badRequest(
+          `${CONTENT_MODEL_NOT_IN_CATALOG_MESSAGE}: ${this.#reflectedValue(input.model, existing.apiKey)}`,
+        );
       try {
         this.#db.saveContentSettings({ ...existing, provider: input.provider, imageModel: input.model });
       } catch {
@@ -273,11 +286,15 @@ export class ContentSettingsService {
         const entry = catalog.entries.find((candidate) => candidate.id === input.model);
         // 入力を反射する文言はマスカーを通す（model / voice にキーを誤って渡されても 400 から再露出させない）
         if (!entry) {
-          throw badRequest(`${CONTENT_SPEECH_MODEL_NOT_IN_CATALOG_MESSAGE}: ${this.#maskError(input.model)}`);
+          throw badRequest(
+            `${CONTENT_SPEECH_MODEL_NOT_IN_CATALOG_MESSAGE}: ${this.#reflectedValue(input.model, existing.apiKey)}`,
+          );
         }
         // 宣言が無いモデルは任意の声を許す（空文字は「指定なし」として常に許す）
         if (entry.voices && input.voice !== "" && !entry.voices.includes(input.voice)) {
-          throw badRequest(`${CONTENT_SPEECH_VOICE_NOT_SUPPORTED_MESSAGE}: ${this.#maskError(input.voice)}`);
+          throw badRequest(
+            `${CONTENT_SPEECH_VOICE_NOT_SUPPORTED_MESSAGE}: ${this.#reflectedValue(input.voice, existing.apiKey)}`,
+          );
         }
       }
       const speechVoice = input.voice === "" ? null : input.voice;

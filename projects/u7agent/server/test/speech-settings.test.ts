@@ -379,6 +379,38 @@ test("ボイス / モデルに保護済みキーがあっても、応答と実�
   assert.equal(defaulted.db.row?.speechModel, KEY, "保存値そのものは消さない");
 });
 
+test("マスカーがキーを知らない起動でも、400 の文言へキーを反射しない", async () => {
+  const { db, service } = createService({ identityMasker: true });
+  db.row = rowWith(null, null);
+
+  const voiceError = (await service.putSpeechSelection({ model: DEFAULT_SPEECH_MODEL, voice: KEY }).then(
+    () => undefined,
+    (error: unknown) => error,
+  )) as Error;
+  assert.equal(statusOf(voiceError), 400);
+  assert.ok(voiceError.message.startsWith(CONTENT_SPEECH_VOICE_NOT_SUPPORTED_MESSAGE), "分類の文言は残す");
+  assert.ok(!voiceError.message.includes(KEY), `400 の文言にキーが残っている: ${voiceError.message}`);
+  assert.ok(voiceError.message.includes("[REDACTED]"));
+
+  const modelError = (await service.putSpeechSelection({ model: KEY, voice: "" }).then(
+    () => undefined,
+    (error: unknown) => error,
+  )) as Error;
+  assert.equal(statusOf(modelError), 400);
+  assert.ok(modelError.message.startsWith(CONTENT_SPEECH_MODEL_NOT_IN_CATALOG_MESSAGE));
+  assert.ok(!modelError.message.includes(KEY), `400 の文言にキーが残っている: ${modelError.message}`);
+  assert.ok(modelError.message.includes("[REDACTED]"));
+
+  // 画像モデルの反射も同じ境界を通る
+  const imageError = (await service.putSelection({ provider: IMAGE_PROVIDER_ID, model: KEY }).then(
+    () => undefined,
+    (error: unknown) => error,
+  )) as Error;
+  assert.equal(statusOf(imageError), 400);
+  assert.ok(!imageError.message.includes(KEY), `400 の文言にキーが残っている: ${imageError.message}`);
+  assert.ok(imageError.message.includes("[REDACTED]"));
+});
+
 test("マスカーがキーを知らない起動でも、同じ行の APIキーをボイス / モデルとして出さない", async () => {
   // pi: null の起動（bootstrap が identity masker を渡す経路）。マスカーだけに頼ると保存値が再露出する
   const free = createService({ identityMasker: true });

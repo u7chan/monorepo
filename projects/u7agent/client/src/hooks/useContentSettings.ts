@@ -172,7 +172,7 @@ export function useContentSettings() {
       } catch {
         // 一覧は取れているので、選べる候補だけを新しいものへ差し替える（下で同期状態を落とす）
       }
-      const synced = speechSyncedAfterRefresh(response, current);
+      const synced = speechSyncedAfterRefresh(speechSynced, response, current);
       beginLoad();
       setSettings((previous) => speechSettingsAfterRefresh(previous, response, current));
       setSpeechSynced(synced);
@@ -188,7 +188,7 @@ export function useContentSettings() {
     } finally {
       setSaving(null);
     }
-  }, [beginLoad]);
+  }, [beginLoad, speechSynced]);
 
   return {
     settings,

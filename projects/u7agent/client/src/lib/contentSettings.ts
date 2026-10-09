@@ -246,14 +246,17 @@ export function speechSettingsAfterRefresh(
 }
 
 /**
- * 再取得後に server の実効値を確認できたか。一覧が変わった（取得に成功した）のに現在値を取れない間は、
- * 旧い表示を現在値とみなさず、音声の設定を保存させない（表示・保存可否・実行時解決を食い違わせない）。
+ * 再取得後に server の実効値を確認できたか。成功した GET だけが「確認できた」の根拠で、一覧が変わったのに
+ * 現在値を取れないときは false にする。既に同期済みなら、一覧が変わらない再取得の失敗（`catalogError`）は
+ * 以前の値を現在値のまま保つが、未同期の状態は成功した GET が取れるまで false のままにする。
  */
 export function speechSyncedAfterRefresh(
+  previousSynced: boolean,
   response: Pick<SpeechCatalogRefreshResponse, "catalogError">,
   current: ContentSettingsResponse | null,
 ): boolean {
-  return current !== null || response.catalogError !== null;
+  if (current !== null) return true;
+  return previousSynced && response.catalogError !== null;
 }
 
 /** 音声の保存を止める条件。同期できていない間は、表示が現在値と限らないため保存させない */

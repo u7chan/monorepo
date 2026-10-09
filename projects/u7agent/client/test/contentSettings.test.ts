@@ -255,13 +255,29 @@ test("音声カタログ再取得後は server の現在値へ同期し、表示
 
   // 再現条件: 保存ボイスが NULL（旧一覧の先頭 Zephyr を見せている）で、再取得が [Kore, Zephyr] を返して成功し、
   // 直後の GET だけ失敗する。実行時は Kore へ解決するため、旧 Zephyr を現在値として扱ってはいけない
-  assert.equal(speechSyncedAfterRefresh({ catalogError: null }, null), false, "一覧が変わったのに現在値を確認できない");
-  assert.equal(speechSyncedAfterRefresh({ catalogError: null }, current), true);
   assert.equal(
-    speechSyncedAfterRefresh({ catalogError: "モデル一覧の取得がタイムアウトしました" }, null),
-    true,
-    "一覧が変わっていなければ以前の値を現在値のまま保つ",
+    speechSyncedAfterRefresh(true, { catalogError: null }, null),
+    false,
+    "一覧が変わったのに現在値を確認できない",
   );
+  assert.equal(speechSyncedAfterRefresh(true, { catalogError: null }, current), true, "成功した GET で確認できる");
+  assert.equal(
+    speechSyncedAfterRefresh(true, { catalogError: "モデル一覧の取得がタイムアウトしました" }, null),
+    true,
+    "既に同期済みで一覧が変わらない再取得の失敗は、以前の値を現在値のまま保つ",
+  );
+  // 未同期の状態から再取得を試み、上流が 503 + POST は 200（catalogError あり）+ GET も失敗する組合せ。
+  // 成功した GET が取れるまで未同期のままにする（旧値へ戻さない）
+  assert.equal(
+    speechSyncedAfterRefresh(
+      false,
+      { catalogError: "モデル一覧の取得が混雑しています（レート制限またはプロバイダー障害）" },
+      null,
+    ),
+    false,
+    "未同期は GET が成功するまで false のまま",
+  );
+  assert.equal(speechSyncedAfterRefresh(false, { catalogError: null }, current), true, "成功した GET で復帰する");
   assert.equal(speechSaveDisabled({ busy: false, synced: false, dirty: true }), true, "同期できない間は保存させない");
   assert.equal(speechSaveDisabled({ busy: false, synced: true, dirty: true }), false);
   assert.equal(speechSaveDisabled({ busy: false, synced: true, dirty: false }), true, "変更が無ければ保存しない");
