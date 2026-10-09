@@ -16,7 +16,7 @@ import { ModelSettingsService, type CredentialCommit, type ProviderKeyRuntime } 
 import { NotificationService } from "./notifications";
 import { ProjectStore } from "./projects";
 import { createSandboxToolClientFromEnv } from "./sandbox/client";
-import type { SandboxExecClient, SandboxRuntimeDiagnostics, SandboxWorkspaceClient } from "./sandbox/client";
+import type { SandboxRuntimeDiagnostics, SandboxServeClient, SandboxWorkspaceClient } from "./sandbox/client";
 import { SecretService } from "./secrets";
 import { SecretKeyError, createSecretCipher, resolveMasterKeys } from "./secret-crypto";
 import { ServeService, sandboxHostFromUrl, type ServeProbe } from "./serve";
@@ -50,10 +50,10 @@ export type CreateBffAppOptions = {
   /** 画像モデル一覧取得のテスト用。省略時は globalThis.fetch */
   imageCatalogFetch?: typeof fetch;
   /**
-   * serve の記録の読み書きと起動・停止に使うサンドボックス実行。未指定なら env から生成した
+   * serve の記録の読み書き・起動・停止・待受の観測に使うサンドボックス。未指定なら env から生成した
    * サンドボックスクライアントを再利用する (workspace を差し替えたテストでは null)。
    */
-  serveSandbox?: SandboxExecClient | null;
+  serveSandbox?: SandboxServeClient | null;
   /** serve の稼働判定に使うプローブ。テストで差し替える */
   serveProbe?: ServeProbe;
   /** プローブ先のホスト。未指定は PI_SANDBOX_URL のホスト (同一ホストのサンドボックス) */

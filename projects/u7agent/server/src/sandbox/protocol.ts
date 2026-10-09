@@ -122,6 +122,29 @@ export interface SandboxRuntimeInfo {
   landlock: SandboxLandlockStatus;
 }
 
+/**
+ * 待受ソケットを持つプロセス。serve の所有者照合に使う。
+ * bash 実行は Landlock の ptrace 制限で他ドメインの `/proc/<pid>/fd` を読めないため、
+ * この観測は制限の外にいる service 本体が行う (GET /v1/procs/listeners)。
+ */
+export interface SandboxListenerProcess {
+  pid: number;
+  /** `/proc/<pid>/stat` の起動時刻 (epoch ms)。PID 再利用の照合に使う。0 は不明 */
+  startedAt: number;
+  /** この待受に使われているソケットの inode (昇順) */
+  inodes: number[];
+  /** 自身から親をたどった PID (自身を含む) */
+  ancestors: number[];
+}
+
+/** GET /v1/procs/listeners の応答。scan が false のときは inode だけを返し、PID は探さない。 */
+export interface SandboxListenerScan {
+  /** 指定ポートの待受ソケット inode (昇順)。待受が無ければ空配列 */
+  inodes: number[];
+  /** scan=true のときだけ特定する。特定できなければ null */
+  listener: SandboxListenerProcess | null;
+}
+
 /** POST /v1/files/rename のリクエストボディ。path は root 相対のエントリ (ファイル / ディレクトリ)、name は 1 セグメント。 */
 export interface SandboxRenameRequestBody {
   path: string;

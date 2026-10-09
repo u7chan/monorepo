@@ -62,6 +62,7 @@ import {
 } from "./landlock";
 import { SKILLS_SCAN_TIMEOUT_MS, scanSkillsWithDeadline } from "./skills-scan";
 import { probeSandboxRuntime } from "./runtime-info";
+import { scanListeners } from "./process-scan";
 import {
   SANDBOX_MAX_BODY_BYTES,
   SANDBOX_MAX_FILE_ENTRIES,
@@ -1023,6 +1024,21 @@ export function createSandboxService(options: SandboxServiceOptions): SandboxSer
     } catch (error) {
       console.warn(`[u7agent-sandbox] runtime info failed: ${messageFor(error)}`);
       return c.json({ error: "実行環境の診断に失敗しました" }, 500);
+    }
+  });
+
+  // 待受ソケットと所有 PID の観測 (serve の所有者照合)。bash 実行は Landlock の ptrace 制限で
+  // 他ドメインの /proc/<pid>/fd を読めないため、制限の外にいるこのプロセスが代行する。
+  app.get("/v1/procs/listeners", async (c) => {
+    const port = Number(c.req.query("port"));
+    if (!Number.isInteger(port) || port <= 0 || port > 65535) {
+      return c.json({ error: "port must be a valid TCP port" }, 400);
+    }
+    try {
+      return c.json(await scanListeners(port, { scan: c.req.query("scan") === "true" }));
+    } catch (error) {
+      console.warn(`[u7agent-sandbox] listener scan failed: ${messageFor(error)}`);
+      return c.json({ error: "待受プロセスの観測に失敗しました" }, 500);
     }
   });
 

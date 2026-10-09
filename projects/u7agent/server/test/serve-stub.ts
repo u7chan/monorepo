@@ -3,7 +3,7 @@
  * (記録 / 待受 PID) を仮想的に持つ。実スクリプトの文言を変えたらここも追随させる。
  */
 import type { ServeCommandRow } from "../src/app-db";
-import type { SandboxExecClient } from "../src/sandbox/client";
+import type { SandboxServeClient } from "../src/sandbox/client";
 import type { SandboxWriteScopeEntry } from "../src/sandbox/protocol";
 import type { ServeCommandStore, ServeProbe, ServeSessionLookup } from "../src/serve";
 
@@ -42,7 +42,7 @@ export interface ServeSandboxState {
 }
 
 export interface ServeSandboxStub {
-  sandbox: SandboxExecClient;
+  sandbox: SandboxServeClient;
   state: ServeSandboxState;
   /** execute に渡された cwd (作業領域の読み書きは root で行う) */
   cwds: string[];
@@ -77,7 +77,7 @@ export function createServeSandboxStub(): ServeSandboxStub {
   };
   const cwds: string[] = [];
   const scopes: (readonly SandboxWriteScopeEntry[] | undefined)[] = [];
-  const sandbox: SandboxExecClient = {
+  const sandbox: SandboxServeClient = {
     execute: async (_tool, input) => {
       cwds.push(input.cwd ?? "");
       scopes.push(input.writeScope);
@@ -118,17 +118,22 @@ export function createServeSandboxStub(): ServeSandboxStub {
         state.writes += 1;
         return { content: [{ type: "text", text: "serve:ok\n" }] };
       }
-      // 観測スクリプト。fd 走査つきの観測 (SCAN = true) だけが listener / ancestors を返す
-      const scan = script.includes("const SCAN = true;");
-      if (scan) state.scans += 1;
-      const lines: string[] = [];
-      lines.push(`inodes\t${(state.listener ? state.listener.inodes : state.orphanInodes).join(" ")}`);
-      if (scan && state.listener) {
-        lines.push(`listener\t${state.listener.pid}\t${state.listener.startedAt}`);
-        lines.push(`ancestors\t${state.listener.ancestors.join(" ")}`);
+      // 稼働記録の読み取り (待受ソケットと PID は scanListeners が返す)
+      if (script.includes("readFileSync") && script.includes("state.json")) {
+        const record = state.stateFile ? `record\t${state.stateFile}\n` : "";
+        return { content: [{ type: "text", text: `${record}serve:ok\n` }] };
       }
-      if (state.stateFile) lines.push(`record\t${state.stateFile}`);
-      return { content: [{ type: "text", text: `${lines.join("\n")}\nserve:ok\n` }] };
+      throw new Error(`unexpected serve script: ${script.slice(0, 64)}`);
+    },
+    // 待受ソケットの inode は常に返し、fd 走査つき (scan) のときだけ listener / ancestors を返す
+    scanListeners: async (_port, { scan }) => {
+      if (state.fail) throw new Error("サンドボックスの待受観測が失敗しました (HTTP 500)");
+      if (scan) state.scans += 1;
+      const listener = state.listener;
+      return {
+        inodes: listener ? [...listener.inodes] : [...state.orphanInodes],
+        listener: scan && listener ? { ...listener, inodes: [...listener.inodes] } : null,
+      };
     },
   };
   return { sandbox, state, cwds, scopes };

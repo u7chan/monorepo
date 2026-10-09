@@ -648,3 +648,35 @@ test("downloadEntry / checkDownload は exclude を繰り返しで送り、空�
   await checkClient.checkDownload("src", []);
   assert.equal(check.calls[1].url, "http://sandbox.test/v1/files/download/check?path=src&exclude=");
 });
+
+// 待受プロセスの観測は serve の所有者照合の唯一の入力なので、query の組み立てと応答の写像を固定する
+// (サンドボックス側の受け取りは sandbox-process-scan.test.ts が見る)。
+test("scanListeners は port と scan を query で送り、応答をそのまま写す", async () => {
+  const payload = {
+    inodes: [1270278],
+    listener: { pid: 237424, startedAt: 1_700_000_000_000, inodes: [1270278], ancestors: [237424, 1] },
+  };
+  const { calls, impl } = stubFetch(
+    () => new Response(JSON.stringify(payload), { status: 200, headers: { "Content-Type": "application/json" } }),
+  );
+  const client = createSandboxToolClient({ baseUrl: "http://sandbox.test/", token: TOKEN, fetchImpl: impl });
+  assert.deepEqual(await client.scanListeners(8080, { scan: true }), payload);
+  assert.equal(calls[0].url, "http://sandbox.test/v1/procs/listeners?port=8080&scan=true");
+  const init = calls[0].init;
+  assert.ok(init, "fetch が init 付きで呼ばれる");
+  assert.equal((init.headers as Record<string, string>).Authorization, `Bearer ${TOKEN}`);
+
+  const failure = stubFetch(
+    () =>
+      new Response(JSON.stringify({ error: "boom" }), { status: 500, headers: { "Content-Type": "application/json" } }),
+  );
+  const failing = createSandboxToolClient({ baseUrl: "http://sandbox.test", token: TOKEN, fetchImpl: failure.impl });
+  await assert.rejects(
+    () => failing.scanListeners(8080, { scan: false }),
+    (error: unknown) => {
+      assert.ok(error instanceof SandboxRequestError, "サンドボックス側の失敗として分類する");
+      assert.equal((error as SandboxRequestError).status, 502);
+      return true;
+    },
+  );
+});

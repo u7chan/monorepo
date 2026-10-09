@@ -11,6 +11,7 @@ import {
   type SandboxFilePreview,
   type SandboxFileUpload,
   type SandboxGitInfo,
+  type SandboxListenerScan,
   type SandboxRenameResult,
   type SandboxRuntimeInfo,
   type SandboxSkillsResponse,
@@ -143,6 +144,7 @@ export function createSandboxToolClient(options: SandboxToolClientOptions): Sand
     rawFile: (path, options) => rawFile(path, options, baseUrl, token, fetchImpl),
     downloadEntry: (path, excludeNames) => downloadEntry(path, excludeNames, baseUrl, token, fetchImpl),
     checkDownload: (path, excludeNames) => checkDownload(path, excludeNames, baseUrl, token, fetchImpl),
+    scanListeners: (port, options) => scanListeners(port, options, baseUrl, token, fetchImpl),
   };
 }
 
@@ -177,6 +179,11 @@ export interface SandboxToolClient extends SandboxRuntimeDiagnostics {
   downloadEntry(path: string, excludeNames: readonly string[]): Promise<SandboxDownloadFile>;
   /** download と同じ走査の見積り（除外名 / 合計サイズ / エントリ数）。上限超過は 413 で拒否される */
   checkDownload(path: string, excludeNames: readonly string[]): Promise<SandboxDownloadCheck>;
+  /**
+   * 指定ポートの待受 inode と、`scan: true` のときだけ所有 PID を返す。serve の所有者照合が使う。
+   * bash 実行は Landlock の ptrace 制限で他ドメインの `/proc/<pid>/fd` を読めないため、service 本体が走査する。
+   */
+  scanListeners(port: number, options: { scan: boolean }): Promise<SandboxListenerScan>;
 }
 
 /** /api/files とプロジェクト作成・アップロードが使うサンドボックス機能 (テストはこれを stub に差し替える)。 */
@@ -198,10 +205,15 @@ export type SandboxWorkspaceClient = Pick<
 
 /**
  * serve の記録の読み書きと起動・停止が使うサンドボックス機能。workspace のスタブへ execute を
- * 要求しないよう型を分ける (docs/sandbox.md の「新しいサンドボックス API は追加しない」方針で、
- * 使うのは既存のツール実行だけ)。
+ * 要求しないよう型を分ける。使うのは既存のツール実行と、待受プロセスの観測だけ。
  */
 export type SandboxExecClient = Pick<SandboxToolClient, "execute">;
+
+/** 待受プロセスの観測 (serve の所有者照合) が使うサンドボックス機能 */
+export type SandboxProcessScanClient = Pick<SandboxToolClient, "scanListeners">;
+
+/** serve が使うサンドボックス機能。実行と観測の両方を満たすものを注入する */
+export type SandboxServeClient = SandboxExecClient & SandboxProcessScanClient;
 
 /**
  * status は BFF がそのまま応答に使うステータス。サンドボックス由来の 4xx (不正パス・不存在) は透過し、
@@ -278,6 +290,25 @@ async function getGitInfo(
   );
   if (!response.ok) throw await jsonError(response, "git 情報を取得できませんでした");
   return (await response.json()) as SandboxGitInfo;
+}
+
+/** 待受ソケットと所有 PID の観測。`scan` は停止と起動の確認でだけ true にする (重い fd 走査を避ける) */
+async function scanListeners(
+  port: number,
+  options: { scan: boolean },
+  baseUrl: string,
+  token: string,
+  fetchImpl: typeof fetch,
+): Promise<SandboxListenerScan> {
+  const query = new URLSearchParams({ port: String(port), scan: String(options.scan) });
+  const response = await fetchJson(
+    fetchImpl,
+    `${baseUrl}/v1/procs/listeners?${query.toString()}`,
+    { headers: jsonHeaders(token) },
+    baseUrl,
+  );
+  if (!response.ok) throw await jsonError(response, "待受プロセスの観測に失敗しました");
+  return (await response.json()) as SandboxListenerScan;
 }
 
 async function listSkills(

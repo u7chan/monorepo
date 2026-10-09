@@ -622,6 +622,7 @@ test("起動時の環境変数はコマンド文字列へ埋め込まず、exec 
         scripts.push(((input.params ?? {}) as { command?: string }).command ?? "");
         return sandbox.sandbox.execute(tool, input);
       },
+      scanListeners: (port, options) => sandbox.sandbox.scanListeners(port, options),
     },
     secretEnv: {
       resolveServiceEnv: (cwd) => ({

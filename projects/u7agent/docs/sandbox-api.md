@@ -6,6 +6,7 @@ BFF が作業用ツール（`read` / `bash` / `edit` / `write` / `grep` / `find`
 | --- | --- | --- |
 | GET | `/healthz` | 無認証。Compose healthcheck 用。`{ ok, tools, cwd, runningExecutions }` |
 | GET | `/v1/runtime/info` | 実行環境の診断（認証必須・読み取り専用）。[実行環境の診断](#get-v1runtimeinfo) |
+| GET | `/v1/procs/listeners` | 待受ソケットと所有 PID の観測（認証必須・読み取り専用）。[待受プロセスの観測](#get-v1procslisteners) |
 | GET | `/v1/files` | 作業領域の一覧（JSON）。`?path=<root 相対>` |
 | GET | `/v1/files/git` | 作業フォルダが属する repo のブランチ（JSON）。`?path=<root 相対>` |
 | GET | `/v1/skills` | ファイルスキル（`SKILL.md`）の発見（JSON）。`?dir=<root 相対>` |
@@ -306,6 +307,33 @@ root 相対の通常ファイルを 1 つ消す。成功は本文なしの 204�
 - 出力は stdout + stderr の合計 64 KiB（`RUNTIME_PROBE_MAX_OUTPUT_BYTES`）を上限とし、読み込み完了を待たずストリーム受信中に打ち切る。打ち切りと期限超過では `detached` で作ったプロセスグループごと SIGKILL し、孫プロセスを残さない
 
 この対応は診断用子プロセスからの漏えいを防ぐもので、同一ユーザーが読めるファイルや、すでに許可された `bash` 実行に対する完全な秘密隔離を保証しない（[sandbox.md](sandbox.md#残存リスク)）。
+
+## `GET /v1/procs/listeners`
+
+指定ポートの待受ソケット inode と、`scan=true` のときだけその所有プロセスを返す。serve の所有者照合（起動の確認と停止対象の特定）が使う内部 API。
+
+```
+GET /v1/procs/listeners?port=8080&scan=true
+```
+
+```json
+// response
+{
+  "inodes": [1270278],
+  "listener": {
+    "pid": 237424,
+    "startedAt": 1700000000000,
+    "inodes": [1270278],
+    "ancestors": [237424, 237400]
+  }
+}
+```
+
+- `inodes` — `/proc/net/tcp` と `/proc/net/tcp6` の LISTEN エントリから取った、指定ポートの待受ソケット inode（昇順）。待受が無ければ空配列。状態表示はこれと記録の inode の照合だけで所有者を分類する
+- `listener` — `scan=true` のときだけ特定する。`pid` / `startedAt`（`/proc/<pid>/stat` の起動時刻。PID 再利用の照合に使う。0 は不明）/ `inodes` / `ancestors`（自身から親をたどった PID。起動 PID の子孫かの判定に使う）。特定できなければ `null`
+- **この走査だけは bash 実行ではなくサンドボックス service 本体のプロセスで行う**。bash 実行は Landlock の ptrace 制限で他ドメインの `/proc/<pid>/fd` を読めない（自分の子孫は読める）ため、制限の外にいる service が代行する。`/proc/<pid>/fd` は readlink できるプロセス（同一ユーザーで生存中）だけを見る
+- `port` が 1..65535 の整数でなければ 400。読み取り専用で、ファイルは変更しない
+- 認証は他の `/v1/*` と同じ Bearer 必須。BFF の serve 実装だけが呼び、モデルはツール引数から指定できない
 
 ## 環境変数
 
