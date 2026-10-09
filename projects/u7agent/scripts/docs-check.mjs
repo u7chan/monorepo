@@ -139,7 +139,7 @@ function checkFile(file) {
   }
 
   // 見出しはアンカーとして外部から参照される。UI の階層を書くと、階層が変わるたびにリンクが死ぬ。
-  // 見出しの中のコード span は見出しの一部なので、fenced code block だけを外して判定する
+  // 見出しの中の単一のコード span は見出しの一部なので、コードブロックと複数行のコード span だけを外して判定する
   for (const [, heading] of withoutCodeBlocks(text).matchAll(/^#{1,6}[ \t]+(.*)$/gm)) {
     if (heading.includes("→")) errors.push(`${shown}: 見出しに「→」を書かない → ${heading}`);
   }

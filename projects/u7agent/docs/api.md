@@ -2,7 +2,7 @@
 
 静的ファイル（`/`）以外は `/api/` 配下。JSON は `Content-Type: application/json`。
 
-例の JSON のモデルは `<provider>` / `<id>` のプレースホルダで示す。実値は環境の利用可能モデル（設定 → モデル の「利用可能なモデル」と available の積）で決まる。
+例の JSON のモデルは `<provider>` / `<id>` のプレースホルダで示す。実値は環境の利用可能モデル（設定 → モデル（`/settings/models`）の「利用可能なモデル」と available の積）で決まる。
 
 DTO の正は `server/src/schema.ts`（zod）。リクエストボディは `@hono/zod-validator` で検証され、client（`client/src/api.ts`）は `hono/client`（hc）でこの契約を型として参照する。
 
