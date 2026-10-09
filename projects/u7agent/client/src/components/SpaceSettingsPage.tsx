@@ -8,7 +8,7 @@ export function SpaceSettingsPage(props: SettingsPageProps) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   return (
-    <SettingsPageLayout {...props} eyebrow="SPACES" title="スペース" caption="選択はこのタブだけに保存されます。">
+    <SettingsPageLayout {...props} eyebrow="SPACES" title="スペース" caption="選択はこのブラウザーに保存されます。">
       <div className="grid min-h-0 content-start gap-4 overflow-y-auto p-4">
         <p className="text-sm text-ink-soft">
           スペースは認証や安全な隔離ではありません。共通設定・ファイル・公開サービスは共有されます。追加スペースは会話専用です。

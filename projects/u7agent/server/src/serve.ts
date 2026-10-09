@@ -101,11 +101,13 @@ export interface ServeEnvSource {
   };
 }
 
-/** 会話 id から作業ディレクトリと会話名を引く (SessionStore が実装する) */
+/** 会話 id から作業ディレクトリ・会話名・所属スペースを引く (SessionStore が実装する) */
 export interface ServeSessionLookup {
   /** root 相対。未知の会話は undefined */
   workdirOfId(id: string): string | undefined;
   titleOfId(id: string): string | undefined;
+  /** 所属スペース。未知の会話は undefined (起動元の会話のリンクの `?space=` に使う) */
+  spaceOfId(id: string): string | undefined;
 }
 
 /** serve の起動実績 (作業ディレクトリ単位)。AppDb が構造的に満たす */
@@ -616,9 +618,14 @@ export class ServeService {
   #composeRuntime(observation: ServeObservation): RuntimeServeStatus {
     const record = observation.reachable && this.#matches(observation) ? observation.record : null;
     const title = record ? this.#sessions.titleOfId(record.sessionId) : undefined;
+    // 所属が引けないときは `?space=` を付けさせない (保存値で解決する現行どおりに戻す)
+    const spaceId = record && title !== undefined ? this.#sessions.spaceOfId(record.sessionId) : undefined;
     return {
       reachable: observation.reachable,
-      owner: record && title !== undefined ? { sessionId: record.sessionId, title } : null,
+      owner:
+        record && title !== undefined
+          ? { sessionId: record.sessionId, title, ...(spaceId === undefined ? {} : { spaceId }) }
+          : null,
       generation: this.#confirmationToken(observation),
       command: record ? { cwd: record.cwd, command: record.command } : null,
     };

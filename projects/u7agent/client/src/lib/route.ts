@@ -4,6 +4,8 @@
  * `/settings/models/<sub>` はモデル画面のタブ (MODELS_SUBSECTIONS)、`/s/<sessionId>` は通知の
  * ディープリンク (チャット + 選択待ちの入口)。未知・不正なパスはチャットへ畳み、routePath は常に
  * 正準形 (小文字・末尾スラッシュなし・既定タブのパスなし) を返す。
+ * `/s/<sessionId>` の `space` クエリだけは入口の入力として解釈し (entrySpaceOf)、読んだ後は
+ * キー単位で落とす (withoutEntrySpace)。
  */
 import {
   DEFAULT_MODELS_SUBSECTION,
@@ -70,6 +72,51 @@ export function routePath(route: Route): string {
 /** 選択待ちの入口 (`/s/<id>`) の sessionId。チャット以外の画面は持たない */
 export function pendingSessionIdOf(route: Route): string | undefined {
   return route.view === "chat" ? route.pendingSessionId : undefined;
+}
+
+/** 入口のリンクが載せる、開くスペースのクエリ名 */
+const SPACE_QUERY_KEY = "space";
+
+/**
+ * 入口 (`/s/<id>`) だけが読む `space` クエリ。他の画面では pathname と同じく解釈しない
+ * (他のクエリ・フラグメントを画面判断へ持ち込まない契約を崩さないため)。値が空なら無いものとして扱う。
+ */
+export function entrySpaceOf(route: Route, search: string): string | null {
+  if (!pendingSessionIdOf(route)) return null;
+  const value = new URLSearchParams(search).get(SPACE_QUERY_KEY);
+  return value ? value : null;
+}
+
+/**
+ * 入口の `space` キーだけを落とした search。読んだ値は使い捨てで、URL には残さない
+ * (Back / Forward で戻っても選択を切り替えない)。他のクエリは順序も書き方もそのまま残すため、
+ * `URLSearchParams` で組み直さず、項単位で外す。
+ */
+export function withoutEntrySpace(route: Route, search: string): string {
+  if (!pendingSessionIdOf(route)) return search;
+  const query = search.startsWith("?") ? search.slice(1) : search;
+  if (!query) return "";
+  const kept = query.split("&").filter((part) => !isSpaceParameter(part));
+  return kept.length > 0 ? `?${kept.join("&")}` : "";
+}
+
+function isSpaceParameter(part: string): boolean {
+  const [rawKey = ""] = part.split("=", 1);
+  try {
+    return decodeURIComponent(rawKey) === SPACE_QUERY_KEY;
+  } catch {
+    // 解釈できないキーは落とさない (他のクエリを壊すより残す)
+    return false;
+  }
+}
+
+/**
+ * 会話を指定して開くリンク。`space` を載せると入口の初期 mount がそのスペースを選ぶので、
+ * 保存値が別のスペースでも会話の所属で開ける (不明なら付けず、保存値で解決する現行どおり)。
+ */
+export function sessionEntryHref(sessionId: string, spaceId?: string): string {
+  const path = routePath({ view: "chat", pendingSessionId: sessionId });
+  return spaceId === undefined ? path : `${path}?${SPACE_QUERY_KEY}=${encodeURIComponent(spaceId)}`;
 }
 
 /** 入口を畳んだ route。入口が無ければ同じ object を返すので、呼び出し側は参照で「畳むか」を判定できる */

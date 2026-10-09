@@ -362,7 +362,8 @@ test("サービスは復元前でも追加スペースの cwd を使い、共有
   const status = await jsonBody(f.bff.app.request(`/api/serve/status?sessionId=${normal.sessionId}`));
   assert.deepEqual(status.owner, { kind: "other", title: "デモのサービス" });
   const runtime = await jsonBody(f.bff.app.request("/api/serve/runtime/status"));
-  assert.deepEqual(runtime.owner, { sessionId: demo.sessionId, title: "デモのサービス" });
+  // 起動元の所属スペースを載せ、保存値が別でもリンクがそのスペースで開ける
+  assert.deepEqual(runtime.owner, { sessionId: demo.sessionId, title: "デモのサービス", spaceId: space.id });
   assert.equal(f.pi.sessions.length, created);
   assert.equal(f.bff.store.get(demo.sessionId), undefined);
   const stop = await f.bff.app.request(

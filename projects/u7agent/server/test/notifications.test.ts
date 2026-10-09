@@ -168,8 +168,17 @@ test("maskWebhook hides the whole URL and any /api/webhooks path", () => {
 test("deepLink builds /s/<id> from the base URL and skips an unset base", () => {
   assert.equal(deepLink("http://127.0.0.1:5173", "a1b2c3d4e5"), "http://127.0.0.1:5173/s/a1b2c3d4e5");
   assert.equal(deepLink("http://127.0.0.1:5173", "a b"), "http://127.0.0.1:5173/s/a%20b");
+  // 開くスペースは保存値に依存させない (通常スペースも default として載せる)
+  assert.equal(
+    deepLink("http://127.0.0.1:5173", "a1b2c3d4e5", "space-1111111111111111"),
+    "http://127.0.0.1:5173/s/a1b2c3d4e5?space=space-1111111111111111",
+  );
+  assert.equal(
+    deepLink("http://127.0.0.1:5173", "a1b2c3d4e5", "default"),
+    "http://127.0.0.1:5173/s/a1b2c3d4e5?space=default",
+  );
   assert.equal(deepLink(undefined, "a1b2c3d4e5"), undefined);
-  assert.equal(deepLink("", "a1b2c3d4e5"), undefined);
+  assert.equal(deepLink("", "a1b2c3d4e5", "default"), undefined);
 });
 
 test("a test send posts an embed and stores the shared last result", async () => {
@@ -358,6 +367,7 @@ test("a session notification masks first and truncates after", async () => {
     service.save({ webhookUrl: WEBHOOK, enabled: true, baseUrl: "http://127.0.0.1:5173" });
     service.notifySession({
       sessionId: "a1b2c3d4e5",
+      spaceId: "space-1111111111111111",
       title: "パンくずの折り返しを直す",
       agentName: "実装担当",
       body: `${"a".repeat(190)}SECRET-TOKEN${"b".repeat(50)}`,
@@ -374,7 +384,28 @@ test("a session notification masks first and truncates after", async () => {
     assert.equal(body.includes("SECRET-TOK"), false);
     assert.match(body, /\[REDACTED\]/);
     assert.ok(body.endsWith("…"), "200 文字を超える本文は切り詰める");
-    assert.equal(link, "http://127.0.0.1:5173/s/a1b2c3d4e5");
+    assert.equal(link, "http://127.0.0.1:5173/s/a1b2c3d4e5?space=space-1111111111111111");
+  } finally {
+    db.close();
+  }
+});
+
+test("通知のスペースは通知層で正規化し、不正値でもリンクを落とさず ?space= を外す", async () => {
+  const { impl, calls } = fakeFetch(() => new Response(null, { status: 204 }));
+  const { db, service } = createService({ fetchImpl: impl });
+  const input = { sessionId: "a1b2c3d4e5", title: "t", agentName: "a", body: "b", durationMs: 1, toolCalls: 0 };
+  const linkOf = (index: number): string =>
+    String(payloadOf(calls[index]).embeds[0].description).split("\n").at(-1) ?? "";
+  try {
+    service.save({ webhookUrl: WEBHOOK, enabled: true, baseUrl: "http://127.0.0.1:5173" });
+    // 不正値でも通知そのものは失わない (notifyCompleted の fire-and-forget の外へ例外を出さない)
+    service.notifySession({ ...input, spaceId: "../bad" });
+    await waitFor(() => calls.length === 1);
+    assert.equal(linkOf(0), "http://127.0.0.1:5173/s/a1b2c3d4e5");
+    // 未指定は通常スペース (保存値に依存させない)
+    service.notifySession(input);
+    await waitFor(() => calls.length === 2);
+    assert.equal(linkOf(1), "http://127.0.0.1:5173/s/a1b2c3d4e5?space=default");
   } finally {
     db.close();
   }

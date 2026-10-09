@@ -1,5 +1,5 @@
 import { cn } from "../lib/cn";
-import { routePath } from "../lib/route";
+import { sessionEntryHref } from "../lib/route";
 import type { RuntimeServeState } from "../lib/runtimeServe";
 import { servedAppUrl } from "../lib/servedApp";
 import { ExternalLinkIcon, StopIcon } from "./icons";
@@ -48,7 +48,7 @@ export function RuntimeServiceCard({
                     {status.owner ? (
                       <a
                         className="text-accent underline underline-offset-2"
-                        href={routePath({ view: "chat", pendingSessionId: status.owner.sessionId })}
+                        href={sessionEntryHref(status.owner.sessionId, status.owner.spaceId)}
                         onClick={(event) => {
                           if (
                             !onOpenSession ||

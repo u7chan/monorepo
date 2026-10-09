@@ -6,6 +6,7 @@ import type { AppDb } from "./app-db";
 import { httpError, messageFor } from "./http";
 import { createSecretMasker, REDACTED, type SecretMasker } from "./redact";
 import { truncate } from "./session-projection";
+import { spaceIdOf } from "./spaces";
 import type {
   NotificationResult,
   NotificationSettings,
@@ -40,6 +41,8 @@ export interface NotificationServiceOptions {
 /** ラン完了通知の中身 (マスク前の生値) */
 export interface SessionNotificationInput {
   sessionId: string;
+  /** 会話の所属スペース。未指定・不正は通知層が既定として扱う (通知を失わない) */
+  spaceId?: string;
   title: string;
   agentName: string;
   /** 最終 assistant の本文 */
@@ -122,11 +125,28 @@ export function maskWebhook(text: string, knownUrls: readonly string[] = []): st
   return result.replace(WEBHOOK_PATH_PATTERN, REDACTED);
 }
 
-/** 通知本文のリンク。baseUrl 未設定なら undefined (リンク行ごと出さない) */
-export function deepLink(baseUrl: string | undefined, sessionId: string): string | undefined {
+/**
+ * 通知本文のリンク。`space` は開くスペースの明示で、保存値に依存せずその会話の所属で開くために載せる。
+ * baseUrl 未設定なら undefined (リンク行ごと出さない)。spaceId が undefined のときは付けない。
+ */
+export function deepLink(baseUrl: string | undefined, sessionId: string, spaceId?: string): string | undefined {
   if (!baseUrl) return undefined;
   try {
-    return new URL(`/s/${encodeURIComponent(sessionId)}`, baseUrl).href;
+    const url = new URL(`/s/${encodeURIComponent(sessionId)}`, baseUrl);
+    if (spaceId !== undefined) url.searchParams.set("space", spaceId);
+    return url.href;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * 通知に載せるスペース。通知層で正規化するのは、不正値で fire-and-forget の外へ例外を出さないため
+ * (notifyCompleted は待たない)。検証できない値は通知ごと落とさず、`?space=` なしで送る。
+ */
+function spaceOfNotification(spaceId: string | undefined): string | undefined {
+  try {
+    return spaceIdOf(spaceId);
   } catch {
     return undefined;
   }
@@ -246,7 +266,7 @@ export class NotificationService {
       .join(" ・ ");
     // マスクしてから切り詰める (逆順だと上限の境界でキーの末尾が欠ける)
     const body = truncate(this.#mask(input.body), NOTIFICATION_BODY_MAX);
-    const link = deepLink(settings.baseUrl, input.sessionId);
+    const link = deepLink(settings.baseUrl, input.sessionId, spaceOfNotification(input.spaceId));
     return {
       embeds: [
         {

@@ -4,7 +4,7 @@
 
 | 変更テーマ | 主に読むコード | 主に読む docs |
 | --- | --- | --- |
-| デモ用スペース（会話専用・タブ別選択） | `server/src/spaces.ts`、`server/src/space-context.ts`、`server/src/app-paths.ts`、`client/src/SpacesApp.tsx`、`client/src/SpaceContext.ts` | [persistence.md](persistence.md#スペース)、[api.md](api.md#スペース)、[frontend.md](frontend.md#スペースの選択)、[ui-layout.md](ui-layout.md#スペース)、[testing.md](testing.md#スペースの受入) |
+| デモ用スペース（会話専用・ブラウザー単位選択） | `server/src/spaces.ts`、`server/src/space-context.ts`、`server/src/app-paths.ts`、`client/src/SpacesApp.tsx`、`client/src/SpaceContext.ts` | [persistence.md](persistence.md#スペース)、[api.md](api.md#スペース)、[frontend.md](frontend.md#スペースの選択)、[ui-layout.md](ui-layout.md#スペース)、[testing.md](testing.md#スペースの受入) |
 | ランの送信 / キュー / 停止 / SSE | `server/src/routes/sessions.ts`、`server/src/sessions.ts`、`server/src/run-events.ts` | [run-lifecycle.md](run-lifecycle.md)、[api-sessions.md](api-sessions.md) |
 | エージェントからユーザーへの質問カード（ask_user） | `server/src/ask-user-tool.ts`、`server/src/sessions.ts`、`client/src/lib/askUser.ts`、`client/src/components/chat/AskUserCard.tsx` | [ask-user.md](ask-user.md)、[api-sessions.md](api-sessions.md) |
 | 調査の子エージェントへの委譲（investigate） | `server/src/investigate-tool.ts`、`server/src/investigate-runner.ts`、`server/src/sessions.ts`、`server/src/agent.ts` | [subagent.md](subagent.md)、[api-sessions.md](api-sessions.md) |

@@ -70,7 +70,7 @@ test("ランタイムは会話未選択でも全体の状態を取得し、所�
     await bff.app.request("/api/serve/start", jsonPost({ sessionId: first }));
     const status = await jsonBody(await bff.app.request("/api/serve/runtime/status"));
     assert.equal(RuntimeServeStatusSchema.safeParse(status).success, true);
-    assert.deepEqual(status.owner, { sessionId: first, title: "無題のセッション" });
+    assert.deepEqual(status.owner, { sessionId: first, title: "無題のセッション", spaceId: "default" });
     assert.deepEqual(status.command, { cwd: "", command: "pnpm dev" });
     const conflict = await bff.app.request("/api/serve/runtime/stop", jsonPost({ generation: "stale" }));
     assert.equal(conflict.status, 409);
@@ -330,7 +330,11 @@ test("createServeToolHost は status / stop の結果をそのまま説明文に
       getServeCommand: () => undefined,
       saveServeCommand: () => {},
     },
-    sessions: { workdirOfId: (id) => (id === "aaaa000001" ? "" : undefined), titleOfId: () => "t" },
+    sessions: {
+      workdirOfId: (id) => (id === "aaaa000001" ? "" : undefined),
+      titleOfId: () => "t",
+      spaceOfId: () => "default",
+    },
     sandbox: sandbox.sandbox,
     probe: async () => false,
   });

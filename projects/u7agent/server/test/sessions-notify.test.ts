@@ -190,8 +190,15 @@ test("a completed run posts one embed with the link and masked body", async () =
         "/api/notifications",
         jsonPut({ webhookUrl: WEBHOOK, enabled: true, baseUrl: "http://127.0.0.1:5173" }),
       );
-      const created = await jsonBody(bff.app.request("/api/sessions", jsonPost({ notify: true })));
-      await bff.app.request(`/api/sessions/${created.sessionId}/messages`, jsonPost({ text: "実行して" }));
+      // 通常スペース以外の会話でも、リンクはその会話の所属で開ける (保存値に依存させない)
+      const space = await jsonBody(bff.app.request("/api/spaces", jsonPost({ name: "デモ" })));
+      const created = await jsonBody(
+        bff.app.request("/api/sessions", jsonPost({ notify: true, spaceId: space.space.id })),
+      );
+      await bff.app.request(
+        `/api/sessions/${created.sessionId}/messages?spaceId=${space.space.id}`,
+        jsonPost({ text: "実行して" }),
+      );
       await waitFor(() => calls.length === 1);
 
       const payload = JSON.parse(String(calls[0].init?.body));
@@ -201,7 +208,7 @@ test("a completed run posts one embed with the link and masked body", async () =
       assert.match(lines[0], /^汎用アシスタント ・ \d+秒 ・ ツール 0件$/);
       // 通知本文の Webhook URL は専用マスクで潰す
       assert.equal(lines[1], "結果です [REDACTED]");
-      assert.equal(lines[2], `http://127.0.0.1:5173/s/${created.sessionId}`);
+      assert.equal(lines[2], `http://127.0.0.1:5173/s/${created.sessionId}?space=${space.space.id}`);
     } finally {
       await bff.close();
     }

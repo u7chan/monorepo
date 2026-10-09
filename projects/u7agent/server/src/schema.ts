@@ -1248,7 +1248,8 @@ export type ServeCommand = z.infer<typeof ServeCommandSchema>;
 /** 設定 → ランタイム。閲覧中の会話の実績ではなく、いま公開中のサービスを返す。 */
 export const RuntimeServeStatusSchema = z.object({
   reachable: z.boolean(),
-  owner: z.object({ sessionId: z.string(), title: z.string() }).nullable(),
+  /** 起動元の会話。所属スペースが引けない (削除済み等) ときは `spaceId` を載せない */
+  owner: z.object({ sessionId: z.string(), title: z.string(), spaceId: z.string().optional() }).nullable(),
   generation: z.string().nullable(),
   command: ServeCommandSchema.nullable(),
 });

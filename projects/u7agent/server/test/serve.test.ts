@@ -19,6 +19,8 @@ import {
 const SESSION = "aaaa000001";
 const OTHER = "bbbb000002";
 const CWD = "projects/foo";
+/** 他会話 (起動元) の所属スペース。ランタイムのリンクの `?space=` に使う */
+const OWNER_SPACE = "space-1111111111111111";
 const NOW = 1_700_000_000_000;
 
 /** 画面と同じく、状態 API が返した照合値をそのまま返す */
@@ -40,7 +42,7 @@ function setup(
   const commands = createCommandStore(options.command ? [{ cwd: CWD, command: options.command, updatedAt: NOW }] : []);
   const sessions = createSessionLookup({
     [SESSION]: { cwd: CWD, title: "トップページの改修" },
-    [OTHER]: { cwd: "projects/bar", title: "決済画面の検証" },
+    [OTHER]: { cwd: "projects/bar", title: "決済画面の検証", spaceId: OWNER_SPACE },
   });
   // 稼働判定は待受プロセスの有無で決まる (launch すると listen が始まり、kill で消える)
   let probeCalls = 0;
@@ -126,7 +128,7 @@ test("ランタイムは現在の記録のコマンドと会話を返し、古�
   commands.rows.set("projects/bar", { cwd: "projects/bar", command: "outdated", updatedAt: NOW });
   const status = await service.runtimeStatus();
   assert.equal(status.reachable, true);
-  assert.deepEqual(status.owner, { sessionId: OTHER, title: "決済画面の検証" });
+  assert.deepEqual(status.owner, { sessionId: OTHER, title: "決済画面の検証", spaceId: OWNER_SPACE });
   assert.deepEqual(status.command, { cwd: "projects/bar", command: "pnpm dev" });
   assert.equal(sandbox.state.scans, 0, "状態表示では fd 走査しない");
   await service.runtimeStop({ generation: status.generation! });
@@ -158,6 +160,30 @@ test("削除済み会話のリンクやコンテナ再作成後の古い記録�
     generation: null,
     command: null,
   });
+});
+
+test("所属スペースを引けない起動元には spaceId を載せない (保存値で解決させる)", async () => {
+  const sandbox = createServeSandboxStub();
+  const service = new ServeService({
+    appDb: createCommandStore().db,
+    sessions: createSessionLookup({ [SESSION]: { cwd: CWD, title: "トップページの改修" } }),
+    sandbox: sandbox.sandbox,
+    probe: async () => sandbox.state.listener !== null,
+    now: () => NOW,
+  });
+  putRecord(sandbox.state, {
+    sessionId: SESSION,
+    cwd: CWD,
+    command: "pnpm dev",
+    pid: 100,
+    startedAt: NOW - 5_000,
+    inodes: [500],
+    generation: "gen-1",
+  });
+  sandbox.state.listener = { pid: 100, startedAt: NOW - 5_000, inodes: [500], ancestors: [100] };
+  const status = await service.runtimeStatus();
+  assert.deepEqual(status.owner, { sessionId: SESSION, title: "トップページの改修" });
+  assert.equal("spaceId" in (status.owner ?? {}), false);
 });
 
 test("全体停止でも待受PID不明と停止未完了を成功にしない", async () => {
