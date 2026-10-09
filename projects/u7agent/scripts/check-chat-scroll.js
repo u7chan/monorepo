@@ -25,6 +25,8 @@ async function checkChatScroll(page) {
   };
   const json = (route, body, status = 200) =>
     route.fulfill({ status, contentType: "application/json", body: JSON.stringify(body) });
+  // クエリ (`?spaceId=`) で glob が外れるとスタブが効かず実データへ当たるため、パスで合わせる
+  const apiPath = (path) => (url) => url.pathname === path;
   await page.route("**/api/health", (route) =>
     json(route, {
       ready: true,
@@ -34,11 +36,11 @@ async function checkChatScroll(page) {
       defaultThinkingLevel: "off",
     }),
   );
-  await page.route("**/api/sessions", (route) =>
+  await page.route(apiPath("/api/sessions"), (route) =>
     route.request().method() === "POST" ? json(route, payload, 201) : json(route, { sessions: [] }),
   );
-  await page.route(`**/api/sessions/${sessionId}`, (route) => json(route, payload));
-  await page.route(`**/api/sessions/${sessionId}/history**`, (route) =>
+  await page.route(apiPath(`/api/sessions/${sessionId}`), (route) => json(route, payload));
+  await page.route(apiPath(`/api/sessions/${sessionId}/history`), (route) =>
     json(route, {
       sessionId,
       items: [],
@@ -79,7 +81,7 @@ async function checkChatScroll(page) {
     };
     requestAnimationFrame(sample);
   });
-  await page.route(`**/api/sessions/${sessionId}/messages`, async (route) => {
+  await page.route(apiPath(`/api/sessions/${sessionId}/messages`), async (route) => {
     await json(route, { sessionId, status: "running", queued: false, queueDepth: 0, runId: "check-run" }, 202);
     await page.waitForFunction(() => Boolean(window.__scrollCheck.source));
     await page.evaluate(() => {
@@ -110,6 +112,16 @@ async function checkChatScroll(page) {
       setTimeout(tick, 100);
     });
   });
+
+  // スタブが外れると実セッションへ送信して実 LLM を呼ぶため、ここで止める。ルートは登録が後のものから
+  // 照合されるので、ここが先に当たってから stub へ fallback する
+  await page.route(
+    (url) => url.pathname.endsWith("/messages"),
+    (route) =>
+      route.request().url().includes(`/api/sessions/${sessionId}/messages`)
+        ? route.fallback()
+        : json(route, { error: "check-chat-scroll は stub 以外のセッションへ送信しない" }, 500),
+  );
 
   const narrow = page.url().includes("narrow");
   await page.setViewportSize(narrow ? { width: 390, height: 844 } : { width: 1180, height: 712 });

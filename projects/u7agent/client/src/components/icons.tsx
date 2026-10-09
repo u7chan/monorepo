@@ -89,22 +89,35 @@ export function ArrowLeftIcon() {
   );
 }
 
-export function ArrowDownIcon() {
+/**
+ * 送信 (↑) と「最新のメッセージへ移動」 (↓) の縦の矢印。2 つは上下の鏡像で、軸の端は山の頂点に重ねる。
+ * 頂点より軸が伸びると先だけが出っ張って見えるため、片方だけ形を直さないよう 1 か所で組む
+ */
+function VerticalArrowIcon({ direction }: { direction: "up" | "down" }) {
+  const up = direction === "up";
   return (
     <svg
       aria-hidden="true"
       viewBox="0 0 16 16"
       fill="none"
       stroke="currentColor"
-      strokeWidth="1.6"
+      strokeWidth="2"
       strokeLinecap="round"
       strokeLinejoin="round"
       className="size-4 shrink-0"
     >
-      <path d="M8 3.75V12.5" />
-      <path d="M3.75 7.25 8 11.5l4.25-4.25" />
+      <path d={up ? "M8 13.25V2.75" : "M8 2.75V13.25"} />
+      <path d={up ? "M3.5 7.25 8 2.75l4.5 4.5" : "M3.5 8.75 8 13.25l4.5-4.5"} />
     </svg>
   );
+}
+
+export function ArrowUpIcon() {
+  return <VerticalArrowIcon direction="up" />;
+}
+
+export function ArrowDownIcon() {
+  return <VerticalArrowIcon direction="down" />;
 }
 
 /**

@@ -80,6 +80,7 @@ test("上端付近で古いページの先読みを 1 回だけ要求する", ()
 test("ScrollToBottomButton は最新へ戻るボタンとして読み上げられる", () => {
   const html = renderToStaticMarkup(
     createElement(ScrollToBottomButton, {
+      visible: true,
       onClick: () => {},
     }),
   );

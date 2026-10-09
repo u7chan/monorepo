@@ -70,23 +70,6 @@
       transform: translateX(-12px);
     }
   }
-
-  /* 追従が外れたときに浮かぶ「最新へ」ボタンの出現用 (下からふわっと)。呼び出し側の
-   * -translate-x-1/2 は Tailwind v4 では translate プロパティなので、ここで translate を
-   * 動かすと中央寄せが崩れる。transform と scale だけを動かす */
-  --animate-float-in: float-in 200ms ease-out;
-  @keyframes float-in {
-    from {
-      opacity: 0;
-      transform: translateY(6px);
-      scale: 0.96;
-    }
-    to {
-      opacity: 1;
-      transform: translateY(0);
-      scale: 1;
-    }
-  }
 }
 
 /* セマンティックトークン → ユーティリティ。inline オプションにより、ユーティリティは
@@ -541,6 +524,42 @@
   .virtual-item {
     @apply absolute inset-x-0 top-0;
     transform: translateY(var(--virtual-start));
+  }
+
+  /* 「最新のメッセージへ移動」ボタンの出入り (下からふわっと出て、下へふわっと消える)。退場の終わりを
+   * 待って unmount する state を持たなくて済むよう、ボタンは常に置いて状態だけを切り替える。隠れている
+   * 間は visibility で押せなくし、フォーカスと読み上げから外す。呼び出し側の -translate-x-1/2 は
+   * Tailwind v4 では translate プロパティなので、ここで translate を動かすと中央寄せが崩れる
+   * (transform と scale を動かす) */
+  .scroll-to-bottom {
+    visibility: hidden;
+    opacity: 0;
+    transform: translateY(6px);
+    scale: 0.96;
+    transition:
+      opacity 200ms ease-out,
+      transform 200ms ease-out,
+      scale 200ms ease-out,
+      color 150ms ease-out,
+      border-color 150ms ease-out,
+      visibility 0s;
+    /* visibility だけ遅らせ、消える間はフェードを見せる */
+    transition-delay: 0s, 0s, 0s, 0s, 0s, 200ms;
+  }
+  .scroll-to-bottom[data-visible="true"] {
+    visibility: visible;
+    opacity: 1;
+    transform: translateY(0);
+    scale: 1;
+    transition-delay: 0s;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    /* 出入りは即時にする (ホバーの色だけは残す) */
+    .scroll-to-bottom {
+      transition:
+        color 150ms ease-out,
+        border-color 150ms ease-out;
+    }
   }
 
   /* ステータスドット (7px)。色クラスと組み合わせて使う */
