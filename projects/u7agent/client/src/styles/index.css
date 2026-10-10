@@ -705,6 +705,125 @@
     }
   }
 
+  /* 実行中インジケータの経過時間 (ComposerStatus)。数字は毎秒 key の再マウントで作り直される
+   * ため、animation は 1 回流すだけでよい。CSS の 1 秒ループは interval の遅れで数字と
+   * 位相がずれ、戻らない。--elapsed-rest は演出が終わったあとの色で、animation-fill-mode の
+   * 100% が残っても長いランの色分け (elapsed-tick-tier) が効くようにする。 */
+  .elapsed-tick {
+    --elapsed-rest: var(--c-ink-ghost);
+    position: relative;
+    display: inline-block;
+    color: var(--elapsed-rest);
+    animation: elapsed-tick-pop 300ms cubic-bezier(0.22, 1.15, 0.36, 1) both;
+  }
+  /* 次の 1 秒までの残りを下線で見せる。数字が変わる瞬間に満ちきる */
+  .elapsed-tick::after {
+    content: "";
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: -3px;
+    height: 1.5px;
+    border-radius: 2px;
+    background: linear-gradient(90deg, var(--c-accent-strong), var(--c-accent-bright));
+    transform-origin: left center;
+    animation: elapsed-tick-sweep 1s linear both;
+  }
+  /* 節目は大きく弾け、数字の後ろにリングを出す */
+  .elapsed-tick-level {
+    animation: elapsed-tick-level 620ms cubic-bezier(0.2, 1.2, 0.3, 1) both;
+  }
+  .elapsed-tick-level::before {
+    content: "";
+    position: absolute;
+    inset: -2px -5px;
+    border: 1px solid var(--c-accent);
+    border-radius: 999px;
+    background: var(--c-accent-wash);
+    animation: elapsed-tick-ring 700ms ease-out both;
+  }
+  /* 1 分を超えたら色を残す (長いランを一目で見分ける。停止の判定には使わない) */
+  .elapsed-tick-tier {
+    --elapsed-rest: var(--c-accent-text);
+  }
+  @keyframes elapsed-tick-pop {
+    0% {
+      scale: 1;
+      color: var(--elapsed-rest);
+      text-shadow: none;
+    }
+    16% {
+      scale: 1.22;
+      color: var(--c-accent-text);
+      text-shadow: 0 0 5px color-mix(in srgb, currentColor 55%, transparent);
+    }
+    100% {
+      scale: 1;
+      color: var(--elapsed-rest);
+      text-shadow: none;
+    }
+  }
+  @keyframes elapsed-tick-level {
+    0% {
+      scale: 1;
+      color: var(--elapsed-rest);
+      text-shadow: none;
+    }
+    10% {
+      scale: 1.65;
+      color: var(--c-accent-bright);
+      text-shadow: 0 0 8px color-mix(in srgb, currentColor 80%, transparent);
+    }
+    34% {
+      scale: 1.15;
+      color: var(--c-accent-text);
+    }
+    100% {
+      scale: 1;
+      color: var(--elapsed-rest);
+      text-shadow: none;
+    }
+  }
+  @keyframes elapsed-tick-sweep {
+    from {
+      scale: 0 1;
+    }
+    to {
+      scale: 1 1;
+    }
+  }
+  @keyframes elapsed-tick-ring {
+    0% {
+      opacity: 0;
+      scale: 0.6;
+    }
+    22% {
+      opacity: 1;
+      scale: 1;
+    }
+    100% {
+      opacity: 0;
+      scale: 1;
+    }
+  }
+  /* 動きを止める設定では装飾ごと外す (数字と長いランの色はそのまま出る) */
+  @media (prefers-reduced-motion: reduce) {
+    .elapsed-tick,
+    .elapsed-tick-level {
+      animation: none;
+    }
+    .elapsed-tick::after,
+    .elapsed-tick-level::before {
+      display: none;
+    }
+  }
+  @media (forced-colors: active) {
+    .elapsed-tick::after,
+    .elapsed-tick-level::before {
+      display: none;
+    }
+  }
+
   /* コピー確定のチェック (CopyButton)。既定値を「書き終わった静止画」にしてあるため、
    * animation を切る環境 (prefers-reduced-motion) でもチェックはそのまま出る。
    * 演出の意図と寸法は docs/frontend.md が正 */

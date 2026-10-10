@@ -1,7 +1,7 @@
 import { useId, type CSSProperties } from "react";
 import { useElapsedMs } from "../../hooks/useElapsedMs";
 import { cn } from "../../lib/cn";
-import { formatElapsed } from "../../lib/elapsed";
+import { formatElapsed, isElapsedMilestone, isElapsedTier } from "../../lib/elapsed";
 import {
   blockedButtonsNotice,
   retryableRunError,
@@ -89,7 +89,8 @@ export function ComposerStatus({
   const shimmer = activityState === "thinking";
   const gauge = contextGauge(context);
   const elapsedMs = useElapsedMs(runningSince);
-  const elapsed = elapsedMs === undefined ? null : formatElapsed(elapsedMs);
+  // 実行中の経過。ms と表示文を組で持つ (演出の判定は ms、表示は文)
+  const elapsed = elapsedMs === undefined ? null : { ms: elapsedMs, text: formatElapsed(elapsedMs) };
   // 確定した合計時間。実行中の経過と違って毎秒変わらないので、活動欄と同じ行に出しつつ読み上げに残す
   const finishedElapsed = finishedRunDurationMs === undefined ? null : formatElapsed(finishedRunDurationMs);
   // 活動が無いときは活動欄ごと出さない (空の欄が折り返して空行が残るのを避ける)
@@ -150,11 +151,22 @@ export function ComposerStatus({
             </span>
             {/* 毎秒変わる数字は aria-live の外に置く (読み上げの連発を避ける) */}
             {elapsed === null ? null : (
-              <span aria-hidden="true" className="shrink-0 font-sans text-2xs text-ink-ghost tabular-nums">
-                ({elapsed})
+              // key に経過時間そのものを渡し、毎秒作り直して演出を先頭から流す。
+              // CSS の 1 秒ループは interval の遅れで数字と位相がずれ、戻らない
+              <span
+                key={elapsed.ms}
+                aria-hidden="true"
+                className={cn(
+                  "elapsed-tick shrink-0 font-sans text-2xs tabular-nums",
+                  isElapsedMilestone(elapsed.ms) ? "elapsed-tick-level" : "",
+                  isElapsedTier(elapsed.ms) ? "elapsed-tick-tier" : "",
+                )}
+              >
+                ({elapsed.text})
               </span>
             )}
-            {/* 完了の合計時間 (動かない値)。aria-live の外に置き、読み上げの対象には残す */}
+            {/* 完了の合計時間 (動かない値)。aria-live の外に置き、読み上げの対象には残す。
+                実行中と同じ位置に出るが、終わった値なので演出は付けない */}
             {finishedElapsed === null ? null : (
               <span className="shrink-0 font-sans text-2xs text-ink-ghost tabular-nums">({finishedElapsed})</span>
             )}
