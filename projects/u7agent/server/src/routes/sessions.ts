@@ -290,8 +290,8 @@ export function createSessionRoutes({
 
     /**
      * 選択時の即時アップロード。bodyGuard (既定 64 KiB 上限 / text 化) を通さないよう、app.ts では
-     * このルートを bodyGuard より先に登録する。保存先は所属に関係なく `<appdir>/uploads/<sessionId>/`
-     * (プロジェクトのリポジトリ内にファイルを作らない)。
+     * このルートを bodyGuard より先に登録する。保存先は所属スペースの添付置き場 (app-paths.ts の
+     * `sessionUploadsRel`。プロジェクトのリポジトリ内にファイルを作らない)。
      */
     uploadFile: async (c: Context) => {
       if (!workspace) return sandboxNotConfigured(c);

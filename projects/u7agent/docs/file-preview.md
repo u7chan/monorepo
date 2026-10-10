@@ -235,7 +235,7 @@ HTML プレビューのパス行のアイコンボタンで、描画中の文書
 
 - `FileBrowser` は root が変わると復元・取得・保存をやり直す必要があるので、呼び出し側が `key` を張り替える。パネルはセッションの切替で `SessionFilesPanel` ごと入れ替える（`FileBrowser` の `root` は mount の間一定）。スキルのファイルタブは選択したスキルごとに `ReadOnlySkillPanel` ごと入れ替え、初回にタブを開いたときだけ `FileBrowser` を mount する（以降は `display` で隠して保持する）。チャットのスキル面も `FileBrowser` の `key` を skill root にして、root の切替で remount する
 - 取り直しの入口は外装の「再読み込み」と run_end で共通の `reloadToken` に集める（`SessionFilesPanel` は ヘッダの「再読み込み」の回数 + `ChatState.runEndSeq` の合計を渡す）。**チャットのスキル面はヘッダに「再読み込み」を持たず、`runEndSeq` だけを渡す**（設定 → スキルのファイルタブは自動の取り直しを持たない）。mount 時の token では撃たない（root の切替は `key` が扱うため）。run_end は描画された `runStatus` の差ではなく、reducer が `run_end` で進める `runEndSeq` を起点にする（`run_start` と `run_end` が同じバッチで届くと React は 1 回の描画にまとめるため、画面側では `running` を観測できず取りこぼす。SSE が切れて `resync` で復帰したときも、`running` を抜けていれば reducer が進める）。実行中の `tool_end` ごとの更新はしない
-- `GET /api/files` の path は root を前置する（`fileTreeFetchPath`）ので、パネルは `payload.cwd`（プロジェクト所属なら登録ディレクトリ、未所属なら `.u7agent/sessions/<id>`）を root として扱う。サンドボックス / API は変えない（同じファイルを設定 → ファイル からも開ける）
+- `GET /api/files` の path は root を前置する（`fileTreeFetchPath`）ので、パネルは `payload.cwd`（プロジェクト所属なら登録ディレクトリ、未所属なら所属スペースのスクラッチ）を root として扱う。サンドボックス / API は変えない（同じファイルを設定 → ファイル からも開ける）
 - **作業フォルダ面（右パネル / sheet）だけが `.git` を行ごと隠す**（[隠す行](#隠す行)）。設定 → ファイル とスキル面（設定 → スキルのファイルタブ / チャットのスキル面）は隠さない
 
 ## 隠す行

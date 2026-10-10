@@ -15,8 +15,8 @@ import type { SandboxSkillEntry } from "./sandbox/protocol";
 import type { FileSkillInfo, FileSkillsResponse } from "./schema";
 
 /**
- * プロジェクトスキルの置き場 (root 相対)。未所属チャットのスクラッチ (`<appdir>/sessions/<id>`) と
- * root 直下では探索しないため undefined。一覧 API もこの判定を使う (探索範囲を二重実装しない)。
+ * プロジェクトスキルの置き場 (root 相対)。未所属チャットのスクラッチ (`<appdir>` 配下。通常スペースは
+ * `<appdir>/sessions/<id>`) と root 直下では探索しないため undefined。一覧 API もこの判定を使う (探索範囲を二重実装しない)。
  */
 export function projectSkillsDir(relativeCwd: string): string | undefined {
   if (!relativeCwd || isAppDirPath(relativeCwd)) return undefined;

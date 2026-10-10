@@ -1,7 +1,7 @@
 /**
  * チャットの添付ファイル。本文へ画像を混ぜず (マルチモーダル注入はしない)、プロジェクトの
- * リポジトリ内にファイルを作らないよう、保存先は所属に関係なく `<appdir>/uploads/<sessionId>/` に
- * 統一する。モデルへはプロジェクトの cwd からでも開けるよう、注記で絶対パスを知らせる。
+ * リポジトリ内にファイルを作らないよう、保存先は所属スペースの添付置き場 (app-paths.ts の
+ * `sessionUploadsRel`) へ固定する。モデルへはプロジェクトの cwd からでも開けるよう、注記で絶対パスを知らせる。
  * 組み立てと検証はここだけに置く。
  */
 import { httpError } from "./http";
@@ -18,7 +18,7 @@ const ATTACHMENT_LINE_PREFIX = "- ";
 
 /**
  * 添付パス (root 相対) を検証し、正規化した形で返す。セッションの保存先
- * (`<appdir>/uploads/<sessionId>/`) の配下だけを許可する。セッションを跨いだ参照は 400 にする。
+ * (`uploadsDirRel`。所属スペースで決まる) の配下だけを許可する。セッションを跨いだ参照は 400 にする。
  */
 export function normalizeAttachmentPaths(values: unknown, uploadsDirRel: string): string[] {
   if (values === undefined) return [];
@@ -53,7 +53,7 @@ export function composePrompt(text: string, attachmentPaths: string[]): string {
 }
 
 /**
- * サンドボックスが返す root 相対パスを、セッションの保存先 (`<appdir>/uploads/<sessionId>/`)
+ * サンドボックスが返す root 相対パスを、セッションの保存先 (`uploadsDirRel`)
  * 配下の添付として検証する。契約違反 (別ディレクトリ・`..`・絶対パス・ファイル名なし) は undefined。
  */
 export function toAttachmentPath(uploadsDirRel: string, path: string): string | undefined {

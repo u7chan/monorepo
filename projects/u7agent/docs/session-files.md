@@ -37,13 +37,11 @@ $PI_SESSION_STORE/<id>/
 $PI_SESSION_STORE/u7agent.db  # アプリデータ（プロジェクト / カタログ。persistence.md）
 
 # 2) 未所属セッションのスクラッチ（サンドボックスが読み書き。ファイル画面の root）
-<workspace root>/<appdir>/sessions/<id>/
-
-# 3) 添付ファイルの置き場（全セッション共通。ファイル画面には出ない）
-<workspace root>/<appdir>/uploads/<id>/
+# 3) 添付ファイルの置き場（ファイル画面には出ない）
+#    どちらも置き場は所属スペースで決まる（後述の「スペースごとの配置」）
 ```
 
-`<appdir>` は現 `.u7agent`（BFF の `APP_DIR_REL`）。プロジェクト所属セッションの作業ディレクトリは登録ディレクトリ（`project.cwd`）そのもので、スクラッチも添付も `<appdir>` 配下に置く（[projects.md](projects.md#セッション-cwd)）。添付を `<appdir>/uploads/<id>` に固定するのは、プロジェクト所属でもリポジトリ内にファイルを作らないため。
+`<appdir>` は現 `.u7agent`（BFF の `APP_DIR_REL`）。プロジェクト所属セッションの作業ディレクトリは登録ディレクトリ（`project.cwd`）そのもので、スクラッチも添付も `<appdir>` 配下に置く（[projects.md](projects.md#セッション-cwd)）。添付を `<appdir>` 配下に固定するのは、プロジェクト所属でもリポジトリ内にファイルを作らないため。
 
 - `<id>` は `crypto.randomBytes(5).toString("hex")` の 10 文字。外部ライブラリは増やさない。store 側のフォルダ存在で衝突を検出し、衝突したら再生成する。SDK の `assertValidSessionId` も満たす。
 - `PI_SESSION_STORE` の既定は `<agentDir>/u7agent/sessions`。**`PI_APP_CWD` の中は起動時に拒否する**（ワークスペースをサンドボックスと共有する構成で store を共有してしまう事故を防ぐ）。
@@ -53,9 +51,14 @@ $PI_SESSION_STORE/u7agent.db  # アプリデータ（プロジェクト / カタ
 
 ## スペースごとの配置
 
-通常（`default`）の作業先・添付と BFF 会話ストアの配置は変えない。追加スペースの作業領域だけ次のパスを使う。パスの正は `server/src/app-paths.ts` で、表示名や任意の要求パスからは組み立てない。
+通常（`default`）の作業先・添付と BFF 会話ストアの配置は変えない。作業フォルダ（スクラッチ）と添付の置き場は所属スペースで決まり、`spaceId` の省略だけが `default` に寄る（不正値は 400）。パスの正は `server/src/app-paths.ts` の `sessionWorkdirRel` / `sessionUploadsRel` で、表示名や任意の要求パスからは組み立てない。
 
 ```text
+# 通常（default）
+<workspace>/.u7agent/sessions/<sessionId>/
+<workspace>/.u7agent/uploads/<sessionId>/
+
+# 追加スペース
 <workspace>/.u7agent/spaces/<spaceId>/sessions/<sessionId>/
 <workspace>/.u7agent/spaces/<spaceId>/uploads/<sessionId>/
 ```
@@ -149,18 +152,18 @@ meta の optional `spaceId` は欠落だけが `default`。追加スペースで
 
 ## 添付ファイル（チャットからのアップロード）
 
-チャットから添付したファイルは、所属に関係なく `<appdir>/uploads/<sessionId>/` に置く（プロジェクトのリポジトリ内には作らない。ルート相対では `.u7agent/uploads/<id>/`）。BFF は作業領域に触らないため、本文は `POST /api/sessions/:id/files` からサンドボックスの `POST /v1/files/upload` へ raw ストリームで転送し、保存名と重複回避はサンドボックスが決める。
+チャットから添付したファイルは、所属スペースの添付置き場（[スペースごとの配置](#スペースごとの配置)）に置く（プロジェクトのリポジトリ内には作らない。通常スペースではルート相対で `.u7agent/uploads/<id>/`）。BFF は作業領域に触らないため、本文は `POST /api/sessions/:id/files` からサンドボックスの `POST /v1/files/upload` へ raw ストリームで転送し、保存名と重複回避はサンドボックスが決める。
 
 - 選択時（即時）にアップロードする。未作成チャットでは先にセッションを作る（クライアントの `ensureSession`。同時アップロードで二重作成しない）
 - 入力欄への貼り付け（デスクトップの Ctrl+V / Cmd+V、モバイルは長押しメニューのペースト）でも画像を添付できる。扱うのは `image/*` の項目だけで、テキストだけの貼り付けは既定動作に任せる（画像と一緒に載る `text/html` などを本文へ混ぜないよう、添付するときだけ既定動作を止める）。保存名はブラウザーが付ける `image.png` / `blob` に依存せず、MIME から拡張子を決めた `pasted-<YYYYMMDD-HHmmss>.<ext>` に揃える（判定は `client/src/lib/clipboardImages.ts`。同じ秒の複数枚は他の添付と同じ連番規則が分ける）
 - モバイル（iOS / Android の Chrome。iPhone 14 / iOS 26.6.2 と Android 9 で確認）の実機でも同じ経路で成立する。モバイルの `textarea` は貼り付けた画像を挿入しないため、貼り付け直後の入力欄は空のままに見える。`input` は `insertFromPaste` で `valueLen=0` になるが、`paste` の `clipboardData.items` には `image/*` の `File` が入る。**添付できたかはチップで判断する**（空の入力欄を失敗の合図にしない。実機の確認項目は [testing.md](testing.md#gui-の最小受入)）
 - `paste` の `clipboardData` の読み出しに secure context は要らない。`pnpm dev` の Vite を LAN の HTTP で開く使い方（`isSecureContext=false`）でも画像を拾える。secure context が要るのは `navigator.clipboard.read()` / `readText()` の側で、[sandbox.md](sandbox.md) の記述はそちらを指す
 - 入力欄の `contenteditable` 化と、一時的な `contenteditable` でペーストを受ける案は採らない。iOS の `contenteditable` に貼り付いた画像を `fetch` で取り出すと blob の型が UTI（`public.png`）になり MIME にならない（`items` 経由なら `image/png` がそのまま来る）
-- API の `path` は root 相対（`.u7agent/uploads/<id>/<name>`）。クライアントはこの値をそのままチップと raw URL に使う
+- API の `path` は root 相対（通常スペースでは `.u7agent/uploads/<id>/<name>`）。クライアントはこの値をそのままチップと raw URL に使う
 - 同名ファイルは上書きせず `name-1.ext` 形式で連番にする（`link(2)` の排他作成。2 回目以降も連番）
 - 添付を外してもファイルは置き場に残す（`DELETE /api/files` の一覧から削除できる。移動 API は非ゴール）
 - LLM へのマルチモーダル注入はしない。プロンプト末尾の注記（`<attached_files>`）で**絶対パス**を知らせ、モデルが必要なら `read` する。プロジェクト所属セッションの cwd からは相対で届かないため、絶対パスで渡す。注記の組み立ては `server/src/attachments.ts` に閉じる
-- ファイル画面の root は作業ディレクトリ（プロジェクト所属なら登録ディレクトリ、未所属ならスクラッチ）なので、`<appdir>/uploads/<id>` はファイル画面には出ない
+- ファイル画面の root は作業ディレクトリ（プロジェクト所属なら登録ディレクトリ、未所属なら所属スペースのスクラッチ）なので、添付の置き場はファイル画面には出ない
 - 添付は作業ディレクトリの外にあるため `read` はできるが、モデルの `write` / `edit` は拒否される（書き込み範囲は [projects.md](projects.md#write--edit-の書き込み範囲)）
 - 履歴と `run_start.prompt` には注記込みの本文が入る。クライアントは注記を分解し、user バブルにチップと本文を分けて表示する（コピーは注記を除いた本文）
 - 画像の表示は `GET /api/files/raw`（画像 / 音声の allowlist。SVG / HTML は配信しない。チップのサムネイルは画像だけを描く）
@@ -233,7 +236,7 @@ assistant 本文のインラインコードが指すファイルは、クリッ�
 
 ## API / UI
 
-- `SessionPayload.cwd` は root 相対の作業ディレクトリ（プロジェクト所属は `projectCwd`、未所属は `.u7agent/sessions/<id>`）。復元後も同じ値を返す。ファイル画面は既に `payload.cwd` を root にしているため、クライアントの変更なしでセッションの作業ディレクトリ表示になる。
+- `SessionPayload.cwd` は root 相対の作業ディレクトリ（プロジェクト所属は `projectCwd`、未所属は所属スペースのスクラッチ）。復元後も同じ値を返す。ファイル画面は既に `payload.cwd` を root にしているため、クライアントの変更なしでセッションの作業ディレクトリ表示になる。
 - チャット右パネル / compact シート（上位名は**作業環境**）はタブを 2 つ持つ。**作業フォルダ**タブは選択中セッションの `payload.cwd` を root にする。**セッション未作成では作成先プロジェクトの `cwd`** を使う（プロジェクト配下は登録ディレクトリを共有するため、送信前から同じツリーを出せる）。作成先がプロジェクトになるのは、プロジェクトを指定する入口（プロジェクト行の ⋯「このプロジェクトに新しい会話」/ プロジェクトの追加）から始めた新規会話だけ（「新しい会話」と会話を指定しない `/` の起動は未所属。[ui-layout.md](ui-layout.md#作成先)）。未所属の新規会話は `sessionId` の採番が送信時なので root が決まらず、導線を出さない。作業先（チップ / 空状態の見出し）の解決と既定オープンの契機は [ui-layout.md](ui-layout.md#作業先と作業フォルダの導線)、タブの可用性と中身は [ui-layout.md](ui-layout.md#作業環境パネル) を正とする
 - **環境変数**タブは同じ root（cwd）に紐づく値を登録する。所有者は会話ではなく cwd なので、プロジェクト起点の新規会話（`sessionId === ""`）でも `projectId` を要求元にして保存でき、保存後は同じ作業フォルダの全会話で共有される。API・暗号化・注入経路は [secrets.md](secrets.md#作業フォルダの環境変数) を正とする
 - `SessionPayload` に `eventGeneration` を足す。`SessionSummary` の形は変えない（復元したセッションは `status: "idle"`、`messageCount` は meta の値、`projectId` は `projectCwd` から解決した値）。
@@ -251,7 +254,7 @@ assistant 本文のインラインコードが指すファイルは、クリッ�
 ## デプロイ
 
 - BFF コンテナに `PI_SESSION_STORE` の永続ボリュームを追加する（例: `/session-store`）。**ワークスペースはマウントしない**（現行どおり）。
-- 未所属セッションのスクラッチはワークスペースの永続マウント配下（`/workspace/.u7agent/sessions/<id>`）にでき、サンドボックスから見える。添付は `/workspace/.u7agent/uploads/<id>` に残る。プロジェクト所属セッションの作業ディレクトリは登録ディレクトリそのものなので、ワークスペースの永続マウント配下にある限り残る。
+- 未所属セッションのスクラッチと添付はワークスペースの永続マウント配下（通常スペースでは `/workspace/.u7agent/sessions/<id>` と `/workspace/.u7agent/uploads/<id>`）にでき、サンドボックスから見える。プロジェクト所属セッションの作業ディレクトリは登録ディレクトリそのものなので、ワークスペースの永続マウント配下にある限り残る。
 - `pnpm dev` は store の既定が `~/.pi/agent/u7agent/sessions` なので追加設定なし。`.gitignore` に `.u7agent/` を追加する。
 - Compose / target の変更は self-hosted-runner 側（[persistence.md](persistence.md) の正本）。
 
@@ -279,9 +282,9 @@ assistant 本文のインラインコードが指すファイルは、クリッ�
 
 ## 受け入れ条件
 
-- [ ] 会話ごとに store（`<store>/<id>/{meta.json,session.jsonl,sends.json}`）が作られ、未所属チャットのスクラッチ（`.u7agent/sessions/<id>`）が作られ、ファイル画面の root になる
+- [ ] 会話ごとに store（`<store>/<id>/{meta.json,session.jsonl,sends.json}`）が作られ、未所属チャットのスクラッチ（通常スペースでは `.u7agent/sessions/<id>`）が作られ、ファイル画面の root になる
 - [ ] プロジェクト所属セッションの cwd は登録ディレクトリになり、同一プロジェクトの複数セッションがツリーを共有し、作成・復元でプロジェクトのディレクトリを作らない（無ければ 400）
-- [ ] 添付は全セッションで `.u7agent/uploads/<id>` に保存され、注記の絶対パスで `read` でき、ファイル画面には出ない
+- [ ] 添付は所属スペースの置き場（[スペースごとの配置](#スペースごとの配置)）に保存され、注記の絶対パスで `read` でき、ファイル画面には出ない
 - [ ] `<appdir>/**` のプロジェクト登録は 400 になる
 - [ ] BFF を再起動しても、セッション一覧・タイトル・履歴・ファイルが復元され、続きから送信できる
 - [ ] 初回応答の完了前に再起動しても、保存済みのユーザーメッセージが復元される（保存点の順序テスト）
