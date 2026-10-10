@@ -157,6 +157,17 @@ export interface SandboxRenameResult {
   name: string;
 }
 
+/** POST /v1/files/move のリクエストボディ。from / to は root 相対のエントリ (ファイル / ディレクトリ) パス。 */
+export interface SandboxMoveRequestBody {
+  from: string;
+  to: string;
+}
+
+/** POST /v1/files/move の応答。path は移動後のエントリの root 相対の正規化パス (root は ".")。 */
+export interface SandboxMoveResult {
+  path: string;
+}
+
 /** DELETE /v1/dirs の `recursive` query の解釈結果。省略は false で、不正値と重複は ok: false になる */
 export type RecursiveQuery = { ok: true; recursive: boolean } | { ok: false };
 

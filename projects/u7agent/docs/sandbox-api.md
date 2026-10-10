@@ -12,6 +12,7 @@ BFF が作業用ツール（`read` / `bash` / `edit` / `write` / `grep` / `find`
 | GET | `/v1/skills` | ファイルスキル（`SKILL.md`）の発見（JSON）。`?dir=<root 相対>` |
 | DELETE | `/v1/files` | 通常ファイルの削除。`?path=<root 相対>`。成功は本文なしの 204 |
 | POST | `/v1/files/rename` | エントリ（ファイル / ディレクトリ）のリネーム。`{ path, name }` |
+| POST | `/v1/files/move` | エントリ（ファイル / ディレクトリ）を別の親へ移動。`{ from, to }` |
 | GET | `/v1/files/preview` | UTF-8テキストの取得。`?path=<root 相対>`。上限・応答は [api.md](api.md#テキストプレビュー) を参照 |
 | GET | `/v1/files/raw` | 画像 + 音声の生配信。`?path=<root 相対>`。応答ヘッダは [api.md](api.md#画像配信raw) を参照 |
 | GET | `/v1/files/download` | 通常ファイルは生バイト、ディレクトリは ZIP（ストリーム）。`?path=<root 相対>&exclude=<名前>`（繰り返し可） |
@@ -55,7 +56,7 @@ root 相対のディレクトリを `mkdir -p` 相当で作る（親が無くて
 
 - `path` は root 相対。`..` で root の外を指す指定は 400。既存の symlink が root 外を指す場合も、その先には作らず 400（作成前に既存の最も深い祖先を realpath で検証する）
 - 既存ファイルと同名のディレクトリ、途中にファイルがあるパス（`file.txt/nested`）は 400
-- 作業領域へ書き込む API は `POST /v1/dirs` / `POST /v1/files/rename` / `POST /v1/files/upload` / `DELETE /v1/files` / `DELETE /v1/dirs` の 5 つで、`GET /v1/files` は読み取り専用。`write` / `edit` の書き込み範囲（workdir と `<root>/.agents/skills`）はこの 5 つより狭く、`POST /v1/dirs` / `POST /v1/files/rename` / `POST /v1/files/upload` 自体は root 配下ならどこへでも書ける（BFF の添付・プロジェクト作成・設定画面が使う）
+- 作業領域へ書き込む API は `POST /v1/dirs` / `POST /v1/files/rename` / `POST /v1/files/move` / `POST /v1/files/upload` / `DELETE /v1/files` / `DELETE /v1/dirs` で、`GET /v1/files` は読み取り専用。`write` / `edit` の書き込み範囲（workdir と `<root>/.agents/skills`）はこれらより狭く、`POST /v1/dirs` / `POST /v1/files/rename` / `POST /v1/files/move` / `POST /v1/files/upload` 自体は root 配下ならどこへでも書ける（BFF の添付・プロジェクト作成・設定画面が使う）
 
 ## `DELETE /v1/dirs`
 
@@ -94,7 +95,7 @@ POST /v1/files/upload?dir=uploads&name=photo.png
 
 ## `POST /v1/files/rename`
 
-root 相対のエントリ（通常ファイル / ディレクトリ）の名前を変える。本文は `{ path, name }` で、`name` は 1 セグメントの新しい名前。応答は名前を変えたエントリの root 相対の正規化パス（root は `"."`）。
+root 相対のエントリ（通常ファイル / ディレクトリ）の名前を変える。本文は `{ path, name }` で、`name` は 1 セグメントの新しい名前。応答は名前を変えたエントリの root 相対の正規化パス（root は `"."`）。親をまたぐ移動は `POST /v1/files/move` を使う。
 
 ```
 POST /v1/files/rename
@@ -111,6 +112,28 @@ POST /v1/files/rename
 - 親が root 内の symlink なら、一覧・削除と同じく辿った先のディレクトリで名前を変える。応答の `path` は辿った先の実パス基準（`GET /v1/files` の `path` と同じ規則）
 - 入力検証は**競合がない場合**の契約。`lstat` の後に同じ名前が作られると `rename(2)` が上書きする（Node に no-replace の rename が無い。単一ユーザーでエージェントと同時に触った場合のみ）。fd 相対の rename が Node に無いため完全な防御は入れない（[`DELETE /v1/dirs`](#delete-v1dirs) の TOCTOU と同じクラス）
 - 400 / 404 / 409 の文言はサンドボックスが返し、BFF はそのままクライアントへ返す（[api.md](api.md#リネーム)）
+
+## `POST /v1/files/move`
+
+root 相対のエントリ（通常ファイル / ディレクトリ）を別の親へ移す。本文は `{ from, to }`（どちらも root 相対）で、応答は移動後のエントリの root 相対の正規化パス（root は `"."`）。
+
+```
+POST /v1/files/move
+{ "from": "uploads/nested/photo.png", "to": "projects/shot.png" }
+
+// response (200)
+{ "path": "projects/shot.png" }
+```
+
+- 検証は `POST /v1/files/rename` / `DELETE /v1/files` と同じ枠組み（移動元と移動先の親を realpath、最終要素を `lstat` / 1 セグメント名として検証）。`from` が `""` / `"."` / `".."` / 末尾 `/` なら 400（`Not a file or directory: …`）、`to` の最終要素が `isValidEntryName` を通らなければ 400（`Invalid name: …` で示すのは `to` の全体）
+- 動かせるのは通常ファイルとディレクトリだけ。実在しない元は 404、FIFO などの特殊ファイルは 400（`Not a file or directory: …`）
+- **symlink は 400（`Symbolic links cannot be moved: …`）**。realpath で実体に解決してから `rename(2)` すると、root 内のリンクが指す root 外を動かせてしまうため、移動元の最終要素だけを `lstat` で見て symlink なら動かさない（リンクだけを動かす挙動は提供しない）。移動元 / 移動先の親が root 外を指す symlink も 400
+- 移動先が既存なら 409（`Already exists: …`）で、何も変えない（上書きもマージもしない）。ただし **`lstat` と `realpath` が同じ実体を指す場合は通す**（`POST /v1/files/rename` と同じ規則。移動先が symlink のときは実体が同じでも 409）
+- 移動先の親は root 内の実在ディレクトリでなければならない（実在しない 404、ディレクトリでない 400）。呼び出し側が先に `POST /v1/dirs` で作ってから呼ぶ
+- 移動は `rename(2)` 1 回で、同一ファイルシステム内では原子的。部分移動は起きない（別ファイルシステムをまたぐ移動は非ゴール）。ディレクトリ自身をその配下へ移す要求は `rename(2)` が `EINVAL` を返し 400（`Cannot move: …`）で、何も変えない
+- 移動元 / 移動先の親が root 内の symlink なら、一覧・リネームと同じく辿った先の実ディレクトリで移動し、応答の `path` は辿った先の実パス基準（[`GET /v1/files`](#get-v1files) の `path` と同じ規則）
+- 入力検証は**競合がない場合**の契約。`lstat` の後に同じ名前が作られると `rename(2)` が上書きする（[`POST /v1/files/rename`](#post-v1filesrename) と同じクラス）
+- 400 / 404 / 409 の文言はサンドボックスが返し、BFF はそのままクライアントへ返す
 
 ## `GET /v1/files/raw`
 
@@ -187,7 +210,7 @@ X-Content-Type-Options: nosniff
 
 ## `GET /v1/files`
 
-作業領域（root = `PI_SANDBOX_CWD`）の一覧を JSON で返す。`ls` ツールの戻り値は LLM 向けのテキスト（改行区切り・ディレクトリ判定は接尾辞）なので、UI のデータソースとして別契約にする。一覧は読み取り専用で、作業領域への書き込みは `POST /v1/dirs` / `POST /v1/files/rename` / `POST /v1/files/upload` / `DELETE /v1/files` / `DELETE /v1/dirs` の 5 つだけ。移動（親ディレクトリの変更）の API は持たない。
+作業領域（root = `PI_SANDBOX_CWD`）の一覧を JSON で返す。`ls` ツールの戻り値は LLM 向けのテキスト（改行区切り・ディレクトリ判定は接尾辞）なので、UI のデータソースとして別契約にする。一覧は読み取り専用で、作業領域への書き込みは `POST /v1/dirs` / `POST /v1/files/rename` / `POST /v1/files/move` / `POST /v1/files/upload` / `DELETE /v1/files` / `DELETE /v1/dirs` だけ。移動（親ディレクトリの変更）は `POST /v1/files/move` が担う。
 
 `path` は root 相対。省略時は root。解決と検証はツール実行の `cwd` と同じ関数を使う。
 

@@ -603,6 +603,75 @@ test("renameEntry relays the sandbox 409 conflict and maps the rest to 502", asy
 });
 
 // ---------------------------------------------------------------------------
+// moveEntry (POST /v1/files/move。JSON 経路)
+// ---------------------------------------------------------------------------
+
+test("moveEntry posts from and to and parses the moved path", async () => {
+  const { calls, impl } = stubFetch(
+    () =>
+      new Response(JSON.stringify({ path: "spaces/s1/moved" }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      }),
+  );
+  const client = createSandboxToolClient({ baseUrl: "http://sandbox.test:8080/", token: TOKEN, fetchImpl: impl });
+  const result = await client.moveEntry("old", "spaces/s1/moved");
+  assert.deepEqual(result, { path: "spaces/s1/moved" });
+  assert.equal(calls[0].url, "http://sandbox.test:8080/v1/files/move");
+  const init = calls[0].init;
+  assert.ok(init, "fetch が init 付きで呼ばれる");
+  assert.equal(init.method, "POST");
+  assert.equal((init.headers as Record<string, string>).Authorization, `Bearer ${TOKEN}`);
+  assert.deepEqual(JSON.parse(String(init.body)), { from: "old", to: "spaces/s1/moved" });
+});
+
+test("moveEntry relays the sandbox 409 conflict and maps the rest to 502", async () => {
+  const sandboxError = (status: number, message: string) =>
+    stubFetch(
+      () =>
+        new Response(JSON.stringify({ error: message }), {
+          status,
+          headers: { "Content-Type": "application/json" },
+        }),
+    ).impl;
+
+  const conflict = createSandboxToolClient({
+    baseUrl: "http://sandbox.test",
+    token: TOKEN,
+    fetchImpl: sandboxError(409, "Already exists: /workspace/b.txt"),
+  });
+  await assert.rejects(conflict.moveEntry("a.txt", "b.txt"), (error: unknown) => {
+    assert.ok(error instanceof SandboxRequestError);
+    assert.equal(error.status, 409);
+    assert.equal(error.message, "Already exists: /workspace/b.txt");
+    return true;
+  });
+
+  const outside = createSandboxToolClient({
+    baseUrl: "http://sandbox.test",
+    token: TOKEN,
+    fetchImpl: sandboxError(400, "Path outside the workspace: /etc"),
+  });
+  await assert.rejects(outside.moveEntry("a.txt", "../b.txt"), (error: unknown) => {
+    assert.ok(error instanceof SandboxRequestError);
+    assert.equal(error.status, 400);
+    return true;
+  });
+
+  const broken = createSandboxToolClient({
+    baseUrl: "http://sandbox.test",
+    token: TOKEN,
+    fetchImpl: sandboxError(500, "boom"),
+  });
+  await assert.rejects(broken.moveEntry("a.txt", "b.txt"), (error: unknown) => {
+    assert.ok(error instanceof SandboxRequestError);
+    assert.equal(error.status, 502);
+    assert.match(error.message, /移動できませんでした/);
+    return true;
+  });
+});
+
+// ---------------------------------------------------------------------------
 // downloadEntry / checkDownload (GET /v1/files/download[/check]。exclude は繰り返しの query)
 // ---------------------------------------------------------------------------
 
