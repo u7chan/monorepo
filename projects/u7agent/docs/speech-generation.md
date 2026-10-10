@@ -30,7 +30,7 @@
 
 ### 同梱の既定カタログ
 
-`google/gemini-3.8-flash-tts` と、そのモデルの `supported_voices`（取得時点で 30 件）を写したものを同梱する。出所は 2026-10-08 に取得した OpenRouter のモデルページ / モデル一覧 API（`https://openrouter.ai/google/gemini-3.8-flash-tts`、`GET /api/v1/models?output_modalities=speech`）。
+`google/gemini-3.8-flash-tts` と、そのモデルの `supported_voices` を写したものを同梱する。出所は 2026-10-08 に取得した OpenRouter のモデルページ / モデル一覧 API（`https://openrouter.ai/google/gemini-3.8-flash-tts`、`GET /api/v1/models?output_modalities=speech`）。
 
 上流の追加・改名でこの写しは腐る。live を一度でも取れた環境では丸ごと置き換わるため表示への影響は無いが、オフラインの初回起動では既定が使われる。**更新責任はこのリポジトリ**で、変えるときはモデルページの `supported_voices` を正として `server/src/speech-catalog.ts` の同梱カタログを直す（[モデルカタログ](#モデルカタログ) の 3 状態は変えない）。
 
@@ -140,7 +140,7 @@ APIキーは画像と**同じ 1 つを共有**する（`content_settings.apiKey`
 | テスト | 固定すること |
 | --- | --- |
 | `server/test/speech.test.ts` | 音声専用 API への送信先・ヘッダ・本文（メモが無ければ `mp3` から送る）/ `voice` を指定時だけ送ること / 形式違いの 400 だけを 1 回再試行し、学習した形式を先に送ること / 最終分類が最後の試行の status と provider メッセージを使うこと / 応答の形式判定（`audio/mpeg` / `audio/pcm`、それ以外の失敗、`rate` / `channels` の保持と欠落時の失敗）/ 2xx の空応答 / 失敗分類（401・403・402・429・5xx・timeout・ユーザー中断・原因不明）/ 期限と中断が両試行に掛かること / provider メッセージのマスクと上限 |
-| `server/test/speech-catalog.test.ts` | 同梱カタログの形（既定モデルと全 30 ボイス）/ live の採用とキャッシュ保存（認証ヘッダなし・`voices` を含む）/ 重複の畳み方と宣言の読み方 / 失敗分類と一覧の保持 / キャッシュ読込と live 失敗時の維持 / キャッシュの読取・保存失敗 |
+| `server/test/speech-catalog.test.ts` | 同梱カタログの形（既定モデルと `supported_voices`）/ live の採用とキャッシュ保存（認証ヘッダなし・`voices` を含む）/ 重複の畳み方と宣言の読み方 / 失敗分類と一覧の保持 / キャッシュ読込と live 失敗時の維持 / キャッシュの読取・保存失敗 |
 | `server/test/speech-tools.test.ts` | ツールの組み立て（有効時だけ・画像とは独立）/ 引数と説明（逐語・演技指示なし）/ 拡張子の受理（`.mp3` / `.wav` だけ）と実形式への寄せ / RIFF ヘッダ付与 / slug / 既定保存名と root 相対の前置き / 結果の先頭にモデルとボイス / 課金前の拒否（文字数・パス・拡張子・宣言外ボイス・キー未設定）/ execute の再読込 / throw のマスク / signal の伝播 |
 | `server/test/speech-settings.test.ts` | 音声列 NULL のフォールバック、`PUT` の 400（行なし・カタログ外・宣言外）、`default` では照合しない、空文字ボイスの保存、503 `not_stored`、再取得の失敗文言、起動時の適用と注入した `readSpeech` / `readVoices` |
 | `server/test/speech-settings-api.test.ts` | HTTP 契約（GET / PUT / 再取得）、既定カタログの形、キーが応答に出ないこと、カタログ外 / 宣言外 / 本文形の 400、DB 不通 |

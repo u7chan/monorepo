@@ -22,13 +22,13 @@
 - 取得契機は 起動時（`content_settings` に行があるとき）/ 手動の [再取得]。`GET /api/settings/content` はネットワークに触らず、メモリ上の現在値を返すだけ。キー保存にも紐づけない（設定の変更を外部 API の待ち時間へ巻き込まない）
 - 期限は 10 秒（`IMAGE_CATALOG_TIMEOUT_MS`）+ リトライなし。失敗は timeout / 混雑（429・5xx）/ 不明の固定文言へ分類し、上流の応答本文はログにも UI にも出さない
 - 取得成功時だけ DB（`image_catalog`）へ `id` と表示名、あれば出力形式の宣言（`outputFormats`）を残す。失敗しても一覧は前のままで、`catalogSource` / `fetchedAt` も変えない
-- live は `supported_parameters.output_format`（`{ type: "enum", values: ["png", ...] }`）に出力形式を宣言する。**保存できる形式（png / jpeg / webp）を 1 つも宣言していないモデルは一覧から落とす**（今は `recraft/*-vector` の 6 件が `["svg"]` 単独）。判定は `server/src/images.ts` の `isUnsaveableOutputOnly()` 1 つで、保存側の `imageExtensionFor()` と同じ表を見る（[保存できない形式のモデル](#保存できない形式のモデル)）
+- live は `supported_parameters.output_format`（`{ type: "enum", values: ["png", ...] }`）に出力形式を宣言する。**保存できる形式（png / jpeg / webp）を 1 つも宣言していないモデルは一覧から落とす**（`recraft/*-vector` が `["svg"]` 単独でこれに当たる）。判定は `server/src/images.ts` の `isUnsaveableOutputOnly()` 1 つで、保存側の `imageExtensionFor()` と同じ表を見る（[保存できない形式のモデル](#保存できない形式のモデル)）
 - 宣言が無い（フィールドが無い / `values` が配列でない）ときは形式「不明」として扱い、一覧の絞り込みも生成前ガードも動かさない。SDK 同梱カタログと、この項目より前に書かれたキャッシュがこれにあたる
 - 形式の宣言は一覧から落ちたモデルもメモリとキャッシュに残し、生成前ガードが引けるようにする（`ImageCatalog.outputFormatsOf()`）。宣言そのものは `models` の応答には載せない（選べるモデルの一覧と、サーバー内の判定を混ぜない）
 - 起動時は先にキャッシュを読み、行があれば続けて live を試す。live が失敗しても「前回の一覧」から始められる
 - SDK 同梱へ落ちるときは `openrouter/*`（= `openrouter/auto*`）を除く。画像専用 API に存在せず、選ぶと生成が 404 になる
 - キャッシュは利用者データではなく派生データとして扱う。行が無い / 形が違う / JSON が壊れているときは「未取得」として読み、health の失敗にはしない（破損を DB 全体の失敗にしない。次の取得成功が行を上書きして直る）
-- 生成は保存された id をそのまま `/images` へ送る。live カタログにしか無いモデルでも、SDK 同梱の一覧にあるかどうかでローカルには弾かない。SDK から借りるのは provider の `baseUrl` / ヘッダだけで、一覧にその id が無いときは同じ provider の先頭モデルをひな形にする（**provider 内で全モデルが同じ `baseUrl` / ヘッダを使う前提**。openrouter の 55 モデルは全件同一。provider 内でモデルごとに送信先が異なる provider を足すときは、この流用を置き換えること。`server/src/images.ts`）
+- 生成は保存された id をそのまま `/images` へ送る。live カタログにしか無いモデルでも、SDK 同梱の一覧にあるかどうかでローカルには弾かない。SDK から借りるのは provider の `baseUrl` / ヘッダだけで、一覧にその id が無いときは同じ provider の先頭モデルをひな形にする（**provider 内で全モデルが同じ `baseUrl` / ヘッダを使う前提**。この前提が今も成り立つかは `server/test/images.test.ts` が SDK 同梱カタログで検査する。provider 内でモデルごとに送信先が異なる provider を足すときは、この流用を置き換えること。`server/src/images.ts`）
 
 ### 画面表示
 
@@ -175,7 +175,7 @@ SDK(pi-ai 1.1.0) の `openrouter-images` は `chat/completions` へ投げるが�
 
 | テスト | 固定すること |
 | --- | --- |
-| `server/test/images.test.ts` | カタログ / `chat/completions` へ戻らないこと（`/images` の送信先・ヘッダ・本文）/ `media_type` の落とし方 / 失敗分類（401・403・402・429・5xx・timeout・ユーザー中断・原因不明）/ 画像 0 件の失敗（2xx の生本文と `error.message`）/ provider メッセージのマスク / SDK 同梱カタログから `openrouter/*` を落とすこと / SDK の一覧に無い id（live のみのモデル）も provider の URL で送ること |
+| `server/test/images.test.ts` | カタログ / `chat/completions` へ戻らないこと（`/images` の送信先・ヘッダ・本文）/ `media_type` の落とし方 / 失敗分類（401・403・402・429・5xx・timeout・ユーザー中断・原因不明）/ 画像 0 件の失敗（2xx の生本文と `error.message`）/ provider メッセージのマスク / SDK 同梱カタログから `openrouter/*` を落とすこと / SDK 同梱の openrouter が provider 内で同じ `baseUrl` / ヘッダを使うこと（ひな形の流用の前提）/ SDK の一覧に無い id（live のみのモデル）も provider の URL で送ること |
 | `server/test/image-catalog.test.ts` | live の採用とキャッシュ保存（認証ヘッダを付けない / id と表示名と形式の宣言）/ 出力形式の取り込みと一覧の絞り込み（不明・形違いは落とさない）/ 宣言がキャッシュから読めること / 一覧から落ちた id の `outputFormatsOf` / 重複 id と表示名の欠落 / 失敗分類（429・5xx・契約外・空・timeout）と一覧の保持 / キャッシュの読込と live 失敗時の維持 / キャッシュの読取・保存失敗 |
 | `server/test/image-tools.test.ts` | ツールの組み立て（有効時だけ）/ path の拒否規則 / slug と拡張子 / 結果パスの参照・一意ファイルの保持・最新コピーのガイドライン / 生成前ガード（保存できない形式だけを宣言したモデルで provider を叩かない・宣言なしと不明は止めない）/ 保存段の失敗文言（クレジット消費済み）/ root 相対への前置き / 同名衝突で実際の保存名と使用モデルを返す / 長い path でも投影の切詰めにモデルが残る / execute が毎回設定を読む / throw のマスク / signal の伝播 |
 | `server/test/content-settings.test.ts` | GET / PUT / DELETE の契約、マスカー登録の順序、既定行、行が無い / provider / カタログ外の 400、runtime 無しの 503、DB 失敗の 503、起動時の適用（キャッシュ読込と、行があるときだけの live 取得）/ キー保存が取得を待たないこと / 再取得の失敗文言 / 注入する config の形式宣言 |
