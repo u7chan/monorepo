@@ -38,6 +38,13 @@ jobs:
           git -c "http.https://github.com/.extraheader=AUTHORIZATION: basic $auth_header" \
             fetch origin ${{ github.base_ref }}:refs/remotes/origin/${{ github.base_ref }}
 
+      - name: Test CD action scripts
+        run: |
+          ./.github/actions/get-changed-directories/test-diff-detection.sh
+          ./.github/actions/set-image-tag/test-image-tags.sh
+          ./.github/actions/build-docker-images/test-multi-tags.sh
+          ./.github/actions/push-docker-images/test-multi-tags.sh
+
       - name: Get Changed Directories
         uses: ./.github/actions/get-changed-directories
 

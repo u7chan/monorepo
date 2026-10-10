@@ -6,7 +6,8 @@
 set -e
 
 STAGE="$1"
-IMAGE_TAG="${2:-latest}"
+# スペース区切りのタグ一覧。自動 CD は latest と sha-<commit> の2つを付与する。
+IMAGE_TAGS="${2:-latest}"
 
 # ステージパラメータのチェック
 if [[ -z "$STAGE" ]]; then
@@ -14,13 +15,13 @@ if [[ -z "$STAGE" ]]; then
   exit 1
 fi
 
-if [[ -z "$IMAGE_TAG" ]]; then
+if [[ -z "$IMAGE_TAGS" ]]; then
   echo "Error: Image tag parameter is required."
   exit 1
 fi
 
 echo "> Building Docker images for stage: $STAGE"
-echo "> Docker image tag: $IMAGE_TAG"
+echo "> Docker image tags: $IMAGE_TAGS"
 
 # build_projects.txt ファイルが存在するかチェック
 if [[ ! -f "build_projects.txt" ]]; then
@@ -61,18 +62,27 @@ for project in "${PROJECT_ARRAY[@]}"; do
   # プロジェクト名を取得（パスの最後の部分）
   project_name=$(basename "$project")
 
-  if [[ -n "$GITHUB_REPOSITORY" ]]; then
-    GHCR_URI="ghcr.io/$GITHUB_REPOSITORY/$project_name:$IMAGE_TAG"
-  else
-    GHCR_URI="ghcr.io/test/$project_name:$IMAGE_TAG"
+  if [[ -z "$GITHUB_REPOSITORY" ]]; then
+    GITHUB_REPOSITORY="test"
   fi
+
+  GHCR_URIS=()
+  TAG_ARGS=()
+  for tag in $IMAGE_TAGS; do
+    GHCR_URI="ghcr.io/$GITHUB_REPOSITORY/$project_name:$tag"
+    GHCR_URIS+=("$GHCR_URI")
+    TAG_ARGS+=(-t "$GHCR_URI")
+  done
+
   DOCKER_FILE="$project/Dockerfile"
   SEARCH_KEYWORD="AS $STAGE"
   PREBUILD_SCRIPT_NAME="pre-docker-build.sh"
 
   echo ""
   echo "=== Building project: $project ==="
-  echo "GHCR_URI: $GHCR_URI"
+  for uri in "${GHCR_URIS[@]}"; do
+    echo "GHCR_URI: $uri"
+  done
   echo "PROJECT_DIR: $project"
   echo "DOCKER_FILE: $DOCKER_FILE"
   echo "SEARCH_KEYWORD: $SEARCH_KEYWORD"
@@ -95,14 +105,16 @@ for project in "${PROJECT_ARRAY[@]}"; do
   if grep -q "$SEARCH_KEYWORD" "$DOCKER_FILE" 2>/dev/null; then
     echo "Found stage: $STAGE"
     echo "Building with target: $STAGE"
-    docker build --build-arg COMMIT_HASH="$COMMIT_HASH" -t "$GHCR_URI" --target="$STAGE" "$project"
+    docker build --build-arg COMMIT_HASH="$COMMIT_HASH" "${TAG_ARGS[@]}" --target="$STAGE" "$project"
   else
     echo "Stage '$STAGE' not found in Dockerfile"
     echo "Building without target"
-    docker build --build-arg COMMIT_HASH="$COMMIT_HASH" -t "$GHCR_URI" "$project"
+    docker build --build-arg COMMIT_HASH="$COMMIT_HASH" "${TAG_ARGS[@]}" "$project"
   fi
 
-  echo "Successfully built: $GHCR_URI"
+  for uri in "${GHCR_URIS[@]}"; do
+    echo "Successfully built: $uri"
+  done
 done
 
 echo ""

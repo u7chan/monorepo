@@ -4,8 +4,10 @@
 # GitHub Actionとローカルテストの両方で使用
 #
 # 使用方法:
-#   通常モード: ./push-docker-images.sh <registry> <username> <password>
-#   モックモード: MOCK_DOCKER_COMMANDS=true ./push-docker-images.sh <registry> <username> <password>
+#   通常モード: ./push-docker-images.sh <registry> <username> <password> [<image_tags>]
+#   モックモード: MOCK_DOCKER_COMMANDS=true ./push-docker-images.sh <registry> <username> <password> [<image_tags>]
+#
+#   <image_tags> はスペース区切り。省略時は latest。
 #
 # モックモード:
 #   - 実際のDockerコマンドを実行せずに、すべてモックで動作
@@ -62,11 +64,12 @@ execute_docker_push() {
 }
 
 ## スクリプトの引数を取得
-# 引数: レジストリ、ユーザー名、パスワード
+# 引数: レジストリ、ユーザー名、パスワード、イメージタグ
 REGISTRY="$1"
 USERNAME="$2"
 PASSWORD="$3"
-IMAGE_TAG="${4:-latest}"
+# スペース区切りのタグ一覧。自動 CD は latest と sha-<commit> の2つを push する。
+IMAGE_TAGS="${4:-latest}"
 
 # 引数のチェック
 if [[ -z "$REGISTRY" ]]; then
@@ -84,13 +87,13 @@ if [[ -z "$PASSWORD" ]]; then
   exit 1
 fi
 
-if [[ -z "$IMAGE_TAG" ]]; then
+if [[ -z "$IMAGE_TAGS" ]]; then
   echo "Error: Image tag parameter is required."
   exit 1
 fi
 
 echo "> Pushing Docker images to registry: $REGISTRY"
-echo "> Docker image tag: $IMAGE_TAG"
+echo "> Docker image tags: $IMAGE_TAGS"
 
 # build_projects.txt ファイルが存在するかチェック
 if [[ ! -f "build_projects.txt" ]]; then
@@ -169,41 +172,43 @@ for project in "${PROJECT_ARRAY[@]}"; do
   # プロジェクト名を取得（パスの最後の部分）
   project_name=$(basename "$project")
 
-  # GitHub Container Registry URI を構築
-  if [[ -n "$GITHUB_REPOSITORY" ]]; then
-    GHCR_URI="$REGISTRY/$GITHUB_REPOSITORY/$project_name:$IMAGE_TAG"
-  else
-    # ローカルテスト用のフォールバック
-    GHCR_URI="$REGISTRY/test/$project_name:$IMAGE_TAG"
-  fi
-
-  echo ""
-  echo "=== Pushing project: $project ==="
-  echo "Project name: $project_name"
-  echo "GHCR_URI: $GHCR_URI"
-
-  # イメージが存在するかチェック
-  if execute_docker_image_inspect "$GHCR_URI"; then
-    echo "Pushing $GHCR_URI..."
-    if [[ "$REGISTRY" == "localhost:"* ]] && [[ "$MOCK_MODE" != "true" ]]; then
-      echo "Local test mode: Simulating push for $GHCR_URI"
-      echo "(Actual push skipped - no local registry running)"
+  for image_tag in $IMAGE_TAGS; do
+    # GitHub Container Registry URI を構築
+    if [[ -n "$GITHUB_REPOSITORY" ]]; then
+      GHCR_URI="$REGISTRY/$GITHUB_REPOSITORY/$project_name:$image_tag"
     else
-      if execute_docker_push "$GHCR_URI"; then
-        echo "Successfully pushed: $GHCR_URI"
-        echo "========================================"
-        echo "===== Push Result / Deploy Handoff ====="
-        echo "Pushed project image: $project_name"
-        echo "Deploy handoff: image_path=monorepo/$project_name image_tag=$IMAGE_TAG"
-        echo "========================================"
-      else
-        echo "Error: Failed to push $GHCR_URI"
-        exit 1
-      fi
+      # ローカルテスト用のフォールバック
+      GHCR_URI="$REGISTRY/test/$project_name:$image_tag"
     fi
-  else
-    echo "Warning: Image $GHCR_URI not found locally. Skipping push."
-  fi
+
+    echo ""
+    echo "=== Pushing project: $project ==="
+    echo "Project name: $project_name"
+    echo "GHCR_URI: $GHCR_URI"
+
+    # イメージが存在するかチェック
+    if execute_docker_image_inspect "$GHCR_URI"; then
+      echo "Pushing $GHCR_URI..."
+      if [[ "$REGISTRY" == "localhost:"* ]] && [[ "$MOCK_MODE" != "true" ]]; then
+        echo "Local test mode: Simulating push for $GHCR_URI"
+        echo "(Actual push skipped - no local registry running)"
+      else
+        if execute_docker_push "$GHCR_URI"; then
+          echo "Successfully pushed: $GHCR_URI"
+          echo "========================================"
+          echo "===== Push Result / Deploy Handoff ====="
+          echo "Pushed project image: $project_name"
+          echo "Deploy handoff: image_path=monorepo/$project_name image_tag=$image_tag"
+          echo "========================================"
+        else
+          echo "Error: Failed to push $GHCR_URI"
+          exit 1
+        fi
+      fi
+    else
+      echo "Warning: Image $GHCR_URI not found locally. Skipping push."
+    fi
+  done
 done
 
 echo ""

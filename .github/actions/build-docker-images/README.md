@@ -8,6 +8,7 @@
 - 各プロジェクトのDockerイメージをビルド
 - マルチステージビルドに対応（ステージ指定可能）
 - プレビルドスクリプトの自動実行
+- 複数のタグを1回のビルドで付与
 - GitHub Container Registry (GHCR) 形式のタグ付け
 
 ## 入力パラメータ
@@ -15,6 +16,9 @@
 | パラメータ | 説明 | 必須 | デフォルト値 |
 |-----------|------|------|-------------|
 | `stage` | Dockerビルドの対象ステージ（`--target` オプション） | Yes | - |
+| `image_tags` | スペース区切りのイメージタグ | No | `latest` |
+
+自動実行の CD は `latest` と `sha-<short sha>` を渡し、1 回のビルドで複数の `-t` を付与します。
 
 ## 使用例
 
@@ -70,6 +74,15 @@
 
 ```bash
 cd .github/actions/build-docker-images
+./test-multi-tags.sh
+```
+
+このテストはフェイクの `docker` コマンドで引数を記録し、複数タグが 1 回の `docker build` に `-t` で渡されることを検証します。
+
+### リポジトリの状態を使うテスト
+
+```bash
+cd .github/actions/build-docker-images
 ./test-local.sh
 ```
 
@@ -116,7 +129,8 @@ rm build_projects.txt
 .github/actions/build-docker-images/
 ├── action.yml               # アクション定義
 ├── build-docker-images.sh   # メインスクリプト
-├── test-local.sh           # ローカルテスト用スクリプト
+├── test-local.sh            # 現在のリポジトリで実行するテスト
+├── test-multi-tags.sh       # 複数タグのテスト
 └── README.md               # このファイル
 ```
 
@@ -158,17 +172,18 @@ FROM node:18 AS production
 
 ### イメージタグ形式
 
-ビルドされるイメージは以下の形式でタグ付けされます：
+ビルドされるイメージは、`image_tags` で渡した各タグでタグ付けされます：
 
 ```
-ghcr.io/{GITHUB_REPOSITORY}/{project_name}:latest
+ghcr.io/{GITHUB_REPOSITORY}/{project_name}:{tag}
 ```
 
 例：
 
 - リポジトリ：`username/monorepo`
 - プロジェクト：`projects/portfolio`
-- タグ：`ghcr.io/username/monorepo/portfolio:latest`
+- タグ：`latest` と `sha-a1b2c3d`
+- 結果：`ghcr.io/username/monorepo/portfolio:latest` と `ghcr.io/username/monorepo/portfolio:sha-a1b2c3d`
 
 ### ビルド引数
 

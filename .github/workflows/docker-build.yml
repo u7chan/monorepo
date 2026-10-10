@@ -32,15 +32,29 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v6
         with:
-          ref: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.ref || github.sha }}
+          # 自動CDは push の SHA に固定せず、ジョブ開始時点の最新 main からビルドする
+          ref: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.ref || github.ref }}
           persist-credentials: false
-          # プッシュイベントでは直前のコミットとの差分で十分
-          # 2コミット分の履歴で変更検出が可能
-          fetch-depth: 2
+          # push の before〜after の差分と、ビルドするソースの履歴を扱う
+          fetch-depth: 0
+
+      - name: Show build source
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          EVENT_SHA: ${{ github.sha }}
+        run: |
+          echo "event_name=$EVENT_NAME"
+          echo "event_sha=$EVENT_SHA"
+          echo "build_source_sha=$(git rev-parse HEAD)"
+          git log -1 --format='build_source_commit=%H %s'
 
       - name: Get Changed Directories
         if: github.event_name == 'push'
         uses: ./.github/actions/get-changed-directories
+        with:
+          # ビルドするソースは最新 main だが、変更検出はこの push 自身の差分で行う
+          old-ref: ${{ github.event.before }}
+          new-ref: ${{ github.event.after }}
 
       - name: Get Changed Projects
         if: github.event_name == 'push'
@@ -66,7 +80,7 @@ jobs:
         uses: ./.github/actions/build-docker-images
         with:
           stage: final
-          image_tag: ${{ steps.set-image-tag.outputs.image_tag }}
+          image_tags: ${{ steps.set-image-tag.outputs.image_tags }}
 
       - name: Show Docker Images
         if: env.BUILD_PROJECT != ''
@@ -80,7 +94,24 @@ jobs:
         with:
           username: ${{ github.actor }}
           password: ${{ secrets.PRIVATE_REPO_TOKEN }}
-          image_tag: ${{ steps.set-image-tag.outputs.image_tag }}
+          image_tags: ${{ steps.set-image-tag.outputs.image_tags }}
+
+      - name: Show pushed images
+        if: steps.push_images.outputs.project_names_csv != ''
+        env:
+          PROJECT_NAMES_CSV: ${{ steps.push_images.outputs.project_names_csv }}
+          IMAGE_TAGS: ${{ steps.set-image-tag.outputs.image_tags }}
+          COMMIT_SHA: ${{ steps.set-image-tag.outputs.commit_sha }}
+        run: |
+          echo "Build summary"
+          echo "commit_sha=$COMMIT_SHA"
+          echo "image_tags=$IMAGE_TAGS"
+          IFS=',' read -ra PROJECT_NAMES <<< "$PROJECT_NAMES_CSV"
+          for project_name in "${PROJECT_NAMES[@]}"; do
+            for image_tag in $IMAGE_TAGS; do
+              echo "pushed_image=ghcr.io/$GITHUB_REPOSITORY/$project_name:$image_tag"
+            done
+          done
 
       - name: Show manual deploy inputs
         if: github.event_name == 'workflow_dispatch' && steps.push_images.outputs.project_names_csv != ''

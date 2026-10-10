@@ -11,7 +11,12 @@
 
 ## 入力パラメータ
 
-このアクションは入力パラメータを必要としません。
+| パラメータ | 説明 | 必須 | デフォルト値 |
+|-----------|------|------|-------------|
+| `old-ref` | 比較する古い側の ref | No | 空（PR は `refs/remotes/origin/$GITHUB_BASE_REF`、それ以外は `HEAD~1`） |
+| `new-ref` | 比較する新しい側の ref | No | 空（`HEAD`） |
+
+push イベントでは `github.event.before` と `github.event.after` を渡します。CD は最新 `main` を checkout してビルドするため、checkout した `HEAD` ではなく push 自身の差分を検出する必要があります。
 
 ## 出力
 
@@ -26,6 +31,9 @@
 ```yaml
 - name: Get Changed Directories
   uses: ./.github/actions/get-changed-directories
+  with:
+    old-ref: ${{ github.event.before }}
+    new-ref: ${{ github.event.after }}
 
 - name: Use the result
   run: |
@@ -56,6 +64,15 @@
 ## ローカルテスト
 
 ### 基本的なテスト
+
+```bash
+cd .github/actions/get-changed-directories
+./test-diff-detection.sh
+```
+
+このテストは一時 git リポジトリを作成し、複数コミットの push、リネーム、ref 解決失敗、プルリクエスト経路、引数省略時の比較を検証します。
+
+### リポジトリの差分を使うテスト
 
 ```bash
 cd .github/actions/get-changed-directories
@@ -92,21 +109,26 @@ export GITHUB_BASE_REF="main"
 
 ```
 .github/actions/get-changed-directories/
-├── action.yml            # アクション定義
-├── get-changed-dirs.sh   # メインスクリプト
-├── test-local.sh        # ローカルテスト用スクリプト
-└── README.md            # このファイル
+├── action.yml                # アクション定義
+├── get-changed-dirs.sh       # メインスクリプト
+├── test-local.sh             # 現在のリポジトリで実行するテスト
+├── test-diff-detection.sh    # 変更検出のテスト
+└── README.md                 # このファイル
 ```
 
 ## 動作仕様
 
 ### 比較対象の決定
 
-1. **プルリクエストの場合** (`GITHUB_BASE_REF` が設定されている場合)
+1. **引数で ref を指定した場合**
+   - `$1` を新しい側、`$2` を古い側として比較する
+   - 新しい側を省略した場合は `HEAD`
+
+2. **プルリクエストの場合** (`GITHUB_BASE_REF` が設定されている場合)
    - ベースブランチ（例：`main`）との比較
    - 比較対象：`refs/remotes/origin/$GITHUB_BASE_REF`
 
-2. **プッシュイベントの場合** (`GITHUB_BASE_REF` が未設定の場合)
+3. **プッシュイベントの場合** (`GITHUB_BASE_REF` が未設定の場合)
    - 前のコミットとの比較
    - 比較対象：`HEAD~1`
 
@@ -168,7 +190,7 @@ TARGET_DIRS=("projects" "新しいディレクトリ")
 
 ### `diff_with_renames` 関数
 
-この関数は、ファイルのリネーム（移動）を適切に処理します：
+この関数は、ファイルのリネーム（移動）を適切に処理します。第 1 引数には必ず新しい側の ref を渡します。`--name-status` の 2 列目は第 1 引数のツリーのパスになるため、逆順にすると移動前のパス（ビルド対象の作業ツリーに存在しないことが多い）を探索してしまいます。
 
 1. **リネームされたファイル**
    - `git diff --diff-filter=R --name-status` でリネーム情報を取得
@@ -200,9 +222,8 @@ TARGET_DIRS=("projects" "新しいディレクトリ")
 
 ## エラーハンドリング
 
-- Gitコマンドが失敗した場合はスクリプトが終了
+- 比較する ref を commit として解決できない場合はエラーで終了する（変更 0 件として成功させない）
 - 対象ディレクトリ配下に変更がない場合は空のファイルが生成される
-- 無効なGitリファレンスが指定された場合はGitがエラーを出力
 
 ## 注意事項
 

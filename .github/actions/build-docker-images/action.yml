@@ -5,8 +5,8 @@ inputs:
   stage:
     description: "Docker build arguments --target option"
     required: true
-  image_tag:
-    description: "Docker image tag"
+  image_tags:
+    description: "Space separated Docker image tags"
     required: false
     default: "latest"
 
@@ -17,4 +17,4 @@ runs:
       shell: bash
       run: |
         # 共通スクリプトを実行
-        ${{ github.action_path }}/build-docker-images.sh "${{ inputs.stage }}" "${{ inputs.image_tag }}"
+        ${{ github.action_path }}/build-docker-images.sh "${{ inputs.stage }}" "${{ inputs.image_tags }}"
