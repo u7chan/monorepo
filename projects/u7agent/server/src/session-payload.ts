@@ -37,8 +37,10 @@ export function projectSessionPayload({
   const availableThinkingLevels = (session.getAvailableThinkingLevels() ??
     (session.thinkingLevel ? [session.thinkingLevel] : [])) as ThinkingLevel[];
   const context = contextUsageOf(session);
-  // 実行中 / キュー待ちの run id。終了した run (record.run は status が付いたまま残る) は除く
-  const queuedRunIds = new Set(record.queue.map((item) => item.runId));
+  // 待機中の run id -> 順位 (1 始まり)。順位は record.queue の index が正で、unsentSends の並び
+  // (受理順) は再送でキューの並びと入れ替わるため、順位として数えさせない
+  const queuedPositions = new Map(record.queue.map((item, index) => [item.runId, index + 1]));
+  // 実行中の run id。終了した run (record.run は status が付いたまま残る) は除く
   const runningRunId =
     record.run && (record.run.status === "running" || session.isStreaming) ? record.run.id : undefined;
   return {
@@ -62,12 +64,16 @@ export function projectSessionPayload({
     // 受理済みでまだ entry になっていない送信を状態付きで配る。`unsent` は「未送信」の表示へ、
     // `queued` / `running` は pending エコーのまま扱う (表示から消さない)。本文は表示用にマスクし、
     // 再送は run id だけを送ってもらう (マスク済みの本文を送り直させない)
-    pendingSends: record.unsentSends.map((item) => ({
-      runId: item.runId,
-      text: masker.mask(item.text),
-      at: item.at,
-      state: queuedRunIds.has(item.runId) ? "queued" : runningRunId === item.runId ? "running" : "unsent",
-    })),
+    pendingSends: record.unsentSends.map((item) => {
+      const position = queuedPositions.get(item.runId);
+      return {
+        runId: item.runId,
+        text: masker.mask(item.text),
+        at: item.at,
+        state: position !== undefined ? "queued" : runningRunId === item.runId ? "running" : "unsent",
+        ...(position !== undefined ? { position } : {}),
+      };
+    }),
     ...(record.compactionStartedAt !== undefined ? { compactionStartedAt: record.compactionStartedAt } : {}),
     notify: record.notify,
     pinned: record.pinned,

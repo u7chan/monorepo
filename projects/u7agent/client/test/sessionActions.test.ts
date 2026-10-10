@@ -127,14 +127,28 @@ test("keeps the send target but not the display when the chat switches while cre
 
 test("marks the message as queued when the session is already running", async () => {
   const { record, deps } = createHarness({
-    post: async () => ({ queued: true, queueDepth: 3 }),
+    post: async () => ({ queued: true, queueDepth: 3, runId: "run-3" }),
   });
 
   await sendChatMessage("hello", deps);
 
   const [run] = actionsOfType(record.actions, "setRun");
   assert.equal(run.queueDepth, 3);
-  assert.equal(run.activity, "実行中のため待機キューに追加しました（3件目）");
+  assert.equal(run.activity, "実行中… · 待機 3 件");
+  // 待機の順位は応答の queueDepth (= 押し込んだ直後の自分の順位)。バブルのチップ用に echo へ預ける
+  assert.deepEqual(actionsOfType(record.actions, "echoRunId"), [
+    { type: "echoRunId", runId: "run-3", queuePosition: 3 },
+  ]);
+});
+
+test("実行を始めた送信の応答は待機の順位を預けない", async () => {
+  const { record, deps } = createHarness({
+    post: async () => ({ queued: false, queueDepth: 0, runId: "run-1" }),
+  });
+
+  await sendChatMessage("hello", deps);
+
+  assert.deepEqual(actionsOfType(record.actions, "echoRunId"), [{ type: "echoRunId", runId: "run-1" }]);
 });
 
 test("圧縮中の送信は compacting のままキューへ積む", async () => {
@@ -150,7 +164,7 @@ test("圧縮中の送信は compacting のままキューへ積む", async () =>
       type: "setRun",
       runStatus: "compacting",
       queueDepth: 2,
-      activity: "圧縮中のため待機キューに追加しました（2件目）",
+      activity: "圧縮中… · 待機 2 件",
     },
   ]);
 });
@@ -607,6 +621,17 @@ test("再送が受理されたら pending へ戻し、応答の状態を反映�
   assert.equal(setRun.length, 1);
   assert.equal(setRun[0].runStatus, "running");
   assert.deepEqual(actionsOfType(actions, "resendFailed"), []);
+});
+
+test("再送がキューに積まれたら、状態行は件数のサマリにする", async () => {
+  const { actions, deps } = createResendHarness({
+    resend: async () => ({ queued: true, queueDepth: 2, runId: "run-x" }),
+  });
+  await resendUnsentMessage("run-x", deps);
+
+  assert.deepEqual(actionsOfType(actions, "setRun"), [
+    { type: "setRun", runStatus: "running", queueDepth: 2, activity: "実行中… · 待機 2 件" },
+  ]);
 });
 
 test("再送が受理されないまま失敗したら未送信へ戻し、理由を状態行へ出す", async () => {

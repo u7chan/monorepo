@@ -373,13 +373,19 @@ export type HistoryItem = z.infer<typeof HistoryItemSchema>;
 /**
  * 202 で受理したが user entry としてまだ保存されていない送信。サーバー再起動でキューごと消えた分は
  * `unsent` として見せ、実行中 / キュー待ちの分は pending エコーのまま扱わせる (表示から消さない)。
- * `text` は表示用にマスク済み (再送は本文を送り直さず `runId` でサーバーへ依頼する)。
+ * `text` は表示用にマスク済み (再送は本文を送り直さず `runId` でサーバーへ依頼する)。`position` は
+ * `queued` の順位で、`unsentSends` の並び (受理順) を順位として数えさせないために載せる。
  */
 export const PendingSendSchema = z.object({
   runId: z.string(),
   text: z.string(),
   at: z.number(),
   state: z.enum(["unsent", "queued", "running"]),
+  /**
+   * 待機中の順位 (1 始まり)。`state === "queued"` のときだけ載り、値は `record.queue` の index + 1
+   * (SSE `queued` の `position` と同じ意味)。旧サーバーは載せない
+   */
+  position: z.number().optional(),
 });
 export type PendingSend = z.infer<typeof PendingSendSchema>;
 

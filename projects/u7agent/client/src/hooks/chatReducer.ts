@@ -10,6 +10,7 @@ import {
 import type { HistoryMergeResult } from "../lib/chatHistory";
 import { isPendingAskUser } from "../lib/askUser";
 import { compactionDividerIndex } from "../lib/compaction";
+import { queueWaitSummary } from "../lib/queueWait";
 import type { Bubble, ChatHistoryState, CompactionMarker, ToolCard } from "../lib/chatTypes";
 import { retryableRunError, runErrorFrom, type RunErrorInfo } from "../lib/runRetry";
 import { runOutcomeOf } from "../lib/turnEnd";
@@ -133,6 +134,11 @@ export type ChatState = {
    * 直近の数件だけ持ち、対応が取れたら消す (別 run の本文を自分のエコーへ入れない)
    */
   runPrompts: Record<string, string>;
+  /**
+   * 待機列の先頭が実行に移った直後の run id。アバターのリングを外へ 1 回広げる演出 (`liveToolIds` と
+   * 同じライブ専用の一時状態) だけに使い、その run の最初の状態イベントで落とす (reducer は時計を持たない)
+   */
+  startingRunId?: string;
 };
 
 export type ChatAction =
@@ -152,8 +158,9 @@ export type ChatAction =
   | { type: "historyUnsupported" }
   | { type: "runStart"; runId?: string; prompt: string; at: number; startedAt: number }
   | { type: "localUser"; text: string; at: number }
-  /** 送信応答の run id。未対応付けの最古のエコーへ結び付け、自分の entry を run id で特定する */
-  | { type: "echoRunId"; runId: string }
+  /** 送信応答の run id。未対応付けの最古のエコーへ結び付け、自分の entry を run id で特定する。
+   * `queuePosition` は応答が `queued` を返したときの `queueDepth` (= 押し込んだ直後の自分の順位) */
+  | { type: "echoRunId"; runId: string; queuePosition?: number }
   /** 未送信メッセージの再送を開始する (保存済みの本文をサーバーが使う)。pending エコーへ戻す */
   | { type: "resendUnsent"; runId: string }
   /** 再送の受付に失敗した。pending を解除して未送信へ戻す */
@@ -515,11 +522,22 @@ function attachToolCalls(state: ChatState, bubbleId: number, toolCalls: ToolCall
 }
 
 /**
+ * payload の `state` を待機の表示へ写す。順位 (`position`) は `queued` のときだけ載る (旧サーバーは
+ * 載せない)。待機を抜けた送信に古い順位を残さないよう、他の状態では必ず消す
+ */
+function queueStateOf(send: PendingSend): Pick<Bubble, "queued" | "queuePosition"> {
+  return send.state === "queued"
+    ? { queued: true, ...(send.position === undefined ? {} : { queuePosition: send.position }) }
+    : { queued: undefined, queuePosition: undefined };
+}
+
+/**
  * payload.pendingSends (202 で受理したがまだ entry になっていない送信) をバブル列へ写す。
  * `unsent` は pending を外して「未送信」へ切り替え、`queued` / `running` は受理済みの pending として
  * 保つ (別タブの再送中に表示から消さない)。手元にバブルが無い分は末尾へ足す (履歴の初回応答前でも
  * 失わない)。一覧から消えた未送信バブルは、別タブの再送 / 破棄で記録が消えたものとして落とす。
  * `undefined` (旧サーバー) は現状維持。payload に載った run は停止の控え (`clearedRunIds`) から外す。
+ * 待機の表示は payload が正で、一覧から消えた run の待機も解除する (entry が保存された / 実行が始まった)。
  */
 function applyPendingSends(
   bubbles: Bubble[],
@@ -543,19 +561,19 @@ function applyPendingSends(
     if (send?.state === "unsent") {
       pending.delete(bubble.id);
       seen.add(bubble.runId);
-      next.push({ ...bubble, unsent: true, accepted: false, confirmed: false, ...CLEARED_TURN_END });
+      next.push({ ...bubble, unsent: true, accepted: false, confirmed: false, ...CLEARED_TURN_END, ...QUEUE_CLEARED });
       continue;
     }
     if (send !== undefined) {
       // 実行中 / キュー待ち。未送信の表示を戻し、entry が載ったときの吸収に載せる
       seen.add(bubble.runId);
       if (bubble.entryId === undefined) pending.add(bubble.id);
-      next.push({ ...bubble, unsent: false, accepted: true, confirmed: true });
+      next.push({ ...bubble, unsent: false, accepted: true, confirmed: true, ...queueStateOf(send) });
       continue;
     }
     // 一覧に無い = 保存済みか破棄済み。未送信のバブルはここで落とす (保存済みは entry が担う)
     if (bubble.unsent === true) continue;
-    next.push(bubble);
+    next.push({ ...bubble, ...QUEUE_CLEARED });
   }
   for (const send of pendingSends) {
     if (seen.has(send.runId)) continue;
@@ -584,6 +602,7 @@ function applyPendingSends(
       at: send.at,
       runId: send.runId,
       accepted: true,
+      ...queueStateOf(send),
     });
   }
   return {
@@ -601,6 +620,9 @@ function applyPendingSends(
  * 持ち越すと再送後に古い所要時間が残る
  */
 const CLEARED_TURN_END = { runDurationMs: undefined, runOutcome: undefined } as const;
+
+/** 待機を抜けたバブルへ古い順位を残さない (表示の導出は queued だけを見る) */
+const QUEUE_CLEARED = { queued: undefined, queuePosition: undefined } as const;
 
 /** run が終わったことを、run id の一致する user パブルへ写す (entryId の有無を問わない) */
 function attachTurnEnd(bubbles: Bubble[], runId: string, outcome: RunOutcome, durationMs: number): Bubble[] {
@@ -678,6 +700,9 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
         history: sessionChanged ? initialChatState.history : state.history,
         // 別の会話の停止で破棄された run id を持ち越さない
         clearedRunIds: sessionChanged ? [] : state.clearedRunIds,
+        // 開始直後の演出は live 専用。payload が同じ run の実行中を示すときだけ残す
+        startingRunId:
+          status === "running" && payload.run?.id === state.startingRunId ? state.startingRunId : undefined,
         // ライブで観測したツール id も持ち越さない (古い id を新しい会話のライブ観測と誤読させない)
         liveToolIds: sessionChanged ? [] : state.liveToolIds,
         sessionId: payload.sessionId,
@@ -714,8 +739,7 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
         // (折り返すと帯が行ごとに切れる)。run 自身の短いラベルを配る次の status で再開する
         next = { ...next, activity: "実行中…（タブを閉じても処理は続きます）" };
       } else if (status === "compacting") next = { ...next, activity: "会話を整理中…" };
-      else if (status === "queued")
-        next = { ...next, activity: `待機中のメッセージがあります（${payload.queueDepth}件）` };
+      else if (status === "queued") next = { ...next, activity: queueWaitSummary("", payload.queueDepth) };
       else if (status === "error")
         next = {
           ...next,
@@ -867,7 +891,8 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
       // 自分の送信を実行する run は run id で厳密に照合する。run id が分からないエコー (応答待ち) は
       // 照合せず保持し、別クライアントの同一文面 entry を誤って自分のものにしない。
       // 未送信 / 受理済みのバブルは、この run_start で「サーバーが実行を開始した」ことを確認済みに
-      // する (楽観的に再送したバブルも含める。遅れて届いた失敗で未送信へ戻さない)
+      // する (楽観的に再送したバブルも含める。遅れて届いた失敗で未送信へ戻さない)。待機中
+      // (`queued`) のバブルは送信応答だけが run id を付けているため、ここで合わせて拾う
       const started =
         action.runId === undefined
           ? undefined
@@ -875,7 +900,7 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
               (bubble) =>
                 bubble.runId === action.runId &&
                 bubble.entryId === undefined &&
-                (bubble.unsent === true || bubble.accepted === true),
+                (bubble.unsent === true || bubble.accepted === true || bubble.queued === true),
             );
       const base =
         started === undefined
@@ -883,7 +908,9 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
           : {
               ...state,
               bubbles: state.bubbles.map((bubble) =>
-                bubble.id === started.id ? { ...bubble, unsent: false, accepted: true, confirmed: true } : bubble,
+                bubble.id === started.id
+                  ? { ...bubble, unsent: false, accepted: true, confirmed: true, ...QUEUE_CLEARED }
+                  : bubble,
               ),
               pendingEchoIds: state.pendingEchoIds.includes(started.id)
                 ? state.pendingEchoIds
@@ -955,6 +982,8 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
         retryCount: 0,
         // 前のランの失敗は引き継がない (新しいランの開始でカードを消す)
         runError: undefined,
+        // 待機列の先頭が実行に移った瞬間だけ、リングを 1 回広げてチップを一瞬 `実行中` にする
+        startingRunId: started?.queued === true ? action.runId : undefined,
         // 実行が始まった run は停止の控えから外す (遅れて届いた 202 で未送信へ戻さない)
         clearedRunIds:
           action.runId === undefined ? next.clearedRunIds : next.clearedRunIds.filter((id) => id !== action.runId),
@@ -993,6 +1022,10 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
       );
       // run_start が応答より先に届いていれば、控えた本文でローカルエコーを差し替える
       const prompt = state.runPrompts[action.runId];
+      // 待機の順位は応答が配る (押し込んだ直後の queueDepth)。run_start が先に届いた run は既に走って
+      // いるので、遅れて届いた応答で待機中にはしない。payload が先に待機を配っていればそちらを採る
+      const queuePosition = duplicate?.queuePosition ?? (prompt === undefined ? action.queuePosition : undefined);
+      const queued = duplicate !== undefined ? duplicate.queued === true : queuePosition !== undefined;
       const withRunId = updateBubble(
         duplicate === undefined ? state : { ...state, bubbles: state.bubbles.filter((b) => b.id !== duplicate.id) },
         echoId,
@@ -1004,6 +1037,7 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
           ...(duplicate?.accepted === true
             ? { unsent: false, accepted: true, confirmed: duplicate.confirmed === true }
             : {}),
+          ...(queued ? { queued: true, ...(queuePosition === undefined ? {} : { queuePosition }) } : {}),
           ...(prompt !== undefined ? { text: prompt } : {}),
         }),
       );
@@ -1030,7 +1064,7 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
           runPrompts,
           bubbles: withRunId.bubbles.map((bubble) =>
             bubble.id === echoId
-              ? { ...bubble, unsent: true, accepted: false, confirmed: false, ...CLEARED_TURN_END }
+              ? { ...bubble, unsent: true, accepted: false, confirmed: false, ...CLEARED_TURN_END, ...QUEUE_CLEARED }
               : bubble,
           ),
           pendingEchoIds: withRunId.pendingEchoIds.filter((id) => id !== echoId),
@@ -1119,6 +1153,8 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
       const withBubble = attachRunToolCards(ensureAssistant(state, action.at), false);
       const withRun = {
         ...withBubble,
+        // 開始直後の演出は、その run の最初の状態イベントで落とす
+        startingRunId: undefined,
         // ライブ表示が「今観測したツール」を見分けるための控え (payload 経由の復元カードと区別する)
         liveToolIds: withBubble.liveToolIds.includes(action.id)
           ? withBubble.liveToolIds
@@ -1183,8 +1219,10 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
     case "usage": {
       // ツールループは 1 バブルに統合されるため、後続メッセージの値で上書きされる (仕様)。
       const next = action.context ? { ...state, context: action.context } : state;
+      // 開始直後の演出は、その run の最初の状態イベントで落とす
+      const cleared = next.startingRunId === undefined ? next : { ...next, startingRunId: undefined };
       if (state.currentAssistantId !== null) {
-        return updateBubble(next, state.currentAssistantId, (b) => ({
+        return updateBubble(cleared, state.currentAssistantId, (b) => ({
           ...b,
           usage: action.usage ?? b.usage,
           metrics: action.metrics ?? b.metrics,
@@ -1193,7 +1231,7 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
       // まだ本文もツールカードも届いていない (tool 呼び出しだけの message_end が先に届く)。
       // 直前の run のバブルを書き換えず、値を保留して次に作るバブルへ回す。
       return {
-        ...next,
+        ...cleared,
         pendingUsage: action.usage ?? state.pendingUsage,
         pendingMetrics: action.metrics ?? state.pendingMetrics,
       };
@@ -1221,7 +1259,13 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
 
     case "status":
       // state は演出の条件 (thinking のときだけ活動ラベルに光を流す)、text は表示文言
-      return { ...state, activity: action.text || "処理中…", activityState: action.state || undefined };
+      return {
+        ...state,
+        activity: action.text || "処理中…",
+        activityState: action.state || undefined,
+        // 開始直後の演出は、その run の最初の状態イベントで落とす
+        startingRunId: undefined,
+      };
 
     case "queued":
       return {
@@ -1229,10 +1273,8 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
         // 圧縮中は体感の状態を compacting のまま保つ (実際に走っているのは圧縮)
         runStatus: state.runStatus === "compacting" ? "compacting" : "running",
         queueDepth: action.queueDepth,
-        activity:
-          state.runStatus === "compacting"
-            ? `圧縮中のため待機キューに追加しました（${action.position}件目）`
-            : `実行中のため待機キューに追加しました（${action.position}件目）`,
+        // 順位は各バブルのチップが担う。状態行は件数のサマリだけを出す
+        activity: queueWaitSummary(state.runStatus === "compacting" ? "圧縮中…" : "実行中…", action.queueDepth),
         activityState: undefined,
       };
 
@@ -1241,11 +1283,14 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
       // 「送信済み」の見た目のまま残さない。応答 (echoRunId) がまだ届いていないエコーは run id が
       // 無いため特定できず、控えを残して対応付いた時点で切り替える
       const cleared = new Set(action.runIds ?? []);
-      const bubbles = state.bubbles.map((bubble) =>
-        bubble.runId !== undefined && cleared.has(bubble.runId) && bubble.unsent !== true
-          ? { ...bubble, unsent: true, accepted: false, confirmed: false, ...CLEARED_TURN_END }
-          : bubble,
-      );
+      const bubbles = state.bubbles.map((bubble) => {
+        const markUnsent = bubble.runId !== undefined && cleared.has(bubble.runId) && bubble.unsent !== true;
+        // キューそのものが空になったので、run id が分からない分 (旧サーバー) の待機也表示を戻す
+        if (!markUnsent && bubble.queued !== true) return bubble;
+        return markUnsent
+          ? { ...bubble, unsent: true, accepted: false, confirmed: false, ...CLEARED_TURN_END, ...QUEUE_CLEARED }
+          : { ...bubble, ...QUEUE_CLEARED };
+      });
       const pendingEchoIds = state.pendingEchoIds.filter((id) => {
         const bubble = bubbles.find((item) => item.id === id);
         return bubble?.unsent !== true;
@@ -1259,6 +1304,8 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
         queueDepth: 0,
         activity: "待機キューを取り消しました",
         activityState: undefined,
+        // 破棄で待機が消えたので、開始直後の演出も残さない
+        startingRunId: undefined,
       };
     }
 
@@ -1292,7 +1339,7 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
       let activity: string;
       if (status === "stopped") activity = "停止しました";
       else if (status === "error") activity = cardShown ? "" : `エラー: ${action.error || "実行に失敗しました"}`;
-      else activity = queueDepth > 0 ? "完了。次のメッセージを実行します" : "完了";
+      else activity = queueDepth > 0 ? queueWaitSummary("完了", queueDepth) : "完了";
       // 確定した応答のバブルは resync でも残す (履歴ページが届くまでの表示を維持する)
       const settled =
         state.currentAssistantId === null
@@ -1305,13 +1352,23 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
         action.runId === undefined || outcome === undefined || action.durationMs === undefined
           ? settled
           : { ...settled, bubbles: attachTurnEnd(settled.bubbles, action.runId, outcome, action.durationMs) };
+      // 実行されずに終わった待機はここで解除する (run_start が届かない経路の待機表示を残さない)
+      const bubbles =
+        action.runId === undefined
+          ? withTurnEnd.bubbles
+          : withTurnEnd.bubbles.map((bubble) =>
+              bubble.runId === action.runId && bubble.queued === true ? { ...bubble, ...QUEUE_CLEARED } : bubble,
+            );
       return {
         ...withTurnEnd,
+        bubbles,
         pendingEchoIds,
         currentAssistantId: null,
         toolBubbleIds: {},
         activity,
         activityState: undefined,
+        // 開始直後の演出は run の終了でも必ず落とす
+        startingRunId: undefined,
         // サーバー計測のラン全体。run_end を受け取れない復帰では復元しない (resync が消す)
         finishedRunDurationMs: action.durationMs,
         // run が終わったことを取り直しの合図として数える (描画を挟まず reducer で進める)

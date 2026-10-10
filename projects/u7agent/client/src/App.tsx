@@ -645,6 +645,7 @@ export default function App() {
                   answerable={app.chat.runStatus === "running"}
                   onAnswerQuestion={app.answerQuestion}
                   currentAssistantId={app.chat.currentAssistantId}
+                  startingRunId={app.chat.startingRunId}
                   liveToolsPhase={liveTools.phase}
                 />
               </MarkdownImageProvider>

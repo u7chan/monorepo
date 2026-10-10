@@ -8,6 +8,7 @@ import type {
   SessionSummary,
   StopResult,
 } from "../types";
+import { queueWaitSummary } from "../lib/queueWait";
 import type { ChatAction } from "./chatReducer";
 import { runtimeStatusForError, type RuntimeStatus } from "./runtimeStatus";
 
@@ -91,7 +92,12 @@ export async function sendChatMessage(text: string, deps: SendChatMessageDeps): 
     // 自分の送信の run id をエコーへ結び付ける。表示の正は SSE だが、この対応付けは応答だけが持つ
     // (圧縮中 / キュー中でも、自分が送った run の id が返る)。切替後の表示は触らない
     if (sameChat && sessionIdRef.current === targetId && result.runId !== undefined) {
-      dispatch({ type: "echoRunId", runId: result.runId });
+      dispatch({
+        type: "echoRunId",
+        runId: result.runId,
+        // 待機の順位は押し込んだ直後の queueDepth = 自分の順位 (実行を始めた run では載せない)
+        ...(result.queued ? { queuePosition: result.queueDepth } : {}),
+      });
     }
     // 応答は状態の正ではない。要求の後に権威ある状態 (終端 resync / run の終了 / 新しい要求) が入った、
     // または表示が別の会話へ移った場合は、遅れて届いた queueDepth と runStatus で表示を戻さない
@@ -104,9 +110,8 @@ export async function sendChatMessage(text: string, deps: SendChatMessageDeps): 
           type: "setRun",
           runStatus: compacting ? "compacting" : "running",
           queueDepth: result.queueDepth,
-          activity: compacting
-            ? `圧縮中のため待機キューに追加しました（${result.queueDepth}件目）`
-            : `実行中のため待機キューに追加しました（${result.queueDepth}件目）`,
+          // 順位は各バブルのチップが担う。状態行は件数のサマリだけを出す
+          activity: queueWaitSummary(compacting ? "圧縮中…" : "実行中…", result.queueDepth),
         });
       } else {
         dispatch({ type: "setRun", runStatus: "running", queueDepth: 0, activity: "実行を開始しました" });
@@ -196,9 +201,7 @@ export async function resendUnsentMessage(runId: string, deps: ResendUnsentDeps)
         runStatus: compacting ? "compacting" : "running",
         queueDepth: result.queueDepth,
         activity: result.queued
-          ? compacting
-            ? `圧縮中のため待機キューに追加しました（${result.queueDepth}件目）`
-            : `実行中のため待機キューに追加しました（${result.queueDepth}件目）`
+          ? queueWaitSummary(compacting ? "圧縮中…" : "実行中…", result.queueDepth)
           : "実行を開始しました",
       });
     }
