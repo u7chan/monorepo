@@ -46,6 +46,7 @@ import {
 } from "./lib/fileRefRequest";
 import type { FileRefTarget } from "./lib/fileRef";
 import { resolveSidebarPlacement } from "./lib/layout";
+import { openOwnerSession } from "./lib/ownerLink";
 import { sessionPath } from "./lib/route";
 import {
   missingLinkNote,
@@ -533,13 +534,21 @@ export default function App() {
             {...pageProps}
             health={app.health}
             onRefreshHealth={app.refreshHealth}
-            onOpenSession={(sessionId) => {
-              void app.selectSession(sessionId, undefined, { fallbackOnFailure: false }).then((result) => {
-                const note = missingLinkNote(true, result);
-                if (note) app.dispatch({ type: "setActivity", text: note });
-              });
-              backToChat();
-            }}
+            onOpenSession={(sessionId, spaceId) =>
+              openOwnerSession(sessionId, spaceId, {
+                spaces: space.spaces,
+                currentSpaceId: space.selected.id,
+                navigate,
+                selectSpace: space.select,
+                openInPlace: (id) => {
+                  void app.selectSession(id, undefined, { fallbackOnFailure: false }).then((result) => {
+                    const note = missingLinkNote(true, result);
+                    if (note) app.dispatch({ type: "setActivity", text: note });
+                  });
+                  backToChat();
+                },
+              })
+            }
           />
         );
       case "notifications":
