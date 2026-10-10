@@ -106,8 +106,10 @@ function SessionFilesContent({
       ) : null}
       {active === "files" ? (
         <div className="grid min-h-0 grid-rows-[auto_minmax(0,1fr)]">
-          {/* root と「再読み込み」は作業フォルダタブ専用 (環境変数タブは自前の toolbar を持つ) */}
-          <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1 border-b border-line px-4 py-2">
+          {/* root と「再読み込み」は作業フォルダタブ専用 (環境変数タブは自前の toolbar を持つ)。
+              root は nowrap なので切り詰めない全文幅が最小サイズになる。min-w-0 でこの行を縮め、あふれは
+              code の truncate に任せる (縮めないと列の幅をこの行が決めてしまう) */}
+          <div className="flex min-w-0 flex-wrap items-center justify-between gap-x-2 gap-y-1 border-b border-line px-4 py-2">
             {/* 新規会話ではプロジェクトのフォルダを指すため、ラベルだけでなく root も出す */}
             <div className="flex min-w-0 flex-1 items-center gap-1.5">
               <code className="min-w-0 truncate text-2xs leading-normal text-ink-muted" title={root}>
@@ -290,8 +292,9 @@ export function SkillFilesContent({
         </div>
       </header>
       <div className="grid min-h-0 grid-rows-[auto_minmax(0,1fr)]">
-        {/* パンくずは画面 root 相対なので、ツリーの root は面のヘッダ側に出す (設定 → スキルと同じ形) */}
-        <div className="flex items-center border-b border-line px-4 py-2">
+        {/* パンくずは画面 root 相対なので、ツリーの root は面のヘッダ側に出す (設定 → スキルと同じ形)。
+            長い root は code の truncate に任せるため、行は min-w-0 で縮める */}
+        <div className="flex min-w-0 items-center border-b border-line px-4 py-2">
           <code className="min-w-0 truncate text-2xs leading-normal text-ink-muted" title={root}>
             {root}
           </code>
@@ -344,7 +347,9 @@ export function SessionFilesPanel({ resize, ...props }: SessionFilesDesktopPanel
     <aside
       aria-label={skill ? "スキル" : "作業環境"}
       className={cn(
-        "relative grid h-full min-h-0 overflow-hidden border-l border-line bg-panel",
+        // 列を容器の幅へ拘束する。auto のままだと 1 つの広い行が列を伸ばし、閉じる / 再読み込み /
+        // サイズ / 時刻 が容器の外へ出て overflow-hidden で切れる (単一列 Grid の規則は docs/ui-layout.md)
+        "relative grid h-full min-h-0 grid-cols-1 overflow-hidden border-l border-line bg-panel",
         // タブバーの行は作業フォルダ面だけが持つ (残すと本文の行が auto になり、高さが容器を越える)
         skill ? "grid-rows-[auto_minmax(0,1fr)]" : "grid-rows-[auto_auto_minmax(0,1fr)]",
       )}
@@ -397,7 +402,8 @@ export function SessionFilesSheet({ returnFocus, ...props }: SessionFilesSheetPr
         if (event.key === "Escape") event.stopPropagation();
       }}
       className={cn(
-        "m-0 grid h-dvh max-h-none w-screen max-w-none overflow-hidden rounded-none border-0 bg-panel p-0 text-ink",
+        // 列を viewport の幅へ拘束する (理由は SessionFilesPanel の aside と同じ)
+        "m-0 grid h-dvh max-h-none w-screen max-w-none grid-cols-1 overflow-hidden rounded-none border-0 bg-panel p-0 text-ink",
         props.mode.kind === "skill" ? "grid-rows-[auto_minmax(0,1fr)]" : "grid-rows-[auto_auto_minmax(0,1fr)]",
       )}
     >
