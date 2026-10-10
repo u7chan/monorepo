@@ -92,7 +92,9 @@ detected() {
 
 run_detection() {
   last_rc=0
-  ( cd "$WORK_DIR" && bash "$SCRIPT" "$@" ) > "$WORK_DIR/script.log" 2>&1 || last_rc=$?
+  # CI（pull_request）は GITHUB_BASE_REF を全ステップに設定するため、
+  # 引数省略時の既定（HEAD~1）を検証するには明示的に外す
+  ( cd "$WORK_DIR" && env -u GITHUB_BASE_REF bash "$SCRIPT" "$@" ) > "$WORK_DIR/script.log" 2>&1 || last_rc=$?
 }
 
 run_pr_detection() {
