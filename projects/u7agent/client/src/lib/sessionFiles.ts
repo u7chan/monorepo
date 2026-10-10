@@ -33,7 +33,7 @@ export type SessionFilesDefaultOpen = {
 
 /**
  * desktop のパネルの既定値。プロジェクト配下の新規会話だけ開にする。
- * 使うのは利用者操作の新規会話の入口 (App の handleNewChat) だけで、起動時は常に未所属なので閉になる。
+ * 使うのは利用者操作の新規会話の入口 (App の handleNewChat) だけで、起動時は会話 URL を開く場合も閉になる。
  * 派生 state (一覧の到着 / root の解決) を契機に変えない
  */
 export function sessionFilesDefaultOpen({ compact, projectId }: SessionFilesDefaultOpen): boolean {
