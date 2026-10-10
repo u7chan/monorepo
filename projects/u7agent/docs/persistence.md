@@ -5,16 +5,16 @@
 BFF とツール実行サンドボックスを別コンテナで動かす構成を対象とする。
 サンドボックスの `/workspace` はホストの専用作業領域へ永続マウントし、
 GUI の会話履歴は **BFF 専用の会話ストア**（`PI_SESSION_STORE`）へ JSONL で保存する。
-会話と作業ディレクトリは同じセッション id で対応し、別の場所に置く。未所属チャットのスクラッチは `<workspace>/.u7agent/sessions/<id>`、プロジェクト所属セッションは登録ディレクトリそのもの、添付は共通の `<workspace>/.u7agent/uploads/<id>` を使う（[projects.md](projects.md#セッション-cwd)）。
+会話と作業ディレクトリは同じセッション id で対応し、別の場所に置く。未所属チャットのスクラッチと添付は所属スペースの置き場（[session-files.md](session-files.md#スペースごとの配置)）を使い、プロジェクト所属セッションは登録ディレクトリそのものを使う（[projects.md](projects.md#セッション-cwd)）。
 
 | データ | 再作成・再デプロイ後 |
 |---|---|
 | `/workspace` 内のファイル・Gitリポジトリ・worktree | 残る |
 | 共通スキル（`<workspace>/.agents/skills`） | 残る |
-| セッションの作業ディレクトリ（未所属チャットのスクラッチ `<workspace>/.u7agent/sessions/<id>`） | 残る |
+| セッションの作業ディレクトリ（未所属チャットのスクラッチ。通常スペースは `<workspace>/.u7agent/sessions/<id>`） | 残る |
 | プロジェクト所属セッションの作業ディレクトリ（登録ディレクトリそのもの） | 残る（登録したディレクトリが永続マウント配下なら） |
 | プロジェクトスキル（`<project>/.agents/skills`） | 残る（登録したディレクトリが永続マウント配下なら） |
-| 添付ファイル（`<workspace>/.u7agent/uploads/<id>`） | 残る |
+| 添付ファイル（通常スペースは `<workspace>/.u7agent/uploads/<id>`） | 残る |
 | 会話履歴・セッション一覧・タイトル（`PI_SESSION_STORE/<id>/{meta.json,session.jsonl,sends.json}`） | 残る（ストアを永続ボリュームに置いた場合） |
 | エージェント / スキル定義（アプリデータの SQLite） | 残る（ストアを永続ボリュームに置いた場合） |
 | アーカイブの除外名（アプリデータの SQLite、上書きしたときだけ） | 残る（ストアを永続ボリュームに置いた場合） |
@@ -39,7 +39,7 @@ GUI の会話履歴は **BFF 専用の会話ストア**（`PI_SESSION_STORE`）�
 - 通常の予約 ID は `default`。旧会話の `meta.json` に `spaceId` が無い場合だけ通常として読む。不正な保存値は通常へ読み替えず、壊れた meta として一覧から除く。
 - 追加スペースはアプリ DB の `spaces(id, name, createdAt)` に保存する。内部 ID は `space-` + 16 桁の hex、表示名とは独立して固定する。通常は固定の選択肢でテーブルへ保存しない。v13 → v14 はテーブル追加だけの加算移行で、既存データを移動・削除しない。
 - 会話ログは従来の `<PI_SESSION_STORE>/<sessionId>/` のまま。追加スペースの所属は meta に保存し、live・未ロード・sweep 後・再起動後で保持する。JSONL の SDK 形式は変えない。
-- 通常の作業先・添付は既存パスのまま。追加スペースだけ `.u7agent/spaces/<spaceId>/sessions/<sessionId>` と `.u7agent/spaces/<spaceId>/uploads/<sessionId>` を使う（[session-files.md](session-files.md#スペースごとの配置)）。
+- 通常の作業先・添付は既存パスのまま。追加スペースの作業フォルダと添付は所属スペース配下（[session-files.md](session-files.md#スペースごとの配置)）。
 - 未所属セッションは `POST /api/sessions/:id/move` で別のスペースへ引っ越せる。meta の `spaceId` を書き換え、作業フォルダ / 添付を移動先のパスへ物理移動する（会話ログのフォルダは `<PI_SESSION_STORE>/<sessionId>/` のままで、履歴の `session.jsonl` / `sends.json` は破棄する。`secrets` / `serve_commands` は cwd をキーにするため移動先へ付け替える。[api-sessions.md](api-sessions.md#post-apisessionsidmove)）。
 - 切り替えは会話や実行中ランを消さない。スペースの改名・削除・リセットは設けない。空のデモを始めるときは新しいスペースを作成する。
 

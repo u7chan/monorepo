@@ -168,7 +168,7 @@ test("the upload response path stays the root-relative uploads path", async () =
       body: "bytes",
     });
     assert.equal(response.status, 201);
-    // 保存先は所属に関係なく `<appdir>/uploads/<id>`。応答も root 相対のままクライアントへ返す
+    // 保存先は所属スペースの添付置き場 (通常スペースは `<appdir>/uploads/<id>`)。応答も root 相対のままクライアントへ返す
     assert.equal(uploads[0]?.dir, uploadsDir);
     assert.deepEqual(await response.json(), {
       sessionId,
@@ -388,7 +388,7 @@ test("a persistent session stores attachments outside its work folder", async ()
       body,
     });
     assert.equal(uploaded.status, 201);
-    // 添付は作業フォルダの外 (`<appdir>/uploads/<id>`) に置く (プロジェクト所属でもリポジトリ内に作らない)
+    // 添付は作業フォルダの外 (通常スペースは `<appdir>/uploads/<id>`) に置く (プロジェクト所属でもリポジトリ内に作らない)
     const uploadsDir = sessionUploadsRel(sessionId);
     assert.equal(((await uploaded.json()) as { path: string }).path, `${uploadsDir}/dot.png`);
     assert.deepEqual(new Uint8Array(await readFile(join(root, uploadsDir, "dot.png"))), body);

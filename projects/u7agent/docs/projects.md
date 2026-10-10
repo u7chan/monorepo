@@ -15,17 +15,17 @@
 
 プロジェクト所属セッションの作業ディレクトリは**登録ディレクトリそのもの**（`project.cwd`）で、SDK セッションの cwd・ツールのパス解決の起点・write / edit の書き込み範囲・ファイル画面（`SessionPayload.cwd`）の root を同じ値に揃える。同一プロジェクトの複数セッションはこのツリーを共有するため、片方で作ったファイルが他方のファイル画面にも相対パスで見え、`.git` に届くので `git status` / `git worktree add` のようなリポジトリ前提の作業ができる。
 
-未所属チャットは現行どおり `<root>/<appdir>/sessions/<id>` のスクラッチを使う。添付ファイルは所属に関係なく `<root>/<appdir>/uploads/<sessionId>/` に置き、プロジェクト所属でもリポジトリ内には作らない。モデルへは注記で絶対パスを渡し、ファイル画面には出ない（[session-files.md](session-files.md#添付ファイルチャットからのアップロード)）。
+未所属チャットは所属スペースのスクラッチを使う（通常スペースは `<root>/<appdir>/sessions/<id>`。置き場は [session-files.md](session-files.md#スペースごとの配置)）。添付ファイルは所属スペースの添付置き場に置き、プロジェクト所属でもリポジトリ内には作らない。モデルへは注記で絶対パスを渡し、ファイル画面には出ない（[session-files.md](session-files.md#添付ファイルチャットからのアップロード)）。
 
 プロジェクト所属セッションを作る入口は、サイドバーのプロジェクト行の ⋯（「このプロジェクトに新しい会話」）と、プロジェクトの追加（`ProjectDialog`。新規作成 / 既存登録の成功後にそのプロジェクトの新規会話へ入る）。サイドバーの「新しい会話」と、会話を指定しない `/` の起動・リロード後の新規会話は常に未所属で、最後に開いたプロジェクトを引き継がない（[ui-layout.md](ui-layout.md#作成先)）。
 
 所属プロジェクトは `projectCwd` / `projectName` として会話ストアの meta に保存し、`SessionPayload.cwd` / `SessionSummary.projectId` は root 相対の作業フォルダと、読み取り時に `ProjectStore.findByCwd(projectCwd)` で解決した所属から組み立てる。所属を後から変える API は無い。SDK セッションへは `createAgentSession({ cwd })` / `SessionManager.inMemory(cwd, ...)` として作業フォルダを渡し、実行時のパス解決の起点にする。
 
 - セッション作成時にプロジェクトのディレクトリは作らない。既存確認（サンドボックスの一覧取得）だけを行い、無ければ 400 にする。
-- 未所属セッションのスクラッチは同じ `<root>/<appdir>/sessions/<id>` で、root を cwd にはしない。
+- 未所属セッションのスクラッチは通常スペースでは同じ `<root>/<appdir>/sessions/<id>` で、root を cwd にはしない（追加スペースの置き場は [session-files.md](session-files.md#スペースごとの配置)）。
 - 既存セッションの cwd は復元時に `meta.projectCwd` から解決する。登録が解除・消失していても `projectCwd` をそのまま使う（`projectCwd` が無ければスクラッチ）。旧スクラッチフォルダは削除しない。
 - worktree はアプリが作らない。切った worktree をプロジェクトとして登録し、並行作業の分離はこれで行う（自動作成・削除・ブランチ命名は非ゴール）。
-- 会話の永続化が無効（`PI_SESSION_STORE` 未設定・テスト）なときはプロジェクトの `cwd`（未所属は root）を使い、作業フォルダの存在確認・作成・保存をしない。
+- 会話の永続化が無効（`PI_SESSION_STORE` 未設定・テスト）なときはプロジェクトの `cwd` を使う。未所属が root になる縮退（作業フォルダの存在確認・作成・保存をしない）に入るのは通常スペースだけで、追加スペースは所属スペースのスクラッチを作る（[session-files.md](session-files.md#スペースごとの配置)）。
 
 ## write / edit の書き込み範囲
 
@@ -39,17 +39,17 @@
 
 拒否は HTTP 200 の `error` イベントとして返し（404 / 400 は使わない）、文言に許可場所（実行 cwd の絶対パスと `<root>/.agents/skills`）と cwd 相対の再試行例（`cafe.html`）を含める。`cwd` 自体の検証（実在しない・ディレクトリ以外・root 外）は従来どおり実行前の 400 / 404 のままで、モデルのツールエラーにはならない（[sandbox-api.md](sandbox-api.md#post-v1toolstoolexecute)）。
 
-- `read` / `grep` / `find` / `ls` は変えない。`read` は添付（`<appdir>/uploads/<id>`）・ファイルスキル・pi docs を読むため広いままにする。`bash` はこのファイルツールのポリシーでは絞らないが、**Landlock で書き込みを作業ディレクトリ・共通スキル・`/tmp`・ホームのキャッシュ・デバイスファイルに限る**（`bash` のリダイレクトも同じ制限を受ける。[sandbox.md](sandbox.md#パスと並行実行)）
+- `read` / `grep` / `find` / `ls` は変えない。`read` は添付（通常スペースは `<appdir>/uploads/<id>`）・ファイルスキル・pi docs を読むため広いままにする。`bash` はこのファイルツールのポリシーでは絞らないが、**Landlock で書き込みを作業ディレクトリ・共通スキル・`/tmp`・ホームのキャッシュ・デバイスファイルに限る**（`bash` のリダイレクトも同じ制限を受ける。[sandbox.md](sandbox.md#パスと並行実行)）
 - 対象外: 他会話のスクラッチ、workdir を除く `.u7agent` 配下（添付は BFF が `POST /v1/files/upload` で書く）、他プロジェクト、`<appdir>/builtin-skills/**`、workspace root 直下（下記の永続化なしの縮退を除く）
 - 作業ディレクトリ内の symlink は実パスで判定する。root 内を指すリンクは通し、root 外を指すリンク（壊れたリンクを含む）は拒否する
 - worktree はアプリが作らない。`git worktree add` しただけの未登録ディレクトリは作業ディレクトリではないため、そのパスへの `write` / `edit` は拒否される。切った worktree をプロジェクトとして登録し、新しいセッションを作る既存フローでカバーする
-- 会話の永続化が無効（`PI_SESSION_STORE` 未設定）の未所属は `workdirOf` が root（`""`）を返すため、境界は workspace root だけになる。分岐は足さず、root 直下への `write` / `edit` は通る（root 外だけを拒否する縮退）
+- 会話の永続化が無効（`PI_SESSION_STORE` 未設定）の通常スペースの未所属は `workdirOf` が root（`""`）を返すため、境界は workspace root だけになる。分岐は足さず、root 直下への `write` / `edit` は通る（root 外だけを拒否する縮退）
 
 ## 実行時の隔離ではない
 
 プロジェクトは**実行時の完全な隔離ではない**。cwd はツールのパス解決の起点を変え、**`write` / `edit` とエージェントの `bash`（とその子プロセス）の書き込み範囲を同じ作業ディレクトリへ閉じ込める**（[前節](#write--edit-の書き込み範囲)）が、読み取り・ポート・プロセスは全セッションで共有される。同じプロジェクトの複数セッションは cwd を共有するため互いのファイルは壊せ、`/tmp` と `/dev/shm` も共有される。読み取りを制限しないため、他会話のスクラッチや他プロジェクトの内容を `read` / `bash` から見ることはできる。プロセス・ユーザー分離が必要になった時点でコンテナ・データ領域分離として別に設計する。
 
-Landlock の保証範囲と残りの限界（`chmod` / `chown` / `utime` / `setxattr` は制限できない、ABI 4 では device ioctl が対象外など）は [sandbox.md の残存リスク](sandbox.md#残存リスク)を正とする。dev は `PI_SESSION_STORE` 未設定だと未所属 cwd が root になり、この境界が workspace root まで広がる縮退になるため、書き込み制限を検証するときは store を設定する。
+Landlock の保証範囲と残りの限界（`chmod` / `chown` / `utime` / `setxattr` は制限できない、ABI 4 では device ioctl が対象外など）は [sandbox.md の残存リスク](sandbox.md#残存リスク)を正とする。dev は `PI_SESSION_STORE` 未設定だと通常スペースの未所属 cwd が root になり、この境界が workspace root まで広がる縮退になるため、書き込み制限を検証するときは store を設定する。
 
 ツール実行はリクエストごとの `cwd`（root 相対）を受け取り、サンドボックスが root 配下の実在ディレクトリへ解決してから、その実パス（write / edit の許可 root も定義に焼き込むため、要求 cwd の lexical 形との組）ごとに生成・キャッシュしたツール定義で実行する。`..` や symlink で root の外へ出る指定は 400。この検証も cwd の起点を決めるだけで、サンドボックスが読める範囲を絞るものではない。
 

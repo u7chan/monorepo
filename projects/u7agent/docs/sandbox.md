@@ -86,6 +86,6 @@ pi SDK (BFF)                       sandbox service (別プロセス / 別コン�
 - ユーザーが作業領域へ置いたファイルの内容はツールから読める。認証情報を作業領域へ置かない運用とする
 - `write` / `edit` の許可場所はファイルツールのポリシーだが、bash 側は Landlock で強制される。同じプロジェクトの複数セッションは cwd を共有するため互いのファイルは壊せ、`/tmp` と `/dev/shm` も全セッション共有。読み取りは制限しないため、プロンプトインジェクションによる既存ファイルの持ち出しは残る
 - Landlock は `chmod` / `chown` / `utime` / `setxattr` を制限できない（カーネルドキュメントの limitations）。許可 root の外でもファイル属性は変更できるため、**内容の作成・変更・削除・rename・truncate までが保証**で、他プロジェクトの破壊を完全には防げない。同じ理由で `flock` / `stat` / `chdir` も制限しない
-- Landlock のない環境（Linux 6.2 未満、macOS、ラッパー未配置）では `bash` を実行できない（fail-closed）。dev は同一ユーザーで動くため、`~/.cache` / `~/.npm` の許可は開発者本人の実キャッシュへの書き込み許可になる。`pnpm dev` で検証するときは `PI_SESSION_STORE` を設定し、未所属 cwd が root になる縮退（root 全体が許可される）を避ける（[projects.md](projects.md#write--edit-の書き込み範囲)）
+- Landlock のない環境（Linux 6.2 未満、macOS、ラッパー未配置）では `bash` を実行できない（fail-closed）。dev は同一ユーザーで動くため、`~/.cache` / `~/.npm` の許可は開発者本人の実キャッシュへの書き込み許可になる。`pnpm dev` で検証するときは `PI_SESSION_STORE` を設定し、通常スペースの未所属 cwd が root になる縮退（root 全体が許可される）を避ける（[projects.md](projects.md#write--edit-の書き込み範囲)）
 - ABI 4（Linux 6.8）では device ioctl が対象外（ABI 5 で追加）。外向き通信の制限（Landlock の network 権利、egress 制限）も対象外
 - bash ツールの出力が切り詰められた場合、フル出力はサンドボックス内の一時ファイルへ書かれる。ファイル自体はマスクされないが、それを読むツール出力はマスクされる（[secrets.md](secrets.md)）

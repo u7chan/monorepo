@@ -431,7 +431,7 @@ export const SessionPayloadSchema = z.object({
   spaceId: z.string().optional(),
   sessionId: z.string(),
   piSessionId: z.string(),
-  /** rootCwd 相対の作業ディレクトリ (未所属は "" = root) */
+  /** rootCwd 相対の作業ディレクトリ (未所属は所属スペースのスクラッチ。"" = root は永続化なしの通常スペースだけ) */
   cwd: z.string(),
   /** SSE の世代。seq は再起動で 0 に戻るため、カーソルの整合判定に使う */
   eventGeneration: z.string(),
@@ -1112,7 +1112,7 @@ export type SessionSkillsResponse = z.infer<typeof SessionSkillsResponseSchema>;
 
 /**
  * GET /api/skills/session の応答。セッション未確定 (新規チャット) のプレビューなので sessionId を持たない。
- * `cwd` は未所属なら "" で、永続化されたセッションのスクラッチ (`.u7agent/sessions/<id>`) とは別の値。
+ * `cwd` は未所属なら "" で、永続化されたセッションのスクラッチ (通常スペースは `.u7agent/sessions/<id>`) とは別の値。
  */
 export const SessionSkillsPreviewSchema = SessionSkillsResponseSchema.omit({ sessionId: true });
 export type SessionSkillsPreview = z.infer<typeof SessionSkillsPreviewSchema>;
@@ -1188,7 +1188,7 @@ export type SessionMoveResponse = z.infer<typeof SessionMoveResponseSchema>;
 export const PostMessageBodySchema = z.object({
   /** 通常の送信は必須。`resendRunId` を指定した再送では本文を送らず、サーバーが保存済みの本文を使う */
   text: z.string().optional(),
-  /** 添付 (root 相対の `<appdir>/uploads/<sessionId>/` 配下)。件数とパスの検証は attachments.ts が正 */
+  /** 添付 (root 相対。通常スペースは `<appdir>/uploads/<sessionId>/` 配下)。件数とパスの検証は attachments.ts が正 */
   attachments: z.array(z.string()).optional(),
   /** 未送信メッセージの再送。本文は保存済みの生テキストを使い、同じ run id で実行し直す */
   resendRunId: z.string().optional(),
@@ -1208,7 +1208,7 @@ export const CreateSessionBodySchema = z.object({
   // 未指定ならエージェント定義 → アプリ既定の順に解決する (null は 400)
   model: ModelRefSchema.optional(),
   thinkingLevel: ThinkingLevelSchema.optional(),
-  // 未指定は未所属 (cwd = root)。未知の id は 400
+  // 未指定は未所属 (cwd = root になるのは永続化なしの通常スペースだけ)。未知の id は 400
   projectId: z.string().min(1).optional(),
   // 新規チャットで選んだ通知トグルを、作成されるセッションへ引き継ぐ (未指定は false)
   notify: z.boolean().optional(),

@@ -27,7 +27,7 @@ export type Attachment = {
   name: string;
   size: number;
   status: AttachmentStatus;
-  /** 成功時の root 相対パス (`.u7agent/uploads/<sessionId>/…`) */
+  /** 成功時の root 相対パス (通常スペースは `.u7agent/uploads/<sessionId>/…`)。保存先はサーバーが決める */
   path?: string;
   /** 失敗理由 (上限超過・件数超過・API エラー) */
   error?: string;
