@@ -7,6 +7,7 @@ import { resolveScrollFollow, shouldLoadOlder } from "../lib/chatScroll";
 import type { ChatScope } from "../lib/chatScope";
 import { cn } from "../lib/cn";
 import type { LiveToolPhase } from "../lib/liveToolCall";
+import { queueWaitsOf } from "../lib/queueWait";
 import { toolCallCopyText, toolHistoryCopyText } from "../lib/copy-content";
 import { nonSkillToolCards, skillBadgesOf } from "../lib/skillLoad";
 import type { AgentSuggestion, AskUserAnswer, CompactionInfo } from "../types";
@@ -64,6 +65,10 @@ export type ChatAreaProps = {
   /** 進行中のターンの assistant バブル id (ChatState.currentAssistantId)。ツール履歴のコピーを
    * run が終わるまで隠す根拠 (履歴ページ由来のバブルは `settled` を持たず使えない) */
   currentAssistantId?: number | null;
+  /** 待機列から実行に移った直後の run id (ChatState.startingRunId)。開始の Flash を出す根拠 */
+  startingRunId?: string;
+  /** 開始の Flash (リングの広がり) が終わった。ライブ専用の合図を落とす根拠 */
+  onStartFlashEnd?: () => void;
   /** 入力欄の上に浮かぶライブ表示の段。箱が浮いている間だけ、内容の下端に固定の余白を確保する */
   liveToolsPhase?: LiveToolPhase;
 };
@@ -93,6 +98,8 @@ export function ChatArea({
   onAnswerQuestion,
   visible = true,
   currentAssistantId = null,
+  startingRunId,
+  onStartFlashEnd,
   liveToolsPhase = "hidden",
 }: ChatAreaProps) {
   const chatAreaRef = useRef<HTMLElement>(null);
@@ -117,6 +124,8 @@ export function ChatArea({
   );
   // resync では run の toolCall が最後のバブルへまとまるため、全バブル横断で同じ呼び出しをバッジ 1 件に統合する
   const skillBadges = skillBadgesOf(bubbles);
+  // 待機の順位と件数。サーバーが配った順位を保持したまま、表示の直前に並べ直して 1..N を振り直す
+  const queueWaits = useMemo(() => queueWaitsOf(bubbles), [bubbles]);
 
   // 可変高さ (Markdown / ツール履歴 / 折りたたみ要約) を計測し、可視範囲 + overscan だけ DOM に載せる。
   // アイテムは entry id をキーにし、古いページを前置きしても同じ DOM を再利用する。
@@ -298,6 +307,10 @@ export function ChatArea({
         answerable={answerable}
         // 進行中のターンだけ、ツール履歴のコピーを出さない
         live={bubble.id === currentAssistantId}
+        queueWait={queueWaits.get(bubble.id)}
+        // 待機列から実行に移った瞬間だけ、リングを 1 回広げる
+        queueStarted={startingRunId !== undefined && bubble.runId === startingRunId}
+        onStartFlashEnd={onStartFlashEnd}
         onAnswerQuestion={onAnswerQuestion}
       />
     );

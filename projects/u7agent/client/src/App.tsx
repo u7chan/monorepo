@@ -262,6 +262,10 @@ export default function App() {
     [app],
   );
 
+  // 開始の Flash の終端は DOM 側 (animationend) が持つ。callback の参照を固定し、描画のたびに
+  // MessageView 側の effect が張り直されて演出の終端が延びないようにする
+  const handleStartFlashEnd = useCallback(() => app.dispatch({ type: "startFlashEnd" }), [app.dispatch]);
+
   // 確認を開いている間に会話が切り替わったかを、確定時に ref で見る (この時点の sessionId は古い)
   const sessionIdRef = useRef(app.sessionId);
   sessionIdRef.current = app.sessionId;
@@ -645,6 +649,8 @@ export default function App() {
                   answerable={app.chat.runStatus === "running"}
                   onAnswerQuestion={app.answerQuestion}
                   currentAssistantId={app.chat.currentAssistantId}
+                  startingRunId={app.chat.startingRunId}
+                  onStartFlashEnd={handleStartFlashEnd}
                   liveToolsPhase={liveTools.phase}
                 />
               </MarkdownImageProvider>

@@ -844,6 +844,58 @@
     }
   }
 
+  /* 待機キューのバブル (MessageView)。アバターの外側に、尾が薄れる円環を回して「気配」だけを示す。
+   * 追加要素は持たず (::after 1 枚)、絶対配置なので待機に入った瞬間も行の幅を動かさない。
+   * 色は線・リング用途の --c-focus (面は --c-accent)。外径はアバターの角丸の角と交差しない値に
+   * する (角の先端より外側を回す。compact の小さいアバターでも内側に収まる)。尾を薄くしすぎると
+   * 隣接面とのコントラストが 3:1 を割るため (線・リングは各プリセットで 3:1 以上。
+   * docs/frontend.md#テーマシステム)、最小の濃さは 75% で止める */
+  .queue-ring {
+    position: relative;
+  }
+  .queue-ring::after {
+    content: "";
+    position: absolute;
+    inset: -4px;
+    border-radius: 9999px;
+    background: conic-gradient(color-mix(in srgb, var(--c-focus) 75%, transparent), var(--c-focus));
+    mask: radial-gradient(farthest-side, transparent calc(100% - 1.5px), #000 calc(100% - 1.5px));
+    animation: queue-ring-turn 1.6s linear infinite;
+  }
+  /* 待機列の先頭が実行に移った 1 回だけ、リングを外へ広げて消す (ChatState.startingRunId)。
+   * 以後は素の表示へ戻し、実行中の印は残さない。この演出の終端は DOM 側 (animationend と、
+   * それに相当する時間の保険) で受け、状態イベントでは消さない */
+  .queue-ring-start::after {
+    animation: queue-ring-out 520ms ease-out both;
+  }
+  @keyframes queue-ring-turn {
+    to {
+      transform: rotate(360deg);
+    }
+  }
+  @keyframes queue-ring-out {
+    from {
+      transform: scale(1);
+      opacity: 1;
+    }
+    to {
+      transform: scale(1.5);
+      opacity: 0;
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    /* 止めても円環は残す (静止しても弧として意味が残る)。広がる演出だけは出さない */
+    .queue-ring::after {
+      animation: none;
+    }
+  }
+  @media (forced-colors: active) {
+    /* conic-gradient の塗りは CanvasText へ写せないため、リングは出さずチップの文言だけ残す */
+    .queue-ring::after {
+      display: none;
+    }
+  }
+
   /* コピー確定のチェック (CopyButton)。既定値を「書き終わった静止画」にしてあるため、
    * animation を切る環境 (prefers-reduced-motion) でもチェックはそのまま出る。
    * 演出の意図と寸法は docs/frontend.md が正 */

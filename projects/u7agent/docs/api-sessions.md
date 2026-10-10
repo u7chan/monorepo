@@ -135,7 +135,10 @@
       "beforeMessageIndex": 4
     }
   ],
-  "pendingSends": [{ "runId": "…", "text": "送信が保存されなかった本文", "at": 1700000000000, "state": "unsent" }]
+  "pendingSends": [
+    { "runId": "…", "text": "送信が保存されなかった本文", "at": 1700000000000, "state": "unsent" },
+    { "runId": "…", "text": "待機中の本文", "at": 1700000000001, "state": "queued", "position": 2 }
+  ]
 }
 ```
 
@@ -153,7 +156,7 @@
 
 `eventGeneration` は SSE の世代（[イベント購読](#get-apisessionsidevents) を参照）。`lastSeq` と組でカーソルの整合判定に使う。
 
-`pendingSends` は 202 で受理したが user entry としてまだ保存されていない送信（古い→新しい）。要素は `{ runId, text, at, state }` で、`text` は表示用にマスク済み。`state` は `unsent`（再起動・停止・entry を残さない終了で実行されなかった）/ `queued`（待機中）/ `running`（実行中）。クライアントは `unsent` を「未送信」へ切り替え、`queued` / `running` は受理済みの pending として保つ（別タブの再送中に表示から消さない。履歴の初回応答前でもバブルを足す）。手元にバブルが無い `unsent` は末尾へ足し、一覧から消えた未送信は別タブの再送 / 破棄として落とす（[frontend.md](frontend.md#チャット状態とレンダリング)）。再送は本文を送り直さず `POST /api/sessions/:id/messages` の `resendRunId` へ `runId` を渡す（マスク済みの本文をモデルへ送らないため）。「実行中」は `run.status === "running"` か SDK が streaming のときだけで、**終了した run は `unsent` になる**（`record.run` は終了後も status 付きで残るため、`error` で終わって user entry を残さなかった送信も再送 / 破棄できる）。旧サーバーはこのキーを載せないので、省略 = 0 件ではなく未対応として扱う。
+`pendingSends` は 202 で受理したが user entry としてまだ保存されていない送信（古い→新しい）。要素は `{ runId, text, at, state, position? }` で、`text` は表示用にマスク済み。`state` は `unsent`（再起動・停止・entry を残さない終了で実行されなかった）/ `queued`（待機中）/ `running`（実行中）。`position` は `queued` のときだけ載る待機中の順位（1 始まり、SSE `queued` の `position` と同じ名前で、値は `record.queue` の index + 1）。**`pendingSends` の並び（`unsentSends` の受理順）は再送で実際のキューの並びと入れ替わる**（再送は末尾へ積まれ、受理の記録は元の位置に残る）ため、順位は並びから数えず `position` を読む。クライアントは `unsent` を「未送信」へ切り替え、`queued` / `running` は受理済みの pending として保つ（別タブの再送中に表示から消さない。履歴の初回応答前でもバブルを足す）。手元にバブルが無い `unsent` は末尾へ足し、一覧から消えた未送信は別タブの再送 / 破棄として落とす（[frontend.md](frontend.md#チャット状態とレンダリング)）。再送は本文を送り直さず `POST /api/sessions/:id/messages` の `resendRunId` へ `runId` を渡す（マスク済みの本文をモデルへ送らないため）。「実行中」は `run.status === "running"` か SDK が streaming のときだけで、**終了した run は `unsent` になる**（`record.run` は終了後も status 付きで残るため、`error` で終わって user entry を残さなかった送信も再送 / 破棄できる）。旧サーバーはこのキーを載せないので、省略 = 0 件ではなく未対応として扱う（`state` があっても `position` が無いときは順位が不明として扱う）。
 
 JSONL が破損している（SDK が追記する entry type / message role を store が知らない、途中の行が壊れている等）セッションを開く要求は 409（store のパスを含む文言）で拒否する。原本は書き換えず、一覧にも残る（[session-files.md](session-files.md#会話の保存)）。開けなかったときのクライアントの移り先は [frontend.md](frontend.md#クライアントの-effect-契約) を参照。
 

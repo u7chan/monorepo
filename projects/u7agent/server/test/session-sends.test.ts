@@ -122,6 +122,51 @@ test("再起動後も保存済み user item の run id が載り、未保存の�
   }
 });
 
+test("pendingSends の position は unsentSends の並びではなく record.queue の index を写す", async () => {
+  const storeDir = await mkdtemp(join(tmpdir(), "u7agent-sends-"));
+  try {
+    const store = createStore(storeDir, createStubPi());
+    await store.init();
+    const record = await store.create();
+
+    // 別タブの再送で生じる食い違いを直接作る: unsentSends の並び (受理順) は [A, B] のままで、
+    // 実際のキューは [B, A]。並びを順位として数えると A が 1 番目、B が 2 番目に見えてしまう
+    record.unsentSends = [
+      { runId: "run-a", text: "再送した本文", at: 10 },
+      { runId: "run-b", text: "先に積まれた本文", at: 20 },
+    ];
+    record.queue = [
+      { text: "先に積まれた本文", runId: "run-b" },
+      { text: "再送した本文", runId: "run-a" },
+    ];
+
+    const payload = store.payload(record);
+    assert.equal(payload.queueDepth, 2);
+    assert.deepEqual(
+      payload.pendingSends?.map((item) => [item.runId, item.state, item.position]),
+      [
+        ["run-a", "queued", 2],
+        ["run-b", "queued", 1],
+      ],
+      "順位は record.queue の index + 1 (1 始まり) になる",
+    );
+
+    // キューから外れた送信は待機でもないので順位を持たない (未送信の表示へ戻る)
+    record.queue = [{ text: "先に積まれた本文", runId: "run-b" }];
+    assert.deepEqual(
+      store.payload(record).pendingSends?.map((item) => [item.runId, item.state, item.position]),
+      [
+        ["run-a", "unsent", undefined],
+        ["run-b", "queued", 1],
+      ],
+      "unsent / running には position を載せない",
+    );
+    await store.close();
+  } finally {
+    await rm(storeDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+  }
+});
+
 test("同一文面を2件保存したあとの再起動でも、item の run id が2件とも保たれる", async () => {
   const storeDir = await mkdtemp(join(tmpdir(), "u7agent-sends-"));
   try {

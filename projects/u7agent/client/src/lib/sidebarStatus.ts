@@ -13,7 +13,8 @@ export type SidebarStatus = {
 
 /**
  * `queued` を `実行中` へ畳むのは、待機メッセージがあるのにランが無い短い過渡 (次のランが
- * 始まるまで、または手動圧縮の終端) だから。待機していることは開いている会話の Composer が示す。
+ * 始まるまで、または手動圧縮の終端) だから。待機は開いている会話のバブルのチップ (順位) と
+ * Composer のサマリ (件数) が示す。
  */
 export function sidebarStatus(status: SessionSummary["status"]): SidebarStatus {
   switch (status) {

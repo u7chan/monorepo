@@ -1,10 +1,13 @@
+import { useEffect, useRef } from "react";
 import type { Bubble, ToolCard } from "../../hooks/chatReducer";
+import { finishOnAnimationEnd } from "../../lib/animationEnd";
 import { splitAttachedFiles } from "../../lib/attachments";
 import { cn } from "../../lib/cn";
 import { MESSAGE_MEASURE_CLASS } from "../../lib/messageColumn";
 import { messageFullTimeLabel, messageTimeLabel } from "../../lib/messageTime";
 import { splitSkillBlock } from "../../lib/skillBlock";
 import { nonSkillToolCards, type SkillBadge } from "../../lib/skillLoad";
+import type { QueueWait } from "../../lib/queueWait";
 import { messageMetaLine, messageMetaTitle } from "../../lib/usageFormat";
 import type { AskUserAnswer } from "../../types";
 import { AgentIcon } from "../AgentIcon";
@@ -55,6 +58,9 @@ export function MessageView({
   onDiscard,
   answerable = false,
   live = false,
+  queueWait,
+  queueStarted = false,
+  onStartFlashEnd,
   onAnswerQuestion,
   animate = true,
 }: {
@@ -82,6 +88,12 @@ export function MessageView({
   answerable?: boolean;
   /** 進行中のターンのバブルか。ツール履歴のコピーを完了まで隠す根拠 */
   live?: boolean;
+  /** 待機キューに積まれているバブルか。順位と件数 (チップの分母) を出す根拠 (user バブルだけ) */
+  queueWait?: QueueWait;
+  /** 待機列の先頭から実行に移った直後か。リングを 1 回広げ、チップを一瞬 `実行中` にする */
+  queueStarted?: boolean;
+  /** 開始の Flash (リングの広がり) が終わった。ライブ専用の合図を落とす根拠 */
+  onStartFlashEnd?: () => void;
   /** ask_user の回答。エラーはカード内に出し、入力は消さない */
   onAnswerQuestion?: (
     toolCallId: string,
@@ -104,6 +116,16 @@ export function MessageView({
   // スキル読み込みはバッジ、ask_user は専用カードへ出し、ツール履歴の件数・サマリー・コピーからは外す
   const toolCards = nonSkillToolCards(bubble.tools);
   const questionCards = isUser ? [] : bubble.tools.filter((card) => card.questions?.length);
+  const ringRef = useRef<HTMLDivElement>(null);
+  // 開始の Flash の終端は DOM 側で受ける。run_start の直後に届く status / tool_start と同じ描画に
+  // まとまると、状態で先に消したときは演出が出ない / クラスが外れて広がりが途中で切れる
+  useEffect(() => {
+    const element = ringRef.current;
+    if (!element || !queueStarted) return;
+    return finishOnAnimationEnd(element, getComputedStyle(element, "::after").animationDuration, () => {
+      onStartFlashEnd?.();
+    });
+  }, [queueStarted, onStartFlashEnd]);
   return (
     <article
       className={cn(
@@ -116,9 +138,12 @@ export function MessageView({
     >
       {isUser ? (
         <div
+          ref={ringRef}
           className={cn(
-            "order-2 grid shrink-0 place-items-center rounded-lg bg-accent-bright font-bold text-on-accent",
+            "relative order-2 grid shrink-0 place-items-center rounded-lg bg-accent-bright font-bold text-on-accent",
             compact ? "size-5.5 text-3xs" : "size-6.5 text-2xs",
+            // リングは絶対配置の擬似要素で描き、待機に入る / 抜ける瞬間に行の幅を動かさない
+            queueStarted ? "queue-ring queue-ring-start" : queueWait === undefined ? "" : "queue-ring",
           )}
         >
           <UserIcon />
@@ -136,12 +161,30 @@ export function MessageView({
       >
         <div
           className={cn(
-            "flex items-center gap-2 text-2xs font-medium text-ink-faint",
+            "flex flex-wrap items-center gap-2 text-2xs font-medium text-ink-faint",
             compact ? "mb-0.5" : "mb-1",
             isUser ? "justify-end" : "",
           )}
         >
           <span>{isUser ? "あなた" : agentName || "アシスタント"}</span>
+          {isUser && (queueStarted || queueWait !== undefined) ? (
+            <span
+              // 待機中は増減 (順位の繰り上がりと終了) が起きる。読み上げは状態行の件数に一本化する
+              aria-live="off"
+              title={
+                queueStarted
+                  ? "待機キューから実行を開始しました"
+                  : "実行中または圧縮中のため、前のメッセージが終わるとこの順に実行します"
+              }
+              className="rounded-sm border border-focus/40 px-1 text-3xs font-normal text-focus"
+            >
+              {queueStarted
+                ? "実行中"
+                : queueWait?.index === undefined
+                  ? "待機中"
+                  : `待機中 ${queueWait.index}/${queueWait.total}`}
+            </span>
+          ) : null}
           {isUser && bubble.unsent ? (
             <span
               title="実行されなかった送信です（サーバーの再起動や停止で中断）。本文を確認して再送するか、破棄してください"

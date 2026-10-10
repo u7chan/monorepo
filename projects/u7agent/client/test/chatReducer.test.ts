@@ -5,8 +5,16 @@
 // 残らないことと、bubble id (nextId) をセッション跨ぎで再利用しないことを固定する。
 import assert from "node:assert/strict";
 import test from "node:test";
-import { chatReducer, initialChatState } from "../src/hooks/chatReducer";
-import type { CompactionInfo, ContextUsage, MessageMetrics, SessionPayload, ToolCall, Usage } from "../src/types";
+import { chatReducer, initialChatState, type ChatState } from "../src/hooks/chatReducer";
+import type {
+  CompactionInfo,
+  ContextUsage,
+  MessageMetrics,
+  PendingSend,
+  SessionPayload,
+  ToolCall,
+  Usage,
+} from "../src/types";
 
 /** 実行中・モデル・ツール付きの resync / GET /api/sessions/:id 相当 */
 function runningPayload(): SessionPayload {
@@ -794,7 +802,7 @@ test("圧縮中に届いた queued は compacting を維持し、文言も圧縮
 
   assert.equal(queued.runStatus, "compacting");
   assert.equal(queued.compactionStartedAt, 1700000005000);
-  assert.equal(queued.activity, "圧縮中のため待機キューに追加しました（1件目）");
+  assert.equal(queued.activity, "圧縮中… · 待機 1 件");
   assert.equal(queued.queueDepth, 1);
 
   // 圧縮でないときは従来どおり running
@@ -804,7 +812,7 @@ test("圧縮中に届いた queued は compacting を維持し、文言も圧縮
     queueDepth: 1,
   });
   assert.equal(running.runStatus, "running");
-  assert.equal(running.activity, "実行中のため待機キューに追加しました（1件目）");
+  assert.equal(running.activity, "実行中… · 待機 1 件");
 });
 
 test("圧縮の開始時刻は run_start / run_end / setRun をまたいで残らない", () => {
@@ -1380,4 +1388,236 @@ test("未送信へ切り替わる経路と再送は、前のランの所要時�
     failed.bubbles.map((bubble) => [bubble.unsent === true, bubble.runDurationMs, bubble.runOutcome]),
     [[true, undefined, undefined]],
   );
+});
+
+// --- 待機キューの表示 (チップ / リング / 状態行) ---
+
+/** 履歴 API が使える状態 (保持分 1 件)。resync で live のエコーを残すために要る */
+function historyWithOld() {
+  return chatReducer(initialChatState, {
+    type: "resyncHistory",
+    page: {
+      sessionId: "session-a",
+      items: [{ kind: "message", id: "old", context: "active", role: "user", text: "old", runId: "run-old" }],
+      prevCursor: null,
+      hasMore: false,
+      nextCursor: null,
+      activeContextStartId: "old",
+      messageCount: 1,
+      summarizedMessageCount: 0,
+    },
+  });
+}
+
+/** 送信のエコーへ応答の run id と待機の順位 (queued の queueDepth) を結び付ける */
+function queuedEcho(state: ChatState, text: string, runId: string, position?: number) {
+  const echoed = chatReducer(state, { type: "localUser", text, at: 10 });
+  return chatReducer(echoed, {
+    type: "echoRunId",
+    runId,
+    ...(position === undefined ? {} : { queuePosition: position }),
+  });
+}
+
+/** 待機 / 実行中 / 未送信が並ぶ payload (status と queueDepth は呼び出し側が決める) */
+function pendingPayload(
+  pendingSends: PendingSend[],
+  status: SessionPayload["status"] = "running",
+  queueDepth = pendingSends.length,
+) {
+  const payload = runningPayload();
+  payload.status = status;
+  payload.queueDepth = queueDepth;
+  payload.pendingSends = pendingSends;
+  payload.messages = [];
+  return payload;
+}
+
+test("送信応答が queued を返したら待機の表示になり、実行を始めた応答ではならない", () => {
+  const queued = queuedEcho(initialChatState, "待機する本文", "run-b", 2);
+  const bubble = queued.bubbles.find((item) => item.runId === "run-b");
+  assert.deepEqual([bubble?.queued, bubble?.queuePosition], [true, 2], "順位は応答の queueDepth");
+
+  const direct = queuedEcho(initialChatState, "すぐ実行", "run-1");
+  assert.equal(direct.bubbles.find((item) => item.runId === "run-1")?.queued, undefined);
+});
+
+test("run_start が応答より先に届いた run は、遅れて届いた queued の応答で待機中にしない", () => {
+  const sent = chatReducer(initialChatState, { type: "localUser", text: "待機する本文", at: 10 });
+  const started = chatReducer(sent, {
+    type: "runStart",
+    runId: "run-b",
+    prompt: "待機する本文",
+    at: 11,
+    startedAt: 11,
+  });
+  const assigned = chatReducer(started, { type: "echoRunId", runId: "run-b", queuePosition: 1 });
+
+  assert.equal(assigned.bubbles.find((item) => item.runId === "run-b")?.queued, undefined);
+  assert.equal(assigned.startingRunId, undefined, "開始の合図は run_start が立てる (応答では立てない)");
+});
+
+test("payload の pendingSends が待機と順位を配り、一覧から消えた run は待機を解除する", () => {
+  const resynced = chatReducer(historyWithOld(), {
+    type: "resync",
+    payload: pendingPayload([
+      { runId: "run-a", text: "A", at: 1, state: "queued", position: 2 },
+      { runId: "run-b", text: "B", at: 2, state: "queued", position: 1 },
+      { runId: "run-c", text: "C", at: 3, state: "running" },
+      { runId: "run-d", text: "D", at: 4, state: "unsent" },
+    ]),
+  });
+  assert.deepEqual(
+    resynced.bubbles
+      .filter((bubble) => bubble.runId !== undefined)
+      .map((bubble) => [bubble.runId, bubble.queued === true, bubble.queuePosition, bubble.unsent === true]),
+    [
+      ["run-old", false, undefined, false],
+      ["run-a", true, 2, false],
+      ["run-b", true, 1, false],
+      ["run-c", false, undefined, false],
+      ["run-d", false, undefined, true],
+    ],
+    "待機だけが順位を持ち、実行中 / 未送信は持たない",
+  );
+
+  // 先頭が実行に移り entry が保存された (payload から消える)。古い順位を残さない
+  const advanced = chatReducer(resynced, {
+    type: "resync",
+    payload: pendingPayload([{ runId: "run-b", text: "B", at: 2, state: "queued", position: 1 }]),
+  });
+  assert.deepEqual(
+    advanced.bubbles
+      .filter((bubble) => bubble.runId === "run-a" || bubble.runId === "run-b")
+      .map((bubble) => [bubble.runId, bubble.queued === true, bubble.queuePosition]),
+    [
+      ["run-a", false, undefined],
+      ["run-b", true, 1],
+    ],
+  );
+});
+
+test("旧サーバー (pendingSends 無し) の resync は待機の表示を変えない", () => {
+  const queued = queuedEcho(historyWithOld(), "待機する本文", "run-b", 2);
+  const resynced = chatReducer(queued, { type: "resync", payload: runningPayload() });
+
+  assert.deepEqual(
+    resynced.bubbles
+      .filter((bubble) => bubble.runId === "run-b")
+      .map((bubble) => [bubble.queued === true, bubble.queuePosition]),
+    [[true, 2]],
+  );
+});
+
+test("run_start はその run の待機を解除し、開始の合図は状態イベントでは落とさない", () => {
+  const queued = queuedEcho(initialChatState, "待機する本文", "run-b", 1);
+  const started = chatReducer(queued, {
+    type: "runStart",
+    runId: "run-b",
+    prompt: "待機する本文",
+    at: 11,
+    startedAt: 11,
+  });
+
+  assert.equal(started.startingRunId, "run-b");
+  assert.equal(started.bubbles.find((bubble) => bubble.runId === "run-b")?.queued, undefined);
+
+  // run_start の直後に届く状態イベントと同じ描画にまとまっても合図は残す。ここで落とすと
+  // 演出が 1 フレームも出ない / 広がりが途中で切れる (tester の再現)
+  assert.deepEqual(
+    [
+      chatReducer(started, { type: "status", state: "thinking", text: "考え中…" }),
+      chatReducer(started, { type: "usage" }),
+      chatReducer(started, { type: "toolStart", id: "t1", name: "read", args: "", at: 12 }),
+      chatReducer(started, { type: "text", delta: "あ", at: 12 }),
+    ].map((state) => state.startingRunId),
+    ["run-b", "run-b", "run-b", "run-b"],
+  );
+
+  // リングの広がりの終端は DOM 側で受ける。演出が無いときに落としても状態は変えない
+  assert.equal(chatReducer(started, { type: "startFlashEnd" }).startingRunId, undefined);
+  assert.equal(chatReducer(initialChatState, { type: "startFlashEnd" }), initialChatState);
+});
+
+test("待機していない run_start では開始の合図を立てない", () => {
+  const sent = chatReducer(initialChatState, { type: "localUser", text: "すぐ実行", at: 10 });
+  const started = chatReducer(sent, { type: "runStart", runId: "run-1", prompt: "すぐ実行", at: 11, startedAt: 11 });
+
+  assert.equal(started.startingRunId, undefined, "待機列の先頭が動いたときだけ光らせる");
+});
+
+test("run_end は残りの件数をサマリで出し、開始の合図とその run の待機を落とす", () => {
+  const queued = queuedEcho(initialChatState, "待機する本文", "run-b", 1);
+  const started = chatReducer(queued, {
+    type: "runStart",
+    runId: "run-b",
+    prompt: "待機する本文",
+    at: 11,
+    startedAt: 11,
+  });
+  const ended = chatReducer(started, {
+    type: "runEnd",
+    runId: "run-b",
+    status: "completed",
+    queueDepth: 2,
+    durationMs: 1000,
+  });
+
+  assert.equal(ended.startingRunId, undefined);
+  assert.equal(ended.runStatus, "queued");
+  assert.equal(ended.activity, "完了 · 待機 2 件");
+
+  // 実行されずに終わった待機も run_end で解除する (run_start が届かない経路)
+  const interrupted = chatReducer(queued, { type: "runEnd", runId: "run-b", status: "stopped", queueDepth: 0 });
+  assert.equal(interrupted.bubbles.find((bubble) => bubble.runId === "run-b")?.queued, undefined);
+});
+
+test("queue_cleared は待機の表示を消し、runIds が無くても解除する", () => {
+  const queued = queuedEcho(initialChatState, "待機する本文", "run-b", 1);
+  const cleared = chatReducer(queued, { type: "queueCleared", runIds: ["run-b"] });
+  assert.deepEqual(
+    cleared.bubbles
+      .filter((bubble) => bubble.runId === "run-b")
+      .map((bubble) => [bubble.queued, bubble.queuePosition, bubble.unsent === true]),
+    [[undefined, undefined, true]],
+  );
+  assert.equal(cleared.startingRunId, undefined);
+
+  // 旧サーバー (runIds 無し) は未送信へは切り替えないが、キューは空なので待機の表示は戻す
+  const legacy = chatReducer(queued, { type: "queueCleared" });
+  assert.deepEqual(
+    legacy.bubbles
+      .filter((bubble) => bubble.runId === "run-b")
+      .map((bubble) => [bubble.queued, bubble.unsent === true]),
+    [[undefined, false]],
+  );
+});
+
+test("resync の status === queued は件数のサマリを出し、run の実行中では開始の合図を残す", () => {
+  const waiting = chatReducer(historyWithOld(), { type: "resync", payload: pendingPayload([], "queued", 2) });
+  assert.equal(waiting.runStatus, "queued");
+  assert.equal(waiting.activity, "待機 2 件");
+
+  // 開始直後の復帰。payload が同じ run の実行中を示す間は演出を残す (初回描画で消さない)
+  const queued = queuedEcho(initialChatState, "待機する本文", "run-b", 1);
+  const started = chatReducer(queued, {
+    type: "runStart",
+    runId: "run-b",
+    prompt: "待機する本文",
+    at: 11,
+    startedAt: 11,
+  });
+  const sameRun = chatReducer(started, {
+    type: "resync",
+    payload: {
+      ...pendingPayload([], "running", 0),
+      // payload が同じ run を実行中として載せる (resync 経路の開始の合図)
+      run: { id: "run-b", status: "running", startedAt: 11, prompt: "待機する本文", toolCalls: [], totalRetryCount: 0 },
+    },
+  });
+  assert.equal(sameRun.startingRunId, "run-b");
+
+  // 別の run へ移った / run が終わった復帰では残さない
+  const ended = chatReducer(sameRun, { type: "resync", payload: pendingPayload([], "idle", 0) });
+  assert.equal(ended.startingRunId, undefined);
 });
