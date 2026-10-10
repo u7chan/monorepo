@@ -39,6 +39,20 @@ assert_failure() {
   fi
 }
 
+assert_contains() {
+  local label="$1"
+  local expected="$2"
+  local file="$3"
+  if grep -qF -- "$expected" "$file"; then
+    echo "  PASS: $label"
+    PASS=$((PASS + 1))
+  else
+    echo "  FAIL: $label (not found: $expected)"
+    echo "    log: $(cat "$file")"
+    FAIL=$((FAIL + 1))
+  fi
+}
+
 WORK_DIR="$(mktemp -d)"
 cleanup() {
   [[ "${BASH_SUBSHELL:-0}" -eq 0 ]] || return 0
@@ -133,9 +147,15 @@ git update-ref refs/remotes/origin/main "$c2"
 run_pr_detection
 assert_eq "ベースブランチとの差分で検出する" "projects/c,projects/d,projects/new" "$(detected)"
 
+# 引数省略時の既定（HEAD と HEAD~1）を期待値が空にならない形で検証するため、
+# projects/ を変更するコミットを末尾に追加する
+echo z > projects/b/package.json
+commit "change b again"
+
 echo "[Test 8] 引数省略（HEAD と HEAD~1）"
 run_detection
-assert_eq "引数省略時は HEAD と HEAD~1 を比較する" "" "$(detected)"
+assert_eq "引数省略時は直前に変更したプロジェクトを検出する" "projects/b" "$(detected)"
+assert_contains "既定の比較対象は HEAD~1" "(HEAD~1)" "$WORK_DIR/script.log"
 
 echo ""
 echo "=== Results ==="
