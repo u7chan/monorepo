@@ -85,7 +85,7 @@ DTO の正は `server/src/schema.ts`（zod）。リクエストボディは `@ho
   "defaultModelUnset": false,
   "filePreviewPort": 4318,
   "previewPort": 4319,
-  "versions": { "piCodingAgent": "1.0.3", "piAi": "1.0.3" },
+  "versions": { "piCodingAgent": "1.1.0", "piAi": "1.1.0" },
   "sessionStore": { "path": "/var/lib/u7agent/sessions", "ok": true, "dirty": 0 },
   "appDb": { "path": "/var/lib/u7agent/sessions/u7agent.db", "ok": true },
   "archive": { "excludeNames": ["node_modules", ".venv", "…"] }
@@ -112,7 +112,7 @@ DTO の正は `server/src/schema.ts`（zod）。リクエストボディは `@ho
 {
   "catalogCount": 2,
   "availableCount": 2,
-  "versions": { "piCodingAgent": "1.0.3", "piAi": "1.0.3", "commitHash": "…" },
+  "versions": { "piCodingAgent": "1.1.0", "piAi": "1.1.0", "commitHash": "…" },
   "providers": [
     {
       "provider": "<provider>",
