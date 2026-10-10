@@ -1,10 +1,6 @@
 ---
-name: herdr-worktree-create
-description: >
-  ユーザーが「<プロジェクト> 起点で Herdr ワークツリーを作って」と依頼した時に使う。
-  指定されたプロジェクトを起点に、base 既定 `main` で Herdr のワークツリー workspace を作成し、
-  ルートペインの cwd を起点プロジェクト配下に移動して、workspace ID / pane ID / checkout path /
-  branch / base commit を報告する。Requires HERDR_ENV=1.
+name: monorepo-worktree-create
+description: monorepo のプロジェクト起点で Herdr ワークツリー workspace を作るときに使う。Requires HERDR_ENV=1.
 ---
 
 # Herdr ワークツリー作成（プロジェクト起点）
