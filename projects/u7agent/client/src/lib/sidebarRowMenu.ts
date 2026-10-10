@@ -18,13 +18,18 @@ export function projectRowActions(): RowMenuAction<ProjectRowKind>[] {
 }
 
 /** セッション行の ⋯ の種別 (通知のベルとピンは状態の印として行にも残す) */
-export type SessionRowKind = "pin" | "rename" | "delete";
+export type SessionRowKind = "pin" | "rename" | "move" | "delete";
 
-/** ピンの切替を先頭に置き、リネームは削除の手前に残す。 */
-export function sessionRowActions(pinned = false): RowMenuAction<SessionRowKind>[] {
+/**
+ * ピンの切替を先頭に置き、リネームは削除の手前に残す。引っ越しはプロジェクト所属の会話では
+ * 選べない (移動先の候補はあるが、サーバーが 400 にする) ので、`canMove` のときだけ出す。
+ */
+export function sessionRowActions(pinned = false, canMove = false): RowMenuAction<SessionRowKind>[] {
+  const move: RowMenuAction<SessionRowKind>[] = canMove ? [{ kind: "move", label: "別のスペースへ引っ越す" }] : [];
   return [
     { kind: "pin", label: pinned ? "ピン留めを解除" : "ピン留め" },
     { kind: "rename", label: "名前を変更" },
+    ...move,
     { kind: "delete", label: "セッションを削除", danger: true },
   ];
 }
@@ -56,5 +61,34 @@ export function sessionRenameRequest(currentTitle: string): PromptRequest {
     label: "新しい名前",
     defaultValue: currentTitle,
     confirmLabel: "名前を変更",
+  };
+}
+
+/**
+ * 引っ越しの確認文言。履歴が消える不可逆な操作なので、破棄されるものと引き継がれるものを
+ * 実行前に並べ、移動先の選択と一緒に専用ダイアログへ出す (共有の `DialogRequest` に `select` を足さない)。
+ */
+export type SessionMoveDialogText = {
+  title: string;
+  subject?: { label: string; value: string };
+  body: readonly string[];
+  /** 移動先の候補が無いときの案内。確定は無効にする */
+  emptyNote: string;
+  /** 実行前の補足。切替を伴わないこと (移動先の一覧は設定から選ぶ) を伝える */
+  note: string;
+  confirmLabel: string;
+};
+
+export function sessionMoveDialogText(title: string): SessionMoveDialogText {
+  return {
+    title: "別のスペースへ引っ越す",
+    ...(title ? { subject: { label: "引っ越すセッション", value: title } } : {}),
+    body: [
+      "会話履歴（メッセージと未送信）は破棄されます。元に戻せません。",
+      "作業フォルダのファイルと添付は、移動先のスペースへ引き継がれます。",
+    ],
+    emptyNote: "移動先のスペースがありません（設定 → スペースで作成してください）。",
+    note: "この画面は移動先のスペースへ切り替わりません。移動先の会話は、スペースを切り替えてから開きます。",
+    confirmLabel: "引っ越す",
   };
 }

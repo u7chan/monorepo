@@ -23,11 +23,12 @@ export type SidebarProps = Omit<
     | "newChat"
     | "selectSession"
     | "renameSession"
+    | "moveSession"
     | "deleteSession"
     | "deleteProject"
     | "togglePinned"
   >,
-  "newChat" | "selectSession" | "renameSession" | "deleteSession" | "deleteProject" | "togglePinned"
+  "newChat" | "selectSession" | "renameSession" | "moveSession" | "deleteSession" | "deleteProject" | "togglePinned"
 > & {
   spaceName?: string;
   pinError?: string;
@@ -40,6 +41,7 @@ export type SidebarProps = Omit<
   newChat: (agentId?: string, projectId?: string) => void;
   selectSession: (sessionId: string) => void;
   renameSession: (sessionId: string) => void;
+  moveSession: (sessionId: string) => void;
   deleteSession: (sessionId: string) => void;
   deleteProject: (projectId: string) => void;
   togglePinned: (sessionId: string) => void;
@@ -76,6 +78,7 @@ export function Sidebar({
     newChat,
     selectSession,
     renameSession,
+    moveSession,
     deleteSession,
     deleteProject,
     togglePinned,
@@ -263,6 +266,7 @@ export function Sidebar({
                         onRename={renameSession}
                         onDelete={deleteSession}
                         onTogglePin={togglePinned}
+                        onMove={moveSession}
                       />
                     )}
                   </div>

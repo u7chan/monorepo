@@ -18,7 +18,7 @@ import { createSessionCreation } from "./sessionCreation";
 import { applySessionEvent, recoverDecision } from "./sessionStream";
 import { applySettingsChange, type SettingsSelection } from "./settingsChange";
 import { compactChat } from "./sessionActions";
-import { nextAfterFailure } from "./sessionFallback";
+import { nextAfterFailure, nextAfterRemoval } from "./sessionFallback";
 import { useSessionEvents } from "./useSessionEvents";
 import { useConfirm, usePrompt } from "../components/ConfirmProvider";
 import { runtimeStatusForError, type RuntimeStatus } from "./runtimeStatus";
@@ -76,6 +76,7 @@ export function useSessions({
     getSession,
     getSessionHistory,
     listSessions,
+    moveSession: apiMoveSession,
     updateSessionNotify,
     updateSessionPinned,
     updateSessionSettings,
@@ -590,9 +591,9 @@ export function useSessions({
         setEpoch((e) => e + 1);
         return;
       }
-      // セッションが消えている (サーバー再起動・別経路の削除)。再接続せず表示を移す
-      const next = known[0];
-      if (next) void selectSession(next.sessionId);
+      // セッションが消えている (サーバー再起動・別経路の削除・引っ越し)。再接続せず表示を移す
+      const next = nextAfterRemoval(known);
+      if (next.kind === "select") void selectSession(next.sessionId);
       else newChatRef.current();
     });
   }, [refreshHealth, refreshSessions, selectSession]);
@@ -611,13 +612,29 @@ export function useSessions({
       const list = await refreshSessions();
       if (id === sessionIdRef.current) {
         // 取得できなかったときは前回の一覧から選ぶ (消えたセッションを掴んでも selectSession が移す)
-        const known = list ?? sessionsRef.current;
-        const next = known[0];
-        if (next) await selectSession(next.sessionId);
+        const next = nextAfterRemoval(list ?? sessionsRef.current);
+        if (next.kind === "select") await selectSession(next.sessionId);
         else newChatRef.current();
       }
     },
     [refreshSessions, selectSession, confirm],
+  );
+
+  /**
+   * 別のスペースへ引っ越す。履歴は破棄され、作業フォルダ / 添付 / cwd キーの行は移動先へ移る (不可逆)。
+   * 失敗は理由をダイアログへ返すため投げ直し、成功したときだけ一覧から外して選択を移す (削除と同じ規則)。
+   */
+  const moveSession = useCallback(
+    async (id: string, targetSpaceId: string): Promise<void> => {
+      // 要求元は現在のスペース (space.api の query)、移動先は body で渡す
+      await apiMoveSession(id, targetSpaceId);
+      const list = await refreshSessions();
+      if (id !== sessionIdRef.current) return;
+      const next = nextAfterRemoval(list ?? sessionsRef.current);
+      if (next.kind === "select") await selectSession(next.sessionId);
+      else newChatRef.current();
+    },
+    [apiMoveSession, refreshSessions, selectSession],
   );
 
   /**
@@ -644,8 +661,8 @@ export function useSessions({
     async (list: SessionSummary[]): Promise<void> => {
       const current = sessionIdRef.current;
       if (!current || list.some((item) => item.sessionId === current)) return;
-      const next = list[0];
-      if (next) await selectSession(next.sessionId);
+      const next = nextAfterRemoval(list);
+      if (next.kind === "select") await selectSession(next.sessionId);
       else newChatRef.current();
     },
     [selectSession],
@@ -692,6 +709,7 @@ export function useSessions({
     newChat,
     ensureSession,
     deleteSession,
+    moveSession,
     renameSession,
     reselectIfMissing,
     restoreSession,

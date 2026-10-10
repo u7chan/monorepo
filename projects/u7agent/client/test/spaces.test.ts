@@ -3,6 +3,7 @@ import test from "node:test";
 import {
   createSpaceSelectionStore,
   initialSpaceSelection,
+  moveDestinationSpaces,
   ownerLinkSpace,
   selectedSpace,
   spaceSelectionStore,
@@ -32,6 +33,14 @@ test("選択欠落だけ通常を選び、不正・未知の保存値や未取�
   assert.equal(selectedSpace([normal, demo], demo.id), demo);
   for (const value of ["", "../bad", "unknown"]) assert.equal(selectedSpace([normal, demo], value), undefined);
   assert.equal(selectedSpace([], null), undefined);
+});
+
+test("引っ越し先の候補は現在のスペースを除き、1 つしか無ければ空になる", () => {
+  assert.deepEqual(moveDestinationSpaces([normal, demo], "default"), [demo]);
+  assert.deepEqual(moveDestinationSpaces([normal, demo], demo.id), [normal]);
+  // 通常スペースしか無いときは候補 0 件 (ダイアログは確定を無効にする)
+  assert.deepEqual(moveDestinationSpaces([normal], "default"), []);
+  assert.deepEqual(moveDestinationSpaces([], "default"), []);
 });
 
 /** 保存領域 1 つ分。window が無い Node でも store を検査できるよう注入する */
