@@ -1,4 +1,4 @@
-// セッション一覧のプロジェクト別グループ化とピン留めの分離。DOM を使わず、並び順と未所属の分離だけを固定する。
+// セッション一覧のプロジェクト別グループ化とピン留めの分離。DOM を使わず、並び順とピン留め・未所属の分離だけを固定する。
 import assert from "node:assert/strict";
 import test from "node:test";
 import { groupSessionsByProject, splitByPinned } from "../src/lib/sessionsByProject";
