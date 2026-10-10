@@ -3,6 +3,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { ImageApi, ImageModel } from "@earendil-works/pi-ai";
+import { builtinModels } from "@earendil-works/pi-ai/providers/all";
 import {
   createImagesGenerator,
   IMAGE_API_KEY_INVALID_MESSAGE,
@@ -29,6 +30,12 @@ const STUB_IMAGE_MODEL: ImageModel<ImageApi> = {
 /** テスト用の SDK 同梱カタログの代わり。provider ごとの URL / ヘッダのひな形として使う */
 function stubModels(id = "stub"): ImageModel<ImageApi>[] {
   return [{ ...STUB_IMAGE_MODEL, provider: id }];
+}
+
+/** ひな形として借りる送信先（baseUrl とヘッダ）。ヘッダのキー順に依存させない */
+function destinationOf(model: ImageModel<ImageApi>): string {
+  const headers = Object.entries(model.headers ?? {}).sort(([a], [b]) => a.localeCompare(b));
+  return `${model.baseUrl} ${JSON.stringify(headers)}`;
 }
 
 interface RecordedRequest {
@@ -76,6 +83,15 @@ test("SDK 同梱カタログはルーター用メタモデルを落とす", () =
     [],
   );
   assert.ok(catalog.some((entry) => entry.id === "openai/gpt-image-2"));
+});
+
+test("SDK 同梱カタログの openrouter は全モデルが同じ baseUrl / ヘッダを使う（崩れたら server/src/images.ts のひな形の流用を置き換える）", () => {
+  const models = builtinModels()
+    .getModelsOfType("image")
+    .filter((model) => model.provider === "openrouter");
+  assert.ok(models.length > 0, "SDK 同梱カタログに openrouter の画像モデルが無い");
+  const destinations = new Set(models.map((model) => destinationOf(model)));
+  assert.equal(destinations.size, 1, `provider 内で送信先 / ヘッダが揃っていない: ${[...destinations].join(" / ")}`);
 });
 
 test("回帰: chat/completions ではなく画像専用 API の /images へ POST する", async () => {

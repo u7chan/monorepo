@@ -30,7 +30,7 @@
 
 ### 同梱の既定カタログ
 
-`google/gemini-3.8-flash-tts` と、そのモデルの `supported_voices`（取得時点で 30 件）を写したものを同梱する。出所は 2026-10-08 に取得した OpenRouter のモデルページ / モデル一覧 API（`https://openrouter.ai/google/gemini-3.8-flash-tts`、`GET /api/v1/models?output_modalities=speech`）。
+`google/gemini-3.8-flash-tts` と、そのモデルの `supported_voices` を写したものを同梱する。出所は 2026-10-08 に取得した OpenRouter のモデルページ / モデル一覧 API（`https://openrouter.ai/google/gemini-3.8-flash-tts`、`GET /api/v1/models?output_modalities=speech`）。
 
 上流の追加・改名でこの写しは腐る。live を一度でも取れた環境では丸ごと置き換わるため表示への影響は無いが、オフラインの初回起動では既定が使われる。**更新責任はこのリポジトリ**で、変えるときはモデルページの `supported_voices` を正として `server/src/speech-catalog.ts` の同梱カタログを直す（[モデルカタログ](#モデルカタログ) の 3 状態は変えない）。
 
