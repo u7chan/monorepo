@@ -6,6 +6,7 @@ import type {
   HistoryContextState,
   HistoryPage,
   MessageMetrics,
+  RunOutcome,
   SkillLoad,
   Usage,
 } from "../types";
@@ -54,6 +55,12 @@ export type Bubble = {
    * 対応する履歴 item へ吸収し、別クライアントの同一文面 entry を自分のものと取り違えない
    */
   runId?: string;
+  /**
+   * run が終わったターンの所要時間と結末。履歴 item (`runDurationMs` / `runOutcome`) と、
+   * ライブの `run_end` のどちらから来ても同じ値。ターン終端の行の有無と文言の唯一の根拠
+   */
+  runDurationMs?: number;
+  runOutcome?: RunOutcome;
   /**
    * 202 で受理されたがサーバー再起動で user entry として保存されなかった送信。通常の user バブルと
    * 見分け、再送 / 破棄を出す。pendingEchoIds には残さない (履歴の item へ黙って吸収させない)

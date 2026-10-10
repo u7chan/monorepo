@@ -11,6 +11,13 @@ export const CreateSpaceBodySchema = z.object({ name: z.string().trim().min(1).m
 export const RunStatusSchema = z.enum(["idle", "running", "queued", "compacting", "completed", "stopped", "error"]);
 export type RunStatus = z.infer<typeof RunStatusSchema>;
 
+/**
+ * ランが終端したときの結末。`RunStatusSchema` の部分集合で、ターン終端の表示 (`Complete` /
+ * `Stopped` / `Failed`) に使う。終端以外 (`idle` / `running` / `queued` / `compacting`) は載せない
+ */
+export const RunOutcomeSchema = z.enum(["completed", "stopped", "error"]);
+export type RunOutcome = z.infer<typeof RunOutcomeSchema>;
+
 export const SkillDefSchema = z.object({
   id: z.string(),
   name: z.string(),
@@ -302,6 +309,11 @@ export const CompactionInfoSchema = z.object({
   reason: CompactionReasonSchema.optional(),
   /** compaction_end の推定値。UI には出さないが永続化を見据えて保持する */
   estimatedTokensAfter: z.number().optional(),
+  /**
+   * BFF 計測の圧縮時間 (`compaction_start` から `compaction_end` の到着まで)。entry には保存されない
+   * ため、受信時に `compactionMeta` へ控えた値を写す。失敗・中止では載らない
+   */
+  durationMs: z.number().optional(),
 });
 export type CompactionInfo = z.infer<typeof CompactionInfoSchema>;
 
@@ -338,6 +350,12 @@ export const HistoryMessageItemSchema = ChatMessageSchema.extend({
    * entry を厳密に対応付けるために使う。旧サーバー / 対応を失った履歴では載らない
    */
   runId: z.string().optional(),
+  /**
+   * この user メッセージを送信した run の所要時間 / 結末 (`run_end` と同じ定義で、キュー待ちを含まない)。
+   * run の記憶はメモリのみなので、再起動とアイドル sweep の後は載らない (ターン終端の行を出さない)
+   */
+  runDurationMs: z.number().optional(),
+  runOutcome: RunOutcomeSchema.optional(),
 });
 export type HistoryMessageItem = z.infer<typeof HistoryMessageItemSchema>;
 

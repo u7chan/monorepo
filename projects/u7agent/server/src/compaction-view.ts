@@ -76,6 +76,7 @@ export function compactionsFromEntries(
         : {}),
       ...(meta?.reason ? { reason: meta.reason } : {}),
       ...(meta?.estimatedTokensAfter !== undefined ? { estimatedTokensAfter: meta.estimatedTokensAfter } : {}),
+      ...(meta?.durationMs !== undefined ? { durationMs: meta.durationMs } : {}),
     };
   });
 }
@@ -106,11 +107,14 @@ export function recordCompactionOutcome({
   compactionMeta,
   masker,
   event,
+  durationMs,
 }: {
   session: PiSessionLike;
   compactionMeta: Map<string, CompactionMeta>;
   masker: SecretMasker;
   event: PiSessionEvent;
+  /** BFF 計測の圧縮時間 (compaction_start から compaction_end の到着まで) */
+  durationMs?: number;
 }): CompactionInfo[] | undefined {
   if (event.aborted || event.errorMessage || !event.result) return undefined;
   const entries = branchEntriesOf(session);
@@ -122,6 +126,7 @@ export function recordCompactionOutcome({
   compactionMeta.set(String(entries[latestIndex].id), {
     ...(reason.success ? { reason: reason.data } : {}),
     ...(typeof estimated === "number" ? { estimatedTokensAfter: estimated } : {}),
+    ...(durationMs !== undefined ? { durationMs } : {}),
   });
   const compactions = projectCompactions(session, compactionMeta, masker);
   return compactions.length > 0 ? compactions : undefined;

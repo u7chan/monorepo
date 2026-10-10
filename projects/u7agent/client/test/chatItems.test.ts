@@ -9,6 +9,23 @@ function bubble(id: number, entryId: string, context: Bubble["context"], text: s
   return { id, entryId, context, role: "assistant", text, tools: [], skillLoads: [] };
 }
 
+/** 値を付けた user バブル (そのターンの終端行の根拠) */
+function userTurn(id: number, entryId: string, extra: Partial<Bubble> = {}): Bubble {
+  return {
+    id,
+    entryId,
+    context: "active",
+    role: "user",
+    text: `turn-${id}`,
+    tools: [],
+    skillLoads: [],
+    runId: `run-${id}`,
+    runDurationMs: 80_000,
+    runOutcome: "completed",
+    ...extra,
+  };
+}
+
 const COMPACTIONS: CompactionInfo[] = [
   { id: "c1", parentId: null, timestamp: "", summary: "1", firstKeptEntryId: "", tokensBefore: 1 },
   { id: "c2", parentId: null, timestamp: "", summary: "2", firstKeptEntryId: "", tokensBefore: 2 },
@@ -73,6 +90,81 @@ test("見積りは正の値になり、ツール出力で増える", () => {
     estimateChatItemHeight({ kind: "compaction", key: "c", index: 0, marker: { id: "c", index: 0, compactions: [] } }) >
       0,
   );
+});
+
+test("終端行は次の user の手前と末尾に出て、値の無いターンと未送信のターンには出ない", () => {
+  const valued = userTurn(1, "u1");
+  // 値が無い (旧サーバー / 再起動後) ターン
+  const plain: Bubble = { ...userTurn(3, "u3"), runDurationMs: undefined, runOutcome: undefined };
+  // user entry が保存されなかった (未送信へ切り替わった) ターン
+  const unsent = userTurn(5, "u5", { unsent: true });
+  const bubbles = [valued, bubble(2, "a1", "active", "a"), plain, bubble(4, "a2", "active", "a"), unsent];
+
+  const items = chatRenderItems({ bubbles, markers: [], compactions: [], activeContextStartId: null });
+  assert.deepEqual(
+    items.map((item) => (item.kind === "message" ? `message:${item.bubble.entryId}` : item.kind)),
+    [
+      "message:u1",
+      "message:a1",
+      // 次の user (u3) の手前で 1 つ目のターンを閉じる
+      "turn-end",
+      "message:u3",
+      "message:a2",
+      // 値の無い plain のターンは行を出さない (u5 の手前)
+      "message:u5",
+      // 未送信のターン (u5) でも行を出さない (末尾)
+    ],
+  );
+  const turnEnds = items.filter((item) => item.kind === "turn-end");
+  assert.deepEqual(
+    turnEnds.map((item) => item.key),
+    ["turn-end:u1"],
+  );
+  // 位置は次の user item の手前 / (最後の行は) 末尾
+  assert.equal(items.at(-1)?.kind, "message");
+  assert.deepEqual(
+    chatRenderItems({
+      bubbles: [bubble(1, "a1", "active", "a")],
+      markers: [],
+      compactions: [],
+      activeContextStartId: null,
+    }).map((item) => item.kind),
+    ["message"],
+    "user の居ない範囲には終端行を出さない",
+  );
+});
+
+test("終端行は境界ラベル・圧縮の区切りより先に出る", () => {
+  const user = userTurn(1, "u1", { context: "summarized" });
+  const next = userTurn(3, "u3");
+  const bubbles = [user, bubble(2, "a1", "summarized", "a"), next];
+  const markers: CompactionMarker[] = [{ id: "c1", index: 2, compactions: [COMPACTIONS[0]] }];
+
+  const items = chatRenderItems({ bubbles, markers, compactions: COMPACTIONS, activeContextStartId: "u3" });
+  assert.deepEqual(
+    items.map((item) => (item.kind === "message" ? `message:${item.bubble.entryId}` : item.kind)),
+    ["message:u1", "message:a1", "turn-end", "boundary", "compaction", "message:u3", "turn-end"],
+  );
+  // 薄暗さはそのターンの item (summarized) に合わせる
+  assert.deepEqual(
+    items.filter((item) => item.kind === "turn-end").map((item) => item.summarized),
+    [true, false],
+  );
+});
+
+test("ライブのターン終端は bubble.id をキーにし、見積りは正の値になる", () => {
+  const live: Bubble = {
+    ...userTurn(7, "ignored", { entryId: undefined }),
+    runOutcome: "stopped",
+    runDurationMs: 999,
+  };
+  const items = chatRenderItems({ bubbles: [live], markers: [], compactions: [], activeContextStartId: null });
+  const turnEnd = items.find((item) => item.kind === "turn-end");
+  if (turnEnd?.kind !== "turn-end") throw new Error("ターン終端の item が出ていない");
+  assert.equal(turnEnd.key, "turn-end:7", "entryId が無くてもキーが安定する");
+  assert.equal(turnEnd.outcome, "stopped");
+  assert.equal(turnEnd.durationMs, 999);
+  assert.ok(estimateChatItemHeight(turnEnd) > 0);
 });
 
 test("前置き後の scrollTop は高さ増加ぶんだけ下へずらす", () => {

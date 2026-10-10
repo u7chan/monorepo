@@ -376,6 +376,61 @@ test("送信した user item には、その run の id が載る", async () => 
   await store.close();
 });
 
+test("履歴の user item には run 全体の所要時間と結末が載り、再起動で消える", async () => {
+  const first = await createPersistentFixture();
+  try {
+    const done = first.store.postMessage(first.record, "完了したターン");
+    await waitFor(() => first.store.statusOf(first.record) === "completed", 3000, "run completion");
+    // 2 つ目は実行中に停止する (結末が stopped のターン)
+    const stopped = first.store.postMessage(first.record, "停止したターン");
+    await first.store.stop(first.record);
+    await waitFor(() => first.store.statusOf(first.record) !== "running", 3000, "stop settlement");
+
+    const before = first.store.history(first.record, {});
+    assert.ok(before.ok);
+    const users = messageItems(before.page).filter((item) => item.role === "user");
+    assert.deepEqual(
+      users.map((item) => [item.runId, item.runOutcome, typeof item.runDurationMs === "number"]),
+      [
+        [done.runId, "completed", true],
+        [stopped.runId, "stopped", true],
+      ],
+      "run_end と同じ定義の所要時間と結末が自分の run id の item に載る",
+    );
+    // assistant には載せない (ターンの値はそのターンの user が持つ)
+    assert.equal(messageItems(before.page).find((item) => item.role === "assistant")?.runOutcome, undefined);
+    await first.store.flush(first.record);
+    await first.store.close();
+
+    // 再起動: 値はメモリのみなので載らない (表示側は行ごと出さない)。発言自体は残る
+    const restored = new SessionStore({
+      pi: createStubPi(),
+      catalog: createAgentCatalog(),
+      storeDir: first.storeDir,
+      workspace: first.workspace,
+      rootCwd: "/tmp/project",
+    });
+    await restored.init();
+    const record = await restored.resolve(first.record.id);
+    assert.ok(record);
+    const after = restored.history(record, {});
+    assert.ok(after.ok);
+    assert.deepEqual(
+      messageItems(after.page)
+        .filter((item) => item.role === "user")
+        .map((item) => [item.text, item.runId, item.runDurationMs, item.runOutcome]),
+      [
+        ["完了したターン", done.runId, undefined, undefined],
+        ["停止したターン", stopped.runId, undefined, undefined],
+      ],
+      "runId は復元しても、所要時間と結末は残らない",
+    );
+    await restored.close();
+  } finally {
+    await rm(first.storeDir, { recursive: true, force: true });
+  }
+});
+
 test("キュー経由の送信でも、各 user item には自分の run の id が載る", async () => {
   const store = new SessionStore({ pi: createStubPi({ chunkDelayMs: 10 }), catalog: createAgentCatalog() });
   const record = await store.create();

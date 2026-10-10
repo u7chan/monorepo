@@ -12,6 +12,7 @@ import { isPendingAskUser } from "../lib/askUser";
 import { compactionDividerIndex } from "../lib/compaction";
 import type { Bubble, ChatHistoryState, CompactionMarker, ToolCard } from "../lib/chatTypes";
 import { retryableRunError, runErrorFrom, type RunErrorInfo } from "../lib/runRetry";
+import { runOutcomeOf } from "../lib/turnEnd";
 import type {
   AskUserAnswer,
   AskUserQuestion,
@@ -21,6 +22,7 @@ import type {
   HistoryPage,
   MessageMetrics,
   RunErrorCode,
+  RunOutcome,
   RunRetryState,
   RunStatus,
   SessionPayload,
@@ -541,7 +543,7 @@ function applyPendingSends(
     if (send?.state === "unsent") {
       pending.delete(bubble.id);
       seen.add(bubble.runId);
-      next.push({ ...bubble, unsent: true, accepted: false, confirmed: false });
+      next.push({ ...bubble, unsent: true, accepted: false, confirmed: false, ...CLEARED_TURN_END });
       continue;
     }
     if (send !== undefined) {
@@ -592,6 +594,21 @@ function applyPendingSends(
     // payload が載せた run は権威ある状態なので、停止の控えは不要
     clearedRunIds: clearedRunIds.filter((id) => !byRunId.has(id)),
   };
+}
+
+/**
+ * 未送信へ戻す / 再送する分岐で、前のランの値を消す。表示導出は unsent を見て行を落とすが、値自体を
+ * 持ち越すと再送後に古い所要時間が残る
+ */
+const CLEARED_TURN_END = { runDurationMs: undefined, runOutcome: undefined } as const;
+
+/** run が終わったことを、run id の一致する user パブルへ写す (entryId の有無を問わない) */
+function attachTurnEnd(bubbles: Bubble[], runId: string, outcome: RunOutcome, durationMs: number): Bubble[] {
+  return bubbles.map((bubble) =>
+    bubble.role === "user" && bubble.runId === runId
+      ? { ...bubble, runDurationMs: durationMs, runOutcome: outcome }
+      : bubble,
+  );
 }
 
 export function chatReducer(state: ChatState, action: ChatAction): ChatState {
@@ -1012,7 +1029,9 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
           ...withRunId,
           runPrompts,
           bubbles: withRunId.bubbles.map((bubble) =>
-            bubble.id === echoId ? { ...bubble, unsent: true, accepted: false, confirmed: false } : bubble,
+            bubble.id === echoId
+              ? { ...bubble, unsent: true, accepted: false, confirmed: false, ...CLEARED_TURN_END }
+              : bubble,
           ),
           pendingEchoIds: withRunId.pendingEchoIds.filter((id) => id !== echoId),
           clearedRunIds: state.clearedRunIds.filter((id) => id !== action.runId),
@@ -1030,7 +1049,9 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
       return {
         ...state,
         bubbles: state.bubbles.map((bubble, i) =>
-          i === index ? { ...bubble, unsent: false, accepted: true, confirmed: false, at: Date.now() } : bubble,
+          i === index
+            ? { ...bubble, unsent: false, accepted: true, confirmed: false, at: Date.now(), ...CLEARED_TURN_END }
+            : bubble,
         ),
         currentAssistantId: null,
         pendingEchoIds: [...state.pendingEchoIds, echo.id],
@@ -1052,7 +1073,7 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
       return {
         ...state,
         bubbles: state.bubbles.map((bubble, i) =>
-          i === index ? { ...bubble, unsent: true, accepted: false, confirmed: false } : bubble,
+          i === index ? { ...bubble, unsent: true, accepted: false, confirmed: false, ...CLEARED_TURN_END } : bubble,
         ),
         pendingEchoIds: state.pendingEchoIds.filter((id) => id !== echo.id),
       };
@@ -1222,7 +1243,7 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
       const cleared = new Set(action.runIds ?? []);
       const bubbles = state.bubbles.map((bubble) =>
         bubble.runId !== undefined && cleared.has(bubble.runId) && bubble.unsent !== true
-          ? { ...bubble, unsent: true, accepted: false, confirmed: false }
+          ? { ...bubble, unsent: true, accepted: false, confirmed: false, ...CLEARED_TURN_END }
           : bubble,
       );
       const pendingEchoIds = state.pendingEchoIds.filter((id) => {
@@ -1277,8 +1298,15 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
         state.currentAssistantId === null
           ? state
           : updateBubble(state, state.currentAssistantId, (bubble) => ({ ...bubble, settled: true }));
+      // run_end の所要時間と結末は、その run の user パブルへ写す (entryId の有無を問わず runId 一致)。
+      // 未送信のターンは導出側が行を落とす。終端以外の status では値を付けない
+      const outcome = runOutcomeOf(status);
+      const withTurnEnd =
+        action.runId === undefined || outcome === undefined || action.durationMs === undefined
+          ? settled
+          : { ...settled, bubbles: attachTurnEnd(settled.bubbles, action.runId, outcome, action.durationMs) };
       return {
-        ...settled,
+        ...withTurnEnd,
         pendingEchoIds,
         currentAssistantId: null,
         toolBubbleIds: {},
@@ -1287,7 +1315,7 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
         // サーバー計測のラン全体。run_end を受け取れない復帰では復元しない (resync が消す)
         finishedRunDurationMs: action.durationMs,
         // run が終わったことを取り直しの合図として数える (描画を挟まず reducer で進める)
-        runEndSeq: settled.runEndSeq + 1,
+        runEndSeq: withTurnEnd.runEndSeq + 1,
         runStartedAt: undefined,
         compactionStartedAt: undefined,
         runStatus,
@@ -1306,8 +1334,8 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
         // 終わった run は停止の控えから外す (遅れて届いた 202 で未送信へ戻さない)
         clearedRunIds:
           action.runId === undefined
-            ? settled.clearedRunIds
-            : settled.clearedRunIds.filter((id) => id !== action.runId),
+            ? withTurnEnd.clearedRunIds
+            : withTurnEnd.clearedRunIds.filter((id) => id !== action.runId),
       };
     }
 
