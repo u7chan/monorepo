@@ -9,7 +9,7 @@ import { sidebarSectionsStore, type SidebarSectionId } from "../lib/sidebarSecti
 import { CloseIcon, DisclosureChevronIcon, GearIcon, LogoStarIcon, PlusIcon } from "./icons";
 import { MenuItem } from "./MenuItem";
 import { ProjectRow } from "./sidebar/ProjectRow";
-import { SessionRow } from "./sidebar/SessionRow";
+import { SessionList } from "./sidebar/SessionList";
 import { SidebarResizeHandle } from "./sidebar/SidebarResizeHandle";
 import { SettingsNav } from "./sidebar/SettingsNav";
 
@@ -255,20 +255,15 @@ export function Sidebar({
                         {conversationOnly ? "会話はまだありません" : "未所属のセッションはありません"}
                       </div>
                     ) : (
-                      <div className="grid gap-1">
-                        {unassigned.map((item) => (
-                          <SessionRow
-                            key={item.sessionId}
-                            item={item}
-                            agents={agents}
-                            active={item.sessionId === sessionId}
-                            onSelect={() => selectSession(item.sessionId)}
-                            onRename={() => renameSession(item.sessionId)}
-                            onDelete={() => deleteSession(item.sessionId)}
-                            onTogglePin={() => togglePinned(item.sessionId)}
-                          />
-                        ))}
-                      </div>
+                      <SessionList
+                        sessions={unassigned}
+                        agents={agents}
+                        sessionId={sessionId}
+                        onSelect={selectSession}
+                        onRename={renameSession}
+                        onDelete={deleteSession}
+                        onTogglePin={togglePinned}
+                      />
                     )}
                   </div>
                 </div>
