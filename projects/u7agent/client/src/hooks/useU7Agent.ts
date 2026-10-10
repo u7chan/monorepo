@@ -2,6 +2,7 @@ import { useCallback, useEffect, useEffectEvent, useReducer, useRef, useState } 
 import { getHealth } from "../api";
 import { useSpaceApi } from "../SpaceContext";
 import { attachmentRejection, attachmentsForSend, attachmentsForSession, type Attachment } from "../lib/attachments";
+import { entryResolvedInitially } from "../lib/route";
 import { projectDeleteConfirmRequest } from "../lib/sidebarProjects";
 import { useConfirm } from "../components/ConfirmProvider";
 import { deriveComposerSettings } from "../lib/composerSettings";
@@ -39,10 +40,8 @@ function messageFor(error: unknown): string {
 }
 
 export type UseU7AgentOptions = {
-  /** `/s/<id>` の選択待ちの入口。一覧のロード後にこの会話だけを選ぶ */
+  /** `/s/<id>` が指定する会話。一覧のロード後にこの会話だけを選ぶ */
   pendingSessionId?: string;
-  /** 入口を消費した。URL を `/` へ畳ませる (選択が確定してから呼ばれる) */
-  onPendingSessionResolved?: () => void;
 };
 
 export type SendMessageOptions = {
@@ -53,7 +52,7 @@ export type SendMessageOptions = {
   includeAttachments?: boolean;
 };
 
-export function useU7Agent({ pendingSessionId, onPendingSessionResolved }: UseU7AgentOptions = {}) {
+export function useU7Agent({ pendingSessionId }: UseU7AgentOptions = {}) {
   const {
     answerQuestion: answerQuestionApi,
     discardUnsentMessage: discardUnsentApi,
@@ -64,6 +63,11 @@ export function useU7Agent({ pendingSessionId, onPendingSessionResolved }: UseU7
   } = useSpaceApi();
   const confirm = useConfirm();
   const [chat, dispatch] = useReducer(chatReducer, initialChatState);
+  /**
+   * URL が指定した会話の解決状態。未解決の間は URL を保ち、解決してから未選択の `/` へ畳ませる
+   * (同期は App の Effect。初期値は mount 時の URL だけで決め、同期が URL を書いても巻き戻さない)
+   */
+  const [entryResolved, setEntryResolved] = useState(() => entryResolvedInitially(pendingSessionId));
   // 履歴の追加取得が読むカーソル。reducer が適用したページの値だけを持ち、gap で保留した
   // ページの nextCursor を持ち込まない
   const historyStateRef = useRef(chat.history);
@@ -356,7 +360,7 @@ export function useU7Agent({ pendingSessionId, onPendingSessionResolved }: UseU7
   );
 
   /**
-   * まだ解決していない入口 (`/s/<id>`)。一覧の取得に成功した時点で 1 度だけ解決する。
+   * まだ解決していない、URL が指定した会話 (`/s/<id>`)。一覧の取得に成功した時点で 1 度だけ解決する。
    * 起動時の取得が失敗しても、次に届いた一覧 (4 秒のポーリング) で解決できるよう URL は保つ。
    */
   const pendingEntryRef = useRef<PendingEntry | null>(null);
@@ -367,14 +371,14 @@ export function useU7Agent({ pendingSessionId, onPendingSessionResolved }: UseU7
     pendingEntryRef.current = null;
     await restoreSession(list, isCurrent, pending);
     if (!isCurrent()) return;
-    // 解決後に入口を畳む (URL は選択を待つ間だけ保ち、見つからないときは未選択のまま畳む)
-    onPendingSessionResolved?.();
+    // 見つからない / 取得に失敗した場合も含めて、URL が指定した会話の結果が出た時点で解決済みにする
+    setEntryResolved(true);
   });
 
   const boot = useEffectEvent(async (isCurrent: () => boolean) => {
     try {
       // 保留の入口は、起動処理を始めた時点の選択世代と比べる。ここを最初の await の後ろに置くと、
-      // health / catalog / projects の待ちの間の選択を、遅れて届いたディープリンク先が奪う
+      // health / catalog / projects の待ちの間の選択を、遅れて届いた URL の会話が奪う
       pendingEntryRef.current = pendingSessionId
         ? { sessionId: pendingSessionId, selection: selectionSeqRef.current }
         : null;
@@ -389,7 +393,7 @@ export function useU7Agent({ pendingSessionId, onPendingSessionResolved }: UseU7
       const list = await refreshSessions(isCurrent);
       if (!isCurrent()) return;
       if (pendingSessionId) {
-        // 一覧が取れなかったときは入口を解決しない (空の成功として畳まず、届いた一覧で解決する)
+        // 一覧が取れなかったときは入口を解決しない (空の成功として解決せず、届いた一覧で解決する)
         if (list) await resolvePendingEntry(list, isCurrent);
       }
     } catch (error) {
@@ -448,6 +452,8 @@ export function useU7Agent({ pendingSessionId, onPendingSessionResolved }: UseU7
     selectedProject,
     selectedProjectId,
     sessionId,
+    /** URL が指定した会話の解決状態。未解決の間は同期 Effect が URL を保つ (lib/route.ts の sessionPath) */
+    entryResolved,
     agentId,
     setAgentId,
     runtimeStatus,

@@ -46,6 +46,7 @@ import {
 } from "./lib/fileRefRequest";
 import type { FileRefTarget } from "./lib/fileRef";
 import { resolveSidebarPlacement } from "./lib/layout";
+import { sessionPath } from "./lib/route";
 import {
   missingLinkNote,
   notificationHasFailure,
@@ -69,13 +70,17 @@ export default function App() {
   const space = useSpace();
   // 確認と入力のダイアログ。文言は各 lib の純関数で組み立てる (docs/ui-layout.md)
   const confirm = useConfirm();
-  // 画面は URL がただ 1 つの正。`/` はチャット、`/settings/<section>` は設定の各画面、
-  // `/s/<id>` は通知のリンクの入口 (選択待ちの間だけ URL を保つ。lib/route.ts)
-  const { route, navigate, consumePendingEntry, lastSettingsSection } = useRoute();
-  const app = useU7Agent({
-    pendingSessionId: route.view === "chat" ? route.pendingSessionId : undefined,
-    onPendingSessionResolved: consumePendingEntry,
-  });
+  // 画面 (view) は URL がただ 1 つの正。`/` はチャット (会話を指定しない)、`/settings/<section>` は設定の各画面。
+  // 会話の選択は app.sessionId が正で、`/s/<id>` はそれを映す鏡 (URL へ書く条件は lib/route.ts の sessionPath)
+  const { route, navigate, syncSessionPath, lastSettingsSection } = useRoute();
+  const app = useU7Agent({ pendingSessionId: route.view === "chat" ? route.sessionId : undefined });
+  // 確定した選択を URL へ映す唯一の Effect。書く条件 (設定の表示中 / 未解決の入口が未選択のまま) は
+  // lib/route.ts の純関数が持ち、依存は primitive だけにする (route 全体を依存にすると新 object の
+  // set でループする)
+  const urlSessionId = route.view === "chat" ? route.sessionId : undefined;
+  useEffect(() => {
+    syncSessionPath(sessionPath(route.view, urlSessionId, app.sessionId, app.entryResolved));
+  }, [route.view, urlSessionId, app.sessionId, app.entryResolved, syncSessionPath]);
   const markdownImageRawUrl = useMarkdownImageRawUrl(app.chat.runEndSeq);
   // desktop shell は幅と高さの両方が要る (lib/layout.ts)。足りない側で portrait / landscape を選ぶ
   const layout = useLayoutMode();
@@ -131,10 +136,10 @@ export default function App() {
   const [projectDialogOpen, setProjectDialogOpen] = useState(false);
   const [navOpen, setNavOpen] = useState(false);
   // 作業フォルダの開閉は保存しない (desktop は右パネル、compact は全画面シートで state も分ける)。
-  // 起動時は常に未所属の新規会話なので閉。既定を当てるのは利用者操作の新規会話の入口だけ
+  // 起動時は閉 (会話 URL を開いてもパネルは勝手に開かない)。既定を当てるのは利用者操作の新規会話の入口だけ
   const [sessionFilesOpen, setSessionFilesOpen] = useState(false);
   const [sessionFilesSheetOpen, setSessionFilesSheetOpen] = useState(false);
-  // シートを閉じる契機の監視キー。route 全体は比べない (/s/<id> が / へ畳まれるだけでは閉じない)
+  // シートを閉じる契機の監視キー。route 全体は比べない (会話 URL の置換だけでは閉じない)
   const [sheetScope, setSheetScope] = useState(() => ({ compact, view: mainView, root: filesRoot }));
   // 設定ページへの出入り / root の変更 / desktop への復帰でシートを閉じる。showModal() は子の Effect で
   // 親より先に走るため、Effect ではなく前の描画の値と比べる描画中の同期で閉じる
@@ -163,7 +168,15 @@ export default function App() {
   const openNav = useCallback(() => setNavOpen(true), []);
   // 実際に閉じる (ドロワーを unmount する)。退場アニメは NavSheet が持ち、その完了 (dialog の close) から届く
   const closeNav = useCallback(() => setNavOpen(false), []);
-  const backToChat = useCallback(() => navigate({ view: "chat" }), [navigate]);
+  // 設定 ⇄ チャットの往復はメモリ (app.sessionId) だけが持つ会話を、戻るときに URL へ載せ直す。
+  // 設定の表示中は URL を書かないので、戻る導線はすべてここを通す
+  const backToChat = useCallback(() => {
+    const sessionId = app.sessionId;
+    navigate(sessionId ? { view: "chat", sessionId } : { view: "chat" });
+  }, [app.sessionId, navigate]);
+  // スペースの切替は App ごと作り直すため、URL に会話を残すと新しいスペースで「見つかりません」になる。
+  // 会話を持たない chat へ戻してから選ばせる (戻るボタンの backToChat とは目的が違う)
+  const openChatWithoutSession = useCallback(() => navigate({ view: "chat" }), [navigate]);
   // ファイル参照から開いたときの起点要素。compact の sheet は閉じたときにここへ focus を戻す
   const fileRefOriginRef = useRef<HTMLElement | null>(null);
   const { requestFileRef } = app;
@@ -352,12 +365,17 @@ export default function App() {
     return catalog;
   }, [app]);
 
-  // Sidebar の「設定」は onSelectMode("settings") を呼ぶため、モード切替も URL へ集約する
+  // Sidebar の「設定」は onSelectMode("settings") を呼ぶため、モード切替も URL へ集約する。
+  // チャットへ戻るのは backToChat と同じ経路 (現在の会話を載せて戻る)
   const selectMode = useCallback(
     (mode: SidebarMode) => {
-      navigate(mode === "settings" ? { view: "settings", section: lastSettingsSection } : { view: "chat" });
+      if (mode === "settings") {
+        navigate({ view: "settings", section: lastSettingsSection });
+        return;
+      }
+      backToChat();
     },
-    [navigate, lastSettingsSection],
+    [backToChat, navigate, lastSettingsSection],
   );
 
   const openSettingsSection = useCallback(
@@ -452,7 +470,7 @@ export default function App() {
   const settingsScreen = () => {
     switch (settingsSection) {
       case "spaces":
-        return <SpaceSettingsPage {...pageProps} />;
+        return <SpaceSettingsPage {...pageProps} onSelectSpace={openChatWithoutSession} />;
       case "agents":
         return (
           <AgentSettingsPage

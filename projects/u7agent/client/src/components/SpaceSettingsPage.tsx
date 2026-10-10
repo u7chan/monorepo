@@ -7,7 +7,15 @@ import { SettingsPageLayout, type SettingsPageProps } from "./SettingsPageLayout
 import { PlusIcon } from "./icons";
 
 /** 設定 → スペース。一覧は件数が増えても高さを抑え、作成フォームを画面内に残す */
-export function SpaceSettingsPage({ compact = false, onBack, onOpenNav }: SettingsPageProps) {
+export function SpaceSettingsPage({
+  compact = false,
+  onBack,
+  onOpenNav,
+  onSelectSpace,
+}: SettingsPageProps & {
+  /** 行の選択。切替は App ごと作り直すため、URL の会話を切り離してから選ぶ (親が会話なしの chat へ戻す) */
+  onSelectSpace?: () => void;
+}) {
   const space = useSpace();
   const [name, setName] = useState("");
   const [busy, setBusy] = useState(false);
@@ -42,7 +50,7 @@ export function SpaceSettingsPage({ compact = false, onBack, onOpenNav }: Settin
                   current="true"
                   onClick={() => {
                     if (item.id === space.selected.id) return;
-                    onBack();
+                    onSelectSpace?.();
                     space.select(item.id);
                   }}
                 />

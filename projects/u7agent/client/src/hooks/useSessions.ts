@@ -49,7 +49,7 @@ export type UseSessionsParams = {
 };
 
 /**
- * 通知のリンク (`/s/<id>`) の入口。sessionId だけでなく、一覧の要求より前の選択世代も持つ
+ * 起動時に開く、URL が指定した会話。sessionId だけでなく、一覧の要求より前の選択世代も持つ
  * (待機中にユーザーが別の会話を選んでいたら、その選択を奪わないため)。
  */
 export type PendingEntry = {
@@ -157,7 +157,7 @@ export function useSessions({
 
   /**
    * 一覧を取り直す。取得できなかったときは null を返し、前回のリスト (sessionsRef) は保つ。
-   * 空の成功と区別できないと、保留の入口 (`/s/<id>`) を「会話なし」として畳んでしまう。
+   * 空の成功と区別できないと、URL が指定した会話 (`/s/<id>`) を「会話なし」として解決してしまう。
    */
   const refreshSessions = useCallback(
     async (isCurrent = alwaysCurrent): Promise<SessionSummary[] | null> => {

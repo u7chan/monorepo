@@ -2,7 +2,7 @@
 
 会話（セッション）ごとのトグルが On のとき、エージェントの応答が返ってきたら Discord の Incoming Webhook へ 1 通送る。ブラウザを閉じてもランは BFF で続く（[run-lifecycle.md](run-lifecycle.md)）ため、離席中に終わったことを Discord で知るための仕組み。プロバイダーは Discord だけを対象にする。
 
-Discord 通知リンク `/s/<sessionId>?space=<spaceId>` は、会話を指定して開く入口（同じ形のリンクを設定 → ランタイムの「起動元の会話」も使う）。`space` は開くスペースの明示で、通常スペースは `default`。通常の `/` は会話を自動復元せず、リンク先を開けない場合も別の会話へ移らない。
+Discord 通知リンク `/s/<sessionId>?space=<spaceId>` は会話を指定した URL（同じ形のリンクを設定 → ランタイムの「起動元の会話」も使う）。開いた会話は URL に残る（[frontend.md](frontend.md#会話-url)）。`space` は開くスペースの明示で、通常スペースは `default`。`/` は会話を自動復元せず、リンク先を開けない場合も別の会話へ移らない。
 
 正は `server/src/notifications.ts`（設定の読み書き・宛先検証・送信・直近結果・専用マスク）で、ルートは `server/src/routes/notifications.ts`、per-session のトグルは `server/src/sessions.ts` の `setNotify()` が持つ。設定画面は `client/src/components/NotificationSettingsPage.tsx` と `client/src/components/notifications/`。
 
@@ -37,7 +37,7 @@ Discord 通知リンク `/s/<sessionId>?space=<spaceId>` は、会話を指定�
 - 注記は On の間は常に出す（リロード後も出る）。まだ On でないときは押した後だけ出す（設定が無効なだけの会話でバーを埋めないため）。押した後に出す分は会話を移ると捨てる（その場のフィードバックで、戻ってきたときに復活させない）
 - 設定が未取得（`null`）の間は判定せず、注記も切替の禁止も accent の変更もしない（起動直後の一瞬だけボタンが効かないと壊れて見えるため）
 - accent（強調色）は「実際に送られる」の意味に保つ。配信できない On は accent にせず、バーのラベル / 読み上げ名を「通知（停止中）」にする（色だけに頼らない）
-- Off → On の瞬間だけ、ベルが一度鳴る（揺れ + 音の輪 + きらめき。`client/src/components/NotifyBell.tsx` と `styles/index.css` の `.notify-bell-*`）。鳴る根拠は値の立ち上がりではなく**押して On にした操作**で、`App` が On にしたときだけ進める世代を渡し、判定は `client/src/lib/notifyBell.ts` が持つ（会話の切替・リロード・`/s/<id>` の解決でも値は On へ上がるため、値だけで鳴らすと押していない操作に反応して見える）。配信できない設定では On にならないので、ここでも鳴らない
+- Off → On の瞬間だけ、ベルが一度鳴る（揺れ + 音の輪 + きらめき。`client/src/components/NotifyBell.tsx` と `styles/index.css` の `.notify-bell-*`）。鳴る根拠は値の立ち上がりではなく**押して On にした操作**で、`App` が On にしたときだけ進める世代を渡し、判定は `client/src/lib/notifyBell.ts` が持つ（会話の切替・リロード・会話 URL (`/s/<id>`) の復元でも値は On へ上がるため、値だけで鳴らすと押していない操作に反応して見える）。配信できない設定では On にならないので、ここでも鳴らない
 - 演出はベルの図形に重ねた層（音の輪・きらめき）が担い、鳴り終わりか Off への切替で外れる。素の `opacity` を 0 にしてあるので、動きを止める設定（`prefers-reduced-motion`）では重ねた層ごと出さず、静止したベルと鳴っている印だけが残る（`animation` が無効でも、時間の保険で層を外す）
 
 ## API 契約

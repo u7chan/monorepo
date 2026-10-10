@@ -25,7 +25,7 @@ const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
  * 増やすときは必ずこの数字も変える (= diff に出るので review で見える)。
  */
 const DOC_LINE_BUDGET = {
-  "docs/ui-layout.md": 196,
+  "docs/ui-layout.md": 197,
   "docs/frontend.md": 125,
 };
 

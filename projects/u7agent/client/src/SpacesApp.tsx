@@ -17,7 +17,7 @@ type SpaceSelectionState = {
   error: string;
 };
 
-/** URL → 保存値 → 既定。URL の `space` を読むのは入口 (`/s/<id>`) の初期 mount の 1 回だけ */
+/** URL → 保存値 → 既定。URL の `space` を読むのは会話を指定した URL (`/s/<id>`) の初期 mount の 1 回だけ */
 function readInitialSelection(): SpaceSelectionState {
   try {
     const urlSpace = entrySpaceOf(parseRoute(window.location.pathname), window.location.search);

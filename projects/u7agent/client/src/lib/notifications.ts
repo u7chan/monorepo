@@ -135,15 +135,15 @@ export function notifyCannotEnable(on: boolean, settings: NotificationsResponse 
   return !on && notifyUnavailableReason(settings) !== undefined;
 }
 
-/** 通知のリンク (`/s/<id>`) の会話を開けなかったときの注記 */
+/** 会話を指定した URL (`/s/<id>`) の会話を開けなかったときの注記。通知と設定 → ランタイムの起動元リンクが使う */
 export const MISSING_LINK_NOTE = "リンク先の会話が見つかりませんでした。";
 
 /** 会話を開く要求の結果。fallback は要求した会話を開けず、別の会話 / 未作成チャットへ移ったことを表す */
 export type SessionOpenResult = "opened" | "fallback" | "superseded";
 
 /**
- * リンク先を開けなかった理由を出すか。一覧に無い場合 (requested = false) だけでなく、一覧に載っていた会話が
- * 取得までに削除されていた場合 (GET が失敗して fallback した) にも出す。
+ * 会話を指定した URL の会話を開けなかった理由を出すか。一覧に無い場合 (requested = false) だけでなく、
+ * 一覧に載っていた会話が取得までに削除されていた場合 (GET が失敗して fallback した) にも出す。
  * 待機中にユーザーが別の会話を選んでいた (superseded) ときは、その選択を壊さず何も出さない。
  */
 export function missingLinkNote(requested: boolean, opened: SessionOpenResult): string | undefined {

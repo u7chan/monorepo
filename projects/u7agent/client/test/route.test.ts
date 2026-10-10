@@ -3,12 +3,13 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   CHAT_ROUTE,
+  entryResolvedInitially,
   entrySpaceOf,
-  foldPendingEntry,
   parseRoute,
-  pendingSessionIdOf,
   routePath,
   sessionEntryHref,
+  sessionIdOf,
+  sessionPath,
   withoutEntrySpace,
   type Route,
 } from "../src/lib/route";
@@ -23,8 +24,8 @@ const modelsTab = (modelsSubsection: ModelsSubsection): Route => ({
   modelsSubsection,
 });
 
-/** 通知のリンク (`/s/<id>`) が作る「選択待ちの入口」。チャット画面 + 消費されるまでの id */
-const entry = (pendingSessionId: string): Route => ({ view: "chat", pendingSessionId });
+/** 会話を指定した URL (`/s/<id>`) の route。id は不透明な値で、URL へ戻すときだけ encode する */
+const sessionUrl = (sessionId: string): Route => ({ view: "chat", sessionId });
 
 test("parseRoute は pathname だけで画面を決め、表のとおりに畳む", () => {
   const table: [string, Route][] = [
@@ -47,13 +48,13 @@ test("parseRoute は pathname だけで画面を決め、表のとおりに畳�
     ["/s/", CHAT_ROUTE],
     ["/s/a/b", CHAT_ROUTE],
     ["/s/a%2Fb", CHAT_ROUTE],
-    ["/s/abc123", entry("abc123")],
-    ["/s/abc123/", entry("abc123")],
-    ["//s//abc123//", entry("abc123")],
-    ["/S/abc123", entry("abc123")],
+    ["/s/abc123", sessionUrl("abc123")],
+    ["/s/abc123/", sessionUrl("abc123")],
+    ["//s//abc123//", sessionUrl("abc123")],
+    ["/S/abc123", sessionUrl("abc123")],
     // id は不透明な値。decode した生の値を持ち、URL へ戻すときに encode する
-    ["/s/a%20b", entry("a b")],
-    ["/s/%E3%82%BB%E3%83%83%E3%82%B7%E3%83%A7%E3%83%B3", entry("セッション")],
+    ["/s/a%20b", sessionUrl("a b")],
+    ["/s/%E3%82%BB%E3%83%83%E3%82%B7%E3%83%A7%E3%83%B3", sessionUrl("セッション")],
     // 設定 (大文字・末尾スラッシュ・連続スラッシュ・percent encoding は正準形へ畳む)
     ["/settings/files", settings("files")],
     ["/settings/archive", settings("archive")],
@@ -131,57 +132,82 @@ test("routePath は正準形を返し、parseRoute と往復する", () => {
 });
 
 test("routePath は `/s/<id>` を encode して返し、parseRoute と往復する", () => {
-  assert.equal(routePath(entry("abc123")), "/s/abc123");
-  assert.equal(routePath(entry("a b")), "/s/a%20b");
+  assert.equal(routePath(sessionUrl("abc123")), "/s/abc123");
+  assert.equal(routePath(sessionUrl("a b")), "/s/a%20b");
   for (const sessionId of ["abc123", "a b", "a+b", "セッション", "a%20b"]) {
-    const route = entry(sessionId);
+    const route = sessionUrl(sessionId);
     assert.deepEqual(parseRoute(routePath(route)), route, sessionId);
   }
 });
 
-test("選択待ちの入口は URL を保ち、選択が確定したらチャットへ畳む", () => {
-  const pending = parseRoute("/s/abc123");
-  // mount 時の正準化は routePath(parseRoute(pathname)) の比較なので、ここが同じ間は URL が消えない
-  assert.equal(routePath(parseRoute(routePath(pending))), "/s/abc123");
-  assert.equal(pendingSessionIdOf(pending), "abc123");
-  // 畳むのはチャットの正準形 (履歴を増やさない replaceState は呼び出し側が行う)
-  assert.equal(foldPendingEntry(pending), CHAT_ROUTE);
-  assert.equal(routePath(foldPendingEntry(pending)), "/");
+test("同期は確定した選択を URL に映し、書かない条件では null を返す", () => {
+  const table: [Route["view"], string | undefined, string, boolean, string | null][] = [
+    // 設定の表示中は書かない (SSE 切断や削除で選択が変わっても URL と表示を食い違わせない)
+    ["settings", undefined, "", true, null],
+    ["settings", "abc123", "abc123", true, null],
+    ["settings", "abc123", "xyz789", false, null],
+    // 未解決の入口が未選択のままの間は URL を保つ (一覧の取得に失敗しても、次の一覧で解決する)
+    ["chat", "abc123", "", false, null],
+    // 未解決でも、ユーザー操作で選択が確定したらその選択を書く
+    ["chat", "abc123", "xyz789", false, "/s/xyz789"],
+    ["chat", undefined, "xyz789", false, "/s/xyz789"],
+    // 解決後は確定した選択へ揃え、未選択は `/` へ戻す
+    ["chat", "abc123", "xyz789", true, "/s/xyz789"],
+    ["chat", "abc123", "", true, "/"],
+    ["chat", undefined, "xyz789", true, "/s/xyz789"],
+    // URL と同じ (会話なし同士も含む) ときは書き直さない
+    ["chat", "abc123", "abc123", true, null],
+    ["chat", undefined, "", true, null],
+    ["chat", "abc123", "abc123", false, null],
+    // undefined (会話 ID なし) と "" (選択なし) は同じ「会話なし」に正規化する (未選択を /s/ と書かない)
+    ["chat", "", "", true, null],
+    ["chat", "", "abc123", true, "/s/abc123"],
+  ];
+  for (const [view, urlSessionId, selectedSessionId, entryResolved, expected] of table) {
+    assert.equal(
+      sessionPath(view, urlSessionId, selectedSessionId, entryResolved),
+      expected,
+      `${view} url=${urlSessionId} selected=${selectedSessionId} resolved=${entryResolved}`,
+    );
+  }
+  // 会話 ID は不透明な値として encode する
+  assert.equal(sessionPath("chat", undefined, "a b", true), "/s/a%20b");
 });
 
-test("入口を持たない route は畳まず、同じ object を返す", () => {
-  assert.equal(pendingSessionIdOf(CHAT_ROUTE), undefined);
-  assert.equal(pendingSessionIdOf(settings("agents")), undefined);
-  assert.equal(foldPendingEntry(CHAT_ROUTE), CHAT_ROUTE);
-  const section = settings("agents");
-  assert.equal(foldPendingEntry(section), section);
+test("URL が指定する会話を返し、入口の解決状態は会話の有無から決まる", () => {
+  assert.equal(sessionIdOf(CHAT_ROUTE), undefined);
+  assert.equal(sessionIdOf(sessionUrl("abc123")), "abc123");
+  assert.equal(sessionIdOf(settings("agents")), undefined);
+  // 会話を指定していない URL には保つ URL が無いので、最初から解決済みとする
+  assert.equal(entryResolvedInitially(undefined), true);
+  assert.equal(entryResolvedInitially("abc123"), false);
 });
 
 test("`/s/<id>` の `space` だけを読み、他の画面と他のクエリは解釈しない", () => {
-  assert.equal(entrySpaceOf(entry("abc123"), "?space=space-1111111111111111"), "space-1111111111111111");
-  assert.equal(entrySpaceOf(entry("abc123"), "?space=default"), "default");
-  assert.equal(entrySpaceOf(entry("abc123"), "?x=1&space=demo"), "demo");
+  assert.equal(entrySpaceOf(sessionUrl("abc123"), "?space=space-1111111111111111"), "space-1111111111111111");
+  assert.equal(entrySpaceOf(sessionUrl("abc123"), "?space=default"), "default");
+  assert.equal(entrySpaceOf(sessionUrl("abc123"), "?x=1&space=demo"), "demo");
   // 値が空・欠落なら無いものとして扱う (保存値で解決する)
-  assert.equal(entrySpaceOf(entry("abc123"), ""), null);
-  assert.equal(entrySpaceOf(entry("abc123"), "?space="), null);
-  assert.equal(entrySpaceOf(entry("abc123"), "?other=demo"), null);
-  // 入口以外では pathname と同じく解釈しない
+  assert.equal(entrySpaceOf(sessionUrl("abc123"), ""), null);
+  assert.equal(entrySpaceOf(sessionUrl("abc123"), "?space="), null);
+  assert.equal(entrySpaceOf(sessionUrl("abc123"), "?other=demo"), null);
+  // 会話を指定しない画面では pathname と同じく解釈しない
   assert.equal(entrySpaceOf(CHAT_ROUTE, "?space=demo"), null);
   assert.equal(entrySpaceOf(settings("spaces"), "?space=demo"), null);
   // 不正な値も「不正な指定」として渡し、通常スペースへ黙って落とさない
-  assert.equal(entrySpaceOf(entry("abc123"), "?space=../bad"), "../bad");
+  assert.equal(entrySpaceOf(sessionUrl("abc123"), "?space=../bad"), "../bad");
 });
 
-test("入口の `space` キーだけを落とし、他のクエリは書き方ごと残す", () => {
-  assert.equal(withoutEntrySpace(entry("abc123"), "?space=demo"), "");
-  assert.equal(withoutEntrySpace(entry("abc123"), "?space=demo&x=1"), "?x=1");
-  assert.equal(withoutEntrySpace(entry("abc123"), "?x=1&space=demo&y=2"), "?x=1&y=2");
-  assert.equal(withoutEntrySpace(entry("abc123"), "?x=1&space="), "?x=1");
+test("会話を指定した URL の `space` キーだけを落とし、他のクエリは書き方ごと残す", () => {
+  assert.equal(withoutEntrySpace(sessionUrl("abc123"), "?space=demo"), "");
+  assert.equal(withoutEntrySpace(sessionUrl("abc123"), "?space=demo&x=1"), "?x=1");
+  assert.equal(withoutEntrySpace(sessionUrl("abc123"), "?x=1&space=demo&y=2"), "?x=1&y=2");
+  assert.equal(withoutEntrySpace(sessionUrl("abc123"), "?x=1&space="), "?x=1");
   // 他のクエリのパーセントエンコーディングは組み直さない
-  assert.equal(withoutEntrySpace(entry("abc123"), "?x=%20b&space=demo"), "?x=%20b");
+  assert.equal(withoutEntrySpace(sessionUrl("abc123"), "?x=%20b&space=demo"), "?x=%20b");
   // 解釈できないキーは落とさない (他のクエリを壊すより残す)
-  assert.equal(withoutEntrySpace(entry("abc123"), "?%zz=1&space=demo"), "?%zz=1");
-  // 入口以外と `space` を持たない URL はそのまま (クエリは解釈も破棄もしない)
+  assert.equal(withoutEntrySpace(sessionUrl("abc123"), "?%zz=1&space=demo"), "?%zz=1");
+  // 会話を指定しない URL と `space` を持たない URL はそのまま (クエリは解釈も破棄もしない)
   for (const search of ["", "?space=demo", "?x=1&y=%20"]) {
     assert.equal(withoutEntrySpace(CHAT_ROUTE, search), search);
     assert.equal(withoutEntrySpace(settings("files"), search), search);
