@@ -104,6 +104,27 @@ test("描画: 合計時間だけでは活動欄を出さない (再実行カー�
   assert.equal(render({ activity: "", finishedRunDurationMs: 72_000 }), "");
 });
 
+test("描画: 実行中の経過時間は 10 秒の拍の枠に出し、1 分以降だけ色を残す", () => {
+  const fresh = render({
+    activity: "実行中…",
+    runningSince: Date.now(),
+    model: "zai/glm-5.3-flash",
+    modelLabel: "GLM-5.3 Flash",
+  });
+  assert.ok(fresh.includes("elapsed-beat"), "数字は拍の枠に出す");
+  assert.ok(!fresh.includes("elapsed-beat-tier"), "1 分未満では色を残さない");
+  assert.ok(fresh.includes("run-spinner"), "実行中はスピナーを出す");
+
+  const long = render({
+    activity: "実行中…",
+    runningSince: Date.now() - 90_000,
+    model: "zai/glm-5.3-flash",
+    modelLabel: "GLM-5.3 Flash",
+  });
+  assert.match(long, /\(1m 3\ds\)/, "1 分を超えたら分と秒で出す");
+  assert.ok(long.includes("elapsed-beat-tier"), "長いランは色を残す");
+});
+
 // --- 手動圧縮の導線 ---
 
 test("描画: セッションがあると Context ゲージの右に圧縮ボタンを出す", () => {

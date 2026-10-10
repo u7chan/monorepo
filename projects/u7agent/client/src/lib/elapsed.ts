@@ -8,12 +8,12 @@ export function formatElapsed(ms: number): string {
   return `${hours}h ${minutes % 60}m`;
 }
 
-/** 毎秒の演出を強める秒。表示の書式 (formatElapsed) とは独立に、演出だけを決める */
-const MILESTONE_SECONDS = [10, 30, 60, 180, 300, 600];
+/** 演出を出す拍の長さ。桁は毎秒変わるが、演出はこの間隔でしか出さない */
+const BEAT_MS = 10_000;
 
-/** 経過時間の演出を強める節目か。表示と同じ秒で判定する (30.9s は 30s の節目) */
-export function isElapsedMilestone(ms: number): boolean {
-  return MILESTONE_SECONDS.includes(Math.floor(Math.max(0, ms) / 1000));
+/** 経過時間の拍の番号 (0 始まり)。この値が変わった瞬間だけ演出を先頭から流す */
+export function elapsedBeatIndex(ms: number): number {
+  return Math.floor(Math.max(0, ms) / BEAT_MS);
 }
 
 /** 経過時間に色を残し始める長さ */

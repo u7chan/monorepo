@@ -2,40 +2,48 @@ import type { ReactNode } from "react";
 import { cn } from "../lib/cn";
 import type { FileKind } from "../lib/fileKind";
 
-/** 実行中インジケータのドット (中心 8,8 / 半径 4.9 に 45 度ずつ。回転は styles/index.css) */
-const SPINNER_DOTS: [number, number][] = [
-  [8, 3.1],
-  [11.47, 4.53],
-  [12.9, 8],
-  [11.47, 11.47],
-  [8, 12.9],
-  [4.53, 11.47],
-  [3.1, 8],
-  [4.53, 4.53],
+/** 実行中スピナー (jump ローダー) の弧。240 viewBox の中心 (120,120) から 4 本の弧が出る。
+ * dash の長さは円周 (2πr) をそのまま使い、大きい弧ほど長く回る。 */
+const RUN_SPINNER_ARCS: {
+  key: string;
+  className: string;
+  cx: number;
+  cy: number;
+  r: number;
+  dasharray: string;
+  dashoffset: number;
+}[] = [
+  { key: "a", className: "run-spinner-a", cx: 120, cy: 120, r: 105, dasharray: "0 660", dashoffset: -330 },
+  { key: "b", className: "run-spinner-b", cx: 120, cy: 120, r: 35, dasharray: "0 220", dashoffset: -110 },
+  { key: "c", className: "run-spinner-c", cx: 85, cy: 120, r: 70, dasharray: "0 440", dashoffset: 0 },
+  { key: "d", className: "run-spinner-d", cx: 155, cy: 120, r: 70, dasharray: "0 440", dashoffset: 0 },
 ];
 
-/** 先頭のドットほど濃くして尾を引かせる (回転方向と揃えるため index の昇順 = 時計回り) */
-export function RunSpinnerIcon({ tone = "soft" }: { tone?: "soft" | "on-accent" } = {}) {
+/** 実行中スピナー。点に閉じた 4 本の弧が開いて回るのを 2 秒で 2 回繰り返す (styles/index.css)。
+ * 色は置いた場所の用途で選ぶ。focus は線・リング用のトークン (各プリセットで隣接面に 3:1 以上) */
+export function RunSpinnerIcon({ tone = "soft" }: { tone?: "soft" | "focus" | "on-accent" } = {}) {
   return (
     <svg
       aria-hidden="true"
-      viewBox="0 0 16 16"
-      className={cn("run-spinner size-3 shrink-0", tone === "on-accent" ? "text-on-accent" : "text-ink-soft")}
+      viewBox="0 0 240 240"
+      className={cn(
+        "run-spinner size-3.5 shrink-0",
+        tone === "on-accent" ? "text-on-accent" : tone === "focus" ? "text-focus" : "text-ink-soft",
+      )}
     >
-      {SPINNER_DOTS.map(([cx, cy], index) => (
-        <circle key={index} cx={cx} cy={cy} r="1.25" fill="currentColor" opacity={1 - index * 0.09} />
+      {RUN_SPINNER_ARCS.map((arc) => (
+        <circle
+          key={arc.key}
+          className={arc.className}
+          cx={arc.cx}
+          cy={arc.cy}
+          r={arc.r}
+          strokeWidth="20"
+          strokeDasharray={arc.dasharray}
+          strokeDashoffset={arc.dashoffset}
+        />
       ))}
     </svg>
-  );
-}
-
-export function TypingDots() {
-  return (
-    <span aria-hidden="true" className="typing-dots text-ink-soft">
-      <span />
-      <span />
-      <span />
-    </span>
   );
 }
 
