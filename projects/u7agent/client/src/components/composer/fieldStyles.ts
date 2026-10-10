@@ -19,9 +19,7 @@ export const agentBoxClass = (compact: boolean): string =>
 
 /**
  * セッション中のラベルは選び直せないので、箱の寸法だけ借りて枠と塗りは出さない (入力欄の見た目にしない)。
- * `border-0` で消すと 2px 縮んで最初の送信で行が動くため、透明な色で消す。文字色は `agentBoxClass` の
- * `text-ink` (入力中の本文と同じ) から一段落とす。compact は文字サイズも入力欄と同じ 16px のため、
- * 色まで揃えると入力欄に打った文字と読める (未入力の placeholder より目立つ逆転も直す)。
+ * `border-0` で消すと 2px 縮んで最初の送信で行が動くため透明な色で消し、文字色は `text-ink` から落とす。
  */
 export const agentLabelBoxClass = (compact: boolean): string =>
   cn(agentBoxClass(compact), "border-transparent bg-transparent text-ink-soft");
