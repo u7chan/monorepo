@@ -61,7 +61,15 @@ const pi = Object.assign(
   }),
   { cwd, sandboxConfigured: true },
 );
-const bff = await createBffApp({ cwd, sessionStoreDir: store, workspace, pi: asPiBff(pi) });
+// workspace を渡すと env 由来のサンドボックスは作られないため、引っ越しの物理移動は別の口として渡す
+// (渡さないと受入の「⋯ から別のスペースへ引っ越す」が必ず 503 になる)
+const bff = await createBffApp({
+  cwd,
+  sessionStoreDir: store,
+  workspace,
+  moveSandbox: workspace,
+  pi: asPiBff(pi),
+});
 if (bff.projects.list().length === 0) {
   await workspace.createDir("normal-project");
   bff.projects.create({ cwd: "normal-project", name: "通常のプロジェクト" });
