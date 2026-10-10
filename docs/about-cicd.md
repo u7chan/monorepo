@@ -15,7 +15,7 @@
 | 主な目的 | 変更内容の検証 | 配布用イメージの作成と送信 |
 | Docker の対象 | `test` ステージ。存在しない場合は既定ステージ | `final` ステージがあるプロジェクトのみ |
 | レジストリへの送信 | しない | GHCR へ送信する |
-| イメージタグ | `latest`（ローカルのビルド結果のみ） | 自動実行は `latest`、手動実行は生成タグ |
+| イメージタグ | `latest`（ローカルのビルド結果のみ） | 自動実行は `latest` と `sha-<short sha>`、手動実行は生成タグ |
 
 ```mermaid
 flowchart TB
@@ -26,7 +26,7 @@ flowchart TB
 
   PUSH["main への push"] --> AUTO["CD：自動実行"]
   MANUAL["Run workflow"] --> MANUAL_CD["CD：手動実行"]
-  AUTO --> FINAL["final ステージをビルド"]
+  AUTO --> FINAL["最新 main の final ステージをビルド"]
   MANUAL_CD --> FINAL
   FINAL --> GHCR["GHCR へ送信"]
   GHCR --> CLEANUP["古いイメージの削除を依頼"]
@@ -68,6 +68,8 @@ CMD ["./start.sh"]
 CI は `test` ステージを指定してビルドします。ただし、現在のビルドスクリプトは `test` ステージがない場合にターゲット指定を外し、Dockerfile の既定ステージをビルドします。
 一方、CD は対象検出の時点で `final` ステージの有無を確認するため、`final` ステージがないプロジェクトを送信しません。
 
+自動実行の CD は変更の検出に push の差分を使いますが、ビルドするソースはジョブ開始時点の最新 `main` です。`Dockerfile` の有無と `final` ステージの判定も、checkout した最新 `main` の内容で行います。
+
 ## CI：PR の変更を検証する
 
 ### 起動条件
@@ -88,12 +90,13 @@ gh api repos/<owner>/<repository>/actions/permissions/fork-pr-contributor-approv
 ### 処理順
 
 1. PR のベースブランチを取得する
-2. 変更ファイルからプロジェクトルートを検出し、`changed_dirs.txt` に保存する
-3. 依存定義の変更からライセンスチェック対象を検出する
-4. 対象があれば OSS ライセンスを確認する
-5. `Dockerfile` がある変更プロジェクトを `build_projects.txt` に保存する
-6. 各プロジェクトを `stage=test` でビルドする
-7. ビルド済み Docker イメージをログに表示する
+2. CI/CD スクリプトのテスト（変更検出、タグ生成、複数タグのビルド／push）を実行する
+3. 変更ファイルからプロジェクトルートを検出し、`changed_dirs.txt` に保存する
+4. 依存定義の変更からライセンスチェック対象を検出する
+5. 対象があれば OSS ライセンスを確認する
+6. `Dockerfile` がある変更プロジェクトを `build_projects.txt` に保存する
+7. 各プロジェクトを `stage=test` でビルドする
+8. ビルド済み Docker イメージをログに表示する
 
 ライセンスチェックの実行前に、必要なランタイムを対象に応じてセットアップします。Bun と uv はライセンスチェック対象があればセットアップし、pnpm は対象に `pnpm-lock.yaml` があるプロジェクトが含まれる場合だけ `pnpm/action-setup@v4` でセットアップします。
 
@@ -111,13 +114,16 @@ gh api repos/<owner>/<repository>/actions/permissions/fork-pr-contributor-approv
 
 `main` への push で `.github/workflows/docker-build.yml` が起動します。
 
-1. 直前のコミットとの差分から変更プロジェクトを検出する
-2. `final` ステージがあるプロジェクトだけを選ぶ
-3. `final` ステージを `latest` タグでビルドする
-4. `ghcr.io/<owner>/<repository>/<project>:latest` へ送信する
-5. 送信したプロジェクトを対象に、古いイメージの削除を依頼する
+1. ジョブ開始時点の最新 `main` を checkout する（push の SHA には固定しない）
+2. push の `before`〜`after` の差分から変更プロジェクトを検出する
+3. `final` ステージがあるプロジェクトだけを選ぶ
+4. checkout した最新 `main` から `final` ステージを `latest` と `sha-<short sha>` タグでビルドする
+5. `ghcr.io/<owner>/<repository>/<project>:latest` と `:sha-<short sha>` へ送信する
+6. 送信したプロジェクトを対象に、古いイメージの削除を依頼する
 
-CD は同じブランチの実行を直列に処理し、後続の push があっても進行中の実行をキャンセルしません。
+CD は同じブランチの実行を直列に処理し、後続の push があっても進行中の実行をキャンセルしません。ただし GitHub Actions は concurrency グループ内の実行順を保証しません（FIFO で処理されますが、順序は起動時刻ではなく待機開始時刻に依存します）。そのため CD は実行順に依存せず、ビルド元をジョブ開始時点の最新 `main` にすることで、すべての push の CD が成功したときに最後の成功した実行が最新状態へ収束するようにしています。
+
+> 実行が失敗またはキャンセルされた push の変更対象プロジェクトは、その後の push が別プロジェクトだけを変更した場合は再ビルドされません。
 
 ### 手動実行
 
@@ -135,8 +141,10 @@ CD は同じブランチの実行を直列に処理し、後続の push があ�
 
 | 実行方法 | タグ |
 | --- | --- |
-| `main` への push | `latest` |
+| `main` への push | `latest`、`sha-<short sha>` |
 | 手動実行 | `manual-<sanitized-ref>-<short-sha>` |
+
+自動実行の `sha-<short sha>` は、その実行で実際にビルドした `main` のコミットです（`latest` と同じイメージを指します）。CD のログにはビルド元の SHA、プロジェクト、push したタグが出力されます。手動実行は入力した ref のタグだけを push し、`latest` は更新しません。
 
 手動実行のタグでは、入力した ref を小文字へ変換し、タグに使えない文字を `-` へ置換します。完了ログには、デプロイ側へ渡す値が次の形式で表示されます。
 
@@ -168,16 +176,16 @@ GHCR への送信後、`cleanup-docker-images` アクションが `repository_di
 
 | アクション | 入力 | 主な出力・成果物 |
 | --- | --- | --- |
-| `get-changed-directories` | Git の差分 | `changed_dirs.txt` |
+| `get-changed-directories` | 比較する ref（省略時は PR のベースブランチまたは `HEAD~1`） | `changed_dirs.txt` |
 | `get-license-check-targets` | Git の差分 | `license_check_targets.txt`、`LICENSE_CHECK_TARGETS` |
 | `get-changed-projects` | `changed_dirs.txt`、任意の `required-stage` | `build_projects.txt`、`BUILD_PROJECT` |
 | `prepare-manual-build-inputs` | `projects` | 検証済みの `build_projects.txt`、`BUILD_PROJECT` |
-| `set-image-tag` | イベント名、手動実行の ref | `image_tag` |
-| `build-docker-images` | `stage`、`image_tag` | ビルド済み Docker イメージ |
-| `push-docker-images` | 認証情報、`image_tag` | GHCR イメージ、`project_names_csv` |
+| `set-image-tag` | イベント名、手動実行の ref | `image_tag`、`image_tags`、`commit_sha` |
+| `build-docker-images` | `stage`、`image_tags` | ビルド済み Docker イメージ |
+| `push-docker-images` | 認証情報、`image_tags` | GHCR イメージ、`project_names_csv` |
 | `cleanup-docker-images` | `project-names-csv`、保持数、実行モードなど | 削除処理を始める `repository_dispatch` |
 
-`build-docker-images` は、現在の短縮コミットハッシュを `COMMIT_HASH` ビルド引数として渡します。プロジェクトルートに `pre-docker-build.sh` がある場合は、Docker ビルドの前に実行します。
+`build-docker-images` は、checkout したソースの短縮コミットハッシュを `COMMIT_HASH` ビルド引数として渡します。プロジェクトルートに `pre-docker-build.sh` がある場合は、Docker ビルドの前に実行します。
 
 ## トラブルシューティング
 
@@ -187,6 +195,18 @@ GHCR への送信後、`cleanup-docker-images` アクションが `repository_di
 2. プロジェクトルートにマーカーファイルがあるか確認する
 3. プロジェクトルートに `Dockerfile` があるか確認する
 4. CD の場合は、`Dockerfile` に `AS final` があるか確認する
+5. push の差分基点（`github.event.before`）を解決できない場合、CD は対象 0 件として成功せず、エラーで停止する。エラーになった場合はログの `cannot resolve` を確認する
+
+### `:latest` がどのコミットのイメージか確認する
+
+CD のログにビルド元の SHA（`build_source_sha=`）と push したタグが出ます。イメージ側では `sha-<short sha>` タグで同じイメージを取得できます。
+
+```bash
+docker pull ghcr.io/u7chan/monorepo/u7agent:sha-<short sha>
+docker image inspect ghcr.io/u7chan/monorepo/u7agent:sha-<short sha> --format '{{.Config.Env}}'
+```
+
+`COMMIT_HASH` を埋め込んでいるプロジェクト（`u7agent` など）は、イメージの `COMMIT_HASH` でもビルド元の commit を確認できます。
 
 ### 外部 contributor の PR で CI が始まらない
 

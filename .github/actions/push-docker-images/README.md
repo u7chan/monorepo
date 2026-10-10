@@ -6,6 +6,7 @@
 
 - `build_projects.txt` ファイルから対象プロジェクトを読み取り
 - 各プロジェクトのDockerイメージをレジストリにプッシュ
+- 複数のタグをまとめてプッシュ
 - GitHub Container Registry (GHCR) をデフォルトでサポート
 - ローカルテストにも対応
 
@@ -16,6 +17,9 @@
 | `registry` | コンテナレジストリのURL | No | `ghcr.io` |
 | `username` | レジストリのユーザー名 | Yes | - |
 | `password` | レジストリのパスワード | Yes | - |
+| `image_tags` | スペース区切りのイメージタグ | No | `latest` |
+
+自動実行の CD は `latest` と `sha-<short sha>` を渡し、両方のタグを push します。
 
 ## 使用例
 
@@ -52,6 +56,15 @@
 ### モックモードテスト（推奨）
 
 実際のDockerコマンドを実行せずに、すべてシミュレーションで動作確認できます。
+
+```bash
+cd .github/actions/push-docker-images
+./test-multi-tags.sh
+```
+
+このテストは複数タグがすべて push され、deploy handoff と `project_names_csv` が出力されることを検証します。
+
+### レジストリ接続を伴うテスト
 
 ```bash
 cd .github/actions/push-docker-images
@@ -114,6 +127,7 @@ docker rmi localhost:5000/test/monorepo/portfolio:latest
 ├── action.yml              # アクション定義
 ├── push-docker-images.sh   # メインスクリプト
 ├── test-local.sh           # ローカルテスト用スクリプト
+├── test-multi-tags.sh      # 複数タグのテスト
 └── README.md               # このファイル
 ```
 
@@ -149,7 +163,7 @@ MOCK_DOCKER_COMMANDS=false ./push-docker-images.sh "registry" "user" "pass"
 4. レジストリへのログイン（モックモード時はシミュレーション）
 5. 各プロジェクトに対して：
    - プロジェクト名の抽出
-   - イメージURIの構築
+   - `image_tags` の各タグについて、イメージURIの構築
    - ローカルイメージの存在確認（モックモード時は常に存在として扱う）
    - イメージのプッシュ（モックモード時はシミュレーション）
 

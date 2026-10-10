@@ -1,11 +1,24 @@
 name: Get Changed Directories
-description: Get a list of unique directories that were changed in the latest commit.
+description: Get a list of unique directories that were changed between two refs.
+
+inputs:
+  old-ref:
+    description: "Older ref of the comparison (push events: github.event.before)"
+    required: false
+    default: ""
+  new-ref:
+    description: "Newer ref of the comparison (push events: github.event.after)"
+    required: false
+    default: ""
 
 runs:
   using: composite
   steps:
     - name: Get Changed Directories
       shell: bash
+      env:
+        NEW_REF: ${{ inputs.new-ref }}
+        OLD_REF: ${{ inputs.old-ref }}
       run: |
         # 共通スクリプトを実行
-        ${{ github.action_path }}/get-changed-dirs.sh
+        ${{ github.action_path }}/get-changed-dirs.sh "$NEW_REF" "$OLD_REF"

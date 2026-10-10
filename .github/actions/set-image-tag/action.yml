@@ -12,8 +12,14 @@ inputs:
 
 outputs:
   image_tag:
-    description: "Docker image tag"
+    description: "Primary Docker image tag (used for the deploy handoff)"
     value: ${{ steps.set-image-tag.outputs.image_tag }}
+  image_tags:
+    description: "Space separated Docker image tags to build and push"
+    value: ${{ steps.set-image-tag.outputs.image_tags }}
+  commit_sha:
+    description: "Full commit SHA of the built source"
+    value: ${{ steps.set-image-tag.outputs.commit_sha }}
 
 runs:
   using: composite
