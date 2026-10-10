@@ -151,6 +151,34 @@ test("ピン留め API は選択スペースを付けて pinned を PATCH する
   assert.deepEqual(await api.updateSessionPinned("session-a", true), result);
 });
 
+test("引っ越し API は要求元のスペースを query に、移動先を body に送る", async (t) => {
+  // 移動先のスペースで作った API から呼ぶと query が移動先になり、sessionSpaceGuard が 404 にする。
+  // 要求元 (space-a) の API で呼び、移動先 (space-b) は body だけで渡す。
+  const api = createSpaceApi("space-a");
+  const result = { sessionId: "session-a", title: "サーバーの名前", spaceId: "space-b" };
+  t.mock.method(globalThis, "fetch", async (input: string | URL | Request, init?: RequestInit) => {
+    const request = new Request(input, init);
+    const url = new URL(request.url);
+    assert.equal(request.method, "POST");
+    assert.equal(url.pathname, "/api/sessions/session-a/move");
+    assert.equal(url.searchParams.get("spaceId"), "space-a");
+    assert.deepEqual(await request.json(), { spaceId: "space-b" });
+    return Response.json(result);
+  });
+  assert.deepEqual(await api.moveSession("session-a", "space-b"), result);
+});
+
+test("引っ越し API の失敗はサーバーの理由と HTTP status を保つ", async (t) => {
+  const api = createSpaceApi("space-a");
+  t.mock.method(globalThis, "fetch", async () =>
+    Response.json({ error: "実行中・キュー中・設定変更中のセッションは移動できません" }, { status: 409 }),
+  );
+  await assert.rejects(api.moveSession("session-a", "space-b"), {
+    message: "実行中・キュー中・設定変更中のセッションは移動できません",
+    status: 409,
+  });
+});
+
 test("git 情報は root 相対の path を符号化し、repo の外の null もそのまま返す", async (t) => {
   const queries: URLSearchParams[] = [];
   const paths: string[] = [];

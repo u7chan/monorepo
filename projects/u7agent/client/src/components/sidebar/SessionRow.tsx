@@ -17,6 +17,7 @@ export function SessionRow({
   onRename,
   onDelete,
   onTogglePin,
+  onMove,
 }: {
   item: SessionSummary;
   /** アイコンはカタログから live 解決する (定義を編集すると既存セッションの表示も変わる) */
@@ -26,6 +27,8 @@ export function SessionRow({
   onRename: () => void;
   onDelete: () => void;
   onTogglePin: () => void;
+  /** 未指定の呼び出し側 (プロジェクト配下の一覧) には引っ越しの項目を出さない */
+  onMove?: () => void;
 }) {
   const status = sidebarStatus(item.status);
   const bits = [
@@ -34,7 +37,12 @@ export function SessionRow({
     messageTimeLabel(item.lastUsedAt),
   ].filter(Boolean);
   // kind から行の props を引く表。actions と同じ種別に狭め、表の無い kind を型で検出する
-  const handlers: Record<SessionRowKind, () => void> = { pin: onTogglePin, rename: onRename, delete: onDelete };
+  const handlers: Record<SessionRowKind, (() => void) | undefined> = {
+    pin: onTogglePin,
+    rename: onRename,
+    move: onMove,
+    delete: onDelete,
+  };
 
   return (
     <div
@@ -82,8 +90,9 @@ export function SessionRow({
       ) : null}
       <RowMenu
         name={item.title || "無題のセッション"}
-        actions={sessionRowActions(item.pinned === true)}
-        onSelect={(kind) => handlers[kind]()}
+        // 引っ越しは canMove (旧サーバーは省略 = false) と操作の受け取りが揃った行だけに出す
+        actions={sessionRowActions(item.pinned === true, item.canMove === true && onMove !== undefined)}
+        onSelect={(kind) => handlers[kind]?.()}
       />
     </div>
   );

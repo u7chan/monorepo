@@ -217,6 +217,26 @@ export function PencilIcon() {
   );
 }
 
+/** 引っ越し (別の容器へ移す)。仕切りを跨ぐ形にして、単なる右向きの矢印 (次へ進む) と区別する */
+export function MoveIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.5"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className="size-3.5 shrink-0"
+    >
+      <path d="M3.25 3v10" />
+      <path d="M6.75 8h6.5" />
+      <path d="M10.25 5 13.25 8l-3 3" />
+    </svg>
+  );
+}
+
 /** ダウンロードの矢印。行の操作では small を使い、リネーム / 削除と寸法をそろえる */
 export function DownloadIcon({ small = false }: { small?: boolean } = {}) {
   return (

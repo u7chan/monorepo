@@ -449,6 +449,11 @@
     @apply inline-flex min-h-9 items-center justify-center gap-1.5 rounded-lg bg-accent px-4 text-xs font-semibold text-on-accent transition-colors hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-45;
   }
 
+  /* 元に戻せない操作の実行ボタン (削除 / 引っ越し)。確認ダイアログと共有する */
+  .btn-danger {
+    @apply inline-flex min-h-9 items-center justify-center gap-1.5 rounded-lg border border-danger/50 px-4 text-xs font-semibold text-danger-text transition-colors hover:bg-danger/10 disabled:cursor-not-allowed disabled:opacity-45;
+  }
+
   /* タブ行 (role="tablist") の 1 項目。選択中は下線で示す (設定 → モデルと ProjectDialog が共有する) */
   .tab-item {
     @apply min-h-10 rounded-t-lg border-b-2 border-transparent px-3.5 text-xs font-semibold text-ink-soft transition-colors hover:text-ink;

@@ -11,6 +11,7 @@ React 19 + Vite + TypeScript + Tailwind CSS v4。ソースは `client/src`、エ
 - `SpaceContext` の API は生成時の ID を immutable に閉じ込める。送信・添付の会話作成待ちで切り替えても、後続要求は開始元の ID と会話 ID を使う
 - 古い結果・エラー・busy 更新は旧 subtree の状態だけを参照し、新しい状態を変更しない。**共通カタログの再取得にも開始元の mount 世代を適用し、旧 mount の応答が共有の保存値を変更しない**（`client/test/mountScope.test.ts`）
 - 他スペースの `/s/<sessionId>` は会話を開かず「見つからない」を表示し、**自動でスペースを切り替えない**（設定 → ランタイムの起動元リンクは所属を明示して切り替える）
+- 会話の引っ越しは**要求元のスペースで作った API** から呼ぶ（query が要求元、body が移動先）。移動先で作った API から呼ぶと `sessionSpaceGuard` が 404 にする。成功したら一覧を取り直し、選択の移り先は削除と同じ規則にする（移動先へは切り替えない）
 - 共通設定・ファイル・ランタイム診断は従来の unscoped API を使う（[api.md](api.md#スペース)）
 
 ## テーマシステム

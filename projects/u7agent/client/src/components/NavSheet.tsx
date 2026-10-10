@@ -74,10 +74,12 @@ export function NavSheet({ mode, onClose, ...sidebarProps }: NavSheetProps) {
   const requestClose = () => setClosing(true);
 
   // モーダルを開く順序と焦点復帰の理由は docs/ui-layout.md の「左バー」を参照。
-  const closeAfter = (after: () => void) => () => {
-    afterCloseRef.current = after;
-    setClosing(true);
-  };
+  const closeAfter =
+    <A extends unknown[]>(action: (...args: A) => void) =>
+    (...args: A) => {
+      afterCloseRef.current = () => action(...args);
+      setClosing(true);
+    };
 
   const closeThen =
     <A extends unknown[]>(action: (...args: A) => void) =>
@@ -122,6 +124,7 @@ export function NavSheet({ mode, onClose, ...sidebarProps }: NavSheetProps) {
           {...sidebarProps}
           newChat={closeThen(sidebarProps.newChat)}
           selectSession={closeThen(sidebarProps.selectSession)}
+          moveSession={closeAfter(sidebarProps.moveSession)}
           onNewProject={closeAfter(sidebarProps.onNewProject)}
           onOpenSettingsSection={closeThen(sidebarProps.onOpenSettingsSection)}
         />

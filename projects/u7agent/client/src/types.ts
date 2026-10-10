@@ -79,6 +79,7 @@ export type {
   SecretsListResponse,
   ServeStatus,
   SessionCompactionResult,
+  SessionMoveResponse,
   SessionNotifyResponse,
   SessionPinnedResponse,
   SessionPayload,

@@ -159,6 +159,7 @@ function renderSidebar(withResize: boolean): string {
       newChat: () => {},
       selectSession: () => {},
       renameSession: () => {},
+      moveSession: () => {},
       deleteSession: () => {},
       deleteProject: () => {},
       togglePinned: () => {},

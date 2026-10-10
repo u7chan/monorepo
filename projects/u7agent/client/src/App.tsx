@@ -18,6 +18,7 @@ import { ProjectDialog } from "./components/ProjectDialog";
 import { RuntimePage } from "./components/RuntimePage";
 import { Sidebar } from "./components/Sidebar";
 import { SessionFilesPanel, SessionFilesSheet } from "./components/SessionFilesPanel";
+import { SessionMoveDialog } from "./components/SessionMoveDialog";
 import { SkillSettingsPage } from "./components/SkillSettingsPage";
 import { Topbar } from "./components/Topbar";
 import { WebSearchSettingsPage } from "./components/WebSearchSettingsPage";
@@ -58,6 +59,8 @@ import {
 import { sessionFilesDefaultOpen, sessionFilesRoot } from "./lib/sessionFiles";
 import { sessionEnvScope } from "./lib/sessionEnv";
 import { servedAppBusyKind, servedAppStartConfirm, servedAppView } from "./lib/servedApp";
+import { sessionMoveDialogText } from "./lib/sidebarRowMenu";
+import { moveDestinationSpaces } from "./lib/spaceSelection";
 import { activityDisplay, retryRemainingMs } from "./lib/retryState";
 import { RUN_RETRY_PROMPT } from "./lib/runRetry";
 import {
@@ -135,6 +138,8 @@ export default function App() {
     projectId: app.sessionId === "" ? (app.selectedProjectId ?? "") : "",
   });
   const [projectDialogOpen, setProjectDialogOpen] = useState(false);
+  // 引っ越しの対象 (会話 id と、確認に出すタイトル)。開いている間は専用ダイアログが移動先を選ぶ
+  const [moveTarget, setMoveTarget] = useState<{ sessionId: string; title: string } | null>(null);
   const [navOpen, setNavOpen] = useState(false);
   // 作業フォルダの開閉は保存しない (desktop は右パネル、compact は全画面シートで state も分ける)。
   // 起動時は閉 (会話 URL を開いてもパネルは勝手に開かない)。既定を当てるのは利用者操作の新規会話の入口だけ
@@ -166,6 +171,7 @@ export default function App() {
   // URL にセクションが無いときだけ「最後に開いていたセクション」を見せる (URL の指定を上書きしない)
   const settingsSection: SettingsSection = route.view === "settings" ? route.section : lastSettingsSection;
   const closeProjectDialog = useCallback(() => setProjectDialogOpen(false), []);
+  const closeMoveDialog = useCallback(() => setMoveTarget(null), []);
   const openNav = useCallback(() => setNavOpen(true), []);
   // 実際に閉じる (ドロワーを unmount する)。退場アニメは NavSheet が持ち、その完了 (dialog の close) から届く
   const closeNav = useCallback(() => setNavOpen(false), []);
@@ -435,6 +441,10 @@ export default function App() {
     },
     deleteSession: (sessionId: string) => {
       void app.deleteSession(sessionId);
+    },
+    moveSession: (sessionId: string) => {
+      // タイトルは開いた時点の一覧から控える (移動後は一覧から消えるため)
+      setMoveTarget({ sessionId, title: app.sessions.find((item) => item.sessionId === sessionId)?.title ?? "" });
     },
     togglePinned: (sessionId: string) => app.togglePinned(sessionId),
     deleteProject: (projectId: string) => {
@@ -736,6 +746,15 @@ export default function App() {
       {navOpen && !sidebarDocked ? <NavSheet {...navProps} onClose={closeNav} /> : null}
       {projectDialogOpen ? (
         <ProjectDialog compact={compact} onClose={closeProjectDialog} onCreate={handleCreateProject} />
+      ) : null}
+      {moveTarget ? (
+        <SessionMoveDialog
+          compact={compact}
+          text={sessionMoveDialogText(moveTarget.title)}
+          destinations={moveDestinationSpaces(space.spaces, space.selected.id)}
+          onClose={closeMoveDialog}
+          onMove={(targetSpaceId) => app.moveSession(moveTarget.sessionId, targetSpaceId)}
+        />
       ) : null}
     </div>
   );

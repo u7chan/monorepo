@@ -14,6 +14,17 @@ export function nextAfterFailure(
   sessions: readonly SessionCandidate[],
   failed: ReadonlySet<string>,
 ): SessionFallbackAction {
-  const next = sessions.find((item) => !failed.has(item.sessionId));
+  return selectOrNewChat(sessions.find((item) => !failed.has(item.sessionId)));
+}
+
+/**
+ * 一覧から消えた会話 (削除 / 引っ越し) の代わりに選ぶ移り先。先頭の会話、無ければ未作成チャットにする
+ * (消えた会話を掴んだままにしない)。
+ */
+export function nextAfterRemoval(sessions: readonly SessionCandidate[]): SessionFallbackAction {
+  return selectOrNewChat(sessions[0]);
+}
+
+function selectOrNewChat(next: SessionCandidate | undefined): SessionFallbackAction {
   return next ? { kind: "select", sessionId: next.sessionId } : { kind: "newChat" };
 }

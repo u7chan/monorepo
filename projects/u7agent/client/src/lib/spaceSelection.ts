@@ -41,6 +41,14 @@ export function ownerLinkSpace(
   return spaces.some((space) => space.id === ownerSpaceId) ? ownerSpaceId : null;
 }
 
+/**
+ * 引っ越し先の候補。現在のスペースは選べない (同じスペースへの移動はサーバーが 400 にする)。
+ * 1 つしか無いときも空の一覧を返し、呼び出し側が候補なしの案内を出す。
+ */
+export function moveDestinationSpaces(spaces: Space[], currentSpaceId: string): Space[] {
+  return spaces.filter((space) => space.id !== currentSpaceId);
+}
+
 export type SpaceSelectionStorage = Pick<Storage, "getItem" | "setItem">;
 
 export type SpaceSelectionStore = {

@@ -8,6 +8,7 @@ import { SessionRow } from "../src/components/sidebar/SessionRow";
 import {
   projectRowActions,
   sessionDeleteConfirmRequest,
+  sessionMoveDialogText,
   sessionRenameRequest,
   sessionRowActions,
 } from "../src/lib/sidebarRowMenu";
@@ -34,7 +35,7 @@ function renderProjectRow(): string {
   );
 }
 
-function renderSessionRow(overrides: Partial<SessionSummary> = {}): string {
+function renderSessionRow(overrides: Partial<SessionSummary> = {}, onMove?: () => void): string {
   const item: SessionSummary = {
     sessionId: "s-1",
     title: "テスト",
@@ -57,6 +58,7 @@ function renderSessionRow(overrides: Partial<SessionSummary> = {}): string {
       onRename: () => {},
       onDelete: () => {},
       onTogglePin: () => {},
+      ...(onMove ? { onMove } : {}),
     }),
   );
 }
@@ -79,6 +81,31 @@ test("出し分け: プロジェクト行とセッション行で必要な操作
     { kind: "delete", label: "セッションを削除", danger: true },
   ]);
   assert.equal(sessionRowActions(true)[0]?.label, "ピン留めを解除");
+  // 引っ越しは削除の手前。プロジェクト所属 (canMove が false / 省略) では出さない
+  assert.deepEqual(sessionRowActions(false, true), [
+    { kind: "pin", label: "ピン留め" },
+    { kind: "rename", label: "名前を変更" },
+    { kind: "move", label: "別のスペースへ引っ越す" },
+    { kind: "delete", label: "セッションを削除", danger: true },
+  ]);
+});
+
+test("引っ越しの確認は履歴の破棄とファイルの引き継ぎを伝え、対象のタイトルを独立した行に出す", () => {
+  const text = sessionMoveDialogText("決済画面の検証");
+  assert.equal(text.title, "別のスペースへ引っ越す");
+  assert.deepEqual(text.subject, { label: "引っ越すセッション", value: "決済画面の検証" });
+  assert.equal(text.confirmLabel, "引っ越す");
+  assert.ok(
+    text.body.some((line) => line.includes("履歴") && line.includes("破棄")),
+    "履歴の破棄が本文に無い",
+  );
+  assert.ok(
+    text.body.some((line) => line.includes("引き継")),
+    "ファイルの引き継ぎが本文に無い",
+  );
+  assert.ok(text.emptyNote.includes("移動先のスペースがありません"), "候補 0 件の案内が無い");
+  // 一覧が古くてタイトルが取れない行でも確認は出す (対象の行を省くだけ)
+  assert.equal(sessionMoveDialogText("").subject, undefined);
 });
 
 test("セッションの削除確認は対象のタイトルを出し、リネームは現在のタイトルを初期値にする", () => {
@@ -138,6 +165,15 @@ test("セッション行はピン状態を示し、⋯ に切替・改名・削�
   assert.ok(withBell.includes('aria-label="通知オン"'), "通知のベルが行に残っていない");
   assert.ok(menuTrigger(withBell).includes('aria-label="テスト の操作"'));
   assert.ok(menuTrigger(renderSessionRow({ title: "" })).includes('aria-label="無題のセッション の操作"'));
+});
+
+test("引っ越しの項目は canMove と操作の受け取りが揃った行だけに出る", () => {
+  // プロジェクト配下の一覧は onMove を渡さない。canMove が立っていても出さない
+  assert.ok(!renderSessionRow({ canMove: true }).includes("別のスペースへ引っ越す"));
+  // 旧サーバーは canMove を載せない (省略 = false)
+  assert.ok(!renderSessionRow({}, () => {}).includes("別のスペースへ引っ越す"));
+  assert.ok(!renderSessionRow({ canMove: false }, () => {}).includes("別のスペースへ引っ越す"));
+  assert.ok(renderSessionRow({ canMove: true }, () => {}).includes("別のスペースへ引っ越す"));
 });
 
 test("圧縮中のセッションは実行中と区別できるラベルを出す", () => {
