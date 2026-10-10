@@ -82,6 +82,8 @@ import {
   type SandboxFileListing,
   type SandboxFileUpload,
   type SandboxLandlockStatus,
+  type SandboxMoveRequestBody,
+  type SandboxMoveResult,
   type SandboxRenameRequestBody,
   type SandboxRenameResult,
   type SandboxSkillEntry,
@@ -378,6 +380,56 @@ async function renameWorkspaceEntry(rootCwd: string, requested: string, name: st
     throw pathError(400, `Cannot rename: ${messageFor(error)}`);
   });
   return { path: relativeToRoot(parent.root, nextPath), name };
+}
+
+/**
+ * root 相対のエントリ (通常ファイル / ディレクトリ) を別の親へ移す。symlink は拒否する (realpath で実体へ解決してから
+ * rename すると、root 内のリンクが指す root 外を動かせてしまう)。移動元と移動先の親は一覧と同じ解決に通し、
+ * 移動先の最終要素だけを 1 セグメント名として検証する。既存の移動先へは上書きしない (rename と同じ扱い)。
+ */
+async function moveWorkspaceEntry(rootCwd: string, from: string, to: string): Promise<SandboxMoveResult> {
+  // 最終要素が動かす対象の名前。`.` / `..` / 空 (root 自身) と末尾の区切りはエントリを表さない
+  const currentName = basename(from);
+  if (!from || from.endsWith("/") || currentName === "." || currentName === "..") {
+    throw pathError(400, `Not a file or directory: ${from}`);
+  }
+
+  // 移動先の最終要素はリネーム先と同じ 1 セグメント名 (空・`.` / `..`・区切り・制御文字は 400)
+  const nextName = basename(to);
+  if (!to || to.endsWith("/") || !isValidEntryName(nextName)) {
+    throw pathError(400, `Invalid name: ${to}`);
+  }
+
+  // 親の解決は一覧 / 削除 / リネームと同じ (要求パスの字句 dirname を native realpath へ渡し、`..` を symlink の後に適用する)
+  const parent = await resolveWorkspaceDirectory(rootCwd, dirname(from));
+  const target = join(parent.target, currentName);
+
+  const targetStat = await lstat(target).catch((error: unknown) => {
+    const code = (error as NodeJS.ErrnoException).code;
+    if (code === "ENOENT" || code === "ENOTDIR") throw pathError(404, `Path not found: ${target}`);
+    throw pathError(400, `Cannot resolve path: ${messageFor(error)}`);
+  });
+  if (targetStat.isSymbolicLink()) throw pathError(400, `Symbolic links cannot be moved: ${target}`);
+  if (!targetStat.isFile() && !targetStat.isDirectory()) {
+    throw pathError(400, `Not a file or directory: ${target}`);
+  }
+
+  // 移動先の親は root 内の実在ディレクトリ。無ければ呼び出し側が POST /v1/dirs で作ってから呼ぶ
+  const nextParent = await resolveWorkspaceDirectory(rootCwd, dirname(to));
+  const nextPath = join(nextParent.target, nextName);
+
+  // 既存があっても実体が同じなら通す (リネームと同じ規則)。symlink は実体が同じでも上書きしない
+  const existing = await lstat(nextPath).catch(() => undefined);
+  if (existing && (existing.isSymbolicLink() || (await realpathNative(nextPath).catch(() => undefined)) !== target)) {
+    throw pathError(409, `Already exists: ${nextPath}`);
+  }
+
+  await rename(target, nextPath).catch((error: unknown) => {
+    // lstat の直後に他の実行が消した場合は動かす対象が無い
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") throw pathError(404, `Path not found: ${target}`);
+    throw pathError(400, `Cannot move: ${messageFor(error)}`);
+  });
+  return { path: relativeToRoot(nextParent.root, nextPath) };
 }
 
 /** 解決だけをしたダウンロード対象。archive の `size` は使わない（`planDownload` が `walk` を付ける） */
@@ -1389,6 +1441,26 @@ export function createSandboxService(options: SandboxServiceOptions): SandboxSer
         maxBytes: maxUploadBytes,
       });
       return c.json(uploaded, 201);
+    } catch (error) {
+      const statusCode = (error as { statusCode?: number }).statusCode ?? 500;
+      return c.json({ error: messageFor(error) }, statusCode as 400);
+    }
+  });
+
+  // 親をまたいで動かせるのは通常ファイルとディレクトリだけ (symlink は 400)。応答は移動後の root 相対パス
+  app.post("/v1/files/move", async (c) => {
+    let body: unknown;
+    try {
+      body = await readJsonBody(c.req.raw);
+    } catch (error) {
+      const statusCode = (error as { statusCode?: number }).statusCode ?? 400;
+      return c.json({ error: messageFor(error) }, statusCode as 400);
+    }
+    const { from, to } = (body ?? {}) as SandboxMoveRequestBody;
+    if (typeof from !== "string") return c.json({ error: "from must be a string" }, 400);
+    if (typeof to !== "string") return c.json({ error: "to must be a string" }, 400);
+    try {
+      return c.json(await moveWorkspaceEntry(rootCwd, from, to));
     } catch (error) {
       const statusCode = (error as { statusCode?: number }).statusCode ?? 500;
       return c.json({ error: messageFor(error) }, statusCode as 400);

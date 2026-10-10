@@ -12,6 +12,7 @@ import {
   type SandboxFileUpload,
   type SandboxGitInfo,
   type SandboxListenerScan,
+  type SandboxMoveResult,
   type SandboxRenameResult,
   type SandboxRuntimeInfo,
   type SandboxSkillsResponse,
@@ -147,6 +148,7 @@ export function createSandboxToolClient(options: SandboxToolClientOptions): Sand
     },
     createDir: (path) => createDir(path, baseUrl, token, fetchImpl),
     renameEntry: (path, name) => renameEntry(path, name, baseUrl, token, fetchImpl),
+    moveEntry: (from, to) => moveEntry(from, to, baseUrl, token, fetchImpl),
     deleteFile: (path) => deleteFile(path, baseUrl, token, fetchImpl),
     deleteDirectory: (path) => deleteDirectory(path, baseUrl, token, fetchImpl),
     uploadFile: (input) => uploadFile(input, baseUrl, token, fetchImpl),
@@ -179,6 +181,8 @@ export interface SandboxToolClient extends SandboxRuntimeDiagnostics {
   createDir(path: string): Promise<SandboxCreateDirResult>;
   /** root 相対のエントリ (ファイル / ディレクトリ) の名前を変える。同名はサンドボックスが 409 で拒む */
   renameEntry(path: string, name: string): Promise<SandboxRenameResult>;
+  /** root 相対のエントリを別の親へ移す。移動先の親は実在が必要で、既存の移動先は 409 で拒む */
+  moveEntry(from: string, to: string): Promise<SandboxMoveResult>;
   deleteFile(path: string): Promise<void>;
   /** 配下ごとのディレクトリ削除 (recursive はサンドボックスが true 固定で受ける) */
   deleteDirectory(path: string): Promise<void>;
@@ -434,6 +438,30 @@ async function renameEntry(
   );
   if (!response.ok) throw await jsonError(response, "名前を変更できませんでした");
   return (await response.json()) as SandboxRenameResult;
+}
+
+/**
+ * root 相対のエントリを別の親へ移す。成功の応答は移動後の root 相対パスで、既存の移動先 (409) は文言ごと透過する。
+ */
+async function moveEntry(
+  from: string,
+  to: string,
+  baseUrl: string,
+  token: string,
+  fetchImpl: typeof fetch,
+): Promise<SandboxMoveResult> {
+  const response = await fetchJson(
+    fetchImpl,
+    `${baseUrl}/v1/files/move`,
+    {
+      method: "POST",
+      headers: { ...jsonHeaders(token), "Content-Type": "application/json" },
+      body: JSON.stringify({ from, to }),
+    },
+    baseUrl,
+  );
+  if (!response.ok) throw await jsonError(response, "移動できませんでした");
+  return (await response.json()) as SandboxMoveResult;
 }
 
 /** 通常ファイルの削除。成功は 204 で本文が無いため、応答の JSON は読まない。 */
