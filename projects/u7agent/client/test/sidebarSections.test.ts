@@ -44,6 +44,7 @@ test("カテゴリの保存値が無い場合は Projects と未所属を開き�
       newChat: () => {},
       selectSession: () => {},
       renameSession: () => {},
+      moveSession: () => {},
       deleteSession: () => {},
       deleteProject: () => {},
       togglePinned: () => {},

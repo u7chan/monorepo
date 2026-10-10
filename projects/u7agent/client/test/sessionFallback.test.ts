@@ -3,7 +3,7 @@
 
 import assert from "node:assert/strict";
 import test from "node:test";
-import { nextAfterFailure } from "../src/hooks/sessionFallback";
+import { nextAfterFailure, nextAfterRemoval } from "../src/hooks/sessionFallback";
 
 /** selectSession と同じ手順で候補を辿る。壊れていても止まるよう件数で打ち切る */
 function follow(sessions: { sessionId: string }[], first: string): string[] {
@@ -41,4 +41,10 @@ test("falls back to a new chat when every session fails", () => {
 test("falls back to a new chat when the list is empty or only has the failed session", () => {
   assert.deepEqual(nextAfterFailure([], new Set(["a"])), { kind: "newChat" });
   assert.deepEqual(nextAfterFailure([{ sessionId: "a" }], new Set(["a"])), { kind: "newChat" });
+});
+
+// 削除 / 引っ越しで一覧から消えた会話の代わりは、一覧の先頭、無ければ未作成チャット (削除と同じ規則)。
+test("moves the selection to the first remaining session after a removal", () => {
+  assert.deepEqual(nextAfterRemoval([{ sessionId: "a" }, { sessionId: "b" }]), { kind: "select", sessionId: "a" });
+  assert.deepEqual(nextAfterRemoval([]), { kind: "newChat" });
 });
