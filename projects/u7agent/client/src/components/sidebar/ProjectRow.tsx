@@ -2,7 +2,7 @@ import { projectRowActions, type ProjectRowKind } from "../../lib/sidebarRowMenu
 import type { AgentDef, Project, SessionSummary } from "../../types";
 import { FolderIcon } from "../icons";
 import { RowMenu } from "../RowMenu";
-import { SessionRow } from "./SessionRow";
+import { SessionList } from "./SessionList";
 
 export function ProjectRow({
   project,
@@ -65,18 +65,15 @@ export function ProjectRow({
             {sessions.length === 0 ? (
               <div className="py-1 pl-0.5 text-1xs text-ink-faint">セッションはありません</div>
             ) : (
-              sessions.map((item) => (
-                <SessionRow
-                  key={item.sessionId}
-                  item={item}
-                  agents={agents}
-                  active={item.sessionId === sessionId}
-                  onSelect={() => onSelectSession(item.sessionId)}
-                  onRename={() => onRenameSession(item.sessionId)}
-                  onDelete={() => onDeleteSession(item.sessionId)}
-                  onTogglePin={() => onTogglePinnedSession(item.sessionId)}
-                />
-              ))
+              <SessionList
+                sessions={sessions}
+                agents={agents}
+                sessionId={sessionId}
+                onSelect={onSelectSession}
+                onRename={onRenameSession}
+                onDelete={onDeleteSession}
+                onTogglePin={onTogglePinnedSession}
+              />
             )}
           </div>
         </div>

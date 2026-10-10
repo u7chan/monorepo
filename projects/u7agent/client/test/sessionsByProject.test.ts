@@ -1,7 +1,7 @@
-// セッション一覧のプロジェクト別グループ化。DOM を使わず、並び順と未所属の分離だけを固定する。
+// セッション一覧のプロジェクト別グループ化とピン留めの分離。DOM を使わず、並び順とピン留め・未所属の分離だけを固定する。
 import assert from "node:assert/strict";
 import test from "node:test";
-import { groupSessionsByProject } from "../src/lib/sessionsByProject";
+import { groupSessionsByProject, splitByPinned } from "../src/lib/sessionsByProject";
 import type { Project, SessionSummary } from "../src/types";
 
 const project = (id: string, cwd: string, createdAt: number): Project => ({
@@ -103,5 +103,37 @@ test("プロジェクト内と未所属の両方でピン留めを先にし、�
   assert.deepEqual(
     unassigned.map((item) => item.sessionId),
     ["loose-pinned-first", "loose-pinned-tied", "loose-pinned-old", "loose-unpinned-new"],
+  );
+});
+
+test("ピン留めの分離は入力の並びを変えず、pinned が true の行だけを先へ集める", () => {
+  const sessions = [
+    session("unpinned-new", 300),
+    { ...session("pinned-old", 100), pinned: true },
+    session("unpinned-old", 200),
+    { ...session("pinned-new", 250), pinned: true },
+  ];
+
+  const { pinned, rest } = splitByPinned(sessions);
+
+  assert.deepEqual(
+    pinned.map((item) => item.sessionId),
+    ["pinned-old", "pinned-new"],
+  );
+  assert.deepEqual(
+    rest.map((item) => item.sessionId),
+    ["unpinned-new", "unpinned-old"],
+  );
+});
+
+test("ピン留めが無いときは全件がそのまま rest へ入る", () => {
+  const sessions = [session("a", 2), session("b", 1)];
+
+  const { pinned, rest } = splitByPinned(sessions);
+
+  assert.deepEqual(pinned, []);
+  assert.deepEqual(
+    rest.map((item) => item.sessionId),
+    ["a", "b"],
   );
 });

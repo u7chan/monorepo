@@ -15,6 +15,14 @@ function byPinnedThenLastUsedDesc(a: SessionSummary, b: SessionSummary): number 
   return pinOrder || b.lastUsedAt - a.lastUsedAt;
 }
 
+/** 並べ替えずに入力をその順で 2 つへ分ける (一覧は区切りを挟んで描く)。順序の正は byPinnedThenLastUsedDesc */
+export function splitByPinned(sessions: SessionSummary[]): { pinned: SessionSummary[]; rest: SessionSummary[] } {
+  const pinned: SessionSummary[] = [];
+  const rest: SessionSummary[] = [];
+  for (const session of sessions) (session.pinned === true ? pinned : rest).push(session);
+  return { pinned, rest };
+}
+
 export function groupSessionsByProject(
   sessions: SessionSummary[],
   projects: Project[],
