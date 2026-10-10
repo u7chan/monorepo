@@ -144,6 +144,8 @@ export function createRunEventBridge(deps: RunEventBridgeDeps): RunEventBridge {
   let promptRecorded = false;
   let pendingCompactionResync = false;
   let retryActive = false;
+  /** compaction_start の到着時刻。compaction_end までの BFF 計測に使う (run の寿命で足りる) */
+  let compactionStartedAt: number | undefined;
   /** toolCallId -> tool_execution_start の到着時刻。run の寿命で足りるので session へは残さない */
   const toolStartedAt = new Map<string, number>();
 
@@ -338,10 +340,13 @@ export function createRunEventBridge(deps: RunEventBridgeDeps): RunEventBridge {
           break;
         }
         case "compaction_start":
+          compactionStartedAt = Date.now();
           emit("status", { state: "compacting", text: "会話を整理中…" });
           break;
         case "compaction_end": {
-          const compactions = recordCompactionOutcome({ session, compactionMeta, masker, event });
+          const durationMs = compactionStartedAt === undefined ? undefined : Date.now() - compactionStartedAt;
+          compactionStartedAt = undefined;
+          const compactions = recordCompactionOutcome({ session, compactionMeta, masker, event, durationMs });
           if (!compactions) break;
           emit("compaction", { compaction: compactions[compactions.length - 1], count: compactions.length });
           // 送信メッセージがまだ履歴に入っていなければ、入った時点 (message_end) まで遅らせる

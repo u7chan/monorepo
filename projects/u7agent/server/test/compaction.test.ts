@@ -134,6 +134,8 @@ test("compaction の要約は messages から外れ、entry を写した形で c
   assert.equal(compaction.tokensBefore, 68_000);
   assert.equal(compaction.reason, "threshold");
   assert.equal(compaction.estimatedTokensAfter, 12_345);
+  // 圧縮時間は compaction_start から compaction_end の到着までを BFF が測る
+  assert.equal(typeof compaction.durationMs, "number");
   // 保持された古い側 (assistant / user / assistant) の後ろ = 末尾に区切りを置く
   assert.equal(compaction.beforeMessageIndex, 3);
   const entry = session.entries.find((candidate) => candidate.type === "compaction");
@@ -235,6 +237,7 @@ test("送信メッセージを積む前の compaction でも resync はそのメ
     ["スタブの返答です", "2つ目", "スタブの返答です"],
   );
   assert.equal(payload.compactions[0].beforeMessageIndex, 1, "区切りは送信メッセージの手前");
+  assert.equal(typeof payload.compactions[0].durationMs, "number", "自動 (preflight) の所要時間も測る");
 
   await store.close();
 });
@@ -446,6 +449,8 @@ test("手動圧縮は開始 resync → compaction → 終端 resync → status �
   assert.equal(payload.compactionStartedAt, undefined);
   assert.equal(payload.compactions.length, 1);
   assert.equal(typeof payload.compactions[0].beforeMessageIndex, "number");
+  // 手動圧縮の所要時間は record.compactionStartedAt (開始 resync) からの経過
+  assert.equal(typeof payload.compactions[0].durationMs, "number");
 
   await store.close();
 });
@@ -689,8 +694,9 @@ test("手動圧縮は次の run を起こさず close しても復元できる",
   assert.equal(payload.compactions.length, 1);
   assert.equal(payload.compactions[0].tokensBefore, 68_000);
   assert.equal(typeof payload.compactions[0].beforeMessageIndex, "number");
-  // reason は compaction_end にしか無く、再起動で失う (既知の制約)
+  // reason は compaction_end にしか無く、再起動で失う (既知の制約)。所要時間も同じく失う
   assert.equal(payload.compactions[0].reason, undefined);
+  assert.equal(payload.compactions[0].durationMs, undefined);
   await restarted.close();
 });
 
@@ -779,6 +785,69 @@ test("プロジェクト解除は圧縮の settle 後に所属変更の resync �
   const last = events.at(-1);
   assert.equal(last?.type === "resync" ? last.data.projectId : project.id, undefined, "所属が外れた payload");
   assert.equal(record.queue.length, 0);
+
+  await store.close();
+});
+
+// ---------------------------------------------------------------------------
+// GUI fixture の圧縮トリガー (本文キーワードの自動圧縮 / 呼び出しごとの手動圧縮)
+// ---------------------------------------------------------------------------
+
+test("本文キーワードの preflight 圧縮は、キーワードを含む送信だけ user message の手前で起きる", async () => {
+  const { store, record } = await createFixture({ stub: { preflightCompaction: { prompt: "自動圧縮" } } });
+
+  // キーワードを含まない送信では option があっても起きない
+  await runTurn(store, record, "1つ目");
+  assert.deepEqual(store.payload(record).compactions, []);
+
+  const events = collect(store, record);
+  await runTurn(store, record, "自動圧縮の確認");
+
+  const payload = store.payload(record);
+  assert.equal(payload.compactions.length, 1);
+  assert.equal(payload.compactions[0].reason, "threshold", "本文キーワードの自動圧縮は threshold になる");
+  assert.equal(typeof payload.compactions[0].durationMs, "number");
+  assert.ok(
+    events.some((entry) => entry.type === "compaction"),
+    "区切りのイベントも流れる",
+  );
+
+  // 実 SDK と同じく user message を積む前に走るので、区切りはその送信の手前に位置する
+  const result = store.history(record, {});
+  assert.ok(result.ok);
+  assert.deepEqual(
+    result.page.items.map((item) => (item.kind === "compaction" ? "compaction" : `${item.role}:${item.text}`)),
+    ["user:1つ目", "assistant:スタブの返答です", "compaction", "user:自動圧縮の確認", "assistant:スタブの返答です"],
+  );
+
+  await store.close();
+});
+
+test("手動圧縮の結果は呼び出しごとに変えられ、失敗した回は区切りも所要時間も残らない", async () => {
+  const { store, record } = await createFixture({
+    stub: { manualCompactions: [{ reason: "manual" }, { reason: "manual", failure: "too-small" }] },
+  });
+  await runTurn(store, record, "圧縮対象の会話");
+
+  // 1 回目: 成功。区切りに所要時間が載る
+  await store.compact(record);
+  const first = store.payload(record);
+  assert.equal(first.compactions.length, 1);
+  assert.equal(first.compactions[0].reason, "manual");
+  assert.equal(typeof first.compactions[0].durationMs, "number");
+
+  // 2 回目: 失敗。履歴が変わらず、所要時間も増えない (現行どおり区切りごと出さない)
+  await assert.rejects(
+    () => store.compact(record),
+    (error: StoreError) => error.statusCode === 400 && error.message === "まだ要約できる古い会話がありません",
+  );
+  assert.equal(store.payload(record).compactions.length, 1);
+  assert.equal(typeof store.payload(record).compactions[0].durationMs, "number");
+
+  // 3 回目: 列が尽きたら manualCompaction (既定 = 成功) に戻る
+  await runTurn(store, record, "3 つ目の会話");
+  await store.compact(record);
+  assert.equal(store.payload(record).compactions.length, 2);
 
   await store.close();
 });

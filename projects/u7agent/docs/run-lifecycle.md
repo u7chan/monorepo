@@ -90,6 +90,8 @@ message_end(assistant, error, usage.total = 0)  失敗試行
 
 `statusOf()` は compacting → running → queued → 終端 の順に見るため、実行中に送ったメッセージでは `queued` にならない。`compacting` は queue より優先して返る（圧縮中の送信はキューに積まれるが、表示は圧縮中）。手動圧縮のライフサイクル・排他・終端の順序は [compaction.md](compaction.md#手動圧縮) を正とする。終端（`completed` / `stopped` / `error`）は一覧 API には出るが、左バーは live のみを出す（表示規則は [ui-layout.md](ui-layout.md#nav-モード) を正とする）。
 
+`finish()` はラン終了時に、キュー待ちを含まないランの所要時間（`startRun()` から `finish()` まで）と終端の 3 値（`completed` / `stopped` / `error`）を run id ごとに `SessionRecord` へ控える。履歴の投影は user item の `runId` でこれを引き、`runDurationMs` / `runOutcome` として載せる。ライブは `run_end` の `durationMs` と `status` を同じ値として run id 一致の user パブルへ写す（履歴経路の値を正とする）。控えはメモリのみ（`toolTimings` / `compactionMeta` と同じセッション寿命）で、再起動とアイドル sweep の後は載らず、表示側は行ごと出さない。
+
 ## イベントログと SSE
 
 - ログは `{ seq, type, data, at }` の配列。セッションごとに直近 2000 件を保持。

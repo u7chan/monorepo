@@ -52,6 +52,12 @@ const pi = Object.assign(
         closingWindow: { afterMs: 100, name: "bash", args: { command: "echo in-closing-window" } },
       },
     ],
+    // 自動 (preflight) 圧縮の受入用: 本文に「自動圧縮」を含めて送ると、user message を積む前に
+    // 1 回だけ圧縮が走る (区切りとターン終端の両方が出る)
+    preflightCompaction: { prompt: "自動圧縮", compaction: { reason: "threshold" } },
+    // 手動圧縮の受入用: 1 回目は成功、2 回目は失敗 (too-small で区切りも所要時間も出ない)。
+    // 3 回目以降は manualCompaction (未指定 = 成功) に戻る
+    manualCompactions: [{ reason: "manual" }, { reason: "manual", failure: "too-small" }],
   }),
   { cwd, sandboxConfigured: true },
 );

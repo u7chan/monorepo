@@ -46,6 +46,7 @@ import type {
   UpdateSessionSettingsInput,
 } from "./session-record";
 import { projectSessionPayload, projectSessionSummary } from "./session-payload";
+import { RunOutcomeSchema } from "./schema";
 import { displayableMessages, truncate } from "./session-projection";
 import type { SandboxWorkspaceClient } from "./sandbox/client";
 import { SandboxRequestError } from "./sandbox/client";
@@ -485,6 +486,7 @@ export class SessionStore {
       unsentSends: [],
       sendsDirty: false,
       compactionMeta: new Map(),
+      runOutcomes: new Map(),
       changingSettings: false,
       compacting: false,
       notify,
@@ -1242,11 +1244,13 @@ export class SessionStore {
       unsubscribe = session.subscribe((event: PiSessionEvent) => {
         if (event.type !== "compaction_end") return;
         // 履歴が変わったときだけ 1 件配る。resync は保存後の終端処理が担う
+        const startedAt = record.compactionStartedAt;
         const compactions = recordCompactionOutcome({
           session,
           compactionMeta: record.compactionMeta,
           masker: this.masker,
           event,
+          ...(startedAt === undefined ? {} : { durationMs: Date.now() - startedAt }),
         });
         if (!compactions) return;
         this.emit(record, "compaction", {
@@ -1680,6 +1684,9 @@ export class SessionStore {
       totalRetryCount: 0,
     };
     record.run = run;
+    // 同じ run id を再利用する再送 (resend) では、前回の試行の控えを次の試行へ持ち越さない。
+    // 消さないと、再送が走っている間に履歴 API が前回の所要時間と結末を返す
+    record.runOutcomes.delete(run.id);
     record.tools = new Map();
     // 質問の待機も run と同じ寿命。前の run の tombstone (回答済み) を次の run へ持ち越さない
     record.questions = new Map();
@@ -1712,6 +1719,12 @@ export class SessionStore {
       run.status = wasStopped ? "stopped" : error ? "error" : "completed";
       const endedAt = Date.now();
       run.endedAt = endedAt;
+      // ラン全体の所要時間と結末を run id で控える (履歴の user item とライブのバブルがここを正にする)。
+      // 非終端の値を控えに残さないよう、終端の 3 値へ narrow してから入れる
+      const outcome = RunOutcomeSchema.safeParse(run.status);
+      if (outcome.success) {
+        record.runOutcomes.set(run.id, { durationMs: endedAt - run.startedAt, outcome: outcome.data });
+      }
       // アクティブな再試行は終了で消す。累計は結果表示のため残す
       delete run.retry;
       if (error) run.error = this.masker.mask(composeRunError(error, run.totalRetryCount));

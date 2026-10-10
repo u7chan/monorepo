@@ -15,6 +15,7 @@ import { CompactionDivider } from "./chat/CompactionDivider";
 import { ContextBoundary } from "./chat/ContextBoundary";
 import { MessageView } from "./chat/MessageView";
 import { ScrollToBottomButton } from "./chat/ScrollToBottomButton";
+import { TurnEndRow } from "./chat/TurnEndRow";
 
 export type ChatAreaProps = {
   bubbles: Bubble[];
@@ -259,6 +260,16 @@ export function ChatArea({
 
   function renderItem(item: ChatRenderItem) {
     if (item.kind === "boundary") return <ContextBoundary compact={compact} />;
+    if (item.kind === "turn-end") {
+      return (
+        <TurnEndRow
+          outcome={item.outcome}
+          durationMs={item.durationMs}
+          summarized={item.summarized}
+          compact={compact}
+        />
+      );
+    }
     if (item.kind === "compaction") {
       return <CompactionDivider compactions={item.marker.compactions} startIndex={item.index} compact={compact} />;
     }

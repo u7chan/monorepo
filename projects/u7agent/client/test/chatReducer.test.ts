@@ -1250,3 +1250,134 @@ test("progress は resync で消える (payload が正の復元に live 値を�
   assert.equal(resynced.runTools["tool-1"]?.done, false, "カードは payload から残る");
   assert.equal("progress" in (resynced.runTools["tool-1"] ?? {}), false, "progress を残している");
 });
+
+// --- ターン終端の所要時間 (run_end → user パブル) ---
+
+/** 履歴 item から作った entryId 付きの user パブル 1 件だけを持つ状態 */
+function stateWithHistoryUser(runId: string) {
+  return chatReducer(initialChatState, {
+    type: "resyncHistory",
+    page: {
+      sessionId: "session-a",
+      items: [{ kind: "message", id: "entry-1", context: "active", role: "user", text: "履歴の本文", runId }],
+      prevCursor: null,
+      hasMore: false,
+      nextCursor: null,
+      activeContextStartId: "entry-1",
+      messageCount: 1,
+      summarizedMessageCount: 0,
+    },
+  });
+}
+
+/** 送信のローカルエコーへ run id を結び付けた状態 (entryId を持たないライブバブル) */
+function stateWithLiveEcho(runId: string) {
+  const sent = chatReducer(initialChatState, { type: "localUser", text: "聞いて", at: 1 });
+  return chatReducer(sent, { type: "echoRunId", runId });
+}
+
+const TURN_END: { status: "completed" | "stopped" | "error"; outcome: string; durationMs: number }[] = [
+  { status: "completed", outcome: "completed", durationMs: 80_000 },
+  { status: "stopped", outcome: "stopped", durationMs: 999 },
+  { status: "error", outcome: "error", durationMs: 1 },
+];
+
+test("run_end は runId 一致の user パブルへ所要時間と結末を写す", () => {
+  for (const { status, outcome, durationMs } of TURN_END) {
+    // 履歴 item のバブル (entryId あり)
+    const fromHistory = chatReducer(stateWithHistoryUser("run-h"), {
+      type: "runEnd",
+      runId: "run-h",
+      status,
+      queueDepth: 0,
+      durationMs,
+    });
+    assert.deepEqual(
+      fromHistory.bubbles.map((bubble) => [bubble.runDurationMs, bubble.runOutcome]),
+      [[durationMs, outcome]],
+      "履歴のパブルへ写す",
+    );
+
+    // 送信直後のローカルエコー (entryId なし)。run 中の resync で置き換わっても runId で対応が取れる
+    const fromEcho = chatReducer(stateWithLiveEcho("run-l"), {
+      type: "runEnd",
+      runId: "run-l",
+      status,
+      queueDepth: 0,
+      durationMs,
+    });
+    assert.deepEqual(
+      fromEcho.bubbles.map((bubble) => [bubble.runDurationMs, bubble.runOutcome]),
+      [[durationMs, outcome]],
+      "entryId が無くても写す",
+    );
+  }
+});
+
+test("run_end の値は別 run / 旧サーバー / 終端以外では写さない", () => {
+  const live = stateWithLiveEcho("run-l");
+  const other = chatReducer(live, {
+    type: "runEnd",
+    runId: "run-other",
+    status: "completed",
+    queueDepth: 0,
+    durationMs: 80_000,
+  });
+  assert.equal(other.bubbles[0]?.runDurationMs, undefined, "run id が違えば写さない");
+
+  const old = chatReducer(live, { type: "runEnd", runId: "run-l", status: "completed", queueDepth: 0 });
+  assert.equal(old.bubbles[0]?.runDurationMs, undefined, "durationMs の無い旧サーバーでは写さない");
+
+  // run_end の status は 7 値。終端以外は結末として通さない (行を出さない)
+  for (const status of ["idle", "running", "queued", "compacting"] as const) {
+    const nonTerminal = chatReducer(live, {
+      type: "runEnd",
+      runId: "run-l",
+      status,
+      queueDepth: 0,
+      durationMs: 80_000,
+    });
+    assert.equal(nonTerminal.bubbles[0]?.runOutcome, undefined, `${status} は終端ではない`);
+  }
+});
+
+test("未送信へ切り替わる経路と再送は、前のランの所要時間を消す", () => {
+  const ended = chatReducer(stateWithHistoryUser("run-h"), {
+    type: "runEnd",
+    runId: "run-h",
+    status: "stopped",
+    queueDepth: 0,
+    durationMs: 80_000,
+  });
+  assert.equal(ended.bubbles[0]?.runDurationMs, 80_000);
+
+  // 停止で待機キューを破棄した (queue_cleared)
+  const cleared = chatReducer(ended, { type: "queueCleared", runIds: ["run-h"] });
+  assert.deepEqual(
+    cleared.bubbles.map((bubble) => [bubble.unsent === true, bubble.runDurationMs, bubble.runOutcome]),
+    [[true, undefined, undefined]],
+  );
+
+  // payload が未送信として配った (再起動後)
+  const payload = runningPayload();
+  payload.sessionId = "session-a";
+  payload.messages = [];
+  payload.pendingSends = [{ runId: "run-h", text: "履歴の本文", at: 1, state: "unsent" }];
+  const unsent = chatReducer(ended, { type: "resync", payload });
+  assert.deepEqual(
+    unsent.bubbles.map((bubble) => [bubble.unsent === true, bubble.runDurationMs, bubble.runOutcome]),
+    [[true, undefined, undefined]],
+  );
+
+  // 再送は pending へ戻すときに古い値を消し、再送失敗でも戻さない
+  const resent = chatReducer(unsent, { type: "resendUnsent", runId: "run-h" });
+  assert.deepEqual(
+    resent.bubbles.map((bubble) => [bubble.unsent === true, bubble.runDurationMs, bubble.runOutcome]),
+    [[false, undefined, undefined]],
+  );
+  const failed = chatReducer(resent, { type: "resendFailed", runId: "run-h" });
+  assert.deepEqual(
+    failed.bubbles.map((bubble) => [bubble.unsent === true, bubble.runDurationMs, bubble.runOutcome]),
+    [[true, undefined, undefined]],
+  );
+});

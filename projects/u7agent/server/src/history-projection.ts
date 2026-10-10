@@ -180,11 +180,14 @@ function projectItems({
       descriptor.message.role === "user"
         ? (record.userMessageRuns.get(descriptor.message) ?? record.entryRunIds.get(descriptor.id))
         : undefined;
+    // ランの所要時間と結末は finish() が控えた値を run id で引く。再起動 / sweep で消えた分は載せない
+    const outcome = runId === undefined ? undefined : record.runOutcomes.get(runId);
     return {
       kind: "message",
       id: descriptor.id,
       context: descriptor.context,
       ...(runId !== undefined ? { runId } : {}),
+      ...(outcome !== undefined ? { runDurationMs: outcome.durationMs, runOutcome: outcome.outcome } : {}),
       role: item?.role ?? (descriptor.message.role as "user" | "assistant"),
       text: item?.text ?? "",
       ...(item?.stopReason !== undefined ? { stopReason: item.stopReason } : {}),

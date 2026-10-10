@@ -619,6 +619,59 @@ test("user entry を残さず終わった run は、未送信として載り再�
   }
 });
 
+test("再送の実行中は前回の試行の所要時間と結末を履歴 item に載せない", async () => {
+  const storeDir = await mkdtemp(join(tmpdir(), "u7agent-sends-"));
+  try {
+    // 1 回目だけ user entry を残さず error 終端する。再送は同じ run id で通常どおり走らせる
+    const pi = createStubPi({
+      chunkDelayMs: 20,
+      promptFailureBeforeUser: "No API key for stub/model",
+      promptFailuresBeforeUser: 1,
+    });
+    const store = createStore(storeDir, pi);
+    await store.init();
+    const record = await store.create();
+
+    const first = store.postMessage(record, "再送する本文");
+    assert.ok(first.runId);
+    await waitFor(() => store.statusOf(record) === "error", 3000, "first run error");
+    await store.flush(record);
+
+    // 同じ run id で実行し直す。user entry が載った後も前回の値を返さない
+    const resent = store.resend(record, first.runId);
+    assert.deepEqual(resent, { queued: false, queueDepth: 0, runId: first.runId });
+    await waitFor(
+      () => {
+        const result = store.history(record, {});
+        return result.ok && userItems(result.page).some((item) => item.runId === first.runId);
+      },
+      3000,
+      "resent user entry",
+    );
+    assert.equal(store.statusOf(record), "running", "前回の値を見るのは実行中の間");
+    const during = store.history(record, {});
+    assert.ok(during.ok);
+    assert.deepEqual(
+      userItems(during.page).map((item) => [item.text, item.runId, item.runDurationMs, item.runOutcome]),
+      [["再送する本文", first.runId, undefined, undefined]],
+      "run が終わる前は前回の error と所要時間を載せない",
+    );
+
+    // 終了後は今回の run 自身の値になる
+    await waitFor(() => store.statusOf(record) === "completed", 3000, "resent run completed");
+    await store.flush(record);
+    const after = store.history(record, {});
+    assert.ok(after.ok);
+    const [user] = userItems(after.page);
+    assert.equal(user?.runId, first.runId);
+    assert.equal(user?.runOutcome, "completed", "終了後は今回の結末になる");
+    assert.equal(typeof user?.runDurationMs, "number");
+    await store.close();
+  } finally {
+    await rm(storeDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+  }
+});
+
 test("SDK 形式 (content part 配列) の user entry でも run 対応を復元する", async () => {
   const storeDir = await mkdtemp(join(tmpdir(), "u7agent-sends-"));
   try {

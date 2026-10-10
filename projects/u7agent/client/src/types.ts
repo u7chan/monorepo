@@ -56,6 +56,7 @@ export type {
   ProjectsResponse,
   ProviderAuthSetting,
   RunErrorCode,
+  RunOutcome,
   RunPayload,
   RunRetryState,
   RunStatus,

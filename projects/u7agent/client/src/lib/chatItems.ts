@@ -1,13 +1,21 @@
 // チャットの描画順と仮想スクロールの見積り・スクロールアンカー補正。
 // DOM を使わない純関数だけをここに置き、配線 (virtualizer / scroll ハンドラ) は ChatArea が持つ。
 import type { Bubble, CompactionMarker } from "./chatTypes";
-import type { CompactionInfo } from "../types";
+import type { CompactionInfo, RunOutcome } from "../types";
 import { USER_MESSAGE_CLAMP_PX } from "./userMessage";
 
 export type ChatRenderItem =
   | { kind: "message"; key: string; bubble: Bubble }
   | { kind: "compaction"; key: string; index: number; marker: CompactionMarker }
-  | { kind: "boundary"; key: string };
+  | { kind: "boundary"; key: string }
+  | {
+      kind: "turn-end";
+      key: string;
+      outcome: RunOutcome;
+      durationMs: number;
+      /** 要約で置き換わったターンは、そのターンの item と同じく薄暗くする */
+      summarized: boolean;
+    };
 
 export const CONTEXT_BOUNDARY_KEY = "boundary:active-context";
 
@@ -35,7 +43,16 @@ export function chatRenderItems({
   }
   const boundaryIndex = boundaryPosition(bubbles, activeContextStartId);
   const items: ChatRenderItem[] = [];
+  // 進行中のターン (最後の user バブル)。次の user の手前か末尾で、その 1 つ前のターンを閉じる
+  let openTurn: Bubble | undefined;
   for (let position = 0; position <= bubbles.length; position += 1) {
+    const bubble = bubbles[position];
+    if (bubble === undefined || bubble.role === "user") {
+      // 終端行は境界ラベル・圧縮の区切りより先に置く (ターンを閉じてから次のターンの前口上を出す)
+      const turnEnd = turnEndItem(openTurn);
+      if (turnEnd) items.push(turnEnd);
+      if (bubble) openTurn = bubble;
+    }
     if (position === boundaryIndex) items.push({ kind: "boundary", key: CONTEXT_BOUNDARY_KEY });
     for (const marker of (markersByPosition.get(position) ?? []).slice().sort((a, b) => a.id.localeCompare(b.id))) {
       items.push({
@@ -46,10 +63,28 @@ export function chatRenderItems({
         index: marker.compactions.length > 1 ? 0 : (compactionIndexById.get(marker.id) ?? 0),
       });
     }
-    const bubble = bubbles[position];
     if (bubble) items.push({ kind: "message", key: `message:${bubble.entryId ?? bubble.id}`, bubble });
   }
   return items;
+}
+
+/**
+ * ターン終端の行。位置は「そのターンに属する最後の表示 item の直後」で、呼び出し側が次の user の手前 /
+ * 末尾で呼ぶ。値の無いターン (旧サーバー / 再起動後) と、user entry が保存されなかったターン (未送信) は
+ * 出さない。キーは値の有無で揺らさないよう、バブルの安定 id から作る
+ */
+function turnEndItem(turn: Bubble | undefined): ChatRenderItem | undefined {
+  const durationMs = turn?.runDurationMs;
+  const outcome = turn?.runOutcome;
+  if (turn === undefined || durationMs === undefined || outcome === undefined) return undefined;
+  if (turn.unsent === true) return undefined;
+  return {
+    kind: "turn-end",
+    key: `turn-end:${turn.entryId ?? turn.id}`,
+    outcome,
+    durationMs,
+    summarized: turn.context === "summarized",
+  };
 }
 
 /** 境界の直前に summarized のバブルがあるときだけ位置を返す */
@@ -64,6 +99,7 @@ function boundaryPosition(bubbles: Bubble[], activeContextStartId: string | null
 export function estimateChatItemHeight(item: ChatRenderItem): number {
   if (item.kind === "compaction") return 56;
   if (item.kind === "boundary") return 36;
+  if (item.kind === "turn-end") return 34;
   const { bubble } = item;
   // user は収まらないときに折りたたまれるため、見積りの上限が clamp の高さになる
   // (収まる場合の推定はこの上限より小さいまま)
