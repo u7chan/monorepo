@@ -28,6 +28,19 @@ export function initialSpaceSelection(
   return { id: stored ?? DEFAULT_SPACE_ID, fromUrl: false };
 }
 
+/**
+ * 起動元の会話リンク (通常クリック) で切り替えるスペース。所属が不明・現在と同じ・一覧に無ければ null にし、
+ * 呼び出し側は現在のスペースで開く (未知の所属へ勝手に移らない)。
+ */
+export function ownerLinkSpace(
+  ownerSpaceId: string | undefined,
+  currentSpaceId: string,
+  spaces: Space[],
+): string | null {
+  if (!ownerSpaceId || ownerSpaceId === currentSpaceId) return null;
+  return spaces.some((space) => space.id === ownerSpaceId) ? ownerSpaceId : null;
+}
+
 export type SpaceSelectionStorage = Pick<Storage, "getItem" | "setItem">;
 
 export type SpaceSelectionStore = {

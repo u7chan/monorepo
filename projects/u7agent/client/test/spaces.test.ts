@@ -3,6 +3,7 @@ import test from "node:test";
 import {
   createSpaceSelectionStore,
   initialSpaceSelection,
+  ownerLinkSpace,
   selectedSpace,
   spaceSelectionStore,
   SPACE_SELECTION_KEY,
@@ -110,6 +111,14 @@ test("初期選択は URL の space → 保存値 → 既定の順に決め、�
   const unknown = initialSpaceSelection("unknown", normal.id);
   assert.deepEqual(unknown, { id: "unknown", fromUrl: true });
   assert.equal(selectedSpace([normal, demo], unknown.id), undefined);
+});
+
+test("起動元リンクは所属が一覧にある別スペースだけ切り替え、不明・現在と同じ・一覧に無い所属は現在のスペースに留まる", () => {
+  assert.equal(ownerLinkSpace(demo.id, normal.id, [normal, demo]), demo.id);
+  assert.equal(ownerLinkSpace(normal.id, normal.id, [normal, demo]), null);
+  assert.equal(ownerLinkSpace(undefined, normal.id, [normal, demo]), null);
+  assert.equal(ownerLinkSpace("unknown", normal.id, [normal, demo]), null);
+  assert.equal(ownerLinkSpace(demo.id, normal.id, [normal]), null);
 });
 
 test("会話・プロジェクト・作業環境の全操作へ固定スペースを渡し、共通 API は分割しない", async (t) => {

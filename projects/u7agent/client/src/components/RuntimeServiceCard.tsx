@@ -15,7 +15,7 @@ export function RuntimeServiceCard({
   hostname: string;
   port?: number;
   onStop: () => void;
-  onOpenSession?: (sessionId: string) => void;
+  onOpenSession?: (sessionId: string, spaceId?: string) => void;
 }) {
   const { status, loading, failed, stopping, error } = state;
   const href = status?.reachable ? servedAppUrl(hostname, port) : undefined;
@@ -60,7 +60,7 @@ export function RuntimeServiceCard({
                           )
                             return;
                           event.preventDefault();
-                          if (status.owner) onOpenSession(status.owner.sessionId);
+                          if (status.owner) onOpenSession(status.owner.sessionId, status.owner.spaceId);
                         }}
                       >
                         {status.owner.title || "無題のセッション"}

@@ -37,7 +37,7 @@ type RuntimePageProps = SettingsPageProps & {
    * null (取得失敗 / キャンセル) は失敗として扱う。
    */
   onRefreshHealth: (isCurrent?: () => boolean) => Promise<Health | null>;
-  onOpenSession?: (sessionId: string) => void;
+  onOpenSession?: (sessionId: string, spaceId?: string) => void;
 };
 
 /**
