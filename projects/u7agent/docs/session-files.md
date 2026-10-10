@@ -208,6 +208,7 @@ assistant 本文のインラインコードが指すファイルは、クリッ�
 | 作成（最初の送信） | record 追加 | header / meta 作成 | 未所属は `mkdir`（sandbox）、プロジェクト所属は存在確認のみ |
 | アイドル 1 時間の sweep | dispose して破棄 | 残す | 残す |
 | `DELETE /api/sessions/:id` | 停止 + dispose | 削除 | 残す |
+| 引っ越し（`POST /api/sessions/:id/move`） | dispose して破棄（未ロードは descriptor だけ） | `meta.json` の `spaceId` を書換え、履歴は削除 | 移動先のパスへ移動（添付も） |
 | BFF 再起動 | 消える | 残る → 起動時に一覧へ復元 | 残る |
 
 - id ごとに `idle`（未ロード）/ `loading` / `live` / `evicting` / `deleting` の状態と、ライフサイクル操作（load / evict / delete）を直列化する Promise チェーンを持つ。状態の予約は最初の await より前に同期的に行う。
@@ -217,6 +218,7 @@ assistant 本文のインラインコードが指すファイルは、クリッ�
 - sweep は「購読者（SSE 接続）がいない・実行中でない・書込みが残っていない」ときだけ `evicting` を予約してメモリから外す。flush に失敗したときは破棄を見送って記録を残す（次の sweep で再試行）。開いているタブが握っているセッションを復元先へ付け替える競合は作らない。
 - `close()` は最初に全体の受付を閉じ（新規リクエストは 503）、進行中のロードと書込みキューを回収してから全 record を dispose する。最終 flush の失敗はログに残して終了する。
 - `DELETE` は履歴だけ消し、作業ディレクトリと添付は残す（誤アップロードのファイル / ディレクトリ単位の削除は 設定 → ファイル からできるが、セッション単位ではフォルダを消さない）。confirm は「このセッションの履歴を削除しますか？（作業フォルダのファイルは残ります）実行中の処理は停止されます。」と表示する。
+- 引っ越しの手順: 検証（未所属・スクラッチ・busy でない）→ 移動先の親を作る → workdir move → uploads move → `secrets` / `serve_commands` の cwd 付け替え → `meta.json` の書換え → dispose → `records` から外す → 履歴の削除 → 購読者を close。**meta の書換え前の失敗は移したものを逆順で戻し**、履歴の削除は戻せないため最後に置く（失敗したら 500 を返し、meta は移動済みのままで、履歴の削除は次にその会話を移したときに再試行される）。move は id の lifecycle に乗せ、送信 / 添付 / 設定 / 削除を待たせる。読み取り専用の `workdirOfId`（serve の status / start、環境変数の cwd 解決）は待たないため、移動の途中で旧 cwd を一瞬見る窓が残る（単一ユーザー前提で許容）。
 - プロジェクト解除（`DELETE /api/projects/:id`）: 先に解除対象の `projectCwd` を捕捉 → 登録解除 → 配下 live のランを abort して停止（削除はしない）→ 購読中のタブへ `resync` を送る（所属が外れた payload になり、`session_deleted` は送らない）→ store / 作業フォルダ / meta の `projectCwd` と `pinned` は触らない。`projectId` は保存せず読み取り時に `projectCwd` → `ProjectStore.findByCwd` で解決するため、解除後は未所属として一覧に出て、同じ cwd を再登録すれば所属が戻る（ロード中に完了したセッションも同じ規則で解決される）。プロジェクトの自動再登録はしない。
 - プロジェクト解除の confirm は `「<プロジェクト名>」の登録を解除します。配下の <件数> 件のセッションを停止します（履歴とファイルは残ります）。` のように、対象のプロジェクト名と配下のセッション数を示す。
 
@@ -272,7 +274,7 @@ assistant 本文のインラインコードが指すファイルは、クリッ�
 - 会話ログと作業ファイルは別の場所になる（同じ `<id>` で対応）。バックアップ / 移設は `PI_SESSION_STORE` を単位にする。
 - セッションの DELETE で作業ディレクトリと添付は消えない（ファイル / ディレクトリ単位の削除は 設定 → ファイル からできる）。
 - セッションの `promptSnapshot` は作成時の定義で固定される。定義の変更を反映したい場合は新しいセッションを作る。
-- 非ゴール: セッションの DELETE で作業フォルダを消すこと、移動（親ディレクトリの変更） / 一括リネーム、ゴミ箱 / undo、容量管理、複数 BFF インスタンス、古い SDK セッション version の migration、pi CLI との双方向編集 / 汎用インポート、モデル無しでの履歴閲覧。
+- 非ゴール: セッションの DELETE で作業フォルダを消すこと、一括リネーム、ゴミ箱 / undo、容量管理、複数 BFF インスタンス、古い SDK セッション version の migration、pi CLI との双方向編集 / 汎用インポート、モデル無しでの履歴閲覧。
 - compaction の `reason` / `estimatedTokensAfter` は `compaction_end` にしか無く復元後は欠ける（表示は `tokensBefore` で成立する。[persistence.md](persistence.md) の方針どおり）。
 
 ## 受け入れ条件

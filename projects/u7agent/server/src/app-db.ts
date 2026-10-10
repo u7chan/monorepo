@@ -146,6 +146,9 @@ export interface AppDbStatus {
   error?: string;
 }
 
+/** セッションの引っ越しが使う、cwd をキーにする行の付け替えだけの狭い IF */
+export type CwdKeyStore = Pick<AppDb, "moveCwd">;
+
 export interface OpenAppDbOptions {
   /** 会話ストアと同じディレクトリ。null ならメモリ DB (テスト) */
   storeDir: string | null;
@@ -1392,6 +1395,17 @@ export class AppDb {
   }
 
   // --- 複数テーブルにまたがる更新 (部分適用を残さない) ---
+
+  /**
+   * cwd をキーにする行 (secrets / serve_commands) を移動先へ付け替える。移動先に同名の行があると
+   * UNIQUE 制約で失敗するため、部分適用を残さないよう 1 トランザクションで行う。
+   */
+  moveCwd(from: string, to: string): void {
+    this.transaction(() => {
+      this.#query((db) => db.prepare("UPDATE serve_commands SET cwd = ? WHERE cwd = ?").run(to, from));
+      this.#query((db) => db.prepare("UPDATE secrets SET cwd = ? WHERE cwd = ?").run(to, from));
+    });
+  }
 
   /** スキル削除と、それを参照している agents からの除去をまとめる */
   deleteSkillAndDetach(id: string): boolean {

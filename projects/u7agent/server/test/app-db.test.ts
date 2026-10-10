@@ -1201,6 +1201,33 @@ test("secrets の並びは sortOrder + name で、削除しても詰めない", 
   db.close();
 });
 
+test("moveCwd は secrets と serve_commands を 1 トランザクションで付け替える", () => {
+  const db = AppDb.open({ storeDir: null });
+  db.insertSecret(secretRow({ cwd: "sessions/a", name: "A" }));
+  db.insertSecret(secretRow({ secretId: "s2", cwd: "sessions/a", name: "B", sortOrder: 2 }));
+  db.saveServeCommand({ cwd: "sessions/a", command: "pnpm dev", updatedAt: 1 });
+
+  db.moveCwd("sessions/a", "spaces/x/sessions/a");
+  assert.deepEqual(db.listSecrets("sessions/a"), []);
+  assert.deepEqual(
+    db.listSecrets("spaces/x/sessions/a").map((row) => row.name),
+    ["A", "B"],
+  );
+  assert.equal(db.getServeCommand("sessions/a"), undefined);
+  assert.equal(db.getServeCommand("spaces/x/sessions/a")?.command, "pnpm dev");
+
+  // 移動先に同名の行があると 2 本目の UPDATE が UNIQUE で失敗し、1 本目も巻き戻る
+  db.insertSecret(secretRow({ secretId: "s3", cwd: "spaces/y/sessions/a", name: "A" }));
+  assert.throws(() => db.moveCwd("spaces/x/sessions/a", "spaces/y/sessions/a"));
+  assert.equal(db.getServeCommand("spaces/x/sessions/a")?.command, "pnpm dev");
+  assert.equal(db.getServeCommand("spaces/y/sessions/a"), undefined);
+  assert.deepEqual(
+    db.listSecrets("spaces/x/sessions/a").map((row) => row.name),
+    ["A", "B"],
+  );
+  db.close();
+});
+
 test("migrates a v11 db additively and keeps the web search toggle across reopen", () => {
   const dir = tempStoreDir();
   try {

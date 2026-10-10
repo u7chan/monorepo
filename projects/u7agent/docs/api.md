@@ -23,7 +23,7 @@ DTO の正は `server/src/schema.ts`（zod）。リクエストボディは `@ho
 | 画像配信（raw） | `GET /api/files/raw` | このファイル |
 | ダウンロード（ファイル / ZIP） | `GET /api/files/download`、`GET /api/files/download/check` | このファイル |
 | プロジェクト | `GET/POST /api/projects`、`DELETE /api/projects/:id` | このファイル |
-| セッション | `/api/sessions`、`/api/sessions/:id`、`/skills`、`/files`、`/messages`、`/questions/:toolCallId/answer`、`/events`、`/settings`、`/title`、`/stop`、`/compact` | [api-sessions.md](api-sessions.md) |
+| セッション | `/api/sessions`、`/api/sessions/:id`、`/skills`、`/files`、`/messages`、`/questions/:toolCallId/answer`、`/events`、`/settings`、`/title`、`/move`、`/stop`、`/compact` | [api-sessions.md](api-sessions.md) |
 | 通知（Discord） | `GET/PUT /api/notifications`、`POST /api/notifications/test`、`PATCH /api/sessions/:id/notify` | [notifications.md](notifications.md) |
 | アーカイブの除外名 | `GET/PUT/DELETE /api/settings/archive` | このファイル |
 | プロバイダーAPIキーとメモ（設定 → モデル `/settings/models`） | `GET /api/settings/models`、`PUT/DELETE /api/settings/models/:provider/key`、`PUT /api/settings/models/:provider/memo`、`POST /api/settings/models/:provider/resync`、`POST /api/settings/models/catalog/refresh` | このファイル |
@@ -38,7 +38,8 @@ DTO の正は `server/src/schema.ts`（zod）。リクエストボディは `@ho
 
 - `GET /api/spaces` → `{ spaces: [{ id, name, createdAt }] }`。固定の通常 `{ id: "default", name: "通常", createdAt: 0 }` と保存済み追加スペースを返す。
 - `POST /api/spaces` の本文 `{ name }` → 201 `{ space: { id, name, createdAt } }`。name は trim 後 1〜80 文字。内部 ID はサーバーが生成し、指定・改名・削除・リセット API は無い。DB 障害は一覧・作成とも 503。
-- 会話作成は本文の `spaceId`、それ以外の会話 API・EventSource・プロジェクト API・作成前スキルプレビュー・作業環境の環境変数 / サービス API は query の `spaceId` を使う。欠落だけ `default` として扱う。不正 ID は 400、未知の追加スペースは 404。会話作成では query ではなく本文が正。
+- 会話作成は本文の `spaceId`、それ以外の会話 API・EventSource・プロジェクト API・作成前スキルプレビュー・作業環境の環境変数 / サービス API は query の `spaceId` を使う。欠落だけ `default` として扱う。不正 ID は 400、未知の追加スペースは 404。会話作成では query ではなく本文が正。引っ越し（`POST /api/sessions/:id/move`）は query が要求元で、本文の `spaceId` が移動先になる。
+- 引っ越しは未所属（`projectCwd` を持たない）セッションだけ。履歴は破棄し、作業フォルダ / 添付 / `secrets` / `serve_commands` を移動先へ移す（[api-sessions.md](api-sessions.md#post-apisessionsidmove)）。
 - 会話 ID と要求スペースの不一致は 404。descriptor / live record の所属で SDK 復元・作業生成・変更の前に拒否し、取得・履歴・設定・タイトル・通知・削除・停止・圧縮・送信・未送信・回答・添付・スキル・SSE に同じ規則を適用する。環境変数・サービスの `sessionId` にも適用する。
 - 追加スペースでは `GET /api/projects` は `{ projects: [] }`、プロジェクト変更と `projectId` の利用は 400。通常のプロジェクト契約は変更しない。
 - 共通カタログ・共通設定・汎用ファイル API、ランタイムのサービス診断 / 全体停止は分割しない。共有サービスの所有者は全会話から解決し、全体管理の応答は起動元の所属スペースも返す（会話のリンクの `?space=`）。`spaceId` は認証・権限ではなく、指定を変えれば別スペースを選べる。
@@ -553,6 +554,7 @@ Content-Security-Policy: sandbox allow-scripts; default-src 'none'; style-src 'u
 - `owner.kind`: `mine`（閲覧中の会話が所有者）/ `other`（他会話が所有者）/ `unknown`（到達可だが記録と一致しない）/ `none`（到達不可で所有者なし）。所有者は記録（PID + 起動時刻）と「いま待受しているプロセス」の照合で決め、記録があるだけでは所有者とみなさない。`mine` / `other` のときだけ `title` が載る。
 - `generation`: 置き換えの再照合用の不透明な値。起動のたびに変わり、**記録を残したまま生の bash で待受プロセスが入れ替わった場合も変わる**（起動世代と、いま待受しているソケットの inode を合わせたハッシュ）。到達不可（置き換える対象が無い）は `null`。
 - `command`: **閲覧中の会話の作業ディレクトリ**の成功実績（`serve_commands`）。無ければ `null` で、他会話の実績は返さない。
+- **稼働中のサービスがあるセッションも引っ越せる**。`serve_commands` は移動先の cwd へ付け替えるが、稼働中プロセスの cwd inode とサンドボックスの `.u7agent/serve/state.json` の記録は移動前のままなので、`command.cwd` が実プロセスと食い違い得る（相対パスで動くアプリは継続し、絶対パス前提のアプリは壊れ得る）。409 で止める案は、セッション経路へ serve を注入する必要があり、単一ユーザーのデモ用途では割に合わないため採らない（[sandbox.md](sandbox.md#serveサービスの公開と起動停止)）。
 - `secretGeneration`: 起動時に解決した環境変数（作業環境 → 環境変数）の世代。記録と待受プロセスが一致するときだけ返し、`GET /api/secrets` の `generation` と比べる（[作業フォルダの環境変数](#作業フォルダの環境変数)）。記録が無い / この項目より前の記録は `null`。
 
 `POST /api/serve/start` の body は `{ sessionId, command?, generation? }`。`command` はエージェントの `serve` ツールだけが渡し（GUI は実績を使う）、省略時はその作業ディレクトリの実績を使う。**実績の解決と検証は置き換えの停止より先**で、実績が無ければ既存のサービスを止めずに 400 を返す。`generation` は確認した状態の値で、実行時に変わっていれば 409（UI は新しい状態で確認をやり直す）。`POST /api/serve/stop` の body は `{ sessionId, generation? }`。
@@ -611,7 +613,7 @@ Content-Security-Policy: sandbox allow-scripts; default-src 'none'; style-src 'u
 | POST | `/api/projects` | プロジェクト作成（新規ディレクトリの作成 or 既存ディレクトリの登録） |
 | DELETE | `/api/projects/:id` | 登録解除（配下セッションを破棄し、ディレクトリは残す） |
 
-プロジェクトはワークスペース内のディレクトリで、アプリデータの SQLite へ保存する（再起動後も残る。詳細は [persistence.md](persistence.md)）。`cwd` はワークスペース root（`health.cwd` = `PI_APP_CWD`）相対の正規化パスで、root 自身（`""` / `"."`）は登録できない（未所属セッションの作業場所）。セッションの作業ディレクトリは所属プロジェクトの `cwd` を root と結合して決まり、作成後に変えることはできない。実行時の分離は「`write` / `edit` と `bash` の書き込みを作業ディレクトリへ閉じ込める」までで、読み取り・プロセス・ポートは共有する（詳細は [projects.md](projects.md#実行時の隔離ではない)）。
+プロジェクトはワークスペース内のディレクトリで、アプリデータの SQLite へ保存する（再起動後も残る。詳細は [persistence.md](persistence.md)）。`cwd` はワークスペース root（`health.cwd` = `PI_APP_CWD`）相対の正規化パスで、root 自身（`""` / `"."`）は登録できない（未所属セッションの作業場所）。セッションの作業ディレクトリは所属プロジェクトの `cwd` を root と結合して決まる。未所属セッションだけは `POST /api/sessions/:id/move` で別のスペースへ引っ越せ、作業ディレクトリも移動先のパスへ移る（プロジェクト所属は変えられない。履歴は破棄される）。実行時の分離は「`write` / `edit` と `bash` の書き込みを作業ディレクトリへ閉じ込める」までで、読み取り・プロセス・ポートは共有する（詳細は [projects.md](projects.md#実行時の隔離ではない)）。
 
 ```json
 {
