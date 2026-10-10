@@ -9,3 +9,6 @@ __pycache__/
 
 # Ignore local settings for Claude
 .claude/settings.local.json
+
+# Ignore Playwright screenshots taken during manual UI checks
+screenshots/
