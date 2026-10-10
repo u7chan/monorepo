@@ -14,7 +14,7 @@ pi SDK はコンテキストが上限に近づくと会話を自動で compactio
 | --- | --- |
 | 区切り | 圧縮イベントごとに 1 行出す。例 `ここで会話を圧縮しました（自動: 68k tokens から）`。文言は `client/src/lib/compaction.ts` の純関数が持ち、compact（portrait / landscape）でも出す |
 | 理由 | `manual` = 手動 / `threshold` = 自動 / `overflow` = 上限超過。区切りと要約一覧の両方で区別する |
-| 数値 | 区切りに出すのは `tokensBefore` のみ（pi TUI と同じ）。`estimatedTokensAfter` は推定値であり Context ゲージ（provider 実測）と食い違って見えるため出さない。DTO には保持する |
+| 数値 | 区切りに出すのは `tokensBefore`（pi TUI と同じ）と、圧縮にかかった時間（`CompactionInfo.durationMs` を `formatDurationMs` で整形した値。summary の右端で `要約` の左に、ラベルを付けずに出す。測るのは手動 / 自動の両方で、失敗・中止のときは区切りごと出さないため載らない。ラベルを付けないのは区切りの文が何の時間かを説明しているため）。`estimatedTokensAfter` は推定値であり Context ゲージ（provider 実測）と食い違って見えるため出さない。DTO には保持する |
 | 要約 | 各区切りを折りたたみ（既定は畳む）にし、その圧縮の要約を「N回目」の通し番号付きで出す。過去の圧縮も発生位置で読める |
 | 位置 | 区切りは全履歴の entry 順で決める（`HistoryItem` の compaction item）。旧 payload（全履歴 API 無し）では最新の 1 件の `beforeMessageIndex` だけを使う |
 | 圧縮前の元メッセージ | 全履歴 API（[api-sessions.md](api-sessions.md#get-apisessionsidhistory)）で遡って読める。要約で置き換わった範囲は薄暗く、「要約済み」タグを付ける |

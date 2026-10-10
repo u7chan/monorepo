@@ -1,6 +1,7 @@
 import { cn } from "../../lib/cn";
 import { compactionDividerLabel, compactionHistoryLabel, compactionSummaryHeading } from "../../lib/compaction";
 import { messageColumnClass } from "../../lib/messageColumn";
+import { formatDurationMs } from "../../lib/usageFormat";
 import type { CompactionInfo } from "../../types";
 import { DisclosureChevronIcon } from "../icons";
 
@@ -33,6 +34,11 @@ export function CompactionDivider({
       >
         <DisclosureChevronIcon />
         <span className="min-w-0 flex-1 text-1xs leading-relaxed">{compactionDividerLabel(latest)}</span>
+        {latest.durationMs !== undefined ? (
+          <span className="shrink-0 font-sans text-3xs whitespace-nowrap text-ink-faint tabular-nums">
+            {formatDurationMs(latest.durationMs)}
+          </span>
+        ) : null}
         <span className="shrink-0 font-sans text-3xs text-ink-faint">
           {compactions.length > 1 ? `${compactions.length}件` : "要約"}
         </span>

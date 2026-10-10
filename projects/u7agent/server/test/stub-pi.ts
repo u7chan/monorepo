@@ -129,6 +129,16 @@ export interface StubSessionOptions {
   /** BFF からの手動 compaction (引数なしの compact()) に使う options */
   manualCompaction?: StubCompactionOptions;
   /**
+   * BFF からの手動 compaction に使う options の列。呼び出しごとに先頭から 1 件消費し、尽きたら
+   * `manualCompaction` へ戻る。成功と失敗を 1 つの fixture で順に見るために使う
+   */
+  manualCompactions?: StubCompactionOptions[];
+  /**
+   * 本文キーワードで起こす preflight (自動) compaction。option 未設定なら完全に no-op。
+   * キーワードは既存のトリガー (`連続ツール` / `畳み窓` / investigate の依頼文) と衝突しない語にする
+   */
+  preflightCompaction?: StubKeywordCompaction;
+  /**
    * investigate の呼び出しと進捗。実モデルの代わりに、prompt 中へ tool_execution_start →
    * tool_execution_update ×N → tool_execution_end を流し、live 行の配信経路だけを再現する
    */
@@ -175,6 +185,14 @@ export interface StubSessionEntry {
   modelId?: string;
   /** type === "thinking_level_change" */
   thinkingLevel?: string;
+}
+
+/** 本文キーワードで起こす preflight (自動) compaction */
+export interface StubKeywordCompaction {
+  /** この語を本文に含む送信のときだけ、user message を積む前に流す */
+  prompt: string;
+  /** compact() へ渡す options。省略は既定 (reason は threshold = 自動) */
+  compaction?: StubCompactionOptions;
 }
 
 /** investigate の進捗を模す。progress の各要素が 1 回の tool_execution_update になる */
@@ -488,7 +506,9 @@ export function createStubSession(options: StubSessionOptions = {}): StubSession
      */
     async compact(instructionsOrOptions?: string | StubCompactionOptions) {
       const fromBff = instructionsOrOptions === undefined || typeof instructionsOrOptions === "string";
-      const compaction: StubCompactionOptions = fromBff ? (options.manualCompaction ?? {}) : instructionsOrOptions;
+      const compaction: StubCompactionOptions = fromBff
+        ? (options.manualCompactions?.shift() ?? options.manualCompaction ?? {})
+        : instructionsOrOptions;
       // 手動 (BFF / 文字列) は manual、テストの object 指定は従来どおり threshold を既定にする
       const reason = compaction.reason ?? (fromBff ? "manual" : "threshold");
       const outcome = compaction.outcome ?? "ok";
@@ -594,6 +614,12 @@ export function createStubSession(options: StubSessionOptions = {}): StubSession
         // 実 SDK は送信メッセージを組み立てる前に preflight の compaction を走らせる
         const preflight = options.preflightCompactions?.shift();
         if (preflight) await session.compact(preflight);
+        // 本文キーワードで起こす自動 compaction (option 未設定なら完全に no-op)。実 SDK と同じく
+        // user message を積む前なので、区切りはこの送信の手前に位置する
+        const keywordCompaction = options.preflightCompaction;
+        if (keywordCompaction && text.includes(keywordCompaction.prompt)) {
+          await session.compact(keywordCompaction.compaction ?? {});
+        }
         session.emit({ type: "agent_start" });
         // SDK と同じく、履歴に積む時点の時刻をメッセージへ持たせる (assistant は生成開始時刻)。
         // 実 SDK は prompt メッセージにも message_start / message_end を出し、message_end の時点で agent state へ入れる。
@@ -830,6 +856,10 @@ export interface StubPiOptions {
   preflightCompactions?: Array<StubCompactionOptions | null>;
   /** BFF からの手動 compaction (引数なしの compact()) に使う options */
   manualCompaction?: StubCompactionOptions;
+  /** 呼び出しごとに 1 件消費する手動 compaction の options (StubSessionOptions と同じ) */
+  manualCompactions?: StubCompactionOptions[];
+  /** 本文キーワードで起こす preflight (自動) compaction (StubSessionOptions と同じ) */
+  preflightCompaction?: StubKeywordCompaction;
   /** investigate の live 行を fixture で見るための進捗 (StubSessionOptions と同じ) */
   investigateProgress?: StubInvestigateProgress;
   /** 連続するツール呼び出しの live 受入 (StubSessionOptions と同じ) */

@@ -11,6 +11,7 @@ import type {
   MessageMetrics,
   ModelRef,
   RunErrorCode,
+  RunOutcome,
   RunRetryState,
   RunStatus,
   ThinkingLevel,
@@ -44,6 +45,8 @@ export interface RunState {
 export interface CompactionMeta {
   reason?: CompactionReason;
   estimatedTokensAfter?: number;
+  /** BFF 計測の圧縮時間。失敗・中止では記録しない (区切りごと出さない) */
+  durationMs?: number;
 }
 
 export interface SessionSubscriber {
@@ -142,6 +145,11 @@ export interface SessionRecord {
   sendsError?: string;
   /** compaction entry id -> entry に保存されない表示用の値 (compaction_end 受信時に控える) */
   compactionMeta: Map<string, CompactionMeta>;
+  /**
+   * run id -> ラン全体の所要時間と終端の結末 (finish() で控える)。履歴の user item とライブのパブルへ
+   * 写す値の正で、`toolTimings` と同じくメモリのみ・セッションの寿命
+   */
+  runOutcomes: Map<string, { durationMs: number; outcome: RunOutcome }>;
   /** 設定変更中フラグ。非同期 setModel の間、送信と二重変更を 409 で拒否する */
   changingSettings: boolean;
   /**

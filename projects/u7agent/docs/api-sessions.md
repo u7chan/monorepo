@@ -188,6 +188,7 @@ JSONL が破損している（SDK が追記する entry type / message role を 
 - `summary` は他の出力と同じく、既知の秘密値を `[REDACTED]` に置き換えてから配る。SDK 側の entry は書き換えない
 - `beforeMessageIndex` は区切りを置く `messages` の index（この index の手前。`messages.length` なら末尾）で、**最新の 1 件だけ**が持つ。位置は `messages` と同じ集合を数えて求め（entry は「compaction より手前か」の判定だけに使う）、SDK が context を組み替えても `messages` とずれない。SDK は最新の compaction しか context に残さないため、以前の圧縮位置は `messages` から復元できない。回数は `compactions.length` で示し、過去分は要約の一覧として読む
 - `reason`（`manual` / `threshold` / `overflow`）と `estimatedTokensAfter` は `CompactionEntry` に保存されず `compaction_end` にしか無いため、BFF がイベント受信時に entry id ごとに控えて payload 組み立て時に合成する。控えは揮発で、BFF の再起動後はキーを省略する（`reason` が無くても `tokensBefore` だけで表示は成立する）
+- `durationMs` は `compaction_start` から `compaction_end` の到着までを BFF が測った圧縮時間（手動 / 自動の両方）で、`reason` と同じ控えから合成する。失敗・中止のときは `compaction_end` を記録しないため載らない（区切りごと出さない現行の挙動を変えない）。表示は [compaction.md](compaction.md#表示仕様) を正とする
 - `tokensBefore` は最後の assistant の usage と末尾メッセージの推定を足した SDK の `estimateContextTokens()` の値で、プロバイダの実測そのものではない。`estimatedTokensAfter` は `estimateMessagesTokens()` の推定値で、初期 UI には出さない（Context ゲージは provider 実測のため、並べると食い違いに見える）
 - 圧縮で context から外れたメッセージは `messages` から消える（`messages` は有効コンテキストの投影）。圧縮前の元メッセージは `history` API で全履歴として読める。`messages` に role `compactionSummary` のメッセージは載せない
 
@@ -223,6 +224,7 @@ GET /api/sessions/:id/history?limit=50&before=<itemId>
 - 存在しないカーソルは空の成功へ縮退させず 400（`{ "error": "Unknown history cursor" }`）。存在しないセッションは 404
 - item の `id` は SDK entry の id（id を持たない旧履歴だけ `legacy-<entry index>`）。`context` は `active`（現在も生の context にある）/ `summarized`（最新の compaction の `firstKeptEntryId` より手前）/ `excluded`（`context_edit` で外れた）で、判定は [compaction.md](compaction.md#全履歴の表示閲覧と段階読み込み) を正とする
 - user item には、その発言を送信した run の `runId` が載る（送信応答 `POST /api/sessions/:id/messages` の `runId` と同じ値）。実行時の対応表（SDK メッセージ → run id）を先に引き、再起動後は JSONL の entry に写した注記（`u7agentRunId`。[session-files.md](session-files.md#sendsjson-と-run-id-の注記)）から復元する。クライアントはこの値で自分の送信エコーを他クライアントの同一文面 item と区別し、`run_start` やページ適用で正しい item へ吸収する。対応が無い旧保存データの item だけが、文書化済みの本文正規形（+ 送信時点の位置 `since`）での縮退対象になる（[frontend.md](frontend.md)）。未送信（下記）の item は存在しないため、同一文面の item が別 run で載っていても吸収されない
+- user item には、そのターンの `runDurationMs` / `runOutcome` も載る。値は `run_end` と同じ定義（キュー待ちを含めず、`run_end.status` を終端の `completed` / `stopped` / `error` へ絞ったもの）で、ターン終端の行の表示に使う。控えは揮発なので BFF の再起動 / アイドル sweep の後は両方とも載らず、クライアントは行ごと出さない（[run-lifecycle.md](run-lifecycle.md#状態)）。
 - キュー待ちの送信にも受け付けた時点で `runId` を振り、応答と、そのメッセージから始まる run の `run_start` で同じ値を使う（旧サーバーは実行中の run の id を返していた）
 - `firstKeptEntryId` は metadata entry を指し得る。その場合も「その entry 以降が有効」として位置だけを使い、メッセージ検索で境界をずらさない
 - `messageCount` / `summarizedMessageCount` はページではなく現行ブランチ全体の値。クライアントは保持済みの古いページの `summarized` を更新するのに使う（この 2 つだけがページ外の全体量を表す）
@@ -478,7 +480,7 @@ SSE（`text/event-stream`）でイベントを購読。カーソルは `Last-Eve
 | `queued` | `{ position, queueDepth, prompt }` |
 | `queue_cleared` | `{ runIds? }`（停止で破棄した待機メッセージの run id。クライアントは該当する送信を「未送信」へ切り替える。旧サーバーは載せない） |
 | `run_retry` | `{ retry, totalRetryCount, serverNow }`（自動再試行の開始 / 再実行開始 / 解除。`retry` は payload の `run.retry` と同じ形で、解除時は `null`） |
-| `run_end` | `{ runId, status, durationMs?, error, errorCode?, messageCount, queueDepth, totalRetryCount?, context? }`（`messageCount` は一覧 API と同じ表示メッセージ数。`durationMs` は BFF 計測のラン全体の所要時間で、キュー待ちは含めず `startRun()` から `finish()` までを測る。完了 / 停止 / エラーのいずれでも載り、クライアントは状態行に「完了（1m 12s）」のように凍結表示する。`errorCode` は `status === "error"` のときだけ載る最終失敗の分類コードで、`error` と組になる） |
+| `run_end` | `{ runId, status, durationMs?, error, errorCode?, messageCount, queueDepth, totalRetryCount?, context? }`（`messageCount` は一覧 API と同じ表示メッセージ数。`durationMs` は BFF 計測のラン全体の所要時間で、キュー待ちは含めず `startRun()` から `finish()` までを測る。完了 / 停止 / エラーのいずれでも載り、クライアントは状態行に「完了（1m 12s）」のように凍結表示し、同じ値と `status` をその run の user パブルへ写してターン終端の行（`Complete · 1m 20s`）に残す（履歴経路は `history` の `runDurationMs` / `runOutcome` が正）。`errorCode` は `status === "error"` のときだけ載る最終失敗の分類コードで、`error` と組になる） |
 | `usage` | `{ usage?, metrics?, context? }`（assistant の `message_end` ごとに 1 件。usage はプロバイダが報告したときだけ、metrics は BFF 計測、context は SDK の `getContextUsage()` だが履歴反映前なので確定値は `run_end` 側） |
 | `compaction` | `{ compaction, count }`（`compaction_end` ごとに 1 件。`compaction` は payload の `compactions` の要素 1 つ、`count` はその時点の累計回数。run の自動圧縮では続けて同じ状態を持つ `resync` が届く（送信メッセージを履歴へ入れる前に圧縮が走った場合は、そのメッセージが入ってから届く）。手動圧縮では resync を配らず、保存の完了後に終端 `resync` が 1 回届く。`result` が無い / `aborted` / `errorMessage` ありのときは `compaction` も `resync` も配らない） |
 | `resync` | セッションペイロード全体（バッファを逃した場合・世代が一致しない場合と、手動圧縮の開始 / 終端） |

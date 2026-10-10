@@ -62,6 +62,8 @@ function bubbleOfItem(
     entryId: item.id,
     context: item.context,
     ...(item.runId !== undefined ? { runId: item.runId } : {}),
+    ...(item.runDurationMs !== undefined ? { runDurationMs: item.runDurationMs } : {}),
+    ...(item.runOutcome !== undefined ? { runOutcome: item.runOutcome } : {}),
     role: item.role,
     text: item.text,
     tools,

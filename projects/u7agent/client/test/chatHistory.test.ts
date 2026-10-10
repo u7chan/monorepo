@@ -11,14 +11,14 @@ import {
   prependHistoryPage,
   rebuildHistoryPage,
 } from "../src/lib/chatHistory";
-import type { CompactionInfo, HistoryItem, HistoryPage } from "../src/types";
+import type { CompactionInfo, HistoryItem, HistoryMessageItem, HistoryPage } from "../src/types";
 
 function message(
   id: string,
   context: "active" | "summarized" | "excluded",
   text: string,
   role: "user" | "assistant" = "user",
-): HistoryItem {
+): HistoryMessageItem {
   return { kind: "message", id, context, role, text };
 }
 
@@ -93,6 +93,26 @@ test("historyItemsToBundle は item を entry id 付きのバブルと区切り�
   assert.equal(bundle.bubbles[0].id, 1);
   assert.equal(bundle.bubbles[1].id, 2);
   assert.equal(bundle.nextId, 3);
+});
+
+test("historyItemsToBundle は run の所要時間と結末を user バブルへ写す", () => {
+  // ターン終端行の値の出どころ。runId と組で載り、無い item (再起動後 / 旧サーバー) では載らない
+  const valued: HistoryMessageItem = {
+    ...message("m1", "active", "値のあるターン"),
+    runId: "run-1",
+    runDurationMs: 80_000,
+    runOutcome: "stopped",
+  };
+  const plain = message("m2", "active", "値の無いターン");
+  const bundle = historyItemsToBundle(1, [valued, plain]);
+
+  assert.deepEqual(
+    bundle.bubbles.map((bubble) => [bubble.entryId, bubble.runId, bubble.runDurationMs, bubble.runOutcome]),
+    [
+      ["m1", "run-1", 80_000, "stopped"],
+      ["m2", undefined, undefined, undefined],
+    ],
+  );
 });
 
 test("heldHistoryIds は区切りを挟んだ item の並びを返す", () => {
