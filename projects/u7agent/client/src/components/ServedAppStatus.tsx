@@ -144,8 +144,10 @@ export function ServedAppIndicator({ port, status, failed, starting, onStart, on
     if (popover === null || trigger === null) return;
     const viewport = { width: document.documentElement.clientWidth, height: document.documentElement.clientHeight };
     // 幅も viewport の内側に収める。cwd とコマンドは長さが決まらないため、`w-max` のままだと menu が
-    // 画面より広くなり、右端の項目と command が切れる。測る前に書いて、位置と幅を同じ測定で決める
+    // 画面より広くなり、右端の項目と command が切れる。測る前に書いて、位置と大きさを同じ測定で決める
     popover.style.maxWidth = `${Math.max(0, viewport.width - ROW_MENU_MARGIN * 2)}px`;
+    // 折り返した行数も決まらないため、高さも同じく viewport に収める (あふれは menu 内のスクロールへ逃がす)
+    popover.style.maxHeight = `${Math.max(0, viewport.height - ROW_MENU_MARGIN * 2)}px`;
     const { left, top } = rowMenuPlacement(trigger.getBoundingClientRect(), popover.getBoundingClientRect(), viewport);
     popover.style.left = `${left}px`;
     popover.style.top = `${top}px`;
@@ -303,7 +305,7 @@ export function ServedAppIndicator({ port, status, failed, starting, onStart, on
         role="menu"
         aria-labelledby={triggerId}
         onKeyDown={onKeyDown}
-        className="popover-panel fixed inset-auto m-0 w-max min-w-52 overflow-visible rounded-lg border border-line bg-panel p-1 shadow-panel"
+        className="popover-panel fixed inset-auto m-0 w-max min-w-52 overflow-y-auto rounded-lg border border-line bg-panel p-1 shadow-panel"
       >
         <div className="grid gap-1 px-2 pt-1.5 pb-2">
           <span className="inline-flex items-center gap-1.5 text-1xs text-ink">
