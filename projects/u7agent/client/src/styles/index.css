@@ -665,92 +665,215 @@
     border-color: color-mix(in srgb, var(--c-accent) 42%, transparent);
     color: var(--c-accent-text);
   }
-  /* 実行中スピナー。steps の段数はドット数 (icons.tsx の RunSpinnerIcon) に合わせる */
+  /* 実行中スピナー (jump ローダー)。点に閉じた 4 本の弧が開いて回るのを 2 秒で 2 回繰り返す。
+   * dash の値は 240 viewBox の円周 (2πr) をそのまま使うので、寸法を変えるときは
+   * icons.tsx の RUN_SPINNER_ARCS と揃える。色は currentColor なので、置いた場所のトークン
+   * (ComposerStatus は text-ink-soft) がそのまま出る */
   .run-spinner {
-    transform-origin: center;
-    animation: run-spinner-turn 0.8s steps(8, end) infinite;
+    display: block;
   }
-  .typing-dots {
-    @apply inline-flex shrink-0 items-center gap-1;
+  .run-spinner circle {
+    fill: none;
+    stroke: currentColor;
+    stroke-linecap: round;
+    animation-duration: 2s;
+    animation-timing-function: linear;
+    animation-iteration-count: infinite;
   }
-  .typing-dots > span {
-    @apply size-1.5 rounded-full bg-current;
-    animation: typing-dots 1s ease-in-out infinite;
+  .run-spinner-a {
+    animation-name: run-spinner-arc-a;
   }
-  .typing-dots > span:nth-child(2) {
-    animation-delay: 0.2s;
+  .run-spinner-b {
+    animation-name: run-spinner-arc-b;
   }
-  .typing-dots > span:nth-child(3) {
-    animation-delay: 0.4s;
+  .run-spinner-c {
+    animation-name: run-spinner-arc-c;
   }
-  @keyframes typing-dots {
-    0%,
-    100% {
-      opacity: 1;
-      scale: 1;
+  .run-spinner-d {
+    animation-name: run-spinner-arc-d;
+  }
+  @keyframes run-spinner-arc-a {
+    from,
+    4% {
+      stroke-dasharray: 0 660;
+      stroke-width: 20;
+      stroke-dashoffset: -330;
     }
+    12% {
+      stroke-dasharray: 60 600;
+      stroke-width: 30;
+      stroke-dashoffset: -335;
+    }
+    32% {
+      stroke-dasharray: 60 600;
+      stroke-width: 30;
+      stroke-dashoffset: -595;
+    }
+    40%,
+    54% {
+      stroke-dasharray: 0 660;
+      stroke-width: 20;
+      stroke-dashoffset: -660;
+    }
+    62% {
+      stroke-dasharray: 60 600;
+      stroke-width: 30;
+      stroke-dashoffset: -665;
+    }
+    82% {
+      stroke-dasharray: 60 600;
+      stroke-width: 30;
+      stroke-dashoffset: -925;
+    }
+    90%,
+    to {
+      stroke-dasharray: 0 660;
+      stroke-width: 20;
+      stroke-dashoffset: -990;
+    }
+  }
+  @keyframes run-spinner-arc-b {
+    from,
+    12% {
+      stroke-dasharray: 0 220;
+      stroke-width: 20;
+      stroke-dashoffset: -110;
+    }
+    20% {
+      stroke-dasharray: 20 200;
+      stroke-width: 30;
+      stroke-dashoffset: -115;
+    }
+    40% {
+      stroke-dasharray: 20 200;
+      stroke-width: 30;
+      stroke-dashoffset: -195;
+    }
+    48%,
+    62% {
+      stroke-dasharray: 0 220;
+      stroke-width: 20;
+      stroke-dashoffset: -220;
+    }
+    70% {
+      stroke-dasharray: 20 200;
+      stroke-width: 30;
+      stroke-dashoffset: -225;
+    }
+    90% {
+      stroke-dasharray: 20 200;
+      stroke-width: 30;
+      stroke-dashoffset: -305;
+    }
+    98%,
+    to {
+      stroke-dasharray: 0 220;
+      stroke-width: 20;
+      stroke-dashoffset: -330;
+    }
+  }
+  @keyframes run-spinner-arc-c {
+    from {
+      stroke-dasharray: 0 440;
+      stroke-width: 20;
+      stroke-dashoffset: 0;
+    }
+    8% {
+      stroke-dasharray: 40 400;
+      stroke-width: 30;
+      stroke-dashoffset: -5;
+    }
+    28% {
+      stroke-dasharray: 40 400;
+      stroke-width: 30;
+      stroke-dashoffset: -175;
+    }
+    36%,
+    58% {
+      stroke-dasharray: 0 440;
+      stroke-width: 20;
+      stroke-dashoffset: -220;
+    }
+    66% {
+      stroke-dasharray: 40 400;
+      stroke-width: 30;
+      stroke-dashoffset: -225;
+    }
+    86% {
+      stroke-dasharray: 40 400;
+      stroke-width: 30;
+      stroke-dashoffset: -395;
+    }
+    94%,
+    to {
+      stroke-dasharray: 0 440;
+      stroke-width: 20;
+      stroke-dashoffset: -440;
+    }
+  }
+  @keyframes run-spinner-arc-d {
+    from,
+    8% {
+      stroke-dasharray: 0 440;
+      stroke-width: 20;
+      stroke-dashoffset: 0;
+    }
+    16% {
+      stroke-dasharray: 40 400;
+      stroke-width: 30;
+      stroke-dashoffset: -5;
+    }
+    36% {
+      stroke-dasharray: 40 400;
+      stroke-width: 30;
+      stroke-dashoffset: -175;
+    }
+    44%,
     50% {
-      opacity: 0.75;
-      scale: 0.75;
+      stroke-dasharray: 0 440;
+      stroke-width: 20;
+      stroke-dashoffset: -220;
+    }
+    58% {
+      stroke-dasharray: 40 400;
+      stroke-width: 30;
+      stroke-dashoffset: -225;
+    }
+    78% {
+      stroke-dasharray: 40 400;
+      stroke-width: 30;
+      stroke-dashoffset: -395;
+    }
+    86%,
+    to {
+      stroke-dasharray: 0 440;
+      stroke-width: 20;
+      stroke-dashoffset: -440;
     }
   }
+  /* 動きを止める設定では属性の dash (0 長 + round cap = 点) のまま止まる */
   @media (prefers-reduced-motion: reduce) {
-    .typing-dots > span {
+    .run-spinner circle {
       animation: none;
     }
   }
-  @media (forced-colors: active) {
-    .typing-dots > span {
-      background: CanvasText;
-    }
-  }
 
-  /* 実行中インジケータの経過時間 (ComposerStatus)。数字は毎秒 key の再マウントで作り直される
-   * ため、animation は 1 回流すだけでよい。CSS の 1 秒ループは interval の遅れで数字と
-   * 位相がずれ、戻らない。--elapsed-rest は演出が終わったあとの色で、animation-fill-mode の
-   * 100% が残っても長いランの色分け (elapsed-tick-tier) が効くようにする。 */
-  .elapsed-tick {
+  /* 実行中インジケータの経過時間 (ComposerStatus)。桁は毎秒書き換わるが、演出は 10 秒の拍ごとに
+   * key の再マウントで先頭から流す (CSS 側のループにすると interval の遅れで数字と位相がずれ、
+   * 戻らない)。下線・毎秒のポップ・節目のリングと揺れは置かない (理由は docs/frontend.md)。
+   * --elapsed-rest は拍が終わったあとの色で、animation-fill-mode の 100% が残っても長いランの
+   * 色分け (elapsed-beat-tier) が効くようにする */
+  .elapsed-beat {
     --elapsed-rest: var(--c-ink-ghost);
-    position: relative;
     display: inline-block;
     color: var(--elapsed-rest);
-    animation: elapsed-tick-pop 300ms cubic-bezier(0.22, 1.15, 0.36, 1) both;
-  }
-  /* 次の 1 秒までの残りを下線で見せる。数字が変わる瞬間に満ちきる */
-  .elapsed-tick::after {
-    content: "";
-    position: absolute;
-    left: 0;
-    right: 0;
-    bottom: -3px;
-    height: 1.5px;
-    border-radius: 2px;
-    background: var(--c-focus);
-    transform-origin: left center;
-    animation: elapsed-tick-sweep 1s linear both;
-  }
-  /* 節目は大きく弾け、数字の後ろにリングを出す */
-  .elapsed-tick-level {
-    animation: elapsed-tick-level 620ms cubic-bezier(0.2, 1.2, 0.3, 1) both;
-  }
-  .elapsed-tick-level::before {
-    content: "";
-    position: absolute;
-    inset: -2px -5px;
-    border: 1px solid var(--c-focus);
-    border-radius: 999px;
-    background: var(--c-accent-wash);
-    animation: elapsed-tick-ring 700ms ease-out both;
+    animation: elapsed-beat-pop 300ms cubic-bezier(0.22, 1.15, 0.36, 1) both;
   }
   /* 1 分を超えたら色を残す (長いランを一目で見分ける。停止の判定には使わない) */
-  .elapsed-tick-tier {
+  .elapsed-beat-tier {
     --elapsed-rest: var(--c-accent-text);
   }
-  /* 節目は行ごと 1px 揺らす。translate だけなので折り返しは動かない */
-  .elapsed-row-level {
-    animation: elapsed-row-shake 260ms ease-out both;
-  }
-  @keyframes elapsed-tick-pop {
+  @keyframes elapsed-beat-pop {
     0% {
       scale: 1;
       color: var(--elapsed-rest);
@@ -767,80 +890,10 @@
       text-shadow: none;
     }
   }
-  @keyframes elapsed-tick-level {
-    0% {
-      scale: 1;
-      color: var(--elapsed-rest);
-      text-shadow: none;
-    }
-    10% {
-      scale: 1.65;
-      color: var(--c-accent-bright);
-      text-shadow: 0 0 8px color-mix(in srgb, currentColor 80%, transparent);
-    }
-    34% {
-      scale: 1.15;
-      color: var(--c-accent-text);
-    }
-    100% {
-      scale: 1;
-      color: var(--elapsed-rest);
-      text-shadow: none;
-    }
-  }
-  @keyframes elapsed-tick-sweep {
-    from {
-      scale: 0 1;
-    }
-    to {
-      scale: 1 1;
-    }
-  }
-  @keyframes elapsed-tick-ring {
-    0% {
-      opacity: 0;
-      scale: 0.6;
-    }
-    22% {
-      opacity: 1;
-      scale: 1;
-    }
-    100% {
-      opacity: 0;
-      scale: 1;
-    }
-  }
-  @keyframes elapsed-row-shake {
-    0%,
-    100% {
-      translate: 0;
-    }
-    25% {
-      translate: -1.5px 0;
-    }
-    55% {
-      translate: 1.5px 0;
-    }
-    80% {
-      translate: -0.5px 0;
-    }
-  }
-  /* 動きを止める設定では装飾ごと外す (数字と長いランの色はそのまま出る) */
+  /* 動きを止める設定では演出だけを外す (数字と長いランの色はそのまま出る) */
   @media (prefers-reduced-motion: reduce) {
-    .elapsed-tick,
-    .elapsed-tick-level,
-    .elapsed-row-level {
+    .elapsed-beat {
       animation: none;
-    }
-    .elapsed-tick::after,
-    .elapsed-tick-level::before {
-      display: none;
-    }
-  }
-  @media (forced-colors: active) {
-    .elapsed-tick::after,
-    .elapsed-tick-level::before {
-      display: none;
     }
   }
 
@@ -1002,17 +1055,6 @@
   body.is-resizing-row .file-tree-height-handle {
     background: var(--c-accent);
   }
-  @keyframes run-spinner-turn {
-    to {
-      transform: rotate(360deg);
-    }
-  }
-  @media (prefers-reduced-motion: reduce) {
-    .run-spinner {
-      animation: none;
-    }
-  }
-
   /* 生成中の活動ラベル (「考え中…」) に光を流す。グラデーションを文字でクリップし、
    * 背景の位置だけを動かす (アニメーションの依存は増やさない)。当てるのは折り返さない短い
    * ラベルだけにする: 複数行になると帯が行ごとに切れ、移動ではなく汚れに見える。
