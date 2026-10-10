@@ -19,10 +19,13 @@ function settleQuestion(pending: PendingQuestion, finish: () => void): void {
  * 純関数・アダプタへ出す。
  */
 import { randomBytes } from "node:crypto";
+import { dirname } from "node:path";
 import { spaceIdOf } from "./spaces";
-import { workspaceAbs } from "./app-paths";
+import { sessionUploadsRel, workspaceAbs } from "./app-paths";
 import { SANDBOX_NOT_CONFIGURED_MESSAGE, type PiBff } from "./agent";
 import { composePromptSnapshot } from "./agent";
+import type { CwdKeyStore } from "./app-db";
+import { sandboxFailureStatus } from "./http";
 import type { AgentCatalog } from "./agents";
 import { createInvestigateRunner, type InvestigateRunner } from "./investigate-runner";
 import type { InvestigateHost } from "./investigate-tool";
@@ -48,7 +51,7 @@ import type {
 import { projectSessionPayload, projectSessionSummary } from "./session-payload";
 import { RunOutcomeSchema } from "./schema";
 import { displayableMessages, truncate } from "./session-projection";
-import type { SandboxWorkspaceClient } from "./sandbox/client";
+import type { SandboxMoveClient, SandboxWorkspaceClient } from "./sandbox/client";
 import { SandboxRequestError } from "./sandbox/client";
 import {
   SessionDamagedError,
@@ -62,6 +65,7 @@ import {
   entryRunIdsFromJsonl,
   readSessionSends,
   removeSessionDir,
+  removeSessionHistory,
   sessionHeaderOf,
   sessionJsonlPath,
   sessionWorkdirRel,
@@ -85,6 +89,7 @@ import type {
   Project,
   RunStatus,
   SessionCompactionResult,
+  SessionMoveResponse,
   SessionNotifyResponse,
   SessionPinnedResponse,
   SessionPayload,
@@ -158,6 +163,10 @@ export interface SessionStoreOptions {
   storeError?: string;
   /** 作業フォルダを mkdir するサンドボックスクライアント (永続化ありのとき必須) */
   workspace?: SandboxWorkspaceClient | null;
+  /** 引っ越しで作業フォルダ / 添付を移すサンドボックス。未指定は移動を 503 にする (workspace スタブを広げない) */
+  moveSandbox?: SandboxMoveClient | null;
+  /** cwd をキーにする行 (secrets / serve_commands) の付け替え。未指定は付け替えない (テスト) */
+  cwdKeys?: CwdKeyStore | null;
   /** BFF 側のワークスペース root (作業フォルダの絶対パス解決用) */
   rootCwd?: string;
   /** 完了通知の送信先。未指定なら通知しない (テスト・未設定のデプロイ) */
@@ -252,6 +261,10 @@ export class SessionStore {
   storeDir: string | null;
   /** 作業フォルダの作成に使う。BFF は作業領域のファイルを直接触らない */
   workspace: SandboxWorkspaceClient | null;
+  /** 引っ越しの物理移動に使う。null は移動を 503 にする */
+  moveSandbox: SandboxMoveClient | null;
+  /** 引っ越しで cwd をキーにする行を付け替えるアプリ DB。null は付け替えない */
+  cwdKeys: CwdKeyStore | null;
   rootCwd: string;
   /** ストア上のメタデータ。live な record の分も持つ */
   descriptors: Map<string, SessionMeta>;
@@ -284,6 +297,8 @@ export class SessionStore {
     storeDir,
     storeError,
     workspace,
+    moveSandbox,
+    cwdKeys,
     rootCwd,
     notifications,
     writeSends,
@@ -296,6 +311,8 @@ export class SessionStore {
     this.storeDir = storeDir ?? null;
     this.storeError = storeError;
     this.workspace = workspace ?? null;
+    this.moveSandbox = moveSandbox ?? null;
+    this.cwdKeys = cwdKeys ?? null;
     this.rootCwd = rootCwd ?? process.cwd();
     this.notifications = notifications ?? null;
     this.writeSendsFile = writeSends ?? writeSessionSends;
@@ -1390,6 +1407,7 @@ export class SessionStore {
       queueDepth: 0,
       notify: meta.notify === true,
       pinned: meta.pinned === true,
+      canMove: !meta.projectCwd,
       messageCount: meta.messageCount,
       createdAt: meta.createdAt,
       lastUsedAt: meta.lastUsedAt,
@@ -1494,9 +1512,187 @@ export class SessionStore {
     }
   }
 
-  private notifyDeleted(record: SessionRecord): void {
+  /**
+   * 未所属セッションを作業フォルダ / 添付ごと別のスペースへ引っ越す。会話履歴 (session.jsonl /
+   * sends.json) は破棄する不可逆操作で、SDK を開かない (damaged な JSONL やモデル未認証でも移せる)。
+   * meta の書換えまでに失敗したら移したものを逆順で戻し、履歴の削除は最後に置く (次の移動で再試行する)。
+   */
+  async move(id: string, targetSpaceId: string): Promise<SessionMoveResponse | undefined> {
+    const operation = (async () => {
+      // 先行の load / meta 更新 / ピン更新を待つ (record を差し替える前に descriptor を確定させる)
+      for (const pending of [this.lifecycle.get(id), this.metaUpdates.get(id), this.pinUpdates.get(id)]) {
+        if (pending) await pending.catch(() => {});
+      }
+      return this.moveSession(id, targetSpaceId);
+    })();
+    const settled = operation.then(
+      () => {},
+      () => {},
+    );
+    // resolve / deleteSession / sweep を move の完了まで待たせる (setPinned と同じ lifecycle に乗せる)
+    this.lifecycle.set(id, settled);
+    try {
+      return await operation;
+    } finally {
+      if (this.lifecycle.get(id) === settled) this.lifecycle.delete(id);
+    }
+  }
+
+  private async moveSession(id: string, targetSpaceId: string): Promise<SessionMoveResponse | undefined> {
+    const target = spaceIdOf(targetSpaceId);
+    if (this.storeError) throw httpError(503, `会話ストアを利用できません: ${this.storeError}`);
+    if (!this.storeDir) throw httpError(503, "セッションの移動には会話ストアが必要です");
+    if (!this.moveSandbox || !this.workspace) throw httpError(503, SANDBOX_NOT_CONFIGURED_MESSAGE);
+    const live = this.records.get(id);
+    const meta = live?.meta ?? this.descriptors.get(id);
+    if (!meta) return undefined;
+    const fromSpace = meta.spaceId ?? "default";
+    if (fromSpace === target) throw httpError(400, "同じスペースへは移動できません");
+    if (meta.projectCwd) throw httpError(400, "プロジェクト所属のセッションは移動できません");
+    // スクラッチ以外 (projectCwd の残骸など) を動かさないための不変条件
+    const fromWorkdir = live?.workdir ?? this.workdirOf(id, meta.projectCwd, fromSpace);
+    if (fromWorkdir !== sessionWorkdirRel(id, fromSpace)) {
+      throw httpError(400, "移動できるのはセッション専用の作業フォルダだけです");
+    }
+    if (live && (this.isBusy(live) || live.session.isStreaming || live.changingSettings)) {
+      throw httpError(409, "実行中・キュー中・設定変更中のセッションは移動できません");
+    }
+
+    const storeDir = this.storeDir;
+    const moveSandbox = this.moveSandbox;
+    const workspace = this.workspace;
+    const toWorkdir = sessionWorkdirRel(id, target);
+    const fromUploads = sessionUploadsRel(id, fromSpace);
+    const toUploads = sessionUploadsRel(id, target);
+    // 古い値の保存が移動後の meta を上書きしないよう、先に drain する
+    if (live) await this.drainRecordWrites(live);
+    // drain 中の setNotify / setTitle / setPinned を落とさないよう、最新の meta から組み立てる
+    const current = live?.meta ?? this.descriptors.get(id) ?? meta;
+
+    // meta 書換えより前の失敗だけを戻す。移動先に残った空ディレクトリは無害なので消さない
+    const undo: Array<() => Promise<void> | void> = [];
+    const rollback = async (): Promise<string | undefined> => {
+      let failure: string | undefined;
+      for (const step of [...undo].reverse()) {
+        try {
+          await step();
+        } catch (error) {
+          failure = failure ?? messageFor(error);
+        }
+      }
+      return failure;
+    };
+    const abortMove = async (): Promise<undefined> => {
+      const failure = await rollback();
+      if (failure) throw httpError(500, `移動を中止し、元の場所へ戻せませんでした: ${failure}`);
+      return undefined;
+    };
+    const failMove = async (error: unknown): Promise<never> => {
+      const failure = await rollback();
+      if (failure) throw httpError(500, `移動に失敗し、元の場所へ戻せませんでした: ${failure}`);
+      throw error instanceof SandboxRequestError ? httpError(sandboxFailureStatus(error), error.message) : error;
+    };
+
+    const updated: SessionMeta = { ...current, spaceId: target, lastUsedAt: Date.now(), messageCount: 0 };
+    try {
+      // 移動先の親は move が要求する (既存ディレクトリは成功扱いなので再実行でも冪等)
+      await workspace.createDir(dirname(toWorkdir));
+      await workspace.createDir(dirname(toUploads));
+      if (this.moveAborted(id)) return abortMove();
+
+      if (await this.moveSandboxEntry(moveSandbox, fromWorkdir, toWorkdir)) {
+        undo.push(async () => {
+          await moveSandbox.moveEntry(toWorkdir, fromWorkdir);
+        });
+      }
+      if (this.moveAborted(id)) return abortMove();
+
+      if (await this.moveSandboxEntry(moveSandbox, fromUploads, toUploads)) {
+        undo.push(async () => {
+          await moveSandbox.moveEntry(toUploads, fromUploads);
+        });
+      }
+      if (this.moveAborted(id)) return abortMove();
+
+      // cwd をキーにする行は移動先へ付け替える (値の AAD は cwd を含まないので再暗号化は不要)
+      try {
+        this.cwdKeys?.moveCwd(fromWorkdir, toWorkdir);
+      } catch (error) {
+        throw httpError(500, `環境変数とサービス実績の付け替えに失敗しました: ${messageFor(error)}`);
+      }
+      undo.push(() => this.cwdKeys?.moveCwd(toWorkdir, fromWorkdir));
+
+      await writeSessionMeta(storeDir, updated);
+      this.descriptors.set(id, updated);
+      if (live) live.meta = updated;
+    } catch (error) {
+      return failMove(error);
+    }
+
+    // ここから先は meta が移動済み。失敗しても戻さず、次の移動で履歴の削除を再試行する
+    if (live) {
+      live.session.dispose?.();
+      this.records.delete(id);
+      // dispose 後の書込みを drain してから消す (削除後に書き戻されて未送信が復活しないように)
+      await this.drainRecordWrites(live);
+    }
+    try {
+      await removeSessionHistory(storeDir, id);
+    } catch (error) {
+      if (live) this.closeSubscribers(live);
+      throw httpError(500, `移動は完了しましたが、会話履歴を削除できませんでした: ${messageFor(error)}`);
+    }
+    if (live) this.closeSubscribers(live);
+    return { sessionId: id, title: updated.title || "無題のセッション", spaceId: target };
+  }
+
+  /** 削除予約 / close を検出する。move は各 await の後でこれを見てロールバックする */
+  private moveAborted(id: string): boolean {
+    return this.deleting.has(id) || this.closing;
+  }
+
+  /**
+   * 作業フォルダ / 添付を 1 つ移す。元が無い (404) は「運ぶものが無い」として false を返し、
+   * 移動先が既にある (409) はマージできないため、手動での退避先の削除を案内する。
+   */
+  private async moveSandboxEntry(client: SandboxMoveClient, from: string, to: string): Promise<boolean> {
+    try {
+      await client.moveEntry(from, to);
+      return true;
+    } catch (error) {
+      if (!(error instanceof SandboxRequestError)) throw error;
+      if (error.status === 404) return false;
+      if (error.status === 409) {
+        throw httpError(
+          409,
+          `移動先に既存のエントリがあります。退避先を削除してから再実行してください: ${error.message}`,
+        );
+      }
+      throw error;
+    }
+  }
+
+  /** 進行中の保存を待つ (移動で meta を書き換える前に古い値の書込みを終わらせる) */
+  private async drainRecordWrites(record: SessionRecord): Promise<void> {
+    await record.persistTail.catch(() => {});
+    await record.writer?.flush().catch(() => {});
+  }
+
+  /** 購読中の SSE を閉じる (移動は削除ではないためイベントは送らない。クライアントは一覧を取り直す) */
+  private closeSubscribers(record: SessionRecord): void {
     const subscribers = [...record.subscribers];
     record.subscribers.clear();
+    for (const subscriber of subscribers) {
+      try {
+        subscriber.close?.();
+      } catch {
+        // すでに切断済みの購読者
+      }
+    }
+  }
+
+  private notifyDeleted(record: SessionRecord): void {
+    const subscribers = [...record.subscribers];
     for (const subscriber of subscribers) {
       try {
         subscriber.send({
@@ -1508,12 +1704,8 @@ export class SessionStore {
       } catch {
         // すでに切断済みの購読者
       }
-      try {
-        subscriber.close?.();
-      } catch {
-        // 同上
-      }
     }
+    this.closeSubscribers(record);
   }
 
   /**

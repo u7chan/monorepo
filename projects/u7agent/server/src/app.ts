@@ -35,6 +35,7 @@ import {
   CreateSecretBodySchema,
   CreateSessionBodySchema,
   CreateSkillBodySchema,
+  MoveSessionBodySchema,
   PostMessageBodySchema,
   RenameFileBodySchema,
   UpdateAgentBodySchema,
@@ -131,7 +132,7 @@ export async function createBffApp(opts: CreateBffAppOptions = {}) {
   const previewFileRoutes = createFileRoutes({ workspace, archiveSettings, sandbox: "storage" });
   const catalogRoutes = createCatalogRoutes({ catalog, workspace, rootCwd: cwd });
   const projectRoutes = createProjectRoutes({ projects, store, workspace });
-  const sessionRoutes = createSessionRoutes({ store, workspace });
+  const sessionRoutes = createSessionRoutes({ store, workspace, spaces });
   const notificationRoutes = createNotificationRoutes({ notifications });
   const archiveRoutes = createArchiveRoutes({ archiveSettings });
   const modelSettingsRoutes = createModelSettingsRoutes({ modelSettings });
@@ -293,6 +294,15 @@ export async function createBffApp(opts: CreateBffAppOptions = {}) {
         result.success ? undefined : c.json({ error: "title is required" }, 400),
       ),
       (c) => sessionRoutes.updateTitle(c, c.req.valid("json")),
+    )
+    // セッションの引っ越し。履歴は破棄され、作業フォルダ / 添付 / cwd キーの行が移動先へ移る
+    .post(
+      "/api/sessions/:id/move",
+      appDataMutation,
+      zValidator("json", MoveSessionBodySchema, (result, c) =>
+        result.success ? undefined : c.json({ error: "spaceId is required" }, 400),
+      ),
+      (c) => sessionRoutes.move(c, c.req.valid("json")),
     )
     .get("/api/sessions/:id", appData, sessionRoutes.get)
     // 全履歴のカーソルページ。`:id` より深いパスのため順序に依存しないが、:id の近くに置く

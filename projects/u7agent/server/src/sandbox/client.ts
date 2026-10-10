@@ -217,6 +217,12 @@ export type SandboxWorkspaceClient = Pick<
 >;
 
 /**
+ * セッションの引っ越し (作業フォルダ / 添付の移動) が使うサンドボックス機能。workspace のスタブを
+ * 広げないよう型を分ける (親ディレクトリの作成は workspace 側の createDir を使う)。
+ */
+export type SandboxMoveClient = Pick<SandboxToolClient, "moveEntry">;
+
+/**
  * serve の記録の読み書きと起動・停止が使うサンドボックス機能。workspace のスタブへ execute を
  * 要求しないよう型を分ける。使うのは既存のツール実行と、待受プロセスの観測だけ。
  */

@@ -6,7 +6,7 @@
 
 作成の本文以外は、全会話 API（SSE・添付も含む）へ `?spaceId=<id>` を渡す。省略は通常 `default`。所属不一致は SDK 復元や変更の前に 404 とする（[api.md](api.md#スペース)）。一覧は要求スペースだけを返し、未指定一覧に追加スペースを混ぜない。`SessionSummary` / `SessionPayload` は正規化した `spaceId` を返す。
 
-`POST /api/sessions` の optional `spaceId` は本文で指定し、会話の所属は作成後に変更しない。追加スペースと `projectId` の併用は 400。追加スペースの cwd は `.u7agent/spaces/<spaceId>/sessions/<sessionId>`、添付は同階層の `uploads/<sessionId>` とし、その会話の添付だけを送信時に許容する。通常の cwd・添付・既存参照は変えない。未確定会話の `GET /api/skills/session` も query の所属を確認し、追加スペースでは `projectId` を拒否する。
+`POST /api/sessions` の optional `spaceId` は本文で指定する。所属を後から変えるのは `POST /api/sessions/:id/move` だけで、履歴を破棄して作業フォルダ / 添付を移動先へ物理移動する（同 API の節を参照）。追加スペースと `projectId` の併用は 400。追加スペースの cwd は `.u7agent/spaces/<spaceId>/sessions/<sessionId>`、添付は同階層の `uploads/<sessionId>` とし、その会話の添付だけを送信時に許容する。通常の cwd・添付・既存参照は変えない。未確定会話の `GET /api/skills/session` も query の所属を確認し、追加スペースでは `projectId` を拒否する。
 
 ## `GET /api/sessions`
 
@@ -23,6 +23,7 @@
       "status": "running",
       "queueDepth": 0,
       "pinned": false,
+      "canMove": true,
       "messageCount": 4,
       "createdAt": 1700000000000,
       "lastUsedAt": 1700000001000,
@@ -33,7 +34,7 @@
 }
 ```
 
-`pinned` はサイドバーで固定するかを示す（常に boolean）。`projectId` は所属プロジェクト（未所属はキーを省略する）。所属は保存された `projectCwd` をプロジェクト一覧と突き合わせて読み取り時に解決するため、プロジェクトを解除すると配下セッションは未所属として返る（セッションと履歴・ピン状態は残る）。復元したセッションも同じ規則で解決する。
+`pinned` はサイドバーで固定するかを示す（常に boolean）。`canMove` は別のスペースへ引っ越せるか（現在は `projectCwd` を持たないこと。省略は false として扱う）。移動の導線はこれだけを見て、プロジェクト所属のセッションに項目を出さない。`projectId` は所属プロジェクト（未所属はキーを省略する）。所属は保存された `projectCwd` をプロジェクト一覧と突き合わせて読み取り時に解決するため、プロジェクトを解除すると配下セッションは未所属として返る（セッションと履歴・ピン状態は残る）。復元したセッションも同じ規則で解決する。
 
 `messageCount` は表示メッセージ数（`user` と、テキストを持つ `assistant`。ツール呼び出しだけのターンは数えない）で、履歴の生件数ではない。未ロードのセッションは保存された `meta.json` の値、ロード済みは現在の履歴から数えた値を返す（ずれの扱いは [session-files.md](session-files.md)）。
 
@@ -284,6 +285,26 @@ GET /api/sessions/:id/history?limit=50&before=<itemId>
 - 保存に失敗したら 500 を返し、成功扱いにしない。クライアントは失敗時に理由を表示し、未確定の表示を戻す。
 - スペース文脈は他の会話 API と同じく `?spaceId=<id>` で照合し、不一致を変更前に 404 とする。
 
+## `POST /api/sessions/:id/move`
+
+未所属セッションを別のスペースへ引っ越す。**会話履歴（`session.jsonl` / `sends.json`）は破棄され、作業フォルダと添付は移動先のパスへ物理移動する**（不可逆。戻すには逆方向へ移す）。要求元のスペースは query で照合し（他の会話 API と同じ `sessionSpaceGuard`）、移動先は本文で指定する。
+
+```json
+// request (?spaceId=<要求元>)
+{ "spaceId": "space-…" }
+// response (200)
+{ "sessionId": "…", "title": "…", "spaceId": "space-…" }
+```
+
+- 動かせるのは `projectCwd` を持たないセッションだけ（`projectId` は読み取り時の解決値なので判定に使わない。登録解除済みでも `projectCwd` が残るセッションは 400）。現在の作業フォルダが `sessionWorkdirRel(id, 現在のスペース)` と一致しない構成も 400。
+- 維持: `sessionId` / `title` / `agent` / `promptSnapshot` / `model` / `thinkingLevel` / `pinned` / `notify` / `createdAt`。破棄: 履歴と未送信。`messageCount` は 0 になり、`lastUsedAt` は更新する。移動先の所属は `default` も含めて `meta.json` に明示的に書く。
+- **SDK セッションを開かない**ため、JSONL が破損していてもモデル未認証でも移せる（`DELETE` と同じ契約）。live の record は dispose してメモリから外し、購読中の SSE は `session_deleted` を送らずに close する（クライアントは一覧の取り直しで復帰する）。
+- 実行中 / キュー中 / 圧縮中 / 設定変更中は 409。同じスペースへの移動は 400、未知の id / 要求元と所属の不一致 / 未知の移動先スペースは 404。
+- 作業フォルダ / 添付は移動先の親（追加スペースなら `spaces/<spaceId>/sessions` / `spaces/<spaceId>/uploads`、通常へ戻すなら `.u7agent/sessions` / `.u7agent/uploads`）を作ってから移す。移動元が無いときは「運ぶものが無い」として続行し、移動先に既存があるときはマージせず 409（退避先の削除を案内する）。再実行は冪等。
+- `secrets` / `serve_commands` は cwd をキーにするため、移動先の cwd へ 1 トランザクションで付け替える（値の AAD は cwd を含まないので再暗号化しない）。
+- meta の書換え前に失敗したら、移したものを逆順で戻して 400 / 409 / 500 / 502 を返す。meta の書換え後に履歴の削除だけが失敗したときは 500 を返し、meta は移動済みのまま（同じスペースへは戻せないため、履歴の削除は次にその会話を別のスペースへ移したときに再試行される）。永続化なし / サンドボックス未設定 / アプリ DB 障害は 503（DB は `not_stored`）。
+- 稼働中のサービス（serve）があっても移動できる。既知の制限は [api.md](api.md#サービスserveの状態と起動停止) と [sandbox.md](sandbox.md#serveサービスの公開と起動停止) を参照。
+
 ## `POST /api/sessions/:id/messages`
 
 メッセージ送信。**202 で即時返却**し、ランは裏で続く。実行中に呼ぶとキューに積まれる（最大 10 件、超過は 429）。
@@ -487,7 +508,7 @@ SSE（`text/event-stream`）でイベントを購読。カーソルは `Last-Eve
 | `usage` | `{ usage?, metrics?, context? }`（assistant の `message_end` ごとに 1 件。usage はプロバイダが報告したときだけ、metrics は BFF 計測、context は SDK の `getContextUsage()` だが履歴反映前なので確定値は `run_end` 側） |
 | `compaction` | `{ compaction, count }`（`compaction_end` ごとに 1 件。`compaction` は payload の `compactions` の要素 1 つ、`count` はその時点の累計回数。run の自動圧縮では続けて同じ状態を持つ `resync` が届く（送信メッセージを履歴へ入れる前に圧縮が走った場合は、そのメッセージが入ってから届く）。手動圧縮では resync を配らず、保存の完了後に終端 `resync` が 1 回届く。`result` が無い / `aborted` / `errorMessage` ありのときは `compaction` も `resync` も配らない） |
 | `resync` | セッションペイロード全体（バッファを逃した場合・世代が一致しない場合と、手動圧縮の開始 / 終端） |
-| `session_deleted` | `{ sessionId }`（削除時。送出後に接続を閉じる） |
+| `session_deleted` | `{ sessionId }`（削除時。送出後に接続を閉じる。移動は送らずに close する） |
 | `ping` | `{}`（接続直後と 15 秒ごとの生存確認。`id` 無し = カーソルを動かさない） |
 
 テキスト系イベント（`text` / `tool_start` / `tool_end` / `tool_progress` / `run_start` / `queued` / `run_end` のエラーや `resync` の `messages`・`compactions[].summary`、`compaction` の `compaction.summary` など）は、既知のプロバイダーAPIキーの値が `[REDACTED]` に置換されて配信される。対象キーと保証範囲は [secrets.md](secrets.md) を参照。

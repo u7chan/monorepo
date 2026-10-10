@@ -479,6 +479,8 @@ export const SessionSummarySchema = z.object({
   notify: z.boolean().optional(),
   /** サイドバーに固定するか。未指定の旧データは false として扱う */
   pinned: z.boolean(),
+  /** 別のスペースへ引っ越せるか。旧サーバーは載せないため省略可 (省略 = false) */
+  canMove: z.boolean().optional(),
   messageCount: z.number(),
   createdAt: z.number(),
   lastUsedAt: z.number(),
@@ -1167,6 +1169,17 @@ export const SessionTitleResponseSchema = z.object({
 });
 export type SessionTitleResponse = z.infer<typeof SessionTitleResponseSchema>;
 
+/**
+ * `POST /api/sessions/:id/move` の応答。移動後も会話全文は返さず、一覧の更新に必要な 3 つだけを返す。
+ * `spaceId` は移動先で、`title` は一覧と同じ正規化 (未設定は「無題のセッション」) 後の値。
+ */
+export const SessionMoveResponseSchema = z.object({
+  sessionId: z.string(),
+  title: z.string(),
+  spaceId: z.string(),
+});
+export type SessionMoveResponse = z.infer<typeof SessionMoveResponseSchema>;
+
 // ---------------------------------------------------------------------------
 // リクエスト body スキーマ
 // route が見るのは JSON の形と型だけ。必須判定と正規化 (trim / 上限 / 未知キー) は catalog が正
@@ -1233,6 +1246,13 @@ export type UpdateSessionPinnedBody = z.infer<typeof UpdateSessionPinnedBodySche
  */
 export const UpdateSessionTitleBodySchema = z.object({ title: z.string() });
 export type UpdateSessionTitleBody = z.infer<typeof UpdateSessionTitleBodySchema>;
+
+/**
+ * セッションの引っ越し先のスペース。要求元スペースは query (`sessionSpaceGuard` が照合する) で、
+ * 本文は移動先だけを持つ (ガードに移動先を要求元と読ませない)。
+ */
+export const MoveSessionBodySchema = z.object({ spaceId: z.string().min(1) });
+export type MoveSessionBody = z.infer<typeof MoveSessionBodySchema>;
 
 /**
  * serve (UI 上の呼称は「サービス」) の状態。稼働判定は常にプローブで、記録は表示と操作権限にだけ使う。

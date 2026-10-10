@@ -529,6 +529,17 @@ export async function removeSessionDir(storeDir: string, id: string): Promise<vo
   await rm(sessionDirPath(storeDir, id), { recursive: true, force: true });
 }
 
+/**
+ * 会話履歴 (session.jsonl / sends.json) だけを消し、meta.json は残す。スペースの引っ越しは
+ * 履歴を破棄するが会話そのものは残すため、フォルダごと消す removeSessionDir は使わない。
+ * 無いファイルは成功として扱う (削除の再実行を冪等にする)。
+ */
+export async function removeSessionHistory(storeDir: string, id: string): Promise<void> {
+  const dir = sessionDirPath(storeDir, id);
+  await rm(join(dir, "session.jsonl"), { force: true });
+  await rm(join(dir, "sends.json"), { force: true });
+}
+
 /** 追記の低レベル書込み。テストから部分書込み (ENOSPC) を再現できるように差し替え可能にする */
 export type WriteChunk = (fd: number, buffer: Buffer, offset: number, length: number, position: number) => number;
 

@@ -8,10 +8,12 @@ import { isValidEntryName } from "../sandbox/protocol";
 import { SandboxRequestError, type SandboxWorkspaceClient } from "../sandbox/client";
 import { expandSkillCommand, hasProjectSkills, listSessionSkills, type SessionSkillsInput } from "../session-skills";
 import { resolveAgentSkills } from "../sessions";
+import type { SpaceStore } from "../spaces";
 import {
   FileUploadSchema,
   type AnswerQuestionBody,
   type CreateSessionBody,
+  type MoveSessionBody,
   type PostMessageBody,
   type UpdateSessionNotifyBody,
   type UpdateSessionPinnedBody,
@@ -37,9 +39,11 @@ function withSseHeaders(response: Response): Response {
 export function createSessionRoutes({
   store,
   workspace,
+  spaces,
 }: {
   store: SessionStore;
   workspace: SandboxWorkspaceClient | null;
+  spaces: SpaceStore;
 }) {
   // 未ロードのセッションはストアから復元する (SDK ロードを含むため非同期)
   const resolveRecord = (c: Context) => store.resolve(c.req.param("id") ?? "");
@@ -139,6 +143,16 @@ export function createSessionRoutes({
      */
     updateTitle: async (c: Context, body: UpdateSessionTitleBody) => {
       const result = await store.setTitle(c.req.param("id") ?? "", body.title);
+      if (!result) return c.json({ error: "Session not found" }, 404);
+      return c.json(result);
+    },
+
+    /**
+     * 未所属セッションの引っ越し。履歴は破棄され、作業フォルダ / 添付 / cwd キーの行が移動先へ移る。
+     * 移動先の検証はスペース側の規則 (未知は 404) に任せ、要求元の照合は `sessionSpaceGuard` が済ませている。
+     */
+    move: async (c: Context, body: MoveSessionBody) => {
+      const result = await store.move(c.req.param("id") ?? "", spaces.require(body.spaceId));
       if (!result) return c.json({ error: "Session not found" }, 404);
       return c.json(result);
     },

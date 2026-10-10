@@ -17,7 +17,12 @@ import { ModelSettingsService, type CredentialCommit, type ProviderKeyRuntime } 
 import { NotificationService } from "./notifications";
 import { ProjectStore } from "./projects";
 import { createSandboxToolClientFromEnv } from "./sandbox/client";
-import type { SandboxRuntimeDiagnostics, SandboxServeClient, SandboxWorkspaceClient } from "./sandbox/client";
+import type {
+  SandboxMoveClient,
+  SandboxRuntimeDiagnostics,
+  SandboxServeClient,
+  SandboxWorkspaceClient,
+} from "./sandbox/client";
 import { SecretService } from "./secrets";
 import { SecretKeyError, createSecretCipher, resolveMasterKeys } from "./secret-crypto";
 import { ServeService, sandboxHostFromUrl, type ServeProbe } from "./serve";
@@ -52,6 +57,11 @@ export type CreateBffAppOptions = {
   imageCatalogFetch?: typeof fetch;
   /** 音声モデル一覧取得のテスト用。省略時は globalThis.fetch */
   speechCatalogFetch?: typeof fetch;
+  /**
+   * セッションの引っ越しで作業フォルダ / 添付を移すサンドボックス。未指定なら env から生成した
+   * サンドボックスクライアントを再利用する (workspace を差し替えたテストでは null = 移動は 503)。
+   */
+  moveSandbox?: SandboxMoveClient | null;
   /**
    * serve の記録の読み書き・起動・停止・待受の観測に使うサンドボックス。未指定なら env から生成した
    * サンドボックスクライアントを再利用する (workspace を差し替えたテストでは null)。
@@ -234,6 +244,9 @@ export async function createBffContext(opts: CreateBffAppOptions = {}): Promise<
   const sandboxClient = opts.workspace !== undefined ? undefined : createSandboxToolClientFromEnv(process.env);
   const workspace = opts.workspace !== undefined ? opts.workspace : (sandboxClient ?? null);
   const runtimeDiagnostics = opts.runtimeDiagnostics !== undefined ? opts.runtimeDiagnostics : (sandboxClient ?? null);
+  // 引っ越しの物理移動も workspace と同じ規則で注入する (workspace スタブを広げないための狭い IF)
+  const moveSandbox =
+    opts.moveSandbox !== undefined ? opts.moveSandbox : sandboxClient !== undefined ? sandboxClient : null;
   const store = new SessionStore({
     pi,
     catalog,
@@ -242,6 +255,8 @@ export async function createBffContext(opts: CreateBffAppOptions = {}): Promise<
     storeDir,
     storeError: sessionStoreError,
     workspace,
+    moveSandbox,
+    cwdKeys: appDb,
     rootCwd: cwd,
     notifications,
   });

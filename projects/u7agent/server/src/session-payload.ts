@@ -125,6 +125,7 @@ export function projectSessionSummary({
     queueDepth: record.queue.length,
     notify: record.notify,
     pinned: record.pinned,
+    canMove: !record.projectCwd,
     messageCount: displayableMessages(record.session, masker).length,
     createdAt: record.createdAt,
     lastUsedAt: record.lastUsedAt,
