@@ -70,8 +70,8 @@ export default function App() {
   const space = useSpace();
   // 確認と入力のダイアログ。文言は各 lib の純関数で組み立てる (docs/ui-layout.md)
   const confirm = useConfirm();
-  // 画面は URL がただ 1 つの正。`/` はチャット (会話を指定しない)、`/settings/<section>` は設定の各画面、
-  // `/s/<id>` は選択中の会話を映す URL (同期の条件は lib/route.ts)
+  // 画面 (view) は URL がただ 1 つの正。`/` はチャット (会話を指定しない)、`/settings/<section>` は設定の各画面。
+  // 会話の選択は app.sessionId が正で、`/s/<id>` はそれを映す鏡 (URL へ書く条件は lib/route.ts の sessionPath)
   const { route, navigate, syncSessionPath, lastSettingsSection } = useRoute();
   const app = useU7Agent({ pendingSessionId: route.view === "chat" ? route.sessionId : undefined });
   // 確定した選択を URL へ映す唯一の Effect。書く条件 (設定の表示中 / 未解決の入口が未選択のまま) は
