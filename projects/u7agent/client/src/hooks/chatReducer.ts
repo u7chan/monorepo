@@ -136,7 +136,8 @@ export type ChatState = {
   runPrompts: Record<string, string>;
   /**
    * 待機列の先頭が実行に移った直後の run id。アバターのリングを外へ 1 回広げる演出 (`liveToolIds` と
-   * 同じライブ専用の一時状態) だけに使い、その run の最初の状態イベントで落とす (reducer は時計を持たない)
+   * 同じライブ専用の一時状態) だけに使い、終端は DOM 側 (`startFlashEnd`) が受ける。run_end /
+   * queue_cleared / resync でも落とし、演出が残らないようにする
    */
   startingRunId?: string;
 };
@@ -200,6 +201,8 @@ export type ChatAction =
   | { type: "queued"; position: number; queueDepth: number }
   /** 停止で待機キューを破棄した。runIds は破棄された送信で、未送信の表示へ切り替える */
   | { type: "queueCleared"; runIds?: string[] }
+  /** 開始の Flash (リングの広がり) が DOM 側で終わった。ライブ専用の合図を落とす */
+  | { type: "startFlashEnd" }
   | { type: "retry"; retry: RunRetryState | null; totalRetryCount: number; serverNow: number; receivedAt: number }
   | {
       type: "runEnd";
@@ -1153,8 +1156,6 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
       const withBubble = attachRunToolCards(ensureAssistant(state, action.at), false);
       const withRun = {
         ...withBubble,
-        // 開始直後の演出は、その run の最初の状態イベントで落とす
-        startingRunId: undefined,
         // ライブ表示が「今観測したツール」を見分けるための控え (payload 経由の復元カードと区別する)
         liveToolIds: withBubble.liveToolIds.includes(action.id)
           ? withBubble.liveToolIds
@@ -1219,10 +1220,8 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
     case "usage": {
       // ツールループは 1 バブルに統合されるため、後続メッセージの値で上書きされる (仕様)。
       const next = action.context ? { ...state, context: action.context } : state;
-      // 開始直後の演出は、その run の最初の状態イベントで落とす
-      const cleared = next.startingRunId === undefined ? next : { ...next, startingRunId: undefined };
       if (state.currentAssistantId !== null) {
-        return updateBubble(cleared, state.currentAssistantId, (b) => ({
+        return updateBubble(next, state.currentAssistantId, (b) => ({
           ...b,
           usage: action.usage ?? b.usage,
           metrics: action.metrics ?? b.metrics,
@@ -1231,7 +1230,7 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
       // まだ本文もツールカードも届いていない (tool 呼び出しだけの message_end が先に届く)。
       // 直前の run のバブルを書き換えず、値を保留して次に作るバブルへ回す。
       return {
-        ...cleared,
+        ...next,
         pendingUsage: action.usage ?? state.pendingUsage,
         pendingMetrics: action.metrics ?? state.pendingMetrics,
       };
@@ -1259,13 +1258,7 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
 
     case "status":
       // state は演出の条件 (thinking のときだけ活動ラベルに光を流す)、text は表示文言
-      return {
-        ...state,
-        activity: action.text || "処理中…",
-        activityState: action.state || undefined,
-        // 開始直後の演出は、その run の最初の状態イベントで落とす
-        startingRunId: undefined,
-      };
+      return { ...state, activity: action.text || "処理中…", activityState: action.state || undefined };
 
     case "queued":
       return {
@@ -1308,6 +1301,10 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
         startingRunId: undefined,
       };
     }
+
+    case "startFlashEnd":
+      // リングの広がりが終わった合図。演出を持たないときに落としても何も変わらない
+      return state.startingRunId === undefined ? state : { ...state, startingRunId: undefined };
 
     case "retry": {
       const retryState = mergeRetrySnapshot(state, action.retry, action.serverNow, action.receivedAt);

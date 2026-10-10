@@ -1509,7 +1509,7 @@ test("旧サーバー (pendingSends 無し) の resync は待機の表示を変�
   );
 });
 
-test("run_start はその run の待機を解除し、開始の合図を最初の状態イベントで落とす", () => {
+test("run_start はその run の待機を解除し、開始の合図は状態イベントでは落とさない", () => {
   const queued = queuedEcho(initialChatState, "待機する本文", "run-b", 1);
   const started = chatReducer(queued, {
     type: "runStart",
@@ -1522,13 +1522,21 @@ test("run_start はその run の待機を解除し、開始の合図を最初�
   assert.equal(started.startingRunId, "run-b");
   assert.equal(started.bubbles.find((bubble) => bubble.runId === "run-b")?.queued, undefined);
 
-  // 実行中の run では最初に届く状態イベントで演出を落とす (タイマーは持たない)
-  assert.equal(chatReducer(started, { type: "status", state: "thinking", text: "考え中…" }).startingRunId, undefined);
-  assert.equal(chatReducer(started, { type: "usage" }).startingRunId, undefined);
-  assert.equal(
-    chatReducer(started, { type: "toolStart", id: "t1", name: "read", args: "", at: 12 }).startingRunId,
-    undefined,
+  // run_start の直後に届く状態イベントと同じ描画にまとまっても合図は残す。ここで落とすと
+  // 演出が 1 フレームも出ない / 広がりが途中で切れる (tester の再現)
+  assert.deepEqual(
+    [
+      chatReducer(started, { type: "status", state: "thinking", text: "考え中…" }),
+      chatReducer(started, { type: "usage" }),
+      chatReducer(started, { type: "toolStart", id: "t1", name: "read", args: "", at: 12 }),
+      chatReducer(started, { type: "text", delta: "あ", at: 12 }),
+    ].map((state) => state.startingRunId),
+    ["run-b", "run-b", "run-b", "run-b"],
   );
+
+  // リングの広がりの終端は DOM 側で受ける。演出が無いときに落としても状態は変えない
+  assert.equal(chatReducer(started, { type: "startFlashEnd" }).startingRunId, undefined);
+  assert.equal(chatReducer(initialChatState, { type: "startFlashEnd" }), initialChatState);
 });
 
 test("待機していない run_start では開始の合図を立てない", () => {

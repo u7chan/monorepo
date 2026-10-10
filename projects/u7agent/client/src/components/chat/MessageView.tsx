@@ -1,4 +1,6 @@
+import { useEffect, useRef } from "react";
 import type { Bubble, ToolCard } from "../../hooks/chatReducer";
+import { finishOnAnimationEnd } from "../../lib/animationEnd";
 import { splitAttachedFiles } from "../../lib/attachments";
 import { cn } from "../../lib/cn";
 import { MESSAGE_MEASURE_CLASS } from "../../lib/messageColumn";
@@ -58,6 +60,7 @@ export function MessageView({
   live = false,
   queueWait,
   queueStarted = false,
+  onStartFlashEnd,
   onAnswerQuestion,
   animate = true,
 }: {
@@ -89,6 +92,8 @@ export function MessageView({
   queueWait?: QueueWait;
   /** 待機列の先頭から実行に移った直後か。リングを 1 回広げ、チップを一瞬 `実行中` にする */
   queueStarted?: boolean;
+  /** 開始の Flash (リングの広がり) が終わった。ライブ専用の合図を落とす根拠 */
+  onStartFlashEnd?: () => void;
   /** ask_user の回答。エラーはカード内に出し、入力は消さない */
   onAnswerQuestion?: (
     toolCallId: string,
@@ -111,6 +116,16 @@ export function MessageView({
   // スキル読み込みはバッジ、ask_user は専用カードへ出し、ツール履歴の件数・サマリー・コピーからは外す
   const toolCards = nonSkillToolCards(bubble.tools);
   const questionCards = isUser ? [] : bubble.tools.filter((card) => card.questions?.length);
+  const ringRef = useRef<HTMLDivElement>(null);
+  // 開始の Flash の終端は DOM 側で受ける。run_start の直後に届く status / tool_start と同じ描画に
+  // まとまると、状態で先に消したときは演出が出ない / クラスが外れて広がりが途中で切れる
+  useEffect(() => {
+    const element = ringRef.current;
+    if (!element || !queueStarted) return;
+    return finishOnAnimationEnd(element, getComputedStyle(element, "::after").animationDuration, () => {
+      onStartFlashEnd?.();
+    });
+  }, [queueStarted, onStartFlashEnd]);
   return (
     <article
       className={cn(
@@ -123,6 +138,7 @@ export function MessageView({
     >
       {isUser ? (
         <div
+          ref={ringRef}
           className={cn(
             "relative order-2 grid shrink-0 place-items-center rounded-lg bg-accent-bright font-bold text-on-accent",
             compact ? "size-5.5 text-3xs" : "size-6.5 text-2xs",

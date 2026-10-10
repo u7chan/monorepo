@@ -67,6 +67,8 @@ export type ChatAreaProps = {
   currentAssistantId?: number | null;
   /** 待機列から実行に移った直後の run id (ChatState.startingRunId)。開始の Flash を出す根拠 */
   startingRunId?: string;
+  /** 開始の Flash (リングの広がり) が終わった。ライブ専用の合図を落とす根拠 */
+  onStartFlashEnd?: () => void;
   /** 入力欄の上に浮かぶライブ表示の段。箱が浮いている間だけ、内容の下端に固定の余白を確保する */
   liveToolsPhase?: LiveToolPhase;
 };
@@ -97,6 +99,7 @@ export function ChatArea({
   visible = true,
   currentAssistantId = null,
   startingRunId,
+  onStartFlashEnd,
   liveToolsPhase = "hidden",
 }: ChatAreaProps) {
   const chatAreaRef = useRef<HTMLElement>(null);
@@ -307,6 +310,7 @@ export function ChatArea({
         queueWait={queueWaits.get(bubble.id)}
         // 待機列から実行に移った瞬間だけ、リングを 1 回広げる
         queueStarted={startingRunId !== undefined && bubble.runId === startingRunId}
+        onStartFlashEnd={onStartFlashEnd}
         onAnswerQuestion={onAnswerQuestion}
       />
     );
