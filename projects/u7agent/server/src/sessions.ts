@@ -518,8 +518,8 @@ export class SessionStore {
   }
 
   /**
-   * セッションの作業ディレクトリ (root 相対)。所属があれば登録ディレクトリ、無ければ永続化ありのときだけ
-   * セッション専用のスクラッチ。永続化なしの未所属は root ("") のまま (既存のテスト・未設定デプロイ)。
+   * セッションの作業ディレクトリ (root 相対)。所属があれば登録ディレクトリ、無ければ所属スペースの
+   * スクラッチ。root ("") になるのは永続化なしの通常スペースだけ (既存のテスト・未設定デプロイ)。
    */
   private workdirOf(id: string, projectCwd?: string, spaceId = "default"): string {
     if (projectCwd) return projectCwd;
@@ -1438,7 +1438,7 @@ export class SessionStore {
     return meta ? (meta.spaceId ?? "default") : undefined;
   }
 
-  /** SessionPayload.cwd は rootCwd 相対。所属があれば登録ディレクトリ、未所属はスクラッチ (永続化なしは root) */
+  /** SessionPayload.cwd は rootCwd 相対。所属があれば登録ディレクトリ、未所属は所属スペースのスクラッチ (root は永続化なしの通常スペースだけ) */
   cwdOf(record: SessionRecord): string {
     return record.workdir;
   }

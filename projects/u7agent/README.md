@@ -26,7 +26,7 @@ pnpm dev   # サンドボックス + BFF + Vite をまとめて起動 → http:/
 
 ## 機能
 
-- **プロジェクトとセッションの作業ディレクトリ** — 登録したプロジェクトのセッションはそのディレクトリを cwd にし、未所属チャットは `<workspace root>/.u7agent/sessions/<id>` のスクラッチで動きます（[docs/projects.md](docs/projects.md)）
+- **プロジェクトとセッションの作業ディレクトリ** — 登録したプロジェクトのセッションはそのディレクトリを cwd にし、未所属チャットは通常スペースでは `<workspace root>/.u7agent/sessions/<id>` のスクラッチで動きます（[docs/projects.md](docs/projects.md)）
 - **ファイルの持ち出し（ダウンロード）** — 設定 → ファイル と右パネルのツリーの行から、ファイルは元の名前のまま生バイトで、フォルダは ZIP で保存できます。除外規則と上限は [docs/file-preview.md](docs/file-preview.md#ダウンロード)
 - **スキル** — エージェント定義スキル / ファイルスキル（`.agents/skills`）/ 組み込みスキルの 3 種類があり、入力欄から `/skill:<name>` で展開します（[docs/persistence.md](docs/persistence.md#スキルの扱い) / [docs/api-catalog.md](docs/api-catalog.md#ファイルスキルagentsskills)）
 - **サービス（serve）** — エージェントが起動した Web サーバーを別タブで開き、トップバーから起動・停止・入れ替えができます（[docs/sandbox.md](docs/sandbox.md#serveサービスの公開と起動停止)）
