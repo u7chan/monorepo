@@ -725,7 +725,7 @@
     bottom: -3px;
     height: 1.5px;
     border-radius: 2px;
-    background: linear-gradient(90deg, var(--c-accent-strong), var(--c-accent-bright));
+    background: var(--c-focus);
     transform-origin: left center;
     animation: elapsed-tick-sweep 1s linear both;
   }
@@ -737,7 +737,7 @@
     content: "";
     position: absolute;
     inset: -2px -5px;
-    border: 1px solid var(--c-accent);
+    border: 1px solid var(--c-focus);
     border-radius: 999px;
     background: var(--c-accent-wash);
     animation: elapsed-tick-ring 700ms ease-out both;
@@ -745,6 +745,10 @@
   /* 1 分を超えたら色を残す (長いランを一目で見分ける。停止の判定には使わない) */
   .elapsed-tick-tier {
     --elapsed-rest: var(--c-accent-text);
+  }
+  /* 節目は行ごと 1px 揺らす。translate だけなので折り返しは動かない */
+  .elapsed-row-level {
+    animation: elapsed-row-shake 260ms ease-out both;
   }
   @keyframes elapsed-tick-pop {
     0% {
@@ -806,10 +810,26 @@
       scale: 1;
     }
   }
+  @keyframes elapsed-row-shake {
+    0%,
+    100% {
+      translate: 0;
+    }
+    25% {
+      translate: -1.5px 0;
+    }
+    55% {
+      translate: 1.5px 0;
+    }
+    80% {
+      translate: -0.5px 0;
+    }
+  }
   /* 動きを止める設定では装飾ごと外す (数字と長いランの色はそのまま出る) */
   @media (prefers-reduced-motion: reduce) {
     .elapsed-tick,
-    .elapsed-tick-level {
+    .elapsed-tick-level,
+    .elapsed-row-level {
       animation: none;
     }
     .elapsed-tick::after,

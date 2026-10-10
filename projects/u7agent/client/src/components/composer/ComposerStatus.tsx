@@ -91,6 +91,8 @@ export function ComposerStatus({
   const elapsedMs = useElapsedMs(runningSince);
   // 実行中の経過。ms と表示文を組で持つ (演出の判定は ms、表示は文)
   const elapsed = elapsedMs === undefined ? null : { ms: elapsedMs, text: formatElapsed(elapsedMs) };
+  // 演出の節目。数字のリングと行の揺れを同時に出す
+  const milestone = elapsed !== null && isElapsedMilestone(elapsed.ms);
   // 確定した合計時間。実行中の経過と違って毎秒変わらないので、活動欄と同じ行に出しつつ読み上げに残す
   const finishedElapsed = finishedRunDurationMs === undefined ? null : formatElapsed(finishedRunDurationMs);
   // 活動が無いときは活動欄ごと出さない (空の欄が折り返して空行が残るのを避ける)
@@ -141,7 +143,12 @@ export function ComposerStatus({
           </ReloadButton>
         </div>
       ) : null}
-      <div className="flex min-h-5.25 flex-wrap items-center justify-end gap-x-2 gap-y-0.5 px-1 pb-1.5 text-1xs text-ink-muted">
+      <div
+        className={cn(
+          "flex min-h-5.25 flex-wrap items-center justify-end gap-x-2 gap-y-0.5 px-1 pb-1.5 text-1xs text-ink-muted",
+          milestone ? "elapsed-row-level" : "",
+        )}
+      >
         {elapsed === null ? null : <TypingDots />}
         {showActivity ? (
           // 活動テキストがあるときは下限幅を置き、0 幅まで潰れる前に組を折り返させる
@@ -158,7 +165,7 @@ export function ComposerStatus({
                 aria-hidden="true"
                 className={cn(
                   "elapsed-tick shrink-0 font-sans text-2xs tabular-nums",
-                  isElapsedMilestone(elapsed.ms) ? "elapsed-tick-level" : "",
+                  milestone ? "elapsed-tick-level" : "",
                   isElapsedTier(elapsed.ms) ? "elapsed-tick-tier" : "",
                 )}
               >
