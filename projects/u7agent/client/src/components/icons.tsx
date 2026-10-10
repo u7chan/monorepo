@@ -2,8 +2,8 @@ import type { ReactNode } from "react";
 import { cn } from "../lib/cn";
 import type { FileKind } from "../lib/fileKind";
 
-/** 実行中スピナー (jump ローダー) の孤。240 viewBox の中心 (120,120) から 4 本の孤が出る。
- * dash の長さは円周 (2πr) をそのまま使い、大きい孤ほど長く回る。 */
+/** 実行中スピナー (jump ローダー) の弧。240 viewBox の中心 (120,120) から 4 本の弧が出る。
+ * dash の長さは円周 (2πr) をそのまま使い、大きい弧ほど長く回る。 */
 const RUN_SPINNER_ARCS: {
   key: string;
   className: string;
@@ -19,7 +19,7 @@ const RUN_SPINNER_ARCS: {
   { key: "d", className: "run-spinner-d", cx: 155, cy: 120, r: 70, dasharray: "0 440", dashoffset: 0 },
 ];
 
-/** 実行中スピナー。点に閉じた 4 本の孤が開いて回るのを 2 秒で 2 回繰り返す (styles/index.css)。
+/** 実行中スピナー。点に閉じた 4 本の弧が開いて回るのを 2 秒で 2 回繰り返す (styles/index.css)。
  * 色は置いた場所の用途で選ぶ。focus は線・リング用のトークン (各プリセットで隣接面に 3:1 以上) */
 export function RunSpinnerIcon({ tone = "soft" }: { tone?: "soft" | "focus" | "on-accent" } = {}) {
   return (

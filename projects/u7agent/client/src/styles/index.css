@@ -668,7 +668,7 @@
   /* 実行中スピナー (jump ローダー)。点に閉じた 4 本の弧が開いて回るのを 2 秒で 2 回繰り返す。
    * dash の値は 240 viewBox の円周 (2πr) をそのまま使うので、寸法を変えるときは
    * icons.tsx の RUN_SPINNER_ARCS と揃える。色は currentColor なので、置いた場所のトークン
-   * (ComposerStatus は text-ink-soft) がそのまま出る */
+   * (ComposerStatus は text-focus) がそのまま出る */
   .run-spinner {
     display: block;
   }
