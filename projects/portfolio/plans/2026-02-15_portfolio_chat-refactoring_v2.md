@@ -303,7 +303,6 @@ export {
 ```typescript
 // Before
 import type { Conversation } from '#/types'
-
 // After
 import type {
   Conversation,
