@@ -154,6 +154,11 @@ export interface StubSessionOptions {
    * error で終端するため、受理済みの送信が未送信として残る経路を再現できる
    */
   promptFailureBeforeUser?: string;
+  /**
+   * `promptFailureBeforeUser` を失敗させる回数 (未指定は毎回)。1 で「1 回目だけ user message を
+   * 積む前に失敗させ、同じ run id の再送は通常どおり走らせる」を再現できる
+   */
+  promptFailuresBeforeUser?: number;
 }
 
 /** SDK の SessionEntry と同じ形の append-only ログ。getBranch() が返す */
@@ -608,9 +613,14 @@ export function createStubSession(options: StubSessionOptions = {}): StubSession
     async prompt(text: string) {
       session.abortRequested = false;
       session.isStreaming = true;
+      let failedBeforeUser = false;
       try {
         // 実 SDK は送信メッセージを組み立てる前に失敗し得る (認証エラー等)。user entry を積まない
-        if (options.promptFailureBeforeUser) throw new Error(options.promptFailureBeforeUser);
+        if (options.promptFailureBeforeUser && (options.promptFailuresBeforeUser ?? Number.POSITIVE_INFINITY) > 0) {
+          if (options.promptFailuresBeforeUser !== undefined) options.promptFailuresBeforeUser -= 1;
+          failedBeforeUser = true;
+          throw new Error(options.promptFailureBeforeUser);
+        }
         // 実 SDK は送信メッセージを組み立てる前に preflight の compaction を走らせる
         const preflight = options.preflightCompactions?.shift();
         if (preflight) await session.compact(preflight);
@@ -806,8 +816,9 @@ export function createStubSession(options: StubSessionOptions = {}): StubSession
         }
       } finally {
         // user message を積む前の失敗 (認証エラー等) は agent が開始していないため settled を出さない。
-        // BFF は prompt() の reject で run を error として終端する
-        if (!options.promptFailureBeforeUser) session.emit({ type: "agent_settled" });
+        // BFF は prompt() の reject で run を error として終端する。回数制限で失敗を抜けた試行は
+        // 通常どおり settled を出す (再送の検証で 1 回目の失敗だけを再現する)
+        if (!failedBeforeUser) session.emit({ type: "agent_settled" });
         session.isStreaming = false;
       }
     },
@@ -866,6 +877,8 @@ export interface StubPiOptions {
   toolBurst?: StubToolBurst | StubToolBurst[];
   /** prompt が user message を積む前に失敗する (StubSessionOptions と同じ) */
   promptFailureBeforeUser?: string;
+  /** `promptFailureBeforeUser` を失敗させる回数 (StubSessionOptions と同じ) */
+  promptFailuresBeforeUser?: number;
   availableModels?: PiAiModel<Api>[];
   /** モデルカタログ (設定 → モデルのモデル一覧表示と診断が使う) */
   catalogModels?: PiAiModel<Api>[];

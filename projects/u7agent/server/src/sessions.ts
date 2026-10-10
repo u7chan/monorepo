@@ -1684,6 +1684,9 @@ export class SessionStore {
       totalRetryCount: 0,
     };
     record.run = run;
+    // 同じ run id を再利用する再送 (resend) では、前回の試行の控えを次の試行へ持ち越さない。
+    // 消さないと、再送が走っている間に履歴 API が前回の所要時間と結末を返す
+    record.runOutcomes.delete(run.id);
     record.tools = new Map();
     // 質問の待機も run と同じ寿命。前の run の tombstone (回答済み) を次の run へ持ち越さない
     record.questions = new Map();
