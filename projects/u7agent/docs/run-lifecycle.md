@@ -32,7 +32,7 @@ startRun():
 
 モデルの一時的なレート制限などは、pi SDK の agent-level リトライ（`SettingsManager` の `retry: { enabled: true, maxRetries: 2 }`）に任せる。**BFF は `prompt()` を再発行しない**（ユーザーメッセージやツール実行を二重に走らせない）。backoff は SDK の指数バックオフで、既定は 2 秒 → 4 秒。プロバイダーの `Retry-After` ヘッダーや本文の「Please try again in Xs」は SDK では使われないため、待機時間を上流の指定として保証しない。
 
-SDK v1.0.3 で観測する順序（スタブではなく SDK 実体の回帰テストで固定）:
+SDK v1.1.0 で観測する順序（スタブではなく SDK 実体の回帰テストで固定）:
 
 ```text
 message_end(assistant, error, usage.total = 0)  失敗試行
