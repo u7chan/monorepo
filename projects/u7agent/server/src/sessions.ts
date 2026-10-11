@@ -1013,6 +1013,20 @@ export class SessionStore {
     return "ok";
   }
 
+  /**
+   * 待機キューから 1 件だけ外して未送信へ戻す。実行中のターンは止めず、キュー全体も破棄しない。
+   * 記録を残せない構成では取り消しの事後条件 (未送信として見える) を満たせないため、キューを触らない。
+   */
+  cancelQueued(record: SessionRecord, runId: string): "ok" | "running" | "unstorable" | "missing" {
+    const index = record.queue.findIndex((item) => item.runId === runId);
+    if (index === -1) return this.isRunActive(record, runId) ? "running" : "missing";
+    if (!record.writer || !this.storeDir) return "unstorable";
+    record.queue.splice(index, 1);
+    // 取り消した分の順位と件数を別タブへ揃える (待機の `queued` は run id を配らない)
+    this.emitResync(record);
+    return "ok";
+  }
+
   /** その run id がまだ実行中 / キュー待ちか。終了した run は未送信の再送 / 破棄を妨げない */
   private isRunActive(record: SessionRecord, runId: string): boolean {
     if (record.queue.some((item) => item.runId === runId)) return true;

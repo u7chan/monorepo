@@ -11,6 +11,7 @@ export type {
   AskUserOption,
   AskUserQuestion,
   BuiltinSkillInfo,
+  CancelQueuedResult,
   Catalog,
   CatalogResponse,
   ChatMessage,

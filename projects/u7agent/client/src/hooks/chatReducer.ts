@@ -201,6 +201,8 @@ export type ChatAction =
   | { type: "queued"; position: number; queueDepth: number }
   /** 停止で待機キューを破棄した。runIds は破棄された送信で、未送信の表示へ切り替える */
   | { type: "queueCleared"; runIds?: string[] }
+  /** 待機キュー中の 1 件を取り消した。その送信だけ未送信の表示へ切り替える (実行は止めない) */
+  | { type: "queueCanceled"; runId: string }
   /** 開始の Flash (リングの広がり) が DOM 側で終わった。ライブ専用の合図を落とす */
   | { type: "startFlashEnd" }
   | { type: "retry"; retry: RunRetryState | null; totalRetryCount: number; serverNow: number; receivedAt: number }
@@ -1299,6 +1301,23 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
         activityState: undefined,
         // 破棄で待機が消えたので、開始直後の演出も残さない
         startingRunId: undefined,
+      };
+    }
+
+    case "queueCanceled": {
+      // 取り消した送信を未送信へ戻す。resync が成功応答より先に届く経路があるため、既に未送信なら
+      // 何もしない (状態行の文言は足さず、バブルが変わることを結果の提示にする)
+      const target = state.bubbles.find((bubble) => bubble.runId === action.runId);
+      if (!target || target.unsent === true) return state;
+      return {
+        ...state,
+        bubbles: state.bubbles.map((bubble) =>
+          bubble.runId === action.runId
+            ? { ...bubble, unsent: true, accepted: false, confirmed: false, ...CLEARED_TURN_END, ...QUEUE_CLEARED }
+            : bubble,
+        ),
+        // 未送信は pendingEchoIds に残さない (残すと取り消し後の再送で同じ id が二重に載る)
+        pendingEchoIds: state.pendingEchoIds.filter((id) => id !== target.id),
       };
     }
 

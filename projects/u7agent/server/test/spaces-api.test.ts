@@ -191,6 +191,7 @@ test("所属不一致の全 API と SSE は SDK 復元・作業生成・会話�
     ["/compact", { method: "POST" }],
     ["/messages", json({ text: "送信" })],
     ["/messages", json({ resendRunId: "run" })],
+    ["/queue/run", { method: "DELETE" }],
     ["/unsent/run", { method: "DELETE" }],
     ["/questions/tool/answer", json({ answers: [] })],
     ["/files?name=a.txt", { method: "POST", body: "a" }],

@@ -315,6 +315,12 @@ export default function App() {
     [app],
   );
 
+  const handleCancelQueued = useCallback(
+    // MessageView が応答までボタンを無効化するため、完了を待てるよう Promise を返す
+    (runId: string) => app.cancelQueued(runId),
+    [app],
+  );
+
   // 開始の Flash の終端は DOM 側 (animationend) が持つ。callback の参照を固定し、描画のたびに
   // MessageView 側の effect が張り直されて演出の終端が延びないようにする
   const handleStartFlashEnd = useCallback(() => app.dispatch({ type: "startFlashEnd" }), [app.dispatch]);
@@ -703,6 +709,7 @@ export default function App() {
                   onSuggestion={handleSend}
                   onResendUnsent={handleResendUnsent}
                   onDiscardUnsent={handleDiscardUnsent}
+                  onCancelQueued={handleCancelQueued}
                   answerable={app.chat.runStatus === "running"}
                   onAnswerQuestion={app.answerQuestion}
                   currentAssistantId={app.chat.currentAssistantId}

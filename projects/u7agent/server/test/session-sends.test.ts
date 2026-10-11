@@ -487,6 +487,153 @@ test("POST /messages の resendRunId と DELETE /unsent で、未送信の再送
   }
 });
 
+test("待機中の 1 件を取り消すと、その送信だけ未送信へ戻り、後続が繰り上がる", async () => {
+  const storeDir = await mkdtemp(join(tmpdir(), "u7agent-sends-"));
+  try {
+    const store = createStore(storeDir, createStubPi({ chunkDelayMs: 1000 }));
+    await store.init();
+    const record = await store.create();
+    const running = store.postMessage(record, "実行する本文");
+    const canceled = store.postMessage(record, "取り消す本文");
+    const kept = store.postMessage(record, "残す本文");
+    assert.equal(canceled.queued, true);
+    assert.equal(kept.queued, true);
+    assert.ok(running.runId && canceled.runId && kept.runId);
+
+    assert.equal(store.cancelQueued(record, canceled.runId), "ok");
+    const payload = store.payload(record);
+    assert.deepEqual(
+      payload.pendingSends?.map((item) => [item.runId, item.state, item.position]),
+      [
+        [running.runId, "running", undefined],
+        [canceled.runId, "unsent", undefined],
+        [kept.runId, "queued", 1],
+      ],
+      "取り消した分だけが未送信へ戻り、後続の順位が繰り上がる",
+    );
+    assert.equal(payload.queueDepth, 1, "キュー全体は破棄しない");
+    // 実行中のターンは止めない (まだ running のまま)
+    assert.equal(store.statusOf(record), "running");
+    assert.equal(record.events.at(-1)?.type, "resync", "取り消した順位と件数を別タブへ揃える resync を配る");
+    assert.deepEqual(
+      readSessionSends(storeDir, record.id)
+        .unsent.filter((item) => item.runId === canceled.runId)
+        .map((item) => item.text),
+      ["取り消す本文"],
+      "本文は記録に残り、再送 / 破棄の既存経路で扱える",
+    );
+    // 2 回目はキューにも実行中にも無い (別タブに先取りされた場合と同じ結果)
+    assert.equal(store.cancelQueued(record, canceled.runId), "missing");
+    await store.close();
+  } finally {
+    await rm(storeDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+  }
+});
+
+test("DELETE /queue/:runId は待機中だけを取り消し、実行中と未知の run id を 409 / 404 で断る", async () => {
+  const storeDir = await mkdtemp(join(tmpdir(), "u7agent-sends-"));
+  const workspace = stubWorkspace();
+  try {
+    // 実行中のターンが先に終わらないよう、stub の返答を遅くする
+    const bff = await createBffApp({
+      cwd: "/tmp/project",
+      sessionStoreDir: storeDir,
+      workspace,
+      pi: asPiBff(createStubPi({ chunkDelayMs: 1000 })),
+    });
+    const app = bff.app;
+    const post = (path: string, body: unknown) =>
+      app.request(path, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+    const created = (await (await post("/api/sessions", {})).json()) as { sessionId: string };
+    const messages = `/api/sessions/${created.sessionId}/messages`;
+    const running = (await (await post(messages, { text: "実行する本文" })).json()) as {
+      queued: boolean;
+      runId: string;
+    };
+    assert.equal(running.queued, false);
+    const waiting = (await (await post(messages, { text: "取り消す本文" })).json()) as {
+      queued: boolean;
+      runId: string;
+    };
+    assert.equal(waiting.queued, true);
+
+    const canceled = await app.request(`/api/sessions/${created.sessionId}/queue/${waiting.runId}`, {
+      method: "DELETE",
+    });
+    assert.equal(canceled.status, 200);
+    assert.deepEqual(await canceled.json(), { ok: true });
+
+    // 実行が始まっている run は、待機から外せないので 409 (実行は止めない)
+    const started = await app.request(`/api/sessions/${created.sessionId}/queue/${running.runId}`, {
+      method: "DELETE",
+    });
+    assert.equal(started.status, 409);
+    assert.deepEqual(await started.json(), { error: "実行が始まったため取り消せません" });
+
+    // 2 回目 (別タブが先に取り消した) と未知の run id は、待機にも実行中にも無い 404
+    for (const runId of [waiting.runId, "ghost"]) {
+      const missing = await app.request(`/api/sessions/${created.sessionId}/queue/${runId}`, { method: "DELETE" });
+      assert.equal(missing.status, 404, runId);
+      assert.deepEqual(await missing.json(), { error: "待機中のメッセージが見つかりません" });
+    }
+
+    const payload = (await (await app.request(`/api/sessions/${created.sessionId}`)).json()) as SessionPayload;
+    assert.deepEqual(
+      payload.pendingSends?.map((item) => [item.runId, item.state]),
+      [
+        [running.runId, "running"],
+        [waiting.runId, "unsent"],
+      ],
+      "取り消した送信は未送信として読め、実行中の記録は残る",
+    );
+    assert.equal(payload.queueDepth, 0, "後続が無ければキューは空になる");
+    await bff.close();
+  } finally {
+    await rm(storeDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+  }
+});
+
+test("永続化なし構成の取り消しは 409 で断り、待機キューを触らない", async () => {
+  const bff = await createBffApp({
+    cwd: "/tmp/project",
+    sessionStoreDir: null,
+    workspace: stubWorkspace(),
+    pi: asPiBff(createStubPi({ chunkDelayMs: 1000 })),
+  });
+  const app = bff.app;
+  try {
+    const post = (path: string, body: unknown) =>
+      app.request(path, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+    const created = (await (await post("/api/sessions", {})).json()) as { sessionId: string };
+    const messages = `/api/sessions/${created.sessionId}/messages`;
+    await post(messages, { text: "実行する本文" });
+    const waiting = (await (await post(messages, { text: "取り消せない本文" })).json()) as {
+      queued: boolean;
+      runId: string;
+    };
+    assert.equal(waiting.queued, true);
+
+    const refused = await app.request(`/api/sessions/${created.sessionId}/queue/${waiting.runId}`, {
+      method: "DELETE",
+    });
+    assert.equal(refused.status, 409);
+    assert.deepEqual(await refused.json(), { error: "送信の記録を保存できないため取り消せません" });
+
+    const payload = (await (await app.request(`/api/sessions/${created.sessionId}`)).json()) as SessionPayload;
+    assert.equal(payload.queueDepth, 1, "未送信として残せない構成ではキューから外さない");
+  } finally {
+    await bff.close();
+  }
+});
+
 test("sends.json の書込みに失敗しても次の保存で再試行し、保存済みの送信を未送信に残さない", async () => {
   const storeDir = await mkdtemp(join(tmpdir(), "u7agent-sends-"));
   let failures = 1;
