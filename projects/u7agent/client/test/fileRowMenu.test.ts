@@ -14,7 +14,7 @@ import {
 
 // FileBrowser / RowMenu は api.ts (location.origin を読む) を辿るため、node では最小の shim を置いてから読み込む
 globalThis.location ??= { origin: "http://localhost" } as Location;
-const { EntryRowActions } = await import("../src/components/FileBrowser");
+const { EntryRowActions, PathCopyFailure } = await import("../src/components/FileBrowser");
 const { RowMenu } = await import("../src/components/RowMenu");
 
 const base = {
@@ -111,13 +111,14 @@ test("描画: ⋯ は aria-haspopup / aria-expanded を持ち、本体は role=m
 test("描画: symlink は パスをコピー 1 項目、readOnly は何も出さない", () => {
   const symlinkRow = renderToStaticMarkup(
     createElement(EntryRowActions, {
-      path: "node/link",
       name: "link",
       type: "dir",
       symlink: true,
       canRename: true,
       readOnly: false,
       excludeNames: [],
+      copied: false,
+      onCopyPath: () => {},
       onRename: () => {},
       onDelete: () => {},
       onDownload: () => {},
@@ -131,18 +132,34 @@ test("描画: symlink は パスをコピー 1 項目、readOnly は何も出さ
 
   const readOnly = renderToStaticMarkup(
     createElement(EntryRowActions, {
-      path: "docs",
       name: "docs",
       type: "dir",
       canRename: true,
       readOnly: true,
       excludeNames: [],
+      copied: false,
+      onCopyPath: () => {},
       onRename: () => {},
       onDelete: () => {},
       onDownload: () => {},
     }),
   );
   assert.equal(readOnly, "", "readOnly に行の操作が出ている");
+});
+
+test("描画: パスコピーの失敗は ⋯ ではなく行に 1 行で出し、選択の導線を付けない", () => {
+  const none = renderToStaticMarkup(createElement(PathCopyFailure, {}));
+  assert.equal(none, "", "失敗していない行に通知が出ている");
+
+  const failure = renderToStaticMarkup(
+    createElement(PathCopyFailure, { detail: "textarea: 選択が空 / readonly textarea: execCommand が false" }),
+  );
+  // 画面に出せないと iOS 実機で原因を切り分けられない。文言は CopyButton と同じにする
+  assert.ok(failure.includes('role="alert"'), "行の失敗が live region でない");
+  assert.ok(failure.includes("コピーできませんでした"), "CopyButton と同じ失敗の文言でない");
+  assert.ok(failure.includes("textarea: 選択が空 / readonly textarea: execCommand が false"), "理由が出ていない");
+  // 行のパスは選択状態にできないため、CopyButton の「選択」ボタンは付けない (内訳の文には出得る)
+  assert.ok(!failure.includes(">選択</button>"), "選択できない対象に選択の導線が付いている");
 });
 
 test("描画: コピー成功の間は ⋯ がチェック + コピーしました になる", () => {

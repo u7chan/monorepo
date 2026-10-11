@@ -2,7 +2,8 @@ import type { MouseEvent } from "react";
 import { cn } from "../../lib/cn";
 
 const COPY_DONE_TEXT = "コピーしました";
-const COPY_FAILED_TEXT = "コピーできませんでした";
+/** 失敗の文言。パスをコピー (FileBrowser の行) も同じ字面を出す */
+export const COPY_FAILED_TEXT = "コピーできませんでした";
 
 /** コピーボタンの出し方。group 名は使う側の親要素と対にする */
 export type CopyReveal = "message" | "code";
