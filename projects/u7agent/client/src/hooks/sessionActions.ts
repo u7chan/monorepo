@@ -241,6 +241,39 @@ export async function discardUnsentMessage(runId: string, deps: DiscardUnsentDep
   }
 }
 
+export type CancelQueuedDeps = {
+  sessionIdRef: RefObject<string>;
+  /** 取り消しが済んだらローカルの待機表示も未送信へ切り替える */
+  cancel: (sessionId: string, runId: string) => Promise<unknown>;
+  /**
+   * 権威ある payload を取り直す。実行開始 (409) / 別タブの先取り (404) は状態が変わっており、
+   * バブルの状態をサーバーへ委ねるために使う
+   */
+  recover: () => Promise<unknown>;
+  dispatch: Dispatch<ChatAction>;
+};
+
+/**
+ * 待機キュー中のメッセージを 1 件だけ取り消す。実行中のターンは止めない。成功応答では状態行を
+ * 触らない (件数の正は resync の payload)。409 / 404 は理由を出して payload を取り直す。
+ */
+export async function cancelQueuedMessage(runId: string, deps: CancelQueuedDeps): Promise<void> {
+  const id = deps.sessionIdRef.current;
+  if (!id) return;
+  try {
+    await deps.cancel(id, runId);
+    if (deps.sessionIdRef.current !== id) return;
+    deps.dispatch({ type: "queueCanceled", runId });
+  } catch (error) {
+    if (deps.sessionIdRef.current !== id) return;
+    const status = isApiFailure(error) ? (error as { status: number }).status : undefined;
+    // 取り直しを先に終わらせる。resync は状態行を空にするため、後に理由を出す
+    if (status === 409 || status === 404) await deps.recover();
+    if (deps.sessionIdRef.current !== id) return;
+    deps.dispatch({ type: "setActivity", text: messageFor(error) });
+  }
+}
+
 export type AnswerQuestionDeps = {
   sessionIdRef: RefObject<string>;
   /** 権威ある状態を取り直す (409: 別タブが先に回答 / 404: 停止・再起動で質問が消えた) */

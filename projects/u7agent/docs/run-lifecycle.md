@@ -125,13 +125,15 @@ message_end(assistant, error, usage.total = 0)  失敗試行
 
 自動再試行の待機中の中止は、SDK が失敗試行を投影から除外済みで aborted の assistant が残らない。BFF は stop の要求を `RunState` へ控え、最終 assistant の `stopReason` に依らず `stopped` とする（`run.retry` は解除し、`totalRetryCount` は残す）。
 
+`DELETE /api/sessions/:id/queue/:runId` は待機キューから 1 件だけ外して未送信として残す。実行中のターンは止めず、残った待機の順位は繰り上がる（キュー全体の破棄は `POST /stop`、記録ごと消すのは `DELETE /api/sessions/:id/unsent/:runId`）。
+
 `DELETE /api/sessions/:id` は停止 + ストアの履歴削除 + 購読者への `session_deleted` 通知を行う（作業フォルダは残す）。未ロードのセッションは SDK を開かずに消せる。
 
 ## ライフサイクル / 制限
 
 - 会話は BFF 専用ストアへ永続化し、起動時に一覧を復元する（[persistence.md](persistence.md)）。プロジェクトの登録はアプリデータの SQLite へ保存し、所属は `projectCwd` から読み取り時に解決する。
 - 1 時間未使用のアイドルセッションは SWEEP でメモリから外す（実行中・キューあり・SSE 購読中は対象外）。ストアと作業フォルダは残り、次回アクセス時に SDK セッションを復元する。
-- `ask_user` の回答待ちはタイムアウトを持たず、`sweep` の対象外（busy）でもある。放置するとランは `running` のまま残り、他クライアントの送信はキュー（最大 10 件、超過は 429）に溜まり、Discord の完了通知も来ない。逃げ道は停止だけで、停止はキューを破棄する（運用影響は [ask-user.md](ask-user.md#運用影響と既知の制限)）。
+- `ask_user` の回答待ちはタイムアウトを持たず、`sweep` の対象外（busy）でもある。放置するとランは `running` のまま残り、他クライアントの送信はキュー（最大 10 件、超過は 429）に溜まり、Discord の完了通知も来ない。逃げ道は停止だけで、停止はキューを破棄する（待機中の分は 1 件ずつ `DELETE /api/sessions/:id/queue/:runId` で取り消せる。運用影響は [ask-user.md](ask-user.md#運用影響と既知の制限)）。
 - id ごとの状態（未ロード / loading / live / evicting / deleting）とライフサイクルの Promise チェーンで、ロード・sweep・削除の競合を直列化する。読み書きするファイルは `session-store` の書込みキューでも直列化する。
 - サーバ終了時は進行中の書込みを flush してから全セッションを abort + dispose する。
 - テスト（`server/test/`）は pi をスタブし、`createBffApp({ pi })` に注入して検証する。HTTP 層は `app.request()` で叩き（listen なし）、store 挙動は直接検証する。実 API は呼ばない。

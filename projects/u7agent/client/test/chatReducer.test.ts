@@ -1593,6 +1593,44 @@ test("queue_cleared は待機の表示を消し、runIds が無くても解除�
   );
 });
 
+test("queueCanceled は対象の待機だけを未送信へ戻し、他の待機を変えない", () => {
+  const queued = queuedEcho(queuedEcho(historyWithOld(), "先に積む本文", "run-a", 1), "取り消す本文", "run-b", 2);
+  const waiting = chatReducer(queued, { type: "queued", position: 2, queueDepth: 2 });
+  const keptEchoId = waiting.bubbles.find((bubble) => bubble.runId === "run-a")?.id;
+  const target = waiting.bubbles.find((bubble) => bubble.runId === "run-b");
+  assert.ok(keptEchoId !== undefined && target !== undefined);
+  assert.deepEqual(waiting.pendingEchoIds, [keptEchoId, target.id], "待機中のエコーは履歴への吸収を待つ");
+
+  const canceled = chatReducer(waiting, { type: "queueCanceled", runId: "run-b" });
+  assert.deepEqual(
+    canceled.bubbles.map((bubble) => [
+      bubble.runId,
+      bubble.queued === true,
+      bubble.queuePosition,
+      bubble.unsent === true,
+      bubble.accepted === true,
+      bubble.confirmed === true,
+    ]),
+    [
+      ["run-old", false, undefined, false, false, false],
+      ["run-a", true, 1, false, false, false],
+      ["run-b", false, undefined, true, false, false],
+    ],
+    "取り消した送信だけが未送信になり、他の待機と順位はそのまま",
+  );
+  assert.deepEqual(canceled.pendingEchoIds, [keptEchoId], "未送信は吸収待ちに残さない (再送で同じ id を二重にしない)");
+  assert.equal(canceled.queueDepth, 2, "件数はサーバーの payload が正で、ローカルでは減らさない");
+  assert.equal(canceled.activity, waiting.activity, "成功時の文言は足さない (バブルが変わるのが結果の提示)");
+
+  // resync が成功応答より先に届く経路がある。既に未送信なら状態を作り直さない
+  assert.equal(chatReducer(canceled, { type: "queueCanceled", runId: "run-b" }), canceled);
+  assert.equal(
+    chatReducer(canceled, { type: "queueCanceled", runId: "ghost" }),
+    canceled,
+    "未知の run id では何もしない",
+  );
+});
+
 test("resync の status === queued は件数のサマリを出し、run の実行中では開始の合図を残す", () => {
   const waiting = chatReducer(historyWithOld(), { type: "resync", payload: pendingPayload([], "queued", 2) });
   assert.equal(waiting.runStatus, "queued");

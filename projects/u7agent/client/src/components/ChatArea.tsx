@@ -53,6 +53,8 @@ export type ChatAreaProps = {
   onResendUnsent?: (runId: string) => void;
   /** 未送信メッセージの破棄 */
   onDiscardUnsent?: (runId: string) => void;
+  /** 待機キュー中のメッセージの取り消し (実行中のターンは止めず、未送信として残す) */
+  onCancelQueued?: (runId: string) => Promise<void>;
   /** 実行中の run か (ask_user の回答を受け付けるかの根拠) */
   answerable?: boolean;
   /** ask_user の回答。エラーはカード内に出し、入力は消さない */
@@ -94,6 +96,7 @@ export function ChatArea({
   onSuggestion,
   onResendUnsent,
   onDiscardUnsent,
+  onCancelQueued,
   answerable = false,
   onAnswerQuestion,
   visible = true,
@@ -285,6 +288,8 @@ export function ChatArea({
     const bubble = item.bubble;
     // 未送信の再送 / 破棄は run id を持つバブルだけに出す
     const unsentRunId = bubble.unsent === true ? bubble.runId : undefined;
+    // 取り消しは待機中のバブルだけに出す (run_start が届いた直後は実行が始まっている)
+    const queuedRunId = bubble.queued === true ? bubble.runId : undefined;
     return (
       <MessageView
         bubble={bubble}
@@ -305,6 +310,7 @@ export function ChatArea({
         onCopyAll={() => void copyMessage(toolHistoryCopyText(nonSkillToolCards(bubble.tools)), `tools_${bubble.id}`)}
         onResend={unsentRunId === undefined ? undefined : () => onResendUnsent?.(unsentRunId)}
         onDiscard={unsentRunId === undefined ? undefined : () => onDiscardUnsent?.(unsentRunId)}
+        onCancelQueued={queuedRunId === undefined ? undefined : () => onCancelQueued?.(queuedRunId)}
         answerable={answerable}
         // 進行中のターンだけ、ツール履歴のコピーを出さない
         live={bubble.id === currentAssistantId}

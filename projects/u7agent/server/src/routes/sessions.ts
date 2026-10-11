@@ -289,6 +289,20 @@ export function createSessionRoutes({
     },
 
     /**
+     * 待機キューの 1 件だけの取り消し。実行中のターンは止めず、記録 (本文) も残して未送信へ落とす。
+     * 実行開始 / キューからの消滅は状態が変わっているため、理由付きの 409 / 404 で断る。
+     */
+    cancelQueued: async (c: Context) => {
+      const record = await resolveRecord(c);
+      if (!record) return c.json({ error: "Session not found" }, 404);
+      const result = store.cancelQueued(record, c.req.param("runId") ?? "");
+      if (result === "running") return c.json({ error: "実行が始まったため取り消せません" }, 409);
+      if (result === "unstorable") return c.json({ error: "送信の記録を保存できないため取り消せません" }, 409);
+      if (result === "missing") return c.json({ error: "待機中のメッセージが見つかりません" }, 404);
+      return c.json({ ok: true });
+    },
+
+    /**
      * 選択時の即時アップロード。bodyGuard (既定 64 KiB 上限 / text 化) を通さないよう、app.ts では
      * このルートを bodyGuard より先に登録する。保存先は所属スペースの添付置き場 (app-paths.ts の
      * `sessionUploadsRel`。プロジェクトのリポジトリ内にファイルを作らない)。

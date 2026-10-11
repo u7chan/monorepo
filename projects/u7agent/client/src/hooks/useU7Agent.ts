@@ -11,6 +11,7 @@ import { chatReducer, initialChatState } from "./chatReducer";
 import { runtimeStatusForError } from "./runtimeStatus";
 import {
   answerChatQuestion,
+  cancelQueuedMessage,
   discardUnsentMessage,
   resendUnsentMessage,
   sendChatMessage,
@@ -55,6 +56,7 @@ export type SendMessageOptions = {
 export function useU7Agent({ pendingSessionId }: UseU7AgentOptions = {}) {
   const {
     answerQuestion: answerQuestionApi,
+    cancelQueuedMessage: cancelQueuedApi,
     discardUnsentMessage: discardUnsentApi,
     postMessage,
     resendMessage,
@@ -337,6 +339,19 @@ export function useU7Agent({ pendingSessionId }: UseU7AgentOptions = {}) {
     [dispatch, sessionIdRef],
   );
 
+  /** 待機キュー中の 1 件の取り消し。実行中のターンは止めず、409 / 404 は取り直しへ収束させる */
+  const cancelQueued = useCallback(
+    async (runId: string): Promise<void> => {
+      await cancelQueuedMessage(runId, {
+        sessionIdRef,
+        cancel: cancelQueuedApi,
+        recover: resyncSession,
+        dispatch,
+      });
+    },
+    [dispatch, resyncSession, sessionIdRef],
+  );
+
   /** ask_user の回答。409 / 404 は別タブの回答や停止で状態が変わっているため取り直しへ収束させる */
   const answerQuestion = useCallback(
     (toolCallId: string, answers: AskUserAnswer[]) =>
@@ -495,6 +510,7 @@ export function useU7Agent({ pendingSessionId }: UseU7AgentOptions = {}) {
     stopAgent,
     resendUnsent,
     discardUnsent,
+    cancelQueued,
     answerQuestion,
     compactSession,
     loadOlderHistory,

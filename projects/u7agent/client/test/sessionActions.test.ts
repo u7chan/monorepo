@@ -9,10 +9,12 @@ import type { Dispatch } from "react";
 import { chatReducer, initialChatState, type ChatAction } from "../src/hooks/chatReducer";
 import {
   answerChatQuestion,
+  cancelQueuedMessage,
   compactChat,
   resendUnsentMessage,
   sendChatMessage,
   stopRun,
+  type CancelQueuedDeps,
   type CompactChatDeps,
   type ResendUnsentDeps,
   type SendChatMessageDeps,
@@ -685,6 +687,95 @@ test("取り直しも失敗し、操作世代が進んでいれば表示を戻�
   pending.reject(new Error("network reset"));
   await running;
   assert.deepEqual(actionsOfType(actions, "resendFailed"), []);
+});
+
+// --- 待機キュー中のメッセージの取り消し ---
+
+function createCancelHarness(overrides: Partial<CancelQueuedDeps> = {}) {
+  const { actions, dispatch } = actionRecorder();
+  const deps: CancelQueuedDeps = {
+    sessionIdRef: { current: "s-1" },
+    cancel: async () => ({ ok: true }),
+    recover: async () => false,
+    dispatch,
+    ...overrides,
+  };
+  return { actions, deps };
+}
+
+test("取り消しが成功したら未送信へ切り替え、状態行の文言は足さない", async () => {
+  const { actions, deps } = createCancelHarness();
+  await cancelQueuedMessage("run-b", deps);
+  assert.deepEqual(
+    actionsOfType(actions, "queueCanceled").map((action) => action.runId),
+    ["run-b"],
+  );
+  assert.deepEqual(actionsOfType(actions, "setActivity"), [], "件数と順位の正は resync の payload");
+});
+
+test("取り消しの 409 / 404 は取り直しの後に理由を状態行へ出し、通信の失敗では取り直さない", async () => {
+  // resync が状態行を空にするため、理由は取り直しの後に出す (順序も固定する)
+  const order: string[] = [];
+  const conflictActions: ChatAction[] = [];
+  await cancelQueuedMessage("run-b", {
+    sessionIdRef: { current: "s-1" },
+    cancel: async () => {
+      throw apiFailure("実行が始まったため取り消せません", 409);
+    },
+    recover: async () => {
+      order.push("recover");
+      return true;
+    },
+    dispatch: (value) => {
+      const action = value as ChatAction;
+      order.push(`dispatch:${action.type}`);
+      conflictActions.push(action);
+    },
+  });
+  assert.deepEqual(order, ["recover", "dispatch:setActivity"]);
+  assert.deepEqual(
+    actionsOfType(conflictActions, "setActivity").map((action) => action.text),
+    ["実行が始まったため取り消せません"],
+  );
+  assert.deepEqual(actionsOfType(conflictActions, "queueCanceled"), [], "409 では未送信へ切り替えない");
+
+  // 404 も同じ収束へ寄せる (別タブが先に取り消した / 既に実行・保存された)
+  let recovered = 0;
+  const missing = createCancelHarness({
+    cancel: async () => {
+      throw apiFailure("待機中のメッセージが見つかりません", 404);
+    },
+    recover: async () => {
+      recovered += 1;
+      return true;
+    },
+  });
+  await cancelQueuedMessage("run-b", missing.deps);
+  assert.equal(recovered, 1, "404 は権威ある payload を取り直す");
+  assert.deepEqual(
+    actionsOfType(missing.actions, "setActivity").map((action) => action.text),
+    ["待機中のメッセージが見つかりません"],
+  );
+  assert.deepEqual(actionsOfType(missing.actions, "queueCanceled"), []);
+
+  // 通信自体の失敗は理由だけを出し、取り直しも未送信への切替も起こさない
+  let offlineRecovered = 0;
+  const offline = createCancelHarness({
+    cancel: async () => {
+      throw new Error("network reset");
+    },
+    recover: async () => {
+      offlineRecovered += 1;
+      return false;
+    },
+  });
+  await cancelQueuedMessage("run-b", offline.deps);
+  assert.equal(offlineRecovered, 0);
+  assert.deepEqual(
+    actionsOfType(offline.actions, "setActivity").map((action) => action.text),
+    ["network reset"],
+  );
+  assert.deepEqual(actionsOfType(offline.actions, "queueCanceled"), []);
 });
 
 test("ask_user の回答は成功で ok、409 / 404 では権威ある状態を取り直す", async () => {

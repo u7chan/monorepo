@@ -1141,6 +1141,10 @@ export type StopResult = z.infer<typeof StopResultSchema>;
 export const DiscardUnsentResultSchema = z.object({ ok: z.literal(true) });
 export type DiscardUnsentResult = z.infer<typeof DiscardUnsentResultSchema>;
 
+/** `DELETE /api/sessions/:id/queue/:runId` の応答。件数は resync の payload が正なので載せない */
+export const CancelQueuedResultSchema = z.object({ ok: z.literal(true) });
+export type CancelQueuedResult = z.infer<typeof CancelQueuedResultSchema>;
+
 /** `POST /api/sessions/:id/compact` の応答。完了まで待って実効状態を返す */
 export const SessionCompactionResultSchema = z.object({
   sessionId: z.string(),

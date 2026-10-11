@@ -231,6 +231,55 @@ test("別タブの再送 / 破棄で記録が消えた未送信バブルは、pa
   assert.deepEqual(cleared.bubbles, []);
 });
 
+test("取り消した待機は未送信として残り、再送しても同じバブルが二重にならない", () => {
+  // 実行中と待機中が並ぶ状態 (待機の順位と件数は payload が正)
+  const waiting = chatReducer(withHistory(), {
+    type: "resync",
+    payload: payload([
+      { runId: "run-running", text: "実行中の本文", at: 2, state: "running" },
+      { runId: "run-queued", text: "取り消す本文", at: 3, state: "queued", position: 1 },
+    ]),
+  });
+  const runningId = waiting.bubbles.find((bubble) => bubble.runId === "run-running")?.id;
+  const queuedId = waiting.bubbles.find((bubble) => bubble.runId === "run-queued")?.id;
+  assert.ok(runningId !== undefined && queuedId !== undefined);
+  assert.deepEqual(waiting.pendingEchoIds, [runningId, queuedId]);
+
+  const canceled = chatReducer(waiting, { type: "queueCanceled", runId: "run-queued" });
+  assert.deepEqual(
+    canceled.bubbles
+      .filter((bubble) => bubble.runId !== undefined)
+      .map((bubble) => [bubble.runId, bubble.unsent === true, bubble.queued === true]),
+    [
+      ["run-old", false, false],
+      ["run-running", false, false],
+      ["run-queued", true, false],
+    ],
+    "取り消した待機だけを未送信にし、実行中のバブルは変えない",
+  );
+  assert.deepEqual(canceled.pendingEchoIds, [runningId], "取り消した分は履歴への吸収待ちから外す");
+
+  // resync が成功応答より先に届いた場合 (payload が既に未送信)。同じ送信を二度取り消しても変わらない
+  const resynced = chatReducer(canceled, {
+    type: "resync",
+    payload: payload([
+      { runId: "run-running", text: "実行中の本文", at: 2, state: "running" },
+      { runId: "run-queued", text: "取り消す本文", at: 3, state: "unsent" },
+    ]),
+  });
+  assert.equal(chatReducer(resynced, { type: "queueCanceled", runId: "run-queued" }), resynced);
+
+  // そのまま再送しても、同じバブルが pending へ戻るだけ (二重に足さない)
+  const resent = chatReducer(resynced, { type: "resendUnsent", runId: "run-queued" });
+  assert.deepEqual(
+    resent.bubbles
+      .filter((bubble) => bubble.runId === "run-queued")
+      .map((bubble) => [bubble.id, bubble.unsent === true]),
+    [[queuedId, false]],
+  );
+  assert.deepEqual(resent.pendingEchoIds, [runningId, queuedId]);
+});
+
 test("停止でキューを破棄した送信は、queue_cleared の run id で未送信へ切り替わる", () => {
   const running = echoWithRunId(withHistory(), "実行中の本文", "run-running", 2);
   const queued = echoWithRunId(running, "待機の本文", "run-queued", 3);

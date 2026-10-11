@@ -5,6 +5,7 @@ import type {
   AgentDef,
   ArchiveSettingsResponse,
   AskUserAnswer,
+  CancelQueuedResult,
   CatalogResponse,
   ContentMutationResponse,
   ContentSettingsResponse,
@@ -130,6 +131,8 @@ export function createSpaceApi(spaceId: string) {
       read<PostMessageResult>(session.messages.$post({ param: { id }, json: { resendRunId: runId } })),
     discardUnsentMessage: (id: string, runId: string) =>
       read<DiscardUnsentResult>(session.unsent[":runId"].$delete({ param: { id, runId } })),
+    cancelQueuedMessage: (id: string, runId: string) =>
+      read<CancelQueuedResult>(session.queue[":runId"].$delete({ param: { id, runId } })),
     answerQuestion: (id: string, toolCallId: string, answers: AskUserAnswer[]) =>
       read<{ ok: true }>(
         session.questions[":toolCallId"].answer.$post({ param: { id, toolCallId }, json: { answers } }),
