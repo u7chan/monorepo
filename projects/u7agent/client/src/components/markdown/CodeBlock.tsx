@@ -1,7 +1,8 @@
-import { memo, useMemo } from "react";
+import { memo, useMemo, useRef } from "react";
 import { useMessageCopy } from "../../hooks/useMessageCopy";
 import { cn } from "../../lib/cn";
 import { codeLineCount, lineNumbers } from "../../lib/codeLines";
+import { selectCopyTarget } from "../../lib/copyToClipboard";
 import { highlightCode } from "../../lib/markdown/highlight";
 import { CopyButton } from "../chat/CopyButton";
 
@@ -22,7 +23,8 @@ export const CodeBlock = memo(function CodeBlock({
   note?: string;
 }) {
   const tokens = useMemo(() => highlightCode(text, lang), [text, lang]);
-  const { copiedId, copyMessage } = useMessageCopy();
+  const { copiedId, copyMessage, copyFailure } = useMessageCopy();
+  const preRef = useRef<HTMLPreElement>(null);
   // 生成中のカーソルは本文の後ろに付くため、本文が改行で終わるときはその行も数える
   const lineCount = codeLineCount(text, !closed);
   return (
@@ -34,7 +36,9 @@ export const CodeBlock = memo(function CodeBlock({
         {closed ? (
           <CopyButton
             copied={copiedId === "code"}
+            failure={copyFailure("code")}
             onClick={() => void copyMessage(text, "code")}
+            onSelect={() => selectCopyTarget(preRef.current)}
             label="コードをコピー"
             reveal="code"
           />
@@ -49,7 +53,7 @@ export const CodeBlock = memo(function CodeBlock({
               {lineNumbers(lineCount)}
             </div>
           )}
-          <pre className="md-code-pre">
+          <pre ref={preRef} className="md-code-pre">
             <code>
               {tokens === null
                 ? text

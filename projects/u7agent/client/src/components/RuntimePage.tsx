@@ -57,7 +57,7 @@ export function RuntimePage({
   });
   const [healthFailed, setHealthFailed] = useState(false);
   const [pending, setPending] = useState(true);
-  const { copiedId, copyMessage } = useMessageCopy();
+  const { copiedId, copyMessage, copyFailure } = useMessageCopy();
   const gateRef = useRef<RuntimeReloadGate | null>(null);
   if (gateRef.current === null) gateRef.current = createRuntimeReloadGate();
   const gate = gateRef.current;
@@ -100,6 +100,7 @@ export function RuntimePage({
         <>
           <CopyButton
             copied={copiedId === "diagnostic"}
+            failure={copyFailure("diagnostic")}
             onClick={() => void copyMessage(diagnosticText, "diagnostic")}
             label="診断情報をコピー"
           />

@@ -30,6 +30,7 @@
 | Discord 通知（会話ごとの On/Off と設定画面） | `server/src/notifications.ts`、`server/src/routes/notifications.ts`、`client/src/components/NotificationSettingsPage.tsx`、`client/src/components/notifications/` | [notifications.md](notifications.md) |
 | フロントエンドの状態 / テーマ / レイアウト | `client/src/hooks/`、`client/src/theme/`、`client/src/components/` | [frontend.md](frontend.md)、[ui-layout.md](ui-layout.md) |
 | チャットのツール履歴とライブ表示（実行中のツール / コピーの出し分け） | `client/src/lib/liveToolCall.ts`、`client/src/lib/toolSummary.ts`、`client/src/components/composer/LiveToolCall.tsx`、`client/src/components/chat/ToolHistory.tsx` | [frontend.md](frontend.md#チャット状態とレンダリング) |
+| コピー（クリップボード）の経路と失敗表示 | `client/src/lib/copyToClipboard.ts`、`client/src/hooks/useMessageCopy.ts`、`client/src/components/chat/CopyButton.tsx` | [file-preview.md](file-preview.md#コピー)、[sandbox.md](sandbox.md#serveサービスの公開と起動停止) |
 | 検証（lint / format の設定と落とし穴） | `.oxlintrc.json`、`.oxfmtrc.json`、`client/src/lib/cn.ts`、`client/src/styles/index.css` | [verification.md](verification.md) |
 | テスト方針 / client の検査の分類 / GUI 受入 | `client/test/`、`server/test/`、`AGENTS.md` | [testing.md](testing.md) |
 | チャット本文の Markdown 描画 | `client/src/lib/markdown/`、`client/src/lib/codeLines.ts`、`client/src/components/markdown/` | [markdown.md](markdown.md)、[file-preview.md](file-preview.md#markdown-プレビュー) |

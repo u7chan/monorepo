@@ -1,4 +1,8 @@
+import type { MouseEvent } from "react";
 import { cn } from "../../lib/cn";
+
+const COPY_DONE_TEXT = "コピーしました";
+const COPY_FAILED_TEXT = "コピーできませんでした";
 
 /** コピーボタンの出し方。group 名は使う側の親要素と対にする */
 export type CopyReveal = "message" | "code";
@@ -48,35 +52,65 @@ function CheckIcon() {
 
 export function CopyButton({
   copied,
+  failure,
+  onSelect,
   onClick,
   label,
   reveal,
 }: {
   copied: boolean;
+  /** 失敗の内訳。未指定は「失敗していない」(通知を出すかどうかの根拠) */
+  failure?: string;
+  /** 失敗時にコピー対象を選択状態にする導線。対象が画面に出ていないコピーでは渡さない */
+  onSelect?: () => void;
   onClick: () => void;
   label: string;
   /** 省略すると常に表示する */
   reveal?: CopyReveal;
 }) {
+  const failed = failure !== undefined;
+  // summary の中に置くため、クリックを既定動作 (details の開閉) と親へ伝えない
+  const handleClick = (handler: () => void) => (event: MouseEvent<HTMLButtonElement>) => {
+    event.preventDefault();
+    event.stopPropagation();
+    handler();
+  };
+  const stateLabel = failed ? COPY_FAILED_TEXT : copied ? COPY_DONE_TEXT : label;
   return (
-    <button
-      type="button"
-      aria-label={copied ? "コピーしました" : label}
-      title={copied ? "コピーしました" : label}
-      // summary の中に置くため、クリックを既定動作 (details の開閉) と親へ伝えない
-      onClick={(event) => {
-        event.preventDefault();
-        event.stopPropagation();
-        onClick();
-      }}
-      className={cn(
-        "grid size-6 shrink-0 place-items-center rounded-md transition-[opacity,color] duration-200",
-        copied
-          ? "text-ok opacity-100"
-          : cn("text-ink-faint hover:text-accent-text", reveal ? REVEAL_CLASS[reveal] : ""),
-      )}
-    >
-      {copied ? <CheckIcon /> : <CopyIcon />}
-    </button>
+    <>
+      <button
+        type="button"
+        aria-label={stateLabel}
+        title={stateLabel}
+        onClick={handleClick(onClick)}
+        className={cn(
+          "grid size-6 shrink-0 place-items-center rounded-md transition-[opacity,color] duration-200",
+          copied
+            ? "text-ok opacity-100"
+            : failed
+              ? "text-danger-text opacity-100"
+              : cn("text-ink-faint hover:text-accent-text", reveal ? REVEAL_CLASS[reveal] : ""),
+        )}
+      >
+        {copied ? <CheckIcon /> : <CopyIcon />}
+      </button>
+      {/* 失敗の理由は実機 (iOS) でも読めるように画面へ出す (専用のデバッグ表示は作らない。docs/file-preview.md#コピー) */}
+      {failed ? (
+        <span role="alert" className="min-w-0 text-2xs leading-relaxed text-danger-text">
+          <span className="block">{COPY_FAILED_TEXT}</span>
+          <span className="block break-words text-ink-faint">{failure}</span>
+          {onSelect === undefined ? null : (
+            <button
+              type="button"
+              onClick={handleClick(onSelect)}
+              title="コピーする対象を選択する"
+              className="mt-0.5 rounded-sm border border-danger/40 px-1 text-3xs transition-colors hover:bg-danger/10"
+            >
+              選択
+            </button>
+          )}
+        </span>
+      ) : null}
+    </>
   );
 }
