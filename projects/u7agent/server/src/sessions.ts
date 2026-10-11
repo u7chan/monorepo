@@ -248,6 +248,17 @@ export function resolveAgentSkills(
   };
 }
 
+/**
+ * 進行中の引っ越し 1 件。同じ会話に複数が重なると移動先が違うことがあるため、会話 ID ではなく
+ * 操作単位で持ち、後続の登録が先行の待機対象を隠さないようにする。
+ */
+interface PendingMove {
+  /** 移動先スペース */
+  spaceId: string;
+  /** この操作の完了 (完了 / ロールバック) を待つ promise */
+  settled: Promise<void>;
+}
+
 export class SessionStore {
   pi: PiRuntimeLike | null;
   catalog: AgentCatalog;
@@ -276,8 +287,8 @@ export class SessionStore {
   pinUpdates: Map<string, Promise<void>>;
   /** 削除予約中の id */
   deleting: Set<string>;
-  /** in-flight の引っ越し先 (id → 移動先スペース)。対象スペースの削除が根を消す前に待つ相手を引く */
-  private moveTargets: Map<string, string>;
+  /** in-flight の引っ越し (操作単位)。対象スペースの削除が根を消す前に待つ相手を引く */
+  private pendingMoves: Set<PendingMove>;
   /** close 中は新規の利用を受け付けない */
   closing: boolean;
   /** ストアの設定エラー。永続化を有効にできない状態をセッション作成で 503 にする */
@@ -340,7 +351,7 @@ export class SessionStore {
     this.metaUpdates = new Map();
     this.pinUpdates = new Map();
     this.deleting = new Set();
-    this.moveTargets = new Map();
+    this.pendingMoves = new Set();
     this.closing = false;
     this.sweeping = false;
     this.sweeper = setInterval(() => void this.sweep(), SWEEP_INTERVAL_MS);
@@ -1545,28 +1556,25 @@ export class SessionStore {
     // resolve / deleteSession / sweep を move の完了まで待たせる (setPinned と同じ lifecycle に乗せる)
     this.lifecycle.set(id, settled);
     // 削除の claim はこれから届く要求しか止めないため、受理済みの引っ越しを対象スペースの削除が引けるようにする
-    this.moveTargets.set(id, target);
+    // (同じ会話に重なっても先行を隠さないよう、会話 ID ではなく操作単位で持つ)
+    const pending: PendingMove = { spaceId: target, settled };
+    this.pendingMoves.add(pending);
     try {
       return await operation;
     } finally {
-      // 登録の寿命は lifecycle と同じにする (後から入った move の登録を消さない)
-      if (this.lifecycle.get(id) === settled) {
-        this.lifecycle.delete(id);
-        this.moveTargets.delete(id);
-      }
+      // 自分の登録だけを外す (同じ会話の後続の登録を消さない)
+      this.pendingMoves.delete(pending);
+      if (this.lifecycle.get(id) === settled) this.lifecycle.delete(id);
     }
   }
 
   /**
    * 対象スペースへ向かう受理済みの引っ越しが終わる (完了 / ロールバック) まで待つ。claim だけでは
    * 止まらないため、作業フォルダを運んだまま対象の根を消すと、移動元の会話のファイルも失う。
-   * 戻り値は待った件数 (0 なら対象へ向かう引っ越しは動いていない)。
+   * 同じ会話に複数が重なっていても操作単位で待つ。戻り値は待った件数。
    */
   async waitForMovesInto(spaceId: string): Promise<number> {
-    const pending = [...this.moveTargets]
-      .filter(([, target]) => target === spaceId)
-      .map(([id]) => this.lifecycle.get(id))
-      .filter((promise): promise is Promise<unknown> => promise !== undefined);
+    const pending = [...this.pendingMoves].filter((move) => move.spaceId === spaceId).map((move) => move.settled);
     await Promise.all(pending);
     return pending.length;
   }

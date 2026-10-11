@@ -889,6 +889,82 @@ test("deleting a space collects a conversation that finished moving into it, lea
   });
 });
 
+// 同じ会話に複数の引っ越しが重なっても、対象スペースへ向かう先行を隠さず待つことを見る (What)
+test("deleting a space waits for an earlier move of the same conversation, not only the latest one", async () => {
+  await withPaths(async (paths) => {
+    const { bff, sandbox } = await openBff(paths);
+    try {
+      const spaceA = await createSpace(bff, "A");
+      const spaceB = await createSpace(bff, "B");
+      const spaceC = await createSpace(bff, "C");
+      const created = await createSession(bff, { spaceId: spaceB });
+      const id = created.sessionId as string;
+      await writeFile(join(paths.root, sessionWorkdirRel(id, spaceB), "work.txt"), "作業中");
+      await mkdir(join(paths.root, sessionUploadsRel(id, spaceB)), { recursive: true });
+      await writeFile(join(paths.root, sessionUploadsRel(id, spaceB), "note.txt"), "添付");
+      // A / C の両方に同じ会話 ID の添付を置き、どちらへ送っても添付の移動が 409 になるようにする
+      for (const spaceId of [spaceA, spaceC]) {
+        await mkdir(join(paths.root, sessionUploadsRel(id, spaceId)), { recursive: true });
+        await writeFile(join(paths.root, sessionUploadsRel(id, spaceId), "old.txt"), "先客");
+      }
+
+      // 先行 B → A の添付の移動で止める (409 を返す直前)
+      const moveEntry = sandbox!.move.moveEntry;
+      let entered = () => {};
+      const enteredUploads = new Promise<void>((resolve) => {
+        entered = resolve;
+      });
+      let release = () => {};
+      const gate = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      sandbox!.move.moveEntry = async (from, to) => {
+        if (to === sessionUploadsRel(id, spaceA)) {
+          entered();
+          await gate;
+        }
+        return moveEntry(from, to);
+      };
+      const roots: string[] = [];
+      sandbox!.workspace.deleteDirectory = async (path) => {
+        roots.push(path);
+        await rm(join(paths.root, path), { recursive: true, force: true });
+      };
+
+      const first = moveTo(bff, id, spaceA, spaceB);
+      await enteredUploads;
+      // 後続 (B → C) が store.move に登録されるのを待ってから削除する (先行の登録を上書きする位置)
+      const firstLifecycle = bff.store.lifecycle.get(id);
+      const second = moveTo(bff, id, spaceC, spaceB);
+      await waitFor(() => bff.store.lifecycle.get(id) !== firstLifecycle, 3000, "second move registration");
+      const deleting = bff.app.request(`/api/spaces/${spaceA}`, { method: "DELETE" });
+      try {
+        // 先行が止まっている間に根へ触れない (先行の待機対象が失われていればこの間に消える)
+        await new Promise((resolve) => setTimeout(resolve, 50));
+        assert.deepEqual(roots, []);
+      } finally {
+        release();
+      }
+
+      // 先行のロールバックが終わってから根を消す = 先行は 409 で B のファイルは残る (後続も 409)
+      const firstResponse = await first;
+      assert.equal(firstResponse.status, 409);
+      assert.match((await jsonBody(firstResponse)).error, /退避先を削除/);
+      assert.equal((await second).status, 409);
+      assert.equal((await deleting).status, 200);
+      assert.deepEqual(roots, [spaceDirRel(spaceA)]);
+      assert.equal((await readMeta(id, paths.store)).spaceId, spaceB);
+      assert.equal(existsSync(join(paths.root, sessionWorkdirRel(id, spaceB), "work.txt")), true);
+      assert.equal(existsSync(join(paths.root, sessionUploadsRel(id, spaceB), "note.txt")), true);
+      assert.equal(existsSync(join(paths.root, spaceDirRel(spaceA))), false);
+      assert.equal(bff.store.spaceOfId(id), spaceB);
+      assert.equal((await jsonBody(bff.app.request(`/api/sessions/${id}?spaceId=${spaceB}`))).sessionId, id);
+    } finally {
+      await bff.close();
+    }
+  });
+});
+
 // 対象スペースからの引っ越し中に DELETE が来ても、移動先 (他会話スペース) の会話を壊さない (What)
 test("deleting a space during a move out of it keeps the other space intact", async () => {
   await withPaths(async (paths) => {
