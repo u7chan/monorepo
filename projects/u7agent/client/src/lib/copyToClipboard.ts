@@ -220,6 +220,8 @@ function createContentEditableTarget(text: string): ClipboardTarget {
   const div = document.createElement("div");
   div.contentEditable = "true";
   div.textContent = text;
+  // 既定の white-space: normal だと execCommand が改行と連続空白を潰して書き出す (契約は本文をそのまま渡すこと)
+  div.style.whiteSpace = "pre-wrap";
   div.style.overflow = "hidden";
   placeAtViewportOrigin(div);
   clipboardHost().appendChild(div);
