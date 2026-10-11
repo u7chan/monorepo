@@ -1,11 +1,17 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { Space } from "server";
 import App from "./App";
-import { createSpace, createSpaceApi, listSpaces } from "./api";
+import { createSpace, createSpaceApi, deleteSpace, listSpaces } from "./api";
 import { SpaceContext } from "./SpaceContext";
 import { ConfirmProvider } from "./components/ConfirmProvider";
 import { entrySpaceOf, parseRoute } from "./lib/route";
-import { DEFAULT_SPACE_ID, initialSpaceSelection, selectedSpace, spaceSelectionStore } from "./lib/spaceSelection";
+import {
+  DEFAULT_SPACE_ID,
+  initialSpaceSelection,
+  selectedSpace,
+  selectionAfterSpaceDelete,
+  spaceSelectionStore,
+} from "./lib/spaceSelection";
 
 /** 読み取りの失敗は通常スペースを黙って出さず、明示的な選び直しを求める */
 const SPACE_SELECTION_READ_ERROR = "会話スペースの選択を読み取れません。選び直してください。";
@@ -72,6 +78,18 @@ export function SpacesApp() {
     const { space } = await createSpace(name);
     setSpaces((previous) => [...previous, space]);
   }, []);
+  const remove = useCallback(
+    async (id: string) => {
+      await deleteSpace(id);
+      setSpaces((previous) => previous.filter((space) => space.id !== id));
+      const nextSelection = selectionAfterSpaceDelete(selection.id, id);
+      if (nextSelection === null) return;
+      // 選択中のスペースを消したら通常へ。App の subtree は key の変化で作り直される
+      spaceSelectionStore.write(nextSelection);
+      setSelection({ id: nextSelection, fromUrl: false, error: "" });
+    },
+    [selection.id],
+  );
   const api = useMemo(() => createSpaceApi(selected?.id ?? DEFAULT_SPACE_ID), [selected?.id]);
   if (loading || error || selection.error || !selected) {
     return (
@@ -98,7 +116,7 @@ export function SpacesApp() {
     );
   }
   return (
-    <SpaceContext.Provider value={{ spaces, selected, select, create, api }}>
+    <SpaceContext.Provider value={{ spaces, selected, select, create, remove, api }}>
       <ConfirmProvider key={selected.id}>
         <App />
       </ConfirmProvider>

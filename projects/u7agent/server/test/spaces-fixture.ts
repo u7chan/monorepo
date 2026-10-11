@@ -68,6 +68,8 @@ const bff = await createBffApp({
   sessionStoreDir: store,
   workspace,
   moveSandbox: workspace,
+  // 公開サービスの確認 (スペース削除の 409) も同じ口から引く。渡さないと削除が必ず 503 になる
+  serveSandbox: workspace,
   pi: asPiBff(pi),
 });
 if (bff.projects.list().length === 0) {

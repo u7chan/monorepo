@@ -6,10 +6,13 @@ import {
   moveDestinationSpaces,
   ownerLinkSpace,
   selectedSpace,
+  selectionAfterSpaceDelete,
   spaceSelectionStore,
+  DEFAULT_SPACE_ID,
   SPACE_SELECTION_KEY,
   type SpaceSelectionStorage,
 } from "../src/lib/spaceSelection";
+import { spaceDeleteConfirmRequest, spaceRowActions } from "../src/lib/spaceSettings";
 import { createSessionCreation } from "../src/hooks/sessionCreation";
 import { sendChatMessage, type SendChatMessageDeps } from "../src/hooks/sessionActions";
 import { createRequestGate } from "../src/hooks/requestGate";
@@ -41,6 +44,35 @@ test("引っ越し先の候補は現在のスペースを除き、1 つしか無
   // 通常スペースしか無いときは候補 0 件 (ダイアログは確定を無効にする)
   assert.deepEqual(moveDestinationSpaces([normal], "default"), []);
   assert.deepEqual(moveDestinationSpaces([], "default"), []);
+});
+
+test("削除後の選択は、選択中を消したときだけ通常へ倒し、選択していないスペースの削除では変えない", () => {
+  assert.equal(selectionAfterSpaceDelete(demo.id, demo.id), DEFAULT_SPACE_ID);
+  // 非選択の削除は一覧から外すだけ (復旧画面にも別の追加スペースにも移らない)
+  assert.equal(selectionAfterSpaceDelete(normal.id, demo.id), null);
+  // 復旧画面になる未知の選択値でも、消したのが別のスペースなら選択は動かさない
+  assert.equal(selectionAfterSpaceDelete("unknown", demo.id), null);
+});
+
+test("行の ⋯ は通常スペースに項目を持たず、追加スペースだけに削除を出す", () => {
+  // 空配列は「その行に出せる操作が無い」印で、呼び出し側は ⋯ ごと出さない
+  assert.deepEqual(spaceRowActions(true), []);
+  assert.deepEqual(spaceRowActions(false), [{ kind: "delete", label: "スペースを削除", danger: true }]);
+});
+
+test("削除の確認はスペース名と消える対象、実行中の停止、選択中なら通常へ切り替わることを示す", () => {
+  const request = spaceDeleteConfirmRequest(demo);
+  assert.equal(request.title, "会話スペースを削除");
+  assert.deepEqual(request.subject, { label: "削除する会話スペース", value: "デモ" });
+  assert.equal(request.confirmLabel, "削除する");
+  assert.ok(request.danger, "削除は danger にする");
+  // 件数は出さず、消える対象の列挙で判断できるようにする
+  const text = [...(request.body ?? []), ...(request.notes ?? [])].join("");
+  for (const target of ["会話", "履歴", "作業フォルダのファイル", "添付", "環境変数", "サービス実績"]) {
+    assert.ok(text.includes(target), `消える対象が無い: ${target}`);
+  }
+  assert.ok(text.includes("実行中") && text.includes("停止"), "実行中の会話が止まることが無い");
+  assert.ok(text.includes("通常スペースへ切り替わ"), "選択中なら通常へ切り替わることが無い");
 });
 
 /** 保存領域 1 つ分。window が無い Node でも store を検査できるよう注入する */

@@ -6,7 +6,7 @@
 
 ## スペースの受入
 
-自動検証は `server/test/spaces-api.test.ts`（加算移行・複数所属・live / 未ロード / sweep / 再起動・添付 / cwd・復元前の所属拒否・プロジェクト利用拒否・DB 障害時の通常停止 / 削除）、`client/test/spaces.test.ts`（既定の保存先の解決・選択の fail-closed・初期選択の優先順位・各 API の文脈・作成待ちの要求元固定・遅い一覧応答・引っ越し先の候補）、`client/test/ownerLink.test.ts`（起動元リンクの切替先と順序）と既存の session / API / fallback / 通知リンクテストで行う。引っ越しは `client/test/sidebarRowMenu.test.ts`（項目の出し分けと確認文言）、`client/test/sessionMoveDialog.test.ts`（候補の一覧と確定の可否）、`client/test/sessionFallback.test.ts`（選択の移り先）、`client/test/apiContracts.test.ts`（要求元が query で移動先が body）でも固定する。GUI は専用の一時ストア / workspace / ポートと stub pi を使い、実データや有料 API に触れない。
+自動検証は `server/test/spaces-api.test.ts`（加算移行・複数所属・live / 未ロード / sweep / 再起動・添付 / cwd・復元前の所属拒否・プロジェクト利用拒否・DB 障害時の通常停止 / 削除）、`client/test/spaces.test.ts`（既定の保存先の解決・選択の fail-closed・初期選択の優先順位・各 API の文脈・作成待ちの要求元固定・遅い一覧応答・引っ越し先の候補・削除後の選択・行の ⋯ の出し分け（通常スペースは空）・削除の確認文言）、`client/test/ownerLink.test.ts`（起動元リンクの切替先と順序）と既存の session / API / fallback / 通知リンクテストで行う。引っ越しは `client/test/sidebarRowMenu.test.ts`（項目の出し分けと確認文言）、`client/test/sessionMoveDialog.test.ts`（候補の一覧と確定の可否）、`client/test/sessionFallback.test.ts`（選択の移り先）、`client/test/apiContracts.test.ts`（要求元が query で移動先が body）でも固定する。スペースの削除は `client/test/apiContracts.test.ts`（`DELETE /api/spaces/:id` が文脈の `spaceId` を付けないことと、409 の文言 / status を保つこと）でも固定する。GUI は専用の一時ストア / workspace / ポートと stub pi を使い、実データや有料 API に触れない。
 
 desktop と compact の両方で次を確認する。
 
@@ -19,6 +19,8 @@ desktop と compact の両方で次を確認する。
 - 他タブで切替えても既存タブは変わらず、そのタブのリロードで追随する（最後に書いた値が正になる）。
 - 他スペースの `/s/<sessionId>` は会話を開かず既存の見つからない旨を出し、自動切替しない。通知リンク / 設定 → ランタイムの「起動元の会話」のリンクは、保存値が別のスペースでもその会話の所属で開く（通常クリックはそのスペースへ切り替えて URL を `/s/<sessionId>` にし、`?space=` 付きのリンクは開いた後に URL から `space` が消える。他のクエリとフラグメントは残る）。開いた会話は URL (`/s/<sessionId>`) に残り、F5 で同じ会話が開く。`?space=` が未知なら復旧画面になり、選び直した後に F5 しても復旧画面へ戻らない。プロジェクト dialog / ファイル面の残存や操作不能、SSE 再接続・削除後 fallback の混線が無い。
 - 未所属の会話を ⋯ から別のスペースへ引っ越す。移動先のスペースへ切り替えると一覧に出て、作業フォルダのファイルと添付があり、履歴は空（`messageCount` は 0、未送信は消える）。F5 / BFF 再起動後も同じで、移動元のスペースには残っていない。プロジェクト配下の行には引っ越しの項目が出ない。開いている会話を移すと削除後と同じ移り先になり、「見つかりません」の混線が無い。スペースが 1 つだけのときは候補なしの案内が出て確定できない。
+- 設定 → 会話スペースで追加スペースを作り、会話・添付・環境変数を作ってから行の ⋯ で削除する。確認ダイアログにスペース名と消える対象（会話・履歴・作業フォルダのファイル・添付・環境変数とサービス実績）と実行中の会話が止まることが出て、初期焦点は「キャンセル」、Escape でも閉じ、取り消したら何も消えない。**通常スペースの行には ⋯ が出ない。** 削除すると一覧からその行が消え、通常スペースと他の追加スペースの会話・環境変数・ファイルは無傷で、実行中の会話は止まる。選択中のスペースを消すと通常スペースの新規会話になり、そのまま F5 しても通常が開く（復旧画面にならない）。選択していないスペースを消しても選択は動かない。
+- 対象スペースのサービスが公開中なら削除は 409 になり、案内（設定 → ランタイムで停止）が一覧の `role="alert"` 行に出て、一覧・選択・ファイルは変わらない。
 
 ### 有料 API を使わない GUI fixture
 
