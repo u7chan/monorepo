@@ -241,6 +241,14 @@ export interface SandboxFileListing {
 export const SANDBOX_MAX_FILE_ENTRIES = 500;
 
 /**
+ * GET /v1/files/stat の応答。path は確認した通常ファイルの root 相対の正規化パス (root は "." で、
+ * symlink を経由した要求は辿った先のパス)。本文は返さず、存在確認だけに使う。
+ */
+export interface SandboxFileStat {
+  path: string;
+}
+
+/**
  * GET /v1/files/git の応答。branch は HEAD が指すブランチ名で、detached HEAD では短縮 SHA。
  * repo の外・git が無い環境では null (一覧やツリーの表示を止めるエラーではない)。
  */

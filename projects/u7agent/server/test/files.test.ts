@@ -34,6 +34,8 @@ function stubFiles(
   deletedDirs: string[];
   renamed: Array<{ path: string; name: string }>;
   previewed: string[];
+  /** statFile へ渡した path (存在確認のルート) */
+  stat: string[];
   raw: string[];
   /** rawFile へ中継した `Range` (ヘッダ無しは undefined) */
   rawRanges: Array<string | undefined>;
@@ -44,6 +46,7 @@ function stubFiles(
   const deletedDirs: string[] = [];
   const renamed: Array<{ path: string; name: string }> = [];
   const previewed: string[] = [];
+  const stat: string[] = [];
   const raw: string[] = [];
   const rawRanges: Array<string | undefined> = [];
   return {
@@ -53,12 +56,17 @@ function stubFiles(
     deletedDirs,
     renamed,
     previewed,
+    stat,
     raw,
     rawRanges,
     workspace: {
       previewFile: async (path: string) => {
         previewed.push(path);
         return { text: "hello" };
+      },
+      statFile: async (path: string) => {
+        stat.push(path);
+        return { path };
       },
       listFiles: async (path: string) => {
         paths.push(path);
@@ -134,6 +142,51 @@ test("HTML プレビューのポリシーは段階ごとの CSP に固定する"
       `sandbox ${HTML_PREVIEW_SANDBOX_FLAGS.storage}; ${HTML_PREVIEW_CSP_BY_POLICY[level]}`,
       `${level} の storage で sandbox 段以外が変わっている`,
     );
+  }
+});
+
+test("GET /api/files/stat は通常ファイルの実在だけを 200 で返し、本文を取得しない", async () => {
+  const { workspace, stat, previewed } = stubFiles();
+  const bff = await createBffApp({ cwd: "/tmp/project", sessionStoreDir: null, pi: null, workspace });
+  try {
+    const response = await bff.app.request("/api/files/stat?path=src%2Fhello.txt");
+    assert.equal(response.status, 200);
+    // 実在の確認結果はキャッシュしない (確認の直後に消える場合まで実在と言い切らない)
+    assert.equal(response.headers.get("Cache-Control"), "no-store");
+    assert.deepEqual(await response.json(), { path: "src/hello.txt" });
+    assert.deepEqual(stat, ["src/hello.txt"]);
+    assert.deepEqual(previewed, [], "存在確認で本文を取っている");
+    // 不存在 (404) と拒否 (400 / root 外・通常ファイル以外) は status と文言をそのまま透過する
+    workspace.statFile = async () => {
+      throw new SandboxRequestError("Path not found: /tmp/project/gone.md", 404);
+    };
+    const missing = await bff.app.request("/api/files/stat?path=gone.md");
+    assert.equal(missing.status, 404);
+    assert.deepEqual(await missing.json(), { error: "Path not found: /tmp/project/gone.md" });
+    workspace.statFile = async () => {
+      throw new SandboxRequestError("Not a regular file: /tmp/project/src", 400);
+    };
+    const refused = await bff.app.request("/api/files/stat?path=src");
+    assert.equal(refused.status, 400);
+    assert.deepEqual(await refused.json(), { error: "Not a regular file: /tmp/project/src" });
+    // サンドボックス側の障害と契約外の応答は、実在の確認に使えない 502 へ寄せる
+    workspace.statFile = async () => {
+      throw new SandboxRequestError("サンドボックスに接続できません", 502);
+    };
+    assert.equal((await bff.app.request("/api/files/stat?path=src%2Fhello.txt")).status, 502);
+    workspace.statFile = async () => ({}) as { path: string };
+    assert.equal((await bff.app.request("/api/files/stat?path=src%2Fhello.txt")).status, 502);
+  } finally {
+    await bff.close();
+  }
+});
+
+test("GET /api/files/stat はサンドボックス未設定を 503 で返す", async () => {
+  const bff = await createBffApp({ cwd: "/tmp/project", sessionStoreDir: null, pi: null });
+  try {
+    assert.equal((await bff.app.request("/api/files/stat?path=a.txt")).status, 503);
+  } finally {
+    await bff.close();
   }
 });
 

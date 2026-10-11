@@ -16,21 +16,29 @@ function render(text: string, options: { provider?: boolean; cwd?: string; rootC
     createElement(FileRefProvider, {
       rootCwd: options.rootCwd ?? ROOT_CWD,
       cwd: options.cwd ?? CWD,
-      onOpen: () => {},
+      onOpen: async (): Promise<{ kind: "opened" }> => ({ kind: "opened" }),
       children: markdown,
     }),
   );
 }
 
 test("描画: 参照になるインラインコードだけ操作要素 (button) にする", () => {
-  const html = render("`index.html` をブラウザで開くと確認できる。");
+  const html = render("`./index.html` をブラウザで開くと確認できる。");
   assert.ok(html.includes('<button type="button"'), "button になっていない");
-  assert.ok(html.includes("<code>index.html</code>"), "字面が code で見えていない");
+  assert.ok(html.includes("<code>./index.html</code>"), "字面が code で見えていない");
+});
+
+test("描画: ディレクトリ区切りを持たない裸名はリンク化しない", () => {
+  for (const raw of ["AGENTS.md", "feedback.md", "index.html", "navigator.clipboard"]) {
+    const html = render(`実体のない \`${raw}\` を参照する。`);
+    assert.ok(!html.includes("<button"), raw);
+    assert.ok(html.includes(`<code>${raw}</code>`), raw);
+  }
 });
 
 test("描画: provider が無い本文は従来どおりの code のまま", () => {
-  const html = render("`index.html`", { provider: false });
-  assert.ok(html.includes("<code>index.html</code>"));
+  const html = render("`./index.html`", { provider: false });
+  assert.ok(html.includes("<code>./index.html</code>"));
   assert.ok(!html.includes("<button"), "provider の外で操作要素にしている");
 });
 
@@ -41,7 +49,6 @@ test("描画: 参照にならない字面は code のまま", () => {
     assert.ok(html.includes("<code>"), text);
   }
 });
-
 test("描画: rootCwd 前置きの絶対パスは解決し、cwd 外は解決しない", () => {
   assert.ok(render("`/workspace/projects/u7agent/index.html`").includes("<button"));
   assert.ok(!render("`/workspace/.u7agent/uploads/3a7bfba36f/a.png`").includes("<button"));
@@ -57,12 +64,12 @@ test("描画: 共通スキルの絶対パスはスキル面の操作要素にな
   assert.ok(html.includes("<code>/workspace/.agents/skills/alpha/SKILL.md</code>"), "字面が code で見えていない");
   // 開く先の種別を操作名に出す (作業フォルダ面は従来の文言のまま)
   assert.ok(html.includes('title="スキルで開く"'), "スキル面へ開く操作名になっていない");
-  assert.ok(render("`index.html`").includes('title="作業フォルダで開く"'), "作業フォルダの操作名が変わった");
+  assert.ok(render("`./index.html`").includes('title="作業フォルダで開く"'), "作業フォルダの操作名が変わった");
 });
 
 test("描画: Markdown リンクの children にある code は操作要素にしない", () => {
-  const html = render("[`index.html`](https://example.com)");
+  const html = render("[`./index.html`](https://example.com)");
   assert.ok(html.includes('<a href="https://example.com"'), "リンクとして描画されていない");
-  assert.ok(html.includes("<code>index.html</code>"));
+  assert.ok(html.includes("<code>./index.html</code>"));
   assert.ok(!html.includes("<button"), "<a> の中に button が入っている");
 });

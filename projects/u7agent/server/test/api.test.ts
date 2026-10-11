@@ -40,6 +40,7 @@ function stubWorkspace(): { workspace: SandboxWorkspaceClient; dirs: string[]; l
     listings,
     workspace: {
       previewFile: async () => ({ text: "" }),
+      statFile: async (path: string) => ({ path }),
       listFiles: async (path: string) => {
         listings.push(path);
         return { path: path || ".", entries: [], truncated: false };
@@ -258,6 +259,7 @@ test("project creation relays sandbox failures and answers 503 without a sandbox
     pi: null,
     workspace: {
       previewFile: async () => ({ text: "" }),
+      statFile: async (path: string) => ({ path }),
       listFiles: async () => {
         throw new SandboxRequestError("Path not found: /workspace/nope", 404);
       },

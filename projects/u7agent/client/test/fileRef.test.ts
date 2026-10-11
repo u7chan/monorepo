@@ -2,7 +2,7 @@
 // 採否は Issue の表をそのままテストケースにする (docs/file-preview.md の採否表も同じ内容)。
 import assert from "node:assert/strict";
 import test from "node:test";
-import { matchFileRef, resolveFileRef, resolveFileRefTarget } from "../src/lib/fileRef";
+import { isCommonSkillPath, matchFileRef, resolveFileRef, resolveFileRefTarget } from "../src/lib/fileRef";
 
 const ACCEPTED: [input: string, path: string][] = [
   ["index.html", "index.html"],
@@ -97,6 +97,39 @@ test("解決: matcher を通らない字面は解決しない", () => {
 /** 未所属チャットの作業フォルダ。共通スキルの置き場 (root 直下) とは別の座標になる */
 const UNASSIGNED_CWD = ".u7agent/sessions/s1";
 
+/** コードスパンでは裸名を採らない (画像の src 解決は matchFileRef / resolveFileRef のまま) */
+test("面つき解決: ディレクトリ区切りを持たない裸名は不採用にする", () => {
+  const root = "/workspace";
+  const cwd = "projects/u7agent";
+  // 存在しない語 (AGENTS.md / index.html / navigator.clipboard) をリンク化しないための除外
+  for (const raw of ["AGENTS.md", "index.html", "navigator.clipboard", "cafe.png", "feedback.md"]) {
+    assert.equal(resolveFileRefTarget(raw, root, cwd), null, raw);
+  }
+  // 区切りを持つ字面は、正規化後の最終セグメントが裸名でも採用する (元の字面で判定する)
+  assert.deepEqual(resolveFileRefTarget("./index.html", root, cwd), { kind: "work", path: "index.html" });
+  assert.deepEqual(resolveFileRefTarget("docs/readme.md", root, cwd), { kind: "work", path: "docs/readme.md" });
+  assert.deepEqual(resolveFileRefTarget(`${root}/projects/u7agent/index.html`, root, cwd), {
+    kind: "work",
+    path: "index.html",
+  });
+});
+
+test("裸名の除外はコードスパンの解決だけに閉じる (画像が使う matcher は変更しない)", () => {
+  const root = "/workspace";
+  const cwd = "projects/u7agent";
+  for (const raw of ["cafe.png", "index.html"]) {
+    assert.equal(matchFileRef(raw), raw, raw);
+    assert.equal(resolveFileRef(raw, root, cwd), raw, raw);
+  }
+});
+
+test("共通スキル配下のパス判定は、置き場の名前の位置を見る", () => {
+  assert.equal(isCommonSkillPath(".agents/skills/alpha/SKILL.md"), true);
+  assert.equal(isCommonSkillPath(".agents/skills"), false, "ディレクトリ自身はファイルパスではない");
+  assert.equal(isCommonSkillPath(".agents/skillsx/alpha/SKILL.md"), false);
+  assert.equal(isCommonSkillPath("projects/u7agent/.agents/skills/alpha/SKILL.md"), false);
+});
+
 test("面つき解決: 共通スキルの絶対パスはスキル面の (root, path) になる", () => {
   const root = "/workspace";
   assert.deepEqual(resolveFileRefTarget(`${root}/.agents/skills/alpha/SKILL.md`, root, UNASSIGNED_CWD), {
@@ -178,8 +211,11 @@ test("面つき解決: cwd 配下の絶対パスは既存の作業フォルダ�
     kind: "work",
     path: ".agents/skills/alpha/SKILL.md",
   });
-  // 明示的な相対と cwd 配下の絶対パスは従来どおり
-  assert.deepEqual(resolveFileRefTarget("index.html", root, "projects/u7agent"), { kind: "work", path: "index.html" });
+  // 明示的な相対と cwd 配下の絶対パスは従来どおり (裸名は区切りを持つ字面の例へ変える)
+  assert.deepEqual(resolveFileRefTarget("./index.html", root, "projects/u7agent"), {
+    kind: "work",
+    path: "index.html",
+  });
   assert.deepEqual(resolveFileRefTarget(`${root}/projects/u7agent/a.html`, root, "projects/u7agent"), {
     kind: "work",
     path: "a.html",

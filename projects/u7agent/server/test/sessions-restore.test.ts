@@ -27,6 +27,7 @@ function stubWorkspace(): { workspace: SandboxWorkspaceClient; dirs: string[]; l
     listings,
     workspace: {
       previewFile: async () => ({ text: "" }),
+      statFile: async (path: string) => ({ path }),
       listFiles: async (path: string) => {
         listings.push(path);
         return { path: path || ".", entries: [], truncated: false };

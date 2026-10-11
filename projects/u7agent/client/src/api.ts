@@ -16,6 +16,7 @@ import type {
   FilePreview,
   FileRename,
   FileSkillsResponse,
+  FileStat,
   GitInfo,
   Health,
   HistoryPage,
@@ -280,6 +281,17 @@ export const getFiles = async (path = "."): Promise<FileListing> => {
   if (!res.ok) throw await apiError(res);
   // 400 (root 外) / 503 (未設定) の応答型が残るため、!ok を throw で切った後に DTO 型へ寄せる
   return (await res.json()) as FileListing;
+};
+
+/**
+ * 単一ファイルの存在確認（本文は取得しない）。通常ファイルとして実在するときだけ 200 で、404 は不存在、
+ * 400 は不正・root 外・通常ファイル以外。502 / 503 はサンドボックス側の失敗で、**実在の確認には使えない**
+ * （不存在と混同しない扱いは呼び出し側の `classifyFileRefFailure` が決める）。
+ */
+export const statFile = async (path: string): Promise<FileStat> => {
+  const res = await client.api.files.stat.$get({ query: { path } });
+  if (!res.ok) throw await apiError(res);
+  return (await res.json()) as FileStat;
 };
 
 /**

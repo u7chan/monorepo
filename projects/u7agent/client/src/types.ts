@@ -31,6 +31,7 @@ export type {
   FileListing,
   FilePreview,
   FileRename,
+  FileStat,
   FileSkillInfo,
   FileSkillsResponse,
   GitInfo,

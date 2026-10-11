@@ -15,6 +15,7 @@ DTO の正は `server/src/schema.ts`（zod）。リクエストボディは `@ho
 | ランタイムのモデルカタログ | `GET /api/runtime/models` | このファイル |
 | 実行環境（サンドボックスの診断） | `GET /api/runtime/environment` | このファイル |
 | ファイル一覧 | `GET /api/files` | このファイル |
+| ファイルの存在確認 | `GET /api/files/stat` | このファイル |
 | git ブランチ（作業フォルダ） | `GET /api/files/git` | このファイル |
 | ファイル削除 | `DELETE /api/files` | このファイル |
 | ファイルのリネーム | `POST /api/files/rename` | このファイル |
@@ -249,6 +250,25 @@ client（`client/src/api.ts` の `getFiles`）は hc でこの契約を型とし
 - 400 / 404 / 502 / 503: パス検証とサンドボックス失敗の扱いは `GET /api/files` と同じ（400 root 外 / 404 実在しない / 502 到達不能・契約外の応答 / 503 未設定）
 
 client（`client/src/api.ts` の `getGitInfo`）は作業フォルダの行が呼ぶ。取り直しの合図は一覧と同じ `reloadToken`（パネルの「再読み込み」と run の終了）で、失敗時は古い値を消してチップを出さない（[ui-layout.md](ui-layout.md#作業環境パネル)）。
+
+### 存在確認
+
+| メソッド | パス | 説明 |
+| --- | --- | --- |
+| GET | `/api/files/stat?path=<root 相対>` | 通常ファイルとして実在するかの確認（本文は返さない） |
+
+サンドボックスの `GET /v1/files/stat`（[sandbox-api.md](sandbox-api.md#get-v1filesstat)）の応答を DTO（`FileStat`）として返す。`path` は一覧と同じワークスペース root 相対で、検証も同じ経路を通す。チャット本文のファイル参照を開く前に実在を確認するために使い（[file-preview.md](file-preview.md#クリックと要求)）、**一覧（`GET /api/files`）は 1 ディレクトリ 500 件の打切り（`truncated: true`）と壊れた symlink の行があるため、存在の判定には使わない**。
+
+```json
+{ "path": "src/index.ts" }
+```
+
+- 200: 通常ファイルとして実在する（`Cache-Control: no-store`）。`path` は realpath を root 相対へ写した正規化パス（root は `"."`。symlink を経由した要求は辿った先）
+- 404: 実在しない。壊れた symlink も同じ
+- 400: `path` が不正 / root 外へ解決される / 通常ファイル以外（ディレクトリ・特殊ファイル）。**本文を読まない**ため、テキストプレビューの 400（バイナリ・UTF-8 不正・2 MiB 超）はこの API では返らない
+- 502 / 503: 到達不能・契約外の応答 / 未設定。**不存在の判定には使わない**（[file-preview.md](file-preview.md#クリックと要求) の分類で確認不能として扱う）
+
+client（`client/src/api.ts` の `statFile`）は `client/src/lib/fileRefOpen.ts` の `classifyFileRefFailure` と組で使い、200 だけを実在、404 を不存在、400 を拒否、それ以外を確認不能として扱う。
 
 ## テキストプレビュー
 

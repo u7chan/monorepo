@@ -36,6 +36,11 @@ test("描画: cwd 相対の src を root 相対へ前置して配信 URL にす�
   assert.ok(html.includes('<button type="button"'), "拡大表示の button で包まれていない");
 });
 
+test("描画: コードスパンと違い、区切りを持たない裸の src も cwd 相対で解決する", () => {
+  const html = render("![cafe](cafe.png)");
+  assert.ok(html.includes('src="/api/files/raw?path=projects/u7agent/cafe.png"'), html);
+});
+
 test("描画: 同じ画像の解決 URL は version が変わったときだけ変わる", async () => {
   Object.defineProperty(globalThis, "location", {
     value: { origin: "http://localhost:5173", hostname: "localhost" },

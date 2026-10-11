@@ -1691,6 +1691,16 @@
     outline: 2px solid var(--c-focus);
     outline-offset: 1px;
   }
+  /* 確認中は押した参照を薄くする。文字を足さないのは、段落の折り返しが動いて押下位置から逃げないため */
+  .md-fileref[aria-busy="true"] code {
+    opacity: 0.55;
+  }
+  /* 参照を開けなかった理由。押した参照の近くへ添える (読み上げは親の aria-live に任せる) */
+  .md-fileref-note {
+    margin-left: 6px;
+    font-size: 0.85em;
+    color: var(--c-danger-text);
+  }
   .md kbd {
     font-size: 0.82em;
     padding: 0.1em 0.4em;

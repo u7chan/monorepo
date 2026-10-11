@@ -959,6 +959,13 @@ export const FileListingSchema = z.object({
 export type FileListing = z.infer<typeof FileListingSchema>;
 
 /**
+ * 単一ファイルの存在確認 (BFF GET /api/files/stat とサンドボックス GET /v1/files/stat の応答)。
+ * path は実在を確認できた通常ファイルの root 相対の正規化パス (root は ".")。本文は含まない。
+ */
+export const FileStatSchema = z.object({ path: z.string() });
+export type FileStat = z.infer<typeof FileStatSchema>;
+
+/**
  * git 情報 (サンドボックス GET /v1/files/git の応答)。branch は HEAD のブランチ名で、detached HEAD は
  * 短縮 SHA。repo の外・git が無い環境は null で、UI はチップを出さないだけにする。
  */

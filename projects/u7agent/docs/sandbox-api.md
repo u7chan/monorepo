@@ -253,6 +253,21 @@ X-Content-Type-Options: nosniff
   - 値に使うのは **stdout の 1 行目だけ**。stderr は読み切って上限に数えるだけで、`core.fsyncObjectFiles` 非推奨のような**終了コード 0 の警告をブランチ名に混ぜない**
 - `git` が無い / 期限超過 / 出力上限 / repo の外は、理由を返さず `branch: null` に寄せる。ブランチは一覧の表示を止める情報ではないので、UI はチップを出さないだけにする
 
+## `GET /v1/files/stat`
+
+`path`（root 相対、省略時は root）が通常ファイルとして実在するかを JSON で返す。**本文は読まない**（テキストプレビューの入力検証を存在の判定に混ぜない）。BFF の `GET /api/files/stat` がこの API を呼び、参照を開く前の確認に使う（[api.md](api.md#存在確認)）。
+
+```json
+// response
+{ "path": "src/index.ts" }
+```
+
+- 200: 通常ファイルとして実在する。`path` は realpath を root 相対へ写した正規化パス（root は `"."`。symlink を経由した要求は辿った先）。解決と検証は `GET /v1/files` と同じ（root 内外は実パスで判定）
+- 404: 実在しない（`Path not found: …`。壊れた symlink を含む）
+- 400: `path` が不正（`Invalid path: …`）/ root 外（`Path outside the workspace: …`）/ 通常ファイル以外（ディレクトリ・FIFO などの特殊ファイルは `Not a regular file: …`）。実在の確認に使わせないための拒否で、不存在（404）とは別の応答
+- 401: Bearer トークンが他と同じく必要（無効・欠落）
+- バイナリ・UTF-8 不正・上限超過のファイルも 200 になる（本文を読まないため。プレビューは `GET /v1/files/preview` の 400）
+
 ## `GET /v1/skills`
 
 root 相対のディレクトリ配下のファイルスキル（`SKILL.md`）を JSON で返す。BFF は発見結果を SDK の `skillsOverride` へ渡し、モデルには本文ではなく `path` を渡す（本文は `read` 時点のファイル内容。ファイルスキルの扱いは [persistence.md](persistence.md)）。
