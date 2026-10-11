@@ -1,17 +1,12 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Space } from "server";
 import App from "./App";
 import { createSpace, createSpaceApi, deleteSpace, listSpaces } from "./api";
 import { SpaceContext } from "./SpaceContext";
 import { ConfirmProvider } from "./components/ConfirmProvider";
 import { entrySpaceOf, parseRoute } from "./lib/route";
-import {
-  DEFAULT_SPACE_ID,
-  initialSpaceSelection,
-  selectedSpace,
-  selectionAfterSpaceDelete,
-  spaceSelectionStore,
-} from "./lib/spaceSelection";
+import { removeSpaceAndApply } from "./lib/spaceDelete";
+import { DEFAULT_SPACE_ID, initialSpaceSelection, selectedSpace, spaceSelectionStore } from "./lib/spaceSelection";
 
 /** 読み取りの失敗は通常スペースを黙って出さず、明示的な選び直しを求める */
 const SPACE_SELECTION_READ_ERROR = "会話スペースの選択を読み取れません。選び直してください。";
@@ -39,6 +34,12 @@ export function SpacesApp() {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
   const [reload, setReload] = useState(0);
+  // 選択の削除は await を挟むため、render 時の選択は古くなる。移り先の判定に使う最新の選択を ref でも持つ
+  const selectionIdRef = useRef(selection.id);
+  const applySelection = useCallback((next: SpaceSelectionState) => {
+    selectionIdRef.current = next.id;
+    setSelection(next);
+  }, []);
   useEffect(() => {
     let current = true;
     setLoading(true);
@@ -70,25 +71,26 @@ export function SpacesApp() {
     (id: string) => {
       if (!spaces.some((space) => space.id === id)) return;
       spaceSelectionStore.write(id);
-      setSelection({ id, fromUrl: false, error: "" });
+      applySelection({ id, fromUrl: false, error: "" });
     },
-    [spaces],
+    [spaces, applySelection],
   );
   const create = useCallback(async (name: string) => {
     const { space } = await createSpace(name);
     setSpaces((previous) => [...previous, space]);
   }, []);
   const remove = useCallback(
-    async (id: string) => {
-      await deleteSpace(id);
-      setSpaces((previous) => previous.filter((space) => space.id !== id));
-      const nextSelection = selectionAfterSpaceDelete(selection.id, id);
-      if (nextSelection === null) return;
-      // 選択中のスペースを消したら通常へ。App の subtree は key の変化で作り直される
-      spaceSelectionStore.write(nextSelection);
-      setSelection({ id: nextSelection, fromUrl: false, error: "" });
+    async (id: string, onSelectionReset?: () => void) => {
+      await removeSpaceAndApply(id, {
+        removeSpace: deleteSpace,
+        selectedId: () => selectionIdRef.current,
+        forget: (removedId) => setSpaces((previous) => previous.filter((space) => space.id !== removedId)),
+        navigateToChat: () => onSelectionReset?.(),
+        persistSelection: (nextId) => spaceSelectionStore.write(nextId),
+        select: (nextId) => applySelection({ id: nextId, fromUrl: false, error: "" }),
+      });
     },
-    [selection.id],
+    [applySelection],
   );
   const api = useMemo(() => createSpaceApi(selected?.id ?? DEFAULT_SPACE_ID), [selected?.id]);
   if (loading || error || selection.error || !selected) {

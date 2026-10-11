@@ -13,6 +13,7 @@ import {
   type SpaceSelectionStorage,
 } from "../src/lib/spaceSelection";
 import { spaceDeleteConfirmRequest, spaceRowActions } from "../src/lib/spaceSettings";
+import { removeSpaceAndApply } from "../src/lib/spaceDelete";
 import { createSessionCreation } from "../src/hooks/sessionCreation";
 import { sendChatMessage, type SendChatMessageDeps } from "../src/hooks/sessionActions";
 import { createRequestGate } from "../src/hooks/requestGate";
@@ -52,6 +53,93 @@ test("削除後の選択は、選択中を消したときだけ通常へ倒し�
   assert.equal(selectionAfterSpaceDelete(normal.id, demo.id), null);
   // 復旧画面になる未知の選択値でも、消したのが別のスペースなら選択は動かさない
   assert.equal(selectionAfterSpaceDelete("unknown", demo.id), null);
+});
+
+/** 削除の成功後処理の呼び出しを順に記録する。選択は await の後に読まれる (呼び出し時の値を閉じ込めない) */
+function spaceDeleteRecorder(selectedAtStart: string, selectedAfterAwait?: string) {
+  const calls: string[] = [];
+  let selectedId = selectedAtStart;
+  const deps = {
+    removeSpace: async (id: string) => {
+      calls.push(`delete:${id}`);
+      if (selectedAfterAwait !== undefined) selectedId = selectedAfterAwait;
+    },
+    selectedId: () => {
+      calls.push("read-selection");
+      return selectedId;
+    },
+    forget: (id: string) => {
+      calls.push(`forget:${id}`);
+    },
+    navigateToChat: () => {
+      calls.push("navigate");
+    },
+    persistSelection: (id: string) => {
+      calls.push(`persist:${id}`);
+    },
+    select: (id: string) => {
+      calls.push(`select:${id}`);
+    },
+  };
+  return { calls, deps };
+}
+
+test("選択中のスペースの削除は、成功時点の選択で通常へ倒し、URL → 保存値 → 選択の順に適用する", async () => {
+  const { calls, deps } = spaceDeleteRecorder(demo.id);
+  assert.deepEqual(await removeSpaceAndApply(demo.id, deps), { selectionReset: true });
+  // 会話を持たない chat への導線を先に呼ぶ (選択を変えると App が作り直され、その時点の URL が画面になる)
+  assert.deepEqual(calls, [
+    `delete:${demo.id}`,
+    `forget:${demo.id}`,
+    "read-selection",
+    "navigate",
+    `persist:${DEFAULT_SPACE_ID}`,
+    `select:${DEFAULT_SPACE_ID}`,
+  ]);
+});
+
+test("選択していないスペースの削除は一覧だけを更新し、選択・URL・保存値を変えない", async () => {
+  const { calls, deps } = spaceDeleteRecorder(normal.id);
+  assert.deepEqual(await removeSpaceAndApply(demo.id, deps), { selectionReset: false });
+  assert.deepEqual(calls, [`delete:${demo.id}`, `forget:${demo.id}`, "read-selection"]);
+});
+
+test("削除の待ち中に選択が動いても、成功時点の選択で判定し新しい選択を巻き戻さない", async () => {
+  // A を選択して A の削除を待つ間に B を選ぶ → 後着の応答で B の保存値・選択を default へ上書きしない
+  const switched = spaceDeleteRecorder(demo.id, normal.id);
+  assert.deepEqual(await removeSpaceAndApply(demo.id, switched.deps), { selectionReset: false });
+  assert.deepEqual(switched.calls, [`delete:${demo.id}`, `forget:${demo.id}`, "read-selection"]);
+
+  // 通常を選択して非選択の A の削除を待つ間に A を選ぶ → 自分で削除した選択中スペースは通常へ倒す
+  const selectedDuringDelete = spaceDeleteRecorder(normal.id, demo.id);
+  assert.deepEqual(await removeSpaceAndApply(demo.id, selectedDuringDelete.deps), { selectionReset: true });
+  assert.deepEqual(selectedDuringDelete.calls, [
+    `delete:${demo.id}`,
+    `forget:${demo.id}`,
+    "read-selection",
+    "navigate",
+    `persist:${DEFAULT_SPACE_ID}`,
+    `select:${DEFAULT_SPACE_ID}`,
+  ]);
+});
+
+test("削除が失敗したときは一覧以外の状態を変えず、理由をそのまま伝える", async () => {
+  const calls: string[] = [];
+  const { deps } = spaceDeleteRecorder(demo.id);
+  await assert.rejects(
+    removeSpaceAndApply(demo.id, {
+      ...deps,
+      removeSpace: async () => {
+        calls.push("delete");
+        throw Object.assign(new Error("公開中のサービスがあります"), { status: 409 });
+      },
+      forget: () => {
+        calls.push("forget");
+      },
+    }),
+    { message: "公開中のサービスがあります", status: 409 },
+  );
+  assert.deepEqual(calls, ["delete"], "失敗時は一覧も選択も変えない");
 });
 
 test("行の ⋯ は通常スペースに項目を持たず、追加スペースだけに削除を出す", () => {

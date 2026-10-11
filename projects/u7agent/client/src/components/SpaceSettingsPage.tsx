@@ -36,7 +36,9 @@ export function SpaceSettingsPage({
     setDeleting(item.id);
     setDeleteError("");
     try {
-      await space.remove(item.id);
+      // 選択中のスペースを消したら、App の作り直しに任せず会話を持たない chat へ移る。作り直しは
+      // 現在の URL (設定ページ) を読むため、移らないと削除後の F5 でも設定に戻ってしまう
+      await space.remove(item.id, () => onSelectSpace?.());
     } catch (reason) {
       setDeleteError(reason instanceof Error ? reason.message : "スペースを削除できませんでした。");
     } finally {
