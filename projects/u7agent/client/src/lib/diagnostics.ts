@@ -485,6 +485,17 @@ export function diagnosticsDropsLine(report: DiagnosticsReport): string {
   return parts.join(" / ");
 }
 
+/**
+ * コピーの結果に出す 1 行。成否にかかわらず、取れた report の省略 / 切り詰め件数を残す
+ * (失敗してもファイルとして保存する経路があるため、渡る内容の上限をそこで知れるようにする)。
+ * 省略が無ければ空文字 (成功は ⋯ のチェック、失敗は失敗の行だけで足りる)。
+ */
+export function diagnosticsCopyNote(report: DiagnosticsReport, copied: boolean): string {
+  const drops = diagnosticsDropsLine(report);
+  if (drops === "") return "";
+  return copied ? `コピーしました（${drops}）` : `保存する内容の上限（${drops}）`;
+}
+
 /** コピー後の結果行。画面でも相関キーと省略の件数を確認できるようにする */
 export function diagnosticsResultLine(report: DiagnosticsReport): string {
   const time = new Date(report.capturedAt);

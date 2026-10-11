@@ -4,7 +4,7 @@ import { cn } from "../../lib/cn";
 import { useConfirm } from "../ConfirmProvider";
 import { useDiagnostics } from "../../DiagnosticsContext";
 import { messageTimeLabel } from "../../lib/messageTime";
-import { diagnosticsDropsLine } from "../../lib/diagnostics";
+import { diagnosticsCopyNote } from "../../lib/diagnostics";
 import { rawLogConfirmRequest, sessionRowActions, type SessionRowKind } from "../../lib/sidebarRowMenu";
 import { sidebarStatus } from "../../lib/sidebarStatus";
 import { COPY_FAILED_TEXT } from "../chat/CopyButton";
@@ -76,15 +76,16 @@ export function SessionRow({
     setNote(null);
     try {
       const result = await diagnostics.copy(item.sessionId);
+      // 上限で落ちた件数は ⋯ のチェックだけでは伝わらない。コピーの成否にかかわらず行へ出し、
+      // 失敗して保存へ回ったときも、渡る内容が完全でないことを残す
+      const noteText = diagnosticsCopyNote(result.report, result.ok);
+      if (noteText !== "") {
+        setNote(noteText);
+        window.setTimeout(() => setNote(null), DROPS_NOTE_MS);
+      }
       if (result.ok) {
         setCopied(true);
         window.setTimeout(() => setCopied(false), COPIED_MS);
-        // 上限で落ちた件数は ⋯ のチェックだけでは伝わらない。完全な記録と誤認させないため行にも出す
-        const drops = diagnosticsDropsLine(result.report);
-        if (drops !== "") {
-          setNote(`コピーしました（${drops}）`);
-          window.setTimeout(() => setNote(null), DROPS_NOTE_MS);
-        }
         return;
       }
       setFailure({

@@ -11,6 +11,7 @@ import {
   DIAGNOSTICS_KIND,
   DIAGNOSTICS_NOTE,
   diagnosticsCompareRows,
+  diagnosticsCopyNote,
   diagnosticsDropsLine,
   diagnosticsFileName,
   rawLogFileName,
@@ -350,6 +351,41 @@ test("カーソルは payload の seed で埋まり、世代が変わったら�
   const state = recorder.capture();
   assert.equal(state.events.at(-1)?.seq, 9);
   assert.deepEqual(state.lastCursor, { generation: "gen-2", seq: 9 });
+});
+
+test("コピー結果の 1 行は、成否にかかわらず取れた report の省略件数を残す", () => {
+  const truncated = { ...serverDiagnostics(), events: { ...serverDiagnostics().events, dropped: 0, truncated: 2 } };
+  const report = buildDiagnosticsReport({
+    sessionId: "s-1",
+    openSessionId: "s-1",
+    chat: { ...initialChatState, sessionId: "s-1" },
+    recorder: createDiagnosticsRecorder().capture(),
+    server: truncated,
+    clientBuild: "test@1",
+  });
+  assert.equal(diagnosticsDropsLine(report), "省略: サーバー 0 件 / クライアント 0 件 / 切り詰め: 2 件");
+  assert.equal(
+    diagnosticsCopyNote(report, true),
+    "コピーしました（省略: サーバー 0 件 / クライアント 0 件 / 切り詰め: 2 件）",
+  );
+  // 失敗しても「ファイルとして保存」へ渡る内容の上限が分かるようにする
+  assert.equal(
+    diagnosticsCopyNote(report, false),
+    "保存する内容の上限（省略: サーバー 0 件 / クライアント 0 件 / 切り詰め: 2 件）",
+  );
+
+  // 省略が無いときは出さない (成功は ⋯ のチェック、失敗は失敗の行だけで足りる)
+  const clean = { ...serverDiagnostics(), events: { ...serverDiagnostics().events, dropped: 0, truncated: 0 } };
+  const cleanReport = buildDiagnosticsReport({
+    sessionId: "s-1",
+    openSessionId: "s-1",
+    chat: { ...initialChatState, sessionId: "s-1" },
+    recorder: createDiagnosticsRecorder().capture(),
+    server: clean,
+    clientBuild: "test@1",
+  });
+  assert.equal(diagnosticsCopyNote(cleanReport, true), "");
+  assert.equal(diagnosticsCopyNote(cleanReport, false), "");
 });
 
 test("保存名は <id8>-<yyyymmdd-hhmm> を持つ", () => {

@@ -23,7 +23,7 @@ import {
   diagnosticsResultLine,
   type DiagnosticsReport,
 } from "../lib/diagnostics";
-import { createRequestGate } from "../hooks/requestGate";
+import { createLoadingTracker, createRequestGate } from "../hooks/requestGate";
 import { rawLogConfirmRequest } from "../lib/sidebarRowMenu";
 import type { SessionSummary } from "../types";
 import { ReloadButton } from "./ReloadButton";
@@ -53,6 +53,10 @@ export function SessionDiagnosticsCard({
   const gateRef = useRef<ReturnType<typeof createRequestGate> | null>(null);
   if (gateRef.current === null) gateRef.current = createRequestGate();
   const gate = gateRef.current;
+  // 取得中の表示は「最後に始まった要求」に紐づける。破棄した要求の完了が後続の進行中表示を消さない
+  const loadingRef = useRef<ReturnType<typeof createLoadingTracker> | null>(null);
+  if (loadingRef.current === null) loadingRef.current = createLoadingTracker(setLoading);
+  const loadingTracker = loadingRef.current;
 
   const fetchReport = useCallback(
     async (sessionId: string): Promise<void> => {
@@ -61,7 +65,7 @@ export function SessionDiagnosticsCard({
         setReport(null);
         return;
       }
-      setLoading(true);
+      const finishLoading = loadingTracker.begin();
       // 選択が変わった時点で旧 report を失効させる (取得中に別の会話の値を出さない)
       setReport(null);
       setFailure(null);
@@ -70,10 +74,10 @@ export function SessionDiagnosticsCard({
         if (!isCurrent()) return;
         setReport(next);
       } finally {
-        setLoading(false);
+        finishLoading();
       }
     },
-    [diagnostics, gate],
+    [diagnostics, gate, loadingTracker],
   );
 
   // 対象が変わったときだけ取得する (選択が空の間は何も取らない)
