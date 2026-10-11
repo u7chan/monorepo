@@ -85,14 +85,14 @@ test("出し分け: プロジェクト行とセッション行で必要な操作
   assert.deepEqual(sessionRowActions(false, true), [
     { kind: "pin", label: "ピン留め" },
     { kind: "rename", label: "名前を変更" },
-    { kind: "move", label: "別のスペースへ引っ越す" },
+    { kind: "move", label: "別の会話スペースへ引っ越す" },
     { kind: "delete", label: "セッションを削除", danger: true },
   ]);
 });
 
 test("引っ越しの確認は履歴の破棄とファイルの引き継ぎを伝え、対象のタイトルを独立した行に出す", () => {
   const text = sessionMoveDialogText("決済画面の検証");
-  assert.equal(text.title, "別のスペースへ引っ越す");
+  assert.equal(text.title, "別の会話スペースへ引っ越す");
   assert.deepEqual(text.subject, { label: "引っ越すセッション", value: "決済画面の検証" });
   assert.equal(text.confirmLabel, "引っ越す");
   assert.ok(
@@ -103,7 +103,7 @@ test("引っ越しの確認は履歴の破棄とファイルの引き継ぎを�
     text.body.some((line) => line.includes("引き継")),
     "ファイルの引き継ぎが本文に無い",
   );
-  assert.ok(text.emptyNote.includes("移動先のスペースがありません"), "候補 0 件の案内が無い");
+  assert.ok(text.emptyNote.includes("移動先の会話スペースがありません"), "候補 0 件の案内が無い");
   // 一覧が古くてタイトルが取れない行でも確認は出す (対象の行を省くだけ)
   assert.equal(sessionMoveDialogText("").subject, undefined);
 });
@@ -169,11 +169,11 @@ test("セッション行はピン状態を示し、⋯ に切替・改名・削�
 
 test("引っ越しの項目は canMove と操作の受け取りが揃った行だけに出る", () => {
   // プロジェクト配下の一覧は onMove を渡さない。canMove が立っていても出さない
-  assert.ok(!renderSessionRow({ canMove: true }).includes("別のスペースへ引っ越す"));
+  assert.ok(!renderSessionRow({ canMove: true }).includes("別の会話スペースへ引っ越す"));
   // 旧サーバーは canMove を載せない (省略 = false)
-  assert.ok(!renderSessionRow({}, () => {}).includes("別のスペースへ引っ越す"));
-  assert.ok(!renderSessionRow({ canMove: false }, () => {}).includes("別のスペースへ引っ越す"));
-  assert.ok(renderSessionRow({ canMove: true }, () => {}).includes("別のスペースへ引っ越す"));
+  assert.ok(!renderSessionRow({}, () => {}).includes("別の会話スペースへ引っ越す"));
+  assert.ok(!renderSessionRow({ canMove: false }, () => {}).includes("別の会話スペースへ引っ越す"));
+  assert.ok(renderSessionRow({ canMove: true }, () => {}).includes("別の会話スペースへ引っ越す"));
 });
 
 test("圧縮中のセッションは実行中と区別できるラベルを出す", () => {

@@ -114,7 +114,9 @@ export function SessionMoveDialog({ text, destinations, compact = false, onClose
           ))}
 
           <div className="grid gap-1.5">
-            <span className="text-2xs font-semibold tracking-widest text-ink-faint uppercase">移動先のスペース</span>
+            <span className="text-2xs font-semibold tracking-widest text-ink-faint uppercase">
+              移動先の会話スペース
+            </span>
             {destinations.length === 0 ? (
               <p className="break-words text-ink-muted">{text.emptyNote}</p>
             ) : (

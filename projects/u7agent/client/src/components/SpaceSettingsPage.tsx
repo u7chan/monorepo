@@ -6,7 +6,7 @@ import { MenuItem } from "./MenuItem";
 import { SettingsPageLayout, type SettingsPageProps } from "./SettingsPageLayout";
 import { PlusIcon } from "./icons";
 
-/** 設定 → スペース。一覧は件数が増えても高さを抑え、作成フォームを画面内に残す */
+/** 設定 → 会話スペース。一覧は件数が増えても高さを抑え、作成フォームを画面内に残す */
 export function SpaceSettingsPage({
   compact = false,
   onBack,
@@ -23,7 +23,7 @@ export function SpaceSettingsPage({
   return (
     <SettingsPageLayout
       eyebrow="SPACES"
-      title="スペース"
+      title="会話スペース"
       caption="選択はこのブラウザーに保存されます。"
       compact={compact}
       onBack={onBack}
@@ -32,11 +32,11 @@ export function SpaceSettingsPage({
       <div className="min-h-0 min-w-0 scrollbar-thin overflow-x-hidden overflow-y-auto px-4 py-4">
         <div className="mx-auto grid max-w-3xl content-start gap-3">
           <CollapsibleNotice summary="認証や安全な隔離ではありません。共通設定・ファイル・公開サービスは共有されます。">
-            <p>追加スペースは会話専用です。</p>
+            <p>追加の会話スペースは会話専用です。</p>
           </CollapsibleNotice>
           <section className="grid gap-2 rounded-lg border border-line bg-soft p-3">
             <h3 className="flex items-baseline gap-1.5 text-2xs font-semibold tracking-label text-ink-faint uppercase">
-              スペース一覧
+              会話スペース一覧
               <span className="font-normal">{space.spaces.length}</span>
             </h3>
             {/* 上限が無いと件数分だけ伸び、作成フォームが画面外へ押し出される */}
@@ -57,11 +57,11 @@ export function SpaceSettingsPage({
               ))}
             </div>
             <p className="text-2xs leading-relaxed text-ink-ghost">
-              作成したスペースを選ぶと空の会話一覧から始められます。会話は切り替えても残ります。削除・リセットはありません。
+              作成した会話スペースを選ぶと空の会話一覧から始められます。会話は切り替えても残ります。削除・リセットはありません。
             </p>
           </section>
           <section className="grid gap-2 rounded-lg border border-line bg-soft p-3">
-            <h3 className="text-2xs font-semibold tracking-label text-ink-faint uppercase">新しいスペース</h3>
+            <h3 className="text-2xs font-semibold tracking-label text-ink-faint uppercase">新しい会話スペース</h3>
             <form
               className="flex flex-wrap items-center gap-2"
               onSubmit={(event) => {
@@ -82,7 +82,7 @@ export function SpaceSettingsPage({
                 className={cn("field min-w-0 flex-1", compact ? "text-md" : "text-xs")}
                 maxLength={80}
                 value={name}
-                aria-label="スペースの名前"
+                aria-label="会話スペースの名前"
                 onChange={(event) => setName(event.currentTarget.value)}
               />
               <button className="btn-primary" type="submit" disabled={busy || !name.trim()}>

@@ -148,6 +148,8 @@ const resize: SidebarResize = {
 function renderSidebar(withResize: boolean): string {
   return renderToStaticMarkup(
     createElement(Sidebar, {
+      spaceName: "通常",
+      conversationOnly: false,
       mode: "nav",
       onSelectMode: () => {},
       activeSettingsSection: "agents",

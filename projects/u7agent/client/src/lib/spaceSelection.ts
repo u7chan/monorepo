@@ -68,7 +68,7 @@ export function createSpaceSelectionStore(storage?: SpaceSelectionStorage | null
   return {
     read() {
       const target = resolve();
-      if (!target) throw new Error("スペースの保存先を使えません");
+      if (!target) throw new Error("会話スペースの保存先を使えません");
       return target.getItem(SPACE_SELECTION_KEY);
     },
     write(id) {

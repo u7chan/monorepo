@@ -14,7 +14,7 @@ export const SpaceContext = createContext<SpaceContextValue | null>(null);
 
 export function useSpace() {
   const context = useContext(SpaceContext);
-  if (!context) throw new Error("スペースが選択されていません");
+  if (!context) throw new Error("会話スペースが選択されていません");
   return context;
 }
 

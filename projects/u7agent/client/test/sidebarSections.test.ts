@@ -33,6 +33,8 @@ test("カテゴリの保存値が無い場合は Projects と未所属を開き�
 
   const html = renderToStaticMarkup(
     createElement(Sidebar, {
+      spaceName: "通常",
+      conversationOnly: false,
       mode: "nav",
       onSelectMode: () => {},
       activeSettingsSection: "agents",

@@ -32,7 +32,7 @@ function submitButton(html: string): string {
 
 test("移動先の候補と対象を並べ、確定を押せる状態で出す", () => {
   const html = render([normal, demo]);
-  assert.ok(html.includes('aria-label="別のスペースへ引っ越す"'), "見出しが読み上げ名になっていない");
+  assert.ok(html.includes('aria-label="別の会話スペースへ引っ越す"'), "見出しが読み上げ名になっていない");
   assert.ok(html.includes("決済画面の検証"), "対象のタイトルが出ていない");
   assert.ok(html.includes("通常") && html.includes("デモ"), "移動先の候補が出ていない");
   assert.ok(html.includes("会話履歴") && html.includes("破棄"), "履歴が破棄されることが出ていない");
@@ -43,7 +43,7 @@ test("移動先の候補と対象を並べ、確定を押せる状態で出す",
 
 test("候補が 0 件のときは案内を出し、確定を無効にする", () => {
   const html = render([]);
-  assert.ok(html.includes("移動先のスペースがありません"), "候補 0 件の案内が無い");
-  assert.ok(html.includes("設定 → スペース"), "作成先の導線が無い");
+  assert.ok(html.includes("移動先の会話スペースがありません"), "候補 0 件の案内が無い");
+  assert.ok(html.includes("設定 → 会話スペース"), "作成先の導線が無い");
   assert.ok(submitButton(html).includes("disabled"), "候補 0 件で確定を押せてしまう");
 });

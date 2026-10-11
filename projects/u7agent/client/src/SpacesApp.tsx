@@ -8,7 +8,7 @@ import { entrySpaceOf, parseRoute } from "./lib/route";
 import { DEFAULT_SPACE_ID, initialSpaceSelection, selectedSpace, spaceSelectionStore } from "./lib/spaceSelection";
 
 /** 読み取りの失敗は通常スペースを黙って出さず、明示的な選び直しを求める */
-const SPACE_SELECTION_READ_ERROR = "スペースの選択を読み取れません。選び直してください。";
+const SPACE_SELECTION_READ_ERROR = "会話スペースの選択を読み取れません。選び直してください。";
 
 type SpaceSelectionState = {
   id: string;
@@ -44,7 +44,7 @@ export function SpacesApp() {
           setError("");
         },
         (error: unknown) => {
-          if (current) setError(error instanceof Error ? error.message : "スペースを取得できません。");
+          if (current) setError(error instanceof Error ? error.message : "会話スペースを取得できません。");
         },
       )
       .finally(() => {
@@ -76,11 +76,11 @@ export function SpacesApp() {
   if (loading || error || selection.error || !selected) {
     return (
       <main className="grid min-h-dvh content-start gap-4 bg-base p-6 text-ink">
-        <h1 className="text-lg font-semibold">スペースを選択</h1>
+        <h1 className="text-lg font-semibold">会話スペースを選択</h1>
         <p role="status">
           {loading
             ? "読み込み中…"
-            : error || selection.error || "保存されたスペースが見つかりません。選び直してください。"}
+            : error || selection.error || "保存された会話スペースが見つかりません。選び直してください。"}
         </p>
         {!loading && !error
           ? spaces.map((space) => (
@@ -91,7 +91,7 @@ export function SpacesApp() {
           : null}
         {!loading ? (
           <button type="button" className="btn-quiet" onClick={() => setReload((value) => value + 1)}>
-            スペースを再取得
+            会話スペースを再取得
           </button>
         ) : null}
       </main>
