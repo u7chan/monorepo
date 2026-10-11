@@ -81,6 +81,7 @@ export type {
   SecretsListResponse,
   ServeStatus,
   SessionCompactionResult,
+  SessionDiagnostics,
   SessionMoveResponse,
   SessionNotifyResponse,
   SessionPinnedResponse,

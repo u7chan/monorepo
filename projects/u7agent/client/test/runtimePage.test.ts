@@ -13,6 +13,8 @@ import type { Health } from "../src/types";
 globalThis.location ??= { origin: "http://localhost" } as Location;
 const { RuntimePage } = await import("../src/components/RuntimePage");
 const { ConfirmProvider } = await import("../src/components/ConfirmProvider");
+const { DiagnosticsContext } = await import("../src/DiagnosticsContext");
+const { diagnosticsStub } = await import("./diagnostics-fixture");
 
 const HEALTH: Health = {
   ready: true,
@@ -24,11 +26,15 @@ const HEALTH: Health = {
 
 function renderPage(health: Health | null): string {
   return renderToStaticMarkup(
-    createElement(ConfirmProvider, {
-      children: createElement(RuntimePage, {
-        health,
-        onRefreshHealth: async () => health,
-        onBack: () => {},
+    createElement(DiagnosticsContext.Provider, {
+      value: diagnosticsStub,
+      children: createElement(ConfirmProvider, {
+        children: createElement(RuntimePage, {
+          health,
+          onRefreshHealth: async () => health,
+          onBack: () => {},
+          sessions: [],
+        }),
       }),
     }),
   );
@@ -53,7 +59,8 @@ test("renders the connection, environment and command sections in order", () => 
   assert.ok(html.includes("設定済み"), "sandboxConfigured を出す");
   assert.ok(html.includes("実行環境を取得しています。"), "取得中の状態を出す");
   assert.ok(html.includes("再読み込み"), "再読み込みボタンを出す");
-  assert.ok(html.includes('aria-label="診断情報をコピー"'), "一括コピーのボタンを出す");
+  assert.ok(html.includes('aria-label="接続情報をコピー"'), "接続情報の一括コピーのボタンを出す");
+  assert.ok(html.includes("セッション診断</h3>"), "セッション診断カードを出す");
   assert.ok(html.includes("disabled"), "取得が settled するまでボタンを処理中にする");
   assert.ok(html.includes("pi-coding-agent: 0.87.1"), "SDK バージョンは接続状態に残す");
   assert.ok(!html.includes("モデル解決"), "モデル解決は health の診断ごと撤去した");

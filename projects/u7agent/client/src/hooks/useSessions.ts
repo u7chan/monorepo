@@ -16,6 +16,7 @@ import { createNotifyCarry, createNotifyToggleRunner } from "./notifyToggle";
 import { createPinnedToggleRunner } from "./pinnedToggle";
 import { createSessionCreation } from "./sessionCreation";
 import { applySessionEvent, recoverDecision } from "./sessionStream";
+import { createDiagnosticsRecorder, type DiagnosticsRecorder } from "../lib/diagnostics";
 import { applySettingsChange, type SettingsSelection } from "./settingsChange";
 import { compactChat } from "./sessionActions";
 import { nextAfterFailure, nextAfterRemoval } from "./sessionFallback";
@@ -97,6 +98,10 @@ export function useSessions({
   const lastSeqRef = useRef(0);
   /** SSE の世代。payload (snapshot / resync) から更新する */
   const generationRef = useRef("");
+  /** 診断用の受信記録。このセッションの SSE が唯一の書き手で、セッション切替で捨てる (lib/diagnostics) */
+  const diagnosticsRef = useRef<DiagnosticsRecorder | null>(null);
+  if (diagnosticsRef.current === null) diagnosticsRef.current = createDiagnosticsRecorder();
+  const diagnostics = diagnosticsRef.current;
   /** newChat / selectSession で選択が変わった世代 (作成待ちの応答で選択を奪わないため) */
   const selectionSeqRef = useRef(0);
   const mountedRef = useRef(true);
@@ -183,11 +188,11 @@ export function useSessions({
     },
     [beginSessionsRequest],
   );
-
   const applySnapshot = useCallback(
     (payload: SessionPayload) => {
       lastSeqRef.current = payload.lastSeq || 0;
       generationRef.current = payload.eventGeneration || "";
+      diagnostics.setGeneration(generationRef.current);
       // 表示する cwd は payload.cwd (root 相対) だけを正とする。health.cwd は root の絶対パスで、
       // ファイル画面の tree root (= GET /api/files の path) とは単位が違う
       setCwd(payload.cwd || "");
@@ -582,9 +587,11 @@ export function useSessions({
 
   const onEvent = useCallback(
     (entry: EventEntry) => {
-      applySessionEvent(entry, { lastSeqRef, dispatch, applySnapshot, refreshSessions, setRuntimeStatus });
+      // 世代は payload が正。resync 以外のリプレイでも、直前に知っている世代をカーソルへ載せる
+      diagnostics.setGeneration(generationRef.current);
+      applySessionEvent(entry, { lastSeqRef, dispatch, applySnapshot, refreshSessions, setRuntimeStatus, diagnostics });
     },
-    [applySnapshot, dispatch, refreshSessions, setRuntimeStatus],
+    [applySnapshot, diagnostics, dispatch, refreshSessions, setRuntimeStatus],
   );
 
   const onClosed = useCallback(() => {
@@ -604,7 +611,16 @@ export function useSessions({
     });
   }, [refreshHealth, refreshSessions, selectSession]);
 
-  useSessionEvents({ sessionId, epoch, lastSeqRef, generationRef, onEvent, onClosed });
+  useSessionEvents({
+    sessionId,
+    epoch,
+    lastSeqRef,
+    generationRef,
+    onEvent,
+    onClosed,
+    onSessionOpen: (id) => diagnostics.beginSession(id),
+    onReconnect: () => diagnostics.recordReconnect(),
+  });
 
   const deleteSession = useCallback(
     async (id: string): Promise<void> => {
@@ -698,6 +714,8 @@ export function useSessions({
     sessionsLoaded,
     sessionId,
     sessionIdRef,
+    /** 診断用の受信記録 (このタブの SSE の観測)。スナップショットの組み立てだけが読む */
+    eventLog: diagnostics,
     /** 選択の世代。await を挟む処理 (起動時の復元) が「待機中の選択」を判定する */
     selectionSeqRef,
     /** 同一セッション内の操作世代 (stop / compact の応答適用ガード) */

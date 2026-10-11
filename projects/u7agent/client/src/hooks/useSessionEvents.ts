@@ -28,6 +28,10 @@ export type UseSessionEventsParams = {
   generationRef: RefObject<string>;
   onEvent: (entry: EventEntry) => void;
   onClosed: () => void;
+  /** セッションを開いた / 切り替えた (診断の記録対象を合わせる) */
+  onSessionOpen?: (sessionId: string) => void;
+  /** 切断を検知して再接続をスケジュールした (診断の再接続回数) */
+  onReconnect?: () => void;
 };
 
 export function useSessionEvents({
@@ -37,11 +41,15 @@ export function useSessionEvents({
   generationRef,
   onEvent,
   onClosed,
+  onSessionOpen,
+  onReconnect,
 }: UseSessionEventsParams): void {
   const spaceId = useSpace().selected.id;
   // 常に最新の処理を呼ぶが、コールバックの変更では再接続させない。
   const handleEvent = useEffectEvent(onEvent);
   const handleClosed = useEffectEvent(onClosed);
+  const handleSessionOpen = useEffectEvent((id: string) => onSessionOpen?.(id));
+  const handleReconnect = useEffectEvent(() => onReconnect?.());
   // 接続は epoch / sessionId の変更でも作り直すため、無音の判定とバックオフは effect の外に置く
   const lastActivityRef = useRef(0);
   const retryCountRef = useRef(0);
@@ -49,6 +57,8 @@ export function useSessionEvents({
 
   useEffect(() => {
     if (!sessionId) return;
+    // セッション切替で診断の保持分を捨てる (別セッションのイベントを持ち越さない)
+    handleSessionOpen(sessionId);
     if (retrySessionRef.current !== sessionId) {
       retrySessionRef.current = sessionId;
       retryCountRef.current = 0;
@@ -69,6 +79,7 @@ export function useSessionEvents({
       retryScheduled = true;
       const delay = nextRetryDelayMs(retryCountRef.current);
       retryCountRef.current += 1;
+      handleReconnect();
       retryTimer = window.setTimeout(() => handleClosed(), delay);
     };
 

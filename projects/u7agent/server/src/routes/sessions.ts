@@ -1,6 +1,9 @@
 import type { Context } from "hono";
+import { createReadStream } from "node:fs";
+import { Readable } from "node:stream";
 import { streamSSE } from "hono/streaming";
 import { MAX_ATTACHMENT_BYTES, composePrompt, normalizeAttachmentPaths, toAttachmentPath } from "../attachments";
+import { rawLogFileName } from "../diagnostics";
 import { sessionUploadsRel, workspaceAbs } from "../app-paths";
 import { sandboxFailure, sandboxNotConfigured } from "../http";
 import { HISTORY_PAGE_LIMIT_MAX, type HistoryPageResult } from "../history-projection";
@@ -25,6 +28,8 @@ import type { SessionRecord, SessionStore } from "../sessions";
 // sessions 側の上限とは別 (HTTP 層の契約)
 const MAX_MESSAGE_CHARS = 20_000;
 const SSE_HEARTBEAT_MS = 15_000;
+/** 生ログが無いときの 404。UI はこの文言をそのまま出し、ダウンロードを押せないままにする */
+export const RAW_LOG_MISSING_MESSAGE = "この会話の記録は保存されていないため、生ログは取れません。";
 
 /** streamSSE は charset 等を設定しないため、SSE のヘッダをここで上書きする */
 function withSseHeaders(response: Response): Response {
@@ -335,6 +340,35 @@ export function createSessionRoutes({
       } catch (error) {
         return sandboxFailure(c, error);
       }
+    },
+
+    /**
+     * 不具合の切り分け用のダンプ。状態の要約と、mask 済みの直近イベント (上限つき) を返す。
+     * 未ロードの会話は SDK を開かず、保存済みメタだけを返す (壊れた JSONL でも取れる)。
+     */
+    diagnostics: async (c: Context) => {
+      const result = await store.diagnosticsOf(c.req.param("id") ?? "");
+      if (!result) return c.json({ error: "Session not found" }, 404);
+      return c.json(result);
+    },
+
+    /**
+     * 生ログ (session.jsonl) のダウンロード。**mask 前**の値が入るため、開示の確認は UI が取る。
+     * サイズは既存のセッションファイルの扱いと同じく上限を設けず、ストリームで返す。
+     */
+    rawLog: async (c: Context) => {
+      const id = c.req.param("id") ?? "";
+      const raw = await store.rawLogOfId(id);
+      if (raw.state === "unknown") return c.json({ error: "Session not found" }, 404);
+      if (raw.state === "missing") return c.json({ error: RAW_LOG_MISSING_MESSAGE }, 404);
+      const stream = Readable.toWeb(createReadStream(raw.path)) as ReadableStream<Uint8Array>;
+      return c.body(stream, 200, {
+        "Content-Type": "application/x-ndjson; charset=utf-8",
+        "Content-Length": String(raw.bytes),
+        "Content-Disposition": `attachment; filename="${rawLogFileName(id, Date.now())}"`,
+        "Cache-Control": "no-store",
+        "X-Content-Type-Options": "nosniff",
+      });
     },
 
     events: async (c: Context) => {

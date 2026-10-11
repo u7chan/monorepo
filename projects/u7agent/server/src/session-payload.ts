@@ -109,11 +109,14 @@ export function projectSessionSummary({
   status,
   projectId,
   masker,
+  hasRawLog,
 }: {
   record: SessionRecord;
   status: RunStatus;
   projectId?: string;
   masker: SecretMasker;
+  /** 生ログ (session.jsonl) がディスクにあるか。UI のダウンロードの出し分けだけに使う */
+  hasRawLog: boolean;
 }): SessionSummary {
   return {
     sessionId: record.id,
@@ -126,6 +129,7 @@ export function projectSessionSummary({
     notify: record.notify,
     pinned: record.pinned,
     canMove: !record.projectCwd,
+    hasRawLog,
     messageCount: displayableMessages(record.session, masker).length,
     createdAt: record.createdAt,
     lastUsedAt: record.lastUsedAt,

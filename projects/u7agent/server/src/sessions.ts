@@ -19,6 +19,8 @@ function settleQuestion(pending: PendingQuestion, finish: () => void): void {
  * 純関数・アダプタへ出す。
  */
 import { randomBytes } from "node:crypto";
+import { existsSync } from "node:fs";
+import { stat } from "node:fs/promises";
 import { dirname } from "node:path";
 import { spaceIdOf } from "./spaces";
 import { sessionUploadsRel, workspaceAbs } from "./app-paths";
@@ -32,6 +34,7 @@ import type { InvestigateHost } from "./investigate-tool";
 import { validateAskUserAnswers, type AskUserHost } from "./ask-user-tool";
 import { stripAttachedFiles } from "./attachments";
 import { compactionsOf, recordCompactionOutcome } from "./compaction-view";
+import { projectSessionDiagnostics } from "./diagnostics";
 import { projectHistoryPage } from "./history-projection";
 import type { NotificationService } from "./notifications";
 import { contextUsageOf, type PiRuntimeLike, type PiSessionEvent, type PiSessionLike } from "./pi-runtime";
@@ -89,6 +92,7 @@ import type {
   Project,
   RunStatus,
   SessionCompactionResult,
+  SessionDiagnostics,
   SessionMoveResponse,
   SessionNotifyResponse,
   SessionPinnedResponse,
@@ -1421,6 +1425,121 @@ export class SessionStore {
       status: this.statusOf(record),
       projectId: this.projectIdOf(record),
       masker: this.masker,
+      hasRawLog: this.hasRawLogOf(record.id, record.storeDir),
+    });
+  }
+
+  /** 生ログ (session.jsonl) がディスクにあるか。一覧の「生ログをダウンロード」の出し分けに使う */
+  private hasRawLogOf(id: string, storeDir: string): boolean {
+    return storeDir !== "" && existsSync(sessionJsonlPath(id, storeDir));
+  }
+
+  /**
+   * 生ログ (`session.jsonl`) の実体。**SDK を開かない** (壊れた JSONL でも取れることを優先する)。
+   * 未永続化・履歴の破棄後は `missing`、会話自体が無い id は `unknown` で、経路はどちらも 404 にする。
+   * サイズは既存のセッションファイルと同じく上限を設けず、読む側 (HTTP) がストリームで返す。
+   */
+  async rawLogOfId(
+    id: string,
+  ): Promise<{ state: "unknown" } | { state: "missing" } | { state: "ok"; path: string; bytes: number }> {
+    if (!this.records.has(id) && !this.descriptors.has(id)) return { state: "unknown" };
+    if (!this.storeDir) return { state: "missing" };
+    const path = sessionJsonlPath(id, this.storeDir);
+    const info = await stat(path).catch(() => null);
+    if (!info?.isFile()) return { state: "missing" };
+    return { state: "ok", path, bytes: info.size };
+  }
+
+  /**
+   * 不具合の切り分け用のダンプ。live な record は全項目を、未ロードの会話は保存済み meta だけを返す
+   * (SDK の復元で状態を変えない。壊れた JSONL でもメタは取れる)。未知の id は undefined。
+   */
+  async diagnosticsOf(id: string): Promise<SessionDiagnostics | undefined> {
+    const raw = await this.rawLogOfId(id);
+    const rawInfo = { available: raw.state === "ok", ...(raw.state === "ok" ? { bytes: raw.bytes } : {}) };
+    const record = this.records.get(id);
+    if (record) {
+      return projectSessionDiagnostics({
+        masker: this.masker,
+        input: {
+          sessionId: record.id,
+          generation: record.generation,
+          seq: record.seq,
+          events: record.events,
+          status: this.statusOf(record),
+          queueRunIds: record.queue.map((item) => item.runId),
+          run: record.run
+            ? {
+                id: record.run.id,
+                status: record.run.status,
+                startedAt: record.run.startedAt,
+                ...(record.run.endedAt !== undefined ? { endedAt: record.run.endedAt } : {}),
+                totalRetryCount: record.run.totalRetryCount,
+                ...(record.run.retry ? { retry: record.run.retry } : {}),
+                ...(record.run.errorCode ? { errorCode: record.run.errorCode } : {}),
+                ...(record.run.error ? { error: record.run.error } : {}),
+              }
+            : null,
+          questions: [...record.questions].map(([toolCallId, pending]) => ({
+            toolCallId,
+            questionCount: pending.questions.length,
+            settled: pending.settled,
+          })),
+          meta: {
+            spaceId: record.meta.spaceId ?? "default",
+            title: record.title,
+            agentId: record.agentId,
+            agentName: record.agent.name,
+            ...(record.projectId ? { projectId: record.projectId } : {}),
+            ...(record.projectName ? { projectName: record.projectName } : {}),
+            workdir: record.workdir,
+            createdAt: record.createdAt,
+            lastUsedAt: record.lastUsedAt,
+            messageCount: record.meta.messageCount,
+            ...(modelLabel(record.session.model) ? { model: modelLabel(record.session.model) } : {}),
+            ...(record.session.thinkingLevel ? { thinkingLevel: record.session.thinkingLevel } : {}),
+            notify: record.notify,
+            pinned: record.pinned,
+            ...(record.persistError ? { persistError: record.persistError } : {}),
+            ...(record.sendsError ? { sendsError: record.sendsError } : {}),
+            sendsDirty: record.sendsDirty,
+          },
+          raw: rawInfo,
+        },
+      });
+    }
+    const meta = this.descriptors.get(id);
+    if (!meta) return undefined;
+    return projectSessionDiagnostics({
+      masker: this.masker,
+      input: {
+        sessionId: meta.id,
+        generation: "",
+        seq: 0,
+        events: [],
+        status: "idle",
+        queueRunIds: [],
+        run: null,
+        questions: [],
+        meta: {
+          spaceId: meta.spaceId ?? "default",
+          title: meta.title,
+          agentId: meta.agentId,
+          agentName: meta.agent.name,
+          ...(this.projectIdOfCwd(meta.projectCwd) ? { projectId: this.projectIdOfCwd(meta.projectCwd) } : {}),
+          ...(meta.projectName ? { projectName: meta.projectName } : {}),
+          workdir: this.workdirOf(meta.id, meta.projectCwd, meta.spaceId),
+          createdAt: meta.createdAt,
+          lastUsedAt: meta.lastUsedAt,
+          messageCount: meta.messageCount,
+          ...(meta.model ? { model: meta.model } : {}),
+          ...(meta.thinkingLevel ? { thinkingLevel: meta.thinkingLevel } : {}),
+          notify: meta.notify === true,
+          pinned: meta.pinned === true,
+          sendsDirty: false,
+        },
+        raw: rawInfo,
+      },
     });
   }
 
@@ -1436,6 +1555,7 @@ export class SessionStore {
       notify: meta.notify === true,
       pinned: meta.pinned === true,
       canMove: !meta.projectCwd,
+      hasRawLog: this.hasRawLogOf(meta.id, this.storeDir ?? ""),
       messageCount: meta.messageCount,
       createdAt: meta.createdAt,
       lastUsedAt: meta.lastUsedAt,

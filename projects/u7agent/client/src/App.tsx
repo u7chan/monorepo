@@ -6,6 +6,7 @@ import { AgentSettingsPage } from "./components/AgentSettingsPage";
 import { AppearancePage } from "./components/AppearancePage";
 import { ArchiveSettingsPage } from "./components/ArchiveSettingsPage";
 import { ChatArea } from "./components/ChatArea";
+import { DiagnosticsContext } from "./DiagnosticsContext";
 import { CompactBar } from "./components/CompactBar";
 import { Composer } from "./components/Composer";
 import { useConfirm } from "./components/ConfirmProvider";
@@ -601,6 +602,8 @@ export default function App() {
             {...pageProps}
             health={app.health}
             onRefreshHealth={app.refreshHealth}
+            sessions={app.sessions}
+            openSessionId={app.sessionId}
             onOpenSession={(sessionId, spaceId) =>
               openOwnerSession(sessionId, spaceId, {
                 spaces: space.spaces,
@@ -629,7 +632,8 @@ export default function App() {
     }
   };
 
-  return (
+  // 診断の操作はサイドバーの会話行と設定 → ランタイムのカードの両方が使うため、文脈で配る
+  const shell = (
     <div
       ref={sidebarWidth.shellRef}
       // 左バーの列幅。ドラッグ中は同じ変数を直接書き換える (hooks/useSidebarWidth)
@@ -812,4 +816,6 @@ export default function App() {
       ) : null}
     </div>
   );
+
+  return <DiagnosticsContext.Provider value={app.diagnostics}>{shell}</DiagnosticsContext.Provider>;
 }

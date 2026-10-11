@@ -1,5 +1,6 @@
 import type { Dispatch, RefObject } from "react";
 import type { EventEntry, SessionPayload, SessionSummary } from "../types";
+import type { DiagnosticsRecorder } from "../lib/diagnostics";
 import type { ChatAction } from "./chatReducer";
 import { runtimeStatusForError, type RuntimeStatus } from "./runtimeStatus";
 
@@ -11,6 +12,8 @@ export type SessionStreamDeps = {
   /** 一覧を取り直す。取得できなかったときは null (空の成功と区別する) */
   refreshSessions: () => Promise<SessionSummary[] | null>;
   setRuntimeStatus: (status: RuntimeStatus) => void;
+  /** 診断用の受信記録。SSE の唯一の入口であるここで、適用前に 1 件ずつ控える */
+  diagnostics: DiagnosticsRecorder;
 };
 
 /** サーバーの heartbeat (15 秒) が 2 回分届かない長さを無音とみなす */
@@ -59,8 +62,11 @@ export function recoverDecision(input: {
 }
 
 export function applySessionEvent(entry: EventEntry, deps: SessionStreamDeps): void {
-  const { lastSeqRef, dispatch, applySnapshot, refreshSessions, setRuntimeStatus } = deps;
+  const { lastSeqRef, dispatch, applySnapshot, refreshSessions, setRuntimeStatus, diagnostics } = deps;
   if (Number.isFinite(entry.seq)) lastSeqRef.current = Math.max(lastSeqRef.current, entry.seq);
+  // 世代は resync が運ぶ。カーソルはイベント適用と同じ順で控える (表示の再現ではなく受信の記録)
+  if (entry.type === "resync") diagnostics.setGeneration(entry.data.eventGeneration);
+  diagnostics.record(entry);
   switch (entry.type) {
     case "resync":
       applySnapshot(entry.data);

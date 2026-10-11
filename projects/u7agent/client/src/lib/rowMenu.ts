@@ -5,7 +5,16 @@
  */
 
 /** 画面ごとに出せる種別が違うため、メニュー項目の型は種別を型引数に取る (出し分け側が種別を狭める) */
-export type RowMenuActionKind = "copy-path" | "download" | "rename" | "pin" | "move" | "delete" | "new-chat";
+export type RowMenuActionKind =
+  | "copy-path"
+  | "download"
+  | "diagnostics"
+  | "raw-log"
+  | "rename"
+  | "pin"
+  | "move"
+  | "delete"
+  | "new-chat";
 
 export type RowMenuAction<K extends RowMenuActionKind = RowMenuActionKind> = {
   kind: K;
@@ -13,6 +22,8 @@ export type RowMenuAction<K extends RowMenuActionKind = RowMenuActionKind> = {
   /** 2 行目。押す前に開示したい条件がある操作だけ持つ */
   description?: string;
   danger?: boolean;
+  /** 押せない行。できない理由は `description` に出す (項目ごと隠すと理由が分からない) */
+  disabled?: boolean;
 };
 
 export type RowMenuRect = Pick<DOMRect, "top" | "left" | "right" | "bottom">;

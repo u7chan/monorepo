@@ -6,6 +6,9 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { CompactBar } from "../src/components/CompactBar";
 import { Topbar } from "../src/components/Topbar";
 import { SessionRow } from "../src/components/sidebar/SessionRow";
+import { ConfirmProvider } from "../src/components/ConfirmProvider";
+import { DiagnosticsContext } from "../src/DiagnosticsContext";
+import { diagnosticsStub } from "./diagnostics-fixture";
 import type { RuntimeStatus } from "../src/hooks/runtimeStatus";
 import { createNotifyCarry, createNotifyToggleRunner } from "../src/hooks/notifyToggle";
 import {
@@ -390,14 +393,19 @@ test("サイドバーのセッション行は On の会話だけ鳴っている�
   };
   const render = (session: SessionSummary) =>
     renderToStaticMarkup(
-      createElement(SessionRow, {
-        item: session,
-        agents: [],
-        active: false,
-        onSelect: () => {},
-        onRename: () => {},
-        onDelete: () => {},
-        onTogglePin: () => {},
+      createElement(DiagnosticsContext.Provider, {
+        value: diagnosticsStub,
+        children: createElement(ConfirmProvider, {
+          children: createElement(SessionRow, {
+            item: session,
+            agents: [],
+            active: false,
+            onSelect: () => {},
+            onRename: () => {},
+            onDelete: () => {},
+            onTogglePin: () => {},
+          }),
+        }),
       }),
     );
   const off = render(item);

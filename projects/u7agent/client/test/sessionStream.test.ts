@@ -6,6 +6,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import type { Dispatch } from "react";
 import { chatReducer, initialChatState, type ChatAction } from "../src/hooks/chatReducer";
+import { createDiagnosticsRecorder } from "../src/lib/diagnostics";
 import {
   applySessionEvent,
   isSseSilent,
@@ -61,6 +62,7 @@ function createHarness() {
     setRuntimeStatus: (status) => {
       record.statuses.push(status);
     },
+    diagnostics: createDiagnosticsRecorder(),
   };
   return { record, deps };
 }

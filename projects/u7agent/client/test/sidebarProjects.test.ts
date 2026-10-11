@@ -4,6 +4,9 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import test from "node:test";
 import { ProjectRow } from "../src/components/sidebar/ProjectRow";
+import { ConfirmProvider } from "../src/components/ConfirmProvider";
+import { DiagnosticsContext } from "../src/DiagnosticsContext";
+import { diagnosticsStub } from "./diagnostics-fixture";
 import {
   createSidebarProjectsStore,
   decodeExpandedProjects,
@@ -153,19 +156,24 @@ const session: SessionSummary = {
 
 function renderProjectRow(open: boolean, sessions: SessionSummary[] = [session]): string {
   return renderToStaticMarkup(
-    createElement(ProjectRow, {
-      project,
-      sessions,
-      agents: [],
-      sessionId: "s-1",
-      open,
-      onToggle: () => {},
-      onNewChat: () => {},
-      onDelete: () => {},
-      onSelectSession: () => {},
-      onRenameSession: () => {},
-      onDeleteSession: () => {},
-      onTogglePinnedSession: () => {},
+    createElement(DiagnosticsContext.Provider, {
+      value: diagnosticsStub,
+      children: createElement(ConfirmProvider, {
+        children: createElement(ProjectRow, {
+          project,
+          sessions,
+          agents: [],
+          sessionId: "s-1",
+          open,
+          onToggle: () => {},
+          onNewChat: () => {},
+          onDelete: () => {},
+          onSelectSession: () => {},
+          onRenameSession: () => {},
+          onDeleteSession: () => {},
+          onTogglePinnedSession: () => {},
+        }),
+      }),
     }),
   );
 }
