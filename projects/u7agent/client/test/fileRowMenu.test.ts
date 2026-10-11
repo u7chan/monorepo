@@ -25,35 +25,43 @@ const base = {
   excludeNames: [] as readonly string[],
 };
 
-test("出し分け: ダウンロード → リネーム → 削除 を画面 / 種類 / symlink / 除外名どおりに返す", () => {
+/** 全行に出す項目。出し分けの比較で同じ値を使い回す */
+const copyPath = { kind: "copy-path", label: "パスをコピー", description: "ツリーの root からの相対パス" };
+
+test("出し分け: パスをコピー → ダウンロード → リネーム → 削除 を画面 / 種類 / symlink / 除外名どおりに返す", () => {
   assert.deepEqual(fileRowActions({ ...base, canRename: true }), [
+    copyPath,
     { kind: "download", label: "ZIP でダウンロード", description: "ビルド成果物と依存を除く" },
     { kind: "rename", label: "名前を変更" },
     { kind: "delete", label: "削除", danger: true },
   ]);
   // リネームは設定ツリー (canRename) のフォルダ行だけ。チャット右パネルはダウンロードと削除になる
   assert.deepEqual(fileRowActions(base), [
+    copyPath,
     { kind: "download", label: "ZIP でダウンロード", description: "ビルド成果物と依存を除く" },
     { kind: "delete", label: "削除", danger: true },
   ]);
   // ファイルはリネームを出さず、ダウンロードのラベルも ZIP ではなくなる (除外の開示も持たない)
   assert.deepEqual(fileRowActions({ ...base, type: "file", canRename: true }), [
+    copyPath,
     { kind: "download", label: "ダウンロード" },
     { kind: "delete", label: "削除", danger: true },
   ]);
 });
 
-test("出し分け: symlink は項目 0、除外名はダウンロードだけを落とし、readOnly は領域ごと消す", () => {
-  // symlink はサンドボックスが 400 で拒否するため、ダウンロードも削除も出さない (領域は残す)
+test("出し分け: symlink はパスをコピーだけ、除外名はダウンロードを落とし、readOnly は領域ごと消す", () => {
+  // symlink はサンドボックスが 400 で拒否するため、ダウンロードも削除も出さない。相対パスは取れるのでコピーだけ残す
   for (const type of ["file", "dir"] as const) {
-    assert.deepEqual(fileRowActions({ ...base, type, symlink: true, canRename: true }), [], type);
+    assert.deepEqual(fileRowActions({ ...base, type, symlink: true, canRename: true }), [copyPath], type);
   }
-  // 除外名の行はダウンロードだけを落とし、リネームと削除は残す (ファイルは削除だけ)
+  // 除外名の行はダウンロードだけを落とし、コピーとリネームと削除は残す (ファイルはコピーと削除だけ)
   assert.deepEqual(fileRowActions({ ...base, name: "node_modules", canRename: true, excludeNames: ["node_modules"] }), [
+    copyPath,
     { kind: "rename", label: "名前を変更" },
     { kind: "delete", label: "削除", danger: true },
   ]);
   assert.deepEqual(fileRowActions({ ...base, type: "file", name: "dist", excludeNames: ["dist"] }), [
+    copyPath,
     { kind: "delete", label: "削除", danger: true },
   ]);
   // readOnly (スキルのファイルタブ) は null。[] (項目 0) と区別できないと呼び出し側が空きスロットを置けない
@@ -81,23 +89,29 @@ test("描画: ⋯ は aria-haspopup / aria-expanded を持ち、本体は role=m
   // HTML の属性名は大文字小文字を区別しない (React の SSR は camelCase のまま出す)
   assert.ok(html.includes(`popoverTarget="${triggerId}"`), "⋯ が本体を toggle しない");
 
-  // 項目は role=menuitem / tabIndex=-1 (Tab で外へ出る) で、並びは ダウンロード → リネーム → 削除
-  assert.equal((html.match(/role="menuitem"/g) ?? []).length, 3, "項目数が違う");
-  assert.equal((html.match(/tabindex="-1"/g) ?? []).length, 3, "項目が Tab の対象になっている");
+  // 項目は role=menuitem / tabIndex=-1 (Tab で外へ出る) で、並びは パスをコピー → ダウンロード → リネーム → 削除
+  assert.equal((html.match(/role="menuitem"/g) ?? []).length, 4, "項目数が違う");
+  assert.equal((html.match(/tabindex="-1"/g) ?? []).length, 4, "項目が Tab の対象になっている");
+  const copy = html.indexOf("パスをコピー");
   const download = html.indexOf("ZIP でダウンロード");
   const rename = html.indexOf("名前を変更");
   const remove = html.indexOf("削除");
-  assert.ok(download >= 0 && download < rename && rename < remove, "並びが ダウンロード → リネーム → 削除 でない");
-  // ディレクトリの除外は 2 行目へ移す (メニュー項目の文字ラベルとして出す)
+  assert.ok(
+    copy >= 0 && copy < download && download < rename && rename < remove,
+    "並びが パスをコピー → ダウンロード → リネーム → 削除 でない",
+  );
+  // ディレクトリの除外は 2 行目へ移す (メニュー項目の文字ラベルとして出す)。コピーの基準も同じく 2 行目で開示する
   assert.ok(html.includes("ビルド成果物と依存を除く"), "除外の開示がメニュー項目に無い");
+  assert.ok(html.includes("ツリーの root からの相対パス"), "コピーする字面の基準がメニュー項目に無い");
   // 削除だけ danger のトーンにする (ラベルとアイコンの 2 か所)
   const items = html.split("<button").filter((part) => part.includes('role="menuitem"'));
-  assert.equal(items.length, 3, "項目数が違う");
+  assert.equal(items.length, 4, "項目数が違う");
 });
 
-test("描画: 項目 0 の行は空きスロット 1 個、readOnly は何も出さない", () => {
-  const empty = renderToStaticMarkup(
+test("描画: symlink は パスをコピー 1 項目、readOnly は何も出さない", () => {
+  const symlinkRow = renderToStaticMarkup(
     createElement(EntryRowActions, {
+      path: "node/link",
       name: "link",
       type: "dir",
       symlink: true,
@@ -109,13 +123,15 @@ test("描画: 項目 0 の行は空きスロット 1 個、readOnly は何も出
       onDownload: () => {},
     }),
   );
-  assert.ok(empty.includes('aria-hidden="true"'), "空きスロットが読み上げの対象になる");
-
-  assert.ok(!empty.includes("aria-haspopup"), "項目 0 の行に ⋯ を出している");
-  assert.equal((empty.match(/size-6/g) ?? []).length, 1, "空きスロットが 1 個でない");
+  // ダウンロードも削除も出さない行でも、⋯ とコピーだけは残す
+  assert.ok(symlinkRow.includes("パスをコピー"), "symlink の行にパスをコピーが出ていない");
+  assert.ok(!symlinkRow.includes("ダウンロード"), "symlink の行にダウンロードが出ている");
+  assert.ok(!symlinkRow.includes("削除"), "symlink の行に削除が出ている");
+  assert.equal((symlinkRow.match(/role="menuitem"/g) ?? []).length, 1, "symlink の項目数が違う");
 
   const readOnly = renderToStaticMarkup(
     createElement(EntryRowActions, {
+      path: "docs",
       name: "docs",
       type: "dir",
       canRename: true,
@@ -127,6 +143,16 @@ test("描画: 項目 0 の行は空きスロット 1 個、readOnly は何も出
     }),
   );
   assert.equal(readOnly, "", "readOnly に行の操作が出ている");
+});
+
+test("描画: コピー成功の間は ⋯ がチェック + コピーしました になる", () => {
+  const html = renderToStaticMarkup(
+    createElement(RowMenu, { name: "docs", actions: fileRowActions(base) ?? [], copied: true, onSelect: () => {} }),
+  );
+  // 項目は選択で消えるため、結果は ⋯ の位置に出す
+  assert.ok(html.includes('aria-label="コピーしました"'), "⋯ の読み上げ名がコピーの結果になっていない");
+  assert.ok(html.includes('title="コピーしました"'), "⋯ の title がコピーの結果になっていない");
+  assert.ok(!html.includes("docs の操作"), "⋯ の読み上げ名が行の名前に戻っていない");
 });
 
 test("位置: ⋯ の右下を既定に、右端 / 下端では反転し、viewport の内側へ clamp する", () => {
@@ -170,11 +196,12 @@ test("可視判定: ⋯ がスクロール枠 / viewport の外へ出たら閉�
 });
 
 test("↑↓ は端で止まり、フォーカスが項目の外にあるときは端の項目へ入る", () => {
-  assert.equal(nextRowMenuIndex(0, 3, "next"), 1);
-  assert.equal(nextRowMenuIndex(2, 3, "next"), 2, "末尾で循環した");
-  assert.equal(nextRowMenuIndex(1, 3, "previous"), 0);
-  assert.equal(nextRowMenuIndex(0, 3, "previous"), 0, "先頭で循環した");
-  assert.equal(nextRowMenuIndex(-1, 3, "next"), 0);
-  assert.equal(nextRowMenuIndex(-1, 3, "previous"), 2);
+  // 長さは ⋯ の項目数 (パスをコピー → ダウンロード → リネーム → 削除) に合わせる
+  assert.equal(nextRowMenuIndex(0, 4, "next"), 1);
+  assert.equal(nextRowMenuIndex(3, 4, "next"), 3, "末尾で循環した");
+  assert.equal(nextRowMenuIndex(1, 4, "previous"), 0);
+  assert.equal(nextRowMenuIndex(0, 4, "previous"), 0, "先頭で循環した");
+  assert.equal(nextRowMenuIndex(-1, 4, "next"), 0);
+  assert.equal(nextRowMenuIndex(-1, 4, "previous"), 3);
   assert.equal(nextRowMenuIndex(0, 0, "next"), -1);
 });

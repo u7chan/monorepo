@@ -22,8 +22,9 @@ export type FileRowActionsInput = {
 };
 
 /**
- * 行に出す操作を ダウンロード → リネーム → 削除 の順で返す。`null` = 行の操作領域ごと出さない (読み取り専用)、
- * `[]` = 領域は出すが項目が無い (= 空きスロット 1 個) と契約を分ける (呼び出し側で `readOnly` と区別できないため)。
+ * 行に出す操作を パスをコピー → ダウンロード → リネーム → 削除 の順で返す。`null` = 行の操作領域ごと出さない
+ * (読み取り専用)、`[]` = 領域は出すが項目が無い (= 空きスロット 1 個) と契約を分ける (呼び出し側で `readOnly`
+ * と区別できないため)。パスはどの行でも取れるので、現在の出し分けは `[]` を返さない。
  */
 export function fileRowActions({
   name,
@@ -34,7 +35,10 @@ export function fileRowActions({
   excludeNames,
 }: FileRowActionsInput): FileRowAction[] | null {
   if (readOnly) return null;
-  const actions: FileRowAction[] = [];
+  // 相対パスはファイル / ディレクトリ / symlink のどれでも取れる (危険な削除は末尾に残す)
+  const actions: FileRowAction[] = [
+    { kind: "copy-path", label: "パスをコピー", description: "ツリーの root からの相対パス" },
+  ];
   // ダウンロードは通常ファイルとディレクトリに出す。symlink は api が 400 で拒否し、除外名の行は zip に入らない
   if (!symlink && !isArchiveExcludedName(name, excludeNames)) {
     actions.push(

@@ -18,11 +18,23 @@ import {
   type RowMenuActionKind,
   type RowMenuRect,
 } from "../lib/rowMenu";
+import { cn } from "../lib/cn";
 import { MenuItem } from "./MenuItem";
-import { DownloadIcon, MoreIcon, MoveIcon, PencilIcon, PinIcon, PlusIcon, TrashIcon } from "./icons";
+import {
+  CheckIcon,
+  CopyIcon,
+  DownloadIcon,
+  MoreIcon,
+  MoveIcon,
+  PencilIcon,
+  PinIcon,
+  PlusIcon,
+  TrashIcon,
+} from "./icons";
 
 /** 種別ごとのアイコン。描画側に条件分岐を残さないため、種別からここで引く (全画面ぶんを 1 箇所に置く) */
 const ACTION_ICONS: Record<RowMenuActionKind, ReactNode> = {
+  "copy-path": <CopyIcon />,
   download: <DownloadIcon small />,
   rename: <PencilIcon />,
   pin: <PinIcon />,
@@ -52,6 +64,8 @@ export type RowMenuProps<K extends RowMenuActionKind> = {
   name: string;
   /** 出す項目。空配列は受けない (項目 0 の行の空きスロットは呼び出し側が置く) */
   actions: readonly RowMenuAction<K>[];
+  /** 直前の選択 (コピー) が成功した直後。選択で項目が消えるため、結果を ⋯ の位置に出す */
+  copied?: boolean;
   onSelect: (kind: K) => void;
 };
 
@@ -61,7 +75,7 @@ export type RowMenuProps<K extends RowMenuActionKind> = {
  * 自前で閉じる経路 (項目の選択 / Tab での退出) だけ `hidePopover()` を通す。
  * 本体は常時 mount する (React の条件付き mount で出し入れすると標準の開閉と二重管理になる)。
  */
-export function RowMenu<K extends RowMenuActionKind>({ name, actions, onSelect }: RowMenuProps<K>) {
+export function RowMenu<K extends RowMenuActionKind>({ name, actions, copied = false, onSelect }: RowMenuProps<K>) {
   const menuId = useId();
   const triggerId = `${menuId}-trigger`;
   const [open, setOpen] = useState(false);
@@ -177,7 +191,8 @@ export function RowMenu<K extends RowMenuActionKind>({ name, actions, onSelect }
         id={triggerId}
         aria-haspopup="menu"
         aria-expanded={open}
-        aria-label={`${name} の操作`}
+        aria-label={copied ? "コピーしました" : `${name} の操作`}
+        title={copied ? "コピーしました" : undefined}
         popoverTarget={menuId}
         popoverTargetAction="toggle"
         onPointerDown={() => {
@@ -190,9 +205,12 @@ export function RowMenu<K extends RowMenuActionKind>({ name, actions, onSelect }
           pressingTriggerRef.current = false;
         }}
         onClick={toggle}
-        className="grid size-6 shrink-0 place-items-center rounded-md text-ink-faint transition-colors hover:bg-raised hover:text-ink"
+        className={cn(
+          "grid size-6 shrink-0 place-items-center rounded-md transition-colors",
+          copied ? "text-ok" : "text-ink-faint hover:bg-raised hover:text-ink",
+        )}
       >
-        <MoreIcon />
+        {copied ? <CheckIcon /> : <MoreIcon />}
       </button>
       {/* popover の UA 既定 (fixed 以外に margin / border / padding / overflow を持つ) を打ち消してから
           テーマのトークンを当てる。位置は place() が left / top を直接書く */}

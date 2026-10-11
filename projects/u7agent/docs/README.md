@@ -54,7 +54,7 @@
 - [notifications.md](notifications.md) — Discord 通知（送るタイミング・宛先制限・write-only な Webhook URL・設定画面）
 - [frontend.md](frontend.md) — フロントエンドの契約（URL が画面の正・状態の所有と正・テーマと CSP・保存範囲・Effect 契約）
 - [markdown.md](markdown.md) — チャット本文とファイルプレビューの Markdown 描画（対応サブセット・上限・インラインコードのファイル参照）
-- [file-preview.md](file-preview.md) — ファイルプレビューの行番号・シンタックスハイライト・HTML / Markdown / 画像 / 音声の描画と、ツリー行の ⋯ メニュー（削除 / リネーム / ダウンロード、除外名の設定を含む）
+- [file-preview.md](file-preview.md) — ファイルプレビューの行番号・シンタックスハイライト・HTML / Markdown / 画像 / 音声の描画と、ツリー行の ⋯ メニュー（パスをコピー / 削除 / リネーム / ダウンロード、除外名の設定を含む）
 - [api.md](api.md) — HTTP API の規約と索引（health / files / projects）
 - [api-sessions.md](api-sessions.md) — セッション API と SSE イベント
 - [api-catalog.md](api-catalog.md) — エージェント / スキル API
