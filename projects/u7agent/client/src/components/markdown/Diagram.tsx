@@ -14,7 +14,7 @@ const FALLBACK_NOTE = "未対応の記法のためソースを表示していま
  */
 export const Diagram = memo(function Diagram({ text }: { text: string }) {
   const parsed = useMemo(() => parseDiagram(text), [text]);
-  const { copiedId, copyMessage } = useMessageCopy();
+  const { copiedId, copyMessage, copyFailure } = useMessageCopy();
   if (!parsed.ok) {
     // 解析できなかった図は原文を出し、対応している記法を 1 行だけ添える
     return <CodeBlock lang="mermaid" text={text} closed note={FALLBACK_NOTE} />;
@@ -26,6 +26,7 @@ export const Diagram = memo(function Diagram({ text }: { text: string }) {
         <span className="md-diagram-grow" />
         <CopyButton
           copied={copiedId === "diagram"}
+          failure={copyFailure("diagram")}
           onClick={() => void copyMessage(text, "diagram")}
           label="図のソースをコピー"
           reveal="code"

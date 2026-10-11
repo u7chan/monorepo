@@ -299,6 +299,7 @@ function renderHistory(cards: ToolCard[], live: boolean): string {
       hasResponse: false,
       live,
       copiedId: "",
+      copyFailure: () => undefined,
       copiedAll: false,
       onCopyAll: () => {},
       compact: false,

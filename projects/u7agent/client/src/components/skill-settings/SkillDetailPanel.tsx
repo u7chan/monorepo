@@ -1,6 +1,7 @@
-import type { ReactNode } from "react";
+import { useRef, type ReactNode } from "react";
 import { useMessageCopy } from "../../hooks/useMessageCopy";
 import { cn } from "../../lib/cn";
+import { selectElementContents } from "../../lib/copyToClipboard";
 import { FILE_SKILL_BODY_ERROR_PREFIX, FILE_SKILL_BODY_LOADING_NOTE } from "../../lib/fileSkills";
 import { CopyButton } from "../chat/CopyButton";
 
@@ -46,7 +47,8 @@ export function SkillDetailPanel({
   files,
   showFiles = false,
 }: SkillDetailPanelProps) {
-  const { copiedId, copyMessage } = useMessageCopy();
+  const { copiedId, copyMessage, copyFailure } = useMessageCopy();
+  const bodyRef = useRef<HTMLPreElement>(null);
   return (
     <section className="flex min-h-0 min-w-0 flex-1 flex-col">
       <div className="flex shrink-0 flex-wrap items-start justify-between gap-x-2 gap-y-1 px-4 pt-3 pb-2.5">
@@ -100,11 +102,16 @@ export function SkillDetailPanel({
                   <div className="text-2xs font-semibold tracking-label text-ink-faint uppercase">本文</div>
                   <CopyButton
                     copied={copiedId === "skill"}
+                    failure={copyFailure("skill")}
                     onClick={() => void copyMessage(body.text, "skill")}
+                    onSelect={() => selectElementContents(bodyRef.current)}
                     label="本文をコピー"
                   />
                 </div>
-                <pre className="scrollbar-thin overflow-x-hidden overflow-y-visible rounded-lg border border-line bg-soft px-2.5 py-2 font-mono text-2xs leading-relaxed whitespace-pre-wrap text-ink-soft select-text">
+                <pre
+                  ref={bodyRef}
+                  className="scrollbar-thin overflow-x-hidden overflow-y-visible rounded-lg border border-line bg-soft px-2.5 py-2 font-mono text-2xs leading-relaxed whitespace-pre-wrap text-ink-soft select-text"
+                >
                   {body.text}
                 </pre>
               </>

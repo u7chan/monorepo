@@ -3,6 +3,7 @@ import type { Bubble, ToolCard } from "../../hooks/chatReducer";
 import { finishOnAnimationEnd } from "../../lib/animationEnd";
 import { splitAttachedFiles } from "../../lib/attachments";
 import { cn } from "../../lib/cn";
+import { selectElementContents } from "../../lib/copyToClipboard";
 import { MESSAGE_MEASURE_CLASS } from "../../lib/messageColumn";
 import { messageFullTimeLabel, messageTimeLabel } from "../../lib/messageTime";
 import { splitSkillBlock } from "../../lib/skillBlock";
@@ -51,6 +52,7 @@ export function MessageView({
   rootCwd,
   onCopy,
   copiedId,
+  copyFailure,
   onCopyTool,
   copiedAll,
   onCopyAll,
@@ -77,6 +79,8 @@ export function MessageView({
   rootCwd: string;
   onCopy: (text: string) => void;
   copiedId: string;
+  /** 失敗の内訳 (id で引く)。通知と選択の導線を出す根拠 */
+  copyFailure: (id: string) => string | undefined;
   onCopyTool: (card: ToolCard) => void;
   copiedAll: boolean;
   onCopyAll: () => void;
@@ -117,6 +121,8 @@ export function MessageView({
   const toolCards = nonSkillToolCards(bubble.tools);
   const questionCards = isUser ? [] : bubble.tools.filter((card) => card.questions?.length);
   const ringRef = useRef<HTMLDivElement>(null);
+  // コピーに失敗したときに選択状態にする本文 (添付の注記とスキルブロックを除いた、コピーと同じ範囲)
+  const bodyRef = useRef<HTMLDivElement>(null);
   // 開始の Flash の終端は DOM 側で受ける。run_start の直後に届く status / tool_start と同じ描画に
   // まとまると、状態で先に消したときは演出が出ない / クラスが外れて広がりが途中で切れる
   useEffect(() => {
@@ -213,6 +219,8 @@ export function MessageView({
             hasResponse={Boolean(bubble.text)}
             live={live}
             copiedId={copiedId}
+            copyFailure={copyFailure}
+            failureAll={copyFailure(`tools_${bubble.id}`)}
             copiedAll={copiedAll}
             onCopyAll={onCopyAll}
             compact={compact}
@@ -226,13 +234,18 @@ export function MessageView({
               {skill ? <SkillInvocation block={skill} rootCwd={rootCwd} compact={compact} /> : null}
               {bodyText ? (
                 // user は打った文字がそのまま見えることを優先し、Markdown として解釈しない
-                <div className="rounded-2xl rounded-tr-md bg-accent-bright px-3.5 py-2.5 text-1sm leading-relaxed text-on-accent">
+                <div
+                  ref={bodyRef}
+                  className="rounded-2xl rounded-tr-md bg-accent-bright px-3.5 py-2.5 text-1sm leading-relaxed text-on-accent"
+                >
                   <UserMessageBody text={bodyText} />
                 </div>
               ) : null}
             </>
           ) : (
-            <MarkdownView text={bubble.text} />
+            <div ref={bodyRef}>
+              <MarkdownView text={bubble.text} />
+            </div>
           )
         ) : null}
         {questionCards.length > 0 ? (
@@ -291,7 +304,9 @@ export function MessageView({
             {bodyText ? (
               <CopyButton
                 copied={copied}
+                failure={copyFailure(`bubble_${bubble.id}`)}
                 onClick={() => onCopy(bodyText)}
+                onSelect={() => selectElementContents(bodyRef.current)}
                 label="メッセージをコピー"
                 reveal="message"
               />

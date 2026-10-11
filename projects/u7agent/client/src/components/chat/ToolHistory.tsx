@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { ToolCard } from "../../hooks/chatReducer";
 import { cn } from "../../lib/cn";
+import { selectElementContents } from "../../lib/copyToClipboard";
 import { abbreviatedToolSummary, completedToolCards, historyPreview } from "../../lib/toolSummary";
 import { toolDurationMs, toolTimeTotalMs } from "../../lib/toolTiming";
 import { formatDurationMs } from "../../lib/usageFormat";
@@ -34,16 +35,19 @@ function ToolCallRow({
   card,
   index,
   copied,
+  failure,
   compact,
   onCopy,
 }: {
   card: ToolCard;
   index: number;
   copied: boolean;
+  failure?: string;
   compact: boolean;
   onCopy: () => void;
 }) {
   const durationMs = toolDurationMs(card);
+  const bodyRef = useRef<HTMLDivElement>(null);
   return (
     <li className="min-w-0">
       <details
@@ -64,7 +68,7 @@ function ToolCallRow({
         {/* コピーは行に常時出すと実行時間の列と競合するため、展開した本文の右上に置く (行の hover では出さない) */}
         <div className={cn("border-t border-line/70 py-2 pr-2 text-ink-muted", compact ? "pl-3" : "pl-6")}>
           <div className="flex items-start gap-2">
-            <div className="grid min-w-0 flex-1 gap-1.5">
+            <div ref={bodyRef} className="grid min-w-0 flex-1 gap-1.5">
               {card.args ? (
                 <div className="grid min-w-0 gap-0.5">
                   <span className="font-sans text-3xs tracking-wide text-ink-faint uppercase">引数</span>
@@ -81,7 +85,13 @@ function ToolCallRow({
                 </div>
               ) : null}
             </div>
-            <CopyButton copied={copied} onClick={onCopy} label="ツールコールをコピー" />
+            <CopyButton
+              copied={copied}
+              failure={failure}
+              onClick={onCopy}
+              onSelect={() => selectElementContents(bodyRef.current)}
+              label="ツールコールをコピー"
+            />
           </div>
         </div>
       </details>
@@ -98,6 +108,8 @@ export function ToolHistoryView({
   hasResponse,
   live,
   copiedId,
+  copyFailure,
+  failureAll,
   copiedAll,
   onCopyAll,
   compact,
@@ -108,6 +120,10 @@ export function ToolHistoryView({
   /** 進行中のターンか (完了までコピーを出さない根拠) */
   live: boolean;
   copiedId: string;
+  /** 失敗の内訳 (行の id で引く) */
+  copyFailure: (id: string) => string | undefined;
+  /** 「すべてコピー」の失敗の内訳。id は呼び出し側 (バブル) が決める */
+  failureAll?: string;
   copiedAll: boolean;
   onCopyAll: () => void;
   compact: boolean;
@@ -115,6 +131,7 @@ export function ToolHistoryView({
 }) {
   const shown = live ? completedToolCards(cards) : cards;
   const running = shown.some((card) => card.phase === "running");
+  const listRef = useRef<HTMLOListElement>(null);
   // 並列実行の重なりを 1 回だけ数えた合計。区間が閉じたカードが揃わないときは出さない
   const totalMs = toolTimeTotalMs(shown);
 
@@ -158,15 +175,24 @@ export function ToolHistoryView({
         <span className="min-w-0 flex-1 truncate">{historyPreview(shown)}</span>
         {flashKey === 0 ? null : <span key={flashKey} aria-hidden="true" className="tool-history-flash" />}
         {running ? <PhaseLabel phase="running" /> : null}
-        {live ? null : <CopyButton copied={copiedAll} onClick={onCopyAll} label="ツール履歴をすべてコピー" />}
+        {live ? null : (
+          <CopyButton
+            copied={copiedAll}
+            failure={failureAll}
+            onClick={onCopyAll}
+            onSelect={() => selectElementContents(listRef.current)}
+            label="ツール履歴をすべてコピー"
+          />
+        )}
       </summary>
-      <ol className="m-0 grid list-none gap-1.5 border-t border-line px-2 py-2">
+      <ol ref={listRef} className="m-0 grid list-none gap-1.5 border-t border-line px-2 py-2">
         {shown.map((card, index) => (
           <ToolCallRow
             key={card.id}
             card={card}
             index={index}
             copied={copiedId === `tool_${card.id}`}
+            failure={copyFailure(`tool_${card.id}`)}
             compact={compact}
             onCopy={() => onCopyTool(card)}
           />

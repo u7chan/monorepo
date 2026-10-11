@@ -1,9 +1,10 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent, type Ref } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent, type Ref, type RefObject } from "react";
 import { fileHtmlPreviewUrl, fileRawUrl, fileStoragePreviewUrl, getFilePreview } from "../api";
 import { useMessageCopy } from "../hooks/useMessageCopy";
 import { isAudioName, isImageName } from "../lib/attachments";
 import { cn } from "../lib/cn";
 import { lineNumbers } from "../lib/codeLines";
+import { selectElementContents } from "../lib/copyToClipboard";
 import { buildPreviewCode, isHtmlPath, isMarkdownPath, previewCopyText } from "../lib/fileCode";
 import { filePreviewErrorHint } from "../lib/filePreviewError";
 import {
@@ -86,6 +87,8 @@ export function FilePreview({
   // 読み込みが終わった画像の寸法。パスを一緒に持ち、タブを切り替えたら前のタブの値を出さない
   const [loadedImage, setLoadedImage] = useState<{ path: string; dimensions: ImageDimensions } | null>(null);
   const activeTabRef = useRef<HTMLDivElement | null>(null);
+  // コピーに失敗したとき、表示中の本文を選択状態にする導線の対象 (本文はヘッダとは別の枝に出る)
+  const codeBodyRef = useRef<HTMLDivElement | null>(null);
   const labels = fileTabLabels(paths);
   const fetchPath = fileTreeFetchPath(rootPath, activePath);
   const result = readPreview(results, activePath);
@@ -191,7 +194,9 @@ export function FilePreview({
           </span>
         ) : null}
         {imageMeta === null ? null : <span className="shrink-0 text-3xs text-ink-ghost tabular-nums">{imageMeta}</span>}
-        {code === null ? null : <FileCopyButton key={activePath} text={previewCopyText(code)} />}
+        {code === null ? null : (
+          <FileCopyButton key={activePath} text={previewCopyText(code)} targetRef={codeBodyRef} />
+        )}
         {/* プレビュー中だけ出す (ソース表示から開くと、見えている本文と違う描画結果が出る) */}
         {showHtml ? (
           <a
@@ -264,7 +269,7 @@ export function FilePreview({
         <p className="px-4 py-2 text-xs text-ink-muted">（空のファイル）</p>
       ) : (
         // 行番号は本文と別の列にする。番号は行ごとの要素ではなく 1 つのテキストノードで出す
-        <div tabIndex={0} className="file-code min-h-0 flex-1 scrollbar-thin font-mono">
+        <div ref={codeBodyRef} tabIndex={0} className="file-code min-h-0 flex-1 scrollbar-thin font-mono">
           <div className="file-code-row">
             <div aria-hidden="true" className="file-code-gutter">
               {lineNumbers(code.lineCount)}
@@ -334,10 +339,16 @@ export function FileBreadcrumb({
   );
 }
 
-function FileCopyButton({ text }: { text: string }) {
-  const { copiedId, copyMessage } = useMessageCopy();
+function FileCopyButton({ text, targetRef }: { text: string; targetRef: RefObject<HTMLElement | null> }) {
+  const { copiedId, copyMessage, copyFailure } = useMessageCopy();
   return (
-    <CopyButton copied={copiedId === "file"} onClick={() => void copyMessage(text, "file")} label="本文をコピー" />
+    <CopyButton
+      copied={copiedId === "file"}
+      failure={copyFailure("file")}
+      onClick={() => void copyMessage(text, "file")}
+      onSelect={() => selectElementContents(targetRef.current)}
+      label="本文をコピー"
+    />
   );
 }
 

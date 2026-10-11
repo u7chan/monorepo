@@ -117,7 +117,7 @@ export function ChatArea({
   const prevPrependSeqRef = useRef(prependSeq);
   /** 古いページの前置き前に測った位置。前置き後の高さ増加ぶんだけ scrollTop を戻す */
   const anchorRef = useRef<{ top: number; height: number } | null>(null);
-  const { copiedId, copyMessage } = useMessageCopy();
+  const { copiedId, copyMessage, copyFailure } = useMessageCopy();
   const items = useMemo(
     () => chatRenderItems({ bubbles, markers: dividers, compactions, activeContextStartId }),
     [bubbles, dividers, compactions, activeContextStartId],
@@ -299,6 +299,7 @@ export function ChatArea({
         // 添付の注記を除いた本文をコピーする (MessageView が分解して渡す)
         onCopy={(text) => void copyMessage(text, `bubble_${bubble.id}`)}
         copiedId={copiedId}
+        copyFailure={copyFailure}
         onCopyTool={(card) => void copyMessage(toolCallCopyText(card), `tool_${card.id}`)}
         copiedAll={copiedId === `tools_${bubble.id}`}
         onCopyAll={() => void copyMessage(toolHistoryCopyText(nonSkillToolCards(bubble.tools)), `tools_${bubble.id}`)}

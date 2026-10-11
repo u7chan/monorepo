@@ -28,6 +28,7 @@ function render(context: Bubble["context"]): string {
       rootCwd: "/workspace",
       onCopy: () => {},
       copiedId: "",
+      copyFailure: () => undefined,
       onCopyTool: () => {},
       copiedAll: false,
       onCopyAll: () => {},

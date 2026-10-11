@@ -279,6 +279,7 @@ function renderMessage(bubble: Bubble): string {
       rootCwd: "",
       onCopy: () => {},
       copiedId: "",
+      copyFailure: () => undefined,
       onCopyTool: () => {},
       copiedAll: false,
       onCopyAll: () => {},

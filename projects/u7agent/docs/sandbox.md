@@ -47,7 +47,7 @@ pi SDK (BFF)                       sandbox service (別プロセス / 別コン�
 - エージェントには BFF ローカルの `serve` ツール（`start` / `stop` / `status`）と組み込みスキル `serve` を渡す。所有者はモデルに申告させず、BFF がツール呼び出し元の会話へ束縛する。起動の作法（`nohup`、`--host 0.0.0.0 --port 8080 --strictPort`、`curl -fsS http://127.0.0.1:8080/` での検証、ログの見方）は system prompt ではなくそのスキルが持つ（[api-catalog.md](api-catalog.md#組み込みスキル)）。
 - エージェントが生の `bash` で起動した場合は所有者と起動コマンドが残らず、到達可でも「起動元不明」として表示する（禁止はしない。待受 PID の照合で誤表示は避ける）。
 - 別タブのサービスはファイルプレビューの CSP / iframe sandbox を継承しない。自身の HTTP API は使え、ネットワーク通信も可能。**WebSocket（upgrade）の転送は未実装**で、upgrade を使うアプリ（Vite の HMR を含む）はサービス オリジン経由では動かない（別 Issue とする）。BFF へのブラウザ書き込みは [Origin / CSRF 対策](api.md#ブラウザからの書き込みorigin--csrf-対策)で拒否する。
-- localStorage はアプリ・HTML プレビューとは分離されるが、serve 枠を入れ替えても同じオリジンの保存領域を共有する。Cookie はポートでは分離されない。HTTP の LAN IP では secure context が必要なブラウザ API は利用できない。
+- localStorage はアプリ・HTML プレビューとは分離されるが、serve 枠を入れ替えても同じオリジンの保存領域を共有する。Cookie はポートでは分離されない。HTTP の LAN IP では secure context が必要なブラウザ API は利用できない。**クリップボードも同じで `navigator.clipboard` が生えない**ため、コピーは `document.execCommand("copy")` の経路へ落ちる。WebKit の execCommand は「実 selection」と「viewport 内に描画された要素」を必要とし、`readonly` が要る Safari 15 以前と editable が要る新しい WebKit で条件が違う（画面外の `left: -9999px` と `display: none` は選択が作られない）ため、editable な textarea → readonly な textarea → contenteditable の順に試し、どれも通らなければ試した内訳を画面の通知に出す（[コピー](file-preview.md#コピー)）
 - 無認証の LAN 公開面が 1 つ増える。信頼する閉域 LAN 内のみで使い、外部公開しない。LAN / WSL2 の別端末からはサービス オリジンのポート（dev は `PI_SERVICE_LISTEN_PORT` の 4319、prod は 8016）の到達（必要なら portproxy）も用意する。dev の 8080 が既に使われていると serve できない。固定枠を変える回避機能は作らない。
 - コンテナ停止・再作成で serve プロセスは消える。自動復旧 / 自動再起動 / エラー時の自動再調査は持たない（UI は状態を出すだけで、勝手に起動し直さない）。複数 serve の同時公開、会話ごとのポート、別ポートの公開も対象外。
 
