@@ -8,7 +8,7 @@ export type NavSheetProps = Omit<SidebarProps, "onClose"> & {
   onClose: () => void;
 };
 
-// 起点が消えた場合の焦点復帰は docs/ui-layout.md の「左バー」を参照。
+// 起点が消えた場合の焦点復帰は docs/ui-layout.md#サイドバー を参照。
 const FOCUS_FALLBACK_SELECTORS = ['[data-nav-root="docked"] button', '[aria-label="ナビゲーションを開く"]'];
 
 const FOCUS_IN_DIALOG_SELECTORS = ["button:not([disabled])"];
@@ -73,7 +73,7 @@ export function NavSheet({ mode, onClose, ...sidebarProps }: NavSheetProps) {
 
   const requestClose = () => setClosing(true);
 
-  // モーダルを開く順序と焦点復帰の理由は docs/ui-layout.md の「左バー」を参照。
+  // モーダルを開く順序と焦点復帰の理由は docs/ui-layout.md#サイドバー を参照。
   const closeAfter =
     <A extends unknown[]>(action: (...args: A) => void) =>
     (...args: A) => {
