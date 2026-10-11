@@ -798,7 +798,7 @@ export function EyeIcon({ open = false }: { open?: boolean }) {
   );
 }
 
-/** 名前のコピー。エージェントへ渡してよいのは名前だけなので、値のコピー導線は作らない */
+/** クリップボードへのコピー。エージェント設定では名前だけを渡すため、値のコピー導線は作らない */
 export function CopyIcon() {
   return (
     <svg

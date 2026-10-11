@@ -19,14 +19,29 @@ export async function copyToClipboard(text: string): Promise<void> {
   textarea.setAttribute("readonly", "");
   textarea.style.position = "fixed";
   textarea.style.left = "-9999px";
-  document.body.appendChild(textarea);
+  copyHost().appendChild(textarea);
   try {
+    textarea.focus();
     textarea.select();
     textarea.setSelectionRange(0, text.length);
-    if (!document.execCommand("copy")) {
+    // inert の中 (showModal した dialog の外) では focus も選択も通らず、execCommand("copy") は
+    // true を返しても空振りする。コピーできていないのに成功を返さないよう成否を確かめる
+    if (document.activeElement !== textarea || !document.execCommand("copy")) {
       throw new Error("クリップボードへのコピーに失敗しました");
     }
   } finally {
-    document.body.removeChild(textarea);
+    textarea.remove();
   }
+}
+
+/**
+ * フォールバックの textarea を置く先。showModal() した dialog はその外側を inert にするため、body 直下へ
+ * 置くと focus できず、選択も作れない (開いている dialog の中へ入れる)。
+ */
+function copyHost(): HTMLElement {
+  const active = document.activeElement;
+  const focused = active instanceof Element ? active.closest<HTMLDialogElement>("dialog[open]") : null;
+  if (focused !== null) return focused;
+  const open = document.querySelectorAll<HTMLDialogElement>("dialog[open]");
+  return open[open.length - 1] ?? document.body;
 }

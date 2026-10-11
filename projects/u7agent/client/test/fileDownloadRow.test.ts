@@ -33,7 +33,7 @@ test("ダウンロード: フォルダは ZIP のラベルと除外の開示、�
 });
 
 test("ダウンロード: 除外名 / symlink / readOnly には出さない", () => {
-  // 除外名の行は押した直後に 400 になるため出さない (削除とリネームは残る)
+  // 除外名の行は押した直後に 400 になるため出さない (パスをコピー / リネーム / 削除は残る)
   const excluded = fileRowActions({ ...base, name: "node_modules", excludeNames: ["node_modules", "dist"] }) ?? [];
   assert.ok(!excluded.some((action) => action.kind === "download"), "除外名の行に導線が出ている");
   assert.ok(
@@ -41,9 +41,14 @@ test("ダウンロード: 除外名 / symlink / readOnly には出さない", ()
     "除外名の行の削除まで消えている",
   );
 
-  // symlink はダウンロードも削除も出さない (api が 400 で拒否する)。項目 0 で空きスロットになる
+  // symlink はダウンロードも削除も出さない (api が 400 で拒否する)。パスをコピーだけが残る
   for (const type of ["file", "dir"] as const) {
-    assert.deepEqual(fileRowActions({ ...base, type, symlink: true }), [], type);
+    const symlink = fileRowActions({ ...base, type, symlink: true }) ?? [];
+    assert.deepEqual(
+      symlink.map((action) => action.kind),
+      ["copy-path"],
+      type,
+    );
   }
   // 読み取り専用の面 (スキルのファイルタブ) は行の操作ごと出さない
   assert.equal(fileRowActions({ ...base, readOnly: true }), null);

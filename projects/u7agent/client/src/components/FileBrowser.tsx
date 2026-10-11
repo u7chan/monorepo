@@ -3,6 +3,7 @@ import { deleteDirectory, deleteFile, fileDownloadUrl, getFileDownloadCheck, get
 import { useFileTreeHeight } from "../hooks/useFileTreeHeight";
 import { useFileTreeWidth } from "../hooks/useFileTreeWidth";
 import { useImageVersion } from "../hooks/useImageVersion";
+import { useMessageCopy } from "../hooks/useMessageCopy";
 import { FileTreeHeightResizeHandle } from "./file-tree/FileTreeHeightResizeHandle";
 import { FileTreeWidthResizeHandle } from "./file-tree/FileTreeWidthResizeHandle";
 import { FilePreview } from "./FilePreview";
@@ -87,7 +88,7 @@ export type FileBrowserProps = {
   reloadToken: number;
   /** フォルダ行の ⋯ メニューにリネームを出すか。既定 false (チャット右パネルでは出さない) */
   canRename?: boolean;
-  /** 行の操作 (ダウンロード / リネーム / 削除) の ⋯ ごと出さない (読み取り専用の面)。既定 false (既存 2 画面は不変) */
+  /** 行の操作 (パスをコピー / ダウンロード / リネーム / 削除) の ⋯ ごと出さない (読み取り専用の面)。既定 false (既存 2 画面は不変) */
   readOnly?: boolean;
   /** ファイル行を参照としてドラッグできるようにする。ドロップ先 (入力欄) と同じ root の面だけ true */
   canRef?: boolean;
@@ -696,6 +697,7 @@ function EntryRow({
             <EntrySize bytes={entry.size} />
             <EntryTime at={entry.mtime} />
             <EntryRowActions
+              path={path}
               name={entry.name}
               type={entry.type}
               symlink={entry.symlink}
@@ -800,6 +802,7 @@ function EntryRow({
         <EntrySize bytes={entry.size} />
         <EntryTime at={entry.mtime} />
         <EntryRowActions
+          path={path}
           name={entry.name}
           type={entry.type}
           symlink={entry.symlink}
@@ -816,10 +819,11 @@ function EntryRow({
 }
 
 /**
- * 行の右端。時刻の右に ⋯ 1 個を並べる。項目を持たない行 (symlink) もスロットだけ空けて時刻の右端をそろえる。
+ * 行の右端。時刻の右に ⋯ 1 個を並べる。項目を持たない行もスロットだけ空けて時刻の右端をそろえる。
  * 行の外に置くのは、行 (EntryRow) が組み立てたパスを渡すためと、描画のテストで直接見るため。
  */
 export function EntryRowActions({
+  path,
   name,
   type,
   symlink,
@@ -830,6 +834,8 @@ export function EntryRowActions({
   onDelete,
   onDownload,
 }: {
+  /** ツリーの root 相対。コピーする字面 (作業フォルダ面では cwd 相対で、そのまま `@` 参照に貼れる) */
+  path: string;
   name: string;
   type: "file" | "dir";
   symlink?: boolean;
@@ -841,19 +847,22 @@ export function EntryRowActions({
   onDelete: () => void;
   onDownload: () => void;
 }) {
+  const { copiedId, copyMessage } = useMessageCopy();
   const actions = fileRowActions({ name, type, symlink, canRename, readOnly, excludeNames });
   // null = 読み取り専用の面で行の操作ごと消す。空配列 = 領域は出すが項目が無い (空きスロット 1 個)
   if (actions === null) return null;
   if (actions.length === 0) return <EmptySlot />;
   const handlers: Record<FileRowActionKind, () => void> = {
+    // 同じパスの再コピーは弾かない (冪等)。useMessageCopy が連番で古い結果だけを捨てる
+    "copy-path": () => void copyMessage(path, path),
     download: onDownload,
     rename: onRename,
     delete: onDelete,
   };
-  return <RowMenu name={name} actions={actions} onSelect={(kind) => handlers[kind]()} />;
+  return <RowMenu name={name} actions={actions} copied={copiedId === path} onSelect={(kind) => handlers[kind]()} />;
 }
 
-/** 項目を持たない行 (symlink) の末尾スロット。時刻の右端を ⋯ の行にそろえる。 */
+/** 項目を持たない行の末尾スロット。時刻の右端を ⋯ の行にそろえる。 */
 function EmptySlot() {
   return <span aria-hidden className="size-6 shrink-0" />;
 }
