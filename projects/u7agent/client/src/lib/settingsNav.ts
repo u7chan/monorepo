@@ -22,7 +22,7 @@ export type SettingsSection =
 export const SETTINGS_SECTIONS: { section: SettingsSection; label: string }[] = [
   // 会話を組み立てる設定 (エージェント / スキル / モデル / コンテンツ生成 / Web 検索) を先、
   // アプリ全体と見るだけの設定を後に置く
-  { section: "spaces", label: "スペース" },
+  { section: "spaces", label: "会話スペース" },
   { section: "agents", label: "エージェント" },
   { section: "skills", label: "スキル" },
   { section: "models", label: "モデル" },

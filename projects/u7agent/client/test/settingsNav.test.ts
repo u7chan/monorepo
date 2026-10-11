@@ -14,7 +14,7 @@ test("設定ナビは 11 項目をこの順で持つ", () => {
   assert.deepEqual(
     SETTINGS_SECTIONS.map((item) => [item.section, item.label]),
     [
-      ["spaces", "スペース"],
+      ["spaces", "会話スペース"],
       ["agents", "エージェント"],
       ["skills", "スキル"],
       ["models", "モデル"],

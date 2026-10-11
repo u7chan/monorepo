@@ -12,6 +12,7 @@ import { ProjectRow } from "./sidebar/ProjectRow";
 import { SessionList } from "./sidebar/SessionList";
 import { SidebarResizeHandle } from "./sidebar/SidebarResizeHandle";
 import { SettingsNav } from "./sidebar/SettingsNav";
+import { SpaceChip } from "./sidebar/SpaceChip";
 
 export type SidebarProps = Omit<
   Pick<
@@ -30,9 +31,11 @@ export type SidebarProps = Omit<
   >,
   "newChat" | "selectSession" | "renameSession" | "moveSession" | "deleteSession" | "deleteProject" | "togglePinned"
 > & {
-  spaceName?: string;
+  /** 会話一覧の見出しに出す現在の会話スペース名 */
+  spaceName: string;
   pinError?: string;
-  conversationOnly?: boolean;
+  /** 追加スペース (会話専用) か。Projects を出さず、チップをアクセントで出す */
+  conversationOnly: boolean;
   mode: SidebarMode;
   onSelectMode: (mode: SidebarMode) => void;
   activeSettingsSection: SettingsSection;
@@ -66,7 +69,7 @@ export function Sidebar({
   resize,
   spaceName,
   pinError,
-  conversationOnly = false,
+  conversationOnly,
   ...props
 }: SidebarProps) {
   const sheet = variant === "sheet";
@@ -142,11 +145,6 @@ export function Sidebar({
         ) : null}
       </div>
 
-      {spaceName ? (
-        <div className="truncate px-2 text-xs text-ink-soft" title={spaceName}>
-          スペース: {spaceName}
-        </div>
-      ) : null}
       {mode === "settings" ? (
         <SettingsNav
           activeSettingsSection={activeSettingsSection}
@@ -231,20 +229,23 @@ export function Sidebar({
               </section>
             ) : null}
 
-            <section className="grid">
-              <button
-                type="button"
-                aria-expanded={unassignedOpen}
-                aria-controls="sidebar-unassigned-content"
-                onClick={() => setSectionOpen("unassigned", !unassignedOpen)}
-                className="sidebar-category-toggle flex min-h-8.5 min-w-0 items-center gap-2 rounded-md px-2.5 text-left outline-none focus-visible:ring-1 focus-visible:ring-focus focus-visible:ring-inset"
-              >
-                <DisclosureChevronIcon />
-                <span className="shrink-0 text-2xs font-semibold tracking-widest text-ink-faint uppercase">Chats</span>
-                <span className="min-w-0 flex-1 truncate text-2xs text-ink-ghost">
-                  {conversationOnly ? "会話" : "未所属"}
-                </span>
-              </button>
+            <section className="grid min-w-0">
+              <div className="flex min-w-0 items-center gap-2">
+                <button
+                  type="button"
+                  aria-expanded={unassignedOpen}
+                  aria-controls="sidebar-unassigned-content"
+                  onClick={() => setSectionOpen("unassigned", !unassignedOpen)}
+                  className="sidebar-category-toggle flex min-h-8.5 min-w-0 shrink-0 grow basis-auto items-center gap-2 rounded-md px-2.5 text-left outline-none focus-visible:ring-1 focus-visible:ring-focus focus-visible:ring-inset"
+                >
+                  <DisclosureChevronIcon />
+                  <span className="shrink-0 text-2xs font-semibold tracking-widest text-ink-faint uppercase">
+                    Chats
+                  </span>
+                  <span className="min-w-0 flex-1 truncate text-2xs text-ink-ghost">未所属</span>
+                </button>
+                <SpaceChip name={spaceName} accent={conversationOnly} onOpen={() => onOpenSettingsSection("spaces")} />
+              </div>
               <div
                 id="sidebar-unassigned-content"
                 className="tree-fold"
@@ -254,9 +255,7 @@ export function Sidebar({
                 <div>
                   <div className="sidebar-category-content mt-2 grid gap-2">
                     {unassigned.length === 0 ? (
-                      <div className="rounded-lg px-1 py-1 text-1xs text-ink-faint">
-                        {conversationOnly ? "会話はまだありません" : "未所属のセッションはありません"}
-                      </div>
+                      <div className="rounded-lg px-1 py-1 text-1xs text-ink-faint">未所属のセッションはありません</div>
                     ) : (
                       <SessionList
                         sessions={unassigned}

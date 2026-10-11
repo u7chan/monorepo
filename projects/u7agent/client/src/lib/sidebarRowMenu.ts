@@ -25,7 +25,7 @@ export type SessionRowKind = "pin" | "rename" | "move" | "delete";
  * 選べない (移動先の候補はあるが、サーバーが 400 にする) ので、`canMove` のときだけ出す。
  */
 export function sessionRowActions(pinned = false, canMove = false): RowMenuAction<SessionRowKind>[] {
-  const move: RowMenuAction<SessionRowKind>[] = canMove ? [{ kind: "move", label: "別のスペースへ引っ越す" }] : [];
+  const move: RowMenuAction<SessionRowKind>[] = canMove ? [{ kind: "move", label: "別の会話スペースへ引っ越す" }] : [];
   return [
     { kind: "pin", label: pinned ? "ピン留めを解除" : "ピン留め" },
     { kind: "rename", label: "名前を変更" },
@@ -81,14 +81,14 @@ export type SessionMoveDialogText = {
 
 export function sessionMoveDialogText(title: string): SessionMoveDialogText {
   return {
-    title: "別のスペースへ引っ越す",
+    title: "別の会話スペースへ引っ越す",
     ...(title ? { subject: { label: "引っ越すセッション", value: title } } : {}),
     body: [
       "会話履歴（メッセージと未送信）は破棄されます。元に戻せません。",
-      "作業フォルダのファイルと添付は、移動先のスペースへ引き継がれます。",
+      "作業フォルダのファイルと添付は、移動先の会話スペースへ引き継がれます。",
     ],
-    emptyNote: "移動先のスペースがありません（設定 → スペースで作成してください）。",
-    note: "この画面は移動先のスペースへ切り替わりません。移動先の会話は、スペースを切り替えてから開きます。",
+    emptyNote: "移動先の会話スペースがありません（設定 → 会話スペースで作成してください）。",
+    note: "この画面は移動先の会話スペースへ切り替わりません。移動先の会話は、会話スペースを切り替えてから開きます。",
     confirmLabel: "引っ越す",
   };
 }
