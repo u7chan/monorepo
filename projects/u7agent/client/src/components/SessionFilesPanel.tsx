@@ -110,8 +110,9 @@ function SessionFilesContent({
               root は nowrap なので切り詰めない全文幅が最小サイズになる。min-w-0 でこの行を縮め、あふれは
               code の truncate に任せる (縮めないと列の幅をこの行が決めてしまう) */}
           <div className="flex min-w-0 flex-wrap items-center justify-between gap-x-2 gap-y-1 border-b border-line px-4 py-2">
-            {/* 新規会話ではプロジェクトのフォルダを指すため、ラベルだけでなく root も出す */}
-            <div className="flex min-w-0 flex-1 items-center gap-1.5">
+            {/* 新規会話ではプロジェクトのフォルダを指すため、ラベルだけでなく root も出す。1 段に収まらない
+                面でバッジを同じ行へ残すと縮小配分で数文字に潰れるため、折り返して次の段へ落とす */}
+            <div className="flex min-w-0 flex-1 flex-wrap items-center gap-x-1.5 gap-y-1">
               <code className="min-w-0 truncate text-2xs leading-normal text-ink-muted" title={root}>
                 {root}
               </code>

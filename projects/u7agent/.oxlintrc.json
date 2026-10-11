@@ -65,6 +65,7 @@
               "max-h-[42dvh]",
               "max-h-[min(88dvh,760px)]",
               "max-w-[88%]",
+              "max-w-[min(10rem,100%)]",
               "max-w-[min(760px,86%)]",
               "w-[3.25em]",
               "w-[min(320px,86vw)]",
