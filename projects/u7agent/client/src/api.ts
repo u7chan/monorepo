@@ -148,11 +148,14 @@ export function createSpaceApi(spaceId: string) {
     getSessionSkills: (id: string) => read<SessionSkillsResponse>(session.skills.$get({ param: { id } })),
     /** 切り分け用のダンプ。本文は含まれず、mask 済みのイベント要約を返す */
     getSessionDiagnostics: (id: string) => read<SessionDiagnostics>(session.diagnostics.$get({ param: { id } })),
-    /** 生ログ (session.jsonl。mask 前)。未保存の会話は 404 なので、本文を読む前に status を確かめる */
-    getSessionRawLog: async (id: string): Promise<string> => {
+    /**
+     * 生ログ (session.jsonl。mask 前)。未保存の会話は 404 なので、本文を読む前に status を確かめる。
+     * 文字列化せず Blob のまま返す (BOM や不正 UTF-8 を再エンコードで改変しない)。
+     */
+    getSessionRawLog: async (id: string): Promise<Blob> => {
       const res = await fetch(scope(session.raw.$url({ param: { id } })));
       if (!res.ok) throw await apiError(res);
-      return res.text();
+      return res.blob();
     },
     getSessionSkillsPreview: (input: { projectId: string; agentId: string }) =>
       read<SessionSkillsPreview>(

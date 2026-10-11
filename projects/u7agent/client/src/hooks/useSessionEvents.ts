@@ -26,7 +26,8 @@ export type UseSessionEventsParams = {
   lastSeqRef: RefObject<number>;
   /** SSE の世代。payload から受け取る。seq は再起動で 0 に戻るため、カーソル整合の判定に使う */
   generationRef: RefObject<string>;
-  onEvent: (entry: EventEntry) => void;
+  /** 受信イベントと、その接続のセッション (切替直後の旧接続を診断へ混ぜないため) */
+  onEvent: (entry: EventEntry, sessionId: string) => void;
   onClosed: () => void;
   /** セッションを開いた / 切り替えた (診断の記録対象を合わせる) */
   onSessionOpen?: (sessionId: string) => void;
@@ -113,12 +114,15 @@ export function useSessionEvents({
           lastEventId.includes(":") ? lastEventId.slice(lastEventId.lastIndexOf(":") + 1) : lastEventId,
         );
         // type と data の相関はランタイムでは正しいので、ここだけ単一キャストする
-        handleEvent({
-          seq: Number.isFinite(seq) ? seq : lastSeqRef.current,
-          type,
-          data,
-          at: Date.now(),
-        } as EventEntry);
+        handleEvent(
+          {
+            seq: Number.isFinite(seq) ? seq : lastSeqRef.current,
+            type,
+            data,
+            at: Date.now(),
+          } as EventEntry,
+          sessionId,
+        );
       });
     }
 

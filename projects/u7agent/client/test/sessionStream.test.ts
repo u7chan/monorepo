@@ -63,6 +63,7 @@ function createHarness() {
       record.statuses.push(status);
     },
     diagnostics: createDiagnosticsRecorder(),
+    diagnosticsSession: "s-1",
   };
   return { record, deps };
 }

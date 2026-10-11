@@ -1562,7 +1562,7 @@ export type DiagnosticsEvent = z.infer<typeof DiagnosticsEventSchema>;
 /**
  * `GET /api/sessions/:id/diagnostics` の応答。不具合の切り分け用に、サーバー側の観測を 1 回ぶんまとめる。
  * 本文 (メッセージ / 質問 / 回答) は載せず、件数と mask 済みの要約だけを持つ。上限で落とした件数は
- * `events.dropped` に残し、無言で切り詰めない。
+ * `events.dropped` に残し、無言で切り詰めない。会話タイトルも本文の先頭を含み得るため載せない。
  */
 export const SessionDiagnosticsSchema = z.object({
   kind: z.literal("u7agent-session-diagnostics"),
@@ -1577,7 +1577,6 @@ export const SessionDiagnosticsSchema = z.object({
   status: RunStatusSchema,
   meta: z.object({
     spaceId: z.string(),
-    title: z.string(),
     agentId: z.string(),
     agentName: z.string().optional(),
     projectId: z.string().optional(),

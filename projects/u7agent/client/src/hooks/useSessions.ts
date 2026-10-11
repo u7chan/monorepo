@@ -192,7 +192,9 @@ export function useSessions({
     (payload: SessionPayload) => {
       lastSeqRef.current = payload.lastSeq || 0;
       generationRef.current = payload.eventGeneration || "";
-      diagnostics.setGeneration(generationRef.current);
+      // payload の適用はセッションを開いた合図でもある。対象を合わせてカーソルを seed し、
+      // SSE が 1 件も届いていない間でも相関キーが埋まるようにする (切替では保持分を捨てる)
+      diagnostics.seedCursor(payload.sessionId, generationRef.current, lastSeqRef.current);
       // 表示する cwd は payload.cwd (root 相対) だけを正とする。health.cwd は root の絶対パスで、
       // ファイル画面の tree root (= GET /api/files の path) とは単位が違う
       setCwd(payload.cwd || "");
@@ -586,10 +588,17 @@ export function useSessions({
   );
 
   const onEvent = useCallback(
-    (entry: EventEntry) => {
-      // 世代は payload が正。resync 以外のリプレイでも、直前に知っている世代をカーソルへ載せる
-      diagnostics.setGeneration(generationRef.current);
-      applySessionEvent(entry, { lastSeqRef, dispatch, applySnapshot, refreshSessions, setRuntimeStatus, diagnostics });
+    (entry: EventEntry, sourceSessionId: string) => {
+      applySessionEvent(entry, {
+        lastSeqRef,
+        dispatch,
+        applySnapshot,
+        refreshSessions,
+        setRuntimeStatus,
+        diagnostics,
+        // 接続元を渡し、切替直後の旧接続のイベントを新しい会話の記録へ混ぜない
+        diagnosticsSession: sourceSessionId,
+      });
     },
     [applySnapshot, diagnostics, dispatch, refreshSessions, setRuntimeStatus],
   );

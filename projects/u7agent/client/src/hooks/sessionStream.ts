@@ -14,6 +14,8 @@ export type SessionStreamDeps = {
   setRuntimeStatus: (status: RuntimeStatus) => void;
   /** 診断用の受信記録。SSE の唯一の入口であるここで、適用前に 1 件ずつ控える */
   diagnostics: DiagnosticsRecorder;
+  /** このイベントを受信した接続のセッション。切替直後の旧接続のイベントを別会話へ混ぜない */
+  diagnosticsSession: string;
 };
 
 /** サーバーの heartbeat (15 秒) が 2 回分届かない長さを無音とみなす */
@@ -62,11 +64,12 @@ export function recoverDecision(input: {
 }
 
 export function applySessionEvent(entry: EventEntry, deps: SessionStreamDeps): void {
-  const { lastSeqRef, dispatch, applySnapshot, refreshSessions, setRuntimeStatus, diagnostics } = deps;
+  const { lastSeqRef, dispatch, applySnapshot, refreshSessions, setRuntimeStatus, diagnostics, diagnosticsSession } =
+    deps;
   if (Number.isFinite(entry.seq)) lastSeqRef.current = Math.max(lastSeqRef.current, entry.seq);
   // 世代は resync が運ぶ。カーソルはイベント適用と同じ順で控える (表示の再現ではなく受信の記録)
   if (entry.type === "resync") diagnostics.setGeneration(entry.data.eventGeneration);
-  diagnostics.record(entry);
+  diagnostics.record(entry, diagnosticsSession);
   switch (entry.type) {
     case "resync":
       applySnapshot(entry.data);

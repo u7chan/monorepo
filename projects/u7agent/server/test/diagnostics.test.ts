@@ -5,14 +5,17 @@ import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import { createAgentCatalog } from "../src/agents";
 import { createBffApp } from "../src/app";
-import { collectDiagnosticsEvents, DIAGNOSTICS_EVENT_LIMIT, DIAGNOSTICS_STRING_MAX } from "../src/diagnostics";
+import {
+  collectDiagnosticsEvents,
+  DIAGNOSTICS_EVENT_LIMIT,
+  DIAGNOSTICS_STRING_MAX,
+  projectSessionDiagnostics,
+} from "../src/diagnostics";
 import { REDACTED, createSecretMasker } from "../src/redact";
 import type { SandboxWorkspaceClient } from "../src/sandbox/client";
 import { SessionDiagnosticsSchema, type EventEntry } from "../src/schema";
 import { sessionJsonlPath } from "../src/session-store";
-import { SessionStore } from "../src/sessions";
 import { asPiBff, createStubPi, waitFor } from "./stub-pi";
 
 const jsonPost = (payload: unknown): RequestInit => ({
@@ -159,6 +162,81 @@ test("raw log is served as a download and matches session.jsonl", async () => {
   });
 });
 
+test("diagnostics never carries message, question or answer bodies", async () => {
+  await withStoreDir(async (dir) => {
+    const bff = await createBffApp({
+      cwd: "/tmp/project",
+      sessionStoreDir: dir,
+      pi: asPiBff(createStubPi()),
+      workspace: stubWorkspace(),
+    });
+    try {
+      const created = await jsonBody(bff.app.request("/api/sessions", jsonPost({})));
+      const marker = "本文はここに残ってはいけない";
+      const response = await bff.app.request(`/api/sessions/${created.sessionId}/messages`, jsonPost({ text: marker }));
+      assert.equal(response.status, 202);
+      const record = bff.store.get(created.sessionId);
+      assert.ok(record, "live な record が無い");
+      const argsLiteral = '{"questions":[]}';
+      // 質問 / 回答 / 進捗 / 圧縮の要約も、本文ではなく件数と文字数だけが載ることを見る
+      bff.store.emit(record, "tool_start", {
+        id: "t-1",
+        name: "ask_user",
+        args: argsLiteral,
+        questions: [{ question: marker, options: [{ label: marker }] }],
+      });
+      bff.store.emit(record, "tool_end", {
+        id: "t-1",
+        name: "ask_user",
+        isError: false,
+        output: marker,
+        answers: [
+          { index: 0, text: marker },
+          { index: 1, skipped: true },
+        ],
+      });
+      bff.store.emit(record, "tool_progress", { id: "t-1", text: marker });
+      await waitFor(() => bff.store.statusOf(record) === "completed", 3000, "run_end");
+
+      const body = SessionDiagnosticsSchema.parse(
+        await jsonBody(bff.app.request(`/api/sessions/${created.sessionId}/diagnostics`)),
+      );
+      const json = JSON.stringify(body);
+      assert.equal(json.includes(marker), false, "本文が診断 JSON に残っている");
+
+      const items = new Map(body.events.items.map((item) => [item.type, item.data as Record<string, unknown>]));
+      const runStart = items.get("run_start") ?? {};
+      assert.equal(typeof runStart.runId, "string");
+      assert.equal(typeof runStart.startedAt, "number");
+      assert.equal(runStart.promptChars, marker.length, "プロンプトの本文ではなく文字数になっていない");
+      assert.equal(Array.isArray(items.get("tool_start")?.questions), false, "質問の配列がそのまま載っている");
+      assert.deepEqual(items.get("tool_start"), {
+        id: "t-1",
+        name: "ask_user",
+        argsChars: argsLiteral.length,
+        questions: 1,
+      });
+      assert.deepEqual(items.get("tool_end"), {
+        id: "t-1",
+        name: "ask_user",
+        isError: false,
+        outputChars: marker.length,
+        answers: 2,
+        skipped: 1,
+      });
+      assert.deepEqual(items.get("tool_progress"), { id: "t-1", chars: marker.length });
+      // resync は payload 全体ではなく、件数と相関キーだけになる
+      const resync = body.events.items.find((item) => item.type === "resync")?.data as Record<string, unknown>;
+      if (resync) {
+        assert.equal("messages" in resync, false, "resync に messages が載っている");
+        assert.equal(typeof resync.messageCount, "number");
+      }
+    } finally {
+      await bff.close();
+    }
+  });
+});
+
 test("diagnostics and raw log serve an unloaded session without restoring it", async () => {
   await withStoreDir(async (dir) => {
     const first = await createBffApp({
@@ -233,33 +311,44 @@ test("diagnostics and raw log reject unknown sessions and sessions without a rec
   }
 });
 
-test("diagnostics masks captured strings and keeps the stored event data", async () => {
+test("diagnostics masks captured strings and keeps the stored event data", () => {
   const secret = "sk-live-diagnostics-secret";
-  const store = new SessionStore({
-    pi: createStubPi(),
-    catalog: createAgentCatalog(),
-    storeDir: null,
-    workspace: null,
-    rootCwd: "/tmp/project",
+  const diagnostics = projectSessionDiagnostics({
     masker: createSecretMasker([secret]),
+    input: {
+      sessionId: "s-1",
+      generation: "gen-1",
+      seq: 1,
+      events: [{ seq: 1, type: "status", data: { state: "thinking", text: `token=${secret}` }, at: 1 }],
+      status: "running",
+      queueRunIds: [],
+      run: { id: "r-1", status: "running", startedAt: 1, totalRetryCount: 0, error: `失敗 ${secret}` },
+      questions: [],
+      meta: {
+        spaceId: "default",
+        agentId: "agent-general",
+        agentName: `エージェント ${secret}`,
+        workdir: "",
+        createdAt: 1,
+        lastUsedAt: 1,
+        messageCount: 0,
+        notify: false,
+        pinned: false,
+        persistError: `保存失敗 ${secret}`,
+        sendsDirty: true,
+      },
+      raw: { available: false },
+    },
   });
-  await store.init();
-  const record = await store.create();
-  // イベントは emit 時点でマスク済みの値を載せる契約 (ここでは mask 前の値がそのまま残ることを固定する)
-  store.emit(record, "status", { state: "thinking", text: `token=${secret}` });
-
-  const diagnostics = await store.diagnosticsOf(record.id);
-  assert.ok(diagnostics, "診断が取れない");
-  assert.equal(diagnostics.meta.title.includes(secret), false);
+  assert.equal(diagnostics.meta.agentName, `エージェント ${REDACTED}`);
+  assert.equal(diagnostics.meta.persistError, `保存失敗 ${REDACTED}`);
+  assert.equal(diagnostics.run?.error, `失敗 ${REDACTED}`);
+  assert.equal(diagnostics.meta.sendsDirty, true);
   assert.equal(diagnostics.raw.available, false);
+  // イベントは emit 時点でマスク済みの値が正で、投影はそのまま載せる
   const lastEvent = diagnostics.events.items.at(-1);
   assert.ok(lastEvent, "イベントが 1 件も無い");
   assert.equal((lastEvent.data as { text: string }).text, `token=${secret}`);
-
-  await store.setTitle(record.id, `タイトル ${secret}`);
-  const masked = await store.diagnosticsOf(record.id);
-  assert.ok(masked, "診断が取れない");
-  assert.equal(masked.meta.title, `タイトル ${REDACTED}`);
 });
 
 test("collectDiagnosticsEvents keeps the byte budget and counts what it drops", () => {

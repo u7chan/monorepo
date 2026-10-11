@@ -11,6 +11,7 @@ import {
   DIAGNOSTICS_KIND,
   DIAGNOSTICS_NOTE,
   diagnosticsCompareRows,
+  diagnosticsDropsLine,
   diagnosticsFileName,
   rawLogFileName,
   summarizeEvent,
@@ -25,7 +26,7 @@ test("リングバッファは上限で古い方から落とし、落とした�
   const recorder = createDiagnosticsRecorder();
   recorder.beginSession("s-1");
   recorder.setGeneration("gen-1");
-  for (let seq = 1; seq <= CLIENT_EVENT_LIMIT + 5; seq += 1) recorder.record(event(seq), 2000 + seq);
+  for (let seq = 1; seq <= CLIENT_EVENT_LIMIT + 5; seq += 1) recorder.record(event(seq), "s-1", 2000 + seq);
 
   const state = recorder.capture();
   assert.equal(state.sessionId, "s-1");
@@ -44,7 +45,7 @@ test("セッションを切り替えると保持分を捨て、同じセッシ�
   const recorder = createDiagnosticsRecorder();
   recorder.beginSession("s-1");
   recorder.setGeneration("gen-1");
-  recorder.record(event(1));
+  recorder.record(event(1), "s-1");
   recorder.recordReconnect();
   recorder.recordReconnect();
 
@@ -162,7 +163,7 @@ test("クライアント状態のスナップショットは本文を載せず�
   const recorder = createDiagnosticsRecorder();
   recorder.beginSession("s-1");
   recorder.setGeneration("gen-1");
-  recorder.record(event(1), 10);
+  recorder.record(event(1), "s-1", 10);
 
   const snapshot = clientSnapshotOf(chat, recorder.capture());
   assert.equal(snapshot.sessionId, "s-1");
@@ -234,7 +235,6 @@ function serverDiagnostics(): SessionDiagnostics {
     status: "running",
     meta: {
       spaceId: "default",
-      title: "テスト",
       agentId: "agent-general",
       workdir: "",
       createdAt: 1,
@@ -247,7 +247,7 @@ function serverDiagnostics(): SessionDiagnostics {
     queue: { depth: 0, runIds: [] },
     run: null,
     questions: [],
-    events: { limit: 500, maxBytes: 1, available: 3, items: [], dropped: 1, truncated: 0 },
+    events: { limit: 500, maxBytes: 1, available: 3, items: [], dropped: 1, truncated: 2 },
     raw: { available: true, bytes: 10 },
   };
 }
@@ -256,7 +256,7 @@ test("1 つの JSON は自己記述を持ち、取れない側は理由を残す
   const recorder = createDiagnosticsRecorder();
   recorder.beginSession("s-1");
   recorder.setGeneration("gen-1");
-  recorder.record(event(7), 20);
+  recorder.record(event(7), "s-1", 20);
   recorder.recordReconnect();
 
   const report = buildDiagnosticsReport({
@@ -277,8 +277,11 @@ test("1 つの JSON は自己記述を持ち、取れない側は理由を残す
   assert.equal(report.lastSeq, 7);
   assert.equal(report.reconnectCount, 1);
   assert.equal(report.drops.server, 1);
+  assert.equal(report.drops.serverTruncated, 2);
+  assert.equal(report.drops.client, 0);
   assert.equal(report.client?.runStatus, "running");
   assert.equal(report.clientUnavailable, null);
+  assert.equal(diagnosticsDropsLine(report), "省略: サーバー 1 件 / クライアント 0 件 / 切り詰め: 2 件");
 
   // 開いていない会話ではクライアント状態を付けず、理由を残す
   const other = buildDiagnosticsReport({
@@ -294,6 +297,59 @@ test("1 つの JSON は自己記述を持ち、取れない側は理由を残す
   assert.equal(other.clientUnavailable, "not-open");
   assert.equal(other.server, null);
   assert.equal(other.serverError, "HTTP 500");
+});
+
+test("別の会話の診断には、対象 server の相関キーを使い他会話の観測値を持ち込まない", () => {
+  const recorder = createDiagnosticsRecorder();
+  recorder.beginSession("s-a");
+  recorder.setGeneration("a-gen");
+  recorder.record(event(120), "s-a", 10);
+  recorder.recordReconnect();
+  recorder.record(event(1), "s-a", 11);
+  for (let seq = 0; seq < CLIENT_EVENT_LIMIT; seq += 1) recorder.record(event(200 + seq), "s-a", 20 + seq);
+  assert.equal(recorder.capture().dropped > 0, true, "上限で落ちていない");
+
+  const report = buildDiagnosticsReport({
+    sessionId: "s-b",
+    openSessionId: "s-a",
+    chat: { ...initialChatState, sessionId: "s-a", runStatus: "running" },
+    recorder: recorder.capture(),
+    server: {
+      ...serverDiagnostics(),
+      sessionId: "s-b",
+      eventGeneration: "b-gen",
+      lastSeq: 7,
+      events: { ...serverDiagnostics().events, dropped: 0, truncated: 0 },
+    },
+    clientBuild: "test@1",
+  });
+  assert.equal(report.client, null);
+  assert.equal(report.clientUnavailable, "not-open");
+  assert.equal(report.eventGeneration, "b-gen", "他会話の世代が相関キーへ入っている");
+  assert.equal(report.lastSeq, 7, "他会話の seq が相関キーへ入っている");
+  assert.equal(report.reconnectCount, 0, "他会話の再接続回数が入っている");
+  assert.equal(report.drops.client, 0, "他会話の省略件数が入っている");
+  assert.equal(diagnosticsDropsLine(report), "");
+});
+
+test("カーソルは payload の seed で埋まり、世代が変わったら新しい世代の seq へ戻る", () => {
+  const recorder = createDiagnosticsRecorder();
+  // 会話を開いた直後 (SSE イベント前) は payload の位置を相関キーにする
+  recorder.seedCursor("s-1", "gen-1", 42);
+  assert.deepEqual(recorder.capture().lastCursor, { generation: "gen-1", seq: 42 });
+
+  // 再起動 / sweep で世代が変わったら、旧世代の seq を残さない (実在しないカーソルを報告しない)
+  recorder.setGeneration("gen-2");
+  assert.deepEqual(recorder.capture().lastCursor, { generation: "gen-2", seq: 0 });
+  recorder.record({ seq: 3, type: "status", data: { state: "thinking", text: "g" }, at: 3 } as EventEntry, "s-1", 30);
+  assert.deepEqual(recorder.capture().lastCursor, { generation: "gen-2", seq: 3 });
+
+  // 別セッションのイベントは記録しない (切替直後の旧接続を混ぜない)
+  recorder.record(event(9), "s-1", 40);
+  recorder.record(event(99), "s-other", 41);
+  const state = recorder.capture();
+  assert.equal(state.events.at(-1)?.seq, 9);
+  assert.deepEqual(state.lastCursor, { generation: "gen-2", seq: 9 });
 });
 
 test("保存名は <id8>-<yyyymmdd-hhmm> を持つ", () => {
@@ -313,7 +369,8 @@ test("突き合わせは値を並べるだけで、取れない側は — にす
       ["最終 seq", "7", "—"],
       ["世代", "gen-1", "—"],
       ["イベント保持", "3", "—"],
-      ["省略", "1", "—"],
+      ["省略（イベント）", "1", "—"],
+      ["切り詰め（data）", "2", "—"],
       ["再接続", "—", "—"],
     ],
   );

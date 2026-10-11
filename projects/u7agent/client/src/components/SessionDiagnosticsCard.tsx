@@ -5,7 +5,7 @@
  * チャットが壊れていても (設定ページはチャットを mount したまま重ねる) ここから取れることを、
  * 「壊れた UI でも取れる」の本線にする (docs/diagnostics.md)。
  */
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useConfirm } from "./ConfirmProvider";
 import { useDiagnostics } from "../DiagnosticsContext";
 import { formatBytes } from "../lib/attachments";
@@ -23,6 +23,7 @@ import {
   diagnosticsResultLine,
   type DiagnosticsReport,
 } from "../lib/diagnostics";
+import { createRequestGate } from "../hooks/requestGate";
 import { rawLogConfirmRequest } from "../lib/sidebarRowMenu";
 import type { SessionSummary } from "../types";
 import { ReloadButton } from "./ReloadButton";
@@ -48,22 +49,31 @@ export function SessionDiagnosticsCard({
     detail?: string;
     save?: { text: string; fileName: string };
   } | null>(null);
+  // 対象を切り替えた後に届いた旧応答を捨てる (遅い応答が新しい選択を上書きしない)
+  const gateRef = useRef<ReturnType<typeof createRequestGate> | null>(null);
+  if (gateRef.current === null) gateRef.current = createRequestGate();
+  const gate = gateRef.current;
 
   const fetchReport = useCallback(
     async (sessionId: string): Promise<void> => {
+      const isCurrent = gate();
       if (!sessionId) {
         setReport(null);
         return;
       }
       setLoading(true);
+      // 選択が変わった時点で旧 report を失効させる (取得中に別の会話の値を出さない)
+      setReport(null);
       setFailure(null);
       try {
-        setReport(await diagnostics.buildReport(sessionId));
+        const next = await diagnostics.buildReport(sessionId);
+        if (!isCurrent()) return;
+        setReport(next);
       } finally {
         setLoading(false);
       }
     },
-    [diagnostics],
+    [diagnostics, gate],
   );
 
   // 対象が変わったときだけ取得する (選択が空の間は何も取らない)
@@ -101,11 +111,13 @@ export function SessionDiagnosticsCard({
   const save = failure?.save;
 
   const copy = async (): Promise<void> => {
+    const isCurrent = gate();
     setBusy(true);
     setResult("");
     setFailure(null);
     try {
       const outcome = await diagnostics.copy(target);
+      if (!isCurrent()) return;
       setReport(outcome.report);
       if (outcome.ok) {
         setResult(`コピーしました（${diagnosticsResultLine(outcome.report)}）`);
@@ -123,11 +135,13 @@ export function SessionDiagnosticsCard({
 
   const downloadRaw = async (): Promise<void> => {
     if (!(await confirm(rawLogConfirmRequest(summary?.title ?? "")))) return;
+    const isCurrent = gate();
     setBusy(true);
     setResult("");
     setFailure(null);
     try {
       const outcome = await diagnostics.downloadRaw(target);
+      if (!isCurrent()) return;
       if (outcome.ok) {
         setResult(`保存しました: ${outcome.fileName}（約 ${formatBytes(outcome.bytes)}）`);
         return;

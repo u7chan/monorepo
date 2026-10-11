@@ -9,7 +9,6 @@ import { clientBuildId } from "../lib/clientBuild";
 import { copyToClipboard } from "../lib/copyToClipboard";
 import {
   buildDiagnosticsReport,
-  byteLengthOf,
   diagnosticsFileName,
   rawLogFileName,
   saveTextFile,
@@ -65,9 +64,11 @@ export function useSessionDiagnostics({
 
   const buildReport = useCallback(
     async (sessionId: string): Promise<DiagnosticsReport> => {
+      // 1 回のスナップショットは 1 時点。要求の前に chat / 選択 / recorder をまとめて控え、
+      // 応答を待つ間のイベントで「取得が食い違いを作る」ことを防ぐ
+      const moment = latest.current;
       const capturedAt = Date.now();
-      // クライアント分は要求の直前に控える (結果行と JSON の相関キーを同じ時点にそろえる)
-      const client = latest.current.recorder.capture();
+      const client = moment.recorder.capture();
       let server: SessionDiagnostics | null = null;
       let serverError: string | null = null;
       try {
@@ -75,11 +76,10 @@ export function useSessionDiagnostics({
       } catch (error) {
         serverError = messageFor(error);
       }
-      const current = latest.current;
       return buildDiagnosticsReport({
         sessionId,
-        openSessionId: current.openSessionId,
-        chat: current.chat,
+        openSessionId: moment.openSessionId,
+        chat: moment.chat,
         recorder: client,
         server,
         serverError,
@@ -112,10 +112,11 @@ export function useSessionDiagnostics({
   const downloadRaw = useCallback(
     async (sessionId: string): Promise<RawLogResult> => {
       try {
-        const text = await api.getSessionRawLog(sessionId);
+        // 文字列化せず Blob のまま渡す (元のバイトを保持したまま保存する)
+        const blob = await api.getSessionRawLog(sessionId);
         const fileName = rawLogFileName(sessionId, Date.now());
-        saveTextFile(text, fileName, "application/x-ndjson");
-        return { ok: true, fileName, bytes: byteLengthOf(text, "application/x-ndjson") };
+        saveTextFile(blob, fileName, "application/x-ndjson");
+        return { ok: true, fileName, bytes: blob.size };
       } catch (error) {
         return { ok: false, detail: messageFor(error) };
       }

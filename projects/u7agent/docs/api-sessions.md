@@ -532,7 +532,7 @@ SSE（`text/event-stream`）でイベントを購読。カーソルは `Last-Eve
 
 ## `GET /api/sessions/:id/diagnostics`
 
-切り分け用のダンプ。状態の要約と、mask 済みの直近イベント（上限つき）を返す（設計と限界は [diagnostics.md](diagnostics.md)）。履歴を保存していない会話でも取れる（生ログの有無は `raw` で示す）。本文（メッセージ / 質問 / 回答）は載せない。未知の id は 404。
+切り分け用のダンプ。状態の要約と、mask 済みの直近イベント（上限つき）を返す（設計と限界は [diagnostics.md](diagnostics.md)）。履歴を保存していない会話でも取れる（生ログの有無は `raw` で示す）。**本文（メッセージ / 質問 / 回答）は載せない。** イベントの `data` は mask 済みの値（`[REDACTED]`）を種別ごとの要約（プロンプトは `promptChars`、差分は `chars`、質問 / 回答は件数と `skipped`、ツール出力は `outputChars`、compaction は `summaryChars`、`resync` は件数と相関キー）へ落としてから載せる。会話タイトルは本文の先頭を含み得るため載せない。未知の id は 404。
 
 ```json
 {
@@ -543,7 +543,7 @@ SSE（`text/event-stream`）でイベントを購読。カーソルは `Last-Eve
   "eventGeneration": "a1b2c3d4",
   "lastSeq": 42,
   "status": "running",
-  "meta": { "spaceId": "default", "title": "…", "agentId": "…", "workdir": "…", "createdAt": 0, "lastUsedAt": 0, "messageCount": 2, "notify": false, "pinned": false, "sendsDirty": false },
+  "meta": { "spaceId": "default", "agentId": "…", "workdir": "…", "createdAt": 0, "lastUsedAt": 0, "messageCount": 2, "notify": false, "pinned": false, "sendsDirty": false },
   "queue": { "depth": 1, "runIds": ["…"] },
   "run": { "id": "…", "status": "running", "startedAt": 1700000000000, "totalRetryCount": 0 },
   "questions": [{ "toolCallId": "…", "questionCount": 4, "settled": false }],
@@ -552,9 +552,9 @@ SSE（`text/event-stream`）でイベントを購読。カーソルは `Last-Eve
 }
 ```
 
-- `meta` はタイトル / エージェント / 作業ディレクトリと **直近の保存失敗**（`persistError` / `sendsError` / `sendsDirty`）だけを載せ、`promptSnapshot` などの大きい値は載せない。タイトルとエラー文言は mask 後の値
+- `meta` はエージェント / 作業ディレクトリと **直近の保存失敗**（`persistError` / `sendsError` / `sendsDirty`）だけを載せ、`promptSnapshot` などの大きい値は載せない。エージェント名とエラー文言は mask 後の値
 - `queue.runIds` / `questions` は本文を持たない（質問文と回答本文、待機メッセージの本文は入らない）
-- `events.items` は古い→新しい順の直近分で、`data` は emit 時点で mask 済みの値。**ツール出力は既存の要約（`server/src/session-projection.ts` の `toolResultSummary`）までで、全文は載らない**。件数（`limit`）とバイト（`maxBytes`）の上限で落とした件数は `events.dropped`、`data` を切り詰めた件数は `events.truncated` に残す（`truncated` が立つイベントの `data` は元の schema を満たさないことがある）。`available` はリングバッファに残っている件数
+- `events.items` は古い→新しい順の直近分。`data` は emit 時に mask 済みの値を `server/src/diagnostics.ts` の `summarizeEventData` で本文なしの要約にしたもので、ツール出力は既存の要約（`server/src/session-projection.ts` の `toolResultSummary`）の文字数まで、全文は載らない。件数（`limit`）とバイト（`maxBytes`）の上限で落とした件数は `events.dropped`、`data` を切り詰めた件数は `events.truncated` に残す（`truncated` が立つイベントの `data` は元の schema を満たさないことがある）。`available` はリングバッファに残っている件数
 - 未ロードの会話（再起動後など）は **SDK を復元せず**、保存済み `meta.json` の値だけを返す（`eventGeneration` は空文字、`seq` は 0、`events.available` は 0、`status` は `idle`）。復元自体が失敗する壊れた JSONL でも診断を取れるようにするため
 - `run` は最後の run（終了後も `status` が残る）。実行中の自動再試行があれば `retry` を載せる
 - `raw` は `session.jsonl` の有無とバイト数。`false` のときは UI がダウンロードを押せなくする

@@ -1487,7 +1487,6 @@ export class SessionStore {
           })),
           meta: {
             spaceId: record.meta.spaceId ?? "default",
-            title: record.title,
             agentId: record.agentId,
             agentName: record.agent.name,
             ...(record.projectId ? { projectId: record.projectId } : {}),
@@ -1523,7 +1522,6 @@ export class SessionStore {
         questions: [],
         meta: {
           spaceId: meta.spaceId ?? "default",
-          title: meta.title,
           agentId: meta.agentId,
           agentName: meta.agent.name,
           ...(this.projectIdOfCwd(meta.projectCwd) ? { projectId: this.projectIdOfCwd(meta.projectCwd) } : {}),

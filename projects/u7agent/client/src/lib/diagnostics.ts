@@ -140,9 +140,21 @@ export type DiagnosticsRecorderState = {
 export type DiagnosticsRecorder = {
   /** 対象セッションを切り替える。変わったら保持分 (イベント / 再接続回数 / カーソル) を捨てる */
   beginSession(sessionId: string): void;
-  /** SSE の世代。payload から受け取り、イベントのカーソルに使う */
+  /**
+   * payload (初期取得 / resync / 回復) の適用時に、対象セッションを合わせてカーソルを seed する。
+   * SSE が 1 件も届いていない間でも相関キー (世代 / seq) を埋め、セッション切替では保持分を捨てる。
+   */
+  seedCursor(sessionId: string, generation: string, seq: number): void;
+  /**
+   * SSE の世代を合わせる。再起動 / sweep で世代が変わったら seq は新しい世代のものへ戻す
+   * (旧世代の seq を残すと、実在しないカーソルを診断が報告する)。
+   */
   setGeneration(generation: string): void;
-  record(entry: EventEntry, receivedAt?: number): void;
+  /**
+   * 受信イベントの記録。`sourceSessionId` は接続元のセッションで、対象と違えば捨てる
+   * (切替直後に旧接続から届いたイベントを新しい会話へ混ぜない)。
+   */
+  record(entry: EventEntry, sourceSessionId: string, receivedAt?: number): void;
   /** 再接続を試みた (無音の検知 / 切断からの復帰) */
   recordReconnect(): void;
   capture(): DiagnosticsRecorderState;
@@ -157,28 +169,38 @@ export function createDiagnosticsRecorder(): DiagnosticsRecorder {
   let lastCursor: DiagnosticsCursor | null = null;
   let lastReceivedAt: number | null = null;
 
-  const cursorAfter = (seq: number): DiagnosticsCursor | null => {
-    const nextSeq = Math.max(seq, lastCursor?.seq ?? seq);
-    const nextGeneration = generation || lastCursor?.generation || "";
-    return nextGeneration === "" ? null : { generation: nextGeneration, seq: nextSeq };
+  const clear = (): void => {
+    events = [];
+    dropped = 0;
+    reconnectCount = 0;
+    generation = "";
+    lastCursor = null;
+    lastReceivedAt = null;
+  };
+
+  const track = (next: string): boolean => {
+    if (next === sessionId) return false;
+    sessionId = next;
+    clear();
+    return true;
   };
 
   return {
     beginSession(next): void {
-      if (next === sessionId) return;
-      sessionId = next;
-      events = [];
-      dropped = 0;
-      reconnectCount = 0;
-      generation = "";
-      lastCursor = null;
-      lastReceivedAt = null;
+      track(next);
+    },
+    seedCursor(next, nextGeneration, seq): void {
+      track(next);
+      generation = nextGeneration;
+      // payload の lastSeq がその時点のサーバー位置。イベント前でも相関キーが埋まる
+      lastCursor = nextGeneration === "" ? null : { generation: nextGeneration, seq };
     },
     setGeneration(next): void {
+      if (next !== generation) lastCursor = next === "" ? null : { generation: next, seq: 0 };
       generation = next;
-      if (lastCursor !== null) lastCursor = { generation, seq: lastCursor.seq };
     },
-    record(entry, receivedAt = Date.now()): void {
+    record(entry, sourceSessionId, receivedAt = Date.now()): void {
+      if (sourceSessionId !== sessionId) return;
       events.push({
         seq: entry.seq,
         type: entry.type,
@@ -192,8 +214,10 @@ export function createDiagnosticsRecorder(): DiagnosticsRecorder {
         dropped += overflow;
       }
       lastReceivedAt = receivedAt;
+      // カーソルの世代は常に generation と一致する (seed / setGeneration / ここだけが書き手)。
+      // payload で seed 済みの位置を巻き戻さないよう、seq は最大値を保つ
       const seq = Number.isFinite(entry.seq) ? entry.seq : (lastCursor?.seq ?? 0);
-      lastCursor = cursorAfter(seq);
+      lastCursor = generation === "" ? null : { generation, seq: Math.max(seq, lastCursor?.seq ?? seq) };
     },
     recordReconnect(): void {
       reconnectCount += 1;
@@ -359,7 +383,14 @@ export type DiagnosticsReport = {
   clientUnavailable: "not-open" | "unavailable" | null;
   server: SessionDiagnostics | null;
   serverError: string | null;
-  drops: { client: number; server: number };
+  drops: {
+    /** クライアントのリングバッファが上限で落とした件数 */
+    client: number;
+    /** サーバーが上限 (件数 / バイト) で落とした件数 */
+    server: number;
+    /** サーバーが 1 イベントの `data` を切り詰めた件数 */
+    serverTruncated: number;
+  };
 };
 
 /**
@@ -386,9 +417,10 @@ export function buildDiagnosticsReport({
   capturedAt?: number;
 }): DiagnosticsReport {
   const isOpen = sessionId !== "" && sessionId === openSessionId;
-  const hasRecorder = recorder.sessionId === sessionId;
-  // 開いていても記録が始まっていない (クライアントが SSE を張る前) は unavailable にする
-  const client = isOpen && (hasRecorder || recorder.events.length === 0) ? clientSnapshotOf(chat, recorder) : null;
+  // 記録が対象セッションのものか。他会話の観測値 (カーソル / 省略 / 再接続) は相関キーへ持ち込まない
+  const ownsRecorder = recorder.sessionId === sessionId;
+  const client = isOpen && ownsRecorder ? clientSnapshotOf(chat, recorder) : null;
+  const cursor = ownsRecorder ? recorder.lastCursor : null;
   return {
     kind: DIAGNOSTICS_KIND,
     version: DIAGNOSTICS_VERSION,
@@ -397,14 +429,19 @@ export function buildDiagnosticsReport({
     sessionId,
     openSessionId,
     clientBuild,
-    eventGeneration: recorder.lastCursor?.generation ?? null,
-    lastSeq: recorder.lastCursor?.seq ?? null,
-    reconnectCount: recorder.reconnectCount,
+    // 対象の client 記録が無いときは、対象 server の相関キーを使う (他会話の値は使わない)
+    eventGeneration: cursor?.generation ?? server?.eventGeneration ?? null,
+    lastSeq: cursor?.seq ?? server?.lastSeq ?? null,
+    reconnectCount: ownsRecorder ? recorder.reconnectCount : 0,
     client,
     clientUnavailable: client !== null ? null : isOpen ? "unavailable" : "not-open",
     server,
     serverError,
-    drops: { client: recorder.dropped, server: server?.events.dropped ?? 0 },
+    drops: {
+      client: ownsRecorder ? recorder.dropped : 0,
+      server: server?.events.dropped ?? 0,
+      serverTruncated: server?.events.truncated ?? 0,
+    },
   };
 }
 
@@ -424,9 +461,13 @@ function fileStamp(sessionId: string, at: number): string {
   return `${sessionId.slice(0, 8)}-${stamp}`;
 }
 
-/** 本文をファイルとして保存する。コピーに失敗したときの逃げ道と、生ログの保存で共通 */
-export function saveTextFile(text: string, name: string, type = "application/json"): void {
-  const url = URL.createObjectURL(new Blob([text], { type }));
+/**
+ * 内容をファイルとして保存する。コピーに失敗したときの逃げ道 (文字列) と、生ログ (Blob) で共通。
+ * Blob はそのまま渡し、生ログのバイトを再エンコードしない。
+ */
+export function saveTextFile(content: string | Blob, name: string, type = "application/json"): void {
+  const blob = typeof content === "string" ? new Blob([content], { type }) : content;
+  const url = URL.createObjectURL(blob);
   try {
     startArchiveDownload(url, name);
   } finally {
@@ -435,21 +476,24 @@ export function saveTextFile(text: string, name: string, type = "application/jso
   }
 }
 
-/** 保存した内容の表示用のサイズ (バイト)。Browser の Blob と揃える */
-export function byteLengthOf(text: string, type = "application/json"): number {
-  return new Blob([text], { type }).size;
+/** 上限で落ちた / 切り詰めた件数の 1 行。空文字は「省略なし」(画面の両入口で同じ文言を使う) */
+export function diagnosticsDropsLine(report: DiagnosticsReport): string {
+  const { client, server, serverTruncated } = report.drops;
+  if (client === 0 && server === 0 && serverTruncated === 0) return "";
+  const parts = [`省略: サーバー ${server} 件 / クライアント ${client} 件`];
+  if (serverTruncated > 0) parts.push(`切り詰め: ${serverTruncated} 件`);
+  return parts.join(" / ");
 }
 
-/** コピー後の結果行。画面でも相関キーを確認できるようにする */
+/** コピー後の結果行。画面でも相関キーと省略の件数を確認できるようにする */
 export function diagnosticsResultLine(report: DiagnosticsReport): string {
   const time = new Date(report.capturedAt);
   const pad = (value: number) => String(value).padStart(2, "0");
   const stamp = `${time.getFullYear()}-${pad(time.getMonth() + 1)}-${pad(time.getDate())} ${pad(time.getHours())}:${pad(time.getMinutes())}:${pad(time.getSeconds())}`;
   const generation = report.eventGeneration ?? "不明";
   const seq = report.lastSeq ?? "不明";
-  const drops =
-    report.drops.client + report.drops.server > 0 ? ` / 省略 ${report.drops.client + report.drops.server} 件` : "";
-  return `${stamp} / seq ${seq} / generation ${generation} / 再接続 ${report.reconnectCount} 回${drops}`;
+  const drops = diagnosticsDropsLine(report);
+  return `${stamp} / seq ${seq} / generation ${generation} / 再接続 ${report.reconnectCount} 回${drops === "" ? "" : ` / ${drops}`}`;
 }
 
 /**
@@ -473,7 +517,8 @@ export function diagnosticsCompareRows(
     { label: "最終 seq", server: text(server?.lastSeq), client: text(client?.events.lastCursor?.seq) },
     { label: "世代", server: text(server?.eventGeneration), client: text(client?.events.lastCursor?.generation) },
     { label: "イベント保持", server: text(server?.events.available), client: text(client?.events.available) },
-    { label: "省略", server: text(server?.events.dropped), client: text(client?.events.dropped) },
+    { label: "省略（イベント）", server: text(server?.events.dropped), client: text(client?.events.dropped) },
+    { label: "切り詰め（data）", server: text(server?.events.truncated), client: "—" },
     { label: "再接続", server: "—", client: text(client?.events.reconnectCount) },
   ];
 }

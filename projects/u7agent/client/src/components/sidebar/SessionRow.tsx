@@ -4,6 +4,7 @@ import { cn } from "../../lib/cn";
 import { useConfirm } from "../ConfirmProvider";
 import { useDiagnostics } from "../../DiagnosticsContext";
 import { messageTimeLabel } from "../../lib/messageTime";
+import { diagnosticsDropsLine } from "../../lib/diagnostics";
 import { rawLogConfirmRequest, sessionRowActions, type SessionRowKind } from "../../lib/sidebarRowMenu";
 import { sidebarStatus } from "../../lib/sidebarStatus";
 import { COPY_FAILED_TEXT } from "../chat/CopyButton";
@@ -14,6 +15,8 @@ import { RowMenu } from "../RowMenu";
 
 /** コピー成功のチェックを出す長さ (⋯ の既存のコピーと同じ 2 秒) */
 const COPIED_MS = 2000;
+/** 省略の件数を出しておく長さ。チェック (2 秒) より長く取り、読めるようにする */
+const DROPS_NOTE_MS = 8000;
 
 type RowFailure = {
   message: string;
@@ -48,6 +51,7 @@ export function SessionRow({
   const confirm = useConfirm();
   const [busy, setBusy] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [note, setNote] = useState<string | null>(null);
   const [failure, setFailure] = useState<RowFailure | null>(null);
   const status = sidebarStatus(item.status);
   const bits = [
@@ -69,11 +73,18 @@ export function SessionRow({
   async function copyDiagnostics(): Promise<void> {
     setBusy(true);
     setFailure(null);
+    setNote(null);
     try {
       const result = await diagnostics.copy(item.sessionId);
       if (result.ok) {
         setCopied(true);
         window.setTimeout(() => setCopied(false), COPIED_MS);
+        // 上限で落ちた件数は ⋯ のチェックだけでは伝わらない。完全な記録と誤認させないため行にも出す
+        const drops = diagnosticsDropsLine(result.report);
+        if (drops !== "") {
+          setNote(`コピーしました（${drops}）`);
+          window.setTimeout(() => setNote(null), DROPS_NOTE_MS);
+        }
         return;
       }
       setFailure({
@@ -91,6 +102,7 @@ export function SessionRow({
     if (!(await confirm(rawLogConfirmRequest(item.title)))) return;
     setBusy(true);
     setFailure(null);
+    setNote(null);
     try {
       const result = await diagnostics.downloadRaw(item.sessionId);
       if (!result.ok) setFailure({ message: `生ログを保存できませんでした`, detail: result.detail });
@@ -160,6 +172,11 @@ export function SessionRow({
       </div>
       {failure ? (
         <RowFailureLine failure={failure} onSave={({ text, fileName }) => diagnostics.saveText(text, fileName)} />
+      ) : null}
+      {note ? (
+        <p role="status" className="pb-1 pl-2 text-2xs leading-relaxed text-ink-muted">
+          {note}
+        </p>
       ) : null}
     </div>
   );

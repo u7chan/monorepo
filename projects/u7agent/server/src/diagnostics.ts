@@ -13,6 +13,8 @@ import type {
   RunRetryState,
   RunStatus,
   SessionDiagnostics,
+  SSEEventData,
+  SSEEventType,
 } from "./schema";
 
 /** 返すイベントの件数上限 */
@@ -64,6 +66,93 @@ function clipValue(value: unknown, depth: number): Clipped {
   return { value, clipped: false };
 }
 
+type DataOf<T extends SSEEventType> = SSEEventData[T];
+
+/**
+ * イベントの `data` を診断用の要約へ落とす。SSE の mask 規則 (`emit` 時点の `[REDACTED]`) は変えず、
+ * 本文 (プロンプト / 差分テキスト / 質問 / 回答 / ツール出力 / 進捗 / 圧縮の要約 / resync の messages と
+ * pendingSends の本文) を件数と文字数へ置き換える。診断 JSON が本文を含まない契約の実装点。
+ */
+export function summarizeEventData<T extends SSEEventType>(type: T, data: DataOf<T>): unknown {
+  switch (type) {
+    case "run_start": {
+      const value = data as DataOf<"run_start">;
+      return { runId: value.runId, promptChars: value.prompt.length, startedAt: value.startedAt };
+    }
+    case "text":
+      return { chars: (data as DataOf<"text">).delta.length };
+    case "tool_start": {
+      const value = data as DataOf<"tool_start">;
+      return {
+        id: value.id,
+        name: value.name,
+        argsChars: value.args.length,
+        questions: value.questions?.length ?? 0,
+        ...(value.startedAt !== undefined ? { startedAt: value.startedAt } : {}),
+        ...(value.skill ? { skill: { id: value.skill.id, name: value.skill.name } } : {}),
+      };
+    }
+    case "tool_end": {
+      const value = data as DataOf<"tool_end">;
+      return {
+        id: value.id,
+        ...(value.name ? { name: value.name } : {}),
+        isError: value.isError,
+        outputChars: value.output.length,
+        answers: value.answers?.length ?? 0,
+        skipped: value.answers?.filter((answer) => answer.skipped === true).length ?? 0,
+        ...(value.endedAt !== undefined ? { endedAt: value.endedAt } : {}),
+      };
+    }
+    case "tool_progress":
+      // 子エージェントの本文末尾が入るため、長さだけを残す
+      return { id: (data as DataOf<"tool_progress">).id, chars: (data as DataOf<"tool_progress">).text.length };
+    case "queued": {
+      const value = data as DataOf<"queued">;
+      return { position: value.position, queueDepth: value.queueDepth, promptChars: value.prompt.length };
+    }
+    case "compaction": {
+      const value = data as DataOf<"compaction">;
+      const { compaction } = value;
+      return {
+        count: value.count,
+        id: compaction.id,
+        summaryChars: compaction.summary.length,
+        ...(compaction.reason ? { reason: compaction.reason } : {}),
+        ...(compaction.tokensBefore !== undefined ? { tokensBefore: compaction.tokensBefore } : {}),
+        ...(compaction.estimatedTokensAfter !== undefined
+          ? { estimatedTokensAfter: compaction.estimatedTokensAfter }
+          : {}),
+        ...(compaction.durationMs !== undefined ? { durationMs: compaction.durationMs } : {}),
+      };
+    }
+    case "resync": {
+      const value = data as DataOf<"resync">;
+      return {
+        sessionId: value.sessionId,
+        status: value.status,
+        lastSeq: value.lastSeq,
+        eventGeneration: value.eventGeneration,
+        queueDepth: value.queueDepth,
+        messageCount: value.messages.length,
+        run: value.run
+          ? {
+              id: value.run.id,
+              status: value.run.status,
+              totalRetryCount: value.run.totalRetryCount,
+              toolCalls: value.run.toolCalls.length,
+            }
+          : null,
+        pendingSends: value.pendingSends?.length ?? 0,
+        compactions: value.compactions.length,
+      };
+    }
+    default:
+      // status / queue_cleared / usage / run_end / run_retry / session_deleted は本文を含まない
+      return data;
+  }
+}
+
 /** 1 イベントの `data` を上限へ収める。文字列を切っても超えるなら、値を捨てて元のバイト数だけ残す */
 function clipEventData(data: unknown): Clipped {
   const clipped = clipValue(data, 0);
@@ -97,7 +186,8 @@ export function collectDiagnosticsEvents(events: readonly EventEntry[]): {
   let total = 0;
   for (let index = target.length - 1; index >= 0; index -= 1) {
     const entry = target[index];
-    const clipped = clipEventData(entry.data);
+    // 元のバイト数は切り詰め前の値として残す (何がどれだけ膨らんでいたかを見る)
+    const clipped = clipEventData(summarizeEventData(entry.type, entry.data));
     const item: DiagnosticsEvent = {
       seq: entry.seq,
       type: entry.type,
@@ -141,7 +231,6 @@ export type DiagnosticsInput = {
   questions: readonly { toolCallId: string; questionCount: number; settled: boolean }[];
   meta: {
     spaceId: string;
-    title: string;
     agentId: string;
     agentName: string;
     projectId?: string;
@@ -162,8 +251,9 @@ export type DiagnosticsInput = {
 };
 
 /**
- * 診断ダンプの投影。マスクは渡された生値へ掛ける (`payload` と同じ規約で、タイトルとエラー文言が対象)。
- * イベントの `data` は emit 時点でマスク済みのため、そのまま載せる。
+ * 診断ダンプの投影。マスクは渡された生値へ掛ける (`payload` と同じ規約で、エージェント名とエラー文言が
+ * 対象)。イベントの `data` は emit 時点でマスク済み + `summarizeEventData` の要約を通し、タイトルは
+ * 本文の先頭を含み得るため載せない (診断 JSON が本文を含まない契約の一部)。
  */
 export function projectSessionDiagnostics({
   input,
@@ -185,7 +275,6 @@ export function projectSessionDiagnostics({
     status: input.status,
     meta: {
       spaceId: meta.spaceId,
-      title: masker.mask(meta.title),
       agentId: meta.agentId,
       agentName: masker.mask(meta.agentName),
       ...(meta.projectId ? { projectId: meta.projectId } : {}),
