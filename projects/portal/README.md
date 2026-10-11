@@ -43,7 +43,7 @@ http://localhost:3000 でアクセス
 
 ```bash
 # リモートホストのコンテナにアクセスする場合
-PORTAL_HOST=192.168.1.100 bun run dev
+PORTAL_HOST=192.0.2.10 bun run dev
 
 # 本番モードでモックデータを使用
 USE_MOCK_DATA=true NODE_ENV=production bun run start
