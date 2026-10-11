@@ -35,6 +35,7 @@ const jsonBody = async (response: Response | Promise<Response>): Promise<any> =>
 function stubWorkspace(): SandboxWorkspaceClient {
   return {
     previewFile: async () => ({ text: "" }),
+    statFile: async (path: string) => ({ path }),
     listFiles: async (path: string) => ({ path: path || ".", entries: [], truncated: false }),
     // git 情報はこのテストでは扱わない
     getGitInfo: async () => ({ branch: null }),

@@ -122,6 +122,7 @@ export function useU7Agent({ pendingSessionId }: UseU7AgentOptions = {}) {
     fileRefRequest,
     requestFileRef,
     ackFileRef,
+    fileRefSwitchSeq,
     preselection,
     settingsChanging,
     notify,
@@ -453,6 +454,8 @@ export function useU7Agent({ pendingSessionId }: UseU7AgentOptions = {}) {
     selectedProject,
     selectedProjectId,
     sessionId,
+    /** 選択中セッションの最新値 (state より先に進む)。要求の登録と同じ値を見る用途に限る */
+    sessionIdRef,
     /** URL が指定した会話の解決状態。未解決の間は同期 Effect が URL を保つ (lib/route.ts の sessionPath) */
     entryResolved,
     agentId,
@@ -462,6 +465,8 @@ export function useU7Agent({ pendingSessionId }: UseU7AgentOptions = {}) {
     fileRefRequest,
     requestFileRef,
     ackFileRef,
+    /** 選択の切替世代。await を挿む確認 (ファイル参照) の結果を失効させる判定に使う */
+    fileRefSwitchSeq,
     sending,
     settingsChanging,
     preselection,

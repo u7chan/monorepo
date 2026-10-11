@@ -27,6 +27,11 @@ export const DEFAULT_FILES_MODE: FilesMode = { kind: "work" };
 export function createFileRefRequests() {
   let seq = 0;
   let pending: FileRefRequest | null = null;
+  /**
+   * 選択の切替世代 (clear の回数)。**同じセッション ID へ戻っても進む**ので、確認中に切替をまたいだ
+   * ファイル参照の結果を不可逆に失効させられる (要求の clear は、まだ登録されていない確認には届かない)。
+   */
+  let switchSeq = 0;
   const listeners = new Set<() => void>();
   const notify = () => {
     for (const listener of listeners) listener();
@@ -42,6 +47,10 @@ export function createFileRefRequests() {
     /** useSyncExternalStore の snapshot。未消費が無い間は同じ null を返す */
     snapshot(): FileRefRequest | null {
       return pending;
+    },
+    /** 選択の切替世代。確認の開始時に控え、完了時に一致を要求する */
+    switchSeq(): number {
+      return switchSeq;
     },
     /** 未消費の要求を置き換える (最新優先)。セッションが未確定の要求は捨てる */
     request(sessionId: string, target: FileRefTarget): void {
@@ -61,6 +70,8 @@ export function createFileRefRequests() {
     },
     /** 選択の変更で破棄する (同じセッションに戻っても復活させない) */
     clear(): void {
+      // 未消費が無くても進める (確認中の結果を切替の後へ持ち越さない)
+      switchSeq += 1;
       if (pending === null) return;
       pending = null;
       notify();

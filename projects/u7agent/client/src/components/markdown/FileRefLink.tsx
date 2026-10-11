@@ -1,11 +1,15 @@
-import { createContext, useContext, useMemo, type ReactNode } from "react";
+import { createContext, useContext, useMemo, useRef, useState, type ReactNode } from "react";
 import { resolveFileRefTarget, type FileRefTarget } from "../../lib/fileRef";
+import type { FileRefOpenOutcome } from "../../lib/fileRefOpen";
 
 export type FileRefOpener = {
   /** インラインコードの字面を面の種別つきで解決する (参照でなければ null) */
   resolve: (text: string) => FileRefTarget | null;
-  /** origin は focus を戻す起点。クリックした要素を渡す (document.activeElement は当てにしない) */
-  open: (target: FileRefTarget, origin: HTMLElement | null) => void;
+  /**
+   * 実在を確認してから面を開く。origin は focus を戻す起点 (クリックした要素を渡す。
+   * `document.activeElement` は当てにしない)。結果はクリック元が失敗理由を出すために返す。
+   */
+  open: (target: FileRefTarget, origin: HTMLElement | null) => Promise<FileRefOpenOutcome>;
 };
 
 const FileRefContext = createContext<FileRefOpener | null>(null);
@@ -15,7 +19,7 @@ export type FileRefProviderProps = {
   rootCwd: string;
   /** 選択中セッションの作業フォルダ (payload.cwd)。未確定 ("") のときは何も解決しない */
   cwd: string;
-  onOpen: (target: FileRefTarget, origin: HTMLElement | null) => void;
+  onOpen: (target: FileRefTarget, origin: HTMLElement | null) => Promise<FileRefOpenOutcome>;
   children: ReactNode;
 };
 
@@ -35,15 +39,35 @@ export function FileRefProvider({ rootCwd, cwd, onOpen, children }: FileRefProvi
 export function InlineFileRef({ text }: { text: string }) {
   const opener = useContext(FileRefContext);
   const target = opener === null ? null : opener.resolve(text);
+  // クリック元の状態。確認中は押した要素だけを busy にし、失敗理由は同じ箇所へ残す
+  const [state, setState] = useState<"idle" | "checking" | "failed">("idle");
+  const [failure, setFailure] = useState("");
+  const clickRef = useRef(0);
   if (opener === null || target === null) return <code>{text}</code>;
+  const openFileRef = (origin: HTMLElement) => {
+    const click = (clickRef.current += 1);
+    setState("checking");
+    setFailure("");
+    void opener.open(target, origin).then((outcome) => {
+      // 同じ参照を続けて押したときは、古い応答で新しい表示を戻さない
+      if (click !== clickRef.current) return;
+      setState(outcome.kind === "failed" ? "failed" : "idle");
+      setFailure(outcome.kind === "failed" ? outcome.message : "");
+    });
+  };
   return (
-    <button
-      type="button"
-      className="md-fileref"
-      title={target.kind === "skill" ? "スキルで開く" : "作業フォルダで開く"}
-      onClick={(event) => opener.open(target, event.currentTarget)}
-    >
-      <code>{text}</code>
-    </button>
+    // 参照とその失敗理由を 1 つの span にまとめる (段落の中で理由が別の参照に属して見えないようにする)
+    <span>
+      <button
+        type="button"
+        className="md-fileref"
+        title={target.kind === "skill" ? "スキルで開く" : "作業フォルダで開く"}
+        aria-busy={state === "checking"}
+        onClick={(event) => openFileRef(event.currentTarget)}
+      >
+        <code>{text}</code>
+      </button>
+      {state === "failed" ? <span className="md-fileref-note">{failure}</span> : null}
+    </span>
   );
 }

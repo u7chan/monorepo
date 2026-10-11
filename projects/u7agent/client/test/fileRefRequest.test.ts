@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 
 import test from "node:test";
 import type { FileRefTarget } from "../src/lib/fileRef";
+import { createFileRefOpener, type FileRefCheck } from "../src/lib/fileRefOpen";
 import {
   createFileRefRequests,
   DEFAULT_FILES_MODE,
@@ -9,6 +10,7 @@ import {
   fileRefRequestForSession,
   filesModeForTarget,
   filesModeScopeChanged,
+  type FilesMode,
   type FilesModeScope,
 } from "../src/lib/fileRefRequest";
 
@@ -65,6 +67,20 @@ test("ack は現在の要求と seq が一致するときだけ消す (request1 
   );
   store.ack(2);
   assert.equal(store.snapshot(), null);
+});
+
+test("選択の切替世代は、未消費の要求が無くても clear のたびに進む", () => {
+  const store = createFileRefRequests();
+  const start = store.switchSeq();
+  // 未消費が無い間の切替でも進める (確認中の結果を切替の後へ持ち越さない)
+  store.clear();
+  store.request("a", work("index.html"));
+  const requested = store.switchSeq();
+  store.ack(store.snapshot()?.seq ?? 0);
+  assert.equal(store.switchSeq(), requested, "要求の消費で世代が進んでいる");
+  store.clear();
+  store.clear();
+  assert.equal(store.switchSeq(), start + 3);
 });
 
 test("選択変更で破棄した後は、同じセッションに戻っても復活しない", () => {
@@ -130,4 +146,167 @@ test("面のモードを既定へ戻す契機は、セッション切替 / 画�
   assert.equal(filesModeScopeChanged(base, { ...base, sessionId: "" }), true);
   assert.equal(filesModeScopeChanged(base, { ...base, view: "settings" }), true);
   assert.equal(filesModeScopeChanged(base, { ...base, compact: true }), true);
+});
+
+/**
+ * クリック → 確認 → 面を開く、の順序を見る小さなハーネス。確認はテストが手動で完了させ、面のモードは
+ * App と同じ filesModeForTarget、要求は実物の store へ入れる (確認が完了するまでどちらも動かさない)。
+ */
+function createClickFlow() {
+  const store = createFileRefRequests();
+  const opened: FileRefTarget[] = [];
+  /** 飛んでいる確認。同じ参照への連続クリックで打ち消し合わないよう、到着順に積む */
+  const checks: Array<{ target: FileRefTarget; resolve: (result: FileRefCheck) => void }> = [];
+  let mode: FilesMode = DEFAULT_FILES_MODE;
+  let session = "a";
+  const opener = createFileRefOpener({
+    check: (target) =>
+      new Promise<FileRefCheck>((resolve) => {
+        checks.push({ target, resolve });
+      }),
+    open: (target) => {
+      opened.push(target);
+      mode = filesModeForTarget(target);
+      store.request(session, target);
+    },
+    // 選択の切替世代は要求の store が持つ (実際の切替経路と同じく clear で進む)
+    selection: () => ({ sessionId: session, switchSeq: store.switchSeq() }),
+  });
+  return {
+    /** クリック 1 回。結果は戻り値の Promise で見る */
+    click: (target: FileRefTarget) => opener.open(target),
+    /** その参照への一番古い飛んでいる確認を完了させる (遅い応答の逆転を作る) */
+    answer: (target: FileRefTarget, result: FileRefCheck) => {
+      const index = checks.findIndex((check) => check.target === target);
+      assert.notEqual(index, -1, `${target.path} の確認が飛んでいない`);
+      const [check] = checks.splice(index, 1);
+      check?.resolve(result);
+    },
+    opened,
+    snapshot: () => store.snapshot(),
+    mode: () => mode,
+    /** 選択の切替。実際の切替経路と同じく、要求の破棄と同時に切替世代が進む */
+    switchSession: (next: string) => {
+      session = next;
+      store.clear();
+    },
+  };
+}
+
+test("クリック: 実在を確認できた参照だけを要求として登録し、面のモードもその種別にする", async () => {
+  const flow = createClickFlow();
+  const target = skill("alpha", "SKILL.md");
+  const click = flow.click(target);
+  assert.deepEqual(flow.opened, [], "確認の完了前に面を開いている");
+  assert.equal(flow.snapshot(), null);
+  flow.answer(target, "exists");
+  assert.deepEqual(await click, { kind: "opened" });
+  assert.deepEqual(flow.opened, [target]);
+  assert.deepEqual(flow.mode(), { kind: "skill", root: ".agents/skills/alpha" });
+  assert.deepEqual(flow.snapshot(), {
+    seq: 1,
+    sessionId: "a",
+    kind: "skill",
+    root: ".agents/skills/alpha",
+    path: "SKILL.md",
+  });
+});
+
+test("クリック: A→B と続けたら最後のクリックだけが開く", async () => {
+  const flow = createClickFlow();
+  const a = work("a.txt");
+  const b = work("b/c.png");
+  const first = flow.click(a);
+  const second = flow.click(b);
+  // 先のクリックの確認が遅れて届いても、後から押した参照の結果だけを適用する
+  flow.answer(a, "exists");
+  assert.deepEqual(await first, { kind: "discarded" });
+  assert.deepEqual(flow.opened, []);
+  assert.equal(flow.snapshot(), null);
+  flow.answer(b, "exists");
+  assert.deepEqual(await second, { kind: "opened" });
+  assert.deepEqual(flow.opened, [b]);
+  assert.deepEqual(flow.snapshot(), { seq: 1, sessionId: "a", kind: "work", path: "b/c.png" });
+});
+
+test("クリック: A→B→A と戻っても最後のクリックの参照だけが開く", async () => {
+  const flow = createClickFlow();
+  const a = work("a.txt");
+  const b = work("b.txt");
+  const first = flow.click(a);
+  const second = flow.click(b);
+  const third = flow.click(a);
+  flow.answer(a, "exists");
+  assert.deepEqual(await first, { kind: "discarded" }, "1 回目の A が開いている");
+  flow.answer(b, "exists");
+  assert.deepEqual(await second, { kind: "discarded" }, "B が開いている");
+  assert.deepEqual(flow.opened, []);
+  assert.equal(flow.snapshot(), null);
+  flow.answer(a, "exists");
+  assert.deepEqual(await third, { kind: "opened" }, "最後のクリックが開いていない");
+  assert.deepEqual(flow.opened, [a]);
+  assert.deepEqual(flow.snapshot(), { seq: 1, sessionId: "a", kind: "work", path: "a.txt" });
+});
+
+test("クリック: 確認中にセッションが切り替わった結果は失効する", async () => {
+  const flow = createClickFlow();
+  const target = work("a.txt");
+  const click = flow.click(target);
+  flow.switchSession("b");
+  flow.answer(target, "exists");
+  assert.deepEqual(await click, { kind: "discarded" });
+  // 遅い結果を新しいセッションの要求として登録しない (面のモードも動かさない)
+  assert.deepEqual(flow.opened, []);
+  assert.equal(flow.snapshot(), null);
+  assert.deepEqual(flow.mode(), DEFAULT_FILES_MODE);
+});
+
+test("クリック: 確認中に A→B→A と切り替えた結果も失効する (同じ ID へ戻っても復活しない)", async () => {
+  const flow = createClickFlow();
+  const target = work("a.txt");
+  const click = flow.click(target);
+  flow.switchSession("b");
+  flow.switchSession("a");
+  flow.answer(target, "exists");
+  assert.deepEqual(await click, { kind: "discarded" }, "切替をまたいだ結果が開いている");
+  assert.deepEqual(flow.opened, []);
+  assert.equal(flow.snapshot(), null, "切替をまたいだ要求が登録されている");
+  assert.deepEqual(flow.mode(), DEFAULT_FILES_MODE);
+});
+
+test("クリック: 不存在と分かった参照は要求を登録せず、開いている面のモードと要求も変えない", async () => {
+  const flow = createClickFlow();
+  const opened = skill("alpha", "SKILL.md");
+  const first = flow.click(opened);
+  flow.answer(opened, "exists");
+  await first;
+  assert.deepEqual(flow.mode(), { kind: "skill", root: ".agents/skills/alpha" });
+
+  const missing = work("gone.md");
+  const second = flow.click(missing);
+  flow.answer(missing, "missing");
+  assert.deepEqual(await second, { kind: "failed", message: "ファイルが見つかりません" });
+  assert.deepEqual(flow.opened, [opened], "不存在の参照で面を開いている");
+  assert.deepEqual(flow.mode(), { kind: "skill", root: ".agents/skills/alpha" }, "不存在でモードが変わっている");
+  assert.deepEqual(
+    flow.snapshot(),
+    { seq: 1, sessionId: "a", kind: "skill", root: ".agents/skills/alpha", path: "SKILL.md" },
+    "不存在で既存の要求が入れ替わっている",
+  );
+});
+
+test("クリック: 拒否 (400) と確認不能 (502 / 503) は不存在と区別して開かない", async () => {
+  const cases: [FileRefCheck, string][] = [
+    ["refused", "このパスは開けません"],
+    ["unavailable", "ファイルを確認できませんでした。もう一度お試しください"],
+  ];
+  for (const [result, message] of cases) {
+    const flow = createClickFlow();
+    const target = work("a.txt");
+    const click = flow.click(target);
+    flow.answer(target, result);
+    assert.deepEqual(await click, { kind: "failed", message }, result);
+    assert.deepEqual(flow.opened, [], result);
+    assert.equal(flow.snapshot(), null, result);
+  }
 });

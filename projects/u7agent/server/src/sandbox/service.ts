@@ -1285,6 +1285,19 @@ export function createSandboxService(options: SandboxServiceOptions): SandboxSer
     }
   });
 
+  // 通常ファイルとして実在するかの確認だけを返す (本文は読まない)。テキスト固有の 400 を混ぜないため、
+  // プレビューとは別の入口にする
+  app.get("/v1/files/stat", async (c) => {
+    try {
+      const { root, target } = await resolveWorkspaceDirectory(rootCwd, c.req.query("path") ?? "", false);
+      return c.json({ path: relativeToRoot(root, target) });
+    } catch (error) {
+      // 想定外の失敗を 400 (拒否) に混ぜない。BFF / client では 400 以外は確認不能として扱う
+      const statusCode = (error as { statusCode?: number }).statusCode ?? 500;
+      return c.json({ error: messageFor(error) }, statusCode as 400);
+    }
+  });
+
   // 作業フォルダ (root 相対) が属する repo のブランチ。repo の外はエラーではなく branch: null を返す
   app.get("/v1/files/git", async (c) => {
     try {

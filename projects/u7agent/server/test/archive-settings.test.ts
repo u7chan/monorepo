@@ -41,6 +41,7 @@ function recordingWorkspace() {
   const excludes: string[][] = [];
   const workspace: SandboxWorkspaceClient = {
     previewFile: async () => ({ text: "" }),
+    statFile: async (path: string) => ({ path }),
     listFiles: async () => ({ path: ".", entries: [], truncated: false }),
     // git 情報はこのテストでは扱わない
     getGitInfo: async () => ({ branch: null }),

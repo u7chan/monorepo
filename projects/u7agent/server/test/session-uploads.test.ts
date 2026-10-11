@@ -41,6 +41,7 @@ function stubWorkspace() {
   });
   const workspace: SandboxWorkspaceClient = {
     previewFile: async () => ({ text: "" }),
+    statFile: async (path: string) => ({ path }),
     listFiles: async (path: string) => ({ path: path || ".", entries: [], truncated: false }),
     // ファイルスキルの発見はこのテストでは扱わない
     // git 情報はこのテストでは扱わない

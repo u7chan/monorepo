@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type CSSProperties } from "react";
-import type { CreateProjectInput } from "./api";
+import { ApiError, statFile, type CreateProjectInput } from "./api";
 import { useSpace } from "./SpaceContext";
 import { SpaceSettingsPage } from "./components/SpaceSettingsPage";
 import { AgentSettingsPage } from "./components/AgentSettingsPage";
@@ -46,6 +46,7 @@ import {
   type FilesMode,
 } from "./lib/fileRefRequest";
 import type { FileRefTarget } from "./lib/fileRef";
+import { classifyFileRefFailure, createFileRefOpener, fileRefCheckPath, type FileRefCheck } from "./lib/fileRefOpen";
 import { resolveSidebarPlacement } from "./lib/layout";
 import { openOwnerSession } from "./lib/ownerLink";
 import { sessionPath } from "./lib/route";
@@ -187,10 +188,9 @@ export default function App() {
   // ファイル参照から開いたときの起点要素。compact の sheet は閉じたときにここへ focus を戻す
   const fileRefOriginRef = useRef<HTMLElement | null>(null);
   const { requestFileRef } = app;
-  const openFileRef = useCallback(
-    (target: FileRefTarget, origin: HTMLElement | null) => {
-      // 起点はクリック時に自分で持つ (document.activeElement がクリックした button を指すとは限らない)
-      fileRefOriginRef.current = origin;
+  /** 実在を確認できた参照だけを開く (面のモード切替 / パネル / 要求の登録) */
+  const openFileRefTarget = useCallback(
+    (target: FileRefTarget) => {
       // 面のモードを要求の種別へ切り替えてから開く (逆向きの参照も面が入れ替わって消費する)
       setFilesMode(filesModeForTarget(target));
       if (compact) setSessionFilesSheetOpen(true);
@@ -198,6 +198,53 @@ export default function App() {
       requestFileRef(target);
     },
     [compact, requestFileRef],
+  );
+  /** 参照の実在確認。通常ファイルとしての 200 だけを成功とし、それ以外は status で分類する */
+  const checkFileRef = useCallback(
+    async (target: FileRefTarget): Promise<FileRefCheck> => {
+      try {
+        await statFile(fileRefCheckPath(target, app.cwd));
+        return "exists";
+      } catch (error) {
+        // 通信失敗 (status を持たない) は 0 のまま確認不能へ寄せる
+        return classifyFileRefFailure(error instanceof ApiError ? error.status : 0);
+      }
+    },
+    [app.cwd],
+  );
+  // opener は App の存続期間で 1 つに固定する (作り直すとクリック世代がリセットされ、後着の結果を捨てられない)。
+  // 依存は毎回の描画で上書きする ref 経由で読む (確認と面の開き方は layout や cwd で変わる)
+  const fileRefDepsRef = useRef({
+    checkFileRef,
+    openFileRefTarget,
+    sessionIdRef: app.sessionIdRef,
+    fileRefSwitchSeq: app.fileRefSwitchSeq,
+  });
+  fileRefDepsRef.current = {
+    checkFileRef,
+    openFileRefTarget,
+    sessionIdRef: app.sessionIdRef,
+    fileRefSwitchSeq: app.fileRefSwitchSeq,
+  };
+  const [fileRefOpener] = useState(() =>
+    createFileRefOpener({
+      check: (target) => fileRefDepsRef.current.checkFileRef(target),
+      open: (target) => fileRefDepsRef.current.openFileRefTarget(target),
+      // 選択の ID と切替世代を控える。世代で判定するのは、切替をまたいで同じ ID へ戻っても失効を
+      // 巻き戻さないため (ID の一致比較では A→B→A で復活する)
+      selection: () => ({
+        sessionId: fileRefDepsRef.current.sessionIdRef.current,
+        switchSeq: fileRefDepsRef.current.fileRefSwitchSeq(),
+      }),
+    }),
+  );
+  const openFileRef = useCallback(
+    (target: FileRefTarget, origin: HTMLElement | null) => {
+      // 起点はクリック時に自分で持つ (document.activeElement がクリックした button を指すとは限らない)
+      fileRefOriginRef.current = origin;
+      return fileRefOpener.open(target);
+    },
+    [fileRefOpener],
   );
   const backToWorkFiles = useCallback(() => setFilesMode(DEFAULT_FILES_MODE), []);
   const toggleSessionFiles = useCallback(() => {

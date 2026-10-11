@@ -66,13 +66,15 @@ export function resolveFileRef(raw: string, rootCwd: string, cwd: string): strin
 export type FileRefTarget = { kind: "work"; path: string } | { kind: "skill"; root: string; path: string };
 
 /**
- * 参照を面の種別つきで解決する。作業フォルダ面 (cwd 相対) を先に見て、cwd 外の絶対パスが
+ * コードスパンの参照を面の種別つきで解決する。作業フォルダ面 (cwd 相対) を先に見て、cwd 外の絶対パスが
  * `<rootCwd>/.agents/skills/<name>/<file>` のときだけスキル面 (root 固定) へ回す。共通スキル以外の
  * root 外パスは開かない (存在確認はしない字句判定のまま)。
  */
 export function resolveFileRefTarget(raw: string, rootCwd: string, cwd: string): FileRefTarget | null {
   // セッションの作業フォルダが未確定 (未作成チャット) の間は対象外 (resolveFileRef と同じ前提)
   if (cwd === "") return null;
+  // 裸名はコードスパンでは採らない (画像が使う matchFileRef は採るため、除外はこの経路だけに閉じる)
+  if (!hasDirectorySeparator(raw)) return null;
   const work = resolveFileRef(raw, rootCwd, cwd);
   if (work !== null) return { kind: "work", path: work };
   if (rootCwd === "") return null;
@@ -80,13 +82,25 @@ export function resolveFileRefTarget(raw: string, rootCwd: string, cwd: string):
   return rootRelative === null ? null : skillRefTarget(rootRelative);
 }
 
+/**
+ * ディレクトリ区切りを含む字面か。裸名 (`AGENTS.md` / `index.html`) をコードスパンから除外するための判定で、
+ * 正規化後ではなく元の字面で見る (`./index.html` は区切りを持ち、正規化後は `index.html` でも採用のまま)。
+ */
+function hasDirectorySeparator(raw: string): boolean {
+  return raw.includes("/");
+}
+
+/** 共通スキルの置き場 (ワークスペース root 相対) のパスか。名前の位置は見ない */
+export function isCommonSkillPath(path: string): boolean {
+  return path.startsWith(`${COMMON_SKILLS_ROOT}/`);
+}
+
 /** 絶対パスが共通スキル配下のときだけ、ワークスペース root 相対へ写す */
 function commonSkillRelativePath(raw: string, rootCwd: string): string | null {
   const path = matchFileRef(raw);
   if (path === null || !path.startsWith("/")) return null;
   const rootRelative = stripPrefix(path, rootCwd);
-  if (rootRelative === null || !rootRelative.startsWith(`${COMMON_SKILLS_ROOT}/`)) return null;
-  return rootRelative;
+  return rootRelative !== null && isCommonSkillPath(rootRelative) ? rootRelative : null;
 }
 
 /**

@@ -92,7 +92,7 @@ export function FilePreview({
   const labels = fileTabLabels(paths);
   const fetchPath = fileTreeFetchPath(rootPath, activePath);
   const result = readPreview(results, activePath);
-  const errorHint = result?.error ? filePreviewErrorHint(result.error) : undefined;
+  const errorHint = result?.error ? filePreviewErrorHint(result.error, fetchPath) : undefined;
   const text = result?.text;
   const mode = previewModeFor(modes, activePath);
   // HTML を描画している間はソースを取得しない (プレビューは iframe が自分で取る)。画像 / 音声も raw の

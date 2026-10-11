@@ -13,6 +13,7 @@ import {
   FileListingSchema,
   FilePreviewSchema,
   FileRenameSchema,
+  FileStatSchema,
   GitInfoSchema,
   type RenameFileBody,
 } from "../schema";
@@ -236,6 +237,26 @@ export function createFileRoutes({
       if (!parsed.success) {
         return c.json({ error: "サンドボックスのファイル一覧が不正です" }, 502);
       }
+      return c.json(parsed.data);
+    },
+    /**
+     * 通常ファイルとしての存在確認（本文は取得しない）。参照を開く前の判定に使い、
+     * 200 だけを実在、404 を不存在、400 を拒否として扱う（テキストプレビューの 400 を混ぜない）。
+     */
+    stat: async (c: Context) => {
+      if (!workspace) return sandboxNotConfigured(c);
+      let stat: unknown;
+      try {
+        stat = await workspace.statFile(c.req.query("path") ?? "");
+      } catch (error) {
+        return sandboxFailure(c, error);
+      }
+      const parsed = FileStatSchema.safeParse(stat);
+      if (!parsed.success) {
+        return c.json({ error: "サンドボックスのファイル確認が不正です" }, 502);
+      }
+      // 実在の確認結果はキャッシュしない（確認の直後に消える場合まで実在と言い切らない）
+      c.header("Cache-Control", "no-store");
       return c.json(parsed.data);
     },
     /**

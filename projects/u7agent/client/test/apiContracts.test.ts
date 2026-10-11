@@ -15,6 +15,7 @@ const {
   updateArchiveSettings,
   resetArchiveSettings,
   getGitInfo,
+  statFile,
   getRuntimeServeStatus,
   stopRuntimeServe,
 } = await import("../src/api");
@@ -193,6 +194,29 @@ test("git 情報は root 相対の path を符号化し、repo の外の null �
   assert.deepEqual(paths, ["/api/files/git", "/api/files/git"]);
   assert.equal(queries[0].get("path"), "work/app");
   assert.equal(queries[1].get("path"), ".", "path 省略時は root");
+});
+
+test("存在確認は root 相対の path を送り、不存在と拒否の status・文言を保つ", async (t) => {
+  const requests: Request[] = [];
+  let answer: () => Response = () => Response.json({ path: "work/app/a.txt" });
+  t.mock.method(globalThis, "fetch", async (input: string | URL | Request, init?: RequestInit) => {
+    requests.push(new Request(input, init));
+    return answer();
+  });
+  assert.deepEqual(await statFile("work/app/a.txt"), { path: "work/app/a.txt" });
+  const url = new URL(requests[0].url);
+  assert.equal(url.pathname, "/api/files/stat");
+  assert.equal(url.searchParams.get("path"), "work/app/a.txt");
+  // 不存在 (404) と拒否 (400) は、実在の判定を呼び出し側が分けられるように status ごと保つ
+  const failures: [number, string][] = [
+    [404, "Path not found: /workspace/work/app/gone.txt"],
+    [400, "Not a regular file: /workspace/work/app/src"],
+    [503, "サンドボックスが設定されていません (PI_SANDBOX_URL / PI_SANDBOX_TOKEN)"],
+  ];
+  for (const [status, message] of failures) {
+    answer = () => Response.json({ error: message }, { status });
+    await assert.rejects(statFile("work/app/a.txt"), { message, status });
+  }
 });
 
 test("Web 検索の設定は GET / PUT / DELETE の往復で、キーは provider のパスへ送る", async (t) => {

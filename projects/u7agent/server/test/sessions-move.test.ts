@@ -49,6 +49,7 @@ function createFsSandbox(root: string) {
   const failures: Array<{ from: string; error: Error }> = [];
   const workspace: SandboxWorkspaceClient = {
     previewFile: async () => ({ text: "" }),
+    statFile: async (path: string) => ({ path }),
     listFiles: async (path: string) => {
       const entries = await readdir(abs(path), { withFileTypes: true });
       return {

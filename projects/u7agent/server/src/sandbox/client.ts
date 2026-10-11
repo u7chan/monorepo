@@ -9,6 +9,7 @@ import {
   type SandboxEvent,
   type SandboxFileListing,
   type SandboxFilePreview,
+  type SandboxFileStat,
   type SandboxFileUpload,
   type SandboxGitInfo,
   type SandboxListenerScan,
@@ -134,6 +135,7 @@ export function createSandboxToolClient(options: SandboxToolClientOptions): Sand
     execute: (toolName, input) => execute(toolName, input, baseUrl, token, fetchImpl),
     getRuntimeInfo: () => getRuntimeInfo(baseUrl, token, fetchImpl, runtimeInfoTimeoutMs),
     listFiles: (path) => listFiles(path, baseUrl, token, fetchImpl),
+    statFile: (path) => statFile(path, baseUrl, token, fetchImpl),
     getGitInfo: (path) => getGitInfo(path, baseUrl, token, fetchImpl),
     listSkills: (dir) => listSkills(dir, baseUrl, token, fetchImpl),
     previewFile: async (path) => {
@@ -174,6 +176,11 @@ export interface SandboxToolClient extends SandboxRuntimeDiagnostics {
   previewFile(path: string): Promise<SandboxFilePreview>;
   execute(toolName: string, input: SandboxExecuteInput): Promise<SandboxExecuteResult>;
   listFiles(path: string): Promise<SandboxFileListing>;
+  /**
+   * root 相対の参照が通常ファイルとして実在するかの確認。本文は取得しない (存在確認だけに使う)。
+   * 実在は 200、不存在は 404、不正・root 外・通常ファイル以外 (ディレクトリ等) は 400。
+   */
+  statFile(path: string): Promise<SandboxFileStat>;
   /** root 相対のディレクトリが属する repo のブランチ。repo の外・git が無い環境は branch: null */
   getGitInfo(path: string): Promise<SandboxGitInfo>;
   /** `.agents/skills` 配下の発見 (dir は root 相対)。不存在の dir は 404 */
@@ -203,6 +210,7 @@ export interface SandboxToolClient extends SandboxRuntimeDiagnostics {
 export type SandboxWorkspaceClient = Pick<
   SandboxToolClient,
   | "listFiles"
+  | "statFile"
   | "getGitInfo"
   | "listSkills"
   | "createDir"
@@ -309,6 +317,26 @@ async function getGitInfo(
   );
   if (!response.ok) throw await jsonError(response, "git 情報を取得できませんでした");
   return (await response.json()) as SandboxGitInfo;
+}
+
+/**
+ * 単一ファイルの存在確認。通常ファイルとして実在するときだけ 200 で、404 (不存在) / 400 (不正・root 外・
+ * 通常ファイル以外) はそのまま透過する。本文は取得しない (テキスト固有の 400 を存在の判定に混ぜない)。
+ */
+async function statFile(
+  path: string,
+  baseUrl: string,
+  token: string,
+  fetchImpl: typeof fetch,
+): Promise<SandboxFileStat> {
+  const response = await fetchJson(
+    fetchImpl,
+    `${baseUrl}/v1/files/stat?path=${encodeURIComponent(path)}`,
+    { headers: jsonHeaders(token) },
+    baseUrl,
+  );
+  if (!response.ok) throw await jsonError(response, "ファイルを確認できませんでした");
+  return (await response.json()) as SandboxFileStat;
 }
 
 /**

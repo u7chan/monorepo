@@ -293,10 +293,12 @@ assistant 本文のインラインコードが指すファイルを、右パネ�
 3. 正規化: 重複スラッシュの圧縮と `./` セグメントの除去（`a//b.png` / `a/./b.png` → `a/b.png`）
 4. `..` セグメントは畳まず拒否（親参照で cwd の外を開かせない）
 5. 拡張子: 最終セグメントの最後のドット以降が ASCII 英数字だけで、数字だけではないこと。最終セグメントが dotfile（先頭ドット）なら拡張子として扱わない（親ディレクトリの `.u7agent` は見ない）
+6. コードスパンだけの除外: ディレクトリ区切り（`/`）を持たない裸名は採用しない（`resolveFileRefTarget`。パスが付いていても実体の無い語をリンクにしないため）。判定は正規化前の元の字面で行い、`./index.html` は採用のまま
 
 | 入力 | 判定 | 理由 |
 | --- | --- | --- |
-| `index.html` / `./a/b.png` | 採用 | 最終セグメントにドット付き拡張子がある |
+| `./index.html` / `./a/b.png` | 採用 | 最終セグメントにドット付き拡張子があり、区切りを持つ |
+| `AGENTS.md` / `index.html` / `navigator.clipboard` / `feedback.md` | 不採用 | ディレクトリ区切りを持たない裸名（コードスパンだけの除外）。実体の無い語をリンク化しない |
 | `a//b.png` / `a/./b.png` | 採用（`a/b.png`） | 同じファイルの別表記でタブを重複させない |
 | `assets/` | 不採用 | 末尾スラッシュ（ディレクトリ） |
 | `localStorage` | 不採用 | ドット付き拡張子が無い |
@@ -313,13 +315,13 @@ assistant 本文のインラインコードが指すファイルを、右パネ�
 | `x.` / `a.png/.` | 不採用 | 末尾ドットのセグメント（正規化前の末尾形状検査） |
 | `a\b.png` | 不採用 | バックスラッシュは区切りとして扱わない |
 
-`config.prod` のような見た目の文字列はリンクになり得る（見た目ではなく拡張子の形だけを見るため）。これは matcher の限界として受け入れる。
+`dist/config.prod` のような見た目のパスはリンクになり得る（見た目ではなく拡張子の形だけを見るため）。これは matcher の限界として受け入れる。同じ理由で、cwd 直下に実在する `AGENTS.md` もリンクにならない（[残る懸念](#残る懸念裸名の除外と存在確認)）。
 
 ### 解決（面の種別と座標）
 
 `rootCwd` は `health.cwd`（ワークスペース root の絶対パス）、`cwd` は選択中セッションの `payload.cwd`。コードスパンの解決は `resolveFileRefTarget(raw, rootCwd, cwd)` が行い、`{ kind: "work", path }`（作業フォルダ面。`path` は cwd 相対）か `{ kind: "skill", root, path }`（スキル面。`root` はワークスペース root 相対、`path` はその root 相対）を返す。**Markdown 画像は `resolveFileRef` のまま**で、返すのは cwd 相対の文字列だけ（[markdown.md](markdown.md#画像の-src-解決)）。
 
-作業フォルダ面を先に見て、次に絶対パスだけを共通スキルへ回す。判定はどちらも matcher の正規化後の座標で行う。
+作業フォルダ面を先に見て、次に絶対パスだけを共通スキルへ回す。判定はどちらも matcher の正規化後の座標で行う（`6.` の裸名の除外はその前）。
 
 | 入力の形 | 扱い |
 | --- | --- |
@@ -327,22 +329,26 @@ assistant 本文のインラインコードが指すファイルを、右パネ�
 | `/workspace/.agents/skills/<name>/<file>`（`rootCwd` 前置きの**共通スキル配下**） | `kind = "skill"`、`root = .agents/skills/<name>`、`path = <file>`。`<file>` は `SKILL.md` でも補助ファイル（`assets/a.png` など）でも同じ扱い |
 | `.agents/skills/<name>/<file>`（ワークスペース root 相対の字面） | スキル面へは振り分けない。cwd 相対の `kind = "work"` として現行どおりリンク化する（プロジェクトスキルと衝突するため） |
 | その他の絶対パス（`/etc/...`、`/workspace/generated/...`、`/workspace/projects/x/.agents/skills/...` など） | 不採用。`rootCwd` 未取得（health 未取得）のときも絶対パスは不採用 |
-| `./x` / `x`（明示的な相対） | cwd 相対として扱う（`kind = "work"`）。**cwd 前置きの剥がしはしない**（`projects/u7agent/a.html` は `<cwd>/projects/u7agent/a.html` を意味するため） |
+| `./x`（明示的な相対） | cwd 相対として扱う（`kind = "work"`）。**cwd 前置きの剥がしはしない**（`projects/u7agent/a.html` は `<cwd>/projects/u7agent/a.html` を意味するため） |
+| `x`（区切りの無い裸名） | 不採用（`6.` のコードスパンだけの除外）。`matchFileRef` / `resolveFileRef` は採るため、Markdown 画像の src 解決は変わらない（[markdown.md](markdown.md#画像の-src-解決)） |
 | `..` セグメントを含む | 不採用（matcher で除外） |
 
 - スキル面へ回すのは**絶対パスだけ**。`.agents/skills` 直下（`<name>` が無い）と `<name>` だけ（ファイルが無い）の階層は不採用になる。`<name>` は最初のセグメント 1 つで、`alpha-2` を `alpha` へ混ぜない
 - **絶対パスが cwd 配下でもある場合は作業フォルダ面を優先する**（プロジェクトの cwd が `.agents/skills` 配下にある場合など）。既存の採否は変えない
 - 裸の `.u7agent/uploads/<id>/a.png` はこの規則どおり `<cwd>/.u7agent/uploads/<id>/a.png` を指す（予約 prefix の例外は持たない）。絶対パスの `/workspace/.u7agent/uploads/<id>/a.png` は cwd 外で、共通スキルでもないので不採用
-- プレビューで `Path not found` のときは元のエラーを残して補助文を表示し、共通スキル配下のファイルは 設定 → スキル からも開けることを案内する（補助文の文言は変えない）
+- プレビューで `Path not found` のときは元のエラーを残し、**失敗したファイルが共通スキル配下（`.agents/skills/<name>/…`）のときだけ** 設定 → スキル からも開けることを案内する。作業フォルダ側の `<cwd>/AGENTS.md` など、面に関係のないパスには出さない（`client/src/lib/filePreviewError.ts` がプレビューの fetchPath で判定する。補助文の文言は `共通スキル配下のファイルは 設定 → スキル から開けます。` で変えない）
 - セッションの cwd が未確定（未作成チャット）の間は**どちらの種別も解決しない**。設定 → ファイル はワークスペース root 固定なので対象外
 - 保証は**字句的な包含だけ**。symlink の実体が cwd / 共通スキルの外を指す場合までは保証しない（サンドボックスの検証は既存契約のまま workspace root 内）。`health.cwd` が symlink のときは、サンドボックスが返す realpath と字面がずれてリンクにならないことがある
 
 ### クリックと要求
 
-- 操作要素にするのは assistant 本文のインラインコードだけ。`type="button"` で、Tab 移動 / Enter / Space / 可視 focus / 読み上げ名を持つ。**Markdown リンクの children の code は対象外**（`[`index.html`](https://example.com)` は従来どおり `<a>` の中の code で、操作要素を入れない）。user 本文と、`MARKDOWN_MAX_LENGTH` 超のプレーン表示フォールバックも対象外
+- クリックすると、**面の切替・要求の登録より前に**サンドボックスへ実在を確認する（`GET /api/files/stat`。[api.md](api.md#存在確認)）。開くのは通常ファイルとしての 200 だけで、404（不存在）・400（不正入力 / root 外 / 通常ファイル以外）・502 / 503 / 通信失敗では面を開かない。順序と分類は `client/src/lib/fileRefOpen.ts` の `createFileRefOpener` / `classifyFileRefFailure` が持ち、確認先は `fileRefCheckPath`（作業フォルダ面は `fileTreeFetchPath(cwd, path)`、スキル面は `<root>/<path>`）がワークスペース root 相対へ写す
+- **クリック世代で後着の結果を捨てる**（A→B / A→B→A のどちらでも最後のクリックだけが開く）。確認中に選択中セッションが切り替わった結果も失効させる: 確認の開始時に**選択の切替世代**（`fileRefRequests` の `clear` の回数。`selectSession` / `newChat` の開始時と、`applySelectedSession` で ID が変わるときに進む）を控え、完了時に一致を要求する。ID の一致で見ると切替をまたいで同じ ID へ戻ったときに失効が巻き戻るため、世代で判定する（要求の `clear` は、まだ登録されていない確認には届かない）。不存在・拒否・確認不能と分かったときは要求を登録せず、**既に開いている面のモードとタブも変えない**
+- 失敗理由はクリックした要素の近くに出す。`InlineFileRef` がクリック元の状態（確認中 / 失敗）を持ち、失敗時は参照の直後に `.md-fileref-note` の 1 行を添える（文言は不存在 `ファイルが見つかりません` / 拒否 `このパスは開けません` / 確認不能 `ファイルを確認できませんでした。もう一度お試しください`）。確認中は押した要素を `aria-busy` と薄い表示にし、**確認中の文字を足さない**（段落の折り返しが動いて押下位置から逃げないため）。読み上げは `ChatArea` の `aria-live` に任せ、専用の live region は足さない
+- 操作要素にするのは assistant 本文のインラインコードだけ。`type="button"` で、Tab 移動 / Enter / Space / 可視 focus / 読み上げ名を持つ。**Markdown リンクの children の code は対象外**（`[`./index.html`](https://example.com)` は従来どおり `<a>` の中の code で、操作要素を入れない）。user 本文と、`MARKDOWN_MAX_LENGTH` 超のプレーン表示フォールバックも対象外
 - クリックしたときの面は**解決先の種別**で決める。`kind = "work"` は作業フォルダ面、`kind = "skill"` はスキル面を開く。逆向きの参照（スキル面の表示中に作業フォルダの参照など）も面のモードを切り替えてから開き、消費されない要求を残さない。操作要素の `title` も種別に合わせる（作業フォルダは `作業フォルダで開く`、スキルは `スキルで開く`）
 - 要求は `{ seq, sessionId, kind, root?, path }` として `useSessions` の store が 1 件だけ持つ。`kind` は `"work" | "skill"` で、`root` はスキル面だけが持つ（ワークスペース root 相対）。`seq` は App の存続期間で単調増加し再利用しない。消費前に複数クリックが届いたら最後の要求だけが残る（最新優先。中間クリックのタブ作成は保証しない）
-- 要求の寿命は選択中セッションの滞在期間に限る。`selectSession` / `newChat` の開始時と、`applySelectedSession` で ID が変わるときに破棄する（A→B→A と戻っても復活しない。`cwd` はセッション識別子にならず、同一プロジェクトの別セッションでも選択が変われば破棄する）
+- 要求の寿命は選択中セッションの滞在期間に限る。`selectSession` / `newChat` の開始時と、`applySelectedSession` で ID が変わるときに破棄する（A→B→A と戻っても復活しない。`cwd` はセッション識別子にならず、同一プロジェクトの別セッションでも選択が変われば破棄する）。**確認中の結果も同じ契機で失効させる**ため、破棄は `clear` の世代として数え、要求の有無に関わらず進める
 - パネル / sheet は条件付き mount なので、`FileBrowser` が mount 後の Effect で未消費の要求を適用し、`onHandled(seq)` で App へ返す（`reloadToken` の「mount 時の値は無視する」方式は初回クリックを取り落とすため使わない）。App の ack は現在の pending の `seq` と照合し、古い ack で新しい要求を消さない
 - **面は自分宛ての種別の要求だけを適用する**（`fileRefRequestForKind`）。作業フォルダ面はスキル要求を、スキル面は作業フォルダ要求を消費しない。モードを切り替えてから対応する面が受け取るため、相手側の面が動くのは 1 レンダーの間だけになる
 - 適用の印は `FileBrowser` の ref が持ち、適用の直前に記録する。Effect の再実行（StrictMode）では二重に適用しない。`openFileTab` は同一パスでも新しい state を返すため、「タブが増えない」ことは 1 回適用の根拠にならない
@@ -367,6 +373,12 @@ assistant 本文のインラインコードが指すファイルを、右パネ�
 - モードを既定（作業フォルダ）へ戻す契機: 閉じる導線（パネル / sheet の ✕、sheet の `Escape`、トップバーのトグルの閉）、**選択中セッションの変化**（セッション切替 / 新規チャット。`cwd` が同じでも戻す）、チャット以外への移動、compact ⇄ desktop の切替。desktop のパネル開閉 state は既存どおり残るので、「面を閉じる」はモードを既定へ戻すことを指す（右パネルは開いたまま作業フォルダへ戻る）。作業フォルダ面（`SessionFilesPanel` / `SessionFilesSheet`）の root と開閉 state は書き換えず、モードと戻る導線で往復する
 - 作業フォルダ面とスキル面は同時に mount しない（モードで出し分ける）。作業フォルダ面へ渡すのは `kind = "work"` の要求、スキル面へ渡すのは `kind = "skill"` の要求だけ（自分宛ての種別だけを適用する）
 - `filePreviewStore` からの復帰はスキル面の root でも同じ契約で、設定 → スキルの同じ root とタブ状態を共有しうる（開き直しで新しいタブだけになることは保証しない）。compact の sheet はクリックした button を `App` が保持して閉じたときに focus を戻す（既存契約のまま）
+
+### 残る懸念（裸名の除外と存在確認）
+
+- **裸名の除外でリンクが減る**: 対象プロジェクトを cwd にしているセッションでは、実在する `AGENTS.md` や `index.html` もリンクにならない（`./AGENTS.md` や `sub/AGENTS.md` のように区切りを付ければリンクになる）。cwd の一覧を取って裸名を再許可する案は採らない（裸名の除外はコードスパンの解決だけに閉じ、Markdown 画像の src 解決は変えない）
+- **確認はクリック時点の実在**: 確認とプレビューの取得の間に外部で消えると、従来どおり `Path not found` のエラー帯が出る（再確認や面の自動クローズはしない）。逆に、cwd に同名の実体がある基準違いの参照（`./assets/…` が cwd にもある場合）は確認を通ってそのファイルを開く（文脈依存の推測解決はしない）
+- **クリック 1 回につき往復が 1 回増える**: 描画時の一括確認はしない（大量の参照がある本文でサンドボックスを叩かない）。確認の API が失敗したときは、開かない代わりにクリックした場所へ確認不能の理由を出す
 
 ## ツリーの行のドラッグ（入力欄への参照）
 
@@ -534,17 +546,20 @@ assistant 本文のインラインコードが指すファイルを、右パネ�
 | `client/test/archiveSettings.test.ts` | 除外名の下書きの純関数（実効値からの初期化と配列を共有しないこと / dirty の比較（未設定のまま既定を保存させない）/ 追加の trim・空・重複・上限 / 削除 / 検証（サーバーと同じ 1 セグメント名の規則と件数上限）） |
 | `client/test/archiveSettingsPage.test.ts` | 未設定・上書き・明示空・差分と保存可否・読み込み中・失敗・状態通知（SSR）。HTTP は apiContracts で検査 |
 | `client/test/readOnlySkillPanel.test.ts` | ファイルタブの採否 / 組み込み本文の表示（SSR）。取得・タブ間の操作はブラウザで確認 |
-| `client/test/fileRef.test.ts` | matcher の採否表（正規化と別表記の同ービキー / 制御文字 U+0000 / Unicode 空白 U+00A0・U+3000 / dotfile / scheme / `..` / 末尾ドット）と、cwd 相対の解決表（rootCwd 前置き / cwd 外 / rootCwd 未取得 / 明示的な相対 / cwd 未確定）、面つき解決（共通スキルの絶対パス → `kind = "skill"` の root / path、補助ファイル、名前の境界、`.agents/skills` 直下・プロジェクトスキル・root 外の不採用、workspace 相対の現行維持、cwd 配下の作業フォルダ面優先） |
+| `client/test/fileRef.test.ts` | matcher の採否表（正規化と別表記の同ービキー / 制御文字 U+0000 / Unicode 空白 U+00A0・U+3000 / dotfile / scheme / `..` / 末尾ドット）と、cwd 相対の解決表（rootCwd 前置き / cwd 外 / rootCwd 未取得 / 明示的な相対 / cwd 未確定）、面つき解決（裸名の除外と、区切りを持つ字面の採用 / 共通スキルの絶対パス → `kind = "skill"` の root / path、補助ファイル、名前の境界、`.agents/skills` 直下・プロジェクトスキル・root 外の不採用、workspace 相対の現行維持、cwd 配下の作業フォルダ面優先 / 画像が使う matcher は裸名を採ること / 共通スキル配下のパス判定） |
 | `client/test/fileMention.test.ts` | ドラッグの種類の判定 / 参照の引用とエスケープ / 挿入・カーソルの位置 / trim を通したパスの保持 |
-| `client/test/fileRefRequest.test.ts` | 最新要求だけを保持 / 要求の種別と root / seq が一致する ack だけを消費 / 選択変更と sessionId の採否 / 面ごとの消費可否（作業フォルダ面がスキル要求を消費しない） / 種別からのモード決定 / セッション切替・画面の移動・layout 切替での既定への復帰 / 購読・解除 |
-| `client/test/markdownFileRef.test.ts` | 参照になる code だけ操作にする / provider 外・cwd 外・リンク内の除外 / 引用・リスト・表での描画 / 共通スキルの絶対パスがスキル面の操作要素になり、操作名が種別で変わること（SSR） |
+| `client/test/fileRefRequest.test.ts` | 最新要求だけを保持 / 要求の種別と root / seq が一致する ack だけを消費 / 選択変更と sessionId の採否 / 面ごとの消費可否（作業フォルダ面がスキル要求を消費しない） / 種別からのモード決定 / セッション切替・画面の移動・layout 切替での既定への復帰 / 購読・解除 / 選択の切替世代（未消費が無くても clear で進み、request・ack では進まない）/ クリックの順序（実在を確認してから面を開く / A→B・A→B→A の逆転で最後のクリックだけが開く / セッション切替で失効（A→B→A で戻っても復活しない）/ 不存在では要求もモードも変えない / 拒否・確認不能の理由） |
+| `client/test/fileRefOpen.test.ts` | 確認 API の status 分類（404 = 不存在 / 400 = 拒否 / 502・503・通信失敗 = 確認不能）/ 失敗理由の文言 / 確認先のパス写像（作業フォルダ面とスキル面）/ 確認の例外とセッション未確定で開かないこと / 切替世代をまたいだ結果の失効（A→B→A） |
+| `client/test/markdownFileRef.test.ts` | 参照になる code だけ操作にする / 裸名・provider 外・cwd 外・リンク内の除外 / 引用・リスト・表での描画 / 共通スキルの絶対パスがスキル面の操作要素になり、操作名が種別で変わること（SSR） |
 | `client/test/sessionSkillFiles.test.ts` | チャットのスキル面の外装（見出し / root / 戻る導線 / 閉じる導線）と、モードによる作業フォルダ面との出し分け（SSR）。行の操作は `fileRowMenu.test.ts` とブラウザ受入で確認する |
 | `client/test/filePreviewState.test.ts` | 保存 schema の encode / decode / 検証と上限 / 壊れた入力の捨て方 / 他 cwd を消さない merge / read・write の例外とメモリ snapshot / 配信元（ストレージ有効モード）を保存しないこと |
 | `client/test/sessionFiles.test.ts` | 右パネルの出し分け（desktop × チャット画面 × 作業フォルダあり） |
 | `client/test/chatReducer.test.ts` | `runEndSeq` が `run_end` と `running` を抜けた `resync` でだけ進むこと（同じバッチで届いた `run_start` / `run_end` でも 1 回、新規チャットでも戻らない） |
 | `client/test/route.test.ts` | pathname と画面の対応（大文字・末尾スラッシュ・percent encoding・不正な入力の畳み方）と往復 |
 | `client/test/fileUrl.test.ts` | パスのセグメント単位 encode（`#` / `?` / `%` / `+` / 日本語 / 1 回の decode で戻ること）/ `fileRawUrl` が version 指定時だけ `v` を付け、未指定時の URL を保つこと / `fileHtmlPreviewUrl` がクエリでなくパス形式で組み立てること / `fileStoragePreviewUrl` が hostname + ポートで別オリジンの URL を組み立てること |
-| `server/test/files.test.ts` | HTML プレビューのポリシー定数（段階ごとの CSP / `connect-src` なし / リスナーごとの sandbox 段）/ `GET /api/files/html/<path>` の文書・画像・音声・テキストアセット・400 の分岐と percent decoding（音声は raw・テキストは preview の使い分けと動画 / フォントの 400 を含む）/ ヘッダ（CSP / `no-store` / `nosniff`）/ `previewApp` の storage 有効 CSP（文書は HTML・アセットは CSP 無しの JSON）とマウント範囲（HTML プレビュー ルートだけ）/ `GET /api/files/raw` が画像と音声を配り、`.svg` / `.html` / 動画 / テキストを 400 で拒むこと / `Range` の status・`Content-Range`・`Accept-Ranges` の中継（206 と 416）/ 文書は HTML・アセットは JSON のエラー写像 / `DELETE /api/files` の委譲（`recursive=true` は `deleteDirectory`）と 204・`recursive` の検証・エラー写像 / `POST /api/files/rename` の委譲と body 検証・エラー写像（409 の透過を含む）・契約外の応答の 502 |
+| `client/test/filePreviewError.test.ts` | 共通スキル配下の `Path not found` にだけ補助文を出すこと（作業フォルダ側・接頭辞の別名・他のエラーでは出さない） |
+| `server/test/file-stat.test.ts` | サンドボックスの `GET /v1/files/stat`（通常ファイル 200 と symlink の実パス / 本文を読まないためバイナリ・UTF-8 不正・上限超過も 200 / 不存在と壊れた symlink の 404 / ディレクトリ・root 自身・root 外・不正要求の 400 / 認証） |
+| `server/test/files.test.ts` | HTML プレビューのポリシー定数（段階ごとの CSP / `connect-src` なし / リスナーごとの sandbox 段）/ `GET /api/files/html/<path>` の文書・画像・音声・テキストアセット・400 の分岐と percent decoding（音声は raw・テキストは preview の使い分けと動画 / フォントの 400 を含む）/ ヘッダ（CSP / `no-store` / `nosniff`）/ `previewApp` の storage 有効 CSP（文書は HTML・アセットは CSP 無しの JSON）とマウント範囲（HTML プレビュー ルートだけ）/ `GET /api/files/raw` が画像と音声を配り、`.svg` / `.html` / 動画 / テキストを 400 で拒むこと / `Range` の status・`Content-Range`・`Accept-Ranges` の中継（206 と 416）/ 文書は HTML・アセットは JSON のエラー写像 / `DELETE /api/files` の委譲（`recursive=true` は `deleteDirectory`）と 204・`recursive` の検証・エラー写像 / `POST /api/files/rename` の委譲と body 検証・エラー写像（409 の透過を含む）・契約外の応答の 502 / `GET /api/files/stat` の本文を取らない委譲と no-store・200 / 404 / 400 の透過・確認不能の 502 / 未設定の 503 |
 | `server/test/file-preview-port.test.ts` | プレビュー オリジンのポート解決（待受とブラウザから見た値の既定はどちらも 4318 / 未設定は既定 / 1〜65535 の整数 / 不正値は throw して指定した env を名指しする / `pnpm dev` 用の統一（`PI_FILE_PREVIEW_PORT` が正・待受 env しか無いときはその値へ寄せる・空白だけは未設定）） |
 | `server/test/dev-file-preview-port.test.ts` | `pnpm dev` が解決した 1 つの値を待受の空き確認と BFF の両 env（`PI_FILE_PREVIEW_PORT` / `PI_FILE_PREVIEW_LISTEN_PORT`）へ渡し、既定ポートを直書きしないこと（ソース走査） |
 | `server/test/archive-rules.test.ts` | 既定の除外名（再生成物 / ビルド成果物 / `vendor` などを入れない）/ 上書きの解決（空配列は全解除・trim と重複の除去・呼び出し側の変更から既定を守る）/ 正規化（trim / 空落とし / 先勝ちの重複 / 順序と大文字小文字の保持）/ 検証（`.`・`..`・区切り・制御文字・200 文字超・100 件超）/ `GET /api/health` が実効値を返すこと |

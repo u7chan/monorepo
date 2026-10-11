@@ -26,6 +26,7 @@ function fixtureWorkspace() {
   const skillDirs: string[] = [];
   const workspace: SandboxWorkspaceClient = {
     previewFile: async () => ({ text: "" }),
+    statFile: async (path: string) => ({ path }),
     listFiles: async (path) => ({ path, entries: [], truncated: false }),
     getGitInfo: async () => ({ branch: null }),
     listSkills: async (dir) => {
