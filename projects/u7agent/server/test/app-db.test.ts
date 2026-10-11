@@ -1228,6 +1228,81 @@ test("moveCwd は secrets と serve_commands を 1 トランザクションで�
   db.close();
 });
 
+test("deleteSpace removes the space row and the cwd-key rows under its root only", () => {
+  const db = AppDb.open({ storeDir: null });
+  const space = "space-0123456789abcdef";
+  const other = "space-fedcba9876543210";
+  const dir = `.u7agent/spaces/${space}`;
+  // 対象スペースの根の配下 (作業フォルダと、`%` / `_` / 非 ASCII を含む cwd) だけを消す
+  db.insertSecret(secretRow({ cwd: `${dir}/sessions/aaaa000001`, name: "A" }));
+  db.saveServeCommand({ cwd: `${dir}/sessions/aaaa000001`, command: "pnpm dev", updatedAt: 1 });
+  db.insertSecret(secretRow({ secretId: "s2", cwd: `${dir}/sessions/aaaa000002/100%_の絵`, name: "B" }));
+  // 同じ接頭辞の別 id / 根そのもの / 通常スペース / 他会話スペースの cwd は残す (前方一致は `/` まで)
+  db.insertSecret(secretRow({ secretId: "s3", cwd: `.u7agent/spaces/${other}/sessions/aaaa000001`, name: "C" }));
+  db.insertSecret(secretRow({ secretId: "s4", cwd: dir, name: "D" }));
+  db.insertSecret(secretRow({ secretId: "s5", cwd: ".u7agent/sessions/aaaa000001", name: "E" }));
+  db.insertSecret(secretRow({ secretId: "s6", cwd: ".u7agent/spaces/space-0123456789abcde1/sessions/a", name: "F" }));
+  db.saveServeCommand({ cwd: `.u7agent/spaces/${other}/sessions/aaaa000001`, command: "pnpm start", updatedAt: 2 });
+  db.insertSpace({ id: space, name: "消す", createdAt: 1 });
+  db.insertSpace({ id: other, name: "残す", createdAt: 2 });
+
+  assert.equal(db.deleteSpace(space), true);
+  assert.deepEqual(
+    db.listSpaces().map((row) => row.id),
+    [other],
+  );
+  assert.deepEqual(db.listSecrets(`${dir}/sessions/aaaa000001`), []);
+  assert.deepEqual(db.listSecrets(`${dir}/sessions/aaaa000002/100%_の絵`), []);
+  assert.equal(db.getServeCommand(`${dir}/sessions/aaaa000001`), undefined);
+  for (const [cwd, name] of [
+    [`.u7agent/spaces/${other}/sessions/aaaa000001`, "C"],
+    [dir, "D"],
+    [".u7agent/sessions/aaaa000001", "E"],
+    [".u7agent/spaces/space-0123456789abcde1/sessions/a", "F"],
+  ] as const) {
+    assert.deepEqual(
+      db.listSecrets(cwd).map((row) => row.name),
+      [name],
+    );
+  }
+  assert.equal(db.getServeCommand(`.u7agent/spaces/${other}/sessions/aaaa000001`)?.command, "pnpm start");
+  // 同じ id の再実行は行が無い (route 側は claim の 404 で先に止まる)
+  assert.equal(db.deleteSpace(space), false);
+  db.close();
+});
+
+test("deleteSpace rolls back the cwd-key rows when the spaces row cannot be deleted", () => {
+  const dir = tempStoreDir();
+  try {
+    const db = AppDb.open({ storeDir: dir });
+    const space = "space-0123456789abcdef";
+    db.insertSecret(secretRow({ cwd: `.u7agent/spaces/${space}/sessions/aaaa000001`, name: "A" }));
+    db.saveServeCommand({ cwd: `.u7agent/spaces/${space}/sessions/aaaa000001`, command: "pnpm dev", updatedAt: 1 });
+    db.insertSpace({ id: space, name: "消す", createdAt: 1 });
+    db.close();
+
+    // 最後の文 (spaces 行) だけを失敗させ、手前の削除が巻き戻ることを見る
+    const raw = new DatabaseSync(join(dir, APP_DB_FILENAME));
+    raw.exec("CREATE TRIGGER block_space_delete BEFORE DELETE ON spaces BEGIN SELECT RAISE(ABORT, 'blocked'); END");
+    raw.close();
+
+    const reopened = AppDb.open({ storeDir: dir });
+    assert.throws(() => reopened.deleteSpace(space), isServiceUnavailable);
+    assert.deepEqual(
+      reopened.listSecrets(`.u7agent/spaces/${space}/sessions/aaaa000001`).map((row) => row.name),
+      ["A"],
+    );
+    assert.equal(reopened.getServeCommand(`.u7agent/spaces/${space}/sessions/aaaa000001`)?.command, "pnpm dev");
+    assert.deepEqual(
+      reopened.listSpaces().map((row) => row.id),
+      [space],
+    );
+    reopened.close();
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("migrates a v11 db additively and keeps the web search toggle across reopen", () => {
   const dir = tempStoreDir();
   try {

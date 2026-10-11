@@ -4,6 +4,7 @@
  */
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
+import { spaceDirRel } from "./app-paths";
 import { httpError, messageFor } from "./http";
 import type { SecretKind } from "./secret-crypto";
 import type {
@@ -1188,6 +1189,20 @@ export class AppDb {
         .prepare("INSERT INTO spaces (id, name, createdAt) VALUES (?, ?, ?)")
         .run(space.id, space.name, space.createdAt),
     );
+  }
+
+  /**
+   * スペースの行と、その根を cwd に持つ行 (serve_commands / secrets) を 1 トランザクションで消す。
+   * 前方一致は LIKE ではなく substr で行う (`%` / `_` を含む cwd で別の行を消さない)。戻り値は
+   * `spaces` 行を消せたか (= commit point)。
+   */
+  deleteSpace(id: string): boolean {
+    const dir = `${spaceDirRel(id)}/`;
+    return this.transaction(() => {
+      this.#query((db) => db.prepare("DELETE FROM serve_commands WHERE substr(cwd, 1, length(?)) = ?").run(dir, dir));
+      this.#query((db) => db.prepare("DELETE FROM secrets WHERE substr(cwd, 1, length(?)) = ?").run(dir, dir));
+      return this.#query((db) => db.prepare("DELETE FROM spaces WHERE id = ?").run(id).changes > 0);
+    });
   }
 
   // --- projects ---

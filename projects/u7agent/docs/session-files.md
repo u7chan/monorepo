@@ -65,6 +65,8 @@ $PI_SESSION_STORE/u7agent.db  # アプリデータ（プロジェクト / カタ
 
 meta の optional `spaceId` は欠落だけが `default`。追加スペースではプロジェクト所属を持たず、保存値が不正、または追加スペースと `projectCwd` が同居する meta は拒否する。復元前の `workdirOfId` も meta の所属を使い、添付の保存先・送信時の許容パス・モデルへ渡す絶対パスに同じ所属を通す。既存添付を新配置へ読み替えない。会話ストアのフォルダ名・JSONL・sends.json の書式は変えない。
 
+追加スペースの根 `<workspace>/.u7agent/spaces/<spaceId>` はスペースの削除（`DELETE /api/spaces/:id`）で丸ごと消える（会話の DELETE は履歴だけで、作業フォルダと添付は残る。[api.md](api.md#スペース)）。
+
 会話 ID を持つ要求の所属は descriptor / live record で確認し、不一致を SDK の遅延復元や作業フォルダ生成の前に拒否する。共有サービスの所有者 lookup など内部の全会話参照はスペース別 HTTP 一覧と分ける（[api.md](api.md#スペース)）。
 
 ## meta.json

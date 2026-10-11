@@ -1479,8 +1479,12 @@ export class SessionStore {
     await this.deleteSession(record.id);
   }
 
-  /** セッションを削除する。SDK を開かずに消せる (モデル未認証・JSONL 破損でも可)。作業フォルダは残す */
-  async deleteSession(id: string): Promise<boolean> {
+  /**
+   * セッションを削除する。SDK を開かずに消せる (モデル未認証・JSONL 破損でも可)。作業フォルダは残す。
+   * `expectSpaceId` は削除の直前の所属で、`move` などの待機の後で再確認する (引っ越し中の会話を
+   * 移動元スペースの削除が巻き込まないため)。不一致なら削除せず false を返す。
+   */
+  async deleteSession(id: string, { expectSpaceId }: { expectSpaceId?: string } = {}): Promise<boolean> {
     if (!this.records.has(id) && !this.descriptors.has(id)) return false;
     this.deleting.add(id);
     try {
@@ -1490,6 +1494,10 @@ export class SessionStore {
       if (pendingMeta) await pendingMeta.catch(() => {});
       const pendingPin = this.pinUpdates.get(id);
       if (pendingPin) await pendingPin.catch(() => {});
+      if (expectSpaceId !== undefined) {
+        const meta = this.records.get(id)?.meta ?? this.descriptors.get(id);
+        if (meta && (meta.spaceId ?? "default") !== expectSpaceId) return false;
+      }
       const record = this.records.get(id);
       if (record) {
         record.queue = [];

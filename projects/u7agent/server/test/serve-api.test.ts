@@ -3,6 +3,8 @@
 //   - 403 (他会話の所有者) / 409 (照合不一致) / 400 / 404 / 502 / 503 の分岐
 //   - serve ツールは BFF ローカルの customTool として登録され、サンドボックスへは送られない
 import assert from "node:assert/strict";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import { createBffApp } from "../src/app";
@@ -63,6 +65,32 @@ async function setup() {
   return { bff, sandbox, pi, first: first.sessionId, second: second.sessionId };
 }
 
+/** スペース削除は会話ストアを必要とするため、実ストアを持つアプリを別に組む (setup は永続化なし) */
+async function setupWithStore(t: test.TestContext) {
+  const dir = await mkdtemp(join(tmpdir(), "u7agent-serve-space-"));
+  const sandbox = createServeSandboxStub();
+  const bff = await createBffApp({
+    cwd: "/workspace",
+    sessionStoreDir: dir,
+    pi: asPiBff(createStubPi()),
+    workspace,
+    serveSandbox: sandbox.sandbox,
+    serveProbe: async () => sandbox.state.listener !== null,
+  });
+  t.after(async () => {
+    await bff.close();
+    await rm(dir, { recursive: true, force: true });
+  });
+  const space = async (name: string) =>
+    (await jsonBody(await bff.app.request("/api/spaces", jsonPost({ name })))).space as { id: string };
+  const session = async (spaceId: string) =>
+    (await jsonBody(await bff.app.request("/api/sessions", jsonPost({ spaceId })))) as {
+      sessionId: string;
+      cwd: string;
+    };
+  return { bff, sandbox, space, session };
+}
+
 test("ランタイムは会話未選択でも全体の状態を取得し、所有者のサービスを停止できる", async () => {
   const { bff, sandbox, first } = await setup();
   try {
@@ -97,6 +125,77 @@ test("ランタイムは会話未選択でも全体の状態を取得し、所�
   } finally {
     await bff.close();
   }
+});
+
+test("スペース削除は公開中のサービスを 409 で止め、停止すると消せる", async (t) => {
+  const { bff, sandbox, space, session } = await setupWithStore(t);
+  const target = await space("消す");
+  const targetSession = await session(target.id);
+  bff.appDb.saveServeCommand({ cwd: targetSession.cwd, command: "pnpm dev", updatedAt: 1 });
+  const started = await bff.app.request(
+    `/api/serve/start?spaceId=${target.id}`,
+    jsonPost({ sessionId: targetSession.sessionId }),
+  );
+  assert.equal(started.status, 200);
+
+  // 起動元がこのスペースの会話なら 409 (共有枠の停止は削除に混ぜない)
+  const blocked = await bff.app.request(`/api/spaces/${target.id}`, { method: "DELETE" });
+  assert.equal(blocked.status, 409);
+  assert.match((await jsonBody(blocked)).error, /停止/);
+  assert.equal((await bff.app.request(`/api/sessions/${targetSession.sessionId}?spaceId=${target.id}`)).status, 200);
+  assert.equal(
+    (await jsonBody(await bff.app.request("/api/spaces"))).spaces.some((item: { id: string }) => item.id === target.id),
+    true,
+  );
+
+  // 記録と待受ソケットが一致しない (起動元不明) でも、到達可なら 409 にする
+  sandbox.state.stateFile = null;
+  assert.equal((await bff.app.request(`/api/spaces/${target.id}`, { method: "DELETE" })).status, 409);
+
+  // 停止すると削除できる
+  const generation = (await jsonBody(await bff.app.request("/api/serve/runtime/status"))).generation as string;
+  const stopped = await bff.app.request("/api/serve/runtime/stop", jsonPost({ generation }));
+  assert.equal(stopped.status, 200);
+  assert.equal((await bff.app.request(`/api/spaces/${target.id}`, { method: "DELETE" })).status, 200);
+  assert.equal((await bff.app.request(`/api/sessions/${targetSession.sessionId}?spaceId=${target.id}`)).status, 404);
+});
+
+test("起動元が他会話スペースのサービスはスペース削除を妨げない", async (t) => {
+  const { bff, space, session } = await setupWithStore(t);
+  const keep = await space("残す");
+  const keepSession = await session(keep.id);
+  bff.appDb.saveServeCommand({ cwd: keepSession.cwd, command: "pnpm dev", updatedAt: 1 });
+  const started = await bff.app.request(
+    `/api/serve/start?spaceId=${keep.id}`,
+    jsonPost({ sessionId: keepSession.sessionId }),
+  );
+  assert.equal(started.status, 200);
+
+  const target = await space("消す");
+  const targetSession = await session(target.id);
+  assert.equal((await bff.app.request(`/api/spaces/${target.id}`, { method: "DELETE" })).status, 200);
+  // 対象スペースの会話は消え、起動元のサービスとそのスペースは無傷
+  assert.equal((await bff.app.request(`/api/sessions/${targetSession.sessionId}?spaceId=${target.id}`)).status, 404);
+  assert.equal((await bff.app.request(`/api/sessions/${keepSession.sessionId}?spaceId=${keep.id}`)).status, 200);
+  const runtime = await jsonBody(await bff.app.request("/api/serve/runtime/status"));
+  assert.equal(runtime.reachable, true);
+  assert.deepEqual(runtime.owner, { sessionId: keepSession.sessionId, title: "無題のセッション", spaceId: keep.id });
+});
+
+test("スペース削除の稼働判定は状態のキャッシュを読まない", async (t) => {
+  const { bff, sandbox, space, session } = await setupWithStore(t);
+  const target = await space("デモ");
+  const created = await session(target.id);
+  // 停止中の状態をキャッシュへ載せる
+  assert.equal((await jsonBody(await bff.app.request("/api/serve/runtime/status"))).reachable, false);
+  // 記録を介さない起動 (直前の bash 起動) を再現する
+  sandbox.state.listener = { pid: 9999, startedAt: 1, inodes: [777], ancestors: [9999] };
+  // ポーリングはキャッシュのまま停止を示す
+  assert.equal((await jsonBody(await bff.app.request("/api/serve/runtime/status"))).reachable, false);
+  // 削除は取り直すので、到達可 + 起動元不明 の 409 になる (何も消えない)
+  const blocked = await bff.app.request(`/api/spaces/${target.id}`, { method: "DELETE" });
+  assert.equal(blocked.status, 409);
+  assert.equal((await bff.app.request(`/api/sessions/${created.sessionId}?spaceId=${target.id}`)).status, 200);
 });
 
 test("GET /api/serve/status は閲覧中の会話から見た状態を返す", async () => {
@@ -197,6 +296,13 @@ test("サンドボックス未設定は 503、プローブの失敗は 502 に�
     );
     assert.match((await jsonBody(response)).error, /PI_SANDBOX_URL/);
     assert.equal(pi.serveHosts.at(-1)?.configured, false, "未設定ではツールを公開しない");
+    // スペース削除もサンドボックス未設定は 503 (稼働を見られないまま消さない)
+    const space = (await jsonBody(await unconfigured.app.request("/api/spaces", jsonPost({ name: "デモ" })))) as {
+      space: { id: string };
+    };
+    const removal = await unconfigured.app.request(`/api/spaces/${space.space.id}`, { method: "DELETE" });
+    assert.equal(removal.status, 503);
+    assert.equal((await jsonBody(removal)).state, undefined);
   } finally {
     await unconfigured.close();
   }
@@ -225,6 +331,11 @@ test("サンドボックス未設定は 503、プローブの失敗は 502 に�
     assert.equal((await failing.app.request("/api/serve/runtime/status")).status, 502);
     assert.equal((await failing.app.request("/api/serve/runtime/stop", jsonPost({ generation: "g" }))).status, 502);
     assert.match((await jsonBody(response)).error, /接続できません/);
+    // スペース削除も同じプローブを通る (稼働を見落とさずに消さない)
+    const space = (await jsonBody(await failing.app.request("/api/spaces", jsonPost({ name: "デモ" })))) as {
+      space: { id: string };
+    };
+    assert.equal((await failing.app.request(`/api/spaces/${space.space.id}`, { method: "DELETE" })).status, 502);
   } finally {
     await failing.close();
   }
