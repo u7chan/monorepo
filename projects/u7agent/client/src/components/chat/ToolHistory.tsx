@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { ToolCard } from "../../hooks/chatReducer";
 import { cn } from "../../lib/cn";
-import { selectElementContents } from "../../lib/copyToClipboard";
+import { selectCopyTarget } from "../../lib/copyToClipboard";
 import { abbreviatedToolSummary, completedToolCards, historyPreview } from "../../lib/toolSummary";
 import { toolDurationMs, toolTimeTotalMs } from "../../lib/toolTiming";
 import { formatDurationMs } from "../../lib/usageFormat";
@@ -89,7 +89,7 @@ function ToolCallRow({
               copied={copied}
               failure={failure}
               onClick={onCopy}
-              onSelect={() => selectElementContents(bodyRef.current)}
+              onSelect={() => selectCopyTarget(bodyRef.current)}
               label="ツールコールをコピー"
             />
           </div>
@@ -180,7 +180,7 @@ export function ToolHistoryView({
             copied={copiedAll}
             failure={failureAll}
             onClick={onCopyAll}
-            onSelect={() => selectElementContents(listRef.current)}
+            onSelect={() => selectCopyTarget(listRef.current)}
             label="ツール履歴をすべてコピー"
           />
         )}

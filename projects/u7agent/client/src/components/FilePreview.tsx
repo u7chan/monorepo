@@ -4,7 +4,7 @@ import { useMessageCopy } from "../hooks/useMessageCopy";
 import { isAudioName, isImageName } from "../lib/attachments";
 import { cn } from "../lib/cn";
 import { lineNumbers } from "../lib/codeLines";
-import { selectElementContents } from "../lib/copyToClipboard";
+import { selectCopyTarget } from "../lib/copyToClipboard";
 import { buildPreviewCode, isHtmlPath, isMarkdownPath, previewCopyText } from "../lib/fileCode";
 import { filePreviewErrorHint } from "../lib/filePreviewError";
 import {
@@ -346,7 +346,7 @@ function FileCopyButton({ text, targetRef }: { text: string; targetRef: RefObjec
       copied={copiedId === "file"}
       failure={copyFailure("file")}
       onClick={() => void copyMessage(text, "file")}
-      onSelect={() => selectElementContents(targetRef.current)}
+      onSelect={() => selectCopyTarget(targetRef.current)}
       label="本文をコピー"
     />
   );

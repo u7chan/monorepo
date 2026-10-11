@@ -9,8 +9,11 @@
 
 /** execCommand 経路で使う一時要素。本文の選択は経路ごと (textarea / contenteditable) に作る */
 export type ClipboardTarget = {
-  /** 一時要素へフォーカスする (WebKit は選択のある要素へフォーカスが要る) */
-  focus(): void;
+  /**
+   * 一時要素へフォーカスし、実際にフォーカスできたかを返す。modal dialog の外は inert でフォーカスできず、
+   * その状態の textarea は内部 selection だけを持って execCommand が true を返す (空をコピーしたまま成功)
+   */
+  focus(): boolean;
   /** 実 selection を作り、プラットフォームが見ている選択文字列を返す (空 selection の検出に使う) */
   select(): string;
   remove(): void;
@@ -82,15 +85,19 @@ export async function copyToClipboard(text: string, deps: ClipboardDeps = browse
     for (const strategy of COPY_STRATEGIES) {
       const target = deps.createTarget(strategy, text);
       try {
-        target.focus();
-        const selected = target.select();
-        // execCommand は選択が空でも成功を返す (そのまま空をコピーする) ため、選択そのものを確かめる
-        if (text !== "" && selected === "") {
-          failures.push(`${STRATEGY_LABEL[strategy]}: 選択が空`);
-        } else if (deps.execCommand("copy")) {
-          return;
+        // フォーカスできない経路 (inert な場所に付いた) では execCommand を信じない
+        if (!target.focus()) {
+          failures.push(`${STRATEGY_LABEL[strategy]}: フォーカスできない`);
         } else {
-          failures.push(`${STRATEGY_LABEL[strategy]}: execCommand が false`);
+          const selected = target.select();
+          // execCommand は選択が空でも成功を返す (そのまま空をコピーする) ため、選択そのものを確かめる
+          if (text !== "" && selected === "") {
+            failures.push(`${STRATEGY_LABEL[strategy]}: 選択が空`);
+          } else if (deps.execCommand("copy")) {
+            return;
+          } else {
+            failures.push(`${STRATEGY_LABEL[strategy]}: execCommand が false`);
+          }
         }
       } catch (error) {
         failures.push(`${STRATEGY_LABEL[strategy]}: ${reasonText(error)}`);
@@ -107,10 +114,19 @@ export async function copyToClipboard(text: string, deps: ClipboardDeps = browse
 
 /**
  * コピーできなかったときの手動の導線。本文を選択状態にし、長押し / Ctrl+C などのブラウザーの標準操作へ渡す
- * (選択を解除するのは利用者に任せる)。対象が画面に出ていないコピー (診断情報など) では呼ばない
+ * (選択を解除するのは利用者に任せる)。畳まれた details の中身は選択できないため、対象を含む details は先に
+ * 開く。対象が画面に出ていないコピー (診断情報など) では呼ばない
  */
-export function selectElementContents(element: Element | null): void {
+export function selectCopyTarget(element: Element | null): void {
   if (element === null) return;
+  for (const details of element.querySelectorAll("details")) details.open = true;
+  for (
+    let parent = element.closest("details");
+    parent !== null;
+    parent = parent.parentElement?.closest("details") ?? null
+  ) {
+    parent.open = true;
+  }
   const selection = document.getSelection();
   if (selection === null) return;
   const range = document.createRange();
@@ -134,6 +150,20 @@ function browserClipboardDeps(): ClipboardDeps {
     saveSelection,
     restoreSelection,
   };
+}
+
+/**
+ * 一時要素を付ける先。modal dialog の外は inert で、focus() しても \`document.activeElement\` が動かず、
+ * 実 selection の無いまま execCommand が true を返す (空をコピーしたのに成功になる)。開いている dialog が
+ * あればその中へ入れる
+ */
+function clipboardHost(): HTMLElement {
+  const active = document.activeElement;
+  const fromActive = active instanceof Element ? active.closest("dialog[open]") : null;
+  if (fromActive instanceof HTMLElement) return fromActive;
+  // 最前面は top layer へ最後に載った dialog で、DOM 順の最後と一致する
+  const dialogs = document.querySelectorAll<HTMLDialogElement>("dialog[open]");
+  return dialogs[dialogs.length - 1] ?? document.body;
 }
 
 /**
@@ -171,9 +201,12 @@ function createTextAreaTarget(strategy: CopyStrategy, text: string): ClipboardTa
   // focus でソフトウェアキーボードを出さない
   textarea.inputMode = "none";
   placeAtViewportOrigin(textarea);
-  document.body.appendChild(textarea);
+  clipboardHost().appendChild(textarea);
   return {
-    focus: () => textarea.focus({ preventScroll: true }),
+    focus: () => {
+      textarea.focus({ preventScroll: true });
+      return document.activeElement === textarea;
+    },
     select: () => {
       textarea.select();
       textarea.setSelectionRange(0, textarea.value.length);
@@ -189,9 +222,12 @@ function createContentEditableTarget(text: string): ClipboardTarget {
   div.textContent = text;
   div.style.overflow = "hidden";
   placeAtViewportOrigin(div);
-  document.body.appendChild(div);
+  clipboardHost().appendChild(div);
   return {
-    focus: () => div.focus({ preventScroll: true }),
+    focus: () => {
+      div.focus({ preventScroll: true });
+      return document.activeElement === div;
+    },
     select: () => {
       const selection = document.getSelection();
       if (selection === null) return "";

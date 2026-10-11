@@ -1,7 +1,7 @@
 import { useRef, type ReactNode } from "react";
 import { useMessageCopy } from "../../hooks/useMessageCopy";
 import { cn } from "../../lib/cn";
-import { selectElementContents } from "../../lib/copyToClipboard";
+import { selectCopyTarget } from "../../lib/copyToClipboard";
 import { FILE_SKILL_BODY_ERROR_PREFIX, FILE_SKILL_BODY_LOADING_NOTE } from "../../lib/fileSkills";
 import { CopyButton } from "../chat/CopyButton";
 
@@ -104,7 +104,7 @@ export function SkillDetailPanel({
                     copied={copiedId === "skill"}
                     failure={copyFailure("skill")}
                     onClick={() => void copyMessage(body.text, "skill")}
-                    onSelect={() => selectElementContents(bodyRef.current)}
+                    onSelect={() => selectCopyTarget(bodyRef.current)}
                     label="本文をコピー"
                   />
                 </div>

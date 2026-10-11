@@ -3,7 +3,7 @@ import type { Bubble, ToolCard } from "../../hooks/chatReducer";
 import { finishOnAnimationEnd } from "../../lib/animationEnd";
 import { splitAttachedFiles } from "../../lib/attachments";
 import { cn } from "../../lib/cn";
-import { selectElementContents } from "../../lib/copyToClipboard";
+import { selectCopyTarget } from "../../lib/copyToClipboard";
 import { MESSAGE_MEASURE_CLASS } from "../../lib/messageColumn";
 import { messageFullTimeLabel, messageTimeLabel } from "../../lib/messageTime";
 import { splitSkillBlock } from "../../lib/skillBlock";
@@ -306,7 +306,7 @@ export function MessageView({
                 copied={copied}
                 failure={copyFailure(`bubble_${bubble.id}`)}
                 onClick={() => onCopy(bodyText)}
-                onSelect={() => selectElementContents(bodyRef.current)}
+                onSelect={() => selectCopyTarget(bodyRef.current)}
                 label="メッセージをコピー"
                 reveal="message"
               />

@@ -2,7 +2,7 @@ import { memo, useMemo, useRef } from "react";
 import { useMessageCopy } from "../../hooks/useMessageCopy";
 import { cn } from "../../lib/cn";
 import { codeLineCount, lineNumbers } from "../../lib/codeLines";
-import { selectElementContents } from "../../lib/copyToClipboard";
+import { selectCopyTarget } from "../../lib/copyToClipboard";
 import { highlightCode } from "../../lib/markdown/highlight";
 import { CopyButton } from "../chat/CopyButton";
 
@@ -38,7 +38,7 @@ export const CodeBlock = memo(function CodeBlock({
             copied={copiedId === "code"}
             failure={copyFailure("code")}
             onClick={() => void copyMessage(text, "code")}
-            onSelect={() => selectElementContents(preRef.current)}
+            onSelect={() => selectCopyTarget(preRef.current)}
             label="コードをコピー"
             reveal="code"
           />

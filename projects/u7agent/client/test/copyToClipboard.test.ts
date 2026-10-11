@@ -15,6 +15,8 @@ const SNAPSHOT: SelectionSnapshot = { active: null, text: null, range: null };
 type TargetBehavior = {
   /** select() が返す選択文字列。省略は本文 */
   selected?: string;
+  /** focus() が実際にフォーカスできたか。省略は true (modal の外は inert で false になる) */
+  focusable?: boolean;
   /** select() が投げる例外 */
   selectError?: Error;
   /** execCommand() が投げる例外 */
@@ -62,7 +64,10 @@ function harness(
         const behavior = behaviors[created - 1] ?? {};
         events.push(`create:${strategy}:${text}`);
         return {
-          focus: () => events.push(`focus:${strategy}`),
+          focus: () => {
+            events.push(`focus:${strategy}`);
+            return behavior.focusable ?? true;
+          },
           select: () => {
             events.push(`select:${strategy}`);
             if (behavior.selectError !== undefined) throw behavior.selectError;
@@ -156,6 +161,19 @@ test("本文が空のときは選択が空でも execCommand を呼ぶ", async (
     events.filter((event) => event.startsWith("exec:")),
     ["exec:editable-textarea:true"],
   );
+});
+
+test("フォーカスできない経路では execCommand を呼ばずに次の経路を試す", async () => {
+  // modal dialog の外に付けた一時要素は inert でフォーカスできず、空の選択のまま execCommand が true を返す
+  const { deps, events } = harness({
+    targets: [{ focusable: false }, { focusable: false }, { exec: true }],
+  });
+  await copyToClipboard("本文", deps);
+  assert.deepEqual(
+    events.filter((event) => event.startsWith("exec:")),
+    ["exec:contenteditable:true"],
+  );
+  assert.ok(!events.includes("select:editable-textarea"));
 });
 
 test("select が例外を投げても次の経路を試す", async () => {
