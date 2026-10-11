@@ -5,7 +5,10 @@ import {
   classifyFileRefFailure,
   fileRefCheckPath,
   fileRefFailureMessage,
+  type FileRefCheck,
+  type FileRefSelection,
 } from "../src/lib/fileRefOpen";
+import type { FileRefTarget } from "../src/lib/fileRef";
 
 test("確認 API の失敗 status は 404 だけを不存在、400 を拒否、それ以外を確認不能にする", () => {
   assert.equal(classifyFileRefFailure(404), "missing");
@@ -48,7 +51,7 @@ test("確認が例外を投げた結果は確認不能として扱い、開か�
     open: () => {
       opened += 1;
     },
-    sessionId: () => "a",
+    selection: () => ({ sessionId: "a", switchSeq: 0 }),
   });
   assert.deepEqual(await opener.open({ kind: "work", path: "a.txt" }), {
     kind: "failed",
@@ -64,8 +67,27 @@ test("セッション未確定のクリックは開かない (要求を登録で
     open: () => {
       opened += 1;
     },
-    sessionId: () => "",
+    selection: () => ({ sessionId: "", switchSeq: 0 }),
   });
   assert.deepEqual(await opener.open({ kind: "work", path: "a.txt" }), { kind: "discarded" });
   assert.equal(opened, 0);
+});
+
+/** 切替世代で失効させる。ID の一致で見ると、切替をまたいで同じ ID へ戻ったときに失効が巻き戻る */
+test("確認中にセッションを A→B→A と切り替えた結果も失効する", async () => {
+  let selection: FileRefSelection = { sessionId: "a", switchSeq: 0 };
+  const opened: FileRefTarget[] = [];
+  const pending: Array<(result: FileRefCheck) => void> = [];
+  const opener = createFileRefOpener({
+    check: () => new Promise<FileRefCheck>((resolve) => pending.push(resolve)),
+    open: (target) => opened.push(target),
+    selection: () => selection,
+  });
+  const click = opener.open({ kind: "work", path: "a.txt" });
+  // 切替 (selectSession / newChat は要求の clear と同時に世代を進める)。ID は a へ戻る
+  selection = { sessionId: "b", switchSeq: 1 };
+  selection = { sessionId: "a", switchSeq: 2 };
+  pending[0]?.("exists");
+  assert.deepEqual(await click, { kind: "discarded" }, "同じ ID へ戻った結果が開いている");
+  assert.deepEqual(opened, []);
 });

@@ -700,6 +700,8 @@ export function useSessions({
     fileRefRequest,
     requestFileRef,
     ackFileRef,
+    /** 選択の切替世代。await を挿む確認 (ファイル参照) が、切替をまたいだ結果を失効させる判定に使う */
+    fileRefSwitchSeq: fileRefRequests.switchSeq,
     preselection,
     settingsChanging,
     notify,

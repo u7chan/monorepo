@@ -69,6 +69,20 @@ test("ack は現在の要求と seq が一致するときだけ消す (request1 
   assert.equal(store.snapshot(), null);
 });
 
+test("選択の切替世代は、未消費の要求が無くても clear のたびに進む", () => {
+  const store = createFileRefRequests();
+  const start = store.switchSeq();
+  // 未消費が無い間の切替でも進める (確認中の結果を切替の後へ持ち越さない)
+  store.clear();
+  store.request("a", work("index.html"));
+  const requested = store.switchSeq();
+  store.ack(store.snapshot()?.seq ?? 0);
+  assert.equal(store.switchSeq(), requested, "要求の消費で世代が進んでいる");
+  store.clear();
+  store.clear();
+  assert.equal(store.switchSeq(), start + 3);
+});
+
 test("選択変更で破棄した後は、同じセッションに戻っても復活しない", () => {
   const store = createFileRefRequests();
   store.request("a", work("index.html"));
@@ -155,7 +169,8 @@ function createClickFlow() {
       mode = filesModeForTarget(target);
       store.request(session, target);
     },
-    sessionId: () => session,
+    // 選択の切替世代は要求の store が持つ (実際の切替経路と同じく clear で進む)
+    selection: () => ({ sessionId: session, switchSeq: store.switchSeq() }),
   });
   return {
     /** クリック 1 回。結果は戻り値の Promise で見る */
@@ -170,8 +185,10 @@ function createClickFlow() {
     opened,
     snapshot: () => store.snapshot(),
     mode: () => mode,
+    /** 選択の切替。実際の切替経路と同じく、要求の破棄と同時に切替世代が進む */
     switchSession: (next: string) => {
       session = next;
+      store.clear();
     },
   };
 }
@@ -241,6 +258,19 @@ test("クリック: 確認中にセッションが切り替わった結果は失
   // 遅い結果を新しいセッションの要求として登録しない (面のモードも動かさない)
   assert.deepEqual(flow.opened, []);
   assert.equal(flow.snapshot(), null);
+  assert.deepEqual(flow.mode(), DEFAULT_FILES_MODE);
+});
+
+test("クリック: 確認中に A→B→A と切り替えた結果も失効する (同じ ID へ戻っても復活しない)", async () => {
+  const flow = createClickFlow();
+  const target = work("a.txt");
+  const click = flow.click(target);
+  flow.switchSession("b");
+  flow.switchSession("a");
+  flow.answer(target, "exists");
+  assert.deepEqual(await click, { kind: "discarded" }, "切替をまたいだ結果が開いている");
+  assert.deepEqual(flow.opened, []);
+  assert.equal(flow.snapshot(), null, "切替をまたいだ要求が登録されている");
   assert.deepEqual(flow.mode(), DEFAULT_FILES_MODE);
 });
 

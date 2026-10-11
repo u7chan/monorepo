@@ -214,13 +214,28 @@ export default function App() {
   );
   // opener は App の存続期間で 1 つに固定する (作り直すとクリック世代がリセットされ、後着の結果を捨てられない)。
   // 依存は毎回の描画で上書きする ref 経由で読む (確認と面の開き方は layout や cwd で変わる)
-  const fileRefDepsRef = useRef({ checkFileRef, openFileRefTarget, sessionId: app.sessionId });
-  fileRefDepsRef.current = { checkFileRef, openFileRefTarget, sessionId: app.sessionId };
+  const fileRefDepsRef = useRef({
+    checkFileRef,
+    openFileRefTarget,
+    sessionIdRef: app.sessionIdRef,
+    fileRefSwitchSeq: app.fileRefSwitchSeq,
+  });
+  fileRefDepsRef.current = {
+    checkFileRef,
+    openFileRefTarget,
+    sessionIdRef: app.sessionIdRef,
+    fileRefSwitchSeq: app.fileRefSwitchSeq,
+  };
   const [fileRefOpener] = useState(() =>
     createFileRefOpener({
       check: (target) => fileRefDepsRef.current.checkFileRef(target),
       open: (target) => fileRefDepsRef.current.openFileRefTarget(target),
-      sessionId: () => fileRefDepsRef.current.sessionId,
+      // 選択の ID と切替世代を控える。世代で判定するのは、切替をまたいで同じ ID へ戻っても失効を
+      // 巻き戻さないため (ID の一致比較では A→B→A で復活する)
+      selection: () => ({
+        sessionId: fileRefDepsRef.current.sessionIdRef.current,
+        switchSeq: fileRefDepsRef.current.fileRefSwitchSeq(),
+      }),
     }),
   );
   const openFileRef = useCallback(
