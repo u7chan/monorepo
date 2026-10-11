@@ -243,6 +243,11 @@ export async function discardUnsentMessage(runId: string, deps: DiscardUnsentDep
 
 export type CancelQueuedDeps = {
   sessionIdRef: RefObject<string>;
+  /**
+   * 権威ある payload の世代 (useSessions の applySnapshot が進める)。要求より後に payload を
+   * 適用済みなら、この成功応答は古いので適用しない
+   */
+  snapshotSeqRef: RefObject<number>;
   /** 取り消しが済んだらローカルの待機表示も未送信へ切り替える */
   cancel: (sessionId: string, runId: string) => Promise<unknown>;
   /**
@@ -260,9 +265,13 @@ export type CancelQueuedDeps = {
 export async function cancelQueuedMessage(runId: string, deps: CancelQueuedDeps): Promise<void> {
   const id = deps.sessionIdRef.current;
   if (!id) return;
+  const snapshotSeq = deps.snapshotSeqRef.current;
   try {
     await deps.cancel(id, runId);
     if (deps.sessionIdRef.current !== id) return;
+    // 要求の後に payload (取消の resync や、別タブが同じ run を再送した resync) を適用済みなら、
+    // 取り消しを未送信へ落とすと待機へ戻った最新の状態を巻き戻す。表示は payload に委ねる
+    if (deps.snapshotSeqRef.current !== snapshotSeq) return;
     deps.dispatch({ type: "queueCanceled", runId });
   } catch (error) {
     if (deps.sessionIdRef.current !== id) return;

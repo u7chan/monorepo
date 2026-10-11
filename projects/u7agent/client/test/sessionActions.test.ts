@@ -695,6 +695,7 @@ function createCancelHarness(overrides: Partial<CancelQueuedDeps> = {}) {
   const { actions, dispatch } = actionRecorder();
   const deps: CancelQueuedDeps = {
     sessionIdRef: { current: "s-1" },
+    snapshotSeqRef: { current: 0 },
     cancel: async () => ({ ok: true }),
     recover: async () => false,
     dispatch,
@@ -713,12 +714,38 @@ test("取り消しが成功したら未送信へ切り替え、状態行の文�
   assert.deepEqual(actionsOfType(actions, "setActivity"), [], "件数と順位の正は resync の payload");
 });
 
+test("要求後に権威ある payload を適用済みなら、遅れて届いた取り消しの成功応答を捨てる", async () => {
+  const canceled = deferred<{ ok: true }>();
+  const snapshotSeqRef = { current: 0 };
+  let recovered = 0;
+  const { actions, deps } = createCancelHarness({
+    snapshotSeqRef,
+    cancel: () => canceled.promise,
+    recover: async () => {
+      recovered += 1;
+      return true;
+    },
+  });
+
+  const request = cancelQueuedMessage("run-b", deps);
+  // 取消の resync → 別タブが同じ run id を再送した resync が、成功応答より先に届く
+  snapshotSeqRef.current += 1;
+  snapshotSeqRef.current += 1;
+  canceled.resolve({ ok: true });
+  await request;
+
+  assert.deepEqual(actionsOfType(actions, "queueCanceled"), [], "古い応答で待機を未送信へ巻き戻さない");
+  assert.deepEqual(actionsOfType(actions, "setActivity"), []);
+  assert.equal(recovered, 0, "成功した要求では取り直しを起こさない");
+});
+
 test("取り消しの 409 / 404 は取り直しの後に理由を状態行へ出し、通信の失敗では取り直さない", async () => {
   // resync が状態行を空にするため、理由は取り直しの後に出す (順序も固定する)
   const order: string[] = [];
   const conflictActions: ChatAction[] = [];
   await cancelQueuedMessage("run-b", {
     sessionIdRef: { current: "s-1" },
+    snapshotSeqRef: { current: 0 },
     cancel: async () => {
       throw apiFailure("実行が始まったため取り消せません", 409);
     },

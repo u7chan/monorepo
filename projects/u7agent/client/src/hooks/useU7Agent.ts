@@ -120,6 +120,7 @@ export function useU7Agent({ pendingSessionId }: UseU7AgentOptions = {}) {
     sessionIdRef,
     selectionSeqRef,
     sessionOpsRef,
+    snapshotSeqRef,
     cwd,
     fileRefRequest,
     requestFileRef,
@@ -344,12 +345,13 @@ export function useU7Agent({ pendingSessionId }: UseU7AgentOptions = {}) {
     async (runId: string): Promise<void> => {
       await cancelQueuedMessage(runId, {
         sessionIdRef,
+        snapshotSeqRef,
         cancel: cancelQueuedApi,
         recover: resyncSession,
         dispatch,
       });
     },
-    [dispatch, resyncSession, sessionIdRef],
+    [dispatch, resyncSession, sessionIdRef, snapshotSeqRef],
   );
 
   /** ask_user の回答。409 / 404 は別タブの回答や停止で状態が変わっているため取り直しへ収束させる */

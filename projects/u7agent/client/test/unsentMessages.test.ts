@@ -3,7 +3,9 @@
 // 再起動・リロード・旧保存データ・再送 / 破棄の扱いを固定する。
 import assert from "node:assert/strict";
 import test from "node:test";
-import { chatReducer, initialChatState } from "../src/hooks/chatReducer";
+import type { Dispatch } from "react";
+import { chatReducer, initialChatState, type ChatAction } from "../src/hooks/chatReducer";
+import { cancelQueuedMessage } from "../src/hooks/sessionActions";
 import type { HistoryPage, PendingSend, SessionPayload } from "../src/types";
 
 function payload(pendingSends?: PendingSend[], sessionId = "session-a"): SessionPayload {
@@ -278,6 +280,50 @@ test("取り消した待機は未送信として残り、再送しても同じ�
     [[queuedId, false]],
   );
   assert.deepEqual(resent.pendingEchoIds, [runningId, queuedId]);
+});
+
+test("取り消しの成功応答は、要求後に別タブの再送 resync を適用済みなら捨てる", async () => {
+  // 実行中と待機中が並ぶ状態 (待機の順位と件数は payload が正)
+  let state = chatReducer(withHistory(), {
+    type: "resync",
+    payload: payload([
+      { runId: "run-running", text: "実行中の本文", at: 2, state: "running" },
+      { runId: "run-queued", text: "取り消す本文", at: 3, state: "queued", position: 1 },
+    ]),
+  });
+  // useSessions.applySnapshot と同じく、権威ある payload を適用するたびに世代を進める
+  const snapshotSeqRef = { current: 0 };
+  const dispatch: Dispatch<ChatAction> = (action) => {
+    state = chatReducer(state, action as ChatAction);
+  };
+  const applyResync = (pendingSends: PendingSend[], queueDepth: number) => {
+    snapshotSeqRef.current += 1;
+    dispatch({ type: "resync", payload: { ...payload(pendingSends), queueDepth } });
+  };
+  const runningId = state.bubbles.find((bubble) => bubble.runId === "run-running")?.id;
+  const queuedId = state.bubbles.find((bubble) => bubble.runId === "run-queued")?.id;
+
+  await cancelQueuedMessage("run-queued", {
+    sessionIdRef: { current: "session-a" },
+    snapshotSeqRef,
+    cancel: async () => {
+      // 取消の resync (未送信) → 別タブが同じ run id を再送した resync (待機中) が、応答より先に届く
+      applyResync([{ runId: "run-queued", text: "取り消す本文", at: 3, state: "unsent" }], 0);
+      applyResync([{ runId: "run-queued", text: "取り消す本文", at: 3, state: "queued", position: 1 }], 1);
+      return { ok: true };
+    },
+    recover: async () => false,
+    dispatch,
+  });
+
+  const bubble = state.bubbles.find((item) => item.runId === "run-queued");
+  assert.deepEqual(
+    [bubble?.queued, bubble?.queuePosition, bubble?.unsent],
+    [true, 1, false],
+    "古い成功応答で待機を未送信へ巻き戻さない",
+  );
+  assert.deepEqual(state.pendingEchoIds, [runningId, queuedId], "履歴への吸収待ちも失わない");
+  assert.equal(state.queueDepth, 1, "件数は payload のまま");
 });
 
 test("停止でキューを破棄した送信は、queue_cleared の run id で未送信へ切り替わる", () => {

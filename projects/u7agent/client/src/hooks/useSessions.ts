@@ -116,6 +116,11 @@ export function useSessions({
    * 選択し直し) で進み、遅れて届いた stop / compact の応答を適用しない判定に使う
    */
   const sessionOpsRef = useRef(0);
+  /**
+   * 権威ある payload を適用した世代。sessionOpsRef と違い圧縮中も進める。待機の送信
+   * (pendingSends) は圧縮中にも payload で動くため、後着の応答を捨てる基準を分ける
+   */
+  const snapshotSeqRef = useRef(0);
   const [sessionCreation] = useState(() => createSessionCreation<string>());
   // ファイル参照の要求。seq の単調増加と pending を store が持ち、破棄は選択が変わる各経路で行う
   const [fileRefRequests] = useState(createFileRefRequests);
@@ -188,6 +193,7 @@ export function useSessions({
       setCwd(payload.cwd || "");
       // 権威ある状態が届いた。圧縮を抜けたなら、進行中の同期応答は古いので捨てる
       if (payload.status !== "compacting") sessionOpsRef.current += 1;
+      snapshotSeqRef.current += 1;
       dispatch({ type: "resync", payload, receivedAt: Date.now() });
       // 表示の正は全履歴ページ。ここでは状態だけを同期し、最新ページを別途取り直す
       void refreshHistory(payload.sessionId);
@@ -696,6 +702,8 @@ export function useSessions({
     selectionSeqRef,
     /** 同一セッション内の操作世代 (stop / compact の応答適用ガード) */
     sessionOpsRef,
+    /** 権威ある payload の世代。後着の応答を捨てる判定に使う (圧縮中も進む) */
+    snapshotSeqRef,
     cwd,
     fileRefRequest,
     requestFileRef,
