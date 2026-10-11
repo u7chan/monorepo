@@ -24,6 +24,7 @@ import { createServeRoutes } from "./routes/serve";
 import { createSessionRoutes } from "./routes/sessions";
 import { createWebSearchSettingsRoutes } from "./routes/web-search";
 import { createSecretScope } from "./secrets";
+import { createSpaceDelete } from "./space-delete";
 import { SpaceStore } from "./spaces";
 import { sessionSpaceGuard, spaceContextGuard } from "./space-context";
 import { DEFAULT_CLIENT_DIST_DIR, serveClientAssets } from "./static";
@@ -115,6 +116,8 @@ export async function createBffApp(opts: CreateBffAppOptions = {}) {
   const spaces = new SpaceStore(appDb);
   // 変更系は「何も保存していない」ことを state でも示す
   const appDataMutation = appDataGuard(appDb, { notStored: true });
+  // 削除は会話ストア・ワークスペース・公開サービスの 3 つを跨ぐため、実体をここで組む
+  const spaceDelete = createSpaceDelete({ spaces, store, workspace, serve, appDb });
 
   const healthRoutes = createHealthRoutes({
     pi,
@@ -163,6 +166,11 @@ export async function createBffApp(opts: CreateBffAppOptions = {}) {
       ),
       (c) => c.json({ space: spaces.create(c.req.valid("json").name) }, 201),
     )
+    // 追加スペースの削除。会話・履歴・作業フォルダ・cwd キーの行まで消す (docs/api.md#スペース)
+    .delete("/api/spaces/:id", appDataMutation, async (c) => {
+      await spaceDelete.remove(c.req.param("id"));
+      return c.json({ ok: true });
+    })
     .get("/api/health", healthRoutes.health)
     .get("/api/runtime/models", runtimeRoutes.models)
     .get("/api/runtime/environment", runtimeRoutes.environment)

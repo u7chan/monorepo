@@ -9,7 +9,7 @@ import { join } from "node:path";
 import test from "node:test";
 import { createBffApp } from "../src/app";
 import { AppDb } from "../src/app-db";
-import { sessionUploadsRel, sessionWorkdirRel } from "../src/app-paths";
+import { sessionUploadsRel, sessionWorkdirRel, spaceDirRel } from "../src/app-paths";
 import type { SandboxMoveClient, SandboxWorkspaceClient } from "../src/sandbox/client";
 import { SandboxRequestError } from "../src/sandbox/client";
 import { SessionMoveResponseSchema } from "../src/schema";
@@ -17,6 +17,7 @@ import { createAgentCatalog } from "../src/agents";
 import { sessionJsonlPath, sessionMetaPath, sessionSendsPath } from "../src/session-store";
 import { SessionStore } from "../src/sessions";
 import { asPiBff, createStubPi, waitFor } from "./stub-pi";
+import { createServeSandboxStub } from "./serve-stub";
 
 const jsonPost = (payload: unknown): RequestInit => ({
   method: "POST",
@@ -100,7 +101,7 @@ function createFsSandbox(root: string) {
       return { path: to };
     },
   };
-  return { workspace, move, moves, failures };
+  return { workspace, move, serve: createServeSandboxStub(), moves, failures };
 }
 
 async function withPaths<T>(run: (paths: { root: string; store: string }) => Promise<T>): Promise<T> {
@@ -123,6 +124,9 @@ async function openBff(
     pi: options.pi === undefined ? asPiBff(createStubPi()) : options.pi === null ? null : asPiBff(options.pi),
     workspace: sandbox?.workspace ?? null,
     moveSandbox: sandbox?.move ?? null,
+    serveSandbox: sandbox?.serve.sandbox ?? null,
+    // 停止中の状態を既定にする (このファイルはサービスの稼働を扱わない)
+    serveProbe: async () => false,
   });
   return { bff, sandbox };
 }
@@ -694,6 +698,327 @@ test("rejects a live record whose workdir is not the scratch path", async () => 
       assert.deepEqual(sandbox.moves, []);
     } finally {
       await store.close();
+    }
+  });
+});
+
+// 引っ越しの meta 書換えが済んだ後に deleteSession が届いても、所属が変わっていたら消さない (What)
+test("deleteSession keeps a conversation that moved to another space while it was waiting", async () => {
+  await withPaths(async (paths) => {
+    const { bff } = await openBff(paths);
+    try {
+      const spaceA = await createSpace(bff, "A");
+      const spaceB = await createSpace(bff, "B");
+      const created = await createSession(bff, { spaceId: spaceA });
+      const id = created.sessionId as string;
+      await writeFile(join(paths.root, sessionWorkdirRel(id, spaceA), "work.txt"), "作業中");
+
+      // move は meta を書き換えた後にもう一度 drain する。その 2 回目の flush を止め、
+      // 「所属が変わった後、move の完了前」に deleteSession が入る窓を再現する
+      let release = () => {};
+      const gate = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      let entered = () => {};
+      const enteredFlush = new Promise<void>((resolve) => {
+        entered = resolve;
+      });
+      const writer = bff.store.get(id)!.writer!;
+      const flush = writer.flush.bind(writer);
+      let flushes = 0;
+      writer.flush = async () => {
+        flushes += 1;
+        if (flushes === 2) {
+          entered();
+          await gate;
+        }
+        return flush();
+      };
+
+      const moving = moveTo(bff, id, spaceB, spaceA);
+      await enteredFlush;
+      assert.equal(flushes, 2);
+      // 確かに meta は移動済み (最後の中断確認より後)
+      assert.equal(JSON.parse(await readFile(sessionMetaPath(id, paths.store), "utf8")).spaceId, spaceB);
+      const deleting = bff.store.deleteSession(id, { expectSpaceId: spaceA });
+      assert.equal(bff.store.deleting.has(id), true);
+      release();
+
+      assert.equal((await moving).status, 200);
+      assert.equal(await deleting, false);
+      // 移動先の会話は履歴フォルダを含めて残る
+      assert.equal(bff.store.spaceOfId(id), spaceB);
+      assert.equal(existsSync(sessionMetaPath(id, paths.store)), true);
+      assert.equal(existsSync(join(paths.root, sessionWorkdirRel(id, spaceB), "work.txt")), true);
+      assert.equal((await jsonBody(bff.app.request(`/api/sessions/${id}?spaceId=${spaceB}`))).sessionId, id);
+    } finally {
+      await bff.close();
+    }
+  });
+});
+
+// 削除対象へ向かう引っ越しの失敗 (ロールバック) が、根の削除より先に終わることを見る (What)
+test("deleting a space waits for a move into it so the rollback keeps the other space's files", async () => {
+  await withPaths(async (paths) => {
+    const { bff, sandbox } = await openBff(paths);
+    try {
+      const spaceA = await createSpace(bff, "A");
+      const spaceB = await createSpace(bff, "B");
+      const created = await createSession(bff, { spaceId: spaceB });
+      const id = created.sessionId as string;
+      // B 側に作業フォルダと添付、A 側に同じ会話 ID の添付を置き、添付の移動を 409 にする
+      await writeFile(join(paths.root, sessionWorkdirRel(id, spaceB), "work.txt"), "作業中");
+      await mkdir(join(paths.root, sessionUploadsRel(id, spaceB)), { recursive: true });
+      await writeFile(join(paths.root, sessionUploadsRel(id, spaceB), "note.txt"), "添付");
+      await mkdir(join(paths.root, sessionUploadsRel(id, spaceA)), { recursive: true });
+      await writeFile(join(paths.root, sessionUploadsRel(id, spaceA), "old.txt"), "先客");
+
+      // 作業フォルダの移動後、添付の移動で止める (409 を返す直前)
+      const moveEntry = sandbox!.move.moveEntry;
+      let entered = () => {};
+      const enteredUploads = new Promise<void>((resolve) => {
+        entered = resolve;
+      });
+      let release = () => {};
+      const gate = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      sandbox!.move.moveEntry = async (from, to) => {
+        if (to === sessionUploadsRel(id, spaceA)) {
+          entered();
+          await gate;
+        }
+        return moveEntry(from, to);
+      };
+      // 根の削除は実ファイルへ行い、呼び出しを記録する (同期していないとこの時点でファイルが消える)
+      const roots: string[] = [];
+      sandbox!.workspace.deleteDirectory = async (path) => {
+        roots.push(path);
+        await rm(join(paths.root, path), { recursive: true, force: true });
+      };
+
+      const moved = moveTo(bff, id, spaceA, spaceB);
+      await enteredUploads;
+      const deleting = bff.app.request(`/api/spaces/${spaceA}`, { method: "DELETE" });
+      try {
+        // 引っ越しが止まっている間に根へ触れない (同期していなければこの間に消える)
+        await new Promise((resolve) => setTimeout(resolve, 50));
+        assert.deepEqual(roots, []);
+      } finally {
+        release();
+      }
+
+      // ロールバック (作業フォルダを B へ戻す) の後に根を消す = 引っ越しは 409 で B のファイルは残る
+      const movedResponse = await moved;
+      assert.equal(movedResponse.status, 409);
+      assert.match((await jsonBody(movedResponse)).error, /退避先を削除/);
+      assert.equal((await deleting).status, 200);
+      assert.deepEqual(roots, [spaceDirRel(spaceA)]);
+      assert.equal((await readMeta(id, paths.store)).spaceId, spaceB);
+      assert.equal(existsSync(join(paths.root, sessionWorkdirRel(id, spaceB), "work.txt")), true);
+      assert.equal(existsSync(join(paths.root, sessionUploadsRel(id, spaceB), "note.txt")), true);
+      assert.equal(existsSync(join(paths.root, spaceDirRel(spaceA))), false);
+      assert.equal(bff.store.spaceOfId(id), spaceB);
+      assert.equal((await jsonBody(bff.app.request(`/api/sessions/${id}?spaceId=${spaceB}`))).sessionId, id);
+    } finally {
+      await bff.close();
+    }
+  });
+});
+
+// 削除対象へ向かう引っ越しが完了した場合も、根の削除より先に完了させて回収する (What)
+test("deleting a space collects a conversation that finished moving into it, leaving no files behind", async () => {
+  await withPaths(async (paths) => {
+    const { bff, sandbox } = await openBff(paths);
+    try {
+      const spaceA = await createSpace(bff, "A");
+      const spaceB = await createSpace(bff, "B");
+      const created = await createSession(bff, { spaceId: spaceB });
+      const id = created.sessionId as string;
+      await writeFile(join(paths.root, sessionWorkdirRel(id, spaceB), "work.txt"), "作業中");
+
+      // 作業フォルダの移動で止める (移動元の親が消えていれば 404 を「運ぶものが無い」と読み替える)
+      const moveEntry = sandbox!.move.moveEntry;
+      let entered = () => {};
+      const enteredWorkdir = new Promise<void>((resolve) => {
+        entered = resolve;
+      });
+      let release = () => {};
+      const gate = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      sandbox!.move.moveEntry = async (from, to) => {
+        if (to === sessionWorkdirRel(id, spaceA)) {
+          entered();
+          await gate;
+        }
+        return moveEntry(from, to);
+      };
+      const roots: string[] = [];
+      sandbox!.workspace.deleteDirectory = async (path) => {
+        roots.push(path);
+        await rm(join(paths.root, path), { recursive: true, force: true });
+      };
+
+      const moved = moveTo(bff, id, spaceA, spaceB);
+      await enteredWorkdir;
+      const deleting = bff.app.request(`/api/spaces/${spaceA}`, { method: "DELETE" });
+      try {
+        // 引っ越しが止まっている間に根へ触れない (同期していなければこの間に消える)
+        await new Promise((resolve) => setTimeout(resolve, 50));
+        assert.deepEqual(roots, []);
+      } finally {
+        release();
+      }
+
+      // 引っ越しは完了し、対象スペースの会話として回収される (どちらのスペースにもファイルは残らない)
+      assert.equal((await moved).status, 200);
+      assert.equal((await deleting).status, 200);
+      assert.equal(bff.store.spaceOfId(id), undefined);
+      assert.equal(existsSync(join(paths.root, sessionWorkdirRel(id, spaceB))), false);
+      assert.equal(existsSync(join(paths.root, sessionWorkdirRel(id, spaceA))), false);
+      assert.equal(existsSync(join(paths.root, spaceDirRel(spaceA))), false);
+      assert.equal(existsSync(sessionMetaPath(id, paths.store)), false);
+      assert.deepEqual(
+        (await jsonBody(bff.app.request("/api/spaces"))).spaces.map((space: { id: string }) => space.id),
+        ["default", spaceB],
+      );
+    } finally {
+      await bff.close();
+    }
+  });
+});
+
+// 同じ会話に複数の引っ越しが重なっても、対象スペースへ向かう先行を隠さず待つことを見る (What)
+test("deleting a space waits for an earlier move of the same conversation, not only the latest one", async () => {
+  await withPaths(async (paths) => {
+    const { bff, sandbox } = await openBff(paths);
+    try {
+      const spaceA = await createSpace(bff, "A");
+      const spaceB = await createSpace(bff, "B");
+      const spaceC = await createSpace(bff, "C");
+      const created = await createSession(bff, { spaceId: spaceB });
+      const id = created.sessionId as string;
+      await writeFile(join(paths.root, sessionWorkdirRel(id, spaceB), "work.txt"), "作業中");
+      await mkdir(join(paths.root, sessionUploadsRel(id, spaceB)), { recursive: true });
+      await writeFile(join(paths.root, sessionUploadsRel(id, spaceB), "note.txt"), "添付");
+      // A / C の両方に同じ会話 ID の添付を置き、どちらへ送っても添付の移動が 409 になるようにする
+      for (const spaceId of [spaceA, spaceC]) {
+        await mkdir(join(paths.root, sessionUploadsRel(id, spaceId)), { recursive: true });
+        await writeFile(join(paths.root, sessionUploadsRel(id, spaceId), "old.txt"), "先客");
+      }
+
+      // 先行 B → A の添付の移動で止める (409 を返す直前)
+      const moveEntry = sandbox!.move.moveEntry;
+      let entered = () => {};
+      const enteredUploads = new Promise<void>((resolve) => {
+        entered = resolve;
+      });
+      let release = () => {};
+      const gate = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      sandbox!.move.moveEntry = async (from, to) => {
+        if (to === sessionUploadsRel(id, spaceA)) {
+          entered();
+          await gate;
+        }
+        return moveEntry(from, to);
+      };
+      const roots: string[] = [];
+      sandbox!.workspace.deleteDirectory = async (path) => {
+        roots.push(path);
+        await rm(join(paths.root, path), { recursive: true, force: true });
+      };
+
+      const first = moveTo(bff, id, spaceA, spaceB);
+      await enteredUploads;
+      // 後続 (B → C) が store.move に登録されるのを待ってから削除する (先行の登録を上書きする位置)
+      const firstLifecycle = bff.store.lifecycle.get(id);
+      const second = moveTo(bff, id, spaceC, spaceB);
+      await waitFor(() => bff.store.lifecycle.get(id) !== firstLifecycle, 3000, "second move registration");
+      const deleting = bff.app.request(`/api/spaces/${spaceA}`, { method: "DELETE" });
+      try {
+        // 先行が止まっている間に根へ触れない (先行の待機対象が失われていればこの間に消える)
+        await new Promise((resolve) => setTimeout(resolve, 50));
+        assert.deepEqual(roots, []);
+      } finally {
+        release();
+      }
+
+      // 先行のロールバックが終わってから根を消す = 先行は 409 で B のファイルは残る (後続も 409)
+      const firstResponse = await first;
+      assert.equal(firstResponse.status, 409);
+      assert.match((await jsonBody(firstResponse)).error, /退避先を削除/);
+      assert.equal((await second).status, 409);
+      assert.equal((await deleting).status, 200);
+      assert.deepEqual(roots, [spaceDirRel(spaceA)]);
+      assert.equal((await readMeta(id, paths.store)).spaceId, spaceB);
+      assert.equal(existsSync(join(paths.root, sessionWorkdirRel(id, spaceB), "work.txt")), true);
+      assert.equal(existsSync(join(paths.root, sessionUploadsRel(id, spaceB), "note.txt")), true);
+      assert.equal(existsSync(join(paths.root, spaceDirRel(spaceA))), false);
+      assert.equal(bff.store.spaceOfId(id), spaceB);
+      assert.equal((await jsonBody(bff.app.request(`/api/sessions/${id}?spaceId=${spaceB}`))).sessionId, id);
+    } finally {
+      await bff.close();
+    }
+  });
+});
+
+// 対象スペースからの引っ越し中に DELETE が来ても、移動先 (他会話スペース) の会話を壊さない (What)
+test("deleting a space during a move out of it keeps the other space intact", async () => {
+  await withPaths(async (paths) => {
+    const { bff, sandbox } = await openBff(paths);
+    try {
+      const spaceA = await createSpace(bff, "A");
+      const spaceB = await createSpace(bff, "B");
+      const moving = await createSession(bff, { spaceId: spaceA });
+      const keep = await createSession(bff, { spaceId: spaceB });
+      await writeFile(join(paths.root, sessionWorkdirRel(moving.sessionId, spaceA), "work.txt"), "作業中");
+      await writeFile(join(paths.root, sessionWorkdirRel(keep.sessionId, spaceB), "keep.txt"), "残す");
+
+      // 引っ越しの物理移動を止め、DELETE が claim と deleteSession の待ちに入る状態を作る
+      let entered = () => {};
+      const enteredMove = new Promise<void>((resolve) => {
+        entered = resolve;
+      });
+      let release = () => {};
+      const gate = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      const moveEntry = sandbox!.move.moveEntry;
+      sandbox!.move.moveEntry = async (from, to) => {
+        entered();
+        await gate;
+        return moveEntry(from, to);
+      };
+
+      const moved = moveTo(bff, moving.sessionId, spaceB, spaceA);
+      await enteredMove;
+      const deleting = bff.app.request(`/api/spaces/${spaceA}`, { method: "DELETE" });
+      try {
+        await waitFor(() => bff.store.deleting.has(moving.sessionId), 3000, "delete wait");
+      } finally {
+        release();
+      }
+
+      assert.equal((await deleting).status, 200);
+      // 引っ越しは中断され、移動元に戻った会話はスペースごと消える
+      assert.equal((await moved).status, 404);
+      assert.equal(bff.store.spaceOfId(moving.sessionId), undefined);
+      // 移動先スペースの会話とファイルは無傷
+      assert.equal(bff.store.spaceOfId(keep.sessionId), spaceB);
+      assert.equal(existsSync(join(paths.root, sessionWorkdirRel(keep.sessionId, spaceB), "keep.txt")), true);
+      assert.equal(
+        (await jsonBody(bff.app.request(`/api/sessions/${keep.sessionId}?spaceId=${spaceB}`))).sessionId,
+        keep.sessionId,
+      );
+      assert.deepEqual(
+        (await jsonBody(bff.app.request("/api/spaces"))).spaces.map((space: { id: string }) => space.id),
+        ["default", spaceB],
+      );
+    } finally {
+      await bff.close();
     }
   });
 });

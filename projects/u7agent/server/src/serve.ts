@@ -396,8 +396,12 @@ export class ServeService {
     return this.#compose(view, await this.#observe());
   }
 
-  async runtimeStatus(): Promise<RuntimeServeStatus> {
-    return this.#composeRuntime(await this.#observe());
+  /**
+   * 全体の稼働判定。`fresh` は状態のキャッシュを読まずに取り直す (削除の直前確認が、直前に起動した
+   * サービスを見落とさないため)。設定 → ランタイムのポーリングは既定のキャッシュを使う。
+   */
+  async runtimeStatus(options: { fresh?: boolean } = {}): Promise<RuntimeServeStatus> {
+    return this.#composeRuntime(await this.#observe(options));
   }
 
   /** 全体管理からの停止も会話の操作と同じロック・世代照合を通す。 */

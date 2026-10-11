@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { existsSync } from "node:fs";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -7,7 +8,8 @@ import test from "node:test";
 import { createBffApp } from "../src/app";
 import { APP_DB_FILENAME } from "../src/app-db";
 import { sessionMetaPath, sessionJsonlPath } from "../src/session-store";
-import { sessionUploadsRel, sessionWorkdirRel } from "../src/app-paths";
+import { sessionUploadsRel, sessionWorkdirRel, spaceDirRel } from "../src/app-paths";
+import { SandboxRequestError } from "../src/sandbox/client";
 import type { SandboxWorkspaceClient } from "../src/sandbox/client";
 import type { SessionPayload, Space } from "../src/schema";
 import { asPiBff, createStubPi, waitFor } from "./stub-pi";
@@ -24,6 +26,9 @@ function fixtureWorkspace() {
   const dirs: string[] = [];
   const uploads: string[] = [];
   const skillDirs: string[] = [];
+  const deletedDirs: string[] = [];
+  // 先頭から 1 件ずつ消化する削除失敗 (途中失敗と再試行の再現用)
+  const deleteFailures: Error[] = [];
   const workspace: SandboxWorkspaceClient = {
     previewFile: async () => ({ text: "" }),
     statFile: async (path: string) => ({ path }),
@@ -39,7 +44,11 @@ function fixtureWorkspace() {
     },
     renameEntry: async (path, name) => ({ path, name }),
     deleteFile: async () => {},
-    deleteDirectory: async () => {},
+    deleteDirectory: async (path) => {
+      deletedDirs.push(path);
+      const failure = deleteFailures.shift();
+      if (failure) throw failure;
+    },
     uploadFile: async ({ dir, name }) => {
       uploads.push(dir);
       return { path: `${dir}/${name}`, name, renamed: false, size: 1 };
@@ -52,7 +61,7 @@ function fixtureWorkspace() {
     }),
     checkDownload: async () => ({ kind: "file", name: "a.txt", bytes: 0, entries: 0, skipped: [] }),
   };
-  return { workspace, dirs, uploads, skillDirs };
+  return { workspace, dirs, uploads, skillDirs, deletedDirs, deleteFailures };
 }
 
 async function setup(t: test.TestContext) {
@@ -392,4 +401,238 @@ test("作成の本文は Content-Type によらず同じ所属を検証し、不
       400,
     );
   }
+});
+
+const deleteSpace = (f: Awaited<ReturnType<typeof setup>>, id: string) =>
+  f.bff.app.request(`/api/spaces/${encodeURIComponent(id)}`, { method: "DELETE" });
+
+// 会話の状態ごとに、削除が SDK の復元や JSONL の読取に依存しないことを見る (What)
+test("スペース削除は live / 実行中 / 未ロード / sweep 後 / 壊れた JSONL の会話をまとめて消す", async (t) => {
+  const f = await setup(t);
+  const states: Array<[string, (sessionId: string) => Promise<void>]> = [
+    ["live", async () => {}],
+    [
+      "実行中",
+      async (sessionId) => {
+        f.bff.store.postMessage(f.bff.store.get(sessionId)!, "実行中");
+        assert.equal(f.bff.store.statusOf(f.bff.store.get(sessionId)!), "running");
+      },
+    ],
+    ["未ロード (再起動後)", async () => void (await f.restart())],
+    [
+      "sweep 後",
+      async (sessionId) => {
+        f.bff.store.get(sessionId)!.lastUsedAt = 0;
+        await f.bff.store.sweep();
+        assert.equal(f.bff.store.get(sessionId), undefined);
+      },
+    ],
+    [
+      "壊れた JSONL",
+      async (sessionId) => {
+        await writeFile(sessionJsonlPath(sessionId, f.dir), "broken\n");
+        await f.restart();
+      },
+    ],
+  ];
+  for (const [name, prepare] of states) {
+    const space = await f.space(`消す ${name}`);
+    const session = await f.session(space.id);
+    await prepare(session.sessionId);
+    assert.equal(f.bff.store.spaceOfId(session.sessionId), space.id, name);
+    const response = await deleteSpace(f, space.id);
+    assert.equal(response.status, 200, name);
+    assert.deepEqual(await jsonBody(response), { ok: true }, name);
+    assert.equal(f.bff.store.spaceOfId(session.sessionId), undefined, name);
+    assert.deepEqual(f.bff.store.list(space.id), [], name);
+    assert.equal(existsSync(sessionMetaPath(session.sessionId, f.dir)), false, name);
+  }
+});
+
+test("スペース削除は通常 400、不正 400、未知 404 を副作用なしで返す", async (t) => {
+  const f = await setup(t);
+  const space = await f.space("デモ");
+  const deleted = f.deletedDirs.length;
+  const created = f.pi.sessions.length;
+  for (const [id, status] of [
+    ["default", 400],
+    ["%20", 400],
+    ["../bad", 400],
+    ["space-0000000000000000", 404],
+    ["space-0123456789abcde", 400],
+  ] as const) {
+    assert.equal((await deleteSpace(f, id)).status, status, id);
+  }
+  assert.equal(f.deletedDirs.length, deleted);
+  assert.equal(f.pi.sessions.length, created);
+  assert.deepEqual(
+    (await jsonBody(f.bff.app.request("/api/spaces"))).spaces.map((item: Space) => item.id),
+    ["default", space.id],
+  );
+  // 未知の 404 は claim を残さない (同じ id の再実行も 404 のまま)
+  assert.equal((await deleteSpace(f, "space-0000000000000000")).status, 404);
+});
+
+test("削除中のスペースは scoped API が 404 になり、二重削除は 409 になる", async (t) => {
+  const f = await setup(t);
+  const space = await f.space("デモ");
+  const session = await f.session(space.id);
+  const during: number[] = [];
+  f.workspace.deleteDirectory = async (path) => {
+    f.deletedDirs.push(path);
+    during.push((await f.bff.app.request(`/api/sessions?spaceId=${space.id}`)).status);
+    during.push((await f.bff.app.request(`/api/sessions/${session.sessionId}?spaceId=${space.id}`)).status);
+    during.push((await f.bff.app.request(`/api/spaces/${space.id}`, { method: "DELETE" })).status);
+    during.push((await f.bff.app.request(`/api/secrets?spaceId=${space.id}`)).status);
+  };
+  assert.equal((await deleteSpace(f, space.id)).status, 200);
+  assert.deepEqual(during, [404, 404, 409, 404]);
+  // 削除後は claim が解け、同じ id は未知の 404 になる (行が無いので二重削除の 409 ではない)
+  assert.equal((await deleteSpace(f, space.id)).status, 404);
+  assert.equal(f.bff.store.get(session.sessionId), undefined);
+});
+
+test("スペース削除は会話・履歴・作業フォルダ・添付の根・cwd キー行を消し、他会話は無傷に残す", async (t) => {
+  const f = await setup(t);
+  const space = await f.space("消す");
+  const other = await f.space("残す");
+  const target = await f.session(space.id);
+  const keep = await f.session(other.id);
+  const normal = await f.session();
+  // 添付と cwd キーの行 (環境変数 / サービス実績)。別スペースにも 1 組置く
+  const uploaded = await f.bff.app.request(`/api/sessions/${target.sessionId}/files?spaceId=${space.id}&name=a.txt`, {
+    method: "POST",
+    body: "a",
+  });
+  assert.equal(uploaded.status, 201);
+  const secret = await f.bff.app.request(
+    `/api/secrets?spaceId=${space.id}`,
+    json({ sessionId: target.sessionId, kind: "variable", name: "DEMO", value: "v" }),
+  );
+  assert.equal(secret.status, 200);
+  f.bff.appDb.saveServeCommand({ cwd: target.cwd, command: "pnpm dev", updatedAt: 1 });
+  const keptSecret = await f.bff.app.request(
+    `/api/secrets?spaceId=${other.id}`,
+    json({ sessionId: keep.sessionId, kind: "variable", name: "KEEP", value: "v" }),
+  );
+  assert.equal(keptSecret.status, 200);
+  f.bff.appDb.saveServeCommand({ cwd: keep.cwd, command: "pnpm start", updatedAt: 2 });
+
+  assert.equal((await deleteSpace(f, space.id)).status, 200);
+  assert.deepEqual(f.deletedDirs, [spaceDirRel(space.id)]);
+  // 会話ストアのフォルダ・作業フォルダ (添付を含む根)・cwd キー行が残らない
+  assert.equal(existsSync(sessionMetaPath(target.sessionId, f.dir)), false);
+  assert.deepEqual(f.bff.appDb.listSecrets(target.cwd), []);
+  assert.equal(f.bff.appDb.getServeCommand(target.cwd), undefined);
+  assert.equal(target.cwd, sessionWorkdirRel(target.sessionId, space.id));
+  assert.equal(sessionUploadsRel(target.sessionId, space.id), `${spaceDirRel(space.id)}/uploads/${target.sessionId}`);
+  // 通常スペースと他会話スペースは無傷
+  assert.equal(f.bff.store.spaceOfId(keep.sessionId), other.id);
+  assert.equal(f.bff.store.spaceOfId(normal.sessionId), "default");
+  assert.equal(existsSync(sessionMetaPath(keep.sessionId, f.dir)), true);
+  assert.deepEqual(
+    f.bff.appDb.listSecrets(keep.cwd).map((row) => row.name),
+    ["KEEP"],
+  );
+  assert.equal(f.bff.appDb.getServeCommand(keep.cwd)?.command, "pnpm start");
+  // 一覧に消したスペースの会話が混ざらず、通常 / 他会話の一覧も変わらない
+  assert.deepEqual(f.bff.store.list(space.id), []);
+  assert.deepEqual(
+    (await jsonBody(f.bff.app.request("/api/spaces"))).spaces.map((item: Space) => item.id),
+    ["default", other.id],
+  );
+  assert.equal((await f.bff.app.request(`/api/sessions?spaceId=${space.id}`)).status, 404);
+  assert.deepEqual(
+    (await jsonBody(f.bff.app.request(`/api/sessions?spaceId=${other.id}`))).sessions.map(
+      (item: SessionPayload) => item.sessionId,
+    ),
+    [keep.sessionId],
+  );
+  assert.deepEqual(
+    (await jsonBody(f.bff.app.request("/api/sessions"))).sessions.map((item: SessionPayload) => item.sessionId),
+    [normal.sessionId],
+  );
+});
+
+test("スペース削除の DB 障害は入口ガードの 503 (not_stored) とハンドラ内の 503 を分けて返す", async (t) => {
+  const f = await setup(t);
+  const space = await f.space("デモ");
+  await f.session(space.id);
+  // 入口ガードは通るが、ハンドラ内の DB 読み (claim) が失敗する
+  const raw = new DatabaseSync(join(f.dir, APP_DB_FILENAME));
+  raw.exec("DROP TABLE spaces");
+  raw.close();
+  const inner = await deleteSpace(f, space.id);
+  assert.equal(inner.status, 503);
+  assert.equal((await jsonBody(inner)).state, undefined);
+  // DB を使えない状態では入口ガードが「何も保存していない」ことを state で示す
+  f.bff.appDb.close();
+  const guard = await deleteSpace(f, space.id);
+  assert.equal(guard.status, 503);
+  assert.equal((await jsonBody(guard)).state, "not_stored");
+});
+
+test("ディレクトリ削除の失敗では会話だけ消えて行が残り、再実行すると完了する", async (t) => {
+  const f = await setup(t);
+  const space = await f.space("デモ");
+  const session = await f.session(space.id);
+  f.deleteFailures.push(new SandboxRequestError("削除できませんでした", 502));
+
+  const failed = await deleteSpace(f, space.id);
+  assert.equal(failed.status, 502);
+  assert.equal((await jsonBody(failed)).error, "削除できませんでした");
+  // commit point より前で止まる = 会話と履歴は消え、spaces 行は残る
+  assert.equal(f.bff.store.spaceOfId(session.sessionId), undefined);
+  assert.equal(existsSync(sessionMetaPath(session.sessionId, f.dir)), false);
+  assert.equal(
+    (await jsonBody(f.bff.app.request("/api/spaces"))).spaces.some((item: Space) => item.id === space.id),
+    true,
+  );
+  assert.deepEqual(f.deletedDirs, [spaceDirRel(space.id)]);
+
+  assert.equal((await deleteSpace(f, space.id)).status, 200);
+  assert.deepEqual(f.deletedDirs, [spaceDirRel(space.id), spaceDirRel(space.id)]);
+  assert.deepEqual(
+    (await jsonBody(f.bff.app.request("/api/spaces"))).spaces.map((item: Space) => item.id),
+    ["default"],
+  );
+});
+
+test("コミット後に現れた会話は回収して根をもう一度消す", async (t) => {
+  const f = await setup(t);
+  const space = await f.space("デモ");
+  await f.session(space.id);
+  // claim の前に受理された会話作成が、根の削除の最中に完了する窓を再現する
+  let late = "";
+  f.workspace.deleteDirectory = async (path) => {
+    f.deletedDirs.push(path);
+    if (!late) late = (await f.bff.store.create({ spaceId: space.id })).id;
+  };
+  assert.equal((await deleteSpace(f, space.id)).status, 200);
+  assert.equal(f.bff.store.spaceOfId(late), undefined);
+  assert.equal(existsSync(sessionMetaPath(late, f.dir)), false);
+  // 回収した分だけ根の削除がやり直される
+  assert.deepEqual(f.deletedDirs, [spaceDirRel(space.id), spaceDirRel(space.id)]);
+});
+
+test("削除後に残った会話を回収できないときは 500 で未回収を伝える", async (t) => {
+  const f = await setup(t);
+  const space = await f.space("デモ");
+  await f.session(space.id);
+  let late = "";
+  f.workspace.deleteDirectory = async (path) => {
+    f.deletedDirs.push(path);
+    if (!late) late = (await f.bff.store.create({ spaceId: space.id })).id;
+  };
+  const original = f.bff.store.deleteSession.bind(f.bff.store);
+  f.bff.store.deleteSession = async (id, options) => {
+    if (id === late) throw new Error("回収できない");
+    return original(id, options);
+  };
+
+  const response = await deleteSpace(f, space.id);
+  assert.equal(response.status, 500);
+  assert.match((await jsonBody(response)).error, /スペースは削除しましたが/);
+  // 行は既に無いので、再試行は未知の 404 になる
+  assert.equal((await deleteSpace(f, space.id)).status, 404);
 });
