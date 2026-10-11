@@ -66,6 +66,7 @@ import {
   type PreviewOrigins,
 } from "../lib/fileTabs";
 import type { FileEntry } from "../types";
+import { COPY_FAILED_TEXT } from "./chat/CopyButton";
 import { ChevronIcon, FileIcon, FolderIcon } from "./icons";
 import { RowMenu } from "./RowMenu";
 
@@ -641,7 +642,23 @@ function EntryRow({
   onDownload: (path: string, name: string, type: "file" | "dir") => void;
 }) {
   const path = fileTreeChildPath(parent, entry.name);
+  const { copiedId, copyMessage, copyFailure } = useMessageCopy();
   const revealed = revealPath === path;
+  const rowActions = (
+    <EntryRowActions
+      name={entry.name}
+      type={entry.type}
+      symlink={entry.symlink}
+      canRename={canRename}
+      readOnly={readOnly}
+      excludeNames={excludeNames}
+      copied={copiedId === path}
+      onCopyPath={() => void copyMessage(path, path)}
+      onRename={() => onRename(path, entry.name)}
+      onDelete={() => onDelete(path, entry.type)}
+      onDownload={() => onDownload(path, entry.name, entry.type)}
+    />
+  );
 
   if (entry.type === "dir") {
     const node = fileTreeDirectoryState(tree, path);
@@ -696,19 +713,9 @@ function EntryRow({
           <RowTail>
             <EntrySize bytes={entry.size} />
             <EntryTime at={entry.mtime} />
-            <EntryRowActions
-              path={path}
-              name={entry.name}
-              type={entry.type}
-              symlink={entry.symlink}
-              canRename={canRename}
-              readOnly={readOnly}
-              excludeNames={excludeNames}
-              onRename={() => onRename(path, entry.name)}
-              onDelete={() => onDelete(path, entry.type)}
-              onDownload={() => onDownload(path, entry.name, entry.type)}
-            />
+            {rowActions}
           </RowTail>
+          <PathCopyFailure detail={copyFailure(path)} />
         </div>
         {/* 開閉は高さの遷移で見せる (styles/index.css の .tree-fold)。入れ物は開く前から置くので、
             初めて開く枝 (取得を待つ間) も 0fr から伸びる。閉じている間も取得済みの内容を残して
@@ -801,41 +808,30 @@ function EntryRow({
       <RowTail>
         <EntrySize bytes={entry.size} />
         <EntryTime at={entry.mtime} />
-        <EntryRowActions
-          path={path}
-          name={entry.name}
-          type={entry.type}
-          symlink={entry.symlink}
-          canRename={canRename}
-          readOnly={readOnly}
-          excludeNames={excludeNames}
-          onRename={() => onRename(path, entry.name)}
-          onDelete={() => onDelete(path, entry.type)}
-          onDownload={() => onDownload(path, entry.name, entry.type)}
-        />
+        {rowActions}
       </RowTail>
+      <PathCopyFailure detail={copyFailure(path)} />
     </div>
   );
 }
 
 /**
  * 行の右端。時刻の右に ⋯ 1 個を並べる。項目を持たない行もスロットだけ空けて時刻の右端をそろえる。
- * 行の外に置くのは、行 (EntryRow) が組み立てたパスを渡すためと、描画のテストで直接見るため。
+ * 行の外に置くのは、コピーの状態 (⋯ のチェックと失敗の行) を行 (EntryRow) が持つためと、描画のテストで直接見るため。
  */
 export function EntryRowActions({
-  path,
   name,
   type,
   symlink,
   canRename,
   readOnly,
   excludeNames,
+  copied,
+  onCopyPath,
   onRename,
   onDelete,
   onDownload,
 }: {
-  /** ツリーの root 相対。コピーする字面 (作業フォルダ面では cwd 相対で、そのまま `@` 参照に貼れる) */
-  path: string;
   name: string;
   type: "file" | "dir";
   symlink?: boolean;
@@ -843,23 +839,37 @@ export function EntryRowActions({
   readOnly: boolean;
   /** ワークスペースの除外名（設定ストアの実効値）。除外名の行にはダウンロードを出さない */
   excludeNames: readonly string[];
+  /** 直前のパスコピーが成功した行。⋯ をチェックに替える */
+  copied: boolean;
+  /** パスをコピーする。失敗の表示は行 (EntryRow) が受け持つ */
+  onCopyPath: () => void;
   onRename: () => void;
   onDelete: () => void;
   onDownload: () => void;
 }) {
-  const { copiedId, copyMessage } = useMessageCopy();
   const actions = fileRowActions({ name, type, symlink, canRename, readOnly, excludeNames });
   // null = 読み取り専用の面で行の操作ごと消す。空配列 = 領域は出すが項目が無い (空きスロット 1 個)
   if (actions === null) return null;
   if (actions.length === 0) return <EmptySlot />;
   const handlers: Record<FileRowActionKind, () => void> = {
     // 同じパスの再コピーは弾かない (冪等)。useMessageCopy が連番で古い結果だけを捨てる
-    "copy-path": () => void copyMessage(path, path),
+    "copy-path": onCopyPath,
     download: onDownload,
     rename: onRename,
     delete: onDelete,
   };
-  return <RowMenu name={name} actions={actions} copied={copiedId === path} onSelect={(kind) => handlers[kind]()} />;
+  return <RowMenu name={name} actions={actions} copied={copied} onSelect={(kind) => handlers[kind]()} />;
+}
+
+/** パスコピーの失敗。⋯ は項目の選択で閉じるため、結果は行の中の 1 行 (RowTail の次) に残す */
+export function PathCopyFailure({ detail }: { detail?: string }) {
+  if (detail === undefined) return null;
+  return (
+    <div role="alert" className="basis-full pb-1 pl-2 text-2xs leading-relaxed text-danger-text">
+      <span className="block">{COPY_FAILED_TEXT}</span>
+      <span className="block break-words text-ink-faint">{detail}</span>
+    </div>
+  );
 }
 
 /** 項目を持たない行の末尾スロット。時刻の右端を ⋯ の行にそろえる。 */
