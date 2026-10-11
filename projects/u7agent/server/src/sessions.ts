@@ -276,6 +276,8 @@ export class SessionStore {
   pinUpdates: Map<string, Promise<void>>;
   /** 削除予約中の id */
   deleting: Set<string>;
+  /** in-flight の引っ越し先 (id → 移動先スペース)。対象スペースの削除が根を消す前に待つ相手を引く */
+  private moveTargets: Map<string, string>;
   /** close 中は新規の利用を受け付けない */
   closing: boolean;
   /** ストアの設定エラー。永続化を有効にできない状態をセッション作成で 503 にする */
@@ -338,6 +340,7 @@ export class SessionStore {
     this.metaUpdates = new Map();
     this.pinUpdates = new Map();
     this.deleting = new Set();
+    this.moveTargets = new Map();
     this.closing = false;
     this.sweeping = false;
     this.sweeper = setInterval(() => void this.sweep(), SWEEP_INTERVAL_MS);
@@ -1526,6 +1529,8 @@ export class SessionStore {
    * meta の書換えまでに失敗したら移したものを逆順で戻し、履歴の削除は最後に置く (次の移動で再試行する)。
    */
   async move(id: string, targetSpaceId: string): Promise<SessionMoveResponse | undefined> {
+    // 削除側が引く引っ越し先は検証済みの値にする (moveSession と同じ正規化をここでも行う)
+    const target = spaceIdOf(targetSpaceId);
     const operation = (async () => {
       // 先行の load / meta 更新 / ピン更新を待つ (record を差し替える前に descriptor を確定させる)
       for (const pending of [this.lifecycle.get(id), this.metaUpdates.get(id), this.pinUpdates.get(id)]) {
@@ -1539,11 +1544,31 @@ export class SessionStore {
     );
     // resolve / deleteSession / sweep を move の完了まで待たせる (setPinned と同じ lifecycle に乗せる)
     this.lifecycle.set(id, settled);
+    // 削除の claim はこれから届く要求しか止めないため、受理済みの引っ越しを対象スペースの削除が引けるようにする
+    this.moveTargets.set(id, target);
     try {
       return await operation;
     } finally {
-      if (this.lifecycle.get(id) === settled) this.lifecycle.delete(id);
+      // 登録の寿命は lifecycle と同じにする (後から入った move の登録を消さない)
+      if (this.lifecycle.get(id) === settled) {
+        this.lifecycle.delete(id);
+        this.moveTargets.delete(id);
+      }
     }
+  }
+
+  /**
+   * 対象スペースへ向かう受理済みの引っ越しが終わる (完了 / ロールバック) まで待つ。claim だけでは
+   * 止まらないため、作業フォルダを運んだまま対象の根を消すと、移動元の会話のファイルも失う。
+   * 戻り値は待った件数 (0 なら対象へ向かう引っ越しは動いていない)。
+   */
+  async waitForMovesInto(spaceId: string): Promise<number> {
+    const pending = [...this.moveTargets]
+      .filter(([, target]) => target === spaceId)
+      .map(([id]) => this.lifecycle.get(id))
+      .filter((promise): promise is Promise<unknown> => promise !== undefined);
+    await Promise.all(pending);
+    return pending.length;
   }
 
   private async moveSession(id: string, targetSpaceId: string): Promise<SessionMoveResponse | undefined> {

@@ -32,6 +32,9 @@ export function createSpaceDelete({ spaces, store, workspace, serve, appDb }: Sp
         if (!workspace) throw httpError(503, SANDBOX_NOT_CONFIGURED_MESSAGE);
         await assertNoPublicService(serve, id);
         assertStoreReady(store);
+        // 対象スペースへ向かう受理済みの引っ越しは claim では止まらない。作業フォルダを運んだまま
+        // 根を消すと移動元の会話のファイルも失うため、完了 / ロールバックまで待ってから消し始める
+        await store.waitForMovesInto(id);
         await removeSessions(store, id);
         // 再走査。最初の走査の後に完了した引っ越し / 会話作成を取りこぼさない
         await removeSessions(store, id);
