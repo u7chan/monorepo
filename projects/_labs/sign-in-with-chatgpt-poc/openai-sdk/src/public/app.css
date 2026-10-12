@@ -1,0 +1,252 @@
+:root {
+  color-scheme: light;
+  --border: #d0d7de;
+  --muted: #57606a;
+  --accent: #0a6cff;
+  --danger: #b42318;
+  --bg: #f6f8fa;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0 auto;
+  padding: 24px 16px 48px;
+  max-width: 880px;
+  font-family:
+    -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans JP", sans-serif;
+  background: var(--bg);
+  color: #1f2328;
+  line-height: 1.6;
+}
+
+header h1 {
+  font-size: 22px;
+  margin: 0 0 4px;
+}
+
+.subtitle {
+  margin: 0 0 20px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.card {
+  background: #fff;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 16px;
+  margin-bottom: 16px;
+}
+
+.card h2 {
+  font-size: 15px;
+  margin: 0 0 12px;
+}
+
+.row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+label {
+  display: block;
+  font-size: 13px;
+  color: var(--muted);
+  margin: 8px 0 4px;
+}
+
+/* .row の中の label は flex アイテムなので、block 用の余白を消す */
+.row label {
+  margin: 0;
+}
+
+textarea,
+select {
+  width: 100%;
+  font: inherit;
+  font-size: 14px;
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: #fff;
+}
+
+.row select {
+  width: auto;
+  min-width: 220px;
+}
+
+button,
+a.button {
+  font: inherit;
+  font-size: 13px;
+  padding: 6px 12px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: #fff;
+  color: inherit;
+  cursor: pointer;
+  text-decoration: none;
+}
+
+button:hover:not(:disabled),
+a.button:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+a.button.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+
+.connection-headline {
+  font-weight: 600;
+  margin: 0 0 8px;
+}
+
+.detail {
+  display: grid;
+  grid-template-columns: 200px 1fr;
+  gap: 2px 12px;
+  margin: 8px 0 14px;
+  font-size: 13px;
+}
+
+.detail dt {
+  color: var(--muted);
+}
+
+.detail dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.transcript {
+  min-height: 120px;
+  max-height: 380px;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 10px;
+  margin: 12px 0;
+  background: #fcfdfe;
+}
+
+.message {
+  margin-bottom: 10px;
+}
+
+.message .role {
+  font-size: 11px;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.message .content {
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.message.user .content {
+  color: #1f2328;
+}
+
+.status {
+  margin: 10px 0 0;
+  padding: 8px;
+  min-height: 34px;
+  background: #f6f8fa;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 12px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.banner {
+  border-radius: 6px;
+  padding: 8px 10px;
+  margin-bottom: 12px;
+  font-size: 13px;
+  border: 1px solid var(--border);
+  background: #f6f8fa;
+}
+
+.banner.error {
+  border-color: #f2b8b5;
+  background: #fff5f5;
+  color: var(--danger);
+}
+
+.error-message {
+  color: var(--danger);
+  margin: 0 0 8px;
+}
+
+.hint {
+  background: #fff8e5;
+  border: 1px solid #f0d38d;
+  border-radius: 6px;
+  padding: 8px 10px;
+  font-size: 13px;
+}
+
+.debug {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px dashed var(--border);
+}
+
+.debug-label {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.checkbox {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  color: var(--muted);
+}
+
+.checkbox input {
+  width: auto;
+}
+
+code {
+  font-size: 12px;
+  background: #f0f2f5;
+  padding: 1px 4px;
+  border-radius: 4px;
+}
+
+.loading {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+footer {
+  color: var(--muted);
+  font-size: 12px;
+}
