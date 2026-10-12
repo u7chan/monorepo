@@ -15,9 +15,11 @@ export function useExitPhase(open: boolean, elementRef: RefObject<HTMLElement | 
   if (next !== phase) setPhase(next);
 
   const closing = phase === "closing";
+  // 終了を待つ相手は ref ではなく、そのとき実際に描いている要素。退場中に面が作り直されると ref の中身が
+  // 入れ替わるため、外れた要素に付いた listener では終了を拾えず、保険の時間まで待たされる
+  const element = closing ? elementRef.current : null;
   useEffect(() => {
     if (!closing) return;
-    const element = elementRef.current;
     // 退場中に要素が消えた (docked へ戻った等)。残す理由が無いので閉じ切る
     if (!element) {
       setPhase("closed");
@@ -26,7 +28,7 @@ export function useExitPhase(open: boolean, elementRef: RefObject<HTMLElement | 
     return finishOnAnimationEnd(element, getComputedStyle(element).animationDuration, () => {
       setPhase(exitPhaseAfterAnimation("closing"));
     });
-  }, [closing, elementRef]);
+  }, [closing, element]);
 
   return phase;
 }

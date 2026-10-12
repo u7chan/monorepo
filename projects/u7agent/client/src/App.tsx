@@ -280,6 +280,9 @@ export default function App() {
     if (mainView !== "settings" || navOpen) return;
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key !== "Escape" || event.defaultPrevented) return;
+      // モーダルが開いている間はその面が Escape を受ける (順序は 詳細シート → ドロワー → チャット)。
+      // 退場中は焦点が body へ外れて各面の stopPropagation を通らないため、ここでも見る
+      if (document.querySelector("dialog[open]")) return;
       backToChat();
     };
     window.addEventListener("keydown", onKeyDown);
