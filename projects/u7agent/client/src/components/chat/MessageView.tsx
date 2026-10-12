@@ -19,6 +19,7 @@ import { CopyButton } from "./CopyButton";
 import { GenerationBadgeList } from "./GenerationBadgeList";
 import { SkillInvocation } from "./SkillInvocation";
 import { SkillLoadList } from "./SkillLoadList";
+import { SpeechPlayerList } from "./SpeechPlayerList";
 import { ToolHistoryView } from "./ToolHistory";
 import { UserMessageBody } from "./UserMessageBody";
 
@@ -51,6 +52,8 @@ export function MessageView({
   agentName,
   agentIcon,
   rootCwd,
+  cwd = "",
+  rawUrl,
   onCopy,
   copiedId,
   copyFailure,
@@ -79,6 +82,10 @@ export function MessageView({
   agentIcon?: string;
   /** ワークスペース root の絶対パス (health.cwd)。添付のサムネイル URL を組むのに使う */
   rootCwd: string;
+  /** 選択中セッションの作業フォルダ (payload.cwd)。未確定 ("") のときは生成音声のパスを解決しない */
+  cwd?: string;
+  /** 解決した root 相対パスから配信 URL を組む (App が版付きの関数を注入する)。未指定は生成音声を出さない */
+  rawUrl?: (rootRelativePath: string) => string;
   onCopy: (text: string) => void;
   copiedId: string;
   /** 失敗の内訳 (id で引く)。通知と選択の導線を出す根拠 */
@@ -279,6 +286,10 @@ export function MessageView({
               <MarkdownView text={bubble.text} />
             </div>
           )
+        ) : null}
+        {/* 本文の直後に置く (位置は docs/speech-generation.md#チャットのプレイヤー) */}
+        {!isUser && rawUrl !== undefined ? (
+          <SpeechPlayerList cards={toolCards} rootCwd={rootCwd} cwd={cwd} rawUrl={rawUrl} compact={compact} />
         ) : null}
         {questionCards.length > 0 ? (
           <div className={cn("grid", compact ? "mt-2 gap-2" : "mt-2.5 gap-2.5")}>

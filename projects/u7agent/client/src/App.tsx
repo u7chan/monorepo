@@ -708,6 +708,8 @@ export default function App() {
                   agentName={chatAgentName}
                   agentIcon={chatAgentIcon}
                   rootCwd={app.health?.cwd ?? ""}
+                  cwd={app.cwd}
+                  rawUrl={markdownImageRawUrl}
                   sessionId={app.sessionId}
                   sendSeq={app.chat.sendSeq}
                   onSuggestion={handleSend}

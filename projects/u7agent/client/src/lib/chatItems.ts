@@ -2,7 +2,7 @@
 // DOM を使わない純関数だけをここに置き、配線 (virtualizer / scroll ハンドラ) は ChatArea が持つ。
 import type { Bubble, CompactionMarker } from "./chatTypes";
 import type { CompactionInfo, RunOutcome } from "../types";
-import { generationInfoOf } from "./generationInfo";
+import { generationBadgesOf } from "./generationInfo";
 import { USER_MESSAGE_CLAMP_PX } from "./userMessage";
 
 export type ChatRenderItem =
@@ -108,9 +108,11 @@ export function estimateChatItemHeight(item: ChatRenderItem): number {
   const textHeight = bubble.role === "user" ? Math.min(estimatedText, USER_MESSAGE_CLAMP_PX) : estimatedText;
   const toolHeight = bubble.tools.reduce((total, card) => total + 48 + Math.min(card.output.length, 600) * 0.35, 0);
   // スキル読み込みと生成のバッジは同じ寸法で並ぶため、バッジ 1 件ぶんで数える
-  const badgeCount =
-    bubble.skillLoads.length + bubble.tools.filter((card) => generationInfoOf(card) !== undefined).length;
-  return Math.max(72, Math.min(4000, 64 + textHeight + toolHeight + badgeCount * 28));
+  const badges = generationBadgesOf(bubble.tools);
+  const badgeCount = bubble.skillLoads.length + badges.length;
+  // 生成音声のプレイヤーはブラウザー既定の controls の高さ (実寸は measureElement が補正する)
+  const playerCount = badges.filter((badge) => badge.info.kind === "speech" && badge.info.path !== undefined).length;
+  return Math.max(72, Math.min(4000, 64 + textHeight + toolHeight + badgeCount * 28 + playerCount * 64));
 }
 
 /**
