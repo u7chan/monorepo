@@ -3,7 +3,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { Bubble } from "../src/lib/chatTypes";
-import { queueWaitSummary, queueWaitsOf } from "../src/lib/queueWait";
+import { answerWaitQueueReason, queueWaitSummary, queueWaitsOf } from "../src/lib/queueWait";
 
 function bubble(id: number, queued = true, position?: number): Bubble {
   return {
@@ -75,4 +75,12 @@ test("状態行のサマリは件数だけを出し、待機の理由は接頭�
   assert.equal(queueWaitSummary("完了", 3), "完了 · 待機 3 件");
   // run が無くキューだけの短い過渡 (resync の queued) は件数だけ
   assert.equal(queueWaitSummary("", 2), "待機 2 件");
+});
+
+test("回答待ちの run で待つ送信の理由は、質問と待機の両方があるときだけ返す", () => {
+  // What: 回答しても実行されないことを示す 1 文。回答可否 (質問の有無) とキューの有無の両方で決まる
+  assert.equal(answerWaitQueueReason(1, 2), "回答しても、待機中の送信は実行中の応答が終わってから始まります");
+  assert.equal(answerWaitQueueReason(0, 2), undefined, "回答待ちが無ければチップの title に任せる");
+  assert.equal(answerWaitQueueReason(2, 0), undefined, "キューが空なら理由が要らない");
+  assert.equal(answerWaitQueueReason(0, 0), undefined);
 });

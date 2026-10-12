@@ -331,6 +331,7 @@ export function Composer({
             activityState={activityState}
             runningSince={runningSince}
             runTools={runTools}
+            queueDepth={queueDepth}
             finishedRunDurationMs={finishedRunDurationMs}
             context={context}
             model={settings.model}
