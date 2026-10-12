@@ -41,6 +41,7 @@ bun run dev
 | `SIWC_STORAGE_DIR` | `$XDG_CONFIG_HOME/sign-in-with-chatgpt-poc/openai-sdk` | 資格情報の保存先（リポジトリ外） |
 | `SIWC_APP_NAME` | `sign-in-with-chatgpt-poc openai-sdk` | 初回登録の `agent_name_hint`。同意画面に出る名前 |
 | `SIWC_ENABLE_DEBUG_ACTIONS` | `true`（`false` で無効化） | 失敗系を再現するデバッグ操作の有効/無効 |
+| `SIWC_DEFAULT_MODEL` | `gpt-6-luna` | 画面で初期選択するモデル。アカウントのカタログに無い場合は「※カタログに無し」と付けて選択肢に残し、実際の可否は送信で確かめる（モデルの利用可否はアカウント・プラン依存のため） |
 
 ### WSL2 で動かす場合
 
@@ -76,7 +77,7 @@ Windows 側のブラウザから `http://127.0.0.1:8787/` を開けるか確認�
 | --- | --- |
 | 接続 | サインイン状態、`ChatGPT プラン利用` の有効/無効、アクセストークンの残り時間、スコープ、保存先、host ID |
 | 操作 | `Continue with ChatGPT`（初回登録）/ `再認可` / `アクセストークンを更新` / `サインアウト` / ChatGPT 設定の使用量 |
-| 推論 | モデル選択（`/v1/models` のカタログから）、`instructions`、複数ターンの入力、SSE での逐次表示、`中断` |
+| 推論 | モデル選択（`/v1/models` のカタログから。既定は `gpt-6-luna`）、`instructions`、複数ターンの入力、SSE での逐次表示、`中断` |
 | デバッグ | `アクセストークンを期限切れにする` / `アクセストークンを偽物にする` / 未対応フィールド（`temperature=0`）の付与 |
 
 ## 実測結果
@@ -111,7 +112,7 @@ Windows 側のブラウザから `http://127.0.0.1:8787/` を開けるか確認�
 | `jose` | 6.2.12 |
 | Bun | 1.3.14 |
 | TypeScript | 7.0.2 |
-| 使用モデル | 未記入（アカウントごとに異なる。画面の選択値を記録） |
+| 使用モデル | `gpt-6-luna` を既定として選択（モデルの提供状況はアカウント・プラン依存。画面で選んだ slug を記録する） |
 | 認可エンドポイント | `https://auth.openai.com/api/accounts/authorize` |
 | トークンエンドポイント | `https://auth.openai.com/api/accounts/oauth/token` |
 | モデルカタログの応答形式 | 未記入（`{ models: [{ slug, display_name, visibility }] }` を想定） |

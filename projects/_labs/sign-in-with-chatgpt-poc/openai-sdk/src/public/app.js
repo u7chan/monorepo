@@ -256,18 +256,42 @@ async function loadModels() {
     )
   }
 
+  const defaultModel = state.status?.defaultModel ?? ""
+  const catalogHasDefault = state.models.some(
+    (model) => model.slug === defaultModel,
+  )
+  const options =
+    defaultModel !== "" && !catalogHasDefault
+      ? [
+          { slug: defaultModel, displayName: defaultModel, missing: true },
+          ...state.models,
+        ]
+      : state.models
+
   const select = byId("model-select")
   select.textContent = ""
-  if (state.models.length === 0) {
+  if (options.length === 0) {
     select.append(el("option", { value: "", text: "(モデルなし)" }))
     return
   }
-  for (const model of state.models) {
+  for (const model of options) {
+    const label =
+      model.displayName === model.slug
+        ? model.slug
+        : `${model.displayName} (${model.slug})`
     select.append(
       el("option", {
         value: model.slug,
-        text: `${model.displayName} (${model.slug})`,
+        text: model.missing ? `${label} ※カタログに無し` : label,
       }),
+    )
+  }
+  if (defaultModel !== "") {
+    select.value = defaultModel
+  }
+  if (defaultModel !== "" && !catalogHasDefault) {
+    setChatStatus(
+      `既定モデル ${defaultModel} はこのアカウントのカタログにありません。そのまま選択しているので、送信すると実際の可否が分かります。`,
     )
   }
 }

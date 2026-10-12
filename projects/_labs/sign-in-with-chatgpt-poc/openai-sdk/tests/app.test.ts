@@ -62,6 +62,7 @@ async function createTestApp(options: { enableDebugActions?: boolean } = {}) {
     origin: "http://127.0.0.1:8787",
     redirectUri: "http://127.0.0.1:8787/auth/callback",
     enableDebugActions: options.enableDebugActions ?? true,
+    defaultModel: "gpt-6-luna",
   }
   const http = recordingFetch((request) => {
     if (request.url === DISCOVERY_URL) {
@@ -109,6 +110,7 @@ describe("createApp", () => {
     expect(body.signedIn).toBe(false)
     expect(body.planUsageEnabled).toBe(false)
     expect(body.debugActionsEnabled).toBe(true)
+    expect(body.defaultModel).toBe("gpt-6-luna")
     expect(String(body.storageFile).endsWith("session.json")).toBe(true)
     expect(String(body.extAgentHostId).startsWith("urn:uuid:")).toBe(true)
   })
@@ -194,6 +196,7 @@ describe("createApp", () => {
       origin: "http://127.0.0.1:8787",
       redirectUri: "http://127.0.0.1:8787/auth/callback",
       enableDebugActions: false,
+      defaultModel: "gpt-6-luna",
     }
     const responsesBody = [
       "event: response.created",

@@ -10,9 +10,12 @@ export type Config = {
   origin: string
   redirectUri: string
   enableDebugActions: boolean
+  /** 画面で初期選択するモデル。カタログに無くても選択肢として出し、実可否は送信で確かめる。 */
+  defaultModel: string
 }
 
 const DEFAULT_PORT = 8787
+const DEFAULT_MODEL = "gpt-6-luna"
 
 export function loadConfig(
   env: Record<string, string | undefined> = process.env,
@@ -32,6 +35,7 @@ export function loadConfig(
     origin,
     redirectUri: `${origin}${CALLBACK_PATH}`,
     enableDebugActions: env.SIWC_ENABLE_DEBUG_ACTIONS !== "false",
+    defaultModel: env.SIWC_DEFAULT_MODEL ?? DEFAULT_MODEL,
   }
 }
 

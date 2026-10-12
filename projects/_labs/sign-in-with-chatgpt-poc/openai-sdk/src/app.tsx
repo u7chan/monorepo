@@ -176,7 +176,10 @@ export function createApp(
   })
 
   app.get("/api/status", async (c) =>
-    c.json(await sessions.status(config.enableDebugActions)),
+    c.json({
+      ...(await sessions.status(config.enableDebugActions)),
+      defaultModel: config.defaultModel,
+    }),
   )
 
   app.get("/api/models", async (c) => {
