@@ -7,11 +7,12 @@ import { generationBadgesOf, type GenerationBadge } from "../../lib/generationIn
 /** 生成音声 1 件ぶんの再生情報 */
 type SpeechPlayer = { key: string; src: string; label: string };
 
-/** カードの並びから再生できる音声だけを取り出す (パスの解決は Markdown 画像と同じ 3 段) */
 function speechPlayersOf(
   badges: readonly GenerationBadge[],
   { rootCwd, cwd, rawUrl }: { rootCwd: string; cwd: string; rawUrl: (rootRelativePath: string) => string },
 ): SpeechPlayer[] {
+  // 絶対パスの参照は rootCwd が要る。相対パスだけを先に出すと、同じターンで行の有無が混ざる
+  if (rootCwd === "" || cwd === "") return [];
   const players: SpeechPlayer[] = [];
   for (const badge of badges) {
     const { kind, path } = badge.info;
@@ -33,7 +34,7 @@ export function SpeechPlayerList({
   compact,
 }: {
   cards: readonly ToolCard[];
-  /** ワークスペース root の絶対パス (health.cwd)。未取得 ("") は絶対パスの参照を解決しない */
+  /** ワークスペース root の絶対パス (health.cwd)。未取得 ("") のときは出さない (絶対パスの参照に要る) */
   rootCwd: string;
   /** 選択中セッションの作業フォルダ (payload.cwd)。未確定 ("") は何も解決しない */
   cwd: string;

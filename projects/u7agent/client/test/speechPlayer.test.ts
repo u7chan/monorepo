@@ -102,10 +102,9 @@ test("同じターンの複数音声は生成した数だけ順に出し、形�
   );
 });
 
-test("cwd や rootCwd が未取得なら解決できずに出さない", () => {
+test("cwd や rootCwd が未取得なら解決せずに出さない", () => {
   assert.equal(renderPlayers([card()], { cwd: "" }), "", "cwd 未取得で出している");
-  // cwd 相対のパスは rootCwd が無くても解決できる (Markdown 画像と同じ)
-  assert.equal(audioTags(renderPlayers([card()], { rootCwd: "" })).length, 1);
+  assert.equal(renderPlayers([card()], { rootCwd: "" }), "", "rootCwd 未取得で出している");
   const absolute = SPEECH_OUTPUT.replace(
     "音声を生成して保存しました: generated/intro.mp3",
     "音声を生成して保存しました: /work/projects/u7agent/generated/intro.mp3",

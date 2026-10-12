@@ -231,10 +231,25 @@ export interface StubToolBurstClosingRow {
   result?: string;
 }
 
-/** 送信本文に合う burst を 1 つ選ぶ (prompt 省略は常に一致。配列の先頭から見る) */
-function stubToolBurstOf(option: StubToolBurst | StubToolBurst[] | undefined, text: string): StubToolBurst | undefined {
+/**
+ * 送信本文に合う burst を 1 つ選ぶ。完全一致 → 最長の部分一致 → prompt 省略の順に見る (配列順に依存させない。
+ * 「音声モデル行なし」が「モデル行なし」に食われるのを避けるため)。
+ */
+export function stubToolBurstOf(
+  option: StubToolBurst | StubToolBurst[] | undefined,
+  text: string,
+): StubToolBurst | undefined {
   const bursts = option === undefined ? [] : Array.isArray(option) ? option : [option];
-  return bursts.find((burst) => burst.prompt === undefined || text.includes(burst.prompt));
+  const matched: { burst: StubToolBurst; prompt: string }[] = [];
+  for (const burst of bursts) {
+    if (burst.prompt !== undefined && text.includes(burst.prompt)) matched.push({ burst, prompt: burst.prompt });
+  }
+  const exact = matched.find((entry) => entry.prompt === text);
+  if (exact) return exact.burst;
+  if (matched.length > 0) {
+    return matched.reduce((longest, entry) => (entry.prompt.length > longest.prompt.length ? entry : longest)).burst;
+  }
+  return bursts.find((burst) => burst.prompt === undefined);
 }
 
 export interface StubToolBurstCall {
