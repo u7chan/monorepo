@@ -11,8 +11,10 @@ const REASON_MESSAGES = {
   state_mismatch: "state が一致しません（認可をやり直した可能性があります）。",
   expired: "認可の有効期限が切れています。もう一度サインインしてください。",
   missing_code: "コールバックに認可コードがありません。",
+  missing_issued_client_id:
+    "コールバックに発行済みの client_id が無く、登録が完了しませんでした。もう一度サインインしてください。",
   client_id_mismatch:
-    "コールバックの client_id が進行中の登録と一致しないため、更新しませんでした。",
+    "コールバックの client_id が保存済みの登録と違うため、上書きしませんでした。",
   access_denied: "同意が拒否されました。",
 }
 

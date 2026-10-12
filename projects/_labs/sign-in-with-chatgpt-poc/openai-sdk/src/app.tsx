@@ -17,7 +17,11 @@ import {
 import { SessionService } from "./services/session"
 import { buildAuthorizationUrl } from "./siwc/authorize"
 import { fetchModelCatalog } from "./siwc/catalog"
-import { API_BASE_URL, CALLBACK_PATH } from "./siwc/constants"
+import {
+  API_BASE_URL,
+  CALLBACK_PATH,
+  DYNAMIC_CLIENT_ID,
+} from "./siwc/constants"
 import { DiscoveryClient, type DiscoveryDocument } from "./siwc/discovery"
 import { describeError, SicwRequestError } from "./siwc/errors"
 import type { FetchLike } from "./siwc/fetch"
@@ -135,20 +139,22 @@ export function createApp(
     if (code === undefined || code === "") {
       return c.redirect("/?auth=error&reason=missing_code")
     }
-    // 再認可で別の client ID が返ってきた場合は、選択中の登録を上書きしない
-    const callbackClientId = c.req.query("client_id")
-    if (
-      callbackClientId !== undefined &&
-      callbackClientId !== authorization.clientId
-    ) {
-      return c.redirect("/?auth=error&reason=client_id_mismatch")
+    // 初回登録は dynamic_agent_client で開始し、コールバックで発行済み client_id を受け取る。
+    // 再認可は保存済み client_id を使い続け、違う ID が返っても登録を上書きしない。
+    const resolved = resolveCallbackClientId(
+      authorization.clientId,
+      c.req.query("client_id"),
+    )
+    if (!resolved.ok) {
+      return c.redirect(`/?auth=error&reason=${resolved.reason}`)
     }
+    const issuedClientId = resolved.clientId
 
     try {
       const document = await discovery.get()
       const tokenResponse = await exchangeAuthorizationCode(deps.fetch, {
         tokenEndpoint: document.tokenEndpoint,
-        clientId: authorization.clientId,
+        clientId: issuedClientId,
         code,
         codeVerifier: authorization.codeVerifier,
         redirectUri: config.redirectUri,
@@ -156,15 +162,15 @@ export function createApp(
       const identity = await verifyIdToken(
         {
           issuer: document.issuer,
-          audience: authorization.clientId,
+          audience: issuedClientId,
           nonce: authorization.nonce,
-          keyResolver: keyResolverFor(keyResolvers, document),
+          keyResolver: keyResolverFor(keyResolvers, document, deps.fetch),
           now: deps.now,
         },
         tokenResponse.idToken,
       )
       await sessions.completeSignIn({
-        clientId: authorization.clientId,
+        clientId: issuedClientId,
         issuer: document.issuer,
         identity,
         tokenResponse,
@@ -314,14 +320,42 @@ function createOpenAiResponseStream(
 function keyResolverFor(
   cache: Map<string, ReturnType<typeof createRemoteKeyResolver>>,
   document: DiscoveryDocument,
+  fetchImpl: FetchLike,
 ): ReturnType<typeof createRemoteKeyResolver> {
   const cached = cache.get(document.jwksUri)
   if (cached !== undefined) {
     return cached
   }
-  const resolver = createRemoteKeyResolver(document.jwksUri)
+  const resolver = createRemoteKeyResolver(document.jwksUri, fetchImpl)
   cache.set(document.jwksUri, resolver)
   return resolver
+}
+
+type CallbackClientIdResolution =
+  | { ok: true; clientId: string }
+  | { ok: false; reason: "missing_issued_client_id" | "client_id_mismatch" }
+
+/** コールバックの client_id から、トークン交換に使う client ID を決める。 */
+function resolveCallbackClientId(
+  pendingClientId: string,
+  callbackClientId: string | undefined,
+): CallbackClientIdResolution {
+  if (pendingClientId === DYNAMIC_CLIENT_ID) {
+    // 発行済み client ID が返らなければ登録が完了していない。dynamic_agent_client は保存しない
+    const issued =
+      callbackClientId === undefined || callbackClientId === ""
+        ? null
+        : callbackClientId
+    if (issued === null || issued === DYNAMIC_CLIENT_ID) {
+      return { ok: false, reason: "missing_issued_client_id" }
+    }
+    return { ok: true, clientId: issued }
+  }
+
+  if (callbackClientId !== undefined && callbackClientId !== pendingClientId) {
+    return { ok: false, reason: "client_id_mismatch" }
+  }
+  return { ok: true, clientId: pendingClientId }
 }
 
 function evictExpiredAuthorizations(

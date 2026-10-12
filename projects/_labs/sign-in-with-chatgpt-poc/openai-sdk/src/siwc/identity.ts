@@ -1,4 +1,11 @@
-import { createRemoteJWKSet, type JWTVerifyGetKey, jwtVerify } from "jose"
+import {
+  createRemoteJWKSet,
+  customFetch,
+  type JWTVerifyGetKey,
+  jwtVerify,
+} from "jose"
+
+import type { FetchLike } from "./fetch"
 
 export type VerifiedIdentity = {
   subject: string
@@ -15,8 +22,17 @@ export type IdentityVerification = {
   now?: () => Date
 }
 
-export function createRemoteKeyResolver(jwksUri: string): JWTVerifyGetKey {
-  return createRemoteJWKSet(new URL(jwksUri))
+export function createRemoteKeyResolver(
+  jwksUri: string,
+  fetchImpl?: FetchLike,
+): JWTVerifyGetKey {
+  // テストではモックした fetch で JWKS を返すため、jose 内部の fetch を差し替える
+  return createRemoteJWKSet(
+    new URL(jwksUri),
+    fetchImpl === undefined
+      ? undefined
+      : { [customFetch]: fetchImpl as typeof fetch },
+  )
 }
 
 export async function verifyIdToken(
