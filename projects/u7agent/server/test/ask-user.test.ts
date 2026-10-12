@@ -618,6 +618,65 @@ test("回答待ちの間は手動 compaction を 409 で拒む", async () => {
   }
 });
 
+test("回答待ちは一覧の awaitingAnswer に出て、回答・停止・取り消しで消える", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "u7agent-awaiting-answer-"));
+  const openStore = (): SessionStore =>
+    new SessionStore({
+      pi: { createSession: async () => ({ session: createPendingSession() }) } as unknown as PiRuntimeLike,
+      catalog: createAgentCatalog(),
+      rootCwd: CWD,
+      workspace: stubWorkspace(),
+      storeDir: dir,
+    });
+  const awaitingAnswer = (store: SessionStore): boolean | undefined => store.list()[0]?.awaitingAnswer;
+  const store = openStore();
+  try {
+    const record = await store.create();
+    store.postMessage(record, "聞いて");
+    await waitFor(() => store.statusOf(record) === "running", 1000, "run start");
+    // ロード済みの会話は待機が無くても真偽値を載せる (未ロードはキーごと省略する)
+    assert.equal("awaitingAnswer" in (store.list()[0] ?? {}), true);
+    assert.equal(awaitingAnswer(store), false);
+
+    const answered = store.askUserHost().ask(record.id, "call-1", QUESTIONS, undefined);
+    assert.equal(awaitingAnswer(store), true);
+
+    const answers: AskUserAnswer[] = [
+      { index: 0, selected: ["A"] },
+      { index: 1, skipped: true },
+    ];
+    assert.equal(store.answerQuestion(record, "call-1", answers).status, "ok");
+    assert.deepEqual(await answered, answers);
+    assert.equal(awaitingAnswer(store), false, "settle 済みの tombstone は数えない");
+
+    const stopped = store.askUserHost().ask(record.id, "call-2", QUESTIONS, undefined);
+    await store.stop(record);
+    await assert.rejects(stopped, /ask_user/);
+    assert.equal(awaitingAnswer(store), false, "停止で取り消す");
+
+    const controller = new AbortController();
+    const aborted = store.askUserHost().ask(record.id, "call-3", QUESTIONS, controller.signal);
+    controller.abort();
+    await assert.rejects(aborted, /ask_user/);
+    assert.equal(awaitingAnswer(store), false, "取り消しで消える");
+
+    await store.flush(record);
+    await store.close();
+    const reopened = openStore();
+    try {
+      await reopened.init();
+      const unloaded = reopened.list()[0];
+      assert.ok(unloaded, "保存済みの会話が一覧に出る");
+      assert.equal("awaitingAnswer" in unloaded, false, "未ロードの会話は待機を持たない");
+    } finally {
+      await reopened.close();
+    }
+  } finally {
+    await store.close();
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
 test("回答エンドポイントは 200 / 409 / 404 / 400 を返す", async () => {
   const dir = await mkdtemp(join(tmpdir(), "u7agent-ask-user-"));
   const stub = createStubPi();
