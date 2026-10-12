@@ -57,12 +57,18 @@ test("本文の取得待ち (ソース / Markdown プレビュー) はスピナ�
   assert.ok(markdown.includes("読み込み中…"), markdown);
 });
 
-test("本文を取得しない面 (画像 / 音声 / HTML) は待ちの印を出さない", () => {
+test("本文を取得しない面 (画像 / 音声 / HTML のプレビュー) は待ちの印を出さない", () => {
   for (const path of ["chart.png", "bgm.mp3", "page.html"]) {
     const html = renderPreview({ paths: [path], activePath: path });
     assert.ok(!html.includes("run-spinner"), `${path}: ${html}`);
     assert.ok(!html.includes("読み込み中"), `${path}: ${html}`);
   }
+});
+
+test("HTML のソース表示は本文を取得するため、届くまで待ちの印を出す", () => {
+  const html = renderPreview({ paths: ["page.html"], activePath: "page.html", modes: { "page.html": "source" } });
+  assert.ok(html.includes("run-spinner"), html);
+  assert.ok(html.includes("読み込み中…"), html);
 });
 
 test("ツリーの一覧待ちの行もスピナーで示す", () => {

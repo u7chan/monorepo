@@ -59,7 +59,7 @@ FilePreview                 取得した本文をタブごとに保持（表示�
 
 - **意味は読み上げ用のテキストで持つ**。スピナーは `aria-hidden` なので、両方消すと読み上げが空になる。`role="status"` の中に `sr-only` で「読み込み中…」を置き、見た目から文字を消しても読み上げは変えない
 - 色は置いた場所のトークンに従う既定（`--c-ink-soft`）。非テキストの 3:1（WCAG 1.4.11）は 6 テーマすべてで満たす（最小 5.0:1）。動きを止める設定では弧が点のまま止まる（`RunSpinnerIcon` の共有の扱い）
-- 画像 / 音声 / HTML はアプリから本文を取得しないため、この印は出ない（`<img>` / `<audio>` / iframe の読み込みはブラウザーに任せる）
+- 画像 / 音声と、HTML のプレビューはアプリから本文を取得しないため、この印は出ない（`<img>` / `<audio>` / iframe の読み込みはブラウザーに任せる）。HTML もソース表示は本文を取得するので、届くまで他のテキストと同じくこの印が出る
 - ツリーの行は `MessageRow` の中に置く。取得が終われば消え、失敗すれば同じ位置のエラー行に置き換わる（印のまま残らない）。開いた枝の入れ物（`.tree-fold`）は変わらないので、開閉の遷移にも影響しない
 
 ## コピー
@@ -548,7 +548,7 @@ assistant 本文のインラインコードが指すファイルを、右パネ�
 | `client/test/imageRefresh.test.ts` | 実フックの同一 mount での再描画安定性・run 終了・手動更新 / 実 Markdown と FileBrowser → FilePreview の描画を通した面間・再 mount の URL 非衝突（SSR） |
 | `client/test/imageMeta.test.ts` | 画像メタの表記（寸法とサイズの両方 / 片方だけ / どちらも無ければ null / 不正値の落とし方と 0 B） |
 | `client/test/filePreviewTabClose.test.ts` | 中クリックの button 判定。タブの ×・中クリックの実操作はブラウザで確認 |
-| `client/test/loadingMark.test.ts` | 待ちの印の公開状態（`role="status"` / スピナーは `aria-hidden` / 文字は `sr-only` の 1 箇所）と、本文待ち（ソース / Markdown プレビュー）とツリーの一覧待ちで出ること、本文を取得しない面（画像 / 音声 / HTML）では出ないこと（SSR） |
+| `client/test/loadingMark.test.ts` | 待ちの印の公開状態（`role="status"` / スピナーは `aria-hidden` / 文字は `sr-only` の 1 箇所）と、本文待ち（ソース / Markdown プレビュー）とツリーの一覧待ちで出ること、本文を取得しない面（画像 / 音声 / HTML のプレビュー）では出ず、HTML のソース表示では出ること（SSR） |
 | `client/test/fileTree.test.ts` | 開閉・子のマージ・エラー保持 / 親を閉じたときの全子孫の開閉（接頭辞境界、取得結果・loading・error の保持、後着した一覧で開きが復活しないこと）/ 削除した行だけを落として他を保つこと / 削除の confirm 文言（ファイル / 配下ごとのディレクトリ、画面の root 相対パス）/ ディレクトリ削除後の枝の prune（接頭辞境界と own プロパティ契約）/ リネームの prompt 文言と、親の行の名前差し替え・配下キーの張り替え・開閉と取得済みの子の保持（接頭辞境界・未取得の親・`__proto__`）/ 取得中のリネームで loading を落として新しいキーで取り直すこと（旧キーの応答で新キーを汚さない）/ 保存する展開の抽出と復元（root の初期化、閉じた子孫の除外、祖先がそろわない保存パスの正規化・順序非依存・`__proto__`、truncated）/ reveal の祖先（root から近い順・root 直下は空・同 object を返す条件・loading と子の保持・親を閉じた後の再展開・`__proto__`）/ パンくずの項目（root 相対の祖先とファイル）/ 取得済みの行の引き（未取得の親・一覧の上限外・前方一致・`__proto__`・再読み込み後） |
 | `client/test/fileTreeReveal.test.ts` | パンくずの操作名 / root 相対の祖先とファイル / 全体パスの title / aria-current（SSR） |
 | `client/test/fileRowMenu.test.ts` | 操作の採否・順序 / menu と menuitem の公開属性 / パスコピー失敗の通知の出し分け（行の中の `role="alert"`・内訳・選択の導線なし） / 位置・可視判定・キーボード移動の純関数 |
