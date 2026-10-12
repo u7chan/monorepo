@@ -69,14 +69,15 @@ export function chatRenderItems({
 
 /**
  * 閉じたターンの結末を、そのターンで最後に積んだ応答のメタ行へ足す。値の無いターン (旧サーバー /
- * 再起動後) と、user entry が保存されなかったターン (未送信) には足さない。最後の表示メッセージが
- * assistant でないターン (本文を持つ応答が無い) にも足さない: user 自身のメッセージの下に出すと、
- * その送信が失敗したように読める。
+ * 再起動後) と、user entry が保存されなかったターン (未送信) には足さない。本文を持つ応答だけに
+ * 足すのは、ツールだけのターンがライブでは本文の空な assistant バブル (`ensureAssistant`) を持ち、
+ * 履歴では表示メッセージにならないため (付けるとライブと履歴で見え方が食い違う)。user 自身の
+ * メッセージの下にも出さない: その送信が失敗したように読める。
  */
 function attachTurnEnd(items: ChatRenderItem[], index: number | undefined, turn: Bubble | undefined): void {
   if (index === undefined || turn === undefined || turn.unsent === true) return;
   const item = items[index];
-  if (item.kind !== "message" || item.bubble.role !== "assistant") return;
+  if (item.kind !== "message" || item.bubble.role !== "assistant" || !item.bubble.text) return;
   const { runDurationMs: durationMs, runOutcome: outcome } = turn;
   if (durationMs === undefined || outcome === undefined) return;
   items[index] = { ...item, turnEnd: { outcome, durationMs } };
