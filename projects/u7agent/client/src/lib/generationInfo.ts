@@ -1,6 +1,6 @@
 /**
- * 生成ツール（generate_image / generate_speech）の結果本文から、実行に使ったモデル・ボイス・保存パスを読む。
- * 結果本文の値をそのまま返し、カタログの表示名へは解決しない（表示名は変わりうるが、履歴の意味は変えない）。
+ * 生成ツール（generate_image / generate_speech）の結果本文からモデル・ボイス・保存パスを読む。
+ * 値は結果本文のまま返す（カタログの表示名へは解決しない）。
  */
 import type { ToolCard } from "./chatTypes";
 
@@ -23,14 +23,15 @@ const PATH_LINE: Record<GenerationKind, string> = {
   speech: "音声を生成して保存しました:",
 };
 
-/**
- * 探す範囲は結果本文の先頭だけでよい。投影（`SUMMARY_TEXT_MAX` = 900 文字）はモデル行が必ず残る位置で
- * 切るため、本文全体を走査しても見つかる行は増えず、無関係な行を拾う危険だけが増える。
- */
+/** 投影は先頭 900 文字で切るため、本文全体を走査しても見つかる行は増えない（無関係な行を拾う危険だけが増える） */
 const HEAD_LINE_COUNT = 3;
 
+/**
+ * 改行で終わる行だけを読む。投影で切られた最終行は値が欠けている可能性がある（例: 保存パスの断片）。
+ */
 function headValue(output: string, label: string): string | undefined {
-  for (const line of output.split("\n", HEAD_LINE_COUNT)) {
+  const lines = output.split("\n");
+  for (const line of lines.slice(0, Math.min(lines.length - 1, HEAD_LINE_COUNT))) {
     if (!line.startsWith(label)) continue;
     const value = line.slice(label.length).trim();
     if (value !== "") return value;
@@ -46,8 +47,8 @@ function generationKindOf(name: string): GenerationKind | undefined {
 }
 
 /**
- * 生成ツールのカードからバッジの材料を読む。対象外のツール、結果本文にモデル行が無いカード
- * （モデル行を書く前のセッション）、失敗したカード（結果本文が残らない）は undefined になる。
+ * 生成ツールのカードからバッジの材料を読む。対象外のツールと失敗カードは undefined
+ * （出さない条件の根拠は docs/image-generation.md#チャットのバッジ）。
  */
 export function generationInfoOf(card: Pick<ToolCard, "name" | "phase" | "output">): GenerationInfo | undefined {
   const kind = generationKindOf(card.name);
@@ -64,10 +65,9 @@ export function generationInfoOf(card: Pick<ToolCard, "name" | "phase" | "output
   return info;
 }
 
-/** バッジ 1 件。`key` はカードの安定 id で、同じカードが 2 つのバブルに現れない前提を表示側で使う */
 export type GenerationBadge = { key: string; info: GenerationInfo };
 
-/** カードを呼び出し順のままバッジだけにする（件数の上限は表示側が決める） */
+/** カードを呼び出し順のままバッジだけにする */
 export function generationBadgesOf(
   cards: readonly Pick<ToolCard, "id" | "name" | "phase" | "output">[],
 ): GenerationBadge[] {

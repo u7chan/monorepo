@@ -60,6 +60,15 @@ test("種類・モデル・保存パスを出し、長い値の全文は title �
   assert.ok(speech.includes("generated/intro.mp3"));
 });
 
+test("長いボイスでも値を省略し、全文は title で読める", () => {
+  // 宣言が無いモデルでは任意の長さのボイスを指定できる。狭い幅では値が幅 0 まで縮むため、全文を title に残す
+  const voice = `voice-${"v".repeat(120)}`;
+  const html = renderBadges([card({ name: "generate_speech", output: SPEECH_OUTPUT.replace("Kore", voice) })]);
+  assert.ok(html.includes(`title="ボイス ${voice}"`), "ボイスの全文が出る");
+  assert.ok(html.includes('title="google/gemini-3.8-flash-tts"'), "モデルも省略時は全文を title で読める");
+  assert.ok(html.includes('title="generated/intro.mp3"'), "保存パスも省略時は全文を title で読める");
+});
+
 test("生成が無いターンではバッジ行を出さない", () => {
   assert.equal(renderBadges([]), "");
   assert.equal(renderBadges([card({ name: "bash", output: "ok" })]), "");

@@ -54,14 +54,37 @@ test("モデル行が無い結果（モデル行を書く前のセッション�
 });
 
 test("保存パスが取れない結果ではモデルだけを返す", () => {
-  assert.deepEqual(generationInfoOf(card({ output: "モデル: openai/gpt-image-2" })), {
+  assert.deepEqual(generationInfoOf(card({ output: "モデル: openai/gpt-image-2\nこの行が続きます" })), {
     kind: "image",
     model: "openai/gpt-image-2",
   });
-  assert.deepEqual(generationInfoOf(card({ name: "generate_speech", output: "モデル: google/gemini-3.8-flash-tts" })), {
-    kind: "speech",
-    model: "google/gemini-3.8-flash-tts",
-  });
+  assert.deepEqual(
+    generationInfoOf(
+      card({ name: "generate_speech", output: "モデル: google/gemini-3.8-flash-tts\nこの行が続きます" }),
+    ),
+    { kind: "speech", model: "google/gemini-3.8-flash-tts" },
+  );
+});
+
+test("投影で切れた保存パスは実パスとして返さない", () => {
+  // 180 文字のディレクトリを 5 段連ねた有効な path (server/test/image-tools.test.ts と同じ形)
+  const longPath = `generated/${Array.from({ length: 5 }, () => "d".repeat(180)).join("/")}/cafe.png`;
+  const body =
+    `モデル: openai/gpt-image-2\n画像を生成して保存しました: ${longPath}\n` +
+    "本文に示すときは Markdown 画像で示してください。";
+  const cut = projected(body);
+  assert.ok(cut.endsWith("…"), "投影で途中までになっている");
+  const info = generationInfoOf(card({ output: cut }));
+  assert.equal(info?.model, "openai/gpt-image-2", "先頭のモデル行は切詰めても残る");
+  assert.equal(info?.path, undefined, "ファイル名を失った断片を実パスとして返さない");
+
+  // 投影で切れていない本文（パス行が改行で終わっている）では保存パスを返す
+  const shortPath = `generated/${"d".repeat(180)}/cafe.png`;
+  const complete =
+    `モデル: openai/gpt-image-2\n画像を生成して保存しました: ${shortPath}\n` +
+    "本文に示すときは Markdown 画像で示してください。";
+  assert.equal(complete.length < 900, true, "投影の上限に収まる本文");
+  assert.equal(generationInfoOf(card({ output: complete }))?.path, shortPath);
 });
 
 test("対象外のツールと失敗したカードでは何も出さない", () => {
@@ -81,6 +104,12 @@ test("長い本文でも先頭の数行だけを見る（投影の切詰めで�
   });
   // 先頭の数行より後ろにしか無い行は読まない（本文中の無関係な文言を拾わない）
   assert.equal(generationInfoOf(card({ output: `結果です。\n\n\nモデル: openai/gpt-image-2` })), undefined);
+});
+
+test("改行で終わっていない最終行は値として読まない", () => {
+  // 完全な結果本文ではモデル行の後ろにも行が続く。単独行の結果は投影で切れた断片と区別できない
+  assert.equal(generationInfoOf(card({ output: "モデル: openai/gpt-image-2" })), undefined);
+  assert.equal(generationInfoOf(card({ output: "モデル: openai/gpt-image-2\n" }))?.model, "openai/gpt-image-2");
 });
 
 test("バッジはカードの順のまま生成ツールの分だけを返す", () => {

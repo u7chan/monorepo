@@ -257,7 +257,7 @@ export function MessageView({
             onCopyTool={onCopyTool}
           />
         ) : null}
-        {/* 本文の上に置き、そのターンに何を生成したかを示す (複数ツールの切り分けはツール履歴の行が担う) */}
+        {/* 本文より上に置く (役割の分担は docs/image-generation.md#チャットのバッジ) */}
         {!isUser ? <GenerationBadgeList cards={toolCards} compact={compact} /> : null}
         {bubble.text ? (
           isUser ? (

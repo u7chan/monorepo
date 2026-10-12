@@ -22,10 +22,7 @@ const DURATION_CLASS = cn(
 /** 履歴へ 1 件差し込まれた合図を光らせている時間。CSS (index.css) の長さと揃える */
 const SLOT_FLASH_MS = 520;
 
-/**
- * 生成に使ったモデルのチップ。位相ラベルと同じく縮まない枠にし、モデルが長くても 1 行に収める
- * (切れた全文は hover で読める)。省略記号の位置は幅で決まるが、id 自身は失わせない。
- */
+/** 生成に使ったモデルのチップ。位相ラベルと同じく縮まない枠にし、切れた全文は title で読めるようにする */
 function ModelChip({ marker, text, title }: { marker: string; text: string; title: string }) {
   return (
     <span
@@ -39,8 +36,7 @@ function ModelChip({ marker, text, title }: { marker: string; text: string; titl
 }
 
 /**
- * ヘッダに出すモデル。生成ツールの行が 1 つも無ければ出さず、混在は片方だけを見せずに内訳を title へ置く
- * (どの行がどのモデルかは行のチップが担う)。
+ * ヘッダに出すモデル。混在は片方だけを見せず、内訳を title へ置く (どの行がどのモデルかは行のチップが担う)。
  */
 function historyModelChip(
   badges: readonly GenerationBadge[],

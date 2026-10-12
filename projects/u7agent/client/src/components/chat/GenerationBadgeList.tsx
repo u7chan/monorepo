@@ -2,7 +2,7 @@ import type { ToolCard } from "../../lib/chatTypes";
 import { cn } from "../../lib/cn";
 import { generationBadgesOf, type GenerationInfo } from "../../lib/generationInfo";
 
-// 種類は結果本文に載らない（ツール名から決まる）ため、表示名へ写すのはここ 1 箇所にする
+// 種類は結果本文に無い（ツール名から決まる）。表示名へ写すのはここ 1 箇所に閉じる
 const KIND_LABEL: Record<GenerationInfo["kind"], string> = { image: "画像", speech: "音声" };
 
 function ImageKindIcon() {
@@ -43,8 +43,8 @@ function SpeechKindIcon() {
 }
 
 /**
- * 生成 1 件のバッジ。モデルと保存パスは省略記号で切るが、全文は hover で読めるようにする
- * （どちらが切れるかは幅次第で、値そのものを失わせない）。
+ * 生成 1 件のバッジ。省いた値の全文は title で読めるようにし、種類だけを縮まない枠にする
+ * （値に min-w-0 が無いと flex item の min-width: auto が残り、狭い幅で行が横に溢れる）。
  */
 function GenerationBadge({ info }: { info: GenerationInfo }) {
   const path = info.path;
@@ -58,7 +58,11 @@ function GenerationBadge({ info }: { info: GenerationInfo }) {
       <span title={info.model} className="min-w-0 truncate text-accent-text">
         {info.model}
       </span>
-      {info.voice === undefined ? null : <span className="shrink-0 text-ink-faint">ボイス {info.voice}</span>}
+      {info.voice === undefined ? null : (
+        <span title={`ボイス ${info.voice}`} className="min-w-0 truncate text-ink-faint">
+          ボイス {info.voice}
+        </span>
+      )}
       {path === undefined ? null : (
         <span title={path} className="min-w-0 truncate">
           {path}
@@ -68,11 +72,7 @@ function GenerationBadge({ info }: { info: GenerationInfo }) {
   );
 }
 
-/**
- * assistant バブル上部の生成バッジ。ツール履歴のチップが複数ツールの切り分けを担うのに対し、
- * ここはそのターンに何を生成したかの要約を担う。件数の上限は設けず、折り返しに任せる。
- * スキル読み込みバッジと同じ行の見た目に揃え、狭い幅では行ごとに折り返す。
- */
+/** assistant バブル上部の生成バッジ。役割の分担と出さない条件は docs/image-generation.md#チャットのバッジ が正 */
 export function GenerationBadgeList({ cards, compact }: { cards: readonly ToolCard[]; compact: boolean }) {
   const badges = generationBadgesOf(cards);
   if (badges.length === 0) return null;
