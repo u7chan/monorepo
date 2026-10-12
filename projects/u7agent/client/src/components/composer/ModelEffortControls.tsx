@@ -21,14 +21,14 @@ import {
 } from "../../lib/popoverPlacement";
 import type { ModelRef, ThinkingLevel } from "../../types";
 import { SelectField } from "../SelectField";
-import { SlidersIcon } from "../icons";
+import { ChevronDownIcon } from "../icons";
 import { fieldLabelClass, fieldNameClass } from "./fieldStyles";
 
 /** ポップアップの幅の上限 (px)。候補の選択肢と注意文が読める幅 */
 const MODEL_EFFORT_PICKER_WIDTH = 320;
 
 /**
- * コンポーザーの Model / Effort 切り替え。トリガー (エージェント選択の右) と、その上へ開く popover を
+ * コンポーザーの Model / Effort 切り替え。トリガー (入力欄の上の状態行) と、その上へ開く popover を
  * 1 つで持つ。設定の入力を行に置くと開閉のたびにコンポーザーが伸び、メッセージ領域がその分だけ縮むため、
  * popover (top layer) に出してレイアウトを動かさない (docs/ui-layout.md)。位置と大きさは
  * `client/src/lib/popoverPlacement.ts` が決める (スキル一覧と同じ計算)。開閉は native popover に任せ、
@@ -55,6 +55,12 @@ export function ModelEffortPicker({
   const popoverRef = useRef<HTMLDivElement | null>(null);
   // 注意文は popover の中だけに出す。畳んでいるときはモデルが使えない警告だけを入力欄の下へ残す
   const notice = settings.modelWarning ?? settings.effortNotice;
+  const label = settings.modelLabel ?? "未選択";
+  // 操作が要る壊れ状態は、実効モデルが候補に無いときと未選択で同じ
+  const warn = settings.modelWarning !== undefined || settings.modelLabel === undefined;
+  const current = settings.effortLabel ? `${label} - ${settings.effortLabel}` : label;
+  // 開いても選べるモデルが無い導線を残さない。実行中・設定変更中も開ける (中の select が無効のまま)
+  const unavailable = settings.modelOptions.length === 0 && !settings.model;
 
   const place = useCallback(() => {
     const popover = popoverRef.current;
@@ -127,7 +133,7 @@ export function ModelEffortPicker({
 
   // Escape は native の light dismiss も閉じるが、App の Escape (設定ページからチャットへ戻る) へ
   // 届かせないため、トリガーとポップアップの両方を含むここで止める
-  const onKeyDown = (event: KeyboardEvent<HTMLSpanElement>) => {
+  const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
     if (event.key !== "Escape") return;
     event.stopPropagation();
   };
@@ -137,7 +143,7 @@ export function ModelEffortPicker({
    * 監視は**トリガーとポップアップの両方**を包むここに置く: 開いた直後のフォーカスはトリガーにあり、
    * Shift+Tab はポップアップの中を経由せずに外へ出るため、ポップアップ側だけの `onBlur` では取りこぼす。
    */
-  const onFocusOut = (event: FocusEvent<HTMLSpanElement>) => {
+  const onFocusOut = (event: FocusEvent<HTMLDivElement>) => {
     const next = event.relatedTarget;
     // トリガー → select、select → select の移動は閉じる操作ではない (トリガーへ戻る移動もここに含まれる)
     if (next instanceof Node && event.currentTarget.contains(next)) return;
@@ -146,27 +152,24 @@ export function ModelEffortPicker({
 
   return (
     // トリガーとポップアップを 1 つのフォーカス範囲として扱う (display: contents は行の flex 配置を変えない)
-    <span className="contents" onKeyDown={onKeyDown} onBlur={onFocusOut}>
+    <div className="contents" onKeyDown={onKeyDown} onBlur={onFocusOut}>
       <button
         type="button"
         ref={triggerRef}
         aria-haspopup="dialog"
         aria-expanded={open}
         aria-controls={pickerId}
-        aria-label="モデルと Effort の設定"
-        title="モデルと Effort"
+        aria-label={`モデルと Effort の設定（${current}）`}
+        title={settings.model}
         popoverTarget={pickerId}
         popoverTargetAction="toggle"
         onClick={toggle}
-        className={cn(
-          "grid shrink-0 cursor-pointer place-items-center rounded-full border transition-colors",
-          compact ? "size-9" : "size-7",
-          open
-            ? "border-accent/50 bg-accent-wash text-accent-text"
-            : "border-line bg-raised text-ink-faint hover:text-ink-soft",
-        )}
+        disabled={unavailable}
+        className={cn("composer-model-trigger", warn ? "text-warn" : open ? "text-accent-text" : "text-ink-faint")}
       >
-        <SlidersIcon />
+        <span className="min-w-0 truncate">{label}</span>
+        {settings.effortLabel ? <span className="shrink-0">{`- ${settings.effortLabel}`}</span> : null}
+        {unavailable ? null : <ChevronDownIcon />}
       </button>
 
       {/* popover の UA 既定 (fixed 以外に margin / border / padding / overflow を持つ) を打ち消してから
@@ -189,7 +192,7 @@ export function ModelEffortPicker({
           {notice ? <p className="m-0 min-w-0 text-2xs break-words text-warn">{notice}</p> : null}
         </div>
       </div>
-    </span>
+    </div>
   );
 }
 
