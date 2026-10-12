@@ -125,6 +125,74 @@ test("描画: 実行中の経過時間は 10 秒の拍の枠に出し、1 分以
   assert.ok(long.includes("elapsed-beat-tier"), "長いランは色を残す");
 });
 
+test("描画: 実行中の経過時間は回答待ち (ask_user の区間) を除く", () => {
+  const now = Date.now();
+  const runningSince = now - 70_000;
+  const open = (id: string, startedAt: number) => ({
+    id,
+    name: "ask_user",
+    args: "",
+    isError: false,
+    done: false,
+    output: "",
+    startedAt,
+  });
+  const html = render({
+    activity: "回答を待っています…",
+    runningSince,
+    runStatus: "running",
+    // 並行に 2 枚待っても同じ実時間 (60 秒) を 2 回引かない
+    runTools: { q1: open("q1", now - 60_000), q2: open("q2", now - 50_000) },
+  });
+
+  assert.match(html, /\(10s\)/, "待機 60 秒を引いた 10 秒を出す");
+  assert.ok(!html.includes("elapsed-beat-tier"), "待機を引いた値で色を判定する");
+});
+
+test("描画: 回答が届いたカードは待機の続きから数え、開始の無いカードは従来どおり数える", () => {
+  const now = Date.now();
+  const runningSince = now - 70_000;
+  const base = { name: "ask_user", args: "", isError: false, done: false, output: "" };
+  const answered = render({
+    activity: "実行中…",
+    runningSince,
+    runStatus: "running",
+    runTools: { q1: { ...base, id: "q1", done: true, startedAt: now - 60_000, endedAt: now - 50_000 } },
+  });
+  assert.match(answered, /\(1m 0s\)/, "待機 10 秒だけを引いて続きを数える");
+
+  const noStart = render({
+    activity: "実行中…",
+    runningSince,
+    runStatus: "running",
+    runTools: { q1: { ...base, id: "q1", endedAt: now - 50_000 } },
+  });
+  assert.match(noStart, /\(1m 1[01]s\)/, "startedAt が無ければ待機を含めて数える");
+});
+
+test("描画: 圧縮中の経過時間は前の run の回答待ちを引かない", () => {
+  const now = Date.now();
+  const html = render({
+    activity: "会話を整理中…",
+    runningSince: now - 70_000,
+    runStatus: "compacting",
+    runTools: {
+      q1: {
+        id: "q1",
+        name: "ask_user",
+        args: "",
+        isError: false,
+        done: true,
+        output: "",
+        startedAt: now - 60_000,
+        endedAt: now - 50_000,
+      },
+    },
+  });
+
+  assert.match(html, /\(1m 1[01]s\)/, "圧縮の起点からの経過をそのまま出す");
+});
+
 // --- 手動圧縮の導線 ---
 
 test("描画: セッションがあると Context ゲージの右に圧縮ボタンを出す", () => {

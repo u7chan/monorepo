@@ -245,6 +245,39 @@ test("running 中の resync は run の重複 call を優先し、tool_end を�
   );
 });
 
+test("running の resync は runTools が回答待ちなら活動の文言を回答待ちにする", () => {
+  const payload = runningPayload();
+  const open: ToolCall = {
+    id: "q1",
+    name: "ask_user",
+    args: "",
+    isError: false,
+    done: false,
+    output: "",
+    questions: [{ question: "進めますか" }],
+    startedAt: 11,
+  };
+  payload.run = {
+    id: "run-1",
+    status: "running",
+    startedAt: 10,
+    prompt: "聞いて",
+    toolCalls: [open],
+    totalRetryCount: 0,
+  };
+
+  const waiting = chatReducer(initialChatState, { type: "resync", payload });
+  assert.equal(waiting.activity, "回答を待っています…");
+
+  // 回答済み (answers あり) の payload では復帰の文言へ戻る。閉じた区間は経過時間から除かれる
+  payload.run = {
+    ...payload.run,
+    toolCalls: [{ ...open, done: true, endedAt: 12, answers: [{ index: 0, skipped: true }] }],
+  };
+  const resumed = chatReducer(waiting, { type: "resync", payload });
+  assert.equal(resumed.activity, "実行中…（タブを閉じても処理は続きます）");
+});
+
 test("ローカル生成のバブルは action で受け取った時刻を使う", () => {
   const user = chatReducer(initialChatState, { type: "localUser", text: "送信中", at: 100 });
   assert.equal(user.bubbles[0]?.at, 100);

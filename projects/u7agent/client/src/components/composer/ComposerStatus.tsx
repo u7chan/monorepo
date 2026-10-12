@@ -1,7 +1,7 @@
 import { useId, type CSSProperties } from "react";
 import { useElapsedMs } from "../../hooks/useElapsedMs";
 import { cn } from "../../lib/cn";
-import { elapsedBeatIndex, formatElapsed, isElapsedTier } from "../../lib/elapsed";
+import { elapsedBeatIndex, formatElapsed, isElapsedTier, runElapsedMs } from "../../lib/elapsed";
 import {
   blockedButtonsNotice,
   retryableRunError,
@@ -11,7 +11,7 @@ import {
   type RunErrorInfo,
 } from "../../lib/runRetry";
 import { contextGauge } from "../../lib/usageFormat";
-import type { ContextUsage, RunStatus } from "../../types";
+import type { ContextUsage, RunStatus, ToolCall } from "../../types";
 import { CompactIcon, RunSpinnerIcon } from "../icons";
 import { ReloadButton } from "../ReloadButton";
 
@@ -26,6 +26,7 @@ export function ComposerStatus({
   activity,
   activityState,
   runningSince,
+  runTools = {},
   finishedRunDurationMs,
   context,
   model,
@@ -52,6 +53,8 @@ export function ComposerStatus({
   activityState?: string;
   /** 実行中 / 圧縮中だけ渡す (活動行の経過時間の起点) */
   runningSince?: number;
+  /** 回答待ち (ask_user の実行区間) を経過時間から除く入力。run が実行中のときだけ使う */
+  runTools?: Record<string, ToolCall>;
   /**
    * 直前に終わったランの合計時間 (run_end のサーバー計測)。渡すと活動の右に凍結表示する。
    * 実行中の `runningSince` と違い値が動かないため、こちらは読み上げの対象にする
@@ -90,7 +93,14 @@ export function ComposerStatus({
   const gauge = contextGauge(context);
   const elapsedMs = useElapsedMs(runningSince);
   // 実行中の経過。ms と表示文を組で持つ (演出の判定は ms、表示は文)
-  const elapsed = elapsedMs === undefined ? null : { ms: elapsedMs, text: formatElapsed(elapsedMs) };
+  let elapsed: { ms: number; text: string } | null = null;
+  if (runningSince !== undefined && elapsedMs !== undefined) {
+    // 回答待ちを別の now で評価しないのは、tick の値とずれて数字が逆行して見えるため。圧縮中の
+    // runningSince はランではないため、前の run のカードは控除しない (runTools は run と同じ寿命)
+    const waits = runStatus === "running" ? Object.values(runTools) : [];
+    const ms = runElapsedMs({ startedAt: runningSince, at: runningSince + elapsedMs, tools: waits });
+    elapsed = { ms, text: formatElapsed(ms) };
+  }
   // 演出を先頭から流し直す目印。拍の番号を key に渡し、10 秒ごとに作り直す
   // (桁は毎秒書き換わるが、そのたびに演出を流すと数字より演出が大きくなる)
   const beat = elapsed === null ? 0 : elapsedBeatIndex(elapsed.ms);

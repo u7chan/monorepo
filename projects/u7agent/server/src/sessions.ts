@@ -42,6 +42,7 @@ import type { ProjectStore } from "./projects";
 import { createSecretMasker, type SecretMasker } from "./redact";
 import { classifyRunError, composeRunError, retryWaitingText } from "./error-classify";
 import { createRunEventBridge, type RunSettlement } from "./run-events";
+import { runDurationMs } from "./run-metrics";
 import type {
   CreateSessionOptions,
   PendingQuestion,
@@ -2089,8 +2090,9 @@ export class SessionStore {
       // ラン全体の所要時間と結末を run id で控える (履歴の user item とライブのバブルがここを正にする)。
       // 非終端の値を控えに残さないよう、終端の 3 値へ narrow してから入れる
       const outcome = RunOutcomeSchema.safeParse(run.status);
+      const durationMs = runDurationMs({ startedAt: run.startedAt, endedAt, tools: record.tools.values() });
       if (outcome.success) {
-        record.runOutcomes.set(run.id, { durationMs: endedAt - run.startedAt, outcome: outcome.data });
+        record.runOutcomes.set(run.id, { durationMs, outcome: outcome.data });
       }
       // アクティブな再試行は終了で消す。累計は結果表示のため残す
       delete run.retry;
@@ -2104,8 +2106,8 @@ export class SessionStore {
       this.emit(record, "run_end", {
         runId: run.id,
         status: run.status,
-        // 完了の合計時間。キュー待ちは含めず、実際に走ったぶんだけを測る
-        durationMs: endedAt - run.startedAt,
+        // 完了の合計時間。キュー待ちと回答待ち (ask_user の実行区間) は含めず、実際に走ったぶんだけを測る
+        durationMs,
         error: run.error,
         errorCode: run.errorCode,
         messageCount: messages.length,
@@ -2124,7 +2126,7 @@ export class SessionStore {
       });
 
       // 送信は fire-and-forget。run_end の記録・persist・キューの pump を待たせない
-      this.notifyCompleted(record, run, bridge.settledAssistantText());
+      this.notifyCompleted(record, run, bridge.settledAssistantText(), durationMs);
 
       if (record.queue.length > 0) {
         setTimeout(() => this.pump(record), QUEUE_DELAY_MS).unref?.();
@@ -2211,7 +2213,7 @@ export class SessionStore {
    * 送るかどうかは finish 時点の値で決め、本文はこのランで確定したものだけを使う
    * (履歴を遡ると、assistant を生成しなかったランで前の応答を再送してしまう)。
    */
-  private notifyCompleted(record: SessionRecord, run: RunState, body: string | undefined): void {
+  private notifyCompleted(record: SessionRecord, run: RunState, body: string | undefined, durationMs: number): void {
     if (!this.notifications || run.status !== "completed" || !record.notify) return;
     if (!body?.trim()) return;
     this.notifications.notifySession({
@@ -2220,7 +2222,7 @@ export class SessionStore {
       title: record.title,
       agentName: record.agent.name,
       body,
-      durationMs: (run.endedAt ?? Date.now()) - run.startedAt,
+      durationMs,
       toolCalls: record.tools.size,
     });
   }
