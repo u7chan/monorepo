@@ -5,6 +5,15 @@
 import type { AskUserAnswer, AskUserQuestion, RunStatus, ToolCall } from "../types";
 import type { ToolCard } from "./chatTypes";
 
+/** ask_user のツール名。表示と経過時間の判定が共有する (サーバーの同名定数は types.ts の再配布に載らない) */
+export const ASK_USER_TOOL_NAME = "ask_user";
+
+/**
+ * resync の活動表示。SSE の status はリプレイされないため復帰の文言はクライアントが持ち、
+ * サーバーの run-events.ts と同じ文字列を二重に定義する (types.ts は型だけを再配布する契約)。
+ */
+export const ASK_USER_WAITING_TEXT = "回答を待っています…";
+
 /** 質問ごとの入力。`skipped` は「回答しない」で、選択 / 自由記入とは排他 */
 export type AskUserDraft = {
   selected: string[];

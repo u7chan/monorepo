@@ -22,6 +22,7 @@ Discord 通知リンク `/s/<sessionId>?space=<spaceId>` は会話を指定し�
 <ベース URL>/s/<sessionId>?space=<spaceId>   ← 会話の所属。ベース URL 未設定なら行ごと出さない
 ```
 
+- `<実行時間>` はランの所要時間（[run-lifecycle.md](run-lifecycle.md#状態)）で、キュー待ちと回答待ち（`ask_user` の実行区間）を含めない。回答待ちが長い会話では、実際に待った時間より短い値になる
 - `space` はその会話の所属スペース。**保存値に依存させず、そのスペースで開くために常に載せる**（通常スペースも `default` として載せる）。所属が引けない / 不正な値のときは `?space=` を付けずに送り、保存値で解決させる（正規化は通知層で行い、通知そのものは失わない）
 - 会話を別のスペースへ引っ越すと、移動前に送った通知の `?space=` は旧スペースを指すため 404 になる（会話は移動先にある）。既知の制限で、通知の再送や URL の書換えはしない（[api-sessions.md](api-sessions.md#post-apisessionsidmove)）
 - 本文は **mask → truncate** の順（逆順だと上限の境界でキーの末尾が欠ける）。mask は APIキーの masker と Webhook URL の専用マスクの両方

@@ -734,6 +734,7 @@ export default function App() {
                     ? app.chat.compactionStartedAt
                     : undefined
               }
+              runTools={app.chat.runTools}
               finishedRunDurationMs={app.chat.finishedRunDurationMs}
               runtimeReady={app.health?.ready !== false}
               sending={app.sending}

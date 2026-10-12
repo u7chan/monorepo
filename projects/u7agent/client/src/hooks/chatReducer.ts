@@ -8,7 +8,7 @@ import {
   toolCardOf,
 } from "../lib/chatHistory";
 import type { HistoryMergeResult } from "../lib/chatHistory";
-import { isPendingAskUser } from "../lib/askUser";
+import { ASK_USER_WAITING_TEXT, isPendingAskUser, pendingAskUserQuestionCount } from "../lib/askUser";
 import { compactionDividerIndex } from "../lib/compaction";
 import { queueWaitSummary } from "../lib/queueWait";
 import type { Bubble, ChatHistoryState, CompactionMarker, ToolCard } from "../lib/chatTypes";
@@ -741,8 +741,15 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
       next = attachRunToolCards(next, status === "running");
       if (status === "running") {
         // 復帰の文言は長い 1 文 (「実行中…（タブを閉じても処理は続きます）」) なので由来を持たせない
-        // (折り返すと帯が行ごとに切れる)。run 自身の短いラベルを配る次の status で再開する
-        next = { ...next, activity: "実行中…（タブを閉じても処理は続きます）" };
+        // (折り返すと帯が行ごとに切れる)。run 自身の短いラベルを配る次の status で再開する。
+        // 回答待ちかどうかは payload の runTools から導出する (SSE の status はリプレイされない)
+        next = {
+          ...next,
+          activity:
+            pendingAskUserQuestionCount(runTools, status) > 0
+              ? ASK_USER_WAITING_TEXT
+              : "実行中…（タブを閉じても処理は続きます）",
+        };
       } else if (status === "compacting") next = { ...next, activity: "会話を整理中…" };
       else if (status === "queued") next = { ...next, activity: queueWaitSummary("", payload.queueDepth) };
       else if (status === "error")

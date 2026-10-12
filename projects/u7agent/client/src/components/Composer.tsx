@@ -19,7 +19,7 @@ import { composerDropKind, FILE_MENTION_MIME, insertFileMention, type ComposerDr
 import type { LayoutMode } from "../lib/layout";
 import { runRetryBlockedReason, type RunErrorInfo } from "../lib/runRetry";
 import { skillCommandText } from "../lib/sessionSkills";
-import type { AgentDef, ContextUsage, ModelRef, RunStatus, ThinkingLevel } from "../types";
+import type { AgentDef, ContextUsage, ModelRef, RunStatus, ThinkingLevel, ToolCall } from "../types";
 import { AgentField } from "./composer/AgentField";
 import { AttachmentChips } from "./composer/AttachmentChips";
 import { ComposerStatus } from "./composer/ComposerStatus";
@@ -34,6 +34,8 @@ export type ComposerProps = {
   activityState?: string;
   /** 実行中 / 圧縮中だけ渡す (活動行の経過時間の起点) */
   runningSince?: number;
+  /** 回答待ち (ask_user の実行区間) を経過時間から除く入力 (run のツールカード) */
+  runTools?: Record<string, ToolCall>;
   /** 直前に終わったランの合計時間 (run_end のサーバー計測)。完了 / 停止 / エラーの状態行に凍結表示する */
   finishedRunDurationMs?: number;
   runtimeReady: boolean;
@@ -112,6 +114,7 @@ export function Composer({
   activity,
   activityState,
   runningSince,
+  runTools,
   finishedRunDurationMs,
   runtimeReady,
   sending,
@@ -327,6 +330,7 @@ export function Composer({
             activity={activity}
             activityState={activityState}
             runningSince={runningSince}
+            runTools={runTools}
             finishedRunDurationMs={finishedRunDurationMs}
             context={context}
             model={settings.model}
