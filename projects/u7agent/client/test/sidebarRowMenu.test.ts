@@ -151,14 +151,14 @@ test("出し分け: プロジェクト行とセッション行で必要な操作
   ]);
 });
 
-test("説明の区分: 押す前に知る必要がある説明は compact でも残し、補足は隠す", () => {
+test("説明の区分: 押す前に知る必要がある説明は singleColumn でも残し、補足は隠す", () => {
   // 何を含むか / 取れない理由 / マスク前の値は、押した後では戻せないので残す
   for (const open of [false, true]) {
     const actions = sessionRowActions({ open, hasRawLog: open });
     for (const kind of ["diagnostics", "raw-log"] as const) {
       const action = actions.find((candidate) => candidate.kind === kind);
       assert.ok(action?.description, `${kind} の説明が無い`);
-      assert.equal(rowMenuDescriptionKind(action!), "disclosure", `${kind} の説明が compact で消える`);
+      assert.equal(rowMenuDescriptionKind(action!), "disclosure", `${kind} の説明が singleColumn で消える`);
     }
   }
   // 分類の無い項目は開示として扱う (今のセッション行に補足は無いが、追加時に勝手に消えない)

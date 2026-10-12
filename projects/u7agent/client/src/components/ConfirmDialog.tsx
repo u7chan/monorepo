@@ -123,13 +123,13 @@ export function ConfirmDialog({ request, onConfirm, onCancel }: ConfirmDialogPro
         </div>
 
         <footer className="flex shrink-0 items-center justify-end gap-2 border-t border-line px-4 py-3">
-          <button ref={cancelRef} type="button" className="btn-quiet compact:min-h-11" onClick={onCancel}>
+          <button ref={cancelRef} type="button" className="btn-quiet singleColumn:min-h-11" onClick={onCancel}>
             {request.cancelLabel ?? "キャンセル"}
           </button>
           <button
             type="submit"
             className={cn(
-              "compact:min-h-11",
+              "singleColumn:min-h-11",
               request.kind === "confirm" && request.danger ? "btn-danger" : "btn-primary",
             )}
           >

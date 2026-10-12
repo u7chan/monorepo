@@ -226,13 +226,13 @@ export function ModelDefaultPicker({
         popover="auto"
         onKeyDown={onPopoverKeyDown}
         onBlur={onPopoverBlur}
-        className="popover-panel fixed inset-auto m-0 w-max overflow-visible rounded-lg border border-line bg-panel p-1 shadow-panel compact:p-2"
+        className="popover-panel fixed inset-auto m-0 w-max overflow-visible rounded-lg border border-line bg-panel p-1 shadow-panel singleColumn:p-2"
       >
         <div className="grid gap-1">
           <input
             ref={searchRef}
             type="search"
-            className="field min-h-8 min-w-0 px-2 py-1 text-xs compact:text-md"
+            className="field min-h-8 min-w-0 px-2 py-1 text-xs singleColumn:text-md"
             value={query}
             placeholder="モデル名 / ID で検索"
             aria-label="既定モデルを検索"
@@ -246,7 +246,7 @@ export function ModelDefaultPicker({
             className="scrollbar-thin overflow-y-auto"
           >
             {choices.length === 0 ? (
-              <p className="px-2 py-1.5 text-2xs text-ink-muted compact:text-xs">該当するモデルがありません。</p>
+              <p className="px-2 py-1.5 text-2xs text-ink-muted singleColumn:text-xs">該当するモデルがありません。</p>
             ) : (
               choices.map((option, index) => (
                 <button
@@ -260,13 +260,13 @@ export function ModelDefaultPicker({
                   tabIndex={-1}
                   onClick={() => selectOption(option.key)}
                   className={cn(
-                    "flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left transition-colors hover:bg-accent-wash compact:min-h-11",
+                    "flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left transition-colors hover:bg-accent-wash singleColumn:min-h-11",
                     option.key === value && "bg-accent-wash",
                   )}
                 >
-                  <span className="min-w-0 flex-1 truncate text-xs text-ink compact:text-sm">{option.name}</span>
+                  <span className="min-w-0 flex-1 truncate text-xs text-ink singleColumn:text-sm">{option.name}</span>
                   {option.detail ? (
-                    <span className="min-w-0 flex-1 truncate text-2xs text-ink-faint compact:text-1xs">
+                    <span className="min-w-0 flex-1 truncate text-2xs text-ink-faint singleColumn:text-1xs">
                       {option.detail}
                     </span>
                   ) : null}

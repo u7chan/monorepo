@@ -227,9 +227,9 @@ export function RowMenu<K extends RowMenuActionKind>({
           pressingTriggerRef.current = false;
         }}
         onClick={toggle}
-        className="group grid h-6 w-6 shrink-0 place-items-center compact:h-11"
+        className="group grid h-6 w-6 shrink-0 place-items-center singleColumn:h-11"
       >
-        {/* 見た目の箱 (24px) と操作領域 (compact は行いっぱいの 44px) を分ける。アンカーは外側の button ではなく
+        {/* 見た目の箱 (24px) と操作領域 (singleColumn は行いっぱいの 44px) を分ける。アンカーは外側の button ではなく
             この箱で、 `place()` が読む rect を広げない (行が半分隠れた状態で開いた直後に閉じる経路を増やさない) */}
         <span
           ref={anchorRef}
@@ -256,7 +256,7 @@ export function RowMenu<K extends RowMenuActionKind>({
         aria-labelledby={triggerId}
         onKeyDown={onKeyDown}
         onBlur={onBlur}
-        className="popover-panel fixed inset-auto m-0 w-max min-w-40 scrollbar-thin overflow-y-auto rounded-lg border border-line bg-panel p-1 shadow-panel compact:min-w-48 compact:p-2"
+        className="popover-panel fixed inset-auto m-0 w-max min-w-40 scrollbar-thin overflow-y-auto rounded-lg border border-line bg-panel p-1 shadow-panel singleColumn:min-w-48 singleColumn:p-2"
       >
         {actions.map((action, index) => (
           <Fragment key={action.kind}>

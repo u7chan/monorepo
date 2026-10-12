@@ -157,12 +157,12 @@ export function SessionMoveDialog({
               ref={cancelRef}
               type="button"
               onClick={onClose}
-              className="btn-quiet compact:min-h-11"
+              className="btn-quiet singleColumn:min-h-11"
               disabled={busy}
             >
               キャンセル
             </button>
-            <button type="submit" disabled={!canMove} className="btn-danger compact:min-h-11">
+            <button type="submit" disabled={!canMove} className="btn-danger singleColumn:min-h-11">
               {text.confirmLabel}
             </button>
           </div>

@@ -321,7 +321,7 @@ export function ServedAppIndicator({ port, status, failed, starting, onStart, on
         role="menu"
         aria-labelledby={triggerId}
         onKeyDown={onKeyDown}
-        className="popover-panel fixed inset-auto m-0 w-max min-w-52 overflow-y-auto rounded-lg border border-line bg-panel p-1 shadow-panel compact:min-w-56 compact:p-2"
+        className="popover-panel fixed inset-auto m-0 w-max min-w-52 overflow-y-auto rounded-lg border border-line bg-panel p-1 shadow-panel singleColumn:min-w-56 singleColumn:p-2"
       >
         <div className="grid gap-1 px-2 pt-1.5 pb-2">
           <span className="inline-flex items-center gap-1.5 text-1xs text-ink">
@@ -329,7 +329,7 @@ export function ServedAppIndicator({ port, status, failed, starting, onStart, on
             {starting ? "起動中…" : view.label}
           </span>
           {/* cwd · コマンドは桁数が決まらないため折り返す (1 行に固定すると cwd だけで埋まり、command の頭だけになる) */}
-          <span className="text-2xs break-words text-ink-muted compact:text-1xs">
+          <span className="text-2xs break-words text-ink-muted singleColumn:text-1xs">
             {starting ? "8080 に到達できるかを確認しています" : servedAppMenuSub(view)}
           </span>
         </div>

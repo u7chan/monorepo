@@ -33,7 +33,7 @@ const copyPath = {
   description: "ツリーの root からの相対パス",
   descriptionKind: "note",
 };
-/** ZIP の除外は押す前に知る必要があるので compact でも残す */
+/** ZIP の除外は押す前に知る必要があるので singleColumn でも残す */
 const downloadDir = {
   kind: "download",
   label: "ZIP でダウンロード",
@@ -83,9 +83,9 @@ function renderMenu(actions: readonly FileRowAction[], name = "docs"): string {
   return renderToStaticMarkup(createElement(RowMenu, { name, actions, onSelect: () => {} }));
 }
 
-test("説明の区分と危険の印: 補足は compact で隠し、ZIP の除外は残し、削除だけ danger にする", () => {
+test("説明の区分と危険の印: 補足は singleColumn で隠し、ZIP の除外は残し、削除だけ danger にする", () => {
   const actions = fileRowActions({ ...base, canRename: true }) ?? [];
-  // コピーする字面の基準はラベルで決まる補足なので compact では隠す
+  // コピーする字面の基準はラベルで決まる補足なので singleColumn では隠す
   const copy = actions.find((action) => action.kind === "copy-path");
   assert.equal(rowMenuDescriptionKind(copy!), "note");
   // ZIP の除外は実行前に効く (何が入らないか分からないと選べない) ので残す
