@@ -3,11 +3,14 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { ServedAppGroup, ServedAppIndicator } from "../src/components/ServedAppStatus";
+import { SingleColumnBar } from "../src/components/SingleColumnBar";
+import { ServedAppGroup, ServedAppIndicator, type ServedAppProps } from "../src/components/ServedAppStatus";
 import {
   servedAppBusyKind,
   servedAppMenuSeparators,
   servedAppReplaceHint,
+  servedAppRow,
+  servedAppRowHref,
   servedAppStartConfirm,
   servedAppUrl,
   servedAppView,
@@ -340,4 +343,131 @@ test("停止中の起動ヒントは停止・置き換えを予告せず、状�
   assert.equal(stopped.ariaLabel, "サービスを起動");
   assert.equal(stopped.badgeTitle, "この会話の作業ディレクトリには起動の実績があります");
   assert.equal(servedAppReplaceHint(stopped), "この会話のサービスを起動");
+});
+
+/** バーを描くための最小の props。行のテストは状態の値だけを差し替える */
+function renderSingleColumnBar(overrides: Partial<ServedAppProps>, note?: string): string {
+  return withLocation(() =>
+    renderToStaticMarkup(
+      createElement(SingleColumnBar, {
+        mode: "portrait",
+        title: "ピアノゲーム",
+        scope: { label: "未所属", project: false, root: "" },
+        serve: serveProps(overrides),
+        runtimeStatus: { text: "", error: false },
+        notify: { on: false, ring: 0, deliverable: true, note, onToggle: () => {} },
+        onOpenNav: () => {},
+      }),
+    ),
+  );
+}
+
+const MINE = serveStatus({ reachable: true, owner: { kind: "mine", title: "ピアノゲーム" }, generation: "gen-1" });
+
+// What: エピソードの状態遷移。行を出すのは起動のエピソードごとに 1 回で、✕ はそのエピソードだけを閉じる
+test("起動のエピソードは start-ok で立ち、会話切替 / 取得失敗 / 確認待ち / 閉じるで落ちる", () => {
+  const standing = servedAppRow({ episode: false }, { kind: "start-ok", status: MINE });
+  assert.equal(standing.episode, true);
+  for (const event of [
+    { kind: "session-changed" },
+    { kind: "failed" },
+    { kind: "starting" },
+    { kind: "dismissed" },
+    { kind: "opened" },
+  ] as const) {
+    assert.equal(servedAppRow(standing, event).episode, false, event.kind);
+  }
+  // 会話切替は直前の確定状態も捨てる (別の会話の到達不可で次のエピソードを立てない)
+  assert.equal(servedAppRow(standing, { kind: "session-changed" }).settled, undefined);
+});
+
+// What: ポーリングで観測した稼働はエピソードを壊さず、到達不可からの復帰だけが新しいエピソードになる
+test("稼働中のポーリングでは落とさず、立てるのは到達不可から自分のサービスへ変わったときだけ", () => {
+  const standing = servedAppRow({ episode: false }, { kind: "start-ok", status: MINE });
+  assert.equal(servedAppRow(standing, { kind: "refreshed", status: MINE }).episode, true, "running → running");
+  // 取得失敗は「到達不可」ではなく状態を見失っただけなので、復帰した稼働中で立て直さない
+  const afterFailure = servedAppRow(servedAppRow(standing, { kind: "failed" }), { kind: "refreshed", status: MINE });
+  assert.equal(afterFailure.episode, false, "取得失敗からの復帰");
+
+  const stopped = serveStatus();
+  assert.equal(servedAppRow({ episode: false, settled: stopped }, { kind: "refreshed", status: MINE }).episode, true);
+  // 初期取得と会話切替の直後 (直前の確定状態が無い) では立てない
+  assert.equal(servedAppRow({ episode: false }, { kind: "refreshed", status: MINE }).episode, false);
+  // 到達可のまま (他会話の公開) では立てない
+  const other = serveStatus({ reachable: true, owner: { kind: "other", title: "決済画面の検証" } });
+  assert.equal(servedAppRow({ episode: false, settled: other }, { kind: "refreshed", status: MINE }).episode, false);
+  // 到達可でも自分のサービスでなければ立てない
+  assert.equal(servedAppRow({ episode: false, settled: stopped }, { kind: "refreshed", status: other }).episode, false);
+});
+
+// What: ✕ はそのエピソードだけを閉じ、次のエピソードではまた出す
+test("✕ の後の次のエピソード (到達不可 → 到達可) ではまた立つ", () => {
+  const dismissed = servedAppRow(servedAppRow({ episode: false }, { kind: "start-ok", status: MINE }), {
+    kind: "dismissed",
+  });
+  assert.equal(dismissed.episode, false);
+  const stopped = servedAppRow(dismissed, { kind: "refreshed", status: serveStatus() });
+  assert.equal(stopped.episode, false, "停止では立てない");
+  assert.equal(servedAppRow(stopped, { kind: "refreshed", status: MINE }).episode, true);
+});
+
+// What: 行を描くかの判定 (エピソード かつ 開ける かつ URL を作れる)
+test("行の href はエピソード・開ける状態・URL の 3 つが揃うときだけ作る", () => {
+  const base = { row: { episode: true }, status: MINE, failed: false, hostname: "app.test", port: 8016 };
+  assert.equal(servedAppRowHref(base), "http://app.test:8016/");
+  // previewPort が未取得・不正なら href を作らない (href の無い行を描かない)
+  for (const port of [undefined, 0, -1, 70000]) {
+    assert.equal(servedAppRowHref({ ...base, port }), undefined, String(port));
+  }
+  // エピソードが無ければ描かない
+  assert.equal(servedAppRowHref({ ...base, row: { episode: false } }), undefined);
+  // 取得失敗中は描かない (既存の契約: 失敗ではリンクも操作も出さない)
+  assert.equal(servedAppRowHref({ ...base, failed: true, status: null }), undefined);
+  assert.equal(servedAppRowHref({ ...base, failed: true }), undefined);
+  // 到達不可 (停止)・他会話への置き換え・起動元不明・取得失敗では描かない
+  for (const status of [
+    serveStatus(),
+    serveStatus({ reachable: true, owner: { kind: "other", title: "決済画面の検証" } }),
+    serveStatus({ reachable: true, owner: { kind: "unknown" } }),
+    null,
+    undefined,
+  ]) {
+    assert.equal(servedAppRowHref({ ...base, status }), undefined, String(status));
+  }
+});
+
+// What: singleColumn のバーへ行を出す位置と構造 (開くボタンと ✕ を兄弟にし、失敗理由と通知の間に置く)
+test("singleColumn のバーは起動直後の 1 行を失敗理由の直後・通知の注記より前に出す", () => {
+  const html = renderSingleColumnBar(
+    { status: MINE, error: "BFF が応答しません", row: { episode: true } },
+    "通知は届きません",
+  );
+  assert.match(html, /<div role="status"[^>]*>/, "状態の変化として読み上げる器に置く");
+  assert.match(html, /サービスが起動しました/);
+  assert.match(html, /aria-label="閉じる"/);
+  // ✕ は開くボタンの兄弟にする (開くボタンの中で入れ子にしない)
+  assert.match(html, /サービスが起動しました<\/button><button type="button" aria-label="閉じる"/);
+  const error = html.indexOf("サービスの操作に失敗しました");
+  const row = html.indexOf("サービスが起動しました");
+  const note = html.indexOf("通知は届きません");
+  assert.ok(error >= 0 && error < row && row < note, "順は 失敗理由 → 1 行 → 通知の注記");
+
+  // エピソードが無い / 取得失敗 / 到達不可では出さない
+  for (const overrides of [
+    { status: MINE },
+    { status: MINE, row: { episode: true }, failed: true },
+    { status: serveStatus(), row: { episode: true } },
+    { status: MINE, row: { episode: true }, port: undefined },
+  ]) {
+    assert.ok(!renderSingleColumnBar(overrides).includes("サービスが起動しました"));
+  }
+});
+
+test("desktop のグループは起動の 1 行を出さず、状態のバッジとサービスリンクのままにする", () => {
+  const html = withLocation(() =>
+    renderToStaticMarkup(createElement(ServedAppGroup, serveProps({ status: MINE, row: { episode: true } }))),
+  );
+  assert.ok(!html.includes("サービスが起動しました"));
+  assert.match(html, /稼働中/);
+  assert.match(html, /aria-label="サービスを開く"/);
 });

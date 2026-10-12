@@ -1,10 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useSpaceApi } from "../SpaceContext";
 import { canApplyServeAction, canApplyStatus, type ServeSelection } from "../lib/serveStatus";
+import { NO_SERVE_ROW, openServedApp, servedAppRow, type ServeRowState } from "../lib/servedApp";
 import type { ServeStatus } from "../types";
 
 /**
- * サービスの状態 (閲覧中の会話から見た値)。取得と操作の規則は docs/ui-layout.md を正とする。
+ * サービスの状態 (閲覧中の会話から見た値)。取得と操作の規則はこの hook と client/test/serveStatus.test.ts が正で、
+ * 採用しなかった案と理由は docs/sandbox.md#serveサービスの公開と起動停止 が持つ。
  *   - 会話を切り替えたら前の会話の状態を描かない (選択中の id と要求の通し番号で古い応答を捨てる)
  *   - 応答がポーリング間隔より遅くても状態は更新される (飛行中の要求があるうちは次を発行しない)
  *   - 取得に失敗したらリンクも操作も出さない (到達不可と区別する)
@@ -18,9 +20,11 @@ export interface ServeState {
   starting: boolean;
   /** 直前の操作の失敗理由 */
   error: string | undefined;
+  /** 起動の後にバー直下へ出す「開く」1 行。出すかは lib/servedApp の表示条件が決める */
+  row: ServeRowState;
 }
 
-const IDLE: ServeState = { status: null, failed: false, starting: false, error: undefined };
+const IDLE: ServeState = { status: null, failed: false, starting: false, error: undefined, row: NO_SERVE_ROW };
 
 /** 状態取得の期限。応答が返らないまま飛行中の印が残り、ポーリングが止まるのを防ぐ */
 const SERVE_STATUS_TIMEOUT_MS = 15_000;
@@ -51,7 +55,7 @@ export function useServeStatus({ sessionId }: { sessionId: string }) {
   // その間に他会話へ置き換わっていれば古い状態を描いてしまう (Effect を待つと 1 フレーム古い値が出る)
   if (tracked !== sessionId) {
     setTracked(sessionId);
-    setState(IDLE);
+    setState((prev) => ({ ...IDLE, row: servedAppRow(prev.row, { kind: "session-changed" }) }));
     invalidatedUpTo.current = requestSeq.current;
     selectionSeq.current += 1;
   }
@@ -80,13 +84,18 @@ export function useServeStatus({ sessionId }: { sessionId: string }) {
       if (sessionIdRef.current !== id) return;
       if (!canApplyStatus(seq, invalidatedUpTo.current, appliedSeq.current)) return;
       appliedSeq.current = seq;
-      setState((prev) => ({ ...prev, status, failed: false }));
+      setState((prev) => ({
+        ...prev,
+        status,
+        failed: false,
+        row: servedAppRow(prev.row, { kind: "refreshed", status }),
+      }));
     } catch {
       if (sessionIdRef.current !== id) return;
       if (!canApplyStatus(seq, invalidatedUpTo.current, appliedSeq.current)) return;
       appliedSeq.current = seq;
       // 取得失敗はリンクも操作も出さない状態。到達不可 (reachable: false) とは区別する
-      setState((prev) => ({ ...prev, status: null, failed: true }));
+      setState((prev) => ({ ...prev, status: null, failed: true, row: servedAppRow(prev.row, { kind: "failed" }) }));
     } finally {
       if (inFlight.current === seq) inFlight.current = 0;
     }
@@ -100,28 +109,42 @@ export function useServeStatus({ sessionId }: { sessionId: string }) {
     void refresh();
   }, [sessionId, refresh]);
 
-  const start = useCallback(async (): Promise<void> => {
+  const start = useCallback(async (): Promise<ServeStatus | undefined> => {
     const id = sessionIdRef.current;
-    if (!id) return;
+    if (!id) return undefined;
     const issued: ServeSelection = { sessionId: id, generation: selectionSeq.current };
     const generation = state.status?.generation ?? null;
     const controller = new AbortController();
     startAbort.current = controller;
     invalidatePending();
-    setState((prev) => ({ ...prev, starting: true, error: undefined }));
+    setState((prev) => ({
+      ...prev,
+      starting: true,
+      error: undefined,
+      row: servedAppRow(prev.row, { kind: "starting" }),
+    }));
     const current = (): ServeSelection => ({ sessionId: sessionIdRef.current, generation: selectionSeq.current });
     try {
       const status = await startServe({ sessionId: id, generation }, controller.signal);
       // 会話を切り替えたら (戻ってきていても) 発行時の選択とは別なので、操作の結果は捨てる
-      if (!canApplyServeAction(issued, current())) return;
+      if (!canApplyServeAction(issued, current())) return undefined;
       // 操作中に始まった取得より操作の結果を優先する
       invalidatePending();
-      setState({ status, failed: false, starting: false, error: undefined });
+      setState((prev) => ({
+        status,
+        failed: false,
+        starting: false,
+        error: undefined,
+        row: servedAppRow(prev.row, { kind: "start-ok", status }),
+      }));
+      // 適用した状態を返す。焦点の移動はこれを呼んだ App の起動経路だけが決める (ポーリングの観測では動かさない)
+      return status;
     } catch (error) {
-      if (!canApplyServeAction(issued, current())) return;
+      if (!canApplyServeAction(issued, current())) return undefined;
       // 押した後の失敗は理由を出し、状態はサーバーの値を取り直す (停止中へ戻る)
       setState((prev) => ({ ...prev, starting: false, error: messageFor(error) }));
       await refresh();
+      return undefined;
     } finally {
       if (startAbort.current === controller) startAbort.current = null;
     }
@@ -135,11 +158,21 @@ export function useServeStatus({ sessionId }: { sessionId: string }) {
     setState((prev) => ({ ...prev, error: undefined }));
     try {
       const status = await stopServe({ sessionId: id, generation: state.status?.generation ?? null });
-      if (!canApplyServeAction(issued, { sessionId: sessionIdRef.current, generation: selectionSeq.current })) return;
+      if (!canApplyServeAction(issued, { sessionId: sessionIdRef.current, generation: selectionSeq.current })) {
+        return;
+      }
       invalidatePending();
-      setState({ status, failed: false, starting: false, error: undefined });
+      setState((prev) => ({
+        status,
+        failed: false,
+        starting: false,
+        error: undefined,
+        row: servedAppRow(prev.row, { kind: "refreshed", status }),
+      }));
     } catch (error) {
-      if (!canApplyServeAction(issued, { sessionId: sessionIdRef.current, generation: selectionSeq.current })) return;
+      if (!canApplyServeAction(issued, { sessionId: sessionIdRef.current, generation: selectionSeq.current })) {
+        return;
+      }
       setState((prev) => ({ ...prev, error: messageFor(error) }));
       await refresh();
     }
@@ -155,7 +188,18 @@ export function useServeStatus({ sessionId }: { sessionId: string }) {
     setState((prev) => ({ ...prev, starting: false }));
   }, []);
 
-  return { ...state, refresh, start, stop, cancel };
+  /** 行の「開く」。開いてから行を消す順序をここだけで決める (押下の文脈で開き、その後に unmount する) */
+  const openRow = useCallback((url: string): void => {
+    openServedApp(url);
+    setState((prev) => ({ ...prev, row: servedAppRow(prev.row, { kind: "opened" }) }));
+  }, []);
+
+  /** 行の ✕。このエピソードだけを閉じる (次のエピソードではまた出る) */
+  const dismissRow = useCallback((): void => {
+    setState((prev) => ({ ...prev, row: servedAppRow(prev.row, { kind: "dismissed" }) }));
+  }, []);
+
+  return { ...state, refresh, start, stop, cancel, openRow, dismissRow };
 }
 
 export type ServeController = ReturnType<typeof useServeStatus>;

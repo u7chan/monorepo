@@ -676,7 +676,8 @@
   .serve-badge {
     @apply inline-flex h-7.5 items-center gap-1.5 rounded-full border border-line px-2.5 text-1xs whitespace-nowrap text-ink-soft;
   }
-  .serve-badge-ok {
+  /* サービスの ok トーン。状態バッジと、起動直後にバー直下へ出す「開く」1 行が共有する */
+  .serve-tone-ok {
     border-color: color-mix(in srgb, var(--c-ok) 42%, transparent);
     background: color-mix(in srgb, var(--c-ok) 10%, transparent);
     color: var(--c-ok-text);

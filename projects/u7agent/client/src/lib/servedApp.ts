@@ -1,6 +1,6 @@
 /**
- * サービスの状態表示 (トップバー) の純関数。表示と操作は docs/ui-layout.md の表が正で、
- * ここは「どの状態をどう描くか」だけを決める (描画と API 呼び出しは component / hook が持つ)。
+ * サービスの状態表示 (トップバー) の純関数。表示の条件はこの module と client/test/servedApp.test.ts が正で、
+ * 採用しなかった案と理由は docs/sandbox.md#serveサービスの公開と起動停止 が持つ (描画と API 呼び出しは component / hook)。
  */
 import type { RunStatus, ServeStatus, SessionSummary } from "../types";
 import type { ConfirmRequest } from "./confirmDialog";
@@ -212,4 +212,87 @@ export function servedAppMenuSeparators(items: readonly { danger?: boolean }[]):
 export function servedAppErrorText(error: string | undefined): string | undefined {
   const text = error?.trim();
   return text ? `サービスの操作に失敗しました: ${text}` : undefined;
+}
+
+/**
+ * 起動の後にバー直下へ出す「開く」1 行のエピソード。行を出すのはエピソードごとに 1 回で、
+ * ✕ はそのエピソードだけを閉じる (次のエピソードではまた出す)。
+ */
+export interface ServeRowState {
+  /** 行を出すエピソードがあるか */
+  episode: boolean;
+  /**
+   * 直前の確定状態。エピソードを立てる判定にだけ使い、取得に失敗しても消さない
+   * (失敗は「到達不可」ではなく、そこで状態を見失っただけ)。初期取得 / 会話切替の直後は undefined。
+   */
+  settled?: ServeStatus;
+}
+
+/** エピソードの状態を動かす出来事。状態の確定 (start-ok / refreshed) と、観測が切れた合図を分ける */
+export type ServeRowEvent =
+  /** このタブの GUI 起動が成功した (適用した状態を持つ) */
+  | { kind: "start-ok"; status: ServeStatus }
+  /** ポーリング / 停止の結果で状態が確定した */
+  | { kind: "refreshed"; status: ServeStatus }
+  /** 起動の確認待ちへ入った (この時点でサービスはまだ到達可とは限らない) */
+  | { kind: "starting" }
+  /** 取得に失敗した (リンクも操作も出さない。到達不可と区別する) */
+  | { kind: "failed" }
+  /** 会話が変わった (前の会話の確定状態も捨てる) */
+  | { kind: "session-changed" }
+  /** ✕ で閉じた */
+  | { kind: "dismissed" }
+  /** 行から開いた */
+  | { kind: "opened" };
+
+export const NO_SERVE_ROW: ServeRowState = { episode: false };
+
+/**
+ * 出来事 1 つぶんのエピソードの遷移。エピソードは「このタブで起動を観測した」ことを表すため、
+ * 稼働中のポーリング (状態の同一性) では落とさず、観測の起点が切れたとき (会話切替 / 取得失敗 /
+ * 確認待ち / 閉じた) に落とす。新しく立てるのは、このタブの起動が成功したとき (start-ok) と、
+ * 到達不可から自分のサービスへ変わったのをポーリングで観測したときだけ (初期取得・会話切替の
+ * 直後は直前の確定状態が無いので立てない)。
+ */
+export function servedAppRow(state: ServeRowState, event: ServeRowEvent): ServeRowState {
+  switch (event.kind) {
+    case "start-ok":
+      return { episode: true, settled: event.status };
+    case "refreshed":
+      return {
+        episode:
+          state.episode ||
+          (state.settled !== undefined && !state.settled.reachable && servedAppView(event.status).canOpen),
+        settled: event.status,
+      };
+    case "session-changed":
+      return NO_SERVE_ROW;
+    case "starting":
+    case "failed":
+    case "dismissed":
+    case "opened":
+      return { episode: false, settled: state.settled };
+  }
+}
+
+/**
+ * バー直下の「開く」1 行の href。描くのは「エピソードがある かつ 取得に失敗していない かつ
+ * 開ける (到達可 + 自分のサービス) かつ URL を作れる」ときだけで、消える条件を並べない
+ * (状態が増えても嘘のリンクを出さない)。取得失敗でリンクも操作も出さないのは既存の契約と同じ。
+ */
+export function servedAppRowHref({
+  row,
+  status,
+  failed,
+  hostname,
+  port,
+}: {
+  row: ServeRowState;
+  status?: ServeStatus | null;
+  failed: boolean;
+  hostname: string;
+  port?: number;
+}): string | undefined {
+  if (!row.episode || failed || !servedAppView(status).canOpen) return undefined;
+  return servedAppUrl(hostname, port);
 }

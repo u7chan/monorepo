@@ -2,9 +2,9 @@ import type { RuntimeStatus } from "../hooks/runtimeStatus";
 import { cn } from "../lib/cn";
 import type { ChatScope } from "../lib/chatScope";
 import type { LayoutMode } from "../lib/layout";
-import { servedAppErrorText } from "../lib/servedApp";
+import { servedAppErrorText, servedAppRowHref } from "../lib/servedApp";
 import { NotifyBell } from "./NotifyBell";
-import { FolderIcon, MenuIcon } from "./icons";
+import { CloseIcon, ExternalLinkIcon, FolderIcon, MenuIcon } from "./icons";
 import { NotifyNote } from "./NotifyNote";
 import { RuntimeAlert } from "./RuntimeAlert";
 import { ServedAppIndicator, type ServedAppProps } from "./ServedAppStatus";
@@ -51,6 +51,16 @@ export function SingleColumnBar({
   // 配信できない On は、押しても切り替わらない理由を読み上げ名と title でも示す (色だけに頼らない)
   const notifyLabel = notify.on && !notify.deliverable ? "通知（停止中）" : "通知";
   const serveError = servedAppErrorText(serve.error);
+  // 起動をこのタブで観測した直後の 1 行。出るかは lib が決め、URL の組み立て (location) はそのときだけ行う
+  const openRowHref = serve.row.episode
+    ? servedAppRowHref({
+        row: serve.row,
+        status: serve.status,
+        failed: serve.failed,
+        hostname: location.hostname,
+        port: serve.port,
+      })
+    : undefined;
 
   return (
     <header className="grid min-w-0 grid-cols-1 border-b border-line bg-panel/85">
@@ -98,6 +108,31 @@ export function SingleColumnBar({
         </div>
       ) : null}
       {serveError ? <NotifyNote text={serveError} className="mx-3 mb-2" /> : null}
+      {openRowHref ? (
+        // 押した瞬間に開く (押下の文脈で新規タブを開く)。開く側が行の左を占め、✕ は右端の兄弟にする
+        <div
+          role="status"
+          className="serve-tone-ok mx-3 mb-2 flex min-h-9 items-center gap-1 rounded-lg border pr-1 pl-2.5"
+        >
+          <button
+            type="button"
+            onClick={() => serve.onOpenRow(openRowHref)}
+            className="flex min-h-9 min-w-0 flex-1 items-center gap-2 text-left text-xs"
+          >
+            <ExternalLinkIcon />
+            サービスが起動しました
+          </button>
+          <button
+            type="button"
+            onClick={serve.onDismissRow}
+            aria-label="閉じる"
+            title="閉じる"
+            className="grid size-9 shrink-0 place-items-center rounded-md text-ink-muted transition-colors hover:text-ink"
+          >
+            <CloseIcon />
+          </button>
+        </div>
+      ) : null}
       {notify.note ? (
         <NotifyNote text={notify.note} onOpenSettings={notify.onOpenSettings} className="mx-3 mb-2" />
       ) : null}

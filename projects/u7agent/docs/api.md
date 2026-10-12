@@ -551,7 +551,7 @@ Content-Security-Policy: sandbox allow-scripts; default-src 'none'; style-src 'u
 
 ## サービス（serve）の状態と起動・停止
 
-閲覧中の会話から見た、サンドボックスで公開中のサービス（旧称「成果物」）の状態と、起動 / 停止の操作。設計と表示規則は [sandbox.md](sandbox.md#serveサービスの公開と起動停止) と [ui-layout.md](ui-layout.md) を正とする。
+閲覧中の会話から見た、サンドボックスで公開中のサービス（旧称「成果物」）の状態と、起動 / 停止の操作。設計は [sandbox.md](sandbox.md#serveサービスの公開と起動停止)、表示規則は `client/src/lib/servedApp.ts` と `client/test/servedApp.test.ts` を正とする。
 
 | メソッド | パス | 用途 |
 | --- | --- | --- |

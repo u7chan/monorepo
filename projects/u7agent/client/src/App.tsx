@@ -375,6 +375,9 @@ export default function App() {
 
   // サービスの状態と操作。バーの表示条件は lib/servedApp が決める (会話ごとの値なので facade が持つ)
   const serve = app.serve;
+  // desktop の「サービス」リンクへ焦点を移す 1 ショット要求。立つのはこのタブの起動が成功したときだけ
+  const [serveFocusRequest, setServeFocusRequest] = useState(false);
+  const ackServeFocus = useCallback(() => setServeFocusRequest(false), []);
   const handleServeStart = useCallback(() => {
     const busy = servedAppBusyKind({
       selfStatus: app.chat.runStatus,
@@ -389,15 +392,26 @@ export default function App() {
       if (request && !(await confirm(request))) return;
       // 会話が変わっていたら、未確認の別の会話のサービスを起動しない
       if (!confirmTargetUnchanged(target, sessionIdRef.current)) return;
-      void app.serve.start();
+      const applied = await app.serve.start();
+      // このタブの起動が適用されたときだけ焦点を移す (ポーリングで観測した外部起動では動かさない)。
+      // singleColumn は行が導線で、リンクが無いので移さない (要求を残すとレイアウトの切替で飛ぶ)
+      if (!applied || singleColumn) return;
+      // 入力欄で打っている最中は動かさない。起動ボタンは starting の間に unmount されるので焦点は body へ落ちる
+      if (document.activeElement !== document.body) return;
+      setServeFocusRequest(true);
     })();
-  }, [app.chat.runStatus, app.sessionId, activeSession?.projectId, app.sessions, app.serve, confirm]);
+  }, [app.chat.runStatus, app.sessionId, activeSession?.projectId, app.sessions, app.serve, confirm, singleColumn]);
   const serveProps = {
     port: app.health?.previewPort,
     status: serve.status,
     failed: serve.failed,
     starting: serve.starting,
     error: serve.error,
+    row: serve.row,
+    onOpenRow: serve.openRow,
+    onDismissRow: serve.dismissRow,
+    focusRequest: serveFocusRequest,
+    onFocusHandled: ackServeFocus,
     onStart: handleServeStart,
     onStop: serve.stop,
     onCancel: serve.cancel,
