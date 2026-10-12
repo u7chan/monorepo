@@ -66,7 +66,7 @@ const MdBlockView = memo(
         return <hr className="md-hr" />;
     }
   },
-  (prev, next) => blocksEqual(prev.block, next.block),
+  (prev, next) => prev.caption === next.caption && blocksEqual(prev.block, next.block),
 );
 
 const MdParagraph = memo(function MdParagraph({ source, caption = true }: { source: string; caption?: boolean }) {
@@ -111,7 +111,11 @@ const MdList = memo(
     const content = items.map((item, index) => <MdListItemView key={index} item={item} caption={caption} />);
     return ordered ? <ol start={start}>{content}</ol> : <ul>{content}</ul>;
   },
-  (prev, next) => prev.ordered === next.ordered && prev.start === next.start && listItemsEqual(prev.items, next.items),
+  (prev, next) =>
+    prev.caption === next.caption &&
+    prev.ordered === next.ordered &&
+    prev.start === next.start &&
+    listItemsEqual(prev.items, next.items),
 );
 
 const MdListItemView = memo(
@@ -129,7 +133,8 @@ const MdListItemView = memo(
       </li>
     );
   },
-  (prev, next) => prev.item.task === next.item.task && prev.item.source === next.item.source,
+  (prev, next) =>
+    prev.caption === next.caption && prev.item.task === next.item.task && prev.item.source === next.item.source,
 );
 
 const MdTable = memo(
