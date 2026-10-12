@@ -37,6 +37,7 @@ import { useSidebarWidth } from "./hooks/useSidebarWidth";
 import { useViewportWidth } from "./hooks/useViewportWidth";
 import { agentIconOf } from "./lib/agentIcon";
 import { chatScope } from "./lib/chatScope";
+import { nextSheetView, type SheetView } from "./lib/sheetView";
 import { cn } from "./lib/cn";
 import { compactConfirmRequest } from "./lib/compaction";
 import { confirmTargetUnchanged } from "./lib/confirmDialog";
@@ -152,7 +153,9 @@ export default function App() {
   const [sheetScope, setSheetScope] = useState(() => ({ compact, view: mainView, root: filesRoot }));
   // 設定ページへの出入り / root の変更 / desktop への復帰でシートを閉じる。showModal() は子の Effect で
   // 親より先に走るため、Effect ではなく前の描画の値と比べる描画中の同期で閉じる
-  if (sheetScope.compact !== compact || sheetScope.view !== mainView || sheetScope.root !== filesRoot) {
+  const sheetScopeChanged =
+    sheetScope.compact !== compact || sheetScope.view !== mainView || sheetScope.root !== filesRoot;
+  if (sheetScopeChanged) {
     setSheetScope({ compact, view: mainView, root: filesRoot });
     setSessionFilesSheetOpen(false);
   }
@@ -524,12 +527,10 @@ export default function App() {
   const filesSheetPhase = useExitPhase(filesSheetOpen, filesSheetRef);
   const settingsPhase = useExitPhase(mainView === "settings", settingsViewRef);
   // 退場中はシートの見え方を固定する。key (root) が動くと dialog が作り直され、退場アニメが途中で切れる
-  // (終了待ちの listener が外れた要素に残り、スライド中に中身も入れ替わる)。閉じる導線はモードを既定へ
-  // 戻すため、モードも固定する。見るのは phase ではなく開閉の state (phase の描画中の更新は 1 度遅れる)
-  const [sheetView, setSheetView] = useState({ root: filesRoot, mode: filesMode });
-  if (filesSheetOpen && (sheetView.root !== filesRoot || sheetView.mode !== filesMode)) {
-    setSheetView({ root: filesRoot, mode: filesMode });
-  }
+  // (終了待ちの listener が外れた要素に残り、スライド中に中身も入れ替わる)。追従させる条件は lib/sheetView.ts
+  const [sheetView, setSheetView] = useState<SheetView>(() => ({ root: filesRoot, mode: filesMode }));
+  const nextView = nextSheetView(sheetView, { root: filesRoot, mode: filesMode }, filesSheetOpen, sheetScopeChanged);
+  if (nextView !== null) setSheetView(nextView);
   // 未消費の要求は選択中セッションのときだけパネルへ渡す (セッションが変われば useSessions が破棄する)。
   // 面へ渡すのは 1 つの要求で、自分宛ての種別だけを適用する (面のモードは要求の種別で切り替える)
   const pendingFileRef = fileRefRequestForSession(app.fileRefRequest, app.sessionId);
