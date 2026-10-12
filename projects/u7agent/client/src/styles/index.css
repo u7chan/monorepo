@@ -46,28 +46,27 @@
     }
   }
 
-  --animate-drawer: drawer-in 180ms ease-out;
+  /* 距離は panel 相対 (%) で書く。overlay の panel 幅は min(320px, 86vw) なので、固定 px だと mobile で
+     動きが見えず、vw だと mobile と狭い desktop で動く量の意味が変わる */
+  --animate-drawer: drawer-in 250ms ease-out;
   @keyframes drawer-in {
     from {
-      opacity: 0;
-      transform: translateX(-12px);
+      transform: translateX(-100%);
     }
     to {
-      opacity: 1;
       transform: translateX(0);
     }
   }
 
-  /* ドロワーの終了・fill の理由は docs/ui-layout.md が正。 */
-  --animate-drawer-out: drawer-out 180ms ease-out forwards;
+  /* ドロワーの終了・fill の理由は docs/ui-layout.md が正。パネルは左端の外から入るのでフェードを重ねない
+     (重ねると移動が読みにくい)。背景のフェードは下の .nav-sheet::backdrop が持つ */
+  --animate-drawer-out: drawer-out 250ms ease-out forwards;
   @keyframes drawer-out {
     from {
-      opacity: 1;
       transform: translateX(0);
     }
     to {
-      opacity: 0;
-      transform: translateX(-12px);
+      transform: translateX(-100%);
     }
   }
 }
@@ -1484,8 +1483,9 @@
     }
   }
 
+  /* 背景のフェードはパネルと同じ長さにする。短いと閉じるときに背景だけ先に消える */
   .nav-sheet::backdrop {
-    transition: opacity 180ms ease-out;
+    transition: opacity 250ms ease-out;
   }
   .nav-sheet[data-closing="true"]::backdrop {
     opacity: 0;
