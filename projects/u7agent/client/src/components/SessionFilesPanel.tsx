@@ -1,8 +1,9 @@
-import { useEffect, useRef, useState, type KeyboardEvent, type PointerEvent } from "react";
+import { useEffect, useRef, useState, type KeyboardEvent, type PointerEvent, type RefObject } from "react";
 import type { SecretsScope } from "../api";
 import { sessionEnvScopeKey, sessionEnvTabs, type SessionEnvTab } from "../lib/sessionEnv";
 import { SESSION_FILES_HIDDEN_NAMES } from "../lib/sessionFiles";
 import { fileRefRequestForKind, type FileRefRequest, type FilesMode } from "../lib/fileRefRequest";
+import type { ExitPhase } from "../lib/exitPhase";
 import { cn } from "../lib/cn";
 import {
   clampSessionFilesPanelWidth,
@@ -335,18 +336,23 @@ function SessionFilesFace({ compact, ...props }: SessionFilesPanelProps & { comp
   return <SessionFilesContent {...props} compact={compact} />;
 }
 
-/** 幅のハンドルを出す desktop の面だけが resize を受け取る (compact のシートは全画面で対象外) */
-export type SessionFilesDesktopPanelProps = SessionFilesPanelProps & { resize: SessionFilesPanelResize };
+/** 幅のハンドルを出す desktop の面だけが resize と開閉 phase を受け取る (compact のシートは全画面で対象外) */
+export type SessionFilesDesktopPanelProps = SessionFilesPanelProps & {
+  resize: SessionFilesPanelResize;
+  phase: ExitPhase;
+};
 
 /**
  * desktop のチャット右パネル (作業環境)。root の切替 (セッションの切替) は呼び出し側の key が mount ごとに
  * 入れ替える。幅が狭いので、ツリーとプレビューは FileBrowser 側のコンテナ判定で縦に積む。
  */
-export function SessionFilesPanel({ resize, ...props }: SessionFilesDesktopPanelProps) {
+export function SessionFilesPanel({ resize, phase, ...props }: SessionFilesDesktopPanelProps) {
   const skill = props.mode.kind === "skill";
   return (
     <aside
       aria-label={skill ? "スキル" : "作業環境"}
+      // 退場アニメの間も mount を保つので、列が 0 へ縮む間は操作と読み上げから外す
+      inert={phase === "closing"}
       className={cn(
         // 列を容器の幅へ拘束する。auto のままだと 1 つの広い行が列を伸ばし、閉じる / 再読み込み /
         // サイズ / 時刻 が容器の外へ出て overflow-hidden で切れる (単一列 Grid の規則は docs/ui-layout.md)
@@ -368,10 +374,15 @@ export function SessionFilesPanel({ resize, ...props }: SessionFilesDesktopPanel
 export type SessionFilesSheetProps = SessionFilesPanelProps & {
   /** ファイル参照から開いたときの起点。閉じたときに focus を戻す (無ければ表示時の activeElement) */
   returnFocus?: HTMLElement | null;
+  /**
+   * 開閉の phase と dialog の ref。退場アニメの終了で mount を切るため、phase と終了を読む ref は
+   * App が持ち、どちらも同じ dialog を指す (NavSheet と違い dialog 自身は phase を持たない)
+   */
+  phase: ExitPhase;
+  dialogRef: RefObject<HTMLDialogElement | null>;
 };
 
-export function SessionFilesSheet({ returnFocus, ...props }: SessionFilesSheetProps) {
-  const dialogRef = useRef<HTMLDialogElement>(null);
+export function SessionFilesSheet({ returnFocus, phase, dialogRef, ...props }: SessionFilesSheetProps) {
   // 閉じたときの戻り先。Effect の再実行 (StrictMode) は dialog が開いた後にも走るため、
   // そこで activeElement (sheet の中の要素) を拾うと unmount 時に起点が消えている
   const originRef = useRef<HTMLElement | null>(null);
@@ -395,6 +406,7 @@ export function SessionFilesSheet({ returnFocus, ...props }: SessionFilesSheetPr
   return (
     <dialog
       ref={dialogRef}
+      // onCancel を無視する環境では標準の close が来るため、そちらも閉じる要求として受ける
       onClose={props.onClose}
       tabIndex={-1}
       aria-modal="true"
@@ -402,9 +414,18 @@ export function SessionFilesSheet({ returnFocus, ...props }: SessionFilesSheetPr
       onKeyDown={(event) => {
         if (event.key === "Escape") event.stopPropagation();
       }}
+      // Escape は標準挙動 (即時に閉じる) を止めて退場アニメへ載せる (NavSheet と同じ)
+      onCancel={(event) => {
+        event.preventDefault();
+        props.onClose();
+      }}
+      data-closing={phase === "closing"}
+      // 退場中は mount を保つ (スライドを見せる) が、破棄する面なので内容は操作させない。止めたいのは
+      // 入力だけではない: 退場中に Enter が届くと、閉じる導線で破棄するはずの下書きが送信されてしまう
+      inert={phase === "closing"}
       className={cn(
         // 列を viewport の幅へ拘束する (理由は SessionFilesPanel の aside と同じ)
-        "m-0 grid h-dvh max-h-none w-screen max-w-none grid-cols-1 overflow-hidden rounded-none border-0 bg-panel p-0 text-ink",
+        "files-sheet m-0 grid h-dvh max-h-none w-screen max-w-none grid-cols-1 overflow-hidden rounded-none border-0 bg-panel p-0 text-ink",
         props.mode.kind === "skill" ? "grid-rows-[auto_minmax(0,1fr)]" : "grid-rows-[auto_auto_minmax(0,1fr)]",
       )}
     >

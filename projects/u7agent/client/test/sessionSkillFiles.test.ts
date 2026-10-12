@@ -7,10 +7,11 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import test from "node:test";
 import { DEFAULT_FILES_MODE, type FilesMode } from "../src/lib/fileRefRequest";
+import type { ExitPhase } from "../src/lib/exitPhase";
 
 // api.ts (location.origin を読む) を辿るため、node では最小の shim を置いてから読み込む
 globalThis.location ??= { origin: "http://localhost" } as Location;
-const { SessionFilesPanel } = await import("../src/components/SessionFilesPanel");
+const { SessionFilesPanel, SessionFilesSheet } = await import("../src/components/SessionFilesPanel");
 const { ConfirmProvider } = await import("../src/components/ConfirmProvider");
 
 const RESIZE = {
@@ -25,7 +26,7 @@ const RESIZE = {
 
 const SKILL_ROOT = ".agents/skills/alpha";
 
-function renderPanel(mode: FilesMode): string {
+function renderPanel(mode: FilesMode, phase: ExitPhase = "open"): string {
   const panel = createElement(SessionFilesPanel, {
     root: ".u7agent/sessions/s1",
     envScope: { sessionId: "s1" },
@@ -35,6 +36,7 @@ function renderPanel(mode: FilesMode): string {
     mode,
     onBackToWork: () => {},
     resize: RESIZE,
+    phase,
   });
   return renderToStaticMarkup(createElement(ConfirmProvider, null, panel));
 }
@@ -59,4 +61,31 @@ test("描画: 作業フォルダ面 (既定) は従来どおりの外装のま�
   assert.ok(html.includes(">環境変数<"), "環境変数タブが無い");
   assert.ok(html.includes("再読み込み"), "作業フォルダ面の操作行が無い");
   assert.ok(!html.includes("作業フォルダへ戻る"), "作業フォルダ面に戻る導線が出ている");
+});
+
+// inert は型で守れないアクセシビリティの契約 (列が 0 へ縮む間も mount を保つため、閉じる途中だけ外す)
+test("描画: 閉じる途中のパネルは inert で操作と読み上げの対象から外れる", () => {
+  assert.ok(!renderPanel(DEFAULT_FILES_MODE).includes("inert"), "開いているパネルが inert になっている");
+  assert.ok(renderPanel(DEFAULT_FILES_MODE, "closing").includes("inert"), "閉じる途中のパネルが inert になっていない");
+});
+
+// こちらも同じ契約。シートは退場中も modal のままなので、背面ではなく内容側を inert にする
+function renderSheet(phase: ExitPhase): string {
+  const sheet = createElement(SessionFilesSheet, {
+    root: ".u7agent/sessions/s1",
+    envScope: { sessionId: "s1" },
+    excludeNames: [],
+    runEndSeq: 0,
+    onClose: () => {},
+    mode: DEFAULT_FILES_MODE,
+    onBackToWork: () => {},
+    phase,
+    dialogRef: { current: null },
+  });
+  return renderToStaticMarkup(createElement(ConfirmProvider, null, sheet));
+}
+
+test("描画: 退場中のシートは inert で、破棄する下書きの送信を防ぐ", () => {
+  assert.ok(!renderSheet("open").includes("inert"), "開いているシートが inert になっている");
+  assert.ok(renderSheet("closing").includes("inert"), "退場中のシートが inert になっていない");
 });

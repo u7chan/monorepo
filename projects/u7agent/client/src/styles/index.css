@@ -69,6 +69,28 @@
       transform: translateX(-100%);
     }
   }
+
+  /* compact の全画面シート (作業環境) の開閉。右パネルの対応物なので右端の外から入る。
+     距離は自身の幅の % で書く (ドロワーと同じ理由) */
+  --animate-sheet: sheet-in 250ms ease-out;
+  @keyframes sheet-in {
+    from {
+      transform: translateX(100%);
+    }
+    to {
+      transform: translateX(0);
+    }
+  }
+
+  --animate-sheet-out: sheet-out 250ms ease-out forwards;
+  @keyframes sheet-out {
+    from {
+      transform: translateX(0);
+    }
+    to {
+      transform: translateX(100%);
+    }
+  }
 }
 
 /* セマンティックトークン → ユーティリティ。inline オプションにより、ユーティリティは
@@ -1489,6 +1511,106 @@
   }
   .nav-sheet[data-closing="true"]::backdrop {
     opacity: 0;
+  }
+
+  /* compact の全画面シート (作業環境)。右パネルの対応物なので右端の外から入る。閉じる要求は App の phase が
+     受け、その phase の間だけ mount を延ばす (退場の `forwards` はその間の終端を保つため) */
+  .files-sheet {
+    animation: var(--animate-sheet);
+  }
+  .files-sheet[data-closing="true"] {
+    animation: var(--animate-sheet-out);
+  }
+
+  /* 右パネル (作業環境) の列。閉じている間を 0px にし、開閉の phase で keyframes を当てる。
+     transition にしないのは、ドラッグ中の幅を CSS 変数へ直接書くため (transition だと move ごとに
+     列が遅れて追従する)。動かす元は --session-files-width 1 つで、チャット側は 1fr のまま縮めて幅を譲る
+     (ドッキングする面なので重ねない) */
+  .session-files-columns {
+    grid-template-columns: minmax(0, 1fr) 0px;
+  }
+  .session-files-columns[data-open="true"] {
+    grid-template-columns: minmax(0, 1fr) var(--session-files-width);
+    animation: session-files-in 250ms ease-out;
+  }
+  .session-files-columns[data-closing="true"] {
+    grid-template-columns: minmax(0, 1fr) var(--session-files-width);
+    animation: session-files-out 250ms ease-out forwards;
+  }
+  @keyframes session-files-in {
+    from {
+      grid-template-columns: minmax(0, 1fr) 0px;
+    }
+    to {
+      grid-template-columns: minmax(0, 1fr) var(--session-files-width);
+    }
+  }
+  @keyframes session-files-out {
+    from {
+      grid-template-columns: minmax(0, 1fr) var(--session-files-width);
+    }
+    to {
+      grid-template-columns: minmax(0, 1fr) 0px;
+    }
+  }
+
+  /* チャットと設定ページの入れ替え。チャットは mount したまま (実行中のランと下書きを失わない)、
+     設定ページは退場 phase の間だけ mount を延ばす。隠れている側は visibility でフォーカスと読み上げから
+     外し、消える間は見せたいので visibility の切替だけを遅らせる */
+  .chat-view {
+    opacity: 1;
+    visibility: visible;
+    transition:
+      opacity 180ms ease-out,
+      visibility 0s 0s;
+  }
+  .chat-view[data-visible="false"] {
+    opacity: 0;
+    visibility: hidden;
+    transition:
+      opacity 180ms ease-out,
+      visibility 0s 180ms;
+  }
+  .settings-view {
+    animation: settings-view-in 180ms ease-out;
+  }
+  .settings-view[data-closing="true"] {
+    animation: settings-view-out 180ms ease-out forwards;
+  }
+  @keyframes settings-view-in {
+    from {
+      opacity: 0;
+      transform: translateY(4px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+  @keyframes settings-view-out {
+    from {
+      opacity: 1;
+    }
+    to {
+      opacity: 0;
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    /* animation: none にしないのは、退場の終了で mount を切るため (終了イベントが来ず、
+       保険のタイマーまで要素が残る)。0 に近い長さなら見えずに即終了する */
+    .session-files-columns[data-open="true"],
+    .session-files-columns[data-closing="true"],
+    .files-sheet,
+    .files-sheet[data-closing="true"],
+    .settings-view,
+    .settings-view[data-closing="true"] {
+      animation-duration: 0.01ms;
+    }
+    .chat-view,
+    .chat-view[data-visible="false"] {
+      transition: none;
+    }
   }
 
   /* 細いスクロールバー */

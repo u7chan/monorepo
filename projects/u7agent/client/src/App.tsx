@@ -27,6 +27,7 @@ import { FileRefProvider } from "./components/markdown/FileRefLink";
 import { MarkdownImageProvider } from "./components/markdown/MarkdownImageRefs";
 import { useU7Agent, type SendMessageOptions } from "./hooks/useU7Agent";
 import { useElapsedMs } from "./hooks/useElapsedMs";
+import { useExitPhase } from "./hooks/useExitPhase";
 import { useLayoutMode } from "./hooks/useLayoutMode";
 import { useLiveToolCall } from "./hooks/useLiveToolCall";
 import { useMarkdownImageRawUrl } from "./hooks/useMarkdownImageRawUrl";
@@ -36,6 +37,7 @@ import { useSidebarWidth } from "./hooks/useSidebarWidth";
 import { useViewportWidth } from "./hooks/useViewportWidth";
 import { agentIconOf } from "./lib/agentIcon";
 import { chatScope } from "./lib/chatScope";
+import { nextSheetView, type SheetView } from "./lib/sheetView";
 import { cn } from "./lib/cn";
 import { compactConfirmRequest } from "./lib/compaction";
 import { confirmTargetUnchanged } from "./lib/confirmDialog";
@@ -151,7 +153,9 @@ export default function App() {
   const [sheetScope, setSheetScope] = useState(() => ({ compact, view: mainView, root: filesRoot }));
   // 設定ページへの出入り / root の変更 / desktop への復帰でシートを閉じる。showModal() は子の Effect で
   // 親より先に走るため、Effect ではなく前の描画の値と比べる描画中の同期で閉じる
-  if (sheetScope.compact !== compact || sheetScope.view !== mainView || sheetScope.root !== filesRoot) {
+  const sheetScopeChanged =
+    sheetScope.compact !== compact || sheetScope.view !== mainView || sheetScope.root !== filesRoot;
+  if (sheetScopeChanged) {
     setSheetScope({ compact, view: mainView, root: filesRoot });
     setSessionFilesSheetOpen(false);
   }
@@ -279,6 +283,9 @@ export default function App() {
     if (mainView !== "settings" || navOpen) return;
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key !== "Escape" || event.defaultPrevented) return;
+      // モーダルが開いている間はその面が Escape を受ける (順序は 詳細シート → ドロワー → チャット)。
+      // 退場中は焦点が body へ外れて各面の stopPropagation を通らないため、ここでも見る
+      if (document.querySelector("dialog[open]")) return;
       backToChat();
     };
     window.addEventListener("keydown", onKeyDown);
@@ -512,6 +519,18 @@ export default function App() {
   // ワークスペース root 固定なので、作業フォルダとは別の入口にする
   const filesPanelOpen = !compact && filesRoot !== "" && sessionFilesOpen;
   const filesSheetOpen = compact && filesRoot !== "" && sessionFilesSheetOpen;
+  // 開閉の phase。閉じた後も退場アニメの間だけ mount を延ばし、CSS の再生と state の寿命を合わせる
+  // (hooks/useExitPhase)。シートは dialog 自身がアニメを持つので、その ref も App が持つ
+  const filesSheetRef = useRef<HTMLDialogElement | null>(null);
+  const settingsViewRef = useRef<HTMLDivElement | null>(null);
+  const filesPanelPhase = useExitPhase(filesPanelOpen, panelWidth.mainRef);
+  const filesSheetPhase = useExitPhase(filesSheetOpen, filesSheetRef);
+  const settingsPhase = useExitPhase(mainView === "settings", settingsViewRef);
+  // 退場中はシートの見え方を固定する。key (root) が動くと dialog が作り直され、退場アニメが途中で切れる
+  // (終了待ちの listener が外れた要素に残り、スライド中に中身も入れ替わる)。追従させる条件は lib/sheetView.ts
+  const [sheetView, setSheetView] = useState<SheetView>(() => ({ root: filesRoot, mode: filesMode }));
+  const nextView = nextSheetView(sheetView, { root: filesRoot, mode: filesMode }, filesSheetOpen, sheetScopeChanged);
+  if (nextView !== null) setSheetView(nextView);
   // 未消費の要求は選択中セッションのときだけパネルへ渡す (セッションが変われば useSessions が破棄する)。
   // 面へ渡すのは 1 つの要求で、自分宛ての種別だけを適用する (面のモードは要求の種別で切り替える)
   const pendingFileRef = fileRefRequestForSession(app.fileRefRequest, app.sessionId);
@@ -648,24 +667,25 @@ export default function App() {
         ref={panelWidth.mainRef}
         // パネルの列幅。ドラッグ中は同じ変数を直接書き換える (hooks/useSessionFilesPanelWidth)
         style={{ "--session-files-width": `${panelWidth.width}px` } as CSSProperties}
-        className={cn(
-          "grid min-h-0 min-w-0 grid-rows-1 overflow-hidden",
-          // 右パネルはシェルの 3 カラム目 (チャット列の隣)。幅はハンドルで選ぶ (lib/sessionFilesPanel.ts)
-          filesPanelOpen ? "grid-cols-[minmax(0,1fr)_var(--session-files-width)]" : "grid-cols-1",
-        )}
+        // 開閉の列幅は .session-files-columns が持つ。ドラッグ中の幅はそのまま変数を書き換える
+        data-open={filesPanelPhase === "open"}
+        data-closing={filesPanelPhase === "closing"}
+        className="session-files-columns grid min-h-0 min-w-0 grid-rows-1 overflow-hidden"
       >
         <div className="grid min-h-0 min-w-0 grid-cols-1 grid-rows-1 overflow-hidden">
-          {/* 設定ページを開いている間もチャットは mount したまま display だけ切る。
-              実行中のラン (SSE)・入力中の下書き・スクロール位置を unmount で失わないため */}
+          {/* 設定ページを開いている間もチャットは mount したまま (実行中のラン・SSE・入力中の下書き・
+              スクロール位置を unmount で失わないため)。display は切らず、opacity と visibility だけを動かす。
+              両方を 1 マスへ明示的に重ねる: display を切らないので auto 配置だと後から出た方が暗黙の 2 行目に
+              落ち、隠れている側が場所を取り続ける (visibility はレイアウトを残す) */}
           <div
-            className={
-              mainView === "settings"
-                ? "hidden"
-                : cn(
-                    "grid min-h-0 min-w-0 grid-cols-1 overflow-hidden",
-                    emptyPortrait ? "chat-empty-portrait" : "grid-rows-[auto_minmax(0,1fr)_auto]",
-                  )
-            }
+            data-visible={mainView === "chat"}
+            // visibility: hidden は子の visibility: visible で上書きできるため、隠れている間は
+            // 丸ごと inert にする (でなければ、非表示のチャットの中の操作要素が Tab で拾われる)
+            inert={mainView !== "chat"}
+            className={cn(
+              "chat-view col-start-1 row-start-1 grid min-h-0 min-w-0 grid-cols-1 overflow-hidden",
+              emptyPortrait ? "chat-empty-portrait" : "grid-rows-[auto_minmax(0,1fr)_auto]",
+            )}
           >
             {compactMode ? (
               <CompactBar
@@ -767,11 +787,23 @@ export default function App() {
             />
             {emptyPortrait ? <div aria-hidden="true" className="min-h-0" /> : null}
           </div>
-          {mainView === "settings" ? settingsScreen() : null}
+          {settingsPhase !== "closed" ? (
+            // 設定ページはチャットと同じマスに重ねる。退場 phase の間は mount を保ち (inert で操作と読み上げから
+            // 外す)、入るときは自身のアニメ、出るときはチャットのフェードアウトと同時に消える
+            <div
+              ref={settingsViewRef}
+              data-closing={settingsPhase === "closing"}
+              inert={settingsPhase === "closing"}
+              className="settings-view col-start-1 row-start-1 grid min-h-0 min-w-0 grid-cols-1"
+            >
+              {settingsScreen()}
+            </div>
+          ) : null}
         </div>
-        {filesPanelOpen ? (
+        {filesPanelPhase !== "closed" ? (
           <SessionFilesPanel
             key={filesRoot}
+            phase={filesPanelPhase}
             root={filesRoot}
             envScope={envScope ?? {}}
             excludeNames={excludeNames}
@@ -786,10 +818,12 @@ export default function App() {
           />
         ) : null}
       </main>
-      {filesSheetOpen ? (
+      {filesSheetPhase !== "closed" ? (
         <SessionFilesSheet
-          key={filesRoot}
-          root={filesRoot}
+          key={sheetView.root}
+          dialogRef={filesSheetRef}
+          phase={filesSheetPhase}
+          root={sheetView.root}
           envScope={envScope ?? {}}
           excludeNames={excludeNames}
           filePreviewPort={app.health?.filePreviewPort}
@@ -797,7 +831,7 @@ export default function App() {
           onClose={closeSessionFilesSheet}
           openRequest={pendingFileRef}
           onHandled={app.ackFileRef}
-          mode={filesMode}
+          mode={sheetView.mode}
           onBackToWork={backToWorkFiles}
           returnFocus={fileRefOriginRef.current}
         />
