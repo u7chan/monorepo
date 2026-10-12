@@ -9,7 +9,7 @@ import { NotifyNote } from "./NotifyNote";
 import { RuntimeAlert } from "./RuntimeAlert";
 import { ServedAppIndicator, type ServedAppProps } from "./ServedAppStatus";
 
-export type CompactBarProps = {
+export type SingleColumnBarProps = {
   mode: Exclude<LayoutMode, "desktop">;
   title: string;
   agentName?: string;
@@ -34,7 +34,7 @@ export type CompactBarProps = {
   onOpenNav: () => void;
 };
 
-export function CompactBar({
+export function SingleColumnBar({
   mode,
   title,
   agentName,
@@ -44,7 +44,7 @@ export function CompactBar({
   notify,
   sessionFiles,
   onOpenNav,
-}: CompactBarProps) {
+}: SingleColumnBarProps) {
   const landscape = mode === "landscape";
   // 2 行目 (landscape はタイトルの左) に「作業先 · エージェント名」を出す
   const scopeLine = `${scope.label} · ${agentName || "エージェント未選択"}`;
@@ -62,11 +62,11 @@ export function CompactBar({
         {landscape ? (
           // プロジェクト名に長さ制限は無い。行の半分を上限にして収縮と省略を許し、タイトルと固定幅の
           // ボタンを viewport 内に残す (shrink-0 だと名前の分だけ右へ押し出す)
-          <span className="max-w-1/2 min-w-0 shrink truncate text-2xs text-ink-faint">{scopeLine}</span>
+          <span className="max-w-1/2 min-w-0 shrink truncate text-1xs text-ink-faint">{scopeLine}</span>
         ) : null}
         <div className={cn("min-w-0 flex-1", landscape ? null : "text-right")}>
-          {landscape ? null : <div className="truncate text-2xs text-ink-faint">{scopeLine}</div>}
-          <div className={cn("truncate font-medium text-ink-strong", landscape ? "text-xs" : "text-1sm")}>{title}</div>
+          {landscape ? null : <div className="truncate text-1xs text-ink-faint">{scopeLine}</div>}
+          <div className="truncate text-sm font-medium text-ink-strong">{title}</div>
         </div>
         {runtimeStatus.error ? <span className="dot dot-danger shrink-0" aria-hidden /> : null}
         <button
@@ -94,7 +94,7 @@ export function CompactBar({
       </div>
       {runtimeStatus.error ? (
         <div className="px-2.5 pb-2">
-          <RuntimeAlert runtimeStatus={runtimeStatus} compact />
+          <RuntimeAlert runtimeStatus={runtimeStatus} singleColumn />
         </div>
       ) : null}
       {serveError ? <NotifyNote text={serveError} className="mx-3 mb-2" /> : null}

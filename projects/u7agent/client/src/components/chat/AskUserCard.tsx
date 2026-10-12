@@ -93,7 +93,7 @@ function TextRow({
   question,
   draft,
   multiSelect,
-  compact,
+  singleColumn,
   disabled,
   onChange,
   onAdvance,
@@ -101,7 +101,7 @@ function TextRow({
   question: AskUserQuestion;
   draft: AskUserDraft;
   multiSelect: boolean;
-  compact: boolean;
+  singleColumn: boolean;
   disabled: boolean;
   onChange: (text: string) => void;
   onAdvance: () => void;
@@ -123,9 +123,9 @@ function TextRow({
         placeholder={question.placeholder ?? "その他の回答（自由記入）"}
         onChange={(event) => onChange(event.target.value)}
         onKeyDown={(event) => {
-          // Enter は「次へ」と同じ。compact は送信ボタンに任せ (Composer と同じ契約)、
+          // Enter は「次へ」と同じ。singleColumn は送信ボタンに任せ (Composer と同じ契約)、
           // IME の変換確定 Enter では進めない (変換しただけで質問が変わらないようにする)
-          if (compact || event.key !== "Enter" || event.shiftKey) return;
+          if (singleColumn || event.key !== "Enter" || event.shiftKey) return;
           const { isComposing, keyCode } = event.nativeEvent;
           if (isImeComposingEnter({ isComposing, keyCode })) return;
           event.preventDefault();
@@ -184,7 +184,7 @@ function AskUserForm({
   index,
   sending,
   error,
-  compact,
+  singleColumn,
   onChange,
   onMove,
   onSkip,
@@ -196,7 +196,7 @@ function AskUserForm({
   index: number;
   sending: boolean;
   error?: string | undefined;
-  compact: boolean;
+  singleColumn: boolean;
   onChange: (next: AskUserDraft) => void;
   onMove: (delta: number) => void;
   onSkip: () => void;
@@ -221,7 +221,7 @@ function AskUserForm({
       <div
         className={cn(
           "flex items-start justify-between gap-2 border-b border-line/60",
-          compact ? "px-2.5 py-1.5" : "px-3 py-2",
+          singleColumn ? "px-2.5 py-1.5" : "px-3 py-2",
         )}
       >
         <div className="grid min-w-0 gap-0.5">
@@ -258,7 +258,7 @@ function AskUserForm({
           question={question}
           draft={draft}
           multiSelect={question.multiSelect === true}
-          compact={compact}
+          singleColumn={singleColumn}
           disabled={sending}
           onChange={(text) => onChange({ ...draft, text, skipped: false })}
           onAdvance={onAdvance}
@@ -267,7 +267,7 @@ function AskUserForm({
       <div
         className={cn(
           "flex items-center justify-between gap-2 border-t border-line/60",
-          compact ? "px-2.5 py-1.5" : "px-3 py-2",
+          singleColumn ? "px-2.5 py-1.5" : "px-3 py-2",
         )}
       >
         <span aria-live="polite" className="text-2xs text-ink-faint">
@@ -308,7 +308,7 @@ function AskUserForm({
         </div>
       </div>
       {closeNotice !== undefined ? (
-        <p className={cn("m-0 text-2xs text-ink-soft", compact ? "px-2.5 pb-1.5" : "px-3 pb-2")}>{closeNotice}</p>
+        <p className={cn("m-0 text-2xs text-ink-soft", singleColumn ? "px-2.5 pb-1.5" : "px-3 pb-2")}>{closeNotice}</p>
       ) : null}
     </div>
   );
@@ -318,16 +318,16 @@ function AskUserForm({
 function AskUserRecord({
   questions,
   answers,
-  compact,
+  singleColumn,
   note,
 }: {
   questions: AskUserQuestion[];
   answers: AskUserAnswer[] | undefined;
-  compact: boolean;
+  singleColumn: boolean;
   note?: string;
 }) {
   return (
-    <div className={cn("grid", compact ? "gap-2.5" : "gap-3")}>
+    <div className={cn("grid", singleColumn ? "gap-2.5" : "gap-3")}>
       {questions.map((question, index) => {
         const text = askUserAnswerText(answers?.find((item) => item.index === index));
         return (
@@ -352,13 +352,13 @@ export function AskUserCard({
   card,
   answerable,
   onAnswer,
-  compact,
+  singleColumn,
 }: {
   card: ToolCard;
   /** 実行中の run に属するカードだけ回答できる (履歴の復元は記録表示のみ) */
   answerable: boolean;
   onAnswer: (toolCallId: string, answers: AskUserAnswer[]) => Promise<AnswerResult>;
-  compact: boolean;
+  singleColumn: boolean;
 }) {
   const questions = card.questions ?? [];
   const [drafts, setDrafts] = useState<AskUserDraft[]>(() => emptyAskUserDrafts(questions));
@@ -444,7 +444,7 @@ export function AskUserCard({
           index={index}
           sending={sending}
           error={error}
-          compact={compact}
+          singleColumn={singleColumn}
           onChange={(next) => {
             setError(undefined);
             setDrafts((current) => current.map((draft, i) => (i === index ? next : draft)));
@@ -464,7 +464,7 @@ export function AskUserCard({
         <AskUserRecord
           questions={questions}
           answers={answers}
-          compact={compact}
+          singleColumn={singleColumn}
           note={
             waiting
               ? "回答を送信しました。反映を待っています…"

@@ -1,4 +1,4 @@
-import { useId, type CSSProperties } from "react";
+import { useId, type CSSProperties, type ReactNode } from "react";
 import { useElapsedMs } from "../../hooks/useElapsedMs";
 import { pendingAskUserQuestionCount } from "../../lib/askUser";
 import { cn } from "../../lib/cn";
@@ -8,7 +8,7 @@ import {
   blockedButtonsNotice,
   retryableRunError,
   RUN_RETRY_LABEL,
-  RUN_RETRY_LABEL_COMPACT,
+  RUN_RETRY_LABEL_SINGLE_COLUMN,
   RUN_RETRY_NOTE,
   type RunErrorInfo,
 } from "../../lib/runRetry";
@@ -18,8 +18,8 @@ import { CompactIcon, RunSpinnerIcon } from "../icons";
 import { ReloadButton } from "../ReloadButton";
 
 /**
- * 入力欄の上の状態行 (活動 / モデル - Effort / Context ゲージ)。
- * モデル名 (Effort 付き)・ゲージ・圧縮ボタンは 1 つの組にして右端へ寄せ、幅が足りないときだけ組ごと 2 行目へ折り返す
+ * 入力欄の上の状態行 (活動 / モデル - Effort の入口 / Context ゲージ)。
+ * モデル / Effort の入口・ゲージ・圧縮ボタンは 1 つの組にして右端へ寄せ、幅が足りないときだけ組ごと 2 行目へ折り返す
  * (別々に置くと、狭い画面で活動テキストが 1 文字幅まで潰れる。docs/ui-layout.md)。
  * 圧縮の不可逆性と課金の注意は、押した時点の確認 (`App` の handleCompact) が担う。
  * 最終失敗の再実行カードは状態行の上に出し、文言は BFF が合成した 1 文をそのまま使う。
@@ -31,14 +31,11 @@ export function ComposerStatus({
   runTools = {},
   queueDepth = 0,
   context,
-  model,
-  modelLabel,
-  effortLabel,
-  modelUnavailable = false,
+  modelSlot,
   onCompact,
   compactDisabled = false,
   compactDisabledReason,
-  compact = false,
+  singleColumn = false,
   runStatus = "idle",
   runError,
   onRetry,
@@ -60,21 +57,15 @@ export function ComposerStatus({
   /** サーバーの待機キュー件数 (停止ボタンの件数と同じ値)。回答待ちのときの待機の理由を出す根拠 */
   queueDepth?: number;
   context?: ContextUsage;
-  /** 実効モデルの provider/id。tooltip と折り返し後の切り詰めの確認に使う */
-  model?: string;
-  /** 状態行に出す表示名。未作成チャットでは「これから使うモデル」になる */
-  modelLabel?: string;
-  /** 状態行に出す Effort のラベル (モデル名の右へ `- xHigh` と続ける)。推論対応外とモデル未解決では渡さない */
-  effortLabel?: string;
-  /** 実効モデルが候補に無い (settings.modelWarning がある) とき true */
-  modelUnavailable?: boolean;
+  /** モデル / Effort の入口 (ModelEffortPicker)。モデルが未解決でも行を残し、無いときだけ行を出さない */
+  modelSlot?: ReactNode;
   /** 手動圧縮。セッションがあるときだけ渡す (未対応ランタイムはサーバーが 501 を返す) */
   onCompact?: () => void;
   compactDisabled?: boolean;
   /** 押せない理由。状態行の下に 1 行で出し、aria-describedby の参照先にもする */
   compactDisabledReason?: string;
   /** 幅の狭いレイアウト。再実行カードのボタンを全幅にする */
-  compact?: boolean;
+  singleColumn?: boolean;
   /** ランがエラーで終わったか。再実行カードの表示条件 (`runStatus === "error"`) に使う */
   runStatus?: RunStatus;
   /** 最後に失敗したランの分類コードと文言。runEnd / resync から保持したもの */
@@ -111,7 +102,7 @@ export function ComposerStatus({
   const card = retryableRunError(runStatus, runError);
   const showRetry = card !== undefined && onRetry !== undefined;
   // カードだけの状態でも描画する (activity は空にして文言をカードへ移す)
-  if (!showActivity && !gauge && !modelLabel && onCompact === undefined && !showRetry) return null;
+  if (!showActivity && !gauge && !modelSlot && onCompact === undefined && !showRetry) return null;
   const gaugeColor =
     gauge?.level === "danger" ? "text-danger-text" : gauge?.level === "warn" ? "text-warn" : "text-ink-faint";
   // 押せない理由は状態行の下に 1 行で出す (押せない間の説明を hover だけに閉じると、タッチ端末で読めない)
@@ -130,15 +121,15 @@ export function ComposerStatus({
         <div
           className={cn(
             "mb-1.5 flex border border-danger/35 bg-soft",
-            compact ? "flex-col gap-2 rounded-lg px-2.5 py-2" : "items-center gap-2.5 rounded-xl px-3.5 py-3",
+            singleColumn ? "flex-col gap-2 rounded-lg px-2.5 py-2" : "items-center gap-2.5 rounded-xl px-3.5 py-3",
           )}
         >
-          <div className={cn("flex min-w-0 items-start gap-2.5", compact ? "" : "flex-1")}>
+          <div className={cn("flex min-w-0 items-start gap-2.5", singleColumn ? "" : "flex-1")}>
             <span className="dot dot-danger mt-1" aria-hidden />
             <div className="min-w-0 text-1xs">
               <p className="m-0 leading-relaxed break-words text-ink-soft">{card.text}</p>
-              {compact ? null : (
-                // 送信内容はデスクトップだけ補助行で示す (compact はボタンのラベルが兼ねる)
+              {singleColumn ? null : (
+                // 送信内容はデスクトップだけ補助行で示す (singleColumn はボタンのラベルが兼ねる)
                 <p className="m-0 mt-1 text-2xs leading-relaxed break-words text-ink-ghost">{RUN_RETRY_NOTE}</p>
               )}
             </div>
@@ -147,9 +138,9 @@ export function ComposerStatus({
             onClick={onRetry}
             disabled={retryDisabled}
             aria-describedby={retryBlocked ? reasonId : undefined}
-            className={cn(compact && "w-full")}
+            className={cn(singleColumn && "w-full")}
           >
-            {compact ? RUN_RETRY_LABEL_COMPACT : RUN_RETRY_LABEL}
+            {singleColumn ? RUN_RETRY_LABEL_SINGLE_COLUMN : RUN_RETRY_LABEL}
           </ReloadButton>
         </div>
       ) : null}
@@ -182,23 +173,8 @@ export function ComposerStatus({
             {queueReason === undefined ? null : <span className="text-ink-ghost">{queueReason}</span>}
           </span>
         ) : null}
-        <span className="flex min-w-0 shrink items-center gap-2">
-          {modelLabel ? (
-            // モデルと Effort は 1 つの単位として読ませる。区切りはモデル名の直後に置き、組の gap より狭くする
-            <span className="flex min-w-0 items-center gap-1">
-              {/* 読み上げは本文だけで足りるので、provider/id は title (hover) だけに持つ */}
-              <span
-                title={model ?? modelLabel}
-                className={cn("min-w-0 truncate font-sans text-2xs", modelUnavailable ? "text-warn" : "text-ink-faint")}
-              >
-                {modelLabel}
-              </span>
-              {effortLabel ? (
-                // Effort が無いときは区切りごと出さない (何も無い行にハイフンだけを残さない)
-                <span className="shrink-0 font-sans text-2xs whitespace-nowrap text-ink-faint">{`- ${effortLabel}`}</span>
-              ) : null}
-            </span>
-          ) : null}
+        <div className="flex min-w-0 shrink items-center gap-2">
+          {modelSlot}
           {gauge ? (
             <span className={cn("shrink-0 font-sans text-2xs whitespace-nowrap tabular-nums", gaugeColor)}>
               Context
@@ -233,7 +209,7 @@ export function ComposerStatus({
               <CompactIcon />
             </button>
           )}
-        </span>
+        </div>
       </div>
       {blockedNotice === undefined ? null : (
         // 押せない理由を、押した行の真下に 1 行で出す (ボタンは右端なので右寄せにする)

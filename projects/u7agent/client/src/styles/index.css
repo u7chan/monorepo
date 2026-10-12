@@ -15,7 +15,7 @@
     ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", "Noto Sans JP Variable",
     monospace;
 
-  /* desktop 内のゆとり用。compact (モバイル / 低い viewport) の判定は JS 側 (lib/layout.ts) が持つ */
+  /* desktop 内のゆとり用。singleColumn (モバイル / 低い viewport) の判定は JS 側 (lib/layout.ts) が持つ */
   --breakpoint-wide: 900px;
 
   /* 小さい UI テキスト。Tailwind 既定の段 (xs=12px / sm=14px / base=16px) だけでは足りず、
@@ -70,7 +70,7 @@
     }
   }
 
-  /* compact の全画面シート (作業環境) の開閉。右パネルの対応物なので右端の外から入る。
+  /* singleColumn の全画面シート (作業環境) の開閉。右パネルの対応物なので右端の外から入る。
      距離は自身の幅の % で書く (ドロワーと同じ理由) */
   --animate-sheet: sheet-in 250ms ease-out;
   @keyframes sheet-in {
@@ -100,6 +100,11 @@
  * Tailwind v4 の hover: / group-hover: は生成 CSS が (hover: hover) 条件付きのため
  * タッチデバイスでは効かない。タッチでは非表示にせず常に見せる、という分岐に使う。 */
 @custom-variant can-hover (@media (hover: hover));
+
+/* compact (portrait / landscape) だけに効くバリアント。判定の正は lib/layout.ts で、useLayoutMode が
+ * html[data-layout] へ写す。native popover は top layer に載るが DOM の祖先は保つので、ここで判定できる。
+ * (pointer: coarse) は使わない: マウス併用のタッチ PC と desktop の狭い窓で見た目が変わってしまう。 */
+@custom-variant compact (&:where(html[data-layout="portrait"] *, html[data-layout="landscape"] *));
 
 @theme inline {
   --color-base: var(--c-base);
@@ -455,7 +460,7 @@
     @apply inline-flex min-h-9 items-center justify-center gap-1.5 rounded-lg border border-line px-3 text-xs text-ink-soft transition-colors hover:border-accent/50 hover:text-accent-text;
   }
 
-  /* アイコンだけのボタン (compact バーなど)。選択中の状態は呼び出し側の utilities で上書きする */
+  /* アイコンだけのボタン (singleColumn バーなど)。選択中の状態は呼び出し側の utilities で上書きする */
   .icon-button {
     @apply grid size-9 shrink-0 place-items-center rounded-lg border border-line bg-raised text-ink-soft transition-colors hover:border-accent/50 hover:text-accent-text;
   }
@@ -463,6 +468,18 @@
   /* 状態行 (min-h-5.25 = 21px) に収まる小さいアイコンボタン。36px の .icon-button は行を崩す */
   .composer-status-icon {
     @apply grid size-5 shrink-0 cursor-pointer place-items-center rounded-md text-ink-faint transition-colors hover:text-accent-text disabled:cursor-not-allowed disabled:opacity-45;
+  }
+
+  /* 状態行のモデル名 / Effort のトリガー。見た目の寸法は .composer-status-icon と同じ 20px に保ち、
+     当たり判定だけ ::after で 24px 以上 (WCAG 2.2 AA 2.5.8) へ広げる。行の高さと入力欄の位置は変えない。
+     色はここに置かない: components レイヤーの :hover / :focus-visible は utilities の色に負ける */
+  .composer-model-trigger {
+    @apply relative inline-flex h-5 min-w-0 shrink cursor-pointer items-center gap-1 rounded-md font-sans text-2xs transition-colors disabled:cursor-not-allowed disabled:opacity-45;
+  }
+  .composer-model-trigger::after {
+    content: "";
+    position: absolute;
+    inset: -2px;
   }
 
   /* 面のアクセントを使う主操作 (保存)。押せないときは面を残して不透明度で示す */
@@ -674,7 +691,7 @@
     background: color-mix(in srgb, var(--c-accent) 10%, transparent);
     color: var(--c-accent-text);
   }
-  /* compact の状態アイコン。押せる状態 (稼働中 / 起動元不明 / 起動中) だけがこの外装を持つ */
+  /* singleColumn の状態アイコン。押せる状態 (稼働中 / 起動元不明 / 起動中) だけがこの外装を持つ */
   .serve-icon-ok {
     border-color: color-mix(in srgb, var(--c-ok) 42%, transparent);
     color: var(--c-ok-text);
@@ -926,7 +943,7 @@
   /* 待機キューのバブル (MessageView)。アバターの外側に、尾が薄れる円環を回して「気配」だけを示す。
    * 追加要素は持たず (::after 1 枚)、絶対配置なので待機に入った瞬間も行の幅を動かさない。
    * 色は線・リング用途の --c-focus (面は --c-accent)。外径はアバターの角丸の角と交差しない値に
-   * する (角の先端より外側を回す。compact の小さいアバターでも内側に収まる)。尾を薄くしすぎると
+   * する (角の先端より外側を回す。singleColumn の小さいアバターでも内側に収まる)。尾を薄くしすぎると
    * 隣接面とのコントラストが 3:1 を割るため (線・リングは各プリセットで 3:1 以上。
    * docs/frontend.md#テーマシステム)、最小の濃さは 75% で止める */
   .queue-ring {
@@ -1513,7 +1530,7 @@
     opacity: 0;
   }
 
-  /* compact の全画面シート (作業環境)。右パネルの対応物なので右端の外から入る。閉じる要求は App の phase が
+  /* singleColumn の全画面シート (作業環境)。右パネルの対応物なので右端の外から入る。閉じる要求は App の phase が
      受け、その phase の間だけ mount を延ばす (退場の `forwards` はその間の終端を保つため) */
   .files-sheet {
     animation: var(--animate-sheet);

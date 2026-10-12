@@ -25,7 +25,7 @@ import type { SessionSkillsState } from "../../hooks/useSessionSkills";
 import { SkillListIcon } from "../icons";
 
 /**
- * チャットのスキルピッカー。トリガー (Model / Effort と同じ行) と、その上へ開く popover を 1 つで持つ。
+ * チャットのスキルピッカー。トリガー (エージェント選択と同じ行) と、その上へ開く popover を 1 つで持つ。
  * 一覧を `form` の行に置くと開閉のたびにコンポーザーが伸び、メッセージ領域がその分だけ縮むため、
  * popover (`top layer`) に出してレイアウトを動かさない (docs/ui-layout.md)。
  *
@@ -37,7 +37,7 @@ import { SkillListIcon } from "../icons";
 export function SkillPicker({
   state,
   rootCwd,
-  compact,
+  singleColumn,
   open,
   onOpenChange,
   onSelect,
@@ -46,7 +46,7 @@ export function SkillPicker({
   state: SessionSkillsState;
   /** ワークスペース root の絶対パス (health.cwd)。場所を root 相対で示すのに使う */
   rootCwd: string;
-  compact: boolean;
+  singleColumn: boolean;
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onSelect: (name: string) => void;
@@ -77,7 +77,7 @@ export function SkillPicker({
     const viewport = { width: document.documentElement.clientWidth, height: document.documentElement.clientHeight };
     // 幅と高さの上限を先に確定させる: 折り返しと内部スクロールが決まり、rect が最終の大きさになる
     const width = skillPickerWidth(viewport.width);
-    const { above, maxHeight } = skillPickerLayout(anchor, viewport, compact);
+    const { above, maxHeight } = skillPickerLayout(anchor, viewport, singleColumn);
     popover.style.width = `${width}px`;
     // 上限はスクロールする本文に当てる。popover は flex にできない (UA の「閉じている間は display: none」を
     // ユーティリティの display が打ち消す) ため、注記の高さは本文から引いて残す
@@ -85,10 +85,10 @@ export function SkillPicker({
     body.style.maxHeight = `${Math.max(0, maxHeight - chrome)}px`;
     popover.style.left = `${skillPickerLeft(anchor, width, viewport.width)}px`;
     popover.style.top = `${skillPickerTop(anchor, popover.getBoundingClientRect().height, above, viewport.height)}px`;
-  }, [compact]);
+  }, [singleColumn]);
 
   // 開いている間は commit のたびに置き直す。window の resize ハンドラは React の再レンダー
-  // (compact ⇄ desktop の切替など) より先に走り、動く前の rect を読んでしまう
+  // (singleColumn ⇄ desktop の切替など) より先に走り、動く前の rect を読んでしまう
   useLayoutEffect(() => {
     if (open) place();
   });
@@ -184,7 +184,7 @@ export function SkillPicker({
         onClick={toggle}
         className={cn(
           "grid shrink-0 cursor-pointer place-items-center rounded-full border transition-colors disabled:cursor-not-allowed disabled:opacity-45",
-          compact ? "size-9" : "size-7",
+          singleColumn ? "size-9" : "size-7",
           state.status === "error" || (state.status === "ready" && state.reloadError !== undefined)
             ? "border-warn/50 text-warn"
             : open
@@ -208,13 +208,13 @@ export function SkillPicker({
         <div ref={bodyRef} className="grid min-w-0 scrollbar-thin gap-2 overflow-x-hidden overflow-y-auto px-2.5 py-2">
           {/* 状態の 1 行。テキストの末尾に再取得を流す (エラーが長いときは折り返した行の末尾に付く) */}
           {notice ? (
-            <p className={cn("text-2xs break-words", notice.warn ? "text-warn" : "text-ink-faint")}>
+            <p className={cn("text-2xs break-words compact:text-xs", notice.warn ? "text-warn" : "text-ink-faint")}>
               {notice.text}
               {notice.retry ? (
                 <button
                   type="button"
                   onClick={onReload}
-                  className="ml-1.5 cursor-pointer rounded-full border border-line bg-raised px-2 py-0.5 align-baseline text-2xs text-ink-soft transition-colors hover:border-accent/50 hover:text-accent-text"
+                  className="ml-1.5 cursor-pointer rounded-full border border-line bg-raised px-2 py-0.5 align-baseline text-2xs text-ink-soft transition-colors hover:border-accent/50 hover:text-accent-text compact:text-xs"
                 >
                   再取得
                 </button>
@@ -224,7 +224,7 @@ export function SkillPicker({
 
           {groups.map((group) => (
             <div key={group.scope} className="grid min-w-0 gap-1">
-              <span className="font-sans text-3xs tracking-wide text-ink-faint uppercase">
+              <span className="font-sans text-3xs tracking-wide text-ink-faint uppercase compact:text-1xs">
                 {group.label}（{group.skills.length}）
               </span>
               <ul className="grid min-w-0 gap-1">
@@ -241,22 +241,28 @@ export function SkillPicker({
                         // 説明は 1 行に切るので、全文と置き場は title へ逃がす (hover で読める)
                         title={[skill.description, location, warning].filter((line) => Boolean(line)).join("\n")}
                         className={cn(
-                          "grid w-full min-w-0 cursor-pointer gap-0.5 rounded-md border px-2 py-1.5 text-left transition-colors hover:border-accent/50 hover:bg-raised",
+                          "grid w-full min-w-0 cursor-pointer gap-0.5 rounded-md border px-2 py-1.5 text-left transition-colors hover:border-accent/50 hover:bg-raised compact:min-h-11",
                           skill.shadowed ? "border-line/70 bg-transparent opacity-70" : "border-line bg-raised",
                         )}
                       >
                         <span className="flex min-w-0 items-baseline gap-1.5">
-                          <span className="min-w-0 truncate text-xs font-medium text-ink-strong">{skill.name}</span>
-                          <span className="ml-auto shrink-0 font-mono text-3xs text-ink-ghost">
+                          <span className="min-w-0 truncate text-xs font-medium text-ink-strong compact:text-sm">
+                            {skill.name}
+                          </span>
+                          <span className="ml-auto shrink-0 font-mono text-3xs text-ink-ghost compact:text-1xs">
                             {skillCommandText(skill.name).trim()}
                           </span>
                         </span>
                         {skill.description ? (
-                          <span className="min-w-0 truncate text-2xs text-ink-soft">{skill.description}</span>
+                          <span className="min-w-0 truncate text-2xs text-ink-soft compact:text-xs">
+                            {skill.description}
+                          </span>
                         ) : null}
-                        {warning ? <span className="text-3xs text-warn">{warning}</span> : null}
+                        {warning ? <span className="text-3xs text-warn compact:text-1xs">{warning}</span> : null}
                         {skill.disableModelInvocation ? (
-                          <span className="text-3xs text-ink-faint">{SESSION_SKILL_DISABLED_NOTE}</span>
+                          <span className="text-3xs text-ink-faint compact:text-1xs">
+                            {SESSION_SKILL_DISABLED_NOTE}
+                          </span>
                         ) : null}
                       </button>
                     </li>
@@ -268,7 +274,7 @@ export function SkillPicker({
         </div>
 
         {groups.length > 0 ? (
-          <p ref={footerRef} className="border-t border-line px-2.5 py-1.5 text-3xs text-ink-ghost">
+          <p ref={footerRef} className="border-t border-line px-2.5 py-1.5 text-3xs text-ink-ghost compact:text-1xs">
             {SESSION_SKILL_BODY_NOTE}
           </p>
         ) : null}

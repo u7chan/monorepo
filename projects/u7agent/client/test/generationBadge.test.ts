@@ -22,8 +22,8 @@ function card(overrides: Partial<ToolCard> = {}): ToolCard {
   return { id: "call-1", name: "generate_image", args: "{}", phase: "done", output: IMAGE_OUTPUT, ...overrides };
 }
 
-function renderBadges(cards: ToolCard[], compact = false): string {
-  return renderToStaticMarkup(createElement(GenerationBadgeList, { cards, compact }));
+function renderBadges(cards: ToolCard[], singleColumn = false): string {
+  return renderToStaticMarkup(createElement(GenerationBadgeList, { cards, singleColumn }));
 }
 
 function renderMessage(bubble: Bubble): string {
@@ -32,7 +32,7 @@ function renderMessage(bubble: Bubble): string {
       bubble,
       skillBadges: [],
       copied: false,
-      compact: false,
+      singleColumn: false,
       rootCwd: "",
       onCopy: () => {},
       copiedId: "",

@@ -65,7 +65,7 @@ export interface ServeView {
   canStart: boolean;
   /** 状態の根拠 (バッジの title) */
   badgeTitle: string;
-  /** compact の読み上げ名 */
+  /** singleColumn の読み上げ名 */
   ariaLabel: string;
   /** 起動の実績 (閲覧中の会話の作業ディレクトリのコマンド) */
   command?: string;
@@ -150,7 +150,7 @@ export function servedAppView(status: ServeStatus | null | undefined): ServeView
   return NONE;
 }
 
-/** compact のメニュー先頭に出す補足 (状態の根拠)。1 行に収める */
+/** singleColumn のメニュー先頭に出す補足 (状態の根拠)。1 行に収める */
 export function servedAppMenuSub(view: ServeView): string {
   if (view.kind === "other") {
     return view.ownerTitle ? `会話「${view.ownerTitle}」が公開中` : "別の会話が公開中";
@@ -198,6 +198,14 @@ export function servedAppReplaceHint(view: ServeView): string {
   if (view.kind === "stopped") return "この会話のサービスを起動";
   if (view.kind === "unknown") return "停止して置き換え";
   return view.ownerTitle ? `会話「${view.ownerTitle}」を停止して置き換え` : "停止して置き換え";
+}
+
+/**
+ * メニュー項目の前に区切りを置くかどうか。破壊的な操作を色だけで示さないため、通常の操作と危険な操作の
+ * 境界に 1 本置く (並びは変えない)。`RowMenu` の danger の区切りと同じ見た目にする。
+ */
+export function servedAppMenuSeparators(items: readonly { danger?: boolean }[]): boolean[] {
+  return items.map((item, index) => index > 0 && (item.danger === true) !== (items[index - 1]?.danger === true));
 }
 
 /** 起動の失敗を表示する 1 行。押した後の遷移状態から戻したときに出す */

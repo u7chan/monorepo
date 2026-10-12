@@ -182,6 +182,23 @@ test("blocks sending only when an unsent chat cannot resolve a model", () => {
     MODEL_UNSET_GUIDE,
     "既定が未設定なら選択先を示して送信を止める",
   );
+  // 無効なトリガーの理由は入力欄の下の footnote に出る。health.error は認証必須 / availability / 初期化失敗を持つ
+  assert.equal(
+    deriveComposerSettings(input({ health: health({ error: "APIキーが必要です" }) })).sendBlockedReason,
+    "APIキーが必要です",
+    "カタログを取得できない理由も footnote で読める",
+  );
+  assert.equal(
+    deriveComposerSettings(input({ health: health({ error: "pi を起動できませんでした" }) })).sendBlockedReason,
+    "pi を起動できませんでした",
+    "初期化失敗も同じ経路で読める",
+  );
+  assert.equal(
+    deriveComposerSettings(input({ health: health({ defaultModelUnset: true, error: "APIキーが必要です" }) }))
+      .sendBlockedReason,
+    MODEL_UNSET_GUIDE,
+    "既定が未設定なら選択先の案内を優先する",
+  );
   assert.equal(
     deriveComposerSettings(
       input({ health: health({ defaultModelUnset: true }), preselection: { model: { provider: "ok", id: "model" } } }),
@@ -191,7 +208,7 @@ test("blocks sending only when an unsent chat cannot resolve a model", () => {
   );
 });
 
-test("状態行に出すモデル表示名を解決する", () => {
+test("トリガーに出すモデル表示名を解決する", () => {
   const named: ModelOption = {
     provider: "anthropic",
     id: "claude-sonnet-4-5",
@@ -209,7 +226,11 @@ test("状態行に出すモデル表示名を解決する", () => {
     input({ preselection: { model: { provider: "ghost", id: "none" } }, health: health({ modelOptions: [named] }) }),
   );
   assert.equal(missing.modelLabel, "ghost/none", "候補に無いモデルも provider/id なら出せる");
-  assert.equal(deriveComposerSettings(input()).modelLabel, undefined, "モデルが未解決なら出さない");
+  assert.equal(
+    deriveComposerSettings(input()).modelLabel,
+    undefined,
+    "モデルが未解決なら出さない (トリガーは未選択と出す)",
+  );
 });
 
 test("renders unknown effort levels as-is", () => {

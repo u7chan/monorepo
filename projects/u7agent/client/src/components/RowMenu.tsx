@@ -1,4 +1,5 @@
 import {
+  Fragment,
   useCallback,
   useEffect,
   useId,
@@ -13,7 +14,9 @@ import {
 import {
   nextRowMenuIndex,
   rowMenuAnchorVisible,
+  rowMenuDescriptionKind,
   rowMenuPlacement,
+  ROW_MENU_MARGIN,
   type RowMenuAction,
   type RowMenuActionKind,
   type RowMenuRect,
@@ -91,6 +94,7 @@ export function RowMenu<K extends RowMenuActionKind>({
   const triggerId = `${menuId}-trigger`;
   const [open, setOpen] = useState(false);
   const triggerRef = useRef<HTMLButtonElement | null>(null);
+  const anchorRef = useRef<HTMLSpanElement | null>(null);
   const popoverRef = useRef<HTMLDivElement | null>(null);
   const itemsRef = useRef<(HTMLButtonElement | null)[]>([]);
   // ⋯ の mousedown は click より先にフォーカスを奪う。その focusout で閉じると直後の click が
@@ -99,17 +103,22 @@ export function RowMenu<K extends RowMenuActionKind>({
 
   const place = useCallback(() => {
     const popover = popoverRef.current;
-    const trigger = triggerRef.current;
-    if (popover === null || trigger === null) return;
-    const anchor = trigger.getBoundingClientRect();
-    if (!rowMenuAnchorVisible(anchor, visibleClips(trigger))) {
+    const anchorElement = anchorRef.current;
+    if (popover === null || anchorElement === null) return;
+    const viewport = {
+      width: document.documentElement.clientWidth,
+      height: document.documentElement.clientHeight,
+    };
+    // 幅 / 高さの上限を測る前に書く: 折り返しと内部スクロールが決まり、rect が最終の大きさになる
+    // (上限が無いと、項目の多いメニューが低い窓で viewport をはみ出し、下部の項目へ届かない)
+    popover.style.maxWidth = `${Math.max(0, viewport.width - ROW_MENU_MARGIN * 2)}px`;
+    popover.style.maxHeight = `${Math.max(0, viewport.height - ROW_MENU_MARGIN * 2)}px`;
+    const anchor = anchorElement.getBoundingClientRect();
+    if (!rowMenuAnchorVisible(anchor, visibleClips(anchorElement))) {
       popover.hidePopover();
       return;
     }
-    const { left, top } = rowMenuPlacement(anchor, popover.getBoundingClientRect(), {
-      width: document.documentElement.clientWidth,
-      height: document.documentElement.clientHeight,
-    });
+    const { left, top } = rowMenuPlacement(anchor, popover.getBoundingClientRect(), viewport);
     popover.style.left = `${left}px`;
     popover.style.top = `${top}px`;
   }, []);
@@ -218,19 +227,27 @@ export function RowMenu<K extends RowMenuActionKind>({
           pressingTriggerRef.current = false;
         }}
         onClick={toggle}
-        className={cn(
-          "grid size-6 shrink-0 place-items-center rounded-md transition-colors",
-          busy
-            ? "cursor-progress text-ink-faint"
-            : copied
-              ? "text-ok"
-              : "text-ink-faint hover:bg-raised hover:text-ink",
-        )}
+        className="group grid h-6 w-6 shrink-0 place-items-center compact:h-11"
       >
-        {busy ? <RunSpinnerIcon tone="focus" /> : copied ? <CheckIcon /> : <MoreIcon />}
+        {/* 見た目の箱 (24px) と操作領域 (compact は行いっぱいの 44px) を分ける。アンカーは外側の button ではなく
+            この箱で、 `place()` が読む rect を広げない (行が半分隠れた状態で開いた直後に閉じる経路を増やさない) */}
+        <span
+          ref={anchorRef}
+          className={cn(
+            "grid size-6 place-items-center rounded-md transition-colors",
+            busy
+              ? "cursor-progress text-ink-faint"
+              : copied
+                ? "text-ok"
+                : "text-ink-faint group-hover:bg-raised group-hover:text-ink",
+          )}
+        >
+          {busy ? <RunSpinnerIcon tone="focus" /> : copied ? <CheckIcon /> : <MoreIcon />}
+        </span>
       </button>
       {/* popover の UA 既定 (fixed 以外に margin / border / padding / overflow を持つ) を打ち消してから
-          テーマのトークンを当てる。位置は place() が left / top を直接書く */}
+          テーマのトークンを当てる。位置は place() が left / top を直接書く。高さの上限を超えたぶんは
+          ここ (popover 自身) のスクロールへ逃がす */}
       <div
         ref={popoverRef}
         id={menuId}
@@ -239,27 +256,31 @@ export function RowMenu<K extends RowMenuActionKind>({
         aria-labelledby={triggerId}
         onKeyDown={onKeyDown}
         onBlur={onBlur}
-        className="popover-panel fixed inset-auto m-0 w-max min-w-40 overflow-visible rounded-lg border border-line bg-panel p-1 shadow-panel"
+        className="popover-panel fixed inset-auto m-0 w-max min-w-40 scrollbar-thin overflow-y-auto rounded-lg border border-line bg-panel p-1 shadow-panel compact:min-w-48 compact:p-2"
       >
         {actions.map((action, index) => (
-          <MenuItem
-            key={action.kind}
-            ref={(element) => {
-              itemsRef.current[index] = element;
-            }}
-            role="menuitem"
-            tabIndex={-1}
-            icon={ACTION_ICONS[action.kind]}
-            label={action.label}
-            description={action.description}
-            danger={action.danger}
-            disabled={action.disabled === true}
-            onClick={() => {
-              // 確認ダイアログ / prompt をメニューの背後に出さない (開いたままだと隠れる)
-              closeBySelection();
-              onSelect(action.kind);
-            }}
-          />
+          <Fragment key={action.kind}>
+            {/* 破壊的な操作は色だけでなく位置 (末尾) と区切りでも示す */}
+            {action.danger === true && index > 0 ? <div aria-hidden="true" className="mx-1 my-1 h-px bg-line" /> : null}
+            <MenuItem
+              ref={(element) => {
+                itemsRef.current[index] = element;
+              }}
+              role="menuitem"
+              tabIndex={-1}
+              icon={ACTION_ICONS[action.kind]}
+              label={action.label}
+              description={action.description}
+              descriptionKind={rowMenuDescriptionKind(action)}
+              danger={action.danger}
+              disabled={action.disabled === true}
+              onClick={() => {
+                // 確認ダイアログ / prompt をメニューの背後に出さない (開いたままだと隠れる)
+                closeBySelection();
+                onSelect(action.kind);
+              }}
+            />
+          </Fragment>
         ))}
       </div>
     </>

@@ -38,7 +38,7 @@ function render(outcome?: RunOutcome): string {
       bubble,
       skillBadges: [],
       copied: false,
-      compact: false,
+      singleColumn: false,
       rootCwd: "/workspace",
       onCopy: () => {},
       copiedId: "",

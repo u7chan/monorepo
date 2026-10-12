@@ -64,7 +64,7 @@ const agents = [agent("a", "ずんだもん"), agent("b", "コードレビュー
 
 test("描画: トリガーが選択中の名前入りの aria-label と listbox の参照を持つ", () => {
   const html = renderToStaticMarkup(
-    createElement(AgentPicker, { agents, agentId: "b", compact: false, onChangeAgent: () => {} }),
+    createElement(AgentPicker, { agents, agentId: "b", singleColumn: false, onChangeAgent: () => {} }),
   );
   assert.match(html, /type="button"/);
   assert.match(html, /aria-haspopup="listbox"/);
@@ -80,7 +80,7 @@ test("描画: トリガーが選択中の名前入りの aria-label と listbox 
 
 test("描画: 行は候補の順に並び、選択中の行だけ aria-selected=true になる", () => {
   const html = renderToStaticMarkup(
-    createElement(AgentPicker, { agents, agentId: "b", compact: false, onChangeAgent: () => {} }),
+    createElement(AgentPicker, { agents, agentId: "b", singleColumn: false, onChangeAgent: () => {} }),
   );
   const options = html.slice(html.indexOf('role="listbox"')).split("<button").slice(1);
   assert.equal(options.length, agents.length, "行数が候補数と違う");
@@ -95,7 +95,7 @@ test("描画: 行は候補の順に並び、選択中の行だけ aria-selected=
 
 test("描画: 候補が無いとトリガーが無効になり、名前入りの読み上げ名を出さない", () => {
   const html = renderToStaticMarkup(
-    createElement(AgentPicker, { agents: [], agentId: "", compact: true, onChangeAgent: () => {} }),
+    createElement(AgentPicker, { agents: [], agentId: "", singleColumn: true, onChangeAgent: () => {} }),
   );
   assert.match(html, /disabled=""/);
   assert.match(html, /aria-label="エージェントを選択"/);

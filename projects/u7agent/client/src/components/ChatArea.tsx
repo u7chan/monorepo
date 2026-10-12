@@ -32,7 +32,7 @@ export type ChatAreaProps = {
   /** 古いページを前置きした回数。スクロール位置の補正の合図 */
   prependSeq?: number;
   onLoadOlder?: () => void;
-  compact?: boolean;
+  singleColumn?: boolean;
   /** 縦向きの空状態では案内を入力欄の直上に寄せる */
   centerEmpty?: boolean;
   suggestions?: AgentSuggestion[];
@@ -88,7 +88,7 @@ export function ChatArea({
   historyLoading = false,
   prependSeq = 0,
   onLoadOlder,
-  compact = false,
+  singleColumn = false,
   centerEmpty = false,
   suggestions = [],
   agentName,
@@ -279,9 +279,11 @@ export function ChatArea({
   }, [visible]);
 
   function renderItem(item: ChatRenderItem) {
-    if (item.kind === "boundary") return <ContextBoundary compact={compact} />;
+    if (item.kind === "boundary") return <ContextBoundary singleColumn={singleColumn} />;
     if (item.kind === "compaction") {
-      return <CompactionDivider compactions={item.marker.compactions} startIndex={item.index} compact={compact} />;
+      return (
+        <CompactionDivider compactions={item.marker.compactions} startIndex={item.index} singleColumn={singleColumn} />
+      );
     }
     const bubble = item.bubble;
     // 未送信の再送 / 破棄は run id を持つバブルだけに出す
@@ -293,7 +295,7 @@ export function ChatArea({
         bubble={bubble}
         skillBadges={skillBadges.get(bubble.id) ?? []}
         copied={copiedId === `bubble_${bubble.id}`}
-        compact={compact}
+        singleColumn={singleColumn}
         agentName={agentName}
         agentIcon={agentIcon}
         rootCwd={rootCwd}
@@ -339,14 +341,14 @@ export function ChatArea({
         className={cn(
           "min-h-0 min-w-0 flex-1 scrollbar-thin overflow-x-hidden overflow-y-auto",
           follow ? "chat-following" : null,
-          compact ? "px-3 pb-4" : "px-6 pb-6 wide:px-8",
+          singleColumn ? "px-3 pb-4" : "px-6 pb-6 wide:px-8",
         )}
       >
         <div
           ref={contentRef}
           className={cn(
             "chat-live-reserve mx-auto w-full min-w-0",
-            compact ? null : "max-w-220",
+            singleColumn ? null : "max-w-220",
             centerEmpty && items.length === 0 ? "flex min-h-full flex-col justify-end" : null,
           )}
           data-live-reserve={reserveLiveTool}
@@ -354,12 +356,15 @@ export function ChatArea({
         >
           {items.length === 0 ? (
             <div
-              className={cn("mx-auto max-w-md text-center", centerEmpty ? "pt-4" : compact ? "pt-[8vh]" : "pt-[18vh]")}
+              className={cn(
+                "mx-auto max-w-md text-center",
+                centerEmpty ? "pt-4" : singleColumn ? "pt-[8vh]" : "pt-[18vh]",
+              )}
             >
               <div className="mx-auto mb-4 w-fit">
                 <AgentIcon icon={agentIcon} variant="hero" />
               </div>
-              <h2 className={cn("font-semibold text-ink-strong", compact ? "text-lg" : "text-xl")}>
+              <h2 className={cn("font-semibold text-ink-strong", singleColumn ? "text-lg" : "text-xl")}>
                 {scope.project ? `${scope.label} で作業します` : "プロジェクトの相棒です"}
               </h2>
               <p className="mt-2 text-1sm leading-relaxed text-ink-soft">
@@ -390,7 +395,7 @@ export function ChatArea({
                   key={virtualItem.key}
                   data-index={virtualItem.index}
                   ref={virtualizer.measureElement}
-                  className={cn("virtual-item", compact ? "pb-3.5" : "pb-5")}
+                  className={cn("virtual-item", singleColumn ? "pb-3.5" : "pb-5")}
                   style={{ "--virtual-start": `${virtualItem.start}px` } as CSSProperties}
                 >
                   {renderItem(items[virtualItem.index])}

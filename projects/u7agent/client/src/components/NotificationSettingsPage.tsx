@@ -15,7 +15,7 @@ export type NotificationSettingsPageProps = SettingsPageProps & {
 /** 設定 → 通知。編集はすべて下書きで、[保存] でまとめて PUT する */
 export function NotificationSettingsPage({
   notifications,
-  compact = false,
+  singleColumn = false,
   onBack,
   onOpenNav,
 }: NotificationSettingsPageProps) {
@@ -39,7 +39,7 @@ export function NotificationSettingsPage({
         </>
       }
       note={note}
-      compact={compact}
+      singleColumn={singleColumn}
       onOpenNav={onOpenNav}
       onBack={onBack}
     >

@@ -1,6 +1,7 @@
-// Model / Effort のポップアップ (client/src/components/composer/ModelEffortControls.tsx) の描画。
-// 入力欄の行に select を戻さず popover として常時 mount することと、開閉・注意文の公開属性を
-// react-dom/server で固定する (ネイティブ popover の実際の開閉はブラウザ受入で確認する)。
+// Model / Effort の切り替え (client/src/components/composer/ModelEffortControls.tsx) の描画。
+// 入力欄の上の状態行のモデル名 / Effort がトリガーになること、入力欄の行に select を戻さず popover を
+// 常時 mount すること、開閉・注意文・無効の公開属性を react-dom/server で固定する
+// (ネイティブ popover の実際の開閉はブラウザ受入で確認する)。
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createElement } from "react";
@@ -34,11 +35,21 @@ const settings: ComposerSettings = {
   compactDisabled: false,
 };
 
+/** モデルが未解決のチャット (候補 0 件・既定も無い) */
+const unsetSettings: ComposerSettings = {
+  ...settings,
+  modelOptions: [],
+  model: undefined,
+  modelLabel: undefined,
+  effortLabel: undefined,
+  thinkingLevel: undefined,
+};
+
 const render = (overrides: Partial<Props> = {}): string =>
   renderToStaticMarkup(
     createElement(ModelEffortPicker, {
       settings,
-      compact: false,
+      singleColumn: false,
       open: false,
       onOpenChange: () => {},
       onChangeModel: () => {},
@@ -47,16 +58,53 @@ const render = (overrides: Partial<Props> = {}): string =>
     }),
   );
 
-test("描画: トリガーは popover を指し、開閉状態と焦点の外へ出たときの終了に必要な属性を持つ", () => {
-  const closed = render();
+/** トリガーの要素 (開始タグと中身) */
+const trigger = (html: string): string => /<button[\s\S]*?<\/button>/.exec(html)?.[0] ?? "";
+/** トリガーの開始タグ (属性とクラスだけ) */
+const triggerTag = (html: string): string => trigger(html).split(">")[0];
+/** popover の中身 (トリガーのクラスと混ぜない) */
+const popover = (html: string): string => html.slice(html.indexOf('popover="auto"'));
 
-  assert.ok(closed.includes('aria-expanded="false"'));
-  assert.ok(closed.includes('aria-haspopup="dialog"'), "開くものの種別を出す");
-  assert.ok(closed.includes('aria-label="モデルと Effort の設定"'));
-  assert.ok(closed.includes('aria-controls="'), "popover との関係を id で持つ");
+test("描画: トリガーは現在値を可視テキストと aria-label に持ち、popover を指す", () => {
+  const closed = render();
+  const tag = triggerTag(closed);
+
+  assert.ok(tag.includes('aria-expanded="false"'));
+  assert.ok(tag.includes('aria-haspopup="dialog"'), "開くものの種別を出す");
+  assert.ok(
+    tag.includes('aria-label="モデルと Effort の設定（Claude Sonnet 4.5 - High）"'),
+    "可視テキストと同じ区切りで現在値を含める",
+  );
+  assert.ok(tag.includes('aria-controls="'), "popover との関係を id で持つ");
+  assert.ok(tag.includes('title="anthropic/claude-sonnet-4-5"'), "provider/id は hover (title) に残す");
+  assert.ok(closed.includes(">Claude Sonnet 4.5<"), "表示名を可視テキストに出す");
+  assert.ok(closed.includes(">- High<"), "Effort は区切ってモデル名の右へ続ける");
+  assert.ok(trigger(closed).includes("<svg"), "押せると分かる chevron を添える");
 
   const open = render({ open: true });
-  assert.ok(open.includes('aria-expanded="true"'), "開いている状態をトリガーへ写す");
+  assert.ok(triggerTag(open).includes('aria-expanded="true"'), "開いている状態をトリガーへ写す");
+});
+
+test("描画: warn のトーンはトリガーが持ち、未選択でも同じ色で示す", () => {
+  assert.ok(!triggerTag(render()).includes("text-warn"), "候補を引けるときは warn にしない");
+
+  const warned = triggerTag(render({ settings: { ...settings, modelWarning: "zzz/unknown は現在利用できません。" } }));
+  assert.ok(warned.includes("text-warn"), "実効モデルが候補に無いとき");
+
+  const unset = render({ settings: unsetSettings });
+  assert.ok(triggerTag(unset).includes("text-warn"), "未選択も同じ warn のトーンで示す");
+  assert.ok(unset.includes(">未選択<"), "表示名が無いときは未選択と出す");
+});
+
+test("描画: 選べる Model が無くモデルも未解決のときだけトリガーを無効にする", () => {
+  const unset = trigger(render({ settings: unsetSettings }));
+
+  assert.ok(triggerTag(unset).includes("disabled"), "開いても選べるものが無いなら無効にする");
+  assert.ok(triggerTag(unset).includes("composer-model-trigger"), "状態行の寸法と押せない見た目を共有する");
+  assert.ok(!unset.includes("<svg"), "無効なときは chevron を出さない");
+
+  const resolved = trigger(render({ settings: { ...settings, modelOptions: [] } }));
+  assert.ok(!triggerTag(resolved).includes("disabled"), "モデルを表示できるなら開ける (中の select は無効のまま)");
 });
 
 test("描画: popover は閉じていても DOM に居て、Model / Effort の入力と注意文を中に持つ", () => {
@@ -85,13 +133,11 @@ test("描画: 注意文はモデルが使えない警告を優先し、無いと
   assert.ok(!warned.includes("使用モデルに応じて補正されます"), "2 つを同時に出さない");
 
   const noticeOnly = render({
-    settings: { ...settings, model: undefined, effortNotice: "使用モデルに応じて補正されます" },
+    settings: { ...settings, model: undefined, modelLabel: undefined, effortNotice: "使用モデルに応じて補正されます" },
   });
   assert.ok(noticeOnly.includes("使用モデルに応じて補正されます"));
 });
 
-test("描画: 注意文が無いときは popover 内に警告の段落を出さない", () => {
-  const html = render();
-
-  assert.ok(!html.includes("text-warn"), "空の段落を残さない");
+test("描画: 注意文が無いときは popover の中に警告の段落を出さない", () => {
+  assert.ok(!popover(render()).includes("text-warn"), "空の段落を残さない");
 });

@@ -8,22 +8,22 @@ export type AttachedFilesProps = {
   files: string[];
   /** ワークスペース root の絶対パス (health.cwd)。raw URL を root 相対へ直すのに使う */
   rootCwd: string;
-  compact: boolean;
+  singleColumn: boolean;
 };
 
 /** 送信済みメッセージの添付。画像はサムネイル、それ以外はファイル名だけを出す。 */
-export function AttachedFiles({ files, rootCwd, compact }: AttachedFilesProps) {
+export function AttachedFiles({ files, rootCwd, singleColumn }: AttachedFilesProps) {
   if (files.length === 0) return null;
   return (
-    <ul className={cn("flex flex-wrap justify-end", compact ? "mb-1 gap-1.5" : "mb-1.5 gap-2")}>
+    <ul className={cn("flex flex-wrap justify-end", singleColumn ? "mb-1 gap-1.5" : "mb-1.5 gap-2")}>
       {files.map((path) => (
-        <AttachedFile key={path} path={path} rootCwd={rootCwd} compact={compact} />
+        <AttachedFile key={path} path={path} rootCwd={rootCwd} singleColumn={singleColumn} />
       ))}
     </ul>
   );
 }
 
-function AttachedFile({ path, rootCwd, compact }: { path: string; rootCwd: string; compact: boolean }) {
+function AttachedFile({ path, rootCwd, singleColumn }: { path: string; rootCwd: string; singleColumn: boolean }) {
   const name = path.split("/").pop() ?? path;
   if (isImageName(name)) {
     return (
@@ -33,7 +33,7 @@ function AttachedFile({ path, rootCwd, compact }: { path: string; rootCwd: strin
           alt={name}
           title={path}
           variant="attachment"
-          compact={compact}
+          singleColumn={singleColumn}
         />
       </li>
     );

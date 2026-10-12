@@ -32,13 +32,13 @@ const BOX_CLASS: Partial<Record<AgentIconVariant, string>> = {
 export function AgentIcon({
   icon,
   variant,
-  compact = false,
+  singleColumn = false,
 }: {
   /** 未設定・形式違いは SparkleIcon にフォールバックする */
   icon?: string;
   variant: AgentIconVariant;
   /** bubble だけ。狭い layout では 1 段小さくする */
-  compact?: boolean;
+  singleColumn?: boolean;
 }) {
   // 読み込みに失敗した src を覚えて、同じ画像を再試行させず SparkleIcon へ切り替える
   const [failedIcon, setFailedIcon] = useState<string>();
@@ -49,7 +49,7 @@ export function AgentIcon({
       className={cn(
         "grid shrink-0 place-items-center overflow-hidden",
         VARIANT_CLASS[variant],
-        variant === "bubble" && compact ? "size-5.5" : BOX_CLASS[variant],
+        variant === "bubble" && singleColumn ? "size-5.5" : BOX_CLASS[variant],
       )}
     >
       {showImage ? (

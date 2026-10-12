@@ -1,6 +1,6 @@
 /**
  * チャットから選択中セッションの作業フォルダを開くための root を決める。
- * 表示方法は layout ごとに変え、desktop は右パネル、compact は全画面シートを使う。
+ * 表示方法は layout ごとに変え、desktop は右パネル、singleColumn は全画面シートを使う。
  */
 
 export type SessionFilesAvailability = {
@@ -26,7 +26,7 @@ export function sessionFilesRoot({ chatView, cwd, projectCwd }: SessionFilesAvai
 
 export type SessionFilesDefaultOpen = {
   /** portrait / landscape。既定オープンの対象は desktop のパネルだけ (シートは手動トグル) */
-  compact: boolean;
+  singleColumn: boolean;
   /** そのときの作成先。"" は未所属 */
   projectId: string;
 };
@@ -36,8 +36,8 @@ export type SessionFilesDefaultOpen = {
  * 使うのは利用者操作の新規会話の入口 (App の handleNewChat) だけで、起動時は会話 URL を開く場合も閉になる。
  * 派生 state (一覧の到着 / root の解決) を契機に変えない
  */
-export function sessionFilesDefaultOpen({ compact, projectId }: SessionFilesDefaultOpen): boolean {
-  return !compact && projectId !== "";
+export function sessionFilesDefaultOpen({ singleColumn, projectId }: SessionFilesDefaultOpen): boolean {
+  return !singleColumn && projectId !== "";
 }
 
 /**

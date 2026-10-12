@@ -249,12 +249,12 @@ export function SelectMenu<TValue extends string = string>({
           aria-labelledby={triggerId}
           aria-label={label}
           onKeyDown={onListKeyDown}
-          className="grid scrollbar-thin overflow-x-hidden overflow-y-auto p-1"
+          className="grid scrollbar-thin overflow-x-hidden overflow-y-auto p-1 compact:p-2"
         >
           {groups.map((section) => (
             <div key={section.group ?? ""} role="group" aria-label={section.group}>
               {section.group ? (
-                <span className="block px-2 pt-1.5 pb-0.5 text-3xs tracking-label text-ink-ghost uppercase">
+                <span className="block px-2 pt-1.5 pb-0.5 text-3xs tracking-label text-ink-ghost uppercase compact:text-2xs">
                   {section.group}
                 </span>
               ) : null}
@@ -273,20 +273,22 @@ export function SelectMenu<TValue extends string = string>({
                     disabled={option.disabled}
                     onClick={() => select(option.value)}
                     className={cn(
-                      "flex w-full items-start gap-2 rounded-md px-2 py-1.5 text-left transition-colors disabled:cursor-not-allowed disabled:opacity-55",
+                      "flex w-full items-start gap-2 rounded-md px-2 py-1.5 text-left transition-colors disabled:cursor-not-allowed disabled:opacity-55 compact:min-h-11",
                       option.value === value ? "bg-accent-wash" : "hover:bg-accent-wash",
                     )}
                   >
                     {option.leading ? <span className="shrink-0">{option.leading}</span> : null}
                     <span className="grid min-w-0 flex-1 gap-0.5">
                       <span className="flex min-w-0 items-baseline gap-2">
-                        <span className="truncate text-xs text-ink">{option.label}</span>
+                        <span className="truncate text-xs text-ink compact:text-sm">{option.label}</span>
                         {option.detail ? (
-                          <span className="ml-auto shrink-0 font-mono text-2xs text-ink-faint">{option.detail}</span>
+                          <span className="ml-auto shrink-0 font-mono text-2xs text-ink-faint compact:text-1xs">
+                            {option.detail}
+                          </span>
                         ) : null}
                       </span>
                       {option.description ? (
-                        <span className="truncate text-2xs text-ink-muted">{option.description}</span>
+                        <span className="truncate text-2xs text-ink-muted compact:text-xs">{option.description}</span>
                       ) : null}
                     </span>
                     {option.value === value ? (
@@ -302,7 +304,10 @@ export function SelectMenu<TValue extends string = string>({
         </div>
         {/* 注記は一覧の外に置く (listbox の中に option 以外を置かない) */}
         {note ? (
-          <p ref={noteRef} className="border-t border-line px-2.5 py-1.5 text-2xs leading-relaxed text-ink-muted">
+          <p
+            ref={noteRef}
+            className="border-t border-line px-2.5 py-1.5 text-2xs leading-relaxed text-ink-muted compact:text-1xs"
+          >
             {note}
           </p>
         ) : null}

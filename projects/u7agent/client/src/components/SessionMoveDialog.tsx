@@ -10,7 +10,7 @@ export type SessionMoveDialogProps = {
   text: SessionMoveDialogText;
   /** 移動先の候補。現在のスペースは呼び出し側が除く */
   destinations: Space[];
-  compact?: boolean;
+  singleColumn?: boolean;
   onClose: () => void;
   /** 失敗は throw してダイアログ内に出す */
   onMove: (targetSpaceId: string) => Promise<void>;
@@ -21,7 +21,13 @@ export type SessionMoveDialogProps = {
  * 選択を持つこの画面は `ProjectDialog` と同じ専用部品にし、`App` が制御コンポーネントとして mount する。
  * モーダルの標準挙動 (背面の inert 化 / Tab の拘束 / Escape での終了) と焦点の復帰に任せる。
  */
-export function SessionMoveDialog({ text, destinations, compact = false, onClose, onMove }: SessionMoveDialogProps) {
+export function SessionMoveDialog({
+  text,
+  destinations,
+  singleColumn = false,
+  onClose,
+  onMove,
+}: SessionMoveDialogProps) {
   const dialogRef = useRef<HTMLDialogElement>(null);
   const previousFocusRef = useRef<HTMLElement | null>(null);
   const cancelRef = useRef<HTMLButtonElement>(null);
@@ -78,7 +84,7 @@ export function SessionMoveDialog({ text, destinations, compact = false, onClose
       }}
       className={cn(
         "flex flex-col overflow-hidden border-line bg-panel p-0 text-ink",
-        compact
+        singleColumn
           ? "m-0 h-dvh max-h-none w-screen max-w-none rounded-none border-0"
           : "m-auto max-h-[min(88dvh,760px)] w-[min(420px,92vw)] rounded-xl border shadow-panel",
       )}
@@ -147,10 +153,16 @@ export function SessionMoveDialog({ text, destinations, compact = false, onClose
             {error || text.note}
           </p>
           <div className="flex items-center gap-2">
-            <button ref={cancelRef} type="button" onClick={onClose} className="btn-quiet" disabled={busy}>
+            <button
+              ref={cancelRef}
+              type="button"
+              onClick={onClose}
+              className="btn-quiet compact:min-h-11"
+              disabled={busy}
+            >
               キャンセル
             </button>
-            <button type="submit" disabled={!canMove} className="btn-danger">
+            <button type="submit" disabled={!canMove} className="btn-danger compact:min-h-11">
               {text.confirmLabel}
             </button>
           </div>

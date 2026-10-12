@@ -1,4 +1,5 @@
 import { useEffect, useId, useRef, useState, type FormEvent } from "react";
+import { cn } from "../lib/cn";
 import type { DialogRequest } from "../lib/confirmDialog";
 
 export type ConfirmDialogProps = {
@@ -122,10 +123,16 @@ export function ConfirmDialog({ request, onConfirm, onCancel }: ConfirmDialogPro
         </div>
 
         <footer className="flex shrink-0 items-center justify-end gap-2 border-t border-line px-4 py-3">
-          <button ref={cancelRef} type="button" className="btn-quiet" onClick={onCancel}>
+          <button ref={cancelRef} type="button" className="btn-quiet compact:min-h-11" onClick={onCancel}>
             {request.cancelLabel ?? "キャンセル"}
           </button>
-          <button type="submit" className={request.kind === "confirm" && request.danger ? "btn-danger" : "btn-primary"}>
+          <button
+            type="submit"
+            className={cn(
+              "compact:min-h-11",
+              request.kind === "confirm" && request.danger ? "btn-danger" : "btn-primary",
+            )}
+          >
             {request.confirmLabel}
           </button>
         </footer>

@@ -23,7 +23,7 @@ const STATE_TITLE: Record<SkillBadgeState, string> = {
  * assistant バブル上部のスキル読み込みバッジ。既定は `[skill] <name>[:start-end]` だけを見せ、
  * 展開で解決後のパス・行範囲・失敗理由 (1行) を確認できる。本文は設定画面で読めるため出さない。
  */
-function SkillBadgeItem({ badge, compact }: { badge: SkillBadge; compact: boolean }) {
+function SkillBadgeItem({ badge, singleColumn }: { badge: SkillBadge; singleColumn: boolean }) {
   const load = badge.load;
   const range = formatReadLineRange(load.offset, load.limit);
   // 履歴だけの失敗は理由を持たない (DTO に理由が無く、復元もできない)
@@ -37,7 +37,9 @@ function SkillBadgeItem({ badge, compact }: { badge: SkillBadge; compact: boolea
         <DisclosureChevronIcon />
         <span className="min-w-0 truncate">{skillLoadSummary(load)}</span>
       </summary>
-      <div className={cn("grid gap-1.5 border-t border-line/70 py-2 pr-2 text-ink-muted", compact ? "pl-3" : "pl-6")}>
+      <div
+        className={cn("grid gap-1.5 border-t border-line/70 py-2 pr-2 text-ink-muted", singleColumn ? "pl-3" : "pl-6")}
+      >
         <div className="grid min-w-0 gap-0.5">
           <span className="font-sans text-3xs tracking-wide text-ink-faint uppercase">パス</span>
           <code className="break-words whitespace-pre-wrap">{load.path}</code>
@@ -61,7 +63,7 @@ function SkillBadgeItem({ badge, compact }: { badge: SkillBadge; compact: boolea
 }
 
 /** 畳んだ分の展開。中身は同じバッジなので、それぞれの展開で詳細を確認できる */
-function FoldedBadges({ badges, compact }: { badges: SkillBadge[]; compact: boolean }) {
+function FoldedBadges({ badges, singleColumn }: { badges: SkillBadge[]; singleColumn: boolean }) {
   return (
     <details className="min-w-0 rounded-lg border border-line/70 bg-soft/20 text-ink-faint transition-colors">
       <summary
@@ -74,7 +76,7 @@ function FoldedBadges({ badges, compact }: { badges: SkillBadge[]; compact: bool
       <ul className="m-0 grid list-none gap-1.5 border-t border-line/70 p-2 text-ink-muted">
         {badges.map((badge) => (
           <li key={badge.load.id} className="min-w-0">
-            <SkillBadgeItem badge={badge} compact={compact} />
+            <SkillBadgeItem badge={badge} singleColumn={singleColumn} />
           </li>
         ))}
       </ul>
@@ -82,24 +84,24 @@ function FoldedBadges({ badges, compact }: { badges: SkillBadge[]; compact: bool
   );
 }
 
-export function SkillLoadList({ badges, compact }: { badges: SkillBadge[]; compact: boolean }) {
+export function SkillLoadList({ badges, singleColumn }: { badges: SkillBadge[]; singleColumn: boolean }) {
   if (badges.length === 0) return null;
   const folded = badges.slice(MAX_VISIBLE_BADGES);
   return (
     <ul
       className={cn(
         "m-0 flex list-none flex-wrap items-start gap-1.5 font-mono text-2xs text-ink-muted",
-        compact ? "mb-1.5" : "mb-2.5",
+        singleColumn ? "mb-1.5" : "mb-2.5",
       )}
     >
       {badges.slice(0, MAX_VISIBLE_BADGES).map((badge) => (
         <li key={badge.load.id} className="min-w-0">
-          <SkillBadgeItem badge={badge} compact={compact} />
+          <SkillBadgeItem badge={badge} singleColumn={singleColumn} />
         </li>
       ))}
       {folded.length > 0 ? (
         <li className="min-w-0">
-          <FoldedBadges badges={folded} compact={compact} />
+          <FoldedBadges badges={folded} singleColumn={singleColumn} />
         </li>
       ) : null}
     </ul>

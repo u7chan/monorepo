@@ -9,7 +9,7 @@ export type ProjectDialogProps = {
   onClose: () => void;
   /** 失敗は throw してフォームに出す */
   onCreate: (input: CreateProjectInput) => Promise<unknown>;
-  compact?: boolean;
+  singleColumn?: boolean;
 };
 
 type ProjectMode = "create" | "register";
@@ -20,7 +20,7 @@ const MODES: { value: ProjectMode; label: string }[] = [
 ];
 
 /** root から GET /api/files を辿って親 (新規) / 対象 (登録) ディレクトリを選ぶ。一覧は移動のたびに取り直す */
-export function ProjectDialog({ onClose, onCreate, compact = false }: ProjectDialogProps) {
+export function ProjectDialog({ onClose, onCreate, singleColumn = false }: ProjectDialogProps) {
   const dialogRef = useRef<HTMLDialogElement>(null);
   const previousFocusRef = useRef<HTMLElement | null>(null);
   const [mode, setMode] = useState<ProjectMode>("create");
@@ -122,7 +122,7 @@ export function ProjectDialog({ onClose, onCreate, compact = false }: ProjectDia
       tabIndex={-1}
       className={cn(
         "flex flex-col overflow-hidden border-line bg-panel p-0 text-ink",
-        compact
+        singleColumn
           ? "m-0 h-dvh max-h-none w-screen max-w-none rounded-none border-0"
           : "m-auto max-h-[min(88dvh,760px)] w-[min(560px,92vw)] rounded-xl border shadow-panel",
       )}
@@ -213,7 +213,7 @@ export function ProjectDialog({ onClose, onCreate, compact = false }: ProjectDia
               onChange={(event) => setName(event.currentTarget.value)}
               disabled={busy}
               placeholder={mode === "create" ? "新しいディレクトリ名" : "ディレクトリ名"}
-              className={cn("field", compact ? "text-md" : "text-xs")}
+              className={cn("field", singleColumn ? "text-md" : "text-xs")}
             />
             <p className="text-1xs leading-relaxed text-ink-muted">
               {mode === "create"
@@ -234,10 +234,10 @@ export function ProjectDialog({ onClose, onCreate, compact = false }: ProjectDia
             {footerNote.text}
           </p>
           <div className="flex items-center gap-2">
-            <button type="button" onClick={onClose} className="btn-quiet" disabled={busy}>
+            <button type="button" onClick={onClose} className="btn-quiet compact:min-h-11" disabled={busy}>
               キャンセル
             </button>
-            <button type="submit" disabled={!canSubmit} className="btn-primary">
+            <button type="submit" disabled={!canSubmit} className="btn-primary compact:min-h-11">
               {mode === "create" ? "作成" : "登録"}
             </button>
           </div>

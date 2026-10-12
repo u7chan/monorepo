@@ -6,11 +6,11 @@ import { isThemeId, type ThemeChoice } from "./themes";
 
 export type ThemeSwitcherProps = {
   className?: string;
-  /** compact 向け (画面幅いっぱいに広げ、iOS の focus 時ズームを避けて 16px 以上にする) */
-  compact?: boolean;
+  /** singleColumn 向け (画面幅いっぱいに広げ、iOS の focus 時ズームを避けて 16px 以上にする) */
+  singleColumn?: boolean;
 };
 
-export function ThemeSwitcher({ className, compact = false }: ThemeSwitcherProps) {
+export function ThemeSwitcher({ className, singleColumn = false }: ThemeSwitcherProps) {
   const { choice, resolvedId, setChoice, themes } = useTheme();
 
   const handleChange = (event: ChangeEvent<HTMLSelectElement>) => {
@@ -25,8 +25,8 @@ export function ThemeSwitcher({ className, compact = false }: ThemeSwitcherProps
       <SelectField
         aria-label="テーマ"
         density="lg"
-        compact={compact}
-        wrapperClassName={compact ? "min-w-0 flex-1" : undefined}
+        singleColumn={singleColumn}
+        wrapperClassName={singleColumn ? "min-w-0 flex-1" : undefined}
         value={choice}
         onChange={handleChange}
       >

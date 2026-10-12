@@ -37,14 +37,20 @@ export function fileRowActions({
   if (readOnly) return null;
   // 相対パスはファイル / ディレクトリ / symlink のどれでも取れる (危険な削除は末尾に残す)
   const actions: FileRowAction[] = [
-    { kind: "copy-path", label: "パスをコピー", description: "ツリーの root からの相対パス" },
+    // コピーする字面の基準はラベルだけで決まるため compact では隠す
+    { kind: "copy-path", label: "パスをコピー", description: "ツリーの root からの相対パス", descriptionKind: "note" },
   ];
   // ダウンロードは通常ファイルとディレクトリに出す。symlink は api が 400 で拒否し、除外名の行は zip に入らない
   if (!symlink && !isArchiveExcludedName(name, excludeNames)) {
     actions.push(
       type === "dir"
         ? // ディレクトリの zip は除外を含むため、押す前の開示を 2 行目へ移す (以前の title 相当)
-          { kind: "download", label: "ZIP でダウンロード", description: "ビルド成果物と依存を除く" }
+          {
+            kind: "download",
+            label: "ZIP でダウンロード",
+            description: "ビルド成果物と依存を除く",
+            descriptionKind: "disclosure",
+          }
         : { kind: "download", label: "ダウンロード" },
     );
   }

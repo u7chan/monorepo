@@ -61,7 +61,7 @@ export function MessageView({
   bubble,
   skillBadges,
   copied,
-  compact,
+  singleColumn,
   agentName,
   agentIcon,
   rootCwd,
@@ -90,7 +90,7 @@ export function MessageView({
   /** 全バブル横断の dedup 済みバッジ (履歴優先。ChatArea が skillBadgesOf で組み立てる) */
   skillBadges: SkillBadge[];
   copied: boolean;
-  compact: boolean;
+  singleColumn: boolean;
   /** assistant の表示名 (セッションのスナップショット)。未指定は従来の「アシスタント」 */
   agentName?: string;
   /** 未設定なら SparkleIcon へフォールバックする */
@@ -147,7 +147,7 @@ export function MessageView({
   const { text: userBody, files } = isUser ? splitAttachedFiles(bubble.text) : { text: bubble.text, files: [] };
   const skill = isUser ? splitSkillBlock(userBody) : null;
   const bodyText = skill ? (skill.userMessage ?? "") : userBody;
-  const metaLine = isUser ? "" : messageMetaLine(bubble.usage, bubble.metrics, compact);
+  const metaLine = isUser ? "" : messageMetaLine(bubble.usage, bubble.metrics, singleColumn);
   const metaTitle = isUser ? undefined : messageMetaTitle(bubble.usage, bubble.metrics);
   // スキル読み込みはバッジ、ask_user は専用カードへ出し、ツール履歴の件数・サマリー・コピーからは外す
   const toolCards = nonSkillToolCards(bubble.tools);
@@ -179,7 +179,7 @@ export function MessageView({
       className={cn(
         "group/bubble flex min-w-0",
         animate ? "animate-rise" : "",
-        compact ? "gap-2" : "gap-3",
+        singleColumn ? "gap-2" : "gap-3",
         isUser ? "justify-end" : "",
         contextTag ? "opacity-60" : "",
       )}
@@ -189,7 +189,7 @@ export function MessageView({
           ref={ringRef}
           className={cn(
             "relative order-2 grid shrink-0 place-items-center rounded-lg bg-accent-bright font-bold text-on-accent",
-            compact ? "size-5.5 text-3xs" : "size-6.5 text-2xs",
+            singleColumn ? "size-5.5 text-3xs" : "size-6.5 text-2xs",
             // リングは絶対配置の擬似要素で描き、待機に入る / 抜ける瞬間に行の幅を動かさない
             queueStarted ? "queue-ring queue-ring-start" : queueWait === undefined ? "" : "queue-ring",
           )}
@@ -197,20 +197,20 @@ export function MessageView({
           <UserIcon />
         </div>
       ) : (
-        <AgentIcon icon={agentIcon} variant="bubble" compact={compact} />
+        <AgentIcon icon={agentIcon} variant="bubble" singleColumn={singleColumn} />
       )}
       {/* flex-1 は assistant だけ。user に付けるとバブル背景が列幅まで広がる */}
       <div
         className={cn(
           "min-w-0",
           isUser ? "" : "flex-1",
-          compact ? (isUser ? "max-w-[88%]" : "max-w-full") : MESSAGE_MEASURE_CLASS,
+          singleColumn ? (isUser ? "max-w-[88%]" : "max-w-full") : MESSAGE_MEASURE_CLASS,
         )}
       >
         <div
           className={cn(
             "flex flex-wrap items-center gap-2 text-2xs font-medium text-ink-faint",
-            compact ? "mb-0.5" : "mb-1",
+            singleColumn ? "mb-0.5" : "mb-1",
             isUser ? "justify-end" : "",
           )}
         >
@@ -268,7 +268,7 @@ export function MessageView({
             </span>
           ) : null}
         </div>
-        {!isUser ? <SkillLoadList badges={skillBadges} compact={compact} /> : null}
+        {!isUser ? <SkillLoadList badges={skillBadges} singleColumn={singleColumn} /> : null}
         {!isUser && toolCards.length > 0 ? (
           <ToolHistoryView
             cards={toolCards}
@@ -279,17 +279,17 @@ export function MessageView({
             failureAll={copyFailure(`tools_${bubble.id}`)}
             copiedAll={copiedAll}
             onCopyAll={onCopyAll}
-            compact={compact}
+            singleColumn={singleColumn}
             onCopyTool={onCopyTool}
           />
         ) : null}
         {/* 本文より上に置く (役割の分担は docs/image-generation.md#チャットのバッジ) */}
-        {!isUser ? <GenerationBadgeList cards={toolCards} compact={compact} /> : null}
+        {!isUser ? <GenerationBadgeList cards={toolCards} singleColumn={singleColumn} /> : null}
         {bubble.text ? (
           isUser ? (
             <>
-              <AttachedFiles files={files} rootCwd={rootCwd} compact={compact} />
-              {skill ? <SkillInvocation block={skill} rootCwd={rootCwd} compact={compact} /> : null}
+              <AttachedFiles files={files} rootCwd={rootCwd} singleColumn={singleColumn} />
+              {skill ? <SkillInvocation block={skill} rootCwd={rootCwd} singleColumn={singleColumn} /> : null}
               {bodyText ? (
                 // user は打った文字がそのまま見えることを優先し、Markdown として解釈しない
                 <div
@@ -316,18 +316,18 @@ export function MessageView({
             cwd={cwd}
             rawUrl={rawUrl}
             captions={captions}
-            compact={compact}
+            singleColumn={singleColumn}
           />
         ) : null}
         {questionCards.length > 0 ? (
-          <div className={cn("grid", compact ? "mt-2 gap-2" : "mt-2.5 gap-2.5")}>
+          <div className={cn("grid", singleColumn ? "mt-2 gap-2" : "mt-2.5 gap-2.5")}>
             {questionCards.map((card) => (
               <AskUserCard
                 key={card.id}
                 card={card}
                 answerable={answerable === true && onAnswerQuestion !== undefined}
                 onAnswer={onAnswerQuestion ?? rejectAnswer}
-                compact={compact}
+                singleColumn={singleColumn}
               />
             ))}
           </div>

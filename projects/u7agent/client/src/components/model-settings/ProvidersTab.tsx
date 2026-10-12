@@ -31,7 +31,7 @@ export type ProvidersTabProps = {
   saving: string | null;
   sessions: SessionSummary[];
   sessionsLoaded: boolean;
-  compact: boolean;
+  singleColumn: boolean;
   onSave: (provider: string, apiKey: string) => Promise<boolean>;
   onSaveMemo: (provider: string, memo: string) => Promise<boolean>;
   onDelete: (provider: string) => Promise<boolean>;
@@ -46,7 +46,7 @@ export type ProvidersTabProps = {
 
 /**
  * 「プロバイダー」タブ。左の一覧（全 provider）と右の詳細（キー・メモ・削除・再同期）を
- * 分け、compact では一覧と詳細を切り替える。平文保存の注意は詳細ペインの上部に
+ * 分け、singleColumn では一覧と詳細を切り替える。平文保存の注意は詳細ペインの上部に
  * 常時出し、provider を切り替えても消えない。
  */
 export function ProvidersTab({
@@ -56,7 +56,7 @@ export function ProvidersTab({
   saving,
   sessions,
   sessionsLoaded,
-  compact,
+  singleColumn,
   onSave,
   onSaveMemo,
   onDelete,
@@ -71,10 +71,10 @@ export function ProvidersTab({
   const selectorRef = useRef<HTMLButtonElement>(null);
   const focusAfterSelection = useRef(false);
   useEffect(() => {
-    if (!compact || listOpen || !focusAfterSelection.current) return;
+    if (!singleColumn || listOpen || !focusAfterSelection.current) return;
     focusAfterSelection.current = false;
     selectorRef.current?.focus();
-  }, [compact, listOpen]);
+  }, [singleColumn, listOpen]);
   const needle = query.trim().toLowerCase();
   const matched = (provider: ProviderAuthSetting) =>
     needle === "" || provider.provider.toLowerCase().includes(needle) || provider.name.toLowerCase().includes(needle);
@@ -85,8 +85,8 @@ export function ProvidersTab({
   ];
   const visible = sections.flatMap((section) => section.providers);
   const selected = settings.providers.find((provider) => provider.provider === selectedProvider);
-  // compact では検索中も表示中の詳細を変えない。一覧を選び直したときだけ切り替える
-  const active = compact
+  // singleColumn では検索中も表示中の詳細を変えない。一覧を選び直したときだけ切り替える
+  const active = singleColumn
     ? (selected ?? groups.configured[0] ?? groups.unconfigured[0])
     : (visible.find((provider) => provider.provider === selectedProvider) ?? visible[0]);
   const busy = saving !== null;
@@ -98,7 +98,7 @@ export function ProvidersTab({
 
   return (
     <div className="flex min-h-0 min-w-0 flex-1 flex-col">
-      {compact ? (
+      {singleColumn ? (
         <button
           ref={selectorRef}
           type="button"
@@ -113,9 +113,12 @@ export function ProvidersTab({
         </button>
       ) : null}
       <div className="flex min-h-0 min-w-0 flex-1">
-        {!compact || listOpen ? (
+        {!singleColumn || listOpen ? (
           <div
-            className={cn("flex min-h-0 flex-col", compact ? "min-w-0 flex-1" : "w-72 shrink-0 border-r border-line")}
+            className={cn(
+              "flex min-h-0 flex-col",
+              singleColumn ? "min-w-0 flex-1" : "w-72 shrink-0 border-r border-line",
+            )}
           >
             <div className="border-b border-line p-2">
               <input
@@ -147,7 +150,7 @@ export function ProvidersTab({
                             aria-current={isActive ? "true" : undefined}
                             onClick={() => {
                               setSelectedProvider(provider.provider);
-                              if (compact) {
+                              if (singleColumn) {
                                 setQuery("");
                                 focusAfterSelection.current = true;
                                 setListOpen(false);
@@ -184,7 +187,7 @@ export function ProvidersTab({
           </div>
         ) : null}
 
-        {!compact || !listOpen ? (
+        {!singleColumn || !listOpen ? (
           <div className="min-h-0 min-w-0 flex-1 scrollbar-thin overflow-x-hidden overflow-y-auto px-4 py-4">
             <div className="mx-auto grid max-w-3xl gap-3">
               {settings.runtimeAvailable ? null : (
@@ -222,12 +225,12 @@ export function ProvidersTab({
                 </p>
               )}
             </div>
-            {compact ? <div className="-mx-4 mt-4">{saveNote}</div> : null}
+            {singleColumn ? <div className="-mx-4 mt-4">{saveNote}</div> : null}
           </div>
         ) : null}
       </div>
 
-      {!compact ? saveNote : null}
+      {!singleColumn ? saveNote : null}
     </div>
   );
 }

@@ -73,14 +73,14 @@ function GenerationBadge({ info }: { info: GenerationInfo }) {
 }
 
 /** assistant バブル上部の生成バッジ。役割の分担と出さない条件は docs/image-generation.md#チャットのバッジ が正 */
-export function GenerationBadgeList({ cards, compact }: { cards: readonly ToolCard[]; compact: boolean }) {
+export function GenerationBadgeList({ cards, singleColumn }: { cards: readonly ToolCard[]; singleColumn: boolean }) {
   const badges = generationBadgesOf(cards);
   if (badges.length === 0) return null;
   return (
     <ul
       className={cn(
         "m-0 flex list-none flex-wrap items-start gap-1.5 font-mono text-2xs text-ink-muted",
-        compact ? "mb-1.5" : "mb-2.5",
+        singleColumn ? "mb-1.5" : "mb-2.5",
       )}
     >
       {badges.map((badge) => (

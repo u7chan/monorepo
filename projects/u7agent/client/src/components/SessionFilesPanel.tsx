@@ -53,8 +53,8 @@ function SessionFilesContent({
   onClose,
   openRequest,
   onHandled,
-  compact,
-}: SessionFilesPanelProps & { compact: boolean }) {
+  singleColumn,
+}: SessionFilesPanelProps & { singleColumn: boolean }) {
   const [manualReload, setManualReload] = useState(0);
   const [tab, setTab] = useState<SessionEnvTab>("files");
   // ヘッダの「再読み込み」と run_end を 1 つの token にまとめる。どちらも単調なので、合計が
@@ -72,19 +72,21 @@ function SessionFilesContent({
       <header
         className={cn(
           "flex shrink-0 items-center justify-between gap-3 border-b border-line px-4",
-          compact ? "py-3" : "py-2",
+          singleColumn ? "py-3" : "py-2",
         )}
       >
         <div className="min-w-0 flex-1">
-          {compact ? (
+          {singleColumn ? (
             <div className="text-2xs font-semibold tracking-label text-ink-ghost uppercase">WORK ENVIRONMENT</div>
           ) : null}
-          <h2 className={cn("truncate font-semibold text-ink-strong", compact ? "text-md" : "text-xs")}>作業環境</h2>
+          <h2 className={cn("truncate font-semibold text-ink-strong", singleColumn ? "text-md" : "text-xs")}>
+            作業環境
+          </h2>
         </div>
         <div className="ml-auto flex shrink-0 items-center gap-1">
           <button type="button" onClick={onClose} aria-label="閉じる" title="閉じる" className="btn-quiet px-2.5">
             <CloseIcon />
-            {compact ? "閉じる" : null}
+            {singleColumn ? "閉じる" : null}
           </button>
         </div>
       </header>
@@ -122,7 +124,7 @@ function SessionFilesContent({
             </div>
             <ReloadButton onClick={() => setManualReload((count) => count + 1)}>再読み込み</ReloadButton>
           </div>
-          {/* compact の sheet は全画面 modal で、入力欄へドロップできない */}
+          {/* singleColumn の sheet は全画面 modal で、入力欄へドロップできない */}
           <FileBrowser
             root={root}
             reloadToken={reloadToken}
@@ -131,7 +133,7 @@ function SessionFilesContent({
             filePreviewPort={filePreviewPort}
             openRequest={fileRefRequestForKind(openRequest ?? null, "work")}
             onHandled={onHandled}
-            canRef={!compact}
+            canRef={!singleColumn}
           />
         </div>
       ) : (
@@ -252,7 +254,7 @@ function SessionFilesResizeHandle({
  */
 export function SkillFilesContent({
   root,
-  compact,
+  singleColumn,
   runEndSeq,
   filePreviewPort,
   openRequest,
@@ -262,7 +264,7 @@ export function SkillFilesContent({
 }: {
   /** スキルディレクトリ (ワークスペース root 相対) */
   root: string;
-  compact: boolean;
+  singleColumn: boolean;
   /** run の終了回数。作業フォルダ面と同じく、増えるたびに一覧と本文を取り直す */
   runEndSeq: number;
   filePreviewPort?: number;
@@ -276,12 +278,14 @@ export function SkillFilesContent({
       <header
         className={cn(
           "flex shrink-0 items-center justify-between gap-3 border-b border-line px-4",
-          compact ? "py-3" : "py-2",
+          singleColumn ? "py-3" : "py-2",
         )}
       >
         <div className="min-w-0 flex-1">
-          {compact ? <div className="text-2xs font-semibold tracking-label text-ink-ghost uppercase">SKILL</div> : null}
-          <h2 className={cn("truncate font-semibold text-ink-strong", compact ? "text-md" : "text-xs")}>スキル</h2>
+          {singleColumn ? (
+            <div className="text-2xs font-semibold tracking-label text-ink-ghost uppercase">SKILL</div>
+          ) : null}
+          <h2 className={cn("truncate font-semibold text-ink-strong", singleColumn ? "text-md" : "text-xs")}>スキル</h2>
         </div>
         <div className="ml-auto flex shrink-0 items-center gap-1">
           <button type="button" onClick={onBack} className="btn-quiet">
@@ -289,7 +293,7 @@ export function SkillFilesContent({
           </button>
           <button type="button" onClick={onClose} aria-label="閉じる" title="閉じる" className="btn-quiet px-2.5">
             <CloseIcon />
-            {compact ? "閉じる" : null}
+            {singleColumn ? "閉じる" : null}
           </button>
         </div>
       </header>
@@ -318,12 +322,12 @@ export function SkillFilesContent({
 }
 
 /** 面のモードで中身を出し分ける。スキル面の root の切替は呼び出し側 (FileBrowser) の `key` が扱う */
-function SessionFilesFace({ compact, ...props }: SessionFilesPanelProps & { compact: boolean }) {
+function SessionFilesFace({ singleColumn, ...props }: SessionFilesPanelProps & { singleColumn: boolean }) {
   if (props.mode.kind === "skill") {
     return (
       <SkillFilesContent
         root={props.mode.root}
-        compact={compact}
+        singleColumn={singleColumn}
         runEndSeq={props.runEndSeq}
         filePreviewPort={props.filePreviewPort}
         openRequest={props.openRequest}
@@ -333,10 +337,10 @@ function SessionFilesFace({ compact, ...props }: SessionFilesPanelProps & { comp
       />
     );
   }
-  return <SessionFilesContent {...props} compact={compact} />;
+  return <SessionFilesContent {...props} singleColumn={singleColumn} />;
 }
 
-/** 幅のハンドルを出す desktop の面だけが resize と開閉 phase を受け取る (compact のシートは全画面で対象外) */
+/** 幅のハンドルを出す desktop の面だけが resize と開閉 phase を受け取る (singleColumn のシートは全画面で対象外) */
 export type SessionFilesDesktopPanelProps = SessionFilesPanelProps & {
   resize: SessionFilesPanelResize;
   phase: ExitPhase;
@@ -362,13 +366,13 @@ export function SessionFilesPanel({ resize, phase, ...props }: SessionFilesDeskt
       )}
     >
       {resize.resizable ? <SessionFilesResizeHandle {...resize} /> : null}
-      <SessionFilesFace {...props} compact={false} />
+      <SessionFilesFace {...props} singleColumn={false} />
     </aside>
   );
 }
 
 /**
- * compact の作業環境。チャットの表示幅を奪わないよう全画面 modal sheet にし、
+ * singleColumn の作業環境。チャットの表示幅を奪わないよう全画面 modal sheet にし、
  * desktop と同じ FileBrowser を viewport 幅いっぱいで使う。
  */
 export type SessionFilesSheetProps = SessionFilesPanelProps & {
@@ -429,7 +433,7 @@ export function SessionFilesSheet({ returnFocus, phase, dialogRef, ...props }: S
         props.mode.kind === "skill" ? "grid-rows-[auto_minmax(0,1fr)]" : "grid-rows-[auto_auto_minmax(0,1fr)]",
       )}
     >
-      <SessionFilesFace {...props} compact />
+      <SessionFilesFace {...props} singleColumn />
     </dialog>
   );
 }

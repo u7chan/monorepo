@@ -89,7 +89,7 @@ export function EnvVarsTab({ scope, reloadToken }: EnvVarsTabProps) {
   }, []);
 
   // desktop の右パネルは dialog ではないため、Escape で開いているフォームを畳む (決定事項 4 の破棄)。
-  // compact のシートは dialog の標準終了が先に走り、stopPropagation でここへは届かない
+  // singleColumn のシートは dialog の標準終了が先に走り、stopPropagation でここへは届かない
   const formOpen = form.mode !== "closed";
   useEffect(() => {
     if (!formOpen) return;

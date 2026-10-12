@@ -9,7 +9,7 @@ test("タッチ入力の送信後は入力欄のフォーカスを外す", () =>
 });
 
 test("マウス / トラックパッドの送信後は入力欄へフォーカスを戻す", () => {
-  // 送信ボタンのクリックでフォーカスがボタンへ移る。compact (狭い desktop の窓) でもここは同じ扱い
+  // 送信ボタンのクリックでフォーカスがボタンへ移る。singleColumn (狭い desktop の窓) でもここは同じ扱い
   assert.equal(composerFocusAfterSend(false), "focus");
 });
 

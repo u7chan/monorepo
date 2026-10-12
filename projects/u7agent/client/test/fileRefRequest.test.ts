@@ -139,13 +139,13 @@ test("面のモードは要求の種別で決まり、閉じた後は既定へ�
 });
 
 test("面のモードを既定へ戻す契機は、セッション切替 / 画面の移動 / layout の切替", () => {
-  const base: FilesModeScope = { compact: false, view: "chat", sessionId: "a" };
+  const base: FilesModeScope = { singleColumn: false, view: "chat", sessionId: "a" };
   assert.equal(filesModeScopeChanged(base, { ...base }), false, "同じ契機で戻している");
   // 同一プロジェクトのセッション切替 (cwd が同じ) と新規チャットは sessionId で拾う
   assert.equal(filesModeScopeChanged(base, { ...base, sessionId: "b" }), true);
   assert.equal(filesModeScopeChanged(base, { ...base, sessionId: "" }), true);
   assert.equal(filesModeScopeChanged(base, { ...base, view: "settings" }), true);
-  assert.equal(filesModeScopeChanged(base, { ...base, compact: true }), true);
+  assert.equal(filesModeScopeChanged(base, { ...base, singleColumn: true }), true);
 });
 
 /**

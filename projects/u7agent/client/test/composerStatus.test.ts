@@ -1,5 +1,5 @@
-// 入力欄の上の状態行 (活動 / モデル / Context ゲージ) の描画。
-// モデル名を出す条件と、読み上げに載せる範囲 (aria-live) を react-dom/server で固定する。
+// 入力欄の上の状態行 (活動 / モデル - Effort の入口 / Context ゲージ) の描画。
+// 入口のスロットを出す条件と配置、読み上げに載せる範囲 (aria-live) を react-dom/server で固定する。
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createElement } from "react";
@@ -10,6 +10,9 @@ import type { ToolCall } from "../src/types";
 type Props = Parameters<typeof ComposerStatus>[0];
 
 const render = (props: Props): string => renderToStaticMarkup(createElement(ComposerStatus, props));
+
+/** モデル / Effort の入口のスタブ。中身の描画はピッカーのテストが受け持つ */
+const slot = (text = "GLM-5.3 Flash"): Props["modelSlot"] => createElement("span", null, text);
 
 const context = { tokens: 114000, contextWindow: 272000, percent: 42 };
 
@@ -31,8 +34,7 @@ test("描画: 回答待ちで待機キューがあるとき、回答してもす
     runStatus: "running",
     runTools: { q1: pendingQuestion() },
     queueDepth: 1,
-    model: "zai/glm-5.3-flash",
-    modelLabel: "GLM-5.3 Flash",
+    modelSlot: slot(),
   });
 
   assert.ok(html.includes("回答しても、待機中の送信は実行中の応答が終わってから始まります"));
@@ -41,14 +43,14 @@ test("描画: 回答待ちで待機キューがあるとき、回答してもす
   assert.ok(!live.includes("回答しても"), "件数の増減で読み上げ直さないよう aria-live の外に置く");
   assert.ok(html.indexOf("回答しても") > html.indexOf("回答を待っています…"), "活動の右に続けて出す");
 
-  const compact = render({
+  const singleColumn = render({
     activity: "回答を待っています…",
     runStatus: "running",
     runTools: { q1: pendingQuestion() },
     queueDepth: 1,
-    compact: true,
+    singleColumn: true,
   });
-  assert.ok(compact.includes("回答しても、待機中の送信は実行中の応答が終わってから始まります"));
+  assert.ok(singleColumn.includes("回答しても、待機中の送信は実行中の応答が終わってから始まります"));
 });
 
 test("描画: 回答待ちとキューが揃わなければ待機の理由を出さない", () => {
@@ -85,82 +87,54 @@ test("描画: 回答待ちとキューが揃わなければ待機の理由を出
   assert.ok(!ended.includes("回答しても"), "回答できない終端では出さない");
 });
 
-test("描画: モデル名は表示名で出し、provider/id を title に持つ", () => {
-  const html = render({ activity: "", model: "anthropic/claude-sonnet-4-5", modelLabel: "Claude Sonnet 4.5" });
+test("描画: モデル / Effort の入口をゲージの左、圧縮ボタンの手前に置く", () => {
+  const html = render({ activity: "", context, modelSlot: slot(), onCompact: () => {} });
 
-  assert.ok(html.includes(">Claude Sonnet 4.5<"), "表示名を出す");
-  assert.ok(html.includes('title="anthropic/claude-sonnet-4-5"'), "切り詰めたときのために provider/id を残す");
+  const slotIndex = html.indexOf("GLM-5.3 Flash");
+  const gaugeIndex = html.indexOf("Context");
+  const compactIndex = html.indexOf('aria-label="会話を圧縮"');
+  assert.ok(slotIndex >= 0 && gaugeIndex > slotIndex, "ゲージより左に置く");
+  assert.ok(compactIndex > gaugeIndex, "ゲージと圧縮ボタンの並びは変えない");
 });
 
-test("描画: 活動もコンテキストも無くても、モデルが解決できていれば行を出す", () => {
-  const html = render({ activity: "", model: "zai/glm-5.3-flash", modelLabel: "GLM-5.3 Flash" });
+test("描画: 活動もコンテキストも無くても、入口があれば行を出す", () => {
+  const html = render({ activity: "", modelSlot: slot() });
 
   assert.ok(html.includes(">GLM-5.3 Flash<"));
   assert.ok(!html.includes("Context"), "セッション未作成ではゲージを出さない");
 });
 
 test("描画: 活動が無いときは活動欄を出さない (空行の折り返しを残さない)", () => {
-  const html = render({ activity: "", context, model: "zai/glm-5.3-flash", modelLabel: "GLM-5.3 Flash" });
+  const html = render({ activity: "", context, modelSlot: slot() });
 
   assert.ok(!html.includes("aria-live"), "活動欄ごと落とす");
-  assert.ok(html.includes("GLM-5.3 Flash") && html.includes("Context"), "モデル名とゲージは残す");
+  assert.ok(html.includes("GLM-5.3 Flash") && html.includes("Context"), "入口とゲージは残す");
 });
 
-test("描画: モデル名の右、ゲージの左に Effort を続けて出す", () => {
-  const html = render({
-    activity: "",
-    model: "zai/glm-5.3-flash",
-    modelLabel: "GLM-5.3 Flash",
-    effortLabel: "xHigh",
-    context,
-  });
-
-  const modelIndex = html.indexOf("GLM-5.3 Flash");
-  const effortIndex = html.indexOf("- xHigh");
-  const gaugeIndex = html.indexOf("Context");
-  assert.ok(modelIndex >= 0 && effortIndex > modelIndex, "モデル名の右に続けて出す");
-  assert.ok(gaugeIndex > effortIndex, "ゲージより左に置く");
-  assert.ok(!html.includes("Effort "), "見出し語は繰り返さない");
-});
-
-test("描画: Effort が無いときは区切りごと出さない", () => {
-  const html = render({ activity: "", model: "zai/glm-5.3-flash", modelLabel: "GLM-5.3 Flash" });
-
-  assert.ok(!html.includes(">- "), "何も無い行にハイフンだけを残さない");
-  assert.ok(!html.includes("xHigh"), "推論に対応しないモデルでは出さない");
-});
-
-test("描画: モデル名が無いときは Effort も出さない (付ける相手が無い)", () => {
-  assert.equal(render({ activity: "", effortLabel: "High" }), "");
-});
-
-test("描画: モデルも活動もコンテキストも無ければ何も出さない", () => {
+test("描画: 入口も活動もコンテキストも無ければ何も出さない", () => {
   assert.equal(render({ activity: "" }), "");
 });
 
-test("描画: モデル名とゲージは aria-live の外へ置く", () => {
+test("描画: モデル / Effort の入口とゲージは aria-live の外へ置く", () => {
   const html = render({
     activity: "実行中…（タブを閉じても処理は続きます）",
     runningSince: Date.now(),
     context,
-    model: "zai/glm-5.3-flash",
-    modelLabel: "GLM-5.3 Flash",
-    effortLabel: "High",
+    modelSlot: slot(),
   });
   const liveStart = html.indexOf('aria-live="polite"');
   const liveEnd = html.indexOf("</span>", liveStart);
   const live = html.slice(liveStart, liveEnd);
 
   assert.ok(live.includes("実行中…（タブを閉じても処理は続きます）"), "活動テキストは読み上げる");
-  assert.ok(!live.includes("GLM-5.3 Flash"), "モデル名は毎回読み上げない");
-  assert.ok(!live.includes("High"), "Effort は毎回読み上げない");
+  assert.ok(!live.includes("GLM-5.3 Flash"), "モデル / Effort の入口は毎回読み上げない");
   assert.ok(!live.includes("Context"), "ゲージは毎回読み上げない");
   assert.ok(html.includes("(0s)"), "経過時間は aria-hidden の別スパンに出す");
 });
 
 test("描画: 活動が空なら活動欄ごと出さない (空行を残さない)", () => {
   // 合計時間は会話のメタ行が担うため、状態行に残るのは活動の語だけ
-  const html = render({ activity: "完了", model: "zai/glm-5.3-flash", modelLabel: "GLM-5.3 Flash" });
+  const html = render({ activity: "完了", modelSlot: slot() });
   assert.ok(html.includes(">完了<"), "活動の語は残す");
   assert.equal(render({ activity: "" }), "");
 });
@@ -169,8 +143,7 @@ test("描画: 実行中の経過時間は 10 秒の拍の枠に出し、1 分以
   const fresh = render({
     activity: "実行中…",
     runningSince: Date.now(),
-    model: "zai/glm-5.3-flash",
-    modelLabel: "GLM-5.3 Flash",
+    modelSlot: slot(),
   });
   assert.ok(fresh.includes("elapsed-beat"), "数字は拍の枠に出す");
   assert.ok(!fresh.includes("elapsed-beat-tier"), "1 分未満では色を残さない");
@@ -179,8 +152,7 @@ test("描画: 実行中の経過時間は 10 秒の拍の枠に出し、1 分以
   const long = render({
     activity: "実行中…",
     runningSince: Date.now() - 90_000,
-    model: "zai/glm-5.3-flash",
-    modelLabel: "GLM-5.3 Flash",
+    modelSlot: slot(),
   });
   assert.match(long, /\(1m 3\ds\)/, "1 分を超えたら分と秒で出す");
   assert.ok(long.includes("elapsed-beat-tier"), "長いランは色を残す");
@@ -260,8 +232,7 @@ test("描画: セッションがあると Context ゲージの右に圧縮ボタ
   const html = render({
     activity: "",
     context,
-    model: "zai/glm-5.3-flash",
-    modelLabel: "GLM-5.3 Flash",
+    modelSlot: slot(),
     onCompact: () => {},
   });
 
@@ -278,14 +249,14 @@ test("描画: セッションがあると Context ゲージの右に圧縮ボタ
 });
 
 test("描画: ゲージが無くても (SDK 未対応) セッションがあれば圧縮ボタンを出す", () => {
-  const html = render({ activity: "", model: "zai/glm-5.3-flash", modelLabel: "GLM-5.3 Flash", onCompact: () => {} });
+  const html = render({ activity: "", modelSlot: slot(), onCompact: () => {} });
 
   assert.ok(!html.includes("Context"), "ゲージは出さない");
   assert.ok(html.includes('aria-label="会話を圧縮"'));
 });
 
 test("描画: 未作成チャット (onCompact なし) では圧縮ボタンも押せない理由も出さない", () => {
-  const html = render({ activity: "", context, model: "zai/glm-5.3-flash", modelLabel: "GLM-5.3 Flash" });
+  const html = render({ activity: "", context, modelSlot: slot() });
 
   assert.ok(!html.includes("会話を圧縮"));
   assert.ok(!html.includes("今は圧縮できません"));
@@ -295,8 +266,7 @@ test("描画: 押せないときは disabled にし、理由を状態行の下�
   const html = render({
     activity: "会話を整理中…",
     context,
-    model: "zai/glm-5.3-flash",
-    modelLabel: "GLM-5.3 Flash",
+    modelSlot: slot(),
     onCompact: () => {},
     compactDisabled: true,
     compactDisabledReason: "圧縮中",
@@ -327,8 +297,7 @@ test("描画: 回復し得る失敗ではカードを状態行の上に出し、
   for (const code of ["rate_limit", "unknown"] as const) {
     const html = render({
       activity: "",
-      model: "zai/glm-5.3-flash",
-      modelLabel: "GLM-5.3 Flash",
+      modelSlot: slot(),
       runStatus: "error",
       runError: { ...failure, code },
       onRetry: () => {},
@@ -345,16 +314,16 @@ test("描画: 回復し得る失敗ではカードを状態行の上に出し、
   }
 });
 
-test("描画: compact はボタンを全幅にし、ラベルが送信内容を兼ねる (補助行は出さない)", () => {
+test("描画: singleColumn はボタンを全幅にし、ラベルが送信内容を兼ねる (補助行は出さない)", () => {
   const html = render({
     activity: "",
-    compact: true,
+    singleColumn: true,
     runStatus: "error",
     runError: failure,
     onRetry: () => {},
   });
 
-  assert.ok(html.includes("再実行（前回の続きから送信）"), "compact はラベルで送信内容を示す");
+  assert.ok(html.includes("再実行（前回の続きから送信）"), "singleColumn はラベルで送信内容を示す");
   assert.ok(!html.includes("前回の続きから送信します"), "同じ内容を 2 回出さない");
   const button = /<button[^>]*>.*?<\/button>/s.exec(html)?.[0] ?? "";
   assert.ok(button.includes("btn-quiet") && button.includes("w-full"), "細いボタンを押し損ねないよう全幅にする");
@@ -399,8 +368,7 @@ test("描画: カードだけでも描画する (activity が空でも早期 ret
 test("描画: 再実行が押せないときは理由を 1 行で出し、圧縮の文言を流用しない", () => {
   const html = render({
     activity: "",
-    model: "zai/glm-5.3-flash",
-    modelLabel: "GLM-5.3 Flash",
+    modelSlot: slot(),
     context,
     onCompact: () => {},
     runStatus: "error",
@@ -422,8 +390,7 @@ test("描画: 再実行が押せないときは理由を 1 行で出し、圧縮
 test("描画: 圧縮と再実行が同時に無効なときも理由の行は 1 つにまとめる", () => {
   const html = render({
     activity: "",
-    model: "zai/glm-5.3-flash",
-    modelLabel: "GLM-5.3 Flash",
+    modelSlot: slot(),
     context,
     onCompact: () => {},
     compactDisabled: true,
