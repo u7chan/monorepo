@@ -3,7 +3,7 @@ import { cn } from "../../lib/cn";
 /** Model / Effort の select で同じ見た目を共有する (片方だけ変わると行が揃わない) */
 
 /** popover では 2 行を縦に積む。名前の幅を固定し、名前の長さで select の左端がずれないようにする */
-export const fieldLabelClass = cn("flex min-w-0 items-center gap-2 text-2xs text-ink-faint");
+export const fieldLabelClass = cn("flex min-w-0 items-center gap-2 text-2xs text-ink-faint compact:text-1xs");
 
 export const fieldNameClass = cn("w-12 shrink-0 tracking-wide uppercase");
 

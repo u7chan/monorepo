@@ -8,6 +8,11 @@
 /** リストの入れ物と欄の間隔 / viewport の端からの余白 (px) */
 export const AGENT_PICKER_GAP = 4;
 export const AGENT_PICKER_MARGIN = 8;
+/**
+ * 一覧の高さの既定の上限 (px)。`max-h-64` 相当で、低い viewport ではここから viewport の残りへ縮める
+ * (ソフトキーボードが出ている間も一覧が欄と一緒に見えるようにする)。
+ */
+export const AGENT_PICKER_LIST_MAX_HEIGHT = 256;
 
 export type AgentPickerRect = Pick<DOMRect, "top" | "left" | "right" | "bottom">;
 

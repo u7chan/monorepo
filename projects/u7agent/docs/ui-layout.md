@@ -28,6 +28,7 @@ desktop / singleColumn とも設定ナビの「会話スペース」から作成
 - singleColumn のエージェント / スキルの編集は全画面シートへ出す（[singleColumn の詳細シート](#singlecolumn-の詳細シート)）。サイドバーは `NavSheet`（モーダル dialog のドロワー）へ退避する
 - **singleColumn の単一列 Grid は viewport 幅に拘束する**（`minmax(0, 1fr)` と `min-w-0`）。拘束しないと select の選択肢の幅や textarea の `cols` 既定値が item の最小サイズとして効き、送信 / 添付ボタンが viewport の外へ出る
 - singleColumn の入力欄と選択欄は iOS Safari の focus 時ズームを避けるため 16px 以上にする（`@theme` の 16px トークンを使う。`text-base` は色トークンが取っているため使えない）
+- **singleColumn の操作面は判読性と誤タップ防止を優先し、寸法は各コンポーネントが持つ。** desktop の寸法は変えず、判定は `html` の `data-layout` を写した 1 つの値だけを見る（`(pointer: coarse)` では分岐しない）。popover は計測の前に viewport 由来の幅 / 高さの上限を当て、入り切らない一覧は内部スクロールへ逃がす
 - 画面切替は履歴を追加しない（`replaceState`）。Back / Forward はブラウザーの既存履歴に従う
 
 ## ポップアップの出入り

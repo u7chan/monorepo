@@ -1,8 +1,18 @@
-import { useCallback, useId, useLayoutEffect, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
+import {
+  Fragment,
+  useCallback,
+  useId,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type KeyboardEvent,
+  type ReactNode,
+} from "react";
 import { cn } from "../lib/cn";
-import { nextRowMenuIndex, rowMenuPlacement, ROW_MENU_MARGIN } from "../lib/rowMenu";
+import { nextRowMenuIndex, rowMenuPlacement, ROW_MENU_MARGIN, type RowMenuDescriptionKind } from "../lib/rowMenu";
 import {
   openServedApp,
+  servedAppMenuSeparators,
   servedAppMenuSub,
   servedAppReplaceHint,
   servedAppUrl,
@@ -231,6 +241,7 @@ export function ServedAppIndicator({ port, status, failed, starting, onStart, on
     icon: ReactNode;
     label: string;
     description?: string;
+    descriptionKind?: RowMenuDescriptionKind;
     danger?: boolean;
     run: () => void;
   }> = starting
@@ -240,6 +251,7 @@ export function ServedAppIndicator({ port, status, failed, starting, onStart, on
           icon: <RunSpinnerIcon />,
           label: "起動をキャンセル",
           description: "8080 に到達できるかを確認しています",
+          descriptionKind: "note" as const,
           run: onCancel,
         },
       ]
@@ -261,6 +273,8 @@ export function ServedAppIndicator({ port, status, failed, starting, onStart, on
                 icon: <StopIcon />,
                 label: "停止",
                 description: view.kind === "unknown" ? "いま公開中のプロセスを停止" : undefined,
+                // 何を止めるのかは実行前に効く (置き換えの可否が変わる)
+                descriptionKind: "disclosure" as const,
                 danger: true,
                 run: onStop,
               },
@@ -273,11 +287,13 @@ export function ServedAppIndicator({ port, status, failed, starting, onStart, on
                 icon: <PowerIcon />,
                 label: "起動",
                 description: servedAppReplaceHint(view),
+                descriptionKind: "disclosure" as const,
                 run: onStart,
               },
             ]
           : []),
       ];
+  const separators = servedAppMenuSeparators(items);
 
   return (
     <>
@@ -305,7 +321,7 @@ export function ServedAppIndicator({ port, status, failed, starting, onStart, on
         role="menu"
         aria-labelledby={triggerId}
         onKeyDown={onKeyDown}
-        className="popover-panel fixed inset-auto m-0 w-max min-w-52 overflow-y-auto rounded-lg border border-line bg-panel p-1 shadow-panel"
+        className="popover-panel fixed inset-auto m-0 w-max min-w-52 overflow-y-auto rounded-lg border border-line bg-panel p-1 shadow-panel compact:min-w-56 compact:p-2"
       >
         <div className="grid gap-1 px-2 pt-1.5 pb-2">
           <span className="inline-flex items-center gap-1.5 text-1xs text-ink">
@@ -313,28 +329,32 @@ export function ServedAppIndicator({ port, status, failed, starting, onStart, on
             {starting ? "起動中…" : view.label}
           </span>
           {/* cwd · コマンドは桁数が決まらないため折り返す (1 行に固定すると cwd だけで埋まり、command の頭だけになる) */}
-          <span className="text-2xs break-words text-ink-muted">
+          <span className="text-2xs break-words text-ink-muted compact:text-1xs">
             {starting ? "8080 に到達できるかを確認しています" : servedAppMenuSub(view)}
           </span>
         </div>
         <div aria-hidden="true" className="mx-1 mb-1 h-px bg-line" />
         {items.map((item, index) => (
-          <MenuItem
-            key={item.key}
-            ref={(element) => {
-              itemsRef.current[index] = element;
-            }}
-            role="menuitem"
-            tabIndex={-1}
-            icon={item.icon}
-            label={item.label}
-            description={item.description}
-            danger={item.danger}
-            onClick={() => {
-              close();
-              item.run();
-            }}
-          />
+          <Fragment key={item.key}>
+            {/* 通常の操作と危険な操作の間に区切りを入れる (並びは変えない。⋯ メニューと同じ見た目) */}
+            {separators[index] ? <div aria-hidden="true" className="mx-1 my-1 h-px bg-line" /> : null}
+            <MenuItem
+              ref={(element) => {
+                itemsRef.current[index] = element;
+              }}
+              role="menuitem"
+              tabIndex={-1}
+              icon={item.icon}
+              label={item.label}
+              description={item.description}
+              descriptionKind={item.descriptionKind ?? "disclosure"}
+              danger={item.danger}
+              onClick={() => {
+                close();
+                item.run();
+              }}
+            />
+          </Fragment>
         ))}
       </div>
     </>

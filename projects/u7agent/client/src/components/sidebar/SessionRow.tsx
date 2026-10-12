@@ -130,7 +130,7 @@ export function SessionRow({
     <div className="grid">
       <div
         className={cn(
-          "group flex min-h-10.5 items-center gap-1 rounded-lg border pr-1.5 transition-colors",
+          "group flex min-h-10.5 items-center gap-1 rounded-lg border pr-1.5 transition-colors compact:min-h-11",
           active ? "border-accent/35 bg-accent-wash" : "border-transparent bg-soft hover:bg-hover",
         )}
       >
