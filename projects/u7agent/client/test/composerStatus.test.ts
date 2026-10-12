@@ -35,6 +35,7 @@ test("描画: 回答待ちで待機キューがあるとき、回答してもす
     runStatus: "running",
     runTools: { q1: pendingQuestion() },
     queueDepth: 1,
+    context,
     modelSlot: slot(),
     onCompact: () => {},
     compactDisabled: true,
@@ -50,8 +51,13 @@ test("描画: 回答待ちで待機キューがあるとき、回答してもす
     "件数の増減で読み上げ直さないよう aria-live の外に置く",
   );
   assert.ok(reason > liveEnd, "活動ラベルと同じ span に置かない (折り返しを奪い合わない)");
-  assert.ok(reason > html.indexOf('role="progressbar"'), "状態行より後ろ = 行の外に出す");
-  assert.ok(reason < html.indexOf("今は圧縮できません"), "押せない理由と同じ行に、待機の理由を先に出す");
+  // 状態行 (ゲージ) と説明の行を先に出しておく。無いまま indexOf を比較すると常に真になり、
+  // 理由を状態行の中へ戻す退行を検知できない
+  const gauge = html.indexOf('role="progressbar"');
+  const notice = html.indexOf("今は圧縮できません");
+  assert.ok(gauge >= 0 && notice >= 0, "ゲージと押せない理由を出す (下の 2 つの比較の前提)");
+  assert.ok(reason > gauge, "状態行より後ろ = 行の外に出す");
+  assert.ok(reason < notice, "押せない理由と同じ行に、待機の理由を先に出す");
 
   const singleColumn = render({
     activity: "回答を待っています…",
