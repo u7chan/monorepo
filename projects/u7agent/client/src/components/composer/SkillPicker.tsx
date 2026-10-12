@@ -208,13 +208,13 @@ export function SkillPicker({
         <div ref={bodyRef} className="grid min-w-0 scrollbar-thin gap-2 overflow-x-hidden overflow-y-auto px-2.5 py-2">
           {/* 状態の 1 行。テキストの末尾に再取得を流す (エラーが長いときは折り返した行の末尾に付く) */}
           {notice ? (
-            <p className={cn("text-2xs break-words", notice.warn ? "text-warn" : "text-ink-faint")}>
+            <p className={cn("text-2xs break-words compact:text-xs", notice.warn ? "text-warn" : "text-ink-faint")}>
               {notice.text}
               {notice.retry ? (
                 <button
                   type="button"
                   onClick={onReload}
-                  className="ml-1.5 cursor-pointer rounded-full border border-line bg-raised px-2 py-0.5 align-baseline text-2xs text-ink-soft transition-colors hover:border-accent/50 hover:text-accent-text"
+                  className="ml-1.5 cursor-pointer rounded-full border border-line bg-raised px-2 py-0.5 align-baseline text-2xs text-ink-soft transition-colors hover:border-accent/50 hover:text-accent-text compact:text-xs"
                 >
                   再取得
                 </button>
@@ -224,7 +224,7 @@ export function SkillPicker({
 
           {groups.map((group) => (
             <div key={group.scope} className="grid min-w-0 gap-1">
-              <span className="font-sans text-3xs tracking-wide text-ink-faint uppercase">
+              <span className="font-sans text-3xs tracking-wide text-ink-faint uppercase compact:text-1xs">
                 {group.label}（{group.skills.length}）
               </span>
               <ul className="grid min-w-0 gap-1">
@@ -241,22 +241,28 @@ export function SkillPicker({
                         // 説明は 1 行に切るので、全文と置き場は title へ逃がす (hover で読める)
                         title={[skill.description, location, warning].filter((line) => Boolean(line)).join("\n")}
                         className={cn(
-                          "grid w-full min-w-0 cursor-pointer gap-0.5 rounded-md border px-2 py-1.5 text-left transition-colors hover:border-accent/50 hover:bg-raised",
+                          "grid w-full min-w-0 cursor-pointer gap-0.5 rounded-md border px-2 py-1.5 text-left transition-colors hover:border-accent/50 hover:bg-raised compact:min-h-11",
                           skill.shadowed ? "border-line/70 bg-transparent opacity-70" : "border-line bg-raised",
                         )}
                       >
                         <span className="flex min-w-0 items-baseline gap-1.5">
-                          <span className="min-w-0 truncate text-xs font-medium text-ink-strong">{skill.name}</span>
-                          <span className="ml-auto shrink-0 font-mono text-3xs text-ink-ghost">
+                          <span className="min-w-0 truncate text-xs font-medium text-ink-strong compact:text-sm">
+                            {skill.name}
+                          </span>
+                          <span className="ml-auto shrink-0 font-mono text-3xs text-ink-ghost compact:text-1xs">
                             {skillCommandText(skill.name).trim()}
                           </span>
                         </span>
                         {skill.description ? (
-                          <span className="min-w-0 truncate text-2xs text-ink-soft">{skill.description}</span>
+                          <span className="min-w-0 truncate text-2xs text-ink-soft compact:text-xs">
+                            {skill.description}
+                          </span>
                         ) : null}
-                        {warning ? <span className="text-3xs text-warn">{warning}</span> : null}
+                        {warning ? <span className="text-3xs text-warn compact:text-1xs">{warning}</span> : null}
                         {skill.disableModelInvocation ? (
-                          <span className="text-3xs text-ink-faint">{SESSION_SKILL_DISABLED_NOTE}</span>
+                          <span className="text-3xs text-ink-faint compact:text-1xs">
+                            {SESSION_SKILL_DISABLED_NOTE}
+                          </span>
                         ) : null}
                       </button>
                     </li>
@@ -268,7 +274,7 @@ export function SkillPicker({
         </div>
 
         {groups.length > 0 ? (
-          <p ref={footerRef} className="border-t border-line px-2.5 py-1.5 text-3xs text-ink-ghost">
+          <p ref={footerRef} className="border-t border-line px-2.5 py-1.5 text-3xs text-ink-ghost compact:text-1xs">
             {SESSION_SKILL_BODY_NOTE}
           </p>
         ) : null}

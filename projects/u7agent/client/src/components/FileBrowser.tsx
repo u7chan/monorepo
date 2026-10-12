@@ -686,7 +686,7 @@ function EntryRow({
             } as CSSProperties
           }
           className={cn(
-            "flex min-h-7.5 w-full flex-wrap items-center gap-x-1.5 gap-y-1 rounded-lg pr-2 text-xs text-ink transition-colors hover:bg-hover",
+            "flex min-h-7.5 w-full flex-wrap items-center gap-x-1.5 gap-y-1 rounded-lg pr-2 text-xs text-ink transition-colors hover:bg-hover compact:min-h-11",
             revealed && "ring-2 ring-focus ring-inset",
           )}
         >
@@ -696,7 +696,7 @@ function EntryRow({
             type="button"
             aria-expanded={open}
             onClick={() => onToggle(path)}
-            className="flex min-w-(--name-min-width) flex-1 items-center gap-2 py-1 pl-(--tree-indent) text-left"
+            className="flex min-w-(--name-min-width) flex-1 items-center gap-2 py-1 pl-(--tree-indent) text-left compact:min-h-11"
           >
             <span
               className={cn(
@@ -790,7 +790,7 @@ function EntryRow({
         } as CSSProperties
       }
       className={cn(
-        "flex min-h-7.5 w-full flex-wrap items-center gap-x-1.5 gap-y-1 rounded-lg pr-2 text-xs transition-colors",
+        "flex min-h-7.5 w-full flex-wrap items-center gap-x-1.5 gap-y-1 rounded-lg pr-2 text-xs transition-colors compact:min-h-11",
         isSelected ? "bg-accent-wash text-accent-text" : "text-ink-soft hover:bg-hover hover:text-ink",
         revealed && "ring-2 ring-focus ring-inset",
       )}
@@ -799,7 +799,7 @@ function EntryRow({
         type="button"
         aria-current={isSelected ? "true" : undefined}
         onClick={() => onSelect(path)}
-        className="flex min-w-(--name-min-width) flex-1 items-center gap-2 py-1 pl-(--tree-indent) text-left"
+        className="flex min-w-(--name-min-width) flex-1 items-center gap-2 py-1 pl-(--tree-indent) text-left compact:min-h-11"
       >
         <FileIcon kind={fileKind(entry.name)} />
         <span className="min-w-0 truncate">{entry.name}</span>
@@ -884,7 +884,7 @@ function EntryTime({ at }: { at: number | undefined }) {
     <time
       dateTime={new Date(at).toISOString()}
       title={messageFullTimeLabel(at)}
-      className="shrink-0 text-2xs whitespace-nowrap text-ink-ghost tabular-nums"
+      className="shrink-0 text-2xs whitespace-nowrap text-ink-ghost tabular-nums compact:text-1xs"
     >
       {fileTimeLabel(at)}
     </time>
@@ -903,7 +903,7 @@ function EntrySize({ bytes }: { bytes: number | undefined }) {
   return (
     <span
       title={`${bytes.toLocaleString()} バイト`}
-      className="shrink-0 text-2xs whitespace-nowrap text-ink-ghost tabular-nums"
+      className="shrink-0 text-2xs whitespace-nowrap text-ink-ghost tabular-nums compact:text-1xs"
     >
       {label}
     </span>
@@ -937,5 +937,9 @@ function MessageRow({
 
 /** root 外を指す symlink は開くと 400 になるため、一覧の時点で印を付ける */
 function SymlinkMark() {
-  return <span className="shrink-0 rounded border border-line px-1 text-3xs leading-4 text-ink-ghost">リンク</span>;
+  return (
+    <span className="shrink-0 rounded border border-line px-1 text-3xs leading-4 text-ink-ghost compact:text-1xs">
+      リンク
+    </span>
+  );
 }

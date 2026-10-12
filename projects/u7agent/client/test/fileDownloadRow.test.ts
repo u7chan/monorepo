@@ -21,6 +21,7 @@ test("ダウンロード: フォルダは ZIP のラベルと除外の開示、�
       kind: "download",
       label: "ZIP でダウンロード",
       description: "ビルド成果物と依存を除く",
+      descriptionKind: "disclosure",
     },
   );
 

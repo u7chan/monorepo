@@ -6,6 +6,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { ServedAppGroup, ServedAppIndicator } from "../src/components/ServedAppStatus";
 import {
   servedAppBusyKind,
+  servedAppMenuSeparators,
   servedAppReplaceHint,
   servedAppStartConfirm,
   servedAppUrl,
@@ -178,6 +179,21 @@ test("singleColumn は 1 枠で操作でき、停止中はメニューなしの�
   for (const props of [serveProps({ status: null }), serveProps({ failed: true })]) {
     assert.equal(renderToStaticMarkup(createElement(ServedAppIndicator, props)), "");
   }
+});
+
+test("メニューの区切りは通常の操作と危険な操作の境界に 1 本だけ置き、並びは変えない", () => {
+  // 「サービスを開く」の次が「停止」 (危険な操作が末尾)。危険な操作の前にだけ区切りを置く
+  assert.deepEqual(servedAppMenuSeparators([{ danger: undefined }, { danger: true }]), [false, true]);
+  // 「停止」が先頭で「起動」が続く形でも、境界の 1 本は同じ (危険なのが末尾とは限らない)
+  assert.deepEqual(servedAppMenuSeparators([{ danger: true }, { danger: undefined }]), [false, true]);
+  // 危険な操作が無い / 項目が 1 つ以下なら区切りは入らない
+  assert.deepEqual(servedAppMenuSeparators([{ danger: undefined }]), [false]);
+  assert.deepEqual(servedAppMenuSeparators([]), []);
+  // 危険な操作が並んでも項目ごとには増やさず、境界ごとに 1 本にする
+  assert.deepEqual(
+    servedAppMenuSeparators([{ danger: undefined }, { danger: true }, { danger: true }, { danger: undefined }]),
+    [false, true, false, true],
+  );
 });
 
 test("置き換えの確認は所有者名を 1 回だけ独立した行に出し、起動コマンドを等幅の行にする", () => {

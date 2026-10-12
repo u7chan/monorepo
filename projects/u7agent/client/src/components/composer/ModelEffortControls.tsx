@@ -192,7 +192,7 @@ export function ModelEffortPicker({
             onChangeModel={onChangeModel}
             onChangeThinkingLevel={onChangeThinkingLevel}
           />
-          {notice ? <p className="m-0 min-w-0 text-2xs break-words text-warn">{notice}</p> : null}
+          {notice ? <p className="m-0 min-w-0 text-2xs break-words text-warn compact:text-1xs">{notice}</p> : null}
         </div>
       </div>
     </div>
