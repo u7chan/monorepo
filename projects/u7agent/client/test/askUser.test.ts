@@ -26,12 +26,14 @@ import {
   askUserDraftSelectedCount,
   askUserDraftsComplete,
   askUserUnresolvedCount,
+  closeAskUserCard,
   emptyAskUserDrafts,
   isPendingAskUser,
   isPendingAskUserCard,
   nextUnresolvedAskUserIndex,
   pendingAskUserQuestionCount,
   toggleAskUserOption,
+  type AskUserCloseState,
   type AskUserDraft,
 } from "../src/lib/askUser";
 import { deriveComposerSettings } from "../src/lib/composerSettings";
@@ -577,6 +579,56 @@ test("未回答が残っている間だけ、閉じると回答なしで送ら�
   assert.ok(body.includes("未回答の質問 2 件は「回答なし」で送信されます"), "残りが回答なしになることを示す");
   assert.ok(body.includes("回答済みの内容はそのまま送信します"), "回答済みを捨てないことを示す");
   assert.equal(askUserCloseConfirmRequest(0), undefined, "未回答が無いときは確認しない");
+});
+
+test("確認中にカードが失効したら、確定しても送らない", async () => {
+  const drafts: AskUserDraft[] = [
+    { selected: ["A 案"], text: "", skipped: false },
+    { selected: [], text: "", skipped: false },
+  ];
+  const run = async (
+    state: AskUserCloseState,
+    answersOnConfirm: boolean,
+    questions: readonly AskUserDraft[] = drafts,
+  ): Promise<{ sent: AskUserAnswer[][]; confirmCount: number }> => {
+    const sent: AskUserAnswer[][] = [];
+    let confirmCount = 0;
+    await closeAskUserCard({
+      cardId: "call-1",
+      drafts: questions,
+      state: () => state,
+      confirm: async () => {
+        confirmCount += 1;
+        return answersOnConfirm;
+      },
+      send: async (answers) => {
+        sent.push(answers);
+      },
+    });
+    return { sent, confirmCount };
+  };
+
+  // 通常: 未回答が残るので確認を挟み、回答済みはそのまま・未回答は「回答しない」で送る
+  assert.deepEqual(await run({ cardId: "call-1", closable: true }, true), {
+    sent: [
+      [
+        { index: 0, selected: ["A 案"] },
+        { index: 1, skipped: true },
+      ],
+    ],
+    confirmCount: 1,
+  });
+  // 取り消しは送らない
+  assert.deepEqual(await run({ cardId: "call-1", closable: true }, false), { sent: [], confirmCount: 1 });
+  // A の確認を開いたまま A を削除すると、会話は B へ切り替わってカードは unmount する (closable が false)
+  assert.deepEqual(await run({ cardId: "call-1", closable: false }, true), { sent: [], confirmCount: 1 });
+  // 同じ toolCallId を待つ別の会話のカードへも送らない (会話をまたいだ一意性は契約に無い)
+  assert.deepEqual(await run({ cardId: "call-2", closable: true }, true), { sent: [], confirmCount: 1 });
+  // 未回答が無いときは確認を挟まず、回答済みをそのまま送る
+  assert.deepEqual(await run({ cardId: "call-1", closable: true }, true, [drafts[0]!]), {
+    sent: [[{ index: 0, selected: ["A 案"] }]],
+    confirmCount: 0,
+  });
 });
 
 test("回答待ちのカードは、閉じたときの結果を押す前に示す", () => {

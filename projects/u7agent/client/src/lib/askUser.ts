@@ -110,6 +110,37 @@ export function askUserCloseConfirmRequest(unresolved: number): ConfirmRequest |
   };
 }
 
+/** 閉じる確認の前後で見る、確定時点のカードの状態 */
+export type AskUserCloseState = {
+  cardId: string;
+  /** カードがまだ回答待ちのフォームで、閉じる操作を受け付けるか (unmount / settle で false) */
+  closable: boolean;
+};
+
+/** `✕` でカードを閉じるときの依存。確認と送信の実体は呼び出し側 (カード) が持つ */
+export type AskUserCloseDeps = {
+  /** 確認を開始したカードの toolCallId */
+  cardId: string;
+  drafts: readonly AskUserDraft[];
+  /** 確定時点のカード。確認中に失効すると `closable` が false になる */
+  state: () => AskUserCloseState;
+  confirm: (request: ConfirmRequest) => Promise<boolean>;
+  send: (answers: AskUserAnswer[]) => Promise<void>;
+};
+
+/**
+ * `✕` でカードを閉じる。未回答が残るときだけ確認を挟み、確定時にカードが失効していたら送らない。
+ * 確認を開いている間に会話が切り替わると、送信は確定時の会話へ古い `cardId` で飛ぶ (toolCallId の
+ * 会話をまたいだ一意性は契約に無い) ため、送る直前にカードの生存を確かめる。
+ */
+export async function closeAskUserCard(deps: AskUserCloseDeps): Promise<void> {
+  const request = askUserCloseConfirmRequest(askUserUnresolvedCount(deps.drafts));
+  if (request !== undefined && !(await deps.confirm(request))) return;
+  const current = deps.state();
+  if (!current.closable || current.cardId !== deps.cardId) return;
+  await deps.send(askUserAnswersClosing(deps.drafts));
+}
+
 /**
  * カードを閉じたときの回答。回答済みはそのまま、未回答は「回答しない」にして送る
  * (入力を捨てない。閉じる操作で走っている質問を残さない)。

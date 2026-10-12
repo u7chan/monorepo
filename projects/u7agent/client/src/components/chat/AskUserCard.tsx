@@ -1,21 +1,21 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { ToolCard } from "../../hooks/chatReducer";
 import {
   askUserAnswerText,
   askUserAnsweredNothing,
-  askUserAnswersClosing,
   askUserAnswersFromDrafts,
-  askUserCloseConfirmRequest,
   askUserCloseNotice,
   askUserDraftAt,
   askUserDraftResolved,
   askUserDraftSelectedCount,
   askUserDraftsComplete,
   askUserUnresolvedCount,
+  closeAskUserCard,
   emptyAskUserDrafts,
   isPendingAskUserCard,
   nextUnresolvedAskUserIndex,
   toggleAskUserOption,
+  type AskUserCloseState,
   type AskUserDraft,
 } from "../../lib/askUser";
 import { cn } from "../../lib/cn";
@@ -372,6 +372,15 @@ export function AskUserCard({
   const answers = recordAnswers(card, drafts, sent);
   const showForm = waiting && answers === undefined;
   const index = Math.min(page, Math.max(questions.length - 1, 0));
+  // 確認を開いている間のカードの生存。unmount の cleanup と settle (`showForm` が false) のどちらでも
+  // 閉じられなくなる (確定時の会話へ古い card.id の回答を送らない)
+  const closeStateRef = useRef<AskUserCloseState>({ cardId: card.id, closable: false });
+  useEffect(() => {
+    closeStateRef.current = { cardId: card.id, closable: showForm };
+    return () => {
+      closeStateRef.current = { cardId: card.id, closable: false };
+    };
+  }, [card.id, showForm]);
 
   const move = (delta: number): void => {
     setError(undefined);
@@ -406,11 +415,16 @@ export function AskUserCard({
     void submit(askUserAnswersFromDrafts(drafts));
   };
 
-  // 確認は未回答があるときだけ (回答済みだけを送るなら、押し間違えで失うものが無い)
-  const close = async (): Promise<void> => {
-    const request = askUserCloseConfirmRequest(askUserUnresolvedCount(drafts));
-    if (request !== undefined && !(await confirm(request))) return;
-    await submit(askUserAnswersClosing(drafts));
+  // 確認は未回答があるときだけ (回答済みだけを送るなら、押し間違えで失うものが無い)。確定時には
+  // カードの生存を確かめる (確認中に会話が切り替わると、確定時の会話へ古い card.id で飛ぶ)
+  const close = (): void => {
+    void closeAskUserCard({
+      cardId: card.id,
+      drafts,
+      state: () => closeStateRef.current,
+      confirm,
+      send: submit,
+    });
   };
 
   return (
@@ -444,7 +458,7 @@ export function AskUserCard({
             if (index < questions.length - 1) move(1);
           }}
           onAdvance={advance}
-          onClose={() => void close()}
+          onClose={close}
         />
       ) : (
         <AskUserRecord
