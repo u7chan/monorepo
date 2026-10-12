@@ -107,12 +107,15 @@ export function projectSessionPayload({
 export function projectSessionSummary({
   record,
   status,
+  awaitingAnswer,
   projectId,
   masker,
   hasRawLog,
 }: {
   record: SessionRecord;
   status: RunStatus;
+  /** `record` は待機を持つので、この経路では常に真偽値を載せる (未ロードの summaryOfMeta は載せない) */
+  awaitingAnswer: boolean;
   projectId?: string;
   masker: SecretMasker;
   /** 生ログ (session.jsonl) がディスクにあるか。UI のダウンロードの出し分けだけに使う */
@@ -125,6 +128,7 @@ export function projectSessionSummary({
     agentId: record.agentId,
     agentName: record.agent.name,
     status,
+    awaitingAnswer,
     queueDepth: record.queue.length,
     notify: record.notify,
     pinned: record.pinned,

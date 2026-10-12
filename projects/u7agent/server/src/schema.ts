@@ -474,6 +474,11 @@ export const SessionSummarySchema = z.object({
   agentId: z.string(),
   agentName: z.string().optional(),
   status: RunStatusSchema,
+  /**
+   * ask_user の未 settle の待機があるか。待機を持たない未ロードの会話と旧サーバーは省略し、
+   * `running` の意味 (BFF がそのランのために動いている) は変えない
+   */
+  awaitingAnswer: z.boolean().optional(),
   queueDepth: z.number(),
   /** この会話の完了を Discord へ送るか。サーバーは常に載せ、読む側は省略を false として扱う */
   notify: z.boolean().optional(),

@@ -1423,6 +1423,8 @@ export class SessionStore {
     return projectSessionSummary({
       record,
       status: this.statusOf(record),
+      // settle 済みの entry は同じ toolCallId への 2 回目を 409 にする tombstone として残る
+      awaitingAnswer: [...record.questions.values()].some((pending) => !pending.settled),
       projectId: this.projectIdOf(record),
       masker: this.masker,
       hasRawLog: this.hasRawLogOf(record.id, record.storeDir),

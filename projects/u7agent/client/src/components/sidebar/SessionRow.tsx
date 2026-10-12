@@ -6,7 +6,7 @@ import { useDiagnostics } from "../../DiagnosticsContext";
 import { messageTimeLabel } from "../../lib/messageTime";
 import { diagnosticsCopyNote } from "../../lib/diagnostics";
 import { rawLogConfirmRequest, sessionRowActions, type SessionRowKind } from "../../lib/sidebarRowMenu";
-import { sidebarStatus } from "../../lib/sidebarStatus";
+import { sidebarStatus, type SidebarStatus } from "../../lib/sidebarStatus";
 import { COPY_FAILED_TEXT } from "../chat/CopyButton";
 import type { AgentDef, SessionSummary } from "../../types";
 import { AgentIcon } from "../AgentIcon";
@@ -17,6 +17,20 @@ import { RowMenu } from "../RowMenu";
 const COPIED_MS = 2000;
 /** 省略の件数を出しておく長さ。チェック (2 秒) より長く取り、読めるようにする */
 const DROPS_NOTE_MS = 8000;
+
+const DOT_TONE: Record<SidebarStatus["tone"], string> = {
+  live: cn("dot-accent dot-pulse"),
+  // 回答待ちは「サーバーが作業している」のではなく「利用者を待っている」ので、静止の warn で示す
+  waiting: cn("dot-warn"),
+  idle: cn("dot-idle"),
+};
+
+/** バッジの色は serve-badge-* に倣う。上下の余白を持たず、2 行目の高さと折り返しを変えない */
+const LABEL_TONE: Record<SidebarStatus["tone"], string> = {
+  live: cn("border-accent/40 bg-accent/10 text-accent-text"),
+  waiting: cn("border-warn/40 bg-warn/10 text-warn"),
+  idle: "",
+};
 
 type RowFailure = {
   message: string;
@@ -53,7 +67,7 @@ export function SessionRow({
   const [copied, setCopied] = useState(false);
   const [note, setNote] = useState<string | null>(null);
   const [failure, setFailure] = useState<RowFailure | null>(null);
-  const status = sidebarStatus(item.status);
+  const status = sidebarStatus(item.status, item.awaitingAnswer === true);
   const bits = [
     item.agentName,
     // 同じ表記をセッション一覧にも使う (locale 依存の toLocaleTimeString をやめる)
@@ -127,7 +141,7 @@ export function SessionRow({
           className="flex min-w-0 flex-1 items-center gap-2.5 px-2.5 py-2 text-left"
         >
           {/* 圧縮も「サーバーが動いている」ので実行中と同じ点で示す (区別はラベルが担う) */}
-          <span className={cn("dot", status.tone === "live" ? "dot-accent dot-pulse" : "dot-idle")} aria-hidden />
+          <span className={cn("dot", DOT_TONE[status.tone])} aria-hidden />
           <span className="grid min-w-0 flex-1 gap-0.5">
             <span className="flex min-w-0 items-center gap-1">
               {item.pinned ? (
@@ -144,7 +158,13 @@ export function SessionRow({
               {/* 状態ラベルは truncate の外に置く (長いエージェント名でも切れない)。
                   ラベルは button 内の可視テキストなので、読み上げ名にはそのまま入る */}
               {status.label ? (
-                <span className="shrink-0" title={status.label}>
+                <span
+                  className={cn(
+                    "shrink-0 rounded-full border px-1.5 leading-none whitespace-nowrap",
+                    LABEL_TONE[status.tone],
+                  )}
+                  title={status.label}
+                >
                   {status.label}
                 </span>
               ) : null}

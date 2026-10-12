@@ -44,6 +44,7 @@
 - Enter は `→` と同じ（自由記入の本文に改行は入れない）。ただし **IME の変換確定 Enter では進めない**（`client/src/lib/composerKeys.ts` の `isImeComposingEnter()` を Composer と共有し、`isComposing` と `keyCode === 229` の両方を見る。片方だけ直すと日本語入力の確定で質問が変わる。[ui-layout.md](ui-layout.md) の入力欄の契約）。compact は Enter を使わず `→` に任せる
 - 回答待ちの間は入力欄の送信を無効化し、理由（`上の質問に回答してください（N件）`）を入力欄下の footnote に出して停止ボタンは押せるままにする（回答を本文へ打って待機キューに積まれる事故を防ぐ）
 - 回答待ちかどうかは `chat.runTools`（payload の `run.toolCalls`）から導出し、SSE の `status { state: "question" }` には依存しない。`resync` は activity を固定文言へ上書きし、`status` はリプレイされないため。`status` はライブの活動表示にだけ使う
+- 左バーのセッション行は一覧 API の `awaitingAnswer` を見て「回答待ち」を出す（実行中とは別のラベルで、件数と理由は行に出さない。行の規則は [ui-layout.md](ui-layout.md#nav-モード)）。自分が開いていない会話の待機も、一覧のポーリングで届く
 - 回答を送っても `tool_end` が届くまでは手元の入力を記録として見せる。同じ assistant バッチの `tool_end` は `Promise.all` の後なので、並行した `ask_user` では遅れる
 - a11y: 質問のまとまりは `role="group"` + `aria-label`（質問文）、選択肢の行は `aria-pressed`、ページャと `✕` は `aria-label`、自由記入は質問文つきの `aria-label`。フッターの状態（`N 件選択` / 「回答しない」/「未回答の質問が N 件あります」/「送信中…」）と `1 / N` は `aria-live="polite"` で読み上げる。compact でも同じ操作で、幅が狭いときは罫線の並びを保ったまま行が縦に伸びる
 
@@ -64,7 +65,7 @@
 
 ## 運用影響と既知の制限
 
-- 未回答のまま放置するとランは `running` のままで、左バーも実行中に見える。他クライアントの送信はキューに溜まり（最大 10 件で 429）、Discord の完了通知は回答するまで来ない。`sweep` は busy を対象外にするためメモリにも残る。逃げ道は既存の停止ボタンだけで、停止はキューを破棄する（待機中の分はバブルの `取り消し` から 1 件ずつ外せる。ランは止まらない）。[run-lifecycle.md](run-lifecycle.md#ライフサイクル--制限)
+- 未回答のまま放置するとランは `running` のままで、左バーの行も「回答待ち」になる（[UI](#ui)）。他クライアントの送信はキューに溜まり（最大 10 件で 429）、Discord の完了通知は回答するまで来ない。`sweep` は busy を対象外にするためメモリにも残る。逃げ道は既存の停止ボタンだけで、停止はキューを破棄する（待機中の分はバブルの `取り消し` から 1 件ずつ外せる。ランは止まらない）。[run-lifecycle.md](run-lifecycle.md#ライフサイクル--制限)
 - **graceful な再デプロイ**（SIGTERM）では、`close()` が `abort()` を idle まで待ち、ツールが `isError: true` + `details` を返した結果が JSONL に残る。本文のある assistant なら「回答なしで終了」のカードが復元される。**強制終了（SIGKILL / OOM）や abort が Docker の stop grace に間に合わなかった場合**は toolResult が残らずカードも出ない。いずれの経路でも回答は失われ、ユーザーが新しいメッセージで再開する
 - 再質問は「もう一度質問して」と送ればよい。モデルは前回の質問を文脈に持つため `ask_user` を出し直せる（`promptGuidelines` にもその場合だけは出し直すと書いてある）。カードは残った状態では無いことがあるため、専用の再質問ボタンは持たない
 - 1 つの assistant メッセージで `ask_user` を並行に 2 回呼ぶと、カードが 2 枚同時に待機する。両方に回答するまでモデルは再開しない（SDK がバッチ全体の settle を待つ）。UI は複数待機でも壊れず、全カードが埋まるまで送信できない
