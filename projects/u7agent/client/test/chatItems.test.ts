@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import type { Bubble, CompactionMarker } from "../src/lib/chatTypes";
 import { anchoredScrollTop, chatRenderItems, estimateChatItemHeight } from "../src/lib/chatItems";
+import { chatReducer, initialChatState, type ChatState } from "../src/hooks/chatReducer";
 import type { CompactionInfo } from "../src/types";
 
 function bubble(id: number, entryId: string, context: Bubble["context"], text: string): Bubble {
@@ -145,49 +146,110 @@ test("見積りは正の値になり、ツール出力で増える", () => {
   );
 });
 
-test("終端行は次の user の手前と末尾に出て、値の無いターンと未送信のターンには出ない", () => {
+test("結末はターンを閉じた応答に付き、値の無いターンと未送信のターンには付かない", () => {
   const valued = userTurn(1, "u1");
   // 値が無い (旧サーバー / 再起動後) ターン
   const plain: Bubble = { ...userTurn(3, "u3"), runDurationMs: undefined, runOutcome: undefined };
   // user entry が保存されなかった (未送信へ切り替わった) ターン
   const unsent = userTurn(5, "u5", { unsent: true });
-  const bubbles = [valued, bubble(2, "a1", "active", "a"), plain, bubble(4, "a2", "active", "a"), unsent];
+  const bubbles = [
+    valued,
+    bubble(2, "a1", "active", "a"),
+    plain,
+    bubble(4, "a2", "active", "a"),
+    unsent,
+    bubble(6, "a3", "active", "a"),
+  ];
 
   const items = chatRenderItems({ bubbles, markers: [], compactions: [], activeContextStartId: null });
   assert.deepEqual(
     items.map((item) => (item.kind === "message" ? `message:${item.bubble.entryId}` : item.kind)),
-    [
-      "message:u1",
-      "message:a1",
-      // 次の user (u3) の手前で 1 つ目のターンを閉じる
-      "turn-end",
-      "message:u3",
-      "message:a2",
-      // 値の無い plain のターンは行を出さない (u5 の手前)
-      "message:u5",
-      // 未送信のターン (u5) でも行を出さない (末尾)
-    ],
+    ["message:u1", "message:a1", "message:u3", "message:a2", "message:u5", "message:a3"],
   );
-  const turnEnds = items.filter((item) => item.kind === "turn-end");
   assert.deepEqual(
-    turnEnds.map((item) => item.key),
-    ["turn-end:u1"],
+    items.filter((item) => item.kind === "message" && item.turnEnd !== undefined).map((item) => item.key),
+    ["message:a1"],
+    "付くのは値を持ち、未送信でもないターンの最後の応答だけ",
   );
-  // 位置は次の user item の手前 / (最後の行は) 末尾
-  assert.equal(items.at(-1)?.kind, "message");
+  // 値はターンの user バブルが持ち、次の user の手前で閉じたターンの応答に写る
+  const closed = items.find((item) => item.kind === "message" && item.key === "message:a1");
+  assert.ok(closed?.kind === "message");
+  assert.deepEqual(closed.turnEnd, { outcome: "completed", durationMs: 80_000 });
+  // user の居ない範囲 (assistant だけのページ) には付ける相手が無い
   assert.deepEqual(
     chatRenderItems({
       bubbles: [bubble(1, "a1", "active", "a")],
       markers: [],
       compactions: [],
       activeContextStartId: null,
-    }).map((item) => item.kind),
-    ["message"],
-    "user の居ない範囲には終端行を出さない",
+    }).map((item) => (item.kind === "message" ? item.turnEnd : item.kind)),
+    [undefined],
   );
 });
 
-test("終端行は境界ラベル・圧縮の区切りより先に出る", () => {
+test("本文を持つ応答が無いターンには結末を付けない", () => {
+  // What: ツールだけのターンはライブでは本文が空の assistant バブルを持つため、
+  // 「assistant であること」だけでは足りない (履歴では表示メッセージにならず、見え方が食い違う)
+  assert.deepEqual(
+    chatRenderItems({
+      bubbles: [userTurn(1, "u1")],
+      markers: [],
+      compactions: [],
+      activeContextStartId: null,
+    }).map((item) => (item.kind === "message" ? item.turnEnd : item.kind)),
+    [undefined],
+    "応答のバブルが無いターン",
+  );
+  const toolOnly: Bubble = {
+    ...bubble(2, "a1", "active", ""),
+    entryId: undefined,
+    at: 1_700_000_000_000,
+    tools: [{ id: "t", name: "bash", args: "", phase: "done", output: "o" }],
+  };
+  assert.deepEqual(
+    chatRenderItems({
+      bubbles: [userTurn(1, "u1"), toolOnly],
+      markers: [],
+      compactions: [],
+      activeContextStartId: null,
+    }).map((item) => (item.kind === "message" ? item.turnEnd : item.kind)),
+    [undefined, undefined],
+    "本文が空の応答 (ライブのツールだけのターン)",
+  );
+  // 本文が 1 文字でもあれば、そのターンの結末として付く
+  const items = chatRenderItems({
+    bubbles: [userTurn(1, "u1"), bubble(2, "a1", "active", "結果です")],
+    markers: [],
+    compactions: [],
+    activeContextStartId: null,
+  });
+  const last = items.at(-1);
+  assert.ok(last?.kind === "message" && last.turnEnd !== undefined, "本文を持つ応答には付く");
+});
+
+test("ライブのツールだけのターンは reducer から通しても結末が付かない", () => {
+  // What: toolStart が本文の空な assistant バブルを作り、runEnd が同じターンの user へ値を写す経路を固定する
+  const steps: ((chat: ChatState) => ChatState)[] = [
+    (chat) => chatReducer(chat, { type: "localUser", text: "調べて", at: 100 }),
+    (chat) => chatReducer(chat, { type: "echoRunId", runId: "r1" }),
+    (chat) => chatReducer(chat, { type: "runStart", runId: "r1", prompt: "調べて", at: 100, startedAt: 100 }),
+    (chat) => chatReducer(chat, { type: "toolStart", id: "t1", name: "bash", args: "{}", at: 150 }),
+    (chat) => chatReducer(chat, { type: "toolEnd", id: "t1", isError: false, output: "done" }),
+  ];
+  const started = steps.reduce((chat, step) => step(chat), initialChatState);
+  const ended = (chat: ChatState): ChatState =>
+    chatReducer(chat, { type: "runEnd", runId: "r1", status: "completed", queueDepth: 0, durationMs: 1234 });
+  const turnEnds = (chat: ChatState): string[] =>
+    chatRenderItems({ bubbles: chat.bubbles, markers: [], compactions: [], activeContextStartId: null })
+      .filter((item) => item.kind === "message" && item.turnEnd !== undefined)
+      .map((item) => item.key);
+
+  assert.deepEqual(turnEnds(ended(started)), [], "本文が空の応答 (ツールだけ) には付かない");
+  const withText = chatReducer(started, { type: "text", delta: "結果です", at: 160 });
+  assert.deepEqual(turnEnds(ended(withText)), ["message:2"], "本文が届いた応答には付く");
+});
+
+test("結末はターンを閉じた応答に残り、次のターンの境界ラベル・圧縮の区切りより前に出る", () => {
   const user = userTurn(1, "u1", { context: "summarized" });
   const next = userTurn(3, "u3");
   const bubbles = [user, bubble(2, "a1", "summarized", "a"), next];
@@ -196,28 +258,26 @@ test("終端行は境界ラベル・圧縮の区切りより先に出る", () =>
   const items = chatRenderItems({ bubbles, markers, compactions: COMPACTIONS, activeContextStartId: "u3" });
   assert.deepEqual(
     items.map((item) => (item.kind === "message" ? `message:${item.bubble.entryId}` : item.kind)),
-    ["message:u1", "message:a1", "turn-end", "boundary", "compaction", "message:u3", "turn-end"],
+    ["message:u1", "message:a1", "boundary", "compaction", "message:u3"],
   );
-  // 薄暗さはそのターンの item (summarized) に合わせる
-  assert.deepEqual(
-    items.filter((item) => item.kind === "turn-end").map((item) => item.summarized),
-    [true, false],
-  );
+  const closed = items.find((item) => item.kind === "message" && item.key === "message:a1");
+  assert.ok(closed?.kind === "message" && closed.turnEnd !== undefined, "ターンを閉じた応答に付く");
+  const last = items.at(-1);
+  assert.ok(last?.kind === "message" && last.turnEnd === undefined, "次のターンの応答には付かない");
 });
 
-test("ライブのターン終端は bubble.id をキーにし、見積りは正の値になる", () => {
+test("entryId の無いライブのターンでも、結末は最後の応答に付きキーが安定する", () => {
   const live: Bubble = {
     ...userTurn(7, "ignored", { entryId: undefined }),
     runOutcome: "stopped",
     runDurationMs: 999,
   };
-  const items = chatRenderItems({ bubbles: [live], markers: [], compactions: [], activeContextStartId: null });
-  const turnEnd = items.find((item) => item.kind === "turn-end");
-  if (turnEnd?.kind !== "turn-end") throw new Error("ターン終端の item が出ていない");
-  assert.equal(turnEnd.key, "turn-end:7", "entryId が無くてもキーが安定する");
-  assert.equal(turnEnd.outcome, "stopped");
-  assert.equal(turnEnd.durationMs, 999);
-  assert.ok(estimateChatItemHeight(turnEnd) > 0);
+  const answer: Bubble = { ...bubble(8, "ignored", "active", "a"), entryId: undefined };
+  const items = chatRenderItems({ bubbles: [live, answer], markers: [], compactions: [], activeContextStartId: null });
+  const last = items.at(-1);
+  assert.ok(last?.kind === "message");
+  assert.equal(last.key, "message:8", "entryId が無くてもキーが安定する");
+  assert.deepEqual(last.turnEnd, { outcome: "stopped", durationMs: 999 });
 });
 
 test("前置き後の scrollTop は高さ増加ぶんだけ下へずらす", () => {

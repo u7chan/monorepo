@@ -132,22 +132,11 @@ test("描画: モデル / Effort の入口とゲージは aria-live の外へ置
   assert.ok(html.includes("(0s)"), "経過時間は aria-hidden の別スパンに出す");
 });
 
-test("描画: 完了の合計時間を活動の右に出し、読み上げに残す (実行中の経過とは別扱い)", () => {
-  const html = render({
-    activity: "完了",
-    modelSlot: slot(),
-    finishedRunDurationMs: 72_000,
-  });
-
-  assert.ok(html.includes(">完了<") && html.indexOf("(1m 12s)") > html.indexOf(">完了<"), "活動の右に出す");
-  const finished = /<span([^>]*)>\(1m 12s\)<\/span>/.exec(html);
-  assert.ok(finished, "formatElapsed と同じ表記で出す");
-  assert.ok(!finished[1].includes("aria-hidden"), "確定した値は読み上げの対象に残す");
-  assert.ok(!html.includes("run-spinner"), "完了後にスピナーを出さない");
-});
-
-test("描画: 合計時間だけでは活動欄を出さない (再実行カードの横に裸の数字を作らない)", () => {
-  assert.equal(render({ activity: "", finishedRunDurationMs: 72_000 }), "");
+test("描画: 活動が空なら活動欄ごと出さない (空行を残さない)", () => {
+  // 合計時間は会話のメタ行が担うため、状態行に残るのは活動の語だけ
+  const html = render({ activity: "完了", modelSlot: slot() });
+  assert.ok(html.includes(">完了<"), "活動の語は残す");
+  assert.equal(render({ activity: "" }), "");
 });
 
 test("描画: 実行中の経過時間は 10 秒の拍の枠に出し、1 分以降だけ色を残す", () => {

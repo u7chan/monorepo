@@ -11,7 +11,8 @@ import { nonSkillToolCards, type SkillBadge } from "../../lib/skillLoad";
 import type { GenerationInfo } from "../../lib/generationInfo";
 import type { QueueWait } from "../../lib/queueWait";
 import { messageMetaLine, messageMetaTitle } from "../../lib/usageFormat";
-import type { AskUserAnswer } from "../../types";
+import { turnEndText, type TurnEnd } from "../../lib/turnEnd";
+import type { AskUserAnswer, RunOutcome } from "../../types";
 import { AgentIcon } from "../AgentIcon";
 import { MarkdownCaptionProvider } from "../markdown/MarkdownImageRefs";
 import { MarkdownView } from "../markdown/MarkdownView";
@@ -27,6 +28,16 @@ import { UserMessageBody } from "./UserMessageBody";
 
 /** onAnswer 未接続のバブル (履歴の復元など) に渡すフォールバック。カード側の answerable も false になる */
 const rejectAnswer = async (): Promise<{ ok: false; error: string }> => ({ ok: false, error: "回答を送信できません" });
+
+/**
+ * ターンの結末の色。Done も緑にして、時間を先に読ませる (どれぐらいかかったかが知りたい値)。
+ * 異常は warn / danger で残し、色だけでなく語でも区別できる状態を保つ
+ */
+const TURN_END_TONE: Record<RunOutcome, string> = {
+  completed: "text-ok-text",
+  stopped: "text-warn",
+  error: "text-danger-text",
+};
 
 function UserIcon() {
   return (
@@ -73,6 +84,7 @@ export function MessageView({
   onStartFlashEnd,
   onAnswerQuestion,
   animate = true,
+  turnEnd,
 }: {
   bubble: Bubble;
   /** 全バブル横断の dedup 済みバッジ (履歴優先。ChatArea が skillBadgesOf で組み立てる) */
@@ -121,6 +133,8 @@ export function MessageView({
   ) => Promise<{ ok: true } | { ok: false; error: string }>;
   /** 登場アニメーション。仮想スクロールで再マウントする履歴 item では再生しない (既定 true) */
   animate?: boolean;
+  /** このターンの結末 (そのターン最後の応答にだけ渡る。導出は chatItems) */
+  turnEnd?: TurnEnd;
 }) {
   const isUser = bubble.role === "user";
   // 押下から応答まで取り消しを無効化する。二度押しの 2 回目はサーバーが 404 で断る
@@ -356,6 +370,20 @@ export function MessageView({
                 className="shrink-0 font-sans text-2xs whitespace-nowrap text-ink-faint tabular-nums"
               >
                 {metaLine}
+              </span>
+            ) : null}
+            {turnEnd ? (
+              // 会話のスクロール領域は aria-live="polite" なので、状態行の「完了」と同じ結末の二重読み上げを止める
+              <span
+                aria-live="off"
+                lang="en"
+                title="ターン全体の所要時間（ツール実行を含む。キュー待ちと回答待ちは含まない）"
+                className={cn(
+                  "shrink-0 font-sans text-2xs whitespace-nowrap tabular-nums",
+                  TURN_END_TONE[turnEnd.outcome],
+                )}
+              >
+                {turnEndText(turnEnd)}
               </span>
             ) : null}
             {bodyText ? (
