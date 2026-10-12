@@ -88,6 +88,10 @@ export function MenuItem({
 }: MenuItemProps) {
   const active = selected && variant !== "add";
   const tone = disabled ? "disabled" : active ? (`${variant}-active` as const) : danger ? "danger" : IDLE_TONE[variant];
+  // 2 行の行では行の中央ではなく 1 行目に合わせる (ラベルと説明の境目に浮かないようにする)。compact で
+  // 補足を隠したときは 1 行の行に戻るので、中央寄せへ戻す (説明を隠す条件と同じ CSS で切り替える)
+  const slotAlign =
+    description === undefined ? null : cn("self-start", descriptionKind === "note" && "compact:self-center");
   return (
     <button
       type="button"
@@ -104,19 +108,12 @@ export function MenuItem({
       )}
     >
       {icon ? (
-        <span
-          className={cn(
-            "grid size-4 shrink-0 place-items-center compact:size-5",
-            // 2 行の行では行の中央ではなく 1 行目に合わせる (ラベルと説明の境目に浮かないようにする)
-            description ? "self-start" : null,
-            ICON_TONE[tone],
-          )}
-        >
+        <span className={cn("grid size-4 shrink-0 place-items-center compact:size-5", slotAlign, ICON_TONE[tone])}>
           {icon}
         </span>
       ) : null}
       <span className="grid min-w-0 flex-1 gap-1">
-        {/* アイコンの箱とラベルの行送りを揃える: 揃わないと self-start のアイコンが 1 行目の中央から外れる */}
+        {/* アイコンの箱とラベルの行送りを揃える: 揃わないと 1 行目のアイコンが中央から外れる */}
         <span className="truncate text-xs leading-4 compact:text-sm compact:leading-5">{label}</span>
         {description ? (
           <span
@@ -133,13 +130,7 @@ export function MenuItem({
       </span>
       {/* 選択のチェックは添えるだけなので読み上げない (選択は aria-current が伝える) */}
       {active && variant === "choice" ? (
-        <span
-          className={cn(
-            "grid size-4 shrink-0 place-items-center compact:size-5",
-            description ? "self-start" : null,
-            ICON_TONE[tone],
-          )}
-        >
+        <span className={cn("grid size-4 shrink-0 place-items-center compact:size-5", slotAlign, ICON_TONE[tone])}>
           <CheckIcon />
         </span>
       ) : null}
@@ -148,7 +139,7 @@ export function MenuItem({
           className={cn(
             "grid size-4 shrink-0 place-items-center compact:size-5",
             // アイコンの箱と同じく、2 行の行では 1 行目に合わせる
-            description ? "self-start" : null,
+            slotAlign,
             tone === "nav-active" ? "text-on-accent" : "text-warn",
           )}
         >

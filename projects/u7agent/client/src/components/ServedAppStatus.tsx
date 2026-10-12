@@ -1,8 +1,18 @@
-import { useCallback, useId, useLayoutEffect, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
+import {
+  Fragment,
+  useCallback,
+  useId,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type KeyboardEvent,
+  type ReactNode,
+} from "react";
 import { cn } from "../lib/cn";
 import { nextRowMenuIndex, rowMenuPlacement, ROW_MENU_MARGIN, type RowMenuDescriptionKind } from "../lib/rowMenu";
 import {
   openServedApp,
+  servedAppMenuSeparators,
   servedAppMenuSub,
   servedAppReplaceHint,
   servedAppUrl,
@@ -283,6 +293,7 @@ export function ServedAppIndicator({ port, status, failed, starting, onStart, on
             ]
           : []),
       ];
+  const separators = servedAppMenuSeparators(items);
 
   return (
     <>
@@ -324,23 +335,26 @@ export function ServedAppIndicator({ port, status, failed, starting, onStart, on
         </div>
         <div aria-hidden="true" className="mx-1 mb-1 h-px bg-line" />
         {items.map((item, index) => (
-          <MenuItem
-            key={item.key}
-            ref={(element) => {
-              itemsRef.current[index] = element;
-            }}
-            role="menuitem"
-            tabIndex={-1}
-            icon={item.icon}
-            label={item.label}
-            description={item.description}
-            descriptionKind={item.descriptionKind ?? "disclosure"}
-            danger={item.danger}
-            onClick={() => {
-              close();
-              item.run();
-            }}
-          />
+          <Fragment key={item.key}>
+            {/* 通常の操作と危険な操作の間に区切りを入れる (並びは変えない。⋯ メニューと同じ見た目) */}
+            {separators[index] ? <div aria-hidden="true" className="mx-1 my-1 h-px bg-line" /> : null}
+            <MenuItem
+              ref={(element) => {
+                itemsRef.current[index] = element;
+              }}
+              role="menuitem"
+              tabIndex={-1}
+              icon={item.icon}
+              label={item.label}
+              description={item.description}
+              descriptionKind={item.descriptionKind ?? "disclosure"}
+              danger={item.danger}
+              onClick={() => {
+                close();
+                item.run();
+              }}
+            />
+          </Fragment>
         ))}
       </div>
     </>
