@@ -12,24 +12,27 @@ import { DisclosureChevronIcon } from "../icons";
 export function CompactionDivider({
   compactions,
   startIndex = 0,
-  compact,
+  singleColumn,
 }: {
   compactions: CompactionInfo[];
   /** compactions[0] の全体順。履歴の区切りで「N回目」を通し番号にする */
   startIndex?: number;
-  compact: boolean;
+  singleColumn: boolean;
 }) {
   const latest = compactions[compactions.length - 1];
   if (!latest) return null;
   const historyLabel = compactionHistoryLabel(compactions.length);
   return (
     <details
-      className={cn("min-w-0 rounded-xl border border-line bg-soft/20 text-ink-muted", messageColumnClass(compact))}
+      className={cn(
+        "min-w-0 rounded-xl border border-line bg-soft/20 text-ink-muted",
+        messageColumnClass(singleColumn),
+      )}
     >
       <summary
         className={cn(
           "disclosure-summary flex min-w-0 cursor-pointer items-center gap-2 transition-colors outline-none hover:bg-soft/40 focus-visible:ring-1 focus-visible:ring-focus focus-visible:ring-inset",
-          compact ? "px-2.5 py-2" : "px-3 py-2.5",
+          singleColumn ? "px-2.5 py-2" : "px-3 py-2.5",
         )}
       >
         <DisclosureChevronIcon />
@@ -43,7 +46,7 @@ export function CompactionDivider({
           {compactions.length > 1 ? `${compactions.length}件` : "要約"}
         </span>
       </summary>
-      <div className={cn("grid gap-3 border-t border-line", compact ? "px-2.5 py-2.5" : "px-3 py-3")}>
+      <div className={cn("grid gap-3 border-t border-line", singleColumn ? "px-2.5 py-2.5" : "px-3 py-3")}>
         {historyLabel ? <p className="m-0 text-2xs text-ink-faint">{historyLabel}</p> : null}
         <ol className="m-0 grid list-none gap-3">
           {compactions.map((compaction, index) => (

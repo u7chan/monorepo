@@ -11,7 +11,7 @@ import { serveProps } from "./serve-fixture";
 const IDLE: RuntimeStatus = { text: "", error: false };
 /** 作業先チップ。☰ の位置だけを見るテストなので値は固定でよい */
 const SCOPE = { label: "未所属", project: false, root: "" };
-/** 読み上げ名。compact の CompactBar と設定ページのヘッダも同じ名前を使う */
+/** 読み上げ名。singleColumn の SingleColumnBar と設定ページのヘッダも同じ名前を使う */
 const NAV_MARK = 'aria-label="ナビゲーションを開く"';
 
 function renderTopbar(nav?: { onOpen: () => void }): string {
@@ -26,14 +26,14 @@ function renderTopbar(nav?: { onOpen: () => void }): string {
   );
 }
 
-function renderSettingsHeader(options: { onOpenNav?: () => void; compact?: boolean } = {}): string {
+function renderSettingsHeader(options: { onOpenNav?: () => void; singleColumn?: boolean } = {}): string {
   return renderToStaticMarkup(
     createElement(SettingsPageLayout, {
       eyebrow: "SETTINGS",
       title: "エージェント",
       onBack: () => {},
       onOpenNav: options.onOpenNav,
-      compact: options.compact,
+      singleColumn: options.singleColumn,
       children: null,
     }),
   );
@@ -51,9 +51,9 @@ test("設定ページのヘッダの ☰ は overlay の desktop でも出す", 
   const overlay = renderSettingsHeader({ onOpenNav: () => {} });
   assert.ok(overlay.includes(NAV_MARK));
   assert.ok(!renderSettingsHeader().includes(NAV_MARK));
-  // 「アプリに戻る」は compact だけ (desktop の戻り導線は左バーの 1 つ)
+  // 「アプリに戻る」は singleColumn だけ (desktop の戻り導線は左バーの 1 つ)
   assert.ok(!overlay.includes("アプリに戻る"));
-  const compact = renderSettingsHeader({ onOpenNav: () => {}, compact: true });
-  assert.ok(compact.includes(NAV_MARK));
-  assert.ok(compact.includes("アプリに戻る"));
+  const singleColumn = renderSettingsHeader({ onOpenNav: () => {}, singleColumn: true });
+  assert.ok(singleColumn.includes(NAV_MARK));
+  assert.ok(singleColumn.includes("アプリに戻る"));
 });

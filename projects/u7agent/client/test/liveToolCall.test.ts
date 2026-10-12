@@ -302,7 +302,7 @@ function renderHistory(cards: ToolCard[], live: boolean): string {
       copyFailure: () => undefined,
       copiedAll: false,
       onCopyAll: () => {},
-      compact: false,
+      singleColumn: false,
       onCopyTool: () => {},
     }),
   );

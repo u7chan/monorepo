@@ -11,13 +11,13 @@ export function TurnEndRow({
   outcome,
   durationMs,
   summarized = false,
-  compact,
+  singleColumn,
 }: {
   outcome: RunOutcome;
   durationMs: number;
   /** 要約で置き換わったターンは、そのターンの item と同じく薄暗くする */
   summarized?: boolean;
-  compact: boolean;
+  singleColumn: boolean;
 }) {
   return (
     // 会話のスクロール領域は aria-live="polite" なので、状態行と同じ値の二重読み上げを止める
@@ -26,7 +26,7 @@ export function TurnEndRow({
       aria-live="off"
       className={cn(
         "mt-2.5 flex min-w-0 items-center gap-2 text-2xs text-ink-faint",
-        messageColumnClass(compact),
+        messageColumnClass(singleColumn),
         summarized ? "opacity-60" : null,
       )}
     >

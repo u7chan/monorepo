@@ -11,12 +11,12 @@ export type ZoomableImageProps = {
   alt: string;
   title?: string;
   variant: ImageZoomVariant;
-  /** 添付サムネイルの高さ。compact はチャットの密度が高く、狭い viewport では画像を小さく保つ */
-  compact?: boolean;
+  /** 添付サムネイルの高さ。singleColumn はチャットの密度が高く、狭い viewport では画像を小さく保つ */
+  singleColumn?: boolean;
 };
 
 // dialog の配置と焦点復帰は docs/markdown.md の「画像の拡大表示」を参照。
-export function ZoomableImage({ src, alt, title, variant, compact = false }: ZoomableImageProps) {
+export function ZoomableImage({ src, alt, title, variant, singleColumn = false }: ZoomableImageProps) {
   const [open, setOpen] = useState(false);
   // 失敗画像を button で包まない理由は docs/markdown.md の「画像の拡大表示」を参照。
   const [failedSrc, setFailedSrc] = useState<string | null>(null);
@@ -42,7 +42,7 @@ export function ZoomableImage({ src, alt, title, variant, compact = false }: Zoo
         // 失敗時は button で包まず直に置くので、縮まないよう shrink-0 も持たせる
         variant === "chip" && "size-7 shrink-0 rounded object-cover",
         variant === "attachment" && "rounded-lg border border-line object-contain",
-        variant === "attachment" && (compact ? "max-h-32" : "max-h-44"),
+        variant === "attachment" && (singleColumn ? "max-h-32" : "max-h-44"),
       )}
     />
   );

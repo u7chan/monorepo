@@ -37,14 +37,14 @@ const MODEL_EFFORT_PICKER_WIDTH = 320;
  */
 export function ModelEffortPicker({
   settings,
-  compact,
+  singleColumn,
   open,
   onOpenChange,
   onChangeModel,
   onChangeThinkingLevel,
 }: {
   settings: ComposerSettings;
-  compact: boolean;
+  singleColumn: boolean;
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onChangeModel: (model: ModelRef) => void;
@@ -72,7 +72,7 @@ export function ModelEffortPicker({
   }, []);
 
   // 開いている間は commit のたびに置き直す。window の resize ハンドラは React の再レンダー
-  // (compact ⇄ desktop の切替など) より先に走り、動く前の rect を読んでしまう
+  // (singleColumn ⇄ desktop の切替など) より先に走り、動く前の rect を読んでしまう
   useLayoutEffect(() => {
     if (open) place();
   });
@@ -160,7 +160,7 @@ export function ModelEffortPicker({
         onClick={toggle}
         className={cn(
           "grid shrink-0 cursor-pointer place-items-center rounded-full border transition-colors",
-          compact ? "size-9" : "size-7",
+          singleColumn ? "size-9" : "size-7",
           open
             ? "border-accent/50 bg-accent-wash text-accent-text"
             : "border-line bg-raised text-ink-faint hover:text-ink-soft",
@@ -182,7 +182,7 @@ export function ModelEffortPicker({
         <div className="grid min-w-0 gap-2">
           <ModelEffortFields
             settings={settings}
-            compact={compact}
+            singleColumn={singleColumn}
             onChangeModel={onChangeModel}
             onChangeThinkingLevel={onChangeThinkingLevel}
           />
@@ -195,12 +195,12 @@ export function ModelEffortPicker({
 
 export function ModelEffortFields({
   settings,
-  compact,
+  singleColumn,
   onChangeModel,
   onChangeThinkingLevel,
 }: {
   settings: ComposerSettings;
-  compact: boolean;
+  singleColumn: boolean;
   onChangeModel: (model: ModelRef) => void;
   onChangeThinkingLevel: (level: ThinkingLevel) => void;
 }) {
@@ -236,7 +236,7 @@ export function ModelEffortFields({
         <SelectField
           aria-label="モデルを選択"
           density="sm"
-          compact={compact}
+          singleColumn={singleColumn}
           wrapperClassName="min-w-0 flex-1"
           value={settings.model ?? ""}
           disabled={modelDisabled}
@@ -255,7 +255,7 @@ export function ModelEffortFields({
         <SelectField
           aria-label="Effort を選択"
           density="sm"
-          compact={compact}
+          singleColumn={singleColumn}
           wrapperClassName="min-w-0 flex-1"
           value={settings.thinkingLevel ?? ""}
           disabled={effortDisabled}

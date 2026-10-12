@@ -118,7 +118,7 @@ function render(
     sessions?: SessionSummary[];
     sessionsLoaded?: boolean;
     onSelectModelsSubsection?: (subsection: ModelsSubsection) => void;
-    compact?: boolean;
+    singleColumn?: boolean;
   } = {},
 ): string {
   // 確認ダイアログの provider は app の root が持つ (main.tsx)。ここでは描画だけを検査する
@@ -132,7 +132,7 @@ function render(
         sessionsLoaded: options.sessionsLoaded ?? false,
         modelsSubsection: options.modelsSubsection ?? "models",
         onSelectModelsSubsection: options.onSelectModelsSubsection ?? (() => {}),
-        compact: options.compact,
+        singleColumn: options.singleColumn,
         onBack: () => {},
       }),
     ),
@@ -160,8 +160,8 @@ test("タブ行は URL が決めるタブを示し、2 つのタブを出す", (
   assert.ok(providersHtml.includes(">L<"), "ロゴの無い provider は頭文字を出す");
 });
 
-test("compact のプロバイダー詳細は一覧を畳んでキー入力を表示する", () => {
-  const html = render(modelSettings(), { modelsSubsection: "providers", compact: true });
+test("singleColumn のプロバイダー詳細は一覧を畳んでキー入力を表示する", () => {
+  const html = render(modelSettings(), { modelsSubsection: "providers", singleColumn: true });
   assert.match(html, /<button[^>]*aria-expanded="false"[^>]*>.*プロバイダーを変更.*<\/button>/s);
   assert.ok(html.includes('type="password"'), "選択中の provider のキー欄を出す");
   assert.equal(html.includes('aria-label="プロバイダーを絞り込む"'), false, "一覧の検索は閉じている");

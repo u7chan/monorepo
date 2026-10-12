@@ -49,7 +49,7 @@ export function SpeechPlayerList({
   cwd,
   rawUrl,
   captions,
-  compact,
+  singleColumn,
 }: {
   cards: readonly ToolCard[];
   /** ワークスペース root の絶対パス (health.cwd)。未取得 ("") のときは出さない (絶対パスの参照に要る) */
@@ -60,12 +60,12 @@ export function SpeechPlayerList({
   rawUrl: (rootRelativePath: string) => string;
   /** このターンの生成物の対応表 (root 相対パス → 生成情報)。未指定はキャプションを出さない */
   captions?: Map<string, GenerationInfo>;
-  compact: boolean;
+  singleColumn: boolean;
 }) {
   const players = speechPlayersOf(generationBadgesOf(cards), { rootCwd, cwd, rawUrl, captions });
   if (players.length === 0) return null;
   return (
-    <div className={cn("grid", compact ? "mt-2 gap-2" : "mt-2.5 gap-2.5")}>
+    <div className={cn("grid", singleColumn ? "mt-2 gap-2" : "mt-2.5 gap-2.5")}>
       {players.map((player) => (
         <div key={player.key} className="min-w-0">
           <audio controls src={player.src} aria-label={player.label} className="w-full" />

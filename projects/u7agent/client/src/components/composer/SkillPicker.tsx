@@ -37,7 +37,7 @@ import { SkillListIcon } from "../icons";
 export function SkillPicker({
   state,
   rootCwd,
-  compact,
+  singleColumn,
   open,
   onOpenChange,
   onSelect,
@@ -46,7 +46,7 @@ export function SkillPicker({
   state: SessionSkillsState;
   /** ワークスペース root の絶対パス (health.cwd)。場所を root 相対で示すのに使う */
   rootCwd: string;
-  compact: boolean;
+  singleColumn: boolean;
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onSelect: (name: string) => void;
@@ -77,7 +77,7 @@ export function SkillPicker({
     const viewport = { width: document.documentElement.clientWidth, height: document.documentElement.clientHeight };
     // 幅と高さの上限を先に確定させる: 折り返しと内部スクロールが決まり、rect が最終の大きさになる
     const width = skillPickerWidth(viewport.width);
-    const { above, maxHeight } = skillPickerLayout(anchor, viewport, compact);
+    const { above, maxHeight } = skillPickerLayout(anchor, viewport, singleColumn);
     popover.style.width = `${width}px`;
     // 上限はスクロールする本文に当てる。popover は flex にできない (UA の「閉じている間は display: none」を
     // ユーティリティの display が打ち消す) ため、注記の高さは本文から引いて残す
@@ -85,10 +85,10 @@ export function SkillPicker({
     body.style.maxHeight = `${Math.max(0, maxHeight - chrome)}px`;
     popover.style.left = `${skillPickerLeft(anchor, width, viewport.width)}px`;
     popover.style.top = `${skillPickerTop(anchor, popover.getBoundingClientRect().height, above, viewport.height)}px`;
-  }, [compact]);
+  }, [singleColumn]);
 
   // 開いている間は commit のたびに置き直す。window の resize ハンドラは React の再レンダー
-  // (compact ⇄ desktop の切替など) より先に走り、動く前の rect を読んでしまう
+  // (singleColumn ⇄ desktop の切替など) より先に走り、動く前の rect を読んでしまう
   useLayoutEffect(() => {
     if (open) place();
   });
@@ -184,7 +184,7 @@ export function SkillPicker({
         onClick={toggle}
         className={cn(
           "grid shrink-0 cursor-pointer place-items-center rounded-full border transition-colors disabled:cursor-not-allowed disabled:opacity-45",
-          compact ? "size-9" : "size-7",
+          singleColumn ? "size-9" : "size-7",
           state.status === "error" || (state.status === "ready" && state.reloadError !== undefined)
             ? "border-warn/50 text-warn"
             : open

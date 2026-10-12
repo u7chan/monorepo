@@ -65,7 +65,7 @@ export interface ServeView {
   canStart: boolean;
   /** 状態の根拠 (バッジの title) */
   badgeTitle: string;
-  /** compact の読み上げ名 */
+  /** singleColumn の読み上げ名 */
   ariaLabel: string;
   /** 起動の実績 (閲覧中の会話の作業ディレクトリのコマンド) */
   command?: string;
@@ -150,7 +150,7 @@ export function servedAppView(status: ServeStatus | null | undefined): ServeView
   return NONE;
 }
 
-/** compact のメニュー先頭に出す補足 (状態の根拠)。1 行に収める */
+/** singleColumn のメニュー先頭に出す補足 (状態の根拠)。1 行に収める */
 export function servedAppMenuSub(view: ServeView): string {
   if (view.kind === "other") {
     return view.ownerTitle ? `会話「${view.ownerTitle}」が公開中` : "別の会話が公開中";

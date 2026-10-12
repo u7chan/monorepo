@@ -54,7 +54,7 @@ export function RuntimePage({
   onOpenSession,
   sessions = [],
   openSessionId = "",
-  compact = false,
+  singleColumn = false,
   onBack,
   onOpenNav,
 }: RuntimePageProps) {
@@ -122,7 +122,7 @@ export function RuntimePage({
           </ReloadButton>
         </>
       }
-      compact={compact}
+      singleColumn={singleColumn}
       onOpenNav={onOpenNav}
       onBack={onBack}
     >

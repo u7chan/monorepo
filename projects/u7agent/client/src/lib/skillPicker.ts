@@ -15,12 +15,12 @@ import {
 
 /** 幅の上限 (px)。説明を持つ行を並べるため、⋯ メニュー / エージェント選択より広く取る */
 export const SKILL_PICKER_WIDTH = 340;
-/** 高さの上限。compact は入力欄とメッセージを覆いすぎないよう低く抑える */
+/** 高さの上限。singleColumn は入力欄とメッセージを覆いすぎないよう低く抑える */
 export const SKILL_PICKER_MAX_HEIGHT = 420;
-export const SKILL_PICKER_MAX_HEIGHT_COMPACT = 320;
+export const SKILL_PICKER_MAX_HEIGHT_SINGLE_COLUMN = 320;
 /** viewport の高さに対する上限の比。端末の高さが小さいときはこちらが効く */
 export const SKILL_PICKER_HEIGHT_RATIO = 0.6;
-export const SKILL_PICKER_HEIGHT_RATIO_COMPACT = 0.48;
+export const SKILL_PICKER_HEIGHT_RATIO_SINGLE_COLUMN = 0.48;
 
 export type SkillPickerRect = PopoverAnchor;
 
@@ -37,11 +37,11 @@ export function skillPickerWidth(viewportWidth: number): number {
 export function skillPickerLayout(
   anchor: SkillPickerRect,
   viewport: { width: number; height: number },
-  compact: boolean,
+  singleColumn: boolean,
 ): { above: boolean; maxHeight: number } {
   const cap = Math.min(
-    compact ? SKILL_PICKER_MAX_HEIGHT_COMPACT : SKILL_PICKER_MAX_HEIGHT,
-    viewport.height * (compact ? SKILL_PICKER_HEIGHT_RATIO_COMPACT : SKILL_PICKER_HEIGHT_RATIO),
+    singleColumn ? SKILL_PICKER_MAX_HEIGHT_SINGLE_COLUMN : SKILL_PICKER_MAX_HEIGHT,
+    viewport.height * (singleColumn ? SKILL_PICKER_HEIGHT_RATIO_SINGLE_COLUMN : SKILL_PICKER_HEIGHT_RATIO),
   );
   const above = popoverOpensAbove(anchor, viewport.height);
   return { above, maxHeight: Math.min(cap, popoverAvailableHeight(anchor, viewport.height, above)) };

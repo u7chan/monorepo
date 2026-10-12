@@ -13,7 +13,7 @@ import { PlusIcon } from "./icons";
 
 /** 設定 → 会話スペース。一覧は件数が増えても高さを抑え、作成フォームを画面内に残す */
 export function SpaceSettingsPage({
-  compact = false,
+  singleColumn = false,
   onBack,
   onOpenNav,
   onSelectSpace,
@@ -51,7 +51,7 @@ export function SpaceSettingsPage({
       eyebrow="SPACES"
       title="会話スペース"
       caption="選択はこのブラウザーに保存されます。"
-      compact={compact}
+      singleColumn={singleColumn}
       onBack={onBack}
       onOpenNav={onOpenNav}
     >
@@ -119,7 +119,7 @@ export function SpaceSettingsPage({
               }}
             >
               <input
-                className={cn("field min-w-0 flex-1", compact ? "text-md" : "text-xs")}
+                className={cn("field min-w-0 flex-1", singleColumn ? "text-md" : "text-xs")}
                 maxLength={80}
                 value={name}
                 aria-label="会話スペースの名前"

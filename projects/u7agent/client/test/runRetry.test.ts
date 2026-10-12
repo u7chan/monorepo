@@ -7,7 +7,7 @@ import {
   runErrorFrom,
   runRetryBlockedReason,
   RUN_RETRY_LABEL,
-  RUN_RETRY_LABEL_COMPACT,
+  RUN_RETRY_LABEL_SINGLE_COLUMN,
   RUN_RETRY_NOTE,
   RUN_RETRY_PROMPT,
   type RunErrorInfo,
@@ -24,11 +24,11 @@ test("再実行は直前のターンを再実行する API が無いため、続
   assert.equal(RUN_RETRY_PROMPT, "前回の続きから再開してください");
 });
 
-test("ラベルはデスクトップで短くし、compact は送信内容を兼ねる", () => {
+test("ラベルはデスクトップで短くし、singleColumn は送信内容を兼ねる", () => {
   assert.equal(RUN_RETRY_LABEL, "再実行");
-  assert.equal(RUN_RETRY_LABEL_COMPACT, "再実行（前回の続きから送信）");
-  assert.ok(RUN_RETRY_LABEL_COMPACT.startsWith(RUN_RETRY_LABEL), "ボタンの名前は同じ「再実行」");
-  assert.ok(RUN_RETRY_LABEL_COMPACT.includes("前回の続きから送信"), "compact はラベルで送信内容を示す");
+  assert.equal(RUN_RETRY_LABEL_SINGLE_COLUMN, "再実行（前回の続きから送信）");
+  assert.ok(RUN_RETRY_LABEL_SINGLE_COLUMN.startsWith(RUN_RETRY_LABEL), "ボタンの名前は同じ「再実行」");
+  assert.ok(RUN_RETRY_LABEL_SINGLE_COLUMN.includes("前回の続きから送信"), "singleColumn はラベルで送信内容を示す");
   assert.equal(RUN_RETRY_NOTE, "前回の続きから送信します");
 });
 

@@ -15,7 +15,7 @@ export type SkillBodyState =
 export type SkillMetaItem = { label: string; value: string; tone?: "strong"; mono?: boolean };
 
 export type SkillDetailPanelProps = {
-  /** 操作行の左 (SKILL eyebrow + 見出し)。compact のシートはヘッダに同じ見出しが出るため null (操作だけを残す) */
+  /** 操作行の左 (SKILL eyebrow + 見出し)。singleColumn のシートはヘッダに同じ見出しが出るため null (操作だけを残す) */
   heading: ReactNode;
   /** 操作行の右に置く操作 (本文 / ファイル のタブ、編集ボタン) */
   actions?: ReactNode;

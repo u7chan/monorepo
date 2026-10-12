@@ -130,7 +130,7 @@ test("起動中は遷移状態としてバッジとキャンセルを出し、�
   assert.match(running, /dot dot-ok/);
 });
 
-test("compact は 1 枠で操作でき、停止中はメニューなしの起動ボタンを出す", () => {
+test("singleColumn は 1 枠で操作でき、停止中はメニューなしの起動ボタンを出す", () => {
   const running = withLocation(() =>
     renderToStaticMarkup(
       createElement(

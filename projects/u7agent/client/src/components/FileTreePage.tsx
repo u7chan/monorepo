@@ -22,7 +22,7 @@ export function FileTreePage({
   cwd,
   excludeNames,
   filePreviewPort,
-  compact = false,
+  singleColumn = false,
   onBack,
   onOpenNav,
 }: FileTreePageProps) {
@@ -40,7 +40,7 @@ export function FileTreePage({
           {rootPath === FILE_TREE_ROOT ? "/" : rootPath}
         </code>
       }
-      compact={compact}
+      singleColumn={singleColumn}
       onOpenNav={onOpenNav}
       onBack={onBack}
       actions={<ReloadButton onClick={() => setReloadToken((token) => token + 1)}>再読み込み</ReloadButton>}

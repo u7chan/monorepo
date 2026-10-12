@@ -30,12 +30,12 @@ import { agentBoxClass, agentFrameClass } from "./fieldStyles";
 export function AgentPicker({
   agents,
   agentId,
-  compact,
+  singleColumn,
   onChangeAgent,
 }: {
   agents: AgentDef[];
   agentId: string;
-  compact: boolean;
+  singleColumn: boolean;
   onChangeAgent: (agentId: string) => void;
 }) {
   const pickerId = useId();
@@ -74,7 +74,7 @@ export function AgentPicker({
   }, []);
 
   // 開いている間は commit のたびに置き直す。window の resize ハンドラは React の再レンダー
-  // (compact ⇄ desktop の切替など) より先に走り、動く前の rect を読んでしまう
+  // (singleColumn ⇄ desktop の切替など) より先に走り、動く前の rect を読んでしまう
   useLayoutEffect(() => {
     if (open) place();
   });
@@ -184,7 +184,7 @@ export function AgentPicker({
 
   return (
     <>
-      <span className={agentFrameClass(compact)}>
+      <span className={agentFrameClass(singleColumn)}>
         <button
           type="button"
           ref={triggerRef}
@@ -207,7 +207,10 @@ export function AgentPicker({
           }}
           onClick={toggle}
           onKeyDown={onTriggerKeyDown}
-          className={cn("peer cursor-pointer disabled:cursor-not-allowed disabled:opacity-55", agentBoxClass(compact))}
+          className={cn(
+            "peer cursor-pointer disabled:cursor-not-allowed disabled:opacity-55",
+            agentBoxClass(singleColumn),
+          )}
         >
           {/* 不可視の sizer を全候補ぶん同じセルに重ね、実際の描画幅の最大値を欄の幅にする。文字数では
               幅の広い名前を取りこぼし、選択のたびに欄と chevron が動く (選択で幅を動かさない) */}

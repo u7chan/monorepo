@@ -83,14 +83,14 @@ function ToolCallRow({
   index,
   copied,
   failure,
-  compact,
+  singleColumn,
   onCopy,
 }: {
   card: ToolCard;
   index: number;
   copied: boolean;
   failure?: string;
-  compact: boolean;
+  singleColumn: boolean;
   onCopy: () => void;
 }) {
   const durationMs = toolDurationMs(card);
@@ -126,7 +126,7 @@ function ToolCallRow({
           <span className={DURATION_CLASS}>{durationMs === undefined ? "" : formatDurationMs(durationMs)}</span>
         </summary>
         {/* コピーは行に常時出すと実行時間の列と競合するため、展開した本文の右上に置く (行の hover では出さない) */}
-        <div className={cn("border-t border-line/70 py-2 pr-2 text-ink-muted", compact ? "pl-3" : "pl-6")}>
+        <div className={cn("border-t border-line/70 py-2 pr-2 text-ink-muted", singleColumn ? "pl-3" : "pl-6")}>
           <div className="flex items-start gap-2">
             <div ref={bodyRef} className="grid min-w-0 flex-1 gap-1.5">
               {card.args ? (
@@ -172,7 +172,7 @@ export function ToolHistoryView({
   failureAll,
   copiedAll,
   onCopyAll,
-  compact,
+  singleColumn,
   onCopyTool,
 }: {
   cards: ToolCard[];
@@ -186,7 +186,7 @@ export function ToolHistoryView({
   failureAll?: string;
   copiedAll: boolean;
   onCopyAll: () => void;
-  compact: boolean;
+  singleColumn: boolean;
   onCopyTool: (card: ToolCard) => void;
 }) {
   const shown = live ? completedToolCards(cards) : cards;
@@ -257,7 +257,7 @@ export function ToolHistoryView({
             index={index}
             copied={copiedId === `tool_${card.id}`}
             failure={copyFailure(`tool_${card.id}`)}
-            compact={compact}
+            singleColumn={singleColumn}
             onCopy={() => onCopyTool(card)}
           />
         ))}

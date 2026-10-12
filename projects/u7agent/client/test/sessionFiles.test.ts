@@ -1,4 +1,4 @@
-// セッションの作業フォルダを出せる条件を固定する。表示方法は desktop=右パネル / compact=全画面シートだが、
+// セッションの作業フォルダを出せる条件を固定する。表示方法は desktop=右パネル / singleColumn=全画面シートだが、
 // root の可用性は layout に依存させない (run_end での取り直しは client/test/chatReducer.test.ts が見る)。
 import assert from "node:assert/strict";
 import test from "node:test";
@@ -21,8 +21,12 @@ test("設定ページと未所属の新規会話は出さない (ワークスペ
 });
 
 test("既定オープンは desktop でプロジェクト配下の新規会話のときだけ開にする", () => {
-  assert.equal(sessionFilesDefaultOpen({ compact: false, projectId: "p1" }), true, "プロジェクト配下で閉じている");
-  assert.equal(sessionFilesDefaultOpen({ compact: false, projectId: "" }), false, "未所属で開いている");
-  // compact のシートは手動トグルだけ (既定オープンの対象は desktop のパネル)
-  assert.equal(sessionFilesDefaultOpen({ compact: true, projectId: "p1" }), false, "compact で既定を開にしている");
+  assert.equal(sessionFilesDefaultOpen({ singleColumn: false, projectId: "p1" }), true, "プロジェクト配下で閉じている");
+  assert.equal(sessionFilesDefaultOpen({ singleColumn: false, projectId: "" }), false, "未所属で開いている");
+  // singleColumn のシートは手動トグルだけ (既定オープンの対象は desktop のパネル)
+  assert.equal(
+    sessionFilesDefaultOpen({ singleColumn: true, projectId: "p1" }),
+    false,
+    "singleColumn で既定を開にしている",
+  );
 });

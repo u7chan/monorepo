@@ -29,8 +29,8 @@ export function resolveLayoutMode(width: number, height: number): LayoutMode {
 }
 
 /**
- * 左バーの置き方。compact (portrait / landscape) は従来どおり常に overlay で、
- * 開く導線は CompactBar の ☰。desktop は左バーを畳んで main へ回すため width < 1200 で overlay にする
+ * 左バーの置き方。singleColumn (portrait / landscape) は従来どおり常に overlay で、
+ * 開く導線は SingleColumnBar の ☰。desktop は左バーを畳んで main へ回すため width < 1200 で overlay にする
  * (幅は選べるようになったが、狭い窓では main が足りないので閾値は据え置き。docs/ui-layout.md)。
  */
 export function resolveSidebarPlacement(width: number, mode: LayoutMode): SidebarPlacement {
