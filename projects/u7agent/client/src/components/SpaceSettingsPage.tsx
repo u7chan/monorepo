@@ -1,8 +1,13 @@
 import { useState } from "react";
+import type { Space } from "server";
 import { useSpace } from "../SpaceContext";
 import { cn } from "../lib/cn";
+import { spaceDeleteConfirmRequest, spaceRowActions } from "../lib/spaceSettings";
+import { DEFAULT_SPACE_ID } from "../lib/spaceSelection";
 import { CollapsibleNotice } from "./CollapsibleNotice";
+import { useConfirm } from "./ConfirmProvider";
 import { MenuItem } from "./MenuItem";
+import { RowMenu } from "./RowMenu";
 import { SettingsPageLayout, type SettingsPageProps } from "./SettingsPageLayout";
 import { PlusIcon } from "./icons";
 
@@ -17,9 +22,30 @@ export function SpaceSettingsPage({
   onSelectSpace?: () => void;
 }) {
   const space = useSpace();
+  const confirm = useConfirm();
   const [name, setName] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [deleteError, setDeleteError] = useState("");
+  /** 削除中の行 (空文字は不在)。二重の確認を出さないための抑止で、行は生かしたままにする */
+  const [deleting, setDeleting] = useState("");
+
+  const requestDelete = async (item: Space) => {
+    if (deleting) return;
+    if (!(await confirm(spaceDeleteConfirmRequest(item)))) return;
+    setDeleting(item.id);
+    setDeleteError("");
+    try {
+      // 選択中のスペースを消したら、App の作り直しに任せず会話を持たない chat へ移る。作り直しは
+      // 現在の URL (設定ページ) を読むため、移らないと削除後の F5 でも設定に戻ってしまう
+      await space.remove(item.id, () => onSelectSpace?.());
+    } catch (reason) {
+      setDeleteError(reason instanceof Error ? reason.message : "スペースを削除できませんでした。");
+    } finally {
+      setDeleting("");
+    }
+  };
+
   return (
     <SettingsPageLayout
       eyebrow="SPACES"
@@ -41,24 +67,38 @@ export function SpaceSettingsPage({
             </h3>
             {/* 上限が無いと件数分だけ伸び、作成フォームが画面外へ押し出される */}
             <div className="grid max-h-72 min-w-0 scrollbar-thin gap-1 overflow-x-hidden overflow-y-auto">
-              {space.spaces.map((item) => (
-                <MenuItem
-                  key={item.id}
-                  label={item.name}
-                  variant="choice"
-                  selected={item.id === space.selected.id}
-                  current="true"
-                  onClick={() => {
-                    if (item.id === space.selected.id) return;
-                    onSelectSpace?.();
-                    space.select(item.id);
-                  }}
-                />
-              ))}
+              {space.spaces.map((item) => {
+                const actions = spaceRowActions(item.id === DEFAULT_SPACE_ID);
+                return (
+                  // 行の選択 (主要な操作) と ⋯ は兄弟にする。入れ子にすると ⋯ の押下が選択を兼ねてしまう
+                  <div key={item.id} className="flex min-w-0 items-center gap-1">
+                    <MenuItem
+                      label={item.name}
+                      variant="choice"
+                      selected={item.id === space.selected.id}
+                      current="true"
+                      onClick={() => {
+                        if (item.id === space.selected.id) return;
+                        onSelectSpace?.();
+                        space.select(item.id);
+                      }}
+                    />
+                    {actions.length > 0 ? (
+                      <RowMenu name={item.name} actions={actions} onSelect={() => void requestDelete(item)} />
+                    ) : null}
+                  </div>
+                );
+              })}
             </div>
             <p className="text-2xs leading-relaxed text-ink-ghost">
-              作成した会話スペースを選ぶと空の会話一覧から始められます。会話は切り替えても残ります。削除・リセットはありません。
+              作成した会話スペースを選ぶと空の会話一覧から始められます。会話は切り替えても残ります。追加スペースは行の ⋯
+              から削除できます（通常スペースは削除できません）。
             </p>
+            {deleteError ? (
+              <p role="alert" className="text-sm text-danger">
+                {deleteError}
+              </p>
+            ) : null}
           </section>
           <section className="grid gap-2 rounded-lg border border-line bg-soft p-3">
             <h3 className="text-2xs font-semibold tracking-label text-ink-faint uppercase">新しい会話スペース</h3>

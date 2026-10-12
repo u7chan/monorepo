@@ -12,6 +12,7 @@ const {
   putWebSearchProvider,
   putWebSearchSettings,
   createSpaceApi,
+  deleteSpace,
   updateArchiveSettings,
   resetArchiveSettings,
   getGitInfo,
@@ -106,6 +107,26 @@ test("履歴 API は before / limit を符号化し、null のカーソルは省
 test("履歴 API の失敗はサーバーの理由と HTTP status を保つ", async (t) => {
   t.mock.method(globalThis, "fetch", async () => Response.json({ error: "履歴がありません" }, { status: 404 }));
   await assert.rejects(getSessionHistory("missing"), { message: "履歴がありません", status: 404 });
+});
+
+test("スペース削除は id をパスに置く unscoped の DELETE を送り、失敗の理由と status を保つ", async (t) => {
+  const requests: Request[] = [];
+  let answer = () => Response.json({ ok: true });
+  t.mock.method(globalThis, "fetch", async (input: string | URL | Request, init?: RequestInit) => {
+    requests.push(new Request(input, init));
+    return answer();
+  });
+  assert.deepEqual(await deleteSpace("space-1111111111111111"), { ok: true });
+  const url = new URL(requests[0].url);
+  assert.equal(requests[0].method, "DELETE");
+  assert.equal(url.pathname, "/api/spaces/space-1111111111111111");
+  // 削除対象はパスの id そのものなので、文脈の spaceId を付けない (listSpaces / createSpace と同じ経路)
+  assert.equal(url.search, "");
+
+  // 公開中の 409 はサーバーの文言をそのまま保ち、画面が案内として出せるようにする
+  const message = "公開中のサービスがあります。設定 → ランタイムから停止してから削除してください";
+  answer = () => Response.json({ error: message }, { status: 409 });
+  await assert.rejects(deleteSpace("space-1111111111111111"), { message, status: 409 });
 });
 
 test("アーカイブ設定は PUT で保存し、DELETE で既定へ戻して応答を返す", async (t) => {

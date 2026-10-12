@@ -190,6 +190,16 @@ export const createSpace = async (name: string): Promise<{ space: import("server
   return res.json();
 };
 
+/**
+ * 追加スペースを箱ごと消す。削除対象は id なので、文脈の `spaceId` は付けない (通常スペースは 400、公開中の
+ * サービスがあれば 409 で、理由はサーバーの文言をそのまま画面へ出す)。
+ */
+export const deleteSpace = async (id: string): Promise<{ ok: true }> => {
+  const res = await client.api.spaces[":id"].$delete({ param: { id } });
+  if (!res.ok) throw await apiError(res);
+  return res.json();
+};
+
 async function apiError(res: Response): Promise<ApiError> {
   const body: unknown = await res.json().catch(() => null);
   const message =

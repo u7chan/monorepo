@@ -42,6 +42,15 @@ export function ownerLinkSpace(
 }
 
 /**
+ * 削除後に選ぶスペース。選択中のスペースを消したときだけ通常へ倒し（呼び出し側が保存値も書く）、
+ * 選択していないスペースを消したときは選択を変えない（`null`。一覧から外すだけでよい）。
+ * 復旧画面にしないのは、自分で消した直後の状態は既知だから。
+ */
+export function selectionAfterSpaceDelete(selectedId: string, removedId: string): string | null {
+  return selectedId === removedId ? DEFAULT_SPACE_ID : null;
+}
+
+/**
  * 引っ越し先の候補。現在のスペースは選べない (同じスペースへの移動はサーバーが 400 にする)。
  * 1 つしか無いときも空の一覧を返し、呼び出し側が候補なしの案内を出す。
  */
