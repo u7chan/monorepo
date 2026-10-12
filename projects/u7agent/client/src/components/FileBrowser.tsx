@@ -68,6 +68,7 @@ import {
 import type { FileEntry } from "../types";
 import { COPY_FAILED_TEXT } from "./chat/CopyButton";
 import { ChevronIcon, FileIcon, FolderIcon } from "./icons";
+import { LoadingMark } from "./LoadingMark";
 import { RowMenu } from "./RowMenu";
 
 const INDENT = 16;
@@ -464,7 +465,9 @@ export function FileBrowser({
                   revealRef={revealRowRef}
                 />
               ) : rootNode.error ? null : (
-                <MessageRow depth={0}>読み込み中…</MessageRow>
+                <MessageRow depth={0}>
+                  <LoadingMark />
+                </MessageRow>
               )}
             </div>
           </div>
@@ -665,7 +668,7 @@ function EntryRow({
     const open = node?.open ?? false;
     // 一覧が届いたか。空のディレクトリは children: [] なので、未取得 (undefined) と区別する
     const loaded = node?.children !== undefined || node?.error !== undefined;
-    // 「読み込み中…」の行と内容は別の入れ物にする (下のコメント参照)。閉じている入れ物は inert にして、
+    // 待ちの印の行と内容は別の入れ物にする (下のコメント参照)。閉じている入れ物は inert にして、
     // 高さ 0 で見えない行をフォーカスさせない (inert は支援技術からも外す)
     const loadingOpen = open && !loaded;
     const contentOpen = open && loaded;
@@ -721,12 +724,14 @@ function EntryRow({
             初めて開く枝 (取得を待つ間) も 0fr から伸びる。閉じている間も取得済みの内容を残して
             同じ遷移で潰し、閉じている入れ物は inert にしてフォーカスも読み上げもさせない
             (高さ 0 で見えない行が支援技術に残るため)。
-            「読み込み中…」と内容は別の入れ物にする: 同じ入れ物の中で入れ替えると、開き切った後の高さ
+            待ちの印と内容は別の入れ物にする: 同じ入れ物の中で入れ替えると、開き切った後の高さ
             (1fr の解決値) は変わっても遷移が走らず、取得の完了が飛んで見える (入れ替えは 2 つの遷移を
             同じ長さで重ねる)。どちらも開く前から置くのは、mount した要素には遷移の前の値が無いため */}
         <div className="tree-fold" data-open={loadingOpen} inert={!loadingOpen}>
           <div>
-            <MessageRow depth={depth + 1}>読み込み中…</MessageRow>
+            <MessageRow depth={depth + 1}>
+              <LoadingMark />
+            </MessageRow>
           </div>
         </div>
         <div className="tree-fold" data-open={contentOpen} inert={!contentOpen}>

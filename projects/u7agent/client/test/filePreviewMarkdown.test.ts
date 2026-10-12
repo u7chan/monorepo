@@ -51,8 +51,9 @@ test("Markdown のタブは既定でプレビュー、パス行の切替でソ�
   assert.ok(!html.includes("<iframe"), html);
   assert.ok(!html.includes("別オリジン"), html);
   assert.ok(!html.includes("新しいタブで開く"), html);
-  // プレビュー中は行数・コピーを出さない (HTML と同じ扱い)。本文の取得は effect なので SSR では読み込み中になる
+  // プレビュー中は行数・コピーを出さない (HTML と同じ扱い)。本文の取得は effect なので SSR では待ちの印になる
   assert.ok(!html.includes("本文をコピー"), html);
+  assert.ok(html.includes("run-spinner"), html);
   assert.ok(html.includes("読み込み中…"), html);
   const source = renderPreview({ modes: { "README.md": "source" } });
   assert.ok(modeButtonTag(source, "ソース").includes('aria-pressed="true"'), source);

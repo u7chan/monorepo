@@ -105,6 +105,7 @@ test("画像は raw URL とサイズを表示し、HTML 用の切替や本文コ
   assert.ok(!html.includes("別オリジン"));
   assert.ok(!html.includes('aria-label="本文をコピー"'));
   assert.ok(!html.includes('aria-label="新しいタブで開く"'));
+  assert.ok(!html.includes("run-spinner"), "本文を取得している");
 });
 
 test("音声は raw URL の <audio controls> で再生し、本文の取得もエラー帯も出さない", () => {
@@ -116,6 +117,7 @@ test("音声は raw URL の <audio controls> で再生し、本文の取得も�
   assert.ok(audio.includes('aria-label="bgm.mp3 のプレビュー"'), "操作名が無い");
   // 画像と同じく本文を取得しない (取得しないので "読み込み中…" も行数もエラー帯も出ない)
   assert.ok(!html.includes("読み込み中"), "本文を取得している");
+  assert.ok(!html.includes("run-spinner"), "本文を取得している");
   assert.ok(!html.includes('role="alert"'));
   assert.ok(!html.includes("別オリジン"));
   assert.ok(!html.includes('aria-label="本文をコピー"'));

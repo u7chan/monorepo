@@ -22,6 +22,7 @@ import {
 } from "../lib/fileTabs";
 import { fileTreeBreadcrumbs, fileTreeFetchPath, fileTreeParentPath } from "../lib/fileTree";
 import { imageMetaLabel, type ImageDimensions } from "../lib/imageMeta";
+import { LoadingMark } from "./LoadingMark";
 import { MarkdownFilePreview } from "./markdown/MarkdownFilePreview";
 import { ToggleSwitch } from "./ToggleSwitch";
 import { CopyButton } from "./chat/CopyButton";
@@ -253,8 +254,8 @@ export function FilePreview({
         />
       ) : showMarkdown ? (
         text === undefined ? (
-          <p role="status" className="px-4 py-2 text-xs text-ink-muted">
-            読み込み中…
+          <p className="flex px-4 py-2">
+            <LoadingMark />
           </p>
         ) : text === "" ? (
           <p className="px-4 py-2 text-xs text-ink-muted">（空のファイル）</p>
@@ -262,8 +263,8 @@ export function FilePreview({
           <MarkdownFilePreview text={text} dir={markdownDir} rawUrl={markdownRawUrl} />
         )
       ) : code === null ? (
-        <p role="status" className="px-4 py-2 text-xs text-ink-muted">
-          読み込み中…
+        <p className="flex px-4 py-2">
+          <LoadingMark />
         </p>
       ) : code.lineCount === 0 ? (
         <p className="px-4 py-2 text-xs text-ink-muted">（空のファイル）</p>
