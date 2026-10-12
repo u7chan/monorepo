@@ -409,7 +409,7 @@ export function Composer({
                 className={cn(
                   // min-w-0 が無いと cols 既定値の intrinsic 幅 (textarea の自動最小サイズ) が下限になり、
                   // 狭い viewport で入力欄が縮まずに送信 / 添付ボタンを画面外へ押し出す
-                  "min-w-0 flex-1 resize-none bg-transparent px-0.5 leading-normal text-ink outline-none placeholder:text-ink-ghost",
+                  "min-w-0 flex-1 resize-none scrollbar-thin bg-transparent px-0.5 leading-normal text-ink outline-none placeholder:text-ink-ghost",
                   compact ? "max-h-30 min-h-9 py-1.5 text-md" : "max-h-45 min-h-6 py-1",
                 )}
                 enterKeyHint={compact ? "enter" : "send"}
