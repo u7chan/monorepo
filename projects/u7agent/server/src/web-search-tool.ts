@@ -1,7 +1,8 @@
 /**
  * BFF ローカルの `web_search` ツール。既定の provider（アプリ DB を正とする）を 1 回だけ呼び、
- * 上位 5 件を現在日時行 + 出典一覧 + 抜粋へ整形する。サンドボックスの allowlist (`PI_AGENT_TOOLS`) の外にあり、
- * 上流の応答本文と失敗理由はモデル・ログ・UI へ出さない (docs/web-search.md)。
+ * 上位 5 件を現在日時行 + 検索プロバイダー行 + 出典一覧 + 抜粋へ整形する。サンドボックスの
+ * allowlist (`PI_AGENT_TOOLS`) の外にあり、上流の応答本文と失敗理由はモデル・ログ・UI へ出さない
+ * (docs/web-search.md)。
  */
 import { Type, type Static } from "@earendil-works/pi-ai";
 import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
@@ -78,7 +79,13 @@ const webSearchSchema = Type.Object({
 });
 type WebSearchParams = Static<typeof webSearchSchema>;
 
-type WebSearchOutcome = { ok: true; items: WebSearchResultItem[] } | { ok: false; message: string };
+/**
+ * 検索の結末。`providerName` は provider を解決できた呼び出しだけが持ち、設定読取失敗では付かない
+ * （本文と失敗文言へ provider 行を足すかどうかがここで決まる）。
+ */
+type WebSearchOutcome =
+  | { ok: true; items: WebSearchResultItem[]; providerName: string }
+  | { ok: false; message: string; providerName?: string };
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
@@ -104,6 +111,11 @@ function currentDateLine(now: Date): string {
   return `現在日時: ${formatWebSearchDate(now)} (${WEB_SEARCH_TIME_ZONE})`;
 }
 
+/** 日時行の次に置く provider 行。解決できなかった呼び出しでは行ごと省く (docs/web-search.md) */
+function providerLine(name: string | undefined): string {
+  return name === undefined ? "" : `検索プロバイダー: ${name}\n`;
+}
+
 /** 公開日を JST の YYYY-MM-DD へ。値が無い / parse できないときは括弧ごと省く */
 function publishedDateLabel(publishedDate: string | undefined): string {
   if (publishedDate === undefined) return "";
@@ -124,9 +136,14 @@ function clip(text: string, max: number): string {
   return text.length > max ? `${text.slice(0, max)}…` : text;
 }
 
-/** 現在日時行と出典一覧を先頭に、続けて各件の抜粋を並べる。履歴は先頭 900 字しか出さないため順序に意味がある */
-export function formatWebSearchResults(items: readonly WebSearchResultItem[], masker: SecretMasker, now: Date): string {
-  const header = `${currentDateLine(now)}\n`;
+/** 現在日時行・provider 行・出典一覧を先頭に、続けて各件の抜粋を並べる。履歴は先頭 900 字しか出さないため順序に意味がある */
+export function formatWebSearchResults(
+  items: readonly WebSearchResultItem[],
+  providerName: string,
+  masker: SecretMasker,
+  now: Date,
+): string {
+  const header = `${currentDateLine(now)}\n${providerLine(providerName)}`;
   if (items.length === 0) return `${header}${WEB_SEARCH_NO_RESULTS_MESSAGE}`;
   // 上流の本文は出典や抜粋へ混ざる。1 件の切り詰めが秘密値の途中で切ると完全一致で拾えなくなるため、
   // 切り詰めより先にマスクする
@@ -197,6 +214,7 @@ export function createWebSearchToolDefinitions(options: WebSearchToolOptions): T
   async function search(query: string, signal: AbortSignal | undefined): Promise<WebSearchOutcome> {
     const target = readTarget();
     if (target === undefined) return { ok: false, message: WEB_SEARCH_SETTINGS_UNAVAILABLE_MESSAGE };
+    const providerName = target.provider.name;
     // 期限はここでのみ掛ける。fetch へ渡す signal を共有すると timeout とユーザー中断を区別できない
     const controller = new AbortController();
     let timedOut = false;
@@ -216,17 +234,18 @@ export function createWebSearchToolDefinitions(options: WebSearchToolOptions): T
         signal: controller.signal,
       });
       // provider が応答を返した後でも、期限・中断が先に起きていればそちらを固定文言にする
-      if (timedOut) return { ok: false, message: WEB_SEARCH_TIMEOUT_MESSAGE };
-      if (aborted()) return { ok: false, message: WEB_SEARCH_ABORTED_MESSAGE };
-      if (outcome.ok) return { ok: true, items: outcome.items };
-      return { ok: false, message: WEB_SEARCH_FAILURE_MESSAGES[outcome.kind] };
+      if (timedOut) return { ok: false, message: WEB_SEARCH_TIMEOUT_MESSAGE, providerName };
+      if (aborted()) return { ok: false, message: WEB_SEARCH_ABORTED_MESSAGE, providerName };
+      if (outcome.ok) return { ok: true, items: outcome.items, providerName };
+      return { ok: false, message: WEB_SEARCH_FAILURE_MESSAGES[outcome.kind], providerName };
     } catch (error) {
-      if (timedOut) return { ok: false, message: WEB_SEARCH_TIMEOUT_MESSAGE };
-      if (aborted()) return { ok: false, message: WEB_SEARCH_ABORTED_MESSAGE };
+      if (timedOut) return { ok: false, message: WEB_SEARCH_TIMEOUT_MESSAGE, providerName };
+      if (aborted()) return { ok: false, message: WEB_SEARCH_ABORTED_MESSAGE, providerName };
       const detail = options.masker.mask(errorMessage(error)).slice(0, WEB_SEARCH_DETAIL_MAX_LENGTH);
       return {
         ok: false,
         message: detail === "" ? WEB_SEARCH_NETWORK_ERROR_MESSAGE : `${WEB_SEARCH_NETWORK_ERROR_MESSAGE}: ${detail}`,
+        providerName,
       };
     } finally {
       clearTimeout(timer);
@@ -248,9 +267,12 @@ export function createWebSearchToolDefinitions(options: WebSearchToolOptions): T
       const now = readNow();
       const outcome = await search(params.query, signal);
       // 検索に失敗したときこそモデルは記憶で答えるため、日付が最も要る
-      if (!outcome.ok) throw new Error(`${currentDateLine(now)}\n${outcome.message}`);
+      if (!outcome.ok)
+        throw new Error(`${currentDateLine(now)}\n${providerLine(outcome.providerName)}${outcome.message}`);
       return {
-        content: [{ type: "text", text: formatWebSearchResults(outcome.items, options.masker, now) }],
+        content: [
+          { type: "text", text: formatWebSearchResults(outcome.items, outcome.providerName, options.masker, now) },
+        ],
         details: undefined,
       };
     },

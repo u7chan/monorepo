@@ -6,6 +6,7 @@ import { generationBadgesOf, generationInfoOf, type GenerationBadge } from "../.
 import { abbreviatedToolSummary, completedToolCards, historyPreview } from "../../lib/toolSummary";
 import { toolDurationMs, toolTimeTotalMs } from "../../lib/toolTiming";
 import { formatDurationMs } from "../../lib/usageFormat";
+import { webSearchProviderOf } from "../../lib/webSearchInfo";
 import { DisclosureChevronIcon } from "../icons";
 import { CopyButton } from "./CopyButton";
 
@@ -22,11 +23,24 @@ const DURATION_CLASS = cn(
 /** 履歴へ 1 件差し込まれた合図を光らせている時間。CSS (index.css) の長さと揃える */
 const SLOT_FLASH_MS = 520;
 
-/** 生成に使ったモデルのチップ。位相ラベルと同じく縮まない枠にし、切れた全文は title で読めるようにする */
-function ModelChip({ marker, text, title }: { marker: string; text: string; title: string }) {
+/** チップの中身。marker はテストが読む目印で、切れた全文は title で読めるようにする */
+type ChipContent = { marker: string; text: string; title: string };
+
+/**
+ * 生成モデルと検索プロバイダーのチップ。どちらも「外部依存の識別」という同じ役割なので、
+ * 色や枠を増やさず同じ見た目にし、テストからは目印の属性で区別する。
+ */
+function ToolChip({
+  attribute,
+  marker,
+  text,
+  title,
+}: ChipContent & { attribute: "data-generation-chip" | "data-web-search-chip" }) {
+  const attrs =
+    attribute === "data-generation-chip" ? { "data-generation-chip": marker } : { "data-web-search-chip": marker };
   return (
     <span
-      data-generation-chip={marker}
+      {...attrs}
       title={title}
       className="max-w-40 shrink-0 truncate rounded-sm border border-accent/40 bg-accent-wash px-1.5 py-px font-sans text-3xs text-accent-text"
     >
@@ -38,13 +52,20 @@ function ModelChip({ marker, text, title }: { marker: string; text: string; titl
 /**
  * ヘッダに出すモデル。混在は片方だけを見せず、内訳を title へ置く (どの行がどのモデルかは行のチップが担う)。
  */
-function historyModelChip(
-  badges: readonly GenerationBadge[],
-): { marker: string; text: string; title: string } | undefined {
+function historyModelChip(badges: readonly GenerationBadge[]): ChipContent | undefined {
   const models = [...new Set(badges.map((badge) => badge.info.model))];
   if (models.length === 0) return undefined;
   if (models.length === 1) return { marker: models[0], text: models[0], title: models[0] };
   return { marker: "mixed", text: "複数モデル", title: models.join(" / ") };
+}
+
+/** ヘッダに出す provider。モデルと同じく混在は 1 つにまとめ、どの行がどれかは行のチップが担う */
+function historyProviderChip(cards: readonly ToolCard[]): ChipContent | undefined {
+  const names = cards.map(webSearchProviderOf).filter((name): name is string => name !== undefined);
+  const providers = [...new Set(names)];
+  if (providers.length === 0) return undefined;
+  if (providers.length === 1) return { marker: providers[0], text: providers[0], title: providers[0] };
+  return { marker: "mixed", text: "複数プロバイダー", title: providers.join(" / ") };
 }
 
 /** 完了は既定なので出さず、スロットだけ残して行の右端が動かないようにする (位相の規則は docs/frontend.md) */
@@ -74,6 +95,7 @@ function ToolCallRow({
 }) {
   const durationMs = toolDurationMs(card);
   const generation = generationInfoOf(card);
+  const provider = webSearchProviderOf(card);
   const bodyRef = useRef<HTMLDivElement>(null);
   return (
     <li className="min-w-0">
@@ -89,7 +111,15 @@ function ToolCallRow({
             {String(index + 1).padStart(2, "0")}
           </span>
           {generation === undefined ? null : (
-            <ModelChip marker={generation.model} text={generation.model} title={generation.model} />
+            <ToolChip
+              attribute="data-generation-chip"
+              marker={generation.model}
+              text={generation.model}
+              title={generation.model}
+            />
+          )}
+          {provider === undefined ? null : (
+            <ToolChip attribute="data-web-search-chip" marker={provider} text={provider} title={provider} />
           )}
           <span className="min-w-0 flex-1 truncate">{abbreviatedToolSummary(card)}</span>
           <PhaseLabel phase={card.phase} />
@@ -165,6 +195,7 @@ export function ToolHistoryView({
   // 並列実行の重なりを 1 回だけ数えた合計。区間が閉じたカードが揃わないときは出さない
   const totalMs = toolTimeTotalMs(shown);
   const modelChip = historyModelChip(generationBadgesOf(shown));
+  const providerChip = historyProviderChip(shown);
 
   // 1 件増えた瞬間だけ見出しを光らせる。key を変えて要素ごと作り直すので、連続で差し込まれても
   // 毎回最初から光る
@@ -203,7 +234,8 @@ export function ToolHistoryView({
             計 {formatDurationMs(totalMs)}
           </span>
         )}
-        {modelChip === undefined ? null : <ModelChip {...modelChip} />}
+        {modelChip === undefined ? null : <ToolChip attribute="data-generation-chip" {...modelChip} />}
+        {providerChip === undefined ? null : <ToolChip attribute="data-web-search-chip" {...providerChip} />}
         <span className="min-w-0 flex-1 truncate">{historyPreview(shown)}</span>
         {flashKey === 0 ? null : <span key={flashKey} aria-hidden="true" className="tool-history-flash" />}
         {running ? <PhaseLabel phase="running" /> : null}

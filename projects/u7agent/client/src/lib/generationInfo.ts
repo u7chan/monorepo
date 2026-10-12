@@ -5,6 +5,7 @@
 import type { Bubble, ToolCard } from "./chatTypes";
 import { fileTreeFetchPath } from "./fileTree";
 import { resolveFileRef } from "./fileRef";
+import { headValue } from "./toolOutput";
 
 export type GenerationKind = "image" | "speech";
 
@@ -24,22 +25,6 @@ const PATH_LINE: Record<GenerationKind, string> = {
   image: "画像を生成して保存しました:",
   speech: "音声を生成して保存しました:",
 };
-
-/** 投影は先頭 900 文字で切るため、本文全体を走査しても見つかる行は増えない（無関係な行を拾う危険だけが増える） */
-const HEAD_LINE_COUNT = 3;
-
-/**
- * 改行で終わる行だけを読む。投影で切られた最終行は値が欠けている可能性がある（例: 保存パスの断片）。
- */
-function headValue(output: string, label: string): string | undefined {
-  const lines = output.split("\n");
-  for (const line of lines.slice(0, Math.min(lines.length - 1, HEAD_LINE_COUNT))) {
-    if (!line.startsWith(label)) continue;
-    const value = line.slice(label.length).trim();
-    if (value !== "") return value;
-  }
-  return undefined;
-}
 
 /** server の定数を import すると client が server の module を辿るため、ツール名はここで literal に持つ */
 function generationKindOf(name: string): GenerationKind | undefined {

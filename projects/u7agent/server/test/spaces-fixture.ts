@@ -203,6 +203,71 @@ const pi = Object.assign(
           },
         ],
       },
+      // 検索プロバイダーのチップの受入用。結果本文の 2 行目に provider 行を入れたものを流す
+      // (docs/web-search.md の「チャットのチップ」)。実 API は呼ばない
+      {
+        prompt: "検索チップ",
+        calls: [
+          {
+            name: "web_search",
+            args: { query: "u7agent の web_search" },
+            at: 0,
+            endAt: 900,
+            result:
+              "現在日時: 2026-10-07 (Asia/Tokyo)\n" +
+              "検索プロバイダー: Exa\n" +
+              "出典:\n" +
+              "[1] u7agent — https://example.test/u7agent\n" +
+              "\n" +
+              "[1] u7agent — https://example.test/u7agent\n抜粋です。",
+          },
+        ],
+      },
+      {
+        prompt: "検索失敗",
+        calls: [
+          {
+            name: "web_search",
+            args: { query: "混雑しているとき" },
+            at: 0,
+            endAt: 800,
+            isError: true,
+            result:
+              "現在日時: 2026-10-07 (Asia/Tokyo)\n" +
+              "検索プロバイダー: Tavily\n" +
+              "検索プロバイダーのAPIキーが未設定です。設定 → Web 検索 を開いて登録してください。",
+          },
+        ],
+      },
+      // 同じターンに生成と検索が混ざったときのヘッダ (生成モデルと provider のチップが同居する)
+      {
+        prompt: "検索と生成",
+        calls: [
+          {
+            name: "generate_image",
+            args: { prompt: "夜の駅のホームに立つ黒猫、落ち着いた色調" },
+            at: 0,
+            endAt: 600,
+            result:
+              "モデル: openai/gpt-image-2\n" +
+              "画像を生成して保存しました: generated/night-platform-cat.png\n" +
+              "本文に示すときは Markdown 画像 ![alt](generated/night-platform-cat.png) で示してください。",
+          },
+          {
+            name: "web_search",
+            args: { query: "夜のホームの写真" },
+            at: 700,
+            endAt: 1400,
+            result:
+              "現在日時: 2026-10-07 (Asia/Tokyo)\n" +
+              "検索プロバイダー: Tavily\n" +
+              "出典:\n" +
+              "[1] Night platform — https://example.test/night-platform\n" +
+              "\n" +
+              "[1] Night platform — https://example.test/night-platform\n抜粋です。",
+          },
+        ],
+      },
       // 別ターンでの再掲と cp したコピー。生成カードを 1 枚も流さないターンなのでキャプションが出ない
       {
         prompt: "画像再掲",
