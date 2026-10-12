@@ -144,6 +144,24 @@ describe("createApp", () => {
       "https://api.openai.com/v1",
     )
     expect(location.searchParams.get("agent_name_hint")).toBe("test-app")
+    expect(location.searchParams.get("prompt")).toBeNull()
+  })
+
+  test("GET /auth/start?prompt=consent だけが prompt を渡す", async () => {
+    const { app } = await createTestApp()
+
+    const withConsent = new URL(
+      (await app.request("/auth/start?prompt=consent")).headers.get(
+        "location",
+      ) ?? "",
+    )
+    const withOther = new URL(
+      (await app.request("/auth/start?prompt=login")).headers.get("location") ??
+        "",
+    )
+
+    expect(withConsent.searchParams.get("prompt")).toBe("consent")
+    expect(withOther.searchParams.get("prompt")).toBeNull()
   })
 
   test("GET /auth/callback は未知の state を拒否する", async () => {

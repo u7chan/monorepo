@@ -60,5 +60,16 @@ describe("buildAuthorizationUrl", () => {
     expect(params.get("id_token_hint")).toBe("header.payload.signature")
     expect(params.get("login_hint")).toBe("user@example.com")
     expect(params.get("agent_name_hint")).toBeNull()
+    expect(params.get("prompt")).toBeNull()
+  })
+
+  test("prompt を指定すると同意画面を強制できる", () => {
+    const url = buildAuthorizationUrl(ENDPOINT, {
+      ...BASE,
+      clientId: "oaiapp_example",
+      prompt: "consent",
+    })
+
+    expect(new URL(url).searchParams.get("prompt")).toBe("consent")
   })
 })

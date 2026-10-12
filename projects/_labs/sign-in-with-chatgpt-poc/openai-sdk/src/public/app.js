@@ -176,6 +176,11 @@ function renderConnection() {
   actions.append(
     refreshButton,
     el("a", { class: "button", href: "/auth/start", text: "再認可" }),
+    el("a", {
+      class: "button",
+      href: "/auth/start?prompt=consent",
+      text: "同意をやり直す",
+    }),
     logoutButton,
     el("a", {
       class: "button",
@@ -190,7 +195,7 @@ function renderConnection() {
     body.append(
       el("p", {
         class: "hint",
-        text: "ChatGPT プラン利用のスコープが付与されていません。[再認可] で同意をやり直してください。",
+        text: "ChatGPT プラン利用のスコープが付与されていません。[同意をやり直す] で同意画面を再表示できます。",
       }),
     )
   }

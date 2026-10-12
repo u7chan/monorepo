@@ -93,6 +93,8 @@ export function createApp(
       const pkce = createPkce()
       const state = createRandomValue(24)
       const nonce = createRandomValue(24)
+      // 同意画面を再表示したいときだけ許可する（プラン利用を許可しない場合の検証用）
+      const prompt = c.req.query("prompt") === "consent" ? "consent" : undefined
       pendingAuthorizations.set(state, {
         nonce,
         codeVerifier: pkce.verifier,
@@ -107,6 +109,7 @@ export function createApp(
           agentNameHint: hints.agentNameHint ?? undefined,
           idTokenHint: hints.idTokenHint ?? undefined,
           loginHint: hints.loginHint ?? undefined,
+          prompt,
           redirectUri: config.redirectUri,
           state,
           nonce,

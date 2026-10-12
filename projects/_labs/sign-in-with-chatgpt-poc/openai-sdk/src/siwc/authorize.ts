@@ -10,6 +10,8 @@ export type AuthorizationRequest = {
   agentNameHint?: string | undefined
   idTokenHint?: string | undefined
   loginHint?: string | undefined
+  /** `consent` のときだけ同意画面を強制する（プラン利用を許可しない場合の検証用）。 */
+  prompt?: string | undefined
 }
 
 export function buildAuthorizationUrl(
@@ -37,6 +39,9 @@ export function buildAuthorizationUrl(
   }
   if (request.loginHint !== undefined && request.loginHint !== "") {
     params.set("login_hint", request.loginHint)
+  }
+  if (request.prompt !== undefined && request.prompt !== "") {
+    params.set("prompt", request.prompt)
   }
 
   const url = new URL(endpoint)
