@@ -5,12 +5,85 @@ import test from "node:test";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { ComposerStatus } from "../src/components/composer/ComposerStatus";
+import type { ToolCall } from "../src/types";
 
 type Props = Parameters<typeof ComposerStatus>[0];
 
 const render = (props: Props): string => renderToStaticMarkup(createElement(ComposerStatus, props));
 
 const context = { tokens: 114000, contextWindow: 272000, percent: 42 };
+
+/** 回答待ちの ask_user (runTools)。待機の理由は、このカードとキューの件数で決まる */
+const pendingQuestion = (): ToolCall => ({
+  id: "q1",
+  name: "ask_user",
+  args: "",
+  isError: false,
+  done: false,
+  output: "",
+  questions: [{ question: "どちらで進めますか" }],
+});
+
+test("描画: 回答待ちで待機キューがあるとき、回答してもすぐ実行されない理由を活動の右に出す", () => {
+  // What: 回答待ちの run が終わらないと待機中の送信が始まらないことを、可視の 1 文で示す
+  const html = render({
+    activity: "回答を待っています…",
+    runStatus: "running",
+    runTools: { q1: pendingQuestion() },
+    queueDepth: 1,
+    model: "zai/glm-5.3-flash",
+    modelLabel: "GLM-5.3 Flash",
+  });
+
+  assert.ok(html.includes("回答しても、待機中の送信は実行中の応答が終わってから始まります"));
+  const liveStart = html.indexOf('aria-live="polite"');
+  const live = html.slice(liveStart, html.indexOf("</span>", liveStart));
+  assert.ok(!live.includes("回答しても"), "件数の増減で読み上げ直さないよう aria-live の外に置く");
+  assert.ok(html.indexOf("回答しても") > html.indexOf("回答を待っています…"), "活動の右に続けて出す");
+
+  const compact = render({
+    activity: "回答を待っています…",
+    runStatus: "running",
+    runTools: { q1: pendingQuestion() },
+    queueDepth: 1,
+    compact: true,
+  });
+  assert.ok(compact.includes("回答しても、待機中の送信は実行中の応答が終わってから始まります"));
+});
+
+test("描画: 回答待ちとキューが揃わなければ待機の理由を出さない", () => {
+  const waiting = {
+    activity: "回答を待っています…",
+    runStatus: "running",
+    runTools: { q1: pendingQuestion() },
+  } as const;
+  assert.ok(!render({ ...waiting }).includes("回答しても"), "キューが空なら待ちの理由が無い");
+  assert.ok(!render({ ...waiting, queueDepth: 0 }).includes("回答しても"), "サーバーが 0 を配る縮退でも出さない");
+
+  const running = render({
+    activity: "実行中… · 待機 1 件",
+    runStatus: "running",
+    runTools: { t1: { id: "t1", name: "bash", args: "", isError: false, done: false, output: "" } },
+    queueDepth: 1,
+  });
+  assert.ok(!running.includes("回答しても"), "回答待ちが無い待ちはバブルのチップの title に任せる");
+
+  const settled = render({
+    activity: "実行中… · 待機 1 件",
+    runStatus: "running",
+    runTools: { q1: { ...pendingQuestion(), done: true } },
+    queueDepth: 1,
+  });
+  assert.ok(!settled.includes("回答しても"), "回答が settle した後は待ちの理由を出さない");
+
+  const ended = render({
+    activity: "前回の実行は停止されました",
+    runStatus: "stopped",
+    runTools: { q1: pendingQuestion() },
+    queueDepth: 1,
+  });
+  assert.ok(!ended.includes("回答しても"), "回答できない終端では出さない");
+});
 
 test("描画: モデル名は表示名で出し、provider/id を title に持つ", () => {
   const html = render({ activity: "", model: "anthropic/claude-sonnet-4-5", modelLabel: "Claude Sonnet 4.5" });

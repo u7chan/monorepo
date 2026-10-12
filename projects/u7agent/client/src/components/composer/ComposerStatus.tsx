@@ -1,7 +1,9 @@
 import { useId, type CSSProperties } from "react";
 import { useElapsedMs } from "../../hooks/useElapsedMs";
+import { pendingAskUserQuestionCount } from "../../lib/askUser";
 import { cn } from "../../lib/cn";
 import { elapsedBeatIndex, formatElapsed, isElapsedTier, runElapsedMs } from "../../lib/elapsed";
+import { answerWaitQueueReason } from "../../lib/queueWait";
 import {
   blockedButtonsNotice,
   retryableRunError,
@@ -27,6 +29,7 @@ export function ComposerStatus({
   activityState,
   runningSince,
   runTools = {},
+  queueDepth = 0,
   finishedRunDurationMs,
   context,
   model,
@@ -55,6 +58,8 @@ export function ComposerStatus({
   runningSince?: number;
   /** 回答待ち (ask_user の実行区間) を経過時間から除く入力。run が実行中のときだけ使う */
   runTools?: Record<string, ToolCall>;
+  /** サーバーの待機キュー件数 (停止ボタンの件数と同じ値)。回答待ちのときの待機の理由を出す根拠 */
+  queueDepth?: number;
   /**
    * 直前に終わったランの合計時間 (run_end のサーバー計測)。渡すと活動の右に凍結表示する。
    * 実行中の `runningSince` と違い値が動かないため、こちらは読み上げの対象にする
@@ -106,8 +111,10 @@ export function ComposerStatus({
   const beat = elapsed === null ? 0 : elapsedBeatIndex(elapsed.ms);
   // 確定した合計時間。実行中の経過と違って毎秒変わらないので、活動欄と同じ行に出しつつ読み上げに残す
   const finishedElapsed = finishedRunDurationMs === undefined ? null : formatElapsed(finishedRunDurationMs);
-  // 活動が無いときは活動欄ごと出さない (空の欄が折り返して空行が残るのを避ける)
-  const showActivity = activity !== "" || elapsed !== null;
+  // 活動が無いときは活動欄ごと出さない (空の欄が折り返して空行が残るのを避ける)。回答待ちの理由は
+  // 出どころが別 (キュー) なので、活動の文言が変わっても表示を落とさない
+  const queueReason = answerWaitQueueReason(pendingAskUserQuestionCount(runTools, runStatus), queueDepth);
+  const showActivity = activity !== "" || elapsed !== null || queueReason !== undefined;
   // 再実行カードは時間をおけば回復し得る失敗だけに出す (停止・成功・キュー待ちでは出さない)
   const card = retryableRunError(runStatus, runError);
   const showRetry = card !== undefined && onRetry !== undefined;
@@ -182,6 +189,10 @@ export function ComposerStatus({
             {finishedElapsed === null ? null : (
               <span className="shrink-0 font-sans text-2xs text-ink-ghost tabular-nums">({finishedElapsed})</span>
             )}
+            {/* 回答待ちの間にキューへ入った送信が実行されない理由。footnote の「上の質問に回答して
+                ください（N件）」と矛盾しないよう、起点が回答ではなく run の終了であることを示す。
+                読み上げは活動の文言に一本化し、件数の増減で連発しないよう aria-live の外に置く */}
+            {queueReason === undefined ? null : <span className="text-ink-ghost">{queueReason}</span>}
           </span>
         ) : null}
         <span className="flex min-w-0 shrink items-center gap-2">

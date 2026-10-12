@@ -37,6 +37,16 @@ export function queueWaitsOf(bubbles: Bubble[]): Map<number, QueueWait> {
 }
 
 /**
+ * 回答待ち (ask_user) の run が終わるまで動かない送信の理由。footnote の「上の質問に回答して
+ * ください（N件）」だけでは回答すれば実行されると読めるため、実行の起点が run の終了であることを
+ * 1 文で示す。回答が要らない待ち (実行中 / 圧縮中) は undefined を返し、バブルのチップの title に任せる。
+ */
+export function answerWaitQueueReason(pendingQuestions: number, queueDepth: number): string | undefined {
+  if (pendingQuestions <= 0 || queueDepth <= 0) return undefined;
+  return "回答しても、待機中の送信は実行中の応答が終わってから始まります";
+}
+
+/**
  * 状態行の待機サマリ。順位は各バブルのチップが担うため、状態行は件数だけを出し、待機の理由
  * (`実行中…` / `圧縮中…` / `完了`) は呼び出し側が接頭辞で示す。
  */
