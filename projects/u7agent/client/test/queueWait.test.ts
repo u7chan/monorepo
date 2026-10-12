@@ -79,7 +79,7 @@ test("状態行のサマリは件数だけを出し、待機の理由は接頭�
 
 test("回答待ちの run で待つ送信の理由は、質問と待機の両方があるときだけ返す", () => {
   // What: 回答しても実行されないことを示す 1 文。回答可否 (質問の有無) とキューの有無の両方で決まる
-  assert.equal(answerWaitQueueReason(1, 2), "回答しても、待機中の送信は実行中の応答が終わってから始まります");
+  assert.equal(answerWaitQueueReason(1, 2), "回答しても、待機中の送信はこの実行の終了後に始まります");
   assert.equal(answerWaitQueueReason(0, 2), undefined, "回答待ちが無ければチップの title に任せる");
   assert.equal(answerWaitQueueReason(2, 0), undefined, "キューが空なら理由が要らない");
   assert.equal(answerWaitQueueReason(0, 0), undefined);
