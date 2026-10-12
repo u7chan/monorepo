@@ -349,6 +349,88 @@ test("実行時間の控えが無いカード (旧サーバー / 停止) では�
   assert.equal(stopped.includes("計 "), false);
 });
 
+const IMAGE_OUTPUT =
+  "モデル: openai/gpt-image-2\n" +
+  "画像を生成して保存しました: generated/cat.png\n" +
+  "本文に示すときは Markdown 画像 ![alt](generated/cat.png) で示してください。";
+
+const SPEECH_OUTPUT =
+  "モデル: google/gemini-3.8-flash-tts\n" +
+  "ボイス: Kore\n" +
+  "音声を生成して保存しました: generated/intro.mp3\n" +
+  "本文に示すときは、このパス (generated/intro.mp3) を示してください。";
+
+/** 生成のチップだけを読む。展開した出力本文にもモデル行があるため、目印の属性で区別する */
+function chips(html: string): string[] {
+  return [...html.matchAll(/data-generation-chip="([^"]*)"/g)].map((match) => match[1]);
+}
+
+test("ツール履歴は生成に使ったモデルをヘッダと行のチップに出し、畳んだままでも読める", () => {
+  const html = renderHistory([card("t1", "generate_image", "done", { output: IMAGE_OUTPUT })], false);
+  assert.deepEqual(chips(html), ["openai/gpt-image-2", "openai/gpt-image-2"], "ヘッダと行の両方に出す");
+  assert.ok(html.includes('title="openai/gpt-image-2"'), "切れたときに読めるよう全文を title に残す");
+
+  const speech = renderHistory([card("t1", "generate_speech", "done", { output: SPEECH_OUTPUT })], false);
+  assert.deepEqual(chips(speech), ["google/gemini-3.8-flash-tts", "google/gemini-3.8-flash-tts"]);
+  assert.equal(
+    chips(speech).some((chip) => chip.includes("Kore")),
+    false,
+    "ボイスは本文の上のバッジが担う",
+  );
+});
+
+test("ツール履歴のヘッダはモデルが混在したときに片方だけを見せない", () => {
+  const html = renderHistory(
+    [
+      card("t1", "generate_image", "done", { output: IMAGE_OUTPUT }),
+      card("t2", "generate_image", "done", { output: IMAGE_OUTPUT.replace("openai/gpt-image-2", "x-ai/grok-image") }),
+    ],
+    false,
+  );
+  assert.deepEqual(chips(html), ["mixed", "openai/gpt-image-2", "x-ai/grok-image"]);
+  assert.ok(html.includes("複数モデル"));
+  assert.ok(html.includes('title="openai/gpt-image-2 / x-ai/grok-image"'), "内訳を title に残す");
+});
+
+test("ツール履歴のチップは生成ツールの行だけに出し、モデル行や結果が無ければ出さない", () => {
+  // 生成以外のツールはモデル行と同じ文言が結果にあってもチップを出さない
+  const other = renderHistory([card("t1", "bash", "done", { output: IMAGE_OUTPUT })], false);
+  assert.deepEqual(chips(other), []);
+
+  // モデル行を書く前のセッション (旧サーバー) と、失敗したカード
+  const legacy = renderHistory(
+    [card("t1", "generate_image", "done", { output: "画像を生成して保存しました: generated/legacy.png" })],
+    false,
+  );
+  assert.deepEqual(chips(legacy), []);
+
+  // 全行が同じモデルならヘッダのチップは 1 つに畳む
+  const same = renderHistory(
+    [
+      card("t1", "generate_image", "done", { output: IMAGE_OUTPUT }),
+      card("t2", "generate_image", "done", { output: IMAGE_OUTPUT }),
+    ],
+    false,
+  );
+  assert.deepEqual(chips(same), ["openai/gpt-image-2", "openai/gpt-image-2", "openai/gpt-image-2"]);
+  const failed = renderHistory(
+    [
+      card("t1", "generate_image", "failed", {
+        output: "画像生成が混雑しています（レート制限またはプロバイダー障害）",
+      }),
+    ],
+    false,
+  );
+  assert.deepEqual(chips(failed), []);
+
+  // 進行中のターンでは実行中のカードを出さないため、完了した生成の分だけが残る
+  const running = renderHistory(
+    [card("t1", "generate_image", "done", { output: IMAGE_OUTPUT }), card("t2", "generate_image", "running")],
+    true,
+  );
+  assert.deepEqual(chips(running), ["openai/gpt-image-2", "openai/gpt-image-2"]);
+});
+
 /** 実行中のカードから表示を組み立てる (コンポーネントは表示だけを持ち、段と行は純関数が決める) */
 function liveView(runTools: Record<string, ToolCall>, runStatus: RunStatus): LiveToolCallView {
   const state = liveToolState(runTools, runStatus);

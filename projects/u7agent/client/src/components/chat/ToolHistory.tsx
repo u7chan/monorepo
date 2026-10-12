@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import type { ToolCard } from "../../hooks/chatReducer";
 import { cn } from "../../lib/cn";
 import { selectCopyTarget } from "../../lib/copyToClipboard";
+import { generationBadgesOf, generationInfoOf, type GenerationBadge } from "../../lib/generationInfo";
 import { abbreviatedToolSummary, completedToolCards, historyPreview } from "../../lib/toolSummary";
 import { toolDurationMs, toolTimeTotalMs } from "../../lib/toolTiming";
 import { formatDurationMs } from "../../lib/usageFormat";
@@ -20,6 +21,35 @@ const DURATION_CLASS = cn(
 
 /** 履歴へ 1 件差し込まれた合図を光らせている時間。CSS (index.css) の長さと揃える */
 const SLOT_FLASH_MS = 520;
+
+/**
+ * 生成に使ったモデルのチップ。位相ラベルと同じく縮まない枠にし、モデルが長くても 1 行に収める
+ * (切れた全文は hover で読める)。省略記号の位置は幅で決まるが、id 自身は失わせない。
+ */
+function ModelChip({ marker, text, title }: { marker: string; text: string; title: string }) {
+  return (
+    <span
+      data-generation-chip={marker}
+      title={title}
+      className="max-w-40 shrink-0 truncate rounded-sm border border-accent/40 bg-accent-wash px-1.5 py-px font-sans text-3xs text-accent-text"
+    >
+      {text}
+    </span>
+  );
+}
+
+/**
+ * ヘッダに出すモデル。生成ツールの行が 1 つも無ければ出さず、混在は片方だけを見せずに内訳を title へ置く
+ * (どの行がどのモデルかは行のチップが担う)。
+ */
+function historyModelChip(
+  badges: readonly GenerationBadge[],
+): { marker: string; text: string; title: string } | undefined {
+  const models = [...new Set(badges.map((badge) => badge.info.model))];
+  if (models.length === 0) return undefined;
+  if (models.length === 1) return { marker: models[0], text: models[0], title: models[0] };
+  return { marker: "mixed", text: "複数モデル", title: models.join(" / ") };
+}
 
 /** 完了は既定なので出さず、スロットだけ残して行の右端が動かないようにする (位相の規則は docs/frontend.md) */
 function PhaseLabel({ phase }: { phase: ToolCard["phase"] }) {
@@ -47,6 +77,7 @@ function ToolCallRow({
   onCopy: () => void;
 }) {
   const durationMs = toolDurationMs(card);
+  const generation = generationInfoOf(card);
   const bodyRef = useRef<HTMLDivElement>(null);
   return (
     <li className="min-w-0">
@@ -61,6 +92,9 @@ function ToolCallRow({
           <span className="w-6 shrink-0 font-sans text-3xs text-ink-ghost tabular-nums">
             {String(index + 1).padStart(2, "0")}
           </span>
+          {generation === undefined ? null : (
+            <ModelChip marker={generation.model} text={generation.model} title={generation.model} />
+          )}
           <span className="min-w-0 flex-1 truncate">{abbreviatedToolSummary(card)}</span>
           <PhaseLabel phase={card.phase} />
           <span className={DURATION_CLASS}>{durationMs === undefined ? "" : formatDurationMs(durationMs)}</span>
@@ -134,6 +168,7 @@ export function ToolHistoryView({
   const listRef = useRef<HTMLOListElement>(null);
   // 並列実行の重なりを 1 回だけ数えた合計。区間が閉じたカードが揃わないときは出さない
   const totalMs = toolTimeTotalMs(shown);
+  const modelChip = historyModelChip(generationBadgesOf(shown));
 
   // 1 件増えた瞬間だけ見出しを光らせる。key を変えて要素ごと作り直すので、連続で差し込まれても
   // 毎回最初から光る
@@ -172,6 +207,7 @@ export function ToolHistoryView({
             計 {formatDurationMs(totalMs)}
           </span>
         )}
+        {modelChip === undefined ? null : <ModelChip {...modelChip} />}
         <span className="min-w-0 flex-1 truncate">{historyPreview(shown)}</span>
         {flashKey === 0 ? null : <span key={flashKey} aria-hidden="true" className="tool-history-flash" />}
         {running ? <PhaseLabel phase="running" /> : null}

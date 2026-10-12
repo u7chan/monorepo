@@ -16,6 +16,7 @@ import { MarkdownView } from "../markdown/MarkdownView";
 import { AskUserCard } from "./AskUserCard";
 import { AttachedFiles } from "./AttachedFiles";
 import { CopyButton } from "./CopyButton";
+import { GenerationBadgeList } from "./GenerationBadgeList";
 import { SkillInvocation } from "./SkillInvocation";
 import { SkillLoadList } from "./SkillLoadList";
 import { ToolHistoryView } from "./ToolHistory";
@@ -256,6 +257,8 @@ export function MessageView({
             onCopyTool={onCopyTool}
           />
         ) : null}
+        {/* 本文の上に置き、そのターンに何を生成したかを示す (複数ツールの切り分けはツール履歴の行が担う) */}
+        {!isUser ? <GenerationBadgeList cards={toolCards} compact={compact} /> : null}
         {bubble.text ? (
           isUser ? (
             <>

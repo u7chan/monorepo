@@ -51,6 +51,94 @@ const pi = Object.assign(
         calls: [{ name: "bash", args: { command: "sleep 1" }, at: 0, endAt: 900 }],
         closingWindow: { afterMs: 100, name: "bash", args: { command: "echo in-closing-window" } },
       },
+      // 生成バッジの受入用。実 API は呼ばず、generate_image / generate_speech が返す結果本文をそのまま流す
+      // (docs/image-generation.md / docs/speech-generation.md の「チャットのバッジ」)
+      {
+        prompt: "画像バッジ",
+        calls: [
+          {
+            name: "generate_image",
+            args: { prompt: "夜の駅のホームに立つ黒猫、落ち着いた色調" },
+            at: 0,
+            endAt: 1200,
+            result:
+              "モデル: openai/gpt-image-2\n" +
+              "画像を生成して保存しました: generated/night-platform-cat.png\n" +
+              "本文に示すときは Markdown 画像 ![alt](generated/night-platform-cat.png) で示してください。",
+          },
+        ],
+      },
+      {
+        prompt: "音声バッジ",
+        calls: [
+          {
+            name: "generate_speech",
+            args: { text: "夜のホームに、一匹の黒猫が座っています。" },
+            at: 0,
+            endAt: 900,
+            result:
+              "モデル: google/gemini-3.8-flash-tts\n" +
+              "ボイス: Kore\n" +
+              "音声を生成して保存しました: generated/night-platform-cat-intro.mp3\n" +
+              "本文に示すときは、このパス (generated/night-platform-cat-intro.mp3) を示してください。",
+          },
+        ],
+      },
+      // モデル行を書く前のセッション (結果本文にモデル行が無い) の再現。F5 の復元でも何も出ないこと
+      {
+        prompt: "モデル行なし",
+        calls: [
+          {
+            name: "generate_image",
+            args: { prompt: "昔の生成" },
+            at: 0,
+            endAt: 600,
+            result:
+              "画像を生成して保存しました: generated/legacy-cat.png\n" +
+              "本文に示すときは Markdown 画像 ![alt](generated/legacy-cat.png) で示してください。",
+          },
+        ],
+      },
+      // 失敗したカード (throw は結果本文を残さない) の再現
+      {
+        prompt: "生成失敗",
+        calls: [
+          {
+            name: "generate_image",
+            args: { prompt: "混雑しているとき" },
+            at: 0,
+            endAt: 800,
+            isError: true,
+            result: "画像生成が混雑しています（レート制限またはプロバイダー障害）",
+          },
+        ],
+      },
+      // 1 つのターンで別モデルの画像を 2 枚。ヘッダは「複数モデル」、行はそれぞれのモデルになる
+      {
+        prompt: "複数モデル",
+        calls: [
+          {
+            name: "generate_image",
+            args: { prompt: "1 枚目" },
+            at: 0,
+            endAt: 1100,
+            result:
+              "モデル: openai/gpt-image-2\n" +
+              "画像を生成して保存しました: generated/cat-a.png\n" +
+              "本文に示すときは Markdown 画像 ![alt](generated/cat-a.png) で示してください。",
+          },
+          {
+            name: "generate_image",
+            args: { prompt: "2 枚目" },
+            at: 1200,
+            endAt: 2300,
+            result:
+              "モデル: black-forest-labs/flux-2-pro\n" +
+              "画像を生成して保存しました: generated/cat-b.png\n" +
+              "本文に示すときは Markdown 画像 ![alt](generated/cat-b.png) で示してください。",
+          },
+        ],
+      },
     ],
     // 自動 (preflight) 圧縮の受入用: 本文に「自動圧縮」を含めて送ると、user message を積む前に
     // 1 回だけ圧縮が走る (区切りとターン終端の両方が出る)
