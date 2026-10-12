@@ -2,7 +2,9 @@
  * 生成ツール（generate_image / generate_speech）の結果本文からモデル・ボイス・保存パスを読む。
  * 値は結果本文のまま返す（カタログの表示名へは解決しない）。
  */
-import type { ToolCard } from "./chatTypes";
+import type { Bubble, ToolCard } from "./chatTypes";
+import { fileTreeFetchPath } from "./fileTree";
+import { resolveFileRef } from "./fileRef";
 
 export type GenerationKind = "image" | "speech";
 
@@ -77,4 +79,36 @@ export function generationBadgesOf(
     if (info !== undefined) badges.push({ key: card.id, info });
   }
   return badges;
+}
+
+/** ターン単位の対応表。バブル id → (root 相対パス → そのパスの生成情報) */
+export type GenerationCaptions = Map<number, Map<string, GenerationInfo>>;
+
+/**
+ * 生成カードの保存パスを root 相対へ解決し、ターン (user バブルの次から次の user バブルまで) の
+ * 各バブルへ同じ表を配る。履歴の投影はカードと本文を別のバブルへ分けるため、バブル単位にはできない。
+ */
+export function generationCaptionsOf(
+  bubbles: readonly Bubble[],
+  { rootCwd, cwd }: { rootCwd: string; cwd: string },
+): GenerationCaptions {
+  const captions: GenerationCaptions = new Map();
+  if (cwd === "") return captions;
+  let turn = new Map<string, GenerationInfo>();
+  for (const bubble of bubbles) {
+    if (bubble.role === "user") {
+      turn = new Map();
+      continue;
+    }
+    for (const badge of generationBadgesOf(bubble.tools)) {
+      const { info } = badge;
+      if (info.path === undefined) continue;
+      const resolved = resolveFileRef(info.path, rootCwd, cwd);
+      if (resolved === null) continue;
+      // 同じパスが 1 ターンに複数あるときは実行順で後を優先する (同名はサンドボックスが退避するため通常は起きない)
+      turn.set(fileTreeFetchPath(cwd, resolved), info);
+    }
+    captions.set(bubble.id, turn);
+  }
+  return captions;
 }

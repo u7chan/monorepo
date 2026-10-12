@@ -2,8 +2,14 @@
 // 読む純関数の検証。結果本文の形の正は server/src/image-tools.ts / server/src/speech-tools.ts。
 import assert from "node:assert/strict";
 import test from "node:test";
-import type { ToolCard } from "../src/lib/chatTypes";
-import { generationBadgesOf, generationInfoOf } from "../src/lib/generationInfo";
+import type { Bubble, ToolCard } from "../src/lib/chatTypes";
+import {
+  generationBadgesOf,
+  generationCaptionsOf,
+  generationInfoOf,
+  type GenerationCaptions,
+  type GenerationInfo,
+} from "../src/lib/generationInfo";
 
 const IMAGE_OUTPUT =
   "モデル: openai/gpt-image-2\n" +
@@ -126,4 +132,89 @@ test("バッジはカードの順のまま生成ツールの分だけを返す",
       ["t3", "speech", "google/gemini-3.8-flash-tts"],
     ],
   );
+});
+
+/* ===== ターン単位のキャプションの対応表 ===== */
+
+const ROOT_CWD = "/workspace";
+const CWD = "projects/u7agent";
+
+function bubble(id: number, role: "user" | "assistant", tools: ToolCard[] = []): Bubble {
+  return { id, role, text: "", tools, skillLoads: [] };
+}
+
+/** 指定したバブルの対応表。無い場合は空（テストの意図は各ケースの assert で見る） */
+function captionsAt(captions: GenerationCaptions, id: number): Map<string, GenerationInfo> {
+  return captions.get(id) ?? new Map();
+}
+
+/** 1 ターン分のバブルから、そのバブルの対応表だけを取る */
+function captionsOf(bubbles: Bubble[]): Map<string, GenerationInfo> {
+  return (
+    generationCaptionsOf(bubbles, { rootCwd: ROOT_CWD, cwd: CWD }).get(bubbles[bubbles.length - 1].id) ?? new Map()
+  );
+}
+
+test("カードの保存パスを root 相対へ解決し、同じターンの全バブルへ配る", () => {
+  const bubbles = [
+    bubble(1, "user"),
+    // 履歴の投影ではカードが付いたまま本文を持たないバブルと、保存パスを書いた本文のバブルに分かれる
+    bubble(2, "assistant", [card({ id: "t1" })]),
+    bubble(3, "assistant", [card({ id: "t2", output: IMAGE_OUTPUT.replace("night-platform-cat", "cafe") })]),
+  ];
+  const captions = generationCaptionsOf(bubbles, { rootCwd: ROOT_CWD, cwd: CWD });
+  const keys = ["projects/u7agent/generated/night-platform-cat.png", "projects/u7agent/generated/cafe.png"];
+  // 同じターンの各バブルが同じ表を見る (本文のバブルからも前のバブルのカードを引ける)
+  assert.deepEqual([...captionsAt(captions, 2).keys()], keys);
+  assert.deepEqual([...captionsAt(captions, 3).keys()], keys);
+  assert.equal(captionsAt(captions, 3).get(keys[0])?.model, "openai/gpt-image-2");
+});
+
+test("次の user バブルでターンが切れ、生成カードの無いターンは空の表になる", () => {
+  const bubbles = [
+    bubble(1, "user"),
+    bubble(2, "assistant", [card({ id: "t1" })]),
+    bubble(3, "user"),
+    bubble(4, "assistant", [card({ id: "t2", name: "bash", output: "ok" })]),
+    bubble(5, "assistant"),
+  ];
+  const captions = generationCaptionsOf(bubbles, { rootCwd: ROOT_CWD, cwd: CWD });
+  assert.equal(captionsAt(captions, 2).size, 1);
+  assert.equal(captionsAt(captions, 4).size, 0, "前のターンのカードを引き継いでいる");
+  assert.equal(captionsAt(captions, 4), captionsAt(captions, 5), "同じターンのバブルは同じ表を共有する");
+});
+
+test("解決できないパスと保存パスの無いカードは表に入れない", () => {
+  const bubbles = [
+    bubble(1, "user"),
+    bubble(2, "assistant", [
+      card({
+        id: "t1",
+        output: IMAGE_OUTPUT.replace("generated/night-platform-cat.png", "generated/cat with space.png"),
+      }),
+      card({ id: "t2", output: "モデル: openai/gpt-image-2\nこの行が続きます" }),
+      card({ id: "t3", output: IMAGE_OUTPUT.replace("generated/night-platform-cat.png", "../secret/cat.png") }),
+    ]),
+  ];
+  assert.equal(captionsOf(bubbles).size, 0);
+});
+
+test("パスの表記ゆれは同じキーへ畳む", () => {
+  const dotted = IMAGE_OUTPUT.replace(/generated\/night-platform-cat\.png/g, "./generated/night-platform-cat.png");
+  const bubbles = [bubble(1, "user"), bubble(2, "assistant", [card({ id: "t1", output: dotted })])];
+  assert.deepEqual([...captionsOf(bubbles).keys()], ["projects/u7agent/generated/night-platform-cat.png"]);
+});
+
+test("音声はボイスも持ち、cwd が空なら 1 件も解決しない", () => {
+  const bubbles = [
+    bubble(1, "user"),
+    bubble(2, "assistant", [card({ id: "t1", name: "generate_speech", output: SPEECH_OUTPUT })]),
+  ];
+  assert.deepEqual(captionsOf(bubbles).get("projects/u7agent/generated/night-platform-cat-intro.mp3"), {
+    kind: "speech",
+    model: "google/gemini-3.8-flash-tts",
+    voice: "Kore",
+    path: "generated/night-platform-cat-intro.mp3",
+  });
+  assert.equal(generationCaptionsOf(bubbles, { rootCwd: ROOT_CWD, cwd: "" }).size, 0, "cwd 未確定で解決している");
 });

@@ -6,6 +6,7 @@ import { anchoredScrollTop, chatRenderItems, estimateChatItemHeight, type ChatRe
 import { resolveScrollFollow, shouldLoadOlder } from "../lib/chatScroll";
 import type { ChatScope } from "../lib/chatScope";
 import { cn } from "../lib/cn";
+import { generationCaptionsOf } from "../lib/generationInfo";
 import type { LiveToolPhase } from "../lib/liveToolCall";
 import { queueWaitsOf } from "../lib/queueWait";
 import { toolCallCopyText, toolHistoryCopyText } from "../lib/copy-content";
@@ -133,6 +134,8 @@ export function ChatArea({
   );
   // resync では run の toolCall が最後のバブルへまとまるため、全バブル横断で同じ呼び出しをバッジ 1 件に統合する
   const skillBadges = skillBadgesOf(bubbles);
+  // 生成カードはターン単位で対応付ける (履歴の投影はカードと本文を別のバブルへ分けるためバブル内では閉じない)
+  const generationCaptions = useMemo(() => generationCaptionsOf(bubbles, { rootCwd, cwd }), [bubbles, rootCwd, cwd]);
   // 待機の順位と件数。サーバーが配った順位を保持したまま、表示の直前に並べ直して 1..N を振り直す
   const queueWaits = useMemo(() => queueWaitsOf(bubbles), [bubbles]);
 
@@ -307,6 +310,7 @@ export function ChatArea({
         rootCwd={rootCwd}
         cwd={cwd}
         rawUrl={rawUrl}
+        captions={generationCaptions.get(bubble.id)}
         // 履歴 item はスクロールで再マウントするため、登場アニメーションはライブバブルだけにする
         animate={bubble.entryId === undefined}
         // 添付の注記を除いた本文をコピーする (MessageView が分解して渡す)

@@ -217,6 +217,11 @@ export interface StubToolBurst {
   prompt?: string;
   calls?: StubToolBurstCall[];
   /**
+   * この送信だけの assistant 本文。省略するとセッションの `reply` を使う (生成物の Markdown 画像を
+   * 本文に置く受入で使う。`calls` を空にすると本文だけを流せる)
+   */
+  reply?: string;
+  /**
    * 最後のツール (investigate) が終わった後に届く一瞬の行。start と end を同じ時刻で流すため、
    * 実行中として一度も出ず、ホールドだけが積まれる。畳みはじめの窓へ入れて受入に使う
    */
@@ -671,6 +676,8 @@ export function createStubSession(options: StubSessionOptions = {}): StubSession
         }
         // 連続ツール呼び出しも同じく呼び出しだけ先に知らせ、end は本文の後で出す
         const burst = stubToolBurstOf(options.toolBurst, text);
+        // 本文は burst ごとに差し替えられる (生成物の Markdown 画像を本文に置く受入で使う)
+        const body = burst?.reply ?? reply;
         const burstCalls = burst?.calls ?? [];
         const burstEvents = toolBurstTimeline(burstCalls, burstIdPrefix);
         const closingRow = burst?.closingWindow;
@@ -724,7 +731,7 @@ export function createStubSession(options: StubSessionOptions = {}): StubSession
             partialResult: { content: [{ type: "text", text }] },
           });
         }
-        const chunks = [reply.slice(0, 3), reply.slice(3)].filter(Boolean);
+        const chunks = [body.slice(0, 3), body.slice(3)].filter(Boolean);
         // 連続ツール呼び出しを時刻どおりに流す (速い順次と並列を同じタイムラインで再現する)
         let burstAt = 0;
         for (const event of burstEvents) {

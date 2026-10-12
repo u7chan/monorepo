@@ -8,6 +8,7 @@ import { MESSAGE_MEASURE_CLASS } from "../../lib/messageColumn";
 import { messageFullTimeLabel, messageTimeLabel } from "../../lib/messageTime";
 import { splitSkillBlock } from "../../lib/skillBlock";
 import { nonSkillToolCards, type SkillBadge } from "../../lib/skillLoad";
+import type { GenerationInfo } from "../../lib/generationInfo";
 import type { QueueWait } from "../../lib/queueWait";
 import { messageMetaLine, messageMetaTitle } from "../../lib/usageFormat";
 import type { AskUserAnswer } from "../../types";
@@ -17,6 +18,7 @@ import { AskUserCard } from "./AskUserCard";
 import { AttachedFiles } from "./AttachedFiles";
 import { CopyButton } from "./CopyButton";
 import { GenerationBadgeList } from "./GenerationBadgeList";
+import { MarkdownCaptionProvider } from "../markdown/MarkdownImageRefs";
 import { SkillInvocation } from "./SkillInvocation";
 import { SkillLoadList } from "./SkillLoadList";
 import { SpeechPlayerList } from "./SpeechPlayerList";
@@ -54,6 +56,7 @@ export function MessageView({
   rootCwd,
   cwd = "",
   rawUrl,
+  captions,
   onCopy,
   copiedId,
   copyFailure,
@@ -86,6 +89,8 @@ export function MessageView({
   cwd?: string;
   /** 解決した root 相対パスから配信 URL を組む (App が版付きの関数を注入する)。未指定は生成音声を出さない */
   rawUrl?: (rootRelativePath: string) => string;
+  /** このターンの生成物の対応表 (root 相対パス → 生成情報)。未指定はキャプションを出さない */
+  captions?: Map<string, GenerationInfo>;
   onCopy: (text: string) => void;
   copiedId: string;
   /** 失敗の内訳 (id で引く)。通知と選択の導線を出す根拠 */
@@ -283,13 +288,22 @@ export function MessageView({
             </>
           ) : (
             <div ref={bodyRef}>
-              <MarkdownView text={bubble.text} />
+              <MarkdownCaptionProvider captions={captions}>
+                <MarkdownView text={bubble.text} />
+              </MarkdownCaptionProvider>
             </div>
           )
         ) : null}
         {/* 本文の直後に置く (位置は docs/speech-generation.md#チャットのプレイヤー) */}
         {!isUser && rawUrl !== undefined ? (
-          <SpeechPlayerList cards={toolCards} rootCwd={rootCwd} cwd={cwd} rawUrl={rawUrl} compact={compact} />
+          <SpeechPlayerList
+            cards={toolCards}
+            rootCwd={rootCwd}
+            cwd={cwd}
+            rawUrl={rawUrl}
+            captions={captions}
+            compact={compact}
+          />
         ) : null}
         {questionCards.length > 0 ? (
           <div className={cn("grid", compact ? "mt-2 gap-2" : "mt-2.5 gap-2.5")}>
