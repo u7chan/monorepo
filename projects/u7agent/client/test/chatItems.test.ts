@@ -104,6 +104,40 @@ test("見積りは正の値になり、ツール出力で増える", () => {
     },
   });
   assert.ok(generation > otherTool, "生成バッジの行を見積りに足す");
+  // 生成音声のプレイヤーも加算する (結果本文の長さを揃え、プレイヤーの分だけの差を見る)
+  const speech = estimateChatItemHeight({
+    kind: "message",
+    key: "m",
+    bubble: {
+      ...bubble(1, "m1", "active", "短い"),
+      tools: [
+        {
+          id: "t",
+          name: "generate_speech",
+          args: "",
+          phase: "done",
+          output: "モデル: m\n音声を生成して保存しました: p\nこの行が続きます",
+        },
+      ],
+    },
+  });
+  const image = estimateChatItemHeight({
+    kind: "message",
+    key: "m",
+    bubble: {
+      ...bubble(1, "m1", "active", "短い"),
+      tools: [
+        {
+          id: "t",
+          name: "generate_image",
+          args: "",
+          phase: "done",
+          output: "モデル: m\n画像を生成して保存しました: p\nこの行が続きます",
+        },
+      ],
+    },
+  });
+  assert.ok(speech > image, "生成音声のプレイヤーを見積りに足す");
   assert.ok(estimateChatItemHeight({ kind: "boundary", key: "b" }) > 0);
   assert.ok(
     estimateChatItemHeight({ kind: "compaction", key: "c", index: 0, marker: { id: "c", index: 0, compactions: [] } }) >

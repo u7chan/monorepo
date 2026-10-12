@@ -139,6 +139,64 @@ const pi = Object.assign(
           },
         ],
       },
+      // 生成音声のプレイヤーの受入用。再生には実ファイルが要る (stub は結果本文しか流さない) ので、
+      // 一時ワークスペースへ mp3 / wav を置いてから使う
+      {
+        prompt: "音声2本",
+        calls: [
+          {
+            name: "generate_speech",
+            args: { text: "夜のホームに、一匹の黒猫が座っています。" },
+            at: 0,
+            endAt: 900,
+            result:
+              "モデル: google/gemini-3.8-flash-tts\n" +
+              "ボイス: Kore\n" +
+              "音声を生成して保存しました: generated/night-platform-cat-intro.mp3\n" +
+              "本文に示すときは、このパス (generated/night-platform-cat-intro.mp3) を示してください。",
+          },
+          {
+            name: "generate_speech",
+            args: { text: "同じ紹介文の wav 版です。" },
+            at: 1000,
+            endAt: 1900,
+            result:
+              "モデル: google/gemini-3.8-flash-tts\n" +
+              "ボイス: Zephyr\n" +
+              "音声を生成して保存しました: generated/night-platform-cat-intro.wav\n" +
+              "本文に示すときは、このパス (generated/night-platform-cat-intro.wav) を示してください。",
+          },
+        ],
+      },
+      // モデル行を書く前のセッションの音声。パスは残っているがプレイヤーもバッジも出ない
+      {
+        prompt: "音声モデル行なし",
+        calls: [
+          {
+            name: "generate_speech",
+            args: { text: "昔の音声です。" },
+            at: 0,
+            endAt: 700,
+            result:
+              "音声を生成して保存しました: generated/legacy-intro.mp3\n" +
+              "本文に示すときは、このパス (generated/legacy-intro.mp3) を示してください。",
+          },
+        ],
+      },
+      // 失敗した音声 (throw は結果本文を残さない) ではプレイヤーが出ない
+      {
+        prompt: "音声失敗",
+        calls: [
+          {
+            name: "generate_speech",
+            args: { text: "混雑しているとき" },
+            at: 0,
+            endAt: 800,
+            isError: true,
+            result: "音声生成が混雑しています（レート制限またはプロバイダー障害）",
+          },
+        ],
+      },
     ],
     // 自動 (preflight) 圧縮の受入用: 本文に「自動圧縮」を含めて送ると、user message を積む前に
     // 1 回だけ圧縮が走る (区切りとターン終端の両方が出る)

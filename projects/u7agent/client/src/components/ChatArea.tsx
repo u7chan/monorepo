@@ -44,6 +44,10 @@ export type ChatAreaProps = {
   scope: ChatScope;
   /** ワークスペース root の絶対パス (health.cwd)。添付のサムネイル URL を組むのに使う */
   rootCwd?: string;
+  /** 選択中セッションの作業フォルダ (payload.cwd)。生成音声のプレイヤーのパス解決に使う */
+  cwd?: string;
+  /** 解決した root 相対パスから配信 URL を組む (App が版付きの関数を注入する)。未指定は生成音声を出さない */
+  rawUrl?: (rootRelativePath: string) => string;
   /** 会話の切替 ("" からの遷移 = 新規チャットの作成も含む)。変わったら最下部へ揃える */
   sessionId: string;
   /** 送信のたびに増える (reducer の localUser)。値そのものは表示に使わず、増加だけを追従の合図にする */
@@ -91,6 +95,8 @@ export function ChatArea({
   agentIcon,
   scope,
   rootCwd = "",
+  cwd = "",
+  rawUrl,
   sessionId,
   sendSeq,
   onSuggestion,
@@ -299,6 +305,8 @@ export function ChatArea({
         agentName={agentName}
         agentIcon={agentIcon}
         rootCwd={rootCwd}
+        cwd={cwd}
+        rawUrl={rawUrl}
         // 履歴 item はスクロールで再マウントするため、登場アニメーションはライブバブルだけにする
         animate={bubble.entryId === undefined}
         // 添付の注記を除いた本文をコピーする (MessageView が分解して渡す)
