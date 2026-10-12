@@ -757,7 +757,6 @@ export default function App() {
                     : undefined
               }
               runTools={app.chat.runTools}
-              finishedRunDurationMs={app.chat.finishedRunDurationMs}
               runtimeReady={app.health?.ready !== false}
               sending={app.sending}
               stopVisible={app.stopVisible}

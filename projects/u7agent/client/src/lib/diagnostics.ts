@@ -296,7 +296,6 @@ export type ClientSnapshot = {
   runStatus: RunStatus;
   queueDepth: number;
   runStartedAt: number | null;
-  finishedRunDurationMs: number | null;
   activity: string;
   activityState: string | null;
   currentAssistantId: number | null;
@@ -328,7 +327,6 @@ export function clientSnapshotOf(chat: ChatState, recorder: DiagnosticsRecorderS
     runStatus: chat.runStatus,
     queueDepth: chat.queueDepth,
     runStartedAt: chat.runStartedAt ?? null,
-    finishedRunDurationMs: chat.finishedRunDurationMs ?? null,
     activity: chat.activity,
     activityState: chat.activityState ?? null,
     currentAssistantId: chat.currentAssistantId,

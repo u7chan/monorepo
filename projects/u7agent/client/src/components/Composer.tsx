@@ -36,8 +36,6 @@ export type ComposerProps = {
   runningSince?: number;
   /** 回答待ち (ask_user の実行区間) を経過時間から除く入力。run が実行中のときだけ使う */
   runTools?: Record<string, ToolCall>;
-  /** 直前に終わったランの合計時間 (run_end のサーバー計測)。完了 / 停止 / エラーの状態行に凍結表示する */
-  finishedRunDurationMs?: number;
   runtimeReady: boolean;
   sending: boolean;
   stopVisible: boolean;
@@ -115,7 +113,6 @@ export function Composer({
   activityState,
   runningSince,
   runTools,
-  finishedRunDurationMs,
   runtimeReady,
   sending,
   stopVisible,
@@ -332,7 +329,6 @@ export function Composer({
             runningSince={runningSince}
             runTools={runTools}
             queueDepth={queueDepth}
-            finishedRunDurationMs={finishedRunDurationMs}
             context={context}
             model={settings.model}
             modelLabel={settings.modelLabel}

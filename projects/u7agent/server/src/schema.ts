@@ -12,7 +12,7 @@ export const RunStatusSchema = z.enum(["idle", "running", "queued", "compacting"
 export type RunStatus = z.infer<typeof RunStatusSchema>;
 
 /**
- * ランが終端したときの結末。`RunStatusSchema` の部分集合で、ターン終端の表示 (`Complete` /
+ * ランが終端したときの結末。`RunStatusSchema` の部分集合で、ターンの結末の表示 (`Done` /
  * `Stopped` / `Failed`) に使う。終端以外 (`idle` / `running` / `queued` / `compacting`) は載せない
  */
 export const RunOutcomeSchema = z.enum(["completed", "stopped", "error"]);
@@ -352,7 +352,7 @@ export const HistoryMessageItemSchema = ChatMessageSchema.extend({
   runId: z.string().optional(),
   /**
    * この user メッセージを送信した run の所要時間 / 結末 (`run_end` と同じ定義で、キュー待ちを含まない)。
-   * run の記憶はメモリのみなので、再起動とアイドル sweep の後は載らない (ターン終端の行を出さない)
+   * run の記憶はメモリのみなので、再起動とアイドル sweep の後は載らない (結末のセグメントを出さない)
    */
   runDurationMs: z.number().optional(),
   runOutcome: RunOutcomeSchema.optional(),

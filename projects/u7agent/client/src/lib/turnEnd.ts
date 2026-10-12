@@ -1,17 +1,23 @@
 /**
- * ターン終端の行 (罫線 + `Complete · 1m 20s`) の文言と整形。値はラン全体 (`run_end.durationMs` と
- * 同じ定義) で、履歴は user item、ライブは `run_end` の値を写す。無いときは行ごと出さない。
+ * ターンの結末 (応答のメタ行に足す `Done · 1m 20s`) の型と文言。値はラン全体 (`run_end.durationMs` と
+ * 同じ定義) で、履歴は user item、ライブは `run_end` の値を写す。無いときはセグメントごと出さない。
  */
 import type { RunOutcome, RunStatus } from "../types";
 import { formatElapsed } from "./elapsed";
 
+/** 値の出どころは user バブル (`runDurationMs` / `runOutcome`)、表示先はそのターンの応答のメタ行 */
+export type TurnEnd = {
+  outcome: RunOutcome;
+  durationMs: number;
+};
+
 const OUTCOME_LABELS: Record<RunOutcome, string> = {
-  completed: "Complete",
+  completed: "Done",
   stopped: "Stopped",
   error: "Failed",
 };
 
-/** 終了状態の英語。ターン終端のマーカーとして短く読ませるため、日本語 UI の中でここだけ英語にする */
+/** 結末の英語。メタ行の 1 セグメントとして短く読ませるため、日本語 UI の中でここだけ英語にする */
 export function turnOutcomeLabel(outcome: RunOutcome): string {
   return OUTCOME_LABELS[outcome];
 }
@@ -21,7 +27,12 @@ export function formatTurnDuration(ms: number): string {
   return ms < 1000 ? "<1s" : formatElapsed(ms);
 }
 
-/** ライブの `run_end.status` (7 値) から終端の結末だけを取り出す。終端以外では行を出さない */
+/** メタ行の 1 セグメント。行の文法 (量を ` · ` で区切る) に合わせ、結末と時間を 1 つの量にする */
+export function turnEndText(turnEnd: TurnEnd): string {
+  return `${turnOutcomeLabel(turnEnd.outcome)} · ${formatTurnDuration(turnEnd.durationMs)}`;
+}
+
+/** ライブの `run_end.status` (7 値) から終端の結末だけを取り出す。終端以外では値を付けない */
 export function runOutcomeOf(status: RunStatus): RunOutcome | undefined {
   return status === "completed" || status === "stopped" || status === "error" ? status : undefined;
 }

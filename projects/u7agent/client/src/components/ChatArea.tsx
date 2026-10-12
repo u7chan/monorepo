@@ -17,7 +17,6 @@ import { CompactionDivider } from "./chat/CompactionDivider";
 import { ContextBoundary } from "./chat/ContextBoundary";
 import { MessageView } from "./chat/MessageView";
 import { ScrollToBottomButton } from "./chat/ScrollToBottomButton";
-import { TurnEndRow } from "./chat/TurnEndRow";
 
 export type ChatAreaProps = {
   bubbles: Bubble[];
@@ -281,16 +280,6 @@ export function ChatArea({
 
   function renderItem(item: ChatRenderItem) {
     if (item.kind === "boundary") return <ContextBoundary compact={compact} />;
-    if (item.kind === "turn-end") {
-      return (
-        <TurnEndRow
-          outcome={item.outcome}
-          durationMs={item.durationMs}
-          summarized={item.summarized}
-          compact={compact}
-        />
-      );
-    }
     if (item.kind === "compaction") {
       return <CompactionDivider compactions={item.marker.compactions} startIndex={item.index} compact={compact} />;
     }
@@ -313,6 +302,8 @@ export function ChatArea({
         captions={generationCaptions.get(bubble.id)}
         // 履歴 item はスクロールで再マウントするため、登場アニメーションはライブバブルだけにする
         animate={bubble.entryId === undefined}
+        // ターンの結末は最後の応答にだけ付く (導出は chatItems)
+        turnEnd={item.turnEnd}
         // 添付の注記を除いた本文をコピーする (MessageView が分解して渡す)
         onCopy={(text) => void copyMessage(text, `bubble_${bubble.id}`)}
         copiedId={copiedId}

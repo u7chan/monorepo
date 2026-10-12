@@ -153,7 +153,7 @@ export function applySessionEvent(entry: EventEntry, deps: SessionStreamDeps): v
         runId: entry.data.runId,
         status: entry.data.status,
         queueDepth: entry.data.queueDepth,
-        // 旧サーバーは載せない (undefined のまま = 状態行に合計時間を出さない)
+        // 旧サーバーは載せない (undefined のまま = 結末のセグメントを付けない)
         durationMs: entry.data.durationMs,
         error: entry.data.error,
         // 分類コードは status が error のときだけサーバーが載せる (後方互換のため undefined があり得る)

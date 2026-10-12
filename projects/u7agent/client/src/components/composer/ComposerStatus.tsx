@@ -30,7 +30,6 @@ export function ComposerStatus({
   runningSince,
   runTools = {},
   queueDepth = 0,
-  finishedRunDurationMs,
   context,
   model,
   modelLabel,
@@ -60,11 +59,6 @@ export function ComposerStatus({
   runTools?: Record<string, ToolCall>;
   /** サーバーの待機キュー件数 (停止ボタンの件数と同じ値)。回答待ちのときの待機の理由を出す根拠 */
   queueDepth?: number;
-  /**
-   * 直前に終わったランの合計時間 (run_end のサーバー計測)。渡すと活動の右に凍結表示する。
-   * 実行中の `runningSince` と違い値が動かないため、こちらは読み上げの対象にする
-   */
-  finishedRunDurationMs?: number;
   context?: ContextUsage;
   /** 実効モデルの provider/id。tooltip と折り返し後の切り詰めの確認に使う */
   model?: string;
@@ -109,8 +103,6 @@ export function ComposerStatus({
   // 演出を先頭から流し直す目印。拍の番号を key に渡し、10 秒ごとに作り直す
   // (桁は毎秒書き換わるが、そのたびに演出を流すと数字より演出が大きくなる)
   const beat = elapsed === null ? 0 : elapsedBeatIndex(elapsed.ms);
-  // 確定した合計時間。実行中の経過と違って毎秒変わらないので、活動欄と同じ行に出しつつ読み上げに残す
-  const finishedElapsed = finishedRunDurationMs === undefined ? null : formatElapsed(finishedRunDurationMs);
   // 活動が無いときは活動欄ごと出さない (空の欄が折り返して空行が残るのを避ける)。回答待ちの理由は
   // 出どころが別 (キュー) なので、活動の文言が変わっても表示を落とさない
   const queueReason = answerWaitQueueReason(pendingAskUserQuestionCount(runTools, runStatus), queueDepth);
@@ -183,11 +175,6 @@ export function ComposerStatus({
               >
                 ({elapsed.text})
               </span>
-            )}
-            {/* 完了の合計時間 (動かない値)。aria-live の外に置き、読み上げの対象には残す。
-                実行中と同じ位置に出るが、終わった値なので演出は付けない */}
-            {finishedElapsed === null ? null : (
-              <span className="shrink-0 font-sans text-2xs text-ink-ghost tabular-nums">({finishedElapsed})</span>
             )}
             {/* 回答待ちの間にキューへ入った送信が実行されない理由。footnote の「上の質問に回答して
                 ください（N件）」と矛盾しないよう、起点が回答ではなく run の終了であることを示す。
