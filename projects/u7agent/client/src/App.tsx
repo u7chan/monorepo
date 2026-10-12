@@ -27,6 +27,7 @@ import { FileRefProvider } from "./components/markdown/FileRefLink";
 import { MarkdownImageProvider } from "./components/markdown/MarkdownImageRefs";
 import { useU7Agent, type SendMessageOptions } from "./hooks/useU7Agent";
 import { useElapsedMs } from "./hooks/useElapsedMs";
+import { useExitPhase } from "./hooks/useExitPhase";
 import { useLayoutMode } from "./hooks/useLayoutMode";
 import { useLiveToolCall } from "./hooks/useLiveToolCall";
 import { useMarkdownImageRawUrl } from "./hooks/useMarkdownImageRawUrl";
@@ -512,6 +513,13 @@ export default function App() {
   // ワークスペース root 固定なので、作業フォルダとは別の入口にする
   const filesPanelOpen = !compact && filesRoot !== "" && sessionFilesOpen;
   const filesSheetOpen = compact && filesRoot !== "" && sessionFilesSheetOpen;
+  // 開閉の phase。閉じた後も退場アニメの間だけ mount を延ばし、CSS の再生と state の寿命を合わせる
+  // (hooks/useExitPhase)。シートは dialog 自身がアニメを持つので、その ref も App が持つ
+  const filesSheetRef = useRef<HTMLDialogElement | null>(null);
+  const settingsViewRef = useRef<HTMLDivElement | null>(null);
+  const filesPanelPhase = useExitPhase(filesPanelOpen, panelWidth.mainRef);
+  const filesSheetPhase = useExitPhase(filesSheetOpen, filesSheetRef);
+  const settingsPhase = useExitPhase(mainView === "settings", settingsViewRef);
   // 未消費の要求は選択中セッションのときだけパネルへ渡す (セッションが変われば useSessions が破棄する)。
   // 面へ渡すのは 1 つの要求で、自分宛ての種別だけを適用する (面のモードは要求の種別で切り替える)
   const pendingFileRef = fileRefRequestForSession(app.fileRefRequest, app.sessionId);
@@ -648,24 +656,20 @@ export default function App() {
         ref={panelWidth.mainRef}
         // パネルの列幅。ドラッグ中は同じ変数を直接書き換える (hooks/useSessionFilesPanelWidth)
         style={{ "--session-files-width": `${panelWidth.width}px` } as CSSProperties}
-        className={cn(
-          "grid min-h-0 min-w-0 grid-rows-1 overflow-hidden",
-          // 右パネルはシェルの 3 カラム目 (チャット列の隣)。幅はハンドルで選ぶ (lib/sessionFilesPanel.ts)
-          filesPanelOpen ? "grid-cols-[minmax(0,1fr)_var(--session-files-width)]" : "grid-cols-1",
-        )}
+        // 開閉の列幅は .session-files-columns が持つ。ドラッグ中の幅はそのまま変数を書き換える
+        data-open={filesPanelPhase === "open"}
+        data-closing={filesPanelPhase === "closing"}
+        className="session-files-columns grid min-h-0 min-w-0 grid-rows-1 overflow-hidden"
       >
         <div className="grid min-h-0 min-w-0 grid-cols-1 grid-rows-1 overflow-hidden">
-          {/* 設定ページを開いている間もチャットは mount したまま display だけ切る。
-              実行中のラン (SSE)・入力中の下書き・スクロール位置を unmount で失わないため */}
+          {/* 設定ページを開いている間もチャットは mount したまま (実行中のラン・SSE・入力中の下書き・
+              スクロール位置を unmount で失わないため)。display は切らず、opacity と visibility だけを動かす */}
           <div
-            className={
-              mainView === "settings"
-                ? "hidden"
-                : cn(
-                    "grid min-h-0 min-w-0 grid-cols-1 overflow-hidden",
-                    emptyPortrait ? "chat-empty-portrait" : "grid-rows-[auto_minmax(0,1fr)_auto]",
-                  )
-            }
+            data-visible={mainView === "chat"}
+            className={cn(
+              "chat-view grid min-h-0 min-w-0 grid-cols-1 overflow-hidden",
+              emptyPortrait ? "chat-empty-portrait" : "grid-rows-[auto_minmax(0,1fr)_auto]",
+            )}
           >
             {compactMode ? (
               <CompactBar
@@ -767,11 +771,23 @@ export default function App() {
             />
             {emptyPortrait ? <div aria-hidden="true" className="min-h-0" /> : null}
           </div>
-          {mainView === "settings" ? settingsScreen() : null}
+          {settingsPhase !== "closed" ? (
+            // 設定ページはチャットと同じマスに重ねる。退場 phase の間は mount を保ち (inert で操作と読み上げから
+            // 外す)、入るときは自身のアニメ、出るときはチャットのフェードアウトと同時に消える
+            <div
+              ref={settingsViewRef}
+              data-closing={settingsPhase === "closing"}
+              inert={settingsPhase === "closing"}
+              className="settings-view grid min-h-0 min-w-0 grid-cols-1"
+            >
+              {settingsScreen()}
+            </div>
+          ) : null}
         </div>
-        {filesPanelOpen ? (
+        {filesPanelPhase !== "closed" ? (
           <SessionFilesPanel
             key={filesRoot}
+            phase={filesPanelPhase}
             root={filesRoot}
             envScope={envScope ?? {}}
             excludeNames={excludeNames}
@@ -786,9 +802,11 @@ export default function App() {
           />
         ) : null}
       </main>
-      {filesSheetOpen ? (
+      {filesSheetPhase !== "closed" ? (
         <SessionFilesSheet
           key={filesRoot}
+          dialogRef={filesSheetRef}
+          phase={filesSheetPhase}
           root={filesRoot}
           envScope={envScope ?? {}}
           excludeNames={excludeNames}
