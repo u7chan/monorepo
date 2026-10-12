@@ -4,6 +4,7 @@
  */
 import type { AskUserAnswer, AskUserQuestion, RunStatus, ToolCall } from "../types";
 import type { ToolCard } from "./chatTypes";
+import type { ConfirmRequest } from "./confirmDialog";
 
 /** サーバーの同名定数は types.ts の再配布に載らないため、クライアント側に置く */
 export const ASK_USER_TOOL_NAME = "ask_user";
@@ -72,6 +73,11 @@ export function askUserDraftsComplete(drafts: readonly AskUserDraft[]): boolean 
   return drafts.every(askUserDraftResolved);
 }
 
+/** 未回答の質問数。閉じる操作の補足と確認が「回答なし」で送る件数として使う */
+export function askUserUnresolvedCount(drafts: readonly AskUserDraft[]): number {
+  return drafts.filter((draft) => !askUserDraftResolved(draft)).length;
+}
+
 /**
  * `from` の次 (末尾まで見て無ければ先頭) で最初の未回答の質問。1 枚ずつ出すカードが
  * 「送る前に未回答の質問へ戻す」ために使う (見つからなければ undefined)。
@@ -82,6 +88,57 @@ export function nextUnresolvedAskUserIndex(drafts: readonly AskUserDraft[], from
     if (!askUserDraftResolved(askUserDraftAt(drafts, index))) return index;
   }
   return undefined;
+}
+
+/** 閉じる操作の補足。未回答がある間だけ、閉じたときに残りが「回答なし」になることを示す */
+export function askUserCloseNotice(unresolved: number): string | undefined {
+  return unresolved > 0 ? `閉じると、未回答の質問 ${unresolved} 件は「回答なし」で送信されます。` : undefined;
+}
+
+/**
+ * 未回答を残したまま閉じるときの確認。未回答が無いときは確認しない (送るのは回答済みの内容だけで、
+ * 押し間違えで失うものが無い)。
+ */
+export function askUserCloseConfirmRequest(unresolved: number): ConfirmRequest | undefined {
+  const notice = askUserCloseNotice(unresolved);
+  if (notice === undefined) return undefined;
+  return {
+    kind: "confirm",
+    title: "質問を閉じる",
+    body: [`回答済みの内容はそのまま送信します。${notice}`],
+    confirmLabel: "回答なしで送る",
+  };
+}
+
+/** 閉じる確認の前後で見る、確定時点のカードの状態 */
+export type AskUserCloseState = {
+  cardId: string;
+  /** カードがまだ回答待ちのフォームで、閉じる操作を受け付けるか (unmount / settle で false) */
+  closable: boolean;
+};
+
+/** `✕` でカードを閉じるときの依存。確認と送信の実体は呼び出し側 (カード) が持つ */
+export type AskUserCloseDeps = {
+  /** 確認を開始したカードの toolCallId */
+  cardId: string;
+  drafts: readonly AskUserDraft[];
+  /** 確定時点のカード。確認中に失効すると `closable` が false になる */
+  state: () => AskUserCloseState;
+  confirm: (request: ConfirmRequest) => Promise<boolean>;
+  send: (answers: AskUserAnswer[]) => Promise<void>;
+};
+
+/**
+ * `✕` でカードを閉じる。未回答が残るときだけ確認を挟み、確定時にカードが失効していたら送らない。
+ * 確認を開いている間に会話が切り替わると、送信は確定時の会話へ古い `cardId` で飛ぶ (toolCallId の
+ * 会話をまたいだ一意性は契約に無い) ため、送る直前にカードの生存を確かめる。
+ */
+export async function closeAskUserCard(deps: AskUserCloseDeps): Promise<void> {
+  const request = askUserCloseConfirmRequest(askUserUnresolvedCount(deps.drafts));
+  if (request !== undefined && !(await deps.confirm(request))) return;
+  const current = deps.state();
+  if (!current.closable || current.cardId !== deps.cardId) return;
+  await deps.send(askUserAnswersClosing(deps.drafts));
 }
 
 /**

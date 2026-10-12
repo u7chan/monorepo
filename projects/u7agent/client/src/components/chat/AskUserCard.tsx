@@ -1,23 +1,27 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { ToolCard } from "../../hooks/chatReducer";
 import {
   askUserAnswerText,
   askUserAnsweredNothing,
-  askUserAnswersClosing,
   askUserAnswersFromDrafts,
+  askUserCloseNotice,
   askUserDraftAt,
   askUserDraftResolved,
   askUserDraftSelectedCount,
   askUserDraftsComplete,
+  askUserUnresolvedCount,
+  closeAskUserCard,
   emptyAskUserDrafts,
   isPendingAskUserCard,
   nextUnresolvedAskUserIndex,
   toggleAskUserOption,
+  type AskUserCloseState,
   type AskUserDraft,
 } from "../../lib/askUser";
 import { cn } from "../../lib/cn";
 import { isImeComposingEnter } from "../../lib/composerKeys";
 import type { AskUserAnswer, AskUserQuestion } from "../../types";
+import { useConfirm } from "../ConfirmProvider";
 import { ArrowRightIcon, CheckIcon, ChevronIcon, ChevronLeftIcon, CloseIcon, PencilIcon } from "../icons";
 
 type AnswerResult = { ok: true } | { ok: false; error: string };
@@ -204,7 +208,8 @@ function AskUserForm({
   const draft = askUserDraftAt(drafts, index);
   const resolved = askUserDraftResolved(draft);
   const selected = askUserDraftSelectedCount(draft);
-  const unresolved = drafts.filter((item) => !askUserDraftResolved(item)).length;
+  const unresolved = askUserUnresolvedCount(drafts);
+  const closeNotice = askUserCloseNotice(unresolved);
   const last = index === questions.length - 1;
   // 1 問だけのカードは「他に未回答がある」ことが無いので、いまの質問の選択数を出す
   const multi = questions.length > 1;
@@ -302,6 +307,9 @@ function AskUserForm({
           </button>
         </div>
       </div>
+      {closeNotice !== undefined ? (
+        <p className={cn("m-0 text-2xs text-ink-soft", compact ? "px-2.5 pb-1.5" : "px-3 pb-2")}>{closeNotice}</p>
+      ) : null}
     </div>
   );
 }
@@ -358,11 +366,21 @@ export function AskUserCard({
   const [sending, setSending] = useState(false);
   const [sent, setSent] = useState(false);
   const [error, setError] = useState<string>();
+  const confirm = useConfirm();
 
   const waiting = answerable && isPendingAskUserCard(card);
   const answers = recordAnswers(card, drafts, sent);
   const showForm = waiting && answers === undefined;
   const index = Math.min(page, Math.max(questions.length - 1, 0));
+  // 確認を開いている間のカードの生存。unmount の cleanup と settle (`showForm` が false) のどちらでも
+  // 閉じられなくなる (確定時の会話へ古い card.id の回答を送らない)
+  const closeStateRef = useRef<AskUserCloseState>({ cardId: card.id, closable: false });
+  useEffect(() => {
+    closeStateRef.current = { cardId: card.id, closable: showForm };
+    return () => {
+      closeStateRef.current = { cardId: card.id, closable: false };
+    };
+  }, [card.id, showForm]);
 
   const move = (delta: number): void => {
     setError(undefined);
@@ -397,6 +415,18 @@ export function AskUserCard({
     void submit(askUserAnswersFromDrafts(drafts));
   };
 
+  // 確認は未回答があるときだけ (回答済みだけを送るなら、押し間違えで失うものが無い)。確定時には
+  // カードの生存を確かめる (確認中に会話が切り替わると、確定時の会話へ古い card.id で飛ぶ)
+  const close = (): void => {
+    void closeAskUserCard({
+      cardId: card.id,
+      drafts,
+      state: () => closeStateRef.current,
+      confirm,
+      send: submit,
+    });
+  };
+
   return (
     <section
       aria-label={showForm ? "エージェントからの質問" : "エージェントからの質問と回答"}
@@ -428,7 +458,7 @@ export function AskUserCard({
             if (index < questions.length - 1) move(1);
           }}
           onAdvance={advance}
-          onClose={() => void submit(askUserAnswersClosing(drafts))}
+          onClose={close}
         />
       ) : (
         <AskUserRecord
