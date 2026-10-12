@@ -2,6 +2,7 @@
 // DOM を使わない純関数だけをここに置き、配線 (virtualizer / scroll ハンドラ) は ChatArea が持つ。
 import type { Bubble, CompactionMarker } from "./chatTypes";
 import type { CompactionInfo, RunOutcome } from "../types";
+import { generationInfoOf } from "./generationInfo";
 import { USER_MESSAGE_CLAMP_PX } from "./userMessage";
 
 export type ChatRenderItem =
@@ -106,8 +107,10 @@ export function estimateChatItemHeight(item: ChatRenderItem): number {
   const estimatedText = Math.min(bubble.text.length, 4000) * 0.55;
   const textHeight = bubble.role === "user" ? Math.min(estimatedText, USER_MESSAGE_CLAMP_PX) : estimatedText;
   const toolHeight = bubble.tools.reduce((total, card) => total + 48 + Math.min(card.output.length, 600) * 0.35, 0);
-  const skillHeight = bubble.skillLoads.length * 28;
-  return Math.max(72, Math.min(4000, 64 + textHeight + toolHeight + skillHeight));
+  // スキル読み込みと生成のバッジは同じ寸法で並ぶため、バッジ 1 件ぶんで数える
+  const badgeCount =
+    bubble.skillLoads.length + bubble.tools.filter((card) => generationInfoOf(card) !== undefined).length;
+  return Math.max(72, Math.min(4000, 64 + textHeight + toolHeight + badgeCount * 28));
 }
 
 /**

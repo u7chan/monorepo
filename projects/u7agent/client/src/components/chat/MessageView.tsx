@@ -16,6 +16,7 @@ import { MarkdownView } from "../markdown/MarkdownView";
 import { AskUserCard } from "./AskUserCard";
 import { AttachedFiles } from "./AttachedFiles";
 import { CopyButton } from "./CopyButton";
+import { GenerationBadgeList } from "./GenerationBadgeList";
 import { SkillInvocation } from "./SkillInvocation";
 import { SkillLoadList } from "./SkillLoadList";
 import { ToolHistoryView } from "./ToolHistory";
@@ -256,6 +257,8 @@ export function MessageView({
             onCopyTool={onCopyTool}
           />
         ) : null}
+        {/* 本文より上に置く (役割の分担は docs/image-generation.md#チャットのバッジ) */}
+        {!isUser ? <GenerationBadgeList cards={toolCards} compact={compact} /> : null}
         {bubble.text ? (
           isUser ? (
             <>

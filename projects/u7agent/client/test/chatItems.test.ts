@@ -85,6 +85,25 @@ test("見積りは正の値になり、ツール出力で増える", () => {
   });
   assert.ok(plain >= 72);
   assert.ok(long > plain);
+  // 生成バッジの行を加算する (出力の長さを揃え、バッジの分だけの差を見る)
+  const output = "モデル: openai/gpt-image-2\n画像を生成して保存しました: generated/cat.png";
+  const generation = estimateChatItemHeight({
+    kind: "message",
+    key: "m",
+    bubble: {
+      ...bubble(1, "m1", "active", "短い"),
+      tools: [{ id: "t", name: "generate_image", args: "", phase: "done", output }],
+    },
+  });
+  const otherTool = estimateChatItemHeight({
+    kind: "message",
+    key: "m",
+    bubble: {
+      ...bubble(1, "m1", "active", "短い"),
+      tools: [{ id: "t", name: "bash", args: "", phase: "done", output }],
+    },
+  });
+  assert.ok(generation > otherTool, "生成バッジの行を見積りに足す");
   assert.ok(estimateChatItemHeight({ kind: "boundary", key: "b" }) > 0);
   assert.ok(
     estimateChatItemHeight({ kind: "compaction", key: "c", index: 0, marker: { id: "c", index: 0, compactions: [] } }) >

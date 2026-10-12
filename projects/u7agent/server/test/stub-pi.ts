@@ -249,6 +249,8 @@ export interface StubToolBurstCall {
   progress?: string[];
   /** tool_execution_end の報告本文 */
   result?: string;
+  /** true で失敗したカードにする (結果本文のない throw の再現。バッジが出ないことの受入に使う) */
+  isError?: boolean;
 }
 
 type StubToolBurstEvent = {
@@ -732,11 +734,12 @@ export function createStubSession(options: StubSessionOptions = {}): StubSession
             continue;
           }
           const resultText = event.call.result ?? `${toolName} の結果`;
+          const isError = event.call.isError ?? false;
           session.emit({
             type: "tool_execution_end",
             toolCallId,
             toolName,
-            isError: false,
+            isError,
             result: { content: [{ type: "text", text: resultText }] },
           });
           // 実 SDK と同じく toolResult も履歴へ積む (履歴のカードはこのメッセージから投影される)
@@ -744,7 +747,7 @@ export function createStubSession(options: StubSessionOptions = {}): StubSession
             role: "toolResult",
             content: [{ type: "text", text: resultText }],
             toolCallId,
-            isError: false,
+            isError,
             timestamp: Date.now(),
           });
         }
