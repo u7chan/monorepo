@@ -102,6 +102,14 @@ export function askUserAnswerText(answer: AskUserAnswer | undefined): string | u
   return parts.length > 0 ? parts.join("、") : undefined;
 }
 
+/**
+ * 送信された回答に中身が 1 つも無い (全問「回答しない」/ 中止の空回答 / 回答が未着)。行ごとの
+ * 表示 (askUserAnswerText) と同じ規則で見る: `answers` の有無で見ると全問「回答しない」が素通りする。
+ */
+export function askUserAnsweredNothing(answers: readonly AskUserAnswer[] | undefined): boolean {
+  return (answers ?? []).every((answer) => askUserAnswerText(answer) === undefined);
+}
+
 /** 送信する回答。index は質問の並びで振る (サーバーは index の集合が全質問と一致することを要求する) */
 export function askUserAnswersFromDrafts(drafts: readonly AskUserDraft[]): AskUserAnswer[] {
   return drafts.map((draft, index) => {

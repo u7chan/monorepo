@@ -2,6 +2,7 @@ import { useState } from "react";
 import type { ToolCard } from "../../hooks/chatReducer";
 import {
   askUserAnswerText,
+  askUserAnsweredNothing,
   askUserAnswersClosing,
   askUserAnswersFromDrafts,
   askUserDraftAt,
@@ -435,11 +436,11 @@ export function AskUserCard({
           answers={answers}
           compact={compact}
           note={
-            answers !== undefined && answers.length > 0
-              ? waiting
-                ? "回答を送信しました。反映を待っています…"
+            waiting
+              ? "回答を送信しました。反映を待っています…"
+              : askUserAnsweredNothing(answers)
+                ? "回答なしで終了"
                 : undefined
-              : "回答なしで終了"
           }
         />
       )}
