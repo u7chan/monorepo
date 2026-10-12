@@ -11,7 +11,7 @@ import type { ExitPhase } from "../src/lib/exitPhase";
 
 // api.ts (location.origin を読む) を辿るため、node では最小の shim を置いてから読み込む
 globalThis.location ??= { origin: "http://localhost" } as Location;
-const { SessionFilesPanel } = await import("../src/components/SessionFilesPanel");
+const { SessionFilesPanel, SessionFilesSheet } = await import("../src/components/SessionFilesPanel");
 const { ConfirmProvider } = await import("../src/components/ConfirmProvider");
 
 const RESIZE = {
@@ -67,4 +67,25 @@ test("描画: 作業フォルダ面 (既定) は従来どおりの外装のま�
 test("描画: 閉じる途中のパネルは inert で操作と読み上げの対象から外れる", () => {
   assert.ok(!renderPanel(DEFAULT_FILES_MODE).includes("inert"), "開いているパネルが inert になっている");
   assert.ok(renderPanel(DEFAULT_FILES_MODE, "closing").includes("inert"), "閉じる途中のパネルが inert になっていない");
+});
+
+// こちらも同じ契約。シートは退場中も modal のままなので、背面ではなく内容側を inert にする
+function renderSheet(phase: ExitPhase): string {
+  const sheet = createElement(SessionFilesSheet, {
+    root: ".u7agent/sessions/s1",
+    envScope: { sessionId: "s1" },
+    excludeNames: [],
+    runEndSeq: 0,
+    onClose: () => {},
+    mode: DEFAULT_FILES_MODE,
+    onBackToWork: () => {},
+    phase,
+    dialogRef: { current: null },
+  });
+  return renderToStaticMarkup(createElement(ConfirmProvider, null, sheet));
+}
+
+test("描画: 退場中のシートは inert で、破棄する下書きの送信を防ぐ", () => {
+  assert.ok(!renderSheet("open").includes("inert"), "開いているシートが inert になっている");
+  assert.ok(renderSheet("closing").includes("inert"), "退場中のシートが inert になっていない");
 });

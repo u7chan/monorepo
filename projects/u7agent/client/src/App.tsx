@@ -663,11 +663,16 @@ export default function App() {
       >
         <div className="grid min-h-0 min-w-0 grid-cols-1 grid-rows-1 overflow-hidden">
           {/* 設定ページを開いている間もチャットは mount したまま (実行中のラン・SSE・入力中の下書き・
-              スクロール位置を unmount で失わないため)。display は切らず、opacity と visibility だけを動かす */}
+              スクロール位置を unmount で失わないため)。display は切らず、opacity と visibility だけを動かす。
+              両方を 1 マスへ明示的に重ねる: display を切らないので auto 配置だと後から出た方が暗黙の 2 行目に
+              落ち、隠れている側が場所を取り続ける (visibility はレイアウトを残す) */}
           <div
             data-visible={mainView === "chat"}
+            // visibility: hidden は子の visibility: visible で上書きできるため、隠れている間は
+            // 丸ごと inert にする (でなければ、非表示のチャットの中の操作要素が Tab で拾われる)
+            inert={mainView !== "chat"}
             className={cn(
-              "chat-view grid min-h-0 min-w-0 grid-cols-1 overflow-hidden",
+              "chat-view col-start-1 row-start-1 grid min-h-0 min-w-0 grid-cols-1 overflow-hidden",
               emptyPortrait ? "chat-empty-portrait" : "grid-rows-[auto_minmax(0,1fr)_auto]",
             )}
           >
@@ -778,7 +783,7 @@ export default function App() {
               ref={settingsViewRef}
               data-closing={settingsPhase === "closing"}
               inert={settingsPhase === "closing"}
-              className="settings-view grid min-h-0 min-w-0 grid-cols-1"
+              className="settings-view col-start-1 row-start-1 grid min-h-0 min-w-0 grid-cols-1"
             >
               {settingsScreen()}
             </div>

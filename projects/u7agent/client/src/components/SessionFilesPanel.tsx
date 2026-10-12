@@ -420,6 +420,9 @@ export function SessionFilesSheet({ returnFocus, phase, dialogRef, ...props }: S
         props.onClose();
       }}
       data-closing={phase === "closing"}
+      // 退場中は mount を保つ (スライドを見せる) が、破棄する面なので内容は操作させない。止めたいのは
+      // 入力だけではない: 退場中に Enter が届くと、閉じる導線で破棄するはずの下書きが送信されてしまう
+      inert={phase === "closing"}
       className={cn(
         // 列を viewport の幅へ拘束する (理由は SessionFilesPanel の aside と同じ)
         "files-sheet m-0 grid h-dvh max-h-none w-screen max-w-none grid-cols-1 overflow-hidden rounded-none border-0 bg-panel p-0 text-ink",
