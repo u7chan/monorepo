@@ -186,7 +186,7 @@ export function fileTreeRenameRequest(path: string, currentName: string): Prompt
  * リネームしたエントリを新しい名前へ張り替える。親一覧の children の name を差し替え、
  * 配下の state キーを nextPath へ移す。開閉と取得済みの子はそのまま残し、親の再取得はしない。
  * 取得中 (loading) は落とす: 飛んでいた一覧は旧キーへ着地するため、持ち越すと新しいキーが
- * 「読み込み中…」のまま固定され、pendingFileTreeDirectories が拾わなくなる。
+ * 「読み込み中」のまま固定され、pendingFileTreeDirectories が拾わなくなる。
  * 接頭辞は区切りまで含めて見るため、`a` の改名で `ab` を巻き込まない。
  */
 export function renameFileTreeEntry(state: FileTreeState, path: string, nextPath: string): FileTreeState {
