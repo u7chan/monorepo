@@ -34,7 +34,7 @@ export type ComposerProps = {
   activityState?: string;
   /** 実行中 / 圧縮中だけ渡す (活動行の経過時間の起点) */
   runningSince?: number;
-  /** 回答待ち (ask_user の実行区間) を経過時間から除く入力 (run のツールカード) */
+  /** 回答待ち (ask_user の実行区間) を経過時間から除く入力。run が実行中のときだけ使う */
   runTools?: Record<string, ToolCall>;
   /** 直前に終わったランの合計時間 (run_end のサーバー計測)。完了 / 停止 / エラーの状態行に凍結表示する */
   finishedRunDurationMs?: number;

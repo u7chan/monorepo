@@ -1,19 +1,13 @@
-/** 実行中インジケータの経過時間の計算と表示。時間の正は BFF 計測 (`ToolCall.startedAt` / `endedAt`) */
 import type { ToolCall } from "../types";
 import { ASK_USER_TOOL_NAME } from "./askUser";
 
 type ToolInterval = Pick<ToolCall, "name" | "startedAt" | "endedAt">;
 
-/**
- * ask_user の回答待ちの和 (開いている区間は評価時刻 `at` まで)。並行した待機を二重に引かないよう、
- * 重なった区間は和集合で 1 回だけ数える。
- */
+/** 重なった区間を 1 回だけ数えるのは、並行した質問で実時間より多く引かないため */
 export function askUserWaitTotalMs(tools: Iterable<ToolInterval>, at: number): number {
   const intervals: Array<{ startedAt: number; endedAt: number }> = [];
   for (const tool of tools) {
-    // 開始を観測しなかったカードは区間を作らない (従来どおり待機を引かない)
     if (tool.name !== ASK_USER_TOOL_NAME || tool.startedAt === undefined) continue;
-    // 終了を観測していない区間は `at` で閉じる。`at` より後に終わった区間も `at` 時点では開いていた
     const endedAt = Math.min(tool.endedAt ?? at, at);
     if (endedAt > tool.startedAt) intervals.push({ startedAt: tool.startedAt, endedAt });
   }
@@ -35,7 +29,7 @@ export function askUserWaitTotalMs(tools: Iterable<ToolInterval>, at: number): n
   return total + (end - start);
 }
 
-/** 実行中インジケータの経過時間。回答待ち (ask_user の実行区間) は数えない */
+/** 負にしないのは、時計のずれで控除が実時間を超えても表示を壊さないため */
 export function runElapsedMs({
   startedAt,
   at,

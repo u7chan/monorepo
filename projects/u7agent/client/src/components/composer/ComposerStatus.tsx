@@ -53,7 +53,7 @@ export function ComposerStatus({
   activityState?: string;
   /** 実行中 / 圧縮中だけ渡す (活動行の経過時間の起点) */
   runningSince?: number;
-  /** 回答待ち (ask_user の実行区間) を経過時間から除く入力 (`run.toolCalls` と同じ値)。run が実行中のときだけ使う */
+  /** 回答待ち (ask_user の実行区間) を経過時間から除く入力。run が実行中のときだけ使う */
   runTools?: Record<string, ToolCall>;
   /**
    * 直前に終わったランの合計時間 (run_end のサーバー計測)。渡すと活動の右に凍結表示する。
@@ -95,8 +95,8 @@ export function ComposerStatus({
   // 実行中の経過。ms と表示文を組で持つ (演出の判定は ms、表示は文)
   let elapsed: { ms: number; text: string } | null = null;
   if (runningSince !== undefined && elapsedMs !== undefined) {
-    // 回答待ちの区間も useElapsedMs が返したのと同じ now (tick の時刻) で評価する。圧縮中の
-    // `runningSince` はランではないため、前の run のカードは控除しない (runTools は run と同じ寿命)
+    // 回答待ちを別の now で評価しないのは、tick の値とずれて数字が逆行して見えるため。圧縮中の
+    // runningSince はランではないため、前の run のカードは控除しない (runTools は run と同じ寿命)
     const waits = runStatus === "running" ? Object.values(runTools) : [];
     const ms = runElapsedMs({ startedAt: runningSince, at: runningSince + elapsedMs, tools: waits });
     elapsed = { ms, text: formatElapsed(ms) };

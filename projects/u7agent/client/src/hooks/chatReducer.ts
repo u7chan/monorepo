@@ -742,7 +742,7 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
       if (status === "running") {
         // 復帰の文言は長い 1 文 (「実行中…（タブを閉じても処理は続きます）」) なので由来を持たせない
         // (折り返すと帯が行ごとに切れる)。run 自身の短いラベルを配る次の status で再開する。
-        // 回答待ちかどうかは payload の runTools から導出する (SSE の status はリプレイされない)
+        // 回答待ちの判定に status を使わないのは、resync ではリプレイされないため
         next = {
           ...next,
           activity:

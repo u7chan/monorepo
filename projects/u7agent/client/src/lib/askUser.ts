@@ -5,12 +5,12 @@
 import type { AskUserAnswer, AskUserQuestion, RunStatus, ToolCall } from "../types";
 import type { ToolCard } from "./chatTypes";
 
-/** ask_user のツール名。表示と経過時間の判定が共有する (サーバーの同名定数は types.ts の再配布に載らない) */
+/** サーバーの同名定数は types.ts の再配布に載らないため、クライアント側に置く */
 export const ASK_USER_TOOL_NAME = "ask_user";
 
 /**
- * resync の活動表示。SSE の status はリプレイされないため復帰の文言はクライアントが持ち、
- * サーバーの run-events.ts と同じ文字列を二重に定義する (types.ts は型だけを再配布する契約)。
+ * SSE の status はリプレイされないため復帰の文言はクライアントが持ち、サーバーの run-events.ts と
+ * 同じ文字列を二重に定義する (types.ts は型だけを再配布する契約)。
  */
 export const ASK_USER_WAITING_TEXT = "回答を待っています…";
 

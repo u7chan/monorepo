@@ -1,22 +1,16 @@
-/**
- * ランの所要時間から除く待機区間の導出。値の正は BFF 計測 (`ToolCall.startedAt` / `endedAt`) だけで、
- * 質問の登録 / settle の時刻は持たない (2 つの区間を正にすると片方だけ閉じる経路で食い違う)。
- */
 import { ASK_USER_TOOL_NAME } from "./ask-user-tool";
 import type { ToolCall } from "./schema";
 
 type ToolInterval = Pick<ToolCall, "name" | "startedAt" | "endedAt">;
 
 /**
- * ask_user の実行区間の和 (開いている区間は評価時刻 `at` まで)。並行した待機を二重に引かないよう、
- * 重なった区間は和集合で 1 回だけ数える。
+ * 登録 / settle の時刻を使わないのは、片方だけ閉じる経路で値が食い違うため。重なった区間を 1 回だけ
+ * 数えるのは、並行した質問で実時間より多く引かないため。
  */
 export function askUserWaitTotalMs(tools: Iterable<ToolInterval>, at: number): number {
   const intervals: Array<{ startedAt: number; endedAt: number }> = [];
   for (const tool of tools) {
-    // 開始を観測しなかったカードは区間を作らない (従来どおり待機を引かない)
     if (tool.name !== ASK_USER_TOOL_NAME || tool.startedAt === undefined) continue;
-    // 終了を観測していない区間は `at` で閉じる。`at` より後に終わった区間も `at` 時点では開いていた
     const endedAt = Math.min(tool.endedAt ?? at, at);
     if (endedAt > tool.startedAt) intervals.push({ startedAt: tool.startedAt, endedAt });
   }
@@ -38,7 +32,7 @@ export function askUserWaitTotalMs(tools: Iterable<ToolInterval>, at: number): n
   return total + (end - start);
 }
 
-/** ランの所要時間。キュー待ちと回答待ち (ask_user の実行区間) は含めない */
+/** 負にしないのは、時計のずれで控除が実時間を超えても表示を壊さないため */
 export function runDurationMs({
   startedAt,
   endedAt,

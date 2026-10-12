@@ -2090,7 +2090,6 @@ export class SessionStore {
       // ラン全体の所要時間と結末を run id で控える (履歴の user item とライブのバブルがここを正にする)。
       // 非終端の値を控えに残さないよう、終端の 3 値へ narrow してから入れる
       const outcome = RunOutcomeSchema.safeParse(run.status);
-      // 所要時間の算出は 1 箇所に寄せ、run_end と履歴・通知が同じ値を使う
       const durationMs = runDurationMs({ startedAt: run.startedAt, endedAt, tools: record.tools.values() });
       if (outcome.success) {
         record.runOutcomes.set(run.id, { durationMs, outcome: outcome.data });
