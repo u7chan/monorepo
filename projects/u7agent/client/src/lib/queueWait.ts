@@ -43,7 +43,7 @@ export function queueWaitsOf(bubbles: Bubble[]): Map<number, QueueWait> {
  */
 export function answerWaitQueueReason(pendingQuestions: number, queueDepth: number): string | undefined {
   if (pendingQuestions <= 0 || queueDepth <= 0) return undefined;
-  return "回答しても、待機中の送信は実行中の応答が終わってから始まります";
+  return "回答しても、待機中の送信はこの実行の終了後に始まります";
 }
 
 /**

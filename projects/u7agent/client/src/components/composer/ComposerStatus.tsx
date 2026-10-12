@@ -21,6 +21,8 @@ import { ReloadButton } from "../ReloadButton";
  * 入力欄の上の状態行 (活動 / モデル - Effort の入口 / Context ゲージ)。
  * モデル / Effort の入口・ゲージ・圧縮ボタンは 1 つの組にして右端へ寄せ、幅が足りないときだけ組ごと 2 行目へ折り返す
  * (別々に置くと、狭い画面で活動テキストが 1 文字幅まで潰れる。docs/ui-layout.md)。
+ * 状態行の中は状態 (活動 / 経過 / モデル / ゲージ) に限り、説明 (待機の理由 / 押せない理由) は下の 1 行へ出す
+ * (同じ行に置くと、幅が足りないときに両方が折り返してどちらも行をまたぐ)。
  * 圧縮の不可逆性と課金の注意は、押した時点の確認 (`App` の handleCompact) が担う。
  * 最終失敗の再実行カードは状態行の上に出し、文言は BFF が合成した 1 文をそのまま使う。
  */
@@ -167,10 +169,6 @@ export function ComposerStatus({
                 ({elapsed.text})
               </span>
             )}
-            {/* 回答待ちの間にキューへ入った送信が実行されない理由。footnote の「上の質問に回答して
-                ください（N件）」と矛盾しないよう、起点が回答ではなく run の終了であることを示す。
-                読み上げは活動の文言に一本化し、件数の増減で連発しないよう aria-live の外に置く */}
-            {queueReason === undefined ? null : <span className="text-ink-ghost">{queueReason}</span>}
           </span>
         ) : null}
         <div className="flex min-w-0 shrink items-center gap-2">
@@ -211,11 +209,18 @@ export function ComposerStatus({
           )}
         </div>
       </div>
-      {blockedNotice === undefined ? null : (
-        // 押せない理由を、押した行の真下に 1 行で出す (ボタンは右端なので右寄せにする)
-        <p id={reasonId} className="m-0 px-1 pb-1 text-right text-2xs break-words text-ink-ghost">
-          {blockedNotice}
-        </p>
+      {queueReason === undefined && blockedNotice === undefined ? null : (
+        // 説明 (待機の理由 / 押せない理由) の 1 行。待機の理由を活動と同じ行に置くと、幅が足りないときに
+        // 両方が折り返すため、状態行の外へ出す。読み上げは活動の文言に一本化する (aria-live の外)
+        <div className="flex flex-wrap items-baseline justify-end gap-x-2 px-1 pb-1 text-right text-2xs text-ink-ghost">
+          {queueReason === undefined ? null : <p className="m-0 min-w-0 break-words">{queueReason}</p>}
+          {blockedNotice === undefined ? null : (
+            // aria-describedby (圧縮ボタン) の参照先は押せない理由だけに残す
+            <p id={reasonId} className="m-0 min-w-0 break-words">
+              {blockedNotice}
+            </p>
+          )}
+        </div>
       )}
     </>
   );

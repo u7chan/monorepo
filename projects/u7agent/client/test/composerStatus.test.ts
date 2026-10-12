@@ -27,21 +27,31 @@ const pendingQuestion = (): ToolCall => ({
   questions: [{ question: "どちらで進めますか" }],
 });
 
-test("描画: 回答待ちで待機キューがあるとき、回答してもすぐ実行されない理由を活動の右に出す", () => {
-  // What: 回答待ちの run が終わらないと待機中の送信が始まらないことを、可視の 1 文で示す
+test("描画: 回答待ちで待機キューがあるとき、回答してもすぐ実行されない理由を状態行の下に出す", () => {
+  // What: 回答待ちの run が終わらないと待機中の送信が始まらないことを、可視の 1 文で示す。
+  // 状態行の中に置くと、幅が足りないときに活動ラベルと折り返しを奪い合うため、行の外に出す
   const html = render({
     activity: "回答を待っています…",
     runStatus: "running",
     runTools: { q1: pendingQuestion() },
     queueDepth: 1,
     modelSlot: slot(),
+    onCompact: () => {},
+    compactDisabled: true,
+    compactDisabledReason: "実行中",
   });
 
-  assert.ok(html.includes("回答しても、待機中の送信は実行中の応答が終わってから始まります"));
+  const reason = html.indexOf("回答しても、待機中の送信はこの実行の終了後に始まります");
+  assert.ok(reason >= 0, "1 文を可視で出す");
   const liveStart = html.indexOf('aria-live="polite"');
-  const live = html.slice(liveStart, html.indexOf("</span>", liveStart));
-  assert.ok(!live.includes("回答しても"), "件数の増減で読み上げ直さないよう aria-live の外に置く");
-  assert.ok(html.indexOf("回答しても") > html.indexOf("回答を待っています…"), "活動の右に続けて出す");
+  const liveEnd = html.indexOf("</span>", liveStart);
+  assert.ok(
+    !html.slice(liveStart, liveEnd).includes("回答しても"),
+    "件数の増減で読み上げ直さないよう aria-live の外に置く",
+  );
+  assert.ok(reason > liveEnd, "活動ラベルと同じ span に置かない (折り返しを奪い合わない)");
+  assert.ok(reason > html.indexOf('role="progressbar"'), "状態行より後ろ = 行の外に出す");
+  assert.ok(reason < html.indexOf("今は圧縮できません"), "押せない理由と同じ行に、待機の理由を先に出す");
 
   const singleColumn = render({
     activity: "回答を待っています…",
@@ -50,7 +60,7 @@ test("描画: 回答待ちで待機キューがあるとき、回答してもす
     queueDepth: 1,
     singleColumn: true,
   });
-  assert.ok(singleColumn.includes("回答しても、待機中の送信は実行中の応答が終わってから始まります"));
+  assert.ok(singleColumn.includes("回答しても、待機中の送信はこの実行の終了後に始まります"));
 });
 
 test("描画: 回答待ちとキューが揃わなければ待機の理由を出さない", () => {
@@ -277,10 +287,10 @@ test("描画: 押せないときは disabled にし、理由を状態行の下�
   const paragraph = /<p id="[^"]+" class="([^"]*)">今は圧縮できません（圧縮中）<\/p>/.exec(html);
   assert.ok(paragraph, "理由の文を状態行の下に出す");
   assert.ok(!paragraph[1].includes("sr-only"), "読み上げ専用にしない (タッチ端末でも読める)");
-  assert.ok(
-    paragraph[1].includes("text-2xs") && paragraph[1].includes("text-right"),
-    "小さい文字で押した行の下へ寄せる",
-  );
+  // 小さい文字で右寄せにする体裁は、待機の理由と共有する説明の行が持つ
+  const notice = /<div class="([^"]*)"><p[^>]*>今は圧縮できません/.exec(html);
+  assert.ok(notice, "理由を説明の行へ入れる");
+  assert.ok(notice[1].includes("text-2xs") && notice[1].includes("text-right"), "小さい文字で押した行の下へ寄せる");
   const described = /aria-describedby="([^"]+)"/.exec(html)?.[1];
   assert.ok(described, "押せない理由を読み上げへ渡す");
   assert.ok(html.includes(`id="${described}"`), "describedby の参照先が存在する");
