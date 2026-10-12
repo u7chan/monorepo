@@ -8,12 +8,12 @@ import { WebSearchSettingsTab } from "./web-search-settings/WebSearchSettingsTab
  * 設定 → Web 検索。hook はこの画面が持ち (開いたときだけ取得する)、
  * 再読み込みもこの画面の設定だけを取り直す。
  */
-export function WebSearchSettingsPage({ compact, onBack, onOpenNav }: SettingsPageProps) {
+export function WebSearchSettingsPage({ singleColumn, onBack, onOpenNav }: SettingsPageProps) {
   const webSearchSettings = useWebSearchSettings();
   return (
     <WebSearchSettingsView
       webSearchSettings={webSearchSettings}
-      compact={compact}
+      singleColumn={singleColumn}
       onBack={onBack}
       onOpenNav={onOpenNav}
     />
@@ -23,7 +23,7 @@ export function WebSearchSettingsPage({ compact, onBack, onOpenNav }: SettingsPa
 /** 表示だけを持つ部分。取得の成否は webSearchSettings が持ち、ここは描画に徹する */
 export function WebSearchSettingsView({
   webSearchSettings,
-  compact = false,
+  singleColumn = false,
   onBack,
   onOpenNav,
 }: SettingsPageProps & { webSearchSettings: WebSearchSettings }) {
@@ -39,7 +39,7 @@ export function WebSearchSettingsView({
         </ReloadButton>
       }
       note={note}
-      compact={compact}
+      singleColumn={singleColumn}
       onOpenNav={onOpenNav}
       onBack={onBack}
     >

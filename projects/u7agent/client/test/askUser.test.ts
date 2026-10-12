@@ -532,7 +532,7 @@ test("回答の記録は全問「回答しない」でも「回答なしで終�
           card,
           answerable: true,
           onAnswer: async (): Promise<{ ok: true }> => ({ ok: true }),
-          compact: false,
+          singleColumn: false,
         }),
       ),
     );
@@ -648,7 +648,7 @@ test("回答待ちのカードは、閉じたときの結果を押す前に示�
         card,
         answerable: true,
         onAnswer: async (): Promise<{ ok: true }> => ({ ok: true }),
-        compact: false,
+        singleColumn: false,
       }),
     ),
   );

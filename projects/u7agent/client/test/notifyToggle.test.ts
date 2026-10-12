@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { CompactBar } from "../src/components/CompactBar";
+import { SingleColumnBar } from "../src/components/SingleColumnBar";
 import { Topbar } from "../src/components/Topbar";
 import { SessionRow } from "../src/components/sidebar/SessionRow";
 import { ConfirmProvider } from "../src/components/ConfirmProvider";
@@ -337,9 +337,9 @@ test("desktop の通知は On / Off と配信停止の状態を表示する", ()
   assert.ok(!off.includes(NOTIFY_DISABLED_NOTE), "Off で常に注記を出す");
 });
 
-function renderCompactBar(notify: { on: boolean; note?: string; deliverable?: boolean } = { on: true }): string {
+function renderSingleColumnBar(notify: { on: boolean; note?: string; deliverable?: boolean } = { on: true }): string {
   return renderToStaticMarkup(
-    createElement(CompactBar, {
+    createElement(SingleColumnBar, {
       serve: serveProps(),
       mode: "portrait",
       title: "パンくずの折り返しを直す",
@@ -353,8 +353,8 @@ function renderCompactBar(notify: { on: boolean; note?: string; deliverable?: bo
   );
 }
 
-test("compact のバーは ☰ を左端に置き、通知 → ファイルの順に並べる", () => {
-  const html = renderCompactBar();
+test("singleColumn のバーは ☰ を左端に置き、通知 → ファイルの順に並べる", () => {
+  const html = renderSingleColumnBar();
   assert.ok(!html.includes("✦"), "装飾の ✦ が残っている");
   assert.ok(html.indexOf('aria-label="ナビゲーションを開く"') < html.indexOf("実装担当"), "☰ が左端に無い");
   assert.ok(
@@ -368,9 +368,9 @@ test("compact のバーは ☰ を左端に置き、通知 → ファイルの�
   assert.ok(html.indexOf('aria-label="通知"') < html.indexOf('aria-label="作業環境"'), "通知が作業環境より右にある");
 });
 
-test("compact は読み上げ名と注記で配信停止を示す", () => {
-  const delivering = renderCompactBar({ on: true });
-  const stopped = renderCompactBar({ on: true, deliverable: false, note: NOTIFY_UNCONFIGURED_NOTE });
+test("singleColumn は読み上げ名と注記で配信停止を示す", () => {
+  const delivering = renderSingleColumnBar({ on: true });
+  const stopped = renderSingleColumnBar({ on: true, deliverable: false, note: NOTIFY_UNCONFIGURED_NOTE });
   assert.ok(delivering.includes('title="通知"') && delivering.includes('aria-label="通知"'), "On の名前が違う");
   assert.ok(!delivering.includes("通知（停止中）"), "配信できる On で停止中を出す");
 

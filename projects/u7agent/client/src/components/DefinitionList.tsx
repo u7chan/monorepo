@@ -11,7 +11,7 @@ export type DefinitionListProps = {
   onAdd: () => void;
   /** count が 0 のとき追加行の下に出す文言。未指定なら何も出さない */
   emptyLabel?: string;
-  compact?: boolean;
+  singleColumn?: boolean;
   children: ReactNode;
 };
 
@@ -25,7 +25,7 @@ export function DefinitionList({
   addLabel,
   onAdd,
   emptyLabel,
-  compact = false,
+  singleColumn = false,
   children,
 }: DefinitionListProps) {
   return (
@@ -39,7 +39,7 @@ export function DefinitionList({
       <div
         className={cn(
           "min-h-0 min-w-0 flex-1 scrollbar-thin overflow-x-hidden overflow-y-auto px-3 py-2.5",
-          !compact && "max-h-[30vh] wide:max-h-none",
+          !singleColumn && "max-h-[30vh] wide:max-h-none",
         )}
       >
         <div className="grid min-w-0 content-start gap-1">

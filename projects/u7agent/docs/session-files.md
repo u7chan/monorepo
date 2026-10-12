@@ -169,7 +169,7 @@ meta の optional `spaceId` は欠落だけが `default`。追加スペースで
 - 添付は作業ディレクトリの外にあるため `read` はできるが、モデルの `write` / `edit` は拒否される（書き込み範囲は [projects.md](projects.md#write--edit-の書き込み範囲)）
 - 履歴と `run_start.prompt` には注記込みの本文が入る。クライアントは注記を分解し、user バブルにチップと本文を分けて表示する（コピーは注記を除いた本文）
 - 画像の表示は `GET /api/files/raw`（画像 / 音声の allowlist。SVG / HTML は配信しない。チップのサムネイルは画像だけを描く）
-- 履歴の画像はクリックで拡大表示する（ライトボックス）。部品は Markdown 本文の画像と同じ `client/src/components/ImageZoom.tsx` の `ZoomableImage`（`variant="attachment"`）で、サムネイルの高さだけ compact で切り替える。開閉と focus の扱いは [markdown.md](markdown.md#画像の拡大表示) を正とする
+- 履歴の画像はクリックで拡大表示する（ライトボックス）。部品は Markdown 本文の画像と同じ `client/src/components/ImageZoom.tsx` の `ZoomableImage`（`variant="attachment"`）で、サムネイルの高さだけ singleColumn で切り替える。開閉と focus の扱いは [markdown.md](markdown.md#画像の拡大表示) を正とする
 - 入力欄の添付チップも同じ部品（`variant="chip"`）で拡大表示する。押せるのは 28px のサムネイルだけで、チップ全体は押せない（× と競合させない）。チップのサイズと行の高さは変えない。未完了 / 失敗のチップはサムネイル自体を持たない（[markdown.md](markdown.md#画像の拡大表示)）
 
 | 上限 | 値 | 場所 |
@@ -239,7 +239,7 @@ assistant 本文のインラインコードが指すファイルは、クリッ�
 ## API / UI
 
 - `SessionPayload.cwd` は root 相対の作業ディレクトリ（プロジェクト所属は `projectCwd`、未所属は所属スペースのスクラッチ）。復元後も同じ値を返す。ファイル画面は既に `payload.cwd` を root にしているため、クライアントの変更なしでセッションの作業ディレクトリ表示になる。
-- チャット右パネル / compact シート（上位名は**作業環境**）はタブを 2 つ持つ。**作業フォルダ**タブは選択中セッションの `payload.cwd` を root にする。**セッション未作成では作成先プロジェクトの `cwd`** を使う（プロジェクト配下は登録ディレクトリを共有するため、送信前から同じツリーを出せる）。作成先がプロジェクトになるのは、プロジェクトを指定する入口（プロジェクト行の ⋯「このプロジェクトに新しい会話」/ プロジェクトの追加）から始めた新規会話だけ（「新しい会話」と会話を指定しない `/` の起動は未所属。[ui-layout.md](ui-layout.md#作成先)）。未所属の新規会話は `sessionId` の採番が送信時なので root が決まらず、導線を出さない。作業先（チップ / 空状態の見出し）の解決と既定オープンの契機は [ui-layout.md](ui-layout.md#作業先と作業フォルダの導線)、タブの可用性と中身は [ui-layout.md](ui-layout.md#作業環境パネル) を正とする
+- チャット右パネル / singleColumn シート（上位名は**作業環境**）はタブを 2 つ持つ。**作業フォルダ**タブは選択中セッションの `payload.cwd` を root にする。**セッション未作成では作成先プロジェクトの `cwd`** を使う（プロジェクト配下は登録ディレクトリを共有するため、送信前から同じツリーを出せる）。作成先がプロジェクトになるのは、プロジェクトを指定する入口（プロジェクト行の ⋯「このプロジェクトに新しい会話」/ プロジェクトの追加）から始めた新規会話だけ（「新しい会話」と会話を指定しない `/` の起動は未所属。[ui-layout.md](ui-layout.md#作成先)）。未所属の新規会話は `sessionId` の採番が送信時なので root が決まらず、導線を出さない。作業先（チップ / 空状態の見出し）の解決と既定オープンの契機は [ui-layout.md](ui-layout.md#作業先と作業フォルダの導線)、タブの可用性と中身は [ui-layout.md](ui-layout.md#作業環境パネル) を正とする
 - **環境変数**タブは同じ root（cwd）に紐づく値を登録する。所有者は会話ではなく cwd なので、プロジェクト起点の新規会話（`sessionId === ""`）でも `projectId` を要求元にして保存でき、保存後は同じ作業フォルダの全会話で共有される。API・暗号化・注入経路は [secrets.md](secrets.md#作業フォルダの環境変数) を正とする
 - `SessionPayload` に `eventGeneration` を足す。`SessionSummary` の形は変えない（復元したセッションは `status: "idle"`、`messageCount` は meta の値、`projectId` は `projectCwd` から解決した値）。
 - `GET /api/sessions/:id` など、これまで同期だった `store.get()` は「未ロードなら読み込む」非同期処理になる（ルートハンドラを async にする）。

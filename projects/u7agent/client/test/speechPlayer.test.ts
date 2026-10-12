@@ -45,7 +45,7 @@ function renderPlayers(
   cards: ToolCard[],
   { rootCwd = "/work", cwd = "projects/u7agent" }: { rootCwd?: string; cwd?: string } = {},
 ): string {
-  return renderToStaticMarkup(createElement(SpeechPlayerList, { cards, rootCwd, cwd, rawUrl, compact: false }));
+  return renderToStaticMarkup(createElement(SpeechPlayerList, { cards, rootCwd, cwd, rawUrl, singleColumn: false }));
 }
 
 function renderMessage(bubble: Bubble, overrides: Record<string, unknown> = {}): string {
@@ -54,7 +54,7 @@ function renderMessage(bubble: Bubble, overrides: Record<string, unknown> = {}):
       bubble,
       skillBadges: [],
       copied: false,
-      compact: false,
+      singleColumn: false,
       rootCwd: "/work",
       cwd: "projects/u7agent",
       rawUrl,

@@ -24,7 +24,7 @@ function render(context: Bubble["context"]): string {
       bubble,
       skillBadges: [],
       copied: false,
-      compact: false,
+      singleColumn: false,
       rootCwd: "/workspace",
       onCopy: () => {},
       copiedId: "",

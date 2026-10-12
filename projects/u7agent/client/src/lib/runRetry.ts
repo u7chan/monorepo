@@ -11,9 +11,9 @@ export type RunErrorInfo = { code: RunErrorCode; text: string };
 /** 再実行が送る本文。直前のターンだけを SDK で再実行する API が無いので、続きを促す固定文言を送る */
 export const RUN_RETRY_PROMPT = "前回の続きから再開してください";
 
-/** デスクトップは補助行で送信内容を示すため、ボタンのラベルは短くする (compact はラベルが送信内容を兼ねる) */
+/** デスクトップは補助行で送信内容を示すため、ボタンのラベルは短くする (singleColumn はラベルが送信内容を兼ねる) */
 export const RUN_RETRY_LABEL = "再実行";
-export const RUN_RETRY_LABEL_COMPACT = "再実行（前回の続きから送信）";
+export const RUN_RETRY_LABEL_SINGLE_COLUMN = "再実行（前回の続きから送信）";
 
 /** デスクトップのカードに出す補助行。ボタンのラベルだけでは送信内容が分からないため添える */
 export const RUN_RETRY_NOTE = "前回の続きから送信します";

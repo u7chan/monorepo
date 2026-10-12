@@ -8,7 +8,7 @@ import {
   blockedButtonsNotice,
   retryableRunError,
   RUN_RETRY_LABEL,
-  RUN_RETRY_LABEL_COMPACT,
+  RUN_RETRY_LABEL_SINGLE_COLUMN,
   RUN_RETRY_NOTE,
   type RunErrorInfo,
 } from "../../lib/runRetry";
@@ -39,7 +39,7 @@ export function ComposerStatus({
   onCompact,
   compactDisabled = false,
   compactDisabledReason,
-  compact = false,
+  singleColumn = false,
   runStatus = "idle",
   runError,
   onRetry,
@@ -80,7 +80,7 @@ export function ComposerStatus({
   /** 押せない理由。状態行の下に 1 行で出し、aria-describedby の参照先にもする */
   compactDisabledReason?: string;
   /** 幅の狭いレイアウト。再実行カードのボタンを全幅にする */
-  compact?: boolean;
+  singleColumn?: boolean;
   /** ランがエラーで終わったか。再実行カードの表示条件 (`runStatus === "error"`) に使う */
   runStatus?: RunStatus;
   /** 最後に失敗したランの分類コードと文言。runEnd / resync から保持したもの */
@@ -138,15 +138,15 @@ export function ComposerStatus({
         <div
           className={cn(
             "mb-1.5 flex border border-danger/35 bg-soft",
-            compact ? "flex-col gap-2 rounded-lg px-2.5 py-2" : "items-center gap-2.5 rounded-xl px-3.5 py-3",
+            singleColumn ? "flex-col gap-2 rounded-lg px-2.5 py-2" : "items-center gap-2.5 rounded-xl px-3.5 py-3",
           )}
         >
-          <div className={cn("flex min-w-0 items-start gap-2.5", compact ? "" : "flex-1")}>
+          <div className={cn("flex min-w-0 items-start gap-2.5", singleColumn ? "" : "flex-1")}>
             <span className="dot dot-danger mt-1" aria-hidden />
             <div className="min-w-0 text-1xs">
               <p className="m-0 leading-relaxed break-words text-ink-soft">{card.text}</p>
-              {compact ? null : (
-                // 送信内容はデスクトップだけ補助行で示す (compact はボタンのラベルが兼ねる)
+              {singleColumn ? null : (
+                // 送信内容はデスクトップだけ補助行で示す (singleColumn はボタンのラベルが兼ねる)
                 <p className="m-0 mt-1 text-2xs leading-relaxed break-words text-ink-ghost">{RUN_RETRY_NOTE}</p>
               )}
             </div>
@@ -155,9 +155,9 @@ export function ComposerStatus({
             onClick={onRetry}
             disabled={retryDisabled}
             aria-describedby={retryBlocked ? reasonId : undefined}
-            className={cn(compact && "w-full")}
+            className={cn(singleColumn && "w-full")}
           >
-            {compact ? RUN_RETRY_LABEL_COMPACT : RUN_RETRY_LABEL}
+            {singleColumn ? RUN_RETRY_LABEL_SINGLE_COLUMN : RUN_RETRY_LABEL}
           </ReloadButton>
         </div>
       ) : null}

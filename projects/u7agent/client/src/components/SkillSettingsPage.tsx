@@ -29,7 +29,7 @@ export function SkillSettingsPage({
   catalog,
   refreshCatalog,
   filePreviewPort,
-  compact = false,
+  singleColumn = false,
   onBack,
   onOpenNav,
 }: SkillSettingsPageProps) {
@@ -51,7 +51,7 @@ export function SkillSettingsPage({
       : undefined;
   const setNoteText = (text: string, error = false) => setNote({ text, error });
 
-  // 下書きはページが持つ。理由は docs/ui-layout.md の「compact の詳細シート」を参照。
+  // 下書きはページが持つ。理由は docs/ui-layout.md の「singleColumn の詳細シート」を参照。
   // 参照が変わった編集対象・カタログ・mode を render 中に検出して初期化する (useEffect では古いフォームが 1 フレーム描画される)。
   // mode を条件に含めるのは、同じスキルでも `編集` のたびに現行のカタログから作り直し、`キャンセル` で下書きを破棄するため
   const [skillForm, setSkillForm] = useState<SkillForm>(() => skillFormOf(editingSkill));
@@ -65,8 +65,8 @@ export function SkillSettingsPage({
     setSelectedFileSkillPath(null);
     setEditingId(nextId);
     setMode("view");
-    // desktop はページ内のフォームをそのまま使う (docs/ui-layout.md の「compact の詳細シート」)
-    if (compact) setSheetOpen(true);
+    // desktop はページ内のフォームをそのまま使う (docs/ui-layout.md の「singleColumn の詳細シート」)
+    if (singleColumn) setSheetOpen(true);
   };
 
   const startEditing = () => setMode("edit");
@@ -83,7 +83,7 @@ export function SkillSettingsPage({
     setSelectedFileSkillPath(path);
     // 同じ行の押し直しでも本文を取り直す (ファイルは選択の外で書き換わる)
     setSelectedFileSkillSeq((seq) => seq + 1);
-    if (compact) setSheetOpen(true);
+    if (singleColumn) setSheetOpen(true);
   };
 
   const startNewSkill = () => {
@@ -100,7 +100,7 @@ export function SkillSettingsPage({
       addLabel="新しいスキル"
       emptyLabel="カタログのスキルはまだありません。「新しいスキル」から作成できます。"
       onAdd={startNewSkill}
-      compact={compact}
+      singleColumn={singleColumn}
     >
       {catalog.skills.map((skill) => (
         <MenuItem
@@ -127,14 +127,14 @@ export function SkillSettingsPage({
     <ReadOnlySkillPanel
       key={`${selectedFileSkill.path}:${selectedFileSkillSeq}`}
       skill={selectedFileSkill}
-      variant={compact ? "sheet" : "page"}
+      variant={singleColumn ? "sheet" : "page"}
       filePreviewPort={filePreviewPort}
     />
   ) : editingSkill && mode === "view" ? (
     <CatalogSkillPanel
       skill={editingSkill}
       agents={catalog.agents}
-      variant={compact ? "sheet" : "page"}
+      variant={singleColumn ? "sheet" : "page"}
       onEdit={startEditing}
     />
   ) : (
@@ -143,7 +143,7 @@ export function SkillSettingsPage({
       skill={editingSkill}
       form={skillForm}
       setForm={setSkillForm}
-      variant={compact ? "sheet" : "page"}
+      variant={singleColumn ? "sheet" : "page"}
       refreshCatalog={refreshCatalog}
       onSelectSkill={selectSkill}
       onNote={setNoteText}
@@ -166,12 +166,12 @@ export function SkillSettingsPage({
       eyebrow="SKILLS"
       title="スキル"
       caption="エージェントへ割り当てるスキルの本文を定義します。共通・組み込みは読み取り専用で、本文を確認できます。"
-      compact={compact}
+      singleColumn={singleColumn}
       onOpenNav={onOpenNav}
       onBack={onBack}
       note={note}
     >
-      {compact ? (
+      {singleColumn ? (
         <div className="grid min-h-0 min-w-0 grid-rows-1">{list}</div>
       ) : (
         <div className="grid min-h-0 min-w-0 grid-rows-[auto_minmax(0,1fr)] wide:grid-cols-[248px_minmax(0,1fr)] wide:grid-rows-1">
@@ -179,7 +179,7 @@ export function SkillSettingsPage({
           {editor}
         </div>
       )}
-      {compact && sheetOpen ? (
+      {singleColumn && sheetOpen ? (
         <SettingsDetailSheet eyebrow="SKILL" title={sheetTitle} note={note} onClose={() => setSheetOpen(false)}>
           {editor}
         </SettingsDetailSheet>

@@ -34,7 +34,7 @@ export function SkillEditorForm({
   skill: SkillDef | undefined;
   form: SkillForm;
   setForm: Dispatch<SetStateAction<SkillForm>>;
-  /** page = ページ内の編集列、sheet = compact のシート (docs/ui-layout.md) */
+  /** page = ページ内の編集列、sheet = singleColumn のシート (docs/ui-layout.md) */
   variant: "page" | "sheet";
   refreshCatalog: () => Promise<Catalog>;
   onSelectSkill: (skillId: string | null) => void;

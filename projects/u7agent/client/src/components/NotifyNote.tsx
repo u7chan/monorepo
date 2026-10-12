@@ -2,7 +2,7 @@ import { cn } from "../lib/cn";
 
 /**
  * 通知のトグルが働かない理由と、設定を開く導線。バーの下に 1 行で出す (色ではなく文字で示す)。
- * 導線は行の中に置く: 別の行にすると compact のバーが 1 段高くなり、実測の前提 (docs/ui-layout.md) が変わる。
+ * 導線は行の中に置く: 別の行にすると singleColumn のバーが 1 段高くなり、実測の前提 (docs/ui-layout.md) が変わる。
  */
 export function NotifyNote({
   text,

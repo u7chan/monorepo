@@ -4,7 +4,7 @@ import { ArrowLeftIcon, MenuIcon } from "./icons";
 
 export type SettingsPageProps = {
   onBack: () => void;
-  compact?: boolean;
+  singleColumn?: boolean;
   onOpenNav?: () => void;
 };
 
@@ -31,7 +31,7 @@ export function SettingsPageLayout({
   actions,
   tabs,
   note,
-  compact = false,
+  singleColumn = false,
   onBack,
   onOpenNav,
   children,
@@ -47,12 +47,12 @@ export function SettingsPageLayout({
       <header
         className={cn(
           "flex flex-wrap items-start justify-between gap-x-3 gap-y-2 border-b border-line",
-          compact ? "px-4 pt-3.5 pb-3" : "px-5 pt-4 pb-3.5",
+          singleColumn ? "px-4 pt-3.5 pb-3" : "px-5 pt-4 pb-3.5",
         )}
       >
         {/* タイトル列に最小幅を持たせ、狭い viewport では操作行の方を折り返す (文字が数文字幅まで潰れるのを防ぐ) */}
         <div className="flex min-w-0 flex-1 basis-60 items-center gap-2.5">
-          {/* compact は CompactBar の代わりに、狭い desktop は左バーが overlay になるため、
+          {/* singleColumn は SingleColumnBar の代わりに、狭い desktop は左バーが overlay になるため、
               どちらもここが設定ページ間を移るための nav の導線になる */}
           {onOpenNav ? (
             <button
@@ -71,11 +71,11 @@ export function SettingsPageLayout({
           </div>
         </div>
         {/* 操作も戻り導線も無いページ (desktop の「外観」) では行ごと出さない (空の div を残さない) */}
-        {actions || compact ? (
+        {actions || singleColumn ? (
           <div className="ml-auto flex flex-wrap items-center gap-2">
             {actions}
-            {/* desktop はサイドバーに同じ「アプリに戻る」が並ぶので出さない。compact はサイドバーが drawer の中なので、1 タップで戻れる導線をここに残す */}
-            {compact ? (
+            {/* desktop はサイドバーに同じ「アプリに戻る」が並ぶので出さない。singleColumn はサイドバーが drawer の中なので、1 タップで戻れる導線をここに残す */}
+            {singleColumn ? (
               <button type="button" onClick={onBack} className="btn-quiet">
                 <ArrowLeftIcon />
                 アプリに戻る

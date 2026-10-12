@@ -39,7 +39,7 @@ export function ModelSettingsPage({
   onRefreshHealth,
   modelsSubsection,
   onSelectModelsSubsection,
-  compact,
+  singleColumn,
   onBack,
   onOpenNav,
   sessions,
@@ -53,7 +53,7 @@ export function ModelSettingsPage({
       onSelectModelsSubsection={onSelectModelsSubsection}
       sessions={sessions}
       sessionsLoaded={sessionsLoaded}
-      compact={compact}
+      singleColumn={singleColumn}
       onBack={onBack}
       onOpenNav={onOpenNav}
     />
@@ -68,7 +68,7 @@ export function ModelSettingsView({
   modelSettings,
   sessions = [],
   sessionsLoaded = false,
-  compact = false,
+  singleColumn = false,
   modelsSubsection = DEFAULT_MODELS_SUBSECTION,
   onSelectModelsSubsection,
   onBack,
@@ -127,15 +127,15 @@ export function ModelSettingsView({
   const draftState = appliedDraft.current;
   const activeTabRef = useRef<HTMLButtonElement>(null);
   useEffect(() => {
-    if (compact) activeTabRef.current?.scrollIntoView({ block: "nearest", inline: "nearest" });
-  }, [compact, modelsSubsection]);
+    if (singleColumn) activeTabRef.current?.scrollIntoView({ block: "nearest", inline: "nearest" });
+  }, [singleColumn, modelsSubsection]);
 
   return (
     <SettingsPageLayout
       eyebrow="MODELS"
       title="モデル"
       caption={
-        compact
+        singleColumn
           ? "モデルとプロバイダーを設定します。"
           : "使うモデルと、プロバイダーごとのAPIキーを設定します。保存した内容は再起動後も使われます。"
       }
@@ -156,7 +156,10 @@ export function ModelSettingsView({
         <div
           role="tablist"
           aria-label="モデルの設定"
-          className={cn("flex min-w-0 shrink-0 gap-1 overflow-x-auto border-b border-line", compact ? "px-2" : "px-4")}
+          className={cn(
+            "flex min-w-0 shrink-0 gap-1 overflow-x-auto border-b border-line",
+            singleColumn ? "px-2" : "px-4",
+          )}
         >
           {MODELS_SUBSECTIONS.map((item) => (
             <button
@@ -168,7 +171,7 @@ export function ModelSettingsView({
               onClick={() => onSelectModelsSubsection?.(item.subsection)}
               className={cn(
                 "tab-item shrink-0 whitespace-nowrap",
-                compact && "px-1.5",
+                singleColumn && "px-1.5",
                 modelsSubsection === item.subsection && "tab-item-active",
               )}
             >
@@ -178,7 +181,7 @@ export function ModelSettingsView({
         </div>
       }
       note={note}
-      compact={compact}
+      singleColumn={singleColumn}
       onOpenNav={onOpenNav}
       onBack={onBack}
     >
@@ -191,7 +194,7 @@ export function ModelSettingsView({
             saving={saving}
             sessions={sessions}
             sessionsLoaded={sessionsLoaded}
-            compact={compact}
+            singleColumn={singleColumn}
             onSave={save}
             onSaveMemo={saveMemo}
             onDelete={remove}
@@ -210,7 +213,7 @@ export function ModelSettingsView({
             initialDraft={draftState?.initial ?? draft}
             setDraft={setDraft}
             onSave={saveAvailability}
-            compact={compact}
+            singleColumn={singleColumn}
           />
         )
       ) : (
