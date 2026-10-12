@@ -9,7 +9,12 @@ import {
   type KeyboardEvent,
   type MouseEvent,
 } from "react";
-import { AGENT_PICKER_MARGIN, agentPickerPlacement, nextAgentOptionIndex } from "../../lib/agentPicker";
+import {
+  AGENT_PICKER_LIST_MAX_HEIGHT,
+  AGENT_PICKER_MARGIN,
+  agentPickerPlacement,
+  nextAgentOptionIndex,
+} from "../../lib/agentPicker";
 import { cn } from "../../lib/cn";
 import { filterDefaultModelOptions, type DefaultModelOption } from "../../lib/modelSettings";
 
@@ -35,6 +40,7 @@ export function ModelDefaultPicker({
   const [query, setQuery] = useState("");
   const triggerRef = useRef<HTMLButtonElement | null>(null);
   const popoverRef = useRef<HTMLDivElement | null>(null);
+  const listRef = useRef<HTMLDivElement | null>(null);
   const searchRef = useRef<HTMLInputElement | null>(null);
   const itemsRef = useRef<(HTMLButtonElement | null)[]>([]);
   const pressingTriggerRef = useRef(false);
@@ -52,6 +58,14 @@ export function ModelDefaultPicker({
     // 幅を先に確定させる: max-width で折り返しと内部スクロールが決まり、rect が最終の大きさになる
     popover.style.minWidth = `${anchor.width}px`;
     popover.style.maxWidth = `${viewport.width - AGENT_PICKER_MARGIN * 2}px`;
+    const list = listRef.current;
+    if (list !== null) {
+      // 高さの上限はスクロールする一覧に当てる。検索欄と外枠の高さを popover と一覧の rect の差で測り、
+      // 低い viewport (ソフトキーボード表示中を含む) では既定より縮める
+      const chrome = popover.getBoundingClientRect().height - list.getBoundingClientRect().height;
+      const available = viewport.height - AGENT_PICKER_MARGIN * 2 - chrome;
+      list.style.maxHeight = `${Math.max(0, Math.min(AGENT_PICKER_LIST_MAX_HEIGHT, available))}px`;
+    }
     const { left, top } = agentPickerPlacement(anchor, popover.getBoundingClientRect(), viewport);
     popover.style.left = `${left}px`;
     popover.style.top = `${top}px`;
@@ -212,26 +226,27 @@ export function ModelDefaultPicker({
         popover="auto"
         onKeyDown={onPopoverKeyDown}
         onBlur={onPopoverBlur}
-        className="popover-panel fixed inset-auto m-0 w-max overflow-visible rounded-lg border border-line bg-panel p-1 shadow-panel"
+        className="popover-panel fixed inset-auto m-0 w-max overflow-visible rounded-lg border border-line bg-panel p-1 shadow-panel compact:p-2"
       >
         <div className="grid gap-1">
           <input
             ref={searchRef}
             type="search"
-            className="field min-h-8 min-w-0 px-2 py-1 text-xs"
+            className="field min-h-8 min-w-0 px-2 py-1 text-xs compact:text-md"
             value={query}
             placeholder="モデル名 / ID で検索"
             aria-label="既定モデルを検索"
             onChange={(event) => setQuery(event.currentTarget.value)}
           />
           <div
+            ref={listRef}
             role="listbox"
             aria-labelledby={triggerId}
             aria-label="既定モデルの候補"
-            className="max-h-64 scrollbar-thin overflow-y-auto"
+            className="scrollbar-thin overflow-y-auto"
           >
             {choices.length === 0 ? (
-              <p className="px-2 py-1.5 text-2xs text-ink-muted">該当するモデルがありません。</p>
+              <p className="px-2 py-1.5 text-2xs text-ink-muted compact:text-xs">該当するモデルがありません。</p>
             ) : (
               choices.map((option, index) => (
                 <button
@@ -245,13 +260,15 @@ export function ModelDefaultPicker({
                   tabIndex={-1}
                   onClick={() => selectOption(option.key)}
                   className={cn(
-                    "flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left transition-colors hover:bg-accent-wash",
+                    "flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left transition-colors hover:bg-accent-wash compact:min-h-11",
                     option.key === value && "bg-accent-wash",
                   )}
                 >
-                  <span className="min-w-0 flex-1 truncate text-xs text-ink">{option.name}</span>
+                  <span className="min-w-0 flex-1 truncate text-xs text-ink compact:text-sm">{option.name}</span>
                   {option.detail ? (
-                    <span className="min-w-0 flex-1 truncate text-2xs text-ink-faint">{option.detail}</span>
+                    <span className="min-w-0 flex-1 truncate text-2xs text-ink-faint compact:text-1xs">
+                      {option.detail}
+                    </span>
                   ) : null}
                 </button>
               ))

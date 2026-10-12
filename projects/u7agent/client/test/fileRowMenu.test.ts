@@ -9,6 +9,7 @@ import {
   ROW_MENU_GAP,
   ROW_MENU_MARGIN,
   rowMenuAnchorVisible,
+  rowMenuDescriptionKind,
   rowMenuPlacement,
 } from "../src/lib/rowMenu";
 
@@ -26,21 +27,29 @@ const base = {
 };
 
 /** 全行に出す項目。出し分けの比較で同じ値を使い回す */
-const copyPath = { kind: "copy-path", label: "パスをコピー", description: "ツリーの root からの相対パス" };
+const copyPath = {
+  kind: "copy-path",
+  label: "パスをコピー",
+  description: "ツリーの root からの相対パス",
+  descriptionKind: "note",
+};
+/** ZIP の除外は押す前に知る必要があるので compact でも残す */
+const downloadDir = {
+  kind: "download",
+  label: "ZIP でダウンロード",
+  description: "ビルド成果物と依存を除く",
+  descriptionKind: "disclosure",
+};
 
 test("出し分け: パスをコピー → ダウンロード → リネーム → 削除 を画面 / 種類 / symlink / 除外名どおりに返す", () => {
   assert.deepEqual(fileRowActions({ ...base, canRename: true }), [
     copyPath,
-    { kind: "download", label: "ZIP でダウンロード", description: "ビルド成果物と依存を除く" },
+    downloadDir,
     { kind: "rename", label: "名前を変更" },
     { kind: "delete", label: "削除", danger: true },
   ]);
   // リネームは設定ツリー (canRename) のフォルダ行だけ。チャット右パネルはダウンロードと削除になる
-  assert.deepEqual(fileRowActions(base), [
-    copyPath,
-    { kind: "download", label: "ZIP でダウンロード", description: "ビルド成果物と依存を除く" },
-    { kind: "delete", label: "削除", danger: true },
-  ]);
+  assert.deepEqual(fileRowActions(base), [copyPath, downloadDir, { kind: "delete", label: "削除", danger: true }]);
   // ファイルはリネームを出さず、ダウンロードのラベルも ZIP ではなくなる (除外の開示も持たない)
   assert.deepEqual(fileRowActions({ ...base, type: "file", canRename: true }), [
     copyPath,
@@ -73,6 +82,30 @@ test("出し分け: symlink はパスをコピーだけ、除外名はダウン�
 function renderMenu(actions: readonly FileRowAction[], name = "docs"): string {
   return renderToStaticMarkup(createElement(RowMenu, { name, actions, onSelect: () => {} }));
 }
+
+test("説明の区分と危険の印: 補足は compact で隠し、ZIP の除外は残し、削除だけ danger にする", () => {
+  const actions = fileRowActions({ ...base, canRename: true }) ?? [];
+  // コピーする字面の基準はラベルで決まる補足なので compact では隠す
+  const copy = actions.find((action) => action.kind === "copy-path");
+  assert.equal(rowMenuDescriptionKind(copy!), "note");
+  // ZIP の除外は実行前に効く (何が入らないか分からないと選べない) ので残す
+  const download = actions.find((action) => action.kind === "download");
+  assert.equal(rowMenuDescriptionKind(download!), "disclosure");
+  // 破壊的な削除は末尾 1 つだけで、他の項目は danger を持たない
+  assert.deepEqual(
+    actions.map((action) => action.danger === true),
+    [false, false, false, true],
+    "danger の位置が削除でない",
+  );
+  // 出せない項目は danger を付けず、出せる項目の後ろに残す
+  const excluded = fileRowActions({ ...base, name: "node_modules", canRename: true, excludeNames: ["node_modules"] });
+  assert.deepEqual(
+    excluded?.map((action) => action.kind),
+    ["copy-path", "rename", "delete"],
+    "除外名の行の並びが違う",
+  );
+  assert.equal(excluded?.at(-1)?.danger, true, "削除が末尾の danger でない");
+});
 
 test("描画: ⋯ は aria-haspopup / aria-expanded を持ち、本体は role=menu、項目は role=menuitem", () => {
   const html = renderMenu(fileRowActions({ ...base, canRename: true }) ?? []);

@@ -9,7 +9,12 @@ import {
   type KeyboardEvent,
   type MouseEvent,
 } from "react";
-import { AGENT_PICKER_MARGIN, agentPickerPlacement, nextAgentOptionIndex } from "../../lib/agentPicker";
+import {
+  AGENT_PICKER_MARGIN,
+  AGENT_PICKER_LIST_MAX_HEIGHT,
+  agentPickerPlacement,
+  nextAgentOptionIndex,
+} from "../../lib/agentPicker";
 import { cn } from "../../lib/cn";
 import type { AgentDef } from "../../types";
 import { AgentIcon } from "../AgentIcon";
@@ -38,6 +43,7 @@ export function AgentPicker({
   const [open, setOpen] = useState(false);
   const triggerRef = useRef<HTMLButtonElement | null>(null);
   const popoverRef = useRef<HTMLDivElement | null>(null);
+  const listRef = useRef<HTMLDivElement | null>(null);
   const itemsRef = useRef<(HTMLButtonElement | null)[]>([]);
   // トリガーの押下は click より先にフォーカスを奪う。その focusout で閉じると直後の click が
   // 開き直してトグルが効かないため、押している間だけ focusout での終了を保留する
@@ -54,6 +60,14 @@ export function AgentPicker({
     // 幅を先に確定させる: max-width で折り返しと内部スクロールが決まり、rect が最終の大きさになる
     popover.style.minWidth = `${anchor.width}px`;
     popover.style.maxWidth = `${viewport.width - AGENT_PICKER_MARGIN * 2}px`;
+    const list = listRef.current;
+    if (list !== null) {
+      // 高さの上限はスクロールする一覧に当てる (検索欄を持つ面と同じ作法)。一覧以外の高さは
+      // popover と一覧の rect の差で測る。上限が既定より広いときは既定のままにする
+      const chrome = popover.getBoundingClientRect().height - list.getBoundingClientRect().height;
+      const available = viewport.height - AGENT_PICKER_MARGIN * 2 - chrome;
+      list.style.maxHeight = `${Math.max(0, Math.min(AGENT_PICKER_LIST_MAX_HEIGHT, available))}px`;
+    }
     const { left, top } = agentPickerPlacement(anchor, popover.getBoundingClientRect(), viewport);
     popover.style.left = `${left}px`;
     popover.style.top = `${top}px`;
@@ -230,9 +244,9 @@ export function AgentPicker({
         aria-labelledby={triggerId}
         onKeyDown={onListKeyDown}
         onBlur={onListBlur}
-        className="popover-panel fixed inset-auto m-0 w-max overflow-visible rounded-lg border border-line bg-panel p-1 shadow-panel"
+        className="popover-panel fixed inset-auto m-0 w-max overflow-visible rounded-lg border border-line bg-panel p-1 shadow-panel compact:p-2"
       >
-        <div className="max-h-64 scrollbar-thin overflow-y-auto">
+        <div ref={listRef} className="scrollbar-thin overflow-y-auto">
           {agents.map((agent, index) => (
             <MenuItem
               key={agent.id}

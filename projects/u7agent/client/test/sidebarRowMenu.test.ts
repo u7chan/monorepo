@@ -5,6 +5,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import test from "node:test";
 import { ProjectRow } from "../src/components/sidebar/ProjectRow";
 import { SessionRow } from "../src/components/sidebar/SessionRow";
+import { rowMenuDescriptionKind } from "../src/lib/rowMenu";
 import {
   projectRowActions,
   rawLogConfirmRequest,
@@ -93,8 +94,19 @@ test("出し分け: プロジェクト行とセッション行で必要な操作
   assert.deepEqual(sessionRowActions(), [
     { kind: "pin", label: "ピン留め" },
     { kind: "rename", label: "名前を変更" },
-    { kind: "diagnostics", label: "診断情報をコピー", description: DIAGNOSTICS_COPY_SERVER_ONLY },
-    { kind: "raw-log", label: "生ログをダウンロード", description: RAW_LOG_MISSING, disabled: true },
+    {
+      kind: "diagnostics",
+      label: "診断情報をコピー",
+      description: DIAGNOSTICS_COPY_SERVER_ONLY,
+      descriptionKind: "disclosure",
+    },
+    {
+      kind: "raw-log",
+      label: "生ログをダウンロード",
+      description: RAW_LOG_MISSING,
+      descriptionKind: "disclosure",
+      disabled: true,
+    },
     { kind: "delete", label: "セッションを削除", danger: true },
   ]);
   assert.equal(sessionRowActions({ pinned: true })[0]?.label, "ピン留めを解除");
@@ -103,18 +115,55 @@ test("出し分け: プロジェクト行とセッション行で必要な操作
     { kind: "pin", label: "ピン留め" },
     { kind: "rename", label: "名前を変更" },
     { kind: "move", label: "別の会話スペースへ引っ越す" },
-    { kind: "diagnostics", label: "診断情報をコピー", description: DIAGNOSTICS_COPY_SERVER_ONLY },
-    { kind: "raw-log", label: "生ログをダウンロード", description: RAW_LOG_MISSING, disabled: true },
+    {
+      kind: "diagnostics",
+      label: "診断情報をコピー",
+      description: DIAGNOSTICS_COPY_SERVER_ONLY,
+      descriptionKind: "disclosure",
+    },
+    {
+      kind: "raw-log",
+      label: "生ログをダウンロード",
+      description: RAW_LOG_MISSING,
+      descriptionKind: "disclosure",
+      disabled: true,
+    },
     { kind: "delete", label: "セッションを削除", danger: true },
   ]);
   // このタブで開いている会話と生ログがある会話は説明行と押下可否が変わる
   assert.deepEqual(sessionRowActions({ open: true, hasRawLog: true }), [
     { kind: "pin", label: "ピン留め" },
     { kind: "rename", label: "名前を変更" },
-    { kind: "diagnostics", label: "診断情報をコピー", description: DIAGNOSTICS_COPY_DESCRIPTION },
-    { kind: "raw-log", label: "生ログをダウンロード", description: RAW_LOG_DESCRIPTION, disabled: false },
+    {
+      kind: "diagnostics",
+      label: "診断情報をコピー",
+      description: DIAGNOSTICS_COPY_DESCRIPTION,
+      descriptionKind: "disclosure",
+    },
+    {
+      kind: "raw-log",
+      label: "生ログをダウンロード",
+      description: RAW_LOG_DESCRIPTION,
+      descriptionKind: "disclosure",
+      disabled: false,
+    },
     { kind: "delete", label: "セッションを削除", danger: true },
   ]);
+});
+
+test("説明の区分: 押す前に知る必要がある説明は compact でも残し、補足は隠す", () => {
+  // 何を含むか / 取れない理由 / マスク前の値は、押した後では戻せないので残す
+  for (const open of [false, true]) {
+    const actions = sessionRowActions({ open, hasRawLog: open });
+    for (const kind of ["diagnostics", "raw-log"] as const) {
+      const action = actions.find((candidate) => candidate.kind === kind);
+      assert.ok(action?.description, `${kind} の説明が無い`);
+      assert.equal(rowMenuDescriptionKind(action!), "disclosure", `${kind} の説明が compact で消える`);
+    }
+  }
+  // 分類の無い項目は開示として扱う (今のセッション行に補足は無いが、追加時に勝手に消えない)
+  assert.equal(rowMenuDescriptionKind({}), "disclosure");
+  assert.equal(rowMenuDescriptionKind({ descriptionKind: "note" }), "note");
 });
 
 test("引っ越しの確認は履歴の破棄とファイルの引き継ぎを伝え、対象のタイトルを独立した行に出す", () => {

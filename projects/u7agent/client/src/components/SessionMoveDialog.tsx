@@ -147,10 +147,16 @@ export function SessionMoveDialog({ text, destinations, compact = false, onClose
             {error || text.note}
           </p>
           <div className="flex items-center gap-2">
-            <button ref={cancelRef} type="button" onClick={onClose} className="btn-quiet" disabled={busy}>
+            <button
+              ref={cancelRef}
+              type="button"
+              onClick={onClose}
+              className="btn-quiet compact:min-h-11"
+              disabled={busy}
+            >
               キャンセル
             </button>
-            <button type="submit" disabled={!canMove} className="btn-danger">
+            <button type="submit" disabled={!canMove} className="btn-danger compact:min-h-11">
               {text.confirmLabel}
             </button>
           </div>

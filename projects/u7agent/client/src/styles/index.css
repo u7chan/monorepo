@@ -101,6 +101,11 @@
  * タッチデバイスでは効かない。タッチでは非表示にせず常に見せる、という分岐に使う。 */
 @custom-variant can-hover (@media (hover: hover));
 
+/* compact (portrait / landscape) だけに効くバリアント。判定の正は lib/layout.ts で、useLayoutMode が
+ * html[data-layout] へ写す。native popover は top layer に載るが DOM の祖先は保つので、ここで判定できる。
+ * (pointer: coarse) は使わない: マウス併用のタッチ PC と desktop の狭い窓で見た目が変わってしまう。 */
+@custom-variant compact (&:where(html[data-layout="portrait"] *, html[data-layout="landscape"] *));
+
 @theme inline {
   --color-base: var(--c-base);
   --color-panel: var(--c-panel);

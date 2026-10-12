@@ -56,11 +56,14 @@ export function sessionRowActions(options: SessionRowMenuOptions = {}): RowMenuA
       kind: "diagnostics",
       label: DIAGNOSTICS_COPY_LABEL,
       description: open ? DIAGNOSTICS_COPY_DESCRIPTION : DIAGNOSTICS_COPY_SERVER_ONLY,
+      // 何を含むか / 取れない理由は押す前に知る必要がある
+      descriptionKind: "disclosure",
     },
     {
       kind: "raw-log",
       label: RAW_LOG_LABEL,
       description: hasRawLog ? RAW_LOG_DESCRIPTION : RAW_LOG_MISSING,
+      descriptionKind: "disclosure",
       disabled: !hasRawLog,
     },
     { kind: "delete", label: "セッションを削除", danger: true },

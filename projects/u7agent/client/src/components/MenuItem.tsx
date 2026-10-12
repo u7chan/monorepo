@@ -1,5 +1,6 @@
 import type { ReactNode, Ref } from "react";
 import { cn } from "../lib/cn";
+import type { RowMenuDescriptionKind } from "../lib/rowMenu";
 import { CheckIcon } from "./icons";
 
 export type MenuItemProps = {
@@ -8,6 +9,11 @@ export type MenuItemProps = {
   label: ReactNode;
   /** 2 行目。行の高さは min-height で決めるので、1 行の行と基準が揃う */
   description?: ReactNode;
+  /**
+   * 2 行目の区分。compact では `note` だけを隠す (`disclosure` は押す前に知る条件なので残す)。
+   * 未指定は `disclosure` に倒すため、新しく足した項目の説明が勝手に消えることはない。
+   */
+  descriptionKind?: RowMenuDescriptionKind;
   /**
    * 選択の表現。nav = ページの選択 (塗り)、list = 一覧の項目の選択 (淡い塗り)、
    * choice = 択一の一覧 (枠 + 選択のチェック)、add = 追加アクション (破線)。
@@ -71,6 +77,7 @@ export function MenuItem({
   variant = "list",
   selected = false,
   current,
+  descriptionKind = "disclosure",
   trailing,
   danger = false,
   disabled = false,
@@ -92,14 +99,14 @@ export function MenuItem({
       aria-selected={role === "option" ? active : undefined}
       onClick={onClick}
       className={cn(
-        "flex min-h-7.5 w-full min-w-0 items-center gap-1.5 rounded-lg px-2 py-1 text-left transition-colors",
+        "flex min-h-7.5 w-full min-w-0 items-center gap-1.5 rounded-lg px-2 py-1 text-left transition-colors compact:min-h-11",
         TONE[tone],
       )}
     >
       {icon ? (
         <span
           className={cn(
-            "grid size-4 shrink-0 place-items-center",
+            "grid size-4 shrink-0 place-items-center compact:size-5",
             // 2 行の行では行の中央ではなく 1 行目に合わせる (ラベルと説明の境目に浮かないようにする)
             description ? "self-start" : null,
             ICON_TONE[tone],
@@ -109,13 +116,14 @@ export function MenuItem({
         </span>
       ) : null}
       <span className="grid min-w-0 flex-1 gap-1">
-        {/* アイコンの箱 (size-4) と高さを揃える: 揃わないと self-start のアイコンが 1 行目の中央から外れる */}
-        <span className="truncate text-xs leading-4">{label}</span>
+        {/* アイコンの箱とラベルの行送りを揃える: 揃わないと self-start のアイコンが 1 行目の中央から外れる */}
+        <span className="truncate text-xs leading-4 compact:text-sm compact:leading-5">{label}</span>
         {description ? (
           <span
             className={cn(
               // 淡い塗りの上では ink-muted が 3 台まで落ちるため、説明文は 1 段濃い ink-soft にする
-              "truncate text-2xs leading-4",
+              "truncate text-2xs leading-4 compact:text-xs compact:leading-5",
+              descriptionKind === "note" && "compact:hidden",
               tone === "nav-active" ? "text-on-accent/75" : "text-ink-soft",
             )}
           >
@@ -126,7 +134,11 @@ export function MenuItem({
       {/* 選択のチェックは添えるだけなので読み上げない (選択は aria-current が伝える) */}
       {active && variant === "choice" ? (
         <span
-          className={cn("grid size-4 shrink-0 place-items-center", description ? "self-start" : null, ICON_TONE[tone])}
+          className={cn(
+            "grid size-4 shrink-0 place-items-center compact:size-5",
+            description ? "self-start" : null,
+            ICON_TONE[tone],
+          )}
         >
           <CheckIcon />
         </span>
@@ -134,7 +146,7 @@ export function MenuItem({
       {trailing ? (
         <span
           className={cn(
-            "grid size-4 shrink-0 place-items-center",
+            "grid size-4 shrink-0 place-items-center compact:size-5",
             // アイコンの箱と同じく、2 行の行では 1 行目に合わせる
             description ? "self-start" : null,
             tone === "nav-active" ? "text-on-accent" : "text-warn",
