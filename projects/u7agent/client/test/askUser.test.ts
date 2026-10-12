@@ -4,6 +4,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
+import { ConfirmProvider } from "../src/components/ConfirmProvider";
 import { AskUserCard } from "../src/components/chat/AskUserCard";
 import {
   chatReducer,
@@ -18,10 +19,13 @@ import {
   askUserAnswerText,
   askUserAnswersClosing,
   askUserAnswersFromDrafts,
+  askUserCloseConfirmRequest,
+  askUserCloseNotice,
   askUserDraftAt,
   askUserDraftResolved,
   askUserDraftSelectedCount,
   askUserDraftsComplete,
+  askUserUnresolvedCount,
   emptyAskUserDrafts,
   isPendingAskUser,
   isPendingAskUserCard,
@@ -519,12 +523,16 @@ test("回答の記録は全問「回答しない」でも「回答なしで終�
       answers,
     };
     return renderToStaticMarkup(
-      createElement(AskUserCard, {
-        card,
-        answerable: true,
-        onAnswer: async (): Promise<{ ok: true }> => ({ ok: true }),
-        compact: false,
-      }),
+      createElement(
+        ConfirmProvider,
+        null,
+        createElement(AskUserCard, {
+          card,
+          answerable: true,
+          onAnswer: async (): Promise<{ ok: true }> => ({ ok: true }),
+          compact: false,
+        }),
+      ),
     );
   };
 
@@ -545,4 +553,54 @@ test("回答の記録は全問「回答しない」でも「回答なしで終�
     /回答なしで終了/,
     "1 問でも回答があれば note を出さない",
   );
+});
+
+test("未回答が残っている間だけ、閉じると回答なしで送られることを示して確認する", () => {
+  const drafts: AskUserDraft[] = [
+    { selected: ["A 案"], text: "", skipped: false },
+    { selected: [], text: "  ", skipped: false },
+    { selected: [], text: "", skipped: true },
+  ];
+  assert.equal(askUserUnresolvedCount(drafts), 1, "「回答しない」は回答済みなので数えない");
+  assert.equal(askUserUnresolvedCount(emptyAskUserDrafts(QUESTIONS)), QUESTIONS.length);
+
+  // 押す前に分かる補足。未回答が無いときは出さない (送るのは回答済みの内容だけ)
+  assert.equal(askUserCloseNotice(1), "閉じると、未回答の質問 1 件は「回答なし」で送信されます。");
+  assert.equal(askUserCloseNotice(0), undefined);
+
+  const request = askUserCloseConfirmRequest(2);
+  assert.ok(request, "未回答が残っているときは確認を返す");
+  const body = request.body?.join("\n") ?? "";
+  assert.equal(request.kind, "confirm");
+  assert.equal(request.title, "質問を閉じる");
+  assert.equal(request.confirmLabel, "回答なしで送る");
+  assert.ok(body.includes("未回答の質問 2 件は「回答なし」で送信されます"), "残りが回答なしになることを示す");
+  assert.ok(body.includes("回答済みの内容はそのまま送信します"), "回答済みを捨てないことを示す");
+  assert.equal(askUserCloseConfirmRequest(0), undefined, "未回答が無いときは確認しない");
+});
+
+test("回答待ちのカードは、閉じたときの結果を押す前に示す", () => {
+  const card: ToolCard = {
+    id: "call-1",
+    name: "ask_user",
+    args: "{}",
+    phase: "running",
+    output: "",
+    questions: QUESTIONS,
+  };
+  const html = renderToStaticMarkup(
+    createElement(
+      ConfirmProvider,
+      null,
+      createElement(AskUserCard, {
+        card,
+        answerable: true,
+        onAnswer: async (): Promise<{ ok: true }> => ({ ok: true }),
+        compact: false,
+      }),
+    ),
+  );
+
+  assert.match(html, /閉じると、未回答の質問 2 件は「回答なし」で送信されます/, "未回答の件数つきで示す");
+  assert.match(html, /aria-label="質問を閉じる（未回答は回答なしで送る）"/, "✕ の読み上げ名は現行の意味を保つ");
 });
