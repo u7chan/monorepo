@@ -14,7 +14,7 @@ startRun():
   1. run オブジェクト生成（status: "running", totalRetryCount: 0）
   2. run_start イベントを記録
   3. session.subscribe() で pi のイベントを変換して記録（変換は `server/src/run-events.ts`）
-     - message_update / text_delta → text
+     - message_update / text_delta → text / status（本文の書き出しに入った最初の delta だけ）
      - tool_execution_start/end    → tool_start / tool_end
      - tool_execution_update       → tool_progress（investigate の進捗だけ。live 専用）
      - auto_retry_start/end        → run_retry / status（後述）

@@ -137,6 +137,9 @@ export function createRunEventBridge(deps: RunEventBridgeDeps): RunEventBridge {
   // 応答時間は assistant メッセージごとにリセットする
   let assistantStartedAt: number | undefined;
   let firstTokenAt: number | undefined;
+  // 本文の書き出しを状態行へ知らせたか。数字は止めない (止めるのは回答待ちの時だけ) ので、
+  // ラベルだけをフェーズへ合わせる。ツール実行を挟んだターンでは次の本文で再び知らせる
+  let writingNotified = false;
   // 差分はそのまま配信せず、秘密値の前方一致になり得る末尾を保留する (アシスタントメッセージごとに作り直す)。
   let deltaMasker = createStreamingSecretMasker(masker);
   // 送信メッセージの message_end を観測済みか。SDK の prompt() は送信メッセージを組み立てる前に
@@ -218,6 +221,7 @@ export function createRunEventBridge(deps: RunEventBridgeDeps): RunEventBridge {
             currentAssistantText = "";
             assistantStartedAt = Date.now();
             firstTokenAt = undefined;
+            writingNotified = false;
             deltaMasker = createStreamingSecretMasker(masker);
             // 待機が終わって次の試行の本文が始まった時点を再実行の観測点にする (auto_retry_end は使わない)
             if (retryActive) onRetryAttemptStart();
@@ -227,6 +231,10 @@ export function createRunEventBridge(deps: RunEventBridgeDeps): RunEventBridge {
           const assistantEvent = event.assistantMessageEvent;
           if (assistantEvent?.type === "text_delta") {
             firstTokenAt ??= Date.now();
+            if (!writingNotified) {
+              writingNotified = true;
+              emit("status", { state: "writing", text: "応答を書いています…" });
+            }
             pushText(deltaMasker.push(assistantEvent.delta ?? ""));
           } else if (assistantEvent?.type === "thinking_delta") {
             // 思考だけが先に流れるモデルでも TTFT を測れる
@@ -255,6 +263,8 @@ export function createRunEventBridge(deps: RunEventBridgeDeps): RunEventBridge {
           }
           break;
         case "tool_execution_start": {
+          // ラベルがツール実行へ移るため、次の本文でもう一度「書き出し」を知らせる
+          writingNotified = false;
           const id = event.toolCallId ?? "";
           // 履歴 (projectMessages) と同じ関数で判定する。結果はまだ無いので isError は載せない
           const ref = classifySkillRead(event.args, { cwd, toolName: event.toolName ?? "" });
