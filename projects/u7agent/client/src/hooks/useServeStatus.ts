@@ -88,7 +88,7 @@ export function useServeStatus({ sessionId }: { sessionId: string }) {
         ...prev,
         status,
         failed: false,
-        row: servedAppRow(prev.row, { kind: "refreshed", status }),
+        row: servedAppRow(prev.row, { kind: "refreshed", status, starting: prev.starting }),
       }));
     } catch {
       if (sessionIdRef.current !== id) return;
@@ -167,7 +167,7 @@ export function useServeStatus({ sessionId }: { sessionId: string }) {
         failed: false,
         starting: false,
         error: undefined,
-        row: servedAppRow(prev.row, { kind: "refreshed", status }),
+        row: servedAppRow(prev.row, { kind: "refreshed", status, starting: prev.starting }),
       }));
     } catch (error) {
       if (!canApplyServeAction(issued, { sessionId: sessionIdRef.current, generation: selectionSeq.current })) {

@@ -7,6 +7,7 @@ import { SingleColumnBar } from "../src/components/SingleColumnBar";
 import { ServedAppGroup, ServedAppIndicator, type ServedAppProps } from "../src/components/ServedAppStatus";
 import {
   servedAppBusyKind,
+  servedAppFocusRequest,
   servedAppMenuSeparators,
   servedAppReplaceHint,
   servedAppRow,
@@ -14,7 +15,9 @@ import {
   servedAppStartConfirm,
   servedAppUrl,
   servedAppView,
+  type ServeRowEvent,
 } from "../src/lib/servedApp";
+import type { ServeStatus } from "../src/types";
 import { serveProps, serveStatus } from "./serve-fixture";
 
 /** location.hostname を使うリンク生成のための最小のグローバル (node には無い) */
@@ -364,6 +367,11 @@ function renderSingleColumnBar(overrides: Partial<ServedAppProps>, note?: string
 
 const MINE = serveStatus({ reachable: true, owner: { kind: "mine", title: "ピアノゲーム" }, generation: "gen-1" });
 
+/** ポーリング / 停止の観測。観測した時点で確認待ち (starting) だったかも入力に含める */
+function refreshed(status: ServeStatus, starting = false): ServeRowEvent {
+  return { kind: "refreshed", status, starting };
+}
+
 // What: エピソードの状態遷移。行を出すのは起動のエピソードごとに 1 回で、✕ はそのエピソードだけを閉じる
 test("起動のエピソードは start-ok で立ち、会話切替 / 取得失敗 / 確認待ち / 閉じるで落ちる", () => {
   const standing = servedAppRow({ episode: false }, { kind: "start-ok", status: MINE });
@@ -381,23 +389,35 @@ test("起動のエピソードは start-ok で立ち、会話切替 / 取得失�
   assert.equal(servedAppRow(standing, { kind: "session-changed" }).settled, undefined);
 });
 
+// What: 確認待ち (起動の押下から応答まで) の間に到達可を観測しても行は立たない
+test("確認待ちの最中の取得では行が立たず、確認待ちが解けたあとの到達可 → 到達可でも立てない", () => {
+  const waiting = servedAppRow({ episode: false, settled: serveStatus() }, { kind: "starting" });
+  // POST の応答より先に GET が稼働中を返しても、「起動中」の表示と行を同時に出さない
+  const observed = servedAppRow(waiting, refreshed(MINE, true));
+  assert.equal(observed.episode, false, "確認待ち中の観測");
+  // 観測した状態は記録するので、確認待ちが解けたあとに running → running が続いても立てない
+  assert.equal(servedAppRow(observed, refreshed(MINE)).episode, false, "確認待ちが解けたあと");
+  // 成功応答 (start-ok) が来たら立てる (このタブの起動を観測したエピソード)
+  assert.equal(servedAppRow(observed, { kind: "start-ok", status: MINE }).episode, true);
+});
+
 // What: ポーリングで観測した稼働はエピソードを壊さず、到達不可からの復帰だけが新しいエピソードになる
 test("稼働中のポーリングでは落とさず、立てるのは到達不可から自分のサービスへ変わったときだけ", () => {
   const standing = servedAppRow({ episode: false }, { kind: "start-ok", status: MINE });
-  assert.equal(servedAppRow(standing, { kind: "refreshed", status: MINE }).episode, true, "running → running");
+  assert.equal(servedAppRow(standing, refreshed(MINE)).episode, true, "running → running");
   // 取得失敗は「到達不可」ではなく状態を見失っただけなので、復帰した稼働中で立て直さない
-  const afterFailure = servedAppRow(servedAppRow(standing, { kind: "failed" }), { kind: "refreshed", status: MINE });
+  const afterFailure = servedAppRow(servedAppRow(standing, { kind: "failed" }), refreshed(MINE));
   assert.equal(afterFailure.episode, false, "取得失敗からの復帰");
 
   const stopped = serveStatus();
-  assert.equal(servedAppRow({ episode: false, settled: stopped }, { kind: "refreshed", status: MINE }).episode, true);
+  assert.equal(servedAppRow({ episode: false, settled: stopped }, refreshed(MINE)).episode, true);
   // 初期取得と会話切替の直後 (直前の確定状態が無い) では立てない
-  assert.equal(servedAppRow({ episode: false }, { kind: "refreshed", status: MINE }).episode, false);
+  assert.equal(servedAppRow({ episode: false }, refreshed(MINE)).episode, false);
   // 到達可のまま (他会話の公開) では立てない
   const other = serveStatus({ reachable: true, owner: { kind: "other", title: "決済画面の検証" } });
-  assert.equal(servedAppRow({ episode: false, settled: other }, { kind: "refreshed", status: MINE }).episode, false);
+  assert.equal(servedAppRow({ episode: false, settled: other }, refreshed(MINE)).episode, false);
   // 到達可でも自分のサービスでなければ立てない
-  assert.equal(servedAppRow({ episode: false, settled: stopped }, { kind: "refreshed", status: other }).episode, false);
+  assert.equal(servedAppRow({ episode: false, settled: stopped }, refreshed(other)).episode, false);
 });
 
 // What: ✕ はそのエピソードだけを閉じ、次のエピソードではまた出す
@@ -406,9 +426,21 @@ test("✕ の後の次のエピソード (到達不可 → 到達可) ではま�
     kind: "dismissed",
   });
   assert.equal(dismissed.episode, false);
-  const stopped = servedAppRow(dismissed, { kind: "refreshed", status: serveStatus() });
+  const stopped = servedAppRow(dismissed, refreshed(serveStatus()));
   assert.equal(stopped.episode, false, "停止では立てない");
-  assert.equal(servedAppRow(stopped, { kind: "refreshed", status: MINE }).episode, true);
+  assert.equal(servedAppRow(stopped, refreshed(MINE)).episode, true);
+});
+
+// What: 焦点要求を立てる条件 (確認待ちの間にレイアウトが変わった場合は立てない)
+test("焦点要求はこのタブの起動が適用され、成功時点が desktop で焦点が body にあるときだけ立てる", () => {
+  const base = { applied: true, singleColumn: false, focusOnBody: true };
+  assert.equal(servedAppFocusRequest(base), true);
+  // 待っている間に singleColumn へ切り替わったら、リンクの無いバーへ要求を残さない
+  assert.equal(servedAppFocusRequest({ ...base, singleColumn: true }), false);
+  // 入力欄などへ焦点が移っていたら動かさない
+  assert.equal(servedAppFocusRequest({ ...base, focusOnBody: false }), false);
+  // 適用されなかった (失敗 / 会話切替 / セッション未確定) ときや、ポーリングで観測した外部起動では立てない
+  assert.equal(servedAppFocusRequest({ ...base, applied: false }), false);
 });
 
 // What: 行を描くかの判定 (エピソード かつ 開ける かつ URL を作れる)
