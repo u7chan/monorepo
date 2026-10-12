@@ -49,7 +49,7 @@ const render = (overrides: Partial<Props> = {}): string =>
   renderToStaticMarkup(
     createElement(ModelEffortPicker, {
       settings,
-      compact: false,
+      singleColumn: false,
       open: false,
       onOpenChange: () => {},
       onChangeModel: () => {},

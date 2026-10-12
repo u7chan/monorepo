@@ -26,7 +26,7 @@ export function AgentSettingsPage({
   modelOptions,
   defaultModel,
   defaultThinkingLevel,
-  compact = false,
+  singleColumn = false,
   onBack,
   onOpenNav,
 }: AgentSettingsPageProps) {
@@ -40,7 +40,7 @@ export function AgentSettingsPage({
     catalog.builtinAgent && catalog.builtinAgent.id === editingAgent?.id ? editingAgent : undefined;
   const setNoteText = (text: string, error = false) => setNote({ text, error });
 
-  // 下書きはページが持つ。理由は docs/ui-layout.md の「compact の詳細シート」を参照。
+  // 下書きはページが持つ。理由は docs/ui-layout.md の「singleColumn の詳細シート」を参照。
   // 参照が変わった編集対象・カタログを render 中に検出して初期化する (useEffect では古いフォームが 1 フレーム描画される)
   const [agentForm, setAgentForm] = useState<AgentForm>(() => agentFormOf(editingAgent));
   const [formSource, setFormSource] = useState(() => ({ editingId, catalog }));
@@ -51,8 +51,8 @@ export function AgentSettingsPage({
 
   const selectAgent = (nextId: string | null) => {
     setEditingId(nextId);
-    // desktop はページ内のフォームをそのまま使う (docs/ui-layout.md の「compact の詳細シート」)
-    if (compact) setSheetOpen(true);
+    // desktop はページ内のフォームをそのまま使う (docs/ui-layout.md の「singleColumn の詳細シート」)
+    if (singleColumn) setSheetOpen(true);
   };
 
   const startNewAgent = () => {
@@ -64,14 +64,14 @@ export function AgentSettingsPage({
     <AgentList
       agents={agents}
       editingId={editingId}
-      compact={compact}
+      singleColumn={singleColumn}
       onSelect={selectAgent}
       onStartNew={startNewAgent}
     />
   );
 
   const editor = builtinEditing ? (
-    <BuiltinAgentPanel agent={builtinEditing} variant={compact ? "sheet" : "page"} />
+    <BuiltinAgentPanel agent={builtinEditing} variant={singleColumn ? "sheet" : "page"} />
   ) : (
     <AgentEditorForm
       catalog={catalog}
@@ -79,7 +79,7 @@ export function AgentSettingsPage({
       agent={editingAgent}
       form={agentForm}
       setForm={setAgentForm}
-      variant={compact ? "sheet" : "page"}
+      variant={singleColumn ? "sheet" : "page"}
       selectedAgentId={agentId}
       modelOptions={modelOptions}
       defaultModel={defaultModel}
@@ -96,12 +96,12 @@ export function AgentSettingsPage({
       eyebrow="AGENTS"
       title="エージェント"
       caption="会話の役割と、割り当てるスキルを定義します。"
-      compact={compact}
+      singleColumn={singleColumn}
       onOpenNav={onOpenNav}
       onBack={onBack}
       note={note}
     >
-      {compact ? (
+      {singleColumn ? (
         <div className="grid min-h-0 min-w-0 grid-rows-1">{list}</div>
       ) : (
         <div className="grid min-h-0 min-w-0 grid-rows-[auto_minmax(0,1fr)] wide:grid-cols-[248px_minmax(0,1fr)] wide:grid-rows-1">
@@ -109,7 +109,7 @@ export function AgentSettingsPage({
           {editor}
         </div>
       )}
-      {compact && sheetOpen ? (
+      {singleColumn && sheetOpen ? (
         <SettingsDetailSheet
           eyebrow="AGENT"
           title={builtinEditing ? "ビルトインエージェント" : editingAgent ? "エージェントを編集" : "新しいエージェント"}

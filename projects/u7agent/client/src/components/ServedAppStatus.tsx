@@ -128,7 +128,7 @@ function ServeSeparator() {
   return <i aria-hidden="true" className="block h-5.5 w-px shrink-0 bg-line" />;
 }
 
-/** compact は幅を増やさないため、停止中の起動も状態メニューも同じ 1 枠に収める。 */
+/** singleColumn は幅を増やさないため、停止中の起動も状態メニューも同じ 1 枠に収める。 */
 export function ServedAppIndicator({ port, status, failed, starting, onStart, onStop, onCancel }: ServedAppProps) {
   const view = servedAppView(status);
   const menuId = useId();

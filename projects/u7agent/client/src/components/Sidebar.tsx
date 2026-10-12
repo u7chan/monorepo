@@ -118,7 +118,7 @@ export function Sidebar({
         // relative は幅のハンドル (absolute inset-y-0 right-0) の基準。docked は <aside> 自身が
         // スクロールしない (一覧が flex-1 で吸収する) ので、ハンドルがスクロールで動くことはない
         "relative flex h-full min-h-0 flex-col gap-3.5 bg-panel px-3 py-4",
-        // 高さが足りない compact でも全項目へ到達できるよう、drawer 全体も 1 つのスクロール領域にする
+        // 高さが足りない singleColumn でも全項目へ到達できるよう、drawer 全体も 1 つのスクロール領域にする
         "scrollbar-thin overflow-y-auto",
         // docked は一覧が flex-1 で高さを吸収するので、<aside> 自身のガターは実際にスクロールする sheet だけに確保する
         sheet ? "scrollbar-stable" : null,

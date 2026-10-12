@@ -11,16 +11,16 @@ export function AgentLabel({
   agents,
   name,
   icon,
-  compact,
+  singleColumn,
 }: {
   agents: AgentDef[];
   name: string;
   icon?: string;
-  compact: boolean;
+  singleColumn: boolean;
 }) {
   return (
-    <span className={agentFrameClass(compact)}>
-      <span className={agentLabelBoxClass(compact)}>
+    <span className={agentFrameClass(singleColumn)}>
+      <span className={agentLabelBoxClass(singleColumn)}>
         {/* sizer は AgentPicker と同じ (最長の候補名で幅が決まる)。入れ替わりで欄の幅を変えない */}
         {agents.map((agent) => (
           <span key={agent.id} aria-hidden="true" className="invisible col-start-1 row-start-1 truncate">

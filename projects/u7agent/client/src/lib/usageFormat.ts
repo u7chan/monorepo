@@ -35,7 +35,7 @@ export function formatCost(total: number): string {
 export function messageMetaLine(
   usage: Usage | undefined,
   metrics: MessageMetrics | undefined,
-  compact: boolean,
+  singleColumn: boolean,
 ): string {
   const parts: string[] = [];
   if (metrics) {
@@ -44,8 +44,8 @@ export function messageMetaLine(
       parts.push(formatTokensPerSecond(metrics.tokensPerSecond));
     }
   }
-  // compact は metrics の有無で分岐させない (metrics が無ければトークンだけを出すのではなく何も出さない)
-  if (compact) return parts.join(" · ");
+  // singleColumn は metrics の有無で分岐させない (metrics が無ければトークンだけを出すのではなく何も出さない)
+  if (singleColumn) return parts.join(" · ");
   const tokens: string[] = [];
   if (usage) {
     if (usage.input > 0) tokens.push(`↑${formatTokens(usage.input)}`);

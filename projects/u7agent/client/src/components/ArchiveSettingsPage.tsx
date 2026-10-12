@@ -10,7 +10,12 @@ export type ArchiveSettingsPageProps = SettingsPageProps & {
 };
 
 /** 設定 → ダウンロード。編集は下書きで、[保存] で一覧を丸ごと PUT する（[既定に戻す] は行を消す DELETE） */
-export function ArchiveSettingsPage({ archiveSettings, compact = false, onBack, onOpenNav }: ArchiveSettingsPageProps) {
+export function ArchiveSettingsPage({
+  archiveSettings,
+  singleColumn = false,
+  onBack,
+  onOpenNav,
+}: ArchiveSettingsPageProps) {
   const { settings, draft, dirty, saving, note, add, remove, reload, save, reset, discard } = archiveSettings;
   const [input, setInput] = useState("");
 
@@ -44,7 +49,7 @@ export function ArchiveSettingsPage({ archiveSettings, compact = false, onBack, 
         </>
       }
       note={note}
-      compact={compact}
+      singleColumn={singleColumn}
       onOpenNav={onOpenNav}
       onBack={onBack}
     >

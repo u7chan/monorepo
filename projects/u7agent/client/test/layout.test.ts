@@ -45,10 +45,10 @@ test("desktop は 1200px 未満で左バーを overlay へ退避する", () => {
   assert.equal(resolveSidebarPlacement(720, "desktop"), "overlay");
 });
 
-test("compact は幅に関係なく常に overlay (導線は CompactBar の ☰)", () => {
+test("singleColumn は幅に関係なく常に overlay (導線は SingleColumnBar の ☰)", () => {
   assert.equal(resolveSidebarPlacement(390, "portrait"), "overlay");
   assert.equal(resolveSidebarPlacement(844, "landscape"), "overlay");
-  // 幅だけを見ると docked の帯でも、モードが compact なら overlay
+  // 幅だけを見ると docked の帯でも、モードが singleColumn なら overlay
   assert.equal(resolveSidebarPlacement(1440, "landscape"), "overlay");
   assert.equal(resolveSidebarPlacement(1920, "portrait"), "overlay");
 });

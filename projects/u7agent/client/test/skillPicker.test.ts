@@ -5,7 +5,7 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import {
   SKILL_PICKER_MAX_HEIGHT,
-  SKILL_PICKER_MAX_HEIGHT_COMPACT,
+  SKILL_PICKER_MAX_HEIGHT_SINGLE_COLUMN,
   SKILL_PICKER_WIDTH,
   skillPickerLayout,
   skillPickerLeft,
@@ -18,7 +18,7 @@ globalThis.location ??= { origin: "http://localhost" } as Location;
 const { SkillPicker } = await import("../src/components/composer/SkillPicker");
 
 const DESKTOP = { width: 1440, height: 900 };
-const COMPACT = { width: 390, height: 844 };
+const SINGLE_COLUMN = { width: 390, height: 844 };
 
 test("skillPickerWidth は viewport が狭いときだけ余白を残して縮める", () => {
   assert.equal(skillPickerWidth(DESKTOP.width), SKILL_PICKER_WIDTH);
@@ -33,10 +33,10 @@ test("skillPickerLayout はコンポーザーの上に開き、上限をそち�
     above: true,
     maxHeight: SKILL_PICKER_MAX_HEIGHT,
   });
-  // compact: 上限が 320px に下がる (入力欄とメッセージを覆いすぎない)
-  assert.deepEqual(skillPickerLayout({ top: 700, bottom: 736 }, COMPACT, true), {
+  // singleColumn: 上限が 320px に下がる (入力欄とメッセージを覆いすぎない)
+  assert.deepEqual(skillPickerLayout({ top: 700, bottom: 736 }, SINGLE_COLUMN, true), {
     above: true,
-    maxHeight: SKILL_PICKER_MAX_HEIGHT_COMPACT,
+    maxHeight: SKILL_PICKER_MAX_HEIGHT_SINGLE_COLUMN,
   });
 });
 
@@ -62,8 +62,8 @@ test("skillPickerLeft は欄の左端にそろえ、右端ではみ出す分だ�
     DESKTOP.width - SKILL_PICKER_WIDTH - 8,
   );
   assert.equal(skillPickerLeft({ left: 0 }, SKILL_PICKER_WIDTH, DESKTOP.width), 8, "左端は余白の内側へ clamp する");
-  // compact では幅いっぱい近くになるため、余白の左端へ寄る
-  assert.equal(skillPickerLeft({ left: 340 }, skillPickerWidth(COMPACT.width), COMPACT.width), 42);
+  // singleColumn では幅いっぱい近くになるため、余白の左端へ寄る
+  assert.equal(skillPickerLeft({ left: 340 }, skillPickerWidth(SINGLE_COLUMN.width), SINGLE_COLUMN.width), 42);
 });
 
 test("skillPickerTop は上に開くとき欄の上端から高さぶん戻し、viewport の内側へ clamp する", () => {
@@ -102,7 +102,7 @@ test("popover は常時 mount し、トリガーと dialog の関係を属性で
       createElement(SkillPicker, {
         state,
         rootCwd: "/workspace",
-        compact: false,
+        singleColumn: false,
         open: false,
         onOpenChange: () => {},
         onSelect: () => {},
@@ -136,7 +136,7 @@ test("popover は常時 mount し、トリガーと dialog の関係を属性で
       createElement(SkillPicker, {
         state,
         rootCwd: "/workspace",
-        compact: false,
+        singleColumn: false,
         open: true,
         onOpenChange: () => {},
         onSelect: () => {},
@@ -166,7 +166,7 @@ test("popover は常時 mount し、トリガーと dialog の関係を属性で
         projectSkills: true,
       },
       rootCwd: "/workspace",
-      compact: false,
+      singleColumn: false,
       open: true,
       onOpenChange: () => {},
       onSelect: () => {},

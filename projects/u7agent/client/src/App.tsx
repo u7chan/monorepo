@@ -7,7 +7,7 @@ import { AppearancePage } from "./components/AppearancePage";
 import { ArchiveSettingsPage } from "./components/ArchiveSettingsPage";
 import { ChatArea } from "./components/ChatArea";
 import { DiagnosticsContext } from "./DiagnosticsContext";
-import { CompactBar } from "./components/CompactBar";
+import { SingleColumnBar } from "./components/SingleColumnBar";
 import { Composer } from "./components/Composer";
 import { useConfirm } from "./components/ConfirmProvider";
 import { ContentSettingsPage } from "./components/ContentSettingsPage";
@@ -92,8 +92,8 @@ export default function App() {
   const markdownImageRawUrl = useMarkdownImageRawUrl(app.chat.runEndSeq);
   // desktop shell は幅と高さの両方が要る (lib/layout.ts)。足りない側で portrait / landscape を選ぶ
   const layout = useLayoutMode();
-  const compactMode = layout === "desktop" ? null : layout;
-  const compact = compactMode !== null;
+  const singleColumnMode = layout === "desktop" ? null : layout;
+  const singleColumn = singleColumnMode !== null;
   // 左バーの置き方だけが変わる (中身はどちらも同じ Sidebar)。overlay は ☰ から開く
   const viewportWidth = useViewportWidth();
   const sidebarDocked = resolveSidebarPlacement(viewportWidth, layout) === "docked";
@@ -145,28 +145,32 @@ export default function App() {
   // 引っ越しの対象 (会話 id と、確認に出すタイトル)。開いている間は専用ダイアログが移動先を選ぶ
   const [moveTarget, setMoveTarget] = useState<{ sessionId: string; title: string } | null>(null);
   const [navOpen, setNavOpen] = useState(false);
-  // 作業フォルダの開閉は保存しない (desktop は右パネル、compact は全画面シートで state も分ける)。
+  // 作業フォルダの開閉は保存しない (desktop は右パネル、singleColumn は全画面シートで state も分ける)。
   // 起動時は閉 (会話 URL を開いてもパネルは勝手に開かない)。既定を当てるのは利用者操作の新規会話の入口だけ
   const [sessionFilesOpen, setSessionFilesOpen] = useState(false);
   const [sessionFilesSheetOpen, setSessionFilesSheetOpen] = useState(false);
   // シートを閉じる契機の監視キー。route 全体は比べない (会話 URL の置換だけでは閉じない)
-  const [sheetScope, setSheetScope] = useState(() => ({ compact, view: mainView, root: filesRoot }));
+  const [sheetScope, setSheetScope] = useState(() => ({ singleColumn, view: mainView, root: filesRoot }));
   // 設定ページへの出入り / root の変更 / desktop への復帰でシートを閉じる。showModal() は子の Effect で
   // 親より先に走るため、Effect ではなく前の描画の値と比べる描画中の同期で閉じる
   const sheetScopeChanged =
-    sheetScope.compact !== compact || sheetScope.view !== mainView || sheetScope.root !== filesRoot;
+    sheetScope.singleColumn !== singleColumn || sheetScope.view !== mainView || sheetScope.root !== filesRoot;
   if (sheetScopeChanged) {
-    setSheetScope({ compact, view: mainView, root: filesRoot });
+    setSheetScope({ singleColumn, view: mainView, root: filesRoot });
     setSessionFilesSheetOpen(false);
   }
   // 面のモード (作業フォルダ / スキル)。要求の種別で切り替え、閉じる導線 / セッション切替 / チャット以外への
-  // 移動 / compact ⇄ desktop の切替で既定 (作業フォルダ) へ戻す
+  // 移動 / singleColumn ⇄ desktop の切替で既定 (作業フォルダ) へ戻す
   const [filesMode, setFilesMode] = useState<FilesMode>(DEFAULT_FILES_MODE);
   // モードを既定へ戻す契機の監視キー。root (cwd) だけでは同一プロジェクトのセッション切替 / 新規チャットを
   // 拾えないため、選択中セッションの識別子も見る (シートの閉じと同じ描画中の同期で反映する)
-  const [filesModeScope, setFilesModeScope] = useState(() => ({ compact, view: mainView, sessionId: app.sessionId }));
-  if (filesModeScopeChanged(filesModeScope, { compact, view: mainView, sessionId: app.sessionId })) {
-    setFilesModeScope({ compact, view: mainView, sessionId: app.sessionId });
+  const [filesModeScope, setFilesModeScope] = useState(() => ({
+    singleColumn,
+    view: mainView,
+    sessionId: app.sessionId,
+  }));
+  if (filesModeScopeChanged(filesModeScope, { singleColumn, view: mainView, sessionId: app.sessionId })) {
+    setFilesModeScope({ singleColumn, view: mainView, sessionId: app.sessionId });
     setFilesMode(DEFAULT_FILES_MODE);
   }
   // 配信できない設定で通知を On にしようとしたか。押した後だけ出す注記の根拠で、会話を移ったら捨てる
@@ -190,7 +194,7 @@ export default function App() {
   // スペースの切替は App ごと作り直すため、URL に会話を残すと新しいスペースで「見つかりません」になる。
   // 会話を持たない chat へ戻してから選ばせる (戻るボタンの backToChat とは目的が違う)
   const openChatWithoutSession = useCallback(() => navigate({ view: "chat" }), [navigate]);
-  // ファイル参照から開いたときの起点要素。compact の sheet は閉じたときにここへ focus を戻す
+  // ファイル参照から開いたときの起点要素。singleColumn の sheet は閉じたときにここへ focus を戻す
   const fileRefOriginRef = useRef<HTMLElement | null>(null);
   const { requestFileRef } = app;
   /** 実在を確認できた参照だけを開く (面のモード切替 / パネル / 要求の登録) */
@@ -198,11 +202,11 @@ export default function App() {
     (target: FileRefTarget) => {
       // 面のモードを要求の種別へ切り替えてから開く (逆向きの参照も面が入れ替わって消費する)
       setFilesMode(filesModeForTarget(target));
-      if (compact) setSessionFilesSheetOpen(true);
+      if (singleColumn) setSessionFilesSheetOpen(true);
       else setSessionFilesOpen(true);
       requestFileRef(target);
     },
-    [compact, requestFileRef],
+    [singleColumn, requestFileRef],
   );
   /** 参照の実在確認。通常ファイルとしての 200 だけを成功とし、それ以外は status で分類する */
   const checkFileRef = useCallback(
@@ -258,11 +262,11 @@ export default function App() {
     // 閉じる導線は面ごと既定 (作業フォルダ面) へ戻す (開き直してもスキル面を残さない)
     setFilesMode(DEFAULT_FILES_MODE);
     // 押した面 (layout で決まる) だけを反転する
-    if (compact) setSessionFilesSheetOpen((open) => !open);
+    if (singleColumn) setSessionFilesSheetOpen((open) => !open);
     else setSessionFilesOpen((open) => !open);
-  }, [compact]);
+  }, [singleColumn]);
   // 閉じる導線は押した面だけを閉じる。特にシートの close で desktop のパネルを閉じると、
-  // compact を往復しただけで開閉が変わる (レイアウト切替は互いの state に影響しない)
+  // singleColumn を往復しただけで開閉が変わる (レイアウト切替は互いの state に影響しない)
   const closeSessionFiles = useCallback(() => {
     setSessionFilesOpen(false);
     setFilesMode(DEFAULT_FILES_MODE);
@@ -405,10 +409,10 @@ export default function App() {
   const handleNewChat = useCallback(
     (agentId?: string, projectId?: string) => {
       const target = projectId ?? "";
-      setSessionFilesOpen(sessionFilesDefaultOpen({ compact, projectId: target }));
+      setSessionFilesOpen(sessionFilesDefaultOpen({ singleColumn, projectId: target }));
       app.newChat(agentId, target);
     },
-    [app, compact],
+    [app, singleColumn],
   );
 
   // セッション中のエージェントは作成時に固定される (定義は meta の promptSnapshot) ため、この入口は
@@ -515,10 +519,10 @@ export default function App() {
     onOpenSettingsSection: openSettingsSection,
   };
 
-  // 表示方法だけを layout で分ける (desktop は右パネル、compact は全画面シート)。設定 → ファイルは
+  // 表示方法だけを layout で分ける (desktop は右パネル、singleColumn は全画面シート)。設定 → ファイルは
   // ワークスペース root 固定なので、作業フォルダとは別の入口にする
-  const filesPanelOpen = !compact && filesRoot !== "" && sessionFilesOpen;
-  const filesSheetOpen = compact && filesRoot !== "" && sessionFilesSheetOpen;
+  const filesPanelOpen = !singleColumn && filesRoot !== "" && sessionFilesOpen;
+  const filesSheetOpen = singleColumn && filesRoot !== "" && sessionFilesSheetOpen;
   // 開閉の phase。閉じた後も退場アニメの間だけ mount を延ばし、CSS の再生と state の寿命を合わせる
   // (hooks/useExitPhase)。シートは dialog 自身がアニメを持つので、その ref も App が持つ
   const filesSheetRef = useRef<HTMLDialogElement | null>(null);
@@ -549,9 +553,9 @@ export default function App() {
   // 選べるのは未作成チャットだけで、そのときは選択中の値をプルダウンで出す
   const composerAgent = app.sessionId ? { name: barAgentName ?? "", icon: chatAgentIcon } : undefined;
 
-  // 設定ページは main を丸ごと使う (チャットとは排他)。compact ではヘッダが CompactBar の代わりになり、
+  // 設定ページは main を丸ごと使う (チャットとは排他)。singleColumn ではヘッダが SingleColumnBar の代わりになり、
   // 狭い desktop では左バーが overlay になるため、どちらも nav の導線をページへ渡す
-  const pageProps = { compact, onBack: backToChat, onOpenNav: sidebarDocked ? undefined : openNav };
+  const pageProps = { singleColumn, onBack: backToChat, onOpenNav: sidebarDocked ? undefined : openNav };
 
   // 設定のセクション → 画面。case の書き忘れは default の `satisfies never` が型エラーにする
   // (client の tsconfig は noImplicitReturns が無いので、union を足しただけでは気付けない)
@@ -687,10 +691,10 @@ export default function App() {
               emptyPortrait ? "chat-empty-portrait" : "grid-rows-[auto_minmax(0,1fr)_auto]",
             )}
           >
-            {compactMode ? (
-              <CompactBar
+            {singleColumnMode ? (
+              <SingleColumnBar
                 serve={serveProps}
-                mode={compactMode}
+                mode={singleColumnMode}
                 title={barTitle}
                 agentName={barAgentName}
                 scope={scope}
@@ -722,7 +726,7 @@ export default function App() {
                   historyLoading={app.chat.history.loading}
                   prependSeq={app.chat.prependSeq}
                   onLoadOlder={app.loadOlderHistory}
-                  compact={compact}
+                  singleColumn={singleColumn}
                   scope={scope}
                   suggestions={app.selectedAgent?.suggestions}
                   agentName={chatAgentName}
@@ -840,11 +844,11 @@ export default function App() {
           閉じるのも NavSheet 側 (退場アニメの完了 → dialog の close) なので、App は閉じる要求を持たない */}
       {navOpen && !sidebarDocked ? <NavSheet {...navProps} onClose={closeNav} /> : null}
       {projectDialogOpen ? (
-        <ProjectDialog compact={compact} onClose={closeProjectDialog} onCreate={handleCreateProject} />
+        <ProjectDialog singleColumn={singleColumn} onClose={closeProjectDialog} onCreate={handleCreateProject} />
       ) : null}
       {moveTarget ? (
         <SessionMoveDialog
-          compact={compact}
+          singleColumn={singleColumn}
           text={sessionMoveDialogText(moveTarget.title)}
           destinations={moveDestinationSpaces(space.spaces, space.selected.id)}
           onClose={closeMoveDialog}

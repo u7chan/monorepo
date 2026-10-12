@@ -62,7 +62,7 @@ function renderMessage(bubble: Bubble, overrides: Record<string, unknown> = {}):
         bubble,
         skillBadges: [],
         copied: false,
-        compact: false,
+        singleColumn: false,
         rootCwd: ROOT_CWD,
         cwd: CWD,
         rawUrl,

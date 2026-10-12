@@ -7,12 +7,20 @@ import { DisclosureChevronIcon } from "../icons";
  * user バブルのスキル展開ブロック。`/skill:` の本文は長いので畳んでおき、名前と場所だけを常に見せる
  * (何がモデルへ渡ったかを後から追えるようにする)。引数は MessageView が本文として別に描く。
  */
-export function SkillInvocation({ block, rootCwd, compact }: { block: SkillBlock; rootCwd: string; compact: boolean }) {
+export function SkillInvocation({
+  block,
+  rootCwd,
+  singleColumn,
+}: {
+  block: SkillBlock;
+  rootCwd: string;
+  singleColumn: boolean;
+}) {
   return (
     <div
       className={cn(
         "mb-1.5 rounded-2xl rounded-tr-md border border-accent/25 bg-accent-wash text-2xs text-ink-soft",
-        compact ? "px-3 py-2" : "px-3.5 py-2.5",
+        singleColumn ? "px-3 py-2" : "px-3.5 py-2.5",
       )}
     >
       <div className="flex min-w-0 items-baseline gap-2">

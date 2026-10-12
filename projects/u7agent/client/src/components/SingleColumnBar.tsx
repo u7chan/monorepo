@@ -9,7 +9,7 @@ import { NotifyNote } from "./NotifyNote";
 import { RuntimeAlert } from "./RuntimeAlert";
 import { ServedAppIndicator, type ServedAppProps } from "./ServedAppStatus";
 
-export type CompactBarProps = {
+export type SingleColumnBarProps = {
   mode: Exclude<LayoutMode, "desktop">;
   title: string;
   agentName?: string;
@@ -34,7 +34,7 @@ export type CompactBarProps = {
   onOpenNav: () => void;
 };
 
-export function CompactBar({
+export function SingleColumnBar({
   mode,
   title,
   agentName,
@@ -44,7 +44,7 @@ export function CompactBar({
   notify,
   sessionFiles,
   onOpenNav,
-}: CompactBarProps) {
+}: SingleColumnBarProps) {
   const landscape = mode === "landscape";
   // 2 行目 (landscape はタイトルの左) に「作業先 · エージェント名」を出す
   const scopeLine = `${scope.label} · ${agentName || "エージェント未選択"}`;
@@ -94,7 +94,7 @@ export function CompactBar({
       </div>
       {runtimeStatus.error ? (
         <div className="px-2.5 pb-2">
-          <RuntimeAlert runtimeStatus={runtimeStatus} compact />
+          <RuntimeAlert runtimeStatus={runtimeStatus} singleColumn />
         </div>
       ) : null}
       {serveError ? <NotifyNote text={serveError} className="mx-3 mb-2" /> : null}
