@@ -335,6 +335,56 @@ test("並行した ask_user は全部 settle するまで状態行の待機の�
   assert.equal(both.activity, "実行中…");
 });
 
+test("resync で復元した回答待ちも、settle した時点で状態行の待機の文言を落とす", () => {
+  // 待機の文言は resync が activityState を持たずに入れる (status を挟まない復帰経路)。
+  // 次の status が届かなくても、最後の toolEnd で待機の文言が残らないことを固定する
+  const waiting = chatReducer(initialChatState, {
+    type: "resync",
+    payload: payload([{ role: "user", text: "聞いて" }], run([askCall("call-1", false)]), "running"),
+  });
+  assert.equal(waiting.activity, "回答を待っています…");
+  assert.equal(waiting.activityState, undefined, "resync の文言は由来を持たない");
+
+  const settled = chatReducer(waiting, {
+    type: "toolEnd",
+    id: "call-1",
+    isError: false,
+    output: "ユーザーの回答:",
+    answers: QUESTIONS.map((_, index) => ({ index, skipped: true })),
+  });
+  assert.equal(pendingAskUserQuestionCount(settled.runTools, settled.runStatus), 0);
+  assert.equal(settled.activity, "実行中…");
+  assert.equal(settled.activityState, undefined);
+});
+
+test("resync で復元した並行した回答待ちは、全部 settle するまで待機の文言を残す", () => {
+  const waiting = chatReducer(initialChatState, {
+    type: "resync",
+    payload: payload([], run([askCall("call-1", false), askCall("call-2", false)]), "running"),
+  });
+  assert.equal(waiting.activity, "回答を待っています…");
+  assert.equal(pendingAskUserQuestionCount(waiting.runTools, waiting.runStatus), QUESTIONS.length * 2);
+
+  const one = chatReducer(waiting, {
+    type: "toolEnd",
+    id: "call-1",
+    isError: false,
+    output: "ユーザーの回答:",
+    answers: QUESTIONS.map((_, index) => ({ index, skipped: true })),
+  });
+  assert.equal(one.activity, "回答を待っています…", "まだ待っているカードがある");
+
+  const both = chatReducer(one, {
+    type: "toolEnd",
+    id: "call-2",
+    isError: false,
+    output: "ユーザーの回答:",
+    answers: [{ index: 0, skipped: true }],
+  });
+  assert.equal(pendingAskUserQuestionCount(both.runTools, both.runStatus), 0);
+  assert.equal(both.activity, "実行中…");
+});
+
 test("履歴ページが届いても回答待ちカードは末尾に残り、空の assistant を足さない", () => {
   // 初回 resync (payload.messages) → 最新履歴ページの順。本文を持たない assistant は履歴 item に
   // 現れないため、突き合わせが効かずページ先頭へ繰り上がるとカードが画面外に消える (F5 の経路)

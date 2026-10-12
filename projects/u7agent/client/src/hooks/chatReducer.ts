@@ -484,11 +484,12 @@ function currentTurnAssistantId(bubbles: Bubble[]): number | undefined {
 }
 
 /**
- * 回答が settle した直後の活動表示。`status` の文言は次に届くまで残るため、回答待ちが無くなった
- * 時点で待機の文言を落とす (次の status を待つと、続きの生成が長いほど古い文言が残る)。
+ * 回答が settle した直後の活動表示。待機の文言は status (由来つき) と resync (由来なし) のどちらでも
+ * 入り、次に届くまで残るため、回答待ちが無くなった時点で落とす。
  */
 function clearQuestionActivity(state: ChatState): ChatState {
-  if (state.activityState !== "question" || pendingAskUserQuestionCount(state.runTools, state.runStatus) > 0) {
+  const waiting = state.activityState === "question" || state.activity === ASK_USER_WAITING_TEXT;
+  if (!waiting || pendingAskUserQuestionCount(state.runTools, state.runStatus) > 0) {
     return state;
   }
   return { ...state, activity: "実行中…", activityState: undefined };
