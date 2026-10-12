@@ -523,6 +523,13 @@ export default function App() {
   const filesPanelPhase = useExitPhase(filesPanelOpen, panelWidth.mainRef);
   const filesSheetPhase = useExitPhase(filesSheetOpen, filesSheetRef);
   const settingsPhase = useExitPhase(mainView === "settings", settingsViewRef);
+  // 退場中はシートの見え方を固定する。key (root) が動くと dialog が作り直され、退場アニメが途中で切れる
+  // (終了待ちの listener が外れた要素に残り、スライド中に中身も入れ替わる)。閉じる導線はモードを既定へ
+  // 戻すため、モードも固定する。見るのは phase ではなく開閉の state (phase の描画中の更新は 1 度遅れる)
+  const [sheetView, setSheetView] = useState({ root: filesRoot, mode: filesMode });
+  if (filesSheetOpen && (sheetView.root !== filesRoot || sheetView.mode !== filesMode)) {
+    setSheetView({ root: filesRoot, mode: filesMode });
+  }
   // 未消費の要求は選択中セッションのときだけパネルへ渡す (セッションが変われば useSessions が破棄する)。
   // 面へ渡すのは 1 つの要求で、自分宛ての種別だけを適用する (面のモードは要求の種別で切り替える)
   const pendingFileRef = fileRefRequestForSession(app.fileRefRequest, app.sessionId);
@@ -812,10 +819,10 @@ export default function App() {
       </main>
       {filesSheetPhase !== "closed" ? (
         <SessionFilesSheet
-          key={filesRoot}
+          key={sheetView.root}
           dialogRef={filesSheetRef}
           phase={filesSheetPhase}
-          root={filesRoot}
+          root={sheetView.root}
           envScope={envScope ?? {}}
           excludeNames={excludeNames}
           filePreviewPort={app.health?.filePreviewPort}
@@ -823,7 +830,7 @@ export default function App() {
           onClose={closeSessionFilesSheet}
           openRequest={pendingFileRef}
           onHandled={app.ackFileRef}
-          mode={filesMode}
+          mode={sheetView.mode}
           onBackToWork={backToWorkFiles}
           returnFocus={fileRefOriginRef.current}
         />
