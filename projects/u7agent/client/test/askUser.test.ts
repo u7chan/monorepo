@@ -2,8 +2,19 @@
 // Composer の送信ブロックの回帰テスト。正はサーバーの DTO (ToolCall.questions / answers)。
 import assert from "node:assert/strict";
 import test from "node:test";
-import { chatReducer, historyToBubbles, initialChatState, type Bubble } from "../src/hooks/chatReducer";
+import { createElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
+import { AskUserCard } from "../src/components/chat/AskUserCard";
 import {
+  chatReducer,
+  historyToBubbles,
+  initialChatState,
+  type Bubble,
+  type ChatState,
+  type ToolCard,
+} from "../src/hooks/chatReducer";
+import {
+  askUserAnsweredNothing,
   askUserAnswerText,
   askUserAnswersClosing,
   askUserAnswersFromDrafts,
@@ -13,6 +24,7 @@ import {
   askUserDraftsComplete,
   emptyAskUserDrafts,
   isPendingAskUser,
+  isPendingAskUserCard,
   nextUnresolvedAskUserIndex,
   pendingAskUserQuestionCount,
   toggleAskUserOption,
@@ -20,7 +32,7 @@ import {
 } from "../src/lib/askUser";
 import { deriveComposerSettings } from "../src/lib/composerSettings";
 import { nonSkillToolCards } from "../src/lib/skillLoad";
-import type { AskUserQuestion, HistoryPage, RunPayload, SessionPayload, ToolCall } from "../src/types";
+import type { AskUserAnswer, AskUserQuestion, HistoryPage, RunPayload, SessionPayload, ToolCall } from "../src/types";
 
 const QUESTIONS: AskUserQuestion[] = [
   { question: "どちらで進めますか", header: "方式", options: [{ label: "A 案" }, { label: "B 案" }] },
@@ -95,6 +107,27 @@ function askCards(bubbles: readonly Bubble[]) {
   return assistantBubbles(bubbles).flatMap((bubble) => bubble.tools.filter((card) => card.questions?.length));
 }
 
+/** Composer の送信ブロック文言 (footnote)。回答待ちの数え方と同じ入力 (runTools / runStatus) から引く */
+function composerBlockedReason(state: Pick<ChatState, "runStatus" | "runTools">): string | undefined {
+  return deriveComposerSettings({
+    health: null,
+    selectedAgent: undefined,
+    sessionId: "s-1",
+    preselection: {},
+    chat: {
+      sessionModel: "stub/model",
+      sessionThinkingLevel: "low",
+      supportsThinking: true,
+      availableThinkingLevels: ["off", "low"],
+      runStatus: state.runStatus,
+      runTools: state.runTools,
+    },
+    sending: false,
+    settingsChanging: false,
+    stopVisible: false,
+  }).sendBlockedReason;
+}
+
 test("入力の純関数は全質問が埋まるまで送信不可にする", () => {
   const drafts = emptyAskUserDrafts(QUESTIONS);
   // assert.deepEqual は asserts 契約なので、期待値を型注釈して drafts を狭めない (selected: never[] への収束を防ぐ)
@@ -142,25 +175,10 @@ test("回答待ちは実行中の run のカードだけを数え、質問数で
   assert.equal(pendingAskUserQuestionCount({ "call-1": askCall("call-1", false, []) }, "running"), 0, "回答済み");
   assert.equal(pendingAskUserQuestionCount({ "call-1": askCall("call-1", true) }, "running"), 0, "完了済み");
   assert.equal(pendingAskUserQuestionCount({}, "running"), 0);
-
-  const settings = deriveComposerSettings({
-    health: null,
-    selectedAgent: undefined,
-    sessionId: "s-1",
-    preselection: {},
-    chat: {
-      sessionModel: "stub/model",
-      sessionThinkingLevel: "low",
-      supportsThinking: true,
-      availableThinkingLevels: ["off", "low"],
-      runStatus: "running",
-      runTools: { "call-1": waiting },
-    },
-    sending: false,
-    settingsChanging: false,
-    stopVisible: false,
-  });
-  assert.equal(settings.sendBlockedReason, "上の質問に回答してください（2件）");
+  assert.equal(
+    composerBlockedReason({ runStatus: "running", runTools: { "call-1": waiting } }),
+    "上の質問に回答してください（2件）",
+  );
 });
 
 test("toolStart / toolEnd / runEnd でカードの質問と回答が揃う", () => {
@@ -239,6 +257,82 @@ test("本文を持たない assistant の ask_user は resync でカードごと
   });
   assert.equal(askCards(again.bubbles).length, 1);
   assert.equal(pendingAskUserQuestionCount(again.runTools, again.runStatus), QUESTIONS.length);
+});
+
+test("回答待ち + キュー送信は settle まで送信を止め、settle 後は状態行に待機の文言を残さない", () => {
+  // 起票の事象: 質問が出る前に受け付けた送信がキューに残ったまま、カードが全問「回答しない」で settle する
+  let state = chatReducer(initialChatState, { type: "resync", payload: payload([], run([], "running"), "running") });
+  state = chatReducer(state, { type: "queued", position: 1, queueDepth: 1 });
+  state = chatReducer(state, {
+    type: "toolStart",
+    id: "call-1",
+    name: "ask_user",
+    args: '{"questions":[…]}',
+    questions: QUESTIONS,
+    at: 2,
+  });
+  state = chatReducer(state, { type: "status", state: "question", text: "回答を待っています…" });
+
+  assert.equal(state.queueDepth, 1);
+  assert.equal(state.activity, "回答を待っています…");
+  assert.equal(composerBlockedReason(state), "上の質問に回答してください（2件）", "キューより待機を先に知らせる");
+  assert.equal(isPendingAskUserCard(askCards(state.bubbles)[0] as ToolCard), true, "カードは回答を受け付ける");
+
+  const answers = QUESTIONS.map((_, index) => ({ index, skipped: true }));
+  const settled = chatReducer(state, {
+    type: "toolEnd",
+    id: "call-1",
+    isError: false,
+    output: "ユーザーの回答:",
+    answers,
+  });
+  assert.equal(pendingAskUserQuestionCount(settled.runTools, settled.runStatus), 0);
+  assert.equal(composerBlockedReason(settled), undefined, "settle 後は送信を止めない");
+  assert.equal(settled.activity, "実行中…", "次の status が届くまで待機の文言を残さない");
+  assert.equal(settled.activityState, undefined);
+  assert.equal(settled.queueDepth, 1, "キューは run が終わるまで動かない");
+  assert.deepEqual(askCards(settled.bubbles)[0]?.answers, answers, "全問「回答しない」の記録を残す");
+});
+
+test("並行した ask_user は全部 settle するまで状態行の待機の文言を残す", () => {
+  let state = chatReducer(initialChatState, { type: "resync", payload: payload([], run([], "running"), "running") });
+  state = chatReducer(state, {
+    type: "toolStart",
+    id: "call-1",
+    name: "ask_user",
+    args: "{}",
+    questions: [QUESTIONS[0] as AskUserQuestion],
+    at: 2,
+  });
+  state = chatReducer(state, {
+    type: "toolStart",
+    id: "call-2",
+    name: "ask_user",
+    args: "{}",
+    questions: [QUESTIONS[1] as AskUserQuestion],
+    at: 2,
+  });
+  state = chatReducer(state, { type: "status", state: "question", text: "回答を待っています…" });
+  assert.equal(pendingAskUserQuestionCount(state.runTools, state.runStatus), 2);
+
+  const one = chatReducer(state, {
+    type: "toolEnd",
+    id: "call-1",
+    isError: false,
+    output: "ユーザーの回答:",
+    answers: [{ index: 0, selected: ["A 案"] }],
+  });
+  assert.equal(one.activity, "回答を待っています…", "まだ待っているカードがある");
+
+  const both = chatReducer(one, {
+    type: "toolEnd",
+    id: "call-2",
+    isError: false,
+    output: "ユーザーの回答:",
+    answers: [{ index: 0, skipped: true }],
+  });
+  assert.equal(pendingAskUserQuestionCount(both.runTools, both.runStatus), 0);
+  assert.equal(both.activity, "実行中…");
 });
 
 test("履歴ページが届いても回答待ちカードは末尾に残り、空の assistant を足さない", () => {
@@ -340,5 +434,65 @@ test("1 問ずつ出すカードの判定は質問ごとの入力から導出す
   assert.equal(askUserAnswerText(undefined), undefined);
   assert.equal(askUserAnswerText({ index: 3 }), undefined, "空の回答は回答なし");
 
+  // note の「回答なしで終了」は行と同じ規則で決める (全問「回答しない」の settle でも出す)
+  assert.equal(askUserAnsweredNothing(undefined), true, "回答が未着");
+  assert.equal(askUserAnsweredNothing([]), true, "中止の空回答");
+  assert.equal(
+    askUserAnsweredNothing([
+      { index: 0, skipped: true },
+      { index: 1, skipped: true },
+    ]),
+    true,
+    "全問「回答しない」",
+  );
+  assert.equal(
+    askUserAnsweredNothing([
+      { index: 0, skipped: true },
+      { index: 1, text: "補足" },
+    ]),
+    false,
+  );
+
   assert.deepEqual(askUserDraftAt(drafts, 9), { selected: [], text: "", skipped: false }, "範囲外は空の入力");
+});
+
+test("回答の記録は全問「回答しない」でも「回答なしで終了」と出す", () => {
+  // 表示の仕様は実装の書き換えで変わらないよう、描画した内容で固定する (ドラフトの state に依らない記録部分)
+  const record = (answers: AskUserAnswer[]): string => {
+    const card: ToolCard = {
+      id: "call-1",
+      name: "ask_user",
+      args: "{}",
+      phase: "done",
+      output: "",
+      questions: QUESTIONS,
+      answers,
+    };
+    return renderToStaticMarkup(
+      createElement(AskUserCard, {
+        card,
+        answerable: true,
+        onAnswer: async (): Promise<{ ok: true }> => ({ ok: true }),
+        compact: false,
+      }),
+    );
+  };
+
+  assert.match(
+    record([
+      { index: 0, skipped: true },
+      { index: 1, skipped: true },
+    ]),
+    /回答なしで終了/,
+    "受理されたかを記録で区別できる",
+  );
+  assert.match(record([]), /回答なしで終了/, "停止・中止の空回答も同じ");
+  assert.doesNotMatch(
+    record([
+      { index: 0, selected: ["A 案"] },
+      { index: 1, skipped: true },
+    ]),
+    /回答なしで終了/,
+    "1 問でも回答があれば note を出さない",
+  );
 });

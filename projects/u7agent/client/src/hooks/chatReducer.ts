@@ -484,6 +484,17 @@ function currentTurnAssistantId(bubbles: Bubble[]): number | undefined {
 }
 
 /**
+ * 回答が settle した直後の活動表示。`status` の文言は次に届くまで残るため、回答待ちが無くなった
+ * 時点で待機の文言を落とす (次の status を待つと、続きの生成が長いほど古い文言が残る)。
+ */
+function clearQuestionActivity(state: ChatState): ChatState {
+  if (state.activityState !== "question" || pendingAskUserQuestionCount(state.runTools, state.runStatus) > 0) {
+    return state;
+  }
+  return { ...state, activity: "実行中…", activityState: undefined };
+}
+
+/**
  * run 側のツール状態を現在ターンの assistant バブルへ反映する。補完先が無いときは補完せず
  * 保持だけする (保留)。ページを組み直す位置から呼ぶので、ID で突き合わせてべき等にする。
  * focus は true のときだけ currentAssistantId を補完先へ向ける。呼び出し側は実行中かどうかで決める
@@ -1216,7 +1227,7 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
                   : card,
               ),
             }));
-      return attachRunToolCards(withCard, false);
+      return clearQuestionActivity(attachRunToolCards(withCard, false));
     }
 
     case "toolProgress": {
