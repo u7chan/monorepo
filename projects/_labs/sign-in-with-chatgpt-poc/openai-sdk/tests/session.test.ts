@@ -1,5 +1,5 @@
-import { describe, expect, test } from "bun:test"
-import { mkdtemp } from "node:fs/promises"
+import { afterAll, describe, expect, test } from "bun:test"
+import { mkdtemp, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
@@ -45,10 +45,22 @@ function tokenSet(overrides: Partial<TokenSet> = {}): TokenSet {
   }
 }
 
+const temporaryDirectories: string[] = []
+
+afterAll(async () => {
+  await Promise.all(
+    temporaryDirectories.map((directory) =>
+      rm(directory, { recursive: true, force: true }),
+    ),
+  )
+})
+
 async function createService(
   fetchImpl: FetchLike,
 ): Promise<{ service: SessionService; store: SessionStore }> {
-  const store = new SessionStore(await mkdtemp(join(tmpdir(), "siwc-session-")))
+  const directory = await mkdtemp(join(tmpdir(), "siwc-session-"))
+  temporaryDirectories.push(directory)
+  const store = new SessionStore(directory)
   const discovery = new DiscoveryClient(fetchImpl)
   return {
     store,

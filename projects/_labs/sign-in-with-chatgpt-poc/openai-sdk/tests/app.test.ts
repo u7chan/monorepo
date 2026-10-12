@@ -1,5 +1,5 @@
-import { describe, expect, test } from "bun:test"
-import { mkdtemp } from "node:fs/promises"
+import { afterAll, describe, expect, test } from "bun:test"
+import { mkdtemp, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
@@ -37,8 +37,24 @@ function tokenSet(overrides: Partial<TokenSet> = {}): TokenSet {
   }
 }
 
+const temporaryDirectories: string[] = []
+
+afterAll(async () => {
+  await Promise.all(
+    temporaryDirectories.map((directory) =>
+      rm(directory, { recursive: true, force: true }),
+    ),
+  )
+})
+
+async function createTemporaryDirectory(prefix: string): Promise<string> {
+  const directory = await mkdtemp(join(tmpdir(), prefix))
+  temporaryDirectories.push(directory)
+  return directory
+}
+
 async function createTestApp(options: { enableDebugActions?: boolean } = {}) {
-  const storageDir = await mkdtemp(join(tmpdir(), "siwc-app-"))
+  const storageDir = await createTemporaryDirectory("siwc-app-")
   const config: Config = {
     port: 8787,
     appName: "test-app",
@@ -170,7 +186,7 @@ describe("createApp", () => {
   })
 
   test("POST /api/chat は Responses API のストリームを SSE で中継する", async () => {
-    const storageDir = await mkdtemp(join(tmpdir(), "siwc-app-chat-"))
+    const storageDir = await createTemporaryDirectory("siwc-app-chat-")
     const config: Config = {
       port: 8787,
       appName: "test-app",

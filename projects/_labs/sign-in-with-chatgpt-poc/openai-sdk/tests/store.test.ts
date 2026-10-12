@@ -1,5 +1,5 @@
-import { describe, expect, test } from "bun:test"
-import { mkdtemp, stat, writeFile } from "node:fs/promises"
+import { afterAll, describe, expect, test } from "bun:test"
+import { mkdtemp, rm, stat, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
@@ -25,8 +25,20 @@ const SESSION: StoredSession = {
   },
 }
 
+const temporaryDirectories: string[] = []
+
+afterAll(async () => {
+  await Promise.all(
+    temporaryDirectories.map((directory) =>
+      rm(directory, { recursive: true, force: true }),
+    ),
+  )
+})
+
 async function createStore(): Promise<SessionStore> {
-  return new SessionStore(await mkdtemp(join(tmpdir(), "siwc-store-")))
+  const directory = await mkdtemp(join(tmpdir(), "siwc-store-"))
+  temporaryDirectories.push(directory)
+  return new SessionStore(directory)
 }
 
 describe("SessionStore", () => {
