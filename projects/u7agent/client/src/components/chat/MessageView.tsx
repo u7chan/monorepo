@@ -287,6 +287,10 @@ export function MessageView({
             </div>
           )
         ) : null}
+        {/* 本文の直後に置く (位置は docs/speech-generation.md#チャットのプレイヤー) */}
+        {!isUser && rawUrl !== undefined ? (
+          <SpeechPlayerList cards={toolCards} rootCwd={rootCwd} cwd={cwd} rawUrl={rawUrl} compact={compact} />
+        ) : null}
         {questionCards.length > 0 ? (
           <div className={cn("grid", compact ? "mt-2 gap-2" : "mt-2.5 gap-2.5")}>
             {questionCards.map((card) => (
@@ -314,9 +318,6 @@ export function MessageView({
               </button>
             ) : null}
           </div>
-        ) : null}
-        {!isUser && rawUrl !== undefined ? (
-          <SpeechPlayerList cards={toolCards} rootCwd={rootCwd} cwd={cwd} rawUrl={rawUrl} compact={compact} />
         ) : null}
         {bubble.text || bubble.at !== undefined ? (
           <div
