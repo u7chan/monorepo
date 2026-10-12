@@ -190,7 +190,7 @@ export function createApp(
 
   app.get("/api/models", async (c) => {
     try {
-      const accessToken = await sessions.ensureAccessToken()
+      const { accessToken } = await sessions.ensureAccessToken()
       return c.json({
         models: await fetchModelCatalog(deps.fetch, { accessToken }),
       })
@@ -225,8 +225,11 @@ export function createApp(
     }
 
     let accessToken: string
+    let refreshedToken: { expiresAt: string } | null = null
     try {
-      accessToken = await sessions.ensureAccessToken()
+      const token = await sessions.ensureAccessToken()
+      accessToken = token.accessToken
+      refreshedToken = token.refreshed ? { expiresAt: token.expiresAt } : null
     } catch (error) {
       return jsonError(c, error)
     }
@@ -236,6 +239,18 @@ export function createApp(
       sse.onAbort(() => {
         abortController.abort()
       })
+
+      // 更新は黙って行われると検証しにくいので、ストリームの先頭で知らせる
+      if (refreshedToken !== null) {
+        await sse.writeSSE({
+          event: "token",
+          data: JSON.stringify({
+            type: "token",
+            refreshed: true,
+            expiresAt: refreshedToken.expiresAt,
+          }),
+        })
+      }
 
       const createStream = createOpenAiResponseStream(accessToken, deps.fetch)
       try {

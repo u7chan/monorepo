@@ -153,7 +153,11 @@ describe("SessionService", () => {
       tokens: tokenSet({ expiresAt: "2026-01-01T11:00:00.000Z" }),
     })
 
-    expect(await service.ensureAccessToken()).toBe("new-access-token")
+    const token = await service.ensureAccessToken()
+
+    expect(token.accessToken).toBe("new-access-token")
+    expect(token.refreshed).toBe(true)
+    expect(token.expiresAt).toBe("2026-01-01T13:00:00.000Z")
 
     const tokenRequests = requests.filter(
       (request) => request.url === TOKEN_ENDPOINT,
@@ -170,7 +174,10 @@ describe("SessionService", () => {
     const { service, store } = await createService(fetch)
     await store.save({ registration: REGISTRATION, tokens: tokenSet() })
 
-    expect(await service.ensureAccessToken()).toBe("access-token")
+    const token = await service.ensureAccessToken()
+
+    expect(token.accessToken).toBe("access-token")
+    expect(token.refreshed).toBe(false)
     expect(
       requests.filter((request) => request.url === TOKEN_ENDPOINT),
     ).toHaveLength(0)

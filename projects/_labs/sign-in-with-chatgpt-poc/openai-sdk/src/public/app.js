@@ -468,6 +468,11 @@ function parseSseBlock(block) {
 function handleEvent(event) {
   const data = event.data
   switch (event.name) {
+    case "token":
+      setChatStatus(
+        `アクセストークンを自動更新しました（新しい期限: ${data?.expiresAt ?? "-"}）`,
+      )
+      break
     case "response":
       setChatStatus(`request 開始: response ID ${data?.responseId ?? "-"}`)
       break

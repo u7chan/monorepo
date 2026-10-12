@@ -53,17 +53,27 @@ async function createTemporaryDirectory(prefix: string): Promise<string> {
   return directory
 }
 
-async function createTestApp(options: { enableDebugActions?: boolean } = {}) {
-  const storageDir = await createTemporaryDirectory("siwc-app-")
-  const config: Config = {
+function createTestConfig(
+  storageDir: string,
+  enableDebugActions = true,
+): Config {
+  return {
     port: 8787,
     appName: "test-app",
     storageDir,
     origin: "http://127.0.0.1:8787",
     redirectUri: "http://127.0.0.1:8787/auth/callback",
-    enableDebugActions: options.enableDebugActions ?? true,
+    enableDebugActions,
     defaultModel: "gpt-6-luna",
   }
+}
+
+async function createTestApp(options: { enableDebugActions?: boolean } = {}) {
+  const storageDir = await createTemporaryDirectory("siwc-app-")
+  const config = createTestConfig(
+    storageDir,
+    options.enableDebugActions ?? true,
+  )
   const http = recordingFetch((request) => {
     if (request.url === DISCOVERY_URL) {
       return jsonResponse(DISCOVERY_RESPONSE)
@@ -189,15 +199,7 @@ describe("createApp", () => {
 
   test("POST /api/chat は Responses API のストリームを SSE で中継する", async () => {
     const storageDir = await createTemporaryDirectory("siwc-app-chat-")
-    const config: Config = {
-      port: 8787,
-      appName: "test-app",
-      storageDir,
-      origin: "http://127.0.0.1:8787",
-      redirectUri: "http://127.0.0.1:8787/auth/callback",
-      enableDebugActions: false,
-      defaultModel: "gpt-6-luna",
-    }
+    const config = createTestConfig(storageDir, false)
     const responsesBody = [
       "event: response.created",
       `data: ${JSON.stringify({ type: "response.created", sequence_number: 1, response: { id: "resp-1" } })}`,
@@ -250,6 +252,72 @@ describe("createApp", () => {
     expect(upstream?.headers.get("authorization")).toBe("Bearer access-token")
     expect(upstream?.body).toContain('"store":false')
     expect(upstream?.body).toContain('"stream":true')
+    expect(sse).not.toContain("event: token")
+  })
+
+  test("POST /api/chat は期限切れ時に自動更新し、その事実を SSE で知らせる", async () => {
+    const storageDir = await createTemporaryDirectory("siwc-app-refresh-")
+    const config = createTestConfig(storageDir, false)
+    const responsesBody = [
+      "event: response.completed",
+      `data: ${JSON.stringify({ type: "response.completed", sequence_number: 1, response: { id: "resp-2" } })}`,
+      "",
+      "",
+    ].join("\n")
+
+    const http = recordingFetch((request) => {
+      if (request.url === DISCOVERY_URL) {
+        return jsonResponse(DISCOVERY_RESPONSE)
+      }
+      if (request.url === TOKEN_ENDPOINT) {
+        return jsonResponse({
+          ...TOKEN_RESPONSE,
+          access_token: "refreshed-access-token",
+        })
+      }
+      if (request.url.startsWith("https://api.openai.com/v1/responses")) {
+        return new Response(responsesBody, {
+          status: 200,
+          headers: { "content-type": "text/event-stream" },
+        })
+      }
+      return jsonResponse(
+        { error: `unexpected: ${request.url}` },
+        { status: 500 },
+      )
+    })
+    const store = new SessionStore(storageDir)
+    await store.save({
+      registration: REGISTRATION,
+      tokens: tokenSet({
+        expiresAt: new Date(Date.now() - 1000).toISOString(),
+      }),
+    })
+    const app = createApp(config, { fetch: http.fetch })
+
+    const response = await app.request("/api/chat", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        model: "gpt-6-luna",
+        instructions: "",
+        input: [{ role: "user", content: "hi" }],
+      }),
+    })
+    const sse = await response.text()
+
+    expect(sse).toContain("event: token")
+    expect(sse).toContain('"refreshed":true')
+    expect(sse).toContain("event: completed")
+    const upstream = http.requests.find((request) =>
+      request.url.includes("/responses"),
+    )
+    expect(upstream?.headers.get("authorization")).toBe(
+      "Bearer refreshed-access-token",
+    )
+    expect((await store.read())?.tokens?.accessToken).toBe(
+      "refreshed-access-token",
+    )
   })
 
   test("デバッグ操作は無効化できる", async () => {

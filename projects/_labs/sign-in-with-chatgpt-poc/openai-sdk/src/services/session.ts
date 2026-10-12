@@ -56,6 +56,13 @@ export type SessionDeps = {
   now?: () => Date
 }
 
+export type AccessToken = {
+  accessToken: string
+  /** このリクエストのために更新したか。期限切れ・更新の検証で画面に出す。 */
+  refreshed: boolean
+  expiresAt: string
+}
+
 export class SessionService {
   private readonly store: SessionStore
   private readonly discovery: DiscoveryClient
@@ -166,7 +173,7 @@ export class SessionService {
     })
   }
 
-  async ensureAccessToken(): Promise<string> {
+  async ensureAccessToken(): Promise<AccessToken> {
     const session = await this.store.read()
     const tokens = session?.tokens ?? null
     if (tokens === null) {
@@ -177,9 +184,18 @@ export class SessionService {
       })
     }
     if (needsRefresh(tokens, this.now())) {
-      return (await this.refresh()).accessToken
+      const refreshed = await this.refresh()
+      return {
+        accessToken: refreshed.accessToken,
+        refreshed: true,
+        expiresAt: refreshed.expiresAt,
+      }
     }
-    return tokens.accessToken
+    return {
+      accessToken: tokens.accessToken,
+      refreshed: false,
+      expiresAt: tokens.expiresAt,
+    }
   }
 
   /** 同一セッションの同時リフレッシュで更新トークンを競合させない。 */
