@@ -19,16 +19,16 @@ const COPIED_MS = 2000;
 const DROPS_NOTE_MS = 8000;
 
 const DOT_TONE: Record<SidebarStatus["tone"], string> = {
-  live: "dot-accent dot-pulse",
+  live: cn("dot-accent dot-pulse"),
   // 回答待ちは「サーバーが作業している」のではなく「利用者を待っている」ので、静止の warn で示す
-  waiting: "dot-warn",
-  idle: "dot-idle",
+  waiting: cn("dot-warn"),
+  idle: cn("dot-idle"),
 };
 
 /** バッジの色は serve-badge-* に倣う。上下の余白を持たず、2 行目の高さと折り返しを変えない */
 const LABEL_TONE: Record<SidebarStatus["tone"], string> = {
-  live: "border-accent/40 bg-accent/10 text-accent-text",
-  waiting: "border-warn/40 bg-warn/10 text-warn",
+  live: cn("border-accent/40 bg-accent/10 text-accent-text"),
+  waiting: cn("border-warn/40 bg-warn/10 text-warn"),
   idle: "",
 };
 
