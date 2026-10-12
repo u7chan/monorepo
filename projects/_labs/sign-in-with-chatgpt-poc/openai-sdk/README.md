@@ -82,28 +82,38 @@ Windows 側のブラウザから `http://127.0.0.1:8787/` を開けるか確認�
 
 ## 実測結果
 
-> **未検証です。** 実アカウントでの手動実行後に結果を書き換えてください。Epic #1935 の比較に使うため、SDK バージョンとモデルは実行時の値へ更新します。
+2026-10-13 に、ChatGPT プラン利用を許可したアカウントで測定しました（アカウント種別（Plus / Pro）は未確認）。OAuth ログインと実推論は手動、それ以外は画面と `curl` で確認しています。
 
-| # | 項目（Issue #1936 のチェックリスト） | 期待 | 結果 | 実行日 / 備考 |
+| # | 項目（Issue #1936 のチェックリスト） | 期待 | 結果 | 備考 |
 | --- | --- | --- | --- | --- |
-| 1 | SIWC でサインインし、必要なスコープと利用許可を確認する | 同意画面でプラン利用の許可を求められ、`chatgpt.tokens.use.direct` を含むスコープが付与される | 未検証 | |
-| 2 | OAuth アクセストークンを `openai` SDK の Bearer 認証に使う | SDK が `Authorization: Bearer` で `/v1/responses` を呼ぶ | 未検証 | |
-| 3 | 利用可能モデルを取得・選択する | `{ models: [...] }` 形式のカタログから `visibility: "list"` のみが並ぶ | 未検証 | 実際のレスポンス形式を記録 |
-| 4 | `store:false` / `stream:true` で `response.completed` まで受信する | テキストが途中経過として流れ、`completed` で終わる | 未検証 | |
-| 5 | 2 ターンの対話 | 履歴を `input` 配列で送り、2 ターン目も文脈が続く | 未検証 | |
-| 6 | 認証期限切れ / 更新 | 「期限切れにする」後の送信で自動更新され、そのまま成功する | 未検証 | |
-| 7 | 再起動後の再利用 | アプリを再起動しても保存済みトークンで再利用できる（再サインイン不要） | 未検証 | |
-| 8 | ログアウト | 失効要求が成功し、ローカルのトークンが消え、再送信は 401 になる | 未検証 | 失効の HTTP ステータスを記録 |
-| 9 | 権限不足（`chatgpt.tokens.use.direct` なし） | サインインは成立し、画面が `ChatGPT プラン利用: 無効` になる | 未検証 | 同意を拒否して確認 |
-| 10 | 401 | `401` とエラーコード・request ID が画面に出る | 未検証 | 「偽物にする」で再現 |
-| 11 | 403 | 制限の内容がコードとヒント付きで出る | 未検証 | 実アカウント依存（未到達の可能性） |
-| 12 | 429 | `subscription_sharing_usage_limit_exceeded` として表示され、使用量設定へ誘導される | 未検証 | 実アカウント依存 |
-| 13 | `response.failed` | ストリーム中の失敗として code / param 付きで表示される | 未検証 | 実アカウント依存 |
-| 14 | 途中切断 | 「中断」で上流リクエストが中断され、画面は中断表示になる | 未検証 | |
-| 15 | 型チェックとテスト | `bun run lint` と `bun test` が通る | 成功（68 tests） | 2026-10 時点の CI 実行 |
-| 16 | 失敗系: 未対応フィールド | `temperature=0` を付けると未対応エラー（400 系）になる | 未検証 | 実アカウント依存 |
+| 1 | SIWC でサインインし、必要なスコープと利用許可を確認する | 同意画面でプラン利用の許可を求められ、`chatgpt.tokens.use.direct` を含むスコープが付与される | **成功** | 付与されたスコープは `chatgpt.tokens.use.direct` / `email` / `offline_access` / `openid` / `profile` / `resource.invoke` の 6 件。`client_id` は `oaiapp_...` が発行され、`ext_agent_host_id` は `urn:uuid:...` で永続化された |
+| 2 | OAuth アクセストークンを `openai` SDK の Bearer 認証に使う | SDK が `Authorization: Bearer` で `/v1/responses` を呼ぶ | **成功** | APIキーなしで推論できた |
+| 3 | 利用可能モデルを取得・選択する | `{ models: [...] }` 形式のカタログから `visibility: "list"` のみが並ぶ | **成功** | 生の応答は `{ models: [...] }` で 10 件。`visibility` は `list` と `hide` の 2 値で、`list` の 7 件を返した（下記「モデルカタログの生データ」） |
+| 4 | `store:false` / `stream:true` で `response.completed` まで受信する | テキストが途中経過として流れ、`completed` で終わる | **成功** | `completed` のレスポンスに `usage`（`input_tokens` / `output_tokens` / `reasoning_tokens` と `attribution` 内訳）が付いた |
+| 5 | 2 ターンの対話 | 履歴を `input` 配列で送り、2 ターン目も文脈が続く | **成功** | 直前のやり取りを `input` に含めて送ると、内容を引き継いだ応答が返った（`Say exactly: Hello, world!` → `ではそれを日本語にしてください。` → `こんにちは、世界！`） |
+| 6 | 認証期限切れ / 更新 | 「期限切れにする」後の送信で自動更新され、そのまま成功する | **成功** | 「期限切れにする」後の `GET /api/models` で更新が走り、`savedAt` が更新された。更新後も 200 |
+| 7 | 再起動後の再利用 | アプリを再起動しても保存済みトークンで再利用できる（再サインイン不要） | **成功** | プロセスを kill して再起動後も `signedIn: true` / 同じ `client_id` / `ChatGPT プラン利用: 有効` |
+| 8 | ログアウト | 失効要求が成功し、ローカルのトークンが消え、再送信は 401 になる | 未検証 | トークンを削除するため、必要になった時点で実行する |
+| 9 | 権限不足（`chatgpt.tokens.use.direct` なし） | サインインは成立し、画面が `ChatGPT プラン利用: 無効` になる | 未検証 | 同意を拒否しての再認可が必要 |
+| 10 | 401 | `401` とエラーコード・request ID が画面に出る | **成功** | `status: 401` / `code: invalid_api_key` / `request ID: req_...` が表示された。API 側のメッセージは鍵をマスクした断片を含む（実トークンは含まない）。「アクセストークンを更新」で回復できた |
+| 11 | 403 | 制限の内容がコードとヒント付きで出る | 未検証 | アカウント・ワークスペースの状態に依存 |
+| 12 | 429 | `subscription_sharing_usage_limit_exceeded` として表示され、使用量設定へ誘導される | 未検証 | アカウント・ワークスペースの状態に依存 |
+| 13 | `response.failed` | ストリーム中の失敗として code / param 付きで表示される | 未検証 | アカウント・ワークスペースの状態に依存（コード上の処理は `tests/inference.test.ts` で確認） |
+| 14 | 途中切断 | 「中断」で上流リクエストが中断され、画面は中断表示になる | **成功**（クライアント切断で確認） | ストリーム中にクライアントから切断してもプロセスは正常のまま（エラーログなし）で、その後のリクエストも 200。上流は `AbortController` で中断する。画面の「中断」ボタンは同じ経路だが未確認 |
+| 15 | 型チェックとテスト | `bun run lint` と `bun test` が通る | **成功**（68 tests） | PR の CI でも同じ経路を実行（`Dockerfile` の `test` ステージ） |
+| 16 | 失敗系: 未対応フィールド | `temperature=0` を付けると未対応エラー（400 系）になる | **成功** | `status: 400` / `message: Unsupported parameter: temperature`。`code` と `param` は付かず、request ID も無かった（想定していた `subscription_sharing_unsupported_capability` ではなかった） |
 
-### 実行時の値（実測後に記入）
+### モデルカタログの生データ（実測）
+
+`GET https://api.openai.com/v1/models` を OAuth アクセストークンで呼んだ結果です。
+
+- トップレベルは `{"models": [...]}` で 10 件。`visibility` は `list`（7 件）と `hide`（3 件）の 2 値
+- `display_name` で表示し、`slug` を `model` として送る。並び順はサーバーのまま（`gpt-6.1-sol` → `gpt-6-astra` → `gpt-6-sol` → `gpt-6-luna` → `gpt-5.6-sol` → `gpt-5.6-terra` → `gpt-5.6-luna`）
+- 1 件の要素には `slug` / `display_name` / `visibility` のほか、`context_window` / `max_context_window` / `supported_reasoning_levels` / `default_reasoning_level` / `available_in_plans` / `service_tiers` / `supported_in_api` / `base_instructions` / `prefer_websockets` / `truncation_policy` など多数のフィールドが含まれる
+- `openai` SDK の `models.list()` は `{ data: [...] }` を前提にするためこの応答を扱えない。このサンプルでは `fetch` で直接読む
+- このエンドポイントのレスポンスには request ID ヘッダー（`openai-request-id` / `x-request-id`）が付かなかった
+
+### 実行時の値
 
 | 項目 | 値 |
 | --- | --- |
@@ -112,10 +122,11 @@ Windows 側のブラウザから `http://127.0.0.1:8787/` を開けるか確認�
 | `jose` | 6.2.12 |
 | Bun | 1.3.14 |
 | TypeScript | 7.0.2 |
-| 使用モデル | `gpt-6-luna` を既定として選択（モデルの提供状況はアカウント・プラン依存。画面で選んだ slug を記録する） |
+| 使用モデル | `gpt-6-luna`（カタログに含まれ、既定として選択できた） |
 | 認可エンドポイント | `https://auth.openai.com/api/accounts/authorize` |
 | トークンエンドポイント | `https://auth.openai.com/api/accounts/oauth/token` |
-| モデルカタログの応答形式 | 未記入（`{ models: [{ slug, display_name, visibility }] }` を想定） |
+| モデルカタログの応答形式 | `{ models: [{ slug, display_name, visibility, ... }] }`（`visibility: "list"` の 7 件） |
+| 付与されたスコープ | `chatgpt.tokens.use.direct` `email` `offline_access` `openid` `profile` `resource.invoke` |
 
 ## 確認手順（正常系）
 
@@ -132,10 +143,10 @@ Windows 側のブラウザから `http://127.0.0.1:8787/` を開けるか確認�
 
 | 目的 | 手順 | 期待 |
 | --- | --- | --- |
-| 401 | デバッグの「アクセストークンを偽物にする」→ 送信 | `401` とエラーコード・request ID が表示される。「アクセストークンを更新」で回復できる |
-| 期限切れ / 更新 | 「アクセストークンを期限切れにする」→ 送信 | 送信前に更新が走り、成功する |
+| 401 | デバッグの「アクセストークンを偽物にする」→ 送信 | `401` / `invalid_api_key` / request ID が表示される。「アクセストークンを更新」で回復できる |
+| 期限切れ / 更新 | 「アクセストークンを期限切れにする」→ 送信 | 送信前に更新が走り、そのまま成功する（実測済み） |
 | 権限不足 | 同意画面でプラン利用を許可せず完了 | サインインは成立し、`ChatGPT プラン利用: 無効` と再認可の案内が出る |
-| 未対応フィールド | デバッグの `temperature=0` を有効にして送信 | 未対応エラー（`subscription_sharing_unsupported_capability` など）が表示される |
+| 未対応フィールド | デバッグの `temperature=0` を有効にして送信 | `400 Unsupported parameter: temperature` が表示される（実測。`code` / `param` / request ID は付かない） |
 | 途中切断 | 送信直後に「中断」 | 上流のストリームが中断され、画面に「中断しました。」が出る |
 | 状態不一致 | 認可を開始した後に別タブで認可をやり直し、古いタブのコールバックを使う | `state` 不一致として拒否される |
 | 登録未完了 | コールバックに発行済み `client_id` が含まれない | `missing_issued_client_id` として拒否され、登録を保存しない |
