@@ -22,7 +22,7 @@ export type RowMenuAction<K extends RowMenuActionKind = RowMenuActionKind> = {
   /** 2 行目。押す前に開示したい条件がある操作だけ持つ */
   description?: string;
   /**
-   * 上の `description` の区分。compact では `note` (ラベルだけで操作が決まる補足) を隠し、
+   * 上の `description` の区分。singleColumn では `note` (ラベルだけで操作が決まる補足) を隠し、
    * `disclosure` (押す前に知る必要がある条件・対象) は残す。未指定は `disclosure`
    */
   descriptionKind?: RowMenuDescriptionKind;
@@ -32,12 +32,12 @@ export type RowMenuAction<K extends RowMenuActionKind = RowMenuActionKind> = {
 };
 
 /**
- * 2 行目の区分。開示は compact でも残し (残した開示は `MenuItem` が 12px にする)、補足だけを隠す。
+ * 2 行目の区分。開示は singleColumn でも残し (残した開示は `MenuItem` が 12px にする)、補足だけを隠す。
  * 未分類を開示に倒すので、区分を付け忘れた項目の説明が勝手に消えることはない。
  */
 export type RowMenuDescriptionKind = "disclosure" | "note";
 
-/** 区分の既定 (未分類 = 開示)。表示の切替は CSS の compact バリアントが担う */
+/** 区分の既定 (未分類 = 開示)。表示の切替は CSS の singleColumn バリアントが担う */
 export function rowMenuDescriptionKind(action: Pick<RowMenuAction, "descriptionKind">): RowMenuDescriptionKind {
   return action.descriptionKind ?? "disclosure";
 }

@@ -38,7 +38,7 @@ export function ProjectRow({
     <div>
       {/* 行のクリックは折りたたみのトグル。選択ハイライトは持たず (作成先は ⋯ の「このプロジェクトに新しい会話」と
           追加の成功後が明示する)、開いているセッションの行だけを強調する */}
-      <div className="group flex min-h-10.5 items-center gap-1 rounded-lg border border-transparent pr-1.5 transition-colors hover:bg-hover compact:min-h-11">
+      <div className="group flex min-h-10.5 items-center gap-1 rounded-lg border border-transparent pr-1.5 transition-colors hover:bg-hover singleColumn:min-h-11">
         <button
           type="button"
           onClick={onToggle}

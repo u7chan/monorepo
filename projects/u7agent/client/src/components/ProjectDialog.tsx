@@ -234,10 +234,10 @@ export function ProjectDialog({ onClose, onCreate, singleColumn = false }: Proje
             {footerNote.text}
           </p>
           <div className="flex items-center gap-2">
-            <button type="button" onClick={onClose} className="btn-quiet compact:min-h-11" disabled={busy}>
+            <button type="button" onClick={onClose} className="btn-quiet singleColumn:min-h-11" disabled={busy}>
               キャンセル
             </button>
-            <button type="submit" disabled={!canSubmit} className="btn-primary compact:min-h-11">
+            <button type="submit" disabled={!canSubmit} className="btn-primary singleColumn:min-h-11">
               {mode === "create" ? "作成" : "登録"}
             </button>
           </div>

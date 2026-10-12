@@ -247,7 +247,7 @@ export function AgentPicker({
         aria-labelledby={triggerId}
         onKeyDown={onListKeyDown}
         onBlur={onListBlur}
-        className="popover-panel fixed inset-auto m-0 w-max overflow-visible rounded-lg border border-line bg-panel p-1 shadow-panel compact:p-2"
+        className="popover-panel fixed inset-auto m-0 w-max overflow-visible rounded-lg border border-line bg-panel p-1 shadow-panel singleColumn:p-2"
       >
         <div ref={listRef} className="scrollbar-thin overflow-y-auto">
           {agents.map((agent, index) => (

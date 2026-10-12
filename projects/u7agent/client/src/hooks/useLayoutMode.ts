@@ -5,7 +5,7 @@ function detectLayoutMode(): LayoutMode {
   return resolveLayoutMode(window.innerWidth, window.innerHeight);
 }
 
-/** モードを `html[data-layout]` へ写す。CSS の `compact` バリアントと、top layer に載る popover がこれを見る */
+/** モードを `html[data-layout]` へ写す。CSS の `singleColumn` バリアントと、top layer に載る popover がこれを見る */
 function applyLayoutMode(mode: LayoutMode): void {
   document.documentElement.dataset.layout = mode;
 }
@@ -19,7 +19,7 @@ export function useLayoutMode(): LayoutMode {
   const [mode, setMode] = useState<LayoutMode>(detectLayoutMode);
 
   // ResizeObserver ではなく layout effect で購読するのは、初回を paint 前に同期するため。
-  // 属性が無い間は CSS の compact バリアントが効かず、初期 state が compact でも desktop の寸法で描画される
+  // 属性が無い間は CSS の singleColumn バリアントが効かず、初期 state が singleColumn でも desktop の寸法で描画される
   useLayoutEffect(() => {
     const update = () => {
       const next = detectLayoutMode();

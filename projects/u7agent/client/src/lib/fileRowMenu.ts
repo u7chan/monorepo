@@ -37,7 +37,7 @@ export function fileRowActions({
   if (readOnly) return null;
   // 相対パスはファイル / ディレクトリ / symlink のどれでも取れる (危険な削除は末尾に残す)
   const actions: FileRowAction[] = [
-    // コピーする字面の基準はラベルだけで決まるため compact では隠す
+    // コピーする字面の基準はラベルだけで決まるため singleColumn では隠す
     { kind: "copy-path", label: "パスをコピー", description: "ツリーの root からの相対パス", descriptionKind: "note" },
   ];
   // ダウンロードは通常ファイルとディレクトリに出す。symlink は api が 400 で拒否し、除外名の行は zip に入らない
