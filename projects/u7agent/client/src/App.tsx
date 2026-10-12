@@ -62,7 +62,7 @@ import {
 } from "./lib/notifications";
 import { sessionFilesDefaultOpen, sessionFilesRoot } from "./lib/sessionFiles";
 import { sessionEnvScope } from "./lib/sessionEnv";
-import { servedAppBusyKind, servedAppStartConfirm, servedAppView } from "./lib/servedApp";
+import { servedAppBusyKind, servedAppFocusRequest, servedAppStartConfirm, servedAppView } from "./lib/servedApp";
 import { sessionMoveDialogText } from "./lib/sidebarRowMenu";
 import { moveDestinationSpaces } from "./lib/spaceSelection";
 import { activityDisplay, retryRemainingMs } from "./lib/retryState";
@@ -375,6 +375,15 @@ export default function App() {
 
   // サービスの状態と操作。バーの表示条件は lib/servedApp が決める (会話ごとの値なので facade が持つ)
   const serve = app.serve;
+  // desktop の「サービス」リンクへ焦点を移す 1 ショット要求。立つのはこのタブの起動が成功したときだけ
+  const [serveFocusRequest, setServeFocusRequest] = useState(false);
+  const ackServeFocus = useCallback(() => setServeFocusRequest(false), []);
+  // 要求を消費できるのは desktop のグループだけ。singleColumn へ移ったら描画中に捨てる
+  // (残すと desktop へ戻ったときに古い要求で焦点が飛ぶ)
+  if (singleColumn && serveFocusRequest) setServeFocusRequest(false);
+  // 起動の応答を待っている間にレイアウトは変わり得る。焦点要求の判定は await の後で最新の値から読む
+  const singleColumnRef = useRef(singleColumn);
+  singleColumnRef.current = singleColumn;
   const handleServeStart = useCallback(() => {
     const busy = servedAppBusyKind({
       selfStatus: app.chat.runStatus,
@@ -389,7 +398,15 @@ export default function App() {
       if (request && !(await confirm(request))) return;
       // 会話が変わっていたら、未確認の別の会話のサービスを起動しない
       if (!confirmTargetUnchanged(target, sessionIdRef.current)) return;
-      void app.serve.start();
+      const applied = await app.serve.start();
+      // 焦点を移すかの判断はここだけ (ポーリングで観測した外部起動では呼ばない)。
+      // 成功時点のレイアウトと焦点で決める (押した時点の値で決めると、待っている間の切替を見落とす)
+      const focusRequested = servedAppFocusRequest({
+        applied: applied !== undefined,
+        singleColumn: singleColumnRef.current,
+        focusOnBody: document.activeElement === document.body,
+      });
+      if (focusRequested) setServeFocusRequest(true);
     })();
   }, [app.chat.runStatus, app.sessionId, activeSession?.projectId, app.sessions, app.serve, confirm]);
   const serveProps = {
@@ -398,6 +415,11 @@ export default function App() {
     failed: serve.failed,
     starting: serve.starting,
     error: serve.error,
+    row: serve.row,
+    onOpenRow: serve.openRow,
+    onDismissRow: serve.dismissRow,
+    focusRequest: serveFocusRequest,
+    onFocusHandled: ackServeFocus,
     onStart: handleServeStart,
     onStop: serve.stop,
     onCancel: serve.cancel,

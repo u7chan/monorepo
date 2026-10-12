@@ -1,6 +1,7 @@
 import {
   Fragment,
   useCallback,
+  useEffect,
   useId,
   useLayoutEffect,
   useRef,
@@ -17,6 +18,7 @@ import {
   servedAppReplaceHint,
   servedAppUrl,
   servedAppView,
+  type ServeRowState,
   type ServeView,
 } from "../lib/servedApp";
 import type { ServeStatus } from "../types";
@@ -34,6 +36,15 @@ export type ServedAppProps = {
   starting: boolean;
   /** 直前の操作の失敗理由 */
   error?: string;
+  /** 起動の後にバー直下へ出す「開く」1 行のエピソード (desktop は出さない) */
+  row: ServeRowState;
+  /** 行の「開く」。開いてから行を消す (順序は hook が決める) */
+  onOpenRow: (url: string) => void;
+  /** 行の ✕。このエピソードだけを閉じる */
+  onDismissRow: () => void;
+  /** desktop の「サービス」リンクへ焦点を移す 1 ショット要求 (このタブの起動が成功したときだけ立つ) */
+  focusRequest?: boolean;
+  onFocusHandled?: () => void;
   onStart: () => void;
   onStop: () => void;
   onCancel: () => void;
@@ -46,7 +57,7 @@ function ServeMark({ view }: { view: ServeView }) {
 }
 
 const BADGE_TONE: Record<ServeView["tone"], string> = {
-  ok: "serve-badge-ok",
+  ok: "serve-tone-ok",
   idle: "",
   warn: "serve-badge-warn",
 };
@@ -80,8 +91,26 @@ function StartingBadge() {
  * desktop のサービスのグループ。[状態バッジ] [サービス] [停止/起動] ｜ を 1 つの単位にして、
  * 右寄せクラスタの左端に置く (出ても通知・作業フォルダの位置が動かない)。区切り線も一緒に出し入れする。
  */
-export function ServedAppGroup({ port, status, failed, starting, onStart, onStop, onCancel }: ServedAppProps) {
+export function ServedAppGroup({
+  port,
+  status,
+  failed,
+  starting,
+  focusRequest,
+  onFocusHandled,
+  onStart,
+  onStop,
+  onCancel,
+}: ServedAppProps) {
   const view = servedAppView(status);
+  const linkRef = useRef<HTMLAnchorElement | null>(null);
+  // リンクを描かない早期 return の後ろには置けない (描かないときも要求を消費する必要がある)。
+  // 消費しないと、レイアウトを desktop へ切り替えたときに古い要求で焦点が飛ぶ
+  useEffect(() => {
+    if (!focusRequest) return;
+    onFocusHandled?.();
+    linkRef.current?.focus();
+  }, [focusRequest, onFocusHandled]);
   if (!failed && starting) {
     return (
       <span className="inline-flex items-center gap-2">
@@ -100,6 +129,7 @@ export function ServedAppGroup({ port, status, failed, starting, onStart, onStop
       <ServeBadge view={view} />
       {href ? (
         <a
+          ref={linkRef}
           href={href}
           target="_blank"
           rel="noreferrer noopener"
