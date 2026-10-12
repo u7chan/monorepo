@@ -59,7 +59,7 @@ export function AgentEditorForm({
   agent: AgentDef | undefined;
   form: AgentForm;
   setForm: Dispatch<SetStateAction<AgentForm>>;
-  /** page = ページ内の編集列、sheet = compact のシート (docs/ui-layout.md) */
+  /** page = ページ内の編集列、sheet = singleColumn のシート (docs/ui-layout.md) */
   variant: "page" | "sheet";
   selectedAgentId: string;
   modelOptions: ModelOption[];

@@ -213,7 +213,7 @@ HTML プレビューのパス行のアイコンボタンで、描画中の文書
 - **透過は本文の枠の市松で示す**（`styles/index.css` の `.image-canvas`）。色は `--c-soft` と `--c-ink` の `color-mix` で作り、6 テーマぶんの定義を足さずに追随する（1 タイル 16px = 8px 角）。市松は本文の枠いっぱいに敷き、画像の外側（`p-2` の余白）にも出る（VS Code などと同じ扱い。画像の箱の下だけに敷く案は、小さい透過画像で周囲が平らなままになるため採らない）。透明度の有無による出し分けはしない（判定に canvas の縮小が必要で、誤判定とモバイルのデコード負荷に見合わない）
 - **パス行の右端に 寸法 · サイズ を出す**（例: `1536 × 1536 · 24.4 KB`）。寸法は `<img>` の `onLoad` の `naturalWidth` / `naturalHeight`（内在ピクセル。表示倍率は持たない）、サイズは `FileBrowser` がツリーの取得済みの行（`FileEntry.size`）から引いて `activeSize` で渡す。表記の組み立ては `client/src/lib/imageMeta.ts` の純関数で、**分かる項目だけを並べ、どちらも分からなければ行ごと出さない**
 - サイズの取得に一覧を取り直さない（1 タブごとに余分な往復を作らない）。このため親ディレクトリが未取得の面（F5 で親を閉じていた場合、一覧の上限 500 件で載っていない場合）ではサイズが出ず、寸法だけになる。ツリーのサイズは「再読み込み」で画像本体と一緒に新しくなる（`invalidateFileTree` が取得済みの子を捨て、プレビューは `key` と raw URL の版を変えて取り直す）ため、表示中の画像とメタの鮮度は揃う
-- 寸法は表示中のタブのものだけを出す（読み込み結果をパスと一緒に持ち、タブを切り替えたら前のタブの値を使わない）。メタは `shrink-0` で、幅が足りないぶんはパンくずの横スクロールが吸収する（compact も同じ 1 行）
+- 寸法は表示中のタブのものだけを出す（読み込み結果をパスと一緒に持ち、タブを切り替えたら前のタブの値を使わない）。メタは `shrink-0` で、幅が足りないぶんはパンくずの横スクロールが吸収する（singleColumn も同じ 1 行）
 - 表示モードの切替は画像には出さない（ソース表示はバイナリなので意味が無い）。本文を取得しないので、コピーボタンも出さない
 - 失敗したとき（404 / 400 / 画像以外の配信拒否）はブラウザーの読み込み失敗表示になる（`alt` は `<パス> のプレビュー`）。テキスト / HTML のようなアプリ側のエラー文言は出さない（タブは勝手に閉じない。`<img>` に `onError` を持たせるのは別 Issue）
 
@@ -244,7 +244,7 @@ HTML プレビューのパス行のアイコンボタンで、描画中の文書
 
 ## 隠す行
 
-`FileBrowser` の `hiddenNames`（既定 `[]`）で、名前が一致する行を一覧から除く。渡すのは**作業フォルダ面（`SessionFilesPanel`。desktop の右パネルと compact の sheet で同じ）だけ**で、`client/src/lib/sessionFiles.ts` の `SESSION_FILES_HIDDEN_NAMES = [".git"]` を渡す。**設定 → ファイル とスキル面（設定 → スキルのファイルタブ / チャットのスキル面）は渡さず、`.git` を含めて全部見える**（見たいときの逃げ道）。
+`FileBrowser` の `hiddenNames`（既定 `[]`）で、名前が一致する行を一覧から除く。渡すのは**作業フォルダ面（`SessionFilesPanel`。desktop の右パネルと singleColumn の sheet で同じ）だけ**で、`client/src/lib/sessionFiles.ts` の `SESSION_FILES_HIDDEN_NAMES = [".git"]` を渡す。**設定 → ファイル とスキル面（設定 → スキルのファイルタブ / チャットのスキル面）は渡さず、`.git` を含めて全部見える**（見たいときの逃げ道）。
 
 - **隠すのは名前一致だけで、種別も階層も見ない**（`visibleFileTreeEntries`）。`.git` は worktree / submodule ではディレクトリではなくファイルなので、種別で判定すると隠れ残る。階層を見ないのは、一覧がその階層の子だけを返すため、名前一致がそのまま「どの階層の `.git` も隠す」になる（ネスト repo を展開したときの `.git` も同じノイズになる）。部分一致はしない（`.gitignore` / `git` は残る）
 - **フィルタは一覧を state へ入れる前に行う**（`getFiles` の直後）。隠した枝を state に持たないので、開いていたとしても `.git` の中身を取得しない（行が出ないまま往復だけが増えるのを避ける）。保存値（`filePreviewStore`）から復元する展開状態も `visibleFileTreeDirectories` で落とす（以前の版で開いていた `.git` を次の mount へ持ち越さない）。**reveal（ファイル参照のファイル・パンくず）も隠す名前を含むパスでは祖先を開かない**（行が無いので、開くと不可視の展開が state と保存値に残るだけになる。判定は `isHiddenFileTreePath`）
@@ -354,7 +354,7 @@ assistant 本文のインラインコードが指すファイルを、右パネ�
 - 適用の印は `FileBrowser` の ref が持ち、適用の直前に記録する。Effect の再実行（StrictMode）では二重に適用しない。`openFileTab` は同一パスでも新しい state を返すため、「タブが増えない」ことは 1 回適用の根拠にならない
 - 復元は `useState` の初期化、要求は Effect で適用するため、要求が最後に効く（表示中のタブが要求のパスになる）。要求の適用時はツリーの祖先を開いて対象の行を示す（[ツリーの reveal](#ツリーの-reveal)）
 - 表示モードは既存の選択規則のまま（未選択の HTML だけ既定でプレビュー。ユーザーがソースを選んだタブはソースのまま）
-- compact の sheet は閉じたときに、クリックした button を `App` が保持して focus を戻す（`document.activeElement` はクリックした button を指すとは限らない）。起点がセッション切替などで消えていたら focus を移さない。トグルから開いたときは `App` は起点を保持せず、sheet を表示したときの `document.activeElement` （通常は 📁 のトグル）へ戻す。戻り先は sheet が `showModal()` する前に 1 回だけ決める（Effect の再実行では 2 回目の `document.activeElement` が sheet の中の要素になる）。Escape は dialog の標準動作で閉じる（プレビューの中にフォーカスがあると親へ届かない既知制約は HTML プレビューと同じ）
+- singleColumn の sheet は閉じたときに、クリックした button を `App` が保持して focus を戻す（`document.activeElement` はクリックした button を指すとは限らない）。起点がセッション切替などで消えていたら focus を移さない。トグルから開いたときは `App` は起点を保持せず、sheet を表示したときの `document.activeElement` （通常は 📁 のトグル）へ戻す。戻り先は sheet が `showModal()` する前に 1 回だけ決める（Effect の再実行では 2 回目の `document.activeElement` が sheet の中の要素になる）。Escape は dialog の標準動作で閉じる（プレビューの中にフォーカスがあると親へ届かない既知制約は HTML プレビューと同じ）
 - provider は `App` が `rootCwd` / `cwd` / callback だけの memo 値で配る。要求 `seq` やパネル開閉を value に混ぜず、SSE の更新で過去の本文を再解析・再描画させない。インラインコード側だけが context を購読するため、独自 comparator を持つ `MdBlockView` / `MdList` / `MdListItemView` / `MdTable` に callback を通す必要がない
 
 ### 面のモード（作業フォルダとスキル）
@@ -370,9 +370,9 @@ assistant 本文のインラインコードが指すファイルを、右パネ�
 - 一覧（`GET /api/skills/files`）は**引かない**。root と path だけで開くため、作成直後のスキルや一覧に載らない配置（`SKILL.md` 以外）でも開ける（[api-catalog.md](api-catalog.md#ファイルスキルagentsskills)）
 - root は mount 中に固定する（変更は `FileBrowser` の `key` による remount）。同じ root への再要求では remount せず、開いているタブとツリーを保つ
 - 面の状態（表示中の skill root とタブ）は要求の pending と独立に持つ。ack で pending が消えても面は閉じない
-- モードを既定（作業フォルダ）へ戻す契機: 閉じる導線（パネル / sheet の ✕、sheet の `Escape`、トップバーのトグルの閉）、**選択中セッションの変化**（セッション切替 / 新規チャット。`cwd` が同じでも戻す）、チャット以外への移動、compact ⇄ desktop の切替。desktop のパネル開閉 state は既存どおり残るので、「面を閉じる」はモードを既定へ戻すことを指す（右パネルは開いたまま作業フォルダへ戻る）。作業フォルダ面（`SessionFilesPanel` / `SessionFilesSheet`）の root と開閉 state は書き換えず、モードと戻る導線で往復する
+- モードを既定（作業フォルダ）へ戻す契機: 閉じる導線（パネル / sheet の ✕、sheet の `Escape`、トップバーのトグルの閉）、**選択中セッションの変化**（セッション切替 / 新規チャット。`cwd` が同じでも戻す）、チャット以外への移動、singleColumn ⇄ desktop の切替。desktop のパネル開閉 state は既存どおり残るので、「面を閉じる」はモードを既定へ戻すことを指す（右パネルは開いたまま作業フォルダへ戻る）。作業フォルダ面（`SessionFilesPanel` / `SessionFilesSheet`）の root と開閉 state は書き換えず、モードと戻る導線で往復する
 - 作業フォルダ面とスキル面は同時に mount しない（モードで出し分ける）。作業フォルダ面へ渡すのは `kind = "work"` の要求、スキル面へ渡すのは `kind = "skill"` の要求だけ（自分宛ての種別だけを適用する）
-- `filePreviewStore` からの復帰はスキル面の root でも同じ契約で、設定 → スキルの同じ root とタブ状態を共有しうる（開き直しで新しいタブだけになることは保証しない）。compact の sheet はクリックした button を `App` が保持して閉じたときに focus を戻す（既存契約のまま）
+- `filePreviewStore` からの復帰はスキル面の root でも同じ契約で、設定 → スキルの同じ root とタブ状態を共有しうる（開き直しで新しいタブだけになることは保証しない）。singleColumn の sheet はクリックした button を `App` が保持して閉じたときに focus を戻す（既存契約のまま）
 
 ### 残る懸念（裸名の除外と存在確認）
 
@@ -384,7 +384,7 @@ assistant 本文のインラインコードが指すファイルを、右パネ�
 
 デスクトップの右パネルのファイル行をチャットの入力欄へドロップすると、その行のパスが本文へ `@<作業フォルダ相対のパス>` として挿さる。**添付（アップロード）ではない**のでファイルは送られず、モデルが必要なときに `read` で開く（`@<path>` が cwd 相対の参照であることは `server/src/agent.ts` の `appendSystemPrompt` が説明する）。字面と区切りの規則は `client/src/lib/fileMention.ts` の純関数、ドロップの受け取りは `Composer` が持つ。
 
-- ドラッグできるのは参照のパスが作業フォルダと一致する面だけ（`FileBrowser` の `canRef`。渡すのは desktop の作業フォルダ面）。設定 → ファイル はワークスペース root、スキル面（設定 → スキルのファイルタブ / チャットのスキル面）は SKILL.md の親ディレクトリで、パスの意味が違う。compact の sheet は全画面 modal で入力欄へ届かない
+- ドラッグできるのは参照のパスが作業フォルダと一致する面だけ（`FileBrowser` の `canRef`。渡すのは desktop の作業フォルダ面）。設定 → ファイル はワークスペース root、スキル面（設定 → スキルのファイルタブ / チャットのスキル面）は SKILL.md の親ディレクトリで、パスの意味が違う。singleColumn の sheet は全画面 modal で入力欄へ届かない
 - ディレクトリ行はドラッグできない（`@<dir>` はファイルとして `read` できない）
 - 積む型は参照専用の `application/x-u7agent-file-mention`（パス）と `text/plain`（`@<パス>`）。入力欄はこの専用の型を `Files` より先に見て、参照を添付へ倒さない。`text/plain` があるため、他のアプリ / 入力欄へ落とすと参照の字面になる
 - 挿入位置はドロップ座標（`caretPositionFromPoint`。`caretRangeFromPoint` は textarea で正しい位置を返さないブラウザーがある）、取れなければ現在の選択。前後が非空白なら区切りに空白を足し、カーソルは参照の直後（続きを書ける位置）へ置く

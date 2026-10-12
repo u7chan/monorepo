@@ -15,7 +15,7 @@
     ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", "Noto Sans JP Variable",
     monospace;
 
-  /* desktop 内のゆとり用。compact (モバイル / 低い viewport) の判定は JS 側 (lib/layout.ts) が持つ */
+  /* desktop 内のゆとり用。singleColumn (モバイル / 低い viewport) の判定は JS 側 (lib/layout.ts) が持つ */
   --breakpoint-wide: 900px;
 
   /* 小さい UI テキスト。Tailwind 既定の段 (xs=12px / sm=14px / base=16px) だけでは足りず、
@@ -70,7 +70,7 @@
     }
   }
 
-  /* compact の全画面シート (作業環境) の開閉。右パネルの対応物なので右端の外から入る。
+  /* singleColumn の全画面シート (作業環境) の開閉。右パネルの対応物なので右端の外から入る。
      距離は自身の幅の % で書く (ドロワーと同じ理由) */
   --animate-sheet: sheet-in 250ms ease-out;
   @keyframes sheet-in {
@@ -455,7 +455,7 @@
     @apply inline-flex min-h-9 items-center justify-center gap-1.5 rounded-lg border border-line px-3 text-xs text-ink-soft transition-colors hover:border-accent/50 hover:text-accent-text;
   }
 
-  /* アイコンだけのボタン (compact バーなど)。選択中の状態は呼び出し側の utilities で上書きする */
+  /* アイコンだけのボタン (singleColumn バーなど)。選択中の状態は呼び出し側の utilities で上書きする */
   .icon-button {
     @apply grid size-9 shrink-0 place-items-center rounded-lg border border-line bg-raised text-ink-soft transition-colors hover:border-accent/50 hover:text-accent-text;
   }
@@ -674,7 +674,7 @@
     background: color-mix(in srgb, var(--c-accent) 10%, transparent);
     color: var(--c-accent-text);
   }
-  /* compact の状態アイコン。押せる状態 (稼働中 / 起動元不明 / 起動中) だけがこの外装を持つ */
+  /* singleColumn の状態アイコン。押せる状態 (稼働中 / 起動元不明 / 起動中) だけがこの外装を持つ */
   .serve-icon-ok {
     border-color: color-mix(in srgb, var(--c-ok) 42%, transparent);
     color: var(--c-ok-text);
@@ -926,7 +926,7 @@
   /* 待機キューのバブル (MessageView)。アバターの外側に、尾が薄れる円環を回して「気配」だけを示す。
    * 追加要素は持たず (::after 1 枚)、絶対配置なので待機に入った瞬間も行の幅を動かさない。
    * 色は線・リング用途の --c-focus (面は --c-accent)。外径はアバターの角丸の角と交差しない値に
-   * する (角の先端より外側を回す。compact の小さいアバターでも内側に収まる)。尾を薄くしすぎると
+   * する (角の先端より外側を回す。singleColumn の小さいアバターでも内側に収まる)。尾を薄くしすぎると
    * 隣接面とのコントラストが 3:1 を割るため (線・リングは各プリセットで 3:1 以上。
    * docs/frontend.md#テーマシステム)、最小の濃さは 75% で止める */
   .queue-ring {
@@ -1513,7 +1513,7 @@
     opacity: 0;
   }
 
-  /* compact の全画面シート (作業環境)。右パネルの対応物なので右端の外から入る。閉じる要求は App の phase が
+  /* singleColumn の全画面シート (作業環境)。右パネルの対応物なので右端の外から入る。閉じる要求は App の phase が
      受け、その phase の間だけ mount を延ばす (退場の `forwards` はその間の終端を保つため) */
   .files-sheet {
     animation: var(--animate-sheet);

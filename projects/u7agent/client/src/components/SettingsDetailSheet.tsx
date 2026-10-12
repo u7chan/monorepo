@@ -15,7 +15,7 @@ export type SettingsDetailSheetProps = {
 };
 
 /**
- * compact の詳細 (一覧から開く全画面シート)。モーダル dialog の標準挙動 (背面の inert 化 / Tab の拘束 /
+ * singleColumn の詳細 (一覧から開く全画面シート)。モーダル dialog の標準挙動 (背面の inert 化 / Tab の拘束 /
  * Escape での終了) に任せる。
  */
 export function SettingsDetailSheet({ eyebrow, title, note, onClose, children }: SettingsDetailSheetProps) {
@@ -42,7 +42,7 @@ export function SettingsDetailSheet({ eyebrow, title, note, onClose, children }:
       tabIndex={-1}
       aria-modal="true"
       aria-label={title}
-      // Escape を止める理由は docs/ui-layout.md の「compact の詳細シート」を参照
+      // Escape を止める理由は docs/ui-layout.md の「singleColumn の詳細シート」を参照
       onKeyDown={(event) => {
         if (event.key === "Escape") event.stopPropagation();
       }}

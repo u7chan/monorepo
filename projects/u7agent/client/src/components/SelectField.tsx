@@ -19,7 +19,7 @@ const TEXT_CLASS: Record<SelectFieldDensity, string> = {
 
 export type SelectFieldProps = SelectHTMLAttributes<HTMLSelectElement> & {
   /** touch 端末では iOS の focus 時ズームを避けるため 16px にする */
-  compact?: boolean;
+  singleColumn?: boolean;
   density?: SelectFieldDensity;
   /** select の左に置く印 (選択中エージェントのアイコンなど)。左の余白はこの表が持つ */
   leadingIcon?: ReactNode;
@@ -31,12 +31,12 @@ export type SelectFieldProps = SelectHTMLAttributes<HTMLSelectElement> & {
 /**
  * select のドロップダウン矢印はブラウザが位置を決めるため右端に寄りすぎる。矢印だけ自前の chevron に
  * 置き換えて余白を揃える。幅と伸縮は wrapper が担い、select は w-full で wrapper に追従する。
- * 見た目は density と compact が持ち、className は layout (位置・幅) のためだけに開けている。
+ * 見た目は density と singleColumn が持ち、className は layout (位置・幅) のためだけに開けている。
  */
 export function SelectField({
   wrapperClassName,
   className,
-  compact = false,
+  singleColumn = false,
   density = "md",
   leadingIcon,
   children,
@@ -49,7 +49,7 @@ export function SelectField({
         className={cn(
           "field peer w-full cursor-pointer appearance-none pr-8 disabled:cursor-not-allowed disabled:opacity-55",
           leadingIcon ? PADDING_CLASS[density].leading : PADDING_CLASS[density].plain,
-          compact ? "text-md" : TEXT_CLASS[density],
+          singleColumn ? "text-md" : TEXT_CLASS[density],
           className,
         )}
       >

@@ -79,8 +79,8 @@ export type ComposerProps = {
 };
 
 const MAX_TEXTAREA_HEIGHT = 180;
-/** compact では入力欄が画面を占めないよう低く抑える */
-const COMPACT_TEXTAREA_HEIGHT = 120;
+/** singleColumn では入力欄が画面を占めないよう低く抑える */
+const SINGLE_COLUMN_TEXTAREA_HEIGHT = 120;
 
 /**
  * ドロップ座標に対応する入力欄の文字位置。`caretRangeFromPoint` は textarea で正しい位置を返さない
@@ -144,7 +144,7 @@ export function Composer({
   runError,
   onReloadSkills,
 }: ComposerProps) {
-  const compact = mode !== "desktop";
+  const singleColumn = mode !== "desktop";
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const [value, setValue] = useState("");
@@ -157,7 +157,7 @@ export function Composer({
   const attachmentsBusy = attachments.some((item) => item.status !== "done");
   const hasAttachment = attachments.some((item) => item.status === "done");
 
-  const maxTextareaHeight = compact ? COMPACT_TEXTAREA_HEIGHT : MAX_TEXTAREA_HEIGHT;
+  const maxTextareaHeight = singleColumn ? SINGLE_COLUMN_TEXTAREA_HEIGHT : MAX_TEXTAREA_HEIGHT;
 
   // 非表示中は scrollHeight が 0 なので測らず、visible の復帰で測り直す (下書きが最小高へ潰れるのを防ぐ)
   useEffect(() => {
@@ -173,7 +173,7 @@ export function Composer({
     if (sending) setSettingsOpen(false);
   }, [sending]);
 
-  // 送信の成立でスキルピッカーも畳む (compact で入力欄の上を覆い、生成中は操作しない)。畳む合図は
+  // 送信の成立でスキルピッカーも畳む (singleColumn で入力欄の上を覆い、生成中は操作しない)。畳む合図は
   // Model / Effort と同じ `sending` に寄せる (desktop も開いたままだと応答に被る)
   useEffect(() => {
     if (sending) setSkillsOpen(false);
@@ -304,7 +304,7 @@ export function Composer({
       onClick={onStop}
       className={cn(
         "shrink-0 cursor-pointer bg-transparent p-0 text-2xs text-warn transition-colors hover:brightness-125",
-        compact ? "px-1 py-0.5" : "",
+        singleColumn ? "px-1 py-0.5" : "",
       )}
     >
       {queueDepth > 0 ? `停止（待機${queueDepth}件）` : "停止"}
@@ -320,7 +320,7 @@ export function Composer({
     <footer className="w-full min-w-0">
       <div
         className={cn(
-          compact ? "px-3 pb-[max(8px,env(safe-area-inset-bottom))]" : "mx-auto max-w-220 px-6 pb-5 wide:px-8",
+          singleColumn ? "px-3 pb-[max(8px,env(safe-area-inset-bottom))]" : "mx-auto max-w-220 px-6 pb-5 wide:px-8",
         )}
       >
         {/* 浮かせる基準は内容の欄 (padding の内側)。padding の外を基準にすると、狭い幅で箱が composer からはみ出す */}
@@ -341,7 +341,7 @@ export function Composer({
             onCompact={onCompact}
             compactDisabled={settings.compactDisabled}
             compactDisabledReason={settings.compactDisabledReason}
-            compact={compact}
+            singleColumn={singleColumn}
             runStatus={runStatus}
             runError={runError}
             onRetry={onRetry}
@@ -359,20 +359,20 @@ export function Composer({
               // 伸びる。minmax(0, 1fr) で form 幅に拘束する (docs/ui-layout.md)
               "grid grid-cols-1 rounded-xl border bg-panel/90 shadow-panel",
               dropKind !== null ? "border-accent" : "border-line-strong",
-              compact ? "gap-1.5 p-2" : "gap-2 p-2.5",
+              singleColumn ? "gap-1.5 p-2" : "gap-2 p-2.5",
             )}
           >
-            <div className={cn("flex flex-wrap items-center", compact ? "gap-2" : "gap-x-3 gap-y-1.5 px-0.5")}>
+            <div className={cn("flex flex-wrap items-center", singleColumn ? "gap-2" : "gap-x-3 gap-y-1.5 px-0.5")}>
               <AgentField
                 agents={agents}
                 agentId={agentId}
-                compact={compact}
+                singleColumn={singleColumn}
                 sessionAgent={sessionAgent}
                 onChangeAgent={onChangeAgent}
               />
               <ModelEffortPicker
                 settings={settings}
-                compact={compact}
+                singleColumn={singleColumn}
                 open={settingsOpen}
                 onOpenChange={setSettingsOpen}
                 onChangeModel={onChangeModel}
@@ -381,7 +381,7 @@ export function Composer({
               <SkillPicker
                 state={skills}
                 rootCwd={rootCwd}
-                compact={compact}
+                singleColumn={singleColumn}
                 open={skillsOpen}
                 onOpenChange={handleSkillsOpenChange}
                 onSelect={insertSkillCommand}
@@ -391,17 +391,17 @@ export function Composer({
             <AttachmentChips
               attachments={attachments}
               rootCwd={rootCwd}
-              compact={compact}
+              singleColumn={singleColumn}
               onRemove={onRemoveAttachment}
             />
-            <div className={cn("flex items-end", compact ? "gap-2" : "gap-2.5")}>
+            <div className={cn("flex items-end", singleColumn ? "gap-2" : "gap-2.5")}>
               <textarea
                 ref={inputRef}
                 rows={1}
                 value={value}
                 placeholder={
                   runtimeReady
-                    ? compact
+                    ? singleColumn
                       ? "メッセージを入力…"
                       : "メッセージを入力… (Enterで送信 / Shift+Enterで改行)"
                     : "APIキーを設定すると送信できます"
@@ -410,9 +410,9 @@ export function Composer({
                   // min-w-0 が無いと cols 既定値の intrinsic 幅 (textarea の自動最小サイズ) が下限になり、
                   // 狭い viewport で入力欄が縮まずに送信 / 添付ボタンを画面外へ押し出す
                   "min-w-0 flex-1 resize-none scrollbar-thin bg-transparent px-0.5 leading-normal text-ink outline-none placeholder:text-ink-ghost",
-                  compact ? "max-h-30 min-h-9 py-1.5 text-md" : "max-h-45 min-h-6 py-1",
+                  singleColumn ? "max-h-30 min-h-9 py-1.5 text-md" : "max-h-45 min-h-6 py-1",
                 )}
-                enterKeyHint={compact ? "enter" : "send"}
+                enterKeyHint={singleColumn ? "enter" : "send"}
                 onChange={(event) => setValue(event.currentTarget.value)}
                 onKeyDown={handleKeyDown}
               />
@@ -437,7 +437,7 @@ export function Composer({
                 onClick={() => fileRef.current?.click()}
                 className={cn(
                   "grid shrink-0 cursor-pointer place-items-center rounded-full border border-line text-ink-soft transition-colors hover:border-accent/50 hover:text-accent-text",
-                  compact ? "size-9" : "size-8",
+                  singleColumn ? "size-9" : "size-8",
                 )}
               >
                 <ClipIcon />
@@ -455,14 +455,14 @@ export function Composer({
                 }
                 className={cn(
                   "grid shrink-0 cursor-pointer place-items-center rounded-full bg-accent text-on-accent transition-colors hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-45",
-                  compact ? "size-9" : "size-8",
+                  singleColumn ? "size-9" : "size-8",
                 )}
               >
                 <ArrowUpIcon />
               </button>
             </div>
           </form>
-          {compact ? (
+          {singleColumn ? (
             footnoteWarnings.length > 0 || stopVisible ? (
               <div className="flex items-center justify-end gap-2 px-1 pt-1.5 text-2xs text-ink-ghost">
                 {footnoteWarnings.length > 0 ? (

@@ -52,7 +52,7 @@ test("IME: 変換中でない Enter は composition の後に来ても送信で�
   assert.equal(shouldSubmitOnEnter(enter({ isComposing: false, keyCode: 13 }), "desktop"), true);
 });
 
-test("compact: Enter は改行に残し、送信はボタンに任せる", () => {
+test("singleColumn: Enter は改行に残し、送信はボタンに任せる", () => {
   for (const mode of ["portrait", "landscape"] as const) {
     assert.equal(shouldSubmitOnEnter(enter(), mode), false, `${mode} の Enter は送信に使わない`);
     assert.equal(shouldSubmitOnEnter(enter({ shiftKey: true }), mode), false, `${mode} の Shift+Enter は改行`);
@@ -99,11 +99,11 @@ const render = (overrides: Partial<ComposerProps> = {}): string =>
 test("描画: ソフトキーボードの Enter ラベルをモードの動作に合わせる", () => {
   // 属性名は HTML では大文字小文字を区別しない (SSR の文字列は prop 名のまま出る)
   assert.match(render(), /<textarea[^>]*enterkeyhint="send"/i, "desktop は送信キーにする");
-  assert.match(render({ mode: "portrait" }), /<textarea[^>]*enterkeyhint="enter"/i, "compact は改行キーにする");
+  assert.match(render({ mode: "portrait" }), /<textarea[^>]*enterkeyhint="enter"/i, "singleColumn は改行キーにする");
   assert.match(render({ mode: "landscape" }), /<textarea[^>]*enterkeyhint="enter"/i, "landscape も同じ");
 });
 
 test("描画: Enter で送信する説明は desktop だけに出す", () => {
   assert.ok(render().includes("Enterで送信"), "desktop は入力欄に送信の説明を出す");
-  assert.ok(!render({ mode: "portrait" }).includes("Enterで送信"), "compact は Enter が改行なので出さない");
+  assert.ok(!render({ mode: "portrait" }).includes("Enterで送信"), "singleColumn は Enter が改行なので出さない");
 });

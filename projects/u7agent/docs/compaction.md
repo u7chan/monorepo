@@ -12,7 +12,7 @@ pi SDK はコンテキストが上限に近づくと会話を自動で compactio
 
 | 項目 | 仕様 |
 | --- | --- |
-| 区切り | 圧縮イベントごとに 1 行出す。例 `ここで会話を圧縮しました（自動: 68k tokens から）`。文言は `client/src/lib/compaction.ts` の純関数が持ち、compact（portrait / landscape）でも出す |
+| 区切り | 圧縮イベントごとに 1 行出す。例 `ここで会話を圧縮しました（自動: 68k tokens から）`。文言は `client/src/lib/compaction.ts` の純関数が持ち、singleColumn（portrait / landscape）でも出す |
 | 理由 | `manual` = 手動 / `threshold` = 自動 / `overflow` = 上限超過。区切りと要約一覧の両方で区別する |
 | 数値 | 区切りに出すのは `tokensBefore`（pi TUI と同じ）と、圧縮にかかった時間（`CompactionInfo.durationMs` を `formatDurationMs` で整形した値。summary の右端で `要約` の左に、ラベルを付けずに出す。測るのは手動 / 自動の両方で、失敗・中止のときは区切りごと出さないため載らない。ラベルを付けないのは区切りの文が何の時間かを説明しているため）。`estimatedTokensAfter` は推定値であり Context ゲージ（provider 実測）と食い違って見えるため出さない。DTO には保持する |
 | 要約 | 各区切りを折りたたみ（既定は畳む）にし、その圧縮の要約を「N回目」の通し番号付きで出す。過去の圧縮も発生位置で読める |
@@ -158,7 +158,7 @@ pnpm check   # lint → format:check → 型チェック → テスト → ク�
 目視の viewport は [ui-layout.md](ui-layout.md) の viewport 表（desktop 1440x900 / portrait 390x844 / landscape 844x390）に従う。確認するのは次の 3 点:
 
 - 長い要約（1 行が長いテキスト）でも区切りと要約一覧が横に溢れない（`break-words` で折り返す）
-- compact でも区切りの 1 行が出て、要約が畳まれたままである
+- singleColumn でも区切りの 1 行が出て、要約が畳まれたままである
 - 状態行のゲージ + 圧縮ボタンが 390px と長いモデル名でも切れない（足りなければ組ごと 2 行目へ折り返す）
 
 ### 全履歴（圧縮後の遡りと段階読み込み）の目視

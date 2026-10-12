@@ -8,17 +8,22 @@ import { SettingsPlaceholder } from "./SettingsPlaceholder";
  * 設定 → コンテンツ生成。hook はこの画面が持ち (開いたときだけ取得する)、
  * 再読み込みもこの画面の設定だけを取り直す。
  */
-export function ContentSettingsPage({ compact, onBack, onOpenNav }: SettingsPageProps) {
+export function ContentSettingsPage({ singleColumn, onBack, onOpenNav }: SettingsPageProps) {
   const contentSettings = useContentSettings();
   return (
-    <ContentSettingsView contentSettings={contentSettings} compact={compact} onBack={onBack} onOpenNav={onOpenNav} />
+    <ContentSettingsView
+      contentSettings={contentSettings}
+      singleColumn={singleColumn}
+      onBack={onBack}
+      onOpenNav={onOpenNav}
+    />
   );
 }
 
 /** 表示だけを持つ部分。取得の成否は contentSettings が持ち、ここは描画に徹する */
 export function ContentSettingsView({
   contentSettings,
-  compact = false,
+  singleColumn = false,
   onBack,
   onOpenNav,
 }: SettingsPageProps & { contentSettings: ContentSettings }) {
@@ -47,7 +52,7 @@ export function ContentSettingsView({
         </ReloadButton>
       }
       note={note}
-      compact={compact}
+      singleColumn={singleColumn}
       onOpenNav={onOpenNav}
       onBack={onBack}
     >

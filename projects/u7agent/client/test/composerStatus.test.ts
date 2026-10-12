@@ -41,14 +41,14 @@ test("描画: 回答待ちで待機キューがあるとき、回答してもす
   assert.ok(!live.includes("回答しても"), "件数の増減で読み上げ直さないよう aria-live の外に置く");
   assert.ok(html.indexOf("回答しても") > html.indexOf("回答を待っています…"), "活動の右に続けて出す");
 
-  const compact = render({
+  const singleColumn = render({
     activity: "回答を待っています…",
     runStatus: "running",
     runTools: { q1: pendingQuestion() },
     queueDepth: 1,
-    compact: true,
+    singleColumn: true,
   });
-  assert.ok(compact.includes("回答しても、待機中の送信は実行中の応答が終わってから始まります"));
+  assert.ok(singleColumn.includes("回答しても、待機中の送信は実行中の応答が終わってから始まります"));
 });
 
 test("描画: 回答待ちとキューが揃わなければ待機の理由を出さない", () => {
@@ -357,16 +357,16 @@ test("描画: 回復し得る失敗ではカードを状態行の上に出し、
   }
 });
 
-test("描画: compact はボタンを全幅にし、ラベルが送信内容を兼ねる (補助行は出さない)", () => {
+test("描画: singleColumn はボタンを全幅にし、ラベルが送信内容を兼ねる (補助行は出さない)", () => {
   const html = render({
     activity: "",
-    compact: true,
+    singleColumn: true,
     runStatus: "error",
     runError: failure,
     onRetry: () => {},
   });
 
-  assert.ok(html.includes("再実行（前回の続きから送信）"), "compact はラベルで送信内容を示す");
+  assert.ok(html.includes("再実行（前回の続きから送信）"), "singleColumn はラベルで送信内容を示す");
   assert.ok(!html.includes("前回の続きから送信します"), "同じ内容を 2 回出さない");
   const button = /<button[^>]*>.*?<\/button>/s.exec(html)?.[0] ?? "";
   assert.ok(button.includes("btn-quiet") && button.includes("w-full"), "細いボタンを押し損ねないよう全幅にする");

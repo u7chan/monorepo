@@ -211,7 +211,7 @@ test("resync: 情報源が別バブルに分かれても同じ toolCallId は 1 
 /* ===== 描画 (react-dom/server) ===== */
 
 function renderBadges(badges: SkillBadge[]): string {
-  return renderToStaticMarkup(createElement(SkillLoadList, { badges, compact: false }));
+  return renderToStaticMarkup(createElement(SkillLoadList, { badges, singleColumn: false }));
 }
 
 /** 履歴 1 件だけのバブルからバッジを作る (ライブ分はカードを渡す) */
@@ -275,7 +275,7 @@ function renderMessage(bubble: Bubble): string {
       bubble,
       skillBadges: skillBadgesOf([bubble]).get(bubble.id) ?? [],
       copied: false,
-      compact: false,
+      singleColumn: false,
       rootCwd: "",
       onCopy: () => {},
       copiedId: "",

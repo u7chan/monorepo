@@ -20,14 +20,14 @@ test("セッション中のエージェント名は読み取り専用で、未�
       agents,
       name: "保存時の名前",
       icon: undefined,
-      compact: false,
+      singleColumn: false,
     }),
   );
   assert.ok(label.includes("保存時の名前"));
   for (const interactive of ["<button", "popover=", "aria-haspopup", "role=", "tabindex"]) {
     assert.ok(!label.includes(interactive), interactive);
   }
-  const props = { agents, agentId: "1", compact: false, onChangeAgent: () => {} };
+  const props = { agents, agentId: "1", singleColumn: false, onChangeAgent: () => {} };
   const inSession = renderToStaticMarkup(
     createElement(AgentField, {
       ...props,

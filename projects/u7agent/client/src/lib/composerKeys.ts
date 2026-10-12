@@ -22,7 +22,7 @@ export function isImeComposingEnter(state: Pick<EnterKeyState, "isComposing" | "
 
 /** 通常の Enter で送信するか。true のときだけ呼び出し側が preventDefault して送信する */
 export function shouldSubmitOnEnter(state: EnterKeyState, mode: LayoutMode): boolean {
-  // compact は Enter を改行に残す (タッチ入力では Shift+Enter を前提にできない)。送信は送信ボタンだけ
+  // singleColumn は Enter を改行に残す (タッチ入力では Shift+Enter を前提にできない)。送信は送信ボタンだけ
   if (mode !== "desktop") return false;
   if (state.key !== "Enter" || state.shiftKey) return false;
   return !isImeComposingEnter(state);

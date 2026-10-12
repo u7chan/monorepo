@@ -31,7 +31,7 @@ export type ModelsTabProps = {
   initialDraft: AvailabilityDraft;
   setDraft: Dispatch<SetStateAction<AvailabilityDraft>>;
   onSave: (input: UpdateModelAvailabilityBody) => Promise<ModelsSettingsResponse | null>;
-  compact: boolean;
+  singleColumn: boolean;
 };
 
 /**
@@ -47,7 +47,7 @@ export function ModelsTab({
   initialDraft,
   setDraft,
   onSave,
-  compact,
+  singleColumn,
 }: ModelsTabProps) {
   const [query, setQuery] = useState("");
   const [selectedOnly, setSelectedOnly] = useState(false);
@@ -204,7 +204,7 @@ export function ModelsTab({
                       <CandidateGroupSection
                         key={group.provider}
                         group={group}
-                        compact={compact}
+                        singleColumn={singleColumn}
                         saving={saving}
                         forceOpen={searching}
                         open={isGroupOpen(group.provider, Boolean(group.warning))}
@@ -311,7 +311,7 @@ export function ModelsTab({
 /** モデル候補の provider 1 件。折りたたみ中は行を描画しない (開いたときだけ children を組む) */
 function CandidateGroupSection({
   group,
-  compact,
+  singleColumn,
   saving,
   forceOpen,
   open,
@@ -320,7 +320,7 @@ function CandidateGroupSection({
   onToggleModel,
 }: {
   group: CandidateGroup;
-  compact: boolean;
+  singleColumn: boolean;
   saving: boolean;
   forceOpen: boolean;
   open: boolean;
@@ -342,7 +342,7 @@ function CandidateGroupSection({
           <span className="block truncate text-xs font-medium text-ink">{group.name}</span>
           <code className="block truncate text-2xs text-ink-ghost">{group.provider}</code>
         </span>
-        {compact ? null : (
+        {singleColumn ? null : (
           <>
             <ProviderBadgeTag badge={group.badge} />
             <span className="min-w-40 shrink-0 text-right text-2xs whitespace-nowrap text-ink-muted tabular-nums">
@@ -383,7 +383,7 @@ function CandidateGroupSection({
               <div className="flex items-center gap-x-3 px-1 text-3xs text-ink-muted">
                 <span aria-hidden className="size-4 shrink-0" />
                 <span className="min-w-0 flex-1">モデル</span>
-                {compact ? null : <span className="min-w-0 flex-1">ID</span>}
+                {singleColumn ? null : <span className="min-w-0 flex-1">ID</span>}
               </div>
               {group.rows.map((row) => (
                 <label
@@ -399,7 +399,7 @@ function CandidateGroupSection({
                     onChange={() => onToggleModel(row.key)}
                   />
                   <span className="min-w-0 flex-1 truncate text-xs text-ink">{row.name}</span>
-                  {compact ? null : (
+                  {singleColumn ? null : (
                     <code className="min-w-0 flex-1 truncate text-2xs text-ink-muted" title={row.key}>
                       {row.key}
                     </code>

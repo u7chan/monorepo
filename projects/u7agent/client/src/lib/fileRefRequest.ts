@@ -99,11 +99,11 @@ export function filesModeForTarget(target: FileRefTarget): FilesMode {
 
 /**
  * 面のモードを既定へ戻す契機。root (cwd) だけでは同一プロジェクトのセッション切替 / 新規チャットを
- * 拾えないため、選択中セッションの識別子も見る。チャット以外への移動と compact ⇄ desktop の切替も
+ * 拾えないため、選択中セッションの識別子も見る。チャット以外への移動と singleColumn ⇄ desktop の切替も
  * 面が消える (mount が入れ替わる) 契機なので、ここで既定へ戻す。
  */
-export type FilesModeScope = { compact: boolean; view: string; sessionId: string };
+export type FilesModeScope = { singleColumn: boolean; view: string; sessionId: string };
 
 export function filesModeScopeChanged(prev: FilesModeScope, next: FilesModeScope): boolean {
-  return prev.compact !== next.compact || prev.view !== next.view || prev.sessionId !== next.sessionId;
+  return prev.singleColumn !== next.singleColumn || prev.view !== next.view || prev.sessionId !== next.sessionId;
 }
