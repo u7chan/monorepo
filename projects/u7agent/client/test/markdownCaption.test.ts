@@ -99,6 +99,11 @@ test("描画: 見出し・表のセル・引用ではキャプションを出さ
     "| a |\n| --- |\n| ![cafe](generated/cafe.png) |",
     "> ![cafe](generated/cafe.png)",
     "> **![cafe](generated/cafe.png)**",
+    // 引用の中のリストは、list / item の再帰へ印を渡さないと漏れる
+    "> - ![cafe](generated/cafe.png)",
+    "> 1. ![cafe](generated/cafe.png)",
+    "> - [ ] ![cafe](generated/cafe.png)",
+    "> - 入れ子\n>   1. ![cafe](generated/cafe.png)",
   ];
   for (const text of texts) {
     const html = renderBody(text, captions);

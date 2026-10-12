@@ -81,12 +81,12 @@ export function generationBadgesOf(
   return badges;
 }
 
-/** ターン単位の対応表。バブル id → (root 相対パス → そのパスの生成情報) */
+/** バブル id → (root 相対パス → そのパスの生成情報)。ターンの切り方は generationCaptionsOf と同じ */
 export type GenerationCaptions = Map<number, Map<string, GenerationInfo>>;
 
 /**
  * 生成カードの保存パスを root 相対へ解決し、ターン (user バブルの次から次の user バブルまで) の
- * 各バブルへ同じ表を配る。履歴の投影はカードと本文を別のバブルへ分けるため、バブル単位にはできない。
+ * 各バブルへ同じ表を配る。ターン単位にする理由は docs/image-generation.md#生成物のキャプション。
  */
 export function generationCaptionsOf(
   bubbles: readonly Bubble[],

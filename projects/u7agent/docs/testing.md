@@ -44,18 +44,19 @@ PORT=17990 pnpm --filter client exec vite --host 127.0.0.1 --port 17992 --strict
 
 ### 生成物の実ファイルの置き方
 
-stub は結果本文だけを流すため、画像のプレビュー・拡大・キャプションと音声の再生の受入に使う実ファイルは、fixture のサンドボックスが配信する `$ROOT/workspace`（未所属の会話の作業フォルダ）配下に手で置く。パスはシナリオの結果本文と一致させる。
+stub は結果本文だけを流すため、画像のプレビュー・拡大・キャプションと音声の再生の受入に使う実ファイルは、その会話の作業フォルダ配下の `generated/` に手で置く（パスはシナリオの結果本文と一致させる）。**未所属の会話の作業フォルダはワークスペース root ではなく、ストアあり（fixture は一時ストアを使う）では会話ごとのスクラッチ `<workspace root>/.u7agent/sessions/<id>`**（`<id>` は会話 URL `/s/<id>` の ID）。プロジェクト配下の会話はそのプロジェクトのディレクトリ。
 
 ```bash
-mkdir -p "$ROOT/workspace/generated"
-ffmpeg -f lavfi -i "sine=frequency=440:duration=2" -c:a libmp3lame -y "$ROOT/workspace/generated/night-platform-cat-intro.mp3"
-ffmpeg -f lavfi -i "sine=frequency=440:duration=2" -y "$ROOT/workspace/generated/night-platform-cat-intro.wav"
+SESSION="$ROOT/workspace/.u7agent/sessions/<id>"
+mkdir -p "$SESSION/generated"
+ffmpeg -f lavfi -i "sine=frequency=440:duration=2" -c:a libmp3lame -y "$SESSION/generated/night-platform-cat-intro.mp3"
+ffmpeg -f lavfi -i "sine=frequency=440:duration=2" -y "$SESSION/generated/night-platform-cat-intro.wav"
 for name in night-platform-cat cat-a cat-b cat-copy; do
-  ffmpeg -f lavfi -i "color=c=gray:s=320x200" -frames:v 1 -y "$ROOT/workspace/generated/$name.png"
+  ffmpeg -f lavfi -i "color=c=gray:s=320x200" -frames:v 1 -y "$SESSION/generated/$name.png"
 done
 ```
 
-ファイルを置かなくてもキャプションは出る（画像の読み込みに失敗しても対応が取れていれば出す）。配信の失敗として見えるのは画像 / 音声そのもので、キャプションの有無とは別に切り分ける。
+右パネルの作業フォルダ面でも同じ場所が見えるので、置いたファイルはそこで確認できる。ファイルを置かなくてもキャプションは出る（画像の読み込みに失敗しても対応が取れていれば出す）。配信の失敗として見えるのは画像 / 音声そのもので、キャプションの有無とは別に切り分ける。
 
 ## client の棚卸し
 

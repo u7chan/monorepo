@@ -134,7 +134,7 @@ export function ChatArea({
   );
   // resync では run の toolCall が最後のバブルへまとまるため、全バブル横断で同じ呼び出しをバッジ 1 件に統合する
   const skillBadges = skillBadgesOf(bubbles);
-  // 生成カードはターン単位で対応付ける (履歴の投影はカードと本文を別のバブルへ分けるためバブル内では閉じない)
+  // 生成カードと画像・プレイヤーのバブルが分かれる履歴でも対応が取れるよう、ターン単位で対応付ける
   const generationCaptions = useMemo(() => generationCaptionsOf(bubbles, { rootCwd, cwd }), [bubbles, rootCwd, cwd]);
   // 待機の順位と件数。サーバーが配った順位を保持したまま、表示の直前に並べ直して 1..N を振り直す
   const queueWaits = useMemo(() => queueWaitsOf(bubbles), [bubbles]);

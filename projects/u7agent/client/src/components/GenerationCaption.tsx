@@ -37,11 +37,7 @@ function SpeechKindIcon() {
   );
 }
 
-/**
- * 生成した画像・音声の直下に出すキャプション (アイコン + モデル + ボイス + 保存パス)。
- * 段落の中にも置けるよう span で描き、値は幅に応じて省略するので全文は title に持たせる。
- * 出さない条件は docs/image-generation.md#生成物のキャプション が正。
- */
+/** 生成物の直下のキャプション。段落の中にも置けるよう span で描く (出さない条件は docs/image-generation.md#生成物のキャプション) */
 export function GenerationCaption({ info }: { info: GenerationInfo }) {
   const path = info.path;
   return (

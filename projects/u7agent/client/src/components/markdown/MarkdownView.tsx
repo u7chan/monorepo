@@ -55,7 +55,7 @@ const MdBlockView = memo(
           <CodeBlock lang={block.lang} text={block.text} closed={block.closed} />
         );
       case "list":
-        return <MdList ordered={block.ordered} start={block.start} items={block.items} />;
+        return <MdList ordered={block.ordered} start={block.start} items={block.items} caption={caption} />;
       case "quote":
         return <MdQuote source={block.source} />;
       case "table":
@@ -97,25 +97,35 @@ const MdQuote = memo(function MdQuote({ source }: { source: string }) {
 });
 
 const MdList = memo(
-  function MdList({ ordered, start, items }: { ordered: boolean; start: number; items: MdListItem[] }) {
-    const content = items.map((item, index) => <MdListItemView key={index} item={item} />);
+  function MdList({
+    ordered,
+    start,
+    items,
+    caption = true,
+  }: {
+    ordered: boolean;
+    start: number;
+    items: MdListItem[];
+    caption?: boolean;
+  }) {
+    const content = items.map((item, index) => <MdListItemView key={index} item={item} caption={caption} />);
     return ordered ? <ol start={start}>{content}</ol> : <ul>{content}</ul>;
   },
   (prev, next) => prev.ordered === next.ordered && prev.start === next.start && listItemsEqual(prev.items, next.items),
 );
 
 const MdListItemView = memo(
-  function MdListItemView({ item }: { item: MdListItem }) {
+  function MdListItemView({ item, caption = true }: { item: MdListItem; caption?: boolean }) {
     if (item.task === null)
       return (
         <li>
-          <MarkdownBlocks text={item.source} />
+          <MarkdownBlocks text={item.source} caption={caption} />
         </li>
       );
     return (
       <li className="md-task">
         <input className="md-check" type="checkbox" checked={item.task} readOnly />
-        <MarkdownBlocks text={item.source} />
+        <MarkdownBlocks text={item.source} caption={caption} />
       </li>
     );
   },
