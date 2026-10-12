@@ -334,10 +334,16 @@ export function Composer({
             queueDepth={queueDepth}
             finishedRunDurationMs={finishedRunDurationMs}
             context={context}
-            model={settings.model}
-            modelLabel={settings.modelLabel}
-            effortLabel={settings.effortLabel}
-            modelUnavailable={Boolean(settings.modelWarning)}
+            modelSlot={
+              <ModelEffortPicker
+                settings={settings}
+                singleColumn={singleColumn}
+                open={settingsOpen}
+                onOpenChange={setSettingsOpen}
+                onChangeModel={onChangeModel}
+                onChangeThinkingLevel={onChangeThinkingLevel}
+              />
+            }
             onCompact={onCompact}
             compactDisabled={settings.compactDisabled}
             compactDisabledReason={settings.compactDisabledReason}
@@ -369,14 +375,6 @@ export function Composer({
                 singleColumn={singleColumn}
                 sessionAgent={sessionAgent}
                 onChangeAgent={onChangeAgent}
-              />
-              <ModelEffortPicker
-                settings={settings}
-                singleColumn={singleColumn}
-                open={settingsOpen}
-                onOpenChange={setSettingsOpen}
-                onChangeModel={onChangeModel}
-                onChangeThinkingLevel={onChangeThinkingLevel}
               />
               <SkillPicker
                 state={skills}

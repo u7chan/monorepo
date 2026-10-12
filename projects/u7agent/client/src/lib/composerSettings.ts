@@ -25,9 +25,9 @@ export function effortLabel(level: string): string {
 export type ComposerSettings = {
   modelOptions: ModelOption[];
   model?: string;
-  /** 状態行に出す表示名 (候補を引ければ ModelOption.name、引けなければ provider/id) */
+  /** トリガーに出す表示名 (候補を引ければ ModelOption.name、引けなければ provider/id) */
   modelLabel?: string;
-  /** 状態行に出す Effort のラベル (ピッカーと同じ effortLabel())。モデル名の右へ `- xHigh` と続けて出す。推論非対応とモデル未解決では出さない */
+  /** トリガーに出す Effort のラベル (ピッカーと同じ effortLabel())。モデル名の右へ `- xHigh` と続けて出す。推論非対応とモデル未解決では出さない */
   effortLabel?: string;
   thinkingLevel?: string;
   supportsThinking: boolean;
@@ -114,7 +114,7 @@ export function deriveComposerSettings(input: ComposerSettingsInput): ComposerSe
   return {
     modelOptions,
     model,
-    // 状態行の表示名も同じ 1 回の解決から出す (ピッカーを閉じていても実効モデルが分かるように)
+    // トリガーに出す表示名も同じ 1 回の解決から出す (候補を引ければ SDK の表示名)
     modelLabel: model ? (option?.name ?? model) : undefined,
     effortLabel: statusEffort,
     thinkingLevel,
@@ -131,7 +131,9 @@ export function deriveComposerSettings(input: ComposerSettingsInput): ComposerSe
       pendingQuestions > 0
         ? `上の質問に回答してください（${pendingQuestions}件）`
         : !inSession && !model
-          ? (health?.defaultModelError ?? (health?.defaultModelUnset ? MODEL_UNSET_GUIDE : undefined))
+          ? // トリガーが無効になる理由は、入力欄の下の footnote にも出す必要がある (無効なボタンは
+            // touch で hover も title も読めない)。health.error は認証必須 / availability / 初期化失敗を持つ
+            (health?.defaultModelError ?? (health?.defaultModelUnset ? MODEL_UNSET_GUIDE : health?.error))
           : undefined,
   };
 }

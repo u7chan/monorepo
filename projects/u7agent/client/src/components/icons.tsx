@@ -333,25 +333,6 @@ export function CheckIcon() {
   );
 }
 
-export function SlidersIcon() {
-  return (
-    <svg
-      aria-hidden="true"
-      viewBox="0 0 16 16"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.5"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      className="size-4"
-    >
-      <path d="M2.75 4.75h10.5M2.75 11.25h10.5" />
-      <circle cx="6" cy="4.75" r="1.6" />
-      <circle cx="10.5" cy="11.25" r="1.6" />
-    </svg>
-  );
-}
-
 /**
  * 設定 (歯車の絵文字はフォント差で字形と大きさが変わるため図形で描く)
  *
@@ -644,6 +625,27 @@ export function DisclosureChevronIcon() {
       className="disclosure-chevron size-3 shrink-0"
     >
       <path d="M6 3.5 10.5 8 6 12.5" />
+    </svg>
+  );
+}
+
+/**
+ * 状態行のモデル名 / Effort のトリガーに添える down chevron。`CollapseChevronIcon` は
+ * `.user-message-chevron` の回転 CSS を拾い、`ChevronIcon` は 14px で状態行には大きい
+ */
+export function ChevronDownIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className="size-2.5 shrink-0"
+    >
+      <path d="M4.5 6.5 8 10l3.5-3.5" />
     </svg>
   );
 }

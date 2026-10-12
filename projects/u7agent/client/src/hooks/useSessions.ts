@@ -15,6 +15,7 @@ import { createRequestGate } from "./requestGate";
 import { createNotifyCarry, createNotifyToggleRunner } from "./notifyToggle";
 import { createPinnedToggleRunner } from "./pinnedToggle";
 import { createSessionCreation } from "./sessionCreation";
+import { createPreselection } from "./preselection";
 import { applySessionEvent, recoverDecision } from "./sessionStream";
 import { createDiagnosticsRecorder, type DiagnosticsRecorder } from "../lib/diagnostics";
 import { applySettingsChange, type SettingsSelection } from "./settingsChange";
@@ -92,7 +93,8 @@ export function useSessions({
   const [sessionId, setSessionId] = useState("");
   const [cwd, setCwd] = useState<string>("");
   const [settingsChanging, setSettingsChanging] = useState(false);
-  const [preselection, setPreselection] = useState<SettingsSelection>({});
+  const [preselectionCarry] = useState(createPreselection);
+  const preselection = useSyncExternalStore(preselectionCarry.subscribe, preselectionCarry.snapshot);
   const [epoch, setEpoch] = useState(0);
 
   const lastSeqRef = useRef(0);
@@ -133,8 +135,11 @@ export function useSessions({
   // sessionIdRef / sessionsRef は選択・一覧の最新値。await を挟む処理と SSE の適用が state を待たずに読む
   const sessionIdRef = useRef(sessionId);
   const sessionsRef = useRef<SessionSummary[]>([]);
-  const preselectionRef = useRef<SettingsSelection>(preselection);
-  preselectionRef.current = preselection;
+  // 選択中エージェントの変更で未作成チャットの手動選択を捨てる。設定での削除はカタログの正規化
+  // (newChat を通らない) で id が変わるため、新しいチャットの入口だけでは拾えない
+  useEffect(() => {
+    preselectionCarry.syncAgent(agentId);
+  }, [agentId, preselectionCarry]);
   // 新規チャットの通知の先行選択。セッション未作成の間だけ持ち、作成の要求時に読む
   const [notifyCarry] = useState(createNotifyCarry);
   const notifyPending = useSyncExternalStore(notifyCarry.subscribe, notifyCarry.snapshot);
@@ -378,8 +383,10 @@ export function useSessions({
       // 全履歴のカーソルも持ち越さない (in-flight の応答は seq で無効化する)
       historyRef.current.seq += 1;
       historyLoadingRef.current = false;
-      // 新規チャットの通知の先行選択も持ち越さない (作成中の古い応答でこの選択を消させない)
+      // 新規チャットの通知の先行選択と Model / Effort の手動選択も持ち越さない
+      // (作成中の古い応答でこの選択を消させない)
       notifyCarry.reset();
+      preselectionCarry.reset();
       sessionIdRef.current = "";
       lastSeqRef.current = 0;
       setSessionId("");
@@ -387,7 +394,7 @@ export function useSessions({
       setCwd("");
       dispatch({ type: "newChat" });
     },
-    [dispatch, fileRefRequests, notifyCarry, selectProject, setAgentId, sessionCreation],
+    [dispatch, fileRefRequests, notifyCarry, preselectionCarry, selectProject, setAgentId, sessionCreation],
   );
 
   // selectSession ↔ newChat の相互参照用
@@ -418,14 +425,15 @@ export function useSessions({
       const projectId = selectedProjectIdRef.current;
       // 新規チャットの通知トグルは作成要求の時点で読み切る (応答待ちの切替はこの作成に反映しない)
       const notify = notifyCarry.beginCreate();
+      const carry = preselectionCarry.beginCreate();
       const session = await createSession(agentId || undefined, {
-        ...preselectionRef.current,
+        ...carry.selection,
         notify: notify.value,
         ...(projectId ? { projectId } : {}),
       });
-      setPreselection({});
       // 先行選択は作成の成否に関わらず消費する。ただし世代が変わっていたら (別のチャットへ切り替えた /
       // この新規チャットで押し直した) いまの選択を消さない
+      preselectionCarry.consume(carry.generation);
       notifyCarry.consume(notify.generation);
       // 応答中にユーザーが別のチャットへ切り替えていたら、その選択を奪わず送信先だけを返す
       if (selectionSeqRef.current !== selection) return session.sessionId;
@@ -438,6 +446,7 @@ export function useSessions({
     agentId,
     applySelectedSession,
     notifyCarry,
+    preselectionCarry,
     refreshHealth,
     refreshSessions,
     selectedProjectIdRef,
@@ -448,7 +457,7 @@ export function useSessions({
     async (selection: SettingsSelection): Promise<void> => {
       const id = sessionIdRef.current;
       if (!id) {
-        setPreselection((prev) => ({ ...prev, ...selection }));
+        preselectionCarry.update(selection);
         return;
       }
       setSettingsChanging(true);
@@ -476,7 +485,7 @@ export function useSessions({
         setSettingsChanging(false);
       }
     },
-    [applySnapshot, dispatch, setRuntimeStatus],
+    [applySnapshot, dispatch, preselectionCarry, setRuntimeStatus],
   );
 
   const changeModel = useCallback(

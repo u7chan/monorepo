@@ -87,8 +87,8 @@ export function runErrorAction(code: RunErrorCode): string | undefined {
       return undefined;
     case "model_unavailable":
       // 設定 → モデル の保存はアプリ既定と候補を変えるだけで、失敗した会話のモデルは変えない。
-      // 復旧は入力欄の Model で会話モデルを選び直す経路だけなので、そちらを名指しする。
-      return "入力欄の Model でこの会話のモデルを選び直してください";
+      // 復旧は入力欄の上のモデル名で会話モデルを選び直す経路だけなので、そちらを名指しする。
+      return "入力欄の上のモデル名から、この会話のモデルを選び直してください";
     case "context_overflow":
       return "会話を圧縮するか、新しいチャットで短い入力から再実行してください";
     case "rate_limit":

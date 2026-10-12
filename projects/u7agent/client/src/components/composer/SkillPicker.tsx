@@ -25,7 +25,7 @@ import type { SessionSkillsState } from "../../hooks/useSessionSkills";
 import { SkillListIcon } from "../icons";
 
 /**
- * チャットのスキルピッカー。トリガー (Model / Effort と同じ行) と、その上へ開く popover を 1 つで持つ。
+ * チャットのスキルピッカー。トリガー (エージェント選択と同じ行) と、その上へ開く popover を 1 つで持つ。
  * 一覧を `form` の行に置くと開閉のたびにコンポーザーが伸び、メッセージ領域がその分だけ縮むため、
  * popover (`top layer`) に出してレイアウトを動かさない (docs/ui-layout.md)。
  *
