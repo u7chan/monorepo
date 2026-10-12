@@ -3,11 +3,12 @@ import { parseInline } from "../../lib/markdown/inline";
 import { MARKDOWN_MAX_LENGTH, parseMarkdown } from "../../lib/markdown/parse";
 import type { MdAlign, MdBlock, MdHeadingLevel, MdInline, MdListItem } from "../../lib/markdown/types";
 import { ZoomableImage } from "../ImageZoom";
+import { GenerationCaption } from "../GenerationCaption";
 import { CodeBlock } from "./CodeBlock";
 import { Diagram } from "./Diagram";
 import { InlineFileRef } from "./FileRefLink";
 import { HtmlInline } from "./HtmlInline";
-import { useMarkdownImageSrc } from "./MarkdownImageRefs";
+import { useMarkdownImageCaption, useMarkdownImageResolution } from "./MarkdownImageRefs";
 import { MathBlock, MathInline } from "./MathView";
 
 /**
@@ -20,12 +21,19 @@ export function MarkdownView({ text }: { text: string }) {
 }
 
 /** ブロック列を描く。text (文字列) が変わらない間は中の解析をやり直さない */
-export const MarkdownBlocks = memo(function MarkdownBlocks({ text }: { text: string }) {
+export const MarkdownBlocks = memo(function MarkdownBlocks({
+  text,
+  caption = true,
+}: {
+  text: string;
+  /** 段落の中の画像にキャプションを出せる場所か (見出し / 表のセル / 引用は false で渡す) */
+  caption?: boolean;
+}) {
   const blocks = useMemo(() => parseMarkdown(text), [text]);
   return (
     <div className="md">
       {blocks.map((block, index) => (
-        <MdBlockView key={index} block={block} />
+        <MdBlockView key={index} block={block} caption={caption} />
       ))}
     </div>
   );
@@ -33,12 +41,12 @@ export const MarkdownBlocks = memo(function MarkdownBlocks({ text }: { text: str
 
 /** 同じ内容のブロックは再描画しない (ストリーミングでは末尾のブロックだけが変わる) */
 const MdBlockView = memo(
-  function MdBlockView({ block }: { block: MdBlock }) {
+  function MdBlockView({ block, caption = true }: { block: MdBlock; caption?: boolean }) {
     switch (block.kind) {
       case "heading":
         return <MdHeading level={block.level} source={block.source} />;
       case "paragraph":
-        return <MdParagraph source={block.source} />;
+        return <MdParagraph source={block.source} caption={caption} />;
       case "code":
         // 図はフェンスが閉じてから描画する (未完成の本文でレイアウトを走らせない)
         return block.lang?.toLowerCase() === "mermaid" && block.closed ? (
@@ -47,7 +55,7 @@ const MdBlockView = memo(
           <CodeBlock lang={block.lang} text={block.text} closed={block.closed} />
         );
       case "list":
-        return <MdList ordered={block.ordered} start={block.start} items={block.items} />;
+        return <MdList ordered={block.ordered} start={block.start} items={block.items} caption={caption} />;
       case "quote":
         return <MdQuote source={block.source} />;
       case "table":
@@ -58,13 +66,13 @@ const MdBlockView = memo(
         return <hr className="md-hr" />;
     }
   },
-  (prev, next) => blocksEqual(prev.block, next.block),
+  (prev, next) => prev.caption === next.caption && blocksEqual(prev.block, next.block),
 );
 
-const MdParagraph = memo(function MdParagraph({ source }: { source: string }) {
+const MdParagraph = memo(function MdParagraph({ source, caption = true }: { source: string; caption?: boolean }) {
   return (
     <p>
-      <MdInlineSource source={source} />
+      <MdInlineSource source={source} caption={caption} />
     </p>
   );
 });
@@ -73,7 +81,8 @@ const MdHeading = memo(function MdHeading({ level, source }: { level: MdHeadingL
   const Tag = `h${level}` as "h1" | "h2" | "h3" | "h4" | "h5" | "h6";
   return (
     <Tag>
-      <MdInlineSource source={source} />
+      {/* 見出しの中の画像にはキャプションを出さない */}
+      <MdInlineSource source={source} caption={false} />
     </Tag>
   );
 });
@@ -81,35 +90,51 @@ const MdHeading = memo(function MdHeading({ level, source }: { level: MdHeadingL
 const MdQuote = memo(function MdQuote({ source }: { source: string }) {
   return (
     <blockquote>
-      <MarkdownBlocks text={source} />
+      {/* 引用の中の段落にはキャプションを出さない (MarkdownBlocks を再帰的に呼ぶため印を渡す) */}
+      <MarkdownBlocks text={source} caption={false} />
     </blockquote>
   );
 });
 
 const MdList = memo(
-  function MdList({ ordered, start, items }: { ordered: boolean; start: number; items: MdListItem[] }) {
-    const content = items.map((item, index) => <MdListItemView key={index} item={item} />);
+  function MdList({
+    ordered,
+    start,
+    items,
+    caption = true,
+  }: {
+    ordered: boolean;
+    start: number;
+    items: MdListItem[];
+    caption?: boolean;
+  }) {
+    const content = items.map((item, index) => <MdListItemView key={index} item={item} caption={caption} />);
     return ordered ? <ol start={start}>{content}</ol> : <ul>{content}</ul>;
   },
-  (prev, next) => prev.ordered === next.ordered && prev.start === next.start && listItemsEqual(prev.items, next.items),
+  (prev, next) =>
+    prev.caption === next.caption &&
+    prev.ordered === next.ordered &&
+    prev.start === next.start &&
+    listItemsEqual(prev.items, next.items),
 );
 
 const MdListItemView = memo(
-  function MdListItemView({ item }: { item: MdListItem }) {
+  function MdListItemView({ item, caption = true }: { item: MdListItem; caption?: boolean }) {
     if (item.task === null)
       return (
         <li>
-          <MarkdownBlocks text={item.source} />
+          <MarkdownBlocks text={item.source} caption={caption} />
         </li>
       );
     return (
       <li className="md-task">
         <input className="md-check" type="checkbox" checked={item.task} readOnly />
-        <MarkdownBlocks text={item.source} />
+        <MarkdownBlocks text={item.source} caption={caption} />
       </li>
     );
   },
-  (prev, next) => prev.item.task === next.item.task && prev.item.source === next.item.source,
+  (prev, next) =>
+    prev.caption === next.caption && prev.item.task === next.item.task && prev.item.source === next.item.source,
 );
 
 const MdTable = memo(
@@ -121,7 +146,8 @@ const MdTable = memo(
             <tr>
               {header.map((cell, index) => (
                 <th key={index} className={`md-al-${align[index] ?? "left"}`}>
-                  <MdInlineSource source={cell} />
+                  {/* 表のセルの中の画像にはキャプションを出さない */}
+                  <MdInlineSource source={cell} caption={false} />
                 </th>
               ))}
             </tr>
@@ -131,7 +157,7 @@ const MdTable = memo(
               <tr key={rowIndex}>
                 {row.map((cell, cellIndex) => (
                   <td key={cellIndex} className={`md-al-${align[cellIndex] ?? "left"}`}>
-                    <MdInlineSource source={cell} />
+                    <MdInlineSource source={cell} caption={false} />
                   </td>
                 ))}
               </tr>
@@ -145,25 +171,43 @@ const MdTable = memo(
 );
 
 /** source (インライン記法を含む文字列) が同じ間は解析し直さない */
-const MdInlineSource = memo(function MdInlineSource({ source }: { source: string }) {
+const MdInlineSource = memo(function MdInlineSource({
+  source,
+  inLink = false,
+  caption = true,
+}: {
+  source: string;
+  inLink?: boolean;
+  caption?: boolean;
+}) {
   const nodes = useMemo(() => parseInline(source), [source]);
-  return <InlineNodes nodes={nodes} />;
+  return <InlineNodes nodes={nodes} inLink={inLink} caption={caption} />;
 });
 
 /** inLink はリンクの内側を辿る印。`` [`x`](url) `` の code を操作要素にしないために子へ通す */
-function InlineNodes({ nodes, inLink = false }: { nodes: MdInline[]; inLink?: boolean }) {
+function InlineNodes({
+  nodes,
+  inLink = false,
+  caption = true,
+}: {
+  nodes: MdInline[];
+  inLink?: boolean;
+  caption?: boolean;
+}) {
   return (
     <>
       {nodes.map((node, index) => (
-        <InlineNode key={index} node={node} inLink={inLink} />
+        <InlineNode key={index} node={node} inLink={inLink} caption={caption} />
       ))}
     </>
   );
 }
 
-function InlineNode({ node, inLink = false }: { node: MdInline; inLink?: boolean }) {
+function InlineNode({ node, inLink = false, caption = true }: { node: MdInline; inLink?: boolean; caption?: boolean }) {
   // 画像 src だけ cwd 相対から配信 URL へ解決する (provider が無ければ入力をそのまま使う)
-  const imageSrc = useMarkdownImageSrc(node.kind === "image" ? node.src : "");
+  const resolution = useMarkdownImageResolution(node.kind === "image" ? node.src : "");
+  // キャプションは解決できた画像にだけ付け、リンクの中とキャプションの対象外の場所では引かない
+  const info = useMarkdownImageCaption(caption && !inLink && node.kind === "image" ? (resolution?.path ?? null) : null);
   switch (node.kind) {
     case "text":
       return node.text;
@@ -178,34 +222,45 @@ function InlineNode({ node, inLink = false }: { node: MdInline; inLink?: boolean
     case "strong":
       return (
         <strong>
-          <InlineNodes nodes={node.children} inLink={inLink} />
+          <InlineNodes nodes={node.children} inLink={inLink} caption={caption} />
         </strong>
       );
     case "em":
       return (
         <em>
-          <InlineNodes nodes={node.children} inLink={inLink} />
+          <InlineNodes nodes={node.children} inLink={inLink} caption={caption} />
         </em>
       );
     case "del":
       return (
         <del>
-          <InlineNodes nodes={node.children} inLink={inLink} />
+          <InlineNodes nodes={node.children} inLink={inLink} caption={caption} />
         </del>
       );
     case "link":
       return (
         <a href={node.href} title={node.title ?? undefined} target="_blank" rel="noreferrer noopener">
-          <InlineNodes nodes={node.children} inLink />
+          <InlineNodes nodes={node.children} inLink caption={caption} />
         </a>
       );
-    case "image":
+    case "image": {
+      const imageSrc = resolution?.src ?? node.src;
       // <a> の中に button を置けない。リンクの children は従来どおり素の img で描く
-      return inLink ? (
+      const image = inLink ? (
         <img className="md-img" src={imageSrc} alt={node.alt} />
       ) : (
         <ZoomableImage src={imageSrc} alt={node.alt} variant="markdown" />
       );
+      if (info === undefined) return image;
+      // 画像は段落 (<p>) の中に出るため figure / figcaption は使えない。block の span で包み、
+      // 画像の前後で行が分かれる見た目を変えない
+      return (
+        <span className="block">
+          {image}
+          <GenerationCaption info={info} />
+        </span>
+      );
+    }
     case "html":
       return <HtmlInline node={node.node} inLink={inLink} />;
     case "math":

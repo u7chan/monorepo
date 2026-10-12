@@ -121,6 +121,8 @@ assistant 本文の `![alt](src)` は、次の 3 段で配信 URL へ解決す�
 2. `fileTreeFetchPath(cwd, resolved)` で root 相対へ（`client/src/lib/fileTree.ts`）
 3. `fileRawUrl(rootRelative, imageVersion)` で版付き URL へ（`client/src/api.ts`。App が `useMarkdownImageRawUrl` を通して注入する）
 
+解決の結果は配信 URL と root 相対パスの両方（`MarkdownImageResolution`）で、**root 相対パスは生成物のキャプションの対応付けにも使う**（同じ provider の値を 1 回の解決で使い、二重に解決しない）。キャプションは `MarkdownCaptionProvider`（チャット本文だけが張る）の対応表を root 相対パスで引く（[image-generation.md](image-generation.md#生成物のキャプション)）。ファイルプレビューは同じ画像 provider を共有するがキャプションの provider を張らないため出ない。
+
 - **`client/src/api.ts` は module 評価時に `location.origin` を読むため、`components/markdown/` から直接 import しない**（`react-dom/server` の静的描画テストが落ちる）。既存の `FileRefProvider` と同じ形で resolver context から `rawUrl` を受け取り、`components/markdown/` は `resolveFileRef` と `fileTreeFetchPath` だけを呼ぶ
 - App は `useMarkdownImageRawUrl(ChatState.runEndSeq)` の返す `rawUrl` を渡す。このフックは `useImageVersion` の[共有採番](api.md#画像配信raw)で版を得て、`useCallback` で URL ビルダーを保つ。`runEndSeq` は `run_end` と `running` を抜けた `resync` で進む更新の合図で、その数値を版として直接使わない。同じ mount では版が変わったときだけ `v` query が変わる（通常の再描画やストリーミングでは変えない）。provider の `useMemo` は `rawUrl` の変更を拾い、ライトボックスもサムネイルと同じ解決済み `src` に追随する
 - `Cache-Control: no-store` でも同一 document 内の同じ画像 URL は再取得されないため、この版で URL を変える。ファイル単位の版ではなくセッション単位なので、run 終了ごとに表示中の履歴画像も取り直す。完全なスナップショットは持たず、生成時点の表示を保つには[一意ファイルを残す運用](image-generation.md#会話履歴を保つ生成手順)を使う

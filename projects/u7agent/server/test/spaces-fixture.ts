@@ -52,9 +52,14 @@ const pi = Object.assign(
         closingWindow: { afterMs: 100, name: "bash", args: { command: "echo in-closing-window" } },
       },
       // 生成バッジの受入用。実 API は呼ばず、generate_image / generate_speech が返す結果本文をそのまま流す
-      // (docs/image-generation.md / docs/speech-generation.md の「チャットのバッジ」)
+      // (docs/image-generation.md / docs/speech-generation.md の「チャットのバッジ」)。本文に Markdown 画像を
+      // 置くので、モデル表示のキャプションの受入にも同じシナリオを使える
       {
         prompt: "画像バッジ",
+        reply:
+          "夜の駅のホームに立つ黒猫のイラストなのだ。\n\n" +
+          "![夜の駅のホームに立つ黒猫](generated/night-platform-cat.png)\n\n" +
+          "落ち着いた色に寄せてみたのだ。",
         calls: [
           {
             name: "generate_image",
@@ -116,6 +121,7 @@ const pi = Object.assign(
       // 1 つのターンで別モデルの画像を 2 枚。ヘッダは「複数モデル」、行はそれぞれのモデルになる
       {
         prompt: "複数モデル",
+        reply: "2 枚できたのだ。\n\n![1 枚目](generated/cat-a.png)\n\n![2 枚目](generated/cat-b.png)",
         calls: [
           {
             name: "generate_image",
@@ -196,6 +202,15 @@ const pi = Object.assign(
             result: "音声生成が混雑しています（レート制限またはプロバイダー障害）",
           },
         ],
+      },
+      // 別ターンでの再掲と cp したコピー。生成カードを 1 枚も流さないターンなのでキャプションが出ない
+      {
+        prompt: "画像再掲",
+        reply:
+          "前の画像をもう一度出すのだ。\n\n" +
+          "![再掲](generated/night-platform-cat.png)\n\n" +
+          "コピーはこちらなのだ。\n\n" +
+          "![コピー](generated/cat-copy.png)",
       },
     ],
     // 自動 (preflight) 圧縮の受入用: 本文に「自動圧縮」を含めて送ると、user message を積む前に
