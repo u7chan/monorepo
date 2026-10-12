@@ -1,6 +1,6 @@
 # Web 検索（web_search ツール）
 
-チャットのセッションから Web 検索できるようにする。BFF ローカルの `web_search` ツール（`server/src/web-search-tool.ts`）が、設定で選んだ provider へ検索を 1 回投げ、上位 5 件を現在日時行 + 出典一覧 + 抜粋へ整形して返す。URL の中身を読むのは従来どおりサンドボックスの `bash` + `curl` で、本文取得（`fetch_content` 相当）は持たない。
+チャットのセッションから Web 検索できるようにする。BFF ローカルの `web_search` ツール（`server/src/web-search-tool.ts`）が、設定で選んだ provider へ検索を 1 回投げ、上位 5 件を現在日時行 + 検索プロバイダー行 + 出典一覧 + 抜粋へ整形して返す。URL の中身を読むのは従来どおりサンドボックスの `bash` + `curl` で、本文取得（`fetch_content` 相当）は持たない。
 
 - モデルへ公開するのは **単一の `web_search(query)`**。provider の選択はモデルに渡さず、BFF 側で「既定の検索プロバイダー」を解決して実行する
 - provider は `server/src/web-search-providers.ts` の adapter。**endpoint・request / response の形式・失敗の分類**を持ち、モデル向けの契約（引数・整形・上限・timeout / abort・マスク）は `web-search-tool.ts` が持つ
@@ -60,20 +60,32 @@ provider ごとの差はここで吸収し、`WebSearchResultItem[]` へ正規�
 provider に依存しない共通処理。
 
 - 本文の**先頭に現在日時行**（`現在日時: 2026-10-07 (Asia/Tokyo)`）を置く。モデルが「今」を知る唯一の材料で、時間依存の質問の年誤りを防ぐ（検索を呼ばない質問には届かない。下の「残る懸念」）
-- 続けて**出典一覧**（`[n] <title> — <url> (<publishedDate>)`）を置く。チャットのツール履歴は出力の先頭 900 字しか出さない（`server/src/session-projection.ts` の `SUMMARY_TEXT_MAX`）ため、先頭にまとめると履歴でも日時行と出典が残る
+- 続けて**検索プロバイダー行**（`検索プロバイダー: Exa`）を置く。クエリの外部送信先は会話に残す価値があり、`key_missing` / `key_rejected` の固定文言が provider 名を持たないため、キーを複数登録しているときにどちらの provider の話かがツール履歴から読める。値は adapter（`server/src/web-search-providers.ts`）の `name` で、provider を解決できなかった呼び出し（設定読取失敗 / 無効化）には付けない（[チャットのチップ](#チャットのチップ)）
+- 続けて**出典一覧**（`[n] <title> — <url> (<publishedDate>)`）を置く。チャットのツール履歴は出力の先頭 900 字しか出さない（`server/src/session-projection.ts` の `SUMMARY_TEXT_MAX`）ため、先頭にまとめると履歴でも日時行・provider 行と出典が残る
 - タイムゾーンは `Asia/Tokyo` 固定（`WEB_SEARCH_TIME_ZONE`）。UI は日本語で利用者は JST だが、デプロイ先コンテナは `TZ` 未設定（`Dockerfile`、base は `node:24-trixie-slim`）でサーバのローカル時刻には任せられず、設定化（環境変数 / GUI）は非ゴール
 - locale は `en-US` に固定し、`Intl.DateTimeFormat.formatToParts` から `YYYY-MM-DD` を組む。locale 未指定だと実行環境の LANG / ICU で数字や暦が変わり得るため固定し、`en-CA` の出力書式にも依存しない。formatter はモジュールスコープで 1 回だけ作る
 - 日時行は**日付まで**で時刻（時分秒）は出さない。「今年」の判断には足り、表示と prefix cache が安定する
 - 公開日は JST の `YYYY-MM-DD` へ直して括弧に出す。値が無い / parse できない / 空文字のときは括弧ごと省く（公開日を持たない結果が実在する）。**生の文字列を出典行へ入れない**（マスクと切り詰めの順序の議論を持ち込まないため）
 - 続けて各件の抜粋を並べる
 - 1 件あたり **1,500 字**で切る。Exa の `textMaxCharacters` が切るのは `results[].text` だけで `highlights` は切られない（実測で highlights 1 件が 5,711 字になった）
-- **合計 12,000 字**を超えたら末尾を落とし、`... [truncated]` を付ける。日時行が先頭なので切り詰めても残る。SDK は customTool の結果を長さで丸めないため、上限はツール側の責務
-- 0 件（`WEB_SEARCH_NO_RESULTS_MESSAGE`）にも日時行を付ける。年を変えて再検索する判断材料になる
+- **合計 12,000 字**を超えたら末尾を落とし、`... [truncated]` を付ける。日時行と provider 行が先頭なので切り詰めても残る。SDK は customTool の結果を長さで丸めないため、上限はツール側の責務
+- 0 件（`WEB_SEARCH_NO_RESULTS_MESSAGE`）にも日時行と provider 行を付ける。年を変えて再検索する判断材料になり、どの provider へ送ったかも残る
 - `details` / `structuredContent` / `outputSchema` は持たない（text だけ）
 - **切り詰める前にマスクする。** `wrapToolDefinitionWithSecretMasker` が掛かるのは execute の後で、`maskSafe` が拾えるのは先頭が秘密値の末尾と一致する断片と `... [truncated]` の直前だけ（`server/src/redact.ts`）。自前の `slice` の末尾に残った秘密値の前半分は検出されないため、execute が 1 件ずつと全体の切り詰めの前に `masker.mask()` を通す
 - 指針（`WEB_SEARCH_TOOL_GUIDELINES`）で、日時行を「今日」の正とすることと、ユーザーが年を言わないときは**初回に年を入れずに検索**し、結果が古ければ日時行の年を明示して再検索することを指示する。年が分かるのは最初の結果の日時行を見た後なので、初回に記憶から現在年を推測させない（この指針は `promptGuidelines` として全ターンの system prompt へ展開されるため、検索を呼ぶ前から目に入る）
 
 日時を `appendSystemPrompt`（`addendum` section）や `before_agent_start` の prompt 差し替えで system prompt へ入れる案は採らない。pi は system prompt を system message + `sections` として保持し、section の変更を **patch として履歴へ追記する**（`server/src/session-store.ts`）ため、日付が変わるたびに addendum 全文（数 KB）の patch がセッションへ積み上がる。prompt 側を採るかは、この結果側の変更を入れたうえで別途判断する。
+
+## チャットのチップ
+
+provider 行をクライアントが読んで、ツール履歴を展開しなくてもどの provider へ検索したかが分かるようにする。抽出は `client/src/lib/webSearchInfo.ts` の純関数で、ライブも復元後も同じ本文（`ToolCard.output`）を入力にする（サーバー / DB / API は変えない）。
+
+- ツール履歴のヘッダ（畳んでいても見える）と各行に出す。ヘッダは全行が同じ provider なら 1 つ、混在は 1 つにまとめて内訳を hover に置く（片方の provider だけを見せない）。どの行がどの provider かは行のチップが担う
+- チップは provider の表示名だけを持つ。送信先ホスト（`mcp.exa.ai`）は 設定 → Web 検索（`/settings/web-search`）が正で、履歴のチップには載せない
+- 値は本文に書かれた表示名のまま出す。provider の一覧 API を引かないのは、会話ごとに provider が違い得るため（本文に書かれた値だけがその検索の送信先として正しい）。表示名を後で変えると過去の履歴は当時の名前のまま残る（[画像生成のバッジ](image-generation.md#チャットのバッジ)がカタログ表示名へ解決しないのと同じ性質）
+- 本文の上のバッジ（`GenerationBadgeList`）は足さない。あれは「そのターンに何を生成したか」の要約で、`web_search` は生成物を持たない
+- 失敗したカードでも読む（throw の文言にも provider 行が入る）。出さない条件は `web_search` 以外のカードと、本文に provider 行が無いカード（provider を解決できなかった呼び出し・provider 行を書く前のセッション）。抽出は結果本文の先頭 3 行だけを読み、改行で終わらない行は値にしない（投影で切れた断片を確定値にしない規則は [画像生成のバッジ](image-generation.md#チャットのバッジ)と同じ）
+- 「すべてコピー」の本文は変えない（args / output の生テキストと `#N` の対応を保つ）
 
 ## 失敗の分類
 
@@ -93,6 +105,7 @@ provider が「成功 / 失敗 / 失敗の種類」を返し、共通側が種�
 - 共通の文言は `server/src/web-search-tool.ts` の `WEB_SEARCH_*_MESSAGE` が正。キーの登録先を示す 2 つ（`key_missing` / `key_rejected`）だけは GUI の場所を書く
 - provider の失敗は **別 provider へ再解釈しない**。`tavily` の 401 は `key_rejected` のまま、Exa のレート制限は `rate_limited` のまま固定文言になる
 - 失敗（表のすべて + 設定読取失敗・タイムアウト・ネットワーク / 中断）の文言には現在日時行を前置して throw する。**検索に失敗したときこそモデルは記憶で答える**ため、日付が最も要る。`WEB_SEARCH_DISABLED_MESSAGE` だけは対象外（モデルの時間感覚と無関係で、すべきことは設定を開くこと）
+- provider を解決できた失敗（表のすべて + タイムアウト・ネットワーク / 中断）の文言には、日時行の次に provider 行を足す（「どちらのキーが問題か」をツール履歴から読めるようにする。成功本文と同じ並び）。**provider を解決していない 2 つ（設定読取失敗・無効化）には付けない**（[チャットのチップ](#チャットのチップ)）
 
 ## 実行時トグル
 
@@ -121,6 +134,7 @@ provider が「成功 / 失敗 / 失敗の種類」を返し、共通側が種�
 ## 非ゴール
 
 - provider ごとの詳細検索オプション（`search_depth` / 期間 / ドメイン絞り込みなど）
+- チップへの送信先ホスト（`mcp.exa.ai`）の表示（チップは provider の表示名だけを持つ）
 - provider の自動選択・自動 fallback・セッション単位の override
 - 検索品質・料金・利用量による自動ルーティング、Tavily の credit 使用量表示
 - キー付き provider を複数同時に使うこと（`web_search_provider_keys` は provider ごとの行を持つため、キー自体は複数登録できる）
@@ -134,13 +148,14 @@ provider が「成功 / 失敗 / 失敗の種類」を返し、共通側が種�
 | テスト | 固定すること |
 | --- | --- |
 | `server/test/web-search-providers.test.ts` | provider の一覧 / 未知の id の畳み込み / Exa の `tools/call` の URL・`Accept`・固定引数 / Exa の `data:` 行の解釈 / `results[]` の正規化（highlights → text）/ 公開日（Exa `publishedDate` / Tavily `published_date` の string / 非文字列 / 空文字 / 無し）/ Exa の失敗分類（`isError`・レート制限・JSON でない `content[0].text`・HTTP 406 / 500 / 429）/ Tavily の Bearer と本文 / Tavily の `results[]` の正規化 / Tavily のステータス分類（400 / 401 / 422 / 429 / 432 / 433 / 500）/ キー未設定は上流へ送らない |
-| `server/test/web-search-tool.test.ts` | 引数 `query`（空文字・空白のみを拒否）/ 結果の整形（先頭の現在日時行・JST 境界・公開日の JST 変換と欠落 / parse 不能 / 非文字列 / 空文字・出典一覧・highlights の採用）/ 1 件と合計の切り詰め（日時行込み）/ 既定は Exa / 既定 provider の実行時切り替え / provider が失敗しても別 provider へ fallback しない / キー未設定・拒否の固定文言 / 失敗の種類 → 日時行付きの固定文言 / ネットワーク例外（マスクして 500 字まで）/ タイムアウト / ユーザー中断 / `results: []` が正常系（日時行付き）/ 切り詰め前のマスク / 指針の文言 / 無効の間は送らず、ON に戻ると同じ定義で検索する / 設定の読取失敗も日時行付きで送らずに固定文言 / `web_search` がサンドボックスの allowlist に入らないこと |
+| `server/test/web-search-tool.test.ts` | 引数 `query`（空文字・空白のみを拒否）/ 結果の整形（先頭の現在日時行と provider 行（既定 Exa / 切り替え後 Tavily / 0 件 / 失敗文言 / 設定読取失敗・無効化では無し / 投影の切詰め内に残る）・JST 境界・公開日の JST 変換と欠落 / parse 不能 / 非文字列 / 空文字・出典一覧・highlights の採用）/ 1 件と合計の切り詰め（日時行込み）/ 既定は Exa / 既定 provider の実行時切り替え / provider が失敗しても別 provider へ fallback しない / キー未設定・拒否の固定文言 / 失敗の種類 → 日時行付きの固定文言 / ネットワーク例外（マスクして 500 字まで）/ タイムアウト / ユーザー中断 / `results: []` が正常系（日時行付き）/ 切り詰め前のマスク / 指針の文言 / 無効の間は送らず、ON に戻ると同じ定義で検索する / 設定の読取失敗も日時行付きで送らずに固定文言 / `web_search` がサンドボックスの allowlist に入らないこと |
 | `server/test/web-search-settings.test.ts` | 行が無い = 既定（有効 / Exa）/ PUT の往復と写しの差し替え（enabled / provider / キー）/ 未知の provider とキー不要 provider へのキー操作が 400 / マスカー登録が DB より前 / 応答にキー値を載せない / キー削除の冪等 / 保存できないときは 503 で写しも変えない / 保存後の読取失敗でも 200 / 起動時に DB を読めないときは既定で立つ / 起動時に保存済みのキーを保護対象へ入れる |
 | `server/test/web-search-settings-api.test.ts` | `GET` / `PUT /api/settings/web-search`、`PUT /provider`、`PUT`・`DELETE /providers/:provider/key` の往復、`state: "applied"`、再起動後も残ること、Zod 検証での 400、応答にキー値を出さないこと |
 | `server/test/app-db.test.ts` | v11 → v12 → v13 の加算移行、`web_search_settings.provider` の既定、`web_search_provider_keys` の往復と upsert・削除 |
+| `client/test/webSearchInfo.test.ts` / `client/test/liveToolCall.test.ts` | provider 行の抽出（あり / なし / 空白のみ / 改行で終わらない断片は採らない / 先頭 3 行より後ろは読まない / 対象外ツール / 失敗カードでも読む / `output` が空）/ 行とヘッダのチップ（同一 provider は 1 つ・混在は `複数プロバイダー` と内訳・provider 行の無いカードでは出さない・生成モデルのチップとの同居） |
 | `client/test/selectMenu.test.ts` / `client/test/webSearchSettings.test.ts` / `client/test/webSearchSettingsTab.test.ts` / `client/test/webSearchSettingsPage.test.ts` | 自前 select の位置とキーボード移動、provider 一覧・送信先・キー状態の文言、有効 / 無効と provider 切替の描画、キー未設定の警告、保存中の disable、ページの見出しと取得前の出し分け、セクションの語彙と URL |
 
-実セッション（GUI）での受入は手動で 1 回行う。`mcp.exa.ai` / `api.tavily.com` への実到達とデプロイ先コンテナからの到達性、GUI の停止ボタンで中断できること、ツール履歴の先頭 900 字に現在日時行と出典一覧が入ることを確かめる。
+実セッション（GUI）での受入は手動で 1 回行う。`mcp.exa.ai` / `api.tavily.com` への実到達とデプロイ先コンテナからの到達性、GUI の停止ボタンで中断できること、ツール履歴の先頭 900 字に現在日時行と provider 行と出典一覧が入ることを確かめる。チップの見た目は有料 API を使わない GUI fixture（[testing.md](testing.md#有料-api-を使わない-gui-fixture)）で見る。
 
 ## 残る懸念
 
@@ -153,4 +168,6 @@ provider が「成功 / 失敗 / 失敗の種類」を返し、共通側が種�
 - 本文を持たない assistant に属するツール履歴は、同じ user ターン内に表示可能な assistant が無いと復元されない（既存の全ツール共通の制限。[api-sessions.md](api-sessions.md)）
 - 検索を呼ばない時間依存の質問には日付が届かない。指針で検索を促すが強制はできず、検索不要と判断された場合・compaction 直後は届かない
 - Web 検索が OFF の間も「今年」を誤る余地は残る（`WEB_SEARCH_DISABLED_MESSAGE` に日付を付けないため）。指針は日付依存の質問を `web_search` へ誘導するので、OFF 中は空振り呼び出しが増える方向に働く
+- ツール結果本文が provider 名を含むため、モデルが回答本文で provider 名に触れ得る（実害は無いが、増えるなら `promptGuidelines` で抑える）
+- ツール履歴のヘッダは compact で幅が厳しい。生成モデルのチップと provider のチップが同居するとプレビューが縮むため、GUI 受入で見る
 - 単一利用者・JST 前提。client の時刻表示はブラウザ既定のタイムゾーンで整形する（`client/src/lib/messageTime.ts`）ため、非 JST 利用では表示と日時行が食い違い得る

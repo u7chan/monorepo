@@ -365,6 +365,19 @@ function chips(html: string): string[] {
   return [...html.matchAll(/data-generation-chip="([^"]*)"/g)].map((match) => match[1]);
 }
 
+const WEB_SEARCH_OUTPUT =
+  "現在日時: 2026-10-07 (Asia/Tokyo)\n" +
+  "検索プロバイダー: Exa\n" +
+  "出典:\n" +
+  "[1] First — https://example.com/a\n" +
+  "\n" +
+  "[1] First — https://example.com/a\n抜粋";
+
+/** provider のチップだけを読む (生成モデルのチップと同じく属性で区別する) */
+function webSearchChips(html: string): string[] {
+  return [...html.matchAll(/data-web-search-chip="([^"]*)"/g)].map((match) => match[1]);
+}
+
 test("ツール履歴は生成に使ったモデルをヘッダと行のチップに出し、畳んだままでも読める", () => {
   const html = renderHistory([card("t1", "generate_image", "done", { output: IMAGE_OUTPUT })], false);
   assert.deepEqual(chips(html), ["openai/gpt-image-2", "openai/gpt-image-2"], "ヘッダと行の両方に出す");
@@ -429,6 +442,70 @@ test("ツール履歴のチップは生成ツールの行だけに出し、モ�
     true,
   );
   assert.deepEqual(chips(running), ["openai/gpt-image-2", "openai/gpt-image-2"]);
+});
+
+test("ツール履歴は検索プロバイダーを行とヘッダのチップに出し、畳んだままでも読める", () => {
+  const html = renderHistory([card("t1", "web_search", "done", { output: WEB_SEARCH_OUTPUT })], false);
+  assert.deepEqual(webSearchChips(html), ["Exa", "Exa"], "ヘッダと行の両方に出す");
+  assert.ok(html.includes('title="Exa"'), "切れたときに読めるよう全文を title に残す");
+
+  // 失敗カードの本文にも provider 行が入るため、失敗でもチップを出す
+  const failed = renderHistory(
+    [
+      card("t1", "web_search", "failed", {
+        output: "現在日時: 2026-10-07 (Asia/Tokyo)\n検索プロバイダー: Tavily\n検索が混雑しています（レート制限）",
+      }),
+    ],
+    false,
+  );
+  assert.deepEqual(webSearchChips(failed), ["Tavily", "Tavily"]);
+});
+
+test("ツール履歴のヘッダは provider が混在したときに片方だけを見せない", () => {
+  const html = renderHistory(
+    [
+      card("t1", "web_search", "done", { output: WEB_SEARCH_OUTPUT }),
+      card("t2", "web_search", "done", { output: WEB_SEARCH_OUTPUT.replace("Exa", "Tavily") }),
+    ],
+    false,
+  );
+  assert.deepEqual(webSearchChips(html), ["mixed", "Exa", "Tavily"]);
+  assert.ok(html.includes("複数プロバイダー"));
+  assert.ok(html.includes('title="Exa / Tavily"'), "内訳を title に残す");
+});
+
+test("provider のチップは web_search の行だけに出し、provider 行が無ければ出さない", () => {
+  // 検索以外のツールは provider 行と同じ文言が結果にあってもチップを出さない
+  const other = renderHistory([card("t1", "bash", "done", { output: WEB_SEARCH_OUTPUT })], false);
+  assert.deepEqual(webSearchChips(other), []);
+
+  // provider 行を書く前のセッション (旧サーバー) と、設定を読めずに失敗したカード
+  const legacy = renderHistory(
+    [card("t1", "web_search", "done", { output: "現在日時: 2026-10-07 (Asia/Tokyo)\n出典:\n[1] T" })],
+    false,
+  );
+  assert.deepEqual(webSearchChips(legacy), []);
+
+  const same = renderHistory(
+    [
+      card("t1", "web_search", "done", { output: WEB_SEARCH_OUTPUT }),
+      card("t2", "web_search", "done", { output: WEB_SEARCH_OUTPUT }),
+    ],
+    false,
+  );
+  assert.deepEqual(webSearchChips(same), ["Exa", "Exa", "Exa"], "全行が同じ provider ならヘッダは 1 つに畳む");
+});
+
+test("生成モデルと provider のチップは同じターンに同居する", () => {
+  const html = renderHistory(
+    [
+      card("t1", "generate_image", "done", { output: IMAGE_OUTPUT }),
+      card("t2", "web_search", "done", { output: WEB_SEARCH_OUTPUT }),
+    ],
+    false,
+  );
+  assert.deepEqual(chips(html), ["openai/gpt-image-2", "openai/gpt-image-2"]);
+  assert.deepEqual(webSearchChips(html), ["Exa", "Exa"]);
 });
 
 /** 実行中のカードから表示を組み立てる (コンポーネントは表示だけを持ち、段と行は純関数が決める) */

@@ -7,6 +7,7 @@ import { validateToolArguments } from "@earendil-works/pi-ai";
 import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { createMutableSecretMasker, type SecretMasker } from "../src/redact";
 import { UnknownRemoteToolError, createRemoteToolDefinitions } from "../src/sandbox/remote-tools";
+import { toolResultSummary } from "../src/session-projection";
 import { SANDBOX_TOOL_NAMES } from "../src/sandbox/service";
 import { EXA_ENDPOINT, TAVILY_ENDPOINT, type WebSearchProviderId } from "../src/web-search-providers";
 import {
@@ -37,6 +38,14 @@ type AnyTool = ToolDefinition<any, any, any>;
 /** 日時行のテストで固定する「今」。JST の 2026-10-07 */
 const FIXED_NOW = new Date("2026-10-07T09:00:00+09:00");
 const FIXED_DATE_LINE = "現在日時: 2026-10-07 (Asia/Tokyo)";
+
+/** provider 行。日時行の次に置き、失敗文言にも付く */
+function providerLine(name: string): string {
+  return `検索プロバイダー: ${name}`;
+}
+
+const EXA_PROVIDER_LINE = providerLine("Exa");
+const TAVILY_PROVIDER_LINE = providerLine("Tavily");
 
 interface FetchCall {
   url: string;
@@ -202,7 +211,7 @@ test("既定は Exa で、現在日時行と出典一覧を先頭に置いて hi
   assert.equal(stub.calls[0].url, EXA_ENDPOINT);
   assert.ok(
     text.startsWith(
-      `${FIXED_DATE_LINE}\n出典:\n[1] First — https://example.com/a (2026-01-01)\n[2] (no title) — https://example.com/b`,
+      `${FIXED_DATE_LINE}\n${EXA_PROVIDER_LINE}\n出典:\n[1] First — https://example.com/a (2026-01-01)\n[2] (no title) — https://example.com/b`,
     ),
     text,
   );
@@ -229,6 +238,7 @@ test("出典一覧の公開日は JST の YYYY-MM-DD へ直し、無い・読め
     text.startsWith(
       [
         FIXED_DATE_LINE,
+        EXA_PROVIDER_LINE,
         "出典:",
         "[1] A — https://example.com/a (2026-04-05)",
         "[2] B — https://example.com/b",
@@ -248,7 +258,10 @@ test("現在日時行は JST で決まり、UTC の日付では判断しない",
   // 同じ JST の 2026-01-01 を指す 2 つの瞬間
   for (const now of [new Date("2026-01-01T00:30:00+09:00"), new Date("2025-12-31T16:00:00Z")]) {
     const text = await run(tool({ fetchImpl: stub.fetchImpl, now: () => now }), { query: "q" });
-    assert.ok(text.startsWith("現在日時: 2026-01-01 (Asia/Tokyo)\n"), `${now.toISOString()}: ${text}`);
+    assert.ok(
+      text.startsWith(`現在日時: 2026-01-01 (Asia/Tokyo)\n${EXA_PROVIDER_LINE}\n`),
+      `${now.toISOString()}: ${text}`,
+    );
   }
 });
 
@@ -259,7 +272,11 @@ test("now を渡さない既定は実行時の現在日時を使う", async () =
     masker: createMutableSecretMasker([]),
   });
   const text = await run(definitions[0], { query: "q" });
-  assert.match(text, new RegExp(`^現在日時: \\d{4}-\\d{2}-\\d{2} \\(${WEB_SEARCH_TIME_ZONE}\\)\n`), text);
+  assert.match(
+    text,
+    new RegExp(`^現在日時: \\d{4}-\\d{2}-\\d{2} \\(${WEB_SEARCH_TIME_ZONE}\\)\n検索プロバイダー: Exa\n`),
+    text,
+  );
 });
 
 test("1 件の抜粋は 1,500 字、合計は 12,000 字で切る", async () => {
@@ -282,7 +299,28 @@ test("1 件の抜粋は 1,500 字、合計は 12,000 字で切る", async () => 
   const all = await run(tool({ fetchImpl: many.fetchImpl }), { query: "q" });
   assert.equal(all.length, WEB_SEARCH_OUTPUT_MAX_LENGTH);
   assert.ok(all.endsWith("... [truncated]"));
-  assert.ok(all.startsWith(`${FIXED_DATE_LINE}\n出典:\n`), "現在日時行と出典一覧は残す");
+  assert.ok(
+    all.startsWith(`${FIXED_DATE_LINE}\n${EXA_PROVIDER_LINE}\n出典:\n`),
+    "現在日時行と provider 行と出典一覧は残す",
+  );
+});
+
+test("provider 行は日時行の次に置き、先頭 900 字の投影でも残る", async () => {
+  const stub = stubFetch(() =>
+    exaResults(
+      Array.from({ length: 5 }, (_, index) => ({
+        title: `T${index} ${"t".repeat(500)}`,
+        url: `https://example.com/${index}`,
+        highlights: ["h".repeat(4_000)],
+      })),
+    ),
+  );
+  const text = await run(tool({ fetchImpl: stub.fetchImpl }), { query: "q" });
+  // ライブ / 復元後のツール履歴と同じ投影を通しても、クライアントが読む位置に provider 行がある
+  const projected = toolResultSummary({ content: [{ type: "text", text }] }, createMutableSecretMasker([]));
+  const lines = projected.split("\n");
+  assert.equal(lines[0], FIXED_DATE_LINE);
+  assert.equal(lines[1], EXA_PROVIDER_LINE);
 });
 
 test("既定 provider が次の検索から使われ、キーは Authorization へ入る", async () => {
@@ -300,11 +338,15 @@ test("既定 provider が次の検索から使われ、キーは Authorization �
     readApiKey: () => "tvly-secret",
   });
 
-  assert.ok((await run(definition, { query: "q" })).includes("出典:"));
+  const exa = await run(definition, { query: "q" });
+  assert.ok(exa.includes("出典:"));
+  assert.ok(exa.startsWith(`${FIXED_DATE_LINE}\n${EXA_PROVIDER_LINE}\n`), exa);
   assert.equal(stub.calls[0].url, EXA_ENDPOINT);
 
   provider = "tavily";
-  assert.ok((await run(definition, { query: "q" })).includes("出典:"));
+  const tavily = await run(definition, { query: "q" });
+  assert.ok(tavily.includes("出典:"));
+  assert.ok(tavily.startsWith(`${FIXED_DATE_LINE}\n${TAVILY_PROVIDER_LINE}\n`), tavily);
   assert.equal(stub.calls[1].url, TAVILY_ENDPOINT);
   const headers = stub.calls[1].init.headers as Record<string, string>;
   assert.equal(headers.authorization, "Bearer tvly-secret");
@@ -320,7 +362,7 @@ test("provider が失敗しても他の provider へは暗黙に fallback しな
   const error = await rejection(
     run(tool({ fetchImpl: stub.fetchImpl, readProvider: () => "tavily", readApiKey: () => "k" }), { query: "q" }),
   );
-  assert.ok(error.message.startsWith(`${FIXED_DATE_LINE}\n`), error.message);
+  assert.ok(error.message.startsWith(`${FIXED_DATE_LINE}\n${TAVILY_PROVIDER_LINE}\n`), error.message);
   assert.ok(error.message.endsWith(WEB_SEARCH_PROVIDER_ERROR_MESSAGE), error.message);
   assert.equal(stub.calls.length, 1, "別 provider で再検索しない");
   assert.equal(stub.calls[0].url, TAVILY_ENDPOINT);
@@ -333,13 +375,13 @@ test("キーが未設定 / 拒否されたときは固定文言で失敗し、�
   const definition = tool({ fetchImpl: stub.fetchImpl, readProvider: () => "tavily", readApiKey: () => apiKey });
 
   const missing = await rejection(run(definition, { query: "q" }));
-  assert.ok(missing.message.startsWith(`${FIXED_DATE_LINE}\n`), missing.message);
+  assert.ok(missing.message.startsWith(`${FIXED_DATE_LINE}\n${TAVILY_PROVIDER_LINE}\n`), missing.message);
   assert.ok(missing.message.endsWith(WEB_SEARCH_KEY_MISSING_MESSAGE), missing.message);
   assert.equal(stub.calls.length, 0, "キー無しの Authorization を送らない");
 
   apiKey = "tvly-secret";
   const rejected = await rejection(run(definition, { query: "q" }));
-  assert.ok(rejected.message.startsWith(`${FIXED_DATE_LINE}\n`), rejected.message);
+  assert.ok(rejected.message.startsWith(`${FIXED_DATE_LINE}\n${TAVILY_PROVIDER_LINE}\n`), rejected.message);
   assert.ok(rejected.message.endsWith(WEB_SEARCH_KEY_REJECTED_MESSAGE), rejected.message);
   assert.equal(stub.calls.length, 1);
   assert.ok(!rejected.message.includes("tvly-secret"));
@@ -354,7 +396,7 @@ test("失敗の種類は固定文言へ写し、上流の本文を出さない",
     ),
   );
   const rateLimited = await rejection(run(tool({ fetchImpl: exaRateLimited.fetchImpl }), { query: "q" }));
-  assert.ok(rateLimited.message.startsWith(`${FIXED_DATE_LINE}\n`), rateLimited.message);
+  assert.ok(rateLimited.message.startsWith(`${FIXED_DATE_LINE}\n${EXA_PROVIDER_LINE}\n`), rateLimited.message);
   assert.ok(rateLimited.message.endsWith(WEB_SEARCH_RATE_LIMITED_MESSAGE), rateLimited.message);
 
   const quota = stubFetch(() =>
@@ -363,13 +405,13 @@ test("失敗の種類は固定文言へ写し、上流の本文を出さない",
   const quotaError = await rejection(
     run(tool({ fetchImpl: quota.fetchImpl, readProvider: () => "tavily", readApiKey: () => "k" }), { query: "q" }),
   );
-  assert.ok(quotaError.message.startsWith(`${FIXED_DATE_LINE}\n`), quotaError.message);
+  assert.ok(quotaError.message.startsWith(`${FIXED_DATE_LINE}\n${TAVILY_PROVIDER_LINE}\n`), quotaError.message);
   assert.ok(quotaError.message.endsWith(WEB_SEARCH_QUOTA_EXCEEDED_MESSAGE), quotaError.message);
   assert.ok(!quotaError.message.includes("plan limit detail"));
 
   const unexpected = stubFetch(() => responseOf(JSON.stringify({ jsonrpc: "2.0", id: 1, error: { code: -32000 } })));
   const unexpectedError = await rejection(run(tool({ fetchImpl: unexpected.fetchImpl }), { query: "q" }));
-  assert.ok(unexpectedError.message.startsWith(`${FIXED_DATE_LINE}\n`), unexpectedError.message);
+  assert.ok(unexpectedError.message.startsWith(`${FIXED_DATE_LINE}\n${EXA_PROVIDER_LINE}\n`), unexpectedError.message);
   assert.ok(unexpectedError.message.endsWith(WEB_SEARCH_UNEXPECTED_RESPONSE_MESSAGE), unexpectedError.message);
 });
 
@@ -378,7 +420,10 @@ test("ネットワーク例外は接続できない旨へ分類し、原文を�
     throw new Error("connect ECONNREFUSED 127.0.0.1");
   });
   const error = await rejection(run(tool({ fetchImpl: stub.fetchImpl }), { query: "q" }));
-  assert.ok(error.message.startsWith(`${FIXED_DATE_LINE}\n${WEB_SEARCH_NETWORK_ERROR_MESSAGE}: `), error.message);
+  assert.ok(
+    error.message.startsWith(`${FIXED_DATE_LINE}\n${EXA_PROVIDER_LINE}\n${WEB_SEARCH_NETWORK_ERROR_MESSAGE}: `),
+    error.message,
+  );
   assert.match(error.message, /ECONNREFUSED/);
 });
 
@@ -390,21 +435,21 @@ test("タイムアウトは自前タイマーで分類し、ユーザー中断�
 
   const timeoutStub = stubFetch(pendingFetch);
   const timeoutError = await rejection(run(tool({ fetchImpl: timeoutStub.fetchImpl, timeoutMs: 10 }), { query: "q" }));
-  assert.equal(timeoutError.message, `${FIXED_DATE_LINE}\n${WEB_SEARCH_TIMEOUT_MESSAGE}`);
+  assert.equal(timeoutError.message, `${FIXED_DATE_LINE}\n${EXA_PROVIDER_LINE}\n${WEB_SEARCH_TIMEOUT_MESSAGE}`);
 
   const controller = new AbortController();
   const abortStub = stubFetch(pendingFetch);
   const pending = run(tool({ fetchImpl: abortStub.fetchImpl }), { query: "q" }, controller.signal);
   controller.abort();
   const abortError = await rejection(pending);
-  assert.equal(abortError.message, `${FIXED_DATE_LINE}\n${WEB_SEARCH_ABORTED_MESSAGE}`);
+  assert.equal(abortError.message, `${FIXED_DATE_LINE}\n${EXA_PROVIDER_LINE}\n${WEB_SEARCH_ABORTED_MESSAGE}`);
 });
 
 test("results が空配列なら正常系として日時行付きの『結果が見つかりませんでした』を返す", async () => {
   const stub = stubFetch(() => exaResults([]));
-  const expected = `${FIXED_DATE_LINE}\n${WEB_SEARCH_NO_RESULTS_MESSAGE}`;
+  const expected = `${FIXED_DATE_LINE}\n${EXA_PROVIDER_LINE}\n${WEB_SEARCH_NO_RESULTS_MESSAGE}`;
   assert.equal(await run(tool({ fetchImpl: stub.fetchImpl }), { query: "q" }), expected);
-  assert.equal(formatWebSearchResults([], createMutableSecretMasker([]), FIXED_NOW), expected);
+  assert.equal(formatWebSearchResults([], "Exa", createMutableSecretMasker([]), FIXED_NOW), expected);
 });
 
 test("秘密値は 1 件の切り詰めより先にマスクし、throw の文言もマスクする", async () => {
@@ -432,7 +477,8 @@ test("無効の間は検索せず固定文言で失敗し、ON に戻ると同�
   const definition = tool({ fetchImpl: stub.fetchImpl, readEnabled: () => enabled });
 
   const off = await rejection(run(definition, { query: "q" }));
-  assert.equal(off.message, WEB_SEARCH_DISABLED_MESSAGE, "設定由来の失敗には日時行を付けない");
+  assert.equal(off.message, WEB_SEARCH_DISABLED_MESSAGE, "設定由来の失敗には日時行も provider 行も付けない");
+  assert.ok(!off.message.includes("検索プロバイダー"), "provider を解決していないので行を出さない");
   assert.equal(stub.calls.length, 0, "無効の間は上流へ送らない");
 
   // 同じ定義 (= 既存セッションのツール) のまま ON へ戻すと動く
@@ -470,5 +516,6 @@ test("設定を読めないときは上流へ送らずに固定文言で失敗�
   );
   assert.ok(error.message.startsWith(`${FIXED_DATE_LINE}\n`), error.message);
   assert.ok(error.message.endsWith(WEB_SEARCH_SETTINGS_UNAVAILABLE_MESSAGE), error.message);
+  assert.ok(!error.message.includes("検索プロバイダー"), "provider を解決していないので行を出さない");
   assert.equal(stub.calls.length, 0);
 });
