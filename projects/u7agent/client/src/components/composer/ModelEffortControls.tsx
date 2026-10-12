@@ -165,7 +165,10 @@ export function ModelEffortPicker({
         popoverTargetAction="toggle"
         onClick={toggle}
         disabled={unavailable}
-        className={cn("composer-model-trigger", warn ? "text-warn" : open ? "text-accent-text" : "text-ink-faint")}
+        className={cn(
+          "composer-model-trigger hover:text-accent-text focus-visible:text-accent-text",
+          warn ? "text-warn" : open ? "text-accent-text" : "text-ink-faint",
+        )}
       >
         <span className="min-w-0 truncate">{label}</span>
         {settings.effortLabel ? <span className="shrink-0">{`- ${settings.effortLabel}`}</span> : null}
