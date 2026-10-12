@@ -26,6 +26,8 @@ export type MenuItemProps = {
   trailing?: ReactNode;
   /** 破壊的な操作の行。ホバーを待たず文字色で示す */
   danger?: boolean;
+  /** 押せない行。できない理由は `description` に出し、項目ごと隠さない */
+  disabled?: boolean;
   /** メニューの項目は "menuitem"、listbox の項目は "option" (移動は親の role が担うので tabIndex は -1 にする) */
   role?: "menuitem" | "option";
   tabIndex?: number;
@@ -41,6 +43,7 @@ const TONE = {
   "choice-active": "border border-accent/60 bg-accent-wash text-accent-text",
   idle: "text-ink hover:bg-hover",
   danger: "text-danger-text hover:bg-hover",
+  disabled: "cursor-not-allowed text-ink-faint",
 } as const;
 
 const ICON_TONE = {
@@ -51,6 +54,7 @@ const ICON_TONE = {
   "choice-active": "text-accent-text",
   idle: "text-ink-soft",
   danger: "text-danger-text",
+  disabled: "text-ink-ghost",
 } as const;
 
 /** 未選択の行のトーン。枠を持つ choice だけ idle と別にする */
@@ -69,19 +73,21 @@ export function MenuItem({
   current,
   trailing,
   danger = false,
+  disabled = false,
   role,
   tabIndex,
   ref,
   onClick,
 }: MenuItemProps) {
   const active = selected && variant !== "add";
-  const tone = active ? (`${variant}-active` as const) : danger ? "danger" : IDLE_TONE[variant];
+  const tone = disabled ? "disabled" : active ? (`${variant}-active` as const) : danger ? "danger" : IDLE_TONE[variant];
   return (
     <button
       type="button"
       ref={ref}
       role={role}
       tabIndex={tabIndex}
+      disabled={disabled}
       aria-current={role === "option" ? undefined : active ? current : undefined}
       aria-selected={role === "option" ? active : undefined}
       onClick={onClick}

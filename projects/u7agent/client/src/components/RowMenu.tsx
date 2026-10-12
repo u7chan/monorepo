@@ -29,6 +29,7 @@ import {
   PencilIcon,
   PinIcon,
   PlusIcon,
+  RunSpinnerIcon,
   TrashIcon,
 } from "./icons";
 
@@ -36,6 +37,8 @@ import {
 const ACTION_ICONS: Record<RowMenuActionKind, ReactNode> = {
   "copy-path": <CopyIcon />,
   download: <DownloadIcon small />,
+  diagnostics: <CopyIcon />,
+  "raw-log": <DownloadIcon small />,
   rename: <PencilIcon />,
   pin: <PinIcon />,
   move: <MoveIcon />,
@@ -66,6 +69,8 @@ export type RowMenuProps<K extends RowMenuActionKind> = {
   actions: readonly RowMenuAction<K>[];
   /** 直前の選択 (コピー) が成功した直後。選択で項目が消えるため、結果を ⋯ の位置に出す */
   copied?: boolean;
+  /** 選択の処理中 (fetch → コピーなど)。押した直後の無反応を作らず、二重起動も防ぐ */
+  busy?: boolean;
   onSelect: (kind: K) => void;
 };
 
@@ -75,7 +80,13 @@ export type RowMenuProps<K extends RowMenuActionKind> = {
  * 自前で閉じる経路 (項目の選択 / Tab での退出) だけ `hidePopover()` を通す。
  * 本体は常時 mount する (React の条件付き mount で出し入れすると標準の開閉と二重管理になる)。
  */
-export function RowMenu<K extends RowMenuActionKind>({ name, actions, copied = false, onSelect }: RowMenuProps<K>) {
+export function RowMenu<K extends RowMenuActionKind>({
+  name,
+  actions,
+  copied = false,
+  busy = false,
+  onSelect,
+}: RowMenuProps<K>) {
   const menuId = useId();
   const triggerId = `${menuId}-trigger`;
   const [open, setOpen] = useState(false);
@@ -144,7 +155,7 @@ export function RowMenu<K extends RowMenuActionKind>({ name, actions, copied = f
     }
     popover.showPopover();
     place();
-    itemsRef.current[0]?.focus();
+    itemsRef.current.find((item) => item !== null && !item.disabled)?.focus();
   };
 
   const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
@@ -156,7 +167,7 @@ export function RowMenu<K extends RowMenuActionKind>({ name, actions, copied = f
     if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
     // 既定動作 (メニュー外のスクロール) を止める
     event.preventDefault();
-    const items = itemsRef.current.filter((item): item is HTMLButtonElement => item !== null);
+    const items = itemsRef.current.filter((item): item is HTMLButtonElement => item !== null && !item.disabled);
     const current = items.findIndex((item) => item === document.activeElement);
     items[nextRowMenuIndex(current, items.length, event.key === "ArrowDown" ? "next" : "previous")]?.focus();
   };
@@ -191,8 +202,10 @@ export function RowMenu<K extends RowMenuActionKind>({ name, actions, copied = f
         id={triggerId}
         aria-haspopup="menu"
         aria-expanded={open}
-        aria-label={copied ? "コピーしました" : `${name} の操作`}
-        title={copied ? "コピーしました" : undefined}
+        aria-busy={busy ? true : undefined}
+        disabled={busy}
+        aria-label={busy ? "取得中" : copied ? "コピーしました" : `${name} の操作`}
+        title={busy ? "取得中" : copied ? "コピーしました" : undefined}
         popoverTarget={menuId}
         popoverTargetAction="toggle"
         onPointerDown={() => {
@@ -207,10 +220,14 @@ export function RowMenu<K extends RowMenuActionKind>({ name, actions, copied = f
         onClick={toggle}
         className={cn(
           "grid size-6 shrink-0 place-items-center rounded-md transition-colors",
-          copied ? "text-ok" : "text-ink-faint hover:bg-raised hover:text-ink",
+          busy
+            ? "cursor-progress text-ink-faint"
+            : copied
+              ? "text-ok"
+              : "text-ink-faint hover:bg-raised hover:text-ink",
         )}
       >
-        {copied ? <CheckIcon /> : <MoreIcon />}
+        {busy ? <RunSpinnerIcon tone="focus" /> : copied ? <CheckIcon /> : <MoreIcon />}
       </button>
       {/* popover の UA 既定 (fixed 以外に margin / border / padding / overflow を持つ) を打ち消してから
           テーマのトークンを当てる。位置は place() が left / top を直接書く */}
@@ -236,6 +253,7 @@ export function RowMenu<K extends RowMenuActionKind>({ name, actions, copied = f
             label={action.label}
             description={action.description}
             danger={action.danger}
+            disabled={action.disabled === true}
             onClick={() => {
               // 確認ダイアログ / prompt をメニューの背後に出さない (開いたままだと隠れる)
               closeBySelection();

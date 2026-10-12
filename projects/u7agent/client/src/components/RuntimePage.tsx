@@ -23,12 +23,13 @@ import {
   type RuntimeFetchState,
   type RuntimeReloadGate,
 } from "../lib/runtimeEnvironment";
-import type { Health, RuntimeEnvironmentResponse, RuntimeEnvironmentState } from "../types";
+import type { Health, RuntimeEnvironmentResponse, RuntimeEnvironmentState, SessionSummary } from "../types";
 import { CopyButton } from "./chat/CopyButton";
 import { ReloadButton } from "./ReloadButton";
 import { SettingsPageLayout, type SettingsPageProps } from "./SettingsPageLayout";
 import { useRuntimeServe } from "../hooks/useRuntimeServe";
 import { RuntimeServiceCard } from "./RuntimeServiceCard";
+import { SessionDiagnosticsCard } from "./SessionDiagnosticsCard";
 
 type RuntimePageProps = SettingsPageProps & {
   health: Health | null;
@@ -38,6 +39,10 @@ type RuntimePageProps = SettingsPageProps & {
    */
   onRefreshHealth: (isCurrent?: () => boolean) => Promise<Health | null>;
   onOpenSession?: (sessionId: string, spaceId?: string) => void;
+  /** セッション診断の対象候補 (最終使用の新しい順) */
+  sessions?: SessionSummary[];
+  /** このタブで開いている会話 (未選択は空文字) */
+  openSessionId?: string;
 };
 
 /**
@@ -47,6 +52,8 @@ export function RuntimePage({
   health,
   onRefreshHealth,
   onOpenSession,
+  sessions = [],
+  openSessionId = "",
   compact = false,
   onBack,
   onOpenNav,
@@ -102,7 +109,7 @@ export function RuntimePage({
             copied={copiedId === "diagnostic"}
             failure={copyFailure("diagnostic")}
             onClick={() => void copyMessage(diagnosticText, "diagnostic")}
-            label="診断情報をコピー"
+            label="接続情報をコピー"
           />
           <ReloadButton
             onClick={() => {
@@ -223,6 +230,8 @@ export function RuntimePage({
               </>
             )}
           </section>
+
+          <SessionDiagnosticsCard sessions={sessions} openSessionId={openSessionId} />
         </div>
       </div>
     </SettingsPageLayout>

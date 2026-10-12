@@ -6,6 +6,7 @@
 | --- | --- | --- |
 | デモ用スペース（会話専用・ブラウザー単位選択） | `server/src/spaces.ts`、`server/src/space-context.ts`、`server/src/space-delete.ts`、`server/src/app-paths.ts`、`client/src/SpacesApp.tsx`、`client/src/SpaceContext.ts` | [persistence.md](persistence.md#スペース)、[api.md](api.md#スペース)、[frontend.md](frontend.md#スペースの選択)、[ui-layout.md](ui-layout.md#スペース)、[testing.md](testing.md#スペースの受入) |
 | ランの送信 / キュー / 停止 / SSE | `server/src/routes/sessions.ts`、`server/src/sessions.ts`、`server/src/run-events.ts` | [run-lifecycle.md](run-lifecycle.md)、[api-sessions.md](api-sessions.md) |
+| 不具合の切り分け用の診断（クライアント状態 + サーバーのダンプ / 生ログ） | `server/src/diagnostics.ts`、`server/src/routes/sessions.ts`、`client/src/lib/diagnostics.ts`、`client/src/hooks/sessionStream.ts`、`client/src/hooks/useSessionDiagnostics.ts`、`client/src/components/SessionDiagnosticsCard.tsx`、`client/src/components/sidebar/SessionRow.tsx` | [diagnostics.md](diagnostics.md)、[api-sessions.md](api-sessions.md#get-apisessionsiddiagnostics) |
 | エージェントからユーザーへの質問カード（ask_user） | `server/src/ask-user-tool.ts`、`server/src/sessions.ts`、`client/src/lib/askUser.ts`、`client/src/components/chat/AskUserCard.tsx` | [ask-user.md](ask-user.md)、[api-sessions.md](api-sessions.md) |
 | 調査の子エージェントへの委譲（investigate） | `server/src/investigate-tool.ts`、`server/src/investigate-runner.ts`、`server/src/sessions.ts`、`server/src/agent.ts` | [subagent.md](subagent.md)、[api-sessions.md](api-sessions.md) |
 | セッションの状態 / 履歴 / compaction 表示 | `server/src/session-record.ts`、`server/src/session-projection.ts`、`server/src/history-projection.ts`、`server/src/compaction-view.ts`、`server/src/session-payload.ts`、`client/src/lib/chatHistory.ts`、`client/src/lib/chatItems.ts` | [run-lifecycle.md](run-lifecycle.md)、[compaction.md](compaction.md)、[api-sessions.md](api-sessions.md) |
@@ -41,6 +42,7 @@
 
 - [architecture.md](architecture.md) — 層構成・基本原則・責務の所在
 - [run-lifecycle.md](run-lifecycle.md) — ラン、イベントログ、SSE、セッションのライフサイクル
+- [diagnostics.md](diagnostics.md) — セッション診断（取れるもの・mask の範囲・上限と省略の見せ方・取れないもの）
 - [ask-user.md](ask-user.md) — エージェントからユーザーへの質問カード（ツール契約・待機のライフサイクル・UI・mask 規則・既知の制限）
 - [subagent.md](subagent.md) — 調査の子エージェントへの委譲（ツール契約・子の制約・打ち切り・並列・記録に残らないこと）
 - [projects.md](projects.md) — プロジェクトとセッションの作業ディレクトリ

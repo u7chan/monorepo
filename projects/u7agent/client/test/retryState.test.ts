@@ -6,6 +6,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { chatReducer, initialChatState } from "../src/hooks/chatReducer";
 import { applySessionEvent, type SessionStreamDeps } from "../src/hooks/sessionStream";
+import { createDiagnosticsRecorder } from "../src/lib/diagnostics";
 import { activityDisplay, retryActivityText, retryRemainingMs } from "../src/lib/retryState";
 import type { SessionPayload } from "../src/types";
 
@@ -272,6 +273,8 @@ test("routes run_retry SSE events to the reducer with the browser receipt time",
     applySnapshot: () => {},
     refreshSessions: async () => [],
     setRuntimeStatus: () => {},
+    diagnostics: createDiagnosticsRecorder(),
+    diagnosticsSession: "s-1",
   };
   applySessionEvent(
     {

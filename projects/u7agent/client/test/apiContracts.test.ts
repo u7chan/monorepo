@@ -78,6 +78,31 @@ test("変更系の503は not_stored だけを、保存されていない失敗�
   assert.equal(isNotStoredError(Object.assign(new Error("DB に接続できません"), { status: 503 })), false);
 });
 
+test("生ログは文字列化せず、原本のバイトをそのまま返す", async (t) => {
+  // BOM と不正 UTF-8 を含む壊れた JSONL (調査資料の再現)。text() 経由だと BOM が消え FF が置換される
+  const bytes = new Uint8Array([0xef, 0xbb, 0xbf, 0x7b, 0x22, 0xff, 0x22, 0x7d, 0x0a]);
+  t.mock.method(globalThis, "fetch", async (input: string | URL | Request) => {
+    const request = new Request(input);
+    assert.equal(request.method, "GET");
+    assert.equal(new URL(request.url).pathname, "/api/sessions/session-a/raw");
+    assert.equal(new URL(request.url).search, "?spaceId=default");
+    return new Response(bytes);
+  });
+  const blob = await createSpaceApi("default").getSessionRawLog("session-a");
+  assert.equal(blob.size, bytes.length);
+  assert.deepEqual(new Uint8Array(await blob.arrayBuffer()), bytes);
+});
+
+test("生ログの失敗はサーバーの理由と HTTP status を保つ", async (t) => {
+  t.mock.method(globalThis, "fetch", async () =>
+    Response.json({ error: "この会話の記録は保存されていないため、生ログは取れません。" }, { status: 404 }),
+  );
+  await assert.rejects(createSpaceApi("default").getSessionRawLog("missing"), {
+    message: "この会話の記録は保存されていないため、生ログは取れません。",
+    status: 404,
+  });
+});
+
 test("履歴 API は初回にカーソルを送らず、取得したページを返す", async (t) => {
   const fetch = t.mock.method(globalThis, "fetch", async (input: string | URL | Request) => {
     const request = new Request(input);

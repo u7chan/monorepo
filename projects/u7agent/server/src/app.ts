@@ -317,6 +317,10 @@ export async function createBffApp(opts: CreateBffAppOptions = {}) {
     .get("/api/sessions/:id", appData, sessionRoutes.get)
     // 全履歴のカーソルページ。`:id` より深いパスのため順序に依存しないが、:id の近くに置く
     .get("/api/sessions/:id/history", appData, sessionRoutes.history)
+    // 切り分け用のダンプ。SDK に触れず、mask 済みのイベントと状態の要約を返す
+    .get("/api/sessions/:id/diagnostics", appData, sessionRoutes.diagnostics)
+    // 生ログ (session.jsonl。mask 前) のダウンロード。履歴を持たない会話は 404
+    .get("/api/sessions/:id/raw", appData, sessionRoutes.rawLog)
     .delete("/api/sessions/:id", sessionRoutes.remove)
     .post("/api/sessions/:id/stop", sessionRoutes.stop)
     .post("/api/sessions/:id/abort", sessionRoutes.stop)

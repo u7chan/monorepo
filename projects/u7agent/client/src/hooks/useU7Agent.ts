@@ -24,6 +24,7 @@ import { useProjects } from "./useProjects";
 import { useRuntimeCatalog } from "./useRuntimeCatalog";
 import { useServeStatus } from "./useServeStatus";
 import { useSessionSkills } from "./useSessionSkills";
+import { useSessionDiagnostics } from "./useSessionDiagnostics";
 import { useSessions, type PendingEntry } from "./useSessions";
 
 /** 実装は ../lib/composerSettings。既存の import 先を保つ互換 export */
@@ -118,6 +119,8 @@ export function useU7Agent({ pendingSessionId }: UseU7AgentOptions = {}) {
     sessionsLoaded,
     sessionId,
     sessionIdRef,
+    /** SSE の受信記録 (診断のスナップショットが読む) */
+    eventLog,
     selectionSeqRef,
     sessionOpsRef,
     snapshotSeqRef,
@@ -255,6 +258,10 @@ export function useU7Agent({ pendingSessionId }: UseU7AgentOptions = {}) {
     if (!gapCursor) return;
     void fillHistoryGap(gapCursor);
   }, [gapCursor, fillHistoryGap]);
+
+  // 切り分け用のダンプ (このタブの状態 + サーバーの記録)。入口は会話行の ⋯ と 設定 → ランタイム、
+  // および window.u7agentDebug (ui を増やさない)。ここで 1 つだけ作って文脈で配る
+  const diagnostics = useSessionDiagnostics({ chat, openSessionId: sessionId, recorder: eventLog });
 
   const sendMessage = useCallback(
     async (text: string, options: SendMessageOptions = {}): Promise<void> => {
@@ -462,6 +469,8 @@ export function useU7Agent({ pendingSessionId }: UseU7AgentOptions = {}) {
   return {
     chat,
     dispatch,
+    /** 診断情報の操作 (コピー / 生ログ / window.u7agentDebug)。設定 → ランタイムと会話行が使う */
+    diagnostics,
     health,
     catalog,
     agents,

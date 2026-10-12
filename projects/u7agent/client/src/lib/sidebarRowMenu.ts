@@ -4,6 +4,15 @@
  * 折りたたみ (行のボタン) と通知のベルは行に残すので、ここには出さない。
  */
 import type { ConfirmRequest, PromptRequest } from "./confirmDialog";
+import {
+  DIAGNOSTICS_COPY_DESCRIPTION,
+  DIAGNOSTICS_COPY_LABEL,
+  DIAGNOSTICS_COPY_SERVER_ONLY,
+  RAW_LOG_DESCRIPTION,
+  RAW_LOG_LABEL,
+  RAW_LOG_MISSING,
+  RAW_LOG_NOTICE,
+} from "./diagnostics";
 import type { RowMenuAction } from "./rowMenu";
 
 /** プロジェクト行の ⋯ の種別 (開閉は行のボタン、通知はベルが持つ) */
@@ -18,20 +27,55 @@ export function projectRowActions(): RowMenuAction<ProjectRowKind>[] {
 }
 
 /** セッション行の ⋯ の種別 (通知のベルとピンは状態の印として行にも残す) */
-export type SessionRowKind = "pin" | "rename" | "move" | "delete";
+export type SessionRowKind = "pin" | "rename" | "move" | "diagnostics" | "raw-log" | "delete";
+
+/** セッション行の ⋯ の出し分けに使う状態。省略は「ピン無し / 引っ越し不可 / 開いていない / 生ログ無し」 */
+export type SessionRowMenuOptions = {
+  pinned?: boolean;
+  /** 別のスペースへ引っ越せるか (プロジェクト所属の会話では出さない) */
+  canMove?: boolean;
+  /** このタブで開いている会話か (診断の説明行を切り替える) */
+  open?: boolean;
+  /** 生ログ (session.jsonl) が保存されているか */
+  hasRawLog?: boolean;
+};
 
 /**
  * ピンの切替を先頭に置き、リネームは削除の手前に残す。引っ越しはプロジェクト所属の会話では
  * 選べない (移動先の候補はあるが、サーバーが 400 にする) ので、`canMove` のときだけ出す。
+ * 診断は全行に出す (クライアント状態が付くかは説明行で示す)。
  */
-export function sessionRowActions(pinned = false, canMove = false): RowMenuAction<SessionRowKind>[] {
+export function sessionRowActions(options: SessionRowMenuOptions = {}): RowMenuAction<SessionRowKind>[] {
+  const { pinned = false, canMove = false, open = false, hasRawLog = false } = options;
   const move: RowMenuAction<SessionRowKind>[] = canMove ? [{ kind: "move", label: "別の会話スペースへ引っ越す" }] : [];
   return [
     { kind: "pin", label: pinned ? "ピン留めを解除" : "ピン留め" },
     { kind: "rename", label: "名前を変更" },
     ...move,
+    {
+      kind: "diagnostics",
+      label: DIAGNOSTICS_COPY_LABEL,
+      description: open ? DIAGNOSTICS_COPY_DESCRIPTION : DIAGNOSTICS_COPY_SERVER_ONLY,
+    },
+    {
+      kind: "raw-log",
+      label: RAW_LOG_LABEL,
+      description: hasRawLog ? RAW_LOG_DESCRIPTION : RAW_LOG_MISSING,
+      disabled: !hasRawLog,
+    },
     { kind: "delete", label: "セッションを削除", danger: true },
   ];
+}
+
+/** 生ログの確認。開示のリスクは伝えるが、壊す操作ではないので danger トーンにしない */
+export function rawLogConfirmRequest(title: string): ConfirmRequest {
+  return {
+    kind: "confirm",
+    title: RAW_LOG_LABEL,
+    ...(title ? { subject: { label: "対象の会話", value: title } } : {}),
+    body: [RAW_LOG_NOTICE],
+    confirmLabel: "ダウンロードする",
+  };
 }
 
 /**

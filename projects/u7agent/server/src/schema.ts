@@ -481,6 +481,8 @@ export const SessionSummarySchema = z.object({
   pinned: z.boolean(),
   /** 別のスペースへ引っ越せるか。旧サーバーは載せないため省略可 (省略 = false) */
   canMove: z.boolean().optional(),
+  /** 生ログ (`session.jsonl`) をダウンロードできるか。旧サーバーは載せないため省略可 (省略 = false) */
+  hasRawLog: z.boolean().optional(),
   messageCount: z.number(),
   createdAt: z.number(),
   lastUsedAt: z.number(),
@@ -1532,6 +1534,105 @@ type EventEntryFor<T extends SSEEventType> = {
 export type EventEntry = {
   [T in SSEEventType]: EventEntryFor<T>;
 }[SSEEventType];
+
+// ---------------------------------------------------------------------------
+// セッション診断 (GET /api/sessions/:id/diagnostics。docs/diagnostics.md)
+// ---------------------------------------------------------------------------
+
+/** diagnostics の items が持つ種別。SSE の型と 1:1 で、イベントを足すとこの enum も型で要求される */
+const SSEEventTypeSchema = z.enum(Object.keys(EventDataSchemas) as [SSEEventType, ...SSEEventType[]]);
+
+/**
+ * 1 件のイベント。`data` は mask 済みの値をそのまま載せ、上限を超えた分だけ切り詰める (そのときは
+ * `truncated` を立て、元の schema を満たさない可能性がある)。
+ */
+export const DiagnosticsEventSchema = z.object({
+  seq: z.number(),
+  type: SSEEventTypeSchema,
+  /** サーバーが発行した時刻 (epoch ms) */
+  at: z.number(),
+  /** `data` の JSON バイト数 (切り詰め前) */
+  bytes: z.number(),
+  data: z.unknown(),
+  /** `data` を上限へ切り詰めた */
+  truncated: z.literal(true).optional(),
+});
+export type DiagnosticsEvent = z.infer<typeof DiagnosticsEventSchema>;
+
+/**
+ * `GET /api/sessions/:id/diagnostics` の応答。不具合の切り分け用に、サーバー側の観測を 1 回ぶんまとめる。
+ * 本文 (メッセージ / 質問 / 回答) は載せず、件数と mask 済みの要約だけを持つ。上限で落とした件数は
+ * `events.dropped` に残し、無言で切り詰めない。会話タイトルも本文の先頭を含み得るため載せない。
+ */
+export const SessionDiagnosticsSchema = z.object({
+  kind: z.literal("u7agent-session-diagnostics"),
+  version: z.literal(1),
+  sessionId: z.string(),
+  /** 採取時刻 (epoch ms) */
+  capturedAt: z.number(),
+  /** SSE の世代。client 側の lastCursor.generation と突き合わせる */
+  eventGeneration: z.string(),
+  /** この時点で最後に発行した seq */
+  lastSeq: z.number(),
+  status: RunStatusSchema,
+  meta: z.object({
+    spaceId: z.string(),
+    agentId: z.string(),
+    agentName: z.string().optional(),
+    projectId: z.string().optional(),
+    projectName: z.string().optional(),
+    /** 作業ディレクトリ (workspace root 相対) */
+    workdir: z.string(),
+    createdAt: z.number(),
+    lastUsedAt: z.number(),
+    messageCount: z.number(),
+    model: z.string().optional(),
+    /** 実効 thinkingLevel。SDK が補正した値なので、定義上の列挙より広い文字列で返す (payload と同じ) */
+    thinkingLevel: z.string().optional(),
+    notify: z.boolean(),
+    pinned: z.boolean(),
+    /** 直近の保存失敗 (meta / JSONL 共通)。成功していれば省略 */
+    persistError: z.string().optional(),
+    /** 直近の送信対応記録の保存失敗 */
+    sendsError: z.string().optional(),
+    /** 送信対応記録がディスクと食い違ったまま (書込みの再試行待ち) */
+    sendsDirty: z.boolean(),
+  }),
+  /** 待機中の送信。本文は載せず、件数と run id だけを持つ */
+  queue: z.object({ depth: z.number(), runIds: z.array(z.string()) }),
+  run: z
+    .object({
+      id: z.string(),
+      status: RunStatusSchema,
+      startedAt: z.number(),
+      endedAt: z.number().optional(),
+      /** ラン中の自動再試行のスケジュール累計 */
+      totalRetryCount: z.number(),
+      retry: RunRetryStateSchema.optional(),
+      errorCode: RunErrorCodeSchema.optional(),
+      error: z.string().optional(),
+    })
+    .nullable(),
+  /** ask_user の待機 / 回答済み (toolCallId と件数だけ。質問文と回答本文は載せない) */
+  questions: z.array(z.object({ toolCallId: z.string(), questionCount: z.number(), settled: z.boolean() })),
+  events: z.object({
+    /** 件数の上限 (これより古い分は返さない) */
+    limit: z.number(),
+    /** 応答全体のバイト上限 */
+    maxBytes: z.number(),
+    /** リングバッファに残っている件数 */
+    available: z.number(),
+    /** 古い→新しい順のイベント */
+    items: z.array(DiagnosticsEventSchema),
+    /** 件数とバイトの上限で落とした件数 */
+    dropped: z.number(),
+    /** `data` を切り詰めたイベントの件数 */
+    truncated: z.number(),
+  }),
+  /** 生ログ (`session.jsonl`) の有無。無いときは UI がダウンロードを押せないようにする */
+  raw: z.object({ available: z.boolean(), bytes: z.number().optional() }),
+});
+export type SessionDiagnostics = z.infer<typeof SessionDiagnosticsSchema>;
 
 /**
  * GET / PUT /api/settings/web-search。`web_search` の有効 / 無効と既定 provider を持つ。

@@ -24,6 +24,7 @@
       "queueDepth": 0,
       "pinned": false,
       "canMove": true,
+      "hasRawLog": true,
       "messageCount": 4,
       "createdAt": 1700000000000,
       "lastUsedAt": 1700000001000,
@@ -34,7 +35,7 @@
 }
 ```
 
-`pinned` はサイドバーで固定するかを示す（常に boolean）。`canMove` は別のスペースへ引っ越せるか（現在は `projectCwd` を持たないこと。省略は false として扱う）。移動の導線はこれだけを見て、プロジェクト所属のセッションに項目を出さない。`projectId` は所属プロジェクト（未所属はキーを省略する）。所属は保存された `projectCwd` をプロジェクト一覧と突き合わせて読み取り時に解決するため、プロジェクトを解除すると配下セッションは未所属として返る（セッションと履歴・ピン状態は残る）。復元したセッションも同じ規則で解決する。
+`pinned` はサイドバーで固定するかを示す（常に boolean）。`canMove` は別のスペースへ引っ越せるか（現在は `projectCwd` を持たないこと。省略は false として扱う）。移動の導線はこれだけを見て、プロジェクト所属のセッションに項目を出さない。`hasRawLog` は生ログ（`session.jsonl`）がディスクにあるか（省略 = false）。会話行の「生ログをダウンロード」はこれが true のときだけ押せ、false では理由を説明行に出す（[diagnostics.md](diagnostics.md#取れないもの)）。`projectId` は所属プロジェクト（未所属はキーを省略する）。所属は保存された `projectCwd` をプロジェクト一覧と突き合わせて読み取り時に解決するため、プロジェクトを解除すると配下セッションは未所属として返る（セッションと履歴・ピン状態は残る）。復元したセッションも同じ規則で解決する。
 
 `messageCount` は表示メッセージ数（`user` と、テキストを持つ `assistant`。ツール呼び出しだけのターンは数えない）で、履歴の生件数ではない。未ロードのセッションは保存された `meta.json` の値、ロード済みは現在の履歴から数えた値を返す（ずれの扱いは [session-files.md](session-files.md)）。
 
@@ -528,6 +529,42 @@ SSE（`text/event-stream`）でイベントを購読。カーソルは `Last-Eve
 - `run_end.error` / `payload.run.error` / `resync` のエラーは、共通の分類（恒久的な利用枠 → 認証 → コンテキスト超過 → `rate_limit` → `unknown`）を通した定型日本語だけを配る。プロバイダーの生エラー（組織ID・APIキーを含み得る）は公開経路へ出さない。最終失敗の文言には再試行のスケジュール累計と原因別の操作案内を含める。
 - `run_end.errorCode` / `payload.run.errorCode` は同じ分類コードで、`status === "error"` のときだけ載る（停止要求と例外が同時に起きたときは `stopped` を正とする）。分類コードは `run.error` の再実装ではなく、クライアントが再実行カードを出すかの判断にだけ使う。
 - 分類・文言の定義と SDK イベントの対応は [run-lifecycle.md](run-lifecycle.md#自動再試行sdk-の-retry) / [run-lifecycle.md](run-lifecycle.md#失敗の分類と公開契約) を正とする。
+
+## `GET /api/sessions/:id/diagnostics`
+
+切り分け用のダンプ。状態の要約と、mask 済みの直近イベント（上限つき）を返す（設計と限界は [diagnostics.md](diagnostics.md)）。履歴を保存していない会話でも取れる（生ログの有無は `raw` で示す）。**本文（メッセージ / 質問 / 回答）は載せない。** イベントの `data` は mask 済みの値（`[REDACTED]`）を種別ごとの要約（プロンプトは `promptChars`、差分は `chars`、質問 / 回答は件数と `skipped`、ツール出力は `outputChars`、compaction は `summaryChars`、`resync` は件数と相関キー）へ落としてから載せる。会話タイトルは本文の先頭を含み得るため載せない。未知の id は 404。
+
+```json
+{
+  "kind": "u7agent-session-diagnostics",
+  "version": 1,
+  "sessionId": "…",
+  "capturedAt": 1700000000000,
+  "eventGeneration": "a1b2c3d4",
+  "lastSeq": 42,
+  "status": "running",
+  "meta": { "spaceId": "default", "agentId": "…", "workdir": "…", "createdAt": 0, "lastUsedAt": 0, "messageCount": 2, "notify": false, "pinned": false, "sendsDirty": false },
+  "queue": { "depth": 1, "runIds": ["…"] },
+  "run": { "id": "…", "status": "running", "startedAt": 1700000000000, "totalRetryCount": 0 },
+  "questions": [{ "toolCallId": "…", "questionCount": 4, "settled": false }],
+  "events": { "limit": 500, "maxBytes": 524288, "available": 120, "items": [], "dropped": 0, "truncated": 0 },
+  "raw": { "available": true, "bytes": 12345 }
+}
+```
+
+- `meta` はエージェント / 作業ディレクトリと **直近の保存失敗**（`persistError` / `sendsError` / `sendsDirty`）だけを載せ、`promptSnapshot` などの大きい値は載せない。エージェント名とエラー文言は mask 後の値
+- `queue.runIds` / `questions` は本文を持たない（質問文と回答本文、待機メッセージの本文は入らない）
+- `events.items` は古い→新しい順の直近分。`data` は emit 時に mask 済みの値を `server/src/diagnostics.ts` の `summarizeEventData` で本文なしの要約にしたもので、ツール出力は既存の要約（`server/src/session-projection.ts` の `toolResultSummary`）の文字数まで、全文は載らない。件数（`limit`）とバイト（`maxBytes`）の上限で落とした件数は `events.dropped`、`data` を切り詰めた件数は `events.truncated` に残す（`truncated` が立つイベントの `data` は元の schema を満たさないことがある）。`available` はリングバッファに残っている件数
+- 未ロードの会話（再起動後など）は **SDK を復元せず**、保存済み `meta.json` の値だけを返す（`eventGeneration` は空文字、`seq` は 0、`events.available` は 0、`status` は `idle`）。復元自体が失敗する壊れた JSONL でも診断を取れるようにするため
+- `run` は最後の run（終了後も `status` が残る）。実行中の自動再試行があれば `retry` を載せる
+- `raw` は `session.jsonl` の有無とバイト数。`false` のときは UI がダウンロードを押せなくする
+
+## `GET /api/sessions/:id/raw`
+
+`session.jsonl`（pi SDK 形式。**mask 前**の値を含む）を `Content-Disposition: attachment` で返す。1 操作 1 ファイルで、保存名は `u7agent-raw-<id8>-<yyyymmdd-hhmm>.jsonl`。サイズ上限は既存のセッションファイルの扱いと同じく設けず（ストリームで返す）、`Cache-Control: no-store` と `nosniff` を付ける。未ロードの会話でも **SDK を復元せずに**返す（壊れた JSONL を取るための経路なので、読み込みで失敗させない）。
+
+- 未知の id と、履歴を保存していない / 破棄済みの会話は 404（`この会話の記録は保存されていないため、生ログは取れません。`）
+- 開示の確認は UI が取る（毎回の確認ダイアログ + 常設の注意書き）。`meta.json` / `sends.json` は同梱しない
 
 ## `POST /api/sessions/:id/compact`
 
