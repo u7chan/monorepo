@@ -1,8 +1,13 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import type { ArchiveSettings } from "../hooks/useArchiveSettings";
+import { cn } from "../lib/cn";
 import { FILE_TREE_ROOT, normalizeFileTreeRoot } from "../lib/fileTree";
+import { DEFAULT_FILES_SUBSECTION, FILES_SUBSECTIONS, type FilesSubsection } from "../lib/settingsNav";
+import { ArchiveExcludeSettings } from "./ArchiveExcludeSettings";
 import { FileBrowser } from "./FileBrowser";
-import { SettingsPageLayout, type SettingsPageProps } from "./SettingsPageLayout";
+import { CheckIcon } from "./icons";
 import { ReloadButton } from "./ReloadButton";
+import { SettingsPageLayout, type SettingsPageProps } from "./SettingsPageLayout";
 
 export type FileTreePageProps = SettingsPageProps & {
   /** ワークスペース root 相対 ("" や絶対パスは root へ畳まれる) */
@@ -11,17 +16,28 @@ export type FileTreePageProps = SettingsPageProps & {
   excludeNames: readonly string[];
   /** プレビュー オリジンのブラウザから見たポート (health)。未取得は undefined */
   filePreviewPort?: number;
+  /** 「ダウンロードの除外」タブの中身。下書き / 保存の状態は facade が持つ */
+  archiveSettings: ArchiveSettings;
+  /** URL が決めるタブ。既定はファイルツリー (lib/settingsNav.ts) */
+  filesSubsection?: FilesSubsection;
+  onSelectFilesSubsection: (subsection: FilesSubsection) => void;
 };
 
 /**
  * 設定 → ファイル。root は選択中セッション / プロジェクトに追随させず、常にワークスペース root (`cwd=""`) に
  * 固定する (同じ画面が選択状態で別の場所を指すと、今どこを見ているか分からなくなる)。ツリーとプレビューの本体は
  * `FileBrowser` で、チャットの右パネル (`SessionFilesPanel`) と共有する。ヘッダは画面幅いっぱいに使う。
+ *
+ * ダウンロードの除外はツリーの行のダウンロード導線と対になる設定なので、独立したセクションにせず、同じ画面の
+ * タブ (`/settings/files/archive`) に置く (hook / API が別でも対象は同じ。lib/settingsNav.ts のタブの規則)。
  */
 export function FileTreePage({
   cwd,
   excludeNames,
   filePreviewPort,
+  archiveSettings,
+  filesSubsection = DEFAULT_FILES_SUBSECTION,
+  onSelectFilesSubsection,
   singleColumn = false,
   onBack,
   onOpenNav,
@@ -29,29 +45,96 @@ export function FileTreePage({
   // root が固定なので key は不要 (root が変わる画面は呼び出し側で FileBrowser を張り替える)
   const rootPath = normalizeFileTreeRoot(cwd);
   const [reloadToken, setReloadToken] = useState(0);
+  const archive = filesSubsection === "archive";
+  const { settings, dirty, saving, note, save, reset, discard } = archiveSettings;
+  const activeTabRef = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    if (singleColumn) activeTabRef.current?.scrollIntoView({ block: "nearest", inline: "nearest" });
+  }, [singleColumn, filesSubsection]);
 
   return (
     <SettingsPageLayout
-      eyebrow="WORKSPACE"
-      title="ワークスペース"
+      eyebrow="FILES"
+      title="ファイル"
       // 表示も root 相対に揃える。ワークスペース root は "/" で示す (tree の起点と一致させる)
       caption={
-        <code className="block truncate text-1xs leading-normal text-ink-muted">
-          {rootPath === FILE_TREE_ROOT ? "/" : rootPath}
-        </code>
+        archive ? (
+          "ファイルツリーのダウンロード（フォルダは ZIP）から落とす名前を決めます。"
+        ) : (
+          <code className="block truncate text-1xs leading-normal text-ink-muted">
+            {rootPath === FILE_TREE_ROOT ? "/" : rootPath}
+          </code>
+        )
       }
+      // 操作はタブごとに変える (ツリーは今の一覧の取り直し、除外は下書きの保存)
+      actions={
+        archive ? (
+          <>
+            <button type="button" className="btn-quiet" disabled={!dirty || saving} onClick={discard}>
+              破棄
+            </button>
+            <button
+              type="button"
+              className="btn-quiet"
+              disabled={!settings?.overridden || saving}
+              onClick={() => void reset()}
+            >
+              既定に戻す
+            </button>
+            <button type="button" className="btn-primary" disabled={!dirty || saving} onClick={() => void save()}>
+              <CheckIcon />
+              保存
+            </button>
+          </>
+        ) : (
+          <ReloadButton onClick={() => setReloadToken((token) => token + 1)}>再読み込み</ReloadButton>
+        )
+      }
+      tabs={
+        <div
+          role="tablist"
+          aria-label="ファイルの設定"
+          className={cn(
+            "flex min-w-0 shrink-0 gap-1 overflow-x-auto border-b border-line",
+            singleColumn ? "px-2" : "px-4",
+          )}
+        >
+          {FILES_SUBSECTIONS.map((item) => (
+            <button
+              key={item.subsection}
+              ref={filesSubsection === item.subsection ? activeTabRef : undefined}
+              type="button"
+              role="tab"
+              aria-selected={filesSubsection === item.subsection}
+              onClick={() => onSelectFilesSubsection(item.subsection)}
+              className={cn(
+                "tab-item shrink-0 whitespace-nowrap",
+                singleColumn && "px-1.5",
+                filesSubsection === item.subsection && "tab-item-active",
+              )}
+            >
+              {item.label}
+            </button>
+          ))}
+        </div>
+      }
+      // 除外タブの読み込み / 保存の注記。ツリーは行にエラーを出すため note を持たない
+      note={archive ? note : undefined}
       singleColumn={singleColumn}
       onOpenNav={onOpenNav}
       onBack={onBack}
-      actions={<ReloadButton onClick={() => setReloadToken((token) => token + 1)}>再読み込み</ReloadButton>}
     >
-      <FileBrowser
-        root={rootPath}
-        reloadToken={reloadToken}
-        canRename
-        excludeNames={excludeNames}
-        filePreviewPort={filePreviewPort}
-      />
+      {archive ? (
+        <ArchiveExcludeSettings archiveSettings={archiveSettings} />
+      ) : (
+        <FileBrowser
+          root={rootPath}
+          reloadToken={reloadToken}
+          canRename
+          excludeNames={excludeNames}
+          filePreviewPort={filePreviewPort}
+        />
+      )}
     </SettingsPageLayout>
   );
 }

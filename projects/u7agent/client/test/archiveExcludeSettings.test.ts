@@ -1,3 +1,5 @@
+// 「ダウンロードの除外」タブの中身（設定 → ファイル）。未設定・上書き・明示空・読み込み中・失敗（SSR）。
+// ヘッダ / タブ / 保存の可否は filesSettingsPage.test.ts、HTTP は apiContracts で検査する。
 import assert from "node:assert/strict";
 
 import { createElement } from "react";
@@ -6,7 +8,7 @@ import test from "node:test";
 import type { ArchiveSettings } from "../src/hooks/useArchiveSettings";
 import type { ArchiveSettingsResponse } from "../src/types";
 
-const { ArchiveSettingsPage } = await import("../src/components/ArchiveSettingsPage");
+const { ArchiveExcludeSettings } = await import("../src/components/ArchiveExcludeSettings");
 
 const DEFAULTS = ["node_modules", ".venv", "dist"];
 
@@ -39,24 +41,11 @@ function fakeSettings(overrides: Partial<ArchiveSettings> = {}): ArchiveSettings
 }
 
 function render(props: Partial<ArchiveSettings> = {}): string {
-  return renderToStaticMarkup(
-    createElement(ArchiveSettingsPage, { archiveSettings: fakeSettings(props), onBack: () => {} }),
-  );
-}
-
-/** 操作行の [保存] ボタンの開始タグ（disabled の有無を見るため） */
-function saveButtonTag(html: string): string {
-  const button = html
-    .match(/<button[^>]*>[\s\S]*?<\/button>/g)
-    ?.find((markup) => markup.replace(/<[^>]*>/g, "").trim() === "保存");
-  assert.ok(button, "保存ボタンが無い");
-  return button.slice(0, button.indexOf(">") + 1);
+  return renderToStaticMarkup(createElement(ArchiveExcludeSettings, { archiveSettings: fakeSettings(props) }));
 }
 
 test("描画: 未設定は既定の一覧を使用中として出し、行と件数を並べる", () => {
   const html = render();
-  assert.ok(html.includes("DOWNLOADS"), "eyebrow が無い");
-  assert.ok(html.includes("ダウンロードの除外"), "タイトルが無い");
   assert.ok(html.includes("既定の一覧を使用中"), "未設定のバッジが無い");
   assert.ok(html.includes("3 / 100"), "件数が出ていない");
   for (const name of DEFAULTS) assert.ok(html.includes(name), `既定の名前が出ていない: ${name}`);
@@ -69,11 +58,9 @@ test("描画: 未設定は既定の一覧を使用中として出し、行と件
   assert.ok(html.includes("（<code>/</code>を含まない）"), "スラッシュが code で描かれていない");
   assert.ok(!html.includes("`"), "バッククォートが文字として描画されている");
   assert.ok(!html.includes("除外なし。"), "空でないのに空の警告が出ている");
-  // 差分が無いので保存できない。既定に戻す対象も無い
-  assert.ok(saveButtonTag(html).includes("disabled"), "未編集でも保存できる");
 });
 
-test("描画: 上書き中はバッジが変わり、差分があると保存できる", () => {
+test("描画: 上書き中はバッジが変わり、保存済みの一覧を出す", () => {
   const html = render({
     settings: settings({ excludeNames: ["dist", "vendor"], overridden: true }),
     draft: { excludeNames: ["dist", "vendor"] },
@@ -81,9 +68,6 @@ test("描画: 上書き中はバッジが変わり、差分があると保存で
   assert.ok(html.includes("上書き中"), "上書きのバッジが無い");
   assert.ok(html.includes("dist"), "保存済みの名前が出ていない");
   assert.ok(!html.includes("既定の一覧を使用中"), "未設定のバッジが残っている");
-
-  const dirty = render({ draft: { excludeNames: [...DEFAULTS, "vendor"] }, dirty: true });
-  assert.ok(!saveButtonTag(dirty).includes("disabled"), "差分があるのに保存できない");
 });
 
 test("描画: 明示空は node_modules も入る警告を出す", () => {
@@ -103,14 +87,12 @@ test("描画: 明示空は node_modules も入る警告を出す", () => {
   assert.ok(html.includes("0 / 100"), "件数が出ていない");
 });
 
-test("描画: note のエラーは aria-live の行にそのまま出る", () => {
-  const html = render({ note: { text: "除外名に使えない名前があります: a/b", error: true } });
-  assert.ok(html.includes('aria-live="polite"'), "note の行が無い");
-  assert.ok(html.includes("除外名に使えない名前があります: a/b"), "理由が出ていない");
-
-  // 読み込み中 / 読み込み失敗は一覧を出さず、再読み込みの導線を出す
+test("描画: 読み込み中は待ち表示、失敗は再読み込みの導線を出す", () => {
   const loading = render({ settings: null });
   assert.ok(loading.includes("読み込んでいます"), "読み込み中の表示が無い");
   const failed = render({ settings: null, note: { text: "読み込めませんでした", error: true } });
   assert.ok(failed.includes("読み込めませんでした") && failed.includes("再読み込み"), "再読み込みの導線が無い");
+  // note の本文 (失敗理由) はタブ側 (FileTreePage) の aria-live 行だけが出す
+  const withNote = render({ note: { text: "除外名に使えない名前があります: a/b", error: true } });
+  assert.ok(!withNote.includes("a/b"), "本文側に note の理由を二重に出している");
 });
