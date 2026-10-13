@@ -1,23 +1,25 @@
-import { useState } from "react";
 import type { ArchiveSettings } from "../hooks/useArchiveSettings";
 import { CollapsibleNotice } from "./CollapsibleNotice";
 import { PlusIcon, TrashIcon } from "./icons";
 import { ReloadButton } from "./ReloadButton";
 
 export type ArchiveExcludeSettingsProps = {
-  /** 除外名の state と操作。操作は下書きで、[保存] で一覧を丸ごと PUT する（[既定に戻す] は行を消す DELETE） */
+  /** 除外名の state と操作。追加済みの下書きは facade が持つ */
   archiveSettings: ArchiveSettings;
+  /** 追加前の入力。本文はタブ切替で unmount されるため、親 (FileTreePage) が持つ */
+  input: string;
+  onInputChange: (value: string) => void;
+  onSubmit: () => void;
 };
 
-/** 設定 → ファイル「ダウンロードの除外」タブの中身。ヘッダと操作行は `FileTreePage` が持つ */
-export function ArchiveExcludeSettings({ archiveSettings }: ArchiveExcludeSettingsProps) {
-  const { settings, draft, note, add, remove, reload } = archiveSettings;
-  const [input, setInput] = useState("");
-
-  const submit = () => {
-    // 追加できなかったときは入力を残す（上限や重複の理由をその場で直せるように）
-    if (add(input)) setInput("");
-  };
+/** 設定 → ファイル「ダウンロードの除外」タブの中身。ヘッダと操作行、下書き以外の入力 state は `FileTreePage` が持つ */
+export function ArchiveExcludeSettings({
+  archiveSettings,
+  input,
+  onInputChange,
+  onSubmit,
+}: ArchiveExcludeSettingsProps) {
+  const { settings, draft, note, remove, reload } = archiveSettings;
 
   return (
     <div className="min-h-0 min-w-0 scrollbar-thin overflow-x-hidden overflow-y-auto px-4 py-4">
@@ -55,7 +57,7 @@ export function ArchiveExcludeSettings({ archiveSettings }: ArchiveExcludeSettin
                 className="flex flex-wrap items-center gap-2"
                 onSubmit={(event) => {
                   event.preventDefault();
-                  submit();
+                  onSubmit();
                 }}
               >
                 <input
@@ -66,7 +68,7 @@ export function ArchiveExcludeSettings({ archiveSettings }: ArchiveExcludeSettin
                   aria-label="除外する名前"
                   autoComplete="off"
                   spellCheck={false}
-                  onChange={(event) => setInput(event.currentTarget.value)}
+                  onChange={(event) => onInputChange(event.currentTarget.value)}
                 />
                 <button type="submit" className="btn-quiet">
                   <PlusIcon />

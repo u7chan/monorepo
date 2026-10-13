@@ -40,9 +40,21 @@ function fakeSettings(overrides: Partial<ArchiveSettings> = {}): ArchiveSettings
   };
 }
 
-function render(props: Partial<ArchiveSettings> = {}): string {
-  return renderToStaticMarkup(createElement(ArchiveExcludeSettings, { archiveSettings: fakeSettings(props) }));
+function render(props: Partial<ArchiveSettings> = {}, input = ""): string {
+  return renderToStaticMarkup(
+    createElement(ArchiveExcludeSettings, {
+      archiveSettings: fakeSettings(props),
+      input,
+      onInputChange: () => {},
+      onSubmit: () => {},
+    }),
+  );
 }
+
+test("描画: 追加前の入力は親の値で描く (タブ往復で消えない)", () => {
+  const html = render({}, "vendor");
+  assert.match(html, /<input[^>]*value="vendor"/, "親が持つ入力値が出ていない");
+});
 
 test("描画: 未設定は既定の一覧を使用中として出し、行と件数を並べる", () => {
   const html = render();

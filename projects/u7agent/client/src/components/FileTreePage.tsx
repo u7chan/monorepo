@@ -45,8 +45,14 @@ export function FileTreePage({
   // root が固定なので key は不要 (root が変わる画面は呼び出し側で FileBrowser を張り替える)
   const rootPath = normalizeFileTreeRoot(cwd);
   const [reloadToken, setReloadToken] = useState(0);
+  // 追加前の入力はタブの親が持つ。本文はタブ切替で unmount されるため、子に置くと入力中の名前が消える
+  const [excludeInput, setExcludeInput] = useState("");
   const archive = filesSubsection === "archive";
   const { settings, dirty, saving, note, save, reset, discard } = archiveSettings;
+  const submitExcludeInput = () => {
+    // 追加できなかったときは入力を残す（上限や重複の理由をその場で直せるように）
+    if (archiveSettings.add(excludeInput)) setExcludeInput("");
+  };
   const activeTabRef = useRef<HTMLButtonElement>(null);
   useEffect(() => {
     if (singleColumn) activeTabRef.current?.scrollIntoView({ block: "nearest", inline: "nearest" });
@@ -125,7 +131,12 @@ export function FileTreePage({
       onBack={onBack}
     >
       {archive ? (
-        <ArchiveExcludeSettings archiveSettings={archiveSettings} />
+        <ArchiveExcludeSettings
+          archiveSettings={archiveSettings}
+          input={excludeInput}
+          onInputChange={setExcludeInput}
+          onSubmit={submitExcludeInput}
+        />
       ) : (
         <FileBrowser
           root={rootPath}

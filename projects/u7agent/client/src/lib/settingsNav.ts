@@ -25,7 +25,7 @@ export const SETTINGS_SECTIONS: { section: SettingsSection; label: string }[] = 
   { section: "agents", label: "エージェント" },
   { section: "skills", label: "スキル" },
   { section: "models", label: "モデル" },
-  // コンテンツ生成と Web 検索はモデルと同じ「外部サービスとキー」の面だが、独自の API と hook を持つ
+  // コンテンツ生成と Web 検索はモデルと同じ「外部サービスとキー」の面だが、対象そのものが別なのでルートに置く
   { section: "content", label: "コンテンツ生成" },
   { section: "web-search", label: "Web 検索" },
   { section: "notifications", label: "通知" },
