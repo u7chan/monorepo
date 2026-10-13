@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useFileSkills } from "../hooks/useFileSkills";
 import { selectableAgents } from "../lib/agentSelection";
 import { MEMORY_NOTE } from "../lib/settingsNotes";
 import { SettingsPageLayout, type SettingsPageProps } from "./SettingsPageLayout";
@@ -32,6 +33,8 @@ export function AgentSettingsPage({
 }: AgentSettingsPageProps) {
   const agents = selectableAgents(catalog);
   const [editingId, setEditingId] = useState<string | null>(() => agentId || catalog.agents[0]?.id || null);
+  // 共通スキル (`.agents/skills`) の一覧。エージェントへ割り当てる値の編集にだけ使う (読み取り専用)
+  const fileSkills = useFileSkills();
   const [note, setNote] = useState<{ text: string; error: boolean }>({ text: MEMORY_NOTE, error: false });
   const [sheetOpen, setSheetOpen] = useState(false);
   const editingAgent = agents.find((agent) => agent.id === editingId);
@@ -75,6 +78,7 @@ export function AgentSettingsPage({
   ) : (
     <AgentEditorForm
       catalog={catalog}
+      fileSkills={fileSkills.state}
       editingId={editingId}
       agent={editingAgent}
       form={agentForm}
