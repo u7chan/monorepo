@@ -1,8 +1,18 @@
 import { useRef, useState, type Dispatch, type FormEvent, type SetStateAction } from "react";
 import { createAgent, deleteAgent, updateAgent } from "../../api";
+import type { FileSkillsState } from "../../hooks/useFileSkills";
 import { fileToAgentIcon } from "../../lib/agentIconFile";
+import { groupFileSkills } from "../../lib/fileSkills";
 import { agentDeleteConfirmRequest } from "../../lib/settingsConfirm";
-import type { AgentDef, AgentSuggestion, CatalogResponse, ModelOption, ModelRef, ThinkingLevel } from "../../types";
+import type {
+  AgentDef,
+  AgentSuggestion,
+  CatalogResponse,
+  CreateAgentBody,
+  ModelOption,
+  ModelRef,
+  ThinkingLevel,
+} from "../../types";
 import { AgentIcon } from "../AgentIcon";
 import { useConfirm } from "../ConfirmProvider";
 import { CheckIcon, TrashIcon } from "../icons";
@@ -15,6 +25,12 @@ export type AgentForm = {
   description: string;
   systemPrompt: string;
   skillIds: string[];
+  /**
+   * 共通スキル (`.agents/skills`) の許可リスト。undefined = 未指定 (全可視で、保存ではキーを送らない)、
+   * null = 全可視へ戻す送信専用の解除、配列 = 明示リスト ([] はすべて OFF)。
+   * `agentFormOf` は null を作らない (解除は「すべて表示に戻す」の 1 経路だけ)。
+   */
+  commonSkillNames?: string[] | null;
   /** data URL。null は未設定で、保存時は「指定解除」として送る */
   icon: string | null;
   /** null は保存時に「指定解除」として送る */
@@ -30,6 +46,8 @@ export function agentFormOf(agent: AgentDef | undefined): AgentForm {
     description: agent?.description || "",
     systemPrompt: agent?.systemPrompt || "",
     skillIds: agent ? [...agent.skillIds] : [],
+    // [] は「すべて OFF」なので、undefined (未指定 = 全可視) へ潰さない
+    commonSkillNames: agent?.commonSkillNames === undefined ? undefined : [...agent.commonSkillNames],
     icon: agent?.icon ?? null,
     model: agent?.model ? { ...agent.model } : null,
     thinkingLevel: agent?.thinkingLevel ?? null,
@@ -38,8 +56,53 @@ export function agentFormOf(agent: AgentDef | undefined): AgentForm {
   };
 }
 
+/**
+ * 保存ペイロード。`commonSkillNames` の undefined は `JSON.stringify` でキーごと落ちて現状維持 (作成では
+ * 未指定 = 全可視) になり、null は解除として送られる。この 2 つは混同しない。
+ */
+export function agentPayloadOf(form: AgentForm): CreateAgentBody {
+  return {
+    name: form.name,
+    description: form.description,
+    systemPrompt: form.systemPrompt,
+    skillIds: form.skillIds,
+    commonSkillNames: form.commonSkillNames,
+    // null はサーバー側で「指定解除」に正規化される。suggestions は空配列で解除
+    icon: form.icon,
+    model: form.model,
+    thinkingLevel: form.thinkingLevel,
+    suggestions: form.suggestions,
+  };
+}
+
+/**
+ * 共通スキルのチェック切替。未指定 / 解除 (どちらも全可視) から外すときは「いま見えている一覧 − 対象」を
+ * 明示リストへ固定する (あとから増えた共通スキルを勝手に許可しないため)。明示リストでは対象の名前だけを
+ * 増減し、一覧に無い保存名 (削除・改名済み) は落とさない。
+ */
+export function withCommonSkillToggled(
+  form: AgentForm,
+  name: string,
+  checked: boolean,
+  visibleNames: string[],
+): AgentForm {
+  const current = form.commonSkillNames;
+  const names = current === undefined || current === null ? visibleNames : current;
+  const next = checked ? (names.includes(name) ? names : [...names, name]) : names.filter((saved) => saved !== name);
+  return { ...form, commonSkillNames: next };
+}
+
+/**
+ * 「すべて表示に戻す」。null を送って解除する (undefined はキーごと落ちて現状維持になるため、
+ * 保存済みの明示リストは戻せない)。
+ */
+export function withAllCommonSkillsVisible(form: AgentForm): AgentForm {
+  return { ...form, commonSkillNames: null };
+}
+
 export function AgentEditorForm({
   catalog,
+  fileSkills,
   editingId,
   agent,
   form,
@@ -55,6 +118,8 @@ export function AgentEditorForm({
   onDone,
 }: {
   catalog: CatalogResponse;
+  /** 共通スキル (`.agents/skills`) の取得状態。取得できないときは共通スキルの欄を出さず、下書きも変えない */
+  fileSkills: FileSkillsState;
   editingId: string | null;
   agent: AgentDef | undefined;
   form: AgentForm;
@@ -95,17 +160,7 @@ export function AgentEditorForm({
 
   const saveAgent = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    const payload = {
-      name: form.name,
-      description: form.description,
-      systemPrompt: form.systemPrompt,
-      skillIds: form.skillIds,
-      // null はサーバー側で「指定解除」に正規化される。suggestions は空配列で解除
-      icon: form.icon,
-      model: form.model,
-      thinkingLevel: form.thinkingLevel,
-      suggestions: form.suggestions,
-    };
+    const payload = agentPayloadOf(form);
     try {
       const result = editingId ? await updateAgent(editingId, payload) : await createAgent(payload);
       onSelectAgent(result.agent.id);
@@ -138,6 +193,14 @@ export function AgentEditorForm({
       ...prev,
       skillIds: checked ? [...prev.skillIds, skillId] : prev.skillIds.filter((id) => id !== skillId),
     }));
+  };
+
+  // 取得前・取得失敗では一覧が空になるが、欄を出さないのでこのハンドラは呼ばれない (下書きは変わらない)
+  const visibleCommonNames =
+    fileSkills.status === "ready" ? groupFileSkills(fileSkills.skills).common.map((skill) => skill.name) : [];
+
+  const toggleCommonSkill = (name: string, checked: boolean) => {
+    setForm((prev) => withCommonSkillToggled(prev, name, checked, visibleCommonNames));
   };
 
   const addSuggestion = () => {
@@ -278,6 +341,10 @@ export function AgentEditorForm({
                     builtinSkills={catalog.builtinSkills}
                     selectedIds={form.skillIds}
                     onToggle={toggleSkill}
+                    fileSkills={fileSkills}
+                    commonSkillNames={form.commonSkillNames}
+                    onToggleCommonSkill={toggleCommonSkill}
+                    onShowAllCommonSkills={() => setForm(withAllCommonSkillsVisible)}
                   />
                   <SuggestionsEditor
                     suggestions={form.suggestions}

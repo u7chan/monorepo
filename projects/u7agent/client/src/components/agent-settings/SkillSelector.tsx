@@ -1,23 +1,93 @@
-import type { BuiltinSkillInfo, SkillDef } from "../../types";
+import type { FileSkillsState } from "../../hooks/useFileSkills";
+import {
+  FILE_SKILL_EMPTY_NOTE,
+  FILE_SKILL_ERROR_PREFIX,
+  FILE_SKILL_GROUP_LABEL,
+  FILE_SKILL_LOADING_NOTE,
+  groupFileSkills,
+} from "../../lib/fileSkills";
+import type { BuiltinSkillInfo, FileSkillInfo, SkillDef } from "../../types";
 
 /** 組み込み行の見出しと注記。チェック済み・無効で出し、外せないことをここ 1 箇所で伝える */
 const BUILTIN_SECTION_LABEL = "組み込み（全エージェントで常時有効）";
 const BUILTIN_SECTION_NOTE = "アプリに同梱されているため、割り当てを外すことはできません。";
+
+/**
+ * 共通スキルの注記。行に出る「自動起動なし」(`disable-model-invocation` = モデルが自分からは起動しない) とは
+ * 別の操作で、チェックを外すとこのエージェントの会話へ読み込まれなくなることをここで伝える
+ * (docs/ui-layout.md)。共通スキルのファイルは変更しない。
+ */
+export const COMMON_SKILL_SECTION_NOTE =
+  "チェックを外すと、このエージェントの会話では読み込まれません。ファイルは変更しません。";
+/** 明示リストは対象の名前だけを使う。一覧が後から増えても勝手に有効にしないことを注記で知らせる */
+export const COMMON_SKILL_EXPLICIT_NOTE = "選んだ名前だけを使います。あとから増えた共通スキルは自動では選ばれません。";
+export const COMMON_SKILL_SHOW_ALL_LABEL = "すべて表示に戻す";
+
+/** 保存名のうち一覧に無いもの (ファイルの削除・改名)。落とさず残すので、自動では直らないことを知らせる */
+function commonSkillMissingNote(names: string[]): string {
+  return `見つかりません: ${names.join("、")}（ファイルが削除・改名されても、保存した名前はそのまま残ります）`;
+}
 
 export function SkillSelector({
   skills,
   builtinSkills,
   selectedIds,
   onToggle,
+  fileSkills,
+  commonSkillNames,
+  onToggleCommonSkill,
+  onShowAllCommonSkills,
 }: {
   skills: SkillDef[];
   /** 全エージェントで常時有効な同梱スキル。カタログと違って外せないのでチェック済みの無効行で出す */
   builtinSkills: BuiltinSkillInfo[];
   selectedIds: string[];
   onToggle: (skillId: string, checked: boolean) => void;
+  /** 共通スキル (`.agents/skills`) の取得状態。取得できないときは欄を出さず、理由だけを出す */
+  fileSkills: FileSkillsState;
+  /** undefined = 未指定 (全可視)、null = 解除 (全可視)、配列 = 明示リスト ([] はすべて OFF) */
+  commonSkillNames?: string[] | null;
+  onToggleCommonSkill: (name: string, checked: boolean) => void;
+  onShowAllCommonSkills: () => void;
 }) {
   // カタログから消えた id が残っていても選択数が全件を超えないよう、実在するスキルだけ数える
   const selectedCount = skills.filter((skill) => selectedIds.includes(skill.id)).length;
+  // 一覧 API は共通 (user) と組み込みだけを返すので、組み込みを除いた側がそのまま共通スキル
+  const commonSkills = fileSkills.status === "ready" ? groupFileSkills(fileSkills.skills).common : [];
+  // undefined (未指定) と null (解除) はどちらも全可視で、明示リスト ([] を含む) だけが「選んだ名前」
+  const explicit = Array.isArray(commonSkillNames);
+  const usedCommonNames = explicit ? commonSkillNames : commonSkills.map((skill) => skill.name);
+  const missingCommonNames = explicit
+    ? commonSkillNames.filter((name) => !commonSkills.some((skill) => skill.name === name))
+    : [];
+  const usedCommonCount = commonSkills.filter((skill) => usedCommonNames.includes(skill.name)).length;
+
+  const commonSkillRow = (skill: FileSkillInfo) => (
+    // min-w-0: 説明を truncate すると行の min-content が説明の全幅になり、一覧の行が箱より広がる
+    <label
+      key={skill.path}
+      className="flex min-w-0 cursor-pointer items-start gap-2 rounded-lg bg-raised px-2.5 py-1.5"
+    >
+      <input
+        type="checkbox"
+        checked={usedCommonNames.includes(skill.name)}
+        onChange={(e) => onToggleCommonSkill(skill.name, e.currentTarget.checked)}
+        className="mt-0.5 accent-focus"
+      />
+      <span className="min-w-0 flex-1">
+        <span className="flex min-w-0 items-baseline gap-1.5">
+          <span className="min-w-0 truncate text-xs text-ink">{skill.name}</span>
+          {/* モデルが自分からは起動しないというスキル側の性質。外すチェックとは別物なので語を分ける */}
+          {skill.disableModelInvocation ? (
+            <span className="shrink-0 text-2xs leading-4 text-ink-ghost">自動起動なし</span>
+          ) : null}
+        </span>
+        <small className="block truncate text-2xs text-ink-muted" title={skill.description || ""}>
+          {skill.description || ""}
+        </small>
+      </span>
+    </label>
+  );
 
   return (
     <div className="grid gap-1.5 rounded-lg border border-line bg-soft px-2.5 py-2">
@@ -56,6 +126,52 @@ export function SkillSelector({
           </div>
         </div>
       )}
+      {fileSkills.status === "loading" ? (
+        <p className="text-2xs leading-4 break-words text-ink-muted">{FILE_SKILL_LOADING_NOTE}</p>
+      ) : null}
+      {fileSkills.status === "error" ? (
+        // 欄ごと消すと「このエージェントには共通スキルが無い」と読めるので、取得できていない理由を出す
+        <p className="text-2xs leading-4 break-words text-warn">
+          {FILE_SKILL_ERROR_PREFIX}: {fileSkills.message}
+        </p>
+      ) : null}
+      {fileSkills.status === "ready" ? (
+        <div className="grid gap-1 border-t border-line pt-2">
+          <div className="flex items-baseline justify-between gap-2 text-2xs font-semibold tracking-label text-ink-faint uppercase">
+            <span className="flex min-w-0 items-baseline gap-1.5">
+              <span className="truncate">{FILE_SKILL_GROUP_LABEL}</span>
+              <span className="shrink-0 font-normal">
+                使用 {usedCommonCount} / 全 {commonSkills.length}
+              </span>
+            </span>
+            {explicit ? (
+              <button
+                type="button"
+                className="shrink-0 font-normal tracking-normal text-accent-text underline underline-offset-2"
+                onClick={onShowAllCommonSkills}
+              >
+                {COMMON_SKILL_SHOW_ALL_LABEL}
+              </button>
+            ) : null}
+          </div>
+          {commonSkills.length === 0 ? (
+            <p className="text-2xs leading-4 break-words text-ink-faint">{FILE_SKILL_EMPTY_NOTE}</p>
+          ) : (
+            <div className="max-h-72 scrollbar-thin overflow-x-hidden overflow-y-auto">
+              <div className="grid gap-1">{commonSkills.map(commonSkillRow)}</div>
+            </div>
+          )}
+          {missingCommonNames.length > 0 ? (
+            <p className="text-2xs leading-4 break-words text-ink-faint">
+              {commonSkillMissingNote(missingCommonNames)}
+            </p>
+          ) : null}
+          <p className="text-2xs leading-4 break-words text-ink-faint">{COMMON_SKILL_SECTION_NOTE}</p>
+          {explicit ? (
+            <p className="text-2xs leading-4 break-words text-ink-faint">{COMMON_SKILL_EXPLICIT_NOTE}</p>
+          ) : null}
+        </div>
+      ) : null}
       {builtinSkills.length > 0 ? (
         // 外せないので操作は持たず、チェック済みの無効行として「常時有効」を見せる
         <div className="grid gap-1 border-t border-line pt-2">
