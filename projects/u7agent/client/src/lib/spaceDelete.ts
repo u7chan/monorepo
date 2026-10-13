@@ -22,7 +22,7 @@ export type SpaceDeleteDeps = {
   select: (id: string) => void;
 };
 
-/** 削除して、選択中のスペースだったときだけ通常スペースへ切り替える。`selectionReset` はその判定 */
+/** 削除して、選択中のスペースだったときだけ既定スペースへ切り替える。`selectionReset` はその判定 */
 export async function removeSpaceAndApply(id: string, deps: SpaceDeleteDeps): Promise<{ selectionReset: boolean }> {
   await deps.removeSpace(id);
   deps.forget(id);

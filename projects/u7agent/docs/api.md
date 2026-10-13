@@ -37,11 +37,11 @@ DTO の正は `server/src/schema.ts`（zod）。リクエストボディは `@ho
 
 ## スペース
 
-- `GET /api/spaces` → `{ spaces: [{ id, name, createdAt }] }`。固定の通常 `{ id: "default", name: "通常", createdAt: 0 }` と保存済み追加スペースを返す。
+- `GET /api/spaces` → `{ spaces: [{ id, name, createdAt }] }`。固定の既定スペース `{ id: "default", name: "既定", createdAt: 0 }` と保存済み追加スペースを返す。
 - `POST /api/spaces` の本文 `{ name }` → 201 `{ space: { id, name, createdAt } }`。name は trim 後 1〜80 文字。内部 ID はサーバーが生成し、指定・改名・リセット API は無い。DB 障害は一覧・作成とも 503。
-- `DELETE /api/spaces/:id` → 200 `{ ok: true }`。400 = 通常スペース（`default`）と不正な id、404 = 未知の追加スペース、409 = そのスペースの会話（または起動元不明）のサービスが公開中、503 = DB・会話ストア・サンドボックス未設定。稼働判定は状態のキャッシュを読まずに取り直し、probe の失敗は 502 / 503 のまま返す。サンドボックスの 4xx / 502 は文言ごと透過する（[削除](#削除)と同じ）。
+- `DELETE /api/spaces/:id` → 200 `{ ok: true }`。400 = 既定スペース（`default`）と不正な id、404 = 未知の追加スペース、409 = そのスペースの会話（または起動元不明）のサービスが公開中、503 = DB・会話ストア・サンドボックス未設定。稼働判定は状態のキャッシュを読まずに取り直し、probe の失敗は 502 / 503 のまま返す。サンドボックスの 4xx / 502 は文言ごと透過する（[削除](#削除)と同じ）。
 - 削除の対象は `spaces` 行だけでなく、会話（live / 未ロード）・履歴・作業フォルダ・添付・`secrets` / `serve_commands` の cwd キー行（[persistence.md](persistence.md#スペース)）。会話はセッション削除と同じ経路で消し（実行中は abort する）、作業フォルダの根はサンドボックスの `DELETE /v1/dirs?recursive=true`（[sandbox-api.md](sandbox-api.md#delete-v1dirs)）へ委譲する（対象が無い 404 は成功）。`spaces` 行の削除が commit point で、途中で失敗しても行が残るのでそのまま再試行できる。コミット後に残った会話 / 作業フォルダを回収できないときは 500 で報告し、そのとき行は既に無いので再試行は 404 になる。
-- 削除の最中（claim 中）は、そのスペースを対象にする scoped API が**読み取りも含めて** 404 になる。同じスペースの二重削除は 409、通常スペースと不正な id は DB を読む前に 400 になる。
+- 削除の最中（claim 中）は、そのスペースを対象にする scoped API が**読み取りも含めて** 404 になる。同じスペースの二重削除は 409、既定スペースと不正な id は DB を読む前に 400 になる。
 - 会話作成は本文の `spaceId`、それ以外の会話 API・EventSource・プロジェクト API・作成前スキルプレビュー・作業環境の環境変数 / サービス API は query の `spaceId` を使う。欠落だけ `default` として扱う。不正 ID は 400、未知の追加スペースは 404。会話作成では query ではなく本文が正。引っ越し（`POST /api/sessions/:id/move`）は query が要求元で、本文の `spaceId` が移動先になる。
 - 引っ越しは未所属（`projectCwd` を持たない）セッションだけ。履歴は破棄し、作業フォルダ / 添付 / `secrets` / `serve_commands` を移動先へ移す（[api-sessions.md](api-sessions.md#post-apisessionsidmove)）。
 - 会話 ID と要求スペースの不一致は 404。descriptor / live record の所属で SDK 復元・作業生成・変更の前に拒否し、取得・履歴・設定・タイトル・通知・削除・停止・圧縮・送信・未送信・回答・添付・スキル・SSE に同じ規則を適用する。環境変数・サービスの `sessionId` にも適用する。
@@ -626,7 +626,7 @@ Content-Security-Policy: sandbox allow-scripts; default-src 'none'; style-src 'u
 
 ## セッションへのファイルアップロード
 
-`POST /api/sessions/:id/files?name=<ファイル名>` は選択時の即時アップロードで、保存先は所属スペースの添付置き場（通常スペースは `<appdir>/uploads/<sessionId>/`。置き場は [session-files.md](session-files.md#スペースごとの配置)）で、プロジェクトのリポジトリ内には作らない。JSON ではなく raw ストリームで受け、`bodyGuard`（既定 64 KiB の body 上限と text 化）より前に登録する。仕様と上限は [api-sessions.md](api-sessions.md#post-apisessionsidfiles)、保存の規則は [session-files.md](session-files.md#添付ファイルチャットからのアップロード) を参照する。
+`POST /api/sessions/:id/files?name=<ファイル名>` は選択時の即時アップロードで、保存先は所属スペースの添付置き場（既定スペースは `<appdir>/uploads/<sessionId>/`。置き場は [session-files.md](session-files.md#スペースごとの配置)）で、プロジェクトのリポジトリ内には作らない。JSON ではなく raw ストリームで受け、`bodyGuard`（既定 64 KiB の body 上限と text 化）より前に登録する。仕様と上限は [api-sessions.md](api-sessions.md#post-apisessionsidfiles)、保存の規則は [session-files.md](session-files.md#添付ファイルチャットからのアップロード) を参照する。
 
 ## プロジェクト
 

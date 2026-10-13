@@ -2,7 +2,7 @@ import { cn } from "../../lib/cn";
 
 /**
  * 会話一覧の見出しに出す現在の会話スペース。`accent` は追加スペース (会話専用) で真にし、
- * 通常スペースでは控えめなトーンで出す。押すと 設定 → 会話スペース へ移る (その場では切り替えない)。
+ * 既定スペースでは控えめなトーンで出す。押すと 設定 → 会話スペース へ移る (その場では切り替えない)。
  */
 export function SpaceChip({ name, accent, onOpen }: { name: string; accent: boolean; onOpen: () => void }) {
   const label = `会話スペース: ${name}`;

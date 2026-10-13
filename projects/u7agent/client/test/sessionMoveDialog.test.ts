@@ -9,7 +9,7 @@ import { SessionMoveDialog } from "../src/components/SessionMoveDialog";
 import type { Space } from "server";
 import { sessionMoveDialogText } from "../src/lib/sidebarRowMenu";
 
-const normal: Space = { id: "default", name: "通常", createdAt: 0 };
+const normal: Space = { id: "default", name: "既定", createdAt: 0 };
 const demo: Space = { id: "space-1111111111111111", name: "デモ", createdAt: 1 };
 
 function render(destinations: Space[]): string {
@@ -34,7 +34,7 @@ test("移動先の候補と対象を並べ、確定を押せる状態で出す",
   const html = render([normal, demo]);
   assert.ok(html.includes('aria-label="別の会話スペースへ引っ越す"'), "見出しが読み上げ名になっていない");
   assert.ok(html.includes("決済画面の検証"), "対象のタイトルが出ていない");
-  assert.ok(html.includes("通常") && html.includes("デモ"), "移動先の候補が出ていない");
+  assert.ok(html.includes("既定") && html.includes("デモ"), "移動先の候補が出ていない");
   assert.ok(html.includes("会話履歴") && html.includes("破棄"), "履歴が破棄されることが出ていない");
   assert.ok(html.includes("引き継がれます"), "ファイルの引き継ぎが出ていない");
   assert.ok(!submitButton(html).includes("disabled"), "候補があるのに確定が無効になっている");

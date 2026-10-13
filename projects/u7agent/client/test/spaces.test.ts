@@ -21,7 +21,7 @@ import type { ChatAction } from "../src/hooks/chatReducer";
 
 globalThis.location ??= { origin: "http://localhost" } as Location;
 const { createSpaceApi, getCatalog, getFiles, listSpaces, createSpace } = await import("../src/api");
-const normal = { id: "default", name: "通常", createdAt: 0 };
+const normal = { id: "default", name: "既定", createdAt: 0 };
 const demo = { id: "space-1111111111111111", name: "デモ", createdAt: 1 };
 
 function deferred<T>() {
@@ -32,7 +32,7 @@ function deferred<T>() {
   return { promise, resolve };
 }
 
-test("選択欠落だけ通常を選び、不正・未知の保存値や未取得一覧は通常へ戻さない", () => {
+test("選択欠落だけ既定を選び、不正・未知の保存値や未取得一覧は既定へ戻さない", () => {
   assert.equal(selectedSpace([normal, demo], null), normal);
   assert.equal(selectedSpace([normal, demo], demo.id), demo);
   for (const value of ["", "../bad", "unknown"]) assert.equal(selectedSpace([normal, demo], value), undefined);
@@ -42,12 +42,12 @@ test("選択欠落だけ通常を選び、不正・未知の保存値や未取�
 test("引っ越し先の候補は現在のスペースを除き、1 つしか無ければ空になる", () => {
   assert.deepEqual(moveDestinationSpaces([normal, demo], "default"), [demo]);
   assert.deepEqual(moveDestinationSpaces([normal, demo], demo.id), [normal]);
-  // 通常スペースしか無いときは候補 0 件 (ダイアログは確定を無効にする)
+  // 既定スペースしか無いときは候補 0 件 (ダイアログは確定を無効にする)
   assert.deepEqual(moveDestinationSpaces([normal], "default"), []);
   assert.deepEqual(moveDestinationSpaces([], "default"), []);
 });
 
-test("削除後の選択は、選択中を消したときだけ通常へ倒し、選択していないスペースの削除では変えない", () => {
+test("削除後の選択は、選択中を消したときだけ既定へ倒し、選択していないスペースの削除では変えない", () => {
   assert.equal(selectionAfterSpaceDelete(demo.id, demo.id), DEFAULT_SPACE_ID);
   // 非選択の削除は一覧から外すだけ (復旧画面にも別の追加スペースにも移らない)
   assert.equal(selectionAfterSpaceDelete(normal.id, demo.id), null);
@@ -84,7 +84,7 @@ function spaceDeleteRecorder(selectedAtStart: string, selectedAfterAwait?: strin
   return { calls, deps };
 }
 
-test("選択中のスペースの削除は、成功時点の選択で通常へ倒し、URL → 保存値 → 選択の順に適用する", async () => {
+test("選択中のスペースの削除は、成功時点の選択で既定へ倒し、URL → 保存値 → 選択の順に適用する", async () => {
   const { calls, deps } = spaceDeleteRecorder(demo.id);
   assert.deepEqual(await removeSpaceAndApply(demo.id, deps), { selectionReset: true });
   // 会話を持たない chat への導線を先に呼ぶ (選択を変えると App が作り直され、その時点の URL が画面になる)
@@ -110,7 +110,7 @@ test("削除の待ち中に選択が動いても、成功時点の選択で判�
   assert.deepEqual(await removeSpaceAndApply(demo.id, switched.deps), { selectionReset: false });
   assert.deepEqual(switched.calls, [`delete:${demo.id}`, `forget:${demo.id}`, "read-selection"]);
 
-  // 通常を選択して非選択の A の削除を待つ間に A を選ぶ → 自分で削除した選択中スペースは通常へ倒す
+  // 既定を選択して非選択の A の削除を待つ間に A を選ぶ → 自分で削除した選択中スペースは既定へ倒す
   const selectedDuringDelete = spaceDeleteRecorder(normal.id, demo.id);
   assert.deepEqual(await removeSpaceAndApply(demo.id, selectedDuringDelete.deps), { selectionReset: true });
   assert.deepEqual(selectedDuringDelete.calls, [
@@ -142,13 +142,13 @@ test("削除が失敗したときは一覧以外の状態を変えず、理由�
   assert.deepEqual(calls, ["delete"], "失敗時は一覧も選択も変えない");
 });
 
-test("行の ⋯ は通常スペースに項目を持たず、追加スペースだけに削除を出す", () => {
+test("行の ⋯ は既定スペースに項目を持たず、追加スペースだけに削除を出す", () => {
   // 空配列は「その行に出せる操作が無い」印で、呼び出し側は ⋯ ごと出さない
   assert.deepEqual(spaceRowActions(true), []);
   assert.deepEqual(spaceRowActions(false), [{ kind: "delete", label: "スペースを削除", danger: true }]);
 });
 
-test("削除の確認はスペース名と消える対象、実行中の停止、選択中なら通常へ切り替わることを示す", () => {
+test("削除の確認はスペース名と消える対象、実行中の停止、選択中なら既定へ切り替わることを示す", () => {
   const request = spaceDeleteConfirmRequest(demo);
   assert.equal(request.title, "会話スペースを削除");
   assert.deepEqual(request.subject, { label: "削除する会話スペース", value: "デモ" });
@@ -160,7 +160,7 @@ test("削除の確認はスペース名と消える対象、実行中の停止�
     assert.ok(text.includes(target), `消える対象が無い: ${target}`);
   }
   assert.ok(text.includes("実行中") && text.includes("停止"), "実行中の会話が止まることが無い");
-  assert.ok(text.includes("通常スペースへ切り替わ"), "選択中なら通常へ切り替わることが無い");
+  assert.ok(text.includes("既定スペースへ切り替わ"), "選択中なら既定へ切り替わることが無い");
 });
 
 /** 保存領域 1 つ分。window が無い Node でも store を検査できるよう注入する */
@@ -183,7 +183,7 @@ test("注入した Storage で往復し、書き込みの失敗は握り、読�
   assert.equal(store.read(), demo.id);
   assert.equal(storage.data.get(SPACE_SELECTION_KEY), demo.id);
 
-  // 読み取りの例外は呼び出し側 (SpacesApp) が受け取り、通常スペースを黙って出さない
+  // 読み取りの例外は呼び出し側 (SpacesApp) が受け取り、既定スペースを黙って出さない
   const blocked = createSpaceSelectionStore({
     getItem: () => {
       throw new Error("blocked");
@@ -223,7 +223,7 @@ test("既定の保存先は都度 window.localStorage を解決し、解決で�
   } finally {
     globals.window = previous;
   }
-  // window が無い / storage を渡さない場合は、通常スペースを選ばずに読み取りを失敗させる
+  // window が無い / storage を渡さない場合は、既定スペースを選ばずに読み取りを失敗させる
   assert.throws(() => spaceSelectionStore.read());
   assert.throws(() => createSpaceSelectionStore(null).read());
   createSpaceSelectionStore(null).write(demo.id);
@@ -236,7 +236,7 @@ test("初期選択は URL の space → 保存値 → 既定の順に決め、�
   // URL の明示指定は保存値に勝ち、確定後に保存値も更新する (開いたスペースが次の初期表示になる)
   assert.deepEqual(initialSpaceSelection(demo.id, normal.id), { id: demo.id, fromUrl: true });
   assert.deepEqual(initialSpaceSelection(demo.id, null), { id: demo.id, fromUrl: true });
-  // 未知の値は通常へ黙って落とさない (一覧との突き合わせは selectedSpace が持つ)
+  // 未知の値は既定へ黙って落とさない (一覧との突き合わせは selectedSpace が持つ)
   const unknown = initialSpaceSelection("unknown", normal.id);
   assert.deepEqual(unknown, { id: "unknown", fromUrl: true });
   assert.equal(selectedSpace([normal, demo], unknown.id), undefined);

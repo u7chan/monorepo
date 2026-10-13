@@ -16,7 +16,7 @@ function renderSidebar(commitHash?: string): string {
       notificationsFailed: false,
       onNewProject: () => {},
       onOpenSettingsSection: () => {},
-      spaceName: "通常",
+      spaceName: "既定",
       conversationOnly: false,
       sessions: [],
       sessionId: "",

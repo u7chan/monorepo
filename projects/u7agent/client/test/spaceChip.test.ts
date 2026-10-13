@@ -34,12 +34,12 @@ function renderSidebar(spaceName: string, conversationOnly: boolean): string {
 }
 
 test("会話スペースのチップは名前と「会話スペース: <name>」の読み上げ名を出し、ヘッダーの旧表示を消す", () => {
-  const html = renderSidebar("通常", false);
-  assert.match(html, /<button[^>]*aria-label="会話スペース: 通常"/, "チップの読み上げ名が無い");
-  assert.ok(html.includes('title="会話スペース: 通常"'), "title が読み上げ名と揃っていない");
-  assert.ok(html.includes(">通常</span>"), "会話スペース名が出ていない");
+  const html = renderSidebar("既定", false);
+  assert.match(html, /<button[^>]*aria-label="会話スペース: 既定"/, "チップの読み上げ名が無い");
+  assert.ok(html.includes('title="会話スペース: 既定"'), "title が読み上げ名と揃っていない");
+  assert.ok(html.includes(">既定</span>"), "会話スペース名が出ていない");
   assert.ok(!html.includes(">スペース:"), "ヘッダーに旧表示が残っている");
-  assert.ok(html.includes("sidebar-projects-content"), "通常スペースで Projects が出ていない");
+  assert.ok(html.includes("sidebar-projects-content"), "既定スペースで Projects が出ていない");
 });
 
 test("追加スペースでも見出しは Chats / 未所属 のままで、Projects を出さない", () => {

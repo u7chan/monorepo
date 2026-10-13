@@ -4,7 +4,7 @@ import { httpError } from "./http";
 import type { Space } from "./schema";
 
 export const DEFAULT_SPACE_ID = "default";
-export const DEFAULT_SPACE: Space = { id: DEFAULT_SPACE_ID, name: "通常", createdAt: 0 };
+export const DEFAULT_SPACE: Space = { id: DEFAULT_SPACE_ID, name: "既定", createdAt: 0 };
 
 export function isSpaceId(value: unknown): value is string {
   return typeof value === "string" && (value === DEFAULT_SPACE_ID || /^space-[0-9a-f]{16}$/.test(value));
@@ -32,7 +32,7 @@ export class SpaceStore {
    */
   claim(value: unknown): string {
     const id = spaceIdOf(value);
-    if (id === DEFAULT_SPACE_ID) throw httpError(400, "通常スペースは削除できません");
+    if (id === DEFAULT_SPACE_ID) throw httpError(400, "既定スペースは削除できません");
     if (this.#deleting.has(id)) throw httpError(409, "スペースを削除しています");
     this.#deleting.add(id);
     try {
@@ -54,7 +54,7 @@ export class SpaceStore {
     const id = spaceIdOf(value);
     // 削除中は読み取りも含めて 404 にする (削除の最中に同じスペースへ会話が作られる窓を閉じる)
     if (this.#deleting.has(id)) throw httpError(404, "スペースが見つかりません");
-    // 通常の停止・削除は DB 障害時にも塞がない。
+    // 既定スペースの停止・削除は DB 障害時にも塞がない。
     if (id !== DEFAULT_SPACE_ID && !this.db.listSpaces().some((space) => space.id === id)) {
       throw httpError(404, "スペースが見つかりません");
     }

@@ -33,13 +33,13 @@ export function isAppDirPath(relative: string): boolean {
   return relative === APP_DIR_REL || relative.startsWith(`${APP_DIR_REL}/`);
 }
 
-/** 追加スペースの根 (root 相対)。通常 (default) は専用の根を持たないので `""`。
+/** 追加スペースの根 (root 相対)。既定 (default) は専用の根を持たないので `""`。
  * spaces.ts の `spaceIdOf` が省略だけを寄せ、不正値は 400 にする。 */
 export function spaceDirRel(spaceId = "default"): string {
   return spaceIdOf(spaceId) === "default" ? "" : `${APP_DIR_REL}/spaces/${spaceId}`;
 }
 
-/** 未所属セッションのスクラッチ (root 相対)。通常 (default) は `SESSION_DIR_REL` 配下、追加スペースは
+/** 未所属セッションのスクラッチ (root 相対)。既定 (default) は `SESSION_DIR_REL` 配下、追加スペースは
  * `<appdir>/spaces/<spaceId>/sessions` 配下になる。 */
 export function sessionWorkdirRel(id: string, spaceId = "default"): string {
   assertSessionId(id);
@@ -47,7 +47,7 @@ export function sessionWorkdirRel(id: string, spaceId = "default"): string {
   return dir ? `${dir}/sessions/${id}` : `${SESSION_DIR_REL}/${id}`;
 }
 
-/** 添付の保存先 (root 相対)。通常 (default) は `UPLOADS_DIR_REL` 配下、追加スペースは
+/** 添付の保存先 (root 相対)。既定 (default) は `UPLOADS_DIR_REL` 配下、追加スペースは
  * `<appdir>/spaces/<spaceId>/uploads` 配下になる (プロジェクト所属でもリポジトリ内には作らない)。 */
 export function sessionUploadsRel(id: string, spaceId = "default"): string {
   assertSessionId(id);

@@ -92,7 +92,7 @@ export function SpaceSettingsPage({
             </div>
             <p className="text-2xs leading-relaxed text-ink-ghost">
               作成した会話スペースを選ぶと空の会話一覧から始められます。会話は切り替えても残ります。追加スペースは行の ⋯
-              から削除できます（通常スペースは削除できません）。
+              から削除できます（既定スペースは削除できません）。
             </p>
             {deleteError ? (
               <p role="alert" className="text-sm text-danger">
