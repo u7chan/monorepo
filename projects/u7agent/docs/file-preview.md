@@ -241,7 +241,7 @@ HTML プレビューのパス行のアイコンボタンで、描画中の文書
 
 | 画面 | 外装 | root | 出す条件 |
 | --- | --- | --- | --- |
-| 設定 → ファイル | `FileTreePage`（`SettingsPageLayout` + ヘッダ） | ワークスペース root 固定（`cwd=""` → `"."`） | 常時 |
+| 設定 → ファイル | `FileTreePage`（`SettingsPageLayout` + ヘッダ + タブ） | ワークスペース root 固定（`cwd=""` → `"."`） | 常時（タブの一方はダウンロードの除外） |
 | チャットの右パネル | `SessionFilesPanel`（ヘッダ + 閉じる） | 選択中セッションの作業フォルダ（`payload.cwd`） | desktop のチャット画面で、作業フォルダがあるときだけ（`client/src/lib/sessionFiles.ts`） |
 | チャットのスキル面 | `SessionFilesPanel` / `SessionFilesSheet` のスキルモード（`SkillFilesContent`） | 参照の絶対パスから導いた `.agents/skills/<name>`（ワークスペース root 相対） | 共通スキル配下の絶対パスの参照をクリックしたときだけ（[面のモード](#面のモード作業フォルダとスキル)） |
 | 設定 → スキルのファイルタブ | `ReadOnlySkillPanel`（`SkillDetailPanel` の中の 1 タブ） | SKILL.md の親ディレクトリ（root 相対。`client/src/lib/fileSkills.ts` の `fileSkillDir`） | `scope !== "builtin"` かつ root 相対の `.../SKILL.md` の親が取れるときだけ（組み込みの仮想パスと root 外の絶対パスは出さない）。**ダウンロード / 削除 / リネームは `readOnly` で出さない** |
@@ -475,7 +475,7 @@ assistant 本文のインラインコードが指すファイルを、右パネ�
 
 - **出す画面は設定 → ファイル（ワークスペース root）とチャット右パネル（セッションの作業フォルダ）の 2 つ**。行の右端は サイズ + 時刻 + ⋯ で、メニューの項目が パスをコピー → ダウンロード → リネーム → 削除 の順になる。ダウンロードは通常ファイルとフォルダの行に出る。**スキル設定のファイルタブは `readOnly` で ⋯ ごと消す**（組み込みスキルはワークスペース外でサンドボックスから解決できないため、削除 / リネームと同じ扱い）
 - **symlink の行には出さない**（サンドボックスが 400 で拒否する。削除と同じ判定）。**除外規則に一致する名前の行にも出さない**（`node_modules` など。出すと押した直後に 400 になるため）。どちらの行も ⋯ と他の項目は残る
-- **除外名は設定 → ダウンロード（`/settings/archive`）で編集する**。一覧はアプリデータの SQLite に保存し、未設定のときは既定の一覧（`DEFAULT_ARCHIVE_EXCLUDE_NAMES`）、保存するとその一覧が正になる（`[]` は「除外なし」。空にすると `node_modules` も入るため画面が既定で畳んだ注意書きで警告し、展開で全文を出す）。規則はベース名の完全一致・全階層で、symlink は一覧に関係なく常に対象外（[api.md](api.md#アーカイブの除外名)、[persistence.md](persistence.md#アプリデータsqlite)）
+- **除外名は 設定 → ファイル の「ダウンロードの除外」タブ（`/settings/files/archive`。旧 `/settings/archive` は読み替え）で編集する**。一覧はアプリデータの SQLite に保存し、未設定のときは既定の一覧（`DEFAULT_ARCHIVE_EXCLUDE_NAMES`）、保存するとその一覧が正になる（`[]` は「除外なし」。空にすると `node_modules` も入るため画面が既定で畳んだ注意書きで警告し、展開で全文を出す）。規則はベース名の完全一致・全階層で、symlink は一覧に関係なく常に対象外（[api.md](api.md#アーカイブの除外名)、[persistence.md](persistence.md#アプリデータsqlite)）
 - **除外名は設定ストアの実効値（`GET /api/settings/archive` の `excludeNames`）を `App` から prop で受ける**（`app.archiveSettings.settings?.excludeNames ?? []`）。取得元を health から app 状態へ移したのは、設定の保存直後に再 mount なしで 設定 → ファイル とチャット右パネルの両方が追随するため。未取得の間は空（= 除外なし）として導線を出し、実際の判定はサーバーの `check` に任せる（ずれた瞬間は `check` が 400 を返し、ツリーのエラー行に出る）
 - **クリックで先に `check` を呼び、結果で振り分ける**。`kind: "archive"` で `skipped` が 1 件以上あるときだけ共通の確認ダイアログを 1 回出し、**サイズ / 件数の超過（413）・除外名のディレクトリそのもの（400）は確認より先にエラー行へ出す**（ダウンロードは始まらない）。確認は `client/src/lib/archive.ts` の `archiveConfirmRequest` で、対象のフォルダ名（clamp した行）+ `含まれるファイル数 N 件 / 合計サイズ X` + `除外: node_modules, dist`（**実際に落ちた名前をサーバーの `skipped` からそのまま出す**）を出し、ボタンは「ダウンロードする」にする。除外 0 件のフォルダと通常ファイルは確認なしで始まる
 - **開始は `<a download>` のプログラム的クリック**（`startArchiveDownload`）。本文を `fetch` して state に保持しないため 100 MiB をメモリに載せず、ページ遷移も起きない（チャットのタブ・ツリーの開閉・実行中のランはそのまま）。`href` は `fileDownloadUrl` の URL、`download` 属性は `check.name`（サーバーの `Content-Disposition` と同じ名前。日本語名も化けない）
@@ -554,7 +554,8 @@ assistant 本文のインラインコードが指すファイルを、右パネ�
 | `client/test/fileRowMenu.test.ts` | 操作の採否・順序 / menu と menuitem の公開属性 / パスコピー失敗の通知の出し分け（行の中の `role="alert"`・内訳・選択の導線なし） / 位置・可視判定・キーボード移動の純関数 |
 | `client/test/fileDownloadRow.test.ts` | 種類・symlink・除外名・readOnly ごとの操作の採否 / 確認文言とサイズ表記 |
 | `client/test/archiveSettings.test.ts` | 除外名の下書きの純関数（実効値からの初期化と配列を共有しないこと / dirty の比較（未設定のまま既定を保存させない）/ 追加の trim・空・重複・上限 / 削除 / 検証（サーバーと同じ 1 セグメント名の規則と件数上限）） |
-| `client/test/archiveSettingsPage.test.ts` | 未設定・上書き・明示空・差分と保存可否・読み込み中・失敗・状態通知（SSR）。HTTP は apiContracts で検査 |
+| `client/test/archiveExcludeSettings.test.ts` | 「ダウンロードの除外」タブの中身: 未設定・上書き・明示空・読み込み中・失敗（SSR）。HTTP は apiContracts で検査 |
+| `client/test/filesSettingsPage.test.ts` | 設定 → ファイル のタブ / ヘッダ: 既定はファイルツリー、除外タブの説明・操作（保存可否）・note（SSR） |
 | `client/test/readOnlySkillPanel.test.ts` | ファイルタブの採否 / 組み込み本文の表示（SSR）。取得・タブ間の操作はブラウザで確認 |
 | `client/test/fileRef.test.ts` | matcher の採否表（正規化と別表記の同ービキー / 制御文字 U+0000 / Unicode 空白 U+00A0・U+3000 / dotfile / scheme / `..` / 末尾ドット）と、cwd 相対の解決表（rootCwd 前置き / cwd 外 / rootCwd 未取得 / 明示的な相対 / cwd 未確定）、面つき解決（裸名の除外と、区切りを持つ字面の採用 / 共通スキルの絶対パス → `kind = "skill"` の root / path、補助ファイル、名前の境界、`.agents/skills` 直下・プロジェクトスキル・root 外の不採用、workspace 相対の現行維持、cwd 配下の作業フォルダ面優先 / 画像が使う matcher は裸名を採ること / 共通スキル配下のパス判定） |
 | `client/test/fileMention.test.ts` | ドラッグの種類の判定 / 参照の引用とエスケープ / 挿入・カーソルの位置 / trim を通したパスの保持 |

@@ -1,0 +1,120 @@
+// 設定 → ファイル のタブとヘッダ。既定はファイルツリー、`/settings/files/archive` はダウンロードの除外。
+// ツリーの行は SSR では出ないため、見るのは見出し / タブ / 操作 / note の出し分け (行は fileRowMenu / fileTree)。
+import assert from "node:assert/strict";
+
+import { createElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
+import test from "node:test";
+import type { ArchiveSettings } from "../src/hooks/useArchiveSettings";
+import type { FilesSubsection } from "../src/lib/settingsNav";
+import type { ArchiveSettingsResponse } from "../src/types";
+
+// api.ts (location.origin を読む) を辿るため、node では最小の shim を置いてから読み込む
+globalThis.location ??= { origin: "http://localhost" } as Location;
+const { FileTreePage } = await import("../src/components/FileTreePage");
+const { ConfirmProvider } = await import("../src/components/ConfirmProvider");
+
+const DEFAULTS = ["node_modules", ".venv", "dist"];
+
+function settings(overrides: Partial<ArchiveSettingsResponse> = {}): ArchiveSettingsResponse {
+  return {
+    excludeNames: [...DEFAULTS],
+    defaultExcludeNames: [...DEFAULTS],
+    overridden: false,
+    maxNames: 100,
+    maxNameLength: 200,
+    ...overrides,
+  };
+}
+
+function fakeSettings(overrides: Partial<ArchiveSettings> = {}): ArchiveSettings {
+  return {
+    settings: settings(),
+    draft: { excludeNames: [...DEFAULTS] },
+    dirty: false,
+    saving: false,
+    note: { text: "変更はサーバーに保存され、再起動後も残ります。", error: false },
+    add: () => true,
+    remove: () => {},
+    reload: async () => {},
+    save: async () => true,
+    reset: async () => true,
+    discard: () => {},
+    ...overrides,
+  };
+}
+
+function render(filesSubsection?: FilesSubsection, archive: Partial<ArchiveSettings> = {}): string {
+  return renderToStaticMarkup(
+    createElement(
+      ConfirmProvider,
+      null,
+      createElement(FileTreePage, {
+        cwd: "",
+        excludeNames: [],
+        archiveSettings: fakeSettings(archive),
+        filesSubsection,
+        onSelectFilesSubsection: () => {},
+        onBack: () => {},
+      }),
+    ),
+  );
+}
+
+/** role=tab の button を [ラベル, 選択中] の順で返す */
+function tabs(html: string): [string, boolean][] {
+  return [...html.matchAll(/<button[^>]*role="tab"[^>]*>([\s\S]*?)<\/button>/g)].map((match) => [
+    match[1].replace(/<[^>]*>/g, "").trim(),
+    match[0].includes('aria-selected="true"'),
+  ]);
+}
+
+/** 操作行のボタンの開始タグ（disabled の有無を見るため） */
+function actionTag(html: string, label: string): string {
+  const button = html
+    .match(/<button[^>]*>[\s\S]*?<\/button>/g)
+    ?.find((markup) => markup.replace(/<[^>]*>/g, "").trim() === label);
+  assert.ok(button, `${label} ボタンが無い`);
+  return button.slice(0, button.indexOf(">") + 1);
+}
+
+test("描画: 既定はファイルツリーのタブで、ヘッダは ファイル / FILES を出す", () => {
+  const html = render();
+  assert.ok(html.includes("FILES"), "eyebrow が無い");
+  assert.ok(html.includes(">ファイル<"), "タイトルが無い");
+  assert.deepEqual(tabs(html), [
+    ["ファイルツリー", true],
+    ["ダウンロードの除外", false],
+  ]);
+  assert.ok(html.includes("再読み込み"), "ツリーの操作が無い");
+  assert.ok(!html.includes("既定に戻す"), "ツリー側に除外の操作が出ている");
+  // note の行は除外タブだけが持つ (ツリーは行にエラーを出す)
+  assert.ok(!html.includes('aria-live="polite"'), "ツリー側に note の行がある");
+});
+
+test("描画: 除外タブは説明と操作を出し、note を aria-live で読ませる", () => {
+  const html = render("archive", { note: { text: "除外名に使えない名前があります: a/b", error: true } });
+  assert.deepEqual(tabs(html), [
+    ["ファイルツリー", false],
+    ["ダウンロードの除外", true],
+  ]);
+  assert.ok(html.includes("ファイルツリーのダウンロード（フォルダは ZIP）から落とす名前を決めます。"), "説明が無い");
+  assert.ok(html.includes("除外の規則"), "除外の本文が出ていない");
+  assert.ok(html.includes("破棄") && html.includes("既定に戻す"), "除外の操作が無い");
+  assert.ok(html.includes('aria-live="polite"') && html.includes("a/b"), "note が読まれない");
+  assert.ok(!html.includes("再読み込み"), "除外側にツリーの操作が出ている");
+});
+
+test("描画: 除外の [保存] は差分があるときだけ、[既定に戻す] は上書き中だけ押せる", () => {
+  const initial = render("archive");
+  assert.ok(actionTag(initial, "保存").includes("disabled"), "未編集でも保存できる");
+  assert.ok(actionTag(initial, "既定に戻す").includes("disabled"), "未設定でも既定に戻せる");
+
+  const changed = render("archive", {
+    settings: settings({ excludeNames: ["dist", "vendor"], overridden: true }),
+    draft: { excludeNames: [...DEFAULTS, "vendor"] },
+    dirty: true,
+  });
+  assert.ok(!actionTag(changed, "保存").includes("disabled"), "差分があるのに保存できない");
+  assert.ok(!actionTag(changed, "既定に戻す").includes("disabled"), "上書き中なのに既定に戻せない");
+});

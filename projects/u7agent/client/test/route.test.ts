@@ -13,9 +13,21 @@ import {
   withoutEntrySpace,
   type Route,
 } from "../src/lib/route";
-import { SETTINGS_SECTIONS, type ModelsSubsection, type SettingsSection } from "../src/lib/settingsNav";
+import {
+  SETTINGS_SECTIONS,
+  type FilesSubsection,
+  type ModelsSubsection,
+  type SettingsSection,
+} from "../src/lib/settingsNav";
 
 const settings = (section: SettingsSection): Route => ({ view: "settings", section });
+
+/** 設定 → ファイルのタブ。既定タブ (files) は URL のパスに出さない */
+const filesTab = (filesSubsection: FilesSubsection): Route => ({
+  view: "settings",
+  section: "files",
+  filesSubsection,
+});
 
 /** 設定 → モデルのタブ。既定タブ (models) は URL のパスに出さない */
 const modelsTab = (modelsSubsection: ModelsSubsection): Route => ({
@@ -36,7 +48,6 @@ test("parseRoute は pathname だけで画面を決め、表のとおりに畳�
     ["/settings", CHAT_ROUTE],
     ["/settings/", CHAT_ROUTE],
     ["/settings/unknown", CHAT_ROUTE],
-    ["/settings/files/extra", CHAT_ROUTE],
     // クエリ・フラグメントは pathname に含めない契約 (含めると画面として解釈できない)
     ["/nope#foo", CHAT_ROUTE],
     ["/settings/files?x=1", CHAT_ROUTE],
@@ -57,8 +68,10 @@ test("parseRoute は pathname だけで画面を決め、表のとおりに畳�
     ["/s/%E3%82%BB%E3%83%83%E3%82%B7%E3%83%A7%E3%83%B3", sessionUrl("セッション")],
     // 設定 (大文字・末尾スラッシュ・連続スラッシュ・percent encoding は正準形へ畳む)
     ["/settings/files", settings("files")],
-    ["/settings/archive", settings("archive")],
-    ["/Settings/ARCHIVE/", settings("archive")],
+    // 旧 設定 → ダウンロード (/settings/archive) はファイルの「ダウンロードの除外」タブへ読み替える
+    ["/settings/archive", filesTab("archive")],
+    ["/Settings/ARCHIVE/", filesTab("archive")],
+    ["/settings/archive/extra", CHAT_ROUTE],
     ["/settings/files/", settings("files")],
     ["/Settings/FILES", settings("files")],
     ["//settings//files//", settings("files")],
@@ -92,6 +105,15 @@ test("parseRoute は pathname だけで画面を決め、表のとおりに畳�
     ["/settings/models/web-search", settings("models")],
     ["/Settings/MODELS/WEB-SEARCH/", settings("models")],
     ["/settings/models/PROVIDERS/unknown", CHAT_ROUTE],
+    // 設定 → ファイルのタブ。正準形は「ファイルツリー」= /settings/files、「ダウンロードの除外」= /archive
+    ["/settings/files/archive", filesTab("archive")],
+    ["/Settings/FILES/ARCHIVE/", filesTab("archive")],
+    ["//settings//files//archive//", filesTab("archive")],
+    ["/settings%2Ffiles%2Farchive", filesTab("archive")],
+    // 未知のサブセクションと既定タブの明示は既定タブへ畳む (チャットへ飛ばさない)
+    ["/settings/files/files", settings("files")],
+    ["/settings/files/unknown", settings("files")],
+    ["/settings/files/archive/extra", CHAT_ROUTE],
   ];
   for (const [pathname, expected] of table) {
     assert.deepEqual(parseRoute(pathname), expected, pathname);
@@ -112,7 +134,6 @@ test("routePath は正準形を返し、parseRoute と往復する", () => {
       "/settings/notifications",
       "/settings/appearance",
       "/settings/files",
-      "/settings/archive",
       "/settings/runtime",
     ],
   );
@@ -124,6 +145,12 @@ test("routePath は正準形を返し、parseRoute と往復する", () => {
   assert.equal(routePath(modelsTab("providers")), "/settings/models/providers");
   assert.equal(routePath(modelsTab("models")), "/settings/models");
   assert.deepEqual(parseRoute(routePath(modelsTab("providers"))), modelsTab("providers"));
+  // ファイルのタブも同じ規則で、旧 /settings/archive は除外タブの正準形へ畳む
+  assert.equal(routePath(filesTab("archive")), "/settings/files/archive");
+  assert.equal(routePath(filesTab("files")), "/settings/files");
+  assert.deepEqual(parseRoute(routePath(filesTab("archive"))), filesTab("archive"));
+  assert.deepEqual(parseRoute("/settings/archive"), filesTab("archive"));
+  assert.equal(routePath(parseRoute("/settings/archive")), "/settings/files/archive");
   // コンテンツ生成と Web 検索はルートのセクションとして往復する
   for (const section of ["content", "web-search"] as const) {
     assert.equal(routePath(settings(section)), `/settings/${section}`);
