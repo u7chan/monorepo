@@ -6,7 +6,7 @@
 
 ## スペースの受入
 
-自動検証は `server/test/spaces-api.test.ts`（加算移行・複数所属・live / 未ロード / sweep / 再起動・添付 / cwd・復元前の所属拒否・プロジェクト利用拒否・DB 障害時の通常停止 / 削除）、`client/test/spaces.test.ts`（既定の保存先の解決・選択の fail-closed・初期選択の優先順位・各 API の文脈・作成待ちの要求元固定・遅い一覧応答・引っ越し先の候補・削除後の選択・削除の成功後処理（成功時点の選択 / URL → 保存値 → 選択の順）・行の ⋯ の出し分け（既定スペースは空）・削除の確認文言）、`client/test/ownerLink.test.ts`（起動元リンクの切替先と順序）と既存の session / API / fallback / 通知リンクテストで行う。引っ越しは `client/test/sidebarRowMenu.test.ts`（項目の出し分けと確認文言）、`client/test/sessionMoveDialog.test.ts`（候補の一覧と確定の可否）、`client/test/sessionFallback.test.ts`（選択の移り先）、`client/test/apiContracts.test.ts`（要求元が query で移動先が body）でも固定する。スペースの削除は `client/test/apiContracts.test.ts`（`DELETE /api/spaces/:id` が文脈の `spaceId` を付けないことと、409 の文言 / status を保つこと）でも固定する。GUI は専用の一時ストア / workspace / ポートと stub pi を使い、実データや有料 API に触れない。
+自動検証は `server/test/spaces-api.test.ts`（加算移行・複数所属・live / 未ロード / sweep / 再起動・添付 / cwd・復元前の所属拒否・プロジェクト利用拒否・DB 障害時の既定スペースの停止 / 削除）、`client/test/spaces.test.ts`（既定の保存先の解決・選択の fail-closed・初期選択の優先順位・各 API の文脈・作成待ちの要求元固定・遅い一覧応答・引っ越し先の候補・削除後の選択・削除の成功後処理（成功時点の選択 / URL → 保存値 → 選択の順）・行の ⋯ の出し分け（既定スペースは空）・削除の確認文言）、`client/test/ownerLink.test.ts`（起動元リンクの切替先と順序）と既存の session / API / fallback / 通知リンクテストで行う。引っ越しは `client/test/sidebarRowMenu.test.ts`（項目の出し分けと確認文言）、`client/test/sessionMoveDialog.test.ts`（候補の一覧と確定の可否）、`client/test/sessionFallback.test.ts`（選択の移り先）、`client/test/apiContracts.test.ts`（要求元が query で移動先が body）でも固定する。スペースの削除は `client/test/apiContracts.test.ts`（`DELETE /api/spaces/:id` が文脈の `spaceId` を付けないことと、409 の文言 / status を保つこと）でも固定する。GUI は専用の一時ストア / workspace / ポートと stub pi を使い、実データや有料 API に触れない。
 
 desktop と singleColumn の両方で次を確認する。
 

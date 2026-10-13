@@ -319,7 +319,7 @@ test("追加スペースの送信は同スペースの添付だけを許容し�
   assert.ok(!f.skillDirs.some((dir) => dir.includes("/spaces/")));
 });
 
-test("DB 障害でも通常の live 停止・削除と壊れた未ロード JSONL の削除は通る", async (t) => {
+test("DB 障害でも既定スペースの live 停止・削除と壊れた未ロード JSONL の削除は通る", async (t) => {
   const f = await setup(t);
   const damaged = await f.session();
   const space = await f.space("デモ");
