@@ -993,6 +993,11 @@ export interface StubPiOptions {
   createSessionRejects?: number;
   /** 設定 → モデルの API が返すプロバイダー。省略時は stub 1 件 (キー登録可) */
   providers?: StubProvider[];
+  /**
+   * SDK の agent dir。設定 → モデルが auth.json を表示用に覗くときのパスになるので、
+   * auth.json の内容で振る舞いを変えるテストはテンポラリディレクトリを渡す。
+   */
+  agentDir?: string;
   /** テストからツールする SDK 操作の模倣。throw すると CredentialCommit の分類を検証できる */
   onSetRuntimeApiKey?: (provider: string, apiKey: string, signal: AbortSignal | undefined) => Promise<void> | void;
   onRemoveRuntimeApiKey?: (provider: string, signal: AbortSignal | undefined) => Promise<void> | void;
@@ -1003,6 +1008,10 @@ export interface StubProvider {
   name?: string;
   canSetApiKey?: boolean;
   supportsOAuth?: boolean;
+  /** provider の `oauth.loginLabel`。OAuth の表示名の模倣 */
+  oauthLoginLabel?: string;
+  /** SDK が資格情報を OAuth として見る (`isUsingOAuth` / `credentialKind` の模倣) */
+  oauth?: boolean;
   /** configured の初期値。false (既定) は未認証 */
   configured?: boolean;
   authSource?: string;
@@ -1025,9 +1034,14 @@ export interface StubCatalogRefreshCall {
 }
 
 export interface StubModelRuntime {
-  getProviders(): readonly { id: string; name: string; auth: { apiKey?: { login: unknown }; oauth: unknown } }[];
+  getProviders(): readonly {
+    id: string;
+    name: string;
+    auth: { apiKey?: { login: unknown }; oauth?: { loginLabel?: string } };
+  }[];
   getModels(): readonly PiAiModel<Api>[];
   getProviderAuthStatus(provider: string): { configured: boolean; source?: string } | undefined;
+  isUsingOAuth(provider: string): boolean;
   setRuntimeApiKey(provider: string, apiKey: string, options?: { signal?: AbortSignal }): Promise<void>;
   removeRuntimeApiKey(provider: string, options?: { signal?: AbortSignal }): Promise<void>;
 }
@@ -1039,6 +1053,9 @@ export function createStubModelRuntime(
   const configured = new Map<string, boolean>(
     (options.providers ?? []).map((provider) => [provider.provider, provider.configured ?? false]),
   );
+  // runtime overlay は保存済み資格情報より優先される。実 SDK と同じく、overlay がある間は source / isUsingOAuth を
+  // overlay へ切り替え、削除で宣言した状態へ戻す。
+  const runtimeKeys = new Set<string>();
   return {
     getProviders: () =>
       (options.providers ?? []).map((provider) => ({
@@ -1046,26 +1063,30 @@ export function createStubModelRuntime(
         name: provider.name ?? provider.provider,
         auth: {
           apiKey: provider.canSetApiKey === false ? undefined : { login: () => {} },
-          oauth: provider.supportsOAuth ? {} : undefined,
+          oauth: provider.supportsOAuth ? { loginLabel: provider.oauthLoginLabel } : undefined,
         },
       })),
     getModels: () => options.catalogModels ?? [],
     getProviderAuthStatus: (provider) => {
       const entry = (options.providers ?? []).find((candidate) => candidate.provider === provider);
       if (!entry) return { configured: false };
+      if (runtimeKeys.has(provider)) return { configured: true, source: "runtime" };
       return configured.get(provider)
         ? { configured: true, source: entry.authSource ?? "environment" }
         : { configured: false };
     },
+    isUsingOAuth: (provider) =>
+      !runtimeKeys.has(provider) &&
+      (options.providers ?? []).some((entry) => entry.provider === provider && entry.oauth === true),
     setRuntimeApiKey: async (provider, apiKey, callOptions) => {
       calls.push({ operation: "setRuntimeApiKey", provider, apiKey });
       await options.onSetRuntimeApiKey?.(provider, apiKey, callOptions?.signal);
-      configured.set(provider, true);
+      runtimeKeys.add(provider);
     },
     removeRuntimeApiKey: async (provider, callOptions) => {
       calls.push({ operation: "removeRuntimeApiKey", provider });
       await options.onRemoveRuntimeApiKey?.(provider, callOptions?.signal);
-      configured.set(provider, false);
+      runtimeKeys.delete(provider);
     },
   };
 }
@@ -1100,6 +1121,7 @@ export function createStubPi(options: StubPiOptions = {}) {
   let refreshCount = 0;
   return {
     cwd: "/tmp/project",
+    agentDir: options.agentDir ?? "/tmp/u7agent-stub-agent",
     selectedModel,
     availableModels: available,
     modelOptions: available.map(modelOptionOf),

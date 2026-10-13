@@ -28,6 +28,9 @@ function provider(overrides: Partial<ProviderAuthSetting> = {}): ProviderAuthSet
     keyUpdatedAt: null,
     canSetApiKey: true,
     supportsOAuth: false,
+    credentialKind: null,
+    oauthLoginLabel: null,
+    hiddenStoredOAuth: false,
     orphan: false,
     memo: null,
     ...overrides,
@@ -284,6 +287,91 @@ test("プロバイダータブは一覧と詳細を分け、平文の注意を�
   assert.ok(html.includes("各項目の保存ボタンでその場で保存されます"), "キー・メモは即時保存だと区別する");
   assert.ok(html.includes("「モデルを選ぶ」タブを開く"));
   assert.ok(html.includes("モデル一覧を表示") === false, "ModelTable は削除した");
+});
+
+test("プロバイダー詳細は保存済み認証の種別を出し、この画面のキーが OAuth を覆っているときだけ注記する", () => {
+  const stored = provider({
+    provider: "openai",
+    name: "OpenAI",
+    auth: { configured: true, source: "stored", environmentVariables: [] },
+    credentialKind: "oauth",
+    supportsOAuth: true,
+    oauthLoginLabel: "Sign in with ChatGPT",
+  });
+  const storedHtml = render(modelSettings({ settings: { ...SETTINGS, providers: [stored] } }), {
+    modelsSubsection: "providers",
+  });
+  assert.ok(
+    storedHtml.includes("保存済み（auth.json）: Sign in with ChatGPT"),
+    "保存済み OAuth は provider の表示名で区別する",
+  );
+  assert.equal(storedHtml.includes("は使われていません"), false, "実効ならキーの削除を促す注記は出さない");
+
+  // この画面のキーが保存済み OAuth を覆っているときだけ、削除を促す注記を出す
+  const coveredHtml = render(
+    modelSettings({
+      settings: {
+        ...SETTINGS,
+        providers: [
+          provider({
+            provider: "openai",
+            name: "OpenAI",
+            managed: true,
+            auth: { configured: true, source: "runtime", environmentVariables: [] },
+            credentialKind: "api_key",
+            supportsOAuth: true,
+            oauthLoginLabel: "Sign in with ChatGPT",
+            hiddenStoredOAuth: true,
+          }),
+        ],
+      },
+    }),
+    { modelsSubsection: "providers" },
+  );
+  assert.match(
+    coveredHtml,
+    /この画面のキーが優先され、Sign in with ChatGPT は使われていません。使うにはキーを削除してください。/,
+    "auth.json の OAuth が覆われているときは理由と対処を出す",
+  );
+
+  // 削除が未反映の間は [削除] を出せず DELETE も 400 なので、押せる [再同期] を案内する
+  const removeFailedHtml = render(
+    modelSettings({
+      settings: {
+        ...SETTINGS,
+        providers: [
+          provider({
+            provider: "openai",
+            name: "OpenAI",
+            managed: false,
+            auth: { configured: true, source: "runtime", environmentVariables: [] },
+            credentialKind: "api_key",
+            supportsOAuth: true,
+            oauthLoginLabel: "Sign in with ChatGPT",
+            hiddenStoredOAuth: true,
+            degraded: "remove",
+          }),
+        ],
+      },
+    }),
+    { modelsSubsection: "providers" },
+  );
+  assert.match(
+    removeFailedHtml,
+    /この画面のキーが優先され、Sign in with ChatGPT は使われていません。\[再同期\] でキーの削除を反映してください。/,
+    "削除が未反映の間は、実際に押せる再同期を案内する",
+  );
+  assert.match(removeFailedHtml, /<button[^>]*>(?:(?!<\/button>)[\s\S])*再同期<\/button>/, "再同期ボタンを出す");
+  assert.equal(
+    removeFailedHtml.includes("使うにはキーを削除してください"),
+    false,
+    "この状態で実行できない削除を案内しない",
+  );
+  assert.equal(
+    /<button[^>]*>(?:(?!<\/button>)[\s\S])*削除<\/button>/.test(removeFailedHtml),
+    false,
+    "DB 行が無いので削除ボタンは出さない",
+  );
 });
 
 test("provider 行にメモ欄と保存ボタンを出し、runtime 不可では disable する", () => {

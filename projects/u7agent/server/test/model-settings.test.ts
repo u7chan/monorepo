@@ -30,6 +30,7 @@ import {
 import {
   PROVIDER_API_KEY_MIN_LENGTH,
   RUNTIME_MODELS_UNAVAILABLE_MESSAGE,
+  type CredentialKind,
   type ModelRef,
   type RuntimeModelsResponse,
 } from "../src/schema";
@@ -42,6 +43,13 @@ interface FakeProvider {
   name?: string;
   canSetApiKey?: boolean;
   supportsOAuth?: boolean;
+  oauthLoginLabel?: string;
+  /** SDK が見ている資格情報の種別。undefined は api_key (認証あり) を模擬する */
+  credentialKind?: CredentialKind;
+  /** auth.json の保存値 (表示専用のピーク)。undefined は「無い / 読めない」 */
+  storedCredentialKind?: CredentialKind;
+  /** storedCredentialKind の読取を例外にする (表示専用のピークで GET を落とさないことの検証) */
+  storedCredentialThrows?: boolean;
   configured?: boolean;
   authSource?: string;
 }
@@ -94,6 +102,8 @@ function fakeRuntime(
   const configured = new Map(providers.map((entry) => [entry.provider, entry.configured ?? false]));
   const calls: RuntimeCall[] = [];
   const catalogRefreshCalls: CatalogRefreshCall[] = [];
+  /** auth.json の表示専用ビューを読んだ provider。runtime overlay があるときだけ読むことを検証する */
+  const storedCredentialReads: string[] = [];
   const runtime: ProviderKeyRuntime = {
     list: () =>
       providers.map((entry) => ({
@@ -101,6 +111,7 @@ function fakeRuntime(
         name: entry.name ?? entry.provider,
         canSetApiKey: entry.canSetApiKey ?? true,
         supportsOAuth: entry.supportsOAuth ?? false,
+        oauthLoginLabel: entry.oauthLoginLabel ?? null,
       })),
     auth: (provider) => {
       const entry = providers.find((candidate) => candidate.provider === provider);
@@ -108,6 +119,16 @@ function fakeRuntime(
       return configured.get(provider)
         ? { configured: true, source: entry.authSource ?? "environment" }
         : { configured: false };
+    },
+    credentialKind: (provider) => {
+      const entry = providers.find((candidate) => candidate.provider === provider);
+      return entry?.credentialKind ?? "api_key";
+    },
+    storedCredentialKind: (provider) => {
+      storedCredentialReads.push(provider);
+      const entry = providers.find((candidate) => candidate.provider === provider);
+      if (entry?.storedCredentialThrows) throw new Error("auth.json read failed");
+      return entry?.storedCredentialKind;
     },
     catalog: () => options.catalog ?? [{ provider: "anthropic", id: "claude-sonnet-4-5" }],
     refreshCatalog: async (refreshOptions) => {
@@ -140,7 +161,7 @@ function fakeRuntime(
       return commit;
     },
   };
-  return { runtime, providers, calls, catalogRefreshCalls, configured };
+  return { runtime, providers, calls, catalogRefreshCalls, storedCredentialReads, configured };
 }
 
 /** DB 面の fake。失敗フラグで AppDb の失敗経路を再現する */
@@ -320,6 +341,9 @@ test("GET はキー値を返さず、managed / canSetApiKey / orphan / degraded 
     managed: true,
     canSetApiKey: true,
     supportsOAuth: false,
+    credentialKind: "api_key",
+    oauthLoginLabel: null,
+    hiddenStoredOAuth: false,
     orphan: false,
     memo: null,
     keyUpdatedAt: null,
@@ -334,6 +358,10 @@ test("GET はキー値を返さず、managed / canSetApiKey / orphan / degraded 
     managed: true,
     canSetApiKey: false,
     supportsOAuth: false,
+    // 認証が無い provider には SDK へ種別を聞かず、OAuth の表示名も無い
+    credentialKind: null,
+    oauthLoginLabel: null,
+    hiddenStoredOAuth: false,
     orphan: true,
     // カタログに無い行は SDK へ適用できない = 未反映
     degraded: "apply",
@@ -344,6 +372,85 @@ test("GET はキー値を返さず、managed / canSetApiKey / orphan / degraded 
   const serialized = JSON.stringify(response);
   assert.ok(!serialized.includes(KEY_A) && !serialized.includes(KEY_B), "キー値は応答に載せない");
   assert.deepEqual(runtime.calls, [], "GET は SDK を呼ばない");
+});
+
+test("GET は SDK が見ている資格情報の種別と OAuth の表示名を載せる", () => {
+  const db = fakeDb();
+  const runtime = fakeRuntime({
+    providers: [
+      {
+        provider: "openai",
+        configured: true,
+        authSource: "stored",
+        credentialKind: "oauth",
+        supportsOAuth: true,
+        oauthLoginLabel: "Sign in with ChatGPT",
+      },
+      { provider: "anthropic", configured: true, authSource: "stored", credentialKind: "api_key" },
+      { provider: "local", configured: false },
+    ],
+  });
+  const { service } = createService({ db: db.db, runtime: runtime.runtime });
+
+  const byProvider = new Map(service.settings().providers.map((provider) => [provider.provider, provider]));
+  assert.deepEqual(
+    [
+      byProvider.get("openai")?.credentialKind,
+      byProvider.get("openai")?.oauthLoginLabel,
+      byProvider.get("anthropic")?.credentialKind,
+      byProvider.get("anthropic")?.oauthLoginLabel,
+      byProvider.get("local")?.credentialKind,
+    ],
+    ["oauth", "Sign in with ChatGPT", "api_key", null, null],
+    "種別は SDK から写し、表示名は provider の oauth.loginLabel を使う",
+  );
+  assert.deepEqual(runtime.storedCredentialReads, [], "runtime overlay が無ければ auth.json を覗かない");
+});
+
+test("hiddenStoredOAuth はこの画面のキーが auth.json の OAuth を覆っているときだけ立つ", () => {
+  const db = fakeDb();
+  const covered = fakeRuntime({
+    providers: [{ provider: "openai", configured: true, authSource: "runtime", storedCredentialKind: "oauth" }],
+  });
+  const coveredService = createService({ db: db.db, runtime: covered.runtime });
+  assert.equal(
+    coveredService.service.settings().providers[0]?.hiddenStoredOAuth,
+    true,
+    "runtime overlay が保存済み OAuth を覆っているときだけ注記の根拠を立てる",
+  );
+  assert.deepEqual(covered.storedCredentialReads, ["openai"], "覆っているかの判定にだけ auth.json を読む");
+
+  // 覆っている保存値が APIキー / 読めない / 読取の例外 / source が runtime でない場合は注記しない
+  const cases: { label: string; provider: FakeProvider }[] = [
+    {
+      label: "保存値が APIキー",
+      provider: { provider: "openai", configured: true, authSource: "runtime", storedCredentialKind: "api_key" },
+    },
+    { label: "保存値を読めない", provider: { provider: "openai", configured: true, authSource: "runtime" } },
+    {
+      label: "保存値の読取が例外",
+      provider: {
+        provider: "openai",
+        configured: true,
+        authSource: "runtime",
+        storedCredentialThrows: true,
+      },
+    },
+    {
+      label: "stored のまま (overlay が無い)",
+      provider: { provider: "openai", configured: true, authSource: "stored", storedCredentialKind: "oauth" },
+    },
+  ];
+  for (const { label, provider } of cases) {
+    const runtime = fakeRuntime({ providers: [provider] });
+    const { service } = createService({ db: db.db, runtime: runtime.runtime });
+    assert.equal(service.settings().providers[0]?.hiddenStoredOAuth, false, label);
+    assert.deepEqual(
+      runtime.storedCredentialReads,
+      provider.authSource === "runtime" ? ["openai"] : [],
+      `${label}: auth.json を読むのは runtime のときだけ`,
+    );
+  }
 });
 
 test("GET はランタイム無しでも DB 行を orphan として返す", () => {
@@ -852,6 +959,9 @@ test("メモだけの provider を GET の 4 経路目として出し、degraded
     managed: false,
     canSetApiKey: false,
     supportsOAuth: false,
+    credentialKind: null,
+    oauthLoginLabel: null,
+    hiddenStoredOAuth: false,
     orphan: true,
     memo: "無料枠の控え",
     keyUpdatedAt: null,

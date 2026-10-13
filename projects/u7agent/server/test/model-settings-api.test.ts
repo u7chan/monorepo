@@ -75,7 +75,7 @@ test("GET はプロバイダーの認証状態と managed を返し、キー値�
       assert.equal(byProvider.get("anthropic")?.canSetApiKey, true);
       assert.deepEqual(byProvider.get("anthropic")?.auth, {
         configured: true,
-        source: "environment",
+        source: "runtime",
         environmentVariables: [],
       });
       assert.equal(byProvider.get("local")?.managed, false);
@@ -948,6 +948,139 @@ test("カタログ更新と同時のキー変更 PUT は同じロックで直列
       assert.deepEqual(order, ["catalog:start", "catalog:end", "key:apply"]);
     } finally {
       release();
+      await bff.close();
+    }
+  });
+});
+
+// --- auth.json の保存 OAuth がこの画面のキーに覆われているかの表示 (hiddenStoredOAuth) ---
+
+/** auth.json に置くダミーの OAuth 資格情報。値が応答へ漏れないことを検証するため、目印になる文字列にする */
+const OAUTH_ACCESS = "oauth-access-must-not-leak";
+const OAUTH_REFRESH = "oauth-refresh-must-not-leak";
+
+test("GET は auth.json の OAuth がこの画面のキーに覆われているときだけ hiddenStoredOAuth を立てる", async () => {
+  await withStoreDir(async (dir) => {
+    // agent dir をテンポラリに固定し、SDK が読む auth.json と同じ場所へ保存済み OAuth を置く
+    await writeFile(
+      join(dir, "auth.json"),
+      JSON.stringify({
+        openai: { type: "oauth", access: OAUTH_ACCESS, refresh: OAUTH_REFRESH, expires: Date.now() + 60_000 },
+      }),
+    );
+    const pi = createStubPi({
+      agentDir: dir,
+      providers: [
+        {
+          provider: "openai",
+          name: "OpenAI",
+          configured: true,
+          authSource: "stored",
+          oauth: true,
+          supportsOAuth: true,
+          oauthLoginLabel: "Sign in with ChatGPT",
+        },
+      ],
+    });
+    const bff = await createBffApp({ cwd: "/tmp/project", sessionStoreDir: dir, pi: asPiBff(pi), workspace: null });
+    const storedOf = async (response: Response | Promise<Response>) => {
+      const body = await jsonBody(response);
+      assert.ok(!JSON.stringify(body).includes(OAUTH_ACCESS), "auth.json のトークンは応答に載せない");
+      assert.ok(!JSON.stringify(body).includes(OAUTH_REFRESH), "refresh トークンも応答に載せない");
+      return body.providers.find((provider: any) => provider.provider === "openai");
+    };
+    try {
+      // 保存済み OAuth が実効なら、種別と表示名を出し、注記の根拠は立てない
+      const stored = await storedOf(bff.app.request("/api/settings/models"));
+      assert.deepEqual(
+        [stored.auth.source, stored.credentialKind, stored.oauthLoginLabel, stored.hiddenStoredOAuth],
+        ["stored", "oauth", "Sign in with ChatGPT", false],
+      );
+
+      // この画面のキーが実効になると、保存済み OAuth は SDK から見えなくなる (表示専用のピークでだけ分かる)
+      const put = await storedOf(bff.app.request("/api/settings/models/openai/key", jsonPut({ apiKey: OTHER_KEY })));
+      assert.deepEqual(
+        [put.auth.source, put.credentialKind, put.oauthLoginLabel, put.hiddenStoredOAuth],
+        ["runtime", "api_key", "Sign in with ChatGPT", true],
+      );
+
+      // キーを削除すると保存済み OAuth へ戻り、注記の根拠も消える
+      assert.equal((await bff.app.request("/api/settings/models/openai/key", { method: "DELETE" })).status, 200);
+      const restored = await storedOf(bff.app.request("/api/settings/models"));
+      assert.deepEqual(
+        [restored.auth.source, restored.credentialKind, restored.hiddenStoredOAuth],
+        ["stored", "oauth", false],
+      );
+    } finally {
+      await bff.close();
+    }
+  });
+});
+
+test("削除が未反映の間は managed: false / degraded: remove のまま runtime が実効で残り、再同期で戻る", async () => {
+  await withStoreDir(async (dir) => {
+    await writeFile(
+      join(dir, "auth.json"),
+      JSON.stringify({
+        openai: { type: "oauth", access: OAUTH_ACCESS, refresh: OAUTH_REFRESH, expires: Date.now() + 60_000 },
+      }),
+    );
+    // 実 SDK の overlay は remove が 2 回失敗すると残る。再同期 (3 回目) でだけ消える
+    let removals = 0;
+    const pi = createStubPi({
+      agentDir: dir,
+      providers: [
+        {
+          provider: "openai",
+          name: "OpenAI",
+          configured: true,
+          authSource: "stored",
+          oauth: true,
+          supportsOAuth: true,
+          oauthLoginLabel: "Sign in with ChatGPT",
+        },
+      ],
+      onRemoveRuntimeApiKey: () => {
+        removals += 1;
+        if (removals <= 2) throw new Error("overlay removal failed");
+      },
+    });
+    const bff = await createBffApp({ cwd: "/tmp/project", sessionStoreDir: dir, pi: asPiBff(pi), workspace: null });
+    const entryOf = async (response: Response | Promise<Response>) => {
+      const body = await jsonBody(response);
+      return body.providers.find((provider: any) => provider.provider === "openai");
+    };
+    try {
+      assert.equal(
+        (await bff.app.request("/api/settings/models/openai/key", jsonPut({ apiKey: OTHER_KEY }))).status,
+        200,
+      );
+
+      // 1 回の DELETE は 0 + 1 回の再試行。両方失敗するので DB 行だけが消え、overlay は残る
+      const deleted = await entryOf(bff.app.request("/api/settings/models/openai/key", { method: "DELETE" }));
+      assert.deepEqual(
+        [deleted.managed, deleted.degraded, deleted.auth.source, deleted.hiddenStoredOAuth],
+        [false, "remove", "runtime", true],
+        "削除が未反映でも実効はこの画面のキーのままで、保存済み OAuth は覆われたまま",
+      );
+      assert.equal(
+        (await bff.app.request("/api/settings/models/openai/key", { method: "DELETE" })).status,
+        400,
+        "DB 行が無いので DELETE の再実行はできない (画面の [削除] も出ない)",
+      );
+
+      // 画面が案内できる回復操作は [再同期] だけ。成功すると保存済み OAuth へ戻る
+      const resynced = await entryOf(bff.app.request("/api/settings/models/openai/resync", { method: "POST" }));
+      assert.deepEqual(
+        [resynced.managed, resynced.degraded, resynced.auth.source, resynced.hiddenStoredOAuth],
+        [false, undefined, "stored", false],
+      );
+      assert.deepEqual(
+        [removals, pi.modelRuntimeCalls.map((call) => call.operation)],
+        [3, ["setRuntimeApiKey", "removeRuntimeApiKey", "removeRuntimeApiKey", "removeRuntimeApiKey"]],
+        "削除は再試行込みで 2 回失敗し、再同期の 1 回で消える",
+      );
+    } finally {
       await bff.close();
     }
   });
