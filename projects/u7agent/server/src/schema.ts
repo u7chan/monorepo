@@ -651,9 +651,33 @@ export const PROVIDER_API_KEY_MAX_LENGTH = 2048;
 /** 設定 → モデルの provider メモの上限。秘密情報ではなく、長文でカードが伸びるのを抑える境界 */
 export const PROVIDER_MEMO_MAX_LENGTH = 500;
 
+/** OAuth サインインで貼り付ける URL / コードの上限。中身の検証は SDK が行うので、長さだけを境界にする */
+export const OAUTH_LOGIN_CODE_MAX_LENGTH = 4_096;
+
 /** 資格情報の種別。SDK が見ている値と、auth.json の保存値 (表示専用) の両方に使う */
 export const CredentialKindSchema = z.enum(["oauth", "api_key"]);
 export type CredentialKind = z.infer<typeof CredentialKindSchema>;
+
+/**
+ * 設定 → モデルの OAuth サインインの状態。進行中の認可 URL はこの state としてだけクライアントへ渡し、
+ * 完了・失敗・キャンセルでは落とす。生の例外文言・トークン・client_id はどのフィールドにも載せない。
+ */
+export const OAuthLoginStateSchema = z.object({
+  status: z.enum(["running", "succeeded", "failed", "cancelled"]),
+  /** 進行中に開く URL (認可 URL / デバイスコードの確認 URL)。running 以外と未発行は null */
+  authUrl: z.string().nullable(),
+  /** ブラウザ操作の案内 (画面用の固定文言) */
+  instructions: z.string().nullable(),
+  /** 進行中の処理 (画面用の固定文言) */
+  progress: z.string().nullable(),
+  /** 貼り付け待ちの入力欄。null = 入力を受け付けていない */
+  input: z.object({ message: z.string(), placeholder: z.string() }).nullable(),
+  /** デバイスコード方式のユーザーコード。null = この方式ではない */
+  userCode: z.string().nullable(),
+  /** failed のときの画面用の固定文言。null = 失敗以外 */
+  error: z.string().nullable(),
+});
+export type OAuthLoginState = z.infer<typeof OAuthLoginStateSchema>;
 
 /** 設定 → モデルの 1 プロバイダー行。認証状態は出所だけで、値・ラベル・生の認証エラーは含めない。 */
 export const ProviderAuthSettingSchema = z.object({
@@ -684,6 +708,11 @@ export const ProviderAuthSettingSchema = z.object({
   hiddenStoredOAuth: z.boolean(),
   /** 現在のカタログに provider が無い (DB 行にしか無い) */
   orphan: z.boolean(),
+  /**
+   * OAuth サインインの進行状態。null = 進行中も直近の結果も無い。このプロセスのメモリだけが持ち、
+   * 再起動で消える。認可 URL は running の間だけ載る。
+   */
+  login: OAuthLoginStateSchema.nullable(),
   /** このプロセスの SDK 反映が未完了 (apply = 未適用 / remove = 削除未反映) */
   degraded: z.enum(["apply", "remove"]).optional(),
   /**
@@ -740,6 +769,12 @@ export const UpdateProviderMemoBodySchema = z.object({
   memo: z.string().max(PROVIDER_MEMO_MAX_LENGTH),
 });
 export type UpdateProviderMemoBody = z.infer<typeof UpdateProviderMemoBodySchema>;
+
+/** OAuth サインインの貼り付け (ブラウザの最後の画面の URL / コード)。値は応答にもログにも載せない */
+export const SubmitOAuthLoginCodeBodySchema = z.object({
+  code: z.string().trim().min(1).max(OAUTH_LOGIN_CODE_MAX_LENGTH),
+});
+export type SubmitOAuthLoginCodeBody = z.infer<typeof SubmitOAuthLoginCodeBodySchema>;
 
 /** 利用可能なモデルの一括保存。両方 null が「未設定へ戻す」なので DELETE は持たない */
 export const UpdateModelAvailabilityBodySchema = z.object({

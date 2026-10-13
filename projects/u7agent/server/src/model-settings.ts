@@ -15,6 +15,7 @@ import {
   type ModelRef,
   type ModelsSettingsResponse,
   type ModelMutationResponse,
+  type OAuthLoginState,
   type ProviderAuthSetting,
   type RuntimeAuth,
   type RuntimeModelsResponse,
@@ -96,6 +97,11 @@ export interface ModelSettingsOptions {
   db: ModelSettingsDb;
   /** null = ランタイム初期化失敗。GET は runtimeAvailable: false、変更系は 503 not_stored */
   runtime: ProviderKeyRuntime | null;
+  /**
+   * OAuth サインインの進行状態 (メモリだけが持つ)。GET はここを読むだけで、ログインの開始・中断は
+   * 専用のサービスが担う。null = OAuth サインインを持たない構成 (進行状態なし)。
+   */
+  oauthLogin?: { stateOf(provider: string): OAuthLoginState | null } | null;
   /** SDK / DB へ触る前に保護対象へ足す (マスカーの swap は同期) */
   retainSecret: (value: string) => void;
   /** health / ログへ出す前の文言境界 (可変マスカー) */
@@ -227,6 +233,7 @@ export class ModelSettingsService {
   #ignoredEnvironmentVariables: string[];
   #timeoutMs: number;
   #catalogTimeoutMs: number;
+  #oauthLogin: { stateOf(provider: string): OAuthLoginState | null } | null;
   #lock = new MutationLock();
   /** このプロセスのメモリだけが持つ未反映の印。再起動で消える */
   #degraded = new Map<string, "apply" | "remove">();
@@ -241,6 +248,7 @@ export class ModelSettingsService {
     this.#ignoredEnvironmentVariables = options.ignoredEnvironmentVariables;
     this.#timeoutMs = options.timeoutMs ?? PROVIDER_KEY_SYNC_TIMEOUT_MS;
     this.#catalogTimeoutMs = options.catalogTimeoutMs ?? MODEL_CATALOG_REFRESH_TIMEOUT_MS;
+    this.#oauthLogin = options.oauthLogin ?? null;
   }
 
   /**
@@ -469,6 +477,33 @@ export class ModelSettingsService {
           : this.#runtime!.removeApiKey(provider, { signal: AbortSignal.timeout(this.#timeoutMs) }),
       );
       return this.#settle(provider, commit, row ? "apply" : "remove");
+    });
+  }
+
+  /**
+   * DB の希望状態 (provider_credentials の行) を SDK へ写し直す。OAuth のサインアウトは SDK が
+   * auth.json の資格情報と一緒に同じ provider の runtime overlay も消すため、公開 state の再計算前にここで戻す。
+   * 行が無ければ何もしない。読取の失敗・反映の失敗は例外を出さず、既存の未反映 (degraded = apply) として残す。
+   */
+  async reapplyStoredKey(provider: string): Promise<void> {
+    await this.#lock.run(async () => {
+      if (!this.#runtime) return;
+      let row: ProviderCredentialRow | undefined;
+      try {
+        row = this.#db.getProviderCredential(provider);
+      } catch {
+        // 戻すべきキーがあるかを判断できない。SDK はすでに runtime overlay を消しているため、実効を失ったまま
+        // 黙って抜けず、既存の未反映として残す (画面の [再同期] から回復できるようにする)
+        console.warn(`[u7agent] provider credential read failed: ${provider}`);
+        this.#degraded.set(provider, "apply");
+        return;
+      }
+      if (!row) return;
+      const commit = await applyWithRetry(() =>
+        this.#runtime!.applyApiKey(provider, row.apiKey, { signal: AbortSignal.timeout(this.#timeoutMs) }),
+      );
+      if (commitSucceeded(commit)) this.#degraded.delete(provider);
+      else this.#degraded.set(provider, "apply");
     });
   }
 
@@ -717,6 +752,7 @@ export class ModelSettingsService {
       oauthLoginLabel,
       hiddenStoredOAuth: sanitized.source === "runtime" && this.#storedOAuthHidden(provider),
       orphan: flags.orphan,
+      login: this.#oauthLogin?.stateOf(provider) ?? null,
       ...(degraded ? { degraded } : {}),
       memo: memo ?? null,
       keyUpdatedAt,

@@ -28,13 +28,18 @@ import {
   MODEL_CATALOG_REFRESH_NOTE,
   modelKeyProvider,
   modelRefKey,
+  MODEL_SETTINGS_NOTE,
   mutationNote,
   normalizeAllowedModels,
+  oauthLoginNote,
+  oauthPanelView,
   providerAuthBadge,
+  providerLoginState,
   providerDraftBase,
   providerDraftOf,
   providerUsage,
   pruneAvailabilityDraft,
+  refreshModelsForAuthChange,
   resyncAvailable,
   runModelCatalogRefresh,
   sameAvailabilitySettings,
@@ -44,10 +49,12 @@ import {
   validateMemo,
   withProviderDraft,
 } from "../src/lib/modelSettings";
+import { createRequestGate } from "../src/hooks/requestGate";
 import type {
   ModelCatalogRefreshResponse,
   ModelMutationResponse,
   ModelsSettingsResponse,
+  OAuthLoginState,
   ProviderAuthSetting,
   RuntimeModelsResponse,
   SessionSummary,
@@ -66,6 +73,7 @@ function provider(overrides: Partial<ProviderAuthSetting> = {}): ProviderAuthSet
     oauthLoginLabel: null,
     hiddenStoredOAuth: false,
     orphan: false,
+    login: null,
     memo: null,
     ...overrides,
   };
@@ -865,4 +873,125 @@ test("カタログ更新の 503 は一覧を差し替えず、失敗の注記だ
     text: "モデル一覧を取得できませんでした。ランタイムのモデル情報を取得できません",
     error: true,
   });
+});
+
+// --- OAuth サインイン ---
+
+test("サインインの注記は進行中のときだけ操作の文言を出し、終端は既定へ戻す", () => {
+  const running: OAuthLoginState = {
+    status: "running",
+    authUrl: null,
+    instructions: null,
+    progress: null,
+    input: null,
+    userCode: null,
+    error: null,
+  };
+  assert.deepEqual(oauthLoginNote(running, "開始しました"), { text: "開始しました", error: false });
+  assert.deepEqual(oauthLoginNote({ ...running, status: "failed" }, "開始しました"), {
+    text: MODEL_SETTINGS_NOTE,
+    error: false,
+  });
+  assert.deepEqual(oauthLoginNote(null, "開始しました"), { text: MODEL_SETTINGS_NOTE, error: false });
+});
+
+test("応答から provider のサインイン状態だけを取る", () => {
+  const running: OAuthLoginState = {
+    status: "running",
+    authUrl: "https://auth.example.test/authorize",
+    instructions: null,
+    progress: null,
+    input: null,
+    userCode: null,
+    error: null,
+  };
+  const response: ModelsSettingsResponse = {
+    runtimeAvailable: true,
+    allowedModels: null,
+    defaultModel: null,
+    ignoredEnvironmentVariables: [],
+    providers: [provider({ provider: "openai", supportsOAuth: true, login: running }), provider()],
+  };
+  assert.equal(providerLoginState(response, "openai"), running);
+  assert.equal(providerLoginState(response, "anthropic"), null, "未開始の provider は null");
+  assert.equal(providerLoginState(response, "missing"), null);
+});
+
+test("OAuth のサインインは loginLabel をボタン名にし、OAuth を持たない / カタログ外では出さない", () => {
+  assert.equal(oauthPanelView(provider({ supportsOAuth: true })).visible, true);
+  assert.equal(oauthPanelView(provider()).visible, false, "OAuth を持たない provider には出さない");
+  assert.equal(
+    oauthPanelView(provider({ supportsOAuth: true, orphan: true })).visible,
+    false,
+    "カタログ外は SDK がログインを受けない",
+  );
+  assert.equal(
+    oauthPanelView(provider({ supportsOAuth: true, oauthLoginLabel: "Sign in with ChatGPT" })).loginLabel,
+    "Sign in with ChatGPT",
+  );
+  assert.equal(oauthPanelView(provider({ supportsOAuth: true })).loginLabel, "OAuth でサインイン");
+});
+
+test("サインアウトは auth.json の OAuth が実効 / 覆われているときだけ出し、進行中の状態をそのまま渡す", () => {
+  assert.equal(
+    oauthPanelView(provider({ supportsOAuth: true, credentialKind: "oauth" })).signOut,
+    true,
+    "auth.json の OAuth が実効なら出せる",
+  );
+  assert.equal(
+    oauthPanelView(provider({ supportsOAuth: true, hiddenStoredOAuth: true, credentialKind: "api_key" })).signOut,
+    true,
+    "この画面のキーが覆っていても保存済み OAuth は消せる",
+  );
+  assert.equal(
+    oauthPanelView(provider({ supportsOAuth: true, credentialKind: "api_key" })).signOut,
+    false,
+    "保存済み OAuth が無ければ出さない",
+  );
+
+  const running = oauthPanelView(
+    provider({
+      supportsOAuth: true,
+      login: {
+        status: "running",
+        authUrl: "https://auth.example.test/authorize",
+        instructions: "同じマシンのブラウザで開いてください",
+        progress: null,
+        input: null,
+        userCode: null,
+        error: null,
+      },
+    }),
+  );
+  assert.equal(running.login?.status, "running");
+  assert.equal(running.signedIn, false);
+  assert.equal(
+    oauthPanelView(provider({ supportsOAuth: true, credentialKind: "oauth" })).signedIn,
+    true,
+    "再サインインの注記に使う",
+  );
+});
+
+// 認証が変わった後の取り直し。`canApply` は 1 つだけ作って health とカタログで共有する
+test("認証後の取り直しは health とカタログへ同じ canApply を渡す", async () => {
+  const beginLoad = createRequestGate();
+  const canApply = beginLoad();
+  const tokens: ((() => boolean) | undefined)[] = [];
+  const order: string[] = [];
+  await refreshModelsForAuthChange({
+    canApply,
+    refreshHealth: async (isCurrent) => {
+      order.push("health");
+      tokens.push(isCurrent);
+      return null;
+    },
+    loadCatalog: async (isCurrent) => {
+      order.push("catalog");
+      tokens.push(isCurrent);
+    },
+  });
+  assert.deepEqual(order, ["health", "catalog"], "health の後にカタログを取り直す");
+  assert.equal(tokens[0], canApply);
+  assert.equal(tokens[1], canApply, "health 用に新しい世代を始めない (カタログの応答を捨てない)");
+  assert.equal(canApply(), true, "取り直しの途中で世代が進んでいない");
 });

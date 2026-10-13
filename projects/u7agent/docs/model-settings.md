@@ -57,7 +57,7 @@ u7agent は Sign in with ChatGPT（SIWC）の資格情報を**認証ソースと
 3. **`models.json` のキー / コマンド**（`auth.source: "models_json_key"` / `models_json_command`）
 4. **環境変数**（`auth.source: "environment"`）
 
-`auth.json` の資格情報は**Pi 管理を正とし、アプリ DB へ複製しない**。画面は表示と警告だけで、`auth.json` の資格情報の登録・削除・上書きは行わない（OAuth のブラウザログインも持たない）。1 が 2 を覆っている間、SDK からは 2 が見えない（`ModelRuntime.listCredentials()` も overlay の `api_key` を返す）。そのため画面は SDK の公開 API から**見えている種別**だけを出し、覆われている保存値は BFF が `auth.json` を読み取り専用で見て判定する。
+`auth.json` の資格情報は**Pi 管理を正とし、アプリ DB へ複製しない**。画面は表示と警告と、この画面からの OAuth サインイン・サインアウト（[OAuth サインイン](#oauth-サインイン)）を持ち、`auth.json` の写し・優先順位・送信先の決定は SDK に委ねる。1 が 2 を覆っている間、SDK からは 2 が見えない（`ModelRuntime.listCredentials()` も overlay の `api_key` を返す）。そのため画面は SDK の公開 API から**見えている種別**だけを出し、覆われている保存値は BFF が `auth.json` を読み取り専用で見て判定する。
 
 - 種別は `ModelRuntime.isUsingOAuth()`（SDK が見ている資格情報）から写す。runtime overlay があるときは overlay（この画面のキー = `api_key`）になり、保存値の種別は見えない
 - 覆われている保存値の判定は、SDK の `readStoredCredential()` で `auth.json` を 1 件だけ読む。**表示専用**で、認証の解決・優先順位・送信先の決定には使わない。トークン・`clientId`・認可 URL は読まず、応答にもログにも載せない（種別だけを取る）
@@ -82,6 +82,26 @@ u7agent は Sign in with ChatGPT（SIWC）の資格情報を**認証ソースと
 ### この画面のキーが SIWC を覆っているときの注記
 
 `auth.source: "runtime"` かつ `auth.json` に同じ provider の OAuth があるときだけ、詳細に「この画面のキーが優先され、<OAuth の表示名> は使われていません。使うにはキーを削除してください」と出す。キーを削除すると `auth.source` は `stored` へ戻り、注記も消える。案内する操作はそのカードで実際に押せるものだけにし、削除が未反映（`degraded: "remove"`）の間は DB 行が無くて [削除] を出せず DELETE の再実行も 400 になるため、「[再同期] でキーの削除を反映してください」へ分岐する。DTO の `credentialKind` / `oauthLoginLabel` / `hiddenStoredOAuth` の 3 つだけを使い、画面は推測しない。
+
+## OAuth サインイン
+
+provider 詳細から Sign in with ChatGPT（SIWC）などをサインイン / サインアウトできる。SDK の公開 API（`ModelRuntime.login(provider, "oauth", interaction, { getDeviceId, agentName })` / `logout`）だけを使い、**資格情報の保存先は `auth.json` のまま**にする（アプリ DB へ複製せず、`provider_credentials` の行も触らない）。新しい依存も SDK 側の改変も足さない。
+
+- 進行状態は BFF のメモリだけが持ち、再起動で消える。公開するのは状態・認可 URL・案内・貼り付け欄・デバイスコードで、**認可 URL は進行中の間だけ**載せ、完了・失敗・キャンセルで落とす。生の例外文言・トークン・`clientId` はどのフィールドにも載せない（応答の形の正は `server/src/schema.ts` の `OAuthLoginStateSchema`）
+- 進行中の二重開始は provider ごとに 409 にする。中断は SDK のコールバックサーバー（`127.0.0.1:1455`）と通信を閉じ、終端した状態は [閉じる] で消える。中断 API は冪等にし、進行中なら中断、終端なら消去にする（完了直後の [中断] を 400 にしない）。認可 URL と `manual_code` の発行前に中断が確定した場合、後着の prompt は拒否して入力欄を立てない（abort 済みの signal に listener を足してもイベントは再発火しないため、prompt の開始前に終端と abort 済みを見る）
+- 完了・失敗・キャンセルで `refreshModelState()` を 1 回だけ呼び、available / health を追随させる。サインイン中はクライアントが `GET /api/settings/models` をポーリングし、終端したら health とカタログも取り直す。**成功はこの再計算が終わってから `succeeded` として公開**し、待っている間も認可 URL と入力欄は載せない（クライアントは成功を観測すると再取得を止めるため、先に公開すると未認証時の候補が残る）
+- 失敗は固定の分類（コールバックポートの競合 / 承認拒否 / この画面で扱えない方式 / 不明）に寄せ、文言は `server/src/oauth-login.ts` の定数を正とする。SDK / provider の英語のメッセージは応答にもログにも出さず、ログには分類だけを残す
+- 完了できるのは「認可 URL + 貼り付け」と「デバイスコード」の方式だけにする。`select` / `text` / `secret` の対話を求める方式（`anthropic` / `openai-codex` / `radius` など）は固定文言で失敗する（既知の制限）。イベントは `auth_url` / `device_code` / `progress` だけを写し、`info` は無視する
+- サインインの進行中は 1455 番を占有する。ブラウザを閉じたまま放置すると次のログイン（`pi /login` を含む）が失敗するため、中断するか BFF を再起動する（自動の期限はかけない。承認にかかる時間をサーバー側で決められないため）
+- サインアウトは `auth.json` の OAuth を消すだけで、provider 側の接続は失効させない（解除は ChatGPT 設定から）。SDK の `logout` は同じ provider の runtime overlay（この画面で登録したキー）も消すため、`provider_credentials` に残るキーの希望状態を公開 state の再計算前に写し直す。写し直しや復元の判断に使う DB の読取に失敗したときは既存の未反映（`degraded: "apply"`）として残し、カードの [再同期] へ導く。[サインアウト] は `auth.json` の OAuth が実効のときと、この画面のキーが覆っているとき（`hiddenStoredOAuth`）に出し、進行中は 409 にする
+- device id（agent host ID）は `<agentDir>/u7agent/device-id` に UUID を保存し、プロセスを再起動しても同じ値を `getDeviceId()` から返す。Pi の `settings.json` は共有の設定ファイルなので触らない。書けない環境ではメモリ上の値を返し、警告だけを残す（ログインは続けられる）
+
+### 実行形態ごとの扱い
+
+- ローカル（`pnpm dev`／BFF が `127.0.0.1` で待受）: GUI からそのままサインインできる。同意画面とコールバックは同じマシンのブラウザで開く
+- 配布コンテナ: コールバック用に `1455` を `127.0.0.1` へ publish し、同じホストのブラウザで承認する。またはホストの agent dir を `PI_CODING_AGENT_DIR` でマウントして `pi /login` を使い、その `auth.json` を GUI が読む（保存先が同じになるので、どちらの経路でも資格情報は 1 つ）
+- 別マシンのブラウザしか無い場合: コールバックは届かない。ブラウザの最後の画面の URL を貼り付ける経路でだけ完了できる
+- LAN / インターネットへの公開、複数人での利用、リモート提供は SIWC の利用条件の対象外。ログインのない BFF の前提（[README](../README.md#セキュリティ)）を崩さない
 
 ## モデル候補（選択）とアプリ既定モデル
 
@@ -219,6 +239,10 @@ u7agent は Sign in with ChatGPT（SIWC）の資格情報を**認証ソースと
 | PUT | `/api/settings/models/:provider/memo` | provider のメモを保存（`trim` して空なら行を削除）。上限 500 文字 |
 | DELETE | `/api/settings/models/:provider/key` | この画面で登録したキーを削除（行が無ければ 400） |
 | POST | `/api/settings/models/:provider/resync` | degraded の回復。body 無し |
+| POST | `/api/settings/models/:provider/login` | OAuth サインインの開始。進行中の二重開始は 409。応答は GET と同じ形で、進行中の認可 URL を `providers[].login` にだけ載せる |
+| POST | `/api/settings/models/:provider/login/code` | ブラウザの最後の画面の URL / コードを待機中の SDK へ渡す。body は `{ "code": "…" }` |
+| DELETE | `/api/settings/models/:provider/login` | 進行中のサインインの中断と、終端した結果表示の消去（冪等）。body 無し |
+| POST | `/api/settings/models/:provider/logout` | サインアウト（`auth.json` の OAuth を削除）。保存済み OAuth が無ければ 400、進行中は 409、この画面で登録したキーは残す。body 無し |
 | POST | `/api/settings/models/catalog/refresh` | pi.dev の provider 別カタログを取り直す。body 無し。取得失敗でも 200 で、理由は `catalogError` にだけ載せる |
 
 `canSetApiKey` は SDK の `auth.apiKey.login` の有無で判定する（ambient / keyless provider は login を持たない）。詳細な DTO と応答は [api.md](api.md#利用可能なモデルとプロバイダーapiキー)。
@@ -240,6 +264,7 @@ u7agent は Sign in with ChatGPT（SIWC）の資格情報を**認証ソースと
   - `hiddenStoredOAuth` の provider には、この画面のキーが保存済み OAuth を覆っていることと、キーを削除すれば戻ることを注記する（[認証ソースと優先順位](#認証ソースと優先順位)）
   - 見出しの 1 行メタ（`利用可能 a / カタログ b`・`キー最終保存: …`・`最終使用: …`）は、認証バッジと同じ寸法のチップ（`client/src/components/model-settings/MetaChip.tsx`）で組む。チップの色は警告の有無にだけ使い、日時や件数の値では変えない（情報の種別ではなく、対処が要るかを見せる）
   - 未反映の案内文（`degradedNotice`）は、その詳細で実際に押せる回復操作に合わせる。カタログ外（`orphan`）の `apply` は resync API も 400 にするため [再同期] を案内せず、[削除] とカタログ復帰を案内する
+- プロバイダー詳細の OAuth サインインは provider の `oauth.loginLabel` をボタン名にし（無ければ汎用の文言）、[サインアウト] は `auth.json` の OAuth があるときだけ出す。進行中は認可 URL のリンク・貼り付け欄・[中断] を出し、終端した結果は [閉じる] で消す。進行中は `GET /api/settings/models` をポーリングし（間隔は `client/src/lib/modelSettings.ts`）、終端したら health とカタログも取り直す（[OAuth サインイン](#oauth-サインイン)）
 - メモ欄はキー入力とは別の `<form>` にした `<textarea rows={2} maxLength={500}>` と [メモを保存] で、Enter がキーの保存を走らせない。入力値は `provider.memo` が変わったときだけ同期し、dirty（`trim` 後の値が保存値と違う）のときだけ保存を有効にし、未保存の印を出す。保存に成功したら応答の `trim` 済みの値で入力値を戻す。メモの保存は SDK に触れないので health / カタログを取り直さず、進行中の `reload()` の応答で保存直後を上書きされないよう先行ロードの無効化だけ行う。`runtimeAvailable: false` のときは入力欄と保存を disable し、runtime 停止時の注意書きにメモも含める。カタログ外のメモだけの provider には「キーの登録はできません（メモは保存できます）」と案内し、キー入力は出さない
 - 画像と音声の設定は設定 → コンテンツ生成（`/settings/content`）が 1 画面で扱い、APIキーは共有する。操作と注意書きの詳細は [image-generation.md](image-generation.md#設定画面) と [speech-generation.md](speech-generation.md#設定画面)
 - APIキーの登録後は health と `GET /api/runtime/models` を取り直し、入力欄のモデル候補とモデル数を追随させる。カタログの取得失敗は設定 API の表示を壊さず、両タブで別の注記として出す
@@ -271,7 +296,8 @@ u7agent は Sign in with ChatGPT（SIWC）の資格情報を**認証ソースと
 - DB を読めないときは制限が外れた状態（制限なし）で起動する。気付けるのは起動ログの警告・health の `appDb`・設定 API の 503 に限る
 - `PI_SECRET_ENV_VARS` は環境変数名の指定なので、GUI 登録のキーには不要
 - メモは平文で DB に入り、GET 応答にも平文で載る（ログインの無い BFF は LAN 越しに読める）。画面の注意書きと placeholder でキー本体を書かないよう誘導するが、短いメモでも会話表示のマスクは掛からない
-- OAuth のブラウザログイン、`models.json` のカスタム provider / baseUrl の編集、既定 Effort（`PI_THINKING`）の GUI 化、プロジェクト / エージェント単位のモデル制限は対象外
+- `models.json` のカスタム provider / baseUrl の編集、既定 Effort（`PI_THINKING`）の GUI 化、プロジェクト / エージェント単位のモデル制限は対象外
+- OAuth サインインは provider 側のフロー次第で失敗する（[OAuth サインイン](#oauth-サインイン)）。この画面は「認可 URL + 貼り付け」と「デバイスコード」だけを扱い、`select` などの対話を求める方式は固定文言で失敗する。進行中のサインインは自動で期限切れにならず、中断するか再起動するまで 1455 番を保持する
 - `auth.json` の読み取りは表示専用の 1 回読取で、SDK が実際に解決する資格情報と時点がずれ得る（外部の `pi /login` / `logout` の直後など）。種別が変わっても認証の解決結果は変えないので、表示が一時的に古くなるだけで実害はない。`hiddenStoredOAuth` の未知（読取失敗）と「OAuth が無い」は画面では区別しない
 - [カタログ更新] は pi.dev の応答遅延・レート制限で失敗し得る（期限と固定文言で閉じ、リトライはしない）。更新後の一覧内容は pi.dev 側に依存するため、テストで固定できるのは呼び出し契約まで
 - 「最後にいつ更新したか」は画面から分からない。`models-store.json` の overlay は再起動後も効くが、一覧の出どころ（同梱 / overlay / live）は示さない
@@ -282,14 +308,17 @@ u7agent は Sign in with ChatGPT（SIWC）の資格情報を**認証ソースと
 実 API は呼ばず、ダミーキーと fake / stub で検証する。
 
 - `server/test/app-db.test.ts` — v4 → v5 / v5 → v6 / v6 → v7 の加算移行、`model_settings` の CRUD、空配列 = 制限なしの正規化、両方 NULL の行削除、壊れた JSON の 503、`provider_memos` の CRUD（上書き・削除・空文字行 = 未設定）、`provider_credentials.updatedAt` の移行（既存行は NULL のまま・キーは消えない）と再実行の冪等性、新規 DB の列、`sanitizeError` の境界
-- `server/test/model-settings.test.ts` — GET / PUT / DELETE / resync の契約、DB-first、1 回だけの再試行、degraded の解除と記録と DTO を組めないときの `managed` の補正、利用可能なモデルの正規化・検証（カタログ外・既定が選択外・形式・重複）と 503、メモの `trim`・空で削除・対象外 400・DB 失敗 503・メモ値を応答とログへ出さないこと・degraded を作らないこと、GET の 4 経路（カタログ / credential 行 / メモ行 / degraded）とメモだけの orphan の扱い、キー削除後もメモが残ること、`keyUpdatedAt` が GET / PUT に載り移行前は null で resync / 削除では変わらないこと、`credentialKind` / `oauthLoginLabel` の写像と `hiddenStoredOAuth` の条件（runtime overlay が保存済み OAuth を覆うときだけ true・読取失敗は false・auth.json を読むのは runtime のときだけ）、起動適用（model_settings と provider_credentials の独立した読取・setter → refresh の順序・マスク登録の順序）、別 provider の並行 PUT の直列化、lock の rejected Promise、キー値を含む例外が応答とログへ漏れないこと、カタログ更新の分類（成功・一部失敗・期限の優先・例外の固定文言と秘密マスク・`PI_OFFLINE`・一覧を返せないときの 503）とキー変更との直列化、期限が取得と再計算で共有され、期限後も一覧を保ってロックを解放すること
+- `server/test/model-settings.test.ts` — GET / PUT / DELETE / resync の契約、DB-first、1 回だけの再試行、`reapplyStoredKey()`（行が無い provider は触らない・SDK の反映失敗と DB の読取失敗は `degraded: "apply"` で例外を出さず、復旧後の resync で解除・成功で解除）、degraded の解除と記録と DTO を組めないときの `managed` の補正、利用可能なモデルの正規化・検証（カタログ外・既定が選択外・形式・重複）と 503、メモの `trim`・空で削除・対象外 400・DB 失敗 503・メモ値を応答とログへ出さないこと・degraded を作らないこと、GET の 4 経路（カタログ / credential 行 / メモ行 / degraded）とメモだけの orphan の扱い、キー削除後もメモが残ること、`keyUpdatedAt` が GET / PUT に載り移行前は null で resync / 削除では変わらないこと、`credentialKind` / `oauthLoginLabel` の写像と `hiddenStoredOAuth` の条件（runtime overlay が保存済み OAuth を覆うときだけ true・読取失敗は false・auth.json を読むのは runtime のときだけ）、起動適用（model_settings と provider_credentials の独立した読取・setter → refresh の順序・マスク登録の順序）、別 provider の並行 PUT の直列化、lock の rejected Promise、キー値を含む例外が応答とログへ漏れないこと、カタログ更新の分類（成功・一部失敗・期限の優先・例外の固定文言と秘密マスク・`PI_OFFLINE`・一覧を返せないときの 503）とキー変更との直列化、期限が取得と再計算で共有され、期限後も一覧を保ってロックを解放すること
 - `server/test/model-catalog-refresh.test.ts` — 実 SDK + 隔離した agent dir で、他プロセスが SDK の認証ストアのロックを保持していても状態再計算が期限どおり閉じ、公開 state（一覧）を現在値のまま保つこと（期限が伝わらないとロック待ちで期限を超える）
 - `server/test/model-settings-api.test.ts` — HTTP 契約（200 `applied` / `applied_unsynced`、503 `not_stored`、400）、メモの 200 / 400（500 文字超は route の zod）/ 503 と再起動後の読み出し、再起動後の適用、DB 不通、health とログのマスク、`ignoredEnvironmentVariables`、`keyUpdatedAt` が GET / PUT に載ることと移行前の行が null になること、`auth.json` の保存 OAuth がこの画面のキーに覆われたときだけ `hiddenStoredOAuth` が立ち、削除で戻ること・トークンを応答へ載せないこと、削除が未反映の間は `managed: false` / `degraded: "remove"` のままで実効が runtime に残り（DELETE の再実行は 400）、再同期で保存済み OAuth へ戻ること、カタログ更新（`allowNetwork: true` / `force: true` 付きで 1 回だけ呼ぶこと、一部 provider 失敗・abort・取得の例外・`PI_OFFLINE` が 200 と固定文言になること、生の例外文言を応答へ出さないこと、カタログを返せないときとランタイム無しの 503、キー変更 PUT との直列化、状態再計算が取得と同じ期限を受け取ること）
 - `server/test/provider-key-runtime.test.ts` — `CredentialCommit` の写像（CSE の照合・開始前 abort・実行中 abort・未知の例外）、`credentialKind` の `isUsingOAuth` への写像、`storedCredentialKind` が `auth.json` から種別だけを返し、読取失敗を不明へ縮退させること
+- `server/test/oauth-login.test.ts` — interaction の分岐（`auth_url` / `device_code` / `progress` / `manual_code` / 未対応の `select`）、開始の応答が認可 URL を待つこと、進行中の二重開始 409、貼り付けの受け渡しと待機していないときの 400、中断の state / `signal` / 再計算（終端後の消去は冪等）、失敗分類（port 競合・拒否・未対応・不明）と生の文言を応答へ出さないこと、`http(s)` 以外の URL を公開しないこと、サインアウトの対象判定と SDK 失敗の 503、成功を公開 state の再計算後に公開すること（再計算待ちの間も認可 URL / 貼り付け欄を載せない・中断で成功を取り消さない）、認可 URL の発行前に中断したあとの prompt を拒否して abort 済み signal に listener を残さないこと、サインアウトのキー写し直しを再計算前に行い失敗しても応答を変えないこと
+- `server/test/oauth-login-api.test.ts` — 開始 → 貼り付け → 完了の HTTP 契約（`providers[].login` の形・完了で認可 URL を落とすこと・`managed` は false のまま）、二重開始 409、中断で SDK の signal が abort されること、port 競合の固定文言、OAuth を持たない provider の 400 / サインアウト対象外の 400、本文の検証（空・上限超は SDK へ渡さない）、サインアウトでこの画面のキーの行が残り、SDK が消す runtime overlay を DB のキーで戻すこと（戻せないとき・復元の判断に使う DB の読取が失敗したときは `degraded: "apply"` として残し、再同期で回復できる）、認可 URL の発行前に中断されたサインインが後着の prompt を拒否して次のログインを塞がないこと、device id の永続化（再起動で同じ値・`u7agent` の名前で SDK へ渡る）
+- `server/test/device-id.test.ts` — UUID の生成と保存、プロセスをまたいだ再利用、壊れた値の作り直し、書けない場所でのメモリへの縮退
 - `server/test/model-state.test.ts` — `deriveModelState` / `readModelState`（選択リストの積・既定モデル・カタログの導出・可用 0・失敗時の安全な state）、`filterModelsByWhitelist()`
 - `server/test/api.test.ts` — health から `runtimeDiagnostics` が消えたこと、モデルカタログ応答に whitelist 系フィールドが無いこと
 - `server/test/redact.test.ts` — `createMutableSecretMasker` の swap と streaming masker への追随
-- `client/test/modelSettings.test.ts` / `client/test/modelSettingsPage.test.ts` — 表示変換（認証バッジ・並び・入力検証・メモの検証・注記・回復案内）、`providerUsage()`（最初の `/` での分割・`model` 無し・複数セッション・空配列）、`null` の明示リスト展開（利用可能な全モデル + 既定モデルの 1 件追加）・認証済み provider の絞り込み（`pruneAvailabilityDraft()` の除去と、表示の対象を揃える `candidateGroups()` の絞り込み）・カタログ外の残存エントリの警告付き表示・候補の並び/検索/集計・既定モデルの選択肢と検索・dirty 判定・provider 一括操作・確認文、タブと保存バーの初期描画（折りたたみの既定閉・警告のある provider の自動展開・変更なしと選択 0 件では保存無効）とカタログ外・未設定・環境変数の注記・カタログ取得失敗時の編集不可、プロバイダータブの一覧と詳細（平文注意の既定折りたたみ・メモ欄・保存ボタン・runtime 停止時の disable・メモだけの orphan の案内・保存済み OAuth の種別表示と、この画面のキーが覆っているときだけ出す注記（削除が未反映の間は [再同期] を案内すること）、キー最終保存（managed だけ・NULL は保存日不明）と最終使用（`sessionsLoaded` が false なら非表示・会話 0 件の managed は「会話はありません」・非 managed は会話があるときだけ）、`client/test/route.test.ts` のタブの正準化（未知のサブセクションと既定タブの明示、旧 `/settings/models/content`・`/settings/models/web-search` は `/settings/models` へ）
+- `client/test/modelSettings.test.ts` / `client/test/modelSettingsPage.test.ts` — 表示変換（認証バッジ・並び・入力検証・メモの検証・注記・回復案内）、OAuth セクションの表示条件（`oauthPanelView()` の loginLabel / サインアウト / 進行中 / カタログ外の非表示）、OAuth セクションの描画（開始・サインアウト・認可 URL のリンク・貼り付け欄・中断・失敗の固定文言・[閉じる]）、認証後の取り直し（health とカタログへ同じ適用可否を渡すこと）、`providerUsage()`（最初の `/` での分割・`model` 無し・複数セッション・空配列）、`null` の明示リスト展開（利用可能な全モデル + 既定モデルの 1 件追加）・認証済み provider の絞り込み（`pruneAvailabilityDraft()` の除去と、表示の対象を揃える `candidateGroups()` の絞り込み）・カタログ外の残存エントリの警告付き表示・候補の並び/検索/集計・既定モデルの選択肢と検索・dirty 判定・provider 一括操作・確認文、タブと保存バーの初期描画（折りたたみの既定閉・警告のある provider の自動展開・変更なしと選択 0 件では保存無効）とカタログ外・未設定・環境変数の注記・カタログ取得失敗時の編集不可、プロバイダータブの一覧と詳細（平文注意の既定折りたたみ・メモ欄・保存ボタン・runtime 停止時の disable・メモだけの orphan の案内・保存済み OAuth の種別表示と、この画面のキーが覆っているときだけ出す注記（削除が未反映の間は [再同期] を案内すること）、キー最終保存（managed だけ・NULL は保存日不明）と最終使用（`sessionsLoaded` が false なら非表示・会話 0 件の managed は「会話はありません」・非 managed は会話があるときだけ）、`client/test/route.test.ts` のタブの正準化（未知のサブセクションと既定タブの明示、旧 `/settings/models/content`・`/settings/models/web-search` は `/settings/models` へ）
 - `client/test/contentSettings.test.ts` / `client/test/contentSettingsTab.test.ts` / `client/test/contentSettingsPage.test.ts` / `client/test/settingsNav.test.ts` — 画像 / 音声モデルの選択肢（カタログ順・同名への id 添え・カタログ外の現在値）、現在値と PUT の本文の解決、音声のボイス欄（宣言の有無による選択 / 自由記述の切替と、宣言外の保存値を先頭へ寄せる規則）、キー入力の後始末（成功時だけ消す）、削除の確認文、タブ見出しの provider（ロゴ・未設定でも OpenRouter・ロゴの無い provider は頭文字）と provider の id / 表示名、コンテンツ生成の初期描画（未設定はキーのみ / 設定済みは上書き保存・削除・モデル選択と音声欄 / 保存済みキーを入力欄へ戻さない / runtime 不可の disable）、2 つのカタログの出どころのチップと再取得の注記、コンテンツ生成ページの見出しと取得前の出し分け（この画面の注記と再読み込みだけを出す）、10 項目 / モデル 2 タブ / ファイル 2 タブの語彙
 - `server/test/speech.test.ts` / `server/test/speech-catalog.test.ts` / `server/test/speech-tools.test.ts` / `server/test/speech-settings.test.ts` / `server/test/speech-settings-api.test.ts` — 音声生成の契約（[speech-generation.md](speech-generation.md#テスト)）
 - `client/test/requestGate.test.ts` — 応答の適用可否（`createRequestGate`）、要求の追跡（`createRequestTracker`）、取得中フラグの解除（`createLoadingTracker`: 破棄された要求の完了で解除し、後続が在る間は維持する）

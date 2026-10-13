@@ -345,6 +345,7 @@ test("GET はキー値を返さず、managed / canSetApiKey / orphan / degraded 
     oauthLoginLabel: null,
     hiddenStoredOAuth: false,
     orphan: false,
+    login: null,
     memo: null,
     keyUpdatedAt: null,
   });
@@ -365,6 +366,7 @@ test("GET はキー値を返さず、managed / canSetApiKey / orphan / degraded 
     orphan: true,
     // カタログに無い行は SDK へ適用できない = 未反映
     degraded: "apply",
+    login: null,
     memo: null,
     // 移行前の行は日時不明
     keyUpdatedAt: null,
@@ -569,6 +571,69 @@ test("PUT 成功で過去の degraded を解除する", async () => {
   assert.equal(service.settings().providers[0]?.degraded, "apply");
   assert.equal(okBody(await service.putKey("anthropic", KEY_A)).state, "applied");
   assert.equal(service.settings().providers[0]?.degraded, undefined);
+});
+
+test("reapplyStoredKey は DB の行だけを写し直し、失敗は未反映にして例外を出さない", async () => {
+  const db = fakeDb({ anthropic: KEY_A });
+  let failures = 0;
+  const runtime = fakeRuntime({
+    providers: [{ provider: "anthropic", configured: true }],
+    apply: () => {
+      if (failures > 0) {
+        failures -= 1;
+        return { outcome: "unknown" };
+      }
+      return { outcome: "applied", synced: true };
+    },
+  });
+  const { service, refreshCount } = createService({ db: db.db, runtime: runtime.runtime });
+
+  // 行が無い provider は SDK に触らない (UI 外で張られた overlay を勝手に作らない)
+  await service.reapplyStoredKey("openai");
+  assert.equal(runtime.calls.length, 0);
+  assert.equal(refreshCount(), 0, "公開 state の再計算は呼び出し側 (サインアウト) が行う");
+
+  // 反映に失敗したら既存の未反映として記録し、例外は出さない (呼び出し側のサインアウトを落とさない)
+  failures = 2;
+  await service.reapplyStoredKey("anthropic");
+  assert.deepEqual(
+    runtime.calls.map((call) => call.operation),
+    ["apply", "apply"],
+    "失敗は 1 回だけ再試行する",
+  );
+  assert.equal(runtime.calls[0]?.apiKey, KEY_A);
+  assert.equal(service.settings().providers[0]?.degraded, "apply");
+
+  // 成功すれば解除する (再同期と同じ収束)
+  await service.reapplyStoredKey("anthropic");
+  assert.equal(service.settings().providers[0]?.degraded, undefined);
+});
+
+test("reapplyStoredKey は DB 読取の失敗も未反映として残し、再同期で回復できる", async () => {
+  const db = fakeDb({ anthropic: KEY_A });
+  const runtime = fakeRuntime({ providers: [{ provider: "anthropic", configured: false }] });
+  const { service, refreshCount } = createService({ db: db.db, runtime: runtime.runtime });
+
+  // SDK の logout が overlay を消した後に読取だけが失敗した状態: 戻せたかを判断できないため未反映として残す
+  db.state.failGet = true;
+  await captureConsole(async () => {
+    await service.reapplyStoredKey("anthropic");
+  });
+  assert.equal(runtime.calls.length, 0, "読めない値を推測して SDK へ渡さない");
+  const broken = service.settings().providers[0];
+  assert.equal(broken?.managed, true, "DB の行は残っている");
+  assert.equal(broken?.degraded, "apply", "db の読取失敗も未反映として記録する");
+  assert.equal(broken?.orphan, false, "カタログにある provider は [再同期] を出せる");
+  assert.equal(runtime.configured.get("anthropic"), false, "overlay は消えたまま (実効を偽らない)");
+  assert.equal(refreshCount(), 0, "reapplyStoredKey 自体は再計算しない (呼び出し側が行う)");
+
+  // 復旧後の [再同期] が DB の希望状態を再適用し、未反映を解除する
+  db.state.failGet = false;
+  const restored = okBody(await service.resync("anthropic"));
+  assert.equal(restored.state, "applied");
+  assert.equal(restored.providers[0]?.degraded, undefined);
+  assert.equal(runtime.calls.at(-1)?.apiKey, KEY_A);
+  assert.equal(runtime.configured.get("anthropic"), true, "実効が戻る");
 });
 
 test("ランタイム無しの変更系は 503 not_stored で DB を書かない", async () => {
@@ -963,6 +1028,7 @@ test("メモだけの provider を GET の 4 経路目として出し、degraded
     oauthLoginLabel: null,
     hiddenStoredOAuth: false,
     orphan: true,
+    login: null,
     memo: "無料枠の控え",
     keyUpdatedAt: null,
   });

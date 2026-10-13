@@ -535,6 +535,40 @@ export const resyncProviderApiKey = async (provider: string): Promise<ModelMutat
 };
 
 /**
+ * OAuth サインインの開始。応答は GET と同じ形で、進行中の認可 URL は provider.login にだけ載る。
+ * アプリ DB は変わらないため `state` は無い。進行中の二重開始は 409。
+ */
+export const startOAuthLogin = async (provider: string): Promise<ModelsSettingsResponse> => {
+  const res = await client.api.settings.models[":provider"].login.$post({ param: { provider } });
+  if (!res.ok) throw await apiError(res);
+  return (await res.json()) as ModelsSettingsResponse;
+};
+
+/** ブラウザの最後に表示されたリダイレクト先 URL / コードを、待機中の SDK へ渡す */
+export const submitOAuthLoginCode = async (provider: string, code: string): Promise<ModelsSettingsResponse> => {
+  const res = await client.api.settings.models[":provider"].login.code.$post({
+    param: { provider },
+    json: { code },
+  });
+  if (!res.ok) throw await apiError(res);
+  return (await res.json()) as ModelsSettingsResponse;
+};
+
+/** 進行中のサインインの中断と、終端した結果表示の消去（どちらも冪等） */
+export const cancelOAuthLogin = async (provider: string): Promise<ModelsSettingsResponse> => {
+  const res = await client.api.settings.models[":provider"].login.$delete({ param: { provider } });
+  if (!res.ok) throw await apiError(res);
+  return (await res.json()) as ModelsSettingsResponse;
+};
+
+/** サインアウト。auth.json の OAuth を削除するだけで、この画面で登録したキーは残す */
+export const logoutOAuthProvider = async (provider: string): Promise<ModelsSettingsResponse> => {
+  const res = await client.api.settings.models[":provider"].logout.$post({ param: { provider } });
+  if (!res.ok) throw await apiError(res);
+  return (await res.json()) as ModelsSettingsResponse;
+};
+
+/**
  * 設定 → コンテンツ生成の設定（純粋読取）。APIキーは含まれず、登録済みでも値は返らない。
  * 画像モデルの選択肢は `image.models` で、キー未設定なら configured: false。
  */

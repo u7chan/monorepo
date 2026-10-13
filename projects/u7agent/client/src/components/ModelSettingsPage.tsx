@@ -96,6 +96,10 @@ export function ModelSettingsView({
     saveAvailability,
     remove,
     resync,
+    startLogin,
+    submitLoginCode,
+    cancelLogin,
+    signOut,
   } = modelSettings;
   // モデルの下書きは両タブの親が持つ。タブを切り替えて片方が unmount しても、未保存の選択と既定モデルを失わない
   const [draft, setDraft] = useState<AvailabilityDraft>(EMPTY_DRAFT);
@@ -176,6 +180,10 @@ export function ModelSettingsView({
             onSaveMemo={saveMemo}
             onDelete={remove}
             onResync={resync}
+            onLogin={startLogin}
+            onSubmitLoginCode={submitLoginCode}
+            onCancelLogin={cancelLogin}
+            onSignOut={signOut}
             drafts={providerDrafts}
             onChangeDraft={updateProviderDraft}
             onOpenModels={() => onSelectModelsSubsection?.(DEFAULT_MODELS_SUBSECTION)}

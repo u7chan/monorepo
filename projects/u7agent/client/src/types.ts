@@ -52,6 +52,7 @@ export type {
   ModelsSettingsResponse,
   NotificationResult,
   NotificationsResponse,
+  OAuthLoginState,
   PendingSend,
   PostMessageResult,
   Project,

@@ -22,6 +22,7 @@ import { ReloadButton } from "../ReloadButton";
 import { useConfirm } from "../ConfirmProvider";
 import { ProviderIcon } from "../ProviderIcon";
 import { MetaChip } from "./MetaChip";
+import { OAuthSignInSection } from "./OAuthSignInSection";
 import { ProviderBadgeTag } from "./ProviderBadgeTag";
 
 export type ProvidersTabProps = {
@@ -37,6 +38,10 @@ export type ProvidersTabProps = {
   onSaveMemo: (provider: string, memo: string) => Promise<boolean>;
   onDelete: (provider: string) => Promise<boolean>;
   onResync: (provider: string) => Promise<boolean>;
+  onLogin: (provider: string) => Promise<boolean>;
+  onSubmitLoginCode: (provider: string, code: string) => Promise<boolean>;
+  onCancelLogin: (provider: string) => Promise<boolean>;
+  onSignOut: (provider: string) => Promise<boolean>;
   /** provider ごとの入力下書き (apiKey / memo)。両タブの親が保持する */
   drafts: Record<string, ProviderDraft>;
   /** 下書きのフィールド単位の更新。触っていないフィールドは親側の最新値を保つ */
@@ -62,6 +67,10 @@ export function ProvidersTab({
   onSaveMemo,
   onDelete,
   onResync,
+  onLogin,
+  onSubmitLoginCode,
+  onCancelLogin,
+  onSignOut,
   drafts,
   onChangeDraft,
   onOpenModels,
@@ -216,6 +225,10 @@ export function ProvidersTab({
                   onSaveMemo={onSaveMemo}
                   onDelete={onDelete}
                   onResync={onResync}
+                  onLogin={onLogin}
+                  onSubmitLoginCode={onSubmitLoginCode}
+                  onCancelLogin={onCancelLogin}
+                  onSignOut={onSignOut}
                   drafts={drafts}
                   onChangeDraft={onChangeDraft}
                   onOpenModels={onOpenModels}
@@ -294,6 +307,10 @@ function ProviderDetail({
   onSaveMemo,
   onDelete,
   onResync,
+  onLogin,
+  onSubmitLoginCode,
+  onCancelLogin,
+  onSignOut,
   drafts,
   onChangeDraft,
   onOpenModels,
@@ -309,6 +326,10 @@ function ProviderDetail({
   onSaveMemo: (provider: string, memo: string) => Promise<boolean>;
   onDelete: (provider: string) => Promise<boolean>;
   onResync: (provider: string) => Promise<boolean>;
+  onLogin: (provider: string) => Promise<boolean>;
+  onSubmitLoginCode: (provider: string, code: string) => Promise<boolean>;
+  onCancelLogin: (provider: string) => Promise<boolean>;
+  onSignOut: (provider: string) => Promise<boolean>;
   drafts: Record<string, ProviderDraft>;
   onChangeDraft: (provider: string, patch: Partial<ProviderDraft>) => void;
   onOpenModels: () => void;
@@ -392,6 +413,16 @@ function ProviderDetail({
             : "キーの登録はできません（メモは保存できます）。"}
         </p>
       ) : null}
+
+      <OAuthSignInSection
+        provider={provider}
+        runtimeAvailable={runtimeAvailable}
+        busy={busy}
+        onLogin={onLogin}
+        onSubmitCode={onSubmitLoginCode}
+        onCancel={onCancelLogin}
+        onSignOut={onSignOut}
+      />
 
       <section className="grid gap-1.5">
         <div className="text-2xs font-semibold tracking-label text-ink-faint uppercase">APIキー</div>
