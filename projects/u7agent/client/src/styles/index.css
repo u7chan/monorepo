@@ -1802,7 +1802,7 @@
     border: 1px solid var(--c-line);
     color: var(--c-ink);
   }
-  /* UA の button スタイルを消さないと文字サイズと行間が周囲とずれる */
+  /* UA の button スタイルを消さないと文字サイズと行間が周囲とずれる。text-align を継承させないと折り返した参照が中央に寄る */
   .md-fileref {
     font: inherit;
     color: inherit;
@@ -1810,6 +1810,7 @@
     border: 0;
     padding: 0;
     margin: 0;
+    text-align: inherit;
     cursor: pointer;
     border-radius: 6px;
   }
