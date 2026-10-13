@@ -191,7 +191,7 @@ test("a completed run posts one embed with the link and masked body", async () =
         "/api/notifications",
         jsonPut({ webhookUrl: WEBHOOK, enabled: true, baseUrl: "http://127.0.0.1:5173" }),
       );
-      // 通常スペース以外の会話でも、リンクはその会話の所属で開ける (保存値に依存させない)
+      // 既定スペース以外の会話でも、リンクはその会話の所属で開ける (保存値に依存させない)
       const space = await jsonBody(bff.app.request("/api/spaces", jsonPost({ name: "デモ" })));
       const created = await jsonBody(
         bff.app.request("/api/sessions", jsonPost({ notify: true, spaceId: space.space.id })),

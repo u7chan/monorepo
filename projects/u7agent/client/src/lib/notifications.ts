@@ -249,7 +249,7 @@ export function notificationResultView(result: NotificationResult | undefined): 
 
 /** プレビューの見本。実データはサーバーが組み立てるため、形だけを Issue の例に揃える */
 const PREVIEW_SESSION_ID = "a1b2c3d4e5";
-/** 見本の所属スペース。実通知は会話の所属 (通常は default) を常に載せる */
+/** 見本の所属スペース。実通知は会話の所属 (既定スペースは default) を常に載せる */
 const PREVIEW_SPACE_ID = "space-a1b2c3d4e5f6a7b8";
 
 /** プレビューのリンク行。ベース URL が空・不正なら undefined (サーバーもリンク行ごと出さない) */

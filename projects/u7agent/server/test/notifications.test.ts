@@ -168,7 +168,7 @@ test("maskWebhook hides the whole URL and any /api/webhooks path", () => {
 test("deepLink builds /s/<id> from the base URL and skips an unset base", () => {
   assert.equal(deepLink("http://127.0.0.1:5173", "a1b2c3d4e5"), "http://127.0.0.1:5173/s/a1b2c3d4e5");
   assert.equal(deepLink("http://127.0.0.1:5173", "a b"), "http://127.0.0.1:5173/s/a%20b");
-  // 開くスペースは保存値に依存させない (通常スペースも default として載せる)
+  // 開くスペースは保存値に依存させない (既定スペースも default として載せる)
   assert.equal(
     deepLink("http://127.0.0.1:5173", "a1b2c3d4e5", "space-1111111111111111"),
     "http://127.0.0.1:5173/s/a1b2c3d4e5?space=space-1111111111111111",
@@ -402,7 +402,7 @@ test("通知のスペースは通知層で正規化し、不正値でもリン�
     service.notifySession({ ...input, spaceId: "../bad" });
     await waitFor(() => calls.length === 1);
     assert.equal(linkOf(0), "http://127.0.0.1:5173/s/a1b2c3d4e5");
-    // 未指定は通常スペース (保存値に依存させない)
+    // 未指定は既定スペース (保存値に依存させない)
     service.notifySession(input);
     await waitFor(() => calls.length === 2);
     assert.equal(linkOf(1), "http://127.0.0.1:5173/s/a1b2c3d4e5?space=default");

@@ -8,7 +8,7 @@ import { entrySpaceOf, parseRoute } from "./lib/route";
 import { removeSpaceAndApply } from "./lib/spaceDelete";
 import { DEFAULT_SPACE_ID, initialSpaceSelection, selectedSpace, spaceSelectionStore } from "./lib/spaceSelection";
 
-/** 読み取りの失敗は通常スペースを黙って出さず、明示的な選び直しを求める */
+/** 読み取りの失敗は既定スペースを黙って出さず、明示的な選び直しを求める */
 const SPACE_SELECTION_READ_ERROR = "会話スペースの選択を読み取れません。選び直してください。";
 
 type SpaceSelectionState = {

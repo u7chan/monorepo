@@ -2,7 +2,7 @@
 
 会話（セッション）ごとのトグルが On のとき、エージェントの応答が返ってきたら Discord の Incoming Webhook へ 1 通送る。ブラウザを閉じてもランは BFF で続く（[run-lifecycle.md](run-lifecycle.md)）ため、離席中に終わったことを Discord で知るための仕組み。プロバイダーは Discord だけを対象にする。
 
-Discord 通知リンク `/s/<sessionId>?space=<spaceId>` は会話を指定した URL（同じ形のリンクを設定 → ランタイムの「起動元の会話」も使う）。開いた会話は URL に残る（[frontend.md](frontend.md#会話-url)）。`space` は開くスペースの明示で、通常スペースは `default`。`/` は会話を自動復元せず、リンク先を開けない場合も別の会話へ移らない。
+Discord 通知リンク `/s/<sessionId>?space=<spaceId>` は会話を指定した URL（同じ形のリンクを設定 → ランタイムの「起動元の会話」も使う）。開いた会話は URL に残る（[frontend.md](frontend.md#会話-url)）。`space` は開くスペースの明示で、既定スペースは `default`。`/` は会話を自動復元せず、リンク先を開けない場合も別の会話へ移らない。
 
 正は `server/src/notifications.ts`（設定の読み書き・宛先検証・送信・直近結果・専用マスク）で、ルートは `server/src/routes/notifications.ts`、per-session のトグルは `server/src/sessions.ts` の `setNotify()` が持つ。設定画面は `client/src/components/NotificationSettingsPage.tsx` と `client/src/components/notifications/`。
 
@@ -23,7 +23,7 @@ Discord 通知リンク `/s/<sessionId>?space=<spaceId>` は会話を指定し�
 ```
 
 - `<実行時間>` はランの所要時間（[run-lifecycle.md](run-lifecycle.md#状態)）で、キュー待ちと回答待ち（`ask_user` の実行区間）を含めない。回答待ちが長い会話では、実際に待った時間より短い値になる
-- `space` はその会話の所属スペース。**保存値に依存させず、そのスペースで開くために常に載せる**（通常スペースも `default` として載せる）。所属が引けない / 不正な値のときは `?space=` を付けずに送り、保存値で解決させる（正規化は通知層で行い、通知そのものは失わない）
+- `space` はその会話の所属スペース。**保存値に依存させず、そのスペースで開くために常に載せる**（既定スペースも `default` として載せる）。所属が引けない / 不正な値のときは `?space=` を付けずに送り、保存値で解決させる（正規化は通知層で行い、通知そのものは失わない）
 - 会話を別のスペースへ引っ越すと、移動前に送った通知の `?space=` は旧スペースを指すため 404 になる（会話は移動先にある）。既知の制限で、通知の再送や URL の書換えはしない（[api-sessions.md](api-sessions.md#post-apisessionsidmove)）
 - 本文は **mask → truncate** の順（逆順だと上限の境界でキーの末尾が欠ける）。mask は APIキーの masker と Webhook URL の専用マスクの両方
 - 通知本文は Discord の embed として送る。embed 内の文字列からメンション通知は発生しないため、メンション設定は提供しない

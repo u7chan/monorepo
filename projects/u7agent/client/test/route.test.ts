@@ -194,7 +194,7 @@ test("`/s/<id>` の `space` だけを読み、他の画面と他のクエリは�
   // 会話を指定しない画面では pathname と同じく解釈しない
   assert.equal(entrySpaceOf(CHAT_ROUTE, "?space=demo"), null);
   assert.equal(entrySpaceOf(settings("spaces"), "?space=demo"), null);
-  // 不正な値も「不正な指定」として渡し、通常スペースへ黙って落とさない
+  // 不正な値も「不正な指定」として渡し、既定スペースへ黙って落とさない
   assert.equal(entrySpaceOf(sessionUrl("abc123"), "?space=../bad"), "../bad");
 });
 

@@ -51,10 +51,10 @@ $PI_SESSION_STORE/u7agent.db  # アプリデータ（プロジェクト / カタ
 
 ## スペースごとの配置
 
-通常（`default`）の作業先・添付と BFF 会話ストアの配置は変えない。作業フォルダ（スクラッチ）と添付の置き場は所属スペースで決まり、`spaceId` の省略だけが `default` に寄る（不正値は 400）。パスの正は `server/src/app-paths.ts` の `sessionWorkdirRel` / `sessionUploadsRel` で、表示名や任意の要求パスからは組み立てない。
+既定（`default`）の作業先・添付と BFF 会話ストアの配置は変えない。作業フォルダ（スクラッチ）と添付の置き場は所属スペースで決まり、`spaceId` の省略だけが `default` に寄る（不正値は 400）。パスの正は `server/src/app-paths.ts` の `sessionWorkdirRel` / `sessionUploadsRel` で、表示名や任意の要求パスからは組み立てない。
 
 ```text
-# 通常（default）
+# 既定（default）
 <workspace>/.u7agent/sessions/<sessionId>/
 <workspace>/.u7agent/uploads/<sessionId>/
 
@@ -154,14 +154,14 @@ meta の optional `spaceId` は欠落だけが `default`。追加スペースで
 
 ## 添付ファイル（チャットからのアップロード）
 
-チャットから添付したファイルは、所属スペースの添付置き場（[スペースごとの配置](#スペースごとの配置)）に置く（プロジェクトのリポジトリ内には作らない。通常スペースではルート相対で `.u7agent/uploads/<id>/`）。BFF は作業領域に触らないため、本文は `POST /api/sessions/:id/files` からサンドボックスの `POST /v1/files/upload` へ raw ストリームで転送し、保存名と重複回避はサンドボックスが決める。
+チャットから添付したファイルは、所属スペースの添付置き場（[スペースごとの配置](#スペースごとの配置)）に置く（プロジェクトのリポジトリ内には作らない。既定スペースではルート相対で `.u7agent/uploads/<id>/`）。BFF は作業領域に触らないため、本文は `POST /api/sessions/:id/files` からサンドボックスの `POST /v1/files/upload` へ raw ストリームで転送し、保存名と重複回避はサンドボックスが決める。
 
 - 選択時（即時）にアップロードする。未作成チャットでは先にセッションを作る（クライアントの `ensureSession`。同時アップロードで二重作成しない）
 - 入力欄への貼り付け（デスクトップの Ctrl+V / Cmd+V、モバイルは長押しメニューのペースト）でも画像を添付できる。扱うのは `image/*` の項目だけで、テキストだけの貼り付けは既定動作に任せる（画像と一緒に載る `text/html` などを本文へ混ぜないよう、添付するときだけ既定動作を止める）。保存名はブラウザーが付ける `image.png` / `blob` に依存せず、MIME から拡張子を決めた `pasted-<YYYYMMDD-HHmmss>.<ext>` に揃える（判定は `client/src/lib/clipboardImages.ts`。同じ秒の複数枚は他の添付と同じ連番規則が分ける）
 - モバイル（iOS / Android の Chrome。iPhone 14 / iOS 26.6.2 と Android 9 で確認）の実機でも同じ経路で成立する。モバイルの `textarea` は貼り付けた画像を挿入しないため、貼り付け直後の入力欄は空のままに見える。`input` は `insertFromPaste` で `valueLen=0` になるが、`paste` の `clipboardData.items` には `image/*` の `File` が入る。**添付できたかはチップで判断する**（空の入力欄を失敗の合図にしない。実機の確認項目は [testing.md](testing.md#gui-の最小受入)）
 - `paste` の `clipboardData` の読み出しに secure context は要らない。`pnpm dev` の Vite を LAN の HTTP で開く使い方（`isSecureContext=false`）でも画像を拾える。secure context が要るのは `navigator.clipboard.read()` / `readText()` の側で、[sandbox.md](sandbox.md) の記述はそちらを指す
 - 入力欄の `contenteditable` 化と、一時的な `contenteditable` でペーストを受ける案は採らない。iOS の `contenteditable` に貼り付いた画像を `fetch` で取り出すと blob の型が UTI（`public.png`）になり MIME にならない（`items` 経由なら `image/png` がそのまま来る）
-- API の `path` は root 相対（通常スペースでは `.u7agent/uploads/<id>/<name>`）。クライアントはこの値をそのままチップと raw URL に使う
+- API の `path` は root 相対（既定スペースでは `.u7agent/uploads/<id>/<name>`）。クライアントはこの値をそのままチップと raw URL に使う
 - 同名ファイルは上書きせず `name-1.ext` 形式で連番にする（`link(2)` の排他作成。2 回目以降も連番）
 - 添付を外してもファイルは置き場に残す（`DELETE /api/files` の一覧から削除できる。移動 API は非ゴール）
 - LLM へのマルチモーダル注入はしない。プロンプト末尾の注記（`<attached_files>`）で**絶対パス**を知らせ、モデルが必要なら `read` する。プロジェクト所属セッションの cwd からは相対で届かないため、絶対パスで渡す。注記の組み立ては `server/src/attachments.ts` に閉じる
@@ -256,7 +256,7 @@ assistant 本文のインラインコードが指すファイルは、クリッ�
 ## デプロイ
 
 - BFF コンテナに `PI_SESSION_STORE` の永続ボリュームを追加する（例: `/session-store`）。**ワークスペースはマウントしない**（現行どおり）。
-- 未所属セッションのスクラッチと添付はワークスペースの永続マウント配下（通常スペースでは `/workspace/.u7agent/sessions/<id>` と `/workspace/.u7agent/uploads/<id>`）にでき、サンドボックスから見える。プロジェクト所属セッションの作業ディレクトリは登録ディレクトリそのものなので、ワークスペースの永続マウント配下にある限り残る。
+- 未所属セッションのスクラッチと添付はワークスペースの永続マウント配下（既定スペースでは `/workspace/.u7agent/sessions/<id>` と `/workspace/.u7agent/uploads/<id>`）にでき、サンドボックスから見える。プロジェクト所属セッションの作業ディレクトリは登録ディレクトリそのものなので、ワークスペースの永続マウント配下にある限り残る。
 - `pnpm dev` は store の既定が `~/.pi/agent/u7agent/sessions` なので追加設定なし。`.gitignore` に `.u7agent/` を追加する。
 - Compose / target の変更は self-hosted-runner 側（[persistence.md](persistence.md) の正本）。
 
@@ -284,7 +284,7 @@ assistant 本文のインラインコードが指すファイルは、クリッ�
 
 ## 受け入れ条件
 
-- [ ] 会話ごとに store（`<store>/<id>/{meta.json,session.jsonl,sends.json}`）が作られ、未所属チャットのスクラッチ（通常スペースでは `.u7agent/sessions/<id>`）が作られ、ファイル画面の root になる
+- [ ] 会話ごとに store（`<store>/<id>/{meta.json,session.jsonl,sends.json}`）が作られ、未所属チャットのスクラッチ（既定スペースでは `.u7agent/sessions/<id>`）が作られ、ファイル画面の root になる
 - [ ] プロジェクト所属セッションの cwd は登録ディレクトリになり、同一プロジェクトの複数セッションがツリーを共有し、作成・復元でプロジェクトのディレクトリを作らない（無ければ 400）
 - [ ] 添付は所属スペースの置き場（[スペースごとの配置](#スペースごとの配置)）に保存され、注記の絶対パスで `read` でき、ファイル画面には出ない
 - [ ] `<appdir>/**` のプロジェクト登録は 400 になる

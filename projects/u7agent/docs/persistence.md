@@ -11,10 +11,10 @@ GUI の会話履歴は **BFF 専用の会話ストア**（`PI_SESSION_STORE`）�
 |---|---|
 | `/workspace` 内のファイル・Gitリポジトリ・worktree | 残る |
 | 共通スキル（`<workspace>/.agents/skills`） | 残る |
-| セッションの作業ディレクトリ（未所属チャットのスクラッチ。通常スペースは `<workspace>/.u7agent/sessions/<id>`） | 残る |
+| セッションの作業ディレクトリ（未所属チャットのスクラッチ。既定スペースは `<workspace>/.u7agent/sessions/<id>`） | 残る |
 | プロジェクト所属セッションの作業ディレクトリ（登録ディレクトリそのもの） | 残る（登録したディレクトリが永続マウント配下なら） |
 | プロジェクトスキル（`<project>/.agents/skills`） | 残る（登録したディレクトリが永続マウント配下なら） |
-| 添付ファイル（通常スペースは `<workspace>/.u7agent/uploads/<id>`） | 残る |
+| 添付ファイル（既定スペースは `<workspace>/.u7agent/uploads/<id>`） | 残る |
 | 会話履歴・セッション一覧・タイトル（`PI_SESSION_STORE/<id>/{meta.json,session.jsonl,sends.json}`） | 残る（ストアを永続ボリュームに置いた場合） |
 | エージェント / スキル定義（アプリデータの SQLite） | 残る（ストアを永続ボリュームに置いた場合） |
 | アーカイブの除外名（アプリデータの SQLite、上書きしたときだけ） | 残る（ストアを永続ボリュームに置いた場合） |
@@ -34,14 +34,14 @@ GUI の会話履歴は **BFF 専用の会話ストア**（`PI_SESSION_STORE`）�
 
 ## スペース
 
-スペースはデモ用の会話の表示区分であり、認証・権限・実行隔離ではない。共通設定、カタログ、API キー、ワークスペース全体のファイル、通知先、公開サービスの枠は共有する。追加スペースは会話専用で、プロジェクトは通常スペースだけで利用する。
+スペースはデモ用の会話の表示区分であり、認証・権限・実行隔離ではない。共通設定、カタログ、API キー、ワークスペース全体のファイル、通知先、公開サービスの枠は共有する。追加スペースは会話専用で、プロジェクトは既定スペースだけで利用する。
 
-- 通常の予約 ID は `default`。旧会話の `meta.json` に `spaceId` が無い場合だけ通常として読む。不正な保存値は通常へ読み替えず、壊れた meta として一覧から除く。
-- 追加スペースはアプリ DB の `spaces(id, name, createdAt)` に保存する。内部 ID は `space-` + 16 桁の hex、表示名とは独立して固定する。通常は固定の選択肢でテーブルへ保存しない。v13 → v14 はテーブル追加だけの加算移行で、既存データを移動・削除しない。
+- 既定スペースの予約 ID は `default`。旧会話の `meta.json` に `spaceId` が無い場合だけ既定として読む。不正な保存値は既定へ読み替えず、壊れた meta として一覧から除く。
+- 追加スペースはアプリ DB の `spaces(id, name, createdAt)` に保存する。内部 ID は `space-` + 16 桁の hex、表示名とは独立して固定する。既定スペースは固定の選択肢でテーブルへ保存しない。v13 → v14 はテーブル追加だけの加算移行で、既存データを移動・削除しない。
 - 会話ログは従来の `<PI_SESSION_STORE>/<sessionId>/` のまま。追加スペースの所属は meta に保存し、live・未ロード・sweep 後・再起動後で保持する。JSONL の SDK 形式は変えない。
-- 通常の作業先・添付は既存パスのまま。追加スペースの作業フォルダと添付は所属スペース配下（[session-files.md](session-files.md#スペースごとの配置)）。
+- 既定の作業先・添付は既存パスのまま。追加スペースの作業フォルダと添付は所属スペース配下（[session-files.md](session-files.md#スペースごとの配置)）。
 - 未所属セッションは `POST /api/sessions/:id/move` で別のスペースへ引っ越せる。meta の `spaceId` を書き換え、作業フォルダ / 添付を移動先のパスへ物理移動する（会話ログのフォルダは `<PI_SESSION_STORE>/<sessionId>/` のままで、履歴の `session.jsonl` / `sends.json` は破棄する。`secrets` / `serve_commands` は cwd をキーにするため移動先へ付け替える。[api-sessions.md](api-sessions.md#post-apisessionsidmove)）。
-- 追加スペースは `DELETE /api/spaces/:id` で削除できる。会話（live / 未ロード）・履歴・作業フォルダ / 添付（`<workspace>/.u7agent/spaces/<spaceId>`）・`secrets` / `serve_commands` の cwd キー行・`spaces` 行を消し、`spaces` 行の削除を最後に置いて途中で失敗しても行が残るようにする（そのまま再試行できる）。通常スペースは対象外（400）。削除中はそのスペースを対象にする scoped API が読み取りも含めて 404 になる（[api.md](api.md#スペース)）。
+- 追加スペースは `DELETE /api/spaces/:id` で削除できる。会話（live / 未ロード）・履歴・作業フォルダ / 添付（`<workspace>/.u7agent/spaces/<spaceId>`）・`secrets` / `serve_commands` の cwd キー行・`spaces` 行を消し、`spaces` 行の削除を最後に置いて途中で失敗しても行が残るようにする（そのまま再試行できる）。既定スペースは対象外（400）。削除中はそのスペースを対象にする scoped API が読み取りも含めて 404 になる（[api.md](api.md#スペース)）。
 - 切り替えは会話や実行中ランを消さない。改名・リセットは設けず、削除だけができる。空のデモを始めるときは新しいスペースを作成する。
 
 ## 作業領域

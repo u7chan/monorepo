@@ -148,7 +148,7 @@ const resize: SidebarResize = {
 function renderSidebar(withResize: boolean): string {
   return renderToStaticMarkup(
     createElement(Sidebar, {
-      spaceName: "通常",
+      spaceName: "既定",
       conversationOnly: false,
       mode: "nav",
       onSelectMode: () => {},

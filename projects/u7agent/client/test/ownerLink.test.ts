@@ -7,7 +7,7 @@ import type { Space } from "server";
 import { openOwnerSession } from "../src/lib/ownerLink";
 import type { Route } from "../src/lib/route";
 
-const normal: Space = { id: "default", name: "通常", createdAt: 0 };
+const normal: Space = { id: "default", name: "既定", createdAt: 0 };
 const demo: Space = { id: "space-1111111111111111", name: "デモ", createdAt: 1 };
 
 /** 実行した操作の列。載せた会話と、切り替え先 / 開いた会話の ID だけを見る */

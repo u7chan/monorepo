@@ -82,7 +82,7 @@ export interface SessionRecord {
   projectCwd?: string;
   projectName?: string;
   /** セッションの作業ディレクトリ (root 相対)。所属があれば登録ディレクトリ、未所属は所属スペースのスクラッチ
-   * (root "" は永続化なしの通常スペースだけ)。SDK へも同じ値を cwd として渡す */
+   * (root "" は永続化なしの既定スペースだけ)。SDK へも同じ値を cwd として渡す */
   workdir: string;
   /** 会話ストアの絶対パス。空文字は永続化なし */
   storeDir: string;

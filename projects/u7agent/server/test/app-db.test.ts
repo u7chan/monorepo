@@ -1237,7 +1237,7 @@ test("deleteSpace removes the space row and the cwd-key rows under its root only
   db.insertSecret(secretRow({ cwd: `${dir}/sessions/aaaa000001`, name: "A" }));
   db.saveServeCommand({ cwd: `${dir}/sessions/aaaa000001`, command: "pnpm dev", updatedAt: 1 });
   db.insertSecret(secretRow({ secretId: "s2", cwd: `${dir}/sessions/aaaa000002/100%_の絵`, name: "B" }));
-  // 同じ接頭辞の別 id / 根そのもの / 通常スペース / 他会話スペースの cwd は残す (前方一致は `/` まで)
+  // 同じ接頭辞の別 id / 根そのもの / 既定スペース / 他会話スペースの cwd は残す (前方一致は `/` まで)
   db.insertSecret(secretRow({ secretId: "s3", cwd: `.u7agent/spaces/${other}/sessions/aaaa000001`, name: "C" }));
   db.insertSecret(secretRow({ secretId: "s4", cwd: dir, name: "D" }));
   db.insertSecret(secretRow({ secretId: "s5", cwd: ".u7agent/sessions/aaaa000001", name: "E" }));

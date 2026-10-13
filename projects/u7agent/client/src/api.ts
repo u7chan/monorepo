@@ -203,7 +203,7 @@ export const createSpace = async (name: string): Promise<{ space: import("server
 };
 
 /**
- * 追加スペースを箱ごと消す。削除対象は id なので、文脈の `spaceId` は付けない (通常スペースは 400、公開中の
+ * 追加スペースを箱ごと消す。削除対象は id なので、文脈の `spaceId` は付けない (既定スペースは 400、公開中の
  * サービスがあれば 409 で、理由はサーバーの文言をそのまま画面へ出す)。
  */
 export const deleteSpace = async (id: string): Promise<{ ok: true }> => {
@@ -421,7 +421,7 @@ export type CreateSessionOverrides = SessionOverrides & { projectId?: string; no
 
 export type SessionFileUpload = {
   sessionId: string;
-  /** root 相対の保存パス。通常 / 追加スペースの添付置き場をそのまま raw URL に使える */
+  /** root 相対の保存パス。既定 / 追加スペースの添付置き場をそのまま raw URL に使える */
   path: string;
   name: string;
   renamed: boolean;

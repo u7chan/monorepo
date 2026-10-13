@@ -107,7 +107,7 @@ async function setup(t: test.TestContext) {
   };
 }
 
-test("通常と複数スペースの一覧・所属・cwd・添付は live / sweep / 再起動で一致する", async (t) => {
+test("既定と複数スペースの一覧・所属・cwd・添付は live / sweep / 再起動で一致する", async (t) => {
   const f = await setup(t);
   const a = await f.space("デモ A");
   const b = await f.space("デモ B");
@@ -319,7 +319,7 @@ test("追加スペースの送信は同スペースの添付だけを許容し�
   assert.ok(!f.skillDirs.some((dir) => dir.includes("/spaces/")));
 });
 
-test("DB 障害でも通常の live 停止・削除と壊れた未ロード JSONL の削除は通る", async (t) => {
+test("DB 障害でも既定スペースの live 停止・削除と壊れた未ロード JSONL の削除は通る", async (t) => {
   const f = await setup(t);
   const damaged = await f.session();
   const space = await f.space("デモ");
@@ -346,7 +346,7 @@ test("DB 障害でも通常の live 停止・削除と壊れた未ロード JSON
   }
 });
 
-test("不正な保存所属は通常へ読み替えない", async (t) => {
+test("不正な保存所属は既定へ読み替えない", async (t) => {
   const f = await setup(t);
   const session = await f.session();
   await f.bff.close();
@@ -358,7 +358,7 @@ test("不正な保存所属は通常へ読み替えない", async (t) => {
   assert.equal((await f.bff.app.request(`/api/sessions/${session.sessionId}`)).status, 404);
 });
 
-test("サービスは復元前でも追加スペースの cwd を使い、共有所有者は通常からも正しく表示する", async (t) => {
+test("サービスは復元前でも追加スペースの cwd を使い、共有所有者は既定からも正しく表示する", async (t) => {
   const f = await setup(t);
   const space = await f.space("デモ");
   const demo = await f.session(space.id);
@@ -449,7 +449,7 @@ test("スペース削除は live / 実行中 / 未ロード / sweep 後 / 壊れ
   }
 });
 
-test("スペース削除は通常 400、不正 400、未知 404 を副作用なしで返す", async (t) => {
+test("スペース削除は既定 400、不正 400、未知 404 を副作用なしで返す", async (t) => {
   const f = await setup(t);
   const space = await f.space("デモ");
   const deleted = f.deletedDirs.length;
@@ -526,7 +526,7 @@ test("スペース削除は会話・履歴・作業フォルダ・添付の根�
   assert.equal(f.bff.appDb.getServeCommand(target.cwd), undefined);
   assert.equal(target.cwd, sessionWorkdirRel(target.sessionId, space.id));
   assert.equal(sessionUploadsRel(target.sessionId, space.id), `${spaceDirRel(space.id)}/uploads/${target.sessionId}`);
-  // 通常スペースと他会話スペースは無傷
+  // 既定スペースと他会話スペースは無傷
   assert.equal(f.bff.store.spaceOfId(keep.sessionId), other.id);
   assert.equal(f.bff.store.spaceOfId(normal.sessionId), "default");
   assert.equal(existsSync(sessionMetaPath(keep.sessionId, f.dir)), true);
@@ -535,7 +535,7 @@ test("スペース削除は会話・履歴・作業フォルダ・添付の根�
     ["KEEP"],
   );
   assert.equal(f.bff.appDb.getServeCommand(keep.cwd)?.command, "pnpm start");
-  // 一覧に消したスペースの会話が混ざらず、通常 / 他会話の一覧も変わらない
+  // 一覧に消したスペースの会話が混ざらず、既定 / 他会話の一覧も変わらない
   assert.deepEqual(f.bff.store.list(space.id), []);
   assert.deepEqual(
     (await jsonBody(f.bff.app.request("/api/spaces"))).spaces.map((item: Space) => item.id),

@@ -4,9 +4,9 @@
 
 ## スペース文脈
 
-作成の本文以外は、全会話 API（SSE・添付も含む）へ `?spaceId=<id>` を渡す。省略は通常 `default`。所属不一致は SDK 復元や変更の前に 404 とする（[api.md](api.md#スペース)）。一覧は要求スペースだけを返し、未指定一覧に追加スペースを混ぜない。`SessionSummary` / `SessionPayload` は正規化した `spaceId` を返す。
+作成の本文以外は、全会話 API（SSE・添付も含む）へ `?spaceId=<id>` を渡す。省略は既定の `default`。所属不一致は SDK 復元や変更の前に 404 とする（[api.md](api.md#スペース)）。一覧は要求スペースだけを返し、未指定一覧に追加スペースを混ぜない。`SessionSummary` / `SessionPayload` は正規化した `spaceId` を返す。
 
-`POST /api/sessions` の optional `spaceId` は本文で指定する。所属を後から変えるのは `POST /api/sessions/:id/move` だけで、履歴を破棄して作業フォルダ / 添付を移動先へ物理移動する（同 API の節を参照）。追加スペースと `projectId` の併用は 400。追加スペースの cwd は `.u7agent/spaces/<spaceId>/sessions/<sessionId>`、添付は同階層の `uploads/<sessionId>` とし、その会話の添付だけを送信時に許容する。通常の cwd・添付・既存参照は変えない。未確定会話の `GET /api/skills/session` も query の所属を確認し、追加スペースでは `projectId` を拒否する。
+`POST /api/sessions` の optional `spaceId` は本文で指定する。所属を後から変えるのは `POST /api/sessions/:id/move` だけで、履歴を破棄して作業フォルダ / 添付を移動先へ物理移動する（同 API の節を参照）。追加スペースと `projectId` の併用は 400。追加スペースの cwd は `.u7agent/spaces/<spaceId>/sessions/<sessionId>`、添付は同階層の `uploads/<sessionId>` とし、その会話の添付だけを送信時に許容する。既定の cwd・添付・既存参照は変えない。未確定会話の `GET /api/skills/session` も query の所属を確認し、追加スペースでは `projectId` を拒否する。
 
 ## `GET /api/sessions`
 
@@ -51,7 +51,7 @@
 - `agentId` は optional。省略するとビルトインの汎用アシスタント（`agent-general`）を使うので、ユーザー定義が 0 件でも作成できる（[api-catalog.md](api-catalog.md#ビルトインの汎用エージェント)）。未知の id は 400。
 - `model` / `thinkingLevel` はそれぞれ optional（`null` は 400）。省略した項目は「エージェント定義 → アプリ既定」の順に解決する。アプリ既定が未設定（`health.defaultModelUnset`）の間はモデルを指定しない作成が 503 になる（候補の先頭では代用しない）。
 - `projectId` は optional。省略したセッションは未所属になる。未知の `projectId` は 400（未所属へは落とさない）。
-- セッションの作業ディレクトリは、所属プロジェクトがあれば登録ディレクトリ（`project.cwd`）、未所属なら所属スペースのスクラッチ（通常スペースは `.u7agent/sessions/<id>`。置き場は [session-files.md](session-files.md#スペースごとの配置)）。以降のツール実行とファイル一覧の起点になり、`write` / `edit` の書き込み範囲でもある（共通スキル置き場 `<root>/.agents/skills` は別枠。 [projects.md](projects.md#write--edit-の書き込み範囲)）。プロジェクトのディレクトリは作らず存在確認だけを行い、無ければ 400。未所属のスクラッチは作成時にサンドボックスの `POST /v1/dirs` で作る。会話の永続化が有効なときは `meta.json` / `session.jsonl` も同じ id で会話ストアへ作る（[session-files.md](session-files.md)）。所属を後から変える API は無い。詳細は [projects.md](projects.md#セッション-cwd)。
+- セッションの作業ディレクトリは、所属プロジェクトがあれば登録ディレクトリ（`project.cwd`）、未所属なら所属スペースのスクラッチ（既定スペースは `.u7agent/sessions/<id>`。置き場は [session-files.md](session-files.md#スペースごとの配置)）。以降のツール実行とファイル一覧の起点になり、`write` / `edit` の書き込み範囲でもある（共通スキル置き場 `<root>/.agents/skills` は別枠。 [projects.md](projects.md#write--edit-の書き込み範囲)）。プロジェクトのディレクトリは作らず存在確認だけを行い、無ければ 400。未所属のスクラッチは作成時にサンドボックスの `POST /v1/dirs` で作る。会話の永続化が有効なときは `meta.json` / `session.jsonl` も同じ id で会話ストアへ作る（[session-files.md](session-files.md)）。所属を後から変える API は無い。詳細は [projects.md](projects.md#セッション-cwd)。
 - 明示されたモデルは利用可能一覧の provider/id と厳密照合し、利用不能なら 400、利用可能モデル自体がゼロなら 503。いずれも pi SDK のセッション作成前に拒否する。
 - 作成時に指定した値はそのチャット内だけに適用され、定義や他のチャットへは波及しない。201 でセッションペイロードを返す。
 
@@ -303,7 +303,7 @@ GET /api/sessions/:id/history?limit=50&before=<itemId>
 - 維持: `sessionId` / `title` / `agent` / `promptSnapshot` / `model` / `thinkingLevel` / `pinned` / `notify` / `createdAt`。破棄: 履歴と未送信。`messageCount` は 0 になり、`lastUsedAt` は更新する。移動先の所属は `default` も含めて `meta.json` に明示的に書く。
 - **SDK セッションを開かない**ため、JSONL が破損していてもモデル未認証でも移せる（`DELETE` と同じ契約）。live の record は dispose してメモリから外し、購読中の SSE は `session_deleted` を送らずに close する（クライアントは一覧の取り直しで復帰する）。
 - 実行中 / キュー中 / 圧縮中 / 設定変更中は 409。同じスペースへの移動は 400、未知の id / 要求元と所属の不一致 / 未知の移動先スペースは 404。
-- 作業フォルダ / 添付は移動先の親（追加スペースなら `spaces/<spaceId>/sessions` / `spaces/<spaceId>/uploads`、通常へ戻すなら `.u7agent/sessions` / `.u7agent/uploads`）を作ってから移す。移動元が無いときは「運ぶものが無い」として続行し、移動先に既存があるときはマージせず 409（退避先の削除を案内する）。再実行は冪等。
+- 作業フォルダ / 添付は移動先の親（追加スペースなら `spaces/<spaceId>/sessions` / `spaces/<spaceId>/uploads`、既定へ戻すなら `.u7agent/sessions` / `.u7agent/uploads`）を作ってから移す。移動元が無いときは「運ぶものが無い」として続行し、移動先に既存があるときはマージせず 409（退避先の削除を案内する）。再実行は冪等。
 - `secrets` / `serve_commands` は cwd をキーにするため、移動先の cwd へ 1 トランザクションで付け替える（値の AAD は cwd を含まないので再暗号化しない）。
 - meta の書換え前に失敗したら、移したものを逆順で戻して 400 / 409 / 500 / 502 を返す。meta の書換え後に履歴の削除だけが失敗したときは 500 を返し、meta は移動済みのまま（同じスペースへは戻せないため、履歴の削除は次にその会話を別のスペースへ移したときに再試行される）。永続化なし / サンドボックス未設定 / アプリ DB 障害は 503（DB は `not_stored`）。
 - 稼働中のサービス（serve）があっても移動できる。既知の制限は [api.md](api.md#サービスserveの状態と起動停止) と [sandbox.md](sandbox.md#serveサービスの公開と起動停止) を参照。
