@@ -19,13 +19,15 @@ import { composerDropKind, FILE_MENTION_MIME, insertFileMention, type ComposerDr
 import type { LayoutMode } from "../lib/layout";
 import { runRetryBlockedReason, type RunErrorInfo } from "../lib/runRetry";
 import { skillCommandText } from "../lib/sessionSkills";
-import type { AgentDef, ContextUsage, ModelRef, RunStatus, ThinkingLevel, ToolCall } from "../types";
+import { shouldClearSuggestionOnBackspace, suggestionSendText } from "../lib/suggestion";
+import type { AgentDef, AgentSuggestion, ContextUsage, ModelRef, RunStatus, ThinkingLevel, ToolCall } from "../types";
 import { AgentField } from "./composer/AgentField";
 import { AttachmentChips } from "./composer/AttachmentChips";
 import { ComposerStatus } from "./composer/ComposerStatus";
 import { LiveToolCall } from "./composer/LiveToolCall";
 import { ModelEffortPicker } from "./composer/ModelEffortControls";
 import { SkillPicker } from "./composer/SkillPicker";
+import { SuggestionChip } from "./composer/SuggestionChip";
 import { ArrowUpIcon } from "./icons";
 
 export type ComposerProps = {
@@ -59,6 +61,8 @@ export type ComposerProps = {
   mode: LayoutMode;
   /** 選択中 / 送信待ちの添付。アップロード中・失敗がある間は送信できない */
   attachments: Attachment[];
+  /** 選択中の定型プロンプト。押すと載り、送信本文へ織り込む (解除は Composer が持つ) */
+  suggestion: AgentSuggestion | null;
   /** ワークスペース root の絶対パス (health.cwd)。画像チップの URL を組むのに使う */
   rootCwd: string;
   /** セッションのスキル一覧 (`/skill:` の入力補助)。新規チャットは作成前の選択で解決したプレビュー */
@@ -71,6 +75,7 @@ export type ComposerProps = {
   onStop: () => void;
   onAttachFiles: (files: File[]) => void;
   onRemoveAttachment: (id: string) => void;
+  onClearSuggestion: () => void;
   onChangeModel: (model: ModelRef) => void;
   onChangeThinkingLevel: (level: ThinkingLevel) => void;
   onChangeAgent: (agentId: string) => void;
@@ -124,6 +129,7 @@ export function Composer({
   sessionAgent,
   mode,
   attachments,
+  suggestion,
   rootCwd,
   skills,
   visible = true,
@@ -131,6 +137,7 @@ export function Composer({
   onStop,
   onAttachFiles,
   onRemoveAttachment,
+  onClearSuggestion,
   onChangeModel,
   onChangeThinkingLevel,
   onChangeAgent,
@@ -156,6 +163,18 @@ export function Composer({
 
   const maxTextareaHeight = singleColumn ? SINGLE_COLUMN_TEXTAREA_HEIGHT : MAX_TEXTAREA_HEIGHT;
 
+  // 選んだチップを押した後そのまま続きを書けるよう、本文へフォーカスを移す (選択を外したときは動かさない)
+  useEffect(() => {
+    if (!suggestion) return;
+    inputRef.current?.focus();
+  }, [suggestion]);
+
+  // チップを外しても続きを書けるよう、× の後は本文へフォーカスを戻す
+  const clearSuggestion = () => {
+    onClearSuggestion();
+    inputRef.current?.focus();
+  };
+
   // 非表示中は scrollHeight が 0 なので測らず、visible の復帰で測り直す (下書きが最小高へ潰れるのを防ぐ)
   useEffect(() => {
     if (!visible) return;
@@ -165,7 +184,7 @@ export function Composer({
     el.style.height = `${Math.min(el.scrollHeight, maxTextareaHeight)}px`;
   }, [value, maxTextareaHeight, visible]);
 
-  // 送信経路は入力欄に限らない (ChatArea の suggestion も同じ送信)。畳む条件の根拠は docs/ui-layout.md
+  // 送信経路は入力欄に限らない (再実行カードも同じ送信)。畳む条件の根拠は docs/ui-layout.md
   useEffect(() => {
     if (sending) setSettingsOpen(false);
   }, [sending]);
@@ -187,12 +206,13 @@ export function Composer({
   );
 
   const submit = () => {
-    const text = value.trim();
-    // 設定変更中は送信を待たせる (サーバー側でも 409)。添付だけの送信は許可する
+    const text = suggestionSendText(suggestion?.prompt ?? "", value);
+    // 設定変更中は送信を待たせる (サーバー側でも 409)。チップ / 添付だけの送信は許可する
     if (attachmentsBusy) return;
     if ((!text && !hasAttachment) || !runtimeReady || sending || settings.changing || settings.sendBlockedReason)
       return;
     setValue("");
+    onClearSuggestion();
     onSend(text);
     // 送信後のフォーカスはポインタで決める (docs/ui-layout.md)
     if (composerFocusAfterSend(hasCoarsePointer()) === "focus") inputRef.current?.focus();
@@ -282,6 +302,15 @@ export function Composer({
 
   const handleKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
     const { isComposing, keyCode } = event.nativeEvent;
+    const { selectionStart, selectionEnd } = event.currentTarget;
+    if (
+      suggestion &&
+      shouldClearSuggestionOnBackspace({ key: event.key, isComposing, keyCode, selectionStart, selectionEnd })
+    ) {
+      event.preventDefault();
+      clearSuggestion();
+      return;
+    }
     const state = { key: event.key, shiftKey: event.shiftKey, isComposing, keyCode };
     if (!shouldSubmitOnEnter(state, mode)) return;
     event.preventDefault();
@@ -312,6 +341,9 @@ export function Composer({
   const footnoteWarnings = [settings.modelWarning, settings.sendBlockedReason].filter((text): text is string =>
     Boolean(text),
   );
+  const suggestionChip = suggestion ? (
+    <SuggestionChip suggestion={suggestion} singleColumn={singleColumn} onClear={clearSuggestion} />
+  ) : null;
 
   return (
     <footer className="w-full min-w-0">
@@ -388,17 +420,21 @@ export function Composer({
               singleColumn={singleColumn}
               onRemove={onRemoveAttachment}
             />
+            {singleColumn ? suggestionChip : null}
             <div className={cn("flex items-end", singleColumn ? "gap-2" : "gap-2.5")}>
+              {singleColumn ? null : suggestionChip}
               <textarea
                 ref={inputRef}
                 rows={1}
                 value={value}
                 placeholder={
-                  runtimeReady
-                    ? singleColumn
-                      ? "メッセージを入力…"
-                      : "メッセージを入力… (Enterで送信 / Shift+Enterで改行)"
-                    : "APIキーを設定すると送信できます"
+                  suggestion !== null
+                    ? "続きを入力…"
+                    : runtimeReady
+                      ? singleColumn
+                        ? "メッセージを入力…"
+                        : "メッセージを入力… (Enterで送信 / Shift+Enterで改行)"
+                      : "APIキーを設定すると送信できます"
                 }
                 className={cn(
                   // min-w-0 が無いと cols 既定値の intrinsic 幅 (textarea の自動最小サイズ) が下限になり、
@@ -445,7 +481,7 @@ export function Composer({
                   attachmentsBusy ||
                   settings.changing ||
                   Boolean(settings.sendBlockedReason) ||
-                  (value.trim().length === 0 && !hasAttachment)
+                  (value.trim().length === 0 && !hasAttachment && suggestion === null)
                 }
                 className={cn(
                   "grid shrink-0 cursor-pointer place-items-center rounded-full bg-accent text-on-accent transition-colors hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-45",

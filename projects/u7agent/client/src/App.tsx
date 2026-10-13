@@ -73,6 +73,7 @@ import {
   type SettingsSection,
   type SidebarMode,
 } from "./lib/settingsNav";
+import type { AgentSuggestion } from "./types";
 
 export default function App() {
   const space = useSpace();
@@ -142,6 +143,21 @@ export default function App() {
     projectId: app.sessionId === "" ? (app.selectedProjectId ?? "") : "",
   });
   const [projectDialogOpen, setProjectDialogOpen] = useState(false);
+  // 選択中の定型プロンプト。入力欄の下書きなので Composer ではなく状態を持つ App が持ち、送信は handleSend に寄せる
+  const [suggestion, setSuggestion] = useState<AgentSuggestion | null>(null);
+  // 選択を捨てる契機の監視キー。持ち越すと、別の会話・別のエージェントの提案が入力欄に残る (添付と同じ契約)。
+  // スペースの切替は App ごと作り直すため、ここでは見ない
+  const [suggestionScope, setSuggestionScope] = useState({
+    sessionId: app.sessionId,
+    agentId: app.selectedAgent?.id,
+  });
+  if (suggestionScope.sessionId !== app.sessionId || suggestionScope.agentId !== app.selectedAgent?.id) {
+    setSuggestionScope({ sessionId: app.sessionId, agentId: app.selectedAgent?.id });
+    setSuggestion(null);
+  }
+  // 押すたびに新しい値を渡す (同じチップを押し直しても、入力欄へフォーカスを戻す合図にする)
+  const selectSuggestion = useCallback((next: AgentSuggestion) => setSuggestion({ ...next }), []);
+  const clearSuggestion = useCallback(() => setSuggestion(null), []);
   // 引っ越しの対象 (会話 id と、確認に出すタイトル)。開いている間は専用ダイアログが移動先を選ぶ
   const [moveTarget, setMoveTarget] = useState<{ sessionId: string; title: string } | null>(null);
   const [navOpen, setNavOpen] = useState(false);
@@ -758,7 +774,7 @@ export default function App() {
                   rawUrl={markdownImageRawUrl}
                   sessionId={app.sessionId}
                   sendSeq={app.chat.sendSeq}
-                  onSuggestion={handleSend}
+                  onSuggestion={selectSuggestion}
                   onResendUnsent={handleResendUnsent}
                   onDiscardUnsent={handleDiscardUnsent}
                   onCancelQueued={handleCancelQueued}
@@ -794,6 +810,7 @@ export default function App() {
               sessionAgent={composerAgent}
               mode={layout}
               attachments={app.attachments}
+              suggestion={suggestion}
               rootCwd={app.health?.cwd ?? ""}
               skills={app.sessionSkills}
               onSend={handleSend}
@@ -805,6 +822,7 @@ export default function App() {
               onRetry={handleRetry}
               onAttachFiles={app.attachFiles}
               onRemoveAttachment={app.removeAttachment}
+              onClearSuggestion={clearSuggestion}
               onChangeModel={app.changeModel}
               onChangeThinkingLevel={app.changeThinkingLevel}
               onReloadSkills={app.revalidateSessionSkills}
