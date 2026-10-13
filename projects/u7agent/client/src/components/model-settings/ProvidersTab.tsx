@@ -7,6 +7,7 @@ import {
   degradedNotice,
   deleteConfirmRequest,
   groupProviders,
+  hiddenStoredOAuthNotice,
   MEMO_MAX_LENGTH,
   providerAuthBadge,
   providerDraftOf,
@@ -269,6 +270,18 @@ function SecurityNotice() {
   );
 }
 
+/** 対処が要る案内（未反映 / この画面のキーが保存済みの OAuth を覆っている）。同じ見た目を詳細の複数箇所で使う */
+function WarnNote({ children }: { children: string }) {
+  return (
+    <p
+      role="alert"
+      className="rounded-md border border-warn/40 bg-raised px-2.5 py-1.5 text-2xs leading-relaxed text-warn"
+    >
+      {children}
+    </p>
+  );
+}
+
 function ProviderDetail({
   provider,
   catalog,
@@ -307,6 +320,7 @@ function ProviderDetail({
   const savedMemo = provider.memo ?? "";
   const badge = providerAuthBadge(provider);
   const notice = degradedNotice(provider);
+  const hiddenNotice = hiddenStoredOAuthNotice(provider);
   const catalogProvider = catalog?.providers.find((entry) => entry.provider === provider.provider);
   const available = availableCountOf(catalog, provider.provider);
   const memoDirty = memo.trim() !== savedMemo;
@@ -368,14 +382,8 @@ function ProviderDetail({
         ) : null}
       </div>
 
-      {notice ? (
-        <p
-          role="alert"
-          className="rounded-md border border-warn/40 bg-raised px-2.5 py-1.5 text-2xs leading-relaxed text-warn"
-        >
-          {notice}
-        </p>
-      ) : null}
+      {notice ? <WarnNote>{notice}</WarnNote> : null}
+      {hiddenNotice ? <WarnNote>{hiddenNotice}</WarnNote> : null}
       {provider.orphan ? (
         <p className="text-2xs leading-relaxed text-ink-muted">
           現在のカタログに無い provider です。

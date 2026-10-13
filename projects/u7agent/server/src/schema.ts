@@ -651,6 +651,10 @@ export const PROVIDER_API_KEY_MAX_LENGTH = 2048;
 /** 設定 → モデルの provider メモの上限。秘密情報ではなく、長文でカードが伸びるのを抑える境界 */
 export const PROVIDER_MEMO_MAX_LENGTH = 500;
 
+/** 資格情報の種別。SDK が見ている値と、auth.json の保存値 (表示専用) の両方に使う */
+export const CredentialKindSchema = z.enum(["oauth", "api_key"]);
+export type CredentialKind = z.infer<typeof CredentialKindSchema>;
+
 /** 設定 → モデルの 1 プロバイダー行。認証状態は出所だけで、値・ラベル・生の認証エラーは含めない。 */
 export const ProviderAuthSettingSchema = z.object({
   provider: z.string(),
@@ -663,6 +667,21 @@ export const ProviderAuthSettingSchema = z.object({
   /** auth.apiKey.login を持ち、この画面からキーを登録できる */
   canSetApiKey: z.boolean(),
   supportsOAuth: z.boolean(),
+  /**
+   * SDK が見ている資格情報の種別 (ModelRuntime.isUsingOAuth)。null = 認証なし。runtime overlay があるときは
+   * overlay の api_key になり、auth.json の保存値は見えない (その差は hiddenStoredOAuth が表す)。
+   */
+  credentialKind: CredentialKindSchema.nullable(),
+  /**
+   * provider の `oauth.loginLabel` (例: Sign in with ChatGPT)。OAuth の表示名にだけ使う静的 metadata で、
+   * トークン・client_id・認可 URL は含めない。
+   */
+  oauthLoginLabel: z.string().nullable(),
+  /**
+   * auth.source が runtime のとき、auth.json の OAuth がこの画面のキーに覆われている印。表示専用で、
+   * auth.json を読めない / 壊れているときは false (不明) へ縮退させ、認証解決には使わない。
+   */
+  hiddenStoredOAuth: z.boolean(),
   /** 現在のカタログに provider が無い (DB 行にしか無い) */
   orphan: z.boolean(),
   /** このプロセスの SDK 反映が未完了 (apply = 未適用 / remove = 削除未反映) */

@@ -42,7 +42,9 @@ function authSourceLabel(provider: ProviderAuthSetting): string {
       return names.length > 0 ? `環境変数（${names.join(", ")}）` : "環境変数";
     }
     case "stored":
-      return "保存済み（auth.json）";
+      // auth.json の保存値は OAuth と APIキーで意味が違う。種別が不明なら出所だけを出す
+      if (provider.credentialKind === "oauth") return `保存済み（auth.json）: ${provider.oauthLoginLabel ?? "OAuth"}`;
+      return provider.credentialKind === "api_key" ? "保存済み（auth.json）: APIキー" : "保存済み（auth.json）";
     case "models_json_key":
       return "models.json のキー";
     case "models_json_command":
@@ -90,6 +92,15 @@ export function degradedNotice(provider: ProviderAuthSetting): string | undefine
     return "保存行は削除済みですが、実行中のランタイムに前のキーが残っている可能性があります。[再同期] で削除を再試行できます。";
   }
   return undefined;
+}
+
+/**
+ * この画面のキーが auth.json の OAuth を覆っているときの案内。サーバーが auth.json を読めない /
+ * 壊れているときは hiddenStoredOAuth を false へ縮退させるため、ここでは何も出さない（推測で警告しない）。
+ */
+export function hiddenStoredOAuthNotice(provider: ProviderAuthSetting): string | undefined {
+  if (!provider.hiddenStoredOAuth) return undefined;
+  return `この画面のキーが優先され、${provider.oauthLoginLabel ?? "OAuth"} は使われていません。使うにはキーを削除してください。`;
 }
 
 export interface ProviderGroups {

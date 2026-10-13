@@ -48,6 +48,41 @@ CREATE TABLE IF NOT EXISTS provider_memos (
 - メモは credential ではなく provider に紐づき、**行が無い = 未設定**。空にして保存すると行ごと消し、手編集された空文字の行も未設定として読む（DTO は `memo: null`）
 - DB の読み書きとスキーマ移行の失敗は [persistence.md](persistence.md#失敗時の扱い) と同じで、health の `appDb` と 503 に出る
 
+## 認証ソースと優先順位
+
+u7agent は Sign in with ChatGPT（SIWC）の資格情報を**認証ソースとして認める**。`openai` など provider の認証は Pi の通常の解決に委ね、次の優先順位で 1 つの資格情報が実効になる（詳細は [model-effort.md](model-effort.md)）。
+
+1. **この画面で登録したキー**（`auth.source: "runtime"`）。runtime overlay で、保存の正はアプリ DB の `provider_credentials`
+2. **`~/.pi/agent/auth.json` の資格情報**（`auth.source: "stored"`）。`pi /login` 等で入れた SIWC を含む
+3. **`models.json` のキー / コマンド**（`auth.source: "models_json_key"` / `models_json_command`）
+4. **環境変数**（`auth.source: "environment"`）
+
+`auth.json` の資格情報は**Pi 管理を正とし、アプリ DB へ複製しない**。画面は表示と警告だけで、`auth.json` の資格情報の登録・削除・上書きは行わない（OAuth のブラウザログインも持たない）。1 が 2 を覆っている間、SDK からは 2 が見えない（`ModelRuntime.listCredentials()` も overlay の `api_key` を返す）。そのため画面は SDK の公開 API から**見えている種別**だけを出し、覆われている保存値は BFF が `auth.json` を読み取り専用で見て判定する。
+
+- 種別は `ModelRuntime.isUsingOAuth()`（SDK が見ている資格情報）から写す。runtime overlay があるときは overlay（この画面のキー = `api_key`）になり、保存値の種別は見えない
+- 覆われている保存値の判定は、SDK の `readStoredCredential()` で `auth.json` を 1 件だけ読む。**表示専用**で、認証の解決・優先順位・送信先の決定には使わない。トークン・`clientId`・認可 URL は読まず、応答にもログにも載せない（種別だけを取る）
+- 読取失敗・壊れた JSON・保存が無い場合は「不明」として注記を出さない（黙って縮退させる）。この読み取りは `auth.source: "runtime"` の provider にだけ行い、通常の GET で `auth.json` を開かない
+- 種別の判定に認証ストアのロック（`auth.json.lock`）を取る経路は使わない。GET は同期のスナップショットを読むだけで、他のプロセスがログイン中の設定 API を待たせない
+
+### 認証バッジの意味
+
+詳細ペインと provider 行のバッジは、保存行の有無（`managed`）と実効の出所（`auth.source`）を混ぜない。
+
+| バッジ | 意味 |
+| --- | --- |
+| 未設定 / 未設定（OAuth 可） | `auth.configured` が false。「OAuth 可」は provider が `oauth` を持つ印 |
+| 環境変数（名前） | `auth.source: "environment"`。名前は `auth.environmentVariables` |
+| 保存済み（auth.json）: <OAuth の表示名> | `auth.source: "stored"` で種別が `oauth`。表示名は provider の `oauth.loginLabel`（無ければ `OAuth`） |
+| 保存済み（auth.json）: APIキー | `auth.source: "stored"` で種別が `api_key` |
+| models.json のキー / コマンド | `auth.source: "models_json_key"` / `models_json_command` |
+| この画面で登録済み（実効） | `auth.source: "runtime"`。`managed` とは別で、実効の出所だけを表す |
+| 保存済み（未反映） / 削除が未反映 | このプロセスの SDK 反映が未完了（`degraded`） |
+| カタログ外（保存済み） / カタログ外 | 現在のカタログに無い provider（`orphan`） |
+
+### この画面のキーが SIWC を覆っているときの注記
+
+`auth.source: "runtime"` かつ `auth.json` に同じ provider の OAuth があるときだけ、詳細に「この画面のキーが優先され、<OAuth の表示名> は使われていません。使うにはキーを削除してください」と出す。キーを削除すると `auth.source` は `stored` へ戻り、注記も消える（`applied_unsynced` の間は実効が切り替わらないため、注記も再同期後に追随する）。DTO の `credentialKind` / `oauthLoginLabel` / `hiddenStoredOAuth` の 3 つだけを使い、画面は推測しない。
+
 ## モデル候補（選択）とアプリ既定モデル
 
 `model_settings` は 1 行だけで、**行が無い = 未設定**（制限なし・既定なし）。
@@ -130,7 +165,7 @@ CREATE TABLE IF NOT EXISTS provider_memos (
 | 入力・対象が不正 | 400 | — | 変更なし |
 | ランタイムが利用不可（pi null） | 503 | `not_stored` | 変更なし（カタログ検証ができない） |
 
-`applied_unsynced` は「永続化は確定した」ので 2xx とする（成功と失敗の混在を HTTP で二重表現しない）。`not_stored` は DB の**単一ステートメント（自動コミット）が commit されなかった**場合だけに使い、DB 書込後に DTO の組み立てや state の再計算が失敗した場合は `applied_unsynced` として degraded を残す。利用可能なモデルの保存だけは SDK 呼び出しを持たないため `applied` だけを返す（DTO を組めないときも、保存が確定していれば `applied` として次の GET に追随させる）。GET は `state` を持たない純粋読取で、SDK 呼び出しも修復も行わない。
+`applied_unsynced` は「永続化は確定した」ので 2xx とする（成功と失敗の混在を HTTP で二重表現しない）。`not_stored` は DB の**単一ステートメント（自動コミット）が commit されなかった**場合だけに使い、DB 書込後に DTO の組み立てや state の再計算が失敗した場合は `applied_unsynced` として degraded を残す。利用可能なモデルの保存だけは SDK 呼び出しを持たないため `applied` だけを返す（DTO を組めないときも、保存が確定していれば `applied` として次の GET に追随させる）。GET は `state` を持たない純粋読取で、変更も修復も行わない（認証種別は SDK の同期スナップショットと、runtime overlay があるときだけ行う `auth.json` の表示専用読取から組む）。
 
 このとき一覧を読めずに rows を空で組むフォールバックでも、`managed` は**行があると確定している操作（PUT / resync apply）だけ**に付け、DELETE のフォールバックでは対象を `managed: true` にしない（`managed` = DB 行の契約を守り、削除できた行に [削除] を残して再削除を 400 にしない）。メモの保存も SDK 呼び出しを含まないため `applied` だけを返し、DTO を組めないときは `#compose([], [], selection)` 相当の縮退で `applied` を返して次の GET に追随させる（この経路では `managed` / `memo` が一時的に欠けうる）。
 
@@ -178,7 +213,7 @@ CREATE TABLE IF NOT EXISTS provider_memos (
 
 | メソッド | パス | 説明 |
 | --- | --- | --- |
-| GET | `/api/settings/models` | 保存値（`allowedModels` / `defaultModel` / `ignoredEnvironmentVariables`）と provider 一覧（auth 状態・managed・keyUpdatedAt・degraded・orphan）。純粋読取 |
+| GET | `/api/settings/models` | 保存値（`allowedModels` / `defaultModel` / `ignoredEnvironmentVariables`）と provider 一覧（auth 状態・credentialKind・oauthLoginLabel・hiddenStoredOAuth・managed・keyUpdatedAt・degraded・orphan）。純粋読取 |
 | PUT | `/api/settings/models/allowed` | 利用可能なモデルとアプリ既定モデルの一括保存。両方 `null` が未設定へ戻す |
 | PUT | `/api/settings/models/:provider/key` | APIキーを登録（既存は上書き） |
 | PUT | `/api/settings/models/:provider/memo` | provider のメモを保存（`trim` して空なら行を削除）。上限 500 文字 |
@@ -201,7 +236,8 @@ CREATE TABLE IF NOT EXISTS provider_memos (
   - 選択の正は `GET /api/settings/models` の `allowedModels` だけで、カタログは available と候補の表示にしか使わない。カタログを取得できないときは `catalogError` で編集不可を出し、プロバイダータブのキー操作は妨げない（`catalog === null` は初期ロード中も真になるため、編集可否の判定には使わない）
   - 保存後は health とカタログを取り直して、入力欄のモデル候補を追随させる。live の会話のモデルを切り替えないことを画面に注記する（[model-effort.md](model-effort.md#既存の会話への影響認証の変更)）
 - 「プロバイダー」タブは左の一覧（`GET /api/settings/models` の全件を「設定済み（`auth.configured` / `managed` / メモあり / 利用可能モデルあり）」と「未設定」に分け、検索は provider 名 / ID。件数メタは `available/catalog` または未反映・カタログ外）と右の詳細（APIキーの登録・上書き、メモ、削除、再同期、利用可能数、`degraded` の案内）の master-detail。詳細の上部にキーの平文保存と「BFF を LAN / インターネットへ公開しない」注意を既定で畳んで出し（1 行の要点 + 展開で全文）、プロバイダーを切り替えても消さない。キー保存後に「モデルを選ぶ」タブへ戻る導線を置き、固定バーではキー・メモが各保存ボタンで即時保存されることを区別する。モデル一覧の重複表示（旧 ModelTable）は削除した
-  - 詳細は認証バッジ（未設定 / 環境変数（変数名）/ 保存済み（auth.json）/ この画面で登録済み（実効）/ 保存済み（未反映）/ 削除が未反映 / カタログ外）を出し、`canSetApiKey` のときだけキー入力、`managed` のときだけ削除（確認に既存会話への影響を出す）、再同期可能な `degraded` のときだけ再同期を出す。キー最終保存は `managed` の provider だけに「保存日不明」を含めて出す
+  - 詳細は認証バッジ（未設定 / 環境変数（変数名）/ 保存済み（auth.json）: <OAuth の表示名 or APIキー> / この画面で登録済み（実効）/ 保存済み（未反映）/ 削除が未反映 / カタログ外）を出し、`canSetApiKey` のときだけキー入力、`managed` のときだけ削除（確認に既存会話への影響を出す）、再同期可能な `degraded` のときだけ再同期を出す。キー最終保存は `managed` の provider だけに「保存日不明」を含めて出す
+  - `hiddenStoredOAuth` の provider には、この画面のキーが保存済み OAuth を覆っていることと、キーを削除すれば戻ることを注記する（[認証ソースと優先順位](#認証ソースと優先順位)）
   - 見出しの 1 行メタ（`利用可能 a / カタログ b`・`キー最終保存: …`・`最終使用: …`）は、認証バッジと同じ寸法のチップ（`client/src/components/model-settings/MetaChip.tsx`）で組む。チップの色は警告の有無にだけ使い、日時や件数の値では変えない（情報の種別ではなく、対処が要るかを見せる）
   - 未反映の案内文（`degradedNotice`）は、その詳細で実際に押せる回復操作に合わせる。カタログ外（`orphan`）の `apply` は resync API も 400 にするため [再同期] を案内せず、[削除] とカタログ復帰を案内する
 - メモ欄はキー入力とは別の `<form>` にした `<textarea rows={2} maxLength={500}>` と [メモを保存] で、Enter がキーの保存を走らせない。入力値は `provider.memo` が変わったときだけ同期し、dirty（`trim` 後の値が保存値と違う）のときだけ保存を有効にし、未保存の印を出す。保存に成功したら応答の `trim` 済みの値で入力値を戻す。メモの保存は SDK に触れないので health / カタログを取り直さず、進行中の `reload()` の応答で保存直後を上書きされないよう先行ロードの無効化だけ行う。`runtimeAvailable: false` のときは入力欄と保存を disable し、runtime 停止時の注意書きにメモも含める。カタログ外のメモだけの provider には「キーの登録はできません（メモは保存できます）」と案内し、キー入力は出さない
@@ -236,6 +272,7 @@ CREATE TABLE IF NOT EXISTS provider_memos (
 - `PI_SECRET_ENV_VARS` は環境変数名の指定なので、GUI 登録のキーには不要
 - メモは平文で DB に入り、GET 応答にも平文で載る（ログインの無い BFF は LAN 越しに読める）。画面の注意書きと placeholder でキー本体を書かないよう誘導するが、短いメモでも会話表示のマスクは掛からない
 - OAuth のブラウザログイン、`models.json` のカスタム provider / baseUrl の編集、既定 Effort（`PI_THINKING`）の GUI 化、プロジェクト / エージェント単位のモデル制限は対象外
+- `auth.json` の読み取りは表示専用の 1 回読取で、SDK が実際に解決する資格情報と時点がずれ得る（外部の `pi /login` / `logout` の直後など）。種別が変わっても認証の解決結果は変えないので、表示が一時的に古くなるだけで実害はない。`hiddenStoredOAuth` の未知（読取失敗）と「OAuth が無い」は画面では区別しない
 - [カタログ更新] は pi.dev の応答遅延・レート制限で失敗し得る（期限と固定文言で閉じ、リトライはしない）。更新後の一覧内容は pi.dev 側に依存するため、テストで固定できるのは呼び出し契約まで
 - 「最後にいつ更新したか」は画面から分からない。`models-store.json` の overlay は再起動後も効くが、一覧の出どころ（同梱 / overlay / live）は示さない
 - 更新で消えたモデルを使っていた未ロードの会話は、復元時に別モデルへフォールバックし `model_change` として保存され得る（アプリ既定が未設定だと開けない。既存挙動）
@@ -245,14 +282,14 @@ CREATE TABLE IF NOT EXISTS provider_memos (
 実 API は呼ばず、ダミーキーと fake / stub で検証する。
 
 - `server/test/app-db.test.ts` — v4 → v5 / v5 → v6 / v6 → v7 の加算移行、`model_settings` の CRUD、空配列 = 制限なしの正規化、両方 NULL の行削除、壊れた JSON の 503、`provider_memos` の CRUD（上書き・削除・空文字行 = 未設定）、`provider_credentials.updatedAt` の移行（既存行は NULL のまま・キーは消えない）と再実行の冪等性、新規 DB の列、`sanitizeError` の境界
-- `server/test/model-settings.test.ts` — GET / PUT / DELETE / resync の契約、DB-first、1 回だけの再試行、degraded の解除と記録と DTO を組めないときの `managed` の補正、利用可能なモデルの正規化・検証（カタログ外・既定が選択外・形式・重複）と 503、メモの `trim`・空で削除・対象外 400・DB 失敗 503・メモ値を応答とログへ出さないこと・degraded を作らないこと、GET の 4 経路（カタログ / credential 行 / メモ行 / degraded）とメモだけの orphan の扱い、キー削除後もメモが残ること、`keyUpdatedAt` が GET / PUT に載り移行前は null で resync / 削除では変わらないこと、起動適用（model_settings と provider_credentials の独立した読取・setter → refresh の順序・マスク登録の順序）、別 provider の並行 PUT の直列化、lock の rejected Promise、キー値を含む例外が応答とログへ漏れないこと、カタログ更新の分類（成功・一部失敗・期限の優先・例外の固定文言と秘密マスク・`PI_OFFLINE`・一覧を返せないときの 503）とキー変更との直列化、期限が取得と再計算で共有され、期限後も一覧を保ってロックを解放すること
+- `server/test/model-settings.test.ts` — GET / PUT / DELETE / resync の契約、DB-first、1 回だけの再試行、degraded の解除と記録と DTO を組めないときの `managed` の補正、利用可能なモデルの正規化・検証（カタログ外・既定が選択外・形式・重複）と 503、メモの `trim`・空で削除・対象外 400・DB 失敗 503・メモ値を応答とログへ出さないこと・degraded を作らないこと、GET の 4 経路（カタログ / credential 行 / メモ行 / degraded）とメモだけの orphan の扱い、キー削除後もメモが残ること、`keyUpdatedAt` が GET / PUT に載り移行前は null で resync / 削除では変わらないこと、`credentialKind` / `oauthLoginLabel` の写像と `hiddenStoredOAuth` の条件（runtime overlay が保存済み OAuth を覆うときだけ true・読取失敗は false・auth.json を読むのは runtime のときだけ）、起動適用（model_settings と provider_credentials の独立した読取・setter → refresh の順序・マスク登録の順序）、別 provider の並行 PUT の直列化、lock の rejected Promise、キー値を含む例外が応答とログへ漏れないこと、カタログ更新の分類（成功・一部失敗・期限の優先・例外の固定文言と秘密マスク・`PI_OFFLINE`・一覧を返せないときの 503）とキー変更との直列化、期限が取得と再計算で共有され、期限後も一覧を保ってロックを解放すること
 - `server/test/model-catalog-refresh.test.ts` — 実 SDK + 隔離した agent dir で、他プロセスが SDK の認証ストアのロックを保持していても状態再計算が期限どおり閉じ、公開 state（一覧）を現在値のまま保つこと（期限が伝わらないとロック待ちで期限を超える）
-- `server/test/model-settings-api.test.ts` — HTTP 契約（200 `applied` / `applied_unsynced`、503 `not_stored`、400）、メモの 200 / 400（500 文字超は route の zod）/ 503 と再起動後の読み出し、再起動後の適用、DB 不通、health とログのマスク、`ignoredEnvironmentVariables`、`keyUpdatedAt` が GET / PUT に載ることと移行前の行が null になること、カタログ更新（`allowNetwork: true` / `force: true` 付きで 1 回だけ呼ぶこと、一部 provider 失敗・abort・取得の例外・`PI_OFFLINE` が 200 と固定文言になること、生の例外文言を応答へ出さないこと、カタログを返せないときとランタイム無しの 503、キー変更 PUT との直列化、状態再計算が取得と同じ期限を受け取ること）
-- `server/test/provider-key-runtime.test.ts` — `CredentialCommit` の写像（CSE の照合・開始前 abort・実行中 abort・未知の例外）
+- `server/test/model-settings-api.test.ts` — HTTP 契約（200 `applied` / `applied_unsynced`、503 `not_stored`、400）、メモの 200 / 400（500 文字超は route の zod）/ 503 と再起動後の読み出し、再起動後の適用、DB 不通、health とログのマスク、`ignoredEnvironmentVariables`、`keyUpdatedAt` が GET / PUT に載ることと移行前の行が null になること、`auth.json` の保存 OAuth がこの画面のキーに覆われたときだけ `hiddenStoredOAuth` が立ち、削除で戻ること・トークンを応答へ載せないこと、カタログ更新（`allowNetwork: true` / `force: true` 付きで 1 回だけ呼ぶこと、一部 provider 失敗・abort・取得の例外・`PI_OFFLINE` が 200 と固定文言になること、生の例外文言を応答へ出さないこと、カタログを返せないときとランタイム無しの 503、キー変更 PUT との直列化、状態再計算が取得と同じ期限を受け取ること）
+- `server/test/provider-key-runtime.test.ts` — `CredentialCommit` の写像（CSE の照合・開始前 abort・実行中 abort・未知の例外）、`credentialKind` の `isUsingOAuth` への写像、`storedCredentialKind` が `auth.json` から種別だけを返し、読取失敗を不明へ縮退させること
 - `server/test/model-state.test.ts` — `deriveModelState` / `readModelState`（選択リストの積・既定モデル・カタログの導出・可用 0・失敗時の安全な state）、`filterModelsByWhitelist()`
 - `server/test/api.test.ts` — health から `runtimeDiagnostics` が消えたこと、モデルカタログ応答に whitelist 系フィールドが無いこと
 - `server/test/redact.test.ts` — `createMutableSecretMasker` の swap と streaming masker への追随
-- `client/test/modelSettings.test.ts` / `client/test/modelSettingsPage.test.ts` — 表示変換（認証バッジ・並び・入力検証・メモの検証・注記・回復案内）、`providerUsage()`（最初の `/` での分割・`model` 無し・複数セッション・空配列）、`null` の明示リスト展開（利用可能な全モデル + 既定モデルの 1 件追加）・認証済み provider の絞り込み（`pruneAvailabilityDraft()` の除去と、表示の対象を揃える `candidateGroups()` の絞り込み）・カタログ外の残存エントリの警告付き表示・候補の並び/検索/集計・既定モデルの選択肢と検索・dirty 判定・provider 一括操作・確認文、タブと保存バーの初期描画（折りたたみの既定閉・警告のある provider の自動展開・変更なしと選択 0 件では保存無効）とカタログ外・未設定・環境変数の注記・カタログ取得失敗時の編集不可、プロバイダータブの一覧と詳細（平文注意の既定折りたたみ・メモ欄・保存ボタン・runtime 停止時の disable・メモだけの orphan の案内）、キー最終保存（managed だけ・NULL は保存日不明）と最終使用（`sessionsLoaded` が false なら非表示・会話 0 件の managed は「会話はありません」・非 managed は会話があるときだけ）、`client/test/route.test.ts` のタブの正準化（未知のサブセクションと既定タブの明示、旧 `/settings/models/content`・`/settings/models/web-search` は `/settings/models` へ）
+- `client/test/modelSettings.test.ts` / `client/test/modelSettingsPage.test.ts` — 表示変換（認証バッジ・並び・入力検証・メモの検証・注記・回復案内）、`providerUsage()`（最初の `/` での分割・`model` 無し・複数セッション・空配列）、`null` の明示リスト展開（利用可能な全モデル + 既定モデルの 1 件追加）・認証済み provider の絞り込み（`pruneAvailabilityDraft()` の除去と、表示の対象を揃える `candidateGroups()` の絞り込み）・カタログ外の残存エントリの警告付き表示・候補の並び/検索/集計・既定モデルの選択肢と検索・dirty 判定・provider 一括操作・確認文、タブと保存バーの初期描画（折りたたみの既定閉・警告のある provider の自動展開・変更なしと選択 0 件では保存無効）とカタログ外・未設定・環境変数の注記・カタログ取得失敗時の編集不可、プロバイダータブの一覧と詳細（平文注意の既定折りたたみ・メモ欄・保存ボタン・runtime 停止時の disable・メモだけの orphan の案内・保存済み OAuth の種別表示と、この画面のキーが覆っているときだけ出す注記）、キー最終保存（managed だけ・NULL は保存日不明）と最終使用（`sessionsLoaded` が false なら非表示・会話 0 件の managed は「会話はありません」・非 managed は会話があるときだけ）、`client/test/route.test.ts` のタブの正準化（未知のサブセクションと既定タブの明示、旧 `/settings/models/content`・`/settings/models/web-search` は `/settings/models` へ）
 - `client/test/contentSettings.test.ts` / `client/test/contentSettingsTab.test.ts` / `client/test/contentSettingsPage.test.ts` / `client/test/settingsNav.test.ts` — 画像 / 音声モデルの選択肢（カタログ順・同名への id 添え・カタログ外の現在値）、現在値と PUT の本文の解決、音声のボイス欄（宣言の有無による選択 / 自由記述の切替と、宣言外の保存値を先頭へ寄せる規則）、キー入力の後始末（成功時だけ消す）、削除の確認文、タブ見出しの provider（ロゴ・未設定でも OpenRouter・ロゴの無い provider は頭文字）と provider の id / 表示名、コンテンツ生成の初期描画（未設定はキーのみ / 設定済みは上書き保存・削除・モデル選択と音声欄 / 保存済みキーを入力欄へ戻さない / runtime 不可の disable）、2 つのカタログの出どころのチップと再取得の注記、コンテンツ生成ページの見出しと取得前の出し分け（この画面の注記と再読み込みだけを出す）、10 項目 / モデル 2 タブ / ファイル 2 タブの語彙
 - `server/test/speech.test.ts` / `server/test/speech-catalog.test.ts` / `server/test/speech-tools.test.ts` / `server/test/speech-settings.test.ts` / `server/test/speech-settings-api.test.ts` — 音声生成の契約（[speech-generation.md](speech-generation.md#テスト)）
 - `client/test/requestGate.test.ts` — 応答の適用可否（`createRequestGate`）、要求の追跡（`createRequestTracker`）、取得中フラグの解除（`createLoadingTracker`: 破棄された要求の完了で解除し、後続が在る間は維持する）

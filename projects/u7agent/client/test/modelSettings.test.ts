@@ -22,6 +22,7 @@ import {
   filterCandidateGroups,
   filterDefaultModelOptions,
   groupProviders,
+  hiddenStoredOAuthNotice,
   MEMO_MAX_LENGTH,
   modelCatalogRefreshNote,
   MODEL_CATALOG_REFRESH_NOTE,
@@ -61,6 +62,9 @@ function provider(overrides: Partial<ProviderAuthSetting> = {}): ProviderAuthSet
     keyUpdatedAt: null,
     canSetApiKey: true,
     supportsOAuth: false,
+    credentialKind: null,
+    oauthLoginLabel: null,
+    hiddenStoredOAuth: false,
     orphan: false,
     memo: null,
     ...overrides,
@@ -133,6 +137,38 @@ test("認証バッジは保存行・実効値・未反映を混ぜずに出し�
       tone: "ok",
     },
   );
+  // auth.json の保存値は OAuth と APIキーで区別し、OAuth は provider の表示名を使う
+  assert.deepEqual(
+    providerAuthBadge(
+      provider({
+        auth: { configured: true, source: "stored", environmentVariables: [] },
+        credentialKind: "oauth",
+        supportsOAuth: true,
+        oauthLoginLabel: "Sign in with ChatGPT",
+      }),
+    ),
+    { label: "保存済み（auth.json）: Sign in with ChatGPT", tone: "ok" },
+  );
+  assert.deepEqual(
+    providerAuthBadge(
+      provider({
+        auth: { configured: true, source: "stored", environmentVariables: [] },
+        credentialKind: "api_key",
+      }),
+    ),
+    { label: "保存済み（auth.json）: APIキー", tone: "ok" },
+  );
+  // OAuth でも表示名が無ければ OAuth とだけ書く
+  assert.deepEqual(
+    providerAuthBadge(
+      provider({
+        auth: { configured: true, source: "stored", environmentVariables: [] },
+        credentialKind: "oauth",
+        supportsOAuth: true,
+      }),
+    ),
+    { label: "保存済み（auth.json）: OAuth", tone: "ok" },
+  );
   assert.deepEqual(
     providerAuthBadge(provider({ auth: { configured: true, source: "runtime", environmentVariables: [] } })),
     {
@@ -169,6 +205,38 @@ test("未反映 (degraded) とカタログ外は警告として先に出す", ()
     tone: "warn",
   });
   assert.deepEqual(providerAuthBadge(provider({ orphan: true })), { label: "カタログ外", tone: "warn" });
+});
+
+test("この画面のキーが auth.json の OAuth を覆っているときだけ注記を出す", () => {
+  assert.equal(hiddenStoredOAuthNotice(provider()), undefined, "覆っていなければ出さない");
+  assert.equal(
+    hiddenStoredOAuthNotice(
+      provider({ auth: { configured: true, source: "stored", environmentVariables: [] }, credentialKind: "oauth" }),
+    ),
+    undefined,
+    "保存済み OAuth が実効ならキーの削除を促さない",
+  );
+  const notice =
+    hiddenStoredOAuthNotice(
+      provider({
+        managed: true,
+        auth: { configured: true, source: "runtime", environmentVariables: [] },
+        credentialKind: "api_key",
+        supportsOAuth: true,
+        oauthLoginLabel: "Sign in with ChatGPT",
+        hiddenStoredOAuth: true,
+      }),
+    ) ?? "";
+  assert.match(notice, /この画面のキーが優先され/);
+  assert.match(notice, /Sign in with ChatGPT は使われていません/);
+  assert.match(notice, /使うにはキーを削除してください/);
+  // 表示名を知らない provider でも OAuth とだけ書いて、値や推測を混ぜない
+  assert.match(
+    hiddenStoredOAuthNotice(
+      provider({ auth: { configured: true, source: "runtime", environmentVariables: [] }, hiddenStoredOAuth: true }),
+    ) ?? "",
+    /OAuth は使われていません/,
+  );
 });
 
 test("再同期はカタログにある provider か degraded remove のときだけ出す", () => {

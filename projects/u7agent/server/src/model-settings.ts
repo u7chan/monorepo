@@ -10,6 +10,7 @@ import { httpError, messageFor } from "./http";
 import {
   PROVIDER_API_KEY_MIN_LENGTH,
   RUNTIME_MODELS_UNAVAILABLE_MESSAGE,
+  type CredentialKind,
   type ModelCatalogRefreshResponse,
   type ModelRef,
   type ModelsSettingsResponse,
@@ -28,8 +29,25 @@ export type CredentialCommit =
 
 /** SDK commit と state 再計算を分離する継ぎ目。state の再導出は呼び出し側 (このサービス) が担う。 */
 export interface ProviderKeyRuntime {
-  list(): { provider: string; name: string; canSetApiKey: boolean; supportsOAuth: boolean }[];
+  list(): {
+    provider: string;
+    name: string;
+    canSetApiKey: boolean;
+    supportsOAuth: boolean;
+    /** provider の `oauth.loginLabel`。OAuth の表示名だけに使う静的 metadata で、null = OAuth なし */
+    oauthLoginLabel: string | null;
+  }[];
   auth(provider: string): RuntimeAuthStatusLike | undefined;
+  /**
+   * SDK が見ている資格情報の種別 (`ModelRuntime.isUsingOAuth`)。認証なしは null。runtime overlay がある
+   * ときは overlay の api_key を返し、auth.json の保存値は見えない (見えない差は storedCredentialKind())。
+   */
+  credentialKind(provider: string): CredentialKind | null;
+  /**
+   * auth.json の保存資格情報の種別。runtime overlay があると SDK からは保存値を覗けないため、警告表示の
+   * 判定にだけ使う。値は返さず、読取失敗・壊れた JSON は undefined (= 不明) へ縮退させる。
+   */
+  storedCredentialKind(provider: string): CredentialKind | undefined;
   /**
    * カタログの provider/model。保存値の検証はここを引き、認証状態に依存する `getAvailable()` へ
    * 依存させない (未認証でも許可リストには入れられる)。
@@ -225,7 +243,10 @@ export class ModelSettingsService {
     this.#catalogTimeoutMs = options.catalogTimeoutMs ?? MODEL_CATALOG_REFRESH_TIMEOUT_MS;
   }
 
-  /** GET。純粋読取で、SDK の呼び出しも修復も行わない (DB の失敗は 503 のまま伝える) */
+  /**
+   * GET。変更も修復も行わない純粋読取 (DB の失敗は 503 のまま伝える)。認証種別は SDK の同期スナップショットと、
+   * runtime overlay があるときだけ行う auth.json の表示専用読取から組む。
+   */
   settings(): ModelsSettingsResponse {
     return this.#compose(this.#db.listProviderCredentials(), this.#db.listProviderMemos(), this.#readSelection());
   }
@@ -597,6 +618,7 @@ export class ModelSettingsService {
           },
           memoOf.get(entry.provider),
           keyUpdatedAtOf(entry.provider),
+          entry.oauthLoginLabel,
         ),
       );
     }
@@ -612,6 +634,7 @@ export class ModelSettingsService {
           { managed: true, canSetApiKey: false, supportsOAuth: false, orphan: true, appliable: true },
           memoOf.get(row.provider),
           keyUpdatedAtOf(row.provider),
+          null,
         ),
       );
     }
@@ -627,6 +650,7 @@ export class ModelSettingsService {
           { managed: false, canSetApiKey: false, supportsOAuth: false, orphan: true, appliable: false },
           row.memo,
           keyUpdatedAtOf(row.provider),
+          null,
         ),
       );
     }
@@ -648,6 +672,7 @@ export class ModelSettingsService {
           },
           memoOf.get(provider),
           keyUpdatedAtOf(provider),
+          null,
         ),
       );
     }
@@ -675,6 +700,8 @@ export class ModelSettingsService {
     },
     memo: string | undefined,
     keyUpdatedAt: number | null,
+    /** provider の `oauth.loginLabel`。カタログ外の provider は OAuth の表示名を知らないため null */
+    oauthLoginLabel: string | null,
   ): ProviderAuthSetting {
     const degraded =
       flags.orphan && flags.appliable && !this.#degraded.has(provider) ? "apply" : this.#degraded.get(provider);
@@ -686,10 +713,31 @@ export class ModelSettingsService {
       managed: flags.managed,
       canSetApiKey: flags.canSetApiKey,
       supportsOAuth: flags.supportsOAuth,
+      credentialKind: this.#credentialKindOf(provider, sanitized),
+      oauthLoginLabel,
+      hiddenStoredOAuth: sanitized.source === "runtime" && this.#storedOAuthHidden(provider),
       orphan: flags.orphan,
       ...(degraded ? { degraded } : {}),
       memo: memo ?? null,
       keyUpdatedAt,
     };
+  }
+
+  /** SDK が見ている種別。認証なしの provider には聞かない (unconfigured では種別が無い) */
+  #credentialKindOf(provider: string, auth: RuntimeAuth): CredentialKind | null {
+    if (!auth.configured) return null;
+    return this.#runtime?.credentialKind(provider) ?? null;
+  }
+
+  /**
+   * この画面のキーが auth.json の OAuth を覆っているか。表示専用の auth.json 読取で、失敗は
+   * 「不明」として false へ縮退させ、設定 API を読取の失敗で落とさない。
+   */
+  #storedOAuthHidden(provider: string): boolean {
+    try {
+      return this.#runtime?.storedCredentialKind(provider) === "oauth";
+    } catch {
+      return false;
+    }
   }
 }

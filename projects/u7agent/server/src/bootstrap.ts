@@ -1,7 +1,8 @@
 import { createPiBff } from "./agent";
 import type { PiBff } from "./agent";
 import { ignoredModelEnvironmentVariables } from "./agent";
-import { CredentialSynchronizationError } from "@earendil-works/pi-coding-agent";
+import { join } from "node:path";
+import { CredentialSynchronizationError, readStoredCredential } from "@earendil-works/pi-coding-agent";
 import { AppDb } from "./app-db";
 import { createAgentCatalog } from "./agents";
 import type { AgentCatalog } from "./agents";
@@ -315,6 +316,8 @@ export async function createBffContext(opts: CreateBffAppOptions = {}): Promise<
  */
 export function createProviderKeyRuntime(pi: PiBff): ProviderKeyRuntime {
   const { modelRuntime } = pi;
+  // SDK が実際に読む保存先と同じパス。表示専用の覗き見にだけ使う
+  const storedAuthPath = join(pi.agentDir, "auth.json");
   return {
     list: () =>
       modelRuntime.getProviders().map((provider) => ({
@@ -323,8 +326,13 @@ export function createProviderKeyRuntime(pi: PiBff): ProviderKeyRuntime {
         // auth.apiKey.login は「対話でキー入力を受け付ける」印。ambient / keyless は login を持たない
         canSetApiKey: Boolean(provider.auth?.apiKey?.login),
         supportsOAuth: Boolean(provider.auth?.oauth),
+        // OAuth の表示名だけを渡す (ログイン手段の名前で、トークンや client_id ではない)
+        oauthLoginLabel: provider.auth?.oauth?.loginLabel ?? null,
       })),
     auth: (provider) => modelRuntime.getProviderAuthStatus(provider),
+    credentialKind: (provider) => (modelRuntime.isUsingOAuth(provider) ? "oauth" : "api_key"),
+    // readStoredCredential は読取に失敗したら undefined を返す。種別以外はここで捨てる
+    storedCredentialKind: (provider) => readStoredCredential(provider, storedAuthPath)?.type,
     // 認証の有無を見ない getModels() を引く (未認証のモデルも許可リストには入れられる)
     catalog: () => modelRuntime.getModels().map((model) => ({ provider: model.provider, id: model.id })),
     refreshCatalog: (options) => pi.refreshModelCatalog(options),

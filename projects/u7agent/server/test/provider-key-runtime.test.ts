@@ -1,6 +1,9 @@
 // SDK の操作結果を CredentialCommit へ写す境界 (server/src/bootstrap.ts) の検証。
 // CSE は「Map への commit 後に同期が失敗」の印なので、provider / operation を照合して未適用と断定しない。
 import assert from "node:assert/strict";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { CredentialSynchronizationError } from "@earendil-works/pi-coding-agent";
 import test from "node:test";
 import type { PiBff } from "../src/agent";
@@ -21,7 +24,16 @@ function cse(providerId: string, operation: "setRuntimeApiKey" | "removeRuntimeA
 }
 
 function fakePi(options: {
-  providers?: { id: string; name?: string; apiKeyLogin?: boolean; oauth?: boolean }[];
+  providers?: {
+    id: string;
+    name?: string;
+    apiKeyLogin?: boolean;
+    oauth?: boolean;
+    oauthLoginLabel?: string;
+    usingOAuth?: boolean;
+  }[];
+  /** auth.json を置く agent dir。未指定なら存在しないパスを指し、保存値は「不明」になる */
+  agentDir?: string;
   set?: (signal?: AbortSignal) => Promise<unknown>;
   remove?: (signal?: AbortSignal) => Promise<unknown>;
 }) {
@@ -34,10 +46,12 @@ function fakePi(options: {
         name: provider.name ?? provider.id,
         auth: {
           apiKey: provider.apiKeyLogin === false ? undefined : { name: `${provider.id} key`, login: () => {} },
-          oauth: provider.oauth ? {} : undefined,
+          oauth: provider.oauth ? { loginLabel: provider.oauthLoginLabel } : undefined,
         },
       })),
     getProviderAuthStatus: () => ({ configured: true, source: "environment" }),
+    isUsingOAuth: (providerId: string) =>
+      (options.providers ?? []).some((provider) => provider.id === providerId && provider.usingOAuth === true),
     setRuntimeApiKey: async (_provider: string, _apiKey: string, callOptions?: { signal?: AbortSignal }) => {
       setCalls.push(callOptions?.signal);
       await options.set?.(callOptions?.signal);
@@ -47,7 +61,8 @@ function fakePi(options: {
       await options.remove?.(callOptions?.signal);
     },
   };
-  return { pi: { modelRuntime } as unknown as PiBff, setCalls, removeCalls };
+  const agentDir = options.agentDir ?? join(tmpdir(), "u7agent-no-such-agent-dir");
+  return { pi: { modelRuntime, agentDir } as unknown as PiBff, setCalls, removeCalls };
 }
 
 function bodyOf(commit: CredentialCommit): string {
@@ -135,13 +150,65 @@ test("list は auth.apiKey.login の有無で canSetApiKey を決め、auth は 
   const { pi } = fakePi({
     providers: [
       { id: "anthropic", name: "Anthropic", apiKeyLogin: true, oauth: true },
+      { id: "openai", name: "OpenAI", apiKeyLogin: true, oauth: true, oauthLoginLabel: "Sign in with ChatGPT" },
       { id: "local", apiKeyLogin: false },
     ],
   });
   const runtime = createProviderKeyRuntime(pi);
   assert.deepEqual(runtime.list(), [
-    { provider: "anthropic", name: "Anthropic", canSetApiKey: true, supportsOAuth: true },
-    { provider: "local", name: "local", canSetApiKey: false, supportsOAuth: false },
+    { provider: "anthropic", name: "Anthropic", canSetApiKey: true, supportsOAuth: true, oauthLoginLabel: null },
+    {
+      provider: "openai",
+      name: "OpenAI",
+      canSetApiKey: true,
+      supportsOAuth: true,
+      oauthLoginLabel: "Sign in with ChatGPT",
+    },
+    { provider: "local", name: "local", canSetApiKey: false, supportsOAuth: false, oauthLoginLabel: null },
   ]);
   assert.deepEqual(runtime.auth("anthropic"), { configured: true, source: "environment" });
+});
+
+test("credentialKind は SDK の isUsingOAuth を写し、storedCredentialKind は auth.json の種別だけを読む", () => {
+  const agentDir = mkdtempSync(join(tmpdir(), "u7agent-provider-key-runtime-"));
+  try {
+    writeFileSync(
+      join(agentDir, "auth.json"),
+      JSON.stringify({
+        openai: { type: "oauth", access: "access-token", refresh: "refresh-token", expires: Date.now() + 60_000 },
+        anthropic: { type: "api_key", key: KEY },
+      }),
+    );
+    const { pi } = fakePi({
+      agentDir,
+      providers: [
+        { id: "openai", oauth: true, usingOAuth: true },
+        { id: "anthropic", apiKeyLogin: true, usingOAuth: false },
+      ],
+    });
+    const runtime = createProviderKeyRuntime(pi);
+    assert.equal(runtime.credentialKind("openai"), "oauth");
+    assert.equal(runtime.credentialKind("anthropic"), "api_key");
+    assert.deepEqual(
+      [runtime.storedCredentialKind("openai"), runtime.storedCredentialKind("anthropic")],
+      ["oauth", "api_key"],
+      "auth.json の保存値は種別だけを返す",
+    );
+    assert.equal(runtime.storedCredentialKind("xai"), undefined, "保存が無い provider は不明");
+  } finally {
+    rmSync(agentDir, { recursive: true, force: true });
+  }
+});
+
+test("storedCredentialKind は auth.json を読めないとき不明へ縮退する", () => {
+  const agentDir = mkdtempSync(join(tmpdir(), "u7agent-provider-key-runtime-"));
+  try {
+    writeFileSync(join(agentDir, "auth.json"), "{ not json");
+    const runtime = createProviderKeyRuntime(fakePi({ agentDir }).pi);
+    assert.equal(runtime.storedCredentialKind("openai"), undefined);
+    rmSync(join(agentDir, "auth.json"), { force: true });
+    assert.equal(runtime.storedCredentialKind("openai"), undefined, "読取失敗も不明へ寄せる");
+  } finally {
+    rmSync(agentDir, { recursive: true, force: true });
+  }
 });

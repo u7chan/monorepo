@@ -400,7 +400,7 @@ Content-Security-Policy: sandbox allow-scripts; default-src 'none'; style-src 'u
 
 | メソッド | パス | 説明 |
 | --- | --- | --- |
-| GET | `/api/settings/models` | 保存値（`allowedModels` / `defaultModel`）と provider 一覧（auth 状態 / managed / keyUpdatedAt / canSetApiKey / orphan / degraded）。純粋読取 |
+| GET | `/api/settings/models` | 保存値（`allowedModels` / `defaultModel`）と provider 一覧（auth 状態 / credentialKind / oauthLoginLabel / hiddenStoredOAuth / managed / keyUpdatedAt / canSetApiKey / orphan / degraded）。純粋読取 |
 | PUT | `/api/settings/models/allowed` | 利用可能なモデルとアプリ既定モデルの一括保存。body は `{ "allowedModels": ["<provider>/<id>"], "defaultModel": "<provider>/<id>" }`（どちらも `null` 可） |
 | PUT | `/api/settings/models/:provider/key` | APIキーを登録（既存は上書き）。body は `{ "apiKey": "…" }` |
 | PUT | `/api/settings/models/:provider/memo` | provider のメモを保存（`trim` して空なら行を削除）。body は `{ "memo": "…" }`（0..500 文字） |
@@ -425,7 +425,10 @@ Content-Security-Policy: sandbox allow-scripts; default-src 'none'; style-src 'u
       "managed": true,
       "keyUpdatedAt": 1730000000000,
       "canSetApiKey": true,
-      "supportsOAuth": false,
+      "supportsOAuth": true,
+      "credentialKind": "oauth",
+      "oauthLoginLabel": "Sign in with ChatGPT",
+      "hiddenStoredOAuth": false,
       "orphan": false,
       "degraded": "apply",
       "memo": "個人アカウントの本番キー"
@@ -443,8 +446,11 @@ Content-Security-Policy: sandbox allow-scripts; default-src 'none'; style-src 'u
 - `keyUpdatedAt` はこの画面で登録したキー（`managed`）の最終保存時刻（epoch ms）。`managed` が false の provider と、v6 以前から残る移行前の行は `null`。上書き保存のたびに更新し、`resync` / 削除はこの時刻を変えない（削除後は行が無いため `null`）。最終使用はサーバーで持たず、クライアントが `GET /api/sessions` の `model` + `lastUsedAt` から集計する（[model-settings.md](model-settings.md#キーの棚卸し最終保存と最終使用)）
 - `memo` は `provider_memos` の行と同じで、`null` = 未設定。**人間用の控えで、キーの登録有無（`managed`）とは独立**し、キーを削除しても残る。`canSetApiKey` が false の provider（ambient / keyless）にも書ける。メモだけの provider は `orphan: true` / `managed: false` として出る（カタログ外のバッジに落ちる）。メモは秘密情報ではないのでマスカーには登録しない（[secrets.md](secrets.md)）
 - `canSetApiKey` は SDK の `auth.apiKey.login` の有無。false の provider（ambient / keyless）はこの画面からキーを登録できない
+- `credentialKind` は SDK（`ModelRuntime.isUsingOAuth`）が見ている資格情報の種別（`oauth` / `api_key`、`null` = 認証なし）。**runtime overlay があるときは overlay の `api_key` になり、`auth.json` の保存値の種別は見えない**
+- `oauthLoginLabel` は provider の `oauth.loginLabel`（例: `Sign in with ChatGPT`）。OAuth の表示名にだけ使う静的 metadata で、トークン・`clientId`・認可 URL は含めない
+- `hiddenStoredOAuth` は `auth.source: "runtime"` の provider で、`auth.json` に保存された OAuth がこの画面のキーに覆われている印。BFF が `auth.json` を読み取り専用で見た**表示専用**の値で、読取失敗・壊れた JSON・保存なしは `false`（不明）へ縮退する。認証の解決・優先順位には使わない（[model-settings.md](model-settings.md#認証ソースと優先順位)）
 - `orphan: true` は現在のカタログに無い DB 行。`name` は provider id になり、削除だけできる（再同期はできない）
-- キー値・ラベル・生の認証エラーは GET の応答に含めない。環境変数の**変数名**だけを `environmentVariables` に載せる（`GET /api/health` と同じ公開範囲）
+- キー値・SDK の生ラベル・生の認証エラーは GET の応答に含めない。環境変数の**変数名**だけを `environmentVariables` に載せる（`GET /api/health` と同じ公開範囲）。`oauthLoginLabel` は provider の静的なログイン手段の名前で、認証情報ではない
 - 変更系の本文は `{ "apiKey": "…" }` で、8..2048 文字。形が違う場合は 400（SDK / DB へ要求を出さない）
 - `PUT /api/settings/models/:provider/memo` の本文は `{ "memo": "…" }` で、500 文字まで。`trim` して空なら行を消して `memo: null` に戻す。SDK 呼び出しを含まないため応答は常に `state: "applied"`。カタログに無い provider は credential 行かメモ行が既にあるときだけ受け付け、それ以外は 400（`このプロバイダーのメモは保存できません`）。500 文字超と形の違う本文は route の zod が 400 にする
 - 200 の応答は GET と同じ形 + 必須の `state`。`applied` は反映まで成功、`applied_unsynced` は「保存済み・反映未完了」で、再同期 / 次回の変更 / 再起動で収束する
