@@ -73,6 +73,7 @@ import {
   type SettingsSection,
   type SidebarMode,
 } from "./lib/settingsNav";
+import { suggestionScopeChange, type SuggestionScope } from "./lib/suggestion";
 import type { AgentSuggestion } from "./types";
 
 export default function App() {
@@ -146,14 +147,24 @@ export default function App() {
   // 選択中の定型プロンプト。入力欄の下書きなので Composer ではなく状態を持つ App が持ち、送信は handleSend に寄せる
   const [suggestion, setSuggestion] = useState<AgentSuggestion | null>(null);
   // 選択を捨てる契機の監視キー。持ち越すと、別の会話・別のエージェントの提案が入力欄に残る (添付と同じ契約)。
-  // スペースの切替は App ごと作り直すため、ここでは見ない
-  const [suggestionScope, setSuggestionScope] = useState({
-    sessionId: app.sessionId,
+  // スペースの切替は App ごと作り直すため、ここでは見ない。会話 id だけの変化 (添付が暗黙に作った会話) では
+  // 捨てないので、判定は lib/suggestion.ts の純関数が持つ
+  const [suggestionScope, setSuggestionScope] = useState<SuggestionScope>(() => ({
     agentId: app.selectedAgent?.id,
-  });
-  if (suggestionScope.sessionId !== app.sessionId || suggestionScope.agentId !== app.selectedAgent?.id) {
-    setSuggestionScope({ sessionId: app.sessionId, agentId: app.selectedAgent?.id });
+    selectionSeq: app.selectionSeqRef.current,
+    sessionId: app.sessionId,
+  }));
+  const nextSuggestionScope: SuggestionScope = {
+    agentId: app.selectedAgent?.id,
+    selectionSeq: app.selectionSeqRef.current,
+    sessionId: app.sessionId,
+  };
+  if (suggestionScopeChange(suggestionScope, nextSuggestionScope) === "drop") {
+    setSuggestionScope(nextSuggestionScope);
     setSuggestion(null);
+  } else if (suggestionScope.sessionId !== nextSuggestionScope.sessionId) {
+    // 添付が会話を暗黙に作っただけ。チップは同じ下書きの続きとして、その会話へ移す
+    setSuggestionScope(nextSuggestionScope);
   }
   // 押すたびに新しい値を渡す (同じチップを押し直しても、入力欄へフォーカスを戻す合図にする)
   const selectSuggestion = useCallback((next: AgentSuggestion) => setSuggestion({ ...next }), []);

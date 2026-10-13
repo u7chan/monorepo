@@ -1,8 +1,14 @@
-// 定型プロンプトのチップの純関数。送信本文の組み立てと、backspace で外すかの判定を固定する
-// (どちらも実 DOM を要さない規則で、Composer から呼ぶ正はこの module に置く)。
+// 定型プロンプトのチップの純関数。送信本文の組み立て、チップを持つ範囲 (捨てる契機)、
+// backspace で外すかの判定を固定する (どれも実 DOM を要さない規則で、Composer / App から呼ぶ正はこの module に置く)。
 import assert from "node:assert/strict";
 import test from "node:test";
-import { shouldClearSuggestionOnBackspace, suggestionSendText, type SuggestionKeyState } from "../src/lib/suggestion";
+import {
+  shouldClearSuggestionOnBackspace,
+  suggestionScopeChange,
+  suggestionSendText,
+  type SuggestionKeyState,
+  type SuggestionScope,
+} from "../src/lib/suggestion";
 
 const backspace = (overrides: Partial<SuggestionKeyState> = {}): SuggestionKeyState => ({
   key: "Backspace",
@@ -10,6 +16,13 @@ const backspace = (overrides: Partial<SuggestionKeyState> = {}): SuggestionKeySt
   keyCode: 8,
   selectionStart: 0,
   selectionEnd: 0,
+  ...overrides,
+});
+
+const scope = (overrides: Partial<SuggestionScope> = {}): SuggestionScope => ({
+  agentId: "agent-general",
+  selectionSeq: 0,
+  sessionId: "",
   ...overrides,
 });
 
@@ -34,6 +47,42 @@ test("本文の組み立て: prompt が空なら本文だけを送る (行頭に
   assert.equal(suggestionSendText("", "  "), "");
 });
 
+test("範囲: 未作成チャットの添付が会話を暗黙に作っただけではチップを残す", () => {
+  // 添付は ensureSession で会話を作り、会話 id だけが "" から新しい id へ変わる。利用者は会話を選んでおらず、
+  // 添付とチップは同じ下書きのものなので、別の行のまま共存させる
+  assert.equal(suggestionScopeChange(scope({ sessionId: "" }), scope({ sessionId: "s1" })), "keep");
+});
+
+test("範囲: 利用者が別の会話を開いたらチップを捨てる", () => {
+  assert.equal(
+    suggestionScopeChange(scope({ sessionId: "s1", selectionSeq: 0 }), scope({ sessionId: "s2", selectionSeq: 1 })),
+    "drop",
+  );
+});
+
+test("範囲: 新規チャット (会話 id が変わらない選び直し) でも捨てる", () => {
+  assert.equal(
+    suggestionScopeChange(scope({ sessionId: "s1", selectionSeq: 0 }), scope({ sessionId: "s1", selectionSeq: 1 })),
+    "drop",
+  );
+});
+
+test("範囲: エージェントを切り替えたらチップを捨てる", () => {
+  assert.equal(
+    suggestionScopeChange(scope({ agentId: "agent-general" }), scope({ agentId: "agent-zundamon" })),
+    "drop",
+  );
+});
+
+test("範囲: 同じ範囲では捨てない", () => {
+  assert.equal(suggestionScopeChange(scope(), scope()), "keep");
+});
+
+test("範囲: 利用操作なしに会話 id が別の値へ移ったら持ち越さない", () => {
+  // 世代が同じでも "" 起点でない移りは想定外。下書きを持ち越さない側に倒す
+  assert.equal(suggestionScopeChange(scope({ sessionId: "s1" }), scope({ sessionId: "s2" })), "drop");
+});
+
 test("backspace: 本文の先頭 (位置 0・選択なし) で外す", () => {
   assert.equal(shouldClearSuggestionOnBackspace(backspace()), true);
 });
@@ -45,6 +94,7 @@ test("backspace: 位置 0 以外と、テキストを選択しているときは
 });
 
 test("backspace: IME の変換中は外さない (isComposing / keyCode 229)", () => {
+  // key を見ない判定を通す。Enter 用の helper が key で絞られても、この 2 つは backspace 側で固定する
   assert.equal(shouldClearSuggestionOnBackspace(backspace({ isComposing: true })), false);
   assert.equal(shouldClearSuggestionOnBackspace(backspace({ keyCode: 229 })), false);
 });

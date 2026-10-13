@@ -493,6 +493,11 @@ export function useU7Agent({ pendingSessionId }: UseU7AgentOptions = {}) {
     ackFileRef,
     /** 選択の切替世代。await を挿む確認 (ファイル参照) の結果を失効させる判定に使う */
     fileRefSwitchSeq,
+    /**
+     * 利用者が会話を選び直した世代 (newChat / selectSession)。未作成チャットの添付が会話を暗黙に作ったときは
+     * 進まないため、入力欄の下書き (定型プロンプトのチップ) を同じ会話の続きとして残す判定に使える
+     */
+    selectionSeqRef,
     sending,
     settingsChanging,
     preselection,
