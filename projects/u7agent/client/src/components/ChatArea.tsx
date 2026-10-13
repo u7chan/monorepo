@@ -52,7 +52,8 @@ export type ChatAreaProps = {
   sessionId: string;
   /** 送信のたびに増える (reducer の localUser)。値そのものは表示に使わず、増加だけを追従の合図にする */
   sendSeq: number;
-  onSuggestion: (prompt: string) => void;
+  /** firstview の定型プロンプトの押下。送信はせず、選択を入力欄へ渡す */
+  onSuggestion: (suggestion: AgentSuggestion) => void;
   /** 未送信メッセージの再送 (サーバーが保存済みの本文を使う) */
   onResendUnsent?: (runId: string) => void;
   /** 未送信メッセージの破棄 */
@@ -376,7 +377,7 @@ export function ChatArea({
                     <button
                       key={s.prompt}
                       type="button"
-                      onClick={() => onSuggestion(s.prompt)}
+                      onClick={() => onSuggestion(s)}
                       className="min-h-9 rounded-lg border border-line bg-raised px-3 text-xs text-ink-soft transition-colors hover:border-accent/50 hover:text-accent-text"
                     >
                       {s.label}

@@ -4,7 +4,7 @@ import test from "node:test";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import type { ComposerProps } from "../src/components/Composer";
-import { isImeComposingEnter, shouldSubmitOnEnter, type EnterKeyState } from "../src/lib/composerKeys";
+import { isImeComposing, isImeComposingEnter, shouldSubmitOnEnter, type EnterKeyState } from "../src/lib/composerKeys";
 import type { AgentDef } from "../src/types";
 
 // Composer は api.ts (location.origin を読む) を辿るため、node では最小の shim を置いてから読み込む
@@ -43,6 +43,14 @@ test("IME: 変換確定の Enter は isComposing / keyCode 229 のどちらで�
   assert.equal(isImeComposingEnter({ isComposing: false, keyCode: 13 }), false);
 });
 
+test("IME: 合成中かは key を見ない (Enter 以外の判定もこの helper を通す)", () => {
+  // 定型プロンプトのチップを外す backspace も同じ helper を使う。key で絞ると、Enter 側の変更で
+  // backspace の解除だけが静かに壊れる
+  assert.equal(isImeComposing({ isComposing: true, keyCode: 13 }), true);
+  assert.equal(isImeComposing({ isComposing: false, keyCode: 229 }), true);
+  assert.equal(isImeComposing({ isComposing: false, keyCode: 13 }), false);
+});
+
 test("IME: compositionend が先に来た Enter (keyCode 229) も送信しない", () => {
   assert.equal(shouldSubmitOnEnter(enter({ keyCode: 229 }), "desktop"), false);
   assert.equal(shouldSubmitOnEnter(enter({ keyCode: 229 }), "portrait"), false);
@@ -79,6 +87,7 @@ const props: ComposerProps = {
   agentId: agent.id,
   mode: "desktop",
   attachments: [],
+  suggestion: null,
   rootCwd: "/workspace",
   skills: { status: "unavailable" },
   // ライブのツール行は出さない (実行中のカードが無い状態)
@@ -88,6 +97,7 @@ const props: ComposerProps = {
   onStop: () => {},
   onAttachFiles: () => {},
   onRemoveAttachment: () => {},
+  onClearSuggestion: () => {},
   onChangeModel: () => {},
   onChangeThinkingLevel: () => {},
   onChangeAgent: () => {},
