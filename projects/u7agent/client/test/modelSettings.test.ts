@@ -39,6 +39,7 @@ import {
   providerDraftOf,
   providerUsage,
   pruneAvailabilityDraft,
+  refreshModelsForAuthChange,
   resyncAvailable,
   runModelCatalogRefresh,
   sameAvailabilitySettings,
@@ -48,6 +49,7 @@ import {
   validateMemo,
   withProviderDraft,
 } from "../src/lib/modelSettings";
+import { createRequestGate } from "../src/hooks/requestGate";
 import type {
   ModelCatalogRefreshResponse,
   ModelMutationResponse,
@@ -968,4 +970,28 @@ test("サインアウトは auth.json の OAuth が実効 / 覆われている�
     true,
     "再サインインの注記に使う",
   );
+});
+
+// 認証が変わった後の取り直し。`canApply` は 1 つだけ作って health とカタログで共有する
+test("認証後の取り直しは health とカタログへ同じ canApply を渡す", async () => {
+  const beginLoad = createRequestGate();
+  const canApply = beginLoad();
+  const tokens: ((() => boolean) | undefined)[] = [];
+  const order: string[] = [];
+  await refreshModelsForAuthChange({
+    canApply,
+    refreshHealth: async (isCurrent) => {
+      order.push("health");
+      tokens.push(isCurrent);
+      return null;
+    },
+    loadCatalog: async (isCurrent) => {
+      order.push("catalog");
+      tokens.push(isCurrent);
+    },
+  });
+  assert.deepEqual(order, ["health", "catalog"], "health の後にカタログを取り直す");
+  assert.equal(tokens[0], canApply);
+  assert.equal(tokens[1], canApply, "health 用に新しい世代を始めない (カタログの応答を捨てない)");
+  assert.equal(canApply(), true, "取り直しの途中で世代が進んでいない");
 });

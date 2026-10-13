@@ -1124,6 +1124,8 @@ export function createStubModelRuntime(
     logout: async (provider, callOptions) => {
       oauthCalls.push({ operation: "logout", provider });
       await options.onOAuthLogout?.(provider, callOptions?.signal);
+      // 実 SDK の logout は保存済み資格情報だけでなく、同じ provider の runtime API キー overlay も消す
+      runtimeKeys.delete(provider);
       configured.set(provider, false);
       oauthProviders.delete(provider);
     },

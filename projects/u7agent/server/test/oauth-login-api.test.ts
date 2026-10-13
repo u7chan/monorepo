@@ -323,8 +323,108 @@ test("サインアウトは auth.json の OAuth を消し、この画面で登�
       );
       const after = providerOf((await logout.json()) as ModelsSettingsResponse);
       assert.equal(after.managed, true, "この画面で登録したキーの行は残す");
+      assert.equal(after.auth.configured, true, "キーは実効のまま残す (SDK の logout が消す overlay を戻す)");
       assert.equal(after.credentialKind, "api_key");
+      assert.equal(after.degraded, undefined, "戻せている間は未反映にしない");
       assert.ok(!JSON.stringify(after).includes(KEY), "キー値は応答へ載せない");
+    } finally {
+      await bff.close();
+    }
+  });
+});
+
+test("認可 URL の前に中断されたサインインは、後着の対話を拒否して次のログインを塞がない", async () => {
+  await withStoreDir(async (dir) => {
+    let entered = false;
+    let prompts = 0;
+    const pi = createStubPi(
+      stubOptions({
+        agentDir: dir,
+        onOAuthLogin: async (_provider, interaction: AuthInteraction) => {
+          entered = true;
+          // 開始 POST と中断 DELETE の競合: 認可 URL / manual_code の発行前に中断が確定する
+          await new Promise((resolve) => setTimeout(resolve, 30));
+          prompts += 1;
+          await interaction.prompt({ type: "manual_code", message: "Paste", placeholder: "url" }).catch(() => {});
+        },
+      }),
+    );
+    const bff = await createBffApp({ cwd: "/tmp/project", sessionStoreDir: dir, pi: asPiBff(pi), workspace: null });
+    try {
+      const started = bff.app.request("/api/settings/models/openai/login", { method: "POST" });
+      await waitFor(() => entered, 3000, "SDK の login 開始");
+      const cancelled = await bff.app.request("/api/settings/models/openai/login", { method: "DELETE" });
+      assert.equal(cancelled.status, 200);
+      assert.equal(providerOf((await cancelled.json()) as ModelsSettingsResponse).login?.status, "cancelled");
+      assert.equal((await started).status, 200, "中断で開始の応答も終わる");
+
+      await waitFor(() => prompts > 0, 3000, "後着の prompt");
+      const after = await getProvider(bff);
+      assert.equal(after.login?.status, "cancelled", "中断の表示を保つ");
+      assert.equal(after.login?.input, null, "終端したあとの prompt で入力欄を立てない");
+
+      // セッションが running のまま残らず、次のログインを開始できる
+      const again = await bff.app.request("/api/settings/models/openai/login", { method: "POST" });
+      assert.equal(again.status, 200);
+      assert.equal(pi.oauthCalls.filter((call) => call.operation === "login").length, 2);
+      await bff.app.request("/api/settings/models/openai/login", { method: "DELETE" });
+    } finally {
+      await bff.close();
+    }
+  });
+});
+
+test("サインアウトでキーを実効へ戻せないときは、未反映として残して再同期へ導く", async () => {
+  await withStoreDir(async (dir) => {
+    await writeFile(
+      join(dir, "auth.json"),
+      JSON.stringify({
+        openai: {
+          type: "oauth",
+          access: "oauth-access-must-not-leak",
+          refresh: "refresh",
+          expires: Date.now() + 60_000,
+        },
+      }),
+    );
+    let applies = 0;
+    const pi = createStubPi({
+      agentDir: dir,
+      providers: [
+        {
+          provider: "openai",
+          name: "OpenAI",
+          supportsOAuth: true,
+          oauthLoginLabel: "Sign in with ChatGPT",
+          canSetApiKey: true,
+          oauth: true,
+          configured: true,
+          authSource: "stored",
+        },
+      ],
+      onOAuthLogout: () => Promise.resolve(),
+      // 1 回目 (PUT /key) だけ成功させ、サインアウト後の写し直し (再試行を含む) を失敗させる
+      onSetRuntimeApiKey: () => {
+        applies += 1;
+        if (applies > 1) throw new Error("stub apply failed");
+      },
+    });
+    const bff = await createBffApp({ cwd: "/tmp/project", sessionStoreDir: dir, pi: asPiBff(pi), workspace: null });
+    try {
+      const saved = await bff.app.request("/api/settings/models/openai/key", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ apiKey: KEY }),
+      });
+      assert.equal(saved.status, 200);
+
+      const logout = await bff.app.request("/api/settings/models/openai/logout", { method: "POST" });
+      assert.equal(logout.status, 200);
+      const after = providerOf((await logout.json()) as ModelsSettingsResponse);
+      assert.equal(after.managed, true, "DB の行は残る");
+      assert.equal(after.degraded, "apply", "実効へ戻せなかったことを既存の未反映で示す");
+      assert.equal(after.auth.configured, false, "overlay が落ちた実効を偽らない");
+      assert.ok(applies > 1, "写し直しを試している");
     } finally {
       await bff.close();
     }

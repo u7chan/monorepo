@@ -171,9 +171,13 @@ export async function createBffContext(opts: CreateBffAppOptions = {}): Promise<
   }
   // OAuth サインインは資格情報を Pi の auth.json へ委ね、進行状態だけをメモリに持つ。
   // キー変更とは別のロックで直列化する (進行中のサインインは分単位で待つため、キーの保存を塞がない)
+  // サインアウトは SDK が auth.json の資格情報と一緒に runtime overlay も消すため、DB に残るキーの
+  // 希望状態を写し直す係を渡す。実体 (ModelSettingsService) はこの後で作るので、束縛だけを遅らせる
+  let reapplyStoredKey: (provider: string) => Promise<void> = async () => {};
   const oauthLogin = new OAuthLoginService({
     runtime: pi ? createOAuthLoginRuntime(pi) : null,
     refresh: pi ? pi.refreshModelState : async () => {},
+    reapplyStoredKey: (provider) => reapplyStoredKey(provider),
     maskError,
   });
   const modelSettings = new ModelSettingsService({
@@ -186,6 +190,7 @@ export async function createBffContext(opts: CreateBffAppOptions = {}): Promise<
     setModelSelection: pi ? pi.setModelSelection : () => {},
     ignoredEnvironmentVariables,
   });
+  reapplyStoredKey = (provider) => modelSettings.reapplyStoredKey(provider);
   await modelSettings.applyStored();
   // コンテンツ生成は provider キーとは独立した 1 行で、行の有無を PiBff のツール公開へ写す。
   // 書込は自分のロックで直列化し、applyStored() も同じロックを通す（model-settings と同じ順序）。

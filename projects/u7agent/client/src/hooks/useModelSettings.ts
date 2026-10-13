@@ -23,6 +23,7 @@ import {
   OAUTH_LOGIN_POLL_MS,
   OAUTH_LOGIN_SIGNOUT_NOTE,
   OAUTH_LOGIN_STARTED_NOTE,
+  refreshModelsForAuthChange,
   runModelCatalogRefresh,
   oauthLoginNote,
   providerLoginState,
@@ -143,8 +144,7 @@ export function useModelSettings({ onRefreshHealth }: ModelSettingsParams) {
             });
           }
           if (finished === "succeeded") {
-            await onRefreshHealth(beginLoad());
-            await loadCatalog(canApply);
+            await refreshModelsForAuthChange({ canApply, refreshHealth: onRefreshHealth, loadCatalog });
           }
         } catch {
           // ポーリングの失敗は注記を変えない (次の周期でやり直す)
@@ -164,8 +164,7 @@ export function useModelSettings({ onRefreshHealth }: ModelSettingsParams) {
       const canApply = beginLoad();
       setSettings(response);
       setNote(mutationNote(action, response));
-      await onRefreshHealth(canApply);
-      await loadCatalog(canApply);
+      await refreshModelsForAuthChange({ canApply, refreshHealth: onRefreshHealth, loadCatalog });
     },
     [beginLoad, loadCatalog, onRefreshHealth],
   );
@@ -278,8 +277,7 @@ export function useModelSettings({ onRefreshHealth }: ModelSettingsParams) {
         setSettings(next);
         setNote(options.note(providerLoginState(next, provider)));
         if (finished === "succeeded" || options.refreshModels) {
-          await onRefreshHealth(canApply);
-          await loadCatalog(canApply);
+          await refreshModelsForAuthChange({ canApply, refreshHealth: onRefreshHealth, loadCatalog });
         }
         return true;
       } catch (error) {

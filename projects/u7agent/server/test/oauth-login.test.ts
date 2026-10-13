@@ -1,6 +1,7 @@
 // 設定 → モデルの OAuth サインインのサービス契約。実 SDK は呼ばず、fake の OAuthLoginRuntime で
 // interaction の分岐・状態遷移・中断・固定文言を検証する。
 import assert from "node:assert/strict";
+import { getEventListeners } from "node:events";
 import test from "node:test";
 import type { AuthInteraction } from "@earendil-works/pi-ai";
 import {
@@ -76,20 +77,30 @@ function pendingLogin(interaction: AuthInteraction): Promise<void> {
 
 function service(
   runtime: OAuthLoginRuntime | null,
-  hooks: { refresh?: () => Promise<void>; waitForAuthUrlMs?: number } = {},
+  hooks: {
+    refresh?: () => Promise<void>;
+    waitForAuthUrlMs?: number;
+    /** サインアウト直後のキー写し直しの模倣。throw で失敗経路を再現できる */
+    reapplyStoredKey?: (provider: string) => Promise<void>;
+  } = {},
 ) {
   const refreshes: number[] = [];
+  const reapplied: string[] = [];
   const instance = new OAuthLoginService({
     runtime,
     refresh: async () => {
       refreshes.push(Date.now());
       await hooks.refresh?.();
     },
+    reapplyStoredKey: async (provider) => {
+      reapplied.push(provider);
+      await hooks.reapplyStoredKey?.(provider);
+    },
     maskError: (text) => text,
     waitForAuthUrlMs: hooks.waitForAuthUrlMs ?? 0,
     logoutTimeoutMs: 50,
   });
-  return { instance, refreshes };
+  return { instance, refreshes, reapplied };
 }
 
 async function waitForState(
@@ -324,6 +335,29 @@ test("認可 URL 以外の scheme は公開しない", async () => {
   assert.equal(running.authUrl, null, "http(s) 以外は開かせない");
 });
 
+test("サインアウトは DB に残るキーを公開 state の再計算前に写し直し、失敗しても応答を変えない", async () => {
+  const order: string[] = [];
+  const runtime = fakeRuntime({ stored: "oauth" });
+  const reapply = service(runtime.runtime, {
+    reapplyStoredKey: async (provider) => {
+      order.push(`reapply:${provider}`);
+    },
+    refresh: async () => {
+      order.push("refresh");
+    },
+  });
+  assert.equal((await reapply.instance.logout("openai")).status, 200);
+  assert.deepEqual(reapply.reapplied, ["openai"]);
+  assert.deepEqual(order, ["reapply:openai", "refresh"], "SDK が消した overlay を先に戻してから再計算する");
+
+  // 写し直しの失敗は未反映 (呼び出し側が記録) として扱い、サインアウト自体は成功のままにする
+  const failing = service(fakeRuntime({ stored: "oauth" }).runtime, {
+    reapplyStoredKey: () => Promise.reject(new Error("apply failed")),
+  });
+  assert.equal((await failing.instance.logout("openai")).status, 200);
+  assert.equal(failing.refreshes.length, 1, "失敗しても公開 state の再計算は 1 回行う");
+});
+
 test("サインアウトは auth.json の OAuth があるときだけ通り、キー (アプリ DB) には触れない", async () => {
   const runtime = fakeRuntime({ stored: "oauth" });
   const { instance, refreshes } = service(runtime.runtime);
@@ -339,6 +373,107 @@ test("サインアウトは auth.json の OAuth があるときだけ通り、�
   assert.equal((await unreadable.instance.logout("openai")).status, 200);
   const hidden = service(fakeRuntime({ storedThrows: true, credential: null }).runtime);
   assert.equal((await hidden.instance.logout("openai").catch((error) => error)).message, OAUTH_LOGOUT_TARGET_MESSAGE);
+});
+
+test("成功は公開 state の再計算が終わるまで公開せず、認可 URL は先に落とす", async () => {
+  let releaseRefresh!: () => void;
+  const pendingRefresh = new Promise<void>((resolve) => {
+    releaseRefresh = resolve;
+  });
+  const runtime = fakeRuntime({
+    login: async (_provider, interaction) => {
+      interaction.notify({ type: "auth_url", url: AUTH_URL });
+      await interaction.prompt({ type: "manual_code", message: "Paste", placeholder: "url" });
+    },
+  });
+  const { instance, refreshes } = service(runtime.runtime, { refresh: () => pendingRefresh });
+  await instance.start("openai");
+  await waitForState(instance, "openai", (state) => state.input !== null);
+  await instance.submitCode("openai", "http://127.0.0.1:1455/auth/callback?code=abc&state=dummy");
+  // SDK の login は返り、公開 state の再計算だけが未完了
+  await waitForState(instance, "openai", () => refreshes.length > 0);
+  const during = instance.stateOf("openai");
+  assert.equal(during?.status, "running", "再計算が終わるまで成功を公開しない");
+  assert.equal(during?.authUrl, null, "認可 URL は再計算を待たずに落とす");
+  assert.equal(during?.input, null, "貼り付け欄も再計算を待たずに落とす");
+  assert.equal(during?.progress, null);
+
+  releaseRefresh();
+  const done = await waitForState(instance, "openai", (state) => state.status === "succeeded");
+  assert.equal(done.authUrl, null);
+  assert.equal(refreshes.length, 1, "成功の公開 state を 1 回だけ再計算する");
+});
+
+test("公開 state の再計算中に押された [中断] は、確定済みの成功を取り消さない", async () => {
+  let releaseRefresh!: () => void;
+  const pendingRefresh = new Promise<void>((resolve) => {
+    releaseRefresh = resolve;
+  });
+  const runtime = fakeRuntime({
+    login: async (_provider, interaction) => {
+      interaction.notify({ type: "auth_url", url: AUTH_URL });
+      await interaction.prompt({ type: "manual_code", message: "Paste", placeholder: "url" });
+    },
+  });
+  const { instance, refreshes } = service(runtime.runtime, { refresh: () => pendingRefresh });
+  await instance.start("openai");
+  await waitForState(instance, "openai", (state) => state.input !== null);
+  await instance.submitCode("openai", "http://127.0.0.1:1455/auth/callback?code=abc&state=dummy");
+  await waitForState(instance, "openai", () => refreshes.length > 0);
+
+  assert.equal((await instance.cancel("openai")).status, 200);
+  assert.equal(instance.stateOf("openai")?.status, "running", "再計算待ちの間は終端を公開しない");
+  releaseRefresh();
+  const done = await waitForState(instance, "openai", (state) => state.status === "succeeded");
+  assert.equal(done.error, null);
+  assert.equal(refreshes.length, 1, "中断では再計算を増やさない");
+  // その後の [閉じる] は結果表示の消去として働く
+  assert.equal((await instance.cancel("openai")).status, 200);
+  assert.equal(instance.stateOf("openai"), null);
+});
+
+test("認可 URL の発行前に中断したあとの prompt は、入力欄を立てずに拒否する", async () => {
+  let rejected: unknown = null;
+  let loginReturned = false;
+  let abortedDuringPrompt = false;
+  const runtime = fakeRuntime({
+    login: async (_provider, interaction) => {
+      // 開始 POST と中断 DELETE の競合: 認可 URL / manual_code の発行前に中断が確定する
+      await new Promise((resolve) => setTimeout(resolve, 30));
+      await interaction.prompt({ type: "manual_code", message: "Paste", placeholder: "url" }).catch((error) => {
+        rejected = error;
+        abortedDuringPrompt = interaction.signal?.aborted ?? false;
+      });
+      loginReturned = true;
+    },
+  });
+  const { instance, refreshes } = service(runtime.runtime);
+  await instance.start("openai");
+  assert.equal((await instance.cancel("openai")).status, 200);
+
+  await waitForState(instance, "openai", () => rejected !== null && loginReturned);
+  assert.equal(abortedDuringPrompt, true, "中断は SDK の signal を閉じている");
+  const state = instance.stateOf("openai");
+  assert.equal(state?.status, "cancelled", "中断の表示を保つ");
+  assert.equal(state?.input, null, "終端したあとの prompt で入力欄を立てない");
+  await waitForState(instance, "openai", () => refreshes.length > 0);
+  assert.equal(refreshes.length, 1, "中断の公開 state を 1 回だけ再計算する");
+});
+
+test("SDK の login が遅れて prompt を出しても、abort 済み signal に listener を残さない", async () => {
+  const signals: AbortSignal[] = [];
+  const runtime = fakeRuntime({
+    login: async (_provider, interaction) => {
+      signals.push(interaction.signal as AbortSignal);
+      await new Promise((resolve) => setTimeout(resolve, 30));
+      await interaction.prompt({ type: "manual_code", message: "Paste", placeholder: "url" }).catch(() => {});
+    },
+  });
+  const { instance } = service(runtime.runtime);
+  await instance.start("openai");
+  await instance.cancel("openai");
+  await new Promise((resolve) => setTimeout(resolve, 60));
+  assert.equal(getEventListeners(signals[0], "abort").length, 0, "拒否した prompt は listener を残さない");
 });
 
 test("中断の直後に SDK の login が成功しても公開 state を再計算し、中断の表示を保つ", async () => {

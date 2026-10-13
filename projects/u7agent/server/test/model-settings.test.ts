@@ -573,6 +573,42 @@ test("PUT 成功で過去の degraded を解除する", async () => {
   assert.equal(service.settings().providers[0]?.degraded, undefined);
 });
 
+test("reapplyStoredKey は DB の行だけを写し直し、失敗は未反映にして例外を出さない", async () => {
+  const db = fakeDb({ anthropic: KEY_A });
+  let failures = 0;
+  const runtime = fakeRuntime({
+    providers: [{ provider: "anthropic", configured: true }],
+    apply: () => {
+      if (failures > 0) {
+        failures -= 1;
+        return { outcome: "unknown" };
+      }
+      return { outcome: "applied", synced: true };
+    },
+  });
+  const { service, refreshCount } = createService({ db: db.db, runtime: runtime.runtime });
+
+  // 行が無い provider は SDK に触らない (UI 外で張られた overlay を勝手に作らない)
+  await service.reapplyStoredKey("openai");
+  assert.equal(runtime.calls.length, 0);
+  assert.equal(refreshCount(), 0, "公開 state の再計算は呼び出し側 (サインアウト) が行う");
+
+  // 反映に失敗したら既存の未反映として記録し、例外は出さない (呼び出し側のサインアウトを落とさない)
+  failures = 2;
+  await service.reapplyStoredKey("anthropic");
+  assert.deepEqual(
+    runtime.calls.map((call) => call.operation),
+    ["apply", "apply"],
+    "失敗は 1 回だけ再試行する",
+  );
+  assert.equal(runtime.calls[0]?.apiKey, KEY_A);
+  assert.equal(service.settings().providers[0]?.degraded, "apply");
+
+  // 成功すれば解除する (再同期と同じ収束)
+  await service.reapplyStoredKey("anthropic");
+  assert.equal(service.settings().providers[0]?.degraded, undefined);
+});
+
 test("ランタイム無しの変更系は 503 not_stored で DB を書かない", async () => {
   const db = fakeDb();
   const { service } = createService({ db: db.db, runtime: null });

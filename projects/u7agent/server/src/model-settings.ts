@@ -481,6 +481,30 @@ export class ModelSettingsService {
   }
 
   /**
+   * DB の希望状態 (provider_credentials の行) を SDK へ写し直す。OAuth のサインアウトは SDK が
+   * auth.json の資格情報と一緒に同じ provider の runtime overlay も消すため、公開 state の再計算前にここで戻す。
+   * 行が無ければ何もしない。反映に失敗しても例外は出さず、既存の未反映 (degraded = apply) として残す。
+   */
+  async reapplyStoredKey(provider: string): Promise<void> {
+    await this.#lock.run(async () => {
+      if (!this.#runtime) return;
+      let row: ProviderCredentialRow | undefined;
+      try {
+        row = this.#db.getProviderCredential(provider);
+      } catch {
+        console.warn(`[u7agent] provider credential read failed: ${provider}`);
+        return;
+      }
+      if (!row) return;
+      const commit = await applyWithRetry(() =>
+        this.#runtime!.applyApiKey(provider, row.apiKey, { signal: AbortSignal.timeout(this.#timeoutMs) }),
+      );
+      if (commitSucceeded(commit)) this.#degraded.delete(provider);
+      else this.#degraded.set(provider, "apply");
+    });
+  }
+
+  /**
    * カタログの手動更新。キー変更と同じロックを通し、取得できなくても一覧は現在値のまま 200 で返す
    * (失敗は `catalogError` にだけ載せる)。応答は `GET /api/runtime/models` + `catalogError`。
    */

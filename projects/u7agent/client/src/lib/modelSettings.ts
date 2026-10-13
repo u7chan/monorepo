@@ -6,6 +6,7 @@
  * 下書きの組み立て・集計・確認文だけをここで純関数的に扱う (DOM に依存させない)。
  */
 import type {
+  Health,
   ModelCatalogRefreshResponse,
   ModelMutationResponse,
   ModelRef,
@@ -245,6 +246,20 @@ export function oauthLoginNote(state: OAuthLoginState | null, running: string): 
 /** 応答から 1 provider のサインイン状態を取る。行が無い / 未開始は null */
 export function providerLoginState(response: ModelsSettingsResponse, provider: string): OAuthLoginState | null {
   return response.providers.find((entry) => entry.provider === provider)?.login ?? null;
+}
+
+/**
+ * 認証が変わった後、health とカタログを取り直す。適用の可否 (`createRequestGate()` が返す判定) は
+ * 呼び出し側が 1 つだけ作り、両方へ同じものを渡す。取り直しの途中で新しい世代を始めると、後続の取得は
+ * 成功しても応答を捨て、クライアントの候補が未認証時のまま残る。
+ */
+export async function refreshModelsForAuthChange(input: {
+  canApply: () => boolean;
+  refreshHealth: (isCurrent?: () => boolean) => Promise<Health | null>;
+  loadCatalog: (canApply: () => boolean) => Promise<void>;
+}): Promise<void> {
+  await input.refreshHealth(input.canApply);
+  await input.loadCatalog(input.canApply);
 }
 
 /** provider 詳細の OAuth セクションの見た目。DOM に依存させず、条件だけをここで決める */

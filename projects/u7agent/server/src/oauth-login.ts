@@ -112,6 +112,12 @@ export interface OAuthLoginOptions {
   runtime: OAuthLoginRuntime | null;
   /** 公開 state の再計算。完了・失敗・キャンセルで 1 回だけ呼ぶ。例外を出さない契約 */
   refresh: () => Promise<void>;
+  /**
+   * サインアウトの直後に呼ぶ。SDK の logout は auth.json の資格情報だけでなく、同じ provider の
+   * runtime API キー overlay も消すため、アプリ DB に残るキーの希望状態をここで写し直す。
+   * 反映の失敗は呼び出し側が既存の未反映 (degraded) として記録し、例外を出さない契約。
+   */
+  reapplyStoredKey?: (provider: string) => Promise<void>;
   /** ログへ出す前の文言境界 (可変マスカー) */
   maskError: (text: string) => string;
   /** 認可 URL が届くまで開始の応答を待つ上限。0 で待たない */
@@ -149,6 +155,7 @@ class OAuthLoginSession {
 
   #controller = new AbortController();
   #pending: { resolve: (value: string) => void; reject: (error: unknown) => void } | null = null;
+  #finishing = false;
   #revision = 0;
   #waiters: (() => void)[] = [];
 
@@ -164,6 +171,11 @@ class OAuthLoginSession {
   /** 中断済みか。SDK の login が signal を見ずに終了した場合も cancel 側で確定できるようにする */
   get aborted(): boolean {
     return this.#controller.signal.aborted;
+  }
+
+  /** 成功で確定し、公開 state の再計算を待っているか (この間の中断は結果を取り消せない) */
+  get finishing(): boolean {
+    return this.#finishing;
   }
 
   state(): OAuthLoginState {
@@ -198,6 +210,9 @@ class OAuthLoginSession {
   #prompt(prompt: AuthPrompt): Promise<string> {
     if (prompt.type !== "manual_code") return Promise.reject(new Error(UNSUPPORTED_PROMPT_MARKER));
     const signal = prompt.signal ?? this.#controller.signal;
+    // 中断が先に終端を確定させたあとの prompt は受け付けない。abort 済みの signal へ listener を足しても
+    // abort イベントは再発火しないため、ここで見ないと入力欄を立てたまま待ち続けてコールバックサーバーが閉じない
+    if (this.status !== "running" || signal.aborted) return Promise.reject(new LoginCancelledError());
     this.input = { message: OAUTH_LOGIN_INPUT_MESSAGE, placeholder: OAUTH_LOGIN_INPUT_PLACEHOLDER };
     this.#bump();
     return new Promise<string>((resolve, reject) => {
@@ -229,15 +244,33 @@ class OAuthLoginSession {
     return true;
   }
 
+  /** 進行中の値。終端と、成功の公開待ちへ入るときに落とす */
+  #clearInProgress(): void {
+    this.authUrl = null;
+    this.instructions = null;
+    this.progress = null;
+    this.input = null;
+    this.userCode = null;
+  }
+
+  /**
+   * SDK の login が成功で返ったあと、公開 state の再計算を待つ間の状態へ移す。認可 URL と貼り付け欄は
+   * 進行中の値なので先に落とし、成功の公開 (settle) は再計算の後へ回す。クライアントは成功を観測すると
+   * health / カタログの取り直しを止めるため、先に公開すると再計算前の候補が残る。
+   */
+  holdSuccess(): void {
+    if (this.status !== "running") return;
+    this.#finishing = true;
+    this.#clearInProgress();
+    this.#bump();
+  }
+
   /** 終端の確定。認可 URL と貼り付け欄は進行中の値なので、終端では必ず落とす */
   settle(status: "succeeded" | "failed" | "cancelled", error: string | null): void {
     if (this.status !== "running") return;
     this.status = status;
     this.error = error;
-    this.authUrl = null;
-    this.instructions = null;
-    this.progress = null;
-    this.userCode = null;
+    this.#clearInProgress();
     const pending = this.#pending;
     // 進行中の貼り付け待ちを閉じる (SDK 側も login の終了で signal を閉じるが、こちらを先に確定させる)
     pending?.reject(new LoginCancelledError());
@@ -279,6 +312,7 @@ export class OAuthLoginService {
   #maskError: (text: string) => string;
   #waitForAuthUrlMs: number;
   #logoutTimeoutMs: number;
+  #reapplyStoredKey: (provider: string) => Promise<void>;
   #logins = new Map<string, OAuthLoginSession>();
   // キー変更と同じロックは使わない。進行中のサインインは分単位で待つため、同じロックで直列化すると
   // その間キーの保存が止まる。触るストアも違う (DB と auth.json)
@@ -290,6 +324,7 @@ export class OAuthLoginService {
     this.#maskError = options.maskError;
     this.#waitForAuthUrlMs = options.waitForAuthUrlMs ?? OAUTH_LOGIN_AUTH_URL_WAIT_MS;
     this.#logoutTimeoutMs = options.logoutTimeoutMs ?? OAUTH_LOGOUT_TIMEOUT_MS;
+    this.#reapplyStoredKey = options.reapplyStoredKey ?? (async () => {});
   }
 
   /** GET へ載せる進行中の状態。進行中も直近の結果も無ければ null */
@@ -338,9 +373,13 @@ export class OAuthLoginService {
         this.#logins.delete(provider);
         return { status: 200 };
       }
+      if (session.finishing) {
+        // SDK はすでに返っており、公開待ち。中断では取り消せないので、成功の公開に任せる
+        return { status: 200 };
+      }
       session.settle("cancelled", null);
       session.abort();
-      // 公開 state の再計算は #run の finally が 1 回だけ行う (中断直後に完了したログインも拾えるようにする)
+      // 公開 state の再計算は #run が 1 回だけ行う (中断直後に完了したログインも拾えるようにする)
       return { status: 200 };
     });
   }
@@ -361,33 +400,64 @@ export class OAuthLoginService {
         console.warn(`[u7agent] oauth logout failed: ${provider}`);
         throw httpError(503, OAUTH_LOGOUT_FAILED_MESSAGE);
       }
+      // SDK は保存済み資格情報と同じ provider の runtime overlay も消す。この画面で登録したキーの
+      // 希望状態 (アプリ DB の行) を先に写し直してから公開 state を再計算する
+      await this.#reapply(provider);
       await this.#refresh();
       return { status: 200 };
     });
   }
 
-  /** SDK の login をバックグラウンドで走らせ、終端で公開 state を再計算する */
+  /**
+   * SDK の login をバックグラウンドで走らせ、終端で公開 state を再計算する。成功は再計算が終わってから
+   * 公開する (クライアントは成功を終端として health / カタログの取り直しを 1 回で終えるため、先に
+   * 公開すると再計算前の候補が残る)。再計算を待つ間も認可 URL と貼り付け欄は落としておく。
+   */
   async #run(provider: string, session: OAuthLoginSession): Promise<void> {
     const runtime = this.#runtime;
     if (!runtime) return;
+    const outcome = await this.#login(runtime, provider, session);
+    if (outcome === null) {
+      // 中断が先に終端を確定している。SDK が返った時点の資格情報だけを写す
+      await this.#refresh();
+      return;
+    }
+    if (outcome.status === "succeeded") {
+      session.holdSuccess();
+      await this.#refresh();
+      session.settle("succeeded", null);
+      return;
+    }
+    session.settle(outcome.status, outcome.error);
+    await this.#refresh();
+  }
+
+  /** SDK の login を 1 回走らせ、失敗を固定文言へ寄せる。null = すでに終端が確定していた */
+  async #login(
+    runtime: OAuthLoginRuntime,
+    provider: string,
+    session: OAuthLoginSession,
+  ): Promise<{ status: "succeeded" } | { status: "failed" | "cancelled"; error: string | null } | null> {
     try {
       await runtime.loginOAuth(provider, session.interaction);
       // 中断済みの state を成功で上書きしない (cancel が先に state を確定している)
-      if (session.status === "running") session.settle("succeeded", null);
+      return session.status === "running" ? { status: "succeeded" } : null;
     } catch (error) {
-      if (session.status === "running") {
-        if (session.aborted) {
-          session.settle("cancelled", null);
-        } else {
-          const kind = classifyOAuthLoginFailure(messageFor(error));
-          // 生の文言は応答にもログにも出さない (認可 URL・トークンが混ざる可能性のある値)
-          console.warn(`[u7agent] oauth login failed: ${provider} (${kind})`);
-          session.settle("failed", oauthLoginFailureMessage(kind));
-        }
-      }
-    } finally {
-      // 中断 / 中断直後の完了でも、SDK が返った時点の資格情報を公開 state へ写す
-      await this.#refresh();
+      if (session.status !== "running") return null;
+      if (session.aborted) return { status: "cancelled", error: null };
+      const kind = classifyOAuthLoginFailure(messageFor(error));
+      // 生の文言は応答にもログにも出さない (認可 URL・トークンが混ざる可能性のある値)
+      console.warn(`[u7agent] oauth login failed: ${provider} (${kind})`);
+      return { status: "failed", error: oauthLoginFailureMessage(kind) };
+    }
+  }
+
+  /** サインアウトで消えた runtime overlay を DB の希望状態へ戻す。失敗は未反映として残し、応答は変えない */
+  async #reapply(provider: string): Promise<void> {
+    try {
+      await this.#reapplyStoredKey(provider);
+    } catch (error) {
+      console.warn(`[u7agent] oauth key reapply failed: ${provider} (${this.#maskError(messageFor(error))})`);
     }
   }
 
