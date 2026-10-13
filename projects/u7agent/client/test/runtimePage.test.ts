@@ -1,5 +1,5 @@
-// 設定 → ランタイムの初期描画。client に DOM テスト基盤が無いため、react-dom/server の静的描画で
-// 接続状態 / 実行環境 / 利用可能なコマンドのセクションが出て、モデル解決が撤去されたことを固定する
+// 設定 → ランタイムのタブ。client に DOM テスト基盤が無いため、react-dom/server の静的描画で
+// アクティブな面だけが出ること、タブ行の aria-selected と既定タブを固定する
 // (取得後の状態とコピー本文は lib/runtimeEnvironment の純関数テストが担う)。
 // プロバイダー認証とカタログは出さない (設定 → モデルが持つ)。
 
@@ -7,6 +7,7 @@ import assert from "node:assert/strict";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import test from "node:test";
+import type { RuntimeSubsection } from "../src/lib/settingsNav";
 import type { Health } from "../src/types";
 
 // api.ts (location.origin を読む) を辿るため、node では最小の shim を置いてから読み込む
@@ -24,13 +25,14 @@ const HEALTH: Health = {
   versions: { piCodingAgent: "0.87.1" },
 };
 
-function renderPage(health: Health | null): string {
+function renderPage(health: Health | null, runtimeSubsection?: RuntimeSubsection): string {
   return renderToStaticMarkup(
     createElement(DiagnosticsContext.Provider, {
       value: diagnosticsStub,
       children: createElement(ConfirmProvider, {
         children: createElement(RuntimePage, {
           health,
+          runtimeSubsection,
           onRefreshHealth: async () => health,
           onBack: () => {},
           sessions: [],
@@ -40,9 +42,28 @@ function renderPage(health: Health | null): string {
   );
 }
 
-test("renders the connection, environment and command sections in order", () => {
+test("タブ行は 3 タブを出し、既定は「サービス」", () => {
   const html = renderPage(HEALTH);
-  assert.ok(html.includes("公開中のサービス</h3>"));
+  assert.ok(html.includes('role="tablist"'), "タブ行を出す");
+  assert.equal((html.match(/role="tab"/g) ?? []).length, 3, "タブは 3 つ");
+  assert.match(html, /<button[^>]*aria-selected="true"[^>]*>サービス</, "既定は「サービス」");
+  for (const label of ["サービス", "環境", "診断"]) {
+    assert.ok(html.includes(label), `タブ「${label}」を出す`);
+  }
+});
+
+test("既定タブは公開中のサービスだけを出す", () => {
+  const html = renderPage(HEALTH);
+  assert.ok(html.includes("公開中のサービス</h3>"), "サービスカードを出す");
+  assert.ok(html.includes("再読み込み"), "再読み込みボタンを出す");
+  assert.equal(html.includes("接続情報をコピー"), false, "コピーは環境タブに置く");
+  assert.equal(html.includes("実行環境を取得しています。"), false, "環境タブの本文を出さない");
+  assert.equal(html.includes("セッション診断</h3>"), false, "診断カードを出さない");
+});
+
+test("環境タブは接続状態・実行環境・利用可能なコマンドをこの順で出す", () => {
+  const html = renderPage(HEALTH, "environment");
+  assert.match(html, /<button[^>]*aria-selected="true"[^>]*>環境</, "選択中のタブを示す");
   const headings = ["接続状態</h3>", "実行環境（サンドボックス側）", "利用可能なコマンド</h3>"];
   const positions = headings.map((heading) => html.indexOf(heading));
   assert.equal(
@@ -60,9 +81,10 @@ test("renders the connection, environment and command sections in order", () => 
   assert.ok(html.includes("実行環境を取得しています。"), "取得中の状態を出す");
   assert.ok(html.includes("再読み込み"), "再読み込みボタンを出す");
   assert.ok(html.includes('aria-label="接続情報をコピー"'), "接続情報の一括コピーのボタンを出す");
-  assert.ok(html.includes("セッション診断</h3>"), "セッション診断カードを出す");
   assert.ok(html.includes("disabled"), "取得が settled するまでボタンを処理中にする");
   assert.ok(html.includes("pi-coding-agent: 0.87.1"), "SDK バージョンは接続状態に残す");
+  assert.equal(html.includes("公開中のサービス</h3>"), false, "サービスカードを出さない");
+  assert.equal(html.includes("セッション診断</h3>"), false, "診断カードを出さない");
   assert.ok(!html.includes("モデル解決"), "モデル解決は health の診断ごと撤去した");
   assert.ok(!html.includes("PI_MODELS") && !html.includes("PI_MODEL"), "明示モデル / 許可リストの診断を出さない");
   assert.ok(!html.includes("whitelist"), "whitelist の語を出さない");
@@ -70,8 +92,17 @@ test("renders the connection, environment and command sections in order", () => 
   assert.ok(!html.includes("APIキーを保存"), "認証変更の操作は出さない");
 });
 
-test("renders without a health snapshot", () => {
-  const html = renderPage(null);
+test("診断タブはセッション診断カードだけを出し、ヘッダに操作を置かない", () => {
+  const html = renderPage(HEALTH, "diagnostics");
+  assert.match(html, /<button[^>]*aria-selected="true"[^>]*>診断</, "選択中のタブを示す");
+  assert.ok(html.includes("セッション診断</h3>"), "セッション診断カードを出す");
+  assert.equal(html.includes('aria-label="接続情報をコピー"'), false, "ヘッダにコピーを置かない");
+  assert.equal(html.includes("公開中のサービス</h3>"), false, "サービスカードを出さない");
+  assert.equal(html.includes("実行環境を取得しています。"), false, "環境タブの本文を出さない");
+});
+
+test("health が無くても環境タブは情報なしで描ける", () => {
+  const html = renderPage(null, "environment");
   assert.ok(html.includes("情報なし"));
   assert.ok(html.includes("実行環境（サンドボックス側）"));
   assert.ok(!html.includes("モデル解決"));

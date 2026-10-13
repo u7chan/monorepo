@@ -146,7 +146,7 @@ DTO の正は `server/src/schema.ts`（zod）。リクエストボディは `@ho
 
 | メソッド | パス | 説明 |
 | --- | --- | --- |
-| GET | `/api/runtime/environment` | 設定 → ランタイムを開いたときと再読み込みで取得する、サンドボックス側の実行環境とコマンド |
+| GET | `/api/runtime/environment` | 設定 → ランタイム の環境タブを開いたときと再読み込みで取得する、サンドボックス側の実行環境とコマンド |
 
 ```json
 // 200 (connected)
@@ -170,7 +170,7 @@ DTO の正は `server/src/schema.ts`（zod）。リクエストボディは `@ho
 `state` は `connected` / `not_configured` / `unreachable` / `unauthorized` / `timeout` / `probe_failed` の 6 種で、`connected` 以外は `state` だけを返す（サンドボックスの情報は載せない）。検出できるコマンドの意味と allowlist、上限は [sandbox-api.md](sandbox-api.md#get-v1runtimeinfo) を参照する。
 
 - 未接続でも HTTP 200 で返し、UI は HTTP ステータスや文言ではなく `state` で分岐する。BFF 自体の予期せぬエラーだけが既存のエラー処理（500）になる
-- `connected` は認証付きの `GET /v1/runtime/info` が契約どおり応答し、情報の取得が完了した状態を指す。`bash` などのツールが実行可能であることは保証しない（`landlock` が `enabled` でなければ `bash` は実行できない。設定 → ランタイムの実行環境カードに ABI と適用状態を出す）。個別コマンドのバージョンを取れなくても存在を確認できていれば `version: null` として `connected` を維持する
+- `connected` は認証付きの `GET /v1/runtime/info` が契約どおり応答し、情報の取得が完了した状態を指す。`bash` などのツールが実行可能であることは保証しない（`landlock` が `enabled` でなければ `bash` は実行できない。設定 → ランタイム の環境タブの実行環境カードに ABI と適用状態を出す）。個別コマンドのバージョンを取れなくても存在を確認できていれば `version: null` として `connected` を維持する
 - `probe_failed` はサンドボックスへ到達したが応答が契約外 / 診断全体が不成立だった場合。HTTP 401 / 403 は `unauthorized`、接続失敗は `unreachable`、診断専用の期限（8 秒。接続待ちだけでなく**本文の受信完了まで**）の超過は `timeout`、接続情報が無いときは `not_configured`
 - 非 2xx の本文は読まずに解放し、その完了は待たない（本文の `cancel()` が止まっても失敗分類は期限内に返す。待つと再読み込み中のままになる）
 - サンドボックスの URL / 共有トークン / 内部エラーの詳細は応答に含めない（詳細は BFF のログに限る）
@@ -564,8 +564,8 @@ Content-Security-Policy: sandbox allow-scripts; default-src 'none'; style-src 'u
 | GET | `/api/serve/status?sessionId=<id>` | 閲覧中の会話から見た状態（`sessionId` は必須） |
 | POST | `/api/serve/start` | 起動（到達可なら他会話のプロセスを停止して置き換える） |
 | POST | `/api/serve/stop` | 停止 |
-| GET | `/api/serve/runtime/status` | 設定 → ランタイムから全体の状態を取得（会話 id は不要） |
-| POST | `/api/serve/runtime/stop` | 設定 → ランタイムから現在公開中のサーバーを停止 |
+| GET | `/api/serve/runtime/status` | 設定 → ランタイム のサービス面から全体の状態を取得（会話 id は不要） |
+| POST | `/api/serve/runtime/stop` | 設定 → ランタイム のサービス面から現在公開中のサーバーを停止 |
 
 作業ディレクトリはサーバーが会話ストアから解決する（client は `cwd` を送らない）。応答は 3 経路とも同じ形で、起動 / 停止の応答も実行後のプローブ結果と新しい世代を含む（押した時点で UI の状態が確定する）。
 

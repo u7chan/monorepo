@@ -4,10 +4,12 @@ import test from "node:test";
 import {
   DEFAULT_FILES_SUBSECTION,
   DEFAULT_MODELS_SUBSECTION,
+  DEFAULT_RUNTIME_SUBSECTION,
   DEFAULT_SETTINGS_SECTION,
   FILES_SUBSECTIONS,
   MODELS_SUBSECTIONS,
   parseStoredSettingsSection,
+  RUNTIME_SUBSECTIONS,
   SETTINGS_SECTIONS,
   SETTINGS_SECTION_KEY,
 } from "../src/lib/settingsNav";
@@ -51,6 +53,18 @@ test("設定 → ファイルのタブは「ファイルツリー / ダウンロ
     ],
   );
   assert.equal(DEFAULT_FILES_SUBSECTION, FILES_SUBSECTIONS[0].subsection);
+});
+
+test("設定 → ランタイムのタブは「サービス / 環境 / 診断」の 3 項目で、既定はサービス", () => {
+  assert.deepEqual(
+    RUNTIME_SUBSECTIONS.map((item) => [item.subsection, item.label]),
+    [
+      ["service", "サービス"],
+      ["environment", "環境"],
+      ["diagnostics", "診断"],
+    ],
+  );
+  assert.equal(DEFAULT_RUNTIME_SUBSECTION, RUNTIME_SUBSECTIONS[0].subsection);
 });
 
 test("保存された最後のセクションは既知の値だけを受け、それ以外は既定へ畳む", () => {

@@ -40,8 +40,9 @@ export const SETTINGS_SECTIONS: { section: SettingsSection; label: string }[] = 
  * 既定タブ (models) はパスへ出さない (lib/route.ts の routePath)。
  *
  * タブにするのは、同じ対象を別の面から見るとき (モデルの選択とプロバイダー認証、ファイルツリーと
- * ダウンロードの除外)。hook / API が別でも、対象が同じで URL が入れ子になるならタブにしてよい。
- * 対象そのものが別の面 (content / web-search) はルートのセクションに置く。
+ * ダウンロードの除外) と、読み取り専用で面ごとに取得と操作が閉じているとき (ランタイムのサービス /
+ * 環境 / 診断) だけ。どちらも hook / API が分かれてよいが、対象そのものが別の面 (content /
+ * web-search) はルートのセクションに置く。
  */
 export type ModelsSubsection = "models" | "providers";
 
@@ -61,6 +62,20 @@ export const FILES_SUBSECTIONS: { subsection: FilesSubsection; label: string }[]
 ];
 
 export const DEFAULT_FILES_SUBSECTION: FilesSubsection = "files";
+
+/**
+ * 設定 → ランタイム のタブ。同じ画面に積むと表示領域を超える読み取り専用の面を分ける。
+ * URL は `/settings/runtime` と `/settings/runtime/<sub>` を正とし、既定タブ (service) はパスへ出さない。
+ */
+export type RuntimeSubsection = "service" | "environment" | "diagnostics";
+
+export const RUNTIME_SUBSECTIONS: { subsection: RuntimeSubsection; label: string }[] = [
+  { subsection: "service", label: "サービス" },
+  { subsection: "environment", label: "環境" },
+  { subsection: "diagnostics", label: "診断" },
+];
+
+export const DEFAULT_RUNTIME_SUBSECTION: RuntimeSubsection = "service";
 
 /** URL にセクションが無いときの行き先 (「設定」の導線と、保存値が読めないときの既定) */
 export const DEFAULT_SETTINGS_SECTION: SettingsSection = "agents";

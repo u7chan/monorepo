@@ -1,6 +1,5 @@
-import { useEffect, useRef, useState } from "react";
+import { useRef, useState } from "react";
 import { useModelSettings, type ModelSettings } from "../hooks/useModelSettings";
-import { cn } from "../lib/cn";
 import {
   availabilityDraftState,
   pruneAvailabilityDraft,
@@ -17,6 +16,7 @@ import { ModelsTab } from "./model-settings/ModelsTab";
 import { ProvidersTab } from "./model-settings/ProvidersTab";
 import { SettingsPageLayout, type SettingsPageProps } from "./SettingsPageLayout";
 import { SettingsPlaceholder } from "./SettingsPlaceholder";
+import { SettingsTabs } from "./SettingsTabs";
 
 export type ModelSettingsPageProps = SettingsPageProps & {
   /** キーの変更後に composer のモデル候補を更新する (画面を開いている間だけ使う) */
@@ -125,10 +125,6 @@ export function ModelSettingsView({
     }
   }
   const draftState = appliedDraft.current;
-  const activeTabRef = useRef<HTMLButtonElement>(null);
-  useEffect(() => {
-    if (singleColumn) activeTabRef.current?.scrollIntoView({ block: "nearest", inline: "nearest" });
-  }, [singleColumn, modelsSubsection]);
 
   return (
     <SettingsPageLayout
@@ -153,32 +149,13 @@ export function ModelSettingsView({
         </>
       }
       tabs={
-        <div
-          role="tablist"
-          aria-label="モデルの設定"
-          className={cn(
-            "flex min-w-0 shrink-0 gap-1 overflow-x-auto border-b border-line",
-            singleColumn ? "px-2" : "px-4",
-          )}
-        >
-          {MODELS_SUBSECTIONS.map((item) => (
-            <button
-              key={item.subsection}
-              ref={modelsSubsection === item.subsection ? activeTabRef : undefined}
-              type="button"
-              role="tab"
-              aria-selected={modelsSubsection === item.subsection}
-              onClick={() => onSelectModelsSubsection?.(item.subsection)}
-              className={cn(
-                "tab-item shrink-0 whitespace-nowrap",
-                singleColumn && "px-1.5",
-                modelsSubsection === item.subsection && "tab-item-active",
-              )}
-            >
-              {item.label}
-            </button>
-          ))}
-        </div>
+        <SettingsTabs
+          items={MODELS_SUBSECTIONS}
+          active={modelsSubsection}
+          onSelect={onSelectModelsSubsection}
+          ariaLabel="モデルの設定"
+          singleColumn={singleColumn}
+        />
       }
       note={note}
       singleColumn={singleColumn}

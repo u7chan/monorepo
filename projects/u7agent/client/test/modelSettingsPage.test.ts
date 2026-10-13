@@ -145,6 +145,7 @@ function render(
 test("タブ行は URL が決めるタブを示し、2 つのタブを出す", () => {
   const html = render(modelSettings());
   assert.ok(html.includes('role="tablist"'), "タブ行を出す");
+  assert.ok(html.includes('aria-label="モデルの設定"'), "タブ行のラベルを渡す");
   assert.equal((html.match(/role="tab"/g) ?? []).length, 2, "タブは 2 つ");
   assert.match(html, /<button[^>]*aria-selected="true"[^>]*>モデルを選ぶ</, "既定は「モデルを選ぶ」");
   assert.ok(html.includes("プロバイダー"));

@@ -1,20 +1,24 @@
 /**
  * URL の pathname と画面の対応。DOM も history も触らない純関数だけを置き、URL の読み書きは
  * hooks/useRoute.ts が担う。`/` はチャット (会話を指定しない)、`/settings/<section>` は設定の各画面
- * (SETTINGS_SECTIONS)、`/settings/<section>/<sub>` はモデル / ファイル画面のタブ (MODELS_SUBSECTIONS /
- * FILES_SUBSECTIONS)、`/s/<sessionId>` はチャット + URL が指定する会話。未知・不正なパスはチャットへ畳み、
- * routePath は常に正準形 (小文字・末尾スラッシュなし・既定タブのパスなし) を返す。
+ * (SETTINGS_SECTIONS)、`/settings/<section>/<sub>` はタブを持つ画面 (MODELS_SUBSECTIONS /
+ * FILES_SUBSECTIONS / RUNTIME_SUBSECTIONS)、`/s/<sessionId>` はチャット + URL が指定する会話。
+ * 未知・不正なパスはチャットへ畳み、routePath は常に正準形 (小文字・末尾スラッシュなし・既定タブの
+ * パスなし) を返す。
  * `/s/<sessionId>` の `space` クエリだけは会話を指定した URL の入力として解釈し (entrySpaceOf)、
  * 読んだ後はキー単位で落とす (withoutEntrySpace)。
  */
 import {
   DEFAULT_FILES_SUBSECTION,
   DEFAULT_MODELS_SUBSECTION,
+  DEFAULT_RUNTIME_SUBSECTION,
   FILES_SUBSECTIONS,
   MODELS_SUBSECTIONS,
+  RUNTIME_SUBSECTIONS,
   SETTINGS_SECTIONS,
   type FilesSubsection,
   type ModelsSubsection,
+  type RuntimeSubsection,
   type SettingsSection,
 } from "./settingsNav";
 
@@ -34,6 +38,8 @@ export type Route =
       modelsSubsection?: ModelsSubsection;
       /** 設定 → ファイルのタブ。既定タブは省略し、パスにも出さない */
       filesSubsection?: FilesSubsection;
+      /** 設定 → ランタイムのタブ。同じく既定タブは省略する */
+      runtimeSubsection?: RuntimeSubsection;
     };
 
 /** 会話を指定しないチャット (正準形の `/`)。未知・解釈不能なパスを畳む先でもある */
@@ -42,8 +48,8 @@ export const CHAT_ROUTE: Route = { view: "chat" };
 /**
  * pathname から画面を決める。クエリとフラグメントは pathname に含めない契約
  * (含めると `#foo` 付きのリンクが画面として解釈できなくなる) ため、境界側で切り落とす。
- * モデル / ファイル画面だけは `/settings/<section>/<sub>` の 1 セグメントをタブとして解釈し、未知の
- * サブセクションと既定タブの明示 (`/settings/models/models` 等) は既定タブへ正準化する。
+ * タブを持つ画面 (models / files / runtime) だけは `/settings/<section>/<sub>` の 1 セグメントを解釈し、
+ * 未知のサブセクションと既定タブの明示 (`/settings/models/models` 等) は既定タブへ正準化する。
  * 旧 設定 → ダウンロード (`/settings/archive`) は 設定 → ファイル の「ダウンロードの除外」タブへ読み替える。
  */
 export function parseRoute(pathname: string): Route {
@@ -58,7 +64,6 @@ export function parseRoute(pathname: string): Route {
     }
     const found = SETTINGS_SECTIONS.find((item) => item.section === second?.toLowerCase());
     if (!found) return CHAT_ROUTE;
-    // ファイルはサブセクション 1 段だけを解釈する。深いパスは他の画面と同じくチャットへ畳む
     if (found.section === "files") {
       if (rest.length > 0) return CHAT_ROUTE;
       const subsection = FILES_SUBSECTIONS.find((item) => item.subsection === third?.toLowerCase())?.subsection;
@@ -66,9 +71,15 @@ export function parseRoute(pathname: string): Route {
         ? { view: "settings", section: "files", filesSubsection: subsection }
         : { view: "settings", section: "files" };
     }
+    if (found.section === "runtime") {
+      if (rest.length > 0) return CHAT_ROUTE;
+      const subsection = RUNTIME_SUBSECTIONS.find((item) => item.subsection === third?.toLowerCase())?.subsection;
+      return subsection && subsection !== DEFAULT_RUNTIME_SUBSECTION
+        ? { view: "settings", section: "runtime", runtimeSubsection: subsection }
+        : { view: "settings", section: "runtime" };
+    }
     if (found.section !== "models")
       return third === undefined ? { view: "settings", section: found.section } : CHAT_ROUTE;
-    // モデルもサブセクション 1 段だけを解釈する
     if (rest.length > 0) return CHAT_ROUTE;
     const subsection = MODELS_SUBSECTIONS.find((item) => item.subsection === third?.toLowerCase())?.subsection;
     return subsection && subsection !== DEFAULT_MODELS_SUBSECTION
@@ -87,6 +98,13 @@ export function routePath(route: Route): string {
     }
     if (route.section === "models" && route.modelsSubsection && route.modelsSubsection !== DEFAULT_MODELS_SUBSECTION) {
       return `/settings/models/${route.modelsSubsection}`;
+    }
+    if (
+      route.section === "runtime" &&
+      route.runtimeSubsection &&
+      route.runtimeSubsection !== DEFAULT_RUNTIME_SUBSECTION
+    ) {
+      return `/settings/runtime/${route.runtimeSubsection}`;
     }
     return `/settings/${route.section}`;
   }
