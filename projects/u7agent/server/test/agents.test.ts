@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { appendSystemPrompt, composePromptSnapshot, investigationSystemPrompt, investigationTools } from "../src/agent";
 import { createAgentCatalog } from "../src/agents";
+import { COMMON_SKILL_NAME_MAX, COMMON_SKILL_NAMES_MAX } from "../src/schema";
 
 const DEFAULT_SUGGESTIONS = [
   { label: "プロジェクトを説明して", prompt: "このプロジェクトの構成を簡単に教えて" },
@@ -375,6 +376,84 @@ test("rejects icons that are not webp / png data URLs or exceed 16 KiB", () => {
     (error: Error & { statusCode?: number }) => error.statusCode === 400,
   );
   assert.equal(catalog.getAgent(agent.id)?.icon, atLimit);
+});
+
+test("normalizes the common skill allowlist without collapsing undefined and []", () => {
+  const catalog = createAgentCatalog();
+
+  // 未指定 / null はキーごと省略 (= 全可視)、`[]` は「すべて OFF」なので残す
+  const plain = catalog.createAgent({ name: "未指定" });
+  assert.equal(Object.hasOwn(plain, "commonSkillNames"), false);
+  const nullCreated = catalog.createAgent({ name: "null 作成", commonSkillNames: null });
+  assert.equal(Object.hasOwn(nullCreated, "commonSkillNames"), false);
+  const off = catalog.createAgent({ name: "全 OFF", commonSkillNames: [] });
+  assert.deepEqual(off.commonSkillNames, []);
+
+  // trim / 空除去 / 重複排除。空になった配列も `[]` = すべて OFF として残す
+  const normalized = catalog.createAgent({
+    name: "正規化",
+    commonSkillNames: [" writer ", "", "  ", "writer", "gh"],
+  });
+  assert.deepEqual(normalized.commonSkillNames, ["writer", "gh"]);
+  assert.deepEqual(catalog.getAgent(normalized.id)?.commonSkillNames, ["writer", "gh"]);
+  assert.deepEqual(catalog.createAgent({ name: "空だけ", commonSkillNames: ["", " "] }).commonSkillNames, []);
+
+  // キー省略の更新は保持、null は解除、`[]` はすべて OFF へ上書き
+  const kept = catalog.updateAgent(normalized.id, { description: "説明だけ更新" });
+  assert.deepEqual(kept?.commonSkillNames, ["writer", "gh"]);
+  const cleared = catalog.updateAgent(normalized.id, { commonSkillNames: null });
+  assert.equal(Object.hasOwn(cleared ?? {}, "commonSkillNames"), false);
+  const replaced = catalog.updateAgent(normalized.id, { commonSkillNames: ["gh"] });
+  assert.deepEqual(replaced?.commonSkillNames, ["gh"]);
+  assert.deepEqual(catalog.updateAgent(normalized.id, { commonSkillNames: [] })?.commonSkillNames, []);
+  assert.deepEqual(
+    catalog.updateAgent(normalized.id, { description: "空のまま" })?.commonSkillNames,
+    [],
+    "解除 (キー省略) と 空配列を混同しない",
+  );
+
+  // 応答はコピーを返す (呼び出し側の書き換えが内部へ染みない)
+  const exported = catalog.getAgent(normalized.id)?.commonSkillNames;
+  assert.ok(exported);
+  exported.push("追加");
+  assert.deepEqual(catalog.listAgents().find((agent) => agent.id === normalized.id)?.commonSkillNames, []);
+});
+
+test("rejects malformed common skill lists with 400", () => {
+  const catalog = createAgentCatalog();
+  const atLimit = Array.from({ length: COMMON_SKILL_NAMES_MAX }, (_, index) => `skill-${index}`);
+  assert.equal(
+    catalog.createAgent({ name: "配列の上限ちょうど", commonSkillNames: atLimit }).commonSkillNames?.length,
+    COMMON_SKILL_NAMES_MAX,
+  );
+  const longName = "あ".repeat(COMMON_SKILL_NAME_MAX);
+  assert.deepEqual(catalog.createAgent({ name: "名前の上限ちょうど", commonSkillNames: [longName] }).commonSkillNames, [
+    longName,
+  ]);
+
+  const invalidInputs: unknown[] = [
+    { name: "x", commonSkillNames: "writer" },
+    { name: "x", commonSkillNames: { name: "writer" } },
+    { name: "x", commonSkillNames: [42] },
+    { name: "x", commonSkillNames: ["writer", 42] },
+    { name: "x", commonSkillNames: [...atLimit, "one-more"] },
+    { name: "x", commonSkillNames: ["あ".repeat(COMMON_SKILL_NAME_MAX + 1)] },
+  ];
+  for (const input of invalidInputs) {
+    assert.throws(
+      () => catalog.createAgent(input),
+      (error: Error & { statusCode?: number }) => error.statusCode === 400,
+      `must reject ${JSON.stringify(input).slice(0, 80)}`,
+    );
+  }
+
+  // 不正な更新も 400 (既存値は保持)
+  const agent = catalog.createAgent({ name: "更新検証", commonSkillNames: ["writer"] });
+  assert.throws(
+    () => catalog.updateAgent(agent.id, { commonSkillNames: [42] }),
+    (error: Error & { statusCode?: number }) => error.statusCode === 400,
+  );
+  assert.deepEqual(catalog.getAgent(agent.id)?.commonSkillNames, ["writer"]);
 });
 
 test("composePromptSnapshot はカタログスキルの本文を agent_skill タグで固定する", () => {

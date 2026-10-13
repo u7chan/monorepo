@@ -165,6 +165,11 @@ export interface CreateSessionInput {
   promptSnapshot?: PromptSnapshot;
   /** セッションのエージェントスナップショット (カタログスキルの説明の出所。復元でも渡す) */
   agentSkills?: AgentSkillInfo[];
+  /**
+   * 共通スキルの許可リスト。undefined = 全可視、`[]` = すべて OFF。作成 / 復元ではエージェントの
+   * スナップショットから渡し、注入経路 (skillsOverride) と解決経路で同じ値にする。
+   */
+  commonSkillNames?: string[];
   /** 子モード。読み取り専用ツールだけを公開し、常時有効群とスキル発見を落とす (既定 "chat") */
   mode?: SessionMode;
 }
@@ -795,6 +800,7 @@ export async function createPiBff({ cwd = process.cwd() }: { cwd?: string } = {}
     entries,
     promptSnapshot,
     agentSkills = [],
+    commonSkillNames,
     mode = "chat",
   }: CreateSessionInput = {}): Promise<{ session: unknown; promptSnapshot: PromptSnapshot }> {
     const investigation = mode === "investigation";
@@ -844,7 +850,11 @@ export async function createPiBff({ cwd = process.cwd() }: { cwd?: string } = {}
     // (発見に失敗してもスキル無しでセッション作成を続行する)。子はスキルを使わないので往復もしない
     const fileSkills = investigation
       ? { skills: [] }
-      : await discoverSessionFileSkills(sandboxClient, { rootCwd, relativeCwd });
+      : await discoverSessionFileSkills(sandboxClient, {
+          rootCwd,
+          relativeCwd,
+          ...(commonSkillNames === undefined ? {} : { commonSkillNames }),
+        });
     // カタログスキルは索引 (name / description / location) だけを渡し、本文は promptSnapshot から
     // read / `/skill:` の展開が取り出す。ファイル / 組み込みと同名の行は索引からも落とす (一覧と一致)
     const catalogSkillBodies = investigation ? [] : catalogSkillsFromSnapshot(snapshot);

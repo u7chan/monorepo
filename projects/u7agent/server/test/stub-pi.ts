@@ -929,6 +929,8 @@ export interface StubCreateInput {
   promptSnapshot?: { agent: string; skills: string[] };
   /** セッションのエージェントスナップショット (スタブでは使わない) */
   agentSkills?: AgentSkillInfo[];
+  /** 共通スキルの許可リスト。呼び出し側の検証用に記録するだけ */
+  commonSkillNames?: string[];
   /** 子モード (investigate の子セッション)。呼び出し側の検証用に記録するだけ */
   mode?: "chat" | "investigation";
 }

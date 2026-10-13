@@ -35,6 +35,11 @@ export interface SessionSkillsInput {
   /** セッションのエージェントスナップショット。カタログスキルの説明の出所 */
   agentSkills?: AgentSkillInfo[] | undefined;
   /**
+   * 共通スキルの許可リスト (エージェント定義の `commonSkillNames`)。undefined = 全可視、`[]` = すべて OFF。
+   * 一覧と `/skill:` の展開で同じ値を渡す (片方だけだと「ピッカーに残るのに発動しない」になる)。
+   */
+  commonSkillNames?: readonly string[] | undefined;
+  /**
    * true ならファイルスキルの発見失敗を投げる (一覧 API 用)。既定は落として組み込み / カタログだけで解決する
    * (セッション作成と `/skill:` の展開は縮退させる)。
    */
@@ -109,6 +114,7 @@ export async function resolveSessionSkills(input: SessionSkillsInput): Promise<R
     ? await discoverSessionFileSkills(input.client, {
         rootCwd: input.rootCwd,
         relativeCwd: input.relativeCwd,
+        ...(input.commonSkillNames === undefined ? {} : { commonSkillNames: input.commonSkillNames }),
         ...(input.strict === undefined ? {} : { strict: input.strict }),
       })
     : // サンドボックスが無くても組み込みはワークスペースに依らず使える (一覧と展開を同じ解決に保つ)

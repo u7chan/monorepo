@@ -10,7 +10,7 @@ import { createSessionResourceLoader } from "../src/agent";
 import { COMMON_SKILLS_DIR } from "../src/app-paths";
 import { createBffApp } from "../src/app";
 import { BUILTIN_SKILLS, builtinSkillByName, builtinSkillEntries, builtinSkillPath } from "../src/builtin-skills";
-import { composeFileSkills, discoverSessionFileSkills } from "../src/file-skills";
+import { composeFileSkills, discoverSessionFileSkills, type FileSkillSource } from "../src/file-skills";
 import { createSecretMasker } from "../src/redact";
 import { SandboxRequestError, type SandboxToolClient, type SandboxWorkspaceClient } from "../src/sandbox/client";
 import type { SandboxSkillEntry, SandboxSkillsResponse } from "../src/sandbox/protocol";
@@ -92,6 +92,101 @@ test("composeFileSkills は同じスコープ内の同名も先勝ちで一意�
     [first],
   );
   assert.equal(composed.response.skills[0].shadowed.length, 1);
+});
+
+test("composeFileSkills は共通スコープだけを許可リストで絞り、一意化の前に当てる", () => {
+  const root = mkdtempSync(join(tmpdir(), "u7agent-file-skills-allowlist-"));
+  const projectPath = join(root, "proj/.agents/skills/shared/SKILL.md");
+  const commonShared = join(root, ".agents/skills/shared/SKILL.md");
+  const commonKeep = join(root, ".agents/skills/keep/SKILL.md");
+  const sources: FileSkillSource[] = [
+    { scope: "project", entries: [skillEntry(projectPath, { name: "shared", description: "プロジェクト側" })] },
+    {
+      scope: "user",
+      entries: [
+        skillEntry(commonShared, { name: "shared", description: "共通側" }),
+        skillEntry(commonKeep, { name: "keep" }),
+      ],
+    },
+    { scope: "builtin", entries: builtinSkillEntries(root) },
+  ];
+  const builtinNames = BUILTIN_SKILLS.map((skill) => skill.name);
+
+  // 未指定は従来どおり全可視 (共通側も一意化に参加する)
+  const all = composeFileSkills(sources, root);
+  assert.deepEqual(
+    all.response.skills.map((row) => [row.name, row.scope]),
+    [["shared", "project"], ["keep", "user"], ...builtinNames.map((name) => [name, "builtin"])],
+  );
+  assert.deepEqual(
+    all.response.skills[0]?.shadowed.map((item) => item.relativePath),
+    [".agents/skills/shared/SKILL.md"],
+  );
+
+  // ["keep"] は共通を keep だけにし、外した共通の shared はプロジェクト側が浮上して有効になる
+  const filtered = composeFileSkills(sources, root, { commonSkillNames: ["keep"] });
+  assert.deepEqual(
+    filtered.response.skills.map((row) => [row.name, row.scope]),
+    [["shared", "project"], ["keep", "user"], ...builtinNames.map((name) => [name, "builtin"])],
+  );
+  // 一意化の前に落とすので、影の組み合わせ自体が消える
+  assert.deepEqual(filtered.response.skills[0]?.shadowed, []);
+  assert.deepEqual(filtered.shadowed, []);
+  assert.deepEqual(
+    filtered.skills.map((skill) => skill.name),
+    ["shared", "keep", ...builtinNames],
+  );
+
+  // `[]` は共通を全部落とす。プロジェクト / 組み込みは影響を受けない
+  const none = composeFileSkills(sources, root, { commonSkillNames: [] });
+  assert.deepEqual(
+    none.response.skills.map((row) => [row.name, row.scope]),
+    [["shared", "project"], ...builtinNames.map((name) => [name, "builtin"])],
+  );
+  assert.deepEqual(
+    none.skills.map((skill) => skill.name),
+    ["shared", ...builtinNames],
+  );
+});
+
+test("discoverSessionFileSkills は許可リストで発見とモデル索引を揃える", async () => {
+  const root = mkdtempSync(join(tmpdir(), "u7agent-file-skills-allowlist-loader-"));
+  const keepPath = join(root, ".agents/skills/keep/SKILL.md");
+  const dropPath = join(root, ".agents/skills/drop/SKILL.md");
+  const client = skillsClient(async () => ({
+    skills: [skillEntry(keepPath, { name: "keep" }), skillEntry(dropPath, { name: "drop" })],
+  }));
+  const builtinNames = BUILTIN_SKILLS.map((skill) => skill.name);
+
+  // `[]` は共通を全部落とし、system prompt の available_skills にも残さない
+  const off = await discoverSessionFileSkills(client, {
+    rootCwd: root,
+    relativeCwd: "",
+    commonSkillNames: [],
+  });
+  assert.deepEqual(
+    off.response.skills.map((row) => row.name),
+    builtinNames,
+  );
+  assert.deepEqual(fileSkillNamesForPrompt(off), builtinNames);
+
+  const kept = await discoverSessionFileSkills(client, {
+    rootCwd: root,
+    relativeCwd: "",
+    commonSkillNames: ["keep"],
+  });
+  assert.deepEqual(
+    kept.response.skills.map((row) => row.name),
+    ["keep", ...builtinNames],
+  );
+  assert.deepEqual(fileSkillNamesForPrompt(kept), ["keep", ...builtinNames]);
+
+  // 未指定は従来どおり全可視 (既存挙動を変えない)
+  const all = await discoverSessionFileSkills(client, { rootCwd: root, relativeCwd: "" });
+  assert.deepEqual(
+    all.response.skills.map((row) => row.name),
+    ["keep", "drop", ...builtinNames],
+  );
 });
 
 test("discoverSessionFileSkills はプロジェクト → 共通の順で発見する", async () => {

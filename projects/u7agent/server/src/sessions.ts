@@ -243,6 +243,8 @@ export function resolveAgentSkills(
       name: agent.name,
       description: agent.description,
       skillIds: [...agent.skillIds],
+      // 未指定のときはキーを省略する (`[]` = すべて OFF は落とさない)
+      ...(agent.commonSkillNames === undefined ? {} : { commonSkillNames: [...agent.commonSkillNames] }),
       skills: skills.map((skill): AgentSkillInfo => ({
         id: skill.id,
         name: skill.name,
@@ -413,6 +415,8 @@ export class SessionStore {
       skills,
       // カタログスキルの索引は name / description を使うので、説明の出所も渡す (復元と同じ形にする)
       agentSkills: agentInfo.skills,
+      // 共通スキルの許可リストは注入経路 (skillsOverride) にも渡す (一覧と /skill: の解決と揃える)
+      ...(agentInfo.commonSkillNames === undefined ? {} : { commonSkillNames: agentInfo.commonSkillNames }),
       model: model ?? agent.model,
       thinkingLevel: thinkingLevel ?? agent.thinkingLevel,
       cwd: workdir,
@@ -610,6 +614,8 @@ export class SessionStore {
       promptSnapshot: meta.promptSnapshot,
       // 復元では定義を引き直さず、セッションのスナップショットだけで索引を組む (遡及させない)
       agentSkills: meta.agent.skills,
+      // 共通スキルの許可リストも meta のスナップショットから渡す (定義編集を遡及させない)
+      ...(meta.agent.commonSkillNames === undefined ? {} : { commonSkillNames: meta.agent.commonSkillNames }),
       model: restored.model,
       thinkingLevel: restored.thinkingLevel,
       cwd: workdir,

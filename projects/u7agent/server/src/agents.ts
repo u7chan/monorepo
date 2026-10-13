@@ -4,7 +4,7 @@
  */
 import { randomUUID } from "node:crypto";
 import { AppDb } from "./app-db";
-import { ThinkingLevelSchema } from "./schema";
+import { COMMON_SKILL_NAME_MAX, COMMON_SKILL_NAMES_MAX, ThinkingLevelSchema } from "./schema";
 import type {
   AgentDef,
   AgentSuggestion,
@@ -80,6 +80,8 @@ function publicAgent(agent: AgentRecord): AgentDef {
   if (agent.model) result.model = { ...agent.model };
   if (agent.thinkingLevel) result.thinkingLevel = agent.thinkingLevel;
   if (agent.suggestions?.length) result.suggestions = agent.suggestions.map((suggestion) => ({ ...suggestion }));
+  // `[]` は「すべて OFF」なので真偽で落とさない (未指定のときだけキーを省略する)
+  if (agent.commonSkillNames) result.commonSkillNames = [...agent.commonSkillNames];
   return result;
 }
 
@@ -158,6 +160,33 @@ function normalizeSuggestions(value: unknown): AgentSuggestion[] {
   return result;
 }
 
+/**
+ * 共通スキルの許可リスト。`undefined` / `null` は未指定 (キー省略)、配列は trim / 空除去 / 重複排除で
+ * 正規化する。`[]` は「すべて OFF」なので未指定へ潰さず、非配列と上限超過は 400。
+ * route の zod でも弾くが、catalog を直接使う経路で壊れた入力が `[]` = すべて OFF に化けないよう
+ * ここでも fail-closed にする。
+ */
+function commonSkillNamesOf(value: unknown): string[] | undefined {
+  if (value === undefined || value === null) return undefined;
+  if (!Array.isArray(value)) throw invalid("Common skill names must be an array of strings");
+  if (value.length > COMMON_SKILL_NAMES_MAX) {
+    throw invalid(`Common skill names must have at most ${COMMON_SKILL_NAMES_MAX} items`);
+  }
+  const names: string[] = [];
+  const seen = new Set<string>();
+  for (const item of value) {
+    if (typeof item !== "string") throw invalid("Common skill names must be an array of strings");
+    const name = item.trim();
+    if (!name || seen.has(name)) continue;
+    if (name.length > COMMON_SKILL_NAME_MAX) {
+      throw invalid(`A common skill name must be at most ${COMMON_SKILL_NAME_MAX} characters`);
+    }
+    seen.add(name);
+    names.push(name);
+  }
+  return names;
+}
+
 function makeSkill(input: DefinitionInput, id: string = randomUUID()): SkillRecord {
   const record = input as { name?: unknown; body?: unknown; description?: unknown } | null;
   const name = text(record?.name);
@@ -176,6 +205,7 @@ function makeAgent(input: DefinitionInput, skillIds: string[], id: string = rand
     name?: unknown;
     description?: unknown;
     systemPrompt?: unknown;
+    commonSkillNames?: unknown;
     icon?: unknown;
     model?: unknown;
     thinkingLevel?: unknown;
@@ -194,11 +224,14 @@ function makeAgent(input: DefinitionInput, skillIds: string[], id: string = rand
   const model = modelRef(record?.model);
   const thinkingLevel = thinkingLevelOf(record?.thinkingLevel);
   const suggestions = normalizeSuggestions(record?.suggestions);
+  const commonSkillNames = commonSkillNamesOf(record?.commonSkillNames);
   if (icon) agent.icon = icon;
   if (model) agent.model = model;
   if (thinkingLevel) agent.thinkingLevel = thinkingLevel;
   // 正規化して 0 件ならキーを省略する (解除もこの経路で成立する)
   if (suggestions.length) agent.suggestions = suggestions;
+  // `[]` は「すべて OFF」なので真偽で落とさない (未指定のときだけキーを省略する)
+  if (commonSkillNames) agent.commonSkillNames = commonSkillNames;
   return agent;
 }
 
