@@ -78,8 +78,10 @@ export function GenerationBadgeList({ cards, singleColumn }: { cards: readonly T
   if (badges.length === 0) return null;
   return (
     <ul
+      // 上余白はバッジ側で持つ。ツール履歴の下マージンは本文の有無で消えるため、本文を持たない
+      // ターンで罫線に密着する（隣接マージンは collapse するので本文ありでも 10px のまま）
       className={cn(
-        "m-0 flex list-none flex-wrap items-start gap-1.5 font-mono text-2xs text-ink-muted",
+        "m-0 mt-2.5 flex list-none flex-wrap items-start gap-1.5 font-mono text-2xs text-ink-muted",
         singleColumn ? "mb-1.5" : "mb-2.5",
       )}
     >

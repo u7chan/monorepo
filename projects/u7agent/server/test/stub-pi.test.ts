@@ -6,6 +6,7 @@ import { stubToolBurstOf } from "./stub-pi";
 /** fixture (spaces-fixture.ts) が持つキーワード。並びも同じにして選択の回帰を見る */
 const KEYWORDS = [
   "画像バッジ",
+  "画像バッジ本文なし",
   "音声バッジ",
   "モデル行なし",
   "生成失敗",
