@@ -237,6 +237,22 @@ test("この画面のキーが auth.json の OAuth を覆っているときだ�
     ) ?? "",
     /OAuth は使われていません/,
   );
+
+  // 削除が未反映の間は [削除] が無く DELETE も 400 なので、押せる [再同期] を案内する
+  const removed = provider({
+    managed: false,
+    auth: { configured: true, source: "runtime", environmentVariables: [] },
+    credentialKind: "api_key",
+    supportsOAuth: true,
+    oauthLoginLabel: "Sign in with ChatGPT",
+    hiddenStoredOAuth: true,
+    degraded: "remove",
+  });
+  const removedNotice = hiddenStoredOAuthNotice(removed) ?? "";
+  assert.match(removedNotice, /Sign in with ChatGPT は使われていません/);
+  assert.match(removedNotice, /\[再同期\] でキーの削除を反映してください/, "実際に押せる再同期を案内する");
+  assert.doesNotMatch(removedNotice, /キーを削除してください/, "この状態で実行できない削除を案内しない");
+  assert.equal(resyncAvailable(removed), true, "[再同期] を案内するならそのカードで実行できる");
 });
 
 test("再同期はカタログにある provider か degraded remove のときだけ出す", () => {

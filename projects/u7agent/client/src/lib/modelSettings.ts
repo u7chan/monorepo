@@ -97,10 +97,16 @@ export function degradedNotice(provider: ProviderAuthSetting): string | undefine
 /**
  * この画面のキーが auth.json の OAuth を覆っているときの案内。サーバーが auth.json を読めない /
  * 壊れているときは hiddenStoredOAuth を false へ縮退させるため、ここでは何も出さない（推測で警告しない）。
+ * 案内する操作は、そのカードで実際に押せるものに合わせる。
  */
 export function hiddenStoredOAuthNotice(provider: ProviderAuthSetting): string | undefined {
   if (!provider.hiddenStoredOAuth) return undefined;
-  return `この画面のキーが優先され、${provider.oauthLoginLabel ?? "OAuth"} は使われていません。使うにはキーを削除してください。`;
+  const label = provider.oauthLoginLabel ?? "OAuth";
+  // 削除が未反映の間は DB 行が無く [削除] を出せず、DELETE も 400 になる。押せる [再同期] を案内する
+  if (provider.degraded === "remove") {
+    return `この画面のキーが優先され、${label} は使われていません。[再同期] でキーの削除を反映してください。`;
+  }
+  return `この画面のキーが優先され、${label} は使われていません。使うにはキーを削除してください。`;
 }
 
 export interface ProviderGroups {

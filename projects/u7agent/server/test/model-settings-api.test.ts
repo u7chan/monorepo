@@ -1016,3 +1016,72 @@ test("GET は auth.json の OAuth がこの画面のキーに覆われている�
     }
   });
 });
+
+test("削除が未反映の間は managed: false / degraded: remove のまま runtime が実効で残り、再同期で戻る", async () => {
+  await withStoreDir(async (dir) => {
+    await writeFile(
+      join(dir, "auth.json"),
+      JSON.stringify({
+        openai: { type: "oauth", access: OAUTH_ACCESS, refresh: OAUTH_REFRESH, expires: Date.now() + 60_000 },
+      }),
+    );
+    // 実 SDK の overlay は remove が 2 回失敗すると残る。再同期 (3 回目) でだけ消える
+    let removals = 0;
+    const pi = createStubPi({
+      agentDir: dir,
+      providers: [
+        {
+          provider: "openai",
+          name: "OpenAI",
+          configured: true,
+          authSource: "stored",
+          oauth: true,
+          supportsOAuth: true,
+          oauthLoginLabel: "Sign in with ChatGPT",
+        },
+      ],
+      onRemoveRuntimeApiKey: () => {
+        removals += 1;
+        if (removals <= 2) throw new Error("overlay removal failed");
+      },
+    });
+    const bff = await createBffApp({ cwd: "/tmp/project", sessionStoreDir: dir, pi: asPiBff(pi), workspace: null });
+    const entryOf = async (response: Response | Promise<Response>) => {
+      const body = await jsonBody(response);
+      return body.providers.find((provider: any) => provider.provider === "openai");
+    };
+    try {
+      assert.equal(
+        (await bff.app.request("/api/settings/models/openai/key", jsonPut({ apiKey: OTHER_KEY }))).status,
+        200,
+      );
+
+      // 1 回の DELETE は 0 + 1 回の再試行。両方失敗するので DB 行だけが消え、overlay は残る
+      const deleted = await entryOf(bff.app.request("/api/settings/models/openai/key", { method: "DELETE" }));
+      assert.deepEqual(
+        [deleted.managed, deleted.degraded, deleted.auth.source, deleted.hiddenStoredOAuth],
+        [false, "remove", "runtime", true],
+        "削除が未反映でも実効はこの画面のキーのままで、保存済み OAuth は覆われたまま",
+      );
+      assert.equal(
+        (await bff.app.request("/api/settings/models/openai/key", { method: "DELETE" })).status,
+        400,
+        "DB 行が無いので DELETE の再実行はできない (画面の [削除] も出ない)",
+      );
+
+      // 画面が案内できる回復操作は [再同期] だけ。成功すると保存済み OAuth へ戻る
+      const resynced = await entryOf(bff.app.request("/api/settings/models/openai/resync", { method: "POST" }));
+      assert.deepEqual(
+        [resynced.managed, resynced.degraded, resynced.auth.source, resynced.hiddenStoredOAuth],
+        [false, undefined, "stored", false],
+      );
+      assert.deepEqual(
+        [removals, pi.modelRuntimeCalls.map((call) => call.operation)],
+        [3, ["setRuntimeApiKey", "removeRuntimeApiKey", "removeRuntimeApiKey", "removeRuntimeApiKey"]],
+        "削除は再試行込みで 2 回失敗し、再同期の 1 回で消える",
+      );
+    } finally {
+      await bff.close();
+    }
+  });
+});
