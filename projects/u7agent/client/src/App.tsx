@@ -536,6 +536,7 @@ export default function App() {
   const navProps = {
     spaceName: space.selected.name,
     pinError: app.pinnedError,
+    commitHash: app.health?.versions?.commitHash,
     conversationOnly: space.selected.id !== "default",
     mode: sidebarMode,
     onSelectMode: selectMode,

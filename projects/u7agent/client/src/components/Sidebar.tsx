@@ -34,6 +34,8 @@ export type SidebarProps = Omit<
   /** 会話一覧の見出しに出す現在の会話スペース名 */
   spaceName: string;
   pinError?: string;
+  /** BFF が返すデプロイ済みビルドの識別子 (health の `versions.commitHash`)。ローカル開発では未設定 */
+  commitHash?: string;
   /** 追加スペース (会話専用) か。Projects を出さず、チップをアクセントで出す */
   conversationOnly: boolean;
   mode: SidebarMode;
@@ -69,6 +71,7 @@ export function Sidebar({
   resize,
   spaceName,
   pinError,
+  commitHash,
   conversationOnly,
   ...props
 }: SidebarProps) {
@@ -285,7 +288,11 @@ export function Sidebar({
             {pinError}
           </p>
         ) : null}
-        <div className="text-2xs leading-relaxed text-ink-ghost">ローカル実行 · セッションはサーバーに保存</div>
+        <div className="text-2xs leading-relaxed text-ink-ghost">
+          <div>ローカル実行 · セッションはサーバーに保存</div>
+          {/* どのイメージが動いているかを 1 クリックも挟まず読めるようにする (設定 → ランタイム と同じ値) */}
+          {commitHash ? <div className="font-mono">ビルド {commitHash}</div> : null}
+        </div>
         {mode === "nav" ? (
           <MenuItem variant="nav" icon={<GearIcon />} label="設定" onClick={() => onSelectMode("settings")} />
         ) : null}
