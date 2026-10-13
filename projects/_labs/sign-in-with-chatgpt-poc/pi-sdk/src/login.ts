@@ -69,18 +69,35 @@ export function createLoginInteraction(
     : controller.signal
 
   async function promptManualCode(prompt: LoginPrompt): Promise<string> {
+    const promptSignal = prompt.signal ?? signal
     if (!stdin.isTTY) {
-      return pendingUntilAborted(prompt.signal ?? signal)
+      return pendingUntilAborted(promptSignal)
     }
 
     const readline = createInterface({ input: stdin })
-    const onAbort = () => readline.close()
-    prompt.signal?.addEventListener("abort", onAbort, { once: true })
     try {
-      const answer = await readline.question(`${prompt.message}\n> `)
-      return answer
+      return await new Promise<string>((resolve, reject) => {
+        const onAbort = () => {
+          readline.close()
+          reject(new Error("Login cancelled"))
+        }
+        if (promptSignal.aborted) {
+          onAbort()
+          return
+        }
+        promptSignal.addEventListener("abort", onAbort, { once: true })
+        readline.question(`${prompt.message}\n> `).then(
+          (answer) => {
+            promptSignal.removeEventListener("abort", onAbort)
+            resolve(answer)
+          },
+          (error: unknown) => {
+            promptSignal.removeEventListener("abort", onAbort)
+            reject(error)
+          },
+        )
+      })
     } finally {
-      prompt.signal?.removeEventListener("abort", onAbort)
       readline.close()
     }
   }

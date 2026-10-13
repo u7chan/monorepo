@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { type Config, loadConfig } from "../src/config.js"
-import { runStubSession } from "../src/stub-session.js"
+import { authorizationDigest, runStubSession } from "../src/stub-session.js"
 import {
   buildToolCheckCommand,
   parseEnvironmentReport,
@@ -81,17 +81,20 @@ describe("stub provider 経由のエージェントセッション", () => {
     })
   })
 
-  test("保存済み資格情報はツール子プロセスの env へ継承されない", async () => {
+  test("保存済み OAuth 資格情報は推論に使われ、ツール子プロセスの env へは継承されない", async () => {
     await withTempConfig(async (config, dir) => {
-      const secret = `secret-access-${Date.now()}`
+      const access = `dummy-access-${Date.now()}`
+      const refresh = `dummy-refresh-${Date.now()}`
       writeFileSync(
         config.authPath,
         JSON.stringify({
           openai: {
             type: "oauth",
-            access: secret,
-            refresh: "refresh-token",
+            access,
+            refresh,
             expires: Date.now() + 3_600_000,
+            clientId: "oaiapp_example",
+            scopes: ["chatgpt.tokens.use.direct"],
           },
         }),
         { mode: 0o600 },
@@ -104,20 +107,33 @@ describe("stub provider 経由のエージェントセッション", () => {
         const session = await runStubSession(config, {
           prompt: "self check",
           toolCommand: buildToolCheckCommand(config.authPath),
+          // 保存済みの openai OAuth 資格情報を実際に使わせる
+          useStoredOpenAiCredential: true,
         })
         const { environment, fileAccess } = splitToolCheckOutput(
           session.toolOutput,
         )
         const report = parseEnvironmentReport(environment, {
           prototypeVariable: DUMMY_VARIABLE,
-          secretValues: { accessToken: secret },
+          secretValues: { accessToken: access, refreshToken: refresh },
         })
 
+        // 推論は保存済み OAuth トークンで実行された（生の値ではなく指紋で照合）
         expect(session.result.text).toBe("stub ok")
+        expect(session.authHeaderDigests.length).toBeGreaterThanOrEqual(2)
+        expect(
+          session.authHeaderDigests.every(
+            (digest) => digest === authorizationDigest(access),
+          ),
+        ).toBe(true)
+
+        // 同じ資格情報はツール子プロセスの env へは出ない
         expect(report.leaked.accessToken).toBe(false)
-        expect(report.observed[DUMMY_VARIABLE]).toBe(dummyValue)
-        expect(report.sessionVariables.PI_MODEL).toBe("stub-model")
-        expect(report.sessionVariables.PI_PROVIDER).toBe("siwc-poc-stub")
+        expect(report.leaked.refreshToken).toBe(false)
+        expect(report.prototypeInherited).toBe(true)
+        expect(report.present[DUMMY_VARIABLE]).toBe(true)
+        expect(report.sessionVariables.PI_MODEL).toBe(config.modelId)
+        expect(report.sessionVariables.PI_PROVIDER).toBe("openai")
         expect(report.sessionVariables.PI_SESSION_ID).toBeTruthy()
 
         // 同一 OS ユーザーのツールからは資格情報ファイルを読める（env 継承とは別問題）

@@ -3,8 +3,10 @@ import { createBashTool } from "@earendil-works/pi-coding-agent"
 export interface ToolEnvironmentReport {
   /** 親プロセスの env に置いたダミー変数名 */
   prototypeVariable: string
-  /** 確認対象の変数名 → 子プロセスから見えた値（未設定なら undefined） */
-  observed: Record<string, string | undefined>
+  /** そのダミー値が子プロセスの env にもあったか */
+  prototypeInherited: boolean
+  /** 確認対象の変数名 → 子プロセスで設定されていたか（値は保持しない） */
+  present: Record<string, boolean>
   /** 子プロセスの env に存在してはいけない値 → 見つかったか */
   leaked: Record<string, boolean>
   /** Pi がシェルツールへ注入するセッション変数 */
@@ -62,6 +64,7 @@ export function parseEnvironmentReport(
     entries.set(line.slice(0, index), line.slice(index + 1))
   }
 
+  const prototypeValue = entries.get(options.prototypeVariable)
   const leaked: Record<string, boolean> = {}
   for (const [label, value] of Object.entries(options.secretValues)) {
     leaked[label] = value.length > 0 && environmentOutput.includes(value)
@@ -69,9 +72,11 @@ export function parseEnvironmentReport(
 
   return {
     prototypeVariable: options.prototypeVariable,
-    observed: {
-      [options.prototypeVariable]: entries.get(options.prototypeVariable),
-      OPENAI_API_KEY: entries.get("OPENAI_API_KEY"),
+    prototypeInherited: prototypeValue !== undefined,
+    // 値は表示に使わないため保持しない
+    present: {
+      [options.prototypeVariable]: prototypeValue !== undefined,
+      OPENAI_API_KEY: entries.get("OPENAI_API_KEY") !== undefined,
     },
     leaked,
     sessionVariables: {

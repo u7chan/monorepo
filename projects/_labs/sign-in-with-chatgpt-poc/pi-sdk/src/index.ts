@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs"
 import { VERSION } from "@earendil-works/pi-coding-agent"
 import { runTurn } from "./agent.js"
 import {
+  assertSiwcCredential,
   createModelRuntime,
   describeAuth,
   forceExpireStoredToken,
@@ -207,11 +208,7 @@ async function commandAsk(args: string[]): Promise<void> {
   const runtime = await createModelRuntime(config)
 
   const report = await describeAuth(runtime, config)
-  if (!report.configured) {
-    throw new Error(
-      "未サインインです。先に `bun run start login` を実行してください。",
-    )
-  }
+  assertSiwcCredential(report)
 
   const before = report.expiresInSeconds
   console.log(

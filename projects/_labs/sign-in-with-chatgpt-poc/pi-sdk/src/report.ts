@@ -20,6 +20,13 @@ export function printKeyValues(
   }
 }
 
+/** `oaiapp_...` のような登録 ID。認証状態の確認には先頭だけで十分なので、画面では残りを隠す */
+function maskClientId(clientId: string): string {
+  const prefix = clientId.startsWith("oaiapp_") ? "oaiapp_" : ""
+  const body = clientId.slice(prefix.length)
+  return `${prefix}${body.slice(0, 4)}...`
+}
+
 export function printAuthReport(report: AuthReport): void {
   printHeader("認証状態（Pi SDK の公開 API から取得）")
   printKeyValues([
@@ -38,7 +45,10 @@ export function printAuthReport(report: AuthReport): void {
         : new Date(report.expiresAt).toISOString(),
     ],
     ["expires in (s)", report.expiresInSeconds],
-    ["client id", report.clientId],
+    [
+      "client id",
+      report.clientId === undefined ? undefined : maskClientId(report.clientId),
+    ],
     ["scopes", report.scopes?.join(" ")],
   ])
 
@@ -108,9 +118,9 @@ export function printToolEnvironmentReport(
 ): void {
   printHeader("ツール子プロセスの環境変数（実測）")
   printKeyValues(
-    Object.entries(report.observed).map(([key, value]) => [
+    Object.entries(report.present).map(([key, present]) => [
       `${key} → 子プロセス`,
-      value ?? "(未設定)",
+      present ? "設定あり（値は表示しない）" : "(未設定)",
     ]),
   )
 
@@ -121,9 +131,9 @@ export function printToolEnvironmentReport(
 
   printHeader("環境変数を経由した場合の比較（危険側の実測）")
   console.log(
-    report.observed[report.prototypeVariable] === undefined
-      ? `env に置いたダミー値（${report.prototypeVariable}）は子プロセスへ届きませんでした。`
-      : `env に置いたダミー値（${report.prototypeVariable}）は子プロセスへそのまま届きます。SIWC トークンを env で渡すとツールへ継承されます。`,
+    report.prototypeInherited
+      ? `env に置いたダミー値（${report.prototypeVariable}）は子プロセスへそのまま届きます。SIWC トークンを env で渡すとツールへ継承されます。`
+      : `env に置いたダミー値（${report.prototypeVariable}）は子プロセスへ届きませんでした。`,
   )
 
   printHeader("Pi が注入するセッション変数")

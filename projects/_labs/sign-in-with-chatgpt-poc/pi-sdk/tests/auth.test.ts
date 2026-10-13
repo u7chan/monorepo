@@ -8,7 +8,11 @@ import {
 } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { forceExpireStoredToken } from "../src/auth.js"
+import {
+  type AuthReport,
+  assertSiwcCredential,
+  forceExpireStoredToken,
+} from "../src/auth.js"
 import type { Config } from "../src/config.js"
 
 function withTempConfig<T>(auth: unknown, fn: (config: Config) => T): T {
@@ -28,6 +32,52 @@ function withTempConfig<T>(auth: unknown, fn: (config: Config) => T): T {
     rmSync(dir, { recursive: true, force: true })
   }
 }
+
+describe("assertSiwcCredential", () => {
+  const base: AuthReport = {
+    provider: "openai",
+    configured: true,
+    usingOAuth: true,
+    usingSubscription: true,
+    credentialType: "oauth",
+    hasRefreshToken: true,
+    codex: { configured: false, usingOAuth: false, usingSubscription: false },
+  }
+
+  test("SIWC の OAuth 資格情報なら通す", () => {
+    expect(() => assertSiwcCredential(base)).not.toThrow()
+  })
+
+  test("環境変数の API キーだけのときは拒否する", () => {
+    expect(() =>
+      assertSiwcCredential({
+        ...base,
+        credentialType: "api_key",
+        usingOAuth: false,
+        usingSubscription: false,
+        source: "environment",
+      }),
+    ).toThrow(/API キー/)
+  })
+
+  test("OAuth でも subscription でないなら拒否する", () => {
+    expect(() =>
+      assertSiwcCredential({ ...base, usingSubscription: false }),
+    ).toThrow(/subscription/)
+  })
+
+  test("資格情報なしなら拒否する", () => {
+    expect(() =>
+      assertSiwcCredential({
+        ...base,
+        configured: false,
+        credentialType: undefined,
+        usingOAuth: false,
+        usingSubscription: false,
+      }),
+    ).toThrow(/SIWC 経路の OAuth 資格情報がありません/)
+  })
+})
 
 describe("forceExpireStoredToken", () => {
   test("OAuth 資格情報の expires だけを過去にし、権限を保つ", () => {

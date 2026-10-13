@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test"
+import { PassThrough } from "node:stream"
 import { createLoginInteraction, type LoginEvent } from "../src/login.js"
 
 function createUi() {
@@ -82,5 +83,40 @@ describe("createLoginInteraction", () => {
     await expect(
       interaction.prompt({ type: "manual_code", message: "paste" }),
     ).rejects.toThrow("Login cancelled")
+  })
+
+  test("TTY の貼り付け待ちも abort で終了する", async () => {
+    const { ui } = createUi()
+    const stdin = new PassThrough() as unknown as NodeJS.ReadStream
+    Object.assign(stdin, { isTTY: true })
+    const interaction = createLoginInteraction({ ui, stdin })
+
+    const pending = interaction.prompt({
+      type: "manual_code",
+      message: "paste",
+    })
+    // readline が待機に入ってから中断する
+    await new Promise((resolve) => setTimeout(resolve, 20))
+    interaction.abort()
+
+    await expect(pending).rejects.toThrow("Login cancelled")
+  })
+
+  test("prompt 個別の signal でも貼り付け待ちを終了する", async () => {
+    const { ui } = createUi()
+    const stdin = new PassThrough() as unknown as NodeJS.ReadStream
+    Object.assign(stdin, { isTTY: true })
+    const interaction = createLoginInteraction({ ui, stdin })
+
+    const promptController = new AbortController()
+    const pending = interaction.prompt({
+      type: "manual_code",
+      message: "paste",
+      signal: promptController.signal,
+    })
+    await new Promise((resolve) => setTimeout(resolve, 20))
+    promptController.abort()
+
+    await expect(pending).rejects.toThrow("Login cancelled")
   })
 })

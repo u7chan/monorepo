@@ -113,9 +113,28 @@ export async function describeAuth(
 }
 
 /**
- * 保存済みアクセストークンの期限だけを過去にずらす。トークン自体は有効なままなので、
- * 次のリクエスト前に Pi の OAuth 更新が走るかどうかを確認できる。
+ * SIWC PoC では API キーへの暗黙のフォールバックを認めない。
+ * `openai` の OAuth（ChatGPT プラン）でなくても推論できてしまうと、「SIWC 経路で検証した」
+ * という記録が崩れるため。
  */
+export function assertSiwcCredential(report: AuthReport): void {
+  if (!report.usingOAuth || report.credentialType !== "oauth") {
+    const detail =
+      report.source === "environment"
+        ? "現在は OPENAI_API_KEY などの API キーが使われようとしています。"
+        : `現在の資格情報: ${report.credentialType ?? "なし"}（source: ${report.source ?? "なし"}）`
+    throw new Error(
+      `SIWC 経路の OAuth 資格情報がありません。\`bun run start login\` でサインインし、OPENAI_API_KEY を unset してください。${detail}`,
+    )
+  }
+  if (!report.usingSubscription) {
+    throw new Error(
+      "OAuth 資格情報はありますが、ChatGPT プラン枠（subscription）として認識されていません。SIWC で再ログインしてください。",
+    )
+  }
+}
+
+/** 保存済みの OAuth 資格情報を読み書きする。書式や権限を一箇所に閉じるためのもの */
 function updateStoredOAuthCredential(
   config: Config,
   update: (credential: Record<string, unknown>) => void,

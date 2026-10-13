@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto"
+
 /**
  * ローカルの Responses API スタブ。認証やネットワークなしで Pi のエージェントループ
  * （ツール呼び出し → 実行 → 続きの推論）を通すためだけに使う。
@@ -10,7 +12,17 @@ export interface StubResponsesServer {
   requests: Array<Record<string, unknown>>
   /** 2 回目のリクエストから取り出した tool 出力 */
   toolOutputs: string[]
+  /**
+   * 各リクエストの `Authorization` ヘッダーの指紋（sha256 の hex）。
+   * 値そのものは保持しないが、渡した資格情報が実際に使われたかは照合できる。
+   */
+  authHeaderDigests: string[]
   stop(): void
+}
+
+/** スタブが記録する `Authorization` ヘッダーの指紋を計算する */
+export function authorizationDigest(token: string): string {
+  return createHash("sha256").update(`Bearer ${token}`).digest("hex")
 }
 
 export interface StubResponsesOptions {
@@ -133,6 +145,7 @@ export function startStubResponsesServer(
   const finalText = options.finalText ?? "stub ok"
   const requests: Array<Record<string, unknown>> = []
   const toolOutputs: string[] = []
+  const authHeaderDigests: string[] = []
   let responseCount = 0
 
   const server = Bun.serve({
@@ -146,6 +159,12 @@ export function startStubResponsesServer(
 
       const body = (await request.json()) as Record<string, unknown>
       requests.push(body)
+      const authorization = request.headers.get("authorization")
+      authHeaderDigests.push(
+        authorization === null
+          ? ""
+          : createHash("sha256").update(authorization).digest("hex"),
+      )
       toolOutputs.push(...collectToolOutputs(body))
       responseCount += 1
 
@@ -173,6 +192,7 @@ export function startStubResponsesServer(
     baseUrl: `http://127.0.0.1:${server.port}/v1`,
     requests,
     toolOutputs,
+    authHeaderDigests,
     stop() {
       server.stop(true)
     },
