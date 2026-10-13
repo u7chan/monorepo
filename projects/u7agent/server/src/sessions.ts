@@ -2234,7 +2234,9 @@ export class SessionStore {
   }
 
   pump(record: SessionRecord): void {
-    if (this.deleting.has(record.id) || this.records.get(record.id) !== record) return;
+    // close 中は新しい run を始めない (close は実行中を abort して未送信を残す。遅延 pump が
+    // close 中に発火すると、キュー中の送信が run を始めて未送信でなくなる)
+    if (this.closing || this.deleting.has(record.id) || this.records.get(record.id) !== record) return;
     // 圧縮の終端処理が done してから呼ばれる (圧縮中はキューを進めない)
     if (record.compacting) return;
     if (record.queue.length === 0) return;
