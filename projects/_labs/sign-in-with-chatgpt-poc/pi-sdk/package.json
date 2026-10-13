@@ -1,0 +1,21 @@
+{
+  "name": "sign-in-with-chatgpt-poc-pi-sdk",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "bun run src/index.ts",
+    "dev": "bun run src/index.ts",
+    "lint": "tsc --noEmit && biome lint --error-on-warnings ./src ./tests",
+    "format": "biome check --write .",
+    "test": "bun test"
+  },
+  "dependencies": {
+    "@earendil-works/pi-coding-agent": "^1.1.0"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^2.5.15",
+    "@types/bun": "^1.4.3",
+    "@types/node": "^26.6.4",
+    "typescript": "^7.0.2"
+  }
+}
