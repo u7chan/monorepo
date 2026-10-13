@@ -371,9 +371,9 @@ test("停止でキューを破棄した送信は、次の payload で未送信�
 
 test("close 中は run 終了の遅延 pump でキューを進めない (未送信として残す)", async () => {
   const storeDir = await mkdtemp(join(tmpdir(), "u7agent-sends-"));
+  const pi = createStubPi();
+  const store = createStore(storeDir, pi);
   try {
-    const pi = createStubPi();
-    const store = createStore(storeDir, pi);
     await store.init();
     const record = await store.create();
     store.postMessage(record, "実行する本文");
@@ -385,7 +385,10 @@ test("close 中は run 終了の遅延 pump でキューを進めない (未送�
     // 保存で未送信から消えて再起動後に残らない)
     store.closing = true;
     await waitFor(() => store.statusOf(record) !== "running", 3000, "first run settled");
+    // 遅延 pump の窓 (QUEUE_DELAY_MS = 200ms) を過ごしたあと、保存の完了を待ってから一覧を断言する
+    // (待機時間で保存完了を代用すると、遅い保存で最初の送信が未送信に残って flaky になる)
     await new Promise((resolve) => setTimeout(resolve, 400));
+    await store.flush(record);
 
     const session = pi.sessions[0] as StubSession;
     assert.equal(
@@ -393,9 +396,12 @@ test("close 中は run 終了の遅延 pump でキューを進めない (未送�
       1,
       "close 中にキュー中の送信を始めない",
     );
+    assert.equal(store.statusOf(record), "queued", "キュー待ちのまま残る");
     assert.deepEqual(unsentOf(store.payload(record)), [["待機する本文", queued.runId]], "未送信として残る");
-    await store.close();
   } finally {
+    // assertion が失敗しても、outstanding な保存を回収してから一時ディレクトリを消す
+    // (close を先に済ませないと、消したディレクトリを保存が作り直して records も残る)
+    await store.close().catch(() => {});
     await rm(storeDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
   }
 });
