@@ -20,7 +20,7 @@ import type {
 
 export const APP_DB_FILENAME = "u7agent.db";
 /** テーブル定義を変えたら上げる。新規作成と加算移行はこの版へ揃え、未知の版は作り直す */
-export const APP_DB_SCHEMA_VERSION = 16;
+export const APP_DB_SCHEMA_VERSION = 17;
 
 /** プロバイダー API キーの保存行。平文なのでアクセス権の管理は docs/secrets.md を正とする */
 export interface ProviderCredentialRow {
@@ -361,7 +361,8 @@ CREATE TABLE agents (
   model TEXT,
   thinkingLevel TEXT,
   skillIds TEXT NOT NULL,
-  suggestions TEXT
+  suggestions TEXT,
+  commonSkillNames TEXT
 );
 ${NOTIFICATION_SETTINGS_TABLE}
 ${ARCHIVE_SETTINGS_TABLE}
@@ -599,11 +600,21 @@ function agentOf(row: Row): AgentDef {
   const model = jsonObject<ModelRef>(row.model);
   const thinkingLevel = optionalText(row.thinkingLevel);
   const suggestions = jsonArray<AgentSuggestion>(row.suggestions);
+  // NULL = 未指定 (全可視) と `[]` = すべて OFF を区別する。行がある以上 NULL 以外は JSON 配列のはず
+  // なので、壊れた値は未指定へ黙って落とさず失敗させる (model_settings.allowedModels と同じ形)
+  const commonSkillNames =
+    row.commonSkillNames === null || row.commonSkillNames === undefined
+      ? undefined
+      : jsonArrayColumn<string>("agents", "commonSkillNames", row.commonSkillNames);
+  if (row.commonSkillNames !== null && row.commonSkillNames !== undefined && !commonSkillNames) {
+    throw new Error("agents.commonSkillNames is not a JSON array");
+  }
   // 未指定の項目はキーごと省略する (応答に null は現れない)
   if (icon) agent.icon = icon;
   if (model) agent.model = model;
   if (thinkingLevel) agent.thinkingLevel = thinkingLevel as AgentDef["thinkingLevel"];
   if (suggestions?.length) agent.suggestions = suggestions;
+  if (commonSkillNames) agent.commonSkillNames = commonSkillNames;
   return agent;
 }
 
@@ -855,6 +866,9 @@ export class AppDb {
       // v15 以前の content_settings に無い音声の 2 列。既存行は NULL = 既定へのフォールバック
       this.#addColumnIfMissing("content_settings", "speechModel", "TEXT");
       this.#addColumnIfMissing("content_settings", "speechVoice", "TEXT");
+      // v16 以前の agents に無い列。NULL = 未指定 (全可視) として読む。`#migrate()` は agents を
+      // 作らないため、テーブルを持たない壊れた DB では列追加を飛ばす (ALTER で起動できなくしない)
+      if (this.#tableExists("agents")) this.#addColumnIfMissing("agents", "commonSkillNames", "TEXT");
       // PRAGMA はパラメータ化できない (値はコード側の定数)
       this.#query((db) => db.exec(`PRAGMA user_version = ${APP_DB_SCHEMA_VERSION}`));
       this.#query((db) => db.exec("COMMIT"));
@@ -1275,11 +1289,12 @@ export class AppDb {
     this.#query((db) =>
       db
         .prepare(
-          `INSERT INTO agents (id, name, description, systemPrompt, icon, model, thinkingLevel, skillIds, suggestions)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+          `INSERT INTO agents (id, name, description, systemPrompt, icon, model, thinkingLevel, skillIds, suggestions, commonSkillNames)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
            ON CONFLICT(id) DO UPDATE SET name = excluded.name, description = excluded.description,
              systemPrompt = excluded.systemPrompt, icon = excluded.icon, model = excluded.model,
-             thinkingLevel = excluded.thinkingLevel, skillIds = excluded.skillIds, suggestions = excluded.suggestions`,
+             thinkingLevel = excluded.thinkingLevel, skillIds = excluded.skillIds, suggestions = excluded.suggestions,
+             commonSkillNames = excluded.commonSkillNames`,
         )
         .run(
           agent.id,
@@ -1291,6 +1306,8 @@ export class AppDb {
           agent.thinkingLevel ?? null,
           JSON.stringify(agent.skillIds),
           agent.suggestions ? JSON.stringify(agent.suggestions) : null,
+          // 未指定は NULL、`[]` は "[]" (undefined と [] を混同しない)
+          agent.commonSkillNames === undefined ? null : JSON.stringify(agent.commonSkillNames),
         ),
     );
   }

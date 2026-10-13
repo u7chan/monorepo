@@ -1111,7 +1111,7 @@ test("migrates a v10 db additively and keeps the secrets table across reopen", (
     raw.close();
 
     const first = AppDb.open({ storeDir: dir });
-    assert.equal(APP_DB_SCHEMA_VERSION, 16);
+    assert.equal(APP_DB_SCHEMA_VERSION, 17);
     // 加算移行なので既存の行は残り、secrets は行が無い = 未設定で始まる
     assert.deepEqual(first.listProjects(), [project("p1", "proj-a")]);
     assert.deepEqual(first.getServeCommand("proj-a"), { cwd: "proj-a", command: "pnpm dev", updatedAt: 1 });
@@ -1613,6 +1613,90 @@ test("migrates a v15 db additively by adding the speech columns", () => {
       speechVoice: "Kore",
       apiKey: "sk-image-1",
     });
+    reopened.close();
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+/** v16 相当のスキーマ (agents に commonSkillNames が無い状態)。v16 の実ファイルと同じ形 */
+const V16_TABLES = `
+${V15_TABLES}
+ALTER TABLE content_settings ADD COLUMN speechModel TEXT;
+ALTER TABLE content_settings ADD COLUMN speechVoice TEXT;
+CREATE TABLE IF NOT EXISTS speech_catalog (
+  id        INTEGER PRIMARY KEY CHECK (id = 1),
+  fetchedAt INTEGER NOT NULL,
+  models    TEXT NOT NULL
+);
+`;
+
+test("migrates a v16 db additively and keeps NULL and [] of commonSkillNames apart", () => {
+  const dir = tempStoreDir();
+  try {
+    const raw = new DatabaseSync(join(dir, APP_DB_FILENAME));
+    raw.exec(V16_TABLES);
+    raw.exec("PRAGMA user_version = 16");
+    raw.prepare("INSERT INTO projects (id, name, cwd, createdAt) VALUES (?, ?, ?, ?)").run("p1", "p1", "proj-a", 1);
+    raw.prepare("INSERT INTO skills (id, name, description, body) VALUES (?, ?, ?, ?)").run("s1", "s1", "", "body");
+    // v16 の agents はこの列を持たないので、既存行は未指定 (全可視) として移行される
+    raw
+      .prepare("INSERT INTO agents (id, name, description, systemPrompt, skillIds) VALUES (?, ?, ?, ?, ?)")
+      .run("a1", "a1", "", "", '["s1"]');
+    raw.close();
+
+    const first = AppDb.open({ storeDir: dir });
+    // 加算移行なので既存の定義は消えない
+    assert.deepEqual(first.listProjects(), [project("p1", "proj-a")]);
+    assert.deepEqual(first.listSkills(), [skill("s1")]);
+    // NULL = 未指定。`?? []` で読むと「すべて OFF」に化けるのでキーごと省略される
+    assert.equal(Object.hasOwn(first.getAgent("a1") ?? {}, "commonSkillNames"), false);
+
+    const migrated = first.getAgent("a1");
+    assert.ok(migrated);
+    first.saveAgent({ ...migrated, commonSkillNames: [] });
+    first.saveAgent(agent("a2", ["s1"])); // 未指定のまま (NULL)
+    first.saveAgent({ ...agent("a3", ["s1"]), commonSkillNames: ["writer", "gh"] });
+    first.close();
+
+    // 列は既存の列の後ろに足され、書き込みは `[]` を "[]" として残す
+    const check = new DatabaseSync(join(dir, APP_DB_FILENAME));
+    const columns = check.prepare("PRAGMA table_info(agents)").all() as { name: string }[];
+    assert.deepEqual(
+      columns.map((column) => column.name),
+      [
+        "id",
+        "name",
+        "description",
+        "systemPrompt",
+        "icon",
+        "model",
+        "thinkingLevel",
+        "skillIds",
+        "suggestions",
+        "commonSkillNames",
+      ],
+    );
+    const rows = check.prepare("SELECT id, commonSkillNames FROM agents ORDER BY rowid").all() as {
+      id: string;
+      commonSkillNames: unknown;
+    }[];
+    assert.deepEqual(
+      rows.map((row) => [row.id, row.commonSkillNames]),
+      [
+        ["a1", "[]"],
+        ["a2", null],
+        ["a3", '["writer","gh"]'],
+      ],
+    );
+    assert.equal(Number(check.prepare("PRAGMA user_version").get()?.user_version), APP_DB_SCHEMA_VERSION);
+    check.close();
+
+    // 開き直しても NULL と "[]" は区別したまま読める
+    const reopened = AppDb.open({ storeDir: dir });
+    assert.deepEqual(reopened.getAgent("a1")?.commonSkillNames, []);
+    assert.equal(Object.hasOwn(reopened.getAgent("a2") ?? {}, "commonSkillNames"), false);
+    assert.deepEqual(reopened.getAgent("a3")?.commonSkillNames, ["writer", "gh"]);
     reopened.close();
   } finally {
     rmSync(dir, { recursive: true, force: true });

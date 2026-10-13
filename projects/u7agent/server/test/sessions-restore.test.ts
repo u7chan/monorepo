@@ -6,8 +6,11 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import { createAgentCatalog } from "../src/agents";
+import { BUILTIN_SKILLS } from "../src/builtin-skills";
 import { ProjectStore } from "../src/projects";
 import type { SandboxWorkspaceClient } from "../src/sandbox/client";
+import type { SessionRecord } from "../src/session-record";
+import { listSessionSkills, type SessionSkillsInput } from "../src/session-skills";
 import { SessionStore } from "../src/sessions";
 import {
   parseSessionFile,
@@ -78,6 +81,40 @@ function createStore(
 
 async function readMeta(id: string, storeDir: string): Promise<Record<string, unknown>> {
   return JSON.parse(await readFile(sessionMetaPath(id, storeDir), "utf8")) as Record<string, unknown>;
+}
+
+/** 共通スキルの一覧を検証するための最小の解決入力 (route の skillsInputOf と同じ値の集め方) */
+function skillsInputOf(record: SessionRecord, workspace: SandboxWorkspaceClient): SessionSkillsInput {
+  return {
+    rootCwd: "/tmp/project",
+    relativeCwd: record.workdir,
+    client: workspace,
+    promptSnapshot: record.promptSnapshot,
+    agentSkills: record.agent.skills,
+    commonSkillNames: record.agent.commonSkillNames,
+  };
+}
+
+/** 共通スキルを 2 件返すスタブ。許可リストの効き方だけを見る */
+function commonSkillWorkspace(): SandboxWorkspaceClient {
+  const { workspace } = stubWorkspace();
+  workspace.listSkills = async () => ({
+    skills: [
+      {
+        name: "keep",
+        description: "残す",
+        path: "/tmp/project/.agents/skills/keep/SKILL.md",
+        disableModelInvocation: false,
+      },
+      {
+        name: "drop",
+        description: "外す",
+        path: "/tmp/project/.agents/skills/drop/SKILL.md",
+        disableModelInvocation: false,
+      },
+    ],
+  });
+  return workspace;
 }
 
 /**
@@ -286,6 +323,73 @@ test("カタログスキルの本文と説明は作成時に固定され、定�
     assert.deepEqual(
       restored?.agentSkills?.map((item) => [item.name, item.description]),
       [["writer", "文章を書く"]],
+    );
+    await store2.close();
+  } finally {
+    await rm(storeDir, { recursive: true, force: true });
+  }
+});
+
+test("共通スキルの許可リストは作成時に固定され、定義を変えても復元後の一覧は変わらない", async () => {
+  const storeDir = await mkdtemp(join(tmpdir(), "u7agent-restore-common-skills-"));
+  const workspace = commonSkillWorkspace();
+  const catalog = createAgentCatalog();
+  try {
+    const agent = catalog.createAgent({ name: "絞った書き手", commonSkillNames: ["keep"] });
+    const pi1 = createStubPi();
+    const store1 = createStore(storeDir, { pi: pi1, workspace, catalog });
+    const record = await store1.create({ agentId: agent.id });
+    assert.deepEqual(pi1.createInputs.at(-1)?.commonSkillNames, ["keep"], "注入経路にも渡す");
+    const created = (await listSessionSkills(skillsInputOf(record, workspace))).map((item) => [item.name, item.scope]);
+    assert.deepEqual(created, [["keep", "user"], ...BUILTIN_SKILLS.map((skill) => [skill.name, "builtin"])]);
+    await store1.flush(record);
+    await store1.close();
+
+    // 定義を編集・削除しても、復元は meta のスナップショットで解決する (遡及させない)
+    catalog.updateAgent(agent.id, { commonSkillNames: [] });
+    catalog.removeAgent(agent.id);
+    const pi2 = createStubPi();
+    const store2 = createStore(storeDir, { pi: pi2, workspace, catalog });
+    await store2.init();
+    const restored = await store2.resolve(record.id);
+    assert.ok(restored);
+    assert.deepEqual(pi2.createInputs.at(-1)?.commonSkillNames, ["keep"], "復元でも同じ許可リストを渡す");
+    assert.deepEqual(
+      (await listSessionSkills(skillsInputOf(restored, workspace))).map((item) => [item.name, item.scope]),
+      created,
+    );
+    await store2.close();
+  } finally {
+    await rm(storeDir, { recursive: true, force: true });
+  }
+});
+
+test("共通スキルの許可リストを持たない meta は未指定として復元する", async () => {
+  const storeDir = await mkdtemp(join(tmpdir(), "u7agent-restore-common-skills-old-"));
+  const workspace = commonSkillWorkspace();
+  const catalog = createAgentCatalog();
+  try {
+    // 全部 OFF で作ったセッションでも、フィールドを持たない meta は未指定 (全可視) として読む
+    const agent = catalog.createAgent({ name: "全 OFF", commonSkillNames: [] });
+    const store1 = createStore(storeDir, { pi: createStubPi(), workspace, catalog });
+    const record = await store1.create({ agentId: agent.id });
+    await store1.flush(record);
+    await store1.close();
+
+    const meta = await readMeta(record.id, storeDir);
+    delete (meta.agent as Record<string, unknown>).commonSkillNames;
+    await writeFile(sessionMetaPath(record.id, storeDir), `${JSON.stringify(meta, null, 2)}\n`);
+
+    const pi2 = createStubPi();
+    const store2 = createStore(storeDir, { pi: pi2, workspace, catalog });
+    await store2.init();
+    const restored = await store2.resolve(record.id);
+    assert.ok(restored);
+    assert.equal(pi2.createInputs.at(-1)?.commonSkillNames, undefined);
+    assert.equal(Object.hasOwn(restored.agent, "commonSkillNames"), false);
+    assert.deepEqual(
+      (await listSessionSkills(skillsInputOf(restored, workspace))).map((item) => [item.name, item.scope]),
+      [["keep", "user"], ["drop", "user"], ...BUILTIN_SKILLS.map((skill) => [skill.name, "builtin"])],
     );
     await store2.close();
   } finally {

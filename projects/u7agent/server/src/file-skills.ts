@@ -60,10 +60,23 @@ export interface SessionFileSkillInput {
   /** セッション cwd (root 相対)。プロジェクトスキルの起点で、未所属のスクラッチでは探索しない */
   relativeCwd: string;
   /**
+   * 共通 (user) スコープの許可リスト。undefined = 絞らない (全可視)、`[]` = 共通をすべて落とす。
+   * エージェント定義の `commonSkillNames` をそのまま渡す。
+   */
+  commonSkillNames?: readonly string[] | undefined;
+  /**
    * true なら置き場の不在 (404) 以外の失敗を投げる。一覧 API は「使えるスキル」を見せる場所なので、
    * 取れないことをエラーで見せる (既定はログに残して落とし、セッション作成を止めない)。
    */
   strict?: boolean;
+}
+
+export interface ComposeFileSkillsOptions {
+  /**
+   * 共通 (user) スコープの許可リスト。undefined = 絞らない (全可視)、`[]` = 共通をすべて落とす。
+   * 一意化の前に当てるので、外した名前のプロジェクト側が浮上して有効になる。
+   */
+  commonSkillNames?: readonly string[] | undefined;
 }
 
 /**
@@ -72,7 +85,11 @@ export interface SessionFileSkillInput {
  * ただし組み込みは一覧の別グループとして常に見せる必要があるため、上書きされた場合も行を残し
  * `overridden` を立てる (注入はしない)。ファイルスキル同士の重複は従来どおり警告にまとめる。
  */
-export function composeFileSkills(sources: FileSkillSource[], rootCwd: string): ComposedFileSkills {
+export function composeFileSkills(
+  sources: FileSkillSource[],
+  rootCwd: string,
+  options: ComposeFileSkillsOptions = {},
+): ComposedFileSkills {
   const skills: Skill[] = [];
   const rows: FileSkillInfo[] = [];
   const byPath = new Map<string, FileSkillInfo>();
@@ -94,6 +111,14 @@ export function composeFileSkills(sources: FileSkillSource[], rootCwd: string): 
 
   for (const source of sources) {
     for (const entry of source.entries) {
+      // 許可リストは共通 (user) にだけ当て、一意化の前に落とす (外した名前のプロジェクト / カタログ側を浮上させる)
+      if (
+        source.scope === "user" &&
+        options.commonSkillNames !== undefined &&
+        !options.commonSkillNames.includes(entry.name)
+      ) {
+        continue;
+      }
       // 同じ実体を別スコープから見つけた場合 (プロジェクト側が共通側の symlink など) は同じ表示になるため警告にしない
       if (byPath.has(entry.path)) continue;
       const duplicateName = byName.get(entry.name);
@@ -140,7 +165,11 @@ export async function discoverSessionFileSkills(
   );
   // 組み込みはワークスペースに実体が無いため、最後 (最低優先) に足す
   sources.push({ scope: "builtin", entries: builtinSkillEntries(input.rootCwd) });
-  const composed = composeFileSkills(sources, input.rootCwd);
+  const composed = composeFileSkills(
+    sources,
+    input.rootCwd,
+    input.commonSkillNames === undefined ? {} : { commonSkillNames: input.commonSkillNames },
+  );
   for (const item of composed.shadowed) {
     console.warn(`[u7agent] 同名のスキルが複数あるため ${item.shadowedPath} を読み込みません (有効: ${item.keptPath})`);
   }

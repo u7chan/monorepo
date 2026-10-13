@@ -15,6 +15,7 @@ import type { SandboxSkillEntry } from "../src/sandbox/protocol";
 import { SessionSkillsPreviewSchema } from "../src/schema";
 import {
   expandSkillCommand,
+  listSessionSkills,
   parseCatalogSkillBlock,
   parseSkillCommand,
   resolveSessionSkills,
@@ -159,6 +160,86 @@ test("resolveSessionSkills は project > user > builtin > catalog の順で一�
   assert.equal(catalogShared?.info.relativePath, ".u7agent/agent-skills/shared/SKILL.md");
   // 説明はセッションのエージェントスナップショットから引く (本文には説明が無い)
   assert.equal(catalogLegacy?.info.description, "旧スナップショットの説明");
+});
+
+test("resolveSessionSkills は共通スキルだけを commonSkillNames で絞り、同名の浮上を許す", async () => {
+  const root = mkdtempSync(join(tmpdir(), "u7agent-session-skills-allowlist-"));
+  const projectPath = join(root, "proj/.agents/skills/writer/SKILL.md");
+  const commonPath = join(root, ".agents/skills/writer/SKILL.md");
+  const commonManual = join(root, ".agents/skills/manual/SKILL.md");
+  const { workspace } = stubWorkspace({
+    skills: {
+      "proj/.agents/skills": [skillEntry(projectPath, "writer", { description: "プロジェクト側" })],
+      ".agents/skills": [
+        skillEntry(commonPath, "writer", { description: "共通側" }),
+        skillEntry(commonManual, "manual"),
+      ],
+    },
+  });
+  const input: SessionSkillsInput = {
+    rootCwd: root,
+    relativeCwd: "proj",
+    client: workspace,
+    promptSnapshot: {
+      agent: "",
+      skills: [
+        '<agent_skill name="writer">\nカタログ側\n</agent_skill>',
+        '<agent_skill name="manual">\nカタログ manual\n</agent_skill>',
+      ],
+    },
+    agentSkills: [{ id: "skill-1", name: "writer", description: "カタログの説明" }],
+  };
+  const shapeOf = (resolved: Awaited<ReturnType<typeof resolveSessionSkills>>) =>
+    resolved.map((item) => [item.info.name, item.info.scope, item.info.shadowed, item.info.shadowedBy]);
+
+  // 未指定は全可視。共通側も一意化に参加し、同名の下位 (カタログ) は影になる
+  assert.deepEqual(shapeOf(await resolveSessionSkills(input)), [
+    ["writer", "project", false, null],
+    ["manual", "user", false, null],
+    ...BUILTIN_SKILLS.map((skill) => [skill.name, "builtin", false, null]),
+    ["writer", "catalog", true, projectPath],
+    ["manual", "catalog", true, commonManual],
+  ]);
+
+  // `[]` は共通を全部落とす (プロジェクト / 組み込みは対象外)。共通側に隠れていたカタログの manual が浮上する
+  assert.deepEqual(shapeOf(await resolveSessionSkills({ ...input, commonSkillNames: [] })), [
+    ["writer", "project", false, null],
+    ...BUILTIN_SKILLS.map((skill) => [skill.name, "builtin", false, null]),
+    ["writer", "catalog", true, projectPath],
+    ["manual", "catalog", false, null],
+  ]);
+
+  // 許可リストに残した共通スキルはそのままで、外した共通側の影だけが消える
+  assert.deepEqual(shapeOf(await resolveSessionSkills({ ...input, commonSkillNames: ["manual"] })), [
+    ["writer", "project", false, null],
+    ["manual", "user", false, null],
+    ...BUILTIN_SKILLS.map((skill) => [skill.name, "builtin", false, null]),
+    ["writer", "catalog", true, projectPath],
+    ["manual", "catalog", true, commonManual],
+  ]);
+});
+
+test("expandSkillCommand と一覧は許可リストで外した共通スキルを同じに扱う", async () => {
+  const root = mkdtempSync(join(tmpdir(), "u7agent-expand-allowlist-"));
+  const keepPath = join(root, ".agents/skills/keep/SKILL.md");
+  const dropPath = join(root, ".agents/skills/drop/SKILL.md");
+  const { workspace, previewed } = stubWorkspace({
+    skills: { ".agents/skills": [skillEntry(keepPath, "keep"), skillEntry(dropPath, "drop")] },
+    bodies: { [keepPath]: "keep の本文", [dropPath]: "drop の本文" },
+  });
+  const input: SessionSkillsInput = { rootCwd: root, relativeCwd: "", client: workspace, commonSkillNames: ["keep"] };
+
+  // 外した名前は素通し (未知のスキルと同じ)。本文も取りに行かない
+  assert.equal(await expandSkillCommand("/skill:drop", input), "/skill:drop");
+  assert.deepEqual(previewed, []);
+  assert.equal(
+    parseSkillBlock(await expandSkillCommand("/skill:keep", input))?.content,
+    `References are relative to ${dirname(keepPath)}.\n\nkeep の本文`,
+  );
+  assert.deepEqual(
+    (await listSessionSkills(input)).map((item) => [item.name, item.scope]),
+    [["keep", "user"], ...BUILTIN_SKILLS.map((skill) => [skill.name, "builtin"])],
+  );
 });
 
 test("resolveSessionSkills はサンドボックス無しでも組み込みとカタログを返す", async () => {
@@ -603,6 +684,70 @@ test("GET /api/skills/session はセッション無しで一覧を返し、同�
     assert.deepEqual(
       withoutAgent.skills.map((skill: { name: string }) => skill.name),
       ["writer", ...BUILTIN_SKILLS.map((skill) => skill.name)],
+    );
+  } finally {
+    await bff.close();
+  }
+});
+
+test("エージェントの共通スキル許可リストはプレビューと作成後の一覧に同じ形で効く", async () => {
+  const root = mkdtempSync(join(tmpdir(), "u7agent-skills-allowlist-api-"));
+  const projectPath = join(root, "proj/.agents/skills/dropped/SKILL.md");
+  const commonPath = join(root, ".agents/skills/dropped/SKILL.md");
+  const gonePath = join(root, ".agents/skills/gone/SKILL.md");
+  const { workspace } = stubWorkspace({
+    skills: {
+      "proj/.agents/skills": [skillEntry(projectPath, "dropped", { description: "プロジェクト側" })],
+      ".agents/skills": [skillEntry(commonPath, "dropped", { description: "共通側" }), skillEntry(gonePath, "gone")],
+    },
+    bodies: { [projectPath]: "---\nname: dropped\n---\n\nプロジェクト側の本文\n" },
+  });
+  const bff = await createBffApp({ cwd: root, sessionStoreDir: null, pi: asPiBff(createStubPi()), workspace });
+  try {
+    const project = await bff.app.request("/api/projects", jsonPost({ cwd: "proj", create: true }));
+    const projectId = (await jsonBody(project)).project.id as string;
+    const created = await bff.app.request(
+      "/api/agents",
+      jsonPost({ name: "絞ったエージェント", commonSkillNames: ["dropped"] }),
+    );
+    assert.equal(created.status, 201);
+    const agent = (await jsonBody(created)).agent;
+    const agentId = agent.id as string;
+    assert.deepEqual(agent.commonSkillNames, ["dropped"]);
+
+    // 共通の dropped は外れてプロジェクト側が浮上し、共通だけの gone は消える。組み込みは対象外
+    const preview = await jsonBody(
+      await bff.app.request(`/api/skills/session?projectId=${projectId}&agentId=${agentId}`),
+    );
+    assert.deepEqual(
+      preview.skills.map((skill: { name: string; scope: string; shadowed: boolean }) => [
+        skill.name,
+        skill.scope,
+        skill.shadowed,
+      ]),
+      [["dropped", "project", false], ...BUILTIN_SKILLS.map((skill) => [skill.name, "builtin", false])],
+    );
+
+    const session = await bff.app.request("/api/sessions", jsonPost({ projectId, agentId }));
+    assert.equal(session.status, 201);
+    const sessionId = (await jsonBody(session)).sessionId as string;
+    const listed = await jsonBody(await bff.app.request(`/api/sessions/${sessionId}/skills`));
+    assert.deepEqual(listed.skills, preview.skills, "プレビューと作成後の一覧が一致する");
+
+    // 外した名前の `/skill:` は素通しし、浮上したプロジェクト側は展開できる
+    assert.equal(
+      (await bff.app.request(`/api/sessions/${sessionId}/messages`, jsonPost({ text: "/skill:gone" }))).status,
+      202,
+    );
+    assert.equal(
+      (await bff.app.request(`/api/sessions/${sessionId}/messages`, jsonPost({ text: "/skill:dropped" }))).status,
+      202,
+    );
+    const payload = await jsonBody(await bff.app.request(`/api/sessions/${sessionId}`));
+    assert.equal(payload.messages.at(-4).text, "/skill:gone");
+    assert.ok(
+      (payload.messages.at(-2).text as string).startsWith(`<skill name="dropped" location="${projectPath}"`),
+      payload.messages.at(-2).text,
     );
   } finally {
     await bff.close();
