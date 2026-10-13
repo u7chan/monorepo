@@ -164,7 +164,7 @@ CI（PR）ではルートの `Dockerfile` の `test` ステージで `bun run li
 
 ## セキュリティ上の扱い
 
-- トークンを保持・表示しない。サンプルはアクセストークンに触れず、`ModelRuntime` に委譲する
+- 通常のログイン・推論ではアクセストークンを保持・表示せず、SDK（`ModelRuntime`）に管理を委譲する。検証補助コマンド（`expire` / `fake-token` / `check-tools`）だけが `auth.json` を読み書きする
 - 画面に出るのは provider / 種別 / 有効期限 / スコープ / モデル名など。`client_id` は先頭 4 文字のみ（`oaiapp_xxxx...`）
 - 認可 URL（ホスト ID を含む）は手動でサインインするためにターミナルへ表示するが、ファイルや README / PR には記録しない
 - `check-tools` は環境変数の**値**を表示せず、設定の有無と継承の boolean だけを出す
@@ -173,11 +173,11 @@ CI（PR）ではルートの `Dockerfile` の `test` ステージで `bun run li
 
 ### ツール子プロセスへの資格情報の継承（実測）
 
-`bun run start check-tools` は、ローカルのスタブ provider で実際のエージェントセッションを動かし、`bash` ツールの子プロセスの env をそのまま読み取ります。
+`bun run start check-tools` は、ローカルのスタブ provider で実際のエージェントセッションを動かし、`bash` ツールの子プロセスの env をそのまま読み取ります。保存済み SIWC 資格情報を実際に使う検証（`Authorization` の指紋照合）は `bun test` 側で行います。
 
 | 確認 | 実測 |
 | --- | --- |
-| 保存済み SIWC access token が env に出るか | 出ない（推論には使われる。`Authorization` の指紋で確認） |
+| 保存済み SIWC access token が env に出るか | 出ない（`bun test` では推論に実際に使われることまで `Authorization` の指紋で確認。CLI の `check-tools` はスタブ provider の資格情報を使う） |
 | アプリが env に置いたダミー値が子プロセスへ届くか | 届く（Pi のシェル env は親プロセスの env を引き継ぐ） |
 | `auth.json` をツールから読めるか | 読める（同じ OS ユーザー。`0600` は read を防がない） |
 | `bash` ツールへ Pi が注入する変数 | `PI_PROVIDER` `PI_MODEL` `PI_REASONING_LEVEL` `PI_SESSION_ID` |
