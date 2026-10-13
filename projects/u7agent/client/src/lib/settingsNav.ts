@@ -42,8 +42,9 @@ export const SETTINGS_SECTIONS: { section: SettingsSection; label: string }[] = 
  * 設定 → モデル のタブ。URL は `/settings/models` と `/settings/models/<sub>` を正とし、
  * 既定タブ (models) はパスへ出さない (lib/route.ts の routePath)。
  *
- * タブにするのは、同じデータを同じ hook で見方を切り替えるときだけ (モデルの選択と、そのモデルの
- * プロバイダー認証)。独自の API と hook を持つ面はルートのセクション (content / web-search) に置く。
+ * タブにするのは、同じデータを同じ hook で見方を切り替えるとき (モデルの選択と、そのモデルの
+ * プロバイダー認証) と、読み取り専用で面ごとに取得が閉じているとき (ランタイムのサービス / 環境 /
+ * 診断) だけ。編集を伴う独自の API と hook を持つ面はルートのセクション (content / web-search) に置く。
  */
 export type ModelsSubsection = "models" | "providers";
 
@@ -53,6 +54,20 @@ export const MODELS_SUBSECTIONS: { subsection: ModelsSubsection; label: string }
 ];
 
 export const DEFAULT_MODELS_SUBSECTION: ModelsSubsection = "models";
+
+/**
+ * 設定 → ランタイム のタブ。URL は `/settings/runtime` と `/settings/runtime/<sub>` を正とし、
+ * 既定タブ (service) はパスへ出さない (lib/route.ts の routePath)。
+ */
+export type RuntimeSubsection = "service" | "environment" | "diagnostics";
+
+export const RUNTIME_SUBSECTIONS: { subsection: RuntimeSubsection; label: string }[] = [
+  { subsection: "service", label: "サービス" },
+  { subsection: "environment", label: "環境" },
+  { subsection: "diagnostics", label: "診断" },
+];
+
+export const DEFAULT_RUNTIME_SUBSECTION: RuntimeSubsection = "service";
 
 /** URL にセクションが無いときの行き先 (「設定」の導線と、保存値が読めないときの既定) */
 export const DEFAULT_SETTINGS_SECTION: SettingsSection = "agents";

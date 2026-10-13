@@ -13,7 +13,12 @@ import {
   withoutEntrySpace,
   type Route,
 } from "../src/lib/route";
-import { SETTINGS_SECTIONS, type ModelsSubsection, type SettingsSection } from "../src/lib/settingsNav";
+import {
+  SETTINGS_SECTIONS,
+  type ModelsSubsection,
+  type RuntimeSubsection,
+  type SettingsSection,
+} from "../src/lib/settingsNav";
 
 const settings = (section: SettingsSection): Route => ({ view: "settings", section });
 
@@ -22,6 +27,13 @@ const modelsTab = (modelsSubsection: ModelsSubsection): Route => ({
   view: "settings",
   section: "models",
   modelsSubsection,
+});
+
+/** 設定 → ランタイムのタブ。既定タブ (service) は URL のパスに出さない */
+const runtimeTab = (runtimeSubsection: RuntimeSubsection): Route => ({
+  view: "settings",
+  section: "runtime",
+  runtimeSubsection,
 });
 
 /** 会話を指定した URL (`/s/<id>`) の route。id は不透明な値で、URL へ戻すときだけ encode する */
@@ -92,6 +104,19 @@ test("parseRoute は pathname だけで画面を決め、表のとおりに畳�
     ["/settings/models/web-search", settings("models")],
     ["/Settings/MODELS/WEB-SEARCH/", settings("models")],
     ["/settings/models/PROVIDERS/unknown", CHAT_ROUTE],
+    // 設定 → ランタイムのタブ。正準形は「サービス」= /settings/runtime、「環境」= /environment、「診断」= /diagnostics
+    ["/settings/runtime/environment", runtimeTab("environment")],
+    ["/settings/runtime/diagnostics", runtimeTab("diagnostics")],
+    ["/Settings/RUNTIME/ENVIRONMENT/", runtimeTab("environment")],
+    ["//settings//runtime//diagnostics//", runtimeTab("diagnostics")],
+    ["/settings%2Fruntime%2Fdiagnostics", runtimeTab("diagnostics")],
+    // 未知のサブセクションと既定タブの明示は既定タブへ畳む (チャットへ飛ばさない)
+    ["/settings/runtime/service", settings("runtime")],
+    ["/settings/runtime/unknown", settings("runtime")],
+    ["/settings/runtime/models", settings("runtime")],
+    ["/Settings/RUNTIME/SERVICE/", settings("runtime")],
+    ["/settings/runtime/environment/unknown", CHAT_ROUTE],
+    ["/settings/runtime/diagnostics/extra", CHAT_ROUTE],
   ];
   for (const [pathname, expected] of table) {
     assert.deepEqual(parseRoute(pathname), expected, pathname);
@@ -124,6 +149,18 @@ test("routePath は正準形を返し、parseRoute と往復する", () => {
   assert.equal(routePath(modelsTab("providers")), "/settings/models/providers");
   assert.equal(routePath(modelsTab("models")), "/settings/models");
   assert.deepEqual(parseRoute(routePath(modelsTab("providers"))), modelsTab("providers"));
+  // ランタイムのタブも同じく既定タブ以外をパスへ出し、既定タブは出さない
+  assert.equal(routePath(runtimeTab("environment")), "/settings/runtime/environment");
+  assert.equal(routePath(runtimeTab("diagnostics")), "/settings/runtime/diagnostics");
+  assert.equal(routePath(runtimeTab("service")), "/settings/runtime");
+  for (const subsection of ["environment", "diagnostics"] as const) {
+    assert.deepEqual(parseRoute(routePath(runtimeTab(subsection))), runtimeTab(subsection), subsection);
+  }
+  assert.deepEqual(
+    parseRoute(routePath(runtimeTab("service"))),
+    settings("runtime"),
+    "既定タブはパスへ出さず、既定へ戻す",
+  );
   // コンテンツ生成と Web 検索はルートのセクションとして往復する
   for (const section of ["content", "web-search"] as const) {
     assert.equal(routePath(settings(section)), `/settings/${section}`);

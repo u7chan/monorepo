@@ -126,6 +126,6 @@ export function landlockUnavailableMessage(status: SandboxLandlockStatus): strin
     case "abi_unsupported":
       return `Landlock ABI ${status.abi ?? "不明"} は ${status.minAbi} 未満です (Linux 6.2 以上が必要です)`;
     default:
-      return "Landlock の診断に失敗しました (設定 → ランタイム の接続状態を確認してください)";
+      return "Landlock の診断に失敗しました (設定 → ランタイム の環境タブを確認してください)";
   }
 }

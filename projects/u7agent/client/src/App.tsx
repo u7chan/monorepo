@@ -69,7 +69,9 @@ import { activityDisplay, retryRemainingMs } from "./lib/retryState";
 import { RUN_RETRY_PROMPT } from "./lib/runRetry";
 import {
   DEFAULT_MODELS_SUBSECTION,
+  DEFAULT_RUNTIME_SUBSECTION,
   type ModelsSubsection,
+  type RuntimeSubsection,
   type SettingsSection,
   type SidebarMode,
 } from "./lib/settingsNav";
@@ -522,6 +524,18 @@ export default function App() {
     [navigate],
   );
 
+  // ランタイムのタブ切替も同じく URL へ集約する
+  const openRuntimeSubsection = useCallback(
+    (subsection: RuntimeSubsection) => {
+      navigate(
+        subsection === DEFAULT_RUNTIME_SUBSECTION
+          ? { view: "settings", section: "runtime" }
+          : { view: "settings", section: "runtime", runtimeSubsection: subsection },
+      );
+    },
+    [navigate],
+  );
+
   // 会話の通知トグル。note は On で配信できない間は常に、Off では押した後だけ出す (Off へは常に戻せる)。
   // deliverable (色とラベルの根拠) と notifyCannotEnable (押下を止める根拠) を混ぜない
   const notifyToggle = {
@@ -673,6 +687,12 @@ export default function App() {
         return (
           <RuntimePage
             {...pageProps}
+            runtimeSubsection={
+              route.view === "settings" && route.section === "runtime"
+                ? (route.runtimeSubsection ?? DEFAULT_RUNTIME_SUBSECTION)
+                : DEFAULT_RUNTIME_SUBSECTION
+            }
+            onSelectRuntimeSubsection={openRuntimeSubsection}
             health={app.health}
             onRefreshHealth={app.refreshHealth}
             sessions={app.sessions}

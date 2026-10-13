@@ -11,7 +11,7 @@
 
 | 画面 | 役割 | 内容 |
 | --- | --- | --- |
-| 設定 → ランタイム（表示専用） | 環境診断 | 接続状態 / 実行環境 / 利用可能なコマンド / SDK バージョン |
+| 設定 → ランタイム（表示専用）。サービス（既定、`/settings/runtime`）/ 環境（`/settings/runtime/environment`）/ 診断（`/settings/runtime/diagnostics`）の 3 タブ | 公開サービスの操作と環境診断 | サービス: 公開中のサービスの確認・停止。環境: 接続状態 / 実行環境 / 利用可能なコマンド / SDK バージョン。診断: セッション診断 |
 | 設定 → モデル（編集可） | モデルを選ぶ（`/settings/models`。既定）/ プロバイダー（`/settings/models/providers`）の 2 タブ | モデル候補の選択とアプリ既定モデル、provider ごとの認証状態、APIキーの登録・上書き・削除、メモの保存、再同期、カタログの利用可能数。モデル一覧の重複表示は持たない |
 | 設定 → コンテンツ生成（編集可）（`/settings/content`） | 画像 / 音声の生成設定 | コンテンツ生成の APIキー（画像 / 音声で共有）・画像モデル（[image-generation.md](image-generation.md#設定画面)）・音声モデルとボイス（[speech-generation.md](speech-generation.md#設定画面)） |
 | 設定 → Web 検索（編集可）（`/settings/web-search`） | 検索の実行時設定 | `web_search` の実行時トグル・既定 provider・provider ごとの APIキー（[web-search.md](web-search.md#実行時トグル)） |
@@ -190,7 +190,7 @@ CREATE TABLE IF NOT EXISTS provider_memos (
 
 ## クライアント
 
-- 画面は `/settings/models`（モデルを選ぶ。既定）と `/settings/models/providers`（プロバイダー）の 2 タブ。タブにするのは同じデータを同じ hook で見る面だけで、コンテンツ生成（`/settings/content`）と Web 検索（`/settings/web-search`）は独自の API と hook を持つルートのセクションに置く。タブの語彙は `client/src/lib/settingsNav.ts` の `MODELS_SUBSECTIONS` に置き、URL と `routePath` が同じ値を使う。旧 `/settings/models/content`・`/settings/models/web-search` のエイリアスは持たず、未知のサブセクションや `/settings/models/models` と同じく既定タブへ畳む（モデル画面からチャットへ飛ばさない）。タブ行は `SettingsPageLayout` の任意スロットに置き、`ProjectDialog` と同じ `.tab-item` を使う
+- 画面は `/settings/models`（モデルを選ぶ。既定）と `/settings/models/providers`（プロバイダー）の 2 タブ。タブにするのは同じデータを同じ hook で見る面と、読み取り専用で面ごとに取得が閉じた面（[ランタイム](frontend.md#url-と画面の対応)のサービス / 環境 / 診断）だけで、コンテンツ生成（`/settings/content`）と Web 検索（`/settings/web-search`）は独自の API と hook を持つルートのセクションに置く。タブの語彙は `client/src/lib/settingsNav.ts` の `MODELS_SUBSECTIONS` に置き、URL と `routePath` が同じ値を使う。旧 `/settings/models/content`・`/settings/models/web-search` のエイリアスは持たず、未知のサブセクションや `/settings/models/models` と同じく既定タブへ畳む（モデル画面からチャットへ飛ばさない）。タブ行は `client/src/components/SettingsTabs.tsx` に共通化し、`SettingsPageLayout` の任意スロットに置く（singleColumn で選択中のタブを可視域へ入れる処理もこの component が持つ）
 - hook は設定の面ごとにその面のページが持つ（`ModelSettingsPage` は `useModelSettings`、`ContentSettingsPage` は `useContentSettings`、`WebSearchSettingsPage` は `useWebSearchSettings`）。開いたときだけ取得するため、どの画面も他の面の設定を読み込まない。モデル画面の未保存の下書き（モデルの選択・既定モデルと、provider ごとの apiKey / メモ）は `ModelSettingsPage` の親が持ち、タブ切替・provider 切替・検索で再マウントしても下書き・note・カタログを失わない。カタログと設定は独立に取り、片方の失敗で他方を捨てない。ヘッダの [再読み込み] はその画面の hook だけを取り直し、他の面の注記を消さない。取得中フラグは破棄された要求の完了でも解除する（`createLoadingTracker()`。解除を応答の適用可否で分岐すると、変更操作と重なったときに再読み込みボタンが無効のまま残る）
 - ヘッダの [カタログ更新] は `/settings/models` と `/settings/models/providers` でだけ出し、更新中・ランタイム不可・カタログ取得失敗（編集不可と同じ判定）では無効にする。押下すると応答の一覧をその場で反映し、直後に `GET /api/runtime/models` は取り直さない（二重取得と、直後の取得失敗で反映済みの一覧を消す事故を避ける）。health の再取得は変更系と同じ順序でだけ揃える。結果は 1 行の注記に、成功時は完了文言、失敗時はサーバーが返した文をそのまま出す。HTTP が失敗したとき（503 を含む）は一覧と取得エラーを変えず、注記だけを差し替える
 - 「モデルを選ぶ」タブは、候補を「認証済み provider のカタログ全件」と「カタログ外の残存エントリ」の和集合で組む。認証が設定されていない provider の選択は行に出さず、下書きからも落として保存しない（`pruneAvailabilityDraft()`）。カタログ外の残存だけは保存が 400 になるため、認証が無くても警告付きで出して外せる。折りたたみ中は行を描画せず、既定は全部閉じる（検索中の該当 provider と、警告のある provider だけ開く）。検索は DOM ではなくカタログのデータ（provider / モデル名 / ID）に当てて該当 provider を自動展開し、「選択済みのみ」でチェック済みだけに絞る
@@ -256,4 +256,4 @@ CREATE TABLE IF NOT EXISTS provider_memos (
 - `client/test/contentSettings.test.ts` / `client/test/contentSettingsTab.test.ts` / `client/test/contentSettingsPage.test.ts` / `client/test/settingsNav.test.ts` — 画像 / 音声モデルの選択肢（カタログ順・同名への id 添え・カタログ外の現在値）、現在値と PUT の本文の解決、音声のボイス欄（宣言の有無による選択 / 自由記述の切替と、宣言外の保存値を先頭へ寄せる規則）、キー入力の後始末（成功時だけ消す）、削除の確認文、タブ見出しの provider（ロゴ・未設定でも OpenRouter・ロゴの無い provider は頭文字）と provider の id / 表示名、コンテンツ生成の初期描画（未設定はキーのみ / 設定済みは上書き保存・削除・モデル選択と音声欄 / 保存済みキーを入力欄へ戻さない / runtime 不可の disable）、2 つのカタログの出どころのチップと再取得の注記、コンテンツ生成ページの見出しと取得前の出し分け（この画面の注記と再読み込みだけを出す）、11 項目 / 2 タブの語彙
 - `server/test/speech.test.ts` / `server/test/speech-catalog.test.ts` / `server/test/speech-tools.test.ts` / `server/test/speech-settings.test.ts` / `server/test/speech-settings-api.test.ts` — 音声生成の契約（[speech-generation.md](speech-generation.md#テスト)）
 - `client/test/requestGate.test.ts` — 応答の適用可否（`createRequestGate`）、要求の追跡（`createRequestTracker`）、取得中フラグの解除（`createLoadingTracker`: 破棄された要求の完了で解除し、後続が在る間は維持する）
-- `client/test/runtimePage.test.ts` — 設定 → ランタイムから「モデル解決」が消えたこと
+- `client/test/runtimePage.test.ts` — 設定 → ランタイムの 3 タブ（タブ行の `aria-selected` と既定タブ、アクティブな面だけが出ること）

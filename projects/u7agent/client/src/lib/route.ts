@@ -1,17 +1,20 @@
 /**
  * URL の pathname と画面の対応。DOM も history も触らない純関数だけを置き、URL の読み書きは
  * hooks/useRoute.ts が担う。`/` はチャット (会話を指定しない)、`/settings/<section>` は設定の各画面
- * (SETTINGS_SECTIONS)、`/settings/models/<sub>` はモデル画面のタブ (MODELS_SUBSECTIONS)、
- * `/s/<sessionId>` はチャット + URL が指定する会話。未知・不正なパスはチャットへ畳み、routePath は
- * 常に正準形 (小文字・末尾スラッシュなし・既定タブのパスなし) を返す。
+ * (SETTINGS_SECTIONS)、`/settings/<section>/<sub>` はタブを持つ画面 (MODELS_SUBSECTIONS /
+ * RUNTIME_SUBSECTIONS)、`/s/<sessionId>` はチャット + URL が指定する会話。未知・不正なパスは
+ * チャットへ畳み、routePath は常に正準形 (小文字・末尾スラッシュなし・既定タブのパスなし) を返す。
  * `/s/<sessionId>` の `space` クエリだけは会話を指定した URL の入力として解釈し (entrySpaceOf)、
  * 読んだ後はキー単位で落とす (withoutEntrySpace)。
  */
 import {
   DEFAULT_MODELS_SUBSECTION,
+  DEFAULT_RUNTIME_SUBSECTION,
   MODELS_SUBSECTIONS,
+  RUNTIME_SUBSECTIONS,
   SETTINGS_SECTIONS,
   type ModelsSubsection,
+  type RuntimeSubsection,
   type SettingsSection,
 } from "./settingsNav";
 
@@ -29,6 +32,8 @@ export type Route =
       section: SettingsSection;
       /** 設定 → モデルのタブ。既定タブは省略し、パスにも出さない */
       modelsSubsection?: ModelsSubsection;
+      /** 設定 → ランタイムのタブ。同じく既定タブは省略する */
+      runtimeSubsection?: RuntimeSubsection;
     };
 
 /** 会話を指定しないチャット (正準形の `/`)。未知・解釈不能なパスを畳む先でもある */
@@ -37,8 +42,8 @@ export const CHAT_ROUTE: Route = { view: "chat" };
 /**
  * pathname から画面を決める。クエリとフラグメントは pathname に含めない契約
  * (含めると `#foo` 付きのリンクが画面として解釈できなくなる) ため、境界側で切り落とす。
- * モデル画面だけは `/settings/models/<sub>` の 1 セグメントをタブとして解釈し、未知の
- * サブセクションと `/settings/models/models` (既定タブ) は既定タブへ正準化する。
+ * タブを持つ画面 (models / runtime) だけは `/settings/<section>/<sub>` の 1 セグメントを解釈し、未知の
+ * サブセクションと既定タブの明示は既定タブへ正準化する。
  */
 export function parseRoute(pathname: string): Route {
   const decoded = decodePathname(pathname);
@@ -48,14 +53,12 @@ export function parseRoute(pathname: string): Route {
   if (kind === "settings") {
     const found = SETTINGS_SECTIONS.find((item) => item.section === second?.toLowerCase());
     if (!found) return CHAT_ROUTE;
-    if (found.section !== "models")
-      return third === undefined ? { view: "settings", section: found.section } : CHAT_ROUTE;
-    // モデルはサブセクション 1 段だけを解釈する。深いパスは他の画面と同じくチャットへ畳む
-    if (rest.length > 0) return CHAT_ROUTE;
-    const subsection = MODELS_SUBSECTIONS.find((item) => item.subsection === third?.toLowerCase())?.subsection;
-    return subsection && subsection !== DEFAULT_MODELS_SUBSECTION
-      ? { view: "settings", section: "models", modelsSubsection: subsection }
-      : { view: "settings", section: "models" };
+    // タブを持つ画面はサブセクション 1 段だけを解釈する。深いパスは他の画面と同じくチャットへ畳む
+    if (found.section === "models" || found.section === "runtime") {
+      if (rest.length > 0) return CHAT_ROUTE;
+      return found.section === "models" ? modelsRoute(third) : runtimeRoute(third);
+    }
+    return third === undefined ? { view: "settings", section: found.section } : CHAT_ROUTE;
   }
   // id は不透明な値なので、decode 済みのものをそのまま持ち URL へ戻すときだけ encode する
   return kind === "s" && second && third === undefined ? { view: "chat", sessionId: second } : CHAT_ROUTE;
@@ -66,6 +69,13 @@ export function routePath(route: Route): string {
   if (route.view === "settings") {
     if (route.section === "models" && route.modelsSubsection && route.modelsSubsection !== DEFAULT_MODELS_SUBSECTION) {
       return `/settings/models/${route.modelsSubsection}`;
+    }
+    if (
+      route.section === "runtime" &&
+      route.runtimeSubsection &&
+      route.runtimeSubsection !== DEFAULT_RUNTIME_SUBSECTION
+    ) {
+      return `/settings/runtime/${route.runtimeSubsection}`;
     }
     return `/settings/${route.section}`;
   }
@@ -148,6 +158,20 @@ function isSpaceParameter(part: string): boolean {
 export function sessionEntryHref(sessionId: string, spaceId?: string): string {
   const path = routePath({ view: "chat", sessionId });
   return spaceId === undefined ? path : `${path}?${SPACE_QUERY_KEY}=${encodeURIComponent(spaceId)}`;
+}
+
+function modelsRoute(raw: string | undefined): Route {
+  const subsection = MODELS_SUBSECTIONS.find((item) => item.subsection === raw?.toLowerCase())?.subsection;
+  return subsection && subsection !== DEFAULT_MODELS_SUBSECTION
+    ? { view: "settings", section: "models", modelsSubsection: subsection }
+    : { view: "settings", section: "models" };
+}
+
+function runtimeRoute(raw: string | undefined): Route {
+  const subsection = RUNTIME_SUBSECTIONS.find((item) => item.subsection === raw?.toLowerCase())?.subsection;
+  return subsection && subsection !== DEFAULT_RUNTIME_SUBSECTION
+    ? { view: "settings", section: "runtime", runtimeSubsection: subsection }
+    : { view: "settings", section: "runtime" };
 }
 
 /** 不正な percent encoding は例外にせず、解釈不能として畳む先 (チャット) を選ばせる */

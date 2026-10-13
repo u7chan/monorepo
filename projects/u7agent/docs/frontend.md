@@ -80,11 +80,11 @@ React 19 + Vite + TypeScript + Tailwind CSS v4。ソースは `client/src`、エ
 **画面は URL がただ 1 つの正で、サイドバーのモードや表示中のセクションを state では持たない**（`parseRoute` / `routePath` が pathname と画面を相互変換し、`useRoute` が `popstate` の購読と URL の置換を 1 箇所に集約する）。
 
 - 大文字・末尾スラッシュ・連続スラッシュ・percent encoding は正準形（小文字・末尾スラッシュなし）へ畳む。セクションを特定できない URL はチャットにする
-- 設定 → モデル（/settings/models）のタブだけは `/settings/models/<sub>` の 1 セグメントを解釈する。**未知のサブセクションと既定タブの明示は既定タブへ畳み、モデル画面からチャットへ飛ばさない**（語彙は `client/src/lib/settingsNav.ts`）
+- タブを持つ画面（`/settings/models`、`/settings/runtime`）だけは `/settings/<section>/<sub>` の 1 セグメントを解釈する。**未知のサブセクションと既定タブの明示は既定タブへ畳み、モデル画面からチャットへ飛ばさない**（語彙は `client/src/lib/settingsNav.ts`）
 - 画面切替は `replaceState` で履歴を追加しない。URL の置換と表示の更新は `navigate()`（画面切替）と `syncSessionPath`（会話 URL の同期）だけが行い、両者を独立に同期させない
 - **クエリとフラグメントは解釈も破棄もしない**（本文の Markdown が通す `#foo` のような断片リンクを壊さないため）。例外は `/s/<id>` の `space` だけで、初期 mount に 1 回読んだ後にキー単位で落とす（他のキーとフラグメントは残る）
 - 「設定」の行き先は URL のセクションを優先し、`/` では保存した最後のセクションへ。直接 `/settings/<section>` を開いた場合もそれを「最後」として保存する
-- 設定 → ランタイム（/settings/runtime）は接続状態と実行環境だけを出す。**HTTP ステータスや文言を解釈せず、応答の `state` だけで分岐する**
+- 設定 → ランタイムは「サービス（既定、/settings/runtime）」「環境（/settings/runtime/environment）」「診断（/settings/runtime/diagnostics）」の 3 タブで、公開中のサービスの確認・停止、接続状態と実行環境、セッション診断を分けて出す。**HTTP ステータスや文言を解釈せず、応答の `state` だけで分岐する**
 - 診断情報のコピー本文は画面と同じ行ビルダーから組み立てる（表示とコピーで値・注記・状態文言がずれないようにする）。**取得できていないセクションは「取得できていない」と書き、黙って省かない**（省くと、貼った先では正常な環境に見える）
 
 ## 会話 URL
