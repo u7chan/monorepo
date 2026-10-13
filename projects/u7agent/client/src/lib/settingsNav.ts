@@ -10,7 +10,6 @@ export type SettingsSection =
   | "agents"
   | "skills"
   | "files"
-  | "archive"
   | "appearance"
   | "models"
   | "content"
@@ -26,14 +25,12 @@ export const SETTINGS_SECTIONS: { section: SettingsSection; label: string }[] = 
   { section: "agents", label: "エージェント" },
   { section: "skills", label: "スキル" },
   { section: "models", label: "モデル" },
-  // コンテンツ生成と Web 検索はモデルと同じ「外部サービスとキー」の面だが、独自の API と hook を持つ
+  // コンテンツ生成と Web 検索はモデルと同じ「外部サービスとキー」の面だが、対象そのものが別なのでルートに置く
   { section: "content", label: "コンテンツ生成" },
   { section: "web-search", label: "Web 検索" },
   { section: "notifications", label: "通知" },
   { section: "appearance", label: "外観" },
   { section: "files", label: "ファイル" },
-  // ファイルの次に置く (ツリーの行のダウンロード導線と対になる設定のため)
-  { section: "archive", label: "ダウンロード" },
   // 編集を持たない診断だけの画面なので最後に置く
   { section: "runtime", label: "ランタイム" },
 ];
@@ -42,9 +39,10 @@ export const SETTINGS_SECTIONS: { section: SettingsSection; label: string }[] = 
  * 設定 → モデル のタブ。URL は `/settings/models` と `/settings/models/<sub>` を正とし、
  * 既定タブ (models) はパスへ出さない (lib/route.ts の routePath)。
  *
- * タブにするのは、同じデータを同じ hook で見方を切り替えるとき (モデルの選択と、そのモデルの
- * プロバイダー認証) と、読み取り専用で面ごとに取得が閉じているとき (ランタイムのサービス / 環境 /
- * 診断) だけ。編集を伴う独自の API と hook を持つ面はルートのセクション (content / web-search) に置く。
+ * タブにするのは、同じ対象を別の面から見るとき (モデルの選択とプロバイダー認証、ファイルツリーと
+ * ダウンロードの除外) と、読み取り専用で面ごとに取得と操作が閉じているとき (ランタイムのサービス /
+ * 環境 / 診断) だけ。どちらも hook / API が分かれてよいが、対象そのものが別の面 (content /
+ * web-search) はルートのセクションに置く。
  */
 export type ModelsSubsection = "models" | "providers";
 
@@ -55,9 +53,19 @@ export const MODELS_SUBSECTIONS: { subsection: ModelsSubsection; label: string }
 
 export const DEFAULT_MODELS_SUBSECTION: ModelsSubsection = "models";
 
+/** 設定 → ファイル のタブ。同じ対象 (ワークスペースのファイル) の別の面で、規則は MODELS_SUBSECTIONS と同じ */
+export type FilesSubsection = "files" | "archive";
+
+export const FILES_SUBSECTIONS: { subsection: FilesSubsection; label: string }[] = [
+  { subsection: "files", label: "ファイルツリー" },
+  { subsection: "archive", label: "ダウンロードの除外" },
+];
+
+export const DEFAULT_FILES_SUBSECTION: FilesSubsection = "files";
+
 /**
- * 設定 → ランタイム のタブ。URL は `/settings/runtime` と `/settings/runtime/<sub>` を正とし、
- * 既定タブ (service) はパスへ出さない (lib/route.ts の routePath)。
+ * 設定 → ランタイム のタブ。同じ画面に積むと表示領域を超える読み取り専用の面を分ける。
+ * URL は `/settings/runtime` と `/settings/runtime/<sub>` を正とし、既定タブ (service) はパスへ出さない。
  */
 export type RuntimeSubsection = "service" | "environment" | "diagnostics";
 
@@ -75,7 +83,12 @@ export const DEFAULT_SETTINGS_SECTION: SettingsSection = "agents";
 /** 「設定」で最後に開いていたセクションの保存先。画面の正は URL で、これは `/` から戻るための補助 */
 export const SETTINGS_SECTION_KEY = "u7agent-settings-section";
 
-/** 保存済みの生値を検証する。未知の値 (削除したセクション等) は既定へ畳む */
+/**
+ * 保存済みの生値を検証する。未知の値 (削除したセクション等) は既定へ畳む。
+ * 旧 設定 → ダウンロード ("archive") は 設定 → ファイル の「ダウンロードの除外」タブへ移したため、
+ * 保存値だけ files へ読み替える (タブまでは覚えない。URL の読み替えは lib/route.ts が持つ)
+ */
 export function parseStoredSettingsSection(raw: string | null): SettingsSection {
-  return SETTINGS_SECTIONS.find((item) => item.section === raw)?.section ?? DEFAULT_SETTINGS_SECTION;
+  const section = raw === "archive" ? "files" : raw;
+  return SETTINGS_SECTIONS.find((item) => item.section === section)?.section ?? DEFAULT_SETTINGS_SECTION;
 }

@@ -4,7 +4,6 @@ import { useSpace } from "./SpaceContext";
 import { SpaceSettingsPage } from "./components/SpaceSettingsPage";
 import { AgentSettingsPage } from "./components/AgentSettingsPage";
 import { AppearancePage } from "./components/AppearancePage";
-import { ArchiveSettingsPage } from "./components/ArchiveSettingsPage";
 import { ChatArea } from "./components/ChatArea";
 import { DiagnosticsContext } from "./DiagnosticsContext";
 import { SingleColumnBar } from "./components/SingleColumnBar";
@@ -68,8 +67,10 @@ import { moveDestinationSpaces } from "./lib/spaceSelection";
 import { activityDisplay, retryRemainingMs } from "./lib/retryState";
 import { RUN_RETRY_PROMPT } from "./lib/runRetry";
 import {
+  DEFAULT_FILES_SUBSECTION,
   DEFAULT_MODELS_SUBSECTION,
   DEFAULT_RUNTIME_SUBSECTION,
+  type FilesSubsection,
   type ModelsSubsection,
   type RuntimeSubsection,
   type SettingsSection,
@@ -524,6 +525,18 @@ export default function App() {
     [navigate],
   );
 
+  // ファイルのタブ切替も URL へ集約する (既定タブはパスへ出さない)
+  const openFilesSubsection = useCallback(
+    (subsection: FilesSubsection) => {
+      navigate(
+        subsection === DEFAULT_FILES_SUBSECTION
+          ? { view: "settings", section: "files" }
+          : { view: "settings", section: "files", filesSubsection: subsection },
+      );
+    },
+    [navigate],
+  );
+
   // ランタイムのタブ切替も同じく URL へ集約する
   const openRuntimeSubsection = useCallback(
     (subsection: RuntimeSubsection) => {
@@ -657,10 +670,15 @@ export default function App() {
             cwd=""
             excludeNames={excludeNames}
             filePreviewPort={app.health?.filePreviewPort}
+            archiveSettings={app.archiveSettings}
+            filesSubsection={
+              route.view === "settings" && route.section === "files"
+                ? (route.filesSubsection ?? DEFAULT_FILES_SUBSECTION)
+                : DEFAULT_FILES_SUBSECTION
+            }
+            onSelectFilesSubsection={openFilesSubsection}
           />
         );
-      case "archive":
-        return <ArchiveSettingsPage {...pageProps} archiveSettings={app.archiveSettings} />;
       case "appearance":
         return <AppearancePage {...pageProps} />;
       case "models":
