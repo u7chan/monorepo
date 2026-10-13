@@ -483,7 +483,7 @@ export class ModelSettingsService {
   /**
    * DB の希望状態 (provider_credentials の行) を SDK へ写し直す。OAuth のサインアウトは SDK が
    * auth.json の資格情報と一緒に同じ provider の runtime overlay も消すため、公開 state の再計算前にここで戻す。
-   * 行が無ければ何もしない。反映に失敗しても例外は出さず、既存の未反映 (degraded = apply) として残す。
+   * 行が無ければ何もしない。読取の失敗・反映の失敗は例外を出さず、既存の未反映 (degraded = apply) として残す。
    */
   async reapplyStoredKey(provider: string): Promise<void> {
     await this.#lock.run(async () => {
@@ -492,7 +492,10 @@ export class ModelSettingsService {
       try {
         row = this.#db.getProviderCredential(provider);
       } catch {
+        // 戻すべきキーがあるかを判断できない。SDK はすでに runtime overlay を消しているため、実効を失ったまま
+        // 黙って抜けず、既存の未反映として残す (画面の [再同期] から回復できるようにする)
         console.warn(`[u7agent] provider credential read failed: ${provider}`);
+        this.#degraded.set(provider, "apply");
         return;
       }
       if (!row) return;

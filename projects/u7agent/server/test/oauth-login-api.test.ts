@@ -14,7 +14,7 @@ import {
   OAUTH_LOGIN_TARGET_MESSAGE,
   OAUTH_LOGOUT_TARGET_MESSAGE,
 } from "../src/oauth-login";
-import type { ModelsSettingsResponse, ProviderAuthSetting } from "../src/schema";
+import type { ModelsSettingsResponse, ModelMutationResponse, ProviderAuthSetting } from "../src/schema";
 import { asPiBff, createStubPi, waitFor, type StubPiOptions } from "./stub-pi";
 
 const AUTH_URL = "https://auth.example.test/api/accounts/authorize?state=dummy";
@@ -327,6 +327,77 @@ test("サインアウトは auth.json の OAuth を消し、この画面で登�
       assert.equal(after.credentialKind, "api_key");
       assert.equal(after.degraded, undefined, "戻せている間は未反映にしない");
       assert.ok(!JSON.stringify(after).includes(KEY), "キー値は応答へ載せない");
+    } finally {
+      await bff.close();
+    }
+  });
+});
+
+test("サインアウトのキー復元で DB 読取が失敗したときも、未反映として残して再同期で回復する", async () => {
+  await withStoreDir(async (dir) => {
+    await writeFile(
+      join(dir, "auth.json"),
+      JSON.stringify({
+        openai: {
+          type: "oauth",
+          access: "oauth-access-must-not-leak",
+          refresh: "refresh",
+          expires: Date.now() + 60_000,
+        },
+      }),
+    );
+    const pi = createStubPi({
+      agentDir: dir,
+      providers: [
+        {
+          provider: "openai",
+          name: "OpenAI",
+          supportsOAuth: true,
+          oauthLoginLabel: "Sign in with ChatGPT",
+          canSetApiKey: true,
+          oauth: true,
+          configured: true,
+          authSource: "stored",
+        },
+      ],
+      onOAuthLogout: () => Promise.resolve(),
+    });
+    const bff = await createBffApp({ cwd: "/tmp/project", sessionStoreDir: dir, pi: asPiBff(pi), workspace: null });
+    try {
+      const saved = await bff.app.request("/api/settings/models/openai/key", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ apiKey: KEY }),
+      });
+      assert.equal(saved.status, 200);
+
+      // 復元の判断に使う読取だけを失敗させる (SDK の logout はすでに runtime overlay を消している)
+      const readRow = bff.appDb.getProviderCredential.bind(bff.appDb);
+      let failedReads = 0;
+      bff.appDb.getProviderCredential = (provider: string) => {
+        if (failedReads === 0) {
+          failedReads += 1;
+          throw new Error("db read failed");
+        }
+        return readRow(provider);
+      };
+
+      const logout = await bff.app.request("/api/settings/models/openai/logout", { method: "POST" });
+      assert.equal(logout.status, 200);
+      assert.equal(failedReads, 1, "読取の失敗を 1 回だけ注入した");
+      const after = providerOf((await logout.json()) as ModelsSettingsResponse);
+      assert.equal(after.managed, true, "DB の行は残っている");
+      assert.equal(after.auth.configured, false, "overlay は消えたまま (実効を偽らない)");
+      assert.equal(after.degraded, "apply", "復元できなかったことを未反映として残す");
+      assert.equal(after.orphan, false, "カタログにある provider は [再同期] を出せる");
+
+      // DB が復旧すれば [再同期] で実効が戻り、未反映も解除される
+      const resync = await bff.app.request("/api/settings/models/openai/resync", { method: "POST" });
+      assert.equal(resync.status, 200);
+      const restored = providerOf((await resync.json()) as ModelMutationResponse);
+      assert.equal(restored.degraded, undefined);
+      assert.equal(restored.auth.configured, true, "この画面のキーが実効へ戻る");
+      assert.equal(restored.credentialKind, "api_key");
     } finally {
       await bff.close();
     }

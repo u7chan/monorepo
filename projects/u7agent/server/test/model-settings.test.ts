@@ -609,6 +609,33 @@ test("reapplyStoredKey は DB の行だけを写し直し、失敗は未反映�
   assert.equal(service.settings().providers[0]?.degraded, undefined);
 });
 
+test("reapplyStoredKey は DB 読取の失敗も未反映として残し、再同期で回復できる", async () => {
+  const db = fakeDb({ anthropic: KEY_A });
+  const runtime = fakeRuntime({ providers: [{ provider: "anthropic", configured: false }] });
+  const { service, refreshCount } = createService({ db: db.db, runtime: runtime.runtime });
+
+  // SDK の logout が overlay を消した後に読取だけが失敗した状態: 戻せたかを判断できないため未反映として残す
+  db.state.failGet = true;
+  await captureConsole(async () => {
+    await service.reapplyStoredKey("anthropic");
+  });
+  assert.equal(runtime.calls.length, 0, "読めない値を推測して SDK へ渡さない");
+  const broken = service.settings().providers[0];
+  assert.equal(broken?.managed, true, "DB の行は残っている");
+  assert.equal(broken?.degraded, "apply", "db の読取失敗も未反映として記録する");
+  assert.equal(broken?.orphan, false, "カタログにある provider は [再同期] を出せる");
+  assert.equal(runtime.configured.get("anthropic"), false, "overlay は消えたまま (実効を偽らない)");
+  assert.equal(refreshCount(), 0, "reapplyStoredKey 自体は再計算しない (呼び出し側が行う)");
+
+  // 復旧後の [再同期] が DB の希望状態を再適用し、未反映を解除する
+  db.state.failGet = false;
+  const restored = okBody(await service.resync("anthropic"));
+  assert.equal(restored.state, "applied");
+  assert.equal(restored.providers[0]?.degraded, undefined);
+  assert.equal(runtime.calls.at(-1)?.apiKey, KEY_A);
+  assert.equal(runtime.configured.get("anthropic"), true, "実効が戻る");
+});
+
 test("ランタイム無しの変更系は 503 not_stored で DB を書かない", async () => {
   const db = fakeDb();
   const { service } = createService({ db: db.db, runtime: null });
