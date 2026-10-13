@@ -159,7 +159,30 @@ export interface StubSessionOptions {
    * 積む前に失敗させ、同じ run id の再送は通常どおり走らせる」を再現できる
    */
   promptFailuresBeforeUser?: number;
+  /**
+   * ツール実行を繰り返す長時間の自律ラン (1 run で本文あり応答を複数積む) の再現。
+   * 履歴ページの既定 (50 item) より長いターンを作る受入 / 検証用
+   */
+  longTurn?: StubLongTurn;
 }
+
+/**
+ * 1 回の prompt で本文ありの assistant を rounds 件積む。実 SDK では 1 run がツール実行と応答を
+ * 繰り返すため、履歴 item は user 1 件 + この件数になる。50 件超にすると最新ページから user item が落ちる
+ */
+export interface StubLongTurn {
+  /** この語を本文に含む送信のときだけ流す (省略すると常に) */
+  prompt?: string;
+  /** 積む応答の件数 (既定 55)。`rounds + 1` が 1 ターンの item 数になる */
+  rounds?: number;
+  /** 各応答を流す間隔 (ms)。省略は `chunkDelayMs` */
+  roundDelayMs?: number;
+  /** 各応答の本文。省略は `ラウンド <n> 件目の応答です` */
+  replyOf?: (round: number) => string;
+}
+
+/** 履歴ページの既定 (50 item) を超える 1 ターンを作る既定値。user 1 件 + 応答 55 件 = 56 item */
+const LONG_TURN_ROUNDS_DEFAULT = 55;
 
 /** SDK の SessionEntry と同じ形の append-only ログ。getBranch() が返す */
 export interface StubSessionEntry {
@@ -659,6 +682,42 @@ export function createStubSession(options: StubSessionOptions = {}): StubSession
         session.appendMessage(userMessage);
         session.emit({ type: "message_start", message: userMessage });
         session.emit({ type: "message_end", message: userMessage });
+        const longTurn = options.longTurn;
+        if (longTurn && (longTurn.prompt === undefined || text.includes(longTurn.prompt))) {
+          const rounds = longTurn.rounds ?? LONG_TURN_ROUNDS_DEFAULT;
+          for (let round = 0; round < rounds; round += 1) {
+            session.emit({ type: "message_start", message: { role: "assistant" } });
+            const assistantText = {
+              type: "text",
+              text: longTurn.replyOf?.(round) ?? `ラウンド ${round + 1} 件目の応答です`,
+            };
+            const assistant = {
+              role: "assistant",
+              content: [assistantText],
+              stopReason: "stop",
+              timestamp: Date.now(),
+              ...(options.usage === null ? {} : { usage: options.usage ?? STUB_USAGE }),
+            };
+            session.appendMessage(assistant);
+            await sleep(longTurn.roundDelayMs ?? chunkDelayMs);
+            if (session.abortRequested) {
+              assistant.stopReason = "aborted";
+            } else {
+              session.emit({
+                type: "message_update",
+                assistantMessageEvent: { type: "text_delta", delta: assistantText.text },
+              });
+            }
+            historyUpdated = false;
+            try {
+              session.emit({ type: "message_end", message: assistant });
+            } finally {
+              historyUpdated = true;
+            }
+            if (session.abortRequested) break;
+          }
+          return;
+        }
         session.emit({ type: "message_start", message: { role: "assistant" } });
         // investigate の呼び出しを模す (live 行の配信経路を作る)。tool_end は本文の後で出す
         promptSeq += 1;
@@ -904,6 +963,8 @@ export interface StubPiOptions {
   promptFailureBeforeUser?: string;
   /** `promptFailureBeforeUser` を失敗させる回数 (StubSessionOptions と同じ) */
   promptFailuresBeforeUser?: number;
+  /** ツール実行を繰り返す長時間の自律ラン (StubSessionOptions と同じ) */
+  longTurn?: StubLongTurn;
   availableModels?: PiAiModel<Api>[];
   /** モデルカタログ (設定 → モデルのモデル一覧表示と診断が使う) */
   catalogModels?: PiAiModel<Api>[];

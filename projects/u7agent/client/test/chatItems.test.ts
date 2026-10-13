@@ -175,7 +175,7 @@ test("結末はターンを閉じた応答に付き、値の無いターンと�
   const closed = items.find((item) => item.kind === "message" && item.key === "message:a1");
   assert.ok(closed?.kind === "message");
   assert.deepEqual(closed.turnEnd, { outcome: "completed", durationMs: 80_000 });
-  // user の居ない範囲 (assistant だけのページ) には付ける相手が無い
+  // user バブルの無いページ (assistant だけ) は導出の相手が無い。値はサーバーが item 自身へ載せる
   assert.deepEqual(
     chatRenderItems({
       bubbles: [bubble(1, "a1", "active", "a")],
@@ -184,6 +184,55 @@ test("結末はターンを閉じた応答に付き、値の無いターンと�
       activeContextStartId: null,
     }).map((item) => (item.kind === "message" ? item.turnEnd : item.kind)),
     [undefined],
+  );
+});
+
+test("item の結末はその item に付き、user バブルの無いページでも値があれば出る", () => {
+  // What: 履歴ページの窓がターンより短いと user item が読み込み範囲に無いため、値は item 自身が持つ
+  const answer: Bubble = {
+    ...bubble(1, "a1", "active", "1 件目"),
+    turnEnd: { outcome: "completed", durationMs: 80_000 },
+  };
+  const items = chatRenderItems({
+    bubbles: [answer],
+    markers: [],
+    compactions: [],
+    activeContextStartId: null,
+  });
+  const last = items.at(-1);
+  assert.ok(last?.kind === "message");
+  assert.deepEqual(last.turnEnd, { outcome: "completed", durationMs: 80_000 }, "user バブルが無くても出る");
+});
+
+test("item の結末は user バブル由来の導出より優先し、検査は item 自身に残す", () => {
+  const fromItem: Bubble = {
+    ...bubble(2, "a1", "active", "答え"),
+    turnEnd: { outcome: "stopped", durationMs: 999 },
+  };
+  const items = chatRenderItems({
+    bubbles: [userTurn(1, "u1"), fromItem],
+    markers: [],
+    compactions: [],
+    activeContextStartId: null,
+  });
+  const last = items.at(-1);
+  assert.ok(last?.kind === "message");
+  assert.deepEqual(last.turnEnd, { outcome: "stopped", durationMs: 999 }, "item の値を上書きしない");
+
+  // schema 上はどの message item にも載り得るため、role と本文ありの検査は表示側でも残す
+  const guarded = chatRenderItems({
+    bubbles: [
+      { ...userTurn(3, "u3"), turnEnd: { outcome: "completed", durationMs: 80_000 } },
+      { ...bubble(4, "a2", "active", ""), turnEnd: { outcome: "completed", durationMs: 80_000 } },
+    ],
+    markers: [],
+    compactions: [],
+    activeContextStartId: null,
+  });
+  assert.deepEqual(
+    guarded.map((item) => (item.kind === "message" ? item.turnEnd : item.kind)),
+    [undefined, undefined],
+    "user item / 本文の無い応答には出ない",
   );
 });
 

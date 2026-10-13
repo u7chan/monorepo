@@ -4,8 +4,11 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
+import { chatRenderItems } from "../src/lib/chatItems";
+import { historyItemsToBundle } from "../src/lib/chatHistory";
 import type { Bubble } from "../src/lib/chatTypes";
-import type { RunOutcome } from "../src/types";
+import type { TurnEnd } from "../src/lib/turnEnd";
+import type { HistoryMessageItem, RunOutcome } from "../src/types";
 
 // MessageView は AttachedFiles 経由で api.ts (location.origin を読む) を辿るため、先に shim を置く
 globalThis.location ??= { origin: "http://localhost" } as Location;
@@ -33,9 +36,13 @@ const bubble: Bubble = {
 };
 
 function render(outcome?: RunOutcome): string {
+  return renderBubble(bubble, outcome === undefined ? undefined : { outcome, durationMs: 80_000 });
+}
+
+function renderBubble(target: Bubble, turnEnd?: TurnEnd): string {
   return renderToStaticMarkup(
     createElement(MessageView, {
-      bubble,
+      bubble: target,
       skillBadges: [],
       copied: false,
       singleColumn: false,
@@ -46,7 +53,7 @@ function render(outcome?: RunOutcome): string {
       onCopyTool: () => {},
       copiedAll: false,
       onCopyAll: () => {},
-      turnEnd: outcome === undefined ? undefined : { outcome, durationMs: 80_000 },
+      turnEnd,
     }),
   );
 }
@@ -73,4 +80,28 @@ test("結末のセグメントは二重読み上げを止め、時間の範囲�
 
 test("結末の値が無いターンではセグメントを出さない", () => {
   assert.ok(!render().includes("Done ·"), "値が無ければメタ行は今までどおり");
+});
+
+test("履歴 item の結末は bubble を経てメタ行に出る", () => {
+  // What: 履歴ページの窓がターンより短いときは user バブルが読み込み範囲に無いため、この経路だけが動く
+  const items: HistoryMessageItem[] = [
+    {
+      kind: "message",
+      id: "m1",
+      context: "active",
+      role: "assistant",
+      text: "本文",
+      turnEnd: { outcome: "completed", durationMs: 80_000 },
+    },
+  ];
+  const bundle = historyItemsToBundle(1, items);
+  const rendered = chatRenderItems({
+    bubbles: bundle.bubbles,
+    markers: bundle.markers,
+    compactions: [],
+    activeContextStartId: null,
+  });
+  const item = rendered[0];
+  assert.ok(item?.kind === "message" && item.turnEnd !== undefined);
+  assert.match(renderBubble(item.bubble, item.turnEnd), /text-ok-text[^>]*>Done · 1m 20s</);
 });

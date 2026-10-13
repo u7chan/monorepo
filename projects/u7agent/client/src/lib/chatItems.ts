@@ -60,7 +60,13 @@ export function chatRenderItems({
       });
     }
     if (bubble) {
-      items.push({ kind: "message", key: `message:${bubble.entryId ?? bubble.id}`, bubble });
+      const turnEnd = itemTurnEnd(bubble);
+      items.push({
+        kind: "message",
+        key: `message:${bubble.entryId ?? bubble.id}`,
+        bubble,
+        ...(turnEnd !== undefined ? { turnEnd } : {}),
+      });
       lastMessageIndex = items.length - 1;
     }
   }
@@ -68,16 +74,27 @@ export function chatRenderItems({
 }
 
 /**
- * 閉じたターンの結末を、そのターンで最後に積んだ応答のメタ行へ足す。値の無いターン (旧サーバー /
- * 再起動後) と、user entry が保存されなかったターン (未送信) には足さない。本文を持つ応答だけに
- * 足すのは、ツールだけのターンがライブでは本文の空な assistant バブル (`ensureAssistant`) を持ち、
- * 履歴では表示メッセージにならないため (付けるとライブと履歴で見え方が食い違う)。user 自身の
- * メッセージの下にも出さない: その送信が失敗したように読める。
+ * item 自身が持つ結末。ターンを閉じたかに関係なくその item の結末として描く。schema 上はどの
+ * message item にも載り得るため、role と本文ありの検査はここでも残す
+ */
+function itemTurnEnd(bubble: Bubble): TurnEnd | undefined {
+  if (bubble.role !== "assistant" || !bubble.text) return undefined;
+  return bubble.turnEnd;
+}
+
+/**
+ * 閉じたターンの結末を、そのターンで最後に積んだ応答のメタ行へ足す (user バブル由来の導出)。
+ * item 自身が結末を持つときは上書きしない。値の無いターン (旧サーバー / 再起動後) と、user entry が
+ * 保存されなかったターン (未送信) には足さない。本文を持つ応答だけに足すのは、ツールだけのターンが
+ * ライブでは本文の空な assistant バブル (`ensureAssistant`) を持ち、履歴では表示メッセージに
+ * ならないため (付けるとライブと履歴で見え方が食い違う)。user 自身のメッセージの下にも出さない:
+ * その送信が失敗したように読める。
  */
 function attachTurnEnd(items: ChatRenderItem[], index: number | undefined, turn: Bubble | undefined): void {
   if (index === undefined || turn === undefined || turn.unsent === true) return;
   const item = items[index];
-  if (item.kind !== "message" || item.bubble.role !== "assistant" || !item.bubble.text) return;
+  if (item.kind !== "message" || item.turnEnd !== undefined) return;
+  if (item.bubble.role !== "assistant" || !item.bubble.text) return;
   const { runDurationMs: durationMs, runOutcome: outcome } = turn;
   if (durationMs === undefined || outcome === undefined) return;
   items[index] = { ...item, turnEnd: { outcome, durationMs } };

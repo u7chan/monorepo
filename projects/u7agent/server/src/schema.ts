@@ -340,6 +340,16 @@ export type ChatMessage = z.infer<typeof ChatMessageSchema>;
 export const HistoryContextStateSchema = z.enum(["active", "summarized", "excluded"]);
 export type HistoryContextState = z.infer<typeof HistoryContextStateSchema>;
 
+/**
+ * ターンの結末。値の定義は `run_end` と同じで、キュー待ちと回答待ち (ask_user の実行区間) を含めず、
+ * status を終端の 3 値へ絞ったもの。メタ行の `Done · 1m 20s` はこの値から作る
+ */
+export const TurnEndSchema = z.object({
+  outcome: RunOutcomeSchema,
+  durationMs: z.number(),
+});
+export type TurnEnd = z.infer<typeof TurnEndSchema>;
+
 /** 表示用の履歴 1 件。id は SDK entry の id で、ページのカーソルと重複排除に使う */
 export const HistoryMessageItemSchema = ChatMessageSchema.extend({
   kind: z.literal("message"),
@@ -356,6 +366,11 @@ export const HistoryMessageItemSchema = ChatMessageSchema.extend({
    */
   runDurationMs: z.number().optional(),
   runOutcome: RunOutcomeSchema.optional(),
+  /**
+   * この item が属するターンの結末。ターン最後の本文あり応答 item だけが持つ (user item が履歴
+   * ページの窓の外へ落ちても結末を出せるようにする)。値の控えは user item と同じくメモリのみ
+   */
+  turnEnd: TurnEndSchema.optional(),
 });
 export type HistoryMessageItem = z.infer<typeof HistoryMessageItemSchema>;
 

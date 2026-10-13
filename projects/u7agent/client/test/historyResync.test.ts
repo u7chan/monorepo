@@ -3,7 +3,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { chatReducer, initialChatState } from "../src/hooks/chatReducer";
-import type { CompactionInfo, HistoryPage, SessionPayload, ToolCall, Usage } from "../src/types";
+import type { TurnEnd } from "../src/lib/turnEnd";
+import type { CompactionInfo, HistoryMessageItem, HistoryPage, SessionPayload, ToolCall, Usage } from "../src/types";
 
 function payload(messages: { role: "user" | "assistant"; text: string; tools?: ToolCall[] }[]): SessionPayload {
   return {
@@ -165,6 +166,28 @@ test("確定した応答は resync を跨いで残り、履歴ページで entry
     merged.bubbles.map((bubble) => `${bubble.entryId ?? "live"}:${bubble.text}`),
     ["m1:m1", "m2:m2", "m3:次の質問", "m4:生成中"],
   );
+});
+
+test("最新ページに user item が無くライブの送信エコーが残っても、item の結末は消えない", () => {
+  // What: 履歴ページの窓がターンより短いと user item が落ちるため、結末は応答 item 自身が持つ
+  const turnEnd: TurnEnd = { outcome: "completed", durationMs: 80_000 };
+  const answers: HistoryMessageItem[] = [
+    { kind: "message", id: "a1", context: "active", role: "assistant", text: "1 件目" },
+    { kind: "message", id: "a2", context: "active", role: "assistant", text: "2 件目", turnEnd },
+  ];
+  const options = { prevCursor: null, hasMore: true, nextCursor: "a1", messageCount: 52 };
+  const base = chatReducer(initialChatState, { type: "resyncHistory", page: historyPage(answers, options) });
+  const echoed = chatReducer(base, { type: "localUser", text: "次の質問", at: 2 });
+  assert.deepEqual(entryIds(echoed), ["a1", "a2", undefined], "送信エコーは末尾に残る");
+
+  // 同じ最新ページで resync しても、応答 item の結末は保持分の側に残る
+  const resynced = chatReducer(echoed, { type: "resyncHistory", page: historyPage(answers, options) });
+  assert.deepEqual(
+    resynced.bubbles.find((bubble) => bubble.entryId === "a2")?.turnEnd,
+    turnEnd,
+    "写し忘れると resync で結末が消える",
+  );
+  assert.deepEqual(entryIds(resynced), ["a1", "a2", undefined], "エコーも消えない");
 });
 
 test("同じ文面を再送しても、過去の entry では送信中エコーを消さない", () => {

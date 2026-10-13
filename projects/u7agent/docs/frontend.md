@@ -64,7 +64,7 @@ React 19 + Vite + TypeScript + Tailwind CSS v4。ソースは `client/src`、エ
 - 計測は rAF へずらす（ResizeObserver callback 内の同期レイアウト変更で `ResizeObserver loop` 警告になる）
 - コンテキスト状態（有効 / 要約済み / 除外）はバブルごとに持ち、**境界は「要約済みのバブルが実際に読み込まれている」ときだけ出す**（未取得の古いページに隠れた境界では出さない）
 - 圧縮イベントの区切りは全履歴の entry 順で位置を決める。旧 payload（履歴 API 無し）のときだけ `beforeMessageIndex` から復元する
-- ターンの結末（`Done · 1m 20s`）は独立した行にせず、そのターン最後の応答のメタ行の末尾に足す（値の出どころは履歴の user item（`runDurationMs` / `runOutcome`）で、ライブは `run_end` の `durationMs` と `status` を run id 一致の user パブルへ写す）。値が無いターン（再起動 / sweep の後）・未送信のターン・本文を持つ応答が無いターン（ツールだけ）には足さない（文言は `client/src/lib/turnEnd.ts`、付与は `client/src/lib/chatItems.ts` を正とする）
+- ターンの結末（`Done · 1m 20s`）は独立した行にせず、そのターン最後の応答のメタ行の末尾に足す（履歴はその応答 item の `turnEnd`、ライブは `run_end` の `durationMs` と `status` を run id 一致の user バブルへ写す。値の出どころを user item の `runDurationMs` / `runOutcome` だけにすると、ページの窓がターンより短いときに結末が出ない）。値が無いターン（再起動 / sweep の後）・未送信のターン・本文を持つ応答が無いターン（ツールだけ）には足さない（文言は `client/src/lib/turnEnd.ts`、付与は `client/src/lib/chatItems.ts` を正とする）
 
 ## 開発フローと配信
 

@@ -95,23 +95,35 @@ test("historyItemsToBundle は item を entry id 付きのバブルと区切り�
   assert.equal(bundle.nextId, 3);
 });
 
-test("historyItemsToBundle は run の所要時間と結末を user バブルへ写す", () => {
-  // ターン終端行の値の出どころ。runId と組で載り、無い item (再起動後 / 旧サーバー) では載らない
+test("historyItemsToBundle は run の所要時間と結末と、応答 item の結末を写す", () => {
+  // ターン終端行の値の出どころ。runId と組で載る値と、ターン最後の応答 item が持つ値の両方を写す
   const valued: HistoryMessageItem = {
     ...message("m1", "active", "値のあるターン"),
     runId: "run-1",
     runDurationMs: 80_000,
     runOutcome: "stopped",
   };
-  const plain = message("m2", "active", "値の無いターン");
-  const bundle = historyItemsToBundle(1, [valued, plain]);
+  const answer: HistoryMessageItem = {
+    ...message("a2", "active", "値のあるターンの応答", "assistant"),
+    turnEnd: { outcome: "completed", durationMs: 80_000 },
+  };
+  const plain = message("m3", "active", "値の無いターン");
+  const bundle = historyItemsToBundle(1, [valued, answer, plain]);
 
   assert.deepEqual(
-    bundle.bubbles.map((bubble) => [bubble.entryId, bubble.runId, bubble.runDurationMs, bubble.runOutcome]),
+    bundle.bubbles.map((bubble) => [
+      bubble.entryId,
+      bubble.runId,
+      bubble.runDurationMs,
+      bubble.runOutcome,
+      bubble.turnEnd?.outcome,
+    ]),
     [
-      ["m1", "run-1", 80_000, "stopped"],
-      ["m2", undefined, undefined, undefined],
+      ["m1", "run-1", 80_000, "stopped", undefined],
+      ["a2", undefined, undefined, undefined, "completed"],
+      ["m3", undefined, undefined, undefined, undefined],
     ],
+    "写し忘れると resync で結末が消える",
   );
 });
 

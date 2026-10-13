@@ -10,6 +10,7 @@ import type {
   SkillLoad,
   Usage,
 } from "../types";
+import type { TurnEnd } from "./turnEnd";
 
 export type ToolPhase = "running" | "done" | "failed";
 
@@ -56,9 +57,11 @@ export type Bubble = {
    */
   runId?: string;
   /**
-   * run が終わったターンの所要時間と結末。履歴 item (`runDurationMs` / `runOutcome`) と、
-   * ライブの `run_end` のどちらから来ても同じ値。ターン終端の行の有無と文言の唯一の根拠
+   * run が終わったターンの所要時間と結末。値の出どころは 2 つある: 履歴 item の `turnEnd` (ターンの
+   * 最後の本文あり応答に載る) と、ライブの `run_end` を写した user バブルの `runDurationMs` /
+   * `runOutcome`。ターン終端の行の有無と文言の唯一の根拠
    */
+  turnEnd?: TurnEnd;
   runDurationMs?: number;
   runOutcome?: RunOutcome;
   /**

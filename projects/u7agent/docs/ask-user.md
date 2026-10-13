@@ -38,7 +38,7 @@
 
 - 回答待ちの間、実行中インジケータの経過時間は増えない。経過時間は `now - run.startedAt - ask_user の実行区間の和(now)` で、値が動かない間は演出の拍も進まない
 - 区間は既存のツール計測（`ToolCall.startedAt` → `endedAt`、開いているものは評価時刻まで）だけを正とする。質問の登録 / settle には別の時刻を持たせない。和集合で数えるため、1 つの assistant メッセージで 2 枚の質問が並行に待っても二重に引かない。`startedAt` の無いカード（開始を観測しなかった / 旧サーバー）は区間を作らず、従来どおり待機を含めて数える
-- BFF の確定値（`run_end.durationMs` / 履歴 item の `runDurationMs` / Discord 通知の所要時間）も同じ規則で、ランの作業時間になる。`finish()` は開いた区間を `endedAt` で閉じ、`tool_execution_end` が終端より後に届いても控えた値を書き換えない
+- BFF の確定値（`run_end.durationMs` / 履歴 item の `runDurationMs` と `turnEnd` / Discord 通知の所要時間）も同じ規則で、ランの作業時間になる。`finish()` は開いた区間を `endedAt` で閉じ、`tool_execution_end` が終端より後に届いても控えた値を書き換えない
 - 演出と色の判定も、控除後の経過時間をそのまま使う（拍の間隔と色の閾値の正は `client/src/lib/elapsed.ts`）。圧縮時間と自動再試行の待機は BFF が動いている時間なので、従来どおり含める（対象は `ask_user` だけ。同じバッチで並行した他ツールの時間も、区間の和を引く結果として除かれる）
 
 ## UI

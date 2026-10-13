@@ -10,7 +10,7 @@ import { compactionsFromEntries } from "./compaction-view";
 import type { PiSessionEntryLike, PiSessionLike } from "./pi-runtime";
 import { branchEntriesOf } from "./pi-runtime";
 import type { SecretMasker } from "./redact";
-import type { ChatMessage, HistoryContextState, HistoryItem, HistoryPage } from "./schema";
+import type { ChatMessage, HistoryContextState, HistoryItem, HistoryPage, TurnEnd } from "./schema";
 import type { SessionRecord } from "./session-record";
 import { isDisplayableMessage, messageProjectionContext, projectMessagesRange } from "./session-projection";
 
@@ -113,6 +113,40 @@ function lowerBound(entryIndexByMessage: number[], entryIndex: number): number {
   return low;
 }
 
+/** 送信した run の id は、リロードや別タブの resync でもエコーと entry を対応付けるために写す。
+ * 実行時の対応表は再起動で消えるため、保存済み entry はストアの対応 (entryRunIds) から復元する */
+function runIdOf(descriptor: MessageItemDescriptor, record: SessionRecord): string | undefined {
+  if (descriptor.message.role !== "user") return undefined;
+  return record.userMessageRuns.get(descriptor.message) ?? record.entryRunIds.get(descriptor.id);
+}
+
+/**
+ * ターンの結末を、そのターンの最後の本文あり応答 item の id から引ける表にする。付与先をブランチ
+ * 全体の descriptor 列で先に決める: 選択範囲だけで決めると、古いページの末尾で切れたターンの item に
+ * も載ってしまう。run の結末を持たないターン (未終端 / 再起動後) と user entry を持たないターンは載せない。
+ */
+function turnEndsByLastAnswer(descriptors: ItemDescriptor[], record: SessionRecord): Map<string, TurnEnd> {
+  const ends = new Map<string, TurnEnd>();
+  let runId: string | undefined;
+  let lastAnswerId: string | undefined;
+  const closeTurn = (): void => {
+    const end = runId === undefined ? undefined : record.runOutcomes.get(runId);
+    if (end !== undefined && lastAnswerId !== undefined) ends.set(lastAnswerId, end);
+    lastAnswerId = undefined;
+  };
+  for (const descriptor of descriptors) {
+    if (descriptor.kind === "compaction") continue;
+    if (descriptor.message.role === "user") {
+      closeTurn();
+      runId = runIdOf(descriptor, record);
+      continue;
+    }
+    lastAnswerId = descriptor.id;
+  }
+  closeTurn();
+  return ends;
+}
+
 function projectItems({
   record,
   entries,
@@ -121,6 +155,7 @@ function projectItems({
   endEntryIndex,
   masker,
   cwd,
+  turnEnds,
 }: {
   record: SessionRecord;
   entries: PiSessionEntryLike[];
@@ -129,6 +164,7 @@ function projectItems({
   endEntryIndex: number;
   masker: SecretMasker;
   cwd: string;
+  turnEnds: Map<string, TurnEnd>;
 }): HistoryItem[] {
   const { session } = record;
   const { messages, entryIndexByMessage } = buildMessageIndex(entries);
@@ -174,20 +210,17 @@ function projectItems({
       };
     }
     const item = projectedById.get(descriptor.id);
-    // 送信した run の id は、リロードや別タブの resync でもエコーと entry を対応付けるために写す。
-    // 実行時の対応表は再起動で消えるため、保存済み entry はストアの対応 (entryRunIds) から復元する
-    const runId =
-      descriptor.message.role === "user"
-        ? (record.userMessageRuns.get(descriptor.message) ?? record.entryRunIds.get(descriptor.id))
-        : undefined;
+    const runId = runIdOf(descriptor, record);
     // ランの所要時間と結末は finish() が控えた値を run id で引く。再起動 / sweep で消えた分は載せない
     const outcome = runId === undefined ? undefined : record.runOutcomes.get(runId);
+    const turnEnd = turnEnds.get(descriptor.id);
     return {
       kind: "message",
       id: descriptor.id,
       context: descriptor.context,
       ...(runId !== undefined ? { runId } : {}),
       ...(outcome !== undefined ? { runDurationMs: outcome.durationMs, runOutcome: outcome.outcome } : {}),
+      ...(turnEnd !== undefined ? { turnEnd } : {}),
       role: item?.role ?? (descriptor.message.role as "user" | "assistant"),
       text: item?.text ?? "",
       ...(item?.stopReason !== undefined ? { stopReason: item.stopReason } : {}),
@@ -220,6 +253,7 @@ export function projectHistoryPage({
   const { session } = record;
   const entries = branchEntriesOf(session);
   const descriptors = describeEntries(entries, session, masker);
+  const turnEnds = turnEndsByLastAnswer(descriptors, record);
   const messages = descriptors.filter((descriptor) => descriptor.kind === "message");
   const summarizedMessageCount = messages.filter((descriptor) => descriptor.context === "summarized").length;
   const active = messages.find((descriptor) => descriptor.context === "active");
@@ -248,7 +282,7 @@ export function projectHistoryPage({
       sessionId: record.id,
       items:
         selected.length > 0
-          ? projectItems({ record, entries, selected, startEntryIndex, endEntryIndex, masker, cwd })
+          ? projectItems({ record, entries, selected, startEntryIndex, endEntryIndex, masker, cwd, turnEnds })
           : [],
       nextCursor: hasMore ? selected[0].id : null,
       prevCursor,

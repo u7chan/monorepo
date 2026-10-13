@@ -1,11 +1,15 @@
 /**
  * ターンの結末 (応答のメタ行に足す `Done · 1m 20s`) の型と文言。値はラン全体 (`run_end.durationMs` と
- * 同じ定義) で、履歴は user item、ライブは `run_end` の値を写す。無いときはセグメントごと出さない。
+ * 同じ定義) で、履歴はそのターン最後の本文あり応答 item の `turnEnd`、ライブは `run_end` の値を写した
+ * user バブル (`runDurationMs` / `runOutcome`) が持つ。無いときはセグメントごと出さない。
  */
 import type { RunOutcome, RunStatus } from "../types";
 import { formatElapsed } from "./elapsed";
 
-/** 値の出どころは user バブル (`runDurationMs` / `runOutcome`)、表示先はそのターンの応答のメタ行 */
+/**
+ * 値の出どころは履歴 item の `turnEnd` と user バブル (`runDurationMs` / `runOutcome`)、
+ * 表示先はそのターンの応答のメタ行
+ */
 export type TurnEnd = {
   outcome: RunOutcome;
   durationMs: number;
