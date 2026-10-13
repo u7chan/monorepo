@@ -345,6 +345,7 @@ test("GET はキー値を返さず、managed / canSetApiKey / orphan / degraded 
     oauthLoginLabel: null,
     hiddenStoredOAuth: false,
     orphan: false,
+    login: null,
     memo: null,
     keyUpdatedAt: null,
   });
@@ -365,6 +366,7 @@ test("GET はキー値を返さず、managed / canSetApiKey / orphan / degraded 
     orphan: true,
     // カタログに無い行は SDK へ適用できない = 未反映
     degraded: "apply",
+    login: null,
     memo: null,
     // 移行前の行は日時不明
     keyUpdatedAt: null,
@@ -963,6 +965,7 @@ test("メモだけの provider を GET の 4 経路目として出し、degraded
     oauthLoginLabel: null,
     hiddenStoredOAuth: false,
     orphan: true,
+    login: null,
     memo: "無料枠の控え",
     keyUpdatedAt: null,
   });

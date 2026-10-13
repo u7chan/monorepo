@@ -5,6 +5,7 @@ import type { HistoryPage } from "../src/types";
 globalThis.location ??= { origin: "http://localhost" } as Location;
 const {
   ApiError,
+  cancelOAuthLogin,
   deleteWebSearchApiKey,
   getWebSearchSettings,
   isNotStoredError,
@@ -18,7 +19,10 @@ const {
   getGitInfo,
   statFile,
   getRuntimeServeStatus,
+  logoutOAuthProvider,
+  startOAuthLogin,
   stopRuntimeServe,
+  submitOAuthLoginCode,
 } = await import("../src/api");
 const { getSessionHistory, updateSessionTitle } = createSpaceApi("default");
 
@@ -296,4 +300,43 @@ test("Web 検索の設定は GET / PUT / DELETE の往復で、キーは provide
   assert.deepEqual(await requests[1].json(), { enabled: false });
   assert.deepEqual(await requests[2].json(), { provider: "tavily" });
   assert.deepEqual(await requests[3].json(), { apiKey: "tvly-secret" });
+});
+
+test("OAuth サインインは provider のパスへ開始 / 送信 / 中断 / サインアウトを送る", async (t) => {
+  const requests: Request[] = [];
+  t.mock.method(globalThis, "fetch", async (input: string | URL | Request, init?: RequestInit) => {
+    const request = new Request(input, init);
+    requests.push(request);
+    return Response.json({
+      runtimeAvailable: true,
+      allowedModels: null,
+      defaultModel: null,
+      ignoredEnvironmentVariables: [],
+      providers: [],
+    });
+  });
+  await startOAuthLogin("openai");
+  await submitOAuthLoginCode("openai", "http://127.0.0.1:1455/auth/callback?code=x");
+  await cancelOAuthLogin("openai");
+  await logoutOAuthProvider("openai");
+  assert.deepEqual(
+    requests.map((request) => [request.method, new URL(request.url).pathname]),
+    [
+      ["POST", "/api/settings/models/openai/login"],
+      ["POST", "/api/settings/models/openai/login/code"],
+      ["DELETE", "/api/settings/models/openai/login"],
+      ["POST", "/api/settings/models/openai/logout"],
+    ],
+  );
+  assert.deepEqual(await requests[1].json(), { code: "http://127.0.0.1:1455/auth/callback?code=x" });
+});
+
+test("OAuth サインインの 409 は理由と HTTP status を保つ", async (t) => {
+  t.mock.method(globalThis, "fetch", async () =>
+    Response.json({ error: "このプロバイダーはサインインが進行中です" }, { status: 409 }),
+  );
+  await assert.rejects(startOAuthLogin("openai"), {
+    message: "このプロバイダーはサインインが進行中です",
+    status: 409,
+  });
 });

@@ -3,7 +3,7 @@
  * (subscribe / prompt / abort / agent_settled) を模倣し、thinkingLevel の能力判定と補正は SDK 公開ヘルパーをそのまま使う。
  */
 import { clampThinkingLevel, getSupportedThinkingLevels } from "@earendil-works/pi-ai";
-import type { Api, Model as PiAiModel } from "@earendil-works/pi-ai";
+import type { Api, AuthInteraction, LoginOptions, Model as PiAiModel } from "@earendil-works/pi-ai";
 import type { ModelCatalogRefreshAttempt, PiBff } from "../src/agent";
 import type { ModelSelection } from "../src/agent";
 import { MODEL_UNSET_MESSAGE } from "../src/agent";
@@ -1001,6 +1001,16 @@ export interface StubPiOptions {
   /** テストからツールする SDK 操作の模倣。throw すると CredentialCommit の分類を検証できる */
   onSetRuntimeApiKey?: (provider: string, apiKey: string, signal: AbortSignal | undefined) => Promise<void> | void;
   onRemoveRuntimeApiKey?: (provider: string, signal: AbortSignal | undefined) => Promise<void> | void;
+  /**
+   * OAuth サインインの模倣。`interaction.notify` / `interaction.prompt` を呼べば、UI が見る状態遷移
+   * (認可 URL・貼り付け待ち・中断) を再現できる。throw すると失敗系 (port 競合など) を検証できる。
+   */
+  onOAuthLogin?: (
+    provider: string,
+    interaction: AuthInteraction,
+    options: { deviceId?: string; agentName?: string },
+  ) => Promise<void> | void;
+  onOAuthLogout?: (provider: string, signal: AbortSignal | undefined) => Promise<void> | void;
 }
 
 export interface StubProvider {
@@ -1024,6 +1034,14 @@ export interface StubModelRuntimeCall {
   apiKey?: string;
 }
 
+/** OAuth サインインの SDK 呼び出し。device id が login へ渡ったことを検証できるように記録する */
+export interface StubOAuthCall {
+  operation: "login" | "logout";
+  provider: string;
+  deviceId?: string;
+  agentName?: string;
+}
+
 /** カタログ更新の SDK 呼び出し。実 SDK へ渡す契約 (allowNetwork / force) と呼び出し時の signal を記録する */
 export interface StubCatalogRefreshCall {
   allowNetwork: boolean;
@@ -1044,11 +1062,14 @@ export interface StubModelRuntime {
   isUsingOAuth(provider: string): boolean;
   setRuntimeApiKey(provider: string, apiKey: string, options?: { signal?: AbortSignal }): Promise<void>;
   removeRuntimeApiKey(provider: string, options?: { signal?: AbortSignal }): Promise<void>;
+  login(provider: string, type: string, interaction: AuthInteraction, options?: LoginOptions): Promise<unknown>;
+  logout(provider: string, options?: { signal?: AbortSignal }): Promise<void>;
 }
 
 export function createStubModelRuntime(
   options: StubPiOptions = {},
   calls: StubModelRuntimeCall[] = [],
+  oauthCalls: StubOAuthCall[] = [],
 ): StubModelRuntime {
   const configured = new Map<string, boolean>(
     (options.providers ?? []).map((provider) => [provider.provider, provider.configured ?? false]),
@@ -1056,6 +1077,10 @@ export function createStubModelRuntime(
   // runtime overlay は保存済み資格情報より優先される。実 SDK と同じく、overlay がある間は source / isUsingOAuth を
   // overlay へ切り替え、削除で宣言した状態へ戻す。
   const runtimeKeys = new Set<string>();
+  // サインインで OAuth になった provider。実 SDK の isUsingOAuth / provider 一覧と同じ向きに動かす
+  const oauthProviders = new Set<string>(
+    (options.providers ?? []).filter((provider) => provider.oauth === true).map((provider) => provider.provider),
+  );
   return {
     getProviders: () =>
       (options.providers ?? []).map((provider) => ({
@@ -1075,9 +1100,7 @@ export function createStubModelRuntime(
         ? { configured: true, source: entry.authSource ?? "environment" }
         : { configured: false };
     },
-    isUsingOAuth: (provider) =>
-      !runtimeKeys.has(provider) &&
-      (options.providers ?? []).some((entry) => entry.provider === provider && entry.oauth === true),
+    isUsingOAuth: (provider) => !runtimeKeys.has(provider) && oauthProviders.has(provider),
     setRuntimeApiKey: async (provider, apiKey, callOptions) => {
       calls.push({ operation: "setRuntimeApiKey", provider, apiKey });
       await options.onSetRuntimeApiKey?.(provider, apiKey, callOptions?.signal);
@@ -1087,6 +1110,22 @@ export function createStubModelRuntime(
       calls.push({ operation: "removeRuntimeApiKey", provider });
       await options.onRemoveRuntimeApiKey?.(provider, callOptions?.signal);
       runtimeKeys.delete(provider);
+    },
+    // OAuth ログインの SDK 面。呼び出し時の device id を記録し、振る舞いはテストが差し込む
+    login: async (provider, type, interaction, loginOptions) => {
+      const deviceId = loginOptions?.getDeviceId?.();
+      oauthCalls.push({ operation: "login", provider, deviceId, agentName: loginOptions?.agentName });
+      await options.onOAuthLogin?.(provider, interaction, { deviceId, agentName: loginOptions?.agentName });
+      // 実 SDK と同じく、成功したら configured を立てて OAuth として見せる
+      configured.set(provider, true);
+      oauthProviders.add(provider);
+      return { type: "oauth" };
+    },
+    logout: async (provider, callOptions) => {
+      oauthCalls.push({ operation: "logout", provider });
+      await options.onOAuthLogout?.(provider, callOptions?.signal);
+      configured.set(provider, false);
+      oauthProviders.delete(provider);
     },
   };
 }
@@ -1098,6 +1137,7 @@ export function createStubPi(options: StubPiOptions = {}) {
   const createInputs: StubCreateInput[] = [];
   // 設定 → モデル用の記録。bootstrap がメソッドを剥ぎ取っても動くよう、配列はクロージャで持つ
   const modelRuntimeCalls: StubModelRuntimeCall[] = [];
+  const oauthCalls: StubOAuthCall[] = [];
   const catalogRefreshCalls: StubCatalogRefreshCall[] = [];
   // refresh 成功でカタログが差し替わる様子を再現できるよう、GET が読む値を可変にする
   const catalogHolder: { value: RuntimeModelsResponse | undefined } = { value: options.modelCatalog };
@@ -1140,8 +1180,9 @@ export function createStubPi(options: StubPiOptions = {}) {
     sessions,
     createInputs,
     // 設定 → モデル (bootstrap の createProviderKeyRuntime) が触る SDK 面の模倣
-    modelRuntime: createStubModelRuntime(options, modelRuntimeCalls),
+    modelRuntime: createStubModelRuntime(options, modelRuntimeCalls, oauthCalls),
     modelRuntimeCalls,
+    oauthCalls,
     // 実物と同じく、retainSecret で保護対象が増える可変マスカーを返す
     secretMasker,
     retainedSecrets,

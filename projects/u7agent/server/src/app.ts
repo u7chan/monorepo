@@ -51,6 +51,7 @@ import {
   UpdateWebSearchKeyBodySchema,
   UpdateWebSearchProviderBodySchema,
   UpdateProviderMemoBodySchema,
+  SubmitOAuthLoginCodeBodySchema,
   UpdateSecretBodySchema,
   UpdateSessionNotifyBodySchema,
   UpdateSessionPinnedBodySchema,
@@ -107,6 +108,7 @@ export async function createBffApp(opts: CreateBffAppOptions = {}) {
     archiveSettings,
     runtimeDiagnostics,
     modelSettings,
+    oauthLogin,
     contentSettings,
     webSearchSettings,
     serve,
@@ -138,7 +140,7 @@ export async function createBffApp(opts: CreateBffAppOptions = {}) {
   const sessionRoutes = createSessionRoutes({ store, workspace, spaces });
   const notificationRoutes = createNotificationRoutes({ notifications });
   const archiveRoutes = createArchiveRoutes({ archiveSettings });
-  const modelSettingsRoutes = createModelSettingsRoutes({ modelSettings });
+  const modelSettingsRoutes = createModelSettingsRoutes({ modelSettings, oauthLogin });
   const contentSettingsRoutes = createContentSettingsRoutes({ contentSettings });
   const webSearchSettingsRoutes = createWebSearchSettingsRoutes({ webSearchSettings });
   // 環境変数の要求元 (sessionId / projectId) を cwd へ解決する唯一の点。client は cwd を送らない
@@ -446,6 +448,17 @@ export async function createBffApp(opts: CreateBffAppOptions = {}) {
       (c) => modelSettingsRoutes.putMemo(c, c.req.valid("json").memo),
     )
     .post("/api/settings/models/:provider/resync", appDataMutation, modelSettingsRoutes.resync)
+    // OAuth サインイン。アプリ DB を触らない (auth.json だけ) ため appData のゲートは通さない
+    .post("/api/settings/models/:provider/login", modelSettingsRoutes.startOAuthLogin)
+    .post(
+      "/api/settings/models/:provider/login/code",
+      jsonBodyValidator(SubmitOAuthLoginCodeBodySchema, (result, c) =>
+        result.success ? undefined : c.json({ error: "Invalid request body" }, 400),
+      ),
+      (c) => modelSettingsRoutes.submitOAuthLoginCode(c, c.req.valid("json").code),
+    )
+    .delete("/api/settings/models/:provider/login", modelSettingsRoutes.cancelOAuthLogin)
+    .post("/api/settings/models/:provider/logout", modelSettingsRoutes.logoutOAuth)
     .get("/api/settings/content", appData, contentSettingsRoutes.list)
     .put(
       "/api/settings/content/image",
@@ -542,6 +555,7 @@ export async function createBffApp(opts: CreateBffAppOptions = {}) {
     notifications,
     archiveSettings,
     modelSettings,
+    oauthLogin,
     contentSettings,
     webSearchSettings,
     serve,

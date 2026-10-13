@@ -9,12 +9,14 @@ import type { AgentCatalog } from "./agents";
 import { createArchiveSettings } from "./archive-settings";
 import type { ArchiveSettings } from "./archive-settings";
 import { BUILTIN_SKILLS } from "./builtin-skills";
+import { createDeviceIdStore, DEVICE_ID_PATH } from "./device-id";
 import { messageFor } from "./http";
 import { ContentSettingsService } from "./content-settings";
 import { createImageCatalog } from "./image-catalog";
 import { createSpeechCatalog } from "./speech-catalog";
 import { WebSearchSettingsService } from "./web-search-settings";
 import { ModelSettingsService, type CredentialCommit, type ProviderKeyRuntime } from "./model-settings";
+import { OAuthLoginService, type OAuthLoginRuntime } from "./oauth-login";
 import { NotificationService } from "./notifications";
 import { ProjectStore } from "./projects";
 import { createSandboxToolClientFromEnv } from "./sandbox/client";
@@ -100,6 +102,8 @@ export type BffContext = {
   archiveSettings: ArchiveSettings;
   /** プロバイダー API キー (設定 → モデル)。DB を希望状態として SDK へ写す */
   modelSettings: ModelSettingsService;
+  /** OAuth サインイン (設定 → モデル)。資格情報は Pi の auth.json が正で、アプリ DB は触らない */
+  oauthLogin: OAuthLoginService;
   /** コンテンツ生成の provider / 画像モデル / APIキー (設定 → コンテンツ生成)。行の有無をツール公開へ写す */
   contentSettings: ContentSettingsService;
   /** Web 検索の実行時トグル (設定 → Web 検索)。行が無い = 既定 (有効) を execute のたびに読む */
@@ -165,9 +169,17 @@ export async function createBffContext(opts: CreateBffAppOptions = {}): Promise<
       `[u7agent] ${ignoredEnvironmentVariables.join(", ")} は無視されます。設定 → モデル で設定し、デプロイ設定からは削除してください`,
     );
   }
+  // OAuth サインインは資格情報を Pi の auth.json へ委ね、進行状態だけをメモリに持つ。
+  // キー変更とは別のロックで直列化する (進行中のサインインは分単位で待つため、キーの保存を塞がない)
+  const oauthLogin = new OAuthLoginService({
+    runtime: pi ? createOAuthLoginRuntime(pi) : null,
+    refresh: pi ? pi.refreshModelState : async () => {},
+    maskError,
+  });
   const modelSettings = new ModelSettingsService({
     db: appDb,
     runtime: pi ? createProviderKeyRuntime(pi) : null,
+    oauthLogin,
     retainSecret: pi ? pi.retainSecret : () => {},
     maskError,
     refreshModelState: pi ? pi.refreshModelState : async () => {},
@@ -303,11 +315,70 @@ export async function createBffContext(opts: CreateBffAppOptions = {}): Promise<
     notifications,
     archiveSettings,
     modelSettings,
+    oauthLogin,
     contentSettings,
     webSearchSettings,
     serve,
     secrets,
   };
+}
+
+/** SDK のログインで名乗る名前。同意画面の `agent_name_hint` に出る静的な文字列で、秘密情報ではない */
+export const OAUTH_AGENT_NAME = "u7agent";
+
+/**
+ * SDK の ModelRuntime を OAuthLoginRuntime へ写す。`login` の戻り値 (credential) は捨て、保存は SDK に委ねる。
+ * device id は agent dir 配下のファイルへ永続化し、プロセスを再起動しても同じ UUID を返す。
+ */
+export function createOAuthLoginRuntime(pi: PiBff): OAuthLoginRuntime {
+  const { modelRuntime } = pi;
+  const deviceIds = createDeviceIdStore(join(pi.agentDir, DEVICE_ID_PATH), (message) =>
+    console.warn(`[u7agent] ${message}`),
+  );
+  return {
+    list: () =>
+      modelRuntime.getProviders().map((provider) => ({
+        provider: provider.id,
+        supportsOAuth: Boolean(provider.auth?.oauth),
+        oauthLoginLabel: provider.auth?.oauth?.loginLabel ?? null,
+      })),
+    loginOAuth: (provider, interaction) =>
+      settleCredentialOperation("login", provider, () =>
+        modelRuntime.login(provider, "oauth", interaction, {
+          getDeviceId: () => deviceIds.getOrCreate(),
+          agentName: OAUTH_AGENT_NAME,
+        }),
+      ),
+    logoutOAuth: (provider, { signal }) =>
+      settleCredentialOperation("logout", provider, () => modelRuntime.logout(provider, { signal })),
+    credentialKind: (provider) => (modelRuntime.isUsingOAuth(provider) ? "oauth" : null),
+    // readStoredCredential は読取に失敗したら undefined を返す。種別以外はここで捨てる
+    storedCredentialKind: (provider) => readStoredCredential(provider, join(pi.agentDir, "auth.json"))?.type,
+  };
+}
+
+/**
+ * SDK は auth.json への commit 後に snapshot の同期が失敗しても CSE を投げるため、provider と操作が
+ * 一致する CSE だけを「保存済み・反映は次回の再計算で追いつく」として成功に倒す (credential は返さない)。
+ */
+async function settleCredentialOperation(
+  operation: "login" | "logout",
+  provider: string,
+  run: () => Promise<unknown>,
+): Promise<void> {
+  try {
+    await run();
+  } catch (error) {
+    if (
+      error instanceof CredentialSynchronizationError &&
+      error.providerId === provider &&
+      error.operation === operation
+    ) {
+      console.warn(`[u7agent] oauth ${operation} credential synced late: ${provider}`);
+      return;
+    }
+    throw error;
+  }
 }
 
 /**

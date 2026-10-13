@@ -10,6 +10,7 @@ import type {
   ModelMutationResponse,
   ModelRef,
   ModelsSettingsResponse,
+  OAuthLoginState,
   ProviderAuthSetting,
   RuntimeModelsResponse,
   SessionSummary,
@@ -221,6 +222,59 @@ export function validateMemo(value: string): string | undefined {
 }
 
 export type MutationAction = "save" | "delete" | "resync" | "availability" | "memo";
+
+// --- OAuth サインイン (Sign in with ChatGPT など) ---
+
+/** 進行中はこの間隔で `GET /api/settings/models` を読み直す (ブラウザの承認はサーバー側で進む) */
+export const OAUTH_LOGIN_POLL_MS = 2_000;
+
+export const OAUTH_LOGIN_STARTED_NOTE = "サインインを開始しました。ブラウザで認可ページを開いて承認してください。";
+export const OAUTH_LOGIN_CODE_NOTE = "貼り付けた URL を送信しました。完了まで待っています。";
+export const OAUTH_LOGIN_CANCEL_NOTE = "サインインを中断しました。";
+export const OAUTH_LOGIN_DONE_NOTE = "サインインしました。利用可能なモデルを更新しています。";
+export const OAUTH_LOGIN_SIGNOUT_NOTE = "サインアウトしました。認証情報は Pi の auth.json から削除されました。";
+
+/**
+ * サインイン操作の直後の注記。進行中のときだけ操作の文言を出し、終端 (完了・失敗) は詳細ペインの
+ * 表示に任せて既定の注記へ戻す (「開始しました」が失敗の表示と食い違わないようにする)。
+ */
+export function oauthLoginNote(state: OAuthLoginState | null, running: string): { text: string; error: boolean } {
+  return state?.status === "running" ? { text: running, error: false } : { text: MODEL_SETTINGS_NOTE, error: false };
+}
+
+/** 応答から 1 provider のサインイン状態を取る。行が無い / 未開始は null */
+export function providerLoginState(response: ModelsSettingsResponse, provider: string): OAuthLoginState | null {
+  return response.providers.find((entry) => entry.provider === provider)?.login ?? null;
+}
+
+/** provider 詳細の OAuth セクションの見た目。DOM に依存させず、条件だけをここで決める */
+export interface OAuthPanelView {
+  /** セクションを出すか。OAuth を持たない provider とカタログ外 (SDK が受けない) では出さない */
+  visible: boolean;
+  /** [Sign in with ChatGPT] などのボタン名。provider の `oauth.loginLabel` が無ければ汎用の文言 */
+  loginLabel: string;
+  /** 進行中 / 直近の結果。null = 未開始 */
+  login: OAuthLoginState | null;
+  /** [サインアウト] を出すか。auth.json の OAuth が実効のときと、この画面のキーが覆っているとき */
+  signOut: boolean;
+  /** すでにサインイン済みか。再サインインの注記に使う */
+  signedIn: boolean;
+}
+
+/**
+ * OAuth セクションの表示条件。overlay (この画面のキー) が実効のときも `hiddenStoredOAuth` で
+ * auth.json の OAuth を見てサインアウトを出す。auth.json の読取失敗は false (不明) なので、そのときは
+ * 実効の種別 (`credentialKind`) だけで決める。
+ */
+export function oauthPanelView(provider: ProviderAuthSetting): OAuthPanelView {
+  return {
+    visible: provider.supportsOAuth && !provider.orphan,
+    loginLabel: provider.oauthLoginLabel ?? "OAuth でサインイン",
+    login: provider.login ?? null,
+    signOut: provider.hiddenStoredOAuth || provider.credentialKind === "oauth",
+    signedIn: provider.credentialKind === "oauth",
+  };
+}
 
 /** 削除の確認。既存の会話は自動でモデルを切り替えないため、影響を先に伝える */
 export function deleteConfirmRequest(name: string): ConfirmRequest {

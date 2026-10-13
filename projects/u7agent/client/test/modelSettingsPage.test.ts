@@ -32,6 +32,7 @@ function provider(overrides: Partial<ProviderAuthSetting> = {}): ProviderAuthSet
     oauthLoginLabel: null,
     hiddenStoredOAuth: false,
     orphan: false,
+    login: null,
     memo: null,
     ...overrides,
   };
@@ -110,6 +111,10 @@ function modelSettings(overrides: Partial<ModelSettings> = {}): ModelSettings {
     saveAvailability: async () => SETTINGS,
     remove: async () => true,
     resync: async () => true,
+    startLogin: async () => true,
+    submitLoginCode: async () => true,
+    cancelLogin: async () => true,
+    signOut: async () => true,
     ...overrides,
   };
 }
@@ -372,6 +377,90 @@ test("プロバイダー詳細は保存済み認証の種別を出し、この�
     false,
     "DB 行が無いので削除ボタンは出さない",
   );
+});
+
+test("OAuth のセクションはサインインとサインアウトを出し、進行中は URL と貼り付け欄を出す", () => {
+  const signIn = provider({
+    provider: "openai",
+    name: "OpenAI",
+    supportsOAuth: true,
+    oauthLoginLabel: "Sign in with ChatGPT",
+  });
+  const idleHtml = render(modelSettings({ settings: { ...SETTINGS, providers: [signIn] } }), {
+    modelsSubsection: "providers",
+  });
+  assert.match(
+    idleHtml,
+    /<button[^>]*>(?:(?!<\/button>)[\s\S])*Sign in with ChatGPT<\/button>/,
+    "loginLabel をボタン名にする",
+  );
+  assert.equal(idleHtml.includes(">サインアウト<"), false, "保存済み OAuth が無ければサインアウトは出さない");
+  assert.ok(idleHtml.includes("同じマシンのブラウザで承認する必要があります。"), "同一ホストの注意を出す");
+
+  const signedIn = provider({
+    provider: "openai",
+    name: "OpenAI",
+    auth: { configured: true, source: "stored", environmentVariables: [] },
+    credentialKind: "oauth",
+    supportsOAuth: true,
+    oauthLoginLabel: "Sign in with ChatGPT",
+  });
+  const signedInHtml = render(modelSettings({ settings: { ...SETTINGS, providers: [signedIn] } }), {
+    modelsSubsection: "providers",
+  });
+  assert.match(
+    signedInHtml,
+    /<button[^>]*>(?:(?!<\/button>)[\s\S])*サインアウト<\/button>/,
+    "保存済み OAuth にはサインアウトを出す",
+  );
+  assert.ok(signedInHtml.includes("ChatGPT の設定から行ってください"), "provider 側を失効させないことを案内する");
+
+  const running = provider({
+    provider: "openai",
+    name: "OpenAI",
+    supportsOAuth: true,
+    oauthLoginLabel: "Sign in with ChatGPT",
+    login: {
+      status: "running",
+      authUrl: "https://auth.example.test/authorize",
+      instructions: "同じマシンのブラウザでこの URL を開き、承認してください。",
+      progress: null,
+      input: {
+        message: "ブラウザの最後の画面の URL を貼り付けてください",
+        placeholder: "http://127.0.0.1:1455/auth/callback",
+      },
+      userCode: null,
+      error: null,
+    },
+  });
+  const runningHtml = render(modelSettings({ settings: { ...SETTINGS, providers: [running] } }), {
+    modelsSubsection: "providers",
+  });
+  assert.match(runningHtml, /href="https:\/\/auth\.example\.test\/authorize"/, "認可 URL はリンクとして出す");
+  assert.ok(runningHtml.includes("ブラウザの最後の画面の URL を貼り付けてください"), "貼り付け欄を出す");
+  assert.match(runningHtml, /<button[^>]*>(?:(?!<\/button>)[\s\S])*中断<\/button>/, "中断を出す");
+  assert.equal(runningHtml.includes("Sign in with ChatGPT</button>"), false, "進行中は開始ボタンを出さない");
+
+  const failed = provider({
+    provider: "openai",
+    name: "OpenAI",
+    supportsOAuth: true,
+    oauthLoginLabel: "Sign in with ChatGPT",
+    login: {
+      status: "failed",
+      authUrl: null,
+      instructions: null,
+      progress: null,
+      input: null,
+      userCode: null,
+      error: "認可のコールバックポート（1455）が使用中です。",
+    },
+  });
+  const failedHtml = render(modelSettings({ settings: { ...SETTINGS, providers: [failed] } }), {
+    modelsSubsection: "providers",
+  });
+  assert.ok(failedHtml.includes("認可のコールバックポート（1455）が使用中です。"), "失敗は固定文言で出す");
+  assert.match(failedHtml, /<button[^>]*>(?:(?!<\/button>)[\s\S])*閉じる<\/button>/, "結果表示を消す導線を出す");
 });
 
 test("provider 行にメモ欄と保存ボタンを出し、runtime 不可では disable する", () => {

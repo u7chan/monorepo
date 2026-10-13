@@ -23,6 +23,7 @@ GUI の会話履歴は **BFF 専用の会話ストア**（`PI_SESSION_STORE`）�
 | コンテンツ生成の provider / 画像モデル / 音声モデルとボイス / APIキー（アプリデータの SQLite、`content_settings`） | 残る（ストアを永続ボリュームに置いた場合。平文・[image-generation.md](image-generation.md)・[speech-generation.md](speech-generation.md)） |
 | Web 検索の有効 / 無効と既定 provider（アプリデータの SQLite、`web_search_settings`） | 残る（ストアを永続ボリュームに置いた場合・[web-search.md](web-search.md#実行時トグル)） |
 | Web 検索の provider ごとのAPIキー（アプリデータの SQLite、`web_search_provider_keys`） | 残る（ストアを永続ボリュームに置いた場合。平文・[web-search.md](web-search.md#設定既定-provider-と-apiキー)） |
+| OAuth サインインの agent host ID（`<agentDir>/u7agent/device-id`。`PI_CODING_AGENT_DIR` の配下） | 残る（同じ agent dir を使う限り。BFF が直接書く Pi 側のファイル・[model-settings.md](model-settings.md#oauth-サインイン)） |
 | アプリデータの DB（`PI_SESSION_STORE/u7agent.db`） | 残る（ストアを永続ボリュームに置いた場合） |
 | `/workspace` 以外に保存したデータ・後からインストールしたツール | 原則残らない |
 | 実行中のプロセス | 中断される |

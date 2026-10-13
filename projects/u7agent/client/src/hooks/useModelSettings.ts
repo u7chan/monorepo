@@ -1,19 +1,31 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
+  cancelOAuthLogin,
   deleteProviderApiKey,
   getModelsSettings,
   getRuntimeModels,
   isNotStoredError,
+  logoutOAuthProvider,
   putModelAvailability,
   putProviderApiKey,
   putProviderMemo,
   refreshModelCatalog,
   resyncProviderApiKey,
+  startOAuthLogin,
+  submitOAuthLoginCode,
 } from "../api";
 import {
   MODEL_SETTINGS_NOTE,
   mutationNote,
+  OAUTH_LOGIN_CANCEL_NOTE,
+  OAUTH_LOGIN_CODE_NOTE,
+  OAUTH_LOGIN_DONE_NOTE,
+  OAUTH_LOGIN_POLL_MS,
+  OAUTH_LOGIN_SIGNOUT_NOTE,
+  OAUTH_LOGIN_STARTED_NOTE,
   runModelCatalogRefresh,
+  oauthLoginNote,
+  providerLoginState,
   validateApiKey,
   validateMemo,
   type MutationAction,
@@ -23,6 +35,7 @@ import type {
   Health,
   ModelMutationResponse,
   ModelsSettingsResponse,
+  OAuthLoginState,
   RuntimeModelsResponse,
   UpdateModelAvailabilityBody,
 } from "../types";
@@ -50,6 +63,8 @@ export function useModelSettings({ onRefreshHealth }: ModelSettingsParams) {
   // 破棄された取得でも進行中を解除するため、適用の可否とは別に追う
   const [reloadTracker] = useState(() => createLoadingTracker(setReloading));
   const [refreshTracker] = useState(() => createLoadingTracker(setRefreshing));
+  // provider ごとの直近のサインイン状態。進行中 → 終端の遷移で health とカタログを 1 回だけ取り直す
+  const loginStatuses = useRef<Record<string, string>>({});
 
   /** カタログだけ取り直す (モデル数と一覧の表示を変更直後に追随させる) */
   const loadCatalog = useCallback(async (canApply: () => boolean) => {
@@ -84,9 +99,63 @@ export function useModelSettings({ onRefreshHealth }: ModelSettingsParams) {
     }
   }, [beginLoad, loadCatalog, reloadTracker]);
 
+  /**
+   * サインインの状態を取り込む。進行中 → 終端に変わった provider の結末を返す (null = 変化なし)。
+   * 終端が成功ならモデル候補を取り直し、失敗 / 中断は詳細ペインの表示に任せる。
+   */
+  const trackLoginStatuses = useCallback((next: ModelsSettingsResponse): "succeeded" | "other" | null => {
+    const previous = loginStatuses.current;
+    const current: Record<string, string> = {};
+    let finished: "succeeded" | "other" | null = null;
+    for (const provider of next.providers) {
+      const status = provider.login?.status;
+      if (!status) continue;
+      current[provider.provider] = status;
+      if (previous[provider.provider] === "running" && status !== "running") {
+        finished = status === "succeeded" ? "succeeded" : "other";
+      }
+    }
+    loginStatuses.current = current;
+    return finished;
+  }, []);
+
   useEffect(() => {
     void reload();
   }, [reload]);
+
+  /** 進行中のサインインの完了を拾う。サーバー側で進むため、終端まで GET を読み直す */
+  const loginRunning = settings?.providers.some((provider) => provider.login?.status === "running") ?? false;
+  useEffect(() => {
+    if (!loginRunning) return;
+    let stopped = false;
+    const timer = window.setInterval(() => {
+      void (async () => {
+        const canApply = beginLoad();
+        try {
+          const next = await getModelsSettings();
+          if (stopped || !canApply()) return;
+          const finished = trackLoginStatuses(next);
+          setSettings(next);
+          if (finished) {
+            setNote({
+              text: finished === "succeeded" ? OAUTH_LOGIN_DONE_NOTE : MODEL_SETTINGS_NOTE,
+              error: false,
+            });
+          }
+          if (finished === "succeeded") {
+            await onRefreshHealth(beginLoad());
+            await loadCatalog(canApply);
+          }
+        } catch {
+          // ポーリングの失敗は注記を変えない (次の周期でやり直す)
+        }
+      })();
+    }, OAUTH_LOGIN_POLL_MS);
+    return () => {
+      stopped = true;
+      window.clearInterval(timer);
+    };
+  }, [beginLoad, loadCatalog, loginRunning, onRefreshHealth, trackLoginStatuses]);
 
   /** 変更系の応答を適用し、health とカタログを取り直す (composer のモデル候補を追随させる) */
   const applyMutation = useCallback(
@@ -186,6 +255,81 @@ export function useModelSettings({ onRefreshHealth }: ModelSettingsParams) {
   );
 
   /**
+   * OAuth サインインの操作。応答は GET と同じ形なので、そのまま次の state にし、進行中 → 終端の
+   * 遷移ではモデル候補も取り直す。進行中の完了はログイン中だけ回るポーリングが拾う。
+   */
+  const runOAuth = useCallback(
+    async (
+      provider: string,
+      run: () => Promise<ModelsSettingsResponse>,
+      options: {
+        /** 操作の直後の注記。引数は応答のサインイン状態 (null = 進行中の状態なし) */
+        note: (state: OAuthLoginState | null) => { text: string; error: boolean };
+        /** 認証が変わる操作 (サインアウト) で health とカタログを取り直すか */
+        refreshModels?: boolean;
+      },
+    ): Promise<boolean> => {
+      setSaving(provider);
+      try {
+        // 進行中の読み込みの応答で、いま適用した応答を上書きさせない
+        const canApply = beginLoad();
+        const next = await run();
+        const finished = trackLoginStatuses(next);
+        setSettings(next);
+        setNote(options.note(providerLoginState(next, provider)));
+        if (finished === "succeeded" || options.refreshModels) {
+          await onRefreshHealth(canApply);
+          await loadCatalog(canApply);
+        }
+        return true;
+      } catch (error) {
+        setNote({ text: messageFor(error), error: true });
+        return false;
+      } finally {
+        setSaving(null);
+      }
+    },
+    [beginLoad, loadCatalog, onRefreshHealth, trackLoginStatuses],
+  );
+
+  const startLogin = useCallback(
+    (provider: string) =>
+      runOAuth(provider, () => startOAuthLogin(provider), {
+        note: (state) => oauthLoginNote(state, OAUTH_LOGIN_STARTED_NOTE),
+      }),
+    [runOAuth],
+  );
+
+  const submitLoginCode = useCallback(
+    (provider: string, code: string) =>
+      runOAuth(provider, () => submitOAuthLoginCode(provider, code), {
+        note: (state) => oauthLoginNote(state, OAUTH_LOGIN_CODE_NOTE),
+      }),
+    [runOAuth],
+  );
+
+  /** 中断と結果表示の消去は同じ入口。中断できたときだけ中断の注記を出す */
+  const cancelLogin = useCallback(
+    (provider: string) =>
+      runOAuth(provider, () => cancelOAuthLogin(provider), {
+        note: (state) =>
+          state?.status === "cancelled"
+            ? { text: OAUTH_LOGIN_CANCEL_NOTE, error: false }
+            : { text: MODEL_SETTINGS_NOTE, error: false },
+      }),
+    [runOAuth],
+  );
+
+  const signOut = useCallback(
+    (provider: string) =>
+      runOAuth(provider, () => logoutOAuthProvider(provider), {
+        note: () => ({ text: OAUTH_LOGIN_SIGNOUT_NOTE, error: false }),
+        refreshModels: true,
+      }),
+    [runOAuth],
+  );
+
+  /**
    * カタログの手動更新。応答は `GET /api/runtime/models` と同じ形なのでその場で一覧を差し替え、
    * 直後の `loadCatalog()` は呼ばない (二重取得と、直後の GET 失敗で適用済みの一覧を消す事故を避ける)。
    * health の再取得は変更系と同じ順序 (`beginLoad` → 適用 → `onRefreshHealth`) でだけ揃える
@@ -225,6 +369,10 @@ export function useModelSettings({ onRefreshHealth }: ModelSettingsParams) {
     saveAvailability,
     remove,
     resync,
+    startLogin,
+    submitLoginCode,
+    cancelLogin,
+    signOut,
   };
 }
 
