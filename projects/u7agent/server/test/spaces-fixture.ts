@@ -73,6 +73,23 @@ const pi = Object.assign(
           },
         ],
       },
+      // 本文を持たないターン (画像だけの回答)。バッジ行とツール履歴の下端罫線の間隔の受入用
+      {
+        prompt: "画像バッジ本文なし",
+        reply: "",
+        calls: [
+          {
+            name: "generate_image",
+            args: { prompt: "夜の駅のホームに立つ黒猫、落ち着いた色調" },
+            at: 0,
+            endAt: 1200,
+            result:
+              "モデル: openai/gpt-image-2\n" +
+              "画像を生成して保存しました: generated/night-platform-cat.png\n" +
+              "本文に示すときは Markdown 画像 ![alt](generated/night-platform-cat.png) で示してください。",
+          },
+        ],
+      },
       {
         prompt: "音声バッジ",
         calls: [
