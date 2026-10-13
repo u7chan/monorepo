@@ -6,7 +6,7 @@ import { join } from "node:path";
 import test from "node:test";
 import { createAgentCatalog } from "../src/agents";
 import { createBffApp } from "../src/app";
-import { HISTORY_PAGE_LIMIT_MAX, projectHistoryPage } from "../src/history-projection";
+import { HISTORY_PAGE_LIMIT_DEFAULT, HISTORY_PAGE_LIMIT_MAX, projectHistoryPage } from "../src/history-projection";
 import { createSecretMasker, REDACTED } from "../src/redact";
 import type { SandboxWorkspaceClient } from "../src/sandbox/client";
 import { SessionStore } from "../src/sessions";
@@ -397,8 +397,11 @@ test("履歴の user item には run 全体の所要時間と結末が載り、�
       ],
       "run_end と同じ定義の所要時間と結末が自分の run id の item に載る",
     );
-    // assistant には載せない (ターンの値はそのターンの user が持つ)
+    // assistant には runDurationMs / runOutcome を載せない (その 2 つはターンの user が持つ)
     assert.equal(messageItems(before.page).find((item) => item.role === "assistant")?.runOutcome, undefined);
+    const answer = messageItems(before.page).find((item) => item.role === "assistant");
+    assert.equal(answer?.turnEnd?.outcome, "completed", "結末はターン最後の本文あり応答 item の turnEnd として載る");
+    assert.equal(typeof answer?.turnEnd?.durationMs, "number");
     await first.store.flush(first.record);
     await first.store.close();
 
@@ -424,6 +427,11 @@ test("履歴の user item には run 全体の所要時間と結末が載り、�
         ["停止したターン", stopped.runId, undefined, undefined],
       ],
       "runId は復元しても、所要時間と結末は残らない",
+    );
+    assert.deepEqual(
+      messageItems(after.page).filter((item) => item.turnEnd !== undefined),
+      [],
+      "応答 item の結末もメモリのみなので、復元後は載らない",
     );
     await restored.close();
   } finally {
@@ -452,6 +460,90 @@ test("キュー経由の送信でも、各 user item には自分の run の id 
     ],
     "応答で返した run id がそのまま item に載る",
   );
+
+  await store.close();
+});
+
+test("履歴ページの窓より長いターンでも、そのターン最後の本文あり応答 item に結末が載る", async () => {
+  const store = new SessionStore({
+    pi: createStubPi({
+      longTurn: { rounds: 55, replyOf: (round) => `ラウンド ${round + 1}` },
+    }),
+    catalog: createAgentCatalog(),
+  });
+  const record = await store.create();
+  const posted = store.postMessage(record, "長いターン");
+  await waitFor(() => store.statusOf(record) === "completed", 5000, "long turn completion");
+
+  const latest = store.history(record, {});
+  assert.ok(latest.ok);
+  const items = messageItems(latest.page);
+  assert.equal(latest.page.items.length, HISTORY_PAGE_LIMIT_DEFAULT);
+  assert.equal(items[0]?.role, "assistant", "最新ページの先頭から user item が落ちる");
+  assert.deepEqual(
+    items.filter((item) => item.turnEnd !== undefined).map((item) => item.text),
+    ["ラウンド 55"],
+    "結末が載るのはターン最後の本文あり応答だけ",
+  );
+  const last = items.at(-1);
+  assert.equal(last?.turnEnd?.outcome, "completed");
+  assert.equal(typeof last?.turnEnd?.durationMs, "number");
+
+  // user item は古いページに残り、従来どおり run id と結末を持つ (互換のため残す値)
+  const all = await collectAllPages(store, record, HISTORY_PAGE_LIMIT_DEFAULT);
+  const user = all.find((item) => item.kind === "message" && item.role === "user");
+  assert.ok(user?.kind === "message");
+  assert.equal(user.runId, posted.runId);
+  assert.equal(user.runOutcome, "completed");
+  assert.equal(user.turnEnd, undefined, "user item には turnEnd を載せない");
+
+  // ターンの途中で切れた古いページ (最後の応答が選択範囲の外) には載らない
+  const cut = store.history(record, { before: latest.page.items[0].id });
+  assert.ok(cut.ok);
+  assert.equal(cut.page.items.length, 6);
+  assert.deepEqual(
+    messageItems(cut.page).filter((item) => item.turnEnd !== undefined),
+    [],
+    "選択範囲の末尾がターンの途中のときは載せない",
+  );
+
+  await store.close();
+});
+
+test("走っているターンの応答 item には結末を載せない", async () => {
+  const store = new SessionStore({
+    pi: createStubPi({ longTurn: { rounds: 8, roundDelayMs: 60 } }),
+    catalog: createAgentCatalog(),
+  });
+  const record = await store.create();
+  store.postMessage(record, "長いターン");
+
+  // 応答が履歴に載った時点で、まだ run は終端していない
+  await waitFor(
+    () => {
+      const result = store.history(record, {});
+      return (
+        result.ok &&
+        messageItems(result.page).some((item) => item.role === "assistant") &&
+        store.statusOf(record) === "running"
+      );
+    },
+    5000,
+    "running history",
+  );
+
+  const during = store.history(record, {});
+  assert.ok(during.ok);
+  assert.deepEqual(
+    messageItems(during.page).filter((item) => item.turnEnd !== undefined),
+    [],
+    "run の結末を持つのは終端したターンだけ",
+  );
+
+  await waitFor(() => store.statusOf(record) === "completed", 5000, "long turn completion");
+  const after = store.history(record, {});
+  assert.ok(after.ok);
+  assert.equal(messageItems(after.page).at(-1)?.turnEnd?.outcome, "completed", "終端すると最後の応答に載る");
 
   await store.close();
 });

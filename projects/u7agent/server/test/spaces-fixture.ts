@@ -284,6 +284,9 @@ const pi = Object.assign(
     // 手動圧縮の受入用: 1 回目は成功、2 回目は失敗 (too-small で区切りも所要時間も出ない)。
     // 3 回目以降は manualCompaction (未指定 = 成功) に戻る
     manualCompactions: [{ reason: "manual" }, { reason: "manual", failure: "too-small" }],
+    // 履歴ページの窓 (50 item) より長いターンの受入用: 本文に「長いターン」を含めて送ると 1 run で
+    // 本文あり応答を 55 件積む (完了後の F5 で結末が出ることを見る)
+    longTurn: { prompt: "長いターン", rounds: 55, roundDelayMs: 120 },
   }),
   { cwd, sandboxConfigured: true },
 );
