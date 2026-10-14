@@ -201,9 +201,9 @@ function canSignInHere(provider: ProviderAuthSetting): boolean {
 }
 
 /**
- * 一覧から行ごと落とすか。OAuth はあるがこの画面でサインインできず、キーも登録できず、カタログにも保存行にも
- * 無い provider だけを落とす。orphan / メモだけの行を巻き込むと、実効の認証を戻す [削除] / [再同期] の
- * 導線が消えるため必ず残す (理由は docs/model-settings.md#oauth-サインイン)。
+ * 一覧から行ごと落とすか。OAuth はあるがこの画面でサインインできず、キーも登録できず、カタログ内でこの画面の
+ * キー保存行を持たない provider だけを落とす。カタログ外 (orphan) のメモ行を巻き込むと、実効の認証を戻す
+ * [削除] / [再同期] の導線が消えるため必ず残す (理由は docs/model-settings.md#oauth-サインイン)。
  */
 function hiddenFromProviderList(provider: ProviderAuthSetting): boolean {
   return (

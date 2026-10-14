@@ -340,7 +340,7 @@ test("設定済みを先頭に、未設定は後ろへ分ける (並びはサー
 test("この画面でサインインできずキーも保存行も無い provider は一覧から落とす", () => {
   const response = settings({
     providers: [
-      // 落とす: OAuth はあるがここでサインインできず、キーの登録も無く、カタログ外でも保存行でも無い
+      // 落とす: OAuth はあるがここでサインインできず、キーの登録も無く、カタログ内でキー保存行を持たない
       provider({ provider: "openai-codex", supportsOAuth: true, canSetApiKey: false }),
       // 残す: キーを登録できる (anthropic / radius / github-copilot と同じ形)
       provider({ provider: "anthropic", supportsOAuth: true, canSetApiKey: true }),
