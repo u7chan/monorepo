@@ -1,8 +1,4 @@
-/**
- * 音声ボイスの表示属性（性別と 1 語のスタイル語）と、ボイス欄の表示順。
- * 表は表示専用で、上流へ送る名前・宣言による検証・お試し再生の要求には関与しない。
- * 属性の出所・取得日・更新責任は docs/speech-generation.md を正とする。
- */
+/** 音声ボイスの表示属性の写しと表示順。出所・取得日・更新責任は docs/speech-generation.md を正とする。 */
 
 /** 表示用の属性。`gender` は候補を絞る軸、`style` は名前から読み取れない声色の手掛かり */
 export type SpeechVoiceTag = { gender: "female" | "male"; style: string };
@@ -56,9 +52,10 @@ const SPEECH_VOICE_TAGS: Record<string, SpeechVoiceTag> = {
  */
 const GOOGLE_MODEL_ID_PREFIX = "google/";
 
-/** ボイスの属性。表に無い名前は undefined（live で顔ぶれが増えてもラベル無しで出せる） */
+/** ボイスの属性。表に無い名前（`constructor` など継承プロパティの名前を含む）は undefined */
 export function speechVoiceTag(name: string): SpeechVoiceTag | undefined {
-  return SPEECH_VOICE_TAGS[name];
+  // 通常のオブジェクトは継承プロパティも返すため、自身のキーだけを見る
+  return Object.hasOwn(SPEECH_VOICE_TAGS, name) ? SPEECH_VOICE_TAGS[name] : undefined;
 }
 
 /**

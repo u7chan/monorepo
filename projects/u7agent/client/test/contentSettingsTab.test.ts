@@ -229,6 +229,22 @@ test("google のモデルでも属性を引ける声が無ければグループ�
   assert.ok(html.includes(">Ghost</option>"), "宣言そのものは選択肢に残す");
 });
 
+test("Object.prototype の名前のボイスでも描画を壊さず、未知の声として残す", () => {
+  const models = [
+    {
+      provider: "openrouter",
+      id: "google/gemini-3.8-flash-tts",
+      name: "Google: Gemini 3.8 Flash TTS",
+      voices: ["constructor", "Kore"],
+    },
+  ];
+  const html = render({ subsection: "speech", speech: { models, voice: "Kore" } });
+  assert.match(html, /<optgroup label="女性">/, "引ける声だけを正しいグループへ入れる");
+  assert.equal(html.includes('<optgroup label="男性">'), false, "空のグループは出さない");
+  assert.ok(html.includes("Kore（Firm）</option>"), "引ける声はラベル付きで残す");
+  assert.ok(html.includes(">constructor</option>"), "継承プロパティの名前は未知の声として出す");
+});
+
 test("宣言が無い音声モデルはボイスを自由記述にし、空欄を許す", () => {
   const html = render({ subsection: "speech", speech: { model: "fish/audio", voice: "my-voice" } });
   assert.ok(html.includes('value="fish/audio"'), "保存済みモデルを選択した状態で出す");

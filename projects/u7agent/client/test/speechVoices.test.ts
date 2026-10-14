@@ -74,6 +74,33 @@ test("google のモデルでも属性を引ける声が無ければ 1 グルー�
   ]);
 });
 
+test("Object.prototype の名前は属性として引かず、未知の声として扱う", () => {
+  for (const name of ["constructor", "__proto__", "toString", "hasOwnProperty"]) {
+    assert.equal(speechVoiceTag(name), undefined, `${name} を属性として返さない`);
+  }
+  assert.deepEqual(
+    speechVoiceGroups("google/test", ["constructor", "Kore"]),
+    [
+      { label: "女性", options: [{ value: "Kore", label: "Kore（Firm）" }] },
+      { label: null, options: [{ value: "constructor", label: "constructor" }] },
+    ],
+    "継承プロパティをタグありと扱わず、未知の声として末尾へ回す",
+  );
+  assert.deepEqual(
+    speechVoiceGroups("google/test", ["__proto__", "toString"]),
+    [
+      {
+        label: null,
+        options: [
+          { value: "__proto__", label: "__proto__" },
+          { value: "toString", label: "toString" },
+        ],
+      },
+    ],
+    "境界名だけの宣言もグループ無しの 1 つとして返す",
+  );
+});
+
 test("宣言に片方の性別しか無いときは空のグループを返さない", () => {
   assert.deepEqual(
     speechVoiceGroups("google/gemini-3.8-flash-tts", ["Kore", "Leda"]).map((group) => group.label),
