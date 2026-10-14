@@ -95,7 +95,7 @@ provider 詳細から Sign in with ChatGPT（SIWC）などをサインイン / �
 - サインインの進行中は 1455 番を占有する。ブラウザを閉じたまま放置すると次のログイン（`pi /login` を含む）が失敗するため、中断するか BFF を再起動する（自動の期限はかけない。承認にかかる時間をサーバー側で決められないため）
 - サインアウトは `auth.json` の OAuth を消すだけで、provider 側の接続は失効させない（解除は ChatGPT 設定から）。SDK の `logout` は同じ provider の runtime overlay（この画面で登録したキー）も消すため、`provider_credentials` に残るキーの希望状態を公開 state の再計算前に写し直す。写し直しや復元の判断に使う DB の読取に失敗したときは既存の未反映（`degraded: "apply"`）として残し、カードの [再同期] へ導く。[サインアウト] は `auth.json` の OAuth が実効のときと、この画面のキーが覆っているとき（`hiddenStoredOAuth`）に出し、進行中は 409 にする
 - device id（agent host ID）は `<agentDir>/u7agent/device-id` に UUID を保存し、プロセスを再起動しても同じ値を `getDeviceId()` から返す。Pi の `settings.json` は共有の設定ファイルなので触らない。書けない環境ではメモリ上の値を返し、警告だけを残す（ログインは続けられる）
-- 保存済みの OAuth は SDK が送信時に解決する。失効・接続解除・更新失敗は provider の認証状態や available には現れず、最初に見えるのは送信の失敗で、そのときは認証エラー（[run-lifecycle.md](run-lifecycle.md#失敗の分類と公開契約) の `oauth_expired`）として再サインインを案内する。復旧はこの画面（設定 → モデル → プロバイダー）のサインインで行う
+- 保存済みの OAuth は SDK が送信時に解決する。失効・接続解除・更新失敗は provider の認証状態や available には現れず、最初に見えるのは送信の失敗で、そのときは認証エラー（[run-lifecycle.md](run-lifecycle.md#失敗の分類と公開契約) の `oauth_expired`）として再サインインを案内する。この画面で扱えない方式（上の既知の制限）は同じ agent dir を使う `pi /login` でしか回復できないため、案内には両方の導線を含める
 
 ### 実行形態ごとの扱い
 
