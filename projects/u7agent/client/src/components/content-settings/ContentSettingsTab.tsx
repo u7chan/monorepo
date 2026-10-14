@@ -17,9 +17,15 @@ import {
   speechVoiceDraft,
   speechVoiceMode,
   type ContentSavingAction,
+  type SpeechPreviewAudio,
 } from "../../lib/contentSettings";
 import { API_KEY_MIN_LENGTH } from "../../lib/modelSettings";
-import type { ContentSettingsResponse, UpdateContentImageBody, UpdateContentSpeechBody } from "../../types";
+import type {
+  ContentSettingsResponse,
+  SpeechPreviewBody,
+  UpdateContentImageBody,
+  UpdateContentSpeechBody,
+} from "../../types";
 import { CollapsibleNotice } from "../CollapsibleNotice";
 import { CheckIcon, TrashIcon } from "../icons";
 import { ReloadButton } from "../ReloadButton";
@@ -28,6 +34,7 @@ import { ProviderIcon } from "../ProviderIcon";
 import { SelectField } from "../SelectField";
 import { MetaChip } from "../model-settings/MetaChip";
 import { ProviderBadgeTag } from "../model-settings/ProviderBadgeTag";
+import { SpeechPlayground } from "./SpeechPlayground";
 
 export type ContentSettingsTabProps = {
   settings: ContentSettingsResponse;
@@ -41,6 +48,8 @@ export type ContentSettingsTabProps = {
   onSaveSpeech: (input: UpdateContentSpeechBody) => Promise<boolean>;
   /** 音声モデル一覧の再取得。失敗しても一覧は前のまま残る */
   onRefreshSpeechCatalog: () => Promise<boolean>;
+  /** お試し再生の要求。設定は変えず、応答の音声と形式だけを返す */
+  onPreviewSpeech: (input: SpeechPreviewBody, signal?: AbortSignal) => Promise<SpeechPreviewAudio>;
   /** 音声の表示が server の実効値と一致しているか。false の間は保存を止める */
   speechSynced: boolean;
 };
@@ -59,6 +68,7 @@ export function ContentSettingsTab({
   onRefreshCatalog,
   onSaveSpeech,
   onRefreshSpeechCatalog,
+  onPreviewSpeech,
   speechSynced,
 }: ContentSettingsTabProps) {
   // 保存したキーは再表示しないため、入力は常に空から始め、保存できたときだけ消す
@@ -162,6 +172,7 @@ export function ContentSettingsTab({
               refreshing={saving === "speech-catalog"}
               onSave={onSaveSpeech}
               onRefresh={onRefreshSpeechCatalog}
+              onPreview={onPreviewSpeech}
             />
           </>
         ) : null}
@@ -262,6 +273,7 @@ function SpeechSection({
   refreshing,
   onSave,
   onRefresh,
+  onPreview,
 }: {
   settings: ContentSettingsResponse;
   busy: boolean;
@@ -269,6 +281,7 @@ function SpeechSection({
   refreshing: boolean;
   onSave: (input: UpdateContentSpeechBody) => Promise<boolean>;
   onRefresh: () => Promise<boolean>;
+  onPreview: (input: SpeechPreviewBody, signal?: AbortSignal) => Promise<SpeechPreviewAudio>;
 }) {
   // null は保存値へ追随する。保存できたら null へ戻し、次の保存値で選択を描き直す
   const [draftModel, setDraftModel] = useState<string | null>(null);
@@ -380,6 +393,8 @@ function SpeechSection({
           {refreshing ? "取得中" : "再取得"}
         </ReloadButton>
       </div>
+      {/* 同期できていない間も、保存値を書き換えずにその場で試せる（保存のゲートを持ち込まない） */}
+      <SpeechPlayground settings={settings} onPreview={onPreview} />
     </section>
   );
 }

@@ -72,6 +72,7 @@ function render(
         onRefreshCatalog: async () => true,
         onSaveSpeech: async () => true,
         onRefreshSpeechCatalog: async () => true,
+        onPreviewSpeech: async () => ({ blob: new Blob(), format: "mp3" as const }),
         speechSynced: options.speechSynced ?? true,
       }),
     ),
@@ -257,4 +258,35 @@ test("runtimeAvailable: false でも音声の選択は残す", () => {
   const html = render({ runtimeAvailable: false });
   assert.ok(html.includes('aria-label="音声生成のモデル"'));
   assert.ok(html.includes('aria-label="音声生成のボイス"'));
+});
+
+test("音声セクションの下部にお試し再生を出し、未設定では出さない", () => {
+  const html = render();
+  assert.ok(html.includes("お試し再生"), "設定済みでは常に出す");
+  assert.match(html, /<textarea[^>]*aria-label="お試し再生の本文"/, "本文から試せる");
+  assert.match(html, /<button[^>]*>再生<\/button>/, "その場で鳴らす操作を出す");
+
+  const unset = render({
+    configured: false,
+    provider: null,
+    image: { model: null, catalogSource: "sdk", fetchedAt: null },
+  });
+  assert.equal(unset.includes("お試し再生"), false, "キー保存前は出さない");
+});
+
+test("音声の同期が取れていない間もお試し再生は使える", () => {
+  const html = render({ speechSynced: false });
+  assert.match(html, /<button[^>]*>再生<\/button>/, "保存のゲートを持ち込まない");
+  // class に `disabled:` が含まれるため、属性としての disabled だけを否定する
+  assert.match(html, /<textarea[^>]*aria-label="お試し再生の本文"(?![^>]*\sdisabled=)/, "本文も触れる");
+  assert.match(html, /<select[^>]*aria-label="お試し再生のモデル"(?![^>]*\sdisabled=)/, "モデルも選べる");
+});
+
+test("runtimeAvailable: false ではお試し再生の再生ボタンも無効にする", () => {
+  const html = render({ runtimeAvailable: false });
+  assert.match(html, /<button[^>]*\sdisabled=""[^>]*>再生<\/button>/, "実行できない preview API を呼ばせない");
+  assert.ok(html.includes("ランタイムが利用できないため、お試し再生はできません"), "押せない理由を出す");
+  // ランタイムがあれば、音声の同期が取れていない間も押せる（別のゲート）
+  assert.match(render(), /<button(?![^>]*\sdisabled=)[^>]*>再生<\/button>/);
+  assert.match(render({ speechSynced: false }), /<button(?![^>]*\sdisabled=)[^>]*>再生<\/button>/);
 });

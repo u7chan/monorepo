@@ -1,5 +1,6 @@
 /** API 契約の正。DTO のフィールド名と optional の扱いは client と揃える。 */
 import { z } from "zod";
+import { PROVIDER_FAILURE_CODES } from "./provider-failure";
 import { WEB_SEARCH_PROVIDER_IDS } from "./web-search-providers";
 import type { SandboxLandlockStatus, SandboxRuntimeCommand, SandboxRuntimeEnvironment } from "./sandbox/protocol";
 import type { SecretKind } from "./secret-crypto";
@@ -930,6 +931,30 @@ export const UpdateContentSpeechBodySchema = z.object({
   voice: z.string(),
 });
 export type UpdateContentSpeechBody = z.infer<typeof UpdateContentSpeechBodySchema>;
+
+/**
+ * POST /api/settings/content/speech/preview の本文（お試し再生）。モデルと声は画面で選んだ値をそのまま送り、
+ * 演技指示と速度は任意。未対応のモデルでは provider が無視するか 400 を返す（対応表はアプリに持たない）。
+ */
+export const SpeechPreviewBodySchema = z.object({
+  model: z.string(),
+  /** 空文字は「指定なし」（宣言が無いモデル）で、本文から `voice` を落とす */
+  voice: z.string(),
+  text: z.string(),
+  instructions: z.string().optional(),
+  speed: z.number().optional(),
+});
+export type SpeechPreviewBody = z.infer<typeof SpeechPreviewBodySchema>;
+
+/**
+ * お試し再生の失敗応答（音声バイトではない）。`code` は provider の失敗を分類できたときだけ載る。
+ * 分類の値は `server/src/provider-failure.ts` の配列を正とし、union を二重定義しない。
+ */
+export const SpeechPreviewErrorSchema = z.object({
+  error: z.string(),
+  code: z.enum(PROVIDER_FAILURE_CODES).optional(),
+});
+export type SpeechPreviewError = z.infer<typeof SpeechPreviewErrorSchema>;
 
 /** 画像APIキーの登録・上書き。長さは provider_credentials と同じ */
 export const UpdateContentKeyBodySchema = z.object({

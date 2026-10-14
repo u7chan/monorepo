@@ -110,6 +110,35 @@ test("音声専用 API へ POST し、メモが無ければ mp3 から送り、v
   });
 });
 
+test("instructions と speed は指定されたときだけ要求本文へ載せ、未指定・空文字はキーごと落とす", async () => {
+  const { requests, fetchImpl } = stubFetch(() => audioResponse());
+  const generator = createSpeechGenerator({ fetchImpl });
+
+  await generator.generate({ ...baseInput, instructions: "落ち着いた声で" });
+  assert.deepEqual(JSON.parse(String(requests[0]?.init?.body)), {
+    model: baseInput.model,
+    input: baseInput.text,
+    instructions: "落ち着いた声で",
+    response_format: "mp3",
+  });
+
+  await generator.generate({ ...baseInput, speed: 1.25 });
+  assert.deepEqual(JSON.parse(String(requests[1]?.init?.body)), {
+    model: baseInput.model,
+    input: baseInput.text,
+    speed: 1.25,
+    response_format: "mp3",
+  });
+
+  // 空文字の演技指示は「指定なし」で、キーごと落とす（provider の既定に委ねる）
+  await generator.generate({ ...baseInput, instructions: "", speed: undefined });
+  assert.deepEqual(JSON.parse(String(requests[2]?.init?.body)), {
+    model: baseInput.model,
+    input: baseInput.text,
+    response_format: "mp3",
+  });
+});
+
 test("応答の形式は Content-Type だけで決め、mp3 は audio/mpeg、pcm は audio/pcm を読む", async () => {
   const mp3 = await generateOnce("Audio/MPEG; charset=binary");
   assert.equal(mp3.requests.length, 1, "Content-Type が対応形式なら再試行しない");

@@ -1,5 +1,7 @@
 import { hc } from "hono/client";
 import type { AppType } from "server";
+import type { SpeechPreviewAudio } from "./lib/contentSettings";
+import { speechPreviewFormatOf } from "./lib/contentSettings";
 import { encodeFilePathParam } from "./lib/fileUrl";
 import type {
   AgentDef,
@@ -52,6 +54,7 @@ import type {
   SessionTitleResponse,
   SkillDef,
   SpeechCatalogRefreshResponse,
+  SpeechPreviewBody,
   StopResult,
   ThinkingLevel,
   UpdateAgentBody,
@@ -593,6 +596,20 @@ export const putContentSpeechSettings = async (input: UpdateContentSpeechBody): 
   const res = await client.api.settings.content.speech.$put({ json: input });
   if (!res.ok) throw await apiError(res);
   return (await res.json()) as ContentMutationResponse;
+};
+
+/**
+ * 音声のお試し再生。成功は音声バイト（mp3 は `audio/mpeg`、pcm は RIFF 化した `audio/wav`）、失敗は
+ * `{ error, code? }` の JSON なので、判別は status と Content-Type で行う。ストリームが途中で切れた
+ * 応答は `blob()` が拒否し、blob URL を作らずに失敗として返る。
+ */
+export const previewSpeechAudio = async (
+  input: SpeechPreviewBody,
+  signal?: AbortSignal,
+): Promise<SpeechPreviewAudio> => {
+  const res = await client.api.settings.content.speech.preview.$post({ json: input }, { init: { signal } });
+  if (!res.ok) throw await apiError(res);
+  return { blob: await res.blob(), format: speechPreviewFormatOf(res.headers.get("content-type")) };
 };
 
 /** コンテンツ生成（画像 / 音声）のAPIキーの登録・上書き。行が無ければ既定 provider / model で作成される */

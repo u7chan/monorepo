@@ -207,6 +207,8 @@ export async function createBffContext(opts: CreateBffAppOptions = {}): Promise<
     speechCatalog,
     setContentGeneration: pi ? pi.setContentGeneration : () => {},
     maskError,
+    // 生成器の口は任意。未注入（ランタイムなしで起動）はお試し再生を 503 にする
+    generateSpeech: pi ? pi.generateSpeech : undefined,
   });
   await contentSettings.applyStored();
   // Web 検索は「既定 ON / Exa」なので、行が無ければそのまま立ち、設定行とキーがあるときだけ写す。

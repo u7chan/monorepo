@@ -39,6 +39,7 @@ import {
   MoveSessionBodySchema,
   PostMessageBodySchema,
   RenameFileBodySchema,
+  SpeechPreviewBodySchema,
   UpdateAgentBodySchema,
   UpdateArchiveSettingsBodySchema,
   UpdateContentImageBodySchema,
@@ -483,6 +484,15 @@ export async function createBffApp(opts: CreateBffAppOptions = {}) {
         result.success ? undefined : c.json({ error: "Invalid request body" }, 400),
       ),
       (c) => contentSettingsRoutes.putSpeechSelection(c, c.req.valid("json")),
+    )
+    // お試し再生は設定を変えないため appDataMutation は使わない（state: "not_stored" を返さない）
+    .post(
+      "/api/settings/content/speech/preview",
+      appData,
+      jsonBodyValidator(SpeechPreviewBodySchema, (result, c) =>
+        result.success ? undefined : c.json({ error: "Invalid request body" }, 400),
+      ),
+      (c) => contentSettingsRoutes.previewSpeech(c, c.req.valid("json")),
     )
     .delete("/api/settings/content/key", appDataMutation, contentSettingsRoutes.deleteKey)
     .post("/api/settings/content/image/catalog/refresh", (c) => contentSettingsRoutes.refreshCatalog(c))

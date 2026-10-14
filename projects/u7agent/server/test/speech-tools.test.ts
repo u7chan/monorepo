@@ -7,15 +7,14 @@ import { createMutableSecretMasker } from "../src/redact";
 import type { SandboxUploadInput, SandboxWorkspaceClient } from "../src/sandbox/client";
 import { toolResultSummary } from "../src/session-projection";
 import type { SpeechGenerationSettings } from "../src/speech";
+import { pcmToWav, SPEECH_TEXT_MAX_LENGTH } from "../src/speech";
 import {
   assertSpeechFileName,
   createSpeechToolDefinitions,
-  pcmToWav,
   SPEECH_GENERATION_PROMPT_LINES,
   SPEECH_TOOL_EXTENSION_MESSAGE,
   SPEECH_TOOL_KEY_UNSET_MESSAGE,
   SPEECH_TOOL_NAME,
-  SPEECH_TOOL_TEXT_MAX_LENGTH,
   SPEECH_TOOL_TEXT_TOO_LONG_MESSAGE,
   SPEECH_TOOL_VOICE_MESSAGE,
   speechFileName,
@@ -333,7 +332,7 @@ test("課金前に止める失敗は provider を呼ばず、固定文言を返�
   const execute = tool({ capture, settings, voices: () => ["Zephyr"] });
 
   await assert.rejects(
-    () => run(execute, { text: "x".repeat(SPEECH_TOOL_TEXT_MAX_LENGTH + 1) }),
+    () => run(execute, { text: "x".repeat(SPEECH_TEXT_MAX_LENGTH + 1) }),
     new Error(SPEECH_TOOL_TEXT_TOO_LONG_MESSAGE),
   );
   for (const path of ["../narration.mp3", "/narration.mp3", "generated\\narration.mp3", "generated/"]) {
@@ -341,7 +340,7 @@ test("課金前に止める失敗は provider を呼ばず、固定文言を返�
   }
   await assert.rejects(() => run(execute, { text: "hello", voice: "Ghost" }), new Error(SPEECH_TOOL_VOICE_MESSAGE));
   // 上限ちょうどは通す
-  await run(execute, { text: "x".repeat(SPEECH_TOOL_TEXT_MAX_LENGTH) });
+  await run(execute, { text: "x".repeat(SPEECH_TEXT_MAX_LENGTH) });
   assert.equal(capture.generated.length, 1, "拒否した呼び出しで provider を呼んでいる");
 });
 

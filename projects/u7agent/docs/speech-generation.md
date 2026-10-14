@@ -7,7 +7,7 @@
 - 音声専用のモデル / ボイスは `content_settings` の `speechModel` / `speechVoice` に持つ。**NULL は「未設定」で、既定モデルと「そのモデルが宣言する先頭ボイス」へフォールバックして読む**（画面に「（未設定）」を出さない）
 - ツールは **BFF ローカル**（`server/src/speech-tools.ts`）。サンドボックスのリモート定義ではなく、`PI_AGENT_TOOLS` の影響を受けない
 - 保存は `workspace.uploadFile({ dir, name })`。`dir` は root 相対で渡す（画像と同じ 1 段の前置き。`server/src/workspace-path.ts`）
-- 読み上げる文章は **逐語で読まれる**前提にする。演技指示（`instructions`）は非ゴールなので、ツール説明と system prompt で「演技指示を本文に書かない」ことを指示する
+- 読み上げる文章は **逐語で読まれる**前提にする。ツールから演技指示（`instructions`）は渡さない（非ゴール）ので、ツール説明と system prompt で「演技指示を本文に書かない」ことを指示する。演技指示と速度は[お試し再生](#お試し再生パラメーターのプレイグラウンド)からだけ試せる
 - 生成物の連結はしない。長文はエージェントが分けて複数回呼び、サンドボックスに連結の道具が無いこと（ffmpeg なし）を前提にする
 
 ## モデルカタログ
@@ -82,7 +82,7 @@
 
 - 応答の形式は Content-Type の `audio/mpeg`（mp3）/ `audio/pcm`（pcm）だけで判定する。`audio/*` でもこの 2 つ以外は形式を推測せず失敗にする
 - pcm は Content-Type の `rate` / `channels` を読み、WAV 化の引数にする。無い / 不正な応答は推測せず失敗にする
-- WAV 化は 44 バイトの RIFF ヘッダを付ける純関数（`server/src/speech-tools.ts`）だけで、保存の直前に適用する。API はビット深度を宣言しないため **16-bit LE を前提**にする（別のビット深度を返す provider が現れても、ヘッダと実データの食い違いは検出できない）
+- WAV 化は 44 バイトの RIFF ヘッダを付ける純関数（`server/src/speech.ts` の `pcmToWav`）だけ。ツールは保存の直前、[お試し再生](#お試し再生パラメーターのプレイグラウンド)は応答の直前に適用し、結果を食い違わせない。API はビット深度を宣言しないため **16-bit LE を前提**にする（別のビット深度を返す provider が現れても、ヘッダと実データの食い違いは検出できない）
 
 モデルごとの per-request 上限（文字数 / 秒）はカタログから読めない。BFF は 4,000 文字を保守的な上限として課金前に止めるが、上限以内でも provider が 400 を返しうる。その場合は `unknown` + マスク済みメッセージで短縮を促す。
 
@@ -144,6 +144,21 @@ APIキーは画像と**同じ 1 つを共有**する（`content_settings.apiKey`
 - モデルを切り替えたらボイスは新しいモデルの既定（先頭、宣言が無ければ空）へ寄せ、旧モデルの値を持ち越さない
 - [再取得] の後は server の現在値へ表示を合わせる（[モデルカタログ](#モデルカタログ)のフォールバックが一覧の並びで変わり得るため）。確認できたことの根拠は成功した GET だけで、未同期の間は古い表示を現在値として扱わず、「（未確認）」とエラー注記で知らせて音声の設定を保存させない（一覧が変わらない再取得の失敗で以前の値が実効値のままのときは同期済みを保つ）
 - 画面下部の注記は、保存したキーが新しい会話から使えることと、生成物が `generated/` に保存されることを共通で伝える
+- 音声セクションの下部に[お試し再生](#お試し再生パラメーターのプレイグラウンド)を常時表示する（キー保存後にだけ現れる既存の分岐に乗せる）
+
+## お試し再生（パラメーターのプレイグラウンド）
+
+設定 → コンテンツ生成（[`/settings/content`](model-settings.md#クライアント)）の音声セクションから、会話を経由せずに 1 回だけ鳴らせる。目的は、モデル / ボイス / 演技指示 / 速度の組み合わせをその場で確かめることで、**設定を変えず、生成物も残さない**（作業フォルダにもアプリ DB にも書かない。設定画面はセッション / cwd を持たず、サンドボックス未設定の環境でも試せる）。
+
+- 入出力は `POST /api/settings/content/speech/preview`。本文は `{ model, voice, text, instructions?, speed? }` で、モデルとボイスは画面で選んだ値（初期値は保存済みの値）をそのまま送る
+- 応答は音声バイト。`Content-Type` は mp3 が `audio/mpeg`、pcm は RIFF 化して `audio/wav` で、**どちらの形式だったかはクライアントが Content-Type から読む**（専用ヘッダは足さない）。`X-Content-Type-Options: nosniff` と `Cache-Control: no-store` を付ける。失敗は JSON なので、判別は status と Content-Type で行う
+- 課金前の検証は `PUT /speech` / `generate_speech` と同じ規則をサービス（`server/src/content-settings.ts` の `previewSpeech`）で共有する。カタログ外モデルは `PUT /speech` と同じく `default`（live に一度も成功していない）を免除し、声の宣言は `generate_speech` と同じく出どころに関係なく引く。本文 / 演技指示は共有層の上限、空の本文、正の有限数でない `speed` もここで止める（**文言はプレビュー用に別に定義する**。分割を促すツール向け文言はエージェント前提なので流用しない）
+- `speed` の範囲（Seed Audio の 0.5–2.0 など）は provider の制約なのでアプリでは縛らず、provider の 400 をそのまま見せる。空欄はキーごと落として provider の既定に委ねる
+- 実装は `ContentSettingsService` の public メソッドに置き、route は 1 回呼ぶだけにする。理由は課金前の検証（カタログ照合・ボイス宣言・APIキーの伏せ字）が既存の private 実装に依存しており、route へ写すとキーを model / voice 欄へ誤って貼ったときに 400 の文言から再露出しうるため。provider 呼び出しは最大 180 秒かかるので、**mutation ロックの外**で実行して設定の保存を塞がない（リクエストの `AbortSignal` は生成器へ渡す）
+- 生成器は PiBff が持つ `createSpeechGenerator`（`server/src/agent.ts`）を bootstrap から注入する。**ツールと同じ形式の学習メモを共有する**ので、プレイグラウンドの試行でも mp3 / pcm の使い分けが進む（副作用としてツール側の再試行が減りうる）。注入は optional で、未注入（`pi === null` で起動）は runtime 不可と同じ 503 にする。このときクライアントは**再生ボタンを無効**にし、理由をその場に出す（音声の同期とは別のゲート）
+- クライアントは生成中に入力と実行を無効化し、押下ごとに課金されることを注意文で伝える。応答は `blob:` にして `<audio controls>` で再生し、**再生成時とアンマウント時に `URL.revokeObjectURL` する**（本番 CSP には `media-src 'self' blob:` が要る。無いと本番ビルドでだけ無音になる）。失敗時は分類済みの文言を出し、入力と選択は保つ（そのまま直して再試行できる）。本文が空 / 速度が不正なときは送信前に止める（**この検証に当たったときはサーバーの 400 文言ではなくクライアントの文言を出す**）
+- 音声の同期が取れていない間（`speechSynced === false`）も使える。保存値を書き換えず、ユーザーが画面で選んだ値をそのまま試すだけなので、保存ボタン用の未同期ゲート（`value=""` / `disabled` / 「（未確認）」）は持ち込まない
+- 表示の正は `client/src/lib/contentSettings.ts` の純関数（初期値・送信前の検証・形式の表示・失敗文言）、描画は `client/src/components/content-settings/SpeechPlayground.tsx` に閉じる。再生そのものは自動テストせず GUI 受入にする（[testing.md](testing.md)）
 
 ## API
 
@@ -151,10 +166,12 @@ APIキーは画像と**同じ 1 つを共有**する（`content_settings.apiKey`
 | --- | --- | --- |
 | PUT | `/api/settings/content/speech` | `{ model, voice }`。キーと画像モデルを保持したまま音声の選択を更新（行が無ければ 400） |
 | POST | `/api/settings/content/speech/catalog/refresh` | live カタログの再取得。常に 200 で `models` / `catalogSource` / `fetchedAt` / `catalogError` を返す |
+| POST | `/api/settings/content/speech/preview` | `{ model, voice, text, instructions?, speed? }`。[お試し再生](#お試し再生パラメーターのプレイグラウンド)。成功は音声バイト、失敗は `{ error, code? }` |
 
 - `GET /api/settings/content` の `speech` は `model` / `voice` / `models`（`voices` を含む）/ `catalogSource` / `fetchedAt`。`models` は live が取得できれば live、できなければ前回の一覧、どちらも無ければ同梱の 1 件
 - 400: 行が無い、`catalogSource` が `live` / `stored` でカタログ外のモデル、宣言があるモデルで宣言外のボイス（`default` のときは照合しない）
 - 変更系の応答は GET と同じ形 + `state: "applied"`。DB 書込に失敗したときだけ 503 `{ error, state: "not_stored" }`。詳細と例は [api.md](api.md#コンテンツ生成)
+- `preview` は設定を変えないため `state` を付けず、`appData`（DB ゲート）だけを通す。400（行なし / 課金前の検証）、503（runtime 不可 / DB 不通）、502（provider の失敗。`code` は `server/src/provider-failure.ts` の分類）
 
 ## テスト
 
@@ -165,15 +182,18 @@ APIキーは画像と**同じ 1 つを共有**する（`content_settings.apiKey`
 | `server/test/speech.test.ts` | 音声専用 API への送信先・ヘッダ・本文（メモが無ければ `mp3` から送る）/ `voice` を指定時だけ送ること / 形式違いの 400 だけを 1 回再試行し、学習した形式を先に送ること / 最終分類が最後の試行の status と provider メッセージを使うこと / 応答の形式判定（`audio/mpeg` / `audio/pcm`、それ以外の失敗、`rate` / `channels` の保持と欠落時の失敗）/ 2xx の空応答 / 失敗分類（401・403・402・429・5xx・timeout・ユーザー中断・原因不明）/ 期限と中断が両試行に掛かること / provider メッセージのマスクと上限 |
 | `server/test/speech-catalog.test.ts` | 同梱カタログの形（既定モデルと `supported_voices`）/ live の採用とキャッシュ保存（認証ヘッダなし・`voices` を含む）/ 重複の畳み方と宣言の読み方 / 失敗分類と一覧の保持 / キャッシュ読込と live 失敗時の維持 / キャッシュの読取・保存失敗 |
 | `server/test/speech-tools.test.ts` | ツールの組み立て（有効時だけ・画像とは独立）/ 引数と説明（逐語・演技指示なし）/ 拡張子の受理（`.mp3` / `.wav` だけ）と実形式への寄せ / RIFF ヘッダ付与 / slug / 既定保存名と root 相対の前置き / 結果の先頭にモデルとボイス / 課金前の拒否（文字数・パス・拡張子・宣言外ボイス・キー未設定）/ execute の再読込 / throw のマスク / signal の伝播 |
-| `server/test/speech-settings.test.ts` | 音声列 NULL のフォールバック、`PUT` の 400（行なし・カタログ外・宣言外）、`default` では照合しない、空文字ボイスの保存、503 `not_stored`、再取得の失敗文言、起動時の適用と注入した `readSpeech` / `readVoices` |
+| `server/test/speech-settings.test.ts` | 音声列 NULL のフォールバック、`PUT` の 400（行なし・カタログ外・宣言外）、`default` では照合しない、空文字ボイスの保存、503 `not_stored`、再取得の失敗文言、起動時の適用と注入した `readSpeech` / `readVoices`、お試し再生の行なし 400 / 未注入 503 / DB 不通 503、pcm → wav と演技指示・速度の受け渡し、`default` での声の照合 |
 | `server/test/speech-settings-api.test.ts` | HTTP 契約（GET / PUT / 再取得）、既定カタログの形、キーが応答に出ないこと、カタログ外 / 宣言外 / 本文形の 400、DB 不通 |
-| `client/test/contentSettings.test.ts` / `client/test/contentSettingsTab.test.ts` | 音声モデルとボイスの選択肢・現在値・PUT の本文・自由記述の切替 / カタログ外の現在値 / 出どころのチップと再取得の注記 / タブの描画（音声欄はキー保存後・runtime 不可でも残る） |
+| `server/test/speech-preview-api.test.ts` | お試し再生の HTTP 契約（課金前の 400 は provider を叩かない / 成功の `audio/mpeg` と RIFF 付き `audio/wav` / `nosniff` と `no-store` / provider 失敗の 502 と分類コード / timeout と中断 / runtime 不可と DB 不通の 503 / キーの伏せ字 / 保存ロックを取らないこと） |
+| `client/test/contentSettings.test.ts` / `client/test/contentSettingsTab.test.ts` / `client/test/speechPlayground.test.ts` | 音声モデルとボイスの選択肢・現在値・PUT の本文・自由記述の切替 / カタログ外の現在値 / 出どころのチップと再取得の注記 / タブの描画（音声欄はキー保存後・runtime 不可でも残る）/ お試し再生の初期値・送信前の検証・形式の表示・失敗文言と、生成中 / 失敗 / 結果の描画 / ランタイム不可での再生ボタンの無効化（未同期のゲートとは独立） |
 
 ## 非ゴール
 
-- 話し方の指示（`instructions`）の引数 / 設定、マルチスピーカー（`input` の配列）、ボイスクローン（`input_references`）、STT
+- `generate_speech` の引数と設定 DB への `instructions` / `speed` の保存・反映（別 Issue）。[お試し再生](#お試し再生パラメーターのプレイグラウンド)は保存せず、その場で試すだけ
+- マルチスピーカー（`input` の配列）、provider 固有オプション（生 JSON）、ボイスクローン（`input_references`）、STT
+- モデルごとのパラメーター対応表（`instructions` / `speed` / 出力形式）をアプリ側に持つことと、生成前に UI へ表示すること。一覧はモデル追加のたびに古くなり、実際とずれたときに自己修復できない（今回の不具合の原因がこれ）。ずれても「400 で他方を試す」1 回の往復で直る側に倒す
+- 試し再生の結果の保存・履歴・比較 UI と、ボイスごとの説明文。プレイグラウンドからのモデル / 声の既定保存
+- 画像（`generate_image`）側の同様のプレイグラウンド
 - pcm → mp3 の再エンコード（サンドボックスに ffmpeg が無く、lame 系の依存追加は license の確認が要る）、ビット深度やサンプルレートの変換
-- モデルごとの対応形式マスタをアプリ側に持つことと、生成前に形式を UI へ表示すること。一覧はモデル追加のたびに古くなり、実際とずれたときに自己修復できない（今回の不具合の原因がこれ）。ずれても「400 で他方を試す」1 回の往復で直る側に倒す
 - 長文の自動分割・連結（分割はエージェントの仕事。サンドボックスに ffmpeg が無い）
-- 設定タブでのボイス試聴、ボイスごとの説明文
 - 音声だけを無効にするトグル（キーの有無がゲート）
