@@ -155,8 +155,8 @@ APIキーは画像と**同じ 1 つを共有**する（`content_settings.apiKey`
 - 課金前の検証は `PUT /speech` / `generate_speech` と同じ規則をサービス（`server/src/content-settings.ts` の `previewSpeech`）で共有する。カタログ外モデルは `PUT /speech` と同じく `default`（live に一度も成功していない）を免除し、声の宣言は `generate_speech` と同じく出どころに関係なく引く。本文 / 演技指示は共有層の上限、空の本文、正の有限数でない `speed` もここで止める（**文言はプレビュー用に別に定義する**。分割を促すツール向け文言はエージェント前提なので流用しない）
 - `speed` の範囲（Seed Audio の 0.5–2.0 など）は provider の制約なのでアプリでは縛らず、provider の 400 をそのまま見せる。空欄はキーごと落として provider の既定に委ねる
 - 実装は `ContentSettingsService` の public メソッドに置き、route は 1 回呼ぶだけにする。理由は課金前の検証（カタログ照合・ボイス宣言・APIキーの伏せ字）が既存の private 実装に依存しており、route へ写すとキーを model / voice 欄へ誤って貼ったときに 400 の文言から再露出しうるため。provider 呼び出しは最大 180 秒かかるので、**mutation ロックの外**で実行して設定の保存を塞がない（リクエストの `AbortSignal` は生成器へ渡す）
-- 生成器は PiBff が持つ `createSpeechGenerator`（`server/src/agent.ts`）を bootstrap から注入する。**ツールと同じ形式の学習メモを共有する**ので、プレイグラウンドの試行でも mp3 / pcm の使い分けが進む（副作用としてツール側の再試行が減りうる）。注入は optional で、未注入は runtime 不可と同じ 503 にする
-- クライアントは生成中に入力と実行を無効化し、押下ごとに課金されることを注意文で伝える。応答は `blob:` にして `<audio controls>` で再生し、**再生成時とアンマウント時に `URL.revokeObjectURL` する**（本番 CSP には `media-src 'self' blob:` が要る。無いと本番ビルドでだけ無音になる）。失敗時は分類済みの文言を出し、入力と選択は保つ（そのまま直して再試行できる）
+- 生成器は PiBff が持つ `createSpeechGenerator`（`server/src/agent.ts`）を bootstrap から注入する。**ツールと同じ形式の学習メモを共有する**ので、プレイグラウンドの試行でも mp3 / pcm の使い分けが進む（副作用としてツール側の再試行が減りうる）。注入は optional で、未注入（`pi === null` で起動）は runtime 不可と同じ 503 にする。このときクライアントは**再生ボタンを無効**にし、理由をその場に出す（音声の同期とは別のゲート）
+- クライアントは生成中に入力と実行を無効化し、押下ごとに課金されることを注意文で伝える。応答は `blob:` にして `<audio controls>` で再生し、**再生成時とアンマウント時に `URL.revokeObjectURL` する**（本番 CSP には `media-src 'self' blob:` が要る。無いと本番ビルドでだけ無音になる）。失敗時は分類済みの文言を出し、入力と選択は保つ（そのまま直して再試行できる）。本文が空 / 速度が不正なときは送信前に止める（**この検証に当たったときはサーバーの 400 文言ではなくクライアントの文言を出す**）
 - 音声の同期が取れていない間（`speechSynced === false`）も使える。保存値を書き換えず、ユーザーが画面で選んだ値をそのまま試すだけなので、保存ボタン用の未同期ゲート（`value=""` / `disabled` / 「（未確認）」）は持ち込まない
 - 表示の正は `client/src/lib/contentSettings.ts` の純関数（初期値・送信前の検証・形式の表示・失敗文言）、描画は `client/src/components/content-settings/SpeechPlayground.tsx` に閉じる。再生そのものは自動テストせず GUI 受入にする（[testing.md](testing.md)）
 
@@ -185,7 +185,7 @@ APIキーは画像と**同じ 1 つを共有**する（`content_settings.apiKey`
 | `server/test/speech-settings.test.ts` | 音声列 NULL のフォールバック、`PUT` の 400（行なし・カタログ外・宣言外）、`default` では照合しない、空文字ボイスの保存、503 `not_stored`、再取得の失敗文言、起動時の適用と注入した `readSpeech` / `readVoices`、お試し再生の行なし 400 / 未注入 503 / DB 不通 503、pcm → wav と演技指示・速度の受け渡し、`default` での声の照合 |
 | `server/test/speech-settings-api.test.ts` | HTTP 契約（GET / PUT / 再取得）、既定カタログの形、キーが応答に出ないこと、カタログ外 / 宣言外 / 本文形の 400、DB 不通 |
 | `server/test/speech-preview-api.test.ts` | お試し再生の HTTP 契約（課金前の 400 は provider を叩かない / 成功の `audio/mpeg` と RIFF 付き `audio/wav` / `nosniff` と `no-store` / provider 失敗の 502 と分類コード / timeout と中断 / runtime 不可と DB 不通の 503 / キーの伏せ字 / 保存ロックを取らないこと） |
-| `client/test/contentSettings.test.ts` / `client/test/contentSettingsTab.test.ts` / `client/test/speechPlayground.test.ts` | 音声モデルとボイスの選択肢・現在値・PUT の本文・自由記述の切替 / カタログ外の現在値 / 出どころのチップと再取得の注記 / タブの描画（音声欄はキー保存後・runtime 不可でも残る）/ お試し再生の初期値・送信前の検証・形式の表示・失敗文言と、生成中 / 失敗 / 結果の描画 |
+| `client/test/contentSettings.test.ts` / `client/test/contentSettingsTab.test.ts` / `client/test/speechPlayground.test.ts` | 音声モデルとボイスの選択肢・現在値・PUT の本文・自由記述の切替 / カタログ外の現在値 / 出どころのチップと再取得の注記 / タブの描画（音声欄はキー保存後・runtime 不可でも残る）/ お試し再生の初期値・送信前の検証・形式の表示・失敗文言と、生成中 / 失敗 / 結果の描画 / ランタイム不可での再生ボタンの無効化（未同期のゲートとは独立） |
 
 ## 非ゴール
 

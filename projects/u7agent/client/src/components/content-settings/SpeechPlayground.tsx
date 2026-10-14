@@ -126,6 +126,8 @@ export function SpeechPlaygroundView({
   const options = speechModelOptions(settings);
   const selectedOption = options.find((option) => option.value === values.model);
   const textMode = speechVoiceMode(selectedOption) === "text";
+  // 生成器はランタイムが持つため、runtime 不可では押しても必ず 503 になる（未同期とは別のゲート）
+  const runtimeAvailable = settings.runtimeAvailable;
 
   return (
     <section className="grid gap-1.5 border-t border-line pt-3">
@@ -134,6 +136,11 @@ export function SpeechPlaygroundView({
         保存した設定は変えずに、この場で試しに鳴らせます。1 回の再生ごとに provider
         のクレジットを消費します。演技指示と速度は未対応のモデルでは無視されるか 400 になります。
       </p>
+      {runtimeAvailable ? null : (
+        <p role="alert" className="rounded-lg border border-warn/40 bg-raised px-2.5 py-2 text-2xs text-warn">
+          ランタイムが利用できないため、お試し再生はできません。サーバーの起動ログを確認してください。
+        </p>
+      )}
       <textarea
         className="field min-h-16 min-w-0 resize-y text-xs"
         value={values.text}
@@ -209,7 +216,7 @@ export function SpeechPlaygroundView({
         />
       </div>
       <div className="flex flex-wrap items-center gap-2">
-        <button type="button" className="btn-primary" disabled={busy} onClick={onSubmit}>
+        <button type="button" className="btn-primary" disabled={busy || !runtimeAvailable} onClick={onSubmit}>
           {busy ? "生成中…" : "再生"}
         </button>
         {busy ? <span className="text-2xs text-ink-muted">音声を生成しています…</span> : null}

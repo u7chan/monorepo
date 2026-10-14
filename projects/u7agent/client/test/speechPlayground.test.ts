@@ -55,11 +55,13 @@ function render(
     busy?: boolean;
     error?: string | null;
     audio?: (SpeechPreviewAudio & { url: string }) | null;
+    /** false で「ランタイム不可（`pi: null`）」の起動を再現する */
+    runtimeAvailable?: boolean;
   } = {},
 ): string {
   return renderToStaticMarkup(
     createElement(SpeechPlaygroundView, {
-      settings: settings(options.speech),
+      settings: { ...settings(options.speech), runtimeAvailable: options.runtimeAvailable ?? true },
       values: draft(options.values),
       busy: options.busy ?? false,
       error: options.error ?? null,
@@ -110,6 +112,23 @@ test("生成中は入力と操作を無効にし、進行中の表示を出す",
   ]) {
     assert.match(html, new RegExp(`aria-label="${label}"[^>]*disabled=""`), `${label} を触らせない`);
   }
+});
+
+test("ランタイム不可では再生ボタンを無効にし、理由を出す", () => {
+  const html = render({ runtimeAvailable: false });
+  // 押しても必ず 503 になる API を呼ばせない（未同期のゲートとは別）
+  assert.match(html, /<button[^>]*\sdisabled=""[^>]*>再生<\/button>/, "ラベルは再生のまま無効にする");
+  assert.equal(html.match(/<button(?![^>]*\sdisabled=)[^>]*>再生<\/button>/), null, "押せないようにする");
+  assert.match(
+    html,
+    /role="alert"[^>]*>ランタイムが利用できないため、お試し再生はできません/,
+    "実行できない理由を注意書きとして出す",
+  );
+
+  // ランタイムがあれば、音声の同期が取れていない間も押せる（保存のゲートを持ち込まない）
+  const unsynced = render();
+  assert.match(unsynced, /<button(?![^>]*\sdisabled=)[^>]*>再生<\/button>/, "同期のゲートを持ち込まない");
+  assert.equal(unsynced.includes("ランタイムが利用できないため"), false);
 });
 
 test("失敗は分類済みの文言を出し、入力と選択を保つ", () => {

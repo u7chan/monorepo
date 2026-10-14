@@ -281,3 +281,12 @@ test("音声の同期が取れていない間もお試し再生は使える", ()
   assert.match(html, /<textarea[^>]*aria-label="お試し再生の本文"(?![^>]*\sdisabled=)/, "本文も触れる");
   assert.match(html, /<select[^>]*aria-label="お試し再生のモデル"(?![^>]*\sdisabled=)/, "モデルも選べる");
 });
+
+test("runtimeAvailable: false ではお試し再生の再生ボタンも無効にする", () => {
+  const html = render({ runtimeAvailable: false });
+  assert.match(html, /<button[^>]*\sdisabled=""[^>]*>再生<\/button>/, "実行できない preview API を呼ばせない");
+  assert.ok(html.includes("ランタイムが利用できないため、お試し再生はできません"), "押せない理由を出す");
+  // ランタイムがあれば、音声の同期が取れていない間も押せる（別のゲート）
+  assert.match(render(), /<button(?![^>]*\sdisabled=)[^>]*>再生<\/button>/);
+  assert.match(render({ speechSynced: false }), /<button(?![^>]*\sdisabled=)[^>]*>再生<\/button>/);
+});
