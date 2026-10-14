@@ -36,6 +36,7 @@ import { SelectField } from "../SelectField";
 import { MetaChip } from "../model-settings/MetaChip";
 import { ProviderBadgeTag } from "../model-settings/ProviderBadgeTag";
 import { SpeechPlayground } from "./SpeechPlayground";
+import { SpeechVoiceOptions } from "./SpeechVoiceOptions";
 
 export type ContentSettingsTabProps = {
   settings: ContentSettingsResponse;
@@ -380,11 +381,7 @@ function SpeechSection({
             onChange={(event) => onChangeDraft({ ...draft, voice: event.currentTarget.value })}
           >
             {synced ? null : <option value="">（未確認）</option>}
-            {(selectedOption?.model?.voices ?? []).map((voice) => (
-              <option key={voice} value={voice}>
-                {voice}
-              </option>
-            ))}
+            <SpeechVoiceOptions modelId={selectedModel} voices={selectedOption?.model?.voices} />
           </SelectField>
         )}
         <button

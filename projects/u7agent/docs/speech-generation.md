@@ -32,7 +32,7 @@
 
 `google/gemini-3.8-flash-tts` と、そのモデルの `supported_voices` を写したものを同梱する。出所は 2026-10-08 に取得した OpenRouter のモデルページ / モデル一覧 API（`https://openrouter.ai/google/gemini-3.8-flash-tts`、`GET /api/v1/models?output_modalities=speech`）。
 
-上流の追加・改名でこの写しは腐る。live を一度でも取れた環境では丸ごと置き換わるため表示への影響は無いが、オフラインの初回起動では既定が使われる。**更新責任はこのリポジトリ**で、変えるときはモデルページの `supported_voices` を正として `server/src/speech-catalog.ts` の同梱カタログを直す（[モデルカタログ](#モデルカタログ) の 3 状態は変えない）。
+上流の追加・改名でこの写しは腐る。live を一度でも取れた環境では丸ごと置き換わるため表示への影響は無いが、オフラインの初回起動では既定が使われる。**更新責任はこのリポジトリ**で、変えるときはモデルページの `supported_voices` を正として `server/src/speech-catalog.ts` の同梱カタログを直す（[モデルカタログ](#モデルカタログ) の 3 状態は変えない）。同じモデルのボイス名は `client/src/lib/speechVoices.ts` の属性の写しにも並ぶため、`server/src/speech-catalog.ts` を触るときは両方を同時に見る（機械的な突き合わせは無い）。
 
 ### 画面表示
 
@@ -43,6 +43,8 @@
 - `supported_voices` があるモデルは、その一覧から選ぶ。モデルを切り替えるとボイスは新しいモデルの先頭へ寄せる（宣言が変わって保存値が宣言外になったときも同じ）
 - `supported_voices` が無いモデル（Fish Audio / Seed Audio など）は自由記述を許す。空欄は「送らない」を表し、`voice` キーごと本文から落とす
 - 宣言があるモデルで宣言外のボイスを保存しようとしたとき（`PUT`）と生成しようとしたとき（ツール）は 400 / 課金前の失敗にする。OpenRouter は provider が既定声を持つ場合を除いて `voice` の省略を 400 にするため、その 400 は `unknown` として provider メッセージを添え、声の指定を促す
+- 性別と 1 語のスタイル語（`Achernar -- Soft` など）の写しを `client/src/lib/speechVoices.ts` に同梱し、ボイス欄のグループとラベルに使う。出所は 2026-10-14 に取得した Google の英語ページ 2 つで、性別は Cloud TTS の [Gemini-TTS](https://docs.cloud.google.com/text-to-speech/docs/gemini-tts) の Voice options、スタイル語は Gemini API の [Speech generation](https://ai.google.dev/gemini-api/docs/speech-generation) の Prebuilt voices。**更新責任はこのリポジトリ**で、上流の追加・改名で写しが腐る
+- 写しは**表示専用**にする。上流へ送る名前・宣言による検証・お試し再生の要求には使わず、写しが遅れてもラベルが外れて名前順の末尾へ回るだけで生成も保存も壊れないため、live のカタログのように自己修復させない（[非ゴール](#非ゴール)の「モデルごとのパラメーター対応表を持たない」との違いは、この表示以外に使わない点にある）。表を引くのは `id` が `google/` で始まるモデルだけにし、他のプロバイダが同名のボイスを宣言しても属性を付けず、並びも上流の宣言順のままにする（並べ替えの根拠がある一覧だけを並べ替える）
 
 ## 有効化（ゲート）
 
@@ -137,7 +139,7 @@ APIキーは画像と**同じ 1 つを共有**する（`content_settings.apiKey`
 
 ## 設定画面
 
-設定 → コンテンツ生成の「音声（TTS）」タブ（`/settings/content/speech`）に音声のセクションを置く（provider の見出しとキー欄は画像と同じ画面のタブの外で共有する）。表示の正は `client/src/lib/contentSettings.ts` の純関数、取得と操作は `client/src/hooks/useContentSettings.ts`、描画は `client/src/components/content-settings/ContentSettingsTab.tsx` に閉じる。
+設定 → コンテンツ生成の「音声（TTS）」タブ（`/settings/content/speech`）に音声のセクションを置く（provider の見出しとキー欄は画像と同じ画面のタブの外で共有する）。表示の正は `client/src/lib/contentSettings.ts` の純関数、ボイス欄のグループとラベルは `client/src/lib/speechVoices.ts` の純関数、取得と操作は `client/src/hooks/useContentSettings.ts`、描画は `client/src/components/content-settings/ContentSettingsTab.tsx` とボイス欄の `client/src/components/content-settings/SpeechVoiceOptions.tsx` に閉じる。
 
 - 未設定（行が無い）ではキー入力だけを出し、音声の欄もモデルと同じくキー保存後に現れる（タブ行も同時に現れる）
 - モデルとボイスの選択は、保存済みの値がカタログから落ちていても現在値を見失わせない。ボイス欄は選択中モデルの宣言に応じて選択 / 自由記述を切り替え、空欄は「送らない」を表す
@@ -159,7 +161,7 @@ APIキーは画像と**同じ 1 つを共有**する（`content_settings.apiKey`
 - 生成器は PiBff が持つ `createSpeechGenerator`（`server/src/agent.ts`）を bootstrap から注入する。**ツールと同じ形式の学習メモを共有する**ので、プレイグラウンドの試行でも mp3 / pcm の使い分けが進む（副作用としてツール側の再試行が減りうる）。注入は optional で、未注入（`pi === null` で起動）は runtime 不可と同じ 503 にする。このときクライアントは**再生ボタンを無効**にし、理由をその場に出す（音声の同期とは別のゲート）
 - クライアントは生成中に入力と実行を無効化し、押下ごとに課金されることを注意文で伝える。応答は `blob:` にして `<audio controls>` で再生し、**再生成時とアンマウント時に `URL.revokeObjectURL` する**（本番 CSP には `media-src 'self' blob:` が要る。無いと本番ビルドでだけ無音になる）。失敗時は分類済みの文言を出し、入力と選択は保つ（そのまま直して再試行できる）。本文が空 / 速度が不正なときは送信前に止める（**この検証に当たったときはサーバーの 400 文言ではなくクライアントの文言を出す**）
 - 音声の同期が取れていない間（`speechSynced === false`）も使える。保存値を書き換えず、ユーザーが画面で選んだ値をそのまま試すだけなので、保存ボタン用の未同期ゲート（`value=""` / `disabled` / 「（未確認）」）は持ち込まない
-- 表示の正は `client/src/lib/contentSettings.ts` の純関数（初期値・送信前の検証・形式の表示・失敗文言）、描画は `client/src/components/content-settings/SpeechPlayground.tsx` に閉じる。再生そのものは自動テストせず GUI 受入にする（[testing.md](testing.md)）
+- 表示の正は `client/src/lib/contentSettings.ts` の純関数（初期値・送信前の検証・形式の表示・失敗文言）、描画は `client/src/components/content-settings/SpeechPlayground.tsx` に閉じる（ボイス欄のラベルと並びは `client/src/lib/speechVoices.ts` の純関数、描画は `client/src/components/content-settings/SpeechVoiceOptions.tsx` に出し、保存フォームと共有する）。再生そのものは自動テストせず GUI 受入にする（[testing.md](testing.md)）
 
 ## API
 
@@ -186,7 +188,7 @@ APIキーは画像と**同じ 1 つを共有**する（`content_settings.apiKey`
 | `server/test/speech-settings.test.ts` | 音声列 NULL のフォールバック、`PUT` の 400（行なし・カタログ外・宣言外）、`default` では照合しない、空文字ボイスの保存、503 `not_stored`、再取得の失敗文言、起動時の適用と注入した `readSpeech` / `readVoices`、お試し再生の行なし 400 / 未注入 503 / DB 不通 503、pcm → wav と演技指示・速度の受け渡し、`default` での声の照合 |
 | `server/test/speech-settings-api.test.ts` | HTTP 契約（GET / PUT / 再取得）、既定カタログの形、キーが応答に出ないこと、カタログ外 / 宣言外 / 本文形の 400、DB 不通 |
 | `server/test/speech-preview-api.test.ts` | お試し再生の HTTP 契約（課金前の 400 は provider を叩かない / 成功の `audio/mpeg` と RIFF 付き `audio/wav` / `nosniff` と `no-store` / provider 失敗の 502 と分類コード / timeout と中断 / runtime 不可と DB 不通の 503 / キーの伏せ字 / 保存ロックを取らないこと） |
-| `client/test/contentSettings.test.ts` / `client/test/contentSettingsTab.test.ts` / `client/test/speechPlayground.test.ts` | 音声モデルとボイスの選択肢・現在値・PUT の本文・自由記述の切替 / カタログ外の現在値 / 出どころのチップと再取得の注記 / 選んだ面の描画（音声欄はキー保存後・runtime 不可でも残る）/ お試し再生の初期値・入力順・送信前の検証・形式の表示・失敗文言と、生成中 / 失敗 / 結果の描画 / ランタイム不可での再生ボタンの無効化（未同期のゲートとは独立） |
+| `client/test/contentSettings.test.ts` / `client/test/contentSettingsTab.test.ts` / `client/test/speechPlayground.test.ts` / `client/test/speechVoices.test.ts` | 音声モデルとボイスの選択肢・現在値・PUT の本文・自由記述の切替 / ボイスの属性の写し（欠けと綴り、性別の内訳、スタイル語のラベル）とグループ分け（女性 → 男性 → 未知、`google/` 以外と属性を引けない一覧は宣言順の 1 グループ、片方の性別しか無いときの空グループの除外）/ カタログ外の現在値 / 出どころのチップと再取得の注記 / 選んだ面の描画（音声欄はキー保存後・runtime 不可でも残る）/ お試し再生の初期値・入力順・送信前の検証・形式の表示・失敗文言と、生成中 / 失敗 / 結果の描画 / ランタイム不可での再生ボタンの無効化（未同期のゲートとは独立） |
 
 ## 非ゴール
 

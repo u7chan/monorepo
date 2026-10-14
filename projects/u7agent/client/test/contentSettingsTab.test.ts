@@ -207,12 +207,26 @@ test("設定済みでは音声のモデルとボイスを出し、宣言のあ�
   assert.ok(html.includes('aria-label="音声生成のボイス"'), "ボイスの選択を出す");
   assert.ok(html.includes('value="google/gemini-3.8-flash-tts"'), "保存済みモデルを選択した状態で出す");
   assert.ok(html.includes('value="Zephyr"'), "保存済みボイスを選択した状態で出す");
-  assert.ok(html.includes(">Kore</option>"), "宣言されている他のボイスも候補に出す");
+  assert.ok(html.includes("Kore（Firm）</option>"), "宣言されている他のボイスも候補に出す");
   assert.ok(html.includes("音声モデル一覧は OpenRouter から取得しました"), "一覧の出どころを出す");
   assert.ok(
     html.includes("出力形式はモデルに合わせて mp3 / wav で保存します"),
     "出力形式と演技指示を書かせない方針を出す",
   );
+});
+
+test("google のモデルでも属性を引ける声が無ければグループを出さない", () => {
+  const models = [
+    {
+      provider: "openrouter",
+      id: "google/gemini-3.8-flash-tts",
+      name: "Google: Gemini 3.8 Flash TTS",
+      voices: ["Ghost"],
+    },
+  ];
+  const html = render({ subsection: "speech", speech: { models, voice: "Ghost" } });
+  assert.equal(html.includes("<optgroup"), false, "並べ替える根拠が無い一覧に空のグループを出さない");
+  assert.ok(html.includes(">Ghost</option>"), "宣言そのものは選択肢に残す");
 });
 
 test("宣言が無い音声モデルはボイスを自由記述にし、空欄を許す", () => {
