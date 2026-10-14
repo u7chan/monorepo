@@ -144,9 +144,17 @@ export function OAuthSignInSection({
             </p>
           ) : null}
           {view.showFallbackLink && view.authUrl ? (
-            <a href={view.authUrl} target="_blank" rel="noreferrer noopener" className="text-2xs text-accent-text">
-              {OAUTH_FALLBACK_LINK_TEXT}
-            </a>
+            <div className="flex flex-wrap items-center gap-2">
+              <a href={view.authUrl} target="_blank" rel="noreferrer noopener" className="text-2xs text-accent-text">
+                {OAUTH_FALLBACK_LINK_TEXT}
+              </a>
+              {/* 折りたたみを出さない副状態 (デバイスコード) では、コピーの導線をリンクの隣に出す */}
+              {view.showManual ? null : (
+                <button type="button" className="btn-quiet" onClick={() => void copyAuthUrl()}>
+                  {copied ? OAUTH_COPY_DONE_TEXT : OAUTH_COPY_URL_TEXT}
+                </button>
+              )}
+            </div>
           ) : null}
           {view.userCode ? (
             <p className="text-2xs leading-relaxed text-ink">

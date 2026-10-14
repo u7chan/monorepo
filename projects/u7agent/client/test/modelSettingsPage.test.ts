@@ -560,7 +560,14 @@ test("デバイスコードは折りたたみを使わず、コードと承認�
   });
   assert.ok(html.includes(DEVICE_INSTRUCTIONS), "コード入力の案内を主文にする");
   assert.ok(html.includes("ABCD-1234"), "コードをパネルに出す");
+  assert.match(
+    html,
+    /<a[^>]*href="https:\/\/auth\.example\.test\/device"/,
+    "遷移できていないので承認ページのリンクをパネルに出す",
+  );
+  assert.ok(html.includes(">URL をコピー</button>"), "折りたたみを出さない副状態でもコピーの導線を出す");
   assert.equal(html.includes("別のマシンのブラウザで承認する場合"), false, "折りたたみを使わない");
+  assert.equal(html.includes("の承認ページが開きます。"), false, "遷移できていないので補足は出さない");
 });
 
 test("終端は結果と [閉じる] だけを残し、進行中の導線を落とす", () => {

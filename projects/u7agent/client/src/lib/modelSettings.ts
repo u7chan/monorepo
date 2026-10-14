@@ -381,9 +381,12 @@ export interface OAuthPanelView {
   showPasteForm: boolean;
   /** 折りたたみの中に「貼り付けを受け付けていない」を出すか (送信後を含む) */
   showPasteUnavailable: boolean;
-  /** 空タブを遷移できたときの補足を出すか */
+  /** 空タブを遷移できたときの補足を出すか。フォールバックのリンクとは排他 */
   showPopupNotice: boolean;
-  /** 遷移できなかったときのフォールバックのリンクを出すか */
+  /**
+   * 遷移できなかったときのフォールバックのリンクを出すか。折りたたみの有無とは独立に決める
+   * (デバイスコード方式は折りたたみを出さないため、パネルにリンクが要る)
+   */
   showFallbackLink: boolean;
 }
 
@@ -437,8 +440,8 @@ export function oauthPanelView(provider: ProviderAuthSetting, options: OAuthPane
     showManual,
     showPasteForm: showManual && pasteOpen,
     showPasteUnavailable: showManual && !pasteOpen,
-    showPopupNotice: showManual && options.popupNavigated === true,
-    showFallbackLink: showManual && options.popupNavigated !== true,
+    showPopupNotice: running && authUrl !== null && options.popupNavigated === true,
+    showFallbackLink: running && authUrl !== null && options.popupNavigated !== true,
   };
 }
 

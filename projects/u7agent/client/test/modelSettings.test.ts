@@ -1138,6 +1138,46 @@ test("進行中の副状態はデバイスコード → 承認待ち → URL 未
   assert.equal(device.instructions, DEVICE_INSTRUCTIONS);
   assert.equal(device.showManual, false, "デバイスコードは折りたたみを使わない");
   assert.equal(device.canCopyUrl, true);
+  assert.equal(device.showFallbackLink, true, "折りたたみを出さない副状態でも、遷移できていなければリンクを出す");
+  assert.equal(device.showPopupNotice, false, "遷移できていないときの補足は出さない");
+});
+
+// リンクは折りたたみの表示条件とは独立に、認可 URL と遷移結果だけで決める。
+// デバイスコード方式は折りたたみを出さないため、パネルにリンクが無いと承認ページへ行けない
+test("フォールバックのリンクは折りたたみと独立に、認可 URL と遷移結果で決まる", () => {
+  const deviceCode = { authUrl: DEVICE_URL, userCode: "ABCD-1234", instructions: DEVICE_INSTRUCTIONS };
+  const blocked = oauthPanelView(
+    provider({ supportsOAuth: true, canSignInHere: true, login: loginState("running", deviceCode) }),
+  );
+  assert.equal(blocked.showManual, false, "デバイスコードは折りたたみを出さない");
+  assert.equal(blocked.canCopyUrl, true);
+  assert.equal(blocked.showFallbackLink, true, "popup を開けなかったときはリンクを出す");
+  assert.equal(blocked.showPopupNotice, false);
+
+  const navigated = oauthPanelView(
+    provider({ supportsOAuth: true, canSignInHere: true, login: loginState("running", deviceCode) }),
+    { popupNavigated: true },
+  );
+  assert.equal(navigated.showFallbackLink, false, "遷移できたときはリンクを出さない");
+  assert.equal(navigated.showPopupNotice, true, "代わりにどこが開くかを出す");
+
+  // 承認待ちも同じ規則。折りたたみの中の貼り付けと、パネルのリンクは別の導線
+  const authorizing = oauthPanelView(
+    provider({
+      supportsOAuth: true,
+      canSignInHere: true,
+      login: loginState("running", { authUrl: AUTH_URL, instructions: AUTHORIZE_INSTRUCTIONS }),
+    }),
+  );
+  assert.equal(authorizing.showManual, true);
+  assert.equal(authorizing.showFallbackLink, true);
+
+  // 終端は認可 URL を公開しないため、リンクも補足も出ない
+  const finished = oauthPanelView(
+    provider({ supportsOAuth: true, canSignInHere: true, login: loginState("succeeded") }),
+  );
+  assert.equal(finished.showFallbackLink, false);
+  assert.equal(finished.showPopupNotice, false);
 });
 
 test("進行中の主文は progress に置き換えられず、progress は補助行として残る", () => {
