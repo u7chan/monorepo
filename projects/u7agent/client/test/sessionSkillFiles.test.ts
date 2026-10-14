@@ -58,6 +58,7 @@ test("描画: 作業フォルダ面 (既定) は従来どおりの外装のま�
   const html = renderPanel(DEFAULT_FILES_MODE);
   assert.ok(html.includes('aria-label="作業環境"'), "面の名前が変わった");
   assert.ok(html.includes(">作業環境<"), "見出しが変わった");
+  assert.ok(html.includes(".u7agent/sessions/s1"), "root が出ていない");
   assert.ok(html.includes(">環境変数<"), "環境変数タブが無い");
   assert.ok(html.includes("再読み込み"), "作業フォルダ面の操作行が無い");
   assert.ok(!html.includes("作業フォルダへ戻る"), "作業フォルダ面に戻る導線が出ている");

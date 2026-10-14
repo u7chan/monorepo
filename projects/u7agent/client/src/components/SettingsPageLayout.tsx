@@ -15,6 +15,8 @@ export type SettingsPageLayoutProps = SettingsPageProps & {
   actions?: ReactNode;
   /** 本文の上に置くタブ行 (role="tablist")。無いページでは行ごと出さない */
   tabs?: ReactNode;
+  /** タブ行と本文の間に置く面ツールバー (TabToolbar)。操作を持たない面では行ごと出さない */
+  toolbar?: ReactNode;
   /** aria-live で読み上げる */
   note?: { text: string; error: boolean };
   children: ReactNode;
@@ -30,6 +32,7 @@ export function SettingsPageLayout({
   caption,
   actions,
   tabs,
+  toolbar,
   note,
   singleColumn = false,
   onBack,
@@ -41,7 +44,11 @@ export function SettingsPageLayout({
     <section
       className={cn(
         "grid h-full min-h-0 grid-cols-1 overflow-hidden",
-        tabs ? "grid-rows-[auto_auto_minmax(0,1fr)_auto]" : "grid-rows-[auto_minmax(0,1fr)_auto]",
+        tabs && toolbar
+          ? "grid-rows-[auto_auto_auto_minmax(0,1fr)_auto]"
+          : tabs || toolbar
+            ? "grid-rows-[auto_auto_minmax(0,1fr)_auto]"
+            : "grid-rows-[auto_minmax(0,1fr)_auto]",
       )}
     >
       <header
@@ -86,6 +93,8 @@ export function SettingsPageLayout({
       </header>
 
       {tabs}
+
+      {toolbar}
 
       {children}
 

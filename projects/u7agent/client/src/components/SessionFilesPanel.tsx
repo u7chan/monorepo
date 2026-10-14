@@ -18,6 +18,7 @@ import { FileBrowser } from "./FileBrowser";
 import { GitBranchBadge } from "./GitBranchBadge";
 import { CloseIcon } from "./icons";
 import { ReloadButton } from "./ReloadButton";
+import { TabToolbar } from "./TabToolbar";
 
 export type SessionFilesPanelProps = {
   /** 作業フォルダ (ワークスペース root 相対)。パネル / シートの root */
@@ -109,21 +110,19 @@ function SessionFilesContent({
       ) : null}
       {active === "files" ? (
         <div className="grid min-h-0 grid-rows-[auto_minmax(0,1fr)]">
-          {/* root と「再読み込み」は作業フォルダタブ専用 (環境変数タブは自前の toolbar を持つ)。
-              root は nowrap なので切り詰めない全文幅が最小サイズになる。min-w-0 でこの行を縮め、あふれは
-              code の truncate に任せる (縮めないと列の幅をこの行が決めてしまう) */}
-          <div className="flex min-w-0 flex-wrap items-center justify-between gap-x-2 gap-y-1 border-b border-line px-4 py-2">
-            {/* 新規会話ではプロジェクトのフォルダを指すため、ラベルだけでなく root も出す。1 段に収まらない
-                面でバッジを同じ行へ残すと縮小配分で数文字に潰れるため、折り返して次の段へ落とす */}
-            <div className="flex min-w-0 flex-1 flex-wrap items-center gap-x-1.5 gap-y-1">
-              <code className="min-w-0 truncate text-2xs leading-normal text-ink-muted" title={root}>
-                {root}
-              </code>
-              {/* repo の外では出さない (ブランチは一覧の表示を止める情報ではない) */}
-              {branch ? <GitBranchBadge branch={branch} /> : null}
-            </div>
-            <ReloadButton onClick={() => setManualReload((count) => count + 1)}>再読み込み</ReloadButton>
-          </div>
+          {/* この帯は作業フォルダ面だけが持つ (環境変数面の帯は EnvVarsTab が描く) */}
+          <TabToolbar
+            context={
+              <>
+                <code className="min-w-0 truncate text-2xs leading-normal text-ink-muted" title={root}>
+                  {root}
+                </code>
+                {/* repo の外では出さない (ブランチは一覧の表示を止める情報ではない) */}
+                {branch ? <GitBranchBadge branch={branch} /> : null}
+              </>
+            }
+            actions={<ReloadButton onClick={() => setManualReload((count) => count + 1)}>再読み込み</ReloadButton>}
+          />
           {/* singleColumn の sheet は全画面 modal で、入力欄へドロップできない */}
           <FileBrowser
             root={root}

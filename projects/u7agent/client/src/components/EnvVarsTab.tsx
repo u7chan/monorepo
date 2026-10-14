@@ -23,6 +23,7 @@ import {
 import type { SecretItem, SecretKind, SecretsListResponse } from "../types";
 import { CheckIcon, CopyIcon, EyeIcon, PlusIcon } from "./icons";
 import { ReloadButton } from "./ReloadButton";
+import { TabToolbar } from "./TabToolbar";
 import { useConfirm } from "./ConfirmProvider";
 import { RowMenu } from "./RowMenu";
 
@@ -180,23 +181,27 @@ export function EnvVarsTab({ scope, reloadToken }: EnvVarsTabProps) {
 
   return (
     <div className="min-h-0 min-w-0 scrollbar-thin overflow-y-auto">
-      <div className="flex flex-wrap items-center justify-end gap-2 border-b border-line px-4 py-2">
-        {showForm ? null : (
-          <button
-            type="button"
-            onClick={() => {
-              closeForm();
-              setKind("secret");
-              setForm({ mode: "create" });
-            }}
-            className="btn-quiet"
-          >
-            <PlusIcon />
-            追加
-          </button>
-        )}
-        <ReloadButton onClick={reload}>再読み込み</ReloadButton>
-      </div>
+      <TabToolbar
+        actions={
+          <>
+            {showForm ? null : (
+              <button
+                type="button"
+                onClick={() => {
+                  closeForm();
+                  setKind("secret");
+                  setForm({ mode: "create" });
+                }}
+                className="btn-quiet"
+              >
+                <PlusIcon />
+                追加
+              </button>
+            )}
+            <ReloadButton onClick={reload}>再読み込み</ReloadButton>
+          </>
+        }
+      />
 
       <div className="grid gap-2 px-4 py-3">
         {list?.projectScoped ? <p className="text-2xs text-ink-faint">{ENV_PROJECT_NOTE}</p> : null}

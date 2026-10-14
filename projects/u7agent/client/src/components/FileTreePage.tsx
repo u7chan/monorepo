@@ -1,13 +1,14 @@
 import { useEffect, useRef, useState } from "react";
 import type { ArchiveSettings } from "../hooks/useArchiveSettings";
 import { cn } from "../lib/cn";
-import { FILE_TREE_ROOT, normalizeFileTreeRoot } from "../lib/fileTree";
+import { normalizeFileTreeRoot } from "../lib/fileTree";
 import { DEFAULT_FILES_SUBSECTION, FILES_SUBSECTIONS, type FilesSubsection } from "../lib/settingsNav";
 import { ArchiveExcludeSettings } from "./ArchiveExcludeSettings";
 import { FileBrowser } from "./FileBrowser";
 import { CheckIcon } from "./icons";
 import { ReloadButton } from "./ReloadButton";
 import { SettingsPageLayout, type SettingsPageProps } from "./SettingsPageLayout";
+import { TabToolbar } from "./TabToolbar";
 
 export type FileTreePageProps = SettingsPageProps & {
   /** ワークスペース root 相対 ("" や絶対パスは root へ畳まれる) */
@@ -57,45 +58,36 @@ export function FileTreePage({
   useEffect(() => {
     if (singleColumn) activeTabRef.current?.scrollIntoView({ block: "nearest", inline: "nearest" });
   }, [singleColumn, filesSubsection]);
+  // 操作はタブごとに変える (ツリーは今の一覧の取り直し、除外は下書きの保存)
+  const actions = archive ? (
+    <>
+      <button type="button" className="btn-quiet" disabled={!dirty || saving} onClick={discard}>
+        破棄
+      </button>
+      <button
+        type="button"
+        className="btn-quiet"
+        disabled={!settings?.overridden || saving}
+        onClick={() => void reset()}
+      >
+        既定に戻す
+      </button>
+      <button type="button" className="btn-primary" disabled={!dirty || saving} onClick={() => void save()}>
+        <CheckIcon />
+        保存
+      </button>
+    </>
+  ) : (
+    <ReloadButton onClick={() => setReloadToken((token) => token + 1)}>再読み込み</ReloadButton>
+  );
 
   return (
     <SettingsPageLayout
       eyebrow="FILES"
       title="ファイル"
-      // 表示も root 相対に揃える。ワークスペース root は "/" で示す (tree の起点と一致させる)
-      caption={
-        archive ? (
-          "ファイルツリーのダウンロード（フォルダは ZIP）から落とす名前を決めます。"
-        ) : (
-          <code className="block truncate text-1xs leading-normal text-ink-muted">
-            {rootPath === FILE_TREE_ROOT ? "/" : rootPath}
-          </code>
-        )
-      }
-      // 操作はタブごとに変える (ツリーは今の一覧の取り直し、除外は下書きの保存)
-      actions={
-        archive ? (
-          <>
-            <button type="button" className="btn-quiet" disabled={!dirty || saving} onClick={discard}>
-              破棄
-            </button>
-            <button
-              type="button"
-              className="btn-quiet"
-              disabled={!settings?.overridden || saving}
-              onClick={() => void reset()}
-            >
-              既定に戻す
-            </button>
-            <button type="button" className="btn-primary" disabled={!dirty || saving} onClick={() => void save()}>
-              <CheckIcon />
-              保存
-            </button>
-          </>
-        ) : (
-          <ReloadButton onClick={() => setReloadToken((token) => token + 1)}>再読み込み</ReloadButton>
-        )
-      }
+      // ツリーの root は常にワークスペース root ("/") で、面を選ぶ情報にならないため caption を出さない
+      caption={archive ? "ファイルツリーのダウンロード（フォルダは ZIP）から落とす名前を決めます。" : undefined}
+      toolbar={<TabToolbar actions={actions} />}
       tabs={
         <div
           role="tablist"
