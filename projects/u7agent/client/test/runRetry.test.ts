@@ -37,7 +37,7 @@ test("ラベルはデスクトップで短くし、singleColumn は送信内容�
 test("再実行カードは時間をおけば回復し得る分類だけに出す", () => {
   assert.deepEqual(retryableRunError("error", error("rate_limit")), error("rate_limit"));
   assert.deepEqual(retryableRunError("error", error("unknown")), error("unknown"));
-  for (const code of ["auth_required", "insufficient_quota", "context_overflow"] as const) {
+  for (const code of ["auth_required", "oauth_expired", "insufficient_quota", "context_overflow"] as const) {
     assert.equal(retryableRunError("error", error(code)), undefined, `${code} は同じ送信では直らない`);
   }
   assert.equal(retryableRunError("error", undefined), undefined, "分類コードが無い縮退では出さない");

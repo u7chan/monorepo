@@ -221,6 +221,7 @@ export type ToolTiming = { startedAt: number; endedAt: number };
 /** ラン失敗の公開分類。上流の原文は公開せず、このコードだけを SSE / payload に載せる */
 export const RunErrorCodeSchema = z.enum([
   "auth_required",
+  "oauth_expired",
   "insufficient_quota",
   "model_unavailable",
   "context_overflow",

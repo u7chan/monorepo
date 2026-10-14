@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { AUTH_REQUIRED_MESSAGE } from "../src/agent";
 import { createAgentCatalog } from "../src/agents";
+import { composeRunError } from "../src/error-classify";
 import { ProjectStore } from "../src/projects";
 import { computeMessageMetrics, SessionStore } from "../src/sessions";
 import type { ContextUsage, EventEntry, Usage } from "../src/schema";
@@ -702,6 +703,11 @@ test("normalizes the run error at the settlement callers, including falsy thrown
     { thrown: 0, status: "error", error: unknown },
     { thrown: new Error("モデルの実行に失敗しました"), status: "error", error: unknown },
     { thrown: new Error("No API key found"), status: "error", error: AUTH_REQUIRED_MESSAGE },
+    {
+      thrown: new Error('OAuth refresh failed for openai-codex: {"error":"invalid_grant"}'),
+      status: "error",
+      error: composeRunError({ code: "oauth_expired" }, 0),
+    },
     {
       thrown: new Error("429 Rate limit reached for org-SECRET in tokens per min (TPM): Limit 200000"),
       status: "error",
