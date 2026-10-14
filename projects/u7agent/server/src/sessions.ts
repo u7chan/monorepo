@@ -245,6 +245,7 @@ export function resolveAgentSkills(
       skillIds: [...agent.skillIds],
       // 未指定のときはキーを省略する (`[]` = すべて OFF は落とさない)
       ...(agent.commonSkillNames === undefined ? {} : { commonSkillNames: [...agent.commonSkillNames] }),
+      ...(agent.builtinSkillNames === undefined ? {} : { builtinSkillNames: [...agent.builtinSkillNames] }),
       skills: skills.map((skill): AgentSkillInfo => ({
         id: skill.id,
         name: skill.name,
@@ -417,6 +418,8 @@ export class SessionStore {
       agentSkills: agentInfo.skills,
       // 共通スキルの許可リストは注入経路 (skillsOverride) にも渡す (一覧と /skill: の解決と揃える)
       ...(agentInfo.commonSkillNames === undefined ? {} : { commonSkillNames: agentInfo.commonSkillNames }),
+      // 組み込みスキルの許可リストも同じく注入経路・read の横取り・system prompt の案内へ渡す
+      ...(agentInfo.builtinSkillNames === undefined ? {} : { builtinSkillNames: agentInfo.builtinSkillNames }),
       model: model ?? agent.model,
       thinkingLevel: thinkingLevel ?? agent.thinkingLevel,
       cwd: workdir,
@@ -616,6 +619,8 @@ export class SessionStore {
       agentSkills: meta.agent.skills,
       // 共通スキルの許可リストも meta のスナップショットから渡す (定義編集を遡及させない)
       ...(meta.agent.commonSkillNames === undefined ? {} : { commonSkillNames: meta.agent.commonSkillNames }),
+      // 組み込みスキルの許可リストも同じく meta のスナップショットから渡す
+      ...(meta.agent.builtinSkillNames === undefined ? {} : { builtinSkillNames: meta.agent.builtinSkillNames }),
       model: restored.model,
       thinkingLevel: restored.thinkingLevel,
       cwd: workdir,

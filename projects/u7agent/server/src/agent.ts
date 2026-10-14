@@ -17,6 +17,7 @@ import { readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { COMMON_SKILLS_DIR } from "./app-paths";
 import { createAskUserToolDefinitions, withAskUserTool, type AskUserHost } from "./ask-user-tool";
+import { builtinSkillEnabled } from "./builtin-skills";
 import { catalogSkillIndexForSession } from "./catalog-skills";
 import { discoverSessionFileSkills } from "./file-skills";
 import { createImageToolDefinitions, IMAGE_GENERATION_PROMPT_LINES, sessionToolNames } from "./image-tools";
@@ -86,8 +87,20 @@ export function ignoredModelEnvironmentVariables(env: NodeJS.ProcessEnv = proces
  */
 export function appendSystemPrompt(
   rootCwd: string,
-  options: { imageGeneration?: boolean; speechGeneration?: boolean } = {},
+  options: {
+    imageGeneration?: boolean;
+    speechGeneration?: boolean;
+    /** エージェント定義の組み込みスキル許可リスト。外したスキルへの案内文はここで落とす */
+    builtinSkillNames?: readonly string[] | undefined;
+  } = {},
 ): string {
+  // 外した組み込みスキルを system prompt が指したままだと、存在しないスキルを読みに行く (docs/api-catalog.md)
+  const serveSkillClause = builtinSkillEnabled("serve", options.builtinSkillNames)
+    ? " and follow the bundled `serve` skill"
+    : "";
+  const skillCreatorClause = builtinSkillEnabled("skill-creator", options.builtinSkillNames)
+    ? ", and follow the bundled `skill-creator` skill for the location, layout, frontmatter and verification"
+    : "";
   return `
 You are running inside a small browser UI.
 Respond in Japanese by default, unless the user asks for another language.
@@ -107,12 +120,12 @@ Prefer curl over one-off \`node -e\` fetch scripts; use node fetch only as a fal
 In the deployed container: node 24, npm/npx, git, ripgrep (rg), fd, tar/gzip, unzip, zip, jq, file, xz, openssl, python 3.13, uv.
 Not installed there: wget, ffmpeg, imagemagick.
 
-To let the user inspect a served app in their browser, drive it with the \`serve\` tool (the UI calls it a service) and follow the bundled \`serve\` skill. The app must listen on 0.0.0.0:8080; only one app is served across all conversations, and starting replaces whatever is served now. Container recreation stops it, and the UI does not restore it.
+To let the user inspect a served app in their browser, drive it with the \`serve\` tool (the UI calls it a service)${serveSkillClause}. The app must listen on 0.0.0.0:8080; only one app is served across all conversations, and starting replaces whatever is served now. Container recreation stops it, and the UI does not restore it.
 
 Python: keep dependencies inside the working directory. Create the environment at \`.venv\` directly under it (\`uv venv .venv\`) and install packages with \`uv pip install --python .venv/bin/python <package>\`; \`python3 -m venv .venv\` also works and \`uv venv --seed\` adds pip. Do not install into the system area (PEP 668 and the non-root user refuse it).
 
 When a task involves the project, inspect it with the available tools instead of guessing.
-When the user asks to create or change a reusable skill, put it in the \`.agents/skills\` directory under the working directory, or in \`${join(rootCwd, COMMON_SKILLS_DIR)}\` for a standalone chat, and follow the bundled \`skill-creator\` skill for the location, layout, frontmatter and verification.
+When the user asks to create or change a reusable skill, put it in the \`.agents/skills\` directory under the working directory, or in \`${join(rootCwd, COMMON_SKILLS_DIR)}\` for a standalone chat${skillCreatorClause}.
 Do not reveal private chain-of-thought; provide a short useful summary of your reasoning instead.
 ${options.imageGeneration ? IMAGE_GENERATION_PROMPT_LINES.join("\n") : ""}
 ${options.speechGeneration ? SPEECH_GENERATION_PROMPT_LINES.join("\n") : ""}
@@ -170,6 +183,11 @@ export interface CreateSessionInput {
    * スナップショットから渡し、注入経路 (skillsOverride) と解決経路で同じ値にする。
    */
   commonSkillNames?: string[];
+  /**
+   * 組み込みスキルの許可リスト。undefined = 全部 ON、`[]` = すべて OFF。注入経路 (skillsOverride)・
+   * `read` の横取り・system prompt の案内で同じ値にする (作成 / 復元ではスナップショットから渡す)。
+   */
+  builtinSkillNames?: string[];
   /** 子モード。読み取り専用ツールだけを公開し、常時有効群とスキル発見を落とす (既定 "chat") */
   mode?: SessionMode;
 }
@@ -801,6 +819,7 @@ export async function createPiBff({ cwd = process.cwd() }: { cwd?: string } = {}
     promptSnapshot,
     agentSkills = [],
     commonSkillNames,
+    builtinSkillNames,
     mode = "chat",
   }: CreateSessionInput = {}): Promise<{ session: unknown; promptSnapshot: PromptSnapshot }> {
     const investigation = mode === "investigation";
@@ -854,6 +873,7 @@ export async function createPiBff({ cwd = process.cwd() }: { cwd?: string } = {}
           rootCwd,
           relativeCwd,
           ...(commonSkillNames === undefined ? {} : { commonSkillNames }),
+          ...(builtinSkillNames === undefined ? {} : { builtinSkillNames }),
         });
     // カタログスキルは索引 (name / description / location) だけを渡し、本文は promptSnapshot から
     // read / `/skill:` の展開が取り出す。ファイル / 組み込みと同名の行は索引からも落とす (一覧と一致)
@@ -877,6 +897,7 @@ export async function createPiBff({ cwd = process.cwd() }: { cwd?: string } = {}
           : appendSystemPrompt(rootCwd, {
               imageGeneration: contentGenerationEnabled,
               speechGeneration: contentGenerationEnabled,
+              ...(builtinSkillNames === undefined ? {} : { builtinSkillNames }),
             }),
         snapshot.agent,
       ].filter(Boolean),
@@ -928,6 +949,7 @@ export async function createPiBff({ cwd = process.cwd() }: { cwd?: string } = {}
           masker: secretMasker,
           tools: baseTools,
           catalogSkills: catalogSkillBodies,
+          ...(builtinSkillNames === undefined ? {} : { builtinSkillNames }),
           // 解決は exec のたびに行う (設定の変更は次の bash から効く)
           envForCwd: () => sessionEnv.value?.variablesFor(relativeCwd) ?? {},
         }),

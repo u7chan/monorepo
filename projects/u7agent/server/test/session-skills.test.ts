@@ -242,6 +242,22 @@ test("expandSkillCommand と一覧は許可リストで外した共通スキル�
   );
 });
 
+test("expandSkillCommand と一覧は外した組み込みスキルも同じに扱う", async () => {
+  const root = mkdtempSync(join(tmpdir(), "u7agent-expand-builtin-allowlist-"));
+  const [keep, drop] = BUILTIN_SKILLS;
+  assert.ok(keep && drop, "組み込みが 2 件以上ある");
+  const input: SessionSkillsInput = { rootCwd: root, relativeCwd: "", builtinSkillNames: [keep.name] };
+
+  // 外した名前は素通し (未知のスキルと同じ)。本文は registry から取るので client 無しでも解決できる
+  assert.equal(await expandSkillCommand(`/skill:${drop.name}`, input), `/skill:${drop.name}`);
+  const block = parseSkillBlock(await expandSkillCommand(`/skill:${keep.name}`, input));
+  assert.equal(block?.location, builtinSkillPath(root, keep.name));
+  assert.deepEqual(
+    (await listSessionSkills(input)).map((item) => [item.name, item.scope]),
+    [[keep.name, "builtin"]],
+  );
+});
+
 test("resolveSessionSkills はサンドボックス無しでも組み込みとカタログを返す", async () => {
   const root = mkdtempSync(join(tmpdir(), "u7agent-session-skills-"));
   const resolved = await resolveSessionSkills({

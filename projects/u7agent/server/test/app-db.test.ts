@@ -1111,7 +1111,7 @@ test("migrates a v10 db additively and keeps the secrets table across reopen", (
     raw.close();
 
     const first = AppDb.open({ storeDir: dir });
-    assert.equal(APP_DB_SCHEMA_VERSION, 17);
+    assert.equal(APP_DB_SCHEMA_VERSION, 18);
     // 加算移行なので既存の行は残り、secrets は行が無い = 未設定で始まる
     assert.deepEqual(first.listProjects(), [project("p1", "proj-a")]);
     assert.deepEqual(first.getServeCommand("proj-a"), { cwd: "proj-a", command: "pnpm dev", updatedAt: 1 });
@@ -1631,7 +1631,7 @@ CREATE TABLE IF NOT EXISTS speech_catalog (
 );
 `;
 
-test("migrates a v16 db additively and keeps NULL and [] of commonSkillNames apart", () => {
+test("migrates a v16 db additively and keeps NULL and [] of the skill allowlists apart", () => {
   const dir = tempStoreDir();
   try {
     const raw = new DatabaseSync(join(dir, APP_DB_FILENAME));
@@ -1651,12 +1651,13 @@ test("migrates a v16 db additively and keeps NULL and [] of commonSkillNames apa
     assert.deepEqual(first.listSkills(), [skill("s1")]);
     // NULL = 未指定。`?? []` で読むと「すべて OFF」に化けるのでキーごと省略される
     assert.equal(Object.hasOwn(first.getAgent("a1") ?? {}, "commonSkillNames"), false);
+    assert.equal(Object.hasOwn(first.getAgent("a1") ?? {}, "builtinSkillNames"), false);
 
     const migrated = first.getAgent("a1");
     assert.ok(migrated);
-    first.saveAgent({ ...migrated, commonSkillNames: [] });
+    first.saveAgent({ ...migrated, commonSkillNames: [], builtinSkillNames: [] });
     first.saveAgent(agent("a2", ["s1"])); // 未指定のまま (NULL)
-    first.saveAgent({ ...agent("a3", ["s1"]), commonSkillNames: ["writer", "gh"] });
+    first.saveAgent({ ...agent("a3", ["s1"]), commonSkillNames: ["writer", "gh"], builtinSkillNames: ["serve"] });
     first.close();
 
     // 列は既存の列の後ろに足され、書き込みは `[]` を "[]" として残す
@@ -1675,18 +1676,20 @@ test("migrates a v16 db additively and keeps NULL and [] of commonSkillNames apa
         "skillIds",
         "suggestions",
         "commonSkillNames",
+        "builtinSkillNames",
       ],
     );
-    const rows = check.prepare("SELECT id, commonSkillNames FROM agents ORDER BY rowid").all() as {
+    const rows = check.prepare("SELECT id, commonSkillNames, builtinSkillNames FROM agents ORDER BY rowid").all() as {
       id: string;
       commonSkillNames: unknown;
+      builtinSkillNames: unknown;
     }[];
     assert.deepEqual(
-      rows.map((row) => [row.id, row.commonSkillNames]),
+      rows.map((row) => [row.id, row.commonSkillNames, row.builtinSkillNames]),
       [
-        ["a1", "[]"],
-        ["a2", null],
-        ["a3", '["writer","gh"]'],
+        ["a1", "[]", "[]"],
+        ["a2", null, null],
+        ["a3", '["writer","gh"]', '["serve"]'],
       ],
     );
     assert.equal(Number(check.prepare("PRAGMA user_version").get()?.user_version), APP_DB_SCHEMA_VERSION);
@@ -1695,8 +1698,11 @@ test("migrates a v16 db additively and keeps NULL and [] of commonSkillNames apa
     // 開き直しても NULL と "[]" は区別したまま読める
     const reopened = AppDb.open({ storeDir: dir });
     assert.deepEqual(reopened.getAgent("a1")?.commonSkillNames, []);
+    assert.deepEqual(reopened.getAgent("a1")?.builtinSkillNames, []);
     assert.equal(Object.hasOwn(reopened.getAgent("a2") ?? {}, "commonSkillNames"), false);
+    assert.equal(Object.hasOwn(reopened.getAgent("a2") ?? {}, "builtinSkillNames"), false);
     assert.deepEqual(reopened.getAgent("a3")?.commonSkillNames, ["writer", "gh"]);
+    assert.deepEqual(reopened.getAgent("a3")?.builtinSkillNames, ["serve"]);
     reopened.close();
   } finally {
     rmSync(dir, { recursive: true, force: true });

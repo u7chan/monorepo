@@ -46,13 +46,13 @@ export const AgentSuggestionSchema = z.object({
 export type AgentSuggestion = z.infer<typeof AgentSuggestionSchema>;
 
 /**
- * 共通スキル (`<root>/.agents/skills`) をエージェント別に絞る許可リストの上限。配列全体は body の
+ * スキル許可リスト (`commonSkillNames` / `builtinSkillNames`) の上限。配列全体は body の
  * 64 KiB でも押さえられるが、中身を正規化する防御線としてここにも置く。1 件の長さはワークスペースの
  * 1 セグメント名の上限 (`sandbox/protocol.ts` の `SANDBOX_MAX_ENTRY_NAME_LENGTH`) と揃える
  * (値は import せず複製。揃え方は `FilePreviewSchema` と同じ)。
  */
-export const COMMON_SKILL_NAMES_MAX = 200;
-export const COMMON_SKILL_NAME_MAX = 200;
+export const SKILL_NAMES_MAX = 200;
+export const SKILL_NAME_MAX = 200;
 
 export const AgentDefSchema = z.object({
   id: z.string(),
@@ -65,6 +65,11 @@ export const AgentDefSchema = z.object({
    * プロジェクト / 組み込み / カタログのスキルは対象外 (docs/api-catalog.md)。
    */
   commonSkillNames: z.array(z.string()).optional(),
+  /**
+   * 組み込みスキルの許可リスト。未指定 = 全部 ON、`[]` = すべて OFF (この 2 つは混同しない)。
+   * プロジェクト / 共通 / カタログのスキルは対象外 (docs/api-catalog.md#組み込みスキル)。
+   */
+  builtinSkillNames: z.array(z.string()).optional(),
   /** webp / png の data URL。未指定のときはキー自体を省略する (null は保存・応答に現れない) */
   icon: z.string().optional(),
   // 未指定のときはキー自体を省略する (null は保存・応答に現れない)
@@ -82,8 +87,8 @@ export const CatalogSchema = z.object({
 export type Catalog = z.infer<typeof CatalogSchema>;
 
 /**
- * 全エージェントで常時有効な同梱スキル 1 件。`skillIds` では外せないため、カタログの `skills` とは
- * 別フィールドで返し、エージェント編集のスキル欄がチェック済み・無効の行として出せるようにする。
+ * アプリに同梱する組み込みスキル 1 件。`skillIds` では外せず、エージェント定義の `builtinSkillNames`
+ * でエージェント別に外すため、カタログの `skills` とは別フィールドで返し、スキル欄の行に使う。
  */
 export const BuiltinSkillInfoSchema = z.object({
   name: z.string(),
@@ -116,6 +121,8 @@ export const AgentPayloadInfoSchema = z.object({
   skillIds: z.array(z.string()),
   /** 共通スキルの許可リスト。未指定 = 全可視、`[]` = すべて OFF (未指定のときはキーを省略する) */
   commonSkillNames: z.array(z.string()).optional(),
+  /** 組み込みスキルの許可リスト。未指定 = 全部 ON、`[]` = すべて OFF (未指定のときはキーを省略する) */
+  builtinSkillNames: z.array(z.string()).optional(),
   skills: z.array(AgentSkillInfoSchema),
 });
 export type AgentPayloadInfo = z.infer<typeof AgentPayloadInfoSchema>;
@@ -1510,7 +1517,8 @@ const agentBodyShape = {
   description: z.string().optional(),
   systemPrompt: z.string().optional(),
   skillIds: z.array(z.string()).nullish(),
-  commonSkillNames: z.array(z.string().max(COMMON_SKILL_NAME_MAX)).max(COMMON_SKILL_NAMES_MAX).nullish(),
+  commonSkillNames: z.array(z.string().max(SKILL_NAME_MAX)).max(SKILL_NAMES_MAX).nullish(),
+  builtinSkillNames: z.array(z.string().max(SKILL_NAME_MAX)).max(SKILL_NAMES_MAX).nullish(),
   icon: z.string().nullish(),
   model: ModelRefSchema.nullish(),
   thinkingLevel: ThinkingLevelSchema.nullish(),

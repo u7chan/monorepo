@@ -62,6 +62,7 @@ export function createSessionRoutes({
     agentSkills: record.agent.skills,
     // 作成時に固定したエージェントのスナップショットから渡す (定義編集を遡及させない)
     commonSkillNames: record.agent.commonSkillNames,
+    builtinSkillNames: record.agent.builtinSkillNames,
   });
 
   const stop = async (c: Context) => {
@@ -225,6 +226,7 @@ export function createSessionRoutes({
           agentSkills: agentInfo.skills,
           // セッション作成と同じ選択を反映する (新規チャットのピッカーと作成後の一覧を一致させる)
           commonSkillNames: agentInfo.commonSkillNames,
+          builtinSkillNames: agentInfo.builtinSkillNames,
           strict: true,
         });
         return c.json({ cwd: relativeCwd, projectSkills: hasProjectSkills(relativeCwd), skills });

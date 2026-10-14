@@ -5,8 +5,15 @@ import type { AgentDef } from "../src/types";
 
 // api.ts (location.origin を読む) を辿るため、node では最小の shim を置いてから読み込む
 globalThis.location ??= { origin: "http://localhost" } as Location;
-const { agentFormOf, agentPayloadOf, withAllCommonSkillsVisible, withCommonSkillToggled } =
-  await import("../src/components/agent-settings/AgentEditorForm");
+const {
+  agentFormOf,
+  agentPayloadOf,
+  withAllBuiltinSkillsDisabled,
+  withAllBuiltinSkillsEnabled,
+  withAllCommonSkillsVisible,
+  withBuiltinSkillToggled,
+  withCommonSkillToggled,
+} = await import("../src/components/agent-settings/AgentEditorForm");
 
 function agent(overrides: Partial<AgentDef> = {}): AgentDef {
   return { id: "agent-a", name: "実装", description: "", systemPrompt: "", skillIds: [], ...overrides };
@@ -73,4 +80,37 @@ test("一覧を取得できないときの下書きは編集前のまま送る",
   // 触っていない下書きがそのまま渡り、未指定ならキーが落ち、[] ならすべて OFF のままであることを固定する
   assert.equal(Object.hasOwn(sent(agentFormOf(agent())), "commonSkillNames"), false);
   assert.deepEqual(sent(agentFormOf(agent({ commonSkillNames: [] }))).commonSkillNames, []);
+});
+
+test("組み込みの下書きも未指定 / 空の許可リスト / 明示リストを区別する", () => {
+  assert.equal(agentFormOf(agent()).builtinSkillNames, undefined);
+  assert.equal(agentFormOf(undefined).builtinSkillNames, undefined);
+  assert.deepEqual(agentFormOf(agent({ builtinSkillNames: [] })).builtinSkillNames, []);
+  assert.deepEqual(agentFormOf(agent({ builtinSkillNames: ["serve"] })).builtinSkillNames, ["serve"]);
+  // カタログの配列を直接編集しないようコピーして持つ
+  const catalogNames = ["serve"];
+  assert.notEqual(agentFormOf(agent({ builtinSkillNames: catalogNames })).builtinSkillNames, catalogNames);
+});
+
+test("組み込みの全外しは空の明示リスト、使用への復帰は null で送る", () => {
+  const disabled = sent(withAllBuiltinSkillsDisabled(agentFormOf(agent())));
+  assert.deepEqual(disabled.builtinSkillNames, []);
+
+  const enabled = sent(withAllBuiltinSkillsEnabled(agentFormOf(agent({ builtinSkillNames: [] }))));
+  assert.equal(Object.hasOwn(enabled, "builtinSkillNames"), true);
+  assert.equal(enabled.builtinSkillNames, null);
+});
+
+test("組み込みのトグルは未指定から見えている一覧を固定し、明示リストでは増減だけする", () => {
+  const form = withBuiltinSkillToggled(agentFormOf(agent()), "beta", false, VISIBLE);
+  assert.deepEqual(form.builtinSkillNames, ["alpha"]);
+  assert.deepEqual(sent(form).builtinSkillNames, ["alpha"]);
+
+  const explicit = { ...agentFormOf(agent()), builtinSkillNames: ["alpha", "gone"] };
+  assert.deepEqual(withBuiltinSkillToggled(explicit, "alpha", false, VISIBLE).builtinSkillNames, ["gone"]);
+  assert.deepEqual(withBuiltinSkillToggled(explicit, "beta", true, VISIBLE).builtinSkillNames, [
+    "alpha",
+    "gone",
+    "beta",
+  ]);
 });

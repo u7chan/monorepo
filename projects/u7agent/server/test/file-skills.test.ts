@@ -187,6 +187,69 @@ test("discoverSessionFileSkills は許可リストで発見とモデル索引を
     all.response.skills.map((row) => row.name),
     ["keep", "drop", ...builtinNames],
   );
+
+  // 組み込みの許可リストも同じ経路で索引から落ちる (`[]` は全部 OFF)
+  const builtinOff = await discoverSessionFileSkills(client, {
+    rootCwd: root,
+    relativeCwd: "",
+    builtinSkillNames: [],
+  });
+  assert.deepEqual(
+    builtinOff.response.skills.map((row) => row.name),
+    ["keep", "drop"],
+  );
+  assert.deepEqual(fileSkillNamesForPrompt(builtinOff), ["keep", "drop"]);
+
+  const builtinKept = await discoverSessionFileSkills(client, {
+    rootCwd: root,
+    relativeCwd: "",
+    builtinSkillNames: [builtinNames[0] as string],
+  });
+  assert.deepEqual(
+    builtinKept.response.skills.map((row) => row.name),
+    ["keep", "drop", builtinNames[0]],
+  );
+});
+
+test("builtinSkillNames は一意化の前に効き、外した組み込みと同名のプロジェクト側を浮上させる", () => {
+  const root = mkdtempSync(join(tmpdir(), "u7agent-file-skills-builtin-allowlist-"));
+  const [first, second] = BUILTIN_SKILLS;
+  assert.ok(first && second);
+  const overridingPath = join(root, "proj/.agents/skills", first.name, "SKILL.md");
+  const sources: FileSkillSource[] = [
+    { scope: "project", entries: [skillEntry(overridingPath, { name: first.name })] },
+    { scope: "builtin", entries: builtinSkillEntries(root) },
+  ];
+
+  // 未指定は従来どおり全部 ON。ファイル側が勝ち、組み込みは overridden の行として残る
+  const all = composeFileSkills(sources, root);
+  assert.deepEqual(
+    all.response.skills.map((row) => [row.name, row.scope, row.overridden]),
+    [
+      [first.name, "project", false],
+      [first.name, "builtin", true],
+      ...BUILTIN_SKILLS.slice(1).map((skill) => [skill.name, "builtin", false]),
+    ],
+  );
+
+  // `[]` は組み込みを全部落とす。一意化の前に当てるので同名のプロジェクト側が浮上し、影も消える
+  const none = composeFileSkills(sources, root, { builtinSkillNames: [] });
+  assert.deepEqual(
+    none.response.skills.map((row) => [row.name, row.scope, row.overridden]),
+    [[first.name, "project", false]],
+  );
+  assert.deepEqual(none.response.skills[0]?.shadowed, []);
+  assert.deepEqual(none.shadowed, []);
+
+  // 明示リストは指定した名前だけを残す
+  const onlySecond = composeFileSkills(sources, root, { builtinSkillNames: [second.name] });
+  assert.deepEqual(
+    onlySecond.response.skills.map((row) => [row.name, row.scope]),
+    [
+      [first.name, "project"],
+      [second.name, "builtin"],
+    ],
+  );
 });
 
 test("discoverSessionFileSkills はプロジェクト → 共通の順で発見する", async () => {

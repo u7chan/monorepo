@@ -3,6 +3,10 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import test from "node:test";
 import {
+  BUILTIN_SECTION_NOTE,
+  BUILTIN_SKILL_DISABLE_ALL_LABEL,
+  BUILTIN_SKILL_EXPLICIT_NOTE,
+  BUILTIN_SKILL_SHOW_ALL_LABEL,
   COMMON_SKILL_EXPLICIT_NOTE,
   COMMON_SKILL_SECTION_NOTE,
   COMMON_SKILL_SHOW_ALL_LABEL,
@@ -32,11 +36,13 @@ function renderSelector({
   builtinSkills = [{ name: "builtin", description: "" }],
   fileSkills = { status: "ready", skills: [commonSkill("alpha"), commonSkill("beta")] },
   commonSkillNames,
+  builtinSkillNames,
 }: {
   skills?: SkillDef[];
   builtinSkills?: BuiltinSkillInfo[];
   fileSkills?: FileSkillsState;
   commonSkillNames?: string[] | null;
+  builtinSkillNames?: string[] | null;
 } = {}): string {
   return renderToStaticMarkup(
     createElement(SkillSelector, {
@@ -48,6 +54,10 @@ function renderSelector({
       commonSkillNames,
       onToggleCommonSkill: () => {},
       onShowAllCommonSkills: () => {},
+      builtinSkillNames,
+      onToggleBuiltinSkill: () => {},
+      onShowAllBuiltinSkills: () => {},
+      onDisableAllBuiltinSkills: () => {},
     }),
   );
 }
@@ -57,15 +67,16 @@ function checkboxes(html: string): boolean[] {
   return [...html.matchAll(/<input[^>]*type="checkbox"[^>]*>/g)].map((match) => match[0].includes('checked=""'));
 }
 
-test("カタログスキルは選択でき、組み込みはチェック済みの無効行として出す", () => {
+test("カタログスキルも組み込みも、同じチェックで選べて外せる", () => {
   const html = renderSelector({ fileSkills: { status: "ready", skills: [] } });
   const inputs = [...html.matchAll(/<input[^>]*type="checkbox"[^>]*>/g)].map((match) => match[0]);
   assert.equal(inputs.length, 2);
-  assert.ok(inputs[0].includes('checked=""'));
-  assert.ok(!inputs[0].includes('disabled=""'));
-  assert.ok(inputs[1].includes('checked=""'));
-  assert.ok(inputs[1].includes('disabled=""'));
-  assert.ok(html.includes("割り当てを外すことはできません"));
+  // 組み込みはカタログと同じ操作可能な行 (無効行ではない)
+  for (const input of inputs) {
+    assert.ok(input.includes('checked=""'));
+    assert.ok(!input.includes('disabled=""'));
+  }
+  assert.ok(html.includes(BUILTIN_SECTION_NOTE));
 });
 
 test("共通スキルは未指定なら全チェックで出て、明示リストの OFF を再現する", () => {
@@ -117,6 +128,122 @@ test("一覧に無い保存名は落とさず、見つからない旨を出す",
   assert.ok(html.includes("見つかりません"));
   assert.ok(html.includes("gone"));
   assert.deepEqual(checkboxes(html), [true, false]);
+});
+
+test("組み込みは未指定なら全チェックで出て、明示リストの OFF を再現する", () => {
+  const unspecified = renderSelector({
+    skills: [],
+    builtinSkills: [
+      { name: "alpha", description: "" },
+      { name: "beta", description: "" },
+    ],
+    fileSkills: { status: "ready", skills: [] },
+  });
+  assert.deepEqual(checkboxes(unspecified), [true, true]);
+  assert.ok(unspecified.includes("使用 2 / 全 2"));
+  // 解除 (null) も未指定と同じ全部 ON
+  assert.deepEqual(
+    checkboxes(
+      renderSelector({
+        skills: [],
+        builtinSkills: [{ name: "alpha", description: "" }],
+        builtinSkillNames: null,
+        fileSkills: { status: "ready", skills: [] },
+      }),
+    ),
+    [true],
+  );
+
+  const explicit = renderSelector({
+    skills: [],
+    builtinSkills: [
+      { name: "alpha", description: "" },
+      { name: "beta", description: "" },
+    ],
+    builtinSkillNames: ["alpha"],
+    fileSkills: { status: "ready", skills: [] },
+  });
+  assert.deepEqual(checkboxes(explicit), [true, false]);
+  assert.ok(explicit.includes("使用 1 / 全 2"));
+});
+
+test("空の組み込み明示リストはすべて OFF で出る", () => {
+  const html = renderSelector({
+    skills: [],
+    builtinSkills: [
+      { name: "alpha", description: "" },
+      { name: "beta", description: "" },
+    ],
+    builtinSkillNames: [],
+    fileSkills: { status: "ready", skills: [] },
+  });
+  assert.deepEqual(checkboxes(html), [false, false]);
+  assert.ok(html.includes("使用 0 / 全 2"));
+});
+
+test("組み込みの全外しと使用への復帰は、対象があるときだけ導線を出す", () => {
+  const allOn = renderSelector({
+    skills: [],
+    builtinSkills: [
+      { name: "alpha", description: "" },
+      { name: "beta", description: "" },
+    ],
+    fileSkills: { status: "ready", skills: [] },
+  });
+  assert.ok(allOn.includes(BUILTIN_SKILL_DISABLE_ALL_LABEL));
+  assert.ok(!allOn.includes(BUILTIN_SKILL_SHOW_ALL_LABEL));
+
+  const allOff = renderSelector({
+    skills: [],
+    builtinSkills: [
+      { name: "alpha", description: "" },
+      { name: "beta", description: "" },
+    ],
+    builtinSkillNames: [],
+    fileSkills: { status: "ready", skills: [] },
+  });
+  assert.ok(!allOff.includes(BUILTIN_SKILL_DISABLE_ALL_LABEL));
+  assert.ok(allOff.includes(BUILTIN_SKILL_SHOW_ALL_LABEL));
+  assert.ok(allOff.includes(BUILTIN_SKILL_EXPLICIT_NOTE));
+
+  const partial = renderSelector({
+    skills: [],
+    builtinSkills: [
+      { name: "alpha", description: "" },
+      { name: "beta", description: "" },
+    ],
+    builtinSkillNames: ["alpha"],
+    fileSkills: { status: "ready", skills: [] },
+  });
+  assert.ok(partial.includes(BUILTIN_SKILL_DISABLE_ALL_LABEL));
+  assert.ok(partial.includes(BUILTIN_SKILL_SHOW_ALL_LABEL));
+});
+
+test("外した組み込みの行には、ツールが別軸である注記を出す", () => {
+  const serve = [{ name: "serve", description: "" }];
+  const on = renderSelector({ skills: [], builtinSkills: serve, fileSkills: { status: "ready", skills: [] } });
+  assert.ok(!on.includes("サービス"));
+
+  const off = renderSelector({
+    skills: [],
+    builtinSkills: serve,
+    builtinSkillNames: [],
+    fileSkills: { status: "ready", skills: [] },
+  });
+  assert.ok(off.includes("外しても「サービス」ツールは使えます"));
+});
+
+test("組み込みの一覧に無い保存名は落とさず、見つからない旨を出す", () => {
+  const html = renderSelector({
+    skills: [],
+    builtinSkills: [{ name: "alpha", description: "" }],
+    builtinSkillNames: ["alpha", "gone"],
+    fileSkills: { status: "ready", skills: [] },
+  });
+  assert.ok(html.includes("見つかりません"));
+  assert.ok(html.includes("gone"));
+  assert.ok(html.includes("同梱物が入れ替わっても"));
+  assert.deepEqual(checkboxes(html), [true]);
 });
 
 test("取得失敗時は共通スキルの欄を出さず、理由を出す", () => {

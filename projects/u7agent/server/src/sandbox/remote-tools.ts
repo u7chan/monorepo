@@ -14,7 +14,12 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import type { SandboxToolClient } from "./client";
 import { catalogSkillNameForRequestedPath } from "../catalog-skills";
-import { builtinSkillForRequestedPath, formatBuiltinSkillBody, formatSkillBody } from "../builtin-skills";
+import {
+  builtinSkillEnabled,
+  builtinSkillForRequestedPath,
+  formatBuiltinSkillBody,
+  formatSkillBody,
+} from "../builtin-skills";
 import { wrapToolDefinitionWithSecretMasker } from "../secret-guard";
 import type { SecretMasker } from "../redact";
 
@@ -61,6 +66,11 @@ export interface RemoteToolDefinitionOptions {
    */
   catalogSkills?: readonly { name: string; body: string }[];
   /**
+   * 組み込みスキルの許可リスト (エージェント定義の `builtinSkillNames`)。undefined = 全部 ON、`[]` = すべて OFF。
+   * 外した組み込みの仮想パスは横取りせずサンドボックスへ委譲し、実体の無い普通のパスとして 404 になる。
+   */
+  builtinSkillNames?: readonly string[] | undefined;
+  /**
    * この実行の子プロセスへ足す環境変数 (作業フォルダの「変数」)。exec のたびに解決し、
    * bash のときだけサンドボックスへ渡す。未指定なら注入なし
    */
@@ -69,7 +79,7 @@ export interface RemoteToolDefinitionOptions {
 
 /** 戻り値は customTools として SDK へ渡す。すべて秘密マスクで包む。 */
 export function createRemoteToolDefinitions(options: RemoteToolDefinitionOptions): ToolDefinition[] {
-  const { cwd, rootCwd, sandboxCwd, client, masker, tools, catalogSkills = [], envForCwd } = options;
+  const { cwd, rootCwd, sandboxCwd, client, masker, tools, catalogSkills = [], builtinSkillNames, envForCwd } = options;
   const definitions: ToolDefinition[] = [];
   for (const name of tools) {
     if (!(REMOTE_TOOL_NAMES as readonly string[]).includes(name)) {
@@ -96,7 +106,7 @@ export function createRemoteToolDefinitions(options: RemoteToolDefinitionOptions
               const requested = (params as { path?: unknown } | undefined)?.path;
               const page = params as { offset?: number; limit?: number };
               const builtin = builtinSkillForRequestedPath(requested, { cwd, rootCwd });
-              if (builtin) {
+              if (builtin && builtinSkillEnabled(builtin.name, builtinSkillNames)) {
                 const text = formatBuiltinSkillBody(builtin, { offset: page.offset, limit: page.limit });
                 return { content: [{ type: "text", text }] } as Awaited<ReturnType<AnyToolDefinition["execute"]>>;
               }

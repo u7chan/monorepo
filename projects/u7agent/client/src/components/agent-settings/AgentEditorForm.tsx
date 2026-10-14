@@ -31,6 +31,11 @@ export type AgentForm = {
    * `agentFormOf` は null を作らない (解除は「すべて表示に戻す」の 1 経路だけ)。
    */
   commonSkillNames?: string[] | null;
+  /**
+   * 組み込みスキルの許可リスト。意味は `commonSkillNames` と同じ (undefined = 未指定で全部 ON、
+   * null = 全部 ON へ戻す解除、配列 = 明示リストで [] はすべて OFF)。
+   */
+  builtinSkillNames?: string[] | null;
   /** data URL。null は未設定で、保存時は「指定解除」として送る */
   icon: string | null;
   /** null は保存時に「指定解除」として送る */
@@ -48,6 +53,7 @@ export function agentFormOf(agent: AgentDef | undefined): AgentForm {
     skillIds: agent ? [...agent.skillIds] : [],
     // [] は「すべて OFF」なので、undefined (未指定 = 全可視) へ潰さない
     commonSkillNames: agent?.commonSkillNames === undefined ? undefined : [...agent.commonSkillNames],
+    builtinSkillNames: agent?.builtinSkillNames === undefined ? undefined : [...agent.builtinSkillNames],
     icon: agent?.icon ?? null,
     model: agent?.model ? { ...agent.model } : null,
     thinkingLevel: agent?.thinkingLevel ?? null,
@@ -57,8 +63,8 @@ export function agentFormOf(agent: AgentDef | undefined): AgentForm {
 }
 
 /**
- * 保存ペイロード。`commonSkillNames` の undefined は `JSON.stringify` でキーごと落ちて現状維持 (作成では
- * 未指定 = 全可視) になり、null は解除として送られる。この 2 つは混同しない。
+ * 保存ペイロード。`commonSkillNames` / `builtinSkillNames` の undefined は `JSON.stringify` でキーごと落ちて
+ * 現状維持 (作成では未指定 = 全可視 / 全部 ON) になり、null は解除として送られる。この 2 つは混同しない。
  */
 export function agentPayloadOf(form: AgentForm): CreateAgentBody {
   return {
@@ -67,6 +73,7 @@ export function agentPayloadOf(form: AgentForm): CreateAgentBody {
     systemPrompt: form.systemPrompt,
     skillIds: form.skillIds,
     commonSkillNames: form.commonSkillNames,
+    builtinSkillNames: form.builtinSkillNames,
     // null はサーバー側で「指定解除」に正規化される。suggestions は空配列で解除
     icon: form.icon,
     model: form.model,
@@ -76,20 +83,38 @@ export function agentPayloadOf(form: AgentForm): CreateAgentBody {
 }
 
 /**
- * 共通スキルのチェック切替。未指定 / 解除 (どちらも全可視) から外すときは「いま見えている一覧 − 対象」を
- * 明示リストへ固定する (あとから増えた共通スキルを勝手に許可しないため)。明示リストでは対象の名前だけを
+ * 許可リストのチェック切替。未指定 / 解除 (どちらも全部 ON) から外すときは「いま見えている一覧 − 対象」を
+ * 明示リストへ固定する (あとから増えたスキルを勝手に許可しないため)。明示リストでは対象の名前だけを
  * 増減し、一覧に無い保存名 (削除・改名済み) は落とさない。
  */
+function withAllowlistToggled(
+  current: string[] | null | undefined,
+  name: string,
+  checked: boolean,
+  visibleNames: string[],
+): string[] {
+  const names = current === undefined || current === null ? visibleNames : current;
+  return checked ? (names.includes(name) ? names : [...names, name]) : names.filter((saved) => saved !== name);
+}
+
+/** 共通スキルのチェック切替。 */
 export function withCommonSkillToggled(
   form: AgentForm,
   name: string,
   checked: boolean,
   visibleNames: string[],
 ): AgentForm {
-  const current = form.commonSkillNames;
-  const names = current === undefined || current === null ? visibleNames : current;
-  const next = checked ? (names.includes(name) ? names : [...names, name]) : names.filter((saved) => saved !== name);
-  return { ...form, commonSkillNames: next };
+  return { ...form, commonSkillNames: withAllowlistToggled(form.commonSkillNames, name, checked, visibleNames) };
+}
+
+/** 組み込みスキルのチェック切替。 */
+export function withBuiltinSkillToggled(
+  form: AgentForm,
+  name: string,
+  checked: boolean,
+  visibleNames: string[],
+): AgentForm {
+  return { ...form, builtinSkillNames: withAllowlistToggled(form.builtinSkillNames, name, checked, visibleNames) };
 }
 
 /**
@@ -98,6 +123,19 @@ export function withCommonSkillToggled(
  */
 export function withAllCommonSkillsVisible(form: AgentForm): AgentForm {
   return { ...form, commonSkillNames: null };
+}
+
+/** 「すべて使用に戻す」。null を送って解除する (undefined は現状維持なので明示リストは戻せない) */
+export function withAllBuiltinSkillsEnabled(form: AgentForm): AgentForm {
+  return { ...form, builtinSkillNames: null };
+}
+
+/**
+ * 「すべて外す」。`[]` の明示リストにして、あとから同梱された分も自動では入れない
+ * (docs/api-catalog.md#組み込みスキル)。
+ */
+export function withAllBuiltinSkillsDisabled(form: AgentForm): AgentForm {
+  return { ...form, builtinSkillNames: [] };
 }
 
 export function AgentEditorForm({
@@ -201,6 +239,13 @@ export function AgentEditorForm({
 
   const toggleCommonSkill = (name: string, checked: boolean) => {
     setForm((prev) => withCommonSkillToggled(prev, name, checked, visibleCommonNames));
+  };
+
+  // 組み込みはカタログ応答 (BFF の registry) から来るので、サンドボックスの取得に依らず一覧が揃う
+  const visibleBuiltinNames = catalog.builtinSkills.map((skill) => skill.name);
+
+  const toggleBuiltinSkill = (name: string, checked: boolean) => {
+    setForm((prev) => withBuiltinSkillToggled(prev, name, checked, visibleBuiltinNames));
   };
 
   const addSuggestion = () => {
@@ -345,6 +390,10 @@ export function AgentEditorForm({
                     commonSkillNames={form.commonSkillNames}
                     onToggleCommonSkill={toggleCommonSkill}
                     onShowAllCommonSkills={() => setForm(withAllCommonSkillsVisible)}
+                    builtinSkillNames={form.builtinSkillNames}
+                    onToggleBuiltinSkill={toggleBuiltinSkill}
+                    onShowAllBuiltinSkills={() => setForm(withAllBuiltinSkillsEnabled)}
+                    onDisableAllBuiltinSkills={() => setForm(withAllBuiltinSkillsDisabled)}
                   />
                   <SuggestionsEditor
                     suggestions={form.suggestions}
