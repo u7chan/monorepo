@@ -38,3 +38,11 @@ export async function processStartedAtMs(pid: number): Promise<number | undefine
 export async function processStartedAtMsOrUnknown(pid: number): Promise<number> {
   return (await processStartedAtMs(pid).catch(() => undefined)) ?? 0;
 }
+
+/**
+ * 読み取り失敗を「不明」へ畳んだ形。待受の観測 (server/src/sandbox/process-scan.ts) は
+ * 読めないプロセスの情報を欠いたまま残りを返す契約なので、例外を投げない方を選ぶ。
+ */
+export async function statFieldsOrUnknown(pid: number): Promise<string[] | undefined> {
+  return statFields(pid).catch(() => undefined);
+}

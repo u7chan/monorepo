@@ -129,6 +129,18 @@ test("存在しない pid は終了済みとして undefined を返す", async (
   assert.ok(startedAt !== undefined && startedAt > 0, "自プロセスの起動時刻は読める");
 });
 
+test("自分の起動時刻を読めないときは呼び出しを始めない", async () => {
+  for (const readStartedAt of [
+    async () => undefined,
+    async () => 0,
+    async () => {
+      throw Object.assign(new Error("EACCES"), { code: "EACCES" });
+    },
+  ]) {
+    await assert.rejects(createCallDirs({ readStartedAt }), /起動時刻を \/proc から読めません/);
+  }
+});
+
 test("自分の置き場は生存として作られ、掃除の対象にならない", async () => {
   const root = await mkdtemp(join(tmpdir(), "u7agent-browser-temp-"));
   try {

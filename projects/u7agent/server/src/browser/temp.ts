@@ -95,11 +95,13 @@ export async function cleanupStaleCallDirs(
   return removed;
 }
 
-/** 自分の呼び出し用の領域を作る。名前は自分の pid と起動時刻で、他の呼び出しの掃除から生存と判定される */
-export async function createCallDirs(
-  options: { root?: string; pid?: number; readStartedAt?: ProcessStartTimeReader } = {},
-): Promise<CallDirs> {
-  const root = options.root ?? BROWSER_TEMP_ROOT;
+/**
+ * 自分の所有者 (pid と起動時刻)。起動時刻を読めない (/proc が無い・EACCES など) ときは呼び出しを始めない:
+ * 読み取りの失敗を「居ない」と取り違えると、他の呼び出しの置き場を回収しかねない。
+ */
+export async function readCallOwner(
+  options: { pid?: number; readStartedAt?: ProcessStartTimeReader } = {},
+): Promise<CallOwner> {
   const pid = options.pid ?? process.pid;
   const readStartedAt = options.readStartedAt ?? processStartedAtMs;
   let startedAtMs: number | undefined;
@@ -109,7 +111,16 @@ export async function createCallDirs(
     throw new Error(`プロセス ${pid} の起動時刻を /proc から読めません: ${(error as Error).message}`);
   }
   if (!startedAtMs) throw new Error(`プロセス ${pid} の起動時刻を /proc から読めません`);
-  const dir = join(root, callDirName({ pid, startedAtMs }));
+  return { pid, startedAtMs };
+}
+
+/** 自分の呼び出し用の領域を作る。名前は自分の pid と起動時刻で、他の呼び出しの掃除から生存と判定される */
+export async function createCallDirs(
+  options: { root?: string; pid?: number; readStartedAt?: ProcessStartTimeReader } = {},
+): Promise<CallDirs> {
+  const root = options.root ?? BROWSER_TEMP_ROOT;
+  const owner = await readCallOwner({ pid: options.pid, readStartedAt: options.readStartedAt });
+  const dir = join(root, callDirName(owner));
   await mkdir(join(dir, "home"), { recursive: true });
   await mkdir(join(dir, "tmp"), { recursive: true });
   return { root: dir, home: join(dir, "home"), tmp: join(dir, "tmp") };

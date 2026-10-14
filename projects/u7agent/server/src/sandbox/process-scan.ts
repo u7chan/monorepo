@@ -4,7 +4,7 @@
  * この走査だけは制限の外にいる service 本体で行う。設計は docs/sandbox.md の serve の節を正とする。
  */
 import { readFile, readdir, readlink } from "node:fs/promises";
-import { processStartedAtMsOrUnknown, statFields } from "../proc-stat";
+import { processStartedAtMsOrUnknown, statFieldsOrUnknown } from "../proc-stat";
 import type { SandboxListenerProcess, SandboxListenerScan } from "./protocol";
 
 /** 1 回の祖先の探索でたどる親の上限。循環や壊れた /proc でも止まるようにする */
@@ -28,13 +28,13 @@ async function listenInodes(port: number): Promise<number[]> {
   return [...inodes].sort((a, b) => a - b);
 }
 
-/** 自身から親をたどった PID (自身を含む) */
+/** 自身から親をたどった PID (自身を含む)。読めないプロセスでは探索を打ち切る (観測済みの情報は返す) */
 async function ancestorsOf(pid: number): Promise<number[]> {
   const chain: number[] = [];
   let current = pid;
   while (current > 1 && chain.length < MAX_ANCESTORS) {
     chain.push(current);
-    const fields = await statFields(current);
+    const fields = await statFieldsOrUnknown(current);
     const parent = Number(fields?.[1]);
     current = Number.isInteger(parent) && parent > 0 ? parent : 0;
   }
