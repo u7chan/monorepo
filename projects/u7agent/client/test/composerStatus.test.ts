@@ -346,7 +346,7 @@ test("描画: singleColumn はボタンを全幅にし、ラベルが送信内�
 });
 
 test("描画: 同じ送信では直らない分類と、コードが無い縮退ではカードを出さない", () => {
-  for (const code of ["auth_required", "insufficient_quota", "context_overflow"] as const) {
+  for (const code of ["auth_required", "oauth_expired", "insufficient_quota", "context_overflow"] as const) {
     const html = render({
       activity: "エラー: テスト",
       runStatus: "error",

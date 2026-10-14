@@ -13,6 +13,13 @@ const REQUEST_TOO_LARGE =
   '429: {"message":"Request too large for gpt-6-luna in organization org-abc123XYZ on tokens per min (TPM): Limit 200000, Requested 205950.","type":"tokens","code":"rate_limit_exceeded"}';
 const INSUFFICIENT_QUOTA =
   '429: {"message":"You exceeded your current quota, please check your plan and billing details.","type":"insufficient_quota","code":"insufficient_quota"}';
+// SDK (pi-ai) の OAuth 更新失敗。モデルへ接続する前の認証解決で例外になる
+const OAUTH_REFRESH_FAILED =
+  'OAuth refresh failed for openai-codex: OpenAI Codex token refresh failed (400): {"error":"invalid_grant"}';
+// fetch 自体が throw した経路は prefix が違う
+const OAUTH_REFRESH_UNREACHABLE =
+  "OAuth refresh failed for openai-codex: OpenAI Codex token refresh error: fetch failed";
+const OAUTH_INVALID_TOKEN = '401: {"error":"invalid_token","error_description":"token has expired"}';
 
 test("classifies the screenshot TPM 429 as a retryable rate limit", () => {
   assert.deepEqual(classifyRunError(new Error(TPM_429)), { code: "rate_limit" });
@@ -37,6 +44,31 @@ test("keeps quota, auth, and context overflow ahead of the transient rate limit"
   assert.deepEqual(classifyRunError(new Error("This model's maximum context length is 200000 tokens")), {
     code: "context_overflow",
   });
+});
+
+test("classifies a stored OAuth that cannot be refreshed as oauth_expired", () => {
+  assert.deepEqual(classifyRunError(new Error(OAUTH_REFRESH_FAILED)), { code: "oauth_expired" });
+  assert.deepEqual(classifyRunError(new Error(OAUTH_REFRESH_UNREACHABLE)), { code: "oauth_expired" });
+  assert.deepEqual(
+    classifyRunError(new Error("OAuth refresh returned a token that expires too soon for openai-codex")),
+    { code: "oauth_expired" },
+  );
+  assert.deepEqual(classifyRunError(new Error(OAUTH_INVALID_TOKEN)), { code: "oauth_expired" });
+  // カタログの更新失敗は OAuth の失効ではない
+  assert.deepEqual(classifyRunError(new Error("Model refresh failed for openai: network unreachable")), {
+    code: "unknown",
+  });
+});
+
+test("oauth_expired guides to signing in again instead of registering an API key", () => {
+  const composed = composeRunError({ code: "oauth_expired" }, 0);
+  assert.match(composed, /設定 → モデル → プロバイダー のサインイン/);
+  // この画面が扱えない方式 (openai-codex など) は pi /login でしか回復できない
+  assert.match(composed, /同じ agent dir を使う pi \/login/);
+  assert.doesNotMatch(composed, /APIキー/);
+  // 再サインイン以外に回復手段が無いので、時間をおけば直ると案内しない
+  assert.doesNotMatch(composed, /時間をおいて再実行/);
+  assert.equal(composeRunError({ code: "oauth_expired" }, 1).includes("（自動再試行1回）"), true);
 });
 
 test("classifies a model the account cannot use as model_unavailable", () => {
