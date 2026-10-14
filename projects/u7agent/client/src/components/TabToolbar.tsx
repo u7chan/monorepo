@@ -10,10 +10,6 @@ export type TabToolbarProps = {
   className?: string;
 };
 
-/**
- * 面 (タブ) のツールバー。タブ行のすぐ下の行として、左に文脈を、右に操作を出す。
- * 余白と区切り線はこの行が持ち、呼び出し側の className は layout (位置・幅・伸縮) だけにする。
- */
 export function TabToolbar({ context, actions, className }: TabToolbarProps) {
   return (
     <div
