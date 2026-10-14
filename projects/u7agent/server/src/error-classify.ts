@@ -2,6 +2,7 @@
  * SDK / プロバイダー由来のラン失敗を公開用に分類する純関数群。上流の原文は公開経路へ返さず、
  * コードと定型の日本語文言だけを返す (組織ID・APIキーなどの再公開を構造的に防ぐ)。
  * 優先順位は恒久的な利用枠 / 認証 / モデルの可用性 → コンテキスト超過 → 一時的な rate limit → unknown の順。
+ * OAuth の失効・更新失敗は再サインインだけが復旧手段なので、APIキーの案内とは分類を分ける。
  */
 import { AUTH_REQUIRED_MESSAGE } from "./agent";
 import type { RunErrorCode } from "./schema";
@@ -13,6 +14,13 @@ const QUOTA_PATTERN =
 /** 認証・設定の不足。SDK の定型文とプロバイダーの 401 を拾う */
 const AUTH_PATTERN =
   /No API key found|Provider is not configured|No model selected|Authentication failed|invalid_api_key|invalid api key|incorrect api key|unauthorized|\b401\b/i;
+
+/**
+ * 保存済み OAuth の失効・更新失敗。SDK は送信時に認証を解決するため、更新の失敗は送信まで見えない。
+ * generic な認証より先に見て、再サインインの案内を出す。
+ */
+const OAUTH_EXPIRED_PATTERN =
+  /invalid_grant|invalid_token|OAuth refresh failed|OAuth refresh returned|OAuth auth derivation failed/i;
 
 /**
  * 契約・アカウント種別で許可されていないモデル。カタログ上は使えるように見えるため事前には弾けず、
@@ -53,6 +61,7 @@ export function classifyRunError(error: unknown): RunErrorClassification | undef
   const message = messageFor(error);
   if (message === "") return undefined;
   if (QUOTA_PATTERN.test(message)) return { code: "insufficient_quota" };
+  if (OAUTH_EXPIRED_PATTERN.test(message)) return { code: "oauth_expired" };
   if (AUTH_PATTERN.test(message)) return { code: "auth_required" };
   if (MODEL_UNAVAILABLE_PATTERN.test(message)) return { code: "model_unavailable" };
   if (CONTEXT_PATTERN.test(message)) return { code: "context_overflow" };
@@ -60,13 +69,15 @@ export function classifyRunError(error: unknown): RunErrorClassification | undef
   return { code: "unknown" };
 }
 
-/** 短い日本語の理由。認証だけは復旧手順込みの既存文言を正とする */
+/** 短い日本語の理由。`auth_required` だけは復旧手順込みの既存文言を正とする */
 export function runErrorMessage(code: RunErrorCode): string {
   switch (code) {
     case "insufficient_quota":
       return "利用枠またはクレジットの不足により実行できませんでした";
     case "auth_required":
       return AUTH_REQUIRED_MESSAGE;
+    case "oauth_expired":
+      return "OAuth のサインインが失効しています";
     case "model_unavailable":
       return "選択したモデルは現在の契約では利用できません";
     case "context_overflow":
@@ -85,6 +96,8 @@ export function runErrorAction(code: RunErrorCode): string | undefined {
       return "プロバイダーの利用枠・支払い設定を確認してください（時間をおいても自動では回復しません）";
     case "auth_required":
       return undefined;
+    case "oauth_expired":
+      return "設定 → モデル → プロバイダー のサインインか、同じ agent dir を使う pi /login で再サインインしてください";
     case "model_unavailable":
       // 設定 → モデル の保存はアプリ既定と候補を変えるだけで、失敗した会話のモデルは変えない。
       // 復旧は入力欄の上のモデル名で会話モデルを選び直す経路だけなので、そちらを名指しする。
