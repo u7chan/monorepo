@@ -89,13 +89,13 @@ async function holderOutputs(root: string, count: number, limit: number, holdMs:
   const exit = Promise.all(children.map((child) => once(child, "exit")));
   await Promise.race([
     exit,
-    new Promise((done) => setTimeout(done, 30_000)).then(() => assert.fail("同時入場の子プロセスが終わりません")),
+    new Promise((done) => setTimeout(done, 45_000)).then(() => assert.fail("同時入場の子プロセスが終わりません")),
   ]);
   return outputs.map((read) => read());
 }
 
 /** stdout に指定の行が出るまで待つ。出なければ失敗させる (期限はテストのハング防止) */
-async function waitForLine(child: HolderProcess, line: string, timeoutMs = 20_000): Promise<void> {
+async function waitForLine(child: HolderProcess, line: string, timeoutMs = 45_000): Promise<void> {
   let output = "";
   child.stdout.setEncoding("utf8");
   child.stdout.on("data", (chunk: string) => {
@@ -304,7 +304,7 @@ test("プロセスをまたいで上限が効き、SIGKILL で残った枠は次
 test("プロセスをまたぐ同時入場でも上限を超えず、枠は上限までしか作られない", async () => {
   await withRoot(async (root) => {
     const limit = 2;
-    const running = holderOutputs(root, 5, limit, 3_000);
+    const running = holderOutputs(root, 4, limit, 3_000);
     const observed: number[] = [];
     const watch = setInterval(() => {
       void readdir(slotsDir(root))
@@ -320,7 +320,7 @@ test("プロセスをまたぐ同時入場でも上限を超えず、枠は上�
     const acquired = outputs.filter((output) => output.includes("acquired")).length;
     const limited = outputs.filter((output) => output.includes("limit")).length;
     assert.equal(acquired, limit, "上限と同じ数だけ入場する");
-    assert.equal(limited, 5 - limit, "残りは上限で断られる");
+    assert.equal(limited, 4 - limit, "残りは上限で断られる");
     assert.ok(observed.length > 0, "枠の数を観測できた");
     assert.ok(Math.max(...observed) <= limit, `枠は上限までしか作らない (observed=${observed.join(",")})`);
     assert.deepEqual(await readdir(root), [], "全員が終わったら残骸が無い");

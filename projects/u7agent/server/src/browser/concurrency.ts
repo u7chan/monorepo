@@ -16,6 +16,7 @@ import {
   BROWSER_TEMP_ROOT,
   callDirName,
   callOwnerState,
+  claimFileName,
   parseCallDirName,
   readCallOwner,
   type CallOwner,
@@ -64,15 +65,21 @@ async function slotOwner(path: string): Promise<CallOwner | undefined> {
 }
 
 /**
- * 1 つの index を確保する。内容を持つ一時ファイルを作って `link` する: 作成と書き込みを分けると、
- * その間だけ所有者の分からない枠が残り、その index を塞いだままにし得るため。
+ * 1 つの index を確保する。所有者を書いた一時ファイルを作って `link` する: 作成と書き込みを分けると、
+ * その間だけ所有者の分からない枠が残り、その index を塞いだままにし得るため。一時ファイルは枠の
+ * 置き場の外に置き、`slots/` には入場済みの枠だけが並ぶようにする。
  * 取れなければ (同じ index を同時に狙った相手が先に確保した) undefined を返す。
  */
-async function claimIndex(dir: string, index: number, owner: CallOwner): Promise<string | undefined> {
-  const path = slotPath(dir, index);
-  const staging = join(dir, `.claim-${randomUUID()}`);
+async function claimIndex(options: {
+  stagingDir: string;
+  dir: string;
+  index: number;
+  owner: CallOwner;
+}): Promise<string | undefined> {
+  const path = slotPath(options.dir, options.index);
+  const staging = join(options.stagingDir, claimFileName(options.owner, randomUUID()));
   try {
-    await writeFile(staging, `${callDirName(owner)}\n`);
+    await writeFile(staging, `${callDirName(options.owner)}\n`);
     await link(staging, path);
     return path;
   } catch (error) {
@@ -137,7 +144,7 @@ export async function acquireConcurrencySlot(options: AcquireConcurrencySlotOpti
   if (occupied.overLimit) throw new ConcurrencyLimitError(limit);
   for (let index = 0; index < limit; index += 1) {
     if (occupied.indexes.has(index)) continue;
-    const path = await claimIndex(dir, index, owner);
+    const path = await claimIndex({ stagingDir: root, dir, index, owner });
     if (!path) continue;
     return {
       index,
