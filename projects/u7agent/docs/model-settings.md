@@ -53,7 +53,7 @@ CREATE TABLE IF NOT EXISTS provider_memos (
 u7agent は Sign in with ChatGPT（SIWC）の資格情報を**認証ソースとして認める**。`openai` など provider の認証は Pi の通常の解決に委ね、次の優先順位で 1 つの資格情報が実効になる（詳細は [model-effort.md](model-effort.md)）。
 
 1. **この画面で登録したキー**（`auth.source: "runtime"`）。runtime overlay で、保存の正はアプリ DB の `provider_credentials`
-2. **`~/.pi/agent/auth.json` の資格情報**（`auth.source: "stored"`）。`pi /login` 等で入れた SIWC を含む
+2. **agent dir の `auth.json` の資格情報**（`auth.source: "stored"`。既定は `~/.pi/agent/auth.json` で、置き場所は `PI_CODING_AGENT_DIR` で変わる）。`pi /login` 等で入れた SIWC を含む
 3. **`models.json` のキー / コマンド**（`auth.source: "models_json_key"` / `models_json_command`）
 4. **環境変数**（`auth.source: "environment"`）
 
@@ -98,13 +98,15 @@ provider 詳細から Sign in with ChatGPT（SIWC）などをサインイン / �
 - 許可リストの判定は**表示専用**にする。`GET /api/settings/models` の `providers[].canSignInHere`（任意。省略 = この画面ではサインインできない）に載せ、`POST /login` の対象判定（`supportsOAuth`）とは別に持つ。許可リストに無い provider ではサインインの操作（開始 / 進行表示 / 貼り付け / [中断]）を出さず理由に置き換え、API を直接叩いた場合は従来どおり開始を受け、扱えない対話で固定文言の失敗になる（login API は変えない）
 - 進行中のサインインはコールバックの待受を開いたままにする（固定ポートの provider は `1455` を占有し、動的なポートの provider もある）。ブラウザを閉じたまま放置すると次のログイン（`pi /login` を含む）が失敗するため、開始から一定時間で自動的に中断して解放する（期限は状態遷移や進捗では延長せず、残り時間は表示しない）。待たずに終わらせたいときは [中断] するか BFF を再起動する
 - サインアウトは `auth.json` の OAuth を消すだけで、provider 側の接続は失効させない（解除は ChatGPT 設定から）。SDK の `logout` は同じ provider の runtime overlay（この画面で登録したキー）も消すため、`provider_credentials` に残るキーの希望状態を公開 state の再計算前に写し直す。写し直しや復元の判断に使う DB の読取に失敗したときは既存の未反映（`degraded: "apply"`）として残し、カードの [再同期] へ導く。[サインアウト] は `auth.json` の OAuth が実効のときと、この画面のキーが覆っているとき（`hiddenStoredOAuth`）に出し、進行中は 409 にする
+- `auth.json` の OAuth が消えるのは、サインアウト（この画面）と、agent dir が永続マウントされていない構成での再デプロイ（[persistence.md](persistence.md)）。どちらも復旧はサインインし直しで、この画面にサインインの操作が無い provider は同じ agent dir を使う `pi /login` だけが経路になる（[実行形態ごとの扱い](#実行形態ごとの扱い)）
 - device id（agent host ID）は `<agentDir>/u7agent/device-id` に UUID を保存し、プロセスを再起動しても同じ値を `getDeviceId()` から返す。Pi の `settings.json` は共有の設定ファイルなので触らない。書けない環境ではメモリ上の値を返し、警告だけを残す（ログインは続けられる）
 - 保存済みの OAuth は SDK が送信時に解決する。失効・接続解除・更新失敗は provider の認証状態や available には現れず、最初に見えるのは送信の失敗で、そのときは認証エラー（[run-lifecycle.md](run-lifecycle.md#失敗の分類と公開契約) の `oauth_expired`）として再サインインを案内する。この画面にサインインの操作が無い provider は同じ agent dir を使う `pi /login` でしか回復できないため、案内はどちらの経路も条件付きで示す
 
 ### 実行形態ごとの扱い
 
 - ローカル（`pnpm dev`／BFF が `127.0.0.1` で待受）: GUI からそのままサインインできる。同意画面とコールバックは同じマシンのブラウザで開く
-- 配布コンテナ: コールバック用に固定ポート（`1455`）を `127.0.0.1` へ publish し、同じホストのブラウザで承認する。届かないときは折りたたみの中の貼り付け経路を使う。またはホストの agent dir を `PI_CODING_AGENT_DIR` でマウントして `pi /login` を使い、その `auth.json` を GUI が読む（保存先が同じになるので、どちらの経路でも資格情報は 1 つ）
+- 配布コンテナ: agent dir（`PI_CODING_AGENT_DIR`。未設定なら `$HOME/.pi/agent`）を永続マウントするかはデプロイ側の設定次第で、アプリはこの環境変数を設定しない（[persistence.md](persistence.md#現状)）。マウントしていない構成では `auth.json` が再デプロイのたびに消えるため、サインインし直しが要る
+- 配布コンテナの自動コールバックは、コールバック用の固定ポート（`1455`）をデプロイ側で `127.0.0.1` へ publish していて、かつブラウザがデプロイ先のホストにある（またはホストへトンネルできる）ときだけ成立する。現行の配布環境は publish していないため、既定の完了経路は折りたたみの中の貼り付けになる。ホストの agent dir を使えるなら `pi /login` でもよく、その `auth.json` を GUI が読む（保存先が同じになるので、どの経路でも資格情報は 1 つ）
 - 別マシンのブラウザしか無い場合: コールバックは届かない。折りたたみの中の貼り付け経路（ブラウザの最後の画面の URL / コード）でだけ完了できる
 - LAN / インターネットへの公開、複数人での利用、リモート提供は SIWC の利用条件の対象外。ログインのない BFF の前提（[README](../README.md#セキュリティ)）を崩さない
 

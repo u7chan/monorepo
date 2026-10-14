@@ -23,7 +23,10 @@ GUI の会話履歴は **BFF 専用の会話ストア**（`PI_SESSION_STORE`）�
 | コンテンツ生成の provider / 画像モデル / 音声モデルとボイス / APIキー（アプリデータの SQLite、`content_settings`） | 残る（ストアを永続ボリュームに置いた場合。平文・[image-generation.md](image-generation.md)・[speech-generation.md](speech-generation.md)） |
 | Web 検索の有効 / 無効と既定 provider（アプリデータの SQLite、`web_search_settings`） | 残る（ストアを永続ボリュームに置いた場合・[web-search.md](web-search.md#実行時トグル)） |
 | Web 検索の provider ごとのAPIキー（アプリデータの SQLite、`web_search_provider_keys`） | 残る（ストアを永続ボリュームに置いた場合。平文・[web-search.md](web-search.md#設定既定-provider-と-apiキー)） |
-| OAuth サインインの agent host ID（`<agentDir>/u7agent/device-id`。`PI_CODING_AGENT_DIR` の配下） | 残る（同じ agent dir を使う限り。BFF が直接書く Pi 側のファイル・[model-settings.md](model-settings.md#oauth-サインイン)） |
+| OAuth サインインの資格情報（`<agentDir>/auth.json`） | 残る（agent dir を永続マウントした場合）。マウントしていなければ消え、サインインし直しが要る（[model-settings.md](model-settings.md#oauth-サインイン)） |
+| モデル定義の上書き（`<agentDir>/models.json`。カスタム provider / モデルの定義） | 残る（agent dir を永続マウントした場合）。マウントしていなければ消える |
+| モデルカタログのキャッシュ（`<agentDir>/models-store.json`。SDK が書く） | 残る（agent dir を永続マウントした場合）。マウントしていなければ同梱カタログへ戻る（[モデルカタログのキャッシュ](#モデルカタログのキャッシュsdk)） |
+| OAuth サインインの agent host ID（`<agentDir>/u7agent/device-id`） | 残る（agent dir を永続マウントした場合）。マウントしていなければ消え、次のサインインで別の ID になる（BFF が書く Pi 側のファイル・[model-settings.md](model-settings.md#oauth-サインイン)） |
 | アプリデータの DB（`PI_SESSION_STORE/u7agent.db`） | 残る（ストアを永続ボリュームに置いた場合） |
 | `/workspace` 以外に保存したデータ・後からインストールしたツール | 原則残らない |
 | 実行中のプロセス | 中断される |
@@ -32,6 +35,8 @@ GUI の会話履歴は **BFF 専用の会話ストア**（`PI_SESSION_STORE`）�
 この表は永続マウントを設定したデプロイ環境での挙動を示す。
 イメージ単体で起動するだけでは `/workspace` と会話ストアの永続化は保証されない。
 単なるコンテナ停止・再開では書き込み層が残る場合があるが、再作成後の保持は保証しない。
+
+BFF の agent dir（`PI_CODING_AGENT_DIR`。未設定なら `$HOME/.pi/agent`）はアプリが置き場所を決めず、永続マウントするかもデプロイ側の設定で決まる。マウントしていない構成では、表の agent dir 配下のファイルがコンテナの書き込み層に置かれ、再作成のたびに消える。
 
 ## スペース
 
@@ -54,9 +59,11 @@ GUI の会話履歴は **BFF 専用の会話ストア**（`PI_SESSION_STORE`）�
 | サンドボックス内 | `/workspace` |
 | ホスト上 | `/home/u7chan/deploy/u7agent/workspace` |
 | 会話ストア（BFF 専用） | BFF コンテナの `PI_SESSION_STORE`（例 `/session-store`）。サンドボックスへはマウントしない |
+| agent dir（BFF 専用） | BFF コンテナの `PI_CODING_AGENT_DIR`（未設定なら `$HOME/.pi/agent`）。OAuth の `auth.json` が入る。永続マウントするかはデプロイ側の設定 |
 
 - BFF には作業領域をマウントしない。ファイル操作・シェル実行はサンドボックス側で行う。
 - 会話ストアはサンドボックスと共有しない。共有すると、サンドボックスから symlink を差し替えて BFF のファイルを壊したり読み出したりできてしまう。`PI_SESSION_STORE` が `PI_APP_CWD` の中なら起動時に拒否する。
+- agent dir もサンドボックスと共有しない。共有すると、ツール実行（`read` / `bash`）から OAuth の資格情報を読めてしまう。
 - Gitリポジトリ本体と worktree は両方 `/workspace` 配下に配置する。外部パスへの参照先は永続化対象にならない。
 - 後からインストールするツールも、保存先が `/workspace` 内ならそのファイルは残る。ただし外部の依存ファイル・設定まで復元されるとは限らない。
 - 常用するツールはイメージへ組み込み、再作成後も利用できるようにする。
@@ -101,8 +108,8 @@ GUI の会話履歴は **BFF 専用の会話ストア**（`PI_SESSION_STORE`）�
 設定 → モデル（`/settings/models`）の [カタログ更新] が取得する pi.dev 由来のカタログは、pi SDK がエージェント設定ディレクトリ配下の `models-store.json`（BFF は置き場所を変える環境変数を設定しないため、既定は `$HOME/.pi/agent/models-store.json`）へ保存する。**アプリのデータではない**ので、アプリ DB には列も行も増やさない。
 
 - 書くのは SDK だけ。BFF は SDK の取得 API を通して間接的に更新し、取得結果の永続化は SDK に任せる
-- BFF のプロセス再起動では残り、起動時に overlay として読まれる（同梱カタログへの上書き）。コンテナを作り直すと消え、同梱カタログへ戻る。永続ボリュームにはならない（`PI_CODING_AGENT_DIR` で置き場所を変えない限り）
-- 失われてもアプリの起動・設定 API・会話は壊れない。恒久化と `PI_CODING_AGENT_DIR` の変更は非ゴール（[model-settings.md](model-settings.md#モデルカタログの取得と更新)）
+- BFF のプロセス再起動では残り、起動時に overlay として読まれる（同梱カタログへの上書き）。コンテナを作り直したあと残るかは agent dir のマウント次第で、消えれば同梱カタログへ戻る
+- 残っても消えてもアプリの起動・設定 API・会話は壊れない。カタログの恒久化（アプリ側の保存先を増やすこと）と、アプリが `PI_CODING_AGENT_DIR` を設定することは非ゴール（[model-settings.md](model-settings.md#モデルカタログの取得と更新)）
 - このファイルを削除しても、GUI で登録したキー（アプリ DB）と `auth.json` は消えない
 
 ## 会話履歴の扱い
