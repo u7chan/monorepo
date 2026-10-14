@@ -13,7 +13,12 @@ import {
 } from "../src/content-settings";
 import type { ImageCatalog, ImageCatalogSnapshot } from "../src/image-catalog";
 import { IMAGE_PROVIDER_ID, type ContentGenerationConfig } from "../src/images";
+import {
+  CONTENT_SPEECH_PREVIEW_READ_FAILED_MESSAGE,
+  CONTENT_SPEECH_PREVIEW_RUNTIME_UNAVAILABLE_MESSAGE,
+} from "../src/content-settings";
 import { SPEECH_PROVIDER_ID } from "../src/speech";
+import type { SpeechGenerationInput, SpeechGenerationResult } from "../src/speech";
 import { DEFAULT_SPEECH_MODEL, type SpeechCatalog, type SpeechCatalogSnapshot } from "../src/speech-catalog";
 
 const KEY = "sk-speech-dummy-key-0123456789abcdef";
@@ -105,10 +110,13 @@ function createService(
     refreshError?: string | null;
     /** ランタイムなし（`pi: null`）の起動を模す。既定は保存済みキーを知るマスカー */
     identityMasker?: boolean;
+    /** お試し再生の生成器。省略は「未注入」（ランタイムなしで起動）を表す */
+    generateSpeech?: (input: SpeechGenerationInput) => Promise<SpeechGenerationResult>;
   } = {},
 ) {
   const db = options.db ?? new FakeContentDb();
   const configs: ContentGenerationConfig[] = [];
+  const previewCalls: SpeechGenerationInput[] = [];
   const fake = createFakeSpeechCatalog({
     models: options.speechModels,
     source: options.speechSource,
@@ -126,8 +134,16 @@ function createService(
       db.events.push(`inject:${config.enabled ? "on" : "off"}`);
     },
     maskError: options.identityMasker ? (text) => text : (text) => text.split(KEY).join("[REDACTED]"),
+    ...(options.generateSpeech
+      ? {
+          generateSpeech: (input: SpeechGenerationInput) => {
+            previewCalls.push(input);
+            return options.generateSpeech!(input);
+          },
+        }
+      : {}),
   });
-  return { db, service, catalog: fake.state, latest: () => configs.at(-1) };
+  return { db, service, catalog: fake.state, previewCalls, latest: () => configs.at(-1) };
 }
 
 function statusOf(error: unknown): number | undefined {
@@ -453,4 +469,115 @@ test("ボイスが NULL の行はカタログの並びが変われば、応答�
   };
   assert.equal(service.settings().speech.voice, "Kore", "GET は新しい並びの先頭を返す");
   assert.equal(latest()?.readSpeech()?.voice, "Kore", "実行時も GET と同じ値へ解決する");
+});
+
+/** お試し再生の成功結果。形式ごとの応答の違いだけをテストが見る */
+function speechResult(speech: SpeechGenerationResult & { ok: true }): SpeechGenerationResult;
+function speechResult(): SpeechGenerationResult;
+function speechResult(
+  speech: SpeechGenerationResult = {
+    ok: true,
+    speech: { audio: new Uint8Array([1, 2]).buffer, format: "mp3", contentType: "audio/mpeg" },
+  },
+): SpeechGenerationResult {
+  return speech;
+}
+
+test("お試し再生は行なし 400 / 未注入 503 / DB 不通 503 で provider を呼ばない", async () => {
+  // 行が無い（キー未登録）は課金前の 400
+  const unset = createService({ generateSpeech: async () => speechResult() });
+  assert.deepEqual(
+    await unset.service.previewSpeech({ model: DEFAULT_SPEECH_MODEL, voice: "Zephyr", text: "こんにちは" }),
+    { status: 400, error: CONTENT_SETTINGS_UNCONFIGURED_MESSAGE },
+  );
+  assert.equal(unset.previewCalls.length, 0);
+
+  // 生成器が未注入（ランタイムなしで起動）は runtime 不可と同じ 503
+  const unavailable = createService();
+  unavailable.db.row = rowWith(DEFAULT_SPEECH_MODEL, "Zephyr");
+  assert.deepEqual(
+    await unavailable.service.previewSpeech({ model: DEFAULT_SPEECH_MODEL, voice: "Zephyr", text: "こんにちは" }),
+    { status: 503, error: CONTENT_SPEECH_PREVIEW_RUNTIME_UNAVAILABLE_MESSAGE },
+  );
+
+  // DB を読めないときも provider は叩かない
+  const failing = createService({ generateSpeech: async () => speechResult() });
+  failing.db.row = rowWith(DEFAULT_SPEECH_MODEL, "Zephyr");
+  failing.db.failRead = true;
+  assert.deepEqual(
+    await failing.service.previewSpeech({ model: DEFAULT_SPEECH_MODEL, voice: "Zephyr", text: "こんにちは" }),
+    { status: 503, error: CONTENT_SPEECH_PREVIEW_READ_FAILED_MESSAGE },
+  );
+  assert.equal(failing.previewCalls.length, 0);
+});
+
+test("お試し再生は pcm を RIFF 付きの wav にし、指定した演技指示と速度を生成器へ渡す", async () => {
+  const { db, service, previewCalls } = createService({
+    generateSpeech: async () =>
+      speechResult({
+        ok: true,
+        speech: {
+          audio: new Uint8Array([1, 2, 3, 4]).buffer,
+          format: "pcm",
+          contentType: "audio/pcm",
+          sampleRate: 24_000,
+          channels: 1,
+        },
+      }),
+  });
+  db.row = rowWith(DEFAULT_SPEECH_MODEL, "Zephyr");
+  const outcome = await service.previewSpeech({
+    model: DEFAULT_SPEECH_MODEL,
+    voice: "Zephyr",
+    text: "こんにちは",
+    instructions: "静かに読む",
+    speed: 1.5,
+  });
+  assert.equal(outcome.status, 200);
+  if (outcome.status !== 200) return;
+  assert.equal(outcome.contentType, "audio/wav");
+  assert.equal(outcome.audio.byteLength, 48, "RIFF ヘッダ 44 バイト + pcm の実データ");
+  assert.deepEqual(previewCalls, [
+    {
+      provider: SPEECH_PROVIDER_ID,
+      model: DEFAULT_SPEECH_MODEL,
+      text: "こんにちは",
+      voice: "Zephyr",
+      instructions: "静かに読む",
+      speed: 1.5,
+      apiKey: KEY,
+      signal: undefined,
+    },
+  ]);
+
+  // 生成の失敗は分類コード付きの 502 へ写す
+  const failing = createService({
+    generateSpeech: async () => ({ ok: false, code: "rate_limited", message: "音声生成が混雑しています" }),
+  });
+  failing.db.row = rowWith(DEFAULT_SPEECH_MODEL, "Zephyr");
+  assert.deepEqual(
+    await failing.service.previewSpeech({ model: DEFAULT_SPEECH_MODEL, voice: "Zephyr", text: "こんにちは" }),
+    { status: 502, error: "音声生成が混雑しています", code: "rate_limited" },
+  );
+});
+
+test("お試し再生はカタログの出どころに関係なく宣言がある声を照合し、未宣言の声を 400 で止める", async () => {
+  // default（live に一度も成功していない）でも、同梱モデルの宣言は引く
+  const defaulted = createService({
+    generateSpeech: async () => speechResult(),
+    speechSource: "default",
+    speechFetchedAt: null,
+  });
+  defaulted.db.row = rowWith(DEFAULT_SPEECH_MODEL, "Zephyr");
+  assert.deepEqual(
+    await defaulted.service.previewSpeech({ model: DEFAULT_SPEECH_MODEL, voice: "Ghost", text: "こんにちは" }),
+    {
+      status: 400,
+      error: `${CONTENT_SPEECH_VOICE_NOT_SUPPORTED_MESSAGE}: Ghost`,
+    },
+  );
+  assert.equal(defaulted.previewCalls.length, 0);
+  // default ではカタログ外モデルの照合を免除する（保存と同じ規則）
+  const free = await defaulted.service.previewSpeech({ model: "fish/audio", voice: "", text: "こんにちは" });
+  assert.equal(free.status, 200);
 });

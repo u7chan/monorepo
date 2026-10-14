@@ -20,6 +20,15 @@ import {
   speechModelValue,
   speechSaveDisabled,
   speechSelection,
+  speechPreviewFailureNote,
+  speechPreviewFormatNote,
+  speechPreviewFormatOf,
+  speechPreviewInitialDraft,
+  speechPreviewRequest,
+  speechPreviewSpeed,
+  SPEECH_PREVIEW_EMPTY_TEXT_ERROR,
+  SPEECH_PREVIEW_NO_MODEL_ERROR,
+  SPEECH_PREVIEW_SPEED_ERROR,
   speechSettingsAfterRefresh,
   speechSyncedAfterRefresh,
   speechVoiceDraft,
@@ -297,4 +306,95 @@ test("音声モデル一覧の注記は取得元と最終取得時刻を示し�
     speechCatalogNotice({ catalogSource: "default", fetchedAt: null }),
     "OpenRouter から取得できていないため、同梱の既定の音声モデルを表示しています",
   );
+});
+
+test("お試し再生の初期値は保存済みのモデルと声で、本文と指示は空から始める", () => {
+  assert.deepEqual(speechPreviewInitialDraft(settings()), {
+    model: "google/gemini-3.8-flash-tts",
+    voice: "Zephyr",
+    text: "",
+    instructions: "",
+    speed: "",
+  });
+  // カタログ外の保存値も現在値として引き継ぐ (何が保存されているかを見失わせない)
+  assert.equal(speechPreviewInitialDraft(settings({}, {}, { model: "stale/tts", voice: "" })).model, "stale/tts");
+  assert.equal(speechPreviewInitialDraft(settings({}, {}, { model: null, voice: "" })).model, "");
+});
+
+test("お試し再生の検証はモデル・本文・速度を見て、送れるときだけ本文を組み立てる", () => {
+  const draft = {
+    model: "google/gemini-3.8-flash-tts",
+    voice: "Zephyr",
+    text: "こんにちは",
+    instructions: "",
+    speed: "",
+  };
+  assert.deepEqual(speechPreviewRequest(draft), {
+    ok: true,
+    body: {
+      model: "google/gemini-3.8-flash-tts",
+      voice: "Zephyr",
+      text: "こんにちは",
+      instructions: "",
+    },
+  });
+  // 空欄の速度はキーごと落として provider の既定へ委ねる
+  assert.equal("speed" in (speechPreviewRequest({ ...draft, speed: "  " }) as { body: object }).body, false);
+
+  const withOptions = speechPreviewRequest({ ...draft, instructions: "静かに読む", speed: "1.5" });
+  assert.deepEqual(withOptions, {
+    ok: true,
+    body: {
+      model: "google/gemini-3.8-flash-tts",
+      voice: "Zephyr",
+      text: "こんにちは",
+      instructions: "静かに読む",
+      speed: 1.5,
+    },
+  });
+
+  // 止められるものは API を呼ばずにクレジットも消費させない
+  assert.deepEqual(speechPreviewRequest({ ...draft, model: "" }), {
+    ok: false,
+    error: SPEECH_PREVIEW_NO_MODEL_ERROR,
+  });
+  for (const text of ["", "   ", "\n"]) {
+    assert.deepEqual(speechPreviewRequest({ ...draft, text }), {
+      ok: false,
+      error: SPEECH_PREVIEW_EMPTY_TEXT_ERROR,
+    });
+  }
+  for (const speed of ["0", "-1", "fast", "1e999"]) {
+    assert.deepEqual(speechPreviewRequest({ ...draft, speed }), {
+      ok: false,
+      error: SPEECH_PREVIEW_SPEED_ERROR,
+    });
+  }
+  // 対応モデルの範囲 (0.5–2.0 など) は provider の制約なので、ここでは縛らない
+  assert.deepEqual(speechPreviewSpeed("0.1"), { ok: true, speed: 0.1 });
+  assert.deepEqual(speechPreviewSpeed(" 2 "), { ok: true, speed: 2 });
+  assert.deepEqual(speechPreviewSpeed(""), { ok: true });
+});
+
+test("お試し再生は Content-Type から形式を読み、判別できない応答では形式の表示を省く", () => {
+  assert.equal(speechPreviewFormatOf("audio/mpeg"), "mp3");
+  assert.equal(speechPreviewFormatOf("audio/wav"), "wav");
+  assert.equal(speechPreviewFormatOf("Audio/MPEG; charset=binary"), "mp3");
+  assert.equal(speechPreviewFormatOf("audio/ogg"), undefined);
+  assert.equal(speechPreviewFormatOf(null), undefined);
+
+  assert.equal(speechPreviewFormatNote("mp3"), "音声を生成しました（mp3）");
+  assert.equal(speechPreviewFormatNote("wav"), "音声を生成しました（wav）");
+  assert.equal(speechPreviewFormatNote(undefined), "音声を生成しました");
+});
+
+test("お試し再生の失敗文言は分類済みの文言をそのまま出し、応答が読めないときだけ補う", () => {
+  // サーバーが分類した文言 (残高不足・宣言外の声・長さなど) はそのまま画面へ出す
+  assert.equal(speechPreviewFailureNote(new Error("音声生成の残高が不足しています")), "音声生成の残高が不足しています");
+  assert.equal(
+    speechPreviewFailureNote(new Error("読み上げる文章を入力してください（クレジットは消費していません）")),
+    "読み上げる文章を入力してください（クレジットは消費していません）",
+  );
+  // JSON でない応答 (HTTP <status>) だけは固定文言へ寄せる
+  assert.equal(speechPreviewFailureNote(new Error("HTTP 502")), "音声を生成できませんでした（HTTP 502）");
 });

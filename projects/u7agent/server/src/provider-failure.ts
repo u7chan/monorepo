@@ -4,14 +4,20 @@
  * 呼び出し側が与える。片方だけ新しい分類を増やさないための 1 箇所。
  */
 
-/** 失敗の公開分類。上流の原文は出さず、マスク済みの provider メッセージだけを添える */
-export type ProviderFailureCode =
-  | "invalid_key"
-  | "insufficient_credit"
-  | "rate_limited"
-  | "timeout"
-  | "aborted"
-  | "unknown";
+/**
+ * 失敗の公開分類。上流の原文は出さず、マスク済みの provider メッセージだけを添える。
+ * 値の一覧は DTO（`server/src/schema.ts` の zod enum）からも引くため、union ではなく配列を正にする。
+ */
+export const PROVIDER_FAILURE_CODES = [
+  "invalid_key",
+  "insufficient_credit",
+  "rate_limited",
+  "timeout",
+  "aborted",
+  "unknown",
+] as const;
+
+export type ProviderFailureCode = (typeof PROVIDER_FAILURE_CODES)[number];
 
 /** 応答に添える provider メッセージの上限。長文のエラー本文をそのまま会話へ載せない */
 export const PROVIDER_MESSAGE_MAX_LENGTH = 500;

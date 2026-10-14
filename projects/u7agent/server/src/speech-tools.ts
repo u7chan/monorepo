@@ -9,7 +9,13 @@ import { messageFor } from "./http";
 import type { SandboxWorkspaceClient } from "./sandbox/client";
 import { wrapToolDefinitionWithSecretMasker } from "./secret-guard";
 import type { SecretMasker } from "./redact";
-import type { SpeechAudioFormat, SpeechGenerationResult, SpeechGenerationSettings } from "./speech";
+import {
+  pcmToWav,
+  SPEECH_TEXT_MAX_LENGTH,
+  type SpeechAudioFormat,
+  type SpeechGenerationResult,
+  type SpeechGenerationSettings,
+} from "./speech";
 import { cwdRelativePath, parseToolPath, rootRelativeDir } from "./workspace-path";
 
 export const SPEECH_TOOL_NAME = "generate_speech";
@@ -17,9 +23,6 @@ export const SPEECH_TOOL_NAME = "generate_speech";
 /** 既定の保存先。`<slug>` は本文から決める */
 export const SPEECH_TOOL_DEFAULT_DIR = "generated";
 export const SPEECH_TOOL_SLUG_MAX_LENGTH = 40;
-
-/** 課金前に止める本文の上限。モデルごとの per-request 上限はカタログから読めないため保守的に固定する */
-export const SPEECH_TOOL_TEXT_MAX_LENGTH = 4_000;
 
 export const SPEECH_TOOL_DESCRIPTION =
   "Generate speech audio from text and save it in the working directory. " +
@@ -34,7 +37,7 @@ export const SPEECH_TOOL_GUIDELINES = [
 ];
 
 /** 上限超過。分割はエージェントの仕事で、連結の道具はサンドボックスに無いことを文言で伝える */
-export const SPEECH_TOOL_TEXT_TOO_LONG_MESSAGE = `音声にする文章が長すぎます（${SPEECH_TOOL_TEXT_MAX_LENGTH.toLocaleString("en-US")} 文字まで）。分割して複数回呼んでください（クレジットは消費していません）`;
+export const SPEECH_TOOL_TEXT_TOO_LONG_MESSAGE = `音声にする文章が長すぎます（${SPEECH_TEXT_MAX_LENGTH.toLocaleString("en-US")} 文字まで）。分割して複数回呼んでください（クレジットは消費していません）`;
 
 /** 保存名の拡張子は .mp3 / .wav だけを許し、省略は実形式に任せる */
 export const SPEECH_TOOL_EXTENSION_MESSAGE =
@@ -113,34 +116,6 @@ export function speechFileName(name: string, format: SpeechAudioFormat): string 
   return separator <= 0 ? `${name}.${extension}` : `${name.slice(0, separator)}.${extension}`;
 }
 
-/**
- * pcm の生バイトへ 44 バイトの RIFF ヘッダを付ける。ビット深度は API が宣言しないため、
- * 実測どおり 16-bit LE を前提にする（ヘッダと実データが食い違う形式は検出できない）。
- */
-export function pcmToWav(pcm: ArrayBuffer, sampleRate: number, channels: number): ArrayBuffer {
-  const size = pcm.byteLength;
-  const bytes = new ArrayBuffer(44 + size);
-  const view = new DataView(bytes);
-  const ascii = (offset: number, text: string): void => {
-    for (let index = 0; index < text.length; index += 1) view.setUint8(offset + index, text.charCodeAt(index));
-  };
-  ascii(0, "RIFF");
-  view.setUint32(4, 36 + size, true);
-  ascii(8, "WAVE");
-  ascii(12, "fmt ");
-  view.setUint32(16, 16, true);
-  view.setUint16(20, 1, true);
-  view.setUint16(22, channels, true);
-  view.setUint32(24, sampleRate, true);
-  view.setUint32(28, sampleRate * channels * 2, true);
-  view.setUint16(32, channels * 2, true);
-  view.setUint16(34, 16, true);
-  ascii(36, "data");
-  view.setUint32(40, size, true);
-  new Uint8Array(bytes).set(new Uint8Array(pcm), 44);
-  return bytes;
-}
-
 export interface SpeechToolDefinitionOptions {
   /** セッション作成時に固定した公開状態 */
   enabled: boolean;
@@ -182,7 +157,7 @@ export function createSpeechToolDefinitions(options: SpeechToolDefinitionOptions
               assertSpeechFileName(target.name);
               return { dir: target.dir, name: target.name };
             })();
-      if (params.text.length > SPEECH_TOOL_TEXT_MAX_LENGTH) throw new Error(SPEECH_TOOL_TEXT_TOO_LONG_MESSAGE);
+      if (params.text.length > SPEECH_TEXT_MAX_LENGTH) throw new Error(SPEECH_TOOL_TEXT_TOO_LONG_MESSAGE);
       const settings = readCurrentSettings(options.readSettings);
       // 引数の声は設定より優先する。空文字は「指定なし」として設定へ委ねる
       const requested = params.voice?.trim();

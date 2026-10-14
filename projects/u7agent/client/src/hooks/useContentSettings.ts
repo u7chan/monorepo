@@ -2,6 +2,7 @@ import { useCallback, useState } from "react";
 import {
   deleteContentApiKey,
   getContentSettings,
+  previewSpeechAudio,
   putContentApiKey,
   putContentImageSettings,
   putContentSpeechSettings,
@@ -19,10 +20,16 @@ import {
   speechSettingsAfterRefresh,
   speechSyncedAfterRefresh,
   type ContentSavingAction,
+  type SpeechPreviewAudio,
 } from "../lib/contentSettings";
 import { validateApiKey } from "../lib/modelSettings";
 import { messageFor } from "../lib/settingsResource";
-import type { ContentSettingsResponse, UpdateContentImageBody, UpdateContentSpeechBody } from "../types";
+import type {
+  ContentSettingsResponse,
+  SpeechPreviewBody,
+  UpdateContentImageBody,
+  UpdateContentSpeechBody,
+} from "../types";
 import { useSettingsResource } from "./useSettingsResource";
 
 /**
@@ -80,6 +87,15 @@ export function useContentSettings() {
     (input: UpdateContentSpeechBody): Promise<boolean> =>
       runMutation("speech", CONTENT_SPEECH_SAVED_NOTE, () => putContentSpeechSettings(input)),
     [runMutation],
+  );
+
+  /**
+   * お試し再生。設定を読むだけで state は変えず、応答の形式と blob を呼び出し側へ返す。
+   * 画面を離れたときに中断できるよう、リクエストの signal をそのまま渡す。
+   */
+  const previewSpeech = useCallback(
+    (input: SpeechPreviewBody, signal?: AbortSignal): Promise<SpeechPreviewAudio> => previewSpeechAudio(input, signal),
+    [],
   );
 
   /**
@@ -158,6 +174,7 @@ export function useContentSettings() {
     removeKey,
     saveSelection,
     saveSpeech,
+    previewSpeech,
     refreshCatalog,
     refreshSpeechCatalog,
     speechSynced,

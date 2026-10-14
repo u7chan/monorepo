@@ -56,6 +56,7 @@ function contentSettings(overrides: Partial<ContentSettings> = {}): ContentSetti
     saveSpeech: async () => true,
     refreshCatalog: async () => true,
     refreshSpeechCatalog: async () => true,
+    previewSpeech: async () => ({ blob: new Blob(), format: "mp3" }),
     speechSynced: true,
     ...overrides,
   };

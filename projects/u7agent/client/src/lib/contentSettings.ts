@@ -9,12 +9,14 @@ import type {
   ModelRef,
   SpeechCatalogRefreshResponse,
   SpeechModel,
+  SpeechPreviewBody,
   UpdateContentImageBody,
   UpdateContentSpeechBody,
 } from "../types";
 import type { ConfirmRequest } from "./confirmDialog";
 import { messageTimeLabel, type MessageTimeOptions } from "./messageTime";
 import { modelRefKey, type ProviderBadge } from "./modelSettings";
+import { messageFor } from "./settingsResource";
 
 /** コンテンツ生成の初期注記。キーの有無に関わらず出す */
 export const CONTENT_SETTINGS_NOTE = "コンテンツ生成の設定はサーバーに保存され、再起動後も残ります。";
@@ -287,4 +289,83 @@ export function deleteContentKeyConfirmRequest(providerName: string): ConfirmReq
     confirmLabel: "削除する",
     danger: true,
   };
+}
+
+/** お試し再生で受け取る形式。BFF は mp3 を `audio/mpeg`、pcm は RIFF 化して `audio/wav` で返す */
+export type SpeechPreviewFormat = "mp3" | "wav";
+
+/** お試し再生の結果。`format` は応答の Content-Type から読む（判別できない応答は undefined） */
+export interface SpeechPreviewAudio {
+  blob: Blob;
+  format: SpeechPreviewFormat | undefined;
+}
+
+/** お試し再生の入力。速度は入力欄の文字列のまま持ち、送信時に解釈する */
+export interface SpeechPreviewDraft {
+  model: string;
+  voice: string;
+  text: string;
+  instructions: string;
+  speed: string;
+}
+
+export const SPEECH_PREVIEW_NO_MODEL_ERROR = "音声モデルを選択してください";
+export const SPEECH_PREVIEW_EMPTY_TEXT_ERROR = "読み上げる文章を入力してください";
+export const SPEECH_PREVIEW_SPEED_ERROR = "速度は正の数で入力してください（空欄は provider の既定）";
+export const SPEECH_PREVIEW_UNKNOWN_FAILURE_NOTE = "音声を生成できませんでした";
+
+/** お試し再生の初期値。保存済みのモデルと声から始める（この画面の選択は保存値へ書き戻さない） */
+export function speechPreviewInitialDraft(settings: Pick<ContentSettingsResponse, "speech">): SpeechPreviewDraft {
+  return { model: speechModelValue(settings), voice: settings.speech.voice, text: "", instructions: "", speed: "" };
+}
+
+/**
+ * 速度入力の解釈。空欄は「指定なし」（provider の既定）で、それ以外は正の有限数だけを受け付ける。
+ * 対応モデルの範囲（0.5–2.0 など）は provider の制約なので、ここでは縛らない。
+ */
+export function speechPreviewSpeed(raw: string): { ok: true; speed?: number } | { ok: false; error: string } {
+  const trimmed = raw.trim();
+  if (trimmed === "") return { ok: true };
+  const speed = Number(trimmed);
+  if (!Number.isFinite(speed) || speed <= 0) return { ok: false, error: SPEECH_PREVIEW_SPEED_ERROR };
+  return { ok: true, speed };
+}
+
+/** 送信前の検証。止められるものは API を呼ばず、クレジットも消費させない */
+export function speechPreviewRequest(
+  draft: SpeechPreviewDraft,
+): { ok: true; body: SpeechPreviewBody } | { ok: false; error: string } {
+  if (draft.model === "") return { ok: false, error: SPEECH_PREVIEW_NO_MODEL_ERROR };
+  if (draft.text.trim() === "") return { ok: false, error: SPEECH_PREVIEW_EMPTY_TEXT_ERROR };
+  const speed = speechPreviewSpeed(draft.speed);
+  if (!speed.ok) return speed;
+  return {
+    ok: true,
+    body: {
+      model: draft.model,
+      voice: draft.voice,
+      text: draft.text,
+      instructions: draft.instructions,
+      ...(speed.speed === undefined ? {} : { speed: speed.speed }),
+    },
+  };
+}
+
+/** 応答の Content-Type から表示形式を決める。判別できない応答は形式を推測せず undefined にする */
+export function speechPreviewFormatOf(contentType: string | null): SpeechPreviewFormat | undefined {
+  const mediaType = (contentType ?? "").split(";")[0]?.trim().toLowerCase();
+  if (mediaType === "audio/mpeg") return "mp3";
+  if (mediaType === "audio/wav") return "wav";
+  return undefined;
+}
+
+/** どちらの形式で返ったかを画面に出す。判別できなかったときは形式の表示だけを省く */
+export function speechPreviewFormatNote(format: SpeechPreviewFormat | undefined): string {
+  return format === undefined ? "音声を生成しました" : `音声を生成しました（${format}）`;
+}
+
+/** 失敗の表示文言。分類済みの文言はサーバーが `{ error }` で返すため、そのまま画面へ出す */
+export function speechPreviewFailureNote(error: unknown): string {
+  const message = messageFor(error);
+  return /^HTTP \d+$/.test(message) ? `${SPEECH_PREVIEW_UNKNOWN_FAILURE_NOTE}（${message}）` : message;
 }

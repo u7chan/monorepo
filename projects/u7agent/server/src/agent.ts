@@ -21,7 +21,7 @@ import { catalogSkillIndexForSession } from "./catalog-skills";
 import { discoverSessionFileSkills } from "./file-skills";
 import { createImageToolDefinitions, IMAGE_GENERATION_PROMPT_LINES, sessionToolNames } from "./image-tools";
 import { createImagesGenerator, type ContentGenerationConfig } from "./images";
-import { createSpeechGenerator } from "./speech";
+import { createSpeechGenerator, type SpeechGenerationInput, type SpeechGenerationResult } from "./speech";
 import { createSpeechToolDefinitions, SPEECH_GENERATION_PROMPT_LINES } from "./speech-tools";
 import { createInvestigateToolDefinitions, withInvestigateTool, type InvestigateHost } from "./investigate-tool";
 import { resolveWorkspaceCwd } from "./projects";
@@ -273,6 +273,11 @@ export interface PiBff {
    * `read` は常に差し替える（既存セッションの execute は削除後も現在の行を見に行く）
    */
   setContentGeneration(config: ContentGenerationConfig): void;
+  /**
+   * 設定 → コンテンツ生成 の「お試し再生」が使う生成器。ツールと同じ形式の学習メモを共有するため、
+   * プレイグラウンドの試行でも mp3 / pcm の使い分けが進む。
+   */
+  generateSpeech(input: SpeechGenerationInput): Promise<SpeechGenerationResult>;
   /**
    * `web_search` の実行時設定（有効 / 無効・既定 provider・provider のキー）を注入する。ツールは
    * execute のたびに読むため、既存セッションにも次の呼び出しから効く。設定が未注入の間は有効 / Exa
@@ -1027,6 +1032,7 @@ export async function createPiBff({ cwd = process.cwd() }: { cwd?: string } = {}
     setContentGeneration(config) {
       contentGeneration.config = config;
     },
+    generateSpeech: (input) => speechGenerator.generate(input),
     setWebSearch(config) {
       webSearch.config = config;
     },

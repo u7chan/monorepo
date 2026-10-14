@@ -70,7 +70,7 @@ React 19 + Vite + TypeScript + Tailwind CSS v4。ソースは `client/src`、エ
 
 - 開発時は BFF と Vite を併用し、Vite が `/api` をプロキシする。**プレビュー オリジンは Vite を通さず、ブラウザがそのポートを直接開く**ため、LAN / 別端末から使うときはそのポートの到達が要る（環境変数は [README](../README.md)）
 - 本番はビルド産物を BFF が配信する。`index.html` は `no-cache`、ハッシュ付き `assets/` は `immutable`。未ビルドのときは 503 で案内を出す
-- **CSP は `default-src 'self'`** に画像だけ `img-src 'self' data:` を足し、プレビュー用の `frame-src` を明示する（`'self'` を落とすと別オリジンを OFF にしたときのプレビューがブロックされる）
+- **CSP は `default-src 'self'`** に画像だけ `img-src 'self' data:` と、設定 → コンテンツ生成のお試し再生用に `media-src 'self' blob:` を足し、プレビュー用の `frame-src` を明示する（`'self'` は `blob:` に一致せず、`media-src` が無いと本番ビルドでだけ再生できない。`'self'` を落とすと別オリジンを OFF にしたときのプレビューがブロックされる）
 - SPA フォールバックは既存の静的ファイルを優先し、**拡張子なしの GET / HEAD に限って** `index.html` を返す。`/api` と `/assets` は prefix の境界ごと対象外にし、除外判定は decode 後のパスで行う（`%2F` で迂回させない）。`Accept` に `text/html` が `q>0` で含まれるときだけ返す
 - **soft 404: 存在しない拡張子なしパスにも HTTP 200 と `index.html` を返す。HTTP 200 はパスの存在確認に使えない**
 - ホーム画面アイコンは OS が角丸マスクを掛け、透明部分が黒い縁の原因になるため、**角丸も透明も入れない** PNG を指す

@@ -96,6 +96,8 @@ export type {
   SkillLoad,
   SpeechCatalogRefreshResponse,
   SpeechModel,
+  SpeechPreviewBody,
+  SpeechPreviewError,
   StopResult,
   ThinkingLevel,
   ToolCall,

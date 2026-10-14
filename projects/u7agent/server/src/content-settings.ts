@@ -6,12 +6,19 @@
  */
 import { messageFor } from "./http";
 import { MutationLock } from "./model-settings";
+import type { ProviderFailureCode } from "./provider-failure";
 import { REDACTED } from "./redact";
 import type { ContentSettingsRow } from "./app-db";
 import type { ImageCatalog } from "./image-catalog";
 import { IMAGE_PROVIDER_ID, type ContentGenerationConfig, type ImageGenerationSettings } from "./images";
 import { DEFAULT_SPEECH_MODEL, type SpeechCatalog } from "./speech-catalog";
-import type { SpeechGenerationSettings } from "./speech";
+import {
+  pcmToWav,
+  SPEECH_TEXT_MAX_LENGTH,
+  type SpeechGenerationInput,
+  type SpeechGenerationResult,
+  type SpeechGenerationSettings,
+} from "./speech";
 import {
   type ContentMutationResponse,
   type ContentSettingsResponse,
@@ -31,6 +38,18 @@ export const CONTENT_PROVIDER_UNSUPPORTED_MESSAGE = "コンテンツ生成のプ
 export const CONTENT_MODEL_NOT_IN_CATALOG_MESSAGE = "カタログに無い画像モデルは指定できません";
 export const CONTENT_SPEECH_MODEL_NOT_IN_CATALOG_MESSAGE = "カタログに無い音声モデルは指定できません";
 export const CONTENT_SPEECH_VOICE_NOT_SUPPORTED_MESSAGE = "この音声モデルが対応していない声は指定できません";
+
+export const CONTENT_SPEECH_PREVIEW_RUNTIME_UNAVAILABLE_MESSAGE =
+  "ランタイムが利用できないため、音声のお試し再生を実行できません";
+export const CONTENT_SPEECH_PREVIEW_READ_FAILED_MESSAGE =
+  "コンテンツ生成の設定を読み取れないため、音声のお試し再生を実行できません";
+/** 課金前に止める本文 / 演技指示の文言。ツール向け（分割して呼ぶ）の文言は流用しない */
+export const CONTENT_SPEECH_PREVIEW_TEXT_EMPTY_MESSAGE =
+  "読み上げる文章を入力してください（クレジットは消費していません）";
+export const CONTENT_SPEECH_PREVIEW_TEXT_TOO_LONG_MESSAGE = `読み上げる文章が長すぎます（${SPEECH_TEXT_MAX_LENGTH.toLocaleString("en-US")} 文字まで。クレジットは消費していません）`;
+export const CONTENT_SPEECH_PREVIEW_INSTRUCTIONS_TOO_LONG_MESSAGE = `演技指示が長すぎます（${SPEECH_TEXT_MAX_LENGTH.toLocaleString("en-US")} 文字まで。クレジットは消費していません）`;
+export const CONTENT_SPEECH_PREVIEW_SPEED_MESSAGE =
+  "速度は正の数で指定してください（空欄は provider の既定。クレジットは消費していません）";
 
 export interface ContentSettingsDb {
   /** 行が無ければ undefined = 未設定 */
@@ -53,11 +72,21 @@ export interface ContentSettingsOptions {
   setContentGeneration: (config: ContentGenerationConfig) => void;
   /** health / ログへ出す前の文言境界（可変マスカー） */
   maskError: (text: string) => string;
+  /** お試し再生の生成器（PiBff が持つ）。未注入（ランタイムなしで起動）は runtime 不可と同じ 503 */
+  generateSpeech?: ((input: SpeechGenerationInput) => Promise<SpeechGenerationResult>) | undefined;
 }
 
 export type ContentMutationOutcome =
   | { status: 200; response: ContentMutationResponse }
   | { status: 503; error: string };
+
+/**
+ * お試し再生の結果。200 は音声バイト（`contentType` は mp3 が `audio/mpeg`、pcm は wav 化して `audio/wav`）、
+ * それ以外は JSON の失敗で、`code` は provider の失敗を分類できたときだけ載る。
+ */
+export type SpeechPreviewOutcome =
+  | { status: 200; audio: ArrayBuffer; contentType: string }
+  | { status: 400 | 502 | 503; error: string; code?: ProviderFailureCode };
 
 export class ContentSettingsService {
   #db: ContentSettingsDb;
@@ -67,6 +96,7 @@ export class ContentSettingsService {
   #speechCatalog: SpeechCatalog;
   #setContentGeneration: (config: ContentGenerationConfig) => void;
   #maskError: (text: string) => string;
+  #generateSpeech: ((input: SpeechGenerationInput) => Promise<SpeechGenerationResult>) | undefined;
   #lock = new MutationLock();
 
   constructor(options: ContentSettingsOptions) {
@@ -77,6 +107,7 @@ export class ContentSettingsService {
     this.#speechCatalog = options.speechCatalog;
     this.#setContentGeneration = options.setContentGeneration;
     this.#maskError = options.maskError;
+    this.#generateSpeech = options.generateSpeech;
   }
 
   /**
@@ -317,6 +348,78 @@ export class ContentSettingsService {
         }),
       };
     });
+  }
+
+  /**
+   * 設定 → コンテンツ生成 の「お試し再生」。課金前の検証（カタログ・声の宣言・長さ・空本文・速度）を
+   * 既存の private 実装と共有するため、route へ写さずこのサービスに置く（キーを model / voice 欄へ
+   * 誤って貼られたとき、400 の文言から再露出させない）。provider の応答は最大 180 秒かかるため、
+   * 設定の保存を塞がないようロックの外で実行する。
+   */
+  async previewSpeech(
+    input: { model: string; voice: string; text: string; instructions?: string; speed?: number },
+    options: { signal?: AbortSignal } = {},
+  ): Promise<SpeechPreviewOutcome> {
+    if (!this.#generateSpeech) {
+      return { status: 503, error: CONTENT_SPEECH_PREVIEW_RUNTIME_UNAVAILABLE_MESSAGE };
+    }
+    let row: ContentSettingsRow | undefined;
+    try {
+      row = this.#db.readContentSettings();
+    } catch (error) {
+      console.warn(`[u7agent] content settings read failed: ${this.#maskError(messageFor(error))}`);
+      return { status: 503, error: CONTENT_SPEECH_PREVIEW_READ_FAILED_MESSAGE };
+    }
+    if (!row) return { status: 400, error: CONTENT_SETTINGS_UNCONFIGURED_MESSAGE };
+
+    // モデルの照合は PUT /speech と同じく `default`（live に一度も成功していない）を免除し、
+    // 声の宣言は generate_speech と同じくカタログの出どころに関係なく引く
+    const catalog = this.#speechCatalog.snapshot();
+    if (catalog.source !== "default" && !catalog.entries.some((entry) => entry.id === input.model)) {
+      return {
+        status: 400,
+        error: `${CONTENT_SPEECH_MODEL_NOT_IN_CATALOG_MESSAGE}: ${this.#reflectedValue(input.model, row.apiKey)}`,
+      };
+    }
+    const declared = this.#speechCatalog.voicesOf(input.model);
+    if (declared && input.voice !== "" && !declared.includes(input.voice)) {
+      return {
+        status: 400,
+        error: `${CONTENT_SPEECH_VOICE_NOT_SUPPORTED_MESSAGE}: ${this.#reflectedValue(input.voice, row.apiKey)}`,
+      };
+    }
+    if (input.text.trim() === "") return { status: 400, error: CONTENT_SPEECH_PREVIEW_TEXT_EMPTY_MESSAGE };
+    if (input.text.length > SPEECH_TEXT_MAX_LENGTH) {
+      return { status: 400, error: CONTENT_SPEECH_PREVIEW_TEXT_TOO_LONG_MESSAGE };
+    }
+    const instructions = input.instructions ?? "";
+    if (instructions.length > SPEECH_TEXT_MAX_LENGTH) {
+      return { status: 400, error: CONTENT_SPEECH_PREVIEW_INSTRUCTIONS_TOO_LONG_MESSAGE };
+    }
+    // 対応モデルの範囲（Seed Audio の 0.5–2.0 など）は provider の制約なのでここでは縛らない
+    if (input.speed !== undefined && !(Number.isFinite(input.speed) && input.speed > 0)) {
+      return { status: 400, error: CONTENT_SPEECH_PREVIEW_SPEED_MESSAGE };
+    }
+
+    const result = await this.#generateSpeech({
+      provider: row.provider,
+      model: input.model,
+      text: input.text,
+      voice: input.voice,
+      instructions,
+      speed: input.speed,
+      apiKey: row.apiKey,
+      signal: options.signal,
+    });
+    if (!result.ok) return { status: 502, error: result.message, code: result.code };
+    if (result.speech.format === "pcm") {
+      return {
+        status: 200,
+        audio: pcmToWav(result.speech.audio, result.speech.sampleRate, result.speech.channels),
+        contentType: "audio/wav",
+      };
+    }
+    return { status: 200, audio: result.speech.audio, contentType: "audio/mpeg" };
   }
 
   /**

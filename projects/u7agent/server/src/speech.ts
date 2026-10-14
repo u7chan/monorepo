@@ -5,6 +5,7 @@
  * 要求を自前で組む。送信先は OpenRouter の音声専用 API（`POST {baseUrl}/audio/speech`）で、
  * 応答は JSON ではなく生バイト。`response_format` はモデルごとに mp3 / pcm のどちらかしか通らず、
  * API はどちらかを宣言しないため、mp3 を優先して送り、形式違いを示す 400 から使い分けを学習する。
+ * ツール（`speech-tools.ts`）と設定画面のお試し再生の両方がこの生成器を通る。
  */
 import {
   classifyProviderFailure,
@@ -21,8 +22,8 @@ export type SpeechFailureCode = ProviderFailureCode;
 export type SpeechAudioFormat = "mp3" | "pcm";
 
 /**
- * 保存できる形の生成結果。pcm は生バイトのまま返し、RIFF ヘッダを付ける仕事はツール層へ残す
- * （`speech-tools.ts`）。
+ * 保存できる形の生成結果。pcm は生バイトのまま返し、RIFF ヘッダを付けるのは受け取った側
+ * （ツールの保存前とお試し再生の応答前）にする。
  */
 export type GeneratedSpeech =
   | {
@@ -51,6 +52,9 @@ export const SPEECH_PROVIDER_ID = "openrouter";
 export const SPEECH_API_URL = "https://openrouter.ai/api/v1/audio/speech";
 
 export const SPEECH_GENERATION_TIMEOUT_MS = 180_000;
+
+/** 課金前に止める本文 / 演技指示の上限。モデルごとの per-request 上限はカタログから読めないため保守的に固定する */
+export const SPEECH_TEXT_MAX_LENGTH = 4_000;
 
 export const SPEECH_API_KEY_INVALID_MESSAGE = "音声APIキーが無効です。設定を確認してください";
 export const SPEECH_INSUFFICIENT_CREDIT_MESSAGE = "音声生成の残高が不足しています";
@@ -91,6 +95,10 @@ export interface SpeechGenerationInput {
   text: string;
   /** 省略時は本文から voice を送らない。provider の既定声に委ねる */
   voice?: string | undefined;
+  /** 演技指示。省略・空文字はキーごと落とし、未対応の provider では無視されるか 400 になる */
+  instructions?: string | undefined;
+  /** 話速。省略はキーごと落とし、範囲の制約は provider の 400 に委ねる */
+  speed?: number | undefined;
   apiKey: string;
   /** ユーザー中断。timeout の自前タイマーとは別に扱う */
   signal?: AbortSignal | undefined;
@@ -163,6 +171,34 @@ function speechFormatFromProviderMessage(message: string | undefined): SpeechAud
   return undefined;
 }
 
+/**
+ * pcm の生バイトへ 44 バイトの RIFF ヘッダを付ける。ビット深度は API が宣言しないため、
+ * 実測どおり 16-bit LE を前提にする（ヘッダと実データが食い違う形式は検出できない）。
+ */
+export function pcmToWav(pcm: ArrayBuffer, sampleRate: number, channels: number): ArrayBuffer {
+  const size = pcm.byteLength;
+  const bytes = new ArrayBuffer(44 + size);
+  const view = new DataView(bytes);
+  const ascii = (offset: number, text: string): void => {
+    for (let index = 0; index < text.length; index += 1) view.setUint8(offset + index, text.charCodeAt(index));
+  };
+  ascii(0, "RIFF");
+  view.setUint32(4, 36 + size, true);
+  ascii(8, "WAVE");
+  ascii(12, "fmt ");
+  view.setUint32(16, 16, true);
+  view.setUint16(20, 1, true);
+  view.setUint16(22, channels, true);
+  view.setUint32(24, sampleRate, true);
+  view.setUint32(28, sampleRate * channels * 2, true);
+  view.setUint16(32, channels * 2, true);
+  view.setUint16(34, 16, true);
+  ascii(36, "data");
+  view.setUint32(40, size, true);
+  new Uint8Array(bytes).set(new Uint8Array(pcm), 44);
+  return bytes;
+}
+
 export function createSpeechGenerator(options: SpeechGeneratorOptions = {}): SpeechGenerator {
   const timeoutMs = options.timeoutMs ?? SPEECH_GENERATION_TIMEOUT_MS;
   const maskText = options.maskText ?? ((text: string) => text);
@@ -201,6 +237,8 @@ export function createSpeechGenerator(options: SpeechGeneratorOptions = {}): Spe
               model: input.model,
               input: input.text,
               ...(input.voice ? { voice: input.voice } : {}),
+              ...(input.instructions ? { instructions: input.instructions } : {}),
+              ...(input.speed === undefined ? {} : { speed: input.speed }),
               response_format: format,
             }),
             signal: controller.signal,

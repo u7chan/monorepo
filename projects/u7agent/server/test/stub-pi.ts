@@ -11,6 +11,7 @@ import type { AskUserHost } from "../src/ask-user-tool";
 import type { ContentGenerationConfig } from "../src/images";
 import type { InvestigateHost } from "../src/investigate-tool";
 import type { ServeToolHost } from "../src/serve-tool";
+import type { SpeechGenerationInput, SpeechGenerationResult } from "../src/speech";
 import type { WebSearchRuntimeConfig } from "../src/web-search-tool";
 import type { SessionEnvSource } from "../src/agent";
 import { createMutableSecretMasker } from "../src/redact";
@@ -80,6 +81,22 @@ export function modelOptionOf(model: PiAiModel<Api>): ModelOption {
     supportsThinking: getSupportedThinkingLevels(model).some((level) => level !== "off"),
     thinkingLevels: getSupportedThinkingLevels(model) as ThinkingLevel[],
   };
+}
+
+/**
+ * お試し再生の canned 音声。有料 API を呼ばずに、実際に鳴る短い 440Hz の 16-bit LE pcm を作る
+ * （BFF が RIFF ヘッダを付けて wav として返す）。
+ */
+export function stubSpeechAudio(options: { sampleRate?: number; ms?: number; frequency?: number } = {}): ArrayBuffer {
+  const sampleRate = options.sampleRate ?? 8_000;
+  const samples = Math.round((sampleRate * (options.ms ?? 400)) / 1000);
+  const frequency = options.frequency ?? 440;
+  const bytes = new ArrayBuffer(samples * 2);
+  const view = new DataView(bytes);
+  for (let index = 0; index < samples; index += 1) {
+    view.setInt16(index * 2, Math.round(Math.sin((2 * Math.PI * frequency * index) / sampleRate) * 8_000), true);
+  }
+  return bytes;
 }
 
 /** assistant メッセージに載せる既定の usage (provider が報告する値を模する) */
@@ -1011,6 +1028,11 @@ export interface StubPiOptions {
     options: { deviceId?: string; agentName?: string },
   ) => Promise<void> | void;
   onOAuthLogout?: (provider: string, signal: AbortSignal | undefined) => Promise<void> | void;
+  /**
+   * お試し再生の生成器の模倣。省略時は canned 音声（pcm）を返す。成功 / 失敗 / 中断を差し替えられる
+   * （中断は `input.signal` を待つ実装をテスト側で書く）。
+   */
+  onGenerateSpeech?: (input: SpeechGenerationInput) => SpeechGenerationResult | Promise<SpeechGenerationResult>;
 }
 
 export interface StubProvider {
@@ -1151,6 +1173,8 @@ export function createStubPi(options: StubPiOptions = {}) {
   const modelStateRefreshSignals: (AbortSignal | undefined)[] = [];
   const modelSelections: ModelSelection[] = [];
   const contentGenerationConfigs: ContentGenerationConfig[] = [];
+  // お試し再生の生成器へ渡った入力を記録する（課金前の検証で止めた呼び出しが無いことも見る）
+  const speechCalls: SpeechGenerationInput[] = [];
   const webSearchConfigs: WebSearchRuntimeConfig[] = [];
   // serve ツールの実体 (bootstrap が注入する)。ツールの配線はここに記録して検証する
   const serveHosts: ServeToolHost[] = [];
@@ -1197,6 +1221,15 @@ export function createStubPi(options: StubPiOptions = {}) {
     },
     setContentGeneration: (config: ContentGenerationConfig) => {
       contentGenerationConfigs.push(config);
+    },
+    speechCalls,
+    generateSpeech: async (input: SpeechGenerationInput) => {
+      speechCalls.push(input);
+      if (options.onGenerateSpeech) return options.onGenerateSpeech(input);
+      return {
+        ok: true,
+        speech: { audio: stubSpeechAudio(), format: "pcm", contentType: "audio/pcm", sampleRate: 8_000, channels: 1 },
+      };
     },
     webSearchConfigs,
     // 注入のたびに差し替わる。実行中のセッションが同じ関数を読むことを再現する
