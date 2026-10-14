@@ -81,27 +81,33 @@ ARG COMMIT_HASH=""
 ENV COMMIT_HASH=${COMMIT_HASH}
 RUN pnpm check
 
-# ブラウザの probe。root では実行せず、node ユーザー + 既存の Landlock ラッパー + 通常実行相当の許可 root / HOME で
-# 実行し、DOM / PNG / ループバックの HTTP と WS / ループバック以外と link-local redirect の拒否を検査する。
-# 2 本同時に走らせて、起動時の回収が生存中の別の呼び出しを壊さないことも見る。終了後に残骸が無いことまで見る。
+# ブラウザの probe。root では実行せず、node ユーザー + 既存の Landlock ラッパー経由
+# (`u7agent-landlock -c '...'`) + 通常実行相当の許可 root / HOME で実行し、DOM / PNG / ループバックの HTTP と WS /
+# ループバック以外と link-local redirect の拒否を検査する。環境変数を渡すだけでは Landlock は適用されないため、
+# ラッパーが実際に効いていること (ABI 999 は拒否 / 許可 root の外へ書けない) も検査する。2 本同時に走らせて、
+# 起動時の回収と同時実行の入場制御が生存中の呼び出しを壊さないことも見る。終了後に残骸が無いことまで見る。
+# 2 本目は PLAYWRIGHT_BROWSERS_PATH 未設定で走らせ、import 前に既定 (/ms-playwright) が有効になることも見る。
 USER node
 RUN set -eux; \
     mkdir -p /tmp/u7agent-browser-probe; \
     cd /tmp/u7agent-browser-probe; \
-    env U7AGENT_LANDLOCK_SHELL=/bin/bash \
-        U7AGENT_LANDLOCK_MIN_ABI=3 \
-        U7AGENT_LANDLOCK_RULES='[{"path":"/tmp/u7agent-browser-probe","create":true},{"path":"/tmp"},{"path":"/home/node/.cache","create":true},{"path":"/home/node/.npm","create":true},{"path":"/home/node/.local/share/pnpm","create":true},{"path":"/dev/null"},{"path":"/dev/shm"}]' \
-        u7agent-browser --self-test > /tmp/u7agent-browser-probe/1.log 2>&1 & p1=$!; \
-    env U7AGENT_LANDLOCK_SHELL=/bin/bash \
-        U7AGENT_LANDLOCK_MIN_ABI=3 \
-        U7AGENT_LANDLOCK_RULES='[{"path":"/tmp/u7agent-browser-probe","create":true},{"path":"/tmp"},{"path":"/home/node/.cache","create":true},{"path":"/home/node/.npm","create":true},{"path":"/home/node/.local/share/pnpm","create":true},{"path":"/dev/null"},{"path":"/dev/shm"}]' \
-        u7agent-browser --self-test > /tmp/u7agent-browser-probe/2.log 2>&1 & p2=$!; \
+    U7AGENT_LANDLOCK_SHELL=/bin/bash; \
+    U7AGENT_LANDLOCK_MIN_ABI=3; \
+    U7AGENT_LANDLOCK_RULES='[{"path":"/tmp/u7agent-browser-probe","create":true},{"path":"/tmp"},{"path":"/home/node/.cache","create":true},{"path":"/home/node/.npm","create":true},{"path":"/home/node/.local/share/pnpm","create":true},{"path":"/dev/null"},{"path":"/dev/shm"}]'; \
+    export U7AGENT_LANDLOCK_SHELL U7AGENT_LANDLOCK_MIN_ABI U7AGENT_LANDLOCK_RULES; \
+    wrap() { /usr/local/bin/u7agent-landlock -c "$1"; }; \
+    wrap 'u7agent-browser --self-test' > /tmp/u7agent-browser-probe/1.log 2>&1 & p1=$!; \
+    wrap 'env -u PLAYWRIGHT_BROWSERS_PATH u7agent-browser --self-test' > /tmp/u7agent-browser-probe/2.log 2>&1 & p2=$!; \
     wait "$p1"; \
     wait "$p2"; \
     cat /tmp/u7agent-browser-probe/1.log /tmp/u7agent-browser-probe/2.log; \
     grep -q "self-test ok" /tmp/u7agent-browser-probe/1.log; \
     grep -q "self-test ok" /tmp/u7agent-browser-probe/2.log; \
     test -z "$(ls -A /tmp/u7agent-browser)"; \
+    ! U7AGENT_LANDLOCK_MIN_ABI=999 wrap 'u7agent-browser --self-test' > /tmp/u7agent-browser-probe/invalid-abi.log 2>&1; \
+    grep -q "older than the required" /tmp/u7agent-browser-probe/invalid-abi.log; \
+    ! wrap 'echo no > /home/node/landlock-denied-written' 2>/dev/null; \
+    test ! -f /home/node/landlock-denied-written; \
     rm -rf /tmp/u7agent-browser-probe
 USER root
 

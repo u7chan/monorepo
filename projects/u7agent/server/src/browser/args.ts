@@ -2,7 +2,14 @@
  * CLI の引数。`--self-test` だけを持つ Phase 1 の契約と、資源上限の案内をここに置く。
  * サブコマンド (Phase 2 / Phase 3) はこのファイルへ足す。
  */
-import { CALL_DEADLINE_MS, MAX_IMAGE_BYTES, MAX_OUTPUTS, parseDeadlineMs, VIEWPORT } from "./limits";
+import {
+  CALL_DEADLINE_MS,
+  MAX_CONCURRENT_CALLS,
+  MAX_IMAGE_BYTES,
+  MAX_OUTPUTS,
+  parseDeadlineMs,
+  VIEWPORT,
+} from "./limits";
 
 export interface CliOptions {
   selfTest: boolean;
@@ -17,7 +24,8 @@ export const USAGE = `u7agent-browser — サンドボックス内のヘッド�
 
 資源上限:
   期限 ${CALL_DEADLINE_MS} ms / viewport ${VIEWPORT.width}x${VIEWPORT.height} / 成果物 ${MAX_OUTPUTS} 件 /
-  画像 ${Math.round(MAX_IMAGE_BYTES / (1024 * 1024))} MiB / 同時実行の上限なし (呼び出しごとに独立)
+  画像 ${Math.round(MAX_IMAGE_BYTES / (1024 * 1024))} MiB / 同時実行 ${MAX_CONCURRENT_CALLS} 件
+  (同時実行の上限に達したら実行せずに終了する。呼び出しごとに独立したプロセスと一時領域を持つ)
 
 外部到達:
   ループバック (127.0.0.1 / localhost / [::1]) 以外へは通信しない。data: URL は対象外。

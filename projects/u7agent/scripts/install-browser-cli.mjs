@@ -12,10 +12,17 @@ import { fileURLToPath } from "node:url";
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 export const BROWSER_CLI_NAME = "u7agent-browser";
 
-export function browserWrapperScript(root) {
+/**
+ * 入口の雛形。`root` はイメージなら /app、dev なら checkout の絶対パス。`browsersPath` を渡すと、
+ * 未設定のときだけそれを使う (dev でサンドボックスの外から叩くときの既定。明示された値を優先する)。
+ */
+export function browserWrapperScript(root, browsersPath) {
+  const fallback = browsersPath
+    ? `if [ -z "\${PLAYWRIGHT_BROWSERS_PATH:-}" ]; then PLAYWRIGHT_BROWSERS_PATH='${browsersPath}'; export PLAYWRIGHT_BROWSERS_PATH; fi\n`
+    : "";
   return `#!/bin/sh
 # 呼び出し元の cwd を保つ (成果物の保存先の基準)。tsx は絶対パスで呼ぶ。
-exec node --import ${join(root, "server", "node_modules", "tsx", "dist", "loader.mjs")} ${join(root, "server", "src", "browser", "cli.ts")} "$@"
+${fallback}exec node --import ${join(root, "server", "node_modules", "tsx", "dist", "loader.mjs")} ${join(root, "server", "src", "browser", "cli.ts")} "$@"
 `;
 }
 
@@ -25,10 +32,10 @@ export function devBrowserCliDir(home = process.env.HOME) {
 }
 
 /** 内容が違うときだけ書き込む (毎回 chmod しても実害は無いが、mtime を動かさない) */
-export async function installBrowserCli({ root = ROOT, dest = devBrowserCliDir(), log = () => {} } = {}) {
+export async function installBrowserCli({ root = ROOT, dest = devBrowserCliDir(), browsersPath, log = () => {} } = {}) {
   if (!dest) throw new Error("HOME が未設定のため、入口の配置先を決められません");
   const target = join(dest, BROWSER_CLI_NAME);
-  const content = browserWrapperScript(root);
+  const content = browserWrapperScript(root, browsersPath);
   const existing = await readFile(target, "utf8").catch(() => undefined);
   if (existing !== content) {
     await mkdir(dest, { recursive: true });

@@ -79,7 +79,8 @@ pi SDK (BFF)                       sandbox service (別プロセス / 別コン�
   - 版の正本は `playwright-core` の `browsers.json` で、独立した版定数を持たない（ドライバとブラウザの対応を公式のセットへ固定する）。取得は `scripts/install-browser.mjs` が `playwright-core` の CLI へ委ね、既にある版は取り直さない（コンテナ再作成でイメージの同梱物を取り直さない）。配布先はイメージが `/ms-playwright`、dev が `PLAYWRIGHT_BROWSERS_PATH`（未設定はホームのキャッシュ）で、`test` / `final` / dev が同じ版を使う。配布物が持つ著作権表示のファイルは消さずに残す
   - 入口は `u7agent-browser`（イメージは `/usr/local/bin`、dev は `pnpm dev` が `$HOME/.local/libexec/u7agent` へ置き、サンドボックスへ `PATH` と `PLAYWRIGHT_BROWSERS_PATH` を渡す）。**呼び出し元の cwd を変えない**（成果物の保存先の基準にする）ため、`--import tsx` の解決が cwd に依存する分を入口が絶対パスで埋める
   - **標準経路はループバック以外へ通信しない**。境界はブラウザのネットワーク層で、ラッパー自身が 127.0.0.1 の一時ポートへ deny-all proxy を立てて `--proxy-server` でそこへ向け、`--proxy-bypass-list` で Chromium の暗黙バイパス（localhost と link-local）を外したうえで許可するループバックだけを明示登録する。Playwright の `route` は redirect 先では呼ばれず、暗黙バイパスは link-local も含むため、route だけでは境界にならない。2 段目に `route` / `routeWebSocket` の明示拒否を重ね、Service Worker は `serviceWorkers: "block"` で登録させない。許可するループバックの表記は `127.0.0.1` / `localhost` / `[::1]` に限る
-  - 呼び出しは single-shot で、呼び出しをまたいで状態を持たない。一時領域（`HOME` / `TMPDIR` / Playwright のプロファイル）は呼び出しごとに `/tmp` の内側へ作り、通常 / 例外 / 期限超過のどれでも削除する。外側の abort は SIGKILL で `finally` が走らないため、終了済みと確認できる古い領域は次の起動時に掃除する（生存中の pid は残し、PID の再利用は起動時刻の照合で見分ける）。同時実行数の上限は設けず、隔離はこの置き場の名前に寄せる
+  - 呼び出しは single-shot で、呼び出しをまたいで状態を持たない。一時領域（`HOME` / `TMPDIR` / Playwright のプロファイル）は呼び出しごとに `/tmp` の内側へ作り、通常 / 例外 / 期限超過のどれでも削除する。外側の abort は SIGKILL で `finally` が走らないため、終了済みと確認できる古い領域は次の起動時に掃除する（生存中の pid は残し、PID の再利用は起動時刻の照合で見分ける。`/proc` が読めないときは不明として残す）
+  - 同時実行は既定で上限を持ち、置き場の下の `slots/` に自分の所有者名（`<pid>-<起動時刻>`）のファイルを作る入場制御で、ブラウザを起動する前に制限する（隔離した一時領域は総資源の上限にならない）。上限に達した呼び出しは待たずに終了する。終了済みと確認できる枠だけを回収し、読めない枠は不明として残す
   - 境界ではないもの: OS レベルの egress 制限ではない。`curl` を使うなど生の `bash` からの通信は残る
 
 ## 残存リスク

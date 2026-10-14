@@ -39,7 +39,7 @@ test("資源上限は CLI の案内と一致する", () => {
   assert.equal(MAX_OUTPUTS, 1);
   assert.equal(MAX_IMAGE_BYTES, 64 * 1024 * 1024);
   assert.match(USAGE, /期限 120000 ms/);
-  assert.match(USAGE, /同時実行の上限なし/);
+  assert.match(USAGE, /同時実行 3 件/);
   assert.match(USAGE, /ループバック \(127\.0\.0\.1 \/ localhost \/ \[::1\]\) 以外へは通信しない/);
   // 常に付ける起動引数は CLI の仕様として案内する (何を付けるかを利用者から見えるようにする)
   for (const arg of BROWSER_ARGUMENTS) assert.ok(USAGE.includes(arg), arg);

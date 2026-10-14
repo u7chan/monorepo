@@ -4,14 +4,14 @@
  * 例外で終わる場合も起動の途中で後始末してから投げ、残骸を次の呼び出しへ残さない。
  */
 import { rm } from "node:fs/promises";
+// Playwright はモジュールの読み込み時に同梱先を確定するため、playwright-core より先に読む (import の順序が効く)
+import "./environment";
 import { chromium, type Browser, type BrowserContext, type Page } from "playwright-core";
+import { acquireConcurrencySlot, type ConcurrencySlot } from "./concurrency";
 import { CALL_DEADLINE_MS, VIEWPORT } from "./limits";
 import { browserArguments, installReachPolicy } from "./policy";
 import { startDenyAllProxy, type DenyAllProxy } from "./proxy";
 import { cleanupStaleCallDirs, createCallDirs, type CallDirs } from "./temp";
-
-/** イメージの既定。dev は環境変数で同じ版の置き場を渡す */
-export const DEFAULT_BROWSERS_PATH = "/ms-playwright";
 
 export class CallDeadlineError extends Error {
   constructor(deadlineMs: number) {
@@ -36,12 +36,6 @@ export interface OpenBrowserSessionOptions {
   log?: (message: string) => void;
 }
 
-/** 環境変数を優先し、未設定ならイメージの同梱先を使う */
-export function resolveBrowsersPath(env: NodeJS.ProcessEnv = process.env): string {
-  const value = env.PLAYWRIGHT_BROWSERS_PATH?.trim();
-  return value && value !== "0" ? value : DEFAULT_BROWSERS_PATH;
-}
-
 /**
  * 起動から終了までを 1 つの関数に閉じる。期限は起動中の処理も覆い、超過したら起動の完了を待ってから閉じる
  * (起動中に閉じるとブラウザが孤児になり、削除済みの一時領域を掴み続ける)。
@@ -50,16 +44,10 @@ export async function openBrowserSession(options: OpenBrowserSessionOptions = {}
   const deadlineMs = options.deadlineMs ?? CALL_DEADLINE_MS;
   const log = options.log ?? (() => {});
   const viewport = options.viewport ?? VIEWPORT;
-  process.env.PLAYWRIGHT_BROWSERS_PATH = resolveBrowsersPath();
-
-  const stale = await cleanupStaleCallDirs({ log });
-  if (stale.length > 0) log(`終了済みの一時領域を回収しました (${stale.length} 件)`);
-  const dirs = await createCallDirs();
-  // Playwright は profile を os.tmpdir() 配下へ作るため、起動前に TMPDIR を差し替える
-  process.env.HOME = dirs.home;
-  process.env.TMPDIR = dirs.tmp;
 
   const denials: string[] = [];
+  let dirs: CallDirs | undefined;
+  let slot: ConcurrencySlot | undefined;
   let proxy: DenyAllProxy | undefined;
   let browser: Browser | undefined;
   let context: BrowserContext | undefined;
@@ -77,11 +65,21 @@ export async function openBrowserSession(options: OpenBrowserSessionOptions = {}
     if (context) await context.close().catch((error: unknown) => failures.push(error));
     if (browser) await browser.close().catch((error: unknown) => failures.push(error));
     if (proxy) await proxy.close().catch((error: unknown) => failures.push(error));
-    await rm(dirs.root, { recursive: true, force: true }).catch((error: unknown) => failures.push(error));
+    if (dirs) await rm(dirs.root, { recursive: true, force: true }).catch((error: unknown) => failures.push(error));
+    if (slot) await slot.release().catch((error: unknown) => failures.push(error));
     for (const failure of failures) log(`後始末に失敗しました: ${(failure as Error).message}`);
   };
 
   try {
+    // 自分の起動時刻を読めない (/proc が無い) ときに、掃除で他人の領域を消さないよう自分の領域を先に作る
+    dirs = await createCallDirs();
+    // Playwright は profile を os.tmpdir() 配下へ作るため、起動前に TMPDIR を差し替える
+    process.env.HOME = dirs.home;
+    process.env.TMPDIR = dirs.tmp;
+    const stale = await cleanupStaleCallDirs({ log });
+    if (stale.length > 0) log(`終了済みの一時領域を回収しました (${stale.length} 件)`);
+    // 上限に達していたらブラウザを起動せずに落とす (資源の入場制御)
+    slot = await acquireConcurrencySlot({ log });
     proxy = await startDenyAllProxy({ onDeny: (target) => denials.push(target) });
     timer = setTimeout(() => {
       timedOut = true;

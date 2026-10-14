@@ -61,7 +61,16 @@ test("入口は呼び出し元の cwd を変えず、tsx と CLI を絶対パス
     script,
     /exec node --import \/app\/server\/node_modules\/tsx\/dist\/loader\.mjs \/app\/server\/src\/browser\/cli\.ts "\$@"/,
   );
+  assert.ok(!script.includes("PLAYWRIGHT_BROWSERS_PATH"), "イメージでは環境変数の既定を焼き込まない");
   assert.ok(!script.includes("cd "), "cwd を変えない (成果物の保存先の基準になる)");
+});
+
+test("dev の入口は未設定のときだけキャッシュを既定にする", () => {
+  const script = cliInstaller.browserWrapperScript("/checkout", "/home/example/.cache/ms-playwright");
+  assert.match(
+    script,
+    /if \[ -z "\$\{PLAYWRIGHT_BROWSERS_PATH:-}" \]; then PLAYWRIGHT_BROWSERS_PATH='\/home\/example\/\.cache\/ms-playwright'; export PLAYWRIGHT_BROWSERS_PATH; fi/,
+  );
 });
 
 test("dev の入口は trusted directory へ実行可能な形で置く", async () => {

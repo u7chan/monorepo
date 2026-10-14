@@ -174,17 +174,18 @@ async function main() {
   }
   // ブラウザの入口と配布セット。取得に失敗しても dev は続行する (スキルが指す CLI が無い状態を作らないための配線)
   const browserCliDir = devBrowserCliDir();
-  try {
-    await installBrowserCli({ log: (message) => log(message) });
-  } catch (error) {
-    log(`u7agent-browser の入口を配置できませんでした (${error.message})。ブラウザは実行できません`);
-  }
   let browsersPath;
   try {
     browsersPath = resolveBrowsersDir(process.env);
     browsersPath = (await installBrowser({ dest: browsersPath, log: (message) => log(message) })).browsersDir;
   } catch (error) {
     log(`警告: ブラウザの配布セットを取得できませんでした (${error.message})。pnpm dev は続行します`);
+  }
+  try {
+    // 入口には dev のキャッシュを既定として焼き込む (サンドボックスの外から叩くときのため。明示された値を優先する)
+    await installBrowserCli({ browsersPath, log: (message) => log(message) });
+  } catch (error) {
+    log(`u7agent-browser の入口を配置できませんでした (${error.message})。ブラウザは実行できません`);
   }
   log(`サンドボックスを起動します (http://127.0.0.1:${SANDBOX_PORT})`);
   // シークレットの master key は BFF だけが使う。サンドボックスのプロセス env から外し、

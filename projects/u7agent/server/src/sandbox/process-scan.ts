@@ -4,7 +4,7 @@
  * この走査だけは制限の外にいる service 本体で行う。設計は docs/sandbox.md の serve の節を正とする。
  */
 import { readFile, readdir, readlink } from "node:fs/promises";
-import { processStartedAtMs, statFields } from "../proc-stat";
+import { processStartedAtMsOrUnknown, statFields } from "../proc-stat";
 import type { SandboxListenerProcess, SandboxListenerScan } from "./protocol";
 
 /** 1 回の祖先の探索でたどる親の上限。循環や壊れた /proc でも止まるようにする */
@@ -71,7 +71,7 @@ export async function scanListeners(port: number, options: { scan: boolean }): P
   if (pid === null) return { inodes, listener: null };
   const listener: SandboxListenerProcess = {
     pid,
-    startedAt: (await processStartedAtMs(pid)) ?? 0,
+    startedAt: await processStartedAtMsOrUnknown(pid),
     inodes,
     ancestors: await ancestorsOf(pid),
   };

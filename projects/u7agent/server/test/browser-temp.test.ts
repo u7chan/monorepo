@@ -2,12 +2,16 @@
 // 生存中の呼び出しを消さないことと、PID 再利用を取り違えないことが契約 (回収は次回起動の掃除に寄せている)。
 
 import assert from "node:assert/strict";
+import fs from "node:fs/promises";
 import { mkdir, mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
+import { syncBuiltinESMExports } from "node:module";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
+import { processStartedAtMs } from "../src/proc-stat";
 import {
   callDirName,
+  callOwnerState,
   cleanupStaleCallDirs,
   createCallDirs,
   isCallOwnerAlive,
@@ -29,12 +33,33 @@ test("置き場の名前は所有者 (pid と起動時刻) を表す", () => {
   }
 });
 
-test("生存判定は不明 (0) を生存として扱い、起動時刻の不一致を終了とみなす", async () => {
+test("生存判定は終了済みと確認できるときだけ false を返す", async () => {
   const owner = { pid: 4321, startedAtMs: STARTED_AT };
   assert.equal(await isCallOwnerAlive(owner, reader({ 4321: STARTED_AT })), true);
   assert.equal(await isCallOwnerAlive(owner, reader({ 4321: undefined })), false, "プロセスが居ない");
   assert.equal(await isCallOwnerAlive(owner, reader({ 4321: STARTED_AT + 1 })), false, "PID が再利用された");
   assert.equal(await isCallOwnerAlive(owner, reader({ 4321: 0 })), true, "起動時刻を読めない");
+  assert.equal(
+    await isCallOwnerAlive(owner, async () => {
+      throw Object.assign(new Error("EACCES"), { code: "EACCES" });
+    }),
+    true,
+    "読み取り失敗 (EACCES など) は不明なので生存として扱う",
+  );
+});
+
+test("所有者の状態は不在と不明と生存を分ける", async () => {
+  const owner = { pid: 4321, startedAtMs: STARTED_AT };
+  assert.equal(await callOwnerState(owner, reader({ 4321: STARTED_AT })), "alive");
+  assert.equal(await callOwnerState(owner, reader({ 4321: undefined })), "gone");
+  assert.equal(await callOwnerState(owner, reader({ 4321: STARTED_AT + 1 })), "gone");
+  assert.equal(await callOwnerState(owner, reader({ 4321: 0 })), "unknown");
+  assert.equal(
+    await callOwnerState(owner, async () => {
+      throw Object.assign(new Error("EMFILE"), { code: "EMFILE" });
+    }),
+    "unknown",
+  );
 });
 
 test("掃除は終了済みと確認できる置き場だけを消し、他の名前は触らない", async () => {
@@ -58,24 +83,50 @@ test("掃除は終了済みと確認できる置き場だけを消し、他の�
   }
 });
 
-test("掃除の失敗は警告に留め、呼び出し元の処理を止めない", async () => {
+test("読めない置き場 (不明) は消さずに残す", async () => {
   const root = await mkdtemp(join(tmpdir(), "u7agent-browser-temp-"));
   try {
     await mkdir(join(root, "555-1", "tmp"), { recursive: true });
-    const messages: string[] = [];
     const removed = await cleanupStaleCallDirs({
       root,
       readStartedAt: async () => {
         throw new Error("読めない");
       },
-      log: (message) => messages.push(message),
     });
     assert.deepEqual(removed, []);
-    assert.equal(messages.length, 1, "残した理由を出す");
     assert.deepEqual(await readdir(root), ["555-1"]);
   } finally {
     await rm(root, { recursive: true, force: true });
   }
+});
+
+// /proc の読み取り失敗を「プロセスが居ない」と取り違えないことの回帰。
+// 生存中の自プロセスの stat 読み取りだけに EACCES を注入しても、掃除は置き場を回収しない。
+test("生存中の pid の stat 読み取りが EACCES でも領域を回収しない", async () => {
+  const root = await mkdtemp(join(tmpdir(), "u7agent-browser-temp-"));
+  const originalReadFile = fs.readFile;
+  try {
+    const dirs = await createCallDirs({ root });
+    const patched = async (path: string, ...rest: unknown[]): Promise<unknown> => {
+      if (path === `/proc/${process.pid}/stat`) throw Object.assign(new Error("injected EACCES"), { code: "EACCES" });
+      return (originalReadFile as unknown as (...args: unknown[]) => Promise<unknown>)(path, ...rest);
+    };
+    fs.readFile = patched as unknown as typeof fs.readFile;
+    syncBuiltinESMExports();
+    await assert.rejects(processStartedAtMs(process.pid), /injected EACCES/);
+    assert.deepEqual(await cleanupStaleCallDirs({ root }), []);
+    assert.deepEqual(await readdir(root), [dirs.root.split("/").at(-1)]);
+  } finally {
+    fs.readFile = originalReadFile;
+    syncBuiltinESMExports();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("存在しない pid は終了済みとして undefined を返す", async () => {
+  assert.equal(await processStartedAtMs(999_999_999), undefined);
+  const startedAt = await processStartedAtMs(process.pid);
+  assert.ok(startedAt !== undefined && startedAt > 0, "自プロセスの起動時刻は読める");
 });
 
 test("自分の置き場は生存として作られ、掃除の対象にならない", async () => {
