@@ -40,6 +40,11 @@ export interface SessionSkillsInput {
    */
   commonSkillNames?: readonly string[] | undefined;
   /**
+   * 組み込みスキルの許可リスト (エージェント定義の `builtinSkillNames`)。undefined = 全部 ON、`[]` = すべて OFF。
+   * commonSkillNames と同じく、一覧と `/skill:` の展開で同じ値を渡す。
+   */
+  builtinSkillNames?: readonly string[] | undefined;
+  /**
    * true ならファイルスキルの発見失敗を投げる (一覧 API 用)。既定は落として組み込み / カタログだけで解決する
    * (セッション作成と `/skill:` の展開は縮退させる)。
    */
@@ -115,10 +120,15 @@ export async function resolveSessionSkills(input: SessionSkillsInput): Promise<R
         rootCwd: input.rootCwd,
         relativeCwd: input.relativeCwd,
         ...(input.commonSkillNames === undefined ? {} : { commonSkillNames: input.commonSkillNames }),
+        ...(input.builtinSkillNames === undefined ? {} : { builtinSkillNames: input.builtinSkillNames }),
         ...(input.strict === undefined ? {} : { strict: input.strict }),
       })
     : // サンドボックスが無くても組み込みはワークスペースに依らず使える (一覧と展開を同じ解決に保つ)
-      composeFileSkills([{ scope: "builtin", entries: builtinSkillEntries(input.rootCwd) }], input.rootCwd);
+      composeFileSkills(
+        [{ scope: "builtin", entries: builtinSkillEntries(input.rootCwd) }],
+        input.rootCwd,
+        input.builtinSkillNames === undefined ? {} : { builtinSkillNames: input.builtinSkillNames },
+      );
   // 影になった組み合わせは「落ちた側のパス → 採用された側のパス」で引く
   const keptByShadowed = new Map(composed.shadowed.map((item) => [item.shadowedPath, item.keptPath]));
   // 採用された行が隠している側 (ファイル同士の重複は行として残らないので、ここで持ち回る)

@@ -367,7 +367,7 @@ References are relative to /workspace/.agents/skills/writer.
 
 - 形式は SDK の `_expandSkillCommand` と同じ（`parseSkillBlock` で読み直せる）。`location` は `read` に渡す値と同じで、ファイル / 組み込み / カタログとも絶対パス（組み込みは `<root>/.u7agent/builtin-skills/...`、カタログは `<root>/.u7agent/agent-skills/...` の仮想パス）。カタログは実体が無いので「References are relative to …」行は入らない。引数はブロックの後に空行を挟んでそのまま渡す
 - 本文の取得元はスコープ別: ファイル（共通 / プロジェクト）→ サンドボックスの `GET /v1/files/preview`、組み込み → BFF の registry、カタログ（Agent 割り当て）→ セッションの `promptSnapshot`（旧 `<skill>` と新 `<agent_skill>` の両方を受け付け、タグではなく `name` 属性で引く）
-- 名前は優先順位 `プロジェクト > 共通 > 組み込み > カタログ` で一意に解決する（[一覧 API](#get-apisessionsidskills) と同じ解決を共有）。共通スキルはセッションのエージェントスナップショットの `commonSkillNames`（[api-catalog.md](api-catalog.md#エージェント定義の共通スキル許可リスト)）で絞られ、外した名前は未知の名前と同じに素通しする（エラーにしない）。未知の名前、`/skill:` で始まらない本文も素通しする（SDK と同じ挙動）
+- 名前は優先順位 `プロジェクト > 共通 > 組み込み > カタログ` で一意に解決する（[一覧 API](#get-apisessionsidskills) と同じ解決を共有）。共通 / 組み込みスキルはセッションのエージェントスナップショットの `commonSkillNames` / `builtinSkillNames`（[api-catalog.md](api-catalog.md#エージェント定義のスキル許可リスト)）で絞られ、外した名前は未知の名前と同じに素通しする（エラーにしない）。未知の名前、`/skill:` で始まらない本文も素通しする（SDK と同じ挙動）
 - **本文は送信時点の内容**。ファイルが削除されていれば 404、2 MiB 超 / UTF-8 でない / バイナリは 400、サンドボックスへ到達できなければ 502 を返し、**メッセージは送らない**（切り詰めて黙って送るとモデルが読む本文が変わるため）
 - 実行中（キュー / steering）に送った場合も同じ経路で展開する（`postMessage` が展開してから `SessionStore` へ渡す）
 - 一覧のタイトルは展開前の入力（`/skill:writer 3 行で書いて`）から作る。履歴（`messages[].text`）と `run_start.prompt` には展開後の本文が入り、クライアントは user バブルでブロックを畳んで表示する（引数だけを吹き出しに残す）
@@ -447,10 +447,10 @@ References are relative to /workspace/.agents/skills/writer.
 }
 ```
 
-- `scope` は `project` / `user`（共通）/ `builtin` / `catalog`（エージェント定義のスキル）。並びは優先順位 `project > user > builtin > catalog`。`user` はセッションのエージェントスナップショットの `commonSkillNames` で絞られ、未指定なら全件、`[]` なら 0 件になる（[api-catalog.md](api-catalog.md#エージェント定義の共通スキル許可リスト)）
+- `scope` は `project` / `user`（共通）/ `builtin` / `catalog`（エージェント定義のスキル）。並びは優先順位 `project > user > builtin > catalog`。`user` はセッションのエージェントスナップショットの `commonSkillNames`、`builtin` は `builtinSkillNames` で絞られ、どちらも未指定なら全件、`[]` なら 0 件になる（[api-catalog.md](api-catalog.md#エージェント定義のスキル許可リスト)）
 - `cwd` はセッションの作業ディレクトリ（root 相対）。`projectSkills` はプロジェクトスキルを探索するセッションか（未所属のスクラッチと root 直下は `false`）
 - `location` は `read` に渡す値（カタログは実体の無い仮想パス `.u7agent/agent-skills/<name>/SKILL.md`）。カタログのセグメントは percent encoding 済みで、表示用の `relativePath` は元の名前に戻して見せる。`relativePath` は root の外のみ `null`
-- 同名は優先順位で一意化する。負けた行（組み込みの上書きとカタログ）は `shadowed: true` と `shadowedBy`（優先される側の `location`）で示し、採用された行は `shadows`（隠している側の `location`）を持つ。`shadows` に入るのは**ファイルスキル同士の重複**で、カタログは常に敗者側にしか立たない。許可リストは一意化の**前**に当てるため、外した共通スキルと同名のプロジェクト側 / カタログ側は浮上して有効になる（影の組み合わせ自体が消える）。**ファイルの改名・削除・マージはしない**
+- 同名は優先順位で一意化する。負けた行（組み込みの上書きとカタログ）は `shadowed: true` と `shadowedBy`（優先される側の `location`）で示し、採用された行は `shadows`（隠している側の `location`）を持つ。`shadows` に入るのは**ファイルスキル同士の重複**で、カタログは常に敗者側にしか立たない。許可リストは一意化の**前**に当てるため、外した共通 / 組み込みスキルと同名の下位側（プロジェクト / 共通 / カタログ）は浮上して有効になる（影の組み合わせ自体が消える）。**ファイルの改名・削除・マージはしない**
 - カタログの `description` はセッションのエージェントスナップショット（`agent.skills`）から、本文は `promptSnapshot` から引く。どちらも作成時点の内容で、定義を編集してもこのセッションの一覧は変わらない。同じスナップショットを `skillsOverride` の索引と `read` の横取りにも使い、system prompt には本文を載せない（[api-catalog.md](api-catalog.md#セッションへの渡し方)）
 - 404（セッションなし）/ 503（サンドボックス未設定）/ ファイルスキルの発見失敗は 502（接続失敗・認証失敗・サンドボックス側 5xx・本文が契約外はサンドボックスクライアントが 502 に寄せる。不正な dir の 400 だけそのまま）。**組み込みだけを返して黙って縮退しない**（使えるスキルを見せる場所なので、取れないことはエラーで見せる）。セッション作成と `/skill:` の展開は従来どおり縮退する（作成を止めない）
 
@@ -471,7 +471,7 @@ GET /api/skills/session?projectId=<id>&agentId=<id>
 ```
 
 - `projectId` 省略は未所属、`agentId` 省略はビルトインエージェント。未知の id はセッション作成と同じ 400。`cwd` は指定したプロジェクトの cwd で、未所属は `""`（セッション確定後のスクラッチ `.u7agent/sessions/<id>` とは別の値になる）。`projectSkills` はプロジェクトスキルを探索するか（未所属は `false`）
-- 解決に渡すのは `relativeCwd = project.cwd ?? ""`、`promptSnapshot = composePromptSnapshot(agent, skills)`、`agentSkills = agentInfo.skills`、`commonSkillNames = agentInfo.commonSkillNames`。エージェントの解決（`skillIds` → スキル + スナップショット）はセッション作成と同じヘルパーを使い、client へ二重実装しない。これで新規チャットのピッカーと、同じ選択で作ったセッションの一覧（`GET /api/sessions/:id/skills`）が同じ見え方になる
+- 解決に渡すのは `relativeCwd = project.cwd ?? ""`、`promptSnapshot = composePromptSnapshot(agent, skills)`、`agentSkills = agentInfo.skills`、`commonSkillNames = agentInfo.commonSkillNames`、`builtinSkillNames = agentInfo.builtinSkillNames`。エージェントの解決（`skillIds` → スキル + スナップショット）はセッション作成と同じヘルパーを使い、client へ二重実装しない。これで新規チャットのピッカーと、同じ選択で作ったセッションの一覧（`GET /api/sessions/:id/skills`）が同じ見え方になる
 - プロジェクトを指定したときは、作成と同じ条件（永続化あり）で登録ディレクトリの存在を確かめ、無ければ 400（`server/src/sessions.ts` の `requireProjectDir` を共有）。サンドボックス未設定は 503 で、組み込み / カタログだけへは縮退させない（その一覧から選んだ `/skill:` も `createSession` の 503 で送れないため）
 - 探索の失敗の扱いは `GET /api/sessions/:id/skills` と同じ（置き場が無い 404 は空、サンドボックス由来はその status、`SandboxRequestError` 以外は 500）
 - 内容は作成前の選択で解決した**現在の**定義とファイルになる。カタログの説明・本文は作成時にスナップショットされるため、プレビューから送信までの間に定義を編集するとセッションの一覧とずれ得る（許容する）。ファイルスキルはどちらも一覧のたびに探索し直す

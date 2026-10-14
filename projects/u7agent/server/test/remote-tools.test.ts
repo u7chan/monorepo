@@ -31,7 +31,12 @@ function stubClient(): { calls: StubCall[]; client: SandboxToolClient } {
   return { calls, client };
 }
 
-function readDefinition(client: SandboxToolClient, cwd: string, catalogSkills?: Array<{ name: string; body: string }>) {
+function readDefinition(
+  client: SandboxToolClient,
+  cwd: string,
+  catalogSkills?: Array<{ name: string; body: string }>,
+  builtinSkillNames?: string[],
+) {
   const definitions = createRemoteToolDefinitions({
     cwd,
     rootCwd: ROOT,
@@ -40,6 +45,7 @@ function readDefinition(client: SandboxToolClient, cwd: string, catalogSkills?: 
     masker: createSecretMasker([]),
     tools: ["read"],
     ...(catalogSkills ? { catalogSkills } : {}),
+    ...(builtinSkillNames ? { builtinSkillNames } : {}),
   });
   const read = definitions.find((definition) => definition.name === "read");
   assert.ok(read, "read のリモート定義が作られる");
@@ -197,6 +203,35 @@ test("write / edit のリモート定義は BFF へ書かず、cwd 付きでサ�
   ]);
   // パスの判定はサンドボックスが権威で、BFF はファイルシステムに触らない
   assert.equal(existsSync(join(bffCwd, "cafe.html")), false);
+});
+
+test("read は外した組み込みスキルの仮想パスを横取りしない", async () => {
+  const { calls, client } = stubClient();
+  // `[]` は全部 OFF。仮想パスは実体の無い普通のパスとしてサンドボックスへ委譲され、sandbox 側で 404 になる
+  const read = readDefinition(client, ROOT, undefined, []);
+  const result = (await read.execute(
+    "call-1",
+    { path: builtinSkillPath(ROOT, "skill-creator") },
+    undefined,
+    undefined,
+    {} as never,
+  )) as { content: Array<{ text?: string }> };
+  assert.equal(result.content[0]?.text, "ok");
+  assert.equal(calls.length, 1, "外した組み込みはサンドボックスへ送る");
+
+  // 明示リストに残した方だけを横取りする
+  const keptClient = stubClient();
+  const kept = readDefinition(keptClient.client, ROOT, undefined, ["serve"]);
+  const body = builtinSkillByName("serve")?.body ?? "";
+  const served = (await kept.execute(
+    "call-1",
+    { path: builtinSkillPath(ROOT, "serve") },
+    undefined,
+    undefined,
+    {} as never,
+  )) as { content: Array<{ text?: string }> };
+  assert.equal(served.content[0]?.text, body);
+  assert.equal(keptClient.calls.length, 0, "残した組み込みはサンドボックスへ送らない");
 });
 
 test("read は仮想パスでない要求をサンドボックスへ委譲する", async () => {

@@ -102,11 +102,19 @@ export function assertBuiltinSkillBodyFits(body: string, name = "builtin"): void
   );
 }
 
-/** 同梱 SKILL.md の一覧 (ディレクトリ名の昇順)。全セッション・全エージェントで使う */
+/** 同梱 SKILL.md の一覧 (ディレクトリ名の昇順)。既定では全セッション・全エージェントで使う */
 export const BUILTIN_SKILLS: readonly BuiltinSkillDef[] = loadBuiltinSkills();
 
 export function builtinSkillByName(name: string): BuiltinSkillDef | undefined {
   return BUILTIN_SKILLS.find((skill) => skill.name === name);
+}
+
+/**
+ * 組み込みスキルの有効判定。undefined = 全部 ON、配列 = 明示リスト (docs/api-catalog.md#組み込みスキル)。
+ * 索引の注入・`read` の横取り・system prompt の案内で同じ判定を使い、片方だけ残らないようにする。
+ */
+export function builtinSkillEnabled(name: string, names: readonly string[] | undefined): boolean {
+  return names === undefined || names.includes(name);
 }
 
 /** 仮想パス (絶対)。model の read はこのパスを受け取り、設定画面もこのパスを表示する */

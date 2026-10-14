@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { appendSystemPrompt, composePromptSnapshot, investigationSystemPrompt, investigationTools } from "../src/agent";
 import { createAgentCatalog } from "../src/agents";
-import { COMMON_SKILL_NAME_MAX, COMMON_SKILL_NAMES_MAX } from "../src/schema";
+import { SKILL_NAME_MAX, SKILL_NAMES_MAX } from "../src/schema";
 
 const DEFAULT_SUGGESTIONS = [
   { label: "プロジェクトを説明して", prompt: "このプロジェクトの構成を簡単に教えて" },
@@ -421,12 +421,12 @@ test("normalizes the common skill allowlist without collapsing undefined and []"
 
 test("rejects malformed common skill lists with 400", () => {
   const catalog = createAgentCatalog();
-  const atLimit = Array.from({ length: COMMON_SKILL_NAMES_MAX }, (_, index) => `skill-${index}`);
+  const atLimit = Array.from({ length: SKILL_NAMES_MAX }, (_, index) => `skill-${index}`);
   assert.equal(
     catalog.createAgent({ name: "配列の上限ちょうど", commonSkillNames: atLimit }).commonSkillNames?.length,
-    COMMON_SKILL_NAMES_MAX,
+    SKILL_NAMES_MAX,
   );
-  const longName = "あ".repeat(COMMON_SKILL_NAME_MAX);
+  const longName = "あ".repeat(SKILL_NAME_MAX);
   assert.deepEqual(catalog.createAgent({ name: "名前の上限ちょうど", commonSkillNames: [longName] }).commonSkillNames, [
     longName,
   ]);
@@ -437,7 +437,7 @@ test("rejects malformed common skill lists with 400", () => {
     { name: "x", commonSkillNames: [42] },
     { name: "x", commonSkillNames: ["writer", 42] },
     { name: "x", commonSkillNames: [...atLimit, "one-more"] },
-    { name: "x", commonSkillNames: ["あ".repeat(COMMON_SKILL_NAME_MAX + 1)] },
+    { name: "x", commonSkillNames: ["あ".repeat(SKILL_NAME_MAX + 1)] },
   ];
   for (const input of invalidInputs) {
     assert.throws(
@@ -454,6 +454,44 @@ test("rejects malformed common skill lists with 400", () => {
     (error: Error & { statusCode?: number }) => error.statusCode === 400,
   );
   assert.deepEqual(catalog.getAgent(agent.id)?.commonSkillNames, ["writer"]);
+});
+
+test("normalizes the builtin skill allowlist independently from the common one", () => {
+  const catalog = createAgentCatalog();
+
+  // 未指定 / null はキーごと省略 (= 全部 ON)、`[]` は「すべて OFF」なので残す
+  assert.equal(Object.hasOwn(catalog.createAgent({ name: "未指定" }), "builtinSkillNames"), false);
+  assert.equal(
+    Object.hasOwn(catalog.createAgent({ name: "null 作成", builtinSkillNames: null }), "builtinSkillNames"),
+    false,
+  );
+  assert.deepEqual(catalog.createAgent({ name: "全 OFF", builtinSkillNames: [] }).builtinSkillNames, []);
+
+  // trim / 空除去 / 重複排除
+  const normalized = catalog.createAgent({ name: "正規化", builtinSkillNames: [" serve ", "", "serve", "gh"] });
+  assert.deepEqual(normalized.builtinSkillNames, ["serve", "gh"]);
+
+  // キー省略の更新は保持、null は解除、`[]` はすべて OFF へ上書き。共通側とは独立して保持する
+  assert.deepEqual(catalog.updateAgent(normalized.id, { description: "説明だけ更新" })?.builtinSkillNames, [
+    "serve",
+    "gh",
+  ]);
+  assert.deepEqual(catalog.updateAgent(normalized.id, { commonSkillNames: ["writer"] })?.builtinSkillNames, [
+    "serve",
+    "gh",
+  ]);
+  assert.equal(
+    Object.hasOwn(catalog.updateAgent(normalized.id, { builtinSkillNames: null }) ?? {}, "builtinSkillNames"),
+    false,
+  );
+  assert.deepEqual(catalog.updateAgent(normalized.id, { builtinSkillNames: [] })?.builtinSkillNames, []);
+
+  // 不正な値は共通と同じく 400 (既存値は保持)
+  assert.throws(
+    () => catalog.updateAgent(normalized.id, { builtinSkillNames: [42] }),
+    (error: Error & { statusCode?: number }) => error.statusCode === 400,
+  );
+  assert.deepEqual(catalog.getAgent(normalized.id)?.builtinSkillNames, []);
 });
 
 test("composePromptSnapshot はカタログスキルの本文を agent_skill タグで固定する", () => {
@@ -529,6 +567,23 @@ test("appendSystemPrompt は作業ディレクトリとファイル / スキル�
   // 未所属で発見されないスキルの置き場だけを案内しない
   assert.doesNotMatch(prompt, /The working directory is the user's local project/);
   assert.match(appendSystemPrompt("/other/root"), /`\/other\/root\/\.agents\/skills`/);
+});
+
+test("appendSystemPrompt は外した組み込みスキルの案内を出さない", () => {
+  const all = appendSystemPrompt("/workspace");
+  assert.match(all, /follow the bundled `serve` skill/);
+  assert.match(all, /follow the bundled `skill-creator` skill/);
+
+  // 外した組み込みは索引からも prompt からも落ちる。ツールと置き場の案内はスキルとは別に残す
+  const none = appendSystemPrompt("/workspace", { builtinSkillNames: [] });
+  assert.doesNotMatch(none, /bundled `serve` skill/);
+  assert.doesNotMatch(none, /bundled `skill-creator` skill/);
+  assert.match(none, /drive it with the `serve` tool/);
+  assert.match(none, /put it in the `\.agents\/skills` directory/);
+
+  const skillCreatorOnly = appendSystemPrompt("/workspace", { builtinSkillNames: ["skill-creator"] });
+  assert.doesNotMatch(skillCreatorOnly, /bundled `serve` skill/);
+  assert.match(skillCreatorOnly, /follow the bundled `skill-creator` skill/);
 });
 
 test("appendSystemPrompt は画像生成ツールの案内を有効時だけ足す", () => {
