@@ -74,7 +74,12 @@ export function AgentSettingsPage({
   );
 
   const editor = builtinEditing ? (
-    <BuiltinAgentPanel agent={builtinEditing} variant={singleColumn ? "sheet" : "page"} />
+    <BuiltinAgentPanel
+      agent={builtinEditing}
+      variant={singleColumn ? "sheet" : "page"}
+      builtinSkills={catalog.builtinSkills}
+      fileSkills={fileSkills.state}
+    />
   ) : (
     <AgentEditorForm
       catalog={catalog}

@@ -7,9 +7,10 @@ import {
   groupFileSkills,
 } from "../../lib/fileSkills";
 import type { BuiltinSkillInfo, FileSkillInfo, SkillDef } from "../../types";
+import { SkillGroup, SkillRow } from "./SkillRow";
 
-/** 組み込み行の見出し。チェックでエージェント別に外せる (既定は全部 ON) */
-const BUILTIN_SECTION_LABEL = "組み込み";
+/** 組み込み行の見出し。チェックでエージェント別に外せる (既定は全部 ON)。ビルトインの閲覧ビューも同じ語で出す */
+export const BUILTIN_SECTION_LABEL = "組み込み";
 /**
  * 組み込み行の注記。チェックを外すとこのエージェントの会話へ読み込まれなくなることをここ 1 箇所で伝える
  * (同梱物そのものは変更しない。docs/api-catalog.md#組み込みスキル)。
@@ -101,30 +102,21 @@ export function SkillSelector({
   const usedBuiltinCount = builtinSkills.filter((skill) => usedBuiltinNames.includes(skill.name)).length;
 
   const commonSkillRow = (skill: FileSkillInfo) => (
-    // min-w-0: 説明を truncate すると行の min-content が説明の全幅になり、一覧の行が箱より広がる
-    <label
+    <SkillRow
       key={skill.path}
-      className="flex min-w-0 cursor-pointer items-start gap-2 rounded-lg bg-raised px-2.5 py-1.5"
-    >
-      <input
-        type="checkbox"
-        checked={usedCommonNames.includes(skill.name)}
-        onChange={(e) => onToggleCommonSkill(skill.name, e.currentTarget.checked)}
-        className="mt-0.5 accent-focus"
-      />
-      <span className="min-w-0 flex-1">
-        <span className="flex min-w-0 items-baseline gap-1.5">
-          <span className="min-w-0 truncate text-xs text-ink">{skill.name}</span>
-          {/* モデルが自分からは起動しないというスキル側の性質。外すチェックとは別物なので語を分ける */}
-          {skill.disableModelInvocation ? (
-            <span className="shrink-0 text-2xs leading-4 text-ink-ghost">自動起動なし</span>
-          ) : null}
-        </span>
-        <small className="block truncate text-2xs text-ink-muted" title={skill.description || ""}>
-          {skill.description || ""}
-        </small>
-      </span>
-    </label>
+      name={skill.name}
+      description={skill.description || ""}
+      control={
+        <input
+          type="checkbox"
+          checked={usedCommonNames.includes(skill.name)}
+          onChange={(e) => onToggleCommonSkill(skill.name, e.currentTarget.checked)}
+          className="mt-0.5 accent-focus"
+        />
+      }
+      // モデルが自分からは起動しないというスキル側の性質。外すチェックとは別物なので語を分ける
+      badge={skill.disableModelInvocation ? "自動起動なし" : undefined}
+    />
   );
 
   return (
@@ -141,25 +133,19 @@ export function SkillSelector({
         <div className="max-h-72 scrollbar-thin overflow-x-hidden overflow-y-auto">
           <div className="grid gap-1">
             {skills.map((skill) => (
-              // min-w-0: 説明を truncate すると行の min-content が説明の全幅になり、一覧の行が箱より広がる
-              <label
+              <SkillRow
                 key={skill.id}
-                className="flex min-w-0 cursor-pointer items-start gap-2 rounded-lg bg-raised px-2.5 py-1.5"
-              >
-                <input
-                  type="checkbox"
-                  checked={selectedIds.includes(skill.id)}
-                  onChange={(e) => onToggle(skill.id, e.currentTarget.checked)}
-                  className="mt-0.5 accent-focus"
-                />
-                <span className="min-w-0 flex-1">
-                  <span className="block text-xs text-ink">{skill.name}</span>
-                  {/* 説明の全文は「スキル」ページにあるので、ここは 1 行に切って title へ逃がす */}
-                  <small className="block truncate text-2xs text-ink-muted" title={skill.description || ""}>
-                    {skill.description || ""}
-                  </small>
-                </span>
-              </label>
+                name={skill.name}
+                description={skill.description || ""}
+                control={
+                  <input
+                    type="checkbox"
+                    checked={selectedIds.includes(skill.id)}
+                    onChange={(e) => onToggle(skill.id, e.currentTarget.checked)}
+                    className="mt-0.5 accent-focus"
+                  />
+                }
+              />
             ))}
           </div>
         </div>
@@ -174,31 +160,29 @@ export function SkillSelector({
         </p>
       ) : null}
       {fileSkills.status === "ready" ? (
-        <div className="grid gap-1 border-t border-line pt-2">
-          <div className="flex items-baseline justify-between gap-2 text-2xs font-semibold tracking-label text-ink-faint uppercase">
-            <span className="flex min-w-0 items-baseline gap-1.5">
-              <span className="truncate">{FILE_SKILL_GROUP_LABEL}</span>
-              <span className="shrink-0 font-normal">
-                使用 {usedCommonCount} / 全 {commonSkills.length}
-              </span>
-            </span>
-            {explicit ? (
-              <button
-                type="button"
-                className="shrink-0 font-normal tracking-normal text-accent-text underline underline-offset-2"
-                onClick={onShowAllCommonSkills}
-              >
-                {COMMON_SKILL_SHOW_ALL_LABEL}
-              </button>
-            ) : null}
-          </div>
-          {commonSkills.length === 0 ? (
-            <p className="text-2xs leading-4 break-words text-ink-faint">{FILE_SKILL_EMPTY_NOTE}</p>
-          ) : (
-            <div className="max-h-72 scrollbar-thin overflow-x-hidden overflow-y-auto">
-              <div className="grid gap-1">{commonSkills.map(commonSkillRow)}</div>
-            </div>
-          )}
+        <>
+          <SkillGroup
+            divider
+            label={FILE_SKILL_GROUP_LABEL}
+            countText={`使用 ${usedCommonCount} / 全 ${commonSkills.length}`}
+            actions={
+              explicit ? (
+                <button
+                  type="button"
+                  className="shrink-0 font-normal tracking-normal text-accent-text underline underline-offset-2"
+                  onClick={onShowAllCommonSkills}
+                >
+                  {COMMON_SKILL_SHOW_ALL_LABEL}
+                </button>
+              ) : undefined
+            }
+          >
+            {commonSkills.length === 0 ? (
+              <p className="text-2xs leading-4 break-words text-ink-faint">{FILE_SKILL_EMPTY_NOTE}</p>
+            ) : (
+              commonSkills.map(commonSkillRow)
+            )}
+          </SkillGroup>
           {missingCommonNames.length > 0 ? (
             <p className="text-2xs leading-4 break-words text-ink-faint">
               {commonSkillMissingNote(missingCommonNames)}
@@ -208,19 +192,16 @@ export function SkillSelector({
           {explicit ? (
             <p className="text-2xs leading-4 break-words text-ink-faint">{COMMON_SKILL_EXPLICIT_NOTE}</p>
           ) : null}
-        </div>
+        </>
       ) : null}
       {builtinSkills.length > 0 ? (
         // 共通と同じくチェックで外す。既定は全部 ON で、明示リストにした後は同梱物が増えても自動では入れない
-        <div className="grid gap-1 border-t border-line pt-2">
-          <div className="flex items-baseline justify-between gap-2 text-2xs font-semibold tracking-label text-ink-faint uppercase">
-            <span className="flex min-w-0 items-baseline gap-1.5">
-              <span className="truncate">{BUILTIN_SECTION_LABEL}</span>
-              <span className="shrink-0 font-normal">
-                使用 {usedBuiltinCount} / 全 {builtinSkills.length}
-              </span>
-            </span>
-            <span className="flex shrink-0 items-baseline gap-2.5 font-normal tracking-normal">
+        <SkillGroup
+          divider
+          label={BUILTIN_SECTION_LABEL}
+          countText={`使用 ${usedBuiltinCount} / 全 ${builtinSkills.length}`}
+          actions={
+            <>
               {/* すべて OFF のときは外す対象が無いので出さない */}
               {usedBuiltinCount > 0 ? (
                 <button
@@ -240,45 +221,34 @@ export function SkillSelector({
                   {BUILTIN_SKILL_SHOW_ALL_LABEL}
                 </button>
               ) : null}
-            </span>
-          </div>
-          <div className="max-h-72 scrollbar-thin overflow-x-hidden overflow-y-auto">
-            <div className="grid gap-1">
-              {builtinSkills.map((skill) => (
-                <label
-                  key={skill.name}
-                  className="flex min-w-0 cursor-pointer items-start gap-2 rounded-lg bg-raised px-2.5 py-1.5"
-                >
-                  <input
-                    type="checkbox"
-                    checked={usedBuiltinNames.includes(skill.name)}
-                    onChange={(e) => onToggleBuiltinSkill(skill.name, e.currentTarget.checked)}
-                    className="mt-0.5 accent-focus"
-                  />
-                  <span className="min-w-0 flex-1">
-                    <span className="block text-xs text-ink">{skill.name}</span>
-                    <small className="block truncate text-2xs text-ink-muted" title={skill.description || ""}>
-                      {skill.description || ""}
-                    </small>
-                    {/* ツールはスキルと別軸で外れない (serve など)。外した行だけに出す */}
-                    {!usedBuiltinNames.includes(skill.name) && BUILTIN_SKILL_OFF_HINTS[skill.name] ? (
-                      <small className="block text-2xs text-ink-faint">{BUILTIN_SKILL_OFF_HINTS[skill.name]}</small>
-                    ) : null}
-                  </span>
-                </label>
-              ))}
-            </div>
-          </div>
-          {missingBuiltinNames.length > 0 ? (
-            <p className="text-2xs leading-4 break-words text-ink-faint">
-              {builtinSkillMissingNote(missingBuiltinNames)}
-            </p>
-          ) : null}
-          <p className="text-2xs leading-4 break-words text-ink-faint">{BUILTIN_SECTION_NOTE}</p>
-          {builtinExplicit ? (
-            <p className="text-2xs leading-4 break-words text-ink-faint">{BUILTIN_SKILL_EXPLICIT_NOTE}</p>
-          ) : null}
-        </div>
+            </>
+          }
+        >
+          {builtinSkills.map((skill) => (
+            <SkillRow
+              key={skill.name}
+              name={skill.name}
+              description={skill.description || ""}
+              control={
+                <input
+                  type="checkbox"
+                  checked={usedBuiltinNames.includes(skill.name)}
+                  onChange={(e) => onToggleBuiltinSkill(skill.name, e.currentTarget.checked)}
+                  className="mt-0.5 accent-focus"
+                />
+              }
+              // ツールはスキルと別軸で外れない (serve など)。外した行だけに出す
+              hint={!usedBuiltinNames.includes(skill.name) ? BUILTIN_SKILL_OFF_HINTS[skill.name] : undefined}
+            />
+          ))}
+        </SkillGroup>
+      ) : null}
+      {missingBuiltinNames.length > 0 ? (
+        <p className="text-2xs leading-4 break-words text-ink-faint">{builtinSkillMissingNote(missingBuiltinNames)}</p>
+      ) : null}
+      <p className="text-2xs leading-4 break-words text-ink-faint">{BUILTIN_SECTION_NOTE}</p>
+      {builtinExplicit ? (
+        <p className="text-2xs leading-4 break-words text-ink-faint">{BUILTIN_SKILL_EXPLICIT_NOTE}</p>
       ) : null}
     </div>
   );

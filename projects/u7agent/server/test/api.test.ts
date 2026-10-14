@@ -1175,13 +1175,17 @@ test("組み込みスキルはカタログの一覧とスキル一覧の対象�
     const builtinNames = BUILTIN_SKILLS.map((skill) => skill.name);
     const catalog = (await jsonBody(app.request("/api/agents"))) as {
       skills: Array<{ name: string }>;
-      builtinSkills: Array<{ name: string; description: string }>;
+      builtinSkills: Array<{ name: string; description: string; version: string }>;
     };
     // カタログのスキルは 0 件から始まり、組み込みは別フィールドで全件が返る
     assert.deepEqual(catalog.skills, []);
     assert.deepEqual(
       catalog.builtinSkills,
-      BUILTIN_SKILLS.map((skill) => ({ name: skill.name, description: skill.description })),
+      BUILTIN_SKILLS.map((skill) => ({
+        name: skill.name,
+        description: skill.description,
+        version: skill.version,
+      })),
     );
     const skills = (await jsonBody(app.request("/api/skills"))) as { skills: Array<{ name: string }> };
     assert.deepEqual(

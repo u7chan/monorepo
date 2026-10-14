@@ -33,7 +33,7 @@ function commonSkill(name: string, overrides: Partial<FileSkillInfo> = {}): File
 
 function renderSelector({
   skills = [{ id: "catalog", name: "Catalog", description: "", body: "本文" }],
-  builtinSkills = [{ name: "builtin", description: "" }],
+  builtinSkills = [{ name: "builtin", description: "", version: "1" }],
   fileSkills = { status: "ready", skills: [commonSkill("alpha"), commonSkill("beta")] },
   commonSkillNames,
   builtinSkillNames,
@@ -134,8 +134,8 @@ test("組み込みは未指定なら全チェックで出て、明示リスト�
   const unspecified = renderSelector({
     skills: [],
     builtinSkills: [
-      { name: "alpha", description: "" },
-      { name: "beta", description: "" },
+      { name: "alpha", description: "", version: "1" },
+      { name: "beta", description: "", version: "1" },
     ],
     fileSkills: { status: "ready", skills: [] },
   });
@@ -146,7 +146,7 @@ test("組み込みは未指定なら全チェックで出て、明示リスト�
     checkboxes(
       renderSelector({
         skills: [],
-        builtinSkills: [{ name: "alpha", description: "" }],
+        builtinSkills: [{ name: "alpha", description: "", version: "1" }],
         builtinSkillNames: null,
         fileSkills: { status: "ready", skills: [] },
       }),
@@ -157,8 +157,8 @@ test("組み込みは未指定なら全チェックで出て、明示リスト�
   const explicit = renderSelector({
     skills: [],
     builtinSkills: [
-      { name: "alpha", description: "" },
-      { name: "beta", description: "" },
+      { name: "alpha", description: "", version: "1" },
+      { name: "beta", description: "", version: "1" },
     ],
     builtinSkillNames: ["alpha"],
     fileSkills: { status: "ready", skills: [] },
@@ -171,8 +171,8 @@ test("空の組み込み明示リストはすべて OFF で出る", () => {
   const html = renderSelector({
     skills: [],
     builtinSkills: [
-      { name: "alpha", description: "" },
-      { name: "beta", description: "" },
+      { name: "alpha", description: "", version: "1" },
+      { name: "beta", description: "", version: "1" },
     ],
     builtinSkillNames: [],
     fileSkills: { status: "ready", skills: [] },
@@ -185,8 +185,8 @@ test("組み込みの全外しと使用への復帰は、対象があるとき�
   const allOn = renderSelector({
     skills: [],
     builtinSkills: [
-      { name: "alpha", description: "" },
-      { name: "beta", description: "" },
+      { name: "alpha", description: "", version: "1" },
+      { name: "beta", description: "", version: "1" },
     ],
     fileSkills: { status: "ready", skills: [] },
   });
@@ -196,8 +196,8 @@ test("組み込みの全外しと使用への復帰は、対象があるとき�
   const allOff = renderSelector({
     skills: [],
     builtinSkills: [
-      { name: "alpha", description: "" },
-      { name: "beta", description: "" },
+      { name: "alpha", description: "", version: "1" },
+      { name: "beta", description: "", version: "1" },
     ],
     builtinSkillNames: [],
     fileSkills: { status: "ready", skills: [] },
@@ -209,8 +209,8 @@ test("組み込みの全外しと使用への復帰は、対象があるとき�
   const partial = renderSelector({
     skills: [],
     builtinSkills: [
-      { name: "alpha", description: "" },
-      { name: "beta", description: "" },
+      { name: "alpha", description: "", version: "1" },
+      { name: "beta", description: "", version: "1" },
     ],
     builtinSkillNames: ["alpha"],
     fileSkills: { status: "ready", skills: [] },
@@ -220,7 +220,7 @@ test("組み込みの全外しと使用への復帰は、対象があるとき�
 });
 
 test("外した組み込みの行には、ツールが別軸である注記を出す", () => {
-  const serve = [{ name: "serve", description: "" }];
+  const serve = [{ name: "serve", description: "", version: "1" }];
   const on = renderSelector({ skills: [], builtinSkills: serve, fileSkills: { status: "ready", skills: [] } });
   assert.ok(!on.includes("サービス"));
 
@@ -236,7 +236,7 @@ test("外した組み込みの行には、ツールが別軸である注記を�
 test("組み込みの一覧に無い保存名は落とさず、見つからない旨を出す", () => {
   const html = renderSelector({
     skills: [],
-    builtinSkills: [{ name: "alpha", description: "" }],
+    builtinSkills: [{ name: "alpha", description: "", version: "1" }],
     builtinSkillNames: ["alpha", "gone"],
     fileSkills: { status: "ready", skills: [] },
   });
