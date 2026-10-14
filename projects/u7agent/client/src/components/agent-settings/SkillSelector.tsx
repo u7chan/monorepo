@@ -137,6 +137,8 @@ export function SkillSelector({
                 key={skill.id}
                 name={skill.name}
                 description={skill.description || ""}
+                // カタログの名前は末尾だけ違うことがあるので折り返して全部見せる
+                wrapName
                 control={
                   <input
                     type="checkbox"

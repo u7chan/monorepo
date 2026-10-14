@@ -1,5 +1,6 @@
 import type { FileSkillsState } from "../../hooks/useFileSkills";
 import {
+  BUILTIN_SKILL_OVERRIDE_NOTE,
   FILE_SKILL_EMPTY_NOTE,
   FILE_SKILL_ERROR_PREFIX,
   FILE_SKILL_GROUP_LABEL,
@@ -39,6 +40,16 @@ export function BuiltinAgentPanel({
 }) {
   // 一覧 API は共通 (user) と組み込みだけを返すので、組み込みを除いた側がそのまま共通スキル
   const commonSkills = fileSkills.status === "ready" ? groupFileSkills(fileSkills.skills).common : [];
+  // 同名の共通スキルに負けた組み込みは SDK へ渡らない (server/src/file-skills.ts の overridden)。
+  // 上書きは一覧を取れたときだけ分かるので、未取得の間は registry の全件を使用中として出す
+  const overriddenBuiltins = new Set(
+    fileSkills.status === "ready"
+      ? groupFileSkills(fileSkills.skills)
+          .builtin.filter((skill) => skill.overridden)
+          .map((skill) => skill.name)
+      : [],
+  );
+  const usedBuiltinCount = builtinSkills.filter((skill) => !overriddenBuiltins.has(skill.name)).length;
   return (
     <section className="flex min-h-0 min-w-0 flex-1 flex-col">
       <div className="min-h-0 flex-1 scrollbar-thin overflow-x-hidden overflow-y-auto px-4 py-3">
@@ -94,7 +105,7 @@ export function BuiltinAgentPanel({
             {builtinSkills.length > 0 ? (
               <SkillGroup
                 label={BUILTIN_SECTION_LABEL}
-                countText={`使用 ${builtinSkills.length} / 全 ${builtinSkills.length}`}
+                countText={`使用 ${usedBuiltinCount} / 全 ${builtinSkills.length}`}
               >
                 {builtinSkills.map((skill) => (
                   <SkillRow
@@ -102,6 +113,7 @@ export function BuiltinAgentPanel({
                     name={skill.name}
                     description={skill.description || ""}
                     badge={`v${skill.version}`}
+                    hint={overriddenBuiltins.has(skill.name) ? BUILTIN_SKILL_OVERRIDE_NOTE : undefined}
                   />
                 ))}
               </SkillGroup>

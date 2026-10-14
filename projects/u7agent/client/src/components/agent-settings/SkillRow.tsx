@@ -11,6 +11,7 @@ export function SkillRow({
   control,
   badge,
   hint,
+  wrapName = false,
 }: {
   name: string;
   description: string;
@@ -20,13 +21,18 @@ export function SkillRow({
   badge?: string;
   /** 説明の下に出す補足 (外した行の注記など) */
   hint?: string;
+  /**
+   * 名前を折り返して全部見せるか。末尾だけ違う名前が並ぶカタログ行では折り返し、省略すると
+   * どちらを外すのか選べなくなる。ファイルスキルは 1 行に収める。
+   */
+  wrapName?: boolean;
 }) {
   const row = (
     <>
       {control}
       <span className="min-w-0 flex-1">
         <span className="flex min-w-0 items-baseline gap-1.5">
-          <span className="min-w-0 truncate text-xs text-ink">{name}</span>
+          <span className={cn("min-w-0 text-xs text-ink", wrapName ? undefined : "truncate")}>{name}</span>
           {badge ? <span className="shrink-0 text-2xs leading-4 text-ink-ghost">{badge}</span> : null}
         </span>
         {/* 説明の全文は「スキル」ページにあるので、ここは 1 行に切って title へ逃がす */}
@@ -38,7 +44,7 @@ export function SkillRow({
     </>
   );
   // min-w-0: 説明を truncate すると行の min-content が説明の全幅になり、一覧の行が箱より広がる
-  const rowClassName = "flex min-w-0 items-start gap-2 rounded-lg bg-raised px-2.5 py-1.5";
+  const rowClassName = cn("flex min-w-0 items-start gap-2 rounded-lg bg-raised px-2.5 py-1.5");
   return control ? (
     <label className={cn(rowClassName, "cursor-pointer")}>{row}</label>
   ) : (

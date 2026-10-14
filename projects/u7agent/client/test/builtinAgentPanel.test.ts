@@ -8,7 +8,12 @@ import {
   BuiltinAgentPanel,
 } from "../src/components/agent-settings/BuiltinAgentPanel";
 import type { FileSkillsState } from "../src/hooks/useFileSkills";
-import { FILE_SKILL_EMPTY_NOTE, FILE_SKILL_ERROR_PREFIX, FILE_SKILL_LOADING_NOTE } from "../src/lib/fileSkills";
+import {
+  BUILTIN_SKILL_OVERRIDE_NOTE,
+  FILE_SKILL_EMPTY_NOTE,
+  FILE_SKILL_ERROR_PREFIX,
+  FILE_SKILL_LOADING_NOTE,
+} from "../src/lib/fileSkills";
 import type { AgentDef, BuiltinSkillInfo, FileSkillInfo } from "../src/types";
 
 const AGENT: AgentDef = {
@@ -90,6 +95,17 @@ test("共通スキルの読み込み中も組み込みは先に出す", () => {
   assert.ok(html.includes(FILE_SKILL_LOADING_NOTE));
   assert.equal(hasCommonGroup(html), false);
   assert.ok(html.includes("serve"));
+});
+
+test("同名の共通スキルに上書きされた組み込みは、使用中と数えず上書きを注記する", () => {
+  const html = renderPanel({
+    fileSkills: {
+      status: "ready",
+      skills: [commonSkill("serve"), commonSkill("skill-creator", { scope: "builtin", overridden: true })],
+    },
+  });
+  assert.ok(html.includes("使用 1 / 全 2"));
+  assert.ok(html.includes(BUILTIN_SKILL_OVERRIDE_NOTE));
 });
 
 test("共通スキルが 0 件でも、組み込みと空の案内を出す", () => {
