@@ -92,11 +92,11 @@ test("環境タブは接続状態・実行環境・利用可能なコマンド�
   assert.ok(!html.includes("APIキーを保存"), "認証変更の操作は出さない");
 });
 
-test("診断タブはセッション診断カードだけを出し、ヘッダに操作を置かない", () => {
+test("診断タブはセッション診断カードだけを出し、面のツールバーに操作を置かない", () => {
   const html = renderPage(HEALTH, "diagnostics");
   assert.match(html, /<button[^>]*aria-selected="true"[^>]*>診断</, "選択中のタブを示す");
   assert.ok(html.includes("セッション診断</h3>"), "セッション診断カードを出す");
-  assert.equal(html.includes('aria-label="接続情報をコピー"'), false, "ヘッダにコピーを置かない");
+  assert.equal(html.includes('aria-label="接続情報をコピー"'), false, "面のツールバーにコピーを置かない");
   assert.equal(html.includes("公開中のサービス</h3>"), false, "サービスカードを出さない");
   assert.equal(html.includes("実行環境を取得しています。"), false, "環境タブの本文を出さない");
 });

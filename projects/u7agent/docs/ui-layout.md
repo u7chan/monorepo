@@ -24,6 +24,7 @@ desktop / singleColumn とも設定ナビの「会話スペース」から作成
 - メイン領域は チャット / 設定ページ のどちらかで、URL が決める（[frontend.md](frontend.md#url-と画面の対応)）。設定ページは `<dialog>` を被せずメイン領域に出す
 - **設定ページを開いている間もチャットは mount したまま、`display` は切らない。** SSE 購読（実行中のラン）と入力中の下書きを失わないため。切替は opacity のクロスフェードで、隠れた側は `visibility` でフォーカスと読み上げから外す（消える間は見せたいので `visibility` だけ遅らせる）。スクロール位置はアプリとして復元しない
 - 設定ページのセクションと**並びは `client/src/lib/settingsNav.ts` の `SETTINGS_SECTIONS` が正**で、docs に一覧も件数も写さない。理由が必要な項目は定義側のコメントに置く（例: ダウンロードの除外をファイルのタブにする理由）。相互参照は URL（`/settings/<section>`）で書く
+- **面（タブ）の操作はタブ行のすぐ下の帯に出す（左に文脈、右に操作）。** タブ行より上はページ全体の操作だけにし、操作を持たない面には帯を出さない（チャットの作業環境パネルの帯も同じ `client/src/components/TabToolbar.tsx`）
 - singleColumn では `SingleColumnBar` が「作業先と、どのエージェントのどの会話か」・通知・作業フォルダ・nav の導線を常時出す。設定ページにも nav の導線を出す（無いと設定の間を移動できない）
 - singleColumn のエージェント / スキルの編集は全画面シートへ出す（[singleColumn の詳細シート](#singlecolumn-の詳細シート)）。サイドバーは `NavSheet`（モーダル dialog のドロワー）へ退避する
 - **singleColumn の単一列 Grid は viewport 幅に拘束する**（`minmax(0, 1fr)` と `min-w-0`）。拘束しないと select の選択肢の幅や textarea の `cols` 既定値が item の最小サイズとして効き、送信 / 添付ボタンが viewport の外へ出る

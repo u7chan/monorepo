@@ -1,4 +1,4 @@
-// 設定 → ファイル のタブとヘッダ。既定はファイルツリー、`/settings/files/archive` はダウンロードの除外。
+// 設定 → ファイル のタブと面のツールバー。既定はファイルツリー、`/settings/files/archive` はダウンロードの除外。
 // ツリーの行は SSR では出ないため、見るのは見出し / タブ / 操作 / note の出し分け (行は fileRowMenu / fileTree)。
 import assert from "node:assert/strict";
 
@@ -44,13 +44,13 @@ function fakeSettings(overrides: Partial<ArchiveSettings> = {}): ArchiveSettings
   };
 }
 
-function render(filesSubsection?: FilesSubsection, archive: Partial<ArchiveSettings> = {}): string {
+function render(filesSubsection?: FilesSubsection, archive: Partial<ArchiveSettings> = {}, cwd = ""): string {
   return renderToStaticMarkup(
     createElement(
       ConfirmProvider,
       null,
       createElement(FileTreePage, {
-        cwd: "",
+        cwd,
         excludeNames: [],
         archiveSettings: fakeSettings(archive),
         filesSubsection,
@@ -90,6 +90,12 @@ test("描画: 既定はファイルツリーのタブで、ヘッダは ファ�
   assert.ok(!html.includes("既定に戻す"), "ツリー側に除外の操作が出ている");
   // note の行は除外タブだけが持つ (ツリーは行にエラーを出す)
   assert.ok(!html.includes('aria-live="polite"'), "ツリー側に note の行がある");
+});
+
+test("描画: ツリー面は root のパスを caption にも帯にも出さない", () => {
+  // root は常にワークスペース root ("/") で、面を選ぶ情報にならないため、左スロットは空のまま置く
+  const html = render("files", {}, ".u7agent/sessions/s1");
+  assert.ok(!html.includes(".u7agent/sessions/s1"), "ツリー面に root のパスが出ている");
 });
 
 test("描画: 除外タブは説明と操作を出し、note を aria-live で読ませる", () => {
