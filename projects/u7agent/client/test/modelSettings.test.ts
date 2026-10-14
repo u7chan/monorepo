@@ -33,7 +33,9 @@ import {
   normalizeAllowedModels,
   oauthLoginNote,
   oauthPanelView,
+  OAUTH_PREPARING_NOTICE,
   providerAuthBadge,
+  providerCredentialTabs,
   providerLoginState,
   providerDraftBase,
   providerDraftOf,
@@ -75,6 +77,26 @@ function provider(overrides: Partial<ProviderAuthSetting> = {}): ProviderAuthSet
     orphan: false,
     login: null,
     memo: null,
+    ...overrides,
+  };
+}
+
+const AUTH_URL = "https://auth.example.test/authorize";
+const DEVICE_URL = "https://auth.example.test/device";
+const AUTHORIZE_INSTRUCTIONS = "ブラウザのタブで承認してください。";
+const DEVICE_INSTRUCTIONS = "ブラウザでこの URL を開き、画面に表示されたコードを入力して承認してください。";
+const INPUT_MESSAGE = "ブラウザの最後の画面の URL を貼り付けてください";
+const INPUT_PLACEHOLDER = "ブラウザの最後の画面の URL";
+
+function loginState(status: OAuthLoginState["status"], overrides: Partial<OAuthLoginState> = {}): OAuthLoginState {
+  return {
+    status,
+    authUrl: null,
+    instructions: null,
+    progress: null,
+    input: null,
+    userCode: null,
+    error: null,
     ...overrides,
   };
 }
@@ -1011,20 +1033,7 @@ test("サインアウトは auth.json の OAuth が実効 / 覆われている�
     "保存済み OAuth が無ければ出さない",
   );
 
-  const running = oauthPanelView(
-    provider({
-      supportsOAuth: true,
-      login: {
-        status: "running",
-        authUrl: "https://auth.example.test/authorize",
-        instructions: "同じマシンのブラウザで開いてください",
-        progress: null,
-        input: null,
-        userCode: null,
-        error: null,
-      },
-    }),
-  );
+  const running = oauthPanelView(provider({ supportsOAuth: true, login: loginState("running") }));
   assert.equal(running.login?.status, "running");
   assert.equal(running.signedIn, false);
   assert.equal(
@@ -1059,6 +1068,244 @@ test("サインインできる provider では理由を出さず、サインイ�
   assert.equal(view.visible, true);
   assert.equal(view.canSignIn, true);
   assert.equal(view.unsupportedNotice, undefined, "理由はサインインの操作を出さないときだけ出す");
+});
+
+// 進行中は主状態 + 副状態 (デバイスコード → 承認待ち → URL 未着 の順) で出し分ける。
+// 貼り付けは折りたたみの中だけで、フォームは input があるときだけ出す
+test("進行中の副状態はデバイスコード → 承認待ち → URL 未着の順に決まる", () => {
+  const awaitingUrl = oauthPanelView(
+    provider({ supportsOAuth: true, canSignInHere: true, login: loginState("running") }),
+  );
+  assert.equal(awaitingUrl.state, "awaiting-url");
+  assert.equal(awaitingUrl.instructions, OAUTH_PREPARING_NOTICE, "URL 未着はクライアントの準備中の 1 行");
+  assert.equal(awaitingUrl.showManual, false, "折りたたみは authUrl が来てから出す");
+  assert.equal(awaitingUrl.canCopyUrl, false);
+  assert.equal(awaitingUrl.showFallbackLink, false, "開く先が無い間はリンクを出さない");
+  assert.equal(awaitingUrl.running, true);
+
+  const authorizing = oauthPanelView(
+    provider({
+      supportsOAuth: true,
+      canSignInHere: true,
+      login: loginState("running", { authUrl: AUTH_URL, instructions: AUTHORIZE_INSTRUCTIONS }),
+    }),
+  );
+  assert.equal(authorizing.state, "awaiting-authorization");
+  assert.equal(authorizing.instructions, AUTHORIZE_INSTRUCTIONS, "主文はサーバーの instructions");
+  assert.equal(authorizing.showManual, true);
+  assert.equal(authorizing.canCopyUrl, true);
+  assert.equal(authorizing.showFallbackLink, true, "空タブを遷移できていないときはリンクを出す");
+  assert.equal(authorizing.showPopupNotice, false, "遷移できたときの補足とは排他");
+  assert.equal(authorizing.showPasteForm, false, "input が無ければフォームを出さない");
+  assert.equal(authorizing.showPasteUnavailable, true, "送信後は受け付けていないことを出す");
+
+  const navigated = oauthPanelView(
+    provider({
+      supportsOAuth: true,
+      canSignInHere: true,
+      login: loginState("running", { authUrl: AUTH_URL, instructions: AUTHORIZE_INSTRUCTIONS }),
+    }),
+    { popupNavigated: true },
+  );
+  assert.equal(navigated.showPopupNotice, true, "遷移できたときは補足を出す");
+  assert.equal(navigated.showFallbackLink, false);
+  assert.equal(navigated.state, "awaiting-authorization", "遷移は副状態を変えない");
+
+  const paste = oauthPanelView(
+    provider({
+      supportsOAuth: true,
+      canSignInHere: true,
+      login: loginState("running", {
+        authUrl: AUTH_URL,
+        instructions: AUTHORIZE_INSTRUCTIONS,
+        input: { message: INPUT_MESSAGE, placeholder: INPUT_PLACEHOLDER },
+      }),
+    }),
+  );
+  assert.equal(paste.state, "awaiting-code");
+  assert.equal(paste.showPasteForm, true);
+  assert.equal(paste.showPasteUnavailable, false);
+
+  const device = oauthPanelView(
+    provider({
+      supportsOAuth: true,
+      canSignInHere: true,
+      login: loginState("running", { authUrl: DEVICE_URL, userCode: "ABCD-1234", instructions: DEVICE_INSTRUCTIONS }),
+    }),
+  );
+  assert.equal(device.state, "device-code", "authUrl も持つため、userCode を先に見る");
+  assert.equal(device.userCode, "ABCD-1234");
+  assert.equal(device.instructions, DEVICE_INSTRUCTIONS);
+  assert.equal(device.showManual, false, "デバイスコードは折りたたみを使わない");
+  assert.equal(device.canCopyUrl, true);
+});
+
+test("進行中の主文は progress に置き換えられず、progress は補助行として残る", () => {
+  const view = oauthPanelView(
+    provider({
+      supportsOAuth: true,
+      canSignInHere: true,
+      login: loginState("running", {
+        authUrl: AUTH_URL,
+        instructions: AUTHORIZE_INSTRUCTIONS,
+        progress: "コールバックを待っています",
+      }),
+    }),
+  );
+  assert.equal(view.instructions, AUTHORIZE_INSTRUCTIONS);
+  assert.equal(view.progress, "コールバックを待っています");
+});
+
+test("終端は進行中の値を持たず、状態だけを残す", () => {
+  const terminal = [
+    ["succeeded", null],
+    ["cancelled", null],
+    ["failed", "サインインに失敗しました。"],
+  ] as const;
+  for (const [status, error] of terminal) {
+    const view = oauthPanelView(
+      provider({ supportsOAuth: true, canSignInHere: true, login: loginState(status, { error }) }),
+    );
+    assert.equal(view.state, status);
+    assert.equal(view.running, false);
+    assert.equal(view.notice, null, "未認証の説明は未開始のときだけ出す");
+    assert.equal(view.instructions, null);
+    assert.equal(view.progress, null);
+    assert.equal(view.userCode, null);
+    assert.equal(view.authUrl, null);
+    assert.equal(view.showManual, false);
+    assert.equal(view.showFallbackLink, false);
+    assert.equal(view.showPopupNotice, false);
+    assert.equal(view.canCopyUrl, false);
+  }
+  // 終端の応答に進行中の値が残っていても公開しない (認可 URL は進行中だけの値)
+  const stale = oauthPanelView(
+    provider({
+      supportsOAuth: true,
+      canSignInHere: true,
+      login: loginState("succeeded", {
+        authUrl: AUTH_URL,
+        userCode: "ABCD-1234",
+        input: { message: "貼り付け", placeholder: "URL" },
+      }),
+    }),
+  );
+  assert.equal(stale.authUrl, null);
+  assert.equal(stale.userCode, null);
+  assert.equal(stale.showManual, false);
+});
+
+test("未認証の説明は OAuth 未設定のときだけ出す", () => {
+  const unconfigured = oauthPanelView(provider({ supportsOAuth: true, canSignInHere: true }));
+  assert.equal(unconfigured.state, "unconfigured");
+  assert.match(unconfigured.notice ?? "", /自動で更新されます/, "何が起きるかを先に伝える");
+
+  const signedIn = oauthPanelView(provider({ supportsOAuth: true, canSignInHere: true, credentialKind: "oauth" }));
+  assert.equal(signedIn.state, "signed-in");
+  assert.equal(signedIn.notice, null, "サインイン済みでは再サインインの 1 行だけを出す");
+});
+
+test("認証方法のタブは 2 経路とも使える provider だけに出し、既定は実効側", () => {
+  assert.equal(
+    providerCredentialTabs(provider({ canSetApiKey: true, supportsOAuth: true })).visible,
+    true,
+    "キーと OAuth の両方を使える provider にだけ出す",
+  );
+  assert.equal(providerCredentialTabs(provider({ canSetApiKey: false, supportsOAuth: true })).visible, false);
+  assert.equal(providerCredentialTabs(provider({ canSetApiKey: true, supportsOAuth: false })).visible, false);
+  assert.equal(
+    providerCredentialTabs(provider({ canSetApiKey: true, supportsOAuth: true, orphan: true })).visible,
+    false,
+    "カタログ外はサインインの中身が無いのでタブを作らない",
+  );
+
+  const both = { canSetApiKey: true, supportsOAuth: true, canSignInHere: true };
+  assert.equal(
+    providerCredentialTabs(provider({ ...both, credentialKind: "oauth" })).initial,
+    "sign_in",
+    "実効が OAuth ならサインイン",
+  );
+  assert.equal(
+    providerCredentialTabs(provider({ ...both, credentialKind: "api_key" })).initial,
+    "api_key",
+    "実効がキーなら APIキー",
+  );
+  assert.equal(providerCredentialTabs(provider({ ...both, credentialKind: null })).initial, "sign_in");
+  assert.equal(
+    providerCredentialTabs(provider({ ...both, canSignInHere: false, credentialKind: null })).initial,
+    "api_key",
+    "この画面でサインインできない provider は APIキー",
+  );
+  assert.equal(
+    providerCredentialTabs(
+      provider({
+        ...both,
+        auth: { configured: true, source: "environment", environmentVariables: ["OPENAI_API_KEY"] },
+        credentialKind: null,
+      }),
+    ).initial,
+    "sign_in",
+    "環境変数のキーは実効の種別を持たない",
+  );
+});
+
+test("「使用中」は実効が OAuth かこの画面のキーのときだけ付け、印は進行中と失敗に出す", () => {
+  const base = { canSetApiKey: true, supportsOAuth: true, canSignInHere: true };
+  const oauth = providerCredentialTabs(
+    provider({
+      ...base,
+      credentialKind: "oauth",
+      auth: { configured: true, source: "stored", environmentVariables: [] },
+    }),
+  );
+  assert.equal(oauth.oauthInUse, true);
+  assert.equal(oauth.apiKeyInUse, false);
+  assert.equal(oauth.signInAriaLabel, "サインイン（使用中）");
+
+  const runtime = providerCredentialTabs(
+    provider({
+      ...base,
+      credentialKind: "api_key",
+      auth: { configured: true, source: "runtime", environmentVariables: [] },
+    }),
+  );
+  assert.equal(runtime.apiKeyInUse, true);
+  assert.equal(runtime.oauthInUse, false);
+  assert.equal(runtime.apiKeyAriaLabel, "APIキー（使用中）");
+  assert.equal(runtime.signInAriaLabel, "サインイン", "実効がキーでもサインインには印を出さない");
+
+  const stored = providerCredentialTabs(
+    provider({
+      ...base,
+      credentialKind: "api_key",
+      auth: { configured: true, source: "stored", environmentVariables: [] },
+    }),
+  );
+  assert.equal(stored.apiKeyInUse, false, "auth.json のキーには「使用中」を付けない");
+  assert.equal(stored.apiKeyAriaLabel, "APIキー");
+
+  const environment = providerCredentialTabs(
+    provider({
+      ...base,
+      credentialKind: "api_key",
+      auth: { configured: true, source: "environment", environmentVariables: ["OPENAI_API_KEY"] },
+    }),
+  );
+  assert.equal(environment.apiKeyInUse, false, "環境変数のキーには「使用中」を付けない");
+
+  const running = providerCredentialTabs(provider({ ...base, login: loginState("running") }));
+  assert.equal(running.signInMark, "running");
+  assert.equal(running.signInAriaLabel, "サインイン（進行中）", "読み上げにも状態を含める");
+
+  const failed = providerCredentialTabs(provider({ ...base, login: loginState("failed", { error: "失敗" }) }));
+  assert.equal(failed.signInMark, "failed");
+  assert.equal(failed.signInAriaLabel, "サインイン（失敗）");
+
+  for (const status of ["succeeded", "cancelled"] as const) {
+    const view = providerCredentialTabs(provider({ ...base, login: loginState(status) }));
+    assert.equal(view.signInMark, null, `成功 / 中断 (${status}) は印を出さない`);
+    assert.equal(view.signInAriaLabel, "サインイン");
+  }
 });
 
 // 認証が変わった後の取り直し。`canApply` は 1 つだけ作って health とカタログで共有する

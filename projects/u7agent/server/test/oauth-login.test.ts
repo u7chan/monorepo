@@ -14,6 +14,7 @@ import {
   OAUTH_LOGIN_FAILED_PORT_MESSAGE,
   OAUTH_LOGIN_IN_PROGRESS_MESSAGE,
   OAUTH_LOGIN_INPUT_MESSAGE,
+  OAUTH_LOGIN_INPUT_PLACEHOLDER,
   OAUTH_LOGIN_NOT_RUNNING_MESSAGE,
   OAUTH_LOGIN_NO_INPUT_MESSAGE,
   OAUTH_LOGIN_TARGET_MESSAGE,
@@ -128,6 +129,18 @@ async function waitForState(
   }
   throw new Error("state did not reach the expected condition");
 }
+
+// コールバックのポートとパスは provider ごとに違う (動的ポート / 別パスがあり得る)。名指しすると
+// 別マシンからの貼り付けで「この URL を探す」と誤解させるため、案内からは外す
+test("認可と貼り付けの案内はコールバックのポートとパスを名指ししない", () => {
+  const texts = [OAUTH_LOGIN_AUTHORIZE_INSTRUCTIONS, OAUTH_LOGIN_INPUT_MESSAGE, OAUTH_LOGIN_INPUT_PLACEHOLDER];
+  for (const text of texts) {
+    assert.doesNotMatch(text, /1455/, text);
+    assert.doesNotMatch(text, /\/auth\/callback/, text);
+  }
+  assert.match(OAUTH_LOGIN_AUTHORIZE_INSTRUCTIONS, /自動で更新されます/, "画面が自動で更新されることを伝える");
+  assert.match(OAUTH_LOGIN_INPUT_MESSAGE, /最後の画面の URL/, "貼り付けるものを URL で示す");
+});
 
 test("開始は進行中の state を公開し、認可 URL は終端で落ちる", async () => {
   const runtime = fakeRuntime({
