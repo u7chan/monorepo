@@ -105,8 +105,10 @@ RUN set -eux; \
     grep -q "self-test ok" /tmp/u7agent-browser-probe/2.log; \
     test -z "$(ls -A /tmp/u7agent-browser)"; \
     ! U7AGENT_LANDLOCK_MIN_ABI=999 wrap 'u7agent-browser --self-test' > /tmp/u7agent-browser-probe/invalid-abi.log 2>&1; \
+    cat /tmp/u7agent-browser-probe/invalid-abi.log; \
     grep -q "older than the required" /tmp/u7agent-browser-probe/invalid-abi.log; \
     ! wrap 'echo no > /home/node/landlock-denied-written' 2>/dev/null; \
+    echo "landlock: 許可 root の外への書き込みを拒否しました"; \
     test ! -f /home/node/landlock-denied-written; \
     rm -rf /tmp/u7agent-browser-probe
 USER root
