@@ -42,8 +42,10 @@ export function SuggestionsEditor({
                 <TrashIcon />
               </button>
             </div>
-            <input
-              className="field text-xs"
+            {/* field-sizing 非対応のブラウザーでは rows=2 の高さのまま欄内スクロールになる (縮退) */}
+            <textarea
+              className="field field-sizing-content max-h-40 min-h-16 scrollbar-thin text-xs leading-relaxed"
+              rows={2}
               maxLength={500}
               placeholder="プロンプト"
               aria-label={`定型プロンプト${index + 1}のプロンプト`}
