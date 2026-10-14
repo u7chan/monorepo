@@ -4,7 +4,9 @@ import assert from "node:assert/strict";
 import { getEventListeners } from "node:events";
 import test from "node:test";
 import type { AuthInteraction } from "@earendil-works/pi-ai";
+import { builtinProviders } from "@earendil-works/pi-ai/providers/all";
 import {
+  canSignInHere,
   classifyOAuthLoginFailure,
   OAUTH_LOGIN_AUTHORIZE_INSTRUCTIONS,
   OAUTH_LOGIN_FAILED_DENIED_MESSAGE,
@@ -197,6 +199,56 @@ test("OAuth を持たない provider の開始は 400、ランタイム無しは
     () => unavailable.start("local"),
     (error: unknown) => (error as { statusCode?: number }).statusCode === 503,
   );
+});
+
+// --- 画面がサインインの操作を出せる provider の許可リスト (表示専用) ---
+
+/**
+ * この表は `server/src/oauth-login.ts` の許可リストを固定する。組み込み provider の OAuth が増減したら
+ * 下の網羅テストが落ちるので、分類を見直して両方を直す (SDK には追随しない)。
+ */
+const SIGN_IN_SUPPORTED = ["kimi-coding", "meta", "openai", "openrouter", "xai"];
+const SIGN_IN_UNSUPPORTED = ["anthropic", "github-copilot", "openai-codex", "radius"];
+
+test("サインインの可否は許可リストと OAuth の有無の両方で決まる", () => {
+  for (const provider of SIGN_IN_SUPPORTED) {
+    assert.equal(canSignInHere(provider, true), true, `${provider} はこの画面で完了できる`);
+    assert.equal(canSignInHere(provider, false), false, "OAuth が無ければサインインの操作は出さない");
+  }
+  for (const provider of SIGN_IN_UNSUPPORTED) {
+    assert.equal(canSignInHere(provider, true), false, `${provider} はこの画面で完了できない方式`);
+  }
+  // 許可リストに無い provider (models.json の独自 provider など) は出さない側へ倒す
+  assert.equal(canSignInHere("models-json-custom", true), false);
+});
+
+test("OAuth を持つ組み込み provider は許可リストか既知の未対応かに必ず分類される", () => {
+  // 検出できるのは組み込み provider まで。models.json 由来の provider は許可リストに無いので隠れる側に倒れる
+  const builtinOAuthProviders = builtinProviders()
+    .filter((provider) => Boolean(provider.auth?.oauth))
+    .map((provider) => provider.id)
+    .sort();
+  assert.deepEqual(
+    builtinOAuthProviders,
+    [...SIGN_IN_SUPPORTED, ...SIGN_IN_UNSUPPORTED].sort(),
+    "SDK が OAuth の provider を足したら、完了できるかの見直しが要る",
+  );
+});
+
+test("login API はサインインの可否を見ない (画面に出さない provider でも開始はできる)", async () => {
+  const runtime = fakeRuntime({
+    providers: [{ provider: "openai-codex", supportsOAuth: true }],
+    login: (_provider, interaction) =>
+      interaction
+        .prompt({ type: "select", message: "Select login method", options: [{ id: "a", label: "A" }] })
+        .then(() => undefined),
+  });
+  const { instance } = service(runtime.runtime);
+  // 直接叩いた場合は従来どおり開始を受け、扱えない対話で固定文言へ倒す (表示だけを制御する)
+  assert.equal((await instance.start("openai-codex")).status, 200);
+  const failed = await waitForState(instance, "openai-codex", (state) => state.status === "failed");
+  assert.equal(failed.error, OAUTH_LOGIN_UNSUPPORTED_MESSAGE);
+  assert.deepEqual(runtime.calls.login, ["openai-codex"]);
 });
 
 test("貼り付けは待機中だけ受け付け、返した値が SDK へ渡る", async () => {

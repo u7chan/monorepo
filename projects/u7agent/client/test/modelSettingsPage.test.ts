@@ -81,7 +81,7 @@ const SETTINGS: ModelsSettingsResponse = {
   ignoredEnvironmentVariables: [],
   providers: [
     provider({ auth: { configured: true, source: "environment", environmentVariables: ["ANTHROPIC_API_KEY"] } }),
-    provider({ provider: "openai", name: "OpenAI", canSetApiKey: false, supportsOAuth: true }),
+    provider({ provider: "openai", name: "OpenAI", canSetApiKey: false, supportsOAuth: true, canSignInHere: true }),
     provider({ provider: "local", name: "Local" }),
     provider({ provider: "ghost", name: "ghost", managed: true, canSetApiKey: false, orphan: true }),
     provider({
@@ -302,6 +302,7 @@ test("プロバイダー詳細は保存済み認証の種別を出し、この�
     auth: { configured: true, source: "stored", environmentVariables: [] },
     credentialKind: "oauth",
     supportsOAuth: true,
+    canSignInHere: true,
     oauthLoginLabel: "Sign in with ChatGPT",
   });
   const storedHtml = render(modelSettings({ settings: { ...SETTINGS, providers: [stored] } }), {
@@ -326,6 +327,7 @@ test("プロバイダー詳細は保存済み認証の種別を出し、この�
             auth: { configured: true, source: "runtime", environmentVariables: [] },
             credentialKind: "api_key",
             supportsOAuth: true,
+            canSignInHere: true,
             oauthLoginLabel: "Sign in with ChatGPT",
             hiddenStoredOAuth: true,
           }),
@@ -353,6 +355,7 @@ test("プロバイダー詳細は保存済み認証の種別を出し、この�
             auth: { configured: true, source: "runtime", environmentVariables: [] },
             credentialKind: "api_key",
             supportsOAuth: true,
+            canSignInHere: true,
             oauthLoginLabel: "Sign in with ChatGPT",
             hiddenStoredOAuth: true,
             degraded: "remove",
@@ -385,6 +388,7 @@ test("OAuth のセクションはサインインとサインアウトを出し�
     provider: "openai",
     name: "OpenAI",
     supportsOAuth: true,
+    canSignInHere: true,
     oauthLoginLabel: "Sign in with ChatGPT",
   });
   const idleHtml = render(modelSettings({ settings: { ...SETTINGS, providers: [signIn] } }), {
@@ -404,6 +408,7 @@ test("OAuth のセクションはサインインとサインアウトを出し�
     auth: { configured: true, source: "stored", environmentVariables: [] },
     credentialKind: "oauth",
     supportsOAuth: true,
+    canSignInHere: true,
     oauthLoginLabel: "Sign in with ChatGPT",
   });
   const signedInHtml = render(modelSettings({ settings: { ...SETTINGS, providers: [signedIn] } }), {
@@ -420,6 +425,7 @@ test("OAuth のセクションはサインインとサインアウトを出し�
     provider: "openai",
     name: "OpenAI",
     supportsOAuth: true,
+    canSignInHere: true,
     oauthLoginLabel: "Sign in with ChatGPT",
     login: {
       status: "running",
@@ -446,6 +452,7 @@ test("OAuth のセクションはサインインとサインアウトを出し�
     provider: "openai",
     name: "OpenAI",
     supportsOAuth: true,
+    canSignInHere: true,
     oauthLoginLabel: "Sign in with ChatGPT",
     login: {
       status: "failed",
@@ -462,6 +469,26 @@ test("OAuth のセクションはサインインとサインアウトを出し�
   });
   assert.ok(failedHtml.includes("認可のコールバックポート（1455）が使用中です。"), "失敗は固定文言で出す");
   assert.match(failedHtml, /<button[^>]*>(?:(?!<\/button>)[\s\S])*閉じる<\/button>/, "結果表示を消す導線を出す");
+});
+
+test("この画面でサインインできない provider は開始も手順も出さず、理由と [サインアウト] を出す", () => {
+  // anthropic はキーを登録できるので行は残るが、OAuth の flow は選択の対話を求める
+  const unsupported = provider({
+    provider: "anthropic",
+    name: "Anthropic",
+    supportsOAuth: true,
+    canSignInHere: false,
+    credentialKind: "oauth",
+    auth: { configured: true, source: "stored", environmentVariables: [] },
+  });
+  const html = render(modelSettings({ settings: { ...SETTINGS, providers: [unsupported] } }), {
+    modelsSubsection: "providers",
+  });
+  assert.ok(html.includes("同じ agent dir を使う pi /login"), "理由として pi /login を案内する");
+  assert.ok(html.includes("docs/model-settings.md"), "詳しい手順の docs を示す");
+  assert.equal(html.includes("OAuth でサインイン</button>"), false, "開始ボタンを出さない");
+  assert.equal(html.includes("同じマシンのブラウザで承認する必要があります。"), false, "手順の説明も出さない");
+  assert.match(html, /<button[^>]*>(?:(?!<\/button>)[\s\S])*サインアウト<\/button>/, "保存済み OAuth の解除手段は残す");
 });
 
 test("provider 行にメモ欄と保存ボタンを出し、runtime 不可では disable する", () => {

@@ -192,6 +192,29 @@ export function withProviderDraft(
   return { ...drafts, [provider]: next };
 }
 
+/**
+ * この画面でサインインを完了できるか。DTO のフラグが未指定 (旧サーバー) のときは「できない」へ倒す
+ * (fail-closed)。判定の正はサーバー側の許可リストで、画面はここでは推測しない。
+ */
+function canSignInHere(provider: ProviderAuthSetting): boolean {
+  return provider.canSignInHere === true;
+}
+
+/**
+ * 一覧から行ごと落とすか。OAuth はあるがこの画面でサインインできず、キーも登録できず、カタログ内でこの画面の
+ * キー保存行を持たない provider だけを落とす。カタログ外 (orphan) のメモ行を巻き込むと、実効の認証を戻す
+ * [削除] / [再同期] の導線が消えるため必ず残す (理由は docs/model-settings.md#oauth-サインイン)。
+ */
+function hiddenFromProviderList(provider: ProviderAuthSetting): boolean {
+  return (
+    provider.supportsOAuth &&
+    !canSignInHere(provider) &&
+    !provider.canSetApiKey &&
+    !provider.orphan &&
+    !provider.managed
+  );
+}
+
 /** 設定済みを先頭に、未設定は畳めるよう後ろへ分ける。並びはサーバーが返した順を保つ */
 export function groupProviders(
   settings: ModelsSettingsResponse,
@@ -199,6 +222,7 @@ export function groupProviders(
 ): ProviderGroups {
   const groups: ProviderGroups = { configured: [], unconfigured: [] };
   for (const provider of settings.providers) {
+    if (hiddenFromProviderList(provider)) continue;
     // メモは SDK に触れないため「認証済み」ではないが、折りたたみの中に隠れると見つけられない
     const settled =
       provider.auth.configured ||
@@ -262,10 +286,21 @@ export async function refreshModelsForAuthChange(input: {
   await input.loadCatalog(input.canApply);
 }
 
+/**
+ * この画面でサインインを完了できない provider の理由。サインインの操作とサインイン手順の説明の代わりに
+ * 出す。手順が「同一マシンのブラウザ」を前提にしているため、この provider のカードへは混ぜない。
+ */
+export const OAUTH_UNSUPPORTED_NOTICE =
+  "このプロバイダーのサインインは、この画面では扱えない対話（候補の選択やテキスト入力）を必要とする方式です。同じ agent dir を使う pi /login でサインインしてください（手順は docs/model-settings.md の OAuth サインイン）。";
+
 /** provider 詳細の OAuth セクションの見た目。DOM に依存させず、条件だけをここで決める */
 export interface OAuthPanelView {
   /** セクションを出すか。OAuth を持たない provider とカタログ外 (SDK が受けない) では出さない */
   visible: boolean;
+  /** サインインの操作 (開始 / 進行表示 / 貼り付け / [中断]) を出すか */
+  canSignIn: boolean;
+  /** サインインの操作を出せない理由。canSignIn のときは undefined */
+  unsupportedNotice?: string;
   /** [Sign in with ChatGPT] などのボタン名。provider の `oauth.loginLabel` が無ければ汎用の文言 */
   loginLabel: string;
   /** 進行中 / 直近の結果。null = 未開始 */
@@ -279,11 +314,15 @@ export interface OAuthPanelView {
 /**
  * OAuth セクションの表示条件。overlay (この画面のキー) が実効のときも `hiddenStoredOAuth` で
  * auth.json の OAuth を見てサインアウトを出す。auth.json の読取失敗は false (不明) なので、そのときは
- * 実効の種別 (`credentialKind`) だけで決める。
+ * 実効の種別 (`credentialKind`) だけで決める。サインインの操作は DTO のフラグだけで決め、
+ * 未指定なら出さない (fail-closed)。
  */
 export function oauthPanelView(provider: ProviderAuthSetting): OAuthPanelView {
+  const canSignIn = canSignInHere(provider);
   return {
     visible: provider.supportsOAuth && !provider.orphan,
+    canSignIn,
+    ...(canSignIn ? {} : { unsupportedNotice: OAUTH_UNSUPPORTED_NOTICE }),
     loginLabel: provider.oauthLoginLabel ?? "OAuth でサインイン",
     login: provider.login ?? null,
     signOut: provider.hiddenStoredOAuth || provider.credentialKind === "oauth",

@@ -35,6 +35,8 @@ export interface ProviderKeyRuntime {
     name: string;
     canSetApiKey: boolean;
     supportsOAuth: boolean;
+    /** この画面でサインインを完了できる provider か。表示専用の判定で、login API の対象判定には使わない */
+    canSignInHere: boolean;
     /** provider の `oauth.loginLabel`。OAuth の表示名だけに使う静的 metadata で、null = OAuth なし */
     oauthLoginLabel: string | null;
   }[];
@@ -648,6 +650,7 @@ export class ModelSettingsService {
             managed: managed.has(entry.provider),
             canSetApiKey: entry.canSetApiKey,
             supportsOAuth: entry.supportsOAuth,
+            canSignInHere: entry.canSignInHere,
             orphan: false,
             appliable: managed.has(entry.provider),
           },
@@ -666,7 +669,14 @@ export class ModelSettingsService {
           row.provider,
           row.provider,
           undefined,
-          { managed: true, canSetApiKey: false, supportsOAuth: false, orphan: true, appliable: true },
+          {
+            managed: true,
+            canSetApiKey: false,
+            supportsOAuth: false,
+            canSignInHere: false,
+            orphan: true,
+            appliable: true,
+          },
           memoOf.get(row.provider),
           keyUpdatedAtOf(row.provider),
           null,
@@ -682,7 +692,14 @@ export class ModelSettingsService {
           row.provider,
           row.provider,
           undefined,
-          { managed: false, canSetApiKey: false, supportsOAuth: false, orphan: true, appliable: false },
+          {
+            managed: false,
+            canSetApiKey: false,
+            supportsOAuth: false,
+            canSignInHere: false,
+            orphan: true,
+            appliable: false,
+          },
           row.memo,
           keyUpdatedAtOf(row.provider),
           null,
@@ -702,6 +719,7 @@ export class ModelSettingsService {
             managed: managed.has(provider),
             canSetApiKey: false,
             supportsOAuth: false,
+            canSignInHere: false,
             orphan: true,
             appliable: false,
           },
@@ -729,6 +747,7 @@ export class ModelSettingsService {
       managed: boolean;
       canSetApiKey: boolean;
       supportsOAuth: boolean;
+      canSignInHere: boolean;
       orphan: boolean;
       /** provider_credentials に行がある。orphan への degraded 自動付与は適用対象のキーがあるときだけ */
       appliable: boolean;
@@ -748,6 +767,7 @@ export class ModelSettingsService {
       managed: flags.managed,
       canSetApiKey: flags.canSetApiKey,
       supportsOAuth: flags.supportsOAuth,
+      canSignInHere: flags.canSignInHere,
       credentialKind: this.#credentialKindOf(provider, sanitized),
       oauthLoginLabel,
       hiddenStoredOAuth: sanitized.source === "runtime" && this.#storedOAuthHidden(provider),

@@ -146,7 +146,7 @@ test("未知の例外は unknown にする", async () => {
   );
 });
 
-test("list は auth.apiKey.login の有無で canSetApiKey を決め、auth は SDK の状態をそのまま読む", () => {
+test("list は canSetApiKey を auth.apiKey.login で、サインインの可否を許可リストで決める", () => {
   const { pi } = fakePi({
     providers: [
       { id: "anthropic", name: "Anthropic", apiKeyLogin: true, oauth: true },
@@ -155,16 +155,32 @@ test("list は auth.apiKey.login の有無で canSetApiKey を決め、auth は 
     ],
   });
   const runtime = createProviderKeyRuntime(pi);
+  // サインインの可否は許可リスト (oauth-login) が決める。OAuth を持つのにここで完了できない provider は false
   assert.deepEqual(runtime.list(), [
-    { provider: "anthropic", name: "Anthropic", canSetApiKey: true, supportsOAuth: true, oauthLoginLabel: null },
+    {
+      provider: "anthropic",
+      name: "Anthropic",
+      canSetApiKey: true,
+      supportsOAuth: true,
+      canSignInHere: false,
+      oauthLoginLabel: null,
+    },
     {
       provider: "openai",
       name: "OpenAI",
       canSetApiKey: true,
       supportsOAuth: true,
+      canSignInHere: true,
       oauthLoginLabel: "Sign in with ChatGPT",
     },
-    { provider: "local", name: "local", canSetApiKey: false, supportsOAuth: false, oauthLoginLabel: null },
+    {
+      provider: "local",
+      name: "local",
+      canSetApiKey: false,
+      supportsOAuth: false,
+      canSignInHere: false,
+      oauthLoginLabel: null,
+    },
   ]);
   assert.deepEqual(runtime.auth("anthropic"), { configured: true, source: "environment" });
 });

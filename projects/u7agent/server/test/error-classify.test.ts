@@ -62,9 +62,9 @@ test("classifies a stored OAuth that cannot be refreshed as oauth_expired", () =
 
 test("oauth_expired guides to signing in again instead of registering an API key", () => {
   const composed = composeRunError({ code: "oauth_expired" }, 0);
-  assert.match(composed, /設定 → モデル → プロバイダー のサインイン/);
-  // この画面が扱えない方式 (openai-codex など) は pi /login でしか回復できない
-  assert.match(composed, /同じ agent dir を使う pi \/login/);
+  assert.match(composed, /設定 → モデル → プロバイダー にサインインの操作がある provider はそこで/);
+  // この画面にサインインの操作が無い provider (openai-codex など) は pi /login でしか回復できない
+  assert.match(composed, /無い provider は同じ agent dir を使う pi \/login/);
   assert.doesNotMatch(composed, /APIキー/);
   // 再サインイン以外に回復手段が無いので、時間をおけば直ると案内しない
   assert.doesNotMatch(composed, /時間をおいて再実行/);

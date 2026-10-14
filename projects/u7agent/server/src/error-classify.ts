@@ -97,7 +97,8 @@ export function runErrorAction(code: RunErrorCode): string | undefined {
     case "auth_required":
       return undefined;
     case "oauth_expired":
-      return "設定 → モデル → プロバイダー のサインインか、同じ agent dir を使う pi /login で再サインインしてください";
+      // この画面にサインインの操作が無い provider があるため、設定画面を無条件に指さない
+      return "設定 → モデル → プロバイダー にサインインの操作がある provider はそこで、無い provider は同じ agent dir を使う pi /login で再サインインしてください";
     case "model_unavailable":
       // 設定 → モデル の保存はアプリ既定と候補を変えるだけで、失敗した会話のモデルは変えない。
       // 復旧は入力欄の上のモデル名で会話モデルを選び直す経路だけなので、そちらを名指しする。

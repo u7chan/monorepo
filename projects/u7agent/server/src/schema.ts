@@ -693,6 +693,12 @@ export const ProviderAuthSettingSchema = z.object({
   canSetApiKey: z.boolean(),
   supportsOAuth: z.boolean(),
   /**
+   * この画面でサインインを完了できる provider か。SDK の OAuth flow が求める対話は静的な metadata に
+   * 現れないため、サーバーの許可リストで判定する。**任意**で、クライアントは未指定を「サインインできない」
+   * として扱う (fail-closed)。OAuth を持つかどうか (`supportsOAuth`) とは別。
+   */
+  canSignInHere: z.boolean().optional(),
+  /**
    * SDK が見ている資格情報の種別 (ModelRuntime.isUsingOAuth)。null = 認証なし。runtime overlay があるときは
    * overlay の api_key になり、auth.json の保存値は見えない (その差は hiddenStoredOAuth が表す)。
    */

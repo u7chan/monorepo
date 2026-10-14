@@ -43,7 +43,9 @@ export function OAuthSignInSection({
   return (
     <section className="grid gap-1.5">
       <div className="text-2xs font-semibold tracking-label text-ink-faint uppercase">OAuth サインイン</div>
-      {running && login ? (
+      {!view.canSignIn ? (
+        <p className="text-2xs leading-relaxed text-ink-muted">{view.unsupportedNotice}</p>
+      ) : running && login ? (
         <div className="grid gap-1.5 rounded-md border border-line bg-soft px-2.5 py-2">
           <p className="text-2xs leading-relaxed text-ink">
             {login.progress ?? (login.authUrl ? login.instructions : "認可の準備をしています。")}
@@ -157,25 +159,32 @@ export function OAuthSignInSection({
         </div>
       ) : null}
 
-      <CollapsibleNotice summary="同じマシンのブラウザで承認する必要があります。">
-        <p>
-          同意画面とコールバック（<code>http://127.0.0.1:1455/auth/callback</code>）は同じマシンで開いたブラウザから
-          だけ届きます。別のマシンからは、ブラウザの最後の画面の URL を貼り付けると完了できます。
-        </p>
-        <p>
-          同じマシンで pi / Codex CLI がサインイン中だと、コールバックのポート（1455）が競合して失敗します。その
-          サインインを終了してから再試行してください。
-        </p>
-        <p>
-          サインインした資格情報は Pi の <code>auth.json</code>（この画面の DB ではありません）へ保存され、ChatGPT
-          のプラン枠で推論します。SIWC はローカルの単一ユーザー向けで、公開・リモート提供・複数人での利用は できません。
-        </p>
-        <p>
-          サインイン中はこの画面がサーバーへ状態を問い合わせ続けます。ブラウザを閉じた場合は [中断] でコールバック
-          を閉じてください（そのままにするとポート 1455 を占有します）。
-        </p>
-        <p>サインインは開始から 10 分で自動的に中断します。</p>
-      </CollapsibleNotice>
+      {view.canSignIn ? <SignInInstructions /> : null}
     </section>
+  );
+}
+
+/** サインイン手順の説明。この画面でサインインできない provider では出さず、理由文に置き換える */
+function SignInInstructions() {
+  return (
+    <CollapsibleNotice summary="同じマシンのブラウザで承認する必要があります。">
+      <p>
+        同意画面とコールバック（<code>http://127.0.0.1:1455/auth/callback</code>）は同じマシンで開いたブラウザから
+        だけ届きます。別のマシンからは、ブラウザの最後の画面の URL を貼り付けると完了できます。
+      </p>
+      <p>
+        同じマシンで pi / Codex CLI がサインイン中だと、コールバックのポート（1455）が競合して失敗します。その
+        サインインを終了してから再試行してください。
+      </p>
+      <p>
+        サインインした資格情報は Pi の <code>auth.json</code>（この画面の DB ではありません）へ保存され、ChatGPT
+        のプラン枠で推論します。SIWC はローカルの単一ユーザー向けで、公開・リモート提供・複数人での利用は できません。
+      </p>
+      <p>
+        サインイン中はこの画面がサーバーへ状態を問い合わせ続けます。ブラウザを閉じた場合は [中断] でコールバック
+        を閉じてください（そのままにするとポート 1455 を占有します）。
+      </p>
+      <p>サインインは開始から 10 分で自動的に中断します。</p>
+    </CollapsibleNotice>
   );
 }

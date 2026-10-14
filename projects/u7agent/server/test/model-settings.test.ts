@@ -43,6 +43,7 @@ interface FakeProvider {
   name?: string;
   canSetApiKey?: boolean;
   supportsOAuth?: boolean;
+  canSignInHere?: boolean;
   oauthLoginLabel?: string;
   /** SDK が見ている資格情報の種別。undefined は api_key (認証あり) を模擬する */
   credentialKind?: CredentialKind;
@@ -111,6 +112,8 @@ function fakeRuntime(
         name: entry.name ?? entry.provider,
         canSetApiKey: entry.canSetApiKey ?? true,
         supportsOAuth: entry.supportsOAuth ?? false,
+        // 許可リストの評価は createProviderKeyRuntime の担当なので、ここは渡された値をそのまま DTO へ通す
+        canSignInHere: entry.canSignInHere ?? false,
         oauthLoginLabel: entry.oauthLoginLabel ?? null,
       })),
     auth: (provider) => {
@@ -323,7 +326,7 @@ test("GET はキー値を返さず、managed / canSetApiKey / orphan / degraded 
   const runtime = fakeRuntime({
     providers: [
       { provider: "anthropic", name: "Anthropic", configured: true },
-      { provider: "openai", name: "OpenAI", canSetApiKey: false, supportsOAuth: true },
+      { provider: "openai", name: "OpenAI", canSetApiKey: false, supportsOAuth: true, canSignInHere: true },
     ],
   });
   const { service } = createService({ db: db.db, runtime: runtime.runtime });
@@ -341,6 +344,7 @@ test("GET はキー値を返さず、managed / canSetApiKey / orphan / degraded 
     managed: true,
     canSetApiKey: true,
     supportsOAuth: false,
+    canSignInHere: false,
     credentialKind: "api_key",
     oauthLoginLabel: null,
     hiddenStoredOAuth: false,
@@ -352,6 +356,11 @@ test("GET はキー値を返さず、managed / canSetApiKey / orphan / degraded 
   assert.equal(byProvider.get("openai")?.managed, false);
   assert.equal(byProvider.get("openai")?.canSetApiKey, false);
   assert.equal(byProvider.get("openai")?.supportsOAuth, true);
+  assert.equal(
+    byProvider.get("openai")?.canSignInHere,
+    true,
+    "ランタイムが返したサインイン可否をそのまま DTO へ載せる",
+  );
   assert.deepEqual(byProvider.get("legacy-orphan"), {
     provider: "legacy-orphan",
     name: "legacy-orphan",
@@ -359,6 +368,7 @@ test("GET はキー値を返さず、managed / canSetApiKey / orphan / degraded 
     managed: true,
     canSetApiKey: false,
     supportsOAuth: false,
+    canSignInHere: false,
     // 認証が無い provider には SDK へ種別を聞かず、OAuth の表示名も無い
     credentialKind: null,
     oauthLoginLabel: null,
@@ -1024,6 +1034,7 @@ test("メモだけの provider を GET の 4 経路目として出し、degraded
     managed: false,
     canSetApiKey: false,
     supportsOAuth: false,
+    canSignInHere: false,
     credentialKind: null,
     oauthLoginLabel: null,
     hiddenStoredOAuth: false,
