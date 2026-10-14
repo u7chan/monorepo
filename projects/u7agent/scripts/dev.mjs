@@ -10,6 +10,8 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 // プレビュー オリジンは専用モジュール、サービス オリジンの公開ポートは preview-port.ts が正
 import { resolveDevFilePreviewPort } from "../server/src/file-preview-port.ts";
+import { installBrowser, resolveBrowsersDir } from "./install-browser.mjs";
+import { devBrowserCliDir, installBrowserCli } from "./install-browser-cli.mjs";
 import { installLandlockWrapper } from "./install-landlock.mjs";
 // Node 24 の型ストリッピングで .ts をそのまま読む (ポートの検証を JS 側へ写すと二重管理になる)
 import { resolvePreviewPort, resolveServiceListenPort, SERVE_LISTEN_PORT } from "../server/src/preview-port.ts";
@@ -170,6 +172,20 @@ async function main() {
   } catch (error) {
     log(`Landlock ラッパーを配置できませんでした (${error.message})。bash は実行できません`);
   }
+  // ブラウザの入口と配布セット。取得に失敗しても dev は続行する (スキルが指す CLI が無い状態を作らないための配線)
+  const browserCliDir = devBrowserCliDir();
+  try {
+    await installBrowserCli({ log: (message) => log(message) });
+  } catch (error) {
+    log(`u7agent-browser の入口を配置できませんでした (${error.message})。ブラウザは実行できません`);
+  }
+  let browsersPath;
+  try {
+    browsersPath = resolveBrowsersDir(process.env);
+    browsersPath = (await installBrowser({ dest: browsersPath, log: (message) => log(message) })).browsersDir;
+  } catch (error) {
+    log(`警告: ブラウザの配布セットを取得できませんでした (${error.message})。pnpm dev は続行します`);
+  }
   log(`サンドボックスを起動します (http://127.0.0.1:${SANDBOX_PORT})`);
   // シークレットの master key は BFF だけが使う。サンドボックスのプロセス env から外し、
   // /proc/<pid>/environ などから読める露出を増やさない (bash の子プロセスからは service 側でも剥がす)
@@ -178,6 +194,9 @@ async function main() {
   delete sandboxEnv.U7AGENT_SECRET_MASTER_KEY_FILE;
   const sandbox = start("sandbox", "start:sandbox", {
     ...sandboxEnv,
+    // ブラウザはサンドボックスの bash から PATH と PLAYWRIGHT_BROWSERS_PATH で見つける
+    ...(browserCliDir ? { PATH: `${browserCliDir}:${process.env.PATH ?? ""}` } : {}),
+    ...(browsersPath ? { PLAYWRIGHT_BROWSERS_PATH: browsersPath } : {}),
     SANDBOX_HOST: "127.0.0.1",
     SANDBOX_PORT: String(SANDBOX_PORT),
     PI_SANDBOX_TOKEN: TOKEN,

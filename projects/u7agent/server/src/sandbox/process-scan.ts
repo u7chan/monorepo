@@ -4,6 +4,7 @@
  * この走査だけは制限の外にいる service 本体で行う。設計は docs/sandbox.md の serve の節を正とする。
  */
 import { readFile, readdir, readlink } from "node:fs/promises";
+import { processStartedAtMs, statFields } from "../proc-stat";
 import type { SandboxListenerProcess, SandboxListenerScan } from "./protocol";
 
 /** 1 回の祖先の探索でたどる親の上限。循環や壊れた /proc でも止まるようにする */
@@ -25,25 +26,6 @@ async function listenInodes(port: number): Promise<number[]> {
     }
   }
   return [...inodes].sort((a, b) => a - b);
-}
-
-/** `/proc/<pid>/stat` の 1 行。comm は括弧を含み得るので、最後の `)` 以降だけをフィールドに割る */
-async function statFields(pid: number): Promise<string[] | undefined> {
-  const text = await readFile(`/proc/${pid}/stat`, "utf8").catch(() => undefined);
-  if (!text) return undefined;
-  return text.slice(text.lastIndexOf(")") + 2).split(" ");
-}
-
-/** プロセスの起動時刻 (epoch ms)。取れなければ 0 (不明)。PID 再利用の照合に使う */
-async function startedAtOf(pid: number): Promise<number> {
-  const fields = await statFields(pid);
-  const startTicks = Number(fields?.[19]);
-  if (!Number.isFinite(startTicks)) return 0;
-  const bootText = await readFile("/proc/stat", "utf8").catch(() => "");
-  const bootSeconds = Number(/btime ([0-9]+)/.exec(bootText)?.[1]);
-  if (!Number.isFinite(bootSeconds)) return 0;
-  // USER_HZ は 100 固定 (カーネルの設定で変えられる値ではない)
-  return bootSeconds * 1000 + Math.round(startTicks * 10);
 }
 
 /** 自身から親をたどった PID (自身を含む) */
@@ -89,7 +71,7 @@ export async function scanListeners(port: number, options: { scan: boolean }): P
   if (pid === null) return { inodes, listener: null };
   const listener: SandboxListenerProcess = {
     pid,
-    startedAt: await startedAtOf(pid),
+    startedAt: (await processStartedAtMs(pid)) ?? 0,
     inodes,
     ancestors: await ancestorsOf(pid),
   };
