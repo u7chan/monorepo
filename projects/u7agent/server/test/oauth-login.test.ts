@@ -15,6 +15,7 @@ import {
   OAUTH_LOGIN_NOT_RUNNING_MESSAGE,
   OAUTH_LOGIN_NO_INPUT_MESSAGE,
   OAUTH_LOGIN_TARGET_MESSAGE,
+  OAUTH_LOGIN_TIMED_OUT_MESSAGE,
   OAUTH_LOGIN_UNSUPPORTED_MESSAGE,
   OAUTH_LOGOUT_FAILED_MESSAGE,
   OAUTH_LOGOUT_TARGET_MESSAGE,
@@ -25,6 +26,13 @@ import {
 import type { OAuthLoginState } from "../src/schema";
 
 const AUTH_URL = "https://auth.example.test/api/accounts/authorize?state=dummy";
+const DEADLINE_MS = 1_000;
+
+/** fake timer を進めた後の SDK の login とサービス側の await 連鎖を流す (setImmediate は mock しない) */
+async function flushAsync(): Promise<void> {
+  await new Promise((resolve) => setImmediate(resolve));
+  await new Promise((resolve) => setImmediate(resolve));
+}
 
 /** fake の SDK 面。login の振る舞いだけをテストごとに差し替え、呼び出しを記録する */
 function fakeRuntime(
@@ -80,6 +88,8 @@ function service(
   hooks: {
     refresh?: () => Promise<void>;
     waitForAuthUrlMs?: number;
+    /** サインインの絶対期限。既定 (10 分) を使うとテストは期限まで進めない */
+    loginDeadlineMs?: number;
     /** サインアウト直後のキー写し直しの模倣。throw で失敗経路を再現できる */
     reapplyStoredKey?: (provider: string) => Promise<void>;
   } = {},
@@ -99,6 +109,7 @@ function service(
     maskError: (text) => text,
     waitForAuthUrlMs: hooks.waitForAuthUrlMs ?? 0,
     logoutTimeoutMs: 50,
+    loginDeadlineMs: hooks.loginDeadlineMs,
   });
   return { instance, refreshes, reapplied };
 }
@@ -261,6 +272,108 @@ test("中断は進行中の state を閉じ、SDK の signal を abort して公
   assert.equal(instance.stateOf("openai"), null);
   assert.equal((await instance.cancel("openai")).status, 200);
   assert.deepEqual(runtime.calls.login, ["openai"], "終端後の [中断] は login を呼ばない");
+});
+
+test("期限に達すると SDK のサインインを中断し、固定文言を返して公開 state を 1 回だけ再計算する", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  let aborted = false;
+  const runtime = fakeRuntime({
+    login: async (_provider, interaction) => {
+      interaction.notify({ type: "auth_url", url: AUTH_URL });
+      const pending = interaction.prompt({ type: "manual_code", message: "Paste", placeholder: "url" });
+      interaction.signal?.addEventListener("abort", () => {
+        aborted = true;
+      });
+      await pending.catch(() => undefined);
+      if (interaction.signal?.aborted) throw new Error("Login cancelled");
+    },
+  });
+  const { instance, refreshes } = service(runtime.runtime, { loginDeadlineMs: DEADLINE_MS });
+  await instance.start("openai");
+  assert.equal(instance.stateOf("openai")?.status, "running");
+
+  t.mock.timers.tick(DEADLINE_MS);
+  const expired = instance.stateOf("openai");
+  assert.equal(expired?.status, "failed", "期限の到着で終端する");
+  assert.equal(expired?.error, OAUTH_LOGIN_TIMED_OUT_MESSAGE, "残り時間ではなく固定文言で伝える");
+  assert.equal(expired?.authUrl, null, "期限後は認可 URL を落とす");
+  assert.equal(expired?.input, null, "期限後は貼り付け欄を落とす");
+  await flushAsync();
+  assert.equal(aborted, true, "SDK のコールバックサーバーと通信を閉じる");
+  assert.equal(refreshes.length, 1, "期限でも公開 state を 1 回だけ再計算する");
+});
+
+test("期限後はコールバックと貼り付けを拒否し、同じ provider で次のログインを開始できる", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  const interactions: AuthInteraction[] = [];
+  const runtime = fakeRuntime({
+    login: async (_provider, interaction) => {
+      interactions.push(interaction);
+      interaction.notify({ type: "auth_url", url: AUTH_URL });
+      await interaction.prompt({ type: "manual_code", message: "Paste", placeholder: "url" }).catch(() => undefined);
+    },
+  });
+  const { instance } = service(runtime.runtime, { loginDeadlineMs: DEADLINE_MS });
+  await instance.start("openai");
+  t.mock.timers.tick(DEADLINE_MS);
+  await flushAsync();
+
+  const expired = interactions[0];
+  expired.notify({ type: "auth_url", url: AUTH_URL });
+  assert.equal(instance.stateOf("openai")?.authUrl, null, "期限後の notify は状態を動かさない");
+  await assert.rejects(() => expired.prompt({ type: "manual_code", message: "Paste", placeholder: "url" }));
+  assert.equal(instance.stateOf("openai")?.input, null, "期限後の prompt で入力欄を立てない");
+  assert.equal(
+    (await instance.submitCode("openai", "code").catch((error) => error)).message,
+    OAUTH_LOGIN_NOT_RUNNING_MESSAGE,
+    "期限後の貼り付けは進行中でないときと同じ 400",
+  );
+
+  assert.equal((await instance.start("openai")).status, 200, "期限後は同じ provider で開始できる (409 にならない)");
+  assert.equal(runtime.calls.login.length, 2);
+  await instance.cancel("openai");
+});
+
+test("成功・失敗・中断では期限が後から発火しない", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  /** 終端済みのサインインで、期限を大きく過ぎても状態と再計算が動かないことを見る */
+  const assertNoLateDeadline = async (
+    instance: OAuthLoginService,
+    refreshes: number[],
+    status: OAuthLoginState["status"],
+  ) => {
+    assert.equal(instance.stateOf("openai")?.status, status);
+    const settled = refreshes.length;
+    t.mock.timers.tick(DEADLINE_MS * 2);
+    await flushAsync();
+    assert.equal(instance.stateOf("openai")?.status, status, "終端したサインインの期限は後から発火しない");
+    assert.equal(refreshes.length, settled, "発火した期限で公開 state を再計算しない");
+  };
+
+  const success = fakeRuntime({
+    login: async (_provider, interaction) => {
+      interaction.notify({ type: "auth_url", url: AUTH_URL });
+      await interaction.prompt({ type: "manual_code", message: "Paste", placeholder: "url" });
+    },
+  });
+  const successRun = service(success.runtime, { loginDeadlineMs: DEADLINE_MS });
+  await successRun.instance.start("openai");
+  await successRun.instance.submitCode("openai", "code");
+  await flushAsync();
+  await assertNoLateDeadline(successRun.instance, successRun.refreshes, "succeeded");
+
+  const failure = fakeRuntime({ login: () => Promise.reject(new Error("connect EADDRINUSE 127.0.0.1:1455")) });
+  const failureRun = service(failure.runtime, { loginDeadlineMs: DEADLINE_MS });
+  await failureRun.instance.start("openai");
+  await flushAsync();
+  await assertNoLateDeadline(failureRun.instance, failureRun.refreshes, "failed");
+
+  const cancelled = fakeRuntime({ login: (_provider, interaction) => pendingLogin(interaction) });
+  const cancelRun = service(cancelled.runtime, { loginDeadlineMs: DEADLINE_MS });
+  await cancelRun.instance.start("openai");
+  await cancelRun.instance.cancel("openai");
+  await flushAsync();
+  await assertNoLateDeadline(cancelRun.instance, cancelRun.refreshes, "cancelled");
 });
 
 test("port 競合と拒否は生の英語ではなく固定日本語になる", async () => {

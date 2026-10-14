@@ -22,6 +22,9 @@ export const OAUTH_LOGIN_FAILED_PORT_MESSAGE =
   "認可のコールバックポート（1455）が使用中です。同じマシンで動いている pi / Codex CLI のサインインを終了してから、もう一度試してください";
 export const OAUTH_LOGIN_FAILED_DENIED_MESSAGE =
   "サインインが承認されませんでした。ブラウザに表示された内容を確認して、もう一度試してください";
+/** 期限の到着は中断ではなく失敗として伝える。残り時間も期限の長さも出さない */
+export const OAUTH_LOGIN_TIMED_OUT_MESSAGE =
+  "一定時間内に承認されなかったため、サインインを中断しました。もう一度試してください";
 export const OAUTH_LOGOUT_TARGET_MESSAGE = "保存済みの OAuth 資格情報がありません";
 export const OAUTH_LOGOUT_FAILED_MESSAGE = "サインアウトできませんでした。もう一度試してください";
 /** 1 つの面に収めるため長さを抑えた固定文言。SDK の英語の案内は画面へ出さない */
@@ -124,10 +127,13 @@ export interface OAuthLoginOptions {
   waitForAuthUrlMs?: number;
   /** SDK の logout の期限 */
   logoutTimeoutMs?: number;
+  /** 開始 (POST) からサインインを中断するまでの絶対期限。進捗では延長しない。0 以下で期限をかけない */
+  loginDeadlineMs?: number;
 }
 
 export const OAUTH_LOGIN_AUTH_URL_WAIT_MS = 1_500;
 export const OAUTH_LOGOUT_TIMEOUT_MS = 20_000;
+export const OAUTH_LOGIN_DEADLINE_MS = 10 * 60 * 1000;
 
 export type OAuthLoginOutcome = { status: 200 } | { status: 503; error: string };
 
@@ -158,6 +164,7 @@ class OAuthLoginSession {
   #finishing = false;
   #revision = 0;
   #waiters: (() => void)[] = [];
+  #deadlineTimer: ReturnType<typeof setTimeout> | null = null;
 
   constructor(provider: string) {
     this.provider = provider;
@@ -260,6 +267,8 @@ class OAuthLoginSession {
    */
   holdSuccess(): void {
     if (this.status !== "running") return;
+    // サインイン自体は終わっている。ここから先の待ちは公開 state の再計算だけなので期限は落とす
+    this.#stopDeadline();
     this.#finishing = true;
     this.#clearInProgress();
     this.#bump();
@@ -268,6 +277,7 @@ class OAuthLoginSession {
   /** 終端の確定。認可 URL と貼り付け欄は進行中の値なので、終端では必ず落とす */
   settle(status: "succeeded" | "failed" | "cancelled", error: string | null): void {
     if (this.status !== "running") return;
+    this.#stopDeadline();
     this.status = status;
     this.error = error;
     this.#clearInProgress();
@@ -280,6 +290,25 @@ class OAuthLoginSession {
   /** SDK のコールバックサーバーと通信を止める */
   abort(): void {
     this.#controller.abort();
+  }
+
+  /**
+   * 開始 (POST) から数える絶対期限。進捗の受信では延長しない (SDK の progress は同意後にしか届かず、
+   * 延長の材料にならないため)。期限の処理そのものは呼び出し側が持ち、一度だけ呼ぶ。
+   */
+  armDeadline(deadlineMs: number, onExpire: () => void): void {
+    this.#deadlineTimer = setTimeout(() => {
+      this.#deadlineTimer = null;
+      onExpire();
+    }, deadlineMs);
+    // 進行中のサインインがプロセスの終了を期限まで待たせない
+    this.#deadlineTimer.unref();
+  }
+
+  #stopDeadline(): void {
+    if (!this.#deadlineTimer) return;
+    clearTimeout(this.#deadlineTimer);
+    this.#deadlineTimer = null;
   }
 
   /** 状態が変わるか期限に当たるまで待つ。開始の応答へ認可 URL を載せるためだけに使う */
@@ -312,6 +341,7 @@ export class OAuthLoginService {
   #maskError: (text: string) => string;
   #waitForAuthUrlMs: number;
   #logoutTimeoutMs: number;
+  #loginDeadlineMs: number;
   #reapplyStoredKey: (provider: string) => Promise<void>;
   #logins = new Map<string, OAuthLoginSession>();
   // キー変更と同じロックは使わない。進行中のサインインは分単位で待つため、同じロックで直列化すると
@@ -324,6 +354,7 @@ export class OAuthLoginService {
     this.#maskError = options.maskError;
     this.#waitForAuthUrlMs = options.waitForAuthUrlMs ?? OAUTH_LOGIN_AUTH_URL_WAIT_MS;
     this.#logoutTimeoutMs = options.logoutTimeoutMs ?? OAUTH_LOGOUT_TIMEOUT_MS;
+    this.#loginDeadlineMs = options.loginDeadlineMs ?? OAUTH_LOGIN_DEADLINE_MS;
     this.#reapplyStoredKey = options.reapplyStoredKey ?? (async () => {});
   }
 
@@ -344,6 +375,7 @@ export class OAuthLoginService {
       if (this.#logins.get(provider)?.status === "running") throw httpError(409, OAUTH_LOGIN_IN_PROGRESS_MESSAGE);
       const created = new OAuthLoginSession(provider);
       this.#logins.set(provider, created);
+      this.#armDeadline(provider, created);
       void this.#run(provider, created);
       return created;
     });
@@ -351,6 +383,21 @@ export class OAuthLoginService {
       await session.waitFor(() => session.authUrl !== null || session.status !== "running", this.#waitForAuthUrlMs);
     }
     return { status: 200 };
+  }
+
+  /**
+   * 期限の到着を中断と同じ経路 (終端の確定 + abort) へ倒す。公開 state の再計算は、SDK の login が
+   * 返るのを待つ #run が 1 回だけ行う (中断と同じ)。
+   */
+  #armDeadline(provider: string, session: OAuthLoginSession): void {
+    if (this.#loginDeadlineMs <= 0) return;
+    session.armDeadline(this.#loginDeadlineMs, () => {
+      if (session.status !== "running") return;
+      // 生の例外文言を出さない失敗と同じく、ログには分類だけを残す
+      console.warn(`[u7agent] oauth login failed: ${provider} (timeout)`);
+      session.settle("failed", OAUTH_LOGIN_TIMED_OUT_MESSAGE);
+      session.abort();
+    });
   }
 
   /** 貼り付けられた URL / コードを SDK の待機へ渡す。交換の完了はポーリングが拾う */
