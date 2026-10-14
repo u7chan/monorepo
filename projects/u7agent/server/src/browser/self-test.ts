@@ -39,11 +39,7 @@ async function reachable(page: Page, url: string, timeoutMs: number): Promise<bo
   );
 }
 
-/**
- * WebSocket を開いて echo を待つ。結果は "echoed" / "error" / "closed" / "timeout"。
- * 文字列で渡すのは、tsx の esbuild 変換が関数の名前保持のために注入するヘルパーが page 側に無いため。
- */
-async function webSocketOutcome(page: Page, url: string, timeoutMs: number): Promise<string> {
+async function evaluateWebSocket(page: Page, url: string, timeoutMs: number): Promise<string> {
   return page.evaluate(`new Promise((resolve) => {
     const socket = new WebSocket(${JSON.stringify(url)});
     socket.onopen = () => socket.send("ping");
@@ -52,6 +48,24 @@ async function webSocketOutcome(page: Page, url: string, timeoutMs: number): Pro
     socket.onclose = () => resolve("closed");
     setTimeout(() => resolve("timeout"), ${Number(timeoutMs)});
   })`);
+}
+
+/**
+ * WebSocket を開いて echo を待つ。結果は "echoed" / "error" / "closed" / "timeout"。
+ * 文字列で渡すのは、tsx の esbuild 変換が関数の名前保持のために注入するヘルパーが page 側に無いため。
+ * 拒否された遷移の直後は Chromium が文書を差し替えている途中のことがあり、`evaluate` が「実行コンテキストが
+ * 破棄された」で落ちる。判定は echo が返らないことなので、落ち着いてから 1 回だけ試し直す。
+ */
+export async function webSocketOutcome(page: Page, url: string, timeoutMs: number): Promise<string> {
+  for (let attempt = 0; ; attempt += 1) {
+    try {
+      return await evaluateWebSocket(page, url, timeoutMs);
+    } catch (error) {
+      const destroyed = (error as Error).message.includes("Execution context was destroyed");
+      if (!destroyed || attempt > 0) throw error;
+      await page.waitForLoadState("load", { timeout: timeoutMs }).catch(() => undefined);
+    }
+  }
 }
 
 function deniedTargets(session: BrowserSession, host: string): string[] {
