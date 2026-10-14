@@ -293,6 +293,56 @@ export async function refreshModelsForAuthChange(input: {
 export const OAUTH_UNSUPPORTED_NOTICE =
   "このプロバイダーのサインインは、この画面では扱えない対話（候補の選択やテキスト入力）を必要とする方式です。同じ agent dir を使う pi /login でサインインしてください（手順は docs/model-settings.md の OAuth サインイン）。";
 
+// --- OAuth サインインの文言 (常時表示の説明はクライアントの純関数が持つ) ---
+
+/** 未認証の説明。サインインの操作の前に、何が起きるかを先に伝える */
+export const OAUTH_IDLE_NOTICE = "ブラウザのタブで承認すると、この画面の表示が自動で更新されます。";
+/** 進行中の主文。認可 URL がまだ届いていない間の 1 行 (届いた後はサーバーの定数を使う) */
+export const OAUTH_PREPARING_NOTICE = "認可の準備をしています。";
+/** 空タブを遷移できたときの補足。`oauthLoginLabel` の後ろに連結する */
+export const OAUTH_POPUP_OPENED_NOTICE = "の承認ページが開きます。";
+/** 空タブを遷移できなかったときに出すフォールバックのリンク。補足とは排他 */
+export const OAUTH_FALLBACK_LINK_TEXT = "承認ページを開く";
+/** 折りたたみ (別のマシンのブラウザ) の summary と説明・注意 */
+export const OAUTH_MANUAL_SUMMARY = "別のマシンのブラウザで承認する場合";
+export const OAUTH_MANUAL_DESCRIPTION =
+  "この URL を別のマシンのブラウザで開いて承認し、表示された URL（またはコード）を貼り付けます。";
+export const OAUTH_MANUAL_PORT_NOTE =
+  "同じホストで別のサインインを同時に進めると、ポートの競合で失敗することがあります。";
+/** 折りたたみの中のコピー操作 ([URL をコピー] は認可 URL があるときだけ有効) */
+export const OAUTH_COPY_URL_TEXT = "URL をコピー";
+export const OAUTH_COPY_DONE_TEXT = "コピーしました";
+/** 折りたたみは出ているが貼り付けを受け付けていないときの 1 行 (サーバーも 400 を返す) */
+export const OAUTH_PASTE_UNAVAILABLE_NOTICE = "いまは貼り付けを受け付けていません。";
+/** 常時表示の注意。期限と利用条件を折りたたみの外へ出し、押す前に読めるようにする */
+export const OAUTH_NOTES: readonly string[] = [
+  "サインインは開始から 10 分で自動的に中断します。",
+  "この画面のサインインはローカルの単一ユーザー向けです。公開・リモート提供・複数人での利用は対象外です。",
+];
+/** サインイン済みの provider で再サインインを案内する 1 行 */
+export const OAUTH_SIGNED_IN_NOTE = "すでにサインイン済みです（再サインインできます）。";
+
+/**
+ * サインインのセクションの状態。主状態を先に、進行中の中は副状態に分ける。デバイスコードは `authUrl` も
+ * 持つため、この順 (デバイスコード → 承認待ち → URL 未着) でなければ承認待ちに食われる。
+ */
+export type OAuthPanelState =
+  | "unconfigured"
+  | "signed-in"
+  | "awaiting-url"
+  | "awaiting-authorization"
+  | "awaiting-code"
+  | "device-code"
+  | "succeeded"
+  | "cancelled"
+  | "failed";
+
+/** `oauthPanelView()` の入力のうち、DTO から導けないもの */
+export interface OAuthPanelOptions {
+  /** 開始クリックで開いた空タブを認可 URL へ遷移できたか。リンクと補足の出し分けに使う */
+  popupNavigated?: boolean;
+}
+
 /** provider 詳細の OAuth セクションの見た目。DOM に依存させず、条件だけをここで決める */
 export interface OAuthPanelView {
   /** セクションを出すか。OAuth を持たない provider とカタログ外 (SDK が受けない) では出さない */
@@ -309,6 +359,35 @@ export interface OAuthPanelView {
   signOut: boolean;
   /** すでにサインイン済みか。再サインインの注記に使う */
   signedIn: boolean;
+  /** 主状態 + 進行中の副状態 */
+  state: OAuthPanelState;
+  /** 進行中か ([中断] を出す条件) */
+  running: boolean;
+  /** 未認証の説明。サインインの操作の前に出す (それ以外は null) */
+  notice: string | null;
+  /** 進行中の主文。サーバーの `instructions` が無い間は準備中の 1 行 */
+  instructions: string | null;
+  /** 進行中の補助行。主文と併記し、置き換えない */
+  progress: string | null;
+  /** デバイスコード方式のコード。null = この方式ではない */
+  userCode: string | null;
+  /** 進行中に開く認可 URL。それ以外は null */
+  authUrl: string | null;
+  /** [URL をコピー] を有効にするか */
+  canCopyUrl: boolean;
+  /** 折りたたみ (別のマシンのブラウザ) を出すか。承認待ちのときだけ */
+  showManual: boolean;
+  /** 折りたたみの中の貼り付けフォームを出すか (`input` があるときだけ) */
+  showPasteForm: boolean;
+  /** 折りたたみの中に「貼り付けを受け付けていない」を出すか (送信後を含む) */
+  showPasteUnavailable: boolean;
+  /** 空タブを遷移できたときの補足を出すか。フォールバックのリンクとは排他 */
+  showPopupNotice: boolean;
+  /**
+   * 遷移できなかったときのフォールバックのリンクを出すか。折りたたみの有無とは独立に決める
+   * (デバイスコード方式は折りたたみを出さないため、パネルにリンクが要る)
+   */
+  showFallbackLink: boolean;
 }
 
 /**
@@ -317,16 +396,105 @@ export interface OAuthPanelView {
  * 実効の種別 (`credentialKind`) だけで決める。サインインの操作は DTO のフラグだけで決め、
  * 未指定なら出さない (fail-closed)。
  */
-export function oauthPanelView(provider: ProviderAuthSetting): OAuthPanelView {
+export function oauthPanelView(provider: ProviderAuthSetting, options: OAuthPanelOptions = {}): OAuthPanelView {
   const canSignIn = canSignInHere(provider);
+  const login = provider.login ?? null;
+  const running = login?.status === "running";
+  const signedIn = provider.credentialKind === "oauth";
+  // 認可 URL とコードは進行中の値。終端や再同期の途中では落とす (サーバーも進行中だけを載せる)
+  const authUrl = running ? (login?.authUrl ?? null) : null;
+  const userCode = running ? (login?.userCode ?? null) : null;
+  const showManual = running && authUrl !== null && userCode === null;
+  // 貼り付けフォームは `input` があるときだけ。送信後 (null へ戻る) は受け付けていないことを出す
+  const pasteOpen = login !== null && login.input !== null;
+  const state: OAuthPanelState =
+    login === null
+      ? signedIn
+        ? "signed-in"
+        : "unconfigured"
+      : login.status !== "running"
+        ? login.status
+        : userCode !== null
+          ? "device-code"
+          : authUrl === null
+            ? "awaiting-url"
+            : login.input !== null
+              ? "awaiting-code"
+              : "awaiting-authorization";
   return {
     visible: provider.supportsOAuth && !provider.orphan,
     canSignIn,
     ...(canSignIn ? {} : { unsupportedNotice: OAUTH_UNSUPPORTED_NOTICE }),
     loginLabel: provider.oauthLoginLabel ?? "OAuth でサインイン",
-    login: provider.login ?? null,
+    login,
     signOut: provider.hiddenStoredOAuth || provider.credentialKind === "oauth",
-    signedIn: provider.credentialKind === "oauth",
+    signedIn,
+    state,
+    running,
+    notice: state === "unconfigured" ? OAUTH_IDLE_NOTICE : null,
+    instructions: running ? (login?.instructions ?? OAUTH_PREPARING_NOTICE) : null,
+    progress: running ? (login?.progress ?? null) : null,
+    userCode,
+    authUrl,
+    canCopyUrl: authUrl !== null,
+    showManual,
+    showPasteForm: showManual && pasteOpen,
+    showPasteUnavailable: showManual && !pasteOpen,
+    showPopupNotice: running && authUrl !== null && options.popupNavigated === true,
+    showFallbackLink: running && authUrl !== null && options.popupNavigated !== true,
+  };
+}
+
+/**
+ * プロバイダー詳細の認証方法のタブ。2 経路を 1 行の中で分け、既定は実効側にする。
+ * 「使用中」は実効が OAuth か、実効がこの画面のキーのときだけ付け、環境変数 / models.json /
+ * 認証なしでは付けない (どちらを使っているかは認証バッジが示す)。
+ */
+export type CredentialTab = "api_key" | "sign_in";
+
+export interface CredentialTabsView {
+  /** タブを出すか。2 経路とも使える provider だけ (カタログ外は OAuth の操作が無いため出さない) */
+  visible: boolean;
+  /** provider を開いたときに選ぶタブ */
+  initial: CredentialTab;
+  /** 実効が OAuth。「サインイン」に「使用中」を付ける */
+  oauthInUse: boolean;
+  /** 実効がこの画面のキー。「APIキー」に「使用中」を付ける */
+  apiKeyInUse: boolean;
+  /** 「サインイン」に出す状態の印。null = 印なし (成功・中断・未開始では出さない) */
+  signInMark: "running" | "failed" | null;
+  /** 「サインイン」タブの読み上げラベル。印と同じ状態を含める */
+  signInAriaLabel: string;
+  /** 「APIキー」タブの読み上げラベル */
+  apiKeyAriaLabel: string;
+}
+
+export function providerCredentialTabs(provider: ProviderAuthSetting): CredentialTabsView {
+  const status = provider.login?.status ?? null;
+  const oauthInUse = provider.credentialKind === "oauth";
+  return {
+    visible: provider.canSetApiKey && provider.supportsOAuth && !provider.orphan,
+    initial:
+      provider.credentialKind === "oauth"
+        ? "sign_in"
+        : provider.credentialKind === "api_key"
+          ? "api_key"
+          : canSignInHere(provider)
+            ? "sign_in"
+            : "api_key",
+    oauthInUse,
+    apiKeyInUse: provider.credentialKind === "api_key" && provider.auth.source === "runtime",
+    signInMark: status === "running" ? "running" : status === "failed" ? "failed" : null,
+    signInAriaLabel:
+      status === "running"
+        ? "サインイン（進行中）"
+        : status === "failed"
+          ? "サインイン（失敗）"
+          : oauthInUse
+            ? "サインイン（使用中）"
+            : "サインイン",
+    apiKeyAriaLabel:
+      provider.credentialKind === "api_key" && provider.auth.source === "runtime" ? "APIキー（使用中）" : "APIキー",
   };
 }
 

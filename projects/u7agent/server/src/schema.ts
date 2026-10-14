@@ -667,9 +667,9 @@ export const OAuthLoginStateSchema = z.object({
   status: z.enum(["running", "succeeded", "failed", "cancelled"]),
   /** 進行中に開く URL (認可 URL / デバイスコードの確認 URL)。running 以外と未発行は null */
   authUrl: z.string().nullable(),
-  /** ブラウザ操作の案内 (画面用の固定文言) */
+  /** 進行中の主文 (ブラウザ操作の案内。画面用の固定文言) */
   instructions: z.string().nullable(),
-  /** 進行中の処理 (画面用の固定文言) */
+  /** 進行中の補助行 (画面用の固定文言)。主文を置き換えず、併記する */
   progress: z.string().nullable(),
   /** 貼り付け待ちの入力欄。null = 入力を受け付けていない */
   input: z.object({ message: z.string(), placeholder: z.string() }).nullable(),

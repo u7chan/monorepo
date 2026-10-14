@@ -27,14 +27,16 @@ export const OAUTH_LOGIN_TIMED_OUT_MESSAGE =
   "一定時間内に承認されなかったため、サインインを中断しました。もう一度試してください";
 export const OAUTH_LOGOUT_TARGET_MESSAGE = "保存済みの OAuth 資格情報がありません";
 export const OAUTH_LOGOUT_FAILED_MESSAGE = "サインアウトできませんでした。もう一度試してください";
-/** 1 つの面に収めるため長さを抑えた固定文言。SDK の英語の案内は画面へ出さない */
+/**
+ * 1 つの面に収めるため長さを抑えた固定文言。SDK の英語の案内は画面へ出さない。
+ * コールバックのポートとパスは provider ごとに違う (動的ポート / 別パスがあり得る) ため、名指ししない。
+ */
 export const OAUTH_LOGIN_AUTHORIZE_INSTRUCTIONS =
-  "同じマシンのブラウザでこの URL を開き、承認してください。承認後にアプリへ戻らないときは、ブラウザの最後の画面の URL を貼り付けてください";
+  "ブラウザのタブで承認してください。承認が終わると、この画面の表示が自動で更新されます";
 export const OAUTH_LOGIN_DEVICE_CODE_INSTRUCTIONS =
   "ブラウザでこの URL を開き、画面に表示されたコードを入力して承認してください";
-export const OAUTH_LOGIN_INPUT_MESSAGE =
-  "ブラウザの最後の画面の URL（http://127.0.0.1:1455/auth/callback から始まる URL）を貼り付けてください";
-export const OAUTH_LOGIN_INPUT_PLACEHOLDER = "http://127.0.0.1:1455/auth/callback?code=...";
+export const OAUTH_LOGIN_INPUT_MESSAGE = "ブラウザの最後の画面の URL を貼り付けてください";
+export const OAUTH_LOGIN_INPUT_PLACEHOLDER = "ブラウザの最後の画面の URL";
 const OAUTH_LOGIN_PROGRESS_FALLBACK = "サインインの処理を進めています";
 
 /** SDK が送る進捗の英語文言のうち、意味が確定しているものだけを日本語へ寄せる (他は汎用の文言) */

@@ -9,6 +9,7 @@ import type { ModelsSubsection } from "../src/lib/settingsNav";
 import type {
   ModelsSettingsResponse,
   ModelMutationResponse,
+  OAuthLoginState,
   ProviderAuthSetting,
   RuntimeModelsResponse,
   SessionSummary,
@@ -383,7 +384,28 @@ test("プロバイダー詳細は保存済み認証の種別を出し、この�
   );
 });
 
-test("OAuth のセクションはサインインとサインアウトを出し、進行中は URL と貼り付け欄を出す", () => {
+// 進行中は「まず何を押すか」が 1 つに見えるよう、主文 1 行 + 補助行にし、代替経路は折りたたみへ畳む。
+// 認可 URL は空タブを遷移できなかったときだけリンクとして出し、補足 (遷移できた) とは排他にする
+const AUTH_URL = "https://auth.example.test/authorize";
+const AUTHORIZE_INSTRUCTIONS = "ブラウザのタブで承認してください。承認が終わると、この画面の表示が自動で更新されます。";
+const DEVICE_INSTRUCTIONS = "ブラウザでこの URL を開き、画面に表示されたコードを入力して承認してください。";
+const INPUT_MESSAGE = "ブラウザの最後の画面の URL を貼り付けてください";
+const INPUT_PLACEHOLDER = "ブラウザの最後の画面の URL";
+
+function loginState(status: OAuthLoginState["status"], overrides: Partial<OAuthLoginState> = {}): OAuthLoginState {
+  return {
+    status,
+    authUrl: null,
+    instructions: null,
+    progress: null,
+    input: null,
+    userCode: null,
+    error: null,
+    ...overrides,
+  };
+}
+
+test("サインインの操作は未認証の説明と注意 (期限・利用条件) を常時出し、旧文を残さない", () => {
   const signIn = provider({
     provider: "openai",
     name: "OpenAI",
@@ -391,24 +413,52 @@ test("OAuth のセクションはサインインとサインアウトを出し�
     canSignInHere: true,
     oauthLoginLabel: "Sign in with ChatGPT",
   });
-  const idleHtml = render(modelSettings({ settings: { ...SETTINGS, providers: [signIn] } }), {
+  const html = render(modelSettings({ settings: { ...SETTINGS, providers: [signIn] } }), {
     modelsSubsection: "providers",
   });
   assert.match(
-    idleHtml,
+    html,
     /<button[^>]*>(?:(?!<\/button>)[\s\S])*Sign in with ChatGPT<\/button>/,
     "loginLabel をボタン名にする",
   );
-  assert.equal(idleHtml.includes(">サインアウト<"), false, "保存済み OAuth が無ければサインアウトは出さない");
-  assert.ok(idleHtml.includes("同じマシンのブラウザで承認する必要があります。"), "同一ホストの注意を出す");
+  assert.equal(html.includes(">サインアウト<"), false, "保存済み OAuth が無ければサインアウトは出さない");
+  assert.ok(html.includes("ブラウザのタブで承認すると、この画面の表示が自動で更新されます。"), "未認証の説明を出す");
+  assert.ok(html.includes("サインインは開始から 10 分で自動的に中断します。"), "期限の注意を折りたたみの外に出す");
+  assert.ok(html.includes("ローカルの単一ユーザー向けです"), "利用条件を折りたたみの外に出す");
+  assert.equal(html.includes("同じマシンのブラウザで承認する必要があります。"), false, "旧文を残さない");
+  assert.equal(html.includes("1455"), false, "コールバックのポートを名指ししない");
+});
+
+test("認証方法はタブで分け、実効側を既定で開いて印を出す", () => {
+  const apiKeyInUse = provider({
+    provider: "openai",
+    name: "OpenAI",
+    supportsOAuth: true,
+    canSignInHere: true,
+    credentialKind: "api_key",
+    auth: { configured: true, source: "runtime", environmentVariables: [] },
+    oauthLoginLabel: "Sign in with ChatGPT",
+    login: loginState("running", { authUrl: AUTH_URL, instructions: AUTHORIZE_INSTRUCTIONS }),
+  });
+  const html = render(modelSettings({ settings: { ...SETTINGS, providers: [apiKeyInUse] } }), {
+    modelsSubsection: "providers",
+  });
+  assert.ok(html.includes('aria-label="OpenAI の認証方法"'), "タブ行を出す");
+  assert.equal((html.match(/role="tab"/g) ?? []).length, 4, "設定の 2 タブ + 認証方法の 2 タブ");
+  assert.match(html, /aria-selected="true"[^>]*aria-label="APIキー（使用中）"/, "実効のキー側を既定で開く");
+  assert.match(html, /aria-selected="false"[^>]*aria-label="サインイン（進行中）"/, "隠れている側にも状態を出す");
+  assert.ok(html.includes(">使用中<"), "「使用中」を印に出す");
+  assert.match(html, /<div hidden="" inert="">/, "非表示側はフォーカス対象から外す");
+  // タブの切替ではアンマウントしない (進行中の表示と、自分が開いた空タブの参照を保つ)
+  assert.ok(html.includes(AUTHORIZE_INSTRUCTIONS), "隠れている側の進行中の表示も残す");
 
   const signedIn = provider({
     provider: "openai",
     name: "OpenAI",
-    auth: { configured: true, source: "stored", environmentVariables: [] },
-    credentialKind: "oauth",
     supportsOAuth: true,
     canSignInHere: true,
+    credentialKind: "oauth",
+    auth: { configured: true, source: "stored", environmentVariables: [] },
     oauthLoginLabel: "Sign in with ChatGPT",
   });
   const signedInHtml = render(modelSettings({ settings: { ...SETTINGS, providers: [signedIn] } }), {
@@ -416,59 +466,177 @@ test("OAuth のセクションはサインインとサインアウトを出し�
   });
   assert.match(
     signedInHtml,
+    /aria-selected="true"[^>]*aria-label="サインイン（使用中）"/,
+    "実効が OAuth ならサインイン側",
+  );
+  assert.match(
+    signedInHtml,
     /<button[^>]*>(?:(?!<\/button>)[\s\S])*サインアウト<\/button>/,
     "保存済み OAuth にはサインアウトを出す",
   );
   assert.ok(signedInHtml.includes("ChatGPT の設定から行ってください"), "provider 側を失効させないことを案内する");
+});
 
+test("承認待ちは主文と補助行を併記し、代替経路と貼り付けを折りたたみへ畳む", () => {
   const running = provider({
     provider: "openai",
     name: "OpenAI",
     supportsOAuth: true,
     canSignInHere: true,
     oauthLoginLabel: "Sign in with ChatGPT",
-    login: {
-      status: "running",
-      authUrl: "https://auth.example.test/authorize",
-      instructions: "同じマシンのブラウザでこの URL を開き、承認してください。",
-      progress: null,
-      input: {
-        message: "ブラウザの最後の画面の URL を貼り付けてください",
-        placeholder: "http://127.0.0.1:1455/auth/callback",
-      },
-      userCode: null,
-      error: null,
-    },
+    login: loginState("running", {
+      authUrl: AUTH_URL,
+      instructions: AUTHORIZE_INSTRUCTIONS,
+      progress: "ブラウザからのコールバックを待っています",
+      input: { message: INPUT_MESSAGE, placeholder: INPUT_PLACEHOLDER },
+    }),
   });
-  const runningHtml = render(modelSettings({ settings: { ...SETTINGS, providers: [running] } }), {
+  const html = render(modelSettings({ settings: { ...SETTINGS, providers: [running] } }), {
     modelsSubsection: "providers",
   });
-  assert.match(runningHtml, /href="https:\/\/auth\.example\.test\/authorize"/, "認可 URL はリンクとして出す");
-  assert.ok(runningHtml.includes("ブラウザの最後の画面の URL を貼り付けてください"), "貼り付け欄を出す");
-  assert.match(runningHtml, /<button[^>]*>(?:(?!<\/button>)[\s\S])*中断<\/button>/, "中断を出す");
-  assert.equal(runningHtml.includes("Sign in with ChatGPT</button>"), false, "進行中は開始ボタンを出さない");
+  assert.ok(html.includes(AUTHORIZE_INSTRUCTIONS), "progress があっても主文を消さない");
+  assert.ok(html.includes("ブラウザからのコールバックを待っています"), "補助行として併記する");
+  assert.equal(html.includes("Sign in with ChatGPT</button>"), false, "進行中は開始ボタンを出さない");
+  assert.match(html, /<a[^>]*href="https:\/\/auth\.example\.test\/authorize"/, "遷移できていないのでリンクを出す");
+  assert.equal(html.includes("の承認ページが開きます。"), false, "遷移できていないときは補足を出さない");
+  assert.ok(html.includes("別のマシンのブラウザで承認する場合"), "代替経路を折りたたみに畳む");
+  assert.ok(html.includes("この URL を別のマシンのブラウザで開いて承認し"), "折りたたみの中に手順を出す");
+  assert.ok(html.includes("同じホストで別のサインインを同時に進めると"), "ポート競合の注意を折りたたみの中へ移す");
+  assert.ok(html.includes(">URL をコピー</button>"), "コピーの導線を出す");
+  assert.ok(html.includes(INPUT_MESSAGE), "貼り付けの案内を出す");
+  assert.ok(html.includes(`placeholder="${INPUT_PLACEHOLDER}"`), "placeholder も provider 中立の文言にする");
+  assert.equal(html.includes("いまは貼り付けを受け付けていません。"), false, "input がある間は受付中とする");
+  assert.match(html, /<button[^>]*>(?:(?!<\/button>)[\s\S])*中断<\/button>/, "中断を出す");
+});
 
-  const failed = provider({
+test("貼り付け待ちでない間はフォームを出さず、受け付けていないことを伝える", () => {
+  const authorizing = provider({
     provider: "openai",
     name: "OpenAI",
     supportsOAuth: true,
     canSignInHere: true,
-    oauthLoginLabel: "Sign in with ChatGPT",
-    login: {
-      status: "failed",
-      authUrl: null,
-      instructions: null,
-      progress: null,
-      input: null,
-      userCode: null,
-      error: "認可のコールバックポート（1455）が使用中です。",
-    },
+    login: loginState("running", { authUrl: AUTH_URL, instructions: AUTHORIZE_INSTRUCTIONS }),
   });
-  const failedHtml = render(modelSettings({ settings: { ...SETTINGS, providers: [failed] } }), {
+  const html = render(modelSettings({ settings: { ...SETTINGS, providers: [authorizing] } }), {
     modelsSubsection: "providers",
   });
-  assert.ok(failedHtml.includes("認可のコールバックポート（1455）が使用中です。"), "失敗は固定文言で出す");
-  assert.match(failedHtml, /<button[^>]*>(?:(?!<\/button>)[\s\S])*閉じる<\/button>/, "結果表示を消す導線を出す");
+  assert.equal(html.includes('aria-label="OpenAI のサインインコード"'), false, "フォームを出さない");
+  assert.ok(html.includes("いまは貼り付けを受け付けていません。"), "送信後は受け付けていないことを出す");
+  assert.ok(html.includes(">URL をコピー</button>"), "URL があればコピーは出し続ける");
+});
+
+test("URL 未着の間は折りたたみもリンクも出さず、準備中と伝える", () => {
+  const preparing = provider({
+    provider: "openai",
+    name: "OpenAI",
+    supportsOAuth: true,
+    canSignInHere: true,
+    login: loginState("running"),
+  });
+  const html = render(modelSettings({ settings: { ...SETTINGS, providers: [preparing] } }), {
+    modelsSubsection: "providers",
+  });
+  assert.ok(html.includes("認可の準備をしています。"), "URL 未着の主文を出す");
+  assert.equal(html.includes("別のマシンのブラウザで承認する場合"), false, "折りたたみを出さない");
+  assert.equal(html.includes("承認ページを開く"), false, "開く先が無い間はリンクを出さない");
+  assert.equal(html.includes(">URL をコピー</button>"), false);
+  assert.match(html, /<button[^>]*>(?:(?!<\/button>)[\s\S])*中断<\/button>/, "中断は進行中のすべての副状態で出す");
+});
+
+test("デバイスコードは折りたたみを使わず、コードと承認ページをパネルに出す", () => {
+  const device = provider({
+    provider: "openai",
+    name: "OpenAI",
+    supportsOAuth: true,
+    canSignInHere: true,
+    login: loginState("running", {
+      authUrl: "https://auth.example.test/device",
+      instructions: DEVICE_INSTRUCTIONS,
+      userCode: "ABCD-1234",
+    }),
+  });
+  const html = render(modelSettings({ settings: { ...SETTINGS, providers: [device] } }), {
+    modelsSubsection: "providers",
+  });
+  assert.ok(html.includes(DEVICE_INSTRUCTIONS), "コード入力の案内を主文にする");
+  assert.ok(html.includes("ABCD-1234"), "コードをパネルに出す");
+  assert.match(
+    html,
+    /<a[^>]*href="https:\/\/auth\.example\.test\/device"/,
+    "遷移できていないので承認ページのリンクをパネルに出す",
+  );
+  assert.ok(html.includes(">URL をコピー</button>"), "折りたたみを出さない副状態でもコピーの導線を出す");
+  assert.equal(html.includes("別のマシンのブラウザで承認する場合"), false, "折りたたみを使わない");
+  assert.equal(html.includes("の承認ページが開きます。"), false, "遷移できていないので補足は出さない");
+});
+
+test("終端は結果と [閉じる] だけを残し、進行中の導線を落とす", () => {
+  for (const [status, text] of [
+    ["succeeded", "サインインしました。資格情報は Pi の auth.json に保存されました。"],
+    ["cancelled", "サインインを中断しました。"],
+    ["failed", "認可のコールバックポート（1455）が使用中です。"],
+  ] as const) {
+    const finished = provider({
+      provider: "openai",
+      name: "OpenAI",
+      supportsOAuth: true,
+      canSignInHere: true,
+      login: loginState(status, { error: status === "failed" ? text : null }),
+    });
+    const html = render(modelSettings({ settings: { ...SETTINGS, providers: [finished] } }), {
+      modelsSubsection: "providers",
+    });
+    assert.ok(html.includes(text), `${status} の結果を出す`);
+    assert.match(html, /<button[^>]*>(?:(?!<\/button>)[\s\S])*閉じる<\/button>/, "結果表示を消す導線を出す");
+    assert.equal(html.includes(">中断</button>"), false, "進行中の導線は残さない");
+    assert.equal(html.includes("承認ページを開く"), false);
+  }
+});
+
+test("カタログ外の provider はサインインの面を出さない", () => {
+  const ghost = provider({
+    provider: "ghost",
+    name: "ghost",
+    managed: true,
+    canSetApiKey: false,
+    supportsOAuth: true,
+    canSignInHere: true,
+    oauthLoginLabel: "Sign in with ChatGPT",
+    orphan: true,
+  });
+  const html = render(modelSettings({ settings: { ...SETTINGS, providers: [ghost] } }), {
+    modelsSubsection: "providers",
+  });
+  assert.equal(html.includes("Sign in with ChatGPT"), false, "開始ボタンを出さない");
+  assert.equal(html.includes(">OAuth サインイン</div>"), false, "サインインの面ごと出さない");
+  assert.equal(html.includes('aria-label="ghost の認証方法"'), false, "タブも出さない");
+});
+
+test("片方の経路しか無い provider はタブを出さず、セクションの見出しを残す", () => {
+  const keyOnly = provider({ provider: "local", name: "Local", canSetApiKey: true, supportsOAuth: false });
+  const keyHtml = render(modelSettings({ settings: { ...SETTINGS, providers: [keyOnly] } }), {
+    modelsSubsection: "providers",
+  });
+  assert.equal(keyHtml.includes('aria-label="Local の認証方法"'), false, "タブにしない");
+  assert.ok(keyHtml.includes(">APIキー</div>"), "セクションの見出しを残す");
+
+  const oauthOnly = provider({
+    provider: "openai",
+    name: "OpenAI",
+    canSetApiKey: false,
+    supportsOAuth: true,
+    canSignInHere: true,
+    oauthLoginLabel: "Sign in with ChatGPT",
+  });
+  const oauthHtml = render(modelSettings({ settings: { ...SETTINGS, providers: [oauthOnly] } }), {
+    modelsSubsection: "providers",
+  });
+  assert.equal(
+    oauthHtml.includes('aria-label="OpenAI の認証方法"'),
+    false,
+    "キーを登録できない provider はタブにしない",
+  );
+  assert.ok(oauthHtml.includes(">OAuth サインイン</div>"), "セクションの見出しを残す");
 });
 
 test("この画面でサインインできない provider は開始も手順も出さず、理由と [サインアウト] を出す", () => {
