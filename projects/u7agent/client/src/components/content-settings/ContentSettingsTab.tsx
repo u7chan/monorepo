@@ -20,6 +20,7 @@ import {
   type SpeechPreviewAudio,
 } from "../../lib/contentSettings";
 import { API_KEY_MIN_LENGTH } from "../../lib/modelSettings";
+import type { ContentSubsection } from "../../lib/settingsNav";
 import type {
   ContentSettingsResponse,
   SpeechPreviewBody,
@@ -38,6 +39,8 @@ import { SpeechPlayground } from "./SpeechPlayground";
 
 export type ContentSettingsTabProps = {
   settings: ContentSettingsResponse;
+  /** URL が決める面。既定は画像生成 */
+  contentSubsection: ContentSubsection;
   /** 実行中の操作。null なら操作なし */
   saving: ContentSavingAction | null;
   onSaveKey: (apiKey: string) => Promise<boolean>;
@@ -61,6 +64,7 @@ export type ContentSettingsTabProps = {
  */
 export function ContentSettingsTab({
   settings,
+  contentSubsection,
   saving,
   onSaveKey,
   onDeleteKey,
@@ -74,9 +78,18 @@ export function ContentSettingsTab({
   // 保存したキーは再表示しないため、入力は常に空から始め、保存できたときだけ消す
   const confirm = useConfirm();
   const [apiKey, setApiKey] = useState("");
+  // 面の下書きはこの画面が持ち続ける。面をタブで出し分けても unmount しないため、未保存の選択を失わない
+  const [imageDraft, setImageDraft] = useState<string | null>(null);
+  const [speechDraft, setSpeechDraft] = useState<SpeechDraft>(EMPTY_SPEECH_DRAFT);
   const busy = saving !== null;
   const runtimeAvailable = settings.runtimeAvailable;
   const providerName = contentProviderLabel(settings.provider);
+
+  // 未設定へ戻ったら下書きを捨てる。面の unmount で消えていた挙動を持ち上げた側で明示的に保つ
+  if (!settings.configured && (imageDraft !== null || speechDraft.model !== null || speechDraft.voice !== null)) {
+    setImageDraft(null);
+    setSpeechDraft(EMPTY_SPEECH_DRAFT);
+  }
 
   const submitKey = async () => {
     setApiKey(keyDraftAfterSave(apiKey, await onSaveKey(apiKey)));
@@ -98,7 +111,7 @@ export function ContentSettingsTab({
           <h2 className="text-md font-semibold text-ink-strong">{providerName}</h2>
           <code className="text-2xs text-ink-ghost">{contentProviderId(settings.provider)}</code>
           <ProviderBadgeTag badge={contentKeyStatusBadge(settings.configured)} />
-          <MetaChip>カタログ {settings.image.models.length}</MetaChip>
+          <MetaChip>画像 {settings.image.models.length}</MetaChip>
           <MetaChip>音声 {settings.speech.models.length}</MetaChip>
         </section>
         {runtimeAvailable ? null : (
@@ -155,26 +168,31 @@ export function ContentSettingsTab({
           </p>
         </section>
 
-        {/* 行が消えると unmount するため、未保存の選択は未設定へ戻った時点で捨てる */}
+        {/* 未設定では面を出さない現行の分岐を保ち、下書きの破棄は上で行う。面だけをタブで切り替える */}
         {settings.configured ? (
-          <>
-            <ImageModelSection
-              settings={settings}
-              busy={busy}
-              refreshing={saving === "catalog"}
-              onSave={onSaveSelection}
-              onRefresh={onRefreshCatalog}
-            />
+          contentSubsection === "speech" ? (
             <SpeechSection
               settings={settings}
               busy={busy}
               synced={speechSynced}
               refreshing={saving === "speech-catalog"}
+              draft={speechDraft}
+              onChangeDraft={setSpeechDraft}
               onSave={onSaveSpeech}
               onRefresh={onRefreshSpeechCatalog}
               onPreview={onPreviewSpeech}
             />
-          </>
+          ) : (
+            <ImageModelSection
+              settings={settings}
+              busy={busy}
+              refreshing={saving === "catalog"}
+              draft={imageDraft}
+              onChangeDraft={setImageDraft}
+              onSave={onSaveSelection}
+              onRefresh={onRefreshCatalog}
+            />
+          )
         ) : null}
 
         <section className="grid gap-1 border-t border-line pt-3 text-2xs leading-relaxed text-ink-muted">
@@ -192,30 +210,37 @@ export function ContentSettingsTab({
   );
 }
 
+/** 音声のモデルとボイスの下書き。`null` は保存値へ追随する */
+type SpeechDraft = { model: string | null; voice: string | null };
+
+const EMPTY_SPEECH_DRAFT: SpeechDraft = { model: null, voice: null };
+
 /** モデル選択。カタログ外の保存値も「（カタログ外）」として選択肢の先頭に残す */
 function ImageModelSection({
   settings,
   busy,
   refreshing,
+  draft,
+  onChangeDraft,
   onSave,
   onRefresh,
 }: {
   settings: ContentSettingsResponse;
   busy: boolean;
   refreshing: boolean;
+  draft: string | null;
+  onChangeDraft: (draft: string | null) => void;
   onSave: (input: UpdateContentImageBody) => Promise<boolean>;
   onRefresh: () => Promise<boolean>;
 }) {
-  // null は保存値へ追随する。保存できたら null へ戻し、次の保存値で選択を描き直す
-  const [draftModel, setDraftModel] = useState<string | null>(null);
   const options = imageModelOptions(settings);
   const savedModel = imageModelValue(settings);
-  const selectedModel = draftModel ?? savedModel;
+  const selectedModel = draft ?? savedModel;
 
   const submit = async () => {
     const input = imageModelSelection(options, selectedModel);
     if (!input) return;
-    if (await onSave(input)) setDraftModel(null);
+    if (await onSave(input)) onChangeDraft(null);
   };
 
   return (
@@ -227,7 +252,7 @@ function ImageModelSection({
           aria-label="コンテンツ生成のモデル"
           value={selectedModel}
           disabled={busy}
-          onChange={(event) => setDraftModel(event.currentTarget.value)}
+          onChange={(event) => onChangeDraft(event.currentTarget.value)}
         >
           {options.map((option) => (
             <option key={option.value} value={option.value}>
@@ -271,6 +296,8 @@ function SpeechSection({
   busy,
   synced,
   refreshing,
+  draft,
+  onChangeDraft,
   onSave,
   onRefresh,
   onPreview,
@@ -279,23 +306,22 @@ function SpeechSection({
   busy: boolean;
   synced: boolean;
   refreshing: boolean;
+  draft: SpeechDraft;
+  onChangeDraft: (draft: SpeechDraft) => void;
   onSave: (input: UpdateContentSpeechBody) => Promise<boolean>;
   onRefresh: () => Promise<boolean>;
   onPreview: (input: SpeechPreviewBody, signal?: AbortSignal) => Promise<SpeechPreviewAudio>;
 }) {
-  // null は保存値へ追随する。保存できたら null へ戻し、次の保存値で選択を描き直す
-  const [draftModel, setDraftModel] = useState<string | null>(null);
-  const [draftVoice, setDraftVoice] = useState<string | null>(null);
   const options = speechModelOptions(settings);
   const savedModel = speechModelValue(settings);
   const savedVoice = settings.speech.voice;
-  const selectedModel = draftModel ?? savedModel;
+  const selectedModel = draft.model ?? savedModel;
   const selectedOption = options.find((option) => option.value === selectedModel);
   const textMode = speechVoiceMode(selectedOption) === "text";
   // モデルを切り替えたら、ボイスは新しいモデルの既定（先頭、宣言が無ければ空）へ寄せる
   const selectedVoice = speechVoiceDraft({
-    draft: draftVoice,
-    modelChanged: draftModel !== null,
+    draft: draft.voice,
+    modelChanged: draft.model !== null,
     option: selectedOption,
     savedVoice,
   });
@@ -305,10 +331,7 @@ function SpeechSection({
     if (!synced) return;
     const input = speechSelection(options, selectedModel, selectedVoice);
     if (!input) return;
-    if (await onSave(input)) {
-      setDraftModel(null);
-      setDraftVoice(null);
-    }
+    if (await onSave(input)) onChangeDraft(EMPTY_SPEECH_DRAFT);
   };
 
   return (
@@ -326,10 +349,7 @@ function SpeechSection({
           aria-label="音声生成のモデル"
           value={synced ? selectedModel : ""}
           disabled={busy || !synced}
-          onChange={(event) => {
-            setDraftModel(event.currentTarget.value);
-            setDraftVoice(null);
-          }}
+          onChange={(event) => onChangeDraft({ model: event.currentTarget.value, voice: null })}
         >
           {synced ? null : <option value="">（未確認）</option>}
           {options.map((option) => (
@@ -349,7 +369,7 @@ function SpeechSection({
             autoComplete="off"
             spellCheck={false}
             disabled={busy || !synced}
-            onChange={(event) => setDraftVoice(event.currentTarget.value)}
+            onChange={(event) => onChangeDraft({ ...draft, voice: event.currentTarget.value })}
           />
         ) : (
           <SelectField
@@ -357,7 +377,7 @@ function SpeechSection({
             aria-label="音声生成のボイス"
             value={synced ? selectedVoice : ""}
             disabled={busy || !synced}
-            onChange={(event) => setDraftVoice(event.currentTarget.value)}
+            onChange={(event) => onChangeDraft({ ...draft, voice: event.currentTarget.value })}
           >
             {synced ? null : <option value="">（未確認）</option>}
             {(selectedOption?.model?.voices ?? []).map((voice) => (

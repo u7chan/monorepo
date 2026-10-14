@@ -87,6 +87,15 @@ test("お試し再生は本文・モデル・ボイス・演技指示・速度�
   assert.ok(html.includes("保存した設定は変えずに"), "保存を変えないことを伝える");
   assert.ok(html.includes("未対応のモデルでは無視されるか 400 になります"), "未対応パラメーターの扱いを伝える");
   assert.equal(html.includes("<audio"), false, "未生成ではプレイヤーを出さない");
+  // 保存フォームと同じ順に並べる (モデル → ボイス → 本文 → 演技指示)
+  const order = ["お試し再生のモデル", "お試し再生のボイス", "お試し再生の本文", "お試し再生の演技指示"].map((label) =>
+    html.indexOf(`aria-label="${label}"`),
+  );
+  assert.deepEqual(
+    order,
+    [...order].sort((a, b) => a - b),
+    "保存フォームと同じ順に出す",
+  );
 });
 
 test("宣言が無いモデルではボイスを自由記述にし、カタログ外の現在値も残す", () => {

@@ -4,6 +4,7 @@ import { cn } from "../lib/cn";
 /**
  * 設定ページのタブ行 (`role="tablist"`)。表示の正は URL で、選択中の値と切替の要求だけを受け取る。
  * singleColumn では横スクロールする行の選択中タブを可視域へ入れる。
+ * `ariaLabel` と `mark` は未指定なら今までどおり描く（読み上げ名を変える画面と、警告の印を出す画面だけが使う）。
  */
 export function SettingsTabs<T extends string>({
   items,
@@ -12,7 +13,7 @@ export function SettingsTabs<T extends string>({
   ariaLabel,
   singleColumn = false,
 }: {
-  items: readonly { subsection: T; label: string }[];
+  items: readonly { subsection: T; label: string; ariaLabel?: string; mark?: boolean }[];
   active: T;
   onSelect?: (subsection: T) => void;
   ariaLabel: string;
@@ -35,14 +36,17 @@ export function SettingsTabs<T extends string>({
           type="button"
           role="tab"
           aria-selected={active === item.subsection}
+          aria-label={item.ariaLabel}
           onClick={() => onSelect?.(item.subsection)}
           className={cn(
             "tab-item shrink-0 whitespace-nowrap",
+            item.mark && "flex items-center gap-1.5",
             singleColumn && "px-1.5",
             active === item.subsection && "tab-item-active",
           )}
         >
           {item.label}
+          {item.mark ? <span aria-hidden="true" className="size-1.5 shrink-0 rounded-full bg-warn" /> : null}
         </button>
       ))}
     </div>

@@ -1,6 +1,7 @@
 // コンテンツ生成タブの初期描画。client に DOM テスト基盤が無いため、react-dom/server の静的描画で
-// 未設定 / 設定済み / runtime 不可の出し分けと、保存済みキーを表示しないことを固定する
-// (入力の後始末・選択肢・PUT の本文・確認文は lib/contentSettings の純関数テストが担う)。
+// 未設定 / 設定済み / runtime 不可の出し分けと、タブで選んだ面だけを描くこと・保存済みキーを
+// 表示しないことを固定する (タブ行と警告ドットは画面が持つため contentSettingsPage.test.ts が見る)。
+// 入力の後始末・選択肢・PUT の本文・確認文は lib/contentSettings の純関数テストが担う。
 
 import assert from "node:assert/strict";
 import { createElement } from "react";
@@ -9,6 +10,7 @@ import test from "node:test";
 import { ContentSettingsTab } from "../src/components/content-settings/ContentSettingsTab";
 import { ConfirmProvider } from "../src/components/ConfirmProvider";
 import type { ContentSavingAction } from "../src/lib/contentSettings";
+import type { ContentSubsection } from "../src/lib/settingsNav";
 import type { ContentImageSettings, ContentSettingsResponse, ContentSpeechSettings } from "../src/types";
 
 const MODELS = [
@@ -55,9 +57,11 @@ function render(
     speech?: Partial<ContentSpeechSettings>;
     saving?: ContentSavingAction | null;
     speechSynced?: boolean;
+    /** URL が決める面。この component は選択中の面だけを描く (既定は画像生成) */
+    subsection?: ContentSubsection;
   } & Omit<Partial<ContentSettingsResponse>, "image" | "speech"> = {},
 ): string {
-  const { image, speech, saving = null, ...overrides } = options;
+  const { image, speech, saving = null, subsection = "image", ...overrides } = options;
   // 確認ダイアログの provider は app の root が持つ (main.tsx)。ここでは描画だけを検査する
   return renderToStaticMarkup(
     createElement(
@@ -65,6 +69,7 @@ function render(
       null,
       createElement(ContentSettingsTab, {
         settings: settings(image, overrides, speech),
+        contentSubsection: subsection,
         saving,
         onSaveKey: async () => true,
         onDeleteKey: async () => true,
@@ -107,7 +112,7 @@ test("見出しに provider のロゴ・名前・id とキーの登録状態を�
   assert.ok(html.includes(">openrouter</code>"), "モデル欄の id 表記と結び付くように provider id も出す");
   assert.ok(html.includes(">設定済み<"), "登録状態を provider の見出しへ出す");
   assert.ok(
-    html.includes('rounded border px-1.5 py-0.5 text-2xs whitespace-nowrap border-line text-ink-muted">カタログ 2<'),
+    html.includes('rounded border px-1.5 py-0.5 text-2xs whitespace-nowrap border-line text-ink-muted">画像 2<'),
     "カタログの件数もプロバイダータブと同じチップで出す",
   );
   assert.ok(
@@ -181,8 +186,22 @@ test("カタログ外の保存済みモデルも選択肢に残す", () => {
   assert.ok(html.includes("Gemini Image"), "カタログの他の候補も失わない");
 });
 
+test("選択中の面だけを出し、もう一方の面は描かない", () => {
+  const image = render();
+  assert.ok(image.includes('aria-label="コンテンツ生成のモデル"'), "画像の面のモデル選択を出す");
+  assert.equal(image.includes("音声（TTS）"), false, "音声（TTS）の小見出しは出さない");
+  assert.equal(image.includes('aria-label="音声生成のモデル"'), false, "音声のモデル欄は出さない");
+  assert.equal(image.includes("お試し再生"), false, "お試し再生も音声タブの中だけに出す");
+
+  const speech = render({ subsection: "speech" });
+  assert.ok(speech.includes("音声（TTS）"), "音声の小見出しを出す");
+  assert.ok(speech.includes('aria-label="音声生成のモデル"'), "音声の面のモデル選択を出す");
+  assert.equal(speech.includes('aria-label="コンテンツ生成のモデル"'), false, "画像のモデル欄は出さない");
+  assert.equal(speech.includes("サイズ・品質・出力形式は provider の既定を使います"), false, "画像の説明も出さない");
+});
+
 test("設定済みでは音声のモデルとボイスを出し、宣言のあるボイスを選択肢にする", () => {
-  const html = render();
+  const html = render({ subsection: "speech" });
   assert.ok(html.includes("音声（TTS）"), "音声のセクションを出す");
   assert.ok(html.includes('aria-label="音声生成のモデル"'), "音声モデルの選択を出す");
   assert.ok(html.includes('aria-label="音声生成のボイス"'), "ボイスの選択を出す");
@@ -197,26 +216,26 @@ test("設定済みでは音声のモデルとボイスを出し、宣言のあ�
 });
 
 test("宣言が無い音声モデルはボイスを自由記述にし、空欄を許す", () => {
-  const html = render({ speech: { model: "fish/audio", voice: "my-voice" } });
+  const html = render({ subsection: "speech", speech: { model: "fish/audio", voice: "my-voice" } });
   assert.ok(html.includes('value="fish/audio"'), "保存済みモデルを選択した状態で出す");
   assert.match(html, /<input[^>]*aria-label="音声生成のボイス"[^>]*value="my-voice"/, "自由記述の入力欄へ切り替える");
   assert.ok(html.includes("モデル既定（空欄のまま送ります）"), "空欄の意味を出す");
 });
 
 test("音声カタログ外の保存済みモデルも選択肢に残す", () => {
-  const html = render({ speech: { model: "stale/tts", voice: "Zephyr" } });
+  const html = render({ subsection: "speech", speech: { model: "stale/tts", voice: "Zephyr" } });
   assert.ok(html.includes("stale/tts（カタログ外）"));
   assert.ok(html.includes('value="stale/tts"'));
 });
 
 test("音声カタログも取得できていないときは警告色のチップで出す", () => {
-  const html = render({ speech: { catalogSource: "default", fetchedAt: null } });
+  const html = render({ subsection: "speech", speech: { catalogSource: "default", fetchedAt: null } });
   assert.ok(html.includes("OpenRouter から取得できていないため、同梱の既定の音声モデルを表示しています"));
   assert.match(html, /border-warn\/40 text-warn"[^>]*>OpenRouter から取得できていない/);
 });
 
 test("現在の設定を確認できないときは音声を「（未確認）」にして保存させない", () => {
-  const html = render({ speechSynced: false });
+  const html = render({ subsection: "speech", speechSynced: false });
   assert.equal(html.match(/（未確認）/g)?.length, 2, "モデルとボイスの両方を未確認として出す");
   assert.ok(
     html.includes("サーバーから現在の設定を取得できなかったため、表示しているモデルとボイスが最新とは限りません"),
@@ -225,12 +244,12 @@ test("現在の設定を確認できないときは音声を「（未確認）�
   assert.match(html, /aria-label="音声生成のモデル"[^>]*disabled=""/, "モデルを触らせない");
   assert.match(html, /aria-label="音声生成のボイス"[^>]*disabled=""/, "ボイスを触らせない");
   // 同期できたら未確認の表示は出さない
-  const synced = render();
+  const synced = render({ subsection: "speech" });
   assert.equal(synced.includes("（未確認）"), false);
 });
 
 test("音声カタログの再取得中は音声側のボタンだけを取得中にする", () => {
-  const html = render({ saving: "speech-catalog" });
+  const html = render({ subsection: "speech", saving: "speech-catalog" });
   assert.equal(html.match(/取得中/g)?.length, 1, "音声側の 1 つだけを取得中にする");
 });
 
@@ -255,13 +274,13 @@ test("runtimeAvailable: false ではキー操作だけを無効化し、モデ�
 });
 
 test("runtimeAvailable: false でも音声の選択は残す", () => {
-  const html = render({ runtimeAvailable: false });
+  const html = render({ runtimeAvailable: false, subsection: "speech" });
   assert.ok(html.includes('aria-label="音声生成のモデル"'));
   assert.ok(html.includes('aria-label="音声生成のボイス"'));
 });
 
 test("音声セクションの下部にお試し再生を出し、未設定では出さない", () => {
-  const html = render();
+  const html = render({ subsection: "speech" });
   assert.ok(html.includes("お試し再生"), "設定済みでは常に出す");
   assert.match(html, /<textarea[^>]*aria-label="お試し再生の本文"/, "本文から試せる");
   assert.match(html, /<button[^>]*>再生<\/button>/, "その場で鳴らす操作を出す");
@@ -275,7 +294,7 @@ test("音声セクションの下部にお試し再生を出し、未設定で�
 });
 
 test("音声の同期が取れていない間もお試し再生は使える", () => {
-  const html = render({ speechSynced: false });
+  const html = render({ subsection: "speech", speechSynced: false });
   assert.match(html, /<button[^>]*>再生<\/button>/, "保存のゲートを持ち込まない");
   // class に `disabled:` が含まれるため、属性としての disabled だけを否定する
   assert.match(html, /<textarea[^>]*aria-label="お試し再生の本文"(?![^>]*\sdisabled=)/, "本文も触れる");
@@ -283,10 +302,13 @@ test("音声の同期が取れていない間もお試し再生は使える", ()
 });
 
 test("runtimeAvailable: false ではお試し再生の再生ボタンも無効にする", () => {
-  const html = render({ runtimeAvailable: false });
+  const html = render({ runtimeAvailable: false, subsection: "speech" });
   assert.match(html, /<button[^>]*\sdisabled=""[^>]*>再生<\/button>/, "実行できない preview API を呼ばせない");
   assert.ok(html.includes("ランタイムが利用できないため、お試し再生はできません"), "押せない理由を出す");
   // ランタイムがあれば、音声の同期が取れていない間も押せる（別のゲート）
-  assert.match(render(), /<button(?![^>]*\sdisabled=)[^>]*>再生<\/button>/);
-  assert.match(render({ speechSynced: false }), /<button(?![^>]*\sdisabled=)[^>]*>再生<\/button>/);
+  assert.match(render({ subsection: "speech" }), /<button(?![^>]*\sdisabled=)[^>]*>再生<\/button>/);
+  assert.match(
+    render({ subsection: "speech", speechSynced: false }),
+    /<button(?![^>]*\sdisabled=)[^>]*>再生<\/button>/,
+  );
 });

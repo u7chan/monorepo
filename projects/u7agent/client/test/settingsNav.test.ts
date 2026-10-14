@@ -2,6 +2,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  CONTENT_SUBSECTIONS,
+  DEFAULT_CONTENT_SUBSECTION,
   DEFAULT_FILES_SUBSECTION,
   DEFAULT_MODELS_SUBSECTION,
   DEFAULT_RUNTIME_SUBSECTION,
@@ -22,7 +24,7 @@ test("設定ナビは 10 項目をこの順で持つ", () => {
       ["agents", "エージェント"],
       ["skills", "スキル"],
       ["models", "モデル"],
-      // モデルとは対象そのものが別なのでルートのセクションに置く
+      // モデルとは対象そのものが別で、モデルのタブではなくルートのセクションに置く
       ["content", "コンテンツ生成"],
       ["web-search", "Web 検索"],
       ["notifications", "通知"],
@@ -42,6 +44,17 @@ test("設定 → モデルのタブは「モデルを選ぶ / プロバイダー
     ],
   );
   assert.equal(DEFAULT_MODELS_SUBSECTION, MODELS_SUBSECTIONS[0].subsection);
+});
+
+test("設定 → コンテンツ生成のタブは「画像生成 / 音声（TTS）」の 2 項目で、既定は画像生成", () => {
+  assert.deepEqual(
+    CONTENT_SUBSECTIONS.map((item) => [item.subsection, item.label]),
+    [
+      ["image", "画像生成"],
+      ["speech", "音声（TTS）"],
+    ],
+  );
+  assert.equal(DEFAULT_CONTENT_SUBSECTION, CONTENT_SUBSECTIONS[0].subsection);
 });
 
 test("設定 → ファイルのタブは「ファイルツリー / ダウンロードの除外」の 2 項目で、既定はファイルツリー", () => {

@@ -80,7 +80,7 @@ React 19 + Vite + TypeScript + Tailwind CSS v4。ソースは `client/src`、エ
 **画面は URL がただ 1 つの正で、サイドバーのモードや表示中のセクションを state では持たない**（`parseRoute` / `routePath` が pathname と画面を相互変換し、`useRoute` が `popstate` の購読と URL の置換を 1 箇所に集約する）。
 
 - 大文字・末尾スラッシュ・連続スラッシュ・percent encoding は正準形（小文字・末尾スラッシュなし）へ畳む。セクションを特定できない URL はチャットにする
-- タブを持つのは 設定 → モデル（/settings/models）/ ファイル（/settings/files）/ ランタイム（/settings/runtime）で、`/settings/<section>/<sub>` の 1 セグメントを解釈する。**未知のサブセクションと既定タブの明示は既定タブへ畳み、その画面からチャットへ飛ばさない**（語彙は `client/src/lib/settingsNav.ts`）。旧 `/settings/archive` は `/settings/files/archive` へ読み替える。**画面の中の入れ子のタブ（設定 → モデル → プロバイダーの詳細の `APIキー` / `サインイン`）は URL に載せず、クライアントのローカル状態にする**（URL が正なのは画面を切り替えるタブまで）。属性は `SettingsTabs` と同じ水準（`role` / `aria-label` / `aria-selected`。`aria-controls` と矢印キーは置かない）に揃え、非表示側のペインはアンマウントせず `hidden` / `inert` でフォーカス対象から外す
+- タブを持つのは 設定 → モデル（/settings/models）/ コンテンツ生成（/settings/content）/ ファイル（/settings/files）/ ランタイム（/settings/runtime）で、`/settings/<section>/<sub>` の 1 セグメントを解釈する。**未知のサブセクションと既定タブの明示は既定タブへ畳み、その画面からチャットへ飛ばさない**（語彙は `client/src/lib/settingsNav.ts`）。旧 `/settings/archive` は `/settings/files/archive` へ読み替える。**画面の中の入れ子のタブ（設定 → モデル → プロバイダーの詳細の `APIキー` / `サインイン`）は URL に載せず、クライアントのローカル状態にする**（URL が正なのは画面を切り替えるタブまで）。属性は `SettingsTabs` と同じ水準（`role` / `aria-label` / `aria-selected`。`aria-controls` と矢印キーは置かない）に揃え、非表示側のペインはアンマウントせず `hidden` / `inert` でフォーカス対象から外す
 - 画面切替は `replaceState` で履歴を追加しない。URL の置換と表示の更新は `navigate()`（画面切替）と `syncSessionPath`（会話 URL の同期）だけが行い、両者を独立に同期させない
 - **クエリとフラグメントは解釈も破棄もしない**（本文の Markdown が通す `#foo` のような断片リンクを壊さないため）。例外は `/s/<id>` の `space` だけで、初期 mount に 1 回読んだ後にキー単位で落とす（他のキーとフラグメントは残る）
 - 「設定」の行き先は URL のセクションを優先し、`/` では保存した最後のセクションへ。直接 `/settings/<section>` を開いた場合もそれを「最後」として保存する
