@@ -1,18 +1,34 @@
 import { useContentSettings, type ContentSettings } from "../hooks/useContentSettings";
+import { CONTENT_SUBSECTIONS, DEFAULT_CONTENT_SUBSECTION, type ContentSubsection } from "../lib/settingsNav";
 import { ContentSettingsTab } from "./content-settings/ContentSettingsTab";
 import { ReloadButton } from "./ReloadButton";
 import { SettingsPageLayout, type SettingsPageProps } from "./SettingsPageLayout";
 import { SettingsPlaceholder } from "./SettingsPlaceholder";
+import { SettingsTabs } from "./SettingsTabs";
+
+export type ContentSettingsPageProps = SettingsPageProps & {
+  /** URL が決めるタブ。既定は「画像生成」 */
+  contentSubsection: ContentSubsection;
+  onSelectContentSubsection: (subsection: ContentSubsection) => void;
+};
 
 /**
  * 設定 → コンテンツ生成。hook はこの画面が持ち (開いたときだけ取得する)、
  * 再読み込みもこの画面の設定だけを取り直す。
  */
-export function ContentSettingsPage({ singleColumn, onBack, onOpenNav }: SettingsPageProps) {
+export function ContentSettingsPage({
+  contentSubsection,
+  onSelectContentSubsection,
+  singleColumn,
+  onBack,
+  onOpenNav,
+}: ContentSettingsPageProps) {
   const contentSettings = useContentSettings();
   return (
     <ContentSettingsView
       contentSettings={contentSettings}
+      contentSubsection={contentSubsection}
+      onSelectContentSubsection={onSelectContentSubsection}
       singleColumn={singleColumn}
       onBack={onBack}
       onOpenNav={onOpenNav}
@@ -24,9 +40,15 @@ export function ContentSettingsPage({ singleColumn, onBack, onOpenNav }: Setting
 export function ContentSettingsView({
   contentSettings,
   singleColumn = false,
+  contentSubsection = DEFAULT_CONTENT_SUBSECTION,
+  onSelectContentSubsection,
   onBack,
   onOpenNav,
-}: SettingsPageProps & { contentSettings: ContentSettings }) {
+}: SettingsPageProps & {
+  contentSettings: ContentSettings;
+  contentSubsection?: ContentSubsection;
+  onSelectContentSubsection?: (subsection: ContentSubsection) => void;
+}) {
   const {
     settings,
     note,
@@ -42,6 +64,25 @@ export function ContentSettingsView({
     refreshSpeechCatalog,
     speechSynced,
   } = contentSettings;
+  // 取得前は面の中身が無く、未設定ではキーを保存して初めて選べるようになるため、その間はタブ行も出さない
+  const tabs =
+    settings?.configured === true ? (
+      <SettingsTabs
+        items={CONTENT_SUBSECTIONS.map((item) =>
+          item.subsection === "speech" && !speechSynced
+            ? {
+                ...item,
+                mark: true,
+                ariaLabel: `${item.label}（現在の設定を確認できません）`,
+              }
+            : item,
+        )}
+        active={contentSubsection}
+        onSelect={onSelectContentSubsection}
+        ariaLabel="コンテンツ生成の設定"
+        singleColumn={singleColumn}
+      />
+    ) : undefined;
   return (
     <SettingsPageLayout
       eyebrow="CONTENT"
@@ -52,6 +93,7 @@ export function ContentSettingsView({
           再読み込み
         </ReloadButton>
       }
+      tabs={tabs}
       note={note}
       singleColumn={singleColumn}
       onOpenNav={onOpenNav}
@@ -60,6 +102,7 @@ export function ContentSettingsView({
       {settings ? (
         <ContentSettingsTab
           settings={settings}
+          contentSubsection={contentSubsection}
           saving={saving}
           onSaveKey={saveKey}
           onDeleteKey={removeKey}

@@ -137,18 +137,19 @@ APIキーは画像と**同じ 1 つを共有**する（`content_settings.apiKey`
 
 ## 設定画面
 
-画像と同じ画面に音声のセクションを置く（provider の見出しとキー欄は共有）。表示の正は `client/src/lib/contentSettings.ts` の純関数、取得と操作は `client/src/hooks/useContentSettings.ts`、描画は `client/src/components/content-settings/ContentSettingsTab.tsx` に閉じる。
+設定 → コンテンツ生成の「音声（TTS）」タブ（`/settings/content/speech`）に音声のセクションを置く（provider の見出しとキー欄は画像と同じ画面のタブの外で共有する）。表示の正は `client/src/lib/contentSettings.ts` の純関数、取得と操作は `client/src/hooks/useContentSettings.ts`、描画は `client/src/components/content-settings/ContentSettingsTab.tsx` に閉じる。
 
-- 未設定（行が無い）ではキー入力だけを出し、音声の欄もモデルと同じくキー保存後に現れる
+- 未設定（行が無い）ではキー入力だけを出し、音声の欄もモデルと同じくキー保存後に現れる（タブ行も同時に現れる）
 - モデルとボイスの選択は、保存済みの値がカタログから落ちていても現在値を見失わせない。ボイス欄は選択中モデルの宣言に応じて選択 / 自由記述を切り替え、空欄は「送らない」を表す
 - モデルを切り替えたらボイスは新しいモデルの既定（先頭、宣言が無ければ空）へ寄せ、旧モデルの値を持ち越さない
-- [再取得] の後は server の現在値へ表示を合わせる（[モデルカタログ](#モデルカタログ)のフォールバックが一覧の並びで変わり得るため）。確認できたことの根拠は成功した GET だけで、未同期の間は古い表示を現在値として扱わず、「（未確認）」とエラー注記で知らせて音声の設定を保存させない（一覧が変わらない再取得の失敗で以前の値が実効値のままのときは同期済みを保つ）
+- モデルとボイスの下書きはタブを切り替えても消えない（キー入力と同じく画面が持ち続ける）。未設定へ戻ったときは書きかけを捨てて保存値へ戻す
+- [再取得] の後は server の現在値へ表示を合わせる（[モデルカタログ](#モデルカタログ)のフォールバックが一覧の並びで変わり得るため）。確認できたことの根拠は成功した GET だけで、未同期の間は古い表示を現在値として扱わず、「（未確認）」とエラー注記で知らせて音声の設定を保存させない（一覧が変わらない再取得の失敗で以前の値が実効値のままのときは同期済みを保つ）。未同期の間は音声タブに警告ドットを出し、タブを開かずに対処が要ることが分かる（バナーと保存の禁止は音声タブの中だけ）
 - 画面下部の注記は、保存したキーが新しい会話から使えることと、生成物が `generated/` に保存されることを共通で伝える
-- 音声セクションの下部に[お試し再生](#お試し再生パラメーターのプレイグラウンド)を常時表示する（キー保存後にだけ現れる既存の分岐に乗せる）
+- 音声セクションの下部に[お試し再生](#お試し再生パラメーターのプレイグラウンド)を常時表示する（キー保存後にだけ現れる既存の分岐に乗せる）。面と一緒にアンマウントするため、未保存の入力と再生結果はタブ切替で消える
 
 ## お試し再生（パラメーターのプレイグラウンド）
 
-設定 → コンテンツ生成（[`/settings/content`](model-settings.md#クライアント)）の音声セクションから、会話を経由せずに 1 回だけ鳴らせる。目的は、モデル / ボイス / 演技指示 / 速度の組み合わせをその場で確かめることで、**設定を変えず、生成物も残さない**（作業フォルダにもアプリ DB にも書かない。設定画面はセッション / cwd を持たず、サンドボックス未設定の環境でも試せる）。
+設定 → コンテンツ生成の「音声（TTS）」タブ（[`/settings/content/speech`](model-settings.md#クライアント)）の音声セクションから、会話を経由せずに 1 回だけ鳴らせる。目的は、モデル / ボイス / 演技指示 / 速度の組み合わせをその場で確かめることで、**設定を変えず、生成物も残さない**（作業フォルダにもアプリ DB にも書かない。設定画面はセッション / cwd を持たず、サンドボックス未設定の環境でも試せる）。
 
 - 入出力は `POST /api/settings/content/speech/preview`。本文は `{ model, voice, text, instructions?, speed? }` で、モデルとボイスは画面で選んだ値（初期値は保存済みの値）をそのまま送る
 - 応答は音声バイト。`Content-Type` は mp3 が `audio/mpeg`、pcm は RIFF 化して `audio/wav` で、**どちらの形式だったかはクライアントが Content-Type から読む**（専用ヘッダは足さない）。`X-Content-Type-Options: nosniff` と `Cache-Control: no-store` を付ける。失敗は JSON なので、判別は status と Content-Type で行う
@@ -185,7 +186,7 @@ APIキーは画像と**同じ 1 つを共有**する（`content_settings.apiKey`
 | `server/test/speech-settings.test.ts` | 音声列 NULL のフォールバック、`PUT` の 400（行なし・カタログ外・宣言外）、`default` では照合しない、空文字ボイスの保存、503 `not_stored`、再取得の失敗文言、起動時の適用と注入した `readSpeech` / `readVoices`、お試し再生の行なし 400 / 未注入 503 / DB 不通 503、pcm → wav と演技指示・速度の受け渡し、`default` での声の照合 |
 | `server/test/speech-settings-api.test.ts` | HTTP 契約（GET / PUT / 再取得）、既定カタログの形、キーが応答に出ないこと、カタログ外 / 宣言外 / 本文形の 400、DB 不通 |
 | `server/test/speech-preview-api.test.ts` | お試し再生の HTTP 契約（課金前の 400 は provider を叩かない / 成功の `audio/mpeg` と RIFF 付き `audio/wav` / `nosniff` と `no-store` / provider 失敗の 502 と分類コード / timeout と中断 / runtime 不可と DB 不通の 503 / キーの伏せ字 / 保存ロックを取らないこと） |
-| `client/test/contentSettings.test.ts` / `client/test/contentSettingsTab.test.ts` / `client/test/speechPlayground.test.ts` | 音声モデルとボイスの選択肢・現在値・PUT の本文・自由記述の切替 / カタログ外の現在値 / 出どころのチップと再取得の注記 / タブの描画（音声欄はキー保存後・runtime 不可でも残る）/ お試し再生の初期値・送信前の検証・形式の表示・失敗文言と、生成中 / 失敗 / 結果の描画 / ランタイム不可での再生ボタンの無効化（未同期のゲートとは独立） |
+| `client/test/contentSettings.test.ts` / `client/test/contentSettingsTab.test.ts` / `client/test/speechPlayground.test.ts` | 音声モデルとボイスの選択肢・現在値・PUT の本文・自由記述の切替 / カタログ外の現在値 / 出どころのチップと再取得の注記 / 選んだ面の描画（音声欄はキー保存後・runtime 不可でも残る）/ お試し再生の初期値・入力順・送信前の検証・形式の表示・失敗文言と、生成中 / 失敗 / 結果の描画 / ランタイム不可での再生ボタンの無効化（未同期のゲートとは独立） |
 
 ## 非ゴール
 

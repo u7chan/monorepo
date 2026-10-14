@@ -67,9 +67,11 @@ import { moveDestinationSpaces } from "./lib/spaceSelection";
 import { activityDisplay, retryRemainingMs } from "./lib/retryState";
 import { RUN_RETRY_PROMPT } from "./lib/runRetry";
 import {
+  DEFAULT_CONTENT_SUBSECTION,
   DEFAULT_FILES_SUBSECTION,
   DEFAULT_MODELS_SUBSECTION,
   DEFAULT_RUNTIME_SUBSECTION,
+  type ContentSubsection,
   type FilesSubsection,
   type ModelsSubsection,
   type RuntimeSubsection,
@@ -525,6 +527,18 @@ export default function App() {
     [navigate],
   );
 
+  // コンテンツ生成のタブ切替も URL へ集約する (既定タブはパスへ出さない)
+  const openContentSubsection = useCallback(
+    (subsection: ContentSubsection) => {
+      navigate(
+        subsection === DEFAULT_CONTENT_SUBSECTION
+          ? { view: "settings", section: "content" }
+          : { view: "settings", section: "content", contentSubsection: subsection },
+      );
+    },
+    [navigate],
+  );
+
   // ファイルのタブ切替も URL へ集約する (既定タブはパスへ出さない)
   const openFilesSubsection = useCallback(
     (subsection: FilesSubsection) => {
@@ -698,7 +712,17 @@ export default function App() {
           />
         );
       case "content":
-        return <ContentSettingsPage {...pageProps} />;
+        return (
+          <ContentSettingsPage
+            {...pageProps}
+            contentSubsection={
+              route.view === "settings" && route.section === "content"
+                ? (route.contentSubsection ?? DEFAULT_CONTENT_SUBSECTION)
+                : DEFAULT_CONTENT_SUBSECTION
+            }
+            onSelectContentSubsection={openContentSubsection}
+          />
+        );
       case "web-search":
         return <WebSearchSettingsPage {...pageProps} />;
       case "runtime":

@@ -141,14 +141,7 @@ export function SpeechPlaygroundView({
           ランタイムが利用できないため、お試し再生はできません。サーバーの起動ログを確認してください。
         </p>
       )}
-      <textarea
-        className="field min-h-16 min-w-0 resize-y text-xs"
-        value={values.text}
-        aria-label="お試し再生の本文"
-        placeholder="読み上げる文章（演技指示は下の欄へ）"
-        disabled={busy}
-        onChange={(event) => onChange({ text: event.currentTarget.value })}
-      />
+      {/* 保存フォームと同じ順（モデル → ボイス → 本文 → 演技指示）で読めるようにする */}
       <div className="flex min-w-0 flex-wrap items-center gap-2">
         <SelectField
           wrapperClassName="min-w-0 flex-1"
@@ -192,6 +185,14 @@ export function SpeechPlaygroundView({
           </SelectField>
         )}
       </div>
+      <textarea
+        className="field min-h-16 min-w-0 resize-y text-xs"
+        value={values.text}
+        aria-label="お試し再生の本文"
+        placeholder="読み上げる文章（演技指示は下の欄へ）"
+        disabled={busy}
+        onChange={(event) => onChange({ text: event.currentTarget.value })}
+      />
       <div className="flex min-w-0 flex-wrap items-center gap-2">
         <input
           className="field min-w-0 flex-1 text-xs"

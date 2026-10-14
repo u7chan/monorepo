@@ -25,7 +25,8 @@ export const SETTINGS_SECTIONS: { section: SettingsSection; label: string }[] = 
   { section: "agents", label: "エージェント" },
   { section: "skills", label: "スキル" },
   { section: "models", label: "モデル" },
-  // コンテンツ生成と Web 検索はモデルと同じ「外部サービスとキー」の面だが、対象そのものが別なのでルートに置く
+  // コンテンツ生成と Web 検索はモデルと同じ「外部サービスとキー」の面だが、対象そのものが別なので
+  // モデルのタブにはせず、ルートのセクションに置く（コンテンツ生成の中は画像 / 音声のタブへ分ける）
   { section: "content", label: "コンテンツ生成" },
   { section: "web-search", label: "Web 検索" },
   { section: "notifications", label: "通知" },
@@ -39,10 +40,10 @@ export const SETTINGS_SECTIONS: { section: SettingsSection; label: string }[] = 
  * 設定 → モデル のタブ。URL は `/settings/models` と `/settings/models/<sub>` を正とし、
  * 既定タブ (models) はパスへ出さない (lib/route.ts の routePath)。
  *
- * タブにするのは、同じ対象を別の面から見るとき (モデルの選択とプロバイダー認証、ファイルツリーと
- * ダウンロードの除外) と、読み取り専用で面ごとに取得と操作が閉じているとき (ランタイムのサービス /
- * 環境 / 診断) だけ。どちらも hook / API が分かれてよいが、対象そのものが別の面 (content /
- * web-search) はルートのセクションに置く。
+ * タブにするのは、同じ対象を別の面から見るとき (モデルの選択とプロバイダー認証、画像生成と
+ * 音声（TTS）、ファイルツリーとダウンロードの除外) と、読み取り専用で面ごとに取得と操作が
+ * 閉じているとき (ランタイムのサービス / 環境 / 診断) だけ。どちらも hook / API が分かれてよいが、
+ * 対象そのものが別の面 (web-search とモデル) はルートのセクションに置く。
  */
 export type ModelsSubsection = "models" | "providers";
 
@@ -52,6 +53,19 @@ export const MODELS_SUBSECTIONS: { subsection: ModelsSubsection; label: string }
 ];
 
 export const DEFAULT_MODELS_SUBSECTION: ModelsSubsection = "models";
+
+/**
+ * 設定 → コンテンツ生成 のタブ。画像と音声は同じ行 (`content_settings`)・同じ APIキー・同じ
+ * 有効化ゲートを共有するため、1 つの対象の別の面として分ける。規則は MODELS_SUBSECTIONS と同じ。
+ */
+export type ContentSubsection = "image" | "speech";
+
+export const CONTENT_SUBSECTIONS: { subsection: ContentSubsection; label: string }[] = [
+  { subsection: "image", label: "画像生成" },
+  { subsection: "speech", label: "音声（TTS）" },
+];
+
+export const DEFAULT_CONTENT_SUBSECTION: ContentSubsection = "image";
 
 /** 設定 → ファイル のタブ。同じ対象 (ワークスペースのファイル) の別の面で、規則は MODELS_SUBSECTIONS と同じ */
 export type FilesSubsection = "files" | "archive";

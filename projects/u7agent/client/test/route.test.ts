@@ -15,6 +15,7 @@ import {
 } from "../src/lib/route";
 import {
   SETTINGS_SECTIONS,
+  type ContentSubsection,
   type FilesSubsection,
   type ModelsSubsection,
   type RuntimeSubsection,
@@ -22,6 +23,13 @@ import {
 } from "../src/lib/settingsNav";
 
 const settings = (section: SettingsSection): Route => ({ view: "settings", section });
+
+/** 設定 → コンテンツ生成のタブ。既定タブ (image) は URL のパスに出さない */
+const contentTab = (contentSubsection: ContentSubsection): Route => ({
+  view: "settings",
+  section: "content",
+  contentSubsection,
+});
 
 /** 設定 → ファイルのタブ。既定タブ (files) は URL のパスに出さない */
 const filesTab = (filesSubsection: FilesSubsection): Route => ({
@@ -135,6 +143,15 @@ test("parseRoute は pathname だけで画面を決め、表のとおりに畳�
     ["/Settings/RUNTIME/SERVICE/", settings("runtime")],
     ["/settings/runtime/environment/unknown", CHAT_ROUTE],
     ["/settings/runtime/diagnostics/extra", CHAT_ROUTE],
+    // 設定 → コンテンツ生成のタブ。正準形は「画像生成」= /settings/content、「音声（TTS）」= /speech
+    ["/settings/content/speech", contentTab("speech")],
+    ["/Settings/CONTENT/SPEECH/", contentTab("speech")],
+    ["//settings//content//speech//", contentTab("speech")],
+    ["/settings%2Fcontent%2Fspeech", contentTab("speech")],
+    // 未知のサブセクションと既定タブの明示は既定タブへ畳む (チャットへ飛ばさない)
+    ["/settings/content/image", settings("content")],
+    ["/settings/content/unknown", settings("content")],
+    ["/settings/content/speech/extra", CHAT_ROUTE],
   ];
   for (const [pathname, expected] of table) {
     assert.deepEqual(parseRoute(pathname), expected, pathname);
@@ -190,6 +207,15 @@ test("routePath は正準形を返し、parseRoute と往復する", () => {
     assert.equal(routePath(settings(section)), `/settings/${section}`);
     assert.deepEqual(parseRoute(routePath(settings(section))), settings(section));
   }
+  // コンテンツ生成のタブも同じ規則で、既定タブ以外をパスへ出し、既定タブは出さない
+  assert.equal(routePath(contentTab("speech")), "/settings/content/speech");
+  assert.equal(routePath(contentTab("image")), "/settings/content");
+  assert.deepEqual(parseRoute(routePath(contentTab("speech"))), contentTab("speech"));
+  assert.deepEqual(
+    parseRoute(routePath(contentTab("image"))),
+    settings("content"),
+    "既定タブはパスへ出さず、既定へ戻す",
+  );
 });
 
 test("routePath は `/s/<id>` を encode して返し、parseRoute と往復する", () => {
