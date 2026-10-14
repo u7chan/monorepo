@@ -400,7 +400,7 @@ Content-Security-Policy: sandbox allow-scripts; default-src 'none'; style-src 'u
 
 | メソッド | パス | 説明 |
 | --- | --- | --- |
-| GET | `/api/settings/models` | 保存値（`allowedModels` / `defaultModel`）と provider 一覧（auth 状態 / credentialKind / oauthLoginLabel / hiddenStoredOAuth / managed / keyUpdatedAt / canSetApiKey / orphan / degraded / login）。純粋読取 |
+| GET | `/api/settings/models` | 保存値（`allowedModels` / `defaultModel`）と provider 一覧（auth 状態 / credentialKind / oauthLoginLabel / hiddenStoredOAuth / canSignInHere / managed / keyUpdatedAt / canSetApiKey / orphan / degraded / login）。純粋読取 |
 | PUT | `/api/settings/models/allowed` | 利用可能なモデルとアプリ既定モデルの一括保存。body は `{ "allowedModels": ["<provider>/<id>"], "defaultModel": "<provider>/<id>" }`（どちらも `null` 可） |
 | PUT | `/api/settings/models/:provider/key` | APIキーを登録（既存は上書き）。body は `{ "apiKey": "…" }` |
 | PUT | `/api/settings/models/:provider/memo` | provider のメモを保存（`trim` して空なら行を削除）。body は `{ "memo": "…" }`（0..500 文字） |
@@ -430,6 +430,7 @@ Content-Security-Policy: sandbox allow-scripts; default-src 'none'; style-src 'u
       "keyUpdatedAt": 1730000000000,
       "canSetApiKey": true,
       "supportsOAuth": true,
+      "canSignInHere": true,
       "credentialKind": "oauth",
       "oauthLoginLabel": "Sign in with ChatGPT",
       "hiddenStoredOAuth": false,
@@ -459,6 +460,7 @@ Content-Security-Policy: sandbox allow-scripts; default-src 'none'; style-src 'u
 - `keyUpdatedAt` はこの画面で登録したキー（`managed`）の最終保存時刻（epoch ms）。`managed` が false の provider と、v6 以前から残る移行前の行は `null`。上書き保存のたびに更新し、`resync` / 削除はこの時刻を変えない（削除後は行が無いため `null`）。最終使用はサーバーで持たず、クライアントが `GET /api/sessions` の `model` + `lastUsedAt` から集計する（[model-settings.md](model-settings.md#キーの棚卸し最終保存と最終使用)）
 - `memo` は `provider_memos` の行と同じで、`null` = 未設定。**人間用の控えで、キーの登録有無（`managed`）とは独立**し、キーを削除しても残る。`canSetApiKey` が false の provider（ambient / keyless）にも書ける。メモだけの provider は `orphan: true` / `managed: false` として出る（カタログ外のバッジに落ちる）。メモは秘密情報ではないのでマスカーには登録しない（[secrets.md](secrets.md)）
 - `canSetApiKey` は SDK の `auth.apiKey.login` の有無。false の provider（ambient / keyless）はこの画面からキーを登録できない
+- `canSignInHere` はこの画面で OAuth サインインを完了できる provider の印（**任意**。省略 = この画面ではサインインできない）。SDK の OAuth flow が求める対話は静的な metadata に現れず、`select` / `text` を求める flow も開始するまで分からないため、サーバーの許可リスト（「認可 URL + 貼り付け」と「デバイスコード」の方式）で判定する。`supportsOAuth`（OAuth を持つ印）とは別で、`POST /login` の対象判定と認証状態の解決には使わない（[model-settings.md](model-settings.md#oauth-サインイン)）
 - `credentialKind` は SDK（`ModelRuntime.isUsingOAuth`）が見ている資格情報の種別（`oauth` / `api_key`、`null` = 認証なし）。**runtime overlay があるときは overlay の `api_key` になり、`auth.json` の保存値の種別は見えない**
 - `oauthLoginLabel` は provider の `oauth.loginLabel`（例: `Sign in with ChatGPT`）。OAuth の表示名にだけ使う静的 metadata で、トークン・`clientId`・認可 URL は含めない
 - `hiddenStoredOAuth` は `auth.source: "runtime"` の provider で、`auth.json` に保存された OAuth がこの画面のキーに覆われている印。BFF が `auth.json` を読み取り専用で見た**表示専用**の値で、読取失敗・壊れた JSON・保存なしは `false`（不明）へ縮退する。認証の解決・優先順位には使わない（[model-settings.md](model-settings.md#認証ソースと優先順位)）
@@ -470,7 +472,7 @@ Content-Security-Policy: sandbox allow-scripts; default-src 'none'; style-src 'u
 - 503 は `{ "error": "…", "state": "not_stored" }` で、何も保存されていないことを示す（DB 書込前の失敗、ランタイム初期化失敗など）。400 は `{ "error": "…" }` だけ。`PUT /api/settings/models/allowed` もランタイムが無いときは 503 `not_stored`（カタログ検証ができないため）
 - 400: 未知の provider / `canSetApiKey` が false の provider への PUT、登録行が無い provider の DELETE、再同期の対象外（カタログに無く degraded も `remove` でない）、メモの対象外 provider。サンドボックスは使わない
 - `POST /:provider/resync` は冪等。degraded でない provider に送っても現在の DB 希望状態を再適用して 200 を返す
-- `POST /api/settings/models/:provider/login` は OAuth サインイン（Sign in with ChatGPT など）を開始し、`providers[].login` に進行状態を載せた GET と同じ形を返す（アプリ DB を触らないため `state` は持たない）。`login.status` は `running` / `succeeded` / `failed` / `cancelled` で、`authUrl` は **`running` の間だけ**載る。`input` は貼り付け待ちの入力欄、`userCode` はデバイスコード方式のコードで、それ以外は `null`。失敗の理由は画面用の固定文言で `error` にだけ載せ、SDK / provider の生のメッセージは返さない。すでに `running` の provider への再開始は 409 `{ "error": "…" }` で、OAuth を持たない / カタログ外の provider は 400。`succeeded` は公開 state の再計算が終わってから公開し、再計算を待つ間も認可 URL と入力欄は載らない（クライアントは成功を観測すると health / カタログの取り直しを止めるため）
+- `POST /api/settings/models/:provider/login` は OAuth サインイン（Sign in with ChatGPT など）を開始し、`providers[].login` に進行状態を載せた GET と同じ形を返す（アプリ DB を触らないため `state` は持たない）。`login.status` は `running` / `succeeded` / `failed` / `cancelled` で、`authUrl` は **`running` の間だけ**載る。`input` は貼り付け待ちの入力欄、`userCode` はデバイスコード方式のコードで、それ以外は `null`。失敗の理由は画面用の固定文言で `error` にだけ載せ、SDK / provider の生のメッセージは返さない。すでに `running` の provider への再開始は 409 `{ "error": "…" }` で、OAuth を持たない / カタログ外の provider は 400。`canSignInHere` が false の provider（この画面にサインインの操作を出さない provider）でも開始は受け付け、扱えない対話で固定文言の失敗になる（表示だけを制御する）。`succeeded` は公開 state の再計算が終わってから公開し、再計算を待つ間も認可 URL と入力欄は載らない（クライアントは成功を観測すると health / カタログの取り直しを止めるため）
 - `POST /api/settings/models/:provider/login/code` は `manual_code` を待っている間だけ受け付け、待っていなければ 400。交換の完了は応答では待たず、クライアントが GET を読み直して拾う（応答は `running` のまま）
 - `DELETE /api/settings/models/:provider/login` は冪等。進行中なら中断（SDK のコールバックサーバーと通信を閉じ、公開 state を再計算）し、終端していれば結果表示を消し、進行中も結果も無ければ何もしない。どれも 200 で GET と同じ形を返す
 - `POST /api/settings/models/:provider/logout` は `auth.json` の OAuth を削除する（provider 側の失効はしない）。SDK は同じ provider の runtime overlay（この画面で登録したキー）も消すため、DB に残るキーの希望状態を公開 state の再計算前に写し直し、反映に失敗したときや復元の判断に使う DB の読取に失敗したときはカードの `degraded: "apply"` で [再同期] へ導く。`auth.json` に OAuth が無ければ 400、進行中のサインインがあれば 409。アプリ DB の `provider_credentials` は触らないので、この画面で登録したキーは残る。SDK の失敗は 503 `{ "error": "…" }`（固定文言）

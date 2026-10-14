@@ -16,7 +16,7 @@ import { createImageCatalog } from "./image-catalog";
 import { createSpeechCatalog } from "./speech-catalog";
 import { WebSearchSettingsService } from "./web-search-settings";
 import { ModelSettingsService, type CredentialCommit, type ProviderKeyRuntime } from "./model-settings";
-import { OAuthLoginService, type OAuthLoginRuntime } from "./oauth-login";
+import { OAuthLoginService, canSignInHere, type OAuthLoginRuntime } from "./oauth-login";
 import { NotificationService } from "./notifications";
 import { ProjectStore } from "./projects";
 import { createSandboxToolClientFromEnv } from "./sandbox/client";
@@ -396,15 +396,21 @@ export function createProviderKeyRuntime(pi: PiBff): ProviderKeyRuntime {
   const storedAuthPath = join(pi.agentDir, "auth.json");
   return {
     list: () =>
-      modelRuntime.getProviders().map((provider) => ({
-        provider: provider.id,
-        name: provider.name || provider.id,
-        // auth.apiKey.login は「対話でキー入力を受け付ける」印。ambient / keyless は login を持たない
-        canSetApiKey: Boolean(provider.auth?.apiKey?.login),
-        supportsOAuth: Boolean(provider.auth?.oauth),
-        // OAuth の表示名だけを渡す (ログイン手段の名前で、トークンや client_id ではない)
-        oauthLoginLabel: provider.auth?.oauth?.loginLabel ?? null,
-      })),
+      modelRuntime.getProviders().map((provider) => {
+        const supportsOAuth = Boolean(provider.auth?.oauth);
+        return {
+          provider: provider.id,
+          name: provider.name || provider.id,
+          // auth.apiKey.login は「対話でキー入力を受け付ける」印。ambient / keyless は login を持たない
+          canSetApiKey: Boolean(provider.auth?.apiKey?.login),
+          supportsOAuth,
+          // 画面がサインインの操作を出せるかの判定。OAuth を求める方式でも、この画面が扱えない対話を
+          // 必要とする flow はここで false になる (許可リストは oauth-login 側が持つ)
+          canSignInHere: canSignInHere(provider.id, supportsOAuth),
+          // OAuth の表示名だけを渡す (ログイン手段の名前で、トークンや client_id ではない)
+          oauthLoginLabel: provider.auth?.oauth?.loginLabel ?? null,
+        };
+      }),
     auth: (provider) => modelRuntime.getProviderAuthStatus(provider),
     credentialKind: (provider) => (modelRuntime.isUsingOAuth(provider) ? "oauth" : "api_key"),
     // readStoredCredential は読取に失敗したら undefined を返す。種別以外はここで捨てる

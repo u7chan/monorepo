@@ -47,6 +47,22 @@ const PROGRESS_MESSAGES: readonly (readonly [RegExp, string])[] = [
 /** 貼り付け欄で扱えない対話 (`select` / `text` / `secret`) を来たことを示す印。文言は画面へ出さない */
 const UNSUPPORTED_PROMPT_MARKER = "u7agent:unsupported-auth-prompt";
 
+/**
+ * この画面でサインインを完了できる provider の許可リスト。flow が求める対話は静的な metadata に現れず、
+ * `select` / `text` を求める flow も開始するまで分からないため、id で許可する (fail-closed)。SDK が OAuth の
+ * provider を足しても自動では増えないので、見直しが要る (docs/model-settings.md#oauth-サインイン)。
+ */
+const SIGN_IN_SUPPORTED_PROVIDERS: readonly string[] = ["openai", "openrouter", "xai", "meta", "kimi-coding"];
+
+/**
+ * この画面 (設定 → モデル → プロバイダー) でサインインを完了できるか。OAuth を持たない provider と許可リストに
+ * 無い provider は false で、画面はサインインの操作を出さない。開始 (`start()`) の対象判定は `supportsOAuth`
+ * だけで行い、この判定は表示にしか使わない。
+ */
+export function canSignInHere(provider: string, supportsOAuth: boolean): boolean {
+  return supportsOAuth && SIGN_IN_SUPPORTED_PROVIDERS.includes(provider);
+}
+
 export type OAuthLoginFailureKind = "port_in_use" | "denied" | "unsupported" | "unknown";
 
 /**

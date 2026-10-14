@@ -337,6 +337,68 @@ test("設定済みを先頭に、未設定は後ろへ分ける (並びはサー
   );
 });
 
+test("この画面でサインインできずキーも保存行も無い provider は一覧から落とす", () => {
+  const response = settings({
+    providers: [
+      // 落とす: OAuth はあるがここでサインインできず、キーの登録も無く、カタログ外でも保存行でも無い
+      provider({ provider: "openai-codex", supportsOAuth: true, canSetApiKey: false }),
+      // 残す: キーを登録できる (anthropic / radius / github-copilot と同じ形)
+      provider({ provider: "anthropic", supportsOAuth: true, canSetApiKey: true }),
+      provider({ provider: "openai", supportsOAuth: true, canSignInHere: true, canSetApiKey: true }),
+      // 残す: カタログ外のキー行・メモだけの行・保存行 (削除と再同期の導線を消さない)
+      provider({ provider: "orphan-oauth", supportsOAuth: true, canSetApiKey: false, orphan: true, managed: true }),
+      provider({ provider: "memo-only", supportsOAuth: true, canSetApiKey: false, orphan: true, memo: "控え" }),
+      provider({ provider: "managed-oauth", supportsOAuth: true, canSetApiKey: false, managed: true }),
+      provider({ provider: "plain", canSetApiKey: false }),
+    ],
+  });
+  const groups = groupProviders(response, null);
+  assert.deepEqual(
+    groups.configured.map((entry) => entry.provider),
+    ["orphan-oauth", "memo-only", "managed-oauth"],
+    "保存行とメモの行は残す",
+  );
+  assert.deepEqual(
+    groups.unconfigured.map((entry) => entry.provider),
+    ["anthropic", "openai", "plain"],
+    "openai-codex だけを落とす",
+  );
+});
+
+test("一覧から落とした provider でも「モデルを選ぶ」タブの名前とバッジは従来どおり出る", () => {
+  // サーバーは行を落とさないので、同じ応答を使うモデル候補は名前とバッジを保つ (生の id と「未認証」に落とさない)
+  const catalog: RuntimeModelsResponse = {
+    catalogCount: 1,
+    availableCount: 1,
+    versions: { piCodingAgent: "1.1.0" },
+    providers: [
+      {
+        provider: "openai-codex",
+        auth: { configured: true, source: "stored", environmentVariables: [] },
+        models: [{ id: "gpt-5-codex", name: "GPT-5 Codex", available: true }],
+      },
+    ],
+  };
+  const response = settings({
+    allowedModels: ["openai-codex/gpt-5-codex"],
+    providers: [
+      provider({
+        provider: "openai-codex",
+        name: "OpenAI Codex (legacy)",
+        auth: { configured: true, source: "stored", environmentVariables: [] },
+        supportsOAuth: true,
+        canSetApiKey: false,
+        credentialKind: "oauth",
+        oauthLoginLabel: "Sign in with ChatGPT",
+      }),
+    ],
+  });
+  assert.deepEqual(groupProviders(response, catalog).unconfigured, [], "プロバイダータブの一覧からは落とす");
+  const [group] = candidateGroups({ allowed: ["openai-codex/gpt-5-codex"], defaultModel: null }, catalog, response);
+  assert.equal(group?.name, "OpenAI Codex (legacy)");
+  assert.deepEqual(group?.badge, { label: "保存済み（auth.json）: Sign in with ChatGPT", tone: "ok" });
+});
+
 test("providerUsage は model の最初の / で provider を分け、会話数と最新の最終使用を返す", () => {
   const sessions = [
     session({ sessionId: "a", model: "anthropic/claude-sonnet", lastUsedAt: 100 }),
@@ -970,6 +1032,33 @@ test("サインアウトは auth.json の OAuth が実効 / 覆われている�
     true,
     "再サインインの注記に使う",
   );
+});
+
+test("サインインできない provider ではサインインの操作を出さず、理由と [サインアウト] を出す", () => {
+  const unsupported = oauthPanelView(provider({ supportsOAuth: true, canSignInHere: false, canSetApiKey: true }));
+  assert.equal(unsupported.visible, true, "キーは登録できるのでセクションごと隠さない");
+  assert.equal(unsupported.canSignIn, false);
+  assert.match(unsupported.unsupportedNotice ?? "", /pi \/login/, "同じ agent dir の pi /login を案内する");
+  assert.match(unsupported.unsupportedNotice ?? "", /docs\/model-settings\.md/, "手順の docs を示す");
+
+  // DTO のフラグが無い (旧サーバー / 別経路の DTO) ときも出さない (fail-closed)
+  const missing = oauthPanelView(provider({ supportsOAuth: true }));
+  assert.equal(missing.canSignIn, false);
+  assert.match(missing.unsupportedNotice ?? "", /pi \/login/);
+
+  // この画面のキーが覆っていても、auth.json の OAuth は残す (状態の可視性と解除手段を落とさない)
+  const withStoredOAuth = oauthPanelView(
+    provider({ supportsOAuth: true, canSignInHere: false, credentialKind: "oauth", hiddenStoredOAuth: true }),
+  );
+  assert.equal(withStoredOAuth.signOut, true);
+  assert.equal(withStoredOAuth.signedIn, true);
+});
+
+test("サインインできる provider では理由を出さず、サインインの操作を出す", () => {
+  const view = oauthPanelView(provider({ supportsOAuth: true, canSignInHere: true }));
+  assert.equal(view.visible, true);
+  assert.equal(view.canSignIn, true);
+  assert.equal(view.unsupportedNotice, undefined, "理由はサインインの操作を出さないときだけ出す");
 });
 
 // 認証が変わった後の取り直し。`canApply` は 1 つだけ作って health とカタログで共有する
