@@ -529,7 +529,7 @@ test("creates and updates skills with body and rejects the old prompt field", ()
 });
 
 test("reports the injected builtin skills as a separate copy", () => {
-  const builtinSkills = [{ name: "skill-creator", description: "スキルの作成を依頼されたときに使う" }];
+  const builtinSkills = [{ name: "skill-creator", description: "スキルの作成を依頼されたときに使う", version: "3" }];
   const catalog = createAgentCatalog({ builtinSkills });
 
   assert.deepEqual(catalog.snapshot().builtinSkills, builtinSkills);

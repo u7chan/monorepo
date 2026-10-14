@@ -248,7 +248,11 @@ export async function createBffContext(opts: CreateBffAppOptions = {}): Promise<
   pi?.setSessionEnv({ variablesFor: (cwd) => secrets.variablesFor(cwd) });
   // 組み込みスキルはサンドボックスに依らず起動時に読み込み済みなので、カタログの応答へそのまま載せる
   const catalog = createAgentCatalog({
-    builtinSkills: BUILTIN_SKILLS.map((skill) => ({ name: skill.name, description: skill.description })),
+    builtinSkills: BUILTIN_SKILLS.map((skill) => ({
+      name: skill.name,
+      description: skill.description,
+      version: skill.version,
+    })),
     db: appDb,
   });
   const projects = new ProjectStore(appDb);

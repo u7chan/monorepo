@@ -94,6 +94,8 @@ export type Catalog = z.infer<typeof CatalogSchema>;
 export const BuiltinSkillInfoSchema = z.object({
   name: z.string(),
   description: z.string(),
+  /** 同梱物の版。SKILL.md を変えたら上がる (builtin-skills.ts の VERSIONS) */
+  version: z.string(),
 });
 export type BuiltinSkillInfo = z.infer<typeof BuiltinSkillInfoSchema>;
 

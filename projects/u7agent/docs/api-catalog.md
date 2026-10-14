@@ -22,7 +22,7 @@
 - `PATCH` / `DELETE /api/agents/agent-general` は 400（`Built-in agent cannot be updated` / `Built-in agent cannot be deleted`）。
 - ビルトインは編集できない前提なので、model / Effort も固定（どちらも未指定 = アプリ既定）。変更はチャット単位の Model / Effort ピッカーで行う（[model-effort.md](model-effort.md)）。
 - `POST /api/sessions` の `agentId` 省略時はこのビルトインを使うので、ユーザー定義が 0 件でもセッションを作れる。
-- GET の応答は同梱の組み込みスキルを `builtinSkills`（`{ name, description }`）でも返す。これはカタログの `skillIds` とは別に全エージェントへ注がれる **ambient** なスキルで、既定は全部 ON。外すのはエージェント定義の `builtinSkillNames`（[エージェント定義のスキル許可リスト](#エージェント定義のスキル許可リスト)）。エージェント編集のスキル欄はこれをチェック可能な行として出し、外した分はそのエージェントの会話へ読み込まれない。`/api/skills/files` はサンドボックス未設定で 503 になるため使わず、BFF 起動時に読み込み済みの registry をそのまま載せる。
+- GET の応答は同梱の組み込みスキルを `builtinSkills`（各件 `{ name, description, version }`）でも返す。これはカタログの `skillIds` とは別に全エージェントへ注がれる **ambient** なスキルで、既定は全部 ON。外すのはエージェント定義の `builtinSkillNames`（[エージェント定義のスキル許可リスト](#エージェント定義のスキル許可リスト)）。エージェント編集のスキル欄はこれをチェック可能な行として出し、外した分はそのエージェントの会話へ読み込まれない。ビルトインの閲覧ビューは許可リストを持たない（= 常に全部 ON）ので、チェックを出さず共通 / 組み込みを読み取り専用で並べる。`/api/skills/files` はサンドボックス未設定で 503 になるため使わず、BFF 起動時に読み込み済みの registry をそのまま載せる。
 - 初期状態の `agents` には、ユーザー定義のサンプルとしてずんだもん `agent-zundamon`（`systemPrompt` に語尾の指示、`skillIds` は空）が 1 体入る。`DELETE /api/agents/:id` で削除できる。サンプルは DB を新規作成したときだけ入るため、削除した定義は再起動でも戻らない。
 
 ```json
@@ -35,7 +35,7 @@
     "skillIds": [],
     "suggestions": [{ "label": "プロジェクトを説明して", "prompt": "このプロジェクトの構成を簡単に教えて" }]
   },
-  "builtinSkills": [{ "name": "skill-creator", "description": "スキルの作成を依頼されたときに使う" }],
+  "builtinSkills": [{ "name": "skill-creator", "description": "スキルの作成を依頼されたときに使う", "version": "3" }],
   "agents": [
     {
       "id": "agent-zundamon",
@@ -82,7 +82,7 @@
 
 ## ファイルスキル（`.agents/skills`）
 
-共通（`<PI_APP_CWD>/.agents/skills`）とプロジェクト（セッションの cwd 配下の `.agents/skills`）のスキル、およびアプリに同梱した**組み込みスキル**は、カタログの `skillIds` とは別にセッションへ注入される。プロジェクトはエージェントに紐づかない **ambient** なスキルで、共通分は `commonSkillNames`、組み込み分は `builtinSkillNames` でエージェント別に絞れる（[エージェント定義のスキル許可リスト](#エージェント定義のスキル許可リスト)）。設定画面に出るのは共通分と組み込み分の読み取り専用一覧で、共通分の見え方はエージェント定義の許可リストで変わる（編集・削除の操作は持たない。どのエージェントで有効かはエージェント編集のスキル欄で見る）。優先順位は `プロジェクト > 共通 > 組み込み` で、同名は一意化する。許可リストはこの一意化の**前**に当てるため、外した共通 / 組み込みスキルと同名の下位側（プロジェクト / 共通 / カタログ）は浮上して有効になる（ファイルの改名・削除・マージはしない）。発見と合成は `server/src/file-skills.ts`、同梱物は `server/src/builtin-skills.ts` が持つ。
+共通（`<PI_APP_CWD>/.agents/skills`）とプロジェクト（セッションの cwd 配下の `.agents/skills`）のスキル、およびアプリに同梱した**組み込みスキル**は、カタログの `skillIds` とは別にセッションへ注入される。プロジェクトはエージェントに紐づかない **ambient** なスキルで、共通分は `commonSkillNames`、組み込み分は `builtinSkillNames` でエージェント別に絞れる（[エージェント定義のスキル許可リスト](#エージェント定義のスキル許可リスト)）。設定画面に出るのは共通分と組み込み分の読み取り専用一覧で、共通分の見え方はエージェント定義の許可リストで変わる（編集・削除の操作は持たない。どのエージェントで有効かはエージェント編集のスキル欄と、ビルトインの閲覧ビューで見る）。優先順位は `プロジェクト > 共通 > 組み込み` で、同名は一意化する。許可リストはこの一意化の**前**に当てるため、外した共通 / 組み込みスキルと同名の下位側（プロジェクト / 共通 / カタログ）は浮上して有効になる（ファイルの改名・削除・マージはしない）。発見と合成は `server/src/file-skills.ts`、同梱物は `server/src/builtin-skills.ts` が持つ。
 
 チャット側では `GET /api/sessions/:id/skills` がこの 4 種類（プロジェクト / 共通 / 組み込み / エージェント定義のスキル）を優先順位つきで返し、入力補助の一覧と `/skill:` の展開（送信時に本文を取得）が同じ解決を共有する。セッション未確定の `GET /api/skills/session` は同じ解決をセッション作成前に走らせ、新規チャットのピッカーへ同じ形で返す（[api-sessions.md](api-sessions.md#get-apisessionsidskills)、[api-sessions.md](api-sessions.md#get-apiskillssession)、[persistence.md](persistence.md#スキルの扱い)）。
 

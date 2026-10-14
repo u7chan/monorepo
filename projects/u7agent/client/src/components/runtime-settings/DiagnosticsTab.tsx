@@ -3,8 +3,8 @@ import { SessionDiagnosticsCard } from "../SessionDiagnosticsCard";
 import { RuntimeTabLayout, type RuntimeTabProps } from "./RuntimeTabLayout";
 
 /**
- * 設定 → ランタイム の「診断」面。取得・コピー・生ログはカード内で完結するため、
- * ヘッダには何も置かない。
+ * 設定 → ランタイム の「診断」面。取得・コピー・生ログはカード内で完結する。カードの「再読み込み」は対象の
+ * 会話を選ぶまで押せないため、面のツールバーには何も置かない。
  */
 export function DiagnosticsTab({
   sessions,

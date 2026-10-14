@@ -2,13 +2,15 @@
  * URL の pathname と画面の対応。DOM も history も触らない純関数だけを置き、URL の読み書きは
  * hooks/useRoute.ts が担う。`/` はチャット (会話を指定しない)、`/settings/<section>` は設定の各画面
  * (SETTINGS_SECTIONS)、`/settings/<section>/<sub>` はタブを持つ画面 (MODELS_SUBSECTIONS /
- * FILES_SUBSECTIONS / RUNTIME_SUBSECTIONS)、`/s/<sessionId>` はチャット + URL が指定する会話。
+ * CONTENT_SUBSECTIONS / FILES_SUBSECTIONS / RUNTIME_SUBSECTIONS)、`/s/<sessionId>` はチャット + URL が指定する会話。
  * 未知・不正なパスはチャットへ畳み、routePath は常に正準形 (小文字・末尾スラッシュなし・既定タブの
  * パスなし) を返す。
  * `/s/<sessionId>` の `space` クエリだけは会話を指定した URL の入力として解釈し (entrySpaceOf)、
  * 読んだ後はキー単位で落とす (withoutEntrySpace)。
  */
 import {
+  CONTENT_SUBSECTIONS,
+  DEFAULT_CONTENT_SUBSECTION,
   DEFAULT_FILES_SUBSECTION,
   DEFAULT_MODELS_SUBSECTION,
   DEFAULT_RUNTIME_SUBSECTION,
@@ -16,6 +18,7 @@ import {
   MODELS_SUBSECTIONS,
   RUNTIME_SUBSECTIONS,
   SETTINGS_SECTIONS,
+  type ContentSubsection,
   type FilesSubsection,
   type ModelsSubsection,
   type RuntimeSubsection,
@@ -36,6 +39,8 @@ export type Route =
       section: SettingsSection;
       /** 設定 → モデルのタブ。既定タブは省略し、パスにも出さない */
       modelsSubsection?: ModelsSubsection;
+      /** 設定 → コンテンツ生成のタブ。同じく既定タブ (画像生成) は省略する */
+      contentSubsection?: ContentSubsection;
       /** 設定 → ファイルのタブ。既定タブは省略し、パスにも出さない */
       filesSubsection?: FilesSubsection;
       /** 設定 → ランタイムのタブ。同じく既定タブは省略する */
@@ -48,7 +53,7 @@ export const CHAT_ROUTE: Route = { view: "chat" };
 /**
  * pathname から画面を決める。クエリとフラグメントは pathname に含めない契約
  * (含めると `#foo` 付きのリンクが画面として解釈できなくなる) ため、境界側で切り落とす。
- * タブを持つ画面 (models / files / runtime) だけは `/settings/<section>/<sub>` の 1 セグメントを解釈し、
+ * タブを持つ画面 (models / content / files / runtime) だけは `/settings/<section>/<sub>` の 1 セグメントを解釈し、
  * 未知のサブセクションと既定タブの明示 (`/settings/models/models` 等) は既定タブへ正準化する。
  * 旧 設定 → ダウンロード (`/settings/archive`) は 設定 → ファイル の「ダウンロードの除外」タブへ読み替える。
  */
@@ -70,6 +75,13 @@ export function parseRoute(pathname: string): Route {
       return subsection && subsection !== DEFAULT_FILES_SUBSECTION
         ? { view: "settings", section: "files", filesSubsection: subsection }
         : { view: "settings", section: "files" };
+    }
+    if (found.section === "content") {
+      if (rest.length > 0) return CHAT_ROUTE;
+      const subsection = CONTENT_SUBSECTIONS.find((item) => item.subsection === third?.toLowerCase())?.subsection;
+      return subsection && subsection !== DEFAULT_CONTENT_SUBSECTION
+        ? { view: "settings", section: "content", contentSubsection: subsection }
+        : { view: "settings", section: "content" };
     }
     if (found.section === "runtime") {
       if (rest.length > 0) return CHAT_ROUTE;
@@ -93,6 +105,13 @@ export function parseRoute(pathname: string): Route {
 /** 画面から pathname を作る。URL の分解は呼び出し側が行い、ここではクエリもフラグメントも付けない */
 export function routePath(route: Route): string {
   if (route.view === "settings") {
+    if (
+      route.section === "content" &&
+      route.contentSubsection &&
+      route.contentSubsection !== DEFAULT_CONTENT_SUBSECTION
+    ) {
+      return `/settings/content/${route.contentSubsection}`;
+    }
     if (route.section === "files" && route.filesSubsection && route.filesSubsection !== DEFAULT_FILES_SUBSECTION) {
       return `/settings/files/${route.filesSubsection}`;
     }

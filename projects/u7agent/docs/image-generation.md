@@ -133,10 +133,10 @@ SDK(pi-ai 1.1.0) の `openrouter-images` は `chat/completions` へ投げるが�
 
 ## 設定画面
 
-設定 → コンテンツ生成（`/settings/content`）。表示の正は `client/src/lib/contentSettings.ts` の純関数、取得と操作は `client/src/hooks/useContentSettings.ts`、描画は `client/src/components/content-settings/ContentSettingsTab.tsx` に閉じる。
+設定 → コンテンツ生成の「画像生成」タブ（`/settings/content`。既定。音声（TTS）は `/settings/content/speech`）。表示の正は `client/src/lib/contentSettings.ts` の純関数、取得と操作は `client/src/hooks/useContentSettings.ts`、描画は `client/src/components/content-settings/ContentSettingsTab.tsx` に閉じる。APIキー・provider の見出し・注意書きは面の外で音声と共有し、本文は選択中の面だけを描く。
 
-- 未設定ではキー入力だけを出す。`PUT /api/settings/content/image` は行が無いと 400 のため、モデル選択と削除はキー保存（`PUT /api/settings/content/key`）に成功してから現れる
-- タブの上部に provider の見出し（ロゴ + 表示名 + provider id + 登録状態バッジ + `カタログ <n>`）を出す。ロゴは `client/src/components/ProviderIcon.tsx` の `providerIconKey()` で引き、表示名と id は `contentProviderId()` / `contentProviderLabel()` が決める。v1 は openrouter だけなので未設定（`null`）でも OpenRouter を出し、provider が増えれば `settings.provider` に追随して同じ見出しのロゴが切り替わる（対応表に無い provider は頭文字のタイルへ落ちる）。件数と登録状態のチップはプロバイダータブと同じ `MetaChip` を使う
+- 未設定ではキー入力だけを出す（面の中身もタブ行も無い）。`PUT /api/settings/content/image` は行が無いと 400 のため、モデル選択と削除はキー保存（`PUT /api/settings/content/key`）に成功してから現れる
+- タブ行の下の provider 見出し（ロゴ + 表示名 + provider id + 登録状態バッジ + `画像 <n>` / `音声 <n>`）を出す。件数チップはタブ文脈でどちらの件数か分かるよう、面の名前を接頭する。ロゴは `client/src/components/ProviderIcon.tsx` の `providerIconKey()` で引き、表示名と id は `contentProviderId()` / `contentProviderLabel()` が決める。v1 は openrouter だけなので未設定（`null`）でも OpenRouter を出し、provider が増えれば `settings.provider` に追随して同じ見出しのロゴが切り替わる（対応表に無い provider は頭文字のタイルへ落ちる）。件数と登録状態のチップはプロバイダータブと同じ `MetaChip` を使う
 - 登録状態バッジ（設定済み / 未設定）は上部の見出しに出す（プロバイダータブと同じ見た目。`contentKeyStatusBadge()`）。キー欄の補足には provider 名（OpenRouter）を添え、モデル欄に出る `OpenAI: …` と混同させない
 - キーは `type="password"` / `autoComplete="off"` で、保存値を再表示しない（常に空から入力する）。[上書き保存] は成功したときだけ入力を消し、[削除] は共通の確認ダイアログ（`deleteContentKeyConfirmRequest()`。対象の provider は clamp した行に出す）の後に行ごと消して未設定へ戻す
 - モデルは native `<select>`（`SelectField`）でカタログから 1 件選ぶ。保存済みのモデルがカタログに無いときは「（カタログ外）」として現在の id を先頭に足す（何が保存されているかを見失わせない）。サイズ / 品質 / 出力形式の UI は持たず、本文にはその理由（provider の既定を使う）だけを書く。provider 名は見出しにあるため繰り返さない
@@ -206,7 +206,7 @@ SDK(pi-ai 1.1.0) の `openrouter-images` は `chat/completions` へ投げるが�
 | `server/test/app-db.test.ts` | v7 → v8 / v8 → v9 の加算移行、v14 → v15 の改名（`image_settings` → `content_settings`、`model` → `imageModel`）、両テーブル併存時の読み先、v15 → v14 → v15 の往復、`content_settings` の CRUD、空文字行 = 未設定、`image_catalog` の upsert と壊れた行（health を落とさない）、形式宣言の往復と形違いの読み方 |
 | `client/test/markdownImage.test.ts` | Markdown 画像の 3 段解決 / version が変わったときだけ解決 URL が変わること / App の `runEndSeq` 配線 / 解決できない src / `components/markdown/` が `api.ts` を import しないこと |
 | `client/test/imageRefresh.test.ts` | 実フックの再描画安定性・更新時の URL 非衝突 / 実 Markdown と FileBrowser の再 mount が過去の URL を再利用しないこと（SSR） |
-| `client/test/contentSettings.test.ts` / `client/test/contentSettingsTab.test.ts` | 選択肢（カタログ順・同名への id 添え・カタログ外の現在値）/ 現在値と PUT の本文 / 保存成功時だけキー入力を消す / キーの登録状態バッジと provider の id・表示名 / 見出しの provider（ロゴ・未設定でも OpenRouter・対応表に無い provider は頭文字）と `カタログ <n>` のチップ / 一覧の出どころのチップと最終取得 / 再取得の注記 / タブの初期描画（未設定はキーのみ・設定済みは削除とモデル選択・キーを再表示しない・runtime 不可の disable・[再取得] の出し分け） |
+| `client/test/contentSettings.test.ts` / `client/test/contentSettingsTab.test.ts` | 選択肢（カタログ順・同名への id 添え・カタログ外の現在値）/ 現在値と PUT の本文 / 保存成功時だけキー入力を消す / キーの登録状態バッジと provider の id・表示名 / 見出しの provider（ロゴ・未設定でも OpenRouter・対応表に無い provider は頭文字）と `画像 <n>` / `音声 <n>` のチップ / 一覧の出どころのチップと最終取得 / 再取得の注記 / 選んだ面だけの描画（未設定はキーのみ・設定済みは削除と選んだ面の選択・キーを再表示しない・runtime 不可の disable・[再取得] の出し分け） |
 
 ## 非ゴール
 
