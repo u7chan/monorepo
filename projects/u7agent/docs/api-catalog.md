@@ -143,7 +143,7 @@
 - ワークスペースへ実体を作らない（git status を汚さず、アプリ更新で常に最新、改変不可）。`path` は仮想パス `<root>/.u7agent/builtin-skills/<name>/SKILL.md` で、`.u7agent` 配下なのでプロジェクトとしては登録できない。SDK の `sourceInfo.scope` に組み込みが無いため `temporary`（path 扱い）にする
 - モデルの `read` は BFF が横取りして同梱の本文を返す（サンドボックスへ送らない）。`ls` / `grep` / `find` / `bash` からは見えない。`PI_AGENT_TOOLS` から `read` を外した構成ではモデルは本文を読めず、一覧表示だけになる
 - 仮想パスは実ファイルが無く、`write` / `edit` の書き込み範囲（セッションの作業ディレクトリと `<root>/.agents/skills`）の外なので変更できない（同梱物を変えるにはイメージを更新する）。`read` は常に同梱の本文を返す
-- カタログ（`GET /api/agents`）と `skillIds` の対象外。エージェント別の ON / OFF は `builtinSkillNames`（[エージェント定義のスキル許可リスト](#エージェント定義のスキル許可リスト)）で行い、外した組み込みは一覧（`GET /api/sessions/:id/skills`）・`skillsOverride` の索引・`read` の横取り・system prompt の案内（`appendSystemPrompt` の `serve` / `skill-creator` への言及）のすべてから消える。同名のファイルスキルがあるときはファイル側が浮上し、`overridden` の行も出なくなる
+- カタログ（`GET /api/agents`）と `skillIds` の対象外。エージェント別の ON / OFF は `builtinSkillNames`（[エージェント定義のスキル許可リスト](#エージェント定義のスキル許可リスト)）で行い、外した組み込みは一覧（`GET /api/sessions/:id/skills`）・`skillsOverride` の索引・`read` の横取り・system prompt の案内（`appendSystemPrompt` の `serve` / `skill-creator` への言及）・`serve` ツールの説明（`createServeToolDefinitions` の skill 参照）のすべてから消える。同名のファイルスキルがあるときはファイル側が浮上し、`overridden` の行も出なくなる
 - 同梱物を追加するときは `server/src/builtin-skills/<name>/SKILL.md` を足し、`VERSIONS` に版を追加する（Docker は `server/src/` ごとイメージへ入るので Dockerfile の変更は不要）
 - 同梱しているスキルは 2 つ。`skill-creator`（スキルの作成・更新の手順）と `serve`（サービスの起動・確認・停止。`0.0.0.0` バインド / 8080 / `--strictPort` / `curl -fsS http://127.0.0.1:8080/` での検証 / ログの見方 / 直したコマンドで再検証するループ）。`serve` は `serve` ツールと同じ経路を使い、起動に成功したコマンドがその作業ディレクトリの実績として記録される（[sandbox.md](sandbox.md#serveサービスの公開と起動停止)）。起動の作法を `appendSystemPrompt` に書かないのは、契約の正をスキル側の 1 箇所に保つため
 

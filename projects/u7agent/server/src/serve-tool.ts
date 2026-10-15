@@ -5,6 +5,7 @@
  */
 import { Type, type Static } from "@earendil-works/pi-ai";
 import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
+import { builtinSkillEnabled } from "./builtin-skills";
 import type { ServeStatus } from "./schema";
 import type { ServeService } from "./serve";
 
@@ -13,7 +14,17 @@ export const SERVE_TOOL_NAME = "serve";
 export const SERVE_TOOL_DESCRIPTION =
   "Start, stop, or check the app served to the user's browser (the UI calls it a service). " +
   "The app must listen on 0.0.0.0:8080. Starting replaces whatever is served now, and the conversation " +
-  "that starts it becomes the owner shown in the UI. Follow the bundled `serve` skill for the command and verification loop.";
+  "that starts it becomes the owner shown in the UI.";
+
+/**
+ * モデルへ渡す説明。ビルトイン skill を外したセッションでは、存在しない skill を指さない
+ * (system prompt の serveSkillClause と同じ判定に揃える)。
+ */
+function serveToolDescription(builtinSkillNames: readonly string[] | undefined): string {
+  return builtinSkillEnabled("serve", builtinSkillNames)
+    ? `${SERVE_TOOL_DESCRIPTION} Follow the bundled \`serve\` skill for the command and verification loop.`
+    : SERVE_TOOL_DESCRIPTION;
+}
 
 export const SERVE_TOOL_GUIDELINES = [
   "Use the serve tool instead of starting a background server with bash: only this path records the owner and the start command.",
@@ -99,13 +110,15 @@ export function createServeToolDefinitions(options: {
   enabled: boolean;
   sessionId?: string | undefined;
   host: ServeToolHost;
+  /** エージェント定義の組み込みスキル許可リスト。undefined = 全部 ON（既定） */
+  builtinSkillNames?: readonly string[] | undefined;
 }): ToolDefinition[] {
   const sessionId = options.sessionId;
   if (!options.enabled || !sessionId) return [];
   const definition: ToolDefinition<typeof serveSchema> = {
     name: SERVE_TOOL_NAME,
     label: SERVE_TOOL_NAME,
-    description: SERVE_TOOL_DESCRIPTION,
+    description: serveToolDescription(options.builtinSkillNames),
     promptSnippet: "Start, stop, or check the app served to the user's browser",
     promptGuidelines: [...SERVE_TOOL_GUIDELINES],
     parameters: serveSchema,
