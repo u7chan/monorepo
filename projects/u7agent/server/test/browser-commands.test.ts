@@ -24,6 +24,9 @@ import { runShot } from "../src/browser/shot";
 const PNG_SIGNATURE = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
 const LINK_LOCAL = "http://169.254.169.254/";
 
+/** 詳細の上限 (MAX_CHECK_ITEMS = 50) を超えるアイコン。上限の後ろに出た失敗が数えられるか見る */
+const MANY_ICONS = 51;
+
 /** IHDR の幅と高さ。画像ライブラリを足さずに viewport と fullPage の反映を確かめる */
 function pngSize(image: Buffer): { width: number; height: number } {
   assert.ok(image.subarray(0, 8).equals(PNG_SIGNATURE), "PNG の署名ではありません");
@@ -38,6 +41,25 @@ const TALL_HTML = `<!doctype html>
 <html lang="ja"><head><meta charset="utf-8"><title>tall</title></head>
 <body><div id="app-probe">app-ok</div><div style="height:2400px"></div></body></html>
 `;
+// 51 個の(すべて別 URL の)アイコン 404 で詳細の上限を埋めてから、遅れて例外を起こす
+const MANY_ICONS_HTML = `<!doctype html>
+<html lang="ja"><head><meta charset="utf-8"><title>many icons</title></head>
+<body><script>
+  const pending = [];
+  for (let index = 0; index < ${MANY_ICONS}; index += 1) {
+    pending.push(new Promise((resolve) => {
+      const icon = new Image();
+      icon.onload = icon.onerror = () => resolve();
+      icon.src = "/check/favicon.svg?n=" + index;
+    }));
+  }
+  Promise.all(pending).then(() => setTimeout(() => { throw new Error("fixture-after-limit"); }, 300));
+</script></body></html>
+`;
+const ICON_ERROR_HTML = `<!doctype html>
+<html lang="ja"><head><meta charset="utf-8"><title>icon error</title></head>
+<body><img src="/check/icons/favicon.png"></body></html>
+`;
 
 const closedPort = await reserveClosedPort();
 const fixture = await startLoopbackFixture({
@@ -46,6 +68,11 @@ const fixture = await startLoopbackFixture({
     ...checkFixtureResponses(closedPort),
     "/app": () => ({ body: APP_HTML }),
     "/tall": () => ({ body: TALL_HTML }),
+    "/check/many-icons": () => ({ body: MANY_ICONS_HTML }),
+    "/check/icon-error": () => ({ body: ICON_ERROR_HTML }),
+    // アイコン名 (favicon.png) の 500 は警告ではなくアプリの失敗として扱わせる
+    "/check/icons/favicon.png": () => ({ status: 500, contentType: "image/svg+xml" }),
+    "/check/icon-failed": () => ({ body: `<img src="http://127.0.0.1:${closedPort}/favicon.svg">` }),
   },
 });
 
@@ -202,6 +229,45 @@ test("check はアイコンの 404 を警告にして失敗に数えない", asy
   assert.equal(report.warnings, 1, formatCheckReport(report));
   assert.equal(report.failures, 0, formatCheckReport(report));
   assert.equal(checkExitCode(report), 0);
+});
+
+test("check はアイコンの 500 と通信失敗を失敗として扱う", async (t) => {
+  const session = requireSession(t);
+  if (!session) return;
+  // 同じアイコンの URL でも 404 以外はアプリの失敗 (警告にして終了コード 0 にしない)
+  const serverError = await runCheck(session, `${fixture.origin}/check/icon-error`, { settleMs: 100 });
+  expectItem(
+    serverError,
+    "http",
+    /GET http:\/\/127\.0\.0\.1:\d+\/check\/icons\/favicon\.png → 500 Internal Server Error/,
+  );
+  assert.equal(serverError.warnings, 0, formatCheckReport(serverError));
+  assert.equal(checkExitCode(serverError), EXIT_VALIDATION_FAILED);
+
+  const failed = await runCheck(session, `${fixture.origin}/check/icon-failed`, { settleMs: 100 });
+  expectItem(
+    failed,
+    "requestfailed",
+    /GET http:\/\/127\.0\.0\.1:\d+\/favicon\.svg 失敗 \(net::ERR_CONNECTION_REFUSED\)/,
+  );
+  assert.equal(failed.warnings, 0, formatCheckReport(failed));
+  assert.equal(checkExitCode(failed), EXIT_VALIDATION_FAILED);
+});
+
+test("check は詳細の上限を超えた後でも失敗を検証失敗として返す", async (t) => {
+  const session = requireSession(t);
+  if (!session) return;
+  const report = await runCheck(session, `${fixture.origin}/check/many-icons`, { settleMs: 1500 });
+  assert.equal(report.truncated, true, formatCheckReport(report));
+  assert.ok(report.warnings >= MANY_ICONS, `アイコンの警告を数えていません: ${report.warnings}`);
+  assert.ok(report.failures >= 1, `上限後の例外を数えていません: ${formatCheckReport(report)}`);
+  assert.equal(checkExitCode(report), EXIT_VALIDATION_FAILED, formatCheckReport(report));
+  // 詳細は上限で落ちるが、件数には含み、終了コードは検証失敗のままにする
+  assert.equal(
+    report.items.some((item) => item.category === "pageerror"),
+    false,
+    "この入力では詳細の上限で pageerror が落ちる (件数だけが根拠になる)",
+  );
 });
 
 test("check は ready selector を待ってから収集し、現れなければ ready の失敗にする", async (t) => {

@@ -3,6 +3,7 @@
  * requestfailed / 遷移そのものの失敗を**別分類**で集める。`goto` は 404 / 500 で throw しないため、
  * load の成功をアプリの検証成功と同一視しない (失敗が 1 件でもあれば検証失敗として返す)。
  * 収集は件数・文字数・出力バイト数の上限で止める (無制限にすると会話のコンテキストを食う)。
+ * 詳細を捨てた後も失敗 / 警告は数え続け、収集が完走していない (期限切れ) 場合はレポートを返さない。
  */
 import type { ConsoleMessage, Page, Request, Response } from "playwright-core";
 import { EXIT_OK, EXIT_VALIDATION_FAILED } from "./exit-codes";
@@ -24,15 +25,17 @@ export interface CheckItem {
   text: string;
   /** 同じ内容の繰り返し。件数ではなく「何回出たか」を潰さずに出力を短くする */
   count: number;
-  /** favicon などの警告。失敗ではないため終了コードには影響しない */
+  /** アイコンの 404 だけを警告にした項目。失敗ではないため終了コードには影響しない */
   warning: boolean;
 }
 
 export interface CheckReport {
   url: string;
+  /** 保持した詳細。上限に達した分は含まれない (成否は failures / warnings で数える) */
   items: CheckItem[];
-  /** 件数の上限に達して打ち切ったか */
+  /** 詳細の上限に達して打ち切ったか。打ち切っても件数は failures / warnings へ数える */
   truncated: boolean;
+  /** 記録した失敗の件数 (詳細を保持しなかった分も含む)。成否判定はこの値だけで行う */
   failures: number;
   warnings: number;
   durationMs: number;
@@ -55,10 +58,15 @@ export function createCheckRecorder(options: CheckRecorderOptions = {}): CheckRe
   const log = options.log ?? (() => {});
   const items: CheckItem[] = [];
   const byText = new Map<string, CheckItem>();
+  // 詳細は上限で捨てるが、成否は捨てた分も数える (上限後の失敗が検証成功にならないようにする)
+  let failures = 0;
+  let warnings = 0;
   let truncated = false;
 
   return {
     record: (category, text, recordOptions = {}) => {
+      if (recordOptions.warning ?? false) warnings += 1;
+      else failures += 1;
       const trimmed = truncateToBytes(text, maxTextChars).text;
       const key = `${category}\u0000${trimmed}`;
       const existing = byText.get(key);
@@ -69,7 +77,7 @@ export function createCheckRecorder(options: CheckRecorderOptions = {}): CheckRe
       if (items.length >= maxItems) {
         if (!truncated) {
           truncated = true;
-          log(`収集の上限 (${maxItems} 件) に達したため、以降の項目を打ち切りました`);
+          log(`収集の上限 (${maxItems} 件) に達したため、以降の詳細を打ち切りました`);
         }
         return;
       }
@@ -77,20 +85,13 @@ export function createCheckRecorder(options: CheckRecorderOptions = {}): CheckRe
       byText.set(key, item);
       items.push(item);
     },
-    report: ({ url, durationMs }) => ({
-      url,
-      items,
-      truncated,
-      failures: items.filter((item) => !item.warning).length,
-      warnings: items.filter((item) => item.warning).length,
-      durationMs,
-    }),
+    report: ({ url, durationMs }) => ({ url, items, truncated, failures, warnings, durationMs }),
   };
 }
 
 /**
- * アイコンの 404 はアプリの失敗ではないので警告にする。headless のブラウザは favicon を要求しないが、
- * 明示的に読み込むページはある (`apple-touch-icon` などの表記も同じ扱いにする)。
+ * アイコンの URL か。判定は URL の名前だけで行い、警告にするかは `isWarningHttpResponse` が状態込みで決める。
+ * headless のブラウザは favicon を要求しないが、明示的に読み込むページはある。
  */
 const ICON_FILE_NAME = /^(?:favicon\.(?:ico|svg|png|webp)|apple-touch-icon(?:-\d+x\d+)?\.(?:png|jpg|jpeg|webp))$/;
 
@@ -102,6 +103,14 @@ export function isIconUrl(url: string): boolean {
     return false;
   }
   return ICON_FILE_NAME.test(pathname.split("/").pop()?.toLowerCase() ?? "");
+}
+
+/**
+ * 警告にするのはアイコンの 404 だけ。同じアイコンの 500 や通信失敗はアプリの失敗として扱う
+ * (アイコンの有無だけが原因の失敗と、アプリが壊れている失敗を混ぜない)。
+ */
+export function isWarningHttpResponse(status: number, url: string): boolean {
+  return status === 404 && isIconUrl(url);
 }
 
 /**
@@ -146,15 +155,22 @@ function describeRequestFailure(request: Request): string {
   return `${request.method()} ${request.url()} 失敗 (${request.failure()?.errorText ?? "原因不明"})`;
 }
 
+/** 要約の URL を切ったときの目印と末尾の改行。URL の許容量をこの分だけ狭くする */
+const SUMMARY_TRAILING_BYTES = 4;
+
 export function formatCheckReport(report: CheckReport): string {
   const lines = report.items.map((item) => {
     const level = item.warning ? "警告" : "失敗";
     const repeat = item.count > 1 ? ` x${item.count}` : "";
     return `[${level}] ${item.category}${repeat}: ${item.text}`;
   });
-  if (report.truncated) lines.push("... 件数の上限に達したため残りを省略しました");
+  if (report.truncated) lines.push("... 詳細の上限に達したため以降の詳細は省略しました (件数には含みます)");
   const verdict = report.failures > 0 ? "検証失敗" : "検証成功";
-  const summary = `check: ${verdict} (失敗 ${report.failures} / 警告 ${report.warnings}, ${report.durationMs} ms) ${report.url}`;
+  const prefix = `check: ${verdict} (失敗 ${report.failures} 件 / 警告 ${report.warnings} 件, ${report.durationMs} ms) `;
+  // URL は利用者が指定する値で長さの上限が無い。要約ごと出力の上限へ収める (末尾の ... で切ったことを示す)
+  const allowance = Math.max(0, MAX_CHECK_OUTPUT_BYTES - Buffer.byteLength(prefix, "utf8") - SUMMARY_TRAILING_BYTES);
+  const { text, truncated } = truncateToBytes(report.url, allowance);
+  const summary = `${prefix}${truncated ? `${text}...` : text}`;
   return `${capLines(lines, summary, MAX_CHECK_OUTPUT_BYTES)}\n`;
 }
 
@@ -178,13 +194,11 @@ export interface CheckOptions {
 export async function runCheck(session: BrowserSession, url: string, options: CheckOptions = {}): Promise<CheckReport> {
   const recorder = createCheckRecorder({ maxItems: options.maxItems, log: options.log });
   const startedAt = Date.now();
-  const denied = (target: string) => isDeniedByProxy(session.denials, target);
-  const recordResource = (category: "http" | "requestfailed", text: string, target: string): void => {
-    if (denied(target)) {
-      recorder.record("navigation", `ループバック以外へは通信しません: ${target}`);
-      return;
-    }
-    recorder.record(category, text, { warning: isIconUrl(target) });
+  /** proxy が拒否した宛先は navigation の失敗として記録する (http / requestfailed へは数えない) */
+  const recordDenied = (target: string): boolean => {
+    if (!isDeniedByProxy(session.denials, target)) return false;
+    recorder.record("navigation", `ループバック以外へは通信しません: ${target}`);
+    return true;
   };
   const onPageError = (error: Error): void => recorder.record("pageerror", describePageError(error));
   const watched = new Set<Page>();
@@ -198,10 +212,14 @@ export async function runCheck(session: BrowserSession, url: string, options: Ch
   };
   const onResponse = (response: Response): void => {
     if (response.status() < 400) return;
-    recordResource("http", describeResponse(response), response.url());
+    const target = response.url();
+    if (recordDenied(target)) return;
+    recorder.record("http", describeResponse(response), { warning: isWarningHttpResponse(response.status(), target) });
   };
   const onRequestFailed = (request: Request): void => {
-    recordResource("requestfailed", describeRequestFailure(request), request.url());
+    const target = request.url();
+    if (recordDenied(target)) return;
+    recorder.record("requestfailed", describeRequestFailure(request));
   };
 
   watchPage(session.page);
@@ -247,5 +265,8 @@ export async function runCheck(session: BrowserSession, url: string, options: Ch
     session.context.off("requestfailed", onRequestFailed);
     for (const page of watched) page.off("pageerror", onPageError);
   }
+  // 期限でブラウザが閉じた場合は収集が完走していない。検証結果ではなく起動・入力エラーとして返す
+  // (呼び出し元の CLI が終了コード 2 へ振り分ける)
+  if (session.timedOut) throw new Error("呼び出しの期限を超えたため検証を完了できませんでした");
   return recorder.report({ url, durationMs: Date.now() - startedAt });
 }

@@ -86,7 +86,8 @@ RUN pnpm check
 # ループバック以外と link-local redirect の拒否 / check の分類を検査する (`--self-test`)。
 # ラッパー自身 (`shot` / `dom` / `check`) も data: URL と拒否される URL で実行し、
 # 入口が動くこと・返すのが cwd 相対パスであること・終了コードと保存の契約をここで見る
-# (テストはブラウザ不在で skip できるので、同梱物の検査は probe 側に持たせる)。
+# (期限で収集を完走できなかった `check` が検証成功を出さないことも見る。
+# テストはブラウザ不在で skip できるので、同梱物の検査は probe 側に持たせる)。
 # 環境変数を渡すだけでは Landlock は適用されないため、
 # ラッパーが実際に効いていること (ABI 999 は拒否 / 許可 root の外へ書けない) も検査する。2 本同時に走らせて、
 # 起動時の回収と同時実行の入場制御が生存中の呼び出しを壊さないことも見る。終了後に残骸が無いことまで見る。
@@ -125,6 +126,9 @@ RUN set -eux; \
     test -s shot-1.png; \
     ! wrap "u7agent-browser check http://192.0.2.1/" > /tmp/u7agent-browser-probe/check-denied.log 2>&1; \
     grep -q "検証失敗" /tmp/u7agent-browser-probe/check-denied.log; \
+    ! wrap "u7agent-browser check data:text/html,hello --deadline-ms 1000" > /tmp/u7agent-browser-probe/check-deadline.log 2>&1; \
+    ! grep -q "検証成功" /tmp/u7agent-browser-probe/check-deadline.log; \
+    grep -q "期限" /tmp/u7agent-browser-probe/check-deadline.log; \
     ! wrap "u7agent-browser shot http://192.0.2.1/ denied.png" > /tmp/u7agent-browser-probe/shot-denied.log 2>&1; \
     test ! -f denied.png; \
     test -z "$(ls -A /tmp/u7agent-browser)"; \
