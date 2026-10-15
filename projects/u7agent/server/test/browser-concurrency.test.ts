@@ -74,6 +74,95 @@ async function putEmptyIndex(root: string, index: number): Promise<void> {
   await mkdir(slotDirPath(slotsDir(root), index), { recursive: true });
 }
 
+type SlotFsOp = "mkdir" | "readdir" | "rmdir" | "open" | "rm" | "rename";
+
+interface SlotFsRequest {
+  op: SlotFsOp;
+  path: string;
+  release(): void;
+}
+
+/**
+ * 呼び出し間の実行順序を決めるための fs ゲート (テスト専用)。`node:fs/promises` の該当操作を
+ * テストが解放するまで実行前に止める。解放する順序だけで競合の順序が決まるため、実行順序は負荷や
+ * スケジューラに依存しない。
+ */
+class SlotFsGate {
+  private requests: SlotFsRequest[] = [];
+  private match: ((op: SlotFsOp, path: string) => boolean) | undefined;
+  private originals: Partial<Record<SlotFsOp, unknown>> = {};
+
+  arm(match: (op: SlotFsOp, path: string) => boolean): void {
+    this.match = match;
+  }
+
+  disarm(): void {
+    this.match = undefined;
+  }
+
+  install(): void {
+    const originals: Record<SlotFsOp, unknown> = {
+      mkdir: fs.mkdir,
+      readdir: fs.readdir,
+      rmdir: fs.rmdir,
+      open: fs.open,
+      rm: fs.rm,
+      rename: fs.rename,
+    };
+    this.originals = originals;
+    const gate =
+      (op: SlotFsOp) =>
+      async (path: unknown, ...rest: unknown[]) => {
+        if (typeof path === "string" && this.match?.(op, path)) {
+          await new Promise<void>((release) => this.requests.push({ op, path, release }));
+        }
+        return (originals[op] as (...args: unknown[]) => Promise<unknown>)(path, ...rest);
+      };
+    fs.mkdir = gate("mkdir") as typeof fs.mkdir;
+    fs.readdir = gate("readdir") as typeof fs.readdir;
+    fs.rmdir = gate("rmdir") as typeof fs.rmdir;
+    fs.open = gate("open") as typeof fs.open;
+    fs.rm = gate("rm") as typeof fs.rm;
+    fs.rename = gate("rename") as typeof fs.rename;
+    syncBuiltinESMExports();
+  }
+
+  restore(): void {
+    for (const [op, original] of Object.entries(this.originals)) {
+      (fs as unknown as Record<string, unknown>)[op] = original;
+    }
+    syncBuiltinESMExports();
+    this.match = undefined;
+    this.requests = [];
+  }
+
+  /** 条件に合う操作が count 件現れるまで待つ (到着順) */
+  async waitFor(match: (request: SlotFsRequest) => boolean, count = 1, timeoutMs = 5_000): Promise<SlotFsRequest[]> {
+    const deadline = Date.now() + timeoutMs;
+    for (;;) {
+      const matched = this.requests.filter(match);
+      if (matched.length >= count) return matched.slice(0, count);
+      if (Date.now() > deadline) {
+        assert.fail(`fs 操作が現れませんでした: ${this.requests.map((r) => `${r.op} ${r.path}`).join(", ")}`);
+      }
+      await new Promise((done) => setTimeout(done, 1));
+    }
+  }
+
+  release(request: SlotFsRequest): void {
+    const index = this.requests.indexOf(request);
+    assert.ok(index >= 0, "解放する fs 操作が見つかりません");
+    this.requests.splice(index, 1);
+    request.release();
+  }
+
+  releaseAll(): void {
+    const requests = this.requests;
+    this.requests = [];
+    for (const request of requests) request.release();
+  }
+}
+
 /** 実プロセスを 1 本立てて、pid と起動時刻 (実 /proc) を返す。SIGKILL すると終了済みの所有者になる */
 async function spawnSleeper(): Promise<{ pid: number; startedAtMs: number; stop(): Promise<void> }> {
   const child = spawn(process.execPath, ["-e", "setTimeout(() => {}, 30000)"], { stdio: "ignore" });
@@ -466,6 +555,139 @@ test("同じプロセス内で同時に入場しても上限を超えない", as
     );
     assert.equal((await leases(root)).length, 3);
     for (const result of taken) await (result as PromiseFulfilledResult<ConcurrencySlot>).value.release();
+  });
+});
+
+// 空の index の回収 (rmdir) と新規取得 (mkdir → 枠ファイル作成) が交錯する順序を固定する。
+// 2 件が同じ index の枠ファイルを一意性確認の前に作り、双方が自分の枠を外した後に、その index を
+// 取り直せないと、空き枠を残したまま上限エラーで終わる呼び出しが出る。
+// 契約: 競合した 2 件のうち 1 件は入場する / 入場した呼び出しの枠だけが残る / 解放後に残骸が無い。
+test("空の index の回収と新規取得が交錯しても、空き枠を取り逃さない", async () => {
+  await withRoot(async (root) => {
+    const dir = slotDirPath(slotsDir(root), 0);
+    const ownerA = callDirName({ pid: 1001, startedAtMs: STARTED_AT });
+    const ownerB = callDirName({ pid: 1002, startedAtMs: STARTED_AT });
+    const readStartedAt = reader({ 1001: STARTED_AT, 1002: STARTED_AT });
+    const gate = new SlotFsGate();
+    gate.arm((_op, path) => path === dir || path.startsWith(`${dir}/`));
+    gate.install();
+    try {
+      const a = acquireConcurrencySlot({ root, limit: 1, pid: 1001, readStartedAt });
+      const aOutcome = a.then(
+        (slot) => ({ status: "fulfilled" as const, slot }),
+        (error: Error) => ({ status: "rejected" as const, error }),
+      );
+      const [aMkdir] = await gate.waitFor((entry) => entry.op === "mkdir" && entry.path === dir);
+      const b = acquireConcurrencySlot({ root, limit: 1, pid: 1002, readStartedAt });
+      const bOutcome = b.then(
+        (slot) => ({ status: "fulfilled" as const, slot }),
+        (error: Error) => ({ status: "rejected" as const, error }),
+      );
+      const mkdirs = await gate.waitFor((entry) => entry.op === "mkdir" && entry.path === dir, 2);
+      gate.release(aMkdir);
+      const [aOpen] = await gate.waitFor((entry) => entry.op === "open" && entry.path === join(dir, ownerA));
+      gate.release(mkdirs[1] as SlotFsRequest);
+      const [bEmpty] = await gate.waitFor((entry) => entry.op === "readdir" && entry.path === dir);
+      gate.release(bEmpty as SlotFsRequest);
+      const [bRmdir] = await gate.waitFor((entry) => entry.op === "rmdir" && entry.path === dir);
+      gate.release(bRmdir as SlotFsRequest);
+      const [bRecreate] = await gate.waitFor((entry) => entry.op === "mkdir" && entry.path === dir);
+      gate.release(bRecreate as SlotFsRequest);
+      const [bOpen] = await gate.waitFor((entry) => entry.op === "open" && entry.path === join(dir, ownerB));
+
+      // 両方の open を先に通し、双方の枠ファイルができてから一意性確認させる
+      gate.release(aOpen as SlotFsRequest);
+      gate.release(bOpen as SlotFsRequest);
+      const verifies = await gate.waitFor((entry) => entry.op === "readdir" && entry.path === dir, 2);
+      gate.release(verifies[0] as SlotFsRequest);
+      gate.release(verifies[1] as SlotFsRequest);
+
+      // 解放の順でも完了の順でも役割が入れ替わらないように、所有者パスで A / B の削除を選ぶ。
+      // A の削除が終わって再試行の mkdir が届いたことを確認してから B の削除を解放する。
+      const [aRemoval] = await gate.waitFor((entry) => entry.op === "rm" && entry.path === join(dir, ownerA));
+      const [bRemoval] = await gate.waitFor((entry) => entry.op === "rm" && entry.path === join(dir, ownerB));
+      gate.release(aRemoval as SlotFsRequest);
+      const [retryMkdir] = await gate.waitFor((entry) => entry.op === "mkdir" && entry.path === dir);
+      gate.release(bRemoval as SlotFsRequest);
+      const [bBlockedMkdir] = await gate.waitFor(
+        (entry) => entry.op === "mkdir" && entry.path === dir && entry !== retryMkdir,
+      );
+
+      // index は空に戻っている。A の取り直し (空の回収 → 作り直し → 枠の作成) を順に通す
+      gate.release(retryMkdir as SlotFsRequest);
+      const [retryEmpty] = await gate.waitFor((entry) => entry.op === "readdir" && entry.path === dir);
+      gate.release(retryEmpty as SlotFsRequest);
+      const [retryRmdir] = await gate.waitFor((entry) => entry.op === "rmdir" && entry.path === dir);
+      gate.release(retryRmdir as SlotFsRequest);
+      const [retryRecreate] = await gate.waitFor(
+        (entry) => entry.op === "mkdir" && entry.path === dir && entry !== bBlockedMkdir,
+      );
+      gate.release(retryRecreate);
+      const [retryOpen] = await gate.waitFor((entry) => entry.op === "open" && entry.path === join(dir, ownerA));
+      gate.release(retryOpen);
+      const [retryVerify] = await gate.waitFor((entry) => entry.op === "readdir" && entry.path === dir);
+      gate.release(retryVerify);
+
+      const aResult = await aOutcome;
+      assert.equal(aResult.status, "fulfilled", "空に戻った index を取り直して入場する");
+      if (aResult.status !== "fulfilled") assert.fail("空に戻った index を取り直して入場する");
+      assert.equal(aResult.slot.index, 0);
+      gate.disarm();
+      gate.releaseAll();
+      const bResult = await bOutcome;
+      assert.ok(
+        bResult.status === "rejected" && bResult.error instanceof ConcurrencyLimitError,
+        "もう 1 件は上限で断られる",
+      );
+      assert.deepEqual(await leaseOwners(root, 0), [ownerA], "index の枠は入場した呼び出しの 1 つだけ");
+      await aResult.slot.release();
+      assert.deepEqual(await readdir(root), [], "解放後は残骸が無い");
+    } finally {
+      gate.disarm();
+      gate.releaseAll();
+      gate.restore();
+    }
+  });
+});
+
+// 取得の途中で別の呼び出しが空の index を回収すると、readdir が ENOENT になる。これを「index の位置の
+// ファイル (旧形式) があり読めない」と同じ扱いにすると、空き枠を残したまま入場を諦める。
+// 契約: 消えた index は空きとして取り直し、入場する (消さずに残す対象は既存のファイルだけ)。
+test("取得の途中で index が消えても、旧形式のファイルと同じ扱いにせず取り直す", async () => {
+  await withRoot(async (root) => {
+    const dir = slotDirPath(slotsDir(root), 0);
+    const rawRmdir = fs.rmdir;
+    await putEmptyIndex(root, 0);
+    const gate = new SlotFsGate();
+    gate.arm((_op, path) => path === dir || path.startsWith(`${dir}/`));
+    gate.install();
+    try {
+      const readStartedAt = reader({ 1001: STARTED_AT });
+      const a = acquireConcurrencySlot({ root, limit: 1, pid: 1001, readStartedAt });
+      const aOutcome = a.then(
+        (slot) => ({ status: "fulfilled" as const, slot }),
+        (error: Error) => ({ status: "rejected" as const, error }),
+      );
+      const [mkdirRequest] = await gate.waitFor((entry) => entry.op === "mkdir" && entry.path === dir);
+      gate.release(mkdirRequest);
+      const [readdirRequest] = await gate.waitFor((entry) => entry.op === "readdir" && entry.path === dir);
+      await rawRmdir(dir);
+      gate.release(readdirRequest as SlotFsRequest);
+      gate.disarm();
+      gate.releaseAll();
+
+      const aResult = await aOutcome;
+      assert.equal(aResult.status, "fulfilled", "消えた index を空きとして取り直す");
+      if (aResult.status !== "fulfilled") assert.fail("消えた index を空きとして取り直す");
+      assert.equal(aResult.slot.index, 0);
+      assert.deepEqual(await leaseOwners(root, 0), [callDirName({ pid: 1001, startedAtMs: STARTED_AT })]);
+      await aResult.slot.release();
+      assert.deepEqual(await readdir(root), [], "解放後は残骸が無い");
+    } finally {
+      gate.disarm();
+      gate.releaseAll();
+      gate.restore();
+    }
   });
 });
 
