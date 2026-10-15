@@ -32,6 +32,10 @@ import {
 /** 枠の置き場。呼び出しの一時領域 (`<root>/<pid>-<起動時刻>`) と同じ親の下に分けて置く */
 export const SLOTS_DIR_NAME = "slots";
 
+// 一意性確認に敗れて自分の枠を外した後の取り直しは「空の index の回収 → 作り直し → 枠の作成」に
+// 2 回を使うので、2 回では空き枠を取り逃す。生存中の枠を見たら即座に諦めるため、待ちは生じない。
+const CLAIM_ATTEMPTS = 4;
+
 export class ConcurrencyLimitError extends Error {
   constructor(limit: number) {
     super(`同時実行の上限 (${limit} 件) に達しています。実行中の呼び出しが終わるのを待って再実行してください`);
@@ -80,9 +84,12 @@ async function tryMkdir(path: string): Promise<boolean> {
   }
 }
 
-/** index ディレクトリの中身。ディレクトリでなければ (旧形式のファイルなど) undefined */
+/**
+ * index ディレクトリの中身。消えていた (ENOENT) ときは空として扱う (誰も持っていない空の index と同じ)。
+ * ディレクトリでなければ (旧形式のファイルなど) undefined。
+ */
 async function readIndexDir(dirPath: string): Promise<string[] | undefined> {
-  return readdir(dirPath).catch(() => undefined);
+  return readdir(dirPath).catch((error: NodeJS.ErrnoException) => (error.code === "ENOENT" ? [] : undefined));
 }
 
 /** 旧形式 (index の位置のファイル) が名乗る所有者。読めない・形が違うときは undefined */
@@ -130,11 +137,11 @@ async function claimIndex(options: {
   readStartedAt: ProcessStartTimeReader;
 }): Promise<string | undefined> {
   const dirPath = slotDirPath(options.dir, options.index);
-  for (let attempt = 0; attempt < 2; attempt += 1) {
+  for (let attempt = 0; attempt < CLAIM_ATTEMPTS; attempt += 1) {
     if (await tryMkdir(dirPath)) {
       const installed = await installLease(dirPath, options.owner);
       if (installed) return installed;
-      continue; // ディレクトリを回収された場合はもう一度だけ試す
+      continue; // ディレクトリを回収された / 一意性確認に敗れた場合は、空に戻った index を取り直す
     }
     const entries = await readIndexDir(dirPath);
     if (entries === undefined) {
