@@ -87,10 +87,20 @@ RUN pnpm check
 
 # ブラウザの probe。root では実行せず、node ユーザー + 既存の Landlock ラッパー経由
 # (`u7agent-landlock -c '...'`) + 通常実行相当の許可 root / HOME で実行し、DOM / PNG / ループバックの HTTP と WS /
-# ループバック以外と link-local redirect の拒否を検査する。環境変数を渡すだけでは Landlock は適用されないため、
+# ループバック以外と link-local redirect の拒否 / check の分類を検査する (`--self-test`)。
+# ラッパー自身 (`shot` / `dom` / `check`) も data: URL と拒否される URL で実行し、
+# 入口が動くこと・返すのが cwd 相対パスであること・終了コードと保存の契約をここで見る
+# (拒否される URL には長い query を付けて、結果が 1 件あるときも stdout が 64 KiB を超えないことを見る。
+#  期限で収集を完走できなかった `check` が検証成功を出さないことも見る。
+# テストはブラウザ不在で skip できるので、同梱物の検査は probe 側に持たせる)。
+# 環境変数を渡すだけでは Landlock は適用されないため、
 # ラッパーが実際に効いていること (ABI 999 は拒否 / 許可 root の外へ書けない) も検査する。2 本同時に走らせて、
 # 起動時の回収と同時実行の入場制御が生存中の呼び出しを壊さないことも見る。終了後に残骸が無いことまで見る。
 # 2 本目は PLAYWRIGHT_BROWSERS_PATH 未設定で走らせ、import 前に既定 (/ms-playwright) が有効になることも見る。
+# `pnpm check` のブラウザテストは root で /tmp/u7agent-browser を作る。probe は node で走るため、
+# root 所有の置き場が残っていると mkdir が EACCES になり、実運用の初回起動と条件が変わる。
+# 消してから node に作らせ、作成できることまで見る。
+RUN rm -rf /tmp/u7agent-browser
 USER node
 RUN set -eux; \
     mkdir -p /tmp/u7agent-browser-probe; \
@@ -107,6 +117,27 @@ RUN set -eux; \
     cat /tmp/u7agent-browser-probe/1.log /tmp/u7agent-browser-probe/2.log; \
     grep -q "self-test ok" /tmp/u7agent-browser-probe/1.log; \
     grep -q "self-test ok" /tmp/u7agent-browser-probe/2.log; \
+    test -z "$(ls -A /tmp/u7agent-browser)"; \
+    data_url=data:text/html,entry-probe; \
+    wrap "u7agent-browser dom $data_url" > /tmp/u7agent-browser-probe/dom.log 2>&1; \
+    grep -q "entry-probe" /tmp/u7agent-browser-probe/dom.log; \
+    wrap "u7agent-browser check $data_url" > /tmp/u7agent-browser-probe/check-ok.log 2>&1; \
+    grep -q "検証成功" /tmp/u7agent-browser-probe/check-ok.log; \
+    wrap "u7agent-browser shot $data_url shot.png" > /tmp/u7agent-browser-probe/shot.log 2>&1; \
+    grep -qx "shot.png" /tmp/u7agent-browser-probe/shot.log; \
+    test -s shot.png; \
+    wrap "u7agent-browser shot $data_url shot.png" > /tmp/u7agent-browser-probe/shot-2.log 2>&1; \
+    grep -qx "shot-1.png" /tmp/u7agent-browser-probe/shot-2.log; \
+    test -s shot-1.png; \
+    ( set +x; long_url="http://192.0.2.1/?q=$(head -c 80000 /dev/zero | tr '\0' x)"; \
+      ! wrap "u7agent-browser check '$long_url'" > /tmp/u7agent-browser-probe/check-denied.log 2> /tmp/u7agent-browser-probe/check-denied.err ); \
+    grep -q "検証失敗" /tmp/u7agent-browser-probe/check-denied.log; \
+    test "$(wc -c < /tmp/u7agent-browser-probe/check-denied.log)" -le 65536; \
+    ! wrap "u7agent-browser check data:text/html,hello --deadline-ms 1000" > /tmp/u7agent-browser-probe/check-deadline.log 2>&1; \
+    ! grep -q "検証成功" /tmp/u7agent-browser-probe/check-deadline.log; \
+    grep -q "期限" /tmp/u7agent-browser-probe/check-deadline.log; \
+    ! wrap "u7agent-browser shot http://192.0.2.1/ denied.png" > /tmp/u7agent-browser-probe/shot-denied.log 2>&1; \
+    test ! -f denied.png; \
     test -z "$(ls -A /tmp/u7agent-browser)"; \
     ! U7AGENT_LANDLOCK_MIN_ABI=999 wrap 'u7agent-browser --self-test' > /tmp/u7agent-browser-probe/invalid-abi.log 2>&1; \
     cat /tmp/u7agent-browser-probe/invalid-abi.log; \

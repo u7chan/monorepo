@@ -1,5 +1,5 @@
 /**
- * self-test 用のループバック fixture。HTTP (HTML / 302) と WebSocket の echo を 1 つの port 0 で受ける。
+ * ループバック fixture。HTTP (HTML / 302 / 任意の status) と WebSocket の echo を 1 つの port 0 で受ける。
  * 302 は「route が redirect 先で呼ばれない」経路を proxy だけで止められるかの検査に使う。
  */
 import { createHash } from "node:crypto";
@@ -23,6 +23,76 @@ export interface LoopbackFixture {
   /** 外部 URL へ 302 を返す入口 (path は `redirects` のキー) */
   redirect(path: string): string;
   close(): Promise<void>;
+}
+
+/** fixture が返す 1 つの応答。`hang` は応答も切断もせず、遷移 timeout の検査に使う */
+export interface FixtureResponse {
+  status?: number;
+  contentType?: string;
+  body?: string;
+  hang?: boolean;
+}
+
+/** 応答を組み立てる側で判明する値を渡す (origin / wsUrl は listen しないと決まらない) */
+export interface FixtureRequestContext {
+  origin: string;
+  wsUrl: string;
+  path: string;
+}
+
+export type FixtureHandler = (context: FixtureRequestContext) => FixtureResponse;
+
+export interface LoopbackFixtureOptions {
+  redirects?: Record<string, string>;
+  responses?: Record<string, FixtureHandler>;
+}
+
+/** `check` の分類を起こす fixture の path。入力 (ページ) を self-test とテストで同じにする */
+export const CHECK_FIXTURE_PATHS = {
+  status404: "/check/status-404",
+  status500: "/check/status-500",
+  pageerror: "/check/pageerror",
+  requestFailed: "/check/request-failed",
+  iconWarning: "/check/icon-warning",
+  icon: "/check/favicon.svg",
+  late: "/check/late",
+  webSocket: "/check/ws",
+  hang: "/check/hang",
+} as const;
+
+function htmlPage(body: string): string {
+  return `<!doctype html>\n<html lang="ja">\n  <head><meta charset="utf-8"><title>check fixture</title></head>\n  <body>${body}</body>\n</html>\n`;
+}
+
+/**
+ * 分類ごとに 1 つだけ error を起こすページ一式。requestfailed は閉じたポートへの script で起こす。
+ * favicon は headless では要求されないため、明示的に読ませて 404 を警告へ分類できるか見る。
+ */
+export function checkFixtureResponses(closedPort: number): Record<string, FixtureHandler> {
+  return {
+    [CHECK_FIXTURE_PATHS.status404]: () => ({ status: 404, body: htmlPage("<p>404</p>") }),
+    [CHECK_FIXTURE_PATHS.status500]: () => ({ status: 500, body: htmlPage("<p>500</p>") }),
+    [CHECK_FIXTURE_PATHS.pageerror]: () => ({
+      body: htmlPage('<script>throw new Error("fixture-pageerror");</script>'),
+    }),
+    [CHECK_FIXTURE_PATHS.requestFailed]: () => ({
+      body: htmlPage(`<script src="http://127.0.0.1:${closedPort}/missing.js"></script>`),
+    }),
+    [CHECK_FIXTURE_PATHS.iconWarning]: () => ({ body: htmlPage(`<img src="${CHECK_FIXTURE_PATHS.icon}">`) }),
+    [CHECK_FIXTURE_PATHS.icon]: () => ({ status: 404, contentType: "image/svg+xml" }),
+    [CHECK_FIXTURE_PATHS.late]: () => ({
+      body: htmlPage(
+        '<div id="late">waiting</div><script>setTimeout(() => { document.getElementById("late").textContent = "rendered"; throw new Error("fixture-late"); }, 100)</script>',
+      ),
+    }),
+    [CHECK_FIXTURE_PATHS.webSocket]: ({ wsUrl }) => ({
+      body: htmlPage(
+        `<script>\n  const socket = new WebSocket(${JSON.stringify(wsUrl)});\n  socket.onopen = () => socket.send("ping");\n  socket.onmessage = () => {\n    const ok = document.createElement("div");\n    ok.id = "ws-ok";\n    ok.textContent = "echoed";\n    document.body.append(ok);\n  };\n</script>`,
+      ),
+    }),
+    // 応答を返さない。遷移の timeout を検証失敗として分類できるか見る
+    [CHECK_FIXTURE_PATHS.hang]: () => ({ hang: true }),
+  };
 }
 
 interface WebSocketFrame {
@@ -89,20 +159,38 @@ function originOf(server: Server): string {
   return `http://127.0.0.1:${address.port}`;
 }
 
-export async function startLoopbackFixture(
-  options: { redirects?: Record<string, string> } = {},
-): Promise<LoopbackFixture> {
+/** 一度 bind してから閉じた loopback のポート。接続が必ず失敗する宛先を作る (requestfailed の検査用) */
+export async function reserveClosedPort(): Promise<number> {
+  const server = createServer();
+  await new Promise<void>((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(0, "127.0.0.1", resolve);
+  });
+  const address = server.address();
+  if (!address || typeof address !== "object") throw new Error("閉じたポートを取得できません");
+  await new Promise<void>((resolve) => server.close(() => resolve()));
+  return address.port;
+}
+
+export async function startLoopbackFixture(options: LoopbackFixtureOptions = {}): Promise<LoopbackFixture> {
   const redirects = options.redirects ?? {};
+  const responses = options.responses ?? {};
+  let requestContext: Omit<FixtureRequestContext, "path"> | undefined;
   const server = createServer((req: IncomingMessage, res) => {
-    const path = (req.url ?? "/").split("?")[0];
+    const path = (req.url ?? "/").split("?")[0] as string;
     const target = redirects[path];
     if (target) {
       res.writeHead(302, { location: target, "content-length": 0 });
       res.end();
       return;
     }
-    res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
-    res.end(FIXTURE_HTML);
+    const handler = responses[path];
+    const response =
+      handler === undefined || requestContext === undefined ? undefined : handler({ ...requestContext, path });
+    // 応答も end もしない。close() の closeAllConnections で切れるまで接続を保持する
+    if (response?.hang) return;
+    res.writeHead(response?.status ?? 200, { "content-type": response?.contentType ?? "text/html; charset=utf-8" });
+    res.end(response?.body ?? FIXTURE_HTML);
   });
   server.on("upgrade", (req: IncomingMessage, socket: Socket) => {
     const key = req.headers["sec-websocket-key"];
@@ -128,9 +216,11 @@ export async function startLoopbackFixture(
     server.listen(0, "127.0.0.1", resolve);
   });
   const origin = originOf(server);
+  const wsUrl = origin.replace(/^http/, "ws") + "/ws";
+  requestContext = { origin, wsUrl };
   return {
     origin,
-    wsUrl: origin.replace(/^http/, "ws") + "/ws",
+    wsUrl,
     redirect: (path: string) => `${origin}${path}`,
     close: () =>
       new Promise((resolve) => {
