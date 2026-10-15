@@ -251,7 +251,7 @@ test("migrates a v1 db additively without touching agents, skills and projects",
     assert.deepEqual(db.listSkills(), [skill("s1")]);
     assert.deepEqual(db.listAgents(), [agent("a1", ["s1"])]);
     assert.equal(db.getNotificationSettings(), undefined);
-    db.saveNotificationSettings({ enabled: true, webhookUrl: "https://discord.com/api/webhooks/1/t" });
+    db.saveNotificationSettings({ enabled: true, askUser: true, webhookUrl: "https://discord.com/api/webhooks/1/t" });
     db.close();
 
     // 版が上がっている (開き直しても作り直されない)
@@ -265,6 +265,7 @@ test("migrates a v1 db additively without touching agents, skills and projects",
     assert.deepEqual(second.listAgents(), [agent("a1", ["s1"])]);
     assert.deepEqual(second.getNotificationSettings(), {
       enabled: true,
+      askUser: true,
       webhookUrl: "https://discord.com/api/webhooks/1/t",
     });
     second.close();
@@ -280,6 +281,7 @@ test("notification settings round-trip through the sqlite row", () => {
     assert.equal(first.getNotificationSettings(), undefined);
     const settings = {
       enabled: true,
+      askUser: false,
       webhookUrl: "https://discord.com/api/webhooks/1/t",
       baseUrl: "http://127.0.0.1:5173",
       lastResult: { ok: false, status: 404, latencyMs: 98, message: "Unknown Webhook", code: 10015, at: 1 },
@@ -292,6 +294,7 @@ test("notification settings round-trip through the sqlite row", () => {
     const second = AppDb.open({ storeDir: dir });
     assert.deepEqual(second.getNotificationSettings(), {
       enabled: false,
+      askUser: false,
       webhookUrl: "https://discord.com/api/webhooks/1/t",
       baseUrl: "http://127.0.0.1:5173",
     });
@@ -328,9 +331,10 @@ test("migrates a v2 db additively and keeps archive settings across reopen", () 
     const first = AppDb.open({ storeDir: dir });
     // 加算移行なので既存 4 テーブルは消えない。行が無い = 未設定
     assert.deepEqual(first.listProjects(), [project("p1", "proj-a")]);
-    assert.deepEqual(first.getNotificationSettings(), { enabled: true });
+    // 旧行には askUser 列が無いため既定 (ON) で読む
+    assert.deepEqual(first.getNotificationSettings(), { enabled: true, askUser: true });
     assert.equal(first.readArchiveExcludeNames(), undefined);
-    first.saveNotificationSettings({ enabled: true });
+    first.saveNotificationSettings({ enabled: true, askUser: false });
     first.saveArchiveExcludeNames(["node_modules", "dist"]);
     first.close();
 
@@ -1111,7 +1115,7 @@ test("migrates a v10 db additively and keeps the secrets table across reopen", (
     raw.close();
 
     const first = AppDb.open({ storeDir: dir });
-    assert.equal(APP_DB_SCHEMA_VERSION, 19);
+    assert.equal(APP_DB_SCHEMA_VERSION, 20);
     // 加算移行なので既存の行は残り、secrets は行が無い = 未設定で始まる
     assert.deepEqual(first.listProjects(), [project("p1", "proj-a")]);
     assert.deepEqual(first.getServeCommand("proj-a"), { cwd: "proj-a", command: "pnpm dev", updatedAt: 1 });

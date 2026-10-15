@@ -30,7 +30,7 @@ pnpm dev   # サンドボックス + BFF + Vite をまとめて起動 → http:/
 - **ファイルの持ち出し（ダウンロード）** — 設定 → ファイル と右パネルのツリーの行から保存できます。ファイルは元の名前のまま生バイトで、フォルダは ZIP です。除外規則と上限は [docs/file-preview.md](docs/file-preview.md#ダウンロード)
 - **スキル** — エージェント定義スキル / ファイルスキル（`.agents/skills`）/ 組み込みスキルの 3 種類があり、入力欄から `/skill:<name>` で展開します（[docs/persistence.md](docs/persistence.md#スキルの扱い) / [docs/api-catalog.md](docs/api-catalog.md#ファイルスキルagentsskills)）
 - **サービス（serve）** — エージェントが起動した Web サーバーを別タブで開き、トップバーから起動・停止・入れ替えができます（[docs/sandbox.md](docs/sandbox.md#serveサービスの公開と起動停止)）
-- **通知（Discord）** — 会話ごとのトグルが On のとき、応答の先頭 200 文字を 1 通送ります。機微な会話では Off にしてください（[docs/notifications.md](docs/notifications.md)）
+- **通知（Discord）** — 会話ごとのトグルが On のとき、応答の先頭 200 文字を 1 通送ります。応答が返らない質問待ちでも、設定 → 通知の「質問の通知」を On にしていれば、質問が発生したことと会話のリンクが届きます。会話の通知が Off の場合は本文なし、On の場合はタイトルと第 1 問も載ります（[docs/notifications.md](docs/notifications.md)）
 
 ## 環境変数
 

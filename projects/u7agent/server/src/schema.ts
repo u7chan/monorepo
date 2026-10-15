@@ -607,6 +607,8 @@ export type NotificationResult = z.infer<typeof NotificationResultSchema>;
 /** アプリデータの SQLite に保存する通知設定。webhookUrl は API 応答へ出さない (write-only) */
 export const NotificationSettingsSchema = z.object({
   enabled: z.boolean(),
+  /** 質問通知。全体通知が ON のときだけ効く (会話ごとの notify は本文の有無を決める) */
+  askUser: z.boolean(),
   webhookUrl: z.string().optional(),
   baseUrl: z.string().optional(),
   lastResult: NotificationResultSchema.optional(),
@@ -616,6 +618,7 @@ export type NotificationSettings = z.infer<typeof NotificationSettingsSchema>;
 /** GET / PUT `/api/notifications` の応答。保存済み URL は `configured` と末尾 4 文字だけを返す */
 export const NotificationsResponseSchema = z.object({
   enabled: z.boolean(),
+  askUser: z.boolean(),
   provider: z.literal("discord"),
   configured: z.boolean(),
   webhookHint: z.string().optional(),
@@ -1577,6 +1580,7 @@ export type UpdateSecretBody = z.infer<typeof UpdateSecretBodySchema>;
 /** 通知設定の更新。キー省略は現在値の維持、webhookUrl / baseUrl の null は解除 */
 export const UpdateNotificationsBodySchema = z.object({
   enabled: z.boolean().optional(),
+  askUser: z.boolean().optional(),
   webhookUrl: z.string().nullish(),
   baseUrl: z.string().nullish(),
 });

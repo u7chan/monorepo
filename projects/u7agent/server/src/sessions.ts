@@ -1233,9 +1233,15 @@ export class SessionStore {
         record.questions.delete(toolCallId);
         settleQuestion(pending, () => reject(new Error("ask_user was aborted")));
       };
+      // 未 settle の待機が 0 -> 1 になる瞬間だけ通知する (settle 済みの tombstone は数えない)
+      const opensWaiting = ![...record.questions.values()].some((other) => !other.settled);
       record.questions.set(toolCallId, pending);
-      if (signal?.aborted) onAbort();
-      else signal?.addEventListener("abort", onAbort, { once: true });
+      if (signal?.aborted) {
+        onAbort();
+        return;
+      }
+      signal?.addEventListener("abort", onAbort, { once: true });
+      if (opensWaiting) this.notifyQuestion(record, questions);
     });
   }
 
@@ -2245,6 +2251,24 @@ export class SessionStore {
       body,
       durationMs,
       toolCalls: record.tools.size,
+    });
+  }
+
+  /**
+   * 質問通知。未 settle の待機が 0 -> 1 になる瞬間に 1 通だけ送り、登録と回答を待たせない。
+   * 本文の有無は会話の通知 (`notify`) で決め、並行する 2 件目の呼び出しでは送らない (集約はしない)。
+   */
+  private notifyQuestion(record: SessionRecord, questions: AskUserQuestion[]): void {
+    if (!this.notifications) return;
+    const first = questions[0];
+    if (!first) return;
+    this.notifications.notifyQuestion({
+      sessionId: record.id,
+      spaceId: record.meta.spaceId,
+      title: record.title,
+      agentName: record.agent.name,
+      questionCount: questions.length,
+      ...(record.notify ? { question: first.question } : {}),
     });
   }
 

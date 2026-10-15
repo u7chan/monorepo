@@ -7,6 +7,7 @@ import { sessionEntryHref } from "./route";
 
 export type NotificationDraft = {
   enabled: boolean;
+  askUser: boolean;
   /** null = 保存済みを維持する。文字列は「変更」で入力した新しい値で、空文字は解除 (null 送信) を表す */
   webhookUrl: string | null;
   baseUrl: string;
@@ -15,6 +16,7 @@ export type NotificationDraft = {
 /** 設定の読み込み前と下書きの破棄で使う初期値 */
 export const EMPTY_NOTIFICATION_DRAFT: NotificationDraft = {
   enabled: false,
+  askUser: true,
   webhookUrl: null,
   baseUrl: "",
 };
@@ -23,6 +25,8 @@ export const EMPTY_NOTIFICATION_DRAFT: NotificationDraft = {
 export function draftFromSettings(settings: NotificationsResponse | null): NotificationDraft {
   return {
     enabled: settings?.enabled ?? false,
+    // 設定が読めていないときも既定 (ON) を出す (サーバー側のフォールバックと同じ)
+    askUser: settings?.askUser ?? true,
     webhookUrl: null,
     baseUrl: settings?.baseUrl ?? "",
   };
@@ -33,6 +37,7 @@ export function draftIsDirty(draft: NotificationDraft, settings: NotificationsRe
   if (!settings) return false;
   return (
     draft.enabled !== settings.enabled ||
+    draft.askUser !== settings.askUser ||
     // 保存済み URL は再表示しないため、入力が始まった時点で変更として扱う
     draft.webhookUrl !== null ||
     draft.baseUrl.trim() !== (settings.baseUrl ?? "")
@@ -56,6 +61,7 @@ export function syncDraft(
   const updated = draftFromSettings(next);
   return {
     enabled: draft.enabled === base.enabled ? updated.enabled : draft.enabled,
+    askUser: draft.askUser === base.askUser ? updated.askUser : draft.askUser,
     webhookUrl: draft.webhookUrl === null ? null : draft.webhookUrl,
     baseUrl: draft.baseUrl.trim() === base.baseUrl ? updated.baseUrl : draft.baseUrl,
   };
@@ -65,6 +71,7 @@ export function syncDraft(
 export function draftBody(draft: NotificationDraft): UpdateNotificationsBody {
   const body: UpdateNotificationsBody = {
     enabled: draft.enabled,
+    askUser: draft.askUser,
     baseUrl: draft.baseUrl.trim() || null,
   };
   if (draft.webhookUrl !== null) body.webhookUrl = draft.webhookUrl.trim() || null;
@@ -252,6 +259,13 @@ const PREVIEW_SESSION_ID = "a1b2c3d4e5";
 /** 見本の所属スペース。実通知は会話の所属 (既定スペースは default) を常に載せる */
 const PREVIEW_SPACE_ID = "space-a1b2c3d4e5f6a7b8";
 
+/** 質問通知の見本 (会話の通知が On の会話 = タイトルと第 1 問を載せる形) */
+const PREVIEW_QUESTION_LINES = [
+  "❓ 回答待ち  パンくずの折り返しを直す",
+  "実装担当 ・ 質問 2件",
+  "どちらの方式で進めますか。",
+];
+
 /** プレビューのリンク行。ベース URL が空・不正なら undefined (サーバーもリンク行ごと出さない) */
 export function previewLink(baseUrl: string): string | undefined {
   const value = baseUrl.trim();
@@ -269,6 +283,8 @@ export function notificationPreviewLines(draft: NotificationDraft): string[] {
     "✅ 完了  パンくずの折り返しを直す",
     "実装担当 ・ 4分12秒 ・ ツール 12件",
     "テストが 3 件失敗しています。修正して再実行してください。",
+    // 質問通知は全体トグルの askUser で送るかどうかが決まるため、Off の下書きでは見本も出さない
+    ...(draft.askUser ? PREVIEW_QUESTION_LINES : []),
     ...(link ? [link] : []),
   ];
 }

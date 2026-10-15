@@ -408,3 +408,165 @@ test("the notify route rejects an invalid body and a missing session", async () 
     }
   });
 });
+
+/** 質問通知の質問。2 件目とは本文を分け、N と第 1 問が最初の呼び出しのものかを見る */
+const ASK_QUESTIONS = [{ question: "どちらの方式で進めますか" }, { question: "補足はありますか" }];
+
+const ASK_ANSWERS = [
+  { index: 0, selected: ["A"] },
+  { index: 1, skipped: true },
+];
+
+/** 送信 1 通分の embed。title / description だけを読む */
+function embedOf(call: { url: string; init: RequestInit | undefined } | undefined): {
+  title: string;
+  description: string;
+} {
+  return JSON.parse(String(call?.init?.body)).embeds[0];
+}
+
+test("質問の登録で 1 通だけ送り、並行する 2 件目と settle 済みの tombstone は数えない", async () => {
+  await withStoreDir(async (dir) => {
+    const { impl, calls } = fakeFetch(() => new Response(null, { status: 204 }));
+    const bff = await openBff(dir, { notificationFetch: impl });
+    try {
+      await bff.app.request(
+        "/api/notifications",
+        jsonPut({ webhookUrl: WEBHOOK, enabled: true, baseUrl: "http://127.0.0.1:5173" }),
+      );
+      const created = await jsonBody(bff.app.request("/api/sessions", jsonPost({ notify: true })));
+      await bff.app.request(
+        `/api/sessions/${created.sessionId}/title`,
+        jsonPatch({ title: "パンくずの折り返しを直す" }),
+      );
+      const record = bff.store.records.get(created.sessionId);
+
+      const first = bff.store.askUserHost().ask(created.sessionId, "call-1", ASK_QUESTIONS, undefined);
+      const second = bff.store.askUserHost().ask(created.sessionId, "call-2", [{ question: "2 件目" }], undefined);
+      await waitFor(() => calls.length === 1, 1000, "最初の登録で 1 通");
+      const embed = embedOf(calls[0]);
+      // 会話の通知が On なのでタイトルと第 1 問を載せる。N は最初の呼び出しの質問数
+      assert.equal(embed.title, "❓ 回答待ち  パンくずの折り返しを直す");
+      assert.deepEqual(embed.description.split("\n"), [
+        "汎用アシスタント ・ 質問 2件",
+        "どちらの方式で進めますか",
+        `http://127.0.0.1:5173/s/${created.sessionId}?space=default`,
+      ]);
+
+      // 並行する 2 件目を settle しても追加送信は無い
+      assert.equal(bff.store.answerQuestion(record!, "call-2", [{ index: 0, text: "はい" }]).status, "ok");
+      await second;
+      assert.equal(bff.store.answerQuestion(record!, "call-1", ASK_ANSWERS).status, "ok");
+      await first;
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      assert.equal(calls.length, 1);
+
+      // 全待機が解消した後の再質問は、settle 済みの tombstone を数えず再び 1 通送る
+      const again = bff.store.askUserHost().ask(created.sessionId, "call-3", [{ question: "再質問" }], undefined);
+      await waitFor(() => calls.length === 2, 1000, "再質問で再通知");
+      assert.deepEqual(embedOf(calls[1]).description.split("\n").slice(0, 2), [
+        "汎用アシスタント ・ 質問 1件",
+        "再質問",
+      ]);
+      assert.equal(bff.store.answerQuestion(record!, "call-3", [{ index: 0, text: "x" }]).status, "ok");
+      await again;
+    } finally {
+      await bff.close();
+    }
+  });
+});
+
+test("会話の通知が Off の会話では質問通知にタイトルと質問文を載せない", async () => {
+  await withStoreDir(async (dir) => {
+    const { impl, calls } = fakeFetch(() => new Response(null, { status: 204 }));
+    const bff = await openBff(dir, { notificationFetch: impl });
+    try {
+      await bff.app.request(
+        "/api/notifications",
+        jsonPut({ webhookUrl: WEBHOOK, enabled: true, baseUrl: "http://127.0.0.1:5173" }),
+      );
+      // 新規チャットの notify は既定 Off
+      const created = await jsonBody(bff.app.request("/api/sessions", jsonPost({})));
+      await bff.app.request(
+        `/api/sessions/${created.sessionId}/title`,
+        jsonPatch({ title: "パンくずの折り返しを直す" }),
+      );
+      const record = bff.store.records.get(created.sessionId);
+
+      const pending = bff.store.askUserHost().ask(created.sessionId, "call-1", ASK_QUESTIONS, undefined);
+      await waitFor(() => calls.length === 1, 1000, "本文なしの 1 通");
+      const embed = embedOf(calls[0]);
+      assert.equal(embed.title, "❓ 質問があります");
+      assert.deepEqual(embed.description.split("\n"), [
+        "汎用アシスタント ・ 質問 2件",
+        `http://127.0.0.1:5173/s/${created.sessionId}?space=default`,
+      ]);
+      assert.equal(bff.store.answerQuestion(record!, "call-1", ASK_ANSWERS).status, "ok");
+      await pending;
+    } finally {
+      await bff.close();
+    }
+  });
+});
+
+test("abort 済みの signal では質問通知を送らない", async () => {
+  await withStoreDir(async (dir) => {
+    const { impl, calls } = fakeFetch(() => new Response(null, { status: 204 }));
+    const bff = await openBff(dir, { notificationFetch: impl });
+    try {
+      await bff.app.request("/api/notifications", jsonPut({ webhookUrl: WEBHOOK, enabled: true }));
+      const created = await jsonBody(bff.app.request("/api/sessions", jsonPost({ notify: true })));
+      const record = bff.store.records.get(created.sessionId);
+
+      const controller = new AbortController();
+      controller.abort();
+      const aborted = bff.store.askUserHost().ask(created.sessionId, "call-1", ASK_QUESTIONS, controller.signal);
+      await assert.rejects(aborted, /ask_user/);
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      assert.equal(calls.length, 0, "回答不可能な登録は通知しない");
+      assert.equal(bff.store.answerQuestion(record!, "call-1", ASK_ANSWERS).status, "missing");
+    } finally {
+      await bff.close();
+    }
+  });
+});
+
+test("通知の失敗は質問の登録と回答を妨げない", async () => {
+  await withStoreDir(async (dir) => {
+    const { impl, calls } = fakeFetch(() => {
+      throw new TypeError("fetch failed");
+    });
+    const bff = await openBff(dir, { notificationFetch: impl });
+    try {
+      await bff.app.request("/api/notifications", jsonPut({ webhookUrl: WEBHOOK, enabled: true }));
+      const created = await jsonBody(bff.app.request("/api/sessions", jsonPost({ notify: true })));
+      const record = bff.store.records.get(created.sessionId);
+
+      const pending = bff.store.askUserHost().ask(created.sessionId, "call-1", ASK_QUESTIONS, undefined);
+      assert.equal(bff.store.list()[0].awaitingAnswer, true, "送信が失敗しても待機は登録される");
+      assert.equal(bff.store.answerQuestion(record!, "call-1", ASK_ANSWERS).status, "ok");
+      assert.deepEqual(await pending, ASK_ANSWERS);
+      // 失敗は直近結果として残り、質問の登録・回答はそのまま成立する
+      await waitFor(() => bff.notifications.settings().lastResult?.ok === false, 1000, "失敗の記録");
+      assert.equal(calls.length, 1);
+    } finally {
+      await bff.close();
+    }
+  });
+});
+
+test("askUser が Off でも会話の通知が On の完了通知は従来どおり送る", async () => {
+  await withStoreDir(async (dir) => {
+    const { impl, calls } = fakeFetch(() => new Response(null, { status: 204 }));
+    const bff = await openBff(dir, { notificationFetch: impl });
+    try {
+      await bff.app.request("/api/notifications", jsonPut({ webhookUrl: WEBHOOK, enabled: true, askUser: false }));
+      const created = await jsonBody(bff.app.request("/api/sessions", jsonPost({ notify: true })));
+      await bff.app.request(`/api/sessions/${created.sessionId}/messages`, jsonPost({ text: "実行して" }));
+      await waitFor(() => calls.length === 1, 1000, "完了通知");
+      assert.match(embedOf(calls[0]).title, /^✅ 完了/);
+    } finally {
+      await bff.close();
+    }
+  });
+});

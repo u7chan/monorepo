@@ -4,6 +4,7 @@ import { CheckIcon } from "./icons";
 import { DiscordCard } from "./notifications/DiscordCard";
 import { LinkCard } from "./notifications/LinkCard";
 import { MessageCard } from "./notifications/MessageCard";
+import { QuestionCard } from "./notifications/QuestionCard";
 import { TestSendCard } from "./notifications/TestSendCard";
 import { ReloadButton } from "./ReloadButton";
 import { SettingsPageLayout, type SettingsPageProps } from "./SettingsPageLayout";
@@ -26,7 +27,7 @@ export function NotificationSettingsPage({
     <SettingsPageLayout
       eyebrow="NOTIFICATIONS"
       title="通知"
-      caption="通知を On にした会話で、エージェントの応答が返ってきたときに送ります。"
+      caption="エージェントの応答の完了と、質問の発生を送ります。会話の通知が Off のときは、質問の通知にタイトルと質問文を載せません。"
       actions={
         <>
           <button type="button" className="btn-quiet" disabled={!dirty || saving} onClick={discard}>
@@ -55,6 +56,7 @@ export function NotificationSettingsPage({
                 onChangeEnabled={(enabled) => setDraft({ enabled })}
                 onChangeWebhookUrl={(webhookUrl) => setDraft({ webhookUrl })}
               />
+              <QuestionCard askUser={draft.askUser} onChangeAskUser={(askUser) => setDraft({ askUser })} />
               <TestSendCard
                 available={testAvailable(draft, settings)}
                 needsSave={needsSave}
