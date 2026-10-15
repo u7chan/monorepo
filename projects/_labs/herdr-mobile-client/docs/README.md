@@ -16,6 +16,7 @@
 
 | 文書 | 内容 |
 | --- | --- |
+| [adr/0000-stack-and-dependency-policy.md](./adr/0000-stack-and-dependency-policy.md) | クライアントは Preact + 自前実装とし、第三者の UI 依存を足さない方針 |
 | [adr/0001-dev-ports.md](./adr/0001-dev-ports.md) | サーバーの待ち受けと Vite の proxy 先で `PORT` を共有し、2 つ目の dev では両方を変える理由 |
 | [adr/0002-api-client.md](./adr/0002-api-client.md) | クライアントが Hono RPC でサーバーのルート型を共有する理由 |
 | [adr/0003-api-reference-for-ai.md](./adr/0003-api-reference-for-ai.md) | AI 向けの API 仕様をどう用意するか（提案） |
