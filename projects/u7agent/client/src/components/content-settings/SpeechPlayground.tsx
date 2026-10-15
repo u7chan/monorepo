@@ -12,6 +12,7 @@ import {
 } from "../../lib/contentSettings";
 import type { ContentSettingsResponse, SpeechPreviewBody } from "../../types";
 import { SelectField } from "../SelectField";
+import { SpeechVoiceOptions } from "./SpeechVoiceOptions";
 
 export type SpeechPlaygroundProps = {
   settings: ContentSettingsResponse;
@@ -177,11 +178,7 @@ export function SpeechPlaygroundView({
             disabled={busy}
             onChange={(event) => onChange({ voice: event.currentTarget.value })}
           >
-            {(selectedOption?.model?.voices ?? []).map((entry) => (
-              <option key={entry} value={entry}>
-                {entry}
-              </option>
-            ))}
+            <SpeechVoiceOptions modelId={values.model} voices={selectedOption?.model?.voices} />
           </SelectField>
         )}
       </div>

@@ -79,7 +79,7 @@ test("お試し再生は本文・モデル・ボイス・演技指示・速度�
   assert.match(html, /<select[^>]*aria-label="お試し再生のモデル"/, "モデルを選ばせる");
   assert.ok(html.includes('value="google/gemini-3.8-flash-tts"'), "保存済みモデルを選択した状態で出す");
   assert.match(html, /<select[^>]*aria-label="お試し再生のボイス"/, "宣言があるモデルはボイスを選ばせる");
-  assert.ok(html.includes(">Kore</option>"), "宣言されている他のボイスも候補に出す");
+  assert.ok(html.includes("Kore（Firm）</option>"), "宣言されている他のボイスも候補に出す");
   assert.match(html, /<input[^>]*aria-label="お試し再生の演技指示"/, "演技指示の入力を出す");
   assert.match(html, /<input[^>]*aria-label="お試し再生の速度"/, "速度の入力を出す");
   assert.ok(html.includes(">再生</button>"), "生成の操作を出す");
