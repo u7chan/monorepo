@@ -43,7 +43,8 @@ pnpm typecheck  # tsc --noEmit
 | `VITE_PORT` | `5173` | Vite の開発サーバー |
 
 同じホストで 2 つ目の `pnpm dev` を起動するときは、`PORT` と `VITE_PORT` を両方変える。
-片方だけ変えると Vite の proxy 先とサーバーの待ち受けポートがずれ、`/api` が届かなくなる。
+片方だけ変えると、変えなかった側のポートが 1 つ目の dev と衝突して起動に失敗する。
+`PORT` は Hono の待ち受けと Vite の proxy 先で同じ値を使うため、両者がずれることはない。
 
 ```bash
 PORT=3100 VITE_PORT=5273 pnpm dev
