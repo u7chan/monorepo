@@ -29,24 +29,6 @@ export function callDirName(owner: CallOwner): string {
   return `${owner.pid}-${owner.startedAtMs}`;
 }
 
-/**
- * 入場のための一時ファイルの名前。所有者を書いてから `link` で枠にする (呼び出しの置き場の直下に置き、
- * `slots/` には入場済みの枠だけが並ぶようにする)。`unique` は同じ所有者の同時実行を区別する
- */
-export function claimFileName(owner: CallOwner, unique: string): string {
-  return `.claim-${callDirName(owner)}-${unique}`;
-}
-
-/** 一時ファイルの名前から所有者を戻す。形が違う名前は対象外にする */
-export function parseClaimFileName(name: string): CallOwner | undefined {
-  const match = /^\.claim-(\d+)-(\d+)-/.exec(name);
-  if (!match) return undefined;
-  const pid = Number(match[1]);
-  const startedAtMs = Number(match[2]);
-  if (!Number.isSafeInteger(pid) || pid <= 0 || !Number.isSafeInteger(startedAtMs)) return undefined;
-  return { pid, startedAtMs };
-}
-
 /** 名前が所有者を表していないディレクトリは対象外にする (他のツールの置き場を巻き込まない) */
 export function parseCallDirName(name: string): CallOwner | undefined {
   const match = /^(\d+)-(\d+)$/.exec(name);
@@ -100,12 +82,6 @@ export async function cleanupStaleCallDirs(
   const entries = await readdir(root).catch(() => [] as string[]);
   const removed: string[] = [];
   for (const entry of entries) {
-    // 入場の一時ファイルは、入場が SIGKILL で中断されたときだけ残る。枠と同じく確定した終了だけで消す
-    const claim = parseClaimFileName(entry);
-    if (claim) {
-      if ((await callOwnerState(claim, readStartedAt)) === "gone") await rm(join(root, entry), { force: true });
-      continue;
-    }
     const owner = parseCallDirName(entry);
     if (!owner) continue;
     if ((await callOwnerState(owner, readStartedAt)) !== "gone") continue;

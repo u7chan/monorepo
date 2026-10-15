@@ -12,7 +12,6 @@ import { processStartedAtMs } from "../src/proc-stat";
 import {
   callDirName,
   callOwnerState,
-  claimFileName,
   cleanupStaleCallDirs,
   createCallDirs,
   isCallOwnerAlive,
@@ -96,26 +95,6 @@ test("読めない置き場 (不明) は消さずに残す", async () => {
     });
     assert.deepEqual(removed, []);
     assert.deepEqual(await readdir(root), ["555-1"]);
-  } finally {
-    await rm(root, { recursive: true, force: true });
-  }
-});
-
-// 入場の一時ファイル (claimFileName) は入場が SIGKILL で中断されたときだけ残る。
-// 所有者が確定で終了しているときだけ回収し、生存・不明のときは残す。
-test("入場の一時ファイルは所有者が終了したときだけ回収する", async () => {
-  const root = await mkdtemp(join(tmpdir(), "u7agent-browser-temp-"));
-  try {
-    const dead = claimFileName({ pid: 111, startedAtMs: STARTED_AT }, "dead");
-    const alive = claimFileName({ pid: 222, startedAtMs: STARTED_AT }, "alive");
-    const unknown = claimFileName({ pid: 444, startedAtMs: STARTED_AT }, "unknown");
-    for (const name of [dead, alive, unknown]) await writeFile(join(root, name), `${STARTED_AT}\n`);
-    const removed = await cleanupStaleCallDirs({
-      root,
-      readStartedAt: reader({ 222: STARTED_AT, 444: 0, 111: undefined }),
-    });
-    assert.deepEqual(removed, [], "置き場の一覧には出さない (枠とは別に消す)");
-    assert.deepEqual((await readdir(root)).sort(), [alive, unknown].sort());
   } finally {
     await rm(root, { recursive: true, force: true });
   }

@@ -1,6 +1,7 @@
 // 同時実行の入場制御 (server/src/browser/concurrency.ts) を検証する。
-// 上限を超えないこと (index の確保は原子的)、終了済みの枠を引き継ぐときに生存中の枠を消さないこと、
-// 不明な枠が容量を消費すること、プロセスをまたいで効くことを契約とする。
+// 契約: index ごとに 1 呼び出しだけが入場し実効上限を超えない / 終了済みの枠の引き継ぎは観測した世代名で
+// 条件付けられ、生存中の枠を消さない / 中断 (SIGKILL) のどの段階からも容量が既定まで戻る /
+// 分からない状態は消さずに容量として扱う (fail-closed)。
 
 import assert from "node:assert/strict";
 import { spawn, type ChildProcessByStdio } from "node:child_process";
@@ -17,9 +18,9 @@ import { fileURLToPath } from "node:url";
 import {
   acquireConcurrencySlot,
   ConcurrencyLimitError,
-  RETIRED_DIR_NAME,
+  leasePath,
   SLOTS_DIR_NAME,
-  slotPath,
+  slotDirPath,
   type ConcurrencySlot,
 } from "../src/browser/concurrency";
 import { callDirName, type CallOwner, type ProcessStartTimeReader } from "../src/browser/temp";
@@ -28,8 +29,10 @@ import { processStartedAtMs } from "../src/proc-stat";
 const STARTED_AT = 1_700_000_000_000;
 /** 生存中の所有者として使う自プロセスの素性 (実 /proc で生存と分かる) */
 const SELF: CallOwner = { pid: process.pid, startedAtMs: (await processStartedAtMs(process.pid)) ?? 0 };
+assert.ok(SELF.startedAtMs > 0, "自プロセスの起動時刻を読める");
 const TSX_LOADER = createRequire(import.meta.url).resolve("tsx");
 const HOLDER = fileURLToPath(new URL("./browser-slot-holder.ts", import.meta.url));
+const KILLER = fileURLToPath(new URL("./browser-slot-kill.ts", import.meta.url));
 
 type HolderProcess = ChildProcessByStdio<null, Readable, Readable>;
 
@@ -41,13 +44,14 @@ function slotsDir(root: string): string {
   return join(root, SLOTS_DIR_NAME);
 }
 
-function retiredDir(root: string): string {
-  return join(root, RETIRED_DIR_NAME);
-}
-
-/** 置き場に残っている枠 (index のファイル) の一覧 */
+/** 置き場に残っている index の一覧 */
 async function leases(root: string): Promise<string[]> {
   return (await readdir(slotsDir(root)).catch(() => [] as string[])).sort();
+}
+
+/** index の中の枠 (所有者名のファイル) の一覧 */
+async function leaseOwners(root: string, index: number): Promise<string[]> {
+  return (await readdir(slotDirPath(slotsDir(root), index)).catch(() => [] as string[])).sort();
 }
 
 async function withRoot(body: (root: string) => Promise<void>): Promise<void> {
@@ -59,29 +63,32 @@ async function withRoot(body: (root: string) => Promise<void>): Promise<void> {
   }
 }
 
-/** 入場済みの枠を直接置く (実装と同じ形: `<index>` のファイルの中身が所有者) */
-async function putSlot(root: string, index: number, owner: CallOwner): Promise<string> {
-  const dir = slotsDir(root);
-  await mkdir(dir, { recursive: true });
-  await writeFile(slotPath(dir, index), `${callDirName(owner)}\n`);
-  return String(index);
+/** 入場済みの枠を直接置く (実装と同じ形: `<index>/<所有者>` のファイル) */
+async function putLease(root: string, index: number, owner: CallOwner): Promise<void> {
+  await mkdir(slotDirPath(slotsDir(root), index), { recursive: true });
+  await writeFile(leasePath(slotsDir(root), index, owner), "");
 }
 
-/**
- * 枠の置き場の下だけ `stat` を差し替える。入場の判定が時刻や名前の並び順に依存していないことの回帰で、
- * 読めない枠 (EIO) と同値の時刻を注入しても、入場済みの枠が容量を消費し続けることを検査する。
- */
-function patchSlotStat(root: string, replacement: (path: string) => Promise<{ ctimeMs: number }>): () => void {
-  const prefix = `${slotsDir(root)}/`;
-  const originalStat = fs.stat;
-  fs.stat = (async (path: unknown, ...rest: unknown[]) => {
-    if (typeof path === "string" && path.startsWith(prefix)) return replacement(path);
-    return (originalStat as unknown as (...args: unknown[]) => Promise<unknown>)(path, ...rest);
-  }) as typeof fs.stat;
-  syncBuiltinESMExports();
-  return () => {
-    fs.stat = originalStat;
-    syncBuiltinESMExports();
+/** 枠を入れる前に中断した残り (空の index ディレクトリ) を置く */
+async function putEmptyIndex(root: string, index: number): Promise<void> {
+  await mkdir(slotDirPath(slotsDir(root), index), { recursive: true });
+}
+
+/** 実プロセスを 1 本立てて、pid と起動時刻 (実 /proc) を返す。SIGKILL すると終了済みの所有者になる */
+async function spawnSleeper(): Promise<{ pid: number; startedAtMs: number; stop(): Promise<void> }> {
+  const child = spawn(process.execPath, ["-e", "setTimeout(() => {}, 30000)"], { stdio: "ignore" });
+  const pid = child.pid;
+  if (pid === undefined) assert.fail("子プロセスの pid を取得できません");
+  const exit = once(child, "exit");
+  const startedAtMs = await processStartedAtMs(pid);
+  if (startedAtMs === undefined || startedAtMs <= 0) assert.fail("実プロセスの起動時刻を読めません");
+  return {
+    pid,
+    startedAtMs,
+    stop: async () => {
+      child.kill("SIGKILL");
+      await exit;
+    },
   };
 }
 
@@ -135,44 +142,13 @@ async function holderOutputs(root: string, count: number, limit: number, holdMs:
   return outputs.map((read) => read());
 }
 
-/** 実プロセスを 1 本立てて、pid と起動時刻 (実 /proc) を返す。SIGKILL すると終了済みの所有者になる */
-async function spawnSleeper(): Promise<{ pid: number; startedAtMs: number; stop(): Promise<void> }> {
-  const child = spawn(process.execPath, ["-e", "setTimeout(() => {}, 30000)"], { stdio: "ignore" });
-  const pid = child.pid;
-  if (pid === undefined) assert.fail("子プロセスの pid を取得できません");
-  const exit = once(child, "exit");
-  const startedAtMs = await processStartedAtMs(pid);
-  if (startedAtMs === undefined || startedAtMs <= 0) assert.fail("実プロセスの起動時刻を読めません");
-  return {
-    pid,
-    startedAtMs,
-    stop: async () => {
-      child.kill("SIGKILL");
-      await exit;
-    },
-  };
-}
-
-/** SIGKILL され得る子プロセスを 1 本立てて、lease を取ったことを待つ */
-async function heldByChild(root: string, limit: number): Promise<{ child: HolderProcess; kill(): Promise<void> }> {
-  const child = spawnHolder(root, limit, 30_000);
-  await waitForLine(child, "acquired");
-  return {
-    child,
-    kill: async () => {
-      child.kill("SIGKILL");
-      await waitForExit(child);
-    },
-  };
-}
-
 test("同じ置き場では上限までしか取れず、解放すると次の呼び出しが取れる", async () => {
   await withRoot(async (root) => {
     const readStartedAt = reader({ 1000: STARTED_AT, 2000: STARTED_AT + 1, 3000: STARTED_AT + 2 });
     const first = await acquireConcurrencySlot({ root, limit: 2, pid: 1000, readStartedAt });
     const second = await acquireConcurrencySlot({ root, limit: 2, pid: 2000, readStartedAt });
-    assert.ok(SELF.startedAtMs > 0, "自プロセスの起動時刻を読める");
     assert.deepEqual([first.index, second.index], [0, 1], "空いている index を小さい方から取る");
+    assert.deepEqual(await leaseOwners(root, 0), [`1000-${STARTED_AT}`], "枠の名前が所有者を表す");
     await assert.rejects(acquireConcurrencySlot({ root, limit: 2, pid: 3000, readStartedAt }), ConcurrencyLimitError);
     // 断られた呼び出しは自分の枠を残さない (次の呼び出しが同じ枠を使える)
     assert.deepEqual(await leases(root), ["0", "1"]);
@@ -181,64 +157,191 @@ test("同じ置き場では上限までしか取れず、解放すると次の�
     assert.equal(third.index, 0, "解放された index を使う");
     await second.release();
     await third.release();
-    assert.deepEqual(await leases(root), [], "全員が終わったら枠は残らない");
-    assert.deepEqual(
-      (await readdir(root)).filter((entry) => entry.startsWith(".")),
-      [],
-      "入場の一時ファイルも残らない",
+    assert.deepEqual(await readdir(root), [], "全員が終わったら置き場には何も残らない");
+  });
+});
+
+// 中断の回復 (1): 枠を入れる前に SIGKILL されると空の index ディレクトリが残る。空のときだけ消せる
+// rmdir で回収し、既定の枠数まで戻ることを固定する。
+test("空のまま残った index を回収して、既定の同時実行数まで戻る", async () => {
+  await withRoot(async (root) => {
+    await putEmptyIndex(root, 0);
+    const readStartedAt = reader({ 1001: STARTED_AT, 1002: STARTED_AT, 1003: STARTED_AT });
+    const pids = [1001, 1002, 1003];
+    const held: ConcurrencySlot[] = [];
+    for (const pid of pids) held.push(await acquireConcurrencySlot({ root, limit: 3, pid, readStartedAt }));
+    assert.deepEqual(held.map((slot) => slot.index).sort(), [0, 1, 2], "空のディレクトリを回収して 3 枠すべてを使える");
+    assert.deepEqual(await leaseOwners(root, 0), [`1001-${STARTED_AT}`], "空のディレクトリは自分の枠で置き換わる");
+    for (const slot of held) await slot.release();
+    assert.deepEqual(await readdir(root), [], "回収後は残骸が無い");
+  });
+});
+
+// 中断の回復 (2): 枠を入れた後に SIGKILL されると終了済み所有者の枠が残る。次の呼び出しが引き継ぐ。
+test("終了済みの枠は引き継いで使い、既定の同時実行数まで戻る", async () => {
+  await withRoot(async (root) => {
+    const dead = await spawnSleeper();
+    const readStartedAt = reader({ 1002: STARTED_AT + 1, 1003: STARTED_AT + 2, 1004: STARTED_AT + 3 });
+    try {
+      await dead.stop();
+      await putLease(root, 0, { pid: dead.pid, startedAtMs: dead.startedAtMs });
+      const held: ConcurrencySlot[] = [];
+      for (const pid of [1002, 1003, 1004]) {
+        held.push(
+          await acquireConcurrencySlot({
+            root,
+            limit: 3,
+            pid,
+            readStartedAt: async (target) => (target === dead.pid ? processStartedAtMs(target) : readStartedAt(target)),
+          }),
+        );
+      }
+      assert.deepEqual(held.map((slot) => slot.index).sort(), [0, 1, 2], "終了済みの枠を引き継いで 3 枠すべてを使える");
+      assert.deepEqual(await leaseOwners(root, 0), [`1002-${STARTED_AT + 1}`], "枠の名前が引き継いだ呼び出しになる");
+      for (const slot of held) await slot.release();
+      assert.deepEqual(await readdir(root), [], "回収後は残骸が無い");
+    } finally {
+      await dead.stop();
+    }
+  });
+});
+
+// 中断の回復 (3): 引き継ぎの途中で SIGKILL されても、移す前なら終了済みの枠が、移した後なら自分の枠が
+// 残る。どちらも容量を消費したままにしない (もう一度引き継げる)。
+test("引き継ぎの途中で中断した状態からも容量が戻る", async () => {
+  await withRoot(async (root) => {
+    const dead = await spawnSleeper();
+    try {
+      await dead.stop();
+      const gone = { pid: dead.pid, startedAtMs: dead.startedAtMs };
+      // (a) 移す前に落ちた = 終了済みの枠がそのまま残っている
+      await putLease(root, 0, gone);
+      // (b) 移した後に落ちた = 自分の世代名の枠 (終了済み) が残っている
+      await putLease(root, 1, gone);
+      const readStartedAt: ProcessStartTimeReader = async (pid) =>
+        pid === dead.pid
+          ? processStartedAtMs(pid)
+          : reader({ 2001: STARTED_AT, 2002: STARTED_AT, 2003: STARTED_AT })(pid);
+      const held: ConcurrencySlot[] = [];
+      for (const pid of [2001, 2002, 2003])
+        held.push(await acquireConcurrencySlot({ root, limit: 3, pid, readStartedAt }));
+      assert.deepEqual(held.map((slot) => slot.index).sort(), [0, 1, 2], "どちらの中断状態からも 3 枠すべてを使える");
+      for (const slot of held) await slot.release();
+      assert.deepEqual(await readdir(root), [], "残骸が無い");
+    } finally {
+      await dead.stop();
+    }
+  });
+});
+
+test("所有者名でない枠と、生きた枠が混ざった index は消さずに容量として扱う", async () => {
+  await withRoot(async (root) => {
+    const dir = slotsDir(root);
+    await mkdir(slotDirPath(dir, 0), { recursive: true });
+    await writeFile(join(slotDirPath(dir, 0), "not-an-owner"), "");
+    await assert.rejects(
+      acquireConcurrencySlot({ root, limit: 1, pid: 3000, readStartedAt: reader({ 3000: STARTED_AT }) }),
+      ConcurrencyLimitError,
     );
+    assert.deepEqual(await leaseOwners(root, 0), ["not-an-owner"], "分からない名前は消さない");
+
+    // 生きた枠と終了済みの枠が混ざっている場合も、生きた枠を消さずに容量として扱う
+    await putLease(root, 1, SELF);
+    await putLease(root, 1, { pid: 1000, startedAtMs: STARTED_AT });
+    await assert.rejects(
+      acquireConcurrencySlot({
+        root,
+        limit: 2,
+        pid: 3001,
+        readStartedAt: async (pid) => (pid === 3001 ? STARTED_AT : processStartedAtMs(pid)),
+      }),
+      ConcurrencyLimitError,
+    );
+    assert.deepEqual(await leaseOwners(root, 1), [`1000-${STARTED_AT}`, callDirName(SELF)], "生きた枠を消さない");
   });
 });
 
-// 枠の並び順や時刻を入場の根拠にすると、読めない (EIO) 枠が末尾へ回って上限を超える。
-test("枠のメタデータを読めなくても入場済みの枠が容量を消費する", async () => {
+// 枠が 2 つ以上残っていても、全て終了済みなら 1 つずつ減らして引き継げる (中断した引き継ぎの後始末)。
+test("終了済みの枠が複数残っていても、1 つずつ減らして引き継ぐ", async () => {
   await withRoot(async (root) => {
-    const readStartedAt = reader({ 2001: STARTED_AT, 2002: STARTED_AT, 2003: STARTED_AT, 1001: STARTED_AT });
-    const held: ConcurrencySlot[] = [];
-    for (const pid of [2001, 2002, 2003])
-      held.push(await acquireConcurrencySlot({ root, limit: 3, pid, readStartedAt }));
-    const restore = patchSlotStat(root, async () => {
-      throw Object.assign(new Error("injected EIO"), { code: "EIO" });
+    await putLease(root, 0, { pid: 1000, startedAtMs: STARTED_AT });
+    await putLease(root, 0, { pid: 1001, startedAtMs: STARTED_AT });
+    const slot = await acquireConcurrencySlot({
+      root,
+      limit: 1,
+      pid: 3000,
+      readStartedAt: reader({ 3000: STARTED_AT }),
     });
-    try {
-      await assert.rejects(
-        acquireConcurrencySlot({ root, limit: 3, pid: 1001, readStartedAt }),
-        ConcurrencyLimitError,
-        "読めない枠を空きとして扱わない",
-      );
-      assert.equal((await leases(root)).length, 3, "4 件目の枠を作らない");
-    } finally {
-      restore();
-    }
-    for (const slot of held) await slot.release();
+    assert.equal(slot.index, 0);
+    assert.deepEqual(await leaseOwners(root, 0), [`3000-${STARTED_AT}`], "終了済みの枠が消えて自分の枠だけが残る");
+    await slot.release();
+    assert.deepEqual(await readdir(root), []);
   });
 });
 
-// 同値の時刻や名前順で順位が入れ替わると、後から来た呼び出しが先頭 (= 上限内) に入り得る。
-test("枠の時刻が同値でも後から来た呼び出しが上限を超えない", async () => {
+// この仕組みより前の置き場 (index の位置にファイル) は、終了済みと確認できたときだけ引き継ぐ。
+// 生きた所有者のファイルと、中身を読めないファイルは消さない (fail-closed)。
+test("index の位置のファイル (旧形式) は終了済みのときだけ引き継ぐ", async () => {
   await withRoot(async (root) => {
-    const readStartedAt = reader({ 2001: STARTED_AT, 2002: STARTED_AT, 2003: STARTED_AT, 1001: STARTED_AT });
-    const held: ConcurrencySlot[] = [];
-    for (const pid of [2001, 2002, 2003])
-      held.push(await acquireConcurrencySlot({ root, limit: 3, pid, readStartedAt }));
-    const restore = patchSlotStat(root, async () => ({ ctimeMs: 0 }));
-    try {
-      await assert.rejects(
-        acquireConcurrencySlot({ root, limit: 3, pid: 1001, readStartedAt }),
-        ConcurrencyLimitError,
-        "名前順で先頭になる pid でも入場しない",
-      );
-      assert.equal((await leases(root)).length, 3, "4 件目の枠を作らない");
-    } finally {
-      restore();
-    }
-    for (const slot of held) await slot.release();
+    const dir = slotsDir(root);
+    await mkdir(dir, { recursive: true });
+    await writeFile(slotPathForLegacy(root, 0), `${callDirName({ pid: 1000, startedAtMs: STARTED_AT })}\n`);
+    await writeFile(slotPathForLegacy(root, 1), `${callDirName(SELF)}\n`);
+    await writeFile(slotPathForLegacy(root, 2), "not-an-owner\n");
+    const readStartedAt: ProcessStartTimeReader = async (pid) => (pid === 3000 ? STARTED_AT : processStartedAtMs(pid));
+    const slot = await acquireConcurrencySlot({ root, limit: 3, pid: 3000, readStartedAt });
+    assert.equal(slot.index, 0, "終了済みの旧形式のファイルは引き継ぐ");
+    assert.deepEqual(await leaseOwners(root, 0), [`3000-${STARTED_AT}`]);
+    assert.equal((await fs.readFile(slotPathForLegacy(root, 1), "utf8")).trim(), callDirName(SELF), "生きた枠は残す");
+    assert.equal((await fs.readFile(slotPathForLegacy(root, 2), "utf8")).trim(), "not-an-owner", "読めない枠は残す");
+    await slot.release();
   });
 });
 
-// 死亡枠の回収は「所有者を読んでから消す」2 段になるため、その間に別の呼び出しが同じ index を
-// 取り直すと、遅れて再開した呼び出しが生存中の枠を消してしまう。回収は記録を取った呼び出しだけが行う。
-// 所有者の生存判定は実プロセスの実 /proc で行い、公開 API の reader では遅延だけを注入する。
+// 実際に SIGKILL で中断しても容量は戻る。終了済み所有者の生存確認の直後に落ちた場合は、
+// 終了済みの枠が残る (移す前) ので、次の呼び出しが引き継いで既定の枠数まで戻る。
+test("引き継ぎの途中で実際に SIGKILL されても、次の呼び出しが引き継いで容量が戻る", async () => {
+  await withRoot(async (root) => {
+    const ended = await spawnSleeper();
+    try {
+      await ended.stop();
+      await putLease(root, 0, { pid: ended.pid, startedAtMs: ended.startedAtMs });
+      const killed = spawn(process.execPath, ["--import", TSX_LOADER, KILLER, root, String(ended.pid)], {
+        stdio: ["ignore", "pipe", "pipe"],
+      });
+      const [code, signal] = (await once(killed, "exit")) as [number | null, NodeJS.Signals | null];
+      assert.equal(code, null, "子は正常終了しない");
+      assert.equal(signal, "SIGKILL", "引き継ぎの途中で SIGKILL された");
+      assert.deepEqual(
+        await leaseOwners(root, 0),
+        [callDirName({ pid: ended.pid, startedAtMs: ended.startedAtMs })],
+        "終了済みの枠がそのまま残る (中断しても壊れない)",
+      );
+
+      const readStartedAt = reader({ 5001: STARTED_AT, 5002: STARTED_AT, 5003: STARTED_AT });
+      const held: ConcurrencySlot[] = [];
+      for (const pid of [5001, 5002, 5003]) {
+        held.push(
+          await acquireConcurrencySlot({
+            root,
+            limit: 3,
+            pid,
+            readStartedAt: async (target) =>
+              target === ended.pid ? processStartedAtMs(target) : readStartedAt(target),
+          }),
+        );
+      }
+      assert.deepEqual(held.map((slot) => slot.index).sort(), [0, 1, 2], "中断した枠を回収して 3 枠すべてを使える");
+      for (const slot of held) await slot.release();
+      assert.deepEqual(await readdir(root), [], "残骸が無い");
+    } finally {
+      await ended.stop();
+    }
+  });
+});
+
+// 回収は「観測した世代の名前」で条件付けられる。古い所有者を読んだ後に再開した呼び出しは、
+// 別の呼び出しが引き継いだ生存中の枠には触れない (生存枠が消えて 4 件目が入場する経路を閉じる)。
 test("回収の途中で別の呼び出しが枠を取っても、生存中の枠を消さない", async () => {
   await withRoot(async (root) => {
     const ended = await spawnSleeper();
@@ -246,10 +349,12 @@ test("回収の途中で別の呼び出しが枠を取っても、生存中の�
     const fastCall = await spawnSleeper();
     try {
       await ended.stop();
-      await putSlot(root, 0, { pid: ended.pid, startedAtMs: ended.startedAtMs });
-      await putSlot(root, 1, SELF);
-      await putSlot(root, 2, SELF);
+      await putLease(root, 0, { pid: ended.pid, startedAtMs: ended.startedAtMs });
+      await putLease(root, 1, SELF);
+      await putLease(root, 2, SELF);
 
+      // 遅延させるのは A の読み取りだけ (B は先に進む)
+      let endedReads = 0;
       let resumeSlow: () => void = () => {};
       const slowGate = new Promise<void>((resolve) => {
         resumeSlow = resolve;
@@ -258,8 +363,6 @@ test("回収の途中で別の呼び出しが枠を取っても、生存中の�
       const slowReadStarted = new Promise<void>((resolve) => {
         slowRead = resolve;
       });
-      // 遅延させるのは A の読み取りだけ (B は先に進む)
-      let endedReads = 0;
       const readStartedAt: ProcessStartTimeReader = async (pid) => {
         if (pid === ended.pid) {
           endedReads += 1;
@@ -270,28 +373,18 @@ test("回収の途中で別の呼び出しが枠を取っても、生存中の�
         }
         return processStartedAtMs(pid);
       };
-      // 遅れて再開する呼び出し (A): 終了済み所有者の生存確認で止まる
       const slow = acquireConcurrencySlot({ root, limit: 3, pid: slowCall.pid, readStartedAt });
       await slowReadStarted;
 
-      // 先に進む呼び出し (B): 同じ終了済み枠を引き継いで index 0 を取る
       const fast = await acquireConcurrencySlot({ root, limit: 3, pid: fastCall.pid, readStartedAt });
       assert.equal(fast.index, 0);
-      assert.deepEqual(await leases(root), ["0", "1", "2"]);
+      const takenOver = await leaseOwners(root, 0);
+      assert.deepEqual(takenOver, [callDirName({ pid: fastCall.pid, startedAtMs: fastCall.startedAtMs })]);
 
       resumeSlow();
       await assert.rejects(slow, ConcurrencyLimitError, "B が取った枠を取り返さない (4 件目は入場しない)");
       assert.deepEqual(await leases(root), ["0", "1", "2"], "B の生存枠は消えない");
-      assert.equal(
-        await fs.readFile(slotPath(slotsDir(root), 0), "utf8"),
-        `${callDirName({ pid: fastCall.pid, startedAtMs: fastCall.startedAtMs })}\n`,
-        "index 0 の所有者は B のまま",
-      );
-      assert.deepEqual(
-        await readdir(retiredDir(root)),
-        [`0-${callDirName({ pid: ended.pid, startedAtMs: ended.startedAtMs })}`],
-        "引き継ぎは記録に残り、遅れて再開した呼び出しはこの記録で止まる",
-      );
+      assert.deepEqual(await leaseOwners(root, 0), takenOver, "index 0 の所有者は B のまま");
       await fast.release();
     } finally {
       await slowCall.stop();
@@ -306,9 +399,9 @@ test("複数の呼び出しが同じ終了済み枠を同時に回収しても�
     const racers = [await spawnSleeper(), await spawnSleeper()];
     try {
       await ended.stop();
-      await putSlot(root, 0, { pid: ended.pid, startedAtMs: ended.startedAtMs });
-      await putSlot(root, 1, SELF);
-      await putSlot(root, 2, SELF);
+      await putLease(root, 0, { pid: ended.pid, startedAtMs: ended.startedAtMs });
+      await putLease(root, 1, SELF);
+      await putLease(root, 2, SELF);
 
       let release: () => void = () => {};
       const gate = new Promise<void>((resolve) => {
@@ -345,78 +438,11 @@ test("複数の呼び出しが同じ終了済み枠を同時に回収しても�
       assert.equal(admitted.length, 1, "同じ枠を取れるのは 1 件だけ (他は上限で断られる)");
       assert.equal(refused.length, 1);
       assert.deepEqual(await leases(root), ["0", "1", "2"], "生存中の枠は消えないし増えない");
-      assert.deepEqual(
-        await readdir(retiredDir(root)),
-        [`0-${callDirName({ pid: ended.pid, startedAtMs: ended.startedAtMs })}`],
-        "引き継ぎの記録は 1 つだけ",
-      );
+      assert.equal((await leaseOwners(root, 0)).length, 1, "index 0 の枠は 1 つのまま");
       for (const result of admitted) await (result as PromiseFulfilledResult<ConcurrencySlot>).value.release();
     } finally {
       for (const racerProcess of racers) await racerProcess.stop();
     }
-  });
-});
-
-test("終了済みの枠は引き継いで使い、中身が読めない枠 (不明) は容量として残す", async () => {
-  await withRoot(async (root) => {
-    await putSlot(root, 0, { pid: 1000, startedAtMs: STARTED_AT });
-    await putSlot(root, 1, { pid: 1002, startedAtMs: STARTED_AT });
-    const readStartedAt = reader({ 1002: 0, 3000: STARTED_AT + 2, 4000: STARTED_AT + 3 }); // 1000 は居ない、1002 は不明
-    // 上限 1 では index 1 は範囲外。不明な枠を空きとして扱うと、ここで入場してしまう
-    await assert.rejects(
-      acquireConcurrencySlot({ root, limit: 1, pid: 3000, readStartedAt }),
-      ConcurrencyLimitError,
-      "範囲外の不明な枠も容量として扱う",
-    );
-    // 上限 2 なら終了済みの index 0 を引き継げる。index 1 の不明な枠は残るので、次の呼び出しは入場できない
-    const slot = await acquireConcurrencySlot({ root, limit: 2, pid: 3000, readStartedAt });
-    assert.equal(slot.index, 0);
-    assert.equal(
-      await fs.readFile(slotPath(slotsDir(root), 0), "utf8"),
-      `${callDirName({ pid: 3000, startedAtMs: STARTED_AT + 2 })}\n`,
-      "枠の所有者が引き継がれる",
-    );
-    await assert.rejects(acquireConcurrencySlot({ root, limit: 2, pid: 4000, readStartedAt }), ConcurrencyLimitError);
-    await slot.release();
-    assert.deepEqual(await leases(root), ["1"], "不明な枠だけが残る");
-  });
-});
-
-// 内容が壊れている枠は所有者を判定できず、消しても安全か分からない。不明として容量を消費させる。
-test("所有者を読み取れない枠は不明として残し、容量を消費する", async () => {
-  await withRoot(async (root) => {
-    const dir = slotsDir(root);
-    await mkdir(dir, { recursive: true });
-    await writeFile(slotPath(dir, 0), "not-an-owner\n");
-    await assert.rejects(
-      acquireConcurrencySlot({ root, limit: 1, pid: 3000, readStartedAt: reader({ 3000: STARTED_AT }) }),
-      ConcurrencyLimitError,
-    );
-    assert.deepEqual(await leases(root), ["0"]);
-  });
-});
-
-test("上限より大きい index の枠が残っている間は入場しない", async () => {
-  await withRoot(async (root) => {
-    await putSlot(root, 5, { pid: 1002, startedAtMs: STARTED_AT });
-    await assert.rejects(
-      acquireConcurrencySlot({
-        root,
-        limit: 3,
-        pid: 3000,
-        readStartedAt: reader({ 1002: STARTED_AT, 3000: STARTED_AT }),
-      }),
-      ConcurrencyLimitError,
-      "より大きい上限で入場した枠は数えられないので入場しない",
-    );
-    const slot = await acquireConcurrencySlot({
-      root,
-      limit: 3,
-      pid: 3000,
-      readStartedAt: reader({ 3000: STARTED_AT }),
-    });
-    assert.equal(slot.index, 0, "終了済みと分かっている枠は数えない");
-    await slot.release();
   });
 });
 
@@ -460,7 +486,7 @@ test("解放が重なっても枠が壊れず、空いた index を次の呼び�
     const next = await acquireConcurrencySlot({ root, limit: 3, pid: 1004, readStartedAt });
     assert.equal(next.index, 1, "解放された index を再利用する");
     await Promise.all([held[0].release(), next.release()]);
-    assert.deepEqual(await leases(root), []);
+    assert.deepEqual(await readdir(root), []);
   });
 });
 
@@ -482,15 +508,13 @@ test("プロセスをまたいで上限が効き、SIGKILL で残った枠は次
       assert.equal(await waitForExit(blocked), 0, "上限に達した呼び出しは入場せずに終わる");
       assert.deepEqual(await leases(root), ["0"], "断られた呼び出しは枠を残さない");
       // 外側の abort は SIGKILL なので finally が走らない。残った枠は次の呼び出しが引き継いで使える
-      const owner = await fs.readFile(slotPath(slotsDir(root), 0), "utf8");
       holder.kill("SIGKILL");
       await waitForExit(holder);
       const after = start(100);
       await waitForLine(after, "acquired");
       await waitForLine(after, "released");
       assert.equal(await waitForExit(after), 0);
-      assert.deepEqual(await leases(root), [], "引き継いだ枠は解放される");
-      assert.deepEqual(await readdir(retiredDir(root)), [`0-${owner.trim()}`], "引き継ぎは記録に残る");
+      assert.deepEqual(await readdir(root), [], "引き継いだ枠は解放され、置き場には何も残らない");
     } finally {
       for (const child of children) child.kill("SIGKILL");
     }
@@ -519,24 +543,53 @@ test("プロセスをまたぐ同時入場でも上限を超えず、枠は上�
     assert.equal(limited, 4 - limit, "残りは上限で断られる");
     assert.ok(observed.length > 0, "枠の数を観測できた");
     assert.ok(Math.max(...observed) <= limit, `枠は上限までしか作らない (observed=${observed.join(",")})`);
-    assert.deepEqual(await leases(root), [], "全員が終わったら枠は残らない");
+    assert.deepEqual(await readdir(root), [], "全員が終わったら置き場には何も残らない");
   });
 });
 
-test("終了済みの枠を引き継いだ後も、別の呼び出しが同じ index を取れる", async () => {
+// 入場の判定は枠の名前だけを使う (中身や時刻は読まない)。中身を読めない環境でも入場と引き継ぎが動く。
+test("枠の中身やファイルの時刻を読めなくても入場と引き継ぎが動く", async () => {
   await withRoot(async (root) => {
-    const child = await heldByChild(root, 1);
-    await child.kill();
-    const owner = await fs.readFile(slotPath(slotsDir(root), 0), "utf8");
-    const readStartedAt: ProcessStartTimeReader = async (pid) =>
-      pid === 9001 || pid === 9002 ? STARTED_AT : processStartedAtMs(pid);
-    const first = await acquireConcurrencySlot({ root, limit: 2, pid: 9001, readStartedAt });
-    assert.equal(first.index, 0, "終了済みの枠を引き継ぐ");
-    assert.deepEqual(await readdir(retiredDir(root)), [`0-${owner.trim()}`]);
-    await first.release();
-    const second = await acquireConcurrencySlot({ root, limit: 2, pid: 9002, readStartedAt });
-    assert.equal(second.index, 0, "空いた index をそのまま使える");
-    await second.release();
-    assert.deepEqual(await leases(root), []);
+    const dead = await spawnSleeper();
+    const prefix = `${slotsDir(root)}/`;
+    const originalStat = fs.stat;
+    const originalReadFile = fs.readFile;
+    try {
+      await dead.stop();
+      await putLease(root, 0, { pid: dead.pid, startedAtMs: dead.startedAtMs });
+      fs.stat = (async (path: unknown, ...rest: unknown[]) => {
+        if (typeof path === "string" && path.startsWith(prefix)) throw new Error("injected EIO");
+        return (originalStat as unknown as (...args: unknown[]) => Promise<unknown>)(path, ...rest);
+      }) as typeof fs.stat;
+      fs.readFile = (async (path: unknown, ...rest: unknown[]) => {
+        if (typeof path === "string" && path.startsWith(prefix)) throw new Error("injected EIO");
+        return (originalReadFile as unknown as (...args: unknown[]) => Promise<unknown>)(path, ...rest);
+      }) as typeof fs.readFile;
+      syncBuiltinESMExports();
+
+      const readStartedAt = reader({ 4001: STARTED_AT, 4002: STARTED_AT });
+      const first = await acquireConcurrencySlot({
+        root,
+        limit: 2,
+        pid: 4001,
+        readStartedAt: async (pid) => (pid === dead.pid ? undefined : readStartedAt(pid)),
+      });
+      assert.equal(first.index, 0, "中身を読めなくても終了済みの枠を引き継げる");
+      const second = await acquireConcurrencySlot({ root, limit: 2, pid: 4002, readStartedAt });
+      assert.equal(second.index, 1);
+      await first.release();
+      await second.release();
+      assert.deepEqual(await readdir(root), []);
+    } finally {
+      fs.stat = originalStat;
+      fs.readFile = originalReadFile;
+      syncBuiltinESMExports();
+      await dead.stop();
+    }
   });
 });
+
+/** 旧形式 (index の位置のファイル) のパス */
+function slotPathForLegacy(root: string, index: number): string {
+  return join(slotsDir(root), String(index));
+}

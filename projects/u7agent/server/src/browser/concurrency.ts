@@ -2,17 +2,20 @@
  * 同時実行の入場制御。1 呼び出しは Chromium のプロセス群 (数百 MiB) を持つため、一時領域の隔離だけでは
  * 総資源の上限にならない。呼び出し側がブラウザを起動する前にここで入場を取る。
  *
- * 枠は `<root>/slots/<index>` のファイルで、`link` が原子的なので同じ index を取れるのは 1 つの呼び出し
- * だけになる。index は上限までしか無いので上限を超えて入場することはない。所有者は中身 (`<pid>-<起動時刻>`)
- * に置き、中身を読めない枠と上限の範囲外の枠は不明として容量を消費させる (fail-closed)。
+ * 枠は `<root>/slots/<index>/<pid>-<起動時刻>` のファイルで、名前が所有者 (世代) を表す。index の
+ * ディレクトリ (`mkdir`) とファイルの作成 (`O_EXCL`) が原子的なので、同じ index を取れるのは 1 つの
+ * 呼び出しだけになり、index は上限までしか無いので上限を超えて入場することはない。
  *
- * 終了済みと確認できた枠を引き継ぐときは、先に `<root>/retired/<index>-<所有者>` の記録を `link` で
- * 確保し、取れた呼び出しだけが枠を消して自分の枠に入れ替える。記録を取れるのは 1 つだけなので、古い
- * 所有者を読んだ後に遅れて再開した呼び出し (や同時に回収しようとした別の呼び出し) は記録を取れず、
- * 生存中の枠には触らない。記録は消さない (遅れて来た呼び出しを止める役目を負うため)。
+ * 終了済みの枠を引き継ぐときは、観測した世代のファイルを `rename` で自分の世代名へ移す。壊す対象が
+ * 「観測した世代の名前」で条件付けられるので、古い所有者を読んだ後に遅れて再開した呼び出しが触れるのは
+ * 自分の観測した世代だけになり、生存中の枠 (別の世代) は消えない。世代名は (pid, 起動時刻) で一意なので、
+ * 同じ名前が生きた呼び出しの枠として現れることはない。
+ *
+ * 中断の回復: どの段階で SIGKILL されても容量は減らない。空のまま残った index ディレクトリは、空のとき
+ * だけ成功する `rmdir` で回収でき、終了済み所有者の枠はそのまま残るので次の呼び出しが引き継ぐ。中身の
+ * 分からないディレクトリ (複数の枠・所有者名でない名前) は消さずに容量として扱う (fail-closed)。
  */
-import { randomUUID } from "node:crypto";
-import { link, mkdir, readdir, readFile, rm, rmdir, writeFile } from "node:fs/promises";
+import { mkdir, open, readFile, readdir, rename, rm, rmdir } from "node:fs/promises";
 import { join } from "node:path";
 import { processStartedAtMs } from "../proc-stat";
 import { MAX_CONCURRENT_CALLS } from "./limits";
@@ -20,7 +23,6 @@ import {
   BROWSER_TEMP_ROOT,
   callDirName,
   callOwnerState,
-  claimFileName,
   parseCallDirName,
   readCallOwner,
   type CallOwner,
@@ -29,9 +31,6 @@ import {
 
 /** 枠の置き場。呼び出しの一時領域 (`<root>/<pid>-<起動時刻>`) と同じ親の下に分けて置く */
 export const SLOTS_DIR_NAME = "slots";
-
-/** 終了済みの枠を引き継いだ記録の置き場。遅れて再開した呼び出しを止める役目のため消さない */
-export const RETIRED_DIR_NAME = "retired";
 
 export class ConcurrencyLimitError extends Error {
   constructor(limit: number) {
@@ -54,14 +53,14 @@ export interface AcquireConcurrencySlotOptions {
   log?: (message: string) => void;
 }
 
-/** 枠のファイル。名前は index だけで、所有者は中身に置く */
-export function slotPath(dir: string, index: number): string {
+/** index のディレクトリ。この下に 1 つだけ枠のファイルを置く */
+export function slotDirPath(dir: string, index: number): string {
   return join(dir, String(index));
 }
 
-/** 終了済みの枠を引き継いだ記録。index と世代 (所有者) ごとに 1 つで、内容ではなく存在が意味を持つ */
-export function retirementPath(dir: string, index: number, retired: CallOwner): string {
-  return join(dir, `${index}-${callDirName(retired)}`);
+/** 枠のファイル。名前が所有者 (世代) を表し、中身は使わない */
+export function leasePath(dir: string, index: number, owner: CallOwner): string {
+  return join(slotDirPath(dir, index), callDirName(owner));
 }
 
 function parseSlotIndex(name: string): number | undefined {
@@ -70,16 +69,10 @@ function parseSlotIndex(name: string): number | undefined {
   return Number.isSafeInteger(index) ? index : undefined;
 }
 
-/** 枠の所有者。中身を読めない (作成途中・破損) ときは不明として undefined を返す */
-async function slotOwner(path: string): Promise<CallOwner | undefined> {
-  const text = await readFile(path, "utf8").catch(() => undefined);
-  return text === undefined ? undefined : parseCallDirName(text.trim());
-}
-
-/** 名前が空いていれば作る。取れなければ false (他の呼び出しが先に取った) */
-async function tryLink(source: string, path: string): Promise<boolean> {
+/** 空いていれば作る。取れなければ false (他の呼び出しが先に取った) */
+async function tryMkdir(path: string): Promise<boolean> {
   try {
-    await link(source, path);
+    await mkdir(path);
     return true;
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === "EEXIST") return false;
@@ -87,11 +80,102 @@ async function tryLink(source: string, path: string): Promise<boolean> {
   }
 }
 
+/** index ディレクトリの中身。ディレクトリでなければ (旧形式のファイルなど) undefined */
+async function readIndexDir(dirPath: string): Promise<string[] | undefined> {
+  return readdir(dirPath).catch(() => undefined);
+}
+
+/** 旧形式 (index の位置のファイル) が名乗る所有者。読めない・形が違うときは undefined */
+async function readLegacyOwner(path: string): Promise<CallOwner | undefined> {
+  const text = await readFile(path, "utf8").catch(() => undefined);
+  return text === undefined ? undefined : parseCallDirName(text.trim());
+}
+
+async function isLive(owner: CallOwner | undefined, readStartedAt: ProcessStartTimeReader): Promise<boolean> {
+  return owner !== undefined && (await callOwnerState(owner, readStartedAt)) !== "gone";
+}
+
 /**
- * 入場の範囲外にある枠 (上限より大きい index、index を持たない古い形式) が生きていれば true。
- * これらは index の数で上限を数える仕組みから見えないため、見つけたら入場しない (fail-closed)。
+ * index のディレクトリに自分の枠を入れる。空のディレクトリを回収した別の呼び出しが同じ index を
+ * 作り直していた場合は、枠が 2 つになるので自分の枠を外して譲る (確認できるまで入場しない)。
  */
-async function hasLeaseOutsideRange(
+async function installLease(dirPath: string, owner: CallOwner): Promise<string | undefined> {
+  const path = join(dirPath, callDirName(owner));
+  let handle;
+  try {
+    handle = await open(path, "wx");
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code;
+    // EEXIST: 同じ世代で既に入っている (同じプロセスの同時取得)。ENOENT: ディレクトリが回収された
+    if (code === "EEXIST" || code === "ENOENT") return undefined;
+    throw error;
+  }
+  await handle.close().catch(() => undefined);
+  const entries = await readIndexDir(dirPath);
+  if (!entries || entries.length !== 1 || entries[0] !== callDirName(owner)) {
+    await rm(path, { force: true }).catch(() => undefined);
+    return undefined;
+  }
+  return path;
+}
+
+/**
+ * 1 つの index を取る。取れなければ undefined を返す。空のディレクトリ (中断の残り) の回収と、
+ * 終了済みの枠の引き継ぎは、名前で条件付けられた操作だけで行う。
+ */
+async function claimIndex(options: {
+  dir: string;
+  index: number;
+  owner: CallOwner;
+  readStartedAt: ProcessStartTimeReader;
+}): Promise<string | undefined> {
+  const dirPath = slotDirPath(options.dir, options.index);
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    if (await tryMkdir(dirPath)) {
+      const installed = await installLease(dirPath, options.owner);
+      if (installed) return installed;
+      continue; // ディレクトリを回収された場合はもう一度だけ試す
+    }
+    const entries = await readIndexDir(dirPath);
+    if (entries === undefined) {
+      // index の位置にファイルがある (この仕組みより前の置き場)。終了済みと確認できたときだけ消す
+      const legacy = await readLegacyOwner(dirPath);
+      if (!legacy || (await callOwnerState(legacy, options.readStartedAt)) !== "gone") return undefined;
+      await rm(dirPath, { force: true }).catch(() => undefined);
+      continue;
+    }
+    if (entries.length === 0) {
+      // 枠を入れる前に中断した残り。空のときだけ消せるので、消せたら書き直す
+      await rmdir(dirPath).catch(() => undefined);
+      continue;
+    }
+    const owners = entries.map((entry) => parseCallDirName(entry));
+    if (owners.some((entry) => entry === undefined)) return undefined;
+    for (const ended of owners) {
+      // 生きている・分からない所有者が 1 つでもあれば、この index は容量として扱う
+      if (await isLive(ended, options.readStartedAt)) return undefined;
+    }
+    // 終了済みの世代だけのディレクトリ。1 つを自分の世代名へ移して引き継ぐ (消す対象は世代名で決まる)
+    const ended = owners[0] as CallOwner;
+    const path = leasePath(options.dir, options.index, options.owner);
+    const moved = await rename(join(dirPath, callDirName(ended)), path).then(
+      () => true,
+      () => false,
+    );
+    if (!moved) return undefined; // 既に引き継がれた (ENOENT) ／ ディレクトリが入れ替わった
+    const after = await readIndexDir(dirPath);
+    if (after && after.length === 1 && after[0] === callDirName(options.owner)) return path;
+    // 終了済みの枠が残っている (枠が 2 つ以上あった)。自分の枠を外して次の機会に 1 つずつ減らす
+    await rm(path, { force: true }).catch(() => undefined);
+  }
+  return undefined;
+}
+
+/**
+ * index の範囲外の枠が生きていれば true。index の数で上限を数える仕組みから見えないため、
+ * 見つけたら入場しない (数えられない分を容量として扱う)。index を持たない名前も同じ扱いにする。
+ */
+async function hasUncountableLease(
   dir: string,
   limit: number,
   readStartedAt: ProcessStartTimeReader,
@@ -99,35 +183,21 @@ async function hasLeaseOutsideRange(
   for (const entry of await readdir(dir).catch(() => [] as string[])) {
     const index = parseSlotIndex(entry);
     if (index === undefined) {
-      const legacy = parseCallDirName(entry);
-      if (legacy && (await callOwnerState(legacy, readStartedAt)) !== "gone") return true;
+      if (await isLive(parseCallDirName(entry), readStartedAt)) return true;
       continue;
     }
     if (index < limit) continue;
-    const owner = await slotOwner(slotPath(dir, index));
-    if (!owner || (await callOwnerState(owner, readStartedAt)) !== "gone") return true;
+    const dirPath = slotDirPath(dir, index);
+    const entries = await readIndexDir(dirPath);
+    if (entries === undefined) {
+      if (await isLive(await readLegacyOwner(dirPath), readStartedAt)) return true;
+      continue;
+    }
+    if (entries.length === 0) continue;
+    if (entries.length !== 1) return true; // 分からない形は消さずに容量として扱う
+    if (await isLive(parseCallDirName(entries[0] as string), readStartedAt)) return true;
   }
   return false;
-}
-
-/**
- * 終了済みと確認できた枠を引き継ぐ。記録 (retired/<index>-<世代>) の確保に勝った呼び出しだけが、
- * 枠を消して自分の枠に入れ替えられる。負けた呼び出しは枠に触らず undefined を返す。
- */
-async function takeEndedSlot(options: {
-  retiredDir: string;
-  index: number;
-  path: string;
-  ended: CallOwner;
-  staging: string;
-}): Promise<string | undefined> {
-  const record = retirementPath(options.retiredDir, options.index, options.ended);
-  // 置き場は引き継ぎのときだけ作る (通常の入場では残骸を増やさない)
-  await mkdir(options.retiredDir, { recursive: true });
-  if (!(await tryLink(options.staging, record))) return undefined;
-  // 記録がある間、この index の枠は誰も変えられない (持ち主は終了済みと確認済み)。消してから入れ替える
-  await rm(options.path, { force: true });
-  return (await tryLink(options.staging, options.path)) ? options.path : undefined;
 }
 
 /** 上限に達していたら ConcurrencyLimitError を投げる。取れた枠は呼び出しの終了時に release する */
@@ -138,32 +208,16 @@ export async function acquireConcurrencySlot(options: AcquireConcurrencySlotOpti
   const log = options.log ?? (() => {});
   const owner = await readCallOwner({ pid: options.pid, readStartedAt });
   const dir = join(root, SLOTS_DIR_NAME);
-  const retiredDir = join(root, RETIRED_DIR_NAME);
   await mkdir(dir, { recursive: true });
-  if (await hasLeaseOutsideRange(dir, limit, readStartedAt)) throw new ConcurrencyLimitError(limit);
-
-  // 所有者を書いた一時ファイルを link することで、枠の名前が付いた時点で中身が確定する
-  const staging = join(root, claimFileName(owner, randomUUID()));
-  await writeFile(staging, `${callDirName(owner)}\n`);
-  try {
-    for (let index = 0; index < limit; index += 1) {
-      const path = slotPath(dir, index);
-      if (await tryLink(staging, path)) return admitted(dir, index, path);
-
-      const current = await slotOwner(path);
-      // 中身を読めない枠は不明として容量を消費させる (消しても安全か分からない)
-      if (!current) continue;
-      if ((await callOwnerState(current, readStartedAt)) !== "gone") continue;
-      const taken = await takeEndedSlot({ retiredDir, index, path, ended: current, staging });
-      if (taken) {
-        log(`終了済みの呼び出しの枠 (index ${index}) を引き継ぎました`);
-        return admitted(dir, index, taken);
-      }
+  if (await hasUncountableLease(dir, limit, readStartedAt)) throw new ConcurrencyLimitError(limit);
+  for (let index = 0; index < limit; index += 1) {
+    const path = await claimIndex({ dir, index, owner, readStartedAt });
+    if (path) {
+      log(`同時実行の枠 (index ${index}) を取りました`);
+      return admitted(dir, index, path);
     }
-    throw new ConcurrencyLimitError(limit);
-  } finally {
-    await rm(staging, { force: true }).catch(() => undefined);
   }
+  throw new ConcurrencyLimitError(limit);
 }
 
 /** 枠を解放する。消してよいのは自分が入れた枠だけ (他の呼び出しの枠には触らない) */
@@ -172,6 +226,7 @@ function admitted(dir: string, index: number, path: string): ConcurrencySlot {
     index,
     release: async () => {
       await rm(path, { force: true }).catch(() => undefined);
+      await rmdir(slotDirPath(dir, index)).catch(() => undefined);
       await rmdir(dir).catch(() => undefined);
     },
   };
