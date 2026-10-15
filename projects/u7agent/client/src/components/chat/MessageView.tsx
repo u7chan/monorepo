@@ -174,6 +174,18 @@ export function MessageView({
       setCanceling(false);
     }
   }
+  // user はコピーを時刻より前に置く。コピーは hover で出すが場所は空けたままなので、
+  // 末尾に置くと未ホバー時に時刻が本文の右端から内側へずれる
+  const copyButton = bodyText ? (
+    <CopyButton
+      copied={copied}
+      failure={copyFailure(`bubble_${bubble.id}`)}
+      onClick={() => onCopy(bodyText)}
+      onSelect={() => selectCopyTarget(bodyRef.current)}
+      label="メッセージをコピー"
+      reveal="message"
+    />
+  ) : null;
   return (
     <article
       className={cn(
@@ -355,6 +367,7 @@ export function MessageView({
               isUser ? "justify-end" : "",
             )}
           >
+            {isUser ? copyButton : null}
             {bubble.at !== undefined ? (
               <time
                 dateTime={new Date(bubble.at).toISOString()}
@@ -386,16 +399,7 @@ export function MessageView({
                 {turnEndText(turnEnd)}
               </span>
             ) : null}
-            {bodyText ? (
-              <CopyButton
-                copied={copied}
-                failure={copyFailure(`bubble_${bubble.id}`)}
-                onClick={() => onCopy(bodyText)}
-                onSelect={() => selectCopyTarget(bodyRef.current)}
-                label="メッセージをコピー"
-                reveal="message"
-              />
-            ) : null}
+            {isUser ? null : copyButton}
           </div>
         ) : null}
       </div>
