@@ -20,8 +20,10 @@
 | HTTP 契約（DTO の正） | `server/src/schema.ts` | [api.md](api.md) |
 | ルートチェーンと `AppType` | `server/src/app.ts`、`server/src/routes/` | [api.md](api.md) |
 | pi ランタイム / モデル解決 | `server/src/agent.ts` | [model-effort.md](model-effort.md) |
+| 組み込みツール（Web 検索 / 画像生成 / 音声生成） | `server/src/web-search-tool.ts`、`server/src/image-tools.ts`、`server/src/speech-tools.ts` | [web-search.md](web-search.md)、[image-generation.md](image-generation.md)、[speech-generation.md](speech-generation.md) |
 | プロジェクトと cwd | `server/src/projects.ts` | [projects.md](projects.md) |
 | ツール実行のサンドボックス | `server/src/sandbox/` | [sandbox.md](sandbox.md) |
+| 同梱のヘッドレスブラウザ | `server/src/browser/` | [browser.md](browser.md) |
 | サービスの状態と起動・停止 | `server/src/serve.ts`、`server/src/serve-tool.ts`、`server/src/routes/serve.ts` | [sandbox.md](sandbox.md)、[api.md](api.md#サービスserveの状態と起動停止) |
 | サービス オリジンの転送と公開ポート | `server/src/service-proxy.ts`、`server/src/preview-port.ts`、`server/src/index.ts` | [sandbox.md](sandbox.md#serveサービスの公開と起動停止) |
 | 秘密値のマスク | `server/src/redact.ts`、`server/src/secret-guard.ts` | [secrets.md](secrets.md) |
@@ -37,7 +39,8 @@
 - 調査の委譲: [subagent.md](subagent.md)
 - プロジェクトと cwd: [projects.md](projects.md)
 - モデル / Effort: [model-effort.md](model-effort.md)
-- サンドボックス: [sandbox.md](sandbox.md) / [sandbox-api.md](sandbox-api.md)
+- アプリ側の組み込みツール: [web-search.md](web-search.md) / [image-generation.md](image-generation.md) / [speech-generation.md](speech-generation.md)
+- サンドボックス: [sandbox.md](sandbox.md) / [sandbox-api.md](sandbox-api.md) / [browser.md](browser.md)
 - APIキー保護: [secrets.md](secrets.md)
 - フロントエンド: [frontend.md](frontend.md) / [ui-layout.md](ui-layout.md)
 - 圧縮表示: [compaction.md](compaction.md)
