@@ -29,6 +29,7 @@ const SCOPE = { label: "work/hello", project: true, root: "work/hello" };
 
 const SETTINGS: NotificationsResponse = {
   enabled: true,
+  askUser: true,
   provider: "discord",
   configured: true,
   webhookHint: "a1b2",

@@ -20,7 +20,7 @@ import type {
 
 export const APP_DB_FILENAME = "u7agent.db";
 /** テーブル定義を変えたら上げる。新規作成と加算移行はこの版へ揃え、未知の版は作り直す */
-export const APP_DB_SCHEMA_VERSION = 19;
+export const APP_DB_SCHEMA_VERSION = 20;
 
 /** プロバイダー API キーの保存行。平文なのでアクセス権の管理は docs/secrets.md を正とする */
 export interface ProviderCredentialRow {
@@ -169,6 +169,7 @@ const NOTIFICATION_SETTINGS_TABLE = `
 CREATE TABLE IF NOT EXISTS notification_settings (
   id INTEGER PRIMARY KEY CHECK (id = 1),
   enabled INTEGER NOT NULL,
+  askUser INTEGER NOT NULL DEFAULT 1,
   webhookUrl TEXT,
   baseUrl TEXT,
   mention TEXT NOT NULL,
@@ -580,6 +581,8 @@ function secretOf(row: Row): SecretRow {
 function notificationSettingsOf(row: Row): NotificationSettings {
   const settings: NotificationSettings = {
     enabled: Number(row.enabled) === 1,
+    // 列の無い旧 DB と NULL は既定 (ON) として読む
+    askUser: row.askUser === null || row.askUser === undefined ? true : Number(row.askUser) === 1,
   };
   const webhookUrl = optionalText(row.webhookUrl);
   const baseUrl = optionalText(row.baseUrl);
@@ -887,6 +890,8 @@ export class AppDb {
       if (this.#tableExists("agents")) this.#addColumnIfMissing("agents", "builtinSkillNames", "TEXT");
       // v18 以前に無い列 (ツールの許可リスト)。既存行は NULL = 未指定 (全部 ON) として読む
       if (this.#tableExists("agents")) this.#addColumnIfMissing("agents", "toolNames", "TEXT");
+      // v19 以前に無い列 (質問通知)。既存行は既定 (ON) で埋める
+      this.#addColumnIfMissing("notification_settings", "askUser", "INTEGER NOT NULL DEFAULT 1");
       // PRAGMA はパラメータ化できない (値はコード側の定数)
       this.#query((db) => db.exec(`PRAGMA user_version = ${APP_DB_SCHEMA_VERSION}`));
       this.#query((db) => db.exec("COMMIT"));
@@ -914,13 +919,15 @@ export class AppDb {
     this.#query((db) =>
       db
         .prepare(
-          `INSERT INTO notification_settings (id, enabled, webhookUrl, baseUrl, mention, lastResult)
-           VALUES (1, ?, ?, ?, 'none', ?)
-           ON CONFLICT(id) DO UPDATE SET enabled = excluded.enabled, webhookUrl = excluded.webhookUrl,
-             baseUrl = excluded.baseUrl, mention = 'none', lastResult = excluded.lastResult`,
+          `INSERT INTO notification_settings (id, enabled, askUser, webhookUrl, baseUrl, mention, lastResult)
+           VALUES (1, ?, ?, ?, ?, 'none', ?)
+           ON CONFLICT(id) DO UPDATE SET enabled = excluded.enabled, askUser = excluded.askUser,
+             webhookUrl = excluded.webhookUrl, baseUrl = excluded.baseUrl, mention = 'none',
+             lastResult = excluded.lastResult`,
         )
         .run(
           settings.enabled ? 1 : 0,
+          settings.askUser ? 1 : 0,
           settings.webhookUrl ?? null,
           settings.baseUrl ?? null,
           settings.lastResult ? JSON.stringify(settings.lastResult) : null,

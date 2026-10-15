@@ -23,6 +23,7 @@ import type { NotificationResult, NotificationsResponse } from "../src/types";
 
 const SETTINGS: NotificationsResponse = {
   enabled: true,
+  askUser: true,
   provider: "discord",
   configured: true,
   webhookHint: "a1b2",
@@ -34,17 +35,21 @@ const TIME_ZONE = "Asia/Tokyo";
 test("draftFromSettings は保存済みの値から下書きを作り、URL は常に空から始める", () => {
   assert.deepEqual(draftFromSettings(SETTINGS), {
     enabled: true,
+    askUser: true,
     webhookUrl: null,
     baseUrl: "http://127.0.0.1:5173",
   });
   assert.deepEqual(draftFromSettings(null), EMPTY_NOTIFICATION_DRAFT);
+  // 設定をまだ読めていなくても質問通知の既定 (ON) を出す
+  assert.equal(draftFromSettings(null).askUser, true);
 });
 
-test("draftIsDirty は enabled / URL の入力開始 / baseUrl の差だけを見る", () => {
+test("draftIsDirty は enabled / askUser / URL の入力開始 / baseUrl の差だけを見る", () => {
   const base = draftFromSettings(SETTINGS);
   assert.equal(draftIsDirty(base, SETTINGS), false);
   assert.equal(draftIsDirty(base, null), false);
   assert.equal(draftIsDirty({ ...base, enabled: false }, SETTINGS), true);
+  assert.equal(draftIsDirty({ ...base, askUser: false }, SETTINGS), true);
   assert.equal(draftIsDirty({ ...base, webhookUrl: "" }, SETTINGS), true);
   assert.equal(draftIsDirty({ ...base, baseUrl: "http://127.0.0.1:5174" }, SETTINGS), true);
   // 前後の空白は保存時に落ちるため、変わっていない扱いにする
@@ -53,11 +58,17 @@ test("draftIsDirty は enabled / URL の入力開始 / baseUrl の差だけを�
 
 test("draftBody は URL を触っていなければ送らず、空の baseUrl は null (解除) にする", () => {
   const base = draftFromSettings(SETTINGS);
-  assert.deepEqual(draftBody(base), { enabled: true, baseUrl: "http://127.0.0.1:5173" });
+  assert.deepEqual(draftBody(base), { enabled: true, askUser: true, baseUrl: "http://127.0.0.1:5173" });
   assert.deepEqual(draftBody({ ...base, webhookUrl: "https://discord.com/api/webhooks/1/token" }), {
     enabled: true,
+    askUser: true,
     baseUrl: "http://127.0.0.1:5173",
     webhookUrl: "https://discord.com/api/webhooks/1/token",
+  });
+  assert.deepEqual(draftBody({ ...base, askUser: false }), {
+    enabled: true,
+    askUser: false,
+    baseUrl: "http://127.0.0.1:5173",
   });
   assert.equal(draftBody({ ...base, webhookUrl: "  " }).webhookUrl, null);
   assert.equal(draftBody({ ...base, baseUrl: "" }).baseUrl, null);
@@ -69,21 +80,22 @@ test("draftBody は URL を触っていなければ送らず、空の baseUrl �
 
 test("syncDraft は未編集のフィールドだけ新しい保存値へ追従させる", () => {
   const base = draftFromSettings(SETTINGS);
-  // 他タブの保存で enabled / baseUrl が変わっても、A の未編集の下書きは追従する
+  // 他タブの保存で enabled / askUser / baseUrl が変わっても、A の未編集の下書きは追従する
   const next: NotificationsResponse = {
     ...SETTINGS,
     enabled: false,
+    askUser: false,
     baseUrl: "http://127.0.0.1:5174",
   };
   const synced = syncDraft(base, SETTINGS, next);
-  assert.deepEqual(synced, { enabled: false, webhookUrl: null, baseUrl: "http://127.0.0.1:5174" });
+  assert.deepEqual(synced, { enabled: false, askUser: false, webhookUrl: null, baseUrl: "http://127.0.0.1:5174" });
   // 追従後の下書きは保存済みと同じなので、古い値を PUT しない (dirty が立たない)
   assert.equal(draftIsDirty(synced, next), false);
 
   // 未編集のフィールドは追従し、編集中のフィールドは残る (同じ下書き内で混ざってもよい)
-  const edited = { ...base, enabled: true, baseUrl: "http://127.0.0.1:5175" };
+  const edited = { ...base, enabled: true, askUser: true, baseUrl: "http://127.0.0.1:5175" };
   const kept = syncDraft(edited, SETTINGS, next);
-  assert.deepEqual(kept, { enabled: false, webhookUrl: null, baseUrl: "http://127.0.0.1:5175" });
+  assert.deepEqual(kept, { enabled: false, askUser: false, webhookUrl: null, baseUrl: "http://127.0.0.1:5175" });
   // baseUrl の編集だけが残るため dirty は立つ (保存すればその値が送られる)
   assert.equal(draftIsDirty(kept, next), true);
 
@@ -235,10 +247,27 @@ test("プレビューは baseUrl があるときだけリンク行を足す", ()
     notificationPreviewLines(base).at(-1),
     "http://127.0.0.1:5173/s/a1b2c3d4e5?space=space-a1b2c3d4e5f6a7b8",
   );
-  assert.equal(notificationPreviewLines({ ...base, baseUrl: "" }).length, 3);
+  assert.equal(notificationPreviewLines({ ...base, baseUrl: "" }).length, 6);
   // 不正な URL はリンク行を出さない (保存はサーバーが 400 で拒否する)
   assert.equal(previewLink("not a url"), undefined);
-  assert.equal(notificationPreviewLines({ ...base, baseUrl: "not a url" }).length, 3);
+  assert.equal(notificationPreviewLines({ ...base, baseUrl: "not a url" }).length, 6);
+});
+
+test("プレビューは質問通知の見本を askUser の下書きに追従させる", () => {
+  const base = draftFromSettings(SETTINGS);
+  const lines = notificationPreviewLines(base);
+  assert.deepEqual(lines.slice(3, 6), [
+    "❓ 回答待ち  パンくずの折り返しを直す",
+    "実装担当 ・ 質問 2件",
+    "どちらの方式で進めますか。",
+  ]);
+  // 送らない設定では見本も出さない
+  assert.deepEqual(notificationPreviewLines({ ...base, askUser: false }), [
+    "✅ 完了  パンくずの折り返しを直す",
+    "実装担当 ・ 4分12秒 ・ ツール 12件",
+    "テストが 3 件失敗しています。修正して再実行してください。",
+    "http://127.0.0.1:5173/s/a1b2c3d4e5?space=space-a1b2c3d4e5f6a7b8",
+  ]);
 });
 
 function result(input: Partial<NotificationResult> & { ok: boolean }): NotificationResult {

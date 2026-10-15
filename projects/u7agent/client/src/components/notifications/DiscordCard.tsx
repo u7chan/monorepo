@@ -75,7 +75,8 @@ export function DiscordCard({
           保存済みの URL は再表示しません。変更するときは新しい URL を入れ直してください。
         </p>
         <p className="text-2xs leading-relaxed text-ink-ghost">
-          会話のタイトル・エージェント名・応答本文の先頭 200 文字が Discord へ送られます。機微な会話では通知を Off
+          会話の通知を Off にしても、質問の通知（本文なし）は届きます。会話の通知を On にすると、会話のタイトル・
+          エージェント名・応答本文の先頭 200 文字が Discord へ送られます。機微な会話では会話の通知を Off
           にしてください。
         </p>
         {enabled && !sendable ? (

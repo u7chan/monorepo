@@ -51,6 +51,18 @@ export interface SessionNotificationInput {
   toolCalls: number;
 }
 
+/** 質問通知の中身 (マスク前の生値) */
+export interface QuestionNotificationInput {
+  sessionId: string;
+  /** 会話の所属スペース。未指定・不正は通知層が既定として扱う (通知を失わない) */
+  spaceId?: string;
+  title: string;
+  agentName: string;
+  questionCount: number;
+  /** 最初の質問の本文。会話の通知が Off のときは undefined (タイトルも載せない) */
+  question?: string;
+}
+
 /**
  * Discord の正規の宛先だけを許可する (SSRF / リダイレクト対策)。host 固定・パスは 2 セグメントで、
  * userinfo / クエリ / フラグメント / 非標準ポートは拒否する。例外へ URL を入れない。
@@ -197,6 +209,7 @@ export class NotificationService {
     const settings = this.#read();
     return {
       enabled: settings.enabled,
+      askUser: settings.askUser,
       provider: "discord",
       configured: Boolean(settings.webhookUrl),
       ...(settings.webhookUrl ? { webhookHint: webhookHint(settings.webhookUrl) } : {}),
@@ -210,6 +223,8 @@ export class NotificationService {
     const current = this.#read();
     const next: NotificationSettings = { ...current };
     if (input.enabled !== undefined) next.enabled = input.enabled;
+    // 旧クライアントの PUT (askUser 省略) は保存値を維持し、既定の補完は読み取り側だけで行う
+    if (input.askUser !== undefined) next.askUser = input.askUser;
     if (input.webhookUrl !== undefined) {
       const webhookUrl = input.webhookUrl === null ? undefined : normalizeWebhookUrl(input.webhookUrl);
       // URL を変えたら直近結果を捨てる。進行中の送信結果も世代で採用しない
@@ -243,6 +258,11 @@ export class NotificationService {
     void this.#notifySession(input);
   }
 
+  /** 質問通知。fire-and-forget で、例外はここで握る (質問の登録・回答を止めない) */
+  notifyQuestion(input: QuestionNotificationInput): void {
+    void this.#notifyQuestion(input);
+  }
+
   /** 送信中のままプロセスを閉じるときに呼ぶ。以後の結果は記録しない */
   close(): void {
     this.#closed = true;
@@ -271,6 +291,32 @@ export class NotificationService {
       embeds: [
         {
           title: `✅ 完了  ${title}`,
+          description: [summary, body, ...(link ? [link] : [])].filter(Boolean).join("\n"),
+        },
+      ],
+    };
+  }
+
+  async #notifyQuestion(input: QuestionNotificationInput): Promise<void> {
+    try {
+      const settings = this.#read();
+      if (!settings.enabled || !settings.askUser || !settings.webhookUrl) return;
+      await this.#send(settings.webhookUrl, this.#questionPayload(settings, input));
+    } catch (error) {
+      console.warn(`[u7agent] 質問通知を送信できません: ${this.#mask(messageFor(error))}`);
+    }
+  }
+
+  #questionPayload(settings: NotificationSettings, input: QuestionNotificationInput): unknown {
+    // 会話の通知が Off の会話ではタイトルも質問文も載せず、何が起きたかとリンクだけを送る
+    const body = input.question === undefined ? undefined : truncate(this.#mask(input.question), NOTIFICATION_BODY_MAX);
+    const summary = [this.#mask(input.agentName), `質問 ${input.questionCount}件`].filter(Boolean).join(" ・ ");
+    const link = deepLink(settings.baseUrl, input.sessionId, spaceOfNotification(input.spaceId));
+    return {
+      embeds: [
+        {
+          title:
+            body === undefined ? "❓ 質問があります" : `❓ 回答待ち  ${this.#mask(input.title) || "無題のセッション"}`,
           description: [summary, body, ...(link ? [link] : [])].filter(Boolean).join("\n"),
         },
       ],
@@ -357,7 +403,7 @@ export class NotificationService {
   }
 
   #read(): NotificationSettings {
-    return this.#db.getNotificationSettings() ?? { enabled: false };
+    return this.#db.getNotificationSettings() ?? { enabled: false, askUser: true };
   }
 
   #mask(text: string): string {

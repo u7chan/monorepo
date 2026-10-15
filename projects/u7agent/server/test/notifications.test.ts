@@ -185,7 +185,7 @@ test("a test send posts an embed and stores the shared last result", async () =>
   const { impl, calls } = fakeFetch(() => new Response(null, { status: 204 }));
   const { db, service } = createService({ fetchImpl: impl });
   try {
-    assert.deepEqual(service.settings(), { enabled: false, provider: "discord", configured: false });
+    assert.deepEqual(service.settings(), { enabled: false, askUser: true, provider: "discord", configured: false });
     // 設定の保存では送信しない
     assert.equal(calls.length, 0);
 
@@ -411,6 +411,110 @@ test("通知のスペースは通知層で正規化し、不正値でもリン�
   }
 });
 
+test("質問通知は本文なしなら見出しと件数だけ、本文ありならタイトルと第 1 問を載せる", async () => {
+  const { impl, calls } = fakeFetch(() => new Response(null, { status: 204 }));
+  const { db, service } = createService({ fetchImpl: impl });
+  const input = {
+    sessionId: "a1b2c3d4e5",
+    spaceId: "space-1111111111111111",
+    title: "パンくずの折り返しを直す",
+    agentName: "実装担当",
+    questionCount: 2,
+  };
+  try {
+    service.save({ webhookUrl: WEBHOOK, enabled: true, baseUrl: "http://127.0.0.1:5173" });
+    // 会話の通知が Off の会話 (タイトルも質問文も載せない)
+    service.notifyQuestion(input);
+    await waitFor(() => calls.length === 1);
+    const meta = payloadOf(calls[0]);
+    assert.equal(meta.embeds[0].title, "❓ 質問があります");
+    assert.equal("allowed_mentions" in meta, false);
+    assert.deepEqual(String(meta.embeds[0].description).split("\n"), [
+      "実装担当 ・ 質問 2件",
+      "http://127.0.0.1:5173/s/a1b2c3d4e5?space=space-1111111111111111",
+    ]);
+    // 会話の通知が On の会話 (タイトルと第 1 問の本文)
+    service.notifyQuestion({ ...input, question: "どちらの方式で進めますか" });
+    await waitFor(() => calls.length === 2);
+    const withBody = payloadOf(calls[1]);
+    assert.equal(withBody.embeds[0].title, "❓ 回答待ち  パンくずの折り返しを直す");
+    assert.deepEqual(String(withBody.embeds[0].description).split("\n"), [
+      "実装担当 ・ 質問 2件",
+      "どちらの方式で進めますか",
+      "http://127.0.0.1:5173/s/a1b2c3d4e5?space=space-1111111111111111",
+    ]);
+    // 所属が未指定でもリンクは既定スペースで開ける (保存値に依存させない)
+    service.notifyQuestion({ ...input, spaceId: undefined });
+    await waitFor(() => calls.length === 3);
+    assert.equal(
+      String(payloadOf(calls[2]).embeds[0].description).split("\n").at(-1),
+      "http://127.0.0.1:5173/s/a1b2c3d4e5?space=default",
+    );
+    // 直近結果は通常通知とテスト送信で共通の 1 件
+    await waitFor(() => service.settings().lastResult?.ok === true);
+  } finally {
+    db.close();
+  }
+});
+
+test("質問通知も mask してから切り詰める", async () => {
+  const { impl, calls } = fakeFetch(() => new Response(null, { status: 204 }));
+  const { db, service } = createService({ fetchImpl: impl, masker: createSecretMasker(["SECRET-TOKEN"]) });
+  try {
+    service.save({ webhookUrl: WEBHOOK, enabled: true });
+    service.notifyQuestion({
+      sessionId: "a1b2c3d4e5",
+      title: `題名 ${WEBHOOK}`,
+      agentName: "実装担当",
+      questionCount: 1,
+      question: `${WEBHOOK} ${"a".repeat(190)}SECRET-TOKEN${"b".repeat(50)}`,
+    });
+    await waitFor(() => calls.length === 1);
+    const payload = payloadOf(calls[0]);
+    assert.equal(payload.embeds[0].title, "❓ 回答待ち  題名 [REDACTED]");
+    const [, body] = String(payload.embeds[0].description).split("\n");
+    assert.equal(body.includes("SECRET-TOK"), false);
+    assert.equal(body.includes("/api/webhooks/"), false);
+    assert.match(body, /\[REDACTED\]/);
+    assert.ok(body.endsWith("…"), "200 文字を超える本文は切り詰める");
+  } finally {
+    db.close();
+  }
+});
+
+test("質問通知は全体 OFF / askUser OFF / Webhook 未設定のどれでも送らない", async () => {
+  const { impl, calls } = fakeFetch(() => new Response(null, { status: 204 }));
+  const { db, service } = createService({ fetchImpl: impl });
+  const input = { sessionId: "a1", title: "t", agentName: "a", questionCount: 1, question: "q" };
+  try {
+    service.notifyQuestion(input);
+    service.save({ webhookUrl: WEBHOOK, enabled: false });
+    service.notifyQuestion(input);
+    service.save({ enabled: true, askUser: false });
+    service.notifyQuestion(input);
+    // 全体 ON に戻しても Webhook が無ければ送らない
+    service.save({ askUser: true, webhookUrl: null });
+    service.notifyQuestion(input);
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    assert.equal(calls.length, 0);
+  } finally {
+    db.close();
+  }
+});
+
+test("テスト送信は enabled / askUser が OFF でも Webhook があれば送れる", async () => {
+  const { impl, calls } = fakeFetch(() => new Response(null, { status: 204 }));
+  const { db, service } = createService({ fetchImpl: impl });
+  try {
+    service.save({ webhookUrl: WEBHOOK, enabled: false, askUser: false });
+    const result = await service.test();
+    assert.equal(result.ok, true);
+    assert.equal(calls.length, 1);
+  } finally {
+    db.close();
+  }
+});
+
 test("a session notification is skipped when disabled or without a webhook", async () => {
   const { impl, calls } = fakeFetch(() => new Response(null, { status: 204 }));
   const { db, service } = createService({ fetchImpl: impl });
@@ -433,6 +537,7 @@ test("the notifications API keeps the webhook URL write-only", async () => {
     try {
       assert.deepEqual(await jsonBody(bff.app.request("/api/notifications")), {
         enabled: false,
+        askUser: true,
         provider: "discord",
         configured: false,
       });
@@ -472,6 +577,7 @@ test("the notifications API keeps the webhook URL write-only", async () => {
       const cleared = await jsonBody(bff.app.request("/api/notifications", jsonPut({ webhookUrl: null })));
       assert.deepEqual(cleared, {
         enabled: true,
+        askUser: true,
         provider: "discord",
         configured: false,
         baseUrl: "http://127.0.0.1:5173",
@@ -479,6 +585,36 @@ test("the notifications API keeps the webhook URL write-only", async () => {
       assert.equal((await bff.app.request("/api/notifications/test", { method: "POST" })).status, 400);
     } finally {
       await bff.close();
+    }
+  });
+});
+
+test("DB と API をまたいで askUser を保存し、省略した PUT では現在値を維持する", async () => {
+  await withStoreDir(async (dir) => {
+    const first = await createBffApp({ cwd: "/tmp/project", sessionStoreDir: dir, pi: null });
+    try {
+      // 既定は ON
+      assert.equal((await jsonBody(first.app.request("/api/notifications"))).askUser, true);
+      const saved = await jsonBody(
+        first.app.request("/api/notifications", jsonPut({ askUser: false, enabled: true, webhookUrl: WEBHOOK })),
+      );
+      assert.equal(saved.askUser, false);
+      assert.equal((await jsonBody(first.app.request("/api/notifications"))).askUser, false);
+      // 旧クライアントと同じく askUser を省略した PUT では保存値を維持する
+      const unrelated = await jsonBody(
+        first.app.request("/api/notifications", jsonPut({ baseUrl: "http://127.0.0.1:5173" })),
+      );
+      assert.equal(unrelated.askUser, false);
+    } finally {
+      await first.close();
+    }
+
+    // 再起動後も false のまま
+    const second = await createBffApp({ cwd: "/tmp/project", sessionStoreDir: dir, pi: null });
+    try {
+      assert.equal((await jsonBody(second.app.request("/api/notifications"))).askUser, false);
+    } finally {
+      await second.close();
     }
   });
 });
