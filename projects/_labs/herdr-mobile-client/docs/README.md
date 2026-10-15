@@ -21,3 +21,5 @@
 | [adr/0002-api-client.md](./adr/0002-api-client.md) | クライアントが Hono RPC でサーバーのルート型を共有する理由 |
 | [adr/0003-api-reference-for-ai.md](./adr/0003-api-reference-for-ai.md) | AI 向けの API 仕様をどう用意するか（提案） |
 | [adr/0004-client-effect-discipline.md](./adr/0004-client-effect-discipline.md) | `useEffect` を DOM 操作など外部システムとの同期に限る方針 |
+| [lan-access.md](./lan-access.md) | スマホから到達させるための Windows 側の設定手順（スクリプト）と、WSL2 再起動後の張り直し |
+| [auth.md](./auth.md) | 共有トークンの与え方と判定、クライアントで `sessionStorage` に置く理由 |
