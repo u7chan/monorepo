@@ -27,7 +27,7 @@ async function withTempDir<T>(body: (dir: string) => Promise<T>): Promise<T> {
 test("保存名は cwd 相対の .png だけを受け付ける", () => {
   assert.equal(validateOutputName("shot.png"), "shot.png");
   assert.equal(validateOutputName("shots/home-1.PNG"), "shots/home-1.PNG");
-  for (const name of ["", "/abs.png", "../up.png", "./a.png", "shots//a.png", "a.jpg", "a"]) {
+  for (const name of ["", "/abs.png", "../up.png", "./a.png", "shots//a.png", "a\\b.png", "a.jpg", "a"]) {
     assert.throws(() => validateOutputName(name), /保存|絶対|使えません|png/, name);
   }
 });
@@ -37,9 +37,9 @@ test("保存名の候補は連番で進み、上限へ達したらランダム s
   assert.equal(candidates.next().value, "shot.png");
   assert.equal(candidates.next().value, "shot-1.png");
   assert.equal(candidates.next().value, "shot-2.png");
-  const random = outputCandidateNames("dir/shot.png");
-  for (let index = 0; index < 101; index += 1) random.next();
-  assert.match(String(random.next().value), /^dir\/shot-[0-9a-f]{8}\.png$/);
+  const nested = outputCandidateNames("dir/shot.png");
+  for (let index = 0; index < 101; index += 1) nested.next();
+  assert.match(String(nested.next().value), /^dir\/shot-[0-9a-f]{8}\.png$/);
 });
 
 test("同名があっても上書きせず、実際に保存した cwd 相対パスを返す", async () => {

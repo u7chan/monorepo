@@ -225,11 +225,18 @@ export async function runCheck(session: BrowserSession, url: string, options: Ch
     if (navigated) {
       if (options.readySelector) {
         const readyTimeoutMs = options.readyTimeoutMs ?? READY_TIMEOUT_MS;
-        await session.page
-          .waitForSelector(options.readySelector, { timeout: readyTimeoutMs })
-          .catch(() =>
-            recorder.record("ready", `ready selector が現れません: ${options.readySelector} (${readyTimeoutMs} ms)`),
+        const selector = options.readySelector;
+        await session.page.waitForSelector(selector, { timeout: readyTimeoutMs }).catch((error: Error) => {
+          // selector の書き間違いは待ち外れと区別する (原因が違うと直し方も違う)
+          const timedOut = error.message.includes("Timeout");
+          const reason = timedOut ? `${readyTimeoutMs} ms` : (error.message.split("\n")[0] ?? "");
+          recorder.record(
+            "ready",
+            timedOut
+              ? `ready selector が現れません: ${selector} (${reason})`
+              : `ready selector を待てません: ${selector} (${reason})`,
           );
+        });
       }
       await session.page.waitForTimeout(options.settleMs ?? CHECK_SETTLE_MS).catch(() => undefined);
     }

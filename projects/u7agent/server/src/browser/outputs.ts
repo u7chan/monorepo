@@ -23,7 +23,9 @@ export interface SavedOutput {
 export function validateOutputName(name: string): string {
   if (name.length === 0) throw new Error("保存先のファイル名が空です");
   if (isAbsolute(name)) throw new Error(`絶対パスへは保存できません: ${name}`);
-  if (name.split(/[/\\]/).some((segment) => segment === "" || segment === "." || segment === "..")) {
+  // 区切りは `/` だけにする (バックスラッシュは Linux では名前の一部になり、返すパスが読みにくくなる)
+  if (name.includes("\\")) throw new Error(`保存先に \\ は使えません: ${name}`);
+  if (name.split("/").some((segment) => segment === "" || segment === "." || segment === "..")) {
     throw new Error(`保存先に . と .. と空の要素は使えません: ${name}`);
   }
   if (extname(name).toLowerCase() !== OUTPUT_EXTENSION) {

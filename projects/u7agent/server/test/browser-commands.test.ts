@@ -221,6 +221,15 @@ test("check は ready selector を待ってから収集し、現れなければ 
   });
   expectItem(missing, "ready", /ready selector が現れません: #never-appears \(500 ms\)/);
   assert.equal(checkExitCode(missing), EXIT_VALIDATION_FAILED);
+
+  // selector の書き間違いは待ち外れと区別する (原因が違うと直し方も違う)
+  const invalid = await runCheck(session, `${fixture.origin}/app`, {
+    readySelector: "<bad selector",
+    readyTimeoutMs: 500,
+    settleMs: 0,
+  });
+  expectItem(invalid, "ready", /ready selector を待てません: <bad selector \(page\.waitForSelector: Unexpected token/);
+  assert.equal(checkExitCode(invalid), EXIT_VALIDATION_FAILED);
 });
 
 test("check はループバックの WS の成功を失敗にしない", async (t) => {
