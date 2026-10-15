@@ -27,7 +27,7 @@ export function NotificationSettingsPage({
     <SettingsPageLayout
       eyebrow="NOTIFICATIONS"
       title="通知"
-      caption="エージェントの応答の完了と、質問の発生を送ります。"
+      caption="エージェントの応答の完了と、質問の発生を送ります。会話の通知が Off のときは、質問の通知にタイトルと質問文を載せません。"
       actions={
         <>
           <button type="button" className="btn-quiet" disabled={!dirty || saving} onClick={discard}>
