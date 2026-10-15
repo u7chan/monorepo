@@ -329,21 +329,71 @@ export default async function ({ page, context }) {
   assert.equal(await readFile(result, "utf8"), "stub");
 });
 
-test("期限超過ではスクリプトを打ち切り、ブラウザと一時領域を回収する", async (t) => {
-  if (skipWithoutBrowser(t)) return;
+/**
+ * 期限付きのセッションでスクリプトを 1 回実行し、打ち切りと回収まで確かめる。
+ * テスト自身のプロセスで動かすため、スクリプトはハンドル (タイマー) を持たない待機にする
+ * (タイマーを掴む場合の打ち切りは CLI の検査で見る)。
+ */
+async function runUntilDeadline(script: string): Promise<RunOutcome> {
   const session = await openBrowserSession({ deadlineMs: 2000, log: () => {} });
   const dirs = session.dirs;
-  // テスト自身のプロセスで動くため、ハンドルを持たない待ちにする (タイマーを掴む場合は CLI の検査で見る)
-  const script = await writeScript("hanging.mjs", `export default function () {\n  return new Promise(() => {});\n}\n`);
+  let outcome: RunOutcome;
   try {
-    const outcome = await runScript(session, script);
-    assert.equal(outcome.status, "interrupted");
-    assert.equal(session.timedOut, true);
-    assert.equal(session.page.isClosed(), true, "ブラウザを閉じる");
-    await assert.rejects(stat(dirs.root), /ENOENT/, "一時領域を回収する");
+    outcome = await runScript(session, script);
   } finally {
+    // スクリプトが例外を握りつぶした場合は打ち切りの判定が回収より先に返るため、ここで回収の完了を待つ
+    await session.close();
     restoreBrowserEnv();
   }
+  assert.equal(session.timedOut, true, "期限超過で打ち切る");
+  assert.equal(session.page.isClosed(), true, "ブラウザを閉じる");
+  await assert.rejects(stat(dirs.root), /ENOENT/, "一時領域を回収する");
+  return outcome;
+}
+
+test("期限超過ではスクリプトを打ち切り、ブラウザと一時領域を回収する", async (t) => {
+  if (skipWithoutBrowser(t)) return;
+  const script = await writeScript("hanging.mjs", `export default function () {\n  return new Promise(() => {});\n}\n`);
+  assert.equal((await runUntilDeadline(script)).status, "interrupted");
+});
+
+test("期限超過は読み込み中のトップレベル待機も打ち切る", async (t) => {
+  if (skipWithoutBrowser(t)) return;
+  // モジュールの評価が終わらないため、読み込みを待ってから競合を始めると CLI が終わらない
+  const started = join(workDir, "import-started.txt");
+  const entered = join(workDir, "import-entered.txt");
+  const script = await writeScript(
+    "import-hang.mjs",
+    `import { writeFileSync } from "node:fs";
+writeFileSync(${JSON.stringify(started)}, "started");
+await new Promise(() => {});
+export default function () {
+  writeFileSync(${JSON.stringify(entered)}, "entered");
+}
+`,
+  );
+  assert.equal((await runUntilDeadline(script)).status, "interrupted");
+  assert.equal(await readFile(started, "utf8"), "started", "モジュールの評価は始まっている");
+  await assert.rejects(stat(entered), /ENOENT/, "打ち切った後はスクリプトを始めない");
+});
+
+test("期限超過はスクリプトが例外を握りつぶしても成功にしない", async (t) => {
+  if (skipWithoutBrowser(t)) return;
+  // 期限でブラウザを閉じたときの reject を catch して正常 return する経路で、成功へ変わらないこと
+  const caught = join(workDir, "caught-deadline.txt");
+  const script = await writeScript(
+    "caught-deadline.mjs",
+    `import { writeFileSync } from "node:fs";
+export default async function ({ page }) {
+  try {
+    await page.waitForTimeout(60_000);
+  } catch {}
+  writeFileSync(${JSON.stringify(caught)}, "caught");
+}
+`,
+  );
+  assert.equal((await runUntilDeadline(script)).status, "interrupted");
+  assert.equal(await readFile(caught, "utf8"), "caught", "スクリプトは catch して正常 return している");
 });
 
 test("run は成功で 0、スクリプトの例外で 1 を返し、スクリプトの出力をそのまま出す", async (t) => {
@@ -370,29 +420,51 @@ test("run は成功で 0、スクリプトの例外で 1 を返し、スクリ�
   assert.match(failure.stderr, /スクリプトが失敗しました: script-boom/);
 });
 
-test("拡張子が .mjs でないスクリプトはブラウザを起動せずに 2 を返す", async (t) => {
+test("読み込めないスクリプトは 2 を返し、拡張子の誤りはブラウザを起動しない", async (t) => {
   if (skipWithoutBrowser(t)) return;
-  const run = await runCli(["run", "check.ts"]);
-  assert.equal(run.code, 2, run.stderr);
-  assert.match(run.stderr, /スクリプトは \.mjs で指定してください/);
-  assert.equal(run.stderr.includes("同時実行の枠"), false, "引数の解析で落ちる (ブラウザを起動しない)");
+  const extension = await runCli(["run", "check.ts"]);
+  assert.equal(extension.code, 2, extension.stderr);
+  assert.match(extension.stderr, /スクリプトは \.mjs で指定してください/);
+  assert.equal(extension.stderr.includes("同時実行の枠"), false, "引数の解析で落ちる (ブラウザを起動しない)");
+
+  // 読み込みの失敗は、期限との競合に入れても検証失敗 (1) ではなく起動・入力エラー (2) として返す
+  const missing = await runCli(["run", "missing.mjs"]);
+  assert.equal(missing.code, 2, missing.stderr);
+  assert.match(missing.stderr, /スクリプトを読めません: missing.mjs/);
 });
 
 test("期限超過ではプロセスが終わり、一時領域が残らない", async (t) => {
   if (skipWithoutBrowser(t)) return;
-  const script = await writeScript(
-    "cli-hanging.mjs",
-    `export default function () {\n  setInterval(() => {}, 50);\n  return new Promise(() => {});\n}\n`,
-  );
-  const { child, result } = startCli(["run", script, "--deadline-ms", "2000"]);
-  try {
-    const dir = await waitForCallDir(child, result, 20_000);
-    const run = await waitForExit(child, result, 15_000);
-    assert.equal(run.code, 2, run.stderr);
-    assert.match(run.stderr, /期限 \(2000 ms\) を超えました/);
-    await assert.rejects(stat(dir), /ENOENT/, "期限超過の一時領域が残っている");
-  } finally {
-    child.kill("SIGKILL");
+  const scripts = [
+    // 本文でタイマーを掴んで返らない (回収後も外側の kill 無しで終わること)
+    await writeScript(
+      "cli-hanging.mjs",
+      `export default function () {\n  setInterval(() => {}, 50);\n  return new Promise(() => {});\n}\n`,
+    ),
+    // 読み込み中のトップレベル待機 (モジュールの評価が終わらない)
+    await writeScript(
+      "cli-import-hang.mjs",
+      `setInterval(() => {}, 50);\nawait new Promise(() => {});\nexport default () => {};\n`,
+    ),
+    // 期限で閉じたことによる reject を catch して正常 return する
+    await writeScript(
+      "cli-caught-deadline.mjs",
+      `export default async function ({ page }) {\n  try {\n    await page.waitForTimeout(60_000);\n  } catch {}\n};
+`,
+    ),
+  ];
+  for (const script of scripts) {
+    const { child, result } = startCli(["run", script, "--deadline-ms", "2000"]);
+    try {
+      const dir = await waitForCallDir(child, result, 20_000);
+      // 上限を過ぎたら kill して失敗にする (外側の kill が要る時点で契約違反)
+      const run = await waitForExit(child, result, 15_000);
+      assert.equal(run.code, 2, `${script}: ${run.stderr}`);
+      assert.match(run.stderr, /期限 \(2000 ms\) を超えました/);
+      await assert.rejects(stat(dir), /ENOENT/, `${script}: 期限超過の一時領域が残っている`);
+    } finally {
+      child.kill("SIGKILL");
+    }
   }
 });
 

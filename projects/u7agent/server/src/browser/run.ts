@@ -3,6 +3,7 @@
  * page / context を渡す。ドライバはこの module 側で解決するため、スクリプトは bare import では
  * playwright-core を解決できず、受け取れるのは引数だけになる (`chromium.launch()` は開かない)。
  * 起動と終了は shot / dom / check と同じ session に乗せ、呼び出しごとの single-shot 契約を変えない。
+ * 期限は読み込みと実行の両方を覆い、超過したら回収の完了を待って打ち切る。
  */
 import { stat } from "node:fs/promises";
 import { extname, resolve } from "node:path";
@@ -49,24 +50,47 @@ export interface RunScriptOptions {
   cwd?: string;
 }
 
+/**
+ * 読み込みの失敗。スクリプトの例外 (検証失敗) ではなく、CLI の起動・入力エラーとして返すために包む
+ * (打ち切りとの競合に入れたままでも、入力エラーの終了コードを変えない)。
+ */
+class RunLoadError extends Error {
+  constructor(readonly reason: Error) {
+    super(reason.message);
+    this.name = "RunLoadError";
+  }
+}
+
+/**
+ * 読み込みと実行をまとめて 1 つの待ちにする。読み込み中のトップレベル待機も期限の対象で、
+ * 打ち切った後に読み込みが終わっても閉じたブラウザでスクリプトを始めない。
+ */
+async function loadAndRun(session: BrowserSession, file: string, options: RunScriptOptions): Promise<void> {
+  const entry = await loadRunEntry(file, options.cwd).catch((error: unknown) => {
+    throw new RunLoadError(error instanceof Error ? error : new Error(String(error)));
+  });
+  if (session.timedOut) return;
+  await entry({ page: session.page, context: session.context });
+}
+
 export async function runScript(
   session: BrowserSession,
   file: string,
   options: RunScriptOptions = {},
 ): Promise<RunOutcome> {
-  const entry = await loadRunEntry(file, options.cwd);
   // 期限超過では session の shutdown がブラウザを閉じるが、任意コードはそれでも戻らないことがある。
-  // 戻らない呼び出しが期限を過ぎて残らないよう close の完了と競合させ、例外と打ち切りを区別して返す。
-  const running = Promise.resolve().then(() => entry({ page: session.page, context: session.context }));
+  // 戻らない呼び出しが期限を過ぎて残らないよう、読み込みを含む実行全体を close の完了と競合させる。
   const outcome = await Promise.race([
-    running.then(
+    loadAndRun(session, file, options).then(
       () => "ok" as const,
       (error: unknown) => ({ error: error instanceof Error ? error : new Error(String(error)) }),
     ),
     session.closed.then(() => "closed" as const),
   ]);
+  // 期限超過の判定は成功より先に見る。スクリプトが閉じたことによる例外を握りつぶして正常 return しても、
+  // 期限を過ぎた実行は成功にしない (後始末の完了を待たずに決める)
+  if (session.timedOut || outcome === "closed") return { status: "interrupted" };
   if (outcome === "ok") return { status: "ok" };
-  // 閉じた結果の例外 (Target closed など) は、スクリプトの失敗ではなく打ち切りとして返す
-  if (outcome === "closed" || session.timedOut) return { status: "interrupted" };
+  if (outcome.error instanceof RunLoadError) throw outcome.error.reason;
   return { status: "failed", error: outcome.error };
 }

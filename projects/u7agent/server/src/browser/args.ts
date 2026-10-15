@@ -87,7 +87,7 @@ export const USAGE = `u7agent-browser — サンドボックス内のヘッド�
     export default async ({ page }) => { await page.goto("http://127.0.0.1:8080/"); }
   ドライバはラッパー側で解決するため、スクリプトから bare import では解決できない (chromium.launch は開かない)。
   外部到達のポリシーは既定で適用されるが、run は任意コードなので解除できる (境界の実効性は標準経路に限る)。
-  スクリプトの stdout / stderr はそのまま出る。期限超過ではブラウザと一時領域を回収して終了する。
+  スクリプトの stdout / stderr はそのまま出る。期限は読み込みと実行の両方を覆い、超過するとブラウザと一時領域を回収して終了する。
 
 資源上限:
   期限 ${CALL_DEADLINE_MS} ms / viewport ${VIEWPORT.width}x${VIEWPORT.height} / 成果物 ${MAX_OUTPUTS} 件 /
