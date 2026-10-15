@@ -319,6 +319,26 @@ export function speechPreviewInitialDraft(settings: Pick<ContentSettingsResponse
   return { model: speechModelValue(settings), voice: settings.speech.voice, text: "", instructions: "", speed: "" };
 }
 
+/** 名前が取れないときの本文。空の名前を差し込むと発話の意味が変わってしまうため、名前無しの文へ落とす */
+const SPEECH_PREVIEW_NO_NAME_TEXT = "こんにちは！よろしくお願いします。";
+
+/**
+ * お試し再生の本文の初期値（テンプレ）。名前は provider の接頭辞を落とすだけで、読みは TTS に任せる
+ * （読みの表は provider が増えるたびに埋まらない穴が残るため持たない。不自然なら本文を直せばよい）。
+ */
+export function speechPreviewDefaultText(model: SpeechModel | null | undefined): string {
+  const name = model == null ? "" : speechPreviewModelName(model);
+  return name === "" ? SPEECH_PREVIEW_NO_NAME_TEXT : `こんにちは、${name}です！よろしくお願いします。`;
+}
+
+/** テンプレへ入れる名前。接頭辞 (`Google: `) を落とし、落として空になる名前はそのまま使う */
+function speechPreviewModelName(model: SpeechModel): string {
+  const separator = model.name.indexOf(": ");
+  const withoutPrefix = separator === -1 ? "" : model.name.slice(separator + 2);
+  if (withoutPrefix !== "") return withoutPrefix;
+  return model.name === "" ? model.id : model.name;
+}
+
 /**
  * 速度入力の解釈。空欄は「指定なし」（provider の既定）で、それ以外は正の有限数だけを受け付ける。
  * 対応モデルの範囲（0.5–2.0 など）は provider の制約なので、ここでは縛らない。
@@ -349,6 +369,27 @@ export function speechPreviewRequest(
       ...(speed.speed === undefined ? {} : { speed: speed.speed }),
     },
   };
+}
+
+/** お試し再生の主ボタン。`replayable` のときだけ鳴らす意味になり、それ以外は生成へ戻る */
+export interface SpeechPreviewPrimaryAction {
+  replayable: boolean;
+  label: string;
+}
+
+/**
+ * 主ボタンの意味。いまの入力の署名 (`body`) が最後に生成した要求 (`lastBody`) と一致するときだけ再生にする。
+ * 比較を本文の JSON で行うのは `speechPreviewRequest` の組み立て順が固定で、同じ入力なら同じ文字列になるため。
+ */
+export function speechPreviewPrimaryAction(input: {
+  busy: boolean;
+  body: SpeechPreviewBody | null;
+  lastBody: SpeechPreviewBody | null;
+}): SpeechPreviewPrimaryAction {
+  if (input.busy) return { replayable: false, label: "生成中…" };
+  const replayable =
+    input.body !== null && input.lastBody !== null && JSON.stringify(input.body) === JSON.stringify(input.lastBody);
+  return replayable ? { replayable: true, label: "もう一度再生" } : { replayable: false, label: "音声を生成" };
 }
 
 /** 応答の Content-Type から表示形式を決める。判別できない応答は形式を推測せず undefined にする */
