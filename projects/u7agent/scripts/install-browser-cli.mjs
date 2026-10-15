@@ -8,17 +8,10 @@
 import { chmod, mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { shellQuote } from "./shell-quote.mjs";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 export const BROWSER_CLI_NAME = "u7agent-browser";
-
-/**
- * 埋め込む値を POSIX shell の単一引用符で囲む。単一引用符の中で `'` だけが特別なので、いったん閉じて
- * `'\''` で再開する (空白・`$`・バッククォート・`;` などは文字列として渡る)。
- */
-export function shellQuote(value) {
-  return `'${value.replaceAll("'", "'\\''")}'`;
-}
 
 /**
  * 入口の雛形。`root` はイメージなら /app、dev なら checkout の絶対パス。`browsersPath` を渡すと、
