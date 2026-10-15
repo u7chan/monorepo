@@ -1,8 +1,9 @@
 // scripts/install-browser.mjs と scripts/install-browser-cli.mjs の契約を検証する。
-// 版の正本は playwright-core の browsers.json、入口は cwd を変えない、の 2 点がずれると
-// Dockerfile の probe (実ブラウザ起動) まで気付けないため、ここで固定する。
+// 版の正本は playwright-core の browsers.json、入口は cwd を変えず特殊文字を含むパスでも壊れない、
+// の 2 点がずれると Dockerfile の probe (実ブラウザ起動) まで気付けないため、ここで固定する。
 
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
 import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -11,6 +12,68 @@ import test from "node:test";
 const scripts = (name: string) => new URL(`../../scripts/${name}`, import.meta.url).href;
 const installer = await import(scripts("install-browser.mjs"));
 const cliInstaller = await import(scripts("install-browser-cli.mjs"));
+
+/** 入口が `node` へ渡した argv / 環境変数 / cwd */
+type EntryRun = { cwd: string; args: string[]; browsersPath: string | undefined };
+
+/**
+ * 入口を実際に shell で走らせ、`node` に置き換えた stub が記録した呼び出しを見る。
+ * 生成した文字列ではなく観測できる渡り方 (argv / 環境変数 / cwd) を確かめるため、引用の表現に依存しない。
+ */
+async function runBrowserEntry({
+  root,
+  browsersPath,
+  cwd,
+  args = [],
+  env = {},
+}: {
+  root: string;
+  browsersPath?: string;
+  cwd: string;
+  args?: string[];
+  env?: Record<string, string>;
+}): Promise<EntryRun> {
+  const base = await mkdtemp(join(tmpdir(), "u7agent-browser-entry-"));
+  try {
+    const bin = join(base, "bin");
+    const record = join(base, "record");
+    await mkdir(bin, { recursive: true });
+    await writeFile(
+      join(bin, "node"),
+      `#!/bin/sh
+{
+  printf 'cwd\t%s\n' "$(pwd)"
+  if [ -n "\${PLAYWRIGHT_BROWSERS_PATH+set}" ]; then printf 'browsers\t%s\n' "$PLAYWRIGHT_BROWSERS_PATH"; fi
+  for arg in "$@"; do printf 'arg\t%s\n' "$arg"; done
+} > '${record}'
+`,
+      { mode: 0o755 },
+    );
+
+    const entry = await cliInstaller.installBrowserCli({
+      root,
+      dest: join(base, "dest"),
+      browsersPath,
+      log: () => {},
+    });
+    const result = spawnSync(entry.path, args, {
+      cwd,
+      env: { PATH: `${bin}:${process.env.PATH ?? ""}`, ...env },
+      encoding: "utf8",
+    });
+    assert.equal(result.status, 0, `入口が失敗しました: ${result.stderr}`);
+
+    const lines = (await readFile(record, "utf8")).split("\n").filter(Boolean);
+    const field = (key: string) => lines.find((line) => line.startsWith(`${key}\t`))?.slice(key.length + 1);
+    return {
+      cwd: field("cwd") ?? "",
+      args: lines.filter((line) => line.startsWith("arg\t")).map((line) => line.slice(4)),
+      browsersPath: field("browsers"),
+    };
+  } finally {
+    await rm(base, { recursive: true, force: true });
+  }
+}
 
 test("取得先は環境変数を優先し、既定は Playwright のキャッシュ", () => {
   assert.equal(installer.resolveBrowsersDir({ PLAYWRIGHT_BROWSERS_PATH: "/ms-playwright" }), "/ms-playwright");
@@ -54,23 +117,84 @@ test("同じ版があるときは再取得しない", async () => {
   }
 });
 
-test("入口は呼び出し元の cwd を変えず、tsx と CLI を絶対パスで呼ぶ", async () => {
-  const script = cliInstaller.browserWrapperScript("/app");
-  assert.match(script, /^#!\/bin\/sh\n/);
-  assert.match(
-    script,
-    /exec node --import \/app\/server\/node_modules\/tsx\/dist\/loader\.mjs \/app\/server\/src\/browser\/cli\.ts "\$@"/,
-  );
-  assert.ok(!script.includes("PLAYWRIGHT_BROWSERS_PATH"), "イメージでは環境変数の既定を焼き込まない");
-  assert.ok(!script.includes("cd "), "cwd を変えない (成果物の保存先の基準になる)");
+/** 空白・単一引用符・`$`・バッククォート・`;` を含む名前。引用を外すと分割・展開・構文エラーのどれかが起きる */
+const SPECIAL_DIR = "u7agent's $checkout `dir`; [1]";
+
+test("入口は特殊文字を含む checkout でも loader と CLI を絶対パスで渡し、cwd を変えない", async () => {
+  const base = await mkdtemp(join(tmpdir(), "u7agent-browser-root-"));
+  try {
+    const root = join(base, SPECIAL_DIR);
+    const cwd = join(base, "work dir's");
+    await mkdir(root);
+    await mkdir(cwd);
+    const run = await runBrowserEntry({ root, cwd });
+    assert.deepEqual(run.args, [
+      "--import",
+      join(root, "server", "node_modules", "tsx", "dist", "loader.mjs"),
+      join(root, "server", "src", "browser", "cli.ts"),
+    ]);
+    assert.equal(run.cwd, cwd);
+  } finally {
+    await rm(base, { recursive: true, force: true });
+  }
 });
 
-test("dev の入口は未設定のときだけキャッシュを既定にする", () => {
-  const script = cliInstaller.browserWrapperScript("/checkout", "/home/example/.cache/ms-playwright");
-  assert.match(
-    script,
-    /if \[ -z "\$\{PLAYWRIGHT_BROWSERS_PATH:-}" \]; then PLAYWRIGHT_BROWSERS_PATH='\/home\/example\/\.cache\/ms-playwright'; export PLAYWRIGHT_BROWSERS_PATH; fi/,
-  );
+test("入口は引数を分割も展開もせずそのまま渡す", async () => {
+  const base = await mkdtemp(join(tmpdir(), "u7agent-browser-root-"));
+  try {
+    const sentinel = join(base, "substituted");
+    const args = ["--out", "my file's name.png", `$(touch ${sentinel})`, "*", "; rm -rf /", "-"];
+    const run = await runBrowserEntry({ root: join(base, "checkout"), cwd: base, args });
+    assert.deepEqual(run.args.slice(3), args);
+    await assert.rejects(stat(sentinel), /ENOENT/);
+  } finally {
+    await rm(base, { recursive: true, force: true });
+  }
+});
+
+test("イメージの入口は環境変数の既定を焼き込まない", async () => {
+  const run = await runBrowserEntry({ root: "/app", cwd: tmpdir() });
+  assert.deepEqual(run.args, [
+    "--import",
+    "/app/server/node_modules/tsx/dist/loader.mjs",
+    "/app/server/src/browser/cli.ts",
+  ]);
+  assert.equal(run.browsersPath, undefined);
+
+  const explicit = "/ms-playwright";
+  const kept = await runBrowserEntry({ root: "/app", cwd: tmpdir(), env: { PLAYWRIGHT_BROWSERS_PATH: explicit } });
+  assert.equal(kept.browsersPath, explicit);
+});
+
+test("dev の入口は未設定のときだけキャッシュを既定にする", async () => {
+  const base = await mkdtemp(join(tmpdir(), "u7agent-browser-root-"));
+  try {
+    const sentinel = join(base, "substituted");
+    const root = join(base, "checkout");
+    const fallback = join(base, `cache's $dir\`; $(touch ${sentinel})`);
+
+    const unset = await runBrowserEntry({ root, browsersPath: fallback, cwd: base });
+    assert.equal(unset.browsersPath, fallback);
+    const empty = await runBrowserEntry({
+      root,
+      browsersPath: fallback,
+      cwd: base,
+      env: { PLAYWRIGHT_BROWSERS_PATH: "" },
+    });
+    assert.equal(empty.browsersPath, fallback);
+
+    const explicit = join(base, "explicit cache");
+    const kept = await runBrowserEntry({
+      root,
+      browsersPath: fallback,
+      cwd: base,
+      env: { PLAYWRIGHT_BROWSERS_PATH: explicit },
+    });
+    assert.equal(kept.browsersPath, explicit);
+    await assert.rejects(stat(sentinel), /ENOENT/);
+  } finally {
+    await rm(base, { recursive: true, force: true });
+  }
 });
 
 test("dev の入口は trusted directory へ実行可能な形で置く", async () => {
