@@ -460,7 +460,9 @@ test("期限超過ではプロセスが終わり、一時領域が残らない",
       // 上限を過ぎたら kill して失敗にする (外側の kill が要る時点で契約違反)
       const run = await waitForExit(child, result, 15_000);
       assert.equal(run.code, 2, `${script}: ${run.stderr}`);
-      assert.match(run.stderr, /期限 \(2000 ms\) を超えました/);
+      // 期限は起動中にも実行中にも当たる。起動中は CallDeadlineError の「超えたため中断しました」、
+      // 実行中は interruptRun の「超えました」になり、どちらも正当な期限超過のログ
+      assert.match(run.stderr, /期限 \(2000 ms\) を超え(?:ました|たため中断しました)/);
       await assert.rejects(stat(dir), /ENOENT/, `${script}: 期限超過の一時領域が残っている`);
     } finally {
       child.kill("SIGKILL");

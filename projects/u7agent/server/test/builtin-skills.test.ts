@@ -86,7 +86,8 @@ test("同梱の browser スキルは確認の流れと、外部到達・保存�
     "localhost",
     "[::1]",
     "--no-sandbox",
-    "ERR_PROXY_CONNECTION_FAILED",
+    "ループバック以外へは通信しません",
+    "外部へ redirect されました",
     // 起動に失敗したときのログと、ログと原因が一対一でないこと
     "No usable sandbox",
     "Failed to create headless user data directory container.",
@@ -102,6 +103,8 @@ test("同梱の browser スキルは確認の流れと、外部到達・保存�
     assert.ok(BROWSER.body.includes(text), text);
   }
 
+  // 外部到達の拒否は shot / dom が 2、check が 1。一律に入力エラーと読ませない
+  assert.match(BROWSER.body, /`shot` \/ `dom` は[^。]*`2`、`check` は[^。]*`1`/);
   // 返された保存パスを read してから Markdown へ貼らせる (要求したパスは使わせない)
   assert.match(BROWSER.body, /返されたパスを `read` して目視する/);
   assert.match(BROWSER.body, /返されたパスだけを使う/);
