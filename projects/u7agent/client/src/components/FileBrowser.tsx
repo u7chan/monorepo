@@ -18,6 +18,7 @@ import {
   beginFileTreeLoad,
   createFileTreeStateFromDirectories,
   FILE_TREE_ROOT,
+  fileTreeAbsolutePath,
   fileTreeChildPath,
   fileTreeDeleteConfirmRequest,
   fileTreeDirectoryState,
@@ -86,6 +87,8 @@ function errorText(error: unknown): string {
 export type FileBrowserProps = {
   /** ワークスペース root 相対 ("" や絶対パスは root へ畳まれる) */
   root: string;
+  /** ワークスペース root の絶対パス (health.cwd)。絶対パスをコピーする導線に使う (未取得の "" では出さない) */
+  rootCwd?: string;
   /** 値を変えると一覧と開いている本文を取り直す。mount 時の値では撃たない */
   reloadToken: number;
   /** フォルダ行の ⋯ メニューにリネームを出すか。既定 false (チャット右パネルでは出さない) */
@@ -121,6 +124,7 @@ export type FileBrowserProps = {
  */
 export function FileBrowser({
   root,
+  rootCwd = "",
   reloadToken,
   canRename = false,
   readOnly = false,
@@ -132,6 +136,8 @@ export function FileBrowser({
   filePreviewPort,
 }: FileBrowserProps) {
   const rootPath = normalizeFileTreeRoot(root);
+  // 行の絶対パスを組み立てる 1 箇所。行は画面の root を知らないので、描画側から渡す
+  const absolutePathOf = (path: string) => fileTreeAbsolutePath(rootCwd, rootPath, path);
   const confirm = useConfirm();
   const prompt = usePrompt();
   // 復元は mount ごとに 1 回。lazy initializer に置くことで、復元前の空状態を取得や保存の Effect が見ない
@@ -448,6 +454,7 @@ export function FileBrowser({
               {rootNode.children ? (
                 <Branch
                   parent={FILE_TREE_ROOT}
+                  absolutePathOf={absolutePathOf}
                   node={rootNode}
                   depth={0}
                   tree={tree}
@@ -525,6 +532,8 @@ export function FileBrowser({
 
 type BranchProps = {
   parent: string;
+  /** 画面 root 相対パスをワークスペースの絶対パスへ写す (health 未取得は undefined) */
+  absolutePathOf: (path: string) => string | undefined;
   node: FileTreeDirectoryState;
   depth: number;
   tree: FileTreeState;
@@ -546,6 +555,7 @@ type BranchProps = {
 
 function Branch({
   parent,
+  absolutePathOf,
   node,
   depth,
   tree,
@@ -571,6 +581,7 @@ function Branch({
         <EntryRow
           key={entry.name}
           parent={parent}
+          absolutePathOf={absolutePathOf}
           entry={entry}
           depth={depth}
           tree={tree}
@@ -611,6 +622,7 @@ function RowTail({ children }: { children: ReactNode }) {
 
 function EntryRow({
   parent,
+  absolutePathOf,
   entry,
   depth,
   tree,
@@ -628,6 +640,7 @@ function EntryRow({
   onDownload,
 }: {
   parent: string;
+  absolutePathOf: (path: string) => string | undefined;
   entry: FileEntry;
   depth: number;
   tree: FileTreeState;
@@ -645,6 +658,7 @@ function EntryRow({
   onDownload: (path: string, name: string, type: "file" | "dir") => void;
 }) {
   const path = fileTreeChildPath(parent, entry.name);
+  const absolutePath = absolutePathOf(path);
   const { copiedId, copyMessage, copyFailure } = useMessageCopy();
   const revealed = revealPath === path;
   const rowActions = (
@@ -655,8 +669,13 @@ function EntryRow({
       canRename={canRename}
       readOnly={readOnly}
       excludeNames={excludeNames}
+      absolutePath={absolutePath}
       copied={copiedId === path}
       onCopyPath={() => void copyMessage(path, path)}
+      onCopyAbsolutePath={() => {
+        // 絶対パスを作れない行には項目が出ない。undefined で押されても何もしない
+        if (absolutePath !== undefined) void copyMessage(absolutePath, path);
+      }}
       onRename={() => onRename(path, entry.name)}
       onDelete={() => onDelete(path, entry.type)}
       onDownload={() => onDownload(path, entry.name, entry.type)}
@@ -744,6 +763,7 @@ function EntryRow({
             {node?.children ? (
               <Branch
                 parent={path}
+                absolutePathOf={absolutePathOf}
                 node={node}
                 depth={depth + 1}
                 tree={tree}
@@ -831,8 +851,10 @@ export function EntryRowActions({
   canRename,
   readOnly,
   excludeNames,
+  absolutePath,
   copied,
   onCopyPath,
+  onCopyAbsolutePath,
   onRename,
   onDelete,
   onDownload,
@@ -844,21 +866,26 @@ export function EntryRowActions({
   readOnly: boolean;
   /** ワークスペースの除外名（設定ストアの実効値）。除外名の行にはダウンロードを出さない */
   excludeNames: readonly string[];
+  /** 行の絶対パス。undefined のときは「絶対パスをコピー」を出さない */
+  absolutePath?: string;
   /** 直前のパスコピーが成功した行。⋯ をチェックに替える */
   copied: boolean;
   /** パスをコピーする。失敗の表示は行 (EntryRow) が受け持つ */
   onCopyPath: () => void;
+  /** 絶対パスをコピーする。失敗の表示は行 (EntryRow) が受け持つ */
+  onCopyAbsolutePath: () => void;
   onRename: () => void;
   onDelete: () => void;
   onDownload: () => void;
 }) {
-  const actions = fileRowActions({ name, type, symlink, canRename, readOnly, excludeNames });
+  const actions = fileRowActions({ name, type, symlink, canRename, readOnly, excludeNames, absolutePath });
   // null = 読み取り専用の面で行の操作ごと消す。空配列 = 領域は出すが項目が無い (空きスロット 1 個)
   if (actions === null) return null;
   if (actions.length === 0) return <EmptySlot />;
   const handlers: Record<FileRowActionKind, () => void> = {
     // 同じパスの再コピーは弾かない (冪等)。useMessageCopy が連番で古い結果だけを捨てる
     "copy-path": onCopyPath,
+    "copy-absolute-path": onCopyAbsolutePath,
     download: onDownload,
     rename: onRename,
     delete: onDelete,

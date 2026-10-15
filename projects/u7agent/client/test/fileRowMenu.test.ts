@@ -33,6 +33,8 @@ const copyPath = {
   description: "ツリーの root からの相対パス",
   descriptionKind: "note",
 };
+/** health.cwd を渡した行だけに出る項目。2 行目を持たないので singleColumn でも文字が消えない */
+const copyAbsolutePath = { kind: "copy-absolute-path", label: "絶対パスをコピー" };
 /** ZIP の除外は押す前に知る必要があるので singleColumn でも残す */
 const downloadDir = {
   kind: "download",
@@ -77,6 +79,39 @@ test("出し分け: symlink はパスをコピーだけ、除外名はダウン�
   for (const props of [{ canRename: true }, { type: "file" as const }, { symlink: true }]) {
     assert.equal(fileRowActions({ ...base, ...props, readOnly: true }), null, JSON.stringify(props));
   }
+});
+
+test("出し分け: 絶対パスのコピーは絶対パスを渡した行だけに出す", () => {
+  const withAbsolute = fileRowActions({ ...base, absolutePath: "/srv/workspace/docs" });
+  assert.deepEqual(withAbsolute, [
+    copyPath,
+    copyAbsolutePath,
+    downloadDir,
+    { kind: "delete", label: "削除", danger: true },
+  ]);
+  // health 未取得 (undefined) の間は字面を作れないため出さない。既存の並びは変わらない
+  for (const action of fileRowActions(base) ?? []) {
+    assert.notEqual(action.kind, "copy-absolute-path", "絶対パスが無い行に出ている");
+  }
+  // symlink は相対と絶対のコピーだけ。読み取り専用の面は絶対パスを渡しても ⋯ ごと出さない
+  assert.deepEqual(
+    fileRowActions({ ...base, symlink: true, absolutePath: "/srv/workspace/link" })?.map((action) => action.kind),
+    ["copy-path", "copy-absolute-path"],
+  );
+  assert.equal(fileRowActions({ ...base, readOnly: true, absolutePath: "/srv/workspace/docs" }), null);
+});
+
+test("描画: 絶対パスを渡した行は ⋯ に パスをコピー → 絶対パスをコピー の順で並べる", () => {
+  const html = renderMenu(fileRowActions({ ...base, canRename: true, absolutePath: "/srv/workspace/docs" }) ?? []);
+  const copy = html.indexOf(">パスをコピー<");
+  const absolute = html.indexOf(">絶対パスをコピー<");
+  const download = html.indexOf("ZIP でダウンロード");
+  assert.ok(absolute >= 0, "絶対パスをコピーが出ていない");
+  assert.ok(
+    copy >= 0 && copy < absolute && absolute < download,
+    "並びが パスをコピー → 絶対パスをコピー → ダウンロード でない",
+  );
+  assert.equal((html.match(/role="menuitem"/g) ?? []).length, 5, "絶対パスを足した項目数が違う");
 });
 
 function renderMenu(actions: readonly FileRowAction[], name = "docs"): string {
@@ -152,6 +187,7 @@ test("描画: symlink は パスをコピー 1 項目、readOnly は何も出さ
       excludeNames: [],
       copied: false,
       onCopyPath: () => {},
+      onCopyAbsolutePath: () => {},
       onRename: () => {},
       onDelete: () => {},
       onDownload: () => {},
@@ -172,6 +208,7 @@ test("描画: symlink は パスをコピー 1 項目、readOnly は何も出さ
       excludeNames: [],
       copied: false,
       onCopyPath: () => {},
+      onCopyAbsolutePath: () => {},
       onRename: () => {},
       onDelete: () => {},
       onDownload: () => {},

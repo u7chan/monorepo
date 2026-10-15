@@ -8,11 +8,16 @@ import type { ConfirmRequest, PromptRequest } from "./confirmDialog";
 
 export const FILE_TREE_ROOT = ".";
 
+/** ホストの絶対パスの字面か (POSIX の "/" か Windows のドライブ文字)。"" は false */
+function isAbsolutePath(path: string): boolean {
+  return path.startsWith("/") || /^[A-Za-z]:\//.test(path);
+}
+
 // 絶対パス (health.cwd) のまま GET /api/files へ渡すと root 外として 400 になるため "." へ畳む
 export function normalizeFileTreeRoot(cwd: string): string {
   const path = cwd.replace(/\\/g, "/").replace(/\/+$/, "");
   if (!path || path === FILE_TREE_ROOT) return FILE_TREE_ROOT;
-  if (path.startsWith("/") || /^[A-Za-z]:\//.test(path)) return FILE_TREE_ROOT;
+  if (isAbsolutePath(path)) return FILE_TREE_ROOT;
   return path;
 }
 
@@ -24,6 +29,18 @@ export function fileTreeFetchPath(cwd: string, path: string): string {
   const root = normalizeFileTreeRoot(cwd);
   if (root === FILE_TREE_ROOT) return path;
   return path === FILE_TREE_ROOT ? root : `${root}/${path}`;
+}
+
+/**
+ * 画面の root 相対パスをワークスペース root からの絶対パスへ写す。rootCwd (health.cwd) が絶対パスでなければ
+ * undefined (health 未取得の "" も同じ扱い)。区切りはツリーの path に合わせて "/" に揃える。
+ */
+export function fileTreeAbsolutePath(rootCwd: string, cwd: string, path: string): string | undefined {
+  const normalized = rootCwd.replace(/\\/g, "/");
+  if (!isAbsolutePath(normalized)) return undefined;
+  // "/" だけの root (ワークスペースがファイルシステム root) は末尾の区切りが残らない
+  const root = normalized.replace(/\/+$/, "");
+  return `${root}/${fileTreeFetchPath(cwd, path)}`;
 }
 
 export type FileTreeDirectoryState = {

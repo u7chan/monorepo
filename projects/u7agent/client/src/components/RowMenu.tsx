@@ -39,6 +39,7 @@ import {
 /** 種別ごとのアイコン。描画側に条件分岐を残さないため、種別からここで引く (全画面ぶんを 1 箇所に置く) */
 const ACTION_ICONS: Record<RowMenuActionKind, ReactNode> = {
   "copy-path": <CopyIcon />,
+  "copy-absolute-path": <CopyIcon />,
   download: <DownloadIcon small />,
   diagnostics: <CopyIcon />,
   "raw-log": <DownloadIcon small />,

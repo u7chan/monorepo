@@ -13,6 +13,8 @@ import { TabToolbar } from "./TabToolbar";
 export type FileTreePageProps = SettingsPageProps & {
   /** ワークスペース root 相対 ("" や絶対パスは root へ畳まれる) */
   cwd: string;
+  /** ワークスペース root の絶対パス (health.cwd)。行の絶対パスのコピーに使う (未取得の "" では出さない) */
+  rootCwd?: string;
   /** アーカイブの除外名の実効値（app 状態）。行のダウンロードの出し分けに使う */
   excludeNames: readonly string[];
   /** プレビュー オリジンのブラウザから見たポート (health)。未取得は undefined */
@@ -34,6 +36,7 @@ export type FileTreePageProps = SettingsPageProps & {
  */
 export function FileTreePage({
   cwd,
+  rootCwd,
   excludeNames,
   filePreviewPort,
   archiveSettings,
@@ -132,6 +135,7 @@ export function FileTreePage({
       ) : (
         <FileBrowser
           root={rootPath}
+          rootCwd={rootCwd}
           reloadToken={reloadToken}
           canRename
           excludeNames={excludeNames}
