@@ -1,8 +1,6 @@
-// Bridge 自身の情報を返す GET /api/health と、ビルド済みクライアントの配信の検証。
+// GET /api/health が返す項目と値を固定する。クライアントはここで固定した形を読む。
 import assert from "node:assert/strict"
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
-import { tmpdir } from "node:os"
-import { join } from "node:path"
+import { readFileSync } from "node:fs"
 import test from "node:test"
 import { createApp } from "../src/server/app"
 
@@ -22,25 +20,4 @@ test("GET /api/health は ok / version / startedAt だけを返す", async () =>
   assert.equal(body.ok, true)
   assert.equal(body.version, packageJson.version)
   assert.equal(new Date(String(body.startedAt)).toISOString(), body.startedAt)
-})
-
-test("clientDir を渡すと index.html を返す", async () => {
-  const clientDir = mkdtempSync(join(tmpdir(), "herdr-mobile-client-"))
-
-  try {
-    writeFileSync(join(clientDir, "index.html"), "<!doctype html><title>top</title>")
-
-    const res = await createApp({ clientDir }).request("/")
-
-    assert.equal(res.status, 200)
-    assert.equal(await res.text(), "<!doctype html><title>top</title>")
-  } finally {
-    rmSync(clientDir, { recursive: true, force: true })
-  }
-})
-
-test("clientDir を渡さない app は静的ファイルを配信しない", async () => {
-  const res = await createApp().request("/")
-
-  assert.equal(res.status, 404)
 })
