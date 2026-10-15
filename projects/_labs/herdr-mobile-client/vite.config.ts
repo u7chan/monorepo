@@ -3,7 +3,7 @@ import tailwindcss from "@tailwindcss/vite"
 import { defineConfig } from "vite"
 
 // proxy 先はサーバーの待ち受けと同じ PORT から導出する。理由は docs/adr/0001-dev-ports.md を参照。
-const apiPort = process.env.PORT ?? "3000"
+const apiPort = process.env.PORT ?? "18081"
 
 export default defineConfig({
   plugins: [preact(), tailwindcss()],

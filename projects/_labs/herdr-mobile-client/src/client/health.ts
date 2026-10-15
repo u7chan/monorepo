@@ -1,20 +1,25 @@
 import type { HealthResponse } from "../server/app"
-import { api } from "./api"
+import { api, authorizationHeader } from "./api"
 
 export type HealthState =
   | { status: "ok"; health: HealthResponse }
-  | { status: "error"; message: string }
+  | { status: "unauthorized" }
+  | { status: "unreachable"; reason: string }
 
-export async function loadHealth(): Promise<HealthState> {
+export async function loadHealth(token: string): Promise<HealthState> {
   try {
-    const res = await api.api.health.$get()
+    const res = await api.api.health.$get(undefined, { headers: authorizationHeader(token) })
+
+    if (res.status === 401) {
+      return { status: "unauthorized" }
+    }
 
     if (!res.ok) {
-      return { status: "error", message: `HTTP ${res.status}` }
+      return { status: "unreachable", reason: `HTTP ${res.status}` }
     }
 
     return { status: "ok", health: await res.json() }
   } catch (error) {
-    return { status: "error", message: error instanceof Error ? error.message : String(error) }
+    return { status: "unreachable", reason: error instanceof Error ? error.message : String(error) }
   }
 }
