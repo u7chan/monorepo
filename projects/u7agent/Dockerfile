@@ -49,8 +49,12 @@ FROM browser AS test
 RUN apt-get update && apt-get install -y --no-install-recommends python3 \
     && rm -rf /var/lib/apt/lists/*
 COPY --from=fd /usr/local/bin/fd /usr/local/bin/fd
-# server のテストがルートの scripts/dev.mjs を読む (dependencies は client/ と server/ しか持たない)
+# server のテストがルートの scripts/ を読む (dependencies は client/ と server/ しか持たない)
 COPY scripts/dev.mjs ./scripts/dev.mjs
+COPY scripts/install-landlock.mjs ./scripts/install-landlock.mjs
+COPY scripts/landlock-exec.py ./scripts/landlock-exec.py
+# shell-quote.mjs は install-browser-cli.mjs と install-landlock.mjs の共有 module (テストも読む)
+COPY scripts/shell-quote.mjs ./scripts/shell-quote.mjs
 # docs:check は docs / AGENTS.md / README.md / .env.example のリンクとパスを実ファイルと突き合わせる。
 # 渡さないと検査対象が空になり、docs のリンク切れを見逃したまま test が通る (final へは入れない)。
 COPY docs/ ./docs/
@@ -159,11 +163,12 @@ COPY --from=builder /app/server/src/ ./server/src/
 COPY --from=builder /app/client/dist/ ./client/dist/
 # u7agent-browser の入口。tsx と CLI ソースを絶対パスで呼び、呼び出し元の cwd を保つ。
 COPY scripts/install-browser-cli.mjs /tmp/install-browser-cli.mjs
+COPY scripts/shell-quote.mjs /tmp/shell-quote.mjs
 RUN node /tmp/install-browser-cli.mjs /app /usr/local/bin \
     && test -x /usr/local/bin/u7agent-browser \
     && test -f /app/server/node_modules/tsx/dist/loader.mjs \
     && command -v u7agent-browser >/dev/null \
-    && rm -f /tmp/install-browser-cli.mjs
+    && rm -f /tmp/install-browser-cli.mjs /tmp/shell-quote.mjs
 USER node
 WORKDIR /app/server
 EXPOSE 4317 4318 4319 9418 8080
