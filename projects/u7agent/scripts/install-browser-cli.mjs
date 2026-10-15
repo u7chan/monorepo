@@ -13,16 +13,26 @@ const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 export const BROWSER_CLI_NAME = "u7agent-browser";
 
 /**
+ * 埋め込む値を POSIX shell の単一引用符で囲む。単一引用符の中で `'` だけが特別なので、いったん閉じて
+ * `'\''` で再開する (空白・`$`・バッククォート・`;` などは文字列として渡る)。
+ */
+export function shellQuote(value) {
+  return `'${value.replaceAll("'", "'\\''")}'`;
+}
+
+/**
  * 入口の雛形。`root` はイメージなら /app、dev なら checkout の絶対パス。`browsersPath` を渡すと、
- * 未設定のときだけそれを使う (dev でサンドボックスの外から叩くときの既定。明示された値を優先する)。
+ * 未設定または空文字のときだけそれを使う (dev でサンドボックスの外から叩くときの既定。明示された値を優先する)。
  */
 export function browserWrapperScript(root, browsersPath) {
   const fallback = browsersPath
-    ? `if [ -z "\${PLAYWRIGHT_BROWSERS_PATH:-}" ]; then PLAYWRIGHT_BROWSERS_PATH='${browsersPath}'; export PLAYWRIGHT_BROWSERS_PATH; fi\n`
+    ? `if [ -z "\${PLAYWRIGHT_BROWSERS_PATH:-}" ]; then PLAYWRIGHT_BROWSERS_PATH=${shellQuote(browsersPath)}; export PLAYWRIGHT_BROWSERS_PATH; fi\n`
     : "";
+  const loader = shellQuote(join(root, "server", "node_modules", "tsx", "dist", "loader.mjs"));
+  const cli = shellQuote(join(root, "server", "src", "browser", "cli.ts"));
   return `#!/bin/sh
 # 呼び出し元の cwd を保つ (成果物の保存先の基準)。tsx は絶対パスで呼ぶ。
-${fallback}exec node --import ${join(root, "server", "node_modules", "tsx", "dist", "loader.mjs")} ${join(root, "server", "src", "browser", "cli.ts")} "$@"
+${fallback}exec node --import ${loader} ${cli} "$@"
 `;
 }
 
