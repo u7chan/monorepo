@@ -989,6 +989,8 @@ export async function createPiBff({ cwd = process.cwd() }: { cwd?: string } = {}
                 enabled: serveToolEnabled,
                 sessionId: ownerSessionId ?? sessionId,
                 host: serveHost.value as ServeToolHost,
+                // 外した skill を説明が指したままだと、モデルが読めない skill を探す
+                ...(builtinSkillNames === undefined ? {} : { builtinSkillNames }),
               }),
               ...createAskUserToolDefinitions({
                 enabled: askUserEnabled,

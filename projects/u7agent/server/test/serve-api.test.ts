@@ -381,6 +381,24 @@ test("serve ツールは会話へ束縛した BFF ローカルの customTool と
     assert.deepEqual(Object.keys(parameters.properties ?? {}).sort(), ["action", "command"]);
     assert.deepEqual(parameters.required, ["action"]);
 
+    // 外したビルトイン skill は説明からも落ちる (system prompt の serveSkillClause と同じ判定)
+    assert.match(definition.description, /Follow the bundled `serve` skill/);
+    const [withoutBuiltins] = createServeToolDefinitions({
+      enabled: true,
+      sessionId: first,
+      host,
+      builtinSkillNames: [],
+    });
+    assert.doesNotMatch(withoutBuiltins.description, /bundled/);
+    assert.match(withoutBuiltins.description, /0\.0\.0\.0:8080/, "起動の必須条件は skill に依存しない");
+    const [otherBuiltin] = createServeToolDefinitions({
+      enabled: true,
+      sessionId: first,
+      host,
+      builtinSkillNames: ["skill-creator"],
+    });
+    assert.doesNotMatch(otherBuiltin.description, /bundled `serve` skill/);
+
     // 未設定・会話 id 無しでは公開しない
     assert.deepEqual(createServeToolDefinitions({ enabled: false, sessionId: first, host }), []);
     assert.deepEqual(createServeToolDefinitions({ enabled: true, host }), []);
