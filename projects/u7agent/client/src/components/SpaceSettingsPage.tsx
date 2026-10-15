@@ -66,7 +66,9 @@ export function SpaceSettingsPage({
               <span className="font-normal">{space.spaces.length}</span>
             </h3>
             {/* 上限が無いと件数分だけ伸び、作成フォームが画面外へ押し出される */}
-            <div className="grid max-h-72 min-w-0 scrollbar-thin gap-1 overflow-x-hidden overflow-y-auto">
+            {/* pr-2 は overlay scrollbar のサム避け (サイドバーの一覧と同じ理由。docs/ui-layout.md#サイドバー)。
+                行末の ⋯ は行の兄弟なので、行側ではなくこの枠で余白を持たないと ⋯ の右端が残る */}
+            <div className="scrollbar-stable grid max-h-72 min-w-0 scrollbar-thin gap-1 overflow-x-hidden overflow-y-auto pr-2">
               {space.spaces.map((item) => {
                 const actions = spaceRowActions(item.id === DEFAULT_SPACE_ID);
                 return (
