@@ -256,6 +256,10 @@ test("音声カタログ外の保存済みモデルも選択肢に残す", () =>
   const html = render({ subsection: "speech", speech: { model: "stale/tts", voice: "Zephyr" } });
   assert.ok(html.includes("stale/tts（カタログ外）"));
   assert.ok(html.includes('value="stale/tts"'));
+  assert.ok(
+    html.includes("こんにちは、stale/ttsです！よろしくお願いします。"),
+    "名前が無いモデルは id をテンプレへ入れる",
+  );
 });
 
 test("音声カタログも取得できていないときは警告色のチップで出す", () => {
@@ -313,7 +317,11 @@ test("音声セクションの下部にお試し再生を出し、未設定で�
   const html = render({ subsection: "speech" });
   assert.ok(html.includes("お試し再生"), "設定済みでは常に出す");
   assert.match(html, /<textarea[^>]*aria-label="お試し再生の本文"/, "本文から試せる");
-  assert.match(html, /<button[^>]*>再生<\/button>/, "その場で鳴らす操作を出す");
+  assert.ok(
+    html.includes("こんにちは、Gemini 3.8 Flash TTSです！よろしくお願いします。"),
+    "本文の初期値に、保存済みモデル名（接頭辞を落としたもの）入りのテンプレを入れる",
+  );
+  assert.match(html, /<button[^>]*>音声を生成<\/button>/, "その場で鳴らす操作を出す");
 
   const unset = render({
     configured: false,
@@ -325,20 +333,20 @@ test("音声セクションの下部にお試し再生を出し、未設定で�
 
 test("音声の同期が取れていない間もお試し再生は使える", () => {
   const html = render({ subsection: "speech", speechSynced: false });
-  assert.match(html, /<button[^>]*>再生<\/button>/, "保存のゲートを持ち込まない");
+  assert.match(html, /<button[^>]*>音声を生成<\/button>/, "保存のゲートを持ち込まない");
   // class に `disabled:` が含まれるため、属性としての disabled だけを否定する
   assert.match(html, /<textarea[^>]*aria-label="お試し再生の本文"(?![^>]*\sdisabled=)/, "本文も触れる");
   assert.match(html, /<select[^>]*aria-label="お試し再生のモデル"(?![^>]*\sdisabled=)/, "モデルも選べる");
 });
 
-test("runtimeAvailable: false ではお試し再生の再生ボタンも無効にする", () => {
+test("runtimeAvailable: false ではお試し再生の主ボタンも無効にする", () => {
   const html = render({ runtimeAvailable: false, subsection: "speech" });
-  assert.match(html, /<button[^>]*\sdisabled=""[^>]*>再生<\/button>/, "実行できない preview API を呼ばせない");
+  assert.match(html, /<button[^>]*\sdisabled=""[^>]*>音声を生成<\/button>/, "実行できない preview API を呼ばせない");
   assert.ok(html.includes("ランタイムが利用できないため、お試し再生はできません"), "押せない理由を出す");
   // ランタイムがあれば、音声の同期が取れていない間も押せる（別のゲート）
-  assert.match(render({ subsection: "speech" }), /<button(?![^>]*\sdisabled=)[^>]*>再生<\/button>/);
+  assert.match(render({ subsection: "speech" }), /<button(?![^>]*\sdisabled=)[^>]*>音声を生成<\/button>/);
   assert.match(
     render({ subsection: "speech", speechSynced: false }),
-    /<button(?![^>]*\sdisabled=)[^>]*>再生<\/button>/,
+    /<button(?![^>]*\sdisabled=)[^>]*>音声を生成<\/button>/,
   );
 });

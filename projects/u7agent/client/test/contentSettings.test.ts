@@ -24,6 +24,8 @@ import {
   speechPreviewFormatNote,
   speechPreviewFormatOf,
   speechPreviewInitialDraft,
+  speechPreviewDefaultText,
+  speechPreviewPrimaryAction,
   speechPreviewRequest,
   speechPreviewSpeed,
   SPEECH_PREVIEW_EMPTY_TEXT_ERROR,
@@ -35,7 +37,13 @@ import {
   speechVoiceMode,
   speechVoiceValue,
 } from "../src/lib/contentSettings";
-import type { ContentImageSettings, ContentSettingsResponse, ContentSpeechSettings } from "../src/types";
+import type {
+  ContentImageSettings,
+  ContentSettingsResponse,
+  ContentSpeechSettings,
+  SpeechModel,
+  SpeechPreviewBody,
+} from "../src/types";
 
 /** `image` / `speech` の中身を差し替える (provider は設定面の値なので別引数) */
 function settings(
@@ -308,7 +316,7 @@ test("音声モデル一覧の注記は取得元と最終取得時刻を示し�
   );
 });
 
-test("お試し再生の初期値は保存済みのモデルと声で、本文と指示は空から始める", () => {
+test("speechPreviewInitialDraft は保存済みのモデルと声を選び、本文と指示と速度は空から始める", () => {
   assert.deepEqual(speechPreviewInitialDraft(settings()), {
     model: "google/gemini-3.8-flash-tts",
     voice: "Zephyr",
@@ -319,6 +327,80 @@ test("お試し再生の初期値は保存済みのモデルと声で、本文�
   // カタログ外の保存値も現在値として引き継ぐ (何が保存されているかを見失わせない)
   assert.equal(speechPreviewInitialDraft(settings({}, {}, { model: "stale/tts", voice: "" })).model, "stale/tts");
   assert.equal(speechPreviewInitialDraft(settings({}, {}, { model: null, voice: "" })).model, "");
+});
+
+test("お試し再生のテンプレは接頭辞を落としたモデル名を入れ、名前が取れないときは名前無しの文にする", () => {
+  const model = (overrides: Partial<SpeechModel> = {}): SpeechModel => ({
+    provider: "openrouter",
+    id: "google/gemini-3.8-flash-tts",
+    name: "Google: Gemini 3.8 Flash TTS",
+    ...overrides,
+  });
+  assert.equal(speechPreviewDefaultText(model()), "こんにちは、Gemini 3.8 Flash TTSです！よろしくお願いします。");
+  // 接頭辞は最初の `: ` までだけを落とす
+  assert.equal(
+    speechPreviewDefaultText(model({ name: "Google: Gemini: TTS" })),
+    "こんにちは、Gemini: TTSです！よろしくお願いします。",
+  );
+  // `: ` が無い名前はそのまま使う
+  assert.equal(
+    speechPreviewDefaultText(model({ name: "Fish Audio" })),
+    "こんにちは、Fish Audioです！よろしくお願いします。",
+  );
+  // 名前が空なら id へ落とす (表示用の `（id）` や `（カタログ外）` は使わない)
+  assert.equal(
+    speechPreviewDefaultText(model({ name: "" })),
+    "こんにちは、google/gemini-3.8-flash-ttsです！よろしくお願いします。",
+  );
+  // 名前が取れないとき (未選択 / 空の id) は名前無しの文にする
+  assert.equal(speechPreviewDefaultText(null), "こんにちは！よろしくお願いします。");
+  assert.equal(speechPreviewDefaultText(undefined), "こんにちは！よろしくお願いします。");
+  assert.equal(speechPreviewDefaultText(model({ name: "", id: "" })), "こんにちは！よろしくお願いします。");
+});
+
+test("お試し再生の主ボタンは、いまの入力の署名が最後の生成と一致するときだけ再生にする", () => {
+  const body: SpeechPreviewBody = {
+    model: "google/gemini-3.8-flash-tts",
+    voice: "Zephyr",
+    text: "こんにちは",
+    instructions: "",
+  };
+  // 未生成
+  assert.deepEqual(speechPreviewPrimaryAction({ busy: false, body, lastBody: null }), {
+    replayable: false,
+    label: "音声を生成",
+  });
+  assert.deepEqual(speechPreviewPrimaryAction({ busy: false, body, lastBody: { ...body } }), {
+    replayable: true,
+    label: "もう一度再生",
+  });
+  // 入力が変われば生成に戻す (本文 / 演技指示 / 速度だけの違いも別の要求)
+  assert.deepEqual(speechPreviewPrimaryAction({ busy: false, body, lastBody: { ...body, text: "こんばんは" } }), {
+    replayable: false,
+    label: "音声を生成",
+  });
+  assert.deepEqual(
+    speechPreviewPrimaryAction({ busy: false, body, lastBody: { ...body, instructions: "静かに読む" } }),
+    { replayable: false, label: "音声を生成" },
+  );
+  assert.deepEqual(speechPreviewPrimaryAction({ busy: false, body: { ...body, speed: 1.5 }, lastBody: body }), {
+    replayable: false,
+    label: "音声を生成",
+  });
+  // 生成中は再生にしない
+  assert.deepEqual(speechPreviewPrimaryAction({ busy: true, body, lastBody: { ...body } }), {
+    replayable: false,
+    label: "生成中…",
+  });
+  // 検証で止まる状態 (body が null) でも生成に戻す
+  assert.deepEqual(speechPreviewPrimaryAction({ busy: false, body: null, lastBody: null }), {
+    replayable: false,
+    label: "音声を生成",
+  });
+  assert.deepEqual(speechPreviewPrimaryAction({ busy: false, body: null, lastBody: { ...body } }), {
+    replayable: false,
+    label: "音声を生成",
+  });
 });
 
 test("お試し再生の検証はモデル・本文・速度を見て、送れるときだけ本文を組み立てる", () => {
