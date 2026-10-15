@@ -392,7 +392,7 @@ test("一覧から落とした provider でも「モデルを選ぶ」タブの�
   const catalog: RuntimeModelsResponse = {
     catalogCount: 1,
     availableCount: 1,
-    versions: { piCodingAgent: "1.1.0" },
+    versions: { piCodingAgent: "1.2.0" },
     providers: [
       {
         provider: "openai-codex",
