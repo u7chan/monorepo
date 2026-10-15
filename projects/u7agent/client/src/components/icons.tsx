@@ -179,6 +179,23 @@ export function PlusIcon() {
   );
 }
 
+/** ステッパーの減少側。文字の「−」を使わない理由は PlusIcon と同じ */
+export function MinusIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.6"
+      strokeLinecap="round"
+      className="size-4 shrink-0"
+    >
+      <path d="M3.25 8h9.5" />
+    </svg>
+  );
+}
+
 export function TrashIcon() {
   return (
     <svg

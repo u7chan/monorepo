@@ -351,6 +351,22 @@ export function speechPreviewSpeed(raw: string): { ok: true; speed?: number } | 
   return { ok: true, speed };
 }
 
+/** 速度欄の増減幅。押下 1 回で 0.1 動かす */
+export const SPEECH_PREVIEW_SPEED_STEP = 0.1;
+
+/** 増減の下限。0 以下は送れない値なので、押下だけで不正値を作らない（上限は provider の 400 に委ねる） */
+export const SPEECH_PREVIEW_SPEED_MIN = 0.1;
+
+/**
+ * 速度欄の増減。空欄と解釈できない値は 1.0（標準）を起点にする（押しても何も起きないボタンを作らない）。
+ * 丸めは小数 2 桁。0.1 ずつ足すと 0.7000000000000001 のような値が欄に出てしまう。
+ */
+export function speechPreviewSpeedStep(raw: string, delta: number): string {
+  const current = Number(raw.trim());
+  const base = raw.trim() === "" || !Number.isFinite(current) || current <= 0 ? 1 : current;
+  return String(Math.max(SPEECH_PREVIEW_SPEED_MIN, Math.round((base + delta) * 100) / 100));
+}
+
 /** 送信前の検証。止められるものは API を呼ばず、クレジットも消費させない */
 export function speechPreviewRequest(
   draft: SpeechPreviewDraft,
