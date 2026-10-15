@@ -15,7 +15,7 @@ compaction（[compaction.md](compaction.md)）は会話全体を要約に置き�
 - 引数は `prompt`（文字列 1 本）だけ。子は親の会話を見ないため、自己完結した依頼を書かせる
 - `exposure: "model-only"`（codemode のスクリプトからは呼ばせない）。`constrainedSampling` は付けない（引数が文字列 1 本で strict な構造化出力を要求しない）
 - ツール名を `task` にしないのは、実装も頼めるという誤解をモデルへ与えないため
-- 有効化は常時で、`PI_AGENT_TOOLS` の allowlist には依存させない（`ask_user` と同じ）。実体（host）未注入のときだけ落とす
+- 有効化は常時で、`PI_AGENT_TOOLS` の allowlist には依存させない（`ask_user` と同じ）。実体（host）未注入のときだけ落とす。エージェント定義の `toolNames` では外せる（[api-catalog.md](api-catalog.md#ツール許可リスト)）
 - 報告は**子の最後の assistant メッセージ本文**。子のプロンプトで「結論 → 根拠 → 参照ファイル」の順を指示し、実際に読んだファイルのパスを必ず含めさせる
 - `content`（モデルが読む本文）は `INVESTIGATE_REPORT_MAX` で切り詰める。**切り詰めの前に全文を mask する**のは、切り詰めた後では境界に掛かった秘密値が末尾を欠いた断片になり、後段の maskSafe（完全一致と先頭部分一致）でも検出できないため
 - 結果の内訳は `details` に載せる（終了理由・usage など。形はコードが正）。`details` が provider へ渡る前提は置かない（provider 変換は `content` だけを読む）
@@ -25,9 +25,9 @@ compaction（[compaction.md](compaction.md)）は会話全体を要約に置き�
 
 ## 子の制約
 
-`createSession()` の子モード（`mode: "investigation"`）が次を一括して切り替える。ツール単位のノブは増やさない。
+`createSession()` の子モード（`mode: "investigation"`）が次を一括して切り替える。**子専用の新しいノブは増やさない**という意味で、ツールは親の許可リストを引き継ぐ。
 
-- 子のツールは読み取り専用の集合と `configuredTools()`（`PI_AGENT_TOOLS`）の積。`bash` を外している運用では子にも入らない
+- 子のツールは読み取り専用の集合 ∩ `configuredTools()`（`PI_AGENT_TOOLS`）∩ 親の許可リスト（`toolNames`）。`bash` を外している運用では子にも入らず、親が外したツールを子経由で実行することもできない（[api-catalog.md](api-catalog.md#ツール許可リスト)）
 - BFF ローカルツールの常時有効群を足さない。子はユーザーへ質問できず、再帰できず、resume もできない（対象の一覧はコードが正）
 - 子用の append system prompt（`investigationSystemPrompt()`）に切り替え、読み取り専用の調査に要る案内だけを残す（親向けの作業案内は子に渡さない）
 - ファイルスキル / カタログスキルの発見を行わず、`skillsOverride` も渡さない（サンドボックス往復を減らし、子の system prompt に使えないスキルの索引を混ぜない）

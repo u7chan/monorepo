@@ -725,7 +725,7 @@ export default function App() {
           />
         );
       case "web-search":
-        return <WebSearchSettingsPage {...pageProps} />;
+        return <WebSearchSettingsPage {...pageProps} refreshCatalog={refreshCatalog} />;
       case "runtime":
         return (
           <RuntimePage

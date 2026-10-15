@@ -6,7 +6,9 @@ import {
   DESKTOP_MIN_WIDTH,
   resolveLayoutMode,
   resolveSidebarPlacement,
+  resolveWide,
   SIDEBAR_OVERLAY_WIDTH,
+  WIDE_MIN_WIDTH,
 } from "../src/lib/layout";
 
 test("幅と高さが十分なときは desktop になる", () => {
@@ -51,4 +53,16 @@ test("singleColumn は幅に関係なく常に overlay (導線は SingleColumnBa
   // 幅だけを見ると docked の帯でも、モードが singleColumn なら overlay
   assert.equal(resolveSidebarPlacement(1440, "landscape"), "overlay");
   assert.equal(resolveSidebarPlacement(1920, "portrait"), "overlay");
+});
+
+test("一覧と編集面を並べる境界は 900px (resolveWide)", () => {
+  // 2048x1180 / 1300x900 は並べる。境界は >= で、CSS の --breakpoint-wide と同じ値
+  assert.equal(WIDE_MIN_WIDTH, 900);
+  assert.equal(resolveWide(WIDE_MIN_WIDTH), true);
+  assert.equal(resolveWide(1440), true);
+  assert.equal(resolveWide(WIDE_MIN_WIDTH - 1), false);
+  // 狭い desktop と singleColumn は一覧ページ + 全画面シートにする
+  assert.equal(resolveWide(899), false);
+  assert.equal(resolveWide(820), false);
+  assert.equal(resolveWide(390), false);
 });

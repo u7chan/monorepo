@@ -479,6 +479,43 @@ test("子の過程は親の会話ストアに残らない", async () => {
   }
 });
 
+test("子セッションへは親のツール許可リストを渡す", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "u7agent-investigate-tools-"));
+  const pi = createStubPi({ reply: "親の応答" });
+  const catalog = createAgentCatalog();
+  // 親が bash を外していても子経由で実行できてしまうと認可が抜けるので、子にも親の許可リストを渡す
+  const agent = catalog.createAgent({ name: "読み取り寄り", toolNames: ["read", "bash"] });
+  const store = new SessionStore({
+    pi: pi as never,
+    catalog,
+    storeDir: dir,
+    workspace: stubWorkspace(),
+    rootCwd: "/tmp/project",
+  });
+  try {
+    const record = await store.create({ agentId: agent.id });
+    assert.deepEqual(pi.createInputs.at(-1)?.toolNames, ["read", "bash"], "親の作成にも渡す");
+
+    const result = await store.investigateHost().investigate({
+      sessionId: record.id,
+      toolCallId: "call-1",
+      prompt: "調べて",
+      signal: new AbortController().signal,
+    });
+    assert.equal(result.outcome, "completed");
+    assert.equal(pi.createInputs.length, 2);
+    assert.equal(pi.createInputs[1].mode, "investigation");
+    assert.deepEqual(
+      pi.createInputs[1].toolNames,
+      ["read", "bash"],
+      "子の実効は「親の許可リスト ∩ 読み取り専用」を createSession 側で決める",
+    );
+  } finally {
+    await store.close();
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
 test("進捗は親の live イベントとしてだけ配り、payload の run.toolCalls には載せない", async () => {
   const dir = await mkdtemp(join(tmpdir(), "u7agent-investigate-"));
   // 実モデルの代わりにスタブが investigate の呼び出しと進捗を流す (fixture と同じ経路)

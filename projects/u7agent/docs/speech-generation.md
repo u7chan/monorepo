@@ -5,7 +5,7 @@
 - 出力形式は **mp3 優先**。OpenRouter の音声 API が受け付ける `response_format` は `mp3` / `pcm` の 2 つで、どちらが通るかはモデルごとに違い、一覧 API も endpoints API もそれを宣言しない。このためまず mp3 で送り、**形式違いを示す 400 のときだけ**他方へ 1 回再試行して、通った方をプロセス内に学習する（形式のマスタはアプリ側に持たない）
 - pcm が返ったときは RIFF ヘッダを付けて `.wav` として保存する。再エンコードは行わず、要求した拡張子も実形式へ寄せる（`.pcm` という保存形式は持たない）
 - 音声専用のモデル / ボイスは `content_settings` の `speechModel` / `speechVoice` に持つ。**NULL は「未設定」で、既定モデルと「そのモデルが宣言する先頭ボイス」へフォールバックして読む**（画面に「（未設定）」を出さない）
-- ツールは **BFF ローカル**（`server/src/speech-tools.ts`）。サンドボックスのリモート定義ではなく、`PI_AGENT_TOOLS` の影響を受けない
+- ツールは **BFF ローカル**（`server/src/speech-tools.ts`）。サンドボックスのリモート定義ではなく、`PI_AGENT_TOOLS` の影響を受けない。エージェント定義の `toolNames` では外せる（[api-catalog.md](api-catalog.md#ツール許可リスト)）
 - 保存は `workspace.uploadFile({ dir, name })`。`dir` は root 相対で渡す（画像と同じ 1 段の前置き。`server/src/workspace-path.ts`）
 - 読み上げる文章は **逐語で読まれる**前提にする。ツールから演技指示（`instructions`）は渡さない（非ゴール）ので、ツール説明と system prompt で「演技指示を本文に書かない」ことを指示する。演技指示と速度は[お試し再生](#お試し再生パラメーターのプレイグラウンド)からだけ試せる
 - 生成物の連結はしない。長文はエージェントが分けて複数回呼び、サンドボックスに連結の道具が無いこと（ffmpeg なし）を前提にする

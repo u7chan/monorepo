@@ -6,10 +6,10 @@
 - provider は `server/src/web-search-providers.ts` の adapter。**endpoint・request / response の形式・失敗の分類**を持ち、モデル向けの契約（引数・整形・上限・timeout / abort・マスク）は `web-search-tool.ts` が持つ
 - 結果は provider ごとの差を **共通形式 `WebSearchResultItem[]`（`title` / `url` / `excerpt` / 任意の `publishedDate`）へ正規化**する。モデルから見た Tool Schema は provider を変えても変わらない
 - ツールは **BFF ローカル**。サンドボックスのリモート定義ではなく、`createRemoteToolDefinitions` / `REMOTE_TOOL_NAMES` の外にあり、`PI_AGENT_TOOLS` の影響を受けない。`configuredTools()` の結果はそのまま `createRemoteToolDefinitions` へ渡り、未知の名前は `UnknownRemoteToolError` になるため、`web_search` を混ぜてはならない（[sandbox.md](sandbox.md)）
-- セッションの `tools` へは `withWebSearchTool()`、`customTools` へは `createWebSearchToolDefinitions()` で足す（`server/src/agent.ts`）。**ツール一覧からは外せない**（`PI_AGENT_TOOLS` の対象外）代わりに、[実行時トグル](#実行時トグル)で OFF にできる
+- セッションの `tools` へは `withWebSearchTool()`、`customTools` へは `createWebSearchToolDefinitions()` で足す（`server/src/agent.ts`）。`PI_AGENT_TOOLS` の対象外だが、**エージェント定義の `toolNames`（[api-catalog.md](api-catalog.md#ツール許可リスト)）で外せる**。アプリ側の実効（実行時トグル）と許可リストの積で公開が決まる
 - 検索は `fetch` だけで完結し、BFF から子プロセスを起こさない（[secrets.md](secrets.md) のレイヤー 1）
 - クエリは既定 provider のホスト（Exa なら `mcp.exa.ai`、Tavily なら `api.tavily.com`）へ渡る。自己ホスト構成でも外部送信先が 1 つ増える
-- Remote MCP の Registry とエージェントごとの tool allowlist には載せない（MCP クライアントを介さない BFF の固定ツール）。pi SDK 拡張の読み込みも行わない（`noExtensions: true` を維持する）
+- Remote MCP の Registry とエージェントごとの tool allowlist には載せない（MCP クライアントを介さない BFF の固定ツール）。ここでの「エージェントごとの tool allowlist」は SDK / MCP 側の機構で、このアプリのエージェント定義の `toolNames`（[api-catalog.md](api-catalog.md#ツール許可リスト)）とは別物（同じ英語を使うため、ツールの許可リストはこのアプリでは `toolNames` と呼ぶ）。pi SDK 拡張の読み込みも行わない（`noExtensions: true` を維持する）
 
 ## provider
 
@@ -128,7 +128,7 @@ provider が「成功 / 失敗 / 失敗の種類」を返し、共通側が種�
 - キーが未設定のまま provider を既定にすることは**できる**。画面は警告行を出し、検索すると `key_missing` の固定文言で失敗する（選択とキー登録の順序を強制しない）
 - 外部送信の注意（クエリがどこへ出るか・キーの平文保存・ログイン無しで公開しない）は、設定を変える前に読めるよう既定で畳んで出す。折りたたみ中も `webSearchNoticeSummary()` が送信先とキーの扱いを 1 行で見せる
 - 環境変数は増やさない（[.env.example](../.env.example) に変更は無い）
-- 常時公開で、`PI_AGENT_TOOLS` などからは外せない
+- 常時公開だが、エージェント定義の `toolNames` からは外せる（外すと新しい会話でこのツールが公開されない）。エージェントの変更は既存の会話に遡及しない
 - 検索前の確認ダイアログは持たない。SDK の `ctx.ui.confirm()` は BFF（`noExtensions: true`）では使えない（`ask_user` の待機機構が入ってから別途）
 
 ## 非ゴール

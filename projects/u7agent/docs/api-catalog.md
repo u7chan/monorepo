@@ -4,9 +4,9 @@
 
 | メソッド | パス | 説明 |
 | --- | --- | --- |
-| GET | `/api/agents` | ビルトイン + エージェント（ユーザー定義）とスキルの一覧（同梱の組み込みスキルを `builtinSkills` で含む） |
-| POST | `/api/agents` | エージェント作成 `{ name, description, systemPrompt, skillIds, commonSkillNames?, builtinSkillNames?, icon?, model?, thinkingLevel?, suggestions? }` |
-| PATCH / PUT | `/api/agents/:id` | エージェント更新（キー省略は保持、`icon` / `model` / `thinkingLevel` / `commonSkillNames` / `builtinSkillNames` の `null` と `suggestions: []` は指定解除。ビルトインは 400） |
+| GET | `/api/agents` | ビルトイン + エージェント（ユーザー定義）とスキルの一覧（同梱の組み込みスキルを `builtinSkills`、アプリが扱うツールを `tools` で含む） |
+| POST | `/api/agents` | エージェント作成 `{ name, description, systemPrompt, skillIds, commonSkillNames?, builtinSkillNames?, toolNames?, icon?, model?, thinkingLevel?, suggestions? }` |
+| PATCH / PUT | `/api/agents/:id` | エージェント更新（キー省略は保持、`icon` / `model` / `thinkingLevel` / `commonSkillNames` / `builtinSkillNames` / `toolNames` の `null` と `suggestions: []` は指定解除。ビルトインは 400） |
 | DELETE | `/api/agents/:id` | エージェント削除（ビルトインは 400。ユーザー定義は 0 件まで減らせる） |
 | GET | `/api/skills` | スキル一覧 |
 | GET | `/api/skills/files` | ファイルスキル（`.agents/skills`）の読み取り専用一覧 |
@@ -23,6 +23,7 @@
 - ビルトインは編集できない前提なので、model / Effort も固定（どちらも未指定 = アプリ既定）。変更はチャット単位の Model / Effort ピッカーで行う（[model-effort.md](model-effort.md)）。
 - `POST /api/sessions` の `agentId` 省略時はこのビルトインを使うので、ユーザー定義が 0 件でもセッションを作れる。
 - GET の応答は同梱の組み込みスキルを `builtinSkills`（各件 `{ name, description, version }`）でも返す。これはカタログの `skillIds` とは別に全エージェントへ注がれる **ambient** なスキルで、既定は全部 ON。外すのはエージェント定義の `builtinSkillNames`（[エージェント定義のスキル許可リスト](#エージェント定義のスキル許可リスト)）。エージェント編集のスキル欄はこれをチェック可能な行として出し、外した分はそのエージェントの会話へ読み込まれない。ビルトインの閲覧ビューは許可リストを持たない（= 常に全部 ON）ので、チェックを出さず共通 / 組み込みを読み取り専用で並べる。`/api/skills/files` はサンドボックス未設定で 503 になるため使わず、BFF 起動時に読み込み済みの registry をそのまま載せる。
+- GET の応答はアプリが扱うツールも `tools`（各件 `{ name, description, group, available, reason? }`）で返す。`group` はサンドボックスで動く `sandbox` と BFF ローカルの `app` で、画面のグループ分けに使う。`available` と `reason` は**取得時点のアプリ側の実効**（`PI_AGENT_TOOLS` / コンテンツ生成のキー / Web 検索の実行時トグル / `serve` の実体 / `ask_user` / `investigate`）で、エージェントの許可リストは掛けない（[ツール許可リスト](#ツール許可リスト)）。理由の文言はクライアント側の対応表が持ち、応答にはコードだけを載せる。
 - 初期状態の `agents` には、ユーザー定義のサンプルとしてずんだもん `agent-zundamon`（`systemPrompt` に語尾の指示、`skillIds` は空）が 1 体入る。`DELETE /api/agents/:id` で削除できる。サンプルは DB を新規作成したときだけ入るため、削除した定義は再起動でも戻らない。
 
 ```json
@@ -36,6 +37,10 @@
     "suggestions": [{ "label": "プロジェクトを説明して", "prompt": "このプロジェクトの構成を簡単に教えて" }]
   },
   "builtinSkills": [{ "name": "skill-creator", "description": "スキルの作成を依頼されたときに使う", "version": "3" }],
+  "tools": [
+    { "name": "read", "description": "ファイルの内容を読む（スキル本文の読み込みも含む）", "group": "sandbox", "available": true },
+    { "name": "web_search", "description": "Web を検索して上位ページの抜粋を取る", "group": "app", "available": false, "reason": "app_disabled" }
+  ],
   "agents": [
     {
       "id": "agent-zundamon",
@@ -141,7 +146,7 @@
 
 - `server/src/builtin-skills/<name>/SKILL.md` をアプリに同梱し、起動時に SDK の `loadSkillsFromDir` で読み込む（frontmatter の検証も SDK に委譲し、同梱物が壊れていれば起動しない）。版は `server/src/builtin-skills.ts` の `VERSIONS` で宣言し、一覧に表示する。SKILL.md を読まなくても置き場所を外さないよう、system prompt にも置き場（プロジェクト所属は作業ディレクトリ配下の `.agents/skills`、未所属は `<root>/.agents/skills`）を明記してある（`server/src/agent.ts` の `appendSystemPrompt`）
 - ワークスペースへ実体を作らない（git status を汚さず、アプリ更新で常に最新、改変不可）。`path` は仮想パス `<root>/.u7agent/builtin-skills/<name>/SKILL.md` で、`.u7agent` 配下なのでプロジェクトとしては登録できない。SDK の `sourceInfo.scope` に組み込みが無いため `temporary`（path 扱い）にする
-- モデルの `read` は BFF が横取りして同梱の本文を返す（サンドボックスへ送らない）。`ls` / `grep` / `find` / `bash` からは見えない。`PI_AGENT_TOOLS` から `read` を外した構成ではモデルは本文を読めず、一覧表示だけになる
+- モデルの `read` は BFF が横取りして同梱の本文を返す（サンドボックスへ送らない）。`ls` / `grep` / `find` / `bash` からは見えない。`PI_AGENT_TOOLS` から `read` を外した構成ではモデルは本文を読めず、一覧表示だけになる（エージェント定義の `toolNames` でも同じく外せる。[ツール許可リスト](#ツール許可リスト)）
 - 仮想パスは実ファイルが無く、`write` / `edit` の書き込み範囲（セッションの作業ディレクトリと `<root>/.agents/skills`）の外なので変更できない（同梱物を変えるにはイメージを更新する）。`read` は常に同梱の本文を返す
 - カタログ（`GET /api/agents`）と `skillIds` の対象外。エージェント別の ON / OFF は `builtinSkillNames`（[エージェント定義のスキル許可リスト](#エージェント定義のスキル許可リスト)）で行い、外した組み込みは一覧（`GET /api/sessions/:id/skills`）・`skillsOverride` の索引・`read` の横取り・system prompt の案内（`appendSystemPrompt` の `serve` / `skill-creator` への言及）・`serve` ツールの説明（`createServeToolDefinitions` の skill 参照）のすべてから消える。同名のファイルスキルがあるときはファイル側が浮上し、`overridden` の行も出なくなる
 - 同梱物を追加するときは `server/src/builtin-skills/<name>/SKILL.md` を足し、`VERSIONS` に版を追加する（Docker は `server/src/` ごとイメージへ入るので Dockerfile の変更は不要）
@@ -238,6 +243,26 @@
   "name": "コードレビュー",
   "commonSkillNames": ["writer"],
   "builtinSkillNames": ["skill-creator"]
+}
+```
+
+## ツール許可リスト
+
+エージェント定義には任意の `toolNames`（ツール名の配列）を持たせられる。対象は `GET /api/agents` の `tools` に載る全件で、サンドボックスで実行する作業ツール（`group: "sandbox"`）と、BFF ローカルのアプリのツール（`group: "app"`）に分かれる。どの名前があるかの正は応答の `tools` で、サンドボックスの提供リストと作業ツールの名前は揃えてある。
+
+- 未指定（キーなし）と `null` はどちらも全部 ON、`[]` はすべて OFF。この 2 つは混同しない（保存の NULL と `"[]"` に対応する。[persistence.md](persistence.md#アプリデータsqlite)）
+- 更新要求はキー省略で保持、`null` で解除（未指定へ戻す）。`[]` は「すべて OFF」への上書きで、解除ではない。
+- GET は未指定のときキーを省略し、`[]` はそのまま返す。
+- 上限は 200 件 / 1 件 200 文字で、trim / 空文字の除去 / 重複排除は保存時に行い、非配列と上限超過は 400。上限はスキル名とは別の定数（ツール名はワークスペースの名前に縛られないため、同じ根拠を使い回さない）。
+- 実在しない名前も保存できる（一覧の入れ替えで保存値を書き換えない）。実行時は無視され、エージェント編集のツール欄は「見つかりません」として出す。
+- **実効はアプリ側の可否との積**で、どちらかが OFF なら OFF。アプリ側には `PI_AGENT_TOOLS`（デプロイ側の上限）、コンテンツ生成のキー、Web 検索の実行時トグル、`serve` / `ask_user` / `investigate` の実体の有無が入る。`available: false` の行はチェックが入っていても使えず、理由（`deploy_allowlist` / `app_disabled` / `no_key`）を画面の行に出す。
+- セッションは作成時の値をスナップショットとして持ち、復元はそれを使う（[api-sessions.md](api-sessions.md#get-apisessionsidskills) と同じ規則）。定義を編集しても既存の会話の振る舞いは変わらない。子セッション（`investigate`）へは親の許可リストを読み取り専用の集合との積で引き継ぐ（[subagent.md](subagent.md)）。
+
+```json
+{
+  "id": "agent-example",
+  "name": "読み取り専用レビュアー",
+  "toolNames": ["read", "grep", "find"]
 }
 ```
 

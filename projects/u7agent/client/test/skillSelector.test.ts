@@ -219,20 +219,6 @@ test("組み込みの全外しと使用への復帰は、対象があるとき�
   assert.ok(partial.includes(BUILTIN_SKILL_SHOW_ALL_LABEL));
 });
 
-test("外した組み込みの行には、ツールが別軸である注記を出す", () => {
-  const serve = [{ name: "serve", description: "", version: "1" }];
-  const on = renderSelector({ skills: [], builtinSkills: serve, fileSkills: { status: "ready", skills: [] } });
-  assert.ok(!on.includes("サービス"));
-
-  const off = renderSelector({
-    skills: [],
-    builtinSkills: serve,
-    builtinSkillNames: [],
-    fileSkills: { status: "ready", skills: [] },
-  });
-  assert.ok(off.includes("外しても「サービス」ツールは使えます"));
-});
-
 test("組み込みの一覧に無い保存名は落とさず、見つからない旨を出す", () => {
   const html = renderSelector({
     skills: [],

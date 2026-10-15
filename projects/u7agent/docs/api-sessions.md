@@ -145,7 +145,7 @@
 }
 ```
 
-`model` / `thinkingLevel` は pi SDK のセッションが持つ実効値（`thinkingLevel` は SDK 補正後）。`supportsThinking` と `availableThinkingLevels` はその実効モデルの能力を SDK の公開ヘルパーから引いたもの。`agent` は作成時点のスナップショットなので、定義を編集・削除しても既存チャットの表示は変わらない。
+`model` / `thinkingLevel` は pi SDK のセッションが持つ実効値（`thinkingLevel` は SDK 補正後）。`supportsThinking` と `availableThinkingLevels` はその実効モデルの能力を SDK の公開ヘルパーから引いたもの。`agent` は作成時点のスナップショット（スキル許可リストと `toolNames` を含む）なので、定義を編集・削除しても既存チャットの表示とツールの実効は変わらない。
 
 `status` は `idle` / `running` / `queued` / `compacting` / `completed` / `stopped` / `error`。`compacting` は手動圧縮の実行中で、SDK の実行中だけでなく**保存待ち**も含む（排他の正は BFF のフラグ。詳細は [compaction.md](compaction.md#手動圧縮)）。`compactionStartedAt` はその開始時刻（epoch ms）で、`status` が `compacting` のときだけ載る（終端の `resync` では載せない）。経過時間の起点はこの値を使い、`run.startedAt` は再利用しない。
 
@@ -471,7 +471,7 @@ GET /api/skills/session?projectId=<id>&agentId=<id>
 ```
 
 - `projectId` 省略は未所属、`agentId` 省略はビルトインエージェント。未知の id はセッション作成と同じ 400。`cwd` は指定したプロジェクトの cwd で、未所属は `""`（セッション確定後のスクラッチ `.u7agent/sessions/<id>` とは別の値になる）。`projectSkills` はプロジェクトスキルを探索するか（未所属は `false`）
-- 解決に渡すのは `relativeCwd = project.cwd ?? ""`、`promptSnapshot = composePromptSnapshot(agent, skills)`、`agentSkills = agentInfo.skills`、`commonSkillNames = agentInfo.commonSkillNames`、`builtinSkillNames = agentInfo.builtinSkillNames`。エージェントの解決（`skillIds` → スキル + スナップショット）はセッション作成と同じヘルパーを使い、client へ二重実装しない。これで新規チャットのピッカーと、同じ選択で作ったセッションの一覧（`GET /api/sessions/:id/skills`）が同じ見え方になる
+- 解決に渡すのは `relativeCwd = project.cwd ?? ""`、`promptSnapshot = composePromptSnapshot(agent, skills)`、`agentSkills = agentInfo.skills`、`commonSkillNames = agentInfo.commonSkillNames`、`builtinSkillNames = agentInfo.builtinSkillNames`、`toolNames = agentInfo.toolNames`。エージェントの解決（`skillIds` → スキル + スナップショット）はセッション作成と同じヘルパーを使い、client へ二重実装しない。これで新規チャットのピッカーと、同じ選択で作ったセッションの一覧（`GET /api/sessions/:id/skills`）が同じ見え方になる
 - プロジェクトを指定したときは、作成と同じ条件（永続化あり）で登録ディレクトリの存在を確かめ、無ければ 400（`server/src/sessions.ts` の `requireProjectDir` を共有）。サンドボックス未設定は 503 で、組み込み / カタログだけへは縮退させない（その一覧から選んだ `/skill:` も `createSession` の 503 で送れないため）
 - 探索の失敗の扱いは `GET /api/sessions/:id/skills` と同じ（置き場が無い 404 は空、サンドボックス由来はその status、`SandboxRequestError` 以外は 500）
 - 内容は作成前の選択で解決した**現在の**定義とファイルになる。カタログの説明・本文は作成時にスナップショットされるため、プレビューから送信までの間に定義を編集するとセッションの一覧とずれ得る（許容する）。ファイルスキルはどちらも一覧のたびに探索し直す

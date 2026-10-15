@@ -7,7 +7,8 @@ import {
   FILE_SKILL_LOADING_NOTE,
   groupFileSkills,
 } from "../../lib/fileSkills";
-import type { AgentDef, BuiltinSkillInfo } from "../../types";
+import { TOOL_CATALOG_UNAVAILABLE_NOTE, TOOL_GROUP_LABELS, groupTools, unavailableToolNote } from "../../lib/tools";
+import type { AgentDef, BuiltinSkillInfo, ToolCatalogEntry } from "../../types";
 import { BUILTIN_SECTION_LABEL } from "./SkillSelector";
 import { SkillGroup, SkillRow } from "./SkillRow";
 
@@ -19,6 +20,8 @@ export const BUILTIN_PANEL_SKILLS_READONLY_LABEL = "このエージェントで�
  */
 export const BUILTIN_PANEL_SKILLS_NOTE =
   "ビルトインは外す設定を持たないため、共通スキルと組み込みスキルは常にすべて使用されます。共通スキルはワークスペース直下の .agents/skills にあり、増減してもこの画面を開き直せば反映されます。プロジェクトのスキル（会話の作業ディレクトリ配下の .agents/skills）は会話ごとに決まり、この画面には出ません。";
+/** ツール節の断り。ビルトインは `toolNames` を持たないので、ここでもチェックは出さない */
+export const BUILTIN_PANEL_TOOLS_READONLY_LABEL = "このエージェントでは外せません";
 
 /**
  * ビルトインはサーバー所有で編集も削除もできないので、
@@ -29,12 +32,15 @@ export function BuiltinAgentPanel({
   agent,
   variant,
   builtinSkills,
+  tools,
   fileSkills,
 }: {
   agent: AgentDef;
   variant: "page" | "sheet";
   /** アプリ同梱の組み込みスキル。カタログ応答に載るので、サンドボックス未設定でも出せる */
   builtinSkills: BuiltinSkillInfo[];
+  /** アプリが公開しているツールの一覧。実効の可否つき (空は取得できていない) */
+  tools: ToolCatalogEntry[];
   /** 共通スキル (`.agents/skills`) の取得状態。取得できるまでは組み込みだけを出す */
   fileSkills: FileSkillsState;
 }) {
@@ -119,6 +125,37 @@ export function BuiltinAgentPanel({
               </SkillGroup>
             ) : null}
             <p className="text-2xs leading-4 break-words text-ink-faint">{BUILTIN_PANEL_SKILLS_NOTE}</p>
+          </div>
+          <div className="grid gap-1.5 rounded-lg border border-line bg-soft px-2.5 py-2">
+            <div className="flex items-baseline justify-between gap-2 text-2xs font-semibold tracking-label text-ink-faint uppercase">
+              <span>ツール</span>
+              <span className="shrink-0 font-normal tracking-normal text-ink-ghost">
+                {BUILTIN_PANEL_TOOLS_READONLY_LABEL}
+              </span>
+            </div>
+            {tools.length === 0 ? (
+              <p className="text-2xs leading-4 break-words text-warn">{TOOL_CATALOG_UNAVAILABLE_NOTE}</p>
+            ) : (
+              groupTools(tools).map((entry, index) => (
+                <SkillGroup
+                  key={entry.group}
+                  divider={index > 0}
+                  label={TOOL_GROUP_LABELS[entry.group]}
+                  countText={`使用 ${entry.tools.length} / 全 ${entry.tools.length}`}
+                >
+                  {entry.tools.map((tool) => (
+                    <SkillRow
+                      key={tool.name}
+                      name={tool.name}
+                      description={tool.description}
+                      monoName
+                      // アプリ側で無効なものはチェックの有無に関係なく使えないので、理由を行に出す
+                      hint={unavailableToolNote(tool.reason)}
+                    />
+                  ))}
+                </SkillGroup>
+              ))
+            )}
           </div>
           <p className="text-1xs leading-relaxed text-ink-muted">
             このエージェントはビルトインのため編集・削除できません。新しい会話の既定として常に 1 体用意され、モデルと

@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useFileSkills } from "../hooks/useFileSkills";
+import { useWideLayout } from "../hooks/useLayoutMode";
 import { FILE_SKILL_PANEL_HEADING } from "../lib/fileSkills";
 import { MEMORY_NOTE } from "../lib/settingsNotes";
 import { skillDiscardConfirmRequest } from "../lib/settingsConfirm";
@@ -34,6 +35,10 @@ export function SkillSettingsPage({
   onOpenNav,
 }: SkillSettingsPageProps) {
   const [editingId, setEditingId] = useState<string | null>(() => catalog.skills[0]?.id ?? null);
+  // 一覧と編集を並べるのは 900px 以上だけ。狭い desktop と singleColumn は「一覧ページ + 全画面シート」に統一する
+  // (一覧が何件でも編集面を削られない。docs/ui-layout.md の「設定の一覧と編集の境界」)
+  const wide = useWideLayout();
+  const sheetMode = singleColumn || !wide;
   const confirm = useConfirm();
   const [mode, setMode] = useState<SkillMode>("view");
   const [note, setNote] = useState<{ text: string; error: boolean }>({ text: MEMORY_NOTE, error: false });
@@ -51,7 +56,7 @@ export function SkillSettingsPage({
       : undefined;
   const setNoteText = (text: string, error = false) => setNote({ text, error });
 
-  // 下書きはページが持つ。理由は docs/ui-layout.md の「singleColumn の詳細シート」を参照。
+  // 下書きはページが持つ。理由は docs/ui-layout.md の「設定の一覧と編集の境界」を参照。
   // 参照が変わった編集対象・カタログ・mode を render 中に検出して初期化する (useEffect では古いフォームが 1 フレーム描画される)。
   // mode を条件に含めるのは、同じスキルでも `編集` のたびに現行のカタログから作り直し、`キャンセル` で下書きを破棄するため
   const [skillForm, setSkillForm] = useState<SkillForm>(() => skillFormOf(editingSkill));
@@ -65,8 +70,8 @@ export function SkillSettingsPage({
     setSelectedFileSkillPath(null);
     setEditingId(nextId);
     setMode("view");
-    // desktop はページ内のフォームをそのまま使う (docs/ui-layout.md の「singleColumn の詳細シート」)
-    if (singleColumn) setSheetOpen(true);
+    // 並べて見られないときだけシートを開く (900px 以上はページ内のフォームをそのまま使う)
+    if (sheetMode) setSheetOpen(true);
   };
 
   const startEditing = () => setMode("edit");
@@ -83,7 +88,7 @@ export function SkillSettingsPage({
     setSelectedFileSkillPath(path);
     // 同じ行の押し直しでも本文を取り直す (ファイルは選択の外で書き換わる)
     setSelectedFileSkillSeq((seq) => seq + 1);
-    if (singleColumn) setSheetOpen(true);
+    if (sheetMode) setSheetOpen(true);
   };
 
   const startNewSkill = () => {
@@ -100,7 +105,6 @@ export function SkillSettingsPage({
       addLabel="新しいスキル"
       emptyLabel="カタログのスキルはまだありません。「新しいスキル」から作成できます。"
       onAdd={startNewSkill}
-      singleColumn={singleColumn}
     >
       {catalog.skills.map((skill) => (
         <MenuItem
@@ -127,14 +131,14 @@ export function SkillSettingsPage({
     <ReadOnlySkillPanel
       key={`${selectedFileSkill.path}:${selectedFileSkillSeq}`}
       skill={selectedFileSkill}
-      variant={singleColumn ? "sheet" : "page"}
+      variant={sheetMode ? "sheet" : "page"}
       filePreviewPort={filePreviewPort}
     />
   ) : editingSkill && mode === "view" ? (
     <CatalogSkillPanel
       skill={editingSkill}
       agents={catalog.agents}
-      variant={singleColumn ? "sheet" : "page"}
+      variant={sheetMode ? "sheet" : "page"}
       onEdit={startEditing}
     />
   ) : (
@@ -143,7 +147,7 @@ export function SkillSettingsPage({
       skill={editingSkill}
       form={skillForm}
       setForm={setSkillForm}
-      variant={singleColumn ? "sheet" : "page"}
+      variant={sheetMode ? "sheet" : "page"}
       refreshCatalog={refreshCatalog}
       onSelectSkill={selectSkill}
       onNote={setNoteText}
@@ -171,15 +175,15 @@ export function SkillSettingsPage({
       onBack={onBack}
       note={note}
     >
-      {singleColumn ? (
+      {sheetMode ? (
         <div className="grid min-h-0 min-w-0 grid-rows-1">{list}</div>
       ) : (
-        <div className="grid min-h-0 min-w-0 grid-rows-[auto_minmax(0,1fr)] wide:grid-cols-[248px_minmax(0,1fr)] wide:grid-rows-1">
+        <div className="grid min-h-0 min-w-0 wide:grid-cols-[248px_minmax(0,1fr)]">
           {list}
           {editor}
         </div>
       )}
-      {singleColumn && sheetOpen ? (
+      {sheetMode && sheetOpen ? (
         <SettingsDetailSheet eyebrow="SKILL" title={sheetTitle} note={note} onClose={() => setSheetOpen(false)}>
           {editor}
         </SettingsDetailSheet>

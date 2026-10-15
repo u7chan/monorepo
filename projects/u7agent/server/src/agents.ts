@@ -4,7 +4,7 @@
  */
 import { randomUUID } from "node:crypto";
 import { AppDb } from "./app-db";
-import { SKILL_NAME_MAX, SKILL_NAMES_MAX, ThinkingLevelSchema } from "./schema";
+import { SKILL_NAME_MAX, SKILL_NAMES_MAX, TOOL_NAME_MAX, TOOL_NAMES_MAX, ThinkingLevelSchema } from "./schema";
 import type {
   AgentDef,
   AgentSuggestion,
@@ -13,6 +13,7 @@ import type {
   ModelRef,
   SkillDef,
   ThinkingLevel,
+  ToolCatalogEntry,
 } from "./schema";
 
 export interface HttpError extends Error {
@@ -84,6 +85,7 @@ function publicAgent(agent: AgentRecord): AgentDef {
   // `[]` は「すべて OFF」なので真偽で落とさない (未指定のときだけキーを省略する)
   if (agent.commonSkillNames) result.commonSkillNames = [...agent.commonSkillNames];
   if (agent.builtinSkillNames) result.builtinSkillNames = [...agent.builtinSkillNames];
+  if (agent.toolNames) result.toolNames = [...agent.toolNames];
   return result;
 }
 
@@ -163,31 +165,39 @@ function normalizeSuggestions(value: unknown): AgentSuggestion[] {
 }
 
 /**
- * スキル許可リスト (共通 / 組み込み) の正規化。`undefined` / `null` は未指定 (キー省略)、配列は
+ * 許可リスト (スキル / ツール) の正規化。`undefined` / `null` は未指定 (キー省略)、配列は
  * trim / 空除去 / 重複排除で正規化する。`[]` は「すべて OFF」なので未指定へ潰さず、非配列と上限超過は 400。
  * route の zod でも弾くが、catalog を直接使う経路で壊れた入力が `[]` = すべて OFF に化けないよう
- * ここでも fail-closed にする。label は文言だけを分け、正規化と上限は 2 つの許可リストで共通にする。
+ * ここでも fail-closed にする。上限は対象ごとに違う (スキル名はワークスペースの 1 セグメント名由来で、
+ * ツール名に同じ根拠は無い) ため、kind は文言だけを分け、上限は引数で受ける。
  */
-function skillAllowlistOf(value: unknown, label: "Common" | "Builtin"): string[] | undefined {
+function allowlistOf(
+  value: unknown,
+  kind: string,
+  limits: { nameMax: number; namesMax: number },
+): string[] | undefined {
   if (value === undefined || value === null) return undefined;
-  if (!Array.isArray(value)) throw invalid(`${label} skill names must be an array of strings`);
-  if (value.length > SKILL_NAMES_MAX) {
-    throw invalid(`${label} skill names must have at most ${SKILL_NAMES_MAX} items`);
+  if (!Array.isArray(value)) throw invalid(`${kind} names must be an array of strings`);
+  if (value.length > limits.namesMax) {
+    throw invalid(`${kind} names must have at most ${limits.namesMax} items`);
   }
   const names: string[] = [];
   const seen = new Set<string>();
   for (const item of value) {
-    if (typeof item !== "string") throw invalid(`${label} skill names must be an array of strings`);
+    if (typeof item !== "string") throw invalid(`${kind} names must be an array of strings`);
     const name = item.trim();
     if (!name || seen.has(name)) continue;
-    if (name.length > SKILL_NAME_MAX) {
-      throw invalid(`A ${label.toLowerCase()} skill name must be at most ${SKILL_NAME_MAX} characters`);
+    if (name.length > limits.nameMax) {
+      throw invalid(`${kind} name must be at most ${limits.nameMax} characters`);
     }
     seen.add(name);
     names.push(name);
   }
   return names;
 }
+
+const SKILL_LIMITS = { nameMax: SKILL_NAME_MAX, namesMax: SKILL_NAMES_MAX } as const;
+const TOOL_LIMITS = { nameMax: TOOL_NAME_MAX, namesMax: TOOL_NAMES_MAX } as const;
 
 function makeSkill(input: DefinitionInput, id: string = randomUUID()): SkillRecord {
   const record = input as { name?: unknown; body?: unknown; description?: unknown } | null;
@@ -209,6 +219,7 @@ function makeAgent(input: DefinitionInput, skillIds: string[], id: string = rand
     systemPrompt?: unknown;
     commonSkillNames?: unknown;
     builtinSkillNames?: unknown;
+    toolNames?: unknown;
     icon?: unknown;
     model?: unknown;
     thinkingLevel?: unknown;
@@ -227,8 +238,10 @@ function makeAgent(input: DefinitionInput, skillIds: string[], id: string = rand
   const model = modelRef(record?.model);
   const thinkingLevel = thinkingLevelOf(record?.thinkingLevel);
   const suggestions = normalizeSuggestions(record?.suggestions);
-  const commonSkillNames = skillAllowlistOf(record?.commonSkillNames, "Common");
-  const builtinSkillNames = skillAllowlistOf(record?.builtinSkillNames, "Builtin");
+  const commonSkillNames = allowlistOf(record?.commonSkillNames, "Common skill", SKILL_LIMITS);
+  const builtinSkillNames = allowlistOf(record?.builtinSkillNames, "Builtin skill", SKILL_LIMITS);
+  // 一覧に無い名前も保存する (改名・削除・同梱の入れ替えで保存値を書き換えない。docs/api-catalog.md)
+  const toolNames = allowlistOf(record?.toolNames, "Agent tool", TOOL_LIMITS);
   if (icon) agent.icon = icon;
   if (model) agent.model = model;
   if (thinkingLevel) agent.thinkingLevel = thinkingLevel;
@@ -237,6 +250,7 @@ function makeAgent(input: DefinitionInput, skillIds: string[], id: string = rand
   // `[]` は「すべて OFF」なので真偽で落とさない (未指定のときだけキーを省略する)
   if (commonSkillNames) agent.commonSkillNames = commonSkillNames;
   if (builtinSkillNames) agent.builtinSkillNames = builtinSkillNames;
+  if (toolNames) agent.toolNames = toolNames;
   return agent;
 }
 
@@ -261,6 +275,12 @@ export interface AgentCatalog {
 export interface CreateAgentCatalogOptions {
   /** GET /api/agents が返す同梱スキル。カタログの CRUD と `skillIds` の対象外 */
   builtinSkills?: readonly BuiltinSkillInfo[];
+  /**
+   * GET /api/agents が返すツールの一覧。アプリ側の実効 (キー / 実行時トグル / serve の有無) は
+   * 取得時点で変わるため、値ではなく都度の解決関数を受ける (設定の保存後にクライアントが取り直す)。
+   * 未指定は空 (`[]` は「ツールが無い」ではなく、一覧を取得できていない状態として画面が出す)
+   */
+  tools?: () => readonly ToolCatalogEntry[];
   /** アプリデータの DB。未指定はメモリ DB (カタログの単体テスト) */
   db?: AppDb;
 }
@@ -270,6 +290,7 @@ export function createAgentCatalog(options: CreateAgentCatalogOptions = {}): Age
   const builtin = copy(BUILTIN_AGENT);
   // 呼び出し側の配列を参照で持ち回らない (応答のたびにコピーを返す)
   const builtinSkills: BuiltinSkillInfo[] = (options.builtinSkills ?? []).map((skill) => ({ ...skill }));
+  const tools = options.tools ?? (() => []);
 
   const builtinAgent = () => publicAgent(builtin);
   const listSkills = () => db.listSkills().map(publicSkill);
@@ -279,6 +300,7 @@ export function createAgentCatalog(options: CreateAgentCatalogOptions = {}): Age
   const snapshot = (): CatalogResponse => ({
     builtinAgent: builtinAgent(),
     builtinSkills: builtinSkills.map((skill) => ({ ...skill })),
+    tools: tools().map((tool) => ({ ...tool })),
     agents: listAgents(),
     skills: listSkills(),
   });

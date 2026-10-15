@@ -20,7 +20,7 @@ import type {
 
 export const APP_DB_FILENAME = "u7agent.db";
 /** テーブル定義を変えたら上げる。新規作成と加算移行はこの版へ揃え、未知の版は作り直す */
-export const APP_DB_SCHEMA_VERSION = 18;
+export const APP_DB_SCHEMA_VERSION = 19;
 
 /** プロバイダー API キーの保存行。平文なのでアクセス権の管理は docs/secrets.md を正とする */
 export interface ProviderCredentialRow {
@@ -363,7 +363,8 @@ CREATE TABLE agents (
   skillIds TEXT NOT NULL,
   suggestions TEXT,
   commonSkillNames TEXT,
-  builtinSkillNames TEXT
+  builtinSkillNames TEXT,
+  toolNames TEXT
 );
 ${NOTIFICATION_SETTINGS_TABLE}
 ${ARCHIVE_SETTINGS_TABLE}
@@ -603,6 +604,7 @@ function agentOf(row: Row): AgentDef {
   const suggestions = jsonArray<AgentSuggestion>(row.suggestions);
   const commonSkillNames = agentSkillNames(row, "commonSkillNames");
   const builtinSkillNames = agentSkillNames(row, "builtinSkillNames");
+  const toolNames = agentSkillNames(row, "toolNames");
   // 未指定の項目はキーごと省略する (応答に null は現れない)
   if (icon) agent.icon = icon;
   if (model) agent.model = model;
@@ -610,15 +612,19 @@ function agentOf(row: Row): AgentDef {
   if (suggestions?.length) agent.suggestions = suggestions;
   if (commonSkillNames) agent.commonSkillNames = commonSkillNames;
   if (builtinSkillNames) agent.builtinSkillNames = builtinSkillNames;
+  if (toolNames) agent.toolNames = toolNames;
   return agent;
 }
 
 /**
- * スキル許可リストの列。NULL = 未指定 (全可視 / 全部 ON) と `"[]"` = すべて OFF を区別する。
+ * 許可リストの列。NULL = 未指定 (全可視 / 全部 ON) と `"[]"` = すべて OFF を区別する。
  * 行がある以上 NULL 以外は JSON 配列のはずなので、壊れた値は未指定へ黙って落とさず失敗させる
  * (model_settings.allowedModels と同じ形)。
  */
-function agentSkillNames(row: Row, column: "commonSkillNames" | "builtinSkillNames"): string[] | undefined {
+function agentSkillNames(
+  row: Row,
+  column: "commonSkillNames" | "builtinSkillNames" | "toolNames",
+): string[] | undefined {
   const value = row[column];
   if (value === null || value === undefined) return undefined;
   const names = jsonArrayColumn<string>("agents", column, value);
@@ -879,6 +885,8 @@ export class AppDb {
       if (this.#tableExists("agents")) this.#addColumnIfMissing("agents", "commonSkillNames", "TEXT");
       // v17 以前に無い列 (組み込みスキルの許可リスト)。既存行は NULL = 全部 ON として読む
       if (this.#tableExists("agents")) this.#addColumnIfMissing("agents", "builtinSkillNames", "TEXT");
+      // v18 以前に無い列 (ツールの許可リスト)。既存行は NULL = 未指定 (全部 ON) として読む
+      if (this.#tableExists("agents")) this.#addColumnIfMissing("agents", "toolNames", "TEXT");
       // PRAGMA はパラメータ化できない (値はコード側の定数)
       this.#query((db) => db.exec(`PRAGMA user_version = ${APP_DB_SCHEMA_VERSION}`));
       this.#query((db) => db.exec("COMMIT"));
@@ -1299,12 +1307,13 @@ export class AppDb {
     this.#query((db) =>
       db
         .prepare(
-          `INSERT INTO agents (id, name, description, systemPrompt, icon, model, thinkingLevel, skillIds, suggestions, commonSkillNames, builtinSkillNames)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          `INSERT INTO agents (id, name, description, systemPrompt, icon, model, thinkingLevel, skillIds, suggestions, commonSkillNames, builtinSkillNames, toolNames)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
            ON CONFLICT(id) DO UPDATE SET name = excluded.name, description = excluded.description,
              systemPrompt = excluded.systemPrompt, icon = excluded.icon, model = excluded.model,
              thinkingLevel = excluded.thinkingLevel, skillIds = excluded.skillIds, suggestions = excluded.suggestions,
-             commonSkillNames = excluded.commonSkillNames, builtinSkillNames = excluded.builtinSkillNames`,
+             commonSkillNames = excluded.commonSkillNames, builtinSkillNames = excluded.builtinSkillNames,
+             toolNames = excluded.toolNames`,
         )
         .run(
           agent.id,
@@ -1319,6 +1328,7 @@ export class AppDb {
           // 未指定は NULL、`[]` は "[]" (undefined と [] を混同しない)
           agent.commonSkillNames === undefined ? null : JSON.stringify(agent.commonSkillNames),
           agent.builtinSkillNames === undefined ? null : JSON.stringify(agent.builtinSkillNames),
+          agent.toolNames === undefined ? null : JSON.stringify(agent.toolNames),
         ),
     );
   }

@@ -4,7 +4,7 @@
 
 - 画像専用のキー・モデルを `provider_credentials` とは別に管理する。プロバイダー登録済みキーは流用せず、設定 → コンテンツ生成で登録したキーだけを使う（別 provider のキーへ黙って切り替えない）
 - キーが有効（`content_settings` に行がある）ときだけ、モデルへ `generate_image` を見せる。未設定ならツール一覧に現れない
-- ツールは **BFF ローカル**（`server/src/image-tools.ts`）。サンドボックスのリモート定義ではなく、`createRemoteToolDefinitions` / `REMOTE_TOOL_NAMES` の外にあり、`PI_AGENT_TOOLS` の影響を受けない
+- ツールは **BFF ローカル**（`server/src/image-tools.ts`）。サンドボックスのリモート定義ではなく、`createRemoteToolDefinitions` / `REMOTE_TOOL_NAMES` の外にあり、`PI_AGENT_TOOLS` の影響を受けない。エージェント定義の `toolNames` では外せる（[api-catalog.md](api-catalog.md#ツール許可リスト)）
 - 保存は `workspace.uploadFile({ dir, name })`。`dir` は root 相対で渡す（BFF がセッション cwd を前置する 1 段。`projects.ts` の cwd 解決とは混ぜない）
 - 設定画面は 設定 → コンテンツ生成（`/settings/content`）で操作する。API は [api.md](api.md#コンテンツ生成) を参照
 

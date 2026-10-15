@@ -12,6 +12,7 @@ export function SkillRow({
   badge,
   hint,
   wrapName = false,
+  monoName = false,
 }: {
   name: string;
   description: string;
@@ -26,13 +27,17 @@ export function SkillRow({
    * どちらを外すのか選べなくなる。ファイルスキルは 1 行に収める。
    */
   wrapName?: boolean;
+  /** 名前を等幅で出すか (ツール ID は識別子なので、綴りの違いを見分けやすくする) */
+  monoName?: boolean;
 }) {
   const row = (
     <>
       {control}
       <span className="min-w-0 flex-1">
         <span className="flex min-w-0 items-baseline gap-1.5">
-          <span className={cn("min-w-0 text-xs text-ink", wrapName ? undefined : "truncate")}>{name}</span>
+          <span className={cn("min-w-0 text-xs text-ink", monoName && "font-mono", wrapName ? undefined : "truncate")}>
+            {name}
+          </span>
           {badge ? <span className="shrink-0 text-2xs leading-4 text-ink-ghost">{badge}</span> : null}
         </span>
         {/* 説明の全文は「スキル」ページにあるので、ここは 1 行に切って title へ逃がす */}
@@ -81,9 +86,7 @@ export function SkillGroup({
           <span className="flex shrink-0 items-baseline gap-2.5 font-normal tracking-normal">{actions}</span>
         ) : null}
       </div>
-      <div className="max-h-72 scrollbar-thin overflow-x-hidden overflow-y-auto">
-        <div className="grid gap-1">{children}</div>
-      </div>
+      <div className="grid gap-1">{children}</div>
     </div>
   );
 }

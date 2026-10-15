@@ -139,7 +139,8 @@ async function rejection(promise: Promise<unknown>): Promise<Error> {
 }
 
 test("web_search は常時公開で、サンドボックスへ送るツールではない", () => {
-  assert.deepEqual(withWebSearchTool(["read", "bash"]), ["read", "bash", WEB_SEARCH_TOOL_NAME]);
+  assert.deepEqual(withWebSearchTool(["read", "bash"], true), ["read", "bash", WEB_SEARCH_TOOL_NAME]);
+  assert.deepEqual(withWebSearchTool(["read", "bash"], false), ["read", "bash"]);
   assert.ok(!(SANDBOX_TOOL_NAMES as readonly string[]).includes(WEB_SEARCH_TOOL_NAME));
   assert.throws(
     () =>

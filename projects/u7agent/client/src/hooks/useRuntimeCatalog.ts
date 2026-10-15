@@ -23,6 +23,8 @@ export function useRuntimeCatalog({ dispatch }: UseRuntimeCatalogParams) {
     builtinSkills: [],
     agents: [],
     skills: [],
+    // 取得前は空。ツール欄は空を「取得できていない」として理由を出す
+    tools: [],
   });
   const [runtimeStatus, setRuntimeStatus] = useState<RuntimeStatus>({ text: "起動中", error: false });
   const [agentId, setAgentIdState] = useState<string>(() => localStorage.getItem(AGENT_KEY) || "");

@@ -5,6 +5,7 @@ import test from "node:test";
 import {
   BUILTIN_PANEL_SKILLS_NOTE,
   BUILTIN_PANEL_SKILLS_READONLY_LABEL,
+  BUILTIN_PANEL_TOOLS_READONLY_LABEL,
   BuiltinAgentPanel,
 } from "../src/components/agent-settings/BuiltinAgentPanel";
 import type { FileSkillsState } from "../src/hooks/useFileSkills";
@@ -14,7 +15,8 @@ import {
   FILE_SKILL_ERROR_PREFIX,
   FILE_SKILL_LOADING_NOTE,
 } from "../src/lib/fileSkills";
-import type { AgentDef, BuiltinSkillInfo, FileSkillInfo } from "../src/types";
+import { TOOL_CATALOG_UNAVAILABLE_NOTE } from "../src/lib/tools";
+import type { AgentDef, BuiltinSkillInfo, FileSkillInfo, ToolCatalogEntry } from "../src/types";
 
 const AGENT: AgentDef = {
   id: "agent-general",
@@ -48,10 +50,24 @@ function renderPanel({
     { name: "serve", description: "アプリを起動する", version: "2" },
     { name: "skill-creator", description: "スキルを作る", version: "3" },
   ] as BuiltinSkillInfo[],
+  tools = [
+    { name: "read", description: "ファイルの内容を読む", group: "sandbox", available: true },
+    {
+      name: "serve",
+      description: "アプリを起動・確認・停止する",
+      group: "app",
+      available: false,
+      reason: "app_disabled",
+    },
+  ] as ToolCatalogEntry[],
   fileSkills = { status: "ready", skills: [commonSkill("alpha"), commonSkill("beta")] } as FileSkillsState,
-}: { builtinSkills?: BuiltinSkillInfo[]; fileSkills?: FileSkillsState } = {}): string {
+}: {
+  builtinSkills?: BuiltinSkillInfo[];
+  tools?: ToolCatalogEntry[];
+  fileSkills?: FileSkillsState;
+} = {}): string {
   return renderToStaticMarkup(
-    createElement(BuiltinAgentPanel, { agent: AGENT, variant: "page", builtinSkills, fileSkills }),
+    createElement(BuiltinAgentPanel, { agent: AGENT, variant: "page", builtinSkills, tools, fileSkills }),
   );
 }
 
@@ -113,4 +129,23 @@ test("共通スキルが 0 件でも、組み込みと空の案内を出す", ()
   assert.ok(html.includes("使用 0 / 全 0"));
   assert.ok(html.includes(FILE_SKILL_EMPTY_NOTE));
   assert.ok(html.includes("serve"));
+});
+
+test("ツールも読み取り専用の行で出し、アプリ側で無効なら理由を出す", () => {
+  const html = renderPanel();
+  assert.ok(html.includes(BUILTIN_PANEL_TOOLS_READONLY_LABEL));
+  // 作業ツールとアプリのツールを見出しで分け、行は操作できない
+  assert.ok(html.includes("作業ツール"));
+  assert.ok(html.includes("アプリのツール"));
+  assert.equal(html.includes("<input"), false);
+  assert.ok(html.includes("read"));
+  assert.ok(html.includes("ファイルの内容を読む"));
+  // available: false の行にはアプリ側の理由を出し、使える行には注記を足さない
+  assert.ok(html.includes("アプリ側で無効です。チェックしても使えません"));
+});
+
+test("ツールの一覧を取得できないときは、行ではなく理由を出す", () => {
+  const html = renderPanel({ tools: [] });
+  assert.ok(html.includes(TOOL_CATALOG_UNAVAILABLE_NOTE));
+  assert.equal(html.includes("作業ツール"), false);
 });

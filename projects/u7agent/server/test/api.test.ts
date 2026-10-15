@@ -1168,6 +1168,38 @@ test("the built-in agent rejects updates and deletes", async () => {
   }
 });
 
+test("GET /api/agents はアプリ側の可否つきでツールの一覧を返す", async () => {
+  // stub の実効は sandbox = ["read"] / コンテンツ生成なし / 他は有効。
+  // 行は常に 13 件返し、使えない行には理由コードを載せる (文言は client の lib が持つ)
+  const bff = await createBffApp({ cwd: "/tmp/project", sessionStoreDir: null, pi: asPiBff(createStubPi()) });
+  try {
+    const catalog = (await jsonBody(bff.app.request("/api/agents"))) as {
+      tools: Array<{ name: string; description: string; group: string; available: boolean; reason?: string }>;
+    };
+    assert.deepEqual(
+      catalog.tools.map((tool) => [tool.name, tool.group, tool.available, tool.reason]),
+      [
+        ["read", "sandbox", true, undefined],
+        ["bash", "sandbox", false, "deploy_allowlist"],
+        ["edit", "sandbox", false, "deploy_allowlist"],
+        ["write", "sandbox", false, "deploy_allowlist"],
+        ["grep", "sandbox", false, "deploy_allowlist"],
+        ["find", "sandbox", false, "deploy_allowlist"],
+        ["ls", "sandbox", false, "deploy_allowlist"],
+        ["web_search", "app", true, undefined],
+        ["generate_image", "app", false, "no_key"],
+        ["generate_speech", "app", false, "no_key"],
+        ["serve", "app", true, undefined],
+        ["ask_user", "app", true, undefined],
+        ["investigate", "app", true, undefined],
+      ],
+    );
+    for (const tool of catalog.tools) assert.equal(tool.description.length > 0, true, tool.name);
+  } finally {
+    await bff.close();
+  }
+});
+
 test("組み込みスキルはカタログの一覧とスキル一覧の対象外", async () => {
   const bff = await createBffApp({ cwd: "/tmp/project", sessionStoreDir: null, pi: asPiBff(createStubPi()) });
   const { app } = bff;

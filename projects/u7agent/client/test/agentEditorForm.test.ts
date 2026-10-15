@@ -11,8 +11,11 @@ const {
   withAllBuiltinSkillsDisabled,
   withAllBuiltinSkillsEnabled,
   withAllCommonSkillsVisible,
+  withAllToolsDisabled,
+  withAllToolsEnabled,
   withBuiltinSkillToggled,
   withCommonSkillToggled,
+  withToolToggled,
 } = await import("../src/components/agent-settings/AgentEditorForm");
 
 function agent(overrides: Partial<AgentDef> = {}): AgentDef {
@@ -25,7 +28,6 @@ const VISIBLE = ["alpha", "beta"];
 function sent(form: AgentForm): Record<string, unknown> {
   return JSON.parse(JSON.stringify(agentPayloadOf(form))) as Record<string, unknown>;
 }
-
 test("下書きは未指定 / 空の許可リスト / 明示リストを区別する", () => {
   assert.equal(agentFormOf(agent()).commonSkillNames, undefined);
   assert.equal(agentFormOf(undefined).commonSkillNames, undefined);
@@ -73,6 +75,39 @@ test("「すべて表示に戻す」は null を送り、undefined (キー省略
 
   // 戻した後は全可視として振る舞い、外せばまた明示リストになる
   assert.deepEqual(withCommonSkillToggled(form, "beta", false, VISIBLE).commonSkillNames, ["alpha"]);
+});
+
+test("ツールの下書きも未指定 / 空の許可リスト / 明示リストを区別する", () => {
+  assert.equal(agentFormOf(agent()).toolNames, undefined);
+  assert.equal(agentFormOf(undefined).toolNames, undefined);
+  assert.deepEqual(agentFormOf(agent({ toolNames: [] })).toolNames, []);
+  assert.deepEqual(agentFormOf(agent({ toolNames: ["read"] })).toolNames, ["read"]);
+  // カタログの配列を直接編集しないようコピーして持つ
+  const catalogNames = ["read"];
+  assert.notEqual(agentFormOf(agent({ toolNames: catalogNames })).toolNames, catalogNames);
+});
+
+test("ツールの保存ペイロードは未指定ならキーが落ち、null は解除として送られる", () => {
+  assert.equal(Object.hasOwn(sent(agentFormOf(agent())), "toolNames"), false);
+  assert.deepEqual(sent(agentFormOf(agent({ toolNames: [] }))).toolNames, []);
+  assert.deepEqual(sent(agentFormOf(agent({ toolNames: ["read"] }))).toolNames, ["read"]);
+
+  const cleared = sent(withAllToolsEnabled(agentFormOf(agent({ toolNames: ["read"] }))));
+  assert.equal(Object.hasOwn(cleared, "toolNames"), true);
+  assert.equal(cleared.toolNames, null);
+  assert.deepEqual(sent(withAllToolsDisabled(agentFormOf(agent()))).toolNames, []);
+});
+
+test("ツールのトグルは未指定から見えている一覧を固定し、明示リストでは増減だけする", () => {
+  const form = withToolToggled(agentFormOf(agent()), "beta", false, VISIBLE);
+  assert.deepEqual(form.toolNames, ["alpha"]);
+  assert.deepEqual(sent(form).toolNames, ["alpha"]);
+
+  const explicit = { ...agentFormOf(agent()), toolNames: ["alpha", "gone"] };
+  assert.deepEqual(withToolToggled(explicit, "alpha", false, VISIBLE).toolNames, ["gone"]);
+  assert.deepEqual(withToolToggled(explicit, "beta", true, VISIBLE).toolNames, ["alpha", "gone", "beta"]);
+  // 一覧に無い保存名も落とさない
+  assert.deepEqual(withToolToggled(explicit, "beta", false, VISIBLE).toolNames, ["alpha", "gone"]);
 });
 
 test("一覧を取得できないときの下書きは編集前のまま送る", () => {

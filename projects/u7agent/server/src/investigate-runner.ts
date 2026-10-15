@@ -44,6 +44,8 @@ export interface InvestigateRunRequest {
   sessionId: string;
   /** 子セッションの作業ディレクトリ (rootCwd 相対)。親と同じ場所で調査させる */
   cwd: string;
+  /** 親のツール許可リスト。子は読み取り専用の集合との積でこれを使う (未指定 = 全部 ON) */
+  toolNames?: string[];
   /** 親セッションの現在のモデル。未指定は既定モデルで走らせる */
   model?: ModelRef;
   prompt: string;
@@ -61,6 +63,8 @@ export interface InvestigateChildInput {
   cwd: string;
   model?: ModelRef;
   agent: AgentDef;
+  /** 親のツール許可リスト。子は読み取り専用の集合との積でこれを使う (未指定 = 全部 ON) */
+  toolNames?: string[];
 }
 
 export interface InvestigateRunnerOptions {
@@ -281,6 +285,7 @@ export function createInvestigateRunner(options: InvestigateRunnerOptions): Inve
         ownerSessionId: request.sessionId,
         cwd: request.cwd,
         ...(request.model ? { model: request.model } : {}),
+        ...(request.toolNames === undefined ? {} : { toolNames: request.toolNames }),
         agent: INVESTIGATION_AGENT,
       });
     } catch {

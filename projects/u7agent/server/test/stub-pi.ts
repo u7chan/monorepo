@@ -12,6 +12,7 @@ import type { ContentGenerationConfig } from "../src/images";
 import type { InvestigateHost } from "../src/investigate-tool";
 import type { ServeToolHost } from "../src/serve-tool";
 import type { SpeechGenerationInput, SpeechGenerationResult } from "../src/speech";
+import { toolCatalog } from "../src/tool-catalog";
 import type { WebSearchRuntimeConfig } from "../src/web-search-tool";
 import type { SessionEnvSource } from "../src/agent";
 import { createMutableSecretMasker } from "../src/redact";
@@ -24,6 +25,7 @@ import type {
   RuntimeModelsResponse,
   SkillDef,
   ThinkingLevel,
+  ToolCatalogEntry,
   Usage,
 } from "../src/schema";
 import type { PiSessionEvent, PiSessionLike, PiSessionEventListener } from "../src/sessions";
@@ -950,6 +952,8 @@ export interface StubCreateInput {
   commonSkillNames?: string[];
   /** 組み込みスキルの許可リスト。呼び出し側の検証用に記録するだけ */
   builtinSkillNames?: string[];
+  /** ツールの許可リスト。呼び出し側の検証用に記録するだけ */
+  toolNames?: string[];
   /** 子モード (investigate の子セッション)。呼び出し側の検証用に記録するだけ */
   mode?: "chat" | "investigation";
 }
@@ -1010,6 +1014,8 @@ export interface StubPiOptions {
     signal: AbortSignal;
   }) => ModelCatalogRefreshAttempt | Promise<ModelCatalogRefreshAttempt>;
   createSessionRejects?: number;
+  /** GET /api/agents が返すツールの一覧を固定する (未指定は stub の状態から組む) */
+  toolCatalog?: ToolCatalogEntry[];
   /** 設定 → モデルの API が返すプロバイダー。省略時は stub 1 件 (キー登録可) */
   providers?: StubProvider[];
   /**
@@ -1205,6 +1211,18 @@ export function createStubPi(options: StubPiOptions = {}) {
       catalogHolder.value = next;
     },
     tools: ["read"],
+    // 実物と同じく、取得時点のアプリ側の実効を写した一覧を返す。
+    // テストが固定したいときは options.toolCatalog で差し替える
+    toolCatalog: () =>
+      options.toolCatalog ??
+      toolCatalog({
+        sandboxTools: ["read"],
+        contentGeneration: contentGenerationConfigs.at(-1)?.enabled === true,
+        webSearch: webSearchConfigs.at(-1)?.readEnabled() ?? true,
+        serve: serveHosts.length > 0,
+        askUser: askUserHosts.length > 0,
+        investigate: investigateHosts.length > 0,
+      }),
     sessions,
     createInputs,
     // 設定 → モデル (bootstrap の createProviderKeyRuntime) が触る SDK 面の模倣

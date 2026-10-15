@@ -55,6 +55,42 @@ export type AgentSuggestion = z.infer<typeof AgentSuggestionSchema>;
 export const SKILL_NAMES_MAX = 200;
 export const SKILL_NAME_MAX = 200;
 
+/**
+ * ツール許可リストの上限。スキル名の上限 (`SKILL_NAME_MAX`) はワークスペースの 1 セグメント名を
+ * 根拠にしているが、ツール名に同じ根拠は無い (SDK 組込みとアプリの定義が決める) ため別に持つ。
+ * どちらも名前の保存を弾くための防御線で、値そのものに意味は無い。
+ */
+export const TOOL_NAMES_MAX = 200;
+export const TOOL_NAME_MAX = 200;
+
+/**
+ * ツール 1 件の種別。`sandbox` はサンドボックスで動く作業ツール、`app` は BFF ローカルのツール。
+ * 画面のグループ分けに使う (`docs/api-catalog.md#ツール許可リスト`)。
+ */
+export const ToolGroupSchema = z.enum(["sandbox", "app"]);
+export type ToolGroup = z.infer<typeof ToolGroupSchema>;
+
+/**
+ * アプリ側でツールを使えない理由のコード。文言はクライアントの lib が持ち、応答にはコードだけを載せる
+ * (既存の分担は `client/src/lib/fileSkills.ts` / `client/src/lib/settingsNotes.ts`)。
+ */
+export const ToolUnavailableReasonSchema = z.enum(["deploy_allowlist", "app_disabled", "no_key"]);
+export type ToolUnavailableReason = z.infer<typeof ToolUnavailableReasonSchema>;
+
+/**
+ * `GET /api/agents` が返すツール 1 件 (`builtinSkills` と同じ位置づけ)。`available` は取得時点の
+ * アプリ側の実効で、エージェントの許可リストは掛けない (許可リストと一緒に画面が判断する)。
+ * `reason` は `available: false` のときだけ載る。
+ */
+export const ToolCatalogEntrySchema = z.object({
+  name: z.string(),
+  description: z.string(),
+  group: ToolGroupSchema,
+  available: z.boolean(),
+  reason: ToolUnavailableReasonSchema.optional(),
+});
+export type ToolCatalogEntry = z.infer<typeof ToolCatalogEntrySchema>;
+
 export const AgentDefSchema = z.object({
   id: z.string(),
   name: z.string(),
@@ -71,6 +107,12 @@ export const AgentDefSchema = z.object({
    * プロジェクト / 共通 / カタログのスキルは対象外 (docs/api-catalog.md#組み込みスキル)。
    */
   builtinSkillNames: z.array(z.string()).optional(),
+  /**
+   * ツールの許可リスト。未指定 = 全部 ON、`[]` = すべて OFF (この 2 つは混同しない)。実効は
+   * アプリ側の可否との積で、アプリ側が止めているツールは許可リストに入れても使えない
+   * (docs/api-catalog.md#ツール許可リスト)。
+   */
+  toolNames: z.array(z.string()).optional(),
   /** webp / png の data URL。未指定のときはキー自体を省略する (null は保存・応答に現れない) */
   icon: z.string().optional(),
   // 未指定のときはキー自体を省略する (null は保存・応答に現れない)
@@ -107,6 +149,8 @@ export type BuiltinSkillInfo = z.infer<typeof BuiltinSkillInfoSchema>;
 export const CatalogResponseSchema = CatalogSchema.extend({
   builtinAgent: AgentDefSchema.nullable(),
   builtinSkills: z.array(BuiltinSkillInfoSchema),
+  /** アプリが扱うツールの一覧 (`builtinSkills` と同じく、エージェント定義ではない) */
+  tools: z.array(ToolCatalogEntrySchema),
 });
 export type CatalogResponse = z.infer<typeof CatalogResponseSchema>;
 
@@ -126,6 +170,11 @@ export const AgentPayloadInfoSchema = z.object({
   commonSkillNames: z.array(z.string()).optional(),
   /** 組み込みスキルの許可リスト。未指定 = 全部 ON、`[]` = すべて OFF (未指定のときはキーを省略する) */
   builtinSkillNames: z.array(z.string()).optional(),
+  /**
+   * ツールの許可リスト。未指定 = 全部 ON、`[]` = すべて OFF (未指定のときはキーを省略する)。
+   * セッション作成時のスナップショットで、定義を編集しても復元後の会話は変わらない
+   */
+  toolNames: z.array(z.string()).optional(),
   skills: z.array(AgentSkillInfoSchema),
 });
 export type AgentPayloadInfo = z.infer<typeof AgentPayloadInfoSchema>;
@@ -1546,6 +1595,7 @@ const agentBodyShape = {
   skillIds: z.array(z.string()).nullish(),
   commonSkillNames: z.array(z.string().max(SKILL_NAME_MAX)).max(SKILL_NAMES_MAX).nullish(),
   builtinSkillNames: z.array(z.string().max(SKILL_NAME_MAX)).max(SKILL_NAMES_MAX).nullish(),
+  toolNames: z.array(z.string().max(TOOL_NAME_MAX)).max(TOOL_NAMES_MAX).nullish(),
   icon: z.string().nullish(),
   model: ModelRefSchema.nullish(),
   thinkingLevel: ThinkingLevelSchema.nullish(),

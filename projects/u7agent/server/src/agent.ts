@@ -16,23 +16,39 @@ import type { Api, Model as PiAiModel } from "@earendil-works/pi-ai";
 import { readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { COMMON_SKILLS_DIR } from "./app-paths";
-import { createAskUserToolDefinitions, withAskUserTool, type AskUserHost } from "./ask-user-tool";
+import { createAskUserToolDefinitions, ASK_USER_TOOL_NAME, withAskUserTool, type AskUserHost } from "./ask-user-tool";
 import { builtinSkillEnabled } from "./builtin-skills";
 import { catalogSkillIndexForSession } from "./catalog-skills";
 import { discoverSessionFileSkills } from "./file-skills";
-import { createImageToolDefinitions, IMAGE_GENERATION_PROMPT_LINES, sessionToolNames } from "./image-tools";
+import {
+  createImageToolDefinitions,
+  IMAGE_GENERATION_PROMPT_LINES,
+  IMAGE_TOOL_NAME,
+  sessionToolNames,
+} from "./image-tools";
 import { createImagesGenerator, type ContentGenerationConfig } from "./images";
 import { createSpeechGenerator, type SpeechGenerationInput, type SpeechGenerationResult } from "./speech";
-import { createSpeechToolDefinitions, SPEECH_GENERATION_PROMPT_LINES } from "./speech-tools";
-import { createInvestigateToolDefinitions, withInvestigateTool, type InvestigateHost } from "./investigate-tool";
+import { createSpeechToolDefinitions, SPEECH_GENERATION_PROMPT_LINES, SPEECH_TOOL_NAME } from "./speech-tools";
+import {
+  createInvestigateToolDefinitions,
+  INVESTIGATE_TOOL_NAME,
+  withInvestigateTool,
+  type InvestigateHost,
+} from "./investigate-tool";
 import { resolveWorkspaceCwd } from "./projects";
 import { ThinkingLevelSchema } from "./schema";
-import { createServeToolDefinitions, withServeTool, type ServeToolHost } from "./serve-tool";
+import { createServeToolDefinitions, SERVE_TOOL_NAME, withServeTool, type ServeToolHost } from "./serve-tool";
 import { createSandboxToolClientFromEnv } from "./sandbox/client";
 import { createRemoteToolDefinitions } from "./sandbox/remote-tools";
+import { toolCatalog, type ToolAvailability } from "./tool-catalog";
 import { createMutableSecretMasker, type SecretMasker } from "./redact";
 import { DEFAULT_WEB_SEARCH_PROVIDER } from "./web-search-providers";
-import { createWebSearchToolDefinitions, withWebSearchTool, type WebSearchRuntimeConfig } from "./web-search-tool";
+import {
+  createWebSearchToolDefinitions,
+  WEB_SEARCH_TOOL_NAME,
+  withWebSearchTool,
+  type WebSearchRuntimeConfig,
+} from "./web-search-tool";
 import { collectSecretValues, createSecretRedactionExtension, extraSecretVarNames } from "./secret-guard";
 import { catalogSkillsFromSnapshot } from "./session-skills";
 import type {
@@ -45,6 +61,7 @@ import type {
   RuntimeVersions,
   SkillDef,
   ThinkingLevel,
+  ToolCatalogEntry,
 } from "./schema";
 import type { PromptSnapshot } from "./session-store";
 
@@ -188,6 +205,12 @@ export interface CreateSessionInput {
    * `read` の横取り・system prompt の案内で同じ値にする (作成 / 復元ではスナップショットから渡す)。
    */
   builtinSkillNames?: string[];
+  /**
+   * ツールの許可リスト。undefined = 全部 ON、`[]` = すべて OFF。実効はアプリ側の可否との積で、
+   * セッション作成時に確定する (復元は meta のスナップショットで、定義の編集を遡及させない)。
+   * 子 (investigation) は親の許可リストを読み取り専用の集合との積で引き継ぐ
+   */
+  toolNames?: string[];
   /** 子モード。読み取り専用ツールだけを公開し、常時有効群とスキル発見を落とす (既定 "chat") */
   mode?: SessionMode;
 }
@@ -259,6 +282,11 @@ export interface PiBff {
   modelCatalog: RuntimeModelsResponse | undefined;
   sandboxConfigured: boolean;
   tools: string[];
+  /**
+   * GET /api/agents が返すツールの一覧。アプリ側の実効は取得時点で凍結したスナップショットで、
+   * Web 検索の設定などを保存した後はクライアントがカタログを取り直す。
+   */
+  toolCatalog(): ToolCatalogEntry[];
   resolveModel(model: ModelRef): CreateAgentSessionOptions["model"] | undefined;
   createSession(input?: CreateSessionInput): Promise<{ session: unknown; promptSnapshot: PromptSnapshot }>;
   modelLabel(model?: PiModelRef | null): string | undefined;
@@ -644,6 +672,67 @@ export function investigationTools(base: readonly string[]): string[] {
   return INVESTIGATION_TOOLS.filter((tool) => base.includes(tool));
 }
 
+/** BFF ローカルのアプリのツール。レジストリの並びとは独立で、ここでは公開の判定にだけ使う */
+const APP_TOOL_NAMES = [
+  WEB_SEARCH_TOOL_NAME,
+  IMAGE_TOOL_NAME,
+  SPEECH_TOOL_NAME,
+  SERVE_TOOL_NAME,
+  ASK_USER_TOOL_NAME,
+  INVESTIGATE_TOOL_NAME,
+] as const;
+
+export interface SessionToolPlan {
+  /** 許可リストを通した作業ツール (`createRemoteToolDefinitions` へ渡す集合) */
+  sandbox: string[];
+  /** SDK の `tools` へ渡す登録名 */
+  names: string[];
+  /** customTools を組むときの enabled。`names` と同じ判定から作る (片方だけに当てると食い違う) */
+  enabled: ReadonlySet<string>;
+}
+
+/**
+ * セッションへ公開するツールの実効。エージェント定義の許可リスト (undefined = 全部 ON、`[]` = すべて OFF) と
+ * アプリ側の実効 (レジストリの可否) の積をここ 1 箇所で取り、`tools` の名前と customTools の enabled へ
+ * 同じ結果を渡す。作業ツールはレジストリで引かない: `PI_AGENT_TOOLS` の設定ミスは
+ * `createRemoteToolDefinitions` の `UnknownRemoteToolError` で検出する既存の規則を残すため (積でしか効かない)。
+ * 子は作業ツールだけを引き継ぎ、アプリのツールは公開しない。
+ */
+export function sessionToolPlan(input: {
+  base: readonly string[];
+  toolNames?: readonly string[] | undefined;
+  availability: ToolAvailability;
+  investigation: boolean;
+}): SessionToolPlan {
+  const allowed = (name: string) => input.toolNames === undefined || input.toolNames.includes(name);
+  const available = new Set(
+    toolCatalog(input.availability)
+      .filter((tool) => tool.available)
+      .map((tool) => tool.name),
+  );
+  const open = (name: string) => allowed(name) && available.has(name);
+  const enabled = new Set<string>(APP_TOOL_NAMES.filter(open));
+  const sandbox = input.base.filter(allowed);
+  if (input.investigation) return { sandbox, names: sandbox, enabled: new Set() };
+  return {
+    sandbox,
+    enabled,
+    names: withInvestigateTool(
+      withAskUserTool(
+        withWebSearchTool(
+          withServeTool(
+            sessionToolNames(sandbox, { image: enabled.has(IMAGE_TOOL_NAME), speech: enabled.has(SPEECH_TOOL_NAME) }),
+            enabled.has(SERVE_TOOL_NAME),
+          ),
+          enabled.has(WEB_SEARCH_TOOL_NAME),
+        ),
+        enabled.has(ASK_USER_TOOL_NAME),
+      ),
+      enabled.has(INVESTIGATE_TOOL_NAME),
+    ),
+  };
+}
+
 /** SDK の compaction の既定値 (SettingsManager と同じ) */
 const DEFAULT_COMPACTION_RESERVE_TOKENS = 16_384;
 const DEFAULT_COMPACTION_KEEP_RECENT_TOKENS = 20_000;
@@ -805,6 +894,21 @@ export async function createPiBff({ cwd = process.cwd() }: { cwd?: string } = {}
 
   const defaultThinkingLevel = parseThinkingLevelFromEnv();
 
+  /**
+   * アプリ側のツールの実効。GET /api/agents の `available` とセッション作成の可否を同じ値から引くため、
+   * レジストリ (`tool-catalog.ts`) へ渡す入力をここで 1 回に揃える。
+   */
+  function toolAvailability(): ToolAvailability {
+    return {
+      sandboxTools: configuredTools(),
+      contentGeneration: contentGeneration.config?.enabled === true,
+      webSearch: webSearch.config.readEnabled(),
+      serve: serveHost.value?.configured === true,
+      askUser: askUserHost.value !== null,
+      investigate: investigateHost.value !== null,
+    };
+  }
+
   const resolveModel = (model: ModelRef): PiAiModel<Api> | undefined =>
     current.value.availableModels.find(
       (candidate) => candidate.provider === model.provider && candidate.id === model.id,
@@ -825,6 +929,7 @@ export async function createPiBff({ cwd = process.cwd() }: { cwd?: string } = {}
     agentSkills = [],
     commonSkillNames,
     builtinSkillNames,
+    toolNames,
     mode = "chat",
   }: CreateSessionInput = {}): Promise<{ session: unknown; promptSnapshot: PromptSnapshot }> {
     const investigation = mode === "investigation";
@@ -861,15 +966,17 @@ export async function createPiBff({ cwd = process.cwd() }: { cwd?: string } = {}
       retry: { enabled: true, maxRetries: 2 },
     });
     const snapshot = promptSnapshot ?? composePromptSnapshot(agent, skills);
-    // ツール一覧はセッション作成時に固定する。コンテンツ生成の有効化は新しい会話と復元から効く
-    const contentGenerationEnabled = contentGeneration.config?.enabled === true;
-    const serveToolEnabled = serveHost.value?.configured === true;
-    // 質問ツールは常時有効 (PI_AGENT_TOOLS の allowlist には依存させない)。実体未注入のときだけ落とす
-    const askUserEnabled = askUserHost.value !== null;
-    const investigateEnabled = investigateHost.value !== null;
-    // 子は読み取り専用の調査に限る。serve / ask_user と同じく allowlist には依存させず、
-    // 逆に allowlist (PI_AGENT_TOOLS) で絞られている分は子にも引き継ぐ
-    const baseTools = investigation ? investigationTools(configuredTools()) : configuredTools();
+    // ツールの実効はセッション作成時に確定する (作成 / 復元のどちらも呼び出し側が渡すスナップショットを使い、
+    // 実行時にエージェント定義を読まない)。子は作業ツールだけを親から引き継ぐ
+    const availability = toolAvailability();
+    const contentGenerationEnabled = availability.contentGeneration;
+    const sessionTools = sessionToolPlan({
+      base: investigation ? investigationTools(configuredTools()) : configuredTools(),
+      ...(toolNames === undefined ? {} : { toolNames }),
+      availability,
+      investigation,
+    });
+    const appTool = (name: string) => sessionTools.enabled.has(name);
     // ファイルスキルは SDK のネイティブ発見を使わず、サンドボックスで発見した一覧を skillsOverride で渡す
     // (発見に失敗してもスキル無しでセッション作成を続行する)。子はスキルを使わないので往復もしない
     const fileSkills = investigation
@@ -926,22 +1033,10 @@ export async function createPiBff({ cwd = process.cwd() }: { cwd?: string } = {}
         sessionId ? { id: sessionId } : undefined,
         entries as Parameters<typeof SessionManager.inMemory>[2],
       ),
-      // web_search / ask_user / investigate はどれも BFF ローカルの customTool。allowlist (tools) には
-      // それぞれの追加分を足すだけで、片方が他方を上書きしない。子モードでは常時有効群を一切足さない
-      tools: investigation
-        ? baseTools
-        : withInvestigateTool(
-            withAskUserTool(
-              withWebSearchTool(
-                withServeTool(
-                  sessionToolNames(baseTools, { image: contentGenerationEnabled, speech: contentGenerationEnabled }),
-                  serveToolEnabled,
-                ),
-              ),
-              askUserEnabled,
-            ),
-            investigateEnabled,
-          ),
+      // web_search / 画像生成 / 音声生成 / serve / ask_user / investigate は BFF ローカルの customTool。
+      // 登録名と enabled は sessionToolPlan が同じ判定から組む (片方だけ足すと食い違う)。
+      // 子モードでは常時有効群を一切足さない
+      tools: sessionTools.names,
       // 組込み定義を「サンドボックスの実行API を呼ぶリモート定義」で置き換え、BFF 上で作業コードを実行しない。
       // web_search・画像生成・serve・ask_user・investigate は BFF ローカルの customTool として足す
       // (サンドボックスには送らない)
@@ -952,7 +1047,7 @@ export async function createPiBff({ cwd = process.cwd() }: { cwd?: string } = {}
           sandboxCwd: relativeCwd,
           client: sandboxClient,
           masker: secretMasker,
-          tools: baseTools,
+          tools: sessionTools.sandbox,
           catalogSkills: catalogSkillBodies,
           ...(builtinSkillNames === undefined ? {} : { builtinSkillNames }),
           // 解決は exec のたびに行う (設定の変更は次の bash から効く)
@@ -961,14 +1056,17 @@ export async function createPiBff({ cwd = process.cwd() }: { cwd?: string } = {}
         ...(investigation
           ? []
           : [
-              ...createWebSearchToolDefinitions({
-                masker: secretMasker,
-                readEnabled: () => webSearch.config.readEnabled(),
-                readProvider: () => webSearch.config.readProvider(),
-                readApiKey: (provider) => webSearch.config.readApiKey(provider),
-              }),
+              // 公開の判定は `tools` の名前と同じ `appTool` を通す (定義だけ足して登録しない状態を作らない)
+              ...(appTool(WEB_SEARCH_TOOL_NAME)
+                ? createWebSearchToolDefinitions({
+                    masker: secretMasker,
+                    readEnabled: () => webSearch.config.readEnabled(),
+                    readProvider: () => webSearch.config.readProvider(),
+                    readApiKey: (provider) => webSearch.config.readApiKey(provider),
+                  })
+                : []),
               ...createImageToolDefinitions({
-                enabled: contentGenerationEnabled,
+                enabled: appTool(IMAGE_TOOL_NAME),
                 sessionCwd: relativeCwd,
                 workspace: sandboxClient,
                 masker: secretMasker,
@@ -977,7 +1075,7 @@ export async function createPiBff({ cwd = process.cwd() }: { cwd?: string } = {}
                 generate: imagesGenerator.generate,
               }),
               ...createSpeechToolDefinitions({
-                enabled: contentGenerationEnabled,
+                enabled: appTool(SPEECH_TOOL_NAME),
                 sessionCwd: relativeCwd,
                 workspace: sandboxClient,
                 masker: secretMasker,
@@ -986,19 +1084,19 @@ export async function createPiBff({ cwd = process.cwd() }: { cwd?: string } = {}
                 generate: speechGenerator.generate,
               }),
               ...createServeToolDefinitions({
-                enabled: serveToolEnabled,
+                enabled: appTool(SERVE_TOOL_NAME),
                 sessionId: ownerSessionId ?? sessionId,
                 host: serveHost.value as ServeToolHost,
                 // 外した skill を説明が指したままだと、モデルが読めない skill を探す
                 ...(builtinSkillNames === undefined ? {} : { builtinSkillNames }),
               }),
               ...createAskUserToolDefinitions({
-                enabled: askUserEnabled,
+                enabled: appTool(ASK_USER_TOOL_NAME),
                 sessionId: ownerSessionId ?? sessionId,
                 host: askUserHost.value as AskUserHost,
               }),
               ...createInvestigateToolDefinitions({
-                enabled: investigateEnabled,
+                enabled: appTool(INVESTIGATE_TOOL_NAME),
                 sessionId: ownerSessionId ?? sessionId,
                 host: investigateHost.value as InvestigateHost,
                 masker: secretMasker,
@@ -1041,6 +1139,7 @@ export async function createPiBff({ cwd = process.cwd() }: { cwd?: string } = {}
     },
     sandboxConfigured: Boolean(sandboxClient),
     tools: configuredTools(),
+    toolCatalog: () => toolCatalog(toolAvailability()),
     resolveModel,
     createSession,
     modelLabel,

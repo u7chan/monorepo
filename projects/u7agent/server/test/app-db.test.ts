@@ -1111,7 +1111,7 @@ test("migrates a v10 db additively and keeps the secrets table across reopen", (
     raw.close();
 
     const first = AppDb.open({ storeDir: dir });
-    assert.equal(APP_DB_SCHEMA_VERSION, 18);
+    assert.equal(APP_DB_SCHEMA_VERSION, 19);
     // 加算移行なので既存の行は残り、secrets は行が無い = 未設定で始まる
     assert.deepEqual(first.listProjects(), [project("p1", "proj-a")]);
     assert.deepEqual(first.getServeCommand("proj-a"), { cwd: "proj-a", command: "pnpm dev", updatedAt: 1 });
@@ -1677,6 +1677,7 @@ test("migrates a v16 db additively and keeps NULL and [] of the skill allowlists
         "suggestions",
         "commonSkillNames",
         "builtinSkillNames",
+        "toolNames",
       ],
     );
     const rows = check.prepare("SELECT id, commonSkillNames, builtinSkillNames FROM agents ORDER BY rowid").all() as {
@@ -1703,6 +1704,67 @@ test("migrates a v16 db additively and keeps NULL and [] of the skill allowlists
     assert.equal(Object.hasOwn(reopened.getAgent("a2") ?? {}, "builtinSkillNames"), false);
     assert.deepEqual(reopened.getAgent("a3")?.commonSkillNames, ["writer", "gh"]);
     assert.deepEqual(reopened.getAgent("a3")?.builtinSkillNames, ["serve"]);
+    reopened.close();
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+/** v18 相当のスキーマ (agents にツール許可リストが無い状態)。v18 の実ファイルと同じ形 */
+const V18_TABLES = `
+${V16_TABLES}
+ALTER TABLE agents ADD COLUMN commonSkillNames TEXT;
+ALTER TABLE agents ADD COLUMN builtinSkillNames TEXT;
+`;
+
+test("migrates a v18 db additively and keeps NULL and [] of the tool allowlist apart", () => {
+  const dir = tempStoreDir();
+  try {
+    const raw = new DatabaseSync(join(dir, APP_DB_FILENAME));
+    raw.exec(V18_TABLES);
+    raw.exec("PRAGMA user_version = 18");
+    raw.prepare("INSERT INTO projects (id, name, cwd, createdAt) VALUES (?, ?, ?, ?)").run("p1", "p1", "proj-a", 1);
+    // v18 の agents はこの列を持たないので、既存行は未指定 (全部 ON) として移行される
+    raw
+      .prepare("INSERT INTO agents (id, name, description, systemPrompt, skillIds) VALUES (?, ?, ?, ?, ?)")
+      .run("a1", "a1", "", "", "[]");
+    raw.close();
+
+    const first = AppDb.open({ storeDir: dir });
+    const migrated = first.getAgent("a1");
+    assert.ok(migrated);
+    // NULL = 未指定。`?? []` で読むと「すべて OFF」に化けるのでキーごと省略される
+    assert.equal(Object.hasOwn(migrated, "toolNames"), false);
+
+    first.saveAgent({ ...migrated, toolNames: [] });
+    first.saveAgent(agent("a2")); // 未指定のまま (NULL)
+    first.saveAgent({ ...agent("a3"), toolNames: ["read", "bash"] });
+    first.close();
+
+    // 列は既存の列の後ろに足され、書き込みは `[]` を "[]" として残す
+    const check = new DatabaseSync(join(dir, APP_DB_FILENAME));
+    const columns = check.prepare("PRAGMA table_info(agents)").all() as { name: string }[];
+    assert.deepEqual(columns.map((column) => column.name).slice(-1), ["toolNames"]);
+    const rows = check.prepare("SELECT id, toolNames FROM agents ORDER BY rowid").all() as {
+      id: string;
+      toolNames: unknown;
+    }[];
+    assert.deepEqual(
+      rows.map((row) => [row.id, row.toolNames]),
+      [
+        ["a1", "[]"],
+        ["a2", null],
+        ["a3", '["read","bash"]'],
+      ],
+    );
+    assert.equal(Number(check.prepare("PRAGMA user_version").get()?.user_version), APP_DB_SCHEMA_VERSION);
+    check.close();
+
+    // 開き直しても NULL と "[]" は区別したまま読める
+    const reopened = AppDb.open({ storeDir: dir });
+    assert.deepEqual(reopened.getAgent("a1")?.toolNames, []);
+    assert.equal(Object.hasOwn(reopened.getAgent("a2") ?? {}, "toolNames"), false);
+    assert.deepEqual(reopened.getAgent("a3")?.toolNames, ["read", "bash"]);
     reopened.close();
   } finally {
     rmSync(dir, { recursive: true, force: true });

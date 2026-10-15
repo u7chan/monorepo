@@ -22,13 +22,6 @@ export const BUILTIN_SKILL_EXPLICIT_NOTE =
   "選んだ組み込みスキルだけを使います。あとから同梱された分は自動では選ばれません。";
 export const BUILTIN_SKILL_SHOW_ALL_LABEL = "すべて使用に戻す";
 export const BUILTIN_SKILL_DISABLE_ALL_LABEL = "すべて外す";
-/**
- * 外した行だけに出す、「ツールはスキルと別軸」の注記。名前で引くため、同梱物が増えても
- * 対応するツールが無ければ何も出ない。
- */
-const BUILTIN_SKILL_OFF_HINTS: Record<string, string> = {
-  serve: "外しても「サービス」ツールは使えます",
-};
 
 /**
  * 共通スキルの注記。行に出る「自動起動なし」(`disable-model-invocation` = モデルが自分からは起動しない) とは
@@ -130,26 +123,24 @@ export function SkillSelector({
       {skills.length === 0 ? (
         <div className="text-1xs text-ink-faint">スキルがありません。「スキル」ページから作成できます。</div>
       ) : (
-        <div className="max-h-72 scrollbar-thin overflow-x-hidden overflow-y-auto">
-          <div className="grid gap-1">
-            {skills.map((skill) => (
-              <SkillRow
-                key={skill.id}
-                name={skill.name}
-                description={skill.description || ""}
-                // カタログの名前は末尾だけ違うことがあるので折り返して全部見せる
-                wrapName
-                control={
-                  <input
-                    type="checkbox"
-                    checked={selectedIds.includes(skill.id)}
-                    onChange={(e) => onToggle(skill.id, e.currentTarget.checked)}
-                    className="mt-0.5 accent-focus"
-                  />
-                }
-              />
-            ))}
-          </div>
+        <div className="grid gap-1">
+          {skills.map((skill) => (
+            <SkillRow
+              key={skill.id}
+              name={skill.name}
+              description={skill.description || ""}
+              // カタログの名前は末尾だけ違うことがあるので折り返して全部見せる
+              wrapName
+              control={
+                <input
+                  type="checkbox"
+                  checked={selectedIds.includes(skill.id)}
+                  onChange={(e) => onToggle(skill.id, e.currentTarget.checked)}
+                  className="mt-0.5 accent-focus"
+                />
+              }
+            />
+          ))}
         </div>
       )}
       {fileSkills.status === "loading" ? (
@@ -239,8 +230,6 @@ export function SkillSelector({
                   className="mt-0.5 accent-focus"
                 />
               }
-              // ツールはスキルと別軸で外れない (serve など)。外した行だけに出す
-              hint={!usedBuiltinNames.includes(skill.name) ? BUILTIN_SKILL_OFF_HINTS[skill.name] : undefined}
             />
           ))}
         </SkillGroup>

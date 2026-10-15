@@ -280,7 +280,7 @@ export function createWebSearchToolDefinitions(options: WebSearchToolOptions): T
   return [wrapToolDefinitionWithSecretMasker(definition, options.masker)];
 }
 
-/** SDK の tools へ渡す登録名。常時公開で、`PI_AGENT_TOOLS` の対象外 */
-export function withWebSearchTool(base: readonly string[]): string[] {
-  return [...base, WEB_SEARCH_TOOL_NAME];
+/** SDK の tools へ渡す登録名。アプリ側で有効でも、エージェントの許可リストで外されていれば足さない */
+export function withWebSearchTool(base: readonly string[], enabled: boolean): string[] {
+  return enabled ? [...base, WEB_SEARCH_TOOL_NAME] : [...base];
 }

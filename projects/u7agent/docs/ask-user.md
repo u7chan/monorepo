@@ -24,7 +24,7 @@
 ```
 
 - **abort / 取り消しでは throw せず `isError: true` を返す**: `details: { questions, answers: [] }` と「回答が得られないまま停止しました」。`AgentToolResult.isError` は「throw せず失敗を返し、`details` を UI に残す」契約で、throw すると SDK の `createErrorToolResult` が `details` を空にするため、停止後の再読込でカードを復元できなくなる
-- 有効化は常時で、設定で切る導線は無い。`PI_AGENT_TOOLS` は `tools` の allowlist を作るため、**ask_user は環境変数では外せない**（`server/src/agent.ts`）
+- 有効化は常時で、設定で切る導線は無い。`PI_AGENT_TOOLS` は `tools` の allowlist を作るため、**ask_user は環境変数では外せない**（`server/src/agent.ts`）。エージェント定義の `toolNames` では外せる（外すと新しい会話で公開されない。[api-catalog.md](api-catalog.md#ツール許可リスト)）
 
 ## 待機のライフサイクル
 
