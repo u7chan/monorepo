@@ -365,22 +365,27 @@ const SPEED_STANDARD = SPEED_SCALE;
 
 const SPEED_FLOOR = Math.round(SPEECH_PREVIEW_SPEED_MIN * SPEED_SCALE);
 
-/** 十進で書かれた小数。指数表記など、桁を数えられない形は数値として読む */
+/** 十進で書かれた小数。指数表記になる極端な値は数値のまま扱う */
 const SPEED_DECIMAL = /^(\d+)(?:\.(\d*))?$/;
 
 /**
- * 入力の 1/100 単位。解釈できない / 0 以下 / 1/100 単位で表せない大きさの値は null（＝起点を 1.0 へ寄せる）。
- * 小数第 3 位以下を文字の桁で丸めるのは、`1.015 - 0.1` の丸めが二進の誤差で 1 桁ずれるため。
+ * 入力の 1/100 単位。解釈できない / 0 以下の値と、1/100 単位で表せない大きさの値は null
+ * （＝起点を 1.0 へ寄せる）。
+ * 丸めは数値に直してから十進の桁で行う。表記（`+0.565` / `.565` / `5.65e-1`）で結果が変わらず、
+ * `1.015 - 0.1` の丸めも二進の誤差で 1 桁ずれない。丸めで 0 単位になる正の値（0.004）は、
+ * 0 や未指定と区別して下限へ寄せる。
  */
 function speedUnits(raw: string): number | null {
-  const decimal = SPEED_DECIMAL.exec(raw);
+  const value = Number(raw);
+  if (!Number.isFinite(value) || value <= 0) return null;
+  const decimal = SPEED_DECIMAL.exec(String(value));
   if (decimal === null) {
-    const scaled = Number(raw) * SPEED_SCALE;
-    return Number.isFinite(scaled) && scaled > 0 ? Math.round(scaled) : null;
+    const scaled = value * SPEED_SCALE;
+    return Number.isFinite(scaled) ? Math.round(scaled) : null;
   }
   const [, whole = "", fraction = ""] = decimal;
   const units = Number(`${whole}${fraction.slice(0, 2).padEnd(2, "0")}`) + (Number(fraction[2] ?? 0) >= 5 ? 1 : 0);
-  return Number.isFinite(units) && units > 0 ? units : null;
+  return Number.isFinite(units) ? units : null;
 }
 
 /**

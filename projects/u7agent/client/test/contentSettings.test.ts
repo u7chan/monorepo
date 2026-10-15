@@ -482,6 +482,12 @@ test("速度の増減は十進の桁で小数 2 桁へ丸め、押下だけで�
   assert.equal(speechPreviewSpeedStep("1.015", -0.1), "0.92");
   assert.equal(speechPreviewSpeedStep("1.005", 0.1), "1.11");
   assert.equal(speechPreviewSpeedStep("1.014", -0.1), "0.91");
+  // 同じ数値なら、符号・小数点の前の 0 省略・指数表記で結果を変えない
+  for (const raw of ["0.565", ".565", "+0.565", "5.65e-1", "0.5650"]) {
+    assert.equal(speechPreviewSpeedStep(raw, 0.1), "0.67", `${raw} の増加`);
+    assert.equal(speechPreviewSpeedStep(raw, -0.1), "0.47", `${raw} の減少`);
+  }
+  assert.equal(speechPreviewSpeedStep("1.005e0", 0.1), "1.11");
   // 有限でも押下で 1/100 単位を溢れる値から Infinity を作らない
   for (const raw of ["1e307", "1".repeat(400)]) {
     for (const delta of [0.1, -0.1]) {
@@ -489,6 +495,17 @@ test("速度の増減は十進の桁で小数 2 桁へ丸め、押下だけで�
       assert.ok(speechPreviewSpeed(stepped).ok, `${raw} の押下結果 ${stepped} は送信前の検証を通る`);
     }
   }
+});
+
+test("速度の増減は丸めで 0 単位になる正の値を未指定と混同しない", () => {
+  // 0.004 は送信前の検証を通る正の値なので、起点 1.0 へは飛ばさず下限で止める
+  for (const raw of ["0.004", ".004", "4e-3", "0.0001", "1e-7"]) {
+    assert.equal(speechPreviewSpeedStep(raw, 0.1), "0.1", `${raw} の増加`);
+    assert.equal(speechPreviewSpeedStep(raw, -0.1), "0.1", `${raw} の減少`);
+  }
+  // 0 は送信前の検証が弾く値なので、空欄と同じ起点にする
+  assert.equal(speechPreviewSpeedStep("0", 0.1), "1.1");
+  assert.equal(speechPreviewSpeedStep("0.000", -0.1), "0.9");
 });
 
 test("お試し再生は Content-Type から形式を読み、判別できない応答では形式の表示を省く", () => {
