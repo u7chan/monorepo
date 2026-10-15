@@ -3,7 +3,19 @@ FROM node:24-trixie-slim AS base
 RUN npm install --global pnpm@10.34.5
 WORKDIR /app
 
-FROM base AS manifests
+# chromium-headless-shell の実行に要るシステム依存と、日本語ラベル / 絵文字を描くフォント。
+# 一覧は playwright-core の nativeDeps (debian13-x64 の chromium) を正とし、ドライバを上げるときは取り直す。
+# `test` (PR CI) と `final` (CD) の両方がこの 1 ステージを継承するので、apt を二重定義しない。
+FROM base AS browser-libs
+ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      libasound2t64 libatk-bridge2.0-0t64 libatk1.0-0t64 libatspi2.0-0t64 libcairo2 libcups2t64 \
+      libdbus-1-3 libdrm2 libgbm1 libglib2.0-0t64 libnspr4 libnss3 libpango-1.0-0 libx11-6 libxcb1 \
+      libxcomposite1 libxdamage1 libxext6 libxfixes3 libxkbcommon0 libxrandr2 \
+      fonts-ipafont-gothic fonts-noto-color-emoji \
+    && rm -rf /var/lib/apt/lists/*
+
+FROM browser-libs AS manifests
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 # pnpm check が読む lint / format の設定。CI は Docker 内で check を実行するので、ここで渡さないと
 # oxlint は shadcn ルールを無言でスキップし、oxfmt はデフォルト設定で判定して format:check が落ちる。
@@ -23,8 +35,15 @@ RUN pnpm install --frozen-lockfile
 COPY client/ ./client/
 COPY server/ ./server/
 
+# 配布セット (chromium-headless-shell + ffmpeg) は dependencies の下流で作る。
+# 取得は scripts/install-browser.mjs が playwright-core の CLI に委ね、既にある版は取り直さない。
+# `final` はこのステージから /ms-playwright だけを受け取るので、node_modules は持ち込まれない。
+FROM dependencies AS browser
+COPY scripts/install-browser.mjs ./scripts/install-browser.mjs
+RUN node scripts/install-browser.mjs /ms-playwright
+
 # CI: no credentials or live model calls; API tests use a stub runtime.
-FROM dependencies AS test
+FROM browser AS test
 # Landlock ラッパー (scripts/landlock-exec.py) は python3 で動く。テストの skip に頼らず、
 # ビルド時の probe (下の RUN) でラッパーの同梱とカーネルの対応可否を検査する。
 RUN apt-get update && apt-get install -y --no-install-recommends python3 \
@@ -52,9 +71,47 @@ RUN chmod 0755 /usr/local/bin/u7agent-landlock \
          /usr/local/bin/u7agent-landlock -c 'echo no > /tmp/landlock-probe/denied/written' 2>/dev/null \
     && test ! -f /tmp/landlock-probe/denied/written \
     && rm -rf /tmp/landlock-probe
+# u7agent-browser はサーバー側の CLI を呼ぶ入口。cwd を保つため /app を絶対パスで埋め込む。
+COPY scripts/install-browser-cli.mjs ./scripts/install-browser-cli.mjs
+RUN node scripts/install-browser-cli.mjs /app /usr/local/bin \
+    && test -x /usr/local/bin/u7agent-browser \
+    && test -f /app/server/node_modules/tsx/dist/loader.mjs \
+    && command -v u7agent-browser >/dev/null
 ARG COMMIT_HASH=""
 ENV COMMIT_HASH=${COMMIT_HASH}
 RUN pnpm check
+
+# ブラウザの probe。root では実行せず、node ユーザー + 既存の Landlock ラッパー経由
+# (`u7agent-landlock -c '...'`) + 通常実行相当の許可 root / HOME で実行し、DOM / PNG / ループバックの HTTP と WS /
+# ループバック以外と link-local redirect の拒否を検査する。環境変数を渡すだけでは Landlock は適用されないため、
+# ラッパーが実際に効いていること (ABI 999 は拒否 / 許可 root の外へ書けない) も検査する。2 本同時に走らせて、
+# 起動時の回収と同時実行の入場制御が生存中の呼び出しを壊さないことも見る。終了後に残骸が無いことまで見る。
+# 2 本目は PLAYWRIGHT_BROWSERS_PATH 未設定で走らせ、import 前に既定 (/ms-playwright) が有効になることも見る。
+USER node
+RUN set -eux; \
+    mkdir -p /tmp/u7agent-browser-probe; \
+    cd /tmp/u7agent-browser-probe; \
+    U7AGENT_LANDLOCK_SHELL=/bin/bash; \
+    U7AGENT_LANDLOCK_MIN_ABI=3; \
+    U7AGENT_LANDLOCK_RULES='[{"path":"/tmp/u7agent-browser-probe","create":true},{"path":"/tmp"},{"path":"/home/node/.cache","create":true},{"path":"/home/node/.npm","create":true},{"path":"/home/node/.local/share/pnpm","create":true},{"path":"/dev/null"},{"path":"/dev/shm"}]'; \
+    export U7AGENT_LANDLOCK_SHELL U7AGENT_LANDLOCK_MIN_ABI U7AGENT_LANDLOCK_RULES; \
+    wrap() { /usr/local/bin/u7agent-landlock -c "$1"; }; \
+    wrap 'u7agent-browser --self-test' > /tmp/u7agent-browser-probe/1.log 2>&1 & p1=$!; \
+    wrap 'env -u PLAYWRIGHT_BROWSERS_PATH u7agent-browser --self-test' > /tmp/u7agent-browser-probe/2.log 2>&1 & p2=$!; \
+    wait "$p1"; \
+    wait "$p2"; \
+    cat /tmp/u7agent-browser-probe/1.log /tmp/u7agent-browser-probe/2.log; \
+    grep -q "self-test ok" /tmp/u7agent-browser-probe/1.log; \
+    grep -q "self-test ok" /tmp/u7agent-browser-probe/2.log; \
+    test -z "$(ls -A /tmp/u7agent-browser)"; \
+    ! U7AGENT_LANDLOCK_MIN_ABI=999 wrap 'u7agent-browser --self-test' > /tmp/u7agent-browser-probe/invalid-abi.log 2>&1; \
+    cat /tmp/u7agent-browser-probe/invalid-abi.log; \
+    grep -q "older than the required" /tmp/u7agent-browser-probe/invalid-abi.log; \
+    ! wrap 'echo no > /home/node/landlock-denied-written' 2>/dev/null; \
+    echo "landlock: 許可 root の外への書き込みを拒否しました"; \
+    test ! -f /home/node/landlock-denied-written; \
+    rm -rf /tmp/u7agent-browser-probe
+USER root
 
 FROM test AS builder
 
@@ -64,7 +121,7 @@ RUN pnpm install --frozen-lockfile --prod --ignore-scripts
 # CD: the existing pipeline builds final and pushes monorepo/u7agent.
 # BFF とサンドボックス (src/sandbox/index.ts) は同一イメージを command 差し替えで共用する。
 # server/src/ には組み込みスキルの SKILL.md (src/builtin-skills/) も含めて同梱する。
-FROM node:24-trixie-slim AS final
+FROM browser-libs AS final
 # uv はコンテナ内で Python の依存を .venv に閉じ込めるために使う。apt の RUN にある command -v 検査が uv も見るので、
 # この COPY を後ろに置くと検査時に uv が無い。
 COPY --from=ghcr.io/astral-sh/uv:0.12.18 /uv /uvx /usr/local/bin/
@@ -83,6 +140,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends bash git ripgre
 COPY scripts/landlock-exec.py /usr/local/bin/u7agent-landlock
 RUN chmod 0755 /usr/local/bin/u7agent-landlock
 COPY --from=fd /usr/local/bin/fd /usr/local/bin/fd
+# 配布セットは browser ステージから受ける (app の node_modules は持ち込まない)。
+COPY --from=browser /ms-playwright /ms-playwright
 ARG COMMIT_HASH=""
 ENV COMMIT_HASH=${COMMIT_HASH} \
     NODE_ENV=production \
@@ -98,6 +157,13 @@ WORKDIR /app
 COPY --from=production-dependencies /app/ ./
 COPY --from=builder /app/server/src/ ./server/src/
 COPY --from=builder /app/client/dist/ ./client/dist/
+# u7agent-browser の入口。tsx と CLI ソースを絶対パスで呼び、呼び出し元の cwd を保つ。
+COPY scripts/install-browser-cli.mjs /tmp/install-browser-cli.mjs
+RUN node /tmp/install-browser-cli.mjs /app /usr/local/bin \
+    && test -x /usr/local/bin/u7agent-browser \
+    && test -f /app/server/node_modules/tsx/dist/loader.mjs \
+    && command -v u7agent-browser >/dev/null \
+    && rm -f /tmp/install-browser-cli.mjs
 USER node
 WORKDIR /app/server
 EXPOSE 4317 4318 4319 9418 8080
