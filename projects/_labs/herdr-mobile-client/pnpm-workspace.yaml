@@ -1,0 +1,7 @@
+# 単一パッケージのため `packages:` は持たせない。pnpm 10 では onlyBuiltDependencies と
+# minimumReleaseAge を package.json の pnpm フィールドへ書いても無視されるため、ここへ置く。
+onlyBuiltDependencies:
+  - esbuild
+
+# 公開直後のバージョンを引かないようにする（分）。pnpm の既定例と同じ 1 日。
+minimumReleaseAge: 1440
