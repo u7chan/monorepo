@@ -169,7 +169,9 @@ export function Sidebar({
             <span>新しい会話</span>
           </button>
 
-          <div className="scrollbar-stable grid min-h-0 flex-1 scrollbar-thin content-start gap-4 overflow-y-auto pr-0.5">
+          {/* pr-2 は overlay scrollbar のサム避け。ガターが確保されない環境 (iOS / Android / macOS) では
+              scrollbar-gutter が幅を取らず、2px だとサムが行の右端に重なる。::-webkit-scrollbar と同じ 8px */}
+          <div className="scrollbar-stable grid min-h-0 flex-1 scrollbar-thin content-start gap-4 overflow-y-auto pr-2">
             {!conversationOnly ? (
               <section className="grid">
                 <div className="flex items-center justify-between gap-2">
