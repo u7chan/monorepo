@@ -402,6 +402,54 @@ test("組み込みスキルの許可リストも作成時に固定され、復�
   }
 });
 
+test("ツールの許可リストも作成時に固定され、定義を変えても復元では同じ選択を使う", async () => {
+  const storeDir = await mkdtemp(join(tmpdir(), "u7agent-restore-tool-names-"));
+  const workspace = commonSkillWorkspace();
+  const catalog = createAgentCatalog();
+  try {
+    // `[]` (すべて OFF) と明示リストは別の値として保存され、どちらも復元で保たれる
+    const off = catalog.createAgent({ name: "全 OFF", toolNames: [] });
+    const trimmed = catalog.createAgent({ name: "read だけ", toolNames: ["read"] });
+    const pi1 = createStubPi();
+    const store1 = createStore(storeDir, { pi: pi1, workspace, catalog });
+    const offRecord = await store1.create({ agentId: off.id });
+    assert.deepEqual(pi1.createInputs.at(-1)?.toolNames, [], "作成時にスナップショットを渡す");
+    const trimmedRecord = await store1.create({ agentId: trimmed.id });
+    assert.deepEqual(pi1.createInputs.at(-1)?.toolNames, ["read"]);
+    await store1.flush(offRecord);
+    await store1.flush(trimmedRecord);
+    await store1.close();
+
+    // 定義を編集・削除しても、復元は meta のスナップショットを使う (遡及させない)
+    catalog.updateAgent(off.id, { toolNames: ["bash"] });
+    catalog.removeAgent(trimmed.id);
+    const pi2 = createStubPi();
+    const store2 = createStore(storeDir, { pi: pi2, workspace, catalog });
+    await store2.init();
+    const restoredOff = await store2.resolve(offRecord.id);
+    const restoredTrimmed = await store2.resolve(trimmedRecord.id);
+    assert.ok(restoredOff && restoredTrimmed);
+    assert.deepEqual(restoredOff.agent.toolNames, [], "`[]` を未指定へ潰さない");
+    assert.deepEqual(restoredTrimmed.agent.toolNames, ["read"]);
+    await store2.close();
+
+    // フィールドを持たない古い meta は未指定 (全部 ON) として復元する
+    const meta = await readMeta(restoredTrimmed.id, storeDir);
+    delete (meta.agent as Record<string, unknown>).toolNames;
+    await writeFile(sessionMetaPath(restoredTrimmed.id, storeDir), `${JSON.stringify(meta, null, 2)}\n`);
+    const pi3 = createStubPi();
+    const store3 = createStore(storeDir, { pi: pi3, workspace, catalog });
+    await store3.init();
+    const old = await store3.resolve(restoredTrimmed.id);
+    assert.ok(old);
+    assert.equal(pi3.createInputs.at(-1)?.toolNames, undefined);
+    assert.equal(Object.hasOwn(old.agent, "toolNames"), false);
+    await store3.close();
+  } finally {
+    await rm(storeDir, { recursive: true, force: true });
+  }
+});
+
 test("スキル許可リストを持たない meta は未指定として復元する", async () => {
   const storeDir = await mkdtemp(join(tmpdir(), "u7agent-restore-common-skills-old-"));
   const workspace = commonSkillWorkspace();

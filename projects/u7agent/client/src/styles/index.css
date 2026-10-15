@@ -15,7 +15,9 @@
     ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", "Noto Sans JP Variable",
     monospace;
 
-  /* desktop 内のゆとり用。singleColumn (モバイル / 低い viewport) の判定は JS 側 (lib/layout.ts) が持つ */
+  /* desktop 内のゆとり用。singleColumn (モバイル / 低い viewport) の判定は JS 側 (lib/layout.ts) が持つ。
+   * 同じ 900px を lib/layout.ts の WIDE_MIN_WIDTH も持つ (一覧と編集面を並べる境界)。片方を変えたら
+   * もう片方も変える (docs-check では検出できない) */
   --breakpoint-wide: 900px;
 
   /* 小さい UI テキスト。Tailwind 既定の段 (xs=12px / sm=14px / base=16px) だけでは足りず、

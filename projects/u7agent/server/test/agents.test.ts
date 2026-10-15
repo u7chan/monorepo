@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { appendSystemPrompt, composePromptSnapshot, investigationSystemPrompt, investigationTools } from "../src/agent";
 import { createAgentCatalog } from "../src/agents";
-import { SKILL_NAME_MAX, SKILL_NAMES_MAX } from "../src/schema";
+import { SKILL_NAME_MAX, SKILL_NAMES_MAX, TOOL_NAME_MAX, TOOL_NAMES_MAX } from "../src/schema";
 
 const DEFAULT_SUGGESTIONS = [
   { label: "プロジェクトを説明して", prompt: "このプロジェクトの構成を簡単に教えて" },
@@ -492,6 +492,74 @@ test("normalizes the builtin skill allowlist independently from the common one",
     (error: Error & { statusCode?: number }) => error.statusCode === 400,
   );
   assert.deepEqual(catalog.getAgent(normalized.id)?.builtinSkillNames, []);
+});
+
+test("normalizes the tool allowlist without collapsing undefined and []", () => {
+  const catalog = createAgentCatalog();
+
+  // 未指定 / null はキーごと省略 (= 全部 ON)、`[]` は「すべて OFF」なので残す
+  assert.equal(Object.hasOwn(catalog.createAgent({ name: "未指定" }), "toolNames"), false);
+  assert.equal(Object.hasOwn(catalog.createAgent({ name: "null 作成", toolNames: null }), "toolNames"), false);
+  assert.deepEqual(catalog.createAgent({ name: "全 OFF", toolNames: [] }).toolNames, []);
+
+  // trim / 空除去 / 重複排除。空になった配列も `[]` = すべて OFF として残す
+  const normalized = catalog.createAgent({ name: "正規化", toolNames: [" read ", "", "read", "serve"] });
+  assert.deepEqual(normalized.toolNames, ["read", "serve"]);
+  assert.deepEqual(catalog.createAgent({ name: "空だけ", toolNames: ["", " "] }).toolNames, []);
+
+  // 一覧に無い保存名もそのまま残す (改名・削除・同梱の入れ替えで保存値を書き換えない)
+  const unknown = catalog.createAgent({ name: "未知", toolNames: ["gone"] });
+  assert.deepEqual(unknown.toolNames, ["gone"]);
+
+  // キー省略の更新は保持、null は解除、`[]` はすべて OFF へ上書き
+  const kept = catalog.updateAgent(normalized.id, { description: "説明だけ更新" });
+  assert.deepEqual(kept?.toolNames, ["read", "serve"]);
+  const cleared = catalog.updateAgent(normalized.id, { toolNames: null });
+  assert.equal(Object.hasOwn(cleared ?? {}, "toolNames"), false);
+  assert.deepEqual(catalog.updateAgent(normalized.id, { toolNames: ["read"] })?.toolNames, ["read"]);
+  assert.deepEqual(catalog.updateAgent(normalized.id, { toolNames: [] })?.toolNames, []);
+  assert.deepEqual(catalog.getAgent(normalized.id)?.toolNames, []);
+
+  // 応答はコピーを返す (呼び出し側の書き換えが内部へ染みない)
+  const exported = catalog.getAgent(unknown.id)?.toolNames;
+  assert.ok(exported);
+  exported.push("追加");
+  assert.deepEqual(catalog.listAgents().find((agent) => agent.id === unknown.id)?.toolNames, ["gone"]);
+});
+
+test("rejects malformed tool lists with 400", () => {
+  const catalog = createAgentCatalog();
+  const atLimit = Array.from({ length: TOOL_NAMES_MAX }, (_, index) => `tool-${index}`);
+  assert.equal(
+    catalog.createAgent({ name: "配列の上限ちょうど", toolNames: atLimit }).toolNames?.length,
+    TOOL_NAMES_MAX,
+  );
+  const longName = "a".repeat(TOOL_NAME_MAX);
+  assert.deepEqual(catalog.createAgent({ name: "名前の上限ちょうど", toolNames: [longName] }).toolNames, [longName]);
+
+  const invalidInputs: unknown[] = [
+    { name: "x", toolNames: "read" },
+    { name: "x", toolNames: { name: "read" } },
+    { name: "x", toolNames: [42] },
+    { name: "x", toolNames: ["read", 42] },
+    { name: "x", toolNames: [...atLimit, "one-more"] },
+    { name: "x", toolNames: ["a".repeat(TOOL_NAME_MAX + 1)] },
+  ];
+  for (const input of invalidInputs) {
+    assert.throws(
+      () => catalog.createAgent(input),
+      (error: Error & { statusCode?: number }) => error.statusCode === 400,
+      `must reject ${JSON.stringify(input).slice(0, 80)}`,
+    );
+  }
+
+  // 不正な更新も 400 (既存値は保持)
+  const agent = catalog.createAgent({ name: "更新検証", toolNames: ["read"] });
+  assert.throws(
+    () => catalog.updateAgent(agent.id, { toolNames: [42] }),
+    (error: Error & { statusCode?: number }) => error.statusCode === 400,
+  );
+  assert.deepEqual(catalog.getAgent(agent.id)?.toolNames, ["read"]);
 });
 
 test("composePromptSnapshot はカタログスキルの本文を agent_skill タグで固定する", () => {

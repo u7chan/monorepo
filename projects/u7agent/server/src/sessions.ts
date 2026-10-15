@@ -246,6 +246,7 @@ export function resolveAgentSkills(
       // 未指定のときはキーを省略する (`[]` = すべて OFF は落とさない)
       ...(agent.commonSkillNames === undefined ? {} : { commonSkillNames: [...agent.commonSkillNames] }),
       ...(agent.builtinSkillNames === undefined ? {} : { builtinSkillNames: [...agent.builtinSkillNames] }),
+      ...(agent.toolNames === undefined ? {} : { toolNames: [...agent.toolNames] }),
       skills: skills.map((skill): AgentSkillInfo => ({
         id: skill.id,
         name: skill.name,
@@ -348,6 +349,9 @@ export class SessionStore {
           agent: input.agent,
           cwd: input.cwd,
           ...(input.model ? { model: input.model } : {}),
+          // 親の許可リストは子にも渡す (子経由で外したツールを実行させない)。子の集合はこの許可リストと
+          // 読み取り専用の集合との積で、createSession 側が決める
+          ...(input.toolNames === undefined ? {} : { toolNames: [...input.toolNames] }),
           ownerSessionId: input.ownerSessionId,
         });
         return created.session as PiSessionLike;
@@ -420,6 +424,8 @@ export class SessionStore {
       ...(agentInfo.commonSkillNames === undefined ? {} : { commonSkillNames: agentInfo.commonSkillNames }),
       // 組み込みスキルの許可リストも同じく注入経路・read の横取り・system prompt の案内へ渡す
       ...(agentInfo.builtinSkillNames === undefined ? {} : { builtinSkillNames: agentInfo.builtinSkillNames }),
+      // ツールの許可リストも作成時に確定して meta へ保存する (復元はこれをスナップショットとして使う)
+      ...(agentInfo.toolNames === undefined ? {} : { toolNames: agentInfo.toolNames }),
       model: model ?? agent.model,
       thinkingLevel: thinkingLevel ?? agent.thinkingLevel,
       cwd: workdir,
@@ -621,6 +627,8 @@ export class SessionStore {
       ...(meta.agent.commonSkillNames === undefined ? {} : { commonSkillNames: meta.agent.commonSkillNames }),
       // 組み込みスキルの許可リストも同じく meta のスナップショットから渡す
       ...(meta.agent.builtinSkillNames === undefined ? {} : { builtinSkillNames: meta.agent.builtinSkillNames }),
+      // ツールの許可リストも定義を引き直さず、セッションのスナップショットから渡す
+      ...(meta.agent.toolNames === undefined ? {} : { toolNames: meta.agent.toolNames }),
       model: restored.model,
       thinkingLevel: restored.thinkingLevel,
       cwd: workdir,
@@ -1189,6 +1197,8 @@ export class SessionStore {
         return this.investigator.investigate({
           sessionId: record.id,
           cwd: record.workdir,
+          // 親のツール許可リスト。子はこれを読み取り専用の集合との積で使う
+          ...(record.agent.toolNames === undefined ? {} : { toolNames: [...record.agent.toolNames] }),
           ...(record.session.model
             ? { model: { provider: record.session.model.provider, id: record.session.model.id } }
             : {}),

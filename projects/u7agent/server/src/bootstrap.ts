@@ -246,13 +246,16 @@ export async function createBffContext(opts: CreateBffAppOptions = {}): Promise<
   // エージェントの bash へ渡す変数は exec のたびに解決する (変更が「次の bash」から効く) ため、
   // 値ではなく解決関数を注入する。シークレットはここに含めない (serve の起動時だけ渡す)。
   pi?.setSessionEnv({ variablesFor: (cwd) => secrets.variablesFor(cwd) });
-  // 組み込みスキルはサンドボックスに依らず起動時に読み込み済みなので、カタログの応答へそのまま載せる
+  // 組み込みスキルはサンドボックスに依らず起動時に読み込み済みなので、カタログの応答へそのまま載せる。
+  // ツールの一覧はアプリ側の実効 (キー / 実行時トグル / serve host / 環境変数) を取得時に写すため、
+  // 値ではなく pi の解決関数を渡す (runtime が無いときは空 = クライアントが「取得できていない」と出す)
   const catalog = createAgentCatalog({
     builtinSkills: BUILTIN_SKILLS.map((skill) => ({
       name: skill.name,
       description: skill.description,
       version: skill.version,
     })),
+    tools: () => pi?.toolCatalog() ?? [],
     db: appDb,
   });
   const projects = new ProjectStore(appDb);

@@ -42,7 +42,7 @@ export function SettingsDetailSheet({ eyebrow, title, note, onClose, children }:
       tabIndex={-1}
       aria-modal="true"
       aria-label={title}
-      // Escape を止める理由は docs/ui-layout.md の「singleColumn の詳細シート」を参照
+      // Escape を止める理由は docs/ui-layout.md の「設定の一覧と編集の境界」を参照
       onKeyDown={(event) => {
         if (event.key === "Escape") event.stopPropagation();
       }}

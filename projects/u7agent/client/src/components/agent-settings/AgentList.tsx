@@ -6,24 +6,16 @@ import type { AgentDef } from "../../types";
 export function AgentList({
   agents,
   editingId,
-  singleColumn = false,
   onSelect,
   onStartNew,
 }: {
   agents: AgentDef[];
   editingId: string | null;
-  singleColumn?: boolean;
   onSelect: (agentId: string) => void;
   onStartNew: () => void;
 }) {
   return (
-    <DefinitionList
-      title="エージェント一覧"
-      count={agents.length}
-      addLabel="新しいエージェント"
-      onAdd={onStartNew}
-      singleColumn={singleColumn}
-    >
+    <DefinitionList title="エージェント一覧" count={agents.length} addLabel="新しいエージェント" onAdd={onStartNew}>
       {agents.map((agent) => (
         <MenuItem
           key={agent.id}

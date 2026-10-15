@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useFileSkills } from "../hooks/useFileSkills";
+import { useWideLayout } from "../hooks/useLayoutMode";
 import { selectableAgents } from "../lib/agentSelection";
 import { MEMORY_NOTE } from "../lib/settingsNotes";
 import { SettingsPageLayout, type SettingsPageProps } from "./SettingsPageLayout";
@@ -32,6 +33,10 @@ export function AgentSettingsPage({
   onOpenNav,
 }: AgentSettingsPageProps) {
   const agents = selectableAgents(catalog);
+  // 一覧と編集を並べるのは 900px 以上だけ。狭い desktop と singleColumn は「一覧ページ + 全画面シート」に統一する
+  // (一覧が何件でも編集面を削られない。docs/ui-layout.md の「設定の編集フォーム」)
+  const wide = useWideLayout();
+  const sheetMode = singleColumn || !wide;
   const [editingId, setEditingId] = useState<string | null>(() => agentId || catalog.agents[0]?.id || null);
   // 共通スキル (`.agents/skills`) の一覧。エージェントへ割り当てる値の編集にだけ使う (読み取り専用)
   const fileSkills = useFileSkills();
@@ -43,7 +48,7 @@ export function AgentSettingsPage({
     catalog.builtinAgent && catalog.builtinAgent.id === editingAgent?.id ? editingAgent : undefined;
   const setNoteText = (text: string, error = false) => setNote({ text, error });
 
-  // 下書きはページが持つ。理由は docs/ui-layout.md の「singleColumn の詳細シート」を参照。
+  // 下書きはページが持つ。理由は docs/ui-layout.md の「設定の一覧と編集の境界」を参照。
   // 参照が変わった編集対象・カタログを render 中に検出して初期化する (useEffect では古いフォームが 1 フレーム描画される)
   const [agentForm, setAgentForm] = useState<AgentForm>(() => agentFormOf(editingAgent));
   const [formSource, setFormSource] = useState(() => ({ editingId, catalog }));
@@ -54,8 +59,8 @@ export function AgentSettingsPage({
 
   const selectAgent = (nextId: string | null) => {
     setEditingId(nextId);
-    // desktop はページ内のフォームをそのまま使う (docs/ui-layout.md の「singleColumn の詳細シート」)
-    if (singleColumn) setSheetOpen(true);
+    // 並べて見られないときだけシートを開く (900px 以上はページ内のフォームをそのまま使う)
+    if (sheetMode) setSheetOpen(true);
   };
 
   const startNewAgent = () => {
@@ -63,21 +68,14 @@ export function AgentSettingsPage({
     selectAgent(null);
   };
 
-  const list = (
-    <AgentList
-      agents={agents}
-      editingId={editingId}
-      singleColumn={singleColumn}
-      onSelect={selectAgent}
-      onStartNew={startNewAgent}
-    />
-  );
+  const list = <AgentList agents={agents} editingId={editingId} onSelect={selectAgent} onStartNew={startNewAgent} />;
 
   const editor = builtinEditing ? (
     <BuiltinAgentPanel
       agent={builtinEditing}
-      variant={singleColumn ? "sheet" : "page"}
+      variant={sheetMode ? "sheet" : "page"}
       builtinSkills={catalog.builtinSkills}
+      tools={catalog.tools}
       fileSkills={fileSkills.state}
     />
   ) : (
@@ -88,7 +86,7 @@ export function AgentSettingsPage({
       agent={editingAgent}
       form={agentForm}
       setForm={setAgentForm}
-      variant={singleColumn ? "sheet" : "page"}
+      variant={sheetMode ? "sheet" : "page"}
       selectedAgentId={agentId}
       modelOptions={modelOptions}
       defaultModel={defaultModel}
@@ -110,15 +108,15 @@ export function AgentSettingsPage({
       onBack={onBack}
       note={note}
     >
-      {singleColumn ? (
+      {sheetMode ? (
         <div className="grid min-h-0 min-w-0 grid-rows-1">{list}</div>
       ) : (
-        <div className="grid min-h-0 min-w-0 grid-rows-[auto_minmax(0,1fr)] wide:grid-cols-[248px_minmax(0,1fr)] wide:grid-rows-1">
+        <div className="grid min-h-0 min-w-0 wide:grid-cols-[248px_minmax(0,1fr)]">
           {list}
           {editor}
         </div>
       )}
-      {singleColumn && sheetOpen ? (
+      {sheetMode && sheetOpen ? (
         <SettingsDetailSheet
           eyebrow="AGENT"
           title={builtinEditing ? "ビルトインエージェント" : editingAgent ? "エージェントを編集" : "新しいエージェント"}

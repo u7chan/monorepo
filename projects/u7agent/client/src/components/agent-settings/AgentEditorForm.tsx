@@ -19,6 +19,7 @@ import { CheckIcon, TrashIcon } from "../icons";
 import { AgentModelEffortFields } from "./AgentModelEffortFields";
 import { SkillSelector } from "./SkillSelector";
 import { SuggestionsEditor } from "./SuggestionsEditor";
+import { ToolSelector } from "./ToolSelector";
 
 export type AgentForm = {
   name: string;
@@ -36,6 +37,11 @@ export type AgentForm = {
    * null = 全部 ON へ戻す解除、配列 = 明示リストで [] はすべて OFF)。
    */
   builtinSkillNames?: string[] | null;
+  /**
+   * ツールの許可リスト。意味は `commonSkillNames` と同じ (undefined = 未指定で全部 ON、null = 解除、
+   * 配列 = 明示リストで [] はすべて OFF)。実効はアプリ側の可否との積 (docs/api-catalog.md)。
+   */
+  toolNames?: string[] | null;
   /** data URL。null は未設定で、保存時は「指定解除」として送る */
   icon: string | null;
   /** null は保存時に「指定解除」として送る */
@@ -54,6 +60,7 @@ export function agentFormOf(agent: AgentDef | undefined): AgentForm {
     // [] は「すべて OFF」なので、undefined (未指定 = 全可視) へ潰さない
     commonSkillNames: agent?.commonSkillNames === undefined ? undefined : [...agent.commonSkillNames],
     builtinSkillNames: agent?.builtinSkillNames === undefined ? undefined : [...agent.builtinSkillNames],
+    toolNames: agent?.toolNames === undefined ? undefined : [...agent.toolNames],
     icon: agent?.icon ?? null,
     model: agent?.model ? { ...agent.model } : null,
     thinkingLevel: agent?.thinkingLevel ?? null,
@@ -63,8 +70,8 @@ export function agentFormOf(agent: AgentDef | undefined): AgentForm {
 }
 
 /**
- * 保存ペイロード。`commonSkillNames` / `builtinSkillNames` の undefined は `JSON.stringify` でキーごと落ちて
- * 現状維持 (作成では未指定 = 全可視 / 全部 ON) になり、null は解除として送られる。この 2 つは混同しない。
+ * 保存ペイロード。`commonSkillNames` / `builtinSkillNames` / `toolNames` の undefined は `JSON.stringify` で
+ * キーごと落ちて現状維持 (作成では未指定 = 全部 ON) になり、null は解除として送られる。これらは混同しない。
  */
 export function agentPayloadOf(form: AgentForm): CreateAgentBody {
   return {
@@ -74,6 +81,7 @@ export function agentPayloadOf(form: AgentForm): CreateAgentBody {
     skillIds: form.skillIds,
     commonSkillNames: form.commonSkillNames,
     builtinSkillNames: form.builtinSkillNames,
+    toolNames: form.toolNames,
     // null はサーバー側で「指定解除」に正規化される。suggestions は空配列で解除
     icon: form.icon,
     model: form.model,
@@ -136,6 +144,21 @@ export function withAllBuiltinSkillsEnabled(form: AgentForm): AgentForm {
  */
 export function withAllBuiltinSkillsDisabled(form: AgentForm): AgentForm {
   return { ...form, builtinSkillNames: [] };
+}
+
+/** ツールのチェック切替。規則はスキルの許可リストと同じ (未指定からは見えている一覧を固定する)。 */
+export function withToolToggled(form: AgentForm, name: string, checked: boolean, visibleNames: string[]): AgentForm {
+  return { ...form, toolNames: withAllowlistToggled(form.toolNames, name, checked, visibleNames) };
+}
+
+/** 「すべて使用に戻す」。null を送って解除する */
+export function withAllToolsEnabled(form: AgentForm): AgentForm {
+  return { ...form, toolNames: null };
+}
+
+/** 「すべて外す」。`[]` の明示リストにして、あとから増えたツールも自動では入れない */
+export function withAllToolsDisabled(form: AgentForm): AgentForm {
+  return { ...form, toolNames: [] };
 }
 
 export function AgentEditorForm({
@@ -248,6 +271,13 @@ export function AgentEditorForm({
     setForm((prev) => withBuiltinSkillToggled(prev, name, checked, visibleBuiltinNames));
   };
 
+  // ツールもカタログ応答から来る。実効の可否 (available) は保存値に影響させない (行の注記で伝える)
+  const visibleToolNames = catalog.tools.map((tool) => tool.name);
+
+  const toggleTool = (name: string, checked: boolean) => {
+    setForm((prev) => withToolToggled(prev, name, checked, visibleToolNames));
+  };
+
   const addSuggestion = () => {
     setForm((prev) => ({ ...prev, suggestions: [...prev.suggestions, { label: "", prompt: "" }] }));
   };
@@ -282,7 +312,7 @@ export function AgentEditorForm({
                   </h3>
                 </div>
               ) : null}
-              <div className="grid gap-2.5 @3xl:grid-cols-[minmax(0,1fr)_minmax(300px,360px)] @3xl:gap-x-6">
+              <div className="grid gap-2.5 @3xl:grid-cols-[minmax(0,1fr)_minmax(400px,460px)] @3xl:gap-x-6">
                 {/* content-start: 列の高さは隣の列に合わせて伸びるが、中の行まで伸ばすと入力欄の高さが変わってしまう */}
                 <div className="grid min-w-0 content-start gap-3">
                   <label className="grid gap-1 text-1xs text-ink-soft">
@@ -356,20 +386,8 @@ export function AgentEditorForm({
                       }}
                     />
                   </div>
-                  <label className="grid gap-1 text-1xs text-ink-soft">
-                    役割 / 基本指示
-                    <textarea
-                      className="field min-h-36 text-xs leading-relaxed"
-                      rows={6}
-                      maxLength={8000}
-                      placeholder="空なら役割の指示なし (素の状態) で動きます"
-                      value={form.systemPrompt}
-                      onChange={(e) => {
-                        const systemPrompt = e.currentTarget.value;
-                        setForm((p) => ({ ...p, systemPrompt }));
-                      }}
-                    />
-                  </label>
+                </div>
+                <div className="min-w-0">
                   <AgentModelEffortFields
                     model={form.model}
                     thinkingLevel={form.thinkingLevel}
@@ -380,21 +398,45 @@ export function AgentEditorForm({
                     onChangeThinkingLevel={(thinkingLevel) => setForm((prev) => ({ ...prev, thinkingLevel }))}
                   />
                 </div>
-                <div className="grid min-w-0 content-start gap-2.5">
-                  <SkillSelector
-                    skills={catalog.skills}
-                    builtinSkills={catalog.builtinSkills}
-                    selectedIds={form.skillIds}
-                    onToggle={toggleSkill}
-                    fileSkills={fileSkills}
-                    commonSkillNames={form.commonSkillNames}
-                    onToggleCommonSkill={toggleCommonSkill}
-                    onShowAllCommonSkills={() => setForm(withAllCommonSkillsVisible)}
-                    builtinSkillNames={form.builtinSkillNames}
-                    onToggleBuiltinSkill={toggleBuiltinSkill}
-                    onShowAllBuiltinSkills={() => setForm(withAllBuiltinSkillsEnabled)}
-                    onDisableAllBuiltinSkills={() => setForm(withAllBuiltinSkillsDisabled)}
+                {/* 全幅にする。半幅では長い基本指示を書くのに狭い */}
+                <label className="grid gap-1 text-1xs text-ink-soft @3xl:col-span-2">
+                  役割 / 基本指示
+                  <textarea
+                    className="field min-h-36 text-xs leading-relaxed"
+                    rows={6}
+                    maxLength={8000}
+                    placeholder="空なら役割の指示なし (素の状態) で動きます"
+                    value={form.systemPrompt}
+                    onChange={(e) => {
+                      const systemPrompt = e.currentTarget.value;
+                      setForm((p) => ({ ...p, systemPrompt }));
+                    }}
                   />
+                </label>
+              </div>
+              <div className="grid gap-2.5 @3xl:grid-cols-2">
+                <ToolSelector
+                  tools={catalog.tools}
+                  toolNames={form.toolNames}
+                  onToggleTool={toggleTool}
+                  onShowAllTools={() => setForm(withAllToolsEnabled)}
+                  onDisableAllTools={() => setForm(withAllToolsDisabled)}
+                />
+                <SkillSelector
+                  skills={catalog.skills}
+                  builtinSkills={catalog.builtinSkills}
+                  selectedIds={form.skillIds}
+                  onToggle={toggleSkill}
+                  fileSkills={fileSkills}
+                  commonSkillNames={form.commonSkillNames}
+                  onToggleCommonSkill={toggleCommonSkill}
+                  onShowAllCommonSkills={() => setForm(withAllCommonSkillsVisible)}
+                  builtinSkillNames={form.builtinSkillNames}
+                  onToggleBuiltinSkill={toggleBuiltinSkill}
+                  onShowAllBuiltinSkills={() => setForm(withAllBuiltinSkillsEnabled)}
+                  onDisableAllBuiltinSkills={() => setForm(withAllBuiltinSkillsDisabled)}
+                />
+                <div className="min-w-0 @3xl:col-span-2">
                   <SuggestionsEditor
                     suggestions={form.suggestions}
                     onChange={changeSuggestion}
