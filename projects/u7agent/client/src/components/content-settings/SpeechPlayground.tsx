@@ -1,5 +1,6 @@
-import { useEffect, useRef, useState, type RefObject } from "react";
+import { useEffect, useId, useRef, useState, type RefObject } from "react";
 import {
+  SPEECH_PREVIEW_SPEED_STEP,
   speechModelOptions,
   speechPreviewDefaultText,
   speechPreviewFailureNote,
@@ -7,12 +8,14 @@ import {
   speechPreviewInitialDraft,
   speechPreviewPrimaryAction,
   speechPreviewRequest,
+  speechPreviewSpeedStep,
   speechVoiceDraft,
   speechVoiceMode,
   type SpeechPreviewAudio,
   type SpeechPreviewDraft,
 } from "../../lib/contentSettings";
 import type { ContentSettingsResponse, SpeechPreviewBody } from "../../types";
+import { MinusIcon, PlusIcon } from "../icons";
 import { SelectField } from "../SelectField";
 import { SpeechVoiceOptions } from "./SpeechVoiceOptions";
 
@@ -167,6 +170,8 @@ export function SpeechPlaygroundView({
   const options = speechModelOptions(settings);
   const selectedOption = options.find((option) => option.value === values.model);
   const textMode = speechVoiceMode(selectedOption) === "text";
+  // 単位と基準値を目で読めない利用者にも、入力へ移動した時点で伝わるようにする
+  const speedNoteId = useId();
   // 生成器はランタイムが持つため、runtime 不可では押しても必ず 503 になる（未同期とは別のゲート）
   const runtimeAvailable = settings.runtimeAvailable;
 
@@ -242,17 +247,57 @@ export function SpeechPlaygroundView({
           disabled={busy}
           onChange={(event) => onChange({ instructions: event.currentTarget.value })}
         />
-        <input
-          className="field w-28 text-xs"
-          value={values.speed}
-          aria-label="お試し再生の速度"
-          placeholder="速度（任意）"
-          inputMode="decimal"
-          autoComplete="off"
-          spellCheck={false}
-          disabled={busy}
-          onChange={(event) => onChange({ speed: event.currentTarget.value })}
-        />
+        {/* 空欄は「送らない」（provider の既定）。増減は押下だけで完結させ、欄は今までどおり手入力も受ける */}
+        <div className="flex items-center gap-1">
+          <span className="text-2xs text-ink-faint">速度</span>
+          <button
+            type="button"
+            className="icon-button"
+            aria-label={`速度を ${SPEECH_PREVIEW_SPEED_STEP} 下げる`}
+            disabled={busy}
+            onClick={() => onChange({ speed: speechPreviewSpeedStep(values.speed, -SPEECH_PREVIEW_SPEED_STEP) })}
+          >
+            <MinusIcon />
+          </button>
+          <input
+            className="field w-16 text-center text-xs"
+            value={values.speed}
+            aria-label="お試し再生の速度"
+            aria-describedby={speedNoteId}
+            placeholder="既定"
+            inputMode="decimal"
+            autoComplete="off"
+            spellCheck={false}
+            disabled={busy}
+            onChange={(event) => onChange({ speed: event.currentTarget.value })}
+          />
+          <button
+            type="button"
+            className="icon-button"
+            aria-label={`速度を ${SPEECH_PREVIEW_SPEED_STEP} 上げる`}
+            disabled={busy}
+            onClick={() => onChange({ speed: speechPreviewSpeedStep(values.speed, SPEECH_PREVIEW_SPEED_STEP) })}
+          >
+            <PlusIcon />
+          </button>
+        </div>
+      </div>
+      {/* 単位と基準値は欄の外に常時出す（placeholder は入力と同時に消えて手掛かりが無くなる） */}
+      <div className="flex flex-wrap items-baseline gap-2 text-2xs leading-relaxed text-ink-faint">
+        <p id={speedNoteId}>
+          速度は <span className="text-ink-soft">1.0 が標準</span>（倍率）。0.8 で遅く、1.2
+          で速く。空欄はモデル既定。対応範囲はモデルにより異なります。
+        </p>
+        {values.speed.trim() === "" ? null : (
+          <button
+            type="button"
+            className="text-accent-text underline underline-offset-2 disabled:opacity-45"
+            disabled={busy}
+            onClick={() => onChange({ speed: "" })}
+          >
+            既定に戻す
+          </button>
+        )}
       </div>
       <div className="flex flex-wrap items-center gap-2">
         <button

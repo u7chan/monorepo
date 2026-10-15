@@ -28,6 +28,7 @@ import {
   speechPreviewPrimaryAction,
   speechPreviewRequest,
   speechPreviewSpeed,
+  speechPreviewSpeedStep,
   SPEECH_PREVIEW_EMPTY_TEXT_ERROR,
   SPEECH_PREVIEW_NO_MODEL_ERROR,
   SPEECH_PREVIEW_SPEED_ERROR,
@@ -456,6 +457,55 @@ test("お試し再生の検証はモデル・本文・速度を見て、送れ�
   assert.deepEqual(speechPreviewSpeed("0.1"), { ok: true, speed: 0.1 });
   assert.deepEqual(speechPreviewSpeed(" 2 "), { ok: true, speed: 2 });
   assert.deepEqual(speechPreviewSpeed(""), { ok: true });
+});
+
+test("速度の増減は 1.0 を起点に 0.1 刻みで動かし、空欄と不正値では起点を 1.0 へ寄せる", () => {
+  // 空欄は「未指定」なので、押した瞬間だけ 1.0 を起点にする（値は押下で初めて入る）
+  assert.equal(speechPreviewSpeedStep("", 0.1), "1.1");
+  assert.equal(speechPreviewSpeedStep("", -0.1), "0.9");
+  assert.equal(speechPreviewSpeedStep("1", 0.1), "1.1");
+  assert.equal(speechPreviewSpeedStep("0.8", -0.1), "0.7");
+  // 押しても何も起きないボタンを作らない（不正値と 0 以下は 1.0 を起点にする）
+  assert.equal(speechPreviewSpeedStep("fast", 0.1), "1.1");
+  assert.equal(speechPreviewSpeedStep("0", 0.1), "1.1");
+  assert.equal(speechPreviewSpeedStep("-1", -0.1), "0.9");
+  // 0 以下は送れないため、押下だけで不正値を作らない（上限は provider の 400 に委ねる）
+  assert.equal(speechPreviewSpeedStep("0.1", -0.1), "0.1");
+  assert.equal(speechPreviewSpeedStep("2", 0.1), "2.1");
+});
+
+test("速度の増減は十進の桁で小数 2 桁へ丸め、押下だけで不正値を作らない", () => {
+  // 0.1 ずつ足した値が 0.7000000000000001 のように欄へ出ない
+  assert.equal(speechPreviewSpeedStep("0.6", 0.1), "0.7");
+  assert.equal(speechPreviewSpeedStep("1.05", 0.1), "1.15");
+  // 小数第 3 位以下も十進の桁で丸める（二進の誤差があると 1.015 - 0.1 が 0.92 にならない）
+  assert.equal(speechPreviewSpeedStep("1.015", -0.1), "0.92");
+  assert.equal(speechPreviewSpeedStep("1.005", 0.1), "1.11");
+  assert.equal(speechPreviewSpeedStep("1.014", -0.1), "0.91");
+  // 同じ数値なら、符号・小数点の前の 0 省略・指数表記で結果を変えない
+  for (const raw of ["0.565", ".565", "+0.565", "5.65e-1", "0.5650"]) {
+    assert.equal(speechPreviewSpeedStep(raw, 0.1), "0.67", `${raw} の増加`);
+    assert.equal(speechPreviewSpeedStep(raw, -0.1), "0.47", `${raw} の減少`);
+  }
+  assert.equal(speechPreviewSpeedStep("1.005e0", 0.1), "1.11");
+  // 有限でも押下で 1/100 単位を溢れる値から Infinity を作らない
+  for (const raw of ["1e307", "1".repeat(400)]) {
+    for (const delta of [0.1, -0.1]) {
+      const stepped = speechPreviewSpeedStep(raw, delta);
+      assert.ok(speechPreviewSpeed(stepped).ok, `${raw} の押下結果 ${stepped} は送信前の検証を通る`);
+    }
+  }
+});
+
+test("速度の増減は丸めで 0 単位になる正の値を未指定と混同しない", () => {
+  // 0.004 は送信前の検証を通る正の値なので、起点 1.0 へは飛ばさず下限で止める
+  for (const raw of ["0.004", ".004", "4e-3", "0.0001", "1e-7"]) {
+    assert.equal(speechPreviewSpeedStep(raw, 0.1), "0.1", `${raw} の増加`);
+    assert.equal(speechPreviewSpeedStep(raw, -0.1), "0.1", `${raw} の減少`);
+  }
+  // 0 は送信前の検証が弾く値なので、空欄と同じ起点にする
+  assert.equal(speechPreviewSpeedStep("0", 0.1), "1.1");
+  assert.equal(speechPreviewSpeedStep("0.000", -0.1), "0.9");
 });
 
 test("お試し再生は Content-Type から形式を読み、判別できない応答では形式の表示を省く", () => {

@@ -116,6 +116,26 @@ test("お試し再生は本文・モデル・ボイス・演技指示・速度�
   );
 });
 
+test("速度は基準値を常時見せて増減でき、未指定（モデル既定）へ戻せる", () => {
+  const empty = render();
+  assert.match(empty, /<button[^>]*aria-label="速度を 0.1 下げる"/, "減少の操作を出す");
+  assert.match(empty, /<button[^>]*aria-label="速度を 0.1 上げる"/, "増加の操作を出す");
+  assert.match(empty, /<input[^>]*aria-label="お試し再生の速度"[^>]*placeholder="既定"/, "空欄の意味を欄に出す");
+  // placeholder は入力と同時に消えるため、単位と基準値は欄の外にも出す
+  assert.ok(empty.includes("1.0 が標準"), "1.0 が標準だと入力前に伝える");
+  assert.ok(empty.includes("空欄はモデル既定"), "空欄の扱いを伝える");
+  assert.ok(empty.includes("対応範囲はモデルにより異なります"), "範囲をアプリが保証しないことを伝える");
+  // 目で読めない利用者にも、入力へ移動した時点で注記が伝わるようにする
+  const noteId = /<input[^>]*aria-describedby="([^"]+)"/.exec(empty)?.[1];
+  assert.ok(noteId, "速度の注記を入力の説明として関連付ける");
+  assert.ok(empty.includes(`id="${noteId}">速度は`), "関連付けた先が注記になっている");
+  assert.equal(empty.includes("既定に戻す"), false, "未指定では戻す操作を出さない");
+
+  const filled = render({ values: { speed: "1.5" } });
+  assert.match(filled, /<input[^>]*aria-label="お試し再生の速度"[^>]*value="1.5"/, "入力した値を保つ");
+  assert.ok(filled.includes("既定に戻す"), "値があるときだけ未指定へ戻せる");
+});
+
 test("宣言が無いモデルではボイスを自由記述にし、カタログ外の現在値も残す", () => {
   const free = render({ values: { model: "fish/audio", voice: "my-voice" } });
   assert.match(free, /<input[^>]*aria-label="お試し再生のボイス"[^>]*value="my-voice"/, "自由記述へ切り替える");
@@ -136,6 +156,8 @@ test("生成中は入力と操作を無効にし、進行中の表示を出す",
     "お試し再生のボイス",
     "お試し再生の演技指示",
     "お試し再生の速度",
+    "速度を 0.1 下げる",
+    "速度を 0.1 上げる",
   ]) {
     assert.match(html, new RegExp(`aria-label="${label}"[^>]*disabled=""`), `${label} を触らせない`);
   }
