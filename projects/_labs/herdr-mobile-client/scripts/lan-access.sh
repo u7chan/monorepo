@@ -6,6 +6,8 @@
 # 入れ子の引用符を避けるため、PowerShell 側のスクリプトはすべて -EncodedCommand（UTF-16LE + base64）で渡す。
 set -euo pipefail
 
+readonly SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+readonly PROJECT_DIR="$SCRIPT_DIR/.."
 readonly TARGET_PORT=18081
 readonly LISTEN_ADDRESS="0.0.0.0"
 readonly RULE_NAME="18081(herdr-mobile-client)"
@@ -255,13 +257,20 @@ try {
     Get-NetFirewallRule -DisplayName $ruleName -ErrorAction SilentlyContinue | Remove-NetFirewallRule
     New-NetFirewallRule -DisplayName $ruleName -Direction Inbound -Action Allow -Protocol TCP -LocalPort $targetPort -Profile Any -RemoteAddress $lanSegment | Out-Null
 
-    $remoteAddress = (Get-NetFirewallRule -DisplayName $ruleName -ErrorAction SilentlyContinue | Get-NetFirewallAddressFilter).RemoteAddress -join ","
+    $rule = Get-NetFirewallRule -DisplayName $ruleName -ErrorAction SilentlyContinue
 
-    if ($remoteAddress -ne $lanSegment) {
-      throw ("firewall remoteaddress verification failed: " + $remoteAddress)
+    if ($null -eq $rule) {
+      throw ("firewall rule " + $ruleName + " was not created")
     }
 
-    Add-Line ("firewall rule: " + $ruleName + " / remoteaddress " + $lanSegment)
+    $remoteAddress = ($rule | Get-NetFirewallAddressFilter).RemoteAddress -join ","
+
+    if ([string]::IsNullOrEmpty($remoteAddress)) {
+      throw ("firewall rule " + $ruleName + " has no remote address")
+    }
+
+    Add-Line ("firewall rule: " + $ruleName + " / enabled " + $rule.Enabled + " / profile " + $rule.Profile + " / localport " + (($rule | Get-NetFirewallPortFilter).LocalPort -join ","))
+    Add-Line ("remoteaddress: " + $remoteAddress)
   } else {
     Get-NetFirewallRule -DisplayName $ruleName -ErrorAction SilentlyContinue | Remove-NetFirewallRule
 
@@ -272,10 +281,6 @@ try {
 
   Add-Line "== after =="
   Add-Line ((netsh interface portproxy show v4tov4 | Out-String).TrimEnd())
-
-  if ($action -eq "add") {
-    Add-Line ((Get-NetFirewallRule -DisplayName $ruleName | Get-NetFirewallAddressFilter | Out-String).TrimEnd())
-  }
 
   Add-Line "RESULT: ok"
   Save-Log
@@ -326,6 +331,43 @@ OUTER
 )"
 
   substitute "$script" "@@INNER@@" "$inner"
+}
+
+run_cidr_check() {
+  local expected="$1"
+  local actual="$2"
+
+  (cd "$PROJECT_DIR" && node --import tsx scripts/cidr-cli.ts "$expected" "$actual")
+}
+
+require_verification_tools() {
+  command -v node >/dev/null 2>&1 ||
+    die "node が見つかりません。--add は読み戻した RemoteAddress の検証に node を使います。"
+
+  [[ -f "$PROJECT_DIR/node_modules/tsx/package.json" ]] ||
+    die "node_modules/tsx が見つかりません。--add の前に pnpm install を実行してください。"
+}
+
+# 規則の RemoteAddress は、設定した表記では返らない（192.0.2.0/24 は 192.0.2.0/255.255.255.0 で返る）。
+# 表記の差を吸収する正規化は scripts/cidr.ts にだけ置く。PowerShell 側にも同じ計算を置くと二重実装になり、
+# node --test（test/cidr.test.ts）で確認できなくなる。
+verify_remote_address() {
+  local log_path="$1"
+  local expected="$2"
+  local actual result
+
+  actual="$(awk '/^remoteaddress: / { sub(/^remoteaddress: /, ""); print; exit }' "$log_path")"
+
+  if [[ -z "$actual" ]]; then
+    die "ファイアウォール規則の RemoteAddress を読み取れませんでした（$log_path）。"
+  fi
+
+  if ! result="$(run_cidr_check "$expected" "$actual")"; then
+    printf '%s\n' "$result" >&2
+    die "ファイアウォール規則の RemoteAddress が LAN セグメントと一致しません（期待 $expected / 読み戻し $actual）。"
+  fi
+
+  printf '%s\n' "$result"
 }
 
 main() {
@@ -405,6 +447,10 @@ main() {
   log_path="$windows_temp\\herdr-mobile-client-lan-$mode.log"
   log_path_wsl="$(windows_to_wsl_path "$log_path")"
 
+  if [[ "$mode" == "add" ]]; then
+    require_verification_tools
+  fi
+
   printf 'UAC のダイアログが表示されるので承認してください。承認されない場合は失敗として表示します。\n'
 
   if output="$(run_powershell "$(elevation_script "$(inner_script "$mode" "$wsl_ip" "$windows_ip" "$lan_segment" "$log_path")")")"; then
@@ -433,6 +479,10 @@ main() {
     fi
 
     die "処理の完了を確認できませんでした（出力を読み取れません: $log_path）。"
+  fi
+
+  if [[ "$mode" == "add" ]]; then
+    verify_remote_address "$log_path_wsl" "$lan_segment"
   fi
 
   rm -f "$log_path_wsl"

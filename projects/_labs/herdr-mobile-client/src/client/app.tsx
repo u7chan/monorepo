@@ -37,7 +37,13 @@ export function App({ initialToken, initialHealth }: AppProps) {
       return
     }
 
-    setHealth(await loadHealth(token))
+    const next = await loadHealth(token)
+    setHealth(next)
+
+    if (next.status === "unauthorized") {
+      clearToken()
+      setToken(null)
+    }
   }
 
   function resetToken(): void {

@@ -50,7 +50,8 @@ cd projects/_labs/herdr-mobile-client
 
 - 変更は `Start-Process -Verb RunAs` による自己昇格で行う（手動なのは UAC の承認だけ）。昇格したプロセスから `\\wsl.localhost\` の UNC パスは読めないため、リポジトリ内の `.ps1` を読ませるのではなくコマンド文字列を組み立てて渡している。
 - 昇格したウィンドウは出力を残さないため、結果は一時ファイル経由で受け取って表示する。UAC が拒否された場合や非対話環境では、失敗を握りつぶさずエラーとして表示する。
-- 追加・削除のあとは `netsh interface portproxy show v4tov4` と `Get-NetFirewallAddressFilter` を読み直して検証し、期待どおりでなければ失敗として表示する。
+- 追加・削除のあとは `netsh interface portproxy show v4tov4` と `Get-NetFirewallAddressFilter` を読み直し、期待どおりでなければ失敗として表示する。`RemoteAddress` は設定した表記では返らない（`192.0.2.0/24` は `192.0.2.0/255.255.255.0` で返る）ため、ネットワークアドレスとプレフィックス長へ正規化してから比較する。正規化は `scripts/cidr.ts` に置き、`test/cidr.test.ts`（`node --test`）で確認する。
+- この比較は node で行うため、`--add` は `pnpm install` 済みの環境（`node_modules/tsx` があること）で実行する。
 
 ## 初回の手順
 
