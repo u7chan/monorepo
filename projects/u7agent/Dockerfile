@@ -193,6 +193,8 @@ COPY --from=production-dependencies /app/ ./
 COPY --from=builder /app/server/src/ ./server/src/
 COPY --from=builder /app/client/dist/ ./client/dist/
 # u7agent-browser の入口。tsx と CLI ソースを絶対パスで呼び、呼び出し元の cwd を保つ。
+# ブラウザ本体は browser ステージの /ms-playwright から来る。エージェントへ配る一覧 (server/src/agent.ts の
+# appendSystemPrompt) が chromium とこの入口を名指しするので、落ちたら command -v 検査でビルドを失敗させる。
 COPY scripts/install-browser-cli.mjs /tmp/install-browser-cli.mjs
 COPY scripts/shell-quote.mjs /tmp/shell-quote.mjs
 RUN node /tmp/install-browser-cli.mjs /app /usr/local/bin \

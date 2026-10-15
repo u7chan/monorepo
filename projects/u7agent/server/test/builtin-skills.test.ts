@@ -23,6 +23,7 @@ const ROOT = "/workspace";
 const BUNDLED_DIR = fileURLToPath(new URL("../src/builtin-skills/", import.meta.url));
 const SKILL_CREATOR = builtinSkillByName("skill-creator");
 const SERVE = builtinSkillByName("serve");
+const BROWSER = builtinSkillByName("browser");
 
 test("同梱 SKILL.md は SDK の frontmatter 検証を通り、registry と名前が一致する", () => {
   const loaded = loadSkillsFromDir({ dir: BUNDLED_DIR, source: "u7agent" });
@@ -69,6 +70,49 @@ test("同梱の serve スキルは到達条件と検証ループを本文に持�
   // モデルが自分で起動するスキルなので、自動起動を止めない
   assert.equal(SERVE.disableModelInvocation, false);
   assert.match(SERVE.description, /8080|サービス/);
+});
+
+test("同梱の browser スキルは確認の流れと、外部到達・保存・見えないときの契約を本文に持つ", () => {
+  assert.ok(BROWSER, "browser が同梱されている");
+  // エージェントが自分で使うスキルなので、索引から見える (自動起動を止めない)
+  assert.equal(BROWSER.disableModelInvocation, false);
+  assert.match(BROWSER.description, /ブラウザ/);
+
+  for (const text of [
+    // serve したアプリを 8080 から見る流れ
+    "u7agent-browser check http://127.0.0.1:8080/",
+    "u7agent-browser shot http://127.0.0.1:8080/ shot.png",
+    // 外部到達の制限と、3 表記だけを許可すること
+    "localhost",
+    "[::1]",
+    "--no-sandbox",
+    "ループバック以外へは通信しません",
+    "外部へ redirect されました",
+    // 起動に失敗したときのログと、ログと原因が一対一でないこと
+    "No usable sandbox",
+    "Failed to create headless user data directory container.",
+    "chrome_crashpad_handler: --database is required",
+    "ログと原因は一対一ではない",
+    // run が任意コードで、ポリシーは標準経路にだけ効くこと
+    "run <file.mjs>",
+    // 画像を見られないモデルでは注記だけが返ること
+    "does not support images",
+    // 保証しないこと (GPU を使わない描画)
+    "WebGL",
+  ]) {
+    assert.ok(BROWSER.body.includes(text), text);
+  }
+
+  // 外部到達の拒否は shot / dom が 2、check が 1。一律に入力エラーと読ませない
+  assert.match(BROWSER.body, /`shot` \/ `dom` は[^。]*`2`、`check` は[^。]*`1`/);
+  // 返された保存パスを read してから Markdown へ貼らせる (要求したパスは使わせない)
+  assert.match(BROWSER.body, /返されたパスを `read` して目視する/);
+  assert.match(BROWSER.body, /返されたパスだけを使う/);
+  assert.match(BROWSER.body, /!\[/);
+  // 私用の確認サーバーに公開枠 (8080) を奪わせない
+  assert.match(BROWSER.body, /8080 を自分用の確認サーバーで使う/);
+  // 同梱物を入れ直させない
+  assert.match(BROWSER.body, /自分でブラウザやドライバを導入する/);
 });
 
 test("同梱物の読み込みは空 dir・壊れた frontmatter・版の不足で落ちる", () => {

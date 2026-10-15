@@ -72,9 +72,8 @@ function stubWorkspace(input: { skills?: Record<string, SandboxSkillEntry[]>; bo
   };
 }
 
+/** 共通スキルとしても置いて組み込み側を上書きさせる組み込み。優先順位の検査に使う */
 const BUILTIN = builtinSkillByName("serve") as (typeof BUILTIN_SKILLS)[number];
-/** serve 以外の組み込み。組み込みが 2 件になった前提の期待値を組む */
-const OTHER_BUILTINS = BUILTIN_SKILLS.filter((skill) => skill.name !== BUILTIN.name);
 
 test("parseSkillCommand は SDK と同じ規則で接頭辞と最初の空白だけを見る", () => {
   assert.deepEqual(parseSkillCommand("/skill:foo"), { name: "foo", args: "" });
@@ -140,10 +139,12 @@ test("resolveSessionSkills は project > user > builtin > catalog の順で一�
       // ファイル同士の重複は採用側だけが行になる (隠した側は shadows)
       ["shared", "project", false, null, false],
       [BUILTIN.name, "user", false, null, true],
-      // 組み込みは上書きされても行として残り、優先される側を指す
-      [BUILTIN.name, "builtin", true, overridingPath, false],
-      // 上書きされていない組み込みはそのまま並ぶ
-      ...OTHER_BUILTINS.map((skill) => [skill.name, "builtin", false, null, skill.disableModelInvocation]),
+      // 組み込みは上書きされても行として残り、優先される側を指す。並びは registry の順のまま
+      ...BUILTIN_SKILLS.map((skill) =>
+        skill.name === BUILTIN.name
+          ? [skill.name, "builtin", true, overridingPath, false]
+          : [skill.name, "builtin", false, null, skill.disableModelInvocation],
+      ),
       // カタログは最低優先なので、ファイルスキルと同名なら選ばれない
       ["shared", "catalog", true, projectPath, false],
       ["legacy", "catalog", false, null, false],
