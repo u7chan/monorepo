@@ -11,6 +11,7 @@ import {
   CHECK_SETTLE_MS,
   MAX_CHECK_ITEMS,
   MAX_CHECK_OUTPUT_BYTES,
+  MAX_CHECK_SUMMARY_URL_BYTES,
   MAX_CHECK_TEXT_CHARS,
   READY_TIMEOUT_MS,
 } from "./limits";
@@ -155,8 +156,8 @@ function describeRequestFailure(request: Request): string {
   return `${request.method()} ${request.url()} 失敗 (${request.failure()?.errorText ?? "原因不明"})`;
 }
 
-/** 要約の URL を切ったときの目印と末尾の改行。URL の許容量をこの分だけ狭くする */
-const SUMMARY_TRAILING_BYTES = 4;
+/** 要約で URL を切ったことを示す印 */
+const SUMMARY_URL_MARKER = "...";
 
 export function formatCheckReport(report: CheckReport): string {
   const lines = report.items.map((item) => {
@@ -167,11 +168,11 @@ export function formatCheckReport(report: CheckReport): string {
   if (report.truncated) lines.push("... 詳細の上限に達したため以降の詳細は省略しました (件数には含みます)");
   const verdict = report.failures > 0 ? "検証失敗" : "検証成功";
   const prefix = `check: ${verdict} (失敗 ${report.failures} 件 / 警告 ${report.warnings} 件, ${report.durationMs} ms) `;
-  // URL は利用者が指定する値で長さの上限が無い。要約ごと出力の上限へ収める (末尾の ... で切ったことを示す)
-  const allowance = Math.max(0, MAX_CHECK_OUTPUT_BYTES - Buffer.byteLength(prefix, "utf8") - SUMMARY_TRAILING_BYTES);
-  const { text, truncated } = truncateToBytes(report.url, allowance);
-  const summary = `${prefix}${truncated ? `${text}...` : text}`;
-  return `${capLines(lines, summary, MAX_CHECK_OUTPUT_BYTES)}\n`;
+  // URL は利用者が指定する値で長さの上限が無い。詳細と省略通知の余地を残すため、上限の一部だけを使う
+  const { text, truncated } = truncateToBytes(report.url, MAX_CHECK_SUMMARY_URL_BYTES - SUMMARY_URL_MARKER.length);
+  const summary = `${prefix}${truncated ? `${text}${SUMMARY_URL_MARKER}` : text}`;
+  // 改行を含む実際の出力全体を capLines が上限へ収める (呼び出し元で改行を足さない)
+  return capLines(lines, summary, MAX_CHECK_OUTPUT_BYTES);
 }
 
 export function checkExitCode(report: CheckReport): number {

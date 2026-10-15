@@ -41,6 +41,12 @@ export const MAX_CHECK_TEXT_CHARS = 300;
 /** check の出力全体の上限。項目の上限と二重に守る (会話のコンテキストを食わない) */
 export const MAX_CHECK_OUTPUT_BYTES = 64 * 1024;
 
+/**
+ * check の要約に埋め込む URL の上限。本文の詳細と省略通知の予算を残すため、出力上限の 1/4 までにする
+ * (URL は対象を指すための情報で、長い query をそのまま読ませる意味は無い)。
+ */
+export const MAX_CHECK_SUMMARY_URL_BYTES = MAX_CHECK_OUTPUT_BYTES / 4;
+
 /** dom の出力上限。巨大な HTML をそのまま返さない */
 export const MAX_DOM_BYTES = 256 * 1024;
 

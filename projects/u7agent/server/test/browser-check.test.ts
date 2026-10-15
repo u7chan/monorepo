@@ -12,6 +12,7 @@ import {
   isIconUrl,
   isWarningHttpResponse,
   runCheck,
+  type CheckItem,
   type CheckReport,
 } from "../src/browser/check";
 import { EXIT_OK, EXIT_VALIDATION_FAILED } from "../src/browser/exit-codes";
@@ -159,6 +160,34 @@ test("長い URL でも出力は上限に収まり、要約の URL は切り詰�
   assert.match(text, /^check: 検証成功 \(失敗 0 件 \/ 警告 0 件, 5 ms\) http:\/\/localhost\/\?q=x+/);
   assert.match(text, /\.\.\.\n$/, "切ったことを末尾の ... で示す");
   assert.ok(!text.includes("x".repeat(70_000)), "URL をそのまま埋め込まない");
+});
+
+test("長い URL と詳細がある出力も上限に収まる", () => {
+  const url = `http://localhost/?q=${"x".repeat(70_000)}`;
+
+  // 詳細が 1 件でも要約と合わせて上限を超えない (要約の URL の予算を先に確保する)
+  const recorder = createCheckRecorder();
+  recorder.record("console", "boom");
+  const one = formatCheckReport(recorder.report({ url, durationMs: 5 }));
+  const oneBytes = Buffer.byteLength(one, "utf8");
+  assert.ok(oneBytes <= MAX_CHECK_OUTPUT_BYTES, `出力が上限を超えています: ${oneBytes} bytes`);
+  assert.match(one, /\[失敗\] console: boom/, "詳細を落とさない");
+  assert.match(one, /check: 検証失敗 \(失敗 1 件 \/ 警告 0 件, 5 ms\) /);
+  assert.equal(one.endsWith("...\n"), true, "要約の URL は切った印で終わる");
+  assert.equal(one.endsWith("\n\n"), false, "改行は 1 つだけ (capLines が末尾改行を含む)");
+
+  // 詳細が多くて本文の予算を使う場合も、実バイト数が上限以下で、省略したことを通知する
+  const items: CheckItem[] = Array.from({ length: 200 }, (_, index) => ({
+    category: "console",
+    text: `error-${index} ${"y".repeat(300)}`,
+    count: 1,
+    warning: false,
+  }));
+  const many = formatCheckReport({ url, items, truncated: false, failures: items.length, warnings: 0, durationMs: 7 });
+  const manyBytes = Buffer.byteLength(many, "utf8");
+  assert.ok(manyBytes <= MAX_CHECK_OUTPUT_BYTES, `出力が上限を超えています: ${manyBytes} bytes`);
+  assert.match(many, /出力の上限に達したため残りを省略しました/);
+  assert.match(many, /check: 検証失敗 \(失敗 200 件 \/ 警告 0 件, 7 ms\) /);
 });
 
 test("検証失敗だけが終了コード 1 になり、警告は 0 のままにする", () => {

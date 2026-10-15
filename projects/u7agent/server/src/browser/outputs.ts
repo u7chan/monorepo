@@ -76,17 +76,37 @@ export function truncateToBytes(text: string, maxBytes: number): { text: string;
   return { text: buffer.subarray(0, end).toString("utf8"), truncated: true };
 }
 
-/** 本文の行を上限まで残し、最後に `tail` (要約行) を必ず残す */
+/** 本文を省略したことを示す行。積むと上限を超えるときは積まない (結論の要約を優先する) */
+const LINE_TRUNCATION_NOTICE = "... 出力の上限に達したため残りを省略しました";
+
+/** 1 行だけを上限へ収めるときの印。切ったことを示す */
+const LINE_TRUNCATION_MARKER = "...";
+
+/**
+ * 本文の行と `tail` (要約行) を上限バイト数へ収め、**末尾の改行を含む実際の出力**を返す。
+ * 戻り値のバイト数は maxBytes 以下になるので、呼び出し元は改行を足さない。
+ * `tail` は結論なので必ず残し (単体で超えるときは先頭を残して切る)、本文と省略の通知は入るときだけ積む。
+ */
 export function capLines(lines: readonly string[], tail: string, maxBytes: number): string {
-  const notice = "... 出力の上限に達したため残りを省略しました";
+  const render = (entries: readonly string[]): string => [...entries, tail, ""].join("\n");
+  const size = (entries: readonly string[]): number => Buffer.byteLength(render(entries), "utf8");
+  if (size([]) > maxBytes) return fitSingleLine(tail, maxBytes);
   const kept: string[] = [];
-  const size = (entries: readonly string[]) => Buffer.byteLength([...entries, tail, ""].join("\n"), "utf8");
   for (const line of lines) {
-    if (size([...kept, line, notice]) > maxBytes) {
-      kept.push(notice);
-      break;
-    }
+    if (size([...kept, line]) > maxBytes) break;
     kept.push(line);
   }
-  return [...kept, tail].join("\n");
+  if (kept.length < lines.length && size([...kept, LINE_TRUNCATION_NOTICE]) <= maxBytes) {
+    kept.push(LINE_TRUNCATION_NOTICE);
+  }
+  return render(kept);
+}
+
+/** 上限へ収める 1 行。末尾の改行と切った印を含めて maxBytes 以下にする (改行すら入らなければ空にする) */
+function fitSingleLine(line: string, maxBytes: number): string {
+  const markerBytes = Buffer.byteLength(LINE_TRUNCATION_MARKER, "utf8");
+  // 改行 1 byte と印の分を先に確保してから本文を切る (切れ目が UTF-8 の途中でも壊れない)
+  const { text } = truncateToBytes(line, Math.max(0, maxBytes - 1 - markerBytes));
+  if (text.length === 0) return maxBytes > 1 ? "\n" : "";
+  return `${text}${LINE_TRUNCATION_MARKER}\n`;
 }

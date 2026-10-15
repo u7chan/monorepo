@@ -75,11 +75,31 @@ test("バイト数の切り詰めは UTF-8 の途中で切らない", () => {
   assert.deepEqual(truncateToBytes("あいう", 1), { text: "", truncated: true });
 });
 
-test("出力の切り詰めは要約行を必ず残す", () => {
+test("出力の切り詰めは末尾の改行を含めて上限へ収め、要約行を残す", () => {
   const lines = ["l1", "l2", "l3"];
-  assert.equal(capLines(lines, "summary", 1000), "l1\nl2\nl3\nsummary");
-  const capped = capLines(lines, "summary", 20);
-  assert.ok(capped.endsWith("summary"), capped);
-  assert.ok(capped.includes("省略しました"), capped);
-  assert.ok(!capped.includes("l3"), capped);
+  // 全行が入るときは省略の通知を出さない
+  assert.equal(capLines(lines, "summary", 1000), "l1\nl2\nl3\nsummary\n");
+  assert.ok(Buffer.byteLength(capLines(lines, "summary", 1000), "utf8") <= 1000);
+
+  // 通知を積むと超える場合は積まず、要約行だけは必ず残す
+  const tight = capLines(lines, "summary", 12);
+  assert.equal(tight, "l1\nsummary\n");
+  assert.ok(Buffer.byteLength(tight, "utf8") <= 12, `${Buffer.byteLength(tight, "utf8")} bytes`);
+
+  // 本文を落とし、通知が入る余地があれば通知を積む
+  const noticed = capLines(["x".repeat(100), "y".repeat(200)], "s", 250);
+  assert.ok(noticed.includes("出力の上限に達したため残りを省略しました"), noticed);
+  assert.ok(!noticed.includes("y".repeat(200)), "入らない行は落とす");
+  assert.ok(Buffer.byteLength(noticed, "utf8") <= 250, `${Buffer.byteLength(noticed, "utf8")} bytes`);
+});
+
+test("要約行だけでも上限を超えるときは、結論の先頭を残して切る", () => {
+  const cut = capLines(["l1"], "summary", 5);
+  assert.equal(cut, "s...\n", "要約の先頭と切った印だけを残す");
+  assert.ok(Buffer.byteLength(cut, "utf8") <= 5);
+
+  // 改行すら入らない予算では空を返す (それでも上限以下)
+  assert.equal(capLines(["l1"], "summary", 1), "");
+  assert.equal(capLines([], "summary", 0), "");
+  assert.equal(capLines(["l1"], "s", 4), "s\n", "通知も本文も積めないときは要約だけを返す");
 });
