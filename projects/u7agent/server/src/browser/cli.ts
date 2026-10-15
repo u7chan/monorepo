@@ -8,6 +8,7 @@ import { checkExitCode, formatCheckReport, runCheck } from "./check";
 import { runDom } from "./dom";
 import { EXIT_ERROR, EXIT_OK, EXIT_VALIDATION_FAILED } from "./exit-codes";
 import { MAX_DOM_BYTES } from "./limits";
+import { runScript } from "./run";
 import { runSelfTest } from "./self-test";
 import { openBrowserSession, type BrowserSession } from "./session";
 import { runShot } from "./shot";
@@ -41,6 +42,17 @@ async function withSession(
   }
 }
 
+/**
+ * 期限超過での終了。スクリプトは任意コードなので、ブラウザを閉じてもタイマーなどを掴んだまま動き続け得る
+ * (`process.exitCode` を立てるだけではプロセスが残る)。回収 (shutdown は冪等で、close はその完了を待つ) は
+ * 済んでいるため、ここでプロセスを終える。
+ */
+async function interruptRun(session: BrowserSession, deadlineMs: number): Promise<never> {
+  log(`期限 (${deadlineMs} ms) を超えました`);
+  await session.close();
+  process.exit(EXIT_ERROR);
+}
+
 function runCommand(options: CliOptions): Promise<number> {
   // self-test の失敗は probe の失敗 (検証失敗)、サブコマンドの失敗は起動・入力エラーとして返す
   return withSession(options, options.kind === "self-test" ? EXIT_VALIDATION_FAILED : EXIT_ERROR, async (session) => {
@@ -70,6 +82,13 @@ function runCommand(options: CliOptions): Promise<number> {
         const report = await runCheck(session, options.url, { readySelector: options.waitForSelector, log });
         process.stdout.write(formatCheckReport(report));
         return checkExitCode(report);
+      }
+      case "run": {
+        const outcome = await runScript(session, options.file);
+        if (outcome.status === "ok") return EXIT_OK;
+        if (outcome.status === "interrupted") return interruptRun(session, options.deadlineMs);
+        log(`スクリプトが失敗しました: ${outcome.error.message}`);
+        return EXIT_VALIDATION_FAILED;
       }
     }
   });

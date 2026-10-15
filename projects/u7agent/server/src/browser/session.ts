@@ -27,6 +27,8 @@ export interface BrowserSession {
   /** proxy が拒否した宛先。proxy を経由して拒否されたことを確かめるために見る */
   readonly denials: readonly string[];
   readonly timedOut: boolean;
+  /** 後始末まで含めて閉じ終わったとき。`run` は戻らない任意コードを打ち切る判定に使う */
+  readonly closed: Promise<void>;
   close(): Promise<void>;
 }
 
@@ -53,21 +55,31 @@ export async function openBrowserSession(options: OpenBrowserSessionOptions = {}
   let context: BrowserContext | undefined;
   let launching: Promise<Browser> | undefined;
   let timedOut = false;
-  let closed = false;
+  let closing: Promise<void> | undefined;
   let timer: NodeJS.Timeout | undefined;
+  let resolveClosed: () => void = () => {};
+  const closed = new Promise<void>((resolve) => {
+    resolveClosed = resolve;
+  });
 
-  const shutdown = async (): Promise<void> => {
-    if (closed) return;
-    closed = true;
-    if (timer) clearTimeout(timer);
-    const failures: unknown[] = [];
-    await (launching ?? Promise.resolve()).catch(() => undefined);
-    if (context) await context.close().catch((error: unknown) => failures.push(error));
-    if (browser) await browser.close().catch((error: unknown) => failures.push(error));
-    if (proxy) await proxy.close().catch((error: unknown) => failures.push(error));
-    if (dirs) await rm(dirs.root, { recursive: true, force: true }).catch((error: unknown) => failures.push(error));
-    if (slot) await slot.release().catch((error: unknown) => failures.push(error));
-    for (const failure of failures) log(`後始末に失敗しました: ${(failure as Error).message}`);
+  /**
+   * 後始末。期限の timer と本体の finally が同時に呼んでも 1 回だけ実行し、2 回目以降は同じ完了を待つ
+   * (閉じ終わったことを待てないと、`run` が任意コードを打ち切ってプロセスを終えられない)。
+   */
+  const shutdown = (): Promise<void> => {
+    closing ??= (async () => {
+      if (timer) clearTimeout(timer);
+      const failures: unknown[] = [];
+      await (launching ?? Promise.resolve()).catch(() => undefined);
+      if (context) await context.close().catch((error: unknown) => failures.push(error));
+      if (browser) await browser.close().catch((error: unknown) => failures.push(error));
+      if (proxy) await proxy.close().catch((error: unknown) => failures.push(error));
+      if (dirs) await rm(dirs.root, { recursive: true, force: true }).catch((error: unknown) => failures.push(error));
+      if (slot) await slot.release().catch((error: unknown) => failures.push(error));
+      for (const failure of failures) log(`後始末に失敗しました: ${(failure as Error).message}`);
+      resolveClosed();
+    })();
+    return closing;
   };
 
   try {
@@ -103,6 +115,7 @@ export async function openBrowserSession(options: OpenBrowserSessionOptions = {}
       get timedOut() {
         return timedOut;
       },
+      closed,
       close: shutdown,
     };
   } catch (error) {

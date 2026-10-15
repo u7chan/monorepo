@@ -17,6 +17,7 @@ import {
   VIEWPORT,
 } from "./limits";
 import { OUTPUT_EXTENSION, validateOutputName } from "./outputs";
+import { SCRIPT_EXTENSION, validateScriptName } from "./run";
 
 export interface SelfTestOptions {
   kind: "self-test";
@@ -47,7 +48,13 @@ export interface CheckCliOptions {
   deadlineMs: number;
 }
 
-export type CliOptions = SelfTestOptions | ShotCliOptions | DomCliOptions | CheckCliOptions;
+export interface RunCliOptions {
+  kind: "run";
+  file: string;
+  deadlineMs: number;
+}
+
+export type CliOptions = SelfTestOptions | ShotCliOptions | DomCliOptions | CheckCliOptions | RunCliOptions;
 
 export const USAGE = `u7agent-browser — サンドボックス内のヘッドレスブラウザ
 
@@ -60,6 +67,8 @@ export const USAGE = `u7agent-browser — サンドボックス内のヘッド�
   u7agent-browser check <url> [--wait-for-selector <selector>]
                    console.error / uncaught exception / HTTP 4xx・5xx / requestfailed / 遷移や ready selector の
                    失敗を別分類で収集し、失敗があれば終了コード ${EXIT_VALIDATION_FAILED} で返す
+  u7agent-browser run <file${SCRIPT_EXTENSION}> [--deadline-ms <ms>]
+                   スクリプトの既定 export の関数へ page / context を渡して実行する (任意コード)
   u7agent-browser --self-test [--deadline-ms <ms>]
                    同梱物と外部到達ポリシーを検証する (イメージの probe 用)
   u7agent-browser --help
@@ -70,8 +79,15 @@ export const USAGE = `u7agent-browser — サンドボックス内のヘッド�
   既定の viewport は ${VIEWPORT.width}x${VIEWPORT.height} で、スマホ幅は --width 375 --height 667 のように指定する。
 
 終了コード:
-  ${EXIT_OK} 正常 / ${EXIT_VALIDATION_FAILED} 検証失敗 (check の失敗、--self-test の失敗) /
-  ${EXIT_ERROR} 起動・入力エラー (引数、ループバック以外の URL、ブラウザ起動、期限超過)
+  ${EXIT_OK} 正常 / ${EXIT_VALIDATION_FAILED} 検証失敗 (check の失敗、--self-test の失敗、run のスクリプトの例外) /
+  ${EXIT_ERROR} 起動・入力エラー (引数、ループバック以外の URL、スクリプトを読み込めない、ブラウザ起動、期限超過)
+
+実行 (run):
+  スクリプトは ${SCRIPT_EXTENSION} で、既定 export の関数が { page, context } を 1 つ受け取る。
+    export default async ({ page }) => { await page.goto("http://127.0.0.1:8080/"); }
+  ドライバはラッパー側で解決するため、スクリプトから bare import では解決できない (chromium.launch は開かない)。
+  外部到達のポリシーは既定で適用されるが、run は任意コードなので解除できる (境界の実効性は標準経路に限る)。
+  スクリプトの stdout / stderr はそのまま出る。期限超過ではブラウザと一時領域を回収して終了する。
 
 資源上限:
   期限 ${CALL_DEADLINE_MS} ms / viewport ${VIEWPORT.width}x${VIEWPORT.height} / 成果物 ${MAX_OUTPUTS} 件 /
@@ -223,6 +239,11 @@ export function parseArgs(argv: readonly string[]): CliOptions | undefined {
           : { waitForSelector: parseSelector(waitForSelector, "--wait-for-selector") }),
         deadlineMs: fields.deadlineMs,
       };
+    }
+    case "run": {
+      const fields = parseFields(rest, [deadlineFlag]);
+      expectPositionals(fields, 1, `u7agent-browser run <file${SCRIPT_EXTENSION}> [--deadline-ms <ms>]`);
+      return { kind: "run", file: validateScriptName(fields.positionals[0] as string), deadlineMs: fields.deadlineMs };
     }
     default:
       throw new Error(`未対応のサブコマンドです: ${command}`);

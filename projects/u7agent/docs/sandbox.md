@@ -78,10 +78,13 @@ pi SDK (BFF)                       sandbox service (別プロセス / 別コン�
 - **ヘッドレスブラウザ（Playwright の chromium-headless-shell + ドライバ + apt 依存 + 日本語 / 絵文字フォント）を同梱する**。エージェントが `apt` やホームのキャッシュへ手作業でブラウザを揃えなくても、固定版のブラウザをサンドボックスの `bash` から使えるようにするため
   - 版の正本は `playwright-core` の `browsers.json` で、独立した版定数を持たない（ドライバとブラウザの対応を公式のセットへ固定する）。取得は `scripts/install-browser.mjs` が `playwright-core` の CLI へ委ね、既にある版は取り直さない（コンテナ再作成でイメージの同梱物を取り直さない）。配布先はイメージが `/ms-playwright`、dev が `PLAYWRIGHT_BROWSERS_PATH`（未設定はホームのキャッシュ）で、`test` / `final` / dev が同じ版を使う。配布物が持つ著作権表示のファイルは消さずに残す
   - 入口は `u7agent-browser`（イメージは `/usr/local/bin`、dev は `pnpm dev` が `$HOME/.local/libexec/u7agent` へ置き、サンドボックスへ `PATH` と `PLAYWRIGHT_BROWSERS_PATH` を渡す）。**呼び出し元の cwd を変えない**（成果物の保存先の基準にする）ため、`--import tsx` の解決が cwd に依存する分を入口が絶対パスで埋める
+  - `run <file.mjs>` は作業領域のスクリプト（任意コード）を import し、既定 export の関数へ `page` / `context` を渡す。ドライバの解決はラッパー側に閉じるため、スクリプトは bare import では `playwright-core` を解決できず、`chromium.launch()` も開かない（起動と終了は `shot` / `dom` / `check` と同じ session を通る）
+  - 期限超過ではスクリプトを打ち切り、回収の完了を待ってからプロセスを終える。任意コードはブラウザを閉じてもタイマーなどを掴んだまま動き続け得るため、回収を `finally` と `process.exitCode` に任せると呼び出しが期限を過ぎて残る
+  - 外側の abort（プロセス群への SIGKILL）で残るのは、終了済み呼び出しの一時領域と同時実行の枠だけ。ブラウザはドライバが消えると自分で終了し、領域は次の起動時の掃除、枠は次の呼び出しの引き継ぎで回収する（掃除の規則は上の single-shot の項）
   - **標準経路はループバック以外へ通信しない**。境界はブラウザのネットワーク層で、ラッパー自身が 127.0.0.1 の一時ポートへ deny-all proxy を立てて `--proxy-server` でそこへ向け、`--proxy-bypass-list` で Chromium の暗黙バイパス（localhost と link-local）を外したうえで許可するループバックだけを明示登録する。Playwright の `route` は redirect 先では呼ばれず、暗黙バイパスは link-local も含むため、route だけでは境界にならない。2 段目に `route` / `routeWebSocket` の明示拒否を重ね、Service Worker は `serviceWorkers: "block"` で登録させない。許可するループバックの表記は `127.0.0.1` / `localhost` / `[::1]` に限る
   - 呼び出しは single-shot で、呼び出しをまたいで状態を持たない。一時領域（`HOME` / `TMPDIR` / Playwright のプロファイル）は呼び出しごとに `/tmp` の内側へ作り、通常 / 例外 / 期限超過のどれでも削除する。外側の abort は SIGKILL で `finally` が走らないため、終了済みと確認できる古い領域は次の起動時に掃除する（生存中の pid は残し、PID の再利用は起動時刻の照合で見分ける。`/proc` が読めないときは不明として残す）
   - 同時実行は既定で上限を持ち、置き場の下の `slots/<index>` に 1 つだけ枠のファイル（`<pid>-<起動時刻>`、名前が所有者）を置く入場制御で、ブラウザを起動する前に制限する（隔離した一時領域は総資源の上限にならない）。index のディレクトリ作成とファイル作成が原子的なので同じ index を取れるのは 1 呼び出しだけになり、index は上限までしか無いため上限を超えない。上限に達した呼び出しは待たずに終了する。終了済みと確認できる枠は、観測した世代のファイルを自分の世代名へ `rename` して引き継ぐ（壊す対象が世代名で条件付けられるため、古い所有者を読んだ後に遅れて再開した呼び出しが生存中の枠を消すことはない）。中断した残りは次回の入場時に回復する: 空になった index は `rmdir`（空のときだけ成功する）で回収し、終了済みの枠は引き継ぐので、どの段階で SIGKILL されても枠数は既定に戻る。所有者名でないファイルや複数の枠が残った index は消さずに容量として扱う（fail-closed）
-  - 境界ではないもの: OS レベルの egress 制限ではない。`curl` を使うなど生の `bash` からの通信は残る
+  - 境界ではないもの: OS レベルの egress 制限ではない。`curl` を使うなど生の `bash` からの通信は残る。`run` のスクリプトも任意コードなので、ポリシーの解除（`unrouteAll()` / 自前の `route` / 自分でブラウザを起動する）を実装で塞がない。この境界の実効性は標準経路に限る
 
 ## 残存リスク
 
