@@ -23,6 +23,8 @@ import { TabToolbar } from "./TabToolbar";
 export type SessionFilesPanelProps = {
   /** 作業フォルダ (ワークスペース root 相対)。パネル / シートの root */
   root: string;
+  /** ワークスペース root の絶対パス (health.cwd)。行の絶対パスのコピーに使う (未取得の "" では出さない) */
+  rootCwd?: string;
   /**
    * 環境変数タブの要求元。会話 (sessionId) か、まだ会話が無いプロジェクト起点の新規会話 (projectId)。
    * 所有者は cwd なので、どちらの入口でも同じ作業フォルダの設定になる
@@ -47,6 +49,7 @@ export type SessionFilesPanelProps = {
 
 function SessionFilesContent({
   root,
+  rootCwd,
   envScope,
   excludeNames,
   filePreviewPort,
@@ -126,6 +129,7 @@ function SessionFilesContent({
           {/* singleColumn の sheet は全画面 modal で、入力欄へドロップできない */}
           <FileBrowser
             root={root}
+            rootCwd={rootCwd}
             reloadToken={reloadToken}
             hiddenNames={SESSION_FILES_HIDDEN_NAMES}
             excludeNames={excludeNames}

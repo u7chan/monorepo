@@ -7,6 +7,7 @@ import {
   beginFileTreeLoad,
   createFileTreeState,
   createFileTreeStateFromDirectories,
+  fileTreeAbsolutePath,
   fileTreeAncestorPaths,
   fileTreeBreadcrumbs,
   fileTreeChildPath,
@@ -134,6 +135,22 @@ test("tree のパスは画面の root を前置して GET /api/files の path �
   assert.equal(fileTreeFetchPath(".", "docs"), "docs");
   assert.equal(fileTreeFetchPath("docs", "api.md"), "docs/api.md");
   assert.equal(fileTreeFetchPath("docs/api", "src"), "docs/api/src");
+});
+
+test("絶対パスはワークスペース root を前置し、未取得 / 相対の root では作らない", () => {
+  // 設定 → ファイル はワークスペース root そのもの、チャット右パネルはセッション cwd が画面の root
+  assert.equal(fileTreeAbsolutePath("/srv/workspace", "", "docs/api.md"), "/srv/workspace/docs/api.md");
+  assert.equal(
+    fileTreeAbsolutePath("/srv/workspace", "projects/x", "src/main.ts"),
+    "/srv/workspace/projects/x/src/main.ts",
+  );
+  assert.equal(fileTreeAbsolutePath("/srv/workspace/", "", "docs"), "/srv/workspace/docs", "末尾の区切りは落とす");
+  assert.equal(fileTreeAbsolutePath("C:\\workspace", "docs", "a.md"), "C:/workspace/docs/a.md", "区切りは / に揃える");
+  // ワークスペースがファイルシステム root のときも前置きの区切りを重ねない
+  assert.equal(fileTreeAbsolutePath("/", "", "docs"), "/docs");
+  // health 未取得 ("") と、絶対パスでない root では字面を作らない
+  assert.equal(fileTreeAbsolutePath("", "", "docs"), undefined);
+  assert.equal(fileTreeAbsolutePath("workspace", "", "docs"), undefined);
 });
 
 test("開閉を切り替えても取得済みの子は保持する", () => {

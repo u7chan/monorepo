@@ -682,6 +682,7 @@ export default function App() {
           <FileTreePage
             {...pageProps}
             cwd=""
+            rootCwd={app.health?.cwd}
             excludeNames={excludeNames}
             filePreviewPort={app.health?.filePreviewPort}
             archiveSettings={app.archiveSettings}
@@ -922,6 +923,7 @@ export default function App() {
             key={filesRoot}
             phase={filesPanelPhase}
             root={filesRoot}
+            rootCwd={app.health?.cwd}
             envScope={envScope ?? {}}
             excludeNames={excludeNames}
             filePreviewPort={app.health?.filePreviewPort}
@@ -941,6 +943,7 @@ export default function App() {
           dialogRef={filesSheetRef}
           phase={filesSheetPhase}
           root={sheetView.root}
+          rootCwd={app.health?.cwd}
           envScope={envScope ?? {}}
           excludeNames={excludeNames}
           filePreviewPort={app.health?.filePreviewPort}
