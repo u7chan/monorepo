@@ -26,7 +26,8 @@ pnpm start
 # → http://localhost:3000
 ```
 
-`pnpm dev` では Vite が、`pnpm start` では Hono がトップページを配信する。どちらも `GET /api/health` が JSON を返す。
+`pnpm dev` では Vite が、`pnpm start` では Hono がトップページを配信する。
+`pnpm start` はビルドをせず `tsx` でソースを実行するため、実行時依存だけを入れた状態でも起動できる。
 
 その他のコマンド:
 
@@ -39,62 +40,19 @@ pnpm typecheck  # tsc --noEmit
 
 | 環境変数 | 既定値 | 用途 |
 | --- | --- | --- |
-| `PORT` | `3000` | Hono（API サーバー）の待ち受けポート。Vite の proxy 先も同じ値 |
+| `PORT` | `3000` | Hono（API サーバー）の待ち受け。Vite の proxy 先も同じ値 |
 | `VITE_PORT` | `5173` | Vite の開発サーバー |
 
-同じホストで 2 つ目の `pnpm dev` を起動するときは、`PORT` と `VITE_PORT` を両方変える。
-片方だけ変えると、変えなかった側のポートが 1 つ目の dev と衝突して起動に失敗する。
-`PORT` は Hono の待ち受けと Vite の proxy 先で同じ値を使うため、両者がずれることはない。
-
-```bash
-PORT=3100 VITE_PORT=5273 pnpm dev
-```
-
-### 実行時依存だけでの起動
-
-`pnpm start` はビルドをせず `tsx` でソースを実行するため、`tsx` は `dependencies` に置いている。
-`pnpm install --prod` で実行時依存だけを入れた状態でも `pnpm build` 済みの `dist/client` があれば `pnpm start` は動く
-（クライアントのビルドには `devDependencies` の Vite が必要）。
-
-```bash
-pnpm install --prod
-pnpm start
-```
+同じホストで 2 つ目の `pnpm dev` を起動するときは `PORT` と `VITE_PORT` を両方変える（例: `PORT=3100 VITE_PORT=5273 pnpm dev`）。
+理由は [ADR 0001](./docs/adr/0001-dev-ports.md) を参照する。
 
 ## 構成
 
-```text
-.
-├── index.html              # Vite のエントリ
-├── vite.config.ts          # Vite（/api を Hono へ proxy）
-├── src/
-│   ├── client/             # Preact + Tailwind
-│   │   ├── main.tsx
-│   │   ├── app.tsx
-│   │   └── styles.css
-│   ├── server/             # Hono
-│   │   ├── index.ts        # 起動（PORT、dist/client の配信）
-│   │   └── app.ts          # ルーティング（createApp）
-│   └── shared/             # クライアントとサーバーで共有する型
-│       └── health.ts
-├── test/                   # node --test
-├── docs/                   # このプロジェクトの設計メモ（リポジトリ直下の docs/ とは別）
-└── dist/client/            # pnpm build の出力（Hono が配信）
-```
-
-## API
-
-`GET /api/health` は Bridge 自身の情報だけを返す。Herdr の状態は以降のステップで追加する。
-
-```json
-{
-  "ok": true,
-  "version": "0.0.0",
-  "startedAt": "2026-01-01T00:00:00.000Z"
-}
-```
+- `src/client`: Preact + Tailwind のクライアント。`index.html` をエントリに Vite がビルドする
+- `src/server`: Hono のサーバー。API を提供し、`dist/client` を配信する
+- `test`: `node --test` のテスト
+- `docs`: このプロジェクトのドキュメント。入口は [docs/README.md](./docs/README.md)
 
 ## ドキュメント
 
-このプロジェクトの設計メモと手順は `docs/`（このディレクトリ配下）に置く。
-モノレポ全体の文書はリポジトリ直下の `docs/` を参照する。
+このプロジェクト固有のドキュメントは `docs/` に置く。モノレポ全体の文書はリポジトリ直下の `docs/` を参照する。
