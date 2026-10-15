@@ -4,7 +4,7 @@ pi SDK を BFF に埋め込んだ小さなブラウザ GUI です（`projects/u7
 
 メッセージの送信は即時に返り、エージェントはバックグラウンドで動き続けます（ブラウザを閉じても継続します）。作業用ツール（read / bash / edit / write / grep / find / ls）は、BFF から分離したサンドボックスプロセスで実行します。
 
-![ユーザーがブラウザから操作し、エージェント本体（BFF）がサンドボックスへツール実行を要求する構成図。アプリ側とサンドボックスは破線のプロセス境界で分かれ、渡るのは共有トークンだけで、ワークスペースはサンドボックスにだけマウントされる](docs/assets/architecture.webp)
+![ユーザーがブラウザから操作し、エージェント本体（BFF）がサンドボックスへツール実行を要求する構成図。Web 検索・画像生成・音声生成は BFF 内の組み込みツールとして動き、サンドボックスは作業用ツールとヘッドレスブラウザを実行する。アプリ側とサンドボックスは破線のプロセス境界で分かれ、渡るのは共有トークンだけで、ワークスペースはサンドボックスにだけマウントされる](docs/assets/architecture.webp)
 
 エージェント本体（BFF + pi SDK）が会話と判断を持ち、実際の作業はサンドボックスが行います。LLM の API キーは本体の内側で止まり、サンドボックスへは共有トークンだけを渡します。ポートやマウント先の具体値はデプロイ環境ごとに決まるため、図には含めていません。
 
@@ -30,6 +30,8 @@ pnpm dev   # サンドボックス + BFF + Vite をまとめて起動 → http:/
 - **ファイルの持ち出し（ダウンロード）** — 設定 → ファイル と右パネルのツリーの行から保存できます。ファイルは元の名前のまま生バイトで、フォルダは ZIP です。除外規則と上限は [docs/file-preview.md](docs/file-preview.md#ダウンロード)
 - **スキル** — エージェント定義スキル / ファイルスキル（`.agents/skills`）/ 組み込みスキルの 3 種類があり、入力欄から `/skill:<name>` で展開します（[docs/persistence.md](docs/persistence.md#スキルの扱い) / [docs/api-catalog.md](docs/api-catalog.md#ファイルスキルagentsskills)）
 - **サービス（serve）** — エージェントが起動した Web サーバーを別タブで開き、トップバーから起動・停止・入れ替えができます（[docs/sandbox.md](docs/sandbox.md#serveサービスの公開と起動停止)）
+- **組み込みツール（Web 検索 / 画像生成 / 音声生成）** — 設定 → Web 検索（`/settings/web-search`）と設定 → コンテンツ生成（`/settings/content`）で有効にすると、モデルから `web_search` / `generate_image` / `generate_speech` を呼べます。生成した画像と音声は作業フォルダへ保存し、チャットでプレビュー・再生できます（[docs/web-search.md](docs/web-search.md) / [docs/image-generation.md](docs/image-generation.md) / [docs/speech-generation.md](docs/speech-generation.md)）
+- **ヘッドレスブラウザ** — 固定版の Chromium をサンドボックスへ同梱し、エージェントが `bash` から `u7agent-browser` で起動中のアプリを開いて確認・撮影・失敗の収集ができます（[docs/browser.md](docs/browser.md)。使い方は組み込みスキル `browser`）
 - **通知（Discord）** — 会話ごとのトグルが On のとき、応答の先頭 200 文字を 1 通送ります。応答が返らない質問待ちでも、設定 → 通知の「質問の通知」を On にしていれば、質問が発生したことと会話のリンクが届きます。会話の通知が Off の場合は本文なし、On の場合はタイトルと第 1 問も載ります（[docs/notifications.md](docs/notifications.md)）
 
 ## 環境変数
