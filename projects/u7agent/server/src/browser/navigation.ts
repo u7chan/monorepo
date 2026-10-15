@@ -1,7 +1,7 @@
 /**
  * 標準経路の遷移。開始前にポリシー違反を落とし、遷移後は最終 URL がループバックのままか確かめる。
  * proxy の 403 は `goto` の失敗にならないため、redirect で外へ出た結果をそのまま成果物にしない
- * (docs/sandbox.md#配布イメージと起動契約 の (a))。
+ * (docs/browser.md#外部到達の境界)。
  */
 import type { Page, Response } from "playwright-core";
 import { NAVIGATION_TIMEOUT_MS } from "./limits";

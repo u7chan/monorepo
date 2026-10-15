@@ -1,6 +1,6 @@
 /**
  * deny-all proxy。標準経路の本命の境界で、ブラウザのネットワーク層で非ループバックの通信を止める。
- * route は redirect 先で呼ばれないため、これが無いと link-local などへ抜けられる (docs/sandbox.md#配布イメージと起動契約)。
+ * route は redirect 先で呼ばれないため、これが無いと link-local などへ抜けられる (docs/browser.md#外部到達の境界)。
  * ループバックは `--proxy-bypass-list` で明示的にバイパスさせるので、この proxy には到達しない。
  */
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";

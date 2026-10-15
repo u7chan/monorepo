@@ -685,6 +685,13 @@ test("appendSystemPrompt はサンドボックスの python / uv と .venv の�
   assert.doesNotMatch(prompt, /Not installed there:.*\bpython3\b/);
 });
 
+test("system prompt の同梱物一覧はヘッドレスブラウザを名指しする", () => {
+  // 一覧はイメージの中身を写したもので、apt 相当の一覧と command -v 検査 (Dockerfile) とセットで更新する
+  assert.match(appendSystemPrompt("/workspace"), /chromium \(headless, u7agent-browser\)/);
+  // 子エージェントにも同じコンテナを見せる。読み取り専用でも dom / check は使える
+  assert.match(investigationSystemPrompt(), /chromium \(headless, u7agent-browser\)/);
+});
+
 test("investigationSystemPrompt は読み取り専用と調査に要る案内だけを残す", () => {
   const prompt = investigationSystemPrompt();
   assert.match(prompt, /read-only investigation sub-agent/);
