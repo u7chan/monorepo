@@ -125,6 +125,10 @@ test("速度は基準値を常時見せて増減でき、未指定（モデル�
   assert.ok(empty.includes("1.0 が標準"), "1.0 が標準だと入力前に伝える");
   assert.ok(empty.includes("空欄はモデル既定"), "空欄の扱いを伝える");
   assert.ok(empty.includes("対応範囲はモデルにより異なります"), "範囲をアプリが保証しないことを伝える");
+  // 目で読めない利用者にも、入力へ移動した時点で注記が伝わるようにする
+  const noteId = /<input[^>]*aria-describedby="([^"]+)"/.exec(empty)?.[1];
+  assert.ok(noteId, "速度の注記を入力の説明として関連付ける");
+  assert.ok(empty.includes(`id="${noteId}">速度は`), "関連付けた先が注記になっている");
   assert.equal(empty.includes("既定に戻す"), false, "未指定では戻す操作を出さない");
 
   const filled = render({ values: { speed: "1.5" } });

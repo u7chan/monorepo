@@ -32,7 +32,6 @@ import {
   SPEECH_PREVIEW_EMPTY_TEXT_ERROR,
   SPEECH_PREVIEW_NO_MODEL_ERROR,
   SPEECH_PREVIEW_SPEED_ERROR,
-  SPEECH_PREVIEW_SPEED_MIN,
   speechSettingsAfterRefresh,
   speechSyncedAfterRefresh,
   speechVoiceDraft,
@@ -466,17 +465,30 @@ test("速度の増減は 1.0 を起点に 0.1 刻みで動かし、空欄と不�
   assert.equal(speechPreviewSpeedStep("", -0.1), "0.9");
   assert.equal(speechPreviewSpeedStep("1", 0.1), "1.1");
   assert.equal(speechPreviewSpeedStep("0.8", -0.1), "0.7");
-  // 0.1 ずつ足した値が 0.7000000000000001 のように欄へ出ない
-  assert.equal(speechPreviewSpeedStep("0.6", 0.1), "0.7");
-  assert.equal(speechPreviewSpeedStep("1.05", 0.1), "1.15");
   // 押しても何も起きないボタンを作らない（不正値と 0 以下は 1.0 を起点にする）
   assert.equal(speechPreviewSpeedStep("fast", 0.1), "1.1");
   assert.equal(speechPreviewSpeedStep("0", 0.1), "1.1");
   assert.equal(speechPreviewSpeedStep("-1", -0.1), "0.9");
   // 0 以下は送れないため、押下だけで不正値を作らない（上限は provider の 400 に委ねる）
-  assert.equal(speechPreviewSpeedStep("0.1", -0.1), String(SPEECH_PREVIEW_SPEED_MIN));
+  assert.equal(speechPreviewSpeedStep("0.1", -0.1), "0.1");
   assert.equal(speechPreviewSpeedStep("2", 0.1), "2.1");
-  assert.ok(speechPreviewSpeed(speechPreviewSpeedStep("0.1", -0.1)).ok, "押下の結果は送信前の検証を通る");
+});
+
+test("速度の増減は十進の桁で小数 2 桁へ丸め、押下だけで不正値を作らない", () => {
+  // 0.1 ずつ足した値が 0.7000000000000001 のように欄へ出ない
+  assert.equal(speechPreviewSpeedStep("0.6", 0.1), "0.7");
+  assert.equal(speechPreviewSpeedStep("1.05", 0.1), "1.15");
+  // 小数第 3 位以下も十進の桁で丸める（二進の誤差があると 1.015 - 0.1 が 0.92 にならない）
+  assert.equal(speechPreviewSpeedStep("1.015", -0.1), "0.92");
+  assert.equal(speechPreviewSpeedStep("1.005", 0.1), "1.11");
+  assert.equal(speechPreviewSpeedStep("1.014", -0.1), "0.91");
+  // 有限でも押下で 1/100 単位を溢れる値から Infinity を作らない
+  for (const raw of ["1e307", "1".repeat(400)]) {
+    for (const delta of [0.1, -0.1]) {
+      const stepped = speechPreviewSpeedStep(raw, delta);
+      assert.ok(speechPreviewSpeed(stepped).ok, `${raw} の押下結果 ${stepped} は送信前の検証を通る`);
+    }
+  }
 });
 
 test("お試し再生は Content-Type から形式を読み、判別できない応答では形式の表示を省く", () => {

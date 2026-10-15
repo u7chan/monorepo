@@ -357,14 +357,39 @@ export const SPEECH_PREVIEW_SPEED_STEP = 0.1;
 /** 増減の下限。0 以下は送れない値なので、押下だけで不正値を作らない（上限は provider の 400 に委ねる） */
 export const SPEECH_PREVIEW_SPEED_MIN = 0.1;
 
+/** 欄の値を扱う 1/100 単位。丸めを十進の桁で行うため、小数のまま足さない */
+const SPEED_SCALE = 100;
+
+/** 押下の起点。空欄と解釈できない値は 1.0（標準）から始める（押しても何も起きないボタンを作らない） */
+const SPEED_STANDARD = SPEED_SCALE;
+
+const SPEED_FLOOR = Math.round(SPEECH_PREVIEW_SPEED_MIN * SPEED_SCALE);
+
+/** 十進で書かれた小数。指数表記など、桁を数えられない形は数値として読む */
+const SPEED_DECIMAL = /^(\d+)(?:\.(\d*))?$/;
+
 /**
- * 速度欄の増減。空欄と解釈できない値は 1.0（標準）を起点にする（押しても何も起きないボタンを作らない）。
- * 丸めは小数 2 桁。0.1 ずつ足すと 0.7000000000000001 のような値が欄に出てしまう。
+ * 入力の 1/100 単位。解釈できない / 0 以下 / 1/100 単位で表せない大きさの値は null（＝起点を 1.0 へ寄せる）。
+ * 小数第 3 位以下を文字の桁で丸めるのは、`1.015 - 0.1` の丸めが二進の誤差で 1 桁ずれるため。
+ */
+function speedUnits(raw: string): number | null {
+  const decimal = SPEED_DECIMAL.exec(raw);
+  if (decimal === null) {
+    const scaled = Number(raw) * SPEED_SCALE;
+    return Number.isFinite(scaled) && scaled > 0 ? Math.round(scaled) : null;
+  }
+  const [, whole = "", fraction = ""] = decimal;
+  const units = Number(`${whole}${fraction.slice(0, 2).padEnd(2, "0")}`) + (Number(fraction[2] ?? 0) >= 5 ? 1 : 0);
+  return Number.isFinite(units) && units > 0 ? units : null;
+}
+
+/**
+ * 速度欄の増減。押下 1 回で `delta` だけ動かし、欄の値として小数 2 桁で返す。
+ * 起点は空欄と解釈できない値で 1.0、下限は `SPEECH_PREVIEW_SPEED_MIN` で止める。
  */
 export function speechPreviewSpeedStep(raw: string, delta: number): string {
-  const current = Number(raw.trim());
-  const base = raw.trim() === "" || !Number.isFinite(current) || current <= 0 ? 1 : current;
-  return String(Math.max(SPEECH_PREVIEW_SPEED_MIN, Math.round((base + delta) * 100) / 100));
+  const current = speedUnits(raw.trim()) ?? SPEED_STANDARD;
+  return String(Math.max(SPEED_FLOOR, current + Math.round(delta * SPEED_SCALE)) / SPEED_SCALE);
 }
 
 /** 送信前の検証。止められるものは API を呼ばず、クレジットも消費させない */

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type RefObject } from "react";
+import { useEffect, useId, useRef, useState, type RefObject } from "react";
 import {
   SPEECH_PREVIEW_SPEED_STEP,
   speechModelOptions,
@@ -170,6 +170,8 @@ export function SpeechPlaygroundView({
   const options = speechModelOptions(settings);
   const selectedOption = options.find((option) => option.value === values.model);
   const textMode = speechVoiceMode(selectedOption) === "text";
+  // 単位と基準値を目で読めない利用者にも、入力へ移動した時点で伝わるようにする
+  const speedNoteId = useId();
   // 生成器はランタイムが持つため、runtime 不可では押しても必ず 503 になる（未同期とは別のゲート）
   const runtimeAvailable = settings.runtimeAvailable;
 
@@ -261,6 +263,7 @@ export function SpeechPlaygroundView({
             className="field w-16 text-center text-xs"
             value={values.speed}
             aria-label="お試し再生の速度"
+            aria-describedby={speedNoteId}
             placeholder="既定"
             inputMode="decimal"
             autoComplete="off"
@@ -280,9 +283,11 @@ export function SpeechPlaygroundView({
         </div>
       </div>
       {/* 単位と基準値は欄の外に常時出す（placeholder は入力と同時に消えて手掛かりが無くなる） */}
-      <p className="text-2xs leading-relaxed text-ink-faint">
-        速度は <span className="text-ink-soft">1.0 が標準</span>（倍率）。0.8 で遅く、1.2
-        で速く。空欄はモデル既定。対応範囲はモデルにより異なります。
+      <div className="flex flex-wrap items-baseline gap-2 text-2xs leading-relaxed text-ink-faint">
+        <p id={speedNoteId}>
+          速度は <span className="text-ink-soft">1.0 が標準</span>（倍率）。0.8 で遅く、1.2
+          で速く。空欄はモデル既定。対応範囲はモデルにより異なります。
+        </p>
         {values.speed.trim() === "" ? null : (
           <button
             type="button"
@@ -293,7 +298,7 @@ export function SpeechPlaygroundView({
             既定に戻す
           </button>
         )}
-      </p>
+      </div>
       <div className="flex flex-wrap items-center gap-2">
         <button
           type="button"
