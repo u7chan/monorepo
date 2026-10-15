@@ -601,12 +601,19 @@ test("空の index の回収と新規取得が交錯しても、空き枠を取�
       const verifies = await gate.waitFor((entry) => entry.op === "readdir" && entry.path === dir, 2);
       gate.release(verifies[0] as SlotFsRequest);
       gate.release(verifies[1] as SlotFsRequest);
-      const removals = await gate.waitFor((entry) => entry.op === "rm", 2);
-      gate.release(removals[0] as SlotFsRequest);
-      gate.release(removals[1] as SlotFsRequest);
+
+      // 解放の順でも完了の順でも役割が入れ替わらないように、所有者パスで A / B の削除を選ぶ。
+      // A の削除が終わって再試行の mkdir が届いたことを確認してから B の削除を解放する。
+      const [aRemoval] = await gate.waitFor((entry) => entry.op === "rm" && entry.path === join(dir, ownerA));
+      const [bRemoval] = await gate.waitFor((entry) => entry.op === "rm" && entry.path === join(dir, ownerB));
+      gate.release(aRemoval as SlotFsRequest);
+      const [retryMkdir] = await gate.waitFor((entry) => entry.op === "mkdir" && entry.path === dir);
+      gate.release(bRemoval as SlotFsRequest);
+      const [bBlockedMkdir] = await gate.waitFor(
+        (entry) => entry.op === "mkdir" && entry.path === dir && entry !== retryMkdir,
+      );
 
       // index は空に戻っている。A の取り直し (空の回収 → 作り直し → 枠の作成) を順に通す
-      const [retryMkdir, bBlockedMkdir] = await gate.waitFor((entry) => entry.op === "mkdir" && entry.path === dir, 2);
       gate.release(retryMkdir as SlotFsRequest);
       const [retryEmpty] = await gate.waitFor((entry) => entry.op === "readdir" && entry.path === dir);
       gate.release(retryEmpty as SlotFsRequest);
