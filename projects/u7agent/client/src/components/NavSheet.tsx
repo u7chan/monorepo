@@ -124,7 +124,7 @@ export function NavSheet({ mode, onClose, ...sidebarProps }: NavSheetProps) {
           {...sidebarProps}
           newChat={closeThen(sidebarProps.newChat)}
           selectSession={closeThen(sidebarProps.selectSession)}
-          moveSession={closeAfter(sidebarProps.moveSession)}
+          handoffSession={closeAfter(sidebarProps.handoffSession)}
           onNewProject={closeAfter(sidebarProps.onNewProject)}
           onOpenSettingsSection={closeThen(sidebarProps.onOpenSettingsSection)}
         />

@@ -18,7 +18,7 @@ import { ProjectDialog } from "./components/ProjectDialog";
 import { RuntimePage } from "./components/RuntimePage";
 import { Sidebar } from "./components/Sidebar";
 import { SessionFilesPanel, SessionFilesSheet } from "./components/SessionFilesPanel";
-import { SessionMoveDialog } from "./components/SessionMoveDialog";
+import { SessionHandoffDialog, type SessionHandoffRequest } from "./components/SessionHandoffDialog";
 import { SkillSettingsPage } from "./components/SkillSettingsPage";
 import { Topbar } from "./components/Topbar";
 import { WebSearchSettingsPage } from "./components/WebSearchSettingsPage";
@@ -62,9 +62,13 @@ import {
 import { sessionFilesDefaultOpen, sessionFilesRoot } from "./lib/sessionFiles";
 import { sessionEnvScope } from "./lib/sessionEnv";
 import { servedAppBusyKind, servedAppFocusRequest, servedAppStartConfirm, servedAppView } from "./lib/servedApp";
-import { sessionMoveDialogText } from "./lib/sidebarRowMenu";
-import { moveDestinationSpaces } from "./lib/spaceSelection";
-import { activityDisplay, retryRemainingMs } from "./lib/retryState";
+import {
+  handoffAgentChoices,
+  handoffBlockedReason,
+  handoffMemoDisabledReason,
+  handoffSuggestion,
+  sessionHandoffDialogText,
+} from "./lib/sessionHandoff";
 import { RUN_RETRY_PROMPT } from "./lib/runRetry";
 import {
   DEFAULT_CONTENT_SUBSECTION,
@@ -78,6 +82,7 @@ import {
   type SettingsSection,
   type SidebarMode,
 } from "./lib/settingsNav";
+import { activityDisplay, retryRemainingMs } from "./lib/retryState";
 import { suggestionScopeChange, type SuggestionScope } from "./lib/suggestion";
 import type { AgentSuggestion } from "./types";
 
@@ -173,9 +178,31 @@ export default function App() {
   }
   // 押すたびに新しい値を渡す (同じチップを押し直しても、入力欄へフォーカスを戻す合図にする)
   const selectSuggestion = useCallback((next: AgentSuggestion) => setSuggestion({ ...next }), []);
-  const clearSuggestion = useCallback(() => setSuggestion(null), []);
-  // 引っ越しの対象 (会話 id と、確認に出すタイトル)。開いている間は専用ダイアログが移動先を選ぶ
-  const [moveTarget, setMoveTarget] = useState<{ sessionId: string; title: string } | null>(null);
+  // 引き継ぎのチップを外した印 (操作 ID)。表示は会話の状態から導出し、外したことだけを覚える
+  // (リロードでは戻り、新しい引き継ぎでは ID が変わるため再び出る)
+  const [dismissedHandoff, setDismissedHandoff] = useState<string | null>(null);
+  const handoffChip = handoffSuggestion(app.chat.handoff);
+  const handoffOperationId = app.chat.handoff?.operationId ?? "";
+  // 引き継ぎ直後の入力欄のチップ。エージェントの定型プロンプトが選ばれていればそちらを優先する
+  const activeSuggestion = suggestion ?? (handoffChip && dismissedHandoff !== handoffOperationId ? handoffChip : null);
+  const clearActiveSuggestion = useCallback(() => {
+    if (suggestion) {
+      setSuggestion(null);
+      return;
+    }
+    if (handoffChip) setDismissedHandoff(handoffOperationId);
+  }, [handoffChip, handoffOperationId, suggestion]);
+  // 引き継ぎの対象 (会話 id と、ダイアログに出す値)。開いている間は専用ダイアログがエージェント /
+  // スペース / メモを選ぶ。無効理由はサーバーの判定と同じ条件を開いた時点の一覧から導く
+  const [handoffTarget, setHandoffTarget] = useState<{
+    sessionId: string;
+    title: string;
+    agentId: string;
+    agentName: string;
+    projectSession: boolean;
+    memoDisabledReason: string;
+    blockedNote: string;
+  } | null>(null);
   const [navOpen, setNavOpen] = useState(false);
   // 作業フォルダの開閉は保存しない (desktop は右パネル、singleColumn は全画面シートで state も分ける)。
   // 起動時は閉 (会話 URL を開いてもパネルは勝手に開かない)。既定を当てるのは利用者操作の新規会話の入口だけ
@@ -213,7 +240,6 @@ export default function App() {
   // URL にセクションが無いときだけ「最後に開いていたセクション」を見せる (URL の指定を上書きしない)
   const settingsSection: SettingsSection = route.view === "settings" ? route.section : lastSettingsSection;
   const closeProjectDialog = useCallback(() => setProjectDialogOpen(false), []);
-  const closeMoveDialog = useCallback(() => setMoveTarget(null), []);
   const openNav = useCallback(() => setNavOpen(true), []);
   // 実際に閉じる (ドロワーを unmount する)。退場アニメは NavSheet が持ち、その完了 (dialog の close) から届く
   const closeNav = useCallback(() => setNavOpen(false), []);
@@ -574,6 +600,40 @@ export default function App() {
     onOpenSettings: () => openSettingsSection("notifications"),
   };
 
+  /**
+   * 引き継ぎの実行。成功したら移動先のスペースへ切り替えて、引き継ぎ後の会話を開き直す。
+   * 切替は設定 → ランタイムの起動元リンクと同じ経路 (`openOwnerSession`) を使い、
+   * 同じスペースなら切り替えずに開き直す。
+   */
+  const handleHandoff = useCallback(
+    async (request: SessionHandoffRequest) => {
+      const sessionId = handoffTarget?.sessionId;
+      if (!sessionId) return;
+      const result = await app.handoffSession(sessionId, request);
+      openOwnerSession(sessionId, result.spaceId, {
+        spaces: space.spaces,
+        currentSpaceId: space.selected.id,
+        navigate,
+        selectSpace: space.select,
+        openInPlace: (id) => {
+          // 開き直しで履歴を読み直す (失敗の 409 は活動行へ出し、会話は一覧に残す)
+          void app.selectSession(id, undefined, { fallbackOnFailure: false }).then((opened) => {
+            const note = missingLinkNote(true, opened);
+            if (note) app.dispatch({ type: "setActivity", text: note });
+          });
+          backToChat();
+        },
+      });
+      if (result.cleanupPending) {
+        app.dispatch({
+          type: "setActivity",
+          text: "引き継ぎは完了しましたが、片付け (履歴の削除) が残っています。会話を開き直すと再試行します。",
+        });
+      }
+    },
+    [app, backToChat, handoffTarget, navigate, space],
+  );
+
   const navProps = {
     spaceName: space.selected.name,
     pinError: app.pinnedError,
@@ -598,9 +658,17 @@ export default function App() {
     deleteSession: (sessionId: string) => {
       void app.deleteSession(sessionId);
     },
-    moveSession: (sessionId: string) => {
-      // タイトルは開いた時点の一覧から控える (移動後は一覧から消えるため)
-      setMoveTarget({ sessionId, title: app.sessions.find((item) => item.sessionId === sessionId)?.title ?? "" });
+    handoffSession: (sessionId: string) => {
+      const item = app.sessions.find((entry) => entry.sessionId === sessionId);
+      setHandoffTarget({
+        sessionId,
+        title: item?.title ?? "",
+        agentId: item?.agentId ?? "",
+        agentName: item?.agentName ?? "",
+        projectSession: item?.projectSession === true,
+        memoDisabledReason: handoffMemoDisabledReason(item?.messageCount ?? 0),
+        blockedNote: item ? handoffBlockedReason(item) : "会話が見つかりません",
+      });
     },
     togglePinned: (sessionId: string) => app.togglePinned(sessionId),
     deleteProject: (projectId: string) => {
@@ -886,7 +954,7 @@ export default function App() {
               sessionAgent={composerAgent}
               mode={layout}
               attachments={app.attachments}
-              suggestion={suggestion}
+              suggestion={activeSuggestion}
               rootCwd={app.health?.cwd ?? ""}
               skills={app.sessionSkills}
               onSend={handleSend}
@@ -898,7 +966,7 @@ export default function App() {
               onRetry={handleRetry}
               onAttachFiles={app.attachFiles}
               onRemoveAttachment={app.removeAttachment}
-              onClearSuggestion={clearSuggestion}
+              onClearSuggestion={clearActiveSuggestion}
               onChangeModel={app.changeModel}
               onChangeThinkingLevel={app.changeThinkingLevel}
               onReloadSkills={app.revalidateSessionSkills}
@@ -963,13 +1031,18 @@ export default function App() {
       {projectDialogOpen ? (
         <ProjectDialog singleColumn={singleColumn} onClose={closeProjectDialog} onCreate={handleCreateProject} />
       ) : null}
-      {moveTarget ? (
-        <SessionMoveDialog
+      {handoffTarget ? (
+        <SessionHandoffDialog
           singleColumn={singleColumn}
-          text={sessionMoveDialogText(moveTarget.title)}
-          destinations={moveDestinationSpaces(space.spaces, space.selected.id)}
-          onClose={closeMoveDialog}
-          onMove={(targetSpaceId) => app.moveSession(moveTarget.sessionId, targetSpaceId)}
+          text={sessionHandoffDialogText(handoffTarget.title)}
+          agents={handoffAgentChoices(app.agents, handoffTarget.agentId, handoffTarget.agentName)}
+          spaces={space.spaces}
+          currentSpaceId={space.selected.id}
+          projectSession={handoffTarget.projectSession}
+          memoDisabledReason={handoffTarget.memoDisabledReason}
+          blockedNote={handoffTarget.blockedNote}
+          onClose={() => setHandoffTarget(null)}
+          onHandoff={handleHandoff}
         />
       ) : null}
     </div>

@@ -18,6 +18,8 @@ BFF が作業用ツール（`read` / `bash` / `edit` / `write` / `grep` / `find`
 | GET | `/v1/files/download` | 通常ファイルは生バイト、ディレクトリは ZIP（ストリーム）。`?path=<root 相対>&exclude=<名前>`（繰り返し可） |
 | GET | `/v1/files/download/check` | ダウンロードの見積り（JSON）。除外 / 上限の判定は download と同じ（`exclude` も共通） |
 | POST | `/v1/files/upload` | ファイル追加（raw 本文）。`?dir=<root 相対>&name=<ファイル名>` |
+| GET | `/v1/files/handoff` | 引き継ぎメモ（`HANDOFF.md`）の読取り（JSON）。`?path=<root 相対>` |
+| POST | `/v1/files/handoff` | 引き継ぎメモの先頭追記（JSON）。`{ path, section, dedupeKey }` |
 | POST | `/v1/dirs` | ディレクトリ作成（`mkdir -p` 相当）。`{ path }` |
 | DELETE | `/v1/dirs` | ディレクトリ削除。`?path=<root 相対>&recursive=true`。成功は本文なしの 204 |
 | POST | `/v1/tools/:tool/execute` | ツール実行。NDJSON ストリームで応答 |
@@ -92,6 +94,29 @@ POST /v1/files/upload?dir=uploads&name=photo.png
 - 書き込みは `<dir>/.pi-upload-<uuid>.part` へ行い、バイト数を数えて上限（100 MiB）を超えたら 413 にして temp を削除する。本文が途切れたときも temp を残さない
 - 完成後は `link(2)` で排他作成し、`EEXIST` なら `name-1.ext` → `name-2.ext` …（最大 100 回、以降は乱数 suffix）へ進める。**既存ファイルは決して上書きしない**（並行アップロードでも衝突しない）
 - 上限は 1 ファイル 100 MiB（`SANDBOX_MAX_UPLOAD_BYTES`）とファイル名 200 文字。`maxUploadBytes` オプションでテスト時に小さくできる
+
+## `GET /v1/files/handoff`
+
+引き継ぎメモ（作業フォルダ直下の `HANDOFF.md`）専用の読み書き。BFF の会話の引き継ぎ（[api-sessions.md](api-sessions.md#post-apisessionsidmove)）だけが使う。プレビュー API とは別の入口にし、**上限の値を分けて共有しない**（プレビューの上限を変えても引き継ぎの契約が動かないように）。
+
+```json
+// GET response (200)
+{ "text": "# 引き継ぎメモ …" }
+// POST request
+{ "path": "work/HANDOFF.md", "section": "# 引き継ぎメモ …\n\nこの続きをお願いします。\n\n", "dedupeKey": "…" }
+// POST response (200)
+{ "path": "work/HANDOFF.md", "written": true, "created": false }
+```
+
+- 読取りは 2 MiB 超・UTF-8 でない・制御文字を含むバイナリを 400 で拒む。実在しないファイルは 404、root 外・symlink 経由の root 外は 400
+- 書込みは**読んでから書くまでを実パス単位の排他の中で行い**、一時ファイル + `rename` で原子的にする（同じ作業フォルダを共有する別の会話の同時追記でも両方の節が残る）。既存の本文は解釈せず、**新しい節を先頭に置いて後ろへそのまま残す**
+- `dedupeKey` がファイルの**先頭行に含まれるときは何も書かない**（`written: false`）。BFF は節の材料から決まるハッシュを渡し、再試行・再起動でメモが二重にならないようにする
+- 既存が symlink のときは 400（読む前に最終要素を `lstat` で見て、root 外を読まない・書かない）。`section` 単体が 2 MiB を超えるときは 400
+- 親ディレクトリは実在が必要（`POST /v1/files/upload` と違い作成しない。呼び出し側の作業フォルダが先に作られている）
+
+## `POST /v1/files/handoff`
+
+`GET` と同じ契約の書込み（読取りと書込みの両方の説明は上の節にまとめる）。
 
 ## `POST /v1/files/rename`
 

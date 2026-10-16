@@ -83,6 +83,7 @@ export type {
   ServeStatus,
   SessionCompactionResult,
   SessionDiagnostics,
+  SessionHandoffState,
   SessionMoveResponse,
   SessionNotifyResponse,
   SessionPinnedResponse,

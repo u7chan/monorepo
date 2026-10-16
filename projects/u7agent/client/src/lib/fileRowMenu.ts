@@ -6,7 +6,10 @@ import { isArchiveExcludedName } from "./archive";
 import type { RowMenuAction, RowMenuActionKind } from "./rowMenu";
 
 /** ファイルツリーが出せる種別 (new-chat / pin / move はサイドバー専用) */
-export type FileRowActionKind = Exclude<RowMenuActionKind, "new-chat" | "pin" | "move" | "diagnostics" | "raw-log">;
+export type FileRowActionKind = Exclude<
+  RowMenuActionKind,
+  "new-chat" | "pin" | "move" | "handoff" | "diagnostics" | "raw-log"
+>;
 
 export type FileRowAction = RowMenuAction<FileRowActionKind>;
 

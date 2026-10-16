@@ -156,11 +156,16 @@ export function createSessionRoutes({
     },
 
     /**
-     * 未所属セッションの引っ越し。履歴は破棄され、作業フォルダ / 添付 / cwd キーの行が移動先へ移る。
-     * 移動先の検証はスペース側の規則 (未知は 404) に任せ、要求元の照合は `sessionSpaceGuard` が済ませている。
+     * 会話の引き継ぎ (引っ越しの拡張)。エージェントとスペースを選び直し、履歴は破棄され、
+     * 作業フォルダ / 添付 / cwd キーの行は移動先へ移る。同一スペースへの引き継ぎも許し、
+     * プロジェクト所属は同一スペースだけを許す。移動先の検証はスペース側の規則 (未知は 404) に任せ、
+     * 要求元の照合は `sessionSpaceGuard` が済ませている。
      */
     move: async (c: Context, body: MoveSessionBody) => {
-      const result = await store.move(c.req.param("id") ?? "", spaces.require(body.spaceId));
+      const result = await store.move(c.req.param("id") ?? "", spaces.require(body.spaceId), {
+        ...(body.agentId === undefined ? {} : { agentId: body.agentId }),
+        memo: body.memo === true,
+      });
       if (!result) return c.json({ error: "Session not found" }, 404);
       return c.json(result);
     },

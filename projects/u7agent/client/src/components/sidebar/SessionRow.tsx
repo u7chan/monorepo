@@ -5,6 +5,7 @@ import { useConfirm } from "../ConfirmProvider";
 import { useDiagnostics } from "../../DiagnosticsContext";
 import { messageTimeLabel } from "../../lib/messageTime";
 import { diagnosticsCopyNote } from "../../lib/diagnostics";
+import { handoffBlockedReason } from "../../lib/sessionHandoff";
 import { rawLogConfirmRequest, sessionRowActions, type SessionRowKind } from "../../lib/sidebarRowMenu";
 import { sidebarStatus, type SidebarStatus } from "../../lib/sidebarStatus";
 import { COPY_FAILED_TEXT } from "../chat/CopyButton";
@@ -48,7 +49,7 @@ export function SessionRow({
   onRename,
   onDelete,
   onTogglePin,
-  onMove,
+  onHandoff,
 }: {
   item: SessionSummary;
   /** アイコンはカタログから live 解決する (定義を編集すると既存セッションの表示も変わる) */
@@ -58,8 +59,8 @@ export function SessionRow({
   onRename: () => void;
   onDelete: () => void;
   onTogglePin: () => void;
-  /** 未指定の呼び出し側 (プロジェクト配下の一覧) には引っ越しの項目を出さない */
-  onMove?: () => void;
+  /** 未指定の呼び出し側には引き継ぎの項目を出さない (操作の受け取りと表示を揃える) */
+  onHandoff?: () => void;
 }) {
   const diagnostics = useDiagnostics();
   const confirm = useConfirm();
@@ -77,7 +78,7 @@ export function SessionRow({
   const handlers: Record<SessionRowKind, (() => void) | undefined> = {
     pin: onTogglePin,
     rename: onRename,
-    move: onMove,
+    handoff: onHandoff,
     diagnostics: () => void copyDiagnostics(),
     "raw-log": () => void downloadRawLog(),
     delete: onDelete,
@@ -179,12 +180,13 @@ export function SessionRow({
         ) : null}
         <RowMenu
           name={item.title || "無題のセッション"}
-          // 引っ越しは canMove (旧サーバーは省略 = false) と操作の受け取りが揃った行だけに出す
+          // 引き継ぎは受取りがある行に出し、実行中・圧縮中・片付け中は無効にして理由を説明行へ出す
           actions={sessionRowActions({
             pinned: item.pinned === true,
-            canMove: item.canMove === true && onMove !== undefined,
+            canHandoff: onHandoff !== undefined,
             open: active,
             hasRawLog: item.hasRawLog === true,
+            ...(onHandoff === undefined ? {} : { handoffBlockedReason: handoffBlockedReason(item) }),
           })}
           copied={copied}
           busy={busy}

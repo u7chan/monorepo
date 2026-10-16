@@ -303,6 +303,27 @@ export interface SandboxDownloadCheck {
 export const SANDBOX_MAX_PREVIEW_BYTES = 2 * 1024 * 1024;
 
 /**
+ * 引き継ぎメモ (HANDOFF.md) の読み取り上限。既存のプレビューの上限とは別に持ち、
+ * 引き継ぎだけがこの値で拒否する (プレビューの上限を変えても引き継ぎの契約は動かさない)。
+ */
+export const SANDBOX_MAX_HANDOFF_BYTES = 2 * 1024 * 1024;
+
+/** GET /v1/files/handoff の応答。本文は UTF-8 のテキストだけ (バイナリは 400) */
+export interface SandboxHandoffRead {
+  text: string;
+}
+
+/**
+ * POST /v1/files/handoff の応答。`written` は追記したか (先頭行のハッシュが同じときは false)、
+ * `created` はこの要求がファイルを作ったか (新規作成の rollback の判定に使う)。
+ */
+export interface SandboxHandoffWrite {
+  path: string;
+  written: boolean;
+  created: boolean;
+}
+
+/**
  * アップロード / 生配信の 1 ファイル上限 (100 MiB)。クライアントの申告サイズは信用せず、ここで数える。
  */
 export const SANDBOX_MAX_UPLOAD_BYTES = 100 * 1024 * 1024;

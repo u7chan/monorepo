@@ -66,6 +66,7 @@ import { scanListeners } from "./process-scan";
 import {
   SANDBOX_MAX_BODY_BYTES,
   SANDBOX_MAX_FILE_ENTRIES,
+  SANDBOX_MAX_HANDOFF_BYTES,
   SANDBOX_MAX_PREVIEW_BYTES,
   SANDBOX_MAX_UPLOAD_BYTES,
   encodeSandboxEvent,
@@ -81,6 +82,7 @@ import {
   type SandboxFileEntry,
   type SandboxFileListing,
   type SandboxFileUpload,
+  type SandboxHandoffWrite,
   type SandboxLandlockStatus,
   type SandboxMoveRequestBody,
   type SandboxMoveResult,
@@ -228,6 +230,98 @@ async function resolveWorkspaceDirectory(
   if (directory && !targetStat.isDirectory()) throw pathError(400, `Not a directory: ${candidate}`);
   if (!directory && !targetStat.isFile()) throw pathError(400, `Not a regular file: ${candidate}`);
   return { root, target };
+}
+
+/**
+ * 引き継ぎメモ (HANDOFF.md) の読み取り。上限・UTF-8・バイナリの判定を引き継ぎ専用に持ち、
+ * プレビューの上限 (SANDBOX_MAX_PREVIEW_BYTES) の変更に追随させない。
+ */
+async function readHandoffText(target: string): Promise<string> {
+  const handle = await open(target, "r");
+  try {
+    if (!(await handle.stat()).isFile()) throw pathError(400, "Not a regular file");
+    const limit = SANDBOX_MAX_HANDOFF_BYTES;
+    const buffer = Buffer.alloc(limit + 1);
+    let size = 0;
+    while (size < buffer.length) {
+      const { bytesRead } = await handle.read(buffer, size, buffer.length - size, null);
+      if (!bytesRead) break;
+      size += bytesRead;
+    }
+    if (size > limit) throw pathError(400, "HANDOFF.md は 2 MiB 以下にしてください");
+    let text: string;
+    try {
+      text = new TextDecoder("utf-8", { fatal: true }).decode(buffer.subarray(0, size));
+    } catch {
+      throw pathError(400, "HANDOFF.md は UTF-8 のテキストファイルにしてください");
+    }
+    // oxlint-disable-next-line no-control-regex -- バイナリ判定のため制御文字を検出する。
+    if (/[\u0000-\u0008\u000e-\u001f]/u.test(text)) throw pathError(400, "バイナリの HANDOFF.md は扱えません");
+    return text;
+  } finally {
+    await handle.close();
+  }
+}
+
+/**
+ * 同一の実パスへの書き込みを直列化する。読んでから書くまでの間に他の追記が入っても、
+ * その上へ重ねられる (作業フォルダを共有する別の会話の引き継ぎも残す)。
+ */
+function withPathLock<T>(locks: Map<string, Promise<unknown>>, key: string, run: () => Promise<T>): Promise<T> {
+  const previous = locks.get(key) ?? Promise.resolve();
+  const operation = previous.then(run, run);
+  const settled = operation.then(
+    () => {},
+    () => {},
+  );
+  locks.set(key, settled);
+  void settled.then(() => {
+    if (locks.get(key) === settled) locks.delete(key);
+  });
+  return operation;
+}
+
+/**
+ * 引き継ぎメモを先頭へ追記する。既存の本文は解釈せず、先頭行に dedupeKey があるときだけ追記を省く
+ * (同じ材料からの再試行で二重にしない)。書込みは一時ファイル + rename で原子的にする。
+ */
+async function writeHandoffText(
+  rootCwd: string,
+  requested: string,
+  section: string,
+  dedupeKey: string,
+  locks: Map<string, Promise<unknown>>,
+): Promise<SandboxHandoffWrite> {
+  const name = basename(requested);
+  if (!requested || requested.endsWith("/") || name === "." || name === "..") {
+    throw pathError(400, `Not a regular file: ${requested}`);
+  }
+  const parent = await resolveWorkspaceDirectory(rootCwd, dirname(requested));
+  const target = join(parent.target, name);
+  return withPathLock(locks, target, async () => {
+    // 読む前に最終要素を見て symlink を拒む (realpath で実体に解決すると root 外を読めてしまう)
+    const stats = await lstat(target).catch(() => undefined);
+    if (stats?.isSymbolicLink()) throw pathError(400, `Symbolic links cannot be written: ${requested}`);
+    if (stats && !stats.isFile()) throw pathError(400, `Not a regular file: ${requested}`);
+    const existing = await readHandoffText(target).catch((error: unknown) => {
+      const statusCode = (error as { statusCode?: number }).statusCode;
+      if (statusCode === 404 || (error as NodeJS.ErrnoException).code === "ENOENT") return undefined;
+      throw error;
+    });
+    const firstLine = existing === undefined ? "" : (existing.split("\n", 1)[0] ?? "");
+    if (dedupeKey !== "" && firstLine.includes(dedupeKey)) {
+      return { path: requested, written: false, created: false };
+    }
+    const temp = join(parent.target, `.pi-handoff-${randomUUID()}.part`);
+    try {
+      await writeFile(temp, `${section}${existing ?? ""}`, { mode: 0o600 });
+      await rename(temp, target);
+    } catch (error) {
+      await unlink(temp).catch(() => {});
+      throw pathError(400, `Cannot write the handoff memo: ${messageFor(error)}`);
+    }
+    return { path: requested, written: true, created: existing === undefined };
+  });
 }
 
 /**
@@ -1048,6 +1142,8 @@ export function createSandboxService(options: SandboxServiceOptions): SandboxSer
   };
 
   const executions = new Map<string, AbortController>();
+  // 引き継ぎメモの書込みを実パス単位で直列化する (作業フォルダを共有する別の会話の同時追記を重ねる)
+  const handoffWrites = new Map<string, Promise<unknown>>();
 
   const app = new Hono();
 
@@ -1435,6 +1531,42 @@ export function createSandboxService(options: SandboxServiceOptions): SandboxSer
           ...common,
         },
       });
+    } catch (error) {
+      const statusCode = (error as { statusCode?: number }).statusCode ?? 500;
+      return c.json({ error: messageFor(error) }, statusCode as 400);
+    }
+  });
+
+  // 引き継ぎメモ (HANDOFF.md) の読取り。専用の上限・UTF-8・バイナリ判定を持ち、不存在は 404。
+  // プレビュー API の流用はしない (上限が変わるため)。
+  app.get("/v1/files/handoff", async (c) => {
+    try {
+      const { target } = await resolveWorkspaceDirectory(rootCwd, c.req.query("path") ?? "", false);
+      return c.json({ text: await readHandoffText(target) });
+    } catch (error) {
+      const statusCode = (error as { statusCode?: number }).statusCode ?? 400;
+      return c.json({ error: messageFor(error) }, statusCode as 400);
+    }
+  });
+
+  // 引き継ぎメモの先頭追記。読んでから書くまでを実パス単位の排他の中で行い、既存の中身は解釈せずそのまま残す。
+  app.post("/v1/files/handoff", async (c) => {
+    let body: unknown;
+    try {
+      body = await readJsonBody(c.req.raw);
+    } catch (error) {
+      const statusCode = (error as { statusCode?: number }).statusCode ?? 400;
+      return c.json({ error: messageFor(error) }, statusCode as 400);
+    }
+    const { path, section, dedupeKey } = (body ?? {}) as { path?: unknown; section?: unknown; dedupeKey?: unknown };
+    if (typeof path !== "string" || typeof section !== "string" || typeof dedupeKey !== "string") {
+      return c.json({ error: "path, section and dedupeKey must be strings" }, 400);
+    }
+    if (Buffer.byteLength(section, "utf8") > SANDBOX_MAX_HANDOFF_BYTES) {
+      return c.json({ error: "The handoff memo is too large" }, 400);
+    }
+    try {
+      return c.json(await writeHandoffText(rootCwd, path, section, dedupeKey, handoffWrites));
     } catch (error) {
       const statusCode = (error as { statusCode?: number }).statusCode ?? 500;
       return c.json({ error: messageFor(error) }, statusCode as 400);

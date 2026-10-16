@@ -46,7 +46,7 @@ BFF の agent dir（`PI_CODING_AGENT_DIR`。未設定なら `$HOME/.pi/agent`）
 - 追加スペースはアプリ DB の `spaces(id, name, createdAt, sortOrder)` に保存する。内部 ID は `space-` + 16 桁の hex、表示名とは独立して固定する。既定スペースは固定の選択肢でテーブルへ保存しない。v13 → v14 はテーブル追加だけの加算移行で、既存データを移動・削除しない。並びは `sortOrder` に保存し、一覧は `sortOrder` → `rowid` の順で返す。v21 → v22 は列追加だけの加算移行で、既存行の `sortOrder` は `NULL` のまま（同じ `NULL` 同士は `rowid` = 作成順で並ぶ）。並べ替えは 1 トランザクションで `sortOrder` を 1..n に振り直し、追加は `MAX + 1` で末尾に付く（エージェントと同じ。[api.md](api.md#スペース)）。
 - 会話ログは従来の `<PI_SESSION_STORE>/<sessionId>/` のまま。追加スペースの所属は meta に保存し、live・未ロード・sweep 後・再起動後で保持する。JSONL の SDK 形式は変えない。
 - 既定の作業先・添付は既存パスのまま。追加スペースの作業フォルダと添付は所属スペース配下（[session-files.md](session-files.md#スペースごとの配置)）。
-- 未所属セッションは `POST /api/sessions/:id/move` で別のスペースへ引っ越せる。meta の `spaceId` を書き換え、作業フォルダ / 添付を移動先のパスへ物理移動する（会話ログのフォルダは `<PI_SESSION_STORE>/<sessionId>/` のままで、履歴の `session.jsonl` / `sends.json` は破棄する。`secrets` / `serve_commands` は cwd をキーにするため移動先へ付け替える。[api-sessions.md](api-sessions.md#post-apisessionsidmove)）。
+- 未所属セッションは `POST /api/sessions/:id/move` で別のスペースへ引き継げる（プロジェクト所属は同じスペースへのエージェント交代だけ）。meta の `spaceId` とエージェントのスナップショットを書き換え、別スペースなら作業フォルダ / 添付を移動先のパスへ物理移動する（会話ログのフォルダは `<PI_SESSION_STORE>/<sessionId>/` のままで、履歴の `session.jsonl` / `sends.json` は破棄する。`secrets` / `serve_commands` は cwd をキーにするため移動先へ付け替える。[api-sessions.md](api-sessions.md#post-apisessionsidmove)）。
 - 追加スペースは `DELETE /api/spaces/:id` で削除できる。会話（live / 未ロード）・履歴・作業フォルダ / 添付（`<workspace>/.u7agent/spaces/<spaceId>`）・`secrets` / `serve_commands` の cwd キー行・`spaces` 行を消し、`spaces` 行の削除を最後に置いて途中で失敗しても行が残るようにする（そのまま再試行できる）。既定スペースは対象外（400）。削除中はそのスペースを対象にする scoped API が読み取りも含めて 404 になる（[api.md](api.md#スペース)）。
 - 切り替えは会話や実行中ランを消さない。改名・リセットは設けず、削除だけができる。空のデモを始めるときは新しいスペースを作成する。
 
@@ -121,6 +121,7 @@ BFF の agent dir（`PI_CODING_AGENT_DIR`。未設定なら `$HOME/.pi/agent`）
 
 - 起動時にストアを走査して一覧（descriptor）を復元し、セッションを開いたときに SDK セッションを遅延生成する。表示メッセージ数（`messageCount`）の定義を変えた場合は、古い値のままの meta を開いたときに書き戻すため、開いていないセッションの一覧は古い値を返し続ける（[session-files.md](session-files.md)）。
 - アイドル 1 時間の sweep はメモリから外すだけで、ストアと作業ディレクトリ・添付は残る。SSE 購読中のセッションは対象外。
+- `meta.json` はタイトルやスナップショットのほか、`pinned` / `notify` と、引き継ぎの任意フィールドを持つ。**引き継ぎの記録（操作 ID・時刻・メモの有無・消費済み）と `handoffCleanup`（確定後の履歴削除が未完了）は加算のみの任意フィールド**で、欠落は「引き継ぎなし / 片付け不要」として読み、新しく保存する meta にだけ載せる（旧 meta を書き換えない）。引き継ぎは**確定後にだけ**記録を書き、履歴削除に失敗したときは `handoffCleanup` を残す（次に開くときに削除から再試行する。[run-lifecycle.md](run-lifecycle.md#引き継ぎと復旧)）。
 - `DELETE /api/sessions/:id` はストアの履歴だけを消し、作業ディレクトリ（ユーザーのファイル）と添付は残す。
 - タイトルは GUI の ⋯「名前を変更」（`PATCH /api/sessions/:id/title`）で更新でき、live / 未ロードのどちらでも `meta.json` を書き換える（未ロードでは SDK セッションを開かない。[api-sessions.md](api-sessions.md#patch-apisessionsidtitle)）。
 - エージェント定義のプロンプトとスキル本文は作成時に `promptSnapshot` として meta に保存し、復元後の実行内容を定義の変更に依存させない（現行の「定義変更を遡及させない」と同じ）。agent は system prompt へ入れるが、スキル本文は入れない — 索引（name / description / 仮想パス）だけを `skillsOverride` で渡し、本文は `read` と `/skill:` の展開がこのスナップショットから取り出す。ファイルスキル（`.agents/skills`）は `promptSnapshot` に含めず、復元のたびに再発見する（[スキルの扱い](#スキルの扱い)）。

@@ -27,6 +27,7 @@ pnpm dev   # サンドボックス + BFF + Vite をまとめて起動 → http:/
 ## 機能
 
 - **プロジェクトとセッションの作業ディレクトリ** — 登録したプロジェクトのセッションはそのディレクトリを cwd にし、未所属チャットは既定スペースでは `<workspace root>/.u7agent/sessions/<id>` のスクラッチで動きます（[docs/projects.md](docs/projects.md)）
+- **会話の引き継ぎ** — 会話の行の ⋯ から、同じ会話のままエージェントや会話スペースを代えて続けられます（履歴は破棄、タイトル・ピン・通知は維持）。要点を作業フォルダ直下の `HANDOFF.md` に書き出せるほか、引き継ぎ直後の入力欄にチップが出て必要なときだけ参照させられます（[docs/run-lifecycle.md](docs/run-lifecycle.md#引き継ぎと復旧) / [docs/api-sessions.md](docs/api-sessions.md#post-apisessionsidmove)）
 - **ファイルの持ち出し（ダウンロード）** — 設定 → ファイル と右パネルのツリーの行から保存できます。ファイルは元の名前のまま生バイトで、フォルダは ZIP です。除外規則と上限は [docs/file-preview.md](docs/file-preview.md#ダウンロード)
 - **スキル** — エージェント定義スキル / ファイルスキル（`.agents/skills`）/ 組み込みスキルの 3 種類があり、入力欄から `/skill:<name>` で展開します（[docs/persistence.md](docs/persistence.md#スキルの扱い) / [docs/api-catalog.md](docs/api-catalog.md#ファイルスキルagentsskills)）
 - **サービス（serve）** — エージェントが起動した Web サーバーを別タブで開き、トップバーから起動・停止・入れ替えができます（[docs/sandbox.md](docs/sandbox.md#serveサービスの公開と起動停止)）

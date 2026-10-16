@@ -36,7 +36,7 @@
 }
 ```
 
-`pinned` はサイドバーで固定するかを示す（常に boolean）。`awaitingAnswer` は `ask_user` の未 settle の回答待ちがあるか（省略 = false）。この間もランは `running` のままで、左バーの行が「回答待ち」になる（[ask-user.md](ask-user.md#ui)）。待機を持たない未ロードの会話は省略し、ロード済みの会話は待機が無くても `false` を返す。`canMove` は別のスペースへ引っ越せるか（現在は `projectCwd` を持たないこと。省略は false として扱う）。移動の導線はこれだけを見て、プロジェクト所属のセッションに項目を出さない。`hasRawLog` は生ログ（`session.jsonl`）がディスクにあるか（省略 = false）。会話行の「生ログをダウンロード」はこれが true のときだけ押せ、false では理由を説明行に出す（[diagnostics.md](diagnostics.md#取れないもの)）。`projectId` は所属プロジェクト（未所属はキーを省略する）。所属は保存された `projectCwd` をプロジェクト一覧と突き合わせて読み取り時に解決するため、プロジェクトを解除すると配下セッションは未所属として返る（セッションと履歴・ピン状態は残る）。復元したセッションも同じ規則で解決する。
+`pinned` はサイドバーで固定するかを示す（常に boolean）。`awaitingAnswer` は `ask_user` の未 settle の回答待ちがあるか（省略 = false）。この間もランは `running` のままで、左バーの行が「回答待ち」になる（[ask-user.md](ask-user.md#ui)）。待機を持たない未ロードの会話は省略し、ロード済みの会話は待機が無くても `false` を返す。`canHandoff` は同じ会話のままエージェント / スペースを引き継げるか（常に true。旧サーバーは省略 = false）。`projectSession` はプロジェクト所属か（真では引き継ぎ先のスペースを選ばない）。`handoffCleanup` は確定後の履歴削除（片付け）が残っているか（省略 = false。真の間は開く要求が 409 になり、新しい引き継ぎも受け付けない）。`hasRawLog` は生ログ（`session.jsonl`）がディスクにあるか（省略 = false）。会話行の「生ログをダウンロード」はこれが true のときだけ押せ、false では理由を説明行に出す（[diagnostics.md](diagnostics.md#取れないもの)）。`projectId` は所属プロジェクト（未所属はキーを省略する）。所属は保存された `projectCwd` をプロジェクト一覧と突き合わせて読み取り時に解決するため、プロジェクトを解除すると配下セッションは未所属として返る（セッションと履歴・ピン状態は残る）。復元したセッションも同じ規則で解決する。
 
 `messageCount` は表示メッセージ数（`user` と、テキストを持つ `assistant`。ツール呼び出しだけのターンは数えない）で、履歴の生件数ではない。未ロードのセッションは保存された `meta.json` の値、ロード済みは現在の履歴から数えた値を返す（ずれの扱いは [session-files.md](session-files.md)）。
 
@@ -160,6 +160,8 @@
 `eventGeneration` は SSE の世代（[イベント購読](#get-apisessionsidevents) を参照）。`lastSeq` と組でカーソルの整合判定に使う。
 
 `pendingSends` は 202 で受理したが user entry としてまだ保存されていない送信（古い→新しい）。要素は `{ runId, text, at, state, position? }` で、`text` は表示用にマスク済み。`state` は `unsent`（再起動・停止・entry を残さない終了で実行されなかった）/ `queued`（待機中）/ `running`（実行中）。`position` は `queued` のときだけ載る待機中の順位（1 始まり、SSE `queued` の `position` と同じ名前で、値は `record.queue` の index + 1）。**`pendingSends` の並び（`unsentSends` の受理順）は再送で実際のキューの並びと入れ替わる**（再送は末尾へ積まれ、受理の記録は元の位置に残る）ため、順位は並びから数えず `position` を読む。クライアントは `unsent` を「未送信」へ切り替え、`queued` / `running` は受理済みの pending として保つ（別タブの再送中に表示から消さない。履歴の初回応答前でもバブルを足す）。手元にバブルが無い `unsent` は末尾へ足し、一覧から消えた未送信は別タブの再送 / 破棄として落とす（[frontend.md](frontend.md#チャット状態とレンダリング)）。再送は本文を送り直さず `POST /api/sessions/:id/messages` の `resendRunId` へ `runId` を渡す（マスク済みの本文をモデルへ送らないため）。「実行中」は `run.status === "running"` か SDK が streaming のときだけで、**終了した run は `unsent` になる**（`record.run` は終了後も status 付きで残るため、`error` で終わって user entry を残さなかった送信も再送 / 破棄できる）。旧サーバーはこのキーを載せないので、省略 = 0 件ではなく未対応として扱う（`state` があっても `position` が無いときは順位が不明として扱う）。
+
+`handoff` は直前の引き継ぎの状態（`{ operationId, at, memo, consumed, cleanupPending }`）。`operationId` は引き継ぎごとのランダムな 8 hex、`memo` は `HANDOFF.md` を書いたか、`consumed` は引き継ぎ後に最初の送信を受理済みか（未送信の破棄では戻らない）、`cleanupPending` は片付けが残っているか。チップ「HANDOFF.mdを参照」は `memo && !consumed` のときだけ出す（表示はクライアントのメモリではなくこの値から導出する。 [ui-layout.md](ui-layout.md#スペース)）。引き継ぎを受けていない会話と旧サーバーはキーを省略する。
 
 JSONL が破損している（SDK が追記する entry type / message role を store が知らない、途中の行が壊れている等）セッションを開く要求は 409（store のパスを含む文言）で拒否する。原本は書き換えず、一覧にも残る（[session-files.md](session-files.md#会話の保存)）。開けなかったときのクライアントの移り先は [frontend.md](frontend.md#クライアントの-effect-契約) を参照。
 
@@ -290,23 +292,26 @@ GET /api/sessions/:id/history?limit=50&before=<itemId>
 
 ## `POST /api/sessions/:id/move`
 
-未所属セッションを別のスペースへ引っ越す。**会話履歴（`session.jsonl` / `sends.json`）は破棄され、作業フォルダと添付は移動先のパスへ物理移動する**（不可逆。戻すには逆方向へ移す）。要求元のスペースは query で照合し（他の会話 API と同じ `sessionSpaceGuard`）、移動先は本文で指定する。
+会話を引き継ぐ（エージェント / スペースの交代）。**会話の行・タイトル・ピン・通知・作成時刻は保ち、**会話履歴（`session.jsonl` / `sends.json`）は破棄する**（不可逆。戻すには逆方向へ引き継ぐ）。作業フォルダと添付は、同じスペースならその場のまま、別のスペースなら移動先のパスへ物理移動する。要求元のスペースは query で照合し（他の会話 API と同じ `sessionSpaceGuard`）、移動先は本文で指定する。**SDK セッションを開かない**ため、JSONL が破損していてもモデル未認証でもメモ OFF なら引き継げる。
 
 ```json
 // request (?spaceId=<要求元>)
-{ "spaceId": "space-…" }
+{ "spaceId": "space-…", "agentId": "…", "memo": true }
 // response (200)
-{ "sessionId": "…", "title": "…", "spaceId": "space-…" }
+{ "sessionId": "…", "title": "…", "spaceId": "space-…", "memo": true, "cleanupPending": false }
 ```
 
-- 動かせるのは `projectCwd` を持たないセッションだけ（`projectId` は読み取り時の解決値なので判定に使わない。登録解除済みでも `projectCwd` が残るセッションは 400）。現在の作業フォルダが `sessionWorkdirRel(id, 現在のスペース)` と一致しない構成も 400。
-- 維持: `sessionId` / `title` / `agent` / `promptSnapshot` / `model` / `thinkingLevel` / `pinned` / `notify` / `createdAt`。破棄: 履歴と未送信。`messageCount` は 0 になり、`lastUsedAt` は更新する。移動先の所属は `default` も含めて `meta.json` に明示的に書く。
-- **SDK セッションを開かない**ため、JSONL が破損していてもモデル未認証でも移せる（`DELETE` と同じ契約）。live の record は dispose してメモリから外し、購読中の SSE は `session_deleted` を送らずに close する（クライアントは一覧の取り直しで復帰する）。
-- 実行中 / キュー中 / 圧縮中 / 設定変更中は 409。同じスペースへの移動は 400、未知の id / 要求元と所属の不一致 / 未知の移動先スペースは 404。
+- `agentId` は省略で現在のエージェントを維持する（現在のエージェントがカタログから消えていても引き継げる）。指定するときは新規作成と同じ解決経路（スキルとツールの許可リストを含む）でスナップショットを作り、`agentId` / `agent` / `promptSnapshot` を揃えて差し替える。未知・削除済みの id は 400。
+- `memo` は省略で false（既存の「引っ越す」の意味を変えない。UI はトグルの値を常に送る）。真では、保存された会話（JSONL の entry と meta）から組み立てた節を作業フォルダ直下の `HANDOFF.md` へ先頭追記する。本文は全文を mask してから長さで切る。ライブの `messages` は使わない（再起動の前後で同じメモになる）。
+- 動かせるのは `projectCwd` を持たないセッションと、`projectCwd` を持っていても**同じスペースへの引き継ぎ**だけ（別スペースは 400。作業ディレクトリが同じで移す先がない）。現在の作業フォルダが `sessionWorkdirRel(id, 現在のスペース)` と一致しない構成も 400。
+- 維持: `sessionId` / `title` / `model` / `thinkingLevel` / `pinned` / `notify` / `createdAt`。差し替え: `agent` / `promptSnapshot`（`agentId` 指定時）。破棄: 履歴と未送信。`messageCount` は 0 になり、`lastUsedAt` は更新する。移動先の所属は `default` も含めて `meta.json` に明示的に書く。引き継ぎの記録（操作 ID・時刻・メモの有無・消費済み）と片付けの印も meta の任意フィールドに書く（[persistence.md](persistence.md)）。
+- 実行中 / キュー中 / 圧縮中 / 設定変更中は 409（UI も同じ条件で項目を無効にする）。メモ ON で材料が無い（メッセージ 0 件、JSONL が壊れている）は 400（メモ OFF なら移せる）。片付けが残っている会話の新しい引き継ぎも 409。同じスペースへの引き継ぎは成立する。未知の id / 要求元と所属の不一致 / 未知の移動先スペースは 404。
 - 作業フォルダ / 添付は移動先の親（追加スペースなら `spaces/<spaceId>/sessions` / `spaces/<spaceId>/uploads`、既定へ戻すなら `.u7agent/sessions` / `.u7agent/uploads`）を作ってから移す。移動元が無いときは「運ぶものが無い」として続行し、移動先に既存があるときはマージせず 409（退避先の削除を案内する）。再実行は冪等。
-- `secrets` / `serve_commands` は cwd をキーにするため、移動先の cwd へ 1 トランザクションで付け替える（値の AAD は cwd を含まないので再暗号化しない）。
-- meta の書換え前に失敗したら、移したものを逆順で戻して 400 / 409 / 500 / 502 を返す。meta の書換え後に履歴の削除だけが失敗したときは 500 を返し、meta は移動済みのまま（同じスペースへは戻せないため、履歴の削除は次にその会話を別のスペースへ移したときに再試行される）。永続化なし / サンドボックス未設定 / アプリ DB 障害は 503（DB は `not_stored`）。
-- 稼働中のサービス（serve）があっても移動できる。既知の制限は [api.md](api.md#サービスserveの状態と起動停止) と [sandbox.md](sandbox.md#serveサービスの公開と起動停止) を参照。
+- `secrets` / `serve_commands` は cwd をキーにするため、別スペースへの引き継ぎで移動先の cwd へ 1 トランザクションで付け替える（値の AAD は cwd を含まないので再暗号化しない）。同じスペースでは何も動かさない。
+- 手順は検証（副作用なし）→ メモの材料と既存の `HANDOFF.md` を読んで上限・UTF-8・バイナリを判定 →（別スペースなら移動）→ メモを書く → meta を書く（確定点）→ dispose・書込み drain・履歴削除 → 購読を close。**meta の書換え前に失敗したら、移したものを逆順で戻す**（新規作成したメモは自分が書いた内容と一致するときだけ削除し、既存への追記は戻さない）。
+- 確定後の履歴削除に失敗したときは 200 のまま `cleanupPending: true` を返す（meta には片付けの印が残る）。クライアントは移動先へ切り替えて状態行に警告を出し、次に開くときに削除から再試行する（それまで開く要求は 409）。`DELETE /api/sessions/:id` は可能で、一覧にも残る。片付けの間も `resync` で購読中のタブへ状態を配る。
+- メモの冪等化: 節の先頭行に材料のハッシュを書き、書込みの排他の中で先頭行だけを見て同じハッシュなら追記しない（再試行・再起動で二重にならない。操作 ID は再試行のたびに変わるため鍵にしない）。`HANDOFF.md` の書き込み API は [sandbox-api.md](sandbox-api.md#post-v1fileshandoff) を参照。
+- 失敗の分類は移動と同じ（meta 書換え前は 400 / 409 / 500 / 502、サンドボックス未設定・永続化なし・アプリ DB 障害は 503。DB は `not_stored`）。
 
 ## `POST /api/sessions/:id/messages`
 

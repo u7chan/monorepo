@@ -26,6 +26,7 @@ import type {
   RunOutcome,
   RunRetryState,
   RunStatus,
+  SessionHandoffState,
   SessionPayload,
   SkillLoad,
   ThinkingLevel,
@@ -103,6 +104,11 @@ export type ChatState = {
   /** セッション作成時のエージェントのスナップショット (定義を編集しても既存セッションの表示は変わらない) */
   sessionAgentId?: string;
   sessionAgentName?: string;
+  /**
+   * 直前の引き継ぎの状態 (payload の handoff)。チップ (HANDOFF.md を参照) の表示条件を
+   * 会話の状態から導出するために持ち、クライアントのメモリだけで持たない。
+   */
+  handoff?: SessionHandoffState;
   supportsThinking: boolean;
   availableThinkingLevels: ThinkingLevel[];
   context?: ContextUsage;
@@ -729,6 +735,8 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
         sessionThinkingLevel: payload.thinkingLevel,
         sessionAgentId: payload.agent?.id,
         sessionAgentName: payload.agent?.name,
+        // 引き継ぎの状態も payload だけを正とする (旧サーバーは載せない = undefined)
+        handoff: payload.handoff,
         supportsThinking: payload.supportsThinking ?? false,
         availableThinkingLevels: payload.availableThinkingLevels ?? [],
         context: payload.context,

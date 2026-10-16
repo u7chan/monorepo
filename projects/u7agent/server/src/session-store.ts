@@ -39,6 +39,19 @@ export interface PromptSnapshot {
   skills: string[];
 }
 
+/**
+ * 引き継ぎ 1 回分の記録。操作 ID は世代発行と同じ作法のランダム値で、同じ作業フォルダを共有する別の会話が
+ * 同じミリ秒に引き継いでも衝突しないようにする (冪等化の鍵は操作 ID ではなくメモ本文のハッシュ)。
+ */
+export interface SessionHandoffRecord {
+  operationId: string;
+  at: number;
+  /** HANDOFF.md を書いたか (OFF の引き継ぎでは false) */
+  memo: boolean;
+  /** 引き継ぎ後に最初に受理した送信で立てる (チップの表示条件) */
+  consumed: boolean;
+}
+
 export interface SessionMeta {
   spaceId?: string;
   version: 1;
@@ -58,6 +71,18 @@ export interface SessionMeta {
   notify?: boolean;
   /** サイドバーに固定するか (既定 false)。既存 meta では欠落するので optional のままにする */
   pinned?: boolean;
+  /** 引き継ぎの記録。旧 meta は欠落 = 引き継ぎなし */
+  handoff?: SessionHandoffRecord;
+  /**
+   * 引き継ぎの確定後に残った履歴の削除 (片付け) が未完了か。true の間は会話を開けず、新しい引き継ぎも
+   * 受け付けない。旧 meta は欠落 = 片付け不要。
+   */
+  handoffCleanup?: boolean;
+}
+
+/** 引き継ぎごとの操作 ID。セッション ID と同じ 8 hex 文字 */
+export function generateHandoffOperationId(): string {
+  return randomBytes(4).toString("hex");
 }
 
 export interface SessionHeader {
@@ -160,6 +185,7 @@ function parseMeta(value: unknown, id: string): SessionMeta | undefined {
   if (!meta.agent || typeof meta.agent !== "object") return undefined;
   const prompt = meta.promptSnapshot;
   if (!prompt || typeof prompt.agent !== "string" || !Array.isArray(prompt.skills)) return undefined;
+  const handoff = parseHandoff(meta.handoff);
   return {
     version: 1,
     ...(meta.spaceId !== undefined ? { spaceId: meta.spaceId } : {}),
@@ -179,7 +205,20 @@ function parseMeta(value: unknown, id: string): SessionMeta | undefined {
     ...(typeof meta.notify === "boolean" ? { notify: meta.notify } : {}),
     // 欠落や不正値は未固定として扱い、既存データの読み込みを妨げない。
     ...(typeof meta.pinned === "boolean" ? { pinned: meta.pinned } : {}),
+    // 引き継ぎの記録と片付けの印も同じ方針 (欠落 = 引き継ぎなし / 片付け不要)。
+    // 不正な記録は落とし、読み込みそのものは妨げない
+    ...(handoff ? { handoff } : {}),
+    ...(meta.handoffCleanup === true ? { handoffCleanup: true } : {}),
   };
+}
+
+function parseHandoff(value: unknown): SessionHandoffRecord | undefined {
+  if (!value || typeof value !== "object") return undefined;
+  const record = value as Partial<SessionHandoffRecord>;
+  if (typeof record.operationId !== "string" || record.operationId === "") return undefined;
+  if (typeof record.at !== "number" || !Number.isFinite(record.at)) return undefined;
+  if (typeof record.memo !== "boolean" || typeof record.consumed !== "boolean") return undefined;
+  return { operationId: record.operationId, at: record.at, memo: record.memo, consumed: record.consumed };
 }
 
 /** 読めない meta は「壊れたセッション」として undefined を返す (一覧から除外する) */

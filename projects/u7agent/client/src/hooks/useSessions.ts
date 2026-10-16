@@ -9,7 +9,16 @@ import { createFileRefRequests } from "../lib/fileRefRequest";
 import type { FileRefTarget } from "../lib/fileRef";
 import { missingLinkNote, type SessionOpenResult } from "../lib/notifications";
 import { sessionDeleteConfirmRequest, sessionRenameRequest } from "../lib/sidebarRowMenu";
-import type { AgentDef, EventEntry, Health, ModelRef, SessionPayload, SessionSummary, ThinkingLevel } from "../types";
+import type {
+  AgentDef,
+  EventEntry,
+  Health,
+  ModelRef,
+  SessionMoveResponse,
+  SessionPayload,
+  SessionSummary,
+  ThinkingLevel,
+} from "../types";
 import type { ChatAction } from "./chatReducer";
 import { createRequestGate } from "./requestGate";
 import { createNotifyCarry, createNotifyToggleRunner } from "./notifyToggle";
@@ -78,7 +87,7 @@ export function useSessions({
     getSession,
     getSessionHistory,
     listSessions,
-    moveSession: apiMoveSession,
+    handoffSession: apiHandoffSession,
     updateSessionNotify,
     updateSessionPinned,
     updateSessionSettings,
@@ -661,20 +670,19 @@ export function useSessions({
   );
 
   /**
-   * 別のスペースへ引っ越す。履歴は破棄され、作業フォルダ / 添付 / cwd キーの行は移動先へ移る (不可逆)。
-   * 失敗は理由をダイアログへ返すため投げ直し、成功したときだけ一覧から外して選択を移す (削除と同じ規則)。
+   * 会話を引き継ぐ。履歴は破棄され、エージェントは差し替わり、別スペースなら作業フォルダ / 添付 / cwd キーの行が
+   * 移動先へ移る (不可逆)。成功したら一覧を取り直し、応答を返す (スペースの切替と会話の開き直しは
+   * App が `openOwnerSession` と同じ経路で行う。一覧からの削除と同じ移り先の規則は使わない)。
+   * 失敗は理由をダイアログへ返すため投げ直す。
    */
-  const moveSession = useCallback(
-    async (id: string, targetSpaceId: string): Promise<void> => {
+  const handoffSession = useCallback(
+    async (id: string, request: { spaceId: string; agentId?: string; memo: boolean }): Promise<SessionMoveResponse> => {
       // 要求元は現在のスペース (space.api の query)、移動先は body で渡す
-      await apiMoveSession(id, targetSpaceId);
-      const list = await refreshSessions();
-      if (id !== sessionIdRef.current) return;
-      const next = nextAfterRemoval(list ?? sessionsRef.current);
-      if (next.kind === "select") await selectSession(next.sessionId);
-      else newChatRef.current();
+      const result = await apiHandoffSession(id, request);
+      await refreshSessions();
+      return result;
     },
-    [apiMoveSession, refreshSessions, selectSession],
+    [apiHandoffSession, refreshSessions],
   );
 
   /**
@@ -755,7 +763,7 @@ export function useSessions({
     newChat,
     ensureSession,
     deleteSession,
-    moveSession,
+    handoffSession,
     renameSession,
     reselectIfMissing,
     restoreSession,

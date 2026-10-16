@@ -100,6 +100,18 @@ export function projectSessionPayload({
       : null,
     messages: projectMessages(session, record.messageMetrics, masker, workspaceAbs(rootCwd, cwd), record.toolTimings),
     compactions: compactionsOf(record, masker),
+    // 引き継ぎの状態は meta が正 (クライアントのメモリでは持たない)。片付けの印もここで合成する
+    ...(record.meta.handoff
+      ? {
+          handoff: {
+            operationId: record.meta.handoff.operationId,
+            at: record.meta.handoff.at,
+            memo: record.meta.handoff.memo,
+            consumed: record.meta.handoff.consumed,
+            cleanupPending: record.meta.handoffCleanup === true,
+          },
+        }
+      : {}),
     ...(context ? { context } : {}),
   };
 }
@@ -132,7 +144,9 @@ export function projectSessionSummary({
     queueDepth: record.queue.length,
     notify: record.notify,
     pinned: record.pinned,
-    canMove: !record.projectCwd,
+    canHandoff: true,
+    projectSession: record.projectCwd !== undefined,
+    ...(record.meta.handoffCleanup ? { handoffCleanup: true } : {}),
     hasRawLog,
     messageCount: displayableMessages(record.session, masker).length,
     createdAt: record.createdAt,

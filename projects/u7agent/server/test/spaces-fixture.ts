@@ -307,13 +307,14 @@ const pi = Object.assign(
   }),
   { cwd, sandboxConfigured: true },
 );
-// workspace を渡すと env 由来のサンドボックスは作られないため、引っ越しの物理移動は別の口として渡す
-// (渡さないと受入の「⋯ から別のスペースへ引っ越す」が必ず 503 になる)
+// workspace を渡すと env 由来のサンドボックスは作られないため、引き継ぎの物理移動とメモの読み書きは別の口として渡す
+// (渡さないと受入の「⋯ から会話を引き継ぐ」が必ず 503 になる)
 const bff = await createBffApp({
   cwd,
   sessionStoreDir: store,
   workspace,
   moveSandbox: workspace,
+  handoffSandbox: workspace,
   // 公開サービスの確認 (スペース削除の 409) も同じ口から引く。渡さないと削除が必ず 503 になる
   serveSandbox: workspace,
   pi: asPiBff(pi),

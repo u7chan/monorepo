@@ -10,7 +10,6 @@ import {
   projectRowActions,
   rawLogConfirmRequest,
   sessionDeleteConfirmRequest,
-  sessionMoveDialogText,
   sessionRenameRequest,
   sessionRowActions,
 } from "../src/lib/sidebarRowMenu";
@@ -42,11 +41,12 @@ function renderProjectRow(): string {
       onRenameSession: () => {},
       onDeleteSession: () => {},
       onTogglePinnedSession: () => {},
+      onHandoffSession: () => {},
     }),
   );
 }
 
-function renderSessionRow(overrides: Partial<SessionSummary> = {}, onMove?: () => void): string {
+function renderSessionRow(overrides: Partial<SessionSummary> = {}, onHandoff?: () => void): string {
   const item: SessionSummary = {
     sessionId: "s-1",
     title: "テスト",
@@ -72,7 +72,7 @@ function renderSessionRow(overrides: Partial<SessionSummary> = {}, onMove?: () =
           onRename: () => {},
           onDelete: () => {},
           onTogglePin: () => {},
-          ...(onMove ? { onMove } : {}),
+          ...(onHandoff ? { onHandoff } : {}),
         }),
       }),
     }),
@@ -110,11 +110,17 @@ test("出し分け: プロジェクト行とセッション行で必要な操作
     { kind: "delete", label: "セッションを削除", danger: true },
   ]);
   assert.equal(sessionRowActions({ pinned: true })[0]?.label, "ピン留めを解除");
-  // 引っ越しは削除の手前。プロジェクト所属 (canMove が false / 省略) では出さない
-  assert.deepEqual(sessionRowActions({ canMove: true }), [
+  // 実行中・圧縮中・片付け中は無効にし、理由を説明行へ出す (項目ごと隠さない)
+  assert.deepEqual(sessionRowActions({ canHandoff: true, handoffBlockedReason: "実行中です" }), [
     { kind: "pin", label: "ピン留め" },
     { kind: "rename", label: "名前を変更" },
-    { kind: "move", label: "別の会話スペースへ引っ越す" },
+    {
+      kind: "handoff",
+      label: "会話を引き継ぐ",
+      description: "実行中です",
+      descriptionKind: "disclosure",
+      disabled: true,
+    },
     {
       kind: "diagnostics",
       label: "診断情報をコピー",
@@ -164,24 +170,6 @@ test("説明の区分: 押す前に知る必要がある説明は singleColumn �
   // 分類の無い項目は開示として扱う (今のセッション行に補足は無いが、追加時に勝手に消えない)
   assert.equal(rowMenuDescriptionKind({}), "disclosure");
   assert.equal(rowMenuDescriptionKind({ descriptionKind: "note" }), "note");
-});
-
-test("引っ越しの確認は履歴の破棄とファイルの引き継ぎを伝え、対象のタイトルを独立した行に出す", () => {
-  const text = sessionMoveDialogText("決済画面の検証");
-  assert.equal(text.title, "別の会話スペースへ引っ越す");
-  assert.deepEqual(text.subject, { label: "引っ越すセッション", value: "決済画面の検証" });
-  assert.equal(text.confirmLabel, "引っ越す");
-  assert.ok(
-    text.body.some((line) => line.includes("履歴") && line.includes("破棄")),
-    "履歴の破棄が本文に無い",
-  );
-  assert.ok(
-    text.body.some((line) => line.includes("引き継")),
-    "ファイルの引き継ぎが本文に無い",
-  );
-  assert.ok(text.emptyNote.includes("移動先の会話スペースがありません"), "候補 0 件の案内が無い");
-  // 一覧が古くてタイトルが取れない行でも確認は出す (対象の行を省くだけ)
-  assert.equal(sessionMoveDialogText("").subject, undefined);
 });
 
 test("セッションの削除確認は対象のタイトルを出し、リネームは現在のタイトルを初期値にする", () => {
@@ -252,13 +240,16 @@ test("セッション行はピン状態を示し、⋯ に切替・改名・削�
   assert.ok(menuTrigger(renderSessionRow({ title: "" })).includes('aria-label="無題のセッション の操作"'));
 });
 
-test("引っ越しの項目は canMove と操作の受け取りが揃った行だけに出る", () => {
-  // プロジェクト配下の一覧は onMove を渡さない。canMove が立っていても出さない
-  assert.ok(!renderSessionRow({ canMove: true }).includes("別の会話スペースへ引っ越す"));
-  // 旧サーバーは canMove を載せない (省略 = false)
-  assert.ok(!renderSessionRow({}, () => {}).includes("別の会話スペースへ引っ越す"));
-  assert.ok(!renderSessionRow({ canMove: false }, () => {}).includes("別の会話スペースへ引っ越す"));
-  assert.ok(renderSessionRow({ canMove: true }, () => {}).includes("別の会話スペースへ引っ越す"));
+test("引き継ぎの項目は操作の受け取りと揃った行だけに出て、無効な行は理由を出す", () => {
+  // 操作を渡さない一覧では出さない (受け取りの無い項目を押させない)
+  assert.ok(!renderSessionRow({}).includes("会話を引き継ぐ"));
+  assert.ok(renderSessionRow({}, () => {}).includes("会話を引き継ぐ"));
+  // 実行中は項目を残したまま無効にし、押せない理由を説明行へ出す
+  const running = renderSessionRow({ status: "running" }, () => {});
+  const item = running.split("<button").find((part) => part.includes("会話を引き継ぐ"));
+  assert.ok(item, "実行中でも項目が出ていない");
+  assert.match(item, /disabled/, "実行中なのに押せてしまう");
+  assert.ok(running.includes("実行中・キュー待ち・圧縮中は引き継げません"), "無効の理由が無い");
 });
 
 test("開いていて生ログがある行は診断の説明行を変え、生ログを押せる", () => {
