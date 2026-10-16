@@ -27,7 +27,7 @@ export function RuntimeTabLayout({
     <SettingsPageLayout
       eyebrow="RUNTIME"
       title="ランタイム"
-      caption="接続状態・実行環境の診断と、公開中のサービスの確認・停止ができます。"
+      caption="接続状態と実行環境を診断し、公開中のサービスを確認・停止できます。"
       toolbar={actions ? <TabToolbar actions={actions} /> : undefined}
       tabs={
         <SettingsTabs
