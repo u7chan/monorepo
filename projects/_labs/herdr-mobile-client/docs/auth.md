@@ -1,6 +1,7 @@
 # 共有トークン認証
 
-`/api/*` はすべて `Authorization: Bearer <token>` を要求する（`/api/health` を含む）。
+`/api/*` は原則として `Authorization: Bearer <token>` を要求する（`/api/health` を含む）。
+例外は QR ペアリングの 2 つの API で、交換の `POST /api/pair` は認証不要、発行の `POST /api/pair/new` は loopback からのリクエストだけを受け付ける（それ以外は 404）。[pairing.md](./pairing.md) を参照する。
 HTTPS も複数ユーザーも持たない PoC の割り切りで、トークンは「同一 LAN の第三者がそのまま叩ける状態」を避けるために置いている。
 
 ## トークンの決め方
@@ -22,6 +23,8 @@ PORT=18081 pnpm start
   umask 077
   PORT=18081 pnpm start > /path/to/herdr-mobile-client.log 2>&1
   ```
+
+- スマホへは `pnpm pair` の QR で渡せる（手入力が不要になる）。仕組みは [pairing.md](./pairing.md) を参照する。
 
 - 判定は定数時間で行い、長さの差が比較の分岐に出ないよう固定長へ揃えてから比較する。欠落・形式不正（`Bearer` でない、トークンが空、余分な要素がある）・不一致はすべて 401 を返す。
 - 401 の応答本文にトークン値は含めない。`WWW-Authenticate` も返さない（ブラウザのネイティブな認証ダイアログとクライアントの入力画面が二重になるため）。

@@ -14,12 +14,14 @@
     "build": "vite build",
     "start": "tsx src/server/index.ts",
     "test": "node --import tsx --test test/*.test.ts",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "pair": "scripts/pair.sh"
   },
   "dependencies": {
     "@hono/node-server": "^2.1.5",
     "hono": "^4.13.13",
     "preact": "^11.0.1",
+    "qrcode-generator": "^2.0.4",
     "tsx": "^4.23.15"
   },
   "devDependencies": {

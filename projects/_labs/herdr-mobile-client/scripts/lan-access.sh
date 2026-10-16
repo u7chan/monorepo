@@ -13,6 +13,9 @@ readonly LISTEN_ADDRESS="0.0.0.0"
 readonly RULE_NAME="18081(herdr-mobile-client)"
 readonly EXISTING_RULE_NAME="3000(dev)"
 
+# die / substitute / run_powershell / detect_windows_lan は pair.sh と共有する。
+source "$SCRIPT_DIR/windows-lan.sh"
+
 usage() {
   cat <<'USAGE'
 使い方: scripts/lan-access.sh [オプション]
@@ -28,21 +31,6 @@ Windows 側の IP を持つインターフェースから得る。
 USAGE
 }
 
-die() {
-  printf 'エラー: %s\n' "$*" >&2
-  exit 1
-}
-
-# 埋め込む値には `2>&1` のような & が入る。二重引用符で囲んだ置換では & は特別扱いされないため、
-# エスケープせずそのまま埋め込む（エスケープすると \& が残って PowerShell の構文エラーになる）。
-substitute() {
-  local template="$1"
-  local placeholder="$2"
-  local value="$3"
-
-  printf '%s\n' "${template//"$placeholder"/"$value"}"
-}
-
 validate_ipv4() {
   local octet='(25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])'
 
@@ -56,16 +44,6 @@ require_commands() {
   for command in ip awk iconv base64 wslpath; do
     command -v "$command" >/dev/null 2>&1 || die "$command が見つかりません。"
   done
-}
-
-run_powershell() {
-  local script="$1"
-  local encoded
-
-  encoded="$(printf '%s' "$script" | iconv -f UTF-8 -t UTF-16LE | base64 -w0)"
-
-  # PowerShell の標準出力は CRLF なので、bash 側の比較と grep のために LF に揃える。
-  powershell.exe -NoProfile -EncodedCommand "$encoded" | tr -d '\r'
 }
 
 windows_to_wsl_path() {

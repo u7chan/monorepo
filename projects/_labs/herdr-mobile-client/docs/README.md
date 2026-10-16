@@ -23,3 +23,4 @@
 | [adr/0004-client-effect-discipline.md](./adr/0004-client-effect-discipline.md) | `useEffect` を DOM 操作など外部システムとの同期に限る方針 |
 | [lan-access.md](./lan-access.md) | スマホから到達させるための Windows 側の設定手順（スクリプト）と、WSL2 再起動後の張り直し |
 | [auth.md](./auth.md) | 共有トークンの与え方と判定、クライアントで `sessionStorage` に置く理由 |
+| [pairing.md](./pairing.md) | QR ペアリングの流れ、一時コードの寿命と発行元の判定、保証の範囲と残存リスク |
