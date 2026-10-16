@@ -8,6 +8,7 @@
 import type { ChatState } from "../hooks/chatReducer";
 import type { Bubble, ChatHistoryState, ToolCard } from "./chatTypes";
 import { startArchiveDownload } from "./archive";
+import type { ConfirmRequest } from "./confirmDialog";
 import type {
   EventEntry,
   RunErrorCode,
@@ -34,14 +35,22 @@ export const DIAGNOSTICS_FETCH_FAILED = "診断情報を取得できませんで
 export const DIAGNOSTICS_CLIENT_MISSING = "取得できません（このタブで開いていない会話です）";
 export const DIAGNOSTICS_CLIENT_OPEN_BADGE = "このタブで開いています";
 export const DIAGNOSTICS_COPY_LABEL = "診断情報をコピー";
-export const DIAGNOSTICS_COPY_DESCRIPTION = "クライアントの状態とサーバーの記録を含みます";
-export const DIAGNOSTICS_COPY_SERVER_ONLY = "サーバーの記録のみ（このタブで開いていないため）";
 
 export const RAW_LOG_LABEL = "生ログをダウンロード";
-export const RAW_LOG_DESCRIPTION = "マスク前の値を含みます";
 export const RAW_LOG_NOTICE =
   "会話の記録ファイル（session.jsonl）をそのまま保存します。画面や履歴へ渡す前にマスクしている値も生のまま含まれます。共有する前に中身を確認してください。";
 export const RAW_LOG_MISSING = "この会話の記録は保存されていないため、生ログは取れません。";
+
+/** 生ログの確認。開示のリスクは伝えるが、壊す操作ではないので danger トーンにしない */
+export function rawLogConfirmRequest(title: string): ConfirmRequest {
+  return {
+    kind: "confirm",
+    title: RAW_LOG_LABEL,
+    ...(title ? { subject: { label: "対象の会話", value: title } } : {}),
+    body: [RAW_LOG_NOTICE],
+    confirmLabel: "ダウンロードする",
+  };
+}
 
 /** 1 件のイベントの要約。本文は入れず、長さと件数だけを残す */
 export function summarizeEvent(entry: EventEntry): Record<string, unknown> {
@@ -474,24 +483,13 @@ export function saveTextFile(content: string | Blob, name: string, type = "appli
   }
 }
 
-/** 上限で落ちた / 切り詰めた件数の 1 行。空文字は「省略なし」(画面の両入口で同じ文言を使う) */
+/** 上限で落ちた / 切り詰めた件数の 1 行。空文字は「省略なし」(結果行と省略の報告で同じ文言を使う) */
 export function diagnosticsDropsLine(report: DiagnosticsReport): string {
   const { client, server, serverTruncated } = report.drops;
   if (client === 0 && server === 0 && serverTruncated === 0) return "";
   const parts = [`省略: サーバー ${server} 件 / クライアント ${client} 件`];
   if (serverTruncated > 0) parts.push(`切り詰め: ${serverTruncated} 件`);
   return parts.join(" / ");
-}
-
-/**
- * コピーの結果に出す 1 行。成否にかかわらず、取れた report の省略 / 切り詰め件数を残す
- * (失敗してもファイルとして保存する経路があるため、渡る内容の上限をそこで知れるようにする)。
- * 省略が無ければ空文字 (成功は ⋯ のチェック、失敗は失敗の行だけで足りる)。
- */
-export function diagnosticsCopyNote(report: DiagnosticsReport, copied: boolean): string {
-  const drops = diagnosticsDropsLine(report);
-  if (drops === "") return "";
-  return copied ? `コピーしました（${drops}）` : `保存する内容の上限（${drops}）`;
 }
 
 /** コピー後の結果行。画面でも相関キーと省略の件数を確認できるようにする */

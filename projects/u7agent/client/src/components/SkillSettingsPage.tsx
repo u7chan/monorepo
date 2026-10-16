@@ -169,7 +169,7 @@ export function SkillSettingsPage({
     <SettingsPageLayout
       eyebrow="SKILLS"
       title="スキル"
-      caption="エージェントへ割り当てるスキルの本文を定義します。共通・組み込みは読み取り専用で、本文を確認できます。"
+      caption="エージェントに割り当てるスキルを定義します。"
       singleColumn={singleColumn}
       onOpenNav={onOpenNav}
       onBack={onBack}

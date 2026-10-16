@@ -8,7 +8,7 @@ export function AppearancePage({ singleColumn = false, onBack, onOpenNav }: Sett
     <SettingsPageLayout
       eyebrow="APPEARANCE"
       title="外観"
-      caption="選んだテーマはこのブラウザに保存されます。"
+      caption="選んだテーマはこのブラウザーに保存されます。"
       singleColumn={singleColumn}
       onOpenNav={onOpenNav}
       onBack={onBack}

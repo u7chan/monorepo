@@ -32,7 +32,6 @@ import {
   PencilIcon,
   PinIcon,
   PlusIcon,
-  RunSpinnerIcon,
   TrashIcon,
 } from "./icons";
 
@@ -41,8 +40,6 @@ const ACTION_ICONS: Record<RowMenuActionKind, ReactNode> = {
   "copy-path": <CopyIcon />,
   "copy-absolute-path": <CopyIcon />,
   download: <DownloadIcon small />,
-  diagnostics: <CopyIcon />,
-  "raw-log": <DownloadIcon small />,
   rename: <PencilIcon />,
   pin: <PinIcon />,
   move: <MoveIcon />,
@@ -74,8 +71,6 @@ export type RowMenuProps<K extends RowMenuActionKind> = {
   actions: readonly RowMenuAction<K>[];
   /** 直前の選択 (コピー) が成功した直後。選択で項目が消えるため、結果を ⋯ の位置に出す */
   copied?: boolean;
-  /** 選択の処理中 (fetch → コピーなど)。押した直後の無反応を作らず、二重起動も防ぐ */
-  busy?: boolean;
   onSelect: (kind: K) => void;
 };
 
@@ -85,13 +80,7 @@ export type RowMenuProps<K extends RowMenuActionKind> = {
  * 自前で閉じる経路 (項目の選択 / Tab での退出) だけ `hidePopover()` を通す。
  * 本体は常時 mount する (React の条件付き mount で出し入れすると標準の開閉と二重管理になる)。
  */
-export function RowMenu<K extends RowMenuActionKind>({
-  name,
-  actions,
-  copied = false,
-  busy = false,
-  onSelect,
-}: RowMenuProps<K>) {
+export function RowMenu<K extends RowMenuActionKind>({ name, actions, copied = false, onSelect }: RowMenuProps<K>) {
   const menuId = useId();
   const triggerId = `${menuId}-trigger`;
   const [open, setOpen] = useState(false);
@@ -213,10 +202,8 @@ export function RowMenu<K extends RowMenuActionKind>({
         id={triggerId}
         aria-haspopup="menu"
         aria-expanded={open}
-        aria-busy={busy ? true : undefined}
-        disabled={busy}
-        aria-label={busy ? "取得中" : copied ? "コピーしました" : `${name} の操作`}
-        title={busy ? "取得中" : copied ? "コピーしました" : undefined}
+        aria-label={copied ? "コピーしました" : `${name} の操作`}
+        title={copied ? "コピーしました" : undefined}
         popoverTarget={menuId}
         popoverTargetAction="toggle"
         onPointerDown={() => {
@@ -237,14 +224,10 @@ export function RowMenu<K extends RowMenuActionKind>({
           ref={anchorRef}
           className={cn(
             "grid size-6 place-items-center rounded-md transition-colors",
-            busy
-              ? "cursor-progress text-ink-faint"
-              : copied
-                ? "text-ok"
-                : "text-ink-faint group-hover:bg-raised group-hover:text-ink",
+            copied ? "text-ok" : "text-ink-faint group-hover:bg-raised group-hover:text-ink",
           )}
         >
-          {busy ? <RunSpinnerIcon tone="focus" /> : copied ? <CheckIcon /> : <MoreIcon />}
+          {copied ? <CheckIcon /> : <MoreIcon />}
         </span>
       </button>
       {/* popover の UA 既定 (fixed 以外に margin / border / padding / overflow を持つ) を打ち消してから

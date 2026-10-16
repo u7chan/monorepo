@@ -837,7 +837,7 @@ export default function App() {
     }
   };
 
-  // 診断の操作はサイドバーの会話行と設定 → ランタイムのカードの両方が使うため、文脈で配る
+  // 診断の操作は設定 → ランタイムの診断タブのカードが使う。facade はここで 1 つだけ作るため、文脈で配る
   const shell = (
     <div
       ref={sidebarWidth.shellRef}

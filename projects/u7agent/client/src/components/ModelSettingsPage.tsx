@@ -135,11 +135,7 @@ export function ModelSettingsView({
     <SettingsPageLayout
       eyebrow="MODELS"
       title="モデル"
-      caption={
-        singleColumn
-          ? "モデルとプロバイダーを設定します。"
-          : "使うモデルと、プロバイダーごとのAPIキーを設定します。保存した内容は再起動後も使われます。"
-      }
+      caption="使うモデルと、プロバイダーごとのAPIキーを設定します。"
       toolbar={
         <TabToolbar
           actions={

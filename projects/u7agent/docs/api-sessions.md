@@ -36,7 +36,7 @@
 }
 ```
 
-`pinned` はサイドバーで固定するかを示す（常に boolean）。`awaitingAnswer` は `ask_user` の未 settle の回答待ちがあるか（省略 = false）。この間もランは `running` のままで、左バーの行が「回答待ち」になる（[ask-user.md](ask-user.md#ui)）。待機を持たない未ロードの会話は省略し、ロード済みの会話は待機が無くても `false` を返す。`canHandoff` は同じ会話のままエージェント / スペースを引き継げるか（常に true。旧サーバーは省略 = false）。`projectSession` はプロジェクト所属か（真では引き継ぎ先のスペースを選ばない）。`handoffCleanup` は確定後の履歴削除（片付け）が残っているか（省略 = false。真の間は開く要求が 409 になり、新しい引き継ぎも受け付けない）。`hasRawLog` は生ログ（`session.jsonl`）がディスクにあるか（省略 = false）。会話行の「生ログをダウンロード」はこれが true のときだけ押せ、false では理由を説明行に出す（[diagnostics.md](diagnostics.md#取れないもの)）。`projectId` は所属プロジェクト（未所属はキーを省略する）。所属は保存された `projectCwd` をプロジェクト一覧と突き合わせて読み取り時に解決するため、プロジェクトを解除すると配下セッションは未所属として返る（セッションと履歴・ピン状態は残る）。復元したセッションも同じ規則で解決する。
+`pinned` はサイドバーで固定するかを示す（常に boolean）。`awaitingAnswer` は `ask_user` の未 settle の回答待ちがあるか（省略 = false）。この間もランは `running` のままで、左バーの行が「回答待ち」になる（[ask-user.md](ask-user.md#ui)）。待機を持たない未ロードの会話は省略し、ロード済みの会話は待機が無くても `false` を返す。`canHandoff` は同じ会話のままエージェント / スペースを引き継げるか（常に true。旧サーバーは省略 = false）。`projectSession` はプロジェクト所属か（真では引き継ぎ先のスペースを選ばない）。`handoffCleanup` は確定後の履歴削除（片付け）が残っているか（省略 = false。真の間は開く要求が 409 になり、新しい引き継ぎも受け付けない）。`hasRawLog` は生ログ（`session.jsonl`）がディスクにあるか（省略 = false）。設定 → ランタイム の診断タブは、まだ診断応答を取れていないときの出し分けにこの値を使い、応答が取れていれば `raw.available` を正とする。false のときだけダウンロードを押せなくし、理由を 1 行で出す（[diagnostics.md](diagnostics.md#取れないもの)）。`projectId` は所属プロジェクト（未所属はキーを省略する）。所属は保存された `projectCwd` をプロジェクト一覧と突き合わせて読み取り時に解決するため、プロジェクトを解除すると配下セッションは未所属として返る（セッションと履歴・ピン状態は残る）。復元したセッションも同じ規則で解決する。
 
 `messageCount` は表示メッセージ数（`user` と、テキストを持つ `assistant`。ツール呼び出しだけのターンは数えない）で、履歴の生件数ではない。未ロードのセッションは保存された `meta.json` の値、ロード済みは現在の履歴から数えた値を返す（ずれの扱いは [session-files.md](session-files.md)）。
 
