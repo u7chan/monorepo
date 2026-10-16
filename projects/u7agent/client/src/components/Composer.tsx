@@ -1,13 +1,17 @@
 import {
   useCallback,
   useEffect,
+  useLayoutEffect,
   useRef,
   useState,
   type ClipboardEvent,
   type DragEvent,
   type FormEvent,
   type KeyboardEvent,
+  type MouseEvent,
+  type SyntheticEvent,
 } from "react";
+import { useExitPhase } from "../hooks/useExitPhase";
 import type { Attachment, ComposerSettings } from "../hooks/useU7Agent";
 import type { LiveToolCallView } from "../hooks/useLiveToolCall";
 import type { SessionSkillsState } from "../hooks/useSessionSkills";
@@ -28,7 +32,7 @@ import { LiveToolCall } from "./composer/LiveToolCall";
 import { ModelEffortPicker } from "./composer/ModelEffortControls";
 import { SkillPicker } from "./composer/SkillPicker";
 import { SuggestionChip } from "./composer/SuggestionChip";
-import { ArrowUpIcon } from "./icons";
+import { ArrowUpIcon, CollapseIcon, ExpandIcon } from "./icons";
 
 export type ComposerProps = {
   activity: string;
@@ -155,6 +159,12 @@ export function Composer({
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [skillsOpen, setSkillsOpen] = useState(false);
   const [dropKind, setDropKind] = useState<ComposerDropKind | null>(null);
+  const [expanded, setExpanded] = useState(false);
+  const dialogRef = useRef<HTMLDialogElement | null>(null);
+  // 退場アニメの間だけ dialog を開いたままにする (閉じる前に拡大の位置から消えないようにする)
+  const expandPhase = useExitPhase(expanded, dialogRef);
+  // 見た目の面を拡大側へ切り替える条件。退場アニメの間も拡大の寸法を保つ
+  const expandedUi = expanded || expandPhase === "closing";
   // 直前の dragover の座標。drop で参照の挿入位置を決める (drop の座標は実装によっては 0 になる)
   const dropPointRef = useRef<{ x: number; y: number } | null>(null);
 
@@ -180,9 +190,43 @@ export function Composer({
     if (!visible) return;
     const el = inputRef.current;
     if (!el) return;
+    // 拡大中は面の寸法が入力欄の高さを決める (inline の height は stretch に勝つ)
+    if (expandedUi) {
+      el.style.height = "";
+      return;
+    }
     el.style.height = "auto";
     el.style.height = `${Math.min(el.scrollHeight, maxTextareaHeight)}px`;
-  }, [value, maxTextareaHeight, visible]);
+  }, [value, maxTextareaHeight, visible, expandedUi]);
+
+  // 拡大の開閉は native の showModal / close に任せる (背景の操作を止める・Escape・焦点の復帰が標準で付く)。
+  // close を layout effect に置くのは、退場アニメの終了と同じ描画で閉じるため (1 フレーム拡大のまま残らない)
+  useLayoutEffect(() => {
+    const dialog = dialogRef.current;
+    if (dialog === null) return;
+    if (expanded && !dialog.open) {
+      dialog.showModal();
+      // 拡大の目的は書き続けることなので、焦点は本文へ移す (dialog の既定は先頭の操作要素)
+      inputRef.current?.focus();
+    } else if (!expanded && expandPhase === "closed" && dialog.open) {
+      dialog.close();
+    }
+  }, [expanded, expandPhase]);
+
+  // 送信したら畳む (拡大のまま残すと、応答が見えない位置で書き続けることになる)
+  useEffect(() => {
+    if (sending) setExpanded(false);
+  }, [sending]);
+
+  // チャット以外へ移る / レイアウトが切り替わるときは畳む。dialog は top layer へ移るため、開いたままだと
+  // 隠れた (inert な) 面の中で modal だけが残る
+  useEffect(() => {
+    if (!visible) setExpanded(false);
+  }, [visible]);
+
+  useEffect(() => {
+    setExpanded(false);
+  }, [mode]);
 
   // 送信経路は入力欄に限らない (再実行カードも同じ送信)。畳む条件の根拠は docs/ui-layout.md
   useEffect(() => {
@@ -227,7 +271,7 @@ export function Composer({
    * 貼り付けた画像を添付へ回す。画像と一緒に載る `text/html` などを本文へ混ぜないよう、
    * 添付するときだけ既定動作を止める（テキストだけの貼り付けはいじらない）。
    */
-  const handlePaste = (event: ClipboardEvent<HTMLFormElement>) => {
+  const handlePaste = (event: ClipboardEvent<HTMLDivElement>) => {
     const images = pastedImageFiles(event.clipboardData, new Date());
     if (images.length === 0) return;
     event.preventDefault();
@@ -252,7 +296,7 @@ export function Composer({
     });
   };
 
-  const handleDragOver = (event: DragEvent<HTMLFormElement>) => {
+  const handleDragOver = (event: DragEvent<HTMLDivElement>) => {
     const kind = composerDropKind(event.dataTransfer.types);
     if (kind === null) return;
     event.preventDefault();
@@ -280,7 +324,7 @@ export function Composer({
     });
   };
 
-  const handleDrop = (event: DragEvent<HTMLFormElement>) => {
+  const handleDrop = (event: DragEvent<HTMLDivElement>) => {
     setDropKind(null);
     const kind = composerDropKind(event.dataTransfer.types);
     if (kind === "mention") {
@@ -317,6 +361,19 @@ export function Composer({
     submit();
   };
 
+  // Escape は dialog の標準の閉じ方 (cancel) で受けるが、退場アニメの間は開いたままにする
+  const handleCancel = (event: SyntheticEvent<HTMLDialogElement>) => {
+    if (!expanded) return;
+    event.preventDefault();
+    setExpanded(false);
+  };
+
+  /** 背景 (dialog 自身) のクリックだけを閉じる要求にする。中央の箱の中のクリックは含めない */
+  const handleDialogClick = (event: MouseEvent<HTMLDialogElement>) => {
+    if (!expanded || event.target !== dialogRef.current) return;
+    setExpanded(false);
+  };
+
   // 再実行の押せない理由は送信経路と同じガードから導く (実際に遮っているものだけを出す)
   const retryBlockedReason = runRetryBlockedReason({
     sending,
@@ -347,13 +404,43 @@ export function Composer({
 
   return (
     <footer className="w-full min-w-0">
-      <div
+      {/* 外装は native の dialog。拡大していない間は UA の `display: none` を class が打ち消し、いつもどおりの
+          位置に置く (入力欄を mount し直すと下書き・カーソルの位置・IME の状態が消えるため。docs/ui-layout.md) */}
+      <dialog
+        ref={dialogRef}
+        // 閉じている間は role=dialog を名乗らない (通常のブロックとして置く外装なので、読み上げの区切りにしない)
+        role={expandedUi ? undefined : "presentation"}
+        aria-label={expandedUi ? "メッセージ入力" : undefined}
+        data-closing={expandPhase === "closing"}
+        onCancel={handleCancel}
+        onClick={handleDialogClick}
         className={cn(
-          singleColumn ? "px-3 pb-[max(8px,env(safe-area-inset-bottom))]" : "mx-auto max-w-220 px-6 pb-5 wide:px-8",
+          "composer-dialog text-ink",
+          expandedUi
+            ? "m-0 grid h-dvh max-h-none w-screen max-w-none place-items-center border-0 bg-transparent p-4"
+            : singleColumn
+              ? "px-3 pb-[max(8px,env(safe-area-inset-bottom))]"
+              : "mx-auto max-w-220 px-6 pb-5 wide:px-8",
         )}
       >
         {/* 浮かせる基準は内容の欄 (padding の内側)。padding の外を基準にすると、狭い幅で箱が composer からはみ出す */}
-        <div className="relative">
+        <div
+          className={cn(
+            "relative",
+            // 拡大中は面 (枠・背景) を外側へ移し、中の form は高さを埋める行だけを持つ
+            expandedUi &&
+              cn(
+                "flex h-full max-h-[min(88dvh,760px)] w-full max-w-220 flex-col rounded-xl border bg-panel shadow-panel",
+                singleColumn ? "p-2" : "p-2.5",
+                dropKind !== null ? "border-accent" : "border-line-strong",
+              ),
+          )}
+          // 受け口は面ごと (拡大中は form の外側に余白があるため、form にだけ置くとその余白でブラウザーが開く)
+          onPaste={handlePaste}
+          onDragOver={handleDragOver}
+          onDragLeave={() => setDropKind(null)}
+          onDrop={handleDrop}
+        >
           <LiveToolCall {...liveTools} className="absolute inset-x-0 bottom-full z-10" />
           <ComposerStatus
             activity={activity}
@@ -384,19 +471,24 @@ export function Composer({
           />
           <form
             onSubmit={handleSubmit}
-            onPaste={handlePaste}
-            onDragOver={handleDragOver}
-            onDragLeave={() => setDropKind(null)}
-            onDrop={handleDrop}
             className={cn(
-              // 単一列 Grid の auto 列は、行の中身の intrinsic 幅 (欄と textarea) で form の外まで
-              // 伸びる。minmax(0, 1fr) で form 幅に拘束する (docs/ui-layout.md)
-              "grid grid-cols-1 rounded-xl border bg-panel/90 shadow-panel",
-              dropKind !== null ? "border-accent" : "border-line-strong",
-              singleColumn ? "gap-1.5 p-2" : "gap-2 p-2.5",
+              "relative",
+              // 拡大中は面 (枠・背景) が外側の容器へ移る。残りの高さを入力欄の行へ渡す
+              expandedUi
+                ? "flex min-h-0 flex-1 flex-col gap-2"
+                : cn(
+                    // 単一列 Grid の auto 列は、行の中身の intrinsic 幅 (欄と textarea) で form の外まで
+                    // 伸びる。minmax(0, 1fr) で form 幅に拘束する (docs/ui-layout.md)
+                    "grid grid-cols-1 rounded-xl border bg-panel/90 shadow-panel",
+                    dropKind !== null ? "border-accent" : "border-line-strong",
+                    singleColumn ? "gap-1.5 p-2" : "gap-2 p-2.5",
+                  ),
             )}
           >
-            <div className={cn("flex flex-wrap items-center", singleColumn ? "gap-2" : "gap-x-3 gap-y-1.5 px-0.5")}>
+            {/* 拡大のボタンが右上に浮く分、1 行目の右端を空けておく (見出しのチップと重ねない) */}
+            <div
+              className={cn("flex flex-wrap items-center pr-9", singleColumn ? "gap-2" : "gap-x-3 gap-y-1.5 px-0.5")}
+            >
               <AgentField
                 agents={agents}
                 agentId={agentId}
@@ -421,7 +513,7 @@ export function Composer({
               onRemove={onRemoveAttachment}
             />
             {singleColumn ? suggestionChip : null}
-            <div className={cn("flex items-end", singleColumn ? "gap-2" : "gap-2.5")}>
+            <div className={cn("flex items-end", singleColumn ? "gap-2" : "gap-2.5", expandedUi && "min-h-0 flex-1")}>
               {singleColumn ? null : suggestionChip}
               <textarea
                 ref={inputRef}
@@ -440,12 +532,31 @@ export function Composer({
                   // min-w-0 が無いと cols 既定値の intrinsic 幅 (textarea の自動最小サイズ) が下限になり、
                   // 狭い viewport で入力欄が縮まずに送信 / 添付ボタンを画面外へ押し出す
                   "min-w-0 flex-1 resize-none scrollbar-thin bg-transparent px-0.5 leading-normal text-ink outline-none placeholder:text-ink-ghost",
-                  singleColumn ? "max-h-30 min-h-9 py-1.5 text-md" : "max-h-45 min-h-6 py-1",
+                  // 拡大中は行の高さまで伸ばす (上限は面が持つ。text-md は singleColumn の拡大で focus しても
+                  // iOS Safari にズームさせないために残す)
+                  expandedUi
+                    ? cn("self-stretch", singleColumn ? "py-1.5 text-md" : "py-1")
+                    : singleColumn
+                      ? "max-h-30 min-h-9 py-1.5 text-md"
+                      : "max-h-45 min-h-6 py-1",
                 )}
                 enterKeyHint={singleColumn ? "enter" : "send"}
                 onChange={(event) => setValue(event.currentTarget.value)}
                 onKeyDown={handleKeyDown}
               />
+              <button
+                type="button"
+                aria-label={expanded ? "入力欄を元の大きさに戻す" : "入力欄を拡大"}
+                aria-expanded={expanded}
+                title={expanded ? "入力欄を元の大きさに戻す" : "入力欄を拡大"}
+                onClick={() => setExpanded(!expanded)}
+                className={cn(
+                  "absolute top-1 right-1 grid cursor-pointer place-items-center rounded-md text-ink-ghost transition-colors hover:text-accent-text",
+                  singleColumn ? "size-8" : "size-7",
+                )}
+              >
+                {expanded ? <CollapseIcon /> : <ExpandIcon />}
+              </button>
               <input
                 ref={fileRef}
                 type="file"
@@ -513,7 +624,7 @@ export function Composer({
             </div>
           )}
         </div>
-      </div>
+      </dialog>
     </footer>
   );
 }

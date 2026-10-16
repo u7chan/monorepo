@@ -27,7 +27,8 @@ const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const DOC_LINE_BUDGET = {
   // 900px の境界とツール欄の注記で増えた分 (スキル欄とツール欄の規則が揃うまで)。
   // エージェントの並べ替えの契約 (グリップ・終了経路・自動スクロールの対象) で +4
-  "docs/ui-layout.md": 216,
+  // 入力欄の拡大の契約 (top layer・畳む契機・受け口) で +11
+  "docs/ui-layout.md": 227,
   "docs/frontend.md": 129,
 };
 
