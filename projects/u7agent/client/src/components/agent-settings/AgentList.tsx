@@ -46,7 +46,7 @@ export function AgentList({
 
   return (
     <DefinitionList title="エージェント一覧" count={agents.length} addLabel="新しいエージェント" onAdd={onStartNew}>
-      <div ref={containerRef} className="grid min-w-0 content-start gap-1">
+      <div ref={containerRef} className="grid min-w-0 content-start gap-1" {...drag.containerHandlers}>
         {agents.map((agent) => (
           <div
             key={agent.id}

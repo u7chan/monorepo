@@ -117,6 +117,25 @@ test("応答が返らない失敗は結果不明として表示を戻さず、�
     harness.notes.map((note) => note.kind),
     ["unknown"],
   );
+
+  // 結果不明の表示は次の取得までだけ。サーバーの正が届いたら下書きを捨ててその順へ戻す
+  harness.flow.settle();
+  assert.deepEqual(harness.flow.state(), { draft: null, saving: false });
+  assert.deepEqual(harness.current(), ["a", "b", "c"], "カタログの並びへ戻す");
+});
+
+test("結果不明でない下書きは、カタログの更新では捨てない", () => {
+  const harness = createHarness({ ids: ["a", "b", "c"] });
+  harness.flow.preview(["c", "a", "b"]);
+  // ドラッグ中にカタログが更新されても、未確定の下書きは操作中の表示として残す
+  harness.flow.settle();
+  assert.deepEqual(harness.flow.state(), { draft: ["c", "a", "b"], saving: false });
+
+  // 保存中のカタログ更新も同じ (確定は送信の結果で決める)
+  void harness.flow.commit();
+  harness.flow.settle();
+  assert.equal(harness.flow.state().saving, true);
+  assert.deepEqual(harness.flow.state().draft, ["c", "a", "b"]);
 });
 
 test("確定後の取り直しに失敗しても並びは戻さず、取り直せないことだけを伝える", async () => {

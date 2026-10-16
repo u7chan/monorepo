@@ -43,6 +43,11 @@ export type AgentOrderFlow = {
   cancel(): void;
   /** 確定。ドラッグしていなければ何もしない */
   commit(): Promise<void>;
+  /**
+   * サーバーの正を取り込んだ（カタログの更新）。**結果不明のまま残している下書きだけ**を捨てて
+   * 表示をサーバーの並びへ戻す（`AgentSettingsPage` がカタログの更新で呼ぶ）。
+   */
+  settle(): void;
 };
 
 function messageFor(error: unknown): string {
@@ -51,6 +56,8 @@ function messageFor(error: unknown): string {
 
 export function createAgentOrderFlow(options: AgentOrderFlowOptions): AgentOrderFlow {
   let state: AgentOrderState = { draft: null, saving: false };
+  /** 応答が返らず結果不明のまま残している下書き。次の取得（settle）までだけ表示に残す */
+  let unconfirmed = false;
   const publish = () => options.onChange({ draft: state.draft ? [...state.draft] : null, saving: state.saving });
 
   return {
@@ -58,12 +65,21 @@ export function createAgentOrderFlow(options: AgentOrderFlowOptions): AgentOrder
 
     preview(ids) {
       if (state.saving) return;
+      unconfirmed = false;
       state = { draft: [...ids], saving: state.saving };
       publish();
     },
 
     cancel() {
       if (!state.draft) return;
+      unconfirmed = false;
+      state = { draft: null, saving: state.saving };
+      publish();
+    },
+
+    settle() {
+      if (!unconfirmed) return;
+      unconfirmed = false;
       state = { draft: null, saving: state.saving };
       publish();
     },
@@ -84,11 +100,13 @@ export function createAgentOrderFlow(options: AgentOrderFlowOptions): AgentOrder
       } catch (error) {
         if (error instanceof ApiError) {
           // HTTP エラーの応答は保存されていないため、元の順へ戻して理由を出す
+          unconfirmed = false;
           state = { draft: null, saving: false };
           publish();
           options.note("rejected", messageFor(error));
         } else {
-          // 応答が返らない失敗は保存結果が不明。表示は戻さず、次の取得（再読み込み / 画面遷移）でサーバーの正に合わせる
+          // 応答が返らない失敗は保存結果が不明。表示は戻さず、**次の取得（settle）**でサーバーの正に合わせる
+          unconfirmed = true;
           state = { draft: [...ids], saving: false };
           publish();
           options.note("unknown", messageFor(error));
@@ -97,6 +115,7 @@ export function createAgentOrderFlow(options: AgentOrderFlowOptions): AgentOrder
       }
 
       // 確定した順は、取り直しの応答を待たずに共有カタログへ反映する
+      unconfirmed = false;
       options.apply(saved);
       state = { draft: null, saving: false };
       publish();

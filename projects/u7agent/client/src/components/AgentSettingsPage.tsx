@@ -74,6 +74,13 @@ export function AgentSettingsPage({
       onChange: setOrder,
     }),
   );
+  // 共有カタログが更新された = サーバーの正が届いた。結果不明のまま残した並びの下書きはここで捨てる
+  // （docs/ui-layout.md の「設定の一覧と編集の境界」）。描画中の同期はフォームの初期化と同じ理由
+  const catalogRef = useRef(catalog);
+  if (catalogRef.current !== catalog) {
+    catalogRef.current = catalog;
+    orderFlow.settle();
+  }
   // ドラッグ中はカタログではなく下書きの順で並べる。ビルトインは先頭固定で、並べ替えの対象にしない
   const visibleAgents = order.draft ? reorderRows(agents, order.draft) : agents;
   const builtinId = catalog.builtinAgent?.id;

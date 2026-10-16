@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type PointerEvent, type RefObject } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type PointerEvent, type RefObject } from "react";
 import {
   AGENT_DRAG_THRESHOLD,
   dropTargetFor,
@@ -17,6 +17,12 @@ const DRAG_Y_VARIABLE = "--agent-drag-y";
 type AgentDragSession = {
   pointerId: number;
   id: string;
+  /**
+   * capture を取得した要素。グリップではなく**行の容器**が取る: live 差し替えでは React が行を
+   * DOM 上で移動させるため、グリップ自身が外れて capture が失われる（docs/ui-layout.md）。
+   * 終了経路で解放するのはこの要素（どの経路でも capture を残さない）。
+   */
+  captured: HTMLElement;
   /** 現在の表示順（ドラッグできる行だけ）。live 差し替えはこの配列の並べ替えとして計算する */
   current: string[];
   startY: number;
@@ -29,7 +35,7 @@ type AgentDragSession = {
 };
 
 export type AgentDragOptions = {
-  /** 行を含む容器（行は `data-agent-row` に id を持つ） */
+  /** 行を含む容器（行は `data-agent-row` に id を持つ）。pointer capture もこの要素が取る */
   containerRef: RefObject<HTMLElement | null>;
   /** ドラッグできる行の id（表示順）。ビルトインは含めない */
   ids: readonly string[];
@@ -43,8 +49,7 @@ export type AgentDragOptions = {
   disabled: boolean;
 };
 
-export type AgentDragGripHandlers = {
-  onPointerDown: (event: PointerEvent<HTMLElement>) => void;
+export type AgentDragContainerHandlers = {
   onPointerMove: (event: PointerEvent<HTMLElement>) => void;
   onPointerUp: (event: PointerEvent<HTMLElement>) => void;
   onPointerCancel: (event: PointerEvent<HTMLElement>) => void;
@@ -54,8 +59,10 @@ export type AgentDragGripHandlers = {
 export type AgentDrag = {
   /** ドラッグ中の行の id（見た目の切替に使う） */
   draggingId: string | null;
-  /** グリップへ配る pointer の配線。capture 中は全てグリップへ届く */
-  gripHandlers: (id: string) => AgentDragGripHandlers;
+  /** グリップへ配る配線（開始だけ。以降のイベントは容器へ retarget される） */
+  gripHandlers: (id: string) => { onPointerDown: (event: PointerEvent<HTMLElement>) => void };
+  /** 行の容器へ配る配線 */
+  containerHandlers: AgentDragContainerHandlers;
 };
 
 /**
@@ -94,10 +101,9 @@ export function useAgentDrag({ containerRef, ids, onMove, onCommit, onCancel, di
       dragRef.current = null;
       if (drag.frame !== null) cancelAnimationFrame(drag.frame);
       document.body.classList.remove(DRAGGING_CLASS);
-      const row = rowElements([drag.id])[0];
-      row?.style.removeProperty(DRAG_Y_VARIABLE);
+      rowElements([drag.id])[0]?.style.removeProperty(DRAG_Y_VARIABLE);
       // capture の解放で lostpointercapture が来るが、dragRef が空なので再入は no-op になる
-      if (row?.hasPointerCapture(drag.pointerId)) row.releasePointerCapture(drag.pointerId);
+      if (drag.captured.hasPointerCapture(drag.pointerId)) drag.captured.releasePointerCapture(drag.pointerId);
       setDraggingId(null);
       if (!drag.grabbed) return;
       if (commitOrder && drag.moved) handlersRef.current.onCommit();
@@ -106,15 +112,18 @@ export function useAgentDrag({ containerRef, ids, onMove, onCommit, onCancel, di
     [rowElements],
   );
 
-  // ドラッグ中の行を layout 位置ごと動かさず、ポインタの下へ translate で留める。offsetTop を使うのは、
-  // getBoundingClientRect が前フレームの translate を含み、差し引きが振動するため
+  /**
+   * 掴んだ行をポインタの下へ留める。rect は自分の translate を含むので、いま書いている値を差し引いて
+   * layout 位置を出し、**祖先のスクロールを含む viewport 座標**で合わせる（offsetTop では一覧の
+   * スクロール枠の scrollTop が差し引かれない）。
+   */
   const followPointer = useCallback(
     (drag: AgentDragSession): boolean => {
       const row = rowElements([drag.id])[0];
       if (!row) return false;
-      const parent = row.offsetParent;
-      const parentTop = parent instanceof HTMLElement ? parent.getBoundingClientRect().top : 0;
-      const center = parentTop + row.offsetTop + row.offsetHeight / 2;
+      const applied = Number.parseFloat(row.style.getPropertyValue(DRAG_Y_VARIABLE)) || 0;
+      const rect = row.getBoundingClientRect();
+      const center = rect.top + rect.height / 2 - applied;
       row.style.setProperty(DRAG_Y_VARIABLE, `${drag.pointerY - center}px`);
       return true;
     },
@@ -176,15 +185,18 @@ export function useAgentDrag({ containerRef, ids, onMove, onCommit, onCancel, di
     drag.frame = requestAnimationFrame(tick);
   }, [tick]);
 
-  const onPointerDown = useCallback(
+  const onGripPointerDown = useCallback(
     (id: string, event: PointerEvent<HTMLElement>) => {
       // 主ボタンだけで開始する。保存中とドラッグ中の 2 本目では開始し直さない
       if (disabled || dragRef.current || event.button !== 0) return;
+      const container = containerRef.current;
+      if (!container) return;
       event.preventDefault();
-      event.currentTarget.setPointerCapture(event.pointerId);
+      container.setPointerCapture(event.pointerId);
       dragRef.current = {
         pointerId: event.pointerId,
         id,
+        captured: container,
         current: [...idsRef.current],
         startY: event.clientY,
         pointerY: event.clientY,
@@ -193,7 +205,7 @@ export function useAgentDrag({ containerRef, ids, onMove, onCommit, onCancel, di
         frame: null,
       };
     },
-    [disabled],
+    [containerRef, disabled],
   );
 
   const onPointerMove = useCallback(
@@ -212,6 +224,18 @@ export function useAgentDrag({ containerRef, ids, onMove, onCommit, onCancel, di
     [scheduleTick],
   );
 
+  const gripHandlers = useCallback(
+    (id: string) => ({ onPointerDown: (event: PointerEvent<HTMLElement>) => onGripPointerDown(id, event) }),
+    [onGripPointerDown],
+  );
+
+  const containerHandlers: AgentDragContainerHandlers = {
+    onPointerMove,
+    onPointerUp: (event) => finishDrag(event.pointerId, true),
+    onPointerCancel: (event) => finishDrag(event.pointerId, false),
+    onLostPointerCapture: (event) => finishDrag(event.pointerId, false),
+  };
+
   // Escape は capture で受ける。App の設定ページの Escape（チャットへ戻る）は window の bubble で
   // defaultPrevented を見るため、消費しないと画面遷移まで起きる（docs/ui-layout.md）
   useEffect(() => {
@@ -228,16 +252,12 @@ export function useAgentDrag({ containerRef, ids, onMove, onCommit, onCancel, di
   // 一覧が unmount する経路（レイアウト切替 / ページ移動）でも、capture・rAF・見た目・下書きを残さない
   useEffect(() => () => finishDrag(null, false), [finishDrag]);
 
-  const gripHandlers = useCallback(
-    (id: string): AgentDragGripHandlers => ({
-      onPointerDown: (event) => onPointerDown(id, event),
-      onPointerMove,
-      onPointerUp: (event) => finishDrag(event.pointerId, true),
-      onPointerCancel: (event) => finishDrag(event.pointerId, false),
-      onLostPointerCapture: (event) => finishDrag(event.pointerId, false),
-    }),
-    [finishDrag, onPointerDown, onPointerMove],
-  );
+  // live 差し替えは React のコミットで行の layout 位置を動かす。DOM 更新の直後（描画前）に測り直さないと、
+  // 差し替えたフレームだけ行が別の位置に見える
+  useLayoutEffect(() => {
+    const drag = dragRef.current;
+    if (drag?.grabbed) followPointer(drag);
+  });
 
-  return { draggingId, gripHandlers };
+  return { draggingId, gripHandlers, containerHandlers };
 }
