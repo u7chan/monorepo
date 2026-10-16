@@ -50,7 +50,7 @@ export function WebSearchSettingsView({
     <SettingsPageLayout
       eyebrow="WEB SEARCH"
       title="Web 検索"
-      caption="web_search ツールの有効 / 無効と、検索プロバイダーとキーを設定します。"
+      caption="検索プロバイダーとAPIキーを設定します。"
       toolbar={
         <TabToolbar
           actions={

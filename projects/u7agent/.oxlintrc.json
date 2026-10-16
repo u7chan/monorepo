@@ -56,6 +56,7 @@
               "grid-rows-[auto_auto_minmax(0,1fr)_auto]",
               "grid-rows-[auto_auto_auto_minmax(0,1fr)_auto]",
               "grid-rows-[minmax(0,1fr)_auto]",
+              "grid-cols-[auto_minmax(0,1fr)]",
               "grid-cols-[248px_minmax(0,1fr)]",
               "grid-cols-[var(--sidebar-width)_minmax(0,1fr)]",
               "grid-cols-[minmax(0,1fr)_min(360px,30vw)]",

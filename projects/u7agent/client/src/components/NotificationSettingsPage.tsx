@@ -32,8 +32,7 @@ export function NotificationSettingsPage({
       title="通知"
       caption={
         <>
-          エージェントの応答の完了と、質問の発生を送ります。会話の通知が Off
-          のときは、質問の通知にタイトルと質問文を載せません。
+          通知の送信先と、通知する内容を設定します。
           {/* 再読み込みは下書きを捨てるので、変更がある間は押せない (理由をこの行に出す) */}
           {dirty ? <div className="pt-0.5 text-2xs text-ink-muted">{UNSAVED_RELOAD_NOTE}</div> : null}
         </>

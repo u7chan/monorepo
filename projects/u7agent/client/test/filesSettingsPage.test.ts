@@ -112,7 +112,7 @@ test("描画: 除外タブは説明と操作を出し、note を aria-live で�
     ["ファイルツリー", false],
     ["ダウンロードの除外", true],
   ]);
-  assert.ok(html.includes("ファイルツリーのダウンロード（フォルダは ZIP）から落とす名前を決めます。"), "説明が無い");
+  assert.ok(html.includes("ダウンロードから除外する名前を決めます。"), "説明が無い");
   assert.ok(html.includes("除外の規則"), "除外の本文が出ていない");
   assert.ok(html.includes("破棄") && html.includes("既定に戻す"), "除外の操作が無い");
   assert.ok(html.includes('aria-live="polite"') && html.includes("a/b"), "note が読まれない");

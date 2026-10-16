@@ -100,7 +100,7 @@ export function FileTreePage({
       caption={
         archive ? (
           <>
-            ファイルツリーのダウンロード（フォルダは ZIP）から落とす名前を決めます。
+            ダウンロードから除外する名前を決めます。
             {/* singleColumn の帯は操作だけで埋まり、理由が 1 文字幅まで潰れる。ヘッダ側で折り返して読ませる */}
             {singleColumn && unsavedReloadNote ? (
               <div className="pt-0.5 text-2xs text-ink-muted">{unsavedReloadNote}</div>
