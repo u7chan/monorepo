@@ -117,3 +117,18 @@ export function scrollableAncestor<T extends ScrollCandidate>(start: T | null): 
   }
   return null;
 }
+
+/**
+ * ドラッグ開始時に捕捉した id の並びへ、いまの行を割り当てる。1 つでも見つからなければ null。
+ * 削除などで行の集合が変わると、捕捉した添字と DOM の行がずれて掴んだ行を見つけられなくなる
+ * (挿入先も 1 つずれる) ため、呼び出し側はその時点でドラッグを取り消す。
+ */
+export function alignCapturedRows<T>(captured: readonly string[], byId: ReadonlyMap<string, T>): T[] | null {
+  const rows: T[] = [];
+  for (const id of captured) {
+    const row = byId.get(id);
+    if (row === undefined) return null;
+    rows.push(row);
+  }
+  return rows;
+}

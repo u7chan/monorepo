@@ -7,6 +7,8 @@
  * 保存中だけを解除し、**ページを離れた時点で捨てて `SpacesApp` が持つ最後に確定した順へ戻す**
  * （サーバーには保存されたが応答だけ失われた場合、これで戻るのは最後にクライアントが確定した順。
  * F5 など既存の再取得が走ったときに GET の順へ合う。docs/ui-layout.md#スペース）。
+ * **離脱前に始めた保存の応答も反映しない**（`capture`）。一覧はページより長生きするので、古い応答が
+ * 新しいページの確定した並びを巻き戻さないようにする。
  */
 import { ApiError } from "../api";
 
@@ -31,6 +33,12 @@ export type SpaceOrderFlowOptions = {
   save: (ids: readonly string[]) => Promise<readonly string[]>;
   /** 確定した順を現在の一覧へマージする（渡されなかった行は元の位置に残す） */
   apply: (ids: readonly string[]) => void;
+  /**
+   * 保存の応答を反映してよいかの判定を捕る（`createMountScope().capture()`。**確定を始める前に呼ぶ**）。
+   * 一覧はページより長生きするので、保存を始めたページを離れた / 作り直された後の応答は反映しない: これを
+   * 見ないと、離脱前に始めた古い保存の応答が、新しいページの確定した並びを巻き戻す（docs/ui-layout.md#スペース）。
+   */
+  capture: () => () => boolean;
   note: (kind: SpaceOrderNoteKind, message: string) => void;
   /** 下書きと保存中の状態をページへ渡す */
   onChange: (state: SpaceOrderState) => void;
@@ -76,6 +84,8 @@ export function createSpaceOrderFlow(options: SpaceOrderFlowOptions): SpaceOrder
       const ids = state.draft;
       const current = options.ids();
       if (!ids || (ids.length === current.length && ids.every((id, index) => id === current[index]))) return;
+      // 応答の反映可否は保存を始める前に捕る (離脱・再生成を跨いだ古い応答を捨てる)
+      const canApply = options.capture();
       state = { draft: [...ids], saving: true };
       publish();
 
@@ -83,6 +93,8 @@ export function createSpaceOrderFlow(options: SpaceOrderFlowOptions): SpaceOrder
       try {
         saved = await options.save([...ids]);
       } catch (error) {
+        // 離脱後は共有の一覧にも、もう無いページの note にも触らない
+        if (!canApply()) return;
         if (error instanceof ApiError) {
           // HTTP エラーの応答は保存されていないため、元の順へ戻して理由を出す
           state = { draft: null, saving: false };
@@ -97,6 +109,8 @@ export function createSpaceOrderFlow(options: SpaceOrderFlowOptions): SpaceOrder
         return;
       }
 
+      // 保存を始めたページを離れた / 作り直された後の応答は、新しいページの確定順を巻き戻さないために捨てる
+      if (!canApply()) return;
       // 確定した順は、応答に入っていない行（応答待ちの間に作られた行）をその場に残して一覧へ反映する
       options.apply(saved);
       state = { draft: null, saving: false };

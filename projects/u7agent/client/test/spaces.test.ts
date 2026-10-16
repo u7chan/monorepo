@@ -17,7 +17,7 @@ import { removeSpaceAndApply } from "../src/lib/spaceDelete";
 import { reorderRows } from "../src/lib/agentReorder";
 import { createSessionCreation } from "../src/hooks/sessionCreation";
 import { sendChatMessage, type SendChatMessageDeps } from "../src/hooks/sessionActions";
-import { createRequestGate } from "../src/hooks/requestGate";
+import { createRequestGate, createMountScope } from "../src/hooks/requestGate";
 import type { ChatAction } from "../src/hooks/chatReducer";
 
 globalThis.location ??= { origin: "http://localhost" } as Location;
@@ -374,17 +374,27 @@ const alpha = { id: "space-aaaaaaaaaaaaaaaa", name: "アルファ", createdAt: 2
 const beta = { id: "space-bbbbbbbbbbbbbbbb", name: "ベータ", createdAt: 3 };
 const gamma = { id: "space-cccccccccccccccc", name: "ガンマ", createdAt: 4 };
 
+/** 既定スペースを除く、並べ替えの対象の id */
+function reorderIdsOf(rows: readonly { id: string }[]): string[] {
+  return rows.filter((row) => row.id !== DEFAULT_SPACE_ID).map((row) => row.id);
+}
+
 /** 並べ替えの flow（client/src/lib/spaceOrder.ts）を組む。一覧は配列を差し替えて観察する */
-function orderFlowRecorder(rows: { id: string }[], save: (ids: readonly string[]) => Promise<readonly string[]>) {
+function orderFlowRecorder(
+  rows: { id: string }[],
+  save: (ids: readonly string[]) => Promise<readonly string[]>,
+  capture: () => () => boolean = () => () => true,
+) {
   const notes: string[] = [];
   const states: { draft: string[] | null; saving: boolean }[] = [];
   let table = [...rows];
   const flow = createSpaceOrderFlow({
-    ids: () => table.filter((row) => row.id !== DEFAULT_SPACE_ID).map((row) => row.id),
+    ids: () => reorderIdsOf(table),
     save,
     apply: (ids) => {
       table = reorderRows(table, ids);
     },
+    capture,
     note: (kind, message) => notes.push(`${kind}:${message}`),
     onChange: (state) => states.push(state),
   });
@@ -521,5 +531,54 @@ test("並べ替えの失敗は、HTTP エラーなら順を戻して理由を出
   assert.deepEqual(
     unknown.rows().map((row) => row.id),
     ["default", beta.id, alpha.id],
+  );
+});
+
+test("保存待ちにページを離れて戻っても、離脱前の遅い応答は新しい確定順を巻き戻さない", async () => {
+  let rows: { id: string }[] = [normal, demo, alpha, beta];
+  const apply = (ids: readonly string[]) => {
+    rows = reorderRows(rows, ids);
+  };
+  // 1 ページ目: b,a,c... の順で保存を始める（サーバーは受けたが応答は遅延している）
+  const slow = deferred<readonly string[]>();
+  const firstScope = createMountScope();
+  const leaveFirst = firstScope.setup();
+  const pageA = createSpaceOrderFlow({
+    ids: () => reorderIdsOf(rows),
+    save: () => slow.promise,
+    apply,
+    capture: firstScope.capture,
+    note: () => {},
+    onChange: () => {},
+  });
+  pageA.preview([beta.id, demo.id, alpha.id]);
+  const committing = pageA.commit();
+
+  // 別の設定へ移って戻る = ページを離れて作り直す。下書きと saving はページごと捨てられ、
+  // 共有の一覧は最後に確定した順のまま。新しいページは自分の mount 世代を持つ
+  leaveFirst();
+  const secondScope = createMountScope();
+  secondScope.setup();
+  const pageB = createSpaceOrderFlow({
+    ids: () => reorderIdsOf(rows),
+    save: async (ids) => ["default", ...ids],
+    apply,
+    capture: secondScope.capture,
+    note: () => {},
+    onChange: () => {},
+  });
+  pageB.preview([alpha.id, demo.id, beta.id]);
+  await pageB.commit();
+  assert.deepEqual(
+    rows.map((row) => row.id),
+    ["default", alpha.id, demo.id, beta.id],
+  );
+
+  // 離脱前に始めた保存の応答が後から届いても、新しいページの確定順を巻き戻さない
+  slow.resolve(["default", beta.id, demo.id, alpha.id]);
+  await committing;
+  assert.deepEqual(
+    rows.map((row) => row.id),
+    ["default", alpha.id, demo.id, beta.id],
   );
 });

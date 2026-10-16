@@ -1,7 +1,8 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { Space } from "server";
 import { useSpace } from "../SpaceContext";
 import { useAgentDrag, type AgentDragNaming } from "../hooks/useAgentDrag";
+import { createMountScope } from "../hooks/requestGate";
 import { reorderRows } from "../lib/agentReorder";
 import { cn } from "../lib/cn";
 import { createSpaceOrderFlow, type SpaceOrderNoteKind, type SpaceOrderState } from "../lib/spaceOrder";
@@ -47,6 +48,10 @@ export function SpaceSettingsPage({
   const [deleting, setDeleting] = useState("");
   const [order, setOrder] = useState<SpaceOrderState>({ draft: null, saving: false });
   const [orderNote, setOrderNote] = useState("");
+  // ページの mount 世代。保存の応答を一覧へ反映してよいかの判定に使う (`spaceOrder.ts` の capture)。
+  // 一覧はこのページより長生きするので、離脱前の古い応答で新しい確定順を巻き戻さない
+  const [mountScope] = useState(createMountScope);
+  useEffect(mountScope.setup, [mountScope]);
   // 並べ替えの下書きと保存。ドラッグの計算は lib/agentReorder、保存の手順は lib/spaceOrder が持ち、
   // ここは state への反映と文言だけを持つ。確定順の一覧は SpacesApp が持つ (同じ一覧を作成・削除が差分更新する)
   const orderDeps = useRef({ spaces: space.spaces, reorder: space.reorder, applyOrder: space.applyOrder });
@@ -56,6 +61,7 @@ export function SpaceSettingsPage({
       ids: () => orderDeps.current.spaces.filter((item) => item.id !== DEFAULT_SPACE_ID).map((item) => item.id),
       save: (ids) => orderDeps.current.reorder(ids),
       apply: (ids) => orderDeps.current.applyOrder(ids),
+      capture: mountScope.capture,
       note: (kind, message) => setOrderNote(orderNoteText(kind, message)),
       onChange: setOrder,
     }),

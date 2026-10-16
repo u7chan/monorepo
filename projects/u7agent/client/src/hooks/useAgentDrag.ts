@@ -2,6 +2,7 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState, type Pointer
 import { resolveLayoutMode, resolveWide, type LayoutMode } from "../lib/layout";
 import {
   AGENT_DRAG_THRESHOLD,
+  alignCapturedRows,
   dropTargetFor,
   edgeScrollStep,
   moveAgentId,
@@ -120,19 +121,25 @@ export function useAgentDrag({
   const idsRef = useRef(ids);
   idsRef.current = ids;
 
+  /** 容器の中の行を id で引く。`naming.rowAttribute` を読むのはここのみ */
+  const rowById = useCallback((): Map<string, HTMLElement> => {
+    const container = containerRef.current;
+    const found = new Map<string, HTMLElement>();
+    if (!container) return found;
+    const attribute = namingRef.current.rowAttribute;
+    for (const element of container.querySelectorAll<HTMLElement>(`[${attribute}]`)) {
+      const id = element.getAttribute(attribute);
+      if (id) found.set(id, element);
+    }
+    return found;
+  }, [containerRef]);
+
   const rowElements = useCallback(
     (order: readonly string[]): HTMLElement[] => {
-      const container = containerRef.current;
-      if (!container) return [];
-      const attribute = namingRef.current.rowAttribute;
-      const found = new Map<string, HTMLElement>();
-      for (const element of container.querySelectorAll<HTMLElement>(`[${attribute}]`)) {
-        const id = element.getAttribute(attribute);
-        if (id) found.set(id, element);
-      }
+      const found = rowById();
       return order.map((id) => found.get(id)).filter((element): element is HTMLElement => element !== undefined);
     },
-    [containerRef],
+    [rowById],
   );
 
   const finishDrag = useCallback(
@@ -201,9 +208,15 @@ export function useAgentDrag({
       return;
     }
     const scrolled = autoScroll(drag);
+    // 捕捉した行が DOM に揃わない（削除・差し替え・容器の作り替え）ときは、捕捉した添字で中心線を
+    // 数えられない（掴んだ行を見つけられず、挿入先もずれる）ので、その時点で取り消す
+    const rows = alignCapturedRows(drag.current, rowById());
+    if (!rows) {
+      finishDrag(null, false);
+      return;
+    }
     // 中心線を越えたら配列を差し替える（行の translate は差し替え後の位置へ合わせ直す）。中心線は
     // 掴んでいる行以外で見る: 自分の rect は translate でポインタに追従しており、判定を自己参照にする
-    const rows = rowElements(drag.current);
     const centers: number[] = [];
     let from = -1;
     rows.forEach((row, index) => {
@@ -225,7 +238,7 @@ export function useAgentDrag({
     }
     followPointer(drag);
     if (scrolled) drag.frame = requestAnimationFrame(tick);
-  }, [autoScroll, finishDrag, followPointer, rowElements]);
+  }, [autoScroll, finishDrag, followPointer, rowById]);
 
   const scheduleTick = useCallback(() => {
     const drag = dragRef.current;

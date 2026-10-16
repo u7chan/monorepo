@@ -4,6 +4,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   AGENT_DRAG_SCROLL_STEP,
+  alignCapturedRows,
   applyAgentOrder,
   dropIndexFor,
   dropTargetFor,
@@ -103,6 +104,23 @@ test("applyAgentOrder はサーバーの順に並べ、渡されなかった行�
   );
   // 定義オブジェクトはそのまま使う (順序だけを差し替える)
   assert.equal(applyAgentOrder(agents, ["b", "a", "c"])[0], agents[1]);
+});
+
+test("alignCapturedRows は捕捉した行が 1 つでも欠けると null を返し、ドラッグを取り消させる", () => {
+  const present = new Map([
+    ["b", { id: "b" }],
+    ["c", { id: "c" }],
+  ]);
+  assert.deepEqual(
+    alignCapturedRows(["b", "c"], present)?.map((row) => row.id),
+    ["b", "c"],
+    "すべて揃っているときは捕捉した順で返す",
+  );
+  // 削除待ちの行が消えた場合 (a,b,c -> b,c)。捕捉した添字のまま計算すると、掴んだ行を見つけられず
+  // 挿入先も 1 つずれるので、呼び出し側はこの null で取り消す
+  assert.equal(alignCapturedRows(["a", "b", "c"], present), null);
+  assert.equal(alignCapturedRows(["c"], new Map()), null);
+  assert.deepEqual(alignCapturedRows([], present), []);
 });
 
 test("edgeScrollStep は帯の外では 0、端に近いほど大きい", () => {
