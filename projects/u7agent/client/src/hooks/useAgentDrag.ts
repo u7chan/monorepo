@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type PointerEvent, type RefObject } from "react";
+import { resolveLayoutMode, resolveWide, type LayoutMode } from "../lib/layout";
 import {
   AGENT_DRAG_THRESHOLD,
   dropTargetFor,
@@ -12,6 +13,14 @@ const DRAGGING_CLASS = "is-dragging-agent";
 
 /** 表示の追従に使う CSS 変数。行は layout の位置を保ち、この値だけでポインタへ追わせる */
 const DRAG_Y_VARIABLE = "--agent-drag-y";
+
+/** ドラッグ中のレイアウト。切替（並列表示 ⇄ 一覧 + シート / desktop ⇄ singleColumn）を知るための値 */
+type DragLayout = { mode: LayoutMode; wide: boolean };
+
+/** 境界の正は lib/layout.ts (`WIDE_MIN_WIDTH` と `html[data-layout]` の元) */
+function currentDragLayout(): DragLayout {
+  return { mode: resolveLayoutMode(window.innerWidth, window.innerHeight), wide: resolveWide(window.innerWidth) };
+}
 
 /** pointer capture 中の 1 回のドラッグ。move ごとの再描画を避けるため ref に持つ */
 type AgentDragSession = {
@@ -32,6 +41,8 @@ type AgentDragSession = {
   /** 並びを実際に動かしたか。動いていなければ確定を送らない */
   moved: boolean;
   frame: number | null;
+  /** 掴んだ時点のレイアウト。切替（容器の作り替え）を検知したら取消にする */
+  layout: DragLayout;
 };
 
 export type AgentDragOptions = {
@@ -152,6 +163,12 @@ export function useAgentDrag({ containerRef, ids, onMove, onCommit, onCancel, di
     const drag = dragRef.current;
     if (!drag || !drag.grabbed) return;
     drag.frame = null;
+    // resize / orientationchange を取り逃しても、フレームを回している間は同じ判定になる
+    const layout = currentDragLayout();
+    if (layout.mode !== drag.layout.mode || layout.wide !== drag.layout.wide) {
+      finishDrag(null, false);
+      return;
+    }
     const scrolled = autoScroll(drag);
     // 中心線を越えたら配列を差し替える（行の translate は差し替え後の位置へ合わせ直す）。中心線は
     // 掴んでいる行以外で見る: 自分の rect は translate でポインタに追従しており、判定を自己参照にする
@@ -177,7 +194,7 @@ export function useAgentDrag({ containerRef, ids, onMove, onCommit, onCancel, di
     }
     followPointer(drag);
     if (scrolled) drag.frame = requestAnimationFrame(tick);
-  }, [autoScroll, followPointer, rowElements]);
+  }, [autoScroll, finishDrag, followPointer, rowElements]);
 
   const scheduleTick = useCallback(() => {
     const drag = dragRef.current;
@@ -203,6 +220,7 @@ export function useAgentDrag({ containerRef, ids, onMove, onCommit, onCancel, di
         grabbed: false,
         moved: false,
         frame: null,
+        layout: currentDragLayout(),
       };
     },
     [containerRef, disabled],
@@ -249,7 +267,28 @@ export function useAgentDrag({ containerRef, ids, onMove, onCommit, onCancel, di
     return () => window.removeEventListener("keydown", onKeyDown, { capture: true });
   }, [draggingId, finishDrag]);
 
-  // 一覧が unmount する経路（レイアウト切替 / ページ移動）でも、capture・rAF・見た目・下書きを残さない
+  // レイアウトの切替（並列表示 ⇄ 一覧 + シート / desktop ⇄ singleColumn）では一覧の容器が作り替わるが、
+  // AgentList は同じ位置・型のまま再利用されるため unmount では拾えない。**ドラッグ中だけ** resize を
+  // 購読し、切替を検知したら共通の終了経路（finishDrag）へ載せる。購読の解除は draggingId が null へ
+  // 戻る経路（finishDrag / unmount）に乗るので、ドラッグしていない間の挙動と負担は変えない
+  useEffect(() => {
+    if (draggingId === null) return;
+    const onResize = () => {
+      const drag = dragRef.current;
+      if (!drag) return;
+      const layout = currentDragLayout();
+      if (layout.mode === drag.layout.mode && layout.wide === drag.layout.wide) return;
+      finishDrag(null, false);
+    };
+    window.addEventListener("resize", onResize);
+    window.addEventListener("orientationchange", onResize);
+    return () => {
+      window.removeEventListener("resize", onResize);
+      window.removeEventListener("orientationchange", onResize);
+    };
+  }, [draggingId, finishDrag]);
+
+  // 一覧が unmount する経路（ページ移動）でも、capture・rAF・見た目・下書きを残さない
   useEffect(() => () => finishDrag(null, false), [finishDrag]);
 
   // live 差し替えは React のコミットで行の layout 位置を動かす。DOM 更新の直後（描画前）に測り直さないと、
