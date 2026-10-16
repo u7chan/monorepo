@@ -1,21 +1,29 @@
+import type { ComponentChildren } from "preact"
 import { useState } from "preact/hooks"
 import type { HealthState } from "./health"
 import { loadHealth } from "./health"
-import { healthMessage } from "./message"
+import { formMessage, healthMessage } from "./message"
+import type { PairFailure } from "./pair"
 import { clearToken, saveToken } from "./token"
 
 export type AppProps = {
   initialToken: string | null
   initialHealth: HealthState | null
+  initialPair: PairFailure | null
 }
 
-export function App({ initialToken, initialHealth }: AppProps) {
+export function App({ initialToken, initialHealth, initialPair }: AppProps) {
   const [token, setToken] = useState(initialToken)
   const [health, setHealth] = useState(initialHealth)
+  const [pair, setPair] = useState(initialPair)
 
   const needsToken = token === null || health?.status === "unauthorized"
 
   async function submitToken(value: string): Promise<void> {
+    // 手入力の検証に移ったら、起動時のペアリングエラーは用済み。残すと「トークンを入力し直す」のあとに
+    // 古い QR の案内が再び出る。
+    setPair(null)
+
     const next = await loadHealth(value)
     setHealth(next)
 
@@ -50,8 +58,32 @@ export function App({ initialToken, initialHealth }: AppProps) {
     clearToken()
     setToken(null)
     setHealth(null)
+    setPair(null)
   }
 
+  return (
+    <Shell>
+      {needsToken ? (
+        <TokenForm message={formMessage({ health, pair })} onSubmit={submitToken} />
+      ) : (
+        <HealthCard health={health} onReload={reloadHealth} onResetToken={resetToken} />
+      )}
+    </Shell>
+  )
+}
+
+export function PairProgress() {
+  return (
+    <Shell>
+      <section className="rounded-lg border border-slate-200 p-4">
+        <h2 className="text-xs font-medium tracking-wide text-slate-500 uppercase">ペアリング</h2>
+        <p className="mt-2 text-sm text-slate-600">QR のコードを確認しています...</p>
+      </section>
+    </Shell>
+  )
+}
+
+function Shell({ children }: { children: ComponentChildren }) {
   return (
     <main className="mx-auto flex min-h-dvh max-w-md flex-col gap-4 p-4">
       <header className="space-y-1">
@@ -59,14 +91,7 @@ export function App({ initialToken, initialHealth }: AppProps) {
         <p className="text-sm text-slate-500">Herdr と Pi を LAN から操作するための PoC</p>
       </header>
 
-      {needsToken ? (
-        <TokenForm
-          message={health === null || health.status === "ok" ? null : healthMessage(health)}
-          onSubmit={submitToken}
-        />
-      ) : (
-        <HealthCard health={health} onReload={reloadHealth} onResetToken={resetToken} />
-      )}
+      {children}
 
       <p className="text-xs text-slate-400">
         ここは土台のみです。Herdr 連携・会話表示は以降のステップで追加します。
@@ -106,7 +131,8 @@ function TokenForm({
       <h2 className="text-xs font-medium tracking-wide text-slate-500 uppercase">トークン</h2>
 
       <p className="text-sm text-slate-600">
-        サーバーの起動ログに出たトークンを入力します。固定値を使う場合はサーバーへ
+        サーバーの起動ログに出たトークンを入力します。<code className="mx-1 rounded bg-slate-100 px-1">pnpm pair</code>
+        の QR を読むと入力は不要です。固定値を使う場合はサーバーへ
         <code className="mx-1 rounded bg-slate-100 px-1">HERDR_CLIENT_TOKEN</code>
         を渡します。
       </p>

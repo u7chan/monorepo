@@ -3,9 +3,10 @@
 Herdr と Pi CLI を LAN 内のスマホから操作する Web クライアントの PoC。
 
 このプロジェクトは計画 ([#1882](https://github.com/u7chan/monorepo/issues/1882)) の PoC で、
-現在はトークン認証つきのヘルス表示までを置く。Herdr 連携、会話表示は以降のステップで追加する。
+現在はトークン認証（QR ペアリング対応）つきのヘルス表示までを置く。Herdr 連携、会話表示は以降のステップで追加する。
 
 - 認証は共有トークン（`Authorization: Bearer`）。与え方と残存リスクは [docs/auth.md](./docs/auth.md)
+- QR ペアリング（`pnpm pair`）は [docs/pairing.md](./docs/pairing.md)
 - スマホからの到達設定（Windows の portproxy とファイアウォール規則）は [docs/lan-access.md](./docs/lan-access.md)
 
 ## 必要環境
@@ -37,6 +38,7 @@ pnpm start
 ```bash
 pnpm test       # node --test（test/*.test.ts）
 pnpm typecheck  # tsc --noEmit
+pnpm pair       # 一時コードを発行して QR を表示（サーバーの起動が必要）
 ```
 
 ### ポート
@@ -51,19 +53,21 @@ pnpm typecheck  # tsc --noEmit
 
 ### 認証
 
-`/api/*` はすべてトークンを要求する。未設定なら起動のたびに生成され、起動ログに出る。
+`/api/*` はトークンを要求する。未設定なら起動のたびに生成され、起動ログに出る。
 固定する場合は `HERDR_CLIENT_TOKEN` を渡す。
 
 ```bash
 PORT=18081 HERDR_CLIENT_TOKEN='<固定値>' pnpm start
 ```
 
+スマホへは `pnpm pair` の QR で渡せる。LAN 到達設定を済ませたうえで実行し、表示された QR を読み取る（一時コードを共有トークンへ交換する。仕組みと残存リスクは [docs/pairing.md](./docs/pairing.md)）。
+
 ## 構成
 
 - `src/client`: Preact + Tailwind のクライアント。`index.html` をエントリに Vite がビルドする
 - `src/server`: Hono のサーバー。API を提供し、`dist/client` を配信する
 - `test`: `node --test` のテスト
-- `scripts`: 補助スクリプト（Windows 側の到達設定）
+- `scripts`: 補助スクリプト（Windows 側の到達設定と QR ペアリング）
 - `docs`: このプロジェクトのドキュメント。入口は [docs/README.md](./docs/README.md)
 
 ## ドキュメント

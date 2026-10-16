@@ -13,6 +13,9 @@ readonly LISTEN_ADDRESS="0.0.0.0"
 readonly RULE_NAME="18081(herdr-mobile-client)"
 readonly EXISTING_RULE_NAME="3000(dev)"
 
+# die / substitute / run_powershell / detect_windows_lan は pair.sh と共有する。
+source "$SCRIPT_DIR/windows-lan.sh"
+
 usage() {
   cat <<'USAGE'
 使い方: scripts/lan-access.sh [オプション]
@@ -26,21 +29,6 @@ usage() {
 WSL2 の IP は既定ルートのインターフェースから自動検出する。LAN セグメント（プレフィックス長）は
 Windows 側の IP を持つインターフェースから得る。
 USAGE
-}
-
-die() {
-  printf 'エラー: %s\n' "$*" >&2
-  exit 1
-}
-
-# 埋め込む値には `2>&1` のような & が入る。二重引用符で囲んだ置換では & は特別扱いされないため、
-# エスケープせずそのまま埋め込む（エスケープすると \& が残って PowerShell の構文エラーになる）。
-substitute() {
-  local template="$1"
-  local placeholder="$2"
-  local value="$3"
-
-  printf '%s\n' "${template//"$placeholder"/"$value"}"
 }
 
 validate_ipv4() {
@@ -58,16 +46,6 @@ require_commands() {
   done
 }
 
-run_powershell() {
-  local script="$1"
-  local encoded
-
-  encoded="$(printf '%s' "$script" | iconv -f UTF-8 -t UTF-16LE | base64 -w0)"
-
-  # PowerShell の標準出力は CRLF なので、bash 側の比較と grep のために LF に揃える。
-  powershell.exe -NoProfile -EncodedCommand "$encoded" | tr -d '\r'
-}
-
 windows_to_wsl_path() {
   wslpath -u "${1//\\//}"
 }
@@ -82,54 +60,6 @@ detect_wsl_ip() {
   [[ -n "$cidr" ]] || die "インターフェース $device の IPv4 アドレスを特定できませんでした。"
 
   printf '%s\n' "${cidr%/*}"
-}
-
-detect_windows_lan() {
-  local requested_ip="$1"
-  local script
-
-  script="$(cat <<'SCRIPT'
-$ProgressPreference = "SilentlyContinue"
-$ErrorActionPreference = "Stop"
-
-$requested = "@@WINDOWS_IP@@"
-
-if ([string]::IsNullOrEmpty($requested)) {
-  $route = Get-NetRoute -DestinationPrefix "0.0.0.0/0" -AddressFamily IPv4 | Sort-Object RouteMetric, ifIndex | Select-Object -First 1
-
-  if ($null -eq $route) {
-    throw "no default route found"
-  }
-
-  $address = Get-NetIPAddress -InterfaceIndex $route.ifIndex -AddressFamily IPv4 |
-    Where-Object { $_.IPAddress -notlike "169.254.*" } |
-    Select-Object -First 1
-} else {
-  $address = Get-NetIPAddress -AddressFamily IPv4 -IPAddress $requested -ErrorAction SilentlyContinue | Select-Object -First 1
-}
-
-if ($null -eq $address) {
-  throw "no IPv4 address found"
-}
-
-$octets = $address.IPAddress.Split(".") | ForEach-Object { [int]$_ }
-$prefix = [int]$address.PrefixLength
-$network = @()
-
-for ($i = 0; $i -lt 4; $i++) {
-  $bits = [Math]::Max([Math]::Min($prefix - $i * 8, 8), 0)
-  $mask = [int](256 - [Math]::Pow(2, 8 - $bits))
-  $network += (($octets[$i] -band $mask).ToString())
-}
-
-Write-Output ("WINDOWS_IP=" + $address.IPAddress)
-Write-Output ("WINDOWS_INTERFACE=" + $address.InterfaceAlias)
-Write-Output ("LAN_SEGMENT=" + ($network -join ".") + "/" + $prefix)
-Write-Output ("WINDOWS_TEMP=" + $env:TEMP)
-SCRIPT
-)"
-
-  substitute "$script" "@@WINDOWS_IP@@" "$requested_ip"
 }
 
 confirm_script() {
