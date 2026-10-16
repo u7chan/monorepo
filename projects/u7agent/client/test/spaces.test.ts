@@ -14,13 +14,16 @@ import {
 } from "../src/lib/spaceSelection";
 import { spaceDeleteConfirmRequest, spaceRowActions } from "../src/lib/spaceSettings";
 import { removeSpaceAndApply } from "../src/lib/spaceDelete";
+import { reorderRows } from "../src/lib/agentReorder";
 import { createSessionCreation } from "../src/hooks/sessionCreation";
 import { sendChatMessage, type SendChatMessageDeps } from "../src/hooks/sessionActions";
-import { createRequestGate } from "../src/hooks/requestGate";
+import { createRequestGate, createMountScope } from "../src/hooks/requestGate";
 import type { ChatAction } from "../src/hooks/chatReducer";
 
 globalThis.location ??= { origin: "http://localhost" } as Location;
-const { createSpaceApi, getCatalog, getFiles, listSpaces, createSpace } = await import("../src/api");
+const { ApiError, createSpaceApi, getCatalog, getFiles, listSpaces, createSpace } = await import("../src/api");
+// spaceOrder は api を（ApiError のために）読むので、location を用意した後で読む
+const { createSpaceOrderFlow } = await import("../src/lib/spaceOrder");
 const normal = { id: "default", name: "既定", createdAt: 0 };
 const demo = { id: "space-1111111111111111", name: "デモ", createdAt: 1 };
 
@@ -365,4 +368,217 @@ test("旧スペース一覧の遅い応答を破棄し、切替先の一覧と f
   pending.resolve(["origin-session"]);
   await old;
   assert.deepEqual(visible, ["destination-session"]);
+});
+
+const alpha = { id: "space-aaaaaaaaaaaaaaaa", name: "アルファ", createdAt: 2 };
+const beta = { id: "space-bbbbbbbbbbbbbbbb", name: "ベータ", createdAt: 3 };
+const gamma = { id: "space-cccccccccccccccc", name: "ガンマ", createdAt: 4 };
+
+/** 既定スペースを除く、並べ替えの対象の id */
+function reorderIdsOf(rows: readonly { id: string }[]): string[] {
+  return rows.filter((row) => row.id !== DEFAULT_SPACE_ID).map((row) => row.id);
+}
+
+/** 並べ替えの flow（client/src/lib/spaceOrder.ts）を組む。一覧は配列を差し替えて観察する */
+function orderFlowRecorder(
+  rows: { id: string }[],
+  save: (ids: readonly string[]) => Promise<readonly string[]>,
+  capture: () => () => boolean = () => () => true,
+) {
+  const notes: string[] = [];
+  const states: { draft: string[] | null; saving: boolean }[] = [];
+  let table = [...rows];
+  const flow = createSpaceOrderFlow({
+    ids: () => reorderIdsOf(table),
+    save,
+    apply: (ids) => {
+      table = reorderRows(table, ids);
+    },
+    capture,
+    note: (kind, message) => notes.push(`${kind}:${message}`),
+    onChange: (state) => states.push(state),
+  });
+  return {
+    flow,
+    notes,
+    states,
+    rows: () => table,
+    setRows: (next: { id: string }[]) => {
+      table = next;
+    },
+  };
+}
+
+test("並べ替えの保存は応答の順を一覧へマージし、既定スペースを先頭に固定する", async () => {
+  const saved: string[][] = [];
+  const recorder = orderFlowRecorder([normal, demo, alpha, beta], async (ids) => {
+    saved.push([...ids]);
+    return ["default", beta.id, demo.id, alpha.id];
+  });
+  recorder.flow.preview([beta.id, demo.id, alpha.id]);
+  await recorder.flow.commit();
+  // 送るのは既定スペースを除く全行（応答に入っていない行を末尾へ回すのはサーバーの仕事）
+  assert.deepEqual(saved, [[beta.id, demo.id, alpha.id]]);
+  assert.deepEqual(
+    recorder.rows().map((row) => row.id),
+    ["default", beta.id, demo.id, alpha.id],
+  );
+  assert.deepEqual(recorder.notes, []);
+  assert.deepEqual(recorder.flow.state(), { draft: null, saving: false });
+  // 送信中は saving になり、確定で下書きと saving を同時に落とす
+  assert.deepEqual(
+    recorder.states.map((state) => [state.draft, state.saving]),
+    [
+      [[beta.id, demo.id, alpha.id], false],
+      [[beta.id, demo.id, alpha.id], true],
+      [null, false],
+    ],
+  );
+});
+
+test("動かしていないドラッグの確定は送らず、取り消しは下書きだけを捨てる", async () => {
+  const calls: string[][] = [];
+  const recorder = orderFlowRecorder([normal, alpha, beta], async (ids) => {
+    calls.push([...ids]);
+    return ids;
+  });
+  // しきい値を越えてから戻した / 同位置へ落とした場合は現行順のままなので送らない
+  recorder.flow.preview([alpha.id, beta.id]);
+  await recorder.flow.commit();
+  assert.deepEqual(calls, []);
+  // 取り消しは保存も反映もしない
+  recorder.flow.preview([beta.id, alpha.id]);
+  assert.deepEqual(recorder.flow.state().draft, [beta.id, alpha.id]);
+  recorder.flow.cancel();
+  assert.deepEqual(recorder.flow.state(), { draft: null, saving: false });
+  assert.deepEqual(
+    recorder.rows().map((row) => row.id),
+    ["default", alpha.id, beta.id],
+  );
+});
+
+test("保存待ちに作られた行は遅れて届いた応答に巻き込まれず、消えた行は戻らない", async () => {
+  const pending = deferred<readonly string[]>();
+  const recorder = orderFlowRecorder([normal, demo, alpha, beta], () => pending.promise);
+  recorder.flow.preview([beta.id, alpha.id, demo.id]);
+  const committing = recorder.flow.commit();
+  assert.equal(recorder.flow.state().saving, true);
+  // 応答待ちの間の作成・削除（SpacesApp は一覧を差分更新するので、応答で上書きすると戻ってしまう）
+  recorder.setRows([normal, demo, alpha, beta, gamma]);
+  recorder.setRows([normal, demo, beta, gamma]);
+  pending.resolve(["default", beta.id, alpha.id, demo.id]);
+  await committing;
+  assert.deepEqual(
+    recorder.rows().map((row) => row.id),
+    ["default", beta.id, demo.id, gamma.id],
+    "保存待ちに作られた gamma はその場に残り、削除済みの alpha は戻らない",
+  );
+});
+
+test("保存中は新しいドラッグを受け付けず、確定を直列化する", async () => {
+  const pending = deferred<readonly string[]>();
+  const calls: string[][] = [];
+  const recorder = orderFlowRecorder([normal, alpha, beta], (ids) => {
+    calls.push([...ids]);
+    return pending.promise;
+  });
+  recorder.flow.preview([beta.id, alpha.id]);
+  const first = recorder.flow.commit();
+  recorder.flow.preview([alpha.id, beta.id]);
+  assert.deepEqual(recorder.flow.state().draft, [beta.id, alpha.id], "保存中の差し替えは無視する");
+  const second = recorder.flow.commit();
+  pending.resolve(["default", beta.id, alpha.id]);
+  await Promise.all([first, second]);
+  assert.deepEqual(calls, [[beta.id, alpha.id]], "確定は 1 回だけ送る");
+  assert.deepEqual(
+    recorder.rows().map((row) => row.id),
+    ["default", beta.id, alpha.id],
+  );
+});
+
+test("並べ替えの失敗は、HTTP エラーなら順を戻して理由を出し、応答なしなら下書きを残す", async () => {
+  // サーバーが 4xx を返した = 保存されていないので、表示を元の順へ戻して理由を出す
+  const rejected = orderFlowRecorder([normal, alpha, beta], async () => {
+    throw new ApiError("並び順が不正です", 400);
+  });
+  rejected.flow.preview([beta.id, alpha.id]);
+  await rejected.flow.commit();
+  assert.deepEqual(
+    rejected.rows().map((row) => row.id),
+    ["default", alpha.id, beta.id],
+  );
+  assert.deepEqual(rejected.flow.state(), { draft: null, saving: false });
+  assert.deepEqual(rejected.notes, ["rejected:並び順が不正です"]);
+
+  // 応答が返らない失敗は保存結果が不明。表示は戻さず、次のドラッグを始められるよう saving だけ解除する
+  let attempts = 0;
+  const unknown = orderFlowRecorder([normal, alpha, beta], async (ids) => {
+    attempts += 1;
+    if (attempts === 1) throw new Error("接続が切れました");
+    return ["default", ...ids];
+  });
+  unknown.flow.preview([beta.id, alpha.id]);
+  await unknown.flow.commit();
+  assert.deepEqual(
+    unknown.rows().map((row) => row.id),
+    ["default", alpha.id, beta.id],
+    "一覧（最後に確定した順）は書き換えない",
+  );
+  assert.deepEqual(unknown.flow.state(), { draft: [beta.id, alpha.id], saving: false });
+  assert.deepEqual(unknown.notes, ["unknown:接続が切れました"]);
+  // 下書きは残っているので、同じ順のまま再試行できる（ページを離れると下書きごと捨てられる）
+  await unknown.flow.commit();
+  assert.deepEqual(
+    unknown.rows().map((row) => row.id),
+    ["default", beta.id, alpha.id],
+  );
+});
+
+test("保存待ちにページを離れて戻っても、離脱前の遅い応答は新しい確定順を巻き戻さない", async () => {
+  let rows: { id: string }[] = [normal, demo, alpha, beta];
+  const apply = (ids: readonly string[]) => {
+    rows = reorderRows(rows, ids);
+  };
+  // 1 ページ目: b,a,c... の順で保存を始める（サーバーは受けたが応答は遅延している）
+  const slow = deferred<readonly string[]>();
+  const firstScope = createMountScope();
+  const leaveFirst = firstScope.setup();
+  const pageA = createSpaceOrderFlow({
+    ids: () => reorderIdsOf(rows),
+    save: () => slow.promise,
+    apply,
+    capture: firstScope.capture,
+    note: () => {},
+    onChange: () => {},
+  });
+  pageA.preview([beta.id, demo.id, alpha.id]);
+  const committing = pageA.commit();
+
+  // 別の設定へ移って戻る = ページを離れて作り直す。下書きと saving はページごと捨てられ、
+  // 共有の一覧は最後に確定した順のまま。新しいページは自分の mount 世代を持つ
+  leaveFirst();
+  const secondScope = createMountScope();
+  secondScope.setup();
+  const pageB = createSpaceOrderFlow({
+    ids: () => reorderIdsOf(rows),
+    save: async (ids) => ["default", ...ids],
+    apply,
+    capture: secondScope.capture,
+    note: () => {},
+    onChange: () => {},
+  });
+  pageB.preview([alpha.id, demo.id, beta.id]);
+  await pageB.commit();
+  assert.deepEqual(
+    rows.map((row) => row.id),
+    ["default", alpha.id, demo.id, beta.id],
+  );
+
+  // 離脱前に始めた保存の応答が後から届いても、新しいページの確定順を巻き戻さない
+  slow.resolve(["default", beta.id, demo.id, alpha.id]);
+  await committing;
+  assert.deepEqual(
+    rows.map((row) => row.id),
+    ["default", alpha.id, demo.id, beta.id],
+  );
 });

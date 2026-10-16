@@ -43,7 +43,7 @@ BFF の agent dir（`PI_CODING_AGENT_DIR`。未設定なら `$HOME/.pi/agent`）
 スペースはデモ用の会話の表示区分であり、認証・権限・実行隔離ではない。共通設定、カタログ、API キー、ワークスペース全体のファイル、通知先、公開サービスの枠は共有する。追加スペースは会話専用で、プロジェクトは既定スペースだけで利用する。
 
 - 既定スペースの予約 ID は `default`。旧会話の `meta.json` に `spaceId` が無い場合だけ既定として読む。不正な保存値は既定へ読み替えず、壊れた meta として一覧から除く。
-- 追加スペースはアプリ DB の `spaces(id, name, createdAt)` に保存する。内部 ID は `space-` + 16 桁の hex、表示名とは独立して固定する。既定スペースは固定の選択肢でテーブルへ保存しない。v13 → v14 はテーブル追加だけの加算移行で、既存データを移動・削除しない。
+- 追加スペースはアプリ DB の `spaces(id, name, createdAt, sortOrder)` に保存する。内部 ID は `space-` + 16 桁の hex、表示名とは独立して固定する。既定スペースは固定の選択肢でテーブルへ保存しない。v13 → v14 はテーブル追加だけの加算移行で、既存データを移動・削除しない。並びは `sortOrder` に保存し、一覧は `sortOrder` → `rowid` の順で返す。v21 → v22 は列追加だけの加算移行で、既存行の `sortOrder` は `NULL` のまま（同じ `NULL` 同士は `rowid` = 作成順で並ぶ）。並べ替えは 1 トランザクションで `sortOrder` を 1..n に振り直し、追加は `MAX + 1` で末尾に付く（エージェントと同じ。[api.md](api.md#スペース)）。
 - 会話ログは従来の `<PI_SESSION_STORE>/<sessionId>/` のまま。追加スペースの所属は meta に保存し、live・未ロード・sweep 後・再起動後で保持する。JSONL の SDK 形式は変えない。
 - 既定の作業先・添付は既存パスのまま。追加スペースの作業フォルダと添付は所属スペース配下（[session-files.md](session-files.md#スペースごとの配置)）。
 - 未所属セッションは `POST /api/sessions/:id/move` で別のスペースへ引っ越せる。meta の `spaceId` を書き換え、作業フォルダ / 添付を移動先のパスへ物理移動する（会話ログのフォルダは `<PI_SESSION_STORE>/<sessionId>/` のままで、履歴の `session.jsonl` / `sends.json` は破棄する。`secrets` / `serve_commands` は cwd をキーにするため移動先へ付け替える。[api-sessions.md](api-sessions.md#post-apisessionsidmove)）。

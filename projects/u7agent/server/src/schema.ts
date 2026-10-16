@@ -1621,6 +1621,15 @@ export const AGENT_ORDER_IDS_MAX = 200;
 export const ReorderAgentsBodySchema = z.object({ ids: z.array(z.string()).max(AGENT_ORDER_IDS_MAX) });
 export type ReorderAgentsBody = z.infer<typeof ReorderAgentsBodySchema>;
 
+/**
+ * スペースの並べ替えで受ける id の上限。形と上限だけを見る点は `ReorderAgentsBodySchema` と同じで、
+ * 未知の id・重複・既定スペースの扱いは `SpaceStore.reorder` が正。
+ */
+export const SPACE_ORDER_IDS_MAX = 200;
+
+export const ReorderSpacesBodySchema = z.object({ ids: z.array(z.string()).max(SPACE_ORDER_IDS_MAX) });
+export type ReorderSpacesBody = z.infer<typeof ReorderSpacesBodySchema>;
+
 const skillBodyShape = {
   name: z.string().optional(),
   description: z.string().optional(),

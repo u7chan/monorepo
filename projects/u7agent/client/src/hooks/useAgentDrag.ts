@@ -2,17 +2,32 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState, type Pointer
 import { resolveLayoutMode, resolveWide, type LayoutMode } from "../lib/layout";
 import {
   AGENT_DRAG_THRESHOLD,
+  alignCapturedRows,
   dropTargetFor,
   edgeScrollStep,
   moveAgentId,
   scrollableAncestor,
 } from "../lib/agentReorder";
 
-/** ドラッグ中に body へ付けるクラス。styles/index.css がカーソルと選択抑止を持つ */
-const DRAGGING_CLASS = "is-dragging-agent";
+/**
+ * 一覧ごとに変える名前。行の id を読む属性・追従に使う CSS 変数・ドラッグ中に body へ付けるクラスで、
+ * classes が持つ定義 (styles/index.css) と行側の `className` が同じ値を使う。
+ */
+export type AgentDragNaming = {
+  /** 行が id を持つ属性 (`data-agent-row` / `data-space-row`) */
+  rowAttribute: string;
+  /** 追従の translate に使う CSS 変数 */
+  yVariable: string;
+  /** ドラッグ中に body へ付けるクラス。styles/index.css がカーソルと選択抑止を持つ */
+  bodyClass: string;
+};
 
-/** 表示の追従に使う CSS 変数。行は layout の位置を保ち、この値だけでポインタへ追わせる */
-const DRAG_Y_VARIABLE = "--agent-drag-y";
+/** エージェント一覧の名前。スペース一覧は `SpaceSettingsPage` が自分の名前を渡す */
+export const AGENT_DRAG_NAMING: AgentDragNaming = {
+  rowAttribute: "data-agent-row",
+  yVariable: "--agent-drag-y",
+  bodyClass: "is-dragging-agent",
+};
 
 /** ドラッグ中のレイアウト。切替（並列表示 ⇄ 一覧 + シート / desktop ⇄ singleColumn）を知るための値 */
 type DragLayout = { mode: LayoutMode; wide: boolean };
@@ -46,8 +61,10 @@ type AgentDragSession = {
 };
 
 export type AgentDragOptions = {
-  /** 行を含む容器（行は `data-agent-row` に id を持つ）。pointer capture もこの要素が取る */
+  /** 行を含む容器（行は `naming.rowAttribute` に id を持つ）。pointer capture もこの要素が取る */
   containerRef: RefObject<HTMLElement | null>;
+  /** 行の属性・追従の CSS 変数・ドラッグ中の body クラス。未指定はエージェント一覧の名前 */
+  naming?: AgentDragNaming;
   /** ドラッグできる行の id（表示順）。ビルトインは含めない */
   ids: readonly string[];
   /** live 差し替え（下書きの更新） */
@@ -77,32 +94,52 @@ export type AgentDrag = {
 };
 
 /**
- * エージェント一覧のグリップのドラッグ。判定は `lib/agentReorder.ts` の純関数へ置き、ここは
- * pointer capture・live 差し替え・端の自動スクロール・終了経路の後始末だけを持つ。
+ * 一覧のグリップのドラッグ。判定は `lib/agentReorder.ts` の純関数へ置き、ここは pointer capture・
+ * live 差し替え・端の自動スクロール・終了経路の後始末だけを持つ（エージェント / スペースの一覧で共有）。
+ * 行側の名前（属性・ CSS 変数・ body クラス）は `naming` で受け、見た目のクラスは呼び出し側が付ける。
  * 終了経路（pointerup / pointercancel / lostpointercapture / Escape / unmount）は finishDrag 1 箇所に
  * まとめ、二重に走っても安全にする（SidebarResizeHandle と同じ作法）。
  */
-export function useAgentDrag({ containerRef, ids, onMove, onCommit, onCancel, disabled }: AgentDragOptions): AgentDrag {
+export function useAgentDrag({
+  containerRef,
+  naming = AGENT_DRAG_NAMING,
+  ids,
+  onMove,
+  onCommit,
+  onCancel,
+  disabled,
+}: AgentDragOptions): AgentDrag {
   const dragRef = useRef<AgentDragSession | null>(null);
   const [draggingId, setDraggingId] = useState<string | null>(null);
   // move / tick から最新の callback を使う（依存で identity が変わってもドラッグを切らない）
   const handlersRef = useRef({ onMove, onCommit, onCancel });
   handlersRef.current = { onMove, onCommit, onCancel };
+  // 名前も同じ理由で ref に持つ: 毎回の描画で新しい object を渡されても、callback の identity を
+  // 変えない（変えると unmount の cleanup が毎描画走り、ドラッグが切れる）
+  const namingRef = useRef(naming);
+  namingRef.current = naming;
   const idsRef = useRef(ids);
   idsRef.current = ids;
 
+  /** 容器の中の行を id で引く。`naming.rowAttribute` を読むのはここのみ */
+  const rowById = useCallback((): Map<string, HTMLElement> => {
+    const container = containerRef.current;
+    const found = new Map<string, HTMLElement>();
+    if (!container) return found;
+    const attribute = namingRef.current.rowAttribute;
+    for (const element of container.querySelectorAll<HTMLElement>(`[${attribute}]`)) {
+      const id = element.getAttribute(attribute);
+      if (id) found.set(id, element);
+    }
+    return found;
+  }, [containerRef]);
+
   const rowElements = useCallback(
     (order: readonly string[]): HTMLElement[] => {
-      const container = containerRef.current;
-      if (!container) return [];
-      const found = new Map<string, HTMLElement>();
-      for (const element of container.querySelectorAll<HTMLElement>("[data-agent-row]")) {
-        const id = element.dataset.agentRow;
-        if (id) found.set(id, element);
-      }
+      const found = rowById();
       return order.map((id) => found.get(id)).filter((element): element is HTMLElement => element !== undefined);
     },
-    [containerRef],
+    [rowById],
   );
 
   const finishDrag = useCallback(
@@ -111,8 +148,8 @@ export function useAgentDrag({ containerRef, ids, onMove, onCommit, onCancel, di
       if (!drag || (pointerId !== null && drag.pointerId !== pointerId)) return;
       dragRef.current = null;
       if (drag.frame !== null) cancelAnimationFrame(drag.frame);
-      document.body.classList.remove(DRAGGING_CLASS);
-      rowElements([drag.id])[0]?.style.removeProperty(DRAG_Y_VARIABLE);
+      document.body.classList.remove(namingRef.current.bodyClass);
+      rowElements([drag.id])[0]?.style.removeProperty(namingRef.current.yVariable);
       // capture の解放で lostpointercapture が来るが、dragRef が空なので再入は no-op になる
       if (drag.captured.hasPointerCapture(drag.pointerId)) drag.captured.releasePointerCapture(drag.pointerId);
       setDraggingId(null);
@@ -132,10 +169,11 @@ export function useAgentDrag({ containerRef, ids, onMove, onCommit, onCancel, di
     (drag: AgentDragSession): boolean => {
       const row = rowElements([drag.id])[0];
       if (!row) return false;
-      const applied = Number.parseFloat(row.style.getPropertyValue(DRAG_Y_VARIABLE)) || 0;
+      const variable = namingRef.current.yVariable;
+      const applied = Number.parseFloat(row.style.getPropertyValue(variable)) || 0;
       const rect = row.getBoundingClientRect();
       const center = rect.top + rect.height / 2 - applied;
-      row.style.setProperty(DRAG_Y_VARIABLE, `${drag.pointerY - center}px`);
+      row.style.setProperty(variable, `${drag.pointerY - center}px`);
       return true;
     },
     [rowElements],
@@ -170,9 +208,15 @@ export function useAgentDrag({ containerRef, ids, onMove, onCommit, onCancel, di
       return;
     }
     const scrolled = autoScroll(drag);
+    // 捕捉した行が DOM に揃わない（削除・差し替え・容器の作り替え）ときは、捕捉した添字で中心線を
+    // 数えられない（掴んだ行を見つけられず、挿入先もずれる）ので、その時点で取り消す
+    const rows = alignCapturedRows(drag.current, rowById());
+    if (!rows) {
+      finishDrag(null, false);
+      return;
+    }
     // 中心線を越えたら配列を差し替える（行の translate は差し替え後の位置へ合わせ直す）。中心線は
     // 掴んでいる行以外で見る: 自分の rect は translate でポインタに追従しており、判定を自己参照にする
-    const rows = rowElements(drag.current);
     const centers: number[] = [];
     let from = -1;
     rows.forEach((row, index) => {
@@ -194,7 +238,7 @@ export function useAgentDrag({ containerRef, ids, onMove, onCommit, onCancel, di
     }
     followPointer(drag);
     if (scrolled) drag.frame = requestAnimationFrame(tick);
-  }, [autoScroll, finishDrag, followPointer, rowElements]);
+  }, [autoScroll, finishDrag, followPointer, rowById]);
 
   const scheduleTick = useCallback(() => {
     const drag = dragRef.current;
@@ -234,7 +278,7 @@ export function useAgentDrag({ containerRef, ids, onMove, onCommit, onCancel, di
       if (!drag.grabbed) {
         if (Math.abs(event.clientY - drag.startY) < AGENT_DRAG_THRESHOLD) return;
         drag.grabbed = true;
-        document.body.classList.add(DRAGGING_CLASS);
+        document.body.classList.add(namingRef.current.bodyClass);
         setDraggingId(drag.id);
       }
       scheduleTick();

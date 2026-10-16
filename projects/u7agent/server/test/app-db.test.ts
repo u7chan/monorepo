@@ -1115,7 +1115,7 @@ test("migrates a v10 db additively and keeps the secrets table across reopen", (
     raw.close();
 
     const first = AppDb.open({ storeDir: dir });
-    assert.equal(APP_DB_SCHEMA_VERSION, 21);
+    assert.equal(APP_DB_SCHEMA_VERSION, 22);
     // 加算移行なので既存の行は残り、secrets は行が無い = 未設定で始まる
     assert.deepEqual(first.listProjects(), [project("p1", "proj-a")]);
     assert.deepEqual(first.getServeCommand("proj-a"), { cwd: "proj-a", command: "pnpm dev", updatedAt: 1 });
@@ -1894,6 +1894,109 @@ test("reorderAgents は途中で失敗したら 1 つも書かない", () => {
     );
     assert.deepEqual(
       db.listAgents().map((entry) => entry.id),
+      before,
+      "rollback で部分適用を残さない",
+    );
+    db.close();
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+/** v21 相当のスキーマ (spaces に表示順が無い状態)。v21 の実ファイルと同じ形 */
+const V21_TABLES = `
+${V20_TABLES}
+ALTER TABLE agents ADD COLUMN sortOrder INTEGER;
+`;
+
+test("migrates a v21 db additively and keeps the creation order of the existing spaces", () => {
+  const dir = tempStoreDir();
+  try {
+    const raw = new DatabaseSync(join(dir, APP_DB_FILENAME));
+    raw.exec(V21_TABLES);
+    raw.exec("PRAGMA user_version = 21");
+    // v21 の spaces は sortOrder を持たないので、既存行は NULL のままで移行される
+    for (const [id, createdAt] of [
+      ["space-0123456789abcde1", 1],
+      ["space-0123456789abcde2", 2],
+      ["space-0123456789abcde3", 3],
+    ] as const) {
+      raw.prepare("INSERT INTO spaces (id, name, createdAt) VALUES (?, ?, ?)").run(id, id, createdAt);
+    }
+    raw.close();
+
+    const db = AppDb.open({ storeDir: dir });
+    const ids = () => db.listSpaces().map((space) => space.id);
+    assert.deepEqual(ids(), ["space-0123456789abcde1", "space-0123456789abcde2", "space-0123456789abcde3"]);
+    // NULL は sortOrder より前に並ぶので、移行後の追加は既存行の後ろ (末尾) に付く
+    db.insertSpace({ id: "space-0123456789abcde4", name: "4", createdAt: 4 });
+    assert.deepEqual(ids(), [
+      "space-0123456789abcde1",
+      "space-0123456789abcde2",
+      "space-0123456789abcde3",
+      "space-0123456789abcde4",
+    ]);
+    // 並べ替えは全件を渡す (部分適用では、渡さなかった行と値が衝突し得る)
+    db.reorderSpaces([
+      "space-0123456789abcde4",
+      "space-0123456789abcde2",
+      "space-0123456789abcde1",
+      "space-0123456789abcde3",
+    ]);
+    assert.deepEqual(ids(), [
+      "space-0123456789abcde4",
+      "space-0123456789abcde2",
+      "space-0123456789abcde1",
+      "space-0123456789abcde3",
+    ]);
+    db.close();
+
+    const check = new DatabaseSync(join(dir, APP_DB_FILENAME));
+    const columns = check.prepare("PRAGMA table_info(spaces)").all() as { name: string }[];
+    assert.deepEqual(
+      columns.map((column) => column.name),
+      ["id", "name", "createdAt", "sortOrder"],
+    );
+    assert.equal(Number(check.prepare("PRAGMA user_version").get()?.user_version), APP_DB_SCHEMA_VERSION);
+    check.close();
+
+    // 再起動しても並びは残る
+    const reopened = AppDb.open({ storeDir: dir });
+    assert.deepEqual(
+      reopened.listSpaces().map((space) => space.id),
+      ["space-0123456789abcde4", "space-0123456789abcde2", "space-0123456789abcde1", "space-0123456789abcde3"],
+    );
+    reopened.close();
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("reorderSpaces は途中で失敗したら 1 つも書かない", () => {
+  const dir = tempStoreDir();
+  try {
+    const first = AppDb.open({ storeDir: dir });
+    for (const id of ["space-0123456789abcde1", "space-0123456789abcde2", "space-0123456789abcde3"]) {
+      first.insertSpace({ id, name: id, createdAt: 1 });
+    }
+    first.close();
+
+    // 2 件目の更新だけを失敗させる (部分適用が残れば 1 件目だけ 1 になる)
+    const raw = new DatabaseSync(join(dir, APP_DB_FILENAME));
+    raw.exec(
+      "CREATE TRIGGER boom BEFORE UPDATE OF sortOrder ON spaces WHEN NEW.id = 'space-0123456789abcde2' BEGIN SELECT RAISE(ABORT, 'boom'); END",
+    );
+    raw.close();
+
+    const db = AppDb.open({ storeDir: dir });
+    const before = db.listSpaces().map((space) => space.id);
+    assert.throws(
+      () => db.reorderSpaces(["space-0123456789abcde3", "space-0123456789abcde2", "space-0123456789abcde1"]),
+      (error: unknown) => isServiceUnavailable(error),
+      "失敗は 503 へ寄せる",
+    );
+    assert.deepEqual(
+      db.listSpaces().map((space) => space.id),
       before,
       "rollback で部分適用を残さない",
     );

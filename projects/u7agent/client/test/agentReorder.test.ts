@@ -4,6 +4,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   AGENT_DRAG_SCROLL_STEP,
+  alignCapturedRows,
   applyAgentOrder,
   dropIndexFor,
   dropTargetFor,
@@ -73,6 +74,23 @@ test("reorderRows は渡した id だけを並べ替え、ビルトインなど�
   );
 });
 
+test("reorderRows は渡した id を、スペース一覧でも既定の先頭と新しい行の位置を保って並べ替える", () => {
+  // 既定スペースは先頭固定、`d` は保存待ちの間に作られた行。どちらも渡さなければ位置を変えない
+  const rows = [{ id: "default" }, { id: "a" }, { id: "b" }, { id: "c" }, { id: "d" }];
+  assert.deepEqual(
+    reorderRows(rows, ["default", "c", "a", "b"]).map((row) => row.id),
+    ["default", "c", "a", "b", "d"],
+  );
+  // 応答から消えた行 (削除済み) は現れない
+  assert.deepEqual(
+    reorderRows(
+      rows.filter((row) => row.id !== "b"),
+      ["default", "c", "a", "b"],
+    ).map((row) => row.id),
+    ["default", "c", "a", "d"],
+  );
+});
+
 test("applyAgentOrder はサーバーの順に並べ、渡されなかった行を末尾へ回す", () => {
   const agents = [{ id: "a" }, { id: "b" }, { id: "c" }];
   assert.deepEqual(
@@ -86,6 +104,23 @@ test("applyAgentOrder はサーバーの順に並べ、渡されなかった行�
   );
   // 定義オブジェクトはそのまま使う (順序だけを差し替える)
   assert.equal(applyAgentOrder(agents, ["b", "a", "c"])[0], agents[1]);
+});
+
+test("alignCapturedRows は捕捉した行が 1 つでも欠けると null を返し、ドラッグを取り消させる", () => {
+  const present = new Map([
+    ["b", { id: "b" }],
+    ["c", { id: "c" }],
+  ]);
+  assert.deepEqual(
+    alignCapturedRows(["b", "c"], present)?.map((row) => row.id),
+    ["b", "c"],
+    "すべて揃っているときは捕捉した順で返す",
+  );
+  // 削除待ちの行が消えた場合 (a,b,c -> b,c)。捕捉した添字のまま計算すると、掴んだ行を見つけられず
+  // 挿入先も 1 つずれるので、呼び出し側はこの null で取り消す
+  assert.equal(alignCapturedRows(["a", "b", "c"], present), null);
+  assert.equal(alignCapturedRows(["c"], new Map()), null);
+  assert.deepEqual(alignCapturedRows([], present), []);
 });
 
 test("edgeScrollStep は帯の外では 0、端に近いほど大きい", () => {
