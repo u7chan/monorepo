@@ -111,6 +111,56 @@ test("creates and updates agents with an independent model / thinkingLevel", () 
   assert.equal(Object.hasOwn(nullCreated, "thinkingLevel"), false);
 });
 
+test("reorderAgents は既存の id だけを採用し、渡さなかった行を元の順で末尾に回す", () => {
+  const catalog = createAgentCatalog();
+  // seed のずんだもんを外し、並べ替えの対象を 3 件に絞る
+  catalog.removeAgent("agent-zundamon");
+  const a = catalog.createAgent({ name: "A" });
+  const b = catalog.createAgent({ name: "B" });
+  const c = catalog.createAgent({ name: "C" });
+  const ids = () => catalog.listAgents().map((agent) => agent.id);
+  assert.deepEqual(ids(), [a.id, b.id, c.id], "追加は末尾に付く");
+
+  // 未知の id・重複・ビルトインは捨て、渡さなかった行は元の相対順で末尾に回る
+  const reordered = catalog.reorderAgents([b.id, "agent-missing", b.id, "agent-general"]);
+  assert.deepEqual(
+    reordered.map((agent) => agent.id),
+    [b.id, a.id, c.id],
+  );
+  assert.deepEqual(ids(), [b.id, a.id, c.id], "並びは保存され、一覧にも同じ順で出る");
+
+  // [] と全件未知は現行順のまま
+  assert.deepEqual(
+    catalog.reorderAgents([]).map((agent) => agent.id),
+    [b.id, a.id, c.id],
+  );
+  assert.deepEqual(
+    catalog.reorderAgents(["agent-missing"]).map((agent) => agent.id),
+    [b.id, a.id, c.id],
+  );
+
+  // 並べ替えたあとの追加は末尾 (MAX + 1)
+  const d = catalog.createAgent({ name: "D" });
+  assert.deepEqual(ids(), [b.id, a.id, c.id, d.id]);
+
+  // 更新は位置を動かさない (名前や説明の保存で並びが変わらない)
+  catalog.updateAgent(b.id, { name: "B 改", description: "説明" });
+  assert.deepEqual(ids(), [b.id, a.id, c.id, d.id]);
+});
+
+test("reorderAgents はビルトインを含まないユーザー定義だけを並べ替える", () => {
+  const catalog = createAgentCatalog();
+  const agent = catalog.createAgent({ name: "1 件" });
+
+  // ビルトインはユーザー定義の一覧に無いので、渡しても採用されない
+  const reordered = catalog.reorderAgents(["agent-general", agent.id]);
+  assert.deepEqual(
+    reordered.map((entry) => entry.id),
+    [agent.id, "agent-zundamon"],
+  );
+  assert.equal(catalog.builtinAgent().id, "agent-general");
+});
+
 test("drops references to skills that do not exist", () => {
   const catalog = createAgentCatalog();
   const skill = catalog.createSkill({ name: "実在スキル", description: "説明", body: "本文" });

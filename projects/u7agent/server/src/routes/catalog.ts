@@ -9,6 +9,7 @@ import {
   SandboxSkillsSchema,
   type CreateAgentBody,
   type CreateSkillBody,
+  type ReorderAgentsBody,
   type UpdateAgentBody,
   type UpdateSkillBody,
 } from "../schema";
@@ -45,6 +46,9 @@ export function createCatalogRoutes({
     snapshot: (c: Context) => c.json(catalog.snapshot()),
 
     createAgent: (c: Context, body: CreateAgentBody) => c.json({ agent: catalog.createAgent(body) }, 201),
+
+    /** 応答は並べ替え後の一覧。クライアントはこれをそのまま採用する (定義は順序で書き換えない) */
+    reorderAgents: (c: Context, body: ReorderAgentsBody) => c.json({ agents: catalog.reorderAgents(body.ids) }),
 
     updateAgent,
 

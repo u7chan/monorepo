@@ -1612,6 +1612,15 @@ export type CreateAgentBody = z.infer<typeof CreateAgentBodySchema>;
 export const UpdateAgentBodySchema = z.object(agentBodyShape);
 export type UpdateAgentBody = z.infer<typeof UpdateAgentBodySchema>;
 
+/**
+ * 並べ替えで受ける id の上限。全件を 1 回で渡す API なので、他の配列項目と同じく
+ * 中身の正しさ (存在・重複) はカタログ側が正で、ここは形と上限だけを見る。
+ */
+export const AGENT_ORDER_IDS_MAX = 200;
+
+export const ReorderAgentsBodySchema = z.object({ ids: z.array(z.string()).max(AGENT_ORDER_IDS_MAX) });
+export type ReorderAgentsBody = z.infer<typeof ReorderAgentsBodySchema>;
+
 const skillBodyShape = {
   name: z.string().optional(),
   description: z.string().optional(),

@@ -1101,6 +1101,30 @@
   body.is-resizing-row .file-tree-height-handle {
     background: var(--c-accent);
   }
+
+  /* エージェント一覧の並べ替え。ドラッグ中はポインタの下の行を translate で追わせ (位置は CSS 変数)、
+   * 行そのものはグリップを掴んだときだけ動く (行のクリックは編集対象の選択なので、重ねられない)。
+   * touch-action: none はグリップだけに当てる: 行に当てると縦スクロールを奪う */
+  .agent-drag-grip {
+    @apply grid w-7 shrink-0 cursor-grab touch-none place-items-center rounded-lg text-ink-faint outline-none hover:bg-hover hover:text-ink-soft focus-visible:ring-1 focus-visible:ring-focus focus-visible:ring-inset singleColumn:w-11;
+  }
+  body.is-dragging-agent {
+    cursor: grabbing;
+    user-select: none;
+  }
+  body.is-dragging-agent .agent-drag-grip {
+    cursor: grabbing;
+  }
+  /* 追従の 1 フレーム分をならす。追従自体は直接操作なので、reduced motion では遅延だけを切る */
+  .agent-drag-row {
+    translate: 0 var(--agent-drag-y, 0);
+    transition: translate 80ms linear;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .agent-drag-row {
+      transition: none;
+    }
+  }
   /* 生成中の活動ラベル (「考え中…」) に光を流す。グラデーションを文字でクリップし、
    * 背景の位置だけを動かす (アニメーションの依存は増やさない)。当てるのは折り返さない短い
    * ラベルだけにする: 複数行になると帯が行ごとに切れ、移動ではなく汚れに見える。

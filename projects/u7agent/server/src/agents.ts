@@ -260,6 +260,11 @@ export interface AgentCatalog {
   listSkills(): SkillDef[];
   /** ユーザー定義のみ (ビルトインを含まない) */
   listAgents(): AgentDef[];
+  /**
+   * 表示順の更新。応答と以後の一覧は、正規化したあとの順で返る。
+   * 未知の id・重複・ビルトインは捨て、渡されなかった行は元の相対順で末尾に回す。
+   */
+  reorderAgents(ids: readonly string[]): AgentDef[];
   getSkill(id: string): SkillRecord | undefined;
   /** ビルトインも解決する (新規セッションの既定がこの id を指す) */
   getAgent(id: string): AgentRecord | undefined;
@@ -319,6 +324,24 @@ export function createAgentCatalog(options: CreateAgentCatalogOptions = {}): Age
     getSkill,
     getAgent,
     snapshot,
+    reorderAgents(ids) {
+      // 存在しない id を捨てる方針は normalizeSkillIds と同じ (ビルトインはユーザー定義の集合に無い)
+      const current = db.listAgents();
+      const known = new Set(current.map((agent) => agent.id));
+      const seen = new Set<string>();
+      const order: string[] = [];
+      for (const id of ids) {
+        if (typeof id !== "string" || !known.has(id) || seen.has(id)) continue;
+        seen.add(id);
+        order.push(id);
+      }
+      // 渡されなかった行は末尾へ、元の相対順のまま (1 度も触られていない行を並べ替えない)
+      for (const agent of current) {
+        if (!seen.has(agent.id)) order.push(agent.id);
+      }
+      db.reorderAgents(order);
+      return listAgents();
+    },
     createSkill(input) {
       const skill = makeSkill(input);
       db.saveSkill(skill);

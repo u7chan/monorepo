@@ -333,6 +333,22 @@ export function MoreIcon() {
   );
 }
 
+/**
+ * 並べ替えのグリップ (縦 2 列の点 6 個)。掴む位置を ⋯ と取り違えないよう、点の並びの向きで分ける。
+ */
+export function GripIcon() {
+  return (
+    <svg aria-hidden="true" viewBox="0 0 16 16" fill="currentColor" className="size-3.5 shrink-0">
+      <circle cx="6.25" cy="5" r="1.15" />
+      <circle cx="9.75" cy="5" r="1.15" />
+      <circle cx="6.25" cy="8" r="1.15" />
+      <circle cx="9.75" cy="8" r="1.15" />
+      <circle cx="6.25" cy="11" r="1.15" />
+      <circle cx="9.75" cy="11" r="1.15" />
+    </svg>
+  );
+}
+
 export function CheckIcon() {
   return (
     <svg

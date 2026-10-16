@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import type { Dispatch } from "react";
 import { getCatalog, getHealth } from "../api";
 import { selectableAgents } from "../lib/agentSelection";
+import { createCatalogStore } from "../lib/catalogStore";
 import type { CatalogResponse, Health } from "../types";
 import type { ChatAction } from "./chatReducer";
 import { runtimeStatusForHealth, type RuntimeStatus } from "./runtimeStatus";
@@ -9,6 +10,15 @@ import { createMountScope } from "./requestGate";
 
 const AGENT_KEY = "u7agent-agent";
 const alwaysCurrent = () => true;
+
+/** 取得前のカタログ。ビルトインは null で、ツール欄は空を「取得できていない」として理由を出す */
+const EMPTY_CATALOG: CatalogResponse = {
+  builtinAgent: null,
+  builtinSkills: [],
+  agents: [],
+  skills: [],
+  tools: [],
+};
 
 export type UseRuntimeCatalogParams = {
   dispatch: Dispatch<ChatAction>;
@@ -18,14 +28,8 @@ export function useRuntimeCatalog({ dispatch }: UseRuntimeCatalogParams) {
   const [mountScope] = useState(createMountScope);
   useEffect(mountScope.setup, [mountScope]);
   const [health, setHealth] = useState<Health | null>(null);
-  const [catalog, setCatalog] = useState<CatalogResponse>({
-    builtinAgent: null,
-    builtinSkills: [],
-    agents: [],
-    skills: [],
-    // 取得前は空。ツール欄は空を「取得できていない」として理由を出す
-    tools: [],
-  });
+  const [catalogStore] = useState(() => createCatalogStore(EMPTY_CATALOG));
+  const catalog = useSyncExternalStore(catalogStore.subscribe, catalogStore.get);
   const [runtimeStatus, setRuntimeStatus] = useState<RuntimeStatus>({ text: "起動中", error: false });
   const [agentId, setAgentIdState] = useState<string>(() => localStorage.getItem(AGENT_KEY) || "");
 
@@ -81,13 +85,24 @@ export function useRuntimeCatalog({ dispatch }: UseRuntimeCatalogParams) {
   const loadCatalog = useCallback(
     async (isCurrent = alwaysCurrent): Promise<CatalogResponse> => {
       const canApply = mountScope.capture();
+      const apply = catalogStore.begin();
       const next = await getCatalog();
       if (!canApply() || !isCurrent()) return next;
-      setCatalog(next);
-      normalizeAgentId(next);
+      if (apply(next)) normalizeAgentId(next);
       return next;
     },
-    [normalizeAgentId, mountScope],
+    [catalogStore, normalizeAgentId, mountScope],
+  );
+
+  /**
+   * 並べ替えの確定した順を共有カタログへ反映する入口。反映と同時に取得の世代を進めるので、
+   * これより前に開始して遅れて届いた取得は採用されない（client/src/lib/catalogStore.ts）。
+   */
+  const applyAgentOrder = useCallback(
+    (ids: readonly string[]) => {
+      catalogStore.adoptOrder(ids);
+    },
+    [catalogStore],
   );
 
   // 一覧とピッカーが使う並び。catalog が変わるまで同じ配列を渡す (下流の useCallback を安定させる)
@@ -104,6 +119,8 @@ export function useRuntimeCatalog({ dispatch }: UseRuntimeCatalogParams) {
     setAgentId,
     selectedAgent,
     loadCatalog,
+    /** 並べ替えの確定順を共有カタログへ反映する（App 経由で設定 → エージェントへ渡す） */
+    applyAgentOrder,
     refreshHealth,
     applyHealth,
   };

@@ -10,6 +10,7 @@ import { VERSION } from "@earendil-works/pi-coding-agent";
 import { AUTH_REQUIRED_MESSAGE, MODEL_UNSET_MESSAGE, MODEL_WHITELIST_EMPTY_MESSAGE } from "../src/agent";
 import { createBffApp } from "../src/app";
 import { BUILTIN_SKILLS } from "../src/builtin-skills";
+import { AGENT_ORDER_IDS_MAX } from "../src/schema";
 import { SandboxRequestError, type SandboxWorkspaceClient } from "../src/sandbox/client";
 import { asPiBff, createStubPi, STUB_CONTEXT_USAGE, STUB_MODEL, STUB_USAGE } from "./stub-pi";
 
@@ -1016,6 +1017,77 @@ test("catalog endpoints relay the normalization errors of the catalog", async ()
     });
     assert.equal(unknownAgent.status, 404);
     assert.deepEqual(await jsonBody(unknownAgent), { error: "Agent not found" });
+  } finally {
+    await bff.close();
+  }
+});
+
+test("catalog endpoints reorder agents and answer the normalized order", async () => {
+  const bff = await createBffApp({ cwd: "/tmp/project", sessionStoreDir: null, pi: asPiBff(createStubPi()) });
+  const { app } = bff;
+  try {
+    const created = [];
+    for (const name of ["A", "B", "C"]) {
+      const response = await app.request("/api/agents", jsonPost({ name }));
+      assert.equal(response.status, 201);
+      created.push((await jsonBody(response)).agent);
+    }
+    const [a, b, c] = created;
+    const before = await jsonBody(app.request("/api/agents"));
+    assert.deepEqual(
+      before.agents.map((agent: { id: string }) => agent.id),
+      ["agent-zundamon", a.id, b.id, c.id],
+      "作成順で返る",
+    );
+    // sortOrder は app-db の中に閉じる (AgentDef と応答形を変えない)
+    assert.equal(
+      before.agents.some((agent: object) => Object.hasOwn(agent, "sortOrder")),
+      false,
+    );
+
+    // 静的セグメントは :id と衝突しない (衝突していれば `order` が id として 404 になる)
+    const reordered = await app.request(
+      "/api/agents/order",
+      jsonPatch({ ids: [c.id, "agent-missing", c.id, "agent-general"] }),
+    );
+    assert.equal(reordered.status, 200);
+    const body = await jsonBody(reordered);
+    // 未知の id・重複・ビルトインは捨て、渡さなかった行は元の相対順で末尾に回る
+    assert.deepEqual(
+      body.agents.map((agent: { id: string }) => agent.id),
+      [c.id, "agent-zundamon", a.id, b.id],
+    );
+    // 定義は順序で書き換えない
+    assert.deepEqual(
+      body.agents.find((agent: { id: string }) => agent.id === a.id),
+      a,
+    );
+
+    // 応答と GET が一致し、再起動 (同じプロセス内の開き直し) でも呼び側は同じ順を見る
+    const after = await jsonBody(app.request("/api/agents"));
+    assert.deepEqual(
+      after.agents.map((agent: { id: string }) => agent.id),
+      body.agents.map((agent: { id: string }) => agent.id),
+    );
+    assert.equal(
+      after.agents.some((agent: object) => Object.hasOwn(agent, "sortOrder")),
+      false,
+    );
+
+    // 欠落・不正な形・件数超過は 400 で、並びを変えない
+    for (const payload of [
+      {},
+      { ids: "agent-zundamon" },
+      { ids: Array.from({ length: AGENT_ORDER_IDS_MAX + 1 }, (_, index) => `agent-${index}`) },
+    ]) {
+      const rejected = await app.request("/api/agents/order", jsonPatch(payload));
+      assert.equal(rejected.status, 400);
+      assert.deepEqual(await jsonBody(rejected), { error: "Invalid request body" });
+    }
+    assert.deepEqual(
+      (await jsonBody(app.request("/api/agents"))).agents.map((agent: { id: string }) => agent.id),
+      body.agents.map((agent: { id: string }) => agent.id),
+    );
   } finally {
     await bff.close();
   }

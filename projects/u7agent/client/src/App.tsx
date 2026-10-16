@@ -661,6 +661,7 @@ export default function App() {
             catalog={app.catalog}
             agentId={app.agentId}
             refreshCatalog={refreshCatalog}
+            applyAgentOrder={app.applyAgentOrder}
             modelOptions={app.health?.modelOptions ?? []}
             defaultModel={app.health?.model}
             defaultThinkingLevel={app.health?.defaultThinkingLevel}
