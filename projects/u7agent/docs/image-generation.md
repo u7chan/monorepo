@@ -19,7 +19,7 @@
 | `sdk` | キャッシュも無く、SDK 同梱のカタログを使っている（ルーター用メタモデルは除外） | `null` |
 
 - 取得は **API キーを使わない**（一覧 API は認証を見ないので、認証ヘッダも付けない）。キーの有無・有効性とは独立で、**キーの死活チェックには使えない**（無効なキーでも 200 が返る）
-- 取得契機は 起動時（`content_settings` に行があるとき）/ 手動の [再取得]。`GET /api/settings/content` はネットワークに触らず、メモリ上の現在値を返すだけ。キー保存にも紐づけない（設定の変更を外部 API の待ち時間へ巻き込まない）
+- 取得契機は 起動時（`content_settings` に行があるとき）/ 手動の [カタログ更新]。`GET /api/settings/content` はネットワークに触らず、メモリ上の現在値を返すだけ。キー保存にも紐づけない（設定の変更を外部 API の待ち時間へ巻き込まない）
 - 期限は 10 秒（`IMAGE_CATALOG_TIMEOUT_MS`）+ リトライなし。失敗は timeout / 混雑（429・5xx）/ 不明の固定文言へ分類し、上流の応答本文はログにも UI にも出さない
 - 取得成功時だけ DB（`image_catalog`）へ `id` と表示名、あれば出力形式の宣言（`outputFormats`）を残す。失敗しても一覧は前のままで、`catalogSource` / `fetchedAt` も変えない
 - live は `supported_parameters.output_format`（`{ type: "enum", values: ["png", ...] }`）に出力形式を宣言する。**保存できる形式（png / jpeg / webp）を 1 つも宣言していないモデルは一覧から落とす**（`recraft/*-vector` が `["svg"]` 単独でこれに当たる）。判定は `server/src/images.ts` の `isUnsaveableOutputOnly()` 1 つで、保存側の `imageExtensionFor()` と同じ表を見る（[保存できない形式のモデル](#保存できない形式のモデル)）
@@ -32,12 +32,12 @@
 
 ### 画面表示
 
-モデル欄に由来と最終取得時刻を出す。`live` 以外は警告色で、前回の一覧 / SDK 同梱のどちらを見ているかを明示する（黙って古い一覧を見せない）。表示はプロバイダータブと同じ `MetaChip` のチップで、`live` は muted、それ以外は warn にする。文が長いためこのチップだけは折り返しを許し、[再取得] を隣に置く。段落のセマンティクス（暗黙の `paragraph` ロール）を残すために `<p>` で包み、`wrap` のチップは `inline-block max-w-full` で 1 つの枠のまま中で折り返す（inline のままだと行ごとに枠線が分断される）。
+モデル欄に由来と最終取得時刻を出す。`live` 以外は警告色で、前回の一覧 / SDK 同梱のどちらを見ているかを明示する（黙って古い一覧を見せない）。表示はプロバイダータブと同じ `MetaChip` のチップで、`live` は muted、それ以外は warn にする。文が長いためこのチップだけは折り返しを許し、[カタログ更新] を隣に置く。段落のセマンティクス（暗黙の `paragraph` ロール）を残すために `<p>` で包み、`wrap` のチップは `inline-block max-w-full` で 1 つの枠のまま中で折り返す（inline のままだと行ごとに枠線が分断される）。
 
 - `live`: 「モデル一覧は OpenRouter から取得しました（最終取得: 3時間前）」
 - `stored`: 「OpenRouter から取得できなかったため、前回の一覧を表示しています（最終取得: …）」
 - `sdk`: 「OpenRouter から取得できていないため、SDK の組み込み一覧を表示しています」
-- [再取得] は `POST /api/settings/content/image/catalog/refresh`。**常に 200** で現在の一覧を返し、今回の取得に失敗したときだけ `catalogError`（固定文言）を載せる。UI は既存の注記で「取得できませんでした。表示中の一覧は変わりません。」と出す
+- [カタログ更新] は `POST /api/settings/content/image/catalog/refresh`。**常に 200** で現在の一覧を返し、今回の取得に失敗したときだけ `catalogError`（固定文言）を載せる。UI は既存の注記で「取得できませんでした。表示中の一覧は変わりません。」と出す
 
 ## 保存できない形式のモデル
 
@@ -57,7 +57,7 @@ SVG を返す vectorization モデル（`recraft/*-vector` など）は**製品�
 
 ### 残る穴
 
-- live の取得が一度も成功せず SDK 同梱カタログへ落ちているときは形式宣言が読めず、絞り込みも生成前ガードも効かない（SDK の一覧に形式情報が無い）。[再取得] か次の起動で live を取れれば解消する
+- live の取得が一度も成功せず SDK 同梱カタログへ落ちているときは形式宣言が読めず、絞り込みも生成前ガードも効かない（SDK の一覧に形式情報が無い）。[カタログ更新] か次の起動で live を取れれば解消する
 - この変更より前に書かれた `image_catalog` のキャッシュも宣言を持たないため、一時的に vector モデルが出得る（次の live 取得成功が行を上書きして解消する）
 - svg とラスタの両方を宣言するモデルは一覧に残るため、svg が返れば保存段で失敗して課金だけが残る。今のカタログには該当が無く、`output_format` を送らない方針とも合わせて既知の穴に留める
 
@@ -206,13 +206,13 @@ SDK(pi-ai 1.2.0) の `openrouter-images` は `chat/completions` へ投げるが�
 | `server/test/app-db.test.ts` | v7 → v8 / v8 → v9 の加算移行、v14 → v15 の改名（`image_settings` → `content_settings`、`model` → `imageModel`）、両テーブル併存時の読み先、v15 → v14 → v15 の往復、`content_settings` の CRUD、空文字行 = 未設定、`image_catalog` の upsert と壊れた行（health を落とさない）、形式宣言の往復と形違いの読み方 |
 | `client/test/markdownImage.test.ts` | Markdown 画像の 3 段解決 / version が変わったときだけ解決 URL が変わること / App の `runEndSeq` 配線 / 解決できない src / `components/markdown/` が `api.ts` を import しないこと |
 | `client/test/imageRefresh.test.ts` | 実フックの再描画安定性・更新時の URL 非衝突 / 実 Markdown と FileBrowser の再 mount が過去の URL を再利用しないこと（SSR） |
-| `client/test/contentSettings.test.ts` / `client/test/contentSettingsTab.test.ts` | 選択肢（カタログ順・同名への id 添え・カタログ外の現在値）/ 現在値と PUT の本文 / 保存成功時だけキー入力を消す / キーの登録状態バッジと provider の id・表示名 / 見出しの provider（ロゴ・未設定でも OpenRouter・対応表に無い provider は頭文字）と `画像 <n>` / `音声 <n>` のチップ / 一覧の出どころのチップと最終取得 / 再取得の注記 / 選んだ面だけの描画（未設定はキーのみ・設定済みは削除と選んだ面の選択・キーを再表示しない・runtime 不可の disable・[再取得] の出し分け） |
+| `client/test/contentSettings.test.ts` / `client/test/contentSettingsTab.test.ts` | 選択肢（カタログ順・同名への id 添え・カタログ外の現在値）/ 現在値と PUT の本文 / 保存成功時だけキー入力を消す / キーの登録状態バッジと provider の id・表示名 / 見出しの provider（ロゴ・未設定でも OpenRouter・対応表に無い provider は頭文字）と `画像 <n>` / `音声 <n>` のチップ / 一覧の出どころのチップと最終取得 / 再取得の注記 / 選んだ面だけの描画（未設定はキーのみ・設定済みは削除と選んだ面の選択・キーを再表示しない・runtime 不可の disable・[カタログ更新] の出し分け） |
 
 ## 非ゴール
 
 - OpenAI provider の実装（差し替え点だけ残す）
 - キーの有効性のチェック（live カタログの取得は API キーを見ないため兼用できない。やるなら別 API）
-- TTL / バックグラウンドでのカタログ自動再取得（契機は起動と手動 [再取得] だけ）
+- TTL / バックグラウンドでのカタログ自動再取得（契機は起動と手動 [カタログ更新] だけ）
 - コスト表示、provider 切替 UI、プロバイダー登録済みキーの流用
 - サイズ / 品質 / 出力形式の変更、参照画像による編集、複数枚生成、ツール結果への画像 content（svg-only の除外と生成前ガードは [保存できない形式のモデル](#保存できない形式のモデル)）
 - SVG（vectorization）の保存・プレビュー・raw 配信。svg-only モデルを選択肢から外し、保存形式と同じく png / jpeg / webp だけを通す（[保存できない形式のモデル](#保存できない形式のモデル)）

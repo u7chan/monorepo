@@ -3,6 +3,7 @@ import type { ArchiveSettings } from "../hooks/useArchiveSettings";
 import { cn } from "../lib/cn";
 import { normalizeFileTreeRoot } from "../lib/fileTree";
 import { DEFAULT_FILES_SUBSECTION, FILES_SUBSECTIONS, type FilesSubsection } from "../lib/settingsNav";
+import { UNSAVED_RELOAD_NOTE } from "../lib/settingsNotes";
 import { ArchiveExcludeSettings } from "./ArchiveExcludeSettings";
 import { FileBrowser } from "./FileBrowser";
 import { CheckIcon } from "./icons";
@@ -52,7 +53,7 @@ export function FileTreePage({
   // 追加前の入力はタブの親が持つ。本文はタブ切替で unmount されるため、子に置くと入力中の名前が消える
   const [excludeInput, setExcludeInput] = useState("");
   const archive = filesSubsection === "archive";
-  const { settings, dirty, saving, note, save, reset, discard } = archiveSettings;
+  const { settings, dirty, saving, reloading, note, save, reset, discard } = archiveSettings;
   const submitExcludeInput = () => {
     // 追加できなかったときは入力を残す（上限や重複の理由をその場で直せるように）
     if (archiveSettings.add(excludeInput)) setExcludeInput("");
@@ -61,9 +62,16 @@ export function FileTreePage({
   useEffect(() => {
     if (singleColumn) activeTabRef.current?.scrollIntoView({ block: "nearest", inline: "nearest" });
   }, [singleColumn, filesSubsection]);
+  /** 下書きを捨てる再読み込みが押せない理由。変更が無い間は出さない */
+  const unsavedReloadNote = archive && dirty ? UNSAVED_RELOAD_NOTE : null;
   // 操作はタブごとに変える (ツリーは今の一覧の取り直し、除外は下書きの保存)
   const actions = archive ? (
     <>
+      {/* 再読み込みは下書きを捨てるので、変更がある間は押せない (理由の置き場は下の caption / context) */}
+      <ReloadButton onClick={() => void archiveSettings.reload()} disabled={dirty || reloading}>
+        再読み込み
+      </ReloadButton>
+      <span aria-hidden="true" className="h-4 w-px bg-line" />
       <button type="button" className="btn-quiet" disabled={!dirty || saving} onClick={discard}>
         破棄
       </button>
@@ -89,8 +97,27 @@ export function FileTreePage({
       eyebrow="FILES"
       title="ファイル"
       // ツリーの root は常にワークスペース root ("/") で、面を選ぶ情報にならないため caption を出さない
-      caption={archive ? "ファイルツリーのダウンロード（フォルダは ZIP）から落とす名前を決めます。" : undefined}
-      toolbar={<TabToolbar actions={actions} />}
+      caption={
+        archive ? (
+          <>
+            ファイルツリーのダウンロード（フォルダは ZIP）から落とす名前を決めます。
+            {/* singleColumn の帯は操作だけで埋まり、理由が 1 文字幅まで潰れる。ヘッダ側で折り返して読ませる */}
+            {singleColumn && unsavedReloadNote ? (
+              <div className="pt-0.5 text-2xs text-ink-muted">{unsavedReloadNote}</div>
+            ) : null}
+          </>
+        ) : undefined
+      }
+      toolbar={
+        <TabToolbar
+          context={
+            !singleColumn && unsavedReloadNote ? (
+              <span className="text-2xs text-ink-muted">{unsavedReloadNote}</span>
+            ) : undefined
+          }
+          actions={actions}
+        />
+      }
       tabs={
         <div
           role="tablist"

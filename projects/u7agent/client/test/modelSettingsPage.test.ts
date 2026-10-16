@@ -5,6 +5,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import test from "node:test";
 import type { ModelSettings } from "../src/hooks/useModelSettings";
 import { MODEL_SETTINGS_NOTE, UNSET_DEFAULT_MODEL_LABEL } from "../src/lib/modelSettings";
+import { RELOAD_ABOVE_NOTE } from "../src/lib/settingsNotes";
 import type { ModelsSubsection } from "../src/lib/settingsNav";
 import type {
   ModelsSettingsResponse,
@@ -885,6 +886,26 @@ test("読み込み中の状態を出す", () => {
   );
   assert.ok(html.includes("プロバイダーの認証状態を読み込んでいます。"));
   assert.ok(html.includes("再読み込み"));
+});
+
+test("取り直しはタブ行の下のツールバーへ出し、本文の枠には置かない", () => {
+  const html = render(modelSettings());
+  const tabsAt = html.indexOf('role="tablist"');
+  assert.ok(tabsAt >= 0, "タブ行を出す");
+  for (const label of ["カタログ更新", "再読み込み"]) {
+    const at = html.indexOf(label);
+    assert.ok(at > tabsAt, `${label} はタブ行より下に出す`);
+  }
+  assert.ok(html.indexOf("カタログ更新") < html.indexOf("既定モデル"), "ツールバーは本文より上に出す");
+
+  const failed = render(
+    modelSettings({
+      settings: null,
+      note: { text: "モデルの設定を読み込めませんでした。接続できません", error: true },
+    }),
+  );
+  assert.ok(failed.includes(RELOAD_ABOVE_NOTE), "本文の枠には上の導線を案内する");
+  assert.equal((failed.match(/>再読み込み<\/button>/g) ?? []).length, 1, "再読み込みはツールバーに 1 つだけ");
 });
 
 test("カタログ更新は両タブに出し、更新中・runtime 不可・カタログ取得失敗で無効にする", () => {

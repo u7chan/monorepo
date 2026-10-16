@@ -6,6 +6,7 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import test from "node:test";
 import type { ArchiveSettings } from "../src/hooks/useArchiveSettings";
+import { RELOAD_ABOVE_NOTE } from "../src/lib/settingsNotes";
 import type { ArchiveSettingsResponse } from "../src/types";
 
 const { ArchiveExcludeSettings } = await import("../src/components/ArchiveExcludeSettings");
@@ -29,6 +30,7 @@ function fakeSettings(overrides: Partial<ArchiveSettings> = {}): ArchiveSettings
     draft: { excludeNames: [...DEFAULTS] },
     dirty: false,
     saving: false,
+    reloading: false,
     note: { text: "変更はサーバーに保存され、再起動後も残ります。", error: false },
     add: () => true,
     remove: () => {},
@@ -99,11 +101,12 @@ test("描画: 明示空は node_modules も入る警告を出す", () => {
   assert.ok(html.includes("0 / 100"), "件数が出ていない");
 });
 
-test("描画: 読み込み中は待ち表示、失敗は再読み込みの導線を出す", () => {
+test("描画: 読み込み中は待ち表示、失敗は上の再読み込みを案内する", () => {
   const loading = render({ settings: null });
   assert.ok(loading.includes("読み込んでいます"), "読み込み中の表示が無い");
   const failed = render({ settings: null, note: { text: "読み込めませんでした", error: true } });
-  assert.ok(failed.includes("読み込めませんでした") && failed.includes("再読み込み"), "再読み込みの導線が無い");
+  assert.ok(failed.includes("読み込めませんでした") && failed.includes(RELOAD_ABOVE_NOTE), "再読み込みの導線が無い");
+  assert.equal((failed.match(/>再読み込み<\/button>/g) ?? []).length, 0, "本文の枠に再読み込みを置かない");
   // note の本文 (失敗理由) はタブ側 (FileTreePage) の aria-live 行だけが出す
   const withNote = render({ note: { text: "除外名に使えない名前があります: a/b", error: true } });
   assert.ok(!withNote.includes("a/b"), "本文側に note の理由を二重に出している");

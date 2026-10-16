@@ -1,7 +1,7 @@
 import type { ArchiveSettings } from "../hooks/useArchiveSettings";
+import { RELOAD_ABOVE_NOTE } from "../lib/settingsNotes";
 import { CollapsibleNotice } from "./CollapsibleNotice";
 import { PlusIcon, TrashIcon } from "./icons";
-import { ReloadButton } from "./ReloadButton";
 
 export type ArchiveExcludeSettingsProps = {
   /** 除外名の state と操作。追加済みの下書きは facade が持つ */
@@ -19,7 +19,7 @@ export function ArchiveExcludeSettings({
   onInputChange,
   onSubmit,
 }: ArchiveExcludeSettingsProps) {
-  const { settings, draft, note, remove, reload } = archiveSettings;
+  const { settings, draft, note, remove } = archiveSettings;
 
   return (
     <div className="min-h-0 min-w-0 scrollbar-thin overflow-x-hidden overflow-y-auto px-4 py-4">
@@ -118,7 +118,7 @@ export function ArchiveExcludeSettings({
             {note.error ? (
               <>
                 <p role="alert">ダウンロードの除外名を読み込めませんでした。</p>
-                <ReloadButton onClick={() => void reload()}>再読み込み</ReloadButton>
+                <p>{RELOAD_ABOVE_NOTE}</p>
               </>
             ) : (
               <p role="status">ダウンロードの除外名を読み込んでいます。</p>

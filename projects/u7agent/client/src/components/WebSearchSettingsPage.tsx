@@ -70,7 +70,7 @@ export function WebSearchSettingsView({
           onDeleteKey={removeKey}
         />
       ) : (
-        <SettingsPlaceholder label="Web 検索の設定" note={note} reloading={reloading} onReload={() => void reload()} />
+        <SettingsPlaceholder label="Web 検索の設定" note={note} />
       )}
     </SettingsPageLayout>
   );

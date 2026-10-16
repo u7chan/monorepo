@@ -10,7 +10,7 @@ import {
 } from "../lib/archiveSettings";
 import { MEMORY_NOTE } from "../lib/settingsNotes";
 import type { ArchiveSettingsResponse } from "../types";
-import { createRequestGate } from "./requestGate";
+import { createLoadingTracker, createRequestGate } from "./requestGate";
 
 function messageFor(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
@@ -25,7 +25,10 @@ export function useArchiveSettings() {
   const [draft, setDraftState] = useState<ArchiveSettingsDraft>(() => draftFromSettings(null));
   const [saving, setSaving] = useState(false);
   const [note, setNote] = useState<{ text: string; error: boolean }>({ text: MEMORY_NOTE, error: false });
+  const [reloading, setReloading] = useState(false);
   const [beginLoad] = useState(createRequestGate);
+  // 破棄された取得でも進行中を解除するため、適用の可否とは別に追う
+  const [reloadTracker] = useState(() => createLoadingTracker(setReloading));
 
   /** 保存 / リセット / 再読み込みの応答を下書きごと適用する（編集は常に保存値から始め直す） */
   const applySettings = useCallback((next: ArchiveSettingsResponse) => {
@@ -35,6 +38,7 @@ export function useArchiveSettings() {
 
   const reload = useCallback(async (): Promise<void> => {
     const canApply = beginLoad();
+    const finishReload = reloadTracker.begin();
     try {
       const next = await getArchiveSettings();
       if (!canApply()) return;
@@ -43,8 +47,10 @@ export function useArchiveSettings() {
       if (canApply()) {
         setNote({ text: `ダウンロードの除外名を読み込めませんでした。${messageFor(error)}`, error: true });
       }
+    } finally {
+      finishReload();
     }
-  }, [applySettings, beginLoad]);
+  }, [applySettings, beginLoad, reloadTracker]);
 
   useEffect(() => {
     void reload();
@@ -124,6 +130,7 @@ export function useArchiveSettings() {
     draft,
     dirty: archiveSettingsDirty(draft, settings),
     saving,
+    reloading,
     note,
     add,
     remove,

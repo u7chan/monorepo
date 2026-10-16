@@ -92,12 +92,16 @@ test("環境タブは接続状態・実行環境・利用可能なコマンド�
   assert.ok(!html.includes("APIキーを保存"), "認証変更の操作は出さない");
 });
 
-test("診断タブはセッション診断カードだけを出し、面のツールバーに操作を置かない", () => {
+test("診断タブはセッション診断カードを出し、面のツールバーには再読み込みだけを置く", () => {
   const html = renderPage(HEALTH, "diagnostics");
   assert.match(html, /<button[^>]*aria-selected="true"[^>]*>診断</, "選択中のタブを示す");
   assert.ok(html.includes("セッション診断</h3>"), "セッション診断カードを出す");
   assert.equal(html.includes('aria-label="接続情報をコピー"'), false, "面のツールバーにコピーを置かない");
-  assert.equal(html.includes("公開中のサービス</h3>"), false, "サービスカードを出さない");
+  // カードのヘッダから移した再読み込みはツールバーに 1 つだけ。対象が未選択なので押せない
+  assert.equal((html.match(/>再読み込み<\/button>/g) ?? []).length, 1, "再読み込みは面のツールバーに 1 つだけ");
+  assert.match(html, /<button[^>]*disabled=""[^>]*>.*再読み込み.*<\/button>/s, "対象を選ぶまで押せない");
+  assert.ok(html.includes("対象の会話を選ぶまで取得しません。"), "押せない理由をカード内に出す");
+  assert.ok(html.includes("公開中のサービス</h3>") === false, "サービスカードを出さない");
   assert.equal(html.includes("実行環境を取得しています。"), false, "環境タブの本文を出さない");
 });
 

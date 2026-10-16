@@ -1,5 +1,6 @@
 import type { Notifications } from "../hooks/useNotifications";
 import { notificationPreviewLines, testAvailable, testNeedsSave } from "../lib/notifications";
+import { RELOAD_ABOVE_NOTE, UNSAVED_RELOAD_NOTE } from "../lib/settingsNotes";
 import { CheckIcon } from "./icons";
 import { DiscordCard } from "./notifications/DiscordCard";
 import { LinkCard } from "./notifications/LinkCard";
@@ -20,16 +21,28 @@ export function NotificationSettingsPage({
   onBack,
   onOpenNav,
 }: NotificationSettingsPageProps) {
-  const { settings, draft, setDraft, dirty, saving, testing, note, reload, save, test, discard } = notifications;
+  const { settings, draft, setDraft, dirty, saving, testing, reloading, note, reload, save, test, discard } =
+    notifications;
   const needsSave = testNeedsSave(draft);
 
   return (
     <SettingsPageLayout
       eyebrow="NOTIFICATIONS"
       title="通知"
-      caption="エージェントの応答の完了と、質問の発生を送ります。会話の通知が Off のときは、質問の通知にタイトルと質問文を載せません。"
+      caption={
+        <>
+          エージェントの応答の完了と、質問の発生を送ります。会話の通知が Off
+          のときは、質問の通知にタイトルと質問文を載せません。
+          {/* 再読み込みは下書きを捨てるので、変更がある間は押せない (理由をこの行に出す) */}
+          {dirty ? <div className="pt-0.5 text-2xs text-ink-muted">{UNSAVED_RELOAD_NOTE}</div> : null}
+        </>
+      }
       actions={
         <>
+          <ReloadButton onClick={() => void reload()} disabled={dirty || reloading}>
+            再読み込み
+          </ReloadButton>
+          <span aria-hidden="true" className="h-4 w-px bg-line" />
           <button type="button" className="btn-quiet" disabled={!dirty || saving} onClick={discard}>
             破棄
           </button>
@@ -73,7 +86,7 @@ export function NotificationSettingsPage({
               {note.error ? (
                 <>
                   <p role="alert">通知の設定を読み込めませんでした。</p>
-                  <ReloadButton onClick={() => void reload()}>再読み込み</ReloadButton>
+                  <p>{RELOAD_ABOVE_NOTE}</p>
                 </>
               ) : (
                 <p role="status">通知の設定を読み込んでいます。</p>

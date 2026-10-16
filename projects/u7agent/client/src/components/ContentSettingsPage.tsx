@@ -5,6 +5,7 @@ import { ReloadButton } from "./ReloadButton";
 import { SettingsPageLayout, type SettingsPageProps } from "./SettingsPageLayout";
 import { SettingsPlaceholder } from "./SettingsPlaceholder";
 import { SettingsTabs } from "./SettingsTabs";
+import { TabToolbar } from "./TabToolbar";
 
 export type ContentSettingsPageProps = SettingsPageProps & {
   /** URL が決めるタブ。既定は「画像生成」 */
@@ -88,10 +89,15 @@ export function ContentSettingsView({
       eyebrow="CONTENT"
       title="コンテンツ生成"
       caption="generate_image と generate_speech に使う OpenRouter のAPIキーとモデルを設定します。プロバイダーのキーとは別管理です。"
-      actions={
-        <ReloadButton onClick={() => void reload()} disabled={reloading}>
-          再読み込み
-        </ReloadButton>
+      // タブが無い（未設定 / 取得前）間も取り直せるよう、面のツールバーは常に出す
+      toolbar={
+        <TabToolbar
+          actions={
+            <ReloadButton onClick={() => void reload()} disabled={reloading}>
+              再読み込み
+            </ReloadButton>
+          }
+        />
       }
       tabs={tabs}
       note={note}
@@ -114,12 +120,7 @@ export function ContentSettingsView({
           speechSynced={speechSynced}
         />
       ) : (
-        <SettingsPlaceholder
-          label="コンテンツ生成の設定"
-          note={note}
-          reloading={reloading}
-          onReload={() => void reload()}
-        />
+        <SettingsPlaceholder label="コンテンツ生成の設定" note={note} />
       )}
     </SettingsPageLayout>
   );

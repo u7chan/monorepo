@@ -6,6 +6,7 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import test from "node:test";
 import type { ArchiveSettings } from "../src/hooks/useArchiveSettings";
+import { UNSAVED_RELOAD_NOTE } from "../src/lib/settingsNotes";
 import type { FilesSubsection } from "../src/lib/settingsNav";
 import type { ArchiveSettingsResponse } from "../src/types";
 
@@ -33,6 +34,7 @@ function fakeSettings(overrides: Partial<ArchiveSettings> = {}): ArchiveSettings
     draft: { excludeNames: [...DEFAULTS] },
     dirty: false,
     saving: false,
+    reloading: false,
     note: { text: "変更はサーバーに保存され、再起動後も残ります。", error: false },
     add: () => true,
     remove: () => {},
@@ -44,7 +46,12 @@ function fakeSettings(overrides: Partial<ArchiveSettings> = {}): ArchiveSettings
   };
 }
 
-function render(filesSubsection?: FilesSubsection, archive: Partial<ArchiveSettings> = {}, cwd = ""): string {
+function render(
+  filesSubsection?: FilesSubsection,
+  archive: Partial<ArchiveSettings> = {},
+  cwd = "",
+  singleColumn = false,
+): string {
   return renderToStaticMarkup(
     createElement(
       ConfirmProvider,
@@ -54,6 +61,7 @@ function render(filesSubsection?: FilesSubsection, archive: Partial<ArchiveSetti
         excludeNames: [],
         archiveSettings: fakeSettings(archive),
         filesSubsection,
+        singleColumn,
         onSelectFilesSubsection: () => {},
         onBack: () => {},
       }),
@@ -108,7 +116,42 @@ test("描画: 除外タブは説明と操作を出し、note を aria-live で�
   assert.ok(html.includes("除外の規則"), "除外の本文が出ていない");
   assert.ok(html.includes("破棄") && html.includes("既定に戻す"), "除外の操作が無い");
   assert.ok(html.includes('aria-live="polite"') && html.includes("a/b"), "note が読まれない");
-  assert.ok(!html.includes("再読み込み"), "除外側にツリーの操作が出ている");
+  assert.ok(html.includes("再読み込み"), "除外タブにも取り直しを常設する");
+  assert.ok(html.indexOf("再読み込み") < html.indexOf("破棄"), "再読み込みは保存群の左に置く");
+  assert.equal(html.includes(UNSAVED_RELOAD_NOTE), false, "変更が無い間は理由を出さない");
+});
+
+test("描画: 除外タブの再読み込みは、取得中と未保存の変更がある間だけ無効にする", () => {
+  const initial = render("archive");
+  assert.equal(actionTag(initial, "再読み込み").includes("disabled"), false, "未編集では押せる");
+
+  const loading = render("archive", { reloading: true });
+  assert.ok(actionTag(loading, "再読み込み").includes("disabled"), "取得中は連打できない");
+
+  const changed = render("archive", {
+    settings: settings({ excludeNames: ["dist", "vendor"], overridden: true }),
+    draft: { excludeNames: [...DEFAULTS, "vendor"] },
+    dirty: true,
+  });
+  assert.ok(actionTag(changed, "再読み込み").includes("disabled"), "下書きを捨てる再読み込みを押せなくする");
+  assert.ok(changed.includes(UNSAVED_RELOAD_NOTE), "押せない理由を出す");
+});
+
+test("描画: singleColumn では押せない理由をヘッダに出し、帯には出さない", () => {
+  const changed = {
+    settings: settings({ excludeNames: ["dist", "vendor"], overridden: true }),
+    draft: { excludeNames: [...DEFAULTS, "vendor"] },
+    dirty: true,
+  };
+  // 帯は操作で埋まり、理由が 1 文字幅まで潰れるため、狭い幅ではヘッダ側で折り返して読ませる
+  const html = render("archive", changed, "", true);
+  const noteAt = html.indexOf(UNSAVED_RELOAD_NOTE);
+  assert.ok(noteAt >= 0, "狭い幅でも押せない理由を出す");
+  assert.ok(noteAt < html.indexOf('role="tablist"'), "理由はタブ行より上 (ヘッダ) に出す");
+
+  // desktop は帯の左で理由が読めるので、操作と同じ行のままにする
+  const desktop = render("archive", changed);
+  assert.ok(desktop.indexOf(UNSAVED_RELOAD_NOTE) > desktop.indexOf('role="tablist"'), "desktop は帯に出す");
 });
 
 test("描画: 除外の [保存] は差分があるときだけ、[既定に戻す] は上書き中だけ押せる", () => {
