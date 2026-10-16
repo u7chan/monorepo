@@ -908,6 +908,50 @@ export function WarningIcon() {
 }
 
 /**
+ * 入力欄の拡大。入力を広げる側 (矢印が外へ向かう) と、元の大きさへ戻す側 (内へ向かう) の対で使う。
+ * 2 本の対角の矢印は 14px でも他のアイコンと混ざらない。
+ */
+export function ExpandIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.5"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className="size-3.5 shrink-0"
+    >
+      <path d="M10 2h4v4" />
+      <path d="M6 14H2v-4" />
+      <path d="M14 2 9 7" />
+      <path d="M2 14l5-5" />
+    </svg>
+  );
+}
+
+export function CollapseIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.5"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className="size-3.5 shrink-0"
+    >
+      <path d="M2.5 9.5h4v4" />
+      <path d="M13.5 6.5h-4v-4" />
+      <path d="M9.5 6.5 14 2" />
+      <path d="M2 14l4.5-4.5" />
+    </svg>
+  );
+}
+
+/**
  * 手動のコンテキスト圧縮。中央へ向かう上下の矢印で「短く畳む」ことを示す
  * (ゲージの右に並ぶため、意味はボタンの aria-label と押したときの確認が担う)。
  * 以前の案 (上下の線 + 矢印) は 14px では 6 本の線が塊になって読めなかった。
