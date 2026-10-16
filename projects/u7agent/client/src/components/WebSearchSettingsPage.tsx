@@ -2,6 +2,7 @@ import { useWebSearchSettings, type WebSearchSettings } from "../hooks/useWebSea
 import { ReloadButton } from "./ReloadButton";
 import { SettingsPageLayout, type SettingsPageProps } from "./SettingsPageLayout";
 import { SettingsPlaceholder } from "./SettingsPlaceholder";
+import { TabToolbar } from "./TabToolbar";
 import { WebSearchSettingsTab } from "./web-search-settings/WebSearchSettingsTab";
 
 /**
@@ -50,10 +51,14 @@ export function WebSearchSettingsView({
       eyebrow="WEB SEARCH"
       title="Web 検索"
       caption="web_search ツールの有効 / 無効と、検索プロバイダーとキーを設定します。"
-      actions={
-        <ReloadButton onClick={() => void reload()} disabled={reloading}>
-          再読み込み
-        </ReloadButton>
+      toolbar={
+        <TabToolbar
+          actions={
+            <ReloadButton onClick={() => void reload()} disabled={reloading}>
+              再読み込み
+            </ReloadButton>
+          }
+        />
       }
       note={note}
       singleColumn={singleColumn}

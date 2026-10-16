@@ -67,6 +67,7 @@ test("取得前はこの画面の注記と再読み込みの導線を出し、�
   assert.ok(html.includes("Web 検索の設定"), "取得前の見出しを出す");
   assert.ok(html.includes(WEB_SEARCH_SETTINGS_NOTE), "hook の注記をそのまま見せる");
   assert.ok(html.includes("再読み込み"), "この画面の再読み込みを出す");
+  assert.ok(html.indexOf(">再読み込み</button>") > html.indexOf("</header>"), "再読み込みはヘッダ直下の帯に置く");
   assert.equal(html.includes('role="switch"'), false, "取得前はスイッチを出さない");
 
   const reloading = render(webSearchSettings({ reloading: true }));
@@ -79,7 +80,7 @@ test("取得前はこの画面の注記と再読み込みの導線を出し、�
     }),
   );
   assert.ok(failed.includes(RELOAD_ABOVE_NOTE), "本文の枠には上の導線を案内する");
-  assert.equal((failed.match(/>再読み込み<\/button>/g) ?? []).length, 1, "再読み込みはヘッダに 1 つだけ");
+  assert.equal((failed.match(/>再読み込み<\/button>/g) ?? []).length, 1, "再読み込みは帯に 1 つだけ");
 });
 
 test("無効のときは、ツールが返す固定文言をそのまま出す", () => {

@@ -51,9 +51,14 @@ test("設定ページのヘッダの ☰ は overlay の desktop でも出す", 
   const overlay = renderSettingsHeader({ onOpenNav: () => {} });
   assert.ok(overlay.includes(NAV_MARK));
   assert.ok(!renderSettingsHeader().includes(NAV_MARK));
-  // 「アプリに戻る」は singleColumn だけ (desktop の戻り導線は左バーの 1 つ)
-  assert.ok(!overlay.includes("アプリに戻る"));
+});
+
+test("「アプリに戻る」は singleColumn だけヘッダ左端 (☰ の左) に出す", () => {
+  // desktop の戻り導線は左バーの 1 つ
+  assert.ok(!renderSettingsHeader({ onOpenNav: () => {} }).includes("アプリに戻る"));
   const singleColumn = renderSettingsHeader({ onOpenNav: () => {}, singleColumn: true });
-  assert.ok(singleColumn.includes(NAV_MARK));
-  assert.ok(singleColumn.includes("アプリに戻る"));
+  const backAt = singleColumn.indexOf("アプリに戻る");
+  assert.ok(backAt >= 0, "「アプリに戻る」が無い");
+  assert.ok(backAt < singleColumn.indexOf(NAV_MARK), "戻るは ☰ の左に置く");
+  assert.ok(backAt < singleColumn.indexOf(">エージェント<"), "戻るはタイトルより前 (ヘッダ左端) に置く");
 });
