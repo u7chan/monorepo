@@ -68,7 +68,7 @@ export function AgentList({
               <button
                 type="button"
                 aria-label={`${agent.name}の順番を変更`}
-                className="agent-drag-grip"
+                className="drag-grip"
                 {...drag.gripHandlers(agent.id)}
               >
                 <GripIcon />

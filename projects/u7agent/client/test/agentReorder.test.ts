@@ -73,6 +73,23 @@ test("reorderRows は渡した id だけを並べ替え、ビルトインなど�
   );
 });
 
+test("reorderRows は渡した id を、スペース一覧でも既定の先頭と新しい行の位置を保って並べ替える", () => {
+  // 既定スペースは先頭固定、`d` は保存待ちの間に作られた行。どちらも渡さなければ位置を変えない
+  const rows = [{ id: "default" }, { id: "a" }, { id: "b" }, { id: "c" }, { id: "d" }];
+  assert.deepEqual(
+    reorderRows(rows, ["default", "c", "a", "b"]).map((row) => row.id),
+    ["default", "c", "a", "b", "d"],
+  );
+  // 応答から消えた行 (削除済み) は現れない
+  assert.deepEqual(
+    reorderRows(
+      rows.filter((row) => row.id !== "b"),
+      ["default", "c", "a", "b"],
+    ).map((row) => row.id),
+    ["default", "c", "a", "d"],
+  );
+});
+
 test("applyAgentOrder はサーバーの順に並べ、渡されなかった行を末尾へ回す", () => {
   const agents = [{ id: "a" }, { id: "b" }, { id: "c" }];
   assert.deepEqual(

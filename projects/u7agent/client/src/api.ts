@@ -215,6 +215,13 @@ export const deleteSpace = async (id: string): Promise<{ ok: true }> => {
   return res.json();
 };
 
+/** 並べ替え。応答の spaces がサーバーの採用した順（既定スペースは先頭、`sortOrder` は出ない） */
+export const reorderSpaces = async (ids: readonly string[]): Promise<{ spaces: import("server").Space[] }> => {
+  const res = await client.api.spaces.order.$patch({ json: { ids: [...ids] } });
+  if (!res.ok) throw await apiError(res);
+  return res.json();
+};
+
 async function apiError(res: Response): Promise<ApiError> {
   const body: unknown = await res.json().catch(() => null);
   const message =

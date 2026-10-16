@@ -20,7 +20,7 @@ import type {
 
 export const APP_DB_FILENAME = "u7agent.db";
 /** テーブル定義を変えたら上げる。新規作成と加算移行はこの版へ揃え、未知の版は作り直す */
-export const APP_DB_SCHEMA_VERSION = 21;
+export const APP_DB_SCHEMA_VERSION = 22;
 
 /** プロバイダー API キーの保存行。平文なのでアクセス権の管理は docs/secrets.md を正とする */
 export interface ProviderCredentialRow {
@@ -337,7 +337,7 @@ CREATE TABLE IF NOT EXISTS web_search_provider_keys (
 const PROVIDER_MEMO_QUERY_FAILED = "provider memo query failed";
 
 const SPACES_TABLE = `CREATE TABLE IF NOT EXISTS spaces (
-  id TEXT PRIMARY KEY, name TEXT NOT NULL, createdAt INTEGER NOT NULL
+  id TEXT PRIMARY KEY, name TEXT NOT NULL, createdAt INTEGER NOT NULL, sortOrder INTEGER
 );`;
 
 const CREATE_TABLES = `
@@ -894,6 +894,9 @@ export class AppDb {
       // v20 以前に無い列 (表示順)。既存行は NULL のままで、listAgents の rowid タイブレークが
       // そのまま作成順になる (移行で既存行を書き換えない)
       if (this.#tableExists("agents")) this.#addColumnIfMissing("agents", "sortOrder", "INTEGER");
+      // v21 以前に無い列 (表示順)。agents と同じく既存行は NULL のままで、listSpaces の rowid
+      // タイブレークがそのまま作成順になる
+      this.#addColumnIfMissing("spaces", "sortOrder", "INTEGER");
       // v19 以前に無い列 (質問通知)。既存行は既定 (ON) で埋める
       this.#addColumnIfMissing("notification_settings", "askUser", "INTEGER NOT NULL DEFAULT 1");
       // PRAGMA はパラメータ化できない (値はコード側の定数)
@@ -1218,7 +1221,7 @@ export class AppDb {
 
   listSpaces(): Space[] {
     return this.#query((db) =>
-      (db.prepare("SELECT * FROM spaces ORDER BY rowid").all() as Row[]).map((row) => ({
+      (db.prepare("SELECT * FROM spaces ORDER BY sortOrder, rowid").all() as Row[]).map((row) => ({
         id: text(row.id),
         name: text(row.name),
         createdAt: Number(row.createdAt),
@@ -1226,12 +1229,29 @@ export class AppDb {
     );
   }
 
+  /** 追加は末尾 (MAX + 1)。削除で詰めないため、並びは追加順に安定する */
   insertSpace(space: Space): void {
     this.#query((db) =>
       db
-        .prepare("INSERT INTO spaces (id, name, createdAt) VALUES (?, ?, ?)")
+        .prepare(
+          `INSERT INTO spaces (id, name, createdAt, sortOrder)
+           VALUES (?, ?, ?, (SELECT COALESCE(MAX(sortOrder), 0) + 1 FROM spaces))`,
+        )
         .run(space.id, space.name, space.createdAt),
     );
+  }
+
+  /**
+   * 並べ替え。与えた順に 1..n を振り直す (途中で失敗したら 1 つも書かない)。
+   * 採用する id の絞り込みは SpaceStore 側が行う (docs/api.md#スペース)。
+   */
+  reorderSpaces(ids: readonly string[]): void {
+    this.transaction(() => {
+      this.#query((db) => {
+        const update = db.prepare("UPDATE spaces SET sortOrder = ? WHERE id = ?");
+        ids.forEach((id, index) => update.run(index + 1, id));
+      });
+    });
   }
 
   /**

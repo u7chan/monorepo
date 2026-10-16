@@ -40,6 +40,7 @@ import {
   PostMessageBodySchema,
   RenameFileBodySchema,
   ReorderAgentsBodySchema,
+  ReorderSpacesBodySchema,
   SpeechPreviewBodySchema,
   UpdateAgentBodySchema,
   UpdateArchiveSettingsBodySchema,
@@ -169,6 +170,15 @@ export async function createBffApp(opts: CreateBffAppOptions = {}) {
         result.success ? undefined : c.json({ error: "Invalid request body" }, 400),
       ),
       (c) => c.json({ space: spaces.create(c.req.valid("json").name) }, 201),
+    )
+    // 並べ替え。応答は正規化後の一覧で、これが以後の GET と一致する (docs/api.md#スペース)
+    .patch(
+      "/api/spaces/order",
+      appData,
+      jsonBodyValidator(ReorderSpacesBodySchema, (result, c) =>
+        result.success ? undefined : c.json({ error: "Invalid request body" }, 400),
+      ),
+      (c) => c.json({ spaces: spaces.reorder(c.req.valid("json").ids) }),
     )
     // 追加スペースの削除。会話・履歴・作業フォルダ・cwd キーの行まで消す (docs/api.md#スペース)
     .delete("/api/spaces/:id", appDataMutation, async (c) => {

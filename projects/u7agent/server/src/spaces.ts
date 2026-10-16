@@ -66,4 +66,25 @@ export class SpaceStore {
     this.db.insertSpace(space);
     return space;
   }
+
+  /**
+   * 並べ替え。既定スペース・未知の id・重複は捨て、渡されなかった行は元の相対順で末尾に回す
+   * (`reorderAgents` と同じ方針。docs/api.md#スペース)。既定スペースは `list()` が先頭に置く。
+   */
+  reorder(ids: readonly string[]): Space[] {
+    const current = this.db.listSpaces();
+    const known = new Set(current.map((space) => space.id));
+    const seen = new Set<string>();
+    const order: string[] = [];
+    for (const id of ids) {
+      if (typeof id !== "string" || !known.has(id) || seen.has(id)) continue;
+      seen.add(id);
+      order.push(id);
+    }
+    for (const space of current) {
+      if (!seen.has(space.id)) order.push(space.id);
+    }
+    this.db.reorderSpaces(order);
+    return this.list();
+  }
 }

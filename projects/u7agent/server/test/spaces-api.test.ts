@@ -152,6 +152,77 @@ test("既定と複数スペースの一覧・所属・cwd・添付は live / swe
   assert.equal(f.bff.store.titleOfId(sessions[1].sessionId), "無題のセッション");
 });
 
+test("並べ替えは正規化した順を保存し、既定スペースを先頭に固定する", async (t) => {
+  const f = await setup(t);
+  const a = await f.space("デモ A");
+  const b = await f.space("デモ B");
+  const c = await f.space("デモ C");
+  const order = async () => (await jsonBody(f.bff.app.request("/api/spaces"))).spaces.map((space: Space) => space.id);
+  const reorder = (ids: unknown) => f.bff.app.request("/api/spaces/order", json({ ids }, "PATCH"));
+  assert.deepEqual(await order(), ["default", a.id, b.id, c.id]);
+
+  // 既定スペース・未知の id・重複は捨て、渡されなかった行は元の相対順で末尾に回す (400 にしない)
+  const res = await reorder(["default", c.id, "unknown", c.id, a.id]);
+  assert.equal(res.status, 200);
+  const saved = (await jsonBody(res)).spaces as Space[];
+  assert.deepEqual(
+    saved.map((space) => space.id),
+    ["default", c.id, a.id, b.id],
+    "応答は正規化後の一覧で、これが以後の GET と一致する",
+  );
+  assert.deepEqual(Object.keys(saved[0]), ["id", "name", "createdAt"], "sortOrder は応答に出さない");
+  assert.deepEqual(await order(), ["default", c.id, a.id, b.id]);
+
+  // `[]` と全件未知は現行順のまま (並びを変えない)
+  for (const ids of [[], ["unknown"]]) {
+    assert.deepEqual(
+      (await jsonBody(await reorder(ids))).spaces.map((space: Space) => space.id),
+      ["default", c.id, a.id, b.id],
+    );
+  }
+
+  // 再起動しても並びは残り、追加は末尾に付く
+  await f.restart();
+  assert.deepEqual(await order(), ["default", c.id, a.id, b.id]);
+  const d = await f.space("デモ D");
+  assert.deepEqual(await order(), ["default", c.id, a.id, b.id, d.id]);
+});
+
+test("並べ替えの入力不正は 400 にし、更新の失敗は 503 で 1 つも書かない", async (t) => {
+  const f = await setup(t);
+  const a = await f.space("デモ A");
+  const b = await f.space("デモ B");
+  const c = await f.space("デモ C");
+  const order = async () => (await jsonBody(f.bff.app.request("/api/spaces"))).spaces.map((space: Space) => space.id);
+  const patch = (body: unknown) => f.bff.app.request("/api/spaces/order", json(body, "PATCH"));
+  const before = await order();
+
+  // ids が無い / 配列でない / 文字列以外を含む / 件数超過は 400 (順序は変わらない)
+  for (const body of [
+    {},
+    { ids: "x" },
+    { ids: [a.id, 1] },
+    { ids: Array.from({ length: 201 }, (_, index) => `space-${index.toString(16).padStart(16, "0")}`) },
+  ]) {
+    const res = await patch(body);
+    assert.equal(res.status, 400, JSON.stringify(body).slice(0, 60));
+    assert.equal((await jsonBody(res)).error, "Invalid request body");
+  }
+  assert.equal((await f.bff.app.request("/api/spaces/order", { method: "PATCH", body: "not json" })).status, 400);
+  assert.deepEqual(await order(), before);
+
+  // 2 件目の更新だけを失敗させる (部分適用が残れば a -> c の順が崩れる)
+  const raw = new DatabaseSync(join(f.dir, APP_DB_FILENAME));
+  raw.exec(
+    `CREATE TRIGGER boom BEFORE UPDATE OF sortOrder ON spaces WHEN NEW.id = '${b.id}' BEGIN SELECT RAISE(ABORT, 'boom'); END`,
+  );
+  raw.close();
+  const failed = await patch({ ids: [c.id, b.id, a.id] });
+  assert.equal(failed.status, 503);
+  // 失敗の後も読める (成功した読取で status の失敗は解除される)。並びは 1 つも書かれていない
+  assert.deepEqual(await order(), before);
+});
+
 test("v13 DB と所属欠落の会話は加算移行し、既存のカタログ・キー・プロジェクトを保持する", async (t) => {
   const f = await setup(t);
   f.bff.appDb.insertProject({ id: "p", name: "既存", cwd: "proj", createdAt: 1 });

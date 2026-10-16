@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Space } from "server";
 import App from "./App";
-import { createSpace, createSpaceApi, deleteSpace, listSpaces } from "./api";
+import { createSpace, createSpaceApi, deleteSpace, listSpaces, reorderSpaces } from "./api";
 import { SpaceContext } from "./SpaceContext";
 import { ConfirmProvider } from "./components/ConfirmProvider";
+import { reorderRows } from "./lib/agentReorder";
 import { entrySpaceOf, parseRoute } from "./lib/route";
 import { removeSpaceAndApply } from "./lib/spaceDelete";
 import { DEFAULT_SPACE_ID, initialSpaceSelection, selectedSpace, spaceSelectionStore } from "./lib/spaceSelection";
@@ -92,6 +93,15 @@ export function SpacesApp() {
     },
     [applySelection],
   );
+  const reorder = useCallback(async (ids: readonly string[]) => {
+    const { spaces: saved } = await reorderSpaces(ids);
+    return saved.map((space) => space.id);
+  }, []);
+  // 応答の順をそのまま入れない: 既定スペースや、応答待ちの間に作られた行は元の位置に残す
+  // (作成・削除は一覧を差分更新するので、遅れて届いた一覧全体で上書きしない)
+  const applyOrder = useCallback((ids: readonly string[]) => {
+    setSpaces((previous) => reorderRows(previous, ids));
+  }, []);
   const api = useMemo(() => createSpaceApi(selected?.id ?? DEFAULT_SPACE_ID), [selected?.id]);
   if (loading || error || selection.error || !selected) {
     return (
@@ -118,7 +128,7 @@ export function SpacesApp() {
     );
   }
   return (
-    <SpaceContext.Provider value={{ spaces, selected, select, create, remove, api }}>
+    <SpaceContext.Provider value={{ spaces, selected, select, create, remove, reorder, applyOrder, api }}>
       <ConfirmProvider key={selected.id}>
         <App />
       </ConfirmProvider>

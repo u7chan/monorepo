@@ -11,7 +11,7 @@ DTO の正は `server/src/schema.ts`（zod）。リクエストボディは `@ho
 | 領域 | エンドポイント | ドキュメント |
 | --- | --- | --- |
 | ヘルス | `GET /api/health` | このファイル |
-| スペース | `GET/POST /api/spaces`、`DELETE /api/spaces/:id` | このファイル |
+| スペース | `GET/POST /api/spaces`、`PATCH /api/spaces/order`、`DELETE /api/spaces/:id` | このファイル |
 | ランタイムのモデルカタログ | `GET /api/runtime/models` | このファイル |
 | 実行環境（サンドボックスの診断） | `GET /api/runtime/environment` | このファイル |
 | ファイル一覧 | `GET /api/files` | このファイル |
@@ -38,7 +38,8 @@ DTO の正は `server/src/schema.ts`（zod）。リクエストボディは `@ho
 ## スペース
 
 - `GET /api/spaces` → `{ spaces: [{ id, name, createdAt }] }`。固定の既定スペース `{ id: "default", name: "既定", createdAt: 0 }` と保存済み追加スペースを返す。
-- `POST /api/spaces` の本文 `{ name }` → 201 `{ space: { id, name, createdAt } }`。name は trim 後 1〜80 文字。内部 ID はサーバーが生成し、指定・改名・リセット API は無い。DB 障害は一覧・作成とも 503。
+- `POST /api/spaces` の本文 `{ name }` → 201 `{ space: { id, name, createdAt } }`。name は trim 後 1〜80 文字。内部 ID はサーバーが生成し、指定・改名・リセット API は無い。DB 障害は一覧・作成とも 503。追加したスペースは一覧の末尾に付く。
+- `PATCH /api/spaces/order` の本文 `{ ids }` → 200 `{ spaces: [{ id, name, createdAt }] }`。応答は正規化後の並びで、これが以後の `GET` と一致する（`sortOrder` は app-db の内部に閉じ、応答に出ない）。採用するのは既存の追加スペースの id だけ: **既定スペース（`default`）・未知の id・重複は捨て、渡されなかった行は元の相対順で末尾に回す**（`[]` と全件未知は現行順のまま）。**既定スペースは常に先頭**で、並べ替えの対象にも入れない（テーブルに行を持たないため）。保存は全件を 1 トランザクションで書き直し、途中で失敗したら 1 つも書かない。400 = 本文が不正（`ids` の欠落・配列でない・文字列以外を含む・件数上限超過・JSON でない）、503 = DB 障害（[api-catalog.md](api-catalog.md#エージェントの表示順) と同じ方針）。
 - `DELETE /api/spaces/:id` → 200 `{ ok: true }`。400 = 既定スペース（`default`）と不正な id、404 = 未知の追加スペース、409 = そのスペースの会話（または起動元不明）のサービスが公開中、503 = DB・会話ストア・サンドボックス未設定。稼働判定は状態のキャッシュを読まずに取り直し、probe の失敗は 502 / 503 のまま返す。サンドボックスの 4xx / 502 は文言ごと透過する（[削除](#削除)と同じ）。
 - 削除の対象は `spaces` 行だけでなく、会話（live / 未ロード）・履歴・作業フォルダ・添付・`secrets` / `serve_commands` の cwd キー行（[persistence.md](persistence.md#スペース)）。会話はセッション削除と同じ経路で消し（実行中は abort する）、作業フォルダの根はサンドボックスの `DELETE /v1/dirs?recursive=true`（[sandbox-api.md](sandbox-api.md#delete-v1dirs)）へ委譲する（対象が無い 404 は成功）。`spaces` 行の削除が commit point で、途中で失敗しても行が残るのでそのまま再試行できる。コミット後に残った会話 / 作業フォルダを回収できないときは 500 で報告し、そのとき行は既に無いので再試行は 404 になる。
 - 削除の最中（claim 中）は、そのスペースを対象にする scoped API が**読み取りも含めて** 404 になる。同じスペースの二重削除は 409、既定スペースと不正な id は DB を読む前に 400 になる。
