@@ -3,7 +3,7 @@ import { getNotifications, testNotification, updateNotifications } from "../api"
 import { draftBody, draftFromSettings, draftIsDirty, syncDraft, type NotificationDraft } from "../lib/notifications";
 import { MEMORY_NOTE } from "../lib/settingsNotes";
 import type { NotificationResult, NotificationsResponse } from "../types";
-import { createRequestGate } from "./requestGate";
+import { createLoadingTracker, createRequestGate } from "./requestGate";
 
 /** 一覧 (4 秒) と同じ間隔。バックグラウンドのラン完了で直近結果が変わっても、⚠ をリロードなしで反映する */
 const NOTIFICATIONS_POLL_MS = 4_000;
@@ -23,12 +23,15 @@ export function useNotifications() {
   const [draft, setDraftState] = useState<NotificationDraft>(() => draftFromSettings(null));
   const [saving, setSaving] = useState(false);
   const [testing, setTesting] = useState(false);
+  const [reloading, setReloading] = useState(false);
   const [note, setNote] = useState<{ text: string; error: boolean }>({ text: MEMORY_NOTE, error: false });
   // 保存の応答が返るまでに下書きを触られたら、その編集を保存完了の値で上書きしない
   const draftRevisionRef = useRef(0);
   /** 直前の保存値。取得値へ下書きを追従させるときの「未編集」判定に使う */
   const settingsRef = useRef<NotificationsResponse | null>(null);
   const [beginLoad] = useState(createRequestGate);
+  // 破棄された取得でも進行中を解除するため、適用の可否とは別に追う
+  const [reloadTracker] = useState(() => createLoadingTracker(setReloading));
 
   const setDraft = useCallback((patch: Partial<NotificationDraft>) => {
     draftRevisionRef.current += 1;
@@ -69,14 +72,17 @@ export function useNotifications() {
   /** 再読み込み。下書きは保存値から作り直す (URL の入力途中でも捨てる) */
   const reload = useCallback(async (): Promise<void> => {
     const canApply = beginLoad();
+    const finishReload = reloadTracker.begin();
     try {
       const next = await getNotifications();
       if (!canApply()) return;
       applySettings(next, true);
     } catch (error) {
       if (canApply()) setNote({ text: `通知の設定を読み込めませんでした。${messageFor(error)}`, error: true });
+    } finally {
+      finishReload();
     }
-  }, [applySettings, beginLoad]);
+  }, [applySettings, beginLoad, reloadTracker]);
 
   useEffect(() => {
     void reload();
@@ -150,6 +156,7 @@ export function useNotifications() {
     dirty: draftIsDirty(draft, settings),
     saving,
     testing,
+    reloading,
     note,
     reload,
     save,

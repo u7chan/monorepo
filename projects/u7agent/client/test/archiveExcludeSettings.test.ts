@@ -30,6 +30,7 @@ function fakeSettings(overrides: Partial<ArchiveSettings> = {}): ArchiveSettings
     draft: { excludeNames: [...DEFAULTS] },
     dirty: false,
     saving: false,
+    reloading: false,
     note: { text: "変更はサーバーに保存され、再起動後も残ります。", error: false },
     add: () => true,
     remove: () => {},

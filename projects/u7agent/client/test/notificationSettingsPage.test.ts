@@ -35,6 +35,7 @@ function notifications(overrides: Partial<Notifications> = {}): Notifications {
     dirty: false,
     saving: false,
     testing: false,
+    reloading: false,
     note: { text: MEMORY_NOTE, error: false },
     reload: async () => {},
     save: async () => true,
@@ -75,6 +76,12 @@ test("描画: 未保存の変更がある間は再読み込みを無効にし、
   const changed = render(notifications({ dirty: true, draft: { ...draftFromSettings(SETTINGS), enabled: false } }));
   assert.ok(actionTag(changed, "再読み込み").includes("disabled"), "下書きを捨てる再読み込みを押せなくする");
   assert.ok(changed.includes(UNSAVED_RELOAD_NOTE), "押せない理由を出す");
+});
+
+test("描画: 取得中は再読み込みを無効にして連打を防ぐ", () => {
+  const loading = render(notifications({ reloading: true }));
+  assert.ok(actionTag(loading, "再読み込み").includes("disabled"), "取得中は押せない");
+  assert.equal(loading.includes(UNSAVED_RELOAD_NOTE), false, "未編集なら理由は出さない");
 });
 
 test("描画: 読み込みに失敗した枠には再読み込みを置かず、上の導線へ案内する", () => {

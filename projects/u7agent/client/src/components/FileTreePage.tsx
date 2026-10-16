@@ -53,7 +53,7 @@ export function FileTreePage({
   // 追加前の入力はタブの親が持つ。本文はタブ切替で unmount されるため、子に置くと入力中の名前が消える
   const [excludeInput, setExcludeInput] = useState("");
   const archive = filesSubsection === "archive";
-  const { settings, dirty, saving, note, save, reset, discard } = archiveSettings;
+  const { settings, dirty, saving, reloading, note, save, reset, discard } = archiveSettings;
   const submitExcludeInput = () => {
     // 追加できなかったときは入力を残す（上限や重複の理由をその場で直せるように）
     if (archiveSettings.add(excludeInput)) setExcludeInput("");
@@ -66,7 +66,7 @@ export function FileTreePage({
   const actions = archive ? (
     <>
       {/* 再読み込みは下書きを捨てるので、変更がある間は押せない (理由は帯の左に出す) */}
-      <ReloadButton onClick={() => void archiveSettings.reload()} disabled={dirty}>
+      <ReloadButton onClick={() => void archiveSettings.reload()} disabled={dirty || reloading}>
         再読み込み
       </ReloadButton>
       <span aria-hidden="true" className="h-4 w-px bg-line" />

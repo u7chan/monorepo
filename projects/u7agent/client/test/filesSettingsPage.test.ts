@@ -34,6 +34,7 @@ function fakeSettings(overrides: Partial<ArchiveSettings> = {}): ArchiveSettings
     draft: { excludeNames: [...DEFAULTS] },
     dirty: false,
     saving: false,
+    reloading: false,
     note: { text: "変更はサーバーに保存され、再起動後も残ります。", error: false },
     add: () => true,
     remove: () => {},
@@ -114,9 +115,12 @@ test("描画: 除外タブは説明と操作を出し、note を aria-live で�
   assert.equal(html.includes(UNSAVED_RELOAD_NOTE), false, "変更が無い間は理由を出さない");
 });
 
-test("描画: 除外タブの再読み込みは、未保存の変更がある間だけ無効にして理由を出す", () => {
+test("描画: 除外タブの再読み込みは、取得中と未保存の変更がある間だけ無効にする", () => {
   const initial = render("archive");
   assert.equal(actionTag(initial, "再読み込み").includes("disabled"), false, "未編集では押せる");
+
+  const loading = render("archive", { reloading: true });
+  assert.ok(actionTag(loading, "再読み込み").includes("disabled"), "取得中は連打できない");
 
   const changed = render("archive", {
     settings: settings({ excludeNames: ["dist", "vendor"], overridden: true }),

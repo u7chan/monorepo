@@ -21,7 +21,8 @@ export function NotificationSettingsPage({
   onBack,
   onOpenNav,
 }: NotificationSettingsPageProps) {
-  const { settings, draft, setDraft, dirty, saving, testing, note, reload, save, test, discard } = notifications;
+  const { settings, draft, setDraft, dirty, saving, testing, reloading, note, reload, save, test, discard } =
+    notifications;
   const needsSave = testNeedsSave(draft);
 
   return (
@@ -38,7 +39,7 @@ export function NotificationSettingsPage({
       }
       actions={
         <>
-          <ReloadButton onClick={() => void reload()} disabled={dirty}>
+          <ReloadButton onClick={() => void reload()} disabled={dirty || reloading}>
             再読み込み
           </ReloadButton>
           <span aria-hidden="true" className="h-4 w-px bg-line" />
