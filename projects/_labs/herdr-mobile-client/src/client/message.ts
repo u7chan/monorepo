@@ -1,6 +1,11 @@
 import type { HealthState } from "./health"
 import type { PairFailure } from "./pair"
 
+export type FormMessageInput = {
+  health: HealthState | null
+  pair: PairFailure | null
+}
+
 // 401 と到達不能を取り違えると、LAN や portproxy の設定をトークンの問題として探すことになる。
 // 文言はこの 1 か所で分けておく。
 export function healthMessage(state: HealthState): string | null {
@@ -23,6 +28,16 @@ export function pairMessage(failure: PairFailure): string {
     case "unreachable":
       return unreachableMessage(failure.reason)
   }
+}
+
+// 手入力の結果 (health) が付いたら、起動時のペアリングエラーより新しい結果を優先する。
+// 古い QR の案内が残ると、401 と到達不能で文言を分けるという契約が崩れる。
+export function formMessage(input: FormMessageInput): string | null {
+  if (input.health !== null) {
+    return input.health.status === "ok" ? null : healthMessage(input.health)
+  }
+
+  return input.pair === null ? null : pairMessage(input.pair)
 }
 
 function unreachableMessage(reason: string): string {

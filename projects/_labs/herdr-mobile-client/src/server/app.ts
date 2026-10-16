@@ -10,6 +10,7 @@ import { isAuthorized } from "./auth"
 import { pairOriginFromBody, pairUrl } from "./origin"
 import { createPairing, pairCodeFromBody, type Pairing } from "./pairing"
 import { isLoopbackAddress, normalizeRemoteAddress } from "./peer"
+import { PAIR_NEW_PATH } from "./routing-path"
 
 const packageJson = JSON.parse(readFileSync(new URL("../../package.json", import.meta.url), "utf8")) as {
   version?: string
@@ -122,7 +123,7 @@ function createPublicApi(options: PublicApiOptions) {
   }
 
   return new Hono()
-    .post("/api/pair/new", loopbackOnly, async (c) => {
+    .post(PAIR_NEW_PATH, loopbackOnly, async (c) => {
       const origin = pairOriginFromBody(await readJsonBody(c))
 
       if (origin === null) {

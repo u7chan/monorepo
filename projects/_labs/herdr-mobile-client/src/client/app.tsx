@@ -2,23 +2,28 @@ import type { ComponentChildren } from "preact"
 import { useState } from "preact/hooks"
 import type { HealthState } from "./health"
 import { loadHealth } from "./health"
-import { healthMessage, pairMessage } from "./message"
+import { formMessage, healthMessage } from "./message"
 import type { PairFailure } from "./pair"
 import { clearToken, saveToken } from "./token"
 
 export type AppProps = {
   initialToken: string | null
   initialHealth: HealthState | null
-  pair: PairFailure | null
+  initialPair: PairFailure | null
 }
 
-export function App({ initialToken, initialHealth, pair }: AppProps) {
+export function App({ initialToken, initialHealth, initialPair }: AppProps) {
   const [token, setToken] = useState(initialToken)
   const [health, setHealth] = useState(initialHealth)
+  const [pair, setPair] = useState(initialPair)
 
   const needsToken = token === null || health?.status === "unauthorized"
 
   async function submitToken(value: string): Promise<void> {
+    // 手入力の検証に移ったら、起動時のペアリングエラーは用済み。残すと「トークンを入力し直す」のあとに
+    // 古い QR の案内が再び出る。
+    setPair(null)
+
     const next = await loadHealth(value)
     setHealth(next)
 
@@ -53,12 +58,13 @@ export function App({ initialToken, initialHealth, pair }: AppProps) {
     clearToken()
     setToken(null)
     setHealth(null)
+    setPair(null)
   }
 
   return (
     <Shell>
       {needsToken ? (
-        <TokenForm message={formMessage(health, pair)} onSubmit={submitToken} />
+        <TokenForm message={formMessage({ health, pair })} onSubmit={submitToken} />
       ) : (
         <HealthCard health={health} onReload={reloadHealth} onResetToken={resetToken} />
       )}
@@ -92,18 +98,6 @@ function Shell({ children }: { children: ComponentChildren }) {
       </p>
     </main>
   )
-}
-
-function formMessage(health: HealthState | null, pair: PairFailure | null): string | null {
-  if (pair !== null) {
-    return pairMessage(pair)
-  }
-
-  if (health === null || health.status === "ok") {
-    return null
-  }
-
-  return healthMessage(health)
 }
 
 function TokenForm({

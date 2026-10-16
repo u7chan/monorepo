@@ -62,54 +62,6 @@ detect_wsl_ip() {
   printf '%s\n' "${cidr%/*}"
 }
 
-detect_windows_lan() {
-  local requested_ip="$1"
-  local script
-
-  script="$(cat <<'SCRIPT'
-$ProgressPreference = "SilentlyContinue"
-$ErrorActionPreference = "Stop"
-
-$requested = "@@WINDOWS_IP@@"
-
-if ([string]::IsNullOrEmpty($requested)) {
-  $route = Get-NetRoute -DestinationPrefix "0.0.0.0/0" -AddressFamily IPv4 | Sort-Object RouteMetric, ifIndex | Select-Object -First 1
-
-  if ($null -eq $route) {
-    throw "no default route found"
-  }
-
-  $address = Get-NetIPAddress -InterfaceIndex $route.ifIndex -AddressFamily IPv4 |
-    Where-Object { $_.IPAddress -notlike "169.254.*" } |
-    Select-Object -First 1
-} else {
-  $address = Get-NetIPAddress -AddressFamily IPv4 -IPAddress $requested -ErrorAction SilentlyContinue | Select-Object -First 1
-}
-
-if ($null -eq $address) {
-  throw "no IPv4 address found"
-}
-
-$octets = $address.IPAddress.Split(".") | ForEach-Object { [int]$_ }
-$prefix = [int]$address.PrefixLength
-$network = @()
-
-for ($i = 0; $i -lt 4; $i++) {
-  $bits = [Math]::Max([Math]::Min($prefix - $i * 8, 8), 0)
-  $mask = [int](256 - [Math]::Pow(2, 8 - $bits))
-  $network += (($octets[$i] -band $mask).ToString())
-}
-
-Write-Output ("WINDOWS_IP=" + $address.IPAddress)
-Write-Output ("WINDOWS_INTERFACE=" + $address.InterfaceAlias)
-Write-Output ("LAN_SEGMENT=" + ($network -join ".") + "/" + $prefix)
-Write-Output ("WINDOWS_TEMP=" + $env:TEMP)
-SCRIPT
-)"
-
-  substitute "$script" "@@WINDOWS_IP@@" "$requested_ip"
-}
-
 confirm_script() {
   local script
 

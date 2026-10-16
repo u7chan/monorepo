@@ -16,7 +16,7 @@ const pairCode = parsePairHash(location.hash)
 if (pairCode === null) {
   const session = await startSession()
 
-  render(<App initialToken={session.token} initialHealth={session.health} pair={null} />, root)
+  render(<App initialToken={session.token} initialHealth={session.health} initialPair={null} />, root)
 } else {
   // 交換の間は入力画面を出さない。App は state を props の初期値からしか取らないため、
   // 確認中は別の画面として描き、交換後に App を新しく載せる（key で載せ直すより意図が読める）。
@@ -31,8 +31,8 @@ if (pairCode === null) {
 
     const session = await startSession()
 
-    render(<App initialToken={session.token} initialHealth={session.health} pair={null} />, root)
+    render(<App initialToken={session.token} initialHealth={session.health} initialPair={null} />, root)
   } else {
-    render(<App initialToken={null} initialHealth={null} pair={pair} />, root)
+    render(<App initialToken={null} initialHealth={null} initialPair={pair} />, root)
   }
 }
