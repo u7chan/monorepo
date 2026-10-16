@@ -14,7 +14,7 @@ export function SessionList({
   onRename,
   onDelete,
   onTogglePin,
-  onMove,
+  onHandoff,
 }: {
   sessions: SessionSummary[];
   agents: AgentDef[];
@@ -23,8 +23,8 @@ export function SessionList({
   onRename: (sessionId: string) => void;
   onDelete: (sessionId: string) => void;
   onTogglePin: (sessionId: string) => void;
-  /** 未指定の一覧 (プロジェクト配下) は引っ越しの項目を出さない */
-  onMove?: (sessionId: string) => void;
+  /** 会話の引き継ぎ。未指定の一覧 (プロジェクト配下) は項目を出さない */
+  onHandoff?: (sessionId: string) => void;
 }) {
   const { pinned, rest } = splitByPinned(sessions);
 
@@ -38,7 +38,7 @@ export function SessionList({
       onRename={() => onRename(item.sessionId)}
       onDelete={() => onDelete(item.sessionId)}
       onTogglePin={() => onTogglePin(item.sessionId)}
-      {...(onMove ? { onMove: () => onMove(item.sessionId) } : {})}
+      {...(onHandoff ? { onHandoff: () => onHandoff(item.sessionId) } : {})}
     />
   );
 

@@ -21,11 +21,12 @@ function settleQuestion(pending: PendingQuestion, finish: () => void): void {
 import { randomBytes } from "node:crypto";
 import { existsSync } from "node:fs";
 import { stat } from "node:fs/promises";
-import { dirname } from "node:path";
+import { dirname, posix } from "node:path";
 import { spaceIdOf } from "./spaces";
 import { sessionUploadsRel, workspaceAbs } from "./app-paths";
 import { SANDBOX_NOT_CONFIGURED_MESSAGE, type PiBff } from "./agent";
 import { composePromptSnapshot } from "./agent";
+import { buildHandoffSection, HANDOFF_FILE_NAME, type HandoffMemoSection } from "./handoff-memo";
 import type { CwdKeyStore } from "./app-db";
 import { sandboxFailureStatus } from "./http";
 import type { AgentCatalog } from "./agents";
@@ -53,14 +54,16 @@ import type {
   UpdateSessionSettingsInput,
 } from "./session-record";
 import { projectSessionPayload, projectSessionSummary } from "./session-payload";
+import { SANDBOX_MAX_HANDOFF_BYTES } from "./sandbox/protocol";
 import { RunOutcomeSchema } from "./schema";
 import { displayableMessages, truncate } from "./session-projection";
-import type { SandboxMoveClient, SandboxWorkspaceClient } from "./sandbox/client";
+import type { SandboxHandoffClient, SandboxMoveClient, SandboxWorkspaceClient } from "./sandbox/client";
 import { SandboxRequestError } from "./sandbox/client";
 import {
   SessionDamagedError,
   SessionFileWriter,
   emptySessionSends,
+  generateHandoffOperationId,
   generateSessionId,
   listSessionIds,
   prepareSessionStore,
@@ -78,6 +81,7 @@ import {
   writeSessionSends,
   type PromptSnapshot,
   type SessionEntryLike,
+  type SessionHandoffRecord,
   type SessionMeta,
   type SessionSends,
 } from "./session-store";
@@ -112,6 +116,9 @@ const QUEUE_DELAY_MS = 200;
 const SESSION_TTL_MS = 60 * 60 * 1000;
 const SWEEP_INTERVAL_MS = 10 * 60 * 1000;
 const TITLE_MAX = 60;
+/** 引き継ぎの片付け (確定後に残った履歴の削除) が済んでいない会話の共通文言 */
+const HANDOFF_CLEANUP_PENDING_MESSAGE =
+  "前回の引き継ぎの片付けが残っています。会話を開いてから、もう一度お試しください";
 
 /** SDK の compact() が投げる既知の理由。完全一致で分類する (部分一致は別の失敗を拾い得る) */
 const COMPACTION_TOO_SMALL = "Nothing to compact (session too small)";
@@ -170,6 +177,8 @@ export interface SessionStoreOptions {
   workspace?: SandboxWorkspaceClient | null;
   /** 引っ越しで作業フォルダ / 添付を移すサンドボックス。未指定は移動を 503 にする (workspace スタブを広げない) */
   moveSandbox?: SandboxMoveClient | null;
+  /** 引き継ぎメモ (HANDOFF.md) の読み書き。未指定は引き継ぎを 503 にする (同じくスタブを広げない) */
+  handoffSandbox?: SandboxHandoffClient | null;
   /** cwd をキーにする行 (secrets / serve_commands) の付け替え。未指定は付け替えない (テスト) */
   cwdKeys?: CwdKeyStore | null;
   /** BFF 側のワークスペース root (作業フォルダの絶対パス解決用) */
@@ -283,6 +292,8 @@ export class SessionStore {
   workspace: SandboxWorkspaceClient | null;
   /** 引っ越しの物理移動に使う。null は移動を 503 にする */
   moveSandbox: SandboxMoveClient | null;
+  /** 引き継ぎメモ (HANDOFF.md) の読み書きに使う。null は引き継ぎを 503 にする */
+  handoffSandbox: SandboxHandoffClient | null;
   /** 引っ越しで cwd をキーにする行を付け替えるアプリ DB。null は付け替えない */
   cwdKeys: CwdKeyStore | null;
   rootCwd: string;
@@ -296,6 +307,14 @@ export class SessionStore {
   pinUpdates: Map<string, Promise<void>>;
   /** 削除予約中の id */
   deleting: Set<string>;
+  /**
+   * 引き継ぎの消費済み印の保存 (記録ごと)。進行中の保存を後続の受理も待ち、成功した印は待たせず、
+   * 失敗した印は次の受理でやり直す (未保存のまま 202 を返さない)。
+   */
+  private handoffSaves: WeakMap<
+    SessionRecord,
+    { operationId: string; saving: Promise<string | undefined>; failed: boolean }
+  >;
   /** in-flight の引っ越し (操作単位)。対象スペースの削除が根を消す前に待つ相手を引く */
   private pendingMoves: Set<PendingMove>;
   /** close 中は新規の利用を受け付けない */
@@ -320,6 +339,7 @@ export class SessionStore {
     storeError,
     workspace,
     moveSandbox,
+    handoffSandbox,
     cwdKeys,
     rootCwd,
     notifications,
@@ -334,6 +354,7 @@ export class SessionStore {
     this.storeError = storeError;
     this.workspace = workspace ?? null;
     this.moveSandbox = moveSandbox ?? null;
+    this.handoffSandbox = handoffSandbox ?? null;
     this.cwdKeys = cwdKeys ?? null;
     this.rootCwd = rootCwd ?? process.cwd();
     this.notifications = notifications ?? null;
@@ -363,6 +384,7 @@ export class SessionStore {
     this.metaUpdates = new Map();
     this.pinUpdates = new Map();
     this.deleting = new Set();
+    this.handoffSaves = new WeakMap();
     this.pendingMoves = new Set();
     this.closing = false;
     this.sweeping = false;
@@ -603,6 +625,19 @@ export class SessionStore {
   private async load(meta: SessionMeta): Promise<SessionRecord> {
     const id = meta.id;
     if (this.deleting.has(id)) throw httpError(404, "Session not found");
+    // 引き継ぎの確定後に残った履歴は、SDK セッションを作る前に片付ける。削除に失敗し続ける間は
+    // 開く要求を 409 で拒否し、一覧には残す (DELETE は可能)。
+    let current = meta;
+    if (meta.handoffCleanup) {
+      try {
+        await removeSessionHistory(this.storeDir as string, id);
+      } catch (error) {
+        throw httpError(409, `引き継ぎの片付けが残っています。会話履歴を削除できませんでした: ${messageFor(error)}`);
+      }
+      current = { ...meta };
+      delete current.handoffCleanup;
+      this.descriptors.set(id, current);
+    }
     const { parsed } = await readSessionFile(this.storeDir as string, id);
     if (parsed.kind === "damaged") {
       throw httpError(
@@ -613,22 +648,22 @@ export class SessionStore {
     const entries = parsed.kind === "ok" ? parsed.entries : [];
     // cwd は保存値の projectCwd をそのまま使う (登録解除・消失していても復元先を変えない)。
     // 未所属 (projectCwd なし) のときだけスクラッチを保証する
-    const workdir = this.workdirOf(id, meta.projectCwd, meta.spaceId);
-    if (!meta.projectCwd) await this.ensureWorkdir(workdir);
-    const restored = this.restoreInputs(meta, entries);
+    const workdir = this.workdirOf(id, current.projectCwd, current.spaceId);
+    if (!current.projectCwd) await this.ensureWorkdir(workdir);
+    const restored = this.restoreInputs(current, entries);
     const created = await (this.pi as PiRuntimeLike).createSession({
       sessionId: id,
       ownerSessionId: id,
       entries,
-      promptSnapshot: meta.promptSnapshot,
+      promptSnapshot: current.promptSnapshot,
       // 復元では定義を引き直さず、セッションのスナップショットだけで索引を組む (遡及させない)
-      agentSkills: meta.agent.skills,
+      agentSkills: current.agent.skills,
       // 共通スキルの許可リストも meta のスナップショットから渡す (定義編集を遡及させない)
-      ...(meta.agent.commonSkillNames === undefined ? {} : { commonSkillNames: meta.agent.commonSkillNames }),
+      ...(current.agent.commonSkillNames === undefined ? {} : { commonSkillNames: current.agent.commonSkillNames }),
       // 組み込みスキルの許可リストも同じく meta のスナップショットから渡す
-      ...(meta.agent.builtinSkillNames === undefined ? {} : { builtinSkillNames: meta.agent.builtinSkillNames }),
+      ...(current.agent.builtinSkillNames === undefined ? {} : { builtinSkillNames: current.agent.builtinSkillNames }),
       // ツールの許可リストも定義を引き直さず、セッションのスナップショットから渡す
-      ...(meta.agent.toolNames === undefined ? {} : { toolNames: meta.agent.toolNames }),
+      ...(current.agent.toolNames === undefined ? {} : { toolNames: current.agent.toolNames }),
       model: restored.model,
       thinkingLevel: restored.thinkingLevel,
       cwd: workdir,
@@ -640,25 +675,25 @@ export class SessionStore {
     }
     const modelRecorded = this.recordEffectiveModel(session, restored.recordedModel);
     const record = this.buildRecord({
-      spaceId: meta.spaceId ?? "default",
+      spaceId: current.spaceId ?? "default",
       id,
       session,
-      agentId: meta.agentId,
-      agent: meta.agent,
-      promptSnapshot: meta.promptSnapshot,
+      agentId: current.agentId,
+      agent: current.agent,
+      promptSnapshot: current.promptSnapshot,
       workdir,
       project: undefined,
-      title: meta.title,
-      createdAt: meta.createdAt,
-      notify: meta.notify === true,
-      pinned: meta.pinned === true,
+      title: current.title,
+      createdAt: current.createdAt,
+      notify: current.notify === true,
+      pinned: current.pinned === true,
     });
-    record.lastUsedAt = meta.lastUsedAt;
-    record.meta = meta;
+    record.lastUsedAt = current.lastUsedAt;
+    record.meta = current;
     // 所属は保存値から復元し、projectId だけを読み取り時に解決する
-    record.projectCwd = meta.projectCwd;
-    record.projectName = meta.projectName;
-    record.projectId = this.projectIdOfCwd(meta.projectCwd);
+    record.projectCwd = current.projectCwd;
+    record.projectName = current.projectName;
+    record.projectId = this.projectIdOfCwd(current.projectCwd);
     // run 対応は JSONL の entry へ写した注記を正とする (entry の存在が証跡なので、本文や時刻での
     // 推測をしない)。未送信の記録は、その注記に載っている run だけを保存済みとして外す
     const sends = this.storeDir ? readSessionSends(this.storeDir, id) : emptySessionSends();
@@ -678,9 +713,9 @@ export class SessionStore {
     if (record.sendsDirty) this.writeSends(record);
     // 実効モデルのフォールバックは model_change の追記ごと保存する。件数の補正だけなら履歴は同じ
     // なので、writer を通さず meta だけを書き戻す (履歴が同じでも writer は全量を書き直す)
-    const backfillCount = meta.messageCount !== displayableMessages(session, this.masker).length;
+    const backfillCount = current.messageCount !== displayableMessages(session, this.masker).length;
     if (modelRecorded) await this.persist(record);
-    else if (backfillCount) await this.persist(record, { jsonl: false });
+    else if (backfillCount || meta.handoffCleanup) await this.persist(record, { jsonl: false });
     return record;
   }
 
@@ -1009,11 +1044,11 @@ export class SessionStore {
         queueDepth: record.queue.length,
         prompt: this.masker.mask(text),
       });
-      return { queued: true, queueDepth: record.queue.length, runId };
+      return { queued: true, queueDepth: record.queue.length, runId, ...this.consumeHandoff(record) };
     }
 
     const run = this.startRun(record, text, runId);
-    return { queued: false, queueDepth: 0, runId: run.id };
+    return { queued: false, queueDepth: 0, runId: run.id, ...this.consumeHandoff(record) };
   }
 
   /**
@@ -1063,6 +1098,41 @@ export class SessionStore {
     // 取り消した分の順位と件数を別タブへ揃える (待機の `queued` は run id を配らない)
     this.emitResync(record);
     return "ok";
+  }
+
+  /**
+   * 引き継ぎ後に最初に受理した送信で「消費済み」を立てる。未送信の破棄では戻さず、その場で meta へ
+   * 保存する (BFF の再起動後も同じ判定になる)。購読者へは resync を配り、チップをその場で消す。
+   *
+   * 保存は「立てたがまだ載っていない」間を記録ごとに共有する。進行中の保存を後続の受理 (別タブ /
+   * 再送) も待ち、失敗したら記録を外して次の受理でやり直す (未保存のまま 202 を返さない)。
+   */
+  private consumeHandoff(record: SessionRecord): { handoffSaving?: Promise<string | undefined> } {
+    const handoff = record.meta.handoff;
+    if (!handoff) return {};
+    const last = this.handoffSaves.get(record);
+    // 同じ印の保存が進行中、または成功済み。後続も同じ Promise を待つ (失敗した印はやり直す)
+    if (last?.operationId === handoff.operationId && !last.failed) return { handoffSaving: last.saving };
+    // ディスクに載っている印 (読み込み直した記録 / 別の引き継ぎの記録) は書き直さない
+    if (handoff.consumed && last?.operationId !== handoff.operationId) return {};
+    return { handoffSaving: this.saveHandoffConsumed(record, handoff.operationId) };
+  }
+
+  /** 消費済み印の保存 1 回分。失敗は記録に印を付け、次の受理にやり直させる */
+  private saveHandoffConsumed(record: SessionRecord, operationId: string): Promise<string | undefined> {
+    const handoff = record.meta.handoff;
+    if (handoff && !handoff.consumed) {
+      record.meta = { ...record.meta, handoff: { ...handoff, consumed: true } };
+      this.descriptors.set(record.id, record.meta);
+      this.emitResync(record);
+    }
+    const entry = { operationId, failed: false, saving: Promise.resolve<string | undefined>(undefined) };
+    entry.saving = this.persist(record, { jsonl: false }).then((failure) => {
+      entry.failed = failure !== undefined;
+      return failure;
+    });
+    this.handoffSaves.set(record, entry);
+    return entry.saving;
   }
 
   /** その run id がまだ実行中 / キュー待ちか。終了した run は未送信の再送 / 破棄を妨げない */
@@ -1582,7 +1652,9 @@ export class SessionStore {
       queueDepth: 0,
       notify: meta.notify === true,
       pinned: meta.pinned === true,
-      canMove: !meta.projectCwd,
+      canHandoff: true,
+      projectSession: meta.projectCwd !== undefined,
+      ...(meta.handoffCleanup ? { handoffCleanup: true } : {}),
       hasRawLog: this.hasRawLogOf(meta.id, this.storeDir ?? ""),
       messageCount: meta.messageCount,
       createdAt: meta.createdAt,
@@ -1697,11 +1769,15 @@ export class SessionStore {
   }
 
   /**
-   * 未所属セッションを作業フォルダ / 添付ごと別のスペースへ引っ越す。会話履歴 (session.jsonl /
-   * sends.json) は破棄する不可逆操作で、SDK を開かない (damaged な JSONL やモデル未認証でも移せる)。
-   * meta の書換えまでに失敗したら移したものを逆順で戻し、履歴の削除は最後に置く (次の移動で再試行する)。
+   * 会話を引き継ぐ (引っ越しの拡張)。会話の行・タイトル・ピン・通知・作成時刻は保ち、履歴だけを新しくする。
+   * 同一スペースでも引き継げ、別スペースなら作業フォルダ / 添付 / cwd キーの行を移動先へ移す。メモ
+   * (HANDOFF.md) は確定より前に書き、確定後の履歴削除が失敗したときだけ success のまま `cleanupPending` を返す。
    */
-  async move(id: string, targetSpaceId: string): Promise<SessionMoveResponse | undefined> {
+  async move(
+    id: string,
+    targetSpaceId: string,
+    options: { agentId?: string; memo?: boolean } = {},
+  ): Promise<SessionMoveResponse | undefined> {
     // 削除側が引く引っ越し先は検証済みの値にする (moveSession と同じ正規化をここでも行う)
     const target = spaceIdOf(targetSpaceId);
     const operation = (async () => {
@@ -1709,7 +1785,7 @@ export class SessionStore {
       for (const pending of [this.lifecycle.get(id), this.metaUpdates.get(id), this.pinUpdates.get(id)]) {
         if (pending) await pending.catch(() => {});
       }
-      return this.moveSession(id, targetSpaceId);
+      return this.moveSession(id, targetSpaceId, options);
     })();
     const settled = operation.then(
       () => {},
@@ -1741,36 +1817,110 @@ export class SessionStore {
     return pending.length;
   }
 
-  private async moveSession(id: string, targetSpaceId: string): Promise<SessionMoveResponse | undefined> {
+  private async moveSession(
+    id: string,
+    targetSpaceId: string,
+    options: { agentId?: string; memo?: boolean },
+  ): Promise<SessionMoveResponse | undefined> {
     const target = spaceIdOf(targetSpaceId);
+    const memo = options.memo === true;
     if (this.storeError) throw httpError(503, `会話ストアを利用できません: ${this.storeError}`);
     if (!this.storeDir) throw httpError(503, "セッションの移動には会話ストアが必要です");
-    if (!this.moveSandbox || !this.workspace) throw httpError(503, SANDBOX_NOT_CONFIGURED_MESSAGE);
+    if (!this.moveSandbox || !this.workspace || !this.handoffSandbox) {
+      throw httpError(503, SANDBOX_NOT_CONFIGURED_MESSAGE);
+    }
     const live = this.records.get(id);
     const meta = live?.meta ?? this.descriptors.get(id);
     if (!meta) return undefined;
     const fromSpace = meta.spaceId ?? "default";
-    if (fromSpace === target) throw httpError(400, "同じスペースへは移動できません");
-    if (meta.projectCwd) throw httpError(400, "プロジェクト所属のセッションは移動できません");
+    const moving = fromSpace !== target;
+    if (meta.handoffCleanup) throw httpError(409, HANDOFF_CLEANUP_PENDING_MESSAGE);
+    // プロジェクト所属は作業ディレクトリが同じで移す先がないため、同じスペースへの引き継ぎだけを許す
+    if (meta.projectCwd && moving) {
+      throw httpError(400, "プロジェクト所属のセッションは同じ会話スペースへだけ引き継げます");
+    }
     // スクラッチ以外 (projectCwd の残骸など) を動かさないための不変条件
     const fromWorkdir = live?.workdir ?? this.workdirOf(id, meta.projectCwd, fromSpace);
-    if (fromWorkdir !== sessionWorkdirRel(id, fromSpace)) {
+    if (!meta.projectCwd && fromWorkdir !== sessionWorkdirRel(id, fromSpace)) {
       throw httpError(400, "移動できるのはセッション専用の作業フォルダだけです");
     }
     if (live && (this.isBusy(live) || live.session.isStreaming || live.changingSettings)) {
-      throw httpError(409, "実行中・キュー中・設定変更中のセッションは移動できません");
+      throw httpError(409, "実行中・キュー中・設定変更中のセッションは引き継げません");
     }
 
     const storeDir = this.storeDir;
     const moveSandbox = this.moveSandbox;
     const workspace = this.workspace;
-    const toWorkdir = sessionWorkdirRel(id, target);
+    const handoffSandbox = this.handoffSandbox;
+    const toWorkdir = meta.projectCwd ?? sessionWorkdirRel(id, target);
     const fromUploads = sessionUploadsRel(id, fromSpace);
     const toUploads = sessionUploadsRel(id, target);
     // 古い値の保存が移動後の meta を上書きしないよう、先に drain する
     if (live) await this.drainRecordWrites(live);
     // drain 中の setNotify / setTitle / setPinned を落とさないよう、最新の meta から組み立てる
     const current = live?.meta ?? this.descriptors.get(id) ?? meta;
+    if (current.handoffCleanup) throw httpError(409, HANDOFF_CLEANUP_PENDING_MESSAGE);
+
+    // 引き継ぎ先のエージェント。「指定なし」は保存済みのスナップショットを維持する (現在のエージェントが
+    // カタログから消えていても引き継げる)。「指定あり」は現在と同じ id でも新規作成と同じ経路で解決し直し、
+    // 定義の更新を反映し、未知・削除済みの id は 400 にする (UI の「現在」は id を省略する)
+    const resolved = options.agentId === undefined ? undefined : resolveAgentSkills(this.catalog, options.agentId);
+    const agentId = resolved?.agentInfo.id ?? current.agentId;
+    const agentInfo = resolved?.agentInfo ?? current.agent;
+    const promptSnapshot = resolved?.promptSnapshot ?? current.promptSnapshot;
+
+    const operationId = generateHandoffOperationId();
+    const at = Date.now();
+
+    // メモの下準備 (副作用なし)。材料と既存の HANDOFF.md をここで読み、会話の状態を変える前に拒否する。
+    // 追記後の全文を組み立てるのはここでの上限判定のためで、書込みは排他の中で再読取りして再適用する
+    let memoSection: HandoffMemoSection | undefined;
+    let memoExisting = "";
+    const memoPath = posix.join(toWorkdir, HANDOFF_FILE_NAME);
+    if (memo) {
+      const { parsed } = await readSessionFile(storeDir, id);
+      if (parsed.kind === "damaged") {
+        throw httpError(
+          400,
+          `保存された会話を読めないためメモを作れません (${parsed.reason})。「メモを作る」を外すと引き継げます`,
+        );
+      }
+      const section = buildHandoffSection({
+        entries: parsed.kind === "ok" ? parsed.entries : [],
+        title: current.title,
+        fromAgent: current.agent.name,
+        toAgent: agentInfo.name,
+        operationId,
+        at,
+        masker: this.masker,
+      });
+      if (!section) throw httpError(400, "メモにできる会話がまだありません。「メモを作る」を外すと引き継げます");
+      const readPath = moving ? posix.join(fromWorkdir, HANDOFF_FILE_NAME) : memoPath;
+      try {
+        memoExisting = (await handoffSandbox.readHandoff(readPath)).text;
+      } catch (error) {
+        if (error instanceof SandboxRequestError && error.status === 404) {
+          memoExisting = "";
+        } else {
+          throw httpError(
+            400,
+            `作業フォルダの HANDOFF.md を読めないためメモを作れません (${messageFor(error)})。「メモを作る」を外すと引き継げます`,
+          );
+        }
+      }
+      const total =
+        Buffer.byteLength(memoExisting, "utf8") +
+        // 先頭見出しのハッシュが既にあるときは追記されないので、追記分を足さずに評価する
+        // (確定前の失敗からの再試行で、全文がちょうど上限でも通す)
+        (memoExisting.split("\n", 1)[0]?.includes(section.hash) ? 0 : Buffer.byteLength(section.text, "utf8"));
+      if (total > SANDBOX_MAX_HANDOFF_BYTES) {
+        throw httpError(
+          400,
+          "HANDOFF.md が上限 (2 MiB) を超えるためメモを作れません。「メモを作る」を外すと引き継げます",
+        );
+      }
+      memoSection = section;
+    }
 
     // meta 書換えより前の失敗だけを戻す。移動先に残った空ディレクトリは無害なので消さない
     const undo: Array<() => Promise<void> | void> = [];
@@ -1796,34 +1946,63 @@ export class SessionStore {
       throw error instanceof SandboxRequestError ? httpError(sandboxFailureStatus(error), error.message) : error;
     };
 
-    const updated: SessionMeta = { ...current, spaceId: target, lastUsedAt: Date.now(), messageCount: 0 };
+    const updated: SessionMeta = {
+      ...current,
+      spaceId: target,
+      lastUsedAt: at,
+      messageCount: 0,
+      agentId,
+      agent: agentInfo,
+      promptSnapshot,
+      handoff: { operationId, at, memo: memoSection !== undefined, consumed: false } satisfies SessionHandoffRecord,
+      handoffCleanup: true,
+    };
     try {
-      // 移動先の親は move が要求する (既存ディレクトリは成功扱いなので再実行でも冪等)
-      await workspace.createDir(dirname(toWorkdir));
-      await workspace.createDir(dirname(toUploads));
-      if (this.moveAborted(id)) return abortMove();
+      if (moving) {
+        // 移動先の親は move が要求する (既存ディレクトリは成功扱いなので再実行でも冪等)
+        await workspace.createDir(dirname(toWorkdir));
+        await workspace.createDir(dirname(toUploads));
+        if (this.moveAborted(id)) return abortMove();
 
-      if (await this.moveSandboxEntry(moveSandbox, fromWorkdir, toWorkdir)) {
-        undo.push(async () => {
-          await moveSandbox.moveEntry(toWorkdir, fromWorkdir);
+        if (await this.moveSandboxEntry(moveSandbox, fromWorkdir, toWorkdir)) {
+          undo.push(async () => {
+            await moveSandbox.moveEntry(toWorkdir, fromWorkdir);
+          });
+        }
+        if (this.moveAborted(id)) return abortMove();
+
+        if (await this.moveSandboxEntry(moveSandbox, fromUploads, toUploads)) {
+          undo.push(async () => {
+            await moveSandbox.moveEntry(toUploads, fromUploads);
+          });
+        }
+        if (this.moveAborted(id)) return abortMove();
+
+        // cwd をキーにする行は移動先へ付け替える (値の AAD は cwd を含まないので再暗号化は不要)
+        try {
+          this.cwdKeys?.moveCwd(fromWorkdir, toWorkdir);
+        } catch (error) {
+          throw httpError(500, `環境変数とサービス実績の付け替えに失敗しました: ${messageFor(error)}`);
+        }
+        undo.push(() => this.cwdKeys?.moveCwd(toWorkdir, fromWorkdir));
+      }
+
+      // メモは確定より前に書く (確定した時点でメモの状態が最終になる)。失敗したらここまでの移動を戻す
+      if (memoSection) {
+        const written = await handoffSandbox.writeHandoff({
+          path: memoPath,
+          section: memoSection.text,
+          dedupeKey: memoSection.hash,
         });
+        if (written.created) {
+          // 新規作成の rollback は、自分が書いた内容と一致するときだけ消す。既存への追記は戻さない
+          const expected = `${memoSection.text}${memoExisting}`;
+          undo.push(async () => {
+            await handoffSandbox.rollbackHandoff({ path: memoPath, expected });
+          });
+        }
       }
       if (this.moveAborted(id)) return abortMove();
-
-      if (await this.moveSandboxEntry(moveSandbox, fromUploads, toUploads)) {
-        undo.push(async () => {
-          await moveSandbox.moveEntry(toUploads, fromUploads);
-        });
-      }
-      if (this.moveAborted(id)) return abortMove();
-
-      // cwd をキーにする行は移動先へ付け替える (値の AAD は cwd を含まないので再暗号化は不要)
-      try {
-        this.cwdKeys?.moveCwd(fromWorkdir, toWorkdir);
-      } catch (error) {
-        throw httpError(500, `環境変数とサービス実績の付け替えに失敗しました: ${messageFor(error)}`);
-      }
-      undo.push(() => this.cwdKeys?.moveCwd(toWorkdir, fromWorkdir));
 
       await writeSessionMeta(storeDir, updated);
       this.descriptors.set(id, updated);
@@ -1832,7 +2011,8 @@ export class SessionStore {
       return failMove(error);
     }
 
-    // ここから先は meta が移動済み。失敗しても戻さず、次の移動で履歴の削除を再試行する
+    // ここから先は meta が確定済み。失敗しても戻さず、片付けの印を残して次回の保存 / 開くときに再試行する
+    let cleanupPending = false;
     if (live) {
       live.session.dispose?.();
       this.records.delete(id);
@@ -1841,12 +2021,33 @@ export class SessionStore {
     }
     try {
       await removeSessionHistory(storeDir, id);
-    } catch (error) {
-      if (live) this.closeSubscribers(live);
-      throw httpError(500, `移動は完了しましたが、会話履歴を削除できませんでした: ${messageFor(error)}`);
+    } catch {
+      cleanupPending = true;
     }
-    if (live) this.closeSubscribers(live);
-    return { sessionId: id, title: updated.title || "無題のセッション", spaceId: target };
+    if (!cleanupPending) {
+      const cleared: SessionMeta = { ...updated };
+      delete cleared.handoffCleanup;
+      try {
+        await writeSessionMeta(storeDir, cleared);
+        this.descriptors.set(id, cleared);
+        if (live) live.meta = cleared;
+      } catch {
+        // 確定は済んでいる。印が残るだけなので次の保存で再試行する
+        cleanupPending = true;
+      }
+    }
+    if (live) {
+      // 確定後の失敗は、応答だけでなく購読中のタブへ resync でも伝える (開けない理由を先に出す)
+      if (cleanupPending) this.emitResync(live);
+      this.closeSubscribers(live);
+    }
+    return {
+      sessionId: id,
+      title: updated.title || "無題のセッション",
+      spaceId: target,
+      memo: memoSection !== undefined,
+      cleanupPending,
+    };
   }
 
   /** 削除予約 / close を検出する。move は各 await の後でこれを見てロールバックする */

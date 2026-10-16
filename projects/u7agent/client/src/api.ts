@@ -115,10 +115,10 @@ export function createSpaceApi(spaceId: string) {
       return read<HistoryPage>(fetch(url));
     },
     deleteSession: (id: string) => read<unknown>(session.$delete({ param: { id } })),
-    // 引っ越しの要求元は query (この API の spaceId)、移動先は body。移動先で作った API から呼ぶと
+    // 引き継ぎの要求元は query (この API の spaceId)、移動先は body。移動先で作った API から呼ぶと
     // query が移動先になり、sessionSpaceGuard が 404 にする (client/src/api.ts の scope が query を書く)
-    moveSession: (id: string, spaceId: string) =>
-      read<SessionMoveResponse>(session.move.$post({ param: { id }, json: { spaceId } })),
+    handoffSession: (id: string, json: { spaceId: string; agentId?: string; memo: boolean }) =>
+      read<SessionMoveResponse>(session.move.$post({ param: { id }, json })),
     updateSessionSettings: (id: string, json: SessionOverrides) =>
       read<SessionPayload>(session.settings.$patch({ param: { id }, json })),
     updateSessionNotify: (id: string, notify: boolean) =>

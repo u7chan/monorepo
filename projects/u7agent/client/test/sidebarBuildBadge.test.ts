@@ -25,7 +25,7 @@ function renderSidebar(commitHash?: string): string {
       newChat: () => {},
       selectSession: () => {},
       renameSession: () => {},
-      moveSession: () => {},
+      handoffSession: () => {},
       deleteSession: () => {},
       deleteProject: () => {},
       togglePinned: () => {},

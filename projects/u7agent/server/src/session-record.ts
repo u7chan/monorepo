@@ -191,4 +191,9 @@ export interface PostMessageResultInternal {
   queued: boolean;
   queueDepth: number;
   runId?: string;
+  /**
+   * 引き継ぎの「消費済み」印の保存。この送信が印を立てたか、同じ印の保存が進行中のときに入り、
+   * ルートは 202 を返す前に待つ (未保存のまま受理を返すと、再起動でチップが戻る)。
+   */
+  handoffSaving?: Promise<string | undefined>;
 }

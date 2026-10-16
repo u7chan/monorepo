@@ -22,26 +22,38 @@ export function projectRowActions(): RowMenuAction<ProjectRowKind>[] {
 }
 
 /** セッション行の ⋯ の種別 (通知のベルとピンは状態の印として行にも残す) */
-export type SessionRowKind = "pin" | "rename" | "move" | "delete";
+export type SessionRowKind = "pin" | "rename" | "handoff" | "delete";
 
-/** セッション行の ⋯ の出し分けに使う状態。省略は「ピン無し / 引っ越し不可」 */
+/** セッション行の ⋯ の出し分けに使う状態。省略は「ピン無し / 引き継ぎ不可」 */
 export type SessionRowMenuOptions = {
   pinned?: boolean;
-  /** 別のスペースへ引っ越せるか (プロジェクト所属の会話では出さない) */
-  canMove?: boolean;
+  /** 操作の受け取りがあるか (未指定 = 項目を出さない)。プロジェクト所属でも渡す */
+  canHandoff?: boolean;
+  /** 引き継ぎを止める理由。空なら実行できる (項目ごと隠さず、理由を説明行へ出す) */
+  handoffBlockedReason?: string;
 };
 
 /**
- * ピンの切替を先頭に置き、リネームは削除の手前に残す。引っ越しはプロジェクト所属の会話では
- * 選べない (移動先の候補はあるが、サーバーが 400 にする) ので、`canMove` のときだけ出す。
+ * ピンの切替を先頭に置き、リネームは削除の手前に残す。引き継ぎは受取りがある行に出し、
+ * 実行中・圧縮中・片付け中は無効にして理由を説明行へ出す (項目ごと隠さない)。
  */
 export function sessionRowActions(options: SessionRowMenuOptions = {}): RowMenuAction<SessionRowKind>[] {
-  const { pinned = false, canMove = false } = options;
-  const move: RowMenuAction<SessionRowKind>[] = canMove ? [{ kind: "move", label: "別の会話スペースへ引っ越す" }] : [];
+  const { pinned = false, canHandoff = false, handoffBlockedReason = "" } = options;
+  const handoff: RowMenuAction<SessionRowKind>[] = canHandoff
+    ? [
+        {
+          kind: "handoff",
+          label: "会話を引き継ぐ",
+          description: handoffBlockedReason || "エージェント / スペースを変えて続けます。履歴は破棄されます",
+          descriptionKind: "disclosure",
+          disabled: handoffBlockedReason !== "",
+        },
+      ]
+    : [];
   return [
     { kind: "pin", label: pinned ? "ピン留めを解除" : "ピン留め" },
     { kind: "rename", label: "名前を変更" },
-    ...move,
+    ...handoff,
     { kind: "delete", label: "セッションを削除", danger: true },
   ];
 }
@@ -73,34 +85,5 @@ export function sessionRenameRequest(currentTitle: string): PromptRequest {
     label: "新しい名前",
     defaultValue: currentTitle,
     confirmLabel: "名前を変更",
-  };
-}
-
-/**
- * 引っ越しの確認文言。履歴が消える不可逆な操作なので、破棄されるものと引き継がれるものを
- * 実行前に並べ、移動先の選択と一緒に専用ダイアログへ出す (共有の `DialogRequest` に `select` を足さない)。
- */
-export type SessionMoveDialogText = {
-  title: string;
-  subject?: { label: string; value: string };
-  body: readonly string[];
-  /** 移動先の候補が無いときの案内。確定は無効にする */
-  emptyNote: string;
-  /** 実行前の補足。切替を伴わないこと (移動先の一覧は設定から選ぶ) を伝える */
-  note: string;
-  confirmLabel: string;
-};
-
-export function sessionMoveDialogText(title: string): SessionMoveDialogText {
-  return {
-    title: "別の会話スペースへ引っ越す",
-    ...(title ? { subject: { label: "引っ越すセッション", value: title } } : {}),
-    body: [
-      "会話履歴（メッセージと未送信）は破棄されます。元に戻せません。",
-      "作業フォルダのファイルと添付は、移動先の会話スペースへ引き継がれます。",
-    ],
-    emptyNote: "移動先の会話スペースがありません（設定 → 会話スペースで作成してください）。",
-    note: "この画面は移動先の会話スペースへ切り替わりません。移動先の会話は、会話スペースを切り替えてから開きます。",
-    confirmLabel: "引っ越す",
   };
 }

@@ -1,40 +1,65 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import type { Space } from "server";
 import { cn } from "../lib/cn";
-import type { SessionMoveDialogText } from "../lib/sidebarRowMenu";
+import { handoffAgentId, type HandoffAgentChoice, type SessionHandoffDialogText } from "../lib/sessionHandoff";
 import { MenuItem } from "./MenuItem";
+import { ToggleSwitch } from "./ToggleSwitch";
 import { CloseIcon } from "./icons";
 
-export type SessionMoveDialogProps = {
+export type SessionHandoffRequest = {
+  spaceId: string;
+  /** 現在のエージェントを選んだときは省略する (保存済みのスナップショットを維持する) */
+  agentId?: string;
+  memo: boolean;
+};
+
+export type SessionHandoffDialogProps = {
   /** 対象と確認文言。文言は lib の純関数が組み立てる (共有の確認ダイアログに select を足さない) */
-  text: SessionMoveDialogText;
-  /** 移動先の候補。現在のスペースは呼び出し側が除く */
-  destinations: Space[];
+  text: SessionHandoffDialogText;
+  /** 引き継ぎ先のエージェント。現在のエージェントが先頭 (カタログから消えていても選べる) */
+  agents: HandoffAgentChoice[];
+  /** 移動先の候補。現在のスペースを含む */
+  spaces: Space[];
+  currentSpaceId: string;
+  /** プロジェクト所属は移動先スペースを選ばない (作業ディレクトリが同じで移す先がない) */
+  projectSession: boolean;
+  /** メモのトグルを無効にする理由。空ならトグルできる (メッセージ 0 件では材料が無い) */
+  memoDisabledReason: string;
+  /** 実行できない理由。空なら実行できる (サーバーも同じ条件で 409 / 400 にする) */
+  blockedNote: string;
   singleColumn?: boolean;
   onClose: () => void;
   /** 失敗は throw してダイアログ内に出す */
-  onMove: (targetSpaceId: string) => Promise<void>;
+  onHandoff: (request: SessionHandoffRequest) => Promise<void>;
 };
 
 /**
- * 引っ越し先を選ぶ専用ダイアログ。共有の `DialogRequest` は confirm / prompt の 2 種なので、
- * 選択を持つこの画面は `ProjectDialog` と同じ専用部品にし、`App` が制御コンポーネントとして mount する。
+ * 引き継ぎ先を選ぶ専用ダイアログ。共有の `DialogRequest` は confirm / prompt の 2 種なので、
+ * 選択とトグルを持つこの画面は `ProjectDialog` と同じ専用部品にし、`App` が制御コンポーネントとして mount する。
  * モーダルの標準挙動 (背面の inert 化 / Tab の拘束 / Escape での終了) と焦点の復帰に任せる。
  */
-export function SessionMoveDialog({
+export function SessionHandoffDialog({
   text,
-  destinations,
+  agents,
+  spaces,
+  currentSpaceId,
+  projectSession,
+  memoDisabledReason,
+  blockedNote,
   singleColumn = false,
   onClose,
-  onMove,
-}: SessionMoveDialogProps) {
+  onHandoff,
+}: SessionHandoffDialogProps) {
   const dialogRef = useRef<HTMLDialogElement>(null);
   const previousFocusRef = useRef<HTMLElement | null>(null);
   const cancelRef = useRef<HTMLButtonElement>(null);
-  const [target, setTarget] = useState(() => destinations[0]?.id ?? "");
+  const currentAgent = agents.find((agent) => agent.current) ?? agents[0];
+  const [agentId, setAgentId] = useState(() => currentAgent?.id ?? "");
+  const [target, setTarget] = useState(currentSpaceId);
+  const [memo, setMemo] = useState(memoDisabledReason === "");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
-  const canMove = !busy && target !== "";
+  const canHandoff = !busy && blockedNote === "" && agentId !== "" && (projectSession || target !== "");
 
   useEffect(() => {
     const dialog = dialogRef.current;
@@ -55,12 +80,18 @@ export function SessionMoveDialog({
 
   const submit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    if (!canMove) return;
+    if (!canHandoff) return;
+    const choice = agents.find((agent) => agent.id === agentId);
+    if (!choice) return;
     setBusy(true);
     setError("");
     void (async () => {
       try {
-        await onMove(target);
+        await onHandoff({
+          spaceId: projectSession ? currentSpaceId : target,
+          ...(handoffAgentId(choice) === undefined ? {} : { agentId: handoffAgentId(choice) }),
+          memo: memoDisabledReason === "" && memo,
+        });
         // 閉じるまで busy を戻さない (成功後に二重送信できないように)
         onClose();
       } catch (err) {
@@ -91,7 +122,7 @@ export function SessionMoveDialog({
     >
       <header className="flex shrink-0 items-start justify-between gap-3 border-b border-line px-4 py-3.5">
         <div className="min-w-0">
-          <div className="text-2xs font-semibold tracking-label text-ink-ghost uppercase">SPACE</div>
+          <div className="text-2xs font-semibold tracking-label text-ink-ghost uppercase">HANDOFF</div>
           <h2 className="text-md font-semibold text-ink-strong">{text.title}</h2>
         </div>
         <button type="button" onClick={onClose} className="btn-quiet" disabled={busy}>
@@ -120,17 +151,32 @@ export function SessionMoveDialog({
           ))}
 
           <div className="grid gap-1.5">
-            <span className="text-2xs font-semibold tracking-widest text-ink-faint uppercase">
-              移動先の会話スペース
-            </span>
-            {destinations.length === 0 ? (
-              <p className="break-words text-ink-muted">{text.emptyNote}</p>
-            ) : (
+            <span className="text-2xs font-semibold tracking-widest text-ink-faint uppercase">{text.agentLabel}</span>
+            <div className="grid gap-1">
+              {agents.map((agent) => (
+                <MenuItem
+                  key={agent.id}
+                  label={agent.current ? `${agent.name}（現在）` : agent.name}
+                  variant="choice"
+                  selected={agent.id === agentId}
+                  current="true"
+                  onClick={() => {
+                    setAgentId(agent.id);
+                    setError("");
+                  }}
+                />
+              ))}
+            </div>
+          </div>
+
+          {projectSession ? null : (
+            <div className="grid gap-1.5">
+              <span className="text-2xs font-semibold tracking-widest text-ink-faint uppercase">{text.spaceLabel}</span>
               <div className="grid gap-1">
-                {destinations.map((space) => (
+                {spaces.map((space) => (
                   <MenuItem
                     key={space.id}
-                    label={space.name}
+                    label={space.id === currentSpaceId ? `${space.name}（現在）` : space.name}
                     variant="choice"
                     selected={space.id === target}
                     current="true"
@@ -141,16 +187,34 @@ export function SessionMoveDialog({
                   />
                 ))}
               </div>
-            )}
+            </div>
+          )}
+
+          <div className="grid gap-1 rounded-lg border border-line px-3 py-2.5">
+            <ToggleSwitch
+              checked={memoDisabledReason === "" && memo}
+              label={text.memoLabel}
+              disabled={memoDisabledReason !== ""}
+              onChange={(checked) => setMemo(checked)}
+            />
+            <p className="break-words text-ink-soft">
+              {memoDisabledReason === "" ? text.memoDescription : memoDisabledReason}
+            </p>
+            {memoDisabledReason === "" && text.memoProjectNote ? (
+              <p className="break-words text-ink-soft">{text.memoProjectNote}</p>
+            ) : null}
           </div>
         </div>
 
         <footer className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-t border-line px-4 py-3">
           <p
-            role={error ? "alert" : undefined}
-            className={cn("min-w-0 flex-1 text-1xs leading-relaxed", error ? "text-danger-text" : "text-ink-muted")}
+            role={error || blockedNote ? "alert" : undefined}
+            className={cn(
+              "min-w-0 flex-1 text-1xs leading-relaxed",
+              error || blockedNote ? "text-danger-text" : "text-ink-muted",
+            )}
           >
-            {error || text.note}
+            {error || blockedNote || text.note}
           </p>
           <div className="flex items-center gap-2">
             <button
@@ -162,7 +226,7 @@ export function SessionMoveDialog({
             >
               キャンセル
             </button>
-            <button type="submit" disabled={!canMove} className="btn-danger singleColumn:min-h-11">
+            <button type="submit" disabled={!canHandoff} className="btn-danger singleColumn:min-h-11">
               {text.confirmLabel}
             </button>
           </div>

@@ -43,6 +43,7 @@ const ACTION_ICONS: Record<RowMenuActionKind, ReactNode> = {
   rename: <PencilIcon />,
   pin: <PinIcon />,
   move: <MoveIcon />,
+  handoff: <MoveIcon />,
   delete: <TrashIcon />,
   "new-chat": <PlusIcon />,
 };

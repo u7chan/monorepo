@@ -518,6 +518,22 @@ export const ProjectsResponseSchema = z.object({
 });
 export type ProjectsResponse = z.infer<typeof ProjectsResponseSchema>;
 
+/**
+ * 会話の引き継ぎの状態。`consumed` は引き継ぎ後に最初に受理した送信で立ち、
+ * チップ (HANDOFF.md を参照) の表示条件になる。旧サーバーは載せない (省略 = 引き継ぎなし)。
+ */
+export const SessionHandoffStateSchema = z.object({
+  operationId: z.string(),
+  at: z.number(),
+  /** HANDOFF.md を作った引き継ぎか */
+  memo: z.boolean(),
+  /** 引き継ぎ後の最初の送信を受理済みか (未送信の破棄では戻らない) */
+  consumed: z.boolean(),
+  /** 確定後の履歴削除 (片付け) が残っているか。true の間は会話を開けない */
+  cleanupPending: z.boolean(),
+});
+export type SessionHandoffState = z.infer<typeof SessionHandoffStateSchema>;
+
 export const SessionPayloadSchema = z.object({
   spaceId: z.string().optional(),
   sessionId: z.string(),
@@ -555,6 +571,8 @@ export const SessionPayloadSchema = z.object({
   compactions: z.array(CompactionInfoSchema),
   /** セッションのコンテキスト使用量。SDK が持たない (スタブ等) ときはキーを省略する */
   context: ContextUsageSchema.optional(),
+  /** 直前の引き継ぎの状態。引き継ぎを受けていない会話と旧サーバーは省略する */
+  handoff: SessionHandoffStateSchema.optional(),
 });
 export type SessionPayload = z.infer<typeof SessionPayloadSchema>;
 
@@ -575,8 +593,12 @@ export const SessionSummarySchema = z.object({
   notify: z.boolean().optional(),
   /** サイドバーに固定するか。未指定の旧データは false として扱う */
   pinned: z.boolean(),
-  /** 別のスペースへ引っ越せるか。旧サーバーは載せないため省略可 (省略 = false) */
-  canMove: z.boolean().optional(),
+  /** 同じ会話のままエージェント / スペースを引き継げるか。旧サーバーは載せないため省略可 (省略 = false) */
+  canHandoff: z.boolean().optional(),
+  /** プロジェクト所属か。真では引き継ぎ先のスペースを選ばない (同じ作業ディレクトリで移す先がない) */
+  projectSession: z.boolean().optional(),
+  /** 確定後の履歴削除 (片付け) が残っているか。残っている間は開けない / 新しい引き継ぎを受けない */
+  handoffCleanup: z.boolean().optional(),
   /** 生ログ (`session.jsonl`) をダウンロードできるか。旧サーバーは載せないため省略可 (省略 = false) */
   hasRawLog: z.boolean().optional(),
   messageCount: z.number(),
@@ -1366,13 +1388,16 @@ export const SessionTitleResponseSchema = z.object({
 export type SessionTitleResponse = z.infer<typeof SessionTitleResponseSchema>;
 
 /**
- * `POST /api/sessions/:id/move` の応答。移動後も会話全文は返さず、一覧の更新に必要な 3 つだけを返す。
+ * `POST /api/sessions/:id/move` の応答。移動後も会話全文は返さず、一覧の更新に必要な最小だけを返す。
  * `spaceId` は移動先で、`title` は一覧と同じ正規化 (未設定は「無題のセッション」) 後の値。
+ * `memo` は HANDOFF.md を書いた引き継ぎか、`cleanupPending` は履歴削除の片付けが残っているか。
  */
 export const SessionMoveResponseSchema = z.object({
   sessionId: z.string(),
   title: z.string(),
   spaceId: z.string(),
+  memo: z.boolean().optional(),
+  cleanupPending: z.boolean().optional(),
 });
 export type SessionMoveResponse = z.infer<typeof SessionMoveResponseSchema>;
 
@@ -1444,10 +1469,15 @@ export const UpdateSessionTitleBodySchema = z.object({ title: z.string() });
 export type UpdateSessionTitleBody = z.infer<typeof UpdateSessionTitleBodySchema>;
 
 /**
- * セッションの引っ越し先のスペース。要求元スペースは query (`sessionSpaceGuard` が照合する) で、
- * 本文は移動先だけを持つ (ガードに移動先を要求元と読ませない)。
+ * セッションの引き継ぎ (引っ越しの拡張)。要求元スペースは query (`sessionSpaceGuard` が照合する) で、
+ * 本文は移動先・引き継ぎ先のエージェント・メモの有無を持つ。`agentId` の省略は現在のエージェントを維持し、
+ * `memo` の省略は false (既存の「引っ越す」の意味を変えない)。
  */
-export const MoveSessionBodySchema = z.object({ spaceId: z.string().min(1) });
+export const MoveSessionBodySchema = z.object({
+  spaceId: z.string().min(1),
+  agentId: z.string().min(1).optional(),
+  memo: z.boolean().optional(),
+});
 export type MoveSessionBody = z.infer<typeof MoveSessionBodySchema>;
 
 /**

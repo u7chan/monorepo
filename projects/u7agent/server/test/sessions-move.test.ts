@@ -3,17 +3,19 @@
 
 import assert from "node:assert/strict";
 import { existsSync } from "node:fs";
-import { lstat, mkdir, mkdtemp, readdir, readFile, rename, rm, writeFile } from "node:fs/promises";
+import { chmod, lstat, mkdir, mkdtemp, readdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import { createBffApp } from "../src/app";
 import { AppDb } from "../src/app-db";
 import { sessionUploadsRel, sessionWorkdirRel, spaceDirRel } from "../src/app-paths";
-import type { SandboxMoveClient, SandboxWorkspaceClient } from "../src/sandbox/client";
+import type { SandboxHandoffClient, SandboxMoveClient, SandboxWorkspaceClient } from "../src/sandbox/client";
 import { SandboxRequestError } from "../src/sandbox/client";
+import { HANDOFF_FILE_NAME } from "../src/handoff-memo";
 import { SessionMoveResponseSchema } from "../src/schema";
 import { createAgentCatalog } from "../src/agents";
+import { SECRET_MASTER_KEY_ENV } from "../src/secret-crypto";
 import { sessionJsonlPath, sessionMetaPath, sessionSendsPath } from "../src/session-store";
 import { SessionStore } from "../src/sessions";
 import { asPiBff, createStubPi, waitFor } from "./stub-pi";
@@ -33,6 +35,12 @@ const jsonPatch = (payload: unknown): RequestInit => ({
 
 const jsonBody = async (response: Response | Promise<Response>): Promise<any> => (await response).json();
 
+/** 引き継ぎメモの上限。サンドボックスのプレビュー上限とは別に持つ */
+const HANDOFF_MAX_BYTES = 2 * 1024 * 1024;
+
+// root は検索権限の無いディレクトリでも読めるため、権限の検証は非 root のときだけ行う
+const IS_ROOT = process.getuid?.() === 0;
+
 async function pathExists(path: string): Promise<boolean> {
   return lstat(path).then(
     () => true,
@@ -41,13 +49,17 @@ async function pathExists(path: string): Promise<boolean> {
 }
 
 /**
- * 実ファイルシステムを workspace root にして、サンドボックスの move の 404 / 409 を再現するスタブ。
- * `failures` へ入れた `from` の移動だけを失敗させ、ロールバックのテストに使う。
+ * 実ファイルシステムを workspace root にして、サンドボックスの move の 404 / 409 と、引き継ぎメモの
+ * 読み書き (上限・冪等化) を再現するスタブ。`failures` / `handoffFailures` へ入れた操作だけを失敗させ、
+ * ロールバックのテストに使う。
  */
 function createFsSandbox(root: string) {
   const abs = (path: string) => (path ? join(root, path) : root);
   const moves: Array<{ from: string; to: string }> = [];
   const failures: Array<{ from: string; error: Error }> = [];
+  const handoffWrites: Array<{ path: string; section: string }> = [];
+  const handoffRollbacks: Array<{ path: string; expected: string; deleted: boolean }> = [];
+  const handoffFailures: Array<{ path: string; error: Error }> = [];
   const workspace: SandboxWorkspaceClient = {
     previewFile: async () => ({ text: "" }),
     statFile: async (path: string) => ({ path }),
@@ -69,8 +81,12 @@ function createFsSandbox(root: string) {
       return { path };
     },
     renameEntry: async (path: string, name: string) => ({ path, name }),
-    deleteFile: async () => {},
-    deleteDirectory: async () => {},
+    deleteFile: async (path: string) => {
+      await rm(abs(path), { force: true });
+    },
+    deleteDirectory: async (path: string) => {
+      await rm(abs(path), { recursive: true, force: true });
+    },
     uploadFile: async ({ name }) => ({ path: `uploads/${name}`, name, renamed: false, size: 0 }),
     rawFile: async () => ({ status: 200, contentType: "image/png", body: null }),
     downloadEntry: async () => ({
@@ -101,7 +117,51 @@ function createFsSandbox(root: string) {
       return { path: to };
     },
   };
-  return { workspace, move, serve: createServeSandboxStub(), moves, failures };
+  const handoff: SandboxHandoffClient = {
+    readHandoff: async (path: string) => {
+      const text = await readFile(abs(path), "utf8").catch((error: NodeJS.ErrnoException) => {
+        if (error.code === "ENOENT") throw new SandboxRequestError(`Path not found: ${path}`, 404);
+        throw error;
+      });
+      if (Buffer.byteLength(text, "utf8") > HANDOFF_MAX_BYTES) {
+        throw new SandboxRequestError("HANDOFF.md は 2 MiB 以下にしてください", 400);
+      }
+      return { text };
+    },
+    writeHandoff: async ({ path, section, dedupeKey }) => {
+      const failure = handoffFailures.find((item) => item.path === path);
+      if (failure) throw failure.error;
+      const target = abs(path);
+      const existing = await readFile(target, "utf8").catch(() => undefined);
+      const firstLine = existing === undefined ? "" : (existing.split("\n", 1)[0] ?? "");
+      if (dedupeKey !== "" && firstLine.includes(dedupeKey)) {
+        return { path, written: false, created: false };
+      }
+      handoffWrites.push({ path, section });
+      await writeFile(target, `${section}${existing ?? ""}`, "utf8");
+      return { path, written: true, created: existing === undefined };
+    },
+    rollbackHandoff: async ({ path, expected }) => {
+      // 実サンドボックスと同じく、「読む → 照合 → 消す」の全体を 1 回の呼び出しで行う
+      const target = abs(path);
+      const current = await readFile(target, "utf8").catch(() => undefined);
+      const deleted = current !== undefined && current === expected;
+      if (deleted) await rm(target, { force: true });
+      handoffRollbacks.push({ path, expected, deleted });
+      return { deleted };
+    },
+  };
+  return {
+    workspace,
+    move,
+    handoff,
+    serve: createServeSandboxStub(),
+    moves,
+    failures,
+    handoffWrites,
+    handoffFailures,
+    handoffRollbacks,
+  };
 }
 
 async function withPaths<T>(run: (paths: { root: string; store: string }) => Promise<T>): Promise<T> {
@@ -124,6 +184,7 @@ async function openBff(
     pi: options.pi === undefined ? asPiBff(createStubPi()) : options.pi === null ? null : asPiBff(options.pi),
     workspace: sandbox?.workspace ?? null,
     moveSandbox: sandbox?.move ?? null,
+    handoffSandbox: sandbox?.handoff ?? null,
     serveSandbox: sandbox?.serve.sandbox ?? null,
     // 停止中の状態を既定にする (このファイルはサービスの稼働を扱わない)
     serveProbe: async () => false,
@@ -145,13 +206,49 @@ async function createSession(bff: Harness, body: Record<string, unknown> = {}): 
   return response.json();
 }
 
-async function moveTo(bff: Harness, id: string, target: string, fromSpace = "default") {
-  const query = fromSpace === "default" ? "" : `?spaceId=${fromSpace}`;
-  return bff.app.request(`/api/sessions/${id}/move${query}`, jsonPost({ spaceId: target }));
+async function moveTo(
+  bff: Harness,
+  id: string,
+  target: string,
+  options: { fromSpace?: string; agentId?: string; memo?: boolean } = {},
+) {
+  const query = !options.fromSpace || options.fromSpace === "default" ? "" : `?spaceId=${options.fromSpace}`;
+  return bff.app.request(
+    `/api/sessions/${id}/move${query}`,
+    jsonPost({
+      spaceId: target,
+      ...(options.agentId === undefined ? {} : { agentId: options.agentId }),
+      ...(options.memo === undefined ? {} : { memo: options.memo }),
+    }),
+  );
 }
 
 async function readMeta(id: string, store: string): Promise<Record<string, unknown>> {
   return JSON.parse(await readFile(sessionMetaPath(id, store), "utf8")) as Record<string, unknown>;
+}
+
+/** 注入の前に、飛んでいる保存を待つ (直後の rename と競合させない) */
+async function settleWrites(bff: Harness, id: string): Promise<void> {
+  const record = bff.store.get(id);
+  if (record) await bff.store.flush(record);
+}
+
+/**
+ * meta.json をディレクトリへ差し替えて保存を失敗させる。非同期な保存 (temp + rename) が直後に作り直す
+ * ことがあるため、差し替えが収束するまで試す (注入と競合して EEXIST で落ちないようにする)。
+ */
+async function replaceMetaWithDirectory(path: string): Promise<void> {
+  for (let attempt = 0; attempt < 50; attempt += 1) {
+    await rm(path, { recursive: true, force: true });
+    try {
+      await mkdir(path);
+      return;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+      await new Promise((resolve) => setTimeout(resolve, 5));
+    }
+  }
+  throw new Error(`meta.json をディレクトリに差し替えられませんでした: ${path}`);
 }
 
 test("moves a session to another space with its workdir and uploads, and drops the history", async () => {
@@ -176,6 +273,8 @@ test("moves a session to another space with its workdir and uploads, and drops t
         sessionId: id,
         title: "引っ越す会話",
         spaceId: space,
+        memo: false,
+        cleanupPending: false,
       });
 
       // 作業フォルダと添付が移動先へ移り、履歴のファイルは消える (開き直すと空の履歴で作り直される)
@@ -203,7 +302,8 @@ test("moves a session to another space with its workdir and uploads, and drops t
       const list = await jsonBody(bff.app.request(`/api/sessions?spaceId=${space}`));
       const summary = list.sessions.find((item: { sessionId: string }) => item.sessionId === id);
       assert.equal(summary.spaceId, space);
-      assert.equal(summary.canMove, true);
+      assert.equal(summary.canHandoff, true);
+      assert.equal(summary.handoffCleanup, undefined);
       assert.equal(summary.messageCount, 0);
       const payload = await jsonBody(bff.app.request(`/api/sessions/${id}?spaceId=${space}`));
       assert.equal(payload.spaceId, space);
@@ -231,11 +331,11 @@ test("moves between additional spaces and back to the default space", async () =
       assert.equal(created.cwd, sessionWorkdirRel(id, spaceA));
       await writeFile(join(paths.root, sessionWorkdirRel(id, spaceA), "work.txt"), "作業中");
 
-      assert.equal((await moveTo(bff, id, spaceB, spaceA)).status, 200);
+      assert.equal((await moveTo(bff, id, spaceB, { fromSpace: spaceA })).status, 200);
       assert.equal(existsSync(join(paths.root, sessionWorkdirRel(id, spaceB), "work.txt")), true);
       assert.equal((await jsonBody(bff.app.request(`/api/sessions/${id}?spaceId=${spaceB}`))).spaceId, spaceB);
 
-      assert.equal((await moveTo(bff, id, "default", spaceB)).status, 200);
+      assert.equal((await moveTo(bff, id, "default", { fromSpace: spaceB })).status, 200);
       assert.equal(existsSync(join(paths.root, sessionWorkdirRel(id, "default"), "work.txt")), true);
       assert.equal(existsSync(join(paths.root, sessionWorkdirRel(id, spaceB))), false);
       const payload = await jsonBody(bff.app.request(`/api/sessions/${id}`));
@@ -259,7 +359,7 @@ test("answers 404 for unknown sessions, other spaces and unknown destination spa
       const unknownSession = await moveTo(bff, "deadbeef00", space);
       assert.equal(unknownSession.status, 404);
       // 他会話 (要求元スペースの不一致) は SDK を開く前に 404
-      const otherSpace = await moveTo(bff, id, space, space);
+      const otherSpace = await moveTo(bff, id, space, { fromSpace: space });
       assert.equal(otherSpace.status, 404);
       // 未知の移動先スペース
       const unknownSpace = await moveTo(bff, id, "space-0000000000000000");
@@ -271,7 +371,7 @@ test("answers 404 for unknown sessions, other spaces and unknown destination spa
   });
 });
 
-test("answers 400 for the same space, project sessions and non-scratch workdirs", async () => {
+test("allows the same space, restricts project sessions to it, and keeps the scratch invariant", async () => {
   await withPaths(async (paths) => {
     const { bff } = await openBff(paths);
     try {
@@ -279,25 +379,29 @@ test("answers 400 for the same space, project sessions and non-scratch workdirs"
       const created = await createSession(bff);
       const id = created.sessionId as string;
 
+      // 同じスペースへの引き継ぎは成立する (作業フォルダはその場に残る)
       const sameSpace = await moveTo(bff, id, "default");
-      assert.equal(sameSpace.status, 400);
-      assert.match((await jsonBody(sameSpace)).error, /同じスペース/);
+      assert.equal(sameSpace.status, 200);
+      assert.equal(existsSync(join(paths.root, sessionWorkdirRel(id, "default"))), true);
 
-      // プロジェクト所属は projectCwd で判定する (projectId の解決値は使わない)
+      // プロジェクト所属は projectCwd で判定する。同じスペースへの引き継ぎは通り、別スペースは 400
       await mkdir(join(paths.root, "proj"), { recursive: true });
       const project = await jsonBody(bff.app.request("/api/projects", jsonPost({ cwd: "proj", name: "P" })));
       const projectSession = await createSession(bff, { projectId: project.project.id });
       const projectSummary = (await jsonBody(bff.app.request("/api/sessions"))).sessions.find(
         (item: { sessionId: string }) => item.sessionId === projectSession.sessionId,
       );
-      assert.equal(projectSummary.canMove, false);
+      assert.equal(projectSummary.canHandoff, true);
+      assert.equal(projectSummary.projectSession, true);
+      assert.equal((await moveTo(bff, projectSession.sessionId, "default")).status, 200);
       assert.equal((await moveTo(bff, projectSession.sessionId, space)).status, 400);
-      // 登録解除しても meta の projectCwd は残るため、移せないまま
+      // 登録解除しても meta の projectCwd は残るため、別スペースは 400 のまま (同じスペースは通る)
       assert.equal((await bff.app.request(`/api/projects/${project.project.id}`, { method: "DELETE" })).status, 200);
       assert.equal((await moveTo(bff, projectSession.sessionId, space)).status, 400);
+      assert.equal((await moveTo(bff, projectSession.sessionId, "default")).status, 200);
 
       // workdir がスクラッチでない record は動かさない (不変条件)
-      bff.store.get(id)!.workdir = ".u7agent/sessions/other";
+      (await bff.store.resolve(id))!.workdir = ".u7agent/sessions/other";
       const nonScratch = await moveTo(bff, id, space);
       assert.equal(nonScratch.status, 400);
       assert.match((await jsonBody(nonScratch)).error, /セッション専用の作業フォルダ/);
@@ -485,6 +589,7 @@ test("answers 503 without a store or a sandbox", async () => {
       pi: asPiBff(createStubPi()),
       workspace: null,
       moveSandbox: null,
+      handoffSandbox: null,
     });
     try {
       const response = await moveTo(noSandbox, id, space);
@@ -689,6 +794,7 @@ test("rejects a live record whose workdir is not the scratch path", async () => 
       storeDir: paths.store,
       workspace: sandbox.workspace,
       moveSandbox: sandbox.move,
+      handoffSandbox: sandbox.handoff,
     });
     try {
       await store.init();
@@ -735,7 +841,7 @@ test("deleteSession keeps a conversation that moved to another space while it wa
         return flush();
       };
 
-      const moving = moveTo(bff, id, spaceB, spaceA);
+      const moving = moveTo(bff, id, spaceB, { fromSpace: spaceA });
       await enteredFlush;
       assert.equal(flushes, 2);
       // 確かに meta は移動済み (最後の中断確認より後)
@@ -797,7 +903,7 @@ test("deleting a space waits for a move into it so the rollback keeps the other 
         await rm(join(paths.root, path), { recursive: true, force: true });
       };
 
-      const moved = moveTo(bff, id, spaceA, spaceB);
+      const moved = moveTo(bff, id, spaceA, { fromSpace: spaceB });
       await enteredUploads;
       const deleting = bff.app.request(`/api/spaces/${spaceA}`, { method: "DELETE" });
       try {
@@ -860,7 +966,7 @@ test("deleting a space collects a conversation that finished moving into it, lea
         await rm(join(paths.root, path), { recursive: true, force: true });
       };
 
-      const moved = moveTo(bff, id, spaceA, spaceB);
+      const moved = moveTo(bff, id, spaceA, { fromSpace: spaceB });
       await enteredWorkdir;
       const deleting = bff.app.request(`/api/spaces/${spaceA}`, { method: "DELETE" });
       try {
@@ -931,11 +1037,11 @@ test("deleting a space waits for an earlier move of the same conversation, not o
         await rm(join(paths.root, path), { recursive: true, force: true });
       };
 
-      const first = moveTo(bff, id, spaceA, spaceB);
+      const first = moveTo(bff, id, spaceA, { fromSpace: spaceB });
       await enteredUploads;
       // 後続 (B → C) が store.move に登録されるのを待ってから削除する (先行の登録を上書きする位置)
       const firstLifecycle = bff.store.lifecycle.get(id);
-      const second = moveTo(bff, id, spaceC, spaceB);
+      const second = moveTo(bff, id, spaceC, { fromSpace: spaceB });
       await waitFor(() => bff.store.lifecycle.get(id) !== firstLifecycle, 3000, "second move registration");
       const deleting = bff.app.request(`/api/spaces/${spaceA}`, { method: "DELETE" });
       try {
@@ -993,7 +1099,7 @@ test("deleting a space during a move out of it keeps the other space intact", as
         return moveEntry(from, to);
       };
 
-      const moved = moveTo(bff, moving.sessionId, spaceB, spaceA);
+      const moved = moveTo(bff, moving.sessionId, spaceB, { fromSpace: spaceA });
       await enteredMove;
       const deleting = bff.app.request(`/api/spaces/${spaceA}`, { method: "DELETE" });
       try {
@@ -1017,6 +1123,573 @@ test("deleting a space during a move out of it keeps the other space intact", as
         (await jsonBody(bff.app.request("/api/spaces"))).spaces.map((space: { id: string }) => space.id),
         ["default", spaceB],
       );
+    } finally {
+      await bff.close();
+    }
+  });
+});
+
+test("hands off within the same space: new agent, memo, identity kept, and the chip is consumed by the first send", async () => {
+  await withPaths(async (paths) => {
+    const { bff } = await openBff(paths);
+    try {
+      const agent = (await jsonBody(await bff.app.request("/api/agents", jsonPost({ name: "調査と実装" })))).agent;
+      const created = await createSession(bff);
+      const id = created.sessionId as string;
+      await bff.app.request(`/api/sessions/${id}/messages`, jsonPost({ text: "最初の依頼" }));
+      await waitFor(() => bff.store.statusOf(bff.store.get(id)!) === "completed", 5000, "run completion");
+      await bff.app.request(`/api/sessions/${id}/title`, jsonPatch({ title: "引き継ぐ会話" }));
+      await bff.app.request(`/api/sessions/${id}/pin`, jsonPatch({ pinned: true }));
+      await bff.app.request(`/api/sessions/${id}/notify`, jsonPatch({ notify: true }));
+      const before = await jsonBody(bff.app.request(`/api/sessions/${id}`));
+      await writeFile(join(paths.root, sessionWorkdirRel(id), "note.md"), "作業ファイル");
+
+      const response = await moveTo(bff, id, "default", { agentId: agent.id, memo: true });
+      assert.equal(response.status, 200);
+      assert.deepEqual(await response.json(), {
+        sessionId: id,
+        title: "引き継ぐ会話",
+        spaceId: "default",
+        memo: true,
+        cleanupPending: false,
+      });
+
+      // 作業フォルダはその場のまま、履歴だけが消える
+      assert.equal(existsSync(join(paths.root, sessionWorkdirRel(id), "note.md")), true);
+      assert.equal(existsSync(sessionJsonlPath(id, paths.store)), false);
+      assert.equal(existsSync(sessionSendsPath(id, paths.store)), false);
+
+      const payload = await jsonBody(bff.app.request(`/api/sessions/${id}`));
+      assert.deepEqual(payload.messages, []);
+      assert.equal(payload.agent.id, agent.id);
+      assert.equal(payload.agent.name, "調査と実装");
+      assert.equal(payload.model, before.model);
+      assert.equal(payload.thinkingLevel, before.thinkingLevel);
+      assert.equal(payload.title, "引き継ぐ会話");
+      assert.equal(payload.pinned, true);
+      assert.equal(payload.notify, true);
+      assert.equal(payload.createdAt, before.createdAt);
+      assert.equal(payload.handoff.memo, true);
+      assert.equal(payload.handoff.consumed, false);
+      assert.equal(payload.handoff.cleanupPending, false);
+      assert.equal(payload.handoff.operationId.length, 8);
+
+      const memo = await readFile(join(paths.root, sessionWorkdirRel(id), HANDOFF_FILE_NAME), "utf8");
+      assert.match(memo, /^# 引き継ぎメモ \(本文ハッシュ: [0-9a-f]{16}\)\n/, "見出しと本文ハッシュが先頭に無い");
+      assert.ok(memo.includes("引き継ぎ: 汎用アシスタント → 調査と実装"), "引き継ぎ元 → 先が出ていない");
+      assert.ok(memo.includes("元の会話タイトル: 引き継ぐ会話"), "元のタイトルが無い");
+      assert.ok(memo.includes("### user\n\n最初の依頼"), "user の発言が無い");
+      assert.ok(memo.includes("### assistant\n\nスタブの返答です"), "assistant の応答が無い");
+      assert.ok(memo.endsWith("この続きをお願いします。\n\n"), "末尾の依頼行が無い");
+
+      // 送信で消費済みが立ち、その場で保存される (未送信の破棄では戻らない)
+      assert.equal((await bff.app.request(`/api/sessions/${id}/messages`, jsonPost({ text: "続き" }))).status, 202);
+      const accepted = await jsonBody(bff.app.request(`/api/sessions/${id}`));
+      assert.equal(accepted.handoff.consumed, true);
+      // 消費の印はその場で保存する (書込みは実行と同じ直列に乗るため、drain してからファイルを見る)
+      await bff.store.flush(bff.store.get(id)!);
+      assert.equal(((await readMeta(id, paths.store)).handoff as { consumed: boolean }).consumed, true);
+
+      await waitFor(() => bff.store.statusOf(bff.store.get(id)!) === "completed", 5000, "post-handoff run");
+      const after = await jsonBody(bff.app.request(`/api/sessions/${id}`));
+      assert.equal(after.agent.id, agent.id, "引き継ぎ後の会話が新しいエージェントで動いていない");
+      assert.deepEqual(
+        after.messages.map((message: { role: string }) => message.role),
+        ["user", "assistant"],
+      );
+      const summary = (await jsonBody(bff.app.request("/api/sessions"))).sessions.find(
+        (item: { sessionId: string }) => item.sessionId === id,
+      );
+      assert.equal(summary.title, "引き継ぐ会話");
+      assert.equal(summary.pinned, true);
+      assert.equal(summary.notify, true);
+      assert.equal(summary.canHandoff, true);
+      assert.equal(summary.handoffCleanup, undefined);
+      assert.equal((await readMeta(id, paths.store)).handoffCleanup, undefined);
+    } finally {
+      await bff.close();
+    }
+  });
+});
+
+test("rejects unknown agents and a memo without material before any side effect", async () => {
+  await withPaths(async (paths) => {
+    const { bff } = await openBff(paths);
+    try {
+      const space = await createSpace(bff, "デモ");
+      const created = await createSession(bff);
+      const id = created.sessionId as string;
+
+      const unknown = await moveTo(bff, id, space, { agentId: "agent-0000000000000000" });
+      assert.equal(unknown.status, 400);
+      assert.match((await jsonBody(unknown)).error, /Agent not found/);
+
+      const noMaterial = await moveTo(bff, id, space, { memo: true });
+      assert.equal(noMaterial.status, 400);
+      assert.match((await jsonBody(noMaterial)).error, /メモにできる会話がまだありません/);
+
+      // どちらも会話の状態とファイルを変えない
+      assert.equal((await readMeta(id, paths.store)).spaceId, "default");
+      assert.equal((await readMeta(id, paths.store)).handoff, undefined);
+      assert.equal(existsSync(join(paths.root, sessionWorkdirRel(id, "default"))), true);
+      assert.equal(existsSync(join(paths.root, sessionWorkdirRel(id, space))), false);
+      assert.equal(existsSync(join(paths.root, sessionWorkdirRel(id, "default"), HANDOFF_FILE_NAME)), false);
+
+      // メモ OFF の 0 件は既存どおり移せる
+      assert.equal((await moveTo(bff, id, space)).status, 200);
+    } finally {
+      await bff.close();
+    }
+  });
+});
+
+test(
+  "rejects an unreadable existing memo before moving anything",
+  { skip: IS_ROOT && "root can read a directory without search permission" },
+  async () => {
+    await withPaths(async (paths) => {
+      const { bff, sandbox } = await openBff(paths);
+      try {
+        const space = await createSpace(bff, "デモ");
+        const created = await createSession(bff);
+        const id = created.sessionId as string;
+        await bff.app.request(`/api/sessions/${id}/messages`, jsonPost({ text: "材料" }));
+        await waitFor(() => bff.store.statusOf(bff.store.get(id)!) === "completed", 5000, "run completion");
+        const workdir = join(paths.root, sessionWorkdirRel(id));
+        await writeFile(join(workdir, HANDOFF_FILE_NAME), "# 既存のメモ\n");
+        // 検索権限を外すと、既存メモの読み取りが EACCES になる
+        await chmod(workdir, 0o600);
+        try {
+          const response = await moveTo(bff, id, space, { memo: true });
+          assert.equal(response.status, 400);
+          assert.match((await jsonBody(response)).error, /読めないためメモを作れません/);
+        } finally {
+          await chmod(workdir, 0o700);
+        }
+        // 下準備で止まる: フォルダを動かさず、meta も変えない (移動は rollback も含めて 0 回)
+        assert.equal(sandbox!.moves.length, 0, "メモを読めないのに移動を始めている");
+        assert.equal((await readMeta(id, paths.store)).spaceId, "default");
+        assert.equal(await readFile(join(workdir, HANDOFF_FILE_NAME), "utf8"), "# 既存のメモ\n");
+        // メモを外せば同じ要求を通せる (利用者の逃げ道)
+        assert.equal((await moveTo(bff, id, space, { memo: false })).status, 200);
+      } finally {
+        await bff.close();
+      }
+    });
+  },
+);
+
+test("rejects a memo from a damaged history but still moves without a memo", async () => {
+  await withPaths(async (paths) => {
+    const first = await openBff(paths);
+    const created = await createSession(first.bff);
+    const id = created.sessionId as string;
+    await first.bff.app.request(`/api/sessions/${id}/messages`, jsonPost({ text: "壊れる前の会話" }));
+    await waitFor(() => first.bff.store.statusOf(first.bff.store.get(id)!) === "completed", 5000, "run completion");
+    await first.bff.close();
+    await writeFile(sessionJsonlPath(id, paths.store), "壊れた行\n");
+
+    const offline = await openBff(paths, { pi: null });
+    const space = await createSpace(offline.bff, "デモ");
+    try {
+      const damaged = await moveTo(offline.bff, id, space, { memo: true });
+      assert.equal(damaged.status, 400);
+      assert.match((await jsonBody(damaged)).error, /メモ/);
+      assert.equal((await readMeta(id, paths.store)).spaceId, "default");
+      // メモ OFF は SDK を開かず、未認証・壊れた JSONL でも移せる (既存の契約)
+      assert.equal((await moveTo(offline.bff, id, space)).status, 200);
+    } finally {
+      await offline.bff.close();
+    }
+  });
+});
+
+test("resolves an explicitly named agent again, even when it is the current one", async () => {
+  await withPaths(async (paths) => {
+    const pi = createStubPi();
+    const { bff } = await openBff(paths, { pi });
+    try {
+      const agent = (await jsonBody(await bff.app.request("/api/agents", jsonPost({ name: "調査と実装" })))).agent;
+      const created = await createSession(bff, { agentId: agent.id });
+      const id = created.sessionId as string;
+      await bff.app.request(`/api/sessions/${id}/messages`, jsonPost({ text: "最初の依頼" }));
+      await waitFor(() => bff.store.statusOf(bff.store.get(id)!) === "completed", 5000, "run completion");
+
+      // 定義を更新してから、同じ id を明示して引き継ぐ。保存済みの古いスナップショットは使わない
+      assert.equal(
+        (await bff.app.request(`/api/agents/${agent.id}`, jsonPatch({ name: "調査と実装 (改)" }))).status,
+        200,
+      );
+      const same = await moveTo(bff, id, "default", { agentId: agent.id });
+      assert.equal(same.status, 200);
+      const payload = await jsonBody(bff.app.request(`/api/sessions/${id}`));
+      assert.equal(payload.agent.name, "調査と実装 (改)", "明示した id が解決し直されていない");
+
+      // 復元で SDK セッションを作るときも新しいスナップショットを使う
+      const restored = pi.createInputs.at(-1) as { promptSnapshot?: { agent: string } } | undefined;
+      assert.match(restored?.promptSnapshot?.agent ?? "", /調査と実装 \(改\)/, "スナップショットが古いまま");
+
+      // 削除済みの id を明示した要求は 400 (省略なら保存済みを維持できる)
+      assert.equal((await bff.app.request(`/api/agents/${agent.id}`, { method: "DELETE" })).status, 200);
+      const missing = await moveTo(bff, id, "default", { agentId: agent.id });
+      assert.equal(missing.status, 400);
+      assert.match((await jsonBody(missing)).error, /Agent not found/);
+    } finally {
+      await bff.close();
+    }
+  });
+});
+
+test("retries a memo at the size limit when the same hash is already at the head", async () => {
+  await withPaths(async (paths) => {
+    const { bff, sandbox } = await openBff(paths);
+    try {
+      const created = await createSession(bff);
+      const id = created.sessionId as string;
+      await bff.app.request(`/api/sessions/${id}/messages`, jsonPost({ text: "材料" }));
+      await waitFor(() => bff.store.statusOf(bff.store.get(id)!) === "completed", 5000, "run completion");
+
+      // 既存のメモへの追記は、meta の書換えが失敗しても残る (rollback の対象は新規作成だけ)
+      const memoPath = join(paths.root, sessionWorkdirRel(id), HANDOFF_FILE_NAME);
+      await writeFile(memoPath, "# 手書き\n");
+      const metaPath = sessionMetaPath(id, paths.store);
+      const metaText = await readFile(metaPath, "utf8");
+      await settleWrites(bff, id);
+      await replaceMetaWithDirectory(metaPath);
+      assert.equal((await moveTo(bff, id, "default", { memo: true })).status, 500);
+      await rm(metaPath, { recursive: true });
+      await writeFile(metaPath, metaText);
+
+      // 全文をちょうど上限まで膨らませる (以前は再試行の事前判定が追記分を足して 400 になっていた)
+      const memo = await readFile(memoPath, "utf8");
+      await writeFile(memoPath, memo + "x".repeat(HANDOFF_MAX_BYTES - Buffer.byteLength(memo, "utf8")));
+      assert.equal((await readFile(memoPath)).byteLength, HANDOFF_MAX_BYTES);
+
+      const writes = sandbox!.handoffWrites.length;
+      assert.equal((await moveTo(bff, id, "default", { memo: true })).status, 200);
+      // 先頭の見出しが同じなので追記せず、上限も唯の読取りとして満たす
+      assert.equal(sandbox!.handoffWrites.length, writes, "同じハッシュの節を追記している");
+      assert.equal((await readFile(memoPath)).byteLength, HANDOFF_MAX_BYTES);
+      assert.equal((await readFile(memoPath, "utf8")).split("# 引き継ぎメモ").length - 1, 1, "節が二重になっている");
+    } finally {
+      await bff.close();
+    }
+  });
+});
+
+test("keeps a memo that another conversation appended to before the rollback", async () => {
+  await withPaths(async (paths) => {
+    const { bff, sandbox } = await openBff(paths);
+    // 共有 cwd (プロジェクト) の別の会話が、メモの新規作成と rollback の間に追記を成功させた状態を作る
+    const handoff = sandbox!.handoff;
+    const write = handoff.writeHandoff;
+    handoff.writeHandoff = async (input) => {
+      const result = await write(input);
+      if (result.created) {
+        const other = "# 引き継ぎメモ (本文ハッシュ: 9999)\n\n別の会話\n\nこの続きをお願いします。\n\n";
+        await writeFile(
+          join(paths.root, input.path),
+          `${other}${await readFile(join(paths.root, input.path), "utf8")}`,
+        );
+      }
+      return result;
+    };
+    try {
+      const created = await createSession(bff);
+      const id = created.sessionId as string;
+      await bff.app.request(`/api/sessions/${id}/messages`, jsonPost({ text: "材料" }));
+      await waitFor(() => bff.store.statusOf(bff.store.get(id)!) === "completed", 5000, "run completion");
+
+      // meta の書換えを失敗させ、新規作成したメモの rollback を走らせる
+      const metaPath = sessionMetaPath(id, paths.store);
+      const metaText = await readFile(metaPath, "utf8");
+      await settleWrites(bff, id);
+      await replaceMetaWithDirectory(metaPath);
+      assert.equal((await moveTo(bff, id, "default", { memo: true })).status, 500);
+      await rm(metaPath, { recursive: true });
+      await writeFile(metaPath, metaText);
+
+      // 内容が変わっているので削除しない (別の会話の追記を巻き戻さない)
+      const memo = await readFile(join(paths.root, sessionWorkdirRel(id), HANDOFF_FILE_NAME), "utf8");
+      assert.ok(memo.includes("別の会話"), "別の会話の追記が消えている");
+      assert.equal(sandbox!.handoffRollbacks.at(-1)?.deleted, false, "内容が変わっているのに削除している");
+    } finally {
+      await bff.close();
+    }
+  });
+});
+
+test("keeps the consumed mark on disk before answering, so a discard cannot revive the chip", async () => {
+  await withPaths(async (paths) => {
+    // 1) 材料のある会話を作る (この BFF は正常に走る)
+    const first = await openBff(paths);
+    const created = await createSession(first.bff);
+    const id = created.sessionId as string;
+    await first.bff.app.request(`/api/sessions/${id}/messages`, jsonPost({ text: "材料" }));
+    await waitFor(() => first.bff.store.statusOf(first.bff.store.get(id)!) === "completed", 5000, "run completion");
+    await first.bff.close();
+
+    // 2) 受理した送信が user entry を積む前に失敗する状態で引き継ぎと送信を行う
+    const failing = await openBff(paths, {
+      pi: createStubPi({ promptFailureBeforeUser: "No API key for stub/model", promptFailuresBeforeUser: 1 }),
+    });
+    try {
+      assert.equal((await moveTo(failing.bff, id, "default", { memo: true })).status, 200);
+      const sent = await failing.bff.app.request(`/api/sessions/${id}/messages`, jsonPost({ text: "続き" }));
+      assert.equal(sent.status, 202);
+      const runId = ((await sent.json()) as { runId: string }).runId;
+      // ディスクの meta は応答の時点で消費済み (flush を待たない)
+      assert.equal(((await readMeta(id, paths.store)).handoff as { consumed: boolean }).consumed, true);
+      await waitFor(() => failing.bff.store.statusOf(failing.bff.store.get(id)!) !== "running", 5000, "run failure");
+      assert.equal(
+        (await failing.bff.app.request(`/api/sessions/${id}/unsent/${runId}`, { method: "DELETE" })).status,
+        200,
+      );
+      assert.equal(((await readMeta(id, paths.store)).handoff as { consumed: boolean }).consumed, true);
+    } finally {
+      await failing.bff.close();
+    }
+
+    // 3) 再起動してもチップは戻らない
+    const second = await openBff(paths);
+    try {
+      const payload = await jsonBody(second.bff.app.request(`/api/sessions/${id}`));
+      assert.equal(payload.handoff.consumed, true, "再起動でチップが戻っている");
+    } finally {
+      await second.bff.close();
+    }
+  });
+});
+
+test("waits for the running consumed-mark save before answering a later send", async () => {
+  await withPaths(async (paths) => {
+    const { bff } = await openBff(paths);
+    try {
+      const created = await createSession(bff);
+      const id = created.sessionId as string;
+      await bff.app.request(`/api/sessions/${id}/messages`, jsonPost({ text: "材料" }));
+      await waitFor(() => bff.store.statusOf(bff.store.get(id)!) === "completed", 5000, "run completion");
+      assert.equal((await moveTo(bff, id, "default", { memo: true })).status, 200);
+      // 引き継ぎは live の記録を捨てるため、開き直してから送信する (送信はこの記録の保存を待つ)
+      assert.equal((await bff.app.request(`/api/sessions/${id}`)).status, 200);
+
+      // 保存キューを止める。印の保存が終わらない間に別タブ相当の送信を入れても、後続は 202 を返せない
+      const record = bff.store.get(id)!;
+      assert.ok(record, "引き継ぎ後の会話が live に残っていない");
+      let release!: () => void;
+      const gate = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      record.persistTail = gate;
+      const first = bff.app.request(`/api/sessions/${id}/messages`, jsonPost({ text: "1 通目" }));
+      let laterAnswered = false;
+      const later = Promise.resolve(bff.app.request(`/api/sessions/${id}/messages`, jsonPost({ text: "2 通目" }))).then(
+        (response) => {
+          laterAnswered = true;
+          return response;
+        },
+      );
+      try {
+        await new Promise((resolve) => setTimeout(resolve, 50));
+        assert.equal(laterAnswered, false, "後続の送信が保存を待たずに 202 を返している");
+      } finally {
+        // 失敗しても close が止まらないように待ちを解く
+        release();
+      }
+      assert.equal((await first).status, 202);
+      assert.equal((await later).status, 202);
+      assert.equal(((await readMeta(id, paths.store)).handoff as { consumed: boolean }).consumed, true);
+    } finally {
+      await bff.close();
+    }
+  });
+});
+
+test("answers 500 instead of 202 when the consumed mark cannot be saved", async () => {
+  await withPaths(async (paths) => {
+    const { bff } = await openBff(paths);
+    try {
+      const created = await createSession(bff);
+      const id = created.sessionId as string;
+      await bff.app.request(`/api/sessions/${id}/messages`, jsonPost({ text: "材料" }));
+      await waitFor(() => bff.store.statusOf(bff.store.get(id)!) === "completed", 5000, "run completion");
+      assert.equal((await moveTo(bff, id, "default", { memo: true })).status, 200);
+
+      // meta の保存を失敗させる。印を保存できないまま受理を返すと、再起動でチップが戻る
+      const metaPath = sessionMetaPath(id, paths.store);
+      const metaText = await readFile(metaPath, "utf8");
+      await settleWrites(bff, id);
+      await replaceMetaWithDirectory(metaPath);
+      try {
+        const response = await bff.app.request(`/api/sessions/${id}/messages`, jsonPost({ text: "続き" }));
+        assert.equal(response.status, 500, "保存できないのに 202 を返している");
+        assert.match((await jsonBody(response)).error, /保存に失敗しました/);
+      } finally {
+        await rm(metaPath, { recursive: true });
+        await writeFile(metaPath, metaText);
+      }
+
+      // 失敗した印は次の受理でやり直す。保存を待ってから 202 を返し、ディスクにも載る
+      const record = bff.store.get(id);
+      assert.ok(record, "送信後の会話が live に残っていない");
+      let release!: () => void;
+      const gate = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      record.persistTail = gate;
+      let retryAnswered = false;
+      const retry = Promise.resolve(
+        bff.app.request(`/api/sessions/${id}/messages`, jsonPost({ text: "もう一度" })),
+      ).then((response) => {
+        retryAnswered = true;
+        return response;
+      });
+      try {
+        await new Promise((resolve) => setTimeout(resolve, 50));
+        assert.equal(retryAnswered, false, "失敗した印をやり直さずに 202 を返している");
+      } finally {
+        release();
+      }
+      assert.equal((await retry).status, 202);
+      assert.equal(((await readMeta(id, paths.store)).handoff as { consumed: boolean }).consumed, true);
+    } finally {
+      await bff.close();
+    }
+  });
+});
+
+test("prepends the memo, keeps the existing HANDOFF.md, and masks secrets", async () => {
+  await withPaths(async (paths) => {
+    const previousKey = process.env[SECRET_MASTER_KEY_ENV];
+    process.env[SECRET_MASTER_KEY_ENV] = `1:${Buffer.alloc(32, 9).toString("base64")}`;
+    const { bff } = await openBff(paths);
+    try {
+      const created = await createSession(bff);
+      const id = created.sessionId as string;
+      const secret = "dummy-handoff-secret-0123456789";
+      assert.equal(
+        (
+          await bff.app.request(
+            "/api/secrets",
+            jsonPost({ sessionId: id, kind: "secret", name: "API_KEY", value: secret }),
+          )
+        ).status,
+        200,
+      );
+      await bff.app.request(`/api/sessions/${id}/messages`, jsonPost({ text: `キーは ${secret} です` }));
+      await waitFor(() => bff.store.statusOf(bff.store.get(id)!) === "completed", 5000, "run completion");
+      // 利用者の手書きのメモを残したまま先頭へ追記する
+      const existing = "# 既存のメモ\n\n消えないでください\n";
+      await writeFile(join(paths.root, sessionWorkdirRel(id), HANDOFF_FILE_NAME), existing);
+
+      assert.equal((await moveTo(bff, id, "default", { memo: true })).status, 200);
+      const memo = await readFile(join(paths.root, sessionWorkdirRel(id), HANDOFF_FILE_NAME), "utf8");
+      assert.match(memo, /^# 引き継ぎメモ/);
+      assert.ok(memo.indexOf("## 直近のやり取り") < memo.indexOf("# 既存のメモ"), "新しい節が先頭に無い");
+      assert.ok(memo.endsWith(existing), "既存の中身が変わっている");
+      assert.equal(memo.includes(secret), false, "秘密の値がメモに残っている");
+      assert.ok(memo.includes("[REDACTED]"), "秘密の値がマスクされていない");
+    } finally {
+      if (previousKey === undefined) delete process.env[SECRET_MASTER_KEY_ENV];
+      else process.env[SECRET_MASTER_KEY_ENV] = previousKey;
+      await bff.close();
+    }
+  });
+});
+
+test("restores the state when the memo write fails, and keeps an appended memo when the meta write fails", async () => {
+  await withPaths(async (paths) => {
+    const { bff, sandbox } = await openBff(paths);
+    try {
+      const space = await createSpace(bff, "デモ");
+      const created = await createSession(bff);
+      const id = created.sessionId as string;
+      await bff.app.request(`/api/sessions/${id}/messages`, jsonPost({ text: "材料" }));
+      await waitFor(() => bff.store.statusOf(bff.store.get(id)!) === "completed", 5000, "run completion");
+
+      // メモの書込み失敗: 作業フォルダを移さず、meta も変えずに 400 で返す
+      sandbox!.handoffFailures.push({
+        path: join(sessionWorkdirRel(id, space), HANDOFF_FILE_NAME),
+        error: new SandboxRequestError("書けません", 400),
+      });
+      const failed = await moveTo(bff, id, space, { memo: true });
+      assert.equal(failed.status, 400);
+      assert.equal((await readMeta(id, paths.store)).spaceId, "default");
+      assert.equal(existsSync(join(paths.root, sessionWorkdirRel(id, "default"))), true);
+      assert.equal(existsSync(join(paths.root, sessionWorkdirRel(id, space))), false);
+      sandbox!.handoffFailures.length = 0;
+
+      // meta の書込み失敗: 新規作成したメモを自分が書いた内容と一致するときだけ削除する
+      const metaPath = sessionMetaPath(id, paths.store);
+      const metaText = await readFile(metaPath, "utf8");
+      await settleWrites(bff, id);
+      await replaceMetaWithDirectory(metaPath);
+      const metaFailed = await moveTo(bff, id, space, { memo: true });
+      assert.equal(metaFailed.status, 500);
+      await rm(metaPath, { recursive: true });
+      await writeFile(metaPath, metaText);
+      assert.equal(existsSync(join(paths.root, sessionWorkdirRel(id, "default"))), true);
+      assert.equal(existsSync(join(paths.root, sessionWorkdirRel(id, space))), false);
+      assert.equal(
+        existsSync(join(paths.root, sessionWorkdirRel(id, "default"), HANDOFF_FILE_NAME)),
+        false,
+        "新規作成したメモが残っている",
+      );
+
+      // 既存の HANDOFF.md への追記は、meta の失敗で戻さない (他の追記を巻き戻さない)
+      const existing = "# 手書き\n";
+      await writeFile(join(paths.root, sessionWorkdirRel(id, "default"), HANDOFF_FILE_NAME), existing);
+      await settleWrites(bff, id);
+      await replaceMetaWithDirectory(metaPath);
+      assert.equal((await moveTo(bff, id, space, { memo: true })).status, 500);
+      await rm(metaPath, { recursive: true });
+      await writeFile(metaPath, metaText);
+      const memo = await readFile(join(paths.root, sessionWorkdirRel(id, "default"), HANDOFF_FILE_NAME), "utf8");
+      assert.ok(memo.startsWith("# 引き継ぎメモ"), "追記が残っていない");
+      assert.ok(memo.endsWith(existing), "既存の中身が失われている");
+    } finally {
+      await bff.close();
+    }
+  });
+});
+
+test("answers success with cleanupPending when the history removal fails, and cleans up on the next open", async () => {
+  await withPaths(async (paths) => {
+    const { bff } = await openBff(paths);
+    try {
+      const created = await createSession(bff);
+      const id = created.sessionId as string;
+      await bff.app.request(`/api/sessions/${id}/messages`, jsonPost({ text: "履歴" }));
+      await waitFor(() => bff.store.statusOf(bff.store.get(id)!) === "completed", 5000, "run completion");
+      // session.jsonl をディレクトリに差し替え、rm (force・非再帰) を失敗させる
+      const jsonl = sessionJsonlPath(id, paths.store);
+      await rm(jsonl);
+      await mkdir(jsonl);
+
+      const response = await moveTo(bff, id, "default", { memo: false });
+      assert.equal(response.status, 200);
+      const result = (await response.json()) as { cleanupPending?: boolean };
+      assert.equal(result.cleanupPending, true);
+      const meta = await readMeta(id, paths.store);
+      assert.equal(meta.handoffCleanup, true);
+
+      // 片付けが残っている間は開けない (一覧には残る)。DELETE は可能
+      assert.equal((await bff.app.request(`/api/sessions/${id}`)).status, 409);
+      assert.equal(
+        (await jsonBody(bff.app.request("/api/sessions"))).sessions.some(
+          (item: { sessionId: string }) => item.sessionId === id,
+        ),
+        true,
+      );
+      // 新しい引き継ぎも先に片付けを求める 409
+      assert.equal((await moveTo(bff, id, "default")).status, 409);
+
+      // 障害を取り除くと、開くときに片付けてから SDK セッションを作る
+      await rm(jsonl, { recursive: true });
+      assert.equal((await bff.app.request(`/api/sessions/${id}`)).status, 200);
+      assert.equal((await readMeta(id, paths.store)).handoffCleanup, undefined);
+      // 古い履歴は残らず、空の履歴で開き直せる
+      assert.deepEqual((await jsonBody(bff.app.request(`/api/sessions/${id}`))).messages, []);
     } finally {
       await bff.close();
     }

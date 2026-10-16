@@ -26,6 +26,7 @@ import type {
   RunOutcome,
   RunRetryState,
   RunStatus,
+  SessionHandoffState,
   SessionPayload,
   SkillLoad,
   ThinkingLevel,
@@ -103,6 +104,11 @@ export type ChatState = {
   /** セッション作成時のエージェントのスナップショット (定義を編集しても既存セッションの表示は変わらない) */
   sessionAgentId?: string;
   sessionAgentName?: string;
+  /**
+   * 直前の引き継ぎの状態 (payload の handoff)。チップ (HANDOFF.md を参照) の表示条件を
+   * 会話の状態から導出するために持ち、クライアントのメモリだけで持たない。
+   */
+  handoff?: SessionHandoffState;
   supportsThinking: boolean;
   availableThinkingLevels: ThinkingLevel[];
   context?: ContextUsage;
@@ -216,7 +222,12 @@ export type ChatAction =
       totalRetryCount?: number;
     }
   | { type: "setRun"; runStatus: RunStatus; queueDepth?: number; activity?: string }
-  | { type: "setActivity"; text: string };
+  | { type: "setActivity"; text: string }
+  /**
+   * 引き継ぎなど、同じ会話 id のまま履歴が入れ替わった世代を開く。旧バブルと履歴のカーソルを捨てる
+   * (`resync` は同じ id を「履歴を保つ会話」と見るため、先に捨てないと前の世代が残る)。
+   */
+  | { type: "resetHistory" };
 
 export const initialChatState: ChatState = {
   bubbles: [],
@@ -646,7 +657,7 @@ function attachTurnEnd(bubbles: Bubble[], runId: string, outcome: RunOutcome, du
 
 export function chatReducer(state: ChatState, action: ChatAction): ChatState {
   switch (action.type) {
-    case "newChat":
+    case "newChat": {
       // 未作成チャットは sessionModel 等の実効値を持たず、表示は composerSettings が担う。
       // nextId だけは引き継ぐ (セッションを跨いで古いイベントの bubble id と衝突させない)。
       // runEndSeq も引き継ぐ (右パネルの合図をセッションを跨いで単調に保つ)。
@@ -656,6 +667,28 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
         runEndSeq: state.runEndSeq,
         // sendSeq も単調に保つ (新規チャットへの切替を「送信」と誤読させない)
         sendSeq: state.sendSeq,
+      };
+    }
+
+    case "resetHistory":
+      // 会話 id は保ち、表示と履歴だけを捨てる (引き継ぎ後の payload が新しい世代を埋める)。
+      // runEndSeq / sendSeq は単調に保ち、bubble id も再利用しない
+      return {
+        ...state,
+        bubbles: [],
+        dividers: [],
+        toolBubbleIds: {},
+        runTools: {},
+        pendingEchoIds: [],
+        clearedRunIds: [],
+        liveToolIds: [],
+        currentAssistantId: null,
+        history: initialChatState.history,
+        activity: "",
+        activityState: undefined,
+        handoff: undefined,
+        compactions: [],
+        context: undefined,
       };
 
     case "resync": {
@@ -729,6 +762,8 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
         sessionThinkingLevel: payload.thinkingLevel,
         sessionAgentId: payload.agent?.id,
         sessionAgentName: payload.agent?.name,
+        // 引き継ぎの状態も payload だけを正とする (旧サーバーは載せない = undefined)
+        handoff: payload.handoff,
         supportsThinking: payload.supportsThinking ?? false,
         availableThinkingLevels: payload.availableThinkingLevels ?? [],
         context: payload.context,

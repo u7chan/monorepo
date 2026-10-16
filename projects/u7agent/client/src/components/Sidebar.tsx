@@ -24,12 +24,12 @@ export type SidebarProps = Omit<
     | "newChat"
     | "selectSession"
     | "renameSession"
-    | "moveSession"
+    | "handoffSession"
     | "deleteSession"
     | "deleteProject"
     | "togglePinned"
   >,
-  "newChat" | "selectSession" | "renameSession" | "moveSession" | "deleteSession" | "deleteProject" | "togglePinned"
+  "newChat" | "selectSession" | "renameSession" | "handoffSession" | "deleteSession" | "deleteProject" | "togglePinned"
 > & {
   /** 会話一覧の見出しに出す現在の会話スペース名 */
   spaceName: string;
@@ -46,7 +46,7 @@ export type SidebarProps = Omit<
   newChat: (agentId?: string, projectId?: string) => void;
   selectSession: (sessionId: string) => void;
   renameSession: (sessionId: string) => void;
-  moveSession: (sessionId: string) => void;
+  handoffSession: (sessionId: string) => void;
   deleteSession: (sessionId: string) => void;
   deleteProject: (projectId: string) => void;
   togglePinned: (sessionId: string) => void;
@@ -84,7 +84,7 @@ export function Sidebar({
     newChat,
     selectSession,
     renameSession,
-    moveSession,
+    handoffSession,
     deleteSession,
     deleteProject,
     togglePinned,
@@ -224,6 +224,7 @@ export function Sidebar({
                               onRenameSession={renameSession}
                               onDeleteSession={deleteSession}
                               onTogglePinnedSession={togglePinned}
+                              onHandoffSession={handoffSession}
                             />
                           ))}
                         </div>
@@ -270,7 +271,7 @@ export function Sidebar({
                         onRename={renameSession}
                         onDelete={deleteSession}
                         onTogglePin={togglePinned}
-                        onMove={moveSession}
+                        onHandoff={handoffSession}
                       />
                     )}
                   </div>

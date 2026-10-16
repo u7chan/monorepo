@@ -50,6 +50,26 @@ export function createRequestTracker() {
 }
 
 /**
+ * 表示中の会話の履歴取得の世代。`begin()` は世代を進めて番号を返し、`holds(token)` はその要求の
+ * 応答を適用してよいかを返す。`invalidate()` は進行中の要求をまとめて失効させる (会話の切替 /
+ * 新規チャット / 引き継ぎ後の開き直し)。失効を待たずに古いページを適用すると、表示が前の世代へ戻る。
+ */
+export function createGenerationTracker() {
+  let generation = 0;
+  return {
+    begin(): number {
+      return ++generation;
+    },
+    holds(token: number): boolean {
+      return token === generation;
+    },
+    invalidate(): void {
+      generation += 1;
+    },
+  };
+}
+
+/**
  * 取得の「進行中」表示を追う。応答の適用可否 (`createRequestGate`) とは別に持ち、破棄された要求の
  * 完了でも必ず解除する (適用の可否で解除を分岐すると、フラグが立ちっぱなしになって再取得を塞ぐ)。
  * 後続の要求がある間だけ維持し、値が変わったときだけ `onChange` を呼ぶ。

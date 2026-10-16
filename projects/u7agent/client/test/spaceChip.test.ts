@@ -23,7 +23,7 @@ function renderSidebar(spaceName: string, conversationOnly: boolean): string {
       newChat: () => {},
       selectSession: () => {},
       renameSession: () => {},
-      moveSession: () => {},
+      handoffSession: () => {},
       deleteSession: () => {},
       deleteProject: () => {},
       togglePinned: () => {},

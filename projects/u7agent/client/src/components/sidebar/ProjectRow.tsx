@@ -17,6 +17,7 @@ export function ProjectRow({
   onRenameSession,
   onDeleteSession,
   onTogglePinnedSession,
+  onHandoffSession,
 }: {
   project: Project;
   sessions: SessionSummary[];
@@ -30,6 +31,8 @@ export function ProjectRow({
   onRenameSession: (sessionId: string) => void;
   onDeleteSession: (sessionId: string) => void;
   onTogglePinnedSession: (sessionId: string) => void;
+  /** プロジェクト所属の会話も引き継げる (同じスペースへの交代だけ) ため、一覧へ渡す */
+  onHandoffSession: (sessionId: string) => void;
 }) {
   // kind から行の props を引く表。actions と同じ種別に狭め、表の無い kind を型で検出する
   const handlers: Record<ProjectRowKind, () => void> = { "new-chat": onNewChat, delete: onDelete };
@@ -73,6 +76,7 @@ export function ProjectRow({
                 onRename={onRenameSession}
                 onDelete={onDeleteSession}
                 onTogglePin={onTogglePinnedSession}
+                onHandoff={onHandoffSession}
               />
             )}
           </div>

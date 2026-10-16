@@ -21,6 +21,7 @@ import { NotificationService } from "./notifications";
 import { ProjectStore } from "./projects";
 import { createSandboxToolClientFromEnv } from "./sandbox/client";
 import type {
+  SandboxHandoffClient,
   SandboxMoveClient,
   SandboxRuntimeDiagnostics,
   SandboxServeClient,
@@ -65,6 +66,11 @@ export type CreateBffAppOptions = {
    * サンドボックスクライアントを再利用する (workspace を差し替えたテストでは null = 移動は 503)。
    */
   moveSandbox?: SandboxMoveClient | null;
+  /**
+   * 引き継ぎのメモ (HANDOFF.md) の読み書きに使うサンドボックス。未指定なら env から生成した
+   * サンドボックスクライアントを再利用する (workspace を差し替えたテストでは null = 引き継ぎは 503)。
+   */
+  handoffSandbox?: SandboxHandoffClient | null;
   /**
    * serve の記録の読み書き・起動・停止・待受の観測に使うサンドボックス。未指定なら env から生成した
    * サンドボックスクライアントを再利用する (workspace を差し替えたテストでは null)。
@@ -274,6 +280,9 @@ export async function createBffContext(opts: CreateBffAppOptions = {}): Promise<
   // 引っ越しの物理移動も workspace と同じ規則で注入する (workspace スタブを広げないための狭い IF)
   const moveSandbox =
     opts.moveSandbox !== undefined ? opts.moveSandbox : sandboxClient !== undefined ? sandboxClient : null;
+  // 引き継ぎメモの読み書きも同じく狭い IF で注入する (同じ env のクライアントを再利用する)
+  const handoffSandbox =
+    opts.handoffSandbox !== undefined ? opts.handoffSandbox : sandboxClient !== undefined ? sandboxClient : null;
   const store = new SessionStore({
     pi,
     catalog,
@@ -283,6 +292,7 @@ export async function createBffContext(opts: CreateBffAppOptions = {}): Promise<
     storeError: sessionStoreError,
     workspace,
     moveSandbox,
+    handoffSandbox,
     cwdKeys: appDb,
     rootCwd: cwd,
     notifications,

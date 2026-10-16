@@ -5,7 +5,7 @@ import { streamSSE } from "hono/streaming";
 import { MAX_ATTACHMENT_BYTES, composePrompt, normalizeAttachmentPaths, toAttachmentPath } from "../attachments";
 import { rawLogFileName } from "../diagnostics";
 import { sessionUploadsRel, workspaceAbs } from "../app-paths";
-import { sandboxFailure, sandboxNotConfigured } from "../http";
+import { httpError, sandboxFailure, sandboxNotConfigured } from "../http";
 import { HISTORY_PAGE_LIMIT_MAX, type HistoryPageResult } from "../history-projection";
 import { isValidEntryName } from "../sandbox/protocol";
 import { SandboxRequestError, type SandboxWorkspaceClient } from "../sandbox/client";
@@ -52,6 +52,15 @@ export function createSessionRoutes({
 }) {
   // 未ロードのセッションはストアから復元する (SDK ロードを含むため非同期)
   const resolveRecord = (c: Context) => store.resolve(c.req.param("id") ?? "");
+
+  /**
+   * 受理応答の前に、引き継ぎの消費済み印の保存を待つ。失敗していれば 202 を返さず、他の保存失敗と
+   * 同じ 500 で理由を返す (印が未保存のまま成功を返すと、再起動でチップが戻る)。
+   */
+  const awaitHandoffSave = async (saving: Promise<string | undefined> | undefined): Promise<void> => {
+    const failure = await saving;
+    if (failure) throw httpError(500, `セッションの保存に失敗しました: ${failure}`);
+  };
 
   /** セッションのスキル解決に渡す入力。ファイルスキルはサンドボックス未設定なら落とす */
   const skillsInputOf = (record: SessionRecord): SessionSkillsInput => ({
@@ -156,11 +165,16 @@ export function createSessionRoutes({
     },
 
     /**
-     * 未所属セッションの引っ越し。履歴は破棄され、作業フォルダ / 添付 / cwd キーの行が移動先へ移る。
-     * 移動先の検証はスペース側の規則 (未知は 404) に任せ、要求元の照合は `sessionSpaceGuard` が済ませている。
+     * 会話の引き継ぎ (引っ越しの拡張)。エージェントとスペースを選び直し、履歴は破棄され、
+     * 作業フォルダ / 添付 / cwd キーの行は移動先へ移る。同一スペースへの引き継ぎも許し、
+     * プロジェクト所属は同一スペースだけを許す。移動先の検証はスペース側の規則 (未知は 404) に任せ、
+     * 要求元の照合は `sessionSpaceGuard` が済ませている。
      */
     move: async (c: Context, body: MoveSessionBody) => {
-      const result = await store.move(c.req.param("id") ?? "", spaces.require(body.spaceId));
+      const result = await store.move(c.req.param("id") ?? "", spaces.require(body.spaceId), {
+        ...(body.agentId === undefined ? {} : { agentId: body.agentId }),
+        memo: body.memo === true,
+      });
       if (!result) return c.json({ error: "Session not found" }, 404);
       return c.json(result);
     },
@@ -245,7 +259,9 @@ export function createSessionRoutes({
       if (body.resendRunId !== undefined) {
         const result = store.resend(record, body.resendRunId);
         if (!result) return c.json({ error: "この送信は再開できません（保存済みか破棄済みです）" }, 409);
-        return c.json({ sessionId: record.id, status: store.statusOf(record), ...result }, 202);
+        const { handoffSaving, ...rest } = result;
+        await awaitHandoffSave(handoffSaving);
+        return c.json({ sessionId: record.id, status: store.statusOf(record), ...rest }, 202);
       }
       const attachments = normalizeAttachmentPaths(body.attachments, sessionUploadsRel(record.id, record.meta.spaceId));
       const text = (body.text ?? "").trim();
@@ -269,7 +285,10 @@ export function createSessionRoutes({
         // 展開後の本文でタイトルを作ると `<skill …>` が並ぶので、ユーザーが打った本文を使う
         { titleSource: text },
       );
-      return c.json({ sessionId: record.id, status: store.statusOf(record), ...result }, 202);
+      // 引き継ぎのチップの消費済み印は、受理応答を返す前に保存の成功を確かめる
+      const { handoffSaving, ...rest } = result;
+      await awaitHandoffSave(handoffSaving);
+      return c.json({ sessionId: record.id, status: store.statusOf(record), ...rest }, 202);
     },
 
     /**

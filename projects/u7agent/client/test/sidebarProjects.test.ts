@@ -166,6 +166,7 @@ function renderProjectRow(open: boolean, sessions: SessionSummary[] = [session])
       onRenameSession: () => {},
       onDeleteSession: () => {},
       onTogglePinnedSession: () => {},
+      onHandoffSession: () => {},
     }),
   );
 }

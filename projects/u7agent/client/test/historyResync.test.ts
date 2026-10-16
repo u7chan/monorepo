@@ -3,6 +3,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { chatReducer, initialChatState } from "../src/hooks/chatReducer";
+import { createGenerationTracker } from "../src/hooks/requestGate";
 import type { TurnEnd } from "../src/lib/turnEnd";
 import type { CompactionInfo, HistoryMessageItem, HistoryPage, SessionPayload, ToolCall, Usage } from "../src/types";
 
@@ -1537,4 +1538,53 @@ test("compaction イベントは取り込み済みの区切りを beforeMessageI
     next.compactions.map((item) => item.id),
     ["c2"],
   );
+});
+
+test("引き継ぎの開き直しは、保留していた旧履歴ページを適用させない", () => {
+  // 引き継ぎ前: 最新ページを取り込み、続けて次の取得 (旧世代) が飛んでいる
+  const withHistory = chatReducer(initialChatState, {
+    type: "resyncHistory",
+    page: historyPage([userMsg("u1", "前の依頼"), msg("m1", "active", "前の応答")], { messageCount: 2 }),
+  });
+  const generation = createGenerationTracker();
+  const stale = generation.begin();
+
+  // 引き継ぎ後の開き直し (discardHistory): 世代を失効させ、表示を捨てる
+  generation.invalidate();
+  let state = chatReducer(withHistory, { type: "resetHistory" });
+
+  // 会話 GET を待っている間に旧世代のページが届いても適用しない
+  if (generation.holds(stale)) {
+    state = chatReducer(state, {
+      type: "resyncHistory",
+      page: historyPage([userMsg("u1", "前の依頼"), msg("m1", "active", "前の応答")], { messageCount: 2 }),
+    });
+  }
+  // 空の payload (messageCount 0) → 最新ページの取得は失敗 (503 相当。何も配らない)
+  state = chatReducer(state, { type: "resync", payload: payload([]) });
+
+  assert.deepEqual(state.bubbles, [], "旧 user / assistant が残っている");
+  assert.equal(state.history.supported, false, "旧ページの履歴状態が残っている");
+  assert.equal(state.history.messageCount, 0);
+});
+
+test("同じ会話 id でも引き継ぎの再読込では旧バブルと履歴を捨てる", () => {
+  // 履歴ページを取り込んだ会話 (live のバブルも持つ)
+  const withHistory = chatReducer(initialChatState, {
+    type: "resyncHistory",
+    page: historyPage([userMsg("u1", "前の依頼"), msg("m1", "active", "前の応答")], { messageCount: 2 }),
+  });
+  const echoed = chatReducer(withHistory, { type: "localUser", text: "次の依頼", at: 2 });
+
+  // 引き継ぎ後: 同じ id のまま、BFF の messages も履歴ページも空になる
+  const reset = chatReducer(echoed, { type: "resetHistory" });
+  assert.deepEqual(reset.bubbles, [], "旧バブルが残っている");
+  assert.equal(reset.history.supported, false, "履歴のカーソルが残っている");
+  const resynced = chatReducer(reset, { type: "resync", payload: payload([]) });
+  assert.deepEqual(resynced.bubbles, [], "同じ id の resync が旧バブルを復活させている");
+  const page = chatReducer(resynced, { type: "resyncHistory", page: historyPage([]) });
+  assert.deepEqual(page.bubbles, [], "空の履歴ページで旧バブルが残っている");
+  assert.equal(page.history.messageCount, 0);
+  // bubble id は再利用しない (古いイベントと衝突させない)
+  assert.equal(page.nextId, reset.nextId);
 });
