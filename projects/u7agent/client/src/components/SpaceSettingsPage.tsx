@@ -11,7 +11,7 @@ import { RowMenu } from "./RowMenu";
 import { SettingsPageLayout, type SettingsPageProps } from "./SettingsPageLayout";
 import { PlusIcon } from "./icons";
 
-/** 設定 → 会話スペース。一覧は件数が増えても高さを抑え、作成フォームを画面内に残す */
+/** 設定 → 会話スペース。作成フォームは一覧の上に置く (エージェント / スキルの追加行と同じ順で、一覧が伸びても作成操作が残る) */
 export function SpaceSettingsPage({
   singleColumn = false,
   onBack,
@@ -61,48 +61,6 @@ export function SpaceSettingsPage({
             <p>追加の会話スペースは会話専用です。</p>
           </CollapsibleNotice>
           <section className="grid gap-2 rounded-lg border border-line bg-soft p-3">
-            <h3 className="flex items-baseline gap-1.5 text-2xs font-semibold tracking-label text-ink-faint uppercase">
-              会話スペース一覧
-              <span className="font-normal">{space.spaces.length}</span>
-            </h3>
-            {/* 上限が無いと件数分だけ伸び、作成フォームが画面外へ押し出される */}
-            {/* pr-2 は overlay scrollbar のサム避け (サイドバーの一覧と同じ理由。docs/ui-layout.md#サイドバー)。
-                行末の ⋯ は行の兄弟なので、行側ではなくこの枠で余白を持たないと ⋯ の右端が残る */}
-            <div className="scrollbar-stable grid max-h-72 min-w-0 scrollbar-thin gap-1 overflow-x-hidden overflow-y-auto pr-2">
-              {space.spaces.map((item) => {
-                const actions = spaceRowActions(item.id === DEFAULT_SPACE_ID);
-                return (
-                  // 行の選択 (主要な操作) と ⋯ は兄弟にする。入れ子にすると ⋯ の押下が選択を兼ねてしまう
-                  <div key={item.id} className="flex min-w-0 items-center gap-1">
-                    <MenuItem
-                      label={item.name}
-                      variant="choice"
-                      selected={item.id === space.selected.id}
-                      current="true"
-                      onClick={() => {
-                        if (item.id === space.selected.id) return;
-                        onSelectSpace?.();
-                        space.select(item.id);
-                      }}
-                    />
-                    {actions.length > 0 ? (
-                      <RowMenu name={item.name} actions={actions} onSelect={() => void requestDelete(item)} />
-                    ) : null}
-                  </div>
-                );
-              })}
-            </div>
-            <p className="text-2xs leading-relaxed text-ink-ghost">
-              作成した会話スペースを選ぶと空の会話一覧から始められます。会話は切り替えても残ります。追加スペースは行の ⋯
-              から削除できます（既定スペースは削除できません）。
-            </p>
-            {deleteError ? (
-              <p role="alert" className="text-sm text-danger">
-                {deleteError}
-              </p>
-            ) : null}
-          </section>
-          <section className="grid gap-2 rounded-lg border border-line bg-soft p-3">
             <h3 className="text-2xs font-semibold tracking-label text-ink-faint uppercase">新しい会話スペース</h3>
             <form
               className="flex flex-wrap items-center gap-2"
@@ -135,6 +93,46 @@ export function SpaceSettingsPage({
             {error ? (
               <p role="alert" className="text-sm text-danger">
                 {error}
+              </p>
+            ) : null}
+          </section>
+          <section className="grid gap-2 rounded-lg border border-line bg-soft p-3">
+            <h3 className="flex items-baseline gap-1.5 text-2xs font-semibold tracking-label text-ink-faint uppercase">
+              会話スペース一覧
+              <span className="font-normal">{space.spaces.length}</span>
+            </h3>
+            {/* 高さの上限は持たない。作成フォームが上にあるため、一覧が伸びても作成操作は画面外へ出ない */}
+            <div className="grid min-w-0 gap-1">
+              {space.spaces.map((item) => {
+                const actions = spaceRowActions(item.id === DEFAULT_SPACE_ID);
+                return (
+                  // 行の選択 (主要な操作) と ⋯ は兄弟にする。入れ子にすると ⋯ の押下が選択を兼ねてしまう
+                  <div key={item.id} className="flex min-w-0 items-center gap-1">
+                    <MenuItem
+                      label={item.name}
+                      variant="choice"
+                      selected={item.id === space.selected.id}
+                      current="true"
+                      onClick={() => {
+                        if (item.id === space.selected.id) return;
+                        onSelectSpace?.();
+                        space.select(item.id);
+                      }}
+                    />
+                    {actions.length > 0 ? (
+                      <RowMenu name={item.name} actions={actions} onSelect={() => void requestDelete(item)} />
+                    ) : null}
+                  </div>
+                );
+              })}
+            </div>
+            <p className="text-2xs leading-relaxed text-ink-ghost">
+              作成した会話スペースを選ぶと空の会話一覧から始められます。会話は切り替えても残ります。追加スペースは行の ⋯
+              から削除できます（既定スペースは削除できません）。
+            </p>
+            {deleteError ? (
+              <p role="alert" className="text-sm text-danger">
+                {deleteError}
               </p>
             ) : null}
           </section>
