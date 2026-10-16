@@ -1,7 +1,6 @@
 /**
- * 診断情報の操作を、サイドバーの会話行と設定 → ランタイムのカードの両方へ配る。
- * facade (`useSessionDiagnostics`) を props で 3 段 (Sidebar → ProjectRow → SessionList → SessionRow)
- * 下ろさずに済ませるため、SpaceContext と同じく文脈で渡す。
+ * 診断情報の操作を、設定 → ランタイムの診断タブのカードへ配る。facade (`useSessionDiagnostics`) は
+ * `useU7Agent` が 1 つだけ作るため、設定画面まで props で下ろさずに済ませる (SpaceContext と同じく文脈で渡す)。
  */
 import { createContext, useContext } from "react";
 import type { SessionDiagnosticsApi } from "./hooks/useSessionDiagnostics";

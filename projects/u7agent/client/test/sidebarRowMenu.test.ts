@@ -8,21 +8,11 @@ import { SessionRow } from "../src/components/sidebar/SessionRow";
 import { rowMenuDescriptionKind } from "../src/lib/rowMenu";
 import {
   projectRowActions,
-  rawLogConfirmRequest,
   sessionDeleteConfirmRequest,
   sessionMoveDialogText,
   sessionRenameRequest,
   sessionRowActions,
 } from "../src/lib/sidebarRowMenu";
-import {
-  DIAGNOSTICS_COPY_DESCRIPTION,
-  DIAGNOSTICS_COPY_SERVER_ONLY,
-  RAW_LOG_DESCRIPTION,
-  RAW_LOG_MISSING,
-} from "../src/lib/diagnostics";
-import { DiagnosticsContext } from "../src/DiagnosticsContext";
-import { ConfirmProvider } from "../src/components/ConfirmProvider";
-import { diagnosticsStub } from "./diagnostics-fixture";
 import type { Project, SessionSummary } from "../src/types";
 
 const project: Project = { id: "p-1", name: "hello", cwd: "work/hello", createdAt: 0 };
@@ -61,20 +51,15 @@ function renderSessionRow(overrides: Partial<SessionSummary> = {}, onMove?: () =
     ...overrides,
   };
   return renderToStaticMarkup(
-    createElement(DiagnosticsContext.Provider, {
-      value: diagnosticsStub,
-      children: createElement(ConfirmProvider, {
-        children: createElement(SessionRow, {
-          item,
-          agents: [],
-          active: false,
-          onSelect: () => {},
-          onRename: () => {},
-          onDelete: () => {},
-          onTogglePin: () => {},
-          ...(onMove ? { onMove } : {}),
-        }),
-      }),
+    createElement(SessionRow, {
+      item,
+      agents: [],
+      active: false,
+      onSelect: () => {},
+      onRename: () => {},
+      onDelete: () => {},
+      onTogglePin: () => {},
+      ...(onMove ? { onMove } : {}),
     }),
   );
 }
@@ -91,22 +76,10 @@ test("出し分け: プロジェクト行とセッション行で必要な操作
     { kind: "new-chat", label: "このプロジェクトに新しい会話" },
     { kind: "delete", label: "プロジェクトを削除", danger: true },
   ]);
+  // 診断 (ダンプ / 生ログ) は行に出さない。入口は 設定 → ランタイム の診断タブだけ
   assert.deepEqual(sessionRowActions(), [
     { kind: "pin", label: "ピン留め" },
     { kind: "rename", label: "名前を変更" },
-    {
-      kind: "diagnostics",
-      label: "診断情報をコピー",
-      description: DIAGNOSTICS_COPY_SERVER_ONLY,
-      descriptionKind: "disclosure",
-    },
-    {
-      kind: "raw-log",
-      label: "生ログをダウンロード",
-      description: RAW_LOG_MISSING,
-      descriptionKind: "disclosure",
-      disabled: true,
-    },
     { kind: "delete", label: "セッションを削除", danger: true },
   ]);
   assert.equal(sessionRowActions({ pinned: true })[0]?.label, "ピン留めを解除");
@@ -115,53 +88,12 @@ test("出し分け: プロジェクト行とセッション行で必要な操作
     { kind: "pin", label: "ピン留め" },
     { kind: "rename", label: "名前を変更" },
     { kind: "move", label: "別の会話スペースへ引っ越す" },
-    {
-      kind: "diagnostics",
-      label: "診断情報をコピー",
-      description: DIAGNOSTICS_COPY_SERVER_ONLY,
-      descriptionKind: "disclosure",
-    },
-    {
-      kind: "raw-log",
-      label: "生ログをダウンロード",
-      description: RAW_LOG_MISSING,
-      descriptionKind: "disclosure",
-      disabled: true,
-    },
-    { kind: "delete", label: "セッションを削除", danger: true },
-  ]);
-  // このタブで開いている会話と生ログがある会話は説明行と押下可否が変わる
-  assert.deepEqual(sessionRowActions({ open: true, hasRawLog: true }), [
-    { kind: "pin", label: "ピン留め" },
-    { kind: "rename", label: "名前を変更" },
-    {
-      kind: "diagnostics",
-      label: "診断情報をコピー",
-      description: DIAGNOSTICS_COPY_DESCRIPTION,
-      descriptionKind: "disclosure",
-    },
-    {
-      kind: "raw-log",
-      label: "生ログをダウンロード",
-      description: RAW_LOG_DESCRIPTION,
-      descriptionKind: "disclosure",
-      disabled: false,
-    },
     { kind: "delete", label: "セッションを削除", danger: true },
   ]);
 });
 
-test("説明の区分: 押す前に知る必要がある説明は singleColumn でも残し、補足は隠す", () => {
-  // 何を含むか / 取れない理由 / マスク前の値は、押した後では戻せないので残す
-  for (const open of [false, true]) {
-    const actions = sessionRowActions({ open, hasRawLog: open });
-    for (const kind of ["diagnostics", "raw-log"] as const) {
-      const action = actions.find((candidate) => candidate.kind === kind);
-      assert.ok(action?.description, `${kind} の説明が無い`);
-      assert.equal(rowMenuDescriptionKind(action!), "disclosure", `${kind} の説明が singleColumn で消える`);
-    }
-  }
-  // 分類の無い項目は開示として扱う (今のセッション行に補足は無いが、追加時に勝手に消えない)
+test("説明の区分: 分類の無い説明は開示として扱う", () => {
+  // 今のセッション行に補足は無いが、追加時に singleColumn で勝手に消えないようにする
   assert.equal(rowMenuDescriptionKind({}), "disclosure");
   assert.equal(rowMenuDescriptionKind({ descriptionKind: "note" }), "note");
 });
@@ -223,20 +155,11 @@ test("セッション行はピン状態を示し、⋯ に切替・改名・削�
   assert.ok(trigger.includes('aria-label="テスト の操作"'), "⋯ の読み上げ名にセッション名が入っていない");
 
   const items = html.split("<button").filter((part) => part.includes('role="menuitem"'));
-  assert.equal(items.length, 5, "項目数が違う");
+  assert.equal(items.length, 3, "項目数が違う");
   const pin = html.indexOf("ピン留め");
   const rename = html.indexOf("名前を変更");
-  const diagnostics = html.indexOf("診断情報をコピー");
-  const raw = html.indexOf("生ログをダウンロード");
   const remove = html.indexOf("セッションを削除");
-  assert.ok(
-    pin >= 0 && pin < rename && rename < diagnostics && diagnostics < raw && raw < remove,
-    "並びが ピン留め → 名前を変更 → 診断情報 → 生ログ → 削除 でない",
-  );
-  // 開いていない行は説明行で「サーバーの記録のみ」を示し、生ログは押せない (理由も出す)
-  assert.ok(html.includes(DIAGNOSTICS_COPY_SERVER_ONLY), "開いていない会話の説明行が無い");
-  assert.ok(html.includes(RAW_LOG_MISSING), "生ログが無い理由が出ていない");
-  assert.match(items[3] ?? "", /disabled/, "生ログの項目が押せない状態になっていない");
+  assert.ok(pin >= 0 && pin < rename && rename < remove, "並びが ピン留め → 名前を変更 → 削除 でない");
 
   const pinned = renderSessionRow({ pinned: true });
   assert.ok(pinned.includes('aria-label="ピン留め中"'), "ピン留めの状態印が無い");
@@ -259,28 +182,6 @@ test("引っ越しの項目は canMove と操作の受け取りが揃った行�
   assert.ok(!renderSessionRow({}, () => {}).includes("別の会話スペースへ引っ越す"));
   assert.ok(!renderSessionRow({ canMove: false }, () => {}).includes("別の会話スペースへ引っ越す"));
   assert.ok(renderSessionRow({ canMove: true }, () => {}).includes("別の会話スペースへ引っ越す"));
-});
-
-test("開いていて生ログがある行は診断の説明行を変え、生ログを押せる", () => {
-  const html = renderSessionRow({ hasRawLog: true }, undefined);
-  // active は renderSessionRow が固定するため、開いている行は SessionRow の props を直接使わず
-  // rowActions 側の検証 (上のテスト) に任せる。ここでは生ログの有無だけで押下可否を見る
-  assert.ok(!html.includes(RAW_LOG_MISSING), "生ログがあるのに無いと説明している");
-  const items = html.split("<button").filter((part) => part.includes('role="menuitem"'));
-  assert.doesNotMatch(items[3] ?? "", /disabled/, "生ログがあるのに押せない");
-});
-
-test("生ログの確認は開示のリスクを伝え、danger にはしない", () => {
-  const request = rawLogConfirmRequest("決済画面の検証");
-  assert.equal(request.kind, "confirm");
-  assert.equal(request.confirmLabel, "ダウンロードする");
-  assert.deepEqual(request.subject, { label: "対象の会話", value: "決済画面の検証" });
-  assert.ok(
-    request.body?.some((line) => line.includes("生のまま")),
-    "生の値を含む注意が本文に無い",
-  );
-  assert.notEqual(request.danger, true, "開示の確認を danger トーンにしている");
-  assert.equal(rawLogConfirmRequest("").subject, undefined);
 });
 
 test("圧縮中のセッションは実行中と区別できるラベルを出す", () => {
