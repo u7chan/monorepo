@@ -1115,7 +1115,7 @@ test("migrates a v10 db additively and keeps the secrets table across reopen", (
     raw.close();
 
     const first = AppDb.open({ storeDir: dir });
-    assert.equal(APP_DB_SCHEMA_VERSION, 20);
+    assert.equal(APP_DB_SCHEMA_VERSION, 21);
     // 加算移行なので既存の行は残り、secrets は行が無い = 未設定で始まる
     assert.deepEqual(first.listProjects(), [project("p1", "proj-a")]);
     assert.deepEqual(first.getServeCommand("proj-a"), { cwd: "proj-a", command: "pnpm dev", updatedAt: 1 });
@@ -1682,6 +1682,7 @@ test("migrates a v16 db additively and keeps NULL and [] of the skill allowlists
         "commonSkillNames",
         "builtinSkillNames",
         "toolNames",
+        "sortOrder",
       ],
     );
     const rows = check.prepare("SELECT id, commonSkillNames, builtinSkillNames FROM agents ORDER BY rowid").all() as {
@@ -1748,7 +1749,7 @@ test("migrates a v18 db additively and keeps NULL and [] of the tool allowlist a
     // 列は既存の列の後ろに足され、書き込みは `[]` を "[]" として残す
     const check = new DatabaseSync(join(dir, APP_DB_FILENAME));
     const columns = check.prepare("PRAGMA table_info(agents)").all() as { name: string }[];
-    assert.deepEqual(columns.map((column) => column.name).slice(-1), ["toolNames"]);
+    assert.deepEqual(columns.map((column) => column.name).slice(-1), ["sortOrder"]);
     const rows = check.prepare("SELECT id, toolNames FROM agents ORDER BY rowid").all() as {
       id: string;
       toolNames: unknown;
@@ -1819,4 +1820,102 @@ test("the speech catalog cache keeps the voice declaration across reopen", () =>
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
+});
+
+/** v20 相当のスキーマ (agents に表示順が無い状態)。v20 の実ファイルと同じ形 */
+const V20_TABLES = `
+${V18_TABLES}
+ALTER TABLE agents ADD COLUMN toolNames TEXT;
+ALTER TABLE notification_settings ADD COLUMN askUser INTEGER NOT NULL DEFAULT 1;
+`;
+
+test("migrates a v20 db additively and keeps the creation order of the existing rows", () => {
+  const dir = tempStoreDir();
+  try {
+    const raw = new DatabaseSync(join(dir, APP_DB_FILENAME));
+    raw.exec(V20_TABLES);
+    raw.exec("PRAGMA user_version = 20");
+    // v20 の agents は sortOrder を持たないので、既存行は NULL のまま移行される
+    for (const id of ["a1", "a2", "a3"]) {
+      raw
+        .prepare("INSERT INTO agents (id, name, description, systemPrompt, skillIds) VALUES (?, ?, ?, ?, ?)")
+        .run(id, id, "", "", "[]");
+    }
+    raw.close();
+
+    const first = AppDb.open({ storeDir: dir });
+    const ids = () => first.listAgents().map((entry) => entry.id);
+    assert.deepEqual(ids(), ["a1", "a2", "a3"], "移行前の行は作成順のまま読める");
+    // NULL は sortOrder より前に並ぶので、移行後の追加は既存行の後ろ (末尾) に付く
+    first.saveAgent(agent("a4"));
+    assert.deepEqual(ids(), ["a1", "a2", "a3", "a4"]);
+    first.reorderAgents(["a4", "a2", "a1", "a3"]);
+    assert.deepEqual(ids(), ["a4", "a2", "a1", "a3"]);
+    first.close();
+
+    const check = new DatabaseSync(join(dir, APP_DB_FILENAME));
+    const columns = check.prepare("PRAGMA table_info(agents)").all() as { name: string }[];
+    assert.deepEqual(columns.map((column) => column.name).slice(-1), ["sortOrder"]);
+    assert.equal(Number(check.prepare("PRAGMA user_version").get()?.user_version), APP_DB_SCHEMA_VERSION);
+    check.close();
+
+    // 再起動しても並びは残る
+    const reopened = AppDb.open({ storeDir: dir });
+    assert.deepEqual(
+      reopened.listAgents().map((entry) => entry.id),
+      ["a4", "a2", "a1", "a3"],
+    );
+    reopened.close();
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("reorderAgents は途中で失敗したら 1 つも書かない", () => {
+  const dir = tempStoreDir();
+  try {
+    const first = AppDb.open({ storeDir: dir });
+    for (const id of ["a1", "a2", "a3"]) first.saveAgent(agent(id));
+    first.close();
+
+    // 2 件目の更新だけを失敗させる (部分適用が残れば a1 だけ 1 になる)
+    const raw = new DatabaseSync(join(dir, APP_DB_FILENAME));
+    raw.exec(
+      "CREATE TRIGGER boom BEFORE UPDATE OF sortOrder ON agents WHEN NEW.id = 'a2' BEGIN SELECT RAISE(ABORT, 'boom'); END",
+    );
+    raw.close();
+
+    const db = AppDb.open({ storeDir: dir });
+    const before = db.listAgents().map((entry) => entry.id);
+    assert.throws(
+      () => db.reorderAgents(["a3", "a2", "a1"]),
+      (error: unknown) => isServiceUnavailable(error),
+      "失敗は 503 へ寄せる",
+    );
+    assert.deepEqual(
+      db.listAgents().map((entry) => entry.id),
+      before,
+      "rollback で部分適用を残さない",
+    );
+    db.close();
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("スキル削除の巻き添え更新でも並びは動かない", () => {
+  const db = AppDb.open({ storeDir: null });
+  db.saveSkill({ id: "s1", name: "s1", description: "", body: "body" });
+  db.saveAgent(agent("a1", ["s1"]));
+  db.saveAgent(agent("a2", ["s1"]));
+  db.saveAgent(agent("a3"));
+  const ids = () => db.listAgents().map((entry) => entry.id);
+  // カタログ経由の並べ替えは全件を渡す (部分適用では、渡さなかった行と値が衝突し得る)
+  db.reorderAgents(["a3", "a1", "a2", "agent-zundamon"]);
+  assert.deepEqual(ids(), ["a3", "a1", "a2", "agent-zundamon"]);
+
+  assert.equal(db.deleteSkillAndDetach("s1"), true);
+  assert.deepEqual(ids(), ["a3", "a1", "a2", "agent-zundamon"]);
+  assert.deepEqual(db.getAgent("a1")?.skillIds, []);
+  db.close();
 });

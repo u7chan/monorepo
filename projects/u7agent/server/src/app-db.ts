@@ -20,7 +20,7 @@ import type {
 
 export const APP_DB_FILENAME = "u7agent.db";
 /** テーブル定義を変えたら上げる。新規作成と加算移行はこの版へ揃え、未知の版は作り直す */
-export const APP_DB_SCHEMA_VERSION = 20;
+export const APP_DB_SCHEMA_VERSION = 21;
 
 /** プロバイダー API キーの保存行。平文なのでアクセス権の管理は docs/secrets.md を正とする */
 export interface ProviderCredentialRow {
@@ -365,7 +365,8 @@ CREATE TABLE agents (
   suggestions TEXT,
   commonSkillNames TEXT,
   builtinSkillNames TEXT,
-  toolNames TEXT
+  toolNames TEXT,
+  sortOrder INTEGER
 );
 ${NOTIFICATION_SETTINGS_TABLE}
 ${ARCHIVE_SETTINGS_TABLE}
@@ -890,6 +891,9 @@ export class AppDb {
       if (this.#tableExists("agents")) this.#addColumnIfMissing("agents", "builtinSkillNames", "TEXT");
       // v18 以前に無い列 (ツールの許可リスト)。既存行は NULL = 未指定 (全部 ON) として読む
       if (this.#tableExists("agents")) this.#addColumnIfMissing("agents", "toolNames", "TEXT");
+      // v20 以前に無い列 (表示順)。既存行は NULL のままで、listAgents の rowid タイブレークが
+      // そのまま作成順になる (移行で既存行を書き換えない)
+      if (this.#tableExists("agents")) this.#addColumnIfMissing("agents", "sortOrder", "INTEGER");
       // v19 以前に無い列 (質問通知)。既存行は既定 (ON) で埋める
       this.#addColumnIfMissing("notification_settings", "askUser", "INTEGER NOT NULL DEFAULT 1");
       // PRAGMA はパラメータ化できない (値はコード側の定数)
@@ -1301,8 +1305,24 @@ export class AppDb {
 
   // --- agents ---
 
+  /** 表示順 (sortOrder 昇順)。移行前の行は NULL なので、同じ NULL 同士は rowid = 作成順で並ぶ */
   listAgents(): AgentDef[] {
-    return this.#query((db) => (db.prepare("SELECT * FROM agents ORDER BY rowid").all() as Row[]).map(agentOf));
+    return this.#query((db) =>
+      (db.prepare("SELECT * FROM agents ORDER BY sortOrder, rowid").all() as Row[]).map(agentOf),
+    );
+  }
+
+  /**
+   * 並べ替え。与えた順に 1..n を振り直す (途中で失敗したら 1 つも書かない)。
+   * 採用する id の絞り込みはカタログ側が行う (docs/api-catalog.md)。
+   */
+  reorderAgents(ids: readonly string[]): void {
+    this.transaction(() => {
+      this.#query((db) => {
+        const update = db.prepare("UPDATE agents SET sortOrder = ? WHERE id = ?");
+        ids.forEach((id, index) => update.run(index + 1, id));
+      });
+    });
   }
 
   getAgent(id: string): AgentDef | undefined {
@@ -1310,12 +1330,16 @@ export class AppDb {
     return row ? agentOf(row) : undefined;
   }
 
+  /**
+   * 作成と更新で同じ (id が主キー)。**sortOrder は挿入のときだけ振る** (更新で `DO UPDATE SET` へ
+   * 入れると、名前やアイコンの保存だけで位置が動く)。
+   */
   saveAgent(agent: AgentDef): void {
     this.#query((db) =>
       db
         .prepare(
-          `INSERT INTO agents (id, name, description, systemPrompt, icon, model, thinkingLevel, skillIds, suggestions, commonSkillNames, builtinSkillNames, toolNames)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          `INSERT INTO agents (id, name, description, systemPrompt, icon, model, thinkingLevel, skillIds, suggestions, commonSkillNames, builtinSkillNames, toolNames, sortOrder)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, (SELECT COALESCE(MAX(sortOrder), 0) + 1 FROM agents))
            ON CONFLICT(id) DO UPDATE SET name = excluded.name, description = excluded.description,
              systemPrompt = excluded.systemPrompt, icon = excluded.icon, model = excluded.model,
              thinkingLevel = excluded.thinkingLevel, skillIds = excluded.skillIds, suggestions = excluded.suggestions,

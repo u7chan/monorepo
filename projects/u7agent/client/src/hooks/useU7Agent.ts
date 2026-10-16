@@ -97,6 +97,8 @@ export function useU7Agent({ pendingSessionId }: UseU7AgentOptions = {}) {
     setAgentId,
     selectedAgent,
     loadCatalog,
+    /** 並べ替えの確定順を共有カタログへ即時反映する入口（設定 → エージェント） */
+    applyAgentOrder,
     refreshHealth,
     applyHealth,
   } = useRuntimeCatalog({ dispatch });
@@ -515,6 +517,7 @@ export function useU7Agent({ pendingSessionId }: UseU7AgentOptions = {}) {
     serve,
     attachments: attachmentsForSession(attachments, sessionId),
     loadCatalog,
+    applyAgentOrder,
     refreshHealth,
     refreshSessions,
     refreshProjects,

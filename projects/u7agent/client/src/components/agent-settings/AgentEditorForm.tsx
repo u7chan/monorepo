@@ -70,6 +70,14 @@ export function agentFormOf(agent: AgentDef | undefined): AgentForm {
 }
 
 /**
+ * フォーム初期値の同一性。**参照ではなく内容**で比べるため、順序だけの更新や、確定後の取り直しが
+ * 同じ内容で別のオブジェクトを返しても下書きを初期化しない（docs/frontend.md の Effect 契約）。
+ */
+export function agentFormKey(agent: AgentDef | undefined): string {
+  return JSON.stringify(agentFormOf(agent));
+}
+
+/**
  * 保存ペイロード。`commonSkillNames` / `builtinSkillNames` / `toolNames` の undefined は `JSON.stringify` で
  * キーごと落ちて現状維持 (作成では未指定 = 全部 ON) になり、null は解除として送られる。これらは混同しない。
  */

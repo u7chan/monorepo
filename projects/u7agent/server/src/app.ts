@@ -39,6 +39,7 @@ import {
   MoveSessionBodySchema,
   PostMessageBodySchema,
   RenameFileBodySchema,
+  ReorderAgentsBodySchema,
   SpeechPreviewBodySchema,
   UpdateAgentBodySchema,
   UpdateArchiveSettingsBodySchema,
@@ -217,6 +218,15 @@ export async function createBffApp(opts: CreateBffAppOptions = {}) {
         result.success ? undefined : c.json({ error: "Invalid request body" }, 400),
       ),
       (c) => catalogRoutes.createAgent(c, c.req.valid("json")),
+    )
+    // 静的セグメントは /api/agents/:id より前に置く (後ろだと Hono が `order` を id として拾う)
+    .patch(
+      "/api/agents/order",
+      appData,
+      jsonBodyValidator(ReorderAgentsBodySchema, (result, c) =>
+        result.success ? undefined : c.json({ error: "Invalid request body" }, 400),
+      ),
+      (c) => catalogRoutes.reorderAgents(c, c.req.valid("json")),
     )
     .patch(
       "/api/agents/:id",

@@ -120,6 +120,10 @@ test("an unusable store dir makes app data 503 without an in-memory fallback", a
       "/api/sessions/unknown/settings",
       { method: "PATCH", headers: { "Content-Type": "application/json" }, body: "{}" },
     ],
+    [
+      "/api/agents/order",
+      { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ids: [] }) },
+    ],
     ["/api/sessions/unknown/messages", jsonPost({ text: "hi" })],
     ["/api/sessions/unknown/events", undefined],
   ];

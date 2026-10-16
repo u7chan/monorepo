@@ -7,12 +7,27 @@
 | GET | `/api/agents` | ビルトイン + エージェント（ユーザー定義）とスキルの一覧（同梱の組み込みスキルを `builtinSkills`、アプリが扱うツールを `tools` で含む） |
 | POST | `/api/agents` | エージェント作成 `{ name, description, systemPrompt, skillIds, commonSkillNames?, builtinSkillNames?, toolNames?, icon?, model?, thinkingLevel?, suggestions? }` |
 | PATCH / PUT | `/api/agents/:id` | エージェント更新（キー省略は保持、`icon` / `model` / `thinkingLevel` / `commonSkillNames` / `builtinSkillNames` / `toolNames` の `null` と `suggestions: []` は指定解除。ビルトインは 400） |
+| PATCH | `/api/agents/order` | 表示順の保存 `{ ids }`（応答は並べ替え後の `{ agents }`。ビルトインは対象外） |
 | DELETE | `/api/agents/:id` | エージェント削除（ビルトインは 400。ユーザー定義は 0 件まで減らせる） |
 | GET | `/api/skills` | スキル一覧 |
 | GET | `/api/skills/files` | ファイルスキル（`.agents/skills`）の読み取り専用一覧 |
 | POST | `/api/skills` | スキル作成 `{ name, description, body }` |
 | PATCH / PUT | `/api/skills/:id` | スキル更新 |
 | DELETE | `/api/skills/:id` | スキル削除（エージェントの割り当てからも外れる） |
+
+## エージェントの表示順
+
+一覧の並びは端末ごとの表示設定（`localStorage`）ではなく、定義のプロパティとしてアプリデータへ保存する。正をサーバーの配列順にすれば、設定一覧・チャットのピッカー・選択の復元が自動で揃い、クライアントに並べ替えの合成ロジックを持ち込まない（[persistence.md](persistence.md#アプリデータsqlite)）。
+
+- GET の `agents` は保存された並び順で返り、UI はそれを表示順に使う。`sortOrder` は app-db の内部に閉じ、`AgentDef` と応答形は変えない。
+- ビルトインは先頭固定とし、並べ替えの対象にしない（`ids` に渡しても捨てる）。DB の行を持たず `POST /api/sessions` の既定も兼ねるため、「先頭 = 既定」を保つ。
+- `ids` の正規化は「存在しない参照は捨てる」と同じ方針: 採用するのは既存のユーザー定義の id だけで、未知の id・重複・ビルトインは捨て、渡されなかった行は元の相対順で末尾に回す。`[]` と全件未知は現行順のまま。応答は正規化後の一覧で、これが以後の GET と一致する。
+- 追加した定義は末尾に付く。更新（PATCH / PUT）では位置を動かさない（名前やアイコンの保存で並びが変わらない）。
+- 保存は全件を 1 トランザクションで書き直し、途中で失敗したら 1 つも書かない。件数の上限は body スキーマが持つ。
+
+```json
+{ "ids": ["agent-example", "agent-zundamon"] }
+```
 
 ## ビルトインの汎用エージェント
 

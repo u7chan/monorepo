@@ -1,10 +1,13 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
+import { reorderAgents } from "../api";
 import { useFileSkills } from "../hooks/useFileSkills";
 import { useWideLayout } from "../hooks/useLayoutMode";
 import { selectableAgents } from "../lib/agentSelection";
+import { createAgentOrderFlow, type AgentOrderNoteKind, type AgentOrderState } from "../lib/agentOrder";
+import { reorderRows } from "../lib/agentReorder";
 import { MEMORY_NOTE } from "../lib/settingsNotes";
 import { SettingsPageLayout, type SettingsPageProps } from "./SettingsPageLayout";
-import { AgentEditorForm, agentFormOf, type AgentForm } from "./agent-settings/AgentEditorForm";
+import { AgentEditorForm, agentFormKey, agentFormOf, type AgentForm } from "./agent-settings/AgentEditorForm";
 import { AgentList } from "./agent-settings/AgentList";
 import { BuiltinAgentPanel } from "./agent-settings/BuiltinAgentPanel";
 import { SettingsDetailSheet } from "./SettingsDetailSheet";
@@ -15,16 +18,28 @@ export type AgentSettingsPageProps = SettingsPageProps & {
   agentId: string;
   /** agentId の正規化も行われる */
   refreshCatalog: () => Promise<CatalogResponse>;
+  /** 並べ替えの確定順を共有カタログへ即時反映する（client/src/lib/catalogStore.ts） */
+  applyAgentOrder: (ids: readonly string[]) => void;
   modelOptions: ModelOption[];
   defaultModel?: string;
   defaultThinkingLevel?: ThinkingLevel;
 };
+
+/** 並べ替えの失敗の文言。保存されたかどうかで伝えることを分ける（client/src/lib/agentOrder.ts） */
+function orderNoteText(kind: AgentOrderNoteKind, message: string): string {
+  if (kind === "rejected") return `並び順を保存できませんでした。${message}`;
+  if (kind === "unknown") {
+    return `並び順を保存できたか確認できません。再読み込みするとサーバーの並びに合わせます。（${message}）`;
+  }
+  return `並び順は保存しましたが、一覧を取り直せませんでした。${message}`;
+}
 
 /** エージェント定義の管理ページ。dialog を被せないので、サイドバーの設定ナビと同時に見える */
 export function AgentSettingsPage({
   catalog,
   agentId,
   refreshCatalog,
+  applyAgentOrder,
   modelOptions,
   defaultModel,
   defaultThinkingLevel,
@@ -42,18 +57,47 @@ export function AgentSettingsPage({
   const fileSkills = useFileSkills();
   const [note, setNote] = useState<{ text: string; error: boolean }>({ text: MEMORY_NOTE, error: false });
   const [sheetOpen, setSheetOpen] = useState(false);
-  const editingAgent = agents.find((agent) => agent.id === editingId);
+  const setNoteText = (text: string, error = false) => setNote({ text, error });
+
+  // 並べ替えの下書きと保存。ドラッグの計算は lib/agentReorder、保存の手順は lib/agentOrder が持ち、
+  // ここは state への反映と文言だけを持つ（編集フォームの下書きをページが持つのと同じ理由）
+  const [order, setOrder] = useState<AgentOrderState>({ draft: null, saving: false });
+  const orderDeps = useRef({ catalogAgents: catalog.agents, applyAgentOrder, refreshCatalog, setNoteText });
+  orderDeps.current = { catalogAgents: catalog.agents, applyAgentOrder, refreshCatalog, setNoteText };
+  const [orderFlow] = useState(() =>
+    createAgentOrderFlow({
+      ids: () => orderDeps.current.catalogAgents.map((agent) => agent.id),
+      save: async (ids) => (await reorderAgents(ids)).agents.map((agent) => agent.id),
+      apply: (ids) => orderDeps.current.applyAgentOrder(ids),
+      refresh: () => orderDeps.current.refreshCatalog(),
+      note: (kind, message) => orderDeps.current.setNoteText(orderNoteText(kind, message), true),
+      onChange: setOrder,
+    }),
+  );
+  // 共有カタログが更新された = サーバーの正が届いた。結果不明のまま残した並びの下書きはここで捨てる
+  // （docs/ui-layout.md の「設定の一覧と編集の境界」）。描画中の同期はフォームの初期化と同じ理由
+  const catalogRef = useRef(catalog);
+  if (catalogRef.current !== catalog) {
+    catalogRef.current = catalog;
+    orderFlow.settle();
+  }
+  // ドラッグ中はカタログではなく下書きの順で並べる。ビルトインは先頭固定で、並べ替えの対象にしない
+  const visibleAgents = order.draft ? reorderRows(agents, order.draft) : agents;
+  const builtinId = catalog.builtinAgent?.id;
+  const reorderIds = visibleAgents.filter((agent) => agent.id !== builtinId).map((agent) => agent.id);
+  const editingAgent = visibleAgents.find((agent) => agent.id === editingId);
   // ビルトインは編集も削除もできないので、フォームの代わりに説明を出す (サーバーも 400 で拒否する)
   const builtinEditing =
     catalog.builtinAgent && catalog.builtinAgent.id === editingAgent?.id ? editingAgent : undefined;
-  const setNoteText = (text: string, error = false) => setNote({ text, error });
 
   // 下書きはページが持つ。理由は docs/ui-layout.md の「設定の一覧と編集の境界」を参照。
-  // 参照が変わった編集対象・カタログを render 中に検出して初期化する (useEffect では古いフォームが 1 フレーム描画される)
+  // 初期化は参照ではなく**編集対象の定義の内容**で判定する: 並び順だけの更新や、確定後の取り直し
+  // （同じ内容でも別のオブジェクトが返る）で、入力中の未保存の下書きを消さない
   const [agentForm, setAgentForm] = useState<AgentForm>(() => agentFormOf(editingAgent));
-  const [formSource, setFormSource] = useState(() => ({ editingId, catalog }));
-  if (formSource.editingId !== editingId || formSource.catalog !== catalog) {
-    setFormSource({ editingId, catalog });
+  const [formSource, setFormSource] = useState(() => ({ editingId, key: agentFormKey(editingAgent) }));
+  const nextFormKey = agentFormKey(editingAgent);
+  if (formSource.editingId !== editingId || formSource.key !== nextFormKey) {
+    setFormSource({ editingId, key: nextFormKey });
     setAgentForm(agentFormOf(editingAgent));
   }
 
@@ -68,7 +112,19 @@ export function AgentSettingsPage({
     selectAgent(null);
   };
 
-  const list = <AgentList agents={agents} editingId={editingId} onSelect={selectAgent} onStartNew={startNewAgent} />;
+  const list = (
+    <AgentList
+      agents={visibleAgents}
+      reorderIds={reorderIds}
+      editingId={editingId}
+      onSelect={selectAgent}
+      onStartNew={startNewAgent}
+      onReorder={(ids) => orderFlow.preview(ids)}
+      onCommitOrder={() => void orderFlow.commit()}
+      onCancelOrder={() => orderFlow.cancel()}
+      reorderDisabled={order.saving}
+    />
+  );
 
   const editor = builtinEditing ? (
     <BuiltinAgentPanel

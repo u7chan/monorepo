@@ -25,8 +25,9 @@ const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
  * 増やすときは必ずこの数字も変える (= diff に出るので review で見える)。
  */
 const DOC_LINE_BUDGET = {
-  // 900px の境界とツール欄の注記で増えた分 (スキル欄とツール欄の規則が揃うまで)
-  "docs/ui-layout.md": 212,
+  // 900px の境界とツール欄の注記で増えた分 (スキル欄とツール欄の規則が揃うまで)。
+  // エージェントの並べ替えの契約 (グリップ・終了経路・自動スクロールの対象) で +4
+  "docs/ui-layout.md": 216,
   "docs/frontend.md": 129,
 };
 

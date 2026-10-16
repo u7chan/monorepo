@@ -275,6 +275,13 @@ export const deleteAgent = async (id: string): Promise<unknown> => {
   return res.json();
 };
 
+/** 並べ替え。応答の agents がサーバーの採用した順（定義は変えない） */
+export const reorderAgents = async (ids: readonly string[]): Promise<{ agents: AgentDef[] }> => {
+  const res = await client.api.agents.order.$patch({ json: { ids: [...ids] } });
+  if (!res.ok) throw await apiError(res);
+  return res.json();
+};
+
 export const createSkill = async (input: CreateSkillBody): Promise<{ skill: SkillDef }> => {
   const res = await client.api.skills.$post({ json: input });
   if (!res.ok) throw await apiError(res);
