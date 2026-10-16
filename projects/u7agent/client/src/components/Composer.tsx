@@ -161,6 +161,8 @@ export function Composer({
   const [dropKind, setDropKind] = useState<ComposerDropKind | null>(null);
   const [expanded, setExpanded] = useState(false);
   const dialogRef = useRef<HTMLDialogElement | null>(null);
+  // 送信で畳んだか (close() の後に、送信後の焦点の規則で焦点を決め直す根拠)
+  const collapsedBySendRef = useRef(false);
   // 退場アニメの間だけ dialog を開いたままにする (閉じる前に拡大の位置から消えないようにする)
   const expandPhase = useExitPhase(expanded, dialogRef);
   // 見た目の面を拡大側へ切り替える条件。退場アニメの間も拡大の寸法を保つ
@@ -205,18 +207,46 @@ export function Composer({
     const dialog = dialogRef.current;
     if (dialog === null) return;
     if (expanded && !dialog.open) {
+      // showModal() は「autofocus が付いた最初の要素、無ければ先頭の操作要素」へ焦点を移す。先頭の操作要素
+      // (Model / Effort) を一瞬掴むと、本文の IME の変換中が blur で切れる。開く間だけ本文へ autofocus を
+      // 付け、焦点移動の理由ごと無くす (拡大の目的は書き続けることなので、焦点は本文に残す)
+      const textarea = inputRef.current;
+      textarea?.setAttribute("autofocus", "");
       dialog.showModal();
-      // 拡大の目的は書き続けることなので、焦点は本文へ移す (dialog の既定は先頭の操作要素)
-      inputRef.current?.focus();
+      textarea?.removeAttribute("autofocus");
+      textarea?.focus();
     } else if (!expanded && expandPhase === "closed" && dialog.open) {
       dialog.close();
+      // close() は「開く前に焦点があった要素」(拡大のボタン) へ**同期で**戻す。送信で畳むときは、送信後の
+      // 焦点の規則 (fine は本文 / coarse は外す。docs/ui-layout.md) をその後に適用し直す
+      if (collapsedBySendRef.current) {
+        collapsedBySendRef.current = false;
+        if (composerFocusAfterSend(hasCoarsePointer()) === "focus") inputRef.current?.focus();
+      }
     }
   }, [expanded, expandPhase]);
 
-  // 送信したら畳む (拡大のまま残すと、応答が見えない位置で書き続けることになる)
+  // 送信したら畳む (拡大のまま残すと、応答が見えない位置で書き続けることになる)。畳んだ後に焦点を決め直す印は
+  // この時点の `expanded` で立てる (`sending` を後から読むと、run が先に終わっていて落ちる)
   useEffect(() => {
-    if (sending) setExpanded(false);
+    if (!sending) return;
+    if (expanded) collapsedBySendRef.current = true;
+    setExpanded(false);
   }, [sending]);
+
+  // 退場アニメの間の Escape は自分で消費する。2 回目の Escape の `cancel` は `cancelable: false` (CloseWatcher の
+  // 仕様) で preventDefault では止められず、UA が即座に閉じると全画面の寸法のまま通常フローへ戻ってしまう。
+  // keydown の既定動作ごと止めるのはこの経路のため。設定ページへ移るとき (visible が false) はそのまま通す
+  useEffect(() => {
+    if (expandPhase !== "closing" || !visible) return;
+    const onKeyDown = (event: WindowEventMap["keydown"]) => {
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      event.stopPropagation();
+    };
+    window.addEventListener("keydown", onKeyDown, true);
+    return () => window.removeEventListener("keydown", onKeyDown, true);
+  }, [expandPhase, visible]);
 
   // チャット以外へ移る / レイアウトが切り替わるときは畳む。dialog は top layer へ移るため、開いたままだと
   // 隠れた (inert な) 面の中で modal だけが残る
@@ -361,9 +391,13 @@ export function Composer({
     submit();
   };
 
-  // Escape は dialog の標準の閉じ方 (cancel) で受けるが、退場アニメの間は開いたままにする
+  // Escape は dialog の標準の閉じ方 (cancel) で受ける
   const handleCancel = (event: SyntheticEvent<HTMLDialogElement>) => {
-    if (!expanded) return;
+    // 添付画像の拡大 (portal の dialog) の cancel も React のツリーを伝わって届く。自分の dialog の分だけを受け、
+    // 開いてもいない面を閉じない (event をそのまま通せば、画像側が標準どおり閉じる)
+    if (event.target !== event.currentTarget) return;
+    // 退場アニメの間 (expanded が false) も既定動作を止める。止めると、全画面の寸法のまま通常フローへ戻る
+    // 1 フレームが出る (実際の close() は phase が closed になった経路だけ)
     event.preventDefault();
     setExpanded(false);
   };
