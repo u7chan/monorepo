@@ -201,6 +201,8 @@ export function SelectMenu<TValue extends string = string>({
   return (
     // トリガーとポップアップを 1 つのフォーカス範囲として扱う (display: contents は欄の flex 配置を変えない)
     <span className="contents" onBlur={onFocusOut}>
+      {/* 長い見出し (会話タイトルなど) で祖先を広げない。min-w-0 が無いと、幅を内容から決める grid / flex の中では
+          見出しの 1 行がトリガーの最小幅になり、truncate が効かないまま親ごと横へはみ出す */}
       <button
         type="button"
         ref={triggerRef}
@@ -214,7 +216,7 @@ export function SelectMenu<TValue extends string = string>({
         disabled={disabled}
         onClick={toggle}
         onKeyDown={onTriggerKeyDown}
-        className="field flex cursor-pointer items-center gap-2 py-1.5 text-left disabled:cursor-not-allowed disabled:opacity-55"
+        className="field flex min-w-0 cursor-pointer items-center gap-2 py-1.5 text-left disabled:cursor-not-allowed disabled:opacity-55"
       >
         {selected?.leading ? <span className="shrink-0">{selected.leading}</span> : null}
         <span className="min-w-0 flex-1 truncate text-xs text-ink">{selected?.label ?? ""}</span>
