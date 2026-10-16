@@ -9,6 +9,7 @@ import { QuestionCard } from "./notifications/QuestionCard";
 import { TestSendCard } from "./notifications/TestSendCard";
 import { ReloadButton } from "./ReloadButton";
 import { SettingsPageLayout, type SettingsPageProps } from "./SettingsPageLayout";
+import { TabToolbar } from "./TabToolbar";
 
 export type NotificationSettingsPageProps = SettingsPageProps & {
   notifications: Notifications;
@@ -37,20 +38,24 @@ export function NotificationSettingsPage({
           {dirty ? <div className="pt-0.5 text-2xs text-ink-muted">{UNSAVED_RELOAD_NOTE}</div> : null}
         </>
       }
-      actions={
-        <>
-          <ReloadButton onClick={() => void reload()} disabled={dirty || reloading}>
-            再読み込み
-          </ReloadButton>
-          <span aria-hidden="true" className="h-4 w-px bg-line" />
-          <button type="button" className="btn-quiet" disabled={!dirty || saving} onClick={discard}>
-            破棄
-          </button>
-          <button type="button" className="btn-primary" disabled={!dirty || saving} onClick={() => void save()}>
-            <CheckIcon />
-            保存
-          </button>
-        </>
+      toolbar={
+        <TabToolbar
+          actions={
+            <>
+              <ReloadButton onClick={() => void reload()} disabled={dirty || reloading}>
+                再読み込み
+              </ReloadButton>
+              <span aria-hidden="true" className="h-4 w-px bg-line" />
+              <button type="button" className="btn-quiet" disabled={!dirty || saving} onClick={discard}>
+                破棄
+              </button>
+              <button type="button" className="btn-primary" disabled={!dirty || saving} onClick={() => void save()}>
+                <CheckIcon />
+                保存
+              </button>
+            </>
+          }
+        />
       }
       note={note}
       singleColumn={singleColumn}

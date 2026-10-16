@@ -12,7 +12,6 @@ export type SettingsPageLayoutProps = SettingsPageProps & {
   eyebrow: string;
   title: string;
   caption?: ReactNode;
-  actions?: ReactNode;
   /** 本文の上に置くタブ行 (role="tablist")。無いページでは行ごと出さない */
   tabs?: ReactNode;
   /** タブ行と本文の間に置く面ツールバー (TabToolbar)。操作を持たない面では行ごと出さない */
@@ -30,7 +29,6 @@ export function SettingsPageLayout({
   eyebrow,
   title,
   caption,
-  actions,
   tabs,
   toolbar,
   note,
@@ -77,17 +75,13 @@ export function SettingsPageLayout({
             {caption ? <div className="min-w-0">{caption}</div> : null}
           </div>
         </div>
-        {/* 操作も戻り導線も無いページ (desktop の「外観」) では行ごと出さない (空の div を残さない) */}
-        {actions || singleColumn ? (
-          <div className="ml-auto flex flex-wrap items-center gap-2">
-            {actions}
-            {/* desktop はサイドバーに同じ「アプリに戻る」が並ぶので出さない。singleColumn はサイドバーが drawer の中なので、1 タップで戻れる導線をここに残す */}
-            {singleColumn ? (
-              <button type="button" onClick={onBack} className="btn-quiet">
-                <ArrowLeftIcon />
-                アプリに戻る
-              </button>
-            ) : null}
+        {/* desktop はサイドバーに同じ「アプリに戻る」が並ぶので出さない。singleColumn はサイドバーが drawer の中なので、1 タップで戻れる導線をここに残す */}
+        {singleColumn ? (
+          <div className="ml-auto flex items-center">
+            <button type="button" onClick={onBack} className="btn-quiet">
+              <ArrowLeftIcon />
+              アプリに戻る
+            </button>
           </div>
         ) : null}
       </header>
