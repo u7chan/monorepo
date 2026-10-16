@@ -307,6 +307,14 @@ export class SessionStore {
   pinUpdates: Map<string, Promise<void>>;
   /** 削除予約中の id */
   deleting: Set<string>;
+  /**
+   * 引き継ぎの消費済み印の保存 (記録ごと)。進行中の保存を後続の受理も待ち、成功した印は待たせず、
+   * 失敗した印は次の受理でやり直す (未保存のまま 202 を返さない)。
+   */
+  private handoffSaves: WeakMap<
+    SessionRecord,
+    { operationId: string; saving: Promise<string | undefined>; failed: boolean }
+  >;
   /** in-flight の引っ越し (操作単位)。対象スペースの削除が根を消す前に待つ相手を引く */
   private pendingMoves: Set<PendingMove>;
   /** close 中は新規の利用を受け付けない */
@@ -376,6 +384,7 @@ export class SessionStore {
     this.metaUpdates = new Map();
     this.pinUpdates = new Map();
     this.deleting = new Set();
+    this.handoffSaves = new WeakMap();
     this.pendingMoves = new Set();
     this.closing = false;
     this.sweeping = false;
@@ -1094,18 +1103,36 @@ export class SessionStore {
   /**
    * 引き継ぎ後に最初に受理した送信で「消費済み」を立てる。未送信の破棄では戻さず、その場で meta へ
    * 保存する (BFF の再起動後も同じ判定になる)。購読者へは resync を配り、チップをその場で消す。
-   * 保存の完了を待てるよう Promise を返す (受け取った側は受理応答より前に待つ)。
+   *
+   * 保存は「立てたがまだ載っていない」間を記録ごとに共有する。進行中の保存を後続の受理 (別タブ /
+   * 再送) も待ち、失敗したら記録を外して次の受理でやり直す (未保存のまま 202 を返さない)。
    */
-  private consumeHandoff(record: SessionRecord): { handoffConsumed?: Promise<string | undefined> } {
+  private consumeHandoff(record: SessionRecord): { handoffSaving?: Promise<string | undefined> } {
     const handoff = record.meta.handoff;
-    if (!handoff || handoff.consumed) return {};
-    record.meta = { ...record.meta, handoff: { ...handoff, consumed: true } };
-    this.descriptors.set(record.id, record.meta);
-    // 保存の完了を待てるように Promise を返す (呼び出し側は受理応答より前に待つ)。失敗しても
-    // 状態はメモリ上で消費済みのままにする (以降の保存でやり直す)
-    const saving = this.persist(record, { jsonl: false });
-    this.emitResync(record);
-    return { handoffConsumed: saving };
+    if (!handoff) return {};
+    const last = this.handoffSaves.get(record);
+    // 同じ印の保存が進行中、または成功済み。後続も同じ Promise を待つ (失敗した印はやり直す)
+    if (last?.operationId === handoff.operationId && !last.failed) return { handoffSaving: last.saving };
+    // ディスクに載っている印 (読み込み直した記録 / 別の引き継ぎの記録) は書き直さない
+    if (handoff.consumed && last?.operationId !== handoff.operationId) return {};
+    return { handoffSaving: this.saveHandoffConsumed(record, handoff.operationId) };
+  }
+
+  /** 消費済み印の保存 1 回分。失敗は記録に印を付け、次の受理にやり直させる */
+  private saveHandoffConsumed(record: SessionRecord, operationId: string): Promise<string | undefined> {
+    const handoff = record.meta.handoff;
+    if (handoff && !handoff.consumed) {
+      record.meta = { ...record.meta, handoff: { ...handoff, consumed: true } };
+      this.descriptors.set(record.id, record.meta);
+      this.emitResync(record);
+    }
+    const entry = { operationId, failed: false, saving: Promise.resolve<string | undefined>(undefined) };
+    entry.saving = this.persist(record, { jsonl: false }).then((failure) => {
+      entry.failed = failure !== undefined;
+      return failure;
+    });
+    this.handoffSaves.set(record, entry);
+    return entry.saving;
   }
 
   /** その run id がまだ実行中 / キュー待ちか。終了した run は未送信の再送 / 破棄を妨げない */

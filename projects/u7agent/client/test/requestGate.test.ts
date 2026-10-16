@@ -1,6 +1,11 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { createLoadingTracker, createRequestGate, createRequestTracker } from "../src/hooks/requestGate";
+import {
+  createGenerationTracker,
+  createLoadingTracker,
+  createRequestGate,
+  createRequestTracker,
+} from "../src/hooks/requestGate";
 
 test("later requests prevent older responses from overwriting the list", async () => {
   const begin = createRequestGate();
@@ -84,4 +89,19 @@ test("createLoadingTracker は同じ状態を重複して通知しない", () =>
   finishA();
   finishB();
   assert.deepEqual(states, [true, false], "2 件目の開始と 1 件目の完了では再通知しない");
+});
+
+test("createGenerationTracker は失効させた世代の応答を捨て、次の begin だけを通す", () => {
+  const tracker = createGenerationTracker();
+  const stale = tracker.begin();
+  assert.equal(tracker.holds(stale), true);
+  // 会話の切替 / 新規チャット / 引き継ぎ後の開き直しは、進行中の要求をまとめて失効させる
+  tracker.invalidate();
+  assert.equal(tracker.holds(stale), false, "失効した世代の応答を通している");
+  const latest = tracker.begin();
+  assert.equal(tracker.holds(stale), false);
+  assert.equal(tracker.holds(latest), true);
+  // 失効だけでは新しい要求を始めない (取得を待っている間に届いた応答を捨てるため)
+  tracker.invalidate();
+  assert.equal(tracker.holds(latest), false);
 });

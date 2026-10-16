@@ -3,7 +3,7 @@
 
 import assert from "node:assert/strict";
 import { existsSync } from "node:fs";
-import { lstat, mkdir, mkdtemp, readdir, readFile, rename, rm, writeFile } from "node:fs/promises";
+import { chmod, lstat, mkdir, mkdtemp, readdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -37,6 +37,9 @@ const jsonBody = async (response: Response | Promise<Response>): Promise<any> =>
 
 /** 引き継ぎメモの上限。サンドボックスのプレビュー上限とは別に持つ */
 const HANDOFF_MAX_BYTES = 2 * 1024 * 1024;
+
+// root は検索権限の無いディレクトリでも読めるため、権限の検証は非 root のときだけ行う
+const IS_ROOT = process.getuid?.() === 0;
 
 async function pathExists(path: string): Promise<boolean> {
   return lstat(path).then(
@@ -222,6 +225,30 @@ async function moveTo(
 
 async function readMeta(id: string, store: string): Promise<Record<string, unknown>> {
   return JSON.parse(await readFile(sessionMetaPath(id, store), "utf8")) as Record<string, unknown>;
+}
+
+/** 注入の前に、飛んでいる保存を待つ (直後の rename と競合させない) */
+async function settleWrites(bff: Harness, id: string): Promise<void> {
+  const record = bff.store.get(id);
+  if (record) await bff.store.flush(record);
+}
+
+/**
+ * meta.json をディレクトリへ差し替えて保存を失敗させる。非同期な保存 (temp + rename) が直後に作り直す
+ * ことがあるため、差し替えが収束するまで試す (注入と競合して EEXIST で落ちないようにする)。
+ */
+async function replaceMetaWithDirectory(path: string): Promise<void> {
+  for (let attempt = 0; attempt < 50; attempt += 1) {
+    await rm(path, { recursive: true, force: true });
+    try {
+      await mkdir(path);
+      return;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+      await new Promise((resolve) => setTimeout(resolve, 5));
+    }
+  }
+  throw new Error(`meta.json をディレクトリに差し替えられませんでした: ${path}`);
 }
 
 test("moves a session to another space with its workdir and uploads, and drops the history", async () => {
@@ -1216,6 +1243,42 @@ test("rejects unknown agents and a memo without material before any side effect"
   });
 });
 
+test(
+  "rejects an unreadable existing memo before moving anything",
+  { skip: IS_ROOT && "root can read a directory without search permission" },
+  async () => {
+    await withPaths(async (paths) => {
+      const { bff, sandbox } = await openBff(paths);
+      try {
+        const space = await createSpace(bff, "デモ");
+        const created = await createSession(bff);
+        const id = created.sessionId as string;
+        await bff.app.request(`/api/sessions/${id}/messages`, jsonPost({ text: "材料" }));
+        await waitFor(() => bff.store.statusOf(bff.store.get(id)!) === "completed", 5000, "run completion");
+        const workdir = join(paths.root, sessionWorkdirRel(id));
+        await writeFile(join(workdir, HANDOFF_FILE_NAME), "# 既存のメモ\n");
+        // 検索権限を外すと、既存メモの読み取りが EACCES になる
+        await chmod(workdir, 0o600);
+        try {
+          const response = await moveTo(bff, id, space, { memo: true });
+          assert.equal(response.status, 400);
+          assert.match((await jsonBody(response)).error, /読めないためメモを作れません/);
+        } finally {
+          await chmod(workdir, 0o700);
+        }
+        // 下準備で止まる: フォルダを動かさず、meta も変えない (移動は rollback も含めて 0 回)
+        assert.equal(sandbox!.moves.length, 0, "メモを読めないのに移動を始めている");
+        assert.equal((await readMeta(id, paths.store)).spaceId, "default");
+        assert.equal(await readFile(join(workdir, HANDOFF_FILE_NAME), "utf8"), "# 既存のメモ\n");
+        // メモを外せば同じ要求を通せる (利用者の逃げ道)
+        assert.equal((await moveTo(bff, id, space, { memo: false })).status, 200);
+      } finally {
+        await bff.close();
+      }
+    });
+  },
+);
+
 test("rejects a memo from a damaged history but still moves without a memo", async () => {
   await withPaths(async (paths) => {
     const first = await openBff(paths);
@@ -1291,8 +1354,8 @@ test("retries a memo at the size limit when the same hash is already at the head
       await writeFile(memoPath, "# 手書き\n");
       const metaPath = sessionMetaPath(id, paths.store);
       const metaText = await readFile(metaPath, "utf8");
-      await rm(metaPath);
-      await mkdir(metaPath);
+      await settleWrites(bff, id);
+      await replaceMetaWithDirectory(metaPath);
       assert.equal((await moveTo(bff, id, "default", { memo: true })).status, 500);
       await rm(metaPath, { recursive: true });
       await writeFile(metaPath, metaText);
@@ -1340,8 +1403,8 @@ test("keeps a memo that another conversation appended to before the rollback", a
       // meta の書換えを失敗させ、新規作成したメモの rollback を走らせる
       const metaPath = sessionMetaPath(id, paths.store);
       const metaText = await readFile(metaPath, "utf8");
-      await rm(metaPath);
-      await mkdir(metaPath);
+      await settleWrites(bff, id);
+      await replaceMetaWithDirectory(metaPath);
       assert.equal((await moveTo(bff, id, "default", { memo: true })).status, 500);
       await rm(metaPath, { recursive: true });
       await writeFile(metaPath, metaText);
@@ -1394,6 +1457,103 @@ test("keeps the consumed mark on disk before answering, so a discard cannot revi
       assert.equal(payload.handoff.consumed, true, "再起動でチップが戻っている");
     } finally {
       await second.bff.close();
+    }
+  });
+});
+
+test("waits for the running consumed-mark save before answering a later send", async () => {
+  await withPaths(async (paths) => {
+    const { bff } = await openBff(paths);
+    try {
+      const created = await createSession(bff);
+      const id = created.sessionId as string;
+      await bff.app.request(`/api/sessions/${id}/messages`, jsonPost({ text: "材料" }));
+      await waitFor(() => bff.store.statusOf(bff.store.get(id)!) === "completed", 5000, "run completion");
+      assert.equal((await moveTo(bff, id, "default", { memo: true })).status, 200);
+      // 引き継ぎは live の記録を捨てるため、開き直してから送信する (送信はこの記録の保存を待つ)
+      assert.equal((await bff.app.request(`/api/sessions/${id}`)).status, 200);
+
+      // 保存キューを止める。印の保存が終わらない間に別タブ相当の送信を入れても、後続は 202 を返せない
+      const record = bff.store.get(id)!;
+      assert.ok(record, "引き継ぎ後の会話が live に残っていない");
+      let release!: () => void;
+      const gate = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      record.persistTail = gate;
+      const first = bff.app.request(`/api/sessions/${id}/messages`, jsonPost({ text: "1 通目" }));
+      let laterAnswered = false;
+      const later = Promise.resolve(bff.app.request(`/api/sessions/${id}/messages`, jsonPost({ text: "2 通目" }))).then(
+        (response) => {
+          laterAnswered = true;
+          return response;
+        },
+      );
+      try {
+        await new Promise((resolve) => setTimeout(resolve, 50));
+        assert.equal(laterAnswered, false, "後続の送信が保存を待たずに 202 を返している");
+      } finally {
+        // 失敗しても close が止まらないように待ちを解く
+        release();
+      }
+      assert.equal((await first).status, 202);
+      assert.equal((await later).status, 202);
+      assert.equal(((await readMeta(id, paths.store)).handoff as { consumed: boolean }).consumed, true);
+    } finally {
+      await bff.close();
+    }
+  });
+});
+
+test("answers 500 instead of 202 when the consumed mark cannot be saved", async () => {
+  await withPaths(async (paths) => {
+    const { bff } = await openBff(paths);
+    try {
+      const created = await createSession(bff);
+      const id = created.sessionId as string;
+      await bff.app.request(`/api/sessions/${id}/messages`, jsonPost({ text: "材料" }));
+      await waitFor(() => bff.store.statusOf(bff.store.get(id)!) === "completed", 5000, "run completion");
+      assert.equal((await moveTo(bff, id, "default", { memo: true })).status, 200);
+
+      // meta の保存を失敗させる。印を保存できないまま受理を返すと、再起動でチップが戻る
+      const metaPath = sessionMetaPath(id, paths.store);
+      const metaText = await readFile(metaPath, "utf8");
+      await settleWrites(bff, id);
+      await replaceMetaWithDirectory(metaPath);
+      try {
+        const response = await bff.app.request(`/api/sessions/${id}/messages`, jsonPost({ text: "続き" }));
+        assert.equal(response.status, 500, "保存できないのに 202 を返している");
+        assert.match((await jsonBody(response)).error, /保存に失敗しました/);
+      } finally {
+        await rm(metaPath, { recursive: true });
+        await writeFile(metaPath, metaText);
+      }
+
+      // 失敗した印は次の受理でやり直す。保存を待ってから 202 を返し、ディスクにも載る
+      const record = bff.store.get(id);
+      assert.ok(record, "送信後の会話が live に残っていない");
+      let release!: () => void;
+      const gate = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      record.persistTail = gate;
+      let retryAnswered = false;
+      const retry = Promise.resolve(
+        bff.app.request(`/api/sessions/${id}/messages`, jsonPost({ text: "もう一度" })),
+      ).then((response) => {
+        retryAnswered = true;
+        return response;
+      });
+      try {
+        await new Promise((resolve) => setTimeout(resolve, 50));
+        assert.equal(retryAnswered, false, "失敗した印をやり直さずに 202 を返している");
+      } finally {
+        release();
+      }
+      assert.equal((await retry).status, 202);
+      assert.equal(((await readMeta(id, paths.store)).handoff as { consumed: boolean }).consumed, true);
+    } finally {
+      await bff.close();
     }
   });
 });
@@ -1462,8 +1622,8 @@ test("restores the state when the memo write fails, and keeps an appended memo w
       // meta の書込み失敗: 新規作成したメモを自分が書いた内容と一致するときだけ削除する
       const metaPath = sessionMetaPath(id, paths.store);
       const metaText = await readFile(metaPath, "utf8");
-      await rm(metaPath);
-      await mkdir(metaPath);
+      await settleWrites(bff, id);
+      await replaceMetaWithDirectory(metaPath);
       const metaFailed = await moveTo(bff, id, space, { memo: true });
       assert.equal(metaFailed.status, 500);
       await rm(metaPath, { recursive: true });
@@ -1479,8 +1639,8 @@ test("restores the state when the memo write fails, and keeps an appended memo w
       // 既存の HANDOFF.md への追記は、meta の失敗で戻さない (他の追記を巻き戻さない)
       const existing = "# 手書き\n";
       await writeFile(join(paths.root, sessionWorkdirRel(id, "default"), HANDOFF_FILE_NAME), existing);
-      await rm(metaPath);
-      await mkdir(metaPath);
+      await settleWrites(bff, id);
+      await replaceMetaWithDirectory(metaPath);
       assert.equal((await moveTo(bff, id, space, { memo: true })).status, 500);
       await rm(metaPath, { recursive: true });
       await writeFile(metaPath, metaText);

@@ -237,6 +237,8 @@ async function resolveWorkspaceDirectory(
  * 引き継ぎメモの実パスを求める。親ディレクトリを realpath で検証し、最終要素は lstat で見て
  * symlink と通常ファイル以外を拒む (realpath で実体に解決すると root 外を読めてしまう)。
  * `existing` は最終要素が実在するか (読取りの 404 と書込みの新規作成の判定に使う)。
+ * 不存在として扱うのは ENOENT だけで、権限エラーなどの lstat 失敗は呼び出し側へ伝播させ、
+ * 下準備で「読み取れない」として拒否させる (読み取り不能を空の本文や新規作成として扱わない)。
  */
 async function resolveHandoffPath(rootCwd: string, requested: string): Promise<{ target: string; existing: boolean }> {
   const name = basename(requested);
@@ -245,7 +247,10 @@ async function resolveHandoffPath(rootCwd: string, requested: string): Promise<{
   }
   const parent = await resolveWorkspaceDirectory(rootCwd, dirname(requested));
   const target = join(parent.target, name);
-  const stats = await lstat(target).catch(() => undefined);
+  const stats = await lstat(target).catch((error: NodeJS.ErrnoException) => {
+    if (error.code === "ENOENT") return undefined;
+    throw pathError(400, `Cannot inspect the handoff memo (${requested}): ${messageFor(error)}`);
+  });
   if (stats?.isSymbolicLink()) throw pathError(400, `Symbolic links cannot be read or written: ${requested}`);
   if (stats && !stats.isFile()) throw pathError(400, `Not a regular file: ${requested}`);
   return { target, existing: stats !== undefined };

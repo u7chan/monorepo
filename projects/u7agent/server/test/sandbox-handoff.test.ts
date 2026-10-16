@@ -4,13 +4,16 @@
 
 import assert from "node:assert/strict";
 import { mkdtempSync } from "node:fs";
-import { mkdir, readFile, symlink, writeFile } from "node:fs/promises";
+import { chmod, mkdir, readFile, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import { createSandboxService } from "../src/sandbox/service";
 
 const TOKEN = "test-sandbox-token-0123456789abcdef";
+
+// root は 0600 のディレクトリでも lstat できるため、権限の検証は非 root のときだけ行う
+const IS_ROOT = process.getuid?.() === 0;
 
 type App = ReturnType<typeof createSandboxService>["app"];
 
@@ -158,6 +161,43 @@ test("does not read or roll back through a symlink to an outside file", async ()
   assert.match(((await readResponse.json()) as { error: string }).error, /Symbolic links/);
   assert.equal((await rollback(app, { path: "work/HANDOFF.md", expected: "外のファイル" })).status, 400);
   assert.equal(await readFile(join(outside, "target.md"), "utf8"), "外のファイル", "root 外が変わっている");
+});
+
+test(
+  "rejects a memo that cannot be inspected instead of treating it as new",
+  { skip: IS_ROOT && "root can lstat a directory without search permission" },
+  async () => {
+    const root = makeRoot("perm");
+    const { app } = createSandboxService({ rootCwd: root, token: TOKEN });
+    await mkdir(join(root, "work"), { recursive: true });
+    await writeFile(join(root, "work", "HANDOFF.md"), "# 既存のメモ\n");
+    // 検索権限を外す。親の realpath / stat は通るが、中の lstat は EACCES になる
+    await chmod(join(root, "work"), 0o600);
+    try {
+      const readResponse = await read(app, "work/HANDOFF.md");
+      assert.equal(readResponse.status, 400, "見られない既存のメモを不存在 (404) として扱っている");
+      const writeResponse = await write(app, {
+        path: "work/HANDOFF.md",
+        section: section("7777", "追記"),
+        dedupeKey: "7777",
+      });
+      assert.equal(writeResponse.status, 400, "見られないメモへ追記しようとしている");
+    } finally {
+      await chmod(join(root, "work"), 0o700);
+    }
+    assert.equal(await readFile(join(root, "work", "HANDOFF.md"), "utf8"), "# 既存のメモ\n", "中身が変わっている");
+  },
+);
+
+test("answers 400 (not 404) when the memo cannot be inspected for any other reason", async () => {
+  const root = makeRoot("toolong");
+  const { app } = createSandboxService({ rootCwd: root, token: TOKEN });
+  await mkdir(join(root, "work"), { recursive: true });
+  // 名前が長すぎる lstat は ENAMETOOLONG。不存在として扱うと BFF が新規作成へ進んでしまう
+  const tooLong = `${"a".repeat(300)}.md`;
+  const response = await read(app, `work/${tooLong}`);
+  assert.equal(response.status, 400);
+  assert.match(((await response.json()) as { error: string }).error, /Cannot inspect the handoff memo/);
 });
 
 test("reads the memo and answers 404 for a missing file", async () => {
