@@ -6,6 +6,7 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import test from "node:test";
 import type { ArchiveSettings } from "../src/hooks/useArchiveSettings";
+import { UNSAVED_RELOAD_NOTE } from "../src/lib/settingsNotes";
 import type { FilesSubsection } from "../src/lib/settingsNav";
 import type { ArchiveSettingsResponse } from "../src/types";
 
@@ -108,7 +109,22 @@ test("描画: 除外タブは説明と操作を出し、note を aria-live で�
   assert.ok(html.includes("除外の規則"), "除外の本文が出ていない");
   assert.ok(html.includes("破棄") && html.includes("既定に戻す"), "除外の操作が無い");
   assert.ok(html.includes('aria-live="polite"') && html.includes("a/b"), "note が読まれない");
-  assert.ok(!html.includes("再読み込み"), "除外側にツリーの操作が出ている");
+  assert.ok(html.includes("再読み込み"), "除外タブにも取り直しを常設する");
+  assert.ok(html.indexOf("再読み込み") < html.indexOf("破棄"), "再読み込みは保存群の左に置く");
+  assert.equal(html.includes(UNSAVED_RELOAD_NOTE), false, "変更が無い間は理由を出さない");
+});
+
+test("描画: 除外タブの再読み込みは、未保存の変更がある間だけ無効にして理由を出す", () => {
+  const initial = render("archive");
+  assert.equal(actionTag(initial, "再読み込み").includes("disabled"), false, "未編集では押せる");
+
+  const changed = render("archive", {
+    settings: settings({ excludeNames: ["dist", "vendor"], overridden: true }),
+    draft: { excludeNames: [...DEFAULTS, "vendor"] },
+    dirty: true,
+  });
+  assert.ok(actionTag(changed, "再読み込み").includes("disabled"), "下書きを捨てる再読み込みを押せなくする");
+  assert.ok(changed.includes(UNSAVED_RELOAD_NOTE), "押せない理由を出す");
 });
 
 test("描画: 除外の [保存] は差分があるときだけ、[既定に戻す] は上書き中だけ押せる", () => {

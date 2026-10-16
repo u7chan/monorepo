@@ -7,6 +7,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import test from "node:test";
 import type { WebSearchSettings } from "../src/hooks/useWebSearchSettings";
 import { WEB_SEARCH_SETTINGS_NOTE } from "../src/lib/webSearchSettings";
+import { RELOAD_ABOVE_NOTE } from "../src/lib/settingsNotes";
 
 // api.ts (location.origin を読む) を辿るため、node では最小の shim を置いてから読み込む
 globalThis.location ??= { origin: "http://localhost" } as Location;
@@ -70,6 +71,15 @@ test("取得前はこの画面の注記と再読み込みの導線を出し、�
 
   const reloading = render(webSearchSettings({ reloading: true }));
   assert.match(reloading, /<button[^>]*disabled=""[^>]*>.*再読み込み.*<\/button>/s, "取得中は押せない");
+
+  const failed = render(
+    webSearchSettings({
+      settings: null,
+      note: { text: "Web 検索の設定を読み込めませんでした。接続できません", error: true },
+    }),
+  );
+  assert.ok(failed.includes(RELOAD_ABOVE_NOTE), "本文の枠には上の導線を案内する");
+  assert.equal((failed.match(/>再読み込み<\/button>/g) ?? []).length, 1, "再読み込みはヘッダに 1 つだけ");
 });
 
 test("無効のときは、ツールが返す固定文言をそのまま出す", () => {

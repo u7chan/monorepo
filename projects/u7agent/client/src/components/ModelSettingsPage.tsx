@@ -17,6 +17,7 @@ import { ProvidersTab } from "./model-settings/ProvidersTab";
 import { SettingsPageLayout, type SettingsPageProps } from "./SettingsPageLayout";
 import { SettingsPlaceholder } from "./SettingsPlaceholder";
 import { SettingsTabs } from "./SettingsTabs";
+import { TabToolbar } from "./TabToolbar";
 
 export type ModelSettingsPageProps = SettingsPageProps & {
   /** キーの変更後に composer のモデル候補を更新する (画面を開いている間だけ使う) */
@@ -139,18 +140,22 @@ export function ModelSettingsView({
           ? "モデルとプロバイダーを設定します。"
           : "使うモデルと、プロバイダーごとのAPIキーを設定します。保存した内容は再起動後も使われます。"
       }
-      actions={
-        <>
-          <ReloadButton
-            onClick={() => void refreshCatalog()}
-            disabled={refreshing || settings?.runtimeAvailable === false || catalogError !== null}
-          >
-            {refreshing ? "更新中" : "カタログ更新"}
-          </ReloadButton>
-          <ReloadButton onClick={() => void reload()} disabled={reloading}>
-            再読み込み
-          </ReloadButton>
-        </>
+      toolbar={
+        <TabToolbar
+          actions={
+            <>
+              <ReloadButton
+                onClick={() => void refreshCatalog()}
+                disabled={refreshing || settings?.runtimeAvailable === false || catalogError !== null}
+              >
+                {refreshing ? "更新中" : "カタログ更新"}
+              </ReloadButton>
+              <ReloadButton onClick={() => void reload()} disabled={reloading}>
+                再読み込み
+              </ReloadButton>
+            </>
+          }
+        />
       }
       tabs={
         <SettingsTabs
@@ -202,12 +207,7 @@ export function ModelSettingsView({
           />
         )
       ) : (
-        <SettingsPlaceholder
-          label="プロバイダーの認証状態"
-          note={note}
-          reloading={reloading}
-          onReload={() => void reload()}
-        />
+        <SettingsPlaceholder label="プロバイダーの認証状態" note={note} />
       )}
     </SettingsPageLayout>
   );

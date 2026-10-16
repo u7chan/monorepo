@@ -101,7 +101,7 @@ test("未設定ではキー入力だけを出し、モデル選択と削除は�
   assert.equal(html.includes("設定済み"), false, "未設定では設定済みと言わない");
   assert.equal(html.includes("<select"), false, "モデル選択はキー保存後にだけ出す");
   assert.equal(html.includes(">削除</button>"), false, "削除もキー保存後にだけ出す");
-  assert.equal(html.includes(">再取得</button>"), false, "再取得もモデル欄と同じくキー保存後にだけ出す");
+  assert.equal(html.includes(">カタログ更新</button>"), false, "カタログ更新もモデル欄と同じくキー保存後にだけ出す");
   assert.equal(html.includes("音声（TTS）"), false, "音声の欄もキー保存後にだけ出す");
 });
 
@@ -160,7 +160,7 @@ test("設定済みでは上書き保存・削除・モデル選択を出し、�
   );
   assert.ok(html.includes("サイズ・品質・出力形式は provider の既定を使います"), "設定できる範囲の説明を残す");
   assert.equal(html.includes("プロバイダー: OpenRouter"), false, "見出しと重複する provider 名を本文で繰り返さない");
-  assert.ok(html.includes(">再取得</button>"));
+  assert.ok(html.includes(">カタログ更新</button>"));
   const input = /<input[^>]*type="password"[^>]*>/.exec(html)?.[0] ?? "";
   assert.ok(input.includes('value=""'), "保存済みのキーは入力欄へ戻さない");
 });
@@ -173,10 +173,10 @@ test("取得できていないときは一覧の出どころを警告色のチ�
   assert.ok(sdk.includes("SDK の組み込み一覧を表示しています"));
 });
 
-test("再取得中はボタンを取得中にする", () => {
+test("カタログ更新中はボタンを更新中にする", () => {
   const html = render({ saving: "catalog" });
-  assert.ok(html.includes("取得中"), "進行中を出す");
-  assert.match(html, /<button[^>]*class="btn-quiet"[^>]*disabled=""[^>]*><[^>]*>.*取得中/s, "連打できないようにする");
+  assert.ok(html.includes("更新中"), "進行中を出す");
+  assert.match(html, /<button[^>]*class="btn-quiet"[^>]*disabled=""[^>]*><[^>]*>.*更新中/s, "連打できないようにする");
 });
 
 test("カタログ外の保存済みモデルも選択肢に残す", () => {
@@ -282,9 +282,9 @@ test("現在の設定を確認できないときは音声を「（未確認）�
   assert.equal(synced.includes("（未確認）"), false);
 });
 
-test("音声カタログの再取得中は音声側のボタンだけを取得中にする", () => {
+test("音声カタログの更新中は音声側のボタンだけを更新中にする", () => {
   const html = render({ subsection: "speech", saving: "speech-catalog" });
-  assert.equal(html.match(/取得中/g)?.length, 1, "音声側の 1 つだけを取得中にする");
+  assert.equal(html.match(/更新中/g)?.length, 1, "音声側の 1 つだけを更新中にする");
 });
 
 test("平文の注意は既定で畳み、1 行の要点を出す", () => {

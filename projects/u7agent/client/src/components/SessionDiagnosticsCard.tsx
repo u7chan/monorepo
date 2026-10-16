@@ -2,13 +2,12 @@
  * 設定 → ランタイム（`/settings/runtime/diagnostics`）のセッション診断カード。会話を 1 つ選び、サーバーのダンプと
  * このタブのクライアント状態を 1 つの JSON としてコピー / 生ログのダウンロードができる。
  *
+ * 取得と操作の state は面（`DiagnosticsTab`）が持ち、このカードは渡された状態を描くだけにする。再読み込みは
+ * 面のツールバーへ出し、対象と report をタブと共有するため（docs/diagnostics.md）。
+ *
  * チャットが壊れていても (設定ページはチャットを mount したまま重ねる) ここから取れることを、
  * 「壊れた UI でも取れる」の本線にする (docs/diagnostics.md)。
  */
-import { useCallback, useEffect, useRef, useState } from "react";
-import { useConfirm } from "./ConfirmProvider";
-import { useDiagnostics } from "../DiagnosticsContext";
-import { formatBytes } from "../lib/attachments";
 import {
   DIAGNOSTICS_CLIENT_MISSING,
   DIAGNOSTICS_CLIENT_OPEN_BADGE,
@@ -23,68 +22,50 @@ import {
   diagnosticsResultLine,
   type DiagnosticsReport,
 } from "../lib/diagnostics";
-import { createLoadingTracker, createRequestGate } from "../hooks/requestGate";
-import { rawLogConfirmRequest } from "../lib/sidebarRowMenu";
 import type { SessionSummary } from "../types";
-import { ReloadButton } from "./ReloadButton";
 import { SelectMenu, type SelectMenuOption } from "./SelectMenu";
+
+/** コピー / 生ログの失敗表示。`save` はコピーできなかった本文をファイルへ回す導線 */
+export type SessionDiagnosticsFailure = {
+  message: string;
+  detail?: string;
+  save?: { text: string; fileName: string };
+};
+
+export type SessionDiagnosticsCardProps = {
+  /** 対象の会話の候補 (最終使用の新しい順) */
+  sessions: SessionSummary[];
+  /** このタブで開いている会話 (未選択は空文字) */
+  openSessionId: string;
+  /** 診断の対象 (未選択は空文字) */
+  target: string;
+  onSelectTarget: (sessionId: string) => void;
+  report: DiagnosticsReport | null;
+  /** 対象の取得中。対象が未選択のときは false */
+  loading: boolean;
+  /** コピー / 生ログの実行中 */
+  busy: boolean;
+  result: string;
+  failure: SessionDiagnosticsFailure | null;
+  onCopy: () => void;
+  onDownloadRaw: () => void;
+  onSaveText: (text: string, fileName: string) => void;
+};
 
 export function SessionDiagnosticsCard({
   sessions,
   openSessionId,
-}: {
-  sessions: SessionSummary[];
-  /** このタブで開いている会話 (未選択は空文字) */
-  openSessionId: string;
-}) {
-  const diagnostics = useDiagnostics();
-  const confirm = useConfirm();
-  const [target, setTarget] = useState(openSessionId);
-  const [report, setReport] = useState<DiagnosticsReport | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [busy, setBusy] = useState(false);
-  const [result, setResult] = useState("");
-  const [failure, setFailure] = useState<{
-    message: string;
-    detail?: string;
-    save?: { text: string; fileName: string };
-  } | null>(null);
-  // 対象を切り替えた後に届いた旧応答を捨てる (遅い応答が新しい選択を上書きしない)
-  const gateRef = useRef<ReturnType<typeof createRequestGate> | null>(null);
-  if (gateRef.current === null) gateRef.current = createRequestGate();
-  const gate = gateRef.current;
-  // 取得中の表示は「最後に始まった要求」に紐づける。破棄した要求の完了が後続の進行中表示を消さない
-  const loadingRef = useRef<ReturnType<typeof createLoadingTracker> | null>(null);
-  if (loadingRef.current === null) loadingRef.current = createLoadingTracker(setLoading);
-  const loadingTracker = loadingRef.current;
-
-  const fetchReport = useCallback(
-    async (sessionId: string): Promise<void> => {
-      const isCurrent = gate();
-      if (!sessionId) {
-        setReport(null);
-        return;
-      }
-      const finishLoading = loadingTracker.begin();
-      // 選択が変わった時点で旧 report を失効させる (取得中に別の会話の値を出さない)
-      setReport(null);
-      setFailure(null);
-      try {
-        const next = await diagnostics.buildReport(sessionId);
-        if (!isCurrent()) return;
-        setReport(next);
-      } finally {
-        finishLoading();
-      }
-    },
-    [diagnostics, gate, loadingTracker],
-  );
-
-  // 対象が変わったときだけ取得する (選択が空の間は何も取らない)
-  useEffect(() => {
-    void fetchReport(target);
-  }, [target, fetchReport]);
-
+  target,
+  onSelectTarget,
+  report,
+  loading,
+  busy,
+  result,
+  failure,
+  onCopy,
+  onDownloadRaw,
+  onSaveText,
+}: SessionDiagnosticsCardProps) {
   const openTitle = sessions.find((item) => item.sessionId === openSessionId)?.title || "無題のセッション";
   const options: SelectMenuOption[] = [
     ...(openSessionId
@@ -114,60 +95,13 @@ export function SessionDiagnosticsCard({
   const compareRows = report ? diagnosticsCompareRows(report.server, report.client) : [];
   const save = failure?.save;
 
-  const copy = async (): Promise<void> => {
-    const isCurrent = gate();
-    setBusy(true);
-    setResult("");
-    setFailure(null);
-    try {
-      const outcome = await diagnostics.copy(target);
-      if (!isCurrent()) return;
-      setReport(outcome.report);
-      if (outcome.ok) {
-        setResult(`コピーしました（${diagnosticsResultLine(outcome.report)}）`);
-        return;
-      }
-      setFailure({
-        message: "クリップボードへコピーできませんでした",
-        detail: outcome.detail,
-        save: { text: outcome.text, fileName: outcome.fileName },
-      });
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const downloadRaw = async (): Promise<void> => {
-    if (!(await confirm(rawLogConfirmRequest(summary?.title ?? "")))) return;
-    const isCurrent = gate();
-    setBusy(true);
-    setResult("");
-    setFailure(null);
-    try {
-      const outcome = await diagnostics.downloadRaw(target);
-      if (!isCurrent()) return;
-      if (outcome.ok) {
-        setResult(`保存しました: ${outcome.fileName}（約 ${formatBytes(outcome.bytes)}）`);
-        return;
-      }
-      setFailure({ message: "生ログを保存できませんでした", detail: outcome.detail });
-    } finally {
-      setBusy(false);
-    }
-  };
-
   return (
     <section className="grid gap-2 rounded-lg border border-line bg-soft p-3">
-      <header className="flex items-center justify-between gap-2">
-        <h3 className="text-2xs font-semibold tracking-label text-ink-faint uppercase">{DIAGNOSTICS_TITLE}</h3>
-        <ReloadButton onClick={() => void fetchReport(target)} disabled={!target || loading || busy}>
-          再読み込み
-        </ReloadButton>
-      </header>
+      <h3 className="text-2xs font-semibold tracking-label text-ink-faint uppercase">{DIAGNOSTICS_TITLE}</h3>
       <p className="text-xs leading-relaxed text-ink-muted">{DIAGNOSTICS_DESCRIPTION}</p>
 
       <div className="grid gap-2 sm:grid-cols-2">
-        <SelectMenu label="対象の会話" options={options} value={target} onChange={setTarget} />
+        <SelectMenu label="対象の会話" options={options} value={target} onChange={onSelectTarget} />
         <div className="flex items-end gap-2 pb-1">
           {target && target === openSessionId ? (
             <span className="rounded-full border border-accent/40 bg-accent-wash px-2 py-0.5 text-2xs text-accent-text">
@@ -182,6 +116,7 @@ export function SessionDiagnosticsCard({
       </div>
 
       {!target ? (
+        // ツールバーの [再読み込み] を押せない理由をここに出す
         <p className="text-2xs text-ink-muted">対象の会話を選ぶまで取得しません。</p>
       ) : loading ? (
         <p role="status" className="text-xs text-ink-muted">
@@ -233,15 +168,10 @@ export function SessionDiagnosticsCard({
           {report ? <p className="text-2xs break-words text-ink-faint">{diagnosticsResultLine(report)}</p> : null}
 
           <div className="flex flex-wrap items-center gap-2">
-            <button type="button" className="btn-quiet" disabled={busy} onClick={() => void copy()}>
+            <button type="button" className="btn-quiet" disabled={busy} onClick={onCopy}>
               {DIAGNOSTICS_COPY_LABEL}
             </button>
-            <button
-              type="button"
-              className="btn-quiet"
-              disabled={busy || !hasRawLog}
-              onClick={() => void downloadRaw()}
-            >
+            <button type="button" className="btn-quiet" disabled={busy || !hasRawLog} onClick={onDownloadRaw}>
               {RAW_LOG_LABEL}
             </button>
           </div>
@@ -267,7 +197,7 @@ export function SessionDiagnosticsCard({
             <button
               type="button"
               className="justify-self-start underline"
-              onClick={() => diagnostics.saveText(save.text, save.fileName)}
+              onClick={() => onSaveText(save.text, save.fileName)}
             >
               ファイルとして保存
             </button>

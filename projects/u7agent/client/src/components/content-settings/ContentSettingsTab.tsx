@@ -281,7 +281,7 @@ function ImageModelSection({
           </MetaChip>
         </p>
         <ReloadButton disabled={busy} onClick={() => void onRefresh()}>
-          {refreshing ? "取得中" : "再取得"}
+          {refreshing ? "更新中" : "カタログ更新"}
         </ReloadButton>
       </div>
     </section>
@@ -407,7 +407,7 @@ function SpeechSection({
           </MetaChip>
         </p>
         <ReloadButton disabled={busy} onClick={() => void onRefresh()}>
-          {refreshing ? "取得中" : "再取得"}
+          {refreshing ? "更新中" : "カタログ更新"}
         </ReloadButton>
       </div>
       {/* 同期できていない間も、保存値を書き換えずにその場で試せる（保存のゲートを持ち込まない） */}

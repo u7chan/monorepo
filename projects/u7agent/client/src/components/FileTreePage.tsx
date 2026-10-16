@@ -3,6 +3,7 @@ import type { ArchiveSettings } from "../hooks/useArchiveSettings";
 import { cn } from "../lib/cn";
 import { normalizeFileTreeRoot } from "../lib/fileTree";
 import { DEFAULT_FILES_SUBSECTION, FILES_SUBSECTIONS, type FilesSubsection } from "../lib/settingsNav";
+import { UNSAVED_RELOAD_NOTE } from "../lib/settingsNotes";
 import { ArchiveExcludeSettings } from "./ArchiveExcludeSettings";
 import { FileBrowser } from "./FileBrowser";
 import { CheckIcon } from "./icons";
@@ -64,6 +65,11 @@ export function FileTreePage({
   // 操作はタブごとに変える (ツリーは今の一覧の取り直し、除外は下書きの保存)
   const actions = archive ? (
     <>
+      {/* 再読み込みは下書きを捨てるので、変更がある間は押せない (理由は帯の左に出す) */}
+      <ReloadButton onClick={() => void archiveSettings.reload()} disabled={dirty}>
+        再読み込み
+      </ReloadButton>
+      <span aria-hidden="true" className="h-4 w-px bg-line" />
       <button type="button" className="btn-quiet" disabled={!dirty || saving} onClick={discard}>
         破棄
       </button>
@@ -90,7 +96,14 @@ export function FileTreePage({
       title="ファイル"
       // ツリーの root は常にワークスペース root ("/") で、面を選ぶ情報にならないため caption を出さない
       caption={archive ? "ファイルツリーのダウンロード（フォルダは ZIP）から落とす名前を決めます。" : undefined}
-      toolbar={<TabToolbar actions={actions} />}
+      toolbar={
+        <TabToolbar
+          context={
+            archive && dirty ? <span className="text-2xs text-ink-muted">{UNSAVED_RELOAD_NOTE}</span> : undefined
+          }
+          actions={actions}
+        />
+      }
       tabs={
         <div
           role="tablist"

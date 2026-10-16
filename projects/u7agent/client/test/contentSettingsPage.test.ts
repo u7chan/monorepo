@@ -8,6 +8,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import test from "node:test";
 import type { ContentSettings } from "../src/hooks/useContentSettings";
 import { CONTENT_SETTINGS_NOTE } from "../src/lib/contentSettings";
+import { RELOAD_ABOVE_NOTE } from "../src/lib/settingsNotes";
 import type { ContentSubsection } from "../src/lib/settingsNav";
 import type { ContentSettingsResponse } from "../src/types";
 
@@ -122,6 +123,26 @@ test("取得前はタブ行も面も出さず、この画面の注記と再読�
 
   const reloading = render(contentSettings({ reloading: true }));
   assert.match(reloading, /<button[^>]*disabled=""[^>]*>.*再読み込み.*<\/button>/s, "取得中は押せない");
+});
+
+test("取り直しはタブ行の下のツールバーへ出し、本文の枠には置かない", () => {
+  const html = render(contentSettings());
+  const tabsAt = html.indexOf('role="tablist"');
+  assert.ok(tabsAt >= 0, "タブ行を出す");
+  assert.ok(html.indexOf("再読み込み") > tabsAt, "再読み込みはタブ行より下に出す");
+  assert.ok(
+    html.indexOf("再読み込み") < html.indexOf('aria-label="コンテンツ生成のAPIキー"'),
+    "ツールバーは本文より上に出す",
+  );
+
+  const failed = render(
+    contentSettings({
+      settings: null,
+      note: { text: "コンテンツ生成の設定を読み込めませんでした。接続できません", error: true },
+    }),
+  );
+  assert.ok(failed.includes(RELOAD_ABOVE_NOTE), "本文の枠には上の導線を案内する");
+  assert.equal((failed.match(/>再読み込み<\/button>/g) ?? []).length, 1, "再読み込みはツールバーに 1 つだけ");
 });
 
 test("未設定ではタブ行を出さず、キー入力だけを出す", () => {
