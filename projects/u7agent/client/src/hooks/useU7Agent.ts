@@ -261,8 +261,8 @@ export function useU7Agent({ pendingSessionId }: UseU7AgentOptions = {}) {
     void fillHistoryGap(gapCursor);
   }, [gapCursor, fillHistoryGap]);
 
-  // 切り分け用のダンプ (このタブの状態 + サーバーの記録)。入口は会話行の ⋯ と 設定 → ランタイム、
-  // および window.u7agentDebug (ui を増やさない)。ここで 1 つだけ作って文脈で配る
+  // 切り分け用のダンプ (このタブの状態 + サーバーの記録)。入口は 設定 → ランタイム の診断タブと
+  // window.u7agentDebug (ui を増やさない)。ここで 1 つだけ作って文脈で配る
   const diagnostics = useSessionDiagnostics({ chat, openSessionId: sessionId, recorder: eventLog });
 
   const sendMessage = useCallback(
@@ -471,7 +471,7 @@ export function useU7Agent({ pendingSessionId }: UseU7AgentOptions = {}) {
   return {
     chat,
     dispatch,
-    /** 診断情報の操作 (コピー / 生ログ / window.u7agentDebug)。設定 → ランタイムと会話行が使う */
+    /** 診断情報の操作 (コピー / 生ログ / window.u7agentDebug)。設定 → ランタイムの診断タブが使う */
     diagnostics,
     health,
     catalog,
