@@ -46,7 +46,12 @@ function fakeSettings(overrides: Partial<ArchiveSettings> = {}): ArchiveSettings
   };
 }
 
-function render(filesSubsection?: FilesSubsection, archive: Partial<ArchiveSettings> = {}, cwd = ""): string {
+function render(
+  filesSubsection?: FilesSubsection,
+  archive: Partial<ArchiveSettings> = {},
+  cwd = "",
+  singleColumn = false,
+): string {
   return renderToStaticMarkup(
     createElement(
       ConfirmProvider,
@@ -56,6 +61,7 @@ function render(filesSubsection?: FilesSubsection, archive: Partial<ArchiveSetti
         excludeNames: [],
         archiveSettings: fakeSettings(archive),
         filesSubsection,
+        singleColumn,
         onSelectFilesSubsection: () => {},
         onBack: () => {},
       }),
@@ -129,6 +135,23 @@ test("描画: 除外タブの再読み込みは、取得中と未保存の変更
   });
   assert.ok(actionTag(changed, "再読み込み").includes("disabled"), "下書きを捨てる再読み込みを押せなくする");
   assert.ok(changed.includes(UNSAVED_RELOAD_NOTE), "押せない理由を出す");
+});
+
+test("描画: singleColumn では押せない理由をヘッダに出し、帯には出さない", () => {
+  const changed = {
+    settings: settings({ excludeNames: ["dist", "vendor"], overridden: true }),
+    draft: { excludeNames: [...DEFAULTS, "vendor"] },
+    dirty: true,
+  };
+  // 帯は操作で埋まり、理由が 1 文字幅まで潰れるため、狭い幅ではヘッダ側で折り返して読ませる
+  const html = render("archive", changed, "", true);
+  const noteAt = html.indexOf(UNSAVED_RELOAD_NOTE);
+  assert.ok(noteAt >= 0, "狭い幅でも押せない理由を出す");
+  assert.ok(noteAt < html.indexOf('role="tablist"'), "理由はタブ行より上 (ヘッダ) に出す");
+
+  // desktop は帯の左で理由が読めるので、操作と同じ行のままにする
+  const desktop = render("archive", changed);
+  assert.ok(desktop.indexOf(UNSAVED_RELOAD_NOTE) > desktop.indexOf('role="tablist"'), "desktop は帯に出す");
 });
 
 test("描画: 除外の [保存] は差分があるときだけ、[既定に戻す] は上書き中だけ押せる", () => {
