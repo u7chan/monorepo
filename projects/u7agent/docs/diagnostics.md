@@ -8,9 +8,9 @@
 
 ## 入口
 
-- 会話行の ⋯（`client/src/components/sidebar/SessionRow.tsx`）: `診断情報をコピー` / `生ログをダウンロード`。開いていない会話の行でも出す（クライアント状態が付かないことは説明行で示す）
 - 設定 → ランタイム の診断タブ（`/settings/runtime/diagnostics`）: 対象の会話を選んで同じ 2 つ。対象の選択と report は面（`client/src/components/runtime-settings/DiagnosticsTab.tsx`）が持ち、取り直しは面のツールバーに 1 つだけ置いて対象を選ぶまで無効にする（理由はカード内に 1 行で出す。カードは `client/src/components/SessionDiagnosticsCard.tsx`）。**チャットの描画が壊れていても取れる経路**で、設定ページを開いている間もチャットは mount されたまま（[ui-layout.md](ui-layout.md)）という既存の契約に乗る
 - `window.u7agentDebug.snapshot()`: UI を増やさない入口。コピーと同じ文字列を返す（`Promise<string>`）
+- **会話行の ⋯ には出さない。** 対象の選択・取れない理由・省略の報告まで含めて診断タブが上位集合で、開いていない会話の行からはクライアント状態の付かない劣化形しか取れなかったため（出さないことは `client/src/lib/sidebarRowMenu.ts` の項目一覧で固定する）
 
 コピーは毎回、クライアント状態 + サーバーのダンプを 1 つの JSON にする。`kind` / `version` / `note` / `capturedAt` を先頭に置くのは、貼り付け先では画面の文脈が失われるため。相関キー（`sessionId` / `eventGeneration` / `lastSeq` / 採取時刻 / クライアントのビルド識別子）を必ず入れ、サーバーの `at` とクライアントの受信時刻は**両方**残す（片方だけでは遅延の向きが分からない）。
 
@@ -24,7 +24,7 @@
 
 ## 上限と省略
 
-件数とバイトの上限を先に決め、超えたら古い方から落とし、**落とした件数と切り詰めた件数を画面と JSON の両方に出す**。無言の切り詰めは誤診の元になるため、`drops`（クライアント / サーバー / 切り詰め）を必ず残す。画面は結果行（設定 → ランタイム の診断タブのカード）と、会話行の ⋯ からのコピー成功時に 0 件でなければ行の下へ 1 行出す（⋯ のチェックだけでは欠けた資料を完全な記録と誤認させるため）。数値そのものは `server/src/diagnostics.ts` / `client/src/lib/diagnostics.ts` の定数を正とする。
+件数とバイトの上限を先に決め、超えたら古い方から落とし、**落とした件数と切り詰めた件数を画面と JSON の両方に出す**。無言の切り詰めは誤診の元になるため、`drops`（クライアント / サーバー / 切り詰め）を必ず残す。画面は結果行（設定 → ランタイム の診断タブのカード）が担う。数値そのものは `server/src/diagnostics.ts` / `client/src/lib/diagnostics.ts` の定数を正とする。
 
 ## 取れないもの
 

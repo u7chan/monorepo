@@ -9,8 +9,6 @@ export type RowMenuActionKind =
   | "copy-path"
   | "copy-absolute-path"
   | "download"
-  | "diagnostics"
-  | "raw-log"
   | "rename"
   | "pin"
   | "move"
