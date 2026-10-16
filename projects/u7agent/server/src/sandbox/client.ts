@@ -13,6 +13,7 @@ import {
   type SandboxFileUpload,
   type SandboxGitInfo,
   type SandboxHandoffRead,
+  type SandboxHandoffRollback,
   type SandboxHandoffWrite,
   type SandboxListenerScan,
   type SandboxMoveResult,
@@ -153,6 +154,7 @@ export function createSandboxToolClient(options: SandboxToolClientOptions): Sand
     createDir: (path) => createDir(path, baseUrl, token, fetchImpl),
     readHandoff: (path) => readHandoff(path, baseUrl, token, fetchImpl),
     writeHandoff: (input) => writeHandoff(input, baseUrl, token, fetchImpl),
+    rollbackHandoff: (input) => rollbackHandoff(input, baseUrl, token, fetchImpl),
     renameEntry: (path, name) => renameEntry(path, name, baseUrl, token, fetchImpl),
     moveEntry: (from, to) => moveEntry(from, to, baseUrl, token, fetchImpl),
     deleteFile: (path) => deleteFile(path, baseUrl, token, fetchImpl),
@@ -200,6 +202,11 @@ export interface SandboxToolClient extends SandboxRuntimeDiagnostics {
    * 先頭行に `dedupeKey` があれば追記しない (`written: false`)。既存の中身は解釈せずそのまま残す。
    */
   writeHandoff(input: { path: string; section: string; dedupeKey: string }): Promise<SandboxHandoffWrite>;
+  /**
+   * 新規作成した引き継ぎメモの取り消し。内容が `expected` と一致するときだけ削除し、
+   * 照合から削除までを追記と同じ実パス排他の中で行う (背後で進んだ他の追記を巻き戻さない)。
+   */
+  rollbackHandoff(input: { path: string; expected: string }): Promise<SandboxHandoffRollback>;
   /** root 相対のエントリ (ファイル / ディレクトリ) の名前を変える。同名はサンドボックスが 409 で拒む */
   renameEntry(path: string, name: string): Promise<SandboxRenameResult>;
   /** root 相対のエントリを別の親へ移す。移動先の親は実在が必要で、既存の移動先は 409 で拒む */
@@ -248,7 +255,7 @@ export type SandboxMoveClient = Pick<SandboxToolClient, "moveEntry">;
  * 引き継ぎのメモ (HANDOFF.md) の読み取りと書込みが使うサンドボックス機能。
  * 移動のスタブを広げないよう型を分ける。
  */
-export type SandboxHandoffClient = Pick<SandboxToolClient, "readHandoff" | "writeHandoff">;
+export type SandboxHandoffClient = Pick<SandboxToolClient, "readHandoff" | "writeHandoff" | "rollbackHandoff">;
 
 /**
  * serve の記録の読み書きと起動・停止が使うサンドボックス機能。workspace のスタブへ execute を
@@ -556,6 +563,30 @@ async function writeHandoff(
   );
   if (!response.ok) throw await jsonError(response, "引き継ぎメモを書けませんでした");
   return (await response.json()) as SandboxHandoffWrite;
+}
+
+/**
+ * 新規作成した引き継ぎメモの取り消し。照合はサンドボックス側の実パス排他の中で行われ、
+ * 内容が変わっていれば消さずに `deleted: false` を返す。
+ */
+async function rollbackHandoff(
+  input: { path: string; expected: string },
+  baseUrl: string,
+  token: string,
+  fetchImpl: typeof fetch,
+): Promise<SandboxHandoffRollback> {
+  const response = await fetchJson(
+    fetchImpl,
+    `${baseUrl}/v1/files/handoff/rollback`,
+    {
+      method: "POST",
+      headers: { ...jsonHeaders(token), "Content-Type": "application/json" },
+      body: JSON.stringify(input),
+    },
+    baseUrl,
+  );
+  if (!response.ok) throw await jsonError(response, "引き継ぎメモを取り消せませんでした");
+  return (await response.json()) as SandboxHandoffRollback;
 }
 
 /** 通常ファイルの削除。成功は 204 で本文が無いため、応答の JSON は読まない。 */

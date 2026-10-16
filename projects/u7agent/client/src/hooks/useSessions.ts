@@ -333,13 +333,19 @@ export function useSessions({
     async (
       id: string,
       isCurrent = alwaysCurrent,
-      { fallbackOnFailure = true }: { fallbackOnFailure?: boolean } = {},
+      {
+        fallbackOnFailure = true,
+        discardHistory = false,
+      }: { fallbackOnFailure?: boolean; discardHistory?: boolean } = {},
     ): Promise<SessionOpenResult> => {
       if (!mountedRef.current) return "superseded";
       // getSession の待機中にセッション作成が返っても、この選択を奪わせない
       const selection = (selectionSeqRef.current += 1);
       // 選択が変わったら旧セッションの要求を持ち越さない (同じ ID に戻っても復活させない)
       fileRefRequests.clear();
+      // 引き継ぎ後は同じ id でも履歴が入れ替わっている。payload の resync は同じ id を「履歴を保つ
+      // 会話」と見るため、先に旧バブルと履歴のカーソルを捨てて新しい世代を開く
+      if (discardHistory) dispatch({ type: "resetHistory" });
       // 破損した候補が互いを指して往復するため、フォールバックも一覧 1 周で止める
       const failed = new Set<string>();
       let pending: string | undefined = id;

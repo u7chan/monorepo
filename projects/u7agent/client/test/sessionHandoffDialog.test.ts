@@ -77,10 +77,15 @@ test("メッセージ 0 件ではメモのトグルを無効にして理由を�
   assert.ok(!submitButton(html).includes("disabled"), "メモを外せば引き継げるのに確定が無効になっている");
 });
 
-test("プロジェクト所属では移動先スペースを出さない (作業ディレクトリが同じで移す先がない)", () => {
-  const html = render({ projectSession: true });
+test("プロジェクト所属では移動先スペースを出さず、メモの保存先とコミット / 除外の判断を出す", () => {
+  const html = render({ projectSession: true, text: sessionHandoffDialogText("決済画面の検証", true) });
   // スペースの選択肢 (現在のスペース以外) を出さない
   assert.ok(!html.includes("デモ"), "プロジェクト所属でスペースの選択が出ている");
   assert.ok(html.includes("HANDOFF.md"), "メモの説明まで消えている");
+  assert.ok(html.includes("リポジトリ直下"), "メモの保存先が出ていない");
+  assert.ok(html.includes("コミット") && html.includes("除外"), "コミット / 除外の判断が出ていない");
   assert.ok(!submitButton(html).includes("disabled"), "同じスペースへの引き継ぎが押せない");
+
+  // 未所属ではプロジェクトの注意を出さない
+  assert.ok(!render().includes("リポジトリ直下"), "未所属にプロジェクトの注意が出ている");
 });

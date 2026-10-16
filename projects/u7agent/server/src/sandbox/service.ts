@@ -82,6 +82,7 @@ import {
   type SandboxFileEntry,
   type SandboxFileListing,
   type SandboxFileUpload,
+  type SandboxHandoffRollback,
   type SandboxHandoffWrite,
   type SandboxLandlockStatus,
   type SandboxMoveRequestBody,
@@ -233,6 +234,24 @@ async function resolveWorkspaceDirectory(
 }
 
 /**
+ * 引き継ぎメモの実パスを求める。親ディレクトリを realpath で検証し、最終要素は lstat で見て
+ * symlink と通常ファイル以外を拒む (realpath で実体に解決すると root 外を読めてしまう)。
+ * `existing` は最終要素が実在するか (読取りの 404 と書込みの新規作成の判定に使う)。
+ */
+async function resolveHandoffPath(rootCwd: string, requested: string): Promise<{ target: string; existing: boolean }> {
+  const name = basename(requested);
+  if (!requested || requested.endsWith("/") || name === "." || name === "..") {
+    throw pathError(400, `Not a regular file: ${requested}`);
+  }
+  const parent = await resolveWorkspaceDirectory(rootCwd, dirname(requested));
+  const target = join(parent.target, name);
+  const stats = await lstat(target).catch(() => undefined);
+  if (stats?.isSymbolicLink()) throw pathError(400, `Symbolic links cannot be read or written: ${requested}`);
+  if (stats && !stats.isFile()) throw pathError(400, `Not a regular file: ${requested}`);
+  return { target, existing: stats !== undefined };
+}
+
+/**
  * 引き継ぎメモ (HANDOFF.md) の読み取り。上限・UTF-8・バイナリの判定を引き継ぎ専用に持ち、
  * プレビューの上限 (SANDBOX_MAX_PREVIEW_BYTES) の変更に追随させない。
  */
@@ -292,35 +311,51 @@ async function writeHandoffText(
   dedupeKey: string,
   locks: Map<string, Promise<unknown>>,
 ): Promise<SandboxHandoffWrite> {
-  const name = basename(requested);
-  if (!requested || requested.endsWith("/") || name === "." || name === "..") {
-    throw pathError(400, `Not a regular file: ${requested}`);
-  }
-  const parent = await resolveWorkspaceDirectory(rootCwd, dirname(requested));
-  const target = join(parent.target, name);
+  const { target } = await resolveHandoffPath(rootCwd, requested);
   return withPathLock(locks, target, async () => {
-    // 読む前に最終要素を見て symlink を拒む (realpath で実体に解決すると root 外を読めてしまう)
-    const stats = await lstat(target).catch(() => undefined);
-    if (stats?.isSymbolicLink()) throw pathError(400, `Symbolic links cannot be written: ${requested}`);
-    if (stats && !stats.isFile()) throw pathError(400, `Not a regular file: ${requested}`);
-    const existing = await readHandoffText(target).catch((error: unknown) => {
-      const statusCode = (error as { statusCode?: number }).statusCode;
-      if (statusCode === 404 || (error as NodeJS.ErrnoException).code === "ENOENT") return undefined;
-      throw error;
-    });
-    const firstLine = existing === undefined ? "" : (existing.split("\n", 1)[0] ?? "");
+    // 排他の先頭で読み直す (背後で進んだ他の追記の上へ重ね、上限も全文で判定する)
+    const { existing } = await resolveHandoffPath(rootCwd, requested);
+    const current = existing ? await readHandoffText(target) : undefined;
+    const firstLine = current === undefined ? "" : (current.split("\n", 1)[0] ?? "");
     if (dedupeKey !== "" && firstLine.includes(dedupeKey)) {
       return { path: requested, written: false, created: false };
     }
-    const temp = join(parent.target, `.pi-handoff-${randomUUID()}.part`);
+    // 事前判定の後に他の追記が入っていても、追記後の全文を上限に収める (両方が 200 で超過するのを防ぐ)
+    const total = Buffer.byteLength(current ?? "", "utf8") + Buffer.byteLength(section, "utf8");
+    if (total > SANDBOX_MAX_HANDOFF_BYTES) {
+      throw pathError(400, "HANDOFF.md は 2 MiB 以下にしてください");
+    }
+    const temp = join(dirname(target), `.pi-handoff-${randomUUID()}.part`);
     try {
-      await writeFile(temp, `${section}${existing ?? ""}`, { mode: 0o600 });
+      await writeFile(temp, `${section}${current ?? ""}`, { mode: 0o600 });
       await rename(temp, target);
     } catch (error) {
       await unlink(temp).catch(() => {});
       throw pathError(400, `Cannot write the handoff memo: ${messageFor(error)}`);
     }
-    return { path: requested, written: true, created: existing === undefined };
+    return { path: requested, written: true, created: !existing };
+  });
+}
+
+/**
+ * 新規作成した引き継ぎメモの取り消し。内容が `expected` と一致するときだけ削除する。照合から削除までを
+ * 追記と同じ実パス排他の中で行い、背後で進んだ他の追記や編集を巻き戻さない。
+ */
+async function rollbackHandoffText(
+  rootCwd: string,
+  requested: string,
+  expected: string,
+  locks: Map<string, Promise<unknown>>,
+): Promise<SandboxHandoffRollback> {
+  const { target } = await resolveHandoffPath(rootCwd, requested);
+  return withPathLock(locks, target, async () => {
+    const { existing } = await resolveHandoffPath(rootCwd, requested);
+    if (!existing) return { deleted: false };
+    // 照合できない (上限・形式・読取り失敗) ときは消さない。他の追記を巻き戻す側に倒さない
+    const current = await readHandoffText(target).catch(() => undefined);
+    if (current !== expected) return { deleted: false };
+    await unlink(target);
+    return { deleted: true };
   });
 }
 
@@ -1538,10 +1573,12 @@ export function createSandboxService(options: SandboxServiceOptions): SandboxSer
   });
 
   // 引き継ぎメモ (HANDOFF.md) の読取り。専用の上限・UTF-8・バイナリ判定を持ち、不存在は 404。
-  // プレビュー API の流用はしない (上限が変わるため)。
+  // プレビュー API の流用はしない (上限が変わるため)。最終要素の symlink は書込みと同じく拒む
   app.get("/v1/files/handoff", async (c) => {
     try {
-      const { target } = await resolveWorkspaceDirectory(rootCwd, c.req.query("path") ?? "", false);
+      const requested = c.req.query("path") ?? "";
+      const { target, existing } = await resolveHandoffPath(rootCwd, requested);
+      if (!existing) throw pathError(404, `Path not found: ${requested}`);
       return c.json({ text: await readHandoffText(target) });
     } catch (error) {
       const statusCode = (error as { statusCode?: number }).statusCode ?? 400;
@@ -1567,6 +1604,28 @@ export function createSandboxService(options: SandboxServiceOptions): SandboxSer
     }
     try {
       return c.json(await writeHandoffText(rootCwd, path, section, dedupeKey, handoffWrites));
+    } catch (error) {
+      const statusCode = (error as { statusCode?: number }).statusCode ?? 500;
+      return c.json({ error: messageFor(error) }, statusCode as 400);
+    }
+  });
+
+  // 新規作成した引き継ぎメモの取り消し。内容が expected と一致するときだけ、追記と同じ実パス排他の
+  // 中で削除する (背後で進んだ他の追記を巻き戻さない)
+  app.post("/v1/files/handoff/rollback", async (c) => {
+    let body: unknown;
+    try {
+      body = await readJsonBody(c.req.raw);
+    } catch (error) {
+      const statusCode = (error as { statusCode?: number }).statusCode ?? 400;
+      return c.json({ error: messageFor(error) }, statusCode as 400);
+    }
+    const { path, expected } = (body ?? {}) as { path?: unknown; expected?: unknown };
+    if (typeof path !== "string" || typeof expected !== "string") {
+      return c.json({ error: "path and expected must be strings" }, 400);
+    }
+    try {
+      return c.json(await rollbackHandoffText(rootCwd, path, expected, handoffWrites));
     } catch (error) {
       const statusCode = (error as { statusCode?: number }).statusCode ?? 500;
       return c.json({ error: messageFor(error) }, statusCode as 400);

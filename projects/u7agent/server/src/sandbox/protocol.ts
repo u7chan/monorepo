@@ -324,6 +324,23 @@ export interface SandboxHandoffWrite {
 }
 
 /**
+ * POST /v1/files/handoff/rollback の要求。`expected` は新規作成の rollback で自分が書いた全文
+ * (先頭に置いた節 + 作成前からあった本文)。
+ */
+export interface SandboxHandoffRollbackInput {
+  path: string;
+  expected: string;
+}
+
+/**
+ * POST /v1/files/handoff/rollback の応答。`deleted` は内容が `expected` と一致して実際に消したか
+ * (背後で他の追記が入っていた / 既に無いときは false。他の追記を巻き戻さない)。
+ */
+export interface SandboxHandoffRollback {
+  deleted: boolean;
+}
+
+/**
  * アップロード / 生配信の 1 ファイル上限 (100 MiB)。クライアントの申告サイズは信用せず、ここで数える。
  */
 export const SANDBOX_MAX_UPLOAD_BYTES = 100 * 1024 * 1024;

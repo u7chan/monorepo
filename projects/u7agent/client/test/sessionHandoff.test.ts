@@ -7,8 +7,10 @@ import { suggestionSendText } from "../src/lib/suggestion";
 import {
   HANDOFF_CHIP_LABEL,
   HANDOFF_CHIP_PROMPT,
+  HANDOFF_CLEANUP_NOTE,
   HANDOFF_PROJECT_MEMO_NOTE,
   handoffAgentChoices,
+  handoffCleanupNote,
   handoffAgentId,
   handoffBlockedReason,
   handoffMemoDisabledReason,
@@ -34,9 +36,27 @@ test("引き継ぎの確認は履歴の破棄・ファイルの保持・スペ�
     "スペース切替の予告が本文に無い",
   );
   assert.ok(text.memoDescription.includes("HANDOFF.md"), "メモの説明が無い");
-  assert.ok(HANDOFF_PROJECT_MEMO_NOTE.includes("リポジトリ直下"), "プロジェクトの注意が無い");
+  assert.equal(text.memoProjectNote, undefined, "未所属にプロジェクトの注意を出している");
   // 一覧が古くてタイトルが取れない行でも確認は出す (対象の行を省くだけ)
   assert.equal(sessionHandoffDialogText("").subject, undefined);
+});
+
+test("プロジェクト所属ではメモの保存先とコミット / 除外の判断を説明へ足す", () => {
+  const text = sessionHandoffDialogText("決済画面の検証", true);
+  assert.equal(text.memoProjectNote, HANDOFF_PROJECT_MEMO_NOTE);
+  assert.ok(text.memoProjectNote?.includes("リポジトリ直下"), "保存先が書かれていない");
+  assert.ok(text.memoProjectNote?.includes("コミット"), "コミット / 除外の判断が書かれていない");
+  assert.ok(text.memoProjectNote?.includes("除外"), "コミット / 除外の判断が書かれていない");
+});
+
+test("片付けが残った応答だけが移動先へ渡す警告を作る", () => {
+  assert.deepEqual(handoffCleanupNote({ cleanupPending: true }, "s-1"), {
+    sessionId: "s-1",
+    text: HANDOFF_CLEANUP_NOTE,
+  });
+  assert.equal(handoffCleanupNote({ cleanupPending: false }, "s-1"), undefined);
+  assert.equal(handoffCleanupNote({}, "s-1"), undefined);
+  assert.ok(HANDOFF_CLEANUP_NOTE.includes("片付け"), "片付けの警告の文面が違う");
 });
 
 test("引き継ぎの無効理由とチップの導出は会話の状態から決まる", () => {

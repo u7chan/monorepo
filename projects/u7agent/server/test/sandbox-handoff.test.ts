@@ -37,6 +37,14 @@ function section(hash: string, text: string): string {
   return `# 引き継ぎメモ (本文ハッシュ: ${hash})\n\n${text}\n\nこの続きをお願いします。\n\n`;
 }
 
+function rollback(app: App, body: { path?: unknown; expected?: unknown }): Promise<Response> | Response {
+  return app.request("/v1/files/handoff/rollback", {
+    method: "POST",
+    headers: headers(),
+    body: JSON.stringify(body),
+  });
+}
+
 test("prepends a section, keeps the existing body, and answers created/written", async () => {
   const root = makeRoot("prepend");
   const { app } = createSandboxService({ rootCwd: root, token: TOKEN });
@@ -88,6 +96,68 @@ test("keeps both sections when two writes race on the same path", async () => {
   assert.ok(text.includes("会話 A"), "A のメモが消えている");
   assert.ok(text.includes("会話 B"), "B のメモが消えている");
   assert.equal(text.split("# 引き継ぎメモ").length - 1, 2, "片方のメモしか残っていない");
+});
+
+test("rejects an append that would push the file over the limit inside the lock", async () => {
+  const root = makeRoot("limit");
+  const { app } = createSandboxService({ rootCwd: root, token: TOKEN });
+  await mkdir(join(root, "work"), { recursive: true });
+
+  // 上限の直前まで埋める。事前判定 (BFF 側) はどちらの節も通るが、排他の中で読み直すと後着だけ超える
+  const limit = 2 * 1024 * 1024;
+  const sectionText = section("3333", "後着");
+  await writeFile(join(root, "work", "HANDOFF.md"), "x".repeat(limit - 10));
+  const [a, b] = await Promise.all([
+    write(app, { path: "work/HANDOFF.md", section: "y".repeat(8), dedupeKey: "aaaa" }),
+    write(app, { path: "work/HANDOFF.md", section: sectionText, dedupeKey: "3333" }),
+  ]);
+  // 先着は 200。すべてが上限内に収まる
+  assert.equal(a.status, 200);
+  assert.equal(b.status, 400);
+  const size = (await readFile(join(root, "work", "HANDOFF.md"))).byteLength;
+  assert.ok(size <= limit, `上限を超えて保存されている (${size} bytes)`);
+});
+
+test("deletes a memo only when it still matches, keeping another append", async () => {
+  const root = makeRoot("rollback");
+  const { app } = createSandboxService({ rootCwd: root, token: TOKEN });
+  await mkdir(join(root, "work"), { recursive: true });
+
+  // 新規作成した節は、そのままなら消える
+  assert.equal(
+    (await write(app, { path: "work/HANDOFF.md", section: section("4444", "A"), dedupeKey: "4444" })).status,
+    200,
+  );
+  const created = await rollback(app, { path: "work/HANDOFF.md", expected: section("4444", "A") });
+  assert.equal(created.status, 200);
+  assert.deepEqual(await created.json(), { deleted: true });
+  assert.equal(await readFile(join(root, "work", "HANDOFF.md"), "utf8").catch(() => undefined), undefined);
+
+  // 背後の追記が入ったら消さない (他の追記を巻き戻さない)
+  await write(app, { path: "work/HANDOFF.md", section: section("5555", "A"), dedupeKey: "5555" });
+  await write(app, { path: "work/HANDOFF.md", section: section("6666", "B"), dedupeKey: "6666" });
+  const raced = await rollback(app, { path: "work/HANDOFF.md", expected: section("5555", "A") });
+  assert.equal(raced.status, 200);
+  assert.deepEqual(await raced.json(), { deleted: false });
+  const text = await readFile(join(root, "work", "HANDOFF.md"), "utf8");
+  assert.ok(text.includes("B"), "背後の追記が消えている");
+  assert.ok(text.includes("A"), "自分の節まで消えている");
+});
+
+test("does not read or roll back through a symlink to an outside file", async () => {
+  const root = makeRoot("read-symlink");
+  const outside = makeRoot("read-outside");
+  const { app } = createSandboxService({ rootCwd: root, token: TOKEN });
+  await mkdir(join(root, "work"), { recursive: true });
+  await writeFile(join(outside, "target.md"), "外のファイル");
+  await symlink(join(outside, "target.md"), join(root, "work", "HANDOFF.md"));
+
+  // 読取りも下準備も最終要素のリンクを拒む (書込み側と同じ契約)
+  const readResponse = await read(app, "work/HANDOFF.md");
+  assert.equal(readResponse.status, 400);
+  assert.match(((await readResponse.json()) as { error: string }).error, /Symbolic links/);
+  assert.equal((await rollback(app, { path: "work/HANDOFF.md", expected: "外のファイル" })).status, 400);
+  assert.equal(await readFile(join(outside, "target.md"), "utf8"), "外のファイル", "root 外が変わっている");
 });
 
 test("reads the memo and answers 404 for a missing file", async () => {

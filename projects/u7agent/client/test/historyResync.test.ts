@@ -1538,3 +1538,24 @@ test("compaction イベントは取り込み済みの区切りを beforeMessageI
     ["c2"],
   );
 });
+
+test("同じ会話 id でも引き継ぎの再読込では旧バブルと履歴を捨てる", () => {
+  // 履歴ページを取り込んだ会話 (live のバブルも持つ)
+  const withHistory = chatReducer(initialChatState, {
+    type: "resyncHistory",
+    page: historyPage([userMsg("u1", "前の依頼"), msg("m1", "active", "前の応答")], { messageCount: 2 }),
+  });
+  const echoed = chatReducer(withHistory, { type: "localUser", text: "次の依頼", at: 2 });
+
+  // 引き継ぎ後: 同じ id のまま、BFF の messages も履歴ページも空になる
+  const reset = chatReducer(echoed, { type: "resetHistory" });
+  assert.deepEqual(reset.bubbles, [], "旧バブルが残っている");
+  assert.equal(reset.history.supported, false, "履歴のカーソルが残っている");
+  const resynced = chatReducer(reset, { type: "resync", payload: payload([]) });
+  assert.deepEqual(resynced.bubbles, [], "同じ id の resync が旧バブルを復活させている");
+  const page = chatReducer(resynced, { type: "resyncHistory", page: historyPage([]) });
+  assert.deepEqual(page.bubbles, [], "空の履歴ページで旧バブルが残っている");
+  assert.equal(page.history.messageCount, 0);
+  // bubble id は再利用しない (古いイベントと衝突させない)
+  assert.equal(page.nextId, reset.nextId);
+});

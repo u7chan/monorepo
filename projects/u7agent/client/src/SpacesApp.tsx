@@ -6,6 +6,7 @@ import { SpaceContext } from "./SpaceContext";
 import { ConfirmProvider } from "./components/ConfirmProvider";
 import { reorderRows } from "./lib/agentReorder";
 import { entrySpaceOf, parseRoute } from "./lib/route";
+import type { HandoffNote } from "./lib/sessionHandoff";
 import { removeSpaceAndApply } from "./lib/spaceDelete";
 import { DEFAULT_SPACE_ID, initialSpaceSelection, selectedSpace, spaceSelectionStore } from "./lib/spaceSelection";
 
@@ -35,6 +36,9 @@ export function SpacesApp() {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
   const [reload, setReload] = useState(0);
+  // 引き継ぎの警告 (履歴の片付けが残った)。スペースを選び直すと配下の App は作り直されるため、
+  // 切替をまたいで残るここで持ち、移動先の App が状態行へ出してから消す
+  const [handoffNote, setHandoffNote] = useState<HandoffNote | null>(null);
   // 選択の削除は await を挟むため、render 時の選択は古くなる。移り先の判定に使う最新の選択を ref でも持つ
   const selectionIdRef = useRef(selection.id);
   const applySelection = useCallback((next: SpaceSelectionState) => {
@@ -130,7 +134,7 @@ export function SpacesApp() {
   return (
     <SpaceContext.Provider value={{ spaces, selected, select, create, remove, reorder, applyOrder, api }}>
       <ConfirmProvider key={selected.id}>
-        <App />
+        <App handoffNote={handoffNote} onHandoffNoteShown={() => setHandoffNote(null)} onHandoffNote={setHandoffNote} />
       </ConfirmProvider>
     </SpaceContext.Provider>
   );

@@ -250,7 +250,9 @@ export function createSessionRoutes({
       if (body.resendRunId !== undefined) {
         const result = store.resend(record, body.resendRunId);
         if (!result) return c.json({ error: "この送信は再開できません（保存済みか破棄済みです）" }, 409);
-        return c.json({ sessionId: record.id, status: store.statusOf(record), ...result }, 202);
+        const { handoffConsumed, ...rest } = result;
+        await handoffConsumed;
+        return c.json({ sessionId: record.id, status: store.statusOf(record), ...rest }, 202);
       }
       const attachments = normalizeAttachmentPaths(body.attachments, sessionUploadsRel(record.id, record.meta.spaceId));
       const text = (body.text ?? "").trim();
@@ -274,7 +276,10 @@ export function createSessionRoutes({
         // 展開後の本文でタイトルを作ると `<skill …>` が並ぶので、ユーザーが打った本文を使う
         { titleSource: text },
       );
-      return c.json({ sessionId: record.id, status: store.statusOf(record), ...result }, 202);
+      // 引き継ぎのチップの消費済み印は、受理応答を返す前に保存を待つ (応答後の再起動でも戻らない)
+      const { handoffConsumed, ...rest } = result;
+      await handoffConsumed;
+      return c.json({ sessionId: record.id, status: store.statusOf(record), ...rest }, 202);
     },
 
     /**

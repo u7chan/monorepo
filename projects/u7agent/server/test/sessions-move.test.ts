@@ -55,6 +55,7 @@ function createFsSandbox(root: string) {
   const moves: Array<{ from: string; to: string }> = [];
   const failures: Array<{ from: string; error: Error }> = [];
   const handoffWrites: Array<{ path: string; section: string }> = [];
+  const handoffRollbacks: Array<{ path: string; expected: string; deleted: boolean }> = [];
   const handoffFailures: Array<{ path: string; error: Error }> = [];
   const workspace: SandboxWorkspaceClient = {
     previewFile: async () => ({ text: "" }),
@@ -137,8 +138,27 @@ function createFsSandbox(root: string) {
       await writeFile(target, `${section}${existing ?? ""}`, "utf8");
       return { path, written: true, created: existing === undefined };
     },
+    rollbackHandoff: async ({ path, expected }) => {
+      // 実サンドボックスと同じく、「読む → 照合 → 消す」の全体を 1 回の呼び出しで行う
+      const target = abs(path);
+      const current = await readFile(target, "utf8").catch(() => undefined);
+      const deleted = current !== undefined && current === expected;
+      if (deleted) await rm(target, { force: true });
+      handoffRollbacks.push({ path, expected, deleted });
+      return { deleted };
+    },
   };
-  return { workspace, move, handoff, serve: createServeSandboxStub(), moves, failures, handoffWrites, handoffFailures };
+  return {
+    workspace,
+    move,
+    handoff,
+    serve: createServeSandboxStub(),
+    moves,
+    failures,
+    handoffWrites,
+    handoffFailures,
+    handoffRollbacks,
+  };
 }
 
 async function withPaths<T>(run: (paths: { root: string; store: string }) => Promise<T>): Promise<T> {
@@ -1217,6 +1237,163 @@ test("rejects a memo from a damaged history but still moves without a memo", asy
       assert.equal((await moveTo(offline.bff, id, space)).status, 200);
     } finally {
       await offline.bff.close();
+    }
+  });
+});
+
+test("resolves an explicitly named agent again, even when it is the current one", async () => {
+  await withPaths(async (paths) => {
+    const pi = createStubPi();
+    const { bff } = await openBff(paths, { pi });
+    try {
+      const agent = (await jsonBody(await bff.app.request("/api/agents", jsonPost({ name: "調査と実装" })))).agent;
+      const created = await createSession(bff, { agentId: agent.id });
+      const id = created.sessionId as string;
+      await bff.app.request(`/api/sessions/${id}/messages`, jsonPost({ text: "最初の依頼" }));
+      await waitFor(() => bff.store.statusOf(bff.store.get(id)!) === "completed", 5000, "run completion");
+
+      // 定義を更新してから、同じ id を明示して引き継ぐ。保存済みの古いスナップショットは使わない
+      assert.equal(
+        (await bff.app.request(`/api/agents/${agent.id}`, jsonPatch({ name: "調査と実装 (改)" }))).status,
+        200,
+      );
+      const same = await moveTo(bff, id, "default", { agentId: agent.id });
+      assert.equal(same.status, 200);
+      const payload = await jsonBody(bff.app.request(`/api/sessions/${id}`));
+      assert.equal(payload.agent.name, "調査と実装 (改)", "明示した id が解決し直されていない");
+
+      // 復元で SDK セッションを作るときも新しいスナップショットを使う
+      const restored = pi.createInputs.at(-1) as { promptSnapshot?: { agent: string } } | undefined;
+      assert.match(restored?.promptSnapshot?.agent ?? "", /調査と実装 \(改\)/, "スナップショットが古いまま");
+
+      // 削除済みの id を明示した要求は 400 (省略なら保存済みを維持できる)
+      assert.equal((await bff.app.request(`/api/agents/${agent.id}`, { method: "DELETE" })).status, 200);
+      const missing = await moveTo(bff, id, "default", { agentId: agent.id });
+      assert.equal(missing.status, 400);
+      assert.match((await jsonBody(missing)).error, /Agent not found/);
+    } finally {
+      await bff.close();
+    }
+  });
+});
+
+test("retries a memo at the size limit when the same hash is already at the head", async () => {
+  await withPaths(async (paths) => {
+    const { bff, sandbox } = await openBff(paths);
+    try {
+      const created = await createSession(bff);
+      const id = created.sessionId as string;
+      await bff.app.request(`/api/sessions/${id}/messages`, jsonPost({ text: "材料" }));
+      await waitFor(() => bff.store.statusOf(bff.store.get(id)!) === "completed", 5000, "run completion");
+
+      // 既存のメモへの追記は、meta の書換えが失敗しても残る (rollback の対象は新規作成だけ)
+      const memoPath = join(paths.root, sessionWorkdirRel(id), HANDOFF_FILE_NAME);
+      await writeFile(memoPath, "# 手書き\n");
+      const metaPath = sessionMetaPath(id, paths.store);
+      const metaText = await readFile(metaPath, "utf8");
+      await rm(metaPath);
+      await mkdir(metaPath);
+      assert.equal((await moveTo(bff, id, "default", { memo: true })).status, 500);
+      await rm(metaPath, { recursive: true });
+      await writeFile(metaPath, metaText);
+
+      // 全文をちょうど上限まで膨らませる (以前は再試行の事前判定が追記分を足して 400 になっていた)
+      const memo = await readFile(memoPath, "utf8");
+      await writeFile(memoPath, memo + "x".repeat(HANDOFF_MAX_BYTES - Buffer.byteLength(memo, "utf8")));
+      assert.equal((await readFile(memoPath)).byteLength, HANDOFF_MAX_BYTES);
+
+      const writes = sandbox!.handoffWrites.length;
+      assert.equal((await moveTo(bff, id, "default", { memo: true })).status, 200);
+      // 先頭の見出しが同じなので追記せず、上限も唯の読取りとして満たす
+      assert.equal(sandbox!.handoffWrites.length, writes, "同じハッシュの節を追記している");
+      assert.equal((await readFile(memoPath)).byteLength, HANDOFF_MAX_BYTES);
+      assert.equal((await readFile(memoPath, "utf8")).split("# 引き継ぎメモ").length - 1, 1, "節が二重になっている");
+    } finally {
+      await bff.close();
+    }
+  });
+});
+
+test("keeps a memo that another conversation appended to before the rollback", async () => {
+  await withPaths(async (paths) => {
+    const { bff, sandbox } = await openBff(paths);
+    // 共有 cwd (プロジェクト) の別の会話が、メモの新規作成と rollback の間に追記を成功させた状態を作る
+    const handoff = sandbox!.handoff;
+    const write = handoff.writeHandoff;
+    handoff.writeHandoff = async (input) => {
+      const result = await write(input);
+      if (result.created) {
+        const other = "# 引き継ぎメモ (本文ハッシュ: 9999)\n\n別の会話\n\nこの続きをお願いします。\n\n";
+        await writeFile(
+          join(paths.root, input.path),
+          `${other}${await readFile(join(paths.root, input.path), "utf8")}`,
+        );
+      }
+      return result;
+    };
+    try {
+      const created = await createSession(bff);
+      const id = created.sessionId as string;
+      await bff.app.request(`/api/sessions/${id}/messages`, jsonPost({ text: "材料" }));
+      await waitFor(() => bff.store.statusOf(bff.store.get(id)!) === "completed", 5000, "run completion");
+
+      // meta の書換えを失敗させ、新規作成したメモの rollback を走らせる
+      const metaPath = sessionMetaPath(id, paths.store);
+      const metaText = await readFile(metaPath, "utf8");
+      await rm(metaPath);
+      await mkdir(metaPath);
+      assert.equal((await moveTo(bff, id, "default", { memo: true })).status, 500);
+      await rm(metaPath, { recursive: true });
+      await writeFile(metaPath, metaText);
+
+      // 内容が変わっているので削除しない (別の会話の追記を巻き戻さない)
+      const memo = await readFile(join(paths.root, sessionWorkdirRel(id), HANDOFF_FILE_NAME), "utf8");
+      assert.ok(memo.includes("別の会話"), "別の会話の追記が消えている");
+      assert.equal(sandbox!.handoffRollbacks.at(-1)?.deleted, false, "内容が変わっているのに削除している");
+    } finally {
+      await bff.close();
+    }
+  });
+});
+
+test("keeps the consumed mark on disk before answering, so a discard cannot revive the chip", async () => {
+  await withPaths(async (paths) => {
+    // 1) 材料のある会話を作る (この BFF は正常に走る)
+    const first = await openBff(paths);
+    const created = await createSession(first.bff);
+    const id = created.sessionId as string;
+    await first.bff.app.request(`/api/sessions/${id}/messages`, jsonPost({ text: "材料" }));
+    await waitFor(() => first.bff.store.statusOf(first.bff.store.get(id)!) === "completed", 5000, "run completion");
+    await first.bff.close();
+
+    // 2) 受理した送信が user entry を積む前に失敗する状態で引き継ぎと送信を行う
+    const failing = await openBff(paths, {
+      pi: createStubPi({ promptFailureBeforeUser: "No API key for stub/model", promptFailuresBeforeUser: 1 }),
+    });
+    try {
+      assert.equal((await moveTo(failing.bff, id, "default", { memo: true })).status, 200);
+      const sent = await failing.bff.app.request(`/api/sessions/${id}/messages`, jsonPost({ text: "続き" }));
+      assert.equal(sent.status, 202);
+      const runId = ((await sent.json()) as { runId: string }).runId;
+      // ディスクの meta は応答の時点で消費済み (flush を待たない)
+      assert.equal(((await readMeta(id, paths.store)).handoff as { consumed: boolean }).consumed, true);
+      await waitFor(() => failing.bff.store.statusOf(failing.bff.store.get(id)!) !== "running", 5000, "run failure");
+      assert.equal(
+        (await failing.bff.app.request(`/api/sessions/${id}/unsent/${runId}`, { method: "DELETE" })).status,
+        200,
+      );
+      assert.equal(((await readMeta(id, paths.store)).handoff as { consumed: boolean }).consumed, true);
+    } finally {
+      await failing.bff.close();
+    }
+
+    // 3) 再起動してもチップは戻らない
+    const second = await openBff(paths);
+    try {
+      const payload = await jsonBody(second.bff.app.request(`/api/sessions/${id}`));
+      assert.equal(payload.handoff.consumed, true, "再起動でチップが戻っている");
+    } finally {
+      await second.bff.close();
     }
   });
 });

@@ -1035,13 +1035,11 @@ export class SessionStore {
         queueDepth: record.queue.length,
         prompt: this.masker.mask(text),
       });
-      this.markHandoffConsumed(record);
-      return { queued: true, queueDepth: record.queue.length, runId };
+      return { queued: true, queueDepth: record.queue.length, runId, ...this.consumeHandoff(record) };
     }
 
     const run = this.startRun(record, text, runId);
-    this.markHandoffConsumed(record);
-    return { queued: false, queueDepth: 0, runId: run.id };
+    return { queued: false, queueDepth: 0, runId: run.id, ...this.consumeHandoff(record) };
   }
 
   /**
@@ -1096,14 +1094,18 @@ export class SessionStore {
   /**
    * 引き継ぎ後に最初に受理した送信で「消費済み」を立てる。未送信の破棄では戻さず、その場で meta へ
    * 保存する (BFF の再起動後も同じ判定になる)。購読者へは resync を配り、チップをその場で消す。
+   * 保存の完了を待てるよう Promise を返す (受け取った側は受理応答より前に待つ)。
    */
-  private markHandoffConsumed(record: SessionRecord): void {
+  private consumeHandoff(record: SessionRecord): { handoffConsumed?: Promise<string | undefined> } {
     const handoff = record.meta.handoff;
-    if (!handoff || handoff.consumed) return;
+    if (!handoff || handoff.consumed) return {};
     record.meta = { ...record.meta, handoff: { ...handoff, consumed: true } };
     this.descriptors.set(record.id, record.meta);
-    void this.persist(record, { jsonl: false });
+    // 保存の完了を待てるように Promise を返す (呼び出し側は受理応答より前に待つ)。失敗しても
+    // 状態はメモリ上で消費済みのままにする (以降の保存でやり直す)
+    const saving = this.persist(record, { jsonl: false });
     this.emitResync(record);
+    return { handoffConsumed: saving };
   }
 
   /** その run id がまだ実行中 / キュー待ちか。終了した run は未送信の再送 / 破棄を妨げない */
@@ -1832,10 +1834,10 @@ export class SessionStore {
     const current = live?.meta ?? this.descriptors.get(id) ?? meta;
     if (current.handoffCleanup) throw httpError(409, HANDOFF_CLEANUP_PENDING_MESSAGE);
 
-    // 引き継ぎ先のエージェント。未指定と現在と同じ id は保存済みのスナップショットを維持する
-    // (現在のエージェントがカタログから消えていても引き継げる)。それ以外の未知の id は 400
-    const switchAgent = options.agentId !== undefined && options.agentId !== current.agentId;
-    const resolved = switchAgent ? resolveAgentSkills(this.catalog, options.agentId) : undefined;
+    // 引き継ぎ先のエージェント。「指定なし」は保存済みのスナップショットを維持する (現在のエージェントが
+    // カタログから消えていても引き継げる)。「指定あり」は現在と同じ id でも新規作成と同じ経路で解決し直し、
+    // 定義の更新を反映し、未知・削除済みの id は 400 にする (UI の「現在」は id を省略する)
+    const resolved = options.agentId === undefined ? undefined : resolveAgentSkills(this.catalog, options.agentId);
     const agentId = resolved?.agentInfo.id ?? current.agentId;
     const agentInfo = resolved?.agentInfo ?? current.agent;
     const promptSnapshot = resolved?.promptSnapshot ?? current.promptSnapshot;
@@ -1879,7 +1881,11 @@ export class SessionStore {
           );
         }
       }
-      const total = Buffer.byteLength(memoExisting, "utf8") + Buffer.byteLength(section.text, "utf8");
+      const total =
+        Buffer.byteLength(memoExisting, "utf8") +
+        // 先頭見出しのハッシュが既にあるときは追記されないので、追記分を足さずに評価する
+        // (確定前の失敗からの再試行で、全文がちょうど上限でも通す)
+        (memoExisting.split("\n", 1)[0]?.includes(section.hash) ? 0 : Buffer.byteLength(section.text, "utf8"));
       if (total > SANDBOX_MAX_HANDOFF_BYTES) {
         throw httpError(
           400,
@@ -1965,11 +1971,7 @@ export class SessionStore {
           // 新規作成の rollback は、自分が書いた内容と一致するときだけ消す。既存への追記は戻さない
           const expected = `${memoSection.text}${memoExisting}`;
           undo.push(async () => {
-            const currentText = await handoffSandbox.readHandoff(memoPath).then(
-              (result) => result.text,
-              () => undefined,
-            );
-            if (currentText === expected) await workspace.deleteFile(memoPath);
+            await handoffSandbox.rollbackHandoff({ path: memoPath, expected });
           });
         }
       }

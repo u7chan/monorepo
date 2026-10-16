@@ -11,6 +11,24 @@ import type { AgentDef, AgentSuggestion, SessionHandoffState, SessionSummary } f
 export const HANDOFF_CHIP_LABEL = "HANDOFF.mdを参照";
 export const HANDOFF_CHIP_PROMPT = "作業フォルダの HANDOFF.md を読んで、この続きをお願いします。";
 
+/**
+ * 引き継ぎは成立したが履歴の削除 (片付け) が残ったときの警告。スペースをまたぐ場合は移動先の App が
+ * 状態行へ出す (`SpacesApp` が結果を持ち回り、App は入口の解決が終わってから出す)。
+ */
+export const HANDOFF_CLEANUP_NOTE =
+  "引き継ぎは完了しましたが、片付け（履歴の削除）が残っています。会話を開き直すと再試行します。";
+
+/** 移動先へ渡す警告と対象の会話。片付けが残っていない応答では undefined */
+export type HandoffNote = { sessionId: string; text: string };
+
+/** 引き継ぎの応答から、移動先へ渡す警告を作る (クライアントのメモリではなくスペースをまたいで渡す) */
+export function handoffCleanupNote(
+  result: { cleanupPending?: boolean | undefined },
+  sessionId: string,
+): HandoffNote | undefined {
+  return result.cleanupPending ? { sessionId, text: HANDOFF_CLEANUP_NOTE } : undefined;
+}
+
 /** ダイアログのエージェント 1 行。`current` は現在のエージェント (カタログから消えていても出す) */
 export type HandoffAgentChoice = {
   id: string;
@@ -83,11 +101,18 @@ export type SessionHandoffDialogText = {
   spaceLabel: string;
   memoLabel: string;
   memoDescription: string;
+  /** プロジェクト所属だけの注意 (リポジトリ直下にできる。コミット / 除外は利用者判断) */
+  memoProjectNote?: string;
   confirmLabel: string;
   note: string;
 };
 
-export function sessionHandoffDialogText(title: string): SessionHandoffDialogText {
+/**
+ * 引き継ぎの確認文言。消えるもの (履歴と未送信) と残るもの (作業フォルダのファイルと添付)、
+ * 引き継ぎ後に移動先のスペースへ切り替わることを実行前に示す。プロジェクト所属では、メモが
+ * リポジトリ直下にできることと、コミット / 除外の判断が利用者にあることをメモの説明へ足す。
+ */
+export function sessionHandoffDialogText(title: string, projectSession = false): SessionHandoffDialogText {
   return {
     title: "会話を引き継ぐ",
     ...(title ? { subject: { label: "引き継ぐ会話", value: title } } : {}),
@@ -100,6 +125,7 @@ export function sessionHandoffDialogText(title: string): SessionHandoffDialogTex
     spaceLabel: "移動先の会話スペース",
     memoLabel: "メモを作る",
     memoDescription: "ここまでの要点を作業フォルダの HANDOFF.md に書き出します。すでにあれば先頭に追記します。",
+    ...(projectSession ? { memoProjectNote: HANDOFF_PROJECT_MEMO_NOTE } : {}),
     confirmLabel: "引き継ぐ",
     note: "メモを読むかどうかは引き継ぎ後に選べます。",
   };

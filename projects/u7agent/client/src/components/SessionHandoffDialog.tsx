@@ -200,6 +200,9 @@ export function SessionHandoffDialog({
             <p className="break-words text-ink-soft">
               {memoDisabledReason === "" ? text.memoDescription : memoDisabledReason}
             </p>
+            {memoDisabledReason === "" && text.memoProjectNote ? (
+              <p className="break-words text-ink-soft">{text.memoProjectNote}</p>
+            ) : null}
           </div>
         </div>
 
