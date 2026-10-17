@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef } from "react";
 import type { Bubble, ToolCard } from "../../hooks/chatReducer";
 import { finishOnAnimationEnd } from "../../lib/animationEnd";
 import { splitAttachedFiles } from "../../lib/attachments";
@@ -9,7 +9,6 @@ import { messageFullTimeLabel, messageTimeLabel } from "../../lib/messageTime";
 import { splitSkillBlock } from "../../lib/skillBlock";
 import { nonSkillToolCards, type SkillBadge } from "../../lib/skillLoad";
 import type { GenerationInfo } from "../../lib/generationInfo";
-import type { QueueWait } from "../../lib/queueWait";
 import { messageMetaLine, messageMetaTitle } from "../../lib/usageFormat";
 import { turnEndText, type TurnEnd } from "../../lib/turnEnd";
 import type { AskUserAnswer, RunOutcome } from "../../types";
@@ -76,10 +75,8 @@ export function MessageView({
   onCopyAll,
   onResend,
   onDiscard,
-  onCancelQueued,
   answerable = false,
   live = false,
-  queueWait,
   queueStarted = false,
   onStartFlashEnd,
   onAnswerQuestion,
@@ -114,14 +111,10 @@ export function MessageView({
   onResend?: () => void;
   /** 未送信メッセージの破棄。再送が実行中の分はサーバーが拒否する */
   onDiscard?: () => void;
-  /** 待機キュー中のメッセージの取り消し。実行中のターンは止めず、未送信として残す */
-  onCancelQueued?: () => void | Promise<void>;
   /** このバブルが実行中の run に属するか (ask_user のカードを回答可能にするかの根拠) */
   answerable?: boolean;
   /** 進行中のターンのバブルか。ツール履歴のコピーを完了まで隠す根拠 */
   live?: boolean;
-  /** 待機キューに積まれているバブルか。順位と件数 (チップの分母) を出す根拠 (user バブルだけ) */
-  queueWait?: QueueWait;
   /** 待機列の先頭から実行に移った直後か。リングを 1 回広げ、チップを一瞬 `実行中` にする */
   queueStarted?: boolean;
   /** 開始の Flash (リングの広がり) が終わった。ライブ専用の合図を落とす根拠 */
@@ -137,8 +130,6 @@ export function MessageView({
   turnEnd?: TurnEnd;
 }) {
   const isUser = bubble.role === "user";
-  // 押下から応答まで取り消しを無効化する。二度押しの 2 回目はサーバーが 404 で断る
-  const [canceling, setCanceling] = useState(false);
   // 要約で置き換わった / context_edit で外れた発言は薄暗くし、理由をタグでも示す
   // (色だけに依存せず、最新の有効範囲の境界は ContextBoundary が担う)
   const contextTag = bubble.context === "summarized" ? "要約済み" : bubble.context === "excluded" ? "除外" : undefined;
@@ -165,15 +156,6 @@ export function MessageView({
     });
   }, [queueStarted, onStartFlashEnd]);
 
-  async function handleCancelQueued(): Promise<void> {
-    if (!onCancelQueued) return;
-    setCanceling(true);
-    try {
-      await onCancelQueued();
-    } finally {
-      setCanceling(false);
-    }
-  }
   // user はコピーを時刻より前に置く。コピーは hover で出すが場所は空けたままなので、
   // 末尾に置くと未ホバー時に時刻が本文の右端から内側へずれる
   const copyButton = bodyText ? (
@@ -203,7 +185,7 @@ export function MessageView({
             "relative order-2 grid shrink-0 place-items-center rounded-lg bg-accent-bright font-bold text-on-accent",
             singleColumn ? "size-5.5 text-3xs" : "size-6.5 text-2xs",
             // リングは絶対配置の擬似要素で描き、待機に入る / 抜ける瞬間に行の幅を動かさない
-            queueStarted ? "queue-ring queue-ring-start" : queueWait === undefined ? "" : "queue-ring",
+            queueStarted ? "queue-ring-start" : "",
           )}
         >
           <UserIcon />
@@ -227,37 +209,15 @@ export function MessageView({
           )}
         >
           <span>{isUser ? "あなた" : agentName || "アシスタント"}</span>
-          {isUser && (queueStarted || queueWait !== undefined) ? (
-            <>
-              <span
-                // 待機中は増減 (順位の繰り上がりと終了) が起きる。読み上げは状態行の件数に一本化する
-                aria-live="off"
-                title={
-                  queueStarted
-                    ? "待機キューから実行を開始しました"
-                    : "実行中または圧縮中のため、前のメッセージが終わるとこの順に実行します"
-                }
-                className="rounded-sm border border-focus/40 px-1 text-3xs font-normal text-focus"
-              >
-                {queueStarted
-                  ? "実行中"
-                  : queueWait?.index === undefined
-                    ? "待機中"
-                    : `待機中 ${queueWait.index}/${queueWait.total}`}
-              </span>
-              {onCancelQueued && !queueStarted ? (
-                <button
-                  type="button"
-                  onClick={handleCancelQueued}
-                  disabled={canceling}
-                  title="実行前の待機から外します。本文は未送信として残り、再送か破棄を選べます"
-                  // 待機チップと同じ寸法に揃える (行の高さを待機の出入りで動かさない)
-                  className="rounded-sm border border-focus/40 px-1 text-3xs font-normal text-focus disabled:opacity-60"
-                >
-                  取り消し
-                </button>
-              ) : null}
-            </>
+          {isUser && queueStarted ? (
+            <span
+              // 一瞬で消える演出なので、読み上げは直上ブロックの件数へ委ねる (二重に読ませない)
+              aria-live="off"
+              title="待機キューから実行を開始しました"
+              className="rounded-sm border border-focus/40 px-1 text-3xs font-normal text-focus"
+            >
+              実行中
+            </span>
           ) : null}
           {isUser && bubble.unsent ? (
             <span

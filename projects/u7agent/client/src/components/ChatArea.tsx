@@ -8,7 +8,6 @@ import type { ChatScope } from "../lib/chatScope";
 import { cn } from "../lib/cn";
 import { generationCaptionsOf } from "../lib/generationInfo";
 import type { LiveToolPhase } from "../lib/liveToolCall";
-import { queueWaitsOf } from "../lib/queueWait";
 import { toolCallCopyText, toolHistoryCopyText } from "../lib/copy-content";
 import { nonSkillToolCards, skillBadgesOf } from "../lib/skillLoad";
 import type { AgentSuggestion, AskUserAnswer, CompactionInfo } from "../types";
@@ -58,8 +57,6 @@ export type ChatAreaProps = {
   onResendUnsent?: (runId: string) => void;
   /** 未送信メッセージの破棄 */
   onDiscardUnsent?: (runId: string) => void;
-  /** 待機キュー中のメッセージの取り消し (実行中のターンは止めず、未送信として残す) */
-  onCancelQueued?: (runId: string) => Promise<void>;
   /** 実行中の run か (ask_user の回答を受け付けるかの根拠) */
   answerable?: boolean;
   /** ask_user の回答。エラーはカード内に出し、入力は消さない */
@@ -103,7 +100,6 @@ export function ChatArea({
   onSuggestion,
   onResendUnsent,
   onDiscardUnsent,
-  onCancelQueued,
   answerable = false,
   onAnswerQuestion,
   visible = true,
@@ -136,8 +132,6 @@ export function ChatArea({
   const skillBadges = skillBadgesOf(bubbles);
   // 生成カードと画像・プレイヤーのバブルが分かれる履歴でも対応が取れるよう、ターン単位で対応付ける
   const generationCaptions = useMemo(() => generationCaptionsOf(bubbles, { rootCwd, cwd }), [bubbles, rootCwd, cwd]);
-  // 待機の順位と件数。サーバーが配った順位を保持したまま、表示の直前に並べ直して 1..N を振り直す
-  const queueWaits = useMemo(() => queueWaitsOf(bubbles), [bubbles]);
 
   // 可変高さ (Markdown / ツール履歴 / 折りたたみ要約) を計測し、可視範囲 + overscan だけ DOM に載せる。
   // アイテムは entry id をキーにし、古いページを前置きしても同じ DOM を再利用する。
@@ -289,8 +283,6 @@ export function ChatArea({
     const bubble = item.bubble;
     // 未送信の再送 / 破棄は run id を持つバブルだけに出す
     const unsentRunId = bubble.unsent === true ? bubble.runId : undefined;
-    // 取り消しは待機中のバブルだけに出す (run_start が届いた直後は実行が始まっている)
-    const queuedRunId = bubble.queued === true ? bubble.runId : undefined;
     return (
       <MessageView
         bubble={bubble}
@@ -316,11 +308,9 @@ export function ChatArea({
         onCopyAll={() => void copyMessage(toolHistoryCopyText(nonSkillToolCards(bubble.tools)), `tools_${bubble.id}`)}
         onResend={unsentRunId === undefined ? undefined : () => onResendUnsent?.(unsentRunId)}
         onDiscard={unsentRunId === undefined ? undefined : () => onDiscardUnsent?.(unsentRunId)}
-        onCancelQueued={queuedRunId === undefined ? undefined : () => onCancelQueued?.(queuedRunId)}
         answerable={answerable}
         // 進行中のターンだけ、ツール履歴のコピーを出さない
         live={bubble.id === currentAssistantId}
-        queueWait={queueWaits.get(bubble.id)}
         // 待機列から実行に移った瞬間だけ、リングを 1 回広げる
         queueStarted={startingRunId !== undefined && bubble.runId === startingRunId}
         onStartFlashEnd={onStartFlashEnd}

@@ -10,7 +10,6 @@ import {
 import type { HistoryMergeResult } from "../lib/chatHistory";
 import { ASK_USER_WAITING_TEXT, isPendingAskUser, pendingAskUserQuestionCount } from "../lib/askUser";
 import { compactionDividerIndex } from "../lib/compaction";
-import { queueWaitSummary } from "../lib/queueWait";
 import type { Bubble, ChatHistoryState, CompactionMarker, ToolCard } from "../lib/chatTypes";
 import { retryableRunError, runErrorFrom, type RunErrorInfo } from "../lib/runRetry";
 import { runOutcomeOf } from "../lib/turnEnd";
@@ -790,7 +789,7 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
               : "実行中…（タブを閉じても処理は続きます）",
         };
       } else if (status === "compacting") next = { ...next, activity: "会話を整理中…" };
-      else if (status === "queued") next = { ...next, activity: queueWaitSummary("", payload.queueDepth) };
+      else if (status === "queued") next = { ...next, activity: "" };
       else if (status === "error")
         next = {
           ...next,
@@ -1047,7 +1046,8 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
       return {
         ...next,
         bubbles: next.bubbles.map((bubble) => (bubble.id === echoId ? { ...bubble, since } : bubble)),
-        currentAssistantId: null,
+        // 実行中のターンの本文を積んでいる assistant バブルがあってもそこで受け続ける。ここで落とすと、
+        // 次に届く delta がエコーより後ろの新しいバブルを作り、実行に移った送信が応答の途中に見える
         activity: "送信中…",
         activityState: undefined,
         pendingEchoIds: [...state.pendingEchoIds, echoId],
@@ -1136,7 +1136,7 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
             ? { ...bubble, unsent: false, accepted: true, confirmed: false, at: Date.now(), ...CLEARED_TURN_END }
             : bubble,
         ),
-        currentAssistantId: null,
+        // 再送でも送信と同じく、実行中のターンの本文を受けているバブルに積み続ける
         pendingEchoIds: [...state.pendingEchoIds, echo.id],
         // 停止で破棄された記録を再送するときは、未送信へ戻す控えを消す
         clearedRunIds: state.clearedRunIds.filter((id) => id !== action.runId),
@@ -1312,8 +1312,8 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
         // 圧縮中は体感の状態を compacting のまま保つ (実際に走っているのは圧縮)
         runStatus: state.runStatus === "compacting" ? "compacting" : "running",
         queueDepth: action.queueDepth,
-        // 順位は各バブルのチップが担う。状態行は件数のサマリだけを出す
-        activity: queueWaitSummary(state.runStatus === "compacting" ? "圧縮中…" : "実行中…", action.queueDepth),
+        // 件数はコンポーザー直上のブロックが正。状態行は活動の語だけを出す
+        activity: state.runStatus === "compacting" ? "圧縮中…" : "実行中…",
         activityState: undefined,
       };
 
@@ -1399,7 +1399,8 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
       let activity: string;
       if (status === "stopped") activity = "停止しました";
       else if (status === "error") activity = cardShown ? "" : `エラー: ${action.error || "実行に失敗しました"}`;
-      else activity = queueDepth > 0 ? queueWaitSummary("完了", queueDepth) : "完了";
+      // 件数はコンポーザー直上のブロックが正なので、活動の語だけで示す
+      else activity = "完了";
       // 確定した応答のバブルは resync でも残す (履歴ページが届くまでの表示を維持する)
       const settled =
         state.currentAssistantId === null

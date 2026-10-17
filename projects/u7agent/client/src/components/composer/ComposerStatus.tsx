@@ -56,7 +56,7 @@ export function ComposerStatus({
   runningSince?: number;
   /** 回答待ち (ask_user の実行区間) を経過時間から除く入力。run が実行中のときだけ使う */
   runTools?: Record<string, ToolCall>;
-  /** サーバーの待機キュー件数 (status payload と同じ値。■ の title と状態行が使う) */
+  /** サーバーの待機キュー件数 (status payload と同じ値)。回答待ちの理由を出すかの根拠 */
   queueDepth?: number;
   context?: ContextUsage;
   /** モデル / Effort の入口 (ModelEffortPicker)。モデルが未解決でも行を残し、無いときだけ行を出さない */

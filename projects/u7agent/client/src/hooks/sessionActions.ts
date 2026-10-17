@@ -8,7 +8,6 @@ import type {
   SessionSummary,
   StopResult,
 } from "../types";
-import { queueWaitSummary } from "../lib/queueWait";
 import type { ChatAction } from "./chatReducer";
 import { runtimeStatusForError, type RuntimeStatus } from "./runtimeStatus";
 
@@ -110,8 +109,8 @@ export async function sendChatMessage(text: string, deps: SendChatMessageDeps): 
           type: "setRun",
           runStatus: compacting ? "compacting" : "running",
           queueDepth: result.queueDepth,
-          // 順位は各バブルのチップが担う。状態行は件数のサマリだけを出す
-          activity: queueWaitSummary(compacting ? "圧縮中…" : "実行中…", result.queueDepth),
+          // 件数はコンポーザー直上のブロックが正。状態行は活動の語だけを出す
+          activity: compacting ? "圧縮中…" : "実行中…",
         });
       } else {
         dispatch({ type: "setRun", runStatus: "running", queueDepth: 0, activity: "実行を開始しました" });
@@ -200,9 +199,7 @@ export async function resendUnsentMessage(runId: string, deps: ResendUnsentDeps)
         type: "setRun",
         runStatus: compacting ? "compacting" : "running",
         queueDepth: result.queueDepth,
-        activity: result.queued
-          ? queueWaitSummary(compacting ? "圧縮中…" : "実行中…", result.queueDepth)
-          : "実行を開始しました",
+        activity: result.queued ? (compacting ? "圧縮中…" : "実行中…") : "実行を開始しました",
       });
     }
     void deps.refreshSessions();

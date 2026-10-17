@@ -61,13 +61,18 @@ export function chatRenderItems({
     }
     if (bubble) {
       const turnEnd = itemTurnEnd(bubble);
-      items.push({
-        kind: "message",
-        key: `message:${bubble.entryId ?? bubble.id}`,
-        bubble,
-        ...(turnEnd !== undefined ? { turnEnd } : {}),
-      });
-      lastMessageIndex = items.length - 1;
+      // 待機中の送信は transcript に出さない (コンポーザー直上のブロックが担う)。配列を filter せず
+      // ここで push だけを見送るのは、marker.index / boundaryPosition / ターンの結末の位置算術を
+      // 1 つもずらさないため
+      if (bubble.queued !== true) {
+        items.push({
+          kind: "message",
+          key: `message:${bubble.entryId ?? bubble.id}`,
+          bubble,
+          ...(turnEnd !== undefined ? { turnEnd } : {}),
+        });
+        lastMessageIndex = items.length - 1;
+      }
     }
   }
   return items;

@@ -329,6 +329,69 @@ test("entryId の無いライブのターンでも、結末は最後の応答に
   assert.deepEqual(last.turnEnd, { outcome: "stopped", durationMs: 999 });
 });
 
+test("待機中の送信は transcript に並ばず、圧縮の区切りと境界の位置をずらさない", () => {
+  // What: 待機中はコンポーザー直上のブロックが担うため、描画の配列からは外す。ただし区切りの index と
+  // 境界の位置は bubbles の位置で決まるので、外した分だけ後ろへずれてはいけない
+  const waiting: Bubble = {
+    id: 3,
+    role: "user",
+    text: "待機の本文",
+    tools: [],
+    skillLoads: [],
+    queued: true,
+    runId: "run-q",
+  };
+  const bubbles = [
+    bubble(1, "u1", "summarized", "a"),
+    userTurn(2, "u2", { context: "summarized" }),
+    waiting,
+    bubble(4, "a2", "active", "結果"),
+  ];
+  const markers: CompactionMarker[] = [{ id: "c1", index: 2, compactions: [COMPACTIONS[0]] }];
+
+  const items = chatRenderItems({ bubbles, markers, compactions: COMPACTIONS, activeContextStartId: "a2" });
+
+  assert.deepEqual(
+    items.map((item) => (item.kind === "message" ? `message:${item.bubble.id}` : item.kind)),
+    ["message:1", "message:2", "compaction", "boundary", "message:4"],
+    "待機のバブルは並ばず、区切りと境界は待機の直前の位置のまま",
+  );
+  assert.equal(items.filter((item) => item.kind === "message").length, 3, "待機中の送信は message item を作らない");
+});
+
+test("待機を挟んだターンの結末は、そのターンの最後の応答にだけ付く", () => {
+  // What: 待機のバブルはターンの区切りに使わない。前のターンの結末はそのターンの応答へ付き、
+  // 待機のターンの結末 (まだ実行されていない) は次の応答に漏れない
+  const waiting: Bubble = {
+    id: 3,
+    role: "user",
+    text: "待機の本文",
+    tools: [],
+    skillLoads: [],
+    queued: true,
+    runId: "run-q",
+  };
+  const bubbles = [
+    userTurn(1, "u1", { runDurationMs: 1000, runOutcome: "completed" }),
+    bubble(2, "a1", "active", "応答1"),
+    waiting,
+    bubble(4, "a2", "active", "応答2"),
+  ];
+
+  const items = chatRenderItems({ bubbles, markers: [], compactions: [], activeContextStartId: null });
+
+  const ends = items.filter((item) => item.kind === "message" && item.turnEnd !== undefined);
+  assert.deepEqual(
+    ends.map((item) => (item.kind === "message" ? item.key : "")),
+    ["message:a1"],
+    "結末は実行が終わったターンの最後の応答にだけ付く",
+  );
+  assert.deepEqual(
+    items.map((item) => (item.kind === "message" ? item.bubble.id : item.kind)),
+    [1, 2, 4],
+  );
+});
+
 test("前置き後の scrollTop は高さ増加ぶんだけ下へずらす", () => {
   assert.equal(anchoredScrollTop({ anchorTop: 0, anchorHeight: 1000, nextHeight: 1500 }), 500);
   assert.equal(anchoredScrollTop({ anchorTop: 120, anchorHeight: 1000, nextHeight: 1500 }), 620);

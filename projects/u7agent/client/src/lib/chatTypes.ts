@@ -81,11 +81,12 @@ export type Bubble = {
   confirmed?: boolean;
   /**
    * 待機キューに積まれている送信 (payload が `queued` として配った / 送信応答が `queued` を返した)。
-   * 表示はヘッダーのチップとアバターのリング。run_start / queue_cleared / run_end / payload で解除する
+   * transcript には出さず、コンポーザー直上のブロック (`components/composer/QueuedSends.tsx`) が担う。
+   * run_start / queue_cleared / run_end / payload で解除する
    */
   queued?: boolean;
   /**
-   * サーバーが配った待機の順位 (1 始まり)。表示直前に保持分を並べ直すための根拠で、チップの番号は
+   * サーバーが配った待機の順位 (1 始まり)。表示直前に保持分を並べ直すための根拠で、表示する番号は
    * `lib/queueWait` が付ける。順位が不明 (旧サーバー) は載らない
    */
   queuePosition?: number;

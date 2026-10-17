@@ -813,7 +813,7 @@ test("圧縮中に届いた queued は compacting を維持し、文言も圧縮
 
   assert.equal(queued.runStatus, "compacting");
   assert.equal(queued.compactionStartedAt, 1700000005000);
-  assert.equal(queued.activity, "圧縮中… · 待機 1 件");
+  assert.equal(queued.activity, "圧縮中…", "件数はコンポーザー直上のブロックが正なので状態行は活動の語だけ");
   assert.equal(queued.queueDepth, 1);
 
   // 圧縮でないときは従来どおり running
@@ -823,7 +823,7 @@ test("圧縮中に届いた queued は compacting を維持し、文言も圧縮
     queueDepth: 1,
   });
   assert.equal(running.runStatus, "running");
-  assert.equal(running.activity, "実行中… · 待機 1 件");
+  assert.equal(running.activity, "実行中…");
 });
 
 test("圧縮の開始時刻は run_start / run_end / setRun をまたいで残らない", () => {
@@ -1468,6 +1468,39 @@ test("run_start が応答より先に届いた run は、遅れて届いた queu
   assert.equal(assigned.startingRunId, undefined, "開始の合図は run_start が立てる (応答では立てない)");
 });
 
+test("実行中に送ったエコーは配列の末尾に留まり、実行中ターンの本文は前のバブルへ積まれる", () => {
+  // What: 送信のエコーで currentAssistantId を落とすと、次に届く delta がエコーより後ろへ新しいバブルを作り、
+  // 実行に移った待機中の送信が実行中ターンの応答の途中に見える
+  const running = chatReducer(initialChatState, { type: "runStart", prompt: "長いターン", at: 1, startedAt: 1 });
+  const firstHalf = chatReducer(running, { type: "text", delta: "前半", at: 2 });
+  const sent = chatReducer(firstHalf, { type: "localUser", text: "待機する本文", at: 3 });
+  const queued = chatReducer(sent, { type: "echoRunId", runId: "run-b", queuePosition: 1 });
+  const secondHalf = chatReducer(queued, { type: "text", delta: "後半", at: 4 });
+
+  assert.deepEqual(
+    secondHalf.bubbles.map((bubble) => [bubble.role, bubble.text, bubble.queued === true]),
+    [
+      ["user", "長いターン", false],
+      ["assistant", "前半後半", false],
+      ["user", "待機する本文", true],
+    ],
+    "応答は実行中のバブルへ続けて積み、待機中のエコーは末尾に留まる",
+  );
+
+  // 待機が実行に移ったら、その応答はエコーの後ろの新しいバブルになる
+  const startedB = chatReducer(secondHalf, {
+    type: "runStart",
+    runId: "run-b",
+    prompt: "待機する本文",
+    at: 5,
+    startedAt: 5,
+  });
+  assert.deepEqual(
+    chatReducer(startedB, { type: "text", delta: "B の応答", at: 6 }).bubbles.map((bubble) => bubble.text),
+    ["長いターン", "前半後半", "待機する本文", "B の応答"],
+  );
+});
+
 test("payload の pendingSends が待機と順位を配り、一覧から消えた run は待機を解除する", () => {
   const resynced = chatReducer(historyWithOld(), {
     type: "resync",
@@ -1557,7 +1590,7 @@ test("待機していない run_start では開始の合図を立てない", () 
   assert.equal(started.startingRunId, undefined, "待機列の先頭が動いたときだけ光らせる");
 });
 
-test("run_end は残りの件数をサマリで出し、開始の合図とその run の待機を落とす", () => {
+test("run_end は残りの件数を数えず、開始の合図とその run の待機を落とす", () => {
   const queued = queuedEcho(initialChatState, "待機する本文", "run-b", 1);
   const started = chatReducer(queued, {
     type: "runStart",
@@ -1576,7 +1609,7 @@ test("run_end は残りの件数をサマリで出し、開始の合図とその
 
   assert.equal(ended.startingRunId, undefined);
   assert.equal(ended.runStatus, "queued");
-  assert.equal(ended.activity, "完了 · 待機 2 件");
+  assert.equal(ended.activity, "完了", "件数は直上ブロックが正。状態行は活動の語だけ");
 
   // 実行されずに終わった待機も run_end で解除する (run_start が届かない経路)
   const interrupted = chatReducer(queued, { type: "runEnd", runId: "run-b", status: "stopped", queueDepth: 0 });
@@ -1642,10 +1675,11 @@ test("queueCanceled は対象の待機だけを未送信へ戻し、他の待機
   );
 });
 
-test("resync の status === queued は件数のサマリを出し、run の実行中では開始の合図を残す", () => {
+test("resync の status === queued は件数も理由も状態行に出さず、run の実行中では開始の合図を残す", () => {
+  // What: run が無くキューだけの過渡で語れる事実は直上ブロックの件数だけなので、活動の文言は空にする
   const waiting = chatReducer(historyWithOld(), { type: "resync", payload: pendingPayload([], "queued", 2) });
   assert.equal(waiting.runStatus, "queued");
-  assert.equal(waiting.activity, "待機 2 件");
+  assert.equal(waiting.activity, "");
 
   // 開始直後の復帰。payload が同じ run の実行中を示す間は演出を残す (初回描画で消さない)
   const queued = queuedEcho(initialChatState, "待機する本文", "run-b", 1);

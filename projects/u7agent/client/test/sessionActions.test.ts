@@ -136,8 +136,8 @@ test("marks the message as queued when the session is already running", async ()
 
   const [run] = actionsOfType(record.actions, "setRun");
   assert.equal(run.queueDepth, 3);
-  assert.equal(run.activity, "実行中… · 待機 3 件");
-  // 待機の順位は応答の queueDepth (= 押し込んだ直後の自分の順位)。バブルのチップ用に echo へ預ける
+  assert.equal(run.activity, "実行中…", "件数はコンポーザー直上のブロックが正");
+  // 待機の順位は応答の queueDepth (= 押し込んだ直後の自分の順位)。ブロックの行の導出に預ける
   assert.deepEqual(actionsOfType(record.actions, "echoRunId"), [
     { type: "echoRunId", runId: "run-3", queuePosition: 3 },
   ]);
@@ -166,7 +166,7 @@ test("圧縮中の送信は compacting のままキューへ積む", async () =>
       type: "setRun",
       runStatus: "compacting",
       queueDepth: 2,
-      activity: "圧縮中… · 待機 2 件",
+      activity: "圧縮中…",
     },
   ]);
 });
@@ -632,7 +632,7 @@ test("再送がキューに積まれたら、状態行は件数のサマリに�
   await resendUnsentMessage("run-x", deps);
 
   assert.deepEqual(actionsOfType(actions, "setRun"), [
-    { type: "setRun", runStatus: "running", queueDepth: 2, activity: "実行中… · 待機 2 件" },
+    { type: "setRun", runStatus: "running", queueDepth: 2, activity: "実行中…" },
   ]);
 });
 
