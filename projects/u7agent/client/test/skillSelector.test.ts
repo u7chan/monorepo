@@ -281,9 +281,8 @@ test("定義一覧は件数がゼロのときだけ空状態を出す", () => {
       createElement(DefinitionList, {
         title: "スキル一覧",
         count,
-        addLabel: "追加",
+        add: { label: "追加", onAdd: () => {} },
         emptyLabel: "登録なし",
-        onAdd: () => {},
         children: null,
       }),
     );

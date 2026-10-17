@@ -65,8 +65,8 @@ export function parseSkillCommand(text: string): { name: string; args: string } 
 }
 
 /**
- * SDK の `_expandSkillCommand` と同じ形のブロックを組み立てる。`baseDir` がある (ファイル) ときだけ
- * 「References are relative to …」を入れる (組み込みは実体の無い仮想パスなので入れない)。
+ * SDK の `_expandSkillCommand` と同じ形のブロックを組み立てる。`baseDir` を渡されたときだけ
+ * 「References are relative to …」を入れる (呼び出し側はファイル / 組み込みとも実体の場所を渡す)。
  */
 export function formatSkillCommandBlock(input: {
   name: string;

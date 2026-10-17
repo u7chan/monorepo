@@ -1,5 +1,5 @@
 import { useState, type FormEvent } from "react";
-import { useFileSkills } from "../hooks/useFileSkills";
+import { useFileSkills, type FileSkillsState } from "../hooks/useFileSkills";
 import { useWideLayout } from "../hooks/useLayoutMode";
 import {
   FILE_SKILL_ADD_LABEL,
@@ -26,6 +26,17 @@ export type SkillSettingsPageProps = SettingsPageProps & {
 
 function errorText(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+/**
+ * 一覧の先頭に置く「新しいスキル」の追加行。取得できていない間は保存先も一覧も無く、入力のあとに
+ * 失敗するだけなので出さない (取得中 / 失敗の理由は一覧側の注記と再読み込みが示す)。
+ */
+export function fileSkillAddRow(
+  state: FileSkillsState,
+  startCreate: () => void,
+): { label: string; onAdd: () => void } | undefined {
+  return state.status === "ready" ? { label: FILE_SKILL_ADD_LABEL, onAdd: startCreate } : undefined;
 }
 
 export function SkillSettingsPage({
@@ -142,8 +153,7 @@ export function SkillSettingsPage({
     <DefinitionList
       title="スキル一覧"
       count={fileSkills.state.status === "ready" ? fileSkills.state.skills.length : 0}
-      addLabel={FILE_SKILL_ADD_LABEL}
-      onAdd={startNewFileSkill}
+      add={fileSkillAddRow(fileSkills.state, startNewFileSkill)}
     >
       <FileSkillList
         state={fileSkills.state}
