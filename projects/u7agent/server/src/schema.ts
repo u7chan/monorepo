@@ -1312,6 +1312,55 @@ export const SandboxSkillDeletePreviewSchema = z.object({
 export type SandboxSkillDeletePreview = z.infer<typeof SandboxSkillDeletePreviewSchema>;
 
 /**
+ * サンドボックス POST /v1/skills/import の応答。ワイヤ契約の正は server/src/sandbox/protocol.ts で、
+ * ここは BFF が受けた応答の検証用。plan は skills、apply は applied / skipped を返す。
+ */
+export const SandboxSkillImportPlanEntrySchema = z.object({
+  name: z.string(),
+  status: z.enum(["new", "identical", "conflict", "invalid"]),
+  /** invalid のときだけ入る */
+  reason: z.string().optional(),
+});
+export type SandboxSkillImportPlanEntry = z.infer<typeof SandboxSkillImportPlanEntrySchema>;
+
+export const SandboxSkillsImportPlanSchema = z.object({
+  skills: z.array(SandboxSkillImportPlanEntrySchema),
+  /** 検証に使った ZIP の総エントリ数 (ディレクトリを含む) */
+  entries: z.number().int().nonnegative(),
+  /** 検証に使った ZIP の展開後の総バイト数 */
+  bytes: z.number().int().nonnegative(),
+});
+export type SandboxSkillsImportPlan = z.infer<typeof SandboxSkillsImportPlanSchema>;
+
+export const SandboxSkillImportAppliedSchema = z.object({
+  name: z.string(),
+  /** `.agents/skills/<name>/SKILL.md` (root 相対) */
+  relativePath: z.string(),
+  /** 取り込んだ SKILL.md のバイト列の SHA-256 */
+  fileVersion: z.string(),
+  replaced: z.boolean(),
+});
+export type SandboxSkillImportApplied = z.infer<typeof SandboxSkillImportAppliedSchema>;
+
+export const SandboxSkillImportSkippedSchema = z.object({
+  name: z.string(),
+  reason: z.string(),
+});
+export type SandboxSkillImportSkipped = z.infer<typeof SandboxSkillImportSkippedSchema>;
+
+export const SandboxSkillsImportApplySchema = z.object({
+  applied: z.array(SandboxSkillImportAppliedSchema),
+  skipped: z.array(SandboxSkillImportSkippedSchema),
+  entries: z.number().int().nonnegative(),
+  bytes: z.number().int().nonnegative(),
+});
+export type SandboxSkillsImportApply = z.infer<typeof SandboxSkillsImportApplySchema>;
+
+/** 取り込みの応答は mode で形が違う (plan は skills、apply は applied / skipped) */
+export const SandboxSkillsImportResultSchema = z.union([SandboxSkillsImportPlanSchema, SandboxSkillsImportApplySchema]);
+export type SandboxSkillsImportResult = z.infer<typeof SandboxSkillsImportResultSchema>;
+
+/**
  * POST /api/skills/files の body。名前は GUI 新規の規則 (既存ファイルの保存名の互換とは別) で、
  * 実際の規則の判定はサンドボックス側の SDK 検証が行う。
  */

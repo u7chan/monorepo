@@ -25,6 +25,7 @@ import type {
   SandboxMoveClient,
   SandboxRuntimeDiagnostics,
   SandboxServeClient,
+  SandboxSkillArchiveClient,
   SandboxSkillFileClient,
   SandboxWorkspaceClient,
 } from "./sandbox/client";
@@ -82,6 +83,11 @@ export type CreateBffAppOptions = {
    * サンドボックスクライアントを再利用する (workspace を差し替えたテストでは null = 編集は 503)。
    */
   skillSandbox?: SandboxSkillFileClient | null;
+  /**
+   * スキルの持ち出し / 取り込みに使うサンドボックス。未指定なら env から生成したサンドボックスクライアントを
+   * 再利用する (workspace を差し替えたテストでは null = 持ち出し / 取り込みは 503)。
+   */
+  skillArchiveSandbox?: SandboxSkillArchiveClient | null;
   /** serve の稼働判定に使うプローブ。テストで差し替える */
   serveProbe?: ServeProbe;
   /** プローブ先のホスト。未指定は PI_SANDBOX_URL のホスト (同一ホストのサンドボックス) */
@@ -107,6 +113,8 @@ export type BffContext = {
   runtimeDiagnostics: SandboxRuntimeDiagnostics | null;
   /** 共通スキル (`.agents/skills`) の GUI 編集。null なら 503 */
   skillSandbox: SandboxSkillFileClient | null;
+  /** 共通スキルの持ち出し / 取り込み。null なら 503 */
+  skillArchiveSandbox: SandboxSkillArchiveClient | null;
   sessionStore: SessionStoreStatus;
   /** アプリデータ (プロジェクト / カタログ) の DB。status() を health へ出す */
   appDb: AppDb;
@@ -294,6 +302,13 @@ export async function createBffContext(opts: CreateBffAppOptions = {}): Promise<
   // 共通スキルの編集も同じく狭い IF で注入する (一覧と検証の経路は変えない)
   const skillSandbox =
     opts.skillSandbox !== undefined ? opts.skillSandbox : sandboxClient !== undefined ? sandboxClient : null;
+  // 持ち出し / 取り込みも同じクライアントを狭い IF で注入する (CRUD のスタブを広げない)
+  const skillArchiveSandbox =
+    opts.skillArchiveSandbox !== undefined
+      ? opts.skillArchiveSandbox
+      : sandboxClient !== undefined
+        ? sandboxClient
+        : null;
   const store = new SessionStore({
     pi,
     catalog,
@@ -346,6 +361,7 @@ export async function createBffContext(opts: CreateBffAppOptions = {}): Promise<
     workspace,
     runtimeDiagnostics,
     skillSandbox,
+    skillArchiveSandbox,
     sessionStore,
     appDb,
     notifications,

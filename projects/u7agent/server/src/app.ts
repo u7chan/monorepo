@@ -118,6 +118,7 @@ export async function createBffApp(opts: CreateBffAppOptions = {}) {
     serve,
     secrets,
     skillSandbox,
+    skillArchiveSandbox,
   } = await createBffContext(opts);
   const appData = appDataGuard(appDb);
   const spaces = new SpaceStore(appDb);
@@ -141,7 +142,7 @@ export async function createBffApp(opts: CreateBffAppOptions = {}) {
   // プレビュー専用リスナー (別オリジン) 用。storage を有効にするため、応答は HTML プレビューのルートだけにする
   const previewFileRoutes = createFileRoutes({ workspace, archiveSettings, sandbox: "storage" });
   const catalogRoutes = createCatalogRoutes({ catalog, workspace, rootCwd: cwd });
-  const skillFileRoutes = createSkillFileRoutes({ sandbox: skillSandbox });
+  const skillFileRoutes = createSkillFileRoutes({ sandbox: skillSandbox, archive: skillArchiveSandbox });
   const projectRoutes = createProjectRoutes({ projects, store, workspace });
   const sessionRoutes = createSessionRoutes({ store, workspace, spaces });
   const notificationRoutes = createNotificationRoutes({ notifications });
@@ -163,6 +164,8 @@ export async function createBffApp(opts: CreateBffAppOptions = {}) {
     .use("/api/sessions/*", sessionSpaceGuard(spaces, store))
     // bodyGuard は本文を最長 64 KiB で読み切って text 化するため、raw で受けるアップロードは先に登録する
     .post("/api/sessions/:id/files", (c) => sessionRoutes.uploadFile(c))
+    // スキルの取り込みも raw の ZIP を中継する (JSON 化されると展開できない)
+    .post("/api/skills/files/import", (c) => skillFileRoutes.import(c))
     .use("/api/*", bodyGuard)
     .use("/api/*", spaceContextGuard(spaces, store))
     .get("/api/spaces", appData, (c) => c.json({ spaces: spaces.list() }))
@@ -261,6 +264,8 @@ export async function createBffApp(opts: CreateBffAppOptions = {}) {
     // スキルの一覧・編集はファイル (`.agents/skills`) だけを対象にする。旧 `/api/skills` と
     // `/api/skills/:id` の DB カタログ CRUD は置かず、新しい API へも転送しない (404)
     .get("/api/skills/files", catalogRoutes.listFileSkills)
+    .get("/api/skills/files/export", skillFileRoutes.export)
+    .get("/api/skills/files/export/check", skillFileRoutes.exportCheck)
     .get("/api/skills/files/detail", skillFileRoutes.detail)
     .get("/api/skills/files/delete-preview", skillFileRoutes.deletePreview)
     .delete("/api/skills/files", skillFileRoutes.remove)

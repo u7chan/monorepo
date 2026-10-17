@@ -32,7 +32,7 @@ DTO の正は `server/src/schema.ts`（zod）。リクエストボディは `@ho
 | Web 検索の設定（設定 → Web 検索 `/settings/web-search`） | `GET/PUT /api/settings/web-search`、`PUT /api/settings/web-search/provider`、`PUT/DELETE /api/settings/web-search/providers/:provider/key` | このファイル、[web-search.md](web-search.md) |
 | サービス（serve）の状態と起動・停止 | `GET /api/serve/status`、`POST /api/serve/start`、`POST /api/serve/stop` | このファイル、[sandbox.md](sandbox.md#serveサービスの公開と起動停止) |
 | 作業フォルダの環境変数（作業環境 → 環境変数） | `GET/POST /api/secrets`、`GET/PUT/DELETE /api/secrets/:secretId` | このファイル、[secrets.md](secrets.md#作業フォルダの環境変数) |
-| エージェント / スキル | `/api/agents`、`/api/skills/files`（`/detail`・`/delete-preview` を含む）、`/api/skills/session` | [api-catalog.md](api-catalog.md)、[api-sessions.md](api-sessions.md) |
+| エージェント / スキル | `/api/agents`、`/api/skills/files`（`/detail`・`/delete-preview`・`/export`・`/export/check`・`/import` を含む）、`/api/skills/session` | [api-catalog.md](api-catalog.md)、[api-sessions.md](api-sessions.md) |
 | サンドボックス（内部） | `/v1/*`（BFF からは見えない） | [sandbox-api.md](sandbox-api.md) |
 
 ## スペース
@@ -671,6 +671,8 @@ Content-Security-Policy: sandbox allow-scripts; default-src 'none'; style-src 'u
 ## セッションへのファイルアップロード
 
 `POST /api/sessions/:id/files?name=<ファイル名>` は選択時の即時アップロードで、保存先は所属スペースの添付置き場（既定スペースは `<appdir>/uploads/<sessionId>/`。置き場は [session-files.md](session-files.md#スペースごとの配置)）で、プロジェクトのリポジトリ内には作らない。JSON ではなく raw ストリームで受け、`bodyGuard`（既定 64 KiB の body 上限と text 化）より前に登録する。仕様と上限は [api-sessions.md](api-sessions.md#post-apisessionsidfiles)、保存の規則は [session-files.md](session-files.md#添付ファイルチャットからのアップロード) を参照する。
+
+`POST /api/skills/files/import?dryRun=true&replace=<名前>` はスキル（`.agents/skills`）の ZIP 取り込みで、これも raw ストリームで受け、`bodyGuard` より前に登録する。申告された `content-length` が上限を超えるときは本文を送らずに 413 にし、本文の上限はサンドボックス側でも数える（同じ値）。応答はサンドボックスの plan / apply の形を検証してそのまま返し、`dryRun` / `replace` は解釈せず query のままサンドボックスへ渡す。契約は [api-catalog.md](api-catalog.md#ファイルスキルagentsskills)、検証と排他は [sandbox-api.md](sandbox-api.md#スキルの持ち出し--取り込み) を参照する。
 
 ## プロジェクト
 
