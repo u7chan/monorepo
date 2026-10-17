@@ -10,6 +10,9 @@ BFF が作業用ツール（`read` / `bash` / `edit` / `write` / `grep` / `find`
 | GET | `/v1/files` | 作業領域の一覧（JSON）。`?path=<root 相対>` |
 | GET | `/v1/files/git` | 作業フォルダが属する repo のブランチ（JSON）。`?path=<root 相対>` |
 | GET | `/v1/skills` | ファイルスキル（`SKILL.md`）の発見（JSON）。`?dir=<root 相対>` |
+| GET | `/v1/skills/export` | `.agents/skills` の ZIP 持ち出し（ストリーム）。[スキルの持ち出し / 取り込み](#スキルの持ち出し--取り込み) |
+| GET | `/v1/skills/export/check` | 持ち出しの見積り（JSON）。上限と `.git` の除外は export と同じ |
+| POST | `/v1/skills/import` | `.agents/skills` の ZIP 取り込み（raw 本文）。`?dryRun=true` / `?replace=<名前>`（繰り返し可） |
 | GET | `/v1/skills/file` | 共通スキル 1 件の編集内容（JSON）。`?relativePath=<root 相対>` |
 | POST | `/v1/skills/file` | 共通スキルの新規作成。`{ name, description, body }` |
 | PATCH | `/v1/skills/file` | 共通スキルの保存。`{ relativePath, fileVersion, description, body }` |
@@ -352,6 +355,35 @@ GET /v1/skills?dir=.agents/skills
 - **排他の順序は「共通スキル置き場の外側 gate → SDK のファイル隊列（`withFileMutationQueue`）」。** GUI の CRUD、共通の中へ解決する SDK `edit` / `write` の実行全体、共通（またはその祖先）を変更する / 共通へ出入りする既存のファイル変更 API を gate に参加させ、取得後にパスを再確認する。SDK の同じ隊列は外から二重に取得しない。排他は SDK と同様の順番待ちで、専用の待機 timeout を追加しない。観測できる abort は未開始なら変更前に拒否し、開始済みの IO が終わる前に解放しない
 - 公開は同じディレクトリの一時ファイルからの `rename` で行う。**任意の bash と外部エディタはこの gate に参加しない**ため、版の再確認で観測した変更は拒否するが、比較と書き込みの間の外部プロセスによる競合まで完全な CAS としては保証しない
 - 要求の上限は既存の JSON body の上限（`SANDBOX_MAX_BODY_BYTES`）で、超過は 413。GUI の保存経路は BFF 側の 64 KiB が先に効く
+
+## スキルの持ち出し / 取り込み
+
+`.agents/skills` 全体を 1 本の ZIP として持ち出し / 取り込みする。形式は既存のストリーミング ZIP ライタ（`server/src/sandbox/zip.ts`）に揃え、エントリ名は `.agents/skills` 相対（直下がスキルフォルダ）。manifest / version ファイルは置かず、frontmatter の未知キーも解釈せずバイトのまま運ぶ。BFF の API は [api-catalog.md](api-catalog.md#ファイルスキルagentsskills) を正とする。
+
+### `GET /v1/skills/export`
+
+- 対象は `<PI_SANDBOX_CWD>/.agents/skills` に固定する（`path` の query は受けない）。**利用者の除外設定（`archiveSettings.effectiveNames()`）は使わず**、`.git` だけを全階層・ベース名の完全一致で落とし、symlink はエントリに入れない
+- 直下は **`SKILL.md` を直接持つディレクトリ**（`SKILL.md` が通常ファイル）だけを入れ、直下のファイルと `SKILL.md` を持たないディレクトリは入れない。配下は空ディレクトリを含めてそのまま入れる
+- 保存名は `skills.zip`。応答は `application/zip` / `Content-Disposition: attachment; filename*=UTF-8''skills.zip` / `Cache-Control: no-store` / `X-Content-Type-Options: nosniff` で、**`Content-Length` を付けない**（ストリーム）
+- `.agents/skills` が無いときは 404。あるがスキル 0 件のときは空の ZIP を返し、`/check` は `entries: 0` を返す
+- `GET /v1/skills/export/check` はダウンロードの `check` と同じ形（`kind` / `name` / `bytes` / `entries` / `skipped`）を返す。`skipped` には実際に落とした `.git` が入る
+- 合計サイズ / エントリ数の上限はダウンロードと同じ値と文言を使い、ヘッダ送出前に 413 で断る。UI が出すのはこの 413 の理由で、除外の指定が無いため確認ダイアログは出さない
+
+### `POST /v1/skills/import`
+
+raw の ZIP 本文を受け、`?dryRun=true` で計画（何も変更しない）だけを返し、省略時は計画に従って適用する。`dryRun` は `true` の完全一致だけを dry run とし、`replace` は繰り返しで受け、保存名と同じ規則（`isValidEntryName`）で検証して重複を畳む。空値・不正な名前と、解釈できない `dryRun` は 400。
+
+- ZIP の読み取りは自前実装（`server/src/sandbox/zip-read.ts`、中央ディレクトリを起点）。store / deflate だけを扱い、data descriptor（bit 3）の有無はどちらも受け、`unzip` バイナリに依存しない
+- エントリ名は UTF-8 として厳密に読み、bit 11 が無い非 ASCII 名は拒否する。`..` / 絶対パス / `\` / 制御文字 / 空セグメントは名として受け付けない
+- **構造不正は全体拒否**（`.agents/skills` に何も書かない）: zip slip、重複エントリ名、symlink / 特殊ファイルのエントリ、暗号化・Zip64・store / deflate 以外の圧縮、パスのいずれかのセグメントが `.git`、hidden の直下フォルダ、`SKILL.md` を持たない直下項目、上限超過、CRC-32 / サイズ（ローカルヘッダ・data descriptor・中央ディレクトリ・展開結果）の不一致、切り詰め
+- **スキル個別の不正はそのスキルだけ** invalid（frontmatter が読めない / name 規則違反 / description の欠落・超過 / フォルダ名と `name` の不一致）。判定は SDK の `loadSkillsFromDir` を正とし、staging のスキル配下の診断が 1 件でもあれば invalid にする（新しいスキルの作成と同じ判定）。走査は staging のフォルダ自体に対して行い、`.gitignore` / `.ignore` / `.fdignore` も効かせる
+- 上限は既存の `SANDBOX_MAX_UPLOAD_BYTES` / `SANDBOX_MAX_ARCHIVE_BYTES` / `SANDBOX_MAX_ARCHIVE_ENTRIES` を再利用し、import 専用の上限を作らない（受信本文はアップロード、展開後はダウンロードと同じ値）
+- 一時データは `.agents/.import-<uuid>/`（受信 ZIP・staging・退避）に置き、rename を同じファイルシステムに閉じる。成功・失敗・中断（`AbortSignal`）のいずれでも消す
+- 適用は**共通スキル置き場の gate の内側**で行う。置換対象の解決は既存の共通スキルの規則に揃え（realpath で `.agents/skills` の内側、`SKILL.md` が symlink のスキルは置換しない）、「staging で全件検証 → 置換対象を退避へ rename → 新フォルダを rename → 全件成功後に退避削除」の順に適用する。途中で失敗したら適用済みの分を逆順で戻す。書き込みは受信バイトのまま（`skill-edit.ts` を通さない）
+- `replace` に無い conflict は取り込まず、`identical` は書き込みを省略し、`invalid` は常にスキップする。bundle に無い名前・既存に無い名前は無視する（何も作らず、何も消さない）。既存スキルの暗黙の削除・連番併存・部分マージはしない
+- 応答は plan と apply で形が違う。plan は `{ skills: [{ name, status, reason? }], entries, bytes }`（`status` は `new` / `identical` / `conflict` / `invalid` で、`reason` は `invalid` のときだけ）。apply は `{ applied: [{ name, relativePath, fileVersion, replaced }], skipped: [{ name, reason }], entries, bytes }` で、`fileVersion` は取り込んだ `SKILL.md` のバイト列の SHA-256。`entries` / `bytes` は検証に使った ZIP の総エントリ数と展開後の総バイト数
+- **任意の bash / 外部エディタは gate に参加しない**ため、適用中に外部プロセスが `.agents/skills` を触れば検出できない（既存の保存と同じ線引き）。プロセスが適用中に落ちると `.agents/.import-<uuid>/` が残り得る（隠しディレクトリなので SDK の走査対象外）
+- BFF はこの応答を検証してそのまま返す。plan / apply とも一覧（`GET /api/skills/files`）は呼ばず、UI が結果の後に取り直す
 
 ## `DELETE /v1/files`
 

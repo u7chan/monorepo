@@ -82,6 +82,9 @@ GUI で登録するスキル定義と `agents.skillIds` の割り当て（DB カ
 | メソッド | パス | 説明 |
 | --- | --- | --- |
 | GET | `/api/skills/files` | 共通スキルと組み込みスキルの一覧。サンドボックス未設定は 503、サンドボックス側の失敗は 502 |
+| GET | `/api/skills/files/export` | 共通スキル（`.agents/skills`）の ZIP 持ち出し（保存名は `skills.zip`）。`.agents/skills` が無ければ 404、上限超過は 413 |
+| GET | `/api/skills/files/export/check` | 持ち出しの見積り（`kind` / `name` / `bytes` / `entries` / `skipped`）。download の `check` と同じ形で、UI は 413 の理由を先に出す |
+| POST | `/api/skills/files/import` | 共通スキルの ZIP 取り込み（raw body。`?dryRun=true` / `?replace=<名前>` の繰り返し）。構造不正は 400 / 413 で何も書かず、plan / apply で応答の形が違う |
 | GET | `/api/skills/files/detail` | 共通スキル 1 件の編集内容（`?relativePath=`）。name / description / 未 trim の body / relativePath / fileVersion / 編集可否と理由 |
 | POST | `/api/skills/files` | 共通スキルの新規作成（`{ name, description, body }`）。既存ディレクトリ・同名の共通スキルは 409 |
 | PATCH | `/api/skills/files` | 共通スキルの保存（`{ relativePath, fileVersion, description, body }`）。name は受け付けず、版の不一致は 409 |
@@ -133,6 +136,7 @@ GUI で登録するスキル定義と `agents.skillIds` の割り当て（DB カ
 - 共通行の編集は名前を表示のみ（新規だけ入力）、説明と本文だけを編集できる。本文は frontmatter の閉じ行の直後から始まるため、本文欄と API の `body` は**閉じ行の改行を除いた**本文で、保存では必ず付け直す（先頭空行を消しても閉じ行と本文を癒着させない。本文中の改行と前後の空白はそのまま扱う）。自動起動の切替（`disable-model-invocation`）と YAML 全文の編集は出さない。新規はフォームの名前から `<root>/.agents/skills/<name>/SKILL.md` を作る（サーバーが組み立て、既存ディレクトリ・同名の共通スキルは 409。上書きも連番化もしない）。編集内容が保存できないファイル（frontmatter が特殊、内容が読込不能）は閲覧だけを許し、理由を本文ビューの注記に出す
 - 保存が 409 で止まったときは入力した内容をフォームに残し、`再読み込み` を促す（強制上書き・自動再送は作らない）。削除は専用フォルダと付随ファイルの一覧・`treeVersion` を `delete-preview` で取り直してから確認を出し、取り消したら何も変更しない。成功後は一覧を取り直し、選択を解除する。保存 / 削除の後に対象が切り替わっても、古い本文や成功の通知を別の対象へ混ぜない（取得は対象ごとの世代で無効化する）
 - 保存の要求は既存の BFF の上限（64 KiB）のままにする。超過は 413 で拒否し、本文を切り詰めない。この上限を超えるスキルは閲覧だけを許し、編集内容の応答（`editable: false`）とフォームの注記で理由を示す（切り詰めて保存はしない）
+- 持ち出し / 取り込み（`export` / `export/check` / `import`）はサンドボックス側で完結させ、BFF は本文と応答を検証して中継するだけにする。`import` は一覧を 2 回引かず、plan は何も変更せず、apply は適用した結果を返す（一覧を取り直すのは画面側で、上で書いた見出しの再読み込み 1 つを使う）。詳細な契約と検証は [sandbox-api.md](sandbox-api.md#スキルの持ち出し--取り込み) を参照する
 - `.agents/skills` がまだ無い workspace ではエラーにせず、組み込みだけを返す（サンドボックスの 404 を空の一覧として扱う）。サンドボックス未設定は 503、接続失敗・走査の期限切れ（[sandbox-api.md](sandbox-api.md#get-v1skills)）は 502
 - 発見一覧はセッション作成・復元のたびに取り直す。復元は `meta.projectCwd` を起点にするため、プロジェクト登録が外れていても同じスキルが見える
 - `disable-model-invocation` のスキルは system prompt の `available_skills` から外れる（本文は `path` を `read` すれば読める）。一覧が fat になる場合はこれで逃がす

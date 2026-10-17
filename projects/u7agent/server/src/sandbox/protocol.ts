@@ -194,18 +194,33 @@ export interface SandboxMoveResult {
 /** DELETE /v1/dirs の `recursive` query の解釈結果。省略は false で、不正値と重複は ok: false になる */
 export type RecursiveQuery = { ok: true; recursive: boolean } | { ok: false };
 
+/** `true` の完全一致だけを true とする query の解釈結果。省略は false で、他の値と重複は ok: false になる */
+export type TrueOnlyQuery = { ok: true; value: boolean } | { ok: false };
+
+/**
+ * `recursive` / `dryRun` のように「`true` の完全一致だけを有効」とする query を読み、
+ * 省略を false、他の値と重複を不正として分ける (片方だけ緩いと排他の検証が崩れる)。
+ */
+export function parseTrueOnlyQuery(values: string[] | undefined): TrueOnlyQuery {
+  if (!values || values.length === 0) return { ok: true, value: false };
+  if (values.length === 1 && values[0] === "true") return { ok: true, value: true };
+  return { ok: false };
+}
+
 /**
  * `recursive` query は正確に文字列 `"true"` のときだけ再帰。省略時は空ディレクトリだけを消す。
  * それ以外の値と重複値は「再帰しない」ではなく不正 (400) にする必要があるため、BFF とサンドボックスでこの関数を共有する。
  */
 export function parseRecursiveQuery(values: string[] | undefined): RecursiveQuery {
-  if (!values || values.length === 0) return { ok: true, recursive: false };
-  if (values.length === 1 && values[0] === "true") return { ok: true, recursive: true };
-  return { ok: false };
+  const parsed = parseTrueOnlyQuery(values);
+  return parsed.ok ? { ok: true, recursive: parsed.value } : { ok: false };
 }
 
 /** 不正な `recursive` の説明。BFF とサンドボックスで同じ本文を返す */
 export const RECURSIVE_QUERY_ERROR = 'recursive must be exactly "true" when present';
+
+/** 不正な `dryRun` の説明。取り込みの mode を暗黙に apply へ倒さない */
+export const DRY_RUN_QUERY_ERROR = 'dryRun must be exactly "true" when present';
 
 /**
  * ダウンロード ZIP の除外名の上限。BFF の設定 (archive-rules) とサンドボックスの query 検証が同じ値を見る
@@ -359,6 +374,50 @@ export interface SandboxSkillDeletePreview {
 
 /** スキルの説明の上限 (SDK の validateDescription と同じ値) */
 export const SANDBOX_SKILL_DESCRIPTION_MAX_LENGTH = 1024;
+
+/** スキル取り込みの plan が返す 1 件の分類。`invalid` のときだけ理由が入る */
+export type SandboxSkillImportStatus = "new" | "identical" | "conflict" | "invalid";
+
+export interface SandboxSkillImportPlanEntry {
+  name: string;
+  status: SandboxSkillImportStatus;
+  reason?: string;
+}
+
+/** POST /v1/skills/import の dry run の応答。何も変更しない */
+export interface SandboxSkillsImportPlan {
+  skills: SandboxSkillImportPlanEntry[];
+  /** 検証に使った ZIP の総エントリ数 (ディレクトリを含む) */
+  entries: number;
+  /** 検証に使った ZIP の展開後の総バイト数 */
+  bytes: number;
+}
+
+/** 取り込んだ (置き換えた) スキル 1 件。fileVersion は取り込んだ SKILL.md のバイト列の SHA-256 */
+export interface SandboxSkillImportApplied {
+  name: string;
+  /** `.agents/skills/<name>/SKILL.md` (root 相対) */
+  relativePath: string;
+  fileVersion: string;
+  replaced: boolean;
+}
+
+/** 取り込まなかったスキル 1 件とその理由 */
+export interface SandboxSkillImportSkipped {
+  name: string;
+  reason: string;
+}
+
+/** POST /v1/skills/import の apply の応答 */
+export interface SandboxSkillsImportApply {
+  applied: SandboxSkillImportApplied[];
+  skipped: SandboxSkillImportSkipped[];
+  entries: number;
+  bytes: number;
+}
+
+/** 取り込みの応答は mode で形が違う (plan は skills、apply は applied / skipped) */
+export type SandboxSkillsImportResult = SandboxSkillsImportPlan | SandboxSkillsImportApply;
 
 /**
  * GUI から保存できる SKILL.md のサイズ。保存の要求は BFF の bodyGuard (64 KiB) を通るため、

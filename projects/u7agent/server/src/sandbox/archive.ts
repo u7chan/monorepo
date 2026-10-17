@@ -36,6 +36,15 @@ export interface ArchivePlan {
   skipped: string[];
 }
 
+/** スキル持ち出し ZIP の保存名 (ダウンロードの `<フォルダ名>.zip` とは別の固定名) */
+export const SKILLS_EXPORT_NAME = "skills.zip";
+
+/**
+ * スキル持ち出し ZIP の固定除外名。利用者の除外設定 (archive-rules) は使わず、`.git` だけを全階層で落とす
+ * (export と import が同じ規則を見る)。
+ */
+export const SKILLS_ARCHIVE_EXCLUDE_NAMES: readonly string[] = [".git"];
+
 function archiveError(statusCode: number, message: string): Error & { statusCode: number } {
   return Object.assign(new Error(message), { statusCode });
 }
@@ -74,6 +83,8 @@ export async function walkArchive(input: {
   /** 実効の除外名 */
   excludeNames: readonly string[];
   limits?: ArchiveLimits;
+  /** 直下をスキルフォルダ (SKILL.md を直接持つディレクトリ) だけに絞る */
+  skillsOnly?: boolean;
 }): Promise<ArchivePlan> {
   const { dir, excludeNames } = input;
   const limits = input.limits ?? DEFAULT_ARCHIVE_LIMITS;
@@ -89,7 +100,13 @@ export async function walkArchive(input: {
     plan.entries.push(entry);
   };
 
-  const visit = async (current: string, prefix: string): Promise<void> => {
+  /** 直下の項目がスキルフォルダか。SKILL.md が symlink のフォルダは配らない (symlink はエントリに入れない) */
+  const hasDirectSkillFile = async (folder: string): Promise<boolean> => {
+    const stats = await lstat(join(folder, "SKILL.md")).catch(() => undefined);
+    return stats?.isFile() === true;
+  };
+
+  const visit = async (current: string, prefix: string, topLevel: boolean): Promise<void> => {
     const dirents = await readdir(current, { withFileTypes: true }).catch((error: unknown) => {
       throw archiveError(400, `Cannot read directory: ${error instanceof Error ? error.message : String(error)}`);
     });
@@ -102,13 +119,16 @@ export async function walkArchive(input: {
       const target = join(current, name);
       const zipName = prefix ? `${prefix}/${name}` : name;
       if (dirent.isDirectory()) {
+        if (topLevel && input.skillsOnly && !(await hasDirectSkillFile(target))) continue;
         // 親を先に置き、空ディレクトリは末尾 `/` のエントリとして残す（入れないと展開後に消える）
         addEntry({ name: `${zipName}/`, size: 0, compression: "store" }, 0);
-        await visit(target, zipName);
+        await visit(target, zipName, false);
         continue;
       }
       // symlink と特殊ファイル（socket / fifo / device）はエントリに入れない
       if (!dirent.isFile()) continue;
+      // 直下の通常ファイルはスキルフォルダではない (import の検証も同じ規則を要求する)
+      if (topLevel && input.skillsOnly) continue;
       const stats = await lstat(target).catch((error: unknown) => {
         throw archiveError(400, `Cannot read file: ${error instanceof Error ? error.message : String(error)}`);
       });
@@ -126,7 +146,7 @@ export async function walkArchive(input: {
     }
   };
 
-  await visit(dir, "");
+  await visit(dir, "", true);
   // 除外名は規則の順で返す（確認ダイアログの文言を走査順に依存させない）
   plan.skipped = excludeNames.filter((name) => seen.has(name));
   return plan;
