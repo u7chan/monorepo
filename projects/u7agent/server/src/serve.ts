@@ -997,7 +997,7 @@ export class ServeService {
   }
 
   /**
-   * デバッグ用 serve の停止。对象は「いまそのポートで待受している PID」で、lease があるときは
+   * デバッグ用 serve の停止。対象は「いまそのポートで待受している PID」で、lease があるときは
    * 起動時との照合が取れたときだけ kill する (dev は /proc を共有するため、無関係なプロセスを殺さない)。
    */
   async #stopDebugPort(port: number, lease: DebugServeLease | null): Promise<DebugServeStopResult> {
