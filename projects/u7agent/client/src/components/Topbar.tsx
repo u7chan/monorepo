@@ -40,8 +40,10 @@ export function Topbar({ scope, serve, runtimeStatus, notify, sessionFiles, nav 
   const serveError = servedAppErrorText(serve.error);
   return (
     <header className="grid gap-3 px-6 pt-5 pb-3 wide:px-8 wide:pt-6">
-      <div className="flex items-start justify-between gap-4">
-        <div className="flex min-w-0 flex-1 items-center gap-2.5">
+      {/* チャット列は右パネルの幅で狭くなるので、1 行に収まらない帯では右寄せクラスタを次の行へ落とす。
+          作業先チップを縮めて空のピルにしたり、クラスタを列の外へはみ出させたりしない */}
+      <div className="flex min-w-0 flex-wrap items-start gap-x-4 gap-y-2">
+        <div className="flex min-w-0 grow items-center gap-2.5">
           {/* 左バーが overlay の帯では、ここが nav の唯一の導線になる (設定ページのヘッダにも同じ ☰ を出す) */}
           {nav ? (
             <button type="button" onClick={nav.onOpen} aria-label="ナビゲーションを開く" className="icon-button">
@@ -61,7 +63,7 @@ export function Topbar({ scope, serve, runtimeStatus, notify, sessionFiles, nav 
             <span className="min-w-0 truncate">{scope.label}</span>
           </div>
         </div>
-        <div className="flex shrink-0 items-center gap-2">
+        <div className="ml-auto flex flex-wrap items-center justify-end gap-2">
           {/* 状態で出るグループは右寄せクラスタの左端に置く (出ても通知・作業環境の位置が動かない) */}
           <ServedAppGroup {...serve} />
           {/* 正常時のモデルは入力欄の上の状態行、接続状態は画面の様子から分かるので、エラーのときだけ出す */}
