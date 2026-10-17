@@ -3,6 +3,7 @@
 
 import assert from "node:assert/strict";
 import test from "node:test";
+import { JST_TIME_ZONE } from "../src/jst";
 import {
   buildHandoffSection,
   HANDOFF_CLOSING,
@@ -30,14 +31,14 @@ function compaction(summary: string, id = "c-1"): SessionEntryLike {
   return { type: "compaction", id, summary };
 }
 
-function build(entries: SessionEntryLike[], overrides: { title?: string; masker?: typeof masker } = {}) {
+function build(entries: SessionEntryLike[], overrides: { title?: string; masker?: typeof masker; at?: number } = {}) {
   return buildHandoffSection({
     entries,
     title: overrides.title ?? "引き継ぐ会話",
     fromAgent: "汎用アシスタント",
     toAgent: "調査と実装",
     operationId: "abc12345",
-    at: 0,
+    at: overrides.at ?? 0,
     masker: overrides.masker ?? masker,
   });
 }
@@ -67,6 +68,12 @@ test("builds a section with the header, the latest summary, the recent exchanges
   });
   const same = build([user("最初の依頼"), assistant("最初の応答")]);
   assert.notEqual(other?.hash, same?.hash);
+});
+
+test("writes the date in JST, which is the next day when the UTC date is the previous one", () => {
+  const section = build([user("依頼")], { at: Date.parse("2026-10-16T15:49:53.419Z") });
+  assert.ok(section);
+  assert.ok(section.text.includes(`- 日時: 2026-10-17 00:49:53 (${JST_TIME_ZONE})`), section.text);
 });
 
 test("returns undefined when there is no message to write", () => {

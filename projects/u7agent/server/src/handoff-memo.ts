@@ -4,6 +4,7 @@
  * 長さで切る (境界をまたぐ秘密値を残さない)。
  */
 import { createHash } from "node:crypto";
+import { formatJstDateTime, JST_TIME_ZONE } from "./jst";
 import type { SecretMasker } from "./redact";
 import { contentText } from "./session-projection";
 import type { SessionEntryLike } from "./session-store";
@@ -94,7 +95,7 @@ export function buildHandoffSection(input: HandoffMemoInput): HandoffMemoSection
   const header = [
     `# 引き継ぎメモ (本文ハッシュ: ${hash})`,
     "",
-    `- 日時: ${new Date(input.at).toISOString()}`,
+    `- 日時: ${formatJstDateTime(input.at)} (${JST_TIME_ZONE})`,
     `- 操作 ID: ${input.operationId}`,
     `- 引き継ぎ: ${input.masker.mask(input.fromAgent)} → ${input.masker.mask(input.toAgent)}`,
     `- 元の会話タイトル: ${title}`,
