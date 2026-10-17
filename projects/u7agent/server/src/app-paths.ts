@@ -13,6 +13,12 @@ export const UPLOADS_DIR_REL = `${APP_DIR_REL}/uploads`;
 export const SERVE_DIR_REL = `${APP_DIR_REL}/serve`;
 export const SERVE_STATE_REL = `${SERVE_DIR_REL}/state.json`;
 export const SERVE_LOG_REL = `${SERVE_DIR_REL}/app.log`;
+/** デバッグ用 serve のログ。ポートごとに 1 ファイルで、停止しても消さずに残す */
+export const SERVE_DEBUG_LOG_DIR_REL = `${SERVE_DIR_REL}/debug`;
+
+export function serveDebugLogRel(port: number): string {
+  return `${SERVE_DEBUG_LOG_DIR_REL}/${port}.log`;
+}
 
 const SESSION_ID_PATTERN = /^[0-9a-f]{10}$/;
 

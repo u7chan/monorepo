@@ -35,14 +35,14 @@ export function createSpaceDelete({ spaces, store, workspace, serve, appDb }: Sp
         // 対象スペースへ向かう受理済みの引っ越しは claim では止まらない。作業フォルダを運んだまま
         // 根を消すと移動元の会話のファイルも失うため、完了 / ロールバックまで待ってから消し始める
         await store.waitForMovesInto(id);
-        await removeSessions(store, id);
+        await removeSessions(store, serve, id);
         // 再走査。最初の走査の後に完了した引っ越し / 会話作成を取りこぼさない
-        await removeSessions(store, id);
+        await removeSessions(store, serve, id);
         await removeSpaceRoot(workspace, id);
         appDb.deleteSpace(id);
         // コミット後の回収。回収した会話の作業フォルダは根の削除後に作られている
         try {
-          if ((await removeSessions(store, id)) > 0) await removeSpaceRoot(workspace, id);
+          if ((await removeSessions(store, serve, id)) > 0) await removeSpaceRoot(workspace, id);
         } catch (error) {
           throw httpError(
             500,
@@ -76,10 +76,13 @@ function assertStoreReady(store: SessionStore): void {
 }
 
 /** そのスペースの会話を消す。所属を再確認し、引っ越し済みの会話は消さない。消した件数を返す */
-async function removeSessions(store: SessionStore, spaceId: string): Promise<number> {
+async function removeSessions(store: SessionStore, serve: ServeService, spaceId: string): Promise<number> {
   let removed = 0;
   for (const summary of store.list(spaceId)) {
-    if (await store.deleteSession(summary.sessionId, { expectSpaceId: spaceId })) removed += 1;
+    if (!(await store.deleteSession(summary.sessionId, { expectSpaceId: spaceId }))) continue;
+    removed += 1;
+    // デバッグ用 serve の回収は削除の成否を変えない (失敗は warn だけ。残りはユーザーが回収する)
+    await serve.discardDebug(summary.sessionId);
   }
   return removed;
 }

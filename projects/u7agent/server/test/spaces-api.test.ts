@@ -13,7 +13,7 @@ import { SandboxRequestError } from "../src/sandbox/client";
 import type { SandboxWorkspaceClient } from "../src/sandbox/client";
 import type { SessionPayload, Space } from "../src/schema";
 import { asPiBff, createStubPi, waitFor } from "./stub-pi";
-import { createServeSandboxStub } from "./serve-stub";
+import { createServeSandboxStub, publicListener } from "./serve-stub";
 
 const json = (body: unknown, method = "POST"): RequestInit => ({
   method,
@@ -75,7 +75,7 @@ async function setup(t: test.TestContext) {
     workspace: workspace.workspace,
     pi: asPiBff(pi),
     serveSandbox: sandbox.sandbox,
-    serveProbe: async () => sandbox.state.listener !== null,
+    serveProbe: async () => publicListener(sandbox.state) !== null,
   };
   let bff = await createBffApp(options);
   t.after(async () => {

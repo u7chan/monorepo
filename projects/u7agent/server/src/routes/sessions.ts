@@ -24,6 +24,7 @@ import {
   type UpdateSessionTitleBody,
 } from "../schema";
 import type { SessionRecord, SessionStore } from "../sessions";
+import type { ServeService } from "../serve";
 
 // sessions 側の上限とは別 (HTTP 層の契約)
 const MAX_MESSAGE_CHARS = 20_000;
@@ -45,10 +46,12 @@ export function createSessionRoutes({
   store,
   workspace,
   spaces,
+  serve,
 }: {
   store: SessionStore;
   workspace: SandboxWorkspaceClient | null;
   spaces: SpaceStore;
+  serve: ServeService;
 }) {
   // 未ロードのセッションはストアから復元する (SDK ロードを含むため非同期)
   const resolveRecord = (c: Context) => store.resolve(c.req.param("id") ?? "");
@@ -179,8 +182,11 @@ export function createSessionRoutes({
 
     remove: async (c: Context) => {
       // 未ロードでも消せる (SDK を開かない。履歴だけ削除し、作業フォルダは残す)
-      const deleted = await store.deleteSession(c.req.param("id") ?? "");
+      const id = c.req.param("id") ?? "";
+      const deleted = await store.deleteSession(id);
       if (!deleted) return c.json({ error: "Session not found" }, 404);
+      // 回収は削除の成否を変えない (失敗は warn だけ。残った待受はユーザーが回収できる)
+      await serve.discardDebug(id);
       return c.json({ ok: true });
     },
 

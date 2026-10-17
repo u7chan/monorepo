@@ -70,6 +70,19 @@ test("同梱の serve スキルは到達条件と検証ループを本文に持�
   // モデルが自分で起動するスキルなので、自動起動を止めない
   assert.equal(SERVE.disableModelInvocation, false);
   assert.match(SERVE.description, /8080|サービス/);
+  // 自己確認はデバッグ用 serve (127.0.0.1 の 18000 帯) を使わせ、公開枠はユーザーの閲覧用に残す
+  for (const text of [
+    "debug_start",
+    "debug_stop",
+    "debug_status",
+    "U7AGENT_DEBUG_PORT",
+    "18000",
+    "127.0.0.1",
+    ".u7agent/serve/debug/",
+  ]) {
+    assert.ok(SERVE.body.includes(text), text);
+  }
+  assert.match(SERVE.body, /実績[^。]*記録されない/);
 });
 
 test("同梱の browser スキルは確認の流れと、外部到達・保存・見えないときの契約を本文に持つ", () => {
@@ -79,9 +92,9 @@ test("同梱の browser スキルは確認の流れと、外部到達・保存�
   assert.match(BROWSER.description, /ブラウザ/);
 
   for (const text of [
-    // serve したアプリを 8080 から見る流れ
-    "u7agent-browser check http://127.0.0.1:8080/",
-    "u7agent-browser shot http://127.0.0.1:8080/ shot.png",
+    // デバッグ用 serve のポートをブラウザで見る流れ (公開枠はユーザーへ見せるときだけ)
+    "u7agent-browser check http://127.0.0.1:18000/",
+    "u7agent-browser shot http://127.0.0.1:18000/ shot.png",
     // 外部到達の制限と、3 表記だけを許可すること
     "localhost",
     "[::1]",
@@ -111,6 +124,8 @@ test("同梱の browser スキルは確認の流れと、外部到達・保存�
   assert.match(BROWSER.body, /!\[/);
   // 私用の確認サーバーに公開枠 (8080) を奪わせない
   assert.match(BROWSER.body, /8080 を自分用の確認サーバーで使う/);
+  // 確認はデバッグ用 serve のポートを開く (公開枠はユーザーへ見せるときだけ)
+  assert.match(BROWSER.body, /debug_start/);
   // 同梱物を入れ直させない
   assert.match(BROWSER.body, /自分でブラウザやドライバを導入する/);
 });

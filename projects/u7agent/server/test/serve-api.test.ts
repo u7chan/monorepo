@@ -13,8 +13,9 @@ import { RuntimeServeStatusSchema, ServeStatusSchema } from "../src/schema";
 import { UnknownRemoteToolError, createRemoteToolDefinitions } from "../src/sandbox/remote-tools";
 import { SANDBOX_TOOL_NAMES } from "../src/sandbox/service";
 import type { SandboxWorkspaceClient } from "../src/sandbox/client";
+import { DEBUG_SERVE_PORT_FROM } from "../src/serve";
 import { createServeToolDefinitions, createServeToolHost, withServeTool } from "../src/serve-tool";
-import { createServeSandboxStub } from "./serve-stub";
+import { createServeSandboxStub, publicListener, setPublicListener } from "./serve-stub";
 import { asPiBff, createStubPi } from "./stub-pi";
 
 const jsonPost = (payload: unknown): RequestInit => ({
@@ -57,7 +58,7 @@ async function setup() {
     workspace,
     serveSandbox: sandbox.sandbox,
     // 稼働判定は待受プロセスの有無 (起動で listen が始まり、停止で消える)
-    serveProbe: async () => sandbox.state.listener !== null,
+    serveProbe: async () => publicListener(sandbox.state) !== null,
   });
   const first = (await jsonBody(await bff.app.request("/api/sessions", jsonPost({})))) as { sessionId: string };
   const second = (await jsonBody(await bff.app.request("/api/sessions", jsonPost({})))) as { sessionId: string };
@@ -69,13 +70,14 @@ async function setup() {
 async function setupWithStore(t: test.TestContext) {
   const dir = await mkdtemp(join(tmpdir(), "u7agent-serve-space-"));
   const sandbox = createServeSandboxStub();
+  const pi = createStubPi();
   const bff = await createBffApp({
     cwd: "/workspace",
     sessionStoreDir: dir,
-    pi: asPiBff(createStubPi()),
+    pi: asPiBff(pi),
     workspace,
     serveSandbox: sandbox.sandbox,
-    serveProbe: async () => sandbox.state.listener !== null,
+    serveProbe: async () => publicListener(sandbox.state) !== null,
   });
   t.after(async () => {
     await bff.close();
@@ -88,7 +90,7 @@ async function setupWithStore(t: test.TestContext) {
       sessionId: string;
       cwd: string;
     };
-  return { bff, sandbox, space, session };
+  return { bff, sandbox, pi, space, session };
 }
 
 test("ランタイムは会話未選択でも全体の状態を取得し、所有者のサービスを停止できる", async () => {
@@ -149,7 +151,7 @@ test("スペース削除は公開中のサービスを 409 で止め、停止す
   );
 
   // 記録と待受ソケットが一致しない (起動元不明) でも、到達可なら 409 にする
-  sandbox.state.stateFile = null;
+  sandbox.state.stateFiles.clear();
   assert.equal((await bff.app.request(`/api/spaces/${target.id}`, { method: "DELETE" })).status, 409);
 
   // 停止すると削除できる
@@ -189,7 +191,7 @@ test("スペース削除の稼働判定は状態のキャッシュを読まな�
   // 停止中の状態をキャッシュへ載せる
   assert.equal((await jsonBody(await bff.app.request("/api/serve/runtime/status"))).reachable, false);
   // 記録を介さない起動 (直前の bash 起動) を再現する
-  sandbox.state.listener = { pid: 9999, startedAt: 1, inodes: [777], ancestors: [9999] };
+  setPublicListener(sandbox.state, { pid: 9999, startedAt: 1, inodes: [777], ancestors: [9999] });
   // ポーリングはキャッシュのまま停止を示す
   assert.equal((await jsonBody(await bff.app.request("/api/serve/runtime/status"))).reachable, false);
   // 削除は取り直すので、到達可 + 起動元不明 の 409 になる (何も消えない)
@@ -435,7 +437,7 @@ test("serve ツールの実行は GUI と同じ経路を通り、起動コマン
     assert.match(started, /served app: reachable/);
     assert.match(started, /started by this conversation/);
     assert.deepEqual(sandbox.state.launched, [
-      { workdir: "", command: "pnpm dev --port 8080", log: ".u7agent/serve/app.log" },
+      { workdir: "", command: "pnpm dev --port 8080", log: ".u7agent/serve/app.log", port: null },
     ]);
     assert.equal(bff.appDb.getServeCommand("")?.command, "pnpm dev --port 8080");
 
@@ -472,4 +474,113 @@ test("createServeToolHost は status / stop の結果をそのまま説明文に
   assert.equal(host.configured, true);
   assert.match(await host.run("aaaa000001", { action: "status" }), /start command for this working directory: none/);
   assert.match(await host.run("aaaa000001", { action: "stop" }), /served app: not reachable/);
+});
+
+// --- デバッグ用 serve (公開枠とは別の 18000–18099。削除時の回収も含む) ---
+
+const DEBUG_FROM = DEBUG_SERVE_PORT_FROM;
+const DEBUG_COMMAND = "pnpm dev --host 127.0.0.1 --port $U7AGENT_DEBUG_PORT";
+
+/** ツール応答からデバッグ用ポートを読む (モデルと同じく、常に応答の値を使う) */
+function debugPortOf(text: string): number {
+  const port = Number(/127\.0\.0\.1:(\d+)/.exec(text)?.[1]);
+  assert.ok(Number.isInteger(port), `ポートが読めない: ${text}`);
+  return port;
+}
+
+test("会話削除はその会話のデバッグ用 serve を停止し、実績を汚さない", async () => {
+  const { bff, sandbox, pi, first, second } = await setup();
+  try {
+    const host = pi.serveHosts.at(-1);
+    assert.ok(host);
+    const started = await host.run(first, { action: "debug_start", command: DEBUG_COMMAND });
+    assert.equal(debugPortOf(started), DEBUG_FROM);
+    assert.match(started, /http:\/\/127\.0\.0\.1:18000\//);
+    assert.match(started, /not shown in the user's service UI/, "ユーザーの UI に出ないことを応答に含める");
+    // デバッグ起動は GUI の起動実績 (serve_commands) を書き換えない
+    assert.equal(bff.appDb.getServeCommand("")?.command, "pnpm dev");
+    const other = await host.run(second, { action: "debug_start", command: DEBUG_COMMAND });
+    assert.equal(debugPortOf(other), DEBUG_FROM + 1);
+
+    // 状態は自会話のポートと待受を返す
+    const seen = await host.run(first, { action: "debug_status" });
+    assert.match(seen, /listening on http:\/\/127\.0\.0\.1:18000\//);
+
+    assert.equal((await bff.app.request(`/api/sessions/${first}`, { method: "DELETE" })).status, 200);
+    assert.equal(sandbox.state.listeners.has(DEBUG_FROM), false, "削除した会話のデバッグを停止する");
+    assert.equal(sandbox.state.listeners.has(DEBUG_FROM + 1), true, "他会話のデバッグは残す");
+    assert.equal(bff.appDb.getServeCommand("")?.command, "pnpm dev");
+
+    // debug_stop はポートの解放を確認して返し、二重停止も成功として返す
+    assert.match(await host.run(second, { action: "debug_stop" }), /stopped \(port released\)/);
+    assert.match(await host.run(second, { action: "debug_stop" }), /none for this conversation/);
+    assert.equal(sandbox.state.listeners.size, 0);
+  } finally {
+    await bff.close();
+  }
+});
+
+test("デバッグの停止に失敗しても会話削除は成功し、理由は warn に残る", async () => {
+  const { bff, sandbox, pi, first } = await setup();
+  const warnings: unknown[][] = [];
+  const original = console.warn;
+  try {
+    const host = pi.serveHosts.at(-1);
+    assert.ok(host);
+    await host.run(first, { action: "debug_start", command: DEBUG_COMMAND });
+    // 停止対象の照合 (待受の走査) が失敗する状態を作る
+    sandbox.state.scanFailures = 1;
+    console.warn = (...args: unknown[]) => {
+      warnings.push(args);
+    };
+    assert.equal((await bff.app.request(`/api/sessions/${first}`, { method: "DELETE" })).status, 200);
+    assert.equal(sandbox.state.listeners.has(DEBUG_FROM), true, "停止できなかった待受は残る (回収はユーザーの操作)");
+    assert.equal(warnings.length, 1);
+    assert.match(String(warnings[0]?.[0]), /デバッグ用 serve を停止できませんでした/);
+  } finally {
+    console.warn = original;
+    await bff.close();
+  }
+});
+
+test("スペース削除は対象スペースの会話のデバッグ用 serve だけを停止する", async (t) => {
+  const { bff, sandbox, pi, space, session } = await setupWithStore(t);
+  const host = pi.serveHosts.at(-1);
+  assert.ok(host);
+  const target = await space("消す");
+  const targetSession = await session(target.id);
+  const keep = await space("残す");
+  const keepSession = await session(keep.id);
+  const targetPort = debugPortOf(
+    await host.run(targetSession.sessionId, { action: "debug_start", command: DEBUG_COMMAND }),
+  );
+  const keepPort = debugPortOf(
+    await host.run(keepSession.sessionId, { action: "debug_start", command: DEBUG_COMMAND }),
+  );
+  assert.notEqual(targetPort, keepPort);
+  assert.equal((await bff.app.request(`/api/spaces/${target.id}`, { method: "DELETE" })).status, 200);
+  assert.equal(sandbox.state.listeners.has(targetPort), false);
+  assert.equal(sandbox.state.listeners.has(keepPort), true);
+});
+
+test("サンドボックス未設定でもデバッグの回収は会話削除を止めない", async () => {
+  const unconfigured = await createBffApp({
+    cwd: "/workspace",
+    sessionStoreDir: null,
+    pi: asPiBff(createStubPi()),
+    workspace,
+    serveSandbox: null,
+    serveProbe: async () => false,
+  });
+  try {
+    const created = (await jsonBody(await unconfigured.app.request("/api/sessions", jsonPost({})))) as {
+      sessionId: string;
+    };
+    assert.equal(
+      (await unconfigured.app.request(`/api/sessions/${created.sessionId}`, { method: "DELETE" })).status,
+      200,
+    );
+  } finally {
+    await unconfigured.close();
+  }
 });

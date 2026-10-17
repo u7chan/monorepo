@@ -1,18 +1,30 @@
 /**
  * serve のテスト用スタブ。サンドボックスへ送る bash スクリプトを解釈し、作業領域の状態
- * (記録 / 待受 PID) を仮想的に持つ。実スクリプトの文言を変えたらここも追随させる。
+ * (記録 / 待受 PID) をポートキーで仮想的に持つ。公開枠とデバッグ枠を同時に表現できる。
+ * 実スクリプトの文言を変えたらここも追随させる。
  */
 import type { ServeCommandRow } from "../src/app-db";
+import { SERVE_LISTEN_PORT } from "../src/preview-port";
 import type { SandboxServeClient } from "../src/sandbox/client";
-import type { SandboxWriteScopeEntry } from "../src/sandbox/protocol";
+import type { SandboxListenerAddressScope, SandboxWriteScopeEntry } from "../src/sandbox/protocol";
 import type { ServeCommandStore, ServeProbe, ServeSessionLookup } from "../src/serve";
 
+/** いま listen しているプロセス。ancestors は自身から親をたどった PID */
+export interface ServeSandboxListener {
+  pid: number;
+  startedAt: number;
+  inodes: number[];
+  ancestors: number[];
+}
+
 export interface ServeSandboxState {
-  /** 仮想の `<appdir>/serve/state.json` の中身 */
-  stateFile: string | null;
-  /** いま listen しているプロセス (観測スクリプトが返す値)。ancestors は自身から親をたどった PID */
-  listener: { pid: number; startedAt: number; inodes: number[]; ancestors: number[] } | null;
-  /** launch スクリプトが起動したと見なす PID */
+  /** 仮想の `<appdir>/serve/state.json` の中身。キーは公開枠の待受ポート (稼働記録は公開枠に 1 つ) */
+  stateFiles: Map<number, string>;
+  /** いま listen しているプロセス。キーは待受ポート (公開枠 / デバッグ枠の両方を 1 つの Map で表す) */
+  listeners: Map<number, ServeSandboxListener>;
+  /** 公開枠の待受ポート。稼働記録の読み書きが使うキー */
+  publicPort: number;
+  /** launch スクリプトが起動したと見なす PID。起動のたびに増やし、並列の起動を区別する */
   launchPid: number;
   /** launch で listen が始まるか。false で「起動したが到達しない」を再現する */
   launchListens: boolean;
@@ -20,14 +32,17 @@ export interface ServeSandboxState {
    * launch と同時に listen を始める別のプロセス (遅れて listen した別の起動の再現)。
    * 設定されていると launch はこちらの listener を返す
    */
-  listenerOnLaunch: { pid: number; startedAt: number; inodes: number[]; ancestors: number[] } | null;
-  /** launch で listen を始めるソケットの inode */
+  listenerOnLaunch: ServeSandboxListener | null;
+  /** launch で listen を始めるソケットの inode。空なら起動 PID と同じ値を inode にする */
   launchInodes: number[];
   /** listen しているが PID を特定できない状態の inode (fd 走査をしても listener 行を返さない) */
   orphanInodes: number[];
   /** launch したプロセスの起動時刻 (観測スクリプトが返す値) */
   launchStartedAt: number;
-  launched: Array<{ workdir: string; command: string; log: string }>;
+  /** launch した待受が返すアドレス種別。null は inode ごとに loopback */
+  launchAddressScopes: SandboxListenerAddressScope[] | null;
+  /** launch へ渡したポート (公開枠は null)。作業ディレクトリ / コマンド / ログと組で控える */
+  launched: Array<{ workdir: string; command: string; log: string; port: number | null }>;
   /** launch へ渡した env (渡さなければ undefined)。起動時の環境変数注入の検証に使う */
   launchEnvs: (Record<string, string> | undefined)[];
   killed: number[];
@@ -59,16 +74,18 @@ function embedded(script: string): string[] {
   );
 }
 
-export function createServeSandboxStub(): ServeSandboxStub {
+export function createServeSandboxStub(options: { publicPort?: number } = {}): ServeSandboxStub {
   const state: ServeSandboxState = {
-    stateFile: null,
-    listener: null,
+    stateFiles: new Map(),
+    listeners: new Map(),
+    publicPort: options.publicPort ?? SERVE_LISTEN_PORT,
     launchPid: 4242,
     launchListens: true,
     listenerOnLaunch: null,
-    launchInodes: [4242],
+    launchInodes: [],
     orphanInodes: [],
     launchStartedAt: 1_700_000_000_000,
+    launchAddressScopes: null,
     launched: [],
     launchEnvs: [],
     killed: [],
@@ -89,72 +106,101 @@ export function createServeSandboxStub(): ServeSandboxStub {
       const script = command ?? "";
       if (script.includes("nohup bash -c")) {
         const [workdir, command] = embedded(script);
+        const debugPort = /export U7AGENT_DEBUG_PORT=(\d+)/.exec(script)?.[1];
+        const port = debugPort === undefined ? state.publicPort : Number(debugPort);
+        const pid = state.launchPid;
+        state.launchPid += 1;
         state.launchEnvs.push(input.env);
         state.launched.push({
           workdir: workdir ?? "",
           command: command ?? "",
           log: /log="\$root\/([^"]*)"/.exec(script)?.[1] ?? "",
+          port: debugPort === undefined ? null : port,
         });
         if (state.listenerOnLaunch) {
-          state.listener = state.listenerOnLaunch;
+          state.listeners.set(port, { ...state.listenerOnLaunch });
         } else if (state.launchListens) {
-          state.listener = {
-            pid: state.launchPid,
+          state.listeners.set(port, {
+            pid,
             startedAt: state.launchStartedAt,
-            inodes: [...state.launchInodes],
-            ancestors: [state.launchPid],
-          };
+            inodes: state.launchInodes.length > 0 ? [...state.launchInodes] : [pid],
+            ancestors: [pid],
+          });
         }
-        return { content: [{ type: "text", text: `pid\t${state.launchPid}\nserve:ok\n` }] };
+        return { content: [{ type: "text", text: `pid\t${pid}\nserve:ok\n` }] };
       }
       if (script.includes("rm -f")) {
-        state.stateFile = null;
+        state.stateFiles.delete(state.publicPort);
         return { content: [{ type: "text", text: "serve:ok\n" }] };
       }
       if (script.includes("kill ")) {
-        state.killed.push(Number(/kill (\d+)/.exec(script)?.[1]));
-        if (state.killWorks) state.listener = null;
+        const pid = Number(/kill (\d+)/.exec(script)?.[1]);
+        state.killed.push(pid);
+        if (state.killWorks) {
+          for (const [port, listener] of state.listeners) {
+            if (listener.pid === pid) state.listeners.delete(port);
+          }
+        }
         return { content: [{ type: "text", text: "serve:ok\n" }] };
       }
       if (script.includes("state.json") && script.includes("base64 -d")) {
-        state.stateFile = embedded(script)[0] ?? null;
+        state.stateFiles.set(state.publicPort, embedded(script)[0] ?? "");
         state.writes += 1;
         return { content: [{ type: "text", text: "serve:ok\n" }] };
       }
       // 稼働記録の読み取り (待受ソケットと PID は scanListeners が返す)
       if (script.includes("readFileSync") && script.includes("state.json")) {
-        const record = state.stateFile ? `record\t${state.stateFile}\n` : "";
+        const raw = state.stateFiles.get(state.publicPort);
+        const record = raw ? `record\t${raw}\n` : "";
         return { content: [{ type: "text", text: `${record}serve:ok\n` }] };
       }
       throw new Error(`unexpected serve script: ${script.slice(0, 64)}`);
     },
     // 待受ソケットの inode は常に返し、fd 走査つき (scan) のときだけ listener / ancestors を返す
-    scanListeners: async (_port, { scan }) => {
+    scanListeners: async (port, { scan }) => {
       if (state.scanFailures > 0) {
         state.scanFailures -= 1;
         throw new Error("サンドボックスの待受観測が失敗しました (HTTP 500)");
       }
       if (state.fail) throw new Error("サンドボックスの待受観測が失敗しました (HTTP 500)");
       if (scan) state.scans += 1;
-      const listener = state.listener;
+      const listener = state.listeners.get(port) ?? null;
       const inodes = listener ? [...listener.inodes] : [...state.orphanInodes];
       return {
         inodes,
-        addressScopes: inodes.map(() => "loopback" as const),
+        addressScopes: inodes.map((_, index) => state.launchAddressScopes?.[index] ?? ("loopback" as const)),
         listener: scan && listener ? { ...listener, inodes: [...listener.inodes] } : null,
       };
     },
+    // レンジ走査は待受のあるポートだけを返す (fd 走査はしない)
+    scanListenerRange: async (from, to) => ({
+      ports: [...state.listeners.keys()]
+        .filter((port) => port >= from && port <= to)
+        .sort((left, right) => left - right)
+        .map((port) => ({ port, inodes: [...(state.listeners.get(port)?.inodes ?? [])] })),
+    }),
   };
   return { sandbox, state, cwds, scopes };
 }
 
+/** 公開枠の待受を読み書きする (キーはポートなので、よく見る 1 本だけをここで扱う) */
+export function publicListener(state: ServeSandboxState): ServeSandboxListener | null {
+  return state.listeners.get(state.publicPort) ?? null;
+}
+
+export function setPublicListener(state: ServeSandboxState, listener: ServeSandboxListener | null): void {
+  if (listener) state.listeners.set(state.publicPort, listener);
+  else state.listeners.delete(state.publicPort);
+}
+
 /** 記録を直接置く (コンテナ再作成後や、生の bash で起動された状態の再現) */
 export function putRecord(state: ServeSandboxState, record: Record<string, unknown>): void {
-  state.stateFile = JSON.stringify(record);
+  state.stateFiles.set(state.publicPort, JSON.stringify(record));
 }
 
 export function readRecord(state: ServeSandboxState): Record<string, unknown> | null {
-  return state.stateFile ? (JSON.parse(state.stateFile) as Record<string, unknown>) : null;
+  const raw = state.stateFiles.get(state.publicPort);
+  return raw ? (JSON.parse(raw) as Record<string, unknown>) : null;
 }
 
 /** 作業ディレクトリ単位の実績ストア (AppDb の代替)。fail で 503 経路を再現する */
