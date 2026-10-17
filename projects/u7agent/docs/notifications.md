@@ -85,7 +85,7 @@ Discord 通知リンク `/s/<sessionId>?space=<spaceId>` は会話を指定し�
 ## 保存先と再起動後
 
 - 会話ごとの `notify` は `SessionMeta`（`meta.json`）に保存する。`version: 1` のまま optional フィールドとして足し、boolean 以外は無視する。live な record は in-memory の meta を更新し、既存の書込みキューで永続化する。一覧（live / 未ロードの descriptor）・`SessionPayload`・`resync` は同じ値を使う。保存に失敗したら 500 を返し、成功扱いにしない
-- グローバル設定はアプリデータの SQLite（`PI_SESSION_STORE/u7agent.db`）の `notification_settings`（1 行）に保存する。移行は `server/src/app-db.ts` の `APP_DB_SCHEMA_VERSION` を上げ、`CREATE TABLE IF NOT EXISTS` + 列追加 + `user_version` 更新で行う**加算的**なもの。既存のエージェント / スキル / プロジェクトは消えない（[persistence.md](persistence.md)）
+- グローバル設定はアプリデータの SQLite（`PI_SESSION_STORE/u7agent.db`）の `notification_settings`（1 行）に保存する。移行は `server/src/app-db.ts` の `APP_DB_SCHEMA_VERSION` を上げ、`CREATE TABLE IF NOT EXISTS` + 列追加 + `user_version` 更新で行う**加算的**なもの。既存のエージェント / プロジェクトは消えない（[persistence.md](persistence.md)）
 - どちらも会話ストアと同じ永続ボリュームに載るため、再起動後も復元される
 
 ## 設定画面

@@ -13,13 +13,7 @@ import {
   type ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
 import type { SandboxToolClient } from "./client";
-import { catalogSkillNameForRequestedPath } from "../catalog-skills";
-import {
-  builtinSkillEnabled,
-  builtinSkillForRequestedPath,
-  formatBuiltinSkillBody,
-  formatSkillBody,
-} from "../builtin-skills";
+import { builtinSkillEnabled, builtinSkillForRequestedPath, formatBuiltinSkillBody } from "../builtin-skills";
 import { wrapToolDefinitionWithSecretMasker } from "../secret-guard";
 import type { SecretMasker } from "../redact";
 
@@ -61,11 +55,6 @@ export interface RemoteToolDefinitionOptions {
   /** PI_AGENT_TOOLS 由来の登録ツール名 */
   tools: readonly string[];
   /**
-   * カタログ (Agent 割り当て) スキルの本文。セッションの promptSnapshot から渡し、仮想パスの read を
-   * サンドボックスへ送らず BFF で返す (定義を編集・削除してもこのセッションの本文は変わらない)
-   */
-  catalogSkills?: readonly { name: string; body: string }[];
-  /**
    * 組み込みスキルの許可リスト (エージェント定義の `builtinSkillNames`)。undefined = 全部 ON、`[]` = すべて OFF。
    * 外した組み込みの仮想パスは横取りせずサンドボックスへ委譲し、実体の無い普通のパスとして 404 になる。
    */
@@ -79,7 +68,7 @@ export interface RemoteToolDefinitionOptions {
 
 /** 戻り値は customTools として SDK へ渡す。すべて秘密マスクで包む。 */
 export function createRemoteToolDefinitions(options: RemoteToolDefinitionOptions): ToolDefinition[] {
-  const { cwd, rootCwd, sandboxCwd, client, masker, tools, catalogSkills = [], builtinSkillNames, envForCwd } = options;
+  const { cwd, rootCwd, sandboxCwd, client, masker, tools, builtinSkillNames, envForCwd } = options;
   const definitions: ToolDefinition[] = [];
   for (const name of tools) {
     if (!(REMOTE_TOOL_NAMES as readonly string[]).includes(name)) {
@@ -100,21 +89,15 @@ export function createRemoteToolDefinitions(options: RemoteToolDefinitionOptions
           executionMode: local.executionMode,
           prepareArguments: local.prepareArguments,
           execute: async (toolCallId, params, signal, onUpdate, _ctx) => {
-            // 組み込み / カタログスキルはワークスペースに実体が無い仮想パスなので、read だけは BFF が
-            // 本文を返す。サンドボックスへ送らない (ls / grep / find / bash からは見えない)
+            // 組み込みスキルはワークスペースに実体が無い仮想パスなので、read だけは BFF が本文を返す。
+            // サンドボックスへ送らない (ls / grep / find / bash からは見えない)。共通 / プロジェクトの
+            // スキルは実ファイルなので、ここでは横取りせず通常の read としてサンドボックスへ委ねる
             if (name === "read") {
               const requested = (params as { path?: unknown } | undefined)?.path;
               const page = params as { offset?: number; limit?: number };
               const builtin = builtinSkillForRequestedPath(requested, { cwd, rootCwd });
               if (builtin && builtinSkillEnabled(builtin.name, builtinSkillNames)) {
                 const text = formatBuiltinSkillBody(builtin, { offset: page.offset, limit: page.limit });
-                return { content: [{ type: "text", text }] } as Awaited<ReturnType<AnyToolDefinition["execute"]>>;
-              }
-              // 名前が仮想パスに合っても、このセッションのスナップショットに無ければサンドボックスへ委譲する
-              const catalogName = catalogSkillNameForRequestedPath(requested, { cwd, rootCwd });
-              const catalog = catalogName ? catalogSkills.find((skill) => skill.name === catalogName) : undefined;
-              if (catalog) {
-                const text = formatSkillBody(catalog.body, { offset: page.offset, limit: page.limit });
                 return { content: [{ type: "text", text }] } as Awaited<ReturnType<AnyToolDefinition["execute"]>>;
               }
             }

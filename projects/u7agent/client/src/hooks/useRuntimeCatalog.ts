@@ -16,7 +16,6 @@ const EMPTY_CATALOG: CatalogResponse = {
   builtinAgent: null,
   builtinSkills: [],
   agents: [],
-  skills: [],
   tools: [],
 };
 

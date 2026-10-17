@@ -763,14 +763,7 @@ export default function App({ handoffNote = null, onHandoffNote, onHandoffNoteSh
           />
         );
       case "skills":
-        return (
-          <SkillSettingsPage
-            {...pageProps}
-            catalog={app.catalog}
-            refreshCatalog={refreshCatalog}
-            filePreviewPort={app.health?.filePreviewPort}
-          />
-        );
+        return <SkillSettingsPage {...pageProps} filePreviewPort={app.health?.filePreviewPort} />;
       case "files":
         // root を選択中の session / project に追随させると、選択を変えると同じ画面が別の場所を指して分かりにくい。
         // 設定のファイルはワークスペース全体に固定し、セッションの作業フォルダはツリーから辿って開く

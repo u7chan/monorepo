@@ -23,7 +23,6 @@ const AGENT: AgentDef = {
   name: "汎用アシスタント",
   description: "役割や口調を設定していない既定のエージェント",
   systemPrompt: "",
-  skillIds: [],
 };
 
 function commonSkill(name: string, overrides: Partial<FileSkillInfo> = {}): FileSkillInfo {

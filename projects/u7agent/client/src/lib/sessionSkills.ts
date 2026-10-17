@@ -12,11 +12,10 @@ export const SESSION_SKILL_SCOPE_LABEL: Record<SessionSkillInfo["scope"], string
   project: "プロジェクト",
   user: "共通",
   builtin: "組み込み",
-  catalog: "エージェント定義",
 };
 
-/** 一覧のグループ順。優先順位 (project > user > builtin > catalog) と同じ順に見せる */
-export const SESSION_SKILL_SCOPE_ORDER: SessionSkillInfo["scope"][] = ["project", "user", "builtin", "catalog"];
+/** 一覧のグループ順。優先順位 (project > user > builtin) と同じ順に見せる */
+export const SESSION_SKILL_SCOPE_ORDER: SessionSkillInfo["scope"][] = ["project", "user", "builtin"];
 
 export const SESSION_SKILL_LOADING_NOTE = "スキルを読み込んでいます…";
 export const SESSION_SKILL_EMPTY_NOTE = "使えるスキルはありません。";
@@ -24,7 +23,7 @@ export const SESSION_SKILL_ERROR_PREFIX = "スキルを取得できませんで�
 /** 取得先がまだ判明していないときだけ出す (その間はボタンを押せない)。セッションの有無とは別 */
 export const SESSION_SKILL_UNAVAILABLE_NOTE =
   "スキル一覧を取得できる状態ではありません（起動処理の完了後に使えます）。";
-/** ファイルスキルは一覧のたびに探索し直し、カタログの本文はセッション作成時のスナップショットになる */
+/** ファイルスキルは一覧のたびに探索し直し、本文は送信時に読み直す */
 export const SESSION_SKILL_BODY_NOTE = "本文は送信時に読み直します（ファイルスキルは一覧のたびに探索し直します）。";
 /** 再取得だけが失敗したときの 1 行。持っている一覧は残すので、空 / 失敗とは別の文言にする */
 export const SESSION_SKILL_RELOAD_ERROR_PREFIX = "一覧を更新できませんでした";
@@ -168,7 +167,7 @@ export function sessionSkillWarning(skill: SessionSkillInfo, rootCwd: string): s
   return `同名のスキルは読み込まれません: ${hidden}`;
 }
 
-/** 行の補足 (場所)。カタログは実体の無い仮想パスなので、そのまま (root 相対で) 示す */
+/** 行の補足 (場所)。 */
 export function sessionSkillLocation(skill: SessionSkillInfo, rootCwd: string): string {
   if (skill.relativePath) return skill.relativePath;
   return skillLocationLabel(rootCwd, skill.location);

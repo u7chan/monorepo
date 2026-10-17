@@ -19,16 +19,6 @@ export type RunStatus = z.infer<typeof RunStatusSchema>;
 export const RunOutcomeSchema = z.enum(["completed", "stopped", "error"]);
 export type RunOutcome = z.infer<typeof RunOutcomeSchema>;
 
-export const SkillDefSchema = z.object({
-  id: z.string(),
-  name: z.string(),
-  description: z.string(),
-  /** system prompt へ常時入る本文。エージェントの「役割 / 基本指示」(systemPrompt) とは別の語にする */
-  body: z.string(),
-});
-export type SkillDef = z.infer<typeof SkillDefSchema>;
-
-/** pi SDK の thinkingLevel。UI では「Effort」と表示する。 */
 export const ThinkingLevelSchema = z.enum(["off", "minimal", "low", "medium", "high", "xhigh", "max"]);
 export type ThinkingLevel = z.infer<typeof ThinkingLevelSchema>;
 
@@ -96,15 +86,14 @@ export const AgentDefSchema = z.object({
   name: z.string(),
   description: z.string(),
   systemPrompt: z.string(),
-  skillIds: z.array(z.string()),
   /**
    * 共通スキルの許可リスト。未指定 = 全可視、`[]` = すべて OFF (この 2 つは混同しない)。
-   * プロジェクト / 組み込み / カタログのスキルは対象外 (docs/api-catalog.md)。
+   * プロジェクト / 組み込みのスキルは対象外 (docs/api-catalog.md)。
    */
   commonSkillNames: z.array(z.string()).optional(),
   /**
    * 組み込みスキルの許可リスト。未指定 = 全部 ON、`[]` = すべて OFF (この 2 つは混同しない)。
-   * プロジェクト / 共通 / カタログのスキルは対象外 (docs/api-catalog.md#組み込みスキル)。
+   * プロジェクト / 共通のスキルは対象外 (docs/api-catalog.md#組み込みスキル)。
    */
   builtinSkillNames: z.array(z.string()).optional(),
   /**
@@ -123,15 +112,9 @@ export const AgentDefSchema = z.object({
 });
 export type AgentDef = z.infer<typeof AgentDefSchema>;
 
-export const CatalogSchema = z.object({
-  agents: z.array(AgentDefSchema),
-  skills: z.array(SkillDefSchema),
-});
-export type Catalog = z.infer<typeof CatalogSchema>;
-
 /**
- * アプリに同梱する組み込みスキル 1 件。`skillIds` では外せず、エージェント定義の `builtinSkillNames`
- * でエージェント別に外すため、カタログの `skills` とは別フィールドで返し、スキル欄の行に使う。
+ * アプリに同梱する組み込みスキル 1 件。エージェント定義の `builtinSkillNames`
+ * でエージェント別に外すため、スキル欄の行に使う。
  */
 export const BuiltinSkillInfoSchema = z.object({
   name: z.string(),
@@ -146,7 +129,8 @@ export type BuiltinSkillInfo = z.infer<typeof BuiltinSkillInfoSchema>;
  * `agents` (ユーザー定義) には含まれない。サーバーは常にオブジェクトを返し、
  * `null` はクライアントが取得前に持つ初期状態だけを表す。
  */
-export const CatalogResponseSchema = CatalogSchema.extend({
+export const CatalogResponseSchema = z.object({
+  agents: z.array(AgentDefSchema),
   builtinAgent: AgentDefSchema.nullable(),
   builtinSkills: z.array(BuiltinSkillInfoSchema),
   /** アプリが扱うツールの一覧 (`builtinSkills` と同じく、エージェント定義ではない) */
@@ -154,18 +138,14 @@ export const CatalogResponseSchema = CatalogSchema.extend({
 });
 export type CatalogResponse = z.infer<typeof CatalogResponseSchema>;
 
-export const AgentSkillInfoSchema = z.object({
-  id: z.string(),
-  name: z.string(),
-  description: z.string(),
-});
-export type AgentSkillInfo = z.infer<typeof AgentSkillInfoSchema>;
-
+/**
+ * セッション作成時に meta へ固定するエージェントのスナップショット。
+ * スキルの実体はファイル側の現行定義を使い、ここには割り当てを保存しない。
+ */
 export const AgentPayloadInfoSchema = z.object({
   id: z.string(),
   name: z.string(),
   description: z.string(),
-  skillIds: z.array(z.string()),
   /** 共通スキルの許可リスト。未指定 = 全可視、`[]` = すべて OFF (未指定のときはキーを省略する) */
   commonSkillNames: z.array(z.string()).optional(),
   /** 組み込みスキルの許可リスト。未指定 = 全部 ON、`[]` = すべて OFF (未指定のときはキーを省略する) */
@@ -175,7 +155,6 @@ export const AgentPayloadInfoSchema = z.object({
    * セッション作成時のスナップショットで、定義を編集しても復元後の会話は変わらない
    */
   toolNames: z.array(z.string()).optional(),
-  skills: z.array(AgentSkillInfoSchema),
 });
 export type AgentPayloadInfo = z.infer<typeof AgentPayloadInfoSchema>;
 
@@ -1354,20 +1333,20 @@ export type SaveFileSkillBody = z.infer<typeof SaveFileSkillBodySchema>;
 
 /**
  * セッションで使えるスキル 1 件 (GET /api/sessions/:id/skills)。設定の FileSkillInfo と違い、
- * プロジェクトスキルと Agent 割り当て (catalog) を含み、本文は持たない (送信時に取り直す)。
- * 優先順位は project > user > builtin > catalog で、負けた行は shadowed / shadowedBy で示す。
+ * プロジェクトスキルを含み、本文は持たない (送信時に取り直す)。
+ * 優先順位は project > user > builtin で、負けた行は shadowed / shadowedBy で示す。
  */
 export const SessionSkillInfoSchema = z.object({
   name: z.string(),
   description: z.string(),
-  scope: z.enum(["project", "user", "builtin", "catalog"]),
-  /** read に渡せる場所。ファイル / 組み込み / カタログとも絶対パス (カタログは実体の無い仮想パス) */
+  scope: z.enum(["project", "user", "builtin"]),
+  /** read に渡せる場所。ファイル / 組み込みとも絶対パス (組み込みは実体の無い仮想パス) */
   location: z.string(),
   /** 表示用の root 相対パス。root の外は null */
   relativePath: z.string().nullable(),
   disableModelInvocation: z.boolean(),
   /**
-   * 同名の上位スコープがあり `/skill:` では選ばれない (組み込みとカタログで起こり得る)。
+   * 同名の上位スコープがあり `/skill:` では選ばれない (組み込みで起こり得る)。
    * 設定用の FileSkillInfo.shadowed (隠した側の一覧) とは意味が違うので注意。
    */
   shadowed: z.boolean(),
@@ -1691,7 +1670,12 @@ const agentBodyShape = {
   name: z.string().optional(),
   description: z.string().optional(),
   systemPrompt: z.string().optional(),
-  skillIds: z.array(z.string()).nullish(),
+  /**
+   * 撤去済みの DB カタログ割り当て。**形は受けるが値は catalog が拒否する** (400)。
+   * ここで `z.never()` にすると「キーが存在すること」を route が説明できず、
+   * 別の理由の 400 と区別できない。
+   */
+  skillIds: z.unknown().optional(),
   commonSkillNames: z.array(z.string().max(SKILL_NAME_MAX)).max(SKILL_NAMES_MAX).nullish(),
   builtinSkillNames: z.array(z.string().max(SKILL_NAME_MAX)).max(SKILL_NAMES_MAX).nullish(),
   toolNames: z.array(z.string().max(TOOL_NAME_MAX)).max(TOOL_NAMES_MAX).nullish(),
@@ -1724,22 +1708,6 @@ export const SPACE_ORDER_IDS_MAX = 200;
 
 export const ReorderSpacesBodySchema = z.object({ ids: z.array(z.string()).max(SPACE_ORDER_IDS_MAX) });
 export type ReorderSpacesBody = z.infer<typeof ReorderSpacesBodySchema>;
-
-const skillBodyShape = {
-  name: z.string().optional(),
-  description: z.string().optional(),
-  body: z.string().optional(),
-};
-
-export const CreateSkillBodySchema = z.object(skillBodyShape);
-export type CreateSkillBody = z.infer<typeof CreateSkillBodySchema>;
-
-/**
- * 更新は旧フィールド名 `prompt` を明示的に拒否する。未知キーとして strip すると「`body` のキー省略」
- * に化け、本文が変わらないまま 200 を返して成功と誤認させる (作成は `body` 必須なので同じ入力でも 400)。
- */
-export const UpdateSkillBodySchema = z.object({ ...skillBodyShape, prompt: z.never().optional() });
-export type UpdateSkillBody = z.infer<typeof UpdateSkillBodySchema>;
 
 // ---------------------------------------------------------------------------
 // SSE イベント (sessions.ts の emit 呼び出しを正とする)

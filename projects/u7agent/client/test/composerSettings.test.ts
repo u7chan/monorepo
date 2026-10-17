@@ -16,7 +16,6 @@ const agent = (overrides: Partial<AgentDef> = {}): AgentDef => ({
   name: "Agent",
   description: "",
   systemPrompt: "",
-  skillIds: [],
   ...overrides,
 });
 

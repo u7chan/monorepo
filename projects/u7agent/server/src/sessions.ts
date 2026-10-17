@@ -88,7 +88,6 @@ import {
 import type {
   AgentDef,
   AgentPayloadInfo,
-  AgentSkillInfo,
   AskUserAnswer,
   AskUserQuestion,
   CompactionInfo,
@@ -104,7 +103,6 @@ import type {
   SessionPayload,
   SessionSummary,
   SessionTitleResponse,
-  SkillDef,
   SSEEventData,
   SSEEventType,
   ThinkingLevel,
@@ -226,43 +224,33 @@ function entriesOf(session: PiSessionLike): SessionEntryLike[] {
 }
 
 /**
- * Agent の割り当てスキルと索引 (表示用情報 + プロンプトスナップショット)。セッション作成と
- * セッション未確定のプレビュー (GET /api/skills/session) で同じ索引を組むため共有する。未知の id は 400。
+ * セッション作成時に固定するエージェントのスナップショット (表示用情報 + プロンプトスナップショット)。
+ * 作成と、セッション未確定のプレビュー (GET /api/skills/session) で同じ索引を組むため共有する。
+ * 未知の id は 400。スキルの現行定義はファイル側で、ここには割り当てを固定しない。
  */
 export function resolveAgentSkills(
   catalog: AgentCatalog,
   agentId?: string,
 ): {
   agent: AgentDef;
-  skills: SkillDef[];
   agentInfo: AgentPayloadInfo;
   promptSnapshot: PromptSnapshot;
 } {
   const selectedAgentId = agentId || catalog.builtinAgent().id;
   const agent = selectedAgentId ? catalog.getAgent(selectedAgentId) : undefined;
   if (!agent) throw httpError(400, "Agent not found");
-  const skills = agent.skillIds
-    .map((skillId) => catalog.getSkill(skillId))
-    .filter((skill): skill is SkillDef => Boolean(skill));
   return {
     agent,
-    skills,
     agentInfo: {
       id: agent.id,
       name: agent.name,
       description: agent.description,
-      skillIds: [...agent.skillIds],
       // 未指定のときはキーを省略する (`[]` = すべて OFF は落とさない)
       ...(agent.commonSkillNames === undefined ? {} : { commonSkillNames: [...agent.commonSkillNames] }),
       ...(agent.builtinSkillNames === undefined ? {} : { builtinSkillNames: [...agent.builtinSkillNames] }),
       ...(agent.toolNames === undefined ? {} : { toolNames: [...agent.toolNames] }),
-      skills: skills.map((skill): AgentSkillInfo => ({
-        id: skill.id,
-        name: skill.name,
-        description: skill.description,
-      })),
     },
-    promptSnapshot: composePromptSnapshot(agent, skills),
+    promptSnapshot: composePromptSnapshot(agent),
   };
 }
 
@@ -428,7 +416,7 @@ export class SessionStore {
     }
     const project = this.resolveProject(projectId);
     // 表示用のエージェント情報は作成時にスナップショット化する (以降の定義編集を遡及させない)
-    const { agent, skills, agentInfo, promptSnapshot } = resolveAgentSkills(this.catalog, agentId);
+    const { agent, agentInfo, promptSnapshot } = resolveAgentSkills(this.catalog, agentId);
     const id = this.storeDir ? generateSessionId(this.storeDir) : randomBytes(5).toString("hex");
     // 所属セッションの cwd は登録ディレクトリそのもの。プロジェクトのディレクトリは作らず存在だけ確かめる。
     // スクラッチを作るのは未所属だけ (永続化なしでは作業フォルダのライフサイクルを持たない)
@@ -438,10 +426,7 @@ export class SessionStore {
       else await this.ensureWorkdir(workdir);
     }
     const created = await this.pi.createSession({
-      agent: { ...agent, skillIds: [...agent.skillIds] },
-      skills,
-      // カタログスキルの索引は name / description を使うので、説明の出所も渡す (復元と同じ形にする)
-      agentSkills: agentInfo.skills,
+      agent: { ...agent },
       // 共通スキルの許可リストは注入経路 (skillsOverride) にも渡す (一覧と /skill: の解決と揃える)
       ...(agentInfo.commonSkillNames === undefined ? {} : { commonSkillNames: agentInfo.commonSkillNames }),
       // 組み込みスキルの許可リストも同じく注入経路・read の横取り・system prompt の案内へ渡す
@@ -656,8 +641,6 @@ export class SessionStore {
       ownerSessionId: id,
       entries,
       promptSnapshot: current.promptSnapshot,
-      // 復元では定義を引き直さず、セッションのスナップショットだけで索引を組む (遡及させない)
-      agentSkills: current.agent.skills,
       // 共通スキルの許可リストも meta のスナップショットから渡す (定義編集を遡及させない)
       ...(current.agent.commonSkillNames === undefined ? {} : { commonSkillNames: current.agent.commonSkillNames }),
       // 組み込みスキルの許可リストも同じく meta のスナップショットから渡す

@@ -1,5 +1,6 @@
 // createRemoteToolDefinitions がセッションの cwd をサンドボックスの実行要求へ載せることと、
 // 組み込みスキルの仮想パスを read だけ BFF 側で返すことの検証 (実サンドボックス・実 LLM なし)。
+// 共通 / プロジェクトのスキルは実ファイルなので、ここでは sandbox へ委譲されることも見る。
 
 import assert from "node:assert/strict";
 import { existsSync, mkdtempSync } from "node:fs";
@@ -7,7 +8,6 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import { builtinSkillByName, builtinSkillPath } from "../src/builtin-skills";
-import { catalogSkillPath } from "../src/catalog-skills";
 import { createSecretMasker } from "../src/redact";
 import type { SandboxToolClient } from "../src/sandbox/client";
 import { createRemoteToolDefinitions, UnknownRemoteToolError } from "../src/sandbox/remote-tools";
@@ -31,12 +31,7 @@ function stubClient(): { calls: StubCall[]; client: SandboxToolClient } {
   return { calls, client };
 }
 
-function readDefinition(
-  client: SandboxToolClient,
-  cwd: string,
-  catalogSkills?: Array<{ name: string; body: string }>,
-  builtinSkillNames?: string[],
-) {
+function readDefinition(client: SandboxToolClient, cwd: string, builtinSkillNames?: string[]) {
   const definitions = createRemoteToolDefinitions({
     cwd,
     rootCwd: ROOT,
@@ -44,7 +39,6 @@ function readDefinition(
     client,
     masker: createSecretMasker([]),
     tools: ["read"],
-    ...(catalogSkills ? { catalogSkills } : {}),
     ...(builtinSkillNames ? { builtinSkillNames } : {}),
   });
   const read = definitions.find((definition) => definition.name === "read");
@@ -208,7 +202,7 @@ test("write / edit のリモート定義は BFF へ書かず、cwd 付きでサ�
 test("read は外した組み込みスキルの仮想パスを横取りしない", async () => {
   const { calls, client } = stubClient();
   // `[]` は全部 OFF。仮想パスは実体の無い普通のパスとしてサンドボックスへ委譲され、sandbox 側で 404 になる
-  const read = readDefinition(client, ROOT, undefined, []);
+  const read = readDefinition(client, ROOT, []);
   const result = (await read.execute(
     "call-1",
     { path: builtinSkillPath(ROOT, "skill-creator") },
@@ -221,7 +215,7 @@ test("read は外した組み込みスキルの仮想パスを横取りしない
 
   // 明示リストに残した方だけを横取りする
   const keptClient = stubClient();
-  const kept = readDefinition(keptClient.client, ROOT, undefined, ["serve"]);
+  const kept = readDefinition(keptClient.client, ROOT, ["serve"]);
   const body = builtinSkillByName("serve")?.body ?? "";
   const served = (await kept.execute(
     "call-1",
@@ -254,52 +248,17 @@ test("read は仮想パスでない要求をサンドボックスへ委譲する
   }
 });
 
-test("read はカタログスキルの仮想パスをセッションのスナップショットから返す", async () => {
-  const body = "カタログの本文\n2 行目";
-  // `..foo` は索引の仮想パスとしても正当 (`..` の脱出と混同しない)、日本語名は encoded セグメントで往復する
-  for (const name of ["writer", "..foo", "重要度順レビュー"]) {
-    const { calls, client } = stubClient();
-    const read = readDefinition(client, join(ROOT, "proj"), [{ name, body }]);
-
-    const result = (await read.execute(
-      "call-1",
-      { path: catalogSkillPath(ROOT, name) },
-      undefined,
-      undefined,
-      {} as never,
-    )) as { content: Array<{ text?: string }> };
-
-    assert.equal(result.content[0]?.text, body, name);
-    assert.equal(calls.length, 0, `${name}: 仮想パスはサンドボックスへ送らない`);
-  }
-});
-
-test("read はカタログの仮想パスでも offset / limit を守る", async () => {
-  const { client } = stubClient();
-  const read = readDefinition(client, ROOT, [{ name: "writer", body: "1行目\n2行目\n3行目" }]);
-
-  const result = (await read.execute(
-    "call-1",
-    { path: catalogSkillPath(ROOT, "writer"), offset: 2, limit: 1 },
-    undefined,
-    undefined,
-    {} as never,
-  )) as { content: Array<{ text?: string }> };
-  assert.equal(result.content[0]?.text, "2行目\n\n[1 more lines in file. Use offset=3 to continue.]");
-});
-
-test("read はスナップショットに無いカタログ名をサンドボックスへ委譲する", async () => {
+test("read は旧カタログの仮想パスを横取りせず、ファイルとしてサンドボックスへ委譲する", async () => {
+  // 撤去済みの置き場のパスも、現行の read としては特別扱いしない (存在しない実体の 404 になる)
+  const requested = `${ROOT}/.u7agent/agent-skills/%E9%87%8D%E8%A6%81/SKILL.md`;
   const { calls, client } = stubClient();
-  const read = readDefinition(client, ROOT, [{ name: "writer", body: "本文" }]);
+  const read = readDefinition(client, join(ROOT, "proj"));
 
-  const result = (await read.execute(
-    "call-1",
-    { path: catalogSkillPath(ROOT, "deleted-skill") },
-    undefined,
-    undefined,
-    {} as never,
-  )) as { content: Array<{ text?: string }> };
+  const result = (await read.execute("call-1", { path: requested }, undefined, undefined, {} as never)) as {
+    content: Array<{ text?: string }>;
+  };
 
   assert.equal(result.content[0]?.text, "ok");
-  assert.equal(calls.length, 1, "本文が無い名前はサンドボックスへ委譲する");
+  assert.equal(calls.length, 1, "旧仮想パスは BFF で解決しない");
+  assert.equal(calls[0]?.tool, "read");
 });

@@ -67,8 +67,6 @@ export function createSessionRoutes({
     rootCwd: store.rootCwd,
     relativeCwd: record.workdir,
     client: workspace ?? undefined,
-    promptSnapshot: record.promptSnapshot,
-    agentSkills: record.agent.skills,
     // 作成時に固定したエージェントのスナップショットから渡す (定義編集を遡及させない)
     commonSkillNames: record.agent.commonSkillNames,
     builtinSkillNames: record.agent.builtinSkillNames,
@@ -196,7 +194,7 @@ export function createSessionRoutes({
     },
 
     /**
-     * セッションで使えるスキル (プロジェクト / 共通 / 組み込み / Agent 割り当て)。
+     * セッションで使えるスキル (プロジェクト / 共通 / 組み込み)。
      * 本文は載せない (送信時に取り直す) ため、応答は一覧と優先順位の表示に使う。
      * 発見に失敗したら 502 にする (組み込みだけを見せて「使えるスキルはありません」にしない)。
      */
@@ -227,7 +225,7 @@ export function createSessionRoutes({
       // サンドボックス未設定ではセッション作成も 503 になるため、組み込みだけへ縮退させない
       if (!workspace) return sandboxNotConfigured(c);
       const project = store.resolveProject(c.req.query("projectId") || undefined);
-      const { agentInfo, promptSnapshot } = resolveAgentSkills(store.catalog, c.req.query("agentId") || undefined);
+      const { agentInfo } = resolveAgentSkills(store.catalog, c.req.query("agentId") || undefined);
       // 作成と同じ前提条件 (永続化あり × プロジェクト選択) を確認し、出した一覧がそのまま送れるようにする
       if (project) await store.requireProjectDir(project.cwd);
       const relativeCwd = project?.cwd ?? "";
@@ -236,8 +234,6 @@ export function createSessionRoutes({
           rootCwd: store.rootCwd,
           relativeCwd,
           client: workspace,
-          promptSnapshot,
-          agentSkills: agentInfo.skills,
           // セッション作成と同じ選択を反映する (新規チャットのピッカーと作成後の一覧を一致させる)
           commonSkillNames: agentInfo.commonSkillNames,
           builtinSkillNames: agentInfo.builtinSkillNames,
@@ -270,8 +266,8 @@ export function createSessionRoutes({
       if (text.length > MAX_MESSAGE_CHARS) {
         return c.json({ error: `Message is too long (max ${MAX_MESSAGE_CHARS} characters)` }, 413);
       }
-      // SDK の /skill: 展開は BFF プロセスの readFileSync で動くため、Docker ではファイル / 組み込み /
-      // カタログのどれも展開できない。アプリ側で本文を取り直してから prompt() へ渡す (docs/api-sessions.md)。
+      // SDK の /skill: 展開は BFF プロセスの readFileSync で動くため、Docker ではファイル / 組み込みの
+      // どちらも展開できない。アプリ側で本文を取り直してから prompt() へ渡す (docs/api-sessions.md)。
       const prompt = await expandSkillCommand(text, skillsInputOf(record));
       // 実行 (またはキュー位置) は SessionStore がバックグラウンドで進めるため即座に返す。
       // 注記は履歴とモデルへ渡すためここで合成し、title は注記と展開結果を除いた本文から作る。

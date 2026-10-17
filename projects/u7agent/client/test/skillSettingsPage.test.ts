@@ -1,67 +1,62 @@
+// 設定 → スキル（/settings/skills）の一覧面の描画契約。追加行を出してよい条件と、
+// 追加行を渡さなかったときに一覧が壊れないことを固定する。
+// 追加行が取得状態から切り離されると、一覧が 503 / 502 のときも押せて、入力のあとに保存だけが失敗する。
 import assert from "node:assert/strict";
-
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import test from "node:test";
-import type { AgentDef, SkillDef } from "../src/types";
 
-// api.ts (location.origin を読む) を辿るため、node では最小の shim を置いてから読み込む
+import { DefinitionList } from "../src/components/DefinitionList";
+import { ConfirmProvider } from "../src/components/ConfirmProvider";
+import { FILE_SKILL_ADD_LABEL, FILE_SKILL_LOADING_NOTE } from "../src/lib/fileSkills";
+
+// api.ts (location.origin を読む) と useLayoutMode (viewport を読む) を辿るため、node では最小の shim を置く
 globalThis.location ??= { origin: "http://localhost" } as Location;
-const { CatalogSkillPanel } = await import("../src/components/skill-settings/CatalogSkillPanel");
-const { skillFormDirty, skillFormOf } = await import("../src/components/skill-settings/SkillEditorForm");
+(globalThis as unknown as { window: unknown }).window = {
+  innerWidth: 1440,
+  innerHeight: 900,
+  addEventListener() {},
+  removeEventListener() {},
+};
+const { SkillSettingsPage, fileSkillAddRow } = await import("../src/components/SkillSettingsPage");
 
-function skill(overrides: Partial<SkillDef> = {}): SkillDef {
-  return {
-    id: "skill-review",
-    name: "重要度順レビュー",
-    description: "指摘を重要度順に並べる",
-    body: "本文",
-    ...overrides,
-  };
+/** 追加行の有無は button の描画で見る (文言だけの一致では見出しや注記と区別できない) */
+function hasAddRow(html: string): boolean {
+  return new RegExp(`<button[^>]*>[\\s\\S]*?${FILE_SKILL_ADD_LABEL}[\\s\\S]*?</button>`).test(html);
 }
 
-function agent(id: string, name: string, skillIds: string[]): AgentDef {
-  return { id, name, description: "", systemPrompt: "", skillIds };
-}
-
-test("下書きの差分は保存済みの内容と比べる", () => {
-  const saved = skill();
-  assert.equal(skillFormDirty(skillFormOf(saved), saved), false);
-  assert.equal(skillFormDirty({ ...skillFormOf(saved), body: "直した" }, saved), true);
-  assert.equal(skillFormDirty({ ...skillFormOf(saved), name: "改名" }, saved), true);
-  assert.equal(skillFormDirty({ ...skillFormOf(saved), description: "説明を直した" }, saved), true);
-  // 新規 (未保存) の下書きは空なら差分なし
-  assert.equal(skillFormDirty(skillFormOf(undefined), undefined), false);
+test("追加行は一覧を取得できたときだけ出す", () => {
+  const start = () => {};
+  assert.deepEqual(fileSkillAddRow({ status: "ready", skills: [] }, start), {
+    label: FILE_SKILL_ADD_LABEL,
+    onAdd: start,
+  });
+  assert.equal(fileSkillAddRow({ status: "loading" }, start), undefined);
+  assert.equal(fileSkillAddRow({ status: "error", message: "取得に失敗" }, start), undefined);
 });
 
-test("描画: 閲覧ビューは保存済みの本文と割り当て中のエージェントを出す", () => {
+test("ページは取得中の一覧に追加行を出さず、理由と再読み込みを出す", () => {
+  // renderToStaticMarkup では effect が走らないため、一覧は初期状態 (loading) のまま描画される
   const html = renderToStaticMarkup(
-    createElement(CatalogSkillPanel, {
-      skill: skill(),
-      agents: [
-        agent("agent-a", "コードレビュー", ["skill-review"]),
-        agent("agent-b", "実装", ["skill-review", "skill-other"]),
-      ],
-      variant: "page",
-      onEdit: () => {},
-    }),
+    createElement(ConfirmProvider, null, createElement(SkillSettingsPage, { onBack: () => {}, onOpenNav: () => {} })),
   );
-  assert.ok(html.includes("割り当て中"), "割り当て中の行が無い");
-  assert.ok(html.includes("2 件（コードレビュー、実装）"), "割り当て中の件数と名前が違う");
-  assert.ok(html.includes("編集"), "編集の導線が無い");
-  // 本文はカタログの応答をそのまま出す (編集中の下書きではない)
-  assert.ok(html.includes("本文"), "本文が出ていない");
-  assert.ok(html.includes("重要度順レビュー"), "名前が出ていない");
+  assert.ok(!hasAddRow(html), "取得中でも追加行が出ている");
+  assert.ok(html.includes(FILE_SKILL_LOADING_NOTE), "取得中の注記が無い");
 });
 
-test("描画: 割り当てが 0 件でも件数を出す", () => {
-  const html = renderToStaticMarkup(
-    createElement(CatalogSkillPanel, {
-      skill: skill(),
-      agents: [agent("agent-a", "実装", [])],
-      variant: "page",
-      onEdit: () => {},
+test("DefinitionList は追加行を渡さなくても見出しと行を出す", () => {
+  const withAdd = renderToStaticMarkup(
+    createElement(DefinitionList, {
+      title: "スキル一覧",
+      count: 0,
+      add: { label: FILE_SKILL_ADD_LABEL, onAdd: () => {} },
+      children: null,
     }),
   );
-  assert.ok(html.includes("0 件"), "0 件のとき件数を出していない");
+  assert.ok(hasAddRow(withAdd), "追加行が無い");
+  const withoutAdd = renderToStaticMarkup(
+    createElement(DefinitionList, { title: "スキル一覧", count: 0, children: null }),
+  );
+  assert.ok(!hasAddRow(withoutAdd), "追加行が出ている");
+  assert.ok(withoutAdd.includes("スキル一覧"), "見出しが無い");
 });

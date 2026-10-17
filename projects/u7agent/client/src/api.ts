@@ -13,7 +13,6 @@ import type {
   ContentSettingsResponse,
   CreateAgentBody,
   CreateFileSkillBody,
-  CreateSkillBody,
   DiscardUnsentResult,
   FileDownloadCheck,
   FileListing,
@@ -58,7 +57,6 @@ import type {
   SessionSkillsResponse,
   SessionSummary,
   SessionTitleResponse,
-  SkillDef,
   SpeechCatalogRefreshResponse,
   SpeechPreviewBody,
   StopResult,
@@ -68,7 +66,6 @@ import type {
   UpdateContentSpeechBody,
   UpdateModelAvailabilityBody,
   UpdateNotificationsBody,
-  UpdateSkillBody,
   WebSearchMutationResponse,
   WebSearchProviderId,
   WebSearchSettingsResponse,
@@ -295,27 +292,9 @@ export const reorderAgents = async (ids: readonly string[]): Promise<{ agents: A
   return res.json();
 };
 
-export const createSkill = async (input: CreateSkillBody): Promise<{ skill: SkillDef }> => {
-  const res = await client.api.skills.$post({ json: input });
-  if (!res.ok) throw await apiError(res);
-  return res.json();
-};
-
-export const updateSkill = async (id: string, input: UpdateSkillBody): Promise<{ skill: SkillDef }> => {
-  const res = await client.api.skills[":id"].$patch({ param: { id }, json: input });
-  if (!res.ok) throw await apiError(res);
-  return res.json();
-};
-
-export const deleteSkill = async (id: string): Promise<unknown> => {
-  const res = await client.api.skills[":id"].$delete({ param: { id } });
-  if (!res.ok) throw await apiError(res);
-  return res.json();
-};
-
 /**
- * 共通スキル (`.agents/skills`) の読み取り専用一覧。catalog のスキル定義とは別。
- * サンドボックス未設定は 503、サンドボックス側の失敗は 502 で reject する。
+ * 共通スキル (`.agents/skills`) の一覧。サンドボックス未設定は 503、サンドボックス側の失敗は
+ * 502 で reject する。
  */
 export const getFileSkills = async (): Promise<FileSkillsResponse> => {
   const res = await client.api.skills.files.$get();

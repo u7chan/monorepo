@@ -3,14 +3,13 @@ import test from "node:test";
 import { adoptKnownAgentId, selectableAgents } from "../src/lib/agentSelection";
 import type { AgentDef, CatalogResponse } from "../src/types";
 
-const agent = (id: string): AgentDef => ({ id, name: id, description: "", systemPrompt: "", skillIds: [] });
+const agent = (id: string): AgentDef => ({ id, name: id, description: "", systemPrompt: "" });
 
 test("selectableAgents puts the built-in agent before the user-defined ones", () => {
   const catalog: CatalogResponse = {
     builtinAgent: agent("agent-general"),
     builtinSkills: [],
     agents: [agent("agent-code")],
-    skills: [],
     tools: [],
   };
   assert.deepEqual(
@@ -21,7 +20,7 @@ test("selectableAgents puts the built-in agent before the user-defined ones", ()
 
 test("selectableAgents tolerates a catalog that is not loaded yet", () => {
   // 取得前の初期状態はビルトインが null
-  assert.deepEqual(selectableAgents({ builtinAgent: null, builtinSkills: [], agents: [], skills: [], tools: [] }), []);
+  assert.deepEqual(selectableAgents({ builtinAgent: null, builtinSkills: [], agents: [], tools: [] }), []);
 });
 
 test("adopts the snapshot agent when the catalog still has it", () => {

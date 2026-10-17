@@ -78,11 +78,7 @@ export function projectSessionPayload({
     notify: record.notify,
     pinned: record.pinned,
     lastSeq: record.seq,
-    agent: {
-      ...record.agent,
-      skillIds: [...record.agent.skillIds],
-      skills: record.agent.skills.map((skill) => ({ ...skill })),
-    },
+    agent: { ...record.agent },
     run: record.run
       ? {
           id: record.run.id,

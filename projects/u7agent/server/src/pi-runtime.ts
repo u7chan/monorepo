@@ -2,7 +2,7 @@
  * pi SDK の型が BFF の用途に合わない箇所を埋める互換層。SDK のイベント・SessionEntry・
  * AgentSession のうち BFF が使う分だけを写し、スタブや旧 SDK でも動くよう欠けたフィールドを許す。
  */
-import type { AgentDef, AgentSkillInfo, ContextUsage, ModelRef, SkillDef, ThinkingLevel, Usage } from "./schema";
+import type { AgentDef, ContextUsage, ModelRef, ThinkingLevel, Usage } from "./schema";
 import type { PromptSnapshot } from "./session-store";
 import { ContextUsageSchema, UsageSchema } from "./schema";
 
@@ -106,7 +106,6 @@ export interface PiSessionLike {
 export interface PiRuntimeLike {
   createSession(input?: {
     agent?: AgentDef;
-    skills?: SkillDef[];
     model?: ModelRef;
     thinkingLevel?: ThinkingLevel;
     /** rootCwd 相対の作業ディレクトリ (省略・空文字は root)。BFF が絶対パスへ解決する */
@@ -119,8 +118,6 @@ export interface PiRuntimeLike {
     entries?: unknown[];
     /** 復元時: 作成時のプロンプトスナップショット */
     promptSnapshot?: PromptSnapshot;
-    /** セッションのエージェントスナップショット (カタログスキルの説明の出所。復元でも渡す) */
-    agentSkills?: AgentSkillInfo[];
     /** 子モード。読み取り専用ツールだけを公開し、常時有効群とスキル発見を落とす (既定 "chat") */
     mode?: "chat" | "investigation";
   }): Promise<{ session: unknown; promptSnapshot?: PromptSnapshot }>;

@@ -57,7 +57,7 @@ test("キーボード: ↑↓ は端で止まり、Home / End は先頭 / 末尾
 });
 
 function agent(id: string, name: string): AgentDef {
-  return { id, name, description: "", systemPrompt: "", skillIds: [] };
+  return { id, name, description: "", systemPrompt: "" };
 }
 
 const agents = [agent("a", "ずんだもん"), agent("b", "コードレビュー"), agent("c", "汎用アシスタント")];

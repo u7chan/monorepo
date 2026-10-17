@@ -283,7 +283,7 @@ test("子は親と同じ cwd とモデルで、調査用 agent を使って作�
   assert.equal(inputs[0].cwd, "proj");
   assert.deepEqual(inputs[0].model, { provider: "stub", id: "stub-model" });
   assert.equal(inputs[0].agent, INVESTIGATION_AGENT);
-  assert.deepEqual(inputs[0].agent.skillIds, []);
+  assert.equal(Object.hasOwn(inputs[0].agent ?? {}, "skillIds"), false);
   // 子には依頼本文と報告の順序を渡し、終了後は購読とセッションを閉じる
   assert.match(String(sessions[0].messages[0]?.content), /どこにある？/);
   assert.match(String(sessions[0].messages[0]?.content), /conclusion, then the evidence/);

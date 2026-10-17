@@ -1,6 +1,6 @@
 # u7agent
 
-pi SDK を BFF に埋め込んだ小さなブラウザ GUI です（`projects/u7agent`）。client は Vite + React 19 + TypeScript + Tailwind CSS v4、BFF は Hono + TypeScript です。client は `hono/client` で型安全に API を呼びます。セッションは BFF 専用の会話ストア（`PI_SESSION_STORE`）へ保存するため、再起動後も一覧・履歴・続きの送信を復元できます。エージェント定義とスキル定義、プロジェクトはアプリデータの SQLite（`<PI_SESSION_STORE>/u7agent.db`）へ保存し、再起動後も残ります。
+pi SDK を BFF に埋め込んだ小さなブラウザ GUI です（`projects/u7agent`）。client は Vite + React 19 + TypeScript + Tailwind CSS v4、BFF は Hono + TypeScript です。client は `hono/client` で型安全に API を呼びます。セッションは BFF 専用の会話ストア（`PI_SESSION_STORE`）へ保存するため、再起動後も一覧・履歴・続きの送信を復元できます。エージェント定義とプロジェクトはアプリデータの SQLite（`<PI_SESSION_STORE>/u7agent.db`）へ保存し、再起動後も残ります。スキルはワークスペースの `.agents/skills`（共通・プロジェクト）とアプリ同梱の組み込みをファイルとして扱います。
 
 メッセージの送信は即時に返り、エージェントはバックグラウンドで動き続けます（ブラウザを閉じても継続します）。作業用ツール（read / bash / edit / write / grep / find / ls）は、BFF から分離したサンドボックスプロセスで実行します。
 
@@ -29,7 +29,7 @@ pnpm dev   # サンドボックス + BFF + Vite をまとめて起動 → http:/
 - **プロジェクトとセッションの作業ディレクトリ** — 登録したプロジェクトのセッションはそのディレクトリを cwd にし、未所属チャットは既定スペースでは `<workspace root>/.u7agent/sessions/<id>` のスクラッチで動きます（[docs/projects.md](docs/projects.md)）
 - **会話の引き継ぎ** — 会話の行の ⋯ から、同じ会話のままエージェントや会話スペースを代えて続けられます（履歴は破棄、タイトル・ピン・通知は維持）。要点を作業フォルダ直下の `HANDOFF.md` に書き出せるほか、引き継ぎ直後の入力欄にチップが出て必要なときだけ参照させられます（[docs/run-lifecycle.md](docs/run-lifecycle.md#引き継ぎと復旧) / [docs/api-sessions.md](docs/api-sessions.md#post-apisessionsidmove)）
 - **ファイルの持ち出し（ダウンロード）** — 設定 → ファイル と右パネルのツリーの行から保存できます。ファイルは元の名前のまま生バイトで、フォルダは ZIP です。除外規則と上限は [docs/file-preview.md](docs/file-preview.md#ダウンロード)
-- **スキル** — エージェント定義スキル / ファイルスキル（`.agents/skills`）/ 組み込みスキルの 3 種類があり、入力欄から `/skill:<name>` で展開します（[docs/persistence.md](docs/persistence.md#スキルの扱い) / [docs/api-catalog.md](docs/api-catalog.md#ファイルスキルagentsskills)）
+- **スキル** — ファイルスキル（`.agents/skills`）と組み込みスキルの 2 種類があり、入力欄から `/skill:<name>` で展開します（[docs/persistence.md](docs/persistence.md#スキルの扱い) / [docs/api-catalog.md](docs/api-catalog.md#ファイルスキルagentsskills)）
 - **サービス（serve）** — エージェントが起動した Web サーバーを別タブで開き、トップバーから起動・停止・入れ替えができます（[docs/sandbox.md](docs/sandbox.md#serveサービスの公開と起動停止)）
 - **組み込みツール（Web 検索 / 画像生成 / 音声生成）** — 設定 → Web 検索（`/settings/web-search`）と設定 → コンテンツ生成（`/settings/content`）で有効にすると、モデルから `web_search` / `generate_image` / `generate_speech` を呼べます。生成した画像と音声は作業フォルダへ保存し、チャットでプレビュー・再生できます（[docs/web-search.md](docs/web-search.md) / [docs/image-generation.md](docs/image-generation.md) / [docs/speech-generation.md](docs/speech-generation.md)）
 - **ヘッドレスブラウザ** — 固定版の Chromium をサンドボックスへ同梱し、エージェントが `bash` から `u7agent-browser` で起動中のアプリを開いて確認・撮影・失敗の収集ができます（[docs/browser.md](docs/browser.md)。使い方は組み込みスキル `browser`）

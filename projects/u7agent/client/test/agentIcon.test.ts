@@ -11,7 +11,6 @@ const agent = (id: string, icon?: string): AgentDef => ({
   name: id,
   description: "",
   systemPrompt: "",
-  skillIds: [],
   ...(icon ? { icon } : {}),
 });
 

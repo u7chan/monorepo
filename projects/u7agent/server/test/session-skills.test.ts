@@ -8,7 +8,6 @@ import test from "node:test";
 import { parseSkillBlock, stripFrontmatter } from "@earendil-works/pi-coding-agent";
 import type { Hono } from "hono";
 import { createBffApp } from "../src/app";
-import { catalogSkillPath } from "../src/catalog-skills";
 import { BUILTIN_SKILLS, builtinSkillByName, builtinSkillPath } from "../src/builtin-skills";
 import { SandboxRequestError, type SandboxWorkspaceClient } from "../src/sandbox/client";
 import type { SandboxSkillEntry } from "../src/sandbox/protocol";
@@ -16,7 +15,6 @@ import { SessionSkillsPreviewSchema } from "../src/schema";
 import {
   expandSkillCommand,
   listSessionSkills,
-  parseCatalogSkillBlock,
   parseSkillCommand,
   resolveSessionSkills,
   type SessionSkillsInput,
@@ -87,21 +85,7 @@ test("parseSkillCommand は SDK と同じ規則で接頭辞と最初の空白だ
   assert.equal(parseSkillCommand("スキルを使って"), undefined);
 });
 
-test("parseCatalogSkillBlock は旧 <skill> と新 <agent_skill> を name 属性で読む", () => {
-  assert.deepEqual(parseCatalogSkillBlock('<agent_skill name="new">\n本文\n</agent_skill>'), {
-    name: "new",
-    body: "本文",
-  });
-  assert.deepEqual(parseCatalogSkillBlock('<skill name="old">\n本文\n</skill>'), { name: "old", body: "本文" });
-  // 本文の改行と、本文中の閉じタグ風の文字列はそのまま残す (最後の閉じタグだけを落とす)
-  assert.deepEqual(parseCatalogSkillBlock('<agent_skill name="x">\n1行目\n\n3行目\n</agent_skill>'), {
-    name: "x",
-    body: "1行目\n\n3行目",
-  });
-  assert.equal(parseCatalogSkillBlock("本文だけ"), undefined);
-});
-
-test("resolveSessionSkills は project > user > builtin > catalog の順で一意化し、影を記録する", async () => {
+test("resolveSessionSkills は project > user > builtin の順で一意化し、影を記録する", async () => {
   const root = mkdtempSync(join(tmpdir(), "u7agent-session-skills-"));
   const projectPath = join(root, "proj/.agents/skills/shared/SKILL.md");
   const commonPath = join(root, ".agents/skills/shared/SKILL.md");
@@ -116,16 +100,7 @@ test("resolveSessionSkills は project > user > builtin > catalog の順で一�
     },
   });
 
-  const resolved = await resolveSessionSkills({
-    rootCwd: root,
-    relativeCwd: "proj",
-    client: workspace,
-    promptSnapshot: {
-      agent: "",
-      skills: ['<agent_skill name="shared">\nカタログ側\n</agent_skill>', '<skill name="legacy">\n旧タグ\n</skill>'],
-    },
-    agentSkills: [{ id: "skill-legacy", name: "legacy", description: "旧スナップショットの説明" }],
-  });
+  const resolved = await resolveSessionSkills({ rootCwd: root, relativeCwd: "proj", client: workspace });
 
   assert.deepEqual(
     resolved.map((item) => [
@@ -145,22 +120,13 @@ test("resolveSessionSkills は project > user > builtin > catalog の順で一�
           ? [skill.name, "builtin", true, overridingPath, false]
           : [skill.name, "builtin", false, null, skill.disableModelInvocation],
       ),
-      // カタログは最低優先なので、ファイルスキルと同名なら選ばれない
-      ["shared", "catalog", true, projectPath, false],
-      ["legacy", "catalog", false, null, false],
     ],
   );
   const shared = resolved.find((item) => item.info.name === "shared" && item.info.scope === "project");
   const overridden = resolved.find((item) => item.info.name === BUILTIN.name && item.info.scope === "builtin");
-  const catalogShared = resolved.find((item) => item.info.name === "shared" && item.info.scope === "catalog");
-  const catalogLegacy = resolved.find((item) => item.info.name === "legacy" && item.info.scope === "catalog");
   assert.deepEqual(shared?.info.shadows, [commonPath]);
   assert.equal(shared?.info.relativePath, "proj/.agents/skills/shared/SKILL.md");
   assert.equal(overridden?.info.relativePath, `.u7agent/builtin-skills/${BUILTIN.name}/SKILL.md`);
-  assert.equal(catalogShared?.info.location, catalogSkillPath(root, "shared"));
-  assert.equal(catalogShared?.info.relativePath, ".u7agent/agent-skills/shared/SKILL.md");
-  // 説明はセッションのエージェントスナップショットから引く (本文には説明が無い)
-  assert.equal(catalogLegacy?.info.description, "旧スナップショットの説明");
 });
 
 test("resolveSessionSkills は共通スキルだけを commonSkillNames で絞り、同名の浮上を許す", async () => {
@@ -181,42 +147,28 @@ test("resolveSessionSkills は共通スキルだけを commonSkillNames で絞�
     rootCwd: root,
     relativeCwd: "proj",
     client: workspace,
-    promptSnapshot: {
-      agent: "",
-      skills: [
-        '<agent_skill name="writer">\nカタログ側\n</agent_skill>',
-        '<agent_skill name="manual">\nカタログ manual\n</agent_skill>',
-      ],
-    },
-    agentSkills: [{ id: "skill-1", name: "writer", description: "カタログの説明" }],
   };
   const shapeOf = (resolved: Awaited<ReturnType<typeof resolveSessionSkills>>) =>
     resolved.map((item) => [item.info.name, item.info.scope, item.info.shadowed, item.info.shadowedBy]);
 
-  // 未指定は全可視。共通側も一意化に参加し、同名の下位 (カタログ) は影になる
+  // 未指定は全可視。共通側も一意化に参加し、同名の下位は影になる
   assert.deepEqual(shapeOf(await resolveSessionSkills(input)), [
     ["writer", "project", false, null],
     ["manual", "user", false, null],
     ...BUILTIN_SKILLS.map((skill) => [skill.name, "builtin", false, null]),
-    ["writer", "catalog", true, projectPath],
-    ["manual", "catalog", true, commonManual],
   ]);
 
-  // `[]` は共通を全部落とす (プロジェクト / 組み込みは対象外)。共通側に隠れていたカタログの manual が浮上する
+  // `[]` は共通を全部落とす (プロジェクト / 組み込みは対象外)。
   assert.deepEqual(shapeOf(await resolveSessionSkills({ ...input, commonSkillNames: [] })), [
     ["writer", "project", false, null],
     ...BUILTIN_SKILLS.map((skill) => [skill.name, "builtin", false, null]),
-    ["writer", "catalog", true, projectPath],
-    ["manual", "catalog", false, null],
   ]);
 
-  // 許可リストに残した共通スキルはそのままで、外した共通側の影だけが消える
+  // 許可リストに残した共通スキルだけが行に残る
   assert.deepEqual(shapeOf(await resolveSessionSkills({ ...input, commonSkillNames: ["manual"] })), [
     ["writer", "project", false, null],
     ["manual", "user", false, null],
     ...BUILTIN_SKILLS.map((skill) => [skill.name, "builtin", false, null]),
-    ["writer", "catalog", true, projectPath],
-    ["manual", "catalog", true, commonManual],
   ]);
 });
 
@@ -259,16 +211,12 @@ test("expandSkillCommand と一覧は外した組み込みスキルも同じに�
   );
 });
 
-test("resolveSessionSkills はサンドボックス無しでも組み込みとカタログを返す", async () => {
+test("resolveSessionSkills はサンドボックス無しでも組み込みを返す", async () => {
   const root = mkdtempSync(join(tmpdir(), "u7agent-session-skills-"));
-  const resolved = await resolveSessionSkills({
-    rootCwd: root,
-    relativeCwd: "proj",
-    promptSnapshot: { agent: "", skills: ['<agent_skill name="only-catalog">\n本文\n</agent_skill>'] },
-  });
+  const resolved = await resolveSessionSkills({ rootCwd: root, relativeCwd: "proj" });
   assert.deepEqual(
     resolved.map((item) => [item.info.name, item.info.scope]),
-    [...BUILTIN_SKILLS.map((skill) => [skill.name, "builtin"]), ["only-catalog", "catalog"]],
+    BUILTIN_SKILLS.map((skill) => [skill.name, "builtin"]),
   );
 });
 
@@ -291,23 +239,6 @@ test("組み込みの serve スキルは仮想パスで解決し、/skill:serve 
     block?.content,
     `References are relative to ${dirname(builtinSkillPath(root, "serve"))}.\n\n${stripFrontmatter(serve.body).trim()}`,
   );
-});
-
-test("resolveSessionSkills はカタログの location を encoded のまま、relativePath を表示用の名前にする", async () => {
-  const root = mkdtempSync(join(tmpdir(), "u7agent-session-skills-display-"));
-  const name = "重要度順レビュー";
-  const resolved = await resolveSessionSkills({
-    rootCwd: root,
-    relativeCwd: "proj",
-    promptSnapshot: { agent: "", skills: [`<agent_skill name="${name}">\n本文\n</agent_skill>`] },
-    agentSkills: [{ id: "skill-1", name, description: "指摘を重要度順に並べる" }],
-  });
-  const catalog = resolved.find((item) => item.info.scope === "catalog")?.info;
-
-  // read に渡す location は encoded の仮想パス、一覧の relativePath は人が読める元の名前
-  assert.equal(catalog?.location, catalogSkillPath(root, name));
-  assert.notEqual(catalog?.location, catalog?.relativePath);
-  assert.equal(catalog?.relativePath, `.u7agent/agent-skills/${name}/SKILL.md`);
 });
 
 /** 展開の共通入力。root 配下に project / common のスキルを持つサンドボックスを組む */
@@ -343,14 +274,6 @@ function expansionFixture(options: { builtinOverridden?: boolean; previewError?:
     rootCwd: root,
     relativeCwd: "proj",
     client,
-    promptSnapshot: {
-      agent: "",
-      skills: [
-        '<agent_skill name="catalog-writer">\nカタログの本文\n</agent_skill>',
-        '<skill name="legacy">\n旧タグの本文\n</skill>',
-      ],
-    },
-    agentSkills: [{ id: "skill-1", name: "catalog-writer", description: "カタログの説明" }],
   };
   return { input, root, projectPath, commonPath, overridingPath, previewed };
 }
@@ -369,7 +292,7 @@ test("expandSkillCommand はファイルスキルを frontmatter 抜きの SDK �
   assert.ok(!expanded.includes("---"), "frontmatter は本文に残さない");
 });
 
-test("expandSkillCommand は引数なし・組み込み・カタログをそれぞれの形式で展開する", async () => {
+test("expandSkillCommand は引数なし・組み込みをそれぞれの形式で展開する", async () => {
   const { input, root } = expansionFixture();
 
   // 引数なし: ブロックだけ (末尾に空行を足さない)
@@ -385,20 +308,6 @@ test("expandSkillCommand は引数なし・組み込み・カタログをそれ�
     builtinBlock?.content,
     `References are relative to ${dirname(builtinSkillPath(root, BUILTIN.name))}.\n\n${stripFrontmatter(BUILTIN.body).trim()}`,
   );
-
-  // カタログ: 実体の無い仮想パスを location にし、References 行は入れない (read は BFF が横取りする)
-  const catalog = await expandSkillCommand("/skill:catalog-writer 続き", input);
-  assert.deepEqual(parseSkillBlock(catalog), {
-    name: "catalog-writer",
-    location: catalogSkillPath(root, "catalog-writer"),
-    content: "カタログの本文",
-    userMessage: "続き",
-  });
-
-  // 旧スナップショット (<skill> タグ) も name 属性で引ける
-  const legacy = await expandSkillCommand("/skill:legacy", input);
-  assert.equal(parseSkillBlock(legacy)?.location, catalogSkillPath(root, "legacy"));
-  assert.equal(parseSkillBlock(legacy)?.content, "旧タグの本文");
 });
 
 test("expandSkillCommand は未知の名前と対象外の本文を素通しする", async () => {
@@ -460,15 +369,9 @@ async function createProjectSession(app: Hono): Promise<string> {
   return (await jsonBody(session)).sessionId as string;
 }
 
-/** カタログのスキルを 1 件作り、それを割り当てたエージェントの id を返す (作成前プレビューの catalog スコープ用) */
-async function createAgentWithSkill(app: Hono, name: string): Promise<string> {
-  const skill = await app.request(
-    "/api/skills",
-    jsonPost({ name, description: `${name} の説明`, body: `${name} の本文` }),
-  );
-  assert.equal(skill.status, 201);
-  const skillId = (await jsonBody(skill)).skill.id as string;
-  const agent = await app.request("/api/agents", jsonPost({ name: `${name} のエージェント`, skillIds: [skillId] }));
+/** 作成前プレビュー用のエージェントを 1 件作り、id を返す (許可リスト未指定 = 全可視) */
+async function createPreviewAgent(app: Hono, name: string): Promise<string> {
+  const agent = await app.request("/api/agents", jsonPost({ name: `${name} のエージェント` }));
   assert.equal(agent.status, 201);
   return (await jsonBody(agent)).agent.id as string;
 }
@@ -655,7 +558,7 @@ test("GET /api/skills/session はセッション無しで一覧を返し、同�
   try {
     const project = await bff.app.request("/api/projects", jsonPost({ cwd: "proj", create: true }));
     const projectId = (await jsonBody(project)).project.id as string;
-    const agentId = await createAgentWithSkill(bff.app, "catalog-writer");
+    const agentId = await createPreviewAgent(bff.app, "writer");
 
     // 未所属 × エージェント未選択 (クエリ省略) は共通 + 組み込みだけ。cwd は "" になる
     const bare = await jsonBody(await bff.app.request("/api/skills/session"));
@@ -666,7 +569,7 @@ test("GET /api/skills/session はセッション無しで一覧を返し、同�
       [["writer", "user"], ...BUILTIN_SKILLS.map((skill) => [skill.name, "builtin"])],
     );
 
-    // プロジェクト選択 × エージェント選択は優先順位 (project > user > builtin > catalog) と影を返す
+    // プロジェクト選択 × エージェント選択は優先順位 (project > user > builtin) と影を返す
     const response = await bff.app.request(`/api/skills/session?projectId=${projectId}&agentId=${agentId}`);
     assert.equal(response.status, 200);
     const preview = await jsonBody(response);
@@ -678,13 +581,9 @@ test("GET /api/skills/session はセッション無しで一覧を返し、同�
         skill.scope,
         skill.shadowed,
       ]),
-      [
-        ["writer", "project", false],
-        ...BUILTIN_SKILLS.map((skill) => [skill.name, "builtin", false]),
-        ["catalog-writer", "catalog", false],
-      ],
+      [["writer", "project", false], ...BUILTIN_SKILLS.map((skill) => [skill.name, "builtin", false])],
     );
-    // ファイル同士の重複は敗者が行にならず (組み込み / カタログは shadowed 行として残る)、採用側の shadows に入る
+    // ファイル同士の重複は敗者が行にならず、採用側の shadows に入る
     assert.deepEqual(preview.skills[0].shadows, [commonPath]);
     assert.equal(SessionSkillsPreviewSchema.safeParse(preview).success, true, "応答は schema を満たす");
 

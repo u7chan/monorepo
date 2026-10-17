@@ -3,8 +3,8 @@
  * 秘密値のマスクは切り詰めより先に行う (逆順だと上限の境界でキーの末尾が欠け、大部分が生のまま残る)。
  */
 import { basename, dirname, resolve } from "node:path";
+import { APP_DIR_REL } from "./app-paths";
 import { ASK_USER_TOOL_NAME, deriveAskUserQuestions, parseAskUserAnswers } from "./ask-user-tool";
-import { catalogSkillNameFromPath } from "./catalog-skills";
 import { SKILL_FILE_NAME } from "./builtin-skills";
 import type { PiSessionLike } from "./pi-runtime";
 import { parseUsage } from "./pi-runtime";
@@ -293,6 +293,23 @@ interface SkillReadRef {
 }
 
 /**
+ * 過去に実行されたカタログスキルの仮想パス (`.u7agent/agent-skills/<segment>/SKILL.md`) を表示名へ戻す。
+ * カタログは撤去済みで、**この変換は履歴表示のためだけ**に残す (旧本文を実行可能にする互換ではない)。
+ * 対象外・壊れた percent encoding は undefined を返し、呼び出し側は通常のディレクトリ名を使う。
+ */
+function legacyCatalogSkillName(path: string): string | undefined {
+  const [appDir, skillsDir, segment, fileName] = path.split(/[\\/]/).slice(-4);
+  if (appDir !== APP_DIR_REL || skillsDir !== "agent-skills" || fileName !== SKILL_FILE_NAME || !segment) {
+    return undefined;
+  }
+  try {
+    return decodeURIComponent(segment);
+  } catch {
+    return undefined;
+  }
+}
+
+/**
  * read の引数がスキル読み込みかどうかを、ツール名・パスの解決・basename だけで判定する。pi の
  * `getCompactReadClassification()` のうち skill の分だけを持ち、対応するのは絶対 / 相対 / `.` / `..`
  * のみ (`~` 展開・`@` 接頭辞・`file://`・Unicode スペース正規化は非対応)。
@@ -317,8 +334,8 @@ export function classifySkillRead(
   const ref: SkillReadRef = {
     path,
     // ルート直下の SKILL.md は親ディレクトリ名が空になるため、pi と同じくファイル名へ落とす。
-    // カタログの仮想パスはセグメントが percent encoding 済みなので、表示用の名前に戻す
-    name: catalogSkillNameFromPath(path) ?? (basename(dirname(path)) || fileName),
+    // 旧カタログの仮想パスはセグメントが percent encoding 済みなので、表示用の名前に戻す
+    name: legacyCatalogSkillName(path) ?? (basename(dirname(path)) || fileName),
   };
   if (typeof record.offset === "number") ref.offset = record.offset;
   if (typeof record.limit === "number") ref.limit = record.limit;

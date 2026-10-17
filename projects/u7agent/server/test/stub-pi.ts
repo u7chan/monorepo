@@ -18,12 +18,10 @@ import type { SessionEnvSource } from "../src/agent";
 import { createMutableSecretMasker } from "../src/redact";
 import type {
   AgentDef,
-  AgentSkillInfo,
   ContextUsage,
   ModelOption,
   ModelRef,
   RuntimeModelsResponse,
-  SkillDef,
   ThinkingLevel,
   ToolCatalogEntry,
   Usage,
@@ -938,16 +936,13 @@ export function createStubSession(options: StubSessionOptions = {}): StubSession
 
 export interface StubCreateInput {
   agent?: AgentDef;
-  skills?: SkillDef[];
   model?: ModelRef;
   thinkingLevel?: ThinkingLevel;
   /** rootCwd 相対の作業ディレクトリ (実ランタイムは絶対パスで受ける) */
   cwd?: string;
   sessionId?: string;
   entries?: unknown[];
-  promptSnapshot?: { agent: string; skills: string[] };
-  /** セッションのエージェントスナップショット (スタブでは使わない) */
-  agentSkills?: AgentSkillInfo[];
+  promptSnapshot?: { agent: string };
   /** 共通スキルの許可リスト。呼び出し側の検証用に記録するだけ */
   commonSkillNames?: string[];
   /** 組み込みスキルの許可リスト。呼び出し側の検証用に記録するだけ */

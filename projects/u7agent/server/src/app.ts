@@ -37,7 +37,6 @@ import {
   CreateSecretBodySchema,
   CreateSessionBodySchema,
   CreateFileSkillBodySchema,
-  CreateSkillBodySchema,
   MoveSessionBodySchema,
   PostMessageBodySchema,
   RenameFileBodySchema,
@@ -62,7 +61,6 @@ import {
   UpdateSessionPinnedBodySchema,
   UpdateSessionSettingsBodySchema,
   UpdateSessionTitleBodySchema,
-  UpdateSkillBodySchema,
   SaveFileSkillBodySchema,
   ServeStartBodySchema,
   ServeStopBodySchema,
@@ -260,9 +258,9 @@ export async function createBffApp(opts: CreateBffAppOptions = {}) {
       (c) => catalogRoutes.updateAgent(c, c.req.valid("json")),
     )
     .delete("/api/agents/:id", appData, catalogRoutes.removeAgent)
-    .get("/api/skills", appData, catalogRoutes.listSkills)
+    // スキルの一覧・編集はファイル (`.agents/skills`) だけを対象にする。旧 `/api/skills` と
+    // `/api/skills/:id` の DB カタログ CRUD は置かず、新しい API へも転送しない (404)
     .get("/api/skills/files", catalogRoutes.listFileSkills)
-    // 共通スキルの編集。静的セグメントを /api/skills/:id より先に登録する (旧カタログ CRUD を壊さない)
     .get("/api/skills/files/detail", skillFileRoutes.detail)
     .get("/api/skills/files/delete-preview", skillFileRoutes.deletePreview)
     .delete("/api/skills/files", skillFileRoutes.remove)
@@ -280,33 +278,8 @@ export async function createBffApp(opts: CreateBffAppOptions = {}) {
       ),
       (c) => skillFileRoutes.save(c, c.req.valid("json")),
     )
-    // セッション未確定 (新規チャット) の一覧。GET /api/skills/:id は無いので静的セグメントで衝突しない
+    // セッション未確定 (新規チャット) の一覧
     .get("/api/skills/session", appData, sessionRoutes.previewSkills)
-    .post(
-      "/api/skills",
-      appData,
-      jsonBodyValidator(CreateSkillBodySchema, (result, c) =>
-        result.success ? undefined : c.json({ error: "Invalid request body" }, 400),
-      ),
-      (c) => catalogRoutes.createSkill(c, c.req.valid("json")),
-    )
-    .patch(
-      "/api/skills/:id",
-      appData,
-      jsonBodyValidator(UpdateSkillBodySchema, (result, c) =>
-        result.success ? undefined : c.json({ error: "Invalid request body" }, 400),
-      ),
-      (c) => catalogRoutes.updateSkill(c, c.req.valid("json")),
-    )
-    .put(
-      "/api/skills/:id",
-      appData,
-      jsonBodyValidator(UpdateSkillBodySchema, (result, c) =>
-        result.success ? undefined : c.json({ error: "Invalid request body" }, 400),
-      ),
-      (c) => catalogRoutes.updateSkill(c, c.req.valid("json")),
-    )
-    .delete("/api/skills/:id", appData, catalogRoutes.removeSkill)
     .get("/api/sessions", appData, sessionRoutes.list)
     .post(
       "/api/sessions",

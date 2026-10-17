@@ -5,14 +5,7 @@ import { builtinSkillEntries } from "../builtin-skills";
 import { composeFileSkills } from "../file-skills";
 import { sandboxFailure, sandboxNotConfigured } from "../http";
 import { SandboxRequestError, type SandboxWorkspaceClient } from "../sandbox/client";
-import {
-  SandboxSkillsSchema,
-  type CreateAgentBody,
-  type CreateSkillBody,
-  type ReorderAgentsBody,
-  type UpdateAgentBody,
-  type UpdateSkillBody,
-} from "../schema";
+import { SandboxSkillsSchema, type CreateAgentBody, type ReorderAgentsBody, type UpdateAgentBody } from "../schema";
 
 export function createCatalogRoutes({
   catalog,
@@ -36,12 +29,6 @@ export function createCatalogRoutes({
     return c.json({ agent });
   };
 
-  const updateSkill = (c: Context, body: UpdateSkillBody) => {
-    const skill = catalog.updateSkill(c.req.param("id") ?? "", body);
-    if (!skill) return c.json({ error: "Skill not found" }, 404);
-    return c.json({ skill });
-  };
-
   return {
     snapshot: (c: Context) => c.json(catalog.snapshot()),
 
@@ -60,12 +47,11 @@ export function createCatalogRoutes({
       return c.json({ ok: true });
     },
 
-    listSkills: (c: Context) => c.json({ skills: catalog.listSkills() }),
-
     /**
-     * 共通スキル (`<root>/.agents/skills`) と組み込みスキルの読み取り専用一覧。同名は優先順位
+     * 共通スキル (`<root>/.agents/skills`) と組み込みスキルの一覧。同名は優先順位
      * (project > user > builtin) で一意化済みで、影になったファイル側は shadowed、上書きされた組み込みは
-     * overridden に入る。編集・削除・エージェント割り当ての対象ではない。
+     * overridden に入る。旧 DB カタログの CRUD API は置かず、新しい API へも転送しない
+     * (利用者には通常の未対応 API として 404 になる)。
      */
     listFileSkills: async (c: Context) => {
       if (!workspace) return sandboxNotConfigured(c);
@@ -82,17 +68,6 @@ export function createCatalogRoutes({
         }
         return sandboxFailure(c, error);
       }
-    },
-
-    createSkill: (c: Context, body: CreateSkillBody) => c.json({ skill: catalog.createSkill(body) }, 201),
-
-    updateSkill,
-
-    removeSkill: (c: Context) => {
-      if (!catalog.removeSkill(c.req.param("id") ?? "")) {
-        return c.json({ error: "Skill not found" }, 404);
-      }
-      return c.json({ ok: true });
     },
   };
 }

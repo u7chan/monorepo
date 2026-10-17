@@ -15,7 +15,7 @@ const { createCatalogStore } = await import("../src/lib/catalogStore");
 const { agentFormKey } = await import("../src/components/agent-settings/AgentEditorForm");
 
 function agent(id: string, name = id): AgentDef {
-  return { id, name, description: "", systemPrompt: "", skillIds: [] };
+  return { id, name, description: "", systemPrompt: "" };
 }
 
 /** ページと同じ形の flow を作り、呼ばれた順と状態の変化を記録する */
@@ -177,7 +177,7 @@ test("保存中の再確定は直列化され、古い操作が最終値にな�
 // --- 共有カタログの取得の世代 ---
 
 function catalog(agentIds: string[]): CatalogResponse {
-  return { builtinAgent: null, builtinSkills: [], agents: agentIds.map((id) => agent(id)), skills: [], tools: [] };
+  return { builtinAgent: null, builtinSkills: [], agents: agentIds.map((id) => agent(id)), tools: [] };
 }
 
 test("並べ替えより前に開始した取得の応答は確定順を巻き戻さない", () => {

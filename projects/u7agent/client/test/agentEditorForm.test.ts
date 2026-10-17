@@ -19,7 +19,7 @@ const {
 } = await import("../src/components/agent-settings/AgentEditorForm");
 
 function agent(overrides: Partial<AgentDef> = {}): AgentDef {
-  return { id: "agent-a", name: "実装", description: "", systemPrompt: "", skillIds: [], ...overrides };
+  return { id: "agent-a", name: "実装", description: "", systemPrompt: "", ...overrides };
 }
 
 const VISIBLE = ["alpha", "beta"];
@@ -42,6 +42,10 @@ test("保存ペイロードは未指定ならキーが落ち、null は解除と
   assert.equal(Object.hasOwn(sent(agentFormOf(agent())), "commonSkillNames"), false);
   assert.deepEqual(sent(agentFormOf(agent({ commonSkillNames: [] }))).commonSkillNames, []);
   assert.deepEqual(sent(agentFormOf(agent({ commonSkillNames: ["writer"] }))).commonSkillNames, ["writer"]);
+
+  // 撤去済みの skillIds は下書きにもペイロードにも出さない (サーバーは届いたら 400 にする)
+  assert.equal(Object.hasOwn(agentFormOf(agent()), "skillIds"), false);
+  assert.equal(Object.hasOwn(sent(agentFormOf(agent())), "skillIds"), false);
 
   const cleared = sent(withAllCommonSkillsVisible(agentFormOf(agent({ commonSkillNames: ["writer"] }))));
   assert.equal(Object.hasOwn(cleared, "commonSkillNames"), true);

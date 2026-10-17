@@ -30,7 +30,7 @@ compaction（[compaction.md](compaction.md)）は会話全体を要約に置き�
 - 子のツールは読み取り専用の集合 ∩ `configuredTools()`（`PI_AGENT_TOOLS`）∩ 親の許可リスト（`toolNames`）。`bash` を外している運用では子にも入らず、親が外したツールを子経由で実行することもできない（[api-catalog.md](api-catalog.md#ツール許可リスト)）
 - BFF ローカルツールの常時有効群を足さない。子はユーザーへ質問できず、再帰できず、resume もできない（対象の一覧はコードが正）
 - 子用の append system prompt（`investigationSystemPrompt()`）に切り替え、読み取り専用の調査に要る案内だけを残す（親向けの作業案内は子に渡さない）
-- ファイルスキル / カタログスキルの発見を行わず、`skillsOverride` も渡さない（サンドボックス往復を減らし、子の system prompt に使えないスキルの索引を混ぜない）
+- ファイルスキルの発見を行わず、`skillsOverride` も渡さない（サンドボックス往復を減らし、子の system prompt に使えないスキルの索引を混ぜない）
 - cwd は親と同じ、モデルは親セッションの現在のモデル、`ownerSessionId` は親。合成した調査用 AgentDef（固定の system prompt、スキルなし）を渡す
 - retry / compaction の設定は `SettingsManager.inMemory` 経由で既存のセッションと揃う
 
