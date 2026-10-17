@@ -727,6 +727,15 @@ const DEBUG_FROM = DEBUG_SERVE_PORT_FROM;
 const DEBUG_TO = DEBUG_SERVE_PORT_TO;
 const DEBUG_COMMAND = "pnpm dev --host 127.0.0.1 --port $U7AGENT_DEBUG_PORT";
 
+/**
+ * dev サーバーの再起動を模す。起動ツリーは同じままで、待受ソケットを作り直した子孫が同じポートを
+ * 待ち受けたし直す (PID と inode が変わり、停止の照合は起動 PID の子孫として通る)。
+ */
+function restartDebugListener(sandbox: ReturnType<typeof createServeSandboxStub>, port: number, pid: number): void {
+  const ancestors = sandbox.state.listeners.get(port)?.ancestors ?? [];
+  sandbox.state.listeners.set(port, { pid, startedAt: NOW + 1, inodes: [pid], ancestors: [...ancestors, 1] });
+}
+
 test("デバッグ用 serve は会話ごとに別ポートを採番し、公開枠と独立して動く", async () => {
   const { service, sandbox, commands } = setup();
   const first = await service.debugStart(SESSION, { command: DEBUG_COMMAND });
@@ -882,6 +891,74 @@ test("待受が消えた lease は debug_status で検出して掃除する", as
   assert.equal((await service.debugStatus(SESSION)).lease, null, "掃除されている");
   // 掃除されたので次の起動は同じポートを再利用できる
   assert.equal((await service.debugStart(SESSION, { command: DEBUG_COMMAND })).port, handle.port);
+});
+
+test("デバッグ一覧は待受と lease を突き合わせ、起動元と起動時の値を返す", async () => {
+  const { service, sandbox } = setup();
+  const first = await service.debugStart(SESSION, { command: DEBUG_COMMAND });
+  const second = await service.debugStart(OTHER, { command: DEBUG_COMMAND });
+  const orphanPort = DEBUG_FROM + 5;
+  sandbox.state.listeners.set(orphanPort, { pid: 9001, startedAt: NOW, inodes: [9001], ancestors: [9001] });
+  const scansBefore = sandbox.state.scans;
+  assert.deepEqual(await service.debugServers(), {
+    servers: [
+      {
+        port: first.port,
+        owner: { sessionId: SESSION, title: "トップページの改修" },
+        command: DEBUG_COMMAND,
+        startedAt: sandbox.state.launchStartedAt,
+      },
+      {
+        port: second.port,
+        owner: { sessionId: OTHER, title: "決済画面の検証", spaceId: OWNER_SPACE },
+        command: DEBUG_COMMAND,
+        startedAt: sandbox.state.launchStartedAt,
+      },
+      { port: orphanPort, owner: null, command: null, startedAt: null },
+    ],
+  });
+  // 一覧は軽い走査だけを通す (起動時の fd 走査から増やさない)
+  assert.equal(sandbox.state.scans, scansBefore, "一覧が fd 走査を伴っている");
+});
+
+test("デバッグ一覧は起動元が削除された行を所有者不明にする", async () => {
+  const { service, sandbox, sessionMap } = setup();
+  const handle = await service.debugStart(SESSION, { command: DEBUG_COMMAND });
+  delete sessionMap[SESSION];
+  assert.deepEqual(await service.debugServers(), {
+    servers: [{ port: handle.port, owner: null, command: DEBUG_COMMAND, startedAt: sandbox.state.launchStartedAt }],
+  });
+});
+
+test("待受ソケットが入れ替わっても lease を残し、会話からの停止と削除の回収が通る", async () => {
+  const { service, sandbox } = setup();
+  const handle = await service.debugStart(SESSION, { command: DEBUG_COMMAND });
+  restartDebugListener(sandbox, handle.port, 777);
+  // 一覧と会話の status は lease を残し、起動元の表示だけを落とす (入れ替わったプロセスを所有者にしない)
+  assert.deepEqual(await service.debugStatus(SESSION), {
+    lease: {
+      port: handle.port,
+      command: DEBUG_COMMAND,
+      logPath: `.u7agent/serve/debug/${handle.port}.log`,
+      listening: true,
+    },
+    untrackedPorts: [],
+  });
+  assert.deepEqual(await service.debugServers(), {
+    servers: [{ port: handle.port, owner: null, command: DEBUG_COMMAND, startedAt: sandbox.state.launchStartedAt }],
+  });
+  // 会話からの停止は起動 PID の子孫として照合が取れ、kill と解放確認まで進む
+  assert.deepEqual(await service.debugStop(SESSION), { port: handle.port, released: true, alreadyStopped: false });
+  assert.deepEqual(sandbox.state.killed, [777]);
+
+  // 会話削除の回収も同じ照合で停止を試みる (lease を捨てる実装では走らなかった)
+  const removed = setup();
+  const removedHandle = await removed.service.debugStart(SESSION, { command: DEBUG_COMMAND });
+  restartDebugListener(removed.sandbox, removedHandle.port, 778);
+  await removed.service.debugStatus(SESSION);
+  await removed.service.discardDebug(SESSION);
+  assert.deepEqual(removed.sandbox.state.killed, [778]);
+  assert.equal(removed.sandbox.state.listeners.has(removedHandle.port), false);
 });
 
 test("追跡外の待受はポートだけを見せ、強制停止は所有者を問わず、会話からの停止は 403 にする", async () => {

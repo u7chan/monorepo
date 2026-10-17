@@ -1639,6 +1639,35 @@ export const ServeStopBodySchema = z.object({
 });
 export type ServeStopBody = z.infer<typeof ServeStopBodySchema>;
 
+/**
+ * 設定 → ランタイム のデバッグ一覧。行はレンジ走査で見付かった待受だけで、lease の無い行 (追跡外) は
+ * `owner` / `command` / `startedAt` を null にする。`owner` は会話ストアに起動元が残っていて、待受ソケットが
+ * lease と一致するときだけ載る (削除済み / 追跡外 / 待受の入れ替わりは null = 所有者不明)。
+ */
+export const RuntimeDebugServeEntrySchema = z.object({
+  port: z.number().int(),
+  owner: z.object({ sessionId: z.string(), title: z.string(), spaceId: z.string().optional() }).nullable(),
+  command: z.string().nullable(),
+  /** 待受プロセスの起動時刻 (epoch ms)。追跡外は null */
+  startedAt: z.number().nullable(),
+});
+export type RuntimeDebugServeEntry = z.infer<typeof RuntimeDebugServeEntrySchema>;
+
+export const RuntimeDebugServeStatusSchema = z.object({ servers: z.array(RuntimeDebugServeEntrySchema) });
+export type RuntimeDebugServeStatus = z.infer<typeof RuntimeDebugServeStatusSchema>;
+
+/** 停止対象はレンジ内のポートだけ (対象は常に「いまそのポートで待受している PID」で、世代照合は持たない) */
+export const RuntimeDebugServeStopBodySchema = z.object({ port: z.number().int() }).strict();
+export type RuntimeDebugServeStopBody = z.infer<typeof RuntimeDebugServeStopBodySchema>;
+
+/** `alreadyStopped` は「そのポートに待受が無い」を表し、成功として返す */
+export const RuntimeDebugServeStopResultSchema = z.object({
+  port: z.number().int().nullable(),
+  released: z.boolean(),
+  alreadyStopped: z.boolean(),
+});
+export type RuntimeDebugServeStopResult = z.infer<typeof RuntimeDebugServeStopResultSchema>;
+
 // ---------------------------------------------------------------------------
 // 環境変数 (作業環境 → 環境変数。docs/secrets.md)
 // ---------------------------------------------------------------------------

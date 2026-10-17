@@ -12,7 +12,7 @@ import { MutationLock } from "./model-settings";
 // serve 契約の待受ポート。プローブも待受 PID の特定も、サービス オリジンの転送先もこの値だけを見る
 import { SERVE_LISTEN_PORT } from "./preview-port";
 import type { SandboxServeClient } from "./sandbox/client";
-import type { SandboxListenerScan, SandboxWriteScopeEntry } from "./sandbox/protocol";
+import type { SandboxListenerPort, SandboxListenerScan, SandboxWriteScopeEntry } from "./sandbox/protocol";
 import type { RuntimeServeStatus } from "./schema";
 
 /** 起動の成功境界。バックグラウンド起動の shell が終わってからこの期限までに到達可になること */
@@ -89,6 +89,23 @@ export interface DebugServeStopResult {
   alreadyStopped: boolean;
 }
 
+/** 設定 → ランタイム のデバッグ一覧の 1 行。lease の無い (追跡外の) 待受はポートだけを返す */
+export interface DebugServeEntry {
+  port: number;
+  /**
+   * 会話ストアに起動元が残っていて、待受ソケットが lease と一致するときだけ返す。
+   * 削除済み / 追跡外 / 待受の入れ替わりは null (所有者不明)
+   */
+  owner: { sessionId: string; title: string; spaceId?: string } | null;
+  command: string | null;
+  startedAt: number | null;
+}
+
+/** デバッグ用 serve の一覧。待受の実体は起動ではなくレンジ走査で決まる */
+export interface DebugServeList {
+  servers: DebugServeEntry[];
+}
+
 /** 起動の検証を失敗させた理由 */
 type DebugStartFailure = "timeout" | "other" | "non-loopback";
 
@@ -107,9 +124,12 @@ function debugStartFailureMessage(port: number, reason: DebugStartFailure, note:
   ].join("。");
 }
 
-/** 待受のない lease を掃除する。プロセスだけ死んだ状態を次の操作で回収する */
-function pruneDebugLeases(leases: Map<string, DebugServeLease>, livePorts: readonly number[]): void {
-  const listening = new Set(livePorts);
+/**
+ * 待受のない lease を掃除する。待受ソケットが入れ替わっただけ (dev サーバーの再起動で inode が変わった
+ * など) の lease を残すのは、停止の照合が起動 PID の子孫を許しているため (捨てると停止できない)。
+ */
+function pruneDebugLeases(leases: Map<string, DebugServeLease>, live: readonly SandboxListenerPort[]): void {
+  const listening = new Set(live.map((entry) => entry.port));
   for (const [sessionId, lease] of leases) {
     if (!listening.has(lease.port)) leases.delete(sessionId);
   }
@@ -652,10 +672,22 @@ export class ServeService {
   async debugStatus(sessionId: string): Promise<DebugServeStatus> {
     this.#view(sessionId);
     return this.#debugLock.run(async () => {
-      const live = await this.#liveDebugPorts();
+      const live = await this.#scanDebugRange();
       const status = this.#composeDebug(sessionId, live);
       pruneDebugLeases(this.#debugLeases, live);
       return status;
+    });
+  }
+
+  /**
+   * 設定 → ランタイム のデバッグ一覧。レンジ走査 (fd 走査なし) と lease を突き合わせ、待受の無い lease は
+   * 掃除する。入れ替わった待受も lease を残し、起動元の表示だけを落とす (#composeDebugEntry)。
+   */
+  async debugServers(): Promise<DebugServeList> {
+    return this.#debugLock.run(async () => {
+      const live = await this.#scanDebugRange();
+      pruneDebugLeases(this.#debugLeases, live);
+      return { servers: live.map((entry) => this.#composeDebugEntry(entry)) };
     });
   }
 
@@ -909,9 +941,9 @@ export class ServeService {
     return null;
   }
 
-  #composeDebug(sessionId: string, livePorts: readonly number[]): DebugServeStatus {
+  #composeDebug(sessionId: string, live: readonly SandboxListenerPort[]): DebugServeStatus {
     const lease = this.#debugLeases.get(sessionId);
-    const listening = new Set(livePorts);
+    const listening = new Set(live.map((entry) => entry.port));
     return {
       lease: lease
         ? {
@@ -921,16 +953,37 @@ export class ServeService {
             listening: listening.has(lease.port),
           }
         : null,
-      untrackedPorts: livePorts.filter((port) => this.#leaseAtPort(port) === null),
+      untrackedPorts: live.map((entry) => entry.port).filter((port) => this.#leaseAtPort(port) === null),
+    };
+  }
+
+  /**
+   * lease がある行は起動時の値を返し、無い行 (追跡外) はポートだけ返す。起動元は軽い走査で照合できる
+   * 待受ソケットの inode が一致するときだけ示す (入れ替わったプロセスへ移動リンクや所有者名を出さない)。
+   */
+  #composeDebugEntry(live: SandboxListenerPort): DebugServeEntry {
+    const lease = this.#leaseAtPort(live.port);
+    if (!lease) return { port: live.port, owner: null, command: null, startedAt: null };
+    // 会話ストアの一覧に無い会話も所有者として示さない (削除済みの記録へ移動リンクを出さない)
+    const title = sameInodes(live.inodes, lease.inodes) ? this.#sessions.titleOfId(lease.sessionId) : undefined;
+    const spaceId = title === undefined ? undefined : this.#sessions.spaceOfId(lease.sessionId);
+    return {
+      port: live.port,
+      owner:
+        title === undefined
+          ? null
+          : { sessionId: lease.sessionId, title, ...(spaceId === undefined ? {} : { spaceId }) },
+      command: lease.command,
+      startedAt: lease.startedAt,
     };
   }
 
   /** レンジ内で待受しているポート (fd 走査は伴わないので、取得のたびに呼んでも軽い) */
-  async #liveDebugPorts(): Promise<number[]> {
+  async #scanDebugRange(): Promise<SandboxListenerPort[]> {
     const sandbox = this.#requireSandbox();
     try {
       const scan = await sandbox.scanListenerRange(DEBUG_SERVE_PORT_FROM, DEBUG_SERVE_PORT_TO);
-      return scan.ports.map((entry) => entry.port);
+      return scan.ports;
     } catch (error) {
       throw sandboxFailure(error);
     }
@@ -938,9 +991,9 @@ export class ServeService {
 
   /** レンジ内の「lease が無く、待受も無い」最小ポート。満杯は起動せず、回収先を案内する 409 にする */
   async #allocateDebugPort(): Promise<number> {
-    const live = await this.#liveDebugPorts();
+    const live = await this.#scanDebugRange();
     pruneDebugLeases(this.#debugLeases, live);
-    const used = new Set(live);
+    const used = new Set(live.map((entry) => entry.port));
     for (const lease of this.#debugLeases.values()) used.add(lease.port);
     for (let port = DEBUG_SERVE_PORT_FROM; port <= DEBUG_SERVE_PORT_TO; port += 1) {
       if (!used.has(port)) return port;

@@ -33,6 +33,8 @@ import type {
   PostMessageResult,
   Project,
   ProjectsResponse,
+  RuntimeDebugServeStatus,
+  RuntimeDebugServeStopResult,
   RuntimeEnvironmentResponse,
   RuntimeModelsResponse,
   RuntimeServeStatus,
@@ -786,6 +788,26 @@ export const stopRuntimeServe = async (
   const res = await client.api.serve.runtime.stop.$post({ json: input }, { init: { signal } });
   if (!res.ok) throw await apiError(res);
   return (await res.json()) as RuntimeServeStatus;
+};
+
+/**
+ * デバッグ枠 (18000–18099) の一覧。公開枠の status とは別に取得し、失敗をデバッグ節の中だけに閉じる。
+ * 一覧は軽い走査だけで、待受 PID の特定は停止のときに行う。
+ */
+export const getRuntimeDebugServeStatus = async (signal?: AbortSignal): Promise<RuntimeDebugServeStatus> => {
+  const res = await client.api.serve.debug.status.$get({}, { init: { signal } });
+  if (!res.ok) throw await apiError(res);
+  return (await res.json()) as RuntimeDebugServeStatus;
+};
+
+/** 設定 → ランタイム からの強制停止。所有者を問わず、指定したレンジ内のポートを停止する */
+export const stopRuntimeDebugServe = async (
+  input: { port: number },
+  signal?: AbortSignal,
+): Promise<RuntimeDebugServeStopResult> => {
+  const res = await client.api.serve.debug.stop.$post({ json: input }, { init: { signal } });
+  if (!res.ok) throw await apiError(res);
+  return (await res.json()) as RuntimeDebugServeStopResult;
 };
 
 /**

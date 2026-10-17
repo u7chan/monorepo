@@ -64,6 +64,7 @@ import {
   SaveFileSkillBodySchema,
   ServeStartBodySchema,
   ServeStopBodySchema,
+  RuntimeDebugServeStopBodySchema,
   RuntimeServeStopBodySchema,
 } from "./schema";
 
@@ -375,6 +376,16 @@ export async function createBffApp(opts: CreateBffAppOptions = {}) {
     .get("/api/sessions/:id/events", appData, sessionRoutes.events)
     .get("/api/serve/status", appData, serveRoutes.status)
     .get("/api/serve/runtime/status", appData, serveRoutes.runtimeStatus)
+    // デバッグ枠は公開枠とは別の取得にし、失敗しても公開カードを壊さない (一覧は軽い走査だけで組む)
+    .get("/api/serve/debug/status", appData, serveRoutes.debugStatus)
+    .post(
+      "/api/serve/debug/stop",
+      appDataMutation,
+      jsonBodyValidator(RuntimeDebugServeStopBodySchema, (result, c) =>
+        result.success ? undefined : c.json({ error: "Invalid request body" }, 400),
+      ),
+      (c) => serveRoutes.debugStop(c, c.req.valid("json")),
+    )
     .post(
       "/api/serve/runtime/stop",
       appDataMutation,
