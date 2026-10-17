@@ -191,7 +191,7 @@ APIキーは画像と**同じ 1 つを共有**する（`content_settings.apiKey`
 | `server/test/speech-settings.test.ts` | 音声列 NULL のフォールバック、`PUT` の 400（行なし・カタログ外・宣言外）、`default` では照合しない、空文字ボイスの保存、503 `not_stored`、再取得の失敗文言、起動時の適用と注入した `readSpeech` / `readVoices`、お試し再生の行なし 400 / 未注入 503 / DB 不通 503、pcm → wav と演技指示・速度の受け渡し、`default` での声の照合 |
 | `server/test/speech-settings-api.test.ts` | HTTP 契約（GET / PUT / 再取得）、既定カタログの形、キーが応答に出ないこと、カタログ外 / 宣言外 / 本文形の 400、DB 不通 |
 | `server/test/speech-preview-api.test.ts` | お試し再生の HTTP 契約（課金前の 400 は provider を叩かない / 成功の `audio/mpeg` と RIFF 付き `audio/wav` / `nosniff` と `no-store` / provider 失敗の 502 と分類コード / timeout と中断 / runtime 不可と DB 不通の 503 / キーの伏せ字 / 保存ロックを取らないこと） |
-| `client/test/contentSettings.test.ts` / `client/test/contentSettingsTab.test.ts` / `client/test/speechPlayground.test.ts` / `client/test/speechVoices.test.ts` | 音声モデルとボイスの選択肢・現在値・PUT の本文・自由記述の切替 / ボイスの属性の写し（欠けと綴り、性別の内訳、スタイル語のラベル）とグループ分け（女性 → 男性 → 未知、`google/` 以外と属性を引けない一覧は宣言順の 1 グループ、片方の性別しか無いときの空グループの除外）/ カタログ外の現在値 / 出どころのチップと再取得の注記 / 選んだ面の描画（音声欄はキー保存後・runtime 不可でも残る）/ お試し再生の初期値・入力順・押下の意味（同じ入力なら再生 / 変わったら生成）・別テイク・初期テンプレ・送信前の検証・形式の表示・失敗文言と、生成中 / 失敗 / 結果の描画 / ランタイム不可での主ボタンの無効化（未同期のゲートとは独立） |
+| `client/test/contentSettings.test.ts` / `client/test/contentSettingsTab.test.ts` / `client/test/speechPlayground.test.ts` / `client/test/speechVoices.test.ts` | 音声モデル（表示名の昇順）とボイスの選択肢・現在値・PUT の本文・自由記述の切替 / ボイスの属性の写し（欠けと綴り、性別の内訳、スタイル語のラベル）とグループ分け（女性 → 男性 → 未知、`google/` 以外と属性を引けない一覧は宣言順の 1 グループ、片方の性別しか無いときの空グループの除外）/ カタログ外の現在値 / 出どころのチップと再取得の注記 / 選んだ面の描画（音声欄はキー保存後・runtime 不可でも残る）/ お試し再生の初期値・入力順・押下の意味（同じ入力なら再生 / 変わったら生成）・別テイク・初期テンプレ・送信前の検証・形式の表示・失敗文言と、生成中 / 失敗 / 結果の描画 / ランタイム不可での主ボタンの無効化（未同期のゲートとは独立） |
 
 ## 非ゴール
 

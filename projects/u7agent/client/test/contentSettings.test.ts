@@ -88,15 +88,50 @@ function settings(
   };
 }
 
-test("モデルの選択肢はカタログ順に並べ、同名は id を添えて一意にする", () => {
+test("モデルの選択肢は表示名の昇順に並べ、同名は id を添えて一意にする", () => {
   const options = imageModelOptions(settings());
   assert.deepEqual(
     options.map((option) => option.label),
-    ["GPT Image 2（openai/gpt-image-2）", "Gemini Image", "GPT Image 2（mystery/image）"],
+    ["GPT Image 2（mystery/image）", "GPT Image 2（openai/gpt-image-2）", "Gemini Image"],
+    "同名 2 件は id を添えたラベルの順になり、大文字の P は小文字の e より先になる",
   );
   assert.deepEqual(
     options.map((option) => option.value),
-    ["openrouter/openai/gpt-image-2", "openrouter/google/gemini-image", "openrouter/mystery/image"],
+    ["openrouter/mystery/image", "openrouter/openai/gpt-image-2", "openrouter/google/gemini-image"],
+  );
+});
+
+test("name が空のモデルは id を表示名にして id 順に並べる", () => {
+  const options = imageModelOptions(
+    settings({
+      model: "mystery/mid",
+      models: [
+        { provider: "openrouter", id: "mystery/zeta", name: "" },
+        { provider: "openrouter", id: "mystery/mid", name: "" },
+        { provider: "openrouter", id: "mystery/alpha", name: "" },
+      ],
+    }),
+  );
+  assert.deepEqual(
+    options.map((option) => option.label),
+    ["mystery/alpha", "mystery/mid", "mystery/zeta"],
+  );
+});
+
+test("表示名の比較はケースを無視せず、小文字始まりを大文字始まりの後ろへ回す", () => {
+  const options = imageModelOptions(
+    settings({
+      model: null,
+      models: [
+        { provider: "openrouter", id: "xai/grok-imagine", name: "xAI: Grok Imagine Image 2.0" },
+        { provider: "openrouter", id: "black-forest-labs/flux", name: "Black Forest Labs: FLUX 3" },
+        { provider: "openrouter", id: "google/gemini-image", name: "Google: Gemini 2.5 Flash Image" },
+      ],
+    }),
+  );
+  assert.deepEqual(
+    options.map((option) => option.label),
+    ["Black Forest Labs: FLUX 3", "Google: Gemini 2.5 Flash Image", "xAI: Grok Imagine Image 2.0"],
   );
 });
 
@@ -113,7 +148,9 @@ test("現在値と PUT の本文を選択肢から解決する", () => {
   assert.equal(imageModelValue(settings({ model: null }, { provider: null })), "", "行が無ければ空文字");
 
   const options = imageModelOptions(settings());
-  assert.deepEqual(imageModelSelection(options, options[1].value), {
+  const gemini = options.find((option) => option.value === "openrouter/google/gemini-image");
+  assert.ok(gemini, "カタログの Gemini Image を選択肢から引ける");
+  assert.deepEqual(imageModelSelection(options, gemini.value), {
     provider: "openrouter",
     model: "google/gemini-image",
   });
@@ -170,19 +207,19 @@ test("再取得の注記は成功と失敗を区別し、失敗でも一覧が�
   );
 });
 
-test("音声モデルの選択肢はカタログ順に並べ、同名は id を添え、カタログ外の現在値を先頭に残す", () => {
+test("音声モデルの選択肢は表示名の昇順に並べ、同名は id を添え、カタログ外の現在値を先頭に残す", () => {
   const options = speechModelOptions(settings());
   assert.deepEqual(
     options.map((option) => option.label),
     [
-      "Google: Gemini 3.8 Flash TTS（google/gemini-3.8-flash-tts）",
       "Fish Audio",
+      "Google: Gemini 3.8 Flash TTS（google/gemini-3.8-flash-tts）",
       "Google: Gemini 3.8 Flash TTS（mystery/tts）",
     ],
   );
   assert.deepEqual(
     options.map((option) => option.value),
-    ["google/gemini-3.8-flash-tts", "fish/audio", "mystery/tts"],
+    ["fish/audio", "google/gemini-3.8-flash-tts", "mystery/tts"],
     "音声の provider は v1 では openrouter 固定なので id だけを使う",
   );
 
@@ -194,6 +231,21 @@ test("音声モデルの選択肢はカタログ順に並べ、同名は id を�
 
   assert.equal(speechModelValue(settings()), "google/gemini-3.8-flash-tts");
   assert.equal(speechModelValue(settings({}, {}, { model: null })), "", "行が無ければ空文字");
+});
+
+test("カタログの並びが取得元で変わっても選択肢は同じ表示名の昇順になる", () => {
+  // 取得元で変わる 2 通りの並び（live は新しい順、SDK 同梱は id 順）を与える
+  const live = [
+    { provider: "openrouter", id: "heygen/voice-1", name: "HeyGen: Voice 1" },
+    { provider: "openrouter", id: "fish/audio", name: "Fish Audio" },
+    { provider: "openrouter", id: "elevenlabs/eleven-v4", name: "ElevenLabs: Eleven v4" },
+  ];
+  const sdk = [...live].sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+  const labelsOf = (models: typeof live) =>
+    speechModelOptions(settings({}, {}, { model: null, models })).map((option) => option.label);
+
+  assert.deepEqual(labelsOf(live), ["ElevenLabs: Eleven v4", "Fish Audio", "HeyGen: Voice 1"]);
+  assert.deepEqual(labelsOf(sdk), labelsOf(live));
 });
 
 test("音声の PUT 本文と、モデルごとのボイス欄の規則", () => {
