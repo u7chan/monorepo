@@ -32,10 +32,11 @@
   --text-1sm: 13px;
   --text-md: 16px;
 
-  /* 待機中の送信の一覧 (QueuedSends) の上限。低い viewport では、上へ浮くライブ表示の箱の最大高と
-   * 状態行・入力欄・見出しの分を引いた高さまで詰める (行 1 つ分は残し、入り切らない分は内部スクロール)。
-   * 行を繰めると `取り消し` に届かない。ライブ表示の寸法を変えるときはここも直す */
-  --queued-sends-max-height: min(35dvh, calc(100dvh - 22rem));
+  /* 待機中の送信の一覧 (QueuedSends) の上限。低い viewport では、上へ浮くライブ表示の箱の最大高 +
+   * 状態行・入力欄・見出し (24rem) を引いた高さまで詰める。1.25rem の下限は 1 行を必ず見せるための
+   * 床で、これを下回る高さでは箱が viewport の外へ出る側を受け入れる (行を詰めると `取り消し` に届かない)。
+   * ライブ表示の寸法を変えるときはここも直す */
+  --queued-sends-max-height: max(1.25rem, min(35dvh, calc(100dvh - 24rem)));
 
   /* uppercase の小見出し (eyebrow) の字間。tracking-widest (0.1em) より広く取る */
   --tracking-label: 0.14em;
