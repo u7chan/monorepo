@@ -6,7 +6,7 @@ BFF が作業用ツール（`read` / `bash` / `edit` / `write` / `grep` / `find`
 | --- | --- | --- |
 | GET | `/healthz` | 無認証。Compose healthcheck 用。`{ ok, tools, cwd, runningExecutions }` |
 | GET | `/v1/runtime/info` | 実行環境の診断（認証必須・読み取り専用）。[実行環境の診断](#get-v1runtimeinfo) |
-| GET | `/v1/procs/listeners` | 待受ソケットと所有 PID の観測（認証必須・読み取り専用）。[待受プロセスの観測](#get-v1procslisteners) |
+| GET | `/v1/procs/listeners` | 待受ソケットと所有 PID の観測（単一ポート / レンジ。認証必須・読み取り専用）。[待受プロセスの観測](#get-v1procslisteners) |
 | GET | `/v1/files` | 作業領域の一覧（JSON）。`?path=<root 相対>` |
 | GET | `/v1/files/git` | 作業フォルダが属する repo のブランチ（JSON）。`?path=<root 相対>` |
 | GET | `/v1/skills` | ファイルスキル（`SKILL.md`）の発見（JSON）。`?dir=<root 相対>` |
@@ -403,7 +403,7 @@ root 相対の通常ファイルを 1 つ消す。成功は本文なしの 204�
 
 ## `GET /v1/procs/listeners`
 
-指定ポートの待受ソケット inode と、`scan=true` のときだけその所有プロセスを返す。serve の所有者照合（起動の確認と停止対象の特定）が使う内部 API。
+指定ポートの待受ソケットと、`scan=true` のときだけその所有プロセスを返す。serve の所有者照合（起動の確認と停止対象の特定）が使う内部 API。`from` / `to` のレンジ指定では、待受のあるポートの一覧を返す。
 
 ```
 GET /v1/procs/listeners?port=8080&scan=true
@@ -413,6 +413,7 @@ GET /v1/procs/listeners?port=8080&scan=true
 // response
 {
   "inodes": [1270278],
+  "addressScopes": ["loopback"],
   "listener": {
     "pid": 237424,
     "startedAt": 1700000000000,
@@ -422,10 +423,21 @@ GET /v1/procs/listeners?port=8080&scan=true
 }
 ```
 
+```
+GET /v1/procs/listeners?from=18000&to=18099
+```
+
+```json
+// response
+{ "ports": [{ "port": 18000, "inodes": [1270280] }] }
+```
+
 - `inodes` — `/proc/net/tcp` と `/proc/net/tcp6` の LISTEN エントリから取った、指定ポートの待受ソケット inode（昇順）。待受が無ければ空配列。状態表示はこれと記録の inode の照合だけで所有者を分類する
+- `addressScopes` — `inodes` と同じ添字で対応する待受アドレスの種別。`loopback` は IPv4 の 127.0.0.0/8 と IPv6 の `::1`、`any` は `0.0.0.0` と `::`、それ以外は `other`。v4-mapped（`::ffff:127.0.0.1` など）は IPv4 へ正規化してから分類する。同じポートに複数の待受ソケットが並ぶ場合は `inodes` の並びに合わせる。待受がループバックに限定されているかの判定に使う
 - `listener` — `scan=true`（文字列の完全一致）のときだけ特定する。`pid` / `startedAt`（`/proc/<pid>/stat` の起動時刻。PID 再利用の照合に使う。0 は不明）/ `inodes` / `ancestors`（自身から親をたどった PID。起動 PID の子孫かの判定に使う）。特定できなければ `null`。`scan` が省略・他の値なら inode だけを返し、fd 走査をしない
 - **この走査だけは bash 実行ではなくサンドボックス service 本体のプロセスで行う**。bash 実行は Landlock の ptrace 制限で他ドメインの `/proc/<pid>/fd` を読めない（自分の子孫は読める）ため、制限の外にいる service が代行する。`/proc/<pid>/fd` は readlink できるプロセス（同一ユーザーで生存中）だけを見る
-- `port` が 1..65535 の整数でなければ 400。読み取り専用で、ファイルは変更しない
+- レンジは `from` / `to` の両方で指定し、`port` とは排他（同時指定は 400）。どちらも 1..65535 の整数で、`from <= to`、`to - from + 1 <= 100` を満たす必要がある。応答の `ports` は待受のあったポートだけ（待受ゼロのポートは省く）をポート昇順で返し、`inodes` は昇順。レンジでは所有 PID の fd 走査をせず、`addressScopes` も返さない。`scan=true` をレンジと併用すると 400（一覧のポーリングに重い走査を乗せない）
+- `port` / `from` / `to` が不正なら 400。読み取り専用で、ファイルは変更しない
 - BFF 側はこの API の接続と本文に期限（既定 5 秒）を掛け、超過は他のサンドボックス失敗と同じ 502 にする（serve の操作は直列化されており、待ち続けると後続の操作が詰まるため）
 - 認証は他の `/v1/*` と同じ Bearer 必須。BFF の serve 実装だけが呼び、モデルはツール引数から指定できない
 

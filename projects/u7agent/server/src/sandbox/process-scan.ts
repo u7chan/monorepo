@@ -5,27 +5,77 @@
  */
 import { readFile, readdir, readlink } from "node:fs/promises";
 import { processStartedAtMsOrUnknown, statFieldsOrUnknown } from "../proc-stat";
-import type { SandboxListenerProcess, SandboxListenerScan } from "./protocol";
+import type {
+  SandboxListenerAddressScope,
+  SandboxListenerPort,
+  SandboxListenerProcess,
+  SandboxListenerRangeScan,
+  SandboxListenerScan,
+} from "./protocol";
 
 /** 1 回の祖先の探索でたどる親の上限。循環や壊れた /proc でも止まるようにする */
 const MAX_ANCESTORS = 32;
 
-/** `/proc/net/tcp` の待受行から inode を取り出す。行末のローカルアドレスは 16 進のアドレス + ポート */
-async function listenInodes(port: number): Promise<number[]> {
-  const suffix = `:${port.toString(16).toUpperCase().padStart(4, "0")}`;
-  const inodes = new Set<number>();
+/** `/proc/net/tcp{,6}` の LISTEN 行 1 件。`address` は parts[1] のアドレス部 (16 進) */
+interface ListenEntry {
+  port: number;
+  inode: number;
+  address: string;
+}
+
+/**
+ * 16 進のアドレスを network order のバイト列にする。IPv4 は 32 bit、IPv6 は 32 bit ごとに
+ * little-endian で並ぶため、8 桁ずつを逆順に読む。解釈できない長さ・文字は null。
+ */
+function addressBytes(hex: string): number[] | null {
+  if (hex.length % 8 !== 0 || !/^[0-9a-f]+$/i.test(hex)) return null;
+  const bytes: number[] = [];
+  for (let offset = 0; offset < hex.length; offset += 8) {
+    const word = hex.slice(offset, offset + 8);
+    for (let index = 6; index >= 0; index -= 2) bytes.push(Number.parseInt(word.slice(index, index + 2), 16));
+  }
+  return bytes;
+}
+
+/**
+ * 待受アドレスの種別。v4-mapped は先頭 10 バイトが 0 で `ff ff` が続く形なので、IPv4 へ
+ * 正規化してから判定する (同じ 127.0.0.1 でも tcp と tcp6 で表記が違うため)。
+ */
+export function listenAddressScope(hex: string): SandboxListenerAddressScope {
+  const bytes = addressBytes(hex);
+  if (!bytes) return "other";
+  const v4Mapped =
+    bytes.length === 16 && bytes.slice(0, 10).every((byte) => byte === 0) && bytes[10] === 0xff && bytes[11] === 0xff;
+  const normalized = v4Mapped ? bytes.slice(12) : bytes;
+  if (normalized.length === 4) {
+    if (normalized.every((byte) => byte === 0)) return "any";
+    return normalized[0] === 127 ? "loopback" : "other";
+  }
+  if (normalized.length !== 16) return "other";
+  if (normalized.every((byte) => byte === 0)) return "any";
+  return normalized.slice(0, 15).every((byte) => byte === 0) && normalized[15] === 1 ? "loopback" : "other";
+}
+
+/**
+ * `/proc/net/tcp` と `/proc/net/tcp6` を 1 度ずつ読み、`keep` を通るポートの LISTEN 行を返す。
+ * 同じ inode は 1 件に畳み、inode の昇順に並べる。
+ */
+async function listenEntries(keep: (port: number) => boolean): Promise<ListenEntry[]> {
+  const entries = new Map<number, ListenEntry>();
   for (const file of ["/proc/net/tcp", "/proc/net/tcp6"]) {
     const text = await readFile(file, "utf8").catch(() => "");
     for (const line of text.split("\n").slice(1)) {
       const parts = line.trim().split(/ +/);
       // st (parts[3]) が 0A = LISTEN の行だけを見る
       if (parts.length < 10 || parts[3] !== "0A") continue;
-      if (!(parts[1] || "").endsWith(suffix)) continue;
+      const [address = "", portHex = ""] = (parts[1] || "").split(":");
+      const port = Number.parseInt(portHex, 16);
+      if (!Number.isInteger(port) || !keep(port)) continue;
       const inode = Number(parts[9]);
-      if (Number.isInteger(inode) && inode > 0) inodes.add(inode);
+      if (Number.isInteger(inode) && inode > 0) entries.set(inode, { port, inode, address });
     }
   }
-  return [...inodes].sort((a, b) => a - b);
+  return [...entries.values()].sort((a, b) => a.inode - b.inode);
 }
 
 /** 自身から親をたどった PID (自身を含む)。読めないプロセスでは探索を打ち切る (観測済みの情報は返す) */
@@ -60,20 +110,37 @@ async function listenerPid(wanted: readonly string[]): Promise<number | null> {
 }
 
 /**
- * 指定ポートの待受 inode と、`scan` が true のときだけ所有プロセスを返す。
+ * 指定ポートの待受 inode・アドレス種別と、`scan` が true のときだけ所有プロセスを返す。
  * `scan` を省いた状態表示では重い fd 走査をせず、停止と起動の確認でだけ走査する。
  */
 export async function scanListeners(port: number, options: { scan: boolean }): Promise<SandboxListenerScan> {
-  const inodes = await listenInodes(port);
-  if (!options.scan || inodes.length === 0) return { inodes, listener: null };
+  const entries = await listenEntries((candidate) => candidate === port);
+  const inodes = entries.map((entry) => entry.inode);
+  const addressScopes = entries.map((entry) => listenAddressScope(entry.address));
+  if (!options.scan || inodes.length === 0) return { inodes, addressScopes, listener: null };
   const wanted = inodes.map((inode) => `socket:[${inode}]`);
   const pid = await listenerPid(wanted);
-  if (pid === null) return { inodes, listener: null };
+  if (pid === null) return { inodes, addressScopes, listener: null };
   const listener: SandboxListenerProcess = {
     pid,
     startedAt: await processStartedAtMsOrUnknown(pid),
     inodes,
     ancestors: await ancestorsOf(pid),
   };
-  return { inodes, listener };
+  return { inodes, addressScopes, listener };
+}
+
+/**
+ * `from`..`to` の待受ポート一覧。待受の無いポートは返さず、fd 走査 (所有 PID の特定) もしないため、
+ * 状態表示のポーリングに使える。
+ */
+export async function scanListenerRange(from: number, to: number): Promise<SandboxListenerRangeScan> {
+  const entries = await listenEntries((port) => port >= from && port <= to);
+  const ports = new Map<number, SandboxListenerPort>();
+  for (const entry of entries) {
+    const bucket = ports.get(entry.port) ?? { port: entry.port, inodes: [] };
+    bucket.inodes.push(entry.inode);
+    ports.set(entry.port, bucket);
+  }
+  return { ports: [...ports.values()].sort((a, b) => a.port - b.port) };
 }
