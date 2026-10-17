@@ -315,6 +315,8 @@ const bff = await createBffApp({
   workspace,
   moveSandbox: workspace,
   handoffSandbox: workspace,
+  // 設定 → スキルの共通スキル CRUD も同じ口から引く。渡さないと作成・保存・削除が必ず 503 になる
+  skillSandbox: workspace,
   // 公開サービスの確認 (スペース削除の 409) も同じ口から引く。渡さないと削除が必ず 503 になる
   serveSandbox: workspace,
   pi: asPiBff(pi),

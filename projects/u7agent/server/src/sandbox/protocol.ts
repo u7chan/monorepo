@@ -274,8 +274,9 @@ export interface SandboxSkillsResponse {
 }
 
 /**
- * GET /v1/skills/file の応答。name / description は SDK の発見結果 (name 欠落は親ディレクトリ名)、
- * body は frontmatter を除いた原文で trim しない。editable が false のときだけ reason が入る。
+ * GET /v1/skills/file の応答。name / description は SDK の発見結果 (name 欠落は親ディレクトリ名)。
+ * body は frontmatter を除いた本文で trim しない (先頭の閉じ行の改行は境界として除き、本文中の改行と
+ * 前後の空白はそのまま。改行は LF に正規化する)。editable が false のときだけ reason が入る。
  */
 export interface SandboxSkillFileDetail {
   name: string;

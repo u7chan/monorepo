@@ -7,7 +7,6 @@ import {
   fileSkillCreateDirty,
   fileSkillDraftOf,
   fileSkillDraftDirty,
-  fileSkillEditorPath,
   fileSkillSaveInput,
   newFileSkillDraft,
   reduceFileSkillEditor,
@@ -19,7 +18,7 @@ function detail(overrides: Partial<SandboxSkillFileDetail> = {}): SandboxSkillFi
   return {
     name: "alpha",
     description: "説明",
-    body: "\n本文\n",
+    body: "本文\n",
     relativePath: ".agents/skills/alpha/SKILL.md",
     fileVersion: "a".repeat(64),
     editable: true,
@@ -30,7 +29,6 @@ function detail(overrides: Partial<SandboxSkillFileDetail> = {}): SandboxSkillFi
 const OPEN: FileSkillEditorState = { status: "loading", relativePath: detail().relativePath };
 
 test("取得中は対象だけを持ち、応答が来たら閲覧になる", () => {
-  assert.equal(fileSkillEditorPath(OPEN), detail().relativePath);
   const view = reduceFileSkillEditor(OPEN, { type: "loaded", relativePath: detail().relativePath, detail: detail() });
   assert.deepEqual(view, { status: "view", relativePath: detail().relativePath, detail: detail() });
   // 取得中でないとき / 別の対象の応答は無視する (古い本文を反映しない)
@@ -89,7 +87,7 @@ test("競合しても下書きを残し、保存できる状態と対象を保�
     kind: "save",
     relativePath: detail().relativePath,
     fileVersion: detail().fileVersion,
-    draft: { name: "alpha", description: "競合中の説明", body: "\n本文\n" },
+    draft: { name: "alpha", description: "競合中の説明", body: "本文\n" },
   });
   // 再読み込みは対象を取り直す (競合の印は取得し直しで消える)
   const reloading = reduceFileSkillEditor(conflicted, { type: "open", relativePath: detail().relativePath });

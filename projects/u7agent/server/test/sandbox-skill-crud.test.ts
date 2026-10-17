@@ -31,6 +31,10 @@ const HAS_SYMLINK = (() => {
 })();
 const SYMLINK_SKIP_REASON = "symlinks are not available on this platform";
 
+// root は chmod 0o000 でもファイルを読めるため、権限に依存する検証は非 root のときだけ実行する
+const IS_ROOT = process.getuid?.() === 0;
+const ROOT_SKIP_REASON = "root can read a file without permission";
+
 function authHeaders(): Record<string, string> {
   return { Authorization: `Bearer ${TOKEN}`, "Content-Type": "application/json" };
 }
@@ -125,7 +129,7 @@ test("編集内容は SDK の name / description と trim していない本文�
   const body = await detail(app);
   assert.equal(body.name, "alpha");
   assert.equal(body.description, "元の説明");
-  assert.equal(body.body, "\n元の本文\n");
+  assert.equal(body.body, "元の本文\n");
   assert.equal(body.relativePath, SKILL_PATH);
   assert.match(body.fileVersion, /^[0-9a-f]{64}$/);
   assert.equal(body.editable, true);
@@ -152,7 +156,7 @@ test("保存は説明と本文だけを差し替え、同じ内容の再保存�
     relativePath: SKILL_PATH,
     fileVersion: before.fileVersion,
     description: "新しい説明",
-    body: "\n新しい本文\n",
+    body: "新しい本文\n",
   });
   assert.equal(changed.status, 200);
   assert.notEqual(changed.body.fileVersion, before.fileVersion);
@@ -250,7 +254,7 @@ test("作成は固定の形式で公開し、公開後の発見一覧でも読�
   const created_detail = await detail(app, ".agents/skills/new-skill/SKILL.md");
   assert.equal(created_detail.name, "new-skill");
   assert.equal(created_detail.description, "新しい説明");
-  assert.equal(created_detail.body, "\n本文1\n本文2");
+  assert.equal(created_detail.body, "本文1\n本文2");
   // 置き場が無いワークスペースでも最初の 1 件を作れる
   const bare = mkdtempSync(join(tmpdir(), "pi-sbx-skill-bare-"));
   const bareApp = createSandboxService({ token: TOKEN, rootCwd: bare }).app;
@@ -446,26 +450,63 @@ test("走査上限を超えるフォルダは削除確認と削除の両方で�
   );
 });
 
-test("読めない付随ファイルがあると削除確認と削除を拒否し、部分削除しない", async () => {
-  const root = await makeWorkspace("skill-io-failure");
-  await chmod(join(root, ".agents/skills/alpha/refs/note.txt"), 0o000);
+test(
+  "読めない付随ファイルがあると削除確認と削除を拒否し、部分削除しない",
+  { skip: IS_ROOT && ROOT_SKIP_REASON },
+  async () => {
+    const root = await makeWorkspace("skill-io-failure");
+    await chmod(join(root, ".agents/skills/alpha/refs/note.txt"), 0o000);
+    const app = createSandboxService({ token: TOKEN, rootCwd: root }).app;
+    try {
+      const response = await app.request(
+        `/v1/skills/file/delete-preview?relativePath=${encodeURIComponent(SKILL_PATH)}`,
+        {
+          headers: authHeaders(),
+        },
+      );
+      assert.equal(response.status, 400);
+      assert.equal(await remove(app, SKILL_PATH, "0".repeat(64)), 400);
+      assert.equal(
+        await readFile(join(root, SKILL_PATH), "utf8"),
+        '---\nname: alpha\ndescription: "元の説明"\n# コメント\nx-extra: 1\n---\n元の本文\n',
+      );
+    } finally {
+      await chmod(join(root, ".agents/skills/alpha/refs/note.txt"), 0o644);
+    }
+  },
+);
+
+test("先頭空行なしで作成したスキルは、本文を空行なしで保存しても閉じ行と癒着しない", async () => {
+  // GUI と同じ経路: 本文に先頭空行を入れずに作成し、編集面の本文欄をそのまま保存する
+  const root = mkdtempSync(join(tmpdir(), "pi-sbx-skill-body-boundary-"));
   const app = createSandboxService({ token: TOKEN, rootCwd: root }).app;
-  try {
-    const response = await app.request(
-      `/v1/skills/file/delete-preview?relativePath=${encodeURIComponent(SKILL_PATH)}`,
-      {
-        headers: authHeaders(),
-      },
-    );
-    assert.equal(response.status, 400);
-    assert.equal(await remove(app, SKILL_PATH, "0".repeat(64)), 400);
-    assert.equal(
-      await readFile(join(root, SKILL_PATH), "utf8"),
-      '---\nname: alpha\ndescription: "元の説明"\n# コメント\nx-extra: 1\n---\n元の本文\n',
-    );
-  } finally {
-    await chmod(join(root, ".agents/skills/alpha/refs/note.txt"), 0o644);
-  }
+  const created = await create(app, { name: "beta", description: "d", body: "# 見出し\n本文\n" });
+  assert.equal(created.status, 201);
+  const file = join(root, ".agents/skills/beta/SKILL.md");
+  assert.equal(await readFile(file, "utf8"), '---\nname: "beta"\ndescription: "d"\n---\n# 見出し\n本文\n');
+  // 編集面の本文欄は先頭の空行で始まらない (閉じ行の改行は本文に含めない)
+  const before = await detail(app, created.body.relativePath);
+  assert.equal(before.body, "# 見出し\n本文\n");
+  const mtimeBefore = (await stat(file)).mtimeMs;
+  const noop = await save(app, {
+    relativePath: created.body.relativePath,
+    fileVersion: before.fileVersion,
+    description: before.description,
+    body: before.body,
+  });
+  assert.equal(noop.status, 200);
+  assert.equal(await readFile(file, "utf8"), '---\nname: "beta"\ndescription: "d"\n---\n# 見出し\n本文\n');
+  assert.equal((await stat(file)).mtimeMs, mtimeBefore);
+  // 本文を変えても閉じ行の改行は付け直す (--- と 1 行目を癒着させない)
+  const changed = await save(app, {
+    relativePath: created.body.relativePath,
+    fileVersion: before.fileVersion,
+    description: before.description,
+    body: "# 新しい見出し\n",
+  });
+  assert.equal(changed.status, 200);
+  assert.equal(await readFile(file, "utf8"), '---\nname: "beta"\ndescription: "d"\n---\n# 新しい見出し\n');
+  assert.equal((await detail(app, created.body.relativePath)).body, "# 新しい見出し\n");
 });
 
 test("開始済みの abort (要求の signal) は変更前に拒否する", async () => {
@@ -628,7 +669,7 @@ test("保存の上限を超えるファイルは閲覧だけを許し、保存�
   assert.equal(body.editable, false);
   assert.match(String(body.reason), /64 KiB/);
   // 本文は切り詰めずそのまま返す (読むだけはできる)
-  assert.equal(body.body.length, 70 * 1024 + 2);
+  assert.equal(body.body.length, 70 * 1024 + 1);
   const createLarge = await create(app, { name: "another", description: "d", body: "b" });
   assert.equal(createLarge.status, 201);
 });

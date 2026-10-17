@@ -48,7 +48,6 @@ export function useFileSkills(): {
   startCreate: () => void;
   setDraft: (patch: Partial<FileSkillDraft>) => void;
   cancelEdit: () => void;
-  closeEditor: () => void;
   save: () => Promise<FileSkillResult>;
   /** 取消の確認に使う。編集 / 新規の下書きが取得した内容から変わっているか */
   dirty: (editor: FileSkillEditorState) => boolean;
@@ -174,7 +173,6 @@ export function useFileSkills(): {
     startCreate: () => dispatch({ type: "startCreate" }),
     setDraft: (patch) => dispatch({ type: "draft", patch }),
     cancelEdit: () => dispatch({ type: "cancelEdit" }),
-    closeEditor: () => dispatch({ type: "close" }),
     save,
     dirty,
     previewDelete,

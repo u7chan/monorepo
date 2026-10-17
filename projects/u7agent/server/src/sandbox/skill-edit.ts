@@ -25,7 +25,10 @@ export interface SkillTextInfo {
   name: string | undefined;
   /** frontmatter の description (文字列のときだけ) */
   description: string | undefined;
-  /** frontmatter を除いた本文 (trim しない) */
+  /**
+   * frontmatter を除いた本文 (trim しない)。先頭には閉じ行を終わらせた改行が 1 つ入るが、これは
+   * frontmatter の境界であって本文の内容ではないため落として返し、書き出しでは付け直す
+   */
   body: string;
   /** 保存を受け付けない理由。undefined なら保存できる */
   reason: string | undefined;
@@ -37,7 +40,7 @@ export interface SkillTextEditInput {
   original: string;
   /** 保存後の説明。値は trim しない */
   description: string;
-  /** 保存後の本文。値は trim しない */
+  /** 保存後の本文。値は trim しない (先頭の改行は本文の内容として扱い、境界の改行は書き出しで付け直す) */
   body: string;
 }
 
@@ -58,7 +61,7 @@ interface FrontmatterRange {
   /** `---` の次の文字から閉じ行の手前まで */
   yamlStart: number;
   yamlEnd: number;
-  /** 本文の開始位置 (閉じ `---` の直後。先頭の改行を含む) */
+  /** 本文の開始位置 (閉じ `---` の直後。生の本文の先頭には境界の改行が入る) */
   bodyStart: number;
 }
 
@@ -185,7 +188,7 @@ function valueJson(pair: Pair): string {
 export function inspectSkillText(text: string): SkillTextInfo {
   const source = buildSkillSource(text);
   const range = frontmatterRange(source.normalized);
-  const body = range ? source.normalized.slice(range.bodyStart) : source.normalized;
+  const body = range ? stripBodyBoundary(source.normalized.slice(range.bodyStart)) : source.normalized;
   if (!range) return { name: undefined, description: undefined, body, reason: SKILL_EDIT_NO_FRONTMATTER };
   const parsed = parseFrontmatter(source.normalized, range);
   return {
@@ -196,19 +199,31 @@ export function inspectSkillText(text: string): SkillTextInfo {
   };
 }
 
+/**
+ * 本文は閉じ行の直後から始まるため、生の本文の先頭には閉じ行を終わらせた改行が 1 つ入る。読み出しでは
+ * これを 1 つだけ落とし、書き出しでは必ず付け直す (両方で同じ境界の規則を使い、GUI が本文の先頭空行を
+ * 消して保存しても `---` と本文を癒着させない)。本文の中の改行と前後の空白はそのまま扱う。
+ */
+function stripBodyBoundary(body: string): string {
+  return body.startsWith("\n") ? body.slice(1) : body;
+}
+
+function withBodyBoundary(body: string, eol: string): string {
+  return `${eol}${toEol(body, eol)}`;
+}
+
 /** YAML の二重引用符スカラー。JSON 文字列は YAML 1.2 の flow スカラーとしてそのまま読める */
 function yamlString(value: string): string {
   return JSON.stringify(value);
 }
 
 /**
- * 新規 SKILL.md の固定の生成規則 (name / description の順、LF、本文を切り詰めない)。本文の先頭の改行は
- * 閉じ行の終端として 1 つだけ捨てる (本文は frontmatter の直後から始まるため、受け取った本文の
- * 先頭が改行でも 1 つに畳んで往復で増えないようにする)。
+ * 新規 SKILL.md の固定の生成規則 (name / description の順、LF、本文を切り詰めない)。本文は保存経路と
+ * 同じ境界の規則で書き (`---\n` の直後から始める)、先頭の改行は本文の内容としてそのまま残す。
  */
 export function createSkillText(input: { name: string; description: string; body: string }): string {
-  const body = normalizeSkillEol(input.body).replace(/^\n/, "");
-  return `---\nname: ${yamlString(input.name)}\ndescription: ${yamlString(input.description)}\n---\n${body}`;
+  const frontmatter = `---\nname: ${yamlString(input.name)}\ndescription: ${yamlString(input.description)}\n---`;
+  return `${frontmatter}${withBodyBoundary(input.body, "\n")}`;
 }
 
 /** 元テキストへ差し替えを適用する。start の大きい順に splice する (位置がずれない) */
@@ -236,8 +251,9 @@ export function editSkillText(input: SkillTextEditInput): SkillTextEdit {
   if (parsed.reason) return { ok: false, reason: parsed.reason };
   if (!parsed.map) return { ok: false, reason: SKILL_EDIT_NOT_MAP };
 
-  const currentBody = source.normalized.slice(range.bodyStart);
-  const bodyChanged = normalizeSkillEol(input.body) !== normalizeSkillEol(currentBody);
+  const currentBody = stripBodyBoundary(source.normalized.slice(range.bodyStart));
+  const nextBody = normalizeSkillEol(input.body);
+  const bodyChanged = nextBody !== currentBody;
   const descriptionChanged = input.description !== parsed.descriptionValue;
   if (!bodyChanged && !descriptionChanged) return { ok: true, changed: false, text: input.original };
 
@@ -272,7 +288,7 @@ export function editSkillText(input: SkillTextEditInput): SkillTextEdit {
     splices.push({
       start: range.bodyStart,
       end: source.normalized.length,
-      text: source.eol === "\n" ? normalizeSkillEol(input.body) : toEol(input.body, source.eol),
+      text: withBodyBoundary(input.body, source.eol),
     });
   }
 
@@ -287,8 +303,8 @@ export function editSkillText(input: SkillTextEditInput): SkillTextEdit {
   if (otherFrontmatterValues(candidate) !== otherFrontmatterValues(parsed)) {
     return { ok: false, reason: "description 以外の値を保持できることを確認できませんでした" };
   }
-  const candidateBody = candidateSource.normalized.slice(candidateRange.bodyStart);
-  if (normalizeSkillEol(candidateBody) !== normalizeSkillEol(input.body)) {
+  const candidateBody = stripBodyBoundary(candidateSource.normalized.slice(candidateRange.bodyStart));
+  if (candidateBody !== normalizeSkillEol(input.body)) {
     return { ok: false, reason: "本文の差し替え結果を確認できませんでした" };
   }
   return { ok: true, changed: true, text };

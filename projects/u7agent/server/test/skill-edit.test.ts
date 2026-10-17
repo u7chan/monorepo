@@ -38,7 +38,7 @@ const COMPLEX = [
 ].join("\n");
 
 test("description と本文だけを差し替え、未知キー・コメント・キー順・非表示キーを保持する", () => {
-  const result = edited(COMPLEX, "新しい説明", "\n  body line  \n末尾の空行\n");
+  const result = edited(COMPLEX, "新しい説明", "  body line  \n末尾の空行\n");
   assert.equal(result.changed, true);
   assert.equal(
     result.text,
@@ -57,8 +57,9 @@ test("description と本文だけを差し替え、未知キー・コメント�
 test("本文は trim せず、前後の空白をそのまま差し替える", () => {
   const original = "---\nname: a\ndescription: d\n---\n\n  keep  \n\n";
   const info = inspectSkillText(original);
-  assert.equal(info.body, "\n\n  keep  \n\n");
-  const result = edited(original, "d", "\n\n  keep  \n\n\n");
+  // 先頭の空行は本文の内容として残り、境界の改行だけを落とす
+  assert.equal(info.body, "\n  keep  \n\n");
+  const result = edited(original, "d", "\n  keep  \n\n\n");
   assert.equal(result.text, "---\nname: a\ndescription: d\n---\n\n  keep  \n\n\n");
 });
 
@@ -66,8 +67,8 @@ test("同じ内容の再保存は元のバイト列をそのまま返す (CRLF /
   const original = '\uFEFF---\r\nname: alpha\r\ndescription: "old"\r\n---\r\nbody\r\nsecond\r\n';
   const info = inspectSkillText(original);
   assert.equal(info.description, "old");
-  // 本文の改行は SDK と同じ LF へ正規化して返す (値は trim しない)
-  assert.equal(info.body, "\nbody\nsecond\n");
+  // 本文の改行は SDK と同じ LF へ正規化して返し、境界の改行だけを落とす (値は trim しない)
+  assert.equal(info.body, "body\nsecond\n");
   // フォームは改行を LF へ正規化するため、LF の本文を送っても no-op にする
   const result = edited(original, "old", info.body);
   assert.equal(result.changed, false);
@@ -76,7 +77,7 @@ test("同じ内容の再保存は元のバイト列をそのまま返す (CRLF /
 
 test("CRLF のファイルでは、変更した本文を元の改行へ寄せて未変更部分を保つ", () => {
   const original = "---\r\nname: a\r\ndescription: d\r\n---\r\nbody\r\n";
-  const result = edited(original, "d", "\nline1\nline2\n");
+  const result = edited(original, "d", "line1\nline2\n");
   assert.equal(result.text, "---\r\nname: a\r\ndescription: d\r\n---\r\nline1\r\nline2\r\n");
   assert.equal(parseFrontmatter(result.text).body, "line1\nline2");
 });
@@ -84,8 +85,8 @@ test("CRLF のファイルでは、変更した本文を元の改行へ寄せて
 test("CR だけのファイルでも境界と差し替えが崩れない", () => {
   const original = "---\rname: a\rdescription: old\r---\rbody\r";
   const info = inspectSkillText(original);
-  assert.equal(info.body, "\nbody\n");
-  const result = edited(original, "new", "\nbody\n");
+  assert.equal(info.body, "body\n");
+  const result = edited(original, "new", "body\n");
   assert.equal(result.text, '---\rname: a\rdescription: "new"\r---\rbody\r');
 });
 
@@ -97,10 +98,10 @@ test("SDK と同じ frontmatter 境界 (閉じ行の直後は本文) を使う",
 });
 
 test("名前が無い / ディレクトリ名と違う名前でも補完せず、そのまま保持する", () => {
-  const withoutName = edited("---\ndescription: d\n---\nbody\n", "d2", "\nbody\n");
+  const withoutName = edited("---\ndescription: d\n---\nbody\n", "d2", "body\n");
   assert.equal(withoutName.text, '---\ndescription: "d2"\n---\nbody\n');
   assert.equal(inspectSkillText(withoutName.text).name, undefined);
-  const mismatched = edited("---\nname: front-name\ndescription: d\n---\nbody\n", "d2", "\nbody\n");
+  const mismatched = edited("---\nname: front-name\ndescription: d\n---\nbody\n", "d2", "body\n");
   assert.equal(inspectSkillText(mismatched.text).name, "front-name");
 });
 
@@ -114,15 +115,15 @@ test("変更しない長い説明 (1024 字超) と name の warning は本文�
 
 test("変更した説明には trim 後の非空と 1024 字以内を要求し、値自体は trim しない", () => {
   const original = "---\ndescription: old\n---\nbody\n";
-  assert.deepEqual(editSkillText({ original, description: "   ", body: "\nbody\n" }), {
+  assert.deepEqual(editSkillText({ original, description: "   ", body: "body\n" }), {
     ok: false,
     reason: "説明を空にはできません",
   });
-  assert.deepEqual(editSkillText({ original, description: "x".repeat(1025), body: "\nbody\n" }), {
+  assert.deepEqual(editSkillText({ original, description: "x".repeat(1025), body: "body\n" }), {
     ok: false,
     reason: "説明は 1024 文字以内にしてください",
   });
-  const padded = edited(original, "  前後に空白  ", "\nbody\n");
+  const padded = edited(original, "  前後に空白  ", "body\n");
   assert.equal(parseFrontmatter(padded.text).frontmatter.description, "  前後に空白  ");
 });
 
@@ -145,21 +146,21 @@ test("複雑な YAML は非破壊的に拒否する (構文不正 / マップ以
     "---\ndescription: &a hello\nother: *a\n---\nbody\n",
     "---\ndescription: {a: 1}\n---\nbody\n",
   ]) {
-    assert.equal(editSkillText({ original: text, description: "d", body: "\nbody\n" }).ok, false);
+    assert.equal(editSkillText({ original: text, description: "d", body: "body\n" }).ok, false);
   }
 });
 
 test("description キーが無い frontmatter には末尾の行として足す (他のキーと本文は動かさない)", () => {
   const original = "---\nname: a\n# comment\nx: 1\n---\nbody\n";
-  const result = edited(original, "new", "\nbody\n");
+  const result = edited(original, "new", "body\n");
   assert.equal(result.text, '---\nname: a\n# comment\nx: 1\ndescription: "new"\n---\nbody\n');
-  const crlf = edited("---\r\nname: a\r\n---\r\nbody\r\n", "new", "\r\nbody\r\n");
+  const crlf = edited("---\r\nname: a\r\n---\r\nbody\r\n", "new", "body\r\n");
   assert.equal(crlf.text, '---\r\nname: a\r\ndescription: "new"\r\n---\r\nbody\r\n');
 });
 
 test("ブロックスカラーの説明も、後ろのコメントを壊さず差し替える", () => {
   const original = "---\ndescription: |\n  hello\n  world\n# trailing comment\n---\nbody\n";
-  const result = edited(original, "hi", "\nbody\n");
+  const result = edited(original, "hi", "body\n");
   assert.equal(result.text, '---\ndescription: "hi" # trailing comment\n---\nbody\n');
   assert.equal(parseFrontmatter(result.text).frontmatter.description, "hi");
   assert.equal(parseFrontmatter(result.text).body, "body");
@@ -168,12 +169,11 @@ test("ブロックスカラーの説明も、後ろのコメントを壊さず�
 test("新規は name / description の固定順・LF と安全な YAML 文字列で作り、本文を切り詰めない", () => {
   const text = createSkillText({ name: "new-skill", description: '説明 "quoted"\n\t改行', body: "line1\r\nline2" });
   assert.equal(text, '---\nname: "new-skill"\ndescription: "説明 \\"quoted\\"\\n\\t改行"\n---\nline1\nline2');
-  // 本文の先頭の改行は 1 つだけ捨て、受け取った本文の意味を変えない (往復で増やさない)
-  assert.equal(inspectSkillText(text).body, "\nline1\nline2");
-  assert.equal(
-    createSkillText({ name: "a", description: "d", body: "\nline1\nline2" }),
-    text.replace("new-skill", "a").replace('description: "説明 \\"quoted\\"\\n\\t改行"', 'description: "d"'),
-  );
+  // 受け取った本文はそのまま書き、読み出しでは境界の改行だけを落とす (create → detail → save が往復で安定する)
+  assert.equal(inspectSkillText(text).body, "line1\nline2");
+  const created = createSkillText({ name: "a", description: "d", body: "\nline1\nline2" });
+  assert.equal(created, '---\nname: "a"\ndescription: "d"\n---\n\nline1\nline2');
+  assert.equal(inspectSkillText(created).body, "\nline1\nline2");
   const parsed = parseFrontmatter(text);
   assert.equal(parsed.frontmatter.name, "new-skill");
   assert.equal(parsed.frontmatter.description, '説明 "quoted"\n\t改行');
@@ -181,6 +181,9 @@ test("新規は name / description の固定順・LF と安全な YAML 文字列
   // 既存ファイルの保存経路がこの形式へ自動変換しないこと (name が無ければ足さない)
   assert.equal(inspectSkillText(text).name, "new-skill");
   assert.equal(createSkillText({ name: "a", description: "d", body: "" }), '---\nname: "a"\ndescription: "d"\n---\n');
+  // create → detail → save は同じ本文で no-op になる (境界の改行を二重にしない)
+  assert.equal(edited(text, parsed.frontmatter.description as string, inspectSkillText(text).body).changed, false);
+  assert.equal(edited(created, "d", inspectSkillText(created).body).changed, false);
 });
 
 test("fileVersion はバイト列の SHA-256 で、改行コードが違えば別の値になる", () => {

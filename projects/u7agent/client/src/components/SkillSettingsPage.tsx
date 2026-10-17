@@ -144,9 +144,13 @@ export function SkillSettingsPage({
 
   const cancelFileSkillEdit = () => {
     void (async () => {
-      const editing = editingFileSkill;
-      // 未保存の差分があるときだけ確認する (取消は何も書き換えない)
-      if (editing && fileSkills.dirty(editing) && !(await confirm(skillDiscardConfirmRequest()))) return;
+      // 未保存の入力があるときだけ確認する (取消は何も書き換えない)。新規の空フォームは確認しない
+      const dirty = editingFileSkill
+        ? fileSkills.dirty(editingFileSkill)
+        : creatingFileSkill
+          ? fileSkills.dirty(creatingFileSkill)
+          : false;
+      if (dirty && !(await confirm(skillDiscardConfirmRequest()))) return;
       if (creatingFileSkill) {
         setSelectedFileSkillRel(null);
         setSheetOpen(false);

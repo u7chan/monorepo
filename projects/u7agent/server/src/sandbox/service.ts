@@ -1169,9 +1169,8 @@ async function readCommonSkillDetail(
 /** 一時ディレクトリで SDK に候補を読ませる。公開前の検証を SDK の規則だけで行う */
 async function diagnoseSkillCandidate(input: {
   text: string;
-  dirName: string;
   /** 変更前の内容。既存の name / 説明由来の warning は許し、新しい warning だけを拒否する */
-  baseline?: { text: string; dirName: string };
+  baseline?: { text: string };
 }): Promise<{ ok: true } | { ok: false; message: string }> {
   const dir = await mkdtemp(join(tmpdir(), "u7agent-skill-check-"));
   try {
@@ -1394,7 +1393,7 @@ async function createCommonSkill(
         throw pathError(409, `同名の共通スキルが既にあります: ${body.name}`);
       }
     }
-    const staged = await diagnoseSkillCandidate({ text, dirName: body.name });
+    const staged = await diagnoseSkillCandidate({ text });
     if (!staged.ok) throw pathError(400, `新しいスキルを作成できません: ${staged.message}`);
     const folder = dirname(target.lexical);
     const createdFolder = !(await lstat(folder).catch(() => undefined));
@@ -1452,11 +1451,7 @@ async function saveCommonSkill(
     if (!edited.ok) throw pathError(400, edited.reason);
     const relativePath = target.real ? relativeToRoot(target.realRoot, target.real) : target.relativePath;
     if (!edited.changed) return { relativePath, fileVersion: content.version };
-    const staged = await diagnoseSkillCandidate({
-      text: edited.text,
-      dirName: basename(dirname(target.lexical)),
-      baseline: { text: content.text, dirName: basename(dirname(target.lexical)) },
-    });
+    const staged = await diagnoseSkillCandidate({ text: edited.text, baseline: { text: content.text } });
     if (!staged.ok) throw pathError(400, `保存できません: ${staged.message}`);
     const expectedName = inspectSkillText(edited.text).name ?? basename(dirname(target.lexical));
     const nextVersion = skillFileVersion(Buffer.from(edited.text, "utf8"));

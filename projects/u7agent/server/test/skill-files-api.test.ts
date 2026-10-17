@@ -12,7 +12,7 @@ import type { SandboxSkillCreateBody, SandboxSkillSaveBody, SandboxSkillSaveResu
 const DETAIL = {
   name: "alpha",
   description: "説明",
-  body: "\n本文\n",
+  body: "本文\n",
   relativePath: ".agents/skills/alpha/SKILL.md",
   fileVersion: "a".repeat(64),
   editable: true,

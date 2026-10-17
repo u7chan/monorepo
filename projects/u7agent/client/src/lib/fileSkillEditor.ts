@@ -69,20 +69,6 @@ export function fileSkillCreateDirty(draft: FileSkillDraft): boolean {
   return draft.name !== "" || draft.description !== "" || draft.body !== "";
 }
 
-/** 編集面が、閲覧 / 編集している対象の path (無ければ undefined) */
-export function fileSkillEditorPath(state: FileSkillEditorState): string | undefined {
-  switch (state.status) {
-    case "loading":
-    case "view":
-    case "edit":
-      return state.relativePath;
-    case "error":
-      return state.relativePath;
-    default:
-      return undefined;
-  }
-}
-
 /** 編集面が保存要求を出せる状態か (閲覧 / 取得中 / 失敗では保存しない) */
 export function fileSkillSaveInput(
   state: FileSkillEditorState,
