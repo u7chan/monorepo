@@ -10,6 +10,11 @@ BFF が作業用ツール（`read` / `bash` / `edit` / `write` / `grep` / `find`
 | GET | `/v1/files` | 作業領域の一覧（JSON）。`?path=<root 相対>` |
 | GET | `/v1/files/git` | 作業フォルダが属する repo のブランチ（JSON）。`?path=<root 相対>` |
 | GET | `/v1/skills` | ファイルスキル（`SKILL.md`）の発見（JSON）。`?dir=<root 相対>` |
+| GET | `/v1/skills/file` | 共通スキル 1 件の編集内容（JSON）。`?relativePath=<root 相対>` |
+| POST | `/v1/skills/file` | 共通スキルの新規作成。`{ name, description, body }` |
+| PATCH | `/v1/skills/file` | 共通スキルの保存。`{ relativePath, fileVersion, description, body }` |
+| GET | `/v1/skills/file/delete-preview` | 削除する専用フォルダ・付随ファイル・`treeVersion`。`?relativePath=<root 相対>` |
+| DELETE | `/v1/skills/file` | 専用フォルダの削除。`?relativePath=<root 相対>&treeVersion=<hex>` |
 | DELETE | `/v1/files` | 通常ファイルの削除。`?path=<root 相対>`。成功は本文なしの 204 |
 | POST | `/v1/files/rename` | エントリ（ファイル / ディレクトリ）のリネーム。`{ path, name }` |
 | POST | `/v1/files/move` | エントリ（ファイル / ディレクトリ）を別の親へ移動。`{ from, to }` |
@@ -59,7 +64,7 @@ root 相対のディレクトリを `mkdir -p` 相当で作る（親が無くて
 
 - `path` は root 相対。`..` で root の外を指す指定は 400。既存の symlink が root 外を指す場合も、その先には作らず 400（作成前に既存の最も深い祖先を realpath で検証する）
 - 既存ファイルと同名のディレクトリ、途中にファイルがあるパス（`file.txt/nested`）は 400
-- 作業領域へ書き込む API は `POST /v1/dirs` / `POST /v1/files/rename` / `POST /v1/files/move` / `POST /v1/files/upload` / `DELETE /v1/files` / `DELETE /v1/dirs` で、`GET /v1/files` は読み取り専用。`write` / `edit` の書き込み範囲（workdir と `<root>/.agents/skills`）はこれらより狭く、`POST /v1/dirs` / `POST /v1/files/rename` / `POST /v1/files/move` / `POST /v1/files/upload` 自体は root 配下ならどこへでも書ける（BFF の添付・プロジェクト作成・設定画面が使う）
+- 作業領域へ書き込む API は `POST /v1/dirs` / `POST /v1/files/rename` / `POST /v1/files/move` / `POST /v1/files/upload` / `DELETE /v1/files` / `DELETE /v1/dirs` で、`GET /v1/files` は読み取り専用。これらのうち共通スキル置き場（とその祖先、または共通へ出入りする対象）を触る要求は、共通スキルの編集と同じ外側の gate に参加する（後述）。共通の外だけを触る要求は直列化しない。`write` / `edit` の書き込み範囲（workdir と `<root>/.agents/skills`）はこれらより狭く、`POST /v1/dirs` / `POST /v1/files/rename` / `POST /v1/files/move` / `POST /v1/files/upload` 自体は root 配下ならどこへでも書ける（BFF の添付・プロジェクト作成・設定画面が使う）
 
 ## `DELETE /v1/dirs`
 
@@ -332,6 +337,21 @@ GET /v1/skills?dir=.agents/skills
 - `path` は realpath（root 内の絶対パス）で、本文は返さない。`disableModelInvocation` は frontmatter の `disable-model-invocation` をそのまま写す
 - 組み込みスキル（skill-creator など）は BFF の同梱物なので、この API は関与しない（仮想パス `<root>/.u7agent/builtin-skills/...` への `read` も BFF が横取りし、サンドボックスへは来ない。[api-catalog.md](api-catalog.md#組み込みスキル)）
 - 読み取り専用で、ファイルは変更しない
+
+## 共通スキルの編集（`/v1/skills/file`）
+
+共通スキル（`<PI_SANDBOX_CWD>/.agents/skills`）だけを対象にした GUI の編集 API。パス・版・スキルとしての検証はサンドボックス側で完結し、BFF は要求をそのまま渡して応答の形を検証するだけにする（BFF の API は [api-catalog.md](api-catalog.md#ファイルスキルagentsskills) を正とする）。
+
+- `GET /v1/skills/file?relativePath=` は `name` / `description` / **trim していない** `body` / `relativePath` / `fileVersion` / `editable` と、保存できないときだけ `reason` を返す。`name` / `description` は SDK の発見結果（`name` が無いときは親ディレクトリ名）。`body` は frontmatter を除いた本文（改行は LF に正規化し、先頭の閉じ行を終わらせた改行は frontmatter の境界なので含めない。本文中の改行と前後の空白はそのまま扱う）。発見できない内容（`.gitignore` で除外、frontmatter が読めない）は `editable: false` と理由を返す
+- `POST /v1/skills/file` は `{ name, description, body }` を受け、`<skills>/<name>/SKILL.md` をサーバー側で組み立てる。既存ディレクトリと既存の同名共通スキルは 409（上書きも連番化もしない。組み込みとの同名は既存の優先順位に委ねる）。`PATCH` は `{ relativePath, fileVersion, description, body }` を受け、`name` の変更要求は受け付けない。`DELETE` は body を読まずクエリ（`relativePath` / `treeVersion`）だけで受ける
+- **保存は元のテキストの変更箇所だけを差し替える**（`server/src/sandbox/skill-edit.ts`）。frontmatter の境界は SDK と同じ BOM / CRLF / CR 正規化後の先頭 `---` と最初の `\n---` で、`description` の値と本文の source range だけを置き換える。本文の書き出しでは閉じ行の改行を必ず付け直す（読み出しで 1 つ落とした分を戻すので、本文の先頭空行を消して保存しても `---` と本文が癒着しない）。YAML 全体の再生成はしないため、未知キー・コメント・キー順・`name`・`disable-model-invocation`・BOM・未変更部分の改行と空白は元のまま残る。変更が無ければファイルを書き換えず、成功応答は現在の `fileVersion` を返す。安全に差し替えられない frontmatter（YAML が壊れている、ルートがマップでない、`description` に anchor がある、description の値がマップ / シーケンス）は 400 と理由で拒否し、全文の書き換えはしない
+- 新規だけは `name` / `description` / 本文の固定順・LF で作り、文字列は YAML の二重引用符スカラーとして安全に表現する。本文の書き出しは保存経路と同じ規則（閉じ行の改行を付ける）を使い、既存ファイルをこの形式へ自動変換しない
+- 検証は SDK の `loadSkillsFromDir` を正とする。作成と保存の前に候補を一時ディレクトリで走査し、スキルとして読めることを確認する（新規は warning も拒否、既存の保存は変更前の診断に無い warning だけを拒否する。変更しない `name` や 1024 字超の `description` に由来する warning は本文だけの編集を妨げない）。公開後にも実際の発見一覧で対象パスと内容を確認し、確認できなければ自分の変更（同じ版のとき）だけを元に戻して 500 を返す
+- 版は `fileVersion` = 元ファイルの**バイト列の SHA-256**（mtime は使わない）、`treeVersion` = 対象フォルダ全体のダイジェスト（相対パスをソートし、エントリ種別・通常ファイルの内容ハッシュ・symlink のリンク文字列を含める。隠しファイルと付随ファイルを除外せず、参照先は辿らない）。不一致は 409、対象が消えていれば 404 で、強制上書きと自動再送は無い。削除確認の走査は `SANDBOX_MAX_ARCHIVE_ENTRIES` / `SANDBOX_MAX_ARCHIVE_BYTES` で制限し、超過・読み取り不能は変更前に拒否する
+- パスは workspace root 内であることに加え、root 相対の形が `<skills>/<name>/SKILL.md` で、最寄りの実在祖先の**実パス**も共通スキル置き場の内側であることを要求する（symlink・`..`・プロジェクト / 組み込み / root 外を拒否）。置き場直下の `SKILL.md` と hidden のディレクトリは専用フォルダを特定できないため扱わず、`SKILL.md` が symlink の削除も拒否する。削除は実パスのフォルダだけを `rm` し、symlink の参照先は辿らない
+- **排他の順序は「共通スキル置き場の外側 gate → SDK のファイル隊列（`withFileMutationQueue`）」。** GUI の CRUD、共通の中へ解決する SDK `edit` / `write` の実行全体、共通（またはその祖先）を変更する / 共通へ出入りする既存のファイル変更 API を gate に参加させ、取得後にパスを再確認する。SDK の同じ隊列は外から二重に取得しない。排他は SDK と同様の順番待ちで、専用の待機 timeout を追加しない。観測できる abort は未開始なら変更前に拒否し、開始済みの IO が終わる前に解放しない
+- 公開は同じディレクトリの一時ファイルからの `rename` で行う。**任意の bash と外部エディタはこの gate に参加しない**ため、版の再確認で観測した変更は拒否するが、比較と書き込みの間の外部プロセスによる競合まで完全な CAS としては保証しない
+- 要求の上限は既存の JSON body の上限（`SANDBOX_MAX_BODY_BYTES`）で、超過は 413。GUI の保存経路は BFF 側の 64 KiB が先に効く
 
 ## `DELETE /v1/files`
 

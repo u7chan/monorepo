@@ -5,6 +5,7 @@ import {
   BUILTIN_SKILL_EMPTY_NOTE,
   BUILTIN_SKILL_GROUP_LABEL,
   BUILTIN_SKILL_OVERRIDE_NOTE,
+  FILE_SKILL_ADD_LABEL,
   FILE_SKILL_EMPTY_NOTE,
   FILE_SKILL_ERROR_PREFIX,
   FILE_SKILL_GROUP_LABEL,
@@ -17,25 +18,29 @@ import {
   groupFileSkills,
 } from "../../lib/fileSkills";
 import type { FileSkillInfo } from "../../types";
+import { MenuItem } from "../MenuItem";
+import { PlusIcon } from "../icons";
 import { ReloadButton } from "../ReloadButton";
 
 export type FileSkillListProps = {
   state: FileSkillsState;
   onReload: () => void;
   /**
-   * 選択中の読み取り専用スキル。上書きされた組み込みは同名の共通行と並ぶため、名前では 1 件に定まらない。
+   * 選択中のファイルスキル。上書きされた組み込みは同名の共通行と並ぶため、名前では 1 件に定まらない。
    * 行固有の path で照合する
    */
-  selectedPath?: string | null;
-  onSelect: (path: string) => void;
+  selectedRelativePath?: string | null;
+  onSelect: (skill: FileSkillInfo) => void;
+  /** 共通スキルの新規作成。未指定なら追加行を出さない */
+  onAdd?: () => void;
 };
 
 /**
- * 共通スキル (`.agents/skills`) と組み込みスキルの読み取り専用一覧。ファイルスキルは編集・削除・
- * エージェント割り当ての操作を持たず、行はどちらも本文ビューを開くだけ。同じ名前の行が残ることがあり
- * (上書きされた組み込み)、影になった側 / 上書きされた組み込みを警告として出す。
+ * 共通スキル (`.agents/skills`) と組み込みスキルの一覧。共通行は本文ビューから編集・削除でき、
+ * 組み込みは読み取り専用のままにする。同じ名前の行が残ることがあり (上書きされた組み込み)、
+ * 影になった側 / 上書きされた組み込みを警告として出す。
  */
-export function FileSkillList({ state, onReload, selectedPath = null, onSelect }: FileSkillListProps) {
+export function FileSkillList({ state, onReload, selectedRelativePath = null, onSelect, onAdd }: FileSkillListProps) {
   const groups = state.status === "ready" ? groupFileSkills(state.skills) : { common: [], builtin: [] };
   // 共通行も組み込み行も同じ形 (押すと本文ビューが開く) なので、行の組み立ては 1 箇所に閉じる
   const rows = (skills: FileSkillInfo[]) =>
@@ -43,8 +48,8 @@ export function FileSkillList({ state, onReload, selectedPath = null, onSelect }
       <FileSkillRow
         key={skill.path}
         skill={skill}
-        selected={selectedPath === skill.path}
-        onOpen={() => onSelect(skill.path)}
+        selected={selectedRelativePath === skill.relativePath}
+        onOpen={() => onSelect(skill)}
       />
     ));
   return (
@@ -67,6 +72,7 @@ export function FileSkillList({ state, onReload, selectedPath = null, onSelect }
       {state.status === "ready" ? (
         <>
           <FileSkillGroup title={FILE_SKILL_GROUP_LABEL}>
+            {onAdd ? <MenuItem variant="add" icon={<PlusIcon />} label={FILE_SKILL_ADD_LABEL} onClick={onAdd} /> : null}
             {groups.common.length === 0 ? <FileSkillNote>{FILE_SKILL_EMPTY_NOTE}</FileSkillNote> : null}
             {rows(groups.common)}
           </FileSkillGroup>

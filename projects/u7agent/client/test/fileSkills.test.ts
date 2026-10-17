@@ -97,10 +97,9 @@ test("本文ビューの見出しはグループ名と同じ 3 種類そろっ�
   });
 });
 
-test("読み取り専用の断りはブロックの見出しにだけ出し、グループはスコープ名だけにする", () => {
-  assert.ok(FILE_SKILL_SECTION_LABEL.includes("読み取り専用"));
+test("ブロックの見出しはグループ名を繰り返さず、グループはスコープ名だけにする", () => {
   for (const label of [FILE_SKILL_GROUP_LABEL, BUILTIN_SKILL_GROUP_LABEL]) {
-    assert.ok(!label.includes("読み取り専用"), `${label} が読み取り専用を繰り返している`);
+    assert.ok(!FILE_SKILL_SECTION_LABEL.includes(label), `${label} が見出しで繰り返されている`);
   }
 });
 

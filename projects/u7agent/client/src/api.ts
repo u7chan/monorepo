@@ -12,6 +12,7 @@ import type {
   ContentMutationResponse,
   ContentSettingsResponse,
   CreateAgentBody,
+  CreateFileSkillBody,
   CreateSkillBody,
   DiscardUnsentResult,
   FileDownloadCheck,
@@ -36,6 +37,11 @@ import type {
   RuntimeEnvironmentResponse,
   RuntimeModelsResponse,
   RuntimeServeStatus,
+  SandboxSkillCreateResult,
+  SandboxSkillDeletePreview,
+  SandboxSkillFileDetail,
+  SandboxSkillSaveResult,
+  SaveFileSkillBody,
   SecretDetailResponse,
   SecretKind,
   SecretMutationResponse,
@@ -308,13 +314,52 @@ export const deleteSkill = async (id: string): Promise<unknown> => {
 };
 
 /**
- * 共通スキル (`.agents/skills`) の読み取り専用一覧。catalog のスキル定義とは別で、編集できない。
+ * 共通スキル (`.agents/skills`) の読み取り専用一覧。catalog のスキル定義とは別。
  * サンドボックス未設定は 503、サンドボックス側の失敗は 502 で reject する。
  */
 export const getFileSkills = async (): Promise<FileSkillsResponse> => {
   const res = await client.api.skills.files.$get();
   if (!res.ok) throw await apiError(res);
   return (await res.json()) as FileSkillsResponse;
+};
+
+/**
+ * 共通スキル 1 件の編集内容。name / description は SDK の発見結果、body は frontmatter を除いた原文で
+ * trim しない。保存できないファイルは editable: false と reason が入る (閲覧はできる)。
+ */
+export const getFileSkillDetail = async (relativePath: string): Promise<SandboxSkillFileDetail> => {
+  const res = await client.api.skills.files.detail.$get({ query: { relativePath } });
+  if (!res.ok) throw await apiError(res);
+  return (await res.json()) as SandboxSkillFileDetail;
+};
+
+/** 共通スキルの新規作成。同名や既存ディレクトリは 409 で reject する */
+export const createFileSkill = async (input: CreateFileSkillBody): Promise<SandboxSkillCreateResult> => {
+  const res = await client.api.skills.files.$post({ json: input });
+  if (!res.ok) throw await apiError(res);
+  return (await res.json()) as SandboxSkillCreateResult;
+};
+
+/** 共通スキルの保存。版の不一致 (409) と、安全に差し替えられない frontmatter (400) は reject する */
+export const saveFileSkill = async (input: SaveFileSkillBody): Promise<SandboxSkillSaveResult> => {
+  const res = await client.api.skills.files.$patch({ json: input });
+  if (!res.ok) throw await apiError(res);
+  return (await res.json()) as SandboxSkillSaveResult;
+};
+
+/**
+ * 削除確認。何も変更せず、消えるフォルダ・付随ファイル・treeVersion を返す (取消は副作用なし)。
+ */
+export const getFileSkillDeletePreview = async (relativePath: string): Promise<SandboxSkillDeletePreview> => {
+  const res = await client.api.skills.files["delete-preview"].$get({ query: { relativePath } });
+  if (!res.ok) throw await apiError(res);
+  return (await res.json()) as SandboxSkillDeletePreview;
+};
+
+/** 専用フォルダの削除。確認で取った treeVersion を渡し、一致しなければ 409 で reject する */
+export const deleteFileSkill = async (relativePath: string, treeVersion: string): Promise<void> => {
+  const res = await client.api.skills.files.$delete({ query: { relativePath, treeVersion } });
+  if (!res.ok) throw await apiError(res);
 };
 
 // 並び順と件数上限はサーバーが決めるため、クライアントでは再ソートしない
