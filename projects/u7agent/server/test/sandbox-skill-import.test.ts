@@ -5,13 +5,14 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { mkdtempSync, symlinkSync } from "node:fs";
-import { lstat, mkdir, readdir, readFile, writeFile } from "node:fs/promises";
+import { lstat, mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import { deflateRawSync } from "node:zlib";
 import { createSandboxService, type SandboxServiceOptions } from "../src/sandbox/service";
 import type { SandboxSkillsImportApply, SandboxSkillsImportPlan } from "../src/sandbox/protocol";
+import { extractZipEntry, readZipArchive } from "../src/sandbox/zip-read";
 import { buildZip, skillEntries, type ZipFixtureEntry } from "./zip-fixtures";
 
 const TOKEN = "test-sandbox-token-0123456789abcdef";
@@ -97,6 +98,18 @@ function assertImportFailureBody(error: string | undefined, root: string): void 
   for (const fragment of [".agents", "mkdir", "rename", "EEXIST", "ENOTDIR", "ENOENT", "staging", ".import-"]) {
     assert.ok(!(error ?? "").includes(fragment), `本文に ${fragment} が載っている`);
   }
+}
+
+/** アーカイブを読めないときの失敗が、内部パスを含まない固定文言の 500 か */
+function assertArchiveUnreadable(error: unknown, root: string): boolean {
+  const message = error instanceof Error ? error.message : String(error);
+  assert.equal(message, "Invalid ZIP archive: the received archive cannot be read");
+  assert.equal((error as { statusCode?: number }).statusCode, 500);
+  assert.ok(!message.includes(root), "ワークスペースの絶対パスが本文に載っている");
+  for (const fragment of [".import-", "ENOENT", "open"]) {
+    assert.ok(!message.includes(fragment), `本文に ${fragment} が載っている`);
+  }
+  return true;
 }
 
 test("export した ZIP を取り込むと全ファイルのバイトが一致し、発見結果に現れる", async () => {
@@ -732,6 +745,74 @@ test(
     }
   },
 );
+
+test(
+  "`.agents/skills` が外を指す symlink でも応答本文に内部パスを載せない",
+  { skip: !HAS_SYMLINK && SYMLINK_SKIP_REASON },
+  async () => {
+    // What: 置き場がワークスペース外を指す symlink のとき、plan の失敗が固定文言になり、
+    // 外の絶対パスや置き場の内訳を含まず、symlink と外側が変わらないことを確かめる
+    const root = makeRoot("skills-outside");
+    const outside = makeRoot("skills-outside-target");
+    const service = createService(root);
+    try {
+      await mkdir(join(root, ".agents"), { recursive: true });
+      symlinkSync(outside, join(root, ".agents/skills"));
+      const zip = buildZip(skillEntries("alpha", { "SKILL.md": skillText("alpha") }));
+      for (const query of ["?dryRun=true", ""]) {
+        const result = await importArchive(service.app, zip, query);
+        assert.equal(result.status, 400, query);
+        assertImportFailureBody(result.body.error, root);
+      }
+      assert.ok((await lstat(join(root, ".agents/skills"))).isSymbolicLink());
+      assert.deepEqual(await readdir(outside), []);
+    } finally {
+      service.close();
+    }
+  },
+);
+
+test("展開時のアーカイブ open 失敗で応答本文に絶対パスを載せない", async () => {
+  // What: アーカイブの一時ファイルを消した状態で展開すると、固定文言の 500 になり、
+  // ワークスペースの絶対パス・`.import-`・ENOENT・open を含まないことを確かめる
+  const root = makeRoot("extract-open");
+  const archivePath = join(root, "archive.zip");
+  try {
+    await writeFile(archivePath, buildZip(skillEntries("alpha", { "SKILL.md": skillText("alpha") })));
+    const archive = await readZipArchive(archivePath, { maxBytes: 100_000, maxEntries: 100 });
+    const entry = archive.entries.find((candidate) => candidate.name === "alpha/SKILL.md");
+    assert.ok(entry, "SKILL.md のエントリが無い");
+    await rm(archivePath);
+
+    await assert.rejects(
+      extractZipEntry({
+        archive: archivePath,
+        entry,
+        target: join(root, "out/SKILL.md"),
+        dataLimit: archive.dataLimit,
+      }),
+      (error: unknown) => assertArchiveUnreadable(error, root),
+    );
+  } finally {
+    await rm(root, { recursive: true, force: true }).catch(() => {});
+  }
+});
+
+test("中央ディレクトリ読み込みのアーカイブ open 失敗でも内部パスを載せない", async () => {
+  // What: アーカイブの一時ファイルを消した状態で中央ディレクトリを読むと、固定文言の 500 になり、
+  // ワークスペースの絶対パス・`.import-`・ENOENT・open を含まないことを確かめる
+  const root = makeRoot("read-open");
+  const archivePath = join(root, "archive.zip");
+  try {
+    await writeFile(archivePath, buildZip(skillEntries("alpha", { "SKILL.md": skillText("alpha") })));
+    await rm(archivePath);
+    await assert.rejects(readZipArchive(archivePath, { maxBytes: 100_000, maxEntries: 100 }), (error: unknown) =>
+      assertArchiveUnreadable(error, root),
+    );
+  } finally {
+    await rm(root, { recursive: true, force: true }).catch(() => {});
+  }
+});
 
 test("空の ZIP は受理し、全件 skip のときは `.agents/skills` を作らない", async () => {
   const root = makeRoot("empty");

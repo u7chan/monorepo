@@ -1634,14 +1634,18 @@ async function receiveImportArchive(input: {
       try {
         for (;;) {
           throwIfAborted(input.signal);
-          const { done, value } = await reader.read();
+          const { done, value } = await reader.read().catch((error: unknown) => {
+            throw importFailure(error);
+          });
           if (done) break;
           size += value.byteLength;
           if (size > input.maxBytes) {
             await reader.cancel().catch(() => {});
             throw pathError(413, `Import archive is too large (max ${input.maxBytes} bytes)`);
           }
-          await handle.write(value);
+          await handle.write(value).catch((error: unknown) => {
+            throw importFailure(error);
+          });
         }
       } finally {
         reader.releaseLock();
@@ -1829,7 +1833,11 @@ async function resolveImportTarget(input: {
     return { state: "protected", reason: "スキルフォルダが置き場の外へ解決するため置換できません" };
   }
 
-  const target = await resolveCommonSkillTarget({ rootCwd: input.rootCwd, requested, mustExist: false });
+  const target = await resolveCommonSkillTarget({ rootCwd: input.rootCwd, requested, mustExist: false }).catch(
+    (error: unknown) => {
+      throw importFailure(error);
+    },
+  );
   const skillsDir = target.realSkillsDir;
   if (skillsDir === undefined) return { state: "missing" };
   if (target.real !== undefined) {
@@ -1857,7 +1865,9 @@ async function planSkillsImport(input: {
 }): Promise<SkillImportPlan[]> {
   const plans: SkillImportPlan[] = [];
   for (const staged of input.staged) {
-    const diagnosed = await diagnoseSkillFolder(staged.folder);
+    const diagnosed = await diagnoseSkillFolder(staged.folder).catch((error: unknown) => {
+      throw importFailure(error);
+    });
     if (!diagnosed.ok) {
       plans.push({ name: staged.name, status: "invalid", reason: diagnosed.message, staged });
       continue;
