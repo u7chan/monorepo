@@ -4,9 +4,13 @@ import {
   FILE_SKILL_ERROR_PREFIX,
   FILE_SKILL_GROUP_LABEL,
   FILE_SKILL_LOADING_NOTE,
+  FILE_SKILL_RELOAD_ARIA_LABEL,
+  FILE_SKILL_RELOAD_LABEL,
   groupFileSkills,
 } from "../../lib/fileSkills";
+import { RELOAD_ABOVE_NOTE } from "../../lib/settingsNotes";
 import type { BuiltinSkillInfo, FileSkillInfo, SkillDef } from "../../types";
+import { ReloadButton } from "../ReloadButton";
 import { SkillGroup, SkillRow } from "./SkillRow";
 
 /** 組み込み行の見出し。チェックでエージェント別に外せる (既定は全部 ON)。ビルトインの閲覧ビューも同じ語で出す */
@@ -50,6 +54,7 @@ export function SkillSelector({
   selectedIds,
   onToggle,
   fileSkills,
+  onReloadFileSkills,
   commonSkillNames,
   onToggleCommonSkill,
   onShowAllCommonSkills,
@@ -65,6 +70,7 @@ export function SkillSelector({
   onToggle: (skillId: string, checked: boolean) => void;
   /** 共通スキル (`.agents/skills`) の取得状態。取得できないときは欄を出さず、理由だけを出す */
   fileSkills: FileSkillsState;
+  onReloadFileSkills: () => void;
   /** undefined = 未指定 (全可視)、null = 解除 (全可視)、配列 = 明示リスト ([] はすべて OFF) */
   commonSkillNames?: string[] | null;
   onToggleCommonSkill: (name: string, checked: boolean) => void;
@@ -114,11 +120,21 @@ export function SkillSelector({
 
   return (
     <div className="grid gap-1.5 rounded-lg border border-line bg-soft px-2.5 py-2">
-      <div className="flex items-baseline gap-1.5 text-2xs font-semibold tracking-label text-ink-faint uppercase">
-        <span>スキル</span>
-        <span className="font-normal">
-          割り当て中 {selectedCount} / 全 {skills.length}
+      {/* 字組み (font-semibold / tracking-label / uppercase) は見出しの文字だけに掛ける。行に掛けると
+          同じ行の取り直しのボタンへ継承され、設定 → スキルの同じボタンと字間が揃わない */}
+      <div className="flex items-baseline justify-between gap-2 text-2xs text-ink-faint">
+        <span className="flex min-w-0 items-baseline gap-1.5 font-semibold tracking-label uppercase">
+          <span>スキル</span>
+          <span className="font-normal">
+            割り当て中 {selectedCount} / 全 {skills.length}
+          </span>
         </span>
+        {/* 取得失敗のときだけ出す。取り直しはまとまりの見出し行に 1 つ置く (docs/ui-layout.md#モードごとの構成) */}
+        {fileSkills.status === "error" ? (
+          <ReloadButton size="sm" onClick={onReloadFileSkills} aria-label={FILE_SKILL_RELOAD_ARIA_LABEL}>
+            {FILE_SKILL_RELOAD_LABEL}
+          </ReloadButton>
+        ) : null}
       </div>
       {skills.length === 0 ? (
         <div className="text-1xs text-ink-faint">スキルがありません。「スキル」ページから作成できます。</div>
@@ -148,9 +164,12 @@ export function SkillSelector({
       ) : null}
       {fileSkills.status === "error" ? (
         // 欄ごと消すと「このエージェントには共通スキルが無い」と読めるので、取得できていない理由を出す
-        <p className="text-2xs leading-4 break-words text-warn">
-          {FILE_SKILL_ERROR_PREFIX}: {fileSkills.message}
-        </p>
+        <>
+          <p className="text-2xs leading-4 break-words text-warn">
+            {FILE_SKILL_ERROR_PREFIX}: {fileSkills.message}
+          </p>
+          <p className="text-2xs leading-4 break-words text-ink-muted">{RELOAD_ABOVE_NOTE}</p>
+        </>
       ) : null}
       {fileSkills.status === "ready" ? (
         <>
