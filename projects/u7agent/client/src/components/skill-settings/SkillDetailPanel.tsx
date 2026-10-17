@@ -75,7 +75,7 @@ export function SkillDetailPanel({
                   <dt className="text-2xs font-semibold tracking-label text-ink-faint uppercase">{item.label}</dt>
                   <dd
                     className={cn(
-                      "break-words",
+                      "wrap-anywhere",
                       item.mono ? "text-2xs" : "text-xs",
                       item.tone === "strong" ? "text-ink-strong" : "text-ink-soft",
                     )}
@@ -110,7 +110,7 @@ export function SkillDetailPanel({
                 </div>
                 <pre
                   ref={bodyRef}
-                  className="scrollbar-thin overflow-x-hidden overflow-y-visible rounded-lg border border-line bg-soft px-2.5 py-2 font-mono text-2xs leading-relaxed whitespace-pre-wrap text-ink-soft select-text"
+                  className="scrollbar-thin overflow-x-hidden overflow-y-visible rounded-lg border border-line bg-soft px-2.5 py-2 font-mono text-2xs leading-relaxed wrap-anywhere whitespace-pre-wrap text-ink-soft select-text"
                 >
                   {body.text}
                 </pre>
