@@ -92,7 +92,10 @@ export interface DebugServeStopResult {
 /** 設定 → ランタイム のデバッグ一覧の 1 行。lease の無い (追跡外の) 待受はポートだけを返す */
 export interface DebugServeEntry {
   port: number;
-  /** 会話ストアに起動元が残っているときだけ返す。削除済み / 追跡外は null (所有者不明) */
+  /**
+   * 会話ストアに起動元が残っていて、待受ソケットが lease と一致するときだけ返す。
+   * 削除済み / 追跡外 / 待受の入れ替わりは null (所有者不明)
+   */
   owner: { sessionId: string; title: string; spaceId?: string } | null;
   command: string | null;
   startedAt: number | null;

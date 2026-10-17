@@ -1641,7 +1641,8 @@ export type ServeStopBody = z.infer<typeof ServeStopBodySchema>;
 
 /**
  * 設定 → ランタイム のデバッグ一覧。行はレンジ走査で見付かった待受だけで、lease の無い行 (追跡外) は
- * `owner` / `command` / `startedAt` を null にする。`owner` は会話ストアに起動元が残っているときだけ載る。
+ * `owner` / `command` / `startedAt` を null にする。`owner` は会話ストアに起動元が残っていて、待受ソケットが
+ * lease と一致するときだけ載る (削除済み / 追跡外 / 待受の入れ替わりは null = 所有者不明)。
  */
 export const RuntimeDebugServeEntrySchema = z.object({
   port: z.number().int(),
