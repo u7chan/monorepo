@@ -120,8 +120,10 @@ export function SkillSelector({
 
   return (
     <div className="grid gap-1.5 rounded-lg border border-line bg-soft px-2.5 py-2">
-      <div className="flex items-baseline justify-between gap-2 text-2xs font-semibold tracking-label text-ink-faint uppercase">
-        <span className="flex min-w-0 items-baseline gap-1.5">
+      {/* 字組み (font-semibold / tracking-label / uppercase) は見出しの文字だけに掛ける。行に掛けると
+          同じ行の取り直しのボタンへ継承され、設定 → スキルの同じボタンと字間が揃わない */}
+      <div className="flex items-baseline justify-between gap-2 text-2xs text-ink-faint">
+        <span className="flex min-w-0 items-baseline gap-1.5 font-semibold tracking-label uppercase">
           <span>スキル</span>
           <span className="font-normal">
             割り当て中 {selectedCount} / 全 {skills.length}
