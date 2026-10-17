@@ -1,6 +1,6 @@
 import type { Context } from "hono";
 import { sandboxFailure } from "../http";
-import type { RuntimeServeStopBody, ServeStartBody, ServeStopBody } from "../schema";
+import type { RuntimeDebugServeStopBody, RuntimeServeStopBody, ServeStartBody, ServeStopBody } from "../schema";
 import type { ServeService } from "../serve";
 
 /**
@@ -56,6 +56,23 @@ export function createServeRoutes({ serve }: { serve: ServeService }) {
     stop: async (c: Context, body: ServeStopBody) => {
       try {
         return c.json(await serve.stop(body.sessionId, { generation: body.generation ?? null }));
+      } catch (error) {
+        return failure(c, error);
+      }
+    },
+
+    // デバッグ枠 (18000–18099)。公開枠の status / stop とは別のエンドポイントに分け、一覧は軽い走査だけで組む
+    debugStatus: async (c: Context) => {
+      try {
+        return c.json(await serve.debugServers());
+      } catch (error) {
+        return failure(c, error);
+      }
+    },
+
+    debugStop: async (c: Context, body: RuntimeDebugServeStopBody) => {
+      try {
+        return c.json(await serve.debugStopPort(body.port));
       } catch (error) {
         return failure(c, error);
       }

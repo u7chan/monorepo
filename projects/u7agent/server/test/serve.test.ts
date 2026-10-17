@@ -884,6 +884,59 @@ test("待受が消えた lease は debug_status で検出して掃除する", as
   assert.equal((await service.debugStart(SESSION, { command: DEBUG_COMMAND })).port, handle.port);
 });
 
+test("デバッグ一覧は待受と lease を突き合わせ、起動元と起動時の値を返す", async () => {
+  const { service, sandbox } = setup();
+  const first = await service.debugStart(SESSION, { command: DEBUG_COMMAND });
+  const second = await service.debugStart(OTHER, { command: DEBUG_COMMAND });
+  const orphanPort = DEBUG_FROM + 5;
+  sandbox.state.listeners.set(orphanPort, { pid: 9001, startedAt: NOW, inodes: [9001], ancestors: [9001] });
+  const scansBefore = sandbox.state.scans;
+  assert.deepEqual(await service.debugServers(), {
+    servers: [
+      {
+        port: first.port,
+        owner: { sessionId: SESSION, title: "トップページの改修" },
+        command: DEBUG_COMMAND,
+        startedAt: sandbox.state.launchStartedAt,
+      },
+      {
+        port: second.port,
+        owner: { sessionId: OTHER, title: "決済画面の検証", spaceId: OWNER_SPACE },
+        command: DEBUG_COMMAND,
+        startedAt: sandbox.state.launchStartedAt,
+      },
+      { port: orphanPort, owner: null, command: null, startedAt: null },
+    ],
+  });
+  // 一覧は軽い走査だけを通す (起動時の fd 走査から増やさない)
+  assert.equal(sandbox.state.scans, scansBefore, "一覧が fd 走査を伴っている");
+});
+
+test("デバッグ一覧は起動元が削除された行を所有者不明にし、待受の入れ替わりは追跡外へ落とす", async () => {
+  const { service, sandbox, sessionMap } = setup();
+  const handle = await service.debugStart(SESSION, { command: DEBUG_COMMAND });
+  delete sessionMap[SESSION];
+  assert.deepEqual(await service.debugServers(), {
+    servers: [{ port: handle.port, owner: null, command: DEBUG_COMMAND, startedAt: sandbox.state.launchStartedAt }],
+  });
+
+  // 待受が起動時と入れ替わった port は lease を掃除し、追跡外 (ポートだけ) として見せる
+  const other = await service.debugStart(OTHER, { command: DEBUG_COMMAND });
+  sandbox.state.listeners.set(other.port, { pid: 777, startedAt: NOW, inodes: [777], ancestors: [777] });
+  assert.deepEqual(await service.debugServers(), {
+    servers: [
+      { port: handle.port, owner: null, command: DEBUG_COMMAND, startedAt: sandbox.state.launchStartedAt },
+      { port: other.port, owner: null, command: null, startedAt: null },
+    ],
+  });
+  // 掃除されたので、会話からの停止は「他会話の lease を指定した」403 にならない (追跡外は誰でも止められる)
+  assert.deepEqual(await service.debugStop(OTHER, { port: other.port }), {
+    port: other.port,
+    released: true,
+    alreadyStopped: false,
+  });
+});
+
 test("追跡外の待受はポートだけを見せ、強制停止は所有者を問わず、会話からの停止は 403 にする", async () => {
   const { service, sandbox } = setup();
   const orphanPort = DEBUG_FROM + 5;

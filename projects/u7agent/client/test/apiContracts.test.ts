@@ -18,9 +18,11 @@ const {
   resetArchiveSettings,
   getGitInfo,
   statFile,
+  getRuntimeDebugServeStatus,
   getRuntimeServeStatus,
   logoutOAuthProvider,
   startOAuthLogin,
+  stopRuntimeDebugServe,
   stopRuntimeServe,
   submitOAuthLoginCode,
 } = await import("../src/api");
@@ -54,6 +56,25 @@ test("ランタイムのサービスAPIは会話IDなしで取得し、停止に
     ],
   );
   assert.deepEqual(await requests[1].json(), { generation: "gen-a" });
+});
+
+test("デバッグ用サービスのAPIは公開枠とは別のパスを使い、停止にはポートを送る", async (t) => {
+  const requests: Request[] = [];
+  const list = { servers: [] };
+  t.mock.method(globalThis, "fetch", async (input: string | URL | Request, init?: RequestInit) => {
+    requests.push(new Request(input, init));
+    return Response.json(list);
+  });
+  assert.deepEqual(await getRuntimeDebugServeStatus(), list);
+  assert.deepEqual(await stopRuntimeDebugServe({ port: 18000 }), list);
+  assert.deepEqual(
+    requests.map((request) => [request.method, new URL(request.url).pathname]),
+    [
+      ["GET", "/api/serve/debug/status"],
+      ["POST", "/api/serve/debug/stop"],
+    ],
+  );
+  assert.deepEqual(await requests[1].json(), { port: 18000 });
 });
 
 test("全体停止の409は理由とHTTP statusを保つ", async (t) => {

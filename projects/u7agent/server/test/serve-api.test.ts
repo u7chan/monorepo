@@ -9,7 +9,7 @@ import { join } from "node:path";
 import test from "node:test";
 import { createBffApp } from "../src/app";
 import { createSecretMasker } from "../src/redact";
-import { RuntimeServeStatusSchema, ServeStatusSchema } from "../src/schema";
+import { RuntimeDebugServeStatusSchema, RuntimeServeStatusSchema, ServeStatusSchema } from "../src/schema";
 import { UnknownRemoteToolError, createRemoteToolDefinitions } from "../src/sandbox/remote-tools";
 import { SANDBOX_TOOL_NAMES } from "../src/sandbox/service";
 import type { SandboxWorkspaceClient } from "../src/sandbox/client";
@@ -580,7 +580,115 @@ test("サンドボックス未設定でもデバッグの回収は会話削除�
       (await unconfigured.app.request(`/api/sessions/${created.sessionId}`, { method: "DELETE" })).status,
       200,
     );
+    // デバッグの一覧 / 停止はサンドボックス未設定を 503 で返す (公開 API の停止中とは区別する)
+    assert.equal((await unconfigured.app.request("/api/serve/debug/status")).status, 503);
+    assert.equal((await unconfigured.app.request("/api/serve/debug/stop", jsonPost({ port: DEBUG_FROM }))).status, 503);
   } finally {
     await unconfigured.close();
+  }
+});
+
+test("デバッグ一覧は起動元と起動時の値を返し、追跡外はポートだけにする", async () => {
+  const { bff, sandbox, pi, first } = await setup();
+  try {
+    const host = pi.serveHosts.at(-1);
+    assert.ok(host);
+    const started = debugPortOf(await host.run(first, { action: "debug_start", command: DEBUG_COMMAND }));
+    const orphanPort = DEBUG_FROM + 5;
+    sandbox.state.listeners.set(orphanPort, {
+      pid: 9001,
+      startedAt: 1_700_000_000_000,
+      inodes: [9001],
+      ancestors: [9001],
+    });
+    const status = await jsonBody(await bff.app.request("/api/serve/debug/status"));
+    assert.equal(RuntimeDebugServeStatusSchema.safeParse(status).success, true);
+    assert.deepEqual(status, {
+      servers: [
+        {
+          port: started,
+          owner: { sessionId: first, title: "無題のセッション", spaceId: "default" },
+          command: DEBUG_COMMAND,
+          startedAt: sandbox.state.launchStartedAt,
+        },
+        { port: orphanPort, owner: null, command: null, startedAt: null },
+      ],
+    });
+    // 公開枠の応答にはデバッグを混ぜない
+    assert.deepEqual(await jsonBody(await bff.app.request("/api/serve/runtime/status")), {
+      reachable: false,
+      owner: null,
+      generation: null,
+      command: null,
+    });
+  } finally {
+    await bff.close();
+  }
+});
+
+test("デバッグの強制停止は所有者を問わず、一覧から待受を消す", async () => {
+  const { bff, sandbox, pi, first, second } = await setup();
+  try {
+    const host = pi.serveHosts.at(-1);
+    assert.ok(host);
+    const tracked = debugPortOf(await host.run(first, { action: "debug_start", command: DEBUG_COMMAND }));
+    const orphanPort = DEBUG_FROM + 5;
+    sandbox.state.listeners.set(orphanPort, {
+      pid: 9001,
+      startedAt: 1_700_000_000_000,
+      inodes: [9001],
+      ancestors: [9001],
+    });
+
+    // 起動元の会話 (second) とは別の会話で開いても、所有者を問わず停止できる
+    for (const body of [{}, { port: 80 }, { port: DEBUG_FROM - 1 }, { port: "18000" }, { port: tracked, extra: 1 }]) {
+      assert.equal((await bff.app.request("/api/serve/debug/stop", jsonPost(body))).status, 400);
+    }
+    const csrf = await bff.app.request("http://app.test/api/serve/debug/stop", {
+      ...jsonPost({ port: tracked }),
+      headers: { Origin: "http://evil.test", "Content-Type": "application/json" },
+    });
+    assert.equal(csrf.status, 403);
+    assert.deepEqual(sandbox.state.killed, []);
+
+    // 待受の無いポートは停止済みとして返す (二重停止も成功)
+    assert.deepEqual(
+      await jsonBody(await bff.app.request("/api/serve/debug/stop", jsonPost({ port: DEBUG_FROM + 9 }))),
+      {
+        port: DEBUG_FROM + 9,
+        released: false,
+        alreadyStopped: true,
+      },
+    );
+    for (const port of [orphanPort, tracked]) {
+      assert.deepEqual(await jsonBody(await bff.app.request("/api/serve/debug/stop", jsonPost({ port }))), {
+        port,
+        released: true,
+        alreadyStopped: false,
+      });
+    }
+    assert.equal(sandbox.state.listeners.size, 0);
+    assert.deepEqual(await jsonBody(await bff.app.request("/api/serve/debug/status")), { servers: [] });
+    // 会話からの停止 (lease の持ち主) はすでに待受が無い
+    assert.match(await host.run(second, { action: "debug_status" }), /none for this conversation/);
+  } finally {
+    await bff.close();
+  }
+});
+
+test("デバッグ一覧は待受が消えた lease を掃除し、追跡外として見せる", async () => {
+  const { bff, sandbox, pi, first } = await setup();
+  try {
+    const host = pi.serveHosts.at(-1);
+    assert.ok(host);
+    const started = debugPortOf(await host.run(first, { action: "debug_start", command: DEBUG_COMMAND }));
+    sandbox.state.listeners.delete(started);
+    assert.deepEqual(await jsonBody(await bff.app.request("/api/serve/debug/status")), { servers: [] });
+    // 掃除されたので、次の起動は同じポートを再利用できる
+    const restarted = await host.run(first, { action: "debug_start", command: DEBUG_COMMAND });
+    assert.equal(debugPortOf(restarted), started);
+    assert.deepEqual(sandbox.state.killed, [], "掃除で残骸を stop しようとしない");
+  } finally {
+    await bff.close();
   }
 });
