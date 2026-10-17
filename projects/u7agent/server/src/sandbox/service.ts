@@ -1601,12 +1601,17 @@ function parseReplaceQuery(
 
 /** `.agents` 配下に取り込みの一時ディレクトリを作る。既存の `.agents` が root 外へ解決する場合は 400 */
 async function createImportTempDir(rootCwd: string): Promise<string> {
-  const parentRel = await createWorkspaceDirectory(rootCwd, SKILLS_PARENT_DIR);
-  const root = await realpathNative(rootCwd);
+  // 前提処理の失敗も OS メッセージ (絶対パス) を応答に載せない
+  const parentRel = await createWorkspaceDirectory(rootCwd, SKILLS_PARENT_DIR).catch((error: unknown) => {
+    throw importFailure(error);
+  });
+  const root = await realpathNative(rootCwd).catch((error: unknown) => {
+    throw importFailure(error);
+  });
   const parent = parentRel === "." ? root : join(root, parentRel);
   const temp = join(parent, `${IMPORT_TEMP_PREFIX}${randomUUID()}`);
   await mkdir(temp).catch((error: unknown) => {
-    throw pathError(400, `Cannot create the import workspace: ${messageFor(error)}`);
+    throw importFailure(error);
   });
   return temp;
 }
@@ -1619,7 +1624,9 @@ async function receiveImportArchive(input: {
   signal?: AbortSignal;
 }): Promise<string> {
   const path = join(input.dir, "archive.zip");
-  const handle = await open(path, "wx", 0o600);
+  const handle = await open(path, "wx", 0o600).catch((error: unknown) => {
+    throw importFailure(error);
+  });
   let size = 0;
   try {
     if (input.body) {
@@ -1886,10 +1893,10 @@ async function planSkillsImport(input: {
 }
 
 /**
- * 適用の失敗を、内部パスを含まない固定文言に写す。診断に要る OS メッセージ (絶対パスを含む) は
+ * 取り込みの失敗を、内部パスを含まない固定文言に写す。診断に要る OS メッセージ (絶対パスを含む) は
  * 応答本文には載せず、プロセスのログにだけ残す。ステータスは変更前の分類を保ち、OS の失敗は 500 にする。
  */
-function importApplyFailure(error: unknown): Error & { statusCode: number } {
+function importFailure(error: unknown): Error & { statusCode: number } {
   console.warn(`[u7agent-sandbox] スキルの取り込みに失敗しました: ${messageFor(error)}`);
   const statusCode = (error as { statusCode?: number }).statusCode;
   const status = statusCode !== undefined && statusCode >= 400 && statusCode < 500 ? statusCode : 500;
@@ -1912,10 +1919,10 @@ async function applySkillsImport(input: {
   const backupDir = join(input.tempDir, "backup");
   // 準備段階の失敗も OS メッセージ (絶対パス) を応答に載せない
   const root = await realpathNative(input.rootCwd).catch((error: unknown) => {
-    throw importApplyFailure(error);
+    throw importFailure(error);
   });
   await mkdir(backupDir, { recursive: true }).catch((error: unknown) => {
-    throw importApplyFailure(error);
+    throw importFailure(error);
   });
   const applied: SandboxSkillImportApplied[] = [];
   const skipped: SandboxSkillImportSkipped[] = [];
@@ -1925,7 +1932,7 @@ async function applySkillsImport(input: {
   const destinationRootOf = async (): Promise<string> => {
     if (destinationRoot !== undefined) return destinationRoot;
     const rel = await createWorkspaceDirectory(input.rootCwd, COMMON_SKILLS_DIR).catch((error: unknown) => {
-      throw importApplyFailure(error);
+      throw importFailure(error);
     });
     destinationRoot = rel === "." ? root : join(root, rel);
     return destinationRoot;
@@ -1954,12 +1961,12 @@ async function applySkillsImport(input: {
       if (plan.replaceTarget !== undefined) {
         backup = join(backupDir, plan.name);
         await rename(plan.replaceTarget, backup).catch((error: unknown) => {
-          throw importApplyFailure(error);
+          throw importFailure(error);
         });
       }
       try {
         await rename(plan.staged.folder, destination).catch((error: unknown) => {
-          throw importApplyFailure(error);
+          throw importFailure(error);
         });
       } catch (error) {
         if (backup !== undefined && plan.replaceTarget !== undefined) {
@@ -2012,7 +2019,9 @@ async function importSkills(
     const archive = await readZipArchive(archivePath, context.archiveLimits);
     const groups = groupImportEntries(archive.entries);
     const staging = join(tempDir, "staging");
-    await mkdir(staging, { recursive: true });
+    await mkdir(staging, { recursive: true }).catch((error: unknown) => {
+      throw importFailure(error);
+    });
     const staged = await extractImportGroups({ archivePath, archive, groups, staging });
     return await context.gate(async () => {
       throwIfAborted(input.signal);

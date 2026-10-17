@@ -51,6 +51,14 @@ function zipTooManyEntriesError(maxEntries: number): Error & { statusCode: numbe
   return Object.assign(new Error(`Import archive has too many entries (max ${maxEntries})`), { statusCode: 413 });
 }
 
+/**
+ * 受信したアーカイブを開けない (消えた / 読めない)。形式の不正ではないため 400 ではなく 500 とし、
+ * 詳細 (絶対パスを含む OS メッセージ) はログにだけ残す。
+ */
+function zipArchiveUnreadableError(): Error & { statusCode: number } {
+  return Object.assign(new Error("Invalid ZIP archive: the received archive cannot be read"), { statusCode: 500 });
+}
+
 /** 中央ディレクトリから読んだ 1 エントリ。本文の位置と期待値だけを持ち、展開は extractZipEntry が行う */
 export interface ZipReadEntry {
   /** ZIP 内のパス。ディレクトリは末尾が `/` のまま入る */
@@ -148,7 +156,12 @@ async function findEndOfCentralDirectory(handle: FileHandle, fileSize: number): 
  * 上限 (件数 / 合計サイズ) は 413 で断り、形式不正は 400 にする。
  */
 export async function readZipArchive(path: string, limits: ArchiveLimits): Promise<ZipReadArchive> {
-  const handle = await open(path, "r");
+  const handle = await open(path, "r").catch((error: unknown) => {
+    console.warn(
+      `[u7agent-sandbox] 取り込みアーカイブを開けませんでした: ${error instanceof Error ? error.message : String(error)}`,
+    );
+    throw zipArchiveUnreadableError();
+  });
   try {
     const fileSize = (await handle.stat()).size;
     const eocdOffset = await findEndOfCentralDirectory(handle, fileSize);

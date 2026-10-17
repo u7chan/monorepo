@@ -90,6 +90,15 @@ async function assertUntouched(root: string): Promise<void> {
   assert.deepEqual(await importTempDirs(root), []);
 }
 
+/** 取り込みの失敗の本文が、内部パスを含まない固定文言か (apply と前提処理で共通) */
+function assertImportFailureBody(error: string | undefined, root: string): void {
+  assert.equal(error, "スキルを取り込めませんでした");
+  assert.ok(!(error ?? "").includes(root), "ワークスペースの絶対パスが本文に載っている");
+  for (const fragment of [".agents", "mkdir", "rename", "EEXIST", "ENOTDIR", "ENOENT", "staging", ".import-"]) {
+    assert.ok(!(error ?? "").includes(fragment), `本文に ${fragment} が載っている`);
+  }
+}
+
 test("export した ZIP を取り込むと全ファイルのバイトが一致し、発見結果に現れる", async () => {
   const source = makeRoot("roundtrip-source");
   const sourceService = createService(source);
@@ -678,15 +687,51 @@ test("適用に失敗した応答本文には内部パスを載せない", { ski
     ]);
     const result = await importArchive(service.app, zip, "?replace=alpha&replace=beta");
     assert.equal(result.status, 500);
-    assert.equal(result.body.error, "スキルを取り込めませんでした");
-    assert.ok(!(result.body.error ?? "").includes(root), "ワークスペースの絶対パスが本文に載っている");
-    for (const fragment of ["staging", ".import-", "rename", "ENOTDIR", "ENOENT"]) {
-      assert.ok(!(result.body.error ?? "").includes(fragment), `本文に ${fragment} が載っている`);
-    }
+    assertImportFailureBody(result.body.error, root);
   } finally {
     service.close();
   }
 });
+
+test("import の前提処理が失敗したときの応答本文に内部パスを載せない (.agents が通常ファイル)", async () => {
+  // What: `.agents` が通常ファイルで一時置き場を作れないとき、本文が固定文言になり、
+  // ワークスペースの絶対パスや OS メッセージ (mkdir / EEXIST) を含まないことを確かめる
+  const root = makeRoot("prereq-file");
+  const service = createService(root);
+  try {
+    await writeFile(join(root, ".agents"), "not a directory\n", "utf8");
+    const zip = buildZip(skillEntries("alpha", { "SKILL.md": skillText("alpha") }));
+    const result = await importArchive(service.app, zip);
+    assert.equal(result.status, 400);
+    assertImportFailureBody(result.body.error, root);
+    // 既存のファイルは変わらない
+    assert.equal(await readFile(join(root, ".agents"), "utf8"), "not a directory\n");
+  } finally {
+    service.close();
+  }
+});
+
+test(
+  "import の前提処理が失敗したときの応答本文に内部パスを載せない (.agents が外を指す symlink)",
+  { skip: !HAS_SYMLINK && SYMLINK_SKIP_REASON },
+  async () => {
+    // What: `.agents` がワークスペース外を指す symlink のとき、本文が固定文言になり、
+    // 外の絶対パスや OS メッセージを含まず、外側に何も作らないことを確かめる
+    const root = makeRoot("prereq-symlink");
+    const outside = makeRoot("prereq-symlink-target");
+    const service = createService(root);
+    try {
+      symlinkSync(outside, join(root, ".agents"));
+      const zip = buildZip(skillEntries("alpha", { "SKILL.md": skillText("alpha") }));
+      const result = await importArchive(service.app, zip);
+      assert.equal(result.status, 400);
+      assertImportFailureBody(result.body.error, root);
+      assert.deepEqual(await readdir(outside), []);
+    } finally {
+      service.close();
+    }
+  },
+);
 
 test("空の ZIP は受理し、全件 skip のときは `.agents/skills` を作らない", async () => {
   const root = makeRoot("empty");
