@@ -6,6 +6,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { chatReducer, initialChatState, type ChatState } from "../src/hooks/chatReducer";
+import { chatRenderItems } from "../src/lib/chatItems";
 import type {
   CompactionInfo,
   ContextUsage,
@@ -1500,6 +1501,46 @@ test("実行中に送ったエコーは配列の末尾に留まり、実行中�
     ["長いターン", "前半後半", "待機する本文", "B の応答"],
   );
 });
+
+test("実行中ターンの応答より前に積まれた待機は、実行に移った時点で末尾へ移る", () => {
+  // What: 最初の delta より前に 2 通目を送ると、前のターンの応答が待機のエコーより後ろに作られる。
+  // run_start で待機を末尾へ移さないと、実行に移った送信が前のターンの応答の途中に現れる
+  let state = chatReducer(initialChatState, { type: "localUser", text: "A", at: 1 });
+  state = chatReducer(state, { type: "runStart", runId: "run-a", prompt: "A", at: 2, startedAt: 2 });
+  state = chatReducer(state, { type: "echoRunId", runId: "run-a" });
+  state = chatReducer(state, { type: "localUser", text: "B", at: 3 });
+  state = chatReducer(state, { type: "echoRunId", runId: "run-b", queuePosition: 1 });
+  state = chatReducer(state, { type: "text", delta: "A の応答", at: 4 });
+  state = chatReducer(state, { type: "runEnd", runId: "run-a", status: "completed", queueDepth: 1, durationMs: 1000 });
+
+  // 待機中は transcript に出ないため、応答が後ろにあっても描画は [A, 応答] のまま
+  assert.deepEqual(renderOrder(state), ["user:A", "assistant:A の応答"]);
+  assert.deepEqual(
+    state.bubbles.map((bubble) => `${bubble.role}:${bubble.text}`),
+    ["user:A", "user:B", "assistant:A の応答"],
+    "窓の中では待機のエコーより後ろに応答が積まれる",
+  );
+
+  const started = chatReducer(state, { type: "runStart", runId: "run-b", prompt: "B", at: 5, startedAt: 5 });
+
+  assert.deepEqual(
+    renderOrder(started),
+    ["user:A", "assistant:A の応答", "user:B"],
+    "実行に移った送信は直前のターンの応答の後ろに現れる",
+  );
+  assert.deepEqual(
+    started.bubbles.map((bubble) => `${bubble.role}:${bubble.text}`),
+    ["user:A", "assistant:A の応答", "user:B"],
+    "他のバブルの相対順は変えない",
+  );
+});
+
+/** 描画の並び (`chatRenderItems`)。待機中の送信はここに現れない */
+function renderOrder(state: ChatState): string[] {
+  return chatRenderItems({ bubbles: state.bubbles, markers: [], compactions: [], activeContextStartId: null }).map(
+    (item) => (item.kind === "message" ? `${item.bubble.role}:${item.bubble.text}` : item.kind),
+  );
+}
 
 test("payload の pendingSends が待機と順位を配り、一覧から消えた run は待機を解除する", () => {
   const resynced = chatReducer(historyWithOld(), {

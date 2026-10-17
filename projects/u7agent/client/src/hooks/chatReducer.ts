@@ -952,19 +952,25 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
                 bubble.entryId === undefined &&
                 (bubble.unsent === true || bubble.accepted === true || bubble.queued === true),
             );
-      const base =
+      const startedBubble =
         started === undefined
+          ? undefined
+          : { ...started, unsent: false, accepted: true, confirmed: true, ...QUEUE_CLEARED };
+      // 待機から実行に移った送信は末尾へ移す。実行中ターンがまだ assistant バブルを作っていない窓では、
+      // 最初の delta がこの送信より後ろへ応答を積むため、ここで揃えないと実行に移った瞬間に前の応答の
+      // 途中へ現れる (他のバブルの相対順は変えない)
+      const moveStartedToEnd = started?.queued === true;
+      const base =
+        startedBubble === undefined
           ? state
           : {
               ...state,
-              bubbles: state.bubbles.map((bubble) =>
-                bubble.id === started.id
-                  ? { ...bubble, unsent: false, accepted: true, confirmed: true, ...QUEUE_CLEARED }
-                  : bubble,
-              ),
-              pendingEchoIds: state.pendingEchoIds.includes(started.id)
+              bubbles: moveStartedToEnd
+                ? [...state.bubbles.filter((bubble) => bubble.id !== startedBubble.id), startedBubble]
+                : state.bubbles.map((bubble) => (bubble.id === startedBubble.id ? startedBubble : bubble)),
+              pendingEchoIds: state.pendingEchoIds.includes(startedBubble.id)
                 ? state.pendingEchoIds
-                : [...state.pendingEchoIds, started.id],
+                : [...state.pendingEchoIds, startedBubble.id],
             };
       const promptBody = canonicalUserText(action.prompt);
       const echoIndex =

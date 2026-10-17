@@ -32,6 +32,10 @@
   --text-1sm: 13px;
   --text-md: 16px;
 
+  /* 待機中の送信の一覧 (QueuedSends) の上限。低い viewport で行が入り切らないときは、リストだけを
+   * スクロールさせて入力欄と状態行を残す (行の本数でコンポーザーが viewport を超えないための値) */
+  --queued-sends-max-height: 35dvh;
+
   /* uppercase の小見出し (eyebrow) の字間。tracking-widest (0.1em) より広く取る */
   --tracking-label: 0.14em;
 

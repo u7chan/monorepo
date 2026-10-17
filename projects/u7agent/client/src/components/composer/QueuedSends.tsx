@@ -47,7 +47,9 @@ export function QueuedSends({ sends, singleColumn = false, onCancel }: QueuedSen
       <p aria-live="polite" className="m-0 text-2xs font-medium text-focus">
         送信待ち {sends.length} 件
       </p>
-      <ul className="m-0 mt-1 flex list-none flex-col gap-0.5 p-0">
+      {/* 行の一覧だけをスクロールさせ、入力欄と状態行を常に見える位置に残す (行が入り切らないときは
+          ブロックの中でスクロールする。`取り消し` は各行に残るので全件に届く) */}
+      <ul className="m-0 mt-1 flex max-h-(--queued-sends-max-height) scrollbar-thin list-none flex-col gap-0.5 overflow-y-auto p-0">
         {sends.map((send) => (
           <QueuedSendRow key={send.runId} send={send} onCancel={onCancel} />
         ))}

@@ -625,7 +625,7 @@ test("再送が受理されたら pending へ戻し、応答の状態を反映�
   assert.deepEqual(actionsOfType(actions, "resendFailed"), []);
 });
 
-test("再送がキューに積まれたら、状態行は件数のサマリにする", async () => {
+test("再送がキューに積まれたら、状態行は活動の語だけにする", async () => {
   const { actions, deps } = createResendHarness({
     resend: async () => ({ queued: true, queueDepth: 2, runId: "run-x" }),
   });
