@@ -450,17 +450,15 @@ export function Composer({
       onClick={onStop}
       className={cn(
         "grid shrink-0 cursor-pointer place-items-center rounded-full transition-colors",
-        // 送信と入れ替わるときだけ主スロットの見た目にする。控えのときは枠だけの控えめな面にし、
-        // 主操作 (送信) と強さを競わせない
+        // 円の大きさは送信と同じにする (入替えで位置と寸法が動くと、指が別の操作を拾う)。
+        // 主 / 控えの差は塗りと枠だけにする
         action === "stop"
-          ? cn("bg-accent text-on-accent hover:brightness-110", singleColumn ? "size-9" : "size-8")
-          : cn(
-              "border border-line text-ink-soft hover:border-warn/50 hover:text-warn",
-              singleColumn ? "size-8" : "size-7",
-            ),
+          ? "bg-accent text-on-accent hover:brightness-110"
+          : "border border-line text-ink-soft hover:border-warn/50 hover:text-warn",
+        singleColumn ? "size-9" : "size-8",
       )}
     >
-      <StopIcon />
+      <StopIcon large />
     </button>
   );
   const sendButton = (
