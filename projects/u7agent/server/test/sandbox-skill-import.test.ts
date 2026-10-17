@@ -651,7 +651,7 @@ test(
       ]);
       const result = await importArchive(service.app, zip, "?replace=alpha&replace=beta");
       assert.equal(result.status, 500);
-      assert.match(result.body.error ?? "", /スキルを取り込めませんでした/);
+      assert.equal(result.body.error, "スキルを取り込めませんでした");
 
       // 適用済みの alpha は消え、beta は元の内容へ戻る
       assert.equal(await readFile(join(root, ".agents/skills/beta/SKILL.md"), "utf8"), originalBeta);
@@ -661,6 +661,32 @@ test(
     }
   },
 );
+
+test("適用に失敗した応答本文には内部パスを載せない", { skip: !HAS_SYMLINK && SYMLINK_SKIP_REASON }, async () => {
+  // What: 置換対象が別フォルダへの symlink のとき 2 件目の rename が失敗する形で、
+  // 500 の本文が固定文言になり、staging / 置き場の絶対パスや OS メッセージを含まないことを確かめる
+  const root = makeRoot("apply-error");
+  const service = createService(root);
+  try {
+    await mkdir(join(root, ".agents/skills/beta"), { recursive: true });
+    await writeFile(join(root, ".agents/skills/beta/SKILL.md"), skillText("beta"), "utf8");
+    symlinkSync(join(root, ".agents/skills/beta"), join(root, ".agents/skills/alpha"));
+
+    const zip = buildZip([
+      ...skillEntries("alpha", { "SKILL.md": skillText("alpha") }),
+      ...skillEntries("beta", { "SKILL.md": skillText("beta") }),
+    ]);
+    const result = await importArchive(service.app, zip, "?replace=alpha&replace=beta");
+    assert.equal(result.status, 500);
+    assert.equal(result.body.error, "スキルを取り込めませんでした");
+    assert.ok(!(result.body.error ?? "").includes(root), "ワークスペースの絶対パスが本文に載っている");
+    for (const fragment of ["staging", ".import-", "rename", "ENOTDIR", "ENOENT"]) {
+      assert.ok(!(result.body.error ?? "").includes(fragment), `本文に ${fragment} が載っている`);
+    }
+  } finally {
+    service.close();
+  }
+});
 
 test("空の ZIP は受理し、全件 skip のときは `.agents/skills` を作らない", async () => {
   const root = makeRoot("empty");

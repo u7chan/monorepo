@@ -1886,6 +1886,17 @@ async function planSkillsImport(input: {
 }
 
 /**
+ * 適用の失敗を、内部パスを含まない固定文言に写す。診断に要る OS メッセージ (絶対パスを含む) は
+ * 応答本文には載せず、プロセスのログにだけ残す。ステータスは変更前の分類を保ち、OS の失敗は 500 にする。
+ */
+function importApplyFailure(error: unknown): Error & { statusCode: number } {
+  console.warn(`[u7agent-sandbox] スキルの取り込みに失敗しました: ${messageFor(error)}`);
+  const statusCode = (error as { statusCode?: number }).statusCode;
+  const status = statusCode !== undefined && statusCode >= 400 && statusCode < 500 ? statusCode : 500;
+  return pathError(status, "スキルを取り込めませんでした");
+}
+
+/**
  * 計画を適用する。置換対象を退避へ rename → 新フォルダを rename の順に行い、
  * 全件成功後に退避を消す。途中で失敗したら、適用済みの分を逆順に戻す。
  */
@@ -1899,8 +1910,13 @@ async function applySkillsImport(input: {
   signal?: AbortSignal;
 }): Promise<SandboxSkillsImportApply> {
   const backupDir = join(input.tempDir, "backup");
-  await mkdir(backupDir, { recursive: true });
-  const root = await realpathNative(input.rootCwd);
+  // 準備段階の失敗も OS メッセージ (絶対パス) を応答に載せない
+  const root = await realpathNative(input.rootCwd).catch((error: unknown) => {
+    throw importApplyFailure(error);
+  });
+  await mkdir(backupDir, { recursive: true }).catch((error: unknown) => {
+    throw importApplyFailure(error);
+  });
   const applied: SandboxSkillImportApplied[] = [];
   const skipped: SandboxSkillImportSkipped[] = [];
   const rollback: { destination: string; folder?: string; backup?: string }[] = [];
@@ -1908,7 +1924,9 @@ async function applySkillsImport(input: {
   let destinationRoot: string | undefined;
   const destinationRootOf = async (): Promise<string> => {
     if (destinationRoot !== undefined) return destinationRoot;
-    const rel = await createWorkspaceDirectory(input.rootCwd, COMMON_SKILLS_DIR);
+    const rel = await createWorkspaceDirectory(input.rootCwd, COMMON_SKILLS_DIR).catch((error: unknown) => {
+      throw importApplyFailure(error);
+    });
     destinationRoot = rel === "." ? root : join(root, rel);
     return destinationRoot;
   };
@@ -1936,12 +1954,12 @@ async function applySkillsImport(input: {
       if (plan.replaceTarget !== undefined) {
         backup = join(backupDir, plan.name);
         await rename(plan.replaceTarget, backup).catch((error: unknown) => {
-          throw pathError(500, `スキルを取り込めませんでした: ${messageFor(error)}`);
+          throw importApplyFailure(error);
         });
       }
       try {
         await rename(plan.staged.folder, destination).catch((error: unknown) => {
-          throw pathError(500, `スキルを取り込めませんでした: ${messageFor(error)}`);
+          throw importApplyFailure(error);
         });
       } catch (error) {
         if (backup !== undefined && plan.replaceTarget !== undefined) {
