@@ -332,8 +332,8 @@ export type SandboxHandoffClient = Pick<SandboxToolClient, "readHandoff" | "writ
  */
 export type SandboxExecClient = Pick<SandboxToolClient, "execute">;
 
-/** 待受プロセスの観測 (serve の所有者照合) が使うサンドボックス機能 */
-export type SandboxProcessScanClient = Pick<SandboxToolClient, "scanListeners">;
+/** 待受プロセスの観測 (serve の所有者照合と空きポートの採番) が使うサンドボックス機能 */
+export type SandboxProcessScanClient = Pick<SandboxToolClient, "scanListeners" | "scanListenerRange">;
 
 /** serve が使うサンドボックス機能。実行と観測の両方を満たすものを注入する */
 export type SandboxServeClient = SandboxExecClient & SandboxProcessScanClient;

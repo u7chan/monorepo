@@ -6,14 +6,17 @@
 import assert from "node:assert/strict";
 import { createServer } from "node:net";
 import test from "node:test";
-import { ServeService, sandboxHostFromUrl, tcpHost } from "../src/serve";
+import { DEBUG_SERVE_PORT_FROM, DEBUG_SERVE_PORT_TO, ServeService, sandboxHostFromUrl, tcpHost } from "../src/serve";
+import { SERVE_LISTEN_PORT } from "../src/preview-port";
 import {
   createCommandStore,
   createProbe,
   createServeSandboxStub,
   createSessionLookup,
+  publicListener,
   putRecord,
   readRecord,
+  setPublicListener,
 } from "./serve-stub";
 
 const SESSION = "aaaa000001";
@@ -40,16 +43,18 @@ function setup(
 ) {
   const sandbox = createServeSandboxStub();
   const commands = createCommandStore(options.command ? [{ cwd: CWD, command: options.command, updatedAt: NOW }] : []);
-  const sessions = createSessionLookup({
+  // 削除の再現で書き換えられるよう、会話の一覧自体を参照で返す
+  const sessionMap: Record<string, { cwd: string; title: string; spaceId?: string }> = {
     [SESSION]: { cwd: CWD, title: "トップページの改修" },
     [OTHER]: { cwd: "projects/bar", title: "決済画面の検証", spaceId: OWNER_SPACE },
-  });
+  };
+  const sessions = createSessionLookup(sessionMap);
   // 稼働判定は待受プロセスの有無で決まる (launch すると listen が始まり、kill で消える)
   let probeCalls = 0;
   const probe = async (): Promise<boolean> => {
     probeCalls += 1;
     if (options.listenerUnknown) return true;
-    return sandbox.state.listener !== null;
+    return publicListener(sandbox.state) !== null;
   };
   // 期限つきの待ちが終わるよう、sleep で時計を進める (実時間は使わない)
   const clock = { value: NOW };
@@ -73,11 +78,11 @@ function setup(
       inodes: [500],
       generation: "gen-1",
     });
-    sandbox.state.listener = { pid: 100, startedAt: NOW - 5_000, inodes: [500], ancestors: [100] };
+    setPublicListener(sandbox.state, { pid: 100, startedAt: NOW - 5_000, inodes: [500], ancestors: [100] });
   }
   // 到達不可だが記録だけ残っている状態 (コンテナ再作成相当)
-  if (options.reachable === false && options.owner) sandbox.state.listener = null;
-  return { service, sandbox, commands, probe: { calls: () => probeCalls }, clock };
+  if (options.reachable === false && options.owner) setPublicListener(sandbox.state, null);
+  return { service, sandbox, commands, sessionMap, probe: { calls: () => probeCalls }, clock };
 }
 
 test("サンドボックス URL の 3 形態から TCP 接続用の host を取り出す (IPv6 は角括弧を外す)", () => {
@@ -139,7 +144,7 @@ test("ランタイムは現在の記録のコマンドと会話を返し、古�
 test("ランタイムは一致しない記録の会話・コマンドを見せず、確認後の入れ替わりを停止しない", async () => {
   const { service, sandbox } = setup({ owner: OTHER });
   const previous = await service.runtimeStatus();
-  sandbox.state.listener = { pid: 999, startedAt: NOW, inodes: [999], ancestors: [999] };
+  setPublicListener(sandbox.state, { pid: 999, startedAt: NOW, inodes: [999], ancestors: [999] });
   await assert.rejects(service.runtimeStop({ generation: previous.generation! }), { statusCode: 409 });
   assert.deepEqual(sandbox.state.killed, []);
   const unknown = await service.runtimeStatus();
@@ -168,7 +173,7 @@ test("所属スペースを引けない起動元には spaceId を載せない (
     appDb: createCommandStore().db,
     sessions: createSessionLookup({ [SESSION]: { cwd: CWD, title: "トップページの改修" } }),
     sandbox: sandbox.sandbox,
-    probe: async () => sandbox.state.listener !== null,
+    probe: async () => publicListener(sandbox.state) !== null,
     now: () => NOW,
   });
   putRecord(sandbox.state, {
@@ -180,7 +185,7 @@ test("所属スペースを引けない起動元には spaceId を載せない (
     inodes: [500],
     generation: "gen-1",
   });
-  sandbox.state.listener = { pid: 100, startedAt: NOW - 5_000, inodes: [500], ancestors: [100] };
+  setPublicListener(sandbox.state, { pid: 100, startedAt: NOW - 5_000, inodes: [500], ancestors: [100] });
   const status = await service.runtimeStatus();
   assert.deepEqual(status.owner, { sessionId: SESSION, title: "トップページの改修" });
   assert.equal("spaceId" in (status.owner ?? {}), false);
@@ -234,12 +239,12 @@ test("記録と待受プロセスが一致すれば所有者を mine / other に
 test("待受ソケットが記録と一致しなければ起動元不明にする", async () => {
   // 生の bash が別のソケットで listen し直した状態 (inode が変わる)
   const replaced = setup({ reachable: true, owner: OTHER });
-  replaced.sandbox.state.listener = { pid: 999, startedAt: NOW - 5_000, inodes: [999], ancestors: [999] };
+  setPublicListener(replaced.sandbox.state, { pid: 999, startedAt: NOW - 5_000, inodes: [999], ancestors: [999] });
   assert.deepEqual((await replaced.service.status(SESSION)).owner, { kind: "unknown" });
 
   // inode を持たない記録 (この項目より前の版が書いたもの) は一致とみなさない
   const legacy = setup({ reachable: true, owner: OTHER });
-  legacy.sandbox.state.stateFile = JSON.stringify({
+  putRecord(legacy.sandbox.state, {
     sessionId: OTHER,
     cwd: "projects/bar",
     command: "pnpm dev",
@@ -251,8 +256,8 @@ test("待受ソケットが記録と一致しなければ起動元不明にす�
 
   // 記録が壊れていても所有者とみなさない
   const broken = setup({ reachable: true });
-  broken.sandbox.state.stateFile = "{ not json";
-  broken.sandbox.state.listener = { pid: 100, startedAt: NOW, inodes: [500], ancestors: [100] };
+  broken.sandbox.state.stateFiles.set(broken.sandbox.state.publicPort, "{ not json");
+  setPublicListener(broken.sandbox.state, { pid: 100, startedAt: NOW, inodes: [500], ancestors: [100] });
   const status = await broken.service.status(SESSION);
   assert.deepEqual(status.owner, { kind: "unknown" });
   // 到達可なら置き換えの照合値は必ず載る (記録が無くても「いまの待受ソケット」を表す)
@@ -287,11 +292,11 @@ test("停止は所有者以外を 403 で拒み、所有者と起動元不明は
   const stopped = await mine.service.stop(SESSION, { generation: await token(mine.service, SESSION) });
   assert.equal(stopped.reachable, false);
   assert.deepEqual(mine.sandbox.state.killed, [100], "記録の PID ではなく待受 PID を止める");
-  assert.equal(mine.sandbox.state.stateFile, null, "停止後は記録を残さない");
+  assert.equal(mine.sandbox.state.stateFiles.get(mine.sandbox.state.publicPort), undefined, "停止後は記録を残さない");
 
   // 起動元不明 (記録と一致しないソケット) は誰でも止められる
   const unknown = setup({ reachable: true, owner: OTHER });
-  unknown.sandbox.state.listener = { pid: 777, startedAt: NOW, inodes: [777], ancestors: [777] };
+  setPublicListener(unknown.sandbox.state, { pid: 777, startedAt: NOW, inodes: [777], ancestors: [777] });
   await unknown.service.stop(SESSION, { generation: await token(unknown.service, SESSION) });
   assert.deepEqual(unknown.sandbox.state.killed, [777]);
 });
@@ -330,7 +335,7 @@ test("待受プロセスが入れ替われば、記録が同じでも照合値�
   const { service, sandbox, clock } = setup({ reachable: true, owner: SESSION });
   const before = await token(service, SESSION);
   // 記録はそのままに、生の bash が新しいソケットへ入れ替える
-  sandbox.state.listener = { pid: 555, startedAt: NOW + 1_000, inodes: [555], ancestors: [555] };
+  setPublicListener(sandbox.state, { pid: 555, startedAt: NOW + 1_000, inodes: [555], ancestors: [555] });
   clock.value += 5_000;
   assert.notEqual(await token(service, SESSION), before);
   // 古い確認のままの停止は、記録の世代が同じでも 409 になる
@@ -346,7 +351,7 @@ test("到達不可のあとに記録なしのプロセスが起動しても、�
   // 停止中の状態 (照合値 null) を確認したあとで、生の bash が記録なしで listen する
   const stopped = await token(service, SESSION);
   assert.equal(stopped, null);
-  sandbox.state.listener = { pid: 888, startedAt: NOW, inodes: [888], ancestors: [888] };
+  setPublicListener(sandbox.state, { pid: 888, startedAt: NOW, inodes: [888], ancestors: [888] });
   await assert.rejects(
     () => service.start(SESSION, { generation: stopped }),
     (error: unknown) => (error as { statusCode?: number }).statusCode === 409,
@@ -381,7 +386,7 @@ test("内部実行は要求 cwd (root) ではなく、呼び出しごとの writ
 
 test("到達不可の停止は何も止めずに停止済みとして返す (冪等)", async () => {
   const { service, sandbox } = setup({ command: "pnpm dev", owner: OTHER });
-  sandbox.state.listener = null;
+  setPublicListener(sandbox.state, null);
   const status = await service.stop(SESSION, { generation: null });
   assert.equal(status.reachable, false);
   assert.deepEqual(sandbox.state.killed, []);
@@ -393,7 +398,9 @@ test("起動は実績のコマンドを作業ディレクトリで実行し、�
   const { service, sandbox, commands } = setup({ command: "pnpm dev" });
   const status = await service.start(SESSION, {});
   assert.equal(status.reachable, true);
-  assert.deepEqual(sandbox.state.launched, [{ workdir: CWD, command: "pnpm dev", log: ".u7agent/serve/app.log" }]);
+  assert.deepEqual(sandbox.state.launched, [
+    { workdir: CWD, command: "pnpm dev", log: ".u7agent/serve/app.log", port: null },
+  ]);
   // 起動 → 到達可 → 待受 PID を正として記録し直す (2 回書く)
   assert.equal(sandbox.state.writes, 2);
   const record = readRecord(sandbox.state);
@@ -482,14 +489,14 @@ test("起動コマンドと作業ディレクトリは shell の構文として�
     appDb: commands.db,
     sessions: createSessionLookup({ [SESSION]: { cwd: "projects/cash$flow", title: "t" } }),
     sandbox: sandbox.sandbox,
-    probe: async () => sandbox.state.listener !== null,
+    probe: async () => publicListener(sandbox.state) !== null,
     now: () => NOW,
     sleep: async () => {},
   });
   await service.start(SESSION, {});
   // スクリプトは値を base64 で運び、stub はそれを復号して受け取る (shell が評価する形で埋め込まない)
   assert.deepEqual(sandbox.state.launched, [
-    { workdir: "projects/cash$flow", command: 'echo "$(id)" `id`', log: ".u7agent/serve/app.log" },
+    { workdir: "projects/cash$flow", command: 'echo "$(id)" `id`', log: ".u7agent/serve/app.log", port: null },
   ]);
 });
 
@@ -663,6 +670,7 @@ test("起動時の環境変数はコマンド文字列へ埋め込まず、exec 
         return sandbox.sandbox.execute(tool, input);
       },
       scanListeners: (port, options) => sandbox.sandbox.scanListeners(port, options),
+      scanListenerRange: (from, to) => sandbox.sandbox.scanListenerRange(from, to),
     },
     secretEnv: {
       resolveServiceEnv: (cwd) => ({
@@ -671,7 +679,7 @@ test("起動時の環境変数はコマンド文字列へ埋め込まず、exec 
         generation: `gen:${cwd}`,
       }),
     },
-    probe: async () => sandbox.state.listener !== null,
+    probe: async () => publicListener(sandbox.state) !== null,
     now: () => NOW,
   });
   const status = await service.start(SESSION, {});
@@ -706,9 +714,279 @@ test("環境変数の解決に失敗したら起動しない (秘密なし起動
         throw failure;
       },
     },
-    probe: async () => sandbox.state.listener !== null,
+    probe: async () => publicListener(sandbox.state) !== null,
     now: () => NOW,
   });
   await assert.rejects(() => service.start(SESSION, {}), failure);
   assert.deepEqual(sandbox.state.launched, [], "環境変数が解決できていないのに起動している");
+});
+
+// --- デバッグ用 serve (公開枠とは別の 18000–18099) ---
+
+const DEBUG_FROM = DEBUG_SERVE_PORT_FROM;
+const DEBUG_TO = DEBUG_SERVE_PORT_TO;
+const DEBUG_COMMAND = "pnpm dev --host 127.0.0.1 --port $U7AGENT_DEBUG_PORT";
+
+test("デバッグ用 serve は会話ごとに別ポートを採番し、公開枠と独立して動く", async () => {
+  const { service, sandbox, commands } = setup();
+  const first = await service.debugStart(SESSION, { command: DEBUG_COMMAND });
+  const second = await service.debugStart(OTHER, { command: DEBUG_COMMAND });
+  // 並列 2 会話は同時に起動でき、ポートは重ならない
+  assert.equal(first.port, DEBUG_FROM);
+  assert.equal(second.port, DEBUG_FROM + 1);
+  assert.equal(first.logPath, `.u7agent/serve/debug/${DEBUG_FROM}.log`);
+  assert.deepEqual(
+    sandbox.state.launched.map((item) => item.port),
+    [DEBUG_FROM, DEBUG_FROM + 1],
+    "launch へ渡したポートが起動ごとに変わる",
+  );
+  // 公開枠は停止中のまま (デバッグは公開のプローブに現れない) で、実績 (serve_commands) も汚さない
+  assert.equal((await service.status(SESSION)).reachable, false);
+  assert.equal(commands.rows.size, 0);
+  // 自分の会話の lease だけが見える
+  const seen = await service.debugStatus(SESSION);
+  assert.deepEqual(seen, {
+    lease: {
+      port: DEBUG_FROM,
+      command: DEBUG_COMMAND,
+      logPath: `.u7agent/serve/debug/${DEBUG_FROM}.log`,
+      listening: true,
+    },
+    untrackedPorts: [],
+  });
+  assert.equal((await service.debugStatus(OTHER)).lease?.port, DEBUG_FROM + 1);
+});
+
+test("デバッグ用 serve の起動はポートを export し、env フィールドでは渡さない", async () => {
+  const sandbox = createServeSandboxStub();
+  const scripts: string[] = [];
+  const service = new ServeService({
+    appDb: createCommandStore().db,
+    sessions: createSessionLookup({ [SESSION]: { cwd: CWD, title: "トップページの改修" } }),
+    sandbox: {
+      execute: async (tool, input) => {
+        scripts.push(((input.params ?? {}) as { command?: string }).command ?? "");
+        return sandbox.sandbox.execute(tool, input);
+      },
+      scanListeners: (port, options) => sandbox.sandbox.scanListeners(port, options),
+      scanListenerRange: (from, to) => sandbox.sandbox.scanListenerRange(from, to),
+    },
+    secretEnv: {
+      resolveServiceEnv: () => ({
+        variables: { NODE_ENV: "production" },
+        secrets: { DATABASE_URL: "dummy-db-url-1234" },
+        generation: "gen:debug",
+      }),
+    },
+    probe: async () => publicListener(sandbox.state) !== null,
+    now: () => NOW,
+  });
+  const handle = await service.debugStart(SESSION, { command: DEBUG_COMMAND });
+  const launchScript = scripts.find((script) => script.includes("nohup bash -c")) ?? "";
+  assert.ok(
+    launchScript.includes(`export U7AGENT_DEBUG_PORT=${handle.port}`),
+    "起動スクリプトがポートを export していない",
+  );
+  assert.equal(launchScript.includes("dummy-db-url-1234"), false, "シークレットがスクリプトへ埋め込まれている");
+  assert.deepEqual(sandbox.state.launchEnvs.at(-1), { NODE_ENV: "production", DATABASE_URL: "dummy-db-url-1234" });
+});
+
+test("デバッグ中に他会話が公開 serve を起動しても、デバッグの待受とプロセスは残る", async () => {
+  const { service, sandbox, commands } = setup();
+  commands.rows.set("projects/bar", { cwd: "projects/bar", command: "pnpm dev", updatedAt: NOW });
+  const handle = await service.debugStart(SESSION, { command: DEBUG_COMMAND });
+  await service.start(OTHER, {});
+  assert.deepEqual(
+    [...sandbox.state.listeners.keys()].sort((left, right) => left - right),
+    [SERVE_LISTEN_PORT, handle.port].sort((left, right) => left - right),
+    "公開枠の起動がデバッグの待受を消していない",
+  );
+  assert.equal((await service.debugStatus(SESSION)).lease?.listening, true);
+  assert.deepEqual(sandbox.state.killed, []);
+});
+
+test("127.0.0.1 以外へ bind した起動は失敗し、起動したプロセスだけを停止する", async () => {
+  const { service, sandbox } = setup();
+  sandbox.state.launchAddressScopes = ["any"];
+  await assert.rejects(
+    () => service.debugStart(SESSION, { command: "pnpm dev --host 0.0.0.0 --port $U7AGENT_DEBUG_PORT" }),
+    (error: unknown) => {
+      assert.equal((error as { statusCode?: number }).statusCode, 502);
+      assert.match((error as Error).message, /ループバック以外へ bind/);
+      assert.match((error as Error).message, /\.u7agent\/serve\/debug\/18000\.log/, "ログのパスをエラーに含める");
+      return true;
+    },
+  );
+  assert.deepEqual(sandbox.state.killed, [4242], "起動に由来する待受は停止する");
+  assert.equal(sandbox.state.listeners.has(DEBUG_FROM), false);
+  assert.equal((await service.debugStatus(SESSION)).lease, null, "失敗した起動の lease を残さない");
+});
+
+test("期限切れと他会話の待受は起動失敗にし、lease を残さず無関係なプロセスを止めない", async () => {
+  // 起動したが待受が現れない (期限切れ)
+  const silent = setup();
+  silent.sandbox.state.launchListens = false;
+  await assert.rejects(
+    () => silent.service.debugStart(SESSION, { command: DEBUG_COMMAND }),
+    (error: unknown) => {
+      assert.equal((error as { statusCode?: number }).statusCode, 502);
+      assert.match((error as Error).message, /期限内に 127\.0\.0\.1:18000 の待受を確認できませんでした/);
+      return true;
+    },
+  );
+  assert.deepEqual(silent.sandbox.state.killed, []);
+  assert.equal((await silent.service.debugStatus(SESSION)).lease, null);
+
+  // 待受がこの起動に由来しない (照合が取れないので止めない)
+  const other = setup();
+  other.sandbox.state.listenerOnLaunch = { pid: 777, startedAt: NOW, inodes: [777], ancestors: [777, 666] };
+  await assert.rejects(
+    () => other.service.debugStart(SESSION, { command: DEBUG_COMMAND }),
+    (error: unknown) => {
+      assert.match((error as Error).message, /この起動に由来しないプロセスが使用しています/);
+      assert.match((error as Error).message, /停止できませんでした/);
+      return true;
+    },
+  );
+  assert.deepEqual(other.sandbox.state.killed, [], "照合できないプロセスは止めない");
+  assert.equal((await other.service.debugStatus(SESSION)).lease, null);
+});
+
+test("同じ会話の再起動は前のプロセスを停止・解放してから採番し直す", async () => {
+  const { service, sandbox } = setup();
+  const first = await service.debugStart(SESSION, { command: DEBUG_COMMAND });
+  const second = await service.debugStart(SESSION, { command: DEBUG_COMMAND });
+  assert.deepEqual(sandbox.state.killed, [4242], "前のプロセスを停止してから起動する");
+  assert.equal(second.port, first.port, "解放済みのポートを再利用できる");
+  assert.equal(sandbox.state.listeners.size, 1, "古いプロセスの待受を残さない");
+  assert.equal(sandbox.state.listeners.get(second.port)?.pid, 4243);
+  assert.deepEqual((await service.debugStatus(SESSION)).lease?.port, second.port);
+});
+
+test("debug_stop はポートを解放し、二重停止も成功として返す", async () => {
+  const { service, sandbox } = setup();
+  const handle = await service.debugStart(SESSION, { command: DEBUG_COMMAND });
+  assert.deepEqual(await service.debugStop(SESSION), { port: handle.port, released: true, alreadyStopped: false });
+  assert.equal(sandbox.state.listeners.has(handle.port), false, "待受の inode が空になる");
+  assert.deepEqual(await service.debugStop(SESSION), { port: null, released: false, alreadyStopped: true });
+  assert.deepEqual(sandbox.state.killed, [4242]);
+});
+
+test("待受が消えた lease は debug_status で検出して掃除する", async () => {
+  const { service, sandbox } = setup();
+  const handle = await service.debugStart(SESSION, { command: DEBUG_COMMAND });
+  sandbox.state.listeners.delete(handle.port);
+  const seen = await service.debugStatus(SESSION);
+  assert.equal(seen.lease?.port, handle.port);
+  assert.equal(seen.lease?.listening, false, "lease が残っていても待受を稼働中と言わない");
+  assert.equal((await service.debugStatus(SESSION)).lease, null, "掃除されている");
+  // 掃除されたので次の起動は同じポートを再利用できる
+  assert.equal((await service.debugStart(SESSION, { command: DEBUG_COMMAND })).port, handle.port);
+});
+
+test("追跡外の待受はポートだけを見せ、強制停止は所有者を問わず、会話からの停止は 403 にする", async () => {
+  const { service, sandbox } = setup();
+  const orphanPort = DEBUG_FROM + 5;
+  sandbox.state.listeners.set(orphanPort, { pid: 9001, startedAt: NOW, inodes: [9001], ancestors: [9001] });
+  const seen = await service.debugStatus(SESSION);
+  assert.equal(seen.lease, null);
+  assert.deepEqual(seen.untrackedPorts, [orphanPort], "追跡外はポートだけを返す");
+
+  // 他会話の lease は、ポートを指定しても会話からは止められない (設定 → ランタイム の強制停止を使う)
+  const lease = await service.debugStart(OTHER, { command: DEBUG_COMMAND });
+  await assert.rejects(
+    () => service.debugStop(SESSION, { port: lease.port }),
+    (error: unknown) => {
+      assert.equal((error as { statusCode?: number }).statusCode, 403);
+      assert.match((error as Error).message, /会話「決済画面の検証」/);
+      return true;
+    },
+  );
+  assert.deepEqual(sandbox.state.killed, []);
+
+  // 全体管理からの停止は所有者を問わず、追跡外の待受も止められる
+  assert.deepEqual(await service.debugStopPort(orphanPort), {
+    port: orphanPort,
+    released: true,
+    alreadyStopped: false,
+  });
+  assert.deepEqual(await service.debugStopPort(lease.port), {
+    port: lease.port,
+    released: true,
+    alreadyStopped: false,
+  });
+  assert.equal(sandbox.state.listeners.size, 0);
+  // レンジ外のポートは止めない (公開枠を巻き込まない)
+  await assert.rejects(
+    () => service.debugStopPort(SERVE_LISTEN_PORT),
+    (error: unknown) => (error as { statusCode?: number }).statusCode === 400,
+  );
+});
+
+test("レンジが満杯なら起動せず、回収先をエラーに書く", async () => {
+  const { service, sandbox } = setup();
+  for (let port = DEBUG_FROM; port <= DEBUG_TO; port += 1) {
+    sandbox.state.listeners.set(port, { pid: 10_000 + port, startedAt: NOW, inodes: [10_000 + port], ancestors: [] });
+  }
+  await assert.rejects(
+    () => service.debugStart(SESSION, { command: DEBUG_COMMAND }),
+    (error: unknown) => {
+      assert.equal((error as { statusCode?: number }).statusCode, 409);
+      assert.match((error as Error).message, /デバッグ枠 \(18000–18099\) が満杯/);
+      assert.match((error as Error).message, /設定 → ランタイム/);
+      return true;
+    },
+  );
+  assert.deepEqual(sandbox.state.launched, [], "満杯のときは起動を試みない");
+});
+
+test("会話の削除に伴う回収は lease の会話だけを止め、失敗しても warn にだけ残す", async () => {
+  const { service, sandbox, sessionMap } = setup();
+  const handle = await service.debugStart(SESSION, { command: DEBUG_COMMAND });
+  await service.discardDebug(OTHER);
+  assert.deepEqual(sandbox.state.killed, [], "lease の無い会話では何もしない");
+
+  // 削除後は会話ストアから引けないが、lease の sessionId だけで停止できる
+  delete sessionMap[SESSION];
+  await service.discardDebug(SESSION);
+  assert.deepEqual(sandbox.state.killed, [4242]);
+  assert.equal(sandbox.state.listeners.has(handle.port), false);
+  await assert.rejects(() => service.status(SESSION), { statusCode: 404 });
+
+  // 停止に失敗しても warn だけ (削除へ例外を返さない)
+  const failing = setup();
+  await failing.service.debugStart(SESSION, { command: DEBUG_COMMAND });
+  failing.sandbox.state.scanFailures = 1;
+  const warnings: unknown[][] = [];
+  const original = console.warn;
+  console.warn = (...args: unknown[]) => {
+    warnings.push(args);
+  };
+  try {
+    await failing.service.discardDebug(SESSION);
+  } finally {
+    console.warn = original;
+  }
+  assert.equal(warnings.length, 1);
+  assert.match(String(warnings[0]?.[0]), /デバッグ用 serve を停止できませんでした/);
+
+  // サンドボックス未設定でも削除を巻き込まない
+  const unconfigured = new ServeService({
+    appDb: createCommandStore().db,
+    sessions: createSessionLookup({ [SESSION]: { cwd: CWD, title: "t" } }),
+    sandbox: null,
+    probe: async () => false,
+    now: () => NOW,
+  });
+  await unconfigured.discardDebug(SESSION);
+  await assert.rejects(() => unconfigured.debugStatus(SESSION), { statusCode: 503 });
+  await assert.rejects(() => unconfigured.debugStart(SESSION, { command: DEBUG_COMMAND }), { statusCode: 503 });
+});
+
+test("デバッグ用 serve は起動コマンドと会話を要求し、未知の会話を 404 にする", async () => {
+  const { service } = setup();
+  await assert.rejects(() => service.debugStart(SESSION, {}), { statusCode: 400 });
+  await assert.rejects(() => service.debugStart(SESSION, { command: "   " }), { statusCode: 400 });
+  await assert.rejects(() => service.debugStart("unknown000", { command: DEBUG_COMMAND }), { statusCode: 404 });
+  await assert.rejects(() => service.debugStatus("unknown000"), { statusCode: 404 });
 });

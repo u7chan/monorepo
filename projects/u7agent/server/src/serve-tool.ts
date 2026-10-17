@@ -7,14 +7,14 @@ import { Type, type Static } from "@earendil-works/pi-ai";
 import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { builtinSkillEnabled } from "./builtin-skills";
 import type { ServeStatus } from "./schema";
-import type { ServeService } from "./serve";
+import type { DebugServeHandle, DebugServeStatus, DebugServeStopResult, ServeService } from "./serve";
 
 export const SERVE_TOOL_NAME = "serve";
 
 export const SERVE_TOOL_DESCRIPTION =
-  "Start, stop, or check the app served to the user's browser (the UI calls it a service). " +
-  "The app must listen on 0.0.0.0:8080. Starting replaces whatever is served now, and the conversation " +
-  "that starts it becomes the owner shown in the UI.";
+  "Start, stop, or check the app served to the user's browser (the UI calls it a service), and run a private debug server for your own verification. " +
+  "The app the user opens must listen on 0.0.0.0:8080; starting replaces whatever is served now, and the conversation that starts it becomes the owner shown in the UI. " +
+  "A debug server listens on 127.0.0.1 with a port from 18000-18099, is not shown in the UI, and exists only for your own checks (curl, screenshots).";
 
 /**
  * モデルへ渡す説明。ビルトイン skill を外したセッションでは、存在しない skill を指さない
@@ -29,19 +29,33 @@ function serveToolDescription(builtinSkillNames: readonly string[] | undefined):
 export const SERVE_TOOL_GUIDELINES = [
   "Use the serve tool instead of starting a background server with bash: only this path records the owner and the start command.",
   "After a start, verify the result with the serve tool (status) and tell the user the URL comes from the UI's service button.",
+  "Use debug_start for your own verification and start only to show the app to the user: the two are separate servers, and a debug server never replaces what the user sees.",
+  "A debug server takes one port per conversation from 18000-18099 and the port changes on every start, so read it from the tool result instead of reusing an old one. Bind it to 127.0.0.1.",
+  "Stop a debug server with debug_stop when the checks are done; it does not stop when the run ends.",
   "Never put secret values in `command` and never ask the user to paste them into the chat: the user registers environment variables in the Work Environment panel and the app reads them from process.env.",
 ];
 
 const serveSchema = Type.Object({
-  action: Type.Union([Type.Literal("start"), Type.Literal("stop"), Type.Literal("status")], {
-    description:
-      "start: run the command and serve it. stop: stop the process listening on 8080. status: read the state",
-  }),
+  action: Type.Union(
+    [
+      Type.Literal("start"),
+      Type.Literal("stop"),
+      Type.Literal("status"),
+      Type.Literal("debug_start"),
+      Type.Literal("debug_stop"),
+      Type.Literal("debug_status"),
+    ],
+    {
+      description:
+        "start / stop / status: the app served to the user on 0.0.0.0:8080. debug_start / debug_stop / debug_status: a private 127.0.0.1 server for your own verification.",
+    },
+  ),
   command: Type.Optional(
     Type.String({
       description:
-        "start only: the shell command to serve, for example `pnpm dev --host 0.0.0.0 --port 8080 --strictPort`. " +
-        "It runs in the conversation's working directory and is recorded as the start command for that directory.",
+        "start / debug_start only: the shell command to run. It runs in the conversation's working directory. " +
+        "For start: for example `pnpm dev --host 0.0.0.0 --port 8080 --strictPort` (recorded as the start command for that directory). " +
+        "For debug_start: bind to 127.0.0.1 and read the port from $U7AGENT_DEBUG_PORT, for example `pnpm dev --host 127.0.0.1 --port $U7AGENT_DEBUG_PORT` (not recorded).",
     }),
   ),
 });
@@ -75,11 +89,55 @@ export function describeServeStatus(status: ServeStatus): string {
   return lines.join("\n");
 }
 
+/** モデルへ返すデバッグ用 serve の起動結果。ユーザーの UI に出ないことを明示する (**同じ URL をユーザーへ案内させない**) */
+export function describeDebugStart(handle: DebugServeHandle): string {
+  return [
+    `debug server: listening on http://127.0.0.1:${handle.port}/ (this conversation only, not shown in the user's service UI)`,
+    `log: ${handle.logPath}`,
+    `Verify with \`curl -fsS http://127.0.0.1:${handle.port}/\` or the bundled \`browser\` skill. Use the serve tool's start action on 0.0.0.0:8080 only when the user should see the app.`,
+  ].join("\n");
+}
+
+/** デバッグ用 serve の状態。追跡外はポートだけを返し、停止はユーザーの操作に委ねる */
+export function describeDebugStatus(status: DebugServeStatus): string {
+  const lines: string[] = [];
+  const lease = status.lease;
+  if (!lease) {
+    lines.push("debug server: none for this conversation");
+  } else if (lease.listening) {
+    lines.push(`debug server: listening on http://127.0.0.1:${lease.port}/ (started by this conversation)`);
+    lines.push(`start command: ${lease.command}`);
+    lines.push(`log: ${lease.logPath}`);
+  } else {
+    lines.push(`debug server: port ${lease.port} was allocated but nothing is listening (the process is gone)`);
+    lines.push(`log: ${lease.logPath}`);
+  }
+  if (status.untrackedPorts.length > 0) {
+    lines.push(
+      `debug servers started outside this app: ${status.untrackedPorts.join(", ")} (the user can collect them from Settings > Runtime)`,
+    );
+  }
+  return lines.join("\n");
+}
+
+/** デバッグ用 serve の停止結果。二重停止も成功として返す (モデルに読み直させない) */
+export function describeDebugStop(result: DebugServeStopResult): string {
+  if (result.port === null) return "debug server: none for this conversation (already stopped)";
+  if (!result.released) return `debug server on port ${result.port}: already stopped (nothing was listening)`;
+  return `debug server on port ${result.port}: stopped (port released)`;
+}
+
 export interface ServeToolHost {
   /** サンドボックスが設定されているか (未設定ではツールを公開しない) */
   readonly configured: boolean;
   /** 会話 id に束縛した操作。会話 id はモデルから受け取らない */
-  run(sessionId: string, input: { action: "start" | "stop" | "status"; command?: string }): Promise<string>;
+  run(
+    sessionId: string,
+    input: {
+      action: "start" | "stop" | "status" | "debug_start" | "debug_stop" | "debug_status";
+      command?: string;
+    },
+  ): Promise<string>;
 }
 
 /** GUI のルートとエージェントのツールが同じ経路を使うための橋渡し */
@@ -90,6 +148,10 @@ export function createServeToolHost(serve: ServeService): ServeToolHost {
     },
     async run(sessionId, input) {
       if (input.action === "status") return describeServeStatus(await serve.status(sessionId));
+      if (input.action === "debug_status") return describeDebugStatus(await serve.debugStatus(sessionId));
+      if (input.action === "debug_start")
+        return describeDebugStart(await serve.debugStart(sessionId, { command: input.command }));
+      if (input.action === "debug_stop") return describeDebugStop(await serve.debugStop(sessionId));
       // モデルは確認ダイアログを持たないため、実行の直前の世代を読んで同じ再照合を通す。
       // 読んでから実行する間に他会話が入れ替われば 409 になり、モデルは状態を読み直す
       const generation = (await serve.status(sessionId)).generation;
