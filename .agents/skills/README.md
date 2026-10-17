@@ -11,3 +11,4 @@
 | [license-check](license-check/SKILL.md) | Node/Python dependency の OSS ライセンスチェックをこの monorepo でローカル実行する時に使う |
 | [github-dependabot-maintain](github-dependabot-maintain/SKILL.md) | `.github/dependabot.yml` を `projects/` 構成と同期させる |
 | [monorepo-worktree-create](monorepo-worktree-create/SKILL.md) | 指定したプロジェクト起点で Herdr ワークツリー workspace を作る（base の既定は `main`） |
+| [dependabot-pr-batch-process](dependabot-pr-batch-process/SKILL.md) | 明示依頼時のみ、ラベル付き Dependabot PR を保守的に監査し順に squash merge |
