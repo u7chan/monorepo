@@ -8,6 +8,7 @@ import {
   FILE_SKILL_RELOAD_LABEL,
   groupFileSkills,
 } from "../../lib/fileSkills";
+import { RELOAD_ABOVE_NOTE } from "../../lib/settingsNotes";
 import type { BuiltinSkillInfo, FileSkillInfo, SkillDef } from "../../types";
 import { ReloadButton } from "../ReloadButton";
 import { SkillGroup, SkillRow } from "./SkillRow";
@@ -69,7 +70,6 @@ export function SkillSelector({
   onToggle: (skillId: string, checked: boolean) => void;
   /** 共通スキル (`.agents/skills`) の取得状態。取得できないときは欄を出さず、理由だけを出す */
   fileSkills: FileSkillsState;
-  /** 共通スキルを取得し直す。取得失敗の表示から呼ぶ */
   onReloadFileSkills: () => void;
   /** undefined = 未指定 (全可視)、null = 解除 (全可視)、配列 = 明示リスト ([] はすべて OFF) */
   commonSkillNames?: string[] | null;
@@ -120,11 +120,19 @@ export function SkillSelector({
 
   return (
     <div className="grid gap-1.5 rounded-lg border border-line bg-soft px-2.5 py-2">
-      <div className="flex items-baseline gap-1.5 text-2xs font-semibold tracking-label text-ink-faint uppercase">
-        <span>スキル</span>
-        <span className="font-normal">
-          割り当て中 {selectedCount} / 全 {skills.length}
+      <div className="flex items-baseline justify-between gap-2 text-2xs font-semibold tracking-label text-ink-faint uppercase">
+        <span className="flex min-w-0 items-baseline gap-1.5">
+          <span>スキル</span>
+          <span className="font-normal">
+            割り当て中 {selectedCount} / 全 {skills.length}
+          </span>
         </span>
+        {/* 取得失敗のときだけ出す。取り直しはまとまりの見出し行に 1 つ置く (docs/ui-layout.md#モードごとの構成) */}
+        {fileSkills.status === "error" ? (
+          <ReloadButton size="sm" onClick={onReloadFileSkills} aria-label={FILE_SKILL_RELOAD_ARIA_LABEL}>
+            {FILE_SKILL_RELOAD_LABEL}
+          </ReloadButton>
+        ) : null}
       </div>
       {skills.length === 0 ? (
         <div className="text-1xs text-ink-faint">スキルがありません。「スキル」ページから作成できます。</div>
@@ -153,16 +161,13 @@ export function SkillSelector({
         <p className="text-2xs leading-4 break-words text-ink-muted">{FILE_SKILL_LOADING_NOTE}</p>
       ) : null}
       {fileSkills.status === "error" ? (
-        // 欄ごと消すと「このエージェントには共通スキルが無い」と読めるので、取得できていない理由を出す。
-        // 復旧後は開き直さずに取り直せるよう、設定 → スキルと同じ導線を理由の隣に置く
-        <div className="flex items-start justify-between gap-2">
-          <p className="min-w-0 text-2xs leading-4 break-words text-warn">
+        // 欄ごと消すと「このエージェントには共通スキルが無い」と読めるので、取得できていない理由を出す
+        <>
+          <p className="text-2xs leading-4 break-words text-warn">
             {FILE_SKILL_ERROR_PREFIX}: {fileSkills.message}
           </p>
-          <ReloadButton size="sm" onClick={onReloadFileSkills} aria-label={FILE_SKILL_RELOAD_ARIA_LABEL}>
-            {FILE_SKILL_RELOAD_LABEL}
-          </ReloadButton>
-        </div>
+          <p className="text-2xs leading-4 break-words text-ink-muted">{RELOAD_ABOVE_NOTE}</p>
+        </>
       ) : null}
       {fileSkills.status === "ready" ? (
         <>

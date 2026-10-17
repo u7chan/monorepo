@@ -14,6 +14,7 @@ import {
 } from "../src/components/agent-settings/SkillSelector";
 import { DefinitionList } from "../src/components/DefinitionList";
 import type { FileSkillsState } from "../src/hooks/useFileSkills";
+import { RELOAD_ABOVE_NOTE } from "../src/lib/settingsNotes";
 import {
   FILE_SKILL_ERROR_PREFIX,
   FILE_SKILL_GROUP_LABEL,
@@ -266,19 +267,27 @@ function labelledButtons(html: string): { ariaLabel: string; text: string }[] {
   }));
 }
 
-test("取得失敗のときだけ、理由の隣に再読み込みの導線を出す", () => {
+test("取得失敗のときだけ、見出し行に再読み込みの導線を出す", () => {
   const html = renderSelector({
     skills: [],
     builtinSkills: [],
     fileSkills: { status: "error", message: "サンドボックスが設定されていません" },
   });
   assert.deepEqual(labelledButtons(html), [{ ariaLabel: FILE_SKILL_RELOAD_ARIA_LABEL, text: FILE_SKILL_RELOAD_LABEL }]);
+  // 取り直しは見出し行 (「スキル 割り当て中 n / 全 m」) に置き、本文は理由と上の導線の案内だけにする
+  const heading = html.indexOf("割り当て中");
+  const button = html.indexOf(FILE_SKILL_RELOAD_ARIA_LABEL);
+  const reason = html.indexOf(FILE_SKILL_ERROR_PREFIX);
+  assert.ok(heading >= 0 && heading < button && button < reason);
+  assert.ok(html.includes(RELOAD_ABOVE_NOTE));
 
   // 読み込み中と取得済みでは出さない (読み込み中の表示は既存の注記のまま)
   const loading = renderSelector({ skills: [], builtinSkills: [], fileSkills: { status: "loading" } });
   assert.ok(loading.includes(FILE_SKILL_LOADING_NOTE));
+  assert.ok(!loading.includes(RELOAD_ABOVE_NOTE));
   assert.deepEqual(labelledButtons(loading), []);
   const ready = renderSelector({ skills: [], builtinSkills: [] });
+  assert.ok(!ready.includes(RELOAD_ABOVE_NOTE));
   assert.deepEqual(labelledButtons(ready), []);
 });
 
