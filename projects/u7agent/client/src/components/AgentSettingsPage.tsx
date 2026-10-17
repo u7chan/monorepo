@@ -138,6 +138,7 @@ export function AgentSettingsPage({
     <AgentEditorForm
       catalog={catalog}
       fileSkills={fileSkills.state}
+      onReloadFileSkills={fileSkills.reload}
       editingId={editingId}
       agent={editingAgent}
       form={agentForm}

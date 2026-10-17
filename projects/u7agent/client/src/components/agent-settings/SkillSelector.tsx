@@ -4,9 +4,12 @@ import {
   FILE_SKILL_ERROR_PREFIX,
   FILE_SKILL_GROUP_LABEL,
   FILE_SKILL_LOADING_NOTE,
+  FILE_SKILL_RELOAD_ARIA_LABEL,
+  FILE_SKILL_RELOAD_LABEL,
   groupFileSkills,
 } from "../../lib/fileSkills";
 import type { BuiltinSkillInfo, FileSkillInfo, SkillDef } from "../../types";
+import { ReloadButton } from "../ReloadButton";
 import { SkillGroup, SkillRow } from "./SkillRow";
 
 /** 組み込み行の見出し。チェックでエージェント別に外せる (既定は全部 ON)。ビルトインの閲覧ビューも同じ語で出す */
@@ -50,6 +53,7 @@ export function SkillSelector({
   selectedIds,
   onToggle,
   fileSkills,
+  onReloadFileSkills,
   commonSkillNames,
   onToggleCommonSkill,
   onShowAllCommonSkills,
@@ -65,6 +69,8 @@ export function SkillSelector({
   onToggle: (skillId: string, checked: boolean) => void;
   /** 共通スキル (`.agents/skills`) の取得状態。取得できないときは欄を出さず、理由だけを出す */
   fileSkills: FileSkillsState;
+  /** 共通スキルを取得し直す。取得失敗の表示から呼ぶ */
+  onReloadFileSkills: () => void;
   /** undefined = 未指定 (全可視)、null = 解除 (全可視)、配列 = 明示リスト ([] はすべて OFF) */
   commonSkillNames?: string[] | null;
   onToggleCommonSkill: (name: string, checked: boolean) => void;
@@ -147,10 +153,16 @@ export function SkillSelector({
         <p className="text-2xs leading-4 break-words text-ink-muted">{FILE_SKILL_LOADING_NOTE}</p>
       ) : null}
       {fileSkills.status === "error" ? (
-        // 欄ごと消すと「このエージェントには共通スキルが無い」と読めるので、取得できていない理由を出す
-        <p className="text-2xs leading-4 break-words text-warn">
-          {FILE_SKILL_ERROR_PREFIX}: {fileSkills.message}
-        </p>
+        // 欄ごと消すと「このエージェントには共通スキルが無い」と読めるので、取得できていない理由を出す。
+        // 復旧後は開き直さずに取り直せるよう、設定 → スキルと同じ導線を理由の隣に置く
+        <div className="flex items-start justify-between gap-2">
+          <p className="min-w-0 text-2xs leading-4 break-words text-warn">
+            {FILE_SKILL_ERROR_PREFIX}: {fileSkills.message}
+          </p>
+          <ReloadButton size="sm" onClick={onReloadFileSkills} aria-label={FILE_SKILL_RELOAD_ARIA_LABEL}>
+            {FILE_SKILL_RELOAD_LABEL}
+          </ReloadButton>
+        </div>
       ) : null}
       {fileSkills.status === "ready" ? (
         <>

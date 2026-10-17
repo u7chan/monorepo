@@ -14,7 +14,13 @@ import {
 } from "../src/components/agent-settings/SkillSelector";
 import { DefinitionList } from "../src/components/DefinitionList";
 import type { FileSkillsState } from "../src/hooks/useFileSkills";
-import { FILE_SKILL_ERROR_PREFIX, FILE_SKILL_GROUP_LABEL } from "../src/lib/fileSkills";
+import {
+  FILE_SKILL_ERROR_PREFIX,
+  FILE_SKILL_GROUP_LABEL,
+  FILE_SKILL_LOADING_NOTE,
+  FILE_SKILL_RELOAD_ARIA_LABEL,
+  FILE_SKILL_RELOAD_LABEL,
+} from "../src/lib/fileSkills";
 import type { BuiltinSkillInfo, FileSkillInfo, SkillDef } from "../src/types";
 
 function commonSkill(name: string, overrides: Partial<FileSkillInfo> = {}): FileSkillInfo {
@@ -51,6 +57,7 @@ function renderSelector({
       selectedIds: skills.map((skill) => skill.id),
       onToggle: () => {},
       fileSkills,
+      onReloadFileSkills: () => {},
       commonSkillNames,
       onToggleCommonSkill: () => {},
       onShowAllCommonSkills: () => {},
@@ -65,6 +72,11 @@ function renderSelector({
 /** 描画順のチェックボックスの checked。共通スキルだけを見るときはカタログと組み込みを空にして呼ぶ */
 function checkboxes(html: string): boolean[] {
   return [...html.matchAll(/<input[^>]*type="checkbox"[^>]*>/g)].map((match) => match[0].includes('checked=""'));
+}
+
+/** タグを落とした見えている文字。属性の中の語 (aria-label など) を見出しの語と混同しないために使う */
+function visibleText(html: string): string {
+  return html.replace(/<[^>]*>/g, "");
 }
 
 test("カタログスキルも組み込みも、同じチェックで選べて外せる", () => {
@@ -241,8 +253,33 @@ test("取得失敗時は共通スキルの欄を出さず、理由を出す", ()
   });
   assert.ok(html.includes(FILE_SKILL_ERROR_PREFIX));
   assert.ok(html.includes("サンドボックスが設定されていません"));
-  assert.ok(!html.includes(FILE_SKILL_GROUP_LABEL));
+  // 再読み込みの aria-label はグループ名を含むので、見出しの有無は本文の文字で見る
+  assert.ok(!visibleText(html).includes(FILE_SKILL_GROUP_LABEL));
   assert.deepEqual(checkboxes(html), []);
+});
+
+/** aria-label 付きのボタン (共通スキルの再読み込みはこれだけ)。ラベルは中身から取る */
+function labelledButtons(html: string): { ariaLabel: string; text: string }[] {
+  return [...html.matchAll(/<button[^>]*aria-label="([^"]*)"[^>]*>([\s\S]*?)<\/button>/g)].map((match) => ({
+    ariaLabel: match[1],
+    text: match[2].replace(/<[^>]*>/g, ""),
+  }));
+}
+
+test("取得失敗のときだけ、理由の隣に再読み込みの導線を出す", () => {
+  const html = renderSelector({
+    skills: [],
+    builtinSkills: [],
+    fileSkills: { status: "error", message: "サンドボックスが設定されていません" },
+  });
+  assert.deepEqual(labelledButtons(html), [{ ariaLabel: FILE_SKILL_RELOAD_ARIA_LABEL, text: FILE_SKILL_RELOAD_LABEL }]);
+
+  // 読み込み中と取得済みでは出さない (読み込み中の表示は既存の注記のまま)
+  const loading = renderSelector({ skills: [], builtinSkills: [], fileSkills: { status: "loading" } });
+  assert.ok(loading.includes(FILE_SKILL_LOADING_NOTE));
+  assert.deepEqual(labelledButtons(loading), []);
+  const ready = renderSelector({ skills: [], builtinSkills: [] });
+  assert.deepEqual(labelledButtons(ready), []);
 });
 
 test("定義一覧は件数がゼロのときだけ空状態を出す", () => {

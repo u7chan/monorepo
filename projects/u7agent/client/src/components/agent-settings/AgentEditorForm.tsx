@@ -172,6 +172,7 @@ export function withAllToolsDisabled(form: AgentForm): AgentForm {
 export function AgentEditorForm({
   catalog,
   fileSkills,
+  onReloadFileSkills,
   editingId,
   agent,
   form,
@@ -189,6 +190,8 @@ export function AgentEditorForm({
   catalog: CatalogResponse;
   /** 共通スキル (`.agents/skills`) の取得状態。取得できないときは共通スキルの欄を出さず、下書きも変えない */
   fileSkills: FileSkillsState;
+  /** 共通スキルを取得し直す。`SkillSelector` の取得失敗の表示から呼ぶ */
+  onReloadFileSkills: () => void;
   editingId: string | null;
   agent: AgentDef | undefined;
   form: AgentForm;
@@ -436,6 +439,7 @@ export function AgentEditorForm({
                   selectedIds={form.skillIds}
                   onToggle={toggleSkill}
                   fileSkills={fileSkills}
+                  onReloadFileSkills={onReloadFileSkills}
                   commonSkillNames={form.commonSkillNames}
                   onToggleCommonSkill={toggleCommonSkill}
                   onShowAllCommonSkills={() => setForm(withAllCommonSkillsVisible)}
