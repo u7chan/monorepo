@@ -520,7 +520,9 @@ export function Composer({
             // 拡大中は面 (枠・背景) を外側へ移し、中の form は高さを埋める行だけを持つ
             expandedUi &&
               cn(
-                "flex h-full max-h-[min(88dvh,760px)] w-full max-w-220 flex-col rounded-xl border bg-panel shadow-panel",
+                // 面は dialog の auto 列に載る grid item。content-based minimum を外さないと中身の固有幅
+                // (textarea の cols) が列の最小に効き、狭い幅で面が viewport の外まで伸びる
+                "flex h-full max-h-[min(88dvh,760px)] w-full max-w-220 min-w-0 flex-col rounded-xl border bg-panel shadow-panel",
                 singleColumn ? "p-2" : "p-2.5",
                 dropKind !== null ? "border-accent" : "border-line-strong",
               ),
