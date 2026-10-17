@@ -37,3 +37,32 @@ export function skillDiscardConfirmRequest(): ConfirmRequest {
     danger: true,
   };
 }
+
+/** 確認に列挙する付随ファイルの上限 (件数は本文で必ず示す) */
+export const FILE_SKILL_DELETE_FILES_MAX = 8;
+
+/**
+ * 共通スキル (`.agents/skills`) の削除の確認。専用フォルダごと消え、付随ファイルも戻せないことを、
+ * 確認の段階で得た一覧 (delete-preview) で示す。
+ */
+export function fileSkillDeleteConfirmRequest(input: {
+  name: string;
+  dir: string;
+  files: readonly string[];
+  entries: number;
+}): ConfirmRequest {
+  const shown = input.files.slice(0, FILE_SKILL_DELETE_FILES_MAX);
+  const hidden = input.entries - shown.length;
+  return {
+    kind: "confirm",
+    title: "スキルを削除",
+    ...(input.name ? { subject: { label: "削除するスキル", value: input.name } } : {}),
+    code: { label: "削除するフォルダ", value: input.dir },
+    body: [
+      `フォルダと ${input.entries} 件のファイルを削除します。元に戻せません。`,
+      shown.length > 0 ? `含まれるもの: ${shown.join(", ")}${hidden > 0 ? ` ほか ${hidden} 件` : ""}` : "",
+    ].filter((line) => line.length > 0),
+    confirmLabel: "削除する",
+    danger: true,
+  };
+}

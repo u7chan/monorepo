@@ -19,6 +19,12 @@ import {
   type SandboxMoveResult,
   type SandboxRenameResult,
   type SandboxRuntimeInfo,
+  type SandboxSkillCreateBody,
+  type SandboxSkillCreateResult,
+  type SandboxSkillDeletePreview,
+  type SandboxSkillFileDetail,
+  type SandboxSkillSaveBody,
+  type SandboxSkillSaveResult,
   type SandboxSkillsResponse,
   type SandboxWriteScopeEntry,
 } from "./protocol";
@@ -141,6 +147,12 @@ export function createSandboxToolClient(options: SandboxToolClientOptions): Sand
     statFile: (path) => statFile(path, baseUrl, token, fetchImpl),
     getGitInfo: (path) => getGitInfo(path, baseUrl, token, fetchImpl),
     listSkills: (dir) => listSkills(dir, baseUrl, token, fetchImpl),
+    getSkillFile: (relativePath) => getSkillFile(relativePath, baseUrl, token, fetchImpl),
+    createSkillFile: (input) => createSkillFile(input, baseUrl, token, fetchImpl),
+    saveSkillFile: (input) => saveSkillFile(input, baseUrl, token, fetchImpl),
+    previewSkillDelete: (relativePath) => previewSkillDelete(relativePath, baseUrl, token, fetchImpl),
+    deleteSkillFolder: (relativePath, treeVersion) =>
+      deleteSkillFolder(relativePath, treeVersion, baseUrl, token, fetchImpl),
     previewFile: async (path) => {
       const response = await fetchJson(
         fetchImpl,
@@ -191,6 +203,19 @@ export interface SandboxToolClient extends SandboxRuntimeDiagnostics {
   getGitInfo(path: string): Promise<SandboxGitInfo>;
   /** `.agents/skills` 配下の発見 (dir は root 相対)。不存在の dir は 404 */
   listSkills(dir: string): Promise<SandboxSkillsResponse>;
+  /**
+   * 共通スキル 1 件の編集内容。name / description は SDK の発見結果、body は frontmatter を除いた原文で
+   * trim しない。不存在は 404、置き場の外・SKILL.md 以外は 400。
+   */
+  getSkillFile(relativePath: string): Promise<SandboxSkillFileDetail>;
+  /** 共通スキルの新規作成 (既存ディレクトリ / 同名は 409、SDK 検証の失敗は 400) */
+  createSkillFile(input: SandboxSkillCreateBody): Promise<SandboxSkillCreateResult>;
+  /** 共通スキルの保存。版の不一致は 409、安全に差し替えられない frontmatter は 400 */
+  saveSkillFile(input: SandboxSkillSaveBody): Promise<SandboxSkillSaveResult>;
+  /** 削除する専用フォルダと treeVersion を取る。取消のために何も変更しない */
+  previewSkillDelete(relativePath: string): Promise<SandboxSkillDeletePreview>;
+  /** 専用フォルダを配下ごと削除する。treeVersion の不一致は 409 */
+  deleteSkillFolder(relativePath: string, treeVersion: string): Promise<void>;
   createDir(path: string): Promise<SandboxCreateDirResult>;
   /**
    * root 相対の引き継ぎメモ (HANDOFF.md) を読む。専用の上限 (2 MiB) / UTF-8 / バイナリの判定を持ち、
@@ -227,22 +252,31 @@ export interface SandboxToolClient extends SandboxRuntimeDiagnostics {
   scanListeners(port: number, options: { scan: boolean }): Promise<SandboxListenerScan>;
 }
 
-/** /api/files とプロジェクト作成・アップロードが使うサンドボックス機能 (テストはこれを stub に差し替える)。 */
-export type SandboxWorkspaceClient = Pick<
+/** /api/files とプロジェクト作成・アップロードが使うサンドボックス機能 (テストはこれを stub に差し替える)。 */ export type SandboxWorkspaceClient =
+  Pick<
+    SandboxToolClient,
+    | "listFiles"
+    | "statFile"
+    | "getGitInfo"
+    | "listSkills"
+    | "createDir"
+    | "renameEntry"
+    | "deleteFile"
+    | "deleteDirectory"
+    | "previewFile"
+    | "uploadFile"
+    | "rawFile"
+    | "downloadEntry"
+    | "checkDownload"
+  >;
+
+/**
+ * 共通スキル (`.agents/skills`) の GUI CRUD が使うサンドボックス機能。一覧 (listSkills) は既存の
+ * workspace の狭い IF が担うためここには含めず、CRUD を使わない既存の stub へ必須メソッドを足さない。
+ */
+export type SandboxSkillFileClient = Pick<
   SandboxToolClient,
-  | "listFiles"
-  | "statFile"
-  | "getGitInfo"
-  | "listSkills"
-  | "createDir"
-  | "renameEntry"
-  | "deleteFile"
-  | "deleteDirectory"
-  | "previewFile"
-  | "uploadFile"
-  | "rawFile"
-  | "downloadEntry"
-  | "checkDownload"
+  "getSkillFile" | "createSkillFile" | "saveSkillFile" | "previewSkillDelete" | "deleteSkillFolder"
 >;
 
 /**
@@ -612,6 +646,106 @@ async function deleteDirectory(path: string, baseUrl: string, token: string, fet
     baseUrl,
   );
   if (!response.ok) throw await jsonError(response, "ディレクトリを削除できませんでした");
+}
+
+/**
+ * 共通スキル (`.agents/skills`) の編集内容。relativePath は一覧の root 相対パスに揃える。
+ * 保存できない場合は editable: false と reason が入るので、呼び出し側は失敗として扱う。
+ */
+async function getSkillFile(
+  relativePath: string,
+  baseUrl: string,
+  token: string,
+  fetchImpl: typeof fetch,
+): Promise<SandboxSkillFileDetail> {
+  const response = await fetchJson(
+    fetchImpl,
+    `${baseUrl}/v1/skills/file?relativePath=${encodeURIComponent(relativePath)}`,
+    { headers: jsonHeaders(token) },
+    baseUrl,
+  );
+  if (!response.ok) throw await jsonError(response, "スキルの内容を取得できませんでした");
+  return (await response.json()) as SandboxSkillFileDetail;
+}
+
+/** 共通スキルの新規作成。既存ディレクトリ / 同名の共通スキルは 409 で拒否される */
+async function createSkillFile(
+  input: SandboxSkillCreateBody,
+  baseUrl: string,
+  token: string,
+  fetchImpl: typeof fetch,
+): Promise<SandboxSkillCreateResult> {
+  const response = await fetchJson(
+    fetchImpl,
+    `${baseUrl}/v1/skills/file`,
+    {
+      method: "POST",
+      headers: { ...jsonHeaders(token), "Content-Type": "application/json" },
+      body: JSON.stringify(input),
+    },
+    baseUrl,
+  );
+  if (!response.ok) throw await jsonError(response, "スキルを作成できませんでした");
+  return (await response.json()) as SandboxSkillCreateResult;
+}
+
+/** 共通スキルの保存。版の不一致 (409) と安全に差し替えられない frontmatter (400) は文言ごと透過する */
+async function saveSkillFile(
+  input: SandboxSkillSaveBody,
+  baseUrl: string,
+  token: string,
+  fetchImpl: typeof fetch,
+): Promise<SandboxSkillSaveResult> {
+  const response = await fetchJson(
+    fetchImpl,
+    `${baseUrl}/v1/skills/file`,
+    {
+      method: "PATCH",
+      headers: { ...jsonHeaders(token), "Content-Type": "application/json" },
+      body: JSON.stringify(input),
+    },
+    baseUrl,
+  );
+  if (!response.ok) throw await jsonError(response, "スキルを保存できませんでした");
+  return (await response.json()) as SandboxSkillSaveResult;
+}
+
+/** 削除確認。取消は副作用なしで、ここでは何も変更しない */
+async function previewSkillDelete(
+  relativePath: string,
+  baseUrl: string,
+  token: string,
+  fetchImpl: typeof fetch,
+): Promise<SandboxSkillDeletePreview> {
+  const response = await fetchJson(
+    fetchImpl,
+    `${baseUrl}/v1/skills/file/delete-preview?relativePath=${encodeURIComponent(relativePath)}`,
+    { headers: jsonHeaders(token) },
+    baseUrl,
+  );
+  if (!response.ok) throw await jsonError(response, "削除する内容を確認できませんでした");
+  return (await response.json()) as SandboxSkillDeletePreview;
+}
+
+/**
+ * 共通スキルの専用フォルダ削除。treeVersion の一致を要求し、成功は 204 で本文が無いため JSON は読まない。
+ * body は使わずクエリだけで渡す (既存の DELETE と同じ流儀)。
+ */
+async function deleteSkillFolder(
+  relativePath: string,
+  treeVersion: string,
+  baseUrl: string,
+  token: string,
+  fetchImpl: typeof fetch,
+): Promise<void> {
+  const query = new URLSearchParams({ relativePath, treeVersion });
+  const response = await fetchJson(
+    fetchImpl,
+    `${baseUrl}/v1/skills/file?${query.toString()}`,
+    { method: "DELETE", headers: jsonHeaders(token) },
+    baseUrl,
+  );
+  if (!response.ok) throw await jsonError(response, "スキルを削除できませんでした");
 }
 
 /**

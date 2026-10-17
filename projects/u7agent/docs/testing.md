@@ -71,7 +71,7 @@ done
 | 振る舞いへ置換 | `fileSkillList` / `skillSelector` / `settingsDetailSheet` / `toggleSwitch` は実コンポーネントの描画属性・内容を検査。スイッチの callback は実 handler を呼ぶ |
 | 振る舞いへ統合 | `filePreviewCopy` / `filePreviewImage` / `filePreviewNewTab` のうち画像 URL・メタ、HTML の sandbox・配信元、別タブの `noopener` と操作名は `filePreviewStorageMode` の SSR へ。コピー本文の正規化は `fileCode`、タブの状態は `fileTabs`、保存は `filePreviewState` に集約 |
 | 純関数・描画を維持 | `agentLabel` / `agentPicker` / `archiveExcludeSettings` / `chatScopeWiring` / `chatScroll` / `compaction` / `composerEnter` / `fileCode` / `fileDownloadRow` / `fileRefRequest` / `fileRowMenu` / `fileTreeReveal` / `fileTreeWidth` / `fileTreeHeight` のコード断片・レイアウト検査だけを除去 |
-| 純関数・描画を維持 | `imageZoom` / `markdownCodeBlock` / `markdownFileRef` / `markdownImage` / `modelSettingsPage` / `notifyToggle` / `readOnlySkillPanel` / `runRetry` / `serveStatus` / `servedApp` / `sessionFilesPanel` / `sidebarOverlay` / `sidebarProjects` / `sidebarRowMenu` / `sidebarWidth` / `skillPicker` / `skillSettingsPage` / `userMessageCollapse` の wiring 検査だけを除去 |
+| 純関数・描画を維持 | `imageZoom` / `markdownCodeBlock` / `markdownFileRef` / `markdownImage` / `modelSettingsPage` / `notifyToggle` / `fileSkillPanel` / `runRetry` / `serveStatus` / `servedApp` / `sessionFilesPanel` / `sidebarOverlay` / `sidebarProjects` / `sidebarRowMenu` / `sidebarWidth` / `skillPicker` / `skillSettingsPage` / `userMessageCollapse` の wiring 検査だけを除去 |
 | 純関数へ集約 | `fileMention` は判定・挿入・引用を維持。`markdownHighlight` は言語・トークン分解・上限を維持し、CSS 色の定義数は検査しない。`markdownDiagram` の DOM 禁止検査は `markdownSafety` と重複していたため除去 |
 | 手動受入へ | `activityShimmer` / `popoverPanel` / `mobileOverflow` / `fileBrowserScrollGutter` / `sidebarScrollGutter` / `fileBrowserRowTime` / `fileTreeFold` は具体的な CSS・配置の検査を除去。`markdownTable` は表の描画を残し、折り返し・スクロール・整列はブラウザで確認 |
 | 既存契約へ集約 | `fileBrowserRename` の出し分けは `fileRowMenu`、経路の張り替えは `fileTree` / `fileTabs`、API・非破壊性は server テストで検査。`sessionRename` の PATCH は `apiContracts`、操作の表示は `sidebarRowMenu` に集約し、prompt と画面反映はブラウザで確認 |
@@ -87,6 +87,12 @@ source scan を消しただけではイベント伝播・実 DOM の焦点・hoo
 - `filePreviewSafety.test.ts`: ファイルのソース表示も HTML 挿入・HTML パース・インライン style を禁止する。`lib/fileCode.ts` / `components/FilePreview.tsx` は Markdown の検査範囲外で、取得後の本文描画は SSR の初期状態では通らないため、型・SSR で代替できない安全性検査だけを残す。本文描画を移す場合は対象を追随させ、CSS・helper 名・props の wiring は検査しない。
 - `themeSync.test.ts`: 初回描画前の classic script を VM で実行し、保存値・system・利用不能時の解決を検査する。CSS と TypeScript の registry は型で結べないため、プリセット・スウォッチのキーと `color-scheme` の対応だけは走査する。配色・余白・演出は固定しない。
 - `providerIcon.test.ts`: 配布物にロゴの帰属表示とライセンスが同梱される契約。実装ソースの wiring ではなく成果物を読む。
+
+## 共通スキルの CRUD の受入
+
+自動検証は `server/test/skill-edit.test.ts`（frontmatter の境界 / 変更した値だけの差し替え / 未知キー・コメント・キー順の保持 / LF・CRLF・CR・BOM / 本文の前後空白 / name の欠落と不一致 / 未変更の長い説明 / 非破壊的な拒否 / no-op のバイト列）、`server/test/sandbox-skill-crud.test.ts`（実ファイルでの保存・版照合・ツリー版・削除・境界・走査上限・IO 失敗・abort・SDK `edit` / `write` との競合・フォルダの rename / move / 削除後の旧パス）、`server/test/skill-files-api.test.ts`（偽クライアントでの要求 / 応答 / 上限 / 失敗の写像 / 既存ルートとの共存）、`client/test/fileSkillEditor.test.ts`（状態遷移・下書きの保持と破棄・対象切替）、`client/test/fileSkillApi.test.ts`（method / query / body / エラー）、`client/test/fileSkillEditorForm.test.ts`（入力欄・必須・名前の固定・競合の導線）、`client/test/settingsConfirm.test.ts`（削除の確認の対象と件数）で行う。
+
+GUI は有料 API を使わない一時ストアと実ファイル fixture で、共通スキルの新規作成 → 一覧への反映 → 本文の編集と保存 → 再読み込み → ファイルタブの確認 → 取消 → 削除を desktop と singleColumn の両方で確認する。競合 (409) は同じスキルを外部から書き換えてから保存し、下書きが残って `再読み込み` が出ることを見る。64 KiB を超える本文と、特殊な frontmatter の保存できないスキルは、拒否の理由が出てファイルが変わらないことを見る。
 
 ## GUI の最小受入
 

@@ -27,14 +27,14 @@ const builtin: FileSkillInfo = {
   version: "1",
 };
 
-function render(state: FileSkillsState, selectedPath?: string): string {
+function render(state: FileSkillsState, selectedRelativePath?: string): string {
   return renderToStaticMarkup(
-    createElement(FileSkillList, { state, selectedPath, onReload: () => {}, onSelect: () => {} }),
+    createElement(FileSkillList, { state, selectedRelativePath, onReload: () => {}, onSelect: () => {} }),
   );
 }
 
 test("同名スキルもパスで選択を区別し、操作名に説明やパスを含めない", () => {
-  const html = render({ status: "ready", skills: [common, builtin] }, builtin.path);
+  const html = render({ status: "ready", skills: [common, builtin] }, builtin.relativePath);
   const rows = [...html.matchAll(/<button[^>]*aria-pressed="(true|false)"[^>]*>([\s\S]*?)<\/button>/g)];
   assert.equal(rows.length, 2);
   assert.deepEqual(

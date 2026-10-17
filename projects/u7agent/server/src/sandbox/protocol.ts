@@ -273,6 +273,75 @@ export interface SandboxSkillsResponse {
   skills: SandboxSkillEntry[];
 }
 
+/**
+ * GET /v1/skills/file の応答。name / description は SDK の発見結果 (name 欠落は親ディレクトリ名)、
+ * body は frontmatter を除いた原文で trim しない。editable が false のときだけ reason が入る。
+ */
+export interface SandboxSkillFileDetail {
+  name: string;
+  description: string;
+  body: string;
+  relativePath: string;
+  /** 元ファイルのバイト列の SHA-256 (hex)。保存はこの値の一致を要求する */
+  fileVersion: string;
+  editable: boolean;
+  reason?: string;
+}
+
+/** POST /v1/skills/file の要求。new path はサンドボックス側で組み立てる */
+export interface SandboxSkillCreateBody {
+  name: string;
+  description: string;
+  body: string;
+}
+
+/** POST /v1/skills/file の応答。fileVersion は公開した内容の版 */
+export interface SandboxSkillCreateResult {
+  relativePath: string;
+  fileVersion: string;
+}
+
+/** PATCH /v1/skills/file の要求。name の変更は受け付けない */
+export interface SandboxSkillSaveBody {
+  relativePath: string;
+  /** 編集内容を取得したときの fileVersion。不一致は 409 */
+  fileVersion: string;
+  description: string;
+  body: string;
+}
+
+/** PATCH /v1/skills/file の応答 */
+export interface SandboxSkillSaveResult {
+  relativePath: string;
+  fileVersion: string;
+}
+
+/**
+ * GET /v1/skills/file/delete-preview の応答。削除する専用フォルダと treeVersion、消えるエントリの
+ * 一覧 (フォルダ相対・ソート済み) を返す。削除要求は treeVersion の一致を要求する。
+ */
+export interface SandboxSkillDeletePreview {
+  relativePath: string;
+  name: string;
+  /** 削除するフォルダ (root 相対) */
+  dir: string;
+  /** フォルダ全体のダイジェスト。エントリ種別・内容ハッシュ・symlink のリンク文字列を含む */
+  treeVersion: string;
+  entries: number;
+  bytes: number;
+  /** 付随ファイルを含む、消えるエントリ (フォルダ相対。ディレクトリは末尾 `/`) */
+  files: string[];
+}
+
+/** スキルの説明の上限 (SDK の validateDescription と同じ値) */
+export const SANDBOX_SKILL_DESCRIPTION_MAX_LENGTH = 1024;
+
+/**
+ * GUI から保存できる SKILL.md のサイズ。保存の要求は BFF の bodyGuard (64 KiB) を通るため、
+ * これを超えるファイルは閲覧だけができる (値の正は server/src/http.ts の MAX_BODY_BYTES)。
+ */
+export const SANDBOX_MAX_SKILL_SAVE_BYTES = 64 * 1024;
+
 /** GET /v1/files/preview の応答。UTF-8 へデコード済みのテキスト。 */
 
 export interface SandboxFilePreview {

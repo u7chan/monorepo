@@ -1288,6 +1288,71 @@ export const FileSkillsResponseSchema = z.object({ skills: z.array(FileSkillInfo
 export type FileSkillsResponse = z.infer<typeof FileSkillsResponseSchema>;
 
 /**
+ * サンドボックス GET /v1/skills/file の応答。ワイヤ契約の正は server/src/sandbox/protocol.ts で、
+ * ここは BFF が受けた応答の検証用。body は frontmatter を除いた原文 (trim しない)。
+ */
+export const SandboxSkillFileDetailSchema = z.object({
+  name: z.string(),
+  description: z.string(),
+  body: z.string(),
+  relativePath: z.string(),
+  /** 元ファイルのバイト列の SHA-256。保存はこの値の一致を要求する */
+  fileVersion: z.string(),
+  /** false のときは保存できない (reason に理由が入る) */
+  editable: z.boolean(),
+  reason: z.string().optional(),
+});
+export type SandboxSkillFileDetail = z.infer<typeof SandboxSkillFileDetailSchema>;
+
+/** サンドボックス POST /v1/skills/file の応答 */
+export const SandboxSkillCreateResultSchema = z.object({
+  relativePath: z.string(),
+  fileVersion: z.string(),
+});
+export type SandboxSkillCreateResult = z.infer<typeof SandboxSkillCreateResultSchema>;
+
+/** サンドボックス PATCH /v1/skills/file の応答。変更なしの保存も同じ形で現在の版を返す */
+export const SandboxSkillSaveResultSchema = z.object({
+  relativePath: z.string(),
+  fileVersion: z.string(),
+});
+export type SandboxSkillSaveResult = z.infer<typeof SandboxSkillSaveResultSchema>;
+
+/** サンドボックス GET /v1/skills/file/delete-preview の応答。削除は treeVersion の一致を要求する */
+export const SandboxSkillDeletePreviewSchema = z.object({
+  relativePath: z.string(),
+  name: z.string(),
+  /** 削除するフォルダ (root 相対) */
+  dir: z.string(),
+  treeVersion: z.string(),
+  entries: z.number(),
+  bytes: z.number(),
+  /** 付随ファイルを含む、消えるエントリ (フォルダ相対。ディレクトリは末尾 `/`) */
+  files: z.array(z.string()),
+});
+export type SandboxSkillDeletePreview = z.infer<typeof SandboxSkillDeletePreviewSchema>;
+
+/**
+ * POST /api/skills/files の body。名前は GUI 新規の規則 (既存ファイルの保存名の互換とは別) で、
+ * 実際の規則の判定はサンドボックス側の SDK 検証が行う。
+ */
+export const CreateFileSkillBodySchema = z.object({
+  name: z.string().min(1).max(SKILL_NAME_MAX),
+  description: z.string(),
+  body: z.string(),
+});
+export type CreateFileSkillBody = z.infer<typeof CreateFileSkillBodySchema>;
+
+/** PATCH /api/skills/files の body。name は受け付けず、fileVersion の一致を要求する */
+export const SaveFileSkillBodySchema = z.object({
+  relativePath: z.string().min(1),
+  fileVersion: z.string().min(1),
+  description: z.string(),
+  body: z.string(),
+});
+export type SaveFileSkillBody = z.infer<typeof SaveFileSkillBodySchema>;
+
+/**
  * セッションで使えるスキル 1 件 (GET /api/sessions/:id/skills)。設定の FileSkillInfo と違い、
  * プロジェクトスキルと Agent 割り当て (catalog) を含み、本文は持たない (送信時に取り直す)。
  * 優先順位は project > user > builtin > catalog で、負けた行は shadowed / shadowedBy で示す。

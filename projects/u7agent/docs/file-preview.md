@@ -557,7 +557,7 @@ assistant 本文のインラインコードが指すファイルを、右パネ�
 | `client/test/archiveSettings.test.ts` | 除外名の下書きの純関数（実効値からの初期化と配列を共有しないこと / dirty の比較（未設定のまま既定を保存させない）/ 追加の trim・空・重複・上限 / 削除 / 検証（サーバーと同じ 1 セグメント名の規則と件数上限）） |
 | `client/test/archiveExcludeSettings.test.ts` | 「ダウンロードの除外」タブの中身: 未設定・上書き・明示空・読み込み中・失敗（SSR）。HTTP は apiContracts で検査 |
 | `client/test/filesSettingsPage.test.ts` | 設定 → ファイル のタブ / ヘッダ: 既定はファイルツリー、除外タブの説明・操作（保存可否）・note（SSR） |
-| `client/test/readOnlySkillPanel.test.ts` | ファイルタブの採否 / 組み込み本文の表示（SSR）。取得・タブ間の操作はブラウザで確認 |
+| `client/test/fileSkillPanel.test.ts` | ファイルタブの採否 / 組み込み本文の表示（SSR）。取得・タブ間の操作はブラウザで確認 |
 | `client/test/fileRef.test.ts` | matcher の採否表（正規化と別表記の同ービキー / 制御文字 U+0000 / Unicode 空白 U+00A0・U+3000 / dotfile / scheme / `..` / 末尾ドット）と、cwd 相対の解決表（rootCwd 前置き / cwd 外 / rootCwd 未取得 / 明示的な相対 / cwd 未確定）、面つき解決（裸名の除外と、区切りを持つ字面の採用 / 共通スキルの絶対パス → `kind = "skill"` の root / path、補助ファイル、名前の境界、`.agents/skills` 直下・プロジェクトスキル・root 外の不採用、workspace 相対の現行維持、cwd 配下の作業フォルダ面優先 / 画像が使う matcher は裸名を採ること / 共通スキル配下のパス判定） |
 | `client/test/fileMention.test.ts` | ドラッグの種類の判定 / 参照の引用とエスケープ / 挿入・カーソルの位置 / trim を通したパスの保持 |
 | `client/test/fileRefRequest.test.ts` | 最新要求だけを保持 / 要求の種別と root / seq が一致する ack だけを消費 / 選択変更と sessionId の採否 / 面ごとの消費可否（作業フォルダ面がスキル要求を消費しない） / 種別からのモード決定 / セッション切替・画面の移動・layout 切替での既定への復帰 / 購読・解除 / 選択の切替世代（未消費が無くても clear で進み、request・ack では進まない）/ クリックの順序（実在を確認してから面を開く / A→B・A→B→A の逆転で最後のクリックだけが開く / セッション切替で失効（A→B→A で戻っても復活しない）/ 不存在では要求もモードも変えない / 拒否・確認不能の理由） |

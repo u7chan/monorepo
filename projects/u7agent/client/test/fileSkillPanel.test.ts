@@ -7,7 +7,7 @@ import type { FileSkillInfo } from "../src/types";
 
 // api.ts (location.origin を読む) を辿るため、node では最小の shim を置いてから読み込む
 globalThis.location ??= { origin: "http://localhost" } as Location;
-const { ReadOnlySkillPanel } = await import("../src/components/skill-settings/ReadOnlySkillPanel");
+const { FileSkillPanel } = await import("../src/components/skill-settings/FileSkillPanel");
 
 function fileSkill(overrides: Partial<FileSkillInfo> = {}): FileSkillInfo {
   return {
@@ -24,7 +24,7 @@ function fileSkill(overrides: Partial<FileSkillInfo> = {}): FileSkillInfo {
 }
 
 function renderPanel(skill: FileSkillInfo): string {
-  return renderToStaticMarkup(createElement(ReadOnlySkillPanel, { skill, variant: "page" }));
+  return renderToStaticMarkup(createElement(FileSkillPanel, { skill, variant: "page" }));
 }
 
 test("描画: ファイルタブは共通スキルに出し、組み込みには出さない", () => {

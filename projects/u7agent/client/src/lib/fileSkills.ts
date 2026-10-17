@@ -4,8 +4,8 @@
  */
 import type { FileSkillInfo } from "../types";
 
-/** 読み取り専用ブロック (共通 + 組み込み) の見出し。「読み取り専用」はここ 1 箇所にだけ出す */
-export const FILE_SKILL_SECTION_LABEL = "読み取り専用スキル";
+/** ファイルスキル (共通 + 組み込み) のブロック見出し。共通は編集でき、組み込みは読み取り専用 */
+export const FILE_SKILL_SECTION_LABEL = "ファイルスキル";
 export const FILE_SKILL_GROUP_LABEL = "共通スキル";
 export const BUILTIN_SKILL_GROUP_LABEL = "組み込みスキル";
 /** 再読み込みは共通 + 組み込みを同時に取り直すので、読み上げ名でも両方を挙げる */
@@ -22,8 +22,27 @@ export const FILE_SKILL_ERROR_PREFIX = "スキルを取得できませんでし�
 export const FILE_SKILL_LOADING_NOTE = "スキルを読み込んでいます…";
 export const BUILTIN_SKILL_OVERRIDE_NOTE = "上書きされています（同名の共通スキルが優先されます）";
 export const BUILTIN_SKILL_READONLY_NOTE = "アプリに同梱されているため、編集・削除はできません。";
-export const FILE_SKILL_READONLY_NOTE =
-  "ワークスペースのファイルがそのまま使われます。編集は「ファイル」画面から行ってください。";
+/** 共通スキルをこの画面から編集できることの案内。改名できないことは新規作成のときだけ関係する */
+export const FILE_SKILL_EDITABLE_NOTE = "説明と本文だけを変更できます。名前は作成時に決まり、あとから変更できません。";
+/** 保存できない共通スキル (frontmatter が特殊なものなど) の前置き。理由は detail.reason に続ける */
+export const FILE_SKILL_LOCKED_PREFIX = "このスキルは保存できません";
+/** 保存の要求の上限。BFF の bodyGuard (64 KiB) と揃えた案内で、値は server/src/http.ts が正 */
+export const FILE_SKILL_SAVE_LIMIT_NOTE =
+  "保存の要求は 64 KiB までです。それより大きなスキルは閲覧だけできます (切り詰めて保存はしません)。";
+/** 競合 (409) で保存を止めたときの案内。下書きは残し、再読み込みを促す */
+export const FILE_SKILL_CONFLICT_NOTE =
+  "他の変更と競合しました。入力した内容はこのまま残しています。再読み込みしてから、もう一度保存してください。";
+export const FILE_SKILL_EDIT_LABEL = "編集";
+export const FILE_SKILL_ADD_LABEL = "新しいスキル";
+export const FILE_SKILL_EDIT_HEADING = "スキルを編集";
+export const FILE_SKILL_CREATE_HEADING = "新しいスキル";
+export const FILE_SKILL_SAVE_LABEL = "保存";
+export const FILE_SKILL_CANCEL_LABEL = "キャンセル";
+export const FILE_SKILL_DELETE_LABEL = "削除";
+export const FILE_SKILL_NAME_LABEL = "名前";
+export const FILE_SKILL_NAME_READONLY_NOTE = "名前は変更できません。";
+export const FILE_SKILL_DESCRIPTION_LABEL = "説明";
+export const FILE_SKILL_BODY_LABEL = "本文";
 /** 本文ビューの見出し。一覧のグループ名 (共通 / プロジェクト / 組み込み) と同じ語を使う */
 export const FILE_SKILL_PANEL_HEADING: Record<FileSkillInfo["scope"], string> = {
   user: "共通スキル",

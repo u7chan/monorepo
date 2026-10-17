@@ -1,14 +1,15 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { getFilePreview } from "../../api";
 import { cn } from "../../lib/cn";
 import {
   BUILTIN_SKILL_OVERRIDE_NOTE,
   BUILTIN_SKILL_READONLY_NOTE,
+  FILE_SKILL_EDITABLE_NOTE,
+  FILE_SKILL_LOCKED_PREFIX,
   FILE_SKILL_PANEL_HEADING,
-  FILE_SKILL_READONLY_NOTE,
   fileSkillDir,
 } from "../../lib/fileSkills";
-import type { FileSkillInfo } from "../../types";
+import type { FileSkillInfo, SandboxSkillFileDetail } from "../../types";
 import { FileBrowser } from "../FileBrowser";
 import { SkillDetailPanel, type SkillBodyState } from "./SkillDetailPanel";
 
@@ -24,24 +25,32 @@ function errorText(error: unknown): string {
 }
 
 /**
- * 読み取り専用スキル (共通 / プロジェクト / 組み込み) の本文ビュー。編集フォームの代わりに、
- * 何が使われるか (名前 / 説明 / 置き場 / スコープ / 版) と本文を出す。組み込みは一覧の `body` をそのまま使い、
- * ファイルスキルは本文を持たない一覧なので、選択のたびにファイルプレビューから取り直す
+ * ファイルスキル (共通 / プロジェクト / 組み込み) の本文ビュー。編集フォームの代わりに、
+ * 何が使われるか (名前 / 説明 / 置き場 / スコープ / 版) と本文を出す。
+ * 共通スキルは編集内容 (`detail`) を渡すと、その本文と保存可否をそのまま表示する (編集中の内容と一致させる)。
+ * 組み込みは一覧の `body` をそのまま使い、それ以外はファイルプレビューから取り直す
  * (docs/api-catalog.md。反映タイミングは本文の取得時点)。ファイルスキルは本文の隣の補助ファイル
  * (references / scripts / assets) も見られるよう「本文 / ファイル」のタブを持つ。
  */
-export function ReadOnlySkillPanel({
+export function FileSkillPanel({
   skill,
+  detail,
+  actions,
   variant,
   filePreviewPort,
 }: {
   skill: FileSkillInfo;
+  /** 共通スキルの編集内容。渡したときは本文と保存可否をここから出す (エディターと同じ取得結果) */
+  detail?: SandboxSkillFileDetail;
+  /** 操作行に足す操作 (編集 / 削除)。組み込みでは渡さない */
+  actions?: ReactNode;
   variant: "page" | "sheet";
   /** プレビュー オリジンのブラウザから見たポート (health)。未取得は undefined */
   filePreviewPort?: number;
 }) {
+  const bodySource = detail?.body ?? skill.body;
   const [body, setBody] = useState<SkillBodyState>(() =>
-    skill.body === undefined ? { status: "loading" } : { status: "ready", text: skill.body },
+    bodySource === undefined ? { status: "loading" } : { status: "ready", text: bodySource },
   );
   const [tab, setTab] = useState<SkillTab>("body");
   // ファイルタブは初回に開いたときだけ mount し、以降は display で隠して保持する
@@ -51,9 +60,9 @@ export function ReadOnlySkillPanel({
   const skillDir = fileSkillDir(skill);
 
   useEffect(() => {
-    // 組み込みは応答の本文をそのまま出す (実ファイルが無いので取り直す先が無い)
-    if (skill.body !== undefined) {
-      setBody({ status: "ready", text: skill.body });
+    // 組み込みは応答の本文を、共通スキルは編集内容の本文をそのまま出す (取り直す先が無い)
+    if (bodySource !== undefined) {
+      setBody({ status: "ready", text: bodySource });
       return;
     }
     // 選択を切り替えたら前の本文は捨てる。取得中に切り替えたら中断して結果を反映しない
@@ -68,49 +77,63 @@ export function ReadOnlySkillPanel({
       },
     );
     return () => controller.abort();
-  }, [skill.relativePath, skill.body]);
+  }, [skill.relativePath, bodySource]);
 
   const openTab = (next: SkillTab) => {
     if (next === "files") setFilesOpened(true);
     setTab(next);
   };
 
+  const note =
+    skill.scope === "builtin"
+      ? BUILTIN_SKILL_READONLY_NOTE
+      : detail === undefined
+        ? undefined
+        : detail.editable
+          ? FILE_SKILL_EDITABLE_NOTE
+          : `${FILE_SKILL_LOCKED_PREFIX}: ${detail.reason ?? ""}`;
+
   return (
     <SkillDetailPanel
       heading={variant === "page" ? FILE_SKILL_PANEL_HEADING[skill.scope] : null}
       actions={
-        skillDir ? (
-          <div
-            role="group"
-            aria-label="表示の切替"
-            className="flex shrink-0 items-center gap-0.5 rounded-lg border border-line p-0.5"
-          >
-            {SKILL_TABS.map((item) => (
-              <button
-                key={item.value}
-                type="button"
-                aria-pressed={tab === item.value}
-                onClick={() => openTab(item.value)}
-                className={cn(
-                  "rounded-md px-2 py-0.5 text-3xs transition-colors",
-                  tab === item.value
-                    ? "bg-accent-wash text-accent-text"
-                    : "text-ink-soft hover:bg-hover hover:text-ink",
-                )}
-              >
-                {item.label}
-              </button>
-            ))}
-          </div>
-        ) : null
+        <>
+          {actions}
+          {skillDir ? (
+            <div
+              role="group"
+              aria-label="表示の切替"
+              className="flex shrink-0 items-center gap-0.5 rounded-lg border border-line p-0.5"
+            >
+              {SKILL_TABS.map((item) => (
+                <button
+                  key={item.value}
+                  type="button"
+                  aria-pressed={tab === item.value}
+                  onClick={() => openTab(item.value)}
+                  className={cn(
+                    "rounded-md px-2 py-0.5 text-3xs transition-colors",
+                    tab === item.value
+                      ? "bg-accent-wash text-accent-text"
+                      : "text-ink-soft hover:bg-hover hover:text-ink",
+                  )}
+                >
+                  {item.label}
+                </button>
+              ))}
+            </div>
+          ) : null}
+        </>
       }
       meta={[
-        { label: "名前", value: skill.name, tone: "strong" },
-        { label: "説明", value: skill.description || "説明なし" },
-        { label: "置き場", value: skill.relativePath, mono: true },
-        ...(skill.version ? [{ label: "版", value: skill.version }] : []),
+        { label: "名前", value: detail?.name ?? skill.name, tone: "strong" },
+        { label: "説明", value: (detail?.description ?? skill.description) || "説明なし" },
+        { label: "置き場", value: detail?.relativePath ?? skill.relativePath, mono: true },
+        ...((detail?.fileVersion ?? skill.version)
+          ? [{ label: "版", value: detail?.fileVersion ?? skill.version ?? "" }]
+          : []),
       ]}
-      note={skill.scope === "builtin" ? BUILTIN_SKILL_READONLY_NOTE : FILE_SKILL_READONLY_NOTE}
+      note={note}
       warning={skill.overridden ? BUILTIN_SKILL_OVERRIDE_NOTE : undefined}
       body={body}
       files={

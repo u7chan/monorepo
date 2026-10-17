@@ -1,0 +1,119 @@
+// 共通スキル (`.agents/skills`) の API 要求と応答の写像を、fetch を差し替えて固定する。
+// hc のクライアントはパスと query を組み立てるだけなので、method / URL / body をそのまま検査する。
+import assert from "node:assert/strict";
+import test from "node:test";
+
+globalThis.location ??= { origin: "http://localhost" } as Location;
+const { ApiError, createFileSkill, deleteFileSkill, getFileSkillDeletePreview, getFileSkillDetail, saveFileSkill } =
+  await import("../src/api");
+
+const DETAIL = {
+  name: "alpha",
+  description: "説明",
+  body: "\n本文\n",
+  relativePath: ".agents/skills/alpha/SKILL.md",
+  fileVersion: "a".repeat(64),
+  editable: true,
+};
+
+test("編集内容の取得は relativePath を query で送り、応答をそのまま返す", async (t) => {
+  const requests: Request[] = [];
+  t.mock.method(globalThis, "fetch", async (input: string | URL | Request, init?: RequestInit) => {
+    const request = new Request(input, init);
+    requests.push(request);
+    return Response.json(DETAIL);
+  });
+  assert.deepEqual(await getFileSkillDetail(DETAIL.relativePath), DETAIL);
+  const url = new URL(requests[0].url);
+  assert.equal(`${requests[0].method} ${url.pathname}`, "GET /api/skills/files/detail");
+  assert.equal(url.searchParams.get("relativePath"), DETAIL.relativePath);
+});
+
+test("作成と保存は JSON body を送り、保存は name を組み立てない", async (t) => {
+  const requests: Request[] = [];
+  t.mock.method(globalThis, "fetch", async (input: string | URL | Request, init?: RequestInit) => {
+    const request = new Request(input, init);
+    requests.push(request);
+    return Response.json({ relativePath: DETAIL.relativePath, fileVersion: "b".repeat(64) }, { status: 201 });
+  });
+  assert.deepEqual(await createFileSkill({ name: "new-skill", description: "d", body: "b" }), {
+    relativePath: DETAIL.relativePath,
+    fileVersion: "b".repeat(64),
+  });
+  assert.deepEqual(
+    await saveFileSkill({
+      relativePath: DETAIL.relativePath,
+      fileVersion: DETAIL.fileVersion,
+      description: "新しい説明",
+      body: "\n新しい本文\n",
+    }),
+    { relativePath: DETAIL.relativePath, fileVersion: "b".repeat(64) },
+  );
+  const urls = requests.map((request) => `${request.method} ${new URL(request.url).pathname}`);
+  assert.deepEqual(urls, ["POST /api/skills/files", "PATCH /api/skills/files"]);
+  assert.deepEqual(await requests[0].json(), { name: "new-skill", description: "d", body: "b" });
+  assert.deepEqual(await requests[1].json(), {
+    relativePath: DETAIL.relativePath,
+    fileVersion: DETAIL.fileVersion,
+    description: "新しい説明",
+    body: "\n新しい本文\n",
+  });
+});
+
+test("削除確認と削除は query だけで送り、削除の応答本文は読まない", async (t) => {
+  const requests: Request[] = [];
+  t.mock.method(globalThis, "fetch", async (input: string | URL | Request, init?: RequestInit) => {
+    const request = new Request(input, init);
+    requests.push(request);
+    if (request.method === "DELETE") return new Response(null, { status: 204 });
+    return Response.json({
+      relativePath: DETAIL.relativePath,
+      name: "alpha",
+      dir: ".agents/skills/alpha",
+      treeVersion: "c".repeat(64),
+      entries: 2,
+      bytes: 10,
+      files: ["SKILL.md", "refs/note.txt"],
+    });
+  });
+  const preview = await getFileSkillDeletePreview(DETAIL.relativePath);
+  assert.equal(preview.dir, ".agents/skills/alpha");
+  assert.deepEqual(preview.files, ["SKILL.md", "refs/note.txt"]);
+  await deleteFileSkill(preview.relativePath, preview.treeVersion);
+  const previewUrl = new URL(requests[0].url);
+  assert.equal(`${requests[0].method} ${previewUrl.pathname}`, "GET /api/skills/files/delete-preview");
+  assert.equal(previewUrl.searchParams.get("relativePath"), DETAIL.relativePath);
+  const deleteUrl = new URL(requests[1].url);
+  assert.equal(`${requests[1].method} ${deleteUrl.pathname}`, "DELETE /api/skills/files");
+  assert.equal(deleteUrl.searchParams.get("relativePath"), DETAIL.relativePath);
+  assert.equal(deleteUrl.searchParams.get("treeVersion"), preview.treeVersion);
+});
+
+test("競合 (409) と上限 (413) は status と文言を保って reject する", async (t) => {
+  t.mock.method(globalThis, "fetch", async () =>
+    Response.json({ error: "スキルが他の変更と競合しました。再読み込みしてから保存してください" }, { status: 409 }),
+  );
+  const conflict = await saveFileSkill({
+    relativePath: DETAIL.relativePath,
+    fileVersion: DETAIL.fileVersion,
+    description: "d",
+    body: "b",
+  }).then(
+    () => null,
+    (reason: unknown) => reason,
+  );
+  assert.ok(conflict instanceof ApiError);
+  assert.equal(conflict.status, 409);
+  assert.match(conflict.message, /競合/);
+
+  t.mock.method(globalThis, "fetch", async () =>
+    Response.json({ error: "Request body is too large" }, { status: 413 }),
+  );
+  const tooLarge = await createFileSkill({ name: "big", description: "d", body: "x" }).then(
+    () => null,
+    (reason: unknown) => reason,
+  );
+  assert.ok(tooLarge instanceof ApiError);
+  assert.equal(tooLarge.status, 413);
+  assert.match(tooLarge.message, /too large/i);
+});

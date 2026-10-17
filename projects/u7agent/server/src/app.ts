@@ -21,6 +21,7 @@ import { createProjectRoutes } from "./routes/projects";
 import { createRuntimeRoutes } from "./routes/runtime";
 import { createSecretRoutes } from "./routes/secrets";
 import { createServeRoutes } from "./routes/serve";
+import { createSkillFileRoutes } from "./routes/skill-files";
 import { createSessionRoutes } from "./routes/sessions";
 import { createWebSearchSettingsRoutes } from "./routes/web-search";
 import { createSecretScope } from "./secrets";
@@ -35,6 +36,7 @@ import {
   CreateProjectBodySchema,
   CreateSecretBodySchema,
   CreateSessionBodySchema,
+  CreateFileSkillBodySchema,
   CreateSkillBodySchema,
   MoveSessionBodySchema,
   PostMessageBodySchema,
@@ -61,6 +63,7 @@ import {
   UpdateSessionSettingsBodySchema,
   UpdateSessionTitleBodySchema,
   UpdateSkillBodySchema,
+  SaveFileSkillBodySchema,
   ServeStartBodySchema,
   ServeStopBodySchema,
   RuntimeServeStopBodySchema,
@@ -116,6 +119,7 @@ export async function createBffApp(opts: CreateBffAppOptions = {}) {
     webSearchSettings,
     serve,
     secrets,
+    skillSandbox,
   } = await createBffContext(opts);
   const appData = appDataGuard(appDb);
   const spaces = new SpaceStore(appDb);
@@ -139,6 +143,7 @@ export async function createBffApp(opts: CreateBffAppOptions = {}) {
   // プレビュー専用リスナー (別オリジン) 用。storage を有効にするため、応答は HTML プレビューのルートだけにする
   const previewFileRoutes = createFileRoutes({ workspace, archiveSettings, sandbox: "storage" });
   const catalogRoutes = createCatalogRoutes({ catalog, workspace, rootCwd: cwd });
+  const skillFileRoutes = createSkillFileRoutes({ sandbox: skillSandbox });
   const projectRoutes = createProjectRoutes({ projects, store, workspace });
   const sessionRoutes = createSessionRoutes({ store, workspace, spaces });
   const notificationRoutes = createNotificationRoutes({ notifications });
@@ -257,6 +262,24 @@ export async function createBffApp(opts: CreateBffAppOptions = {}) {
     .delete("/api/agents/:id", appData, catalogRoutes.removeAgent)
     .get("/api/skills", appData, catalogRoutes.listSkills)
     .get("/api/skills/files", catalogRoutes.listFileSkills)
+    // 共通スキルの編集。静的セグメントを /api/skills/:id より先に登録する (旧カタログ CRUD を壊さない)
+    .get("/api/skills/files/detail", skillFileRoutes.detail)
+    .get("/api/skills/files/delete-preview", skillFileRoutes.deletePreview)
+    .delete("/api/skills/files", skillFileRoutes.remove)
+    .post(
+      "/api/skills/files",
+      jsonBodyValidator(CreateFileSkillBodySchema, (result, c) =>
+        result.success ? undefined : c.json({ error: "Invalid request body" }, 400),
+      ),
+      (c) => skillFileRoutes.create(c, c.req.valid("json")),
+    )
+    .patch(
+      "/api/skills/files",
+      jsonBodyValidator(SaveFileSkillBodySchema, (result, c) =>
+        result.success ? undefined : c.json({ error: "Invalid request body" }, 400),
+      ),
+      (c) => skillFileRoutes.save(c, c.req.valid("json")),
+    )
     // セッション未確定 (新規チャット) の一覧。GET /api/skills/:id は無いので静的セグメントで衝突しない
     .get("/api/skills/session", appData, sessionRoutes.previewSkills)
     .post(
