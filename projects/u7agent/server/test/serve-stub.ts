@@ -137,8 +137,10 @@ export function createServeSandboxStub(): ServeSandboxStub {
       if (state.fail) throw new Error("サンドボックスの待受観測が失敗しました (HTTP 500)");
       if (scan) state.scans += 1;
       const listener = state.listener;
+      const inodes = listener ? [...listener.inodes] : [...state.orphanInodes];
       return {
-        inodes: listener ? [...listener.inodes] : [...state.orphanInodes],
+        inodes,
+        addressScopes: inodes.map(() => "loopback" as const),
         listener: scan && listener ? { ...listener, inodes: [...listener.inodes] } : null,
       };
     },

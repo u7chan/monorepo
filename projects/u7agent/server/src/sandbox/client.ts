@@ -15,6 +15,7 @@ import {
   type SandboxHandoffRead,
   type SandboxHandoffRollback,
   type SandboxHandoffWrite,
+  type SandboxListenerRangeScan,
   type SandboxListenerScan,
   type SandboxMoveResult,
   type SandboxRenameResult,
@@ -176,6 +177,7 @@ export function createSandboxToolClient(options: SandboxToolClientOptions): Sand
     downloadEntry: (path, excludeNames) => downloadEntry(path, excludeNames, baseUrl, token, fetchImpl),
     checkDownload: (path, excludeNames) => checkDownload(path, excludeNames, baseUrl, token, fetchImpl),
     scanListeners: (port, options) => scanListeners(port, options, baseUrl, token, fetchImpl, listenerScanTimeoutMs),
+    scanListenerRange: (from, to) => scanListenerRange(from, to, baseUrl, token, fetchImpl, listenerScanTimeoutMs),
   };
 }
 
@@ -250,6 +252,11 @@ export interface SandboxToolClient extends SandboxRuntimeDiagnostics {
    * bash 実行は Landlock の ptrace 制限で他ドメインの `/proc/<pid>/fd` を読めないため、service 本体が走査する。
    */
   scanListeners(port: number, options: { scan: boolean }): Promise<SandboxListenerScan>;
+  /**
+   * `from`..`to` の待受ポート一覧。待受の無いポートは返らず、所有 PID の fd 走査もしないため、
+   * 状態表示のポーリングに使える。
+   */
+  scanListenerRange(from: number, to: number): Promise<SandboxListenerRangeScan>;
 }
 
 /** /api/files とプロジェクト作成・アップロードが使うサンドボックス機能 (テストはこれを stub に差し替える)。 */ export type SandboxWorkspaceClient =
@@ -401,17 +408,16 @@ async function statFile(
 }
 
 /**
- * 待受ソケットと所有 PID の観測。`scan` は停止と起動の確認でだけ true にする (重い fd 走査を避ける)。
- * 期限は接続と本文の両方に掛ける: fetch や本文読み取りが signal を無視する実装でも待ち続けない。
+ * 待受観測 (`GET /v1/procs/listeners`) の取得。期限は接続と本文の両方に掛ける: fetch や本文読み取りが
+ * signal を無視する実装でも待ち続けない。
  */
-async function scanListeners(
-  port: number,
-  options: { scan: boolean },
+async function requestListenerScan<T>(
+  query: URLSearchParams,
   baseUrl: string,
   token: string,
   fetchImpl: typeof fetch,
   timeoutMs: number,
-): Promise<SandboxListenerScan> {
+): Promise<T> {
   const controller = new AbortController();
   let rejectTimeout: ((error: Error) => void) | undefined;
   const timeout = new Promise<never>((_resolve, reject) => {
@@ -422,7 +428,6 @@ async function scanListeners(
     rejectTimeout?.(new Error("サンドボックスの待受観測がタイムアウトしました"));
   }, timeoutMs);
   try {
-    const query = new URLSearchParams({ port: String(port), scan: String(options.scan) });
     const response = await Promise.race([
       fetchJson(
         fetchImpl,
@@ -435,10 +440,38 @@ async function scanListeners(
     if (!response.ok) {
       throw await Promise.race([jsonError(response, "待受プロセスの観測に失敗しました"), timeout]);
     }
-    return await Promise.race([response.json() as Promise<SandboxListenerScan>, timeout]);
+    return await Promise.race([response.json() as Promise<T>, timeout]);
   } finally {
     clearTimeout(timer);
   }
+}
+
+/**
+ * 待受ソケットと所有 PID の観測。`scan` は停止と起動の確認でだけ true にする (重い fd 走査を避ける)。
+ */
+async function scanListeners(
+  port: number,
+  options: { scan: boolean },
+  baseUrl: string,
+  token: string,
+  fetchImpl: typeof fetch,
+  timeoutMs: number,
+): Promise<SandboxListenerScan> {
+  const query = new URLSearchParams({ port: String(port), scan: String(options.scan) });
+  return await requestListenerScan<SandboxListenerScan>(query, baseUrl, token, fetchImpl, timeoutMs);
+}
+
+/** レンジの待受ポート一覧。待受ゼロのポートはサンドボックス側で落とされる。 */
+async function scanListenerRange(
+  from: number,
+  to: number,
+  baseUrl: string,
+  token: string,
+  fetchImpl: typeof fetch,
+  timeoutMs: number,
+): Promise<SandboxListenerRangeScan> {
+  const query = new URLSearchParams({ from: String(from), to: String(to) });
+  return await requestListenerScan<SandboxListenerRangeScan>(query, baseUrl, token, fetchImpl, timeoutMs);
 }
 
 async function listSkills(

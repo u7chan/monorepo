@@ -75,11 +75,12 @@ import {
   SKILL_DESCRIPTION_MAX_LENGTH,
 } from "./skill-edit";
 import { probeSandboxRuntime } from "./runtime-info";
-import { scanListeners } from "./process-scan";
+import { scanListenerRange, scanListeners } from "./process-scan";
 import {
   SANDBOX_MAX_BODY_BYTES,
   SANDBOX_MAX_FILE_ENTRIES,
   SANDBOX_MAX_HANDOFF_BYTES,
+  SANDBOX_MAX_LISTENER_RANGE_PORTS,
   SANDBOX_MAX_PREVIEW_BYTES,
   SANDBOX_MAX_SKILL_SAVE_BYTES,
   SANDBOX_MAX_UPLOAD_BYTES,
@@ -1610,6 +1611,16 @@ function parseByteRange(header: string | undefined, size: number): ByteRange {
   return { kind: "satisfiable", start, end: Math.min(byteIndex(normalizeDigits(lastText)), size - 1) };
 }
 
+/**
+ * クエリのポート番号。1..65535 の 10 進整数だけを受け付け、欠落・他の表記・範囲外は null。
+ * `port` / `from` / `to` で同じ判定を使う (片方だけ緩いと排他の検証が崩れる)。
+ */
+function parsePortQuery(value: string | undefined): number | null {
+  if (value === undefined || !/^\d+$/.test(value)) return null;
+  const port = Number(value);
+  return Number.isInteger(port) && port > 0 && port <= 65535 ? port : null;
+}
+
 /** listen は呼び出し側 (@hono/node-server) が行い、テストは app.request() で検証する。 */
 export function createSandboxService(options: SandboxServiceOptions): SandboxService {
   const token = options.token;
@@ -1847,15 +1858,46 @@ export function createSandboxService(options: SandboxServiceOptions): SandboxSer
   // 待受ソケットと所有 PID の観測 (serve の所有者照合)。bash 実行は Landlock の ptrace 制限で
   // 他ドメインの /proc/<pid>/fd を読めないため、制限の外にいるこのプロセスが代行する。
   app.get("/v1/procs/listeners", async (c) => {
-    const port = Number(c.req.query("port"));
-    if (!Number.isInteger(port) || port <= 0 || port > 65535) {
-      return c.json({ error: "port must be a valid TCP port" }, 400);
+    const failed = (error: unknown) => {
+      console.warn(`[u7agent-sandbox] listener scan failed: ${messageFor(error)}`);
+      return c.json({ error: "待受プロセスの観測に失敗しました" }, 500);
+    };
+    const portQuery = c.req.query("port");
+    const fromQuery = c.req.query("from");
+    const toQuery = c.req.query("to");
+
+    // port は単一ポート、from/to はレンジ。両方を受けると対象が 2 通りに読めるため排他にする。
+    if (portQuery !== undefined && (fromQuery !== undefined || toQuery !== undefined)) {
+      return c.json({ error: "port and from/to are exclusive" }, 400);
     }
+
+    if (fromQuery !== undefined || toQuery !== undefined) {
+      // レンジは状態表示のポーリング専用。重い fd 走査は単一ポートのときだけ許可する。
+      if (c.req.query("scan") === "true") {
+        return c.json({ error: "scan is not supported with from/to" }, 400);
+      }
+      const from = parsePortQuery(fromQuery);
+      const to = parsePortQuery(toQuery);
+      if (from === null || to === null) {
+        return c.json({ error: "from and to must be valid TCP ports" }, 400);
+      }
+      if (from > to) return c.json({ error: "from must be less than or equal to to" }, 400);
+      if (to - from + 1 > SANDBOX_MAX_LISTENER_RANGE_PORTS) {
+        return c.json({ error: `range must be at most ${SANDBOX_MAX_LISTENER_RANGE_PORTS} ports` }, 400);
+      }
+      try {
+        return c.json(await scanListenerRange(from, to));
+      } catch (error) {
+        return failed(error);
+      }
+    }
+
+    const port = parsePortQuery(portQuery);
+    if (port === null) return c.json({ error: "port must be a valid TCP port" }, 400);
     try {
       return c.json(await scanListeners(port, { scan: c.req.query("scan") === "true" }));
     } catch (error) {
-      console.warn(`[u7agent-sandbox] listener scan failed: ${messageFor(error)}`);
-      return c.json({ error: "待受プロセスの観測に失敗しました" }, 500);
+      return failed(error);
     }
   });
 

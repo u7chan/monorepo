@@ -723,6 +723,7 @@ test("downloadEntry / checkDownload は exclude を繰り返しで送り、空�
 test("scanListeners は port と scan を query で送り、応答をそのまま写す", async () => {
   const payload = {
     inodes: [1270278],
+    addressScopes: ["loopback"],
     listener: { pid: 237424, startedAt: 1_700_000_000_000, inodes: [1270278], ancestors: [237424, 1] },
   };
   const { calls, impl } = stubFetch(
@@ -750,9 +751,38 @@ test("scanListeners は port と scan を query で送り、応答をそのま�
   );
 });
 
+// レンジ走査は状態表示のポーリングが使う。待受のあったポートだけを返す契約を query と応答の写像で固定する。
+test("scanListenerRange は from と to を query で送り、応答をそのまま写す", async () => {
+  const payload = { ports: [{ port: 18000, inodes: [1270278, 1270280] }] };
+  const { calls, impl } = stubFetch(
+    () => new Response(JSON.stringify(payload), { status: 200, headers: { "Content-Type": "application/json" } }),
+  );
+  const client = createSandboxToolClient({ baseUrl: "http://sandbox.test/", token: TOKEN, fetchImpl: impl });
+  assert.deepEqual(await client.scanListenerRange(18000, 18099), payload);
+  assert.equal(calls[0].url, "http://sandbox.test/v1/procs/listeners?from=18000&to=18099");
+  const init = calls[0].init;
+  assert.ok(init, "fetch が init 付きで呼ばれる");
+  assert.equal((init.headers as Record<string, string>).Authorization, `Bearer ${TOKEN}`);
+  assert.ok(init.signal, "期限の signal を付ける");
+
+  const failure = stubFetch(
+    () =>
+      new Response(JSON.stringify({ error: "boom" }), { status: 500, headers: { "Content-Type": "application/json" } }),
+  );
+  const failing = createSandboxToolClient({ baseUrl: "http://sandbox.test", token: TOKEN, fetchImpl: failure.impl });
+  await assert.rejects(
+    () => failing.scanListenerRange(18000, 18099),
+    (error: unknown) => {
+      assert.ok(error instanceof SandboxRequestError, "サンドボックス側の失敗として分類する");
+      assert.equal((error as SandboxRequestError).status, 502);
+      return true;
+    },
+  );
+});
+
 // 待受観測は serve の操作を直列化するロックの内側で走るため、無期限に待つと後続の操作が全部詰まる。
 // fetch / 本文が止まっても期限で抜けて abort を伝えることを固定する。
-test("scanListeners は本文が止まっても期限で打ち切り、abort を伝える", async () => {
+test("待受観測は本文が止まっても期限で打ち切り、abort を伝える", async () => {
   let signal: AbortSignal | undefined;
   const hanging = (async (_url: Parameters<typeof fetch>[0], init?: RequestInit) => {
     signal = init?.signal ?? undefined;
@@ -781,4 +811,12 @@ test("scanListeners は本文が止まっても期限で打ち切り、abort を
   );
   assert.ok(Date.now() - began < 4000, "期限で抜ける");
   assert.equal(signal?.aborted, true, "期限超過では fetch を abort する");
+
+  await assert.rejects(
+    () => client.scanListenerRange(18000, 18099),
+    (error: unknown) => {
+      assert.match((error as Error).message, /タイムアウト/);
+      return true;
+    },
+  );
 });

@@ -137,12 +137,35 @@ export interface SandboxListenerProcess {
   ancestors: number[];
 }
 
-/** GET /v1/procs/listeners の応答。scan が false のときは inode だけを返し、PID は探さない。 */
+/** レンジ走査で 1 度に問い合わせられるポート数の上限。状態表示のポーリングを軽く保つ */
+export const SANDBOX_MAX_LISTENER_RANGE_PORTS = 100;
+
+/**
+ * 待受アドレスの種別。`loopback` は 127.0.0.0/8 と `::1`、`any` は `0.0.0.0` と `::`。
+ * v4-mapped (`::ffff:a.b.c.d`) は IPv4 へ正規化してから判定する。
+ */
+export type SandboxListenerAddressScope = "loopback" | "any" | "other";
+
+/** GET /v1/procs/listeners の応答。scan が false のときは inode とアドレス種別だけを返し、PID は探さない。 */
 export interface SandboxListenerScan {
   /** 指定ポートの待受ソケット inode (昇順)。待受が無ければ空配列 */
   inodes: number[];
+  /** `inodes` と同じ添字で対応する待受アドレスの種別 */
+  addressScopes: SandboxListenerAddressScope[];
   /** scan=true のときだけ特定する。特定できなければ null */
   listener: SandboxListenerProcess | null;
+}
+
+/** レンジ走査の 1 ポート分。待受のあったポートだけを返す */
+export interface SandboxListenerPort {
+  port: number;
+  /** このポートの待受ソケット inode (昇順) */
+  inodes: number[];
+}
+
+/** GET /v1/procs/listeners?from=&to= の応答。待受の無いポートは含めず、所有 PID は探さない。 */
+export interface SandboxListenerRangeScan {
+  ports: SandboxListenerPort[];
 }
 
 /** POST /v1/files/rename のリクエストボディ。path は root 相対のエントリ (ファイル / ディレクトリ)、name は 1 セグメント。 */
