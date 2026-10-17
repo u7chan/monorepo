@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type CSSProperties } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { ApiError, statFile, type CreateProjectInput } from "./api";
 import { useSpace } from "./SpaceContext";
 import { SpaceSettingsPage } from "./components/SpaceSettingsPage";
@@ -51,6 +51,7 @@ import type { FileRefTarget } from "./lib/fileRef";
 import { classifyFileRefFailure, createFileRefOpener, fileRefCheckPath, type FileRefCheck } from "./lib/fileRefOpen";
 import { resolveSidebarPlacement } from "./lib/layout";
 import { openOwnerSession } from "./lib/ownerLink";
+import { queuedSendsOf } from "./lib/queueWait";
 import { sessionPath } from "./lib/route";
 import {
   missingLinkNote,
@@ -149,6 +150,8 @@ export default function App({ handoffNote = null, onHandoffNote, onHandoffNoteSh
     app.chat.retry,
     retryRemainingMs(app.chat.retryRemainingMs, retryElapsed),
   );
+  // 待機中の送信。件数・順位・取り消しの正はこの配列 (ブロックは composer の直上)
+  const queuedSends = useMemo(() => queuedSendsOf(app.chat.bubbles), [app.chat.bubbles]);
   // 作業先 (バーのチップ / 空状態の見出し)。未作成チャットは作成先、セッションはその所属が作業先になる
   const scope = chatScope({
     cwd: app.cwd,
@@ -397,12 +400,6 @@ export default function App({ handoffNote = null, onHandoffNote, onHandoffNoteSh
     (runId: string) => {
       void app.discardUnsent(runId);
     },
-    [app],
-  );
-
-  const handleCancelQueued = useCallback(
-    // MessageView が応答までボタンを無効化するため、完了を待てるよう Promise を返す
-    (runId: string) => app.cancelQueued(runId),
     [app],
   );
 
@@ -941,7 +938,6 @@ export default function App({ handoffNote = null, onHandoffNote, onHandoffNoteSh
                   onSuggestion={selectSuggestion}
                   onResendUnsent={handleResendUnsent}
                   onDiscardUnsent={handleDiscardUnsent}
-                  onCancelQueued={handleCancelQueued}
                   answerable={app.chat.runStatus === "running"}
                   onAnswerQuestion={app.answerQuestion}
                   currentAssistantId={app.chat.currentAssistantId}
@@ -991,6 +987,8 @@ export default function App({ handoffNote = null, onHandoffNote, onHandoffNoteSh
               onChangeThinkingLevel={app.changeThinkingLevel}
               onReloadSkills={app.revalidateSessionSkills}
               onChangeAgent={handleAgentChange}
+              queuedSends={queuedSends}
+              onCancelQueued={app.cancelQueued}
             />
             {emptyPortrait ? <div aria-hidden="true" className="min-h-0" /> : null}
           </div>

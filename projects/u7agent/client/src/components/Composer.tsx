@@ -22,6 +22,7 @@ import { composerFocusAfterSend, hasCoarsePointer } from "../lib/composerFocus";
 import { shouldSubmitOnEnter } from "../lib/composerKeys";
 import { composerDropKind, FILE_MENTION_MIME, insertFileMention, type ComposerDropKind } from "../lib/fileMention";
 import type { LayoutMode } from "../lib/layout";
+import type { QueuedSend } from "../lib/queueWait";
 import { runRetryBlockedReason, type RunErrorInfo } from "../lib/runRetry";
 import { skillCommandText } from "../lib/sessionSkills";
 import { shouldClearSuggestionOnBackspace, suggestionSendText } from "../lib/suggestion";
@@ -31,6 +32,7 @@ import { AttachmentChips } from "./composer/AttachmentChips";
 import { ComposerStatus } from "./composer/ComposerStatus";
 import { LiveToolCall } from "./composer/LiveToolCall";
 import { ModelEffortPicker } from "./composer/ModelEffortControls";
+import { QueuedSends } from "./composer/QueuedSends";
 import { SkillPicker } from "./composer/SkillPicker";
 import { SuggestionChip } from "./composer/SuggestionChip";
 import { ArrowUpIcon, CollapseIcon, ExpandIcon, StopIcon } from "./icons";
@@ -46,7 +48,12 @@ export type ComposerProps = {
   runtimeReady: boolean;
   sending: boolean;
   stopVisible: boolean;
+  /** サーバーの待機キュー件数。停止が待機中の送信も破棄するかを示す根拠 */
   queueDepth: number;
+  /** 待機中の送信 (実行順)。コンポーザー直上のブロックに出し、transcript には出さない */
+  queuedSends?: QueuedSend[];
+  /** 待機中の 1 件の取り消し。応答まで押した行を無効化する */
+  onCancelQueued?: (runId: string) => Promise<void>;
   context?: ContextUsage;
   settings: ComposerSettings;
   /** 手動圧縮。セッションがあるときだけ渡す (未作成チャットでは導線を出さない) */
@@ -157,6 +164,8 @@ export function Composer({
   liveTools,
   runError,
   onReloadSkills,
+  queuedSends,
+  onCancelQueued,
 }: ComposerProps) {
   const singleColumn = mode !== "desktop";
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -439,12 +448,12 @@ export function Composer({
     sendBlocked: Boolean(settings.sendBlockedReason) || attachmentsBusy,
     stopPrimaryHeld: sendHold > 0,
   });
-  // 待機件数は状態行 (実行中… · 待機 N 件) とバブルの待機チップにも出るため、ボタンのラベルには載せない
+  // 待機件数の正は直上ブロック。ボタンは破棄する範囲だけを示し、数を二重に出さない
   const stopButton = (
     <button
       type="button"
-      aria-label={queueDepth > 0 ? `停止（待機中の ${queueDepth} 件も破棄）` : "停止"}
-      title={queueDepth > 0 ? `実行を中断し、待機中の ${queueDepth} 件も破棄します` : "実行を中断します"}
+      aria-label={queueDepth > 0 ? "停止（待機中の送信も破棄）" : "停止"}
+      title={queueDepth > 0 ? "実行を中断し、待機中の送信も破棄します" : "実行を中断します"}
       // 主 / 控えの別を印で出す (描画のテストを色の class に依存させないため)
       data-stop-slot={action === "stop" ? "primary" : "secondary"}
       onClick={onStop}
@@ -534,6 +543,7 @@ export function Composer({
           onDrop={handleDrop}
         >
           <LiveToolCall {...liveTools} className="absolute inset-x-0 bottom-full z-10" />
+          <QueuedSends sends={queuedSends ?? []} singleColumn={singleColumn} onCancel={onCancelQueued} />
           <ComposerStatus
             activity={activity}
             activityState={activityState}

@@ -79,15 +79,15 @@ test("描画: 回答待ちとキューが揃わなければ待機の理由を出
   assert.ok(!render({ ...waiting, queueDepth: 0 }).includes("回答しても"), "サーバーが 0 を配る縮退でも出さない");
 
   const running = render({
-    activity: "実行中… · 待機 1 件",
+    activity: "実行中…",
     runStatus: "running",
     runTools: { t1: { id: "t1", name: "bash", args: "", isError: false, done: false, output: "" } },
     queueDepth: 1,
   });
-  assert.ok(!running.includes("回答しても"), "回答待ちが無い待ちはバブルのチップの title に任せる");
+  assert.ok(!running.includes("回答しても"), "回答待ちが無い待ちは状態行の活動文言に任せる");
 
   const settled = render({
-    activity: "実行中… · 待機 1 件",
+    activity: "実行中…",
     runStatus: "running",
     runTools: { q1: { ...pendingQuestion(), done: true } },
     queueDepth: 1,

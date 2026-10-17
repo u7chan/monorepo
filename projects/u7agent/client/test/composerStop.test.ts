@@ -137,11 +137,14 @@ test("描画: 回答待ち (送信が止まっている) では停止を主ス�
   assert.ok(isDisabled(startTag(html, send)), "送信は無効のまま");
 });
 
-test("描画: 停止の待機件数は、可視のテキストではなく読み上げ名と title で補う", () => {
-  // What: 待機件数は状態行 (実行中… · 待機 N 件) とバブルのチップにも出るため、ボタンには載せない。
-  // 押すと何が消えるかは、読み上げ名と title の両方に持たせる。
+test("描画: 停止のラベルに待機件数を載せず、破棄する範囲だけを示す", () => {
+  // What: 件数の正はコンポーザー直上のブロック。ボタンは押すと何が消えるかを読み上げ名と title で示す
   const html = render({ stopVisible: true, queueDepth: 2 });
   assert.ok(!html.includes(">停止<"), "可視のテキストリンクにしない");
-  assert.ok(html.includes('aria-label="停止（待機中の 2 件も破棄）"'), "読み上げ名に破棄の対象を入れる");
-  assert.ok(html.includes("待機中の 2 件も破棄します"), "押すと何が消えるかを title に持つ");
+  assert.ok(html.includes('aria-label="停止（待機中の送信も破棄）"'), "読み上げ名に破棄の対象を入れる");
+  assert.ok(html.includes("実行を中断し、待機中の送信も破棄します"), "押すと何が消えるかを title に持つ");
+  assert.ok(!html.includes("2 件"), "件数はブロックだけが持つ");
+
+  // 待機が無ければ、破棄する待機が無いことをタイトルでも示さない
+  assert.ok(render({ stopVisible: true }).includes("実行を中断します"));
 });

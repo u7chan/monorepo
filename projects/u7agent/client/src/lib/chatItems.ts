@@ -43,7 +43,9 @@ export function chatRenderItems({
   let lastMessageIndex: number | undefined;
   for (let position = 0; position <= bubbles.length; position += 1) {
     const bubble = bubbles[position];
-    if (bubble === undefined || bubble.role === "user") {
+    // 待機中の送信はターンの区切りに使わない。実行中ターンの応答が後ろに積まれる窓 (最初の delta より前に
+    // 送った 2 通目) でも、結末がそのターンの最後の応答へ付くようにする
+    if (bubble === undefined || (bubble.role === "user" && bubble.queued !== true)) {
       // 結末はターンを閉じてから付ける。境界ラベル・圧縮の区切りはターンの後ろに並ぶ
       attachTurnEnd(items, lastMessageIndex, openTurn);
       if (bubble) openTurn = bubble;
@@ -61,13 +63,18 @@ export function chatRenderItems({
     }
     if (bubble) {
       const turnEnd = itemTurnEnd(bubble);
-      items.push({
-        kind: "message",
-        key: `message:${bubble.entryId ?? bubble.id}`,
-        bubble,
-        ...(turnEnd !== undefined ? { turnEnd } : {}),
-      });
-      lastMessageIndex = items.length - 1;
+      // 待機中の送信は transcript に出さない (コンポーザー直上のブロックが担う)。配列を filter せず
+      // ここで push だけを見送るのは、marker.index / boundaryPosition / ターンの結末の位置算術を
+      // 1 つもずらさないため
+      if (bubble.queued !== true) {
+        items.push({
+          kind: "message",
+          key: `message:${bubble.entryId ?? bubble.id}`,
+          bubble,
+          ...(turnEnd !== undefined ? { turnEnd } : {}),
+        });
+        lastMessageIndex = items.length - 1;
+      }
     }
   }
   return items;
