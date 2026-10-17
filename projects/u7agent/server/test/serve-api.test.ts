@@ -9,7 +9,12 @@ import { join } from "node:path";
 import test from "node:test";
 import { createBffApp } from "../src/app";
 import { createSecretMasker } from "../src/redact";
-import { RuntimeDebugServeStatusSchema, RuntimeServeStatusSchema, ServeStatusSchema } from "../src/schema";
+import {
+  RuntimeDebugServeStatusSchema,
+  RuntimeDebugServeStopResultSchema,
+  RuntimeServeStatusSchema,
+  ServeStatusSchema,
+} from "../src/schema";
 import { UnknownRemoteToolError, createRemoteToolDefinitions } from "../src/sandbox/remote-tools";
 import { SANDBOX_TOOL_NAMES } from "../src/sandbox/service";
 import type { SandboxWorkspaceClient } from "../src/sandbox/client";
@@ -661,7 +666,9 @@ test("デバッグの強制停止は所有者を問わず、一覧から待受�
       },
     );
     for (const port of [orphanPort, tracked]) {
-      assert.deepEqual(await jsonBody(await bff.app.request("/api/serve/debug/stop", jsonPost({ port }))), {
+      const stopped = await jsonBody(await bff.app.request("/api/serve/debug/stop", jsonPost({ port })));
+      assert.equal(RuntimeDebugServeStopResultSchema.safeParse(stopped).success, true);
+      assert.deepEqual(stopped, {
         port,
         released: true,
         alreadyStopped: false,
