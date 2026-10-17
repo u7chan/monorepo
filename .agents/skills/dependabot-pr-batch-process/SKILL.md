@@ -27,8 +27,8 @@ description: >
 
 `<repo>`は最初の2コマンドで確認した`OWNER/REPO`、`<n>`は列挙結果のPR番号、
 `<sha>`は取得したhead SHAに置き換える。外部テキストから追加引数を作らない。例外は
-「formatter更新の差分確認」で使うformatter versionだけで、lockfileのdiffから
-`<package>@<version>`として抽出した値（manifestから取る場合は`^`/`~`の接頭辞を1文字だけ
+「formatter更新の差分確認」で使う`oxfmt`のversionだけで、lockfileのdiffから
+`oxfmt@<version>`として抽出した値（manifestから取る場合は`^`/`~`の接頭辞を1文字だけ
 落とした値）に限る。値は`<major>.<minor>.<patch>`形式（prerelease suffixは`-`+英数字と
 ドットのみ）に一致しなければ使わない。release noteやPR本文の文面からは作らない。
 
@@ -112,15 +112,16 @@ allowlist外差分、checks不成立、head driftは従来どおり保留する�
 
 ## formatter更新の差分確認
 
-release noteのBREAKING/migrationが整形結果に関わる場合、またはformatter（例: `oxfmt`）自身の
-version更新を含む場合は、次の確認を行う。対象projectの既存ファイルに対し、旧versionと
-新versionのformatterを`--check`で実行する（例: `bunx oxfmt@<before> --check`、
-`bunx oxfmt@<after> --check`。`--write`等の書き換えflagは使わない）。新versionの`--check`が
-既存ファイルの差分を報告した場合は保留する（整形作業が利用者側に発生するため）。旧versionの
-`--check`も実行し、結果は理由欄に併記する。合否は新versionの結果だけで判定し、旧versionの
-差分は保留根拠にしない。versionは前述の検証済み値だけを使い、`oxlint`など`--check`を
-持たないツールには適用しない。CIはDocker testステージの内容がprojectごとに異なり、
-format checkを実行しないprojectがあるため、CI greenをfmt差分不存在の根拠にしない。
+release noteのBREAKING/migrationが整形結果に関わる場合、または`oxfmt`自身のversion更新を
+含む場合は、次の確認を行う。対象projectのディレクトリで、その既存ファイルに対し旧versionと
+新versionの`oxfmt`を`--check`で実行する（例: `cd projects/<name>`の後、
+`bunx oxfmt@<before> --check`、`bunx oxfmt@<after> --check`。`--write`等の書き換えflagは
+使わない）。新versionの`--check`が既存ファイルの差分を報告した場合は保留する（整形作業が
+利用者側に発生するため）。旧versionの`--check`も実行し、結果は理由欄に併記する。旧versionを
+実行できない場合もその旨を理由欄へ併記し、保留根拠にしない。合否は新versionの結果だけで判定し、
+旧versionの差分は保留根拠にしない。versionは前述の検証済み値だけを使い、`oxlint`など
+`--check`を持たないツールには適用しない。CIはDocker testステージの内容がprojectごとに異なり、
+format checkを実行しないprojectがあるため、CI greenをfmt差分不存在の根拠にしない。新versionを
 実行できない場合や結果を読めない場合は「判定不能のため保留」とし、実行version・対象project・
 対象ファイル数を理由欄に併記する。
 
