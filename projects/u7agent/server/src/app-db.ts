@@ -1,6 +1,7 @@
 /**
- * アプリデータ (プロジェクト / エージェント / スキル) の SQLite ストア。
+ * アプリデータ (プロジェクト / エージェント / 設定) の SQLite ストア。
  * 置き場所・スキーマの作り直し・失敗時の扱いは docs/persistence.md を正とする。
+ * スキル定義はこの DB ではなくファイル (`.agents/skills`) を正とする。
  */
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
@@ -14,13 +15,12 @@ import type {
   NotificationResult,
   NotificationSettings,
   Project,
-  SkillDef,
   Space,
 } from "./schema";
 
 export const APP_DB_FILENAME = "u7agent.db";
 /** テーブル定義を変えたら上げる。新規作成と加算移行はこの版へ揃え、未知の版は作り直す */
-export const APP_DB_SCHEMA_VERSION = 22;
+export const APP_DB_SCHEMA_VERSION = 23;
 
 /** プロバイダー API キーの保存行。平文なのでアクセス権の管理は docs/secrets.md を正とする */
 export interface ProviderCredentialRow {
@@ -347,12 +347,6 @@ CREATE TABLE projects (
   cwd TEXT NOT NULL,
   createdAt INTEGER NOT NULL
 );
-CREATE TABLE skills (
-  id TEXT PRIMARY KEY,
-  name TEXT NOT NULL,
-  description TEXT NOT NULL,
-  body TEXT NOT NULL
-);
 CREATE TABLE agents (
   id TEXT PRIMARY KEY,
   name TEXT NOT NULL,
@@ -361,7 +355,6 @@ CREATE TABLE agents (
   icon TEXT,
   model TEXT,
   thinkingLevel TEXT,
-  skillIds TEXT NOT NULL,
   suggestions TEXT,
   commonSkillNames TEXT,
   builtinSkillNames TEXT,
@@ -413,7 +406,6 @@ const SEED_AGENTS: AgentDef[] = [
     description: "「〜なのだ」「〜のだ」の語尾で話す",
     systemPrompt:
       "ずんだもんの口調で話してください。文末は「〜なのだ」「〜のだ」にし、一人称は「ボク」を使ってください。内容や説明の正確さは変えず、口調だけを変えてください。コード・コマンド・ファイルパス・エラーメッセージは書き換えず、そのまま示してください。",
-    skillIds: [],
   },
 ];
 
@@ -463,15 +455,6 @@ function projectOf(row: Row): Project {
     name: text(row.name),
     cwd: text(row.cwd),
     createdAt: Number(row.createdAt),
-  };
-}
-
-function skillOf(row: Row): SkillDef {
-  return {
-    id: text(row.id),
-    name: text(row.name),
-    description: text(row.description),
-    body: text(row.body),
   };
 }
 
@@ -600,7 +583,6 @@ function agentOf(row: Row): AgentDef {
     name: text(row.name),
     description: text(row.description),
     systemPrompt: text(row.systemPrompt),
-    skillIds: jsonArray<string>(row.skillIds) ?? [],
   };
   const icon = optionalText(row.icon);
   const model = jsonObject<ModelRef>(row.model);
@@ -809,6 +791,24 @@ export class AppDb {
     });
   }
 
+  /**
+   * 列の削除。存在確認は `#addColumnIfMissing` と同じ理由で毎回 PRAGMA を引く
+   * (`DROP COLUMN IF EXISTS` は SQLite に無く、呼び出し元の版判定だけに任せると再実行で壊れる)。
+   */
+  #dropColumnIfExists(table: string, column: string): void {
+    this.#query((db) => {
+      if (!this.#tableExists(table)) return;
+      const columns = db.prepare(`PRAGMA table_info(${table})`).all() as Row[];
+      if (!columns.some((row) => row.name === column)) return;
+      db.exec(`ALTER TABLE ${table} DROP COLUMN ${column}`);
+    });
+  }
+
+  /** テーブルの削除。`IF EXISTS` に頼らず sqlite_master で確かめる (再実行しても同じ結果になる) */
+  #dropTableIfExists(table: string): void {
+    if (this.#tableExists(table)) this.#query((db) => db.exec(`DROP TABLE ${table}`));
+  }
+
   /** 列の改名。存在確認は `#addColumnIfMissing` と同じ理由で毎回 PRAGMA を引く */
   #renameColumnIfNeeded(table: string, from: string, to: string): void {
     this.#query((db) => {
@@ -854,8 +854,11 @@ export class AppDb {
   }
 
   /**
-   * 古い版からの加算的な移行。足りないテーブルと列だけを足し、既存の定義は触らない。
+   * 古い版からの移行。足りないテーブルと列を足し、その後に撤去対象だけを消す。
    * 改名 (v14 -> v15) だけが例外で、CREATE TABLE IF NOT EXISTS より先に RENAME を通す。
+   * 削除 (v22 -> v23 の `skills` / `agents.skillIds`) は**既存の加算更新を通した後**に行い、
+   * user_version の更新まで同じトランザクションに入れる (途中で失敗したら 1 つも残さない)。
+   * スキル定義はファイルへ移行せず、退避・専用バックアップテーブルも作らない (docs/persistence.md)。
    */
   #migrate(): void {
     this.#query((db) => db.exec("BEGIN"));
@@ -899,6 +902,9 @@ export class AppDb {
       this.#addColumnIfMissing("spaces", "sortOrder", "INTEGER");
       // v19 以前に無い列 (質問通知)。既存行は既定 (ON) で埋める
       this.#addColumnIfMissing("notification_settings", "askUser", "INTEGER NOT NULL DEFAULT 1");
+      // v22 -> v23: DB カタログの撤去。加算更新を通した後にだけ限定して消す
+      this.#dropTableIfExists("skills");
+      this.#dropColumnIfExists("agents", "skillIds");
       // PRAGMA はパラメータ化できない (値はコード側の定数)
       this.#query((db) => db.exec(`PRAGMA user_version = ${APP_DB_SCHEMA_VERSION}`));
       this.#query((db) => db.exec("COMMIT"));
@@ -1296,33 +1302,6 @@ export class AppDb {
     return this.#query((db) => db.prepare("DELETE FROM projects WHERE id = ?").run(id).changes > 0);
   }
 
-  // --- skills ---
-
-  listSkills(): SkillDef[] {
-    return this.#query((db) => (db.prepare("SELECT * FROM skills ORDER BY rowid").all() as Row[]).map(skillOf));
-  }
-
-  getSkill(id: string): SkillDef | undefined {
-    const row = this.#query((db) => db.prepare("SELECT * FROM skills WHERE id = ?").get(id) as Row | undefined);
-    return row ? skillOf(row) : undefined;
-  }
-
-  /** 作成と更新で同じ (id が主キー) */
-  saveSkill(skill: SkillDef): void {
-    this.#query((db) =>
-      db
-        .prepare(
-          `INSERT INTO skills (id, name, description, body) VALUES (?, ?, ?, ?)
-           ON CONFLICT(id) DO UPDATE SET name = excluded.name, description = excluded.description, body = excluded.body`,
-        )
-        .run(skill.id, skill.name, skill.description, skill.body),
-    );
-  }
-
-  deleteSkill(id: string): boolean {
-    return this.#query((db) => db.prepare("DELETE FROM skills WHERE id = ?").run(id).changes > 0);
-  }
-
   // --- agents ---
 
   /** 表示順 (sortOrder 昇順)。移行前の行は NULL なので、同じ NULL 同士は rowid = 作成順で並ぶ */
@@ -1358,11 +1337,11 @@ export class AppDb {
     this.#query((db) =>
       db
         .prepare(
-          `INSERT INTO agents (id, name, description, systemPrompt, icon, model, thinkingLevel, skillIds, suggestions, commonSkillNames, builtinSkillNames, toolNames, sortOrder)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, (SELECT COALESCE(MAX(sortOrder), 0) + 1 FROM agents))
+          `INSERT INTO agents (id, name, description, systemPrompt, icon, model, thinkingLevel, suggestions, commonSkillNames, builtinSkillNames, toolNames, sortOrder)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, (SELECT COALESCE(MAX(sortOrder), 0) + 1 FROM agents))
            ON CONFLICT(id) DO UPDATE SET name = excluded.name, description = excluded.description,
              systemPrompt = excluded.systemPrompt, icon = excluded.icon, model = excluded.model,
-             thinkingLevel = excluded.thinkingLevel, skillIds = excluded.skillIds, suggestions = excluded.suggestions,
+             thinkingLevel = excluded.thinkingLevel, suggestions = excluded.suggestions,
              commonSkillNames = excluded.commonSkillNames, builtinSkillNames = excluded.builtinSkillNames,
              toolNames = excluded.toolNames`,
         )
@@ -1374,7 +1353,6 @@ export class AppDb {
           agent.icon ?? null,
           agent.model ? JSON.stringify(agent.model) : null,
           agent.thinkingLevel ?? null,
-          JSON.stringify(agent.skillIds),
           agent.suggestions ? JSON.stringify(agent.suggestions) : null,
           // 未指定は NULL、`[]` は "[]" (undefined と [] を混同しない)
           agent.commonSkillNames === undefined ? null : JSON.stringify(agent.commonSkillNames),
@@ -1508,19 +1486,6 @@ export class AppDb {
     this.transaction(() => {
       this.#query((db) => db.prepare("UPDATE serve_commands SET cwd = ? WHERE cwd = ?").run(to, from));
       this.#query((db) => db.prepare("UPDATE secrets SET cwd = ? WHERE cwd = ?").run(to, from));
-    });
-  }
-
-  /** スキル削除と、それを参照している agents からの除去をまとめる */
-  deleteSkillAndDetach(id: string): boolean {
-    return this.transaction(() => {
-      const agents = this.listAgents();
-      if (!this.deleteSkill(id)) return false;
-      for (const agent of agents) {
-        if (!agent.skillIds.includes(id)) continue;
-        this.saveAgent({ ...agent, skillIds: agent.skillIds.filter((skillId) => skillId !== id) });
-      }
-      return true;
     });
   }
 }

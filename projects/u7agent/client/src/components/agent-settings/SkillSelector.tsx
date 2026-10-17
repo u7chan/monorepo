@@ -9,7 +9,7 @@ import {
   groupFileSkills,
 } from "../../lib/fileSkills";
 import { RELOAD_ABOVE_NOTE } from "../../lib/settingsNotes";
-import type { BuiltinSkillInfo, FileSkillInfo, SkillDef } from "../../types";
+import type { BuiltinSkillInfo, FileSkillInfo } from "../../types";
 import { ReloadButton } from "../ReloadButton";
 import { SkillGroup, SkillRow } from "./SkillRow";
 
@@ -49,10 +49,7 @@ function builtinSkillMissingNote(names: string[]): string {
 }
 
 export function SkillSelector({
-  skills,
   builtinSkills,
-  selectedIds,
-  onToggle,
   fileSkills,
   onReloadFileSkills,
   commonSkillNames,
@@ -63,11 +60,8 @@ export function SkillSelector({
   onShowAllBuiltinSkills,
   onDisableAllBuiltinSkills,
 }: {
-  skills: SkillDef[];
   /** アプリに同梱する組み込みスキル。エージェント定義の許可リストで外せるので、チェック可能な行で出す */
   builtinSkills: BuiltinSkillInfo[];
-  selectedIds: string[];
-  onToggle: (skillId: string, checked: boolean) => void;
   /** 共通スキル (`.agents/skills`) の取得状態。取得できないときは欄を出さず、理由だけを出す */
   fileSkills: FileSkillsState;
   onReloadFileSkills: () => void;
@@ -81,8 +75,6 @@ export function SkillSelector({
   onShowAllBuiltinSkills: () => void;
   onDisableAllBuiltinSkills: () => void;
 }) {
-  // カタログから消えた id が残っていても選択数が全件を超えないよう、実在するスキルだけ数える
-  const selectedCount = skills.filter((skill) => selectedIds.includes(skill.id)).length;
   // 一覧 API は共通 (user) と組み込みだけを返すので、組み込みを除いた側がそのまま共通スキル
   const commonSkills = fileSkills.status === "ready" ? groupFileSkills(fileSkills.skills).common : [];
   // undefined (未指定) と null (解除) はどちらも全可視で、明示リスト ([] を含む) だけが「選んだ名前」
@@ -125,9 +117,6 @@ export function SkillSelector({
       <div className="flex items-baseline justify-between gap-2 text-2xs text-ink-faint">
         <span className="flex min-w-0 items-baseline gap-1.5 font-semibold tracking-label uppercase">
           <span>スキル</span>
-          <span className="font-normal">
-            割り当て中 {selectedCount} / 全 {skills.length}
-          </span>
         </span>
         {/* 取得失敗のときだけ出す。取り直しはまとまりの見出し行に 1 つ置く (docs/ui-layout.md#モードごとの構成) */}
         {fileSkills.status === "error" ? (
@@ -136,29 +125,6 @@ export function SkillSelector({
           </ReloadButton>
         ) : null}
       </div>
-      {skills.length === 0 ? (
-        <div className="text-1xs text-ink-faint">スキルがありません。「スキル」ページから作成できます。</div>
-      ) : (
-        <div className="grid gap-1">
-          {skills.map((skill) => (
-            <SkillRow
-              key={skill.id}
-              name={skill.name}
-              description={skill.description || ""}
-              // カタログの名前は末尾だけ違うことがあるので折り返して全部見せる
-              wrapName
-              control={
-                <input
-                  type="checkbox"
-                  checked={selectedIds.includes(skill.id)}
-                  onChange={(e) => onToggle(skill.id, e.currentTarget.checked)}
-                  className="mt-0.5 accent-focus"
-                />
-              }
-            />
-          ))}
-        </div>
-      )}
       {fileSkills.status === "loading" ? (
         <p className="text-2xs leading-4 break-words text-ink-muted">{FILE_SKILL_LOADING_NOTE}</p>
       ) : null}

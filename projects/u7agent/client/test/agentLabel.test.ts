@@ -11,7 +11,6 @@ const agents: AgentDef[] = ["ずんだもん", "コードレビュー", "汎用�
   name,
   description: "",
   systemPrompt: "",
-  skillIds: [],
 }));
 
 test("セッション中のエージェント名は読み取り専用で、未作成チャットでは選択できる", () => {

@@ -25,7 +25,6 @@ export type AgentForm = {
   name: string;
   description: string;
   systemPrompt: string;
-  skillIds: string[];
   /**
    * 共通スキル (`.agents/skills`) の許可リスト。undefined = 未指定 (全可視で、保存ではキーを送らない)、
    * null = 全可視へ戻す送信専用の解除、配列 = 明示リスト ([] はすべて OFF)。
@@ -56,7 +55,6 @@ export function agentFormOf(agent: AgentDef | undefined): AgentForm {
     name: agent?.name || "",
     description: agent?.description || "",
     systemPrompt: agent?.systemPrompt || "",
-    skillIds: agent ? [...agent.skillIds] : [],
     // [] は「すべて OFF」なので、undefined (未指定 = 全可視) へ潰さない
     commonSkillNames: agent?.commonSkillNames === undefined ? undefined : [...agent.commonSkillNames],
     builtinSkillNames: agent?.builtinSkillNames === undefined ? undefined : [...agent.builtinSkillNames],
@@ -86,7 +84,6 @@ export function agentPayloadOf(form: AgentForm): CreateAgentBody {
     name: form.name,
     description: form.description,
     systemPrompt: form.systemPrompt,
-    skillIds: form.skillIds,
     commonSkillNames: form.commonSkillNames,
     builtinSkillNames: form.builtinSkillNames,
     toolNames: form.toolNames,
@@ -260,13 +257,6 @@ export function AgentEditorForm({
     }
   };
 
-  const toggleSkill = (skillId: string, checked: boolean) => {
-    setForm((prev) => ({
-      ...prev,
-      skillIds: checked ? [...prev.skillIds, skillId] : prev.skillIds.filter((id) => id !== skillId),
-    }));
-  };
-
   // 取得前・取得失敗では一覧が空になるが、欄を出さないのでこのハンドラは呼ばれない (下書きは変わらない)
   const visibleCommonNames =
     fileSkills.status === "ready" ? groupFileSkills(fileSkills.skills).common.map((skill) => skill.name) : [];
@@ -434,10 +424,7 @@ export function AgentEditorForm({
                   onDisableAllTools={() => setForm(withAllToolsDisabled)}
                 />
                 <SkillSelector
-                  skills={catalog.skills}
                   builtinSkills={catalog.builtinSkills}
-                  selectedIds={form.skillIds}
-                  onToggle={toggleSkill}
                   fileSkills={fileSkills}
                   onReloadFileSkills={onReloadFileSkills}
                   commonSkillNames={form.commonSkillNames}

@@ -11,7 +11,6 @@ export function SkillRow({
   control,
   badge,
   hint,
-  wrapName = false,
   monoName = false,
 }: {
   name: string;
@@ -22,11 +21,6 @@ export function SkillRow({
   badge?: string;
   /** 説明の下に出す補足 (外した行の注記など) */
   hint?: string;
-  /**
-   * 名前を折り返して全部見せるか。末尾だけ違う名前が並ぶカタログ行では折り返し、省略すると
-   * どちらを外すのか選べなくなる。ファイルスキルは 1 行に収める。
-   */
-  wrapName?: boolean;
   /** 名前を等幅で出すか (ツール ID は識別子なので、綴りの違いを見分けやすくする) */
   monoName?: boolean;
 }) {
@@ -35,9 +29,7 @@ export function SkillRow({
       {control}
       <span className="min-w-0 flex-1">
         <span className="flex min-w-0 items-baseline gap-1.5">
-          <span className={cn("min-w-0 text-xs text-ink", monoName && "font-mono", wrapName ? undefined : "truncate")}>
-            {name}
-          </span>
+          <span className={cn("min-w-0 text-xs text-ink", monoName && "font-mono", "truncate")}>{name}</span>
           {badge ? <span className="shrink-0 text-2xs leading-4 text-ink-ghost">{badge}</span> : null}
         </span>
         {/* 説明の全文は「スキル」ページにあるので、ここは 1 行に切って title へ逃がす */}

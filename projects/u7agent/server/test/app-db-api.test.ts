@@ -110,7 +110,7 @@ test("an unusable store dir makes app data 503 without an in-memory fallback", a
 
   const appDataUrls: [string, RequestInit | undefined][] = [
     ["/api/agents", undefined],
-    ["/api/skills", undefined],
+    ["/api/skills/session", undefined],
     ["/api/projects", undefined],
     ["/api/projects/p1", { method: "DELETE" }],
     ["/api/sessions", undefined],

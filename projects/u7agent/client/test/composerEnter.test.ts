@@ -67,7 +67,7 @@ test("singleColumn: Enter は改行に残し、送信はボタンに任せる", 
   }
 });
 
-const agent: AgentDef = { id: "general", name: "汎用アシスタント", description: "", systemPrompt: "", skillIds: [] };
+const agent: AgentDef = { id: "general", name: "汎用アシスタント", description: "", systemPrompt: "" };
 
 const props: ComposerProps = {
   activity: "",

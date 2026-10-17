@@ -11,7 +11,7 @@ import type { AgentDef } from "../src/types";
 globalThis.location ??= { origin: "http://localhost" } as Location;
 const { Composer } = await import("../src/components/Composer");
 
-const agent: AgentDef = { id: "general", name: "汎用アシスタント", description: "", systemPrompt: "", skillIds: [] };
+const agent: AgentDef = { id: "general", name: "汎用アシスタント", description: "", systemPrompt: "" };
 
 const props: ComposerProps = {
   activity: "",

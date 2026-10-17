@@ -1,19 +1,15 @@
 # エージェント / スキル API
 
-規約と索引は [api.md](api.md) を参照する。定義は `server/src/agents.ts` のカタログで、実体はアプリデータの SQLite へ保存し、再起動後も残る（[persistence.md](persistence.md)）。本文中の JSON の `id` は形を示す任意の例で、ビルトインは汎用アシスタント `agent-general`。初期状態はカタログスキル 0 件と、ユーザー定義のサンプル `agent-zundamon`（ずんだもん）1 体。
+規約と索引は [api.md](api.md) を参照する。エージェント定義は `server/src/agents.ts` のカタログで、実体はアプリデータの SQLite へ保存し、再起動後も残る（[persistence.md](persistence.md)）。スキルはファイル（`.agents/skills`）と組み込みだけを正とし、GUI で登録する DB カタログは無い。本文中の JSON の `id` は形を示す任意の例で、ビルトインは汎用アシスタント `agent-general`。初期状態はユーザー定義のサンプル `agent-zundamon`（ずんだもん）1 体。
 
 | メソッド | パス | 説明 |
 | --- | --- | --- |
-| GET | `/api/agents` | ビルトイン + エージェント（ユーザー定義）とスキルの一覧（同梱の組み込みスキルを `builtinSkills`、アプリが扱うツールを `tools` で含む） |
-| POST | `/api/agents` | エージェント作成 `{ name, description, systemPrompt, skillIds, commonSkillNames?, builtinSkillNames?, toolNames?, icon?, model?, thinkingLevel?, suggestions? }` |
+| GET | `/api/agents` | ビルトイン + エージェント（ユーザー定義）の一覧（同梱の組み込みスキルを `builtinSkills`、アプリが扱うツールを `tools` で含む） |
+| POST | `/api/agents` | エージェント作成 `{ name, description, systemPrompt, commonSkillNames?, builtinSkillNames?, toolNames?, icon?, model?, thinkingLevel?, suggestions? }` |
 | PATCH / PUT | `/api/agents/:id` | エージェント更新（キー省略は保持、`icon` / `model` / `thinkingLevel` / `commonSkillNames` / `builtinSkillNames` / `toolNames` の `null` と `suggestions: []` は指定解除。ビルトインは 400） |
 | PATCH | `/api/agents/order` | 表示順の保存 `{ ids }`（応答は並べ替え後の `{ agents }`。ビルトインは対象外） |
 | DELETE | `/api/agents/:id` | エージェント削除（ビルトインは 400。ユーザー定義は 0 件まで減らせる） |
-| GET | `/api/skills` | スキル一覧 |
-| GET | `/api/skills/files` | ファイルスキル（`.agents/skills`）の読み取り専用一覧 |
-| POST | `/api/skills` | スキル作成 `{ name, description, body }` |
-| PATCH / PUT | `/api/skills/:id` | スキル更新 |
-| DELETE | `/api/skills/:id` | スキル削除（エージェントの割り当てからも外れる） |
+| GET | `/api/skills/files` | ファイルスキル（`.agents/skills`）と組み込みスキルの一覧 |
 
 ## エージェントの表示順
 
@@ -37,9 +33,9 @@
 - `PATCH` / `DELETE /api/agents/agent-general` は 400（`Built-in agent cannot be updated` / `Built-in agent cannot be deleted`）。
 - ビルトインは編集できない前提なので、model / Effort も固定（どちらも未指定 = アプリ既定）。変更はチャット単位の Model / Effort ピッカーで行う（[model-effort.md](model-effort.md)）。
 - `POST /api/sessions` の `agentId` 省略時はこのビルトインを使うので、ユーザー定義が 0 件でもセッションを作れる。
-- GET の応答は同梱の組み込みスキルを `builtinSkills`（各件 `{ name, description, version }`）でも返す。これはカタログの `skillIds` とは別に全エージェントへ注がれる **ambient** なスキルで、既定は全部 ON。外すのはエージェント定義の `builtinSkillNames`（[エージェント定義のスキル許可リスト](#エージェント定義のスキル許可リスト)）。エージェント編集のスキル欄はこれをチェック可能な行として出し、外した分はそのエージェントの会話へ読み込まれない。ビルトインの閲覧ビューは許可リストを持たない（= 常に全部 ON）ので、チェックを出さず共通 / 組み込みを読み取り専用で並べる。`/api/skills/files` はサンドボックス未設定で 503 になるため使わず、BFF 起動時に読み込み済みの registry をそのまま載せる。
+- GET の応答は同梱の組み込みスキルを `builtinSkills`（各件 `{ name, description, version }`）でも返す。これは全エージェントへ注がれる **ambient** なスキルで、既定は全部 ON。外すのはエージェント定義の `builtinSkillNames`（[エージェント定義のスキル許可リスト](#エージェント定義のスキル許可リスト)）。エージェント編集のスキル欄はこれをチェック可能な行として出し、外した分はそのエージェントの会話へ読み込まれない。ビルトインの閲覧ビューは許可リストを持たない（= 常に全部 ON）ので、チェックを出さず共通 / 組み込みを読み取り専用で並べる。`/api/skills/files` はサンドボックス未設定で 503 になるため使わず、BFF 起動時に読み込み済みの registry をそのまま載せる。
 - GET の応答はアプリが扱うツールも `tools`（各件 `{ name, description, group, available, reason? }`）で返す。`group` はサンドボックスで動く `sandbox` と BFF ローカルの `app` で、画面のグループ分けに使う。`available` と `reason` は**取得時点のアプリ側の実効**（`PI_AGENT_TOOLS` / コンテンツ生成のキー / Web 検索の実行時トグル / `serve` の実体 / `ask_user` / `investigate`）で、エージェントの許可リストは掛けない（[ツール許可リスト](#ツール許可リスト)）。理由の文言はクライアント側の対応表が持ち、応答にはコードだけを載せる。
-- 初期状態の `agents` には、ユーザー定義のサンプルとしてずんだもん `agent-zundamon`（`systemPrompt` に語尾の指示、`skillIds` は空）が 1 体入る。`DELETE /api/agents/:id` で削除できる。サンプルは DB を新規作成したときだけ入るため、削除した定義は再起動でも戻らない。
+- 初期状態の `agents` には、ユーザー定義のサンプルとしてずんだもん `agent-zundamon`（`systemPrompt` に語尾の指示）が 1 体入る。`DELETE /api/agents/:id` で削除できる。サンプルは DB を新規作成したときだけ入るため、削除した定義は再起動でも戻らない。
 
 ```json
 {
@@ -48,7 +44,6 @@
     "name": "汎用アシスタント",
     "description": "役割や口調を設定していない既定のエージェント",
     "systemPrompt": "",
-    "skillIds": [],
     "suggestions": [{ "label": "プロジェクトを説明して", "prompt": "このプロジェクトの構成を簡単に教えて" }]
   },
   "builtinSkills": [{ "name": "skill-creator", "description": "スキルの作成を依頼されたときに使う", "version": "3" }],
@@ -61,50 +56,28 @@
       "id": "agent-zundamon",
       "name": "ずんだもん",
       "description": "「〜なのだ」「〜のだ」の語尾で話す",
-      "systemPrompt": "ずんだもんの口調で話してください。…",
-      "skillIds": []
-    }
-  ],
-  "skills": []
-}
-```
-
-## カタログスキル
-
-エージェントへ割り当てるスキルは `{ name, description, body }`。`body` は会話の system prompt へは常時載せず、モデルが必要時に `read` で読む本文（[セッションへの渡し方](#セッションへの渡し方)）。エージェントを選ぶ前に作れて複数のエージェントで使い回せる点が「役割 / 基本指示」（`systemPrompt`）と違う。初期状態は 0 件で、口調のような常時効かせたい指示はエージェントの `systemPrompt` に置く（サンプルは `agent-zundamon`）。
-
-- 本文のフィールド名は `body` で、UI のラベルも「本文」。エージェント側の `systemPrompt`（UI ラベル「役割 / 基本指示」）とは語を分ける。旧フィールド名 `prompt` は作成 / 更新とも 400（旧形式の互換は持たない）。
-- 割り当ては `AgentDef.skillIds`。本文は作成時に `promptSnapshot` へ `<agent_skill name="…">` で固定するが、system prompt へは入れない — 索引（name / description / 仮想パス）だけを `skillsOverride` で渡し、モデルは必要時に `read` で読む（[session-files.md](session-files.md)）。本文の出所は作成時のスナップショットなので、定義を編集・削除してもこのセッションの本文は変わらない。
-- 設定 → スキル（`/settings/skills`）の一覧は、この編集できるスキルと共通 / 組み込みの読み取り専用スキルを同じリストに並べる。カタログのスキルが 0 件のときは追加行の下にその旨を出す（[ui-layout.md](ui-layout.md#設定の編集フォームエージェント--スキル)）。
-- 一覧でカタログスキルを選ぶと**閲覧ビュー**（`CatalogSkillPanel`）を出す。保存済みの名前 / 説明 / 割り当て中（`skillIds` にこのスキルを含むエージェントの件数と名前）/ 本文を確認でき、本文は応答の `body` をそのまま出す。編集は操作行の `編集` から始め（新規作成は従来どおりフォームへ直行）、`キャンセル` で閲覧ビューへ戻る。未保存の差分があるときだけ共通の確認ダイアログ（`skillDiscardConfirmRequest()`）を出し、確認後は下書きを破棄する（同じスキルへ入り直すと現行のカタログから始まる）。保存は `onSelectSkill(savedId)` → `refreshCatalog()` →（singleColumn は）シートを閉じる、の順で、閲覧ビューへ戻ってから一覧が更新される。削除は編集フォームの中だけに置く
-
-```json
-{
-  "skills": [
-    {
-      "id": "skill-example",
-      "name": "重要度順レビュー",
-      "description": "指摘を重要度順に並べ、根拠と修正案を添える",
-      "body": "指摘は重要度の高い順に並べてください。…"
+      "systemPrompt": "ずんだもんの口調で話してください。…"
     }
   ]
 }
 ```
 
-### セッションへの渡し方
+## DB カタログの撤去
 
-エージェントに割り当てたスキルは、SDK ネイティブのスキルと同じ「索引は常時、本文は必要時 `read`」の形で渡す。件数・本文長の上限が無いため、本文を system prompt へ常時載せない。
+GUI で登録するスキル定義と `agents.skillIds` の割り当て（DB カタログ）は撤去済み。スキルの現行定義はファイルスキルと組み込みスキルだけで、同名の現行ファイルがあれば普通のファイルスキルとして使える。
 
-- `skillsOverride` へ渡す索引は name / description / location だけ。`location` は実体の無い仮想パス `<root>/.u7agent/agent-skills/<name>/SKILL.md`（`server/src/catalog-skills.ts`）。名前は 1 セグメントに percent encoding してから使うので、`a/b` や `..foo` のような名前でも置き場の外へは出ない。一覧の `relativePath` とチャットの `[skill]` バッジはデコードした元の名前で見せる（`location` / `path` は `read` に渡す encoded のまま）
-- モデルの `read` は BFF が横取りし、セッションの `promptSnapshot` にある本文を返す（サンドボックスへ送らない）。`ls` / `find` / `grep` / `bash` からは見えない（組み込みと同じ割り切り）
-- 同名のファイル / 組み込みスキルがある行は索引からも落とす（優先順位 `project > user > builtin > catalog` を一覧と一致させる）。カタログ同士の重複は先勝ち
-- `read` は `classifySkillRead()` に拾われるため、チャットの assistant バブルに `[skill] <name>` バッジが出る
+- 旧 `/api/skills` と `/api/skills/:id` の CRUD は無い（新しい API へも転送せず、通常の未対応 API として 404 になる）。`GET /api/agents` はスキル定義の一覧を返さない。
+- エージェントの作成 / 更新要求に `skillIds` が来た場合は、無視して成功にせず 400（`skillIds is no longer supported`）で拒否し、共通ファイルへ副作用を持たない。
+- スキルのデータはファイルへ書き出さず、旧 ID → name の対応表・割り当て変換・旧カタログの実行互換・専用の移行ロールバックは作らない。旧カタログの本文は履歴の表示にだけ残り、現在の `read` / `/skill:` / 索引には使わない（[api-sessions.md](api-sessions.md#スキル読み込みskillloads--skill)）。
+- 古い会話（旧 `agent.skillIds` / `agent.skills` / `promptSnapshot.skills` 入りの meta）は開いて履歴を閲覧でき、開き直して再保存しても旧キーは復活しない（[session-files.md](session-files.md#metajson)）。
+- **新しい DB を古いビルドで開く巻き戻しは非対応**（他データも消え得る。[persistence.md](persistence.md#アプリデータsqlite)）。
+
 
 ## ファイルスキル（`.agents/skills`）
 
-共通（`<PI_APP_CWD>/.agents/skills`）とプロジェクト（セッションの cwd 配下の `.agents/skills`）のスキル、およびアプリに同梱した**組み込みスキル**は、カタログの `skillIds` とは別にセッションへ注入される。プロジェクトはエージェントに紐づかない **ambient** なスキルで、共通分は `commonSkillNames`、組み込み分は `builtinSkillNames` でエージェント別に絞れる（[エージェント定義のスキル許可リスト](#エージェント定義のスキル許可リスト)）。設定画面に出るのは共通分と組み込み分で、**共通分だけ** GUI から作成・編集・削除できる（変えられるのは説明と本文だけで、名前は作成時に決まり変更できない。プロジェクト分と組み込みは読み取り専用のまま）。組み込みを上書きしているときの見え方と、どのエージェントで有効かはエージェント編集のスキル欄と、ビルトインの閲覧ビューで見る。優先順位は `プロジェクト > 共通 > 組み込み` で、同名は一意化する。許可リストはこの一意化の**前**に当てるため、外した共通 / 組み込みスキルと同名の下位側（プロジェクト / 共通 / カタログ）は浮上して有効になる（ファイルの改名・削除・マージはしない）。発見と合成は `server/src/file-skills.ts`、同梱物は `server/src/builtin-skills.ts` が持つ。
+共通（`<PI_APP_CWD>/.agents/skills`）とプロジェクト（セッションの cwd 配下の `.agents/skills`）のスキル、およびアプリに同梱した**組み込みスキル**はセッションへ注入される。プロジェクトはエージェントに紐づかない **ambient** なスキルで、共通分は `commonSkillNames`、組み込み分は `builtinSkillNames` でエージェント別に絞れる（[エージェント定義のスキル許可リスト](#エージェント定義のスキル許可リスト)）。設定画面に出るのは共通分と組み込み分で、**共通分だけ** GUI から作成・編集・削除できる（変えられるのは説明と本文だけで、名前は作成時に決まり変更できない。プロジェクト分と組み込みは読み取り専用のまま）。組み込みを上書きしているときの見え方と、どのエージェントで有効かはエージェント編集のスキル欄と、ビルトインの閲覧ビューで見る。優先順位は `プロジェクト > 共通 > 組み込み` で、同名は一意化する。許可リストはこの一意化の**前**に当てるため、外した共通 / 組み込みスキルと同名の下位側（プロジェクト / 共通）は浮上して有効になる（ファイルの改名・削除・マージはしない）。発見と合成は `server/src/file-skills.ts`、同梱物は `server/src/builtin-skills.ts` が持つ。
 
-チャット側では `GET /api/sessions/:id/skills` がこの 4 種類（プロジェクト / 共通 / 組み込み / エージェント定義のスキル）を優先順位つきで返し、入力補助の一覧と `/skill:` の展開（送信時に本文を取得）が同じ解決を共有する。セッション未確定の `GET /api/skills/session` は同じ解決をセッション作成前に走らせ、新規チャットのピッカーへ同じ形で返す（[api-sessions.md](api-sessions.md#get-apisessionsidskills)、[api-sessions.md](api-sessions.md#get-apiskillssession)、[persistence.md](persistence.md#スキルの扱い)）。
+チャット側では `GET /api/sessions/:id/skills` がこの 3 種類（プロジェクト / 共通 / 組み込み）を優先順位つきで返し、入力補助の一覧と `/skill:` の展開（送信時に本文を取得）が同じ解決を共有する。セッション未確定の `GET /api/skills/session` は同じ解決をセッション作成前に走らせ、新規チャットのピッカーへ同じ形で返す（[api-sessions.md](api-sessions.md#get-apisessionsidskills)、[api-sessions.md](api-sessions.md#get-apiskillssession)、[persistence.md](persistence.md#スキルの扱い)）。
 
 | メソッド | パス | 説明 |
 | --- | --- | --- |
@@ -151,7 +124,7 @@
 
 - 同名のスキルは優先順位（プロジェクト > 共通 > 組み込み、同じスコープ内は発見順）で一意化し、影になったファイルを `shadowed` に入れる。一覧では影になった分を警告として表示する
 - 組み込みが同名のユーザースキルに負けた場合は、組み込み側の行を残して `overridden: true` を立てる（一覧では「上書きされています」）。`shadowed` はファイル同士の重複だけに使い、同じ関係を二重に出さない
-- 設定 → スキルの一覧は、編集できる catalog のスキルと同じリストに共通分と組み込み分を**ファイルスキル**として並べる。「新しいスキル」の追加行は共通分のグループに置く。再読み込みはこのブロックの見出しに 1 つだけ置く（この API は両方を 1 回で返すため、グループ側に置くと片方だけを更新するように見える）。行の選択は**一覧の root 相対 `relativePath`** で持ち、変更要求のキーと揃える（名前が同じでも別の行として扱う。上書きされた組み込みは同名の共通行と並ぶ）。読み上げ名は名前行（名前 / スコープ / 版）に閉じ、説明・パス・警告は button の外のテキストにする（行全体のクリックは `after` の overlay で保つ）
+- 設定 → スキルの一覧は、共通分と組み込み分を**ファイルスキル**として並べる。「新しいスキル」の追加行は一覧の先頭に置く。再読み込みはこのブロックの見出しに 1 つだけ置く（この API は両方を 1 回で返すため、グループ側に置くと片方だけを更新するように見える）。行の選択は**一覧の root 相対 `relativePath`** で持ち、変更要求のキーと揃える（名前が同じでも別の行として扱う。上書きされた組み込みは同名の共通行と並ぶ）。読み上げ名は名前行（名前 / スコープ / 版）に閉じ、説明・パス・警告は button の外のテキストにする（行全体のクリックは `after` の overlay で保つ）
 - 本文ビュー（`FileSkillPanel`）は先頭の操作行（`SKILL` + スコープ名、右にタブと共通行の `編集` / `削除`）+ メタ（名前 / 説明 / 置き場 / 版）+ 本文で組む。本文のコピーボタンは表示と同じ生テキストをコピーし、常時表示にする（hover で隠さない）。共通行は編集内容の `body`（frontmatter を除いた本文。閉じ行の改行は境界として含めず、改行は LF）、組み込みとプレビュー経由の行は frontmatter 込みの全文で、`FilePreview` の「本文をコピー」は表示用に正規化した本文（CRLF / CR → LF、末尾の空行を落とす）なので、行の種別ごとに別の契約になる（[file-preview.md](file-preview.md#コピー)）
 - ファイルスキルは「本文 / ファイル」のタブを持つ。ファイルタブは `FileBrowser` を root = SKILL.md の親ディレクトリで置き、`references/` / `scripts/` / `assets/` のファイルをタブ / 行番号 / ハイライト / HTML・Markdown・画像プレビューで開ける（[file-preview.md](file-preview.md#画面と-root)）。ファイルタブではメタ行（置き場）が `display` で隠れるため、ツリーの root を `FileBrowser` の上に caption として出す（パンくずは画面 root 相対なので、root は面ごとのヘッダ側に置く）。ダウンロード / 削除 / リネームの導線は出さない（`FileBrowser` の `readOnly`）。出す条件は `scope !== "builtin"` かつ workspace root 相対の `.../SKILL.md` の親が取れることで、判定は `client/src/lib/fileSkills.ts` の `fileSkillDir` が行う（絶対パス（POSIX / ドライブ / UNC）・空・`..` を含むパスは拒否）。組み込みは実体の無い仮想パスなのでタブを出さない
 - ファイルタブは初回に開いたときだけ mount し、以降は `display` で隠して保持する（タブと選んだファイルを行き来しても取り直さない）
@@ -163,7 +136,6 @@
 - `.agents/skills` がまだ無い workspace ではエラーにせず、組み込みだけを返す（サンドボックスの 404 を空の一覧として扱う）。サンドボックス未設定は 503、接続失敗・走査の期限切れ（[sandbox-api.md](sandbox-api.md#get-v1skills)）は 502
 - 発見一覧はセッション作成・復元のたびに取り直す。復元は `meta.projectCwd` を起点にするため、プロジェクト登録が外れていても同じスキルが見える
 - `disable-model-invocation` のスキルは system prompt の `available_skills` から外れる（本文は `path` を `read` すれば読める）。一覧が fat になる場合はこれで逃がす
-- エージェント定義のスキルはファイルスキルと混同させないため、`promptSnapshot` へ `<agent_skill>` タグで本文を固定し、モデルには仮想パス `<root>/.u7agent/agent-skills/<name>/SKILL.md` を索引で渡す。`read` は BFF が横取りしてスナップショットの本文を返す（[session-files.md](session-files.md)）
 
 ### 組み込みスキル
 
@@ -171,7 +143,7 @@
 - ワークスペースへ実体を作らない（git status を汚さず、アプリ更新で常に最新、改変不可）。`path` は仮想パス `<root>/.u7agent/builtin-skills/<name>/SKILL.md` で、`.u7agent` 配下なのでプロジェクトとしては登録できない。SDK の `sourceInfo.scope` に組み込みが無いため `temporary`（path 扱い）にする
 - モデルの `read` は BFF が横取りして同梱の本文を返す（サンドボックスへ送らない）。`ls` / `grep` / `find` / `bash` からは見えない。`PI_AGENT_TOOLS` から `read` を外した構成ではモデルは本文を読めず、一覧表示だけになる（エージェント定義の `toolNames` でも同じく外せる。[ツール許可リスト](#ツール許可リスト)）
 - 仮想パスは実ファイルが無く、`write` / `edit` の書き込み範囲（セッションの作業ディレクトリと `<root>/.agents/skills`）の外なので変更できない（同梱物を変えるにはイメージを更新する）。`read` は常に同梱の本文を返す
-- カタログ（`GET /api/agents`）と `skillIds` の対象外。エージェント別の ON / OFF は `builtinSkillNames`（[エージェント定義のスキル許可リスト](#エージェント定義のスキル許可リスト)）で行い、外した組み込みは一覧（`GET /api/sessions/:id/skills`）・`skillsOverride` の索引・`read` の横取り・system prompt の案内（`appendSystemPrompt` の `serve` / `skill-creator` への言及）・`serve` ツールの説明（`createServeToolDefinitions` の skill 参照）のすべてから消える。同名のファイルスキルがあるときはファイル側が浮上し、`overridden` の行も出なくなる
+- カタログ（`GET /api/agents`）の対象外。エージェント別の ON / OFF は `builtinSkillNames`（[エージェント定義のスキル許可リスト](#エージェント定義のスキル許可リスト)）で行い、外した組み込みは一覧（`GET /api/sessions/:id/skills`）・`skillsOverride` の索引・`read` の横取り・system prompt の案内（`appendSystemPrompt` の `serve` / `skill-creator` への言及）・`serve` ツールの説明（`createServeToolDefinitions` の skill 参照）のすべてから消える。同名のファイルスキルがあるときはファイル側が浮上し、`overridden` の行も出なくなる
 - 同梱物を追加するときは `server/src/builtin-skills/<name>/SKILL.md` を足し、`VERSIONS` に版を追加する（Docker は `server/src/` ごとイメージへ入るので Dockerfile の変更は不要）
 - 同梱しているスキルの名前と版は `server/src/builtin-skills.ts` の `VERSIONS`、本文と使い方は各 `SKILL.md` が正（設定 → スキルにも出る）。`serve` は `serve` ツールと同じ経路を使い、起動に成功したコマンドがその作業ディレクトリの実績として記録される（[sandbox.md](sandbox.md#serveサービスの公開と起動停止)）。`browser` はヘッドレスブラウザでの確認と撮影を担う（[browser.md](browser.md)）。起動の作法を `appendSystemPrompt` に書かないのは、契約の正をスキル側の 1 箇所に保つため
 
@@ -211,17 +183,8 @@
       "name": "コードレビュー",
       "description": "バグや保守性の問題を重要度順にレビューする",
       "systemPrompt": "…",
-      "skillIds": ["skill-example"],
       "model": { "provider": "<provider>", "id": "<id>" },
       "thinkingLevel": "high"
-    }
-  ],
-  "skills": [
-    {
-      "id": "skill-example",
-      "name": "重要度順レビュー",
-      "description": "指摘を重要度順に並べ、根拠と修正案を添える",
-      "body": "指摘は重要度の高い順に並べてください。…"
     }
   ]
 }
@@ -249,7 +212,7 @@
 
 ## エージェント定義のスキル許可リスト
 
-エージェント定義には任意の `commonSkillNames`（共通スキル）と `builtinSkillNames`（組み込みスキル）を持たせられる。どちらも対象スコープの `name` の配列で、対象は名前のとおり `<PI_APP_CWD>/.agents/skills` の共通分とアプリ同梱の組み込み分だけ。プロジェクト / カタログのスキルは絞れない。名前の正は一覧の `name`（`SKILL.md` の frontmatter `name`）で、ディレクトリ名ではない。
+エージェント定義には任意の `commonSkillNames`（共通スキル）と `builtinSkillNames`（組み込みスキル）を持たせられる。どちらも対象スコープの `name` の配列で、対象は名前のとおり `<PI_APP_CWD>/.agents/skills` の共通分とアプリ同梱の組み込み分だけ。プロジェクトのスキルは絞れない。名前の正は一覧の `name`（`SKILL.md` の frontmatter `name`）で、ディレクトリ名ではない。
 
 - 未指定（キーなし）は既定（共通 = 全可視、組み込み = 全部 ON）、`[]` はすべて OFF。この 2 つは混同しない（保存の NULL と `"[]"` に対応する。[persistence.md](persistence.md#スキルの扱い)）
 - 更新要求はキー省略で保持、`null` で解除（未指定へ戻す）。`[]` は「すべて OFF」への上書きで、解除ではない。
@@ -258,7 +221,7 @@
 - 実在しない名前も保存できる（BFF はワークスペースを見られないため、組み込みも同梱の registry 以外の存在検証はしない）。実行時は無視され、一覧にも出ない（スキル欄は「見つかりません」として出す）。`SKILL.md` の frontmatter `name` を改名すると保存済みリストは古いままになり、同梱物が入れ替わったときも保存した名前は残る（ディレクトリ名では追えない）。
 - セッションは作成時のスナップショットで動き、定義の編集は既存セッションへ遡及しない（[api-sessions.md](api-sessions.md#get-apisessionsidskills)）。
 
-許可リストは一意化の前に当てるため、外した共通 / 組み込みスキルと同名の下位側（プロジェクト / 共通 / カタログ）が浮上して有効になる。明示リストにした後に増えた共通 / 組み込みスキルは自動では有効にならない（`builtinSkillNames: []` はアプリ更新で同梱物が増えても 0 件のままで、検証用のエージェントを作れる）。
+許可リストは一意化の前に当てるため、外した共通 / 組み込みスキルと同名の下位側（プロジェクト / 共通）が浮上して有効になる。明示リストにした後に増えた共通 / 組み込みスキルは自動では有効にならない（`builtinSkillNames: []` はアプリ更新で同梱物が増えても 0 件のままで、検証用のエージェントを作れる）。
 
 ```json
 {

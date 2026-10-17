@@ -22,9 +22,9 @@ test("ships the generic agent as the built-in and the zundamon sample as a user 
   const agent = catalog.builtinAgent();
   assert.equal(agent.id, "agent-general");
   assert.equal(agent.name, "汎用アシスタント");
-  // 既定のエージェント自身は役割もスキルも持たない (口調のサンプルはユーザー定義側に置く)
+  // 既定のエージェント自身は役割もスキル割り当てを持たない (口調のサンプルはユーザー定義側に置く)
   assert.equal(agent.systemPrompt, "");
-  assert.deepEqual(agent.skillIds, []);
+  assert.equal(Object.hasOwn(agent, "skillIds"), false);
 
   const samples = catalog.listAgents();
   assert.deepEqual(
@@ -34,9 +34,8 @@ test("ships the generic agent as the built-in and the zundamon sample as a user 
   );
   assert.equal(samples[0].name, "ずんだもん");
   assert.match(samples[0].systemPrompt, /なのだ/);
-  assert.deepEqual(samples[0].skillIds, []);
-  // カタログスキルは 0 件から始まる (常時効かせたい指示はエージェント側へ置く)
-  assert.deepEqual(catalog.listSkills(), []);
+  // スキルの実体は DB ではなくファイル側にあるので、カタログ応答に定義は載らない
+  assert.equal(Object.hasOwn(catalog.snapshot(), "skills"), false);
 });
 
 test("keeps the built-in agent out of the user-defined list", () => {
@@ -161,17 +160,29 @@ test("reorderAgents はビルトインを含まないユーザー定義だけを
   assert.equal(catalog.builtinAgent().id, "agent-general");
 });
 
-test("drops references to skills that do not exist", () => {
+test("rejects the removed skillIds on create and update", () => {
   const catalog = createAgentCatalog();
-  const skill = catalog.createSkill({ name: "実在スキル", description: "説明", body: "本文" });
 
-  // 存在しない id を混ぜても、実在する参照だけを残す
-  const created = catalog.createAgent({ name: "参照あり", skillIds: [skill.id, "skill-missing"] });
-  assert.deepEqual(created.skillIds, [skill.id]);
+  // 撤去済みの割り当ては無視して成功させず、明示的に 400 にする (保存されたと誤認させない)
+  for (const input of [
+    { name: "参照あり", skillIds: ["skill-1"] },
+    { name: "空でも拒否", skillIds: [] },
+  ]) {
+    assert.throws(
+      () => catalog.createAgent(input),
+      (error: Error & { statusCode?: number }) =>
+        error.statusCode === 400 && error.message === "skillIds is no longer supported",
+      JSON.stringify(input),
+    );
+  }
 
-  // 存在しない id だけを送った更新でも空になる
-  const updated = catalog.updateAgent(created.id, { skillIds: ["skill-missing"] });
-  assert.deepEqual(updated?.skillIds, []);
+  const created = catalog.createAgent({ name: "既存" });
+  assert.throws(
+    () => catalog.updateAgent(created.id, { skillIds: ["skill-1"] }),
+    (error: Error & { statusCode?: number }) =>
+      error.statusCode === 400 && error.message === "skillIds is no longer supported",
+  );
+  assert.equal(Object.hasOwn(catalog.getAgent(created.id) ?? {}, "skillIds"), false);
 });
 
 test("only the built-in agent ships with default suggestions", () => {
@@ -612,38 +623,17 @@ test("rejects malformed tool lists with 400", () => {
   assert.deepEqual(catalog.getAgent(agent.id)?.toolNames, ["read"]);
 });
 
-test("composePromptSnapshot はカタログスキルの本文を agent_skill タグで固定する", () => {
-  const snapshot = composePromptSnapshot(
-    {
-      id: "agent-example",
-      name: "例",
-      description: "説明",
-      systemPrompt: "短く答えてください。",
-      skillIds: ["skill-example"],
-    },
-    [{ id: "skill-example", name: "例スキル", description: "説明", body: "本文です。" }],
-  );
+test("composePromptSnapshot はエージェントプロファイルだけを固定し、スキル本文は含めない", () => {
+  const snapshot = composePromptSnapshot({
+    id: "agent-example",
+    name: "例",
+    description: "説明",
+    systemPrompt: "短く答えてください。",
+  });
   assert.match(snapshot.agent, /<agent_profile name="例">/);
-  assert.deepEqual(snapshot.skills, ['<agent_skill name="例スキル">\n本文です。\n</agent_skill>']);
-});
-
-test("creates and updates skills with body and rejects the old prompt field", () => {
-  const catalog = createAgentCatalog();
-
-  const created = catalog.createSkill({ name: " 本文あり ", description: "説明", body: " 本文 " });
-  assert.deepEqual(created, { id: created.id, name: "本文あり", description: "説明", body: "本文" });
-  assert.equal(catalog.getSkill(created.id)?.body, "本文");
-
-  // キー省略の更新は本文を残し、body だけを差し替える
-  const kept = catalog.updateSkill(created.id, { description: "説明だけ更新" });
-  assert.equal(kept?.body, "本文");
-  assert.equal(catalog.updateSkill(created.id, { body: "新しい本文" })?.body, "新しい本文");
-
-  // 旧フィールド名 (prompt) は受理しない (旧形式の互換は持たない)
-  assert.throws(
-    () => catalog.createSkill({ name: "旧形式", prompt: "旧本文" }),
-    (error: Error & { statusCode?: number }) => error.statusCode === 400 && /body/.test(error.message),
-  );
+  assert.match(snapshot.agent, /短く答えてください。/);
+  // スキルの本文はファイル側の現行定義を read / `/skill:` で読む (セッションへ固定しない)
+  assert.deepEqual(Object.keys(snapshot), ["agent"]);
 });
 
 test("reports the injected builtin skills as a separate copy", () => {
@@ -659,9 +649,8 @@ test("reports the injected builtin skills as a separate copy", () => {
   exported[0].name = "書き換え 2";
   assert.equal(catalog.snapshot().builtinSkills[0].name, "skill-creator");
 
-  // 組み込みはカタログの CRUD と skillIds の対象外
-  assert.deepEqual(catalog.listSkills(), []);
-  assert.equal(catalog.getSkill("skill-creator"), undefined);
+  // 同梱物はファイル側のスキルで、このカタログの定義ではない (読み書きの対象も持たない)
+  assert.equal(Object.hasOwn(catalog.snapshot(), "skills"), false);
 });
 
 test("appendSystemPrompt は作業ディレクトリとファイル / スキルの置き場を rootCwd で説明する", () => {

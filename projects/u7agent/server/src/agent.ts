@@ -18,7 +18,6 @@ import { join, resolve } from "node:path";
 import { COMMON_SKILLS_DIR } from "./app-paths";
 import { createAskUserToolDefinitions, ASK_USER_TOOL_NAME, withAskUserTool, type AskUserHost } from "./ask-user-tool";
 import { builtinSkillEnabled } from "./builtin-skills";
-import { catalogSkillIndexForSession } from "./catalog-skills";
 import { discoverSessionFileSkills } from "./file-skills";
 import {
   createImageToolDefinitions,
@@ -50,16 +49,13 @@ import {
   type WebSearchRuntimeConfig,
 } from "./web-search-tool";
 import { collectSecretValues, createSecretRedactionExtension, extraSecretVarNames } from "./secret-guard";
-import { catalogSkillsFromSnapshot } from "./session-skills";
 import type {
   AgentDef,
-  AgentSkillInfo,
   ModelOption,
   ModelRef,
   RuntimeAuth,
   RuntimeModelsResponse,
   RuntimeVersions,
-  SkillDef,
   ThinkingLevel,
   ToolCatalogEntry,
 } from "./schema";
@@ -180,7 +176,6 @@ const DEFAULT_TOOLS =
 
 export interface CreateSessionInput {
   agent?: AgentDef;
-  skills?: SkillDef[];
   model?: ModelRef;
   thinkingLevel?: ThinkingLevel;
   /** rootCwd 相対。省略・空文字は root */
@@ -191,10 +186,8 @@ export interface CreateSessionInput {
   ownerSessionId?: string;
   /** 復元時: JSONL から読んだ entries (header は含めない) */
   entries?: unknown[];
-  /** 復元時: 作成時のプロンプトスナップショット。無ければ agent / skills から組む */
+  /** 復元時: 作成時のプロンプトスナップショット。無ければ agent から組む */
   promptSnapshot?: PromptSnapshot;
-  /** セッションのエージェントスナップショット (カタログスキルの説明の出所。復元でも渡す) */
-  agentSkills?: AgentSkillInfo[];
   /**
    * 共通スキルの許可リスト。undefined = 全可視、`[]` = すべて OFF。作成 / 復元ではエージェントの
    * スナップショットから渡し、注入経路 (skillsOverride) と解決経路で同じ値にする。
@@ -218,20 +211,16 @@ export interface CreateSessionInput {
 export type SessionMode = "chat" | "investigation";
 
 /**
- * 作成時の agent / skill スナップショット。agent は appendSystemPrompt へ入れる。skills は本文の出所
- * (`read` と `/skill:` の展開) で、system prompt へは入れない — 索引だけを skillsOverride で渡し、
- * 本文は必要時に読ませる。定義を編集・削除しても復元後の本文を変えないため meta へ保存する。
+ * 作成時の agent スナップショット。agent は appendSystemPrompt へ入れる。スキルの本文はセッションへ
+ * 固定せず、毎回ファイル側の現行定義を `read` / `/skill:` で読む (docs/api-catalog.md)。
  */
-export function composePromptSnapshot(agent?: AgentDef, skills: SkillDef[] = []): PromptSnapshot {
+export function composePromptSnapshot(agent?: AgentDef): PromptSnapshot {
   const agentPrompt = agent
     ? [`<agent_profile name="${agent.name}">`, agent.description, agent.systemPrompt, "</agent_profile>"]
         .filter(Boolean)
         .join("\n")
     : "";
-  const skillPrompts = skills
-    .filter((skill) => skill && skill.name && skill.body)
-    .map((skill) => `<agent_skill name="${skill.name}">\n${skill.body}\n</agent_skill>`);
-  return { agent: agentPrompt, skills: skillPrompts };
+  return { agent: agentPrompt };
 }
 
 /**
@@ -771,8 +760,6 @@ export interface SessionResourceLoaderInput {
   appendSystemPrompt: string[];
   /** サンドボックスで発見済みのファイルスキル。skillsOverride で SDK の一覧へ足す */
   fileSkills?: Skill[];
-  /** カタログ (Agent 割り当て) スキルの索引。本文は持たず、仮想パスを read させる */
-  catalogSkills?: Skill[];
   /** 子セッションは索引を渡さない (発見もしない)。既定 true */
   injectSkills?: boolean;
 }
@@ -799,7 +786,7 @@ export function createSessionResourceLoader(input: SessionResourceLoaderInput): 
       ? {}
       : {
           skillsOverride: (base: { skills: Skill[]; diagnostics: ResourceDiagnostic[] }) => ({
-            skills: [...base.skills, ...(input.fileSkills ?? []), ...(input.catalogSkills ?? [])],
+            skills: [...base.skills, ...(input.fileSkills ?? [])],
             diagnostics: base.diagnostics,
           }),
         }),
@@ -918,7 +905,6 @@ export async function createPiBff({ cwd = process.cwd() }: { cwd?: string } = {}
 
   async function createSession({
     agent,
-    skills = [],
     model,
     thinkingLevel,
     cwd: requestedCwd = "",
@@ -926,7 +912,6 @@ export async function createPiBff({ cwd = process.cwd() }: { cwd?: string } = {}
     ownerSessionId,
     entries,
     promptSnapshot,
-    agentSkills = [],
     commonSkillNames,
     builtinSkillNames,
     toolNames,
@@ -965,7 +950,7 @@ export async function createPiBff({ cwd = process.cwd() }: { cwd?: string } = {}
       compaction: compactionSettings,
       retry: { enabled: true, maxRetries: 2 },
     });
-    const snapshot = promptSnapshot ?? composePromptSnapshot(agent, skills);
+    const snapshot = promptSnapshot ?? composePromptSnapshot(agent);
     // ツールの実効はセッション作成時に確定する (作成 / 復元のどちらも呼び出し側が渡すスナップショットを使い、
     // 実行時にエージェント定義を読まない)。子は作業ツールだけを親から引き継ぐ
     const availability = toolAvailability();
@@ -987,17 +972,6 @@ export async function createPiBff({ cwd = process.cwd() }: { cwd?: string } = {}
           ...(commonSkillNames === undefined ? {} : { commonSkillNames }),
           ...(builtinSkillNames === undefined ? {} : { builtinSkillNames }),
         });
-    // カタログスキルは索引 (name / description / location) だけを渡し、本文は promptSnapshot から
-    // read / `/skill:` の展開が取り出す。ファイル / 組み込みと同名の行は索引からも落とす (一覧と一致)
-    const catalogSkillBodies = investigation ? [] : catalogSkillsFromSnapshot(snapshot);
-    const catalogIndex = investigation
-      ? []
-      : catalogSkillIndexForSession(
-          rootCwd,
-          catalogSkillBodies,
-          agentSkills,
-          fileSkills.skills.map((skill) => skill.name),
-        );
     const resourceLoader = createSessionResourceLoader({
       cwd: sessionCwd,
       agentDir,
@@ -1014,7 +988,6 @@ export async function createPiBff({ cwd = process.cwd() }: { cwd?: string } = {}
         snapshot.agent,
       ].filter(Boolean),
       fileSkills: fileSkills.skills,
-      catalogSkills: catalogIndex,
       injectSkills: !investigation,
     });
     await resourceLoader.reload();
@@ -1048,7 +1021,6 @@ export async function createPiBff({ cwd = process.cwd() }: { cwd?: string } = {}
           client: sandboxClient,
           masker: secretMasker,
           tools: sessionTools.sandbox,
-          catalogSkills: catalogSkillBodies,
           ...(builtinSkillNames === undefined ? {} : { builtinSkillNames }),
           // 解決は exec のたびに行う (設定の変更は次の bash から効く)
           envForCwd: () => sessionEnv.value?.variablesFor(relativeCwd) ?? {},

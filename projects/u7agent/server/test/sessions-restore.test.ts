@@ -89,8 +89,6 @@ function skillsInputOf(record: SessionRecord, workspace: SandboxWorkspaceClient)
     rootCwd: "/tmp/project",
     relativeCwd: record.workdir,
     client: workspace,
-    promptSnapshot: record.promptSnapshot,
-    agentSkills: record.agent.skills,
     commonSkillNames: record.agent.commonSkillNames,
     builtinSkillNames: record.agent.builtinSkillNames,
   };
@@ -291,40 +289,84 @@ test("永続化したセッションを新しい store が復元し、続きか�
   }
 });
 
-test("カタログスキルの本文と説明は作成時に固定され、定義を消しても復元後に残る", async () => {
-  const storeDir = await mkdtemp(join(tmpdir(), "u7agent-restore-catalog-"));
+test("旧カタログ入りの meta を開いても会話は壊れず、再保存で旧キーが復活しない", async () => {
+  const storeDir = await mkdtemp(join(tmpdir(), "u7agent-restore-legacy-catalog-"));
   const { workspace } = stubWorkspace();
   try {
     const catalog = createAgentCatalog();
-    const skill = catalog.createSkill({ name: "writer", description: "文章を書く", body: "作成時の本文" });
-    const agent = catalog.createAgent({ name: "書き手", skillIds: [skill.id] });
-
+    const agent = catalog.createAgent({ name: "書き手" });
     const pi1 = createStubPi();
     const store1 = createStore(storeDir, { pi: pi1, workspace, catalog });
     const record = await store1.create({ agentId: agent.id });
-    const created = pi1.createInputs.at(-1);
-    // 本文はスナップショットへ固定し、索引 (read / 一覧) の説明はエージェントスナップショットから渡す
-    assert.deepEqual(created?.promptSnapshot?.skills, ['<agent_skill name="writer">\n作成時の本文\n</agent_skill>']);
-    assert.deepEqual(
-      created?.agentSkills?.map((item) => [item.name, item.description]),
-      [["writer", "文章を書く"]],
-    );
     await store1.flush(record);
     await store1.close();
 
-    // 定義を削除しても、復元は meta のスナップショットから同じ本文 / 説明を渡す (遡及させない)
-    catalog.removeSkill(skill.id);
-    catalog.removeAgent(agent.id);
+    // 撤去前の meta を再現する (agent.skillIds / agent.skills / promptSnapshot.skills)
+    const metaPath = sessionMetaPath(record.id, storeDir);
+    const legacy = JSON.parse(await readFile(metaPath, "utf8")) as Record<string, any>;
+    legacy.agent.skillIds = ["skill-1"];
+    legacy.agent.skills = [{ id: "skill-1", name: "writer", description: "文章を書く" }];
+    legacy.promptSnapshot.skills = ['<agent_skill name="writer">\n作成時の本文\n</agent_skill>'];
+    await writeFile(metaPath, `${JSON.stringify(legacy, null, 2)}\n`);
+
     const pi2 = createStubPi();
     const store2 = createStore(storeDir, { pi: pi2, workspace, catalog });
     await store2.init();
-    await store2.resolve(record.id);
-    const restored = pi2.createInputs.at(-1);
-    assert.deepEqual(restored?.promptSnapshot?.skills, ['<agent_skill name="writer">\n作成時の本文\n</agent_skill>']);
+    // 一覧から消えない (壊れたセッションとして扱わない)
     assert.deepEqual(
-      restored?.agentSkills?.map((item) => [item.name, item.description]),
-      [["writer", "文章を書く"]],
+      store2.list().map((summary) => summary.sessionId),
+      [record.id],
     );
+    const restored = await store2.resolve(record.id);
+    assert.ok(restored, "旧カタログ入りの meta でも開ける");
+    assert.equal(Object.hasOwn(restored.agent, "skillIds"), false);
+    assert.equal(Object.hasOwn(restored.agent, "skills"), false);
+    assert.deepEqual(Object.keys(restored.promptSnapshot), ["agent"]);
+    // 旧カタログの本文は現在の実行へ渡さない (一覧にも出ない)
+    assert.equal(
+      (await listSessionSkills(skillsInputOf(restored, workspace))).some((skill) => skill.name === "writer"),
+      false,
+    );
+    await store2.flush(restored);
+    await store2.close();
+
+    // 開き直して再保存してもカタログ専用キーは復活しない
+    const saved = JSON.parse(await readFile(metaPath, "utf8")) as Record<string, any>;
+    assert.equal(Object.hasOwn(saved.agent, "skillIds"), false);
+    assert.equal(Object.hasOwn(saved.agent, "skills"), false);
+    assert.equal(Object.hasOwn(saved.promptSnapshot, "skills"), false);
+    assert.equal(saved.agent.name, "書き手");
+  } finally {
+    await rm(storeDir, { recursive: true, force: true });
+  }
+});
+
+test("新形式の meta は promptSnapshot.skills を持たず、再起動後の一覧でも壊れない", async () => {
+  const storeDir = await mkdtemp(join(tmpdir(), "u7agent-restore-no-skills-"));
+  const { workspace } = stubWorkspace();
+  try {
+    const catalog = createAgentCatalog();
+    const pi1 = createStubPi();
+    const store1 = createStore(storeDir, { pi: pi1, workspace, catalog });
+    const record = await store1.create({});
+    await store1.flush(record);
+    await store1.close();
+
+    const meta = JSON.parse(await readFile(sessionMetaPath(record.id, storeDir), "utf8")) as Record<string, any>;
+    assert.deepEqual(Object.keys(meta.promptSnapshot), ["agent"]);
+    assert.equal(Object.hasOwn(meta.agent, "skillIds"), false);
+
+    const pi2 = createStubPi();
+    const store2 = createStore(storeDir, { pi: pi2, workspace, catalog });
+    await store2.init();
+    assert.deepEqual(
+      store2.list().map((summary) => summary.sessionId),
+      [record.id],
+      "新形式のセッションが壊れたセッションにならない",
+    );
+    const restored = await store2.resolve(record.id);
+    assert.ok(restored);
+    assert.match(restored.promptSnapshot.agent, /<agent_profile/);
     await store2.close();
   } finally {
     await rm(storeDir, { recursive: true, force: true });

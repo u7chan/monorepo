@@ -1272,17 +1272,16 @@ test("GET /api/agents はアプリ側の可否つきでツールの一覧を返�
   }
 });
 
-test("組み込みスキルはカタログの一覧とスキル一覧の対象外", async () => {
+test("組み込みスキルはカタログ応答の対象外で、旧カタログ API は存在しない", async () => {
   const bff = await createBffApp({ cwd: "/tmp/project", sessionStoreDir: null, pi: asPiBff(createStubPi()) });
   const { app } = bff;
   try {
-    const builtinNames = BUILTIN_SKILLS.map((skill) => skill.name);
     const catalog = (await jsonBody(app.request("/api/agents"))) as {
-      skills: Array<{ name: string }>;
+      skills?: unknown;
       builtinSkills: Array<{ name: string; description: string; version: string }>;
     };
-    // カタログのスキルは 0 件から始まり、組み込みは別フィールドで全件が返る
-    assert.deepEqual(catalog.skills, []);
+    // カタログ応答にスキル定義は載らない (定義はファイル側にある)。組み込みは別フィールドで全件が返る
+    assert.equal(Object.hasOwn(catalog, "skills"), false);
     assert.deepEqual(
       catalog.builtinSkills,
       BUILTIN_SKILLS.map((skill) => ({
@@ -1291,28 +1290,33 @@ test("組み込みスキルはカタログの一覧とスキル一覧の対象�
         version: skill.version,
       })),
     );
-    const skills = (await jsonBody(app.request("/api/skills"))) as { skills: Array<{ name: string }> };
-    assert.deepEqual(
-      skills.skills.map((skill) => skill.name).filter((name) => builtinNames.includes(name)),
-      [],
-    );
+    // 旧 DB カタログの CRUD は未対応の API として 404 になる (ファイル側を変更しない)
+    for (const init of [
+      undefined,
+      jsonPost({ name: "スキル", description: "説明", body: "本文" }),
+      jsonPatch({ body: "変更後" }),
+    ]) {
+      const response = await app.request("/api/skills", init);
+      assert.equal(response.status, 404, JSON.stringify(init));
+    }
+    assert.equal((await app.request("/api/skills/anything", jsonPatch({ body: "変更後" }))).status, 404);
+    assert.equal((await app.request("/api/skills/anything", { method: "DELETE" })).status, 404);
   } finally {
     await bff.close();
   }
 });
 
-test("初期状態はスキル 0 件で、ずんだもんは通常のユーザー定義として削除できる", async () => {
+test("初期状態はユーザー定義が 1 件で、ずんだもんは通常のユーザー定義として削除できる", async () => {
   const bff = await createBffApp({ cwd: "/tmp/project", sessionStoreDir: null, pi: asPiBff(createStubPi()) });
   const { app } = bff;
   try {
     const initial = await jsonBody(app.request("/api/agents"));
-    assert.deepEqual(initial.skills, []);
     assert.deepEqual(
       initial.agents.map((agent: { id: string }) => agent.id),
       ["agent-zundamon"],
     );
     assert.match(initial.agents[0].systemPrompt, /なのだ/);
-    assert.deepEqual(initial.agents[0].skillIds, []);
+    assert.equal(Object.hasOwn(initial.agents[0], "skillIds"), false);
 
     // ビルトインと同じ応答形で返り、DELETE も通常の定義と同じく通る
     const deleted = await app.request("/api/agents/agent-zundamon", { method: "DELETE" });
@@ -1378,13 +1382,7 @@ test("catalog CRUD validates the JSON body shape at the HTTP boundary", async ()
     assert.deepEqual(await jsonBody(noBody), { agent: clearedAgent });
 
     // route は形・型だけを見る。違反は 400 で、必須判定の文言は catalog のまま
-    for (const body of [
-      { name: 1 },
-      { model: "x" },
-      { thinkingLevel: "ultra" },
-      { suggestions: "x" },
-      { skillIds: "x" },
-    ]) {
+    for (const body of [{ name: 1 }, { model: "x" }, { thinkingLevel: "ultra" }, { suggestions: "x" }]) {
       const invalid = await app.request("/api/agents", jsonPost(body));
       assert.equal(invalid.status, 400, JSON.stringify(body));
       assert.equal((await jsonBody(invalid)).error, "Invalid request body");
@@ -1394,46 +1392,20 @@ test("catalog CRUD validates the JSON body shape at the HTTP boundary", async ()
       assert.equal((await jsonBody(invalidPatch)).error, "Invalid request body");
     }
 
+    // 撤去済みの skillIds は形ではねず、catalog が明示的な文言で 400 にする (無視して成功にしない)
+    for (const body of [{ skillIds: "x" }, { skillIds: [] }, { skillIds: null }]) {
+      const created = await app.request("/api/agents", jsonPost(body));
+      assert.equal(created.status, 400, JSON.stringify(body));
+      assert.equal((await jsonBody(created)).error, "skillIds is no longer supported");
+
+      const patched = await app.request(agentPath, jsonPatch(body));
+      assert.equal(patched.status, 400, JSON.stringify(body));
+      assert.equal((await jsonBody(patched)).error, "skillIds is no longer supported");
+    }
+
     const nameless = await app.request("/api/agents", jsonPost({ description: "名前がない" }));
     assert.equal(nameless.status, 400);
     assert.equal((await jsonBody(nameless)).error, "Agent name is required");
-
-    const createdSkill = await app.request(
-      "/api/skills",
-      jsonPost({ name: "スキル", description: "説明", body: "本文" }),
-    );
-    assert.equal(createdSkill.status, 201);
-    const createdSkillId = (await jsonBody(createdSkill)).skill.id;
-    const skillPath = `/api/skills/${createdSkillId}`;
-
-    const updatedSkill = await app.request(skillPath, jsonPatch({ body: "変更後" }));
-    assert.equal(updatedSkill.status, 200);
-    const updatedSkillBody = await jsonBody(updatedSkill);
-    assert.equal(updatedSkillBody.skill.name, "スキル");
-    assert.equal(updatedSkillBody.skill.body, "変更後");
-
-    const invalidSkill = await app.request(skillPath, jsonPatch({ body: 1 }));
-    assert.equal(invalidSkill.status, 400);
-    assert.equal((await jsonBody(invalidSkill)).error, "Invalid request body");
-
-    // 旧フィールド名 prompt は未知キーとして捨てず 400 にする (本文が変わらないまま 200 で成功と誤認させない)
-    for (const method of ["PATCH", "PUT"] as const) {
-      const legacyPrompt = await app.request(skillPath, {
-        method,
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ prompt: "旧本文" }),
-      });
-      assert.equal(legacyPrompt.status, 400, method);
-      assert.equal((await jsonBody(legacyPrompt)).error, "Invalid request body");
-    }
-    const skillsAfterLegacy = (await jsonBody(app.request("/api/skills"))) as {
-      skills: Array<{ id: string; body: string }>;
-    };
-    assert.equal(skillsAfterLegacy.skills.find((skill) => skill.id === createdSkillId)?.body, "変更後");
-
-    const bodyless = await app.request("/api/skills", jsonPost({ name: "本文なし" }));
-    assert.equal(bodyless.status, 400);
-    assert.equal((await jsonBody(bodyless)).error, "Skill name and body are required");
   } finally {
     await bff.close();
   }
@@ -1470,15 +1442,13 @@ test("catalog CRUD reads the JSON body whatever the request Content-Type is", as
     assert.equal(spacedJson.status, 200);
     assert.equal((await jsonBody(spacedJson)).agent.systemPrompt, "役割を変える");
 
-    const createdSkill = await app.request("/api/skills", jsonPost({ name: "型テスト用スキル", body: "元の本文" }));
-    assert.equal(createdSkill.status, 201);
-    const skillPath = `/api/skills/${(await jsonBody(createdSkill)).skill.id}`;
-    const skill = await app.request(skillPath, {
-      method: "PATCH",
-      body: new TextEncoder().encode(JSON.stringify({ body: "本文を変える" })),
-    });
-    assert.equal(skill.status, 200);
-    assert.equal((await jsonBody(skill)).skill.body, "本文を変える");
+    const createdSkill = await app.request(
+      "/api/skills/files",
+      jsonPost({ name: "型テスト用スキル", description: "説明", body: "元の本文" }),
+    );
+    // サンドボックス未設定なので保存は 503 だが、ルート自体は Content-Type に依らず本文を読む
+    assert.equal(createdSkill.status, 503);
+    assert.match((await jsonBody(createdSkill)).error, /サンドボックス/);
 
     // 形・型の検証も Content-Type に依らない
     const invalid = await app.request(agentPath, {

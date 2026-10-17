@@ -12,7 +12,7 @@ import type { AgentDef, AgentSuggestion } from "../src/types";
 globalThis.location ??= { origin: "http://localhost" } as Location;
 const { Composer } = await import("../src/components/Composer");
 
-const agent: AgentDef = { id: "general", name: "汎用アシスタント", description: "", systemPrompt: "", skillIds: [] };
+const agent: AgentDef = { id: "general", name: "汎用アシスタント", description: "", systemPrompt: "" };
 const suggestion: AgentSuggestion = { label: "ゲームを作る", prompt: "ゲーム作りの相棒になって" };
 const attachment: Attachment = {
   id: "a1",

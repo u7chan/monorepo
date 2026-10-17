@@ -7,7 +7,7 @@ import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import test from "node:test";
 import { AppDb, APP_DB_FILENAME, APP_DB_SCHEMA_VERSION, type SecretRow } from "../src/app-db";
-import type { AgentDef, Project, SkillDef } from "../src/schema";
+import type { AgentDef, Project } from "../src/schema";
 
 function tempStoreDir(): string {
   return mkdtempSync(join(tmpdir(), "u7agent-app-db-"));
@@ -17,15 +17,22 @@ function isServiceUnavailable(error: unknown): boolean {
   return (error as { statusCode?: number }).statusCode === 503;
 }
 
-const agent = (id: string, skillIds: string[] = []): AgentDef => ({
+function tableNames(db: DatabaseSync): string[] {
+  return (db.prepare("SELECT name FROM sqlite_master WHERE type = 'table'").all() as { name: string }[]).map(
+    (row) => row.name,
+  );
+}
+
+function columnNames(db: DatabaseSync, table: string): string[] {
+  return (db.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[]).map((row) => row.name);
+}
+
+const agent = (id: string): AgentDef => ({
   id,
   name: id,
   description: "",
   systemPrompt: "",
-  skillIds,
 });
-
-const skill = (id: string): SkillDef => ({ id, name: id, description: "", body: "body" });
 
 const project = (id: string, cwd: string): Project => ({ id, name: id, cwd, createdAt: 1 });
 
@@ -60,21 +67,19 @@ test("a new file db is seeded once and a deleted sample does not come back", () 
   }
 });
 
-test("keeps projects, skills and agents across reopen", () => {
+test("keeps projects and agents across reopen", () => {
   const dir = tempStoreDir();
   try {
     const first = AppDb.open({ storeDir: dir });
     first.deleteAgent("agent-zundamon");
     first.insertProject(project("p1", "proj-a"));
-    first.saveSkill(skill("s1"));
-    first.saveAgent({ ...agent("a1", ["s1"]), icon: "data:image/png;base64,AA==", thinkingLevel: "high" });
+    first.saveAgent({ ...agent("a1"), icon: "data:image/png;base64,AA==", thinkingLevel: "high" });
     first.close();
 
     const second = AppDb.open({ storeDir: dir });
     assert.deepEqual(second.listProjects(), [project("p1", "proj-a")]);
-    assert.deepEqual(second.listSkills(), [skill("s1")]);
     assert.deepEqual(second.listAgents(), [
-      { ...agent("a1", ["s1"]), icon: "data:image/png;base64,AA==", thinkingLevel: "high" },
+      { ...agent("a1"), icon: "data:image/png;base64,AA==", thinkingLevel: "high" },
     ]);
     second.close();
   } finally {
@@ -127,19 +132,22 @@ test("rolls back a transaction that fails in the middle", () => {
   db.close();
 });
 
-test("a failing skill delete leaves the references untouched", () => {
-  const db = AppDb.open({ storeDir: null });
-  db.saveSkill(skill("s1"));
-  db.saveAgent(agent("a1", ["s1"]));
+test("a new db has no skills table and no agents.skillIds column", () => {
+  const dir = tempStoreDir();
+  try {
+    const db = AppDb.open({ storeDir: dir });
+    db.saveAgent(agent("a1"));
+    db.close();
 
-  // 存在しないスキルの削除は false。参照も触らない
-  assert.equal(db.deleteSkillAndDetach("missing"), false);
-  assert.deepEqual(db.getAgent("a1")?.skillIds, ["s1"]);
-
-  assert.equal(db.deleteSkillAndDetach("s1"), true);
-  assert.equal(db.getSkill("s1"), undefined);
-  assert.deepEqual(db.getAgent("a1")?.skillIds, []);
-  db.close();
+    const check = new DatabaseSync(join(dir, APP_DB_FILENAME));
+    // 新規作成の時点でカタログの行と列は定義に入っていない
+    assert.equal(tableNames(check).includes("skills"), false);
+    assert.equal(columnNames(check, "agents").includes("skillIds"), false);
+    assert.equal(Number(check.prepare("PRAGMA user_version").get()?.user_version), APP_DB_SCHEMA_VERSION);
+    check.close();
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 test("an unusable path makes the db unavailable and every query a 503", () => {
@@ -231,7 +239,7 @@ CREATE TABLE agents (
 );
 `;
 
-test("migrates a v1 db additively without touching agents, skills and projects", () => {
+test("migrates a v1 db additively, then drops only the catalog", () => {
   const dir = tempStoreDir();
   try {
     // v1 の DB を直接作る (このリリースより前の実ファイルと同じ形)
@@ -246,23 +254,24 @@ test("migrates a v1 db additively without touching agents, skills and projects",
     raw.close();
 
     const db = AppDb.open({ storeDir: dir });
-    // 加算的な移行で既存の定義は消えない
+    // 加算的な移行で既存の定義は消えない (projects と agents の他の列)
     assert.deepEqual(db.listProjects(), [project("p1", "proj-a")]);
-    assert.deepEqual(db.listSkills(), [skill("s1")]);
-    assert.deepEqual(db.listAgents(), [agent("a1", ["s1"])]);
+    assert.deepEqual(db.listAgents(), [agent("a1")]);
     assert.equal(db.getNotificationSettings(), undefined);
     db.saveNotificationSettings({ enabled: true, askUser: true, webhookUrl: "https://discord.com/api/webhooks/1/t" });
     db.close();
 
-    // 版が上がっている (開き直しても作り直されない)
+    // 版が上がり、カタログの行と列は物理的に消えている
     const check = new DatabaseSync(join(dir, APP_DB_FILENAME));
     assert.equal(Number(check.prepare("PRAGMA user_version").get()?.user_version), APP_DB_SCHEMA_VERSION);
+    assert.equal(tableNames(check).includes("skills"), false);
+    assert.equal(columnNames(check, "agents").includes("skillIds"), false);
     check.close();
 
+    // 開き直しても作り直されず、残したデータはそのまま読める
     const second = AppDb.open({ storeDir: dir });
     assert.deepEqual(second.listProjects(), [project("p1", "proj-a")]);
-    assert.deepEqual(second.listSkills(), [skill("s1")]);
-    assert.deepEqual(second.listAgents(), [agent("a1", ["s1"])]);
+    assert.deepEqual(second.listAgents(), [agent("a1")]);
     assert.deepEqual(second.getNotificationSettings(), {
       enabled: true,
       askUser: true,
@@ -1115,7 +1124,7 @@ test("migrates a v10 db additively and keeps the secrets table across reopen", (
     raw.close();
 
     const first = AppDb.open({ storeDir: dir });
-    assert.equal(APP_DB_SCHEMA_VERSION, 22);
+    assert.equal(APP_DB_SCHEMA_VERSION, 23);
     // 加算移行なので既存の行は残り、secrets は行が無い = 未設定で始まる
     assert.deepEqual(first.listProjects(), [project("p1", "proj-a")]);
     assert.deepEqual(first.getServeCommand("proj-a"), { cwd: "proj-a", command: "pnpm dev", updatedAt: 1 });
@@ -1652,7 +1661,6 @@ test("migrates a v16 db additively and keeps NULL and [] of the skill allowlists
     const first = AppDb.open({ storeDir: dir });
     // 加算移行なので既存の定義は消えない
     assert.deepEqual(first.listProjects(), [project("p1", "proj-a")]);
-    assert.deepEqual(first.listSkills(), [skill("s1")]);
     // NULL = 未指定。`?? []` で読むと「すべて OFF」に化けるのでキーごと省略される
     assert.equal(Object.hasOwn(first.getAgent("a1") ?? {}, "commonSkillNames"), false);
     assert.equal(Object.hasOwn(first.getAgent("a1") ?? {}, "builtinSkillNames"), false);
@@ -1660,11 +1668,11 @@ test("migrates a v16 db additively and keeps NULL and [] of the skill allowlists
     const migrated = first.getAgent("a1");
     assert.ok(migrated);
     first.saveAgent({ ...migrated, commonSkillNames: [], builtinSkillNames: [] });
-    first.saveAgent(agent("a2", ["s1"])); // 未指定のまま (NULL)
-    first.saveAgent({ ...agent("a3", ["s1"]), commonSkillNames: ["writer", "gh"], builtinSkillNames: ["serve"] });
+    first.saveAgent(agent("a2")); // 未指定のまま (NULL)
+    first.saveAgent({ ...agent("a3"), commonSkillNames: ["writer", "gh"], builtinSkillNames: ["serve"] });
     first.close();
 
-    // 列は既存の列の後ろに足され、書き込みは `[]` を "[]" として残す
+    // 列は既存の列の後ろに足され、カタログの列は消えている。書き込みは `[]` を "[]" として残す
     const check = new DatabaseSync(join(dir, APP_DB_FILENAME));
     const columns = check.prepare("PRAGMA table_info(agents)").all() as { name: string }[];
     assert.deepEqual(
@@ -1677,7 +1685,6 @@ test("migrates a v16 db additively and keeps NULL and [] of the skill allowlists
         "icon",
         "model",
         "thinkingLevel",
-        "skillIds",
         "suggestions",
         "commonSkillNames",
         "builtinSkillNames",
@@ -1685,6 +1692,7 @@ test("migrates a v16 db additively and keeps NULL and [] of the skill allowlists
         "sortOrder",
       ],
     );
+    assert.equal(tableNames(check).includes("skills"), false);
     const rows = check.prepare("SELECT id, commonSkillNames, builtinSkillNames FROM agents ORDER BY rowid").all() as {
       id: string;
       commonSkillNames: unknown;
@@ -2006,19 +2014,90 @@ test("reorderSpaces は途中で失敗したら 1 つも書かない", () => {
   }
 });
 
-test("スキル削除の巻き添え更新でも並びは動かない", () => {
-  const db = AppDb.open({ storeDir: null });
-  db.saveSkill({ id: "s1", name: "s1", description: "", body: "body" });
-  db.saveAgent(agent("a1", ["s1"]));
-  db.saveAgent(agent("a2", ["s1"]));
-  db.saveAgent(agent("a3"));
-  const ids = () => db.listAgents().map((entry) => entry.id);
-  // カタログ経由の並べ替えは全件を渡す (部分適用では、渡さなかった行と値が衝突し得る)
-  db.reorderAgents(["a3", "a1", "a2", "agent-zundamon"]);
-  assert.deepEqual(ids(), ["a3", "a1", "a2", "agent-zundamon"]);
+test("v22 からの限定削除でカタログだけを消し、他の行と列は残す", () => {
+  const dir = tempStoreDir();
+  try {
+    // 現行スキーマで作った DB を v22 相当に戻し、旧カタログの行と列を再現する
+    AppDb.open({ storeDir: dir }).close();
+    const raw = new DatabaseSync(join(dir, APP_DB_FILENAME));
+    raw.exec("ALTER TABLE agents ADD COLUMN skillIds TEXT");
+    raw.exec(
+      "CREATE TABLE skills (id TEXT PRIMARY KEY, name TEXT NOT NULL, description TEXT NOT NULL, body TEXT NOT NULL)",
+    );
+    raw.exec("PRAGMA user_version = 22");
+    raw.prepare("INSERT INTO projects (id, name, cwd, createdAt) VALUES (?, ?, ?, ?)").run("p1", "p1", "proj-a", 1);
+    raw.prepare("INSERT INTO skills (id, name, description, body) VALUES (?, ?, ?, ?)").run("s1", "s1", "", "body");
+    raw
+      .prepare(
+        "INSERT INTO agents (id, name, description, systemPrompt, skillIds, commonSkillNames) VALUES (?, ?, ?, ?, ?, ?)",
+      )
+      .run("a1", "a1", "説明", "プロファイル", '["s1"]', '["writer"]');
+    raw.close();
 
-  assert.equal(db.deleteSkillAndDetach("s1"), true);
-  assert.deepEqual(ids(), ["a3", "a1", "a2", "agent-zundamon"]);
-  assert.deepEqual(db.getAgent("a1")?.skillIds, []);
-  db.close();
+    const db = AppDb.open({ storeDir: dir });
+    assert.equal(db.status().ok, true);
+    // 残す行と列はそのまま読める
+    assert.deepEqual(db.listProjects(), [project("p1", "proj-a")]);
+    assert.deepEqual(db.getAgent("a1"), {
+      ...agent("a1"),
+      description: "説明",
+      systemPrompt: "プロファイル",
+      commonSkillNames: ["writer"],
+    });
+    db.close();
+
+    const check = new DatabaseSync(join(dir, APP_DB_FILENAME));
+    assert.equal(tableNames(check).includes("skills"), false);
+    assert.equal(columnNames(check, "agents").includes("skillIds"), false);
+    // 他の列は落ちていない
+    for (const column of ["id", "name", "description", "systemPrompt", "commonSkillNames", "sortOrder"]) {
+      assert.ok(columnNames(check, "agents").includes(column), `${column} must remain`);
+    }
+    assert.equal(Number(check.prepare("PRAGMA user_version").get()?.user_version), APP_DB_SCHEMA_VERSION);
+    check.close();
+
+    // 再起動で安定する (同じ版なので再度の移行は走らない)
+    const reopened = AppDb.open({ storeDir: dir });
+    assert.deepEqual(reopened.getAgent("a1"), {
+      ...agent("a1"),
+      description: "説明",
+      systemPrompt: "プロファイル",
+      commonSkillNames: ["writer"],
+    });
+    reopened.close();
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("カタログの限定削除が失敗したら部分適用を残さない", () => {
+  const dir = tempStoreDir();
+  try {
+    AppDb.open({ storeDir: dir }).close();
+    const raw = new DatabaseSync(join(dir, APP_DB_FILENAME));
+    // 加算更新 (sortOrder の再追加) を通した後に失敗させるため、先に消しておく
+    raw.exec("ALTER TABLE agents DROP COLUMN sortOrder");
+    raw.exec("ALTER TABLE agents ADD COLUMN skillIds TEXT");
+    raw.exec(
+      "CREATE TABLE skills (id TEXT PRIMARY KEY, name TEXT NOT NULL, description TEXT NOT NULL, body TEXT NOT NULL)",
+    );
+    raw.exec("PRAGMA user_version = 22");
+    // 索引から列を参照させ、DROP COLUMN を失敗させる
+    raw.exec("CREATE INDEX idx_agents_skill ON agents(skillIds)");
+    raw.close();
+
+    const db = AppDb.open({ storeDir: dir });
+    assert.equal(db.status().ok, false);
+    db.close();
+
+    // rollback で DROP も列変更も版更新も残らない (加算の sortOrder も戻る)
+    const check = new DatabaseSync(join(dir, APP_DB_FILENAME));
+    assert.ok(tableNames(check).includes("skills"));
+    assert.ok(columnNames(check, "agents").includes("skillIds"));
+    assert.equal(columnNames(check, "agents").includes("sortOrder"), false);
+    assert.equal(Number(check.prepare("PRAGMA user_version").get()?.user_version), 22);
+    check.close();
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });

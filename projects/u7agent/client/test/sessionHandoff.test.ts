@@ -96,8 +96,8 @@ test("現在のエージェントがカタログから消えていても先頭�
   const choices = handoffAgentChoices([], "deleted-agent", "消えたエージェント");
   assert.deepEqual(choices, [{ id: "deleted-agent", name: "消えたエージェント", current: true }]);
   assert.equal(handoffAgentId(choices[0]), undefined);
-  const research = { id: "research", name: "調査", description: "", systemPrompt: "", skillIds: [] };
-  const general = { id: "general", name: "汎用", description: "", systemPrompt: "", skillIds: [] };
+  const research = { id: "research", name: "調査", description: "", systemPrompt: "" };
+  const general = { id: "general", name: "汎用", description: "", systemPrompt: "" };
   const withCurrent = handoffAgentChoices([general, research], "research", "調査");
   assert.deepEqual(withCurrent, [
     { id: "general", name: "汎用", current: false },

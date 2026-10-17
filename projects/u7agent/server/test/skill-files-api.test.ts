@@ -303,22 +303,21 @@ test("未設定は 503、接続不能と不正応答は 502 にする", async ()
   }
 });
 
-test("新しい静的ルートは旧 /api/skills/:id と /api/skills/session を壊さない", async () => {
+test("新しい静的ルートは /api/skills/session を壊さず、旧カタログ CRUD は存在しない", async () => {
   const { client } = skillClient();
   const bff = await makeApp(client);
   try {
-    // 旧カタログの一覧はそのまま (DB のスキル定義)
-    const catalog = await bff.app.request("/api/skills");
-    assert.equal(catalog.status, 200);
-    assert.deepEqual(await catalog.json(), { skills: [] });
+    // 旧 DB カタログの一覧は撤去済みで、新しい API へも転送しない (通常の未対応 API として 404)
+    assert.equal((await bff.app.request("/api/skills")).status, 404);
     // 新ルートは :id に捕捉されない (detail が 200 を返す)
     assert.equal(
       (await bff.app.request(`/api/skills/files/detail?relativePath=${encodeURIComponent(DETAIL.relativePath)}`))
         .status,
       200,
     );
-    // 旧 CRUD の動的ルートは残っている (対象が無いので 404)
+    // 旧 CRUD の動的ルートも無い
     assert.equal((await bff.app.request("/api/skills/missing", { method: "DELETE" })).status, 404);
+    assert.equal((await bff.app.request("/api/skills/missing", { method: "PATCH" })).status, 404);
     // セッション未確定のスキル一覧のルートも残っている (未設定 / 未登録の状態は 4xx / 503 のまま。
     // どちらでも「ルートが無い」404 とは区別できる)
     const sessionSkills = await bff.app.request("/api/skills/session?projectId=&agentId=default");

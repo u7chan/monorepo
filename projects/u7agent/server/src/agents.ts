@@ -1,6 +1,7 @@
 /**
- * エージェント / スキルのカタログ。定義はアプリデータの SQLite (app-db.ts) に保存し、
+ * エージェントカタログ。定義はアプリデータの SQLite (app-db.ts) に保存し、
  * 再起動しても残る。サンプル定義は DB を新規作成したときだけ入る (app-db.ts の SEED_AGENTS)。
+ * スキルはファイル (`.agents/skills`) を正とし、このカタログは定義を持たない (docs/api-catalog.md)。
  */
 import { randomUUID } from "node:crypto";
 import { AppDb } from "./app-db";
@@ -11,7 +12,6 @@ import type {
   BuiltinSkillInfo,
   CatalogResponse,
   ModelRef,
-  SkillDef,
   ThinkingLevel,
   ToolCatalogEntry,
 } from "./schema";
@@ -20,7 +20,6 @@ export interface HttpError extends Error {
   statusCode?: number;
 }
 
-type SkillRecord = SkillDef;
 type AgentRecord = AgentDef;
 
 /** catalog CRUD の入力は正規化ロジックが正なので unknown で受ける */
@@ -29,7 +28,7 @@ type DefinitionInput = unknown;
 /**
  * 常に 1 体居る汎用アシスタント。DB の行にはせず、ユーザー定義が 0 件でもセッションを
  * 作れる保証をこの分離で持つ (ユーザー定義の一覧には現れず、削除も編集もできない)。
- * 既定のエージェントはカタログのスキルを持たず、共通 / 組み込みは許可リスト未指定 = 全部 ON になる。
+ * 既定のエージェントはスキルを割り当てず、共通 / 組み込みは許可リスト未指定 = 全部 ON になる。
  * 閲覧ビューはその実効の一覧を読み取り専用で出す (なりきりは SEED_AGENTS のサンプルとして別に置く)。
  */
 const BUILTIN_AGENT: AgentRecord = {
@@ -37,7 +36,6 @@ const BUILTIN_AGENT: AgentRecord = {
   name: "汎用アシスタント",
   description: "役割や口調を設定していない既定のエージェント",
   systemPrompt: "",
-  skillIds: [],
   suggestions: [
     { label: "プロジェクトを説明して", prompt: "このプロジェクトの構成を簡単に教えて" },
     { label: "テストを確認して", prompt: "まずテストがあるか確認して" },
@@ -60,22 +58,12 @@ function invalid(message: string): HttpError {
   return error;
 }
 
-function publicSkill(skill: SkillRecord): SkillDef {
-  return {
-    id: skill.id,
-    name: skill.name,
-    description: skill.description,
-    body: skill.body,
-  };
-}
-
 function publicAgent(agent: AgentRecord): AgentDef {
   const result: AgentDef = {
     id: agent.id,
     name: agent.name,
     description: agent.description,
     systemPrompt: agent.systemPrompt,
-    skillIds: [...agent.skillIds],
   };
   // 未指定の項目はキーを省略する (保存・応答に null は現れない)
   if (agent.icon) result.icon = agent.icon;
@@ -146,7 +134,7 @@ const SUGGESTION_LIMIT = 6;
 
 /**
  * 配列以外は未指定として空を返す。prompt の重複は先に除いてから上限で切るので、
- * 重複が 6 件の枠を消費しない (skillIds の dedupe と同じ発想)。
+ * 重複が 6 件の枠を消費しない。
  */
 function normalizeSuggestions(value: unknown): AgentSuggestion[] {
   if (!Array.isArray(value)) return [];
@@ -199,20 +187,7 @@ function allowlistOf(
 const SKILL_LIMITS = { nameMax: SKILL_NAME_MAX, namesMax: SKILL_NAMES_MAX } as const;
 const TOOL_LIMITS = { nameMax: TOOL_NAME_MAX, namesMax: TOOL_NAMES_MAX } as const;
 
-function makeSkill(input: DefinitionInput, id: string = randomUUID()): SkillRecord {
-  const record = input as { name?: unknown; body?: unknown; description?: unknown } | null;
-  const name = text(record?.name);
-  const body = text(record?.body);
-  if (!name || !body) throw invalid("Skill name and body are required");
-  return {
-    id,
-    name,
-    description: text(record?.description, "", 300),
-    body,
-  };
-}
-
-function makeAgent(input: DefinitionInput, skillIds: string[], id: string = randomUUID()): AgentRecord {
+function makeAgent(input: DefinitionInput, id: string = randomUUID()): AgentRecord {
   const record = input as {
     name?: unknown;
     description?: unknown;
@@ -224,7 +199,11 @@ function makeAgent(input: DefinitionInput, skillIds: string[], id: string = rand
     model?: unknown;
     thinkingLevel?: unknown;
     suggestions?: unknown;
+    skillIds?: unknown;
   } | null;
+  // 撤去済みの DB カタログ割り当ては無視せず 400 にする (黙って成功させると
+  // 割り当てが保存されたと誤認させる。docs/api-catalog.md)
+  if (record && Object.hasOwn(record, "skillIds")) throw invalid("skillIds is no longer supported");
   const name = text(record?.name);
   if (!name) throw invalid("Agent name is required");
   const agent: AgentRecord = {
@@ -232,7 +211,6 @@ function makeAgent(input: DefinitionInput, skillIds: string[], id: string = rand
     name,
     description: text(record?.description, "", 300),
     systemPrompt: text(record?.systemPrompt, ""),
-    skillIds,
   };
   const icon = iconOf(record?.icon);
   const model = modelRef(record?.model);
@@ -257,7 +235,6 @@ function makeAgent(input: DefinitionInput, skillIds: string[], id: string = rand
 export interface AgentCatalog {
   /** ビルトインの汎用エージェント。ユーザー定義の一覧には入れない */
   builtinAgent(): AgentDef;
-  listSkills(): SkillDef[];
   /** ユーザー定義のみ (ビルトインを含まない) */
   listAgents(): AgentDef[];
   /**
@@ -265,20 +242,16 @@ export interface AgentCatalog {
    * 未知の id・重複・ビルトインは捨て、渡されなかった行は元の相対順で末尾に回す。
    */
   reorderAgents(ids: readonly string[]): AgentDef[];
-  getSkill(id: string): SkillRecord | undefined;
   /** ビルトインも解決する (新規セッションの既定がこの id を指す) */
   getAgent(id: string): AgentRecord | undefined;
   snapshot(): CatalogResponse;
-  createSkill(input: DefinitionInput): SkillDef;
-  updateSkill(id: string, input: DefinitionInput): SkillDef | undefined;
-  removeSkill(id: string): boolean;
   createAgent(input: DefinitionInput): AgentDef;
   updateAgent(id: string, input: DefinitionInput): AgentDef | undefined;
   removeAgent(id: string): boolean;
 }
 
 export interface CreateAgentCatalogOptions {
-  /** GET /api/agents が返す同梱スキル。カタログの CRUD と `skillIds` の対象外 */
+  /** GET /api/agents が返す同梱スキル。`AgentDef` の許可リストの対象外 */
   builtinSkills?: readonly BuiltinSkillInfo[];
   /**
    * GET /api/agents が返すツールの一覧。アプリ側の実効 (キー / 実行時トグル / serve の有無) は
@@ -298,34 +271,22 @@ export function createAgentCatalog(options: CreateAgentCatalogOptions = {}): Age
   const tools = options.tools ?? (() => []);
 
   const builtinAgent = () => publicAgent(builtin);
-  const listSkills = () => db.listSkills().map(publicSkill);
   const listAgents = () => db.listAgents().map(publicAgent);
-  const getSkill = (id: string) => db.getSkill(id);
   const getAgent = (id: string) => db.getAgent(id) ?? (id === builtin.id ? builtin : undefined);
   const snapshot = (): CatalogResponse => ({
     builtinAgent: builtinAgent(),
     builtinSkills: builtinSkills.map((skill) => ({ ...skill })),
     tools: tools().map((tool) => ({ ...tool })),
     agents: listAgents(),
-    skills: listSkills(),
   });
-
-  /** 存在しないスキルへの参照は捨てる (定義が壊れていてもセッション作成を止めない) */
-  function normalizeSkillIds(skillIds: unknown): string[] {
-    if (!Array.isArray(skillIds)) return [];
-    const available = new Map(db.listSkills().map((skill) => [skill.id, skill]));
-    return [...new Set(skillIds.filter((id): id is string => typeof id === "string" && available.has(id)))];
-  }
 
   return {
     builtinAgent,
-    listSkills,
     listAgents,
-    getSkill,
     getAgent,
     snapshot,
     reorderAgents(ids) {
-      // 存在しない id を捨てる方針は normalizeSkillIds と同じ (ビルトインはユーザー定義の集合に無い)
+      // 存在しない id を捨てる方針は normalize と同じ (ビルトインはユーザー定義の集合に無い)
       const current = db.listAgents();
       const known = new Set(current.map((agent) => agent.id));
       const seen = new Set<string>();
@@ -342,40 +303,18 @@ export function createAgentCatalog(options: CreateAgentCatalogOptions = {}): Age
       db.reorderAgents(order);
       return listAgents();
     },
-    createSkill(input) {
-      const skill = makeSkill(input);
-      db.saveSkill(skill);
-      return publicSkill(skill);
-    },
-    updateSkill(id, input) {
-      const current = db.getSkill(id);
-      if (!current) return undefined;
-      const skill = makeSkill({ ...current, ...(input as object) }, id);
-      db.saveSkill(skill);
-      return publicSkill(skill);
-    },
-    removeSkill(id) {
-      // 参照している agents の skillIds からの除去まで 1 トランザクション
-      return db.deleteSkillAndDetach(id);
-    },
     createAgent(input) {
-      const raw = input as { skillIds?: unknown } | null;
-      const agent = makeAgent(input, normalizeSkillIds(raw?.skillIds));
+      const agent = makeAgent(input);
       db.saveAgent(agent);
       return publicAgent(agent);
     },
     updateAgent(id, input) {
       const current = db.getAgent(id);
       if (!current) return undefined;
-      const raw = input as { skillIds?: unknown } | null;
       // キー省略は current を残し、null は makeAgent 側でキーごと消える。
       const merged = { ...current, ...(input as object) };
-      const agent = makeAgent(
-        merged,
-        raw && Object.hasOwn(raw, "skillIds") ? normalizeSkillIds(raw.skillIds) : normalizeSkillIds(current.skillIds),
-        id,
-      );
       // makeAgent は undefined のキーを付けないので、解除は merged の上書きで成立する
+      const agent = makeAgent(merged, id);
       db.saveAgent(agent);
       return publicAgent(agent);
     },

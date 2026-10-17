@@ -17,7 +17,6 @@ const general: AgentDef = {
   name: "汎用アシスタント",
   description: "",
   systemPrompt: "",
-  skillIds: [],
 };
 const research: AgentDef = { ...general, id: "research", name: "調査" };
 

@@ -30,13 +30,12 @@ const INVESTIGATION_SYSTEM_PROMPT = [
   "Keep it concise: the caller has a small budget for your report.",
 ].join("\n");
 
-/** 子セッションの合成 AgentDef。カタログに無い定義で、スキルは割り当てない */
+/** 子セッションの合成 AgentDef。カタログに無い定義で、スキルは使わない */
 export const INVESTIGATION_AGENT: AgentDef = {
   id: INVESTIGATION_AGENT_ID,
   name: INVESTIGATION_AGENT_ID,
   description: "使い捨ての読み取り専用調査",
   systemPrompt: INVESTIGATION_SYSTEM_PROMPT,
-  skillIds: [],
 };
 
 export interface InvestigateRunRequest {

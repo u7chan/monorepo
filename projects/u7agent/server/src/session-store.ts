@@ -32,11 +32,6 @@ const MAX_WRITE_ATTEMPTS = 3;
 export interface PromptSnapshot {
   /** 作成時の agent プロファイル (appendSystemPrompt へ入れたもの) */
   agent: string;
-  /**
-   * 作成時のスキル本文 (順序を保つ)。system prompt へは入れず、`read` と `/skill:` の展開だけが使う
-   * (索引は skillsOverride が別に組む)
-   */
-  skills: string[];
 }
 
 /**
@@ -174,6 +169,29 @@ export async function listSessionIds(storeDir: string): Promise<string[]> {
     .sort();
 }
 
+/**
+ * meta の agent を保持対象のフィールドだけから組み直す。旧 meta の `skillIds` / `skills` は
+ * ここで落とし、会話を開き直して再保存しても復活させない (docs/api-sessions.md)。
+ */
+function parseAgentPayload(value: unknown): AgentPayloadInfo | undefined {
+  if (!value || typeof value !== "object") return undefined;
+  const agent = value as Partial<AgentPayloadInfo>;
+  if (typeof agent.id !== "string" || typeof agent.name !== "string") return undefined;
+  const names = (list: unknown): string[] | undefined =>
+    Array.isArray(list) ? list.filter((name): name is string => typeof name === "string") : undefined;
+  const commonSkillNames = names(agent.commonSkillNames);
+  const builtinSkillNames = names(agent.builtinSkillNames);
+  const toolNames = names(agent.toolNames);
+  return {
+    id: agent.id,
+    name: agent.name,
+    description: typeof agent.description === "string" ? agent.description : "",
+    ...(commonSkillNames ? { commonSkillNames } : {}),
+    ...(builtinSkillNames ? { builtinSkillNames } : {}),
+    ...(toolNames ? { toolNames } : {}),
+  };
+}
+
 function parseMeta(value: unknown, id: string): SessionMeta | undefined {
   if (!value || typeof value !== "object") return undefined;
   const meta = value as Partial<SessionMeta>;
@@ -182,9 +200,12 @@ function parseMeta(value: unknown, id: string): SessionMeta | undefined {
   if (meta.version !== 1 || meta.id !== id || typeof meta.title !== "string") return undefined;
   if (typeof meta.createdAt !== "number" || typeof meta.lastUsedAt !== "number") return undefined;
   if (typeof meta.messageCount !== "number" || typeof meta.agentId !== "string") return undefined;
-  if (!meta.agent || typeof meta.agent !== "object") return undefined;
-  const prompt = meta.promptSnapshot;
-  if (!prompt || typeof prompt.agent !== "string" || !Array.isArray(prompt.skills)) return undefined;
+  const agent = parseAgentPayload(meta.agent);
+  if (!agent) return undefined;
+  const prompt = meta.promptSnapshot as Partial<PromptSnapshot> | undefined;
+  // カタログ撤去後の新形式は `skills` を持たない。旧 meta の `skills` はここで落とし、
+  // 開き直して再保存してもカタログ専用キーを書き戻さない (docs/api-sessions.md)
+  if (!prompt || typeof prompt.agent !== "string") return undefined;
   const handoff = parseHandoff(meta.handoff);
   return {
     version: 1,
@@ -195,8 +216,8 @@ function parseMeta(value: unknown, id: string): SessionMeta | undefined {
     lastUsedAt: meta.lastUsedAt,
     messageCount: meta.messageCount,
     agentId: meta.agentId,
-    agent: meta.agent as AgentPayloadInfo,
-    promptSnapshot: { agent: prompt.agent, skills: prompt.skills.filter((s): s is string => typeof s === "string") },
+    agent,
+    promptSnapshot: { agent: prompt.agent },
     ...(typeof meta.projectCwd === "string" ? { projectCwd: meta.projectCwd } : {}),
     ...(typeof meta.projectName === "string" ? { projectName: meta.projectName } : {}),
     ...(typeof meta.model === "string" ? { model: meta.model } : {}),

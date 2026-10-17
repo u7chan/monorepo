@@ -1,51 +1,44 @@
 import { useState, type FormEvent } from "react";
 import { useFileSkills } from "../hooks/useFileSkills";
 import { useWideLayout } from "../hooks/useLayoutMode";
-import { FILE_SKILL_DELETE_LABEL, FILE_SKILL_EDIT_LABEL, FILE_SKILL_PANEL_HEADING } from "../lib/fileSkills";
+import {
+  FILE_SKILL_ADD_LABEL,
+  FILE_SKILL_DELETE_LABEL,
+  FILE_SKILL_EDIT_LABEL,
+  FILE_SKILL_PANEL_HEADING,
+} from "../lib/fileSkills";
 import { MEMORY_NOTE } from "../lib/settingsNotes";
 import { fileSkillDeleteConfirmRequest, skillDiscardConfirmRequest } from "../lib/settingsConfirm";
-import type { Catalog, FileSkillInfo } from "../types";
+import type { FileSkillInfo } from "../types";
 import { DefinitionList } from "./DefinitionList";
 import { useConfirm } from "./ConfirmProvider";
-import { MenuItem } from "./MenuItem";
 import { SettingsDetailSheet } from "./SettingsDetailSheet";
 import { SettingsPageLayout, type SettingsPageProps } from "./SettingsPageLayout";
-import { CatalogSkillPanel } from "./skill-settings/CatalogSkillPanel";
 import { FileSkillEditorForm } from "./skill-settings/FileSkillEditorForm";
 import { FileSkillList } from "./skill-settings/FileSkillList";
 import { FileSkillPanel } from "./skill-settings/FileSkillPanel";
-import { SkillEditorForm, skillFormDirty, skillFormOf, type SkillForm } from "./skill-settings/SkillEditorForm";
-import { BoltIcon, PencilIcon, TrashIcon } from "./icons";
+import { PencilIcon, TrashIcon } from "./icons";
 
 export type SkillSettingsPageProps = SettingsPageProps & {
-  catalog: Catalog;
-  refreshCatalog: () => Promise<Catalog>;
   /** プレビュー オリジンのブラウザから見たポート (health)。未取得は undefined */
   filePreviewPort?: number;
 };
-
-/** カタログスキルの表示。一覧で選ぶと閲覧ビュー、`編集` でフォームへ入る */
-type SkillMode = "view" | "edit";
 
 function errorText(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
 export function SkillSettingsPage({
-  catalog,
-  refreshCatalog,
   filePreviewPort,
   singleColumn = false,
   onBack,
   onOpenNav,
 }: SkillSettingsPageProps) {
-  const [editingId, setEditingId] = useState<string | null>(() => catalog.skills[0]?.id ?? null);
   // 一覧と編集を並べるのは 900px 以上だけ。狭い desktop と singleColumn は「一覧ページ + 全画面シート」に統一する
   // (一覧が何件でも編集面を削られない。docs/ui-layout.md の「設定の一覧と編集の境界」)
   const wide = useWideLayout();
   const sheetMode = singleColumn || !wide;
   const confirm = useConfirm();
-  const [mode, setMode] = useState<SkillMode>("view");
   const [note, setNote] = useState<{ text: string; error: boolean }>({ text: MEMORY_NOTE, error: false });
   const [sheetOpen, setSheetOpen] = useState(false);
   // ファイルスキルの選択は一覧の root 相対 relativePath で持つ (変更要求のキーと同じ。上書きされた
@@ -54,7 +47,6 @@ export function SkillSettingsPage({
   // 同じ行を押し直したときも本文を取り直すための世代 (パネルの key に混ぜる)
   const [selectedFileSkillSeq, setSelectedFileSkillSeq] = useState(0);
   const fileSkills = useFileSkills();
-  const editingSkill = catalog.skills.find((skill) => skill.id === editingId);
   const selectedFileSkill =
     selectedFileSkillRel && fileSkills.state.status === "ready"
       ? fileSkills.state.skills.find((skill) => skill.relativePath === selectedFileSkillRel)
@@ -77,47 +69,12 @@ export function SkillSettingsPage({
   const creatingFileSkill = fileSkillEditor.status === "create" ? fileSkillEditor : null;
   const setNoteText = (text: string, error = false) => setNote({ text, error });
 
-  // 下書きはページが持つ。理由は docs/ui-layout.md の「設定の一覧と編集の境界」を参照。
-  // 参照が変わった編集対象・カタログ・mode を render 中に検出して初期化する (useEffect では古いフォームが 1 フレーム描画される)。
-  // mode を条件に含めるのは、同じスキルでも `編集` のたびに現行のカタログから作り直し、`キャンセル` で下書きを破棄するため
-  const [skillForm, setSkillForm] = useState<SkillForm>(() => skillFormOf(editingSkill));
-  const [formSource, setFormSource] = useState(() => ({ editingId, catalog, mode }));
-  if (formSource.editingId !== editingId || formSource.catalog !== catalog || formSource.mode !== mode) {
-    setFormSource({ editingId, catalog, mode });
-    setSkillForm(skillFormOf(editingSkill));
-  }
-
-  const selectSkill = (nextId: string | null) => {
-    setSelectedFileSkillRel(null);
-    setEditingId(nextId);
-    setMode("view");
-    // 並べて見られないときだけシートを開く (900px 以上はページ内のフォームをそのまま使う)
-    if (sheetMode) setSheetOpen(true);
-  };
-
-  const startEditing = () => setMode("edit");
-
-  const cancelEditing = () => {
-    // 未保存の差分があるときだけ確認する (開いてすぐ戻る操作を止めない)
-    void (async () => {
-      if (skillFormDirty(skillForm, editingSkill) && !(await confirm(skillDiscardConfirmRequest()))) return;
-      setMode("view");
-    })();
-  };
-
   const selectFileSkill = (skill: FileSkillInfo) => {
     setSelectedFileSkillRel(skill.relativePath);
     // 同じ行の押し直しでも本文を取り直す (ファイルは選択の外で書き換わる)
     setSelectedFileSkillSeq((seq) => seq + 1);
     if (skill.scope === "user") fileSkills.openDetail(skill.relativePath);
     if (sheetMode) setSheetOpen(true);
-  };
-
-  const startNewSkill = () => {
-    setNoteText("新しいスキルを作成します。");
-    selectSkill(null);
-    // 新規は閲覧ビューを持たないのでフォームへ直行する
-    setMode("edit");
   };
 
   /** 共通スキルの新規作成。名前と説明はサーバー側でも検証され、同名は 409 で止まる */
@@ -184,28 +141,15 @@ export function SkillSettingsPage({
   const list = (
     <DefinitionList
       title="スキル一覧"
-      count={catalog.skills.length}
-      addLabel="新しいスキル"
-      emptyLabel="カタログのスキルはまだありません。「新しいスキル」から作成できます。"
-      onAdd={startNewSkill}
+      count={fileSkills.state.status === "ready" ? fileSkills.state.skills.length : 0}
+      addLabel={FILE_SKILL_ADD_LABEL}
+      onAdd={startNewFileSkill}
     >
-      {catalog.skills.map((skill) => (
-        <MenuItem
-          key={skill.id}
-          icon={<BoltIcon />}
-          label={skill.name}
-          description={skill.description || "説明なし"}
-          selected={editingId === skill.id}
-          current="true"
-          onClick={() => selectSkill(skill.id)}
-        />
-      ))}
       <FileSkillList
         state={fileSkills.state}
         onReload={fileSkills.reload}
         selectedRelativePath={selectedFileSkillRel}
         onSelect={selectFileSkill}
-        onAdd={startNewFileSkill}
       />
     </DefinitionList>
   );
@@ -264,46 +208,30 @@ export function SkillSettingsPage({
       variant={sheetMode ? "sheet" : "page"}
       filePreviewPort={filePreviewPort}
     />
-  ) : editingSkill && mode === "view" ? (
-    <CatalogSkillPanel
-      skill={editingSkill}
-      agents={catalog.agents}
-      variant={sheetMode ? "sheet" : "page"}
-      onEdit={startEditing}
-    />
   ) : (
-    <SkillEditorForm
-      editingId={editingId}
-      skill={editingSkill}
-      form={skillForm}
-      setForm={setSkillForm}
-      variant={sheetMode ? "sheet" : "page"}
-      refreshCatalog={refreshCatalog}
-      onSelectSkill={selectSkill}
-      onNote={setNoteText}
-      onDone={() => setSheetOpen(false)}
-      onCancel={editingSkill ? cancelEditing : undefined}
-    />
+    <section className="min-h-0 min-w-0 scrollbar-thin overflow-x-hidden overflow-y-auto px-4 py-4">
+      <div className="mx-auto grid max-w-3xl gap-3">
+        <p className="text-xs leading-relaxed text-ink-muted">
+          一覧からスキルを選ぶと、説明と本文を表示します。共通スキルは「新しいスキル」から作成できます。
+        </p>
+      </div>
+    </section>
   );
 
-  // シートの見出しは表示中の面に合わせる (閲覧ビューに「スキルを編集」を残さない)
+  // シートの見出しは表示中の面に合わせる
   const sheetTitle = creatingFileSkill
     ? "新しい共通スキル"
     : editingFileSkill && selectedFileSkill
       ? `${FILE_SKILL_PANEL_HEADING[selectedFileSkill.scope]}を編集`
       : selectedFileSkill
         ? FILE_SKILL_PANEL_HEADING[selectedFileSkill.scope]
-        : editingSkill
-          ? mode === "view"
-            ? "スキル"
-            : "スキルを編集"
-          : "新しいスキル";
+        : "スキル";
 
   return (
     <SettingsPageLayout
       eyebrow="SKILLS"
       title="スキル"
-      caption="エージェントに割り当てるスキルを定義します。"
+      caption="エージェントの会話で使うスキルを管理します。"
       singleColumn={singleColumn}
       onOpenNav={onOpenNav}
       onBack={onBack}
