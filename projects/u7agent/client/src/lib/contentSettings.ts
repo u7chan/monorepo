@@ -87,9 +87,9 @@ export interface ImageModelOption {
 }
 
 /**
- * モデル選択の選択肢。カタログをそのまま並べ、保存済みのモデルがカタログに無ければ現在の id を
- * 「（カタログ外）」として先頭に足す (何が保存されているかを見失わせない)。name は DTO 上は空を許すため、
- * 表示名に使えないときと、同じ name が複数あるときは id を添えて一意にする。
+ * モデル選択の選択肢。表示名の昇順（`localeCompare` を使わない単純な文字列比較）に並べ、保存済みの
+ * モデルがカタログに無ければ現在の id を「（カタログ外）」として先頭に足す (何が保存されているかを見失わせない)。
+ * name は DTO 上は空を許すため、表示名に使えないときと、同じ name が複数あるときは id を添えて一意にする。
  */
 export function imageModelOptions(settings: Pick<ContentSettingsResponse, "provider" | "image">): ImageModelOption[] {
   const { provider, image } = settings;
@@ -98,11 +98,13 @@ export function imageModelOptions(settings: Pick<ContentSettingsResponse, "provi
     if (entry.name === "") continue;
     nameCounts.set(entry.name, (nameCounts.get(entry.name) ?? 0) + 1);
   }
-  const options: ImageModelOption[] = image.models.map((entry) => ({
-    value: modelRefKey({ provider: entry.provider, id: entry.id }),
-    label: optionLabel(entry, (nameCounts.get(entry.name) ?? 0) > 1),
-    model: { provider: entry.provider, id: entry.id },
-  }));
+  const options: ImageModelOption[] = image.models
+    .map((entry) => ({
+      value: modelRefKey({ provider: entry.provider, id: entry.id }),
+      label: optionLabel(entry, (nameCounts.get(entry.name) ?? 0) > 1),
+      model: { provider: entry.provider, id: entry.id },
+    }))
+    .sort((a, b) => compareOptionLabels(a.label, b.label));
   if (provider !== null && image.model !== null && !options.some((option) => option.model?.id === image.model)) {
     const model = { provider, id: image.model };
     options.unshift({
@@ -118,6 +120,11 @@ export function imageModelOptions(settings: Pick<ContentSettingsResponse, "provi
 function optionLabel(entry: { id: string; name: string }, duplicated: boolean): string {
   if (entry.name === "") return entry.id;
   return duplicated ? `${entry.name}（${entry.id}）` : entry.name;
+}
+
+/** 表示名の昇順。`localeCompare` はロケール依存を持ち込むため使わず、ASCII の単純比較にする */
+function compareOptionLabels(a: string, b: string): number {
+  return a < b ? -1 : a > b ? 1 : 0;
 }
 
 /** 選択欄の現在値。行が無い (未設定) か provider を決められないときは空文字 */
@@ -154,8 +161,8 @@ export interface SpeechModelOption {
 }
 
 /**
- * 音声モデルの選択肢。画像と同じくカタログ順に並べ、保存済みのモデルがカタログに無ければ現在の id を
- * 「（カタログ外）」として先頭に足す。
+ * 音声モデルの選択肢。画像と同じ比較器で表示名の昇順に並べ、保存済みのモデルがカタログに無ければ
+ * 現在の id を「（カタログ外）」として先頭に足す。
  */
 export function speechModelOptions(
   settings: Pick<ContentSettingsResponse, "provider" | "speech">,
@@ -166,11 +173,13 @@ export function speechModelOptions(
     if (entry.name === "") continue;
     nameCounts.set(entry.name, (nameCounts.get(entry.name) ?? 0) + 1);
   }
-  const options: SpeechModelOption[] = speech.models.map((entry) => ({
-    value: entry.id,
-    label: optionLabel(entry, (nameCounts.get(entry.name) ?? 0) > 1),
-    model: entry,
-  }));
+  const options: SpeechModelOption[] = speech.models
+    .map((entry) => ({
+      value: entry.id,
+      label: optionLabel(entry, (nameCounts.get(entry.name) ?? 0) > 1),
+      model: entry,
+    }))
+    .sort((a, b) => compareOptionLabels(a.label, b.label));
   if (speech.model !== null && !options.some((option) => option.value === speech.model)) {
     options.unshift({
       value: speech.model,

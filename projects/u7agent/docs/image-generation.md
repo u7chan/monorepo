@@ -206,7 +206,7 @@ SDK(pi-ai 1.3.0) の `openrouter-images` は `chat/completions` へ投げるが�
 | `server/test/app-db.test.ts` | v7 → v8 / v8 → v9 の加算移行、v14 → v15 の改名（`image_settings` → `content_settings`、`model` → `imageModel`）、両テーブル併存時の読み先、v15 → v14 → v15 の往復、`content_settings` の CRUD、空文字行 = 未設定、`image_catalog` の upsert と壊れた行（health を落とさない）、形式宣言の往復と形違いの読み方 |
 | `client/test/markdownImage.test.ts` | Markdown 画像の 3 段解決 / version が変わったときだけ解決 URL が変わること / App の `runEndSeq` 配線 / 解決できない src / `components/markdown/` が `api.ts` を import しないこと |
 | `client/test/imageRefresh.test.ts` | 実フックの再描画安定性・更新時の URL 非衝突 / 実 Markdown と FileBrowser の再 mount が過去の URL を再利用しないこと（SSR） |
-| `client/test/contentSettings.test.ts` / `client/test/contentSettingsTab.test.ts` | 選択肢（カタログ順・同名への id 添え・カタログ外の現在値）/ 現在値と PUT の本文 / 保存成功時だけキー入力を消す / キーの登録状態バッジと provider の id・表示名 / 見出しの provider（ロゴ・未設定でも OpenRouter・対応表に無い provider は頭文字）と `画像 <n>` / `音声 <n>` のチップ / 一覧の出どころのチップと最終取得 / 再取得の注記 / 選んだ面だけの描画（未設定はキーのみ・設定済みは削除と選んだ面の選択・キーを再表示しない・runtime 不可の disable・[カタログ更新] の出し分け） |
+| `client/test/contentSettings.test.ts` / `client/test/contentSettingsTab.test.ts` | 選択肢（表示名の昇順・同名への id 添え・カタログ外の現在値）/ 現在値と PUT の本文 / 保存成功時だけキー入力を消す / キーの登録状態バッジと provider の id・表示名 / 見出しの provider（ロゴ・未設定でも OpenRouter・対応表に無い provider は頭文字）と `画像 <n>` / `音声 <n>` のチップ / 一覧の出どころのチップと最終取得 / 再取得の注記 / 選んだ面だけの描画（未設定はキーのみ・設定済みは削除と選んだ面の選択・キーを再表示しない・runtime 不可の disable・[カタログ更新] の出し分け） |
 
 ## 非ゴール
 
