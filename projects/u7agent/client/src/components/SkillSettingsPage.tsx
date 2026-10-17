@@ -1,10 +1,14 @@
 import { useState, type FormEvent } from "react";
 import { useFileSkills, type FileSkillsState } from "../hooks/useFileSkills";
+import { useFileSkillArchive } from "../hooks/useFileSkillArchive";
 import { useWideLayout } from "../hooks/useLayoutMode";
 import {
   FILE_SKILL_ADD_LABEL,
   FILE_SKILL_DELETE_LABEL,
   FILE_SKILL_EDIT_LABEL,
+  FILE_SKILL_PANE_ERROR_NOTE,
+  FILE_SKILL_PANE_LOADING_NOTE,
+  FILE_SKILL_PANE_NOTE,
   FILE_SKILL_PANEL_HEADING,
 } from "../lib/fileSkills";
 import { MEMORY_NOTE } from "../lib/settingsNotes";
@@ -17,6 +21,7 @@ import { SettingsPageLayout, type SettingsPageProps } from "./SettingsPageLayout
 import { FileSkillEditorForm } from "./skill-settings/FileSkillEditorForm";
 import { FileSkillList } from "./skill-settings/FileSkillList";
 import { FileSkillPanel } from "./skill-settings/FileSkillPanel";
+import { SkillImportDialog } from "./skill-settings/SkillImportDialog";
 import { PencilIcon, TrashIcon } from "./icons";
 
 export type SkillSettingsPageProps = SettingsPageProps & {
@@ -37,6 +42,15 @@ export function fileSkillAddRow(
   startCreate: () => void,
 ): { label: string; onAdd: () => void } | undefined {
   return state.status === "ready" ? { label: FILE_SKILL_ADD_LABEL, onAdd: startCreate } : undefined;
+}
+
+/**
+ * 選択が無いときの右ペインの案内。一覧を取得できていない間は「新しいスキル」からの作成を案内しない
+ * (追加行も出ないため、案内だけが残るとできない操作を促すことになる)。
+ */
+export function fileSkillPaneNote(state: FileSkillsState): string {
+  if (state.status === "ready") return FILE_SKILL_PANE_NOTE;
+  return state.status === "loading" ? FILE_SKILL_PANE_LOADING_NOTE : FILE_SKILL_PANE_ERROR_NOTE;
 }
 
 export function SkillSettingsPage({
@@ -79,6 +93,20 @@ export function SkillSettingsPage({
       : null;
   const creatingFileSkill = fileSkillEditor.status === "create" ? fileSkillEditor : null;
   const setNoteText = (text: string, error = false) => setNote({ text, error });
+
+  /** 取り込んだ共通スキルを選択して開く。一覧は適用後に取り直しているので、応答が届けば選択は戻る */
+  const selectImportedFileSkill = (relativePath: string) => {
+    setSelectedFileSkillRel(relativePath);
+    setSelectedFileSkillSeq((seq) => seq + 1);
+    fileSkills.openDetail(relativePath);
+    if (sheetMode) setSheetOpen(true);
+  };
+
+  const archive = useFileSkillArchive({
+    reloadSkills: fileSkills.reload,
+    selectSkill: selectImportedFileSkill,
+    note: setNoteText,
+  });
 
   const selectFileSkill = (skill: FileSkillInfo) => {
     setSelectedFileSkillRel(skill.relativePath);
@@ -160,6 +188,12 @@ export function SkillSettingsPage({
         onReload={fileSkills.reload}
         selectedRelativePath={selectedFileSkillRel}
         onSelect={selectFileSkill}
+        archive={{
+          exporting: archive.exporting,
+          importing: archive.import.status === "planning" || archive.import.status === "applying",
+          onExport: () => void archive.exportSkills(),
+          onImportFile: (file) => void archive.selectImportFile(file),
+        }}
       />
     </DefinitionList>
   );
@@ -221,9 +255,7 @@ export function SkillSettingsPage({
   ) : (
     <section className="min-h-0 min-w-0 scrollbar-thin overflow-x-hidden overflow-y-auto px-4 py-4">
       <div className="mx-auto grid max-w-3xl gap-3">
-        <p className="text-xs leading-relaxed text-ink-muted">
-          一覧からスキルを選ぶと、説明と本文を表示します。共通スキルは「新しいスキル」から作成できます。
-        </p>
+        <p className="text-xs leading-relaxed text-ink-muted">{fileSkillPaneNote(fileSkills.state)}</p>
       </div>
     </section>
   );
@@ -238,28 +270,41 @@ export function SkillSettingsPage({
         : "スキル";
 
   return (
-    <SettingsPageLayout
-      eyebrow="SKILLS"
-      title="スキル"
-      caption="エージェントの会話で使うスキルを管理します。"
-      singleColumn={singleColumn}
-      onOpenNav={onOpenNav}
-      onBack={onBack}
-      note={note}
-    >
-      {sheetMode ? (
-        <div className="grid min-h-0 min-w-0 grid-rows-1">{list}</div>
-      ) : (
-        <div className="grid min-h-0 min-w-0 wide:grid-cols-[248px_minmax(0,1fr)]">
-          {list}
-          {editor}
-        </div>
+    <>
+      <SettingsPageLayout
+        eyebrow="SKILLS"
+        title="スキル"
+        caption="エージェントの会話で使うスキルを管理します。"
+        singleColumn={singleColumn}
+        onOpenNav={onOpenNav}
+        onBack={onBack}
+        note={note}
+      >
+        {sheetMode ? (
+          <div className="grid min-h-0 min-w-0 grid-rows-1">{list}</div>
+        ) : (
+          <div className="grid min-h-0 min-w-0 wide:grid-cols-[248px_minmax(0,1fr)]">
+            {list}
+            {editor}
+          </div>
+        )}
+        {sheetMode && sheetOpen ? (
+          <SettingsDetailSheet eyebrow="SKILL" title={sheetTitle} note={note} onClose={() => setSheetOpen(false)}>
+            {editor}
+          </SettingsDetailSheet>
+        ) : null}
+      </SettingsPageLayout>
+      {/* 取り込みの面は一覧の下に重ねる (背面の一覧は inert になり、二重のモーダルにしない) */}
+      {archive.import.status === "idle" ? null : (
+        <SkillImportDialog
+          flow={archive.import}
+          singleColumn={singleColumn}
+          onToggleReplace={archive.toggleReplace}
+          onSetReplaceAll={archive.setReplaceAll}
+          onApply={() => void archive.applyImport()}
+          onClose={archive.closeImport}
+        />
       )}
-      {sheetMode && sheetOpen ? (
-        <SettingsDetailSheet eyebrow="SKILL" title={sheetTitle} note={note} onClose={() => setSheetOpen(false)}>
-          {editor}
-        </SettingsDetailSheet>
-      ) : null}
-    </SettingsPageLayout>
+    </>
   );
 }

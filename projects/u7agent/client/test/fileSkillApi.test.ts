@@ -4,8 +4,18 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 globalThis.location ??= { origin: "http://localhost" } as Location;
-const { ApiError, createFileSkill, deleteFileSkill, getFileSkillDeletePreview, getFileSkillDetail, saveFileSkill } =
-  await import("../src/api");
+const {
+  ApiError,
+  applySkillsImport,
+  createFileSkill,
+  deleteFileSkill,
+  getFileSkillDeletePreview,
+  getFileSkillDetail,
+  getSkillsExportCheck,
+  planSkillsImport,
+  saveFileSkill,
+  skillsExportUrl,
+} = await import("../src/api");
 
 const DETAIL = {
   name: "alpha",
@@ -110,6 +120,69 @@ test("競合 (409) と上限 (413) は status と文言を保って reject す�
     Response.json({ error: "Request body is too large" }, { status: 413 }),
   );
   const tooLarge = await createFileSkill({ name: "big", description: "d", body: "x" }).then(
+    () => null,
+    (reason: unknown) => reason,
+  );
+  assert.ok(tooLarge instanceof ApiError);
+  assert.equal(tooLarge.status, 413);
+  assert.match(tooLarge.message, /too large/i);
+});
+
+test("持ち出しの check は export の見積りを返し、404 と 413 は理由を保って reject する", async (t) => {
+  const check = { kind: "archive", name: "skills.zip", bytes: 2048, entries: 12, skipped: [] };
+  const requests: Request[] = [];
+  t.mock.method(globalThis, "fetch", async (input: string | URL | Request, init?: RequestInit) => {
+    const request = new Request(input, init);
+    requests.push(request);
+    return Response.json(check);
+  });
+  assert.deepEqual(await getSkillsExportCheck(), check);
+  assert.equal(`${requests[0].method} ${new URL(requests[0].url).pathname}`, "GET /api/skills/files/export/check");
+  // 保存は `<a download>` に任せるため、URL だけを組み立てる（本文は fetch しない）
+  assert.equal(new URL(skillsExportUrl()).pathname, "/api/skills/files/export");
+
+  t.mock.method(globalThis, "fetch", async () =>
+    Response.json({ error: ".agents/skills が見つかりません" }, { status: 404 }),
+  );
+  const missing = await getSkillsExportCheck().then(
+    () => null,
+    (reason: unknown) => reason,
+  );
+  assert.ok(missing instanceof ApiError);
+  assert.equal(missing.status, 404);
+  assert.equal(missing.message, ".agents/skills が見つかりません");
+});
+
+test("取り込みの plan と apply は同じ ZIP を raw で送り、replace を繰り返す", async (t) => {
+  const plan = { skills: [{ name: "alpha", status: "new" }], entries: 3, bytes: 128 };
+  const applied = { applied: [], skipped: [], entries: 3, bytes: 128 };
+  const requests: Request[] = [];
+  const bodies: number[][] = [];
+  t.mock.method(globalThis, "fetch", async (input: string | URL | Request, init?: RequestInit) => {
+    const request = new Request(input, init);
+    requests.push(request);
+    bodies.push([...new Uint8Array(await request.arrayBuffer())]);
+    return Response.json(new URL(request.url).searchParams.get("dryRun") === "true" ? plan : applied);
+  });
+  const zip = new File([new Uint8Array([0x50, 0x4b, 0x03, 0x04])], "skills.zip");
+  assert.deepEqual(await planSkillsImport(zip), plan);
+  assert.deepEqual(await applySkillsImport(zip, ["gamma", "delta"]), applied);
+
+  assert.deepEqual(
+    requests.map((request) => `${request.method} ${new URL(request.url).pathname}${new URL(request.url).search}`),
+    ["POST /api/skills/files/import?dryRun=true", "POST /api/skills/files/import?replace=gamma&replace=delta"],
+  );
+  // plan と apply は同じ File をそのまま送る (サーバーは受信した ZIP とその時点の状態で判定する)
+  assert.deepEqual(bodies, [
+    [0x50, 0x4b, 0x03, 0x04],
+    [0x50, 0x4b, 0x03, 0x04],
+  ]);
+
+  // 取り込みの上限 (413) と ZIP でない / 構造不正 (400) も理由をそのまま出せる
+  t.mock.method(globalThis, "fetch", async () =>
+    Response.json({ error: "Import archive is too large" }, { status: 413 }),
+  );
+  const tooLarge = await planSkillsImport(zip).then(
     () => null,
     (reason: unknown) => reason,
   );

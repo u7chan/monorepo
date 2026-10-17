@@ -8,7 +8,13 @@ import test from "node:test";
 
 import { DefinitionList } from "../src/components/DefinitionList";
 import { ConfirmProvider } from "../src/components/ConfirmProvider";
-import { FILE_SKILL_ADD_LABEL, FILE_SKILL_LOADING_NOTE } from "../src/lib/fileSkills";
+import {
+  FILE_SKILL_ADD_LABEL,
+  FILE_SKILL_LOADING_NOTE,
+  FILE_SKILL_PANE_ERROR_NOTE,
+  FILE_SKILL_PANE_LOADING_NOTE,
+  FILE_SKILL_PANE_NOTE,
+} from "../src/lib/fileSkills";
 
 // api.ts (location.origin を読む) と useLayoutMode (viewport を読む) を辿るため、node では最小の shim を置く
 globalThis.location ??= { origin: "http://localhost" } as Location;
@@ -18,7 +24,7 @@ globalThis.location ??= { origin: "http://localhost" } as Location;
   addEventListener() {},
   removeEventListener() {},
 };
-const { SkillSettingsPage, fileSkillAddRow } = await import("../src/components/SkillSettingsPage");
+const { SkillSettingsPage, fileSkillAddRow, fileSkillPaneNote } = await import("../src/components/SkillSettingsPage");
 
 /** 追加行の有無は button の描画で見る (文言だけの一致では見出しや注記と区別できない) */
 function hasAddRow(html: string): boolean {
@@ -33,6 +39,16 @@ test("追加行は一覧を取得できたときだけ出す", () => {
   });
   assert.equal(fileSkillAddRow({ status: "loading" }, start), undefined);
   assert.equal(fileSkillAddRow({ status: "error", message: "取得に失敗" }, start), undefined);
+});
+
+test("右ペインの案内は一覧を取得できていない間は作成を案内しない", () => {
+  assert.equal(fileSkillPaneNote({ status: "ready", skills: [] }), FILE_SKILL_PANE_NOTE);
+  assert.equal(fileSkillPaneNote({ status: "loading" }), FILE_SKILL_PANE_LOADING_NOTE);
+  assert.equal(fileSkillPaneNote({ status: "error", message: "取得に失敗" }), FILE_SKILL_PANE_ERROR_NOTE);
+  // 追加行が出ない状態で「新しいスキル」からの作成を案内すると、押せない操作を促すことになる
+  assert.ok(FILE_SKILL_PANE_NOTE.includes("作成できます"));
+  assert.ok(!FILE_SKILL_PANE_LOADING_NOTE.includes("作成できます"));
+  assert.ok(!FILE_SKILL_PANE_ERROR_NOTE.includes("作成できます"));
 });
 
 test("ページは取得中の一覧に追加行を出さず、理由と再読み込みを出す", () => {
