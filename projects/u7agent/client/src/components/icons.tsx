@@ -313,10 +313,15 @@ export function PowerIcon() {
   );
 }
 
-/** サービスの停止 (塗りの四角)。起動と形で区別する */
-export function StopIcon() {
+/** サービスの停止 (塗りの四角)。起動と形で区別する。`large` は入力欄の主ボタン用 (円に合わせて大きく描く) */
+export function StopIcon({ large = false }: { large?: boolean } = {}) {
   return (
-    <svg aria-hidden="true" viewBox="0 0 16 16" fill="currentColor" className="size-3.5 shrink-0">
+    <svg
+      aria-hidden="true"
+      viewBox="0 0 16 16"
+      fill="currentColor"
+      className={cn("shrink-0", large ? "size-6" : "size-3.5")}
+    >
       <rect x="4" y="4" width="8" height="8" rx="1.5" />
     </svg>
   );
