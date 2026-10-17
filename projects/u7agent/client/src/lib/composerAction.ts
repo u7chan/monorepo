@@ -1,11 +1,6 @@
 /**
- * 入力欄の主ボタン (送信 ↑ / 停止 ■) の出し分け。実行中は「送れるものがあるか」で決める:
- * 送るものがあれば ↑ を主に残し、停止は控えの ■ として隣へ出す。無ければ ■ が主スロットへ入る。
- * 停止は待機キューも破棄する破壊操作なので、下書きを書いている間も押せる位置へ残す
- * (ChatGPT は送信が現れると停止を消すが、そこで積むのは中断ではなく待機なので意味が違う)。
- *
- * 実行中以外の理由で送信が止まっているとき (回答待ち / モデル未設定) は主スロットへ上げない。
- * 差し替えた主役の隣に出る理由 (「上の質問に回答してください」) と破壊操作が並ぶと、誘導が逆になるため。
+ * 入力欄の主ボタン (送信 ↑ / 停止 ■) の出し分け。送れるものがあるときは ↑ を主に残し、■ は控えにする。
+ * 例外 (主スロットへ上げない条件) と保留時間の根拠は docs/ui-layout.md を正とする。
  */
 
 /** 主スロットに出す操作。`send` = ↑ だけ / `stop` = ■ だけ / `sendAndStop` = ■ (控え) + ↑ */
@@ -16,12 +11,19 @@ export type ComposerActionInput = {
   stopVisible: boolean;
   /** 本文 / 添付 / 定型チップのいずれかがあり、送れる状態か */
   sendable: boolean;
-  /** 実行中以外の理由で送信が止まっているか (回答待ちの質問 / モデル未設定) */
+  /** 実行中以外の理由で送信が止まっているか (回答待ち / モデル未設定 / 添付のアップロード中) */
   sendBlocked: boolean;
+  /** 送信直後の保留中か (入れ替えた位置を続けて押すと、実行と待機キューが落ちる) */
+  stopPrimaryHeld: boolean;
 };
 
-export function composerAction({ stopVisible, sendable, sendBlocked }: ComposerActionInput): ComposerAction {
+export function composerAction({
+  stopVisible,
+  sendable,
+  sendBlocked,
+  stopPrimaryHeld,
+}: ComposerActionInput): ComposerAction {
   if (!stopVisible) return "send";
-  if (sendable || sendBlocked) return "sendAndStop";
+  if (sendable || sendBlocked || stopPrimaryHeld) return "sendAndStop";
   return "stop";
 }

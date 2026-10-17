@@ -89,6 +89,11 @@ export type ComposerProps = {
 const MAX_TEXTAREA_HEIGHT = 180;
 /** singleColumn では入力欄が画面を占めないよう低く抑える */
 const SINGLE_COLUMN_TEXTAREA_HEIGHT = 120;
+/**
+ * 送信の直後に主スロットの入れ替えを保留する時間。本文を消した描画で ↑ が ■ へ変わると、1 回目の
+ * クリックの続き (二度押し / ダブルタップ) がそのまま停止に届き、走っている実行と待機キューが落ちる
+ */
+const STOP_PROMOTION_HOLD_MS = 500;
 
 /**
  * ドロップ座標に対応する入力欄の文字位置。`caretRangeFromPoint` は textarea で正しい位置を返さない
@@ -161,6 +166,8 @@ export function Composer({
   const [skillsOpen, setSkillsOpen] = useState(false);
   const [dropKind, setDropKind] = useState<ComposerDropKind | null>(null);
   const [expanded, setExpanded] = useState(false);
+  // 送信のたびに増やす保留の番号 (0 以外 = 保留中)。番号を進めると、保留中に送った分も期限を延ばす
+  const [sendHold, setSendHold] = useState(0);
   const dialogRef = useRef<HTMLDialogElement | null>(null);
   // 送信で畳んだか (close() の後に、送信後の焦点の規則で焦点を決め直す根拠)
   const collapsedBySendRef = useRef(false);
@@ -181,6 +188,12 @@ export function Composer({
     if (!suggestion) return;
     inputRef.current?.focus();
   }, [suggestion]);
+
+  useEffect(() => {
+    if (sendHold === 0) return;
+    const timer = window.setTimeout(() => setSendHold(0), STOP_PROMOTION_HOLD_MS);
+    return () => window.clearTimeout(timer);
+  }, [sendHold]);
 
   // チップを外しても続きを書けるよう、× の後は本文へフォーカスを戻す
   const clearSuggestion = () => {
@@ -287,6 +300,7 @@ export function Composer({
     if ((!text && !hasAttachment) || !runtimeReady || sending || settings.changing || settings.sendBlockedReason)
       return;
     setValue("");
+    setSendHold((count) => count + 1);
     onClearSuggestion();
     onSend(text);
     // 送信後のフォーカスはポインタで決める (docs/ui-layout.md)
@@ -418,13 +432,21 @@ export function Composer({
   });
   // 主スロットを送信と停止のどちらにするか (docs/ui-layout.md#入力欄の主ボタン送信と停止)
   const sendable = value.trim().length > 0 || hasAttachment || suggestion !== null;
-  const action = composerAction({ stopVisible, sendable, sendBlocked: Boolean(settings.sendBlockedReason) });
+  const action = composerAction({
+    stopVisible,
+    sendable,
+    // アップロード中は「送るものがあるのに送れない」状態なので、停止を主スロットへ上げない
+    sendBlocked: Boolean(settings.sendBlockedReason) || attachmentsBusy,
+    stopPrimaryHeld: sendHold > 0,
+  });
   // 待機件数は状態行 (実行中… · 待機 N 件) とバブルの待機チップにも出るため、ボタンのラベルには載せない
   const stopButton = (
     <button
       type="button"
       aria-label="停止"
       title={queueDepth > 0 ? `実行を中断し、待機中の ${queueDepth} 件も破棄します` : "実行を中断します"}
+      // 主 / 控えの別を印で出す (描画のテストを色の class に依存させないため)
+      data-stop-slot={action === "stop" ? "primary" : "secondary"}
       onClick={onStop}
       className={cn(
         "grid shrink-0 cursor-pointer place-items-center rounded-full transition-colors",
