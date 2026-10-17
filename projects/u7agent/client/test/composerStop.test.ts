@@ -57,7 +57,7 @@ const render = (overrides: Partial<ComposerProps> = {}): string =>
 const startTag = (html: string, index: number): string =>
   html.slice(html.lastIndexOf("<", index), html.indexOf(">", index) + 1);
 
-const stopAt = (html: string): number => html.indexOf('aria-label="停止"');
+const stopAt = (html: string): number => html.indexOf('aria-label="停止');
 const sendAt = (html: string): number => html.indexOf('aria-label="送信"');
 /** 停止のボタンが主スロットか控えか (見た目の class ではなく印で見る) */
 const stopSlot = (html: string): string | null =>
@@ -137,9 +137,11 @@ test("描画: 回答待ち (送信が止まっている) では停止を主ス�
   assert.ok(isDisabled(startTag(html, send)), "送信は無効のまま");
 });
 
-test("描画: 停止の待機件数は、ボタンのラベルではなく title で補う", () => {
+test("描画: 停止の待機件数は、可視のテキストではなく読み上げ名と title で補う", () => {
   // What: 待機件数は状態行 (実行中… · 待機 N 件) とバブルのチップにも出るため、ボタンには載せない。
+  // 押すと何が消えるかは、読み上げ名と title の両方に持たせる。
   const html = render({ stopVisible: true, queueDepth: 2 });
   assert.ok(!html.includes(">停止<"), "可視のテキストリンクにしない");
+  assert.ok(html.includes('aria-label="停止（待機中の 2 件も破棄）"'), "読み上げ名に破棄の対象を入れる");
   assert.ok(html.includes("待機中の 2 件も破棄します"), "押すと何が消えるかを title に持つ");
 });

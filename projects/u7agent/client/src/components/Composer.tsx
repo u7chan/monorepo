@@ -443,7 +443,7 @@ export function Composer({
   const stopButton = (
     <button
       type="button"
-      aria-label="停止"
+      aria-label={queueDepth > 0 ? `停止（待機中の ${queueDepth} 件も破棄）` : "停止"}
       title={queueDepth > 0 ? `実行を中断し、待機中の ${queueDepth} 件も破棄します` : "実行を中断します"}
       // 主 / 控えの別を印で出す (描画のテストを色の class に依存させないため)
       data-stop-slot={action === "stop" ? "primary" : "secondary"}
