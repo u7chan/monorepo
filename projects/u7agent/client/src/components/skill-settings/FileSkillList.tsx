@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { useRef, type ReactNode } from "react";
 import { cn } from "../../lib/cn";
 import type { FileSkillsState } from "../../hooks/useFileSkills";
 import {
@@ -14,6 +14,8 @@ import {
   FILE_SKILL_RELOAD_LABEL,
   FILE_SKILL_SCOPE_LABEL,
   FILE_SKILL_SECTION_LABEL,
+  SKILL_EXPORT_LABEL,
+  SKILL_IMPORT_LABEL,
   fileSkillWarning,
   groupFileSkills,
 } from "../../lib/fileSkills";
@@ -21,6 +23,9 @@ import type { FileSkillInfo } from "../../types";
 import { MenuItem } from "../MenuItem";
 import { PlusIcon } from "../icons";
 import { ReloadButton } from "../ReloadButton";
+
+/** 一覧の見出しに並べる小さいボタンの寸法 (ReloadButton の sm と同じ) */
+const HEADING_BUTTON_CLASS = cn("btn-quiet shrink-0 gap-1 px-1.5 py-0.5");
 
 export type FileSkillListProps = {
   state: FileSkillsState;
@@ -33,6 +38,15 @@ export type FileSkillListProps = {
   onSelect: (skill: FileSkillInfo) => void;
   /** 共通スキルの新規作成。未指定なら追加行を出さない */
   onAdd?: () => void;
+  /** 持ち出し / 取り込み。未指定なら操作を出さない (一覧だけを見せる面) */
+  archive?: {
+    /** 持ち出しの check を送っている間は二重に送らない */
+    exporting: boolean;
+    /** 取り込みの plan / apply を送っている間は二重に送らない */
+    importing: boolean;
+    onExport: () => void;
+    onImportFile: (file: File) => void;
+  };
 };
 
 /**
@@ -40,7 +54,16 @@ export type FileSkillListProps = {
  * 組み込みは読み取り専用のままにする。同じ名前の行が残ることがあり (上書きされた組み込み)、
  * 影になった側 / 上書きされた組み込みを警告として出す。
  */
-export function FileSkillList({ state, onReload, selectedRelativePath = null, onSelect, onAdd }: FileSkillListProps) {
+export function FileSkillList({
+  state,
+  onReload,
+  selectedRelativePath = null,
+  onSelect,
+  onAdd,
+  archive,
+}: FileSkillListProps) {
+  // 同じ ZIP を選び直しても change が飛ぶよう、選択のたびに値を戻す
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const groups = state.status === "ready" ? groupFileSkills(state.skills) : { common: [], builtin: [] };
   // 共通行も組み込み行も同じ形 (押すと本文ビューが開く) なので、行の組み立ては 1 箇所に閉じる
   const rows = (skills: FileSkillInfo[]) =>
@@ -59,9 +82,46 @@ export function FileSkillList({ state, onReload, selectedRelativePath = null, on
         <h3 className="min-w-0 truncate text-2xs font-semibold tracking-widest text-ink-faint uppercase">
           {FILE_SKILL_SECTION_LABEL}
         </h3>
-        <ReloadButton size="sm" onClick={onReload} aria-label={FILE_SKILL_RELOAD_ARIA_LABEL}>
-          {FILE_SKILL_RELOAD_LABEL}
-        </ReloadButton>
+        {/* 一覧の操作はこの見出しの右端へ集める (狭い面でも行を溢れさせない小さい寸法) */}
+        <div className="flex shrink-0 items-center gap-1">
+          {archive ? (
+            <>
+              <button
+                type="button"
+                onClick={archive.onExport}
+                disabled={archive.exporting}
+                className={HEADING_BUTTON_CLASS}
+              >
+                {SKILL_EXPORT_LABEL}
+              </button>
+              <button
+                type="button"
+                onClick={() => fileInputRef.current?.click()}
+                disabled={archive.importing}
+                className={HEADING_BUTTON_CLASS}
+              >
+                {SKILL_IMPORT_LABEL}
+              </button>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept=".zip,application/zip"
+                tabIndex={-1}
+                aria-hidden="true"
+                className="hidden"
+                onChange={(event) => {
+                  const file = event.currentTarget.files?.[0];
+                  event.currentTarget.value = "";
+                  // 選択の取消 (files が空) では何もしない
+                  if (file) archive.onImportFile(file);
+                }}
+              />
+            </>
+          ) : null}
+          <ReloadButton size="sm" onClick={onReload} aria-label={FILE_SKILL_RELOAD_ARIA_LABEL}>
+            {FILE_SKILL_RELOAD_LABEL}
+          </ReloadButton>
+        </div>
       </div>
       {state.status === "loading" ? <FileSkillNote>{FILE_SKILL_LOADING_NOTE}</FileSkillNote> : null}
       {state.status === "error" ? (

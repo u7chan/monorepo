@@ -40,6 +40,8 @@ import type {
   SandboxSkillDeletePreview,
   SandboxSkillFileDetail,
   SandboxSkillSaveResult,
+  SandboxSkillsImportApply,
+  SandboxSkillsImportPlan,
   SaveFileSkillBody,
   SecretDetailResponse,
   SecretKind,
@@ -339,6 +341,48 @@ export const getFileSkillDeletePreview = async (relativePath: string): Promise<S
 export const deleteFileSkill = async (relativePath: string, treeVersion: string): Promise<void> => {
   const res = await client.api.skills.files.$delete({ query: { relativePath, treeVersion } });
   if (!res.ok) throw await apiError(res);
+};
+
+/**
+ * 共通スキルの持ち出しの事前チェック。`.agents/skills` が無ければ 404、上限超過は 413 で reject し、
+ * 共通行が 0 件なら 200 の `entries: 0` になる（どちらも理由を画面へそのまま出す）。
+ */
+export const getSkillsExportCheck = async (): Promise<FileDownloadCheck> => {
+  const res = await client.api.skills.files.export.check.$get();
+  if (!res.ok) throw await apiError(res);
+  return (await res.json()) as FileDownloadCheck;
+};
+
+/**
+ * 持ち出しの URL（`<a download>` の href）。一覧と同じく `.agents/skills` の ZIP で、保存名は応答の
+ * `Content-Disposition` が決める。本文は fetch せずブラウザに任せる。
+ */
+export const skillsExportUrl = (): string => client.api.skills.files.export.$url().toString();
+
+/**
+ * 取り込みの plan（何も変更しない）。判定はサーバーが受信した ZIP で行うため、apply でも同じ `File` を送る。
+ * 各スキルの status は new / identical / conflict / invalid で、invalid だけ reason を持つ。
+ */
+export const planSkillsImport = async (file: File): Promise<SandboxSkillsImportPlan> => {
+  const res = await fetch(client.api.skills.files.import.$url({ query: { dryRun: "true" } }), {
+    method: "POST",
+    body: file,
+  });
+  if (!res.ok) throw await apiError(res);
+  return (await res.json()) as SandboxSkillsImportPlan;
+};
+
+/**
+ * 取り込みの適用。`replace` に挙げた conflict だけをフォルダごと置き換え、new は常に取り込む。
+ * 送る ZIP は plan と同じ `File` で、plan のあとに変わっていても適用時の状態で判定される。
+ */
+export const applySkillsImport = async (file: File, replace: readonly string[]): Promise<SandboxSkillsImportApply> => {
+  const res = await fetch(client.api.skills.files.import.$url({ query: { replace: [...replace] } }), {
+    method: "POST",
+    body: file,
+  });
+  if (!res.ok) throw await apiError(res);
+  return (await res.json()) as SandboxSkillsImportApply;
 };
 
 // 並び順と件数上限はサーバーが決めるため、クライアントでは再ソートしない
