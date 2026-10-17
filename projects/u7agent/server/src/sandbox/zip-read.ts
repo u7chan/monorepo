@@ -8,7 +8,7 @@ import { createHash } from "node:crypto";
 import { createReadStream, createWriteStream } from "node:fs";
 import { mkdir, open, type FileHandle } from "node:fs/promises";
 import { dirname } from "node:path";
-import { Readable, Transform } from "node:stream";
+import { Readable, Transform, Writable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import { createInflateRaw } from "node:zlib";
 import type { ArchiveLimits } from "./archive";
@@ -226,7 +226,9 @@ export async function readZipArchive(path: string, limits: ArchiveLimits): Promi
       const name = decodeEntryName(central.subarray(nameStart, nameStart + nameLength), flags);
       const unixMode = versionMadeBy >> 8 === 3 ? externalAttributes >>> 16 : undefined;
       const isDirectory = name.endsWith("/") || (unixMode !== undefined && (unixMode & 0o170000) === 0o040000);
-      if (isDirectory && (size !== 0 || compressedSize !== 0)) {
+      // ディレクトリは展開後 0 バイト (size) だけを要求する。圧縮データの有無は問わない
+      // (Python の zipfile など、空ディレクトリを deflate で書くツールがある。CRC は展開時に確かめる)
+      if (isDirectory && size !== 0) {
         throw zipReadError(`Invalid ZIP archive: a directory entry has data: ${name}`);
       }
       if (localHeaderOffset + LOCAL_FILE_HEADER_SIZE > centralOffset) {
@@ -300,9 +302,61 @@ function inspectBytes(
   return { transform, stats: () => state };
 }
 
+/** 検証だけをするときの捨て先 (ディレクトリエントリの圧縮データを展開して確かめる) */
+function discardSink(): Writable {
+  return new Writable({
+    write(_chunk, _encoding, callback) {
+      callback();
+    },
+  });
+}
+
 /**
- * 1 エントリを展開して `target` へ書く。ローカルヘッダと data descriptor の一致、
- * 展開結果の CRC / サイズの一致まで確認し、不一致は壊れたアーカイブとして 400 にする。
+ * エントリの本文を展開して検証する。`target` があるときは書出し、無いとき (ディレクトリ) は展開結果だけを確かめる。
+ * `mkdir` を含め、展開中の失敗は内部パスを出さない 400 に包む (アーカイブの内容に起因する失敗を 500 にしない)。
+ */
+async function streamEntryData(input: {
+  archive: string;
+  entry: ZipReadEntry;
+  dataStart: number;
+  dataEnd: number;
+  hash: ReturnType<typeof createHash>;
+  target: string | undefined;
+}): Promise<{ size: number; crc: number }> {
+  const { entry } = input;
+  const cannotExtract = () => zipReadError(`Invalid ZIP archive: cannot extract ${entry.name}`);
+  if (input.target !== undefined) {
+    await mkdir(dirname(input.target), { recursive: true }).catch(() => {
+      throw cannotExtract();
+    });
+  }
+  if (entry.compressedSize === 0) {
+    if (input.target !== undefined) {
+      await pipeline(Readable.from([]), createWriteStream(input.target, { flags: "wx" })).catch(() => {
+        throw cannotExtract();
+      });
+    }
+    return { size: 0, crc: 0 };
+  }
+  const source = createReadStream(input.archive, { start: input.dataStart, end: input.dataEnd - 1 });
+  const { transform, stats } = inspectBytes(entry, input.hash);
+  const body =
+    entry.compression === METHOD_DEFLATE ? source.pipe(createInflateRaw()).pipe(transform) : source.pipe(transform);
+  // pipe は上流の失敗を下流へ伝えない。伝えないと 'error' が未処理になってプロセスごと落ちる
+  source.on("error", (error) => body.destroy(error));
+  try {
+    await pipeline(body, input.target === undefined ? discardSink() : createWriteStream(input.target, { flags: "wx" }));
+  } catch (error) {
+    if ((error as { statusCode?: number }).statusCode === 400) throw error;
+    throw cannotExtract();
+  }
+  return stats();
+}
+
+/**
+ * 1 エントリを展開して `target` へ書く (ディレクトリは `target` をフォルダとして作る)。
+ * ローカルヘッダと data descriptor の一致、展開結果のサイズ / CRC の一致まで確認し、
+ * 不一致は壊れたアーカイブとして 400 にする。
  */
 export async function extractZipEntry(input: {
   archive: string;
@@ -354,35 +408,27 @@ export async function extractZipEntry(input: {
     }
 
     const hash = createHash("sha256");
+    const verified = await streamEntryData({
+      archive: input.archive,
+      entry,
+      dataStart,
+      dataEnd,
+      hash,
+      // ディレクトリはフォルダを作るだけ。圧縮データがあっても展開して空を確かめる
+      target: entry.isDirectory ? undefined : input.target,
+    });
     if (entry.isDirectory) {
-      await mkdir(input.target, { recursive: true });
-      return { digest: hash.digest("hex"), size: 0 };
+      await mkdir(input.target, { recursive: true }).catch(() => {
+        throw zipReadError(`Invalid ZIP archive: cannot extract ${entry.name}`);
+      });
     }
-    await mkdir(dirname(input.target), { recursive: true });
-    if (entry.compressedSize > 0) {
-      const source = createReadStream(input.archive, { start: dataStart, end: dataEnd - 1 });
-      const { transform, stats } = inspectBytes(entry, hash);
-      const body =
-        entry.compression === METHOD_DEFLATE ? source.pipe(createInflateRaw()).pipe(transform) : source.pipe(transform);
-      // pipe は上流の失敗を下流へ伝えない。伝えないと 'error' が未処理になってプロセスごと落ちる
-      source.on("error", (error) => body.destroy(error));
-      try {
-        await pipeline(body, createWriteStream(input.target, { flags: "wx" }));
-      } catch (error) {
-        if ((error as { statusCode?: number }).statusCode === 400) throw error;
-        throw zipReadError(
-          `Invalid ZIP archive: cannot extract ${entry.name}: ${error instanceof Error ? error.message : String(error)}`,
-        );
-      }
-      const { size, crc } = stats();
-      if (size !== entry.size) throw zipReadError(`Invalid ZIP archive: the entry size does not match: ${entry.name}`);
-      if (crc !== entry.crc32) throw zipReadError(`Invalid ZIP archive: the CRC-32 does not match: ${entry.name}`);
-      return { digest: hash.digest("hex"), size };
+    if (verified.size !== entry.size) {
+      throw zipReadError(`Invalid ZIP archive: the entry size does not match: ${entry.name}`);
     }
-    await pipeline(Readable.from([]), createWriteStream(input.target, { flags: "wx" }));
-    if (entry.size !== 0) throw zipReadError(`Invalid ZIP archive: the entry size does not match: ${entry.name}`);
-    if (entry.crc32 !== 0) throw zipReadError(`Invalid ZIP archive: the CRC-32 does not match: ${entry.name}`);
-    return { digest: hash.digest("hex"), size: 0 };
+    if (verified.crc !== entry.crc32) {
+      throw zipReadError(`Invalid ZIP archive: the CRC-32 does not match: ${entry.name}`);
+    }
+    return { digest: hash.digest("hex"), size: verified.size };
   } finally {
     await handle.close().catch(() => {});
   }

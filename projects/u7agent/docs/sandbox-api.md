@@ -371,14 +371,15 @@ GET /v1/skills?dir=.agents/skills
 
 ### `POST /v1/skills/import`
 
-raw の ZIP 本文を受け、`?dryRun=true` で計画（何も変更しない）だけを返し、省略時は計画に従って適用する。`dryRun` は `true` の完全一致だけを dry run とし、`replace` は繰り返しで受け、保存名と同じ規則（`isValidEntryName`）で検証して重複を畳む。空値・不正な名前と、解釈できない `dryRun` は 400。
+raw の ZIP 本文を受け、`?dryRun=true` で計画だけを返し（スキルは何も変更しない）、省略時は計画に従って適用する。`dryRun` は `true` の完全一致だけを dry run とし、`replace` は繰り返しで受け、保存名と同じ規則（`isValidEntryName`）で検証して重複を畳む。空値・不正な名前と、解釈できない `dryRun` は 400。
 
 - ZIP の読み取りは自前実装（`server/src/sandbox/zip-read.ts`、中央ディレクトリを起点）。store / deflate だけを扱い、data descriptor（bit 3）の有無はどちらも受け、`unzip` バイナリに依存しない
+- ディレクトリエントリは展開後 0 バイト（CRC 0）だけを要求し、圧縮データの有無は問わない（Python の `zipfile` のように空ディレクトリを deflate（`size` 0 / `compressedSize` 2）で書くツールがあるため、圧縮データは展開して空と CRC 0 を確かめる）
 - エントリ名は UTF-8 として厳密に読み、bit 11 が無い非 ASCII 名は拒否する。`..` / 絶対パス / `\` / 制御文字 / 空セグメントは名として受け付けない
 - **構造不正は全体拒否**（`.agents/skills` に何も書かない）: zip slip、重複エントリ名、symlink / 特殊ファイルのエントリ、暗号化・Zip64・store / deflate 以外の圧縮、パスのいずれかのセグメントが `.git`、hidden の直下フォルダ、`SKILL.md` を持たない直下項目、上限超過、CRC-32 / サイズ（ローカルヘッダ・data descriptor・中央ディレクトリ・展開結果）の不一致、切り詰め
 - **スキル個別の不正はそのスキルだけ** invalid（frontmatter が読めない / name 規則違反 / description の欠落・超過 / フォルダ名と `name` の不一致）。判定は SDK の `loadSkillsFromDir` を正とし、staging のスキル配下の診断が 1 件でもあれば invalid にする（新しいスキルの作成と同じ判定）。走査は staging のフォルダ自体に対して行い、`.gitignore` / `.ignore` / `.fdignore` も効かせる
 - 上限は既存の `SANDBOX_MAX_UPLOAD_BYTES` / `SANDBOX_MAX_ARCHIVE_BYTES` / `SANDBOX_MAX_ARCHIVE_ENTRIES` を再利用し、import 専用の上限を作らない（受信本文はアップロード、展開後はダウンロードと同じ値）
-- 一時データは `.agents/.import-<uuid>/`（受信 ZIP・staging・退避）に置き、rename を同じファイルシステムに閉じる。成功・失敗・中断（`AbortSignal`）のいずれでも消す
+- 一時データは `.agents/.import-<uuid>/`（受信 ZIP・staging・退避）に置き、rename を同じファイルシステムに閉じる。`.agents` が無ければ作る（一時データを置くための副作用で、plan でも起こる）。一時ディレクトリは成功・失敗・中断（`AbortSignal`）のいずれでも消す
 - 適用は**共通スキル置き場の gate の内側**で行う。置換対象の解決は既存の共通スキルの規則に揃え（realpath で `.agents/skills` の内側、`SKILL.md` が symlink のスキルは置換しない）、「staging で全件検証 → 置換対象を退避へ rename → 新フォルダを rename → 全件成功後に退避削除」の順に適用する。途中で失敗したら適用済みの分を逆順で戻す。書き込みは受信バイトのまま（`skill-edit.ts` を通さない）
 - `replace` に無い conflict は取り込まず、`identical` は書き込みを省略し、`invalid` は常にスキップする。bundle に無い名前・既存に無い名前は無視する（何も作らず、何も消さない）。既存スキルの暗黙の削除・連番併存・部分マージはしない
 - 応答は plan と apply で形が違う。plan は `{ skills: [{ name, status, reason? }], entries, bytes }`（`status` は `new` / `identical` / `conflict` / `invalid` で、`reason` は `invalid` のときだけ）。apply は `{ applied: [{ name, relativePath, fileVersion, replaced }], skipped: [{ name, reason }], entries, bytes }` で、`fileVersion` は取り込んだ `SKILL.md` のバイト列の SHA-256。`entries` / `bytes` は検証に使った ZIP の総エントリ数と展開後の総バイト数

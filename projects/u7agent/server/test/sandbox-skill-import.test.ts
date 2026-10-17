@@ -9,6 +9,7 @@ import { lstat, mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
+import { deflateRawSync } from "node:zlib";
 import { createSandboxService, type SandboxServiceOptions } from "../src/sandbox/service";
 import type { SandboxSkillsImportApply, SandboxSkillsImportPlan } from "../src/sandbox/protocol";
 import { buildZip, skillEntries, type ZipFixtureEntry } from "./zip-fixtures";
@@ -275,14 +276,30 @@ test("replace の名前が bundle または既存に無ければ無視する (�
   }
 });
 
-test("data descriptor なしの他ツール形式 (store / deflate / 日本語名) を読める", async () => {
+test("data descriptor なしの他ツール形式 (store / deflate / 日本語名 / 空ディレクトリ) を読める", async () => {
   const root = makeRoot("no-descriptor");
   const service = createService(root);
   try {
     // 既存 writer は常に data descriptor を付ける。他ツールの形式 (bit 3 なし、
-    // ローカルヘッダに CRC / サイズを書く) も受ける
+    // ローカルヘッダに CRC / サイズを書く) も受ける。
+    // Python の zipfile は空ディレクトリを deflate て書く (size 0 / compressedSize 2) ため、
+    // その形式 (圧縮データ付きのディレクトリ) も展開して空と CRC 0 を確かめて受ける
+    const emptyDeflate = deflateRawSync(Buffer.alloc(0));
     const zip = buildZip([
       { name: "alpha/" },
+      {
+        name: "alpha/sub/",
+        compression: "deflate",
+        compressedData: emptyDeflate,
+        rawSize: 0,
+        descriptor: false,
+      },
+      {
+        name: "alpha/sub2/",
+        compression: "deflate",
+        compressedData: emptyDeflate,
+        rawSize: 0,
+      },
       { name: "alpha/SKILL.md", data: skillText("alpha"), descriptor: false, compression: "deflate" },
       { name: "alpha/refs/日本語.txt", data: "参照\n", descriptor: false, compression: "store" },
       // bit 11 が無くても ASCII 名は読む
@@ -297,6 +314,8 @@ test("data descriptor なしの他ツール形式 (store / deflate / 日本語�
     assert.equal(await readFile(join(root, ".agents/skills/alpha/SKILL.md"), "utf8"), skillText("alpha"));
     assert.equal(await readFile(join(root, ".agents/skills/alpha/refs/日本語.txt"), "utf8"), "参照\n");
     assert.equal(await readFile(join(root, ".agents/skills/alpha/ascii.txt"), "utf8"), "ascii\n");
+    assert.ok((await lstat(join(root, ".agents/skills/alpha/sub"))).isDirectory());
+    assert.ok((await lstat(join(root, ".agents/skills/alpha/sub2"))).isDirectory());
   } finally {
     service.close();
   }
@@ -378,6 +397,81 @@ test("SKILL.md が symlink の既存スキルは置換しない", { skip: !HAS_S
   }
 });
 
+test(
+  "置き場の外へ解決する既存スキルは置換せず、同じ bundle の他のスキルは取り込む",
+  { skip: !HAS_SYMLINK && SYMLINK_SKIP_REASON },
+  async () => {
+    const root = makeRoot("outside-symlink");
+    const outside = makeRoot("outside-symlink-target");
+    const service = createService(root);
+    try {
+      // SKILL.md がワークスペース外を指す既存スキルと、フォルダ自身が外を指す symlink の既存スキル
+      await mkdir(join(root, ".agents/skills/alpha"), { recursive: true });
+      await writeFile(join(outside, "skill.md"), skillText("alpha", "外の本文\n"), "utf8");
+      symlinkSync(join(outside, "skill.md"), join(root, ".agents/skills/alpha/SKILL.md"));
+      symlinkSync(outside, join(root, ".agents/skills/beta"));
+
+      const zip = buildZip([
+        ...skillEntries("alpha", { "SKILL.md": skillText("alpha") }),
+        ...skillEntries("beta", { "SKILL.md": skillText("beta") }),
+        ...skillEntries("other", { "SKILL.md": skillText("other") }),
+      ]);
+      // 解決できない同名 (alpha / beta) は conflict にし、new の other は通常どおり取り込む
+      const plan = await importArchive(service.app, zip, "?dryRun=true");
+      assert.equal(plan.status, 200, JSON.stringify(plan.body));
+      assert.deepEqual(plan.body.skills, [
+        { name: "alpha", status: "conflict" },
+        { name: "beta", status: "conflict" },
+        { name: "other", status: "new" },
+      ]);
+
+      const applied = await importArchive(service.app, zip, "?replace=alpha&replace=beta");
+      assert.equal(applied.status, 200);
+      assert.deepEqual(
+        (applied.body.applied as { name: string }[]).map((item) => item.name),
+        ["other"],
+      );
+      const skipped = applied.body.skipped as { name: string; reason: string }[];
+      assert.deepEqual(
+        skipped.map((item) => item.name),
+        ["alpha", "beta"],
+      );
+      assert.match(skipped[0]?.reason ?? "", /シンボリックリンク/);
+      assert.match(skipped[1]?.reason ?? "", /置き場の外/);
+      // 置き場の外の実体と symlink は変わらない
+      assert.equal(await readFile(join(outside, "skill.md"), "utf8"), skillText("alpha", "外の本文\n"));
+      assert.ok((await lstat(join(root, ".agents/skills/beta"))).isSymbolicLink());
+      assert.equal(await readFile(join(root, ".agents/skills/other/SKILL.md"), "utf8"), skillText("other"));
+    } finally {
+      service.close();
+    }
+  },
+);
+
+test("既存スキルの同一判定は上限で打ち切り、超過は conflict にする", async () => {
+  const root = makeRoot("existing-limits");
+  const service = createService(root, { maxArchiveEntries: 2 });
+  try {
+    // バンドルと同一のファイル + 空ディレクトリ。上限が無ければ identical になる形
+    await mkdir(join(root, ".agents/skills/same/extra1"), { recursive: true });
+    await mkdir(join(root, ".agents/skills/same/extra2"), { recursive: true });
+    await writeFile(join(root, ".agents/skills/same/SKILL.md"), skillText("same"), "utf8");
+
+    // バンドル (same/ + same/SKILL.md) は上限内、既存フォルダは 3 エントリで超過
+    const zip = buildZip(skillEntries("same", { "SKILL.md": skillText("same") }));
+    const plan = await importArchive(service.app, zip, "?dryRun=true");
+    assert.equal(plan.status, 200);
+    assert.deepEqual(plan.body.skills, [{ name: "same", status: "conflict" }]);
+
+    const applied = await importArchive(service.app, zip);
+    assert.equal(applied.status, 200);
+    assert.deepEqual(applied.body.applied, []);
+    assert.equal((applied.body.skipped as { reason: string }[])[0]?.reason, "同名のため取り込まない");
+  } finally {
+    service.close();
+  }
+});
+
 test("構造不正は 400 / 413 で全体を断り、`.agents/skills` に何も書かない", async () => {
   const root = makeRoot("structure");
   const service = createService(root, { maxArchiveEntries: 50, maxArchiveBytes: 100_000 });
@@ -451,6 +545,31 @@ test("構造不正は 400 / 413 で全体を断り、`.agents/skills` に何も�
         buildZip([{ name: "alpha/SKILL.md", data: skillText("alpha"), descriptorCrcOverride: 0 }]),
         400,
         /data descriptor/,
+      ],
+      [
+        "ディレクトリの展開結果が空でない",
+        buildZip([
+          skillFile("alpha"),
+          { name: "alpha/sub/", compression: "deflate", compressedData: deflateRawSync("x"), rawSize: 0 },
+        ]),
+        400,
+        /expands beyond/,
+      ],
+      [
+        "ディレクトリのサイズが 0 でない",
+        buildZip([skillFile("alpha"), { name: "alpha/sub/", rawSize: 1, compressedData: deflateRawSync("x") }]),
+        400,
+        /directory entry has data/,
+      ],
+      [
+        "ファイルとディレクトリの同名衝突",
+        buildZip([
+          skillFile("alpha"),
+          { name: "alpha/foo", data: "file\n" },
+          { name: "alpha/foo/bar", data: "nested\n" },
+        ]),
+        400,
+        /cannot extract alpha\/foo\/bar/,
       ],
       [
         "サイズ不一致",

@@ -1715,8 +1715,8 @@ async function extractImportGroups(input: {
   const staged: StagedSkill[] = [];
   for (const group of input.groups) {
     const folder = join(input.staging, group.name);
-    await mkdir(folder, { recursive: true }).catch((error: unknown) => {
-      throw pathError(400, `Cannot create the staging folder: ${messageFor(error)}`);
+    await mkdir(folder, { recursive: true }).catch(() => {
+      throw pathError(400, `Invalid ZIP archive: cannot extract ${group.name}`);
     });
     const files = new Map<string, string>();
     let skillFileVersion: string | undefined;
@@ -1738,13 +1738,21 @@ async function extractImportGroups(input: {
   return staged;
 }
 
-/** フォルダ下の通常ファイルの相対パス → SHA-256。symlink / 特殊ファイルがあれば undefined (同一と言えない) */
-async function folderFileDigests(folder: string): Promise<Map<string, string> | undefined> {
+/**
+ * フォルダ下の通常ファイルの相対パス → SHA-256。symlink / 特殊ファイルがあるときと、
+ * エントリ数 / 合計サイズが既存の上限 (export の walk と同じ値) を超えるときは undefined を返す
+ * (同一とは言えない。上限付きで読むのは、共通スキル gate を握ったまま巨大なフォルダを読まないため)。
+ */
+async function folderFileDigests(folder: string, limits: ArchiveLimits): Promise<Map<string, string> | undefined> {
   const digests = new Map<string, string>();
+  let entries = 0;
+  let bytes = 0;
   const walk = async (dir: string, prefix: string): Promise<boolean> => {
     const children = await readdir(dir, { withFileTypes: true }).catch(() => undefined);
     if (!children) return false;
     for (const child of children) {
+      entries += 1;
+      if (entries > limits.maxEntries) return false;
       const name = prefix ? `${prefix}/${child.name}` : child.name;
       if (child.isSymbolicLink()) return false;
       if (child.isDirectory()) {
@@ -1752,6 +1760,10 @@ async function folderFileDigests(folder: string): Promise<Map<string, string> | 
         continue;
       }
       if (!child.isFile()) return false;
+      const stats = await lstat(join(dir, child.name)).catch(() => undefined);
+      if (!stats) return false;
+      bytes += stats.size;
+      if (bytes > limits.maxBytes) return false;
       const hash = createHash("sha256");
       try {
         await pipeline(createReadStream(join(dir, child.name)), hash);
@@ -1772,35 +1784,58 @@ function sameFileDigests(a: Map<string, string>, b: Map<string, string>): boolea
   return true;
 }
 
+/** フォルダ自身が `<skills>` の内側へ解決するか (しないときは置換しない)。symlink の判定に使う */
+async function resolvesInsideSkills(input: { rootCwd: string; target: string }): Promise<boolean> {
+  const realRoot = await realpathNative(input.rootCwd).catch(() => undefined);
+  if (!realRoot) return false;
+  const realSkillsDir = await realpathNative(join(realRoot, COMMON_SKILLS_DIR)).catch(() => undefined);
+  const real = await realpathNative(input.target).catch(() => undefined);
+  if (!realSkillsDir || !real) return false;
+  return isInsideRoot(realSkillsDir, real);
+}
+
 /**
  * bundle のスキル名に対する既存の置換対象を、共通スキルの CRUD と同じ規則で解決する
  * (realpath で置き場の内側、`SKILL.md` が symlink のスキルは置換しない)。
+ * 既存の同名が置き場の外へ解決する symlink でも、そのスキルを置換対象にしないだけで、
+ * bundle の他のスキル (new を含む) の取り込みは止めない。
  */
 async function resolveImportTarget(input: {
   rootCwd: string;
   name: string;
 }): Promise<{ state: "missing" } | { state: "protected"; reason: string } | { state: "existing"; folder: string }> {
   const requested = [...COMMON_SKILLS_SEGMENTS, input.name, "SKILL.md"].join("/");
+  const lexical = join(resolve(input.rootCwd), ...COMMON_SKILLS_SEGMENTS, input.name, "SKILL.md");
+  // 置換可否は lexical な形で先に見る (参照先が置き場の外でも resolveCommonSkillTarget の 400 にしない)
+  const stats = await lstat(lexical).catch(() => undefined);
+  if (stats?.isSymbolicLink()) {
+    return { state: "protected", reason: "SKILL.md がシンボリックリンクのため置換できません" };
+  }
+  if (stats !== undefined && !stats.isFile()) {
+    return { state: "protected", reason: "SKILL.md が通常ファイルではないため置換できません" };
+  }
+  const folderStats = await lstat(dirname(lexical)).catch(() => undefined);
+  if (
+    folderStats?.isSymbolicLink() &&
+    !(await resolvesInsideSkills({ rootCwd: input.rootCwd, target: dirname(lexical) }))
+  ) {
+    return { state: "protected", reason: "スキルフォルダが置き場の外へ解決するため置換できません" };
+  }
+
   const target = await resolveCommonSkillTarget({ rootCwd: input.rootCwd, requested, mustExist: false });
   const skillsDir = target.realSkillsDir;
   if (skillsDir === undefined) return { state: "missing" };
   if (target.real !== undefined) {
-    const stats = await lstat(target.lexical).catch(() => undefined);
-    if (!stats || stats.isSymbolicLink()) {
-      return { state: "protected", reason: "SKILL.md がシンボリックリンクのため置換できません" };
-    }
-    if (!stats.isFile()) return { state: "protected", reason: "SKILL.md が通常ファイルではないため置換できません" };
     const folder = dirname(target.real);
     if (!isInsideRoot(skillsDir, folder)) {
       return { state: "protected", reason: "スキルフォルダが置き場の外へ解決するため置換できません" };
     }
     return { state: "existing", folder };
   }
-  const lexical = dirname(target.lexical);
-  const stats = await lstat(lexical).catch(() => undefined);
-  if (!stats) return { state: "missing" };
+  const folder = dirname(target.lexical);
+  if (folderStats === undefined) return { state: "missing" };
   // SKILL.md は無いがフォルダはある (非スキル項目)。中身を同一と判定できないため置換対象にする
-  const real = await realpathNative(lexical).catch(() => undefined);
+  const real = await realpathNative(folder).catch(() => undefined);
   if (!real || !isInsideRoot(skillsDir, real)) {
     return { state: "protected", reason: "スキルフォルダが置き場の外へ解決するため置換できません" };
   }
@@ -1811,6 +1846,7 @@ async function resolveImportTarget(input: {
 async function planSkillsImport(input: {
   rootCwd: string;
   staged: readonly StagedSkill[];
+  limits: ArchiveLimits;
 }): Promise<SkillImportPlan[]> {
   const plans: SkillImportPlan[] = [];
   for (const staged of input.staged) {
@@ -1837,7 +1873,7 @@ async function planSkillsImport(input: {
       plans.push({ name: staged.name, status: "conflict", protectReason: existing.reason, staged });
       continue;
     }
-    const digests = await folderFileDigests(existing.folder);
+    const digests = await folderFileDigests(existing.folder, input.limits);
     const identical = digests !== undefined && sameFileDigests(digests, staged.files);
     plans.push({
       name: staged.name,
@@ -1962,7 +1998,7 @@ async function importSkills(
     const staged = await extractImportGroups({ archivePath, archive, groups, staging });
     return await context.gate(async () => {
       throwIfAborted(input.signal);
-      const plans = await planSkillsImport({ rootCwd: context.rootCwd, staged });
+      const plans = await planSkillsImport({ rootCwd: context.rootCwd, staged, limits: context.archiveLimits });
       if (input.dryRun) {
         const skills = plans.map((plan): SandboxSkillImportPlanEntry => ({
           name: plan.name,

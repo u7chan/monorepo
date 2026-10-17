@@ -30,6 +30,10 @@ export interface ZipFixtureEntry {
   dosAttributes?: boolean;
   /** 圧縮方法を上書きする (未対応の method を作る) */
   method?: number;
+  /** 圧縮後のバイト列をそのまま使う (Python zipfile の空ディレクトリなど、他ツールの形式の再現用) */
+  compressedData?: Buffer;
+  /** 非圧縮サイズ (compressedData / sizeOverride と組み合わせる) */
+  rawSize?: number;
   /** 中央ディレクトリに書く CRC (壊れた値を作る) */
   crcOverride?: number;
   /** ローカルヘッダにだけ書く CRC (central との不一致を作る。descriptor 無しのときだけ) */
@@ -68,14 +72,14 @@ export function buildZip(entries: readonly ZipFixtureEntry[], options: ZipFixtur
     const isDirectory = entry.name.endsWith("/");
     const content = isDirectory ? Buffer.alloc(0) : Buffer.from(entry.data ?? "");
     const compression = entry.compression ?? "store";
-    const compressed = compression === "deflate" ? deflateRawSync(content) : content;
+    const compressed = entry.compressedData ?? (compression === "deflate" ? deflateRawSync(content) : content);
     const descriptor = entry.descriptor ?? true;
     const flags =
       (descriptor ? 0x0008 : 0) | ((entry.utf8 ?? true) ? 0x0800 : 0) | ((entry.encrypted ?? false) ? 0x0001 : 0);
     const method = entry.method ?? (compression === "deflate" ? 8 : 0);
     const nameBytes = Buffer.from(entry.name, "utf8");
     const crc = entry.crcOverride ?? crc32(content);
-    const size = entry.sizeOverride ?? content.length;
+    const size = entry.sizeOverride ?? entry.rawSize ?? content.length;
     const compressedSize = entry.compressedSizeOverride ?? compressed.length;
 
     const local = Buffer.alloc(30);
