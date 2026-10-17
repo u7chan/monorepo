@@ -43,9 +43,9 @@ test("追跡外のポートはポートだけを出し、誤った会話リン�
   assert.ok(html.includes("強制停止</button>"));
 });
 
-test("起動元が削除された行は所有者不明として出し、lease の値は残す", () => {
+test("起動元を確認できない行は所有者不明として出し、lease の値は残す", () => {
   const html = render({ status: { servers: [{ ...tracked, owner: null }] } });
-  assert.ok(html.includes("所有者不明（起動元の会話は削除済み）"));
+  assert.ok(html.includes("所有者不明（起動元を確認できません）"));
   assert.ok(html.includes("pnpm dev --port $U7AGENT_DEBUG_PORT"));
   assert.ok(!html.includes('href="/s/'));
 });

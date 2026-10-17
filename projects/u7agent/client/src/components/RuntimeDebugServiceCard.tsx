@@ -3,9 +3,12 @@ import type { RuntimeDebugServeState } from "../lib/runtimeDebugServe";
 import { messageFullTimeLabel } from "../lib/messageTime";
 import { StopIcon } from "./icons";
 
-/** 起動元の会話が引けない行の表示。lease の有無で「追跡外」と「会話の削除」を区別する */
+/**
+ * 起動元を出せない行の表示。lease が無ければ追跡外、あっても会話が削除済みか待受が入れ替わっている
+ * (どちらも軽い走査では区別できない)。
+ */
 function ownerFallback(command: string | null): string {
-  return command === null ? "所有者不明（追跡外）" : "所有者不明（起動元の会話は削除済み）";
+  return command === null ? "所有者不明（追跡外）" : "所有者不明（起動元を確認できません）";
 }
 
 /**

@@ -122,14 +122,13 @@ function debugStartFailureMessage(port: number, reason: DebugStartFailure, note:
 }
 
 /**
- * 待受のない lease と、待受ソケットが起動時と入れ替わった lease を掃除する (プロセスだけ死んだ状態も、
- * 別プロセスに置き換わった状態も次の操作で回収する)。外れた lease は追跡外として扱い、起動元を主張しない。
+ * 待受のない lease を掃除する。待受ソケットが入れ替わっただけ (dev サーバーの再起動で inode が変わった
+ * など) の lease を残すのは、停止の照合が起動 PID の子孫を許しているため (捨てると停止できない)。
  */
 function pruneDebugLeases(leases: Map<string, DebugServeLease>, live: readonly SandboxListenerPort[]): void {
-  const inodes = new Map(live.map((entry) => [entry.port, entry.inodes]));
+  const listening = new Set(live.map((entry) => entry.port));
   for (const [sessionId, lease] of leases) {
-    const listening = inodes.get(lease.port);
-    if (!listening || !sameInodes(listening, lease.inodes)) leases.delete(sessionId);
+    if (!listening.has(lease.port)) leases.delete(sessionId);
   }
 }
 
@@ -678,14 +677,14 @@ export class ServeService {
   }
 
   /**
-   * 設定 → ランタイム のデバッグ一覧。レンジ走査 (fd 走査なし) と lease を突き合わせ、待受の無い /
-   * 入れ替わった lease は先に掃除する (追跡外として見せ、起動元の違うプロセスを所有者にしない)。
+   * 設定 → ランタイム のデバッグ一覧。レンジ走査 (fd 走査なし) と lease を突き合わせ、待受の無い lease は
+   * 掃除する。入れ替わった待受も lease を残し、起動元の表示だけを落とす (#composeDebugEntry)。
    */
   async debugServers(): Promise<DebugServeList> {
     return this.#debugLock.run(async () => {
       const live = await this.#scanDebugRange();
       pruneDebugLeases(this.#debugLeases, live);
-      return { servers: live.map((entry) => this.#composeDebugEntry(entry.port)) };
+      return { servers: live.map((entry) => this.#composeDebugEntry(entry)) };
     });
   }
 
@@ -955,15 +954,18 @@ export class ServeService {
     };
   }
 
-  /** lease がある行は起動元と起動時の値を返し、無い行 (追跡外) はポートだけ返す */
-  #composeDebugEntry(port: number): DebugServeEntry {
-    const lease = this.#leaseAtPort(port);
-    if (!lease) return { port, owner: null, command: null, startedAt: null };
-    // 会話ストアの一覧に無い会話は所有者として示さない (削除済みの記録へ移動リンクを出さない)
-    const title = this.#sessions.titleOfId(lease.sessionId);
+  /**
+   * lease がある行は起動時の値を返し、無い行 (追跡外) はポートだけ返す。起動元は軽い走査で照合できる
+   * 待受ソケットの inode が一致するときだけ示す (入れ替わったプロセスへ移動リンクや所有者名を出さない)。
+   */
+  #composeDebugEntry(live: SandboxListenerPort): DebugServeEntry {
+    const lease = this.#leaseAtPort(live.port);
+    if (!lease) return { port: live.port, owner: null, command: null, startedAt: null };
+    // 会話ストアの一覧に無い会話も所有者として示さない (削除済みの記録へ移動リンクを出さない)
+    const title = sameInodes(live.inodes, lease.inodes) ? this.#sessions.titleOfId(lease.sessionId) : undefined;
     const spaceId = title === undefined ? undefined : this.#sessions.spaceOfId(lease.sessionId);
     return {
-      port,
+      port: live.port,
       owner:
         title === undefined
           ? null
