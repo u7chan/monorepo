@@ -17,6 +17,7 @@ import type { LiveToolCallView } from "../hooks/useLiveToolCall";
 import type { SessionSkillsState } from "../hooks/useSessionSkills";
 import { pastedImageFiles } from "../lib/clipboardImages";
 import { cn } from "../lib/cn";
+import { composerAction } from "../lib/composerAction";
 import { composerFocusAfterSend, hasCoarsePointer } from "../lib/composerFocus";
 import { shouldSubmitOnEnter } from "../lib/composerKeys";
 import { composerDropKind, FILE_MENTION_MIME, insertFileMention, type ComposerDropKind } from "../lib/fileMention";
@@ -32,7 +33,7 @@ import { LiveToolCall } from "./composer/LiveToolCall";
 import { ModelEffortPicker } from "./composer/ModelEffortControls";
 import { SkillPicker } from "./composer/SkillPicker";
 import { SuggestionChip } from "./composer/SuggestionChip";
-import { ArrowUpIcon, CollapseIcon, ExpandIcon } from "./icons";
+import { ArrowUpIcon, CollapseIcon, ExpandIcon, StopIcon } from "./icons";
 
 export type ComposerProps = {
   activity: string;
@@ -415,18 +416,53 @@ export function Composer({
     attachmentsBusy,
     runtimeReady,
   });
-  const stopButton = stopVisible ? (
+  // 主スロットを送信と停止のどちらにするか (docs/ui-layout.md#入力欄の主ボタン送信と停止)
+  const sendable = value.trim().length > 0 || hasAttachment || suggestion !== null;
+  const action = composerAction({ stopVisible, sendable, sendBlocked: Boolean(settings.sendBlockedReason) });
+  // 待機件数は状態行 (実行中… · 待機 N 件) とバブルの待機チップにも出るため、ボタンのラベルには載せない
+  const stopButton = (
     <button
       type="button"
+      aria-label="停止"
+      title={queueDepth > 0 ? `実行を中断し、待機中の ${queueDepth} 件も破棄します` : "実行を中断します"}
       onClick={onStop}
       className={cn(
-        "shrink-0 cursor-pointer bg-transparent p-0 text-2xs text-warn transition-colors hover:brightness-125",
-        singleColumn ? "px-1 py-0.5" : "",
+        "grid shrink-0 cursor-pointer place-items-center rounded-full transition-colors",
+        // 送信と入れ替わるときだけ主スロットの見た目にする。控えのときは枠だけの控えめな面にし、
+        // 主操作 (送信) と強さを競わせない
+        action === "stop"
+          ? cn("bg-accent text-on-accent hover:brightness-110", singleColumn ? "size-9" : "size-8")
+          : cn(
+              "border border-line text-ink-soft hover:border-warn/50 hover:text-warn",
+              singleColumn ? "size-8" : "size-7",
+            ),
       )}
     >
-      {queueDepth > 0 ? `停止（待機${queueDepth}件）` : "停止"}
+      <StopIcon />
     </button>
-  ) : null;
+  );
+  const sendButton = (
+    <button
+      type="submit"
+      aria-label="送信"
+      // 実行中の送信は中断ではなく待機キューへ積む。形の切替でここを取り違えないよう、送信の側に書く
+      title={stopVisible && !settings.sendBlockedReason ? "実行中のため、待機キューに積んでから送信します" : undefined}
+      disabled={
+        !runtimeReady ||
+        sending ||
+        attachmentsBusy ||
+        settings.changing ||
+        Boolean(settings.sendBlockedReason) ||
+        !sendable
+      }
+      className={cn(
+        "grid shrink-0 cursor-pointer place-items-center rounded-full bg-accent text-on-accent transition-colors hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-45",
+        singleColumn ? "size-9" : "size-8",
+      )}
+    >
+      <ArrowUpIcon />
+    </button>
+  );
   // モデルが使えない理由は、popover の開閉に関係なく入力欄の下へ残す。開いている間は popover の中にも
   // 同じ文言を出すが、footnote の行を消すとコンポーザーの高さが動く (docs/ui-layout.md)。状態行の warn 色は気付きだけを示す
   const footnoteWarnings = [settings.modelWarning, settings.sendBlockedReason].filter((text): text is string =>
@@ -617,44 +653,25 @@ export function Composer({
               >
                 <ClipIcon />
               </button>
-              <button
-                type="submit"
-                aria-label="送信"
-                disabled={
-                  !runtimeReady ||
-                  sending ||
-                  attachmentsBusy ||
-                  settings.changing ||
-                  Boolean(settings.sendBlockedReason) ||
-                  (value.trim().length === 0 && !hasAttachment && suggestion === null)
-                }
-                className={cn(
-                  "grid shrink-0 cursor-pointer place-items-center rounded-full bg-accent text-on-accent transition-colors hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-45",
-                  singleColumn ? "size-9" : "size-8",
-                )}
-              >
-                <ArrowUpIcon />
-              </button>
+              {action === "sendAndStop" ? stopButton : null}
+              {action === "stop" ? stopButton : sendButton}
             </div>
           </form>
+          {/* 停止は入力欄の行 (主ボタン / 控え) へ移した。footnote は理由だけを持つ */}
           {singleColumn ? (
-            footnoteWarnings.length > 0 || stopVisible ? (
-              <div className="flex items-center justify-end gap-2 px-1 pt-1.5 text-2xs text-ink-ghost">
-                {footnoteWarnings.length > 0 ? (
-                  <span className="mr-auto min-w-0 break-words text-warn">{footnoteWarnings.join(" / ")}</span>
-                ) : null}
-                {stopButton}
+            footnoteWarnings.length > 0 ? (
+              <div className="px-1 pt-1.5 text-2xs text-ink-ghost">
+                <span className="break-words text-warn">{footnoteWarnings.join(" / ")}</span>
               </div>
             ) : null
           ) : (
-            <div className="flex items-start justify-between gap-2.5 px-1 pt-2 text-2xs text-ink-ghost">
-              <span className="min-w-0 break-words">
+            <div className="px-1 pt-2 text-2xs text-ink-ghost">
+              <span className="break-words">
                 送信後もブラウザを閉じても処理は続きます
                 {footnoteWarnings.length > 0 ? (
                   <span className="ml-1 text-warn">{footnoteWarnings.join(" / ")}</span>
                 ) : null}
               </span>
-              {stopButton}
             </div>
           )}
         </div>
