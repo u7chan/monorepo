@@ -5,6 +5,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { validateToolArguments } from "@earendil-works/pi-ai";
 import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
+import { JST_TIME_ZONE } from "../src/jst";
 import { createMutableSecretMasker, type SecretMasker } from "../src/redact";
 import { UnknownRemoteToolError, createRemoteToolDefinitions } from "../src/sandbox/remote-tools";
 import { toolResultSummary } from "../src/session-projection";
@@ -26,7 +27,6 @@ import {
   WEB_SEARCH_RATE_LIMITED_MESSAGE,
   WEB_SEARCH_SETTINGS_UNAVAILABLE_MESSAGE,
   WEB_SEARCH_TIMEOUT_MESSAGE,
-  WEB_SEARCH_TIME_ZONE,
   WEB_SEARCH_TOOL_GUIDELINES,
   WEB_SEARCH_TOOL_NAME,
   WEB_SEARCH_UNEXPECTED_RESPONSE_MESSAGE,
@@ -275,7 +275,7 @@ test("now を渡さない既定は実行時の現在日時を使う", async () =
   const text = await run(definitions[0], { query: "q" });
   assert.match(
     text,
-    new RegExp(`^現在日時: \\d{4}-\\d{2}-\\d{2} \\(${WEB_SEARCH_TIME_ZONE}\\)\n検索プロバイダー: Exa\n`),
+    new RegExp(`^現在日時: \\d{4}-\\d{2}-\\d{2} \\(${JST_TIME_ZONE}\\)\n検索プロバイダー: Exa\n`),
     text,
   );
 });

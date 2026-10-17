@@ -6,6 +6,7 @@
  */
 import { Type, type Static } from "@earendil-works/pi-ai";
 import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
+import { formatJstDate, JST_TIME_ZONE } from "./jst";
 import type { SecretMasker } from "./redact";
 import { wrapToolDefinitionWithSecretMasker } from "./secret-guard";
 import {
@@ -28,9 +29,6 @@ export const WEB_SEARCH_OUTPUT_MAX_LENGTH = 12_000;
 const WEB_SEARCH_TRUNCATED_MARKER = "... [truncated]";
 /** 接続例外に添える詳細の上限 */
 const WEB_SEARCH_DETAIL_MAX_LENGTH = 500;
-/** 日時行と公開日に使うタイムゾーン。UI は日本語で利用者は JST (設定化は非ゴール、docs/web-search.md) */
-export const WEB_SEARCH_TIME_ZONE = "Asia/Tokyo";
-
 export const WEB_SEARCH_PROVIDER_ERROR_MESSAGE = "検索プロバイダのエラーが発生しました";
 export const WEB_SEARCH_RATE_LIMITED_MESSAGE = "検索が混雑しています（レート制限）";
 export const WEB_SEARCH_QUOTA_EXCEEDED_MESSAGE = "検索の利用上限に達しました（provider のプラン上限）";
@@ -91,24 +89,9 @@ function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-// Intl.DateTimeFormat の生成は重い。呼び出しごとに作らないよう 1 つだけ持つ
-const webSearchDateFormatter = new Intl.DateTimeFormat("en-US", {
-  timeZone: WEB_SEARCH_TIME_ZONE,
-  year: "numeric",
-  month: "2-digit",
-  day: "2-digit",
-});
-
-/** JST の YYYY-MM-DD。locale を固定し、`en-CA` の出力書式には依存しない (実行環境の LANG / ICU を避ける) */
-function formatWebSearchDate(date: Date): string {
-  const parts = webSearchDateFormatter.formatToParts(date);
-  const part = (type: "year" | "month" | "day"): string => parts.find((value) => value.type === type)?.value ?? "";
-  return `${part("year")}-${part("month")}-${part("day")}`;
-}
-
 /** 結果と失敗文言の先頭に置く現在日時行。日付だけで「今年」の判断には足り、表示と cache が安定する */
 function currentDateLine(now: Date): string {
-  return `現在日時: ${formatWebSearchDate(now)} (${WEB_SEARCH_TIME_ZONE})`;
+  return `現在日時: ${formatJstDate(now.getTime())} (${JST_TIME_ZONE})`;
 }
 
 /** 日時行の次に置く provider 行。解決できなかった呼び出しでは行ごと省く (docs/web-search.md) */
@@ -120,7 +103,7 @@ function providerLine(name: string | undefined): string {
 function publishedDateLabel(publishedDate: string | undefined): string {
   if (publishedDate === undefined) return "";
   const date = new Date(publishedDate);
-  return Number.isNaN(date.getTime()) ? "" : ` (${formatWebSearchDate(date)})`;
+  return Number.isNaN(date.getTime()) ? "" : ` (${formatJstDate(date.getTime())})`;
 }
 
 /** 出典 1 件の見出し。タイトルが無い結果でも位置が分かるようにする */
