@@ -722,13 +722,17 @@ export function sessionToolPlan(input: {
   };
 }
 
+/**
+ * 要約の出力枠は SDK が reserveTokens の 0.8 倍 (モデル上限でクランプ) として導く。SDK 既定の 16,384 では
+ * 13,107 となり長い会話の要約が枠で打ち切られて失敗するため、十分な出力枠を取れる値にする。
+ */
+const DEFAULT_COMPACTION_RESERVE_TOKENS = 65_536;
 /** SDK の compaction の既定値 (SettingsManager と同じ) */
-const DEFAULT_COMPACTION_RESERVE_TOKENS = 16_384;
 const DEFAULT_COMPACTION_KEEP_RECENT_TOKENS = 20_000;
 
 /**
  * compaction の閾値を下げて発火させやすくする検証用の環境変数を読む。
- * 未設定・不正値 (0 以下・非整数・非数値) は undefined を返し、SDK 既定のままにする (デプロイ影響なし)。
+ * 未設定・不正値 (0 以下・非整数・非数値) は undefined を返し、u7agent の既定を使う (デプロイ影響なし)。
  */
 export function parseCompactionTokenKnob(raw: string | undefined): number | undefined {
   const value = Number(raw?.trim());
@@ -900,7 +904,7 @@ export async function createPiBff({ cwd = process.cwd() }: { cwd?: string } = {}
     current.value.availableModels.find(
       (candidate) => candidate.provider === model.provider && candidate.id === model.id,
     );
-  // 検証時だけ閾値を下げる。未設定なら SDK 既定 (16384 / 20000) で従来と同じ。
+  // 検証時だけ閾値を下げる。未設定なら u7agent の既定 (65536 / 20000) を使う。
   const compactionSettings = compactionSettingsFromEnv();
 
   async function createSession({
