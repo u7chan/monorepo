@@ -105,7 +105,7 @@ FilePreview                 取得した本文をタブごとに保持（表示�
 
 描画は iframe の src に `GET /api/files/html/<root 相対>` を指定し、応答ヘッダと iframe 属性の両方で隔離する。同じルートが要求パスの拡張子で分岐し、文書と同じディレクトリを基準にした相対参照（`./cat.png` / `../app.css`）を解決できるようにする（`<base>` の注入はしない）。
 
-同じルートは BFF の **2 つのリスナー**に載る。アプリと同じリスナー（dev 4317 / prod 8015）は現行どおり隔離し、プレビュー専用リスナー（待受は env `PI_FILE_PREVIEW_LISTEN_PORT`、ブラウザから見たポートは env `PI_FILE_PREVIEW_PORT` で、既定はいずれも 4318。prod は `8017:4318` を publish してブラウザ側に 8017 を載せる）は storage を有効にする。プレビュー オリジンに載せるのはこのルート 1 本だけで、書き込み系（削除 / rename / アップロード / セッション API）は載せない（有効モードの文書からアプリの面を叩けないようにする）。どちらのオリジンで開くかはクライアントのタブごとのスイッチで選び（**既定はプレビュー オリジン**）、リクエストにフラグは付けない。
+同じルートは BFF の **2 つのリスナー**に載る。アプリと同じリスナー（待受は env `PORT`、既定 4317）は現行どおり隔離し、プレビュー専用リスナー（待受は env `PI_FILE_PREVIEW_LISTEN_PORT`、ブラウザから見たポートは env `PI_FILE_PREVIEW_PORT` で、既定はいずれも 4318。公開する配備は `<公開ポート>:<待受ポート>` の対応で公開し、公開ポート側を `PI_FILE_PREVIEW_PORT` へ渡す）は storage を有効にする。プレビュー オリジンに載せるのはこのルート 1 本だけで、書き込み系（削除 / rename / アップロード / セッション API）は載せない（有効モードの文書からアプリの面を叩けないようにする）。どちらのオリジンで開くかはクライアントのタブごとのスイッチで選び（**既定はプレビュー オリジン**）、リクエストにフラグは付けない。
 
 | 要求 | 応答 |
 | --- | --- |
@@ -130,8 +130,8 @@ CSP は `server/src/routes/files.ts` の `HTML_PREVIEW_POLICY` 1 箇所から導
 
 | オリジン | リスナー | CSP と iframe 属性の sandbox フラグ | 用途 |
 | --- | --- | --- | --- |
-| アプリ | 4317（prod 8015） | `allow-scripts` | 隔離モード（スイッチで別オリジンを OFF にしたときだけ） |
-| プレビュー | `PI_FILE_PREVIEW_LISTEN_PORT`（既定 4318。prod は `8017:4318` を publish） | `allow-scripts allow-same-origin allow-pointer-lock` | 既定のストレージ有効モード（`localStorage` など + ゲームの pointer lock） |
+| アプリ | 4317（env `PORT`） | `allow-scripts` | 隔離モード（スイッチで別オリジンを OFF にしたときだけ） |
+| プレビュー | `PI_FILE_PREVIEW_LISTEN_PORT`（既定 4318。公開ポートは `PI_FILE_PREVIEW_PORT`） | `allow-scripts allow-same-origin allow-pointer-lock` | 既定のストレージ有効モード（`localStorage` など + ゲームの pointer lock） |
 
 | 段階 | 追加で読み込めるもの |
 | --- | --- |
@@ -189,7 +189,7 @@ HTML プレビューのパス行のアイコンボタンで、描画中の文書
 - 別オリジンを OFF にした隔離モードでは、storage を使うインライン script の途中で例外が出るとその script の残りは実行されない（「JS が動かない」ように見える）。既定は ON なので、OFF にしたときだけ起きる
 - `fetch` / `eval` / `new Worker` は使えない（CSP 違反。`connect-src` は足さない）
 - プレビュー自身は外部 URL へ自己遷移できる（持ち出せるのは自分自身の内容だけ）
-- 別オリジンの面が 1 つ増える（CORS ヘッダを付けず、`no-store` と CSP + sandbox で無害化する）。prod では**無認証でワークスペースの allowlist ファイルを読める面が 1 つ増える**が、載るのは GET の HTML プレビュー ルート 1 本だけ（書き込み系は載せない）
+- 別オリジンの面が 1 つ増える（CORS ヘッダを付けず、`no-store` と CSP + sandbox で無害化する）。**無認証でワークスペースの allowlist ファイルを読める面が 1 つ増える**が、載るのは GET の HTML プレビュー ルート 1 本だけ（書き込み系は載せない）
 - ストレージ有効モードはプレビュー オリジン 1 つを全プレビューで共有するため、同じオリジンの別ファイルの storage も読める（キー衝突は自己責任）。ファイルごとの名前空間を UI で誘導するのは将来の話
 - ストレージ有効モードで読めるアセットは隔離モードと同じ allowlist のまま（`.wasm` / `.svg` / フォント / 動画は 400）
 

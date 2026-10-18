@@ -1087,7 +1087,7 @@ export const HealthSchema = z.object({
   tools: z.array(z.string()).optional(),
   availabilityError: z.string().optional(),
   sandboxConfigured: z.boolean().optional(),
-  /** プレビュー オリジン (別リスナー) のブラウザから見たポート。待受は別 env で、prod は compose が publish */
+  /** プレビュー オリジン (別リスナー) のブラウザから見たポート。待受は別 env */
   filePreviewPort: z.number().optional(),
   /** サンドボックスで serve した成果物のブラウザから見たポート */
   previewPort: z.number().optional(),

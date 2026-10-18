@@ -15,13 +15,13 @@ if (existsSync(ENV_FILE)) process.loadEnvFile(ENV_FILE);
 
 const PORT = Number(process.env.PORT) || 4317;
 const HOST = process.env.HOST || "127.0.0.1";
-// 2 本目のリスナー (プレビュー オリジン) の待受。prod は 8017:4318 を publish するので既定のまま
+// 2 本目のリスナー (プレビュー オリジン) の待受。既定は 4318
 const FILE_PREVIEW_LISTEN_PORT = resolveFilePreviewListenPort(process.env.PI_FILE_PREVIEW_LISTEN_PORT);
-// ブラウザから見たポート。待受とは独立で、prod は publish したポートをここに載せる
+// ブラウザから見たポート。待受とは独立で、公開する配備では公開ポートをここに載せる
 const FILE_PREVIEW_PORT = resolveFilePreviewPort(process.env.PI_FILE_PREVIEW_PORT);
-// 3 本目のリスナー (サービス オリジン) の待受。prod は 8016:<この値> を publish する
+// 3 本目のリスナー (サービス オリジン) の待受。既定は 4319
 const SERVICE_LISTEN_PORT = resolveServiceListenPort(process.env.PI_SERVICE_LISTEN_PORT);
-// 未設定ならサービス リスナーへ寄せる (prod は compose が 8016 を明示)
+// 未設定ならサービス リスナーへ寄せる (公開する配備では公開ポートを明示する)
 const PREVIEW_PORT = resolvePreviewPort(process.env.PI_PREVIEW_PORT, SERVICE_LISTEN_PORT);
 
 async function main() {

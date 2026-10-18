@@ -1,6 +1,6 @@
 /**
  * プレビュー オリジン (別リスナー) のポート。待受は env `PI_FILE_PREVIEW_LISTEN_PORT`、ブラウザから見た値は
- * 別の env `PI_FILE_PREVIEW_PORT` で差し替える (prod は compose が 8017:4318 を publish して後者に 8017 を載せる)。
+ * 別の env `PI_FILE_PREVIEW_PORT` で差し替える (公開する配備では、公開ポートを後者に載せる)。
  */
 export const DEFAULT_FILE_PREVIEW_LISTEN_PORT = 4318;
 export const DEFAULT_FILE_PREVIEW_PORT = DEFAULT_FILE_PREVIEW_LISTEN_PORT;
@@ -18,12 +18,12 @@ function resolvePort(value: string | undefined, envName: string): number {
   return port;
 }
 
-/** ブラウザから見たポート。待受とは独立で、prod は publish したポートを載せる */
+/** ブラウザから見たポート。待受とは独立で、公開する配備では公開ポートを載せる */
 export function resolveFilePreviewPort(value: string | undefined): number {
   return resolvePort(value, "PI_FILE_PREVIEW_PORT");
 }
 
-/** 2 本目のリスナーの待受ポート。prod は publish が 8017:4318 なので既定のまま */
+/** 2 本目のリスナーの待受ポート。公開ポートとは独立 */
 export function resolveFilePreviewListenPort(value: string | undefined): number {
   return resolvePort(value, "PI_FILE_PREVIEW_LISTEN_PORT");
 }
