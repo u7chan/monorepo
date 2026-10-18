@@ -27,7 +27,7 @@ test("サービス オリジンの待受ポートは未設定なら 4319、不�
 test("serve の公開ポートは未設定なら待受へ寄せ、不正値では起動を拒否する", () => {
   assert.equal(DEFAULT_PREVIEW_PORT, DEFAULT_SERVICE_LISTEN_PORT);
   for (const value of [undefined, "", " "]) assert.equal(resolvePreviewPort(value), 4319);
-  // 待受を変えたのにブラウザから見た値が未設定なら、待受の値へ寄せる (prod は publish したポートを明示する)
+  // 待受を変えたのにブラウザから見た値が未設定なら、待受の値へ寄せる
   for (const value of [undefined, "", " "]) assert.equal(resolvePreviewPort(value, 5000), 5000);
   for (const value of ["1", "8016", "65535", " 8080 "]) assert.equal(resolvePreviewPort(value), Number(value));
   assert.equal(resolvePreviewPort("8016", 5000), 8016);

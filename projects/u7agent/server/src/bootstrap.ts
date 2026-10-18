@@ -50,7 +50,7 @@ export type CreateBffAppOptions = {
   clientDistDir?: string;
   /**
    * プレビュー オリジン (別リスナー) のブラウザから見たポート。env の解決と検証は起動時に 1 回だけ行うため、
-   * ここには検証済みの値が入る。未指定は既定 (4318)。待受は別 env (PI_FILE_PREVIEW_LISTEN_PORT) で、prod は compose が publish する
+   * ここには検証済みの値が入る。未指定は既定 (4318)。待受は別 env (PI_FILE_PREVIEW_LISTEN_PORT)
    */
   filePreviewPort?: number;
   /** serve した成果物のブラウザから見たポート。起動時に検証済みの値を渡す */

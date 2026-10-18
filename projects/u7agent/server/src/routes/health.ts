@@ -40,7 +40,7 @@ export function createHealthRoutes({
   store?: SessionStoreHealth;
   appDb?: AppDbHealth;
   archiveSettings?: ArchiveSettingsHealth;
-  /** プレビュー オリジン (別リスナー) のブラウザから見たポート。待受はこれと限らない (prod は別ポートを publish する) */
+  /** プレビュー オリジン (別リスナー) のブラウザから見たポート。公開ポートは待受と限らない */
   filePreviewPort: number;
   previewPort: number;
 }) {

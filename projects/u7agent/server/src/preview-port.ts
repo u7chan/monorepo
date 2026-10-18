@@ -1,7 +1,7 @@
 /**
  * サービス (serve) オリジンのポート。BFF の 3 本目のリスナーが待受 (`PI_SERVICE_LISTEN_PORT`) で受け、
  * `PI_SANDBOX_URL` のホストの 8080 へ転送する。ブラウザから見た値は別の env `PI_PREVIEW_PORT` で、
- * prod は compose が 8016:<待受> を publish して後者に 8016 を載せる。
+ * 公開する配備では、公開ポートを後者に載せる。
  */
 export const DEFAULT_SERVICE_LISTEN_PORT = 4319;
 
@@ -26,13 +26,13 @@ function resolvePort(value: string | undefined, envName: string, fallback: numbe
 
 /**
  * 3 本目のリスナー (サービス オリジン) の待受ポート。dev ではアプリ自身が 8080 を使うため、
- * 既定を 8080 にしない。prod は publish が 8016:4319 なので既定のまま。
+ * 既定を 8080 にしない。
  */
 export function resolveServiceListenPort(value: string | undefined): number {
   return resolvePort(value, "PI_SERVICE_LISTEN_PORT", DEFAULT_SERVICE_LISTEN_PORT);
 }
 
-/** ブラウザから見たポート。未設定は待受へ寄せる (prod は compose が 8016 を明示) */
+/** ブラウザから見たポート。未設定は待受へ寄せる (公開する配備では公開ポートを明示する) */
 export function resolvePreviewPort(value: string | undefined, listenPort: number = DEFAULT_PREVIEW_PORT): number {
   return resolvePort(value, "PI_PREVIEW_PORT", listenPort);
 }

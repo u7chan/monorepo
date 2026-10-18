@@ -1,5 +1,5 @@
 // プレビュー オリジンのポート解決。待受 (`PI_FILE_PREVIEW_LISTEN_PORT`) とブラウザから見た値
-// (`PI_FILE_PREVIEW_PORT`) は別の env で、どちらも未設定は 4318 (prod は compose が 8017:4318 を publish)。
+// (`PI_FILE_PREVIEW_PORT`) は別の env で、どちらも未設定は 4318。
 import assert from "node:assert/strict";
 import test from "node:test";
 import {

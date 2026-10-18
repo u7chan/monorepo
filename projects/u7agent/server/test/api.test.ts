@@ -593,7 +593,7 @@ test("health reports the browser-facing preview port", async () => {
     await defaults.close();
   }
 
-  // prod は publish したポートを inject する (待受は 4318 のまま)
+  // 待受とは別のポートを inject する (待受は 4318 のまま)
   const published = await createBffApp({
     cwd: "/tmp/project",
     sessionStoreDir: null,
