@@ -382,7 +382,7 @@ test("要約は他の出力と同じくマスカーを通してから配る", as
   await store.close();
 });
 
-test("検証用の閾値ノブは未設定・不正値を SDK 既定へ戻す", () => {
+test("検証用の閾値ノブは未設定・不正値を既定値へ戻す", () => {
   assert.equal(parseCompactionTokenKnob(undefined), undefined);
   assert.equal(parseCompactionTokenKnob(""), undefined);
   assert.equal(parseCompactionTokenKnob("0"), undefined);
@@ -393,7 +393,7 @@ test("検証用の閾値ノブは未設定・不正値を SDK 既定へ戻す", 
 
   assert.deepEqual(compactionSettingsFromEnv({} as NodeJS.ProcessEnv), {
     enabled: true,
-    reserveTokens: 16_384,
+    reserveTokens: 65_536,
     keepRecentTokens: 20_000,
   });
   assert.deepEqual(
