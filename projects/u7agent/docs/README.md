@@ -42,6 +42,12 @@
 | 永続化 / 再デプロイ時の挙動 | - | [persistence.md](persistence.md) |
 | 移植の経緯 | - | [migration.md](migration.md) |
 
+## 調査メモ
+
+実装済みの製品仕様とは分け、対象バージョンと調査範囲を限定した観測・未解決事項を残す。現行の挙動はコードとテストを正とする。
+
+- [Pi SDK steering の調査](surveys/pi-steering.md) — 追加入力の注入境界、steering と中断の違い、最小再現と本体へ反映する前の課題
+
 ## ドキュメントの構成
 
 - [architecture.md](architecture.md) — 層構成・基本原則・責務の所在
