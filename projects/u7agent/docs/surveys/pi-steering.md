@@ -39,20 +39,15 @@
 
 ## 調査時点のアプリで確認したこと
 
-以下のパスは `projects/u7agent/` からの相対パス。行番号は調査時点の目安。
+以下のパスは `projects/u7agent/` からの相対パス。現行の実装を読むための入口であり、調査時点の行番号は固定しない。
 
-| 場所 | 現在の挙動 |
+| 場所 | 調査時点の挙動 |
 | --- | --- |
-| `server/src/routes/sessions.ts:256` | 送信を受け付け、スキル・添付を展開して `store.postMessage()` へ渡す。steer / follow-up / 即時中断を選ぶ入力は無い |
-| `server/src/sessions.ts:989` | `postMessage()`。実行中または手動圧縮中なら独自キューへ入れる |
-| `server/src/sessions.ts:1024` | `record.queue.push({ text, runId })`。この時点では SDK へ渡さない |
-| `server/src/sessions.ts:2251` | `startRun()`。`session.prompt(text)` をバックグラウンドで実行 |
-| `server/src/sessions.ts:2342` | ランの `finish()` 後に、200ms 遅延で `pump()` を予約 |
-| `server/src/sessions.ts:2459` | `pump()`。実行中なら何もせず、終了後にキュー先頭で新しいランを始める |
-| `server/src/sessions.ts:1204` | `stop()`。BFF キューを破棄し、回答待ちを取り消して `session.abort()` を呼ぶ |
+| `server/src/routes/sessions.ts` | 送信を受け付け、スキル・添付を展開して `store.postMessage()` へ渡す。steer / follow-up / 即時中断を選ぶ入力は無い |
+| `server/src/sessions.ts` | `postMessage()` は実行中または手動圧縮中なら独自キューへ入れ、SDK へはまだ渡さない。`startRun()` が `session.prompt(text)` を開始し、ランの `finish()` 後に `pump()` を予約して次のランを始める。`stop()` は BFF キューを破棄して未送信として残し、回答待ちを取り消して `session.abort()` を呼ぶ |
 | `server/src/pi-runtime.ts` | BFF の `PiSessionLike` は `prompt(text)` / `abort()` のみを公開し、`steer()` や prompt の streaming オプションを型に含めていない |
-| `client/src/hooks/sessionActions.ts:50` | 実行中の追加入力も POST する。現在のランの終了をクライアント側で待っているわけではない |
-| `server/test/sessions-store.test.ts:51` | 実行中の送信をキューに積み、順番に別ランとして実行する既存テストがある |
+| `client/src/hooks/sessionActions.ts` | 実行中の追加入力も POST する。現在のランの終了をクライアント側で待っているわけではない |
+| `server/test/sessions-store.test.ts` | 実行中の送信をキューに積み、順番に別ランとして実行する既存テストがある |
 
 調査時点の流れ:
 
@@ -88,7 +83,7 @@
 - `abort()` は実行済みのファイル変更などを巻き戻さない。ツールの停止速度は AbortSignal 対応次第。
 - `agent_end` だけでは SDK の自動継続や再試行が残り得る。ラン全体の終端を確認するなら `agent_settled` または元の `prompt()` の解決を見る。
 
-## 実行して確認済みの 5 ケース
+## 初回調査の観測
 
 実際の SDK 1.3.0 で `createAgentSession()` を使用し、`ModelRuntime.streamSimple` の通信部分だけをモック化した。外部モデルへのリクエスト・実キー・実クォータは使用していない。
 
@@ -100,7 +95,7 @@
 | ツール実行中の follow-up | ツール結果を受けた通常の応答まで完了してから追加指示を注入 |
 | 生成中の abort → キュー回収 → 再 prompt | 中断・アイドル化後に同じセッションで新指示を実行できた。**このケースでは abort だけだと未配信の steer が 1 件残った** |
 
-すべて assertion 付きで成功。初回のスクリプトは標準入力で実行し、ファイルとして保存していない。後述の最小実装はリポジトリに保存済み。これは SDK 単体の検証であり、BFF / GUI の受入検証ではない。
+すべて assertion 付きで成功。初回のスクリプト自体は標準入力で実行し、ファイルとして保存していないが、これらの観測は後述の保存済みテストでも再現できる。これは SDK 単体の検証であり、BFF / GUI の受入検証ではない。
 
 代表的なイベント順:
 
@@ -121,7 +116,7 @@ follow-up:
 
 以下のパスは `projects/u7agent/` からの相対パス。
 
-- [scripts/steering-send.ts](../../scripts/steering-send.ts): 追加入力を渡す比較用の小さな関数。`queue` は元のラン完了後に `prompt()`、`steer` は実行中に `steer()`、`interrupt` は未配信キューをクリアして `await abort()` 後に同じセッションへ `prompt()` する。
+- [scripts/steering-send.ts](../../scripts/steering-send.ts): 追加入力を渡す比較用の小さな関数。`queue` は元のランの正常終了後に `prompt()`、`steer` は実行中に `steer()`、`interrupt` は未配信キューをクリアして `await abort()` 後に同じセッションへ `prompt()` する。
 - [server/test/sdk-steering.test.ts](../../server/test/sdk-steering.test.ts): SDK 実体を動かす独立した再現テスト。モデル応答だけを `registerProvider()` のカスタム `streamSimple` でモック化し、SDK のラン・ツール実行・キュー・停止は差し替えない。
 - `package.json` の `probe:steering`: この調査だけを実行し、注入順序をログへ出す。既存の server テストにも自動的に含まれる。
 
@@ -133,29 +128,45 @@ pnpm probe:steering
 
 HTTP / React / BFF / サンドボックスは使用しない。認証・セッションは一時ディレクトリとメモリへ隔離し、終了時に破棄する。`fetch` の呼び出しを禁止し、呼び出し数がゼロであることも検査する。有料 API や既存の会話ストアは使わない。
 
+### サンプルの前提と対象外
+
+同じセッションを操作する送信元は一つで、実行中に一件の追加入力を渡す比較に限定する。
+
+- **`queue` は正常終了する元ランだけを対象とする。** 現行 BFF のエラー終了後のキュー処理や、停止時のキュー取消・未送信保護は再現していない。元の Promise が reject すれば追加入力は送信されず、停止で resolve すればその後も送信される。したがって、失敗・停止を挟む動作をこの関数で評価したり、本体の送信キューとして流用したりしない。
+- `steer` は実行中であることが前提。アイドル時にランを開始するフォールバックは持たない。
+- `interrupt` は比較のために未配信キューを破棄する。入力の復旧・永続化・再送の責務は持たず、ユーザー入力を未送信として保護する本体実装へそのまま流用しない。
+
 ### 比較結果
 
-生成中・逐次ツール実行中それぞれの 3 方式、並列ツール中の steer、未配信 steer を抱えた状態からの中断の計 8 ケースが成功した。
+以下は調査で観測した違い。保存した再現ケースと assertion の正は [server/test/sdk-steering.test.ts](../../server/test/sdk-steering.test.ts) とする。follow-up、abort 単独で未配信キューが残ること、その回収後の再 prompt、並列ツールの interrupt も同じ probe で再現する。
 
-| 場面 | queue（現行模倣） | steer | interrupt |
+| 場面 | queue（正常終了時の模倣） | steer | interrupt |
 | --- | --- | --- | --- |
 | 生成途中 | 元の応答とランの完了後に修正指示を送る | 元の応答は完了するが、ランを閉じずに修正指示を送る | 元の生成を打ち切り、アイドル化してから新指示を送る |
 | 逐次ツールの 1 本目 | 2 本目と、ツール結果を受けた元の最終応答まで完了してから送る | 2 本目までは実行するが、元の最終応答の要求より先に修正指示を送る | 1 本目の signal を abort し、2 本目のツール本体を実行せずに新指示へ移る |
 
 並列ツールも、片方の完了だけでは steer は入らず、バッチ全体の終了を待つ。中断モードでは、回収した未配信 steer を再実行しない。
 
-これは**注入境界の確認**であり、実モデルが指示に従うかの評価や停止時間のベンチマークではない。現行 BFF の 200ms 遅延も再現していない。実モデル・サンドボックスの停止速度、連続送信、停止と送信の競合は未検証。比較用関数の中断は未配信キューを破棄するため、ユーザー入力を未送信として保護する本体実装へそのまま流用しない。
+これは**注入境界の確認**であり、実モデルが指示に従うかの評価や停止時間のベンチマークではない。現行 BFF の 200ms 遅延も再現していない。実モデル・サンドボックスの停止速度、連続送信、停止と送信の競合は未検証。
 
-### 検証結果
+### 検証の入口
 
-- `pnpm probe:steering`: 8 件すべて成功。
-- `pnpm check`: 成功（lint / format / docs / server・client 型チェック / テスト / client build）。server は 1553 件成功・25 件 skip、client は 1650 件成功。skip は既存の Playwright テストで、ブラウザ実行ファイルが未導入のため。
-- 通常のチェック対象外である `scripts/steering-send.ts` も、新しいテストと合わせて `oxlint` と `oxfmt --check` を個別実行し、成功。
-- GUI 受入と実モデルの呼び出しは未実施。本体の挙動は変更していない。
+再現は `pnpm probe:steering`、プロジェクト全体の検証は `pnpm check` を使う。直近の成否・件数・skip 理由は実行ログを正とし、このメモに固定しない。
+
+通常の lint / format の対象外である比較用スクリプトは、別途次を実行する。
+
+```sh
+pnpm exec oxlint scripts/steering-send.ts
+pnpm exec oxfmt --check scripts/steering-send.ts
+```
+
+GUI 受入と実モデルの呼び出しは未実施。本体の挙動は変更していない。
 
 ### 新たに観測した停止理由の注意点
 
-SDK 1.3.0 では、ツールを中断した後の assistant に `stopReason: "error"`、`errorMessage: "This operation was aborted"` が残った。同じセッションへの次の `prompt()` は正常に完了した。
+SDK 1.3.0 では、ツールを中断した後の assistant に `stopReason: "error"`、`errorMessage: "This operation was aborted"` が残った。同じセッションへの次の `prompt()` は SDK ラン層では正常に完了した。
+
+カスタム provider は built-in provider adapter のメッセージ変換を通らないため、これは実 provider が受け取る送信内容や受理を保証しない。中断で欠けた toolResult や error / aborted の assistant を provider 側の変換がどう扱うかは、本体への組み込み前に adapter を通したモック通信または実 provider で別途確認する。
 
 実装を追うと、ツール中断後の継続で、既に abort 済みの signal により `ModelRuntime` の次の要求準備が失敗し、依存 `pi-ai` の `dist/api/lazy.js` が準備中の例外を一律 `error` としてメッセージ化している。この停止はモック provider が返したモデルエラーではない。
 

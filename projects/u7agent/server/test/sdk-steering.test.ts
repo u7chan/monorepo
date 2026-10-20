@@ -237,7 +237,8 @@ async function createProbe(t: TestContext, scenario: Scenario, execution: "seque
 
 for (const scenario of ["generation", "tools"] as const) {
   for (const mode of ["queue", "steer", "interrupt"] satisfies DeliveryMode[]) {
-    test(`${scenario}: ${mode}`, { timeout: 10_000 }, async (t) => {
+    const description = mode === "queue" ? `${scenario}: queue after normal completion` : `${scenario}: ${mode}`;
+    test(description, { timeout: 10_000 }, async (t) => {
       const f = await createProbe(t, scenario);
       const run = f.session.prompt(ORIGINAL);
       await f.paused;
@@ -318,5 +319,78 @@ test("interrupt discards an undelivered steer rather than replaying it", { timeo
   assert.equal(f.session.pendingMessageCount, 0);
   assert.ok(f.requests.every((users) => !users.includes("stale-instruction")));
   assert.ok(!f.trace.includes("user:stale-instruction"));
+  assert.equal(f.session.getLastAssistantText(), "corrected-done");
+});
+
+test("follow-up waits for the original final response without closing the run", { timeout: 10_000 }, async (t) => {
+  const f = await createProbe(t, "tools");
+  const run = f.session.prompt(ORIGINAL);
+  await f.paused;
+  f.trace.push("input:follow-up");
+  await f.session.followUp(CORRECTION);
+  assert.deepEqual(f.session.getFollowUpMessages(), [CORRECTION]);
+  assert.ok(!f.trace.includes(`user:${CORRECTION}`));
+
+  f.release[0].open();
+  await f.started[1].promise;
+  assert.equal(f.requests.length, 1);
+  assert.ok(!f.trace.includes(`user:${CORRECTION}`));
+  f.release[1].open();
+  await run;
+
+  const injection = f.trace.indexOf(`user:${CORRECTION}`);
+  const originalDone = f.trace.indexOf("assistant:stop:original-done");
+  assert.ok(originalDone > f.trace.indexOf("tool:end:work-2"));
+  assert.ok(injection > originalDone);
+  assert.ok(!f.trace.slice(0, injection).includes("settled"));
+  assert.deepEqual(f.requests, [[ORIGINAL], [ORIGINAL], [ORIGINAL, CORRECTION]]);
+  assert.equal(f.session.pendingMessageCount, 0);
+  assert.equal(f.session.getLastAssistantText(), "corrected-done");
+});
+
+test("abort alone leaves undelivered steer and follow-up available for recovery", { timeout: 10_000 }, async (t) => {
+  const f = await createProbe(t, "generation");
+  const run = f.session.prompt(ORIGINAL);
+  await f.paused;
+  await f.session.steer("stale-steer");
+  await f.session.followUp("stale-follow-up");
+  f.trace.push("input:abort");
+  await f.session.abort();
+  await run;
+
+  assert.equal(f.session.isIdle, true);
+  assert.deepEqual(f.session.getSteeringMessages(), ["stale-steer"]);
+  assert.deepEqual(f.session.getFollowUpMessages(), ["stale-follow-up"]);
+  assert.equal(f.session.pendingMessageCount, 2);
+  assert.deepEqual(f.requests, [[ORIGINAL]]);
+  assert.deepEqual(f.session.clearQueue(), { steering: ["stale-steer"], followUp: ["stale-follow-up"] });
+  assert.equal(f.session.pendingMessageCount, 0);
+
+  f.trace.push("input:reprompt");
+  await f.session.prompt(CORRECTION);
+  assert.deepEqual(f.requests, [[ORIGINAL], [ORIGINAL, CORRECTION]]);
+  assert.equal(f.session.getLastAssistantText(), "corrected-done");
+});
+
+test("parallel tools: interrupt cancels both tools before reprompting", { timeout: 10_000 }, async (t) => {
+  const f = await createProbe(t, "tools", "parallel");
+  const run = f.session.prompt(ORIGINAL);
+  await Promise.all(f.started.map((item) => item.promise));
+  f.trace.push("input:interrupt");
+  await sendCorrection(f.session, run, CORRECTION, "interrupt");
+  await run;
+
+  const injection = f.trace.indexOf(`user:${CORRECTION}`);
+  assert.deepEqual(f.executedTools.toSorted(), [1, 2]);
+  for (const number of [1, 2]) {
+    assert.ok(f.trace.includes(`work:${number}:aborted`));
+    const end = f.trace.indexOf(`tool:end:work-${number}`);
+    assert.ok(end > f.trace.indexOf("input:interrupt"));
+    assert.ok(injection > end);
+  }
+  assert.ok(f.trace.slice(0, injection).includes("settled"));
+  assert.ok(!f.trace.includes("assistant:stop:original-done"));
+  assert.deepEqual(f.requests.at(-1), [ORIGINAL, CORRECTION]);
+  assert.equal(f.session.pendingMessageCount, 0);
   assert.equal(f.session.getLastAssistantText(), "corrected-done");
 });
