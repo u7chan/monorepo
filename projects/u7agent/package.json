@@ -15,6 +15,7 @@
     "build": "pnpm --filter client build",
     "check": "pnpm lint && pnpm format:check && pnpm docs:check && pnpm typecheck && pnpm test && pnpm build",
     "test": "pnpm --filter server test && pnpm --filter client test",
+    "probe:steering": "pnpm --filter server exec node --import tsx --test --test-reporter=spec test/sdk-steering.test.ts",
     "typecheck": "pnpm --filter server typecheck && pnpm --filter client typecheck",
     "docs:check": "node scripts/docs-check.mjs",
     "lint": "oxlint client server",
