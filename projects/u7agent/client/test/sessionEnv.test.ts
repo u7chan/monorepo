@@ -1,4 +1,4 @@
-// 作業環境 → 環境変数タブの表示 / 入力の純関数。値そのものは扱わず、名前の見せ方と文言だけを固定する。
+// 作業環境 → 環境変数タブの表示 / 入力の純関数。名前の見せ方と文言だけを固定する (値の表示判定は envValue.test.ts)。
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
@@ -7,6 +7,7 @@ import {
   ENV_KIND_LEGEND,
   ENV_PROJECT_NOTE,
   ENV_RESTART_NOTE,
+  ENV_SAVE_LABEL,
   ENV_SECRET_NOTES,
   ENV_SHORT_SECRET_NOTE,
   ENV_TRIM_NOTE,
@@ -15,6 +16,8 @@ import {
   envKindNotes,
   envNameList,
   envNamePreview,
+  envValueActionLabel,
+  envValueFormTitle,
   initialDraftValue,
   SECRET_MASK_MIN_LENGTH,
   sessionEnvScope,
@@ -72,6 +75,15 @@ test("短い値の注記はシークレットの入力中だけ出す", () => {
   assert.equal(shortSecretNote("secret", "12345678"), undefined);
   assert.equal(shortSecretNote("secret", ""), undefined, "空欄では出さない");
   assert.equal(shortSecretNote("variable", "x"), undefined, "変数には出さない");
+});
+
+test("行メニューとフォーム見出しは種別で編集 / 変更を使い分け、主ボタンは共通で「保存」", () => {
+  assert.equal(envValueActionLabel("variable"), "値を編集");
+  assert.equal(envValueActionLabel("secret"), "値を変更");
+  assert.equal(envValueFormTitle(item({ kind: "variable", name: "DATABASE_URL" })), "DATABASE_URL の値を編集");
+  assert.equal(envValueFormTitle(item({ kind: "secret", name: "OPENAI_API_KEY" })), "OPENAI_API_KEY の値を変更");
+  // 同じフォームに編集・変更・保存の 3 語を並べない (主ボタンは種別で変えない)
+  assert.equal(ENV_SAVE_LABEL, "保存");
 });
 
 test("追加フォームは名前と値のどちらも空でないときだけ送れる", () => {

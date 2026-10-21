@@ -6,7 +6,7 @@
  * 未知・不正なパスはチャットへ畳み、routePath は常に正準形 (小文字・末尾スラッシュなし・既定タブの
  * パスなし) を返す。
  * `/s/<sessionId>` の `space` クエリだけは会話を指定した URL の入力として解釈し (entrySpaceOf)、
- * 読んだ後はキー単位で落とす (withoutEntrySpace)。
+ * 確定した選択の URL には所属スペースを載せ直す (withEntrySpace)。
  */
 import {
   CONTENT_SUBSECTIONS,
@@ -140,17 +140,10 @@ export function sessionIdOf(route: Route): string | undefined {
  * 画面は URL のセクションが正なので設定の表示中は書かない。未解決の入口が未選択のままの間も書かない
  * (URL を保ち、次に届いた一覧で解決する)。未解決でも選択が確定していればその選択を書く。
  * `undefined` (会話 ID なし) と `""` (選択なし) は同じ「会話なし」として扱い、未選択を `/s/` と書かない。
+ * 同じ URL でも返す (所属スペースを載せ直すため)。同一 URL の置換は書き手 (useRoute) が省く。
  */
-export function sessionPath(
-  view: Route["view"],
-  urlSessionId: string | undefined,
-  selectedSessionId: string,
-  entryResolved: boolean,
-): string | null {
+export function sessionPath(view: Route["view"], selectedSessionId: string, entryResolved: boolean): string | null {
   if (view !== "chat") return null;
-  const current = urlSessionId ?? "";
-  // 既に一致している (会話なし同士も含む) ときは同じ URL を書き直さない
-  if (current === selectedSessionId) return null;
   if (!entryResolved && selectedSessionId === "") return null;
   return routePath(selectedSessionId ? { view: "chat", sessionId: selectedSessionId } : CHAT_ROUTE);
 }
@@ -177,16 +170,15 @@ export function entrySpaceOf(route: Route, search: string): string | null {
 }
 
 /**
- * 会話を指定した URL の `space` キーだけを落とした search。読んだ値は使い捨てで、URL には残さない
- * (Back / Forward で戻っても選択を切り替えない)。他のクエリは順序も書き方もそのまま残すため、
- * `URLSearchParams` で組み直さず、項単位で外す。
+ * 会話を指定した URL の `space` を `spaceId` に揃えた search。他の画面の URL からは外す (残っていても
+ * 解決には使わない)。他のクエリは順序も書き方もそのまま残すため、`URLSearchParams` で組み直さず、
+ * 項単位で入れ替える。
  */
-export function withoutEntrySpace(route: Route, search: string): string {
-  if (!sessionIdOf(route)) return search;
+export function withEntrySpace(route: Route, search: string, spaceId: string): string {
   const query = search.startsWith("?") ? search.slice(1) : search;
-  if (!query) return "";
-  const kept = query.split("&").filter((part) => !isSpaceParameter(part));
-  return kept.length > 0 ? `?${kept.join("&")}` : "";
+  const kept = query ? query.split("&").filter((part) => !isSpaceParameter(part)) : [];
+  if (!sessionIdOf(route)) return kept.length > 0 ? `?${kept.join("&")}` : "";
+  return `?${[`${SPACE_QUERY_KEY}=${encodeURIComponent(spaceId)}`, ...kept].join("&")}`;
 }
 
 function isSpaceParameter(part: string): boolean {
