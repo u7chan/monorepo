@@ -7,6 +7,7 @@ import { fileTimeLabel, messageFullTimeLabel } from "../lib/messageTime";
 import {
   canSubmitEnvDraft,
   canSubmitEnvValue,
+  ENV_KIND_LEGEND,
   ENV_PROJECT_NOTE,
   ENV_RESTART_NOTE,
   ENV_TRIM_NOTE,
@@ -206,6 +207,7 @@ export function EnvVarsTab({ scope, reloadToken }: EnvVarsTabProps) {
       <div className="grid gap-2 px-4 py-3">
         {list?.projectScoped ? <p className="text-2xs text-ink-faint">{ENV_PROJECT_NOTE}</p> : null}
         <p className="text-2xs text-ink-muted">{ENV_RESTART_NOTE}</p>
+        <p className="text-2xs text-ink-faint">{ENV_KIND_LEGEND}</p>
 
         {listError ? (
           <p
@@ -362,7 +364,7 @@ export function EnvVarsTab({ scope, reloadToken }: EnvVarsTabProps) {
           <section className="grid gap-1 border-t border-line pt-2">
             <h3 className="text-2xs font-semibold text-ink-soft">この会話で使える名前</h3>
             <p className="text-2xs text-ink-faint">
-              コードは <code className="font-mono">process.env.NAME</code> を読んでください。値は渡せません。
+              コードは <code className="font-mono">process.env.NAME</code> を読んでください。
             </p>
             <ul className="flex flex-wrap gap-1.5">
               {envNameList(items).map((entry) => (

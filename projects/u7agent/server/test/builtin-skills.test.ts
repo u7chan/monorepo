@@ -69,7 +69,8 @@ test("同梱の serve スキルは到達条件と検証ループを本文に持�
   }
   // モデルが自分で起動するスキルなので、自動起動を止めない
   assert.equal(SERVE.disableModelInvocation, false);
-  assert.match(SERVE.description, /8080|サービス/);
+  // description は索引から引くための短い trigger に留める (本文の目次を写さない)
+  assert.match(SERVE.description, /成果物を見せるためにアプリを起動/);
   // 自己確認はデバッグ用 serve (127.0.0.1 の 18000 帯) を使わせ、公開枠はユーザーの閲覧用に残す
   for (const text of [
     "debug_start",
@@ -83,6 +84,24 @@ test("同梱の serve スキルは到達条件と検証ループを本文に持�
     assert.ok(SERVE.body.includes(text), text);
   }
   assert.match(SERVE.body, /実績[^。]*記録されない/);
+});
+
+test("同梱の serve スキルは種別ごとの注入先と値を見せない確認方法を本文に持つ", () => {
+  assert.ok(SERVE, "serve が同梱されている");
+  // 本文を変えたら VERSIONS も上げる運用なので、版そのものを固定して上げ忘れを検出する
+  assert.equal(SERVE.version, "4");
+  for (const text of [
+    "自分の `bash`",
+    "`serve` / `debug_start` の起動プロセス",
+    '[ -n "${NAME+x}" ]',
+    'String("NAME" in process.env)',
+    "[REDACTED]",
+    "注入されたことの証明にはならない",
+  ]) {
+    assert.ok(SERVE.body.includes(text), text);
+  }
+  // bash の undefined を未登録と読ませない (シークレットは bash へ渡らない)
+  assert.match(SERVE.body, /シークレットは `bash` へ渡らない/);
 });
 
 test("同梱の browser スキルは確認の流れと、外部到達・保存・見えないときの契約を本文に持つ", () => {

@@ -21,8 +21,16 @@ export function secretDeleteConfirmRequest(item: Pick<SecretItem, "name" | "kind
   };
 }
 
-/** タブ上部の 1 行。反映の境界は「保存」ではなく「次回の起動」 */
-export const ENV_RESTART_NOTE = "シークレットの変更は次回の起動から反映されます";
+/** タブ上部の 1 行。反映の境界は「保存」ではなく、変数は次の bash、シークレットは次回の起動 */
+export const ENV_RESTART_NOTE =
+  "変数の変更は次の bash から、シークレットの変更は次回の起動から反映されます（起動中のサービスは古い値のまま）";
+
+/**
+ * 一覧に常時出す種別の凡例。種別ごとの注入先をフォームの中だけに置くと、
+ * 登録後は一覧からは確かめられない。
+ */
+export const ENV_KIND_LEGEND =
+  "変数はエージェントの bash にも渡ります。シークレットはエージェントの bash には渡らず、サービスとして起動したときの process.env に入ります。";
 
 /** プロジェクト所属の cwd を共有しているときだけ出す 1 行 */
 export const ENV_PROJECT_NOTE = "このプロジェクトの設定です";
@@ -31,13 +39,13 @@ export const ENV_PROJECT_NOTE = "このプロジェクトの設定です";
 export const ENV_SECRET_NOTES: readonly string[] = [
   "シークレットはこの会話上では参照できません",
   "保存後に値を再取得できません",
-  "サービスとして起動したときだけ参照できます",
+  "サービスとして起動したときに参照できます",
 ];
 
 /** 変数の説明。エージェントに見えることが変数の利点であるため、そこを明示する */
 export const ENV_VARIABLE_NOTES: readonly string[] = [
   "この会話のエージェントにも見えます（bash の printenv に出ます）",
-  "サービスとして起動したときだけ参照できます",
+  "サービスの起動プロセスにも入ります",
 ];
 
 /** シークレットの入力が短いときの注記 (誤解したまま保存させない) */
