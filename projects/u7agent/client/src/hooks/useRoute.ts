@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { parseRoute, routePath, withoutEntrySpace, type Route } from "../lib/route";
+import { parseRoute, routePath, withEntrySpace, type Route } from "../lib/route";
 import {
   DEFAULT_SETTINGS_SECTION,
   parseStoredSettingsSection,
@@ -13,7 +13,8 @@ import {
  * 画面切替の反映と URL の更新を必ず同じ `navigate` から行う (独立に同期させない)。
  * 切替は `replaceState` なので履歴は追加しない (Back / Forward はブラウザーの既存履歴に従う)。
  * クエリとフラグメントは解釈も破棄もしない (チャット本文の `#foo` 断片リンクを壊さないため持ち越す)。
- * 例外は `/s/<id>` の `space` だけで、初期 mount で読んだ後はキー単位で落とす (再読込では戻らない)。
+ * 例外は `/s/<id>` の `space` だけで、確定した選択の所属スペースを表す (`withEntrySpace` が会話を
+ * 指定した URL には載せ、他の画面の URL からは外す)。
  */
 export type RouteState = {
   route: Route;
@@ -27,21 +28,18 @@ export type RouteState = {
   lastSettingsSection: SettingsSection;
 };
 
-export function useRoute(): RouteState {
+/** `spaceId` は会話を指定した URL が載せる `space`。App ごとに一定 (スペースを切り替えると App が作り直される) */
+export function useRoute(spaceId: string): RouteState {
   // 初期値は render 中に確定させる (URL 直開きで 1 フレーム分チャットが出るのを避ける)
   const [route, setRoute] = useState<Route>(() => parseRoute(window.location.pathname));
   const [lastSettingsSection, setLastSettingsSection] = useState<SettingsSection>(readStoredSettingsSection);
 
-  // 起動時に URL が正準形でなければ置き換える (画面は上の初期値で既に正しい)
+  // 起動時に URL が正準形でなければ置き換える (画面は上の初期値で既に正しい)。クエリとフラグメントは残し、
+  // `space` だけは確定したスペースで揃える (未知の値で復旧画面から戻った直後の再読込で戻らないように)
   useEffect(() => {
     const mounted = parseRoute(window.location.pathname);
-    const canonical = routePath(mounted);
-    // `/s/<id>` の `space` は SpacesApp が初期 mount で読んだ使い捨ての値なので、URL からは落とす
-    const search = withoutEntrySpace(mounted, window.location.search);
-    if (canonical !== window.location.pathname || search !== window.location.search) {
-      replacePath(canonical, search);
-    }
-  }, []);
+    replacePath(routePath(mounted), withEntrySpace(mounted, window.location.search, spaceId));
+  }, [spaceId]);
 
   useEffect(() => {
     const onPopState = () => setRoute(parseRoute(window.location.pathname));
@@ -56,23 +54,30 @@ export function useRoute(): RouteState {
     writeStoredSettingsSection(route.section);
   }, [route, lastSettingsSection]);
 
-  const navigate = useCallback((next: Route) => {
-    replacePath(routePath(next));
-    setRoute(next);
-  }, []);
+  const navigate = useCallback(
+    (next: Route) => {
+      // 会話を持つ画面から離れるときに古い `space` を残さない (持ち越すのは他のクエリとフラグメントだけ)
+      replacePath(routePath(next), withEntrySpace(next, window.location.search, spaceId));
+      setRoute(next);
+    },
+    [spaceId],
+  );
 
-  const syncSessionPath = useCallback((path: string | null) => {
-    if (path === null) return;
-    replacePath(path);
-    // 既に同じ path なら route の object を作り直さない (同じ値の set で描画を増やさない)
-    setRoute((current) => (routePath(current) === path ? current : parseRoute(path)));
-  }, []);
+  const syncSessionPath = useCallback(
+    (path: string | null) => {
+      if (path === null) return;
+      replacePath(path, withEntrySpace(parseRoute(path), window.location.search, spaceId));
+      // 既に同じ path なら route の object を作り直さない (同じ値の set で描画を増やさない)
+      setRoute((current) => (routePath(current) === path ? current : parseRoute(path)));
+    },
+    [spaceId],
+  );
 
   return { route, navigate, syncSessionPath, lastSettingsSection };
 }
 
-/** pathname と search を差し替える。search を省くと現在の値を残す (フラグメントは常に残す) */
-function replacePath(pathname: string, search = window.location.search): void {
+/** pathname と search を差し替える。同じ URL なら置換しない (フラグメントは常に残す) */
+function replacePath(pathname: string, search: string): void {
   const { pathname: current, search: currentSearch, hash } = window.location;
   const url = `${pathname}${search}${hash}`;
   if (url === `${current}${currentSearch}${hash}`) return;

@@ -10,7 +10,7 @@ import {
   sessionEntryHref,
   sessionIdOf,
   sessionPath,
-  withoutEntrySpace,
+  withEntrySpace,
   type Route,
 } from "../src/lib/route";
 import {
@@ -228,37 +228,31 @@ test("routePath は `/s/<id>` を encode して返し、parseRoute と往復す�
 });
 
 test("同期は確定した選択を URL に映し、書かない条件では null を返す", () => {
-  const table: [Route["view"], string | undefined, string, boolean, string | null][] = [
+  const table: [Route["view"], string, boolean, string | null][] = [
     // 設定の表示中は書かない (SSE 切断や削除で選択が変わっても URL と表示を食い違わせない)
-    ["settings", undefined, "", true, null],
-    ["settings", "abc123", "abc123", true, null],
-    ["settings", "abc123", "xyz789", false, null],
+    ["settings", "", true, null],
+    ["settings", "abc123", true, null],
+    ["settings", "xyz789", false, null],
     // 未解決の入口が未選択のままの間は URL を保つ (一覧の取得に失敗しても、次の一覧で解決する)
-    ["chat", "abc123", "", false, null],
+    ["chat", "", false, null],
     // 未解決でも、ユーザー操作で選択が確定したらその選択を書く
-    ["chat", "abc123", "xyz789", false, "/s/xyz789"],
-    ["chat", undefined, "xyz789", false, "/s/xyz789"],
+    ["chat", "xyz789", false, "/s/xyz789"],
     // 解決後は確定した選択へ揃え、未選択は `/` へ戻す
-    ["chat", "abc123", "xyz789", true, "/s/xyz789"],
-    ["chat", "abc123", "", true, "/"],
-    ["chat", undefined, "xyz789", true, "/s/xyz789"],
-    // URL と同じ (会話なし同士も含む) ときは書き直さない
-    ["chat", "abc123", "abc123", true, null],
-    ["chat", undefined, "", true, null],
-    ["chat", "abc123", "abc123", false, null],
-    // undefined (会話 ID なし) と "" (選択なし) は同じ「会話なし」に正規化する (未選択を /s/ と書かない)
-    ["chat", "", "", true, null],
-    ["chat", "", "abc123", true, "/s/abc123"],
+    ["chat", "xyz789", true, "/s/xyz789"],
+    ["chat", "", true, "/"],
+    // URL と同じ選択でも返す (所属スペースを載せ直すため。同一 URL の置換は書き手が省く)
+    ["chat", "abc123", true, "/s/abc123"],
+    ["chat", "abc123", false, "/s/abc123"],
   ];
-  for (const [view, urlSessionId, selectedSessionId, entryResolved, expected] of table) {
+  for (const [view, selectedSessionId, entryResolved, expected] of table) {
     assert.equal(
-      sessionPath(view, urlSessionId, selectedSessionId, entryResolved),
+      sessionPath(view, selectedSessionId, entryResolved),
       expected,
-      `${view} url=${urlSessionId} selected=${selectedSessionId} resolved=${entryResolved}`,
+      `${view} selected=${selectedSessionId} resolved=${entryResolved}`,
     );
   }
   // 会話 ID は不透明な値として encode する
-  assert.equal(sessionPath("chat", undefined, "a b", true), "/s/a%20b");
+  assert.equal(sessionPath("chat", "a b", true), "/s/a%20b");
 });
 
 test("URL が指定する会話を返し、入口の解決状態は会話の有無から決まる", () => {
@@ -285,20 +279,39 @@ test("`/s/<id>` の `space` だけを読み、他の画面と他のクエリは�
   assert.equal(entrySpaceOf(sessionUrl("abc123"), "?space=../bad"), "../bad");
 });
 
-test("会話を指定した URL の `space` キーだけを落とし、他のクエリは書き方ごと残す", () => {
-  assert.equal(withoutEntrySpace(sessionUrl("abc123"), "?space=demo"), "");
-  assert.equal(withoutEntrySpace(sessionUrl("abc123"), "?space=demo&x=1"), "?x=1");
-  assert.equal(withoutEntrySpace(sessionUrl("abc123"), "?x=1&space=demo&y=2"), "?x=1&y=2");
-  assert.equal(withoutEntrySpace(sessionUrl("abc123"), "?x=1&space="), "?x=1");
+test("会話を指定した URL の `space` は選択中のスペースで揃え、他のクエリは書き方ごと残す", () => {
+  const session = sessionUrl("abc123");
+  // リンクを別の環境で開いても会話の所属で解決できるよう、会話を指定した URL は常にスペースを載せる
+  assert.equal(withEntrySpace(session, "", "demo"), "?space=demo");
+  assert.equal(withEntrySpace(session, "?space=old", "demo"), "?space=demo");
+  assert.equal(withEntrySpace(session, "?x=1&space=old&y=2", "demo"), "?space=demo&x=1&y=2");
   // 他のクエリのパーセントエンコーディングは組み直さない
-  assert.equal(withoutEntrySpace(sessionUrl("abc123"), "?x=%20b&space=demo"), "?x=%20b");
+  assert.equal(withEntrySpace(session, "?x=%20b", "demo"), "?space=demo&x=%20b");
   // 解釈できないキーは落とさない (他のクエリを壊すより残す)
-  assert.equal(withoutEntrySpace(sessionUrl("abc123"), "?%zz=1&space=demo"), "?%zz=1");
-  // 会話を指定しない URL と `space` を持たない URL はそのまま (クエリは解釈も破棄もしない)
-  for (const search of ["", "?space=demo", "?x=1&y=%20"]) {
-    assert.equal(withoutEntrySpace(CHAT_ROUTE, search), search);
-    assert.equal(withoutEntrySpace(settings("files"), search), search);
-  }
+  assert.equal(withEntrySpace(session, "?%zz=1", "demo"), "?space=demo&%zz=1");
+  // 会話を指定しない URL と設定画面はスペースを載せない (残っていれば外す)
+  assert.equal(withEntrySpace(CHAT_ROUTE, "", "demo"), "");
+  assert.equal(withEntrySpace(CHAT_ROUTE, "?space=demo", "demo"), "");
+  assert.equal(withEntrySpace(CHAT_ROUTE, "?space=demo&x=%20", "demo"), "?x=%20");
+  assert.equal(withEntrySpace(settings("files"), "?space=demo", "demo"), "");
+});
+
+/** アプリが書く会話 URL (pathname + `space`)。hooks/useRoute.ts の syncSessionPath と同じ組み方 */
+function selectionHref(sessionId: string, spaceId: string): string {
+  const path = sessionPath("chat", sessionId, true) ?? "";
+  return `${path}${withEntrySpace(parseRoute(path), "", spaceId)}`;
+}
+
+test("確定した選択の URL を開くと、会話と所属スペースの両方が解決できる", () => {
+  const href = selectionHref("a b", "space-1111111111111111");
+  assert.equal(href, "/s/a%20b?space=space-1111111111111111");
+  const url = new URL(href, "https://u7agent.example");
+  const route = parseRoute(url.pathname);
+  assert.equal(sessionIdOf(route), "a b");
+  assert.equal(entrySpaceOf(route, url.search), "space-1111111111111111");
+  // 既存の `space` なしリンクは、その環境の保存値で解決する (互換)
+  assert.equal(sessionIdOf(parseRoute("/s/abc123")), "abc123");
+  assert.equal(entrySpaceOf(parseRoute("/s/abc123"), ""), null);
 });
 
 test("会話を指定して開くリンクは所属スペースを載せ、不明なら載せない", () => {
