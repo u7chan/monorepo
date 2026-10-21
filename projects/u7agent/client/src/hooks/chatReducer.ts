@@ -523,30 +523,47 @@ function insertByStatePosition(state: ChatState, rebuilt: Bubble[], liveBubble: 
 }
 
 /** ページ取得時に実行中だったツールはページに載らず所有者が切れるため、ライブ側から補う */
-function restoreSettledTools(state: ChatState, bubbles: Bubble[], liveId: number | null): Bubble[] {
+function restoreSettledTools(
+  state: ChatState,
+  bubbles: Bubble[],
+  liveId: number | null,
+  pairs: Map<number, string>,
+): Bubble[] {
   let next = bubbles;
+  // 使った履歴 item を控えないと、同文の別応答へ同じ item のツールを複製する
+  const used = new Set<number>();
   for (const live of state.bubbles) {
     if (live.role !== "assistant" || live.entryId !== undefined || live.id === liveId) continue;
     if (next.some((bubble) => bubble.id === live.id)) continue;
+    const paired = pairs.get(live.id);
     let match = -1;
-    if (live.assistantId !== undefined) {
+    if (paired !== undefined) {
+      match = next.findIndex((bubble) => bubble.entryId === paired && !used.has(bubble.id));
+    }
+    if (match === -1 && live.assistantId !== undefined) {
       match = next.findIndex(
         (bubble) =>
-          bubble.role === "assistant" && bubble.entryId !== undefined && bubble.assistantId === live.assistantId,
+          bubble.role === "assistant" &&
+          bubble.entryId !== undefined &&
+          bubble.assistantId === live.assistantId &&
+          !used.has(bubble.id),
       );
-    } else {
+    }
+    if (match === -1 && live.assistantId === undefined) {
       // 応答IDが片方にしか無い旧データだけ、同一ターン内の本文一致へ縮退する
       const turnIndex = turnIndexOf(state, live.id, next);
       if (turnIndex === -1) continue;
       for (let index = next.length - 1; index > turnIndex; index -= 1) {
         const bubble = next[index];
-        if (bubble.role === "assistant" && bubble.entryId !== undefined && bubble.text === live.text) {
+        if (bubble.role !== "assistant" || bubble.entryId === undefined || used.has(bubble.id)) continue;
+        if (bubble.text === live.text) {
           match = index;
           break;
         }
       }
     }
     if (match === -1) continue;
+    used.add(next[match].id);
     next = next.map((bubble, index) => (index === match ? mergeAssistantCard(live, bubble) : bubble));
   }
   return next;
@@ -581,6 +598,7 @@ function restoreUserTurnEnds(state: ChatState, bubbles: Bubble[]): Bubble[] {
 function mergeStreamingIntoHistory(
   state: ChatState,
   bubbles: Bubble[],
+  pairs: Map<number, string>,
 ): { bubbles: Bubble[]; currentAssistantId: number | null; toolBubbleIds: Record<string, number> } {
   const rebuildTools = (items: Bubble[]): Record<string, number> => {
     const ids: Record<string, number> = {};
@@ -594,7 +612,7 @@ function mergeStreamingIntoHistory(
   const liveId = state.currentAssistantId;
   const live = liveId === null ? undefined : state.bubbles.find((bubble) => bubble.id === liveId);
   if (live === undefined || state.runStatus !== "running") {
-    const kept = restoreSettledTools(state, bubbles, liveId);
+    const kept = restoreSettledTools(state, bubbles, liveId, pairs);
     return {
       bubbles: kept,
       currentAssistantId: liveId !== null && kept.some((bubble) => bubble.id === liveId) ? liveId : null,
@@ -650,7 +668,7 @@ function mergeStreamingIntoHistory(
   if (matchIndex === -1) {
     // 照合できない履歴マージでライブのカードが消えていても、今ターンの応答として残す (データを失わない)
     const base = bubbles.some((bubble) => bubble.id === liveId) ? bubbles : [...bubbles, live];
-    const kept = restoreSettledTools(state, base, liveId);
+    const kept = restoreSettledTools(state, base, liveId, pairs);
     return { bubbles: kept, currentAssistantId: liveId, toolBubbleIds: rebuildTools(kept) };
   }
   const mergedBubble = mergeAssistantCard(live, bubbles[matchIndex]);
@@ -660,12 +678,13 @@ function mergeStreamingIntoHistory(
       .map((bubble, index) => (index === matchIndex ? mergedBubble : bubble))
       .filter((bubble, index) => index === matchIndex || bubble.id !== liveId),
     liveId,
+    pairs,
   );
   return { bubbles: next, currentAssistantId: liveId, toolBubbleIds: rebuildTools(next) };
 }
 
 function applyHistoryMerge(state: ChatState, merged: HistoryMergeResult, page: HistoryPage): ChatState {
-  const streaming = mergeStreamingIntoHistory(state, merged.bubbles);
+  const streaming = mergeStreamingIntoHistory(state, merged.bubbles, merged.pairs);
   const identity = runIdentityOf(state, streaming.bubbles);
   const normalized = normalizeInitialSend(streaming.bubbles, identity.initialSendId);
   const ordered = orderInitialUser(normalized, identity.runId, identity.initialSendId);
@@ -818,18 +837,25 @@ function openAssistantForKey(state: ChatState, at: number | undefined, assistant
   return ensureAssistant(state, at, assistantKey);
 }
 
+/**
+ * 閉じたばかりの応答へツールを足せるかを決める。応答IDが違えば別の応答なので、違うカードへは
+ * 足さない (本文の追記先とツールの所有者が食い違う)。
+ */
+function closedToolTarget(state: ChatState, assistantKey: string | undefined): number | undefined {
+  if (state.currentAssistantId !== null || state.toolTargetAssistantId === undefined) return undefined;
+  const target = state.bubbles.find((bubble) => bubble.id === state.toolTargetAssistantId);
+  if (target === undefined) return undefined;
+  const sameOwner =
+    assistantKey === undefined || target.assistantId === undefined || target.assistantId === assistantKey;
+  return sameOwner ? target.id : undefined;
+}
+
 function addToolCard(state: ChatState, card: ToolCard, at?: number, assistantKey?: string): ChatState {
   const keyTarget =
     assistantKey === undefined
       ? undefined
       : state.bubbles.find((bubble) => bubble.role === "assistant" && bubble.assistantId === assistantKey);
-  const ended =
-    keyTarget?.id ??
-    (state.currentAssistantId === null &&
-    state.toolTargetAssistantId !== undefined &&
-    state.bubbles.some((bubble) => bubble.id === state.toolTargetAssistantId)
-      ? state.toolTargetAssistantId
-      : undefined);
+  const ended = keyTarget?.id ?? closedToolTarget(state, assistantKey);
   if (ended !== undefined) {
     return {
       ...updateBubble(state, ended, (bubble) => ({ ...bubble, tools: [...bubble.tools, card] })),
@@ -909,6 +935,35 @@ function clearQuestionActivity(state: ChatState): ChatState {
 }
 
 /**
+ * 本文を持たない応答は履歴 item に現れないため、所有者IDのカードを合成しないと ID 付きの call が
+ * 結び付かず、再接続でツールカードが消える (本文の追記先は変えない)。
+ */
+function appendOwnedAssistant(state: ChatState, ownerKey: string | undefined): { state: ChatState; id: number } {
+  const id = state.nextId;
+  const bubble: Bubble = {
+    id,
+    role: "assistant",
+    text: "",
+    tools: [],
+    skillLoads: [],
+    settled: true,
+    ...(ownerKey === undefined ? {} : { assistantId: ownerKey }),
+    ...(state.pendingUsage === undefined ? {} : { usage: state.pendingUsage }),
+    ...(state.pendingMetrics === undefined ? {} : { metrics: state.pendingMetrics }),
+  };
+  return {
+    state: {
+      ...state,
+      bubbles: [...state.bubbles, bubble],
+      nextId: id + 1,
+      pendingUsage: undefined,
+      pendingMetrics: undefined,
+    },
+    id,
+  };
+}
+
+/**
  * run 側のツール状態を現在ターンの assistant バブルへ反映する。補完先が無いときは補完せず
  * 保持だけする (保留)。ページを組み直す位置から呼ぶので、ID で突き合わせてべき等にする。
  * focus は true のときだけ currentAssistantId を補完先へ向ける。呼び出し側は実行中かどうかで決める
@@ -917,6 +972,19 @@ function clearQuestionActivity(state: ChatState): ChatState {
 function attachRunToolCards(state: ChatState, focus: boolean): ChatState {
   const calls = Object.values(state.runTools);
   if (calls.length === 0) return state;
+  // 所有者が履歴にも payload にも無い応答 (本文なし) は、ここで ID 付きのカードを作って受ける
+  const owners = new Set(
+    state.bubbles.flatMap((bubble) =>
+      bubble.role === "assistant" && bubble.assistantId !== undefined ? [bubble.assistantId] : [],
+    ),
+  );
+  for (const call of calls) {
+    if (call.assistantId === undefined || owners.has(call.assistantId)) continue;
+    // 既にどこかのカードへ付いているツールのために空カードを足さない
+    if (state.toolBubbleIds[call.id] !== undefined) continue;
+    state = appendOwnedAssistant(state, call.assistantId).state;
+    owners.add(call.assistantId);
+  }
   // 開いている応答を優先し、無ければ assistant_end で閉じた応答へ付ける
   const existing = (id: number | null | undefined): id is number =>
     id !== undefined && id !== null && state.bubbles.some((bubble) => bubble.id === id);
@@ -925,13 +993,13 @@ function attachRunToolCards(state: ChatState, focus: boolean): ChatState {
     : existing(state.toolTargetAssistantId)
       ? state.toolTargetAssistantId
       : currentTurnAssistantId(state.bubbles);
-  // 本文を持たない assistant は履歴から落ちるため、回答待ちの ask_user では補完先が無い。
-  // 待機中は次のイベントが来ず自己回復しないので、ここだけ assistant バブルを合成する
+  // 本文も応答IDも持たない旧データの回答待ちでは補完先が無い。待機中は次のイベントが来ず
+  // 自己回復しないので、ここだけ assistant バブルを合成する
   if (targetId === undefined) {
     if (!calls.some(isPendingAskUser)) return state;
-    state = ensureAssistant(state);
-    targetId = state.currentAssistantId ?? undefined;
-    if (targetId === undefined) return state;
+    const appended = appendOwnedAssistant(state, undefined);
+    state = appended.state;
+    targetId = appended.id;
   }
   const attached = attachToolCalls(state, targetId, calls);
   // 閉じた応答を focus で開き直すと、次の delta がそのカードへ連結される
@@ -2086,10 +2154,7 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
         action.assistantId === undefined
           ? undefined
           : state.bubbles.find((bubble) => bubble.role === "assistant" && bubble.assistantId === action.assistantId);
-      const ended =
-        state.currentAssistantId === null &&
-        state.toolTargetAssistantId !== undefined &&
-        state.bubbles.some((bubble) => bubble.id === state.toolTargetAssistantId);
+      const ended = closedToolTarget(state, action.assistantId) !== undefined;
       let base = state;
       if (keyTarget === undefined && !ended && action.assistantId !== undefined) {
         // ツールだけの応答はカードを作るが、本文の補完先にはしない (次の text は自分のIDで開く)

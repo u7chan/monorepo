@@ -3688,3 +3688,425 @@ test("新規会話の1通目: 履歴取得が assistant だけでも render は 
 
   assert.deepEqual(renderedMessages(state), [`user:${question}`, "assistant:回答"]);
 });
+
+/** assistant カードの本文・所有者ID・ツールID */
+function assistantCards(state: ChatState) {
+  return state.bubbles
+    .filter((bubble) => bubble.role === "assistant")
+    .map((bubble) => [bubble.text, bubble.assistantId, bubble.tools.map((card) => card.id)] as const);
+}
+
+/** 回答カードを持つバブル (同じ call が 2 枚に増えていないかも見る) */
+function askUserCardOwners(state: ChatState, callId: string) {
+  return state.bubbles
+    .map((bubble) => ({ bubble, cards: bubble.tools.filter((card) => card.id === callId) }))
+    .filter((entry) => entry.cards.length > 0);
+}
+
+test("本文のない別応答のツールは、その assistantId の所有者へ付く", () => {
+  // What: 「本文A＋work-1 → 本文なしの別ID応答＋work-2 → 本文B」で、work-2 が A の所有者へ縮退しない
+  let state = chatReducer(initialChatState, {
+    type: "runStart",
+    runId: "run-1",
+    initialSendId: "send-1",
+    prompt: "確認して",
+    at: 1,
+    startedAt: 1,
+  });
+  state = chatReducer(state, { type: "text", delta: "A", at: 2, assistantId: "run-1:1" });
+  state = chatReducer(state, {
+    type: "toolStart",
+    id: "work-1",
+    name: "bash",
+    args: "",
+    at: 3,
+    assistantId: "run-1:1",
+  });
+  state = chatReducer(state, { type: "toolEnd", id: "work-1", isError: false, output: "ok" });
+  state = chatReducer(state, { type: "assistantEnd", assistantId: "run-1:1" });
+  // 本文を持たない 2 応答目。閉じた A が toolTargetAssistantId に残ったまま次 ID のツールが届く
+  state = chatReducer(state, {
+    type: "toolStart",
+    id: "work-2",
+    name: "bash",
+    args: "",
+    at: 4,
+    assistantId: "run-1:2",
+  });
+  state = chatReducer(state, { type: "toolEnd", id: "work-2", isError: false, output: "ok" });
+  assert.deepEqual(
+    assistantCards(state),
+    [
+      ["A", "run-1:1", ["work-1"]],
+      ["", "run-1:2", ["work-2"]],
+    ],
+    "異なる ID の旧所有者へ work-2 を付けない",
+  );
+
+  // 途中の再接続と履歴再取得でも所有者が変わらない
+  const payload = streamingPayload();
+  payload.run = {
+    id: "run-1",
+    initialSendId: "send-1",
+    status: "running",
+    startedAt: 1,
+    prompt: "確認して",
+    toolCalls: [
+      { id: "work-1", assistantId: "run-1:1", name: "bash", args: "", isError: false, done: true, output: "ok" },
+      { id: "work-2", assistantId: "run-1:2", name: "bash", args: "", isError: false, done: true, output: "ok" },
+    ],
+    totalRetryCount: 0,
+  };
+  payload.messages = [
+    { role: "user", text: "確認して", sendId: "send-1", runId: "run-1" },
+    {
+      role: "assistant",
+      text: "A",
+      assistantId: "run-1:1",
+      tools: [
+        { id: "work-1", assistantId: "run-1:1", name: "bash", args: "", isError: false, done: true, output: "ok" },
+      ],
+    },
+  ];
+  state = chatReducer(state, { type: "resync", payload });
+  state = chatReducer(state, {
+    type: "resyncHistory",
+    page: {
+      sessionId: "session-a",
+      items: [
+        {
+          kind: "message",
+          id: "u-1",
+          context: "active",
+          role: "user",
+          text: "確認して",
+          sendId: "send-1",
+          runId: "run-1",
+        },
+        { kind: "message", id: "a-1", context: "active", role: "assistant", text: "A", assistantId: "run-1:1" },
+      ],
+      prevCursor: null,
+      hasMore: false,
+      nextCursor: null,
+      activeContextStartId: "u-1",
+      messageCount: 2,
+      summarizedMessageCount: 0,
+    },
+  });
+  state = chatReducer(state, { type: "text", delta: "B", at: 5, assistantId: "run-1:3" });
+  assert.deepEqual(
+    assistantCards(state),
+    [
+      ["A", "run-1:1", ["work-1"]],
+      ["", "run-1:2", ["work-2"]],
+      ["B", "run-1:3", []],
+    ],
+    "再接続後もツールの所有者は要求元の応答のまま",
+  );
+});
+
+test("本文を持たない ask_user の回答カードは所有者IDを保ったまま再接続で復元する", () => {
+  // What: 質問待ちの再接続で payload.run.toolCalls から復元しても、回答カードが 1 件残る
+  const questions = [{ question: "進めますか" }];
+  const call: ToolCall = {
+    id: "q1",
+    assistantId: "run-1:1",
+    name: "ask_user",
+    args: "",
+    isError: false,
+    done: false,
+    output: "",
+    questions,
+  };
+  let state = chatReducer(initialChatState, {
+    type: "runStart",
+    runId: "run-1",
+    initialSendId: "send-1",
+    prompt: "聞いて",
+    at: 1,
+    startedAt: 1,
+  });
+  state = chatReducer(state, {
+    type: "toolStart",
+    id: "q1",
+    name: "ask_user",
+    args: "",
+    at: 2,
+    assistantId: "run-1:1",
+    questions,
+  });
+  assert.equal(askUserCardOwners(state, "q1").length, 1, "ライブでは回答カードが 1 枚");
+  assert.equal(askUserCardOwners(state, "q1")[0]?.bubble.assistantId, "run-1:1");
+
+  const payload = streamingPayload();
+  payload.run = {
+    id: "run-1",
+    initialSendId: "send-1",
+    status: "running",
+    startedAt: 1,
+    prompt: "聞いて",
+    toolCalls: [call],
+    totalRetryCount: 0,
+  };
+  payload.messages = [{ role: "user", text: "聞いて", sendId: "send-1", runId: "run-1" }];
+  const page: HistoryPage = {
+    sessionId: "session-a",
+    items: [
+      { kind: "message", id: "u-1", context: "active", role: "user", text: "聞いて", sendId: "send-1", runId: "run-1" },
+    ],
+    prevCursor: null,
+    hasMore: false,
+    nextCursor: null,
+    activeContextStartId: "u-1",
+    messageCount: 1,
+    summarizedMessageCount: 0,
+  };
+
+  // 履歴なしの再接続
+  let withoutHistory = chatReducer(state, { type: "resync", payload });
+  assert.equal(askUserCardOwners(withoutHistory, "q1").length, 1, "履歴なしの再接続でも回答カードを保つ");
+  assert.equal(askUserCardOwners(withoutHistory, "q1")[0]?.bubble.assistantId, "run-1:1", "所有者IDを保つ");
+
+  // 履歴ありの再接続 (履歴取得 → resync)
+  let withHistory = chatReducer(state, { type: "resyncHistory", page });
+  assert.equal(askUserCardOwners(withHistory, "q1").length, 1, "履歴取得でも回答カードを保つ");
+  withHistory = chatReducer(withHistory, { type: "resync", payload });
+  assert.equal(askUserCardOwners(withHistory, "q1").length, 1, "履歴ありの再接続でも回答カードを保つ");
+  assert.equal(askUserCardOwners(withHistory, "q1")[0]?.bubble.assistantId, "run-1:1", "所有者IDを保つ");
+  assert.equal(askUserCardOwners(withoutHistory, "q1")[0]?.bubble.tools.length, 1);
+
+  // 先の応答を assistant_end で閉じた後でも、質問カードは自分のIDを持つカードへ付く
+  let afterClosed = chatReducer(initialChatState, {
+    type: "runStart",
+    runId: "run-1",
+    initialSendId: "send-1",
+    prompt: "確認して",
+    at: 1,
+    startedAt: 1,
+  });
+  afterClosed = chatReducer(afterClosed, { type: "text", delta: "A", at: 2, assistantId: "run-1:1" });
+  afterClosed = chatReducer(afterClosed, { type: "assistantEnd", assistantId: "run-1:1" });
+  afterClosed = chatReducer(afterClosed, {
+    type: "toolStart",
+    id: "q2",
+    name: "ask_user",
+    args: "",
+    at: 3,
+    assistantId: "run-1:2",
+    questions,
+  });
+  const closedOwners = askUserCardOwners(afterClosed, "q2");
+  assert.equal(closedOwners.length, 1, "閉じた応答へ質問カードを縮退させない");
+  assert.equal(closedOwners[0]?.bubble.assistantId, "run-1:2", "質問カードは自分の応答のIDを持つ");
+});
+
+test("ID の無い旧回答に、本文のない新ランの結末を付けない", () => {
+  // What: 応答IDの注記が無い旧データへ、別ランの Stopped と所要時間を移さない
+  const oldItems: HistoryPage["items"] = [
+    {
+      kind: "message",
+      id: "u-old",
+      context: "active",
+      role: "user",
+      text: "前の質問",
+      sendId: "send-old",
+      runId: "run-old",
+    },
+    { kind: "message", id: "a-old", context: "active", role: "assistant", text: "旧回答" },
+  ];
+  const oldPage: HistoryPage = {
+    sessionId: "session-a",
+    items: oldItems,
+    prevCursor: null,
+    hasMore: false,
+    nextCursor: null,
+    activeContextStartId: "u-old",
+    messageCount: 2,
+    summarizedMessageCount: 0,
+  };
+  const restart = runningPayload();
+  restart.status = "idle";
+  restart.run = null;
+  restart.messages = [
+    { role: "user", text: "前の質問", sendId: "send-old", runId: "run-old" },
+    // 旧形式: assistant の応答ID注記が無い
+    { role: "assistant", text: "旧回答" },
+  ];
+  let state = chatReducer(initialChatState, { type: "resync", payload: restart });
+  state = chatReducer(state, { type: "resyncHistory", page: oldPage });
+
+  // 本文を持たないツールだけの応答を実行し、run_end を取りこぼした
+  const tool: ToolCall = {
+    id: "work-new",
+    assistantId: "run-2:1",
+    name: "bash",
+    args: "",
+    isError: false,
+    done: true,
+    output: "ok",
+  };
+  state = chatReducer(state, { type: "localUser", text: "別の質問", at: 10 });
+  state = chatReducer(state, { type: "echoSendId", sendId: "send-2", runId: "run-2", stateSeq: state.stateSeq });
+  state = chatReducer(state, {
+    type: "runStart",
+    runId: "run-2",
+    initialSendId: "send-2",
+    prompt: "別の質問",
+    at: 10,
+    startedAt: 10,
+  });
+  state = chatReducer(state, {
+    type: "toolStart",
+    id: "work-new",
+    name: "bash",
+    args: "",
+    at: 11,
+    assistantId: "run-2:1",
+  });
+  state = chatReducer(state, { type: "toolEnd", id: "work-new", isError: false, output: "ok" });
+
+  const stopped = runningPayload();
+  stopped.status = "stopped";
+  stopped.run = {
+    id: "run-2",
+    initialSendId: "send-2",
+    status: "stopped",
+    startedAt: 10,
+    endedAt: 15,
+    prompt: "別の質問",
+    toolCalls: [tool],
+    totalRetryCount: 0,
+  };
+  stopped.messages = [
+    { role: "user", text: "前の質問", sendId: "send-old", runId: "run-old" },
+    { role: "assistant", text: "旧回答" },
+    { role: "user", text: "別の質問", sendId: "send-2", runId: "run-2" },
+  ];
+  state = chatReducer(state, { type: "resync", payload: stopped });
+  const afterResync = state;
+  // 履歴取得は旧回答を保持したまま新しい user だけを足す (旧回答のバブルは置き換えない)
+  state = chatReducer(state, {
+    type: "resyncHistory",
+    page: {
+      sessionId: "session-a",
+      items: [
+        {
+          kind: "message",
+          id: "u-2",
+          context: "active",
+          role: "user",
+          text: "別の質問",
+          sendId: "send-2",
+          runId: "run-2",
+        },
+      ],
+      prevCursor: "a-old",
+      hasMore: false,
+      nextCursor: null,
+      activeContextStartId: "u-old",
+      messageCount: 3,
+      summarizedMessageCount: 0,
+    },
+  });
+
+  assert.equal(
+    afterResync.bubbles.find((bubble) => bubble.text === "旧回答")?.turnEnd,
+    undefined,
+    "終端 resync で旧回答に新ランの結末を付けない",
+  );
+  const oldAnswer = state.bubbles.find((bubble) => bubble.text === "旧回答");
+  assert.equal(oldAnswer?.turnEnd, undefined, "履歴取得後も旧回答に新ランの結末を持たせない");
+  assert.equal(oldAnswer?.entryId, "a-old");
+  const rendered = chatRenderItems({
+    bubbles: state.bubbles,
+    markers: [],
+    compactions: [],
+    activeContextStartId: null,
+  }).filter((item) => item.kind === "message" && item.turnEnd !== undefined);
+  assert.deepEqual(
+    rendered.map((item) => (item.kind === "message" ? [item.bubble.text, item.turnEnd] : [])),
+    [],
+    "Stopped と所要時間をどこにも出さない",
+  );
+});
+
+test("ID 注記のない旧データでも、同文の 2 応答へツールを 1:1 で戻す", () => {
+  // What: assistant の注記だけが無い JSONL を読み直しても、履歴取得で work-1 が 2 件目へ複製されない
+  const work = (id: string): ToolCall => ({
+    id,
+    name: "bash",
+    args: "",
+    isError: false,
+    done: true,
+    output: "ok",
+  });
+  const restart = runningPayload();
+  restart.status = "completed";
+  restart.run = {
+    id: "run-1",
+    initialSendId: "send-1",
+    status: "completed",
+    startedAt: 1,
+    endedAt: 9,
+    prompt: "確認して",
+    toolCalls: [],
+    totalRetryCount: 0,
+  };
+  restart.messages = [
+    { role: "user", text: "確認して", sendId: "send-1", runId: "run-1" },
+    // 旧形式: assistant の応答ID注記が無く、本文は同じ
+    { role: "assistant", text: "確認します", tools: [work("work-1")] },
+    { role: "assistant", text: "確認します", tools: [work("work-2")] },
+  ];
+  let state = chatReducer(initialChatState, { type: "resync", payload: restart });
+  state = chatReducer(state, {
+    type: "resyncHistory",
+    page: {
+      sessionId: "session-a",
+      items: [
+        {
+          kind: "message",
+          id: "u-1",
+          context: "active",
+          role: "user",
+          text: "確認して",
+          sendId: "send-1",
+          runId: "run-1",
+        },
+        {
+          kind: "message",
+          id: "a-1",
+          context: "active",
+          role: "assistant",
+          text: "確認します",
+          tools: [work("work-1")],
+        },
+        {
+          kind: "message",
+          id: "a-2",
+          context: "active",
+          role: "assistant",
+          text: "確認します",
+          tools: [work("work-2")],
+        },
+      ],
+      prevCursor: null,
+      hasMore: false,
+      nextCursor: null,
+      activeContextStartId: "u-1",
+      messageCount: 3,
+      summarizedMessageCount: 0,
+    },
+  });
+
+  assert.deepEqual(
+    state.bubbles
+      .filter((bubble) => bubble.role === "assistant")
+      .map((bubble) => [bubble.text, bubble.entryId, bubble.tools.map((card) => card.id)]),
+    [
+      ["確認します", "a-1", ["work-1"]],
+      ["確認します", "a-2", ["work-2"]],
+    ],
+    "同じ履歴応答を 2 つの live 応答へ使い回さない",
+  );
+});

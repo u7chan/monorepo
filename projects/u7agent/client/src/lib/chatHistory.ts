@@ -19,6 +19,11 @@ export interface HistoryMergeResult extends HistoryBundle {
   gap: boolean;
   /** 消費した送信エコーを除いた待ち行列 */
   pendingEchoIds: number[];
+  /**
+   * live のバブル id -> 対応付いた履歴 item id。ここで確定した 1:1 の対応を渡さず後段が本文で
+   * 引き直すと、同文の別応答へ同じ item を 2 回使う (ツールカードが複製される)。
+   */
+  pairs: Map<number, string>;
 }
 
 /**
@@ -215,9 +220,13 @@ function matchesLive(bubble: Bubble, item: HistoryItem): boolean {
  * (run id、無ければ正規形の本文) が一致する item を後ろから順に対にするので、過去に同じ文面が
  * あっても新規送信のエコーを消さない。返す consumed の分だけバブルと pendingEchoIds を落とす。
  */
-function reconcileLive(live: Bubble[], items: HistoryItem[]): { kept: Bubble[]; consumed: Set<number> } {
+function reconcileLive(
+  live: Bubble[],
+  items: HistoryItem[],
+  usedItemIds: Set<string> = new Set(),
+): { kept: Bubble[]; consumed: Set<number>; pairs: Map<number, string> } {
   const consumed = new Set<number>();
-  const usedItemIds = new Set<string>();
+  const pairs = new Map<number, string>();
   for (let index = live.length - 1; index >= 0; index -= 1) {
     const bubble = live[index];
     for (let itemIndex = items.length - 1; itemIndex >= 0; itemIndex -= 1) {
@@ -225,10 +234,11 @@ function reconcileLive(live: Bubble[], items: HistoryItem[]): { kept: Bubble[]; 
       if (usedItemIds.has(item.id) || !matchesLive(bubble, item)) continue;
       consumed.add(bubble.id);
       usedItemIds.add(item.id);
+      pairs.set(bubble.id, item.id);
       break;
     }
   }
-  return { kept: live.filter((bubble) => !consumed.has(bubble.id)), consumed };
+  return { kept: live.filter((bubble) => !consumed.has(bubble.id)), consumed, pairs };
 }
 
 /**
@@ -355,7 +365,7 @@ export function mergeHistoryPage(
 ): HistoryMergeResult {
   const connection = connectionFor(prev, page);
   if (connection.kind === "gap") {
-    return { ...prev, gap: true, pendingEchoIds };
+    return { ...prev, gap: true, pendingEchoIds, pairs: new Map() };
   }
   const historyBubbles = prev.bubbles.filter((bubble) => bubble.entryId !== undefined);
   const heldIds = new Set(heldHistoryIds(prev.bubbles, prev.markers));
@@ -370,10 +380,24 @@ export function mergeHistoryPage(
   const consumedPending = absorbPendingEchoes(pendingLives, newItems);
   const keptPending = pendingLives.filter((bubble) => !consumedPending.has(bubble.id));
   const { front, tail } = splitLive(prev, otherLives);
-  const { kept: remainingFront } = reconcileLive(front, newItems);
-  const { kept: remainingTail } = reconcileLive(tail, newItems);
-  const carried = remainingFront;
-  const trailing = [...remainingTail, ...keptPending];
+  // 同じ item を front と tail の両方の live へ対にしない (1 item = 1 live 応答)
+  const usedItemIds = new Set<string>();
+  const frontLive = reconcileLive(front, newItems, usedItemIds);
+  const tailLive = reconcileLive(tail, newItems, usedItemIds);
+  // 対にならなかった front の live のうち、対になった live より後ろにあるものは末尾へ回す。
+  // 無条件に前へ置くと、履歴より新しい本文なし応答のカードがページより手前に出る。
+  const lastPaired = Math.max(
+    -1,
+    ...[...frontLive.pairs.keys()].map((id) => prev.bubbles.findIndex((bubble) => bubble.id === id)),
+  );
+  const carried: Bubble[] = [];
+  const newer: Bubble[] = [];
+  for (const bubble of frontLive.kept) {
+    const index = prev.bubbles.findIndex((item) => item.id === bubble.id);
+    (index === -1 || index < lastPaired ? carried : newer).push(bubble);
+  }
+  const { kept: remainingTail } = tailLive;
+  const trailing = [...newer, ...remainingTail, ...keptPending];
   const assembled = [...carried, ...kept, ...pageBundle.bubbles, ...trailing];
   const markers = [
     ...connection.keepMarkers.map((marker) => ({ ...marker, index: marker.index + carried.length })),
@@ -396,6 +420,7 @@ export function mergeHistoryPage(
     toolBubbleIds: rebuildToolBubbleIds(withCounts),
     gap: false,
     pendingEchoIds: pendingEchoIds.filter((id) => !consumedPending.has(id) && !fallbackConsumed.has(id)),
+    pairs: new Map([...frontLive.pairs, ...tailLive.pairs]),
   };
 }
 
