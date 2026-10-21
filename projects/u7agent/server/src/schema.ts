@@ -221,6 +221,8 @@ export type AskUserAnswer = z.infer<typeof AskUserAnswerSchema>;
 
 export const ToolCallSchema = z.object({
   id: z.string(),
+  /** このツールを要求した assistant 応答のID (旧データは載らない) */
+  assistantId: z.string().optional(),
   name: z.string(),
   args: z.string(),
   isError: z.boolean(),
@@ -378,6 +380,8 @@ export const ChatMessageSchema = z.object({
   role: z.enum(["user", "assistant"]),
   text: z.string(),
   stopReason: z.string().optional(),
+  /** assistant 応答の実行内 ID。live の delta / ツールと履歴を本文一致に依らず対応付ける */
+  assistantId: z.string().optional(),
   /** SDK が持つメッセージの作成時刻 (epoch ms)。時刻を持たない履歴ではキーを省略する */
   at: z.number().optional(),
   /** プロバイダが報告した使用量。数値なのでマスク不要。未報告ならキーを省略する (0 と区別する) */
@@ -1830,7 +1834,7 @@ export const EventDataSchemas = {
     prompt: z.string(),
     startedAt: z.number(),
   }),
-  text: z.object({ delta: z.string() }),
+  text: z.object({ delta: z.string(), assistantId: z.string().optional() }),
   tool_start: z.object({
     id: z.string(),
     name: z.string(),
@@ -1839,6 +1843,8 @@ export const EventDataSchemas = {
     questions: z.array(AskUserQuestionSchema).optional(),
     /** BFF がイベントの到着時刻で測った開始時刻。`run.toolCalls[].startedAt` と同じ値 */
     startedAt: z.number().optional(),
+    /** このツールを要求した assistant 応答のID */
+    assistantId: z.string().optional(),
   }),
   tool_end: z.object({
     id: z.string(),
@@ -1867,12 +1873,13 @@ export const EventDataSchemas = {
     usage: UsageSchema.optional(),
     metrics: MessageMetricsSchema.optional(),
     context: ContextUsageSchema.optional(),
+    assistantId: z.string().optional(),
   }),
   /**
    * assistant の応答が終わった (message_end)。クライアントは開いている応答カードを閉じ、
    * 続く delta を次のカードへ入れる。usage とは別で、payload を持たない
    */
-  assistant_end: z.object({}),
+  assistant_end: z.object({ assistantId: z.string().optional() }),
   run_end: z.object({
     runId: z.string().optional(),
     status: RunStatusSchema,

@@ -104,6 +104,8 @@ export interface MessageProjectionContext {
   toolErrors: Map<string, boolean>;
   messageMetrics: WeakMap<object, MessageMetrics>;
   toolTimings: ReadonlyMap<string, ToolTiming>;
+  /** SDK の assistant メッセージ -> 応答ID (旧データ / 未注記では引けない) */
+  assistantIds?: WeakMap<object, string>;
   masker: SecretMasker;
   cwd: string;
 }
@@ -116,9 +118,10 @@ export function messageProjectionContext(
   cwd: string,
   /** toolCallId -> BFF 計測の実行時間 (履歴の投影にだけ使う)。省略時は実行時間を載せない */
   toolTimings: ReadonlyMap<string, ToolTiming> = new Map(),
+  assistantIds?: WeakMap<object, string>,
 ): MessageProjectionContext {
   const { errors, results } = toolResultsOf(messages);
-  return { toolResults: results, toolErrors: errors, messageMetrics, toolTimings, masker, cwd };
+  return { toolResults: results, toolErrors: errors, messageMetrics, toolTimings, assistantIds, masker, cwd };
 }
 
 /**
@@ -133,7 +136,7 @@ export function projectMessagesRange(
 ): { index: number; message: ChatMessage }[] {
   const from = Math.max(0, Math.min(messages.length, range.from ?? 0));
   const to = Math.max(from, Math.min(messages.length, range.to ?? messages.length));
-  const { messageMetrics, toolTimings, masker, cwd } = context;
+  const { messageMetrics, toolTimings, assistantIds, masker, cwd } = context;
   const projected: { index: number; message: ChatMessage }[] = [];
   let carried: SkillLoad[] = [];
   let carriedTools: ToolCall[] = [];
@@ -145,8 +148,11 @@ export function projectMessagesRange(
       carriedTools = [];
     }
     const loads = message.role === "assistant" ? skillLoadsOf(message, context.toolErrors, cwd, masker) : [];
+    const assistantId = message.role === "assistant" ? assistantIds?.get(message) : undefined;
     const tools =
-      message.role === "assistant" ? toolCallsOf(message, context.toolResults, cwd, masker, toolTimings) : [];
+      message.role === "assistant"
+        ? toolCallsOf(message, context.toolResults, cwd, masker, toolTimings, assistantId)
+        : [];
     if (!isDisplayableMessage(message, masker)) {
       carried.push(...loads);
       carriedTools.push(...tools);
@@ -164,6 +170,9 @@ export function projectMessagesRange(
       message: {
         role: message.role as "user" | "assistant",
         text,
+        ...(message.role === "assistant" && assistantIds?.has(message) === true
+          ? { assistantId: assistantIds.get(message) }
+          : {}),
         stopReason: message.role === "assistant" ? message.stopReason : undefined,
         // SDK が timestamp を持たない履歴 (旧セッション / スタブ) では at キー自体を作らない
         ...(typeof message.timestamp === "number" ? { at: message.timestamp } : {}),
@@ -183,8 +192,9 @@ export function projectMessages(
   masker: SecretMasker,
   cwd: string,
   toolTimings: ReadonlyMap<string, ToolTiming> = new Map(),
+  assistantIds?: WeakMap<object, string>,
 ): ChatMessage[] {
-  const context = messageProjectionContext(session.messages, messageMetrics, masker, cwd, toolTimings);
+  const context = messageProjectionContext(session.messages, messageMetrics, masker, cwd, toolTimings, assistantIds);
   return projectMessagesRange(session.messages, context).map(({ message }) => message);
 }
 
@@ -208,6 +218,7 @@ function toolCallsOf(
   cwd: string,
   masker: SecretMasker,
   toolTimings: ReadonlyMap<string, ToolTiming>,
+  assistantId?: string,
 ): ToolCall[] {
   if (!Array.isArray(message.content)) return [];
   const calls: ToolCall[] = [];
@@ -224,6 +235,7 @@ function toolCallsOf(
     const timing = toolTimings.get(call.id);
     calls.push({
       id: call.id,
+      ...(assistantId === undefined ? {} : { assistantId }),
       name: call.name,
       args: toolArgsSummary(call.arguments, masker, cwd),
       isError: result.isError === true,

@@ -35,6 +35,8 @@ export type Bubble = {
   id: number;
   /** 履歴 item の安定 ID (SDK entry id)。ライブ (ストリーミング / ローカルエコー) は持たない */
   entryId?: string;
+  /** サーバーが割り当てた assistant 応答ID。同じ応答の delta / ツール / 履歴を対応付ける */
+  assistantId?: string;
   /**
    * 履歴 item のコンテキスト状態。summarized = 要約で置き換わった (薄暗く表示)、
    * excluded = retry / overflow の context_edit で context から外れた (要約とは区別して表示)。

@@ -765,3 +765,44 @@ test("assistant_end は message_end にしか無い本文を配ってから出�
   assert.equal(assistant?.text, reply);
   assert.deepEqual(assistant?.usage, STUB_USAGE);
 });
+
+test("assistant 応答IDを SSE / payload / 履歴で同じ値にする", async () => {
+  const catalog = createAgentCatalog();
+  const store = new SessionStore({
+    pi: createStubPi({
+      chunkDelayMs: 1,
+      toolBurst: { calls: [{ name: "bash", args: { command: "true" }, result: "ok" }] },
+    }),
+    catalog,
+  });
+  const record = await store.create();
+  const events: EventEntry[] = [];
+  store.subscribe(record, `${record.generation}:0`, (entry) => events.push(entry));
+
+  store.postMessage(record, "ツールを実行して");
+  await waitFor(() => store.statusOf(record) === "completed", 3000, "run completion");
+
+  const textIds = events.flatMap((entry) =>
+    entry.type === "text" && entry.data.assistantId !== undefined ? [entry.data.assistantId] : [],
+  );
+  assert.ok(textIds.length > 0);
+  const assistantId = textIds[0];
+  assert.equal(new Set(textIds).size, 1, "同じ応答の delta は同じID");
+  const end = events.find((entry) => entry.type === "assistant_end");
+  assert.equal(end?.type === "assistant_end" ? end.data.assistantId : undefined, assistantId);
+  const tool = events.find((entry) => entry.type === "tool_start");
+  assert.equal(tool?.type === "tool_start" ? tool.data.assistantId : undefined, assistantId);
+
+  const assistant = store.payload(record).messages.find((message) => message.role === "assistant");
+  assert.equal(assistant?.assistantId, assistantId, "payload のメッセージにも同じID");
+  assert.equal(assistant?.tools?.[0]?.assistantId, assistantId, "ツールも要求元の応答IDを持つ");
+
+  const history = store.history(record, {});
+  assert.equal(history.ok, true);
+  const item = history.ok
+    ? history.page.items.find((entry) => entry.kind === "message" && entry.role === "assistant")
+    : undefined;
+  assert.equal(item?.kind === "message" ? item.assistantId : undefined, assistantId, "履歴 item にも同じID");
+
+  await store.close();
+});

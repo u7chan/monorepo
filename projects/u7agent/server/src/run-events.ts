@@ -69,6 +69,8 @@ export interface RetryScheduledEvent {
 
 export interface RunEventBridgeDeps {
   session: PiSessionLike;
+  /** 実行ID。assistant 応答ID の prefix に使う */
+  runId: string;
   masker: SecretMasker;
   /** スキル読み込みの判定に使う絶対 session cwd (履歴側の workspaceAbs と同じ値) */
   cwd: string;
@@ -89,6 +91,8 @@ export interface RunEventBridgeDeps {
    * 呼び出し側はメッセージの参照を控えて履歴 item の run id に対応付ける
    */
   onPromptMessage?: (message: object) => void;
+  /** assistant の message_end。応答IDを保存注記へ対応付けるために同じ参照を控える */
+  onAssistantMessage?: (message: object, assistantId: string) => void;
   /** 再試行のスケジュール / 再実行開始 / 解除を run へ反映する */
   onRetryScheduled: (event: RetryScheduledEvent) => void;
   onRetryAttemptStart: () => void;
@@ -110,6 +114,7 @@ export interface RunEventBridge {
 export function createRunEventBridge(deps: RunEventBridgeDeps): RunEventBridge {
   const {
     session,
+    runId,
     masker,
     cwd,
     tools,
@@ -120,6 +125,7 @@ export function createRunEventBridge(deps: RunEventBridgeDeps): RunEventBridge {
     emitResync,
     onPersist,
     onPromptMessage,
+    onAssistantMessage,
     onRetryScheduled,
     onRetryAttemptStart,
     onRetryEnd,
@@ -131,6 +137,10 @@ export function createRunEventBridge(deps: RunEventBridgeDeps): RunEventBridge {
   // このランで assistant メッセージを観測したか。観測していないランの本文は空として扱う
   // (SDK は assistant を生成せずに agent_settled を配ることがある)。
   let assistantSeen = false;
+  // 実行内の assistant 応答ID。delta / ツール / 履歴を同じ応答へ対応付ける
+  let assistantSeq = 0;
+  let currentAssistantId: string | undefined;
+  const nextAssistantId = (): string => `${runId}:${(assistantSeq += 1)}`;
   // このランで message_end を観測した assistant メッセージ。finalize の補完対象をここへ限定する
   // (SDK は失敗試行を context_edit で投影から外すため、投影の最後をそのまま信じると前の応答を再表示する)。
   const observedAssistants = new Set<object>();
@@ -154,8 +164,10 @@ export function createRunEventBridge(deps: RunEventBridgeDeps): RunEventBridge {
 
   const pushText = (delta: string): void => {
     if (!delta) return;
+    // message_start を観測できないプロバイダでも delta に応答IDを付ける
+    currentAssistantId ??= nextAssistantId();
     currentAssistantText += delta;
-    emit("text", { delta });
+    emit("text", { delta, ...(currentAssistantId === undefined ? {} : { assistantId: currentAssistantId }) });
   };
 
   /** 失敗試行の一時状態 (保留 delta・本文) を破棄する。SDK の context_edit が投影へ反映された後に呼ぶ */
@@ -218,6 +230,7 @@ export function createRunEventBridge(deps: RunEventBridgeDeps): RunEventBridge {
         case "message_start":
           if (event.message?.role === "assistant") {
             assistantSeen = true;
+            currentAssistantId = nextAssistantId();
             currentAssistantText = "";
             assistantStartedAt = Date.now();
             firstTokenAt = undefined;
@@ -245,7 +258,9 @@ export function createRunEventBridge(deps: RunEventBridgeDeps): RunEventBridge {
         case "message_end":
           if (event.message?.role === "assistant" && event.message) {
             assistantSeen = true;
+            currentAssistantId ??= nextAssistantId();
             observedAssistants.add(event.message);
+            onAssistantMessage?.(event.message, currentAssistantId);
             pushText(deltaMasker.flush());
             // 最終本文だけを message_end で返すプロバイダでも、カードを閉じる前に末尾まで配る
             const finalText = masker.mask(contentText((event.message as { content?: unknown }).content));
@@ -263,10 +278,15 @@ export function createRunEventBridge(deps: RunEventBridgeDeps): RunEventBridge {
             });
             if (metrics) messageMetrics.set(event.message, metrics);
             if (usage || metrics) {
-              emit("usage", { usage, metrics, context: contextUsageOf(session) });
+              emit("usage", {
+                usage,
+                metrics,
+                context: contextUsageOf(session),
+                ...(currentAssistantId === undefined ? {} : { assistantId: currentAssistantId }),
+              });
             }
             // usage を先に配ってから閉じる (usage は開いている応答へ付く)
-            emit("assistant_end", {});
+            emit("assistant_end", currentAssistantId === undefined ? {} : { assistantId: currentAssistantId });
             assistantStartedAt = undefined;
             firstTokenAt = undefined;
           }
@@ -284,6 +304,7 @@ export function createRunEventBridge(deps: RunEventBridgeDeps): RunEventBridge {
           const startedAt = Date.now();
           const tool: ToolCall = {
             id,
+            ...(currentAssistantId === undefined ? {} : { assistantId: currentAssistantId }),
             name: event.toolName ?? "",
             args: toolArgsSummary(event.args, masker, cwd),
             isError: false,
@@ -300,6 +321,7 @@ export function createRunEventBridge(deps: RunEventBridgeDeps): RunEventBridge {
             name: tool.name,
             args: tool.args,
             startedAt,
+            ...(currentAssistantId === undefined ? {} : { assistantId: currentAssistantId }),
             ...(skill ? { skill } : {}),
             ...(questions ? { questions } : {}),
           });

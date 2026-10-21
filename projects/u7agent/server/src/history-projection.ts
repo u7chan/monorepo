@@ -12,6 +12,7 @@ import { branchEntriesOf } from "./pi-runtime";
 import type { SecretMasker } from "./redact";
 import type { ChatMessage, HistoryContextState, HistoryItem, HistoryPage, TurnEnd } from "./schema";
 import type { SessionRecord } from "./session-record";
+import { ASSISTANT_ID_FIELD } from "./session-store";
 import { isDisplayableMessage, messageProjectionContext, projectMessagesRange } from "./session-projection";
 
 export const HISTORY_PAGE_LIMIT_DEFAULT = 50;
@@ -27,6 +28,7 @@ interface MessageItemDescriptor {
   entryIndex: number;
   message: HistoryMessage;
   context: HistoryContextState;
+  assistantId?: string;
 }
 
 interface CompactionItemDescriptor {
@@ -80,7 +82,16 @@ function describeEntries(
       : latestCompactionIndex >= 0 && index < keepStartIndex
         ? "summarized"
         : "excluded";
-    descriptors.push({ kind: "message", id: entryIdAt(entry, index), entryIndex: index, message, context });
+    const savedAssistantId = (entry as Record<string, unknown>)[ASSISTANT_ID_FIELD];
+    const assistantId = typeof savedAssistantId === "string" && savedAssistantId !== "" ? savedAssistantId : undefined;
+    descriptors.push({
+      kind: "message",
+      id: entryIdAt(entry, index),
+      entryIndex: index,
+      message,
+      context,
+      ...(assistantId === undefined ? {} : { assistantId }),
+    });
   });
   return descriptors;
 }
@@ -174,7 +185,14 @@ function projectItems({
 }): HistoryItem[] {
   const { session } = record;
   const { messages, entryIndexByMessage } = buildMessageIndex(entries);
-  const context = messageProjectionContext(messages, record.messageMetrics, masker, cwd, record.toolTimings);
+  const context = messageProjectionContext(
+    messages,
+    record.messageMetrics,
+    masker,
+    cwd,
+    record.toolTimings,
+    record.assistantMessageIds,
+  );
   // 繰り上げ (本文の無い assistant の tools / skillLoads) はターンを跨がないため、直近の user
   // から投影すればページ先頭の項目も同じ結果になる (projected 側ではページ先頭以降だけを拾う)。
   let projectionStartIndex = 0;
@@ -217,6 +235,10 @@ function projectItems({
     }
     const item = projectedById.get(descriptor.id);
     const send = sendIdsOf(descriptor, record);
+    const assistantId =
+      descriptor.message.role === "assistant"
+        ? (record.assistantMessageIds.get(descriptor.message) ?? descriptor.assistantId)
+        : undefined;
     // ランの所要時間と結末は開始送信だけが持つ (steering の送信へ複製しない)。値は finish() が控えた
     // ものを run id で引き、再起動 / sweep で消えた分は載せない
     const outcome =
@@ -229,6 +251,7 @@ function projectItems({
       id: descriptor.id,
       context: descriptor.context,
       ...(send !== undefined ? { sendId: send.sendId } : {}),
+      ...(assistantId !== undefined ? { assistantId } : {}),
       ...(send?.runId !== undefined ? { runId: send.runId } : {}),
       ...(outcome !== undefined ? { runDurationMs: outcome.durationMs, runOutcome: outcome.outcome } : {}),
       ...(turnEnd !== undefined ? { turnEnd } : {}),

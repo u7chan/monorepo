@@ -126,7 +126,14 @@ export function projectSessionPayload({
           totalRetryCount: record.run.totalRetryCount,
         }
       : null,
-    messages: projectMessages(session, record.messageMetrics, masker, workspaceAbs(rootCwd, cwd), record.toolTimings),
+    messages: projectMessages(
+      session,
+      record.messageMetrics,
+      masker,
+      workspaceAbs(rootCwd, cwd),
+      record.toolTimings,
+      record.assistantMessageIds,
+    ),
     compactions: compactionsOf(record, masker),
     // 引き継ぎの状態は meta が正 (クライアントのメモリでは持たない)。片付けの印もここで合成する
     ...(record.meta.handoff

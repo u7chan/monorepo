@@ -79,6 +79,7 @@ import {
   sessionWorkdirRel,
   writeSessionMeta,
   RUN_ID_FIELD,
+  ASSISTANT_ID_FIELD,
   SEND_ID_FIELD,
   writeSessionSends,
   type PromptSnapshot,
@@ -540,6 +541,7 @@ export class SessionStore {
       toolTimings: new Map(),
       questions: new Map(),
       messageMetrics: new WeakMap(),
+      assistantMessageIds: new WeakMap(),
       userMessageSends: new WeakMap(),
       entrySends: new Map(),
       runInitialSends: new Map(),
@@ -687,6 +689,15 @@ export class SessionStore {
     // 推測をしない)。未送信の記録は、その注記に載っている送信だけを保存済みとして外す
     const sends = this.storeDir ? readSessionSends(this.storeDir, id) : emptySessionSends();
     record.entrySends = entrySendsFromJsonl(entries);
+    // 再起動後の payload.messages も保存済みの応答IDで対応付ける
+    for (const entry of entries) {
+      if (entry.type !== "message") continue;
+      const message = entry.message as { role?: unknown } | undefined;
+      const assistantId = entry[ASSISTANT_ID_FIELD];
+      if (message?.role === "assistant" && typeof assistantId === "string" && assistantId !== "") {
+        record.assistantMessageIds.set(message, assistantId);
+      }
+    }
     const persistedIds = new Set(
       [...record.entrySends.values()].flatMap((send) => [send.sendId, ...(send.runId ? [send.runId] : [])]),
     );
@@ -1379,6 +1390,11 @@ export class SessionStore {
     return entries.map((entry) => {
       if (entry.type !== "message" || typeof entry.id !== "string" || entry.id === "") return entry;
       const message = entry.message as { role?: unknown } | undefined;
+      if (message?.role === "assistant") {
+        const assistantId = record.assistantMessageIds.get(message);
+        if (assistantId === undefined || entry[ASSISTANT_ID_FIELD] === assistantId) return entry;
+        return { ...entry, [ASSISTANT_ID_FIELD]: assistantId };
+      }
       if (!message || message.role !== "user") return entry;
       const send = record.userMessageSends.get(message) ?? record.entrySends.get(entry.id);
       if (send === undefined) return entry;
@@ -2592,6 +2608,7 @@ export class SessionStore {
 
     const bridge = createRunEventBridge({
       session,
+      runId: run.id,
       masker: this.masker,
       // 履歴側と同じ絶対 cwd。root 相対と絶対を混ぜると解決結果が経路でずれる
       cwd: workspaceAbs(this.rootCwd, record.workdir),
@@ -2606,6 +2623,9 @@ export class SessionStore {
       },
       // SDK は listener 通知の後に entry を append する。1 拍置いてから読む (保存点の順序テストあり)
       onPersist: () => queueMicrotask(() => void this.persist(record)),
+      onAssistantMessage: (message, assistantId) => {
+        record.assistantMessageIds.set(message, assistantId);
+      },
       // 履歴 item に送信ID / 実行ID を写すための控え。SDK は listener の後に entry を append するが、
       // entry と session.messages は同じメッセージ参照を共有するので、投影時に参照で引ける
       onPromptMessage: (message) => this.noteUserInjected(record, run, message),

@@ -306,6 +306,8 @@ export interface SessionSends {
 /** user message entry へ写す送信ID / 実行ID のフィールド名 (SDK は未知フィールドをそのまま保持する) */
 export const SEND_ID_FIELD = "u7agentSendId";
 export const RUN_ID_FIELD = "u7agentRunId";
+/** assistant message entry へ写す応答IDのフィールド名 (同じ応答の delta / 履歴 / ツールを対応付ける) */
+export const ASSISTANT_ID_FIELD = "u7agentAssistantId";
 
 export function sessionSendsPath(id: string, storeDir: string): string {
   return join(sessionDirPath(storeDir, id), "sends.json");

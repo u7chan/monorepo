@@ -117,6 +117,7 @@ test("ライブの tool_start / tool_end も履歴と同じ文字列を配る", 
   const events: Array<{ type: string; data: unknown }> = [];
   const bridge = createRunEventBridge({
     session: { messages: [] } as unknown as PiSessionLike,
+    runId: "run-test",
     masker,
     cwd: CWD,
     tools: new Map<string, ToolCall>(),

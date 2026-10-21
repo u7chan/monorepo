@@ -24,6 +24,7 @@ function createTimingBridge(messages: TestMessage[]) {
   const tools = new Map<string, ToolCall>();
   const toolTimings = new Map<string, ToolTiming>();
   const bridge = createRunEventBridge({
+    runId: "run-test",
     session: sessionOf(messages),
     masker,
     cwd: CWD,

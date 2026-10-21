@@ -66,6 +66,7 @@ function bubbleOfItem(
     ...(item.turnEnd !== undefined ? { turnEnd: item.turnEnd } : {}),
     ...(item.runDurationMs !== undefined ? { runDurationMs: item.runDurationMs } : {}),
     ...(item.runOutcome !== undefined ? { runOutcome: item.runOutcome } : {}),
+    ...(item.assistantId !== undefined ? { assistantId: item.assistantId } : {}),
     role: item.role,
     text: item.text,
     tools,
@@ -194,6 +195,10 @@ function connectionFor(prev: HistoryBundle, page: HistoryPage): Connection {
  */
 function matchesLive(bubble: Bubble, item: HistoryItem): boolean {
   if (item.kind !== "message" || item.role !== bubble.role) return false;
+  // 応答IDが双方にあれば、本文や位置に依らず同じ応答として対応付ける
+  if (bubble.assistantId !== undefined && item.assistantId !== undefined) {
+    return bubble.assistantId === item.assistantId;
+  }
   // 送信IDが双方にあれば、同じ実行に属する複数の送信でも 1:1 に対応付く
   if (bubble.sendId !== undefined && item.sendId !== undefined) return bubble.sendId === item.sendId;
   // 送信IDを持たない item (旧サーバー / 保存前に再起動した履歴) は run の一致へ縮退する

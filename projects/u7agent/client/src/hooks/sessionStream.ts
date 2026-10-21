@@ -88,12 +88,18 @@ export function applySessionEvent(entry: EventEntry, deps: SessionStreamDeps): v
       void refreshSessions();
       return;
     case "text":
-      dispatch({ type: "text", delta: entry.data.delta, at: entry.at });
+      dispatch({
+        type: "text",
+        delta: entry.data.delta,
+        at: entry.at,
+        ...(entry.data.assistantId === undefined ? {} : { assistantId: entry.data.assistantId }),
+      });
       return;
     case "tool_start":
       dispatch({
         type: "toolStart",
         id: entry.data.id,
+        ...(entry.data.assistantId === undefined ? {} : { assistantId: entry.data.assistantId }),
         name: entry.data.name,
         args: entry.data.args,
         skill: entry.data.skill,
@@ -121,10 +127,14 @@ export function applySessionEvent(entry: EventEntry, deps: SessionStreamDeps): v
         usage: entry.data.usage,
         metrics: entry.data.metrics,
         context: entry.data.context,
+        ...(entry.data.assistantId === undefined ? {} : { assistantId: entry.data.assistantId }),
       });
       return;
     case "assistant_end":
-      dispatch({ type: "assistantEnd" });
+      dispatch({
+        type: "assistantEnd",
+        ...(entry.data.assistantId === undefined ? {} : { assistantId: entry.data.assistantId }),
+      });
       return;
     case "compaction":
       dispatch({ type: "compaction", compaction: entry.data.compaction, count: entry.data.count });

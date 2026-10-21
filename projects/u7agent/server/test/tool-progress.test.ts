@@ -20,6 +20,7 @@ function createProgressBridge(messages: PiSessionLike["messages"] = [], bridgeMa
   const events: { type: SSEEventType; data: Record<string, unknown> }[] = [];
   const tools = new Map<string, ToolCall>();
   const bridge = createRunEventBridge({
+    runId: "run-test",
     session: { messages } as unknown as PiSessionLike,
     masker: bridgeMasker,
     cwd: CWD,

@@ -1267,3 +1267,43 @@ test("旧 sends.json の runId だけの未送信記録は、同じ値を送信I
     await rm(storeDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
   }
 });
+
+test("assistant entry に応答IDを写し、再起動後も同じIDで読める", async () => {
+  const storeDir = await mkdtemp(join(tmpdir(), "u7agent-assistant-id-"));
+  try {
+    const store = createStore(storeDir, createStubPi({ chunkDelayMs: 1 }));
+    await store.init();
+    const record = await store.create();
+    const events: EventEntry[] = [];
+    store.subscribe(record, `${record.generation}:0`, (entry) => events.push(entry));
+
+    store.postMessage(record, "応答IDの保存");
+    await waitFor(() => store.statusOf(record) === "completed", 3000, "run completion");
+    await store.flush(record);
+
+    const lines = (await readFile(sessionJsonlPath(record.id, storeDir), "utf8")).split("\n").filter(Boolean);
+    const entries = lines.map((line) => JSON.parse(line) as Record<string, unknown>);
+    const assistant = entries.find((entry) => {
+      const message = entry.message as { role?: unknown } | undefined;
+      return entry.type === "message" && message?.role === "assistant";
+    });
+    const assistantId = assistant?.u7agentAssistantId;
+    assert.equal(typeof assistantId, "string", "JSONL の assistant entry に応答IDを写す");
+    const text = events.find((entry) => entry.type === "text");
+    assert.equal(text?.type === "text" ? text.data.assistantId : undefined, assistantId);
+    await store.close();
+
+    const restarted = createStore(storeDir, createStubPi());
+    await restarted.init();
+    const restored = await restarted.resolve(record.id);
+    assert.ok(restored);
+    const page = pageOf(restarted, restored);
+    const item = page.items.find((entry) => entry.kind === "message" && entry.role === "assistant");
+    assert.equal(item?.kind === "message" ? item.assistantId : undefined, assistantId);
+    const message = restarted.payload(restored).messages.find((entry) => entry.role === "assistant");
+    assert.equal(message?.assistantId, assistantId);
+    await restarted.close();
+  } finally {
+    await rm(storeDir, { recursive: true, force: true });
+  }
+});

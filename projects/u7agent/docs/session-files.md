@@ -99,12 +99,13 @@ meta の optional `spaceId` は欠落だけが `default`。追加スペースで
 ## sends.json と送信ID / 実行ID の注記
 
 送信の識別子と、その送信が注入された実行の対応は **JSONL の user message entry 自身** に写し
-（`u7agentSendId` / `u7agentRunId`）、まだ entry になっていない送信（未送信）だけを `sends.json`
+（`u7agentSendId` / `u7agentRunId`）、assistant entry へ応答ID（`u7agentAssistantId`）、まだ entry になっていない送信（未送信）だけを `sends.json`
 へ控える。別ファイルの書込みだけ失敗しても対応を失わず、本文や時刻での推測（同じ本文の別送信を
 誤って結び付ける）をしないための分担。
 
 ```jsonl
 {"type":"message","id":"entry-3","parentId":"entry-1","timestamp":"…","u7agentSendId":"6f1d3a2b9c8e7f01","u7agentRunId":"a1b2c3d4e5f60718","message":{"role":"user","content":[{"type":"text","text":"本文"}]}}
+{"type":"message","id":"entry-4","parentId":"entry-3","timestamp":"…","u7agentAssistantId":"a1b2c3d4e5f60718:1","message":{"role":"assistant","content":[{"type":"text","text":"応答"}]}}
 ```
 
 ```json
@@ -114,6 +115,7 @@ meta の optional `spaceId` は欠落だけが `default`。追加スペースで
 - 2 つのフィールドは BFF が JSONL へ書くときだけ付ける追加フィールド。SDK は未知のフィールドを
   そのまま保持し（`parseSessionEntryLine` は `JSON.parse` だけ）、store の検証も未知キーを無視する
   ため、pi SDK 形式は壊れない。`session.jsonl` の読み書きは従来どおり BFF だけが行う
+- assistant entry の `u7agentAssistantId` は、その応答の delta / ツール / 履歴 item を対応付ける ID。旧保存データには無く、クライアントはその場合だけ本文のフォールバックを使う。
 - 履歴 item の `sendId` / `runId`（[api-sessions.md](api-sessions.md#get-apisessionsidhistory)）は、
   実行中はメモリの対応表（SDK メッセージ → 送信ID / 実行ID）、復元後はこの注記から引く。
   `u7agentRunId` だけを持つ旧保存データは、従来の「1送信=1実行」として同じ値を `sendId` にも

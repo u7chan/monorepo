@@ -142,6 +142,11 @@ export interface SessionRecord {
    */
   userMessageSends: WeakMap<object, { sendId: string; runId?: string }>;
   /**
+   * SDK の assistant メッセージ -> 実行内で一意な応答ID。live の delta / ツールと、保存する
+   * JSONL entry / 履歴 item を同じ ID で対応付ける
+   */
+  assistantMessageIds: WeakMap<object, string>;
+  /**
    * 保存済み user entry の id -> 送信IDと実行ID。実行時の `userMessageSends` は再起動で消えるため、
    * JSONL へ書いた entry の対応を復元して履歴に使う。旧保存データは 1送信=1実行として補完する
    */
