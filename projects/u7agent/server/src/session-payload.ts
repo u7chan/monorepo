@@ -133,6 +133,7 @@ export function projectSessionPayload({
       workspaceAbs(rootCwd, cwd),
       record.toolTimings,
       record.assistantMessageIds,
+      record.userMessageSends,
     ),
     compactions: compactionsOf(record, masker),
     // 引き継ぎの状態は meta が正 (クライアントのメモリでは持たない)。片付けの印もここで合成する

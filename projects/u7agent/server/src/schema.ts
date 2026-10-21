@@ -382,6 +382,10 @@ export const ChatMessageSchema = z.object({
   stopReason: z.string().optional(),
   /** assistant 応答の実行内 ID。live の delta / ツールと履歴を本文一致に依らず対応付ける */
   assistantId: z.string().optional(),
+  /** user メッセージを送信した送信ID。payload でもエコーを本文一致に依らず対応付ける */
+  sendId: z.string().optional(),
+  /** user メッセージを注入した run の id */
+  runId: z.string().optional(),
   /** SDK が持つメッセージの作成時刻 (epoch ms)。時刻を持たない履歴ではキーを省略する */
   at: z.number().optional(),
   /** プロバイダが報告した使用量。数値なのでマスク不要。未報告ならキーを省略する (0 と区別する) */

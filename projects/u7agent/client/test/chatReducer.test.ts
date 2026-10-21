@@ -2799,4 +2799,157 @@ test("再接続後の steering でも user と応答末尾を重複させない"
     "user も応答も重複しない",
   );
   assert.equal(new Set(state.bubbles.map((bubble) => bubble.id)).size, state.bubbles.length);
+  const done = chatRenderItems({
+    bubbles: state.bubbles,
+    markers: [],
+    compactions: [],
+    activeContextStartId: null,
+  }).filter((item) => item.kind === "message" && item.turnEnd !== undefined);
+  assert.deepEqual(
+    done.map((item) => (item.kind === "message" ? item.bubble.text : "")),
+    ["追記を受け取って"],
+    "Done は最後の応答に残る",
+  );
+});
+
+test("assistant_end を取りこぼしても次の応答IDが変われば新しいカードを開く", () => {
+  // What: 境界イベントが無くても、delta の assistantId が変わった時点で前の応答へ連結しない
+  let state = chatReducer(initialChatState, {
+    type: "runStart",
+    runId: "run-1",
+    prompt: "質問",
+    at: 1,
+    startedAt: 1,
+  });
+  state = chatReducer(state, { type: "text", delta: "先の応答", at: 2, assistantId: "run-1:1" });
+  state = chatReducer(state, { type: "text", delta: "次の応答", at: 3, assistantId: "run-1:2" });
+
+  assert.deepEqual(
+    state.bubbles.filter((bubble) => bubble.role === "assistant").map((bubble) => [bubble.text, bubble.assistantId]),
+    [
+      ["先の応答", "run-1:1"],
+      ["次の応答", "run-1:2"],
+    ],
+  );
+  assert.equal(state.currentAssistantId, state.bubbles.at(-1)?.id);
+  assert.equal(state.bubbles.find((bubble) => bubble.assistantId === "run-1:1")?.settled, true);
+});
+
+test("接続スナップショットは同じ assistantId の live 末尾を履歴側の 1 枚へ寄せる", () => {
+  // What: 再接続時の payload.messages が先頭を含み、live が末尾だけでも 1 カード・正しい順序になる
+  let state = chatReducer(initialChatState, {
+    type: "runStart",
+    runId: "run-1",
+    initialSendId: "send-1",
+    prompt: "質問",
+    at: 1,
+    startedAt: 1,
+  });
+  state = chatReducer(state, { type: "text", delta: "末尾", at: 2, assistantId: "run-1:1" });
+  const payload = streamingPayload();
+  payload.messages = [
+    { role: "user", text: "質問", sendId: "send-1", runId: "run-1" },
+    { role: "assistant", text: "前半末尾", assistantId: "run-1:1" },
+  ];
+  state = chatReducer(state, { type: "resync", payload });
+
+  assert.deepEqual(
+    state.bubbles.map((bubble) => [bubble.role, bubble.text, bubble.assistantId]),
+    [
+      ["user", "質問", undefined],
+      ["assistant", "前半末尾", "run-1:1"],
+    ],
+    "snapshot を正として重複を置き換える",
+  );
+  assert.equal(state.currentAssistantId, state.bubbles.at(-1)?.id);
+});
+
+test("run_end を取りこぼしても payload の終端から Done を復元する", () => {
+  // What: 再接続 payload が run 終了を示すとき、最後の本文あり assistant に Done を戻す
+  let state = chatReducer(initialChatState, { type: "localUser", text: "質問", at: 1 });
+  state = chatReducer(state, { type: "echoSendId", sendId: "send-1", runId: "run-1", stateSeq: state.stateSeq });
+  state = chatReducer(state, {
+    type: "runStart",
+    runId: "run-1",
+    initialSendId: "send-1",
+    prompt: "質問",
+    at: 1,
+    startedAt: 1,
+  });
+  state = chatReducer(state, { type: "text", delta: "回答", at: 2, assistantId: "run-1:1" });
+  // run_end は受信していない
+
+  const payload = runningPayload();
+  payload.status = "completed";
+  payload.run = {
+    id: "run-1",
+    initialSendId: "send-1",
+    status: "completed",
+    startedAt: 1,
+    endedAt: 11,
+    prompt: "質問",
+    toolCalls: [],
+    totalRetryCount: 0,
+  };
+  payload.messages = [
+    { role: "user", text: "質問", sendId: "send-1", runId: "run-1" },
+    { role: "assistant", text: "回答", assistantId: "run-1:1" },
+  ];
+  state = chatReducer(state, { type: "resync", payload });
+
+  assert.deepEqual(
+    state.bubbles.map((bubble) => [bubble.role, bubble.text]),
+    [
+      ["user", "質問"],
+      ["assistant", "回答"],
+    ],
+  );
+  const done = chatRenderItems({
+    bubbles: state.bubbles,
+    markers: [],
+    compactions: [],
+    activeContextStartId: null,
+  }).filter((item) => item.kind === "message" && item.turnEnd !== undefined);
+  assert.deepEqual(
+    done.map((item) => (item.kind === "message" ? [item.bubble.text, item.turnEnd] : [])),
+    [["回答", { outcome: "completed", durationMs: 10 }]],
+  );
+});
+
+test("新しい会話のツール付き応答でも assistantId が変われば次応答を分ける", () => {
+  // What: 履歴ページ未取得の初回ターンでも、steering 後の次応答を前のツール応答へ連結しない
+  let state = chatReducer(initialChatState, {
+    type: "runStart",
+    runId: "run-1",
+    initialSendId: "send-1",
+    prompt: "質問",
+    at: 1,
+    startedAt: 1,
+  });
+  state = chatReducer(state, { type: "text", delta: "前半", at: 2, assistantId: "run-1:1" });
+  state = chatReducer(state, {
+    type: "toolStart",
+    id: "tool-1",
+    name: "bash",
+    args: "",
+    at: 3,
+    assistantId: "run-1:1",
+  });
+  state = chatReducer(state, { type: "toolEnd", id: "tool-1", isError: false, output: "ok" });
+  state = chatReducer(state, { type: "localUser", text: "追記", at: 4 });
+  state = chatReducer(state, { type: "echoSendId", sendId: "send-2", stateSeq: state.stateSeq });
+  state = chatReducer(state, { type: "text", delta: "追記を受け取って", at: 5, assistantId: "run-1:2" });
+
+  const assistants = state.bubbles.filter((bubble) => bubble.role === "assistant");
+  assert.deepEqual(
+    assistants.map((bubble) => [bubble.text, bubble.tools.map((card) => card.id)]),
+    [
+      ["前半", ["tool-1"]],
+      ["追記を受け取って", []],
+    ],
+    "assistant_end が無くても ID が変われば新しいカード",
+  );
+  const userIndex = state.bubbles.findIndex((bubble) => bubble.sendId === "send-2");
+  assert.ok(state.bubbles.findIndex((bubble) => bubble.assistantId === "run-1:1") < userIndex);
+  assert.ok(userIndex < state.bubbles.findIndex((bubble) => bubble.assistantId === "run-1:2"));
 });

@@ -192,6 +192,7 @@ function projectItems({
     cwd,
     record.toolTimings,
     record.assistantMessageIds,
+    record.userMessageSends,
   );
   // 繰り上げ (本文の無い assistant の tools / skillLoads) はターンを跨がないため、直近の user
   // から投影すればページ先頭の項目も同じ結果になる (projected 側ではページ先頭以降だけを拾う)。

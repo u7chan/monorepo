@@ -697,6 +697,9 @@ export class SessionStore {
       if (message?.role === "assistant" && typeof assistantId === "string" && assistantId !== "") {
         record.assistantMessageIds.set(message, assistantId);
       }
+      const entryId = entry.id;
+      const send = typeof entryId === "string" ? record.entrySends.get(entryId) : undefined;
+      if (message?.role === "user" && send !== undefined) record.userMessageSends.set(message, send);
     }
     const persistedIds = new Set(
       [...record.entrySends.values()].flatMap((send) => [send.sendId, ...(send.runId ? [send.runId] : [])]),

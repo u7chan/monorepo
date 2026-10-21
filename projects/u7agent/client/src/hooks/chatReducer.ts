@@ -403,6 +403,7 @@ function mergeAssistantCard(live: Bubble, history: Bubble): Bubble {
   const liveIds = new Set(live.tools.map((card) => card.id));
   return {
     ...live,
+    text: live.text.length >= history.text.length ? live.text : history.text,
     entryId: history.entryId,
     context: history.context ?? live.context,
     at: live.at ?? history.at,
@@ -616,6 +617,31 @@ function ensureAssistant(state: ChatState, at?: number, assistantKey?: string): 
   };
 }
 
+/**
+ * 応答IDが変わったら前のカードを閉じて新しいカードを開く。assistant_end を取りこぼしても
+ * 次の delta が前の応答へ連結されないようにする
+ */
+function openAssistantForKey(state: ChatState, at: number | undefined, assistantKey: string | undefined): ChatState {
+  if (assistantKey === undefined) return ensureAssistant(state, at);
+  if (state.currentAssistantId !== null) {
+    const current = state.bubbles.find((bubble) => bubble.id === state.currentAssistantId);
+    if (current !== undefined && current.assistantId !== assistantKey) {
+      return ensureAssistant(
+        {
+          ...state,
+          bubbles: state.bubbles.map((bubble) => (bubble.id === current.id ? { ...bubble, settled: true } : bubble)),
+          currentAssistantId: null,
+          currentAssistantKey: undefined,
+          toolTargetAssistantId: current.id,
+        },
+        at,
+        assistantKey,
+      );
+    }
+  }
+  return ensureAssistant(state, at, assistantKey);
+}
+
 function addToolCard(state: ChatState, card: ToolCard, at?: number, assistantKey?: string): ChatState {
   const keyTarget =
     assistantKey === undefined
@@ -664,6 +690,8 @@ export function historyToBubbles(
       role: message.role,
       text: message.text,
       ...(message.assistantId !== undefined ? { assistantId: message.assistantId } : {}),
+      ...(message.sendId !== undefined ? { sendId: message.sendId } : {}),
+      ...(message.runId !== undefined ? { runId: message.runId } : {}),
       tools,
       skillLoads: message.skillLoads ?? [],
       at: message.at,
@@ -1059,21 +1087,24 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
       );
       // payload.messages の assistant は保存済み = 閉じた応答。開いている扱いにすると次の delta が連結される
       let rebuilt: Bubble[] = [];
+      let streamingMerged = false;
       if (legacy !== null) {
-        rebuilt = trimStreamedMessages(
-          legacy.bubbles.map((bubble) => (bubble.role === "assistant" ? { ...bubble, settled: true } : bubble)),
-          streaming,
-        );
+        rebuilt = legacy.bubbles.map((bubble) => (bubble.role === "assistant" ? { ...bubble, settled: true } : bubble));
         // 履歴を持たない会話でも、確定済みの応答と実行中のツールカードを再構成で落とさない
         if (!switchedSession) {
           // ライブで付けたターンの結末 (Done / 所要時間) は保存済み messages に載らない
           for (const liveBubble of keptLive) {
             if (liveBubble.role !== "user" || liveBubble.runDurationMs === undefined) continue;
             let userMatch = -1;
-            for (let index = rebuilt.length - 1; index >= 0; index -= 1) {
-              if (rebuilt[index].role === "user" && rebuilt[index].text === liveBubble.text) {
-                userMatch = index;
-                break;
+            if (liveBubble.sendId !== undefined) {
+              userMatch = rebuilt.findIndex((bubble) => bubble.role === "user" && bubble.sendId === liveBubble.sendId);
+            }
+            if (userMatch === -1) {
+              for (let index = rebuilt.length - 1; index >= 0; index -= 1) {
+                if (rebuilt[index].role === "user" && rebuilt[index].text === liveBubble.text) {
+                  userMatch = index;
+                  break;
+                }
               }
             }
             rebuilt =
@@ -1092,9 +1123,9 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
                   );
           }
           for (const liveBubble of keptLive) {
-            if (liveBubble.role !== "assistant" || liveBubble.settled !== true || liveBubble.id === streaming?.id) {
-              continue;
-            }
+            if (liveBubble.role !== "assistant") continue;
+            if (liveBubble.id === streaming?.id && liveBubble.assistantId === undefined) continue;
+            if (liveBubble.settled !== true && liveBubble.id !== streaming?.id) continue;
             let match = -1;
             if (liveBubble.assistantId !== undefined) {
               match = rebuilt.findIndex(
@@ -1109,6 +1140,10 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
                 }
               }
             }
+            if (liveBubble.id === streaming?.id) {
+              if (match === -1) continue;
+              streamingMerged = true;
+            }
             rebuilt =
               match === -1
                 ? [...rebuilt, liveBubble]
@@ -1116,9 +1151,13 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
           }
         }
       }
+      const rebuiltWithStreaming =
+        streaming === undefined || streaming.assistantId !== undefined
+          ? rebuilt
+          : trimStreamedMessages(rebuilt, streaming);
       const bubbles = keepHistory
         ? [...state.bubbles.filter((bubble) => bubble.entryId !== undefined), ...keptLive]
-        : [...rebuilt, ...(streaming === undefined ? [] : [streaming])];
+        : [...rebuiltWithStreaming, ...(streaming === undefined || streamingMerged ? [] : [streaming])];
       const nextId = keepHistory ? state.nextId : (legacy?.nextId ?? state.nextId);
       const toolBubbleIds = Object.fromEntries(
         bubbles.flatMap((bubble) => bubble.tools.map((card) => [card.id, bubble.id] as const)),
@@ -1225,9 +1264,42 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
         next.clearedSendIds,
         payload.pendingSends,
       );
+      const runOutcome = runOutcomeOf(status);
+      let settledBubbles = applied.bubbles;
+      if (runOutcome !== undefined && payload.run?.endedAt !== undefined) {
+        // ライブの run_end を観測済みならその値が正 (payload は run の所要時間を持たない)
+        const initialUser = settledBubbles.find(
+          (bubble) =>
+            bubble.role === "user" &&
+            (payload.run?.initialSendId === undefined
+              ? bubble.runId === payload.run?.id
+              : bubble.sendId === payload.run?.initialSendId),
+        );
+        if (initialUser?.runDurationMs === undefined) {
+          const durationMs = Math.max(0, payload.run.endedAt - payload.run.startedAt);
+          settledBubbles = attachTurnEnd(
+            settledBubbles,
+            payload.run.id,
+            payload.run.initialSendId,
+            runOutcome,
+            durationMs,
+          );
+          // run_end を取りこぼした復帰でも Done を出す (履歴 page が持つ値は上書きしない)
+          const prefix = `${payload.run.id}:`;
+          for (let index = settledBubbles.length - 1; index >= 0; index -= 1) {
+            const bubble = settledBubbles[index];
+            if (bubble.role !== "assistant" || bubble.text === "" || bubble.turnEnd !== undefined) continue;
+            if (bubble.assistantId !== undefined && !bubble.assistantId.startsWith(prefix)) continue;
+            settledBubbles = settledBubbles.map((item, position) =>
+              position === index ? { ...item, turnEnd: { outcome: runOutcome, durationMs } } : item,
+            );
+            break;
+          }
+        }
+      }
       return {
         ...next,
-        bubbles: applied.bubbles,
+        bubbles: settledBubbles,
         pendingEchoIds: applied.pendingEchoIds,
         nextId: applied.nextId,
         clearedSendIds: applied.clearedSendIds,
@@ -1669,7 +1741,7 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
           const withBubble = attachRunToolCards(withTarget, false);
           return patchAssistant(withBubble, (b) => ({ ...b, text: b.text + (action.delta || "") }));
         }
-        const withBubble = attachRunToolCards(ensureAssistant(state, action.at, key), false);
+        const withBubble = attachRunToolCards(openAssistantForKey(state, action.at, key), false);
         return patchAssistant(withBubble, (b) => ({ ...b, text: b.text + (action.delta || "") }));
       }
       // 旧サーバーの delta は従来どおり開いている応答へ積む
@@ -1734,7 +1806,7 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
           ? { ...state, currentAssistantId: keyTarget.id, currentAssistantKey: action.assistantId }
           : ended
             ? state
-            : ensureAssistant(state, action.at, action.assistantId);
+            : openAssistantForKey(state, action.at, action.assistantId);
       const withBubble = attachRunToolCards(base, false);
       const withRun = {
         ...withBubble,

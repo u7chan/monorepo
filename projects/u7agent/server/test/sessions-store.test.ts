@@ -779,7 +779,7 @@ test("assistant 応答IDを SSE / payload / 履歴で同じ値にする", async 
   const events: EventEntry[] = [];
   store.subscribe(record, `${record.generation}:0`, (entry) => events.push(entry));
 
-  store.postMessage(record, "ツールを実行して");
+  const posted = store.postMessage(record, "ツールを実行して");
   await waitFor(() => store.statusOf(record) === "completed", 3000, "run completion");
 
   const textIds = events.flatMap((entry) =>
@@ -793,7 +793,10 @@ test("assistant 応答IDを SSE / payload / 履歴で同じ値にする", async 
   const tool = events.find((entry) => entry.type === "tool_start");
   assert.equal(tool?.type === "tool_start" ? tool.data.assistantId : undefined, assistantId);
 
-  const assistant = store.payload(record).messages.find((message) => message.role === "assistant");
+  const payload = store.payload(record);
+  const user = payload.messages.find((message) => message.role === "user");
+  assert.equal(user?.sendId, posted.sendId, "payload の user メッセージにも送信ID");
+  const assistant = payload.messages.find((message) => message.role === "assistant");
   assert.equal(assistant?.assistantId, assistantId, "payload のメッセージにも同じID");
   assert.equal(assistant?.tools?.[0]?.assistantId, assistantId, "ツールも要求元の応答IDを持つ");
 
