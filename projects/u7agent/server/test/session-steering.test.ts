@@ -387,3 +387,85 @@ test("SDK の user 注入を観測した時点で resync を配り、待機か�
     assert.equal(first.sendId !== second.sendId, true);
   });
 });
+
+test("終端後に遅れて受付された steering を SDK キューに残さず、次の入力を追い越させない", async () => {
+  await withStore({ reply: "ok", chunkDelayMs: 5, steerDelayMs: 150 }, async ({ store, record }) => {
+    const events: EventEntry[] = [];
+    store.subscribe(record, `${record.generation}:${record.seq}`, (entry) => events.push(entry));
+    const first = store.postMessage(record, "開始");
+    const second = store.postMessage(record, "古い追加入力");
+
+    // 最初の実行は追加入力の受付完了より先に終わる
+    await waitFor(() => events.filter((entry) => entry.type === "run_end").length === 1, 5000, "first run end");
+
+    // 終端直後 (受付処理中) に来た新規送信は、回収待ちの古い入力を追い越さない
+    const third = store.postMessage(record, "新しい入力");
+    assert.equal(third.queued, true, "配送に残る入力がある間は待機へ積む");
+    assert.equal(probeOf(store).sdkQueueLength(record), 0, "終端後の SDK 実キューに残さない");
+
+    await waitFor(
+      () =>
+        userItems(pageOf(store, record)).length === 3 &&
+        events.filter((entry) => entry.type === "run_start").length === 3,
+      10_000,
+      "all sends injected",
+    );
+    await store.flush(record);
+
+    const starts = events.filter((entry) => entry.type === "run_start");
+    assert.deepEqual(
+      starts.map((entry) => (entry.type === "run_start" ? entry.data.initialSendId : undefined)),
+      [first.sendId, second.sendId, third.sendId],
+      "受付順に開始し、古い入力を新規送信が追い越さない",
+    );
+    const users = userItems(pageOf(store, record));
+    assert.deepEqual(
+      users.map((item) => [item.text, item.sendId]),
+      [
+        ["開始", first.sendId],
+        ["古い追加入力", second.sendId],
+        ["新しい入力", third.sendId],
+      ],
+      "FIFO の受付順で欠落なく注入する",
+    );
+    assert.equal(
+      users.every((item) => item.runId !== undefined),
+      true,
+      "各送信に実行IDが対応する",
+    );
+  });
+});
+
+test("エラー終端でも遅れて受付された steering を SDK キューに残さない", async () => {
+  await withStore(
+    { reply: "ok", chunkDelayMs: 5, steerDelayMs: 150, assistantFailure: "stub failure" },
+    async ({ store, record }) => {
+      const events: EventEntry[] = [];
+      store.subscribe(record, `${record.generation}:${record.seq}`, (entry) => events.push(entry));
+      const first = store.postMessage(record, "開始");
+      const second = store.postMessage(record, "エラー中の追加入力");
+
+      await waitFor(() => events.filter((entry) => entry.type === "run_end").length === 1, 5000, "first run end");
+      const ended = events.find((entry) => entry.type === "run_end");
+      assert.equal(ended?.type === "run_end" ? ended.data.status : undefined, "error");
+      await waitFor(
+        () => events.some((entry) => entry.type === "run_start" && entry.data.initialSendId === second.sendId),
+        5000,
+        "recovered send starts",
+      );
+      assert.equal(probeOf(store).sdkQueueLength(record), 0, "エラー終端後の SDK 実キューに残さない");
+
+      await store.flush(record);
+      const users = userItems(pageOf(store, record));
+      assert.deepEqual(
+        users.map((item) => [item.text, item.sendId]),
+        [
+          ["開始", first.sendId],
+          ["エラー中の追加入力", second.sendId],
+        ],
+        "回収した入力を次の実行へ同じ送信IDで割り当てる",
+      );
+      assert.equal(users[1]?.runId !== undefined, true, "履歴の送信IDと実行IDが対応する");
+    },
+  );
+});

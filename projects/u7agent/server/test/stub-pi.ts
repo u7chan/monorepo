@@ -127,6 +127,8 @@ export interface StubSessionOptions {
   steerDelayMs?: number;
   /** false で応答後の steering 注入を行わない (終端時の回収を検証する) */
   drainSteering?: boolean;
+  /** assistant を最終エラーで終わらせる (エラー終端の競合を検証する) */
+  assistantFailure?: string;
   /** steering で注入された追加入力への応答本文 (省略時は反映を伝える固定文) */
   steeringReply?: (text: string, index: number) => string;
   chunkDelayMs?: number;
@@ -892,6 +894,9 @@ export function createStubSession(options: StubSessionOptions = {}): StubSession
           });
         }
         if (session.abortRequested) assistant.stopReason = "aborted";
+        else if (options.assistantFailure !== undefined) {
+          Object.assign(assistant, { stopReason: "error", errorMessage: options.assistantFailure });
+        }
         if (investigate && !session.abortRequested) {
           const resultText = investigate.result ?? "スタブの調査結果";
           session.emit({
@@ -1024,10 +1029,11 @@ export interface StubPiOptions {
   reply?: string;
   /** false で steering 非対応の SDK を再現する (StubSessionOptions と同じ) */
   steering?: boolean;
-  /** StubSessionOptions と同じ (取り出し済み / 受付の遅延 / 注入しない) */
+  /** StubSessionOptions と同じ (取り出し済み / 受付の遅延 / 注入しない / エラー終端) */
   steerTaken?: boolean;
   steerDelayMs?: number;
   drainSteering?: boolean;
+  assistantFailure?: string;
   chunkDelayMs?: number;
   setModelDelayMs?: number;
   /** assistant へ載せる usage。null で usage 非対応プロバイダ (キー省略) を再現する */

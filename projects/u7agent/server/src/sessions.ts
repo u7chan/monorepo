@@ -1006,7 +1006,9 @@ export class SessionStore {
       throw httpError(409, "Session is stopping");
     }
     // 圧縮中も送信はキューへ積む (排他の正は BFF の flag。SDK は保存待ちの間 idle に見える)
-    const waiting = this.runInProgress(record) || record.compacting;
+    const runActive = this.runInProgress(record) || record.compacting;
+    // 終端で回収した入力が配送に残っている間も、新しい送信が先に始まらないよう待機へ積む
+    const waiting = runActive || record.queue.length > 0;
     if (waiting && record.queue.length >= MAX_QUEUE_DEPTH) {
       throw httpError(429, `Message queue is full (max ${MAX_QUEUE_DEPTH})`);
     }
@@ -1036,9 +1038,11 @@ export class SessionStore {
       }
       const entry: QueuedSend = { sendId, text, at: Date.now() };
       record.queue.push(entry);
+      // 実行が無くても古い配送待ちが残っていれば、新規送信が追い越さないよう先頭から開始する
+      if (!runActive) this.pump(record);
       // 待機の順位と件数は BFF と SDK の未注入分を合わせて数える (SDK へ渡した分も queue に残る)
       this.emit(record, "queued", {
-        position: record.queue.length,
+        position: record.queue.findIndex((item) => item.sendId === sendId) + 1,
         queueDepth: record.queue.length,
         sendId,
         prompt: this.masker.mask(text),
@@ -1212,9 +1216,8 @@ export class SessionStore {
   }
 
   /**
-   * BFF の配送キューから 1 件だけ SDK の steering へ渡す。SDK が保持する未注入は常に 1 件に保ち、
-   * 注入を観測したら次を渡す。SDK が idle のあいだは渡さない (steer() だけではランが始まらず、
-   * キューに置き去りになるため)。受付の失敗は配送対象から外して未送信へ戻す。
+   * 追加入力を SDK の steering へ 1 件だけ渡す。idle のあいだは `steer()` だけではランが始まらず
+   * キューに置き去りになるため、実行中に限り渡す。
    */
   private deliverSteering(record: SessionRecord): void {
     if (record.stopping || record.compacting) return;
@@ -1230,7 +1233,6 @@ export class SessionStore {
     entry.handedOff = true;
     const task = Promise.resolve(steer(entry.text))
       .then(() => {
-        // 受付完了を状態へ反映する (実キューに入ったか、取り出されたかを配る)
         if (this.records.get(record.id) === record) this.emitResync(record);
       })
       .catch((error) => {
@@ -1287,11 +1289,12 @@ export class SessionStore {
   }
 
   /**
-   * 終端で未注入の steering を回収する。実キューに残っていれば捨てて BFF の配送へ戻し (次の実行で
-   * 改めて開始送信として割り当てる)、SDK が取り出していれば配送対象から外して未送信に残す
-   * (保存済みと偽らず、自動でも入れ直さない)。
+   * 終端で未注入の steering を回収する。遅い受付が終端後に SDK の実キューへ入らないよう、
+   * `steerTask` の完了を待ってから実キューを見る。
    */
-  private recoverSteeringAtFinish(record: SessionRecord): void {
+  private async recoverSteeringAtFinish(record: SessionRecord): Promise<void> {
+    const accepted = record.steerTask;
+    if (accepted !== undefined) await accepted.catch(() => {});
     const entry = this.steeringOf(record);
     if (!entry) return;
     if (this.sdkQueueLength(record) > 0) {
@@ -2521,8 +2524,6 @@ export class SessionStore {
 
       // listener 例外 / prompt() reject で終わる経路も含めて、未 settle の待機を必ず取り消す
       this.cancelQuestions(record);
-      // SDK に未注入のまま残った steering を回収する (次の実行へ戻すか、未送信として残す)
-      this.recoverSteeringAtFinish(record);
 
       // 保留中の差分・最終テキスト・送信メッセージ待ちの resync は run_end より先に配る
       bridge.finalize();
@@ -2577,9 +2578,14 @@ export class SessionStore {
       // 送信は fire-and-forget。run_end の記録・persist・キューの pump を待たせない
       this.notifyCompleted(record, run, bridge.settledAssistantText(), durationMs);
 
-      if (!record.stopping && record.queue.length > 0) {
-        setTimeout(() => this.pump(record), QUEUE_DELAY_MS).unref?.();
-      }
+      // 受付処理中の steering が終端後に実キューへ残らないよう、回収を待ってから次を開始する
+      void this.recoverSteeringAtFinish(record)
+        .catch(() => {})
+        .finally(() => {
+          if (this.records.get(record.id) !== record) return;
+          if (record.stopping || record.queue.length === 0) return;
+          setTimeout(() => this.pump(record), QUEUE_DELAY_MS).unref?.();
+        });
     };
 
     const bridge = createRunEventBridge({
@@ -2700,6 +2706,9 @@ export class SessionStore {
     // 圧縮の終端処理が done してから呼ばれる (圧縮中はキューを進めない)
     if (record.compacting) return;
     if (record.queue.length === 0) return;
+    // 受付処理中の steering が終わるとき、SDK の実キューへ同じ入力を残さないよう開始を待つ
+    if (record.steerTask !== undefined) return;
+    if (record.queue[0].handedOff === true) return;
     if (this.runInProgress(record)) return;
     const next = record.queue.shift();
     if (next === undefined) return;
