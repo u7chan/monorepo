@@ -696,7 +696,7 @@ Content-Security-Policy: sandbox allow-scripts; default-src 'none'; style-src 'u
 
 - **シークレットの値はどの応答にも載らない。** 値の表示 / 変更フォーム用の `GET /api/secrets/:secretId` だけが `value` を持ち、それも変数のときだけ
 - `PATCH /api/secrets/order` は渡された順に `sortOrder` を 1..n へ振り直す。**未知の id・重複・別 cwd の id は捨て、渡されなかった行は元の相対順で末尾へ回す**（`[]` は現行順のまま）ので、並べ替えで行を消さない。応答は `GET /api/secrets` と同じ形で、値は載らない。400 = 本文が不正（`ids` の欠落・配列でない・文字列以外を含む・件数上限超過）、503 = DB 障害
-- `generation` は変更のたびに変わる短いハッシュ（名前 → `secret_id` / 更新世代）。`GET /api/serve/status` の `secretGeneration` と比べると「再起動で反映される変更がある」と分かる（UI は凡例の 2 行まで）。並べ替えは名前・`secret_id`・更新時刻を変えないため、世代も変えない
+- `generation` は変更のたびに変わる短いハッシュ（名前 → `secret_id` / 更新世代）。`GET /api/serve/status` の `secretGeneration` と比べると「再起動で反映される変更がある」と分かる（UI は一覧上部の凡例まで）。並べ替えは名前・`secret_id`・更新時刻を変えないため、世代も変えない
 - `projectScoped` は cwd が登録プロジェクトのディレクトリか（UI の「このプロジェクトの設定です」の根拠）
 - 変更系は 200 で `{ item, trimmed, generation }` を返す（`trimmed` は前後の空白 / 改行を除去したか。削除は `{ removed, generation }`）
 

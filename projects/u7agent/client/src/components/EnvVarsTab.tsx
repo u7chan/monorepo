@@ -23,6 +23,7 @@ import {
   sessionEnvScopeFromKey,
   sessionEnvScopeKey,
   secretDeleteConfirmRequest,
+  type SessionEnvScope,
   shortSecretNote,
 } from "../lib/sessionEnv";
 import type { SecretItem, SecretKind, SecretsListResponse } from "../types";
@@ -112,6 +113,34 @@ export function EnvVarsTab({ scope, reloadToken }: EnvVarsTabProps) {
 
   const reload = useCallback(() => setManualReload((count) => count + 1), []);
 
+  /**
+   * 変数行の値を引く。一覧の取得と並べ替えの応答 (別タブが同じ cwd へ追加した行) で同じ経路を使い、
+   * 一覧に現れた変数行の値が「…」のまま残らないようにする。
+   */
+  const loadValues = useCallback(
+    (target: SessionEnvScope, items: readonly SecretItem[], signal?: AbortSignal) => {
+      for (const item of items) {
+        if (item.kind !== "variable") continue;
+        getSecretDetail(target, item.secretId, signal)
+          .then((detail) => {
+            if (signal?.aborted) return;
+            setValues((current) => ({ ...current, [item.secretId]: detail.value ?? "" }));
+            setValueErrors((current) => withoutKey(current, item.secretId));
+          })
+          .catch((error: unknown) => {
+            if (signal?.aborted) return;
+            // 他経路で消えた行なので、注記ではなく一覧を取り直す (一覧からも落ちる)
+            if (error instanceof ApiError && error.status === 404) {
+              reload();
+              return;
+            }
+            setValueErrors((current) => ({ ...current, [item.secretId]: errorText(error) }));
+          });
+      }
+    },
+    [getSecretDetail, reload],
+  );
+
   const scopeKey = sessionEnvScopeKey(scope);
   const token = reloadToken + manualReload;
 
@@ -131,24 +160,7 @@ export function EnvVarsTab({ scope, reloadToken }: EnvVarsTabProps) {
         setValues((current) => keepListed(current, variableIds));
         setValueErrors((current) => keepListed(current, variableIds));
         setExpandedValues(new Set());
-        for (const item of next.items) {
-          if (item.kind !== "variable") continue;
-          getSecretDetail(target, item.secretId, controller.signal)
-            .then((detail) => {
-              if (controller.signal.aborted) return;
-              setValues((current) => ({ ...current, [item.secretId]: detail.value ?? "" }));
-              setValueErrors((current) => withoutKey(current, item.secretId));
-            })
-            .catch((error: unknown) => {
-              if (controller.signal.aborted) return;
-              // 他経路で消えた行なので、注記ではなく一覧を取り直す (一覧からも落ちる)
-              if (error instanceof ApiError && error.status === 404) {
-                reload();
-                return;
-              }
-              setValueErrors((current) => ({ ...current, [item.secretId]: errorText(error) }));
-            });
-        }
+        loadValues(target, next.items, controller.signal);
       })
       .catch((error: unknown) => {
         if (controller.signal.aborted) return;
@@ -292,8 +304,11 @@ export function EnvVarsTab({ scope, reloadToken }: EnvVarsTabProps) {
     setSavingOrder(true);
     setFeedback(null);
     try {
-      setList(await reorderSecrets(scope, ids));
+      const next = await reorderSecrets(scope, ids);
+      setList(next);
       applyOrder(null);
+      // 応答にだけ現れた行 (別タブが同じ cwd へ追加した行) も値を引く
+      loadValues(sessionEnvScopeFromKey(scopeKey), next.items);
     } catch (error) {
       if (error instanceof ApiError) applyOrder(null);
       setFeedback({ kind: "error", text: errorText(error) });
@@ -475,7 +490,7 @@ export function EnvVarsTab({ scope, reloadToken }: EnvVarsTabProps) {
         {items.length > 0 ? (
           <ul
             ref={containerRef}
-            className="divide-y divide-line overflow-hidden rounded-lg border border-line"
+            className="divide-y divide-line rounded-lg border border-line"
             {...drag.containerHandlers}
           >
             {items.map((item) => (
@@ -483,7 +498,7 @@ export function EnvVarsTab({ scope, reloadToken }: EnvVarsTabProps) {
                 key={item.secretId}
                 data-env-row={item.secretId}
                 className={cn(
-                  "flex min-w-0 items-start gap-1 pr-2 pl-1",
+                  "flex min-w-0 items-start gap-1 pr-2 pl-1 first:rounded-t-lg last:rounded-b-lg",
                   drag.draggingId === item.secretId && "env-drag-row bg-panel",
                 )}
               >
