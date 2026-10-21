@@ -1,15 +1,15 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { ApiError, type SecretsScope } from "../api";
 import { useSpaceApi } from "../SpaceContext";
 import { copyToClipboard } from "../lib/copyToClipboard";
 import { cn } from "../lib/cn";
+import { useAgentDrag } from "../hooks/useAgentDrag";
 import { fileTimeLabel, messageFullTimeLabel } from "../lib/messageTime";
 import {
   canSubmitEnvDraft,
   canSubmitEnvValue,
   ENV_KIND_LEGEND,
   ENV_PROJECT_NOTE,
-  ENV_RESTART_NOTE,
   ENV_SAVE_LABEL,
   ENV_TRIM_NOTE,
   envKindLabel,
@@ -19,13 +19,14 @@ import {
   envValueActionLabel,
   envValueFormTitle,
   initialDraftValue,
+  orderedEnvItems,
   sessionEnvScopeFromKey,
   sessionEnvScopeKey,
   secretDeleteConfirmRequest,
   shortSecretNote,
 } from "../lib/sessionEnv";
 import type { SecretItem, SecretKind, SecretsListResponse } from "../types";
-import { CheckIcon, CopyIcon, EyeIcon, PlusIcon } from "./icons";
+import { CheckIcon, CopyIcon, EyeIcon, GripIcon, PlusIcon } from "./icons";
 import { EnvValueBox } from "./EnvValueBox";
 import { ReloadButton } from "./ReloadButton";
 import { TabToolbar } from "./TabToolbar";
@@ -40,6 +41,13 @@ export type EnvVarsTabProps = {
   scope: SecretsScope;
   /** 取り直しの合図 (作業フォルダタブの「再読み込み」と同じ token) */
   reloadToken: number;
+};
+
+/** 一覧のドラッグで使う名前。行の属性・追従の CSS 変数・ body クラスは styles/index.css と揃える */
+const ENV_DRAG_NAMING = {
+  rowAttribute: "data-env-row",
+  yVariable: "--env-drag-y",
+  bodyClass: "is-dragging-env",
 };
 
 /** 開いているフォーム。値は入力欄の中だけで持ち、どこにも永続化しない */
@@ -71,7 +79,7 @@ function keepListed(record: Record<string, string>, listed: ReadonlySet<string>)
  * (シークレットは API にも返す経路が無い)。設計は docs/secrets.md、文言は client/src/lib/sessionEnv.ts を正とする。
  */
 export function EnvVarsTab({ scope, reloadToken }: EnvVarsTabProps) {
-  const { createSecret, deleteSecret, getSecretDetail, getSecrets, updateSecret } = useSpaceApi();
+  const { createSecret, deleteSecret, getSecretDetail, getSecrets, reorderSecrets, updateSecret } = useSpaceApi();
   const confirm = useConfirm();
   const [list, setList] = useState<SecretsListResponse | null>(null);
   const [listError, setListError] = useState<string | null>(null);
@@ -91,6 +99,16 @@ export function EnvVarsTab({ scope, reloadToken }: EnvVarsTabProps) {
   const [expandedValues, setExpandedValues] = useState<ReadonlySet<string>>(() => new Set());
   // 名前チップの copied と共有すると、同名のチップが同時にチェックへ変わる
   const [copiedValueId, setCopiedValueId] = useState<string | null>(null);
+  // ドラッグ中の下書き順。null = 一覧の順 (取得のたびに捨てる)
+  const [order, setOrder] = useState<string[] | null>(null);
+  const [savingOrder, setSavingOrder] = useState(false);
+  const containerRef = useRef<HTMLUListElement | null>(null);
+  // 確定は再描画を待たずに最新の下書きを読む (最後の move の state 反映より pointerup が先でも取りこぼさない)
+  const orderRef = useRef<string[] | null>(null);
+  const applyOrder = (ids: string[] | null) => {
+    orderRef.current = ids;
+    setOrder(ids);
+  };
 
   const reload = useCallback(() => setManualReload((count) => count + 1), []);
 
@@ -106,6 +124,8 @@ export function EnvVarsTab({ scope, reloadToken }: EnvVarsTabProps) {
       .then((next) => {
         if (controller.signal.aborted) return;
         setList(next);
+        // 並びは取得のたびにサーバーの順へ戻す (古い下書きで確定済みの並びを上書きしない)
+        applyOrder(null);
         const variableIds = new Set(next.items.filter((item) => item.kind === "variable").map((item) => item.secretId));
         // 再取得中も前の値は残す (… へ戻してちらつかせない)。展開は取り直しのたびに畳む
         setValues((current) => keepListed(current, variableIds));
@@ -133,6 +153,7 @@ export function EnvVarsTab({ scope, reloadToken }: EnvVarsTabProps) {
       .catch((error: unknown) => {
         if (controller.signal.aborted) return;
         setListError(errorText(error));
+        applyOrder(null);
         // 古い一覧と古い値の組み合わせを残さない
         setValues({});
         setValueErrors({});
@@ -253,12 +274,43 @@ export function EnvVarsTab({ scope, reloadToken }: EnvVarsTabProps) {
     });
   };
 
-  const items = list?.items ?? [];
+  const items = orderedEnvItems(list?.items ?? [], order);
   const shortNote = shortSecretNote(kind, value);
   const showForm = form.mode !== "closed";
   const editing = form.mode === "edit" ? form.item : null;
   // 変更フォームは名前を送らない (名前と種別は変えられない) ため、値だけで送信可否を決める
   const submittingDisabled = busy || (editing ? !canSubmitEnvValue(value) : !canSubmitEnvDraft({ name, value }));
+
+  /**
+   * ドラッグの確定。成功したら応答の並びを一覧へ書き戻す (値は secretId ごとに保持しているため
+   * 取り直さない)。HTTP エラーは保存されていないので表示を元の順へ戻し、応答が返らない失敗は
+   * 保存結果が不明なので下書きを残して次の取得でサーバーの順へ合わせる。
+   */
+  const commitOrder = async () => {
+    const ids = orderRef.current;
+    if (ids === null || savingOrder) return;
+    setSavingOrder(true);
+    setFeedback(null);
+    try {
+      setList(await reorderSecrets(scope, ids));
+      applyOrder(null);
+    } catch (error) {
+      if (error instanceof ApiError) applyOrder(null);
+      setFeedback({ kind: "error", text: errorText(error) });
+    } finally {
+      setSavingOrder(false);
+    }
+  };
+
+  const drag = useAgentDrag({
+    containerRef,
+    naming: ENV_DRAG_NAMING,
+    ids: items.map((item) => item.secretId),
+    onMove: applyOrder,
+    onCommit: () => void commitOrder(),
+    onCancel: () => applyOrder(null),
+    disabled: savingOrder,
+  });
 
   return (
     <div className="min-h-0 min-w-0 scrollbar-thin overflow-y-auto">
@@ -286,8 +338,21 @@ export function EnvVarsTab({ scope, reloadToken }: EnvVarsTabProps) {
 
       <div className="grid gap-2 px-4 py-3">
         {list?.projectScoped ? <p className="text-2xs text-ink-faint">{ENV_PROJECT_NOTE}</p> : null}
-        <p className="text-2xs text-ink-muted">{ENV_RESTART_NOTE}</p>
-        <p className="text-2xs text-ink-faint">{ENV_KIND_LEGEND}</p>
+        <dl className="grid gap-1 text-2xs leading-4">
+          {ENV_KIND_LEGEND.map((entry) => (
+            <div key={entry.kind} className="flex items-baseline gap-3">
+              <dt
+                className={cn(
+                  "w-16 shrink-0 whitespace-nowrap",
+                  entry.kind === "secret" ? "text-accent-text" : "text-ink-soft",
+                )}
+              >
+                {envKindLabel(entry.kind)}
+              </dt>
+              <dd className="text-ink-faint">{entry.text}</dd>
+            </div>
+          ))}
+        </dl>
 
         {listError ? (
           <p
@@ -308,6 +373,7 @@ export function EnvVarsTab({ scope, reloadToken }: EnvVarsTabProps) {
 
         {showForm ? (
           <form
+            autoComplete="off"
             className="grid gap-2 rounded-lg border border-line bg-raised px-3 py-3"
             onSubmit={(event) => {
               // Enter での送信も 1 か所 (submit) へ寄せる
@@ -329,7 +395,11 @@ export function EnvVarsTab({ scope, reloadToken }: EnvVarsTabProps) {
               <select
                 value={kind}
                 disabled={editing !== null}
-                onChange={(event) => setKind(event.target.value === "variable" ? "variable" : "secret")}
+                onChange={(event) => {
+                  setKind(event.target.value === "variable" ? "variable" : "secret");
+                  // 変数に切り替えたら伏せ状態を引き継がない (戻したときに見えていたら驚く)
+                  setRevealed(false);
+                }}
                 className="field text-xs"
               >
                 <option value="secret">シークレット</option>
@@ -360,6 +430,9 @@ export function EnvVarsTab({ scope, reloadToken }: EnvVarsTabProps) {
               値
               <span className="flex items-center gap-2">
                 <input
+                  // 種別を変えたら input ごと作り直す。type だけを差し替えると、シークレットで
+                  // パスワード欄として認識された入力が変数のままパスワード保存の対象に残る
+                  key={kind}
                   // シークレットは既定で伏せ、Eye は入力欄にだけ効く (保存済みの値は表示しない)
                   type={kind === "secret" && !revealed ? "password" : "text"}
                   value={value}
@@ -368,16 +441,19 @@ export function EnvVarsTab({ scope, reloadToken }: EnvVarsTabProps) {
                   onChange={(event) => setValue(event.target.value)}
                   className="field font-mono text-xs"
                 />
-                <button
-                  type="button"
-                  onClick={() => setRevealed((current) => !current)}
-                  aria-pressed={revealed}
-                  aria-label={revealed ? "値を隠す" : "値を表示"}
-                  title={revealed ? "値を隠す" : "値を表示"}
-                  className="icon-button"
-                >
-                  <EyeIcon open={revealed} />
-                </button>
+                {/* 変数は伏せないので Eye を出さない (押しても何も変わらない導線を置かない) */}
+                {kind === "secret" ? (
+                  <button
+                    type="button"
+                    onClick={() => setRevealed((current) => !current)}
+                    aria-pressed={revealed}
+                    aria-label={revealed ? "値を隠す" : "値を表示"}
+                    title={revealed ? "値を隠す" : "値を表示"}
+                    className="icon-button"
+                  >
+                    <EyeIcon open={revealed} />
+                  </button>
+                ) : null}
               </span>
             </label>
 
@@ -396,54 +472,80 @@ export function EnvVarsTab({ scope, reloadToken }: EnvVarsTabProps) {
           </form>
         ) : null}
 
-        <ul className="grid gap-1">
-          {items.map((item) => (
-            <li key={item.secretId} className="grid gap-1.5 rounded-lg border border-line px-2.5 py-1.5">
-              <div className="flex min-w-0 items-center gap-2">
-                <code className="min-w-0 flex-1 truncate font-mono text-xs text-ink-strong" title={item.name}>
-                  {item.name}
-                </code>
-                <span
-                  className={cn(
-                    "shrink-0 rounded-full border px-2 py-0.5 text-2xs",
-                    item.kind === "secret" ? "border-accent/50 text-accent-text" : "border-line text-ink-soft",
-                  )}
+        {items.length > 0 ? (
+          <ul
+            ref={containerRef}
+            className="divide-y divide-line overflow-hidden rounded-lg border border-line"
+            {...drag.containerHandlers}
+          >
+            {items.map((item) => (
+              <li
+                key={item.secretId}
+                data-env-row={item.secretId}
+                className={cn(
+                  "flex min-w-0 items-start gap-1 pr-2 pl-1",
+                  drag.draggingId === item.secretId && "env-drag-row bg-panel",
+                )}
+              >
+                {/* グリップは行の外側 (名前の前)。行そのものはドラッグしない (行の操作と衝突させない)。
+                  行の高さは値で変わるため、グリップは名前の行 (先頭) へ合わせる */}
+                <button
+                  type="button"
+                  aria-label={`${item.name} の順番を変更`}
+                  title="ドラッグで並べ替え"
+                  className="drag-grip mt-2 h-6 self-start singleColumn:h-11"
+                  {...drag.gripHandlers(item.secretId)}
                 >
-                  {envKindLabel(item.kind)}
-                </span>
-                <time
-                  dateTime={new Date(item.updatedAt).toISOString()}
-                  title={messageFullTimeLabel(item.updatedAt)}
-                  className="shrink-0 text-2xs whitespace-nowrap text-ink-ghost tabular-nums"
-                >
-                  {fileTimeLabel(item.updatedAt)}
-                </time>
-                <RowMenu
-                  name={item.name}
-                  actions={[
-                    { kind: "rename", label: envValueActionLabel(item.kind) },
-                    { kind: "delete", label: "削除", danger: true },
-                  ]}
-                  onSelect={(action) => {
-                    if (action === "rename") void openEdit(item);
-                    else void remove(item);
-                  }}
-                />
-              </div>
-              {/* 値の箱は変数だけ。シークレットは API が値を返さないため行の高さも今のままにする */}
-              {item.kind === "variable" ? (
-                <EnvValueBox
-                  value={values[item.secretId]}
-                  failure={valueErrors[item.secretId]}
-                  expanded={expandedValues.has(item.secretId)}
-                  copied={copiedValueId === item.secretId}
-                  onToggle={() => toggleValue(item.secretId)}
-                  onCopy={(text) => void copyValue(item.secretId, text)}
-                />
-              ) : null}
-            </li>
-          ))}
-        </ul>
+                  <GripIcon />
+                </button>
+                <div className="grid min-w-0 flex-1 gap-1 py-2">
+                  <div className="flex min-w-0 items-center gap-2">
+                    <code className="min-w-0 flex-1 truncate font-mono text-xs text-ink-strong" title={item.name}>
+                      {item.name}
+                    </code>
+                    <span
+                      className={cn(
+                        "shrink-0 rounded-full border px-2 py-0.5 text-2xs",
+                        item.kind === "secret" ? "border-accent/50 text-accent-text" : "border-line text-ink-soft",
+                      )}
+                    >
+                      {envKindLabel(item.kind)}
+                    </span>
+                    <time
+                      dateTime={new Date(item.updatedAt).toISOString()}
+                      title={messageFullTimeLabel(item.updatedAt)}
+                      className="shrink-0 text-2xs whitespace-nowrap text-ink-ghost tabular-nums"
+                    >
+                      {fileTimeLabel(item.updatedAt)}
+                    </time>
+                    <RowMenu
+                      name={item.name}
+                      actions={[
+                        { kind: "rename", label: envValueActionLabel(item.kind) },
+                        { kind: "delete", label: "削除", danger: true },
+                      ]}
+                      onSelect={(action) => {
+                        if (action === "rename") void openEdit(item);
+                        else void remove(item);
+                      }}
+                    />
+                  </div>
+                  {/* 値は変数だけ。シークレットは API が値を返さないため行の高さも今のままにする */}
+                  {item.kind === "variable" ? (
+                    <EnvValueBox
+                      value={values[item.secretId]}
+                      failure={valueErrors[item.secretId]}
+                      expanded={expandedValues.has(item.secretId)}
+                      copied={copiedValueId === item.secretId}
+                      onToggle={() => toggleValue(item.secretId)}
+                      onCopy={(text) => void copyValue(item.secretId, text)}
+                    />
+                  ) : null}
+                </div>
+              </li>
+            ))}
+          </ul>
+        ) : null}
 
         {list !== null && items.length === 0 ? (
           <p className="text-2xs text-ink-faint">

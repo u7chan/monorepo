@@ -197,6 +197,9 @@ export function createSpaceApi(spaceId: string) {
       ),
     deleteSecret: (input: SecretsScope, secretId: string) =>
       read<SecretRemovalResponse>(fetch(scope(detailUrl(input, secretId)), { method: "DELETE" })),
+    /** 並べ替え。応答の items がサーバーの採用した順（値は含まれない） */
+    reorderSecrets: (input: SecretsScope, ids: readonly string[]) =>
+      read<SecretsListResponse>(scoped.api.secrets.order.$patch({ json: { ...scopeQuery(input), ids: [...ids] } })),
   };
 }
 

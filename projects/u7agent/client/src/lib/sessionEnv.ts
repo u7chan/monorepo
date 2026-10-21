@@ -21,16 +21,14 @@ export function secretDeleteConfirmRequest(item: Pick<SecretItem, "name" | "kind
   };
 }
 
-/** タブ上部の 1 行。反映の境界は「保存」ではなく、変数は次の bash、シークレットは次回の起動 */
-export const ENV_RESTART_NOTE =
-  "変数の変更は次の bash から、シークレットの変更は次回の起動から反映されます（起動中のサービスは古い値のまま）";
-
 /**
- * 一覧に常時出す種別の凡例。種別ごとの注入先をフォームの中だけに置くと、
- * 登録後は一覧からは確かめられない。
+ * 一覧に常時出す種別の凡例。反映の境界 (変数は次の bash / シークレットは次回の起動) と注入先を
+ * 種別ごとに 1 行で示す。種別ごとの注入先をフォームの中だけに置くと、登録後は一覧からは確かめられない。
  */
-export const ENV_KIND_LEGEND =
-  "変数はエージェントの bash にも渡ります。シークレットはエージェントの bash には渡らず、サービスとして起動したときの process.env に入ります。";
+export const ENV_KIND_LEGEND: readonly { kind: SecretItem["kind"]; text: string }[] = [
+  { kind: "variable", text: "次の bash から反映。bash とサービス起動時の env に入る" },
+  { kind: "secret", text: "次回の起動から反映。サービス起動時の env にだけ入る" },
+];
 
 /** プロジェクト所属の cwd を共有しているときだけ出す 1 行 */
 export const ENV_PROJECT_NOTE = "このプロジェクトの設定です";
@@ -106,6 +104,27 @@ export function canSubmitEnvValue(value: string): boolean {
 /** 行の名前。コピー導線とエージェント向けの一覧に同じ並びを使う */
 export function envNameList(items: readonly SecretItem[]): string[] {
   return items.map((item) => item.name);
+}
+
+/**
+ * 並べ替えの下書き順で行を並べる。下書きに無い行 (ドラッグ中に別タブが追加した行) は一覧の順のまま
+ * 末尾へ回し、行を消さない。下書きが無ければ一覧の順をそのまま使う。
+ */
+export function orderedEnvItems(items: readonly SecretItem[], ids: readonly string[] | null): SecretItem[] {
+  if (ids === null) return [...items];
+  const byId = new Map(items.map((item) => [item.secretId, item]));
+  const ordered: SecretItem[] = [];
+  const seen = new Set<string>();
+  for (const id of ids) {
+    const item = byId.get(id);
+    if (!item || seen.has(id)) continue;
+    seen.add(id);
+    ordered.push(item);
+  }
+  for (const item of items) {
+    if (!seen.has(item.secretId)) ordered.push(item);
+  }
+  return ordered;
 }
 
 /** 作業環境パネルのタブ。並びは表示順そのもの */

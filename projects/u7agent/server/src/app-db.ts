@@ -1428,6 +1428,19 @@ export class AppDb {
     return Number(row.next);
   }
 
+  /**
+   * 並べ替え。与えた順に 1..n を振り直す (途中で失敗したら 1 つも書かない)。cwd も条件に入れ、
+   * 他会話の secret_id が混ざっても並びを動かさない。採用する id の絞り込みは `SecretService` が行う。
+   */
+  reorderSecrets(cwd: string, ids: readonly string[]): void {
+    this.transaction(() => {
+      this.#query((db) => {
+        const update = db.prepare("UPDATE secrets SET sortOrder = ? WHERE secretId = ? AND cwd = ?");
+        ids.forEach((id, index) => update.run(index + 1, id, cwd));
+      });
+    });
+  }
+
   /** 値は必ずバインドして渡す (SQL 文字列へ埋め込まない)。単一ステートメントなので自動コミットで確定する */
   insertSecret(row: SecretRow): void {
     this.#query((db) =>

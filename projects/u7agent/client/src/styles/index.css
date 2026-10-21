@@ -1143,7 +1143,7 @@
     background: var(--c-accent);
   }
 
-  /* エージェント / スペース一覧の並べ替え。ドラッグ中はポインタの下の行を translate で追わせ (位置は CSS 変数)、
+  /* エージェント / スペース / 環境変数一覧の並べ替え。ドラッグ中はポインタの下の行を translate で追わせ (位置は CSS 変数)、
    * 行そのものはグリップを掴んだときだけ動く (行のクリックは選択なので、重ねられない)。
    * touch-action: none はグリップだけに当てる: 行に当てると縦スクロールを奪う。
    * 追従は直接操作でアニメーションを掛けない (追従量の計測に前フレームの translate が混ざるのを避け、
@@ -1152,16 +1152,19 @@
     @apply grid w-7 shrink-0 cursor-grab touch-none place-items-center self-stretch rounded-lg text-ink-faint outline-none hover:bg-hover hover:text-ink-soft focus-visible:ring-1 focus-visible:ring-focus focus-visible:ring-inset singleColumn:w-11;
   }
   body.is-dragging-agent,
-  body.is-dragging-space {
+  body.is-dragging-space,
+  body.is-dragging-env {
     cursor: grabbing;
     user-select: none;
   }
   body.is-dragging-agent .drag-grip,
-  body.is-dragging-space .drag-grip {
+  body.is-dragging-space .drag-grip,
+  body.is-dragging-env .drag-grip {
     cursor: grabbing;
   }
   .agent-drag-row,
-  .space-drag-row {
+  .space-drag-row,
+  .env-drag-row {
     position: relative;
     z-index: 1;
   }
@@ -1170,6 +1173,9 @@
   }
   .space-drag-row {
     translate: 0 var(--space-drag-y, 0);
+  }
+  .env-drag-row {
+    translate: 0 var(--env-drag-y, 0);
   }
   /* 生成中の活動ラベル (「考え中…」) に光を流す。グラデーションを文字でクリップし、
    * 背景の位置だけを動かす (アニメーションの依存は増やさない)。当てるのは折り返さない短い
