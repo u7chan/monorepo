@@ -3493,3 +3493,124 @@ test("payload に user が無くても終端 run の Done を最後の応答へ�
     [["回答", { outcome: "completed", durationMs: 10 }]],
   );
 });
+
+function firstTurnPayload(question: string, messages: SessionPayload["messages"]): SessionPayload {
+  const payload = runningPayload();
+  payload.status = "running";
+  payload.run = {
+    id: "run-1",
+    initialSendId: "send-1",
+    status: "running",
+    startedAt: 1,
+    prompt: question,
+    toolCalls: [],
+    totalRetryCount: 0,
+  };
+  payload.messages = messages;
+  payload.pendingSends = [{ sendId: "send-1", runId: "run-1", text: question, at: 1, state: "running" }];
+  return payload;
+}
+
+test("新規会話の1通目: run_start → resync → text → run_end で user → assistant と Done", () => {
+  // What: 実イベント順でも user が先に並び、Done が最後の応答に 1 回だけ付く
+  const question = "はい前のターンです1。";
+  let state = chatReducer(initialChatState, {
+    type: "runStart",
+    runId: "run-1",
+    initialSendId: "send-1",
+    prompt: question,
+    at: 1,
+    startedAt: 1,
+  });
+  state = chatReducer(state, {
+    type: "resync",
+    payload: firstTurnPayload(question, [{ role: "user", text: question, sendId: "send-1", runId: "run-1" }]),
+  });
+  state = chatReducer(state, { type: "text", delta: "回答", at: 2, assistantId: "run-1:1" });
+  state = chatReducer(state, { type: "usage", usage: USAGE, metrics: METRICS });
+  state = chatReducer(state, { type: "assistantEnd", assistantId: "run-1:1" });
+  state = chatReducer(state, { type: "runEnd", runId: "run-1", status: "completed", queueDepth: 0, durationMs: 500 });
+
+  assert.deepEqual(
+    state.bubbles.map((bubble) => [bubble.role, bubble.text]),
+    [
+      ["user", question],
+      ["assistant", "回答"],
+    ],
+  );
+  const assistant = state.bubbles.find((bubble) => bubble.role === "assistant");
+  assert.deepEqual(assistant?.turnEnd, { outcome: "completed", durationMs: 500 });
+  const done = chatRenderItems({
+    bubbles: state.bubbles,
+    markers: [],
+    compactions: [],
+    activeContextStartId: null,
+  }).filter((item) => item.kind === "message" && item.turnEnd !== undefined);
+  assert.equal(done.length, 1, "Done は 1 回だけ");
+  assert.equal(done[0]?.kind === "message" ? done[0].bubble.text : "", "回答");
+});
+
+test("新規会話の1通目: payload が assistant のみでも pending の user を応答の前に置く", () => {
+  // What: 接続スナップショットの messages が assistant だけでも、pending の initial send を先頭へ戻す
+  const question = "はい前のターンです1。";
+  let state = chatReducer(initialChatState, {
+    type: "runStart",
+    runId: "run-1",
+    initialSendId: "send-1",
+    prompt: question,
+    at: 1,
+    startedAt: 1,
+  });
+  state = chatReducer(state, {
+    type: "resync",
+    payload: firstTurnPayload(question, [{ role: "assistant", text: "", assistantId: "run-1:1" }]),
+  });
+  state = chatReducer(state, { type: "text", delta: "回答", at: 2, assistantId: "run-1:1" });
+  state = chatReducer(state, { type: "assistantEnd", assistantId: "run-1:1" });
+  state = chatReducer(state, { type: "runEnd", runId: "run-1", status: "completed", queueDepth: 0, durationMs: 500 });
+
+  assert.deepEqual(
+    state.bubbles.map((bubble) => [bubble.role, bubble.text]),
+    [
+      ["user", question],
+      ["assistant", "回答"],
+    ],
+  );
+  const assistant = state.bubbles.find((bubble) => bubble.role === "assistant");
+  assert.deepEqual(assistant?.turnEnd, { outcome: "completed", durationMs: 500 });
+});
+
+test("新規会話の1通目: run_end を落としても終端 payload から Done を復元する", () => {
+  // What: run_end 未受信でも終端 resync の run から Done を最後の応答へ付ける
+  const question = "はい前のターンです1。";
+  let state = chatReducer(initialChatState, {
+    type: "runStart",
+    runId: "run-1",
+    initialSendId: "send-1",
+    prompt: question,
+    at: 1,
+    startedAt: 1,
+  });
+  state = chatReducer(state, {
+    type: "resync",
+    payload: firstTurnPayload(question, [{ role: "user", text: question, sendId: "send-1", runId: "run-1" }]),
+  });
+  state = chatReducer(state, { type: "text", delta: "回答", at: 2, assistantId: "run-1:1" });
+  state = chatReducer(state, { type: "assistantEnd", assistantId: "run-1:1" });
+
+  const terminal = firstTurnPayload(question, [{ role: "user", text: question, sendId: "send-1", runId: "run-1" }]);
+  terminal.status = "completed";
+  terminal.run = { ...terminal.run!, status: "completed", endedAt: 11 };
+  terminal.pendingSends = [];
+  state = chatReducer(state, { type: "resync", payload: terminal });
+
+  assert.deepEqual(
+    state.bubbles.map((bubble) => [bubble.role, bubble.text]),
+    [
+      ["user", question],
+      ["assistant", "回答"],
+    ],
+  );
+  const assistant = state.bubbles.find((bubble) => bubble.role === "assistant");
+  assert.deepEqual(assistant?.turnEnd, { outcome: "completed", durationMs: 10 });
+});

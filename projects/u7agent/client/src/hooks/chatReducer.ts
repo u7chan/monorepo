@@ -445,6 +445,26 @@ function stateIndexOfBubble(state: ChatState, bubble: Bubble): number {
   return -1;
 }
 
+function orderInitialUser(bubbles: Bubble[], runId: string | undefined, initialSendId: string | undefined): Bubble[] {
+  if (runId === undefined) return bubbles;
+  const userIndex =
+    initialSendId === undefined
+      ? bubbles.findIndex((bubble) => bubble.role === "user" && bubble.runId === runId)
+      : bubbles.findIndex((bubble) => bubble.role === "user" && bubble.sendId === initialSendId);
+  if (userIndex === -1) return bubbles;
+  const prefix = `${runId}:`;
+  const assistantIndex = bubbles.findIndex(
+    (bubble) => bubble.role === "assistant" && bubble.assistantId?.startsWith(prefix) === true,
+  );
+  if (assistantIndex === -1 || assistantIndex > userIndex) return bubbles;
+  const user = bubbles[userIndex];
+  const rest = bubbles.filter((_, index) => index !== userIndex);
+  const target = rest.findIndex(
+    (bubble) => bubble.role === "assistant" && bubble.assistantId?.startsWith(prefix) === true,
+  );
+  return target === -1 ? bubbles : [...rest.slice(0, target), user, ...rest.slice(target)];
+}
+
 function insertByStatePosition(state: ChatState, rebuilt: Bubble[], liveBubble: Bubble): Bubble[] {
   const liveIndex = state.bubbles.findIndex((bubble) => bubble.id === liveBubble.id);
   if (liveIndex === -1) return [...rebuilt, liveBubble];
@@ -640,8 +660,23 @@ function appendBubble(state: ChatState, role: Bubble["role"], text = "", at?: nu
   };
 }
 
-function insertRunUser(state: ChatState, text: string, at: number | undefined, runId: string | undefined): ChatState {
-  const bubble: Bubble = { id: state.nextId, role: "user", text, tools: [], skillLoads: [], at };
+function insertRunUser(
+  state: ChatState,
+  text: string,
+  at: number | undefined,
+  runId: string | undefined,
+  initialSendId: string | undefined,
+): ChatState {
+  const bubble: Bubble = {
+    id: state.nextId,
+    role: "user",
+    text,
+    tools: [],
+    skillLoads: [],
+    at,
+    ...(runId === undefined ? {} : { runId }),
+    ...(initialSendId === undefined ? {} : { sendId: initialSendId }),
+  };
   let insertAt = state.bubbles.length;
   const prefix = runId === undefined ? undefined : `${runId}:`;
   if (prefix !== undefined) {
@@ -1086,6 +1121,34 @@ function attachTurnEnd(
   );
 }
 
+function attachAssistantTurnEnd(
+  bubbles: Bubble[],
+  runId: string | undefined,
+  initialSendId: string | undefined,
+  outcome: RunOutcome,
+  durationMs: number,
+  currentAssistantId: number | null,
+): Bubble[] {
+  if (runId === undefined) return bubbles;
+  const prefix = `${runId}:`;
+  const initialIndex =
+    initialSendId === undefined
+      ? -1
+      : bubbles.findIndex((bubble) => bubble.role === "user" && bubble.sendId === initialSendId);
+  for (let index = bubbles.length - 1; index >= 0; index -= 1) {
+    const bubble = bubbles[index];
+    if (bubble.role !== "assistant" || bubble.text === "" || bubble.turnEnd !== undefined) continue;
+    if (bubble.assistantId !== undefined) {
+      if (!bubble.assistantId.startsWith(prefix)) continue;
+    } else if (bubble.id !== currentAssistantId && (initialIndex === -1 || index <= initialIndex)) {
+      // ID の無い旧データで開始 user より前の応答へ結末を付けない
+      continue;
+    }
+    return bubbles.map((item, position) => (position === index ? { ...item, turnEnd: { outcome, durationMs } } : item));
+  }
+  return bubbles;
+}
+
 export function chatReducer(state: ChatState, action: ChatAction): ChatState {
   switch (action.type) {
     case "newChat": {
@@ -1238,8 +1301,22 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
               }
             }
             if (userMatch === -1) {
-              // 末尾へ append すると前ターンの応答より後ろに並ぶため、状態上の位置へ戻す
-              rebuilt = insertByStatePosition(state, rebuilt, liveBubble);
+              const initialForRun =
+                payload.run?.id !== undefined &&
+                payload.run.initialSendId !== undefined &&
+                liveBubble.sendId === payload.run.initialSendId;
+              const earlyAssistant = initialForRun
+                ? rebuilt.findIndex(
+                    (bubble) =>
+                      bubble.role === "assistant" && bubble.assistantId?.startsWith(`${payload.run?.id}:`) === true,
+                  )
+                : -1;
+              if (earlyAssistant === -1) {
+                // 末尾へ append すると前ターンの応答より後ろに並ぶため、状態上の位置へ戻す
+                rebuilt = insertByStatePosition(state, rebuilt, liveBubble);
+              } else {
+                rebuilt = [...rebuilt.slice(0, earlyAssistant), liveBubble, ...rebuilt.slice(earlyAssistant)];
+              }
             } else {
               rebuilt = rebuilt.map((bubble, index) =>
                 index === userMatch
@@ -1430,7 +1507,7 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
         payload.pendingSends,
       );
       const runOutcome = runOutcomeOf(status);
-      let settledBubbles = applied.bubbles;
+      let settledBubbles = orderInitialUser(applied.bubbles, payload.run?.id, payload.run?.initialSendId);
       if (runOutcome !== undefined && payload.run?.endedAt !== undefined) {
         // ライブの run_end を観測済みならその値が正 (payload は run の所要時間を持たない)
         const initialUser = settledBubbles.find(
@@ -1452,23 +1529,14 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
           );
         }
         // user の位置に依存すると Done が消えるため、run の最後の本文あり assistant へ直接付ける
-        const prefix = `${payload.run.id}:`;
-        const initialIndex =
-          initialUser === undefined ? -1 : settledBubbles.findIndex((bubble) => bubble.id === initialUser.id);
-        for (let index = settledBubbles.length - 1; index >= 0; index -= 1) {
-          const bubble = settledBubbles[index];
-          if (bubble.role !== "assistant" || bubble.text === "" || bubble.turnEnd !== undefined) continue;
-          if (bubble.assistantId !== undefined) {
-            if (!bubble.assistantId.startsWith(prefix)) continue;
-          } else if (initialIndex !== -1 && index <= initialIndex) {
-            // ID の無い旧データで前ターンへ結末を付けない
-            continue;
-          }
-          settledBubbles = settledBubbles.map((item, position) =>
-            position === index ? { ...item, turnEnd: { outcome, durationMs } } : item,
-          );
-          break;
-        }
+        settledBubbles = attachAssistantTurnEnd(
+          settledBubbles,
+          payload.run.id,
+          payload.run.initialSendId,
+          outcome,
+          durationMs,
+          state.currentAssistantId,
+        );
       }
       return {
         ...next,
@@ -1682,7 +1750,7 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
         const known =
           base.bubbles.some((bubble) => bubble.role === "user" && bubble.text === action.prompt) ||
           base.bubbles.some((bubble) => pending.has(bubble.id) && canonicalUserText(bubble.text) === promptBody);
-        next = known ? base : insertRunUser(base, action.prompt, action.at, action.runId);
+        next = known ? base : insertRunUser(base, action.prompt, action.at, action.runId, action.initialSendId);
       }
       return {
         ...next,
@@ -2258,7 +2326,17 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
               ...settled,
               bubbles: attachTurnEnd(settled.bubbles, action.runId, initialSendId, outcome, action.durationMs),
             };
-      const bubbles = withTurnEnd.bubbles;
+      const bubbles =
+        action.runId === undefined || outcome === undefined || action.durationMs === undefined
+          ? withTurnEnd.bubbles
+          : attachAssistantTurnEnd(
+              withTurnEnd.bubbles,
+              action.runId,
+              initialSendId,
+              outcome,
+              action.durationMs,
+              state.currentAssistantId,
+            );
       return {
         ...withTurnEnd,
         bubbles,
