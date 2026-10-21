@@ -144,6 +144,16 @@ export type ChatState = {
    */
   currentRunId?: string;
   /**
+   * この実行で assistant_end まで観測した応答の本文。履歴再取得の照合で、同じターン内の
+   * 前の応答を今の応答と取り違えないために使う
+   */
+  closedAssistantTexts: string[];
+  /**
+   * assistant_end で閉じた直後の応答カード。その応答が要求したツールは次の本文より先に届くため、
+   * 次の delta が来るまではこのカードへ足す (新しいカードを空のまま作らない)
+   */
+  toolTargetAssistantId?: number;
+  /**
    * run_start で観測した run id -> 展開済みの本文。送信応答 (`echoSendId`) が run_start より遅れて
    * 届いたときに、ローカルエコーを注記込み / `/skill:` 展開済みの本文へ差し替えるために使う。
    * 直近の数件だけ持ち、対応が取れたら消す (別 run の本文を自分のエコーへ入れない)
@@ -194,6 +204,8 @@ export type ChatAction =
     } /** 送信に失敗したローカルエコーを戻す (待ち行列の末尾 = 直前に送った分) */
   | { type: "dropLocalUser" }
   | { type: "text"; delta: string; at: number }
+  /** assistant の応答が終わった。開いているカードを閉じ、次の delta を新しいカードで始める */
+  | { type: "assistantEnd" }
   | {
       type: "toolStart";
       id: string;
@@ -300,6 +312,8 @@ export const initialChatState: ChatState = {
   stateSeq: 0,
   queuedSnapshots: {},
   currentRunId: undefined,
+  closedAssistantTexts: [],
+  toolTargetAssistantId: undefined,
 };
 
 /** retryAt と serverNow の差を残り時間として控える。どちらか欠けたら undefined (推測で時刻を合成しない) */
@@ -406,22 +420,36 @@ function mergeStreamingIntoHistory(
       toolBubbleIds: rebuildTools(bubbles),
     };
   }
-  // 保存済みの同じ応答 (ライブの本文の先頭まで) を探す。空の応答は完全一致だけを対象にする
+  // 今ターンの開始 user より前の assistant へは寄せない (前ターンの同一文面を上書きしない)
+  const liveIndex = state.bubbles.findIndex((bubble) => bubble.id === liveId);
+  const turnUser =
+    liveIndex === -1
+      ? undefined
+      : state.bubbles
+          .slice(0, liveIndex)
+          .reverse()
+          .find((bubble) => bubble.role === "user");
+  const turnIndex =
+    turnUser?.sendId === undefined
+      ? -1
+      : bubbles.findIndex((bubble) => bubble.role === "user" && bubble.sendId === turnUser.sendId);
+  // 保存済みの同じ応答 (ライブの本文の先頭まで) を今ターンの範囲で探す。空の応答は完全一致だけを対象にする
   let matchIndex = -1;
-  for (let index = bubbles.length - 1; index >= 0; index -= 1) {
-    const bubble = bubbles[index];
-    if (bubble.role !== "assistant" || bubble.entryId === undefined) continue;
-    if (bubble.text === live.text || (bubble.text.length > 0 && live.text.startsWith(bubble.text))) {
-      matchIndex = index;
-      break;
+  if (turnIndex !== -1) {
+    for (let index = bubbles.length - 1; index > turnIndex; index -= 1) {
+      const bubble = bubbles[index];
+      if (bubble.role !== "assistant" || bubble.entryId === undefined) continue;
+      if (state.closedAssistantTexts.includes(bubble.text)) continue;
+      if (bubble.text === live.text || (bubble.text.length > 0 && live.text.startsWith(bubble.text))) {
+        matchIndex = index;
+        break;
+      }
     }
   }
   if (matchIndex === -1) {
-    return {
-      bubbles,
-      currentAssistantId: bubbles.some((bubble) => bubble.id === liveId) ? liveId : null,
-      toolBubbleIds: rebuildTools(bubbles),
-    };
+    // 照合できない履歴マージでライブのカードが消えていても、今ターンの応答として残す (データを失わない)
+    const kept = bubbles.some((bubble) => bubble.id === liveId) ? bubbles : [...bubbles, live];
+    return { bubbles: kept, currentAssistantId: liveId, toolBubbleIds: rebuildTools(kept) };
   }
   const history = bubbles[matchIndex];
   const liveIds = new Set(live.tools.map((card) => card.id));
@@ -516,12 +544,25 @@ function ensureAssistant(state: ChatState, at?: number): ChatState {
   return {
     ...withMeta,
     currentAssistantId: bubbleId,
+    toolTargetAssistantId: undefined,
     pendingUsage: undefined,
     pendingMetrics: undefined,
   };
 }
 
 function addToolCard(state: ChatState, card: ToolCard, at?: number): ChatState {
+  const ended =
+    state.currentAssistantId === null &&
+    state.toolTargetAssistantId !== undefined &&
+    state.bubbles.some((bubble) => bubble.id === state.toolTargetAssistantId)
+      ? state.toolTargetAssistantId
+      : undefined;
+  if (ended !== undefined) {
+    return {
+      ...updateBubble(state, ended, (bubble) => ({ ...bubble, tools: [...bubble.tools, card] })),
+      toolBubbleIds: { ...state.toolBubbleIds, [card.id]: ended },
+    };
+  }
   const withBubble = ensureAssistant(state, at);
   const bubbleId = withBubble.currentAssistantId as number;
   return {
@@ -860,6 +901,8 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
         clearedSendIds: [],
         queuedSnapshots: {},
         currentRunId: undefined,
+        closedAssistantTexts: [],
+        toolTargetAssistantId: undefined,
         liveToolIds: [],
         currentAssistantId: null,
         history: initialChatState.history,
@@ -891,22 +934,64 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
           ? state.bubbles.find((bubble) => bubble.id === state.currentAssistantId)
           : undefined;
       const legacy = keepHistory ? null : historyToBubbles(state.nextId, payload.messages ?? []);
+      const live = state.bubbles.filter((bubble) => bubble.entryId === undefined);
+      // 失敗試行は payload.messages の投影から外れている。残す応答をテキストで判断できない
+      // ときは取り消しを優先する (投影に無い閉じたカードを残さない)
+      const projectedAssistants = (payload.messages ?? [])
+        .filter((message) => message.role === "assistant")
+        .map((message) => message.text);
+      let failedAttempt: Bubble | undefined;
+      if (payload.resyncReason === "attempt_discarded") {
+        for (let index = live.length - 1; index >= 0; index -= 1) {
+          const bubble = live[index];
+          if (bubble.role !== "assistant") continue;
+          if (
+            projectedAssistants.some(
+              (text) => text === bubble.text || (bubble.text !== "" && text.startsWith(bubble.text)),
+            )
+          ) {
+            continue;
+          }
+          failedAttempt = bubble;
+          break;
+        }
+      }
       // 確定済みのライブバブル (前の run の応答 / 送信エコー) は、履歴ページが届くまで残す
-      const live = keepHistory ? state.bubbles.filter((bubble) => bubble.entryId === undefined) : [];
       const keptLive = live.filter(
-        (bubble) => bubble.role === "user" || bubble.settled === true || bubble.id === streaming?.id,
+        (bubble) =>
+          bubble.id !== failedAttempt?.id &&
+          (bubble.role === "user" || bubble.settled === true || bubble.id === streaming?.id),
       );
+      // 履歴を持たない会話でも、閉じた応答を payload.messages の再構成で落とさない
+      const retainedSettled = keepHistory
+        ? []
+        : keptLive.filter(
+            (bubble) =>
+              bubble.role === "assistant" &&
+              bubble.id !== streaming?.id &&
+              !legacy!.bubbles.some((item) => item.role === "assistant" && item.text === bubble.text),
+          );
       const bubbles = keepHistory
         ? [...state.bubbles.filter((bubble) => bubble.entryId !== undefined), ...keptLive]
-        : [...trimStreamedMessages(legacy!.bubbles, streaming), ...(streaming === undefined ? [] : [streaming])];
+        : [
+            ...trimStreamedMessages(legacy!.bubbles, streaming),
+            ...retainedSettled,
+            ...(streaming === undefined ? [] : [streaming]),
+          ];
       const nextId = keepHistory ? state.nextId : legacy!.nextId;
       const toolBubbleIds = keepHistory
         ? Object.fromEntries(bubbles.flatMap((bubble) => bubble.tools.map((card) => [card.id, bubble.id] as const)))
         : {
             ...legacy!.toolBubbleIds,
-            ...Object.fromEntries((streaming?.tools ?? []).map((card) => [card.id, streaming!.id] as const)),
+            ...Object.fromEntries(
+              [...retainedSettled, ...(streaming === undefined ? [] : [streaming])].flatMap((bubble) =>
+                bubble.tools.map((card) => [card.id, bubble.id] as const),
+              ),
+            ),
           };
-      const retainedEchoIds = new Set(keptLive.filter((bubble) => bubble.role === "user").map((bubble) => bubble.id));
+      const retainedEchoIds = new Set(
+        keepHistory ? keptLive.filter((bubble) => bubble.role === "user").map((bubble) => bubble.id) : [],
+      );
       // 履歴で置き換えたので、旧バブルを指すエコーの待ち行列は持ち越さない
       const retryState = mergeRetrySnapshot(
         state,
@@ -1012,6 +1097,11 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
         nextId: applied.nextId,
         clearedSendIds: applied.clearedSendIds,
         stateSeq: state.stateSeq + 1,
+        toolTargetAssistantId:
+          state.toolTargetAssistantId !== undefined &&
+          applied.bubbles.some((bubble) => bubble.id === state.toolTargetAssistantId)
+            ? state.toolTargetAssistantId
+            : undefined,
         // 別の会話の送信へ引き継がない
         queuedSnapshots: sessionChanged ? {} : pruneQueuedSnapshots(state.queuedSnapshots, payload.pendingSends),
       };
@@ -1245,6 +1335,9 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
         // 待機列の先頭が実行に移った瞬間だけ、リングを 1 回広げてチップを一瞬 `実行中` にする
         startingRunId: started?.queued === true ? action.runId : undefined,
         currentRunId: action.runId,
+        toolTargetAssistantId: undefined,
+        closedAssistantTexts:
+          action.runId !== undefined && action.runId === state.currentRunId ? state.closedAssistantTexts : [],
         stateSeq: state.stateSeq + 1,
         queuedSnapshots:
           action.initialSendId === undefined
@@ -1430,6 +1523,24 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
       return patchAssistant(withBubble, (b) => ({ ...b, text: b.text + (action.delta || "") }));
     }
 
+    case "assistantEnd": {
+      if (state.currentAssistantId === null) {
+        return state.toolTargetAssistantId === undefined ? state : { ...state, toolTargetAssistantId: undefined };
+      }
+      const currentId = state.currentAssistantId;
+      const current = state.bubbles.find((bubble) => bubble.id === currentId);
+      return {
+        ...state,
+        currentAssistantId: null,
+        toolTargetAssistantId: currentId,
+        bubbles: state.bubbles.map((bubble) => (bubble.id === currentId ? { ...bubble, settled: true } : bubble)),
+        closedAssistantTexts:
+          current?.text === undefined || current.text === ""
+            ? state.closedAssistantTexts
+            : [...new Set([...state.closedAssistantTexts, current.text])],
+      };
+    }
+
     case "toolStart": {
       const call: ToolCall = {
         id: action.id,
@@ -1444,7 +1555,11 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
       };
       // 保留中の run 側カードを先に補ってから新しいカードを足す (逆順だと初回の assistant バブルで
       // 新規が先頭になり、run 側の挿入順と逆のツール履歴になる)
-      const withBubble = attachRunToolCards(ensureAssistant(state, action.at), false);
+      const ended =
+        state.currentAssistantId === null &&
+        state.toolTargetAssistantId !== undefined &&
+        state.bubbles.some((bubble) => bubble.id === state.toolTargetAssistantId);
+      const withBubble = attachRunToolCards(ended ? state : ensureAssistant(state, action.at), false);
       const withRun = {
         ...withBubble,
         // ライブ表示が「今観測したツール」を見分けるための控え (payload 経由の復元カードと区別する)
@@ -1705,6 +1820,8 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
         stateSeq: state.stateSeq + 1,
         currentAssistantId: null,
         currentRunId: undefined,
+        closedAssistantTexts: [],
+        toolTargetAssistantId: undefined,
         toolBubbleIds: {},
         activity,
         activityState: undefined,

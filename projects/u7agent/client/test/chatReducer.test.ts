@@ -2146,3 +2146,254 @@ test("履歴に同じ応答の部分テキストがあっても二重カード�
   );
   assert.equal(state.currentAssistantId, streaming);
 });
+
+test("assistant_end は同じ実行の次の応答を新しいカードにし、追加入力をその間に置く", () => {
+  // What: 応答の終端でカードを閉じ、steering の user を 2 つの assistant の間に描画する
+  let state = streamingTurn();
+  const first = state.currentAssistantId;
+  state = chatReducer(state, { type: "localUser", text: "追記", at: 11 });
+  state = chatReducer(state, { type: "echoSendId", sendId: "send-2", runId: "run-1", stateSeq: state.stateSeq });
+  state = chatReducer(state, { type: "resync", payload: streamingPayload() });
+  assert.equal(state.currentAssistantId, first, "注入の resync では同じ応答を続ける");
+
+  state = chatReducer(state, { type: "assistantEnd" });
+  assert.equal(state.currentAssistantId, null, "応答の終端で次の delta の補完先を閉じる");
+  state = chatReducer(state, { type: "text", delta: "次", at: 12 });
+
+  const assistants = state.bubbles.filter((bubble) => bubble.role === "assistant");
+  assert.deepEqual(
+    assistants.map((bubble) => bubble.text),
+    ["前半", "次"],
+    "次の応答を前の応答へ連結しない",
+  );
+  const firstIndex = state.bubbles.findIndex((bubble) => bubble.text === "前半");
+  const userIndex = state.bubbles.findIndex((bubble) => bubble.role === "user" && bubble.sendId === "send-2");
+  const secondIndex = state.bubbles.findIndex((bubble) => bubble.text === "次");
+  assert.ok(firstIndex < userIndex && userIndex < secondIndex, "user は 2 つの assistant の間にある");
+
+  state = chatReducer(state, {
+    type: "runEnd",
+    runId: "run-1",
+    status: "completed",
+    queueDepth: 0,
+    durationMs: 5000,
+  });
+  const items = chatRenderItems({
+    bubbles: state.bubbles,
+    markers: [],
+    compactions: [],
+    activeContextStartId: null,
+  });
+  const withDone = items.filter((item) => item.kind === "message" && item.turnEnd !== undefined);
+  assert.deepEqual(
+    withDone.map((item) => (item.kind === "message" ? item.bubble.text : "")),
+    ["次"],
+    "Done は最後の応答だけに付く",
+  );
+});
+
+test("ツール付き応答の後も assistant_end でカードを閉じ、steering の次応答を分ける", () => {
+  // What: ツール実行 → steering 追記 → 次応答で live が 1 カードに混ざらない (GUI 受入の再現)
+  let state = streamingTurn();
+  state = chatReducer(state, { type: "assistantEnd" });
+  state = chatReducer(state, {
+    type: "toolStart",
+    id: "tool-1",
+    name: "bash",
+    args: '{"command":"true"}',
+    at: 11,
+  });
+  state = chatReducer(state, { type: "toolEnd", id: "tool-1", isError: false, output: "ok" });
+  state = chatReducer(state, { type: "localUser", text: "追記", at: 12 });
+  state = chatReducer(state, { type: "echoSendId", sendId: "send-2", runId: "run-1", stateSeq: state.stateSeq });
+  state = chatReducer(state, { type: "resync", payload: streamingPayload() });
+  state = chatReducer(state, { type: "text", delta: "追記を受け取って次の判断に反映", at: 13 });
+
+  const assistants = state.bubbles.filter((bubble) => bubble.role === "assistant");
+  assert.deepEqual(
+    assistants.map((bubble) => bubble.text),
+    ["前半", "追記を受け取って次の判断に反映"],
+  );
+  assert.deepEqual(
+    assistants[0]?.tools.map((card) => card.id),
+    ["tool-1"],
+    "ツールは前者のカードに残る",
+  );
+  assert.equal(assistants[1]?.tools.length, 0);
+  const userIndex = state.bubbles.findIndex((bubble) => bubble.sendId === "send-2");
+  assert.ok(
+    state.bubbles.findIndex((bubble) => bubble.text === "前半") < userIndex &&
+      userIndex < state.bubbles.findIndex((bubble) => bubble.text === "追記を受け取って次の判断に反映"),
+  );
+});
+
+test("前ターンの assistant は今ターンの本文一致で上書き・移動しない", () => {
+  // What: 履歴マージの照合を今ターンへ限定し、完全一致でも前ターンのカードを書き換えない
+  const page = (): HistoryPage => ({
+    sessionId: "session-a",
+    items: [
+      { kind: "message", id: "u-prev", context: "active", role: "user", text: "前の質問", runId: "run-old" },
+      {
+        kind: "message",
+        id: "a-prev",
+        context: "active",
+        role: "assistant",
+        text: "はい",
+        turnEnd: { outcome: "completed", durationMs: 80 },
+      },
+      {
+        kind: "message",
+        id: "u-now",
+        context: "active",
+        role: "user",
+        text: "今の質問",
+        sendId: "send-1",
+        runId: "run-1",
+      },
+    ],
+    prevCursor: null,
+    hasMore: false,
+    nextCursor: null,
+    activeContextStartId: "u-prev",
+    messageCount: 3,
+    summarizedMessageCount: 0,
+  });
+
+  for (const liveText of ["はい、別の応答です", "はい"]) {
+    let state = chatReducer(initialChatState, { type: "resyncHistory", page: page() });
+    state = chatReducer(state, {
+      type: "runStart",
+      runId: "run-1",
+      initialSendId: "send-1",
+      prompt: "今の質問",
+      at: 10,
+      startedAt: 10,
+    });
+    state = chatReducer(state, { type: "text", delta: liveText, at: 11 });
+    state = chatReducer(state, { type: "resync", payload: streamingPayload() });
+    state = chatReducer(state, { type: "resyncHistory", page: page() });
+
+    const previous = state.bubbles.find((bubble) => bubble.entryId === "a-prev");
+    assert.equal(previous?.text, "はい", `前ターンの本文を ${liveText} で上書きしない`);
+    assert.deepEqual(previous?.turnEnd, { outcome: "completed", durationMs: 80 }, "前ターンの Done を引き継がない");
+    const previousIndex = state.bubbles.findIndex((bubble) => bubble.entryId === "a-prev");
+    const currentUserIndex = state.bubbles.findIndex((bubble) => bubble.sendId === "send-1");
+    const live = state.bubbles.filter((bubble) => bubble.role === "assistant" && bubble.entryId === undefined);
+    assert.deepEqual(
+      live.map((bubble) => bubble.text),
+      [liveText],
+      "今ターンの応答は別カードとして残す",
+    );
+    assert.ok(previousIndex < currentUserIndex, "前ターンのカードを現在の質問より後ろへ動かさない");
+    assert.ok(currentUserIndex < state.bubbles.findIndex((bubble) => bubble.id === live[0]?.id));
+  }
+});
+
+test("assistant_end で閉じた失敗試行も attempt_discarded で捨てる", () => {
+  // What: message_end 後に届く取り消しの resync でも、閉じた失敗試行のカードを残さない
+  let state = streamingTurn();
+  state = chatReducer(state, { type: "assistantEnd" });
+  const payload = streamingPayload();
+  payload.resyncReason = "attempt_discarded";
+  state = chatReducer(state, { type: "resync", payload });
+
+  assert.equal(state.currentAssistantId, null);
+  assert.equal(
+    state.bubbles.some((bubble) => bubble.text === "前半"),
+    false,
+    "閉じた失敗試行も取り消す",
+  );
+});
+
+test("履歴ページ未取得の会話でも assistant_end のカードは継続 resync で落とさない", () => {
+  // What: 最初の会話では payload.messages から組み直す経路でも、閉じた応答と次の応答が 2 カードで残る
+  let state = chatReducer(initialChatState, {
+    type: "runStart",
+    runId: "run-1",
+    initialSendId: "send-1",
+    prompt: "質問",
+    at: 10,
+    startedAt: 10,
+  });
+  state = chatReducer(state, { type: "text", delta: "前半", at: 11 });
+  state = chatReducer(state, { type: "assistantEnd" });
+
+  const payload = streamingPayload();
+  payload.messages = [{ role: "user", text: "質問" }];
+  state = chatReducer(state, { type: "resync", payload });
+  assert.equal(
+    state.bubbles.some((bubble) => bubble.role === "assistant" && bubble.text === "前半"),
+    true,
+    "閉じた応答を payload.messages の再構成で落とさない",
+  );
+
+  state = chatReducer(state, { type: "text", delta: "後半", at: 12 });
+  assert.deepEqual(
+    state.bubbles.filter((bubble) => bubble.role === "assistant").map((bubble) => bubble.text),
+    ["前半", "後半"],
+  );
+});
+
+test("同じターンでも assistant_end で閉じた前の応答へ今の応答を寄せない", () => {
+  // What: 応答の境界を観測済みなら、同じ user ターン内の先行応答と本文が重なっても別カードのまま残す
+  const page = (assistant: boolean): HistoryPage => {
+    const items: HistoryPage["items"] = [
+      { kind: "message", id: "u-1", context: "active", role: "user", text: "質問", sendId: "send-1", runId: "run-1" },
+    ];
+    if (assistant) {
+      items.push({ kind: "message", id: "a-1", context: "active", role: "assistant", text: "はい" });
+    }
+    return {
+      sessionId: "session-a",
+      items,
+      prevCursor: null,
+      hasMore: false,
+      nextCursor: null,
+      activeContextStartId: "u-1",
+      messageCount: items.length,
+      summarizedMessageCount: 0,
+    };
+  };
+
+  let state = chatReducer(initialChatState, { type: "resyncHistory", page: page(false) });
+  state = chatReducer(state, {
+    type: "runStart",
+    runId: "run-1",
+    initialSendId: "send-1",
+    prompt: "質問",
+    at: 10,
+    startedAt: 10,
+  });
+  state = chatReducer(state, { type: "text", delta: "はい", at: 11 });
+  state = chatReducer(state, { type: "assistantEnd" });
+  state = chatReducer(state, { type: "text", delta: "はい、別の応答です", at: 12 });
+
+  state = chatReducer(state, { type: "resyncHistory", page: page(true) });
+  assert.deepEqual(
+    state.bubbles.filter((bubble) => bubble.role === "assistant").map((bubble) => [bubble.text, bubble.entryId]),
+    [
+      ["はい", "a-1"],
+      ["はい、別の応答です", undefined],
+    ],
+    "閉じた先行応答を今の応答で上書きしない",
+  );
+});
+
+test("取り消しの resync でも投影に残る完了済みの応答は消さない", () => {
+  // What: 失敗試行の取り消しで、既に保存済みの同じ run の応答カードまで巻き込まない
+  let state = streamingTurn();
+  state = chatReducer(state, { type: "assistantEnd" });
+  const payload = streamingPayload();
+  payload.messages = [
+    { role: "user", text: "質問" },
+    { role: "assistant", text: "前半" },
+  ];
+  payload.resyncReason = "attempt_discarded";
+  state = chatReducer(state, { type: "resync", payload });
+
+  assert.equal(
+    state.bubbles.some((bubble) => bubble.role === "assistant" && bubble.text === "前半"),
+    true,
+    "投影に残る応答は取り消さない",
+  );
+});

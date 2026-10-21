@@ -15,6 +15,7 @@ const EVENT_TYPES: SSEEventType[] = [
   "run_end",
   "run_retry",
   "usage",
+  "assistant_end",
   "compaction",
   "resync",
   "ping",

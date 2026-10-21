@@ -148,7 +148,7 @@ export function summarizeEventData<T extends SSEEventType>(type: T, data: DataOf
       };
     }
     default:
-      // status / queue_cleared / usage / run_end / run_retry / session_deleted は本文を含まない
+      // status / queue_cleared / usage / assistant_end / run_end / run_retry / session_deleted は本文を含まない
       return data;
   }
 }

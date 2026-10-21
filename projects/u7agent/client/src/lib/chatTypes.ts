@@ -101,8 +101,8 @@ export type Bubble = {
    */
   queuePosition?: number;
   /**
-   * run が終わって確定したライブバブル (履歴ページがまだ拾っていない分)。resync で捨てずに残し、
-   * 履歴ページが届いたら entryId 付きのバブルと置き換える。未確定のストリーミング中だけ false。
+   * 応答が終わって確定したライブバブル (assistant_end / run_end。履歴ページがまだ拾っていない分)。
+   * resync で捨てずに残し、履歴ページが届いたら entryId 付きのバブルと置き換える
    */
   settled?: boolean;
   at?: number;

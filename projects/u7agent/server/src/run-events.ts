@@ -258,6 +258,8 @@ export function createRunEventBridge(deps: RunEventBridgeDeps): RunEventBridge {
             if (usage || metrics) {
               emit("usage", { usage, metrics, context: contextUsageOf(session) });
             }
+            // usage を先に配ってから閉じる (usage は開いている応答へ付く)
+            emit("assistant_end", {});
             assistantStartedAt = undefined;
             firstTokenAt = undefined;
           }

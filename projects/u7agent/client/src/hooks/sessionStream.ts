@@ -123,6 +123,9 @@ export function applySessionEvent(entry: EventEntry, deps: SessionStreamDeps): v
         context: entry.data.context,
       });
       return;
+    case "assistant_end":
+      dispatch({ type: "assistantEnd" });
+      return;
     case "compaction":
       dispatch({ type: "compaction", compaction: entry.data.compaction, count: entry.data.count });
       return;

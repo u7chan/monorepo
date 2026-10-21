@@ -1868,6 +1868,11 @@ export const EventDataSchemas = {
     metrics: MessageMetricsSchema.optional(),
     context: ContextUsageSchema.optional(),
   }),
+  /**
+   * assistant の応答が終わった (message_end)。クライアントは開いている応答カードを閉じ、
+   * 続く delta を次のカードへ入れる。usage とは別で、payload を持たない
+   */
+  assistant_end: z.object({}),
   run_end: z.object({
     runId: z.string().optional(),
     status: RunStatusSchema,

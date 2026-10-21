@@ -585,6 +585,13 @@ test("emits usage per assistant message and keeps it in the payload for resync",
   assert.ok(usageEvent, "assistant の message_end で usage を 1 件出す");
   assert.equal(types.filter((type) => type === "usage").length, 1);
   assert.ok(types.indexOf("usage") < types.indexOf("run_end"), "バブルが開いている間に届く");
+  assert.equal(
+    types.filter((type) => type === "assistant_end").length,
+    1,
+    "assistant の message_end ごとに応答の終端を 1 件出す",
+  );
+  assert.ok(types.indexOf("usage") < types.indexOf("assistant_end"), "usage の後に閉じる");
+  assert.ok(types.indexOf("assistant_end") < types.indexOf("run_end"), "run_end より前に閉じる");
 
   assert.deepEqual(usageEvent.data.usage, STUB_USAGE);
   assert.ok(usageEvent.data.metrics, "BFF 計測の応答時間が入る");

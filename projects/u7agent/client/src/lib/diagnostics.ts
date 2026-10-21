@@ -94,6 +94,8 @@ export function summarizeEvent(entry: EventEntry): Record<string, unknown> {
       return { sendIds: entry.data.sendIds ?? [] };
     case "usage":
       return { hasUsage: entry.data.usage !== undefined, hasContext: entry.data.context !== undefined };
+    case "assistant_end":
+      return {};
     case "run_end":
       return {
         runId: entry.data.runId ?? null,
