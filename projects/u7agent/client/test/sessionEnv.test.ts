@@ -4,6 +4,7 @@ import test from "node:test";
 import {
   canSubmitEnvDraft,
   canSubmitEnvValue,
+  ENV_KIND_LEGEND,
   ENV_PROJECT_NOTE,
   ENV_RESTART_NOTE,
   ENV_SAVE_LABEL,
@@ -50,9 +51,20 @@ test("種別のラベルと説明は値の見え方を先に示す", () => {
   assert.ok(ENV_SECRET_NOTES.includes("シークレットはこの会話上では参照できません"));
   assert.ok(ENV_SECRET_NOTES.includes("保存後に値を再取得できません"));
   assert.ok(ENV_VARIABLE_NOTES.some((note) => note.includes("printenv")));
-  // 注入先はアプリではなく serve の起動経路として書く
-  assert.ok(ENV_SECRET_NOTES.includes("サービスとして起動したときだけ参照できます"));
-  assert.equal(ENV_RESTART_NOTE, "シークレットの変更は次回の起動から反映されます");
+  // 注入先はアプリではなく serve の起動経路として書き、変数とシークレットの違いを「だけ」で読み違えさせない
+  assert.ok(ENV_SECRET_NOTES.includes("サービスとして起動したときに参照できます"));
+  assert.ok(ENV_VARIABLE_NOTES.includes("サービスの起動プロセスにも入ります"));
+  assert.ok(!ENV_SECRET_NOTES.some((note) => note.includes("だけ")));
+  assert.ok(!ENV_VARIABLE_NOTES.some((note) => note.includes("だけ")));
+  assert.equal(
+    ENV_RESTART_NOTE,
+    "変数の変更は次の bash から、シークレットの変更は次回の起動から反映されます（起動中のサービスは古い値のまま）",
+  );
+  // 凡例は一覧に常時出し、種別ごとの見える範囲を変数の側からも読めるようにする
+  assert.equal(
+    ENV_KIND_LEGEND,
+    "変数はエージェントの bash にも渡ります。シークレットはエージェントの bash には渡らず、サービスとして起動したときの process.env に入ります。",
+  );
   assert.equal(ENV_PROJECT_NOTE, "このプロジェクトの設定です");
   assert.equal(ENV_TRIM_NOTE, "前後に空白 / 改行があったため除去しました");
 });
