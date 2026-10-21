@@ -1,6 +1,6 @@
 import type { Context } from "hono";
 import { messageFor, statusCodeOf } from "../http";
-import type { CreateSecretBody, UpdateSecretBody } from "../schema";
+import type { CreateSecretBody, ReorderSecretsBody, UpdateSecretBody } from "../schema";
 import type { SecretScopeResolver, SecretService } from "../secrets";
 
 /**
@@ -53,6 +53,15 @@ export function createSecretRoutes({ secrets, scope }: { secrets: SecretService;
       try {
         const resolved = scope.resolve({ sessionId: body.sessionId, projectId: body.projectId });
         return c.json(secrets.updateValue(resolved, c.req.param("secretId") ?? "", body.value));
+      } catch (error) {
+        return failure(c, error);
+      }
+    },
+
+    reorder: async (c: Context, body: ReorderSecretsBody) => {
+      try {
+        const resolved = scope.resolve({ sessionId: body.sessionId, projectId: body.projectId });
+        return c.json(secrets.reorder(resolved, body.ids));
       } catch (error) {
         return failure(c, error);
       }

@@ -41,6 +41,7 @@ import {
   PostMessageBodySchema,
   RenameFileBodySchema,
   ReorderAgentsBodySchema,
+  ReorderSecretsBodySchema,
   ReorderSpacesBodySchema,
   SpeechPreviewBodySchema,
   UpdateAgentBodySchema,
@@ -420,6 +421,15 @@ export async function createBffApp(opts: CreateBffAppOptions = {}) {
         result.success ? undefined : c.json({ error: "Invalid request body" }, 400),
       ),
       (c) => secretRoutes.create(c, c.req.valid("json")),
+    )
+    // 静的セグメントは /api/secrets/:secretId より前に置く
+    .patch(
+      "/api/secrets/order",
+      appDataMutation,
+      jsonBodyValidator(ReorderSecretsBodySchema, (result, c) =>
+        result.success ? undefined : c.json({ error: "Invalid request body" }, 400),
+      ),
+      (c) => secretRoutes.reorder(c, c.req.valid("json")),
     )
     .get("/api/secrets/:secretId", appData, secretRoutes.detail)
     .put(

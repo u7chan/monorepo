@@ -57,12 +57,13 @@ export function EnvValueBox({ value, failure, expanded, copied, onToggle, onCopy
 
   return (
     <div className="grid justify-items-start gap-0.5">
-      <div className="flex w-full min-w-0 items-center gap-1.5 rounded-lg border border-line px-2 py-1">
+      {/* 行のカードの中に枠を重ねない (箱は行の中の 1 行として出す) */}
+      <div className="flex w-full min-w-0 items-center gap-1.5">
         <code
           ref={codeRef}
           id={codeId}
           className={cn(
-            "min-w-0 flex-1 font-mono text-xs wrap-anywhere whitespace-pre-wrap text-ink-strong",
+            "min-w-0 flex-1 font-mono text-xs wrap-anywhere whitespace-pre-wrap text-ink-muted",
             // clamp は上限なので、短い値の行高は増えない (2 行へ固定しない)
             expanded ? "" : "line-clamp-2",
           )}
@@ -86,8 +87,8 @@ export function EnvValueBox({ value, failure, expanded, copied, onToggle, onCopy
             aria-label={copied ? "コピーしました" : "値をコピー"}
             title={copied ? "コピーしました" : "値をコピー"}
             className={cn(
-              "grid size-7 shrink-0 place-items-center rounded-md border border-line transition-colors",
-              copied ? "text-ok" : "text-ink-faint hover:border-accent/50 hover:text-accent-text",
+              "grid size-6 shrink-0 place-items-center rounded-md transition-colors",
+              copied ? "text-ok" : "text-ink-faint hover:bg-raised hover:text-accent-text",
             )}
           >
             {copied ? <CheckIcon /> : <CopyIcon />}

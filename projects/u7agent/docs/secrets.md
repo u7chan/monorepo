@@ -56,11 +56,11 @@ SDK はツール出力をいくつかの方法で切り詰める。キーが切�
 - `server/test/content-settings.test.ts` / `server/test/content-settings-api.test.ts` — 画像キーのマスカー登録順序（DB より前・起動時）、DB 例外にキーが載っても応答・health・ログに出ないこと、ローカル定義（`generate_image`）の throw のマスク（`server/test/image-tools.test.ts`）。`web_search` も切り詰めの前のマスクと throw のマスクを `server/test/web-search-tool.test.ts` で、Web 検索キーの登録順序（DB より前・起動時）と応答に値を載せないことを `server/test/web-search-settings.test.ts` / `server/test/web-search-settings-api.test.ts` で固定する
 - `server/test/app-db.test.ts` — `sanitizeError` が `#query` のログ・`#error`・`open()` の失敗の両方に効くこと。secrets の加算移行、新しい schema での作り直しでも秘密が消えないこと、並びと値列の排他
 - `server/test/secret-crypto.test.ts` — AEAD の往復、nonce を再利用しないこと、AAD 不一致 / 改ざん / 誤鍵 / 未知の鍵版の拒否、master key の書式と解決
-- `server/test/secrets.test.ts` — 名前と値の規則、cwd スコープの照合 (他会話の `secret_id` は 404)、一覧が名前・種別・更新時刻だけを返すこと、世代、起動 env の解決とマスカー登録 (8 文字未満は登録しない)
-- `server/test/secrets-api.test.ts` — API の往復、シークレットの値がどの応答にも載らないこと、別 cwd の参照 / 変更 / 削除の拒否、master key 未設定の 503 `not_stored`
+- `server/test/secrets.test.ts` — 名前と値の規則、cwd スコープの照合 (他会話の `secret_id` は 404)、一覧が名前・種別・更新時刻だけを返すこと、世代、並べ替えの正規化と永続、起動 env の解決とマスカー登録 (8 文字未満は登録しない)
+- `server/test/secrets-api.test.ts` — API の往復、シークレットの値がどの応答にも載らないこと、別 cwd の参照 / 変更 / 削除の拒否、並べ替えの保存と別 cwd の id の無視、master key 未設定の 503 `not_stored`
 - `server/test/serve.test.ts` — 起動時の環境変数がコマンド文字列へ入らず exec の env として渡ること、`secretGeneration` が記録に載り値は載らないこと、解決失敗で起動しないこと
 - `server/test/sandbox-service.test.ts` — 注入した env が bash の子プロセスへ入り、予約名 / 不正な名前は 400、master key は子プロセスへ漏れないこと
-- `client/test/sessionEnv.test.ts` — 名前のプレビュー、種別ごとの文言、短い値の注記、追加フォームの送信可否、要求元 (sessionId / projectId) の解決、編集 / 変更の語
+- `client/test/sessionEnv.test.ts` — 名前のプレビュー、種別ごとの文言、短い値の注記、追加フォームの送信可否、要求元 (sessionId / projectId) の解決、編集 / 変更の語、並べ替えの下書きの合成
 - `client/test/envValue.test.ts` — 値が 2 行に収まるかの判定、開閉の文言、`<wbr>` を入れる分割位置
 - `server/test/redact.test.ts` — `createMutableSecretMasker` の swap（追加・置換・失敗時の原子性）と、先に作った streaming masker が swap 後の値を保留幅に使うこと
 
@@ -104,7 +104,7 @@ SDK はツール出力をいくつかの方法で切り詰める。キーが切�
 - 前後の空白 / 改行は除去して保存する。除去したときだけ応答の `trimmed` が true になり、UI が「前後に空白 / 改行があったため除去しました」を 1 行出す（無言で加工しない）
 - 空値は不可（未設定にしたいときは削除する）
 - 一覧は名前・種別・更新時刻だけを返す。値を返す API は**変数**の詳細（`GET /api/secrets/:secretId`）だけで、シークレットの値は保存後にどの経路でも返らない。画面は一覧のあとに変数行の詳細だけを並列に引いて値を表示する（一覧 API の契約は変えない）
-- 並びは `sortOrder`（追加は `MAX + 1`、削除で詰めない）→ 名前順。並べ替え UI は無い（列だけ用意する）
+- 並びは `sortOrder`（追加は `MAX + 1`、削除で詰めない）→ 名前順。一覧のグリップで並べ替えられ、`PATCH /api/secrets/order` が渡された順に 1..n を振り直す（未知・重複・別 cwd の id は捨て、渡されなかった行は末尾）。並びは cwd ごとに保存され、値も世代も変えない（注入内容が同じなので、起動中のサービスに「再起動で反映」を出さない）
 
 ### 注入経路
 
@@ -112,7 +112,7 @@ SDK はツール出力をいくつかの方法で切り詰める。キーが切�
 - **変数 + シークレット**: `serve` の起動時 env として渡す（`start` と、自分で確かめるための `debug_start` で同じ）。起動スクリプト（`launchScript`）のコマンド文字列へは埋め込まない（base64 化もしない）
 - 起動時の解決は**起動元の作業フォルダ**から行い、解決に失敗したら起動しない（平文で保存し直す / 秘密なしで起動する、のどちらもしない）。既に動いているサービスは古い値のままなので、シークレットの変更は次回の起動から反映する
 - `[REDACTED]` はマスクが効いた結果で、注入されたことの証明にはならない。マスカーは BFF の起動時に作業環境のシークレットを読み直さないため、値が返っても伏せられないことがある。注入の有無は、値を出さない存在確認（`bash` は変数の有無、起動プロセスは `process.env` のキーの有無）で切り分ける
-- `ServeRecord.secretGeneration` に起動時に解決した世代（名前 → `secret_id` / 更新世代のハッシュ）を残し、`GET /api/secrets` の `generation` と比べると「再起動で反映される変更がある」と分かる。UI はタブ上部の説明 1 行までで、行ごとの未反映バッジと再起動ボタンは次のフェーズ
+- `ServeRecord.secretGeneration` に起動時に解決した世代（名前 → `secret_id` / 更新世代のハッシュ）を残し、`GET /api/secrets` の `generation` と比べると「再起動で反映される変更がある」と分かる。UI は一覧上部の凡例までで、行ごとの未反映バッジと再起動ボタンは次のフェーズ
 - サンドボックスは受け取った名前を `isInjectableEnvName` で再検証し（BFF を経由しない呼び出しへの防御）、`PI_SANDBOX_TOKEN` と master key の env を子プロセスから剥がす
 
 ### master key と保存時の暗号化
