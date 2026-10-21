@@ -382,6 +382,11 @@ test("SDK の user 注入を観測した時点で resync を配り、待機か�
         (entry.data.pendingSends ?? []).some((item) => item.sendId === second.sendId && item.state === "running"),
     );
     assert.ok(injectedResync, "注入を観測した resync が届く");
+    assert.equal(
+      injectedResync.type === "resync" ? injectedResync.data.resyncReason : "unexpected",
+      undefined,
+      "注入の resync は同じ実行の継続 (未確定の応答を捨てない)",
+    );
     const runStartIndex = events.findIndex((entry) => entry.type === "run_start");
     assert.ok(runStartIndex >= 0 && events.indexOf(injectedResync) > runStartIndex);
     assert.equal(first.sendId !== second.sendId, true);

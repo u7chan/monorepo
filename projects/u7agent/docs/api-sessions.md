@@ -529,7 +529,7 @@ SSE（`text/event-stream`）でイベントを購読。カーソルは `Last-Eve
 | `run_end` | `{ runId, status, durationMs?, error, errorCode?, messageCount, queueDepth, totalRetryCount?, context? }`（同じ SDK 実行で 1 回だけ。`runId` は retry / steering で変わらない）（`messageCount` は一覧 API と同じ表示メッセージ数。`durationMs` は BFF 計測のラン全体の所要時間で、キュー待ちと回答待ち（`ask_user` の実行区間）は含めず `startRun()` から `finish()` までを測る。完了 / 停止 / エラーのいずれでも載り、クライアントは同じ値と `status` をその run の user パブルへ写してターン最後の応答のメタ行（`Done · 1m 20s`）に残す（履歴経路は `history` の `turnEnd` と `runDurationMs` / `runOutcome` が正）。状態行には活動の語（`完了`）だけを残し、時間は会話側と二重に出さない。`errorCode` は `status === "error"` のときだけ載る最終失敗の分類コードで、`error` と組になる） |
 | `usage` | `{ usage?, metrics?, context? }`（assistant の `message_end` ごとに 1 件。usage はプロバイダが報告したときだけ、metrics は BFF 計測、context は SDK の `getContextUsage()` だが履歴反映前なので確定値は `run_end` 側） |
 | `compaction` | `{ compaction, count }`（`compaction_end` ごとに 1 件。`compaction` は payload の `compactions` の要素 1 つ、`count` はその時点の累計回数。run の自動圧縮では続けて同じ状態を持つ `resync` が届く（送信メッセージを履歴へ入れる前に圧縮が走った場合は、そのメッセージが入ってから届く）。手動圧縮では resync を配らず、保存の完了後に終端 `resync` が 1 回届く。`result` が無い / `aborted` / `errorMessage` ありのときは `compaction` も `resync` も配らない） |
-| `resync` | セッションペイロード全体（バッファを逃した場合・世代が一致しない場合と、手動圧縮の開始 / 終端） |
+| `resync` | セッションペイロード全体（バッファを逃した場合・世代が一致しない場合と、手動圧縮の開始 / 終端、追加入力の注入・保存確定）。失敗試行の取り消し（`context_edit`）では `resyncReason: "attempt_discarded"` を載せ、それ以外は省略する。省略は同じ実行の継続を表し、クライアントはストリーミング中の assistant を捨てない |
 | `session_deleted` | `{ sessionId }`（削除時。送出後に接続を閉じる。移動は送らずに close する） |
 | `ping` | `{}`（接続直後と 15 秒ごとの生存確認。`id` 無し = カーソルを動かさない） |
 
@@ -537,7 +537,7 @@ SSE（`text/event-stream`）でイベントを購読。カーソルは `Last-Eve
 
 ### 失敗試行の取り消しとエラーの公開契約
 
-- 再試行対象になった失敗 assistant の途中テキストは、SDK が `context_edit` を追加して投影を更新した後に届く `resync` で表示から取り消す（`resync.messages` が正）。失敗試行と次の試行のテキストは連結しない。確定済みのツール履歴・先行する正常な assistant は残る。
+- 再試行対象になった失敗 assistant の途中テキストは、SDK が `context_edit` を追加して投影を更新した後に届く `resync`（`resyncReason: "attempt_discarded"`）で表示から取り消す（`resync.messages` が正）。失敗試行と次の試行のテキストは連結しない。確定済みのツール履歴・先行する正常な assistant は残る。
 - `run_end.error` / `payload.run.error` / `resync` のエラーは、共通の分類（恒久的な利用枠 → 認証 → コンテキスト超過 → `rate_limit` → `unknown`）を通した定型日本語だけを配る。プロバイダーの生エラー（組織ID・APIキーを含み得る）は公開経路へ出さない。最終失敗の文言には再試行のスケジュール累計と原因別の操作案内を含める。
 - `run_end.errorCode` / `payload.run.errorCode` は同じ分類コードで、`status === "error"` のときだけ載る（停止要求と例外が同時に起きたときは `stopped` を正とする）。分類コードは `run.error` の再実装ではなく、クライアントが再実行カードを出すかの判断にだけ使う。
 - 分類・文言の定義と SDK イベントの対応は [run-lifecycle.md](run-lifecycle.md#自動再試行sdk-の-retry) / [run-lifecycle.md](run-lifecycle.md#失敗の分類と公開契約) を正とする。

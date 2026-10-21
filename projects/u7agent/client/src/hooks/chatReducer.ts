@@ -139,6 +139,11 @@ export type ChatState = {
    */
   queuedSnapshots: Record<string, { position: number }>;
   /**
+   * 実行中の run id。resync が同じ実行の継続か、前の応答を捨てる取り消しかを取り違えないために持つ
+   * (ストリーミング中の assistant を続けてよいのは同じ run の resync だけ)
+   */
+  currentRunId?: string;
+  /**
    * run_start で観測した run id -> 展開済みの本文。送信応答 (`echoSendId`) が run_start より遅れて
    * 届いたときに、ローカルエコーを注記込み / `/skill:` 展開済みの本文へ差し替えるために使う。
    * 直近の数件だけ持ち、対応が取れたら消す (別 run の本文を自分のエコーへ入れない)
@@ -294,6 +299,7 @@ export const initialChatState: ChatState = {
   runInitialSendIds: {},
   stateSeq: 0,
   queuedSnapshots: {},
+  currentRunId: undefined,
 };
 
 /** retryAt と serverNow の差を残り時間として控える。どちらか欠けたら undefined (推測で時刻を合成しない) */
@@ -607,6 +613,16 @@ function withoutQueuedSnapshots(
   return next;
 }
 
+/** payload.messages が既に含む応答へ、ライブのテキストを二重に積まない */
+function trimStreamedMessages(bubbles: Bubble[], streaming: Bubble | undefined): Bubble[] {
+  if (streaming === undefined) return bubbles;
+  const last = bubbles[bubbles.length - 1];
+  if (last?.role !== "assistant") return bubbles;
+  // 投影の本文はストリーミングの累積と一致する (マスク済み)。一致しなければ投影を正とする
+  if (last.text !== streaming.text && !streaming.text.startsWith(last.text)) return bubbles;
+  return bubbles.slice(0, -1);
+}
+
 function sendStateOf(send: PendingSend): Pick<Bubble, "queued" | "queuedState" | "queuePosition" | "runId"> {
   if (send.state === "queued" || send.state === "steering") {
     return {
@@ -780,6 +796,7 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
         pendingEchoIds: [],
         clearedSendIds: [],
         queuedSnapshots: {},
+        currentRunId: undefined,
         liveToolIds: [],
         currentAssistantId: null,
         history: initialChatState.history,
@@ -799,18 +816,33 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
       // ページ取得に一時的に失敗しても、取り込み済みの履歴がある間は payload.messages で組み直さない
       // (messages は有効コンテキストの投影で、圧縮後の残りが tool 呼び出しだけなら空にもなる)
       const keepHistory = !sessionChanged && (state.history.supported || holdsFetchedHistory(state));
+      // 未確定の assistant を捨てるのは失敗試行の取り消し (context_edit) だけ。同じ run の継続
+      // (追加入力の注入・保存確定など) で捨てると、続く delta が別カードになり live と履歴が食い違う
+      const resumingRun =
+        payload.resyncReason === undefined &&
+        status === "running" &&
+        payload.run?.id !== undefined &&
+        payload.run.id === state.currentRunId;
+      const streaming =
+        resumingRun && state.currentAssistantId !== null
+          ? state.bubbles.find((bubble) => bubble.id === state.currentAssistantId && bubble.entryId === undefined)
+          : undefined;
       const legacy = keepHistory ? null : historyToBubbles(state.nextId, payload.messages ?? []);
-      // 確定済みのライブバブル (前の run の応答 / 送信エコー) は、履歴ページが届くまで残す。未確定の
-      // ストリーミング中の assistant だけを捨てる (context_edit の resync で失敗試行を取り消す契約)
+      // 確定済みのライブバブル (前の run の応答 / 送信エコー) は、履歴ページが届くまで残す
       const live = keepHistory ? state.bubbles.filter((bubble) => bubble.entryId === undefined) : [];
-      const keptLive = live.filter((bubble) => bubble.role === "user" || bubble.settled === true);
+      const keptLive = live.filter(
+        (bubble) => bubble.role === "user" || bubble.settled === true || bubble.id === streaming?.id,
+      );
       const bubbles = keepHistory
         ? [...state.bubbles.filter((bubble) => bubble.entryId !== undefined), ...keptLive]
-        : legacy!.bubbles;
+        : [...trimStreamedMessages(legacy!.bubbles, streaming), ...(streaming === undefined ? [] : [streaming])];
       const nextId = keepHistory ? state.nextId : legacy!.nextId;
       const toolBubbleIds = keepHistory
         ? Object.fromEntries(bubbles.flatMap((bubble) => bubble.tools.map((card) => [card.id, bubble.id] as const)))
-        : legacy!.toolBubbleIds;
+        : {
+            ...legacy!.toolBubbleIds,
+            ...Object.fromEntries((streaming?.tools ?? []).map((card) => [card.id, streaming!.id] as const)),
+          };
       const retainedEchoIds = new Set(keptLive.filter((bubble) => bubble.role === "user").map((bubble) => bubble.id));
       // 履歴で置き換えたので、旧バブルを指すエコーの待ち行列は持ち越さない
       const retryState = mergeRetrySnapshot(
@@ -835,7 +867,8 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
         nextId,
         // 残したローカルエコー以外の待ちは持ち越さない
         pendingEchoIds: state.pendingEchoIds.filter((id) => retainedEchoIds.has(id)),
-        currentAssistantId: null,
+        currentAssistantId: streaming?.id ?? null,
+        currentRunId: status === "running" ? payload.run?.id : undefined,
         toolBubbleIds,
         runTools,
         // 履歴モードでは区切りを履歴ページが正とし、旧 payload では messages の index から復元する
@@ -1148,6 +1181,7 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
         runError: undefined,
         // 待機列の先頭が実行に移った瞬間だけ、リングを 1 回広げてチップを一瞬 `実行中` にする
         startingRunId: started?.queued === true ? action.runId : undefined,
+        currentRunId: action.runId,
         stateSeq: state.stateSeq + 1,
         queuedSnapshots:
           action.initialSendId === undefined
@@ -1607,6 +1641,7 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
         pendingEchoIds,
         stateSeq: state.stateSeq + 1,
         currentAssistantId: null,
+        currentRunId: undefined,
         toolBubbleIds: {},
         activity,
         activityState: undefined,

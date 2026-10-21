@@ -10,7 +10,7 @@ import type { PiSessionEventListener, PiSessionLike } from "./pi-runtime";
 import { contextUsageOf, lastAssistantMessage, parseUsage } from "./pi-runtime";
 import { createStreamingSecretMasker, type SecretMasker } from "./redact";
 import type { CompactionMeta } from "./session-record";
-import type { MessageMetrics, SSEEventData, SSEEventType, ToolCall, ToolTiming } from "./schema";
+import type { MessageMetrics, ResyncReason, SSEEventData, SSEEventType, ToolCall, ToolTiming } from "./schema";
 import {
   classifySkillRead,
   askUserAnswersOf,
@@ -81,7 +81,7 @@ export interface RunEventBridgeDeps {
   /** compaction entry に残らない値を entry id で控える */
   compactionMeta: Map<string, CompactionMeta>;
   emit: <T extends SSEEventType>(type: T, data: SSEEventData[T]) => void;
-  emitResync: () => void;
+  emitResync: (reason?: ResyncReason) => void;
   /** message_end / compaction_end のたびに呼ぶ。SDK は通知後に entry を append するため、呼び出し側で 1 拍置く */
   onPersist?: () => void;
   /**
@@ -382,7 +382,8 @@ export function createRunEventBridge(deps: RunEventBridgeDeps): RunEventBridge {
             queueMicrotask(() => {
               if (finished) return;
               discardAttempt();
-              emitResync();
+              // 未確定の応答を捨てるのは失敗試行の取り消しだけ (通常の resync は同じ実行の継続)
+              emitResync("attempt_discarded");
             });
           }
           break;

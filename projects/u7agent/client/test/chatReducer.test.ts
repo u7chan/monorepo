@@ -1893,3 +1893,119 @@ test("送信IDが結び付く前の queued も、注入・保存を示す新し�
   assert.deepEqual(queuedSendsOf(late.bubbles), [], "古い待機スナップショットで queued に戻さない");
   assert.equal(late.bubbles.find((bubble) => bubble.sendId === "send-1")?.queued, undefined);
 });
+
+/** 実行中の resync (run 付き) を作る */
+function streamingPayload(): SessionPayload {
+  const payload = runningPayload();
+  payload.status = "running";
+  payload.run = {
+    id: "run-1",
+    status: "running",
+    startedAt: 10,
+    prompt: "質問",
+    toolCalls: [],
+    totalRetryCount: 0,
+  };
+  return payload;
+}
+
+test("新しい会話のストリーミング中も、同じ実行の resync は応答を 1 カードに保つ", () => {
+  // What: 追加入力の注入で resync が届いても、続く delta が同じ assistant へ入り live のカードが割れない
+  let state = chatReducer(initialChatState, {
+    type: "runStart",
+    runId: "run-1",
+    initialSendId: "send-1",
+    prompt: "質問",
+    at: 10,
+    startedAt: 10,
+  });
+  state = chatReducer(state, { type: "text", delta: "前半", at: 11 });
+  const streaming = state.currentAssistantId;
+  assert.notEqual(streaming, null);
+
+  const payload = streamingPayload();
+  payload.messages = [{ role: "user", text: "質問" }];
+  state = chatReducer(state, { type: "resync", payload });
+  assert.equal(state.currentAssistantId, streaming, "補完先を維持する");
+  assert.equal(state.currentRunId, "run-1");
+
+  state = chatReducer(state, { type: "text", delta: "後半", at: 12 });
+  assert.deepEqual(
+    state.bubbles.filter((bubble) => bubble.role === "assistant").map((bubble) => bubble.text),
+    ["前半後半"],
+    "同じバブルへ連結する",
+  );
+});
+
+test("同じ実行の resync の後も Done は 1 枚になった最終応答へ付く", () => {
+  // What: 継続の resync を挟んでも Done が分割されず、最後の本文あり応答の 1 か所だけに出る
+  let state = chatReducer(historyWithOld(), { type: "localUser", text: "質問", at: 10 });
+  state = chatReducer(state, { type: "echoSendId", sendId: "send-1", runId: "run-1", stateSeq: state.stateSeq });
+  state = chatReducer(state, {
+    type: "runStart",
+    runId: "run-1",
+    initialSendId: "send-1",
+    prompt: "質問",
+    at: 10,
+    startedAt: 10,
+  });
+  state = chatReducer(state, { type: "text", delta: "前半", at: 11 });
+  const streaming = state.currentAssistantId;
+  state = chatReducer(state, { type: "resync", payload: streamingPayload() });
+  assert.equal(state.currentAssistantId, streaming);
+  state = chatReducer(state, { type: "text", delta: "後半", at: 12 });
+  state = chatReducer(state, {
+    type: "runEnd",
+    runId: "run-1",
+    status: "completed",
+    queueDepth: 0,
+    durationMs: 5000,
+  });
+  assert.equal(state.currentRunId, undefined);
+
+  const assistants = chatRenderItems({
+    bubbles: state.bubbles,
+    markers: [],
+    compactions: [],
+    activeContextStartId: null,
+  }).filter((item) => item.kind === "message" && item.bubble.role === "assistant");
+  assert.deepEqual(
+    assistants.map((item) => (item.kind === "message" ? item.bubble.text : "")),
+    ["前半後半"],
+  );
+  assert.deepEqual(assistants[0]?.kind === "message" ? assistants[0].turnEnd : undefined, {
+    outcome: "completed",
+    durationMs: 5000,
+  });
+});
+
+test("失敗試行の取り消しを意図する resync だけが未確定の応答を捨てる", () => {
+  // What: context_edit 由来の resync は従来どおり未確定バブルを捨て、次の応答を新しいカードで始める
+  let state = chatReducer(initialChatState, {
+    type: "runStart",
+    runId: "run-1",
+    prompt: "質問",
+    at: 10,
+    startedAt: 10,
+  });
+  state = chatReducer(state, { type: "text", delta: "失敗した試行", at: 11 });
+  const payload = streamingPayload();
+  payload.resyncReason = "attempt_discarded";
+  state = chatReducer(state, { type: "resync", payload });
+  assert.equal(state.currentAssistantId, null);
+  assert.equal(
+    state.bubbles.some((bubble) => bubble.text === "失敗した試行"),
+    false,
+    "取り消した試行の本文を残さない",
+  );
+
+  state = chatReducer(state, { type: "text", delta: "やり直し", at: 12 });
+  assert.equal(
+    state.bubbles
+      .filter((bubble) => bubble.role === "assistant")
+      .map((bubble) => bubble.text)
+      .at(-1),
+    "やり直し",
+    "取り消した本文を持ち越さない",
+  );
+});

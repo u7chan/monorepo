@@ -96,6 +96,7 @@ import type {
   EventEntry,
   ModelRef,
   Project,
+  ResyncReason,
   RunStatus,
   SessionCompactionResult,
   SessionDiagnostics,
@@ -957,9 +958,10 @@ export class SessionStore {
   }
 
   /** resync は payload と同じ lastSeq を持つ (クライアントのカーソルになる) */
-  emitResync(record: SessionRecord): SessionPayload {
+  emitResync(record: SessionRecord, reason?: ResyncReason): SessionPayload {
     const payload = this.payload(record);
     payload.lastSeq = record.seq + 1;
+    if (reason !== undefined) payload.resyncReason = reason;
     this.emit(record, "resync", payload);
     return payload;
   }
@@ -2599,8 +2601,8 @@ export class SessionStore {
       compactionMeta: record.compactionMeta,
       emit: (type, data) => this.emit(record, type, data),
       // 遅延した resync (context_edit の microtask) が次のランへ漏れないよう、ラン ID を確認してから配る
-      emitResync: () => {
-        if (record.run === run && run.status === "running") this.emitResync(record);
+      emitResync: (reason) => {
+        if (record.run === run && run.status === "running") this.emitResync(record, reason);
       },
       // SDK は listener 通知の後に entry を append する。1 拍置いてから読む (保存点の順序テストあり)
       onPersist: () => queueMicrotask(() => void this.persist(record)),

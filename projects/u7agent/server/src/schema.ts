@@ -528,6 +528,13 @@ export const SessionHandoffStateSchema = z.object({
 });
 export type SessionHandoffState = z.infer<typeof SessionHandoffStateSchema>;
 
+/**
+ * SSE の `resync` を配った理由。`attempt_discarded` は失敗試行の取り消し (SDK の context_edit) で、
+ * 未確定のストリーミング応答を表示から捨てる唯一の理由。省略は同じ実行の継続を表す
+ */
+export const ResyncReasonSchema = z.enum(["attempt_discarded"]);
+export type ResyncReason = z.infer<typeof ResyncReasonSchema>;
+
 export const SessionPayloadSchema = z.object({
   spaceId: z.string().optional(),
   sessionId: z.string(),
@@ -558,6 +565,8 @@ export const SessionPayloadSchema = z.object({
   /** サイドバーに固定するか */
   pinned: z.boolean(),
   lastSeq: z.number(),
+  /** `resync` イベントだけが載せる理由 (省略 = 同じ実行の継続) */
+  resyncReason: ResyncReasonSchema.optional(),
   agent: AgentPayloadInfoSchema.optional(),
   run: RunPayloadSchema.nullable(),
   messages: z.array(ChatMessageSchema),
