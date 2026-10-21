@@ -1686,7 +1686,7 @@ export const SecretItemSchema = z.object({
 });
 export type SecretItem = z.infer<typeof SecretItemSchema>;
 
-/** 変更フォーム用。`value` は変数のときだけ入り、シークレットでは省略される */
+/** 値の表示 / 変更フォーム用。`value` は変数のときだけ入り、シークレットでは省略される */
 export const SecretDetailSchema = SecretItemSchema.extend({ value: z.string().optional() });
 export type SecretDetailResponse = z.infer<typeof SecretDetailSchema>;
 

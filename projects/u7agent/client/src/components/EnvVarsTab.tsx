@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import type { SecretsScope } from "../api";
+import { ApiError, type SecretsScope } from "../api";
 import { useSpaceApi } from "../SpaceContext";
 import { copyToClipboard } from "../lib/copyToClipboard";
 import { cn } from "../lib/cn";
@@ -9,11 +9,14 @@ import {
   canSubmitEnvValue,
   ENV_PROJECT_NOTE,
   ENV_RESTART_NOTE,
+  ENV_SAVE_LABEL,
   ENV_TRIM_NOTE,
   envKindLabel,
   envKindNotes,
   envNameList,
   envNamePreview,
+  envValueActionLabel,
+  envValueFormTitle,
   initialDraftValue,
   sessionEnvScopeFromKey,
   sessionEnvScopeKey,
@@ -22,6 +25,7 @@ import {
 } from "../lib/sessionEnv";
 import type { SecretItem, SecretKind, SecretsListResponse } from "../types";
 import { CheckIcon, CopyIcon, EyeIcon, PlusIcon } from "./icons";
+import { EnvValueBox } from "./EnvValueBox";
 import { ReloadButton } from "./ReloadButton";
 import { TabToolbar } from "./TabToolbar";
 import { useConfirm } from "./ConfirmProvider";
@@ -44,10 +48,26 @@ function errorText(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
+/** 値と失敗の記録から 1 件落とす (行が消えたときと、値を取り直せたとき) */
+function withoutKey(record: Record<string, string>, secretId: string): Record<string, string> {
+  const next = { ...record };
+  delete next[secretId];
+  return next;
+}
+
+/** 一覧に残っている行の記録だけを残す (消えた行の値を古い一覧と組み合わせて表示しない) */
+function keepListed(record: Record<string, string>, listed: ReadonlySet<string>): Record<string, string> {
+  const next: Record<string, string> = {};
+  for (const [secretId, text] of Object.entries(record)) {
+    if (listed.has(secretId)) next[secretId] = text;
+  }
+  return next;
+}
+
 /**
  * 作業環境 → 環境変数タブ。単一リスト + 種別バッジで、追加フォームで種別を選ぶ (既定はシークレット)。
- * 値は一覧に返らず (シークレットは API にも返す経路が無い)、変更フォームの入力欄だけが一度に 1 つ持つ。
- * 設計は docs/secrets.md、文言は client/src/lib/sessionEnv.ts を正とする。
+ * 一覧は名前・種別・更新時刻だけを返すため、値は変数の行だけ詳細 API から引いて state に持つ
+ * (シークレットは API にも返す経路が無い)。設計は docs/secrets.md、文言は client/src/lib/sessionEnv.ts を正とする。
  */
 export function EnvVarsTab({ scope, reloadToken }: EnvVarsTabProps) {
   const { createSecret, deleteSecret, getSecretDetail, getSecrets, updateSecret } = useSpaceApi();
@@ -64,6 +84,14 @@ export function EnvVarsTab({ scope, reloadToken }: EnvVarsTabProps) {
   // 保存の注記と操作の失敗はフォームの外へ出す (フォームが畳まれた後も読めるようにする)
   const [feedback, setFeedback] = useState<{ kind: "notice" | "error"; text: string } | null>(null);
   const [copied, setCopied] = useState<string | null>(null);
+  // 値は secretId -> 取得済みの文字列。未取得 (`…`) と取得失敗を区別するため、失敗は別に持つ
+  const [values, setValues] = useState<Record<string, string>>({});
+  const [valueErrors, setValueErrors] = useState<Record<string, string>>({});
+  const [expandedValues, setExpandedValues] = useState<ReadonlySet<string>>(() => new Set());
+  // 名前チップの copied と共有すると、同名のチップが同時にチェックへ変わる
+  const [copiedValueId, setCopiedValueId] = useState<string | null>(null);
+
+  const reload = useCallback(() => setManualReload((count) => count + 1), []);
 
   const scopeKey = sessionEnvScopeKey(scope);
   const token = reloadToken + manualReload;
@@ -71,15 +99,46 @@ export function EnvVarsTab({ scope, reloadToken }: EnvVarsTabProps) {
   // 取得は scope と token の組でやり直す。古い要求の応答で新しい表示を上書きしない
   useEffect(() => {
     const controller = new AbortController();
+    const target = sessionEnvScopeFromKey(scopeKey);
     setListError(null);
-    getSecrets(sessionEnvScopeFromKey(scopeKey), controller.signal)
-      .then((next) => setList(next))
+    getSecrets(target, controller.signal)
+      .then((next) => {
+        if (controller.signal.aborted) return;
+        setList(next);
+        const variableIds = new Set(next.items.filter((item) => item.kind === "variable").map((item) => item.secretId));
+        // 再取得中も前の値は残す (… へ戻してちらつかせない)。展開は取り直しのたびに畳む
+        setValues((current) => keepListed(current, variableIds));
+        setValueErrors((current) => keepListed(current, variableIds));
+        setExpandedValues(new Set());
+        for (const item of next.items) {
+          if (item.kind !== "variable") continue;
+          getSecretDetail(target, item.secretId, controller.signal)
+            .then((detail) => {
+              if (controller.signal.aborted) return;
+              setValues((current) => ({ ...current, [item.secretId]: detail.value ?? "" }));
+              setValueErrors((current) => withoutKey(current, item.secretId));
+            })
+            .catch((error: unknown) => {
+              if (controller.signal.aborted) return;
+              // 他経路で消えた行なので、注記ではなく一覧を取り直す (一覧からも落ちる)
+              if (error instanceof ApiError && error.status === 404) {
+                reload();
+                return;
+              }
+              setValueErrors((current) => ({ ...current, [item.secretId]: errorText(error) }));
+            });
+        }
+      })
       .catch((error: unknown) => {
         if (controller.signal.aborted) return;
         setListError(errorText(error));
+        // 古い一覧と古い値の組み合わせを残さない
+        setValues({});
+        setValueErrors({});
+        setExpandedValues(new Set());
       });
     return () => controller.abort();
-  }, [scopeKey, token]);
+  }, [scopeKey, token, reload]);
 
   const closeForm = useCallback(() => {
     setForm({ mode: "closed" });
@@ -102,9 +161,7 @@ export function EnvVarsTab({ scope, reloadToken }: EnvVarsTabProps) {
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [formOpen, closeForm]);
 
-  const reload = useCallback(() => setManualReload((count) => count + 1), []);
-
-  /** 変更フォームを開く。変数は保存済みの値をプリフィルし、シークレットは空欄から始める */
+  /** 変更フォームを開く。変数は保持済みの値でプリフィルし、未取得の行だけ詳細を引く */
   const openEdit = async (item: SecretItem) => {
     setFeedback(null);
     setRevealed(false);
@@ -112,6 +169,10 @@ export function EnvVarsTab({ scope, reloadToken }: EnvVarsTabProps) {
     setValue("");
     setForm({ mode: "edit", item });
     if (item.kind !== "variable") return;
+    if (values[item.secretId] !== undefined) {
+      setValue(initialDraftValue(item, values));
+      return;
+    }
     // 保存済みの平文を返すのは変数の詳細だけ。シークレットは引かない
     setBusy(true);
     try {
@@ -170,6 +231,25 @@ export function EnvVarsTab({ scope, reloadToken }: EnvVarsTabProps) {
     } catch {
       // コピーできない環境では導線を出したままにする (名前を選択して手でコピーできる)
     }
+  };
+
+  const copyValue = async (secretId: string, text: string) => {
+    try {
+      await copyToClipboard(text);
+      setCopiedValueId(secretId);
+      window.setTimeout(() => setCopiedValueId((current) => (current === secretId ? null : current)), 1500);
+    } catch {
+      // コピーできない環境でも値は行に出ている (省略中は「すべて表示」で全文へ開ける)
+    }
+  };
+
+  const toggleValue = (secretId: string) => {
+    setExpandedValues((current) => {
+      const next = new Set(current);
+      if (next.has(secretId)) next.delete(secretId);
+      else next.add(secretId);
+      return next;
+    });
   };
 
   const items = list?.items ?? [];
@@ -235,7 +315,7 @@ export function EnvVarsTab({ scope, reloadToken }: EnvVarsTabProps) {
           >
             <div className="flex items-center justify-between gap-2">
               <h3 className="text-xs font-semibold text-ink-strong">
-                {editing ? `${editing.name} の値を変更` : "環境変数を追加"}
+                {editing ? envValueFormTitle(editing) : "環境変数を追加"}
               </h3>
               <button type="button" onClick={closeForm} className="btn-quiet">
                 閉じる
@@ -308,7 +388,7 @@ export function EnvVarsTab({ scope, reloadToken }: EnvVarsTabProps) {
 
             <div className="flex items-center gap-2">
               <button type="submit" disabled={submittingDisabled} className="btn-primary">
-                {editing ? "値を保存" : "追加する"}
+                {editing ? ENV_SAVE_LABEL : "追加する"}
               </button>
             </div>
           </form>
@@ -316,36 +396,49 @@ export function EnvVarsTab({ scope, reloadToken }: EnvVarsTabProps) {
 
         <ul className="grid gap-1">
           {items.map((item) => (
-            <li key={item.secretId} className="flex items-center gap-2 rounded-lg border border-line px-2.5 py-1.5">
-              <code className="min-w-0 flex-1 truncate font-mono text-xs text-ink-strong" title={item.name}>
-                {item.name}
-              </code>
-              <span
-                className={cn(
-                  "shrink-0 rounded-full border px-2 py-0.5 text-2xs",
-                  item.kind === "secret" ? "border-accent/50 text-accent-text" : "border-line text-ink-soft",
-                )}
-              >
-                {envKindLabel(item.kind)}
-              </span>
-              <time
-                dateTime={new Date(item.updatedAt).toISOString()}
-                title={messageFullTimeLabel(item.updatedAt)}
-                className="shrink-0 text-2xs whitespace-nowrap text-ink-ghost tabular-nums"
-              >
-                {fileTimeLabel(item.updatedAt)}
-              </time>
-              <RowMenu
-                name={item.name}
-                actions={[
-                  { kind: "rename", label: "値を変更" },
-                  { kind: "delete", label: "削除", danger: true },
-                ]}
-                onSelect={(action) => {
-                  if (action === "rename") void openEdit(item);
-                  else void remove(item);
-                }}
-              />
+            <li key={item.secretId} className="grid gap-1.5 rounded-lg border border-line px-2.5 py-1.5">
+              <div className="flex min-w-0 items-center gap-2">
+                <code className="min-w-0 flex-1 truncate font-mono text-xs text-ink-strong" title={item.name}>
+                  {item.name}
+                </code>
+                <span
+                  className={cn(
+                    "shrink-0 rounded-full border px-2 py-0.5 text-2xs",
+                    item.kind === "secret" ? "border-accent/50 text-accent-text" : "border-line text-ink-soft",
+                  )}
+                >
+                  {envKindLabel(item.kind)}
+                </span>
+                <time
+                  dateTime={new Date(item.updatedAt).toISOString()}
+                  title={messageFullTimeLabel(item.updatedAt)}
+                  className="shrink-0 text-2xs whitespace-nowrap text-ink-ghost tabular-nums"
+                >
+                  {fileTimeLabel(item.updatedAt)}
+                </time>
+                <RowMenu
+                  name={item.name}
+                  actions={[
+                    { kind: "rename", label: envValueActionLabel(item.kind) },
+                    { kind: "delete", label: "削除", danger: true },
+                  ]}
+                  onSelect={(action) => {
+                    if (action === "rename") void openEdit(item);
+                    else void remove(item);
+                  }}
+                />
+              </div>
+              {/* 値の箱は変数だけ。シークレットは API が値を返さないため行の高さも今のままにする */}
+              {item.kind === "variable" ? (
+                <EnvValueBox
+                  value={values[item.secretId]}
+                  failure={valueErrors[item.secretId]}
+                  expanded={expandedValues.has(item.secretId)}
+                  copied={copiedValueId === item.secretId}
+                  onToggle={() => toggleValue(item.secretId)}
+                  onCopy={(text) => void copyValue(item.secretId, text)}
+                />
+              ) : null}
             </li>
           ))}
         </ul>

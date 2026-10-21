@@ -6,7 +6,7 @@ import type { SecretScopeResolver, SecretService } from "../secrets";
 /**
  * 作業環境 → 環境変数 の API。要求元は会話 (sessionId) かプロジェクト起点の新規会話 (projectId) で、
  * cwd への解決はサーバー側だけが行う (client は cwd を送らない)。シークレットの値は返さず、
- * 変数の値は変更フォーム用の詳細だけが返す。設計は docs/secrets.md を正とする。
+ * 変数の値は値の表示 / 変更フォーム用の詳細だけが返す。設計は docs/secrets.md を正とする。
  *
  * クエリの読み取りは handler の本体で `c.req.query("<name>")` を直に呼ぶ (client の hc が要求型を
  * 推論するため。ヘルパーへ渡すとキーが見えず、query を型として受け取れない)。

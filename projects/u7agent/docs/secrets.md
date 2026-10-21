@@ -60,7 +60,8 @@ SDK はツール出力をいくつかの方法で切り詰める。キーが切�
 - `server/test/secrets-api.test.ts` — API の往復、シークレットの値がどの応答にも載らないこと、別 cwd の参照 / 変更 / 削除の拒否、master key 未設定の 503 `not_stored`
 - `server/test/serve.test.ts` — 起動時の環境変数がコマンド文字列へ入らず exec の env として渡ること、`secretGeneration` が記録に載り値は載らないこと、解決失敗で起動しないこと
 - `server/test/sandbox-service.test.ts` — 注入した env が bash の子プロセスへ入り、予約名 / 不正な名前は 400、master key は子プロセスへ漏れないこと
-- `client/test/sessionEnv.test.ts` — 名前のプレビュー、種別ごとの文言、短い値の注記、追加フォームの送信可否、要求元 (sessionId / projectId) の解決
+- `client/test/sessionEnv.test.ts` — 名前のプレビュー、種別ごとの文言、短い値の注記、追加フォームの送信可否、要求元 (sessionId / projectId) の解決、編集 / 変更の語
+- `client/test/envValue.test.ts` — 値が 2 行に収まるかの判定、開閉の文言、`<wbr>` を入れる分割位置
 - `server/test/redact.test.ts` — `createMutableSecretMasker` の swap（追加・置換・失敗時の原子性）と、先に作った streaming masker が swap 後の値を保留幅に使うこと
 
 ## 残存リスク
@@ -78,7 +79,7 @@ SDK はツール出力をいくつかの方法で切り詰める。キーが切�
 
 | 種別 | 保存 | 値が見える範囲 |
 | --- | --- | --- |
-| 変数 | 平文（`secrets.plaintext`） | エージェントの `bash`（exec ごとの env）と、サービスの起動時 env |
+| 変数 | 平文（`secrets.plaintext`） | エージェントの `bash`（exec ごとの env）と、サービスの起動時 env、アプリの画面（作業環境 → 環境変数） |
 | シークレット | AEAD（`ciphertext` / `nonce` / `keyVersion`） | サービスの起動時 env だけ |
 
 ### 所有者とスコープ
@@ -102,7 +103,7 @@ SDK はツール出力をいくつかの方法で切り詰める。キーが切�
 - 変数は 1〜4096 文字、シークレットは 1〜8192 バイト（UTF-8）。NUL は拒否し、CRLF は LF へ正規化する
 - 前後の空白 / 改行は除去して保存する。除去したときだけ応答の `trimmed` が true になり、UI が「前後に空白 / 改行があったため除去しました」を 1 行出す（無言で加工しない）
 - 空値は不可（未設定にしたいときは削除する）
-- 一覧は名前・種別・更新時刻だけを返す。値を返す API は**変数**の詳細（`GET /api/secrets/:secretId`）だけで、シークレットの値は保存後にどの経路でも返らない
+- 一覧は名前・種別・更新時刻だけを返す。値を返す API は**変数**の詳細（`GET /api/secrets/:secretId`）だけで、シークレットの値は保存後にどの経路でも返らない。画面は一覧のあとに変数行の詳細だけを並列に引いて値を表示する（一覧 API の契約は変えない）
 - 並びは `sortOrder`（追加は `MAX + 1`、削除で詰めない）→ 名前順。並べ替え UI は無い（列だけ用意する）
 
 ### 注入経路
@@ -126,7 +127,7 @@ DB 全体が暗号化されるわけではない。暗号化されるのは今�
 
 - `provider_credentials.apiKey` / `content_settings.apiKey`（画像 / 音声で共有） / `web_search_provider_keys.apiKey`（[model-settings.md](model-settings.md#残存リスク)、[image-generation.md](image-generation.md#キーの扱い)、[web-search.md](web-search.md#設定既定-provider-と-apiキー)）
 - `provider_memos.memo`（秘密情報として扱わない人間用メモ。マスカーへも登録しない）
-- `secrets.plaintext`（種別 = 変数）と、変数の値が現れる API 応答（変更フォーム用の詳細）
+- `secrets.plaintext`（種別 = 変数）と、変数の値が現れる詳細 API（`GET /api/secrets/:secretId`）と画面
 
 ### 保証範囲と残存リスク
 
