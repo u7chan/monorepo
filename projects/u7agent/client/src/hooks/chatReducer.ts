@@ -445,12 +445,56 @@ function stateIndexOfBubble(state: ChatState, bubble: Bubble): number {
   return -1;
 }
 
+function normalizeInitialSend(bubbles: Bubble[], initialSendId: string | undefined): Bubble[] {
+  if (initialSendId === undefined) return bubbles;
+  return bubbles.map((bubble) =>
+    bubble.role === "user" && bubble.sendId === initialSendId && bubble.unsent !== true
+      ? {
+          ...bubble,
+          queued: undefined,
+          queuedState: undefined,
+          queuePosition: undefined,
+          unsent: false,
+          accepted: true,
+        }
+      : bubble,
+  );
+}
+
+function runIdentityOf(state: ChatState, bubbles: Bubble[]): { runId?: string; initialSendId?: string } {
+  let runId = state.currentRunId;
+  if (runId === undefined) {
+    for (let index = bubbles.length - 1; index >= 0; index -= 1) {
+      const bubble = bubbles[index];
+      if (bubble.role === "user" && bubble.runId !== undefined) {
+        runId = bubble.runId;
+        break;
+      }
+      if (bubble.role === "assistant" && bubble.assistantId !== undefined) {
+        const separator = bubble.assistantId.lastIndexOf(":");
+        if (separator > 0) {
+          runId = bubble.assistantId.slice(0, separator);
+          break;
+        }
+      }
+    }
+  }
+  if (runId === undefined) return {};
+  const firstUser = bubbles.find(
+    (bubble) =>
+      bubble.role === "user" && bubble.runId === runId && bubble.sendId !== undefined && bubble.unsent !== true,
+  );
+  return { runId, initialSendId: state.runInitialSendIds[runId] ?? firstUser?.sendId };
+}
+
 function orderInitialUser(bubbles: Bubble[], runId: string | undefined, initialSendId: string | undefined): Bubble[] {
   if (runId === undefined) return bubbles;
   const userIndex =
     initialSendId === undefined
-      ? bubbles.findIndex((bubble) => bubble.role === "user" && bubble.runId === runId)
-      : bubbles.findIndex((bubble) => bubble.role === "user" && bubble.sendId === initialSendId);
+      ? bubbles.findIndex((bubble) => bubble.role === "user" && bubble.runId === runId && bubble.unsent !== true)
+      : bubbles.findIndex(
+          (bubble) => bubble.role === "user" && bubble.sendId === initialSendId && bubble.unsent !== true,
+        );
   if (userIndex === -1) return bubbles;
   const prefix = `${runId}:`;
   const assistantIndex = bubbles.findIndex(
@@ -622,16 +666,19 @@ function mergeStreamingIntoHistory(
 
 function applyHistoryMerge(state: ChatState, merged: HistoryMergeResult, page: HistoryPage): ChatState {
   const streaming = mergeStreamingIntoHistory(state, merged.bubbles);
+  const identity = runIdentityOf(state, streaming.bubbles);
+  const normalized = normalizeInitialSend(streaming.bubbles, identity.initialSendId);
+  const ordered = orderInitialUser(normalized, identity.runId, identity.initialSendId);
   return {
     ...state,
-    bubbles: restoreUserTurnEnds(state, streaming.bubbles),
+    bubbles: restoreUserTurnEnds(state, ordered),
     nextId: merged.nextId,
     toolBubbleIds: streaming.toolBubbleIds,
     currentAssistantId: streaming.currentAssistantId,
     currentAssistantKey:
       streaming.currentAssistantId === null
         ? undefined
-        : streaming.bubbles.find((bubble) => bubble.id === streaming.currentAssistantId)?.assistantId,
+        : ordered.find((bubble) => bubble.id === streaming.currentAssistantId)?.assistantId,
     dividers: merged.markers,
     pendingEchoIds: merged.pendingEchoIds,
     sessionId: page.sessionId,
@@ -1507,7 +1554,8 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
         payload.pendingSends,
       );
       const runOutcome = runOutcomeOf(status);
-      let settledBubbles = orderInitialUser(applied.bubbles, payload.run?.id, payload.run?.initialSendId);
+      const normalizedBubbles = normalizeInitialSend(applied.bubbles, payload.run?.initialSendId);
+      let settledBubbles = orderInitialUser(normalizedBubbles, payload.run?.id, payload.run?.initialSendId);
       if (runOutcome !== undefined && payload.run?.endedAt !== undefined) {
         // ライブの run_end を観測済みならその値が正 (payload は run の所要時間を持たない)
         const initialUser = settledBubbles.find(
@@ -2319,12 +2367,13 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
       // run_end の所要時間と結末は、その run の user パブルへ写す (entryId の有無を問わず runId 一致)。
       // 未送信のターンは導出側が行を落とす。終端以外の status では値を付けない
       const outcome = runOutcomeOf(status);
+      const normalized = normalizeInitialSend(settled.bubbles, initialSendId);
       const withTurnEnd =
         action.runId === undefined || outcome === undefined || action.durationMs === undefined
-          ? settled
+          ? { ...settled, bubbles: normalized }
           : {
               ...settled,
-              bubbles: attachTurnEnd(settled.bubbles, action.runId, initialSendId, outcome, action.durationMs),
+              bubbles: attachTurnEnd(normalized, action.runId, initialSendId, outcome, action.durationMs),
             };
       const bubbles =
         action.runId === undefined || outcome === undefined || action.durationMs === undefined

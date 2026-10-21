@@ -3494,6 +3494,17 @@ test("payload に user が無くても終端 run の Done を最後の応答へ�
   );
 });
 
+function renderedMessages(state: ChatState): string[] {
+  return chatRenderItems({
+    bubbles: state.bubbles,
+    markers: [],
+    compactions: [],
+    activeContextStartId: null,
+  })
+    .filter((item) => item.kind === "message")
+    .map((item) => `${item.bubble.role}:${item.bubble.text}`);
+}
+
 function firstTurnPayload(question: string, messages: SessionPayload["messages"]): SessionPayload {
   const payload = runningPayload();
   payload.status = "running";
@@ -3538,6 +3549,7 @@ test("新規会話の1通目: run_start → resync → text → run_end で user
       ["assistant", "回答"],
     ],
   );
+  assert.deepEqual(renderedMessages(state), [`user:${question}`, "assistant:回答"]);
   const assistant = state.bubbles.find((bubble) => bubble.role === "assistant");
   assert.deepEqual(assistant?.turnEnd, { outcome: "completed", durationMs: 500 });
   const done = chatRenderItems({
@@ -3576,6 +3588,7 @@ test("新規会話の1通目: payload が assistant のみでも pending の use
       ["assistant", "回答"],
     ],
   );
+  assert.deepEqual(renderedMessages(state), [`user:${question}`, "assistant:回答"]);
   const assistant = state.bubbles.find((bubble) => bubble.role === "assistant");
   assert.deepEqual(assistant?.turnEnd, { outcome: "completed", durationMs: 500 });
 });
@@ -3611,6 +3624,67 @@ test("新規会話の1通目: run_end を落としても終端 payload から Do
       ["assistant", "回答"],
     ],
   );
+  assert.deepEqual(renderedMessages(state), [`user:${question}`, "assistant:回答"]);
   const assistant = state.bubbles.find((bubble) => bubble.role === "assistant");
   assert.deepEqual(assistant?.turnEnd, { outcome: "completed", durationMs: 10 });
+});
+
+test("新規会話の1通目: pending が steering でも render は user → assistant", () => {
+  // What: 開始送信が BFF の steering 状態で届いても、initial send を待機中として隠さない
+  const question = "はい前のターンです1。";
+  let state = chatReducer(initialChatState, {
+    type: "runStart",
+    runId: "run-1",
+    initialSendId: "send-1",
+    prompt: question,
+    at: 1,
+    startedAt: 1,
+  });
+  const payload = firstTurnPayload(question, [{ role: "user", text: question, sendId: "send-1", runId: "run-1" }]);
+  payload.pendingSends = [{ sendId: "send-1", runId: "run-1", text: question, at: 1, state: "steering", position: 1 }];
+  state = chatReducer(state, { type: "resync", payload });
+  state = chatReducer(state, { type: "text", delta: "回答", at: 2, assistantId: "run-1:1" });
+  state = chatReducer(state, { type: "usage", usage: USAGE, metrics: METRICS });
+  state = chatReducer(state, { type: "assistantEnd", assistantId: "run-1:1" });
+  state = chatReducer(state, { type: "runEnd", runId: "run-1", status: "completed", queueDepth: 0, durationMs: 500 });
+
+  assert.deepEqual(renderedMessages(state), [`user:${question}`, "assistant:回答"]);
+});
+
+test("新規会話の1通目: 履歴取得が assistant だけでも render は user → assistant", () => {
+  // What: 履歴ページが先に assistant を返しても、live の initial send をその手前へ戻す
+  const question = "はい前のターンです1。";
+  let state = chatReducer(initialChatState, {
+    type: "runStart",
+    runId: "run-1",
+    initialSendId: "send-1",
+    prompt: question,
+    at: 1,
+    startedAt: 1,
+  });
+  state = chatReducer(state, {
+    type: "resync",
+    payload: firstTurnPayload(question, [{ role: "user", text: question, sendId: "send-1", runId: "run-1" }]),
+  });
+  state = chatReducer(state, { type: "text", delta: "回答", at: 2, assistantId: "run-1:1" });
+  state = chatReducer(state, {
+    type: "resyncHistory",
+    page: {
+      sessionId: "session-a",
+      items: [
+        { kind: "message", id: "a-1", context: "active", role: "assistant", text: "回答", assistantId: "run-1:1" },
+      ],
+      prevCursor: null,
+      hasMore: false,
+      nextCursor: null,
+      activeContextStartId: null,
+      messageCount: 1,
+      summarizedMessageCount: 0,
+    },
+  });
+  state = chatReducer(state, { type: "usage", usage: USAGE, metrics: METRICS });
+  state = chatReducer(state, { type: "assistantEnd", assistantId: "run-1:1" });
+  state = chatReducer(state, { type: "runEnd", runId: "run-1", status: "completed", queueDepth: 0, durationMs: 500 });
+
+  assert.deepEqual(renderedMessages(state), [`user:${question}`, "assistant:回答"]);
 });
