@@ -134,6 +134,11 @@ export type ChatState = {
    */
   stateSeq: number;
   /**
+   * 送信IDより先に届いた `queued` の待機位置 (sendId -> position)。エコーが送信IDを結び付けた
+   * 時点で 1 度だけ使い、より新しい状態 (注入・保存・取消) が届いたら捨てる
+   */
+  queuedSnapshots: Record<string, { position: number }>;
+  /**
    * run_start で観測した run id -> 展開済みの本文。送信応答 (`echoSendId`) が run_start より遅れて
    * 届いたときに、ローカルエコーを注記込み / `/skill:` 展開済みの本文へ差し替えるために使う。
    * 直近の数件だけ持ち、対応が取れたら消す (別 run の本文を自分のエコーへ入れない)
@@ -288,6 +293,7 @@ export const initialChatState: ChatState = {
   runPrompts: {},
   runInitialSendIds: {},
   stateSeq: 0,
+  queuedSnapshots: {},
 };
 
 /** retryAt と serverNow の差を残り時間として控える。どちらか欠けたら undefined (推測で時刻を合成しない) */
@@ -559,18 +565,48 @@ function attachToolCalls(state: ChatState, bubbleId: number, toolCalls: ToolCall
   return next;
 }
 
-/**
- * payload の `state` を待機の表示へ写す。順位 (`position`) は `queued` のときだけ載る (旧サーバーは
- * 載せない)。待機を抜けた送信に古い順位を残さないよう、他の状態では必ず消す
- */
-/**
- * payload.pendingSends (202 で受理したがまだ entry になっていない送信) をバブル列へ写す。
- * `unsent` は pending を外して「未送信」へ切り替え、`queued` / `running` は受理済みの pending として
- * 保つ (別タブの再送中に表示から消さない)。手元にバブルが無い分は末尾へ足す (履歴の初回応答前でも
- * 失わない)。一覧から消えた未送信バブルは、別タブの再送 / 破棄で記録が消えたものとして落とす。
- * `undefined` (旧サーバー) は現状維持。payload に載った送信は停止の控え (`clearedSendIds`) から外す。
- * 待機の表示は payload が正で、一覧から消えた run の待機も解除する (entry が保存された / 実行が始まった)。
- */
+/** 送信IDが結び付く前に届いた待機位置を、より新しい状態が無い分だけ残す */
+function pruneQueuedSnapshots(
+  snapshots: ChatState["queuedSnapshots"],
+  pendingSends: PendingSend[] | undefined,
+): ChatState["queuedSnapshots"] {
+  if (pendingSends === undefined) return snapshots;
+  const waiting = new Map(
+    pendingSends
+      .filter((send) => send.state === "queued" || send.state === "steering")
+      .map((send) => [send.sendId, send] as const),
+  );
+  let next: ChatState["queuedSnapshots"] = snapshots;
+  for (const [sendId, snapshot] of Object.entries(snapshots)) {
+    const send = waiting.get(sendId);
+    if (send === undefined) {
+      if (next === snapshots) next = { ...snapshots };
+      delete next[sendId];
+      continue;
+    }
+    const position = send.position ?? snapshot.position;
+    if (position !== snapshot.position) {
+      if (next === snapshots) next = { ...snapshots };
+      next[sendId] = { position };
+    }
+  }
+  return next;
+}
+
+/** 送信IDが確定した / より新しい状態が届いた送信の待機位置を落とす */
+function withoutQueuedSnapshots(
+  snapshots: ChatState["queuedSnapshots"],
+  sendIds: readonly string[],
+): ChatState["queuedSnapshots"] {
+  let next = snapshots;
+  for (const sendId of sendIds) {
+    if (next[sendId] === undefined) continue;
+    if (next === snapshots) next = { ...snapshots };
+    delete next[sendId];
+  }
+  return next;
+}
+
 function sendStateOf(send: PendingSend): Pick<Bubble, "queued" | "queuedState" | "queuePosition" | "runId"> {
   if (send.state === "queued" || send.state === "steering") {
     return {
@@ -589,6 +625,14 @@ function sendStateOf(send: PendingSend): Pick<Bubble, "queued" | "queuedState" |
   };
 }
 
+/**
+ * payload.pendingSends (202 で受理したがまだ entry になっていない送信) をバブル列へ写す。
+ * `unsent` は pending を外して「未送信」へ切り替え、`queued` / `running` は受理済みの pending として
+ * 保つ (別タブの再送中に表示から消さない)。手元にバブルが無い分は末尾へ足す (履歴の初回応答前でも
+ * 失わない)。一覧から消えた未送信バブルは、別タブの再送 / 破棄で記録が消えたものとして落とす。
+ * `undefined` (旧サーバー) は現状維持。payload に載った送信は停止の控え (`clearedSendIds`) から外す。
+ * 待機の表示は payload が正で、一覧から消えた run の待機も解除する (entry が保存された / 実行が始まった)。
+ */
 function applyPendingSends(
   bubbles: Bubble[],
   pendingEchoIds: number[],
@@ -735,6 +779,7 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
         runTools: {},
         pendingEchoIds: [],
         clearedSendIds: [],
+        queuedSnapshots: {},
         liveToolIds: [],
         currentAssistantId: null,
         history: initialChatState.history,
@@ -871,6 +916,8 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
         nextId: applied.nextId,
         clearedSendIds: applied.clearedSendIds,
         stateSeq: state.stateSeq + 1,
+        // 別の会話の送信へ引き継がない
+        queuedSnapshots: sessionChanged ? {} : pruneQueuedSnapshots(state.queuedSnapshots, payload.pendingSends),
       };
     }
 
@@ -1102,6 +1149,10 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
         // 待機列の先頭が実行に移った瞬間だけ、リングを 1 回広げてチップを一瞬 `実行中` にする
         startingRunId: started?.queued === true ? action.runId : undefined,
         stateSeq: state.stateSeq + 1,
+        queuedSnapshots:
+          action.initialSendId === undefined
+            ? state.queuedSnapshots
+            : withoutQueuedSnapshots(state.queuedSnapshots, [action.initialSendId]),
         // 実行が始まった送信は停止の控えから外す (遅れて届いた 202 で未送信へ戻さない)
         clearedSendIds: (() => {
           // 旧サーバーは開始送信IDを配らないため run id で縮退する
@@ -1148,11 +1199,20 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
       // いるので、遅れて届いた応答で待機中にはしない。payload が先に待機を配っていればそちらを採る。
       // 要求後に新しい状態 (resync / 終端 / 待機の変化) が届いていれば、古い待機スナップショットを捨てる
       const snapshotCurrent = action.stateSeq === undefined || action.stateSeq === state.stateSeq;
-      const queuePosition =
-        duplicate?.queuePosition ?? (prompt === undefined && snapshotCurrent ? action.queuePosition : undefined);
+      // 同じ送信IDの queued が応答より先に届いていれば、その待機位置を応答へ引き継ぐ
+      const carriedPosition = snapshotCurrent ? undefined : state.queuedSnapshots[action.sendId]?.position;
+      const echoedPosition = snapshotCurrent ? action.queuePosition : carriedPosition;
+      const queuePosition = duplicate?.queuePosition ?? (prompt === undefined ? echoedPosition : undefined);
       const queued = duplicate !== undefined ? duplicate.queued === true : queuePosition !== undefined;
+      const consumedSnapshots = withoutQueuedSnapshots(state.queuedSnapshots, [action.sendId]);
       const withSendId = updateBubble(
-        duplicate === undefined ? state : { ...state, bubbles: state.bubbles.filter((b) => b.id !== duplicate.id) },
+        duplicate === undefined
+          ? { ...state, queuedSnapshots: consumedSnapshots }
+          : {
+              ...state,
+              bubbles: state.bubbles.filter((b) => b.id !== duplicate.id),
+              queuedSnapshots: consumedSnapshots,
+            },
         echoId,
         (bubble) => ({
           ...bubble,
@@ -1410,9 +1470,18 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
                   }
                 : bubble,
             );
+      // 送信IDがまだ結び付いていないエコーには、この送信の待機位置として控えて応答時に引き継ぐ
+      const bound = action.sendId !== undefined && bubbles.some((bubble) => bubble.sendId === action.sendId);
+      const queuedSnapshots =
+        action.sendId === undefined
+          ? state.queuedSnapshots
+          : bound
+            ? withoutQueuedSnapshots(state.queuedSnapshots, [action.sendId])
+            : { ...state.queuedSnapshots, [action.sendId]: { position: action.position } };
       return {
         ...state,
         bubbles,
+        queuedSnapshots,
         stateSeq: state.stateSeq + 1,
         // 圧縮中は体感の状態を compacting のまま保つ (実際に走っているのは圧縮)
         runStatus: state.runStatus === "compacting" ? "compacting" : "running",
@@ -1447,6 +1516,7 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
         bubbles,
         pendingEchoIds,
         stateSeq: state.stateSeq + 1,
+        queuedSnapshots: withoutQueuedSnapshots(state.queuedSnapshots, action.sendIds ?? []),
         // 取りこぼしを防ぐため直近の分だけ持ち、対応が取れたら消す
         clearedSendIds: [...state.clearedSendIds, ...cleared].slice(-20),
         queueDepth: 0,
@@ -1470,6 +1540,7 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
             : bubble,
         ),
         stateSeq: state.stateSeq + 1,
+        queuedSnapshots: withoutQueuedSnapshots(state.queuedSnapshots, [action.sendId]),
         // 未送信は pendingEchoIds に残さない (残すと取り消し後の再送で同じ id が二重に載る)
         pendingEchoIds: state.pendingEchoIds.filter((id) => id !== target.id),
       };

@@ -7,6 +7,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { chatReducer, initialChatState, type ChatState } from "../src/hooks/chatReducer";
 import { chatRenderItems } from "../src/lib/chatItems";
+import { queuedSendsOf } from "../src/lib/queueWait";
 import type {
   CompactionInfo,
   ContextUsage,
@@ -1819,4 +1820,76 @@ test("要求後に新しい状態が届いた待機スナップショットは q
       .map((bubble) => [bubble.sendId, bubble.queued === true, bubble.queuePosition]),
     [["send-current", true, 1]],
   );
+});
+
+test("queued が 202 応答より先に届いても、同じ送信IDの待機位置をエコーへ引き継ぐ", () => {
+  // What: 送信IDの結び付く前の queued で世代が進んでも、応答が待機スナップショットを捨てない
+  const sent = chatReducer(historyWithOld(), { type: "localUser", text: "待機する本文", at: 1 });
+  const requestSeq = sent.stateSeq;
+  const queued = chatReducer(sent, { type: "queued", sendId: "send-1", position: 1, queueDepth: 1 });
+  const echoed = chatReducer(queued, {
+    type: "echoSendId",
+    sendId: "send-1",
+    stateSeq: requestSeq,
+    queuePosition: 1,
+  });
+
+  assert.deepEqual(
+    queuedSendsOf(echoed.bubbles).map((send) => [send.sendId, send.text, send.state, send.index]),
+    [["send-1", "待機する本文", "queued", undefined]],
+    "待機 1 件・順位 1 として取消の対象になる",
+  );
+  assert.equal(echoed.queueDepth, 1);
+  assert.equal(
+    chatRenderItems({ bubbles: echoed.bubbles, markers: [], compactions: [], activeContextStartId: null }).some(
+      (item) => item.kind === "message" && item.bubble.text === "待機する本文",
+    ),
+    false,
+    "待機中は transcript に出さない",
+  );
+  assert.equal(echoed.queuedSnapshots["send-1"], undefined, "引き継いだスナップショットは残さない");
+});
+
+test("echo が queued より先でも最終状態は同じで、同じ送信IDの queued を重複させない", () => {
+  // What: 応答→queued の順と、queued が 2 回届く経路でも待機表示が 1 件に収まる
+  const sent = chatReducer(historyWithOld(), { type: "localUser", text: "待機する本文", at: 1 });
+  const echoed = chatReducer(sent, {
+    type: "echoSendId",
+    sendId: "send-1",
+    stateSeq: sent.stateSeq,
+    queuePosition: 1,
+  });
+  const queued = chatReducer(echoed, { type: "queued", sendId: "send-1", position: 1, queueDepth: 1 });
+  const duplicated = chatReducer(queued, { type: "queued", sendId: "send-1", position: 1, queueDepth: 1 });
+
+  assert.deepEqual(
+    queuedSendsOf(duplicated.bubbles).map((send) => [send.sendId, send.state, send.index]),
+    [["send-1", "queued", undefined]],
+  );
+  assert.equal(duplicated.bubbles.filter((bubble) => bubble.sendId === "send-1").length, 1);
+  assert.equal(duplicated.queueDepth, 1, "件数は累積しない");
+  assert.equal(duplicated.queuedSnapshots["send-1"], undefined, "結び付いた後はスナップショットを持たない");
+});
+
+test("送信IDが結び付く前の queued も、注入・保存を示す新しい resync で捨てる", () => {
+  // What: 先行した待機イベントが、その後の注入・保存を巻き戻さない (前回の後着 202 と同方向)
+  const sent = chatReducer(historyWithOld(), { type: "localUser", text: "待機する本文", at: 1 });
+  const requestSeq = sent.stateSeq;
+  const queued = chatReducer(sent, { type: "queued", sendId: "send-1", position: 1, queueDepth: 1 });
+
+  const payload = runningPayload();
+  payload.status = "running";
+  payload.queueDepth = 0;
+  payload.pendingSends = [];
+  const injected = chatReducer(queued, { type: "resync", payload });
+  assert.equal(injected.queuedSnapshots["send-1"], undefined, "resync が待機を否定したら捨てる");
+
+  const late = chatReducer(injected, {
+    type: "echoSendId",
+    sendId: "send-1",
+    stateSeq: requestSeq,
+    queuePosition: 1,
+  });
+  assert.deepEqual(queuedSendsOf(late.bubbles), [], "古い待機スナップショットで queued に戻さない");
+  assert.equal(late.bubbles.find((bubble) => bubble.sendId === "send-1")?.queued, undefined);
 });
