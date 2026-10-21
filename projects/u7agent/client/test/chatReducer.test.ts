@@ -2397,3 +2397,71 @@ test("取り消しの resync でも投影に残る完了済みの応答は消さ
     "投影に残る応答は取り消さない",
   );
 });
+
+test("steering 後の履歴再取得でも run のツールカードを次の応答へ移さない", () => {
+  // What: assistant_end → ツール → steering → resync / resyncHistory を挟んでも所有者は 1 枚目のまま
+  let state = streamingTurn();
+  state = chatReducer(state, { type: "assistantEnd" });
+  state = chatReducer(state, { type: "toolStart", id: "tool-1", name: "bash", args: "{}", at: 11 });
+  state = chatReducer(state, { type: "toolEnd", id: "tool-1", isError: false, output: "ok" });
+  state = chatReducer(state, { type: "localUser", text: "追記", at: 12 });
+  state = chatReducer(state, { type: "echoSendId", sendId: "send-2", stateSeq: state.stateSeq });
+
+  const payload = streamingPayload();
+  payload.run = {
+    id: "run-1",
+    status: "running",
+    startedAt: 10,
+    prompt: "質問",
+    toolCalls: [{ id: "tool-1", name: "bash", args: "{}", isError: false, done: true, output: "ok" }],
+    totalRetryCount: 0,
+  };
+  state = chatReducer(state, { type: "resync", payload });
+  state = chatReducer(state, {
+    type: "resyncHistory",
+    page: {
+      sessionId: "session-a",
+      items: [
+        { kind: "message", id: "old", context: "active", role: "user", text: "old", runId: "run-old" },
+        { kind: "message", id: "u-1", context: "active", role: "user", text: "質問", sendId: "send-1", runId: "run-1" },
+        { kind: "message", id: "a-1", context: "active", role: "assistant", text: "前半" },
+        { kind: "message", id: "u-2", context: "active", role: "user", text: "追記", sendId: "send-2", runId: "run-1" },
+      ],
+      prevCursor: null,
+      hasMore: false,
+      nextCursor: null,
+      activeContextStartId: "old",
+      messageCount: 4,
+      summarizedMessageCount: 0,
+    },
+  });
+  // 履歴マージの後にも run.toolCalls の復元が走る
+  state = chatReducer(state, { type: "resync", payload });
+  state = chatReducer(state, { type: "text", delta: "追記を受け取って次の判断に反映", at: 13 });
+
+  const assistants = state.bubbles.filter((bubble) => bubble.role === "assistant");
+  assert.deepEqual(
+    assistants.map((bubble) => [bubble.text, bubble.tools.map((card) => card.id)]),
+    [
+      ["前半", ["tool-1"]],
+      ["追記を受け取って次の判断に反映", []],
+    ],
+    "ツールは要求した 1 枚目だけに付く",
+  );
+});
+
+test("assistant_end を跨がないツールイベントは開いている応答に付く", () => {
+  // What: 同じ応答のストリーミング中に届くツールは、その応答のカードへ付く (境界を跨がない)
+  let state = streamingTurn();
+  state = chatReducer(state, { type: "toolStart", id: "tool-9", name: "read", args: "{}", at: 11 });
+  state = chatReducer(state, { type: "toolEnd", id: "tool-9", isError: false, output: "ok" });
+  state = chatReducer(state, { type: "text", delta: "続き", at: 12 });
+
+  const assistants = state.bubbles.filter((bubble) => bubble.role === "assistant");
+  assert.equal(assistants.length, 1);
+  assert.equal(assistants[0]?.text, "前半続き");
+  assert.deepEqual(
+    assistants[0]?.tools.map((card) => card.id),
+    ["tool-9"],
+  );
+});
