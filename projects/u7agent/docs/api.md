@@ -676,7 +676,7 @@ Content-Security-Policy: sandbox allow-scripts; default-src 'none'; style-src 'u
 | --- | --- | --- |
 | GET | `/api/secrets?sessionId=<id>` / `?projectId=<id>` | 一覧（名前・種別・更新時刻・世代・プロジェクト所属か） |
 | POST | `/api/secrets` | 登録（body: `{ sessionId? , projectId?, kind, name, value }`） |
-| GET | `/api/secrets/:secretId?sessionId=<id>` | 変更フォーム用の 1 件（`value` は**変数のときだけ**入る） |
+| GET | `/api/secrets/:secretId?sessionId=<id>` | 値の表示 / 変更フォーム用の 1 件（`value` は**変数のときだけ**入る） |
 | PUT | `/api/secrets/:secretId` | 値の上書き（body: `{ sessionId?, projectId?, value }`。名前と種別は変えられない） |
 | DELETE | `/api/secrets/:secretId?sessionId=<id>` | 削除 |
 
@@ -693,7 +693,7 @@ Content-Security-Policy: sandbox allow-scripts; default-src 'none'; style-src 'u
 }
 ```
 
-- **シークレットの値はどの応答にも載らない。** 変更フォーム用の `GET /api/secrets/:secretId` だけが `value` を持ち、それも変数のときだけ
+- **シークレットの値はどの応答にも載らない。** 値の表示 / 変更フォーム用の `GET /api/secrets/:secretId` だけが `value` を持ち、それも変数のときだけ
 - `generation` は変更のたびに変わる短いハッシュ（名前 → `secret_id` / 更新世代）。`GET /api/serve/status` の `secretGeneration` と比べると「再起動で反映される変更がある」と分かる（UI はタブ上部の説明 1 行まで）
 - `projectScoped` は cwd が登録プロジェクトのディレクトリか（UI の「このプロジェクトの設定です」の根拠）
 - 変更系は 200 で `{ item, trimmed, generation }` を返す（`trimmed` は前後の空白 / 改行を除去したか。削除は `{ removed, generation }`）

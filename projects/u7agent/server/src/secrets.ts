@@ -24,7 +24,7 @@ export interface SecretListItem {
   updatedAt: number;
 }
 
-/** 変更フォーム用。値は「変数」だけに載り、シークレットでは常に省略される */
+/** 値の表示 / 変更フォーム用。値は「変数」だけに載り、シークレットでは常に省略される */
 export interface SecretDetail extends SecretListItem {
   value?: string;
 }
@@ -226,7 +226,7 @@ export class SecretService {
     return { items: rows.map(itemOf), generation: secretGeneration(rows), projectScoped: scope.projectScoped };
   }
 
-  /** 変更フォーム用の詳細。値は変数のときだけ載せ、シークレットでは決して返さない */
+  /** 値の表示 / 変更フォーム用の詳細。値は変数のときだけ載せ、シークレットでは決して返さない */
   detail(scope: SecretScope, secretId: string): SecretDetail {
     const row = this.#find(scope, secretId);
     if (row.kind !== "variable") return itemOf(row);

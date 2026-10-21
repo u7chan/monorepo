@@ -1,6 +1,6 @@
 /**
- * 作業環境 → 環境変数タブの表示と入力の規則。値そのものは状態に持たない (フォームの入力欄だけが持つ) ため、
- * ここは名前の見せ方と文言だけを決める純関数に閉じる。検証の正はサーバー (server/src/secrets.ts)。
+ * 作業環境 → 環境変数タブの表示と入力の規則。扱うのは名前の見せ方と文言だけで、変数の値の表示判定は
+ * lib/envValue.ts が持つ。検証の正はサーバー (server/src/secrets.ts)。
  */
 import type { SecretItem } from "../types";
 import type { ConfirmRequest } from "./confirmDialog";
@@ -58,6 +58,19 @@ export function envKindLabel(kind: SecretItem["kind"]): string {
 export function envKindNotes(kind: SecretItem["kind"]): readonly string[] {
   return kind === "secret" ? ENV_SECRET_NOTES : ENV_VARIABLE_NOTES;
 }
+
+/** フォーム見出しと行メニューの語。変数は値を見て直すので「編集」、シークレットは差し替えるので「変更」 */
+export function envValueActionLabel(kind: SecretItem["kind"]): string {
+  return kind === "variable" ? "値を編集" : "値を変更";
+}
+
+/** 変更フォームの見出し。同じフォームに編集・変更・保存の 3 語を並べない */
+export function envValueFormTitle(item: Pick<SecretItem, "name" | "kind">): string {
+  return `${item.name} の${envValueActionLabel(item.kind)}`;
+}
+
+/** 変更フォームの主ボタン。種別で語を変えない (見出しの「編集 / 変更」だけが種別を映す) */
+export const ENV_SAVE_LABEL = "保存";
 
 /** 入力中の値が「自動マスクされない長さ」か。空欄では出さない (保存前の注記なので) */
 export function shortSecretNote(kind: SecretItem["kind"], value: string): string | undefined {
@@ -142,7 +155,7 @@ export function sessionEnvScope(input: { sessionId: string; projectId: string })
   return null;
 }
 
-/** 変更フォームに初期値として入れる値。変数は保存済みの値をプリフィルし、シークレットは空欄にする */
+/** 変更フォームに初期値として入れる値。変数は保持済みの値をプリフィルし、シークレットは空欄にする */
 export function initialDraftValue(item: SecretItem, values: Readonly<Record<string, string>>): string {
   return item.kind === "variable" ? (values[item.secretId] ?? "") : "";
 }
