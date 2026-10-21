@@ -128,6 +128,27 @@ test("keeps the send target but not the display when the chat switches while cre
   assert.deepEqual(record.sending, [true, false]);
 });
 
+test("新規チャットの最初の送信もローカルエコーを出して送信IDを結び付ける", async () => {
+  const sessionIdRef = { current: "" };
+  const { record, deps } = createHarness({
+    sessionIdRef,
+    ensureSession: async () => {
+      sessionIdRef.current = "s-1";
+      return "s-1";
+    },
+  });
+
+  await sendChatMessage("hello", deps);
+
+  assert.deepEqual(
+    actionsOfType(record.actions, "localUser").map((action) => action.text),
+    ["hello"],
+  );
+  assert.deepEqual(actionsOfType(record.actions, "echoSendId"), [
+    { type: "echoSendId", sendId: "send-1", runId: "run-1", stateSeq: 0 },
+  ]);
+});
+
 test("marks the message as queued when the session is already running", async () => {
   const { record, deps } = createHarness({
     post: async () => ({ queued: true, queueDepth: 3, sendId: "send-3" }),

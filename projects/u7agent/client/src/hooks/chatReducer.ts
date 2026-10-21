@@ -426,6 +426,38 @@ function turnIndexOf(state: ChatState, liveId: number, bubbles: Bubble[]): numbe
   return bubbles.findIndex((bubble) => bubble.role === "user" && bubble.sendId === turnUser.sendId);
 }
 
+function stateIndexOfBubble(state: ChatState, bubble: Bubble): number {
+  if (bubble.assistantId !== undefined) {
+    const index = state.bubbles.findIndex((item) => item.assistantId === bubble.assistantId);
+    if (index !== -1) return index;
+  }
+  if (bubble.sendId !== undefined) {
+    const index = state.bubbles.findIndex((item) => item.sendId === bubble.sendId);
+    if (index !== -1) return index;
+  }
+  if (bubble.runId !== undefined) {
+    const index = state.bubbles.findIndex((item) => item.role === "user" && item.runId === bubble.runId);
+    if (index !== -1) return index;
+  }
+  for (let index = state.bubbles.length - 1; index >= 0; index -= 1) {
+    if (state.bubbles[index].role === bubble.role && state.bubbles[index].text === bubble.text) return index;
+  }
+  return -1;
+}
+
+function insertByStatePosition(state: ChatState, rebuilt: Bubble[], liveBubble: Bubble): Bubble[] {
+  const liveIndex = state.bubbles.findIndex((bubble) => bubble.id === liveBubble.id);
+  if (liveIndex === -1) return [...rebuilt, liveBubble];
+  let insertAt = rebuilt.length;
+  for (let index = 0; index < rebuilt.length; index += 1) {
+    if (stateIndexOfBubble(state, rebuilt[index]) > liveIndex) {
+      insertAt = index;
+      break;
+    }
+  }
+  return [...rebuilt.slice(0, insertAt), liveBubble, ...rebuilt.slice(insertAt)];
+}
+
 /** ページ取得時に実行中だったツールはページに載らず所有者が切れるため、ライブ側から補う */
 function restoreSettledTools(state: ChatState, bubbles: Bubble[], liveId: number | null): Bubble[] {
   let next = bubbles;
@@ -512,6 +544,29 @@ function mergeStreamingIntoHistory(
       (bubble) =>
         bubble.role === "assistant" && bubble.entryId !== undefined && bubble.assistantId === live.assistantId,
     );
+    if (matchIndex === -1) {
+      // 両方に ID があるときに本文で寄せると別応答を取り違えるため、片方だけの旧データに限る
+      let turnIndex = turnIndexOf(state, live.id, bubbles);
+      if (turnIndex === -1) {
+        // 今ターンの user が履歴に無いと本文一致の範囲が決まらないため、最後の user を境界にする
+        for (let index = bubbles.length - 1; index >= 0; index -= 1) {
+          if (bubbles[index].role === "user") {
+            turnIndex = index;
+            break;
+          }
+        }
+      }
+      if (turnIndex !== -1) {
+        const candidates: number[] = [];
+        for (let index = bubbles.length - 1; index > turnIndex; index -= 1) {
+          const bubble = bubbles[index];
+          if (bubble.role !== "assistant" || bubble.entryId === undefined || bubble.assistantId !== undefined) continue;
+          if (bubble.text === "" || live.text === "") continue;
+          if (bubble.text.startsWith(live.text) || live.text.startsWith(bubble.text)) candidates.push(index);
+        }
+        if (candidates.length === 1) matchIndex = candidates[0];
+      }
+    }
   } else {
     // 今ターンの開始 user より前の assistant へは寄せない (前ターンの同一文面を上書きしない)
     const turnIndex = turnIndexOf(state, live.id, bubbles);
@@ -581,6 +636,29 @@ function appendBubble(state: ChatState, role: Bubble["role"], text = "", at?: nu
   return {
     ...state,
     bubbles: [...state.bubbles, bubble],
+    nextId: state.nextId + 1,
+  };
+}
+
+function insertRunUser(state: ChatState, text: string, at: number | undefined, runId: string | undefined): ChatState {
+  const bubble: Bubble = { id: state.nextId, role: "user", text, tools: [], skillLoads: [], at };
+  let insertAt = state.bubbles.length;
+  const prefix = runId === undefined ? undefined : `${runId}:`;
+  if (prefix !== undefined) {
+    const early = state.bubbles.findIndex(
+      (item) => item.role === "assistant" && item.assistantId?.startsWith(prefix) === true,
+    );
+    if (early !== -1) insertAt = early;
+  }
+  if (insertAt === state.bubbles.length && state.currentAssistantId !== null) {
+    const current = state.bubbles.find((item) => item.id === state.currentAssistantId);
+    if (current?.role === "assistant" && current.assistantId === undefined && current.settled !== true) {
+      insertAt = state.bubbles.findIndex((item) => item.id === current.id);
+    }
+  }
+  return {
+    ...state,
+    bubbles: [...state.bubbles.slice(0, insertAt), bubble, ...state.bubbles.slice(insertAt)],
     nextId: state.nextId + 1,
   };
 }
@@ -1062,15 +1140,33 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
       const keepHistory = !sessionChanged && (state.history.supported || holdsFetchedHistory(state));
       // 未確定の assistant を捨てるのは失敗試行の取り消し (context_edit) だけ。同じ run の継続
       // (追加入力の注入・保存確定など) で捨てると、続く delta が別カードになり live と履歴が食い違う
+      const currentLive =
+        state.currentAssistantId === null
+          ? undefined
+          : state.bubbles.find((bubble) => bubble.id === state.currentAssistantId);
+      const payloadRunPrefix = payload.run?.id === undefined ? undefined : `${payload.run.id}:`;
+      const currentForPayloadRun =
+        currentLive !== undefined &&
+        (state.currentRunId !== undefined
+          ? state.currentRunId === payload.run?.id
+          : payloadRunPrefix !== undefined && currentLive.assistantId?.startsWith(payloadRunPrefix) === true);
       const resumingRun =
         !switchedSession &&
         payload.resyncReason === undefined &&
         status === "running" &&
         payload.run?.id !== undefined &&
-        payload.run.id === state.currentRunId;
-      const streaming =
-        resumingRun && state.currentAssistantId !== null
-          ? state.bubbles.find((bubble) => bubble.id === state.currentAssistantId)
+        currentForPayloadRun;
+      const streaming = resumingRun ? currentLive : undefined;
+      // run_end を取りこぼすと未保存の現在応答が消えるため、終端 payload でも残す
+      const terminalLive =
+        !switchedSession &&
+        payload.resyncReason === undefined &&
+        status !== "running" &&
+        payload.run !== null &&
+        payload.run !== undefined &&
+        currentForPayloadRun &&
+        currentLive?.role === "assistant"
+          ? currentLive
           : undefined;
       const legacy = keepHistory ? null : historyToBubbles(state.nextId, payload.messages ?? []);
       const live = state.bubbles.filter((bubble) => bubble.entryId === undefined);
@@ -1096,11 +1192,16 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
         }
       }
       // 確定済みのライブバブル (前の run の応答 / 送信エコー) は、履歴ページが届くまで残す
-      const keptLive = live.filter(
-        (bubble) =>
-          bubble.id !== failedAttempt?.id &&
-          (bubble.role === "user" || bubble.settled === true || bubble.id === streaming?.id),
-      );
+      const keptLive = live
+        .filter(
+          (bubble) =>
+            bubble.id !== failedAttempt?.id &&
+            (bubble.role === "user" ||
+              bubble.settled === true ||
+              bubble.id === streaming?.id ||
+              bubble.id === terminalLive?.id),
+        )
+        .map((bubble) => (bubble.id === terminalLive?.id ? { ...bubble, settled: true } : bubble));
       // payload.messages の assistant は保存済み = 閉じた応答。開いている扱いにすると次の delta が連結される
       let rebuilt: Bubble[] = [];
       let streamingMerged = false;
@@ -1108,52 +1209,57 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
         rebuilt = legacy.bubbles.map((bubble) => (bubble.role === "assistant" ? { ...bubble, settled: true } : bubble));
         // 履歴を持たない会話でも、確定済みの応答と実行中のツールカードを再構成で落とさない
         if (!switchedSession) {
-          // ライブで付けたターンの結末 (Done / 所要時間) は保存済み messages に載らない
+          // 状態順のまま append すると user が応答の後ろへ出るため、payload の順を基準にする
           for (const liveBubble of keptLive) {
-            if (liveBubble.role !== "user" || liveBubble.runDurationMs === undefined) continue;
+            if (liveBubble.role !== "user") continue;
             let userMatch = -1;
             if (liveBubble.sendId !== undefined) {
-              // 送信IDがあるときは本文の逆順一致へ落とさない (同じ質問の前ランへ結末を移さない)
               userMatch = rebuilt.findIndex((bubble) => bubble.role === "user" && bubble.sendId === liveBubble.sendId);
             } else {
+              let lastUser = -1;
               for (let index = rebuilt.length - 1; index >= 0; index -= 1) {
-                const bubble = rebuilt[index];
-                if (bubble.role !== "user" || bubble.text !== liveBubble.text) continue;
-                // 実行IDが分かるなら同じ run 内の復帰に限る
-                if (liveBubble.runId !== undefined && bubble.runId !== liveBubble.runId) continue;
-                userMatch = index;
-                break;
-              }
-            }
-            if (userMatch === -1) {
-              // 前ランの user は payload の窓から外れ得る。状態上の元の位置へ戻して順序を保つ
-              const liveIndex = state.bubbles.findIndex((bubble) => bubble.id === liveBubble.id);
-              let insertAt = rebuilt.length;
-              for (let index = 0; index < rebuilt.length; index += 1) {
-                const bubble = rebuilt[index];
-                const stateIndex =
-                  bubble.sendId !== undefined
-                    ? state.bubbles.findIndex((item) => item.sendId === bubble.sendId)
-                    : bubble.assistantId !== undefined
-                      ? state.bubbles.findIndex((item) => item.assistantId === bubble.assistantId)
-                      : bubble.runId !== undefined
-                        ? state.bubbles.findIndex((item) => item.role === "user" && item.runId === bubble.runId)
-                        : state.bubbles.findIndex((item) => item.role === bubble.role && item.text === bubble.text);
-                if (stateIndex > liveIndex) {
-                  insertAt = index;
+                if (rebuilt[index].role === "user") {
+                  lastUser = index;
                   break;
                 }
               }
-              rebuilt = [...rebuilt.slice(0, insertAt), liveBubble, ...rebuilt.slice(insertAt)];
+              if (lastUser !== -1 && canonicalUserText(rebuilt[lastUser].text) === canonicalUserText(liveBubble.text)) {
+                const liveIndex = state.bubbles.findIndex((bubble) => bubble.id === liveBubble.id);
+                const liveNext = state.bubbles.slice(liveIndex + 1).find((bubble) => bubble.role === "assistant");
+                const baseNext = rebuilt.slice(lastUser + 1).find((bubble) => bubble.role === "assistant");
+                // 本文だけで寄せると前ターンの同名 user へ結末が移るため、直後の応答も一致させる
+                const sameNext =
+                  baseNext === undefined ||
+                  (liveNext !== undefined &&
+                    (liveNext.assistantId !== undefined && baseNext.assistantId !== undefined
+                      ? liveNext.assistantId === baseNext.assistantId
+                      : liveNext.text === baseNext.text));
+                if (sameNext) userMatch = lastUser;
+              }
+            }
+            if (userMatch === -1) {
+              // 末尾へ append すると前ターンの応答より後ろに並ぶため、状態上の位置へ戻す
+              rebuilt = insertByStatePosition(state, rebuilt, liveBubble);
             } else {
               rebuilt = rebuilt.map((bubble, index) =>
                 index === userMatch
                   ? {
                       ...bubble,
-                      ...(liveBubble.sendId === undefined ? {} : { sendId: liveBubble.sendId }),
-                      ...(liveBubble.runId === undefined ? {} : { runId: liveBubble.runId }),
-                      runDurationMs: liveBubble.runDurationMs,
-                      runOutcome: liveBubble.runOutcome,
+                      ...liveBubble,
+                      text: bubble.text || liveBubble.text,
+                      entryId: bubble.entryId,
+                      ...(bubble.sendId !== undefined
+                        ? { sendId: bubble.sendId }
+                        : liveBubble.sendId === undefined
+                          ? {}
+                          : { sendId: liveBubble.sendId }),
+                      ...(bubble.runId !== undefined
+                        ? { runId: bubble.runId }
+                        : liveBubble.runId === undefined
+                          ? {}
+                          : { runId: liveBubble.runId }),
+                      ...(liveBubble.runDurationMs === undefined ? {} : { runDurationMs: liveBubble.runDurationMs }),
+                      ...(liveBubble.runOutcome === undefined ? {} : { runOutcome: liveBubble.runOutcome }),
                     }
                   : bubble,
               );
@@ -1162,50 +1268,51 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
           for (const liveBubble of keptLive) {
             if (liveBubble.role !== "assistant") continue;
             if (liveBubble.id === streaming?.id && liveBubble.assistantId === undefined) continue;
-            if (liveBubble.settled !== true && liveBubble.id !== streaming?.id) continue;
             let match = -1;
             if (liveBubble.assistantId !== undefined) {
               match = rebuilt.findIndex(
                 (bubble) => bubble.role === "assistant" && bubble.assistantId === liveBubble.assistantId,
               );
+              if (match === -1) {
+                // 両方に ID があるときに本文で寄せると別応答を取り違えるため、片方だけの旧データに限る
+                const turnIndex = turnIndexOf(state, liveBubble.id, rebuilt);
+                if (turnIndex !== -1) {
+                  const candidates: number[] = [];
+                  for (let index = rebuilt.length - 1; index > turnIndex; index -= 1) {
+                    const bubble = rebuilt[index];
+                    if (bubble.role !== "assistant" || bubble.assistantId !== undefined) continue;
+                    if (bubble.text === "" || liveBubble.text === "") continue;
+                    if (bubble.text.startsWith(liveBubble.text) || liveBubble.text.startsWith(bubble.text)) {
+                      candidates.push(index);
+                    }
+                  }
+                  if (candidates.length === 1) match = candidates[0];
+                }
+              }
             } else {
-              for (let index = rebuilt.length - 1; index >= 0; index -= 1) {
+              const turnIndex = turnIndexOf(state, liveBubble.id, rebuilt);
+              const start = turnIndex === -1 ? 0 : turnIndex + 1;
+              for (let index = rebuilt.length - 1; index >= start; index -= 1) {
                 const bubble = rebuilt[index];
-                if (bubble.role === "assistant" && bubble.text === liveBubble.text) {
+                if (
+                  bubble.role === "assistant" &&
+                  bubble.assistantId === undefined &&
+                  bubble.text === liveBubble.text
+                ) {
                   match = index;
                   break;
                 }
               }
             }
-            if (liveBubble.id === streaming?.id) {
-              if (match === -1) continue;
-              streamingMerged = true;
-            }
             if (match === -1) {
-              // payload の窓から外れた旧応答も、状態上の元の位置へ戻して Done の位置を保つ
-              const liveIndex = state.bubbles.findIndex((bubble) => bubble.id === liveBubble.id);
-              let insertAt = rebuilt.length;
-              for (let index = 0; index < rebuilt.length; index += 1) {
-                const bubble = rebuilt[index];
-                const stateIndex =
-                  bubble.assistantId !== undefined
-                    ? state.bubbles.findIndex((item) => item.assistantId === bubble.assistantId)
-                    : bubble.sendId !== undefined
-                      ? state.bubbles.findIndex((item) => item.sendId === bubble.sendId)
-                      : bubble.runId !== undefined
-                        ? state.bubbles.findIndex((item) => item.role === "user" && item.runId === bubble.runId)
-                        : state.bubbles.findIndex((item) => item.role === bubble.role && item.text === bubble.text);
-                if (stateIndex > liveIndex) {
-                  insertAt = index;
-                  break;
-                }
-              }
-              rebuilt = [...rebuilt.slice(0, insertAt), liveBubble, ...rebuilt.slice(insertAt)];
+              // 末尾へ append すると Done が次のターンへ移るため、状態上の位置へ戻す
+              rebuilt = insertByStatePosition(state, rebuilt, liveBubble);
             } else {
               rebuilt = rebuilt.map((bubble, index) =>
                 index === match ? mergeAssistantCard(liveBubble, bubble) : bubble,
               );
             }
+            if (liveBubble.id === streaming?.id) streamingMerged = true;
           }
         }
       }
@@ -1333,26 +1440,34 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
               ? bubble.runId === payload.run?.id
               : bubble.sendId === payload.run?.initialSendId),
         );
-        if (initialUser?.runDurationMs === undefined) {
-          const durationMs = Math.max(0, payload.run.endedAt - payload.run.startedAt);
+        const durationMs = initialUser?.runDurationMs ?? Math.max(0, payload.run.endedAt - payload.run.startedAt);
+        const outcome = initialUser?.runOutcome ?? runOutcome;
+        if (initialUser !== undefined && initialUser.runDurationMs === undefined) {
           settledBubbles = attachTurnEnd(
             settledBubbles,
             payload.run.id,
             payload.run.initialSendId,
-            runOutcome,
+            outcome,
             durationMs,
           );
-          // run_end を取りこぼした復帰でも Done を出す (履歴 page が持つ値は上書きしない)
-          const prefix = `${payload.run.id}:`;
-          for (let index = settledBubbles.length - 1; index >= 0; index -= 1) {
-            const bubble = settledBubbles[index];
-            if (bubble.role !== "assistant" || bubble.text === "" || bubble.turnEnd !== undefined) continue;
-            if (bubble.assistantId !== undefined && !bubble.assistantId.startsWith(prefix)) continue;
-            settledBubbles = settledBubbles.map((item, position) =>
-              position === index ? { ...item, turnEnd: { outcome: runOutcome, durationMs } } : item,
-            );
-            break;
+        }
+        // user の位置に依存すると Done が消えるため、run の最後の本文あり assistant へ直接付ける
+        const prefix = `${payload.run.id}:`;
+        const initialIndex =
+          initialUser === undefined ? -1 : settledBubbles.findIndex((bubble) => bubble.id === initialUser.id);
+        for (let index = settledBubbles.length - 1; index >= 0; index -= 1) {
+          const bubble = settledBubbles[index];
+          if (bubble.role !== "assistant" || bubble.text === "" || bubble.turnEnd !== undefined) continue;
+          if (bubble.assistantId !== undefined) {
+            if (!bubble.assistantId.startsWith(prefix)) continue;
+          } else if (initialIndex !== -1 && index <= initialIndex) {
+            // ID の無い旧データで前ターンへ結末を付けない
+            continue;
           }
+          settledBubbles = settledBubbles.map((item, position) =>
+            position === index ? { ...item, turnEnd: { outcome, durationMs } } : item,
+          );
+          break;
         }
       }
       return {
@@ -1567,7 +1682,7 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
         const known =
           base.bubbles.some((bubble) => bubble.role === "user" && bubble.text === action.prompt) ||
           base.bubbles.some((bubble) => pending.has(bubble.id) && canonicalUserText(bubble.text) === promptBody);
-        next = known ? base : appendBubble(base, "user", action.prompt, action.at);
+        next = known ? base : insertRunUser(base, action.prompt, action.at, action.runId);
       }
       return {
         ...next,
