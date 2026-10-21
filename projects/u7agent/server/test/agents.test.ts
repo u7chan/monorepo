@@ -693,6 +693,14 @@ test("appendSystemPrompt は外した組み込みスキルの案内を出さな�
   assert.match(skillCreatorOnly, /follow the bundled `skill-creator` skill/);
 });
 
+test("appendSystemPrompt は環境変数の契約文を持たない (正は同梱の serve スキル)", () => {
+  const prompt = appendSystemPrompt("/workspace");
+  // 種別ごとの注入先と確認方法は serve ツールの guideline とスキルに置き、system prompt はポインタだけを保つ
+  assert.match(prompt, /follow the bundled `serve` skill/);
+  assert.doesNotMatch(prompt, /process\.env/);
+  assert.doesNotMatch(prompt, /REDACTED/);
+});
+
 test("appendSystemPrompt は画像生成ツールの案内を有効時だけ足す", () => {
   const off = appendSystemPrompt("/workspace");
   assert.doesNotMatch(off, /generate_image/);

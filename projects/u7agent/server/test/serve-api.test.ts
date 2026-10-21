@@ -19,7 +19,12 @@ import { UnknownRemoteToolError, createRemoteToolDefinitions } from "../src/sand
 import { SANDBOX_TOOL_NAMES } from "../src/sandbox/service";
 import type { SandboxWorkspaceClient } from "../src/sandbox/client";
 import { DEBUG_SERVE_PORT_FROM } from "../src/serve";
-import { createServeToolDefinitions, createServeToolHost, withServeTool } from "../src/serve-tool";
+import {
+  createServeToolDefinitions,
+  createServeToolHost,
+  SERVE_TOOL_GUIDELINES,
+  withServeTool,
+} from "../src/serve-tool";
 import { createServeSandboxStub, publicListener, setPublicListener } from "./serve-stub";
 import { asPiBff, createStubPi } from "./stub-pi";
 
@@ -390,6 +395,12 @@ test("serve ツールは会話へ束縛した BFF ローカルの customTool と
 
     // 外したビルトイン skill は説明からも落ちる (system prompt の serveSkillClause と同じ判定)
     assert.match(definition.description, /Follow the bundled `serve` skill/);
+    // 種別ごとの注入先は定義側の 1 文で伝え、契約の正は同梱の serve スキルに置く
+    assert.deepEqual(definition.promptGuidelines, [...SERVE_TOOL_GUIDELINES]);
+    const guidelines = (definition.promptGuidelines ?? []).join("\n");
+    assert.match(guidelines, /also reach bash/);
+    assert.match(guidelines, /secrets reach only the process started by start or debug_start/);
+    assert.match(guidelines, /\[REDACTED\]/);
     const [withoutBuiltins] = createServeToolDefinitions({
       enabled: true,
       sessionId: first,

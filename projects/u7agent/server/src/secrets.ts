@@ -24,7 +24,7 @@ export interface SecretListItem {
   updatedAt: number;
 }
 
-/** 変更フォーム用。値は「変数」だけに載り、シークレットでは常に省略される */
+/** 値の表示 / 変更フォーム用。値は「変数」だけに載り、シークレットでは常に省略される */
 export interface SecretDetail extends SecretListItem {
   value?: string;
 }
@@ -69,6 +69,7 @@ export interface SecretStore {
   ): void;
   deleteSecret(secretId: string): boolean;
   nextSecretSortOrder(cwd: string): number;
+  reorderSecrets(cwd: string, ids: readonly string[]): void;
 }
 
 /** 要求元の特定。会話 (sessionId) か、まだ会話が無いプロジェクト起点の新規会話 (projectId) のどちらか */
@@ -226,7 +227,28 @@ export class SecretService {
     return { items: rows.map(itemOf), generation: secretGeneration(rows), projectScoped: scope.projectScoped };
   }
 
-  /** 変更フォーム用の詳細。値は変数のときだけ載せ、シークレットでは決して返さない */
+  /**
+   * 表示順の更新。応答と以後の一覧は、正規化したあとの順で返る。未知の id・他会話 (別 cwd) の id・
+   * 重複は捨て、渡されなかった行は元の相対順で末尾に回す (並べ替えで行を消さない)。
+   */
+  reorder(scope: SecretScope, ids: readonly string[]): SecretsList {
+    const current = this.#rows(scope.cwd);
+    const known = new Set(current.map((row) => row.secretId));
+    const seen = new Set<string>();
+    const order: string[] = [];
+    for (const id of ids) {
+      if (typeof id !== "string" || !known.has(id) || seen.has(id)) continue;
+      seen.add(id);
+      order.push(id);
+    }
+    for (const row of current) {
+      if (!seen.has(row.secretId)) order.push(row.secretId);
+    }
+    this.#store.reorderSecrets(scope.cwd, order);
+    return this.list(scope);
+  }
+
+  /** 値の表示 / 変更フォーム用の詳細。値は変数のときだけ載せ、シークレットでは決して返さない */
   detail(scope: SecretScope, secretId: string): SecretDetail {
     const row = this.#find(scope, secretId);
     if (row.kind !== "variable") return itemOf(row);

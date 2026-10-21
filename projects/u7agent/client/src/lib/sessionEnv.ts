@@ -1,6 +1,6 @@
 /**
- * 作業環境 → 環境変数タブの表示と入力の規則。値そのものは状態に持たない (フォームの入力欄だけが持つ) ため、
- * ここは名前の見せ方と文言だけを決める純関数に閉じる。検証の正はサーバー (server/src/secrets.ts)。
+ * 作業環境 → 環境変数タブの表示と入力の規則。扱うのは名前の見せ方と文言だけで、変数の値の表示判定は
+ * lib/envValue.ts が持つ。検証の正はサーバー (server/src/secrets.ts)。
  */
 import type { SecretItem } from "../types";
 import type { ConfirmRequest } from "./confirmDialog";
@@ -21,8 +21,14 @@ export function secretDeleteConfirmRequest(item: Pick<SecretItem, "name" | "kind
   };
 }
 
-/** タブ上部の 1 行。反映の境界は「保存」ではなく「次回の起動」 */
-export const ENV_RESTART_NOTE = "シークレットの変更は次回の起動から反映されます";
+/**
+ * 一覧に常時出す種別の凡例。反映の境界 (変数は次の bash / シークレットは次回の起動) と注入先を
+ * 種別ごとに 1 行で示す。種別ごとの注入先をフォームの中だけに置くと、登録後は一覧からは確かめられない。
+ */
+export const ENV_KIND_LEGEND: readonly { kind: SecretItem["kind"]; text: string }[] = [
+  { kind: "variable", text: "次の bash から反映。bash とサービス起動時の env に入る" },
+  { kind: "secret", text: "次回の起動から反映。サービス起動時の env にだけ入る" },
+];
 
 /** プロジェクト所属の cwd を共有しているときだけ出す 1 行 */
 export const ENV_PROJECT_NOTE = "このプロジェクトの設定です";
@@ -31,13 +37,13 @@ export const ENV_PROJECT_NOTE = "このプロジェクトの設定です";
 export const ENV_SECRET_NOTES: readonly string[] = [
   "シークレットはこの会話上では参照できません",
   "保存後に値を再取得できません",
-  "サービスとして起動したときだけ参照できます",
+  "サービスとして起動したときに参照できます",
 ];
 
 /** 変数の説明。エージェントに見えることが変数の利点であるため、そこを明示する */
 export const ENV_VARIABLE_NOTES: readonly string[] = [
   "この会話のエージェントにも見えます（bash の printenv に出ます）",
-  "サービスとして起動したときだけ参照できます",
+  "サービスの起動プロセスにも入ります",
 ];
 
 /** シークレットの入力が短いときの注記 (誤解したまま保存させない) */
@@ -58,6 +64,19 @@ export function envKindLabel(kind: SecretItem["kind"]): string {
 export function envKindNotes(kind: SecretItem["kind"]): readonly string[] {
   return kind === "secret" ? ENV_SECRET_NOTES : ENV_VARIABLE_NOTES;
 }
+
+/** フォーム見出しと行メニューの語。変数は値を見て直すので「編集」、シークレットは差し替えるので「変更」 */
+export function envValueActionLabel(kind: SecretItem["kind"]): string {
+  return kind === "variable" ? "値を編集" : "値を変更";
+}
+
+/** 変更フォームの見出し。同じフォームに編集・変更・保存の 3 語を並べない */
+export function envValueFormTitle(item: Pick<SecretItem, "name" | "kind">): string {
+  return `${item.name} の${envValueActionLabel(item.kind)}`;
+}
+
+/** 変更フォームの主ボタン。種別で語を変えない (見出しの「編集 / 変更」だけが種別を映す) */
+export const ENV_SAVE_LABEL = "保存";
 
 /** 入力中の値が「自動マスクされない長さ」か。空欄では出さない (保存前の注記なので) */
 export function shortSecretNote(kind: SecretItem["kind"], value: string): string | undefined {
@@ -85,6 +104,27 @@ export function canSubmitEnvValue(value: string): boolean {
 /** 行の名前。コピー導線とエージェント向けの一覧に同じ並びを使う */
 export function envNameList(items: readonly SecretItem[]): string[] {
   return items.map((item) => item.name);
+}
+
+/**
+ * 並べ替えの下書き順で行を並べる。下書きに無い行 (ドラッグ中に別タブが追加した行) は一覧の順のまま
+ * 末尾へ回し、行を消さない。下書きが無ければ一覧の順をそのまま使う。
+ */
+export function orderedEnvItems(items: readonly SecretItem[], ids: readonly string[] | null): SecretItem[] {
+  if (ids === null) return [...items];
+  const byId = new Map(items.map((item) => [item.secretId, item]));
+  const ordered: SecretItem[] = [];
+  const seen = new Set<string>();
+  for (const id of ids) {
+    const item = byId.get(id);
+    if (!item || seen.has(id)) continue;
+    seen.add(id);
+    ordered.push(item);
+  }
+  for (const item of items) {
+    if (!seen.has(item.secretId)) ordered.push(item);
+  }
+  return ordered;
 }
 
 /** 作業環境パネルのタブ。並びは表示順そのもの */
@@ -142,7 +182,7 @@ export function sessionEnvScope(input: { sessionId: string; projectId: string })
   return null;
 }
 
-/** 変更フォームに初期値として入れる値。変数は保存済みの値をプリフィルし、シークレットは空欄にする */
+/** 変更フォームに初期値として入れる値。変数は保持済みの値をプリフィルし、シークレットは空欄にする */
 export function initialDraftValue(item: SecretItem, values: Readonly<Record<string, string>>): string {
   return item.kind === "variable" ? (values[item.secretId] ?? "") : "";
 }

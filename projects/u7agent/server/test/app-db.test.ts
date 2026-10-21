@@ -1214,6 +1214,24 @@ test("secrets の並びは sortOrder + name で、削除しても詰めない", 
   db.close();
 });
 
+test("secrets の並べ替えは cwd 内だけを 1..n に振り直し、別 cwd の id は動かさない", () => {
+  const db = AppDb.open({ storeDir: null });
+  db.insertSecret(secretRow({ secretId: "s1", name: "A", sortOrder: 1 }));
+  db.insertSecret(secretRow({ secretId: "s2", name: "B", sortOrder: 2 }));
+  db.insertSecret(secretRow({ secretId: "s3", cwd: "projects/beta", name: "C", sortOrder: 1 }));
+  // 別 cwd の id を混ぜても、この cwd の行だけが書き換わる
+  db.reorderSecrets("projects/alpha", ["s2", "s3", "s1"]);
+  assert.deepEqual(
+    db.listSecrets("projects/alpha").map((row) => row.name),
+    ["B", "A"],
+  );
+  assert.deepEqual(
+    db.listSecrets("projects/beta").map((row) => row.name),
+    ["C"],
+  );
+  db.close();
+});
+
 test("moveCwd は secrets と serve_commands を 1 トランザクションで付け替える", () => {
   const db = AppDb.open({ storeDir: null });
   db.insertSecret(secretRow({ cwd: "sessions/a", name: "A" }));

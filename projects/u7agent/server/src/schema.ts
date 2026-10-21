@@ -1723,7 +1723,7 @@ export const SecretItemSchema = z.object({
 });
 export type SecretItem = z.infer<typeof SecretItemSchema>;
 
-/** 変更フォーム用。`value` は変数のときだけ入り、シークレットでは省略される */
+/** 値の表示 / 変更フォーム用。`value` は変数のときだけ入り、シークレットでは省略される */
 export const SecretDetailSchema = SecretItemSchema.extend({ value: z.string().optional() });
 export type SecretDetailResponse = z.infer<typeof SecretDetailSchema>;
 
@@ -1765,6 +1765,18 @@ export type CreateSecretBody = z.infer<typeof CreateSecretBodySchema>;
 /** 値の上書き (名前と種別は変えられない) */
 export const UpdateSecretBodySchema = z.object({ ...secretScopeShape, value: z.string() });
 export type UpdateSecretBody = z.infer<typeof UpdateSecretBodySchema>;
+
+/**
+ * 並べ替えで受ける id の上限。形と上限だけを見る点は `ReorderAgentsBodySchema` と同じで、
+ * 未知の id・重複の扱いと cwd の照合は `SecretService.reorder` が正。
+ */
+export const SECRET_ORDER_IDS_MAX = 500;
+
+export const ReorderSecretsBodySchema = z.object({
+  ...secretScopeShape,
+  ids: z.array(z.string()).max(SECRET_ORDER_IDS_MAX),
+});
+export type ReorderSecretsBody = z.infer<typeof ReorderSecretsBodySchema>;
 
 /** 通知設定の更新。キー省略は現在値の維持、webhookUrl / baseUrl の null は解除 */
 export const UpdateNotificationsBodySchema = z.object({

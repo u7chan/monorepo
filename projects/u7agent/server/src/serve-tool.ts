@@ -33,6 +33,7 @@ export const SERVE_TOOL_GUIDELINES = [
   "A debug server takes one port per conversation from 18000-18099 and the port changes on every start, so read it from the tool result instead of reusing an old one. Bind it to 127.0.0.1.",
   "Stop a debug server with debug_stop when the checks are done; it does not stop when the run ends.",
   "Never put secret values in `command` and never ask the user to paste them into the chat: the user registers environment variables in the Work Environment panel and the app reads them from process.env.",
+  'Environment variables registered there also reach bash, but secrets reach only the process started by start or debug_start, so verify presence (`[ -n "${NAME+x}" ]` in bash, `"NAME" in process.env` in the started process) instead of reading the value; `[REDACTED]` shows the masker worked, not that the value was injected.',
 ];
 
 const serveSchema = Type.Object({

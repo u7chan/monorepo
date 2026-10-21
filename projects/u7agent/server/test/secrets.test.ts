@@ -243,6 +243,38 @@ test("他会話 (別の cwd) の secret_id は参照も変更も削除もでき�
   db.close();
 });
 
+test("並べ替えは cwd 内の行だけを渡した順に保存し、未知・重複・別 cwd は捨て、渡さなかった行を末尾へ回す", () => {
+  const { service, db } = setup();
+  const a = service.create(SCOPE, { kind: "variable", name: "A", value: "1" });
+  service.create(SCOPE, { kind: "variable", name: "B", value: "2" });
+  const c = service.create(SCOPE, { kind: "variable", name: "C", value: "3" });
+  const other = service.create(OTHER, { kind: "variable", name: "Z", value: "9" });
+
+  assert.deepEqual(
+    service
+      .reorder(SCOPE, [c.item.secretId, other.item.secretId, a.item.secretId, c.item.secretId, "missing"])
+      .items.map((item) => item.name),
+    ["C", "A", "B"],
+    "未知・重複・別 cwd を捨て、渡さなかった B を末尾へ回していない",
+  );
+  assert.deepEqual(
+    service.list(SCOPE).items.map((item) => item.name),
+    ["C", "A", "B"],
+    "並びが保存されていない",
+  );
+  // 別 cwd の行は動かない (cwd を書き込みの条件にも入れている)
+  assert.deepEqual(
+    service.list(OTHER).items.map((item) => item.name),
+    ["Z"],
+  );
+  // 空の ids は現行の並びを保ち、行を消さない
+  assert.deepEqual(
+    service.reorder(SCOPE, []).items.map((item) => item.name),
+    ["C", "A", "B"],
+  );
+  db.close();
+});
+
 test("変数の値は variablesFor に入り、シークレットは入らない", () => {
   const { service, db } = setup();
   service.create(SCOPE, { kind: "variable", name: "NODE_ENV", value: "production" });

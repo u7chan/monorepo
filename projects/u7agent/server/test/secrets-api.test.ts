@@ -21,6 +21,12 @@ const jsonPut = (payload: unknown): RequestInit => ({
   body: JSON.stringify(payload),
 });
 
+const jsonPatch = (payload: unknown): RequestInit => ({
+  method: "PATCH",
+  headers: { "Content-Type": "application/json" },
+  body: JSON.stringify(payload),
+});
+
 const jsonBody = async (response: Response | Promise<Response>): Promise<any> => (await response).json();
 
 const workspace: SandboxWorkspaceClient = {
@@ -114,6 +120,74 @@ test("登録 → 一覧 → 詳細 → 上書き → 削除の往復で、シー
     assert.equal(removed.removed, true);
     const after = await jsonBody(await bff.app.request(`/api/secrets?sessionId=${a}`));
     assert.deepEqual(after.items, []);
+  } finally {
+    await bff.close();
+    restore();
+  }
+});
+
+test("並べ替えは保存され、応答と以後の一覧が同じ順になる (別 cwd の id は無視する)", async () => {
+  const { bff, a, b, restore } = await setup();
+  try {
+    const created: { secretId: string; name: string }[] = [];
+    for (const name of ["A", "B", "C"]) {
+      created.push(
+        (
+          await jsonBody(
+            await bff.app.request(
+              "/api/secrets",
+              jsonPost({ sessionId: a, kind: "variable", name, value: `value-${name}` }),
+            ),
+          )
+        ).item,
+      );
+    }
+    const ids = created.map((item) => item.secretId);
+    const response = await bff.app.request(
+      "/api/secrets/order",
+      jsonPatch({ sessionId: a, ids: [ids[2], ids[0], ids[1]] }),
+    );
+    assert.equal(response.status, 200);
+    const reordered = await jsonBody(response);
+    assert.deepEqual(
+      reordered.items.map((item: { name: string }) => item.name),
+      ["C", "A", "B"],
+    );
+    // 応答は一覧と同じ形で、値は載せない
+    assert.equal("value" in reordered.items[0], false);
+
+    const list = await jsonBody(await bff.app.request(`/api/secrets?sessionId=${a}`));
+    assert.deepEqual(
+      list.items.map((item: { name: string }) => item.name),
+      ["C", "A", "B"],
+      "並びが保存されていない",
+    );
+
+    // 別 cwd の id を混ぜても、その行は動かず自分の一覧にも現れない
+    const other = await jsonBody(
+      await bff.app.request("/api/secrets", jsonPost({ sessionId: b, kind: "variable", name: "Z", value: "value-Z" })),
+    );
+    const mixed = await jsonBody(
+      await bff.app.request(
+        "/api/secrets/order",
+        jsonPatch({ sessionId: a, ids: [other.item.secretId, ids[1], ids[0], ids[2]] }),
+      ),
+    );
+    assert.deepEqual(
+      mixed.items.map((item: { name: string }) => item.name),
+      ["B", "A", "C"],
+    );
+    const otherList = await jsonBody(await bff.app.request(`/api/secrets?sessionId=${b}`));
+    assert.deepEqual(
+      otherList.items.map((item: { name: string }) => item.name),
+      ["Z"],
+    );
+
+    // 本文の形と要求元の検証は他の API と同じ
+    const invalidBody = await bff.app.request("/api/secrets/order", jsonPatch({ sessionId: a, ids: "nope" }));
+    assert.equal(invalidBody.status, 400);
+    const noScope = await bff.app.request("/api/secrets/order", jsonPatch({ ids }));
+    assert.equal(noScope.status, 400);
   } finally {
     await bff.close();
     restore();
