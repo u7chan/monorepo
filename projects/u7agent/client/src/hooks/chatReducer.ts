@@ -380,13 +380,76 @@ function echoAbsorbTarget(bubbles: Bubble[], markers: CompactionMarker[], echo: 
   return fallbackEchoTarget(bubbles, markers, echo);
 }
 
+/**
+ * 履歴の再取得で、ストリーミング中の応答を履歴 item と 1 枚に寄せる。ライブの本文を正とし、
+ * 補完先を落とさない (落とすと続く delta が別カードを開き、本文が途中で割れる)
+ */
+function mergeStreamingIntoHistory(
+  state: ChatState,
+  bubbles: Bubble[],
+): { bubbles: Bubble[]; currentAssistantId: number | null; toolBubbleIds: Record<string, number> } {
+  const rebuildTools = (items: Bubble[]): Record<string, number> => {
+    const ids: Record<string, number> = {};
+    for (const bubble of items) {
+      for (const card of bubble.tools) {
+        if (ids[card.id] === undefined) ids[card.id] = bubble.id;
+      }
+    }
+    return ids;
+  };
+  const liveId = state.currentAssistantId;
+  const live = liveId === null ? undefined : state.bubbles.find((bubble) => bubble.id === liveId);
+  if (live === undefined || state.runStatus !== "running") {
+    return {
+      bubbles,
+      currentAssistantId: liveId !== null && bubbles.some((bubble) => bubble.id === liveId) ? liveId : null,
+      toolBubbleIds: rebuildTools(bubbles),
+    };
+  }
+  // 保存済みの同じ応答 (ライブの本文の先頭まで) を探す。空の応答は完全一致だけを対象にする
+  let matchIndex = -1;
+  for (let index = bubbles.length - 1; index >= 0; index -= 1) {
+    const bubble = bubbles[index];
+    if (bubble.role !== "assistant" || bubble.entryId === undefined) continue;
+    if (bubble.text === live.text || (bubble.text.length > 0 && live.text.startsWith(bubble.text))) {
+      matchIndex = index;
+      break;
+    }
+  }
+  if (matchIndex === -1) {
+    return {
+      bubbles,
+      currentAssistantId: bubbles.some((bubble) => bubble.id === liveId) ? liveId : null,
+      toolBubbleIds: rebuildTools(bubbles),
+    };
+  }
+  const history = bubbles[matchIndex];
+  const liveIds = new Set(live.tools.map((card) => card.id));
+  const mergedBubble: Bubble = {
+    ...live,
+    entryId: history.entryId,
+    context: history.context ?? live.context,
+    at: live.at ?? history.at,
+    usage: live.usage ?? history.usage,
+    metrics: live.metrics ?? history.metrics,
+    turnEnd: history.turnEnd ?? live.turnEnd,
+    tools: [...live.tools, ...history.tools.filter((card) => !liveIds.has(card.id))],
+    skillLoads: live.skillLoads.length > 0 ? live.skillLoads : history.skillLoads,
+  };
+  const next = bubbles
+    .map((bubble, index) => (index === matchIndex ? mergedBubble : bubble))
+    .filter((bubble, index) => index === matchIndex || bubble.id !== liveId);
+  return { bubbles: next, currentAssistantId: liveId, toolBubbleIds: rebuildTools(next) };
+}
+
 function applyHistoryMerge(state: ChatState, merged: HistoryMergeResult, page: HistoryPage): ChatState {
+  const streaming = mergeStreamingIntoHistory(state, merged.bubbles);
   return {
     ...state,
-    bubbles: merged.bubbles,
+    bubbles: streaming.bubbles,
     nextId: merged.nextId,
-    toolBubbleIds: merged.toolBubbleIds,
-    currentAssistantId: null,
+    toolBubbleIds: streaming.toolBubbleIds,
+    currentAssistantId: streaming.currentAssistantId,
     dividers: merged.markers,
     pendingEchoIds: merged.pendingEchoIds,
     sessionId: page.sessionId,
@@ -825,7 +888,7 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
         payload.run.id === state.currentRunId;
       const streaming =
         resumingRun && state.currentAssistantId !== null
-          ? state.bubbles.find((bubble) => bubble.id === state.currentAssistantId && bubble.entryId === undefined)
+          ? state.bubbles.find((bubble) => bubble.id === state.currentAssistantId)
           : undefined;
       const legacy = keepHistory ? null : historyToBubbles(state.nextId, payload.messages ?? []);
       // 確定済みのライブバブル (前の run の応答 / 送信エコー) は、履歴ページが届くまで残す

@@ -11,6 +11,7 @@ import { queuedSendsOf } from "../src/lib/queueWait";
 import type {
   CompactionInfo,
   ContextUsage,
+  HistoryPage,
   MessageMetrics,
   PendingSend,
   SessionPayload,
@@ -2008,4 +2009,140 @@ test("失敗試行の取り消しを意図する resync だけが未確定の応
     "やり直し",
     "取り消した本文を持ち越さない",
   );
+});
+
+/** 継続 resync を受けた直後のストリーミング状態 (前半まで受信済み) */
+function streamingTurn(): ChatState {
+  let state = chatReducer(historyWithOld(), { type: "localUser", text: "質問", at: 10 });
+  state = chatReducer(state, { type: "echoSendId", sendId: "send-1", runId: "run-1", stateSeq: state.stateSeq });
+  state = chatReducer(state, {
+    type: "runStart",
+    runId: "run-1",
+    initialSendId: "send-1",
+    prompt: "質問",
+    at: 10,
+    startedAt: 10,
+  });
+  return chatReducer(state, { type: "text", delta: "前半", at: 11 });
+}
+
+/** 継続 resync の直後に取り直される最新ページ (assistant は任意で部分テキスト) */
+function streamingHistoryPage(assistantText?: string): HistoryPage {
+  const items: HistoryPage["items"] = [
+    { kind: "message", id: "old", context: "active", role: "user", text: "old", runId: "run-old" },
+    { kind: "message", id: "u-1", context: "active", role: "user", text: "質問", sendId: "send-1", runId: "run-1" },
+  ];
+  if (assistantText !== undefined) {
+    items.push({ kind: "message", id: "a-1", context: "active", role: "assistant", text: assistantText });
+  }
+  return {
+    sessionId: "session-a",
+    items,
+    prevCursor: null,
+    hasMore: false,
+    nextCursor: null,
+    activeContextStartId: "old",
+    messageCount: items.length,
+    summarizedMessageCount: 0,
+  };
+}
+
+test("継続 resync の補完先は直後の履歴再取得でも失われない", () => {
+  // What: resync と次の delta の間に resyncHistory が走っても、同じ assistant バブルへ本文を連結する
+  let state = streamingTurn();
+  const streaming = state.currentAssistantId;
+  assert.notEqual(streaming, null);
+  state = chatReducer(state, { type: "resync", payload: streamingPayload() });
+  assert.equal(state.currentAssistantId, streaming);
+  state = chatReducer(state, { type: "resyncHistory", page: streamingHistoryPage() });
+  assert.equal(state.currentAssistantId, streaming, "履歴再取得で補完先を落とさない");
+
+  state = chatReducer(state, { type: "text", delta: "後半", at: 12 });
+  assert.deepEqual(
+    state.bubbles.filter((bubble) => bubble.role === "assistant").map((bubble) => bubble.text),
+    ["前半後半"],
+  );
+});
+
+test("履歴再取得を挟んだ継続 resync でも Done は最終 assistant に 1 回だけ", () => {
+  // What: 継続 resync → 履歴再取得 → 後半 delta → run_end の後も、カードが割れず Done が 1 か所に出る
+  let state = streamingTurn();
+  state = chatReducer(state, { type: "resync", payload: streamingPayload() });
+  state = chatReducer(state, { type: "resyncHistory", page: streamingHistoryPage() });
+  state = chatReducer(state, { type: "text", delta: "後半", at: 12 });
+  state = chatReducer(state, {
+    type: "runEnd",
+    runId: "run-1",
+    status: "completed",
+    queueDepth: 0,
+    durationMs: 5000,
+  });
+
+  const items = chatRenderItems({
+    bubbles: state.bubbles,
+    markers: [],
+    compactions: [],
+    activeContextStartId: null,
+  }).filter((item) => item.kind === "message" && item.bubble.role === "assistant");
+  assert.deepEqual(
+    items.map((item) => (item.kind === "message" ? item.bubble.text : "")),
+    ["前半後半"],
+  );
+  assert.deepEqual(
+    items.map((item) => (item.kind === "message" ? item.turnEnd : undefined)),
+    [{ outcome: "completed", durationMs: 5000 }],
+    "Done は最終 assistant に 1 回だけ付く",
+  );
+});
+
+test("attempt_discarded は履歴再取得を挟んでも未確定バブルを捨てる", () => {
+  // What: 失敗試行の取り消しでは、履歴再取得が後から届いても試行中の本文を復活させない
+  let state = streamingTurn();
+  const payload = streamingPayload();
+  payload.resyncReason = "attempt_discarded";
+  state = chatReducer(state, { type: "resync", payload });
+  assert.equal(state.currentAssistantId, null);
+  state = chatReducer(state, { type: "resyncHistory", page: streamingHistoryPage() });
+  assert.equal(state.currentAssistantId, null);
+  assert.equal(
+    state.bubbles.some((bubble) => bubble.text === "前半"),
+    false,
+    "取り消した試行の本文を残さない",
+  );
+
+  state = chatReducer(state, { type: "text", delta: "やり直し", at: 12 });
+  assert.deepEqual(
+    state.bubbles
+      .filter((bubble) => bubble.role === "assistant")
+      .map((bubble) => bubble.text)
+      .at(-1),
+    "やり直し",
+    "次の応答は新しいカードで始める",
+  );
+});
+
+test("履歴に同じ応答の部分テキストがあっても二重カードにしない", () => {
+  // What: 保存済みの assistant item と streaming 中のバブルをライブ本文で 1 枚に寄せ、再取得でも巻き戻さない
+  let state = streamingTurn();
+  const streaming = state.currentAssistantId;
+  state = chatReducer(state, { type: "resync", payload: streamingPayload() });
+  state = chatReducer(state, { type: "resyncHistory", page: streamingHistoryPage("前半") });
+  assert.equal(state.currentAssistantId, streaming, "履歴 item のカードへ補完先を引き継ぐ");
+  assert.deepEqual(
+    state.bubbles.filter((bubble) => bubble.role === "assistant").map((bubble) => [bubble.text, bubble.entryId]),
+    [["前半", "a-1"]],
+  );
+
+  state = chatReducer(state, { type: "text", delta: "後半", at: 12 });
+  assert.deepEqual(
+    state.bubbles.filter((bubble) => bubble.role === "assistant").map((bubble) => bubble.text),
+    ["前半後半"],
+  );
+  // 同じ最新ページをもう一度取り直しても、ライブで伸びた本文を履歴の部分テキストへ戻さない
+  state = chatReducer(state, { type: "resyncHistory", page: streamingHistoryPage("前半") });
+  assert.deepEqual(
+    state.bubbles.filter((bubble) => bubble.role === "assistant").map((bubble) => bubble.text),
+    ["前半後半"],
+  );
+  assert.equal(state.currentAssistantId, streaming);
 });
