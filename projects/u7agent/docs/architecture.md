@@ -4,15 +4,15 @@
 
 ## 基本原則
 
-1. **実行は裏で続く**: `POST /messages` は 202 で即時返却する。クライアントが切断されても、タブを閉じても、ラン（1 回の `session.prompt()`）は最後まで続く。
+1. **実行は裏で続く**: `POST /messages` は 202 で即時返却する。クライアントが切断されても、タブを閉じても、ラン（1 回の `session.prompt()` と、そこへ注入される追加入力）は最後まで続く。
 2. **イベントはセッション単位のログに積む**: 全イベントは連番（`seq`）付きでメモリ上のログに追記され、後から購読したクライアントに取りこぼしなくリプレイできる。
-3. **停止は明示的に**: SSE 切断では止めない。`POST /stop` のみが実行を中断し、キューを破棄する。
+3. **停止は明示的に**: SSE 切断では止めない。`POST /stop` のみが実行を中断し、未配信の入力（BFF の配送待ちと SDK の実キュー）を回収して未送信として残す。
 
 ## 責務の所在
 
 | 責務 | 正 | 変更テーマ |
 | --- | --- | --- |
-| ラン / キュー / 購読 / セッション状態 | `server/src/sessions.ts` | [run-lifecycle.md](run-lifecycle.md) |
+| ラン / 未配信入力（送信ID）の配送 / 購読 / セッション状態 | `server/src/sessions.ts` | [run-lifecycle.md](run-lifecycle.md) |
 | 調査の子セッション（investigate） | `server/src/investigate-tool.ts`、`server/src/investigate-runner.ts` | [subagent.md](subagent.md) |
 | 会話ストア（永続化 / 復元） | `server/src/session-store.ts` | [session-files.md](session-files.md)、[persistence.md](persistence.md) |
 | pi イベント → SSE イベント変換 | `server/src/run-events.ts` | [run-lifecycle.md](run-lifecycle.md) |
@@ -29,7 +29,7 @@
 | 秘密値のマスク | `server/src/redact.ts`、`server/src/secret-guard.ts` | [secrets.md](secrets.md) |
 | クライアント（状態 / テーマ / レイアウト） | `client/src/` | [frontend.md](frontend.md)、[ui-layout.md](ui-layout.md) |
 
-セッション状態の所有者は `SessionStore` 1 つに保つ（create と project 削除・settings 変更中の送信抑止・queue / run / subscriber は複数箇所へ分けると競合を追えなくなる）。pi イベント変換と DTO 組み立ては純関数・アダプタとして外へ出し、ストア本体はライフサイクルだけを持つ。会話の読み書きは `session-store` へ出し、SDK セッションは `SessionManager.inMemory` + entries として扱う（ファイルは SDK に持たせない）。
+セッション状態の所有者は `SessionStore` 1 つに保つ（create と project 削除・settings 変更中の送信抑止・未配信入力 / run / subscriber は複数箇所へ分けると競合を追えなくなる）。pi イベント変換と DTO 組み立ては純関数・アダプタとして外へ出し、ストア本体はライフサイクルだけを持つ。会話の読み書きは `session-store` へ出し、SDK セッションは `SessionManager.inMemory` + entries として扱う（ファイルは SDK に持たせない）。
 
 ## ドキュメントの読み方
 

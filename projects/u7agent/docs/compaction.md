@@ -95,7 +95,7 @@ run の自動圧縮は「失敗・中断では `compaction` も `resync` も配�
 - `compactionTask` は最初の await より前に record へ登録し、task 内で自分自身を await する循環を作らない。完了範囲は「保存・終端 `resync` / `status`・pump の判断・排他の解放まで」
 - `closing` 中は終端配信と pump を抑止するが、成功済み entry の保存は行い、task の settle と `flush` を待つ（SDK は `SessionManager.inMemory` なので、保存を飛ばすと entry が失われる）。`deleting` 中は既存の `persist` ガードで保存が no-op になり、終端配信と pump は走らない
 - `stop` は `record.session.abort()`（SDK が `abortCompaction()` も呼ぶ）の後に settle を待ち、`compacting` を返さない（queue は既存どおり破棄する）。SDK が entry を append 済み（保存待ち）の段階では圧縮を巻き戻せないので、応答と表示を「中止しました」にしない（成功と保存結果を正とする）
-- 圧縮中の `postMessage` はキューへ積む（`queued` を配る。上限は `MAX_QUEUE_DEPTH` と同じ）。返す `runId` に旧 run の id を含めない。`pump` は圧縮中スキップし、終端処理の後に 1 回だけ呼ぶ
+- 圧縮中の `postMessage` は BFF の配送キューへ積む（`queued` を配る。上限は `MAX_QUEUE_DEPTH` と同じで、SDK へ渡した分も数える）。応答は `sendId` を返し、`runId` は圧縮の終端後に開始送信として実行へ割り当てる。`pump` は圧縮中スキップし、終端処理の後に 1 回だけ呼ぶ
 - 圧縮中は `updateSettings` も二重 `compact` も 409。run 中・キュー待ち・streaming 中・設定変更中も 409（**idle のみ**）。`session.isIdle === false` も busy として扱う
 - sweep は圧縮中の record を外さない
 

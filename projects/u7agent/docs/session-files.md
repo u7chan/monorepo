@@ -96,29 +96,33 @@ meta の optional `spaceId` は欠落だけが `default`。追加スペースで
 - `title` は最初のメッセージで作り、GUI の ⋯「名前を変更」（`PATCH /api/sessions/:id/title`）で上書きできる（正規化は自動タイトルと同じで、空・空白だけは 400。改名後は以降のメッセージで作り直さない。[api-sessions.md](api-sessions.md#patch-apisessionsidtitle)）。`pinned` はサイドバーの固定状態で、古い meta に無い場合は false とする。GUI の ⋯ から SDK を開かず切り替え、タイトル・履歴・`lastUsedAt` は変えない。`lastUsedAt` / `messageCount` はラン終了時に更新する。`messageCount` は一覧 API と同じ表示メッセージ数（`user` と、テキストを持つ `assistant`）を数え、ツール呼び出しだけのターンは数えない。保存済みの値がこの定義と食い違う meta は、そのセッションを開いたときに書き戻す（[復元](#復元)）。
 - 書込みは一時ファイル + rename で原子的に行い、id ごとの書込みキューで直列化する。読めない `meta.json` は壊れたセッションとして一覧から除外し、ログに残す（フォルダは消さない）。
 
-## sends.json と run id の注記
+## sends.json と送信ID / 実行ID の注記
 
-送信と run の対応は **JSONL の user message entry 自身** に写し（`u7agentRunId`）、まだ entry に
-なっていない送信（未送信）だけを `sends.json` へ控える。別ファイルの書込みだけ失敗しても対応を
-失わず、本文や時刻での推測（同じ本文の別 run を誤って結び付ける）をしないための分担。
+送信の識別子と、その送信が注入された実行の対応は **JSONL の user message entry 自身** に写し
+（`u7agentSendId` / `u7agentRunId`）、まだ entry になっていない送信（未送信）だけを `sends.json`
+へ控える。別ファイルの書込みだけ失敗しても対応を失わず、本文や時刻での推測（同じ本文の別送信を
+誤って結び付ける）をしないための分担。
 
 ```jsonl
-{"type":"message","id":"entry-3","parentId":"entry-1","timestamp":"…","u7agentRunId":"a1b2c3d4e5f60718","message":{"role":"user","content":[{"type":"text","text":"本文"}]}}
+{"type":"message","id":"entry-3","parentId":"entry-1","timestamp":"…","u7agentSendId":"6f1d3a2b9c8e7f01","u7agentRunId":"a1b2c3d4e5f60718","message":{"role":"user","content":[{"type":"text","text":"本文"}]}}
 ```
 
 ```json
-{ "unsent": [{ "runId": "55b1923a93c1579b", "text": "同じ本文", "at": 1760000200000 }] }
+{ "unsent": [{ "sendId": "55b1923a93c1579b", "text": "同じ本文", "at": 1760000200000 }] }
 ```
 
-- `u7agentRunId` は BFF が JSONL へ書くときだけ付ける追加フィールド。SDK は未知のフィールドを
+- 2 つのフィールドは BFF が JSONL へ書くときだけ付ける追加フィールド。SDK は未知のフィールドを
   そのまま保持し（`parseSessionEntryLine` は `JSON.parse` だけ）、store の検証も未知キーを無視する
   ため、pi SDK 形式は壊れない。`session.jsonl` の読み書きは従来どおり BFF だけが行う
-- 履歴 item の `runId`（[api-sessions.md](api-sessions.md#get-apisessionsidhistory)）は、実行中は
-  メモリの対応表（SDK メッセージ → run id）、復元後はこの注記から引く。注記の無い旧保存データは
-  従来どおり `runId` 無しの縮退になる
-- `unsent` は 202 で受理したが user entry として保存されていない送信（古い→新しい）。entry が
-  保存された時点（注記が JSONL に載った時点）で消す。停止でキューを破棄した分もここへ残る。
-  **close 中はキューを進めない**（実行中を abort し、キュー待ちは未送信のまま次の起動へ残す）
+- 履歴 item の `sendId` / `runId`（[api-sessions.md](api-sessions.md#get-apisessionsidhistory)）は、
+  実行中はメモリの対応表（SDK メッセージ → 送信ID / 実行ID）、復元後はこの注記から引く。
+  `u7agentRunId` だけを持つ旧保存データは、従来の「1送信=1実行」として同じ値を `sendId` にも
+  補完して読む。注記の無い entry は送信対応や実行IDを作らない（本文一致で対応を捏造しない）
+- `unsent` は 202 で受理したが user entry として保存されていない送信（古い→新しい）。`sendId` を
+  照合キーにし、`runId` は実行へ割り当て済みのときだけ持つ（手動圧縮待ちなど未割当は省略）。
+  `runId` だけを持つ旧記録は `sendId` に同じ値を補完して読む。entry が保存された時点（注記が
+  JSONL に載った時点）で消す。停止・終端で配送対象から外れた未保存の送信もここへ残る。
+  **close 中はキューを進めない**（実行中を abort し、待機は未送信のまま次の起動へ残す）
 - 受理時に同期で書く（`postMessage` は同期で 202 を返すため。受理直後に落ちても「未送信」の表示が
   消えない）。書込みは temp + rename、権限 0600。**JSONL へ渡した entry のスナップショット**を正と
   し、保存の await 中に SDK が追記した entry は次の保存まで確定しない（meta だけの保存
@@ -127,7 +131,7 @@ meta の optional `spaceId` は欠落だけが `default`。追加スペースで
   する。失敗中は health の `dirty` にも数え、sweep はその record をメモリから外さない（未送信の
   本文と再試行元を失わない）
 - 無い / 壊れているファイルは空として読む（補助データなので復元を止めない）。復元は注記を正として
-  `unsent` から保存済みの run を外すだけで、本文での突き合わせはしない（曖昧な同一本文から対応を
+  `unsent` から保存済みの送信を外すだけで、本文での突き合わせはしない（曖昧な同一本文から対応を
   確定しない）
 - セッションの DELETE はフォルダごと消すため、このファイルも消える
 

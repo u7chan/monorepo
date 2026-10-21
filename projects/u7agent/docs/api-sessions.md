@@ -139,8 +139,9 @@
     }
   ],
   "pendingSends": [
-    { "runId": "…", "text": "送信が保存されなかった本文", "at": 1700000000000, "state": "unsent" },
-    { "runId": "…", "text": "待機中の本文", "at": 1700000000001, "state": "queued", "position": 2 }
+    { "sendId": "…", "text": "送信が保存されなかった本文", "at": 1700000000000, "state": "unsent" },
+    { "sendId": "…", "text": "SDK が取り出した本文", "at": 1700000000001, "state": "steering", "position": 1 },
+    { "sendId": "…", "runId": "…", "text": "実行中の本文", "at": 1700000000002, "state": "running" }
   ]
 }
 ```
@@ -159,7 +160,9 @@
 
 `eventGeneration` は SSE の世代（[イベント購読](#get-apisessionsidevents) を参照）。`lastSeq` と組でカーソルの整合判定に使う。
 
-`pendingSends` は 202 で受理したが user entry としてまだ保存されていない送信（古い→新しい）。要素は `{ runId, text, at, state, position? }` で、`text` は表示用にマスク済み。`state` は `unsent`（再起動・停止・entry を残さない終了で実行されなかった）/ `queued`（待機中）/ `running`（実行中）。`position` は `queued` のときだけ載る待機中の順位（1 始まり、SSE `queued` の `position` と同じ名前で、値は `record.queue` の index + 1）。**`pendingSends` の並び（`unsentSends` の受理順）は再送で実際のキューの並びと入れ替わる**（再送は末尾へ積まれ、受理の記録は元の位置に残る）ため、順位は並びから数えず `position` を読む。クライアントは `unsent` を「未送信」へ切り替え、`queued` / `running` は受理済みの pending として保つ（別タブの再送中に表示から消さない。履歴の初回応答前でもバブルを足す）。手元にバブルが無い `unsent` は末尾へ足し、一覧から消えた未送信は別タブの再送 / 破棄として落とす（[frontend.md](frontend.md#チャット状態とレンダリング)）。再送は本文を送り直さず `POST /api/sessions/:id/messages` の `resendRunId` へ `runId` を渡す（マスク済みの本文をモデルへ送らないため）。「実行中」は `run.status === "running"` か SDK が streaming のときだけで、**終了した run は `unsent` になる**（`record.run` は終了後も status 付きで残るため、`error` で終わって user entry を残さなかった送信も再送 / 破棄できる）。旧サーバーはこのキーを載せないので、省略 = 0 件ではなく未対応として扱う（`state` があっても `position` が無いときは順位が不明として扱う）。
+`pendingSends` は 202 で受理したが user entry としてまだ保存されていない送信（古い→新しい）。要素は `{ sendId, runId?, text, at, state, position? }` で、`text` は表示用にマスク済み、`runId` は実行へ割り当て済みのときだけ載る（手動圧縮待ちなど未割当の送信では省略する）。`state` の定義は `server/src/schema.ts` の `PendingSendSchema` を正とする。要点だけ書くと、BFF 待機中または SDK の実キューに残る入力は取消できる `queued`、SDK が取り出して注入待ちの入力は `steering`（反映中。取消・再送・破棄は不可）、開始送信の準備中または注入済みで保存待ちは `running`、配送対象から外れた未保存の送信は `unsent` になる。`position` は待機中のときだけ載る順位（1 始まり）で、**BFF が持つ分と SDK へ渡した 1 件を合わせた未注入の並び**の index + 1。`queueDepth` も同じ集合を数える（SDK へ渡した分を除外して上限を超えない）。
+
+`pendingSends` の並び（受理順）は再送で実際のキューの並びと入れ替わる（再送は末尾へ積まれ、受理の記録は元の位置に残る）ため、順位は並びから数えず `position` を読む。クライアントは `unsent` を「未送信」へ切り替え、`queued` / `steering` / `running` は受理済みの pending として保つ（別タブの再送中に表示から消さない。履歴の初回応答前でもバブルを足す）。手元にバブルが無い `unsent` は末尾へ足し、一覧から消えた未送信は別タブの再送 / 破棄として落とす（[frontend.md](frontend.md#チャット状態とレンダリング)）。再送は本文を送り直さず `POST /api/sessions/:id/messages` の `resendSendId` へ `sendId` を渡す（マスク済みの本文をモデルへ送らないため）。「実行中」は `run.status === "running"` か SDK が streaming のときだけで、**終了した実行の送信は配送対象から外れて `unsent` になる**（`error` で終わって user entry を残さなかった送信も再送 / 破棄できる）。旧サーバーはこのキーを載せないので、省略 = 0 件ではなく未対応として扱う（`state` があっても `position` が無いときは順位が不明として扱う）。
 
 `handoff` は直前の引き継ぎの状態（`{ operationId, at, memo, consumed, cleanupPending }`）。`operationId` は引き継ぎごとのランダムな 8 hex、`memo` は `HANDOFF.md` を書いたか、`consumed` は引き継ぎ後に最初の送信を受理済みか（未送信の破棄では戻らない）、`cleanupPending` は片付けが残っているか。チップ「HANDOFF.mdを参照」は `memo && !consumed` のときだけ出す（表示はクライアントのメモリではなくこの値から導出する。 [ui-layout.md](ui-layout.md#スペース)）。引き継ぎを受けていない会話と旧サーバーはキーを省略する。
 
@@ -231,10 +234,10 @@ GET /api/sessions/:id/history?limit=50&before=<itemId>
 - `prevCursor` はページ先頭 item の直前にある item の id（無ければ `null`）。クライアントはこれでページ間の連続性を判定し、保持分と繋がらない（別タブで `limit` 以上追記された / 分岐が変わった）ときは欠落区間を `before` で取り直す。取り直したページは保留していた最新ページと組み合わせて適用し、それでも繋がらないときだけ最新ページで組み直す
 - 存在しないカーソルは空の成功へ縮退させず 400（`{ "error": "Unknown history cursor" }`）。存在しないセッションは 404
 - item の `id` は SDK entry の id（id を持たない旧履歴だけ `legacy-<entry index>`）。`context` は `active`（現在も生の context にある）/ `summarized`（最新の compaction の `firstKeptEntryId` より手前）/ `excluded`（`context_edit` で外れた）で、判定は [compaction.md](compaction.md#全履歴の表示閲覧と段階読み込み) を正とする
-- user item には、その発言を送信した run の `runId` が載る（送信応答 `POST /api/sessions/:id/messages` の `runId` と同じ値）。実行時の対応表（SDK メッセージ → run id）を先に引き、再起動後は JSONL の entry に写した注記（`u7agentRunId`。[session-files.md](session-files.md#sendsjson-と-run-id-の注記)）から復元する。クライアントはこの値で自分の送信エコーを他クライアントの同一文面 item と区別し、`run_start` やページ適用で正しい item へ吸収する。対応が無い旧保存データの item だけが、文書化済みの本文正規形（+ 送信時点の位置 `since`）での縮退対象になる（[frontend.md](frontend.md)）。未送信（下記）の item は存在しないため、同一文面の item が別 run で載っていても吸収されない
-- user item には、そのターンの `runDurationMs` / `runOutcome` も載る。値は `run_end` と同じ定義（キュー待ちと回答待ち（`ask_user` の実行区間）を含めず、`run_end.status` を終端の `completed` / `stopped` / `error` へ絞ったもの）で、そのターン最後の応答のメタ行（`Done · 1m 20s`）に使う。控えは揮発なので BFF の再起動 / アイドル sweep の後は両方とも載らず、クライアントはセグメントごと出さない（[run-lifecycle.md](run-lifecycle.md#状態)）。
+- user item には、その発言の送信ID `sendId`（送信応答と同じ値）と、発言を注入した実行の `runId` が載る。同じ実行に複数の送信が属するため、送信の識別には `sendId` を使う。実行時の対応表（SDK メッセージ → 送信ID / 実行ID）を先に引き、再起動後は JSONL の entry に写した注記（`u7agentSendId` / `u7agentRunId`。[session-files.md](session-files.md#sendsjson-と送信id--実行id-の注記)）から復元する。クライアントはこの値で自分の送信エコーを他クライアントの同一文面 item と区別し、`run_start` やページ適用で正しい item へ吸収する。対応が無い旧保存データの item だけが、文書化済みの本文正規形（+ 送信時点の位置 `since`）での縮退対象になる（[frontend.md](frontend.md)）。未送信（下記）の item は存在しないため、同一文面の item が別 run で載っていても吸収されない
+- user item のうち、実行を開始した送信にだけ `runDurationMs` / `runOutcome` が載る（追加入力へは複製しない）。値は `run_end` と同じ定義（キュー待ちと回答待ち（`ask_user` の実行区間）を含めず、`run_end.status` を終端の `completed` / `stopped` / `error` へ絞ったもの）で、そのターン最後の応答のメタ行（`Done · 1m 20s`）に使う。控えは揮発なので BFF の再起動 / アイドル sweep の後は両方とも載らず、クライアントはセグメントごと出さない（[run-lifecycle.md](run-lifecycle.md#状態)）。
 - ターンの結末は、そのターン最後の本文あり応答 item にも `turnEnd`（`{ outcome, durationMs }`）として載る。値は `runDurationMs` / `runOutcome` と同じで、履歴ページの窓がターンより短く user item が読み込み範囲の外へ落ちるときのメタ行の根拠になる。どの item に載るかの正は `server/src/history-projection.ts`
-- キュー待ちの送信にも受け付けた時点で `runId` を振り、応答と、そのメッセージから始まる run の `run_start` で同じ値を使う（旧サーバーは実行中の run の id を返していた）
+- 待機した送信は受付時点では `runId` を持たず、user への注入時に実行へ割り当てる。既存の実行へ注入された送信はその `runId` を、未注入のまま終端して次の実行へ回った送信は新しい `runId` を持つ（旧実行の終了で未注入の送信を完了にしない）
 - `firstKeptEntryId` は metadata entry を指し得る。その場合も「その entry 以降が有効」として位置だけを使い、メッセージ検索で境界をずらさない
 - `messageCount` / `summarizedMessageCount` はページではなく現行ブランチ全体の値。クライアントは保持済みの古いページの `summarized` を更新するのに使う（この 2 つだけがページ外の全体量を表す）
 - `activeContextStartId` は現在有効なコンテキストの先頭 message item。要約で置き換わった範囲が無いときは `null`
@@ -324,34 +327,36 @@ GET /api/sessions/:id/history?limit=50&before=<itemId>
 // request (添付あり)
 { "text": "これを見て", "attachments": [".u7agent/uploads/a1b2c3d4e5/photo-1.png", ".u7agent/uploads/a1b2c3d4e5/report.pdf"] }
 // request (未送信メッセージの再送。text は載せない)
-{ "resendRunId": "…" }
+{ "resendSendId": "…" }
 // response (202)
-{ "sessionId": "…", "status": "running", "queued": false, "queueDepth": 0, "runId": "…" }
+{ "sessionId": "…", "status": "running", "queued": false, "queueDepth": 0, "sendId": "…", "runId": "…" }
 ```
 
 - `attachments` は root 相対のパスで、そのセッションの保存先（[session-files.md](session-files.md#スペースごとの配置)）配下だけを許可する（`./` は正規化、`..`・絶対パス・ディレクトリ自体・別セッションの保存先は 400）。最大 10 件、文字列以外は 400。
 - `text` は空でも添付があれば送れる（本文も添付も無いときだけ 400）。
-- `resendRunId` は payload の `pendingSends` の `runId` を指定する。本文はストアに保存済みの生テキストを使い、同じ run id で実行し直す（表示用のマスク済み本文を送り直さない）。実行中 / キュー待ちの run への二重の再送は重ねず、現在の状態を返す。記録が無い（保存済み / 破棄済み）run id は 409。受理の記録はそのままで、user entry が保存された時点で未送信から外れる。受付後は `resync` を 1 件配り、別タブの未送信表示を更新する（キュー受付の `queued` は run id を載せないため）
+- `resendSendId` は payload の `pendingSends` の `sendId` を指定する。本文はストアに保存済みの生テキストを使い、同じ送信IDで実行し直す（表示用のマスク済み本文を送り直さない）。実行へ割り当て直すときは新しい `runId` になる。互換名 `resendRunId` も送信IDとして受け付け、両方の同時指定は 400。配送中 / 実行中 / 注入済みの送信IDへの二重の再送は重ねず、現在の状態を返す。記録が無い（保存済み / 破棄済み）送信IDは 409。受理の記録はそのままで、user entry が保存された時点で未送信から外れる。受付後は `resync` を 1 件配り、別タブの未送信表示を更新する（キュー受付の `queued` は `sendId` を載せる）
 - `text` が `/skill:` で始まるときは、BFF が本文ブロックへ展開してから送る（[`/skill:` の展開](#skill-の展開)）。
 - BFF は本文の末尾に注記を合成してから `SessionStore.postMessage` へ渡す（[注記](#添付の注記)）。
-- 圧縮中に送るとキューに積まれ、`queued: true` と `queueDepth` を返す（受け付けた時点で `runId` を振る）。圧縮の終端処理の後に 1 回だけ pump し、同じ 202 の応答で次のランが始まる（排他の判定は BFF の `compacting` フラグ。SDK は保存待ちの間 idle に見える）。
-- 受理した送信は user entry が保存されるまで `sends.json` の `unsent` に残る（[session-files.md](session-files.md#sendsjson-と-run-id-の注記)）。サーバー再起動でキューごと消えた分は payload の `pendingSends` に載り、クライアントは「未送信」として見せる（[frontend.md](frontend.md#チャット状態とレンダリング)）。
+- 圧縮中に送ると BFF の配送キューに積まれ、`queued: true` と `queueDepth` を返す（`sendId` は受け付けた時点で振り、`runId` は実行の開始時に確定する）。圧縮の終端処理の後に 1 回だけ pump し、先頭の送信を開始送信として次のランを始める（排他の判定は BFF の `compacting` フラグ。SDK は保存待ちの間 idle に見える）。
+- 受理した送信は user entry が保存されるまで `sends.json` の `unsent` に残る（[session-files.md](session-files.md#sendsjson-と送信id--実行id-の注記)）。サーバー再起動でキューごと消えた分は payload の `pendingSends` に載り、クライアントは「未送信」として見せる（[frontend.md](frontend.md#チャット状態とレンダリング)）。
+- 実行中の追加入力は BFF の配送キューを経て SDK の steering へ渡る。受付の成功は SDK への注入完了やモデルの追従を意味しない。同時に SDK へ渡すのは 1 件だけで、注入を観測したら次を渡す（[run-lifecycle.md](run-lifecycle.md#追加入力steeringの配送)）。
 
-### `DELETE /api/sessions/:id/unsent/:runId`
+### `DELETE /api/sessions/:id/unsent/:sendId`
 
-未送信メッセージを破棄する（再送せず表示からも消す）。
+未送信メッセージを破棄する（再送せず表示からも消す）。末尾の ID は送信ID。
 
-- 成功は `{ "ok": true }`。記録が無い（別タブで再送 / 破棄済み）は 404、再送が実行中 / キュー待ちの run id は 409（実行中の送信を消さない）。成功時は `resync` を 1 件配り、別タブの未送信表示を消す
+- 成功は `{ "ok": true }`。記録が無い（別タブで再送 / 破棄済み）は 404、配送中 / 実行中 / 注入済みの送信IDは 409（実行中の送信を消さない）。成功時は `resync` を 1 件配り、別タブの未送信表示を消す
 - 本文はストアから消える。再送（POST /messages）は記録を残したまま実行するため、破棄だけが本文を捨てる経路になる
 
-### `DELETE /api/sessions/:id/queue/:runId`
+### `DELETE /api/sessions/:id/queue/:sendId`
 
-待機キューから 1 件だけ取り消す（`record.queue` に居るかどうかだけで判定し、`unsentSends` の有無では分岐しない）。実行中のターンは止めず、キュー全体も破棄しない。本文は記録に残るため、取り消した送信は payload の `pendingSends` で `unsent`（未送信）として見え、以降は既存の再送 / 破棄で扱う。
+待機中の 1 件だけを取り消す（末尾の ID は送信ID）。実行中のターンは止めず、他の待機も破棄しない。本文は記録に残るため、取り消した送信は payload の `pendingSends` で `unsent`（未送信）として見え、以降は既存の再送 / 破棄で扱う。
 
-- 成功は `{ "ok": true }`。件数や順位は応答に載せず、成功時に `resync` を 1 件配って揃える（キュー受付の `queued` は run id を載せないため）
-- 実行が始まっている run は 409 `実行が始まったため取り消せません`、待機にも実行中にも無い（別タブが先に取り消した / 実行済み / 保存済み / 既に未送信）は 404 `待機中のメッセージが見つかりません`
+- BFF が保持する分はそのまま外す。SDK へ渡した 1 件は `session.agent.peekQueuedMessages()` で実キューへの残存を確かめ、await を挟まず `clearQueue()` する。受付処理中の steering は、その完了を待ってから判定する
+- 成功は `{ "ok": true }`。件数や順位は応答に載せず、成功時に `resync` を 1 件配って揃える
+- SDK が実キューから取り出した後（注入前でも）・実行中の開始送信は 409 `SDK が取り出したため取り消せません`。待機にも実行中にも無い（別タブが先に取り消した / 実行済み / 保存済み / 既に未送信）は 404 `待機中のメッセージが見つかりません`
 - 送信の記録を保存できない構成（永続化なし）は 409 `送信の記録を保存できないため取り消せません` で断り、キューを触らない（取り消しの事後条件「未送信として残る」を満たせないため）
-- 全破棄は `POST /stop`、記録ごと消すのは `DELETE /unsent/:runId`。どちらも契約は変えない（`stop` の `queue_cleared` は出さず、実行の中断も伴わない）
+- 全破棄は `POST /stop`、記録ごと消すのは `DELETE /unsent/:sendId`。どちらも契約は変えない（`stop` の `queue_cleared` は出さず、実行の中断も伴わない）
 
 ### `/skill:` の展開
 
@@ -394,7 +399,7 @@ References are relative to /workspace/.agents/skills/writer.
 - 添付の保存先はセッションの作業ディレクトリの外（プロジェクト所属ではリポジトリの外）にあるため、注記は**絶対パス**で示す。モデルはそのパスで `read` する
 - 履歴（`messages[].text`）と SSE の `run_start.prompt` には注記込みの本文が入る。組み立ては `server/src/attachments.ts` だけが行う
 - タイトルは注記を除いた本文から作る（添付だけの送信では空のまま）
-- クライアントは注記を分解し、user バブルにチップと本文を分けて表示する（コピーも注記を除いた本文が対象）。ローカルエコーは素の本文で先に出し、送信応答の `runId` が付いた後（`echoRunId`）に `run_start` の注記込み本文へ差し替える。`run_start` が応答より先でも本文は控えておくため、別 run (別タブ) の本文では差し替えない（`client/src/hooks/chatReducer.ts`。run id が無い旧経路だけ送信順の待ち行列と本文の正規形で突き合わせる）
+- クライアントは注記を分解し、user バブルにチップと本文を分けて表示する（コピーも注記を除いた本文が対象）。ローカルエコーは素の本文で先に出し、送信応答の `sendId` が付いた後（`echoSendId`）に `run_start` の注記込み本文へ差し替える。`run_start` が応答より先でも本文は控えておくため、別送信 (別タブ) の本文では差し替えない（`client/src/hooks/chatReducer.ts`。送信IDが無い旧経路だけ送信順の待ち行列と本文の正規形で突き合わせる）
 
 ### ask_user（`questions` / `answers`）
 
@@ -513,15 +518,15 @@ SSE（`text/event-stream`）でイベントを購読。カーソルは `Last-Eve
 
 | イベント | data |
 | --- | --- |
-| `run_start` | `{ runId, prompt, startedAt }`（`startedAt` は payload の `run.startedAt` と同じ値） |
+| `run_start` | `{ runId, initialSendId?, prompt, startedAt }`（`startedAt` は payload の `run.startedAt` と同じ値。`initialSendId` は実行を開始した送信のIDで、旧サーバーは載せない） |
 | `text` | `{ delta }` |
 | `tool_start` / `tool_end` | `{ id, name, args, skill?, questions?, startedAt? }` / `{ id, name, isError, output, answers?, endedAt? }`（`skill` は `run.toolCalls[].skill` と同じスキル読み込み。結果が無い時点なので `isError` は載らない。`questions` / `answers` は ask_user のときだけ載り、`run.toolCalls` と `messages[].tools` と同じ値。`startedAt` / `endedAt` は BFF 計測のツール実行の開始 / 終了で、`run.toolCalls` / `messages[].tools` と同じ値。旧サーバーは載せない） |
 | `tool_progress` | `{ id, text }`（`investigate` の子の進捗。`id` は `tool_start` / `tool_end` と同じ toolCallId で、ライブの `ToolCall.progress` だけを更新する。payload には載らない live 専用） |
 | `status` | `{ state, text }`（`thinking` / `writing`（本文の書き出し）/ `tool` / `question`（回答待ち）/ `compacting` / `retry` / `warning` / など。手動圧縮の終端では成功 / 失敗の文言を配る。自動再試行の文言は `run_retry` の構造化情報からクライアントが導出する） |
-| `queued` | `{ position, queueDepth, prompt }` |
-| `queue_cleared` | `{ runIds? }`（停止で破棄した待機メッセージの run id。クライアントは該当する送信を「未送信」へ切り替える。旧サーバーは載せない） |
+| `queued` | `{ position, queueDepth, sendId?, prompt }`（`sendId` は待機した送信。旧サーバーは載せない） |
+| `queue_cleared` | `{ sendIds? }`（停止で回収した送信のID。クライアントは該当する送信を「未送信」へ切り替える。旧サーバーは載せない） |
 | `run_retry` | `{ retry, totalRetryCount, serverNow }`（自動再試行の開始 / 再実行開始 / 解除。`retry` は payload の `run.retry` と同じ形で、解除時は `null`） |
-| `run_end` | `{ runId, status, durationMs?, error, errorCode?, messageCount, queueDepth, totalRetryCount?, context? }`（`messageCount` は一覧 API と同じ表示メッセージ数。`durationMs` は BFF 計測のラン全体の所要時間で、キュー待ちと回答待ち（`ask_user` の実行区間）は含めず `startRun()` から `finish()` までを測る。完了 / 停止 / エラーのいずれでも載り、クライアントは同じ値と `status` をその run の user パブルへ写してターン最後の応答のメタ行（`Done · 1m 20s`）に残す（履歴経路は `history` の `turnEnd` と `runDurationMs` / `runOutcome` が正）。状態行には活動の語（`完了`）だけを残し、時間は会話側と二重に出さない。`errorCode` は `status === "error"` のときだけ載る最終失敗の分類コードで、`error` と組になる） |
+| `run_end` | `{ runId, status, durationMs?, error, errorCode?, messageCount, queueDepth, totalRetryCount?, context? }`（同じ SDK 実行で 1 回だけ。`runId` は retry / steering で変わらない）（`messageCount` は一覧 API と同じ表示メッセージ数。`durationMs` は BFF 計測のラン全体の所要時間で、キュー待ちと回答待ち（`ask_user` の実行区間）は含めず `startRun()` から `finish()` までを測る。完了 / 停止 / エラーのいずれでも載り、クライアントは同じ値と `status` をその run の user パブルへ写してターン最後の応答のメタ行（`Done · 1m 20s`）に残す（履歴経路は `history` の `turnEnd` と `runDurationMs` / `runOutcome` が正）。状態行には活動の語（`完了`）だけを残し、時間は会話側と二重に出さない。`errorCode` は `status === "error"` のときだけ載る最終失敗の分類コードで、`error` と組になる） |
 | `usage` | `{ usage?, metrics?, context? }`（assistant の `message_end` ごとに 1 件。usage はプロバイダが報告したときだけ、metrics は BFF 計測、context は SDK の `getContextUsage()` だが履歴反映前なので確定値は `run_end` 側） |
 | `compaction` | `{ compaction, count }`（`compaction_end` ごとに 1 件。`compaction` は payload の `compactions` の要素 1 つ、`count` はその時点の累計回数。run の自動圧縮では続けて同じ状態を持つ `resync` が届く（送信メッセージを履歴へ入れる前に圧縮が走った場合は、そのメッセージが入ってから届く）。手動圧縮では resync を配らず、保存の完了後に終端 `resync` が 1 回届く。`result` が無い / `aborted` / `errorMessage` ありのときは `compaction` も `resync` も配らない） |
 | `resync` | セッションペイロード全体（バッファを逃した場合・世代が一致しない場合と、手動圧縮の開始 / 終端） |
@@ -551,7 +556,7 @@ SSE（`text/event-stream`）でイベントを購読。カーソルは `Last-Eve
   "lastSeq": 42,
   "status": "running",
   "meta": { "spaceId": "default", "agentId": "…", "workdir": "…", "createdAt": 0, "lastUsedAt": 0, "messageCount": 2, "notify": false, "pinned": false, "sendsDirty": false },
-  "queue": { "depth": 1, "runIds": ["…"] },
+  "queue": { "depth": 1, "sendIds": ["…"] },
   "run": { "id": "…", "status": "running", "startedAt": 1700000000000, "totalRetryCount": 0 },
   "questions": [{ "toolCallId": "…", "questionCount": 4, "settled": false }],
   "events": { "limit": 500, "maxBytes": 524288, "available": 120, "items": [], "dropped": 0, "truncated": 0 },
@@ -560,7 +565,7 @@ SSE（`text/event-stream`）でイベントを購読。カーソルは `Last-Eve
 ```
 
 - `meta` はエージェント / 作業ディレクトリと **直近の保存失敗**（`persistError` / `sendsError` / `sendsDirty`）だけを載せ、`promptSnapshot` などの大きい値は載せない。エージェント名とエラー文言は mask 後の値
-- `queue.runIds` / `questions` は本文を持たない（質問文と回答本文、待機メッセージの本文は入らない）
+- `queue.sendIds` / `questions` は本文を持たない（質問文と回答本文、待機メッセージの本文は入らない）
 - `events.items` は古い→新しい順の直近分。`data` は emit 時に mask 済みの値を `server/src/diagnostics.ts` の `summarizeEventData` で本文なしの要約にしたもので、ツール出力は既存の要約（`server/src/session-projection.ts` の `toolResultSummary`）の文字数まで、全文は載らない。件数（`limit`）とバイト（`maxBytes`）の上限で落とした件数は `events.dropped`、`data` を切り詰めた件数は `events.truncated` に残す（`truncated` が立つイベントの `data` は元の schema を満たさないことがある）。`available` はリングバッファに残っている件数
 - 未ロードの会話（再起動後など）は **SDK を復元せず**、保存済み `meta.json` の値だけを返す（`eventGeneration` は空文字、`seq` は 0、`events.available` は 0、`status` は `idle`）。復元自体が失敗する壊れた JSONL でも診断を取れるようにするため
 - `run` は最後の run（終了後も `status` が残る）。実行中の自動再試行があれば `retry` を載せる
