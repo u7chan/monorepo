@@ -1010,10 +1010,15 @@ test("runTools は resync の payload.run.toolCalls で常に置き換わり、r
   });
   assert.deepEqual(Object.keys(running.runTools), ["t1", "t2"]);
   assert.equal(running.runTools.t2?.done, false);
+  assert.deepEqual(
+    running.bubbles.at(-1)?.tools.map((card) => card.id),
+    ["t1", "t2"],
+    "run のツールカードは補完先の assistant に付く",
+  );
   assert.equal(
     running.currentAssistantId,
-    running.bubbles.at(-1)?.id,
-    "running の resync は補完先の assistant を現在のバブルにする",
+    null,
+    "payload.messages に保存済みの応答を開き直さない (次の delta は新しいカード)",
   );
 
   // 完了 run でもカードは残るが、currentAssistantId は指さない (既存の契約)
@@ -2463,5 +2468,96 @@ test("assistant_end を跨がないツールイベントは開いている応答
   assert.deepEqual(
     assistants[0]?.tools.map((card) => card.id),
     ["tool-9"],
+  );
+});
+
+test("会話切替で前の会話の確定済み応答を持ち越さない", () => {
+  // What: A の完了直後に空の B へ切り替えても A の回答が残らず、B の履歴取得でも復活しない
+  const payloadA = runningPayload();
+  payloadA.sessionId = "session-a";
+  payloadA.status = "idle";
+  payloadA.run = null;
+  payloadA.messages = [];
+
+  let state = chatReducer(initialChatState, { type: "resync", payload: payloadA });
+  state = chatReducer(state, {
+    type: "runStart",
+    runId: "run-a",
+    initialSendId: "send-a",
+    prompt: "A の質問",
+    at: 10,
+    startedAt: 10,
+  });
+  state = chatReducer(state, { type: "text", delta: "A の回答", at: 11 });
+  state = chatReducer(state, { type: "assistantEnd" });
+  assert.equal(
+    state.bubbles.some((bubble) => bubble.text === "A の回答"),
+    true,
+  );
+
+  const payloadB = runningPayload();
+  payloadB.sessionId = "session-b";
+  payloadB.piSessionId = "pi-session-b";
+  payloadB.status = "idle";
+  payloadB.run = null;
+  payloadB.messages = [];
+  state = chatReducer(state, { type: "resync", payload: payloadB });
+  assert.deepEqual(state.bubbles, [], "会話切替で A のライブ応答を残さない");
+
+  state = chatReducer(state, {
+    type: "resyncHistory",
+    page: {
+      sessionId: "session-b",
+      items: [],
+      prevCursor: null,
+      hasMore: false,
+      nextCursor: null,
+      activeContextStartId: null,
+      messageCount: 0,
+      summarizedMessageCount: 0,
+    },
+  });
+  assert.deepEqual(state.bubbles, [], "後続の履歴取得でも A を復活させない");
+});
+
+test("message_end の不足本文は assistant_end より前に届き、1 カードに usage と Done が残る", () => {
+  // What: サーバーの text(末尾) → usage → assistant_end の順で適用しても、live が 1 カードのまま閉じる
+  let state = chatReducer(initialChatState, { type: "localUser", text: "質問", at: 10 });
+  state = chatReducer(state, { type: "echoSendId", sendId: "send-1", runId: "run-1", stateSeq: state.stateSeq });
+  state = chatReducer(state, {
+    type: "runStart",
+    runId: "run-1",
+    initialSendId: "send-1",
+    prompt: "質問",
+    at: 10,
+    startedAt: 10,
+  });
+  state = chatReducer(state, { type: "text", delta: "先頭の本文", at: 11 });
+  state = chatReducer(state, { type: "text", delta: "と末尾の本文", at: 12 });
+  state = chatReducer(state, { type: "usage", usage: USAGE, metrics: METRICS, context: CONTEXT });
+  state = chatReducer(state, { type: "assistantEnd" });
+  state = chatReducer(state, {
+    type: "runEnd",
+    runId: "run-1",
+    status: "completed",
+    queueDepth: 0,
+    durationMs: 5000,
+  });
+
+  const assistants = state.bubbles.filter((bubble) => bubble.role === "assistant");
+  assert.equal(assistants.length, 1, "1 応答を 2 カードに割らない");
+  assert.equal(assistants[0]?.text, "先頭の本文と末尾の本文");
+  assert.deepEqual(assistants[0]?.usage, USAGE);
+  assert.deepEqual(assistants[0]?.metrics, METRICS);
+  const items = chatRenderItems({
+    bubbles: state.bubbles,
+    markers: [],
+    compactions: [],
+    activeContextStartId: null,
+  }).filter((item) => item.kind === "message" && item.bubble.role === "assistant");
+  assert.deepEqual(
+    items.map((item) => (item.kind === "message" ? item.turnEnd : undefined)),
+    [{ outcome: "completed", durationMs: 5000 }],
+    "Done は同じ 1 カードに残る",
   );
 });

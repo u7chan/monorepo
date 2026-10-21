@@ -735,3 +735,33 @@ test("normalizes the run error at the settlement callers, including falsy thrown
 
   await store.close();
 });
+
+test("assistant_end は message_end にしか無い本文を配ってから出す", async () => {
+  const catalog = createAgentCatalog();
+  const reply = "先頭の本文と、message_end でだけ届く末尾の本文";
+  const store = new SessionStore({
+    pi: createStubPi({ reply, chunkDelayMs: 5, streamPrefixChars: 6 }),
+    catalog,
+  });
+  const record = await store.create();
+  const events: EventEntry[] = [];
+  store.subscribe(record, `${record.generation}:0`, (entry) => events.push(entry));
+
+  store.postMessage(record, "末尾まで見せて");
+  await waitFor(() => store.statusOf(record) === "completed", 3000, "run completion");
+
+  const types = events.map((entry) => entry.type);
+  const texts = events.flatMap((entry) => (entry.type === "text" ? [entry.data.delta] : []));
+  assert.equal(texts.join(""), reply, "live の本文が欠けない");
+  assert.equal(texts[0], reply.slice(0, 6), "先頭は delta で流れる");
+  assert.ok(texts.length >= 2, "message_end の末尾が text として配られる");
+  const lastText = types.lastIndexOf("text");
+  assert.ok(lastText < types.indexOf("usage"), "不足本文は usage より前");
+  assert.ok(types.indexOf("usage") < types.indexOf("assistant_end"), "usage は assistant_end より前");
+  assert.ok(types.indexOf("assistant_end") < types.indexOf("run_end"), "assistant_end は run_end より前");
+  assert.equal(types.filter((type) => type === "assistant_end").length, 1);
+
+  const assistant = store.payload(record).messages.at(-1);
+  assert.equal(assistant?.text, reply);
+  assert.deepEqual(assistant?.usage, STUB_USAGE);
+});

@@ -132,6 +132,8 @@ export interface StubSessionOptions {
   /** steering で注入された追加入力への応答本文 (省略時は反映を伝える固定文) */
   steeringReply?: (text: string, index: number) => string;
   chunkDelayMs?: number;
+  /** 先頭 N 文字だけ delta で流し、残りは message_end の本文にだけ載せる (最終本文の補完検証用) */
+  streamPrefixChars?: number;
   /** setModel を遅延させる (設定変更中の競合テスト用) */
   setModelDelayMs?: number;
   model?: PiAiModel<Api>;
@@ -884,14 +886,28 @@ export function createStubSession(options: StubSessionOptions = {}): StubSession
             timestamp: Date.now(),
           });
         }
-        for (const chunk of chunks) {
-          await sleep(chunkDelayMs);
-          if (session.abortRequested) break;
-          assistantText.text += chunk;
-          session.emit({
-            type: "message_update",
-            assistantMessageEvent: { type: "text_delta", delta: chunk },
-          });
+        if (options.streamPrefixChars === undefined) {
+          for (const chunk of chunks) {
+            await sleep(chunkDelayMs);
+            if (session.abortRequested) break;
+            assistantText.text += chunk;
+            session.emit({
+              type: "message_update",
+              assistantMessageEvent: { type: "text_delta", delta: chunk },
+            });
+          }
+        } else {
+          const prefix = body.slice(0, Math.max(0, options.streamPrefixChars));
+          if (prefix) {
+            await sleep(chunkDelayMs);
+            if (!session.abortRequested) {
+              assistantText.text = prefix;
+              session.emit({
+                type: "message_update",
+                assistantMessageEvent: { type: "text_delta", delta: prefix },
+              });
+            }
+          }
         }
         if (session.abortRequested) assistant.stopReason = "aborted";
         else if (options.assistantFailure !== undefined) {
@@ -945,6 +961,8 @@ export function createStubSession(options: StubSessionOptions = {}): StubSession
             timestamp: Date.now(),
           });
         }
+        // 実 SDK は message_end のメッセージへ最終本文を載せる (delta で流していない末尾を含む)
+        if (options.streamPrefixChars !== undefined && !session.abortRequested) assistantText.text = body;
         // SDK は確定したメッセージを agent state へ入れてから (同じ参照で) message_end を出す
         historyUpdated = false;
         try {
@@ -1035,6 +1053,8 @@ export interface StubPiOptions {
   drainSteering?: boolean;
   assistantFailure?: string;
   chunkDelayMs?: number;
+  /** StubSessionOptions と同じ (最終本文だけを message_end で返す) */
+  streamPrefixChars?: number;
   setModelDelayMs?: number;
   /** assistant へ載せる usage。null で usage 非対応プロバイダ (キー省略) を再現する */
   usage?: Usage | null;

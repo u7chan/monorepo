@@ -695,7 +695,9 @@ function attachRunToolCards(state: ChatState, focus: boolean): ChatState {
   }
   const attached = attachToolCalls(state, targetId, calls);
   // 閉じた応答を focus で開き直すと、次の delta がそのカードへ連結される
-  return focus && targetId !== state.toolTargetAssistantId ? { ...attached, currentAssistantId: targetId } : attached;
+  const target = state.bubbles.find((bubble) => bubble.id === targetId);
+  const focusable = targetId !== state.toolTargetAssistantId && target !== undefined && target.settled !== true;
+  return focus && focusable ? { ...attached, currentAssistantId: targetId } : attached;
 }
 
 function attachToolCalls(state: ChatState, bubbleId: number, toolCalls: ToolCall[]): ChatState {
@@ -961,6 +963,8 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
       const payload = action.payload;
       const status = payload.status || "idle";
       const sessionChanged = payload.sessionId !== state.sessionId;
+      // 未作成チャットへ最初のセッションが届くのは切替ではない (ストリーミング中の応答を捨てない)
+      const switchedSession = state.sessionId !== "" && sessionChanged;
       // 全履歴 API が使える間は payload.messages (有効コンテキスト) ではなく履歴ページを表示の正とする。
       // 取得済みの古いページを消さないため、ここでは表示を組み直さない (最新ページは resyncHistory が届く)。
       // ページ取得に一時的に失敗しても、取り込み済みの履歴がある間は payload.messages で組み直さない
@@ -969,6 +973,7 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
       // 未確定の assistant を捨てるのは失敗試行の取り消し (context_edit) だけ。同じ run の継続
       // (追加入力の注入・保存確定など) で捨てると、続く delta が別カードになり live と履歴が食い違う
       const resumingRun =
+        !switchedSession &&
         payload.resyncReason === undefined &&
         status === "running" &&
         payload.run?.id !== undefined &&
@@ -1006,33 +1011,41 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
           bubble.id !== failedAttempt?.id &&
           (bubble.role === "user" || bubble.settled === true || bubble.id === streaming?.id),
       );
-      // 履歴を持たない会話でも、閉じた応答を payload.messages の再構成で落とさない
-      const retainedSettled = keepHistory
-        ? []
-        : keptLive.filter(
-            (bubble) =>
-              bubble.role === "assistant" &&
-              bubble.id !== streaming?.id &&
-              !legacy!.bubbles.some((item) => item.role === "assistant" && item.text === bubble.text),
-          );
+      // payload.messages の assistant は保存済み = 閉じた応答。開いている扱いにすると次の delta が連結される
+      let rebuilt: Bubble[] = [];
+      if (legacy !== null) {
+        rebuilt = trimStreamedMessages(
+          legacy.bubbles.map((bubble) => (bubble.role === "assistant" ? { ...bubble, settled: true } : bubble)),
+          streaming,
+        );
+        // 履歴を持たない会話でも、確定済みの応答と実行中のツールカードを再構成で落とさない
+        if (!switchedSession) {
+          for (const liveBubble of keptLive) {
+            if (liveBubble.role !== "assistant" || liveBubble.settled !== true || liveBubble.id === streaming?.id) {
+              continue;
+            }
+            let match = -1;
+            for (let index = rebuilt.length - 1; index >= 0; index -= 1) {
+              const bubble = rebuilt[index];
+              if (bubble.role === "assistant" && bubble.text === liveBubble.text) {
+                match = index;
+                break;
+              }
+            }
+            rebuilt =
+              match === -1
+                ? [...rebuilt, liveBubble]
+                : rebuilt.map((bubble, index) => (index === match ? mergeAssistantCard(liveBubble, bubble) : bubble));
+          }
+        }
+      }
       const bubbles = keepHistory
         ? [...state.bubbles.filter((bubble) => bubble.entryId !== undefined), ...keptLive]
-        : [
-            ...trimStreamedMessages(legacy!.bubbles, streaming),
-            ...retainedSettled,
-            ...(streaming === undefined ? [] : [streaming]),
-          ];
-      const nextId = keepHistory ? state.nextId : legacy!.nextId;
-      const toolBubbleIds = keepHistory
-        ? Object.fromEntries(bubbles.flatMap((bubble) => bubble.tools.map((card) => [card.id, bubble.id] as const)))
-        : {
-            ...legacy!.toolBubbleIds,
-            ...Object.fromEntries(
-              [...retainedSettled, ...(streaming === undefined ? [] : [streaming])].flatMap((bubble) =>
-                bubble.tools.map((card) => [card.id, bubble.id] as const),
-              ),
-            ),
-          };
+        : [...rebuilt, ...(streaming === undefined ? [] : [streaming])];
+      const nextId = keepHistory ? state.nextId : (legacy?.nextId ?? state.nextId);
+      const toolBubbleIds = Object.fromEntries(
+        bubbles.flatMap((bubble) => bubble.tools.map((card) => [card.id, bubble.id] as const)),
+      );
       const retainedEchoIds = new Set(
         keepHistory ? keptLive.filter((bubble) => bubble.role === "user").map((bubble) => bubble.id) : [],
       );
@@ -1141,7 +1154,9 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
         nextId: applied.nextId,
         clearedSendIds: applied.clearedSendIds,
         stateSeq: state.stateSeq + 1,
+        closedAssistantTexts: switchedSession ? [] : state.closedAssistantTexts,
         toolTargetAssistantId:
+          !switchedSession &&
           state.toolTargetAssistantId !== undefined &&
           applied.bubbles.some((bubble) => bubble.id === state.toolTargetAssistantId)
             ? state.toolTargetAssistantId

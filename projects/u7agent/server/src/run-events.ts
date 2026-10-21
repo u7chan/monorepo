@@ -247,6 +247,13 @@ export function createRunEventBridge(deps: RunEventBridgeDeps): RunEventBridge {
             assistantSeen = true;
             observedAssistants.add(event.message);
             pushText(deltaMasker.flush());
+            // 最終本文だけを message_end で返すプロバイダでも、カードを閉じる前に末尾まで配る
+            const finalText = masker.mask(contentText((event.message as { content?: unknown }).content));
+            if (finalText && !currentAssistantText) {
+              pushText(finalText);
+            } else if (finalText && currentAssistantText && finalText.startsWith(currentAssistantText)) {
+              pushText(finalText.slice(currentAssistantText.length));
+            }
             const usage = parseUsage(event.message.usage);
             const metrics = computeMessageMetrics({
               startedAt: assistantStartedAt,
