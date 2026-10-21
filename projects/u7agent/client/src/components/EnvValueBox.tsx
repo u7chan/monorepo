@@ -44,7 +44,8 @@ export function EnvValueBox({ value, failure, expanded, copied, onToggle, onCopy
     const observer = new ResizeObserver(() => requestAnimationFrame(measure));
     observer.observe(el);
     return () => observer.disconnect();
-  }, [expanded, value]);
+    // failure で箱ごと注記へ差し替わるため、値が同じでも要素が戻ったら測り直す
+  }, [expanded, failure, value]);
 
   if (failure !== undefined) {
     return (
