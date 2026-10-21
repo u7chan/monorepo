@@ -1293,7 +1293,7 @@ function stateWithHistoryUser(runId: string) {
 /** 送信のローカルエコーへ run id を結び付けた状態 (entryId を持たないライブバブル) */
 function stateWithLiveEcho(runId: string) {
   const sent = chatReducer(initialChatState, { type: "localUser", text: "聞いて", at: 1 });
-  return chatReducer(sent, { type: "echoRunId", runId });
+  return chatReducer(sent, { type: "echoSendId", sendId: runId, runId });
 }
 
 const TURN_END: { status: "completed" | "stopped" | "error"; outcome: string; durationMs: number }[] = [
@@ -1372,7 +1372,7 @@ test("未送信へ切り替わる経路と再送は、前のランの所要時�
   assert.equal(ended.bubbles[0]?.runDurationMs, 80_000);
 
   // 停止で待機キューを破棄した (queue_cleared)
-  const cleared = chatReducer(ended, { type: "queueCleared", runIds: ["run-h"] });
+  const cleared = chatReducer(ended, { type: "queueCleared", sendIds: ["run-h"] });
   assert.deepEqual(
     cleared.bubbles.map((bubble) => [bubble.unsent === true, bubble.runDurationMs, bubble.runOutcome]),
     [[true, undefined, undefined]],
@@ -1382,7 +1382,7 @@ test("未送信へ切り替わる経路と再送は、前のランの所要時�
   const payload = runningPayload();
   payload.sessionId = "session-a";
   payload.messages = [];
-  payload.pendingSends = [{ runId: "run-h", text: "履歴の本文", at: 1, state: "unsent" }];
+  payload.pendingSends = [{ sendId: "run-h", runId: "run-h", text: "履歴の本文", at: 1, state: "unsent" }];
   const unsent = chatReducer(ended, { type: "resync", payload });
   assert.deepEqual(
     unsent.bubbles.map((bubble) => [bubble.unsent === true, bubble.runDurationMs, bubble.runOutcome]),
@@ -1390,12 +1390,12 @@ test("未送信へ切り替わる経路と再送は、前のランの所要時�
   );
 
   // 再送は pending へ戻すときに古い値を消し、再送失敗でも戻さない
-  const resent = chatReducer(unsent, { type: "resendUnsent", runId: "run-h" });
+  const resent = chatReducer(unsent, { type: "resendUnsent", sendId: "run-h" });
   assert.deepEqual(
     resent.bubbles.map((bubble) => [bubble.unsent === true, bubble.runDurationMs, bubble.runOutcome]),
     [[false, undefined, undefined]],
   );
-  const failed = chatReducer(resent, { type: "resendFailed", runId: "run-h" });
+  const failed = chatReducer(resent, { type: "resendFailed", sendId: "run-h" });
   assert.deepEqual(
     failed.bubbles.map((bubble) => [bubble.unsent === true, bubble.runDurationMs, bubble.runOutcome]),
     [[true, undefined, undefined]],
@@ -1425,7 +1425,8 @@ function historyWithOld() {
 function queuedEcho(state: ChatState, text: string, runId: string, position?: number) {
   const echoed = chatReducer(state, { type: "localUser", text, at: 10 });
   return chatReducer(echoed, {
-    type: "echoRunId",
+    type: "echoSendId",
+    sendId: runId,
     runId,
     ...(position === undefined ? {} : { queuePosition: position }),
   });
@@ -1463,7 +1464,7 @@ test("run_start が応答より先に届いた run は、遅れて届いた queu
     at: 11,
     startedAt: 11,
   });
-  const assigned = chatReducer(started, { type: "echoRunId", runId: "run-b", queuePosition: 1 });
+  const assigned = chatReducer(started, { type: "echoSendId", sendId: "run-b", runId: "run-b", queuePosition: 1 });
 
   assert.equal(assigned.bubbles.find((item) => item.runId === "run-b")?.queued, undefined);
   assert.equal(assigned.startingRunId, undefined, "開始の合図は run_start が立てる (応答では立てない)");
@@ -1475,7 +1476,7 @@ test("実行中に送ったエコーは配列の末尾に留まり、実行中�
   const running = chatReducer(initialChatState, { type: "runStart", prompt: "長いターン", at: 1, startedAt: 1 });
   const firstHalf = chatReducer(running, { type: "text", delta: "前半", at: 2 });
   const sent = chatReducer(firstHalf, { type: "localUser", text: "待機する本文", at: 3 });
-  const queued = chatReducer(sent, { type: "echoRunId", runId: "run-b", queuePosition: 1 });
+  const queued = chatReducer(sent, { type: "echoSendId", sendId: "run-b", runId: "run-b", queuePosition: 1 });
   const secondHalf = chatReducer(queued, { type: "text", delta: "後半", at: 4 });
 
   assert.deepEqual(
@@ -1507,9 +1508,9 @@ test("実行中ターンの応答より前に積まれた待機は、実行に�
   // run_start で待機を末尾へ移さないと、実行に移った送信が前のターンの応答の途中に現れる
   let state = chatReducer(initialChatState, { type: "localUser", text: "A", at: 1 });
   state = chatReducer(state, { type: "runStart", runId: "run-a", prompt: "A", at: 2, startedAt: 2 });
-  state = chatReducer(state, { type: "echoRunId", runId: "run-a" });
+  state = chatReducer(state, { type: "echoSendId", sendId: "run-a", runId: "run-a" });
   state = chatReducer(state, { type: "localUser", text: "B", at: 3 });
-  state = chatReducer(state, { type: "echoRunId", runId: "run-b", queuePosition: 1 });
+  state = chatReducer(state, { type: "echoSendId", sendId: "run-b", runId: "run-b", queuePosition: 1 });
   state = chatReducer(state, { type: "text", delta: "A の応答", at: 4 });
   state = chatReducer(state, { type: "runEnd", runId: "run-a", status: "completed", queueDepth: 1, durationMs: 1000 });
 
@@ -1521,7 +1522,14 @@ test("実行中ターンの応答より前に積まれた待機は、実行に�
     "窓の中では待機のエコーより後ろに応答が積まれる",
   );
 
-  const started = chatReducer(state, { type: "runStart", runId: "run-b", prompt: "B", at: 5, startedAt: 5 });
+  const started = chatReducer(state, {
+    type: "runStart",
+    runId: "run-b",
+    initialSendId: "run-b",
+    prompt: "B",
+    at: 5,
+    startedAt: 5,
+  });
 
   assert.deepEqual(
     renderOrder(started),
@@ -1546,10 +1554,10 @@ test("payload の pendingSends が待機と順位を配り、一覧から消え�
   const resynced = chatReducer(historyWithOld(), {
     type: "resync",
     payload: pendingPayload([
-      { runId: "run-a", text: "A", at: 1, state: "queued", position: 2 },
-      { runId: "run-b", text: "B", at: 2, state: "queued", position: 1 },
-      { runId: "run-c", text: "C", at: 3, state: "running" },
-      { runId: "run-d", text: "D", at: 4, state: "unsent" },
+      { sendId: "run-a", runId: "run-a", text: "A", at: 1, state: "queued", position: 2 },
+      { sendId: "run-b", runId: "run-b", text: "B", at: 2, state: "queued", position: 1 },
+      { sendId: "run-c", runId: "run-c", text: "C", at: 3, state: "running" },
+      { sendId: "run-d", runId: "run-d", text: "D", at: 4, state: "unsent" },
     ]),
   });
   assert.deepEqual(
@@ -1569,7 +1577,7 @@ test("payload の pendingSends が待機と順位を配り、一覧から消え�
   // 先頭が実行に移り entry が保存された (payload から消える)。古い順位を残さない
   const advanced = chatReducer(resynced, {
     type: "resync",
-    payload: pendingPayload([{ runId: "run-b", text: "B", at: 2, state: "queued", position: 1 }]),
+    payload: pendingPayload([{ sendId: "run-b", runId: "run-b", text: "B", at: 2, state: "queued", position: 1 }]),
   });
   assert.deepEqual(
     advanced.bubbles
@@ -1599,6 +1607,7 @@ test("run_start はその run の待機を解除し、開始の合図は状態�
   const started = chatReducer(queued, {
     type: "runStart",
     runId: "run-b",
+    initialSendId: "run-b",
     prompt: "待機する本文",
     at: 11,
     startedAt: 11,
@@ -1636,6 +1645,7 @@ test("run_end は残りの件数を数えず、開始の合図とその run の�
   const started = chatReducer(queued, {
     type: "runStart",
     runId: "run-b",
+    initialSendId: "run-b",
     prompt: "待機する本文",
     at: 11,
     startedAt: 11,
@@ -1652,14 +1662,16 @@ test("run_end は残りの件数を数えず、開始の合図とその run の�
   assert.equal(ended.runStatus, "queued");
   assert.equal(ended.activity, "完了", "件数は直上ブロックが正。状態行は活動の語だけ");
 
-  // 実行されずに終わった待機も run_end で解除する (run_start が届かない経路)
+  // 実行されなかった待機は run_end では消さない (次の実行の開始送信になる)。停止は queue_cleared が担う
   const interrupted = chatReducer(queued, { type: "runEnd", runId: "run-b", status: "stopped", queueDepth: 0 });
-  assert.equal(interrupted.bubbles.find((bubble) => bubble.runId === "run-b")?.queued, undefined);
+  assert.equal(interrupted.bubbles.find((bubble) => bubble.sendId === "run-b")?.queued, true);
+  const cleared = chatReducer(interrupted, { type: "queueCleared", sendIds: ["run-b"] });
+  assert.equal(cleared.bubbles.find((bubble) => bubble.sendId === "run-b")?.queued, undefined);
 });
 
 test("queue_cleared は待機の表示を消し、runIds が無くても解除する", () => {
   const queued = queuedEcho(initialChatState, "待機する本文", "run-b", 1);
-  const cleared = chatReducer(queued, { type: "queueCleared", runIds: ["run-b"] });
+  const cleared = chatReducer(queued, { type: "queueCleared", sendIds: ["run-b"] });
   assert.deepEqual(
     cleared.bubbles
       .filter((bubble) => bubble.runId === "run-b")
@@ -1686,7 +1698,7 @@ test("queueCanceled は対象の待機だけを未送信へ戻し、他の待機
   assert.ok(keptEchoId !== undefined && target !== undefined);
   assert.deepEqual(waiting.pendingEchoIds, [keptEchoId, target.id], "待機中のエコーは履歴への吸収を待つ");
 
-  const canceled = chatReducer(waiting, { type: "queueCanceled", runId: "run-b" });
+  const canceled = chatReducer(waiting, { type: "queueCanceled", sendId: "run-b" });
   assert.deepEqual(
     canceled.bubbles.map((bubble) => [
       bubble.runId,
@@ -1708,9 +1720,9 @@ test("queueCanceled は対象の待機だけを未送信へ戻し、他の待機
   assert.equal(canceled.activity, waiting.activity, "成功時の文言は足さない (バブルが変わるのが結果の提示)");
 
   // resync が成功応答より先に届く経路がある。既に未送信なら状態を作り直さない
-  assert.equal(chatReducer(canceled, { type: "queueCanceled", runId: "run-b" }), canceled);
+  assert.equal(chatReducer(canceled, { type: "queueCanceled", sendId: "run-b" }), canceled);
   assert.equal(
-    chatReducer(canceled, { type: "queueCanceled", runId: "ghost" }),
+    chatReducer(canceled, { type: "queueCanceled", sendId: "ghost" }),
     canceled,
     "未知の run id では何もしない",
   );
@@ -1727,6 +1739,7 @@ test("resync の status === queued は件数も理由も状態行に出さず、
   const started = chatReducer(queued, {
     type: "runStart",
     runId: "run-b",
+    initialSendId: "run-b",
     prompt: "待機する本文",
     at: 11,
     startedAt: 11,
@@ -1744,4 +1757,25 @@ test("resync の status === queued は件数も理由も状態行に出さず、
   // 別の run へ移った / run が終わった復帰では残さない
   const ended = chatReducer(sameRun, { type: "resync", payload: pendingPayload([], "idle", 0) });
   assert.equal(ended.startingRunId, undefined);
+});
+
+test("pendingSends の steering は待機のまま反映中として持ち、running は待機一覧から外す", () => {
+  // What: SDK が取り出した入力 (steering) は取消できず、注入済み (running) は待機に出さない
+  const payload = runningPayload();
+  payload.pendingSends = [
+    { sendId: "send-q", text: "待機", at: 1, state: "queued", position: 1 },
+    { sendId: "send-s", text: "反映中", at: 2, state: "steering", position: 2 },
+    { sendId: "send-r", text: "実行中", at: 3, runId: "run-1", state: "running" },
+  ];
+  const state = chatReducer(initialChatState, { type: "resync", payload });
+  assert.deepEqual(
+    state.bubbles
+      .filter((bubble) => bubble.sendId !== undefined)
+      .map((bubble) => [bubble.sendId, bubble.queued === true, bubble.queuedState, bubble.queuePosition]),
+    [
+      ["send-q", true, "queued", 1],
+      ["send-s", true, "steering", 2],
+      ["send-r", false, undefined, undefined],
+    ],
+  );
 });

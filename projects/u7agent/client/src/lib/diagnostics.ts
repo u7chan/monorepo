@@ -91,7 +91,7 @@ export function summarizeEvent(entry: EventEntry): Record<string, unknown> {
         promptChars: entry.data.prompt.length,
       };
     case "queue_cleared":
-      return { runIds: entry.data.runIds ?? [] };
+      return { sendIds: entry.data.sendIds ?? [] };
     case "usage":
       return { hasUsage: entry.data.usage !== undefined, hasContext: entry.data.context !== undefined };
     case "run_end":
@@ -310,7 +310,7 @@ export type ClientSnapshot = {
   currentAssistantId: number | null;
   liveToolIds: string[];
   pendingEchoIds: number[];
-  clearedRunIds: string[];
+  clearedSendIds: string[];
   retry: RunRetryState | null;
   runError: { code: RunErrorCode; text: string } | null;
   bubbles: { count: number; lastRole: Bubble["role"] | null };
@@ -341,7 +341,7 @@ export function clientSnapshotOf(chat: ChatState, recorder: DiagnosticsRecorderS
     currentAssistantId: chat.currentAssistantId,
     liveToolIds: [...chat.liveToolIds],
     pendingEchoIds: [...chat.pendingEchoIds],
-    clearedRunIds: [...chat.clearedRunIds],
+    clearedSendIds: [...chat.clearedSendIds],
     retry: chat.retry ?? null,
     runError: chat.runError ? { code: chat.runError.code, text: chat.runError.text } : null,
     bubbles: {

@@ -11,9 +11,10 @@ type Props = Parameters<typeof QueuedSends>[0];
 
 const render = (props: Props): string => renderToStaticMarkup(createElement(QueuedSends, props));
 
-const send = (runId: string, text: string, index?: number): QueuedSend => ({
-  runId,
+const send = (sendId: string, text: string, index?: number, state: QueuedSend["state"] = "queued"): QueuedSend => ({
+  sendId,
   text,
+  state,
   ...(index === undefined ? {} : { index }),
 });
 
@@ -100,4 +101,12 @@ test("描画: 件数だけを読み上げ、行の本文はライブにしない
 
   assert.ok(html.includes('aria-live="polite"'), "見出しで件数の増減を伝える");
   assert.equal((html.match(/aria-live=/g) ?? []).length, 1, "ライブ領域は見出しだけ");
+});
+
+test("描画: steering の送信は反映中として見せ、取り消しを出さない", () => {
+  // What: SDK が取り出した入力は取消・再送・破棄できず、反映中としてだけ見せる
+  const html = render({ sends: [send("run-1", "反映待ち", 1, "steering")], onCancel: cancel });
+
+  assert.ok(html.includes("反映中"), "反映中を示す");
+  assert.ok(!html.includes("取り消し"), "取消のボタンを出さない");
 });

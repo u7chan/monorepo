@@ -280,7 +280,7 @@ test("ライブのツールだけのターンは reducer から通しても結�
   // What: toolStart が本文の空な assistant バブルを作り、runEnd が同じターンの user へ値を写す経路を固定する
   const steps: ((chat: ChatState) => ChatState)[] = [
     (chat) => chatReducer(chat, { type: "localUser", text: "調べて", at: 100 }),
-    (chat) => chatReducer(chat, { type: "echoRunId", runId: "r1" }),
+    (chat) => chatReducer(chat, { type: "echoSendId", sendId: "r1", runId: "r1" }),
     (chat) => chatReducer(chat, { type: "runStart", runId: "r1", prompt: "調べて", at: 100, startedAt: 100 }),
     (chat) => chatReducer(chat, { type: "toolStart", id: "t1", name: "bash", args: "{}", at: 150 }),
     (chat) => chatReducer(chat, { type: "toolEnd", id: "t1", isError: false, output: "done" }),

@@ -52,8 +52,13 @@ export type Bubble = {
    */
   since?: string;
   /**
-   * この送信を実行する run の id (POST 応答の runId)。ページの user entry と同じ runId のときだけ
-   * 対応する履歴 item へ吸収し、別クライアントの同一文面 entry を自分のものと取り違えない
+   * 受付ごとの送信ID (POST 応答の sendId)。ローカルエコー / 待機 / 履歴 item / pendingSends を
+   * 本文一致に依らず対応付ける。旧サーバーの応答では載らない
+   */
+  sendId?: string;
+  /**
+   * この送信を注入した run の id (POST 応答の runId、または run_start / 再送の応答)。
+   * 同じ run に複数の送信が属するため、送信の識別には使わない
    */
   runId?: string;
   /**
@@ -85,6 +90,11 @@ export type Bubble = {
    * run_start / queue_cleared / run_end / payload で解除する
    */
   queued?: boolean;
+  /**
+   * 待機の段階。`steering` は SDK が配送用に取り出して注入待ち (「反映中」、取消・再送・破棄は不可)。
+   * `queued` は BFF 待機中か SDK の実キューに残る (取消できる)
+   */
+  queuedState?: "queued" | "steering";
   /**
    * サーバーが配った待機の順位 (1 始まり)。表示直前に保持分を並べ直すための根拠で、表示する番号は
    * `lib/queueWait` が付ける。順位が不明 (旧サーバー) は載らない

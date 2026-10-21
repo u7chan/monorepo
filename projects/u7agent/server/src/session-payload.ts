@@ -8,9 +8,53 @@ import { contextUsageOf } from "./pi-runtime";
 import type { SecretMasker } from "./redact";
 import type { SessionRecord } from "./session-record";
 import { displayableMessages, projectMessages, truncate } from "./session-projection";
-import type { RunStatus, SessionPayload, SessionSummary, ThinkingLevel } from "./schema";
+import type { PendingSend, RunStatus, SessionPayload, SessionSummary, ThinkingLevel } from "./schema";
 
 const PROMPT_TEXT_MAX = 300;
+
+/**
+ * SDK の実キューに未注入で残る件数。公開 API が無い実装は 0 として扱い、SDK へ渡した 1 件を
+ * 「取り出し済み (steering)」に倒す (取り消せないものを取り消せるように見せない)。
+ */
+function sdkQueueLength(record: SessionRecord): number {
+  try {
+    return record.session.agent?.peekQueuedMessages?.().length ?? 0;
+  } catch {
+    return 0;
+  }
+}
+
+/**
+ * 受理済みでまだ entry になっていない送信を状態付きで配る。待機順位は BFF の配送キュー (SDK へ
+ * 渡した 1 件を含む) の index が正で、unsentSends の受理順は順位に使わない。
+ */
+export function pendingSendsOf(record: SessionRecord, masker: SecretMasker): PendingSend[] {
+  const positions = new Map(record.queue.map((item, index) => [item.sendId, index + 1]));
+  // SDK の実キューに残っている間は取消できる `queued`、取り出されたら `steering` (反映中)
+  const sdkQueue = sdkQueueLength(record);
+  return record.unsentSends.map((item) => {
+    const queued = record.queue.find((candidate) => candidate.sendId === item.sendId);
+    const position = positions.get(item.sendId);
+    const state: PendingSend["state"] =
+      queued === undefined
+        ? record.run?.status === "running" && record.run.initialSendId === item.sendId
+          ? "running"
+          : record.injectedSends.has(item.sendId)
+            ? "running"
+            : "unsent"
+        : queued.handedOff === true && sdkQueue === 0
+          ? "steering"
+          : "queued";
+    return {
+      sendId: item.sendId,
+      ...(item.runId === undefined ? {} : { runId: item.runId }),
+      text: masker.mask(item.text),
+      at: item.at,
+      state,
+      ...(position === undefined ? {} : { position }),
+    };
+  });
+}
 
 function modelLabel(model?: { provider: string; id: string } | null): string | undefined {
   if (!model || (model.provider === "unknown" && model.id === "unknown")) return undefined;
@@ -39,10 +83,6 @@ export function projectSessionPayload({
   const context = contextUsageOf(session);
   // 待機中の run id -> 順位 (1 始まり)。順位は record.queue の index が正で、unsentSends の並び
   // (受理順) は再送でキューの並びと入れ替わるため、順位として数えさせない
-  const queuedPositions = new Map(record.queue.map((item, index) => [item.runId, index + 1]));
-  // 実行中の run id。終了した run (record.run は status が付いたまま残る) は除く
-  const runningRunId =
-    record.run && (record.run.status === "running" || session.isStreaming) ? record.run.id : undefined;
   return {
     sessionId: record.id,
     spaceId: record.meta.spaceId ?? "default",
@@ -61,19 +101,10 @@ export function projectSessionPayload({
     // retryAt との差でクライアントが残り時間を出す基準時刻 (ブラウザ時計と比較しない)
     serverNow: Date.now(),
     queueDepth: record.queue.length,
-    // 受理済みでまだ entry になっていない送信を状態付きで配る。`unsent` は「未送信」の表示へ、
-    // `queued` / `running` は pending エコーのまま扱う (表示から消さない)。本文は表示用にマスクし、
-    // 再送は run id だけを送ってもらう (マスク済みの本文を送り直させない)
-    pendingSends: record.unsentSends.map((item) => {
-      const position = queuedPositions.get(item.runId);
-      return {
-        runId: item.runId,
-        text: masker.mask(item.text),
-        at: item.at,
-        state: position !== undefined ? "queued" : runningRunId === item.runId ? "running" : "unsent",
-        ...(position !== undefined ? { position } : {}),
-      };
-    }),
+    // 受理済みでまだ entry になっていない送信を状態付きで配る (`unsent` は「未送信」の表示へ、
+    // `queued` / `steering` / `running` は pending エコーのまま扱う)。本文は表示用にマスクし、
+    // 再送は送信IDだけを送ってもらう (マスク済みの本文を送り直させない)
+    pendingSends: pendingSendsOf(record, masker),
     ...(record.compactionStartedAt !== undefined ? { compactionStartedAt: record.compactionStartedAt } : {}),
     notify: record.notify,
     pinned: record.pinned,
@@ -82,6 +113,7 @@ export function projectSessionPayload({
     run: record.run
       ? {
           id: record.run.id,
+          initialSendId: record.run.initialSendId,
           status: record.run.status,
           startedAt: record.run.startedAt,
           endedAt: record.run.endedAt,

@@ -79,6 +79,21 @@ export interface PiSessionLike {
   subscribe(listener: PiSessionEventListener): () => void;
   prompt(text: string): Promise<unknown>;
   abort(): Promise<unknown>;
+  /**
+   * SDK の Agent。実キューへの残存確認だけに使い、取消の成否は `peekQueuedMessages()` で判定する
+   * (表示用ミラーや private フィールドには依存しない)。スタブ・旧 SDK では欠けてもよい
+   */
+  agent?: {
+    peekQueuedMessages(): unknown[];
+    hasQueuedMessages?(): boolean;
+  };
+  /**
+   * 実行中の追加入力。SDK が現在の応答とそのツールの完了後、次のモデル呼び出し前へ渡す。
+   * idle ではランを開始しないため、BFF は実行中だけ渡す。旧 SDK・スタブでは欠けてもよい
+   */
+  steer?(text: string): Promise<unknown>;
+  /** SDK が保持する未注入の入力を捨てる。実キューを消す (取消・停止で使う) */
+  clearQueue?(): unknown;
   setModel(model: unknown, options?: { persist?: boolean }): Promise<void>;
   /** SDK の SessionManager。compaction の entry を読むためだけに参照する (旧 SDK では undefined) */
   sessionManager?: { getBranch?(): unknown[] };

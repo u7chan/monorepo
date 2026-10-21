@@ -323,10 +323,10 @@ export function useU7Agent({ pendingSessionId }: UseU7AgentOptions = {}) {
     });
   }, [dispatch, sessionIdRef, sessionOpsRef]);
 
-  /** 未送信メッセージの再送 (サーバーが保存済みの本文を使う)。run id は変わらない */
+  /** 未送信メッセージの再送 (サーバーが保存済みの本文を使う)。送信IDは変わらない */
   const resendUnsent = useCallback(
-    async (runId: string): Promise<void> => {
-      await resendUnsentMessage(runId, {
+    async (sendId: string): Promise<void> => {
+      await resendUnsentMessage(sendId, {
         sessionIdRef,
         opsRef: sessionOpsRef,
         runStatusRef,
@@ -343,16 +343,16 @@ export function useU7Agent({ pendingSessionId }: UseU7AgentOptions = {}) {
 
   /** 未送信メッセージの破棄。再送が実行中の分はサーバーが 409 で拒否する */
   const discardUnsent = useCallback(
-    async (runId: string): Promise<void> => {
-      await discardUnsentMessage(runId, { sessionIdRef, discard: discardUnsentApi, dispatch });
+    async (sendId: string): Promise<void> => {
+      await discardUnsentMessage(sendId, { sessionIdRef, discard: discardUnsentApi, dispatch });
     },
     [dispatch, sessionIdRef],
   );
 
   /** 待機キュー中の 1 件の取り消し。実行中のターンは止めず、409 / 404 は取り直しへ収束させる */
   const cancelQueued = useCallback(
-    async (runId: string): Promise<void> => {
-      await cancelQueuedMessage(runId, {
+    async (sendId: string): Promise<void> => {
+      await cancelQueuedMessage(sendId, {
         sessionIdRef,
         snapshotSeqRef,
         cancel: cancelQueuedApi,

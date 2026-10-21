@@ -23,6 +23,10 @@ import type { SessionMeta, SessionFileWriter, PromptSnapshot, UnsentSend } from 
 
 export interface RunState {
   id: string;
+  /** この実行を開始した送信のID。所要時間・結末はこの送信にだけ写す */
+  initialSendId: string;
+  /** 開始送信の user 注入を観測したか。観測するまで steering は SDK へ渡さない */
+  initialInjected?: boolean;
   prompt: string;
   status: RunStatus;
   startedAt: number;
@@ -54,10 +58,22 @@ export interface SessionSubscriber {
   close?: () => void;
 }
 
-/** キューで待つ送信。run id は受け付けた時点で振り、その run の entry と対応付ける */
-export interface QueuedMessage {
+/**
+ * BFF が配送を持つ追加入力。SDK へは先頭 1 件だけを steering として渡し、注入を観測したら次を渡す。
+ * run id は注入時に確定する (未注入のまま終端したら外し、次の実行へ割り当て直す)。
+ */
+export interface QueuedSend {
+  /** 受付ごとに振る送信ID。同じ本文でも別IDとし、再送では変えない */
+  sendId: string;
   text: string;
-  runId: string;
+  at: number;
+  /** 実行へ割り当て済みなら実行ID (未注入・手動圧縮待ちは undefined) */
+  runId?: string;
+  /**
+   * SDK へ steering として渡した 1 件。実キューから取り出されたかは SDK の公開 API で判定する
+   * (この印だけで取消の成否を決めない)
+   */
+  handedOff?: boolean;
 }
 
 /**
@@ -108,7 +124,7 @@ export interface SessionRecord {
   seq: number;
   events: EventEntry[];
   subscribers: Set<SessionSubscriber>;
-  queue: QueuedMessage[];
+  queue: QueuedSend[];
   run: RunState | null;
   tools: Map<string, ToolCall>;
   /**
@@ -121,19 +137,33 @@ export interface SessionRecord {
   /** SDK のメッセージオブジェクト -> BFF 計測の応答時間 (履歴へ写すときに同じ参照で引く) */
   messageMetrics: WeakMap<object, MessageMetrics>;
   /**
-   * SDK の user メッセージ -> それを送信した run id。履歴 item の runId に写し、クライアントが
+   * SDK の user メッセージ -> それを送信した送信IDと実行ID。履歴 item に写し、クライアントが
    * 自分の送信エコーを他クライアントの同一文面 entry と取り違えないようにする
    */
-  userMessageRuns: WeakMap<object, string>;
+  userMessageSends: WeakMap<object, { sendId: string; runId?: string }>;
   /**
-   * 保存済み user entry の id -> run id。実行時の `userMessageRuns` は再起動で消えるため、
-   * JSONL へ書いた entry の対応をストア (sends.json) から復元して履歴の runId に使う。
-   * 旧保存データには無いので、載らない item は従来どおり本文での縮退になる
+   * 保存済み user entry の id -> 送信IDと実行ID。実行時の `userMessageSends` は再起動で消えるため、
+   * JSONL へ書いた entry の対応を復元して履歴に使う。旧保存データは 1送信=1実行として補完する
    */
-  entryRunIds: Map<string, string>;
+  entrySends: Map<string, { sendId: string; runId?: string }>;
+  /**
+   * 実行を開始した送信のID (run id -> sendId)。所要時間・結末を開始送信だけに写すために使う。
+   * `runOutcomes` と同じくメモリのみ・セッションの寿命
+   */
+  runInitialSends: Map<string, string>;
+  /**
+   * 現在の実行で user への注入を観測したがまだ JSONL へ保存されていない送信ID。待機一覧では
+   * `running` として扱い、保存が確定したら消す
+   */
+  injectedSends: Set<string>;
+  /** stop の処理中。新規送信を 409 にし、回収後の自動配送を止める */
+  stopping: boolean;
+  /** 進行中の SDK steering 受付 (取消・停止と直列化する) */
+  steerTask?: Promise<void>;
   /**
    * 202 で受理したがまだ user entry として保存されていない送信 (古い→新しい)。再起動でキューごと
-   * 消えても、履歴の同一文面 item へ黙って吸収させず「未送信」として見せるために残す
+   * 消えても、履歴の同一文面 item へ黙って吸収させず「未送信」として見せるために残す。
+   * 待機・配送・保存済みの判定はすべて `sendId` をキーにする
    */
   unsentSends: UnsentSend[];
   /**
@@ -190,6 +220,9 @@ export interface UpdateSessionSettingsInput {
 export interface PostMessageResultInternal {
   queued: boolean;
   queueDepth: number;
+  /** 受付ごとの送信ID。再送では同じ値を返す */
+  sendId: string;
+  /** 実行へ割り当て済みなら実行ID (待機しただけの送信では省略する) */
   runId?: string;
   /**
    * 引き継ぎの「消費済み」印の保存。この送信が印を立てたか、同じ印の保存が進行中のときに入り、

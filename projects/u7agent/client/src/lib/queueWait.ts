@@ -7,9 +7,14 @@ import type { Bubble } from "./chatTypes";
 
 export type QueuedSend = {
   /** 取り消しの対象と、行の同一性 (繰り上がる順位は key に使えない)。履歴 item への吸収の対応付けも兼ねる */
-  runId: string;
+  sendId: string;
   /** 送信の本文 (添付の注記とスキルブロックを含む生の形。表示の整形は呼び出し側) */
   text: string;
+  /**
+   * `queued` は BFF 待機中か SDK の実キューに残る (取消できる)。`steering` は SDK が取り出して
+   * 注入待ちで、反映中として見せる (取消・再送・破棄は不可)
+   */
+  state: "queued" | "steering";
   /** 並べ直した 1 始まりの順位。1 件だけ / 順位が不明 (旧サーバー) のときは無い (数字を出さない) */
   index?: number;
 };
@@ -22,9 +27,9 @@ export function queuedSendsOf(bubbles: Bubble[]): QueuedSend[] {
   const known: Array<{ send: QueuedSend; position: number }> = [];
   const unknown: QueuedSend[] = [];
   for (const bubble of bubbles) {
-    // run id の無い待機は取り消しの対象を指定できないため落とす (待機の表示は応答が run id を配ってから)
-    if (bubble.queued !== true || bubble.runId === undefined) continue;
-    const send: QueuedSend = { runId: bubble.runId, text: bubble.text };
+    // 送信IDの無い待機は取り消しの対象を指定できないため落とす (待機の表示は応答が sendId を配ってから)
+    if (bubble.queued !== true || bubble.sendId === undefined) continue;
+    const send: QueuedSend = { sendId: bubble.sendId, text: bubble.text, state: bubble.queuedState ?? "queued" };
     if (bubble.queuePosition === undefined) unknown.push(send);
     else known.push({ send, position: bubble.queuePosition });
   }
@@ -42,5 +47,5 @@ export function queuedSendsOf(bubbles: Bubble[]): QueuedSend[] {
  */
 export function answerWaitQueueReason(pendingQuestions: number, queueDepth: number): string | undefined {
   if (pendingQuestions <= 0 || queueDepth <= 0) return undefined;
-  return "回答しても、待機中の送信はこの実行の終了後に始まります";
+  return "回答後、この応答とツールが終わった時点で待機中の送信が反映されます";
 }

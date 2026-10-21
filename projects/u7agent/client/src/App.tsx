@@ -390,15 +390,15 @@ export default function App({ handoffNote = null, onHandoffNote, onHandoffNoteSh
   }, [handleSend]);
 
   const handleResendUnsent = useCallback(
-    (runId: string) => {
-      void app.resendUnsent(runId);
+    (sendId: string) => {
+      void app.resendUnsent(sendId);
     },
     [app],
   );
 
   const handleDiscardUnsent = useCallback(
-    (runId: string) => {
-      void app.discardUnsent(runId);
+    (sendId: string) => {
+      void app.discardUnsent(sendId);
     },
     [app],
   );

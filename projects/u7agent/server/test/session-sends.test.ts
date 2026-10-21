@@ -55,17 +55,26 @@ function userItems(page: HistoryPage) {
   );
 }
 
-/** JSONL の user entry に写した run id (entry id -> runId)。run 対応の正 */
-async function jsonlRunIds(storeDir: string, id: string): Promise<Record<string, string>> {
+/** JSONL の user entry に写した送信ID / 実行ID (entry id -> 対応)。対応の正 */
+async function jsonlSends(storeDir: string, id: string): Promise<Record<string, { sendId?: string; runId?: string }>> {
   const text = await readFile(sessionJsonlPath(id, storeDir), "utf8");
-  const runs: Record<string, string> = {};
+  const sends: Record<string, { sendId?: string; runId?: string }> = {};
   for (const line of text.split("\n")) {
     if (line === "") continue;
-    const entry = JSON.parse(line) as { type?: unknown; id?: unknown; u7agentRunId?: unknown };
+    const entry = JSON.parse(line) as {
+      type?: unknown;
+      id?: unknown;
+      u7agentSendId?: unknown;
+      u7agentRunId?: unknown;
+    };
     if (entry.type !== "message" || typeof entry.id !== "string") continue;
-    if (typeof entry.u7agentRunId === "string") runs[entry.id] = entry.u7agentRunId;
+    if (entry.u7agentSendId === undefined && entry.u7agentRunId === undefined) continue;
+    sends[entry.id] = {
+      ...(typeof entry.u7agentSendId === "string" ? { sendId: entry.u7agentSendId } : {}),
+      ...(typeof entry.u7agentRunId === "string" ? { runId: entry.u7agentRunId } : {}),
+    };
   }
-  return runs;
+  return sends;
 }
 
 function pageOf(store: SessionStore, record: Parameters<SessionStore["history"]>[0]): HistoryPage {
@@ -75,7 +84,7 @@ function pageOf(store: SessionStore, record: Parameters<SessionStore["history"]>
 }
 
 function unsentOf(payload: SessionPayload) {
-  return (payload.pendingSends ?? []).map((item) => [item.text, item.runId]);
+  return (payload.pendingSends ?? []).map((item) => [item.text, item.sendId]);
 }
 
 /** 実行中の送信 (別タブ相当) と同じ本文をキューへ積み、entry が保存された状態で再起動する */
@@ -87,13 +96,12 @@ async function restartWithQueuedSameText(storeDir: string, text: string) {
   const first = store1.postMessage(record, text);
   const second = store1.postMessage(record, text);
   assert.equal(second.queued, true, "実行中の送信はキューへ積まれる");
-  assert.notEqual(first.runId, second.runId, "キュー受付でも run id は別に振られる");
+  assert.notEqual(first.sendId, second.sendId, "同じ本文でも送信IDは別に振られる");
   assert.ok(first.runId);
-  assert.ok(second.runId);
   // 実行中の送信の user entry が保存されるまで待ってから、再起動 (abort + flush) する
   await waitFor(() => userItems(pageOf(store1, record)).length === 1, 3000, "first entry persisted");
   await store1.close();
-  return { recordId: record.id, firstRunId: first.runId, queuedRunId: second.runId };
+  return { recordId: record.id, firstRunId: first.runId, firstSendId: first.sendId, queuedSendId: second.sendId };
 }
 
 test("再起動後も保存済み user item の run id が載り、未保存の同一文面は未送信として区別できる", async () => {
@@ -107,14 +115,14 @@ test("再起動後も保存済み user item の run id が載り、未保存の�
 
     const page = pageOf(store2, restored);
     assert.deepEqual(
-      userItems(page).map((item) => [item.text, item.runId]),
-      [["同じ本文", ids.firstRunId]],
-      "保存済み item の run id は再起動を跨いで保たれる",
+      userItems(page).map((item) => [item.text, item.sendId, item.runId]),
+      [["同じ本文", ids.firstSendId, ids.firstRunId]],
+      "保存済み item の送信IDと実行IDは再起動を跨いで保たれる",
     );
     assert.deepEqual(
       unsentOf(store2.payload(restored)),
-      [["同じ本文", ids.queuedRunId]],
-      "保存されなかった送信は未送信として載る (保存済み item の run id とは別)",
+      [["同じ本文", ids.queuedSendId]],
+      "保存されなかった送信は未送信として載る (保存済み item の送信IDとは別)",
     );
     await store2.close();
   } finally {
@@ -132,32 +140,32 @@ test("pendingSends の position は unsentSends の並びではなく record.que
     // 別タブの再送で生じる食い違いを直接作る: unsentSends の並び (受理順) は [A, B] のままで、
     // 実際のキューは [B, A]。並びを順位として数えると A が 1 番目、B が 2 番目に見えてしまう
     record.unsentSends = [
-      { runId: "run-a", text: "再送した本文", at: 10 },
-      { runId: "run-b", text: "先に積まれた本文", at: 20 },
+      { sendId: "send-a", text: "再送した本文", at: 10 },
+      { sendId: "send-b", text: "先に積まれた本文", at: 20 },
     ];
     record.queue = [
-      { text: "先に積まれた本文", runId: "run-b" },
-      { text: "再送した本文", runId: "run-a" },
+      { sendId: "send-b", text: "先に積まれた本文", at: 20 },
+      { sendId: "send-a", text: "再送した本文", at: 10 },
     ];
 
     const payload = store.payload(record);
     assert.equal(payload.queueDepth, 2);
     assert.deepEqual(
-      payload.pendingSends?.map((item) => [item.runId, item.state, item.position]),
+      payload.pendingSends?.map((item) => [item.sendId, item.state, item.position]),
       [
-        ["run-a", "queued", 2],
-        ["run-b", "queued", 1],
+        ["send-a", "queued", 2],
+        ["send-b", "queued", 1],
       ],
       "順位は record.queue の index + 1 (1 始まり) になる",
     );
 
     // キューから外れた送信は待機でもないので順位を持たない (未送信の表示へ戻る)
-    record.queue = [{ text: "先に積まれた本文", runId: "run-b" }];
+    record.queue = [{ sendId: "send-b", text: "先に積まれた本文", at: 20 }];
     assert.deepEqual(
-      store.payload(record).pendingSends?.map((item) => [item.runId, item.state, item.position]),
+      store.payload(record).pendingSends?.map((item) => [item.sendId, item.state, item.position]),
       [
-        ["run-a", "unsent", undefined],
-        ["run-b", "queued", 1],
+        ["send-a", "unsent", undefined],
+        ["send-b", "queued", 1],
       ],
       "unsent / running には position を載せない",
     );
@@ -185,14 +193,17 @@ test("同一文面を2件保存したあとの再起動でも、item の run id 
     await store2.init();
     const restored = await store2.resolve(record.id);
     assert.ok(restored);
+    const items = userItems(pageOf(store2, restored));
     assert.deepEqual(
-      userItems(pageOf(store2, restored)).map((item) => [item.text, item.runId]),
+      items.map((item) => [item.text, item.sendId]),
       [
-        ["同じ本文", first.runId],
-        ["同じ本文", second.runId],
+        ["同じ本文", first.sendId],
+        ["同じ本文", second.sendId],
       ],
-      "同じ本文でも run id で 1:1 に対応できる",
+      "同じ本文でも送信IDで 1:1 に対応できる",
     );
+    assert.equal(items[0]?.runId, items[1]?.runId, "追加入力は同じ実行に属する");
+    assert.notEqual(items[0]?.runId, undefined);
     assert.deepEqual(unsentOf(store2.payload(restored)), [], "保存済みの送信は未送信に残らない");
     await store2.close();
   } finally {
@@ -200,7 +211,7 @@ test("同一文面を2件保存したあとの再起動でも、item の run id 
   }
 });
 
-test("未送信メッセージは同じ run id で再送でき、保存済みの生の本文を使う", async () => {
+test("未送信メッセージは同じ送信IDで再送でき、保存済みの生の本文を使う", async () => {
   const storeDir = await mkdtemp(join(tmpdir(), "u7agent-sends-"));
   const raw = "sk-test-secret を含む本文";
   const masker = createSecretMasker(["sk-test-secret"]);
@@ -214,13 +225,15 @@ test("未送信メッセージは同じ run id で再送でき、保存済みの
     // payload は表示用にマスク済み (ブラウザへ生の秘密値を配らない)
     assert.deepEqual(
       unsentOf(store2.payload(restored)),
-      [[raw.replace("sk-test-secret", REDACTED), ids.queuedRunId]],
+      [[raw.replace("sk-test-secret", REDACTED), ids.queuedSendId]],
       "未送信の本文はマスクして配る",
     );
 
-    const resent = store2.resend(restored, ids.queuedRunId);
-    assert.deepEqual(resent, { queued: false, queueDepth: 0, runId: ids.queuedRunId }, "同じ run id で実行する");
-    assert.equal(store2.resend(restored, ids.queuedRunId)?.runId, ids.queuedRunId, "実行中の二重の再送は重ねない");
+    const resent = store2.resend(restored, ids.queuedSendId);
+    assert.equal(resent?.sendId, ids.queuedSendId, "再送は同じ送信IDを引き継ぐ");
+    assert.notEqual(resent?.runId, undefined, "再送は新しい実行へ割り当てる");
+    assert.equal(resent?.queued, false);
+    assert.equal(store2.resend(restored, ids.queuedSendId)?.runId, resent?.runId, "実行中の二重の再送は重ねない");
     await waitFor(() => store2.statusOf(restored) === "completed", 5000, "resent run completion");
     await store2.flush(restored);
 
@@ -232,12 +245,12 @@ test("未送信メッセージは同じ run id で再送でき、保存済みの
       .at(-1);
     assert.equal(resentUser, raw, "再送は保存済みの生テキストを渡す");
     assert.deepEqual(
-      userItems(pageOf(store2, restored)).map((item) => [item.text, item.runId]),
+      userItems(pageOf(store2, restored)).map((item) => [item.text, item.sendId]),
       [
-        [raw.replace("sk-test-secret", REDACTED), ids.firstRunId],
-        [raw.replace("sk-test-secret", REDACTED), ids.queuedRunId],
+        [raw.replace("sk-test-secret", REDACTED), ids.firstSendId],
+        [raw.replace("sk-test-secret", REDACTED), ids.queuedSendId],
       ],
-      "再送した entry にも同じ run id が載る",
+      "再送した entry にも同じ送信IDが載る",
     );
     assert.deepEqual(unsentOf(store2.payload(restored)), [], "entry が保存されたら未送信から消える");
     assert.deepEqual(readSessionSends(storeDir, ids.recordId).unsent, []);
@@ -256,24 +269,24 @@ test("未送信メッセージは破棄でき、再送が実行中の分は消�
     const restored = await store2.resolve(ids.recordId);
     assert.ok(restored);
 
-    assert.equal(store2.discardUnsent(restored, "unknown-run"), "missing");
-    assert.equal(store2.resend(restored, ids.queuedRunId)?.runId, ids.queuedRunId);
-    assert.equal(store2.discardUnsent(restored, ids.queuedRunId), "running", "再送の実行中は破棄できない");
+    assert.equal(store2.discardUnsent(restored, "unknown-send"), "missing");
+    const resent = store2.resend(restored, ids.queuedSendId);
+    assert.equal(resent?.sendId, ids.queuedSendId);
+    assert.equal(store2.discardUnsent(restored, ids.queuedSendId), "running", "再送の実行中は破棄できない");
     await waitFor(() => store2.statusOf(restored) === "completed", 5000, "resent run completion");
     await store2.flush(restored);
     // entry が保存されているので、破棄ではなく保存済みとして消える
-    assert.equal(store2.discardUnsent(restored, ids.queuedRunId), "missing");
+    assert.equal(store2.discardUnsent(restored, ids.queuedSendId), "missing");
 
-    // 実行中 / キュー待ちの送信は消せず、停止でキューを破棄したあとなら消せる
+    // 実行中 / 待機中の送信は消せず、停止で未送信へ戻したあとなら消せる
     store2.postMessage(restored, "実行中の本文");
     const queued = store2.postMessage(restored, "あとで破棄する本文");
     assert.equal(queued.queued, true);
-    assert.ok(queued.runId);
-    assert.equal(store2.discardUnsent(restored, queued.runId), "running", "キュー待ちも実行中として扱う");
+    assert.equal(store2.discardUnsent(restored, queued.sendId), "running", "待機中も実行中として扱う");
     await store2.stop(restored);
     // 停止は最終保存を待たないため、保存済みの run を未送信から外すまで待つ
     await store2.flush(restored);
-    assert.equal(store2.discardUnsent(restored, queued.runId), "ok", "キューを破棄したあとは消せる");
+    assert.equal(store2.discardUnsent(restored, queued.sendId), "ok", "停止で未送信へ戻したあとは消せる");
     assert.deepEqual(unsentOf(store2.payload(restored)), []);
     await store2.close();
   } finally {
@@ -350,12 +363,12 @@ test("停止でキューを破棄した送信は、次の payload で未送信�
     await store.flush(record);
     assert.deepEqual(
       record.events.find((entry) => entry.type === "queue_cleared")?.data,
-      { runIds: [queued.runId] },
-      "破棄した待機分の run id を配る",
+      { sendIds: [queued.sendId] },
+      "破棄した待機分の送信IDを配る",
     );
     assert.deepEqual(
       unsentOf(store.payload(record)),
-      [["破棄される本文", queued.runId]],
+      [["破棄される本文", queued.sendId]],
       "実行前のキューを破棄した送信は未送信として残る",
     );
     assert.deepEqual(
@@ -371,7 +384,8 @@ test("停止でキューを破棄した送信は、次の payload で未送信�
 
 test("close 中は run 終了の遅延 pump でキューを進めない (未送信として残す)", async () => {
   const storeDir = await mkdtemp(join(tmpdir(), "u7agent-sends-"));
-  const pi = createStubPi();
+  // steering 非対応の SDK を想定し、待機を BFF に残したまま close の遅延 pump だけを見る
+  const pi = createStubPi({ steering: false });
   const store = createStore(storeDir, pi);
   try {
     await store.init();
@@ -397,7 +411,7 @@ test("close 中は run 終了の遅延 pump でキューを進めない (未送�
       "close 中にキュー中の送信を始めない",
     );
     assert.equal(store.statusOf(record), "queued", "キュー待ちのまま残る");
-    assert.deepEqual(unsentOf(store.payload(record)), [["待機する本文", queued.runId]], "未送信として残る");
+    assert.deepEqual(unsentOf(store.payload(record)), [["待機する本文", queued.sendId]], "未送信として残る");
   } finally {
     // assertion が失敗しても、outstanding な保存を回収してから一時ディレクトリを消す
     // (close を先に済ませないと、消したディレクトリを保存が作り直して records も残る)
@@ -406,7 +420,7 @@ test("close 中は run 終了の遅延 pump でキューを進めない (未送�
   }
 });
 
-test("POST /messages の resendRunId と DELETE /unsent で、未送信の再送と破棄ができる", async () => {
+test("POST /messages の resendSendId と DELETE /unsent で、未送信の再送と破棄ができる", async () => {
   const storeDir = await mkdtemp(join(tmpdir(), "u7agent-sends-"));
   const workspace = stubWorkspace();
   try {
@@ -426,15 +440,17 @@ test("POST /messages の resendRunId と DELETE /unsent で、未送信の再送
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ text: "同じ本文" }),
       })
-    ).json()) as { runId: string };
+    ).json()) as { sendId: string; runId: string };
     const queued = (await (
       await bff1.app.request(`/api/sessions/${created.sessionId}/messages`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ text: "同じ本文" }),
       })
-    ).json()) as { queued: boolean; runId: string };
+    ).json()) as { queued: boolean; sendId: string; runId?: string };
     assert.equal(queued.queued, true);
+    assert.notEqual(queued.sendId, first.sendId);
+    assert.equal(queued.runId, undefined, "待機しただけの送信は実行未割当");
     await waitFor(
       () => {
         const payload = pi1.sessions[0] as StubSession;
@@ -450,32 +466,38 @@ test("POST /messages の resendRunId と DELETE /unsent で、未送信の再送
     const pi2 = createStubPi({ chunkDelayMs: 200 });
     const bff2 = await createBffApp({ cwd: "/tmp/project", sessionStoreDir: storeDir, workspace, pi: asPiBff(pi2) });
     const payload = (await (await bff2.app.request(`/api/sessions/${created.sessionId}`)).json()) as SessionPayload;
-    assert.deepEqual(unsentOf(payload), [["同じ本文", queued.runId]]);
+    assert.deepEqual(unsentOf(payload), [["同じ本文", queued.sendId]]);
     assert.equal(payload.pendingSends?.[0]?.at !== undefined, true, "受理時刻を載せる");
 
     const history = (await (
       await bff2.app.request(`/api/sessions/${created.sessionId}/history`)
     ).json()) as HistoryPage;
     assert.deepEqual(
-      userItems(history).map((item) => [item.text, item.runId]),
-      [["同じ本文", first.runId]],
+      userItems(history).map((item) => [item.text, item.sendId, item.runId]),
+      [["同じ本文", first.sendId, first.runId]],
     );
 
-    // 保存済み / 未知の run id の再送は 409
+    // 保存済み / 未知の送信IDの再送は 409。互換名との同時指定は 400
     const conflict = await bff2.app.request(`/api/sessions/${created.sessionId}/messages`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ resendRunId: first.runId }),
+      body: JSON.stringify({ resendSendId: first.sendId }),
     });
     assert.equal(conflict.status, 409);
+    const ambiguous = await bff2.app.request(`/api/sessions/${created.sessionId}/messages`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ resendSendId: queued.sendId, resendRunId: queued.sendId }),
+    });
+    assert.equal(ambiguous.status, 400);
 
     // 未送信の破棄は 200、二度目は 404
-    const discarded = await bff2.app.request(`/api/sessions/${created.sessionId}/unsent/${queued.runId}`, {
+    const discarded = await bff2.app.request(`/api/sessions/${created.sessionId}/unsent/${queued.sendId}`, {
       method: "DELETE",
     });
     assert.equal(discarded.status, 200);
     assert.deepEqual(await discarded.json(), { ok: true });
-    const again = await bff2.app.request(`/api/sessions/${created.sessionId}/unsent/${queued.runId}`, {
+    const again = await bff2.app.request(`/api/sessions/${created.sessionId}/unsent/${queued.sendId}`, {
       method: "DELETE",
     });
     assert.equal(again.status, 404);
@@ -487,7 +509,7 @@ test("POST /messages の resendRunId と DELETE /unsent で、未送信の再送
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ text: "再送の前座" }),
       })
-    ).json()) as { queued: boolean; runId: string };
+    ).json()) as { queued: boolean; sendId: string; runId: string };
     assert.equal(running.queued, false, "空いているセッションでは即座に実行する");
     const queued2 = (await (
       await bff2.app.request(`/api/sessions/${created.sessionId}/messages`, {
@@ -495,12 +517,12 @@ test("POST /messages の resendRunId と DELETE /unsent で、未送信の再送
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ text: "再送する本文" }),
       })
-    ).json()) as { queued: boolean; runId: string };
+    ).json()) as { queued: boolean; sendId: string; runId?: string };
     assert.equal(queued2.queued, true, "実行中の送信はキューへ積まれる");
     const resent = await bff2.app.request(`/api/sessions/${created.sessionId}/messages`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ resendRunId: queued2.runId }),
+      body: JSON.stringify({ resendSendId: queued2.sendId }),
     });
     assert.equal(resent.status, 202);
     assert.deepEqual(await resent.json(), {
@@ -508,7 +530,7 @@ test("POST /messages の resendRunId と DELETE /unsent で、未送信の再送
       status: "running",
       queued: true,
       queueDepth: 1,
-      runId: queued2.runId,
+      sendId: queued2.sendId,
     });
     await waitFor(() => (pi2.sessions[0] as StubSession).entries.length >= 6, 5000, "resent entries persisted");
     // 再送した run の entry が保存され、未送信の一覧から消えるまで待つ
@@ -535,16 +557,18 @@ test("待機中の 1 件を取り消すと、その送信だけ未送信へ戻�
     const kept = store.postMessage(record, "残す本文");
     assert.equal(canceled.queued, true);
     assert.equal(kept.queued, true);
-    assert.ok(running.runId && canceled.runId && kept.runId);
+    assert.ok(running.runId);
+    assert.equal(canceled.runId, undefined);
+    assert.equal(kept.runId, undefined);
 
-    assert.equal(store.cancelQueued(record, canceled.runId), "ok");
+    assert.equal(await store.cancelQueued(record, canceled.sendId), "ok");
     const payload = store.payload(record);
     assert.deepEqual(
-      payload.pendingSends?.map((item) => [item.runId, item.state, item.position]),
+      payload.pendingSends?.map((item) => [item.sendId, item.state, item.position]),
       [
-        [running.runId, "running", undefined],
-        [canceled.runId, "unsent", undefined],
-        [kept.runId, "queued", 1],
+        [running.sendId, "running", undefined],
+        [canceled.sendId, "unsent", undefined],
+        [kept.sendId, "queued", 1],
       ],
       "取り消した分だけが未送信へ戻り、後続の順位が繰り上がる",
     );
@@ -554,20 +578,20 @@ test("待機中の 1 件を取り消すと、その送信だけ未送信へ戻�
     assert.equal(record.events.at(-1)?.type, "resync", "取り消した順位と件数を別タブへ揃える resync を配る");
     assert.deepEqual(
       readSessionSends(storeDir, record.id)
-        .unsent.filter((item) => item.runId === canceled.runId)
+        .unsent.filter((item) => item.sendId === canceled.sendId)
         .map((item) => item.text),
       ["取り消す本文"],
       "本文は記録に残り、再送 / 破棄の既存経路で扱える",
     );
     // 2 回目はキューにも実行中にも無い (別タブに先取りされた場合と同じ結果)
-    assert.equal(store.cancelQueued(record, canceled.runId), "missing");
+    assert.equal(await store.cancelQueued(record, canceled.sendId), "missing");
     await store.close();
   } finally {
     await rm(storeDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
   }
 });
 
-test("DELETE /queue/:runId は待機中だけを取り消し、実行中と未知の run id を 409 / 404 で断る", async () => {
+test("DELETE /queue/:sendId は待機中だけを取り消し、実行中と未知の送信IDを 409 / 404 で断る", async () => {
   const storeDir = await mkdtemp(join(tmpdir(), "u7agent-sends-"));
   const workspace = stubWorkspace();
   try {
@@ -589,30 +613,31 @@ test("DELETE /queue/:runId は待機中だけを取り消し、実行中と未�
     const messages = `/api/sessions/${created.sessionId}/messages`;
     const running = (await (await post(messages, { text: "実行する本文" })).json()) as {
       queued: boolean;
+      sendId: string;
       runId: string;
     };
     assert.equal(running.queued, false);
     const waiting = (await (await post(messages, { text: "取り消す本文" })).json()) as {
       queued: boolean;
-      runId: string;
+      sendId: string;
     };
     assert.equal(waiting.queued, true);
 
-    const canceled = await app.request(`/api/sessions/${created.sessionId}/queue/${waiting.runId}`, {
+    const canceled = await app.request(`/api/sessions/${created.sessionId}/queue/${waiting.sendId}`, {
       method: "DELETE",
     });
     assert.equal(canceled.status, 200);
     assert.deepEqual(await canceled.json(), { ok: true });
 
-    // 実行が始まっている run は、待機から外せないので 409 (実行は止めない)
-    const started = await app.request(`/api/sessions/${created.sessionId}/queue/${running.runId}`, {
+    // 実行が始まっている開始送信は、待機から外せないので 409 (実行は止めない)
+    const started = await app.request(`/api/sessions/${created.sessionId}/queue/${running.sendId}`, {
       method: "DELETE",
     });
     assert.equal(started.status, 409);
-    assert.deepEqual(await started.json(), { error: "実行が始まったため取り消せません" });
+    assert.deepEqual(await started.json(), { error: "SDK が取り出したため取り消せません" });
 
-    // 2 回目 (別タブが先に取り消した) と未知の run id は、待機にも実行中にも無い 404
-    for (const runId of [waiting.runId, "ghost"]) {
+    // 2 回目 (別タブが先に取り消した) と未知の送信IDは、待機にも実行中にも無い 404
+    for (const runId of [waiting.sendId, "ghost"]) {
       const missing = await app.request(`/api/sessions/${created.sessionId}/queue/${runId}`, { method: "DELETE" });
       assert.equal(missing.status, 404, runId);
       assert.deepEqual(await missing.json(), { error: "待機中のメッセージが見つかりません" });
@@ -620,10 +645,10 @@ test("DELETE /queue/:runId は待機中だけを取り消し、実行中と未�
 
     const payload = (await (await app.request(`/api/sessions/${created.sessionId}`)).json()) as SessionPayload;
     assert.deepEqual(
-      payload.pendingSends?.map((item) => [item.runId, item.state]),
+      payload.pendingSends?.map((item) => [item.sendId, item.state]),
       [
-        [running.runId, "running"],
-        [waiting.runId, "unsent"],
+        [running.sendId, "running"],
+        [waiting.sendId, "unsent"],
       ],
       "取り消した送信は未送信として読め、実行中の記録は残る",
     );
@@ -654,11 +679,11 @@ test("永続化なし構成の取り消しは 409 で断り、待機キューを
     await post(messages, { text: "実行する本文" });
     const waiting = (await (await post(messages, { text: "取り消せない本文" })).json()) as {
       queued: boolean;
-      runId: string;
+      sendId: string;
     };
     assert.equal(waiting.queued, true);
 
-    const refused = await app.request(`/api/sessions/${created.sessionId}/queue/${waiting.runId}`, {
+    const refused = await app.request(`/api/sessions/${created.sessionId}/queue/${waiting.sendId}`, {
       method: "DELETE",
     });
     assert.equal(refused.status, 409);
@@ -698,7 +723,11 @@ test("sends.json の書込みに失敗しても次の保存で再試行し、保
     assert.ok(attempts.length >= 2, "失敗した記録は dirty のまま残り、再試行される");
     const sends = readSessionSends(storeDir, record.id);
     assert.deepEqual(sends.unsent, [], "保存済みの送信は未送信に残らない");
-    assert.deepEqual(Object.values(await jsonlRunIds(storeDir, record.id)), [posted.runId], "run 対応は entry に写す");
+    assert.deepEqual(
+      Object.values(await jsonlSends(storeDir, record.id)),
+      [{ sendId: posted.sendId, runId: posted.runId }],
+      "送信対応は entry に写す",
+    );
     await store.close();
 
     // 再起動しても run id が載り、未送信は空 (古いディスクのまま復元されない)
@@ -708,8 +737,8 @@ test("sends.json の書込みに失敗しても次の保存で再試行し、保
     assert.ok(restored);
     assert.deepEqual(unsentOf(store2.payload(restored)), []);
     assert.deepEqual(
-      userItems(pageOf(store2, restored)).map((item) => item.runId),
-      [posted.runId],
+      userItems(pageOf(store2, restored)).map((item) => [item.sendId, item.runId]),
+      [[posted.sendId, posted.runId]],
     );
     await store2.close();
   } finally {
@@ -731,11 +760,11 @@ test("entry の注記があれば、sends.json の未送信が残っていても
     await store1.close();
 
     // 未送信の除去だけ失敗した状態 (entry には注記がある) を作る
-    const entryId = Object.keys(await jsonlRunIds(storeDir, record.id))[0];
+    const entryId = Object.keys(await jsonlSends(storeDir, record.id))[0];
     assert.ok(entryId);
     await writeFile(
       sessionSendsPath(record.id, storeDir),
-      JSON.stringify({ unsent: [{ runId: posted.runId, text: "保存される本文", at: 1 }] }),
+      JSON.stringify({ unsent: [{ sendId: posted.sendId, runId: posted.runId, text: "保存される本文", at: 1 }] }),
     );
 
     const store2 = createStore(storeDir, createStubPi());
@@ -744,11 +773,11 @@ test("entry の注記があれば、sends.json の未送信が残っていても
     assert.ok(restored);
     assert.deepEqual(unsentOf(store2.payload(restored)), [], "entry の注記を正とする");
     assert.deepEqual(
-      userItems(pageOf(store2, restored)).map((item) => [item.id, item.runId]),
-      [[entryId, posted.runId]],
-      "注記から run 対応を復元する",
+      userItems(pageOf(store2, restored)).map((item) => [item.id, item.sendId, item.runId]),
+      [[entryId, posted.sendId, posted.runId]],
+      "注記から送信対応を復元する",
     );
-    assert.equal(store2.resend(restored, posted.runId), undefined, "保存済みの送信は再送できない");
+    assert.equal(store2.resend(restored, posted.sendId), undefined, "保存済みの送信は再送できない");
     assert.deepEqual(readSessionSends(storeDir, record.id).unsent, [], "復元の結果を書き直す");
     await store2.close();
   } finally {
@@ -768,21 +797,28 @@ test("meta だけの保存では、JSONL にまだ書いていない entry を�
     // SDK の entry (メモリ) に user メッセージを足し、run 対応だけを控えた「保存待ち」の状態を作る
     const message = { role: "user", content: "メタ保存だけでは確定しない本文", timestamp: Date.now() };
     const entry = session.appendMessage(message);
-    record.userMessageRuns.set(message, "run-meta-only");
-    record.unsentSends.push({ runId: "run-meta-only", text: "メタ保存だけでは確定しない本文", at: Date.now() });
+    record.userMessageSends.set(message, { sendId: "send-meta-only", runId: "run-meta-only" });
+    record.unsentSends.push({
+      sendId: "send-meta-only",
+      runId: "run-meta-only",
+      text: "メタ保存だけでは確定しない本文",
+      at: Date.now(),
+    });
     record.sendsDirty = true;
 
     await store.persist(record, { jsonl: false });
-    assert.deepEqual(await jsonlRunIds(storeDir, record.id), {}, "JSONL に無い entry を保存済みにしない");
+    assert.deepEqual(await jsonlSends(storeDir, record.id), {}, "JSONL に無い entry を保存済みにしない");
     assert.deepEqual(
-      readSessionSends(storeDir, record.id).unsent.map((item) => item.runId),
-      ["run-meta-only"],
+      readSessionSends(storeDir, record.id).unsent.map((item) => item.sendId),
+      ["send-meta-only"],
       "未送信のまま残る",
     );
 
     // JSONL の保存が確定した時点で注記を写す
     await store.persist(record);
-    assert.deepEqual(await jsonlRunIds(storeDir, record.id), { [entry.id]: "run-meta-only" });
+    assert.deepEqual(await jsonlSends(storeDir, record.id), {
+      [entry.id]: { sendId: "send-meta-only", runId: "run-meta-only" },
+    });
     assert.deepEqual(readSessionSends(storeDir, record.id).unsent, []);
     await store.close();
   } finally {
@@ -806,10 +842,10 @@ test("user entry を残さず終わった run は、未送信として載り再�
     await store.flush(record);
     assert.deepEqual(
       unsentOf(store.payload(record)),
-      [["認証エラーで送れなかった本文", first.runId]],
+      [["認証エラーで送れなかった本文", first.sendId]],
       "終了した run も未送信として載る (実行中扱いにしない)",
     );
-    assert.equal(store.discardUnsent(record, first.runId), "ok", "終了した run の送信は破棄できる");
+    assert.equal(store.discardUnsent(record, first.sendId), "ok", "終了した run の送信は破棄できる");
     const resyncs = events.filter((entry) => entry.type === "resync");
     assert.equal(resyncs.length > 0, true, "破棄は購読者へ resync で配る");
     assert.deepEqual(resyncs.at(-1)?.data.pendingSends, [], "破棄した送信は配らない");
@@ -820,16 +856,18 @@ test("user entry を残さず終わった run は、未送信として載り再�
     await waitFor(() => store.statusOf(record) === "error", 3000, "second run error");
     await store.flush(record);
     events.length = 0;
-    const resent = store.resend(record, second.runId);
-    assert.deepEqual(resent, { queued: false, queueDepth: 0, runId: second.runId });
+    const resent = store.resend(record, second.sendId);
+    assert.equal(resent?.sendId, second.sendId, "再送は同じ送信IDを引き継ぐ");
+    assert.notEqual(resent?.runId, undefined);
+    assert.notEqual(resent?.runId, second.runId, "再送は新しい実行へ割り当てる");
     assert.equal(
-      events.filter((entry) => entry.type === "run_start" && entry.data.runId === second.runId).length,
+      events.filter((entry) => entry.type === "run_start" && entry.data.initialSendId === second.sendId).length,
       1,
-      "同じ run id でも実行し直す",
+      "同じ送信IDで実行し直す",
     );
     assert.deepEqual(
-      events.filter((entry) => entry.type === "resync")[0]?.data.pendingSends?.map((item) => [item.runId, item.state]),
-      [[second.runId, "running"]],
+      events.filter((entry) => entry.type === "resync")[0]?.data.pendingSends?.map((item) => [item.sendId, item.state]),
+      [[second.sendId, "running"]],
       "再送の受付直後は実行中として配る (別タブは未送信の表示を戻す)",
     );
     await waitFor(() => store.statusOf(record) === "error", 3000, "resent run error");
@@ -838,8 +876,8 @@ test("user entry を残さず終わった run は、未送信として載り再�
       events
         .filter((entry) => entry.type === "resync")
         .at(-1)
-        ?.data.pendingSends?.map((item) => item.runId),
-      [second.runId],
+        ?.data.pendingSends?.map((item) => item.sendId),
+      [second.sendId],
       "再送も user entry を残さず終わったら未送信として配る",
     );
     await store.close();
@@ -866,13 +904,14 @@ test("再送の実行中は前回の試行の所要時間と結末を履歴 item
     await waitFor(() => store.statusOf(record) === "error", 3000, "first run error");
     await store.flush(record);
 
-    // 同じ run id で実行し直す。user entry が載った後も前回の値を返さない
-    const resent = store.resend(record, first.runId);
-    assert.deepEqual(resent, { queued: false, queueDepth: 0, runId: first.runId });
+    // 同じ送信IDで実行し直す。user entry が載った後も前回の値を返さない
+    const resent = store.resend(record, first.sendId);
+    assert.equal(resent?.sendId, first.sendId);
+    assert.notEqual(resent?.runId, undefined);
     await waitFor(
       () => {
         const result = store.history(record, {});
-        return result.ok && userItems(result.page).some((item) => item.runId === first.runId);
+        return result.ok && userItems(result.page).some((item) => item.sendId === first.sendId);
       },
       3000,
       "resent user entry",
@@ -881,8 +920,8 @@ test("再送の実行中は前回の試行の所要時間と結末を履歴 item
     const during = store.history(record, {});
     assert.ok(during.ok);
     assert.deepEqual(
-      userItems(during.page).map((item) => [item.text, item.runId, item.runDurationMs, item.runOutcome]),
-      [["再送する本文", first.runId, undefined, undefined]],
+      userItems(during.page).map((item) => [item.text, item.sendId, item.runDurationMs, item.runOutcome]),
+      [["再送する本文", first.sendId, undefined, undefined]],
       "run が終わる前は前回の error と所要時間を載せない",
     );
 
@@ -892,7 +931,8 @@ test("再送の実行中は前回の試行の所要時間と結末を履歴 item
     const after = store.history(record, {});
     assert.ok(after.ok);
     const [user] = userItems(after.page);
-    assert.equal(user?.runId, first.runId);
+    assert.equal(user?.sendId, first.sendId);
+    assert.equal(user?.runId, resent?.runId);
     assert.equal(user?.runOutcome, "completed", "終了後は今回の結末になる");
     assert.equal(typeof user?.runDurationMs, "number");
     await store.close();
@@ -930,7 +970,7 @@ test("SDK 形式 (content part 配列) の user entry でも run 対応を復元
     // 未送信の除去だけ失敗した状態から復元する
     await writeFile(
       sessionSendsPath(record.id, storeDir),
-      JSON.stringify({ unsent: [{ runId: posted.runId, text: "SDK形式の本文", at: 1 }] }),
+      JSON.stringify({ unsent: [{ sendId: posted.sendId, runId: posted.runId, text: "SDK形式の本文", at: 1 }] }),
     );
     const store2 = createStore(storeDir, createStubPi());
     await store2.init();
@@ -938,11 +978,13 @@ test("SDK 形式 (content part 配列) の user entry でも run 対応を復元
     assert.ok(restored);
     assert.deepEqual(unsentOf(store2.payload(restored)), [], "part 配列でも突き合わせる");
     assert.deepEqual(
-      userItems(pageOf(store2, restored)).map((item) => [item.text, item.runId]),
-      [["SDK形式の本文", posted.runId]],
-      "本文と run 対応を復元する",
+      userItems(pageOf(store2, restored)).map((item) => [item.text, item.sendId, item.runId]),
+      [["SDK形式の本文", posted.sendId, posted.runId]],
+      "本文と送信対応を復元する",
     );
-    assert.deepEqual(await jsonlRunIds(storeDir, record.id), { [parsed.id]: posted.runId });
+    assert.deepEqual(await jsonlSends(storeDir, record.id), {
+      [parsed.id]: { sendId: posted.sendId, runId: posted.runId },
+    });
     await store2.close();
 
     // 正常な対応表は part 配列の entry でも消さない
@@ -951,8 +993,8 @@ test("SDK 形式 (content part 配列) の user entry でも run 対応を復元
     const restored3 = await store3.resolve(record.id);
     assert.ok(restored3);
     assert.deepEqual(
-      userItems(pageOf(store3, restored3)).map((item) => item.runId),
-      [posted.runId],
+      userItems(pageOf(store3, restored3)).map((item) => [item.sendId, item.runId]),
+      [[posted.sendId, posted.runId]],
       "対応を失わない",
     );
     await store3.close();
@@ -986,7 +1028,7 @@ test("entry の注記が無い同じ本文の旧 entry を未送信の根拠に�
       sessionSendsPath(record.id, storeDir),
       JSON.stringify({
         entries: {},
-        unsent: [{ runId: "run-new", text: "同じ本文", at: Date.now() }],
+        unsent: [{ sendId: "send-new", text: "同じ本文", at: Date.now() }],
       }),
     );
 
@@ -996,13 +1038,13 @@ test("entry の注記が無い同じ本文の旧 entry を未送信の根拠に�
     assert.ok(restored);
     assert.deepEqual(
       unsentOf(store2.payload(restored)),
-      [["同じ本文", "run-new"]],
+      [["同じ本文", "send-new"]],
       "注記の無い entry へ黙って吸収しない (未送信として残す)",
     );
     assert.deepEqual(
-      userItems(pageOf(store2, restored)).map((item) => [item.id, item.runId]),
-      [["entry-old", undefined]],
-      "注記の無い entry には run 対応を付けない",
+      userItems(pageOf(store2, restored)).map((item) => [item.id, item.sendId, item.runId]),
+      [["entry-old", undefined, undefined]],
+      "注記の無い entry には送信対応を付けない",
     );
     await store2.close();
   } finally {
@@ -1032,8 +1074,13 @@ test("保存中に SDK が追記した entry は、次の保存まで保存済�
       if (lateEntryId === undefined) {
         const late = { role: "user", content: "あとから積まれた本文", timestamp: Date.now() };
         lateEntryId = session.appendMessage(late).id;
-        record.userMessageRuns.set(late, "run-late");
-        record.unsentSends.push({ runId: "run-late", text: "あとから積まれた本文", at: Date.now() });
+        record.userMessageSends.set(late, { sendId: "send-late", runId: "run-late" });
+        record.unsentSends.push({
+          sendId: "send-late",
+          runId: "run-late",
+          text: "あとから積まれた本文",
+          at: Date.now(),
+        });
         record.sendsDirty = true;
       }
       return pending;
@@ -1041,15 +1088,18 @@ test("保存中に SDK が追記した entry は、次の保存まで保存済�
 
     await store.persist(record);
     assert.ok(lateEntryId !== undefined, "追記を再現できた");
-    assert.equal((await jsonlRunIds(storeDir, record.id))[lateEntryId], undefined, "await 中の追記を保存済みにしない");
+    assert.equal((await jsonlSends(storeDir, record.id))[lateEntryId], undefined, "await 中の追記を保存済みにしない");
     assert.deepEqual(
-      readSessionSends(storeDir, record.id).unsent.map((item) => item.runId),
-      ["run-late"],
+      readSessionSends(storeDir, record.id).unsent.map((item) => item.sendId),
+      ["send-late"],
     );
 
     // 次の保存で確定する
     await store.persist(record);
-    assert.equal((await jsonlRunIds(storeDir, record.id))[lateEntryId], "run-late");
+    assert.deepEqual((await jsonlSends(storeDir, record.id))[lateEntryId], {
+      sendId: "send-late",
+      runId: "run-late",
+    });
     assert.deepEqual(readSessionSends(storeDir, record.id).unsent, []);
     await store.close();
   } finally {
@@ -1075,7 +1125,7 @@ test("sends.json だけ書けない record は sweep で破棄しない", async 
 
     // sends だけ書けない状態を作り、sweep の対象にする
     failWrites = true;
-    record.unsentSends.push({ runId: "run-dirty", text: "未送信の本文", at: Date.now() });
+    record.unsentSends.push({ sendId: "send-dirty", runId: "run-dirty", text: "未送信の本文", at: Date.now() });
     record.sendsDirty = true;
     record.lastUsedAt = Date.now() - 2 * 60 * 60 * 1000;
     await store.sweep();
@@ -1110,11 +1160,15 @@ test("本文が同じ未送信が複数あっても、entry の注記がある r
     // B: 同じ本文で実行され、entry が保存された送信 (注記付き)
     const message = { role: "user", content: "同じ本文", timestamp: Date.now() };
     const entry = session.appendMessage(message);
-    record.userMessageRuns.set(message, "run-b");
-    record.unsentSends.push({ runId: "run-b", text: "同じ本文", at: Date.now() });
+    record.userMessageSends.set(message, { sendId: "send-b", runId: "run-b" });
+    record.unsentSends.push({ sendId: "send-b", runId: "run-b", text: "同じ本文", at: Date.now() });
     record.sendsDirty = true;
     await store1.persist(record);
-    assert.equal((await jsonlRunIds(storeDir, record.id))[entry.id], "run-b", "entry に注記が載る");
+    assert.deepEqual(
+      (await jsonlSends(storeDir, record.id))[entry.id],
+      { sendId: "send-b", runId: "run-b" },
+      "entry に注記が載る",
+    );
     await store1.close();
 
     // 未送信の除去だけ失敗した状態 (sends.json には A と B が残る) を作る
@@ -1122,8 +1176,8 @@ test("本文が同じ未送信が複数あっても、entry の注記がある r
       sessionSendsPath(record.id, storeDir),
       JSON.stringify({
         unsent: [
-          { runId: failed.runId, text: "同じ本文", at: 1 },
-          { runId: "run-b", text: "同じ本文", at: 2 },
+          { sendId: failed.sendId, runId: failed.runId, text: "同じ本文", at: 1 },
+          { sendId: "send-b", runId: "run-b", text: "同じ本文", at: 2 },
         ],
       }),
     );
@@ -1134,16 +1188,80 @@ test("本文が同じ未送信が複数あっても、entry の注記がある r
     assert.ok(restored);
     assert.deepEqual(
       unsentOf(store2.payload(restored)),
-      [["同じ本文", failed.runId]],
+      [["同じ本文", failed.sendId]],
       "entry の注記がある B だけを保存済みとし、A は未送信として残す",
     );
     assert.deepEqual(
-      userItems(pageOf(store2, restored)).map((item) => [item.id, item.runId]),
-      [[entry.id, "run-b"]],
-      "同じ本文でも B の entry に B の run が載る",
+      userItems(pageOf(store2, restored)).map((item) => [item.id, item.sendId, item.runId]),
+      [[entry.id, "send-b", "run-b"]],
+      "同じ本文でも B の entry に B の送信IDと実行IDが載る",
     );
-    assert.equal(store2.resend(restored, failed.runId)?.runId, failed.runId, "A は再送できる");
-    assert.equal(store2.resend(restored, "run-b"), undefined, "B は保存済みで再送できない");
+    assert.equal(store2.resend(restored, failed.sendId)?.sendId, failed.sendId, "A は再送できる");
+    assert.equal(store2.resend(restored, "send-b"), undefined, "B は保存済みで再送できない");
+    await store2.close();
+  } finally {
+    await rm(storeDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+  }
+});
+
+test("旧保存データの u7agentRunId だけの entry は同じ値を送信IDとして補完する", async () => {
+  const storeDir = await mkdtemp(join(tmpdir(), "u7agent-sends-"));
+  try {
+    const store1 = createStore(storeDir, createStubPi({ chunkDelayMs: 1 }));
+    await store1.init();
+    const record = await store1.create();
+    await store1.flush(record);
+    await store1.close();
+
+    // 送信IDを導入する前の entry (u7agentRunId だけ)
+    const legacyEntry = {
+      type: "message",
+      id: "entry-legacy",
+      parentId: null,
+      timestamp: new Date(1).toISOString(),
+      message: { role: "user", content: "旧データの本文", timestamp: 1 },
+      u7agentRunId: "run-legacy",
+    };
+    const text = await readFile(sessionJsonlPath(record.id, storeDir), "utf8");
+    const header = text.split("\n").filter((line) => line !== "")[0];
+    await writeFile(sessionJsonlPath(record.id, storeDir), `${header}\n${JSON.stringify(legacyEntry)}\n`);
+
+    const store2 = createStore(storeDir, createStubPi());
+    await store2.init();
+    const restored = await store2.resolve(record.id);
+    assert.ok(restored);
+    assert.deepEqual(
+      userItems(pageOf(store2, restored)).map((item) => [item.sendId, item.runId]),
+      [["run-legacy", "run-legacy"]],
+      "従来の 1送信=1実行として同じ値を補完する",
+    );
+    await store2.close();
+  } finally {
+    await rm(storeDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+  }
+});
+
+test("旧 sends.json の runId だけの未送信記録は、同じ値を送信IDとして再送・破棄できる", async () => {
+  const storeDir = await mkdtemp(join(tmpdir(), "u7agent-sends-"));
+  try {
+    const store1 = createStore(storeDir, createStubPi());
+    await store1.init();
+    const record = await store1.create();
+    await store1.flush(record);
+    await store1.close();
+
+    // 送信IDを導入する前の記録 (runId だけ)
+    await writeFile(
+      sessionSendsPath(record.id, storeDir),
+      JSON.stringify({ unsent: [{ runId: "run-old", text: "旧データの本文", at: 1 }] }),
+    );
+
+    const store2 = createStore(storeDir, createStubPi());
+    await store2.init();
+    const restored = await store2.resolve(record.id);
+    assert.ok(restored);
+    assert.deepEqual(unsentOf(store2.payload(restored)), [["旧データの本文", "run-old"]]);
+    assert.equal(store2.discardUnsent(restored, "run-old"), "ok", "補完した送信IDで破棄できる");
     await store2.close();
   } finally {
     await rm(storeDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });

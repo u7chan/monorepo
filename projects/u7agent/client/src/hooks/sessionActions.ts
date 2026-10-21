@@ -88,13 +88,14 @@ export async function sendChatMessage(text: string, deps: SendChatMessageDeps): 
     const runSeq = runEndSeqRef.current;
     const result = await post(targetId, text, attachments);
     deps.onSent?.();
-    // 自分の送信の run id をエコーへ結び付ける。表示の正は SSE だが、この対応付けは応答だけが持つ
-    // (圧縮中 / キュー中でも、自分が送った run の id が返る)。切替後の表示は触らない
-    if (sameChat && sessionIdRef.current === targetId && result.runId !== undefined) {
+    // 自分の送信の送信IDをエコーへ結び付ける。表示の正は SSE だが、この対応付けは応答だけが持つ
+    // (圧縮中 / 待機中でも自分の送信IDが返る)。切替後の表示は触らない
+    if (sameChat && sessionIdRef.current === targetId) {
       dispatch({
-        type: "echoRunId",
-        runId: result.runId,
-        // 待機の順位は押し込んだ直後の queueDepth = 自分の順位 (実行を始めた run では載せない)
+        type: "echoSendId",
+        sendId: result.sendId,
+        ...(result.runId === undefined ? {} : { runId: result.runId }),
+        // 待機の順位は押し込んだ直後の queueDepth = 自分の順位 (実行を始めた送信では載せない)
         ...(result.queued ? { queuePosition: result.queueDepth } : {}),
       });
     }
@@ -168,7 +169,7 @@ export type ResendUnsentDeps = {
   /** run が終わった回数。要求の後に run が終わっていれば、その run の値を持つ応答は古い */
   runEndSeqRef: RefObject<number>;
   /** 未送信メッセージの再送。本文はサーバーが保存済みの生テキストを使う */
-  resend: (sessionId: string, runId: string) => Promise<PostMessageResult>;
+  resend: (sessionId: string, sendId: string) => Promise<PostMessageResult>;
   /**
    * 権威ある payload を取り直す。応答から状態を確定できない失敗 (通信断など) で、未送信 / 実行中 /
    * 保存済みのどれかをサーバーへ確かめるために使う。取得できなければ false
@@ -181,16 +182,16 @@ export type ResendUnsentDeps = {
 
 /**
  * 未送信メッセージの再送。ローカルエコーは既にあるので新しく足さず、未送信の表示を送信直後へ戻す。
- * 本文を送り直さない (payload の本文は表示用のマスク済み) ため、サーバーへは run id だけを渡す。
+ * 本文を送り直さない (payload の本文は表示用のマスク済み) ため、サーバーへは送信IDだけを渡す。
  */
-export async function resendUnsentMessage(runId: string, deps: ResendUnsentDeps): Promise<void> {
+export async function resendUnsentMessage(sendId: string, deps: ResendUnsentDeps): Promise<void> {
   const id = deps.sessionIdRef.current;
   if (!id) return;
-  deps.dispatch({ type: "resendUnsent", runId });
+  deps.dispatch({ type: "resendUnsent", sendId });
   const ops = deps.opsRef.current;
   const runSeq = deps.runEndSeqRef.current;
   try {
-    const result = await deps.resend(id, runId);
+    const result = await deps.resend(id, sendId);
     // 選択が変わった / 終端 resync や新しい要求が入った後の応答は、表示を戻すので捨てる
     if (deps.sessionIdRef.current !== id) return;
     if (deps.opsRef.current === ops && deps.runEndSeqRef.current === runSeq) {
@@ -208,7 +209,7 @@ export async function resendUnsentMessage(runId: string, deps: ResendUnsentDeps)
     // 応答が届かないだけの失敗 (受理済みだが応答が失われた) と、未受理の失敗を区別できない。
     // まず未送信へ戻し (未確認の送信を送信済みに見せない)、サーバーが受理を確認済みの run は
     // reducer がそのまま保つ。その上で権威ある payload を取り直して状態を確定させる
-    if (deps.opsRef.current === ops) deps.dispatch({ type: "resendFailed", runId });
+    if (deps.opsRef.current === ops) deps.dispatch({ type: "resendFailed", sendId });
     await deps.recover();
     if (deps.sessionIdRef.current !== id) return;
     deps.dispatch({ type: "setActivity", text: messageFor(error) });
@@ -220,18 +221,18 @@ export async function resendUnsentMessage(runId: string, deps: ResendUnsentDeps)
 export type DiscardUnsentDeps = {
   sessionIdRef: RefObject<string>;
   /** 破棄が済んだらローカルの未送信バブルも消す */
-  discard: (sessionId: string, runId: string) => Promise<unknown>;
+  discard: (sessionId: string, sendId: string) => Promise<unknown>;
   dispatch: Dispatch<ChatAction>;
 };
 
 /** 未送信メッセージの破棄。再送を実行中の分はサーバーが 409 で弾き、理由を状態行へ出す */
-export async function discardUnsentMessage(runId: string, deps: DiscardUnsentDeps): Promise<void> {
+export async function discardUnsentMessage(sendId: string, deps: DiscardUnsentDeps): Promise<void> {
   const id = deps.sessionIdRef.current;
   if (!id) return;
   try {
-    await deps.discard(id, runId);
+    await deps.discard(id, sendId);
     if (deps.sessionIdRef.current !== id) return;
-    deps.dispatch({ type: "unsentDiscarded", runId });
+    deps.dispatch({ type: "unsentDiscarded", sendId });
   } catch (error) {
     if (deps.sessionIdRef.current !== id) return;
     deps.dispatch({ type: "setActivity", text: messageFor(error) });
@@ -246,7 +247,7 @@ export type CancelQueuedDeps = {
    */
   snapshotSeqRef: RefObject<number>;
   /** 取り消しが済んだらローカルの待機表示も未送信へ切り替える */
-  cancel: (sessionId: string, runId: string) => Promise<unknown>;
+  cancel: (sessionId: string, sendId: string) => Promise<unknown>;
   /**
    * 権威ある payload を取り直す。実行開始 (409) / 別タブの先取り (404) は状態が変わっており、
    * バブルの状態をサーバーへ委ねるために使う
@@ -259,17 +260,17 @@ export type CancelQueuedDeps = {
  * 待機キュー中のメッセージを 1 件だけ取り消す。実行中のターンは止めない。成功応答では状態行を
  * 触らない (件数の正は resync の payload)。409 / 404 は理由を出して payload を取り直す。
  */
-export async function cancelQueuedMessage(runId: string, deps: CancelQueuedDeps): Promise<void> {
+export async function cancelQueuedMessage(sendId: string, deps: CancelQueuedDeps): Promise<void> {
   const id = deps.sessionIdRef.current;
   if (!id) return;
   const snapshotSeq = deps.snapshotSeqRef.current;
   try {
-    await deps.cancel(id, runId);
+    await deps.cancel(id, sendId);
     if (deps.sessionIdRef.current !== id) return;
     // 要求の後に payload (取消の resync や、別タブが同じ run を再送した resync) を適用済みなら、
     // 取り消しを未送信へ落とすと待機へ戻った最新の状態を巻き戻す。表示は payload に委ねる
     if (deps.snapshotSeqRef.current !== snapshotSeq) return;
-    deps.dispatch({ type: "queueCanceled", runId });
+    deps.dispatch({ type: "queueCanceled", sendId });
   } catch (error) {
     if (deps.sessionIdRef.current !== id) return;
     const status = isApiFailure(error) ? (error as { status: number }).status : undefined;

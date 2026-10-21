@@ -61,6 +61,7 @@ function bubbleOfItem(
     id: nextId,
     entryId: item.id,
     context: item.context,
+    ...(item.sendId !== undefined ? { sendId: item.sendId } : {}),
     ...(item.runId !== undefined ? { runId: item.runId } : {}),
     ...(item.turnEnd !== undefined ? { turnEnd: item.turnEnd } : {}),
     ...(item.runDurationMs !== undefined ? { runDurationMs: item.runDurationMs } : {}),
@@ -193,7 +194,11 @@ function connectionFor(prev: HistoryBundle, page: HistoryPage): Connection {
  */
 function matchesLive(bubble: Bubble, item: HistoryItem): boolean {
   if (item.kind !== "message" || item.role !== bubble.role) return false;
+  // 送信IDが双方にあれば、同じ実行に属する複数の送信でも 1:1 に対応付く
+  if (bubble.sendId !== undefined && item.sendId !== undefined) return bubble.sendId === item.sendId;
+  // 送信IDを持たない item (旧サーバー / 保存前に再起動した履歴) は run の一致へ縮退する
   if (bubble.runId !== undefined && item.runId !== undefined) return bubble.runId === item.runId;
+  if (bubble.sendId !== undefined || item.sendId !== undefined) return false;
   // 未送信 / 受理済み (まだ entry になっていない送信) は本文の縮退に使わない。別クライアントの
   // 同一文面 entry へ黙って吸収させず、自分の run の entry が現れたときだけ runId 一致で置き換える
   if (bubble.unsent || bubble.accepted) return false;
@@ -229,8 +234,16 @@ function reconcileLive(live: Bubble[], items: HistoryItem[]): { kept: Bubble[]; 
 function absorbPendingEchoes(pendingLives: Bubble[], items: HistoryItem[]): Set<number> {
   const consumed = new Set<number>();
   for (const bubble of pendingLives) {
-    if (bubble.runId === undefined) continue;
-    if (items.some((item) => item.kind === "message" && item.runId === bubble.runId)) consumed.add(bubble.id);
+    const matched = items.some(
+      (item) =>
+        item.kind === "message" &&
+        ((bubble.sendId !== undefined && item.sendId !== undefined && item.sendId === bubble.sendId) ||
+          (bubble.runId !== undefined &&
+            item.runId !== undefined &&
+            item.runId === bubble.runId &&
+            (bubble.sendId === undefined || item.sendId === undefined))),
+    );
+    if (matched) consumed.add(bubble.id);
   }
   return consumed;
 }

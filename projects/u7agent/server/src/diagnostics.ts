@@ -217,7 +217,7 @@ export type DiagnosticsInput = {
   seq: number;
   events: readonly EventEntry[];
   status: RunStatus;
-  queueRunIds: readonly string[];
+  queueSendIds: readonly string[];
   run: {
     id: string;
     status: RunStatus;
@@ -291,7 +291,7 @@ export function projectSessionDiagnostics({
       ...(meta.sendsError ? { sendsError: masker.mask(meta.sendsError) } : {}),
       sendsDirty: meta.sendsDirty,
     },
-    queue: { depth: input.queueRunIds.length, runIds: [...input.queueRunIds] },
+    queue: { depth: input.queueSendIds.length, sendIds: [...input.queueSendIds] },
     run: run
       ? {
           id: run.id,

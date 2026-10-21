@@ -78,6 +78,7 @@ export function applySessionEvent(entry: EventEntry, deps: SessionStreamDeps): v
       dispatch({
         type: "runStart",
         runId: entry.data.runId,
+        ...(entry.data.initialSendId === undefined ? {} : { initialSendId: entry.data.initialSendId }),
         prompt: entry.data.prompt,
         at: entry.at,
         startedAt: entry.data.startedAt,
@@ -141,11 +142,16 @@ export function applySessionEvent(entry: EventEntry, deps: SessionStreamDeps): v
       });
       return;
     case "queued":
-      dispatch({ type: "queued", position: entry.data.position, queueDepth: entry.data.queueDepth });
+      dispatch({
+        type: "queued",
+        ...(entry.data.sendId === undefined ? {} : { sendId: entry.data.sendId }),
+        position: entry.data.position,
+        queueDepth: entry.data.queueDepth,
+      });
       void refreshSessions();
       return;
     case "queue_cleared":
-      dispatch({ type: "queueCleared", runIds: entry.data.runIds });
+      dispatch({ type: "queueCleared", sendIds: entry.data.sendIds });
       return;
     case "run_end":
       dispatch({

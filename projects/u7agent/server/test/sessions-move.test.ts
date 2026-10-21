@@ -427,7 +427,7 @@ test("answers 409 while the session is busy or changing settings", async () => {
       // キュー中 / 圧縮中 / 設定変更中 (model / thinkingLevel の変更中) も同じ 409 (busy 判定は statusOf が正)
       await waitFor(() => bff.store.statusOf(bff.store.get(id)!) === "completed", 5000, "run completion");
       const record = bff.store.get(id)!;
-      record.queue.push({ text: "待機", runId: "a1b2c3d4" });
+      record.queue.push({ sendId: "a1b2c3d4", text: "待機", at: Date.now() });
       assert.equal(bff.store.statusOf(record), "queued");
       assert.equal((await moveTo(bff, id, space)).status, 409);
       record.queue = [];
@@ -1437,12 +1437,12 @@ test("keeps the consumed mark on disk before answering, so a discard cannot revi
       assert.equal((await moveTo(failing.bff, id, "default", { memo: true })).status, 200);
       const sent = await failing.bff.app.request(`/api/sessions/${id}/messages`, jsonPost({ text: "続き" }));
       assert.equal(sent.status, 202);
-      const runId = ((await sent.json()) as { runId: string }).runId;
+      const sendId = ((await sent.json()) as { sendId: string }).sendId;
       // ディスクの meta は応答の時点で消費済み (flush を待たない)
       assert.equal(((await readMeta(id, paths.store)).handoff as { consumed: boolean }).consumed, true);
       await waitFor(() => failing.bff.store.statusOf(failing.bff.store.get(id)!) !== "running", 5000, "run failure");
       assert.equal(
-        (await failing.bff.app.request(`/api/sessions/${id}/unsent/${runId}`, { method: "DELETE" })).status,
+        (await failing.bff.app.request(`/api/sessions/${id}/unsent/${sendId}`, { method: "DELETE" })).status,
         200,
       );
       assert.equal(((await readMeta(id, paths.store)).handoff as { consumed: boolean }).consumed, true);

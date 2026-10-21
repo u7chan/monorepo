@@ -42,7 +42,7 @@ test("描画: 回答待ちで待機キューがあるとき、回答してもす
     compactDisabledReason: "実行中",
   });
 
-  const reason = html.indexOf("回答しても、待機中の送信はこの実行の終了後に始まります");
+  const reason = html.indexOf("回答後、この応答とツールが終わった時点で待機中の送信が反映されます");
   assert.ok(reason >= 0, "1 文を可視で出す");
   const liveStart = html.indexOf('aria-live="polite"');
   const liveEnd = html.indexOf("</span>", liveStart);
@@ -66,7 +66,7 @@ test("描画: 回答待ちで待機キューがあるとき、回答してもす
     queueDepth: 1,
     singleColumn: true,
   });
-  assert.ok(singleColumn.includes("回答しても、待機中の送信はこの実行の終了後に始まります"));
+  assert.ok(singleColumn.includes("回答後、この応答とツールが終わった時点で待機中の送信が反映されます"));
 });
 
 test("描画: 回答待ちとキューが揃わなければ待機の理由を出さない", () => {

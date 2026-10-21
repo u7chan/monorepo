@@ -351,8 +351,9 @@ for (const outcome of ["none", "aborted", "error"] as const) {
 
     await runTurn(store, record, "圧縮されない会話", (target) => target.compact({ outcome, summarizeCount: 1 }));
 
+    // 送信の注入直後は resync を配る (契約) ため、圧縮の手前から増えた分だけを見る
     assert.equal(events.filter((entry) => entry.type === "compaction").length, 0);
-    assert.equal(events.filter((entry) => entry.type === "resync").length, 0);
+    assert.equal(events.filter((entry) => entry.type === "resync").length, 1, "注入の resync だけ");
     const payload = store.payload(record);
     assert.deepEqual(payload.compactions, []);
     assert.deepEqual(
@@ -569,7 +570,7 @@ test("圧縮中の二重 POST と設定変更は 409 になり、実行中の圧
   await store.close();
 });
 
-test("圧縮中の送信は runId を先に振って queued になり、終端処理の後に 1 回だけ pump する", async () => {
+test("圧縮中の送信は送信IDで queued になり、終端処理の後に 1 回だけ pump する", async () => {
   const { store, record } = await createFixture(withManual({ delayMs: 50 }));
   const events = collect(store, record);
 
@@ -577,10 +578,11 @@ test("圧縮中の送信は runId を先に振って queued になり、終端�
   await waitFor(() => record.compacting, 1000, "compaction started");
   const queued = store.postMessage(record, "圧縮中の送信");
 
-  // run id は受け付けた時点で振り、キューから始まる run の id として返す (圧縮中の旧 run の id ではない)
+  // 送信IDは受け付けた時点で振り、実行IDは開始時に確定する (圧縮中の旧 run の id ではない)
   assert.equal(queued.queued, true);
   assert.equal(queued.queueDepth, 1);
-  assert.equal(typeof queued.runId, "string", "実行前でも自分の run id を返す");
+  assert.equal(typeof queued.sendId, "string", "実行前でも自分の送信IDを返す");
+  assert.equal(queued.runId, undefined, "実行未割当の待機は run id を持たない");
   assert.equal(store.statusOf(record), "compacting");
   await compacting;
 
@@ -592,7 +594,7 @@ test("圧縮中の送信は runId を先に振って queued になり、終端�
   await waitFor(() => store.statusOf(record) === "completed", 3000, "queued run completion");
   const runStarts = events.filter((entry) => entry.type === "run_start");
   assert.equal(runStarts.length, 1, "pump は 1 回だけ");
-  assert.equal(runStarts[0].data.runId, queued.runId, "応答で返した run id で run が始まる");
+  assert.equal(runStarts[0].data.initialSendId, queued.sendId, "応答で返した送信IDが開始送信になる");
 
   await store.close();
 });
@@ -611,7 +613,8 @@ test("保存待ちの間は送信・設定変更・二重圧縮・stop が割り
   const queued = store.postMessage(record, "保存待ちの送信");
   assert.equal(queued.queued, true);
   assert.equal(queued.queueDepth, 1);
-  assert.equal(typeof queued.runId, "string", "保存待ちでも自分の run id を返す");
+  assert.equal(typeof queued.sendId, "string", "保存待ちでも自分の送信IDを返す");
+  assert.equal(queued.runId, undefined, "実行未割当の待機は run id を持たない");
   await assert.rejects(
     () => store.compact(record),
     (error: StoreError) => error.statusCode === 409,
@@ -629,11 +632,11 @@ test("保存待ちの間は送信・設定変更・二重圧縮・stop が割り
   assert.notEqual(stopped.status, "compacting");
   assert.deepEqual(
     events.map((entry) => entry.type),
-    ["resync", "compaction", "queued", "queue_cleared", "resync", "status"],
-    "stop がキューを捨てるので pump は走らない",
+    ["resync", "compaction", "queued", "queue_cleared", "resync", "status", "resync"],
+    "stop がキューを捨てるので pump は走らず、回収後の resync で閉じる",
   );
-  const last = events.at(-1);
-  assert.equal(last?.type === "status" ? last.data.text : "", "会話を圧縮しました（1回目）");
+  const finished = events.at(-2);
+  assert.equal(finished?.type === "status" ? finished.data.text : "", "会話を圧縮しました（1回目）");
 
   await store.close();
 });

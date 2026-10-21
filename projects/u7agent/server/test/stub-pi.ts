@@ -119,6 +119,16 @@ export const STUB_CONTEXT_USAGE: ContextUsage = {
 
 export interface StubSessionOptions {
   reply?: string;
+  /** false で steering 非対応の SDK を再現する (追加入力は BFF が保持したままになる) */
+  steering?: boolean;
+  /** true で steer() が実キューからすぐ取り出す (注入前で取り出された窓を再現する) */
+  steerTaken?: boolean;
+  /** steer() の受付を遅らせる (停止・取消との直列化の検証用) */
+  steerDelayMs?: number;
+  /** false で応答後の steering 注入を行わない (終端時の回収を検証する) */
+  drainSteering?: boolean;
+  /** steering で注入された追加入力への応答本文 (省略時は反映を伝える固定文) */
+  steeringReply?: (text: string, index: number) => string;
   chunkDelayMs?: number;
   /** setModel を遅延させる (設定変更中の競合テスト用) */
   setModelDelayMs?: number;
@@ -398,6 +408,10 @@ export interface StubSession extends PiSessionLike {
 export function createStubSession(options: StubSessionOptions = {}): StubSession {
   const { reply = "スタブの返答です", chunkDelayMs = 0, setModelDelayMs = 0 } = options;
   const listeners = new Set<PiSessionEventListener>();
+  // SDK の steering キュー。1 回の prompt の応答とツールが終わった時点で 1 件ずつ取り出して注入する
+  const steeringQueue: string[] = [];
+  const takenSteering: string[] = [];
+  let steeringInjected = 0;
   // 実 SDK はリスナーへ message_end を配った後に SessionManager へ入れるため、その間だけ context が古い
   let historyUpdated = true;
   // 実 SDK の isCompacting / abortCompaction に対応する状態 (BFF の保存待ちは含まない)
@@ -537,6 +551,25 @@ export function createStubSession(options: StubSessionOptions = {}): StubSession
     subscribe(listener: PiSessionEventListener) {
       listeners.add(listener);
       return () => listeners.delete(listener);
+    },
+    // 実 SDK と同じ公開面: 実キューの中身 (未注入) を覗き、steering を積み、キューを捨てる
+    agent: {
+      peekQueuedMessages: () => steeringQueue.map((text) => ({ role: "user", content: text })),
+      hasQueuedMessages: () => steeringQueue.length > 0,
+    },
+    /** 取り出し済み (実キューに無い) 入力をテストから確認する */
+    get takenSteering(): string[] {
+      return [...takenSteering];
+    },
+    async steer(text: string) {
+      if ((options.steerDelayMs ?? 0) > 0) await sleep(options.steerDelayMs ?? 0);
+      steeringQueue.push(text);
+      if (options.steerTaken) takenSteering.push(steeringQueue.shift() as string);
+    },
+    clearQueue() {
+      const steering = [...steeringQueue];
+      steeringQueue.length = 0;
+      return { steering, followUp: [] };
     },
     emit(event: PiSessionEvent) {
       for (const listener of listeners) listener(event);
@@ -915,6 +948,39 @@ export function createStubSession(options: StubSessionOptions = {}): StubSession
           // 実 SDK はリスナーへ配信した後、同じターンで SessionManager へ追加する
           historyUpdated = true;
         }
+        // 応答とツールが終わった後、次のモデル呼び出しの前へ steering を 1 件ずつ渡す
+        while (options.drainSteering !== false && steeringQueue.length > 0 && !session.abortRequested) {
+          const text = steeringQueue.shift() as string;
+          steeringInjected += 1;
+          const index = steeringInjected;
+          const steeringUser = { role: "user", content: text, timestamp: Date.now() };
+          session.emit({ type: "message_start", message: steeringUser });
+          session.appendMessage(steeringUser);
+          session.emit({ type: "message_end", message: steeringUser });
+          session.emit({ type: "message_start", message: { role: "assistant" } });
+          const textBlock = {
+            type: "text",
+            text: options.steeringReply?.(text, index) ?? `追加入力 ${index} を反映しました`,
+          };
+          const steeringAssistant = {
+            role: "assistant",
+            content: [textBlock],
+            stopReason: "stop",
+            timestamp: Date.now(),
+            ...(options.usage === null ? {} : { usage: options.usage ?? STUB_USAGE }),
+          };
+          session.appendMessage(steeringAssistant);
+          session.emit({
+            type: "message_update",
+            assistantMessageEvent: { type: "text_delta", delta: textBlock.text },
+          });
+          historyUpdated = false;
+          try {
+            session.emit({ type: "message_end", message: steeringAssistant });
+          } finally {
+            historyUpdated = true;
+          }
+        }
       } finally {
         // user message を積む前の失敗 (認証エラー等) は agent が開始していないため settled を出さない。
         // BFF は prompt() の reject で run を error として終端する。回数制限で失敗を抜けた試行は
@@ -924,6 +990,7 @@ export function createStubSession(options: StubSessionOptions = {}): StubSession
       }
     },
   };
+  if (options.steering === false) delete (session as { steer?: unknown }).steer;
   if (options.sessionId) session.sessionId = options.sessionId;
   if (options.entries && options.entries.length > 0) {
     for (const entry of options.entries) entries.push(entry as StubSessionEntry);
@@ -955,6 +1022,12 @@ export interface StubCreateInput {
 
 export interface StubPiOptions {
   reply?: string;
+  /** false で steering 非対応の SDK を再現する (StubSessionOptions と同じ) */
+  steering?: boolean;
+  /** StubSessionOptions と同じ (取り出し済み / 受付の遅延 / 注入しない) */
+  steerTaken?: boolean;
+  steerDelayMs?: number;
+  drainSteering?: boolean;
   chunkDelayMs?: number;
   setModelDelayMs?: number;
   /** assistant へ載せる usage。null で usage 非対応プロバイダ (キー省略) を再現する */

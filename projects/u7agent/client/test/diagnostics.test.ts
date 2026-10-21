@@ -136,7 +136,7 @@ test("クライアント状態のスナップショットは本文を載せず�
     currentAssistantId: 3,
     liveToolIds: ["t-1"],
     pendingEchoIds: [1],
-    clearedRunIds: ["r-old"],
+    clearedSendIds: ["r-old"],
     retry: { phase: "waiting", attempt: 1, maxAttempts: 2, retryAt: 500, reason: "rate_limit" },
     runError: { code: "rate_limit", text: "混雑しています" },
     runEndSeq: 4,
@@ -175,7 +175,7 @@ test("クライアント状態のスナップショットは本文を載せず�
   assert.equal(snapshot.currentAssistantId, 3);
   assert.deepEqual(snapshot.liveToolIds, ["t-1"]);
   assert.deepEqual(snapshot.pendingEchoIds, [1]);
-  assert.deepEqual(snapshot.clearedRunIds, ["r-old"]);
+  assert.deepEqual(snapshot.clearedSendIds, ["r-old"]);
   assert.deepEqual(snapshot.retry, {
     phase: "waiting",
     attempt: 1,
@@ -245,7 +245,7 @@ function serverDiagnostics(): SessionDiagnostics {
       pinned: false,
       sendsDirty: false,
     },
-    queue: { depth: 0, runIds: [] },
+    queue: { depth: 0, sendIds: [] },
     run: null,
     questions: [],
     events: { limit: 500, maxBytes: 1, available: 3, items: [], dropped: 1, truncated: 2 },

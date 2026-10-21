@@ -285,6 +285,8 @@ export type RunRetryState = z.infer<typeof RunRetryStateSchema>;
 
 export const RunPayloadSchema = z.object({
   id: z.string(),
+  /** この実行を開始した送信のID。所要時間と結末はこの送信だけが持つ */
+  initialSendId: z.string().optional(),
   status: RunStatusSchema,
   startedAt: z.number(),
   endedAt: z.number().optional(),
@@ -411,8 +413,13 @@ export const HistoryMessageItemSchema = ChatMessageSchema.extend({
   id: z.string(),
   context: HistoryContextStateSchema,
   /**
-   * user メッセージを送信した run の id。クライアントが自分の送信エコー (POST 応答の runId) と
-   * entry を厳密に対応付けるために使う。旧サーバー / 対応を失った履歴では載らない
+   * user メッセージを送信した送信ID。クライアントが自分の送信エコー (POST 応答の sendId) と
+   * entry を本文一致に依らず対応付ける。旧サーバーは載せない
+   */
+  sendId: z.string().optional(),
+  /**
+   * user メッセージを注入した run の id。同じ実行へ複数の送信が属するため、送信の識別には使わない。
+   * 旧サーバー / 対応を失った履歴では載らない
    */
   runId: z.string().optional(),
   /**
@@ -447,13 +454,21 @@ export type HistoryItem = z.infer<typeof HistoryItemSchema>;
  * `queued` の順位で、`unsentSends` の並び (受理順) を順位として数えさせないために載せる。
  */
 export const PendingSendSchema = z.object({
-  runId: z.string(),
+  /** 受付ごとの送信ID。取消・再送・破棄・バブルとの対応はこの値で行う */
+  sendId: z.string(),
+  /** 実行へ割り当て済みなら実行ID (手動圧縮中など未割当の送信では省略する) */
+  runId: z.string().optional(),
   text: z.string(),
   at: z.number(),
-  state: z.enum(["unsent", "queued", "running"]),
   /**
-   * 待機中の順位 (1 始まり)。`state === "queued"` のときだけ載り、値は `record.queue` の index + 1
-   * (SSE `queued` の `position` と同じ意味)。旧サーバーは載せない
+   * queued = BFF 待機中または SDK 実キューに残る (取消の対象)。steering = SDK が取り出して注入待ち
+   * (取消・再送・破棄は不可)。running = 開始送信の準備中か注入済みで保存待ち。unsent = 配送対象から
+   * 外れた未保存の送信 (再送・破棄の対象)
+   */
+  state: z.enum(["unsent", "queued", "steering", "running"]),
+  /**
+   * 待機中の順位 (1 始まり)。`state` が queued / steering のときだけ載り、BFF と SDK の未注入分を
+   * 合わせた並びの index + 1 (SSE `queued` の `position` と同じ意味)。旧サーバーは載せない
    */
   position: z.number().optional(),
 });
@@ -1427,6 +1442,9 @@ export type SessionSkillsPreview = z.infer<typeof SessionSkillsPreviewSchema>;
 export const PostMessageResultSchema = z.object({
   queued: z.boolean(),
   queueDepth: z.number(),
+  /** 受付ごとの送信ID。再送でも同じ値を返す */
+  sendId: z.string(),
+  /** 実行へ割り当て済みなら実行ID (待機しただけの送信では省略する) */
   runId: z.string().optional(),
 });
 export type PostMessageResult = z.infer<typeof PostMessageResultSchema>;
@@ -1504,7 +1522,9 @@ export const PostMessageBodySchema = z.object({
   text: z.string().optional(),
   /** 添付 (root 相対。既定スペースは `<appdir>/uploads/<sessionId>/` 配下)。件数とパスの検証は attachments.ts が正 */
   attachments: z.array(z.string()).optional(),
-  /** 未送信メッセージの再送。本文は保存済みの生テキストを使い、同じ run id で実行し直す */
+  /** 未送信メッセージの再送。本文は保存済みの生テキストを使い、同じ送信IDで実行し直す */
+  resendSendId: z.string().optional(),
+  /** `resendSendId` の互換名。同時指定は 400 */
   resendRunId: z.string().optional(),
 });
 export type PostMessageBody = z.infer<typeof PostMessageBodySchema>;
@@ -1794,7 +1814,13 @@ export type ReorderSpacesBody = z.infer<typeof ReorderSpacesBodySchema>;
 export const EventDataSchemas = {
   // `startedAt` は payload の `run.startedAt` と同じ値。クライアントは受信時刻ではなくこれを使う
   // (切断中に始まった run の `run_start` がリプレイされても開始時刻がぶれない)
-  run_start: z.object({ runId: z.string(), prompt: z.string(), startedAt: z.number() }),
+  run_start: z.object({
+    runId: z.string(),
+    /** この実行を開始した送信のID (旧サーバーは載せない) */
+    initialSendId: z.string().optional(),
+    prompt: z.string(),
+    startedAt: z.number(),
+  }),
   text: z.object({ delta: z.string() }),
   tool_start: z.object({
     id: z.string(),
@@ -1821,10 +1847,12 @@ export const EventDataSchemas = {
   queued: z.object({
     position: z.number(),
     queueDepth: z.number(),
+    /** 待機した送信のID。応答が届く前でも、この値で自分の待機を特定できる */
+    sendId: z.string().optional(),
     prompt: z.string(),
   }),
-  // 停止で破棄した待機メッセージの run id。クライアントが「未送信」へ切り替えるために使う
-  queue_cleared: z.object({ runIds: z.array(z.string()).optional() }).strict(),
+  // 停止で破棄した待機メッセージの送信ID。クライアントが「未送信」へ切り替えるために使う
+  queue_cleared: z.object({ sendIds: z.array(z.string()).optional() }).strict(),
   // assistant の message_end ごとに 1 件。usage はプロバイダが報告したときだけ入る
   usage: z.object({
     usage: UsageSchema.optional(),
@@ -1945,7 +1973,7 @@ export const SessionDiagnosticsSchema = z.object({
     sendsDirty: z.boolean(),
   }),
   /** 待機中の送信。本文は載せず、件数と run id だけを持つ */
-  queue: z.object({ depth: z.number(), runIds: z.array(z.string()) }),
+  queue: z.object({ depth: z.number(), sendIds: z.array(z.string()) }),
   run: z
     .object({
       id: z.string(),
