@@ -170,6 +170,9 @@ export function useU7Agent({ pendingSessionId }: UseU7AgentOptions = {}) {
   // run の終了回数も同じ用途 (要求の後に run が終わった送信の応答を捨てる)
   const runEndSeqRef = useRef(chat.runEndSeq);
   runEndSeqRef.current = chat.runEndSeq;
+  // 待機状態の世代。要求後に届いた resync / 終端 / 待機の変化で古い待機スナップショットを捨てる
+  const stateSeqRef = useRef(chat.stateSeq);
+  stateSeqRef.current = chat.stateSeq;
 
   // セッションのスキル一覧 (`/skill:` の入力補助)。新規チャットは選択中のプロジェクト / エージェントで
   // プレビューし、カタログ (エージェント定義) の読み込みまでは取得先が確定しない
@@ -284,6 +287,7 @@ export function useU7Agent({ pendingSessionId }: UseU7AgentOptions = {}) {
         opsRef: sessionOpsRef,
         runStatusRef,
         runEndSeqRef,
+        stateSeqRef,
         ensureSession,
         refreshSessions,
         post: postMessage,

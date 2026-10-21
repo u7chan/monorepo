@@ -37,15 +37,16 @@ export function chatRenderItems({
   }
   const boundaryIndex = boundaryPosition(bubbles, activeContextStartId);
   const items: ChatRenderItem[] = [];
-  // 進行中のターン (最後の user バブル)。次の user の手前か末尾で、その 1 つ前のターンを閉じる
+  // 進行中のターン (ターンを開いた user バブル)。同じ実行へ注入された追加入力では閉じない
   let openTurn: Bubble | undefined;
   // 閉じるターンの結末を付ける先 = そのターンで最後に積んだ表示メッセージ
   let lastMessageIndex: number | undefined;
   for (let position = 0; position <= bubbles.length; position += 1) {
     const bubble = bubbles[position];
     // 待機中の送信はターンの区切りに使わない。実行中ターンの応答が後ろに積まれる窓 (最初の delta より前に
-    // 送った 2 通目) でも、結末がそのターンの最後の応答へ付くようにする
-    if (bubble === undefined || (bubble.role === "user" && bubble.queued !== true)) {
+    // 送った 2 通目) でも、結末がそのターンの最後の応答へ付くようにする。同じ run id の追加入力は
+    // 実行の続きなので、表示上のターンを閉じない (Done を最後の応答だけに残す)
+    if (bubble === undefined || (bubble.role === "user" && bubble.queued !== true && !sameRun(bubble, openTurn))) {
       // 結末はターンを閉じてから付ける。境界ラベル・圧縮の区切りはターンの後ろに並ぶ
       attachTurnEnd(items, lastMessageIndex, openTurn);
       if (bubble) openTurn = bubble;
@@ -78,6 +79,33 @@ export function chatRenderItems({
     }
   }
   return items;
+}
+
+/** 追加入力が進行中のターンと同じ実行へ注入されたか (run id が分かる場合だけ同一視する) */
+function sameRun(bubble: Bubble, turn: Bubble | undefined): boolean {
+  return turn !== undefined && turn.runId !== undefined && bubble.runId === turn.runId;
+}
+
+/**
+ * 未送信バブルの再送 / 破棄が操作する送信ID。実行IDと取り違えると API が 409 / 404 になるため、
+ * 表示に使う run id とは別に引く。旧サーバーが run id だけを載せた履歴では run id へ縮退する。
+ */
+export function unsentActionIdOf(bubble: Bubble): string | undefined {
+  if (bubble.unsent !== true) return undefined;
+  return bubble.sendId ?? bubble.runId;
+}
+
+/** 未送信バブルの再送 / 破棄ハンドラー。操作対象は実行IDではなく送信IDへ揃える */
+export function unsentActionsOf(
+  bubble: Bubble,
+  handlers: { onResend?: (sendId: string) => void; onDiscard?: (sendId: string) => void },
+): { onResend?: () => void; onDiscard?: () => void } {
+  const sendId = unsentActionIdOf(bubble);
+  if (sendId === undefined) return {};
+  return {
+    ...(handlers.onResend ? { onResend: () => handlers.onResend?.(sendId) } : {}),
+    ...(handlers.onDiscard ? { onDiscard: () => handlers.onDiscard?.(sendId) } : {}),
+  };
 }
 
 /**

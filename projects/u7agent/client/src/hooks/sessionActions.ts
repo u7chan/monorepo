@@ -34,6 +34,8 @@ export type SendChatMessageDeps = {
   runStatusRef: RefObject<RunStatus>;
   /** run が終わった回数 (ChatState.runEndSeq)。要求の後に run が終わっていれば、その run の値を持つ応答は古い */
   runEndSeqRef: RefObject<number>;
+  /** 待機状態を含む権威ある状態の世代 (ChatState.stateSeq)。古い待機スナップショットを適用しない */
+  stateSeqRef: RefObject<number>;
   ensureSession: () => Promise<string>;
   /** 一覧を取り直す。取得できなかったときは null (空の成功と区別する) */
   refreshSessions: () => Promise<SessionSummary[] | null>;
@@ -56,6 +58,7 @@ export async function sendChatMessage(text: string, deps: SendChatMessageDeps): 
     opsRef,
     runStatusRef,
     runEndSeqRef,
+    stateSeqRef,
     ensureSession,
     refreshSessions,
     post,
@@ -86,6 +89,7 @@ export async function sendChatMessage(text: string, deps: SendChatMessageDeps): 
     // 一覧を進めるため、これより前に読むと自分の送信の応答まで捨てる)
     const ops = opsRef.current;
     const runSeq = runEndSeqRef.current;
+    const stateSeq = stateSeqRef.current;
     const result = await post(targetId, text, attachments);
     deps.onSent?.();
     // 自分の送信の送信IDをエコーへ結び付ける。表示の正は SSE だが、この対応付けは応答だけが持つ
@@ -95,6 +99,8 @@ export async function sendChatMessage(text: string, deps: SendChatMessageDeps): 
         type: "echoSendId",
         sendId: result.sendId,
         ...(result.runId === undefined ? {} : { runId: result.runId }),
+        // 要求時の世代。要求後に新しい状態が届いていれば、reducer が待機スナップショットを捨てる
+        stateSeq,
         // 待機の順位は押し込んだ直後の queueDepth = 自分の順位 (実行を始めた送信では載せない)
         ...(result.queued ? { queuePosition: result.queueDepth } : {}),
       });

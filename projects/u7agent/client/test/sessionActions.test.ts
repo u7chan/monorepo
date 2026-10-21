@@ -73,6 +73,7 @@ function createHarness(overrides: Partial<SendChatMessageDeps> = {}) {
     opsRef: { current: 0 },
     runStatusRef: { current: "idle" },
     runEndSeqRef: { current: 0 },
+    stateSeqRef: { current: 0 },
     ensureSession: async () => "s-1",
     refreshSessions: async () => {
       record.refreshed += 1;
@@ -139,7 +140,7 @@ test("marks the message as queued when the session is already running", async ()
   assert.equal(run.activity, "実行中…", "件数はコンポーザー直上のブロックが正");
   // 待機の順位は応答の queueDepth (= 押し込んだ直後の自分の順位)。ブロックの行の導出に預ける
   assert.deepEqual(actionsOfType(record.actions, "echoSendId"), [
-    { type: "echoSendId", sendId: "send-3", queuePosition: 3 },
+    { type: "echoSendId", sendId: "send-3", stateSeq: 0, queuePosition: 3 },
   ]);
 });
 
@@ -151,7 +152,7 @@ test("実行を始めた送信の応答は待機の順位を預けない", async
   await sendChatMessage("hello", deps);
 
   assert.deepEqual(actionsOfType(record.actions, "echoSendId"), [
-    { type: "echoSendId", sendId: "send-1", runId: "run-1" },
+    { type: "echoSendId", sendId: "send-1", runId: "run-1", stateSeq: 0 },
   ]);
 });
 
@@ -846,4 +847,28 @@ test("ask_user の回答は成功で ok、409 / 404 では権威ある状態を�
     ok: false,
     error: "会話がありません",
   });
+});
+
+test("待機応答の echo は要求時の状態世代を持つ", async () => {
+  // What: 要求後に resync などで状態が進んだ場合、待機スナップショットの適用可否を reducer が判定できる
+  const postCalled = deferred<void>();
+  const posted = deferred<PostMessageResult>();
+  const stateSeqRef = { current: 0 };
+  const { record, deps } = createHarness({
+    stateSeqRef,
+    post: () => {
+      postCalled.resolve();
+      return posted.promise;
+    },
+  });
+
+  const sending = sendChatMessage("hello", deps);
+  await postCalled.promise;
+  stateSeqRef.current = 3;
+  posted.resolve({ queued: true, queueDepth: 1, sendId: "send-1" });
+  await sending;
+
+  assert.deepEqual(actionsOfType(record.actions, "echoSendId"), [
+    { type: "echoSendId", sendId: "send-1", stateSeq: 0, queuePosition: 1 },
+  ]);
 });

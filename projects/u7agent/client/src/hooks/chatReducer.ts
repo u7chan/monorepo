@@ -129,6 +129,11 @@ export type ChatState = {
   /** ラン中の再試行スケジュール累計 (結果表示用。新しいランで 0 に戻す) */
   retryCount: number;
   /**
+   * 待機状態を含む権威ある状態の世代。送信応答の待機スナップショットを、要求後に届いた新しい
+   * 状態 (resync / run_start / queued / 終端 / 取消) へ適用しないために使う
+   */
+  stateSeq: number;
+  /**
    * run_start で観測した run id -> 展開済みの本文。送信応答 (`echoSendId`) が run_start より遅れて
    * 届いたときに、ローカルエコーを注記込み / `/skill:` 展開済みの本文へ差し替えるために使う。
    * 直近の数件だけ持ち、対応が取れたら消す (別 run の本文を自分のエコーへ入れない)
@@ -165,8 +170,9 @@ export type ChatAction =
   | { type: "runStart"; runId?: string; initialSendId?: string; prompt: string; at: number; startedAt: number }
   | { type: "localUser"; text: string; at: number }
   /** 送信応答。未対応付けの最古のエコーへ送信IDを結び付け、実行へ割り当て済みなら run id も写す。
-   * `queuePosition` は応答が `queued` を返したときの `queueDepth` (= 押し込んだ直後の自分の順位) */
-  | { type: "echoSendId"; sendId: string; runId?: string; queuePosition?: number }
+   * `queuePosition` は応答が `queued` を返したときの `queueDepth` (= 押し込んだ直後の自分の順位) で、
+   * `stateSeq` (要求時の世代) が現在と一致するときだけ適用する */
+  | { type: "echoSendId"; sendId: string; runId?: string; queuePosition?: number; stateSeq?: number }
   /** 未送信メッセージの再送を開始する (保存済みの本文をサーバーが使う)。pending エコーへ戻す */
   | { type: "resendUnsent"; sendId: string }
   /** 再送の受付に失敗した。pending を解除して未送信へ戻す */
@@ -281,6 +287,7 @@ export const initialChatState: ChatState = {
   retryCount: 0,
   runPrompts: {},
   runInitialSendIds: {},
+  stateSeq: 0,
 };
 
 /** retryAt と serverNow の差を残り時間として控える。どちらか欠けたら undefined (推測で時刻を合成しない) */
@@ -863,6 +870,7 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
         pendingEchoIds: applied.pendingEchoIds,
         nextId: applied.nextId,
         clearedSendIds: applied.clearedSendIds,
+        stateSeq: state.stateSeq + 1,
       };
     }
 
@@ -1093,6 +1101,7 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
         runError: undefined,
         // 待機列の先頭が実行に移った瞬間だけ、リングを 1 回広げてチップを一瞬 `実行中` にする
         startingRunId: started?.queued === true ? action.runId : undefined,
+        stateSeq: state.stateSeq + 1,
         // 実行が始まった送信は停止の控えから外す (遅れて届いた 202 で未送信へ戻さない)
         clearedSendIds: (() => {
           // 旧サーバーは開始送信IDを配らないため run id で縮退する
@@ -1136,8 +1145,11 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
       // run_start が応答より先に届いていれば、控えた本文でローカルエコーを差し替える
       const prompt = action.runId === undefined ? undefined : state.runPrompts[action.runId];
       // 待機の順位は応答が配る (押し込んだ直後の queueDepth)。run_start が先に届いた run は既に走って
-      // いるので、遅れて届いた応答で待機中にはしない。payload が先に待機を配っていればそちらを採る
-      const queuePosition = duplicate?.queuePosition ?? (prompt === undefined ? action.queuePosition : undefined);
+      // いるので、遅れて届いた応答で待機中にはしない。payload が先に待機を配っていればそちらを採る。
+      // 要求後に新しい状態 (resync / 終端 / 待機の変化) が届いていれば、古い待機スナップショットを捨てる
+      const snapshotCurrent = action.stateSeq === undefined || action.stateSeq === state.stateSeq;
+      const queuePosition =
+        duplicate?.queuePosition ?? (prompt === undefined && snapshotCurrent ? action.queuePosition : undefined);
       const queued = duplicate !== undefined ? duplicate.queued === true : queuePosition !== undefined;
       const withSendId = updateBubble(
         duplicate === undefined ? state : { ...state, bubbles: state.bubbles.filter((b) => b.id !== duplicate.id) },
@@ -1401,6 +1413,7 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
       return {
         ...state,
         bubbles,
+        stateSeq: state.stateSeq + 1,
         // 圧縮中は体感の状態を compacting のまま保つ (実際に走っているのは圧縮)
         runStatus: state.runStatus === "compacting" ? "compacting" : "running",
         queueDepth: action.queueDepth,
@@ -1433,6 +1446,7 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
         ...state,
         bubbles,
         pendingEchoIds,
+        stateSeq: state.stateSeq + 1,
         // 取りこぼしを防ぐため直近の分だけ持ち、対応が取れたら消す
         clearedSendIds: [...state.clearedSendIds, ...cleared].slice(-20),
         queueDepth: 0,
@@ -1455,6 +1469,7 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
             ? { ...bubble, unsent: true, accepted: false, confirmed: false, ...CLEARED_TURN_END, ...QUEUE_CLEARED }
             : bubble,
         ),
+        stateSeq: state.stateSeq + 1,
         // 未送信は pendingEchoIds に残さない (残すと取り消し後の再送で同じ id が二重に載る)
         pendingEchoIds: state.pendingEchoIds.filter((id) => id !== target.id),
       };
@@ -1519,6 +1534,7 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
         ...withTurnEnd,
         bubbles,
         pendingEchoIds,
+        stateSeq: state.stateSeq + 1,
         currentAssistantId: null,
         toolBubbleIds: {},
         activity,

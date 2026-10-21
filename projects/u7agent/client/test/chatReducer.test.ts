@@ -1779,3 +1779,44 @@ test("pendingSends の steering は待機のまま反映中として持ち、run
     ],
   );
 });
+
+test("要求後に新しい状態が届いた待機スナップショットは queued へ戻さない", () => {
+  // What: 後着の 202 が、終端 resync で注入・保存済みになった送信を再び待機中に見せる退行を防ぐ
+  // (履歴対応済みの会話では resync 後もライブのエコーを残すため、sendId の対応付けだけが残る)
+  const sent = chatReducer(historyWithOld(), { type: "localUser", text: "追加入力", at: 1 });
+  const requestSeq = sent.stateSeq;
+  const payload = runningPayload();
+  payload.status = "completed";
+  payload.queueDepth = 0;
+  payload.pendingSends = [];
+  const ended = chatReducer(sent, { type: "resync", payload });
+  assert.ok(ended.stateSeq !== requestSeq, "resync で世代が進む");
+
+  const late = chatReducer(ended, {
+    type: "echoSendId",
+    sendId: "send-late",
+    stateSeq: requestSeq,
+    queuePosition: 1,
+  });
+  assert.deepEqual(
+    late.bubbles
+      .filter((bubble) => bubble.sendId !== undefined)
+      .map((bubble) => [bubble.sendId, bubble.queued === true, bubble.queuePosition]),
+    [["send-late", false, undefined]],
+    "ID は対応付けるが、古い待機スナップショットは適用しない",
+  );
+
+  // 世代が一致していれば (要求後に新しい状態が届いていなければ) 待機として適用する
+  const current = chatReducer(ended, {
+    type: "echoSendId",
+    sendId: "send-current",
+    stateSeq: ended.stateSeq,
+    queuePosition: 1,
+  });
+  assert.deepEqual(
+    current.bubbles
+      .filter((bubble) => bubble.sendId !== undefined)
+      .map((bubble) => [bubble.sendId, bubble.queued === true, bubble.queuePosition]),
+    [["send-current", true, 1]],
+  );
+});

@@ -318,6 +318,7 @@ test("作成待ちの送信・添付は切替後も開始元の会話 ID とス�
     opsRef: { current: 0 },
     runStatusRef: { current: "idle" },
     runEndSeqRef: { current: 0 },
+    stateSeqRef: { current: 0 },
     ensureSession,
     refreshSessions: async () => [],
     post: originApi.postMessage,
