@@ -683,16 +683,60 @@ function mergeStreamingIntoHistory(
   return { bubbles: next, currentAssistantId: liveId, toolBubbleIds: rebuildTools(next) };
 }
 
+/**
+ * 完了ツールは本文なし応答から次の表示本文へ繰り上げて投影される。本文を持つ側を正としないと、
+ * 再接続で合成したカードと投影先の両方に同じ call が出て、再読み込みと食い違う。
+ */
+function dedupeToolCards(
+  bubbles: Bubble[],
+  keepId: number | null,
+): { bubbles: Bubble[]; toolBubbleIds: Record<string, number> } {
+  const owners = new Map<string, Bubble>();
+  for (const bubble of bubbles) {
+    for (const card of bubble.tools) {
+      const owner = owners.get(card.id);
+      if (owner === undefined || (owner.text === "" && bubble.text !== "")) owners.set(card.id, bubble);
+    }
+  }
+  const next: Bubble[] = [];
+  for (const bubble of bubbles) {
+    const tools = bubble.tools.filter((card) => owners.get(card.id) === bubble);
+    if (tools.length === bubble.tools.length) {
+      next.push(bubble);
+      continue;
+    }
+    // ツールを失っただけの空の合成カードは残さない。履歴 item の id はページの連続性の基準なので残す
+    const empty =
+      bubble.role === "assistant" &&
+      bubble.text === "" &&
+      bubble.entryId === undefined &&
+      bubble.skillLoads.length === 0 &&
+      bubble.usage === undefined &&
+      bubble.metrics === undefined &&
+      bubble.turnEnd === undefined;
+    if (empty && tools.length === 0 && bubble.id !== keepId) continue;
+    next.push({ ...bubble, tools });
+  }
+  const toolBubbleIds: Record<string, number> = {};
+  for (const bubble of next) {
+    for (const card of bubble.tools) {
+      if (toolBubbleIds[card.id] === undefined) toolBubbleIds[card.id] = bubble.id;
+    }
+  }
+  return { bubbles: next, toolBubbleIds };
+}
+
 function applyHistoryMerge(state: ChatState, merged: HistoryMergeResult, page: HistoryPage): ChatState {
   const streaming = mergeStreamingIntoHistory(state, merged.bubbles, merged.pairs);
   const identity = runIdentityOf(state, streaming.bubbles);
   const normalized = normalizeInitialSend(streaming.bubbles, identity.initialSendId);
   const ordered = orderInitialUser(normalized, identity.runId, identity.initialSendId);
+  const deduped = dedupeToolCards(ordered, streaming.currentAssistantId);
   return {
     ...state,
-    bubbles: restoreUserTurnEnds(state, ordered),
+    bubbles: restoreUserTurnEnds(state, deduped.bubbles),
     nextId: merged.nextId,
-    toolBubbleIds: streaming.toolBubbleIds,
+    toolBubbleIds: deduped.toolBubbleIds,
     currentAssistantId: streaming.currentAssistantId,
     currentAssistantKey:
       streaming.currentAssistantId === null
@@ -1252,13 +1296,16 @@ function attachAssistantTurnEnd(
       : bubbles.findIndex((bubble) => bubble.role === "user" && bubble.sendId === initialSendId);
   for (let index = bubbles.length - 1; index >= 0; index -= 1) {
     const bubble = bubbles[index];
-    if (bubble.role !== "assistant" || bubble.text === "" || bubble.turnEnd !== undefined) continue;
+    if (bubble.role !== "assistant" || bubble.text === "") continue;
     if (bubble.assistantId !== undefined) {
       if (!bubble.assistantId.startsWith(prefix)) continue;
     } else if (bubble.id !== currentAssistantId && (initialIndex === -1 || index <= initialIndex)) {
       // ID の無い旧データで開始 user より前の応答へ結末を付けない
       continue;
     }
+    // この実行の最後の本文応答がここ。既に結末があるなら前の応答へ遡らない (再同期のたびに
+    // Done が増えると、実行単位で最後の本文応答に 1 回だけ、という契約が崩れる)
+    if (bubble.turnEnd !== undefined) return bubbles;
     return bubbles.map((item, position) => (position === index ? { ...item, turnEnd: { outcome, durationMs } } : item));
   }
   return bubbles;
@@ -1512,13 +1559,13 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
         streaming === undefined || streaming.assistantId !== undefined
           ? rebuilt
           : trimStreamedMessages(rebuilt, streaming);
-      const bubbles = keepHistory
+      const assembled = keepHistory
         ? [...state.bubbles.filter((bubble) => bubble.entryId !== undefined), ...keptLive]
         : [...rebuiltWithStreaming, ...(streaming === undefined || streamingMerged ? [] : [streaming])];
+      const deduped = dedupeToolCards(assembled, streaming?.id ?? null);
+      const bubbles = deduped.bubbles;
       const nextId = keepHistory ? state.nextId : (legacy?.nextId ?? state.nextId);
-      const toolBubbleIds = Object.fromEntries(
-        bubbles.flatMap((bubble) => bubble.tools.map((card) => [card.id, bubble.id] as const)),
-      );
+      const toolBubbleIds = deduped.toolBubbleIds;
       const retainedEchoIds = new Set(
         keepHistory ? keptLive.filter((bubble) => bubble.role === "user").map((bubble) => bubble.id) : [],
       );
