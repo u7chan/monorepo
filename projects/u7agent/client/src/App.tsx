@@ -108,14 +108,14 @@ export default function App({ handoffNote = null, onHandoffNote, onHandoffNoteSh
   const confirm = useConfirm();
   // 画面 (view) は URL がただ 1 つの正。`/` はチャット (会話を指定しない)、`/settings/<section>` は設定の各画面。
   // 会話の選択は app.sessionId が正で、`/s/<id>` はそれを映す鏡 (URL へ書く条件は lib/route.ts の sessionPath)
-  const { route, navigate, syncSessionPath, lastSettingsSection } = useRoute();
+  const { route, navigate, syncSessionPath, lastSettingsSection } = useRoute(space.selected.id);
   const app = useU7Agent({ pendingSessionId: route.view === "chat" ? route.sessionId : undefined });
   // 確定した選択を URL へ映す唯一の Effect。書く条件 (設定の表示中 / 未解決の入口が未選択のまま) は
   // lib/route.ts の純関数が持ち、依存は primitive だけにする (route 全体を依存にすると新 object の
   // set でループする)
   const urlSessionId = route.view === "chat" ? route.sessionId : undefined;
   useEffect(() => {
-    syncSessionPath(sessionPath(route.view, urlSessionId, app.sessionId, app.entryResolved));
+    syncSessionPath(sessionPath(route.view, app.sessionId, app.entryResolved));
   }, [route.view, urlSessionId, app.sessionId, app.entryResolved, syncSessionPath]);
   const markdownImageRawUrl = useMarkdownImageRawUrl(app.chat.runEndSeq);
   // desktop shell は幅と高さの両方が要る (lib/layout.ts)。足りない側で portrait / landscape を選ぶ
