@@ -16,6 +16,11 @@ import {
   type ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
 import { sendCorrection, type DeliveryMode } from "../../scripts/steering-send";
+import { createAgentCatalog } from "../src/agents";
+import type { PiRuntimeLike } from "../src/pi-runtime";
+import type { EventEntry } from "../src/schema";
+import { SessionStore } from "../src/sessions";
+import { waitFor } from "./stub-pi";
 
 type Scenario = "generation" | "tools";
 const ORIGINAL = "original";
@@ -393,4 +398,246 @@ test("parallel tools: interrupt cancels both tools before reprompting", { timeou
   assert.deepEqual(f.requests.at(-1), [ORIGINAL, CORRECTION]);
   assert.equal(f.session.pendingMessageCount, 0);
   assert.equal(f.session.getLastAssistantText(), "corrected-done");
+});
+
+// ---------------------------------------------------------------------------
+// BFF (SessionStore) と実 SDK をつないだ受入。スタブの steer() 呼び出しではなく、
+// 元の agent_settled を待たずに次のモデル要求へ修正指示が入ることを固定する。
+// ---------------------------------------------------------------------------
+
+async function storeOverRealSession(
+  t: TestContext,
+  scenario: Scenario,
+  execution: "sequential" | "parallel" = "sequential",
+) {
+  const probe = await createProbe(t, scenario, execution);
+  const runtime = {
+    // 実 SDK の AgentSession をそのまま BFF のセッションとして渡す
+    createSession: async () => ({ session: probe.session }),
+  } as unknown as PiRuntimeLike;
+  const store = new SessionStore({ pi: runtime, catalog: createAgentCatalog(), storeDir: null, rootCwd: "/tmp" });
+  const record = await store.create();
+  const events: EventEntry[] = [];
+  store.subscribe(record, `${record.generation}:${record.seq}`, (entry) => events.push(entry));
+  return { ...probe, store, record, events };
+}
+
+test("BFF: 生成中の追加入力は元の応答の後・終端より前に次のモデル要求へ入る", { timeout: 15_000 }, async (t) => {
+  const f = await storeOverRealSession(t, "generation");
+
+  const first = f.store.postMessage(f.record, ORIGINAL);
+  await f.paused;
+  const second = f.store.postMessage(f.record, CORRECTION);
+  assert.equal(second.queued, true, "追加入力は BFF の待機に入る");
+  f.release[0].open();
+
+  // 元の応答が終わったあと、確定 (settled) より前に修正指示つきの要求が出る
+  await waitFor(() => f.requests.length >= 2, 10_000, "second model request");
+  const corrected = f.requests.findIndex((users) => users.includes(CORRECTION));
+  assert.ok(corrected >= 1, "修正指示を含むモデル要求が出る");
+  assert.deepEqual(f.requests[corrected], [ORIGINAL, CORRECTION]);
+  const injection = f.trace.indexOf(`user:${CORRECTION}`);
+  assert.ok(injection > 0);
+  assert.ok(f.trace.indexOf("assistant:stop:original-done") < injection, "元の応答を中断しない");
+  assert.ok(!f.trace.slice(0, injection).includes("settled"), "agent_settled を待たずに注入する");
+
+  await waitFor(() => f.store.statusOf(f.record) === "completed", 10_000, "run completion");
+  const runStarts = f.events.filter((entry) => entry.type === "run_start");
+  const runEnds = f.events.filter((entry) => entry.type === "run_end");
+  assert.equal(runStarts.length, 1, "追加入力は新しい run を始めない");
+  assert.equal(runEnds.length, 1, "実行の終端は 1 回");
+  assert.equal(runStarts[0]?.type === "run_start" ? runStarts[0].data.initialSendId : undefined, first.sendId);
+
+  const result = f.store.history(f.record, {});
+  assert.ok(result.ok);
+  const users = result.page.items.filter(
+    (item): item is Extract<(typeof result.page.items)[number], { kind: "message" }> =>
+      item.kind === "message" && item.role === "user",
+  );
+  assert.deepEqual(
+    users.map((item) => [item.text, item.sendId]),
+    [
+      [ORIGINAL, first.sendId],
+      [CORRECTION, second.sendId],
+    ],
+  );
+  assert.equal(users[0]?.runId, users[1]?.runId, "1 つの実行に異なる送信IDが対応する");
+  assert.equal(users[0]?.runDurationMs !== undefined, true);
+  assert.equal(users[1]?.runDurationMs, undefined, "所要時間は開始送信だけ");
+  assert.equal(f.session.pendingMessageCount, 0);
+});
+
+test("BFF: 逐次ツールの全完了後・並列バッチの完了後に追加入力を渡す", { timeout: 15_000 }, async (t) => {
+  for (const execution of ["sequential", "parallel"] as const) {
+    await t.test(execution, { timeout: 15_000 }, async (t2) => {
+      const f = await storeOverRealSession(t2, "tools", execution);
+      f.store.postMessage(f.record, ORIGINAL);
+      if (execution === "sequential") {
+        await f.paused;
+      } else {
+        await Promise.all(f.started.map((item) => item.promise));
+      }
+      f.store.postMessage(f.record, CORRECTION);
+      // 1 本目のツールを終えても、同じ応答の残りが終わるまで注入しない
+      f.release[0].open();
+      await f.ended[0].promise;
+      assert.equal(f.requests.length, 1, "ツールの途中で次のモデル要求を始めない");
+      assert.ok(!f.trace.includes(`user:${CORRECTION}`));
+      f.release[1].open();
+
+      await waitFor(() => f.requests.length >= 2, 10_000, "second model request");
+      const injection = f.trace.indexOf(`user:${CORRECTION}`);
+      assert.ok(f.trace.indexOf("tool:end:work-2") < injection, "バッチ全体の完了後に入力する");
+      assert.ok(!f.trace.slice(0, injection).includes("settled"));
+      assert.deepEqual(f.requests.at(-1), [ORIGINAL, CORRECTION]);
+      await waitFor(() => f.store.statusOf(f.record) === "completed", 10_000, "run completion");
+    });
+  }
+});
+
+test("BFF: 複数の追加入力を受付順で欠落・重複なく渡し、同じ本文も区別する", { timeout: 15_000 }, async (t) => {
+  const f = await storeOverRealSession(t, "generation");
+  const first = f.store.postMessage(f.record, ORIGINAL);
+  await f.paused;
+  const a = f.store.postMessage(f.record, CORRECTION);
+  const b = f.store.postMessage(f.record, CORRECTION);
+  assert.notEqual(a.sendId, b.sendId, "同じ本文でも送信IDは別");
+  assert.equal(f.store.payload(f.record).queueDepth, 2);
+  f.release[0].open();
+
+  await waitFor(() => f.requests.length >= 3, 10_000, "third model request");
+  assert.deepEqual(f.requests, [[ORIGINAL], [ORIGINAL, CORRECTION], [ORIGINAL, CORRECTION, CORRECTION]]);
+  assert.equal(f.trace.filter((line) => line === `user:${CORRECTION}`).length, 2, "2 件とも 1 回ずつ注入する");
+  await waitFor(() => f.store.statusOf(f.record) === "completed", 10_000, "run completion");
+  const history = f.store.history(f.record, {});
+  assert.ok(history.ok);
+  const userItems = history.page.items.filter(
+    (item): item is Extract<(typeof history.page.items)[number], { kind: "message" }> =>
+      item.kind === "message" && item.role === "user",
+  );
+  assert.deepEqual(
+    userItems.map((item) => item.sendId),
+    [first.sendId, a.sendId, b.sendId],
+    "受付順に 1 回ずつ残る",
+  );
+});
+
+/** openai-completions adapter が解釈できる最小の完了ストリーム */
+function chatCompletionSse(text: string): string {
+  return [
+    `data: ${JSON.stringify({ id: "mock", object: "chat.completion.chunk", created: 1, model: "mock", choices: [{ index: 0, delta: { role: "assistant", content: text }, finish_reason: null }] })}`,
+    "",
+    `data: ${JSON.stringify({ id: "mock", object: "chat.completion.chunk", created: 1, model: "mock", choices: [{ index: 0, delta: {}, finish_reason: "stop" }] })}`,
+    "",
+    "data: [DONE]",
+    "",
+    "",
+  ].join("\n");
+}
+
+interface ChatRequestBody {
+  messages: Array<{ role: string; content: unknown }>;
+}
+
+function textOfContent(content: unknown): string {
+  if (typeof content === "string") return content;
+  if (!Array.isArray(content)) return "";
+  return content
+    .flatMap((part) => (part?.type === "text" && typeof part.text === "string" ? [part.text] : []))
+    .join("");
+}
+
+test("BFF: 組み込み provider adapter の次のモデル要求に修正指示と先行会話が入る", { timeout: 15_000 }, async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "u7agent-adapter-"));
+  const requests: ChatRequestBody[] = [];
+  let releaseFirst!: () => void;
+  const firstGate = new Promise<void>((resolve) => {
+    releaseFirst = resolve;
+  });
+  const fetchMock = t.mock.method(globalThis, "fetch", async (input: string | URL | Request, init?: RequestInit) => {
+    const url = String(input);
+    assert.match(url, /\/chat\/completions$/, "組み込み adapter の経路だけを使う");
+    requests.push(JSON.parse(String(init?.body ?? "{}")) as ChatRequestBody);
+    if (requests.length === 1) await firstGate;
+    return new Response(chatCompletionSse(requests.length === 1 ? "original-done" : "corrected-done"), {
+      status: 200,
+      headers: { "content-type": "text/event-stream" },
+    });
+  });
+  let session: AgentSession | undefined;
+  let store: SessionStore | undefined;
+  t.after(async () => {
+    await store?.close().catch(() => {});
+    session?.dispose();
+    assert.equal(fetchMock.mock.callCount() >= 1, true);
+    assert.ok(requests.every((body) => body.messages.some((message) => message.role === "user")));
+    await rm(root, { recursive: true, force: true });
+  });
+
+  const runtime = await ModelRuntime.create({
+    authPath: join(root, "auth.json"),
+    modelsPath: null,
+    refreshOnCreate: false,
+  });
+  runtime.registerProvider("adapter-probe", {
+    api: "openai-completions",
+    apiKey: "mock-only",
+    baseUrl: "https://example.invalid/v1",
+    models: [
+      {
+        id: "mock",
+        name: "Mock",
+        reasoning: false,
+        input: ["text"],
+        contextWindow: 100_000,
+        maxTokens: 1024,
+        cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+      },
+    ],
+  });
+  ({ session } = await createAgentSession({
+    cwd: root,
+    agentDir: root,
+    modelRuntime: runtime,
+    model: runtime.getModel("adapter-probe", "mock"),
+    thinkingLevel: "off",
+    settingsManager: SettingsManager.inMemory({
+      retry: { enabled: false },
+      compaction: { enabled: false },
+      cacheWarming: "off",
+    }),
+    sessionManager: SessionManager.inMemory(root),
+    tools: [],
+    customTools: [],
+  }));
+
+  store = new SessionStore({
+    pi: { createSession: async () => ({ session }) } as unknown as PiRuntimeLike,
+    catalog: createAgentCatalog(),
+    storeDir: null,
+    rootCwd: root,
+  });
+  const record = await store.create();
+  const first = store.postMessage(record, ORIGINAL);
+  await waitFor(() => requests.length === 1, 5000, "first provider request");
+  const second = store.postMessage(record, CORRECTION);
+  assert.equal(second.queued, true);
+  releaseFirst();
+
+  await waitFor(() => requests.length >= 2, 10_000, "second provider request");
+  const users = requests[1].messages
+    .filter((message) => message.role === "user")
+    .map((message) => textOfContent(message.content));
+  assert.deepEqual(users, [ORIGINAL, CORRECTION], "修正指示が先行する会話の後ろに入る");
+  await waitFor(() => store.statusOf(record) === "completed", 10_000, "run completion");
+  const history = store.history(record, {});
+  assert.ok(history.ok);
+  const userItems = history.page.items.filter(
+    (item): item is Extract<(typeof history.page.items)[number], { kind: "message" }> =>
+      item.kind === "message" && item.role === "user",
+  );
+  assert.deepEqual(
+    userItems.map((item) => item.sendId),
+    [first.sendId, second.sendId],
+  );
 });
