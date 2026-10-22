@@ -20,6 +20,7 @@ import { createAgentCatalog } from "../src/agents";
 import { createSessionSettings, SESSION_STEERING_MODE } from "../src/agent";
 import type { PiRuntimeLike } from "../src/pi-runtime";
 import { createSecretMasker, REDACTED, type SecretMasker } from "../src/redact";
+import type { SandboxWorkspaceClient } from "../src/sandbox/client";
 import type { EventEntry } from "../src/schema";
 import { SessionStore } from "../src/sessions";
 import { waitFor } from "./stub-pi";
@@ -61,6 +62,11 @@ interface ProbeOptions {
   execution?: "sequential" | "parallel";
   /** 秘密値の途中の delta を流した後、テストから中断させるまで最終本文を返さない */
   holdAfterDelta?: boolean;
+  /**
+   * 2 ターン目の準備 (prepareNextTurn) で 1 回だけ止める。SDK が実キューから steering を
+   * ドレインした後・注入する前の窓を再現する
+   */
+  holdPrepareNextTurn?: boolean;
 }
 
 async function createProbe(t: TestContext, scenario: Scenario, options: ProbeOptions = {}) {
@@ -240,6 +246,20 @@ async function createProbe(t: TestContext, scenario: Scenario, options: ProbeOpt
     customTools: [work],
   }));
   session.agent.toolExecution = execution;
+  const preparing = gate();
+  const resumePreparation = gate();
+  if (options.holdPrepareNextTurn) {
+    const refresh = session.agent.prepareNextTurnWithContext;
+    let held = false;
+    session.agent.prepareNextTurnWithContext = async (turn, signal) => {
+      if (!held) {
+        held = true;
+        preparing.open();
+        await pause(resumePreparation.promise, signal);
+      }
+      return await refresh?.(turn, signal);
+    };
+  }
   session.subscribe((event) => {
     if (event.type === "message_end" && event.message.role === "user") trace.push(`user:${contentText(event.message)}`);
     if (event.type === "message_end" && event.message.role === "assistant") {
@@ -265,6 +285,8 @@ async function createProbe(t: TestContext, scenario: Scenario, options: ProbeOpt
     release,
     started,
     ended,
+    preparing,
+    resumePreparation,
     paused:
       scenario === "generation"
         ? thinking.promise
@@ -448,7 +470,7 @@ test("セッションの in-memory 設定は共有定数の steering モード�
 async function storeOverRealSession(
   t: TestContext,
   scenario: Scenario,
-  options: ProbeOptions & { masker?: SecretMasker } = {},
+  options: ProbeOptions & { masker?: SecretMasker; storeDir?: string } = {},
 ) {
   const probe = await createProbe(t, scenario, options);
   const runtime = {
@@ -458,8 +480,14 @@ async function storeOverRealSession(
   const store = new SessionStore({
     pi: runtime,
     catalog: createAgentCatalog(),
-    storeDir: null,
+    // 未送信の記録 (pendingSends) を見るテストだけ永続化を有効にする
+    storeDir: options.storeDir ?? null,
     rootCwd: "/tmp",
+    // 永続化を有効にすると作業フォルダの作成が要る (サンドボックスは使わない)
+    workspace: {
+      createDir: async (path: string) => ({ path }),
+      listFiles: async (path: string) => ({ path: path || ".", entries: [], truncated: false }),
+    } as unknown as SandboxWorkspaceClient,
     ...(options.masker ? { masker: options.masker } : {}),
   });
   const record = await store.create();
@@ -566,6 +594,63 @@ test("BFF: 複数の追加入力を 1 回のモデル要求へまとめ、受付
     userItems.map((item) => item.sendId),
     [first.sendId, a.sendId, b.sendId],
     "受付順に 1 回ずつ残る",
+  );
+});
+
+test("BFF: ドレイン済みの追加入力は、後続の取消で渡し直さない", { timeout: 15_000 }, async (t) => {
+  // pendingSends (未送信の記録) を見るためだけに一時ストアを有効にする
+  const storeDir = await mkdtemp(join(tmpdir(), "u7agent-steering-store-"));
+  t.after(() => rm(storeDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 }));
+  const f = await storeOverRealSession(t, "generation", { holdPrepareNextTurn: true, storeDir });
+  const first = f.store.postMessage(f.record, ORIGINAL);
+  await f.paused;
+  const a = f.store.postMessage(f.record, CORRECTION);
+  await waitFor(
+    () => f.record.queue.some((item) => item.sendId === a.sendId && item.steered === true),
+    5000,
+    "A accepted",
+  );
+  // 1 回目の応答を終わらせ、2 ターン目の準備で止める。この時点で A は SDK にドレイン済み
+  f.release[0].open();
+  await f.preparing.promise;
+
+  const b = f.store.postMessage(f.record, "B");
+  await waitFor(
+    () => f.record.queue.some((item) => item.sendId === b.sendId && item.steered === true),
+    5000,
+    "B accepted",
+  );
+  assert.deepEqual(
+    (f.store.payload(f.record).pendingSends ?? [])
+      .filter((item) => item.sendId === a.sendId || item.sendId === b.sendId)
+      .map((item) => [item.text, item.state]),
+    [
+      [CORRECTION, "steering"],
+      ["B", "queued"],
+    ],
+    "ドレイン済みの A は反映中、実キューに残る B だけが取り消せる",
+  );
+
+  assert.equal(await f.store.cancelQueued(f.record, b.sendId), "ok");
+  f.resumePreparation.open();
+  await waitFor(() => f.store.statusOf(f.record) === "completed", 10_000, "run completion");
+  await f.store.flush(f.record);
+
+  // What: B の取消で実キューを捨てても、ドレイン済みの A を渡し直さない (A が 2 回入らない)
+  assert.deepEqual(f.requests, [[ORIGINAL], [ORIGINAL, CORRECTION]]);
+  const history = f.store.history(f.record, {});
+  assert.ok(history.ok);
+  const users = history.page.items.filter(
+    (item): item is Extract<(typeof history.page.items)[number], { kind: "message" }> =>
+      item.kind === "message" && item.role === "user",
+  );
+  assert.deepEqual(
+    users.map((item) => [item.text, item.sendId]),
+    [
+      [ORIGINAL, first.sendId],
+      [CORRECTION, a.sendId],
+    ],
+    "A は 1 回だけ注入し、取り消した B は履歴に残さない",
   );
 });
 

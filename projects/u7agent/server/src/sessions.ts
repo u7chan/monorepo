@@ -1170,12 +1170,16 @@ export class SessionStore {
       if (batchesSteering(record)) {
         // 実キューは一括でしか捨てられない。taken の判定から clearQueue までに await を挟むと、
         // 取り消せないものを取り消せたと返すため、ここは同期で閉じる
-        if (takenSendIdsOf(record).has(current.sendId)) return "running";
+        const taken = takenSendIdsOf(record);
+        if (taken.has(current.sendId)) return "running";
         if (current.steered === true) {
           record.session.clearQueue?.();
-          // 実キューに残っていた分は BFF の配送へ戻し、以降で渡し直す
+          // 実キューに残っていた分だけを BFF の配送へ戻し、以降で渡し直す。ドレイン済み (taken) は
+          // SDK がこれから注入するため、渡し直すと二重注入になる
           for (const entry of record.queue) {
-            if (entry.handedOff === true && entry.steered === true) this.releaseSteering(record, entry);
+            if (entry.handedOff === true && entry.steered === true && !taken.has(entry.sendId)) {
+              this.releaseSteering(record, entry);
+            }
           }
         }
       } else if (sdkQueueLength(record) === 0) {
