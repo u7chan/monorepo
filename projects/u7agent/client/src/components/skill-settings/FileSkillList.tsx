@@ -78,12 +78,12 @@ export function FileSkillList({
   return (
     <section className="mt-3 grid min-w-0 content-start gap-1 border-t border-line pt-3">
       {/* 再読み込みは両グループを包む見出しにだけ置く (グループ側に置くと片方だけ更新するように見える) */}
-      <div className="flex items-center justify-between gap-2 px-2 pb-1">
+      <div className="flex flex-wrap items-center gap-x-2 gap-y-1 px-2 pb-1">
         <h3 className="min-w-0 truncate text-2xs font-semibold tracking-widest text-ink-faint uppercase">
           {FILE_SKILL_SECTION_LABEL}
         </h3>
-        {/* 一覧の操作はこの見出しの右端へ集める (狭い面でも行を溢れさせない小さい寸法) */}
-        <div className="flex shrink-0 items-center gap-1">
+        {/* 操作を 1 行に固定しない (折り返さないと、見出しが潰れるか操作が列の外で切れる) */}
+        <div className="ml-auto flex flex-wrap items-center justify-end gap-1">
           {archive ? (
             <>
               <button
