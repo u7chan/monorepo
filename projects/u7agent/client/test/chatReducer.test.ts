@@ -5214,3 +5214,144 @@ test("本文なし ask_user の回答後に本文が続くと、live も回答�
   assert.deepEqual(cardsOf(reloaded), cardsOf(live), "live と再読み込みで回答カードの所有者が一致する");
   assert.equal(live.bubbles.filter((bubble) => bubble.role === "assistant").length, 1, "回答待ちの空カードを残さない");
 });
+
+test("履歴が assistant_end を追い越しても、本文へ繰り上げたカードを重複させない", () => {
+  // What: 本文 C の delta 受信後に C 保存済みの履歴応答を先に適用し、その後に assistant_end /
+  // 終端 resync を適用しても、C のカードは a / b の 2 枚のままで live と再読み込みが一致する
+  const call = (id: string, assistantId: string): ToolCall => ({
+    id,
+    assistantId,
+    name: "bash",
+    args: "$ pwd",
+    isError: false,
+    done: true,
+    output: "ok",
+    startedAt: 11,
+    endedAt: 12,
+  });
+  const workA = call("work-a", "run-1:1");
+  const workB = call("work-b", "run-1:2");
+  const answerC = "answer-C";
+  const payload: SessionPayload = {
+    ...runningPayload(),
+    status: "idle",
+    model: "stub/stub-model",
+    thinkingLevel: "high",
+    supportsThinking: true,
+    availableThinkingLevels: ["off", "low", "high"],
+    run: null,
+    messages: [
+      { role: "user", text: "確認して", sendId: "send-1", runId: "run-1" },
+      { role: "assistant", text: answerC, assistantId: "run-1:3", tools: [workA, workB] },
+    ],
+  };
+  const page: HistoryPage = {
+    sessionId: "session-a",
+    items: [
+      {
+        kind: "message",
+        id: "a-u1",
+        context: "active",
+        role: "user",
+        text: "確認して",
+        sendId: "send-1",
+        runId: "run-1",
+      },
+      {
+        kind: "message",
+        id: "a-c",
+        context: "active",
+        role: "assistant",
+        text: answerC,
+        assistantId: "run-1:3",
+        tools: [workA, workB],
+      },
+    ],
+    prevCursor: null,
+    hasMore: false,
+    nextCursor: null,
+    activeContextStartId: "a-u1",
+    messageCount: 2,
+    summarizedMessageCount: 0,
+  };
+  const owners = (state: ChatState): [string, string | undefined][] =>
+    state.bubbles.flatMap((bubble) =>
+      bubble.tools.map((card): [string, string | undefined] => [card.id, bubble.assistantId]),
+    );
+  const expected = [
+    ["work-a", "run-1:3"],
+    ["work-b", "run-1:3"],
+  ];
+  /** 本文 C の delta までを受信した live (履歴はまだ届いていない) */
+  const streaming = (): ChatState => {
+    let state = chatReducer(initialChatState, {
+      type: "resync",
+      payload: { ...payload, status: "running", run: null, messages: [] },
+    });
+    state = chatReducer(state, { type: "localUser", text: "確認して", at: 10 });
+    state = chatReducer(state, { type: "echoSendId", sendId: "send-1", runId: "run-1", stateSeq: state.stateSeq });
+    state = chatReducer(state, {
+      type: "runStart",
+      runId: "run-1",
+      initialSendId: "send-1",
+      prompt: "確認して",
+      at: 10,
+      startedAt: 10,
+    });
+    for (const [id, assistantId] of [
+      ["work-a", "run-1:1"],
+      ["work-b", "run-1:2"],
+    ] as const) {
+      state = chatReducer(state, { type: "toolStart", id, name: "bash", args: "$ pwd", at: 11, assistantId });
+      state = chatReducer(state, { type: "toolEnd", id, isError: false, output: "ok" });
+    }
+    return chatReducer(state, { type: "text", delta: answerC, at: 13, assistantId: "run-1:3" });
+  };
+  const terminal = (state: ChatState): ChatState =>
+    chatReducer(state, {
+      type: "resync",
+      payload: {
+        ...payload,
+        run: {
+          id: "run-1",
+          initialSendId: "send-1",
+          status: "completed",
+          startedAt: 10,
+          endedAt: 14,
+          prompt: "確認して",
+          toolCalls: [workA, workB],
+          totalRetryCount: 0,
+        },
+      },
+    });
+
+  // 履歴が assistant_end を追い越す順序。履歴適用の時点で同じ C に 2 度載せない
+  const mergedFirst = chatReducer(streaming(), { type: "resyncHistory", page });
+  assert.deepEqual(owners(mergedFirst), expected, "履歴適用の時点で重複させない");
+  const historyFirst = terminal(chatReducer(mergedFirst, { type: "assistantEnd", assistantId: "run-1:3" }));
+  assert.deepEqual(owners(historyFirst), expected, "追い越しても a / b の 2 枚のまま");
+  assert.deepEqual(
+    historyFirst.bubbles
+      .filter((bubble) => bubble.role === "assistant")
+      .map((bubble) => [bubble.text, bubble.tools.length]),
+    [[answerC, 2]],
+    "空の合成カードを残さない",
+  );
+
+  // 逆順 (assistant_end → 履歴 → 終端 resync) でも同じ
+  const endFirst = terminal(
+    chatReducer(chatReducer(streaming(), { type: "assistantEnd", assistantId: "run-1:3" }), {
+      type: "resyncHistory",
+      page,
+    }),
+  );
+  assert.deepEqual(owners(endFirst), expected, "履歴が後から届いても重複させない");
+
+  // 再読み込みと一致する
+  const reloaded = chatReducer(chatReducer(initialChatState, { type: "resync", payload }), {
+    type: "resyncHistory",
+    page,
+  });
+  assert.deepEqual(owners(historyFirst), owners(reloaded), "履歴が先でも live と再読み込みで一致する");
+  assert.deepEqual(owners(endFirst), owners(reloaded), "履歴が後でも live と再読み込みで一致する");
+});

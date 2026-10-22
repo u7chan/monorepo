@@ -712,10 +712,26 @@ function carryToolCardsToAnswers(
   }
   if (targets.size === 0) return { bubbles, dropped: new Set() };
   const carried = new Map<number, ToolCard[]>();
+  // 移し先に既にある call は足さない (履歴が assistant_end を追い越すと履歴由来のカードが先に載る)
+  const knownOf = new Map<number, Set<string>>();
+  const knownOn = (targetId: number): Set<string> => {
+    const known = knownOf.get(targetId);
+    if (known !== undefined) return known;
+    const ids = new Set(bubbles.find((bubble) => bubble.id === targetId)?.tools.map((card) => card.id) ?? []);
+    knownOf.set(targetId, ids);
+    return ids;
+  };
   for (const [ownerId, targetId] of targets) {
     const owner = bubbles.find((bubble) => bubble.id === ownerId);
     if (owner === undefined) continue;
-    carried.set(targetId, [...(carried.get(targetId) ?? []), ...owner.tools]);
+    const known = knownOn(targetId);
+    const moved = owner.tools.filter((card) => {
+      if (known.has(card.id)) return false;
+      known.add(card.id);
+      return true;
+    });
+    if (moved.length === 0) continue;
+    carried.set(targetId, [...(carried.get(targetId) ?? []), ...moved]);
   }
   const dropped = new Set<number>();
   const next: Bubble[] = [];
@@ -779,7 +795,13 @@ function dedupeToolCards(
   }
   const next: Bubble[] = [];
   for (const bubble of bubbles) {
-    const tools = bubble.tools.filter((card) => owners.get(card.id) === bubble);
+    // 繰り上げや履歴の突き合わせで同じ応答に同じ call が 2 度載っても、カードは 1 枚にする
+    const seen = new Set<string>();
+    const tools = bubble.tools.filter((card) => {
+      if (owners.get(card.id) !== bubble || seen.has(card.id)) return false;
+      seen.add(card.id);
+      return true;
+    });
     if (tools.length === bubble.tools.length) {
       next.push(bubble);
       continue;
