@@ -176,6 +176,8 @@ JSONL が破損している（SDK が追記する entry type / message role を 
 
 `messages[].metrics` は BFF がイベントの到着時刻で測った応答時間。SDK は完了時刻を持たないため BFF 側でしか作れない。`durationMs` は `message_start`(assistant) から `message_end` まで、`ttftMs` は最初の text / thinking delta まで（delta が無ければ省略）、`tokensPerSecond` は `output` を最初の delta からの時間で割った値（スパンが 0 なら `durationMs`、それも 0 なら省略）。ツールループで assistant メッセージが複数あるときはメッセージごとに付く。
 
+`assistantMeta` は `messages` に現れない assistant 応答の `{ assistantId, at?, usage?, metrics? }`（配列）。表示 item にならない応答（本文が無く、確定したツールカードも持たない応答）でも、未回答の ask_user カードは復帰のために assistant バブルを合成するため、元の応答の時刻と応答時間を `assistantId` で引き当てられるようにする。載るのはこの payload の `run.toolCalls[].assistantId` が指す応答のうち `messages` に入らないものだけに限り、値の無い項目はキーごと省略する（run の開始時刻・ツール実行時刻・再読み込み時刻で代用しない）。**同じ BFF プロセスが SDK 履歴と `messageMetrics` を保持している間だけ**の値で、再起動・アイドル sweep の後の payload と旧サーバーはキー自体を省く（[ask-user.md](ask-user.md#回答待ちカードの復帰)）。
+
 `ToolCall.assistantId` はそのツールを要求した assistant 応答のID。ライブの `tool_start` / `run.toolCalls` / `messages[].tools` で同じ値になり、再接続後もカードの所有者を応答IDで決められる。
 
 `ToolCall.startedAt` / `endedAt` は BFF が `tool_execution_start` / `tool_execution_end` の到着時刻で測ったツール実行の開始 / 終了（epoch ms）。`metrics` と同じく SDK は実行時刻を持たないため BFF 側でしか作れず、run を跨いで控えた値を `messages[].tools` / `run.toolCalls` / `tool_start` / `tool_end` の同じ toolCall に同じ値で載せる（クライアントは差分を実行時間として出す）。片方でも欠けたカードは実行時間を出さない（停止・中止で `tool_execution_end` が来なかったカードは `endedAt` が無い）。**この 2 つは BFF のメモリにしか無く、再起動とアイドル sweep で消える**（pi entry はツール実行の開始時刻を持たず、同じ assistant メッセージの複数ツールを `toolResult` の `timestamp` から区別できない。[persistence.md](persistence.md#会話履歴の扱い)）。

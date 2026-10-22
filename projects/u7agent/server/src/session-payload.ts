@@ -7,10 +7,23 @@ import { compactionsOf } from "./compaction-view";
 import { contextUsageOf } from "./pi-runtime";
 import type { SecretMasker } from "./redact";
 import type { SessionRecord } from "./session-record";
-import { displayableMessages, projectMessages, truncate } from "./session-projection";
+import { displayableMessages, projectMessages, truncate, unprojectedAssistantMeta } from "./session-projection";
 import type { PendingSend, RunStatus, SessionPayload, SessionSummary, ThinkingLevel } from "./schema";
 
 const PROMPT_TEXT_MAX = 300;
+
+/**
+ * payload の `run.toolCalls` が指す応答のうち、表示 item を持たないもの (クライアントが合成しうる応答)。
+ * `projected` は payload.messages に載った応答の assistantId で、その応答の値は履歴 item が持つ。
+ */
+function unprojectedOwners(record: SessionRecord, projected: ReadonlySet<string>): Set<string> {
+  const owners = new Set<string>();
+  for (const call of record.tools.values()) {
+    if (call.assistantId === undefined || projected.has(call.assistantId)) continue;
+    owners.add(call.assistantId);
+  }
+  return owners;
+}
 
 /**
  * SDK の実キューに未注入で残る件数。公開 API が無い実装は 0 として扱い、SDK へ渡した 1 件を
@@ -81,6 +94,25 @@ export function projectSessionPayload({
   const availableThinkingLevels = (session.getAvailableThinkingLevels() ??
     (session.thinkingLevel ? [session.thinkingLevel] : [])) as ThinkingLevel[];
   const context = contextUsageOf(session);
+  const messages = projectMessages(
+    session,
+    record.messageMetrics,
+    masker,
+    workspaceAbs(rootCwd, cwd),
+    record.toolTimings,
+    record.assistantMessageIds,
+    record.userMessageSends,
+  );
+  // 表示 item にならない応答のメタ情報は、この payload が載せるツールカードの所有者だけに絞る
+  // (履歴 item が持つ値を二重に載せず、長い会話でも payload を大きくしない)
+  const assistantMeta = unprojectedAssistantMeta(
+    session.messages,
+    { messageMetrics: record.messageMetrics, assistantIds: record.assistantMessageIds },
+    unprojectedOwners(
+      record,
+      new Set(messages.flatMap((message) => (message.assistantId === undefined ? [] : [message.assistantId]))),
+    ),
+  );
   // 待機中の run id -> 順位 (1 始まり)。順位は record.queue の index が正で、unsentSends の並び
   // (受理順) は再送でキューの並びと入れ替わるため、順位として数えさせない
   return {
@@ -126,15 +158,8 @@ export function projectSessionPayload({
           totalRetryCount: record.run.totalRetryCount,
         }
       : null,
-    messages: projectMessages(
-      session,
-      record.messageMetrics,
-      masker,
-      workspaceAbs(rootCwd, cwd),
-      record.toolTimings,
-      record.assistantMessageIds,
-      record.userMessageSends,
-    ),
+    messages,
+    ...(assistantMeta.length > 0 ? { assistantMeta } : {}),
     compactions: compactionsOf(record, masker, workspaceAbs(rootCwd, cwd)),
     // 引き継ぎの状態は meta が正 (クライアントのメモリでは持たない)。片付けの印もここで合成する
     ...(record.meta.handoff

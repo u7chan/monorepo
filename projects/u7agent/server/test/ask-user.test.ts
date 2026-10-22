@@ -533,6 +533,122 @@ test("停止で回答なしになった結果は details から「回答なし�
   }
 });
 
+/** 本文だけを push せず、未回答の ask_user で止まるセッション (実 SDK の message_end / tool_execution_start 相当) */
+function createWaitingAskSession({
+  askedAt,
+  usage,
+}: {
+  askedAt: number;
+  usage: Record<string, unknown>;
+}): ScriptedSession {
+  const session = createScriptedSession(() => {});
+  session.prompt = () => {
+    session.isStreaming = true;
+    const asked = {
+      role: "assistant" as const,
+      content: [askCall("call-1", QUESTIONS)],
+      stopReason: "stop",
+      timestamp: askedAt,
+      usage,
+    };
+    session.emit({ type: "message_start", message: asked });
+    session.messages.push(asked as unknown as PiSessionLike["messages"][number]);
+    session.emit({ type: "message_end", message: asked });
+    session.emit({
+      type: "tool_execution_start",
+      toolCallId: "call-1",
+      toolName: "ask_user",
+      args: { questions: QUESTIONS },
+    });
+    // 回答待ちの間はイベントが来ない (実 SDK と同じく run は running のまま)
+    return new Promise(() => {});
+  };
+  return session;
+}
+
+const WAITING_USAGE = {
+  input: 1200,
+  output: 40,
+  cacheRead: 0,
+  cacheWrite: 0,
+  totalTokens: 1240,
+  cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+};
+
+test("本文なしで未回答の ask_user は、payload が元の応答の時刻・usage・応答時間を assistantId で配る", async () => {
+  const askedAt = 1_700_000_000_000;
+  const store = createStore(createWaitingAskSession({ askedAt, usage: WAITING_USAGE }));
+  try {
+    const record = await store.create();
+    store.postMessage(record, "聞いて");
+    await waitFor(() => store.payload(record).run?.toolCalls.length === 1, 1000, "tool card");
+    const payload = store.payload(record);
+    const owner = payload.run?.toolCalls[0]?.assistantId;
+    assert.ok(owner, "カードの所有者は assistantId で分かる");
+    assert.deepEqual(payload.messages, [], "本文なし・未回答の応答は履歴 item にしない");
+    assert.deepEqual(
+      payload.assistantMeta?.map((meta) => meta.assistantId),
+      [owner],
+    );
+    const meta = payload.assistantMeta?.[0];
+    assert.equal(meta?.at, askedAt, "再読み込み時刻ではなく SDK 履歴の時刻を載せる");
+    assert.deepEqual(meta?.usage, WAITING_USAGE);
+    assert.ok(meta?.metrics !== undefined, "メッセージ生成の応答時間を載せる");
+    assert.ok(meta.metrics.durationMs >= 0);
+    assert.equal(meta.metrics.ttftMs, undefined, "delta が無い応答に TTFT を作らない");
+
+    // 回答待ちが延びても、message_end で測った値をそのまま配る (待機時間を足さない)
+    const later = store.payload(record);
+    assert.deepEqual(later.assistantMeta, payload.assistantMeta);
+  } finally {
+    await store.close();
+  }
+});
+
+test("履歴 item になる応答は payload の応答単位メタ情報に重ねて載せない", async () => {
+  const session = createScriptedSession((s) => {
+    const asked = {
+      role: "assistant",
+      content: [text("確認します"), askCall("call-1", QUESTIONS)],
+      stopReason: "stop",
+      timestamp: 11,
+      usage: WAITING_USAGE,
+    };
+    s.emit({ type: "message_start", message: asked });
+    s.messages.push(asked);
+    s.emit({ type: "message_end", message: asked });
+    s.emit({
+      type: "tool_execution_start",
+      toolCallId: "call-1",
+      toolName: "ask_user",
+      args: { questions: QUESTIONS },
+    });
+    s.messages.push(toolResult("call-1", { questions: QUESTIONS, answers: [] }));
+    s.emit({
+      type: "tool_execution_end",
+      toolCallId: "call-1",
+      toolName: "ask_user",
+      isError: true,
+      result: { content: [{ type: "text", text: "回答が得られないまま停止しました" }], details: { answers: [] } },
+    });
+    s.emit({ type: "agent_settled" });
+  });
+  const store = createStore(session);
+  try {
+    const record = await store.create();
+    store.postMessage(record, "聞いて");
+    await waitFor(() => store.statusOf(record) !== "running", 1000, "run end");
+    const payload = store.payload(record);
+    // 本文なしでも確定した結果を持つ応答は履歴 item になり、値はそちらが持つ
+    assert.equal(payload.messages[0]?.at, 11);
+    assert.deepEqual(payload.messages[0]?.usage, WAITING_USAGE);
+    assert.ok(payload.messages[0]?.metrics !== undefined);
+    assert.equal(payload.assistantMeta, undefined, "同じ値を二重に載せない");
+  } finally {
+    await store.close();
+  }
+});
+
 test("質問と回答は DTO に載せる前に mask する", async () => {
   const secret = "sk-live-secret-value";
   const masker = createSecretMasker([secret]);

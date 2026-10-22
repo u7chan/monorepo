@@ -319,7 +319,7 @@ export function MessageView({
             ) : null}
           </div>
         ) : null}
-        {bubble.text || bubble.at !== undefined ? (
+        {bubble.text || bubble.at !== undefined || metaLine ? (
           <div
             className={cn(
               // メタ情報が長い / 狭いときは時刻行の下へ折り返す (数字の途中で折らない)
