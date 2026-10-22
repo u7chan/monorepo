@@ -76,6 +76,11 @@ export interface PiSessionLike {
   isStreaming: boolean;
   /** SDK の isIdle (実行・compaction・retry が無い) */
   isIdle: boolean;
+  /**
+   * SDK の steering モード。`"all"` は実キューを次のモデル判断の前に全件注入する。
+   * 旧 SDK はこの設定を持たない (undefined) ため、BFF は 1 件ずつの配送に留める
+   */
+  steeringMode?: "all" | "one-at-a-time";
   subscribe(listener: PiSessionEventListener): () => void;
   prompt(text: string): Promise<unknown>;
   abort(): Promise<unknown>;
@@ -89,9 +94,10 @@ export interface PiSessionLike {
   };
   /**
    * 実行中の追加入力。SDK が現在の応答とそのツールの完了後、次のモデル呼び出し前へ渡す。
-   * idle ではランを開始しないため、BFF は実行中だけ渡す。旧 SDK・スタブでは欠けてもよい
+   * idle ではランを開始しないため、BFF は実行中だけ渡す。拡張の入力ハンドラを await してから
+   * 実キューへ積むため、BFF は受付を直列化する。旧 SDK・スタブでは欠けてもよい
    */
-  steer?(text: string): Promise<unknown>;
+  steer?(text: string): Promise<"queued" | "handled">;
   /** SDK が保持する未注入の入力を捨てる。実キューを消す (取消・停止で使う) */
   clearQueue?(): unknown;
   setModel(model: unknown, options?: { persist?: boolean }): Promise<void>;

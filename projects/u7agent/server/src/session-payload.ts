@@ -8,6 +8,7 @@ import { contextUsageOf } from "./pi-runtime";
 import type { SecretMasker } from "./redact";
 import type { SessionRecord } from "./session-record";
 import { displayableMessages, projectMessages, truncate, unprojectedAssistantMeta } from "./session-projection";
+import { batchesSteering, sdkQueueLength, takenSendIdsOf } from "./session-steering";
 import type { PendingSend, RunStatus, SessionPayload, SessionSummary, ThinkingLevel } from "./schema";
 
 const PROMPT_TEXT_MAX = 300;
@@ -26,25 +27,15 @@ function unprojectedOwners(record: SessionRecord, projected: ReadonlySet<string>
 }
 
 /**
- * SDK の実キューに未注入で残る件数。公開 API が無い実装は 0 として扱い、SDK へ渡した 1 件を
- * 「取り出し済み (steering)」に倒す (取り消せないものを取り消せるように見せない)。
- */
-function sdkQueueLength(record: SessionRecord): number {
-  try {
-    return record.session.agent?.peekQueuedMessages?.().length ?? 0;
-  } catch {
-    return 0;
-  }
-}
-
-/**
  * 受理済みでまだ entry になっていない送信を状態付きで配る。待機順位は BFF の配送キュー (SDK へ
- * 渡した 1 件を含む) の index が正で、unsentSends の受理順は順位に使わない。
+ * 渡した分も含む) の index が正で、unsentSends の受理順は順位に使わない。
  */
 export function pendingSendsOf(record: SessionRecord, masker: SecretMasker): PendingSend[] {
   const positions = new Map(record.queue.map((item, index) => [item.sendId, index + 1]));
-  // SDK の実キューに残っている間は取消できる `queued`、取り出されたら `steering` (反映中)
-  const sdkQueue = sdkQueueLength(record);
+  // 実キューに残っている間は取消できる `queued`、SDK が取り出したら `steering` (反映中)。
+  // 一括ドレインを持たない SDK は「渡した 1 件が実キューから消えたか」で同じ判定をする
+  const taken = batchesSteering(record) ? takenSendIdsOf(record) : undefined;
+  const sdkQueue = taken === undefined ? sdkQueueLength(record) : 0;
   return record.unsentSends.map((item) => {
     const queued = record.queue.find((candidate) => candidate.sendId === item.sendId);
     const position = positions.get(item.sendId);
@@ -55,9 +46,13 @@ export function pendingSendsOf(record: SessionRecord, masker: SecretMasker): Pen
           : record.injectedSends.has(item.sendId)
             ? "running"
             : "unsent"
-        : queued.handedOff === true && sdkQueue === 0
-          ? "steering"
-          : "queued";
+        : taken === undefined
+          ? queued.handedOff === true && sdkQueue === 0
+            ? "steering"
+            : "queued"
+          : queued.handedOff === true && taken.has(queued.sendId)
+            ? "steering"
+            : "queued";
     return {
       sendId: item.sendId,
       ...(item.runId === undefined ? {} : { runId: item.runId }),

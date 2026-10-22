@@ -17,6 +17,7 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import { sendCorrection, type DeliveryMode } from "../../scripts/steering-send";
 import { createAgentCatalog } from "../src/agents";
+import { createSessionSettings, SESSION_STEERING_MODE } from "../src/agent";
 import type { PiRuntimeLike } from "../src/pi-runtime";
 import { createSecretMasker, REDACTED, type SecretMasker } from "../src/redact";
 import type { EventEntry } from "../src/schema";
@@ -228,9 +229,10 @@ async function createProbe(t: TestContext, scenario: Scenario, options: ProbeOpt
     model: runtime.getModel("steering-probe", "mock"),
     thinkingLevel: "off",
     resourceLoader,
+    // BFF と同じ in-memory 設定を使う (probe では retry と cache warming だけ止める)
     settingsManager: SettingsManager.inMemory({
+      ...createSessionSettings({ enabled: false }),
       retry: { enabled: false },
-      compaction: { enabled: false },
       cacheWarming: "off",
     }),
     sessionManager: SessionManager.inMemory(root),
@@ -432,6 +434,12 @@ test("parallel tools: interrupt cancels both tools before reprompting", { timeou
   assert.equal(f.session.getLastAssistantText(), "corrected-done");
 });
 
+test("セッションの in-memory 設定は共有定数の steering モードを SDK へ渡す", () => {
+  const settings = SettingsManager.inMemory(createSessionSettings({ enabled: false }));
+  assert.equal(settings.getSteeringMode(), SESSION_STEERING_MODE);
+  assert.equal(SESSION_STEERING_MODE, "all", "受付済みの steering を 1 回のモデル判断へまとめる");
+});
+
 // ---------------------------------------------------------------------------
 // BFF (SessionStore) と実 SDK をつないだ受入。スタブの steer() 呼び出しではなく、
 // 元の agent_settled を待たずに次のモデル要求へ修正指示が入ることを固定する。
@@ -533,8 +541,9 @@ test("BFF: 逐次ツールの全完了後・並列バッチの完了後に追加
   }
 });
 
-test("BFF: 複数の追加入力を受付順で欠落・重複なく渡し、同じ本文も区別する", { timeout: 15_000 }, async (t) => {
+test("BFF: 複数の追加入力を 1 回のモデル要求へまとめ、受付順で欠落・重複なく渡す", { timeout: 15_000 }, async (t) => {
   const f = await storeOverRealSession(t, "generation");
+  assert.equal(f.session.steeringMode, SESSION_STEERING_MODE, "BFF と同じ設定で probe セッションを作る");
   const first = f.store.postMessage(f.record, ORIGINAL);
   await f.paused;
   const a = f.store.postMessage(f.record, CORRECTION);
@@ -543,8 +552,8 @@ test("BFF: 複数の追加入力を受付順で欠落・重複なく渡し、同
   assert.equal(f.store.payload(f.record).queueDepth, 2);
   f.release[0].open();
 
-  await waitFor(() => f.requests.length >= 3, 10_000, "third model request");
-  assert.deepEqual(f.requests, [[ORIGINAL], [ORIGINAL, CORRECTION], [ORIGINAL, CORRECTION, CORRECTION]]);
+  await waitFor(() => f.requests.length >= 2, 10_000, "second model request");
+  assert.deepEqual(f.requests, [[ORIGINAL], [ORIGINAL, CORRECTION, CORRECTION]], "2 件は 1 回のモデル要求にまとまる");
   assert.equal(f.trace.filter((line) => line === `user:${CORRECTION}`).length, 2, "2 件とも 1 回ずつ注入する");
   await waitFor(() => f.store.statusOf(f.record) === "completed", 10_000, "run completion");
   const history = f.store.history(f.record, {});
