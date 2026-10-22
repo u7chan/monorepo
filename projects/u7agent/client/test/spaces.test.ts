@@ -343,7 +343,11 @@ test("作成待ちの送信・添付は切替後も開始元の会話 ID とス�
     "/api/sessions/0123456789/messages",
   ]);
   assert.equal(originRequests.filter((request) => new URL(request.url).pathname === "/api/sessions").length, 1);
-  assert.deepEqual(actions, []);
+  // 操作の開始 (保持している notice の解除) だけを出し、表示は触らない
+  assert.deepEqual(
+    actions.filter((action) => action.type !== "clearNotice"),
+    [],
+  );
   assert.deepEqual(busy, [true, false]);
 });
 

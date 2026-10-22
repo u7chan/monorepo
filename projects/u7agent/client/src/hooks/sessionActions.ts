@@ -23,6 +23,14 @@ function messageFor(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
+/**
+ * 利用者の操作の開始。前の操作の結果 (notice) はここで用済みにする。応答の適用時に消すと、先に
+ * 始めた要求の後着応答が、その後に出た別の操作の結果を消してしまう。
+ */
+function beginUserOperation(dispatch: Dispatch<ChatAction>): void {
+  dispatch({ type: "clearNotice" });
+}
+
 export type SendChatMessageDeps = {
   health: Health | null;
   busy: boolean;
@@ -66,6 +74,7 @@ export async function sendChatMessage(text: string, deps: SendChatMessageDeps): 
     setSending,
     setRuntimeStatus,
   } = deps;
+  beginUserOperation(dispatch);
   setSending(true);
   // 失敗時に戻すエコーの判定。ensureSession 自体の失敗ではまだエコーを出していない
   let echoed = false;
@@ -157,6 +166,7 @@ export async function stopRun({
 }: StopRunDeps): Promise<void> {
   const id = sessionIdRef.current;
   if (!id) return;
+  beginUserOperation(dispatch);
   const ops = opsRef.current;
   // 要求の後に run が終わった / 次の run が始まったかを reducer が判定できるよう、要求時の世代を渡す
   const stateSeq = stateSeqRef.current;
@@ -205,6 +215,7 @@ export type ResendUnsentDeps = {
 export async function resendUnsentMessage(sendId: string, deps: ResendUnsentDeps): Promise<void> {
   const id = deps.sessionIdRef.current;
   if (!id) return;
+  beginUserOperation(deps.dispatch);
   deps.dispatch({ type: "resendUnsent", sendId });
   const ops = deps.opsRef.current;
   const runSeq = deps.runEndSeqRef.current;
@@ -247,6 +258,7 @@ export type DiscardUnsentDeps = {
 export async function discardUnsentMessage(sendId: string, deps: DiscardUnsentDeps): Promise<void> {
   const id = deps.sessionIdRef.current;
   if (!id) return;
+  beginUserOperation(deps.dispatch);
   try {
     await deps.discard(id, sendId);
     if (deps.sessionIdRef.current !== id) return;
@@ -281,6 +293,7 @@ export type CancelQueuedDeps = {
 export async function cancelQueuedMessage(sendId: string, deps: CancelQueuedDeps): Promise<void> {
   const id = deps.sessionIdRef.current;
   if (!id) return;
+  beginUserOperation(deps.dispatch);
   const snapshotSeq = deps.snapshotSeqRef.current;
   try {
     await deps.cancel(id, sendId);
@@ -352,6 +365,7 @@ export async function compactChat({
 }: CompactChatDeps): Promise<void> {
   const id = sessionIdRef.current;
   if (!id) return;
+  beginUserOperation(dispatch);
   const ops = (opsRef.current += 1);
   try {
     await compact(id);

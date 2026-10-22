@@ -106,7 +106,7 @@ export type ChatState = {
   activityState?: string;
   /**
    * 利用者の操作の結果として出す 1 行 (待機の取り消しに失敗した理由など)。活動文言 (activity) は
-   * status / resync が上書きするため、押した結果は別に持ち、次の操作かセッション切替まで残す
+   * status / resync が上書きするため、押した結果は別に持ち、次の操作の開始かセッション切替まで残す
    */
   notice?: string;
   sessionModel?: string;
@@ -273,6 +273,8 @@ export type ChatAction =
   | { type: "setActivity"; text: string }
   /** 操作の結果を状態行の下の 1 行に残す。後から届く status / resync では消さない */
   | { type: "notice"; text: string }
+  /** 利用者の操作の開始。操作の結果 (notice) はここでだけ用済みにする (応答では消さない) */
+  | { type: "clearNotice" }
   /**
    * 引き継ぎなど、同じ会話 id のまま履歴が入れ替わった世代を開く。旧バブルと履歴のカーソルを捨てる
    * (`resync` は同じ id を「履歴を保つ会話」と見るため、先に捨てないと前の世代が残る)。
@@ -1438,12 +1440,6 @@ function attachAssistantTurnEnd(
   return bubbles;
 }
 
-/**
- * 利用者の次の操作を始める action に混ぜる。操作の結果 (notice) は次の操作まで残す約束なので、
- * ここで用済みにする (後から届く status / resync では消さない)。
- */
-const NEXT_OPERATION = { notice: undefined } as const;
-
 export function chatReducer(state: ChatState, action: ChatAction): ChatState {
   switch (action.type) {
     case "newChat": {
@@ -1480,7 +1476,8 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
         history: initialChatState.history,
         activity: "",
         activityState: undefined,
-        ...NEXT_OPERATION,
+        // 履歴ごと入れ替わるので、前の履歴の操作の結果は持ち越さない
+        notice: undefined,
         handoff: undefined,
         compactions: [],
         context: undefined,
@@ -2119,7 +2116,6 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
         // 次に届く delta がエコーより後ろの新しいバブルを作り、実行に移った送信が応答の途中に見える
         activity: "送信中…",
         activityState: undefined,
-        ...NEXT_OPERATION,
         pendingEchoIds: [...state.pendingEchoIds, echoId],
         // 送信の合図。post が失敗して echo を戻しても減らさない (最下部に居続ける方が都合が良い)
         sendSeq: state.sendSeq + 1,
@@ -2236,7 +2232,6 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
         clearedSendIds: state.clearedSendIds.filter((id) => id !== action.sendId),
         activity: "送信中…",
         activityState: undefined,
-        ...NEXT_OPERATION,
         // 送信と同じく最下部への追従の合図を進める
         sendSeq: state.sendSeq + 1,
       };
@@ -2571,8 +2566,6 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
         ),
         stateSeq: state.stateSeq + 1,
         queuedSnapshots: withoutQueuedSnapshots(state.queuedSnapshots, [action.sendId]),
-        // 取り消しが済んだので、前の操作の結果 (失敗の理由) は用済み
-        ...NEXT_OPERATION,
         // 未送信は pendingEchoIds に残さない (残すと取り消し後の再送で同じ id が二重に載る)
         pendingEchoIds: state.pendingEchoIds.filter((id) => id !== target.id),
       };
@@ -2708,9 +2701,12 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
         activityState: undefined,
         // 送信の応答や停止の応答で権威ある状態へ移った時点でカードを消す (run_start が遅れても古い失敗を残さない)
         runError: undefined,
-        // 送信 / 停止の応答は操作の一部。前の操作の結果は用済みにする
-        ...NEXT_OPERATION,
       };
+
+    case "clearNotice":
+      // 保持の解除は利用者の操作の **開始** だけ。応答 (setRun / queueCanceled など) で消すと、
+      // 先に始めた要求の後着応答が、その後に出た別の操作の結果を消す
+      return state.notice === undefined ? state : { ...state, notice: undefined };
 
     case "notice":
       // 押した結果は活動文言と別に持つ。後続の status / resync が activity を戻しても、この 1 行は
