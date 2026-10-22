@@ -141,14 +141,25 @@ export type StopRunDeps = {
   opsRef: RefObject<number>;
   /** 現在の実行状態。圧縮中は応答の status で表示を戻さない (終端 resync が正) */
   runStatusRef: RefObject<RunStatus>;
+  /** 要求時の状態の世代。要求後に終端や次の run が入っていれば、遅れて届いた応答を捨てる */
+  stateSeqRef: RefObject<number>;
   stop: (sessionId: string) => Promise<StopResult>;
   dispatch: Dispatch<ChatAction>;
 };
 
-export async function stopRun({ sessionIdRef, opsRef, runStatusRef, stop, dispatch }: StopRunDeps): Promise<void> {
+export async function stopRun({
+  sessionIdRef,
+  opsRef,
+  runStatusRef,
+  stateSeqRef,
+  stop,
+  dispatch,
+}: StopRunDeps): Promise<void> {
   const id = sessionIdRef.current;
   if (!id) return;
   const ops = opsRef.current;
+  // 要求の後に run が終わった / 次の run が始まったかを reducer が判定できるよう、要求時の世代を渡す
+  const stateSeq = stateSeqRef.current;
   try {
     const result = await stop(id);
     // 選択が変わった / 終端 resync や新しい要求が入った後の応答は、表示を戻すので捨てる
@@ -160,6 +171,7 @@ export async function stopRun({ sessionIdRef, opsRef, runStatusRef, stop, dispat
       runStatus: (result.status || "idle") as RunStatus,
       queueDepth: 0,
       activity: "停止要求を送信しました",
+      stateSeq,
     });
   } catch (error) {
     console.error(error);

@@ -129,8 +129,8 @@ export type ChatState = {
   /** ラン中の再試行スケジュール累計 (結果表示用。新しいランで 0 に戻す) */
   retryCount: number;
   /**
-   * 待機状態を含む権威ある状態の世代。送信応答の待機スナップショットを、要求後に届いた新しい
-   * 状態 (resync / run_start / queued / 終端 / 取消) へ適用しないために使う
+   * 待機状態を含む権威ある状態の世代。送信応答の待機スナップショットと停止応答を、要求後に届いた
+   * 新しい状態 (resync / run_start / queued / 終端 / 取消) へ適用しないために使う
    */
   stateSeq: number;
   /**
@@ -257,7 +257,8 @@ export type ChatAction =
       context?: ContextUsage;
       totalRetryCount?: number;
     }
-  | { type: "setRun"; runStatus: RunStatus; queueDepth?: number; activity?: string }
+  /** 停止応答。`stateSeq` (要求時の世代) が現在と一致するときだけ適用する */
+  | { type: "setRun"; runStatus: RunStatus; queueDepth?: number; activity?: string; stateSeq?: number }
   | { type: "setActivity"; text: string }
   /**
    * 引き継ぎなど、同じ会話 id のまま履歴が入れ替わった世代を開く。旧バブルと履歴のカーソルを捨てる
@@ -2655,6 +2656,9 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
     }
 
     case "setRun":
+      // 要求後に終端や次の run が入っていれば、遅れて届いた停止応答で状態 (実行状態・待機件数・
+      // 活動文言) を戻さない。描画を挟まない同じバッチでも順序が決まるよう reducer で判定する
+      if (action.stateSeq !== undefined && action.stateSeq !== state.stateSeq) return state;
       return {
         ...state,
         runStatus: action.runStatus,
