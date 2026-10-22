@@ -334,6 +334,21 @@ export const MessageMetricsSchema = z.object({
 });
 export type MessageMetrics = z.infer<typeof MessageMetricsSchema>;
 
+/**
+ * 本文を持たない assistant 応答の時刻 / usage / 応答時間。履歴 item にならない未回答の ask_user を
+ * クライアントが復元するとき、元の応答の値を `assistantId` で引き当てるために payload へ載せる。
+ * 値の無い項目はキーごと省き、再起動後・旧 payload では配列自体を載せない。
+ */
+export const AssistantMetaSchema = z.object({
+  assistantId: z.string(),
+  /** SDK が持つメッセージの作成時刻 (epoch ms)。時刻を持たない履歴ではキーを省略する */
+  at: z.number().optional(),
+  usage: UsageSchema.optional(),
+  /** BFF 計測の応答時間 (メッセージ生成の時間で、回答待ちの時間は含まない) */
+  metrics: MessageMetricsSchema.optional(),
+});
+export type AssistantMeta = z.infer<typeof AssistantMetaSchema>;
+
 /** SDK の getContextUsage。compaction 直後は tokens / percent が null になる。 */
 export const ContextUsageSchema = z.object({
   tokens: z.number().nullable(),
@@ -578,6 +593,11 @@ export const SessionPayloadSchema = z.object({
   agent: AgentPayloadInfoSchema.optional(),
   run: RunPayloadSchema.nullable(),
   messages: z.array(ChatMessageSchema),
+  /**
+   * 表示 item にならない assistant 応答のメタ情報 (未回答の ask_user を合成するときに使う)。
+   * 同じ BFF が SDK 履歴から引ける間だけ載り、旧サーバーはキー自体を省略する
+   */
+  assistantMeta: z.array(AssistantMetaSchema).optional(),
   /** 会話の圧縮履歴 (古い→新しい)。区切りは messages に混ぜず、回数はこの長さから導出する */
   compactions: z.array(CompactionInfoSchema),
   /** セッションのコンテキスト使用量。SDK が持たない (スタブ等) ときはキーを省略する */

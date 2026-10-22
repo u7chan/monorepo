@@ -16,6 +16,7 @@ import { runOutcomeOf } from "../lib/turnEnd";
 import type {
   AskUserAnswer,
   AskUserQuestion,
+  AssistantMeta,
   ChatMessage,
   CompactionInfo,
   ContextUsage,
@@ -47,6 +48,11 @@ export type ChatState = {
    * runEnd では消さない (終了後に遅れて適用される履歴ページへ補うため)
    */
   runTools: Record<string, ToolCall>;
+  /**
+   * payload が配る、表示 item にならない assistant 応答の時刻 / usage / 応答時間 (assistantId 引き)。
+   * 本文なしの未回答 ask_user のために `runTools` から空のバブルを合成するときだけ使う
+   */
+  assistantMeta: Record<string, AssistantMeta>;
   /** 表示中のセッション。切替 (resync の sessionId 変化) で履歴ページを捨てる */
   sessionId: string;
   /** 圧縮イベントの区切り位置。復元は全履歴の entry 順、旧 payload では beforeMessageIndex */
@@ -272,6 +278,7 @@ export const initialChatState: ChatState = {
   currentAssistantId: null,
   toolBubbleIds: {},
   runTools: {},
+  assistantMeta: {},
   sessionId: "",
   dividers: [],
   prependSeq: 0,
@@ -1090,6 +1097,11 @@ function clearQuestionActivity(state: ChatState): ChatState {
  */
 function appendOwnedAssistant(state: ChatState, ownerKey: string | undefined): { state: ChatState; id: number } {
   const id = state.nextId;
+  // 履歴 item を持たない応答なので、payload が応答単位で配るメタ情報だけを写す (run の開始時刻や
+  // 再読み込み時刻で代用すると、生成時間の行が別の値になる)。無い項目はそのまま欠ける
+  const meta = ownerKey === undefined ? undefined : state.assistantMeta[ownerKey];
+  const usage = state.pendingUsage ?? meta?.usage;
+  const metrics = state.pendingMetrics ?? meta?.metrics;
   const bubble: Bubble = {
     id,
     role: "assistant",
@@ -1098,8 +1110,9 @@ function appendOwnedAssistant(state: ChatState, ownerKey: string | undefined): {
     skillLoads: [],
     settled: true,
     ...(ownerKey === undefined ? {} : { assistantId: ownerKey }),
-    ...(state.pendingUsage === undefined ? {} : { usage: state.pendingUsage }),
-    ...(state.pendingMetrics === undefined ? {} : { metrics: state.pendingMetrics }),
+    ...(meta?.at === undefined ? {} : { at: meta.at }),
+    ...(usage === undefined ? {} : { usage }),
+    ...(metrics === undefined ? {} : { metrics }),
   };
   return {
     state: {
@@ -1689,6 +1702,9 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
       // SSE のリプレイ / 再接続の取りこぼしもここで復元する (sessionChanged でも必ず置き換わる)
       const runTools: Record<string, ToolCall> = {};
       for (const call of payload.run?.toolCalls ?? []) runTools[call.id] = call;
+      // 本文なしの未回答 ask_user は履歴 item にならないため、応答単位のメタ情報を控えておく
+      const assistantMeta: Record<string, AssistantMeta> = {};
+      for (const meta of payload.assistantMeta ?? []) assistantMeta[meta.assistantId] = meta;
       // run が終わった合図。run_end を受け取れない復帰 (切断した SSE の resync) でも、running から
       // 抜けていれば進める (パネルの取り直しは run_end とこの 1 回で足りる)
       const runEnded = state.runStatus === "running" && status !== "running";
@@ -1704,6 +1720,7 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
         currentRunId: status === "running" ? payload.run?.id : undefined,
         toolBubbleIds,
         runTools,
+        assistantMeta,
         // 履歴モードでは区切りを履歴ページが正とし、旧 payload では messages の index から復元する
         dividers: keepHistory ? state.dividers : legacyMarkers(payload.compactions ?? []),
         history: sessionChanged ? initialChatState.history : state.history,

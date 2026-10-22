@@ -9,6 +9,7 @@ export type {
   AskUserAnswer,
   AskUserOption,
   AskUserQuestion,
+  AssistantMeta,
   BuiltinSkillInfo,
   CancelQueuedResult,
   CatalogResponse,

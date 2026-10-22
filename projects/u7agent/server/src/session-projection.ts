@@ -12,6 +12,7 @@ import type { SecretMasker } from "./redact";
 import type {
   AskUserAnswer,
   AskUserQuestion,
+  AssistantMeta,
   ChatMessage,
   MessageMetrics,
   SkillLoad,
@@ -155,6 +156,39 @@ export function displayableMessageSet(
   }
   closeTurn();
   return displayable;
+}
+
+/**
+ * payload.messages に入らない assistant 応答の時刻 / usage / 応答時間。クライアントは未回答の ask_user
+ * カードのために空の assistant バブルを合成するので、元の応答の値だけを `assistantId` で引き当てられる
+ * ようにする (run の開始時刻や再読み込み時刻で代用しない)。`owners` には合成しうる応答の ID (= 表示
+ * item を持たないツールカードの所有者) を渡す。
+ */
+export function unprojectedAssistantMeta(
+  messages: PiSessionLike["messages"],
+  context: { messageMetrics: WeakMap<object, MessageMetrics>; assistantIds?: WeakMap<object, string> },
+  owners: ReadonlySet<string>,
+): AssistantMeta[] {
+  const assistantIds = context.assistantIds;
+  if (assistantIds === undefined || owners.size === 0) return [];
+  const projected: AssistantMeta[] = [];
+  for (const message of messages) {
+    if (message.role !== "assistant") continue;
+    const assistantId = assistantIds.get(message);
+    if (assistantId === undefined || !owners.has(assistantId)) continue;
+    const at = typeof message.timestamp === "number" ? message.timestamp : undefined;
+    const usage = parseUsage(message.usage);
+    const metrics = context.messageMetrics.get(message);
+    // 値の無い項目はキーごと省く (0 や現在時刻で埋めると別の応答の数値に見える)
+    if (at === undefined && usage === undefined && metrics === undefined) continue;
+    projected.push({
+      assistantId,
+      ...(at === undefined ? {} : { at }),
+      ...(usage ? { usage } : {}),
+      ...(metrics ? { metrics } : {}),
+    });
+  }
+  return projected;
 }
 
 /** 表示用メッセージへ写す文脈。履歴ページは表示範囲の外にある toolResult / 繰り上げ元も参照できるよう、
