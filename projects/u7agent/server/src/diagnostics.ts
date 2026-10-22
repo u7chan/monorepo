@@ -148,7 +148,7 @@ export function summarizeEventData<T extends SSEEventType>(type: T, data: DataOf
       };
     }
     default:
-      // status / queue_cleared / usage / run_end / run_retry / session_deleted は本文を含まない
+      // status / queue_cleared / usage / assistant_end / run_end / run_retry / session_deleted は本文を含まない
       return data;
   }
 }
@@ -217,7 +217,7 @@ export type DiagnosticsInput = {
   seq: number;
   events: readonly EventEntry[];
   status: RunStatus;
-  queueRunIds: readonly string[];
+  queueSendIds: readonly string[];
   run: {
     id: string;
     status: RunStatus;
@@ -291,7 +291,7 @@ export function projectSessionDiagnostics({
       ...(meta.sendsError ? { sendsError: masker.mask(meta.sendsError) } : {}),
       sendsDirty: meta.sendsDirty,
     },
-    queue: { depth: input.queueRunIds.length, runIds: [...input.queueRunIds] },
+    queue: { depth: input.queueSendIds.length, sendIds: [...input.queueSendIds] },
     run: run
       ? {
           id: run.id,

@@ -10,7 +10,7 @@ export type QueuedSendsProps = {
   /** 狭いレイアウト。角の丸みだけを状態行と揃える */
   singleColumn?: boolean;
   /** 取り消し (実行中のターンは止めず、未送信として残す)。未指定はボタンを出さない */
-  onCancel?: (runId: string) => Promise<void>;
+  onCancel?: (sendId: string) => Promise<void>;
 };
 
 /** 読み上げ名に載せる本文の頭の長さ。同じ `取り消し` が最大 10 個並ぶため、対象を本文で示す */
@@ -51,14 +51,14 @@ export function QueuedSends({ sends, singleColumn = false, onCancel }: QueuedSen
           ブロックの中でスクロールする。`取り消し` は各行に残るので全件に届く) */}
       <ul className="m-0 mt-1 flex max-h-(--queued-sends-max-height) scrollbar-thin list-none flex-col gap-0.5 overflow-y-auto p-0">
         {sends.map((send) => (
-          <QueuedSendRow key={send.runId} send={send} onCancel={onCancel} />
+          <QueuedSendRow key={send.sendId} send={send} onCancel={onCancel} />
         ))}
       </ul>
     </div>
   );
 }
 
-function QueuedSendRow({ send, onCancel }: { send: QueuedSend; onCancel?: (runId: string) => Promise<void> }) {
+function QueuedSendRow({ send, onCancel }: { send: QueuedSend; onCancel?: (sendId: string) => Promise<void> }) {
   // 押下から応答まで無効化する。二度押しの 2 回目はサーバーが 404 で断る
   const [canceling, setCanceling] = useState(false);
   const text = queuedSendText(send.text);
@@ -67,7 +67,7 @@ function QueuedSendRow({ send, onCancel }: { send: QueuedSend; onCancel?: (runId
     if (!onCancel) return;
     setCanceling(true);
     try {
-      await onCancel(send.runId);
+      await onCancel(send.sendId);
     } finally {
       setCanceling(false);
     }
@@ -83,7 +83,14 @@ function QueuedSendRow({ send, onCancel }: { send: QueuedSend; onCancel?: (runId
       <span className="min-w-0 flex-1 truncate text-ink-soft" title={text}>
         {text}
       </span>
-      {onCancel ? (
+      {send.state === "steering" ? (
+        <span
+          className="shrink-0 text-3xs text-ink-ghost"
+          title="SDK が取り出し、次のモデル呼び出しへ渡す準備をしています"
+        >
+          反映中
+        </span>
+      ) : onCancel ? (
         <button
           type="button"
           onClick={() => void cancel()}

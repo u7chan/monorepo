@@ -86,10 +86,10 @@ export type ChatState = {
    */
   pendingEchoIds: number[];
   /**
-   * 停止で破棄された run id (queue_cleared)。応答 (`echoRunId`) より先に届くことがあり、そのときは
-   * エコーに run id が無いため未送信へ切り替えられない。対応付いた時点で切り替えるために控える
+   * 停止で破棄された送信ID (queue_cleared)。応答 (`echoSendId`) より先に届くことがあり、そのときは
+   * エコーに送信IDが無いため未送信へ切り替えられない。対応付いた時点で切り替えるために控える
    */
-  clearedRunIds: string[];
+  clearedSendIds: string[];
   queueDepth: number;
   activity: string;
   /**
@@ -129,11 +129,43 @@ export type ChatState = {
   /** ラン中の再試行スケジュール累計 (結果表示用。新しいランで 0 に戻す) */
   retryCount: number;
   /**
-   * run_start で観測した run id -> 展開済みの本文。送信応答 (`echoRunId`) が run_start より遅れて
+   * 待機状態を含む権威ある状態の世代。送信応答の待機スナップショットを、要求後に届いた新しい
+   * 状態 (resync / run_start / queued / 終端 / 取消) へ適用しないために使う
+   */
+  stateSeq: number;
+  /**
+   * 送信IDより先に届いた `queued` の待機位置 (sendId -> position)。エコーが送信IDを結び付けた
+   * 時点で 1 度だけ使い、より新しい状態 (注入・保存・取消) が届いたら捨てる
+   */
+  queuedSnapshots: Record<string, { position: number }>;
+  /**
+   * 実行中の run id。resync が同じ実行の継続か、前の応答を捨てる取り消しかを取り違えないために持つ
+   * (ストリーミング中の assistant を続けてよいのは同じ run の resync だけ)
+   */
+  currentRunId?: string;
+  /** 開いている assistant 応答のサーバー ID (`currentAssistantId` のバブルが持つ値) */
+  currentAssistantKey?: string;
+  /**
+   * この実行で assistant_end まで観測した応答の本文。履歴再取得の照合で、同じターン内の
+   * 前の応答を今の応答と取り違えないために使う
+   */
+  closedAssistantTexts: string[];
+  /**
+   * assistant_end で閉じた直後の応答カード。その応答が要求したツールは次の本文より先に届くため、
+   * 次の delta が来るまではこのカードへ足す (新しいカードを空のまま作らない)
+   */
+  toolTargetAssistantId?: number;
+  /**
+   * run_start で観測した run id -> 展開済みの本文。送信応答 (`echoSendId`) が run_start より遅れて
    * 届いたときに、ローカルエコーを注記込み / `/skill:` 展開済みの本文へ差し替えるために使う。
    * 直近の数件だけ持ち、対応が取れたら消す (別 run の本文を自分のエコーへ入れない)
    */
   runPrompts: Record<string, string>;
+  /**
+   * run id -> その実行を開始した送信ID (run_start の initialSendId)。所要時間と結末は開始送信の
+   * バブルにだけ写し、同じ実行へ注入された追加入力へ複製しない
+   */
+  runInitialSendIds: Record<string, string>;
   /**
    * 待機列の先頭が実行に移った直後の run id。アバターのリングを外へ 1 回広げる演出 (`liveToolIds` と
    * 同じライブ専用の一時状態) だけに使い、終端は DOM 側 (`startFlashEnd`) が受ける。run_end /
@@ -157,27 +189,32 @@ export type ChatAction =
   | { type: "historyLoading"; loading: boolean }
   /** 旧サーバー (履歴 API 無し) / セッション消滅。payload.messages ベースの表示へ戻す */
   | { type: "historyUnsupported" }
-  | { type: "runStart"; runId?: string; prompt: string; at: number; startedAt: number }
+  | { type: "runStart"; runId?: string; initialSendId?: string; prompt: string; at: number; startedAt: number }
   | { type: "localUser"; text: string; at: number }
-  /** 送信応答の run id。未対応付けの最古のエコーへ結び付け、自分の entry を run id で特定する。
-   * `queuePosition` は応答が `queued` を返したときの `queueDepth` (= 押し込んだ直後の自分の順位) */
-  | { type: "echoRunId"; runId: string; queuePosition?: number }
+  /** 送信応答。未対応付けの最古のエコーへ送信IDを結び付け、実行へ割り当て済みなら run id も写す。
+   * `queuePosition` は応答が `queued` を返したときの `queueDepth` (= 押し込んだ直後の自分の順位) で、
+   * `stateSeq` (要求時の世代) が現在と一致するときだけ適用する */
+  | { type: "echoSendId"; sendId: string; runId?: string; queuePosition?: number; stateSeq?: number }
   /** 未送信メッセージの再送を開始する (保存済みの本文をサーバーが使う)。pending エコーへ戻す */
-  | { type: "resendUnsent"; runId: string }
+  | { type: "resendUnsent"; sendId: string }
   /** 再送の受付に失敗した。pending を解除して未送信へ戻す */
-  | { type: "resendFailed"; runId: string }
+  | { type: "resendFailed"; sendId: string }
   /** 未送信メッセージを破棄した (サーバーの記録も消えている) */
   | {
       type: "unsentDiscarded";
-      runId: string;
+      sendId: string;
     } /** 送信に失敗したローカルエコーを戻す (待ち行列の末尾 = 直前に送った分) */
   | { type: "dropLocalUser" }
-  | { type: "text"; delta: string; at: number }
+  | { type: "text"; delta: string; at: number; assistantId?: string }
+  /** assistant の応答が終わった。開いているカードを閉じ、次の delta を新しいカードで始める */
+  | { type: "assistantEnd"; assistantId?: string }
   | {
       type: "toolStart";
       id: string;
       name: string;
       args: string;
+      /** このツールを要求した assistant 応答のID */
+      assistantId?: string;
       skill?: SkillLoad;
       questions?: AskUserQuestion[];
       /** BFF 計測の開始時刻。旧サーバーは載せない (実行時間を出さない) */
@@ -195,14 +232,14 @@ export type ChatAction =
     }
   /** investigate の子の進捗。ライブの ToolCall.progress だけを更新する */
   | { type: "toolProgress"; id: string; text: string }
-  | { type: "usage"; usage?: Usage; metrics?: MessageMetrics; context?: ContextUsage }
+  | { type: "usage"; usage?: Usage; metrics?: MessageMetrics; context?: ContextUsage; assistantId?: string }
   | { type: "compaction"; compaction: CompactionInfo; count: number }
   | { type: "status"; state: string; text: string }
-  | { type: "queued"; position: number; queueDepth: number }
-  /** 停止で待機キューを破棄した。runIds は破棄された送信で、未送信の表示へ切り替える */
-  | { type: "queueCleared"; runIds?: string[] }
-  /** 待機キュー中の 1 件を取り消した。その送信だけ未送信の表示へ切り替える (実行は止めない) */
-  | { type: "queueCanceled"; runId: string }
+  | { type: "queued"; sendId?: string; position: number; queueDepth: number }
+  /** 停止で待機キューを破棄した。sendIds は破棄された送信で、未送信の表示へ切り替える */
+  | { type: "queueCleared"; sendIds?: string[] }
+  /** 待機中の 1 件を取り消した。その送信だけ未送信の表示へ切り替える (実行は止めない) */
+  | { type: "queueCanceled"; sendId: string }
   /** 開始の Flash (リングの広がり) が DOM 側で終わった。ライブ専用の合図を落とす */
   | { type: "startFlashEnd" }
   | { type: "retry"; retry: RunRetryState | null; totalRetryCount: number; serverNow: number; receivedAt: number }
@@ -255,7 +292,7 @@ export const initialChatState: ChatState = {
   sendSeq: 0,
   liveToolIds: [],
   pendingEchoIds: [],
-  clearedRunIds: [],
+  clearedSendIds: [],
   queueDepth: 0,
   activity: "",
   activityState: undefined,
@@ -275,6 +312,13 @@ export const initialChatState: ChatState = {
   retryReceivedAt: undefined,
   retryCount: 0,
   runPrompts: {},
+  runInitialSendIds: {},
+  stateSeq: 0,
+  queuedSnapshots: {},
+  currentRunId: undefined,
+  currentAssistantKey: undefined,
+  closedAssistantTexts: [],
+  toolTargetAssistantId: undefined,
 };
 
 /** retryAt と serverNow の差を残り時間として控える。どちらか欠けたら undefined (推測で時刻を合成しない) */
@@ -343,21 +387,361 @@ function holdsFetchedHistory(state: ChatState): boolean {
  * 同一文面へ縮退する (`fallbackEchoTarget`)。
  */
 function echoAbsorbTarget(bubbles: Bubble[], markers: CompactionMarker[], echo: Bubble): Bubble | undefined {
+  const live = (bubble: Bubble) => bubble.entryId !== undefined && bubble.role === "user";
+  // 送信IDが分かるエコーは同じ送信IDの item だけへ吸収する (同じ実行の別の送信と取り違えない)
+  if (echo.sendId !== undefined) {
+    return bubbles.find((bubble) => live(bubble) && bubble.sendId === echo.sendId);
+  }
   if (echo.runId !== undefined) {
-    return bubbles.find(
-      (bubble) => bubble.entryId !== undefined && bubble.role === "user" && bubble.runId === echo.runId,
-    );
+    // 旧サーバーの item は送信IDを持たない。run の最初の user item へ従来どおり縮退する
+    return bubbles.find((bubble) => live(bubble) && bubble.sendId === undefined && bubble.runId === echo.runId);
   }
   return fallbackEchoTarget(bubbles, markers, echo);
 }
 
+function mergeAssistantCard(live: Bubble, history: Bubble): Bubble {
+  const liveIds = new Set(live.tools.map((card) => card.id));
+  return {
+    ...live,
+    text: live.text.length >= history.text.length ? live.text : history.text,
+    entryId: history.entryId,
+    context: history.context ?? live.context,
+    at: live.at ?? history.at,
+    usage: live.usage ?? history.usage,
+    metrics: live.metrics ?? history.metrics,
+    turnEnd: history.turnEnd ?? live.turnEnd,
+    tools: [...live.tools, ...history.tools.filter((card) => !liveIds.has(card.id))],
+    skillLoads: live.skillLoads.length > 0 ? live.skillLoads : history.skillLoads,
+  };
+}
+
+function turnIndexOf(state: ChatState, liveId: number, bubbles: Bubble[]): number {
+  const liveIndex = state.bubbles.findIndex((bubble) => bubble.id === liveId);
+  if (liveIndex === -1) return -1;
+  const turnUser = state.bubbles
+    .slice(0, liveIndex)
+    .reverse()
+    .find((bubble) => bubble.role === "user");
+  if (turnUser?.sendId === undefined) return -1;
+  return bubbles.findIndex((bubble) => bubble.role === "user" && bubble.sendId === turnUser.sendId);
+}
+
+function stateIndexOfBubble(state: ChatState, bubble: Bubble): number {
+  if (bubble.assistantId !== undefined) {
+    const index = state.bubbles.findIndex((item) => item.assistantId === bubble.assistantId);
+    if (index !== -1) return index;
+  }
+  if (bubble.sendId !== undefined) {
+    const index = state.bubbles.findIndex((item) => item.sendId === bubble.sendId);
+    if (index !== -1) return index;
+  }
+  if (bubble.runId !== undefined) {
+    const index = state.bubbles.findIndex((item) => item.role === "user" && item.runId === bubble.runId);
+    if (index !== -1) return index;
+  }
+  for (let index = state.bubbles.length - 1; index >= 0; index -= 1) {
+    if (state.bubbles[index].role === bubble.role && state.bubbles[index].text === bubble.text) return index;
+  }
+  return -1;
+}
+
+function normalizeInitialSend(bubbles: Bubble[], initialSendId: string | undefined): Bubble[] {
+  if (initialSendId === undefined) return bubbles;
+  return bubbles.map((bubble) =>
+    bubble.role === "user" && bubble.sendId === initialSendId && bubble.unsent !== true
+      ? {
+          ...bubble,
+          queued: undefined,
+          queuedState: undefined,
+          queuePosition: undefined,
+          unsent: false,
+          accepted: true,
+        }
+      : bubble,
+  );
+}
+
+function runIdentityOf(state: ChatState, bubbles: Bubble[]): { runId?: string; initialSendId?: string } {
+  let runId = state.currentRunId;
+  if (runId === undefined) {
+    for (let index = bubbles.length - 1; index >= 0; index -= 1) {
+      const bubble = bubbles[index];
+      if (bubble.role === "user" && bubble.runId !== undefined) {
+        runId = bubble.runId;
+        break;
+      }
+      if (bubble.role === "assistant" && bubble.assistantId !== undefined) {
+        const separator = bubble.assistantId.lastIndexOf(":");
+        if (separator > 0) {
+          runId = bubble.assistantId.slice(0, separator);
+          break;
+        }
+      }
+    }
+  }
+  if (runId === undefined) return {};
+  const firstUser = bubbles.find(
+    (bubble) =>
+      bubble.role === "user" && bubble.runId === runId && bubble.sendId !== undefined && bubble.unsent !== true,
+  );
+  return { runId, initialSendId: state.runInitialSendIds[runId] ?? firstUser?.sendId };
+}
+
+function orderInitialUser(bubbles: Bubble[], runId: string | undefined, initialSendId: string | undefined): Bubble[] {
+  if (runId === undefined) return bubbles;
+  const userIndex =
+    initialSendId === undefined
+      ? bubbles.findIndex((bubble) => bubble.role === "user" && bubble.runId === runId && bubble.unsent !== true)
+      : bubbles.findIndex(
+          (bubble) => bubble.role === "user" && bubble.sendId === initialSendId && bubble.unsent !== true,
+        );
+  if (userIndex === -1) return bubbles;
+  const prefix = `${runId}:`;
+  const assistantIndex = bubbles.findIndex(
+    (bubble) => bubble.role === "assistant" && bubble.assistantId?.startsWith(prefix) === true,
+  );
+  if (assistantIndex === -1 || assistantIndex > userIndex) return bubbles;
+  const user = bubbles[userIndex];
+  const rest = bubbles.filter((_, index) => index !== userIndex);
+  const target = rest.findIndex(
+    (bubble) => bubble.role === "assistant" && bubble.assistantId?.startsWith(prefix) === true,
+  );
+  return target === -1 ? bubbles : [...rest.slice(0, target), user, ...rest.slice(target)];
+}
+
+function insertByStatePosition(state: ChatState, rebuilt: Bubble[], liveBubble: Bubble): Bubble[] {
+  const liveIndex = state.bubbles.findIndex((bubble) => bubble.id === liveBubble.id);
+  if (liveIndex === -1) return [...rebuilt, liveBubble];
+  let insertAt = rebuilt.length;
+  for (let index = 0; index < rebuilt.length; index += 1) {
+    if (stateIndexOfBubble(state, rebuilt[index]) > liveIndex) {
+      insertAt = index;
+      break;
+    }
+  }
+  return [...rebuilt.slice(0, insertAt), liveBubble, ...rebuilt.slice(insertAt)];
+}
+
+/** ページ取得時に実行中だったツールはページに載らず所有者が切れるため、ライブ側から補う */
+function restoreSettledTools(
+  state: ChatState,
+  bubbles: Bubble[],
+  liveId: number | null,
+  pairs: Map<number, string>,
+): Bubble[] {
+  let next = bubbles;
+  // 使った履歴 item を控えないと、同文の別応答へ同じ item のツールを複製する
+  const used = new Set<number>();
+  for (const live of state.bubbles) {
+    if (live.role !== "assistant" || live.entryId !== undefined || live.id === liveId) continue;
+    if (next.some((bubble) => bubble.id === live.id)) continue;
+    const paired = pairs.get(live.id);
+    let match = -1;
+    if (paired !== undefined) {
+      match = next.findIndex((bubble) => bubble.entryId === paired && !used.has(bubble.id));
+    }
+    if (match === -1 && live.assistantId !== undefined) {
+      match = next.findIndex(
+        (bubble) =>
+          bubble.role === "assistant" &&
+          bubble.entryId !== undefined &&
+          bubble.assistantId === live.assistantId &&
+          !used.has(bubble.id),
+      );
+    }
+    if (match === -1 && live.assistantId === undefined) {
+      // 応答IDが片方にしか無い旧データだけ、同一ターン内の本文一致へ縮退する
+      const turnIndex = turnIndexOf(state, live.id, next);
+      if (turnIndex === -1) continue;
+      for (let index = next.length - 1; index > turnIndex; index -= 1) {
+        const bubble = next[index];
+        if (bubble.role !== "assistant" || bubble.entryId === undefined || used.has(bubble.id)) continue;
+        if (bubble.text === live.text) {
+          match = index;
+          break;
+        }
+      }
+    }
+    if (match === -1) continue;
+    used.add(next[match].id);
+    next = next.map((bubble, index) => (index === match ? mergeAssistantCard(live, bubble) : bubble));
+  }
+  return next;
+}
+
+/** 保存済み messages にライブの結末は載らないため、履歴ページ適用後も Done を残す */
+function restoreUserTurnEnds(state: ChatState, bubbles: Bubble[]): Bubble[] {
+  let next = bubbles;
+  for (const live of state.bubbles) {
+    if (live.role !== "user" || live.runDurationMs === undefined) continue;
+    if (next.some((bubble) => bubble.id === live.id)) continue;
+    let match = -1;
+    if (live.sendId !== undefined) {
+      match = next.findIndex((bubble) => bubble.role === "user" && bubble.sendId === live.sendId);
+    } else {
+      for (let index = next.length - 1; index >= 0; index -= 1) {
+        if (next[index].role === "user" && next[index].text === live.text) {
+          match = index;
+          break;
+        }
+      }
+    }
+    if (match === -1) continue;
+    next = next.map((bubble, index) =>
+      index === match ? { ...bubble, runDurationMs: live.runDurationMs, runOutcome: live.runOutcome } : bubble,
+    );
+  }
+  return next;
+}
+
+/** 本文一致で寄せると同文の別応答を取り違えるため、応答IDがあるときはそれだけで対応付ける */
+function mergeStreamingIntoHistory(
+  state: ChatState,
+  bubbles: Bubble[],
+  pairs: Map<number, string>,
+): { bubbles: Bubble[]; currentAssistantId: number | null; toolBubbleIds: Record<string, number> } {
+  const rebuildTools = (items: Bubble[]): Record<string, number> => {
+    const ids: Record<string, number> = {};
+    for (const bubble of items) {
+      for (const card of bubble.tools) {
+        if (ids[card.id] === undefined) ids[card.id] = bubble.id;
+      }
+    }
+    return ids;
+  };
+  const liveId = state.currentAssistantId;
+  const live = liveId === null ? undefined : state.bubbles.find((bubble) => bubble.id === liveId);
+  if (live === undefined || state.runStatus !== "running") {
+    const kept = restoreSettledTools(state, bubbles, liveId, pairs);
+    return {
+      bubbles: kept,
+      currentAssistantId: liveId !== null && kept.some((bubble) => bubble.id === liveId) ? liveId : null,
+      toolBubbleIds: rebuildTools(kept),
+    };
+  }
+  let matchIndex = -1;
+  if (live.assistantId !== undefined) {
+    // 応答IDがあるときは本文一致・位置推定を使わない (同本文の別応答を取り違えない)
+    matchIndex = bubbles.findIndex(
+      (bubble) =>
+        bubble.role === "assistant" && bubble.entryId !== undefined && bubble.assistantId === live.assistantId,
+    );
+    if (matchIndex === -1) {
+      // 両方に ID があるときに本文で寄せると別応答を取り違えるため、片方だけの旧データに限る
+      let turnIndex = turnIndexOf(state, live.id, bubbles);
+      if (turnIndex === -1) {
+        // 今ターンの user が履歴に無いと本文一致の範囲が決まらないため、最後の user を境界にする
+        for (let index = bubbles.length - 1; index >= 0; index -= 1) {
+          if (bubbles[index].role === "user") {
+            turnIndex = index;
+            break;
+          }
+        }
+      }
+      if (turnIndex !== -1) {
+        const candidates: number[] = [];
+        for (let index = bubbles.length - 1; index > turnIndex; index -= 1) {
+          const bubble = bubbles[index];
+          if (bubble.role !== "assistant" || bubble.entryId === undefined || bubble.assistantId !== undefined) continue;
+          if (bubble.text === "" || live.text === "") continue;
+          if (bubble.text.startsWith(live.text) || live.text.startsWith(bubble.text)) candidates.push(index);
+        }
+        if (candidates.length === 1) matchIndex = candidates[0];
+      }
+    }
+  } else {
+    // 今ターンの開始 user より前の assistant へは寄せない (前ターンの同一文面を上書きしない)
+    const turnIndex = turnIndexOf(state, live.id, bubbles);
+    // 保存済みの同じ応答 (ライブの本文の先頭まで) を今ターンの範囲で探す。空の応答は完全一致だけを対象にする
+    if (turnIndex !== -1) {
+      for (let index = bubbles.length - 1; index > turnIndex; index -= 1) {
+        const bubble = bubbles[index];
+        if (bubble.role !== "assistant" || bubble.entryId === undefined) continue;
+        if (state.closedAssistantTexts.includes(bubble.text)) continue;
+        if (bubble.text === live.text || (bubble.text.length > 0 && live.text.startsWith(bubble.text))) {
+          matchIndex = index;
+          break;
+        }
+      }
+    }
+  }
+  if (matchIndex === -1) {
+    // 照合できない履歴マージでライブのカードが消えていても、今ターンの応答として残す (データを失わない)
+    const base = bubbles.some((bubble) => bubble.id === liveId) ? bubbles : [...bubbles, live];
+    const kept = restoreSettledTools(state, base, liveId, pairs);
+    return { bubbles: kept, currentAssistantId: liveId, toolBubbleIds: rebuildTools(kept) };
+  }
+  const mergedBubble = mergeAssistantCard(live, bubbles[matchIndex]);
+  const next = restoreSettledTools(
+    state,
+    bubbles
+      .map((bubble, index) => (index === matchIndex ? mergedBubble : bubble))
+      .filter((bubble, index) => index === matchIndex || bubble.id !== liveId),
+    liveId,
+    pairs,
+  );
+  return { bubbles: next, currentAssistantId: liveId, toolBubbleIds: rebuildTools(next) };
+}
+
+/**
+ * 完了ツールは本文なし応答から次の表示本文へ繰り上げて投影される。本文を持つ側を正としないと、
+ * 再接続で合成したカードと投影先の両方に同じ call が出て、再読み込みと食い違う。
+ */
+function dedupeToolCards(
+  bubbles: Bubble[],
+  keepId: number | null,
+): { bubbles: Bubble[]; toolBubbleIds: Record<string, number> } {
+  const owners = new Map<string, Bubble>();
+  for (const bubble of bubbles) {
+    for (const card of bubble.tools) {
+      const owner = owners.get(card.id);
+      if (owner === undefined || (owner.text === "" && bubble.text !== "")) owners.set(card.id, bubble);
+    }
+  }
+  const next: Bubble[] = [];
+  for (const bubble of bubbles) {
+    const tools = bubble.tools.filter((card) => owners.get(card.id) === bubble);
+    if (tools.length === bubble.tools.length) {
+      next.push(bubble);
+      continue;
+    }
+    // ツールを失っただけの空の合成カードは残さない。履歴 item の id はページの連続性の基準なので残す
+    const empty =
+      bubble.role === "assistant" &&
+      bubble.text === "" &&
+      bubble.entryId === undefined &&
+      bubble.skillLoads.length === 0 &&
+      bubble.usage === undefined &&
+      bubble.metrics === undefined &&
+      bubble.turnEnd === undefined;
+    if (empty && tools.length === 0 && bubble.id !== keepId) continue;
+    next.push({ ...bubble, tools });
+  }
+  const toolBubbleIds: Record<string, number> = {};
+  for (const bubble of next) {
+    for (const card of bubble.tools) {
+      if (toolBubbleIds[card.id] === undefined) toolBubbleIds[card.id] = bubble.id;
+    }
+  }
+  return { bubbles: next, toolBubbleIds };
+}
+
 function applyHistoryMerge(state: ChatState, merged: HistoryMergeResult, page: HistoryPage): ChatState {
+  const streaming = mergeStreamingIntoHistory(state, merged.bubbles, merged.pairs);
+  const identity = runIdentityOf(state, streaming.bubbles);
+  const normalized = normalizeInitialSend(streaming.bubbles, identity.initialSendId);
+  const ordered = orderInitialUser(normalized, identity.runId, identity.initialSendId);
+  const deduped = dedupeToolCards(ordered, streaming.currentAssistantId);
   return {
     ...state,
-    bubbles: merged.bubbles,
+    bubbles: restoreUserTurnEnds(state, deduped.bubbles),
     nextId: merged.nextId,
-    toolBubbleIds: merged.toolBubbleIds,
-    currentAssistantId: null,
+    toolBubbleIds: deduped.toolBubbleIds,
+    currentAssistantId: streaming.currentAssistantId,
+    currentAssistantKey:
+      streaming.currentAssistantId === null
+        ? undefined
+        : ordered.find((bubble) => bubble.id === streaming.currentAssistantId)?.assistantId,
     dividers: merged.markers,
     pendingEchoIds: merged.pendingEchoIds,
     sessionId: page.sessionId,
@@ -386,6 +770,44 @@ function appendBubble(state: ChatState, role: Bubble["role"], text = "", at?: nu
   };
 }
 
+function insertRunUser(
+  state: ChatState,
+  text: string,
+  at: number | undefined,
+  runId: string | undefined,
+  initialSendId: string | undefined,
+): ChatState {
+  const bubble: Bubble = {
+    id: state.nextId,
+    role: "user",
+    text,
+    tools: [],
+    skillLoads: [],
+    at,
+    ...(runId === undefined ? {} : { runId }),
+    ...(initialSendId === undefined ? {} : { sendId: initialSendId }),
+  };
+  let insertAt = state.bubbles.length;
+  const prefix = runId === undefined ? undefined : `${runId}:`;
+  if (prefix !== undefined) {
+    const early = state.bubbles.findIndex(
+      (item) => item.role === "assistant" && item.assistantId?.startsWith(prefix) === true,
+    );
+    if (early !== -1) insertAt = early;
+  }
+  if (insertAt === state.bubbles.length && state.currentAssistantId !== null) {
+    const current = state.bubbles.find((item) => item.id === state.currentAssistantId);
+    if (current?.role === "assistant" && current.assistantId === undefined && current.settled !== true) {
+      insertAt = state.bubbles.findIndex((item) => item.id === current.id);
+    }
+  }
+  return {
+    ...state,
+    bubbles: [...state.bubbles.slice(0, insertAt), bubble, ...state.bubbles.slice(insertAt)],
+    nextId: state.nextId + 1,
+  };
+}
+
 function updateBubble(state: ChatState, id: number, update: (bubble: Bubble) => Bubble): ChatState {
   return { ...state, bubbles: state.bubbles.map((b) => (b.id === id ? update(b) : b)) };
 }
@@ -406,7 +828,7 @@ function rememberRunPrompt(prompts: Record<string, string>, runId: string, promp
 }
 
 /** at は生成元イベントの時刻 */
-function ensureAssistant(state: ChatState, at?: number): ChatState {
+function ensureAssistant(state: ChatState, at?: number, assistantKey?: string): ChatState {
   if (state.currentAssistantId !== null && state.bubbles.some((b) => b.id === state.currentAssistantId)) {
     return state;
   }
@@ -423,13 +845,67 @@ function ensureAssistant(state: ChatState, at?: number): ChatState {
       : next;
   return {
     ...withMeta,
+    bubbles: withMeta.bubbles.map((bubble) =>
+      bubble.id === bubbleId && assistantKey !== undefined ? { ...bubble, assistantId: assistantKey } : bubble,
+    ),
     currentAssistantId: bubbleId,
+    currentAssistantKey: assistantKey,
+    toolTargetAssistantId: undefined,
     pendingUsage: undefined,
     pendingMetrics: undefined,
   };
 }
 
-function addToolCard(state: ChatState, card: ToolCard, at?: number): ChatState {
+/**
+ * 応答IDが変わったら前のカードを閉じて新しいカードを開く。assistant_end を取りこぼしても
+ * 次の delta が前の応答へ連結されないようにする
+ */
+function openAssistantForKey(state: ChatState, at: number | undefined, assistantKey: string | undefined): ChatState {
+  if (assistantKey === undefined) return ensureAssistant(state, at);
+  if (state.currentAssistantId !== null) {
+    const current = state.bubbles.find((bubble) => bubble.id === state.currentAssistantId);
+    if (current !== undefined && current.assistantId !== assistantKey) {
+      return ensureAssistant(
+        {
+          ...state,
+          bubbles: state.bubbles.map((bubble) => (bubble.id === current.id ? { ...bubble, settled: true } : bubble)),
+          currentAssistantId: null,
+          currentAssistantKey: undefined,
+          toolTargetAssistantId: current.id,
+        },
+        at,
+        assistantKey,
+      );
+    }
+  }
+  return ensureAssistant(state, at, assistantKey);
+}
+
+/**
+ * 閉じたばかりの応答へツールを足せるかを決める。応答IDが違えば別の応答なので、違うカードへは
+ * 足さない (本文の追記先とツールの所有者が食い違う)。
+ */
+function closedToolTarget(state: ChatState, assistantKey: string | undefined): number | undefined {
+  if (state.currentAssistantId !== null || state.toolTargetAssistantId === undefined) return undefined;
+  const target = state.bubbles.find((bubble) => bubble.id === state.toolTargetAssistantId);
+  if (target === undefined) return undefined;
+  const sameOwner =
+    assistantKey === undefined || target.assistantId === undefined || target.assistantId === assistantKey;
+  return sameOwner ? target.id : undefined;
+}
+
+function addToolCard(state: ChatState, card: ToolCard, at?: number, assistantKey?: string): ChatState {
+  const keyTarget =
+    assistantKey === undefined
+      ? undefined
+      : state.bubbles.find((bubble) => bubble.role === "assistant" && bubble.assistantId === assistantKey);
+  const ended = keyTarget?.id ?? closedToolTarget(state, assistantKey);
+  if (ended !== undefined) {
+    return {
+      ...updateBubble(state, ended, (bubble) => ({ ...bubble, tools: [...bubble.tools, card] })),
+      toolBubbleIds: { ...state.toolBubbleIds, [card.id]: ended },
+    };
+  }
   const withBubble = ensureAssistant(state, at);
   const bubbleId = withBubble.currentAssistantId as number;
   return {
@@ -459,6 +935,9 @@ export function historyToBubbles(
       id,
       role: message.role,
       text: message.text,
+      ...(message.assistantId !== undefined ? { assistantId: message.assistantId } : {}),
+      ...(message.sendId !== undefined ? { sendId: message.sendId } : {}),
+      ...(message.runId !== undefined ? { runId: message.runId } : {}),
       tools,
       skillLoads: message.skillLoads ?? [],
       at: message.at,
@@ -500,6 +979,35 @@ function clearQuestionActivity(state: ChatState): ChatState {
 }
 
 /**
+ * 本文を持たない応答は履歴 item に現れないため、所有者IDのカードを合成しないと ID 付きの call が
+ * 結び付かず、再接続でツールカードが消える (本文の追記先は変えない)。
+ */
+function appendOwnedAssistant(state: ChatState, ownerKey: string | undefined): { state: ChatState; id: number } {
+  const id = state.nextId;
+  const bubble: Bubble = {
+    id,
+    role: "assistant",
+    text: "",
+    tools: [],
+    skillLoads: [],
+    settled: true,
+    ...(ownerKey === undefined ? {} : { assistantId: ownerKey }),
+    ...(state.pendingUsage === undefined ? {} : { usage: state.pendingUsage }),
+    ...(state.pendingMetrics === undefined ? {} : { metrics: state.pendingMetrics }),
+  };
+  return {
+    state: {
+      ...state,
+      bubbles: [...state.bubbles, bubble],
+      nextId: id + 1,
+      pendingUsage: undefined,
+      pendingMetrics: undefined,
+    },
+    id,
+  };
+}
+
+/**
  * run 側のツール状態を現在ターンの assistant バブルへ反映する。補完先が無いときは補完せず
  * 保持だけする (保留)。ページを組み直す位置から呼ぶので、ID で突き合わせてべき等にする。
  * focus は true のときだけ currentAssistantId を補完先へ向ける。呼び出し側は実行中かどうかで決める
@@ -508,17 +1016,42 @@ function clearQuestionActivity(state: ChatState): ChatState {
 function attachRunToolCards(state: ChatState, focus: boolean): ChatState {
   const calls = Object.values(state.runTools);
   if (calls.length === 0) return state;
-  let targetId = currentTurnAssistantId(state.bubbles);
-  // 本文を持たない assistant は履歴から落ちるため、回答待ちの ask_user では補完先が無い。
-  // 待機中は次のイベントが来ず自己回復しないので、ここだけ assistant バブルを合成する
+  // 所有者が履歴にも payload にも無い応答 (本文なし) は、ここで ID 付きのカードを作って受ける
+  const owners = new Set(
+    state.bubbles.flatMap((bubble) =>
+      bubble.role === "assistant" && bubble.assistantId !== undefined ? [bubble.assistantId] : [],
+    ),
+  );
+  for (const call of calls) {
+    if (call.assistantId === undefined || owners.has(call.assistantId)) continue;
+    // 既にどこかのカードへ付いているツールのために空カードを足さない
+    if (state.toolBubbleIds[call.id] !== undefined) continue;
+    state = appendOwnedAssistant(state, call.assistantId).state;
+    owners.add(call.assistantId);
+  }
+  // 開いている応答を優先し、無ければ assistant_end で閉じた応答へ付ける
+  const existing = (id: number | null | undefined): id is number =>
+    id !== undefined && id !== null && state.bubbles.some((bubble) => bubble.id === id);
+  let targetId = existing(state.currentAssistantId)
+    ? state.currentAssistantId
+    : existing(state.toolTargetAssistantId)
+      ? state.toolTargetAssistantId
+      : currentTurnAssistantId(state.bubbles);
+  // 本文も応答IDも持たない旧データの回答待ちでは補完先が無い。待機中は次のイベントが来ず
+  // 自己回復しないので、ここだけ assistant バブルを合成する
   if (targetId === undefined) {
     if (!calls.some(isPendingAskUser)) return state;
-    state = ensureAssistant(state);
-    targetId = state.currentAssistantId ?? undefined;
-    if (targetId === undefined) return state;
+    const appended = appendOwnedAssistant(state, undefined);
+    state = appended.state;
+    targetId = appended.id;
   }
   const attached = attachToolCalls(state, targetId, calls);
-  return focus ? { ...attached, currentAssistantId: targetId } : attached;
+  // 閉じた応答を focus で開き直すと、次の delta がそのカードへ連結される
+  const target = state.bubbles.find((bubble) => bubble.id === targetId);
+  const focusable = targetId !== state.toolTargetAssistantId && target !== undefined && target.settled !== true;
+  return focus && focusable
+    ? { ...attached, currentAssistantId: targetId, currentAssistantKey: target?.assistantId }
+    : attached;
 }
 
 function attachToolCalls(state: ChatState, bubbleId: number, toolCalls: ToolCall[]): ChatState {
@@ -534,22 +1067,89 @@ function attachToolCalls(state: ChatState, bubbleId: number, toolCalls: ToolCall
       }));
       continue;
     }
+    // 要求元の応答IDが分かるカードは、その応答が見つかるまで置かない (別の応答へ移さない)
+    const ownerId =
+      call.assistantId === undefined
+        ? undefined
+        : next.bubbles.find((bubble) => bubble.role === "assistant" && bubble.assistantId === call.assistantId)?.id;
+    if (call.assistantId !== undefined && ownerId === undefined) continue;
+    const targetId = ownerId ?? bubbleId;
     next = {
-      ...updateBubble(next, bubbleId, (bubble) => ({ ...bubble, tools: [...bubble.tools, card] })),
-      toolBubbleIds: { ...next.toolBubbleIds, [call.id]: bubbleId },
+      ...updateBubble(next, targetId, (bubble) => ({ ...bubble, tools: [...bubble.tools, card] })),
+      toolBubbleIds: { ...next.toolBubbleIds, [call.id]: targetId },
     };
   }
   return next;
 }
 
-/**
- * payload の `state` を待機の表示へ写す。順位 (`position`) は `queued` のときだけ載る (旧サーバーは
- * 載せない)。待機を抜けた送信に古い順位を残さないよう、他の状態では必ず消す
- */
-function queueStateOf(send: PendingSend): Pick<Bubble, "queued" | "queuePosition"> {
-  return send.state === "queued"
-    ? { queued: true, ...(send.position === undefined ? {} : { queuePosition: send.position }) }
-    : { queued: undefined, queuePosition: undefined };
+/** 送信IDが結び付く前に届いた待機位置を、より新しい状態が無い分だけ残す */
+function pruneQueuedSnapshots(
+  snapshots: ChatState["queuedSnapshots"],
+  pendingSends: PendingSend[] | undefined,
+): ChatState["queuedSnapshots"] {
+  if (pendingSends === undefined) return snapshots;
+  const waiting = new Map(
+    pendingSends
+      .filter((send) => send.state === "queued" || send.state === "steering")
+      .map((send) => [send.sendId, send] as const),
+  );
+  let next: ChatState["queuedSnapshots"] = snapshots;
+  for (const [sendId, snapshot] of Object.entries(snapshots)) {
+    const send = waiting.get(sendId);
+    if (send === undefined) {
+      if (next === snapshots) next = { ...snapshots };
+      delete next[sendId];
+      continue;
+    }
+    const position = send.position ?? snapshot.position;
+    if (position !== snapshot.position) {
+      if (next === snapshots) next = { ...snapshots };
+      next[sendId] = { position };
+    }
+  }
+  return next;
+}
+
+/** 送信IDが確定した / より新しい状態が届いた送信の待機位置を落とす */
+function withoutQueuedSnapshots(
+  snapshots: ChatState["queuedSnapshots"],
+  sendIds: readonly string[],
+): ChatState["queuedSnapshots"] {
+  let next = snapshots;
+  for (const sendId of sendIds) {
+    if (next[sendId] === undefined) continue;
+    if (next === snapshots) next = { ...snapshots };
+    delete next[sendId];
+  }
+  return next;
+}
+
+/** payload.messages が既に含む応答へ、ライブのテキストを二重に積まない */
+function trimStreamedMessages(bubbles: Bubble[], streaming: Bubble | undefined): Bubble[] {
+  if (streaming === undefined) return bubbles;
+  const last = bubbles[bubbles.length - 1];
+  if (last?.role !== "assistant") return bubbles;
+  // 投影の本文はストリーミングの累積と一致する (マスク済み)。一致しなければ投影を正とする
+  if (last.text !== streaming.text && !streaming.text.startsWith(last.text)) return bubbles;
+  return bubbles.slice(0, -1);
+}
+
+function sendStateOf(send: PendingSend): Pick<Bubble, "queued" | "queuedState" | "queuePosition" | "runId"> {
+  if (send.state === "queued" || send.state === "steering") {
+    return {
+      queued: true,
+      queuedState: send.state,
+      ...(send.position === undefined ? {} : { queuePosition: send.position }),
+      ...(send.runId === undefined ? {} : { runId: send.runId }),
+    };
+  }
+  // running / unsent は待機一覧の対象外。実行へ割り当て済みなら run id を写す
+  return {
+    queued: undefined,
+    queuedState: undefined,
+    queuePosition: undefined,
+    ...(send.runId === undefined ? {} : { runId: send.runId }),
+  };
 }
 
 /**
@@ -557,47 +1157,66 @@ function queueStateOf(send: PendingSend): Pick<Bubble, "queued" | "queuePosition
  * `unsent` は pending を外して「未送信」へ切り替え、`queued` / `running` は受理済みの pending として
  * 保つ (別タブの再送中に表示から消さない)。手元にバブルが無い分は末尾へ足す (履歴の初回応答前でも
  * 失わない)。一覧から消えた未送信バブルは、別タブの再送 / 破棄で記録が消えたものとして落とす。
- * `undefined` (旧サーバー) は現状維持。payload に載った run は停止の控え (`clearedRunIds`) から外す。
+ * `undefined` (旧サーバー) は現状維持。payload に載った送信は停止の控え (`clearedSendIds`) から外す。
  * 待機の表示は payload が正で、一覧から消えた run の待機も解除する (entry が保存された / 実行が始まった)。
  */
 function applyPendingSends(
   bubbles: Bubble[],
   pendingEchoIds: number[],
   nextId: number,
-  clearedRunIds: string[],
+  clearedSendIds: string[],
   pendingSends: PendingSend[] | undefined,
-): { bubbles: Bubble[]; pendingEchoIds: number[]; nextId: number; clearedRunIds: string[] } {
-  if (pendingSends === undefined) return { bubbles, pendingEchoIds, nextId, clearedRunIds };
-  const byRunId = new Map(pendingSends.map((send) => [send.runId, send]));
+): { bubbles: Bubble[]; pendingEchoIds: number[]; nextId: number; clearedSendIds: string[] } {
+  if (pendingSends === undefined) return { bubbles, pendingEchoIds, nextId, clearedSendIds };
+  const bySendId = new Map(pendingSends.map((send) => [send.sendId, send]));
   const pending = new Set(pendingEchoIds);
   const seen = new Set<string>();
   const next: Bubble[] = [];
   let cursor = nextId;
   for (const bubble of bubbles) {
-    if (bubble.runId === undefined) {
-      next.push(bubble);
+    // 送信IDを持たないバブル (旧サーバー) は run id でも突き合わせる
+    const send =
+      bubble.sendId !== undefined
+        ? bySendId.get(bubble.sendId)
+        : pendingSends.find((candidate) => candidate.runId !== undefined && candidate.runId === bubble.runId);
+    const key = send?.sendId ?? bubble.sendId;
+    if (send === undefined) {
+      if (bubble.sendId === undefined && bubble.runId === undefined) {
+        next.push(bubble);
+        continue;
+      }
+      // 一覧に無い = 保存済みか破棄済み。未送信のバブルはここで落とす (保存済みは entry が担う)
+      if (bubble.unsent === true) continue;
+      next.push({ ...bubble, ...QUEUE_CLEARED });
       continue;
     }
-    const send = byRunId.get(bubble.runId);
-    if (send?.state === "unsent") {
+    if (key !== undefined) seen.add(key);
+    if (send.state === "unsent") {
       pending.delete(bubble.id);
-      seen.add(bubble.runId);
-      next.push({ ...bubble, unsent: true, accepted: false, confirmed: false, ...CLEARED_TURN_END, ...QUEUE_CLEARED });
+      next.push({
+        ...bubble,
+        ...(bubble.sendId === undefined && key !== undefined ? { sendId: key } : {}),
+        unsent: true,
+        accepted: false,
+        confirmed: false,
+        ...CLEARED_TURN_END,
+        ...QUEUE_CLEARED,
+      });
       continue;
     }
-    if (send !== undefined) {
-      // 実行中 / キュー待ち。未送信の表示を戻し、entry が載ったときの吸収に載せる
-      seen.add(bubble.runId);
-      if (bubble.entryId === undefined) pending.add(bubble.id);
-      next.push({ ...bubble, unsent: false, accepted: true, confirmed: true, ...queueStateOf(send) });
-      continue;
-    }
-    // 一覧に無い = 保存済みか破棄済み。未送信のバブルはここで落とす (保存済みは entry が担う)
-    if (bubble.unsent === true) continue;
-    next.push({ ...bubble, ...QUEUE_CLEARED });
+    // 実行中 / 待機中。未送信の表示を戻し、entry が載ったときの吸収に載せる
+    if (bubble.entryId === undefined) pending.add(bubble.id);
+    next.push({
+      ...bubble,
+      unsent: false,
+      accepted: true,
+      confirmed: true,
+      ...(bubble.sendId === undefined && key !== undefined ? { sendId: key } : {}),
+      ...sendStateOf(send),
+    });
   }
   for (const send of pendingSends) {
-    if (seen.has(send.runId)) continue;
+    if (seen.has(send.sendId)) continue;
     const id = cursor++;
     if (send.state === "unsent") {
       next.push({
@@ -607,12 +1226,13 @@ function applyPendingSends(
         tools: [],
         skillLoads: [],
         at: send.at,
-        runId: send.runId,
+        sendId: send.sendId,
+        ...(send.runId === undefined ? {} : { runId: send.runId }),
         unsent: true,
       });
       continue;
     }
-    // 受理済み (キュー待ち / 実行中) もバブルを持たせる。履歴の初回応答前でも消さない
+    // 受理済み (待機中 / 実行中) もバブルを持たせる。履歴の初回応答前でも消さない
     pending.add(id);
     next.push({
       id,
@@ -621,18 +1241,18 @@ function applyPendingSends(
       tools: [],
       skillLoads: [],
       at: send.at,
-      runId: send.runId,
+      sendId: send.sendId,
       accepted: true,
-      ...queueStateOf(send),
+      ...sendStateOf(send),
     });
   }
   return {
     bubbles: next,
-    // pending から外した分を落とし、queued / running で新たに載せた分を末尾へ足す
+    // pending から外した分を落とし、待機 / 実行中で新たに載せた分を末尾へ足す
     pendingEchoIds: [...pending],
     nextId: cursor,
-    // payload が載せた run は権威ある状態なので、停止の控えは不要
-    clearedRunIds: clearedRunIds.filter((id) => !byRunId.has(id)),
+    // payload が載せた送信は権威ある状態なので、停止の控えは不要
+    clearedSendIds: clearedSendIds.filter((id) => !bySendId.has(id)),
   };
 }
 
@@ -643,15 +1263,52 @@ function applyPendingSends(
 const CLEARED_TURN_END = { runDurationMs: undefined, runOutcome: undefined } as const;
 
 /** 待機を抜けたバブルへ古い順位を残さない (表示の導出は queued だけを見る) */
-const QUEUE_CLEARED = { queued: undefined, queuePosition: undefined } as const;
+const QUEUE_CLEARED = { queued: undefined, queuedState: undefined, queuePosition: undefined } as const;
 
-/** run が終わったことを、run id の一致する user パブルへ写す (entryId の有無を問わない) */
-function attachTurnEnd(bubbles: Bubble[], runId: string, outcome: RunOutcome, durationMs: number): Bubble[] {
+/** run が終わったことを、その実行を開始した送信のバブルへだけ写す (追加入力へ複製しない) */
+function attachTurnEnd(
+  bubbles: Bubble[],
+  runId: string,
+  initialSendId: string | undefined,
+  outcome: RunOutcome,
+  durationMs: number,
+): Bubble[] {
+  const target = (bubble: Bubble): boolean =>
+    bubble.role === "user" && (initialSendId !== undefined ? bubble.sendId === initialSendId : bubble.runId === runId);
   return bubbles.map((bubble) =>
-    bubble.role === "user" && bubble.runId === runId
-      ? { ...bubble, runDurationMs: durationMs, runOutcome: outcome }
-      : bubble,
+    target(bubble) ? { ...bubble, runDurationMs: durationMs, runOutcome: outcome } : bubble,
   );
+}
+
+function attachAssistantTurnEnd(
+  bubbles: Bubble[],
+  runId: string | undefined,
+  initialSendId: string | undefined,
+  outcome: RunOutcome,
+  durationMs: number,
+  currentAssistantId: number | null,
+): Bubble[] {
+  if (runId === undefined) return bubbles;
+  const prefix = `${runId}:`;
+  const initialIndex =
+    initialSendId === undefined
+      ? -1
+      : bubbles.findIndex((bubble) => bubble.role === "user" && bubble.sendId === initialSendId);
+  for (let index = bubbles.length - 1; index >= 0; index -= 1) {
+    const bubble = bubbles[index];
+    if (bubble.role !== "assistant" || bubble.text === "") continue;
+    if (bubble.assistantId !== undefined) {
+      if (!bubble.assistantId.startsWith(prefix)) continue;
+    } else if (bubble.id !== currentAssistantId && (initialIndex === -1 || index <= initialIndex)) {
+      // ID の無い旧データで開始 user より前の応答へ結末を付けない
+      continue;
+    }
+    // この実行の最後の本文応答がここ。既に結末があるなら前の応答へ遡らない (再同期のたびに
+    // Done が増えると、実行単位で最後の本文応答に 1 回だけ、という契約が崩れる)
+    if (bubble.turnEnd !== undefined) return bubbles;
+    return bubbles.map((item, position) => (position === index ? { ...item, turnEnd: { outcome, durationMs } } : item));
+  }
+  return bubbles;
 }
 
 export function chatReducer(state: ChatState, action: ChatAction): ChatState {
@@ -679,9 +1336,14 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
         toolBubbleIds: {},
         runTools: {},
         pendingEchoIds: [],
-        clearedRunIds: [],
+        clearedSendIds: [],
+        queuedSnapshots: {},
+        currentRunId: undefined,
+        closedAssistantTexts: [],
+        toolTargetAssistantId: undefined,
         liveToolIds: [],
         currentAssistantId: null,
+        currentAssistantKey: undefined,
         history: initialChatState.history,
         activity: "",
         activityState: undefined,
@@ -694,24 +1356,219 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
       const payload = action.payload;
       const status = payload.status || "idle";
       const sessionChanged = payload.sessionId !== state.sessionId;
+      // 未作成チャットへ最初のセッションが届くのは切替ではない (ストリーミング中の応答を捨てない)
+      const switchedSession = state.sessionId !== "" && sessionChanged;
       // 全履歴 API が使える間は payload.messages (有効コンテキスト) ではなく履歴ページを表示の正とする。
       // 取得済みの古いページを消さないため、ここでは表示を組み直さない (最新ページは resyncHistory が届く)。
       // ページ取得に一時的に失敗しても、取り込み済みの履歴がある間は payload.messages で組み直さない
       // (messages は有効コンテキストの投影で、圧縮後の残りが tool 呼び出しだけなら空にもなる)
       const keepHistory = !sessionChanged && (state.history.supported || holdsFetchedHistory(state));
+      // 未確定の assistant を捨てるのは失敗試行の取り消し (context_edit) だけ。同じ run の継続
+      // (追加入力の注入・保存確定など) で捨てると、続く delta が別カードになり live と履歴が食い違う
+      const currentLive =
+        state.currentAssistantId === null
+          ? undefined
+          : state.bubbles.find((bubble) => bubble.id === state.currentAssistantId);
+      const payloadRunPrefix = payload.run?.id === undefined ? undefined : `${payload.run.id}:`;
+      const currentForPayloadRun =
+        currentLive !== undefined &&
+        (state.currentRunId !== undefined
+          ? state.currentRunId === payload.run?.id
+          : payloadRunPrefix !== undefined && currentLive.assistantId?.startsWith(payloadRunPrefix) === true);
+      const resumingRun =
+        !switchedSession &&
+        payload.resyncReason === undefined &&
+        status === "running" &&
+        payload.run?.id !== undefined &&
+        currentForPayloadRun;
+      const streaming = resumingRun ? currentLive : undefined;
+      // run_end を取りこぼすと未保存の現在応答が消えるため、終端 payload でも残す
+      const terminalLive =
+        !switchedSession &&
+        payload.resyncReason === undefined &&
+        status !== "running" &&
+        payload.run !== null &&
+        payload.run !== undefined &&
+        currentForPayloadRun &&
+        currentLive?.role === "assistant"
+          ? currentLive
+          : undefined;
       const legacy = keepHistory ? null : historyToBubbles(state.nextId, payload.messages ?? []);
-      // 確定済みのライブバブル (前の run の応答 / 送信エコー) は、履歴ページが届くまで残す。未確定の
-      // ストリーミング中の assistant だけを捨てる (context_edit の resync で失敗試行を取り消す契約)
-      const live = keepHistory ? state.bubbles.filter((bubble) => bubble.entryId === undefined) : [];
-      const keptLive = live.filter((bubble) => bubble.role === "user" || bubble.settled === true);
-      const bubbles = keepHistory
+      const live = state.bubbles.filter((bubble) => bubble.entryId === undefined);
+      // 失敗試行は payload.messages の投影から外れている。残す応答をテキストで判断できない
+      // ときは取り消しを優先する (投影に無い閉じたカードを残さない)
+      const projectedAssistants = (payload.messages ?? [])
+        .filter((message) => message.role === "assistant")
+        .map((message) => message.text);
+      let failedAttempt: Bubble | undefined;
+      if (payload.resyncReason === "attempt_discarded") {
+        for (let index = live.length - 1; index >= 0; index -= 1) {
+          const bubble = live[index];
+          if (bubble.role !== "assistant") continue;
+          if (
+            projectedAssistants.some(
+              (text) => text === bubble.text || (bubble.text !== "" && text.startsWith(bubble.text)),
+            )
+          ) {
+            continue;
+          }
+          failedAttempt = bubble;
+          break;
+        }
+      }
+      // 確定済みのライブバブル (前の run の応答 / 送信エコー) は、履歴ページが届くまで残す
+      const keptLive = live
+        .filter(
+          (bubble) =>
+            bubble.id !== failedAttempt?.id &&
+            (bubble.role === "user" ||
+              bubble.settled === true ||
+              bubble.id === streaming?.id ||
+              bubble.id === terminalLive?.id),
+        )
+        .map((bubble) => (bubble.id === terminalLive?.id ? { ...bubble, settled: true } : bubble));
+      // payload.messages の assistant は保存済み = 閉じた応答。開いている扱いにすると次の delta が連結される
+      let rebuilt: Bubble[] = [];
+      let streamingMerged = false;
+      if (legacy !== null) {
+        rebuilt = legacy.bubbles.map((bubble) => (bubble.role === "assistant" ? { ...bubble, settled: true } : bubble));
+        // 履歴を持たない会話でも、確定済みの応答と実行中のツールカードを再構成で落とさない
+        if (!switchedSession) {
+          // 状態順のまま append すると user が応答の後ろへ出るため、payload の順を基準にする
+          for (const liveBubble of keptLive) {
+            if (liveBubble.role !== "user") continue;
+            let userMatch = -1;
+            if (liveBubble.sendId !== undefined) {
+              userMatch = rebuilt.findIndex((bubble) => bubble.role === "user" && bubble.sendId === liveBubble.sendId);
+            } else {
+              let lastUser = -1;
+              for (let index = rebuilt.length - 1; index >= 0; index -= 1) {
+                if (rebuilt[index].role === "user") {
+                  lastUser = index;
+                  break;
+                }
+              }
+              if (lastUser !== -1 && canonicalUserText(rebuilt[lastUser].text) === canonicalUserText(liveBubble.text)) {
+                const liveIndex = state.bubbles.findIndex((bubble) => bubble.id === liveBubble.id);
+                const liveNext = state.bubbles.slice(liveIndex + 1).find((bubble) => bubble.role === "assistant");
+                const baseNext = rebuilt.slice(lastUser + 1).find((bubble) => bubble.role === "assistant");
+                // 本文だけで寄せると前ターンの同名 user へ結末が移るため、直後の応答も一致させる
+                const sameNext =
+                  baseNext === undefined ||
+                  (liveNext !== undefined &&
+                    (liveNext.assistantId !== undefined && baseNext.assistantId !== undefined
+                      ? liveNext.assistantId === baseNext.assistantId
+                      : liveNext.text === baseNext.text));
+                if (sameNext) userMatch = lastUser;
+              }
+            }
+            if (userMatch === -1) {
+              const initialForRun =
+                payload.run?.id !== undefined &&
+                payload.run.initialSendId !== undefined &&
+                liveBubble.sendId === payload.run.initialSendId;
+              const earlyAssistant = initialForRun
+                ? rebuilt.findIndex(
+                    (bubble) =>
+                      bubble.role === "assistant" && bubble.assistantId?.startsWith(`${payload.run?.id}:`) === true,
+                  )
+                : -1;
+              if (earlyAssistant === -1) {
+                // 末尾へ append すると前ターンの応答より後ろに並ぶため、状態上の位置へ戻す
+                rebuilt = insertByStatePosition(state, rebuilt, liveBubble);
+              } else {
+                rebuilt = [...rebuilt.slice(0, earlyAssistant), liveBubble, ...rebuilt.slice(earlyAssistant)];
+              }
+            } else {
+              rebuilt = rebuilt.map((bubble, index) =>
+                index === userMatch
+                  ? {
+                      ...bubble,
+                      ...liveBubble,
+                      text: bubble.text || liveBubble.text,
+                      entryId: bubble.entryId,
+                      ...(bubble.sendId !== undefined
+                        ? { sendId: bubble.sendId }
+                        : liveBubble.sendId === undefined
+                          ? {}
+                          : { sendId: liveBubble.sendId }),
+                      ...(bubble.runId !== undefined
+                        ? { runId: bubble.runId }
+                        : liveBubble.runId === undefined
+                          ? {}
+                          : { runId: liveBubble.runId }),
+                      ...(liveBubble.runDurationMs === undefined ? {} : { runDurationMs: liveBubble.runDurationMs }),
+                      ...(liveBubble.runOutcome === undefined ? {} : { runOutcome: liveBubble.runOutcome }),
+                    }
+                  : bubble,
+              );
+            }
+          }
+          for (const liveBubble of keptLive) {
+            if (liveBubble.role !== "assistant") continue;
+            if (liveBubble.id === streaming?.id && liveBubble.assistantId === undefined) continue;
+            let match = -1;
+            if (liveBubble.assistantId !== undefined) {
+              match = rebuilt.findIndex(
+                (bubble) => bubble.role === "assistant" && bubble.assistantId === liveBubble.assistantId,
+              );
+              if (match === -1) {
+                // 両方に ID があるときに本文で寄せると別応答を取り違えるため、片方だけの旧データに限る
+                const turnIndex = turnIndexOf(state, liveBubble.id, rebuilt);
+                if (turnIndex !== -1) {
+                  const candidates: number[] = [];
+                  for (let index = rebuilt.length - 1; index > turnIndex; index -= 1) {
+                    const bubble = rebuilt[index];
+                    if (bubble.role !== "assistant" || bubble.assistantId !== undefined) continue;
+                    if (bubble.text === "" || liveBubble.text === "") continue;
+                    if (bubble.text.startsWith(liveBubble.text) || liveBubble.text.startsWith(bubble.text)) {
+                      candidates.push(index);
+                    }
+                  }
+                  if (candidates.length === 1) match = candidates[0];
+                }
+              }
+            } else {
+              const turnIndex = turnIndexOf(state, liveBubble.id, rebuilt);
+              const start = turnIndex === -1 ? 0 : turnIndex + 1;
+              for (let index = rebuilt.length - 1; index >= start; index -= 1) {
+                const bubble = rebuilt[index];
+                if (
+                  bubble.role === "assistant" &&
+                  bubble.assistantId === undefined &&
+                  bubble.text === liveBubble.text
+                ) {
+                  match = index;
+                  break;
+                }
+              }
+            }
+            if (match === -1) {
+              // 末尾へ append すると Done が次のターンへ移るため、状態上の位置へ戻す
+              rebuilt = insertByStatePosition(state, rebuilt, liveBubble);
+            } else {
+              rebuilt = rebuilt.map((bubble, index) =>
+                index === match ? mergeAssistantCard(liveBubble, bubble) : bubble,
+              );
+            }
+            if (liveBubble.id === streaming?.id) streamingMerged = true;
+          }
+        }
+      }
+      const rebuiltWithStreaming =
+        streaming === undefined || streaming.assistantId !== undefined
+          ? rebuilt
+          : trimStreamedMessages(rebuilt, streaming);
+      const assembled = keepHistory
         ? [...state.bubbles.filter((bubble) => bubble.entryId !== undefined), ...keptLive]
-        : legacy!.bubbles;
-      const nextId = keepHistory ? state.nextId : legacy!.nextId;
-      const toolBubbleIds = keepHistory
-        ? Object.fromEntries(bubbles.flatMap((bubble) => bubble.tools.map((card) => [card.id, bubble.id] as const)))
-        : legacy!.toolBubbleIds;
-      const retainedEchoIds = new Set(keptLive.filter((bubble) => bubble.role === "user").map((bubble) => bubble.id));
+        : [...rebuiltWithStreaming, ...(streaming === undefined || streamingMerged ? [] : [streaming])];
+      const deduped = dedupeToolCards(assembled, streaming?.id ?? null);
+      const bubbles = deduped.bubbles;
+      const nextId = keepHistory ? state.nextId : (legacy?.nextId ?? state.nextId);
+      const toolBubbleIds = deduped.toolBubbleIds;
+      const retainedEchoIds = new Set(
+        keepHistory ? keptLive.filter((bubble) => bubble.role === "user").map((bubble) => bubble.id) : [],
+      );
       // 履歴で置き換えたので、旧バブルを指すエコーの待ち行列は持ち越さない
       const retryState = mergeRetrySnapshot(
         state,
@@ -735,14 +1592,16 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
         nextId,
         // 残したローカルエコー以外の待ちは持ち越さない
         pendingEchoIds: state.pendingEchoIds.filter((id) => retainedEchoIds.has(id)),
-        currentAssistantId: null,
+        currentAssistantId: streaming?.id ?? null,
+        currentAssistantKey: streaming?.assistantId,
+        currentRunId: status === "running" ? payload.run?.id : undefined,
         toolBubbleIds,
         runTools,
         // 履歴モードでは区切りを履歴ページが正とし、旧 payload では messages の index から復元する
         dividers: keepHistory ? state.dividers : legacyMarkers(payload.compactions ?? []),
         history: sessionChanged ? initialChatState.history : state.history,
-        // 別の会話の停止で破棄された run id を持ち越さない
-        clearedRunIds: sessionChanged ? [] : state.clearedRunIds,
+        // 別の会話の停止で破棄された送信IDを持ち越さない
+        clearedSendIds: sessionChanged ? [] : state.clearedSendIds,
         // 開始直後の演出は live 専用。payload が同じ run の実行中を示すときだけ残す
         startingRunId:
           status === "running" && payload.run?.id === state.startingRunId ? state.startingRunId : undefined,
@@ -806,15 +1665,58 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
         next.bubbles,
         next.pendingEchoIds,
         next.nextId,
-        next.clearedRunIds,
+        next.clearedSendIds,
         payload.pendingSends,
       );
+      const runOutcome = runOutcomeOf(status);
+      const normalizedBubbles = normalizeInitialSend(applied.bubbles, payload.run?.initialSendId);
+      let settledBubbles = orderInitialUser(normalizedBubbles, payload.run?.id, payload.run?.initialSendId);
+      if (runOutcome !== undefined && payload.run?.endedAt !== undefined) {
+        // ライブの run_end を観測済みならその値が正 (payload は run の所要時間を持たない)
+        const initialUser = settledBubbles.find(
+          (bubble) =>
+            bubble.role === "user" &&
+            (payload.run?.initialSendId === undefined
+              ? bubble.runId === payload.run?.id
+              : bubble.sendId === payload.run?.initialSendId),
+        );
+        const durationMs = initialUser?.runDurationMs ?? Math.max(0, payload.run.endedAt - payload.run.startedAt);
+        const outcome = initialUser?.runOutcome ?? runOutcome;
+        if (initialUser !== undefined && initialUser.runDurationMs === undefined) {
+          settledBubbles = attachTurnEnd(
+            settledBubbles,
+            payload.run.id,
+            payload.run.initialSendId,
+            outcome,
+            durationMs,
+          );
+        }
+        // user の位置に依存すると Done が消えるため、run の最後の本文あり assistant へ直接付ける
+        settledBubbles = attachAssistantTurnEnd(
+          settledBubbles,
+          payload.run.id,
+          payload.run.initialSendId,
+          outcome,
+          durationMs,
+          state.currentAssistantId,
+        );
+      }
       return {
         ...next,
-        bubbles: applied.bubbles,
+        bubbles: settledBubbles,
         pendingEchoIds: applied.pendingEchoIds,
         nextId: applied.nextId,
-        clearedRunIds: applied.clearedRunIds,
+        clearedSendIds: applied.clearedSendIds,
+        stateSeq: state.stateSeq + 1,
+        closedAssistantTexts: switchedSession ? [] : state.closedAssistantTexts,
+        toolTargetAssistantId:
+          !switchedSession &&
+          state.toolTargetAssistantId !== undefined &&
+          applied.bubbles.some((bubble) => bubble.id === state.toolTargetAssistantId)
+            ? state.toolTargetAssistantId
+            : undefined,
+        // 別の会話の送信へ引き継がない
+        queuedSnapshots: sessionChanged ? {} : pruneQueuedSnapshots(state.queuedSnapshots, payload.pendingSends),
       };
     }
 
@@ -943,15 +1845,14 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
       // 未送信 / 受理済みのバブルは、この run_start で「サーバーが実行を開始した」ことを確認済みに
       // する (楽観的に再送したバブルも含める。遅れて届いた失敗で未送信へ戻さない)。待機中
       // (`queued`) のバブルは送信応答だけが run id を付けているため、ここで合わせて拾う
-      const started =
-        action.runId === undefined
-          ? undefined
-          : state.bubbles.find(
-              (bubble) =>
-                bubble.runId === action.runId &&
-                bubble.entryId === undefined &&
-                (bubble.unsent === true || bubble.accepted === true || bubble.queued === true),
-            );
+      const started = state.bubbles.find(
+        (bubble) =>
+          bubble.entryId === undefined &&
+          (action.initialSendId !== undefined
+            ? bubble.sendId === action.initialSendId
+            : action.runId !== undefined && bubble.runId === action.runId) &&
+          (bubble.unsent === true || bubble.accepted === true || bubble.queued === true),
+      );
       const startedBubble =
         started === undefined
           ? undefined
@@ -974,18 +1875,22 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
             };
       const promptBody = canonicalUserText(action.prompt);
       const echoIndex =
-        action.runId !== undefined
-          ? base.pendingEchoIds.findIndex((id) => base.bubbles.find((item) => item.id === id)?.runId === action.runId)
-          : base.pendingEchoIds.findIndex((id) => {
-              const bubble = base.bubbles.find((item) => item.id === id);
-              return bubble !== undefined && canonicalUserText(bubble.text) === promptBody;
-            });
+        action.initialSendId !== undefined
+          ? base.pendingEchoIds.findIndex(
+              (id) => base.bubbles.find((item) => item.id === id)?.sendId === action.initialSendId,
+            )
+          : action.runId !== undefined
+            ? base.pendingEchoIds.findIndex((id) => base.bubbles.find((item) => item.id === id)?.runId === action.runId)
+            : base.pendingEchoIds.findIndex((id) => {
+                const bubble = base.bubbles.find((item) => item.id === id);
+                return bubble !== undefined && canonicalUserText(bubble.text) === promptBody;
+              });
       const echo = echoIndex === -1 ? undefined : base.bubbles.find((b) => b.id === base.pendingEchoIds[echoIndex]);
       // 対応が取れた 1 件だけ待ち行列から外す。run id 不明の旧経路は送信順に届く前提を保つ
       const pendingEchoIds =
         echoIndex === -1
           ? base.pendingEchoIds
-          : action.runId !== undefined
+          : action.initialSendId !== undefined || action.runId !== undefined
             ? base.pendingEchoIds.filter((_, index) => index !== echoIndex)
             : base.pendingEchoIds.slice(echoIndex + 1);
       const pending = new Set(base.pendingEchoIds);
@@ -1008,7 +1913,7 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
         const known =
           base.bubbles.some((bubble) => bubble.role === "user" && bubble.text === action.prompt) ||
           base.bubbles.some((bubble) => pending.has(bubble.id) && canonicalUserText(bubble.text) === promptBody);
-        next = known ? base : appendBubble(base, "user", action.prompt, action.at);
+        next = known ? base : insertRunUser(base, action.prompt, action.at, action.runId, action.initialSendId);
       }
       return {
         ...next,
@@ -1018,7 +1923,12 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
           action.runId === undefined
             ? next.runPrompts
             : rememberRunPrompt(next.runPrompts, action.runId, action.prompt),
+        runInitialSendIds:
+          action.runId === undefined || action.initialSendId === undefined
+            ? next.runInitialSendIds
+            : { ...next.runInitialSendIds, [action.runId]: action.initialSendId },
         currentAssistantId: null,
+        currentAssistantKey: undefined,
         toolBubbleIds: {},
         runTools: {},
         runStatus: "running",
@@ -1038,9 +1948,21 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
         runError: undefined,
         // 待機列の先頭が実行に移った瞬間だけ、リングを 1 回広げてチップを一瞬 `実行中` にする
         startingRunId: started?.queued === true ? action.runId : undefined,
-        // 実行が始まった run は停止の控えから外す (遅れて届いた 202 で未送信へ戻さない)
-        clearedRunIds:
-          action.runId === undefined ? next.clearedRunIds : next.clearedRunIds.filter((id) => id !== action.runId),
+        currentRunId: action.runId,
+        toolTargetAssistantId: undefined,
+        closedAssistantTexts:
+          action.runId !== undefined && action.runId === state.currentRunId ? state.closedAssistantTexts : [],
+        stateSeq: state.stateSeq + 1,
+        queuedSnapshots:
+          action.initialSendId === undefined
+            ? state.queuedSnapshots
+            : withoutQueuedSnapshots(state.queuedSnapshots, [action.initialSendId]),
+        // 実行が始まった送信は停止の控えから外す (遅れて届いた 202 で未送信へ戻さない)
+        clearedSendIds: (() => {
+          // 旧サーバーは開始送信IDを配らないため run id で縮退する
+          const started = action.initialSendId ?? action.runId;
+          return started === undefined ? next.clearedSendIds : next.clearedSendIds.filter((id) => id !== started);
+        })(),
       };
     }
 
@@ -1062,77 +1984,101 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
       };
     }
 
-    case "echoRunId": {
-      // 送信応答の run id を、未対応付けの最古のエコーへ結び付ける (送信は直列なので順序で足りる)。
-      // run_start が応答より先に届いていても、これで自分の run と厳密に対応付く
+    case "echoSendId": {
+      // 送信応答の送信IDを、未対応付けの最古のエコーへ結び付ける (送信は直列なので順序で足りる)。
+      // run_start が応答より先に届いていても、送信IDで自分の送信と厳密に対応付く
       const echoId = state.pendingEchoIds.find((id) => {
         const bubble = state.bubbles.find((item) => item.id === id);
-        return bubble !== undefined && bubble.runId === undefined;
+        return bubble !== undefined && bubble.sendId === undefined;
       });
       if (echoId === undefined) return state;
       // payload が先にバブルを足していたら、ローカルのエコーへ寄せて重複を作らない
-      // (同じ run id のバブルが 2 件残ると再送 / 破棄が二重に見える)。履歴 item は下の吸収が担う
+      // (同じ送信IDのバブルが 2 件残ると再送 / 破棄が二重に見える)
       const duplicate = state.bubbles.find(
-        (bubble) => bubble.id !== echoId && bubble.runId === action.runId && bubble.entryId === undefined,
+        (bubble) => bubble.id !== echoId && bubble.sendId === action.sendId && bubble.entryId === undefined,
       );
       // run_start が応答より先に届いていれば、控えた本文でローカルエコーを差し替える
-      const prompt = state.runPrompts[action.runId];
+      const prompt = action.runId === undefined ? undefined : state.runPrompts[action.runId];
       // 待機の順位は応答が配る (押し込んだ直後の queueDepth)。run_start が先に届いた run は既に走って
-      // いるので、遅れて届いた応答で待機中にはしない。payload が先に待機を配っていればそちらを採る
-      const queuePosition = duplicate?.queuePosition ?? (prompt === undefined ? action.queuePosition : undefined);
+      // いるので、遅れて届いた応答で待機中にはしない。payload が先に待機を配っていればそちらを採る。
+      // 要求後に新しい状態 (resync / 終端 / 待機の変化) が届いていれば、古い待機スナップショットを捨てる
+      const snapshotCurrent = action.stateSeq === undefined || action.stateSeq === state.stateSeq;
+      // 同じ送信IDの queued が応答より先に届いていれば、その待機位置を応答へ引き継ぐ
+      const carriedPosition = snapshotCurrent ? undefined : state.queuedSnapshots[action.sendId]?.position;
+      const echoedPosition = snapshotCurrent ? action.queuePosition : carriedPosition;
+      const queuePosition = duplicate?.queuePosition ?? (prompt === undefined ? echoedPosition : undefined);
       const queued = duplicate !== undefined ? duplicate.queued === true : queuePosition !== undefined;
-      const withRunId = updateBubble(
-        duplicate === undefined ? state : { ...state, bubbles: state.bubbles.filter((b) => b.id !== duplicate.id) },
+      const consumedSnapshots = withoutQueuedSnapshots(state.queuedSnapshots, [action.sendId]);
+      const withSendId = updateBubble(
+        duplicate === undefined
+          ? { ...state, queuedSnapshots: consumedSnapshots }
+          : {
+              ...state,
+              bubbles: state.bubbles.filter((b) => b.id !== duplicate.id),
+              queuedSnapshots: consumedSnapshots,
+            },
         echoId,
         (bubble) => ({
           ...bubble,
-          runId: action.runId,
+          sendId: action.sendId,
+          ...(action.runId === undefined ? {} : { runId: action.runId }),
           // 先にあったバブルの状態 (未送信 / 受理済み) を引き継ぐ
           ...(duplicate?.unsent === true ? { unsent: true, accepted: false, confirmed: false } : {}),
           ...(duplicate?.accepted === true
             ? { unsent: false, accepted: true, confirmed: duplicate.confirmed === true }
             : {}),
-          ...(queued ? { queued: true, ...(queuePosition === undefined ? {} : { queuePosition }) } : {}),
+          ...(queued
+            ? {
+                queued: true,
+                queuedState: duplicate?.queuedState ?? "queued",
+                ...(queuePosition === undefined ? {} : { queuePosition }),
+              }
+            : {}),
           ...(prompt !== undefined ? { text: prompt } : {}),
         }),
       );
       const runPrompts = { ...state.runPrompts };
-      delete runPrompts[action.runId];
+      if (action.runId !== undefined) delete runPrompts[action.runId];
       // 保存済みの entry が既にあれば、停止の控えより吸収を優先する (権威ある履歴を正とする)
-      const target = withRunId.bubbles.find(
-        (bubble) => bubble.entryId !== undefined && bubble.role === "user" && bubble.runId === action.runId,
+      const target = withSendId.bubbles.find(
+        (bubble) =>
+          bubble.entryId !== undefined &&
+          bubble.role === "user" &&
+          (bubble.sendId === action.sendId ||
+            // 旧サーバーの item は送信IDを持たないため、run の一致へ縮退する
+            (bubble.sendId === undefined && action.runId !== undefined && bubble.runId === action.runId)),
       );
       if (target !== undefined) {
         return {
-          ...withRunId,
+          ...withSendId,
           runPrompts,
-          bubbles: withRunId.bubbles.filter((bubble) => bubble.id !== echoId),
-          pendingEchoIds: withRunId.pendingEchoIds.filter((id) => id !== echoId),
-          clearedRunIds: state.clearedRunIds.filter((id) => id !== action.runId),
+          bubbles: withSendId.bubbles.filter((bubble) => bubble.id !== echoId),
+          pendingEchoIds: withSendId.pendingEchoIds.filter((id) => id !== echoId),
+          clearedSendIds: state.clearedSendIds.filter((id) => id !== action.sendId),
         };
       }
-      // 停止で破棄された run か、payload が未送信として配った run なら、通常の送信済みに見せず
+      // 停止で破棄された送信か、payload が未送信として配った送信なら、通常の送信済みに見せず
       // 未送信へ切り替える (重複して足されたバブルはローカルのエコーへ寄せる)
-      if (state.clearedRunIds.includes(action.runId) || duplicate?.unsent === true) {
+      if (state.clearedSendIds.includes(action.sendId) || duplicate?.unsent === true) {
         return {
-          ...withRunId,
+          ...withSendId,
           runPrompts,
-          bubbles: withRunId.bubbles.map((bubble) =>
+          bubbles: withSendId.bubbles.map((bubble) =>
             bubble.id === echoId
               ? { ...bubble, unsent: true, accepted: false, confirmed: false, ...CLEARED_TURN_END, ...QUEUE_CLEARED }
               : bubble,
           ),
-          pendingEchoIds: withRunId.pendingEchoIds.filter((id) => id !== echoId),
-          clearedRunIds: state.clearedRunIds.filter((id) => id !== action.runId),
+          pendingEchoIds: withSendId.pendingEchoIds.filter((id) => id !== echoId),
+          clearedSendIds: state.clearedSendIds.filter((id) => id !== action.sendId),
         };
       }
-      return { ...withRunId, runPrompts };
+      return { ...withSendId, runPrompts };
     }
 
     case "resendUnsent": {
       // 未送信バブルを pending エコーへ戻す。本文はサーバー側が持つ生テキストを使うため、ここでは
-      // 表示だけを通常の送信直後へ切り替える (run id は再送でも変わらない)
-      const index = state.bubbles.findIndex((bubble) => bubble.unsent === true && bubble.runId === action.runId);
+      // 表示だけを通常の送信直後へ切り替える (送信IDは再送でも変わらない)
+      const index = state.bubbles.findIndex((bubble) => bubble.unsent === true && bubble.sendId === action.sendId);
       if (index === -1) return state;
       const echo = state.bubbles[index];
       return {
@@ -1145,7 +2091,7 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
         // 再送でも送信と同じく、実行中のターンの本文を受けているバブルに積み続ける
         pendingEchoIds: [...state.pendingEchoIds, echo.id],
         // 停止で破棄された記録を再送するときは、未送信へ戻す控えを消す
-        clearedRunIds: state.clearedRunIds.filter((id) => id !== action.runId),
+        clearedSendIds: state.clearedSendIds.filter((id) => id !== action.sendId),
         activity: "送信中…",
         activityState: undefined,
         // 送信と同じく最下部への追従の合図を進める
@@ -1156,7 +2102,7 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
     case "resendFailed": {
       // 再送を受け付けてもらえなかった。通常の送信済みに見せないよう未送信へ戻す。ただし
       // payload / run_start でサーバーの受理を確認済みの run は実行されているので戻さない
-      const index = state.bubbles.findIndex((bubble) => bubble.unsent === false && bubble.runId === action.runId);
+      const index = state.bubbles.findIndex((bubble) => bubble.unsent === false && bubble.sendId === action.sendId);
       if (index === -1 || state.bubbles[index].confirmed === true) return state;
       const echo = state.bubbles[index];
       return {
@@ -1171,7 +2117,7 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
     case "unsentDiscarded":
       return {
         ...state,
-        bubbles: state.bubbles.filter((bubble) => !(bubble.unsent === true && bubble.runId === action.runId)),
+        bubbles: state.bubbles.filter((bubble) => !(bubble.unsent === true && bubble.sendId === action.sendId)),
       };
 
     case "dropLocalUser": {
@@ -1186,14 +2132,60 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
     }
 
     case "text": {
-      // 保留していた run 側カードは、ensureAssistant が補完先を作った時点で補う
+      const key = action.assistantId;
+      if (key !== undefined) {
+        const existing = state.bubbles.find((bubble) => bubble.role === "assistant" && bubble.assistantId === key);
+        if (existing !== undefined) {
+          const withTarget = {
+            ...state,
+            currentAssistantId: existing.id,
+            currentAssistantKey: key,
+            toolTargetAssistantId: undefined,
+          };
+          const withBubble = attachRunToolCards(withTarget, false);
+          return patchAssistant(withBubble, (b) => ({ ...b, text: b.text + (action.delta || "") }));
+        }
+        const withBubble = attachRunToolCards(openAssistantForKey(state, action.at, key), false);
+        return patchAssistant(withBubble, (b) => ({ ...b, text: b.text + (action.delta || "") }));
+      }
+      // 旧サーバーの delta は従来どおり開いている応答へ積む
       const withBubble = attachRunToolCards(ensureAssistant(state, action.at), false);
       return patchAssistant(withBubble, (b) => ({ ...b, text: b.text + (action.delta || "") }));
+    }
+
+    case "assistantEnd": {
+      const key = action.assistantId;
+      const target =
+        key !== undefined
+          ? state.bubbles.find((bubble) => bubble.role === "assistant" && bubble.assistantId === key)
+          : state.currentAssistantId === null
+            ? undefined
+            : state.bubbles.find((bubble) => bubble.id === state.currentAssistantId);
+      if (target === undefined) {
+        if (key !== undefined) return state;
+        return state.toolTargetAssistantId === undefined
+          ? state
+          : { ...state, currentAssistantId: null, currentAssistantKey: undefined, toolTargetAssistantId: undefined };
+      }
+      const closesCurrent =
+        state.currentAssistantId === target.id || (key !== undefined && state.currentAssistantKey === key);
+      return {
+        ...state,
+        currentAssistantId: closesCurrent ? null : state.currentAssistantId,
+        currentAssistantKey: closesCurrent ? undefined : state.currentAssistantKey,
+        toolTargetAssistantId: closesCurrent ? target.id : state.toolTargetAssistantId,
+        bubbles: state.bubbles.map((bubble) => (bubble.id === target.id ? { ...bubble, settled: true } : bubble)),
+        closedAssistantTexts:
+          key !== undefined || target.text === ""
+            ? state.closedAssistantTexts
+            : [...new Set([...state.closedAssistantTexts, target.text])],
+      };
     }
 
     case "toolStart": {
       const call: ToolCall = {
         id: action.id,
+        ...(action.assistantId === undefined ? {} : { assistantId: action.assistantId }),
         name: action.name || "",
         args: action.args || "",
         isError: false,
@@ -1205,7 +2197,25 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
       };
       // 保留中の run 側カードを先に補ってから新しいカードを足す (逆順だと初回の assistant バブルで
       // 新規が先頭になり、run 側の挿入順と逆のツール履歴になる)
-      const withBubble = attachRunToolCards(ensureAssistant(state, action.at), false);
+      const keyTarget =
+        action.assistantId === undefined
+          ? undefined
+          : state.bubbles.find((bubble) => bubble.role === "assistant" && bubble.assistantId === action.assistantId);
+      const ended = closedToolTarget(state, action.assistantId) !== undefined;
+      let base = state;
+      if (keyTarget === undefined && !ended && action.assistantId !== undefined) {
+        // ツールだけの応答はカードを作るが、本文の補完先にはしない (次の text は自分のIDで開く)
+        const opened = openAssistantForKey(state, action.at, action.assistantId);
+        base = {
+          ...opened,
+          currentAssistantId: state.currentAssistantId,
+          currentAssistantKey: state.currentAssistantKey,
+          toolTargetAssistantId: opened.currentAssistantId ?? opened.toolTargetAssistantId,
+        };
+      } else if (keyTarget === undefined && !ended) {
+        base = openAssistantForKey(state, action.at, undefined);
+      }
+      const withBubble = attachRunToolCards(base, false);
       const withRun = {
         ...withBubble,
         // ライブ表示が「今観測したツール」を見分けるための控え (payload 経由の復元カードと区別する)
@@ -1214,7 +2224,7 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
           : [...withBubble.liveToolIds, action.id],
         runTools: { ...withBubble.runTools, [action.id]: call },
       };
-      return addToolCard(withRun, toolCardOf(call), action.at);
+      return addToolCard(withRun, toolCardOf(call), action.at, action.assistantId);
     }
 
     case "toolEnd": {
@@ -1272,6 +2282,24 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
     case "usage": {
       // ツールループは 1 バブルに統合されるため、後続メッセージの値で上書きされる (仕様)。
       const next = action.context ? { ...state, context: action.context } : state;
+      const keyTarget =
+        action.assistantId === undefined
+          ? undefined
+          : state.bubbles.find((bubble) => bubble.role === "assistant" && bubble.assistantId === action.assistantId);
+      if (keyTarget !== undefined) {
+        return updateBubble(next, keyTarget.id, (b) => ({
+          ...b,
+          usage: action.usage ?? b.usage,
+          metrics: action.metrics ?? b.metrics,
+        }));
+      }
+      if (action.assistantId !== undefined) {
+        return {
+          ...next,
+          pendingUsage: action.usage ?? state.pendingUsage,
+          pendingMetrics: action.metrics ?? state.pendingMetrics,
+        };
+      }
       if (state.currentAssistantId !== null) {
         return updateBubble(next, state.currentAssistantId, (b) => ({
           ...b,
@@ -1312,9 +2340,35 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
       // state は演出の条件 (thinking のときだけ活動ラベルに光を流す)、text は表示文言
       return { ...state, activity: action.text || "処理中…", activityState: action.state || undefined };
 
-    case "queued":
+    case "queued": {
+      // 自分の送信の待機を SSE が先に配る経路 (応答より前) でも送信IDで対応付ける
+      const bubbles =
+        action.sendId === undefined
+          ? state.bubbles
+          : state.bubbles.map((bubble) =>
+              bubble.sendId === action.sendId && bubble.entryId === undefined
+                ? {
+                    ...bubble,
+                    accepted: true,
+                    queued: true,
+                    queuedState: "queued" as const,
+                    queuePosition: action.position,
+                  }
+                : bubble,
+            );
+      // 送信IDがまだ結び付いていないエコーには、この送信の待機位置として控えて応答時に引き継ぐ
+      const bound = action.sendId !== undefined && bubbles.some((bubble) => bubble.sendId === action.sendId);
+      const queuedSnapshots =
+        action.sendId === undefined
+          ? state.queuedSnapshots
+          : bound
+            ? withoutQueuedSnapshots(state.queuedSnapshots, [action.sendId])
+            : { ...state.queuedSnapshots, [action.sendId]: { position: action.position } };
       return {
         ...state,
+        bubbles,
+        queuedSnapshots,
+        stateSeq: state.stateSeq + 1,
         // 圧縮中は体感の状態を compacting のまま保つ (実際に走っているのは圧縮)
         runStatus: state.runStatus === "compacting" ? "compacting" : "running",
         queueDepth: action.queueDepth,
@@ -1322,15 +2376,18 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
         activity: state.runStatus === "compacting" ? "圧縮中…" : "実行中…",
         activityState: undefined,
       };
+    }
 
     case "queueCleared": {
-      // 破棄された待機メッセージは実行されない。run id が分かる分を未送信へ切り替え、
-      // 「送信済み」の見た目のまま残さない。応答 (echoRunId) がまだ届いていないエコーは run id が
+      // 破棄された待機メッセージは実行されない。送信IDが分かる分を未送信へ切り替え、
+      // 「送信済み」の見た目のまま残さない。応答 (echoSendId) がまだ届いていないエコーは送信IDが
       // 無いため特定できず、控えを残して対応付いた時点で切り替える
-      const cleared = new Set(action.runIds ?? []);
+      const cleared = new Set(action.sendIds ?? []);
       const bubbles = state.bubbles.map((bubble) => {
-        const markUnsent = bubble.runId !== undefined && cleared.has(bubble.runId) && bubble.unsent !== true;
-        // キューそのものが空になったので、run id が分からない分 (旧サーバー) の待機也表示を戻す
+        // 送信IDを持たない旧サーバーのバブルは run id で突き合わせる
+        const key = bubble.sendId ?? bubble.runId;
+        const markUnsent = key !== undefined && cleared.has(key) && bubble.unsent !== true;
+        // キューそのものが空になったので、送信IDが分からない分 (旧サーバー) の待機也表示を戻す
         if (!markUnsent && bubble.queued !== true) return bubble;
         return markUnsent
           ? { ...bubble, unsent: true, accepted: false, confirmed: false, ...CLEARED_TURN_END, ...QUEUE_CLEARED }
@@ -1344,8 +2401,10 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
         ...state,
         bubbles,
         pendingEchoIds,
+        stateSeq: state.stateSeq + 1,
+        queuedSnapshots: withoutQueuedSnapshots(state.queuedSnapshots, action.sendIds ?? []),
         // 取りこぼしを防ぐため直近の分だけ持ち、対応が取れたら消す
-        clearedRunIds: [...state.clearedRunIds, ...cleared].slice(-20),
+        clearedSendIds: [...state.clearedSendIds, ...cleared].slice(-20),
         queueDepth: 0,
         activity: "待機キューを取り消しました",
         activityState: undefined,
@@ -1357,15 +2416,17 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
     case "queueCanceled": {
       // 取り消した送信を未送信へ戻す。resync が成功応答より先に届く経路があるため、既に未送信なら
       // 何もしない (状態行の文言は足さず、バブルが変わることを結果の提示にする)
-      const target = state.bubbles.find((bubble) => bubble.runId === action.runId);
+      const target = state.bubbles.find((bubble) => bubble.sendId === action.sendId);
       if (!target || target.unsent === true) return state;
       return {
         ...state,
         bubbles: state.bubbles.map((bubble) =>
-          bubble.runId === action.runId
+          bubble.sendId === action.sendId
             ? { ...bubble, unsent: true, accepted: false, confirmed: false, ...CLEARED_TURN_END, ...QUEUE_CLEARED }
             : bubble,
         ),
+        stateSeq: state.stateSeq + 1,
+        queuedSnapshots: withoutQueuedSnapshots(state.queuedSnapshots, [action.sendId]),
         // 未送信は pendingEchoIds に残さない (残すと取り消し後の再送で同じ id が二重に載る)
         pendingEchoIds: state.pendingEchoIds.filter((id) => id !== target.id),
       };
@@ -1390,12 +2451,15 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
       const { status, queueDepth } = action;
       // 自分の run が終わったら、その run のエコーは run_start 待ちを卒業する (履歴 item に run id が
       // 載らない縮退時は、ページ到着時に本文での突き合わせへ戻す)
+      const initialSendId = action.runId === undefined ? undefined : state.runInitialSendIds[action.runId];
       const pendingEchoIds =
         action.runId === undefined
           ? state.pendingEchoIds
-          : state.pendingEchoIds.filter(
-              (id) => state.bubbles.find((bubble) => bubble.id === id)?.runId !== action.runId,
-            );
+          : state.pendingEchoIds.filter((id) => {
+              const bubble = state.bubbles.find((item) => item.id === id);
+              if (bubble === undefined) return true;
+              return initialSendId !== undefined ? bubble.sendId !== initialSendId : bubble.runId !== action.runId;
+            });
       // 失敗の分類コードは status === "error" のときだけ保持する (停止と例外が同時でもカードを出さない)
       const runError = runErrorFrom(status, action.errorCode, action.error);
       const runStatus: RunStatus = queueDepth > 0 ? "queued" : status === "completed" ? "idle" : status;
@@ -1415,22 +2479,35 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
       // run_end の所要時間と結末は、その run の user パブルへ写す (entryId の有無を問わず runId 一致)。
       // 未送信のターンは導出側が行を落とす。終端以外の status では値を付けない
       const outcome = runOutcomeOf(status);
+      const normalized = normalizeInitialSend(settled.bubbles, initialSendId);
       const withTurnEnd =
         action.runId === undefined || outcome === undefined || action.durationMs === undefined
-          ? settled
-          : { ...settled, bubbles: attachTurnEnd(settled.bubbles, action.runId, outcome, action.durationMs) };
-      // 実行されずに終わった待機はここで解除する (run_start が届かない経路の待機表示を残さない)
+          ? { ...settled, bubbles: normalized }
+          : {
+              ...settled,
+              bubbles: attachTurnEnd(normalized, action.runId, initialSendId, outcome, action.durationMs),
+            };
       const bubbles =
-        action.runId === undefined
+        action.runId === undefined || outcome === undefined || action.durationMs === undefined
           ? withTurnEnd.bubbles
-          : withTurnEnd.bubbles.map((bubble) =>
-              bubble.runId === action.runId && bubble.queued === true ? { ...bubble, ...QUEUE_CLEARED } : bubble,
+          : attachAssistantTurnEnd(
+              withTurnEnd.bubbles,
+              action.runId,
+              initialSendId,
+              outcome,
+              action.durationMs,
+              state.currentAssistantId,
             );
       return {
         ...withTurnEnd,
         bubbles,
         pendingEchoIds,
+        stateSeq: state.stateSeq + 1,
         currentAssistantId: null,
+        currentAssistantKey: undefined,
+        currentRunId: undefined,
+        closedAssistantTexts: [],
+        toolTargetAssistantId: undefined,
         toolBubbleIds: {},
         activity,
         activityState: undefined,
@@ -1453,11 +2530,18 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
         retryReceivedAt: undefined,
         retryCount: action.totalRetryCount ?? state.retryCount,
         runError,
-        // 終わった run は停止の控えから外す (遅れて届いた 202 で未送信へ戻さない)
-        clearedRunIds:
-          action.runId === undefined
-            ? withTurnEnd.clearedRunIds
-            : withTurnEnd.clearedRunIds.filter((id) => id !== action.runId),
+        // 実行を開始した送信は、停止の控えから外す (遅れて届いた 202 で未送信へ戻さない)
+        clearedSendIds:
+          initialSendId === undefined
+            ? withTurnEnd.clearedSendIds
+            : withTurnEnd.clearedSendIds.filter((id) => id !== initialSendId),
+        // 終わった実行の対応は残さない (同じ run id は再利用しない)
+        runInitialSendIds: (() => {
+          if (action.runId === undefined) return withTurnEnd.runInitialSendIds;
+          const next = { ...withTurnEnd.runInitialSendIds };
+          delete next[action.runId];
+          return next;
+        })(),
       };
     }
 

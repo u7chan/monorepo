@@ -371,9 +371,9 @@ export async function createBffApp(opts: CreateBffAppOptions = {}) {
       (c) => sessionRoutes.answerQuestion(c, c.req.valid("json")),
     )
     // 待機キューからの 1 件だけの取り消し (実行は止めず、本文は未送信として残す)
-    .delete("/api/sessions/:id/queue/:runId", appData, sessionRoutes.cancelQueued)
+    .delete("/api/sessions/:id/queue/:sendId", appData, sessionRoutes.cancelQueued)
     // 未送信メッセージの破棄 (再送は POST /messages の resendRunId)
-    .delete("/api/sessions/:id/unsent/:runId", appData, sessionRoutes.discardUnsent)
+    .delete("/api/sessions/:id/unsent/:sendId", appData, sessionRoutes.discardUnsent)
     .get("/api/sessions/:id/events", appData, sessionRoutes.events)
     .get("/api/serve/status", appData, serveRoutes.status)
     .get("/api/serve/runtime/status", appData, serveRoutes.runtimeStatus)

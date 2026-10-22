@@ -14,6 +14,7 @@ function createActivityBridge() {
   const events: { type: SSEEventType; data: Record<string, unknown> }[] = [];
   const bridge = createRunEventBridge({
     session: { messages: [] } as unknown as PiSessionLike,
+    runId: "run-test",
     masker: createSecretMasker([]),
     cwd: CWD,
     tools: new Map<string, ToolCall>(),

@@ -2,7 +2,13 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { Bubble, CompactionMarker } from "../src/lib/chatTypes";
-import { anchoredScrollTop, chatRenderItems, estimateChatItemHeight } from "../src/lib/chatItems";
+import {
+  anchoredScrollTop,
+  chatRenderItems,
+  estimateChatItemHeight,
+  unsentActionIdOf,
+  unsentActionsOf,
+} from "../src/lib/chatItems";
 import { chatReducer, initialChatState, type ChatState } from "../src/hooks/chatReducer";
 import type { CompactionInfo } from "../src/types";
 
@@ -280,7 +286,7 @@ test("ライブのツールだけのターンは reducer から通しても結�
   // What: toolStart が本文の空な assistant バブルを作り、runEnd が同じターンの user へ値を写す経路を固定する
   const steps: ((chat: ChatState) => ChatState)[] = [
     (chat) => chatReducer(chat, { type: "localUser", text: "調べて", at: 100 }),
-    (chat) => chatReducer(chat, { type: "echoRunId", runId: "r1" }),
+    (chat) => chatReducer(chat, { type: "echoSendId", sendId: "r1", runId: "r1" }),
     (chat) => chatReducer(chat, { type: "runStart", runId: "r1", prompt: "調べて", at: 100, startedAt: 100 }),
     (chat) => chatReducer(chat, { type: "toolStart", id: "t1", name: "bash", args: "{}", at: 150 }),
     (chat) => chatReducer(chat, { type: "toolEnd", id: "t1", isError: false, output: "done" }),
@@ -402,4 +408,107 @@ test("前置き後の scrollTop は高さ増加ぶんだけ下へずらす", () 
   // 高さが増えない (推定が変わらない) なら位置を動かさない。負にはしない
   assert.equal(anchoredScrollTop({ anchorTop: 30, anchorHeight: 1000, nextHeight: 1000 }), 30);
   assert.equal(anchoredScrollTop({ anchorTop: 0, anchorHeight: 1000, nextHeight: 900 }), 0);
+});
+
+test("未送信バブルの操作 ID は実行IDではなく送信IDを使う", () => {
+  // What: ChatArea が再送 / 破棄へ渡す値。sendId と runId が違うとき runId を渡すと API が 409 / 404 になる
+  const base: Bubble = { ...bubble(1, "u1", "active", "未送信"), role: "user", unsent: true };
+  assert.equal(unsentActionIdOf({ ...base, sendId: "send-1", runId: "run-1" }), "send-1");
+  assert.equal(unsentActionIdOf({ ...base, runId: "run-1" }), "run-1", "旧サーバーの run id だけの記録は縮退する");
+  assert.equal(unsentActionIdOf({ ...base, unsent: false, sendId: "send-1" }), undefined);
+
+  // 再送 / 破棄のコールバックまで、実行IDではなく送信IDが渡る
+  const calls: string[] = [];
+  const actions = unsentActionsOf(
+    { ...base, sendId: "send-1", runId: "run-1" },
+    {
+      onResend: (sendId) => calls.push(`resend:${sendId}`),
+      onDiscard: (sendId) => calls.push(`discard:${sendId}`),
+    },
+  );
+  actions.onResend?.();
+  actions.onDiscard?.();
+  assert.deepEqual(calls, ["resend:send-1", "discard:send-1"]);
+});
+
+test("同じ実行へ注入された追加入力はターンを閉じず、Done は最後の応答だけに付く", () => {
+  // What: 開始user → A → 同runIdのsteering user → B で、A と B の 2 件に Done が出る退行を防ぐ
+  const start = userTurn(1, "u1", { sendId: "s1", runId: "run-1" });
+  const decisionA = bubble(2, "a1", "active", "A");
+  const steering: Bubble = {
+    ...userTurn(3, "u2", { sendId: "s2", runId: "run-1" }),
+    runDurationMs: undefined,
+    runOutcome: undefined,
+  };
+  const decisionB: Bubble = {
+    ...bubble(4, "a2", "active", "B"),
+    turnEnd: { outcome: "completed", durationMs: 80_000 },
+  };
+  const items = chatRenderItems({
+    bubbles: [start, decisionA, steering, decisionB],
+    markers: [],
+    compactions: [],
+    activeContextStartId: null,
+  });
+  assert.deepEqual(
+    items.filter((item) => item.kind === "message" && item.turnEnd !== undefined).map((item) => item.key),
+    ["message:a2"],
+    "Done は実行の最後の本文あり応答だけ",
+  );
+
+  // reducer から履歴を取り込んでも同じ導出になる (サーバーの turnEnd と user 由来の値を重ねない)
+  const state = chatReducer(initialChatState, {
+    type: "resyncHistory",
+    page: {
+      sessionId: "session-1",
+      items: [
+        {
+          kind: "message",
+          id: "u1",
+          context: "active",
+          role: "user",
+          text: "開始",
+          sendId: "s1",
+          runId: "run-1",
+          runDurationMs: 80_000,
+          runOutcome: "completed",
+        },
+        { kind: "message", id: "a1", context: "active", role: "assistant", text: "A" },
+        {
+          kind: "message",
+          id: "u2",
+          context: "active",
+          role: "user",
+          text: "追加入力",
+          sendId: "s2",
+          runId: "run-1",
+        },
+        {
+          kind: "message",
+          id: "a2",
+          context: "active",
+          role: "assistant",
+          text: "B",
+          turnEnd: { outcome: "completed", durationMs: 80_000 },
+        },
+      ],
+      nextCursor: null,
+      prevCursor: null,
+      hasMore: false,
+      activeContextStartId: "u1",
+      messageCount: 4,
+      summarizedMessageCount: 0,
+    },
+  });
+  assert.deepEqual(
+    chatRenderItems({
+      bubbles: state.bubbles,
+      markers: state.dividers,
+      compactions: [],
+      activeContextStartId: null,
+    })
+      .filter((item) => item.kind === "message" && item.turnEnd !== undefined)
+      .map((item) => item.key),
+    ["message:a2"],
+  );
 });

@@ -35,6 +35,8 @@ export type Bubble = {
   id: number;
   /** 履歴 item の安定 ID (SDK entry id)。ライブ (ストリーミング / ローカルエコー) は持たない */
   entryId?: string;
+  /** サーバーが割り当てた assistant 応答ID。同じ応答の delta / ツール / 履歴を対応付ける */
+  assistantId?: string;
   /**
    * 履歴 item のコンテキスト状態。summarized = 要約で置き換わった (薄暗く表示)、
    * excluded = retry / overflow の context_edit で context から外れた (要約とは区別して表示)。
@@ -52,8 +54,13 @@ export type Bubble = {
    */
   since?: string;
   /**
-   * この送信を実行する run の id (POST 応答の runId)。ページの user entry と同じ runId のときだけ
-   * 対応する履歴 item へ吸収し、別クライアントの同一文面 entry を自分のものと取り違えない
+   * 受付ごとの送信ID (POST 応答の sendId)。ローカルエコー / 待機 / 履歴 item / pendingSends を
+   * 本文一致に依らず対応付ける。旧サーバーの応答では載らない
+   */
+  sendId?: string;
+  /**
+   * この送信を注入した run の id (POST 応答の runId、または run_start / 再送の応答)。
+   * 同じ run に複数の送信が属するため、送信の識別には使わない
    */
   runId?: string;
   /**
@@ -86,13 +93,18 @@ export type Bubble = {
    */
   queued?: boolean;
   /**
+   * 待機の段階。`steering` は SDK が配送用に取り出して注入待ち (「反映中」、取消・再送・破棄は不可)。
+   * `queued` は BFF 待機中か SDK の実キューに残る (取消できる)
+   */
+  queuedState?: "queued" | "steering";
+  /**
    * サーバーが配った待機の順位 (1 始まり)。表示直前に保持分を並べ直すための根拠で、表示する番号は
    * `lib/queueWait` が付ける。順位が不明 (旧サーバー) は載らない
    */
   queuePosition?: number;
   /**
-   * run が終わって確定したライブバブル (履歴ページがまだ拾っていない分)。resync で捨てずに残し、
-   * 履歴ページが届いたら entryId 付きのバブルと置き換える。未確定のストリーミング中だけ false。
+   * 応答が終わって確定したライブバブル (assistant_end / run_end。履歴ページがまだ拾っていない分)。
+   * resync で捨てずに残し、履歴ページが届いたら entryId 付きのバブルと置き換える
    */
   settled?: boolean;
   at?: number;

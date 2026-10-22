@@ -279,23 +279,35 @@ export function serializeSession(header: SessionHeader, entries: SessionEntryLik
 
 /** 受理済みだが user entry として保存されていない送信 (古い→新しい) */
 export interface UnsentSend {
-  runId: string;
+  /** 受付ごとに振る送信ID。再送でも変えない */
+  sendId: string;
+  /** 実行へ割り当て済みなら実行ID。手動圧縮待ちなど未割当の送信では省略する */
+  runId?: string;
   /** モデルへ渡す本文そのもの (再送に使う。payload へ出すときはマスクする) */
   text: string;
   at: number;
 }
 
+/** JSONL の user entry に写した送信IDと実行ID。実行時の対応表は再起動で消えるため保存する */
+export interface EntrySendIds {
+  sendId: string;
+  runId?: string;
+}
+
 /**
  * BFF 専用の未送信記録。受理済みでまだ user entry になっていない送信を残し、再起動後に
- * 「未送信」として見せる。entry と run の対応は JSONL の entry 自身へ写す (RUN_ID_FIELD) ため、
- * このファイルの書込みだけ失敗しても対応は失われない。
+ * 「未送信」として見せる。entry と送信の対応は JSONL の entry 自身へ写す (SEND_ID_FIELD /
+ * RUN_ID_FIELD) ため、このファイルの書込みだけ失敗しても対応は失われない。
  */
 export interface SessionSends {
   unsent: UnsentSend[];
 }
 
-/** user message entry へ写す run id のフィールド名 (SDK は未知フィールドをそのまま保持する) */
+/** user message entry へ写す送信ID / 実行ID のフィールド名 (SDK は未知フィールドをそのまま保持する) */
+export const SEND_ID_FIELD = "u7agentSendId";
 export const RUN_ID_FIELD = "u7agentRunId";
+/** assistant message entry へ写す応答IDのフィールド名 (同じ応答の delta / 履歴 / ツールを対応付ける) */
+export const ASSISTANT_ID_FIELD = "u7agentAssistantId";
 
 export function sessionSendsPath(id: string, storeDir: string): string {
   return join(sessionDirPath(storeDir, id), "sends.json");
@@ -314,14 +326,27 @@ export function readSessionSends(storeDir: string, id: string): SessionSends {
   }
 }
 
+/**
+ * 旧記録 (`runId` だけ) は「1送信=1実行」として同じ値を送信IDと実行IDへ補完する。IDの無い
+ * 記録は本文一致で対応を捏造せず落とす。
+ */
 function parseSessionSends(value: unknown): SessionSends {
   if (!isRecord(value)) return emptySessionSends();
   const unsent: UnsentSend[] = [];
   if (Array.isArray(value.unsent)) {
     for (const item of value.unsent) {
       if (!isRecord(item)) continue;
-      if (typeof item.runId !== "string" || typeof item.text !== "string" || typeof item.at !== "number") continue;
-      unsent.push({ runId: item.runId, text: item.text, at: item.at });
+      if (typeof item.text !== "string" || typeof item.at !== "number") continue;
+      const sendId = typeof item.sendId === "string" && item.sendId !== "" ? item.sendId : undefined;
+      const runId = typeof item.runId === "string" && item.runId !== "" ? item.runId : undefined;
+      if (sendId === undefined && runId === undefined) continue;
+      unsent.push({
+        // 旧記録は run id を送信IDとして読む (再送・破棄の対象を指定できるようにする)
+        sendId: sendId ?? (runId as string),
+        ...(runId === undefined ? {} : { runId }),
+        text: item.text,
+        at: item.at,
+      });
     }
   }
   return { unsent };
@@ -340,19 +365,24 @@ export function writeSessionSends(storeDir: string, id: string, sends: SessionSe
 }
 
 /**
- * JSONL の user message entry に写した run id (entry id -> runId) を集める。run 対応の正はここで、
+ * JSONL の user message entry に写した送信IDと実行ID (entry id -> 対応) を集める。対応の正はここで、
  * sends.json の書込みだけ失敗しても再起動後に対応を失わない。entry の存在は JSONL が証明する。
+ * 旧保存データ (`u7agentRunId` だけ) は同じ値を送信IDにも補完する。
  */
-export function entryRunIdsFromJsonl(entries: SessionEntryLike[]): Map<string, string> {
-  const runs = new Map<string, string>();
+export function entrySendsFromJsonl(entries: SessionEntryLike[]): Map<string, EntrySendIds> {
+  const sends = new Map<string, EntrySendIds>();
   for (const entry of entries) {
     if (entry.type !== "message" || typeof entry.id !== "string" || entry.id === "") continue;
     const message = entry.message as { role?: unknown } | undefined;
     if (!message || message.role !== "user") continue;
+    const sendId = entry[SEND_ID_FIELD];
     const runId = entry[RUN_ID_FIELD];
-    if (typeof runId === "string" && runId !== "") runs.set(entry.id, runId);
+    const send = typeof sendId === "string" && sendId !== "" ? sendId : undefined;
+    const run = typeof runId === "string" && runId !== "" ? runId : undefined;
+    if (send === undefined && run === undefined) continue;
+    sends.set(entry.id, { sendId: send ?? (run as string), ...(run === undefined ? {} : { runId: run }) });
   }
-  return runs;
+  return sends;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

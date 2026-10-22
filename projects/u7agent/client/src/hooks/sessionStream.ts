@@ -78,6 +78,7 @@ export function applySessionEvent(entry: EventEntry, deps: SessionStreamDeps): v
       dispatch({
         type: "runStart",
         runId: entry.data.runId,
+        ...(entry.data.initialSendId === undefined ? {} : { initialSendId: entry.data.initialSendId }),
         prompt: entry.data.prompt,
         at: entry.at,
         startedAt: entry.data.startedAt,
@@ -87,12 +88,18 @@ export function applySessionEvent(entry: EventEntry, deps: SessionStreamDeps): v
       void refreshSessions();
       return;
     case "text":
-      dispatch({ type: "text", delta: entry.data.delta, at: entry.at });
+      dispatch({
+        type: "text",
+        delta: entry.data.delta,
+        at: entry.at,
+        ...(entry.data.assistantId === undefined ? {} : { assistantId: entry.data.assistantId }),
+      });
       return;
     case "tool_start":
       dispatch({
         type: "toolStart",
         id: entry.data.id,
+        ...(entry.data.assistantId === undefined ? {} : { assistantId: entry.data.assistantId }),
         name: entry.data.name,
         args: entry.data.args,
         skill: entry.data.skill,
@@ -120,6 +127,13 @@ export function applySessionEvent(entry: EventEntry, deps: SessionStreamDeps): v
         usage: entry.data.usage,
         metrics: entry.data.metrics,
         context: entry.data.context,
+        ...(entry.data.assistantId === undefined ? {} : { assistantId: entry.data.assistantId }),
+      });
+      return;
+    case "assistant_end":
+      dispatch({
+        type: "assistantEnd",
+        ...(entry.data.assistantId === undefined ? {} : { assistantId: entry.data.assistantId }),
       });
       return;
     case "compaction":
@@ -141,11 +155,16 @@ export function applySessionEvent(entry: EventEntry, deps: SessionStreamDeps): v
       });
       return;
     case "queued":
-      dispatch({ type: "queued", position: entry.data.position, queueDepth: entry.data.queueDepth });
+      dispatch({
+        type: "queued",
+        ...(entry.data.sendId === undefined ? {} : { sendId: entry.data.sendId }),
+        position: entry.data.position,
+        queueDepth: entry.data.queueDepth,
+      });
       void refreshSessions();
       return;
     case "queue_cleared":
-      dispatch({ type: "queueCleared", runIds: entry.data.runIds });
+      dispatch({ type: "queueCleared", sendIds: entry.data.sendIds });
       return;
     case "run_end":
       dispatch({

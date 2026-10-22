@@ -439,27 +439,30 @@ test("履歴の user item には run 全体の所要時間と結末が載り、�
   }
 });
 
-test("キュー経由の送信でも、各 user item には自分の run の id が載る", async () => {
+test("追加入力の user item は、自分の送信IDと同じ実行の run id を持つ", async () => {
   const store = new SessionStore({ pi: createStubPi({ chunkDelayMs: 10 }), catalog: createAgentCatalog() });
   const record = await store.create();
   const first = store.postMessage(record, "1つ目");
-  // 実行中に積んだ送信にも、受け付けた時点で run id が振られる
+  // 実行中に積んだ送信は、user への注入時に実行へ割り当てる (受付時点では run id を持たない)
   const second = store.postMessage(record, "2つ目");
   assert.equal(second.queued, true);
-  assert.notEqual(second.runId, first.runId);
+  assert.equal(second.runId, undefined);
   await waitFor(() => store.statusOf(record) === "completed", 5000, "runs completion");
 
   const result = store.history(record, {});
   assert.ok(result.ok);
   const users = messageItems(result.page).filter((item) => item.role === "user");
   assert.deepEqual(
-    users.map((item) => [item.text, item.runId]),
+    users.map((item) => [item.text, item.sendId]),
     [
-      ["1つ目", first.runId],
-      ["2つ目", second.runId],
+      ["1つ目", first.sendId],
+      ["2つ目", second.sendId],
     ],
-    "応答で返した run id がそのまま item に載る",
+    "同じ本文でも送信IDで item を区別できる",
   );
+  assert.equal(users[0]?.runId, first.runId);
+  assert.equal(users[1]?.runId, first.runId, "追加入力は同じ実行に属する");
+  assert.equal(users[1]?.runDurationMs, undefined, "所要時間は開始送信にだけ載る");
 
   await store.close();
 });

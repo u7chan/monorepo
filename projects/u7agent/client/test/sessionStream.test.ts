@@ -16,7 +16,7 @@ import {
   type SessionStreamDeps,
 } from "../src/hooks/sessionStream";
 import type { RuntimeStatus } from "../src/hooks/runtimeStatus";
-import type { SessionPayload, SessionSummary } from "../src/types";
+import type { EventEntry, SessionPayload, SessionSummary } from "../src/types";
 
 function payload(sessionId: string, lastSeq: number): SessionPayload {
   return {
@@ -246,4 +246,70 @@ test("routes investigate progress to the run tool card", () => {
 
   // 型が optional のため、経路の写し忘れはコンパイルでは検出できない (ここで固定する)
   assert.deepEqual(record.actions, [{ type: "toolProgress", id: "call-1", text: "bash rg -n foo" }]);
+});
+
+test("assistant_end 後の再接続 resync で閉じた応答を開き直さない", () => {
+  // What: ツール実行中の再接続で run.toolCalls を復元しても、次の text が前の応答へ連結されない
+  let state = chatReducer(initialChatState, { type: "newChat" });
+  const deps: SessionStreamDeps = {
+    lastSeqRef: { current: 0 },
+    dispatch: (value) => {
+      state = chatReducer(state, value as ChatAction);
+    },
+    applySnapshot: (next) => {
+      state = chatReducer(state, { type: "resync", payload: next });
+    },
+    refreshSessions: async (): Promise<SessionSummary[]> => [],
+    setRuntimeStatus: () => {},
+    diagnostics: createDiagnosticsRecorder(),
+    diagnosticsSession: "s-1",
+  };
+  const apply = (entry: EventEntry): void => applySessionEvent(entry, deps);
+
+  apply({
+    seq: 1,
+    type: "run_start",
+    data: { runId: "run-1", initialSendId: "send-1", prompt: "go", startedAt: 1 },
+    at: 1,
+  });
+  apply({ seq: 2, type: "text", data: { delta: "A" }, at: 2 });
+  apply({ seq: 3, type: "assistant_end", data: {}, at: 3 });
+  apply({ seq: 4, type: "tool_start", data: { id: "tool-1", name: "bash", args: "", startedAt: 4 }, at: 4 });
+  apply({ seq: 5, type: "tool_start", data: { id: "tool-2", name: "bash", args: "", startedAt: 5 }, at: 5 });
+  apply({ seq: 6, type: "tool_end", data: { id: "tool-1", isError: false, output: "ok" }, at: 6 });
+  apply({ seq: 7, type: "tool_end", data: { id: "tool-2", isError: false, output: "ok" }, at: 7 });
+
+  const snapshot: SessionPayload = {
+    ...payload("s-1", 8),
+    status: "running",
+    run: {
+      id: "run-1",
+      status: "running",
+      startedAt: 1,
+      prompt: "go",
+      toolCalls: [
+        { id: "tool-1", name: "bash", args: "", isError: false, done: true, output: "ok" },
+        { id: "tool-2", name: "bash", args: "", isError: false, done: true, output: "ok" },
+      ],
+      totalRetryCount: 0,
+    },
+    messages: [
+      { role: "user", text: "go" },
+      { role: "assistant", text: "A" },
+    ],
+  };
+  apply({ seq: 8, type: "resync", data: snapshot, at: 8 });
+  apply({ seq: 9, type: "text", data: { delta: "B" }, at: 9 });
+
+  const assistants = state.bubbles.filter((bubble) => bubble.role === "assistant");
+  assert.deepEqual(
+    assistants.map((bubble) => bubble.text),
+    ["A", "B"],
+    "再接続の resync で A を開き直さない",
+  );
+  assert.deepEqual(
+    assistants.map((bubble) => bubble.tools.map((card) => card.id)),
+    [["tool-1", "tool-2"], []],
+    "並列ツールも要求した A だけに付く",
+  );
 });

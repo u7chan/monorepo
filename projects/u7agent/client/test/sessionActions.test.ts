@@ -73,6 +73,7 @@ function createHarness(overrides: Partial<SendChatMessageDeps> = {}) {
     opsRef: { current: 0 },
     runStatusRef: { current: "idle" },
     runEndSeqRef: { current: 0 },
+    stateSeqRef: { current: 0 },
     ensureSession: async () => "s-1",
     refreshSessions: async () => {
       record.refreshed += 1;
@@ -80,7 +81,7 @@ function createHarness(overrides: Partial<SendChatMessageDeps> = {}) {
     },
     post: async (sessionId, text, attachments) => {
       record.posted.push({ sessionId, text, attachments });
-      return { queued: false, queueDepth: 0 } satisfies PostMessageResult;
+      return { queued: false, queueDepth: 0, sendId: "send-1", runId: "run-1" } satisfies PostMessageResult;
     },
     dispatch,
     setSending: (value) => {
@@ -127,9 +128,30 @@ test("keeps the send target but not the display when the chat switches while cre
   assert.deepEqual(record.sending, [true, false]);
 });
 
+test("新規チャットの最初の送信もローカルエコーを出して送信IDを結び付ける", async () => {
+  const sessionIdRef = { current: "" };
+  const { record, deps } = createHarness({
+    sessionIdRef,
+    ensureSession: async () => {
+      sessionIdRef.current = "s-1";
+      return "s-1";
+    },
+  });
+
+  await sendChatMessage("hello", deps);
+
+  assert.deepEqual(
+    actionsOfType(record.actions, "localUser").map((action) => action.text),
+    ["hello"],
+  );
+  assert.deepEqual(actionsOfType(record.actions, "echoSendId"), [
+    { type: "echoSendId", sendId: "send-1", runId: "run-1", stateSeq: 0 },
+  ]);
+});
+
 test("marks the message as queued when the session is already running", async () => {
   const { record, deps } = createHarness({
-    post: async () => ({ queued: true, queueDepth: 3, runId: "run-3" }),
+    post: async () => ({ queued: true, queueDepth: 3, sendId: "send-3" }),
   });
 
   await sendChatMessage("hello", deps);
@@ -138,25 +160,27 @@ test("marks the message as queued when the session is already running", async ()
   assert.equal(run.queueDepth, 3);
   assert.equal(run.activity, "実行中…", "件数はコンポーザー直上のブロックが正");
   // 待機の順位は応答の queueDepth (= 押し込んだ直後の自分の順位)。ブロックの行の導出に預ける
-  assert.deepEqual(actionsOfType(record.actions, "echoRunId"), [
-    { type: "echoRunId", runId: "run-3", queuePosition: 3 },
+  assert.deepEqual(actionsOfType(record.actions, "echoSendId"), [
+    { type: "echoSendId", sendId: "send-3", stateSeq: 0, queuePosition: 3 },
   ]);
 });
 
 test("実行を始めた送信の応答は待機の順位を預けない", async () => {
   const { record, deps } = createHarness({
-    post: async () => ({ queued: false, queueDepth: 0, runId: "run-1" }),
+    post: async () => ({ queued: false, queueDepth: 0, sendId: "send-1", runId: "run-1" }),
   });
 
   await sendChatMessage("hello", deps);
 
-  assert.deepEqual(actionsOfType(record.actions, "echoRunId"), [{ type: "echoRunId", runId: "run-1" }]);
+  assert.deepEqual(actionsOfType(record.actions, "echoSendId"), [
+    { type: "echoSendId", sendId: "send-1", runId: "run-1", stateSeq: 0 },
+  ]);
 });
 
 test("圧縮中の送信は compacting のままキューへ積む", async () => {
   const { record, deps } = createHarness({
     runStatusRef: { current: "compacting" },
-    post: async () => ({ queued: true, queueDepth: 2, runId: undefined }),
+    post: async () => ({ queued: true, queueDepth: 2, sendId: "send-2" }),
   });
 
   await sendChatMessage("hello", deps);
@@ -189,7 +213,7 @@ test("queued の応答は、後の権威ある状態 (終端 resync) より遅�
   await postCalled.promise;
   // 終端 resync → pump → run_end が先に届き、表示は実行中ではなくなっている
   opsRef.current += 1;
-  posted.resolve({ queued: true, queueDepth: 1, runId: undefined });
+  posted.resolve({ queued: true, queueDepth: 1, sendId: "send-1" });
   await sending;
 
   assert.deepEqual(actionsOfType(record.actions, "setRun"), [], "遅れた応答で実行中 (や圧縮中) に戻さない");
@@ -211,7 +235,7 @@ test("送信中に別の会話へ切り替えたら、queued の応答で表示�
   const sending = sendChatMessage("hello", deps);
   await postCalled.promise;
   sessionIdRef.current = "s-2";
-  posted.resolve({ queued: true, queueDepth: 1 });
+  posted.resolve({ queued: true, queueDepth: 1, sendId: "send-1" });
   await sending;
 
   assert.deepEqual(actionsOfType(record.actions, "setRun"), [], "切替後の表示を実行中にしない");
@@ -256,7 +280,7 @@ test("queued の応答が run_end より後に届いても、表示は完了の�
   assert.equal(state().runStatus, "idle");
 
   // run #1 を指す queued 応答 (queueDepth 1) がここで届く
-  posted.resolve({ queued: true, queueDepth: 1, runId: "run-1" });
+  posted.resolve({ queued: true, queueDepth: 1, sendId: "send-1", runId: "run-1" });
   await sending;
 
   assert.equal(state().runStatus, "idle", "終わった run の queueDepth で実行中に戻さない");
@@ -283,7 +307,7 @@ test("即時 run の応答が run_end より後に届いても、表示は完了
   dispatch({ type: "runEnd", status: "completed", queueDepth: 0 });
   assert.equal(state().runStatus, "idle");
 
-  posted.resolve({ queued: false, queueDepth: 0, runId: "run-1" });
+  posted.resolve({ queued: false, queueDepth: 0, sendId: "send-1", runId: "run-1" });
   await sending;
 
   assert.equal(state().runStatus, "idle", "終わった run の応答で実行中に戻さない");
@@ -600,7 +624,7 @@ function createResendHarness(overrides: Partial<ResendUnsentDeps> = {}) {
     opsRef: { current: 0 },
     runStatusRef: { current: "idle" },
     runEndSeqRef: { current: 0 },
-    resend: async () => ({ queued: false, queueDepth: 0, runId: "run-x" }),
+    resend: async () => ({ queued: false, queueDepth: 0, sendId: "run-x", runId: "run-y" }),
     recover: async () => false,
     refreshSessions: async () => [],
     dispatch,
@@ -616,7 +640,7 @@ test("再送が受理されたら pending へ戻し、応答の状態を反映�
   const { actions, deps } = createResendHarness();
   await resendUnsentMessage("run-x", deps);
   assert.deepEqual(
-    actionsOfType(actions, "resendUnsent").map((action) => action.runId),
+    actionsOfType(actions, "resendUnsent").map((action) => action.sendId),
     ["run-x"],
   );
   const setRun = actionsOfType(actions, "setRun");
@@ -627,7 +651,7 @@ test("再送が受理されたら pending へ戻し、応答の状態を反映�
 
 test("再送がキューに積まれたら、状態行は活動の語だけにする", async () => {
   const { actions, deps } = createResendHarness({
-    resend: async () => ({ queued: true, queueDepth: 2, runId: "run-x" }),
+    resend: async () => ({ queued: true, queueDepth: 2, sendId: "run-x" }),
   });
   await resendUnsentMessage("run-x", deps);
 
@@ -646,7 +670,7 @@ test("再送が受理されないまま失敗したら未送信へ戻し、理�
   });
   await resendUnsentMessage("run-x", deps);
   assert.deepEqual(
-    actionsOfType(actions, "resendFailed").map((action) => action.runId),
+    actionsOfType(actions, "resendFailed").map((action) => action.sendId),
     ["run-x"],
   );
   assert.equal(actionsOfType(actions, "setActivity").length, 1);
@@ -670,7 +694,7 @@ test("応答が遅れて失敗したら未送信へ戻し、権威ある payload
   await running;
   // 未確認の送信を送信済みに見せない。サーバーが受理を確認済みの run は reducer が保つ
   assert.deepEqual(
-    actionsOfType(actions, "resendFailed").map((action) => action.runId),
+    actionsOfType(actions, "resendFailed").map((action) => action.sendId),
     ["run-x"],
   );
   assert.equal(recovered, 1, "失敗時は権威ある payload を取り直す");
@@ -708,7 +732,7 @@ test("取り消しが成功したら未送信へ切り替え、状態行の文�
   const { actions, deps } = createCancelHarness();
   await cancelQueuedMessage("run-b", deps);
   assert.deepEqual(
-    actionsOfType(actions, "queueCanceled").map((action) => action.runId),
+    actionsOfType(actions, "queueCanceled").map((action) => action.sendId),
     ["run-b"],
   );
   assert.deepEqual(actionsOfType(actions, "setActivity"), [], "件数と順位の正は resync の payload");
@@ -844,4 +868,28 @@ test("ask_user の回答は成功で ok、409 / 404 では権威ある状態を�
     ok: false,
     error: "会話がありません",
   });
+});
+
+test("待機応答の echo は要求時の状態世代を持つ", async () => {
+  // What: 要求後に resync などで状態が進んだ場合、待機スナップショットの適用可否を reducer が判定できる
+  const postCalled = deferred<void>();
+  const posted = deferred<PostMessageResult>();
+  const stateSeqRef = { current: 0 };
+  const { record, deps } = createHarness({
+    stateSeqRef,
+    post: () => {
+      postCalled.resolve();
+      return posted.promise;
+    },
+  });
+
+  const sending = sendChatMessage("hello", deps);
+  await postCalled.promise;
+  stateSeqRef.current = 3;
+  posted.resolve({ queued: true, queueDepth: 1, sendId: "send-1" });
+  await sending;
+
+  assert.deepEqual(actionsOfType(record.actions, "echoSendId"), [
+    { type: "echoSendId", sendId: "send-1", stateSeq: 0, queuePosition: 1 },
+  ]);
 });

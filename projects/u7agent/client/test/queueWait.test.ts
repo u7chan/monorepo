@@ -12,7 +12,7 @@ function bubble(id: number, queued = true, position?: number): Bubble {
     text: `m${id}`,
     tools: [],
     skillLoads: [],
-    ...(queued ? { queued: true, runId: `run-${id}` } : {}),
+    ...(queued ? { queued: true, sendId: `run-${id}` } : {}),
     ...(position === undefined ? {} : { queuePosition: position }),
   };
 }
@@ -22,9 +22,9 @@ test("待機中の送信をサーバーの順位で並べ直し、1 始まりの
   const sends = queuedSendsOf([bubble(1, true, 2), bubble(2, false), bubble(3, true, 1), bubble(4, true, 3)]);
 
   assert.deepEqual(sends, [
-    { runId: "run-3", text: "m3", index: 1 },
-    { runId: "run-1", text: "m1", index: 2 },
-    { runId: "run-4", text: "m4", index: 3 },
+    { sendId: "run-3", text: "m3", state: "queued", index: 1 },
+    { sendId: "run-1", text: "m1", state: "queued", index: 2 },
+    { sendId: "run-4", text: "m4", state: "queued", index: 3 },
   ]);
 });
 
@@ -38,8 +38,8 @@ test("先頭が抜けると残りの順位が繰り上がる", () => {
 });
 
 test("1 件だけのときは順位を出さない (1/1 は雑音)", () => {
-  assert.deepEqual(queuedSendsOf([bubble(1, true, 1)]), [{ runId: "run-1", text: "m1" }]);
-  assert.deepEqual(queuedSendsOf([bubble(1)]), [{ runId: "run-1", text: "m1" }]);
+  assert.deepEqual(queuedSendsOf([bubble(1, true, 1)]), [{ sendId: "run-1", text: "m1", state: "queued" }]);
+  assert.deepEqual(queuedSendsOf([bubble(1)]), [{ sendId: "run-1", text: "m1", state: "queued" }]);
 });
 
 test("順位が無い (旧サーバー) ときは番号を出さず、不明な分は後ろへ回す", () => {
@@ -47,7 +47,7 @@ test("順位が無い (旧サーバー) ときは番号を出さず、不明な�
   const sends = queuedSendsOf([bubble(1, true, 4), bubble(2, true), bubble(3, true, 1)]);
 
   assert.deepEqual(
-    sends.map((send) => [send.runId, send.index]),
+    sends.map((send) => [send.sendId, send.index]),
     [
       ["run-3", undefined],
       ["run-1", undefined],
@@ -64,8 +64,27 @@ test("待機が無ければ空を返す", () => {
 
 test("回答待ちの run で待つ送信の理由は、質問と待機の両方があるときだけ返す", () => {
   // What: 回答しても実行されないことを示す 1 文。回答可否 (質問の有無) とキューの有無の両方で決まる
-  assert.equal(answerWaitQueueReason(1, 2), "回答しても、待機中の送信はこの実行の終了後に始まります");
+  assert.equal(answerWaitQueueReason(1, 2), "回答後、この応答とツールが終わった時点で待機中の送信が反映されます");
   assert.equal(answerWaitQueueReason(0, 2), undefined, "回答待ちが無ければ活動文言に任せる");
   assert.equal(answerWaitQueueReason(2, 0), undefined, "キューが空なら理由が要らない");
   assert.equal(answerWaitQueueReason(0, 0), undefined);
+});
+
+test("steering の待機は state を保ち、順位は queued と同じく並べ直す", () => {
+  // What: 待機一覧は queued と steering を合わせて数え、行の操作可否は state で分ける
+  const steeringBubble: Bubble = {
+    id: 9,
+    role: "user",
+    text: "反映待ち",
+    tools: [],
+    skillLoads: [],
+    queued: true,
+    queuedState: "steering",
+    sendId: "send-9",
+    queuePosition: 1,
+  };
+  assert.deepEqual(queuedSendsOf([bubble(1, true, 2), steeringBubble]), [
+    { sendId: "send-9", text: "反映待ち", state: "steering", index: 1 },
+    { sendId: "run-1", text: "m1", state: "queued", index: 2 },
+  ]);
 });

@@ -12,6 +12,7 @@ import { branchEntriesOf } from "./pi-runtime";
 import type { SecretMasker } from "./redact";
 import type { ChatMessage, HistoryContextState, HistoryItem, HistoryPage, TurnEnd } from "./schema";
 import type { SessionRecord } from "./session-record";
+import { ASSISTANT_ID_FIELD } from "./session-store";
 import { isDisplayableMessage, messageProjectionContext, projectMessagesRange } from "./session-projection";
 
 export const HISTORY_PAGE_LIMIT_DEFAULT = 50;
@@ -27,6 +28,7 @@ interface MessageItemDescriptor {
   entryIndex: number;
   message: HistoryMessage;
   context: HistoryContextState;
+  assistantId?: string;
 }
 
 interface CompactionItemDescriptor {
@@ -80,7 +82,16 @@ function describeEntries(
       : latestCompactionIndex >= 0 && index < keepStartIndex
         ? "summarized"
         : "excluded";
-    descriptors.push({ kind: "message", id: entryIdAt(entry, index), entryIndex: index, message, context });
+    const savedAssistantId = (entry as Record<string, unknown>)[ASSISTANT_ID_FIELD];
+    const assistantId = typeof savedAssistantId === "string" && savedAssistantId !== "" ? savedAssistantId : undefined;
+    descriptors.push({
+      kind: "message",
+      id: entryIdAt(entry, index),
+      entryIndex: index,
+      message,
+      context,
+      ...(assistantId === undefined ? {} : { assistantId }),
+    });
   });
   return descriptors;
 }
@@ -113,11 +124,14 @@ function lowerBound(entryIndexByMessage: number[], entryIndex: number): number {
   return low;
 }
 
-/** 送信した run の id は、リロードや別タブの resync でもエコーと entry を対応付けるために写す。
- * 実行時の対応表は再起動で消えるため、保存済み entry はストアの対応 (entryRunIds) から復元する */
-function runIdOf(descriptor: MessageItemDescriptor, record: SessionRecord): string | undefined {
+/** 送信IDと実行IDは、リロードや別タブの resync でもエコーと entry を対応付けるために写す。
+ * 実行時の対応表は再起動で消えるため、保存済み entry はストアの対応 (entrySends) から復元する */
+function sendIdsOf(
+  descriptor: MessageItemDescriptor,
+  record: SessionRecord,
+): { sendId: string; runId?: string } | undefined {
   if (descriptor.message.role !== "user") return undefined;
-  return record.userMessageRuns.get(descriptor.message) ?? record.entryRunIds.get(descriptor.id);
+  return record.userMessageSends.get(descriptor.message) ?? record.entrySends.get(descriptor.id);
 }
 
 /**
@@ -137,8 +151,11 @@ function turnEndsByLastAnswer(descriptors: ItemDescriptor[], record: SessionReco
   for (const descriptor of descriptors) {
     if (descriptor.kind === "compaction") continue;
     if (descriptor.message.role === "user") {
+      const nextRunId = sendIdsOf(descriptor, record)?.runId;
+      // 同じ実行へ注入された追加入力は新しいターンを開かない (Done は実行の最後の応答だけに付ける)
+      if (runId !== undefined && nextRunId === runId) continue;
       closeTurn();
-      runId = runIdOf(descriptor, record);
+      runId = nextRunId;
       continue;
     }
     lastAnswerId = descriptor.id;
@@ -168,7 +185,15 @@ function projectItems({
 }): HistoryItem[] {
   const { session } = record;
   const { messages, entryIndexByMessage } = buildMessageIndex(entries);
-  const context = messageProjectionContext(messages, record.messageMetrics, masker, cwd, record.toolTimings);
+  const context = messageProjectionContext(
+    messages,
+    record.messageMetrics,
+    masker,
+    cwd,
+    record.toolTimings,
+    record.assistantMessageIds,
+    record.userMessageSends,
+  );
   // 繰り上げ (本文の無い assistant の tools / skillLoads) はターンを跨がないため、直近の user
   // から投影すればページ先頭の項目も同じ結果になる (projected 側ではページ先頭以降だけを拾う)。
   let projectionStartIndex = 0;
@@ -210,15 +235,25 @@ function projectItems({
       };
     }
     const item = projectedById.get(descriptor.id);
-    const runId = runIdOf(descriptor, record);
-    // ランの所要時間と結末は finish() が控えた値を run id で引く。再起動 / sweep で消えた分は載せない
-    const outcome = runId === undefined ? undefined : record.runOutcomes.get(runId);
+    const send = sendIdsOf(descriptor, record);
+    const assistantId =
+      descriptor.message.role === "assistant"
+        ? (record.assistantMessageIds.get(descriptor.message) ?? descriptor.assistantId)
+        : undefined;
+    // ランの所要時間と結末は開始送信だけが持つ (steering の送信へ複製しない)。値は finish() が控えた
+    // ものを run id で引き、再起動 / sweep で消えた分は載せない
+    const outcome =
+      send?.runId !== undefined && record.runInitialSends.get(send.runId) === send.sendId
+        ? record.runOutcomes.get(send.runId)
+        : undefined;
     const turnEnd = turnEnds.get(descriptor.id);
     return {
       kind: "message",
       id: descriptor.id,
       context: descriptor.context,
-      ...(runId !== undefined ? { runId } : {}),
+      ...(send !== undefined ? { sendId: send.sendId } : {}),
+      ...(assistantId !== undefined ? { assistantId } : {}),
+      ...(send?.runId !== undefined ? { runId: send.runId } : {}),
       ...(outcome !== undefined ? { runDurationMs: outcome.durationMs, runOutcome: outcome.outcome } : {}),
       ...(turnEnd !== undefined ? { turnEnd } : {}),
       role: item?.role ?? (descriptor.message.role as "user" | "assistant"),

@@ -2,7 +2,13 @@ import { useVirtualizer } from "@tanstack/react-virtual";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import type { Bubble, CompactionMarker } from "../hooks/chatReducer";
 import { useMessageCopy } from "../hooks/useMessageCopy";
-import { anchoredScrollTop, chatRenderItems, estimateChatItemHeight, type ChatRenderItem } from "../lib/chatItems";
+import {
+  anchoredScrollTop,
+  chatRenderItems,
+  estimateChatItemHeight,
+  type ChatRenderItem,
+  unsentActionsOf,
+} from "../lib/chatItems";
 import { resolveScrollFollow, shouldLoadOlder } from "../lib/chatScroll";
 import type { ChatScope } from "../lib/chatScope";
 import { cn } from "../lib/cn";
@@ -54,9 +60,9 @@ export type ChatAreaProps = {
   /** firstview の定型プロンプトの押下。送信はせず、選択を入力欄へ渡す */
   onSuggestion: (suggestion: AgentSuggestion) => void;
   /** 未送信メッセージの再送 (サーバーが保存済みの本文を使う) */
-  onResendUnsent?: (runId: string) => void;
+  onResendUnsent?: (sendId: string) => void;
   /** 未送信メッセージの破棄 */
-  onDiscardUnsent?: (runId: string) => void;
+  onDiscardUnsent?: (sendId: string) => void;
   /** 実行中の run か (ask_user の回答を受け付けるかの根拠) */
   answerable?: boolean;
   /** ask_user の回答。エラーはカード内に出し、入力は消さない */
@@ -281,8 +287,8 @@ export function ChatArea({
       );
     }
     const bubble = item.bubble;
-    // 未送信の再送 / 破棄は run id を持つバブルだけに出す
-    const unsentRunId = bubble.unsent === true ? bubble.runId : undefined;
+    // 未送信の再送 / 破棄は送信IDで操作する (実行IDとは別の値になり得る)
+    const unsentActions = unsentActionsOf(bubble, { onResend: onResendUnsent, onDiscard: onDiscardUnsent });
     return (
       <MessageView
         bubble={bubble}
@@ -306,8 +312,8 @@ export function ChatArea({
         onCopyTool={(card) => void copyMessage(toolCallCopyText(card), `tool_${card.id}`)}
         copiedAll={copiedId === `tools_${bubble.id}`}
         onCopyAll={() => void copyMessage(toolHistoryCopyText(nonSkillToolCards(bubble.tools)), `tools_${bubble.id}`)}
-        onResend={unsentRunId === undefined ? undefined : () => onResendUnsent?.(unsentRunId)}
-        onDiscard={unsentRunId === undefined ? undefined : () => onDiscardUnsent?.(unsentRunId)}
+        onResend={unsentActions.onResend}
+        onDiscard={unsentActions.onDiscard}
         answerable={answerable}
         // 進行中のターンだけ、ツール履歴のコピーを出さない
         live={bubble.id === currentAssistantId}

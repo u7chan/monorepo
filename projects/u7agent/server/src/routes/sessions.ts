@@ -258,8 +258,12 @@ export function createSessionRoutes({
       if (!record) return c.json({ error: "Session not found" }, 404);
       // 未送信メッセージの再送は、保存済みの生の本文をサーバー側で使う。クライアントへは表示用の
       // マスク済みの本文しか渡らないため、本文を送り直させるとキーが欠けたまま送られる
-      if (body.resendRunId !== undefined) {
-        const result = store.resend(record, body.resendRunId);
+      if (body.resendSendId !== undefined && body.resendRunId !== undefined) {
+        return c.json({ error: "resendSendId と resendRunId は同時に指定できません" }, 400);
+      }
+      const resendSendId = body.resendSendId ?? body.resendRunId;
+      if (resendSendId !== undefined) {
+        const result = store.resend(record, resendSendId);
         if (!result) return c.json({ error: "この送信は再開できません（保存済みか破棄済みです）" }, 409);
         const { handoffSaving, ...rest } = result;
         await awaitHandoffSave(handoffSaving);
@@ -308,27 +312,28 @@ export function createSessionRoutes({
     },
 
     /**
-     * 未送信メッセージの破棄。再送が実行中 / キュー待ちの分は消せず 409、記録が無い (別タブで
-     * 再送済み / 破棄済み) は 404。
+     * 未送信メッセージの破棄。配送中 / 実行中 / 注入済みの分は消せず 409、記録が無い (別タブで
+     * 再送済み / 破棄済み) は 404。末尾の ID は送信ID。
      */
     discardUnsent: async (c: Context) => {
       const record = await resolveRecord(c);
       if (!record) return c.json({ error: "Session not found" }, 404);
-      const result = store.discardUnsent(record, c.req.param("runId") ?? "");
+      const result = store.discardUnsent(record, c.req.param("sendId") ?? "");
       if (result === "missing") return c.json({ error: "未送信のメッセージが見つかりません" }, 404);
       if (result === "running") return c.json({ error: "再送が実行中のため破棄できません" }, 409);
       return c.json({ ok: true });
     },
 
     /**
-     * 待機キューの 1 件だけの取り消し。実行中のターンは止めず、記録 (本文) も残して未送信へ落とす。
-     * 実行開始 / キューからの消滅は状態が変わっているため、理由付きの 409 / 404 で断る。
+     * 待機中の 1 件だけの取り消し。実行中のターンは止めず、記録 (本文) も残して未送信へ落とす。
+     * SDK が実キューから取り出した後 / 実行中の開始送信は状態が変わっているため 409 で断る。
+     * 末尾の ID は送信ID。
      */
     cancelQueued: async (c: Context) => {
       const record = await resolveRecord(c);
       if (!record) return c.json({ error: "Session not found" }, 404);
-      const result = store.cancelQueued(record, c.req.param("runId") ?? "");
-      if (result === "running") return c.json({ error: "実行が始まったため取り消せません" }, 409);
+      const result = await store.cancelQueued(record, c.req.param("sendId") ?? "");
+      if (result === "running") return c.json({ error: "SDK が取り出したため取り消せません" }, 409);
       if (result === "unstorable") return c.json({ error: "送信の記録を保存できないため取り消せません" }, 409);
       if (result === "missing") return c.json({ error: "待機中のメッセージが見つかりません" }, 404);
       return c.json({ ok: true });

@@ -48,6 +48,7 @@ import type {
   CreateSessionOptions,
   PendingQuestion,
   PostMessageResultInternal,
+  QueuedSend,
   RunState,
   SessionRecord,
   SessionSubscriber,
@@ -69,7 +70,7 @@ import {
   prepareSessionStore,
   readSessionFile,
   readSessionMeta,
-  entryRunIdsFromJsonl,
+  entrySendsFromJsonl,
   readSessionSends,
   removeSessionDir,
   removeSessionHistory,
@@ -78,6 +79,8 @@ import {
   sessionWorkdirRel,
   writeSessionMeta,
   RUN_ID_FIELD,
+  ASSISTANT_ID_FIELD,
+  SEND_ID_FIELD,
   writeSessionSends,
   type PromptSnapshot,
   type SessionEntryLike,
@@ -94,6 +97,7 @@ import type {
   EventEntry,
   ModelRef,
   Project,
+  ResyncReason,
   RunStatus,
   SessionCompactionResult,
   SessionDiagnostics,
@@ -537,8 +541,12 @@ export class SessionStore {
       toolTimings: new Map(),
       questions: new Map(),
       messageMetrics: new WeakMap(),
-      userMessageRuns: new WeakMap(),
-      entryRunIds: new Map(),
+      assistantMessageIds: new WeakMap(),
+      userMessageSends: new WeakMap(),
+      entrySends: new Map(),
+      runInitialSends: new Map(),
+      injectedSends: new Set(),
+      stopping: false,
       unsentSends: [],
       sendsDirty: false,
       compactionMeta: new Map(),
@@ -677,12 +685,26 @@ export class SessionStore {
     record.projectCwd = current.projectCwd;
     record.projectName = current.projectName;
     record.projectId = this.projectIdOfCwd(current.projectCwd);
-    // run 対応は JSONL の entry へ写した注記を正とする (entry の存在が証跡なので、本文や時刻での
-    // 推測をしない)。未送信の記録は、その注記に載っている run だけを保存済みとして外す
+    // 送信対応は JSONL の entry へ写した注記を正とする (entry の存在が証跡なので、本文や時刻での
+    // 推測をしない)。未送信の記録は、その注記に載っている送信だけを保存済みとして外す
     const sends = this.storeDir ? readSessionSends(this.storeDir, id) : emptySessionSends();
-    record.entryRunIds = entryRunIdsFromJsonl(entries);
-    const persistedRuns = new Set(record.entryRunIds.values());
-    record.unsentSends = sends.unsent.filter((item) => !persistedRuns.has(item.runId));
+    record.entrySends = entrySendsFromJsonl(entries);
+    // 再起動後の payload.messages も保存済みの応答IDで対応付ける
+    for (const entry of entries) {
+      if (entry.type !== "message") continue;
+      const message = entry.message as { role?: unknown } | undefined;
+      const assistantId = entry[ASSISTANT_ID_FIELD];
+      if (message?.role === "assistant" && typeof assistantId === "string" && assistantId !== "") {
+        record.assistantMessageIds.set(message, assistantId);
+      }
+      const entryId = entry.id;
+      const send = typeof entryId === "string" ? record.entrySends.get(entryId) : undefined;
+      if (message?.role === "user" && send !== undefined) record.userMessageSends.set(message, send);
+    }
+    const persistedIds = new Set(
+      [...record.entrySends.values()].flatMap((send) => [send.sendId, ...(send.runId ? [send.runId] : [])]),
+    );
+    record.unsentSends = sends.unsent.filter((item) => !persistedIds.has(item.sendId));
     record.sendsDirty = record.unsentSends.length !== sends.unsent.length;
     if (this.storeDir) {
       record.writer = new SessionFileWriter(this.storeDir, id, {
@@ -950,9 +972,10 @@ export class SessionStore {
   }
 
   /** resync は payload と同じ lastSeq を持つ (クライアントのカーソルになる) */
-  emitResync(record: SessionRecord): SessionPayload {
+  emitResync(record: SessionRecord, reason?: ResyncReason): SessionPayload {
     const payload = this.payload(record);
     payload.lastSeq = record.seq + 1;
+    if (reason !== undefined) payload.resyncReason = reason;
     this.emit(record, "resync", payload);
     return payload;
   }
@@ -982,25 +1005,28 @@ export class SessionStore {
   }
 
   /**
-   * 実行中ならキューに入れ、それ以外は即座にランを始める。`titleSource` は一覧のタイトルの元本文で、
-   * 省略時は text。`/skill:` の展開結果は長いため、展開前のユーザー入力からタイトルを作るために使う。
-   * `runId` は未送信メッセージの再送で、受理済みの run id を引き継ぐために使う (未指定は新規採番)。
+   * 実行中なら追加入力としてBFFの配送キューへ積み、それ以外は即座にランを始める。`titleSource` は
+   * 一覧のタイトルの元本文で、省略時は text。`/skill:` の展開結果は長いため、展開前のユーザー入力から
+   * タイトルを作るために使う。`sendId` は未送信メッセージの再送で、受理済みの送信IDを引き継ぐ。
    */
   postMessage(
     record: SessionRecord,
     text: string,
-    options: { titleSource?: string; runId?: string } = {},
+    options: { titleSource?: string; sendId?: string } = {},
   ): PostMessageResultInternal {
-    // 設定変更中の送信は 409 (BFF のルートでも同じ扱い)
+    // 設定変更・停止処理中の送信は 409 (BFF のルートでも同じ扱い)
     if (record.changingSettings) {
       throw httpError(409, "Session settings are being changed");
     }
+    if (record.stopping) {
+      throw httpError(409, "Session is stopping");
+    }
     // 圧縮中も送信はキューへ積む (排他の正は BFF の flag。SDK は保存待ちの間 idle に見える)
-    const running = record.run?.status === "running" || record.session.isStreaming;
-    if (running || record.compacting) {
-      if (record.queue.length >= MAX_QUEUE_DEPTH) {
-        throw httpError(429, `Message queue is full (max ${MAX_QUEUE_DEPTH})`);
-      }
+    const runActive = this.runInProgress(record) || record.compacting;
+    // 終端で回収した入力が配送に残っている間も、新しい送信が先に始まらないよう待機へ積む
+    const waiting = runActive || record.queue.length > 0;
+    if (waiting && record.queue.length >= MAX_QUEUE_DEPTH) {
+      throw httpError(429, `Message queue is full (max ${MAX_QUEUE_DEPTH})`);
     }
     if (!record.title) {
       // title はユーザーが打った本文から作る (添付の注記と /skill: の展開結果を混ぜない)
@@ -1013,55 +1039,79 @@ export class SessionStore {
       );
     }
     record.lastUsedAt = Date.now();
-    // run id はキュー受付 / 即時開始のどちらでも先に振る。エントリ保存前に落ちた送信を「未送信」として
+    // 送信IDはキュー受付 / 即時開始のどちらでも先に振る。エントリ保存前に落ちた送信を「未送信」として
     // 残す記録にも同じ id を使うため、startRun に渡す前にここで確定させる
-    const runId = options.runId ?? randomBytes(8).toString("hex");
-    this.rememberUnsent(record, runId, text);
+    const sendId = options.sendId ?? randomBytes(8).toString("hex");
 
-    if (running || record.compacting) {
-      // 圧縮中も送信はキューへ積む。run id はここで振り、キューから始まる run の id として
-      // 応答へ返す (クライアントが自分の送信と run_start / 履歴 entry を対応付けるため)
-      record.queue.push({ text, runId });
+    if (waiting) {
+      this.rememberUnsent(record, sendId, text);
+      // 再送で前回の実行への割当が残っていても、待機に戻した時点で外す (次の実行で割り当て直す)
+      const pending = record.unsentSends.find((item) => item.sendId === sendId);
+      if (pending?.runId !== undefined) {
+        delete pending.runId;
+        record.sendsDirty = true;
+        this.writeSends(record);
+      }
+      const entry: QueuedSend = { sendId, text, at: Date.now() };
+      record.queue.push(entry);
+      // 実行が無くても古い配送待ちが残っていれば、新規送信が追い越さないよう先頭から開始する
+      if (!runActive) this.pump(record);
+      // 待機の順位と件数は BFF と SDK の未注入分を合わせて数える (SDK へ渡した分も queue に残る)
       this.emit(record, "queued", {
-        position: record.queue.length,
+        position: record.queue.findIndex((item) => item.sendId === sendId) + 1,
         queueDepth: record.queue.length,
+        sendId,
         prompt: this.masker.mask(text),
       });
-      return { queued: true, queueDepth: record.queue.length, runId, ...this.consumeHandoff(record) };
+      // 実行中の最初の user が注入済みなら、そのまま steering として SDK へ渡す
+      this.deliverSteering(record);
+      return { queued: true, queueDepth: record.queue.length, sendId, ...this.consumeHandoff(record) };
     }
 
-    const run = this.startRun(record, text, runId);
-    return { queued: false, queueDepth: 0, runId: run.id, ...this.consumeHandoff(record) };
+    // 実行IDは開始前に振り、受理記録へ一緒に書く (未送信の記録を 2 回書かない)
+    const runId = randomBytes(8).toString("hex");
+    this.rememberUnsent(record, sendId, text, runId);
+    const run = this.startRun(record, text, sendId, runId);
+    return { queued: false, queueDepth: 0, sendId, runId: run.id, ...this.consumeHandoff(record) };
   }
 
   /**
-   * 未送信メッセージの再送。保存済みの生の本文を使い、同じ run id で実行し直す (受理の記録は
-   * そのまま。user entry が保存された時点で `syncSendMap` が消す)。二重の再送は実行 / キュー中の
-   * run id を見て弾く。見つからない run id は undefined (既に保存済みか破棄済み)。
+   * 未送信メッセージの再送。保存済みの生の本文を使い、同じ送信IDで実行し直す (受理の記録は
+   * そのまま。user entry が保存された時点で `syncSendMap` が消す)。二重の再送は待機 / 実行 /
+   * 注入済みの送信IDを見て弾く。見つからない送信IDは undefined (既に保存済みか破棄済み)。
    */
-  resend(record: SessionRecord, runId: string): PostMessageResultInternal | undefined {
-    const send = record.unsentSends.find((item) => item.runId === runId);
+  resend(record: SessionRecord, sendId: string): PostMessageResultInternal | undefined {
+    const send = record.unsentSends.find((item) => item.sendId === sendId);
     if (!send) return undefined;
-    if (this.isRunActive(record, runId)) {
+    if (this.isSendActive(record, sendId)) {
       // 二重の再送は重ねない。状態は既に配られているので resync も足さない
-      const queued = record.queue.some((item) => item.runId === runId);
-      return { queued, queueDepth: record.queue.length, runId };
+      const queued = record.queue.find((item) => item.sendId === sendId);
+      const runId =
+        queued?.runId ??
+        (record.run?.initialSendId === sendId ? record.run.id : undefined) ??
+        record.unsentSends.find((item) => item.sendId === sendId)?.runId;
+      return {
+        queued: queued !== undefined,
+        queueDepth: record.queue.length,
+        sendId,
+        ...(runId === undefined ? {} : { runId }),
+      };
     }
-    const result = this.postMessage(record, send.text, { runId });
-    // 別タブの未送信表示を更新する。run_start は run id を配るが、キュー受付の `queued` は配らない
+    const result = this.postMessage(record, send.text, { sendId });
+    // 別タブの未送信表示を更新する。即時開始の run_start は run id を配るが、キュー受付の `queued` は配らない
     this.emitResync(record);
     return result;
   }
 
   /**
    * 未送信メッセージの破棄。"missing" は記録が無い (再送済み / 別タブで破棄済み)、"running" は
-   * 再送が実行中またはキュー待ちで消せないことを表す。破棄は購読者へ resync で配る (別タブの
+   * 配送中 / 実行中 / 注入済みで消せないことを表す。破棄は購読者へ resync で配る (別タブの
    * 未送信バブルを消すため)。
    */
-  discardUnsent(record: SessionRecord, runId: string): "ok" | "missing" | "running" {
-    const index = record.unsentSends.findIndex((item) => item.runId === runId);
+  discardUnsent(record: SessionRecord, sendId: string): "ok" | "missing" | "running" {
+    const index = record.unsentSends.findIndex((item) => item.sendId === sendId);
     if (index === -1) return "missing";
-    if (this.isRunActive(record, runId)) return "running";
+    if (this.isSendActive(record, sendId)) return "running";
     record.unsentSends.splice(index, 1);
     record.sendsDirty = true;
     this.writeSends(record);
@@ -1070,16 +1120,38 @@ export class SessionStore {
   }
 
   /**
-   * 待機キューから 1 件だけ外して未送信へ戻す。実行中のターンは止めず、キュー全体も破棄しない。
-   * 記録を残せない構成では取り消しの事後条件 (未送信として見える) を満たせないため、キューを触らない。
+   * 待機中の 1 件だけを配送から外して未送信へ戻す。実行中のターンは止めず、他の入力も破棄しない。
+   * BFF が持つ分はそのまま外し、SDK へ渡した分は実キューへの残存を公開 API で確かめてから
+   * await を挟まずに `clearQueue()` する。実キューから取り出されていれば取消は成立しない (409)。
+   * 記録を残せない構成では取り消しの事後条件 (未送信として見える) を満たせないため、配送を触らない。
    */
-  cancelQueued(record: SessionRecord, runId: string): "ok" | "running" | "unstorable" | "missing" {
-    const index = record.queue.findIndex((item) => item.runId === runId);
-    if (index === -1) return this.isRunActive(record, runId) ? "running" : "missing";
+  async cancelQueued(record: SessionRecord, sendId: string): Promise<"ok" | "running" | "unstorable" | "missing"> {
+    const index = record.queue.findIndex((item) => item.sendId === sendId);
+    if (index === -1) return this.isSendActive(record, sendId) ? "running" : "missing";
     if (!record.writer || !this.storeDir) return "unstorable";
-    record.queue.splice(index, 1);
-    // 取り消した分の順位と件数を別タブへ揃える (待機の `queued` は run id を配らない)
+    const entry = record.queue[index];
+    // SDK の受付処理が進行中なら、その完了を待ってから実キューの状態を判定する
+    if (entry.handedOff && record.steerTask) await record.steerTask.catch(() => {});
+    // 取消と注入の競合で状態が変わっていないか、await の後にもう一度引く
+    const current = record.queue.find((item) => item.sendId === sendId);
+    if (current === undefined) return this.isSendActive(record, sendId) ? "running" : "missing";
+    if (current.handedOff) {
+      // 実キューに残っていなければ SDK が取り出している (注入前でも取消は 409)
+      if (this.sdkQueueLength(record) === 0) return "running";
+      record.session.clearQueue?.();
+    }
+    const position = record.queue.indexOf(current);
+    if (position !== -1) record.queue.splice(position, 1);
+    const send = record.unsentSends.find((item) => item.sendId === sendId);
+    if (send) {
+      delete send.runId;
+      record.sendsDirty = true;
+      this.writeSends(record);
+    }
+    // 取り消した分の順位と件数を別タブへ揃える
     this.emitResync(record);
+    // 次の 1 件は SDK へ渡す (取消で先頭が抜けたら順番を詰める)
+    this.deliverSteering(record);
     return "ok";
   }
 
@@ -1118,29 +1190,154 @@ export class SessionStore {
     return entry.saving;
   }
 
-  /** その run id がまだ実行中 / キュー待ちか。終了した run は未送信の再送 / 破棄を妨げない */
-  private isRunActive(record: SessionRecord, runId: string): boolean {
-    if (record.queue.some((item) => item.runId === runId)) return true;
-    return record.run?.id === runId && (record.run.status === "running" || record.session.isStreaming);
+  /** 実行が継続中か (開始送信の準備中と、終端処理が済む前の SDK idle も含む) */
+  private runInProgress(record: SessionRecord): boolean {
+    return record.run?.status === "running" || record.session.isStreaming;
   }
 
-  /** 受理した送信を「未送信」として控える (同じ run id の再送では重ねない) */
-  private rememberUnsent(record: SessionRecord, runId: string, text: string): void {
+  /** その送信がまだ配送中 / 実行中 / 注入済みか。終了して未保存の送信は再送 / 破棄を妨げない */
+  private isSendActive(record: SessionRecord, sendId: string): boolean {
+    if (record.queue.some((item) => item.sendId === sendId)) return true;
+    if (record.injectedSends.has(sendId)) return true;
+    return record.run?.initialSendId === sendId && record.run.status === "running";
+  }
+
+  /**
+   * SDK の実キューに未注入で残る件数。公開 API が無い実装では 0 を返し、steering の取消判定は
+   * 「取り出し済み」に倒す (取り消せたと偽らない)。
+   */
+  private sdkQueueLength(record: SessionRecord): number {
+    try {
+      return record.session.agent?.peekQueuedMessages?.().length ?? 0;
+    } catch {
+      return 0;
+    }
+  }
+
+  /** SDK へ渡した 1 件の控え (同時に最大 1 件) */
+  private steeringOf(record: SessionRecord): QueuedSend | undefined {
+    return record.queue.find((item) => item.handedOff === true);
+  }
+
+  /** 送信の実行への所属を控える (注入で確定した時点と、開始送信の即時開始で使う) */
+  private assignSendRun(record: SessionRecord, sendId: string, runId: string): void {
+    const send = record.unsentSends.find((item) => item.sendId === sendId);
+    if (send && send.runId !== runId) {
+      send.runId = runId;
+      record.sendsDirty = true;
+      this.writeSends(record);
+    }
+    const queued = record.queue.find((item) => item.sendId === sendId);
+    if (queued) queued.runId = runId;
+  }
+
+  /**
+   * 追加入力を SDK の steering へ 1 件だけ渡す。idle のあいだは `steer()` だけではランが始まらず
+   * キューに置き去りになるため、実行中に限り渡す。
+   */
+  private deliverSteering(record: SessionRecord): void {
+    if (record.stopping || record.compacting) return;
+    const run = record.run;
+    if (!run || run.status !== "running" || !run.initialInjected) return;
+    if (this.steeringOf(record) !== undefined) return;
+    // SDK の idle 判定だけでは終端処理中の窓を取りこぼすため、BFF の実行状態と併せて見る
+    if (record.session.isIdle !== false && !record.session.isStreaming) return;
+    const entry = record.queue.find((item) => item.handedOff !== true);
+    if (!entry) return;
+    const steer = record.session.steer?.bind(record.session);
+    if (!steer) return;
+    entry.handedOff = true;
+    const task = Promise.resolve(steer(entry.text))
+      .then(() => {
+        if (this.records.get(record.id) === record) this.emitResync(record);
+      })
+      .catch((error) => {
+        if (this.records.get(record.id) !== record) return;
+        // 受付できなかった入力は配送対象から外し、未送信として残す (自動で入れ直さない)
+        const position = record.queue.indexOf(entry);
+        if (position !== -1) record.queue.splice(position, 1);
+        delete entry.handedOff;
+        delete entry.runId;
+        record.sendsDirty = true;
+        this.writeSends(record);
+        record.sendsError = messageFor(error);
+        console.warn(`[u7agent] 追加入力をSDKへ渡せませんでした (${record.id}): ${record.sendsError}`);
+        this.emitResync(record);
+      })
+      .finally(() => {
+        if (record.steerTask === task) delete record.steerTask;
+      });
+    record.steerTask = task;
+    this.emitResync(record);
+  }
+
+  /**
+   * user メッセージの注入を観測し、送信IDと実行IDを対応付ける。SDK は入力を 1 件ずつ渡すため、
+   * 開始送信の次に届く user は控えている steering の 1 件で、本文一致に依存せず対応が取れる。
+   * ディスク保存を待たず resync を配り、次の assistant の delta より先に新しい user を見せる。
+   */
+  private noteUserInjected(record: SessionRecord, run: RunState, message: object): void {
+    const steering = this.steeringOf(record);
+    if (!run.initialInjected) {
+      run.initialInjected = true;
+      record.userMessageSends.set(message, { sendId: run.initialSendId, runId: run.id });
+      record.injectedSends.add(run.initialSendId);
+      this.assignSendRun(record, run.initialSendId, run.id);
+    } else if (steering !== undefined) {
+      record.userMessageSends.set(message, { sendId: steering.sendId, runId: run.id });
+      record.injectedSends.add(steering.sendId);
+      this.assignSendRun(record, steering.sendId, run.id);
+      delete steering.handedOff;
+      const position = record.queue.indexOf(steering);
+      if (position !== -1) record.queue.splice(position, 1);
+      record.sendsDirty = true;
+      this.writeSends(record);
+    } else {
+      // 対応の取れない user (拡張など) に送信IDを捏造しない
+      return;
+    }
+    queueMicrotask(() => {
+      if (this.records.get(record.id) !== record) return;
+      this.emitResync(record);
+    });
+    // 注入を観測したら次の 1 件を渡す
+    this.deliverSteering(record);
+  }
+
+  /**
+   * 終端で未注入の steering を回収する。遅い受付が終端後に SDK の実キューへ入らないよう、
+   * `steerTask` の完了を待ってから実キューを見る。
+   */
+  private async recoverSteeringAtFinish(record: SessionRecord): Promise<void> {
+    const accepted = record.steerTask;
+    if (accepted !== undefined) await accepted.catch(() => {});
+    const entry = this.steeringOf(record);
+    if (!entry) return;
+    if (this.sdkQueueLength(record) > 0) {
+      record.session.clearQueue?.();
+      delete entry.handedOff;
+      delete entry.runId;
+    } else {
+      const position = record.queue.indexOf(entry);
+      if (position !== -1) record.queue.splice(position, 1);
+      delete entry.handedOff;
+    }
+    this.emitResync(record);
+  }
+
+  /** 受理した送信を「未送信」として控える (同じ送信IDの再送では重ねない) */
+  private rememberUnsent(record: SessionRecord, sendId: string, text: string, runId?: string): void {
     // 永続化なしは再起動を跨がないため記録を持たない (未開始のキュー破棄は queue_cleared の
-    // runIds がクライアントへ直接伝える)
+    // sendIds がクライアントへ直接伝える)
     if (!record.writer || !this.storeDir) return;
-    if (record.unsentSends.some((item) => item.runId === runId)) return;
-    record.unsentSends.push({ runId, text, at: Date.now() });
+    if (record.unsentSends.some((item) => item.sendId === sendId)) return;
+    record.unsentSends.push({ sendId, ...(runId === undefined ? {} : { runId }), text, at: Date.now() });
     record.sendsDirty = true;
     this.writeSends(record);
   }
 
   /**
-   * JSONL に載った user entry と run の対応を控え、保存済みになった分を「未送信」から外す。
-   * `persist` が JSONL の書込みを確定させてから呼ぶ (書けていない entry を保存済みにしない)。
-   */
-  /**
-   * 渡された entry スナップショットのうち、JSONL へ書けた user entry の run 対応を控え、保存済みに
+   * 渡された entry スナップショットのうち、JSONL へ書けた user entry の送信対応を控え、保存済みに
    * なった分を「未送信」から外す。`persist` が writer へ渡したのと同じ配列を渡す (await 中に SDK が
    * 追記した entry を保存済みにしないため)。
    */
@@ -1151,11 +1348,14 @@ export class SessionStore {
       if (entry.type !== "message" || typeof entry.id !== "string" || entry.id === "") continue;
       const message = entry.message as { role?: unknown } | undefined;
       if (!message || message.role !== "user") continue;
-      const runId = record.userMessageRuns.get(message);
-      if (runId === undefined || record.entryRunIds.get(entry.id) === runId) continue;
-      record.entryRunIds.set(entry.id, runId);
-      const index = record.unsentSends.findIndex((item) => item.runId === runId);
+      const send = record.userMessageSends.get(message);
+      if (send === undefined) continue;
+      const known = record.entrySends.get(entry.id);
+      if (known?.sendId === send.sendId && known.runId === send.runId) continue;
+      record.entrySends.set(entry.id, send);
+      const index = record.unsentSends.findIndex((item) => item.sendId === send.sendId);
       if (index !== -1) record.unsentSends.splice(index, 1);
+      record.injectedSends.delete(send.sendId);
       changed = true;
     }
     if (changed) {
@@ -1185,43 +1385,94 @@ export class SessionStore {
   }
 
   /**
-   * user message entry へ送信の run id を写す。entry と run の対応を JSONL 自身に持たせ、
+   * user message entry へ送信IDと実行IDを写す。entry と送信の対応を JSONL 自身に持たせ、
    * 別ファイル (sends.json) の書込みだけ失敗しても再起動後に対応を失わない。SDK は未知の
    * フィールドをそのまま保持するため、SDK 形式は壊れない。
    */
-  private annotateRunIds(record: SessionRecord, entries: SessionEntryLike[]): SessionEntryLike[] {
+  private annotateSendIds(record: SessionRecord, entries: SessionEntryLike[]): SessionEntryLike[] {
     return entries.map((entry) => {
       if (entry.type !== "message" || typeof entry.id !== "string" || entry.id === "") return entry;
       const message = entry.message as { role?: unknown } | undefined;
+      if (message?.role === "assistant") {
+        const assistantId = record.assistantMessageIds.get(message);
+        if (assistantId === undefined || entry[ASSISTANT_ID_FIELD] === assistantId) return entry;
+        return { ...entry, [ASSISTANT_ID_FIELD]: assistantId };
+      }
       if (!message || message.role !== "user") return entry;
-      const runId = record.userMessageRuns.get(message) ?? record.entryRunIds.get(entry.id);
-      if (runId === undefined || entry[RUN_ID_FIELD] === runId) return entry;
-      return { ...entry, [RUN_ID_FIELD]: runId };
+      const send = record.userMessageSends.get(message) ?? record.entrySends.get(entry.id);
+      if (send === undefined) return entry;
+      if (entry[SEND_ID_FIELD] === send.sendId && entry[RUN_ID_FIELD] === send.runId) return entry;
+      return {
+        ...entry,
+        [SEND_ID_FIELD]: send.sendId,
+        ...(send.runId === undefined ? {} : { [RUN_ID_FIELD]: send.runId }),
+      };
     });
   }
 
-  /** 実行中のランを中断し、キューに積まれたメッセージも捨てる。 */
+  /**
+   * 実行中のランを中断し、未配信の入力を未送信として回収する。新規の送信は先に止め、SDK の受付処理
+   * (steer) の完了を待ってから実キューを捨て、abort の完了後に積み残しを再確認する。停止後は
+   * 自動配送しない (回収した入力は手動の再送 / 破棄に任せる)。
+   */
   async stop(record: SessionRecord): Promise<{ ok: true; status: RunStatus }> {
     record.lastUsedAt = Date.now();
-    if (record.queue.length > 0) {
-      // 破棄した送信は「未送信」として見せる (実行されないまま黙って消さない)
-      const clearedRunIds = record.queue.map((item) => item.runId);
-      record.queue = [];
-      this.emit(record, "queue_cleared", { runIds: clearedRunIds });
+    record.stopping = true;
+    try {
+      // 受付処理中の steering を取りこぼさない (この完了後にもう一度実キューを見る)
+      await record.steerTask?.catch(() => {});
+      record.session.clearQueue?.();
+      const cleared = this.collectQueued(record);
+      if (cleared.length > 0) {
+        // 破棄した送信は「未送信」として見せる (実行されないまま黙って消さない)
+        this.emit(record, "queue_cleared", { sendIds: cleared.map((item) => item.sendId) });
+      }
+      // 先に task を持ち、abort の後にその settle を待つ (abort は SDK の待機で、保存待ちは覆わない)。
+      // SDK の abort() は abortCompaction() も呼ぶため、圧縮中もこれ 1 つで巻き戻せる
+      const compaction = record.compactionTask;
+      if (record.run?.status === "running" || record.session.isStreaming || record.compacting) {
+        // 待機中は aborted の assistant が投影に残らず stopReason では判定できないため、要求を控えておく
+        if (record.run?.status === "running") record.run.stopRequested = true;
+        // 回答待ちは abort シグナルでも取り消されるが、signal が届かない実装でも止まるように先に reject する
+        this.cancelQuestions(record);
+        await record.session.abort().catch(() => {});
+      }
+      // entry を append 済み (保存待ち) の段階では圧縮を巻き戻せない。成功と保存結果を正とする
+      await compaction?.catch(() => {});
+      // abort の完了までに積まれた分を回収する (回収し忘れた入力を次回の実行へ残さない)
+      record.session.clearQueue?.();
+      const stragglers = this.collectQueued(record);
+      if (stragglers.length > 0) this.emit(record, "queue_cleared", { sendIds: stragglers.map((item) => item.sendId) });
+      // 未注入の控えは旧実行への割当を外し、未送信として保存する
+      let released = false;
+      for (const send of record.unsentSends) {
+        if (record.injectedSends.has(send.sendId) || send.runId === undefined) continue;
+        delete send.runId;
+        released = true;
+      }
+      if (released) record.sendsDirty = true;
+      this.writeSends(record);
+      // 回収で待機や未送信の割当が変わったときだけ、購読者の表示を揃える
+      if (cleared.length + stragglers.length > 0 || released) this.emitResync(record);
+      return { ok: true, status: this.statusOf(record) };
+    } finally {
+      record.stopping = false;
     }
-    // 先に task を持ち、abort の後にその settle を待つ (abort は SDK の待機で、保存待ちは覆わない)。
-    // SDK の abort() は abortCompaction() も呼ぶため、圧縮中もこれ 1 つで巻き戻せる
-    const compaction = record.compactionTask;
-    if (record.run?.status === "running" || record.session.isStreaming || record.compacting) {
-      // 待機中は aborted の assistant が投影に残らず stopReason では判定できないため、要求を控えておく
-      if (record.run?.status === "running") record.run.stopRequested = true;
-      // 回答待ちは abort シグナルでも取り消されるが、signal が届かない実装でも止まるように先に reject する
-      this.cancelQuestions(record);
-      await record.session.abort().catch(() => {});
+  }
+
+  /** 配送キューを取り出し、未注入の控えから実行への割当を外す (停止・回収で共通) */
+  private collectQueued(record: SessionRecord): QueuedSend[] {
+    const cleared = record.queue.splice(0, record.queue.length);
+    for (const entry of cleared) {
+      delete entry.handedOff;
+      const send = record.unsentSends.find((item) => item.sendId === entry.sendId);
+      if (send && !record.injectedSends.has(send.sendId)) delete send.runId;
     }
-    // entry を append 済み (保存待ち) の段階では圧縮を巻き戻せない。成功と保存結果を正とする
-    await compaction?.catch(() => {});
-    return { ok: true, status: this.statusOf(record) };
+    if (cleared.length > 0) {
+      record.sendsDirty = true;
+      this.writeSends(record);
+    }
+    return cleared;
   }
 
   /**
@@ -1550,7 +1801,7 @@ export class SessionStore {
           seq: record.seq,
           events: record.events,
           status: this.statusOf(record),
-          queueRunIds: record.queue.map((item) => item.runId),
+          queueSendIds: record.queue.map((item) => item.sendId),
           run: record.run
             ? {
                 id: record.run.id,
@@ -1600,7 +1851,7 @@ export class SessionStore {
         seq: 0,
         events: [],
         status: "idle",
-        queueRunIds: [],
+        queueSendIds: [],
         run: null,
         questions: [],
         meta: {
@@ -2135,7 +2386,7 @@ export class SessionStore {
       let failure: string | undefined;
       // writer へ渡すのと同じスナップショットを使う。await 中に SDK が追記した entry を
       // 保存済みとして対応表へ入れない (次の保存で書かれる)。run id は entry 自身へ写す
-      const entries = this.annotateRunIds(record, entriesOf(session));
+      const entries = this.annotateSendIds(record, entriesOf(session));
       try {
         await writeSessionMeta(storeDir, meta);
         if (jsonl) {
@@ -2248,11 +2499,11 @@ export class SessionStore {
   }
 
   /** バックグラウンドランを開始する (呼び出し側はセッションが idle であることを保証する)。 */
-  startRun(record: SessionRecord, text: string, presetId?: string): RunState {
+  startRun(record: SessionRecord, text: string, sendId: string, runId?: string): RunState {
     const { session } = record;
     const run: RunState = {
-      // キューから始まる run は受け付けた時点で振った id を使う (応答で返した id と一致させる)
-      id: presetId ?? randomBytes(8).toString("hex"),
+      id: runId ?? randomBytes(8).toString("hex"),
+      initialSendId: sendId,
       // ログ・SSE 用に保持するプロンプトはマスクする (モデルへ渡す text はユーザー入力そのまま)。
       prompt: this.masker.mask(text),
       status: "running",
@@ -2263,14 +2514,19 @@ export class SessionStore {
       totalRetryCount: 0,
     };
     record.run = run;
-    // 同じ run id を再利用する再送 (resend) では、前回の試行の控えを次の試行へ持ち越さない。
-    // 消さないと、再送が走っている間に履歴 API が前回の所要時間と結末を返す
-    record.runOutcomes.delete(run.id);
+    // 実行を開始した送信を控える (所要時間と結末はこの送信の item にだけ写す)
+    record.runInitialSends.set(run.id, sendId);
+    this.assignSendRun(record, sendId, run.id);
     record.tools = new Map();
     // 質問の待機も run と同じ寿命。前の run の tombstone (回答済み) を次の run へ持ち越さない
     record.questions = new Map();
     record.lastUsedAt = Date.now();
-    this.emit(record, "run_start", { runId: run.id, prompt: run.prompt, startedAt: run.startedAt });
+    this.emit(record, "run_start", {
+      runId: run.id,
+      initialSendId: run.initialSendId,
+      prompt: run.prompt,
+      startedAt: run.startedAt,
+    });
 
     let finished = false;
 
@@ -2329,23 +2585,33 @@ export class SessionStore {
         context: contextUsageOf(session),
       });
       // 最後の assistant entry を取りこぼさないよう、ラン終了時に必ず保存する
-      void this.persist(record).then(() => {
-        // user entry を残さずに終わった run (認証エラー等) は、購読者へ未送信として配る。
-        // 通常は user entry の保存で記録が消えるため、ここへ来るのは保存されなかった run だけ
+      void this.persist(record).then((failure) => {
+        // 保存が済んだ / 失敗した注入済みの送信は、実行中ではなく未送信として扱う
+        record.injectedSends.clear();
         if (this.records.get(record.id) !== record) return;
-        if (record.unsentSends.some((item) => item.runId === run.id)) this.emitResync(record);
+        // この実行の送信が保存されていない (認証エラー等で user entry を残さなかった) ときだけ、
+        // 未送信の表示を購読者へ揃える。別の実行の待機は `queued` が既に配っている
+        if (failure || record.unsentSends.some((item) => item.sendId === run.initialSendId || item.runId === run.id)) {
+          this.emitResync(record);
+        }
       });
 
       // 送信は fire-and-forget。run_end の記録・persist・キューの pump を待たせない
       this.notifyCompleted(record, run, bridge.settledAssistantText(), durationMs);
 
-      if (record.queue.length > 0) {
-        setTimeout(() => this.pump(record), QUEUE_DELAY_MS).unref?.();
-      }
+      // 受付処理中の steering が終端後に実キューへ残らないよう、回収を待ってから次を開始する
+      void this.recoverSteeringAtFinish(record)
+        .catch(() => {})
+        .finally(() => {
+          if (this.records.get(record.id) !== record) return;
+          if (record.stopping || record.queue.length === 0) return;
+          setTimeout(() => this.pump(record), QUEUE_DELAY_MS).unref?.();
+        });
     };
 
     const bridge = createRunEventBridge({
       session,
+      runId: run.id,
       masker: this.masker,
       // 履歴側と同じ絶対 cwd。root 相対と絶対を混ぜると解決結果が経路でずれる
       cwd: workspaceAbs(this.rootCwd, record.workdir),
@@ -2355,16 +2621,17 @@ export class SessionStore {
       compactionMeta: record.compactionMeta,
       emit: (type, data) => this.emit(record, type, data),
       // 遅延した resync (context_edit の microtask) が次のランへ漏れないよう、ラン ID を確認してから配る
-      emitResync: () => {
-        if (record.run === run && run.status === "running") this.emitResync(record);
+      emitResync: (reason) => {
+        if (record.run === run && run.status === "running") this.emitResync(record, reason);
       },
       // SDK は listener 通知の後に entry を append する。1 拍置いてから読む (保存点の順序テストあり)
       onPersist: () => queueMicrotask(() => void this.persist(record)),
-      // 履歴 item に run id を写すための控え。SDK は listener の後に entry を append するが、
-      // entry と session.messages は同じメッセージ参照を共有するので、投影時に参照で引ける
-      onPromptMessage: (message) => {
-        record.userMessageRuns.set(message, run.id);
+      onAssistantMessage: (message, assistantId) => {
+        record.assistantMessageIds.set(message, assistantId);
       },
+      // 履歴 item に送信ID / 実行ID を写すための控え。SDK は listener の後に entry を append するが、
+      // entry と session.messages は同じメッセージ参照を共有するので、投影時に参照で引ける
+      onPromptMessage: (message) => this.noteUserInjected(record, run, message),
       onRetryScheduled: ({ attempt, maxAttempts, delayMs, errorMessage }) => {
         run.totalRetryCount += 1;
         const reason = classifyRunError(errorMessage)?.code ?? "unknown";
@@ -2457,17 +2724,21 @@ export class SessionStore {
   }
 
   pump(record: SessionRecord): void {
-    // close 中は新しい run を始めない (close は実行中を abort して未送信を残す。遅延 pump が
-    // close 中に発火すると、キュー中の送信が run を始めて未送信でなくなる)
-    if (this.closing || this.deleting.has(record.id) || this.records.get(record.id) !== record) return;
+    // close / 停止中は新しい run を始めない (停止後は手動の再送に任せる)
+    if (this.closing || record.stopping || this.deleting.has(record.id) || this.records.get(record.id) !== record) {
+      return;
+    }
     // 圧縮の終端処理が done してから呼ばれる (圧縮中はキューを進めない)
     if (record.compacting) return;
     if (record.queue.length === 0) return;
-    if (record.run?.status === "running" || record.session.isStreaming) return;
+    // 受付処理中の steering が終わるとき、SDK の実キューへ同じ入力を残さないよう開始を待つ
+    if (record.steerTask !== undefined) return;
+    if (record.queue[0].handedOff === true) return;
+    if (this.runInProgress(record)) return;
     const next = record.queue.shift();
     if (next === undefined) return;
     record.lastUsedAt = Date.now();
-    this.startRun(record, next.text, next.runId);
+    this.startRun(record, next.text, next.sendId);
   }
 
   emit<T extends SSEEventType>(record: SessionRecord, type: T, data: SSEEventData[T]): EventEntry {

@@ -321,7 +321,7 @@ test("diagnostics masks captured strings and keeps the stored event data", () =>
       seq: 1,
       events: [{ seq: 1, type: "status", data: { state: "thinking", text: `token=${secret}` }, at: 1 }],
       status: "running",
-      queueRunIds: [],
+      queueSendIds: [],
       run: { id: "r-1", status: "running", startedAt: 1, totalRetryCount: 0, error: `失敗 ${secret}` },
       questions: [],
       meta: {

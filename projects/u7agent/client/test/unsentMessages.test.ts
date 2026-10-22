@@ -58,7 +58,7 @@ function withHistory() {
 /** 送信のローカルエコーに run id を結び付けた状態を作る */
 function echoWithRunId(state: ReturnType<typeof chatReducer>, text: string, runId: string, at: number) {
   const echoed = chatReducer(state, { type: "localUser", text, at });
-  return chatReducer(echoed, { type: "echoRunId", runId });
+  return chatReducer(echoed, { type: "echoSendId", sendId: runId, runId });
 }
 
 test("再起動後、別タブの同一文面 entry に自分の pending エコーを吸収しない (未送信として残す)", () => {
@@ -70,7 +70,7 @@ test("再起動後、別タブの同一文面 entry に自分の pending エコ�
   // BFF 再起動: タブ B の保存済み entry は run-b、自分の送信は未送信として配られる
   const restarted = chatReducer(mine, {
     type: "resync",
-    payload: payload([{ runId: "run-a", text: "同じ本文", at: 2, state: "unsent" }]),
+    payload: payload([{ sendId: "run-a", runId: "run-a", text: "同じ本文", at: 2, state: "unsent" }]),
   });
   const foreign = chatReducer(restarted, {
     type: "resyncHistory",
@@ -123,7 +123,7 @@ test("再起動後、保存済みの同一文面2件は2件の pending エコー
 test("リロード後も未送信メッセージはバブルとして見え、履歴の後ろに残る", () => {
   const fresh = chatReducer(initialChatState, {
     type: "resync",
-    payload: payload([{ runId: "run-x", text: "未送信の本文", at: 5, state: "unsent" }]),
+    payload: payload([{ sendId: "run-x", runId: "run-x", text: "未送信の本文", at: 5, state: "unsent" }]),
   });
   assert.deepEqual(
     fresh.bubbles.map((bubble) => [bubble.text, bubble.runId, bubble.unsent === true, bubble.at]),
@@ -153,7 +153,7 @@ test("旧サーバー (pendingSends 無し) の resync は pending エコーを�
 test("未送信は本文の縮退で旧保存データの同一文面 item へ吸収されない", () => {
   const fresh = chatReducer(initialChatState, {
     type: "resync",
-    payload: payload([{ runId: "run-x", text: "同じ本文", at: 5, state: "unsent" }]),
+    payload: payload([{ sendId: "run-x", runId: "run-x", text: "同じ本文", at: 5, state: "unsent" }]),
   });
   // runId を持たない旧保存データの item が同じ本文で載っても、未送信は別物として残す
   const merged = chatReducer(fresh, {
@@ -172,9 +172,9 @@ test("未送信は本文の縮退で旧保存データの同一文面 item へ�
 test("未送信の再送は pending へ戻り、自分の entry が載った時点で吸収される", () => {
   const fresh = chatReducer(withHistory(), {
     type: "resync",
-    payload: payload([{ runId: "run-x", text: "未送信の本文", at: 5, state: "unsent" }]),
+    payload: payload([{ sendId: "run-x", runId: "run-x", text: "未送信の本文", at: 5, state: "unsent" }]),
   });
-  const resent = chatReducer(fresh, { type: "resendUnsent", runId: "run-x" });
+  const resent = chatReducer(fresh, { type: "resendUnsent", sendId: "run-x" });
   const echo = resent.bubbles.find((bubble) => bubble.runId === "run-x");
   assert.ok(echo);
   assert.equal(echo.unsent, false);
@@ -201,14 +201,14 @@ test("未送信の再送は pending へ戻り、自分の entry が載った時�
 test("再送に失敗したら未送信へ戻り、破棄すると表示からも消える", () => {
   const fresh = chatReducer(withHistory(), {
     type: "resync",
-    payload: payload([{ runId: "run-x", text: "未送信の本文", at: 5, state: "unsent" }]),
+    payload: payload([{ sendId: "run-x", runId: "run-x", text: "未送信の本文", at: 5, state: "unsent" }]),
   });
-  const resent = chatReducer(fresh, { type: "resendUnsent", runId: "run-x" });
-  const failed = chatReducer(resent, { type: "resendFailed", runId: "run-x" });
+  const resent = chatReducer(fresh, { type: "resendUnsent", sendId: "run-x" });
+  const failed = chatReducer(resent, { type: "resendFailed", sendId: "run-x" });
   assert.equal(failed.bubbles.find((bubble) => bubble.runId === "run-x")?.unsent, true);
   assert.deepEqual(failed.pendingEchoIds, []);
 
-  const discarded = chatReducer(failed, { type: "unsentDiscarded", runId: "run-x" });
+  const discarded = chatReducer(failed, { type: "unsentDiscarded", sendId: "run-x" });
   assert.deepEqual(
     discarded.bubbles.map((bubble) => bubble.runId),
     ["run-old"],
@@ -216,7 +216,7 @@ test("再送に失敗したら未送信へ戻り、破棄すると表示から�
   );
 
   // pending のエコー (未送信ではない) は破棄しない
-  const kept = chatReducer(resent, { type: "unsentDiscarded", runId: "run-x" });
+  const kept = chatReducer(resent, { type: "unsentDiscarded", sendId: "run-x" });
   assert.equal(
     kept.bubbles.some((bubble) => bubble.runId === "run-x"),
     true,
@@ -227,7 +227,7 @@ test("再送に失敗したら未送信へ戻り、破棄すると表示から�
 test("別タブの再送 / 破棄で記録が消えた未送信バブルは、payload から落ちる", () => {
   const fresh = chatReducer(initialChatState, {
     type: "resync",
-    payload: payload([{ runId: "run-x", text: "未送信の本文", at: 5, state: "unsent" }]),
+    payload: payload([{ sendId: "run-x", runId: "run-x", text: "未送信の本文", at: 5, state: "unsent" }]),
   });
   const cleared = chatReducer(fresh, { type: "resync", payload: payload([]) });
   assert.deepEqual(cleared.bubbles, []);
@@ -238,8 +238,8 @@ test("取り消した待機は未送信として残り、再送しても同じ�
   const waiting = chatReducer(withHistory(), {
     type: "resync",
     payload: payload([
-      { runId: "run-running", text: "実行中の本文", at: 2, state: "running" },
-      { runId: "run-queued", text: "取り消す本文", at: 3, state: "queued", position: 1 },
+      { sendId: "run-running", runId: "run-running", text: "実行中の本文", at: 2, state: "running" },
+      { sendId: "run-queued", runId: "run-queued", text: "取り消す本文", at: 3, state: "queued", position: 1 },
     ]),
   });
   const runningId = waiting.bubbles.find((bubble) => bubble.runId === "run-running")?.id;
@@ -247,7 +247,7 @@ test("取り消した待機は未送信として残り、再送しても同じ�
   assert.ok(runningId !== undefined && queuedId !== undefined);
   assert.deepEqual(waiting.pendingEchoIds, [runningId, queuedId]);
 
-  const canceled = chatReducer(waiting, { type: "queueCanceled", runId: "run-queued" });
+  const canceled = chatReducer(waiting, { type: "queueCanceled", sendId: "run-queued" });
   assert.deepEqual(
     canceled.bubbles
       .filter((bubble) => bubble.runId !== undefined)
@@ -265,14 +265,14 @@ test("取り消した待機は未送信として残り、再送しても同じ�
   const resynced = chatReducer(canceled, {
     type: "resync",
     payload: payload([
-      { runId: "run-running", text: "実行中の本文", at: 2, state: "running" },
-      { runId: "run-queued", text: "取り消す本文", at: 3, state: "unsent" },
+      { sendId: "run-running", runId: "run-running", text: "実行中の本文", at: 2, state: "running" },
+      { sendId: "run-queued", runId: "run-queued", text: "取り消す本文", at: 3, state: "unsent" },
     ]),
   });
-  assert.equal(chatReducer(resynced, { type: "queueCanceled", runId: "run-queued" }), resynced);
+  assert.equal(chatReducer(resynced, { type: "queueCanceled", sendId: "run-queued" }), resynced);
 
   // そのまま再送しても、同じバブルが pending へ戻るだけ (二重に足さない)
-  const resent = chatReducer(resynced, { type: "resendUnsent", runId: "run-queued" });
+  const resent = chatReducer(resynced, { type: "resendUnsent", sendId: "run-queued" });
   assert.deepEqual(
     resent.bubbles
       .filter((bubble) => bubble.runId === "run-queued")
@@ -287,8 +287,8 @@ test("取り消しの成功応答は、要求後に別タブの再送 resync を
   let state = chatReducer(withHistory(), {
     type: "resync",
     payload: payload([
-      { runId: "run-running", text: "実行中の本文", at: 2, state: "running" },
-      { runId: "run-queued", text: "取り消す本文", at: 3, state: "queued", position: 1 },
+      { sendId: "run-running", runId: "run-running", text: "実行中の本文", at: 2, state: "running" },
+      { sendId: "run-queued", runId: "run-queued", text: "取り消す本文", at: 3, state: "queued", position: 1 },
     ]),
   });
   // useSessions.applySnapshot と同じく、権威ある payload を適用するたびに世代を進める
@@ -308,8 +308,11 @@ test("取り消しの成功応答は、要求後に別タブの再送 resync を
     snapshotSeqRef,
     cancel: async () => {
       // 取消の resync (未送信) → 別タブが同じ run id を再送した resync (待機中) が、応答より先に届く
-      applyResync([{ runId: "run-queued", text: "取り消す本文", at: 3, state: "unsent" }], 0);
-      applyResync([{ runId: "run-queued", text: "取り消す本文", at: 3, state: "queued", position: 1 }], 1);
+      applyResync([{ sendId: "run-queued", runId: "run-queued", text: "取り消す本文", at: 3, state: "unsent" }], 0);
+      applyResync(
+        [{ sendId: "run-queued", runId: "run-queued", text: "取り消す本文", at: 3, state: "queued", position: 1 }],
+        1,
+      );
       return { ok: true };
     },
     recover: async () => false,
@@ -329,7 +332,7 @@ test("取り消しの成功応答は、要求後に別タブの再送 resync を
 test("停止でキューを破棄した送信は、queue_cleared の run id で未送信へ切り替わる", () => {
   const running = echoWithRunId(withHistory(), "実行中の本文", "run-running", 2);
   const queued = echoWithRunId(running, "待機の本文", "run-queued", 3);
-  const cleared = chatReducer(queued, { type: "queueCleared", runIds: ["run-queued"] });
+  const cleared = chatReducer(queued, { type: "queueCleared", sendIds: ["run-queued"] });
 
   assert.equal(cleared.queueDepth, 0);
   assert.deepEqual(
@@ -355,7 +358,7 @@ test("停止でキューを破棄した送信は、queue_cleared の run id で�
 test("セッションを切り替えた resync では、前のセッションの未送信を持ち越さない", () => {
   const fresh = chatReducer(initialChatState, {
     type: "resync",
-    payload: payload([{ runId: "run-x", text: "未送信の本文", at: 5, state: "unsent" }]),
+    payload: payload([{ sendId: "run-x", runId: "run-x", text: "未送信の本文", at: 5, state: "unsent" }]),
   });
   const switched = chatReducer(fresh, { type: "resync", payload: payload([], "session-b") });
   assert.deepEqual(switched.bubbles, []);
@@ -366,16 +369,16 @@ test("停止の queue_cleared が送信応答より先に届いても、run id �
   const sent = chatReducer(withHistory(), { type: "localUser", text: "待機の本文", at: 2 });
   const echoId = sent.pendingEchoIds[0];
   // 停止が応答より先に届く (破棄された run id は分かるが、エコーにまだ run id が無い)
-  const cleared = chatReducer(sent, { type: "queueCleared", runIds: ["run-cleared"] });
+  const cleared = chatReducer(sent, { type: "queueCleared", sendIds: ["run-cleared"] });
   assert.deepEqual(cleared.pendingEchoIds, [echoId], "特定できないうちは pending のまま");
-  assert.deepEqual(cleared.clearedRunIds, ["run-cleared"]);
+  assert.deepEqual(cleared.clearedSendIds, ["run-cleared"]);
 
-  const assigned = chatReducer(cleared, { type: "echoRunId", runId: "run-cleared" });
+  const assigned = chatReducer(cleared, { type: "echoSendId", sendId: "run-cleared", runId: "run-cleared" });
   const echo = assigned.bubbles.find((bubble) => bubble.id === echoId);
   assert.equal(echo?.runId, "run-cleared");
   assert.equal(echo?.unsent, true, "対応付いた時点で未送信へ切り替える");
   assert.deepEqual(assigned.pendingEchoIds, []);
-  assert.deepEqual(assigned.clearedRunIds, [], "使い切った控えは消える");
+  assert.deepEqual(assigned.clearedSendIds, [], "使い切った控えは消える");
 });
 
 test("payload の未送信が送信応答より先に届いても、run id の対応付けでバブルを重複させない", () => {
@@ -383,11 +386,11 @@ test("payload の未送信が送信応答より先に届いても、run id の�
   const echoId = sent.pendingEchoIds[0];
   const resynced = chatReducer(sent, {
     type: "resync",
-    payload: payload([{ runId: "run-x", text: "同じ本文", at: 5, state: "unsent" }]),
+    payload: payload([{ sendId: "run-x", runId: "run-x", text: "同じ本文", at: 5, state: "unsent" }]),
   });
   assert.equal(resynced.bubbles.filter((bubble) => bubble.runId === "run-x").length, 1, "payload が先に足す");
 
-  const assigned = chatReducer(resynced, { type: "echoRunId", runId: "run-x" });
+  const assigned = chatReducer(resynced, { type: "echoSendId", sendId: "run-x", runId: "run-x" });
   assert.deepEqual(
     assigned.bubbles.filter((bubble) => bubble.runId === "run-x").map((bubble) => [bubble.id, bubble.unsent === true]),
     [[echoId, true]],
@@ -399,7 +402,7 @@ test("payload の未送信が送信応答より先に届いても、run id の�
 test("別タブの再送 (run_start) で、接続中のタブの未送信バブルが送信中へ戻る", () => {
   const fresh = chatReducer(withHistory(), {
     type: "resync",
-    payload: payload([{ runId: "run-x", text: "未送信の本文", at: 5, state: "unsent" }]),
+    payload: payload([{ sendId: "run-x", runId: "run-x", text: "未送信の本文", at: 5, state: "unsent" }]),
   });
   const started = chatReducer(fresh, {
     type: "runStart",
@@ -421,7 +424,7 @@ test("別タブの再送 (run_start) で、接続中のタブの未送信バブ�
 test("別タブの再送がキュー待ちの間は未送信バブルを消さず、停止で未送信へ戻る", () => {
   const fresh = chatReducer(withHistory(), {
     type: "resync",
-    payload: payload([{ runId: "run-x", text: "未送信の本文", at: 5, state: "unsent" }]),
+    payload: payload([{ sendId: "run-x", runId: "run-x", text: "未送信の本文", at: 5, state: "unsent" }]),
   });
   const bubble = fresh.bubbles.find((item) => item.unsent === true);
   assert.ok(bubble);
@@ -429,14 +432,14 @@ test("別タブの再送がキュー待ちの間は未送信バブルを消さ�
   // 別タブが再送してキューへ積まれた (payload は queued として配る)
   const queued = chatReducer(fresh, {
     type: "resync",
-    payload: payload([{ runId: "run-x", text: "未送信の本文", at: 5, state: "queued" }]),
+    payload: payload([{ sendId: "run-x", runId: "run-x", text: "未送信の本文", at: 5, state: "queued" }]),
   });
   const kept = queued.bubbles.find((item) => item.runId === "run-x");
   assert.equal(kept?.unsent, false, "未送信の表示を戻す");
   assert.deepEqual(queued.pendingEchoIds, [bubble.id], "entry の吸収に載せる");
 
   // 停止でキューが破棄されたら未送信へ戻る (消えていたら戻せない)
-  const stopped = chatReducer(queued, { type: "queueCleared", runIds: ["run-x"] });
+  const stopped = chatReducer(queued, { type: "queueCleared", sendIds: ["run-x"] });
   assert.equal(stopped.bubbles.find((item) => item.runId === "run-x")?.unsent, true);
   assert.deepEqual(stopped.pendingEchoIds, []);
 });
@@ -444,11 +447,11 @@ test("別タブの再送がキュー待ちの間は未送信バブルを消さ�
 test("実行中の状態が配られたら未送信の表示を戻し、二重表示しない", () => {
   const fresh = chatReducer(withHistory(), {
     type: "resync",
-    payload: payload([{ runId: "run-x", text: "未送信の本文", at: 5, state: "unsent" }]),
+    payload: payload([{ sendId: "run-x", runId: "run-x", text: "未送信の本文", at: 5, state: "unsent" }]),
   });
   const running = chatReducer(fresh, {
     type: "resync",
-    payload: payload([{ runId: "run-x", text: "未送信の本文", at: 5, state: "running" }]),
+    payload: payload([{ sendId: "run-x", runId: "run-x", text: "未送信の本文", at: 5, state: "running" }]),
   });
   assert.deepEqual(
     running.bubbles.filter((item) => item.runId === "run-x").map((item) => item.unsent === true),
@@ -460,15 +463,15 @@ test("停止の控えが残っていても、保存済み entry があれば未�
   const sent = chatReducer(withHistory(), { type: "localUser", text: "同じ本文", at: 2 });
   const echoId = sent.pendingEchoIds[0];
   // 停止が応答より先に届き、run id の控えだけが残る
-  const cleared = chatReducer(sent, { type: "queueCleared", runIds: ["run-x"] });
-  assert.deepEqual(cleared.clearedRunIds, ["run-x"]);
+  const cleared = chatReducer(sent, { type: "queueCleared", sendIds: ["run-x"] });
+  assert.deepEqual(cleared.clearedSendIds, ["run-x"]);
 
   // 別タブが同じ run を再送して完了し、entry が保存されている
   const saved = chatReducer(cleared, {
     type: "resyncHistory",
     page: historyPage([userMsg("old", "old", "run-old"), userMsg("saved", "同じ本文", "run-x")]),
   });
-  const assigned = chatReducer(saved, { type: "echoRunId", runId: "run-x" });
+  const assigned = chatReducer(saved, { type: "echoSendId", sendId: "run-x", runId: "run-x" });
   assert.deepEqual(
     assigned.bubbles.map((bubble) => [bubble.entryId, bubble.runId, bubble.unsent === true]),
     [
@@ -481,12 +484,12 @@ test("停止の控えが残っていても、保存済み entry があれば未�
     assigned.bubbles.some((bubble) => bubble.id === echoId),
     false,
   );
-  assert.deepEqual(assigned.clearedRunIds, []);
+  assert.deepEqual(assigned.clearedSendIds, []);
 });
 
 test("run_start が届いたら停止の控えを消し、遅れて届いた run id で未送信にしない", () => {
   const sent = chatReducer(withHistory(), { type: "localUser", text: "同じ本文", at: 2 });
-  const cleared = chatReducer(sent, { type: "queueCleared", runIds: ["run-x"] });
+  const cleared = chatReducer(sent, { type: "queueCleared", sendIds: ["run-x"] });
   const started = chatReducer(cleared, {
     type: "runStart",
     runId: "run-x",
@@ -494,8 +497,8 @@ test("run_start が届いたら停止の控えを消し、遅れて届いた run
     at: 3,
     startedAt: 3,
   });
-  assert.deepEqual(started.clearedRunIds, [], "実行が始まった run は控えから外す");
-  const late = chatReducer(started, { type: "echoRunId", runId: "run-x" });
+  assert.deepEqual(started.clearedSendIds, [], "実行が始まった run は控えから外す");
+  const late = chatReducer(started, { type: "echoSendId", sendId: "run-x", runId: "run-x" });
   assert.equal(
     late.bubbles.some((bubble) => bubble.unsent === true),
     false,
@@ -509,7 +512,7 @@ test("履歴の初回応答前でも、別タブの再送 (queued) を未送信�
 
   const queued = chatReducer(cold, {
     type: "resync",
-    payload: payload([{ runId: "run-x", text: "未送信の本文", at: 5, state: "queued" }]),
+    payload: payload([{ sendId: "run-x", runId: "run-x", text: "未送信の本文", at: 5, state: "queued" }]),
   });
   const bubble = queued.bubbles.find((item) => item.runId === "run-x");
   assert.ok(bubble, "受理済みのバブルを足す");
@@ -518,7 +521,7 @@ test("履歴の初回応答前でも、別タブの再送 (queued) を未送信�
   assert.deepEqual(queued.pendingEchoIds, [bubble.id]);
 
   // 停止でキューが破棄されたら未送信へ戻る (消えていたら戻せない)
-  const stopped = chatReducer(queued, { type: "queueCleared", runIds: ["run-x"] });
+  const stopped = chatReducer(queued, { type: "queueCleared", sendIds: ["run-x"] });
   assert.equal(stopped.bubbles.find((item) => item.runId === "run-x")?.unsent, true);
   assert.deepEqual(stopped.pendingEchoIds, []);
 });
@@ -526,21 +529,21 @@ test("履歴の初回応答前でも、別タブの再送 (queued) を未送信�
 test("停止の控えは payload の queued で消え、後着の 202 が未送信へ戻さない", () => {
   const sent = chatReducer(withHistory(), { type: "localUser", text: "同じ本文", at: 2 });
   const echoId = sent.pendingEchoIds[0];
-  const cleared = chatReducer(sent, { type: "queueCleared", runIds: ["run-x"] });
-  assert.deepEqual(cleared.clearedRunIds, ["run-x"]);
+  const cleared = chatReducer(sent, { type: "queueCleared", sendIds: ["run-x"] });
+  assert.deepEqual(cleared.clearedSendIds, ["run-x"]);
 
   // payload が未送信として配り、次に別タブの再送で queued へ進む
   const unsent = chatReducer(cleared, {
     type: "resync",
-    payload: payload([{ runId: "run-x", text: "同じ本文", at: 2, state: "unsent" }]),
+    payload: payload([{ sendId: "run-x", runId: "run-x", text: "同じ本文", at: 2, state: "unsent" }]),
   });
   const queued = chatReducer(unsent, {
     type: "resync",
-    payload: payload([{ runId: "run-x", text: "同じ本文", at: 2, state: "queued" }]),
+    payload: payload([{ sendId: "run-x", runId: "run-x", text: "同じ本文", at: 2, state: "queued" }]),
   });
-  assert.deepEqual(queued.clearedRunIds, [], "payload の queued で控えを消す");
+  assert.deepEqual(queued.clearedSendIds, [], "payload の queued で控えを消す");
 
-  const assigned = chatReducer(queued, { type: "echoRunId", runId: "run-x" });
+  const assigned = chatReducer(queued, { type: "echoSendId", sendId: "run-x", runId: "run-x" });
   assert.deepEqual(
     assigned.bubbles
       .filter((item) => item.runId === "run-x")
@@ -559,9 +562,9 @@ test("payload の running でも受理済みバブルを 1 件に統合する", 
   const echoId = sent.pendingEchoIds[0];
   const running = chatReducer(sent, {
     type: "resync",
-    payload: payload([{ runId: "run-x", text: "同じ本文", at: 2, state: "running" }]),
+    payload: payload([{ sendId: "run-x", runId: "run-x", text: "同じ本文", at: 2, state: "running" }]),
   });
-  const assigned = chatReducer(running, { type: "echoRunId", runId: "run-x" });
+  const assigned = chatReducer(running, { type: "echoSendId", sendId: "run-x", runId: "run-x" });
   assert.deepEqual(
     assigned.bubbles.filter((item) => item.runId === "run-x").map((item) => [item.id, item.accepted === true]),
     [[echoId, true]],
@@ -572,19 +575,19 @@ test("再送の失敗は、サーバーが受理を確認済みの run を未送
   // 楽観的に受理済みへ切り替えた直後 (confirmed なし) は未送信へ戻す
   const fresh = chatReducer(withHistory(), {
     type: "resync",
-    payload: payload([{ runId: "run-x", text: "未送信の本文", at: 5, state: "unsent" }]),
+    payload: payload([{ sendId: "run-x", runId: "run-x", text: "未送信の本文", at: 5, state: "unsent" }]),
   });
-  const optimistic = chatReducer(fresh, { type: "resendUnsent", runId: "run-x" });
-  const failed = chatReducer(optimistic, { type: "resendFailed", runId: "run-x" });
+  const optimistic = chatReducer(fresh, { type: "resendUnsent", sendId: "run-x" });
+  const failed = chatReducer(optimistic, { type: "resendFailed", sendId: "run-x" });
   assert.equal(failed.bubbles.find((item) => item.runId === "run-x")?.unsent, true);
   assert.deepEqual(failed.pendingEchoIds, []);
 
   // payload の queued でサーバーが受理を確認済みなら、失敗しても実行済みの見た目を保つ
   const queued = chatReducer(fresh, {
     type: "resync",
-    payload: payload([{ runId: "run-x", text: "未送信の本文", at: 5, state: "queued" }]),
+    payload: payload([{ sendId: "run-x", runId: "run-x", text: "未送信の本文", at: 5, state: "queued" }]),
   });
-  const confirmed = chatReducer(queued, { type: "resendFailed", runId: "run-x" });
+  const confirmed = chatReducer(queued, { type: "resendFailed", sendId: "run-x" });
   assert.equal(confirmed.bubbles.find((item) => item.runId === "run-x")?.unsent, false);
   assert.equal(confirmed.bubbles.find((item) => item.runId === "run-x")?.accepted, true);
   assert.deepEqual(confirmed.pendingEchoIds, queued.pendingEchoIds);
@@ -598,7 +601,7 @@ test("再送の失敗は、サーバーが受理を確認済みの run を未送
     startedAt: 6,
   });
   assert.equal(
-    chatReducer(started, { type: "resendFailed", runId: "run-x" }).bubbles.find((item) => item.runId === "run-x")
+    chatReducer(started, { type: "resendFailed", sendId: "run-x" }).bubbles.find((item) => item.runId === "run-x")
       ?.unsent,
     false,
   );
@@ -609,7 +612,7 @@ test("受理済みのバブルは本文の縮退で旧 entry へ吸収されな�
   const cold = chatReducer(initialChatState, { type: "resync", payload: payload([], "session-a") });
   const queued = chatReducer(cold, {
     type: "resync",
-    payload: payload([{ runId: "run-x", text: "同じ本文", at: 5, state: "queued" }]),
+    payload: payload([{ sendId: "run-x", runId: "run-x", text: "同じ本文", at: 5, state: "queued" }]),
   });
   const bubble = queued.bubbles.find((item) => item.runId === "run-x");
   assert.ok(bubble);
@@ -627,16 +630,16 @@ test("受理済みのバブルは本文の縮退で旧 entry へ吸収されな�
   assert.deepEqual(merged.pendingEchoIds, [bubble.id]);
 
   // 停止でキューが破棄されたら未送信へ戻る (吸収されていたら戻せない)
-  const stopped = chatReducer(merged, { type: "queueCleared", runIds: ["run-x"] });
+  const stopped = chatReducer(merged, { type: "queueCleared", sendIds: ["run-x"] });
   assert.equal(stopped.bubbles.find((item) => item.runId === "run-x")?.unsent, true);
 });
 
 test("自分の楽観的な再送も run_start で確認済みになり、遅延した失敗で未送信へ戻らない", () => {
   const fresh = chatReducer(withHistory(), {
     type: "resync",
-    payload: payload([{ runId: "run-x", text: "未送信の本文", at: 5, state: "unsent" }]),
+    payload: payload([{ sendId: "run-x", runId: "run-x", text: "未送信の本文", at: 5, state: "unsent" }]),
   });
-  const resent = chatReducer(fresh, { type: "resendUnsent", runId: "run-x" });
+  const resent = chatReducer(fresh, { type: "resendUnsent", sendId: "run-x" });
   assert.equal(resent.bubbles.find((item) => item.runId === "run-x")?.confirmed, false, "楽観的な受理");
 
   // 当該 run の run_start が届いた = サーバーが実行を開始した
@@ -650,7 +653,7 @@ test("自分の楽観的な再送も run_start で確認済みになり、遅延
   assert.equal(started.bubbles.find((item) => item.runId === "run-x")?.confirmed, true);
 
   // その後で HTTP 失敗が届いても、実行済みの送信を未送信へ戻さない
-  const failed = chatReducer(started, { type: "resendFailed", runId: "run-x" });
+  const failed = chatReducer(started, { type: "resendFailed", sendId: "run-x" });
   const bubble = failed.bubbles.find((item) => item.runId === "run-x");
   assert.equal(bubble?.unsent, false);
   assert.equal(bubble?.accepted, true);

@@ -170,6 +170,9 @@ export function useU7Agent({ pendingSessionId }: UseU7AgentOptions = {}) {
   // run の終了回数も同じ用途 (要求の後に run が終わった送信の応答を捨てる)
   const runEndSeqRef = useRef(chat.runEndSeq);
   runEndSeqRef.current = chat.runEndSeq;
+  // 待機状態の世代。要求後に届いた resync / 終端 / 待機の変化で古い待機スナップショットを捨てる
+  const stateSeqRef = useRef(chat.stateSeq);
+  stateSeqRef.current = chat.stateSeq;
 
   // セッションのスキル一覧 (`/skill:` の入力補助)。新規チャットは選択中のプロジェクト / エージェントで
   // プレビューし、カタログ (エージェント定義) の読み込みまでは取得先が確定しない
@@ -284,6 +287,7 @@ export function useU7Agent({ pendingSessionId }: UseU7AgentOptions = {}) {
         opsRef: sessionOpsRef,
         runStatusRef,
         runEndSeqRef,
+        stateSeqRef,
         ensureSession,
         refreshSessions,
         post: postMessage,
@@ -323,10 +327,10 @@ export function useU7Agent({ pendingSessionId }: UseU7AgentOptions = {}) {
     });
   }, [dispatch, sessionIdRef, sessionOpsRef]);
 
-  /** 未送信メッセージの再送 (サーバーが保存済みの本文を使う)。run id は変わらない */
+  /** 未送信メッセージの再送 (サーバーが保存済みの本文を使う)。送信IDは変わらない */
   const resendUnsent = useCallback(
-    async (runId: string): Promise<void> => {
-      await resendUnsentMessage(runId, {
+    async (sendId: string): Promise<void> => {
+      await resendUnsentMessage(sendId, {
         sessionIdRef,
         opsRef: sessionOpsRef,
         runStatusRef,
@@ -343,16 +347,16 @@ export function useU7Agent({ pendingSessionId }: UseU7AgentOptions = {}) {
 
   /** 未送信メッセージの破棄。再送が実行中の分はサーバーが 409 で拒否する */
   const discardUnsent = useCallback(
-    async (runId: string): Promise<void> => {
-      await discardUnsentMessage(runId, { sessionIdRef, discard: discardUnsentApi, dispatch });
+    async (sendId: string): Promise<void> => {
+      await discardUnsentMessage(sendId, { sessionIdRef, discard: discardUnsentApi, dispatch });
     },
     [dispatch, sessionIdRef],
   );
 
   /** 待機キュー中の 1 件の取り消し。実行中のターンは止めず、409 / 404 は取り直しへ収束させる */
   const cancelQueued = useCallback(
-    async (runId: string): Promise<void> => {
-      await cancelQueuedMessage(runId, {
+    async (sendId: string): Promise<void> => {
+      await cancelQueuedMessage(sendId, {
         sessionIdRef,
         snapshotSeqRef,
         cancel: cancelQueuedApi,

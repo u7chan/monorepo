@@ -114,6 +114,11 @@ test("429→成功: waiting→retrying を配り、失敗試行の本文は表�
   // 実機と同じく auto_retry_start 時点では投影が古く、context_edit 後の microtask で resync が届く
   await waitFor(() => resyncs(events).length > 0, 3000, "context edit resync");
   assert.equal(
+    resyncs(events).some((payload) => payload.resyncReason === "attempt_discarded"),
+    true,
+    "未確定の応答を捨てる理由を載せる (通常の resync は継続として扱う)",
+  );
+  assert.equal(
     resyncs(events).some((payload) => payload.messages.some((message) => message.text.includes("失敗する途中"))),
     false,
     "どの resync も除外後の messages を配る (同期 resync をしない)",

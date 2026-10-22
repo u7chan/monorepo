@@ -4,29 +4,45 @@
 
 ## ランのライフサイクル
 
+送信は受付ごとに `sendId`、一続きの SDK 実行は `runId` で識別する。`sendId` は同じ本文でも別に振り、未送信の手動再送では変えない。`runId` は開始送信と、その実行へ注入された追加入力が共有する。
+
 ```
 POST /api/sessions/:id/messages { text }
-  ├─ アイドル → SessionStore.startRun() → 202 { queued: false, runId }
-  └─ 実行中   → キューに積む           → 202 { queued: true, queueDepth }
-                    （キューは最大 10 件。超過は 429）
+  ├─ アイドル → SessionStore.startRun() → 202 { queued: false, sendId, runId }
+  └─ 実行中   → BFF の配送キューへ積む   → 202 { queued: true, sendId, queueDepth }
+                    （キューは最大 10 件。SDK へ渡した分も含めて数える。超過は 429）
 
 startRun():
-  1. run オブジェクト生成（status: "running", totalRetryCount: 0）
+  1. run オブジェクト生成（runId / initialSendId / status: "running"）
   2. run_start イベントを記録
   3. session.subscribe() で pi のイベントを変換して記録（変換は `server/src/run-events.ts`）
      - message_update / text_delta → text / status（本文の書き出しに入った最初の delta だけ）
+     - message_end(user)          → 注入の観測。sendId / runId を対応付け、保存を待たず resync
      - tool_execution_start/end    → tool_start / tool_end
      - tool_execution_update       → tool_progress（investigate の進捗だけ。live 専用）
      - auto_retry_start/end        → run_retry / status（後述）
      - entry_appended(context_edit) → 失敗試行の取り消し resync（後述）
      - agent_settled               → 終了判定
   4. session.prompt(text) を fire-and-forget で呼ぶ（await しない）
-  5. agent_settled（または prompt の解決）で finish():
+  5. 開始送信の user 注入を観測したら、BFF が保持する先頭 1 件を session.steer() へ渡す
+  6. agent_settled（または prompt の解決）で finish():
      - 失敗試行の取り消し後の最終テキスト補完（対象はこのランで観測した assistant だけ）
+     - SDK に未注入のまま残った steering の回収（実キューに残っていれば BFF へ戻す）
      - run.status を completed / stopped / error に確定
      - run_end イベントを記録
-     - キューがあれば 200ms 後に pump() で次のメッセージを実行
+     - キューがあれば 200ms 後に pump() で次の送信を開始送信として実行
 ```
+
+SDK の `agent_settled` は、BFF が持つ追加入力の注入完了を意味しない。BFF は `record.run.status` と SDK の `isStreaming` / `isIdle` を併せて配送フェーズを判断し、`isStreaming` 単独では決めない。
+
+## 追加入力（steering）の配送
+
+`server/src/sessions.ts` の `SessionStore` が、`sendId` 付きの FIFO を未配信入力の正として持つ。SDK へ渡す steering は同時に最大 1 件で、実キューにある間は BFF の一覧でも `queued`（取消できる）、SDK が取り出した後は `steering`（反映中、取消・再送・破棄は不可）として配る。状態の一覧と判定は `server/src/schema.ts` の `PendingSendSchema` と `server/src/sessions.ts` の `deliverSteering` / `pendingSendsOf` を正とする。
+
+- 最初の user の注入を観測するまで追加入力は SDK へ渡さない（開始準備中の取り違えを防ぐ）。注入を観測したら次の 1 件を渡す。
+- SDK の実キューに残るかどうかは `session.agent.peekQueuedMessages()` で見る。ミラーや本文一致では判定しない。
+- 実行が終端したとき、未注入の steering が実キューに残っていれば `clearQueue()` して BFF の配送へ戻し、次の実行の開始送信にする。SDK が取り出して user を注入しなかった場合は配送対象から外し、未送信として残す（自動で再投入しない）。
+- アイドルの SDK へ `steer()` だけを残さない。BFF の終端処理中や手動圧縮中は待機だけを保持し、終端後に先頭から次の実行を開始する。
 
 ## 自動再試行（SDK の retry）
 
@@ -48,7 +64,7 @@ message_end(assistant, error, usage.total = 0)  失敗試行
 - `waiting` は `auto_retry_start` で入り、`retryAt = 受信時刻 + delayMs` をサーバー基準で持つ。`retrying` は**次の assistant の `message_start`** を再実行開始の観測点にする。`auto_retry_end` は系列の確定（成功 / 最終失敗 / 中止）であって待機終了の通知ではない。
 - `run.retry.attempt` は SDK が現在の連続失敗系列へ付けた番号で、成功するとリセットされる（同一ラン内の後続 LLM 呼び出しで再び 1 から始まる）。ラン全体の再試行回数は `run.totalRetryCount` が持ち、`auto_retry_start` の通知数の累計（**スケジュール回数**）と定義する。待機中に中止した回も含み、実際の HTTP 再送回数とは呼ばない。終了時はアクティブな `retry` だけを消し、累計は結果表示用に残す。
 - 成功・最終失敗・手動停止でアクティブな `retry` は解除する。待機中に `POST /stop` を呼ぶと SDK 内部の待機が abort され、`auto_retry_end(success:false, finalError: "Retry cancelled")` → `agent_settled` の順で終わる。このとき aborted の assistant は投影に残らないため、BFF は stop 要求を控えて `run_end(status: "stopped")` にする。
-- 同じランの `run_start` / `run_end` は各 1 回。待機キューはランが確定してから従来どおり進める。
+- 同じ SDK 実行の `run_start` / `run_end` は各 1 回。retry と steering では `runId` を変えず、所要時間もリセットしない。追加入力は新しいランを始めない。
 
 ### 失敗した試行の表示取り消し
 
@@ -82,15 +98,15 @@ message_end(assistant, error, usage.total = 0)  失敗試行
 | --- | --- |
 | `idle` | ランなし |
 | `running` | ラン実行中 |
-| `queued` | 待機メッセージあり（`running` が無い短い過渡。通常は次のランが始まるまでで、手動圧縮の終端でも配られる） |
+| `queued` | 未配信の追加入力あり（`running` が無い短い過渡。通常は次のランが始まるまでで、手動圧縮の終端でも配られる） |
 | `compacting` | 手動圧縮の実行中（SDK 実行中と保存待ちの両方） |
 | `completed` | 最後のランが完了 |
 | `stopped` | 最後のランがユーザー停止 |
 | `error` | 最後のランがエラー |
 
-`statusOf()` は compacting → running → queued → 終端 の順に見るため、実行中に送ったメッセージでは `queued` にならない。`compacting` は queue より優先して返る（圧縮中の送信はキューに積まれるが、表示は圧縮中）。手動圧縮のライフサイクル・排他・終端の順序は [compaction.md](compaction.md#手動圧縮) を正とする。終端（`completed` / `stopped` / `error`）は一覧 API には出るが、左バーは live のみを出す（表示規則は [ui-layout.md](ui-layout.md#nav-モード) を正とする）。
+`statusOf()` は compacting → running → queued → 終端 の順に見るため、実行中に送ったメッセージでは `queued` にならない（追加入力は `running` のまま配信される）。`compacting` は queue より優先して返る（圧縮中の送信はキュ��に積まれるが、表示は圧縮中）。手動圧縮のライフサイクル・排他・終端の順序は [compaction.md](compaction.md#手動圧縮) を正とする。終端（`completed` / `stopped` / `error`）は一覧 API には出るが、左バーは live のみを出す（表示規則は [ui-layout.md](ui-layout.md#nav-モード) を正とする）。
 
-`finish()` はラン終了時に、キュー待ちと回答待ち（`ask_user` の実行区間）を含まないランの所要時間（`startRun()` から `finish()` まで）と終端の 3 値（`completed` / `stopped` / `error`）を run id ごとに `SessionRecord` へ控える。回答待ちの区間の規則は [ask-user.md](ask-user.md#回答待ちと所要時間) を正とする。履歴の投影は user item の `runId` でこれを引き、user item の `runDurationMs` / `runOutcome` と、そのターン最後の本文あり応答 item の `turnEnd` に載せる。ライブは `run_end` の `durationMs` と `status` を同じ値として run id 一致の user パブルへ写す（履歴経路の値を正とする）。控えはメモリのみ（`toolTimings` / `compactionMeta` と同じセッション寿命）で、再起動とアイドル sweep の後は載らず、表示側はセグメントごと出さない。
+`finish()` はラン終了時に、キュー待ちと回答待ち（`ask_user` の実行区間）を含まない SDK 実行全体の所要時間（`startRun()` から `finish()` まで）と終端の 3 値（`completed` / `stopped` / `error`）を run id ごとに `SessionRecord` へ控える。回答待ちの区間の規則は [ask-user.md](ask-user.md#回答待ちと所要時間) を正とする。所要時間と結末は **開始送信の item にだけ**載せ、追加入力へ複製しない。ターンの結末（`turnEnd`）は、その実行の最後の本文あり応答 item にだけ載せる（本文なしの終端では応答を捏造せず、既存の状態表示を使う）。ライブは `run_end` の `durationMs` と `status` を開始送信のパブルへ写す（履歴経路の値を正とする）。控えはメモリのみ（`toolTimings` / `compactionMeta` と同じセッション寿命）で、再起動とアイドル sweep の後は載らず、表示側はセグメントごと出さない。
 
 ## イベントログと SSE
 
@@ -117,15 +133,15 @@ message_end(assistant, error, usage.total = 0)  失敗試行
 
 `POST /api/sessions/:id/stop`（旧 `/abort` もエイリアスとして有効）:
 
-1. 待機キューを破棄し `queue_cleared` イベントを記録（破棄した送信の `runIds` を載せ、クライアントは該当する送信を「未送信」へ切り替える。記録は `sends.json` に残るため、再送か破棄まで未送信として読める）
+1. 新規の送信を 409 にし、配送キューと SDK の実キューを回収して `queue_cleared` イベントを記録（回収した送信の `sendIds` を載せ、クライアントは該当する送信を「未送信」へ切り替える。記録は `sends.json` に残るため、再送か破棄まで未送信として読める）
 2. 未 settle の `ask_user` の待機を取り消す（[ask-user.md](ask-user.md#待機のライフサイクル)。ツールは `isError: true` の結果を返し、カードは「回答なしで終了」として残る）
 3. `session.abort()` を呼ぶ（pi が `agent_settled` / stopReason `aborted` を返す。自動再試行の backoff 待機中なら SDK がその待機を abort する。圧縮中なら `abortCompaction()` も同時に走る）
 4. 圧縮中だった場合は `compactionTask` の settle（保存と終端配信）を待つ（応答の `status` に `compacting` を残さない）
-5. `finish()` が `run_end`（status: `stopped`）を記録。キューは破棄済みなので次のランは起動しない
+5. `finish()` が `run_end`（status: `stopped`）を記録。停止後は自動配送せず、回収した入力は手動の再送 / 破棄に任せる
 
 自動再試行の待機中の中止は、SDK が失敗試行を投影から除外済みで aborted の assistant が残らない。BFF は stop の要求を `RunState` へ控え、最終 assistant の `stopReason` に依らず `stopped` とする（`run.retry` は解除し、`totalRetryCount` は残す）。
 
-`DELETE /api/sessions/:id/queue/:runId` は待機キューから 1 件だけ外して未送信として残す。実行中のターンは止めず、残った待機の順位は繰り上がる（キュー全体の破棄は `POST /stop`、記録ごと消すのは `DELETE /api/sessions/:id/unsent/:runId`）。
+`DELETE /api/sessions/:id/queue/:sendId` は待機から 1 件だけ外して未送信として残す。実行中のターンは止めず、残った待機の順位は繰り上がる。BFF が保持する分はそのまま外し、SDK へ渡した分は実キューへの残存を `peekQueuedMessages()` で確かめてから `clearQueue()` する（取り出し済みなら 409）。キュー全体の破棄は `POST /stop`、記録ごと消すのは `DELETE /api/sessions/:id/unsent/:sendId`。
 
 `DELETE /api/sessions/:id` は停止 + ストアの履歴削除 + 購読者への `session_deleted` 通知を行う（作業フォルダは残す）。未ロードのセッションは SDK を開かずに消せる。
 
@@ -156,7 +172,7 @@ message_end(assistant, error, usage.total = 0)  失敗試行
 
 - 会話は BFF 専用ストアへ永続化し、起動時に一覧を復元する（[persistence.md](persistence.md)）。プロジェクトの登録はアプリデータの SQLite へ保存し、所属は `projectCwd` から読み取り時に解決する。
 - 1 時間未使用のアイドルセッションは SWEEP でメモリから外す（実行中・キューあり・SSE 購読中は対象外）。ストアと作業フォルダは残り、次回アクセス時に SDK セッションを復元する。
-- `ask_user` の回答待ちはタイムアウトを持たず、`sweep` の対象外（busy）でもある。放置するとランは `running` のまま残り、他クライアントの送信はキュー（最大 10 件、超過は 429）に溜まり、Discord の完了通知も来ない。逃げ道は停止だけで、停止はキューを破棄する（待機中の分は 1 件ずつ `DELETE /api/sessions/:id/queue/:runId` で取り消せる。運用影響は [ask-user.md](ask-user.md#運用影響と既知の制限)）。
+- `ask_user` の回答待ちはタイムアウトを持たず、`sweep` の対象外（busy）でもある。放置するとランは `running` のまま残り、他クライアントの送信は BFF の配送キュー（最大 10 件、超過は 429）に溜まり、Discord の完了通知も来ない。回答待ちの間に受理した入力は同じ実行への steering として扱い、回答と同じバッチの全ツール完了後に注入する（回答・取消にはしない）。逃げ道は停止だけで、停止は未配信の入力を未送信へ回収する（待機中の分は 1 件ずつ `DELETE /api/sessions/:id/queue/:sendId` で取り消せる。運用影響は [ask-user.md](ask-user.md#運用影響と既知の制限)）。
 - id ごとの状態（未ロード / loading / live / evicting / deleting）とライフサイクルの Promise チェーンで、ロード・sweep・削除の競合を直列化する。読み書きするファイルは `session-store` の書込みキューでも直列化する。
 - サーバ終了時は進行中の書込みを flush してから全セッションを abort + dispose する。
 - テスト（`server/test/`）は pi をスタブし、`createBffApp({ pi })` に注入して検証する。HTTP 層は `app.request()` で叩き（listen なし）、store 挙動は直接検証する。実 API は呼ばない。

@@ -411,10 +411,11 @@ test("compaction reaches the client through SSE and stays in the session payload
       jsonPost({ text: "圧縮される会話" }),
     );
     assert.equal(posted.status, 202);
-    const seen = collectSse(
-      eventsResponse,
-      (list) => list.some((entry) => entry.type === "compaction") && list.some((entry) => entry.type === "resync"),
-    );
+    // 送信の注入直後にも resync が届くため、compaction より後の resync を待つ
+    const seen = collectSse(eventsResponse, (list) => {
+      const compaction = list.findIndex((entry) => entry.type === "compaction");
+      return compaction >= 0 && list.slice(compaction).some((entry) => entry.type === "resync");
+    });
     await pi.sessions[0].compact({
       reason: "threshold",
       summarizeCount: 1,
@@ -425,7 +426,8 @@ test("compaction reaches the client through SSE and stays in the session payload
     const events = await seen;
 
     const compactionIndex = events.findIndex((entry) => entry.type === "compaction");
-    const resyncIndex = events.findIndex((entry) => entry.type === "resync");
+    // 送信の注入直後の resync があるため、compaction より後の最初の resync を見る
+    const resyncIndex = events.findIndex((entry, index) => index > compactionIndex && entry.type === "resync");
     assert.ok(compactionIndex >= 0, "compaction イベントが届く");
     assert.equal(resyncIndex, compactionIndex + 1, "compaction の直後に resync が届く");
 
