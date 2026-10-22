@@ -276,7 +276,7 @@ export type CancelQueuedDeps = {
 
 /**
  * 待機キュー中のメッセージを 1 件だけ取り消す。実行中のターンは止めない。成功応答では状態行を
- * 触らない (件数の正は resync の payload)。409 / 404 は理由を出して payload を取り直す。
+ * 触らない (件数の正は resync の payload)。409 / 404 は理由を状態行の下の 1 行に残して payload を取り直す。
  */
 export async function cancelQueuedMessage(sendId: string, deps: CancelQueuedDeps): Promise<void> {
   const id = deps.sessionIdRef.current;
@@ -292,10 +292,12 @@ export async function cancelQueuedMessage(sendId: string, deps: CancelQueuedDeps
   } catch (error) {
     if (deps.sessionIdRef.current !== id) return;
     const status = isApiFailure(error) ? (error as { status: number }).status : undefined;
-    // 取り直しを先に終わらせる。resync は状態行を空にするため、後に理由を出す
+    // 取り直しを先に終わらせる。resync は活動文言を空にするため、後に理由を出す
     if (status === 409 || status === 404) await deps.recover();
     if (deps.sessionIdRef.current !== id) return;
-    deps.dispatch({ type: "setActivity", text: messageFor(error) });
+    // 理由は活動文言 (activity) ではなく操作の結果の 1 行に出す。resync / status は activity を
+    // 上書きするため、同じ行に置くと押した結果が直後に読めなくなる
+    deps.dispatch({ type: "notice", text: messageFor(error) });
   }
 }
 

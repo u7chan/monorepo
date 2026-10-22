@@ -5385,3 +5385,32 @@ test("履歴が assistant_end を追い越しても、本文へ繰り上げた�
   assert.deepEqual(owners(historyFirst), owners(reloaded), "履歴が先でも live と再読み込みで一致する");
   assert.deepEqual(owners(endFirst), owners(reloaded), "履歴が後でも live と再読み込みで一致する");
 });
+
+test("操作の結果 (notice) は同じ会話の status / resync では消えず、次の操作と会話の切替で消える", () => {
+  // What: 取り消しの失敗理由などを活動文言とは別に持ち、後続の status / resync の活動文言に
+  // 上書きされないこと、保持を解く契機 (次の操作・会話の切替) を固定する
+  const resynced = chatReducer(initialChatState, { type: "resync", payload: runningPayload() });
+  const noticed = chatReducer(resynced, { type: "notice", text: "待機中のメッセージが見つかりません" });
+
+  const statused = chatReducer(noticed, { type: "status", state: "thinking", text: "考え中…" });
+  assert.equal(statused.activity, "考え中…", "活動文言は活動行のまま更新する");
+  assert.equal(statused.notice, "待機中のメッセージが見つかりません");
+
+  const resyncedAgain = chatReducer(statused, { type: "resync", payload: runningPayload() });
+  assert.equal(resyncedAgain.notice, "待機中のメッセージが見つかりません", "同じ会話の取り直しでは残す");
+
+  const ended = chatReducer(resyncedAgain, { type: "runEnd", status: "completed", queueDepth: 0 });
+  assert.equal(ended.activity, "完了");
+  assert.equal(ended.notice, "待機中のメッセージが見つかりません", "終端の活動文言でも消さない");
+
+  const sent = chatReducer(ended, { type: "localUser", text: "次の依頼", at: 1700000000003 });
+  assert.equal(sent.activity, "送信中…");
+  assert.equal(sent.notice, undefined, "次の操作で用済みにする");
+
+  const switched = chatReducer(chatReducer(sent, { type: "notice", text: "待機中のメッセージが見つかりません" }), {
+    type: "resync",
+    payload: { ...runningPayload(), sessionId: "session-b", piSessionId: "pi-session-b" },
+  });
+  assert.equal(switched.sessionId, "session-b");
+  assert.equal(switched.notice, undefined, "会話を切り替えたら残さない");
+});

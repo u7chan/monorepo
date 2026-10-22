@@ -421,3 +421,26 @@ test("描画: 圧縮と再実行が同時に無効なときも理由の行は 1 
   assert.equal((html.match(/<p id=/g) ?? []).length, 1, "理由の行を増やさない");
   assert.ok(html.includes("今は圧縮も再実行もできません（送信中）"));
 });
+
+test("描画: 操作の結果 (取り消しの失敗理由) を状態行の下に残し、活動文言と並べて出す", () => {
+  // What: 取り消せなかった理由は活動行 (aria-live) ではなく下の 1 行に出す。後から届く status で
+  // 活動文言が入れ替わっても理由は読める位置に残る
+  const html = render({
+    activity: "実行中…",
+    activityState: "thinking",
+    runStatus: "running",
+    notice: "実行が始まったため取り消せません",
+  });
+
+  const reason = html.indexOf("実行が始まったため取り消せません");
+  assert.ok(reason >= 0, "理由を可視で出す");
+  assert.ok(html.includes('role="status"'), "自分の live region で 1 回読み上げる");
+  const liveStart = html.indexOf('aria-live="polite"');
+  const liveEnd = html.indexOf("</span>", liveStart);
+  assert.ok(!html.slice(liveStart, liveEnd).includes("実行が始まった"), "活動の読み上げに混ぜない");
+  assert.ok(reason > liveEnd, "活動ラベルと同じ span に置かない (折り返しを奪い合わない)");
+  assert.ok(html.includes("実行中…"), "活動文言は消さない");
+  // 状態行が無い (活動もゲージも無い) 状態でも、操作の結果だけは落とさない
+  assert.ok(render({ activity: "", notice: "待機中のメッセージが見つかりません" }).includes("待機中のメッセージ"));
+  assert.ok(!render({ activity: "実行中…" }).includes('role="status"'), "結果が無ければ行ごと出さない");
+});

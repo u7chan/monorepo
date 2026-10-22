@@ -925,8 +925,9 @@ test("要求後に権威ある payload を適用済みなら、遅れて届い�
   assert.equal(recovered, 0, "成功した要求では取り直しを起こさない");
 });
 
-test("取り消しの 409 / 404 は取り直しの後に理由を状態行へ出し、通信の失敗では取り直さない", async () => {
-  // resync が状態行を空にするため、理由は取り直しの後に出す (順序も固定する)
+test("取り消しの 409 / 404 は取り直しの後に理由を操作の結果として残し、通信の失敗では取り直さない", async () => {
+  // What: 失敗の理由を活動文言 (setActivity) ではなく操作の結果 (notice) に出す。活動行は
+  // resync / status が戻すため、同じ行に出すと押した結果が直後に読めなくなる。順序も固定する
   const order: string[] = [];
   const conflictActions: ChatAction[] = [];
   await cancelQueuedMessage("run-b", {
@@ -945,11 +946,12 @@ test("取り消しの 409 / 404 は取り直しの後に理由を状態行へ出
       conflictActions.push(action);
     },
   });
-  assert.deepEqual(order, ["recover", "dispatch:setActivity"]);
+  assert.deepEqual(order, ["recover", "dispatch:notice"]);
   assert.deepEqual(
-    actionsOfType(conflictActions, "setActivity").map((action) => action.text),
+    actionsOfType(conflictActions, "notice").map((action) => action.text),
     ["実行が始まったため取り消せません"],
   );
+  assert.deepEqual(actionsOfType(conflictActions, "setActivity"), [], "活動行は resync / status に任せる");
   assert.deepEqual(actionsOfType(conflictActions, "queueCanceled"), [], "409 では未送信へ切り替えない");
 
   // 404 も同じ収束へ寄せる (別タブが先に取り消した / 既に実行・保存された)
@@ -966,7 +968,7 @@ test("取り消しの 409 / 404 は取り直しの後に理由を状態行へ出
   await cancelQueuedMessage("run-b", missing.deps);
   assert.equal(recovered, 1, "404 は権威ある payload を取り直す");
   assert.deepEqual(
-    actionsOfType(missing.actions, "setActivity").map((action) => action.text),
+    actionsOfType(missing.actions, "notice").map((action) => action.text),
     ["待機中のメッセージが見つかりません"],
   );
   assert.deepEqual(actionsOfType(missing.actions, "queueCanceled"), []);
@@ -985,10 +987,68 @@ test("取り消しの 409 / 404 は取り直しの後に理由を状態行へ出
   await cancelQueuedMessage("run-b", offline.deps);
   assert.equal(offlineRecovered, 0);
   assert.deepEqual(
-    actionsOfType(offline.actions, "setActivity").map((action) => action.text),
+    actionsOfType(offline.actions, "notice").map((action) => action.text),
     ["network reset"],
   );
   assert.deepEqual(actionsOfType(offline.actions, "queueCanceled"), []);
+});
+
+/** 取り消しの失敗後に届く権威ある状態 (実行が始まった後の resync) */
+function runningPayload(status: SessionPayload["status"]): SessionPayload {
+  return {
+    sessionId: "s-1",
+    piSessionId: "pi-s-1",
+    cwd: "",
+    eventGeneration: "gen-1",
+    status,
+    title: "待機中のメッセージ",
+    createdAt: 1,
+    lastUsedAt: 2,
+    serverNow: 2,
+    queueDepth: 0,
+    pinned: false,
+    lastSeq: 3,
+    run: null,
+    messages: [{ role: "user", text: "待機中のメッセージ" }],
+    compactions: [],
+  };
+}
+
+test("取り消しの失敗理由は、直後に届く status / resync の活動文言に上書きされない", async () => {
+  // What: 404 / 409 の理由を activity に出すと、recover の resync とその後の status が
+  // 「実行中…」に戻して押した結果が消える (実際に再現した不具合)。理由は操作の結果 (notice) として
+  // 別に持ち、同じ会話の取り直しでは消えないことを固定する
+  for (const status of [404, 409] as const) {
+    let state: ChatState = chatReducer(initialChatState, {
+      type: "resync",
+      payload: runningPayload("running"),
+    });
+    const canceling = cancelQueuedMessage("run-b", {
+      sessionIdRef: { current: "s-1" },
+      snapshotSeqRef: { current: 0 },
+      cancel: async () => {
+        throw apiFailure("実行が始まったため取り消せません", status);
+      },
+      // 取り直しでは活動文言が戻る (理由を出す前に reducer が通る)
+      recover: async () => {
+        state = chatReducer(state, { type: "resync", payload: runningPayload("running") });
+        return true;
+      },
+      dispatch: (value) => {
+        state = chatReducer(state, value as ChatAction);
+      },
+    });
+    await canceling;
+    assert.equal(state.notice, "実行が始まったため取り消せません", `${status} の理由を残す`);
+
+    // 後続の活動文言 (status / 実行終了) でも理由は消えない
+    state = chatReducer(state, { type: "status", state: "thinking", text: "考え中…" });
+    assert.equal(state.activity, "考え中…");
+    assert.equal(state.notice, "実行が始まったため取り消せません");
+    state = chatReducer(state, { type: "runEnd", status: "completed", queueDepth: 0 });
+    assert.equal(state.activity, "完了");
+    assert.equal(state.notice, "実行が始まったため取り消せません");
+  }
 });
 
 test("ask_user の回答は成功で ok、409 / 404 では権威ある状態を取り直す", async () => {
