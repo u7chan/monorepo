@@ -170,7 +170,7 @@ SDK(pi-ai 1.3.0) の `openrouter-images` は `chat/completions` へ投げるが�
 
 生成した画像の直下に、使用モデルと保存パスを出す（音声はプレイヤーの直下に同じ見たまで出す。[speech-generation.md](speech-generation.md#チャットのプレイヤー)）。バッジが本文の上に出るのに対し、こちらは生成物そのものの直下に出る（`client/src/components/GenerationCaption.tsx`）。
 
-- 対応付けの単位はターン（user バブルの次から次の user バブルまで）。生成カードの保存パスを root 相対へ解決した表を作り、そのターンの各バブルへ配る（`client/src/lib/generationInfo.ts` の `generationCaptionsOf`）。履歴の投影は**本文を持たない** assistant message を表示せず、その tool call を次の表示 message へ繰り上げる（`carriedTools`）ため、カードが前のバブルに残るのは本文と tool call を同居させた assistant message の後ろに最終本文の message が続く場合になる。どちらでも対応が取れるよう、バブル内では閉じない（ライブと復元で同じ見えにする）
+- 対応付けの単位はターン（user バブルの次から次の user バブルまで）。生成カードの保存パスを root 相対へ解決した表を作り、そのターンの各バブルへ配る（`client/src/lib/generationInfo.ts` の `generationCaptionsOf`）。履歴の投影は**本文を持たない** assistant message を表示せず、その tool call を次の表示 message へ繰り上げる（`carriedTools`）ため、カードが前のバブルに残るのは本文と tool call を同居させた assistant message の後ろに最終本文の message が続く場合になる。繰り上げ先がターン内に無いときはその応答自身の本文なし item になる。どちらでも対応が取れるよう、バブル内では閉じない（ライブと復元で同じ見えにする）
 - 画像は本文の段落の中の **Markdown の `![alt](src)`** だけに出す（生 HTML の `<img>` は [拡大表示](markdown.md#画像の拡大表示)の対象だが、キャプションは持たない）。`src` は cwd 相対で書かれるため、`generated/x.png` と `./generated/x.png` の差では落とさない（[markdown.md](markdown.md#画像の-src-解決) の解決結果で引く）
 - 見た目はアイコン + モデル（音声はボイスも）+ 保存パスで、パスは結果本文の cwd 相対のまま。長い値は省略し、全文は `title` に置く
 - 画像の読み込みに失敗しても、対応が取れていれば出す（失敗時の表示は[画像の拡大表示](markdown.md#画像の拡大表示)の既存の契約に任せる）

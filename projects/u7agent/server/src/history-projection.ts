@@ -13,7 +13,12 @@ import type { SecretMasker } from "./redact";
 import type { ChatMessage, HistoryContextState, HistoryItem, HistoryPage, TurnEnd } from "./schema";
 import type { SessionRecord } from "./session-record";
 import { ASSISTANT_ID_FIELD } from "./session-store";
-import { isDisplayableMessage, messageProjectionContext, projectMessagesRange } from "./session-projection";
+import {
+  displayableMessageSet,
+  isDisplayableMessage,
+  messageProjectionContext,
+  projectMessagesRange,
+} from "./session-projection";
 
 export const HISTORY_PAGE_LIMIT_DEFAULT = 50;
 export const HISTORY_PAGE_LIMIT_MAX = 200;
@@ -48,13 +53,21 @@ function messageOf(entry: PiSessionEntryLike): HistoryMessage | undefined {
   return entry.type === "message" && entry.message ? (entry.message as HistoryMessage) : undefined;
 }
 
-/** 表示対象 (user / 本文のある assistant) と compaction だけを時系列に並べる */
+/** 表示対象 (user / 本文のある assistant / ツールの行き先を失う応答) と compaction だけを時系列に並べる */
 function describeEntries(
   entries: PiSessionEntryLike[],
   session: PiSessionLike,
   masker: SecretMasker,
+  cwd: string,
 ): ItemDescriptor[] {
   const inContext = new Set<object>(session.messages);
+  const displayable = displayableMessageSet(
+    entries.flatMap((entry) => {
+      const message = messageOf(entry);
+      return message === undefined ? [] : [message];
+    }),
+    { masker, cwd },
+  );
   let latestCompactionIndex = -1;
   entries.forEach((entry, index) => {
     if (entry.type === "compaction") latestCompactionIndex = index;
@@ -76,7 +89,7 @@ function describeEntries(
       return;
     }
     const message = messageOf(entry);
-    if (!message || !isDisplayableMessage(message, masker)) return;
+    if (!message || !displayable.has(message)) return;
     const context: HistoryContextState = inContext.has(message)
       ? "active"
       : latestCompactionIndex >= 0 && index < keepStartIndex
@@ -139,7 +152,11 @@ function sendIdsOf(
  * 全体の descriptor 列で先に決める: 選択範囲だけで決めると、古いページの末尾で切れたターンの item に
  * も載ってしまう。run の結末を持たないターン (未終端 / 再起動後) と user entry を持たないターンは載せない。
  */
-function turnEndsByLastAnswer(descriptors: ItemDescriptor[], record: SessionRecord): Map<string, TurnEnd> {
+function turnEndsByLastAnswer(
+  descriptors: ItemDescriptor[],
+  record: SessionRecord,
+  masker: SecretMasker,
+): Map<string, TurnEnd> {
   const ends = new Map<string, TurnEnd>();
   let runId: string | undefined;
   let lastAnswerId: string | undefined;
@@ -158,6 +175,9 @@ function turnEndsByLastAnswer(descriptors: ItemDescriptor[], record: SessionReco
       runId = nextRunId;
       continue;
     }
+    // 本文の無い応答 (繰り上げ先を失ったツールの item) に結末を移すと、表示側が本文の有無で
+    // 落とすため Done / Stopped が消える。本文のある最後の応答を付け先にする
+    if (!isDisplayableMessage(descriptor.message, masker)) continue;
     lastAnswerId = descriptor.id;
   }
   closeTurn();
@@ -213,7 +233,7 @@ function projectItems({
     projectedById.set(entryIdAt(entries[entryIndex], entryIndex), item.message);
   }
   const compactionsById = new Map(
-    compactionsFromEntries(entries, session.messages, record.compactionMeta, masker).map((compaction) => [
+    compactionsFromEntries(entries, session.messages, record.compactionMeta, masker, cwd).map((compaction) => [
       compaction.id,
       compaction,
     ]),
@@ -287,8 +307,8 @@ export function projectHistoryPage({
 }): HistoryPageResult {
   const { session } = record;
   const entries = branchEntriesOf(session);
-  const descriptors = describeEntries(entries, session, masker);
-  const turnEnds = turnEndsByLastAnswer(descriptors, record);
+  const descriptors = describeEntries(entries, session, masker, cwd);
+  const turnEnds = turnEndsByLastAnswer(descriptors, record, masker);
   const messages = descriptors.filter((descriptor) => descriptor.kind === "message");
   const summarizedMessageCount = messages.filter((descriptor) => descriptor.context === "summarized").length;
   const active = messages.find((descriptor) => descriptor.context === "active");

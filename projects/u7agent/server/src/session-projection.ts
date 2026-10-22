@@ -91,10 +91,75 @@ export function isDisplayableMessage(message: { role: string; content: unknown }
 
 /**
  * 表示対象のメッセージを履歴順に返す。本文 (projectMessages) と件数 (一覧 API / 永続化 meta) で
- * 集合が食い違わないよう、判定は isDisplayableMessage だけに持たせる。
+ * 集合が食い違わないよう、判定は displayableMessageSet だけに持たせる。
  */
-export function displayableMessages(session: PiSessionLike, masker: SecretMasker): PiSessionLike["messages"] {
-  return session.messages.filter((message) => isDisplayableMessage(message, masker));
+export function displayableMessages(
+  session: PiSessionLike,
+  masker: SecretMasker,
+  cwd: string,
+): PiSessionLike["messages"] {
+  const displayable = displayableMessageSet(session.messages, { masker, cwd });
+  return session.messages.filter((message) => displayable.has(message));
+}
+
+/** 結果のある toolCall を 1 つ以上持つか。スキル読み込みはカードにならないため数えない */
+function carriesToolCard(
+  message: PiSessionLike["messages"][number],
+  settled: ReadonlySet<string>,
+  cwd: string,
+): boolean {
+  if (!Array.isArray(message.content)) return false;
+  return message.content.some((part) => {
+    if (!part || typeof part !== "object") return false;
+    const call = part as { type?: unknown; id?: unknown; name?: unknown; arguments?: unknown };
+    if (call.type !== "toolCall" || typeof call.id !== "string" || typeof call.name !== "string") return false;
+    if (!settled.has(call.id)) return false;
+    return classifySkillRead(call.arguments, { cwd, toolName: call.name }) === undefined;
+  });
+}
+
+/**
+ * 表示 item になるメッセージの集合。本文の無い assistant は原則として item にしないが、ターンの
+ * 最後に来たときだけ item にする: 繰り上げ先が無いまま item にしないと、JSONL に残る確定済みの
+ * ツール (停止・中断した実行を含む) が履歴と再読み込みで表示から消える。
+ * 判定をここ 1 か所に置き、item の列挙と件数が食い違わないようにする。
+ */
+export function displayableMessageSet(
+  messages: PiSessionLike["messages"],
+  { masker, cwd }: { masker: SecretMasker; cwd: string },
+): Set<object> {
+  const settled = new Set<string>();
+  for (const message of messages) {
+    if (message.role === "toolResult" && typeof message.toolCallId === "string") settled.add(message.toolCallId);
+  }
+  const displayable = new Set<object>();
+  // ターン (= user の次から次の user まで) の末尾で、結果付きツールを持つ最後の assistant。
+  // その後に本文の item が現れればツールはそちらへ繰り上げるので、item にはしない
+  let owner: PiSessionLike["messages"][number] | undefined;
+  let carriedOver = false;
+  const closeTurn = (): void => {
+    if (owner !== undefined && !carriedOver) displayable.add(owner);
+    owner = undefined;
+    carriedOver = false;
+  };
+  for (const message of messages) {
+    if (message.role === "user") {
+      closeTurn();
+      displayable.add(message);
+      continue;
+    }
+    if (isDisplayableMessage(message, masker)) {
+      displayable.add(message);
+      if (owner !== undefined) carriedOver = true;
+      continue;
+    }
+    if (message.role === "assistant" && carriesToolCard(message, settled, cwd)) {
+      owner = message;
+      carriedOver = false;
+    }
+  }
+  closeTurn();
+  return displayable;
 }
 
 /** 表示用メッセージへ写す文脈。履歴ページは表示範囲の外にある toolResult / 繰り上げ元も参照できるよう、
@@ -139,7 +204,8 @@ export function messageProjectionContext(
 /**
  * [from, to) を履歴順に投影する。from より手前の繰り上げ元は見えないため、呼び出し側は
  * ターンの先頭 (直前の user) まで from を戻す。1 件も表示しないメッセージの tools / skillLoads は
- * 同ターン内の次の表示メッセージへ繰り上げる (件数と表示集合を変えないため)。
+ * 同ターン内の次の表示メッセージへ繰り上げる (件数と表示集合を変えないため)。繰り上げ先が
+ * ターン内に無い応答は `displayableMessageSet` が item にするので、そこで受ける。
  */
 export function projectMessagesRange(
   messages: PiSessionLike["messages"],
@@ -149,6 +215,7 @@ export function projectMessagesRange(
   const from = Math.max(0, Math.min(messages.length, range.from ?? 0));
   const to = Math.max(from, Math.min(messages.length, range.to ?? messages.length));
   const { messageMetrics, toolTimings, assistantIds, userSends, masker, cwd } = context;
+  const displayable = displayableMessageSet(messages, { masker, cwd });
   const projected: { index: number; message: ChatMessage }[] = [];
   let carried: SkillLoad[] = [];
   let carriedTools: ToolCall[] = [];
@@ -165,7 +232,7 @@ export function projectMessagesRange(
       message.role === "assistant"
         ? toolCallsOf(message, context.toolResults, cwd, masker, toolTimings, assistantId)
         : [];
-    if (!isDisplayableMessage(message, masker)) {
+    if (!displayable.has(message)) {
       carried.push(...loads);
       carriedTools.push(...tools);
       continue;

@@ -718,7 +718,9 @@ export class SessionStore {
     if (record.sendsDirty) this.writeSends(record);
     // 実効モデルのフォールバックは model_change の追記ごと保存する。件数の補正だけなら履歴は同じ
     // なので、writer を通さず meta だけを書き戻す (履歴が同じでも writer は全量を書き直す)
-    const backfillCount = current.messageCount !== displayableMessages(session, this.masker).length;
+    const backfillCount =
+      current.messageCount !==
+      displayableMessages(session, this.masker, workspaceAbs(this.rootCwd, record.workdir)).length;
     if (modelRecorded) await this.persist(record);
     else if (backfillCount || meta.handoffCleanup) await this.persist(record, { jsonl: false });
     return record;
@@ -1630,6 +1632,7 @@ export class SessionStore {
           session,
           compactionMeta: record.compactionMeta,
           masker: this.masker,
+          cwd: workspaceAbs(this.rootCwd, record.workdir),
           event,
           ...(startedAt === undefined ? {} : { durationMs: Date.now() - startedAt }),
         });
@@ -1738,7 +1741,7 @@ export class SessionStore {
   }
 
   compactionsOf(record: SessionRecord): CompactionInfo[] {
-    return compactionsOf(record, this.masker);
+    return compactionsOf(record, this.masker, workspaceAbs(this.rootCwd, record.workdir));
   }
 
   /** 全履歴のカーソルページ。切り出しと状態導出は history-projection の純関数が持つ */
@@ -1759,6 +1762,7 @@ export class SessionStore {
       awaitingAnswer: [...record.questions.values()].some((pending) => !pending.settled),
       projectId: this.projectIdOf(record),
       masker: this.masker,
+      cwd: workspaceAbs(this.rootCwd, record.workdir),
       hasRawLog: this.hasRawLogOf(record.id, record.storeDir),
     });
   }
@@ -2362,7 +2366,7 @@ export class SessionStore {
         id: record.id,
         title: record.title,
         lastUsedAt: record.lastUsedAt,
-        messageCount: displayableMessages(session, this.masker).length,
+        messageCount: displayableMessages(session, this.masker, workspaceAbs(this.rootCwd, record.workdir)).length,
         agentId: record.agentId,
         agent: record.agent,
         promptSnapshot: record.promptSnapshot,
@@ -2569,7 +2573,7 @@ export class SessionStore {
       if (run.status === "error" && error) run.errorCode = error.code;
       // 一覧 API / meta と同じ表示メッセージ数。ここを履歴の生件数 (session.messages.length) へ
       // 戻すと同名フィールドの定義が 2 つに戻る
-      const messages = displayableMessages(session, this.masker);
+      const messages = displayableMessages(session, this.masker, workspaceAbs(this.rootCwd, record.workdir));
       this.emit(record, "run_end", {
         runId: run.id,
         status: run.status,

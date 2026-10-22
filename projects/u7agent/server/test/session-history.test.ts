@@ -550,3 +550,79 @@ test("走っているターンの応答 item には結末を載せない", async
 
   await store.close();
 });
+
+test("停止した本文なし応答のツールは、次のターンの後も自分のターンの item に残る", async () => {
+  // What: 停止 (abort) で本文の無いまま終わった応答のツールを、次のターンを完了した後も
+  // 履歴・payload・件数のすべてで同じ 1 か所に残す
+  const store = new SessionStore({ pi: createStubPi(), catalog: createAgentCatalog() });
+  const record = await store.create();
+  const session = record.session as unknown as StubSession;
+
+  session.appendMessage({ role: "user", content: text("前の質問") });
+  session.appendMessage({ role: "assistant", content: text("旧回答"), stopReason: "stop" });
+  // 本文なし応答の bash を実行中に停止した JSONL (SDK は abort の toolResult と空の error 応答を残す)
+  session.appendMessage({ role: "user", content: text("停止用") });
+  session.appendMessage({
+    role: "assistant",
+    content: [{ type: "toolCall", id: "work-stop", name: "bash", arguments: { command: "sleep 120" } }],
+    stopReason: "toolUse",
+  });
+  session.appendMessage({
+    role: "toolResult",
+    toolCallId: "work-stop",
+    content: text("This operation was aborted"),
+    isError: true,
+  });
+  session.appendMessage({
+    role: "assistant",
+    content: [],
+    stopReason: "error",
+    errorMessage: "This operation was aborted",
+  });
+  // 同じ会話で次の run を完了させる
+  session.appendMessage({ role: "user", content: text("次の質問") });
+  session.appendMessage({ role: "assistant", content: text("次の回答"), stopReason: "stop" });
+
+  const result = store.history(record, {});
+  assert.ok(result.ok);
+  const page = result.page;
+  const items = messageItems(page);
+  assert.deepEqual(
+    items.map((item) => [item.role, item.text]),
+    [
+      ["user", "前の質問"],
+      ["assistant", "旧回答"],
+      ["user", "停止用"],
+      ["assistant", ""],
+      ["user", "次の質問"],
+      ["assistant", "次の回答"],
+    ],
+    "本文の無い応答も、ツールの繰り上げ先が無いターンでは item にする",
+  );
+  const stopped = items[3];
+  assert.deepEqual(
+    stopped.tools?.map((call) => [call.id, call.done, call.isError, call.output]),
+    [["work-stop", true, true, "This operation was aborted"]],
+    "停止したツールを中止の結果つきで残す",
+  );
+  assert.equal(stopped.context, "active");
+  assert.equal(items.at(-1)?.tools, undefined, "次のターンの本文へツールを繰り上げない");
+  assert.equal(page.messageCount, 6, "件数も item と同じ集合で数える");
+
+  // payload (履歴 API を使えない経路) と一覧の件数も同じ集合になる
+  assert.deepEqual(
+    store.payload(record).messages.map((message) => message.text),
+    ["前の質問", "旧回答", "停止用", "", "次の質問", "次の回答"],
+  );
+  assert.equal(store.summary(record).messageCount, page.messageCount);
+
+  // 古い側のページを 1 件ずつ遡っても、停止したツールは 1 件だけ現れる
+  const all = await collectAllPages(store, record, 1);
+  const cards = all.flatMap((item) => (item.kind === "message" ? (item.tools ?? []) : []));
+  assert.deepEqual(
+    cards.map((call) => call.id),
+    ["work-stop"],
+  );
+
+  await store.close();
+});

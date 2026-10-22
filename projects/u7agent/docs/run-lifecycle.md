@@ -139,6 +139,8 @@ message_end(assistant, error, usage.total = 0)  失敗試行
 4. 圧縮中だった場合は `compactionTask` の settle（保存と終端配信）を待つ（応答の `status` に `compacting` を残さない）
 5. `finish()` が `run_end`（status: `stopped`）を記録。停止後は自動配送せず、回収した入力は手動の再送 / 破棄に任せる
 
+停止で中断したツールは、SDK が中止の `toolResult` を残すため、本文を持たない応答の item（ツールカード付き）として履歴に残る。同じ会話で次の run を完了させた後や再読み込みでも消えない（[api-sessions.md](api-sessions.md#get-apisessionsid)）。
+
 自動再試行の待機中の中止は、SDK が失敗試行を投影から除外済みで aborted の assistant が残らない。BFF は stop の要求を `RunState` へ控え、最終 assistant の `stopReason` に依らず `stopped` とする（`run.retry` は解除し、`totalRetryCount` は残す）。
 
 `DELETE /api/sessions/:id/queue/:sendId` は待機から 1 件だけ外して未送信として残す。実行中のターンは止めず、残った待機の順位は繰り上がる。BFF が保持する分はそのまま外し、SDK へ渡した分は実キューへの残存を `peekQueuedMessages()` で確かめてから `clearQueue()` する（取り出し済みなら 409）。キュー全体の破棄は `POST /stop`、記録ごと消すのは `DELETE /api/sessions/:id/unsent/:sendId`。
