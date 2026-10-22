@@ -697,3 +697,51 @@ test("同じターンに本文なしツール応答が複数あるとき、所�
 
   await store.close();
 });
+
+test("同じターンの後に本文の応答があるとき、本文なし応答のツールは従来どおり本文へ繰り上げる", async () => {
+  // What: A(本文なし) → B(本文なし) → C(本文) のターンは、本文なし item を増やさず、a と b を
+  // C のカードへ集める (live が同じ持ち主へ収束できるように、所有者の正は従来どおり C)
+  const store = new SessionStore({ pi: createStubPi(), catalog: createAgentCatalog() });
+  const record = await store.create();
+  const session = record.session as unknown as StubSession;
+
+  session.appendMessage({ role: "user", content: text("確認して") });
+  session.appendMessage({
+    role: "assistant",
+    content: [{ type: "toolCall", id: "work-a", name: "bash", arguments: { command: "pwd" } }],
+    stopReason: "toolUse",
+  });
+  session.appendMessage({ role: "toolResult", toolCallId: "work-a", content: text("ok"), isError: false });
+  session.appendMessage({
+    role: "assistant",
+    content: [{ type: "toolCall", id: "work-b", name: "bash", arguments: { command: "ls" } }],
+    stopReason: "toolUse",
+  });
+  session.appendMessage({ role: "toolResult", toolCallId: "work-b", content: text("ok"), isError: false });
+  session.appendMessage({ role: "assistant", content: text("answer-C"), stopReason: "stop" });
+
+  const result = store.history(record, {});
+  assert.ok(result.ok);
+  const page = result.page;
+  const items = messageItems(page);
+  assert.deepEqual(
+    items.map((item) => [item.role, item.text, item.tools?.map((call) => call.id) ?? []]),
+    [
+      ["user", "確認して", []],
+      ["assistant", "answer-C", ["work-a", "work-b"]],
+    ],
+    "本文の応答があるターンでは本文なし item を増やさない",
+  );
+  assert.equal(page.messageCount, 2);
+  assert.deepEqual(
+    store.payload(record).messages.map((message) => [message.text, message.tools?.map((call) => call.id) ?? []]),
+    [
+      ["確認して", []],
+      ["answer-C", ["work-a", "work-b"]],
+    ],
+    "payload も同じ所有者で投影する",
+  );
+  assert.equal(store.summary(record).messageCount, page.messageCount);
+
+  await store.close();
+});
