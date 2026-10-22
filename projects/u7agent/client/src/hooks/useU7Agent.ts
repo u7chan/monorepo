@@ -322,10 +322,11 @@ export function useU7Agent({ pendingSessionId }: UseU7AgentOptions = {}) {
       sessionIdRef,
       opsRef: sessionOpsRef,
       runStatusRef,
+      stateSeqRef,
       stop: stopSession,
       dispatch,
     });
-  }, [dispatch, sessionIdRef, sessionOpsRef]);
+  }, [dispatch, sessionIdRef, sessionOpsRef, stateSeqRef]);
 
   /** 未送信メッセージの再送 (サーバーが保存済みの本文を使う)。送信IDは変わらない */
   const resendUnsent = useCallback(

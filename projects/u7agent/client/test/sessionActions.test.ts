@@ -6,7 +6,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { Dispatch } from "react";
-import { chatReducer, initialChatState, type ChatAction } from "../src/hooks/chatReducer";
+import { chatReducer, initialChatState, type ChatAction, type ChatState } from "../src/hooks/chatReducer";
 import {
   answerChatQuestion,
   cancelQueuedMessage,
@@ -20,7 +20,7 @@ import {
   type SendChatMessageDeps,
 } from "../src/hooks/sessionActions";
 import type { RuntimeStatus } from "../src/hooks/runtimeStatus";
-import type { Health, PostMessageResult, SessionCompactionResult, StopResult } from "../src/types";
+import type { Health, PostMessageResult, SessionCompactionResult, SessionPayload, StopResult } from "../src/types";
 
 const health = (overrides: Partial<Health> = {}): Health => ({ ready: true, ...overrides });
 
@@ -459,6 +459,7 @@ test("stops the displayed session", async () => {
     sessionIdRef: { current: "s-1" },
     opsRef: { current: 3 },
     runStatusRef: { current: "running" },
+    stateSeqRef: { current: 0 },
     stop: async (sessionId): Promise<StopResult> => {
       stops.push(sessionId);
       return { ok: true, status: "stopped" };
@@ -468,7 +469,7 @@ test("stops the displayed session", async () => {
 
   assert.deepEqual(stops, ["s-1"]);
   assert.deepEqual(record.actions, [
-    { type: "setRun", runStatus: "stopped", queueDepth: 0, activity: "停止要求を送信しました" },
+    { type: "setRun", runStatus: "stopped", queueDepth: 0, activity: "停止要求を送信しました", stateSeq: 0 },
   ]);
 });
 
@@ -479,6 +480,7 @@ test("圧縮中の stop の応答では表示を戻さない", async () => {
     sessionIdRef: { current: "s-1" },
     opsRef: { current: 0 },
     runStatusRef: { current: "compacting" },
+    stateSeqRef: { current: 0 },
     stop: async () => ({ ok: true, status: "completed" }),
     dispatch,
   });
@@ -495,6 +497,7 @@ test("stop の応答は、後から入った操作や別セッションには適
     sessionIdRef,
     opsRef,
     runStatusRef: { current: "running" },
+    stateSeqRef: { current: 0 },
     stop: async () => ({ ok: true, status: "stopped" }),
     dispatch,
   });
@@ -507,12 +510,170 @@ test("stop の応答は、後から入った操作や別セッションには適
     sessionIdRef,
     opsRef,
     runStatusRef: { current: "running" },
+    stateSeqRef: { current: 0 },
     stop: async () => ({ ok: true, status: "stopped" }),
     dispatch,
   });
   sessionIdRef.current = "s-3";
   await switched;
   assert.deepEqual(actions, []);
+});
+
+/** 停止要求の前後を reducer で並べる。ref は要求時の値のままで、描画を挟まない経路も再現する */
+function stoppingRun(started: ChatState) {
+  return {
+    sessionIdRef: { current: "s-1" },
+    opsRef: { current: 0 },
+    runStatusRef: { current: started.runStatus },
+    stateSeqRef: { current: started.stateSeq },
+  };
+}
+
+function startedRun(runId = "run-1"): ChatState {
+  return chatReducer(initialChatState, { type: "runStart", runId, prompt: "停止対象", at: 1, startedAt: 1 });
+}
+
+/** 停止した BFF の snapshot (GET /api/sessions/:id 相当) */
+function stoppedPayload(): SessionPayload {
+  return {
+    sessionId: "s-1",
+    piSessionId: "pi-s-1",
+    cwd: "",
+    eventGeneration: "gen-1",
+    model: "stub/stub-model",
+    thinkingLevel: "high",
+    supportsThinking: true,
+    availableThinkingLevels: ["low"],
+    status: "stopped",
+    title: "停止対象",
+    createdAt: 1,
+    lastUsedAt: 2,
+    serverNow: 2,
+    queueDepth: 0,
+    pinned: false,
+    lastSeq: 7,
+    run: null,
+    messages: [{ role: "user", text: "停止対象" }],
+    compactions: [],
+  };
+}
+
+test("run_end が先に届いた停止応答では、同じ描画バッチでも停止表示を戻さない", async () => {
+  // What: 終端イベントと応答後の action が同じ描画バッチに入っても、後着の応答で状態行・
+  // 実行状態・待機件数を巻き戻さない
+  const started = startedRun();
+  const reply = deferred<StopResult>();
+  const dispatched: ChatAction[] = [];
+  const stopping = stopRun({
+    ...stoppingRun(started),
+    stop: () => reply.promise,
+    dispatch: (value) => {
+      dispatched.push(value as ChatAction);
+    },
+  });
+
+  dispatched.push({ type: "runEnd", runId: "run-1", status: "stopped", queueDepth: 0 });
+  reply.resolve({ ok: true, status: "stopped" });
+  await stopping;
+
+  let state = started;
+  for (const action of dispatched) state = chatReducer(state, action);
+  assert.equal(state.runStatus, "stopped");
+  assert.equal(state.queueDepth, 0);
+  assert.equal(state.activity, "停止しました");
+});
+
+test("停止応答の後に run_end が届いたら、状態行は停止しましたになる", async () => {
+  // What: 応答→終端の順でも、最後に確認できた終端の表示になる
+  const started = startedRun();
+  let state = started;
+  const reply = deferred<StopResult>();
+  const stopping = stopRun({
+    ...stoppingRun(started),
+    stop: () => reply.promise,
+    dispatch: (value) => {
+      state = chatReducer(state, value as ChatAction);
+    },
+  });
+
+  reply.resolve({ ok: true, status: "stopped" });
+  await stopping;
+  assert.equal(state.activity, "停止要求を送信しました", "終端を確認する前は要求中と示す");
+
+  state = chatReducer(state, { type: "runEnd", runId: "run-1", status: "stopped", queueDepth: 0 });
+  assert.equal(state.runStatus, "stopped");
+  assert.equal(state.activity, "停止しました");
+});
+
+test("停止要求より先に自然完了したら、後着の停止応答で完了を停止扱いにしない", async () => {
+  // What: 停止と自然完了が競合したときは、確認できた終端 (完了) を優先する
+  const started = startedRun();
+  let state = started;
+  const reply = deferred<StopResult>();
+  const stopping = stopRun({
+    ...stoppingRun(started),
+    stop: () => reply.promise,
+    dispatch: (value) => {
+      state = chatReducer(state, value as ChatAction);
+    },
+  });
+
+  const completed = chatReducer(state, { type: "runEnd", runId: "run-1", status: "completed", queueDepth: 0 });
+  state = completed;
+  reply.resolve({ ok: true, status: "idle" });
+  await stopping;
+
+  assert.equal(state, completed, "古い停止応答では状態を作り直さない");
+  assert.equal(state.runStatus, "idle");
+  assert.equal(state.activity, "完了");
+});
+
+test("停止応答の待機中に次の run が始まったら、古い応答で新しい状態を上書きしない", async () => {
+  // What: 応答を待つ間に次の run とその待機が始まっても、実行状態・活動文言・待機件数は新しい状態のまま
+  const started = startedRun();
+  let state = started;
+  const reply = deferred<StopResult>();
+  const stopping = stopRun({
+    ...stoppingRun(started),
+    stop: () => reply.promise,
+    dispatch: (value) => {
+      state = chatReducer(state, value as ChatAction);
+    },
+  });
+
+  state = chatReducer(state, { type: "runStart", runId: "run-2", prompt: "次の実行", at: 2, startedAt: 2 });
+  state = chatReducer(state, { type: "queued", sendId: "send-2", position: 1, queueDepth: 2 });
+  const before = state;
+  reply.resolve({ ok: true, status: "stopped" });
+  await stopping;
+
+  assert.equal(state, before, "古い応答では状態を作り直さない");
+  assert.equal(state.runStatus, "running");
+  assert.equal(state.queueDepth, 2);
+  assert.equal(state.activity, "実行中…");
+});
+
+test("応答前に終端 snapshot を適用したら、古い停止応答を捨てる", async () => {
+  // What: snapshot の適用で操作世代と状態の世代が進んだ後も、既存どおり応答で表示を戻さない
+  const started = startedRun();
+  let state = started;
+  const reply = deferred<StopResult>();
+  const refs = stoppingRun(started);
+  const stopping = stopRun({
+    ...refs,
+    stop: () => reply.promise,
+    dispatch: (value) => {
+      state = chatReducer(state, value as ChatAction);
+    },
+  });
+
+  // applySnapshot は snapshot を適用するときに操作世代を進める
+  refs.opsRef.current += 1;
+  state = chatReducer(state, { type: "resync", payload: stoppedPayload() });
+  const snapshot = state;
+  reply.resolve({ ok: true, status: "stopped" });
+  await stopping;
+  assert.equal(state, snapshot);
 });
 
 test("does nothing when no session is displayed", async () => {
@@ -523,6 +684,7 @@ test("does nothing when no session is displayed", async () => {
     sessionIdRef: { current: "" },
     opsRef: { current: 0 },
     runStatusRef: { current: "idle" },
+    stateSeqRef: { current: 0 },
     stop: async (): Promise<StopResult> => {
       called = true;
       return { ok: true, status: "idle" };

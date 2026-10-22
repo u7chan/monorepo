@@ -845,6 +845,36 @@ test("圧縮の開始時刻は run_start / run_end / setRun をまたいで残�
   assert.equal(chatReducer(compacting, { type: "newChat" }).compactionStartedAt, undefined);
 });
 
+test("要求時の世代が古い停止応答の setRun は状態を作り直さない", () => {
+  // What: 終端や次の run の後に届いた応答を、要求時の世代との一致で捨てる
+  const started = chatReducer(initialChatState, {
+    type: "runStart",
+    runId: "run-1",
+    prompt: "停止対象",
+    at: 1,
+    startedAt: 1,
+  });
+  const requestSeq = started.stateSeq;
+  const ended = chatReducer(started, { type: "runEnd", runId: "run-1", status: "stopped", queueDepth: 0 });
+  const late = chatReducer(ended, {
+    type: "setRun",
+    runStatus: "stopped",
+    queueDepth: 0,
+    activity: "停止要求を送信しました",
+    stateSeq: requestSeq,
+  });
+  assert.equal(late, ended, "古い応答では状態を作り直さない");
+
+  const current = chatReducer(started, {
+    type: "setRun",
+    runStatus: "stopped",
+    queueDepth: 0,
+    activity: "停止要求を送信しました",
+    stateSeq: requestSeq,
+  });
+  assert.equal(current.activity, "停止要求を送信しました", "世代が一致すれば適用する");
+});
+
 // --- 最終失敗の分類コード (エラーカードの再実行) ---
 
 const RUN_ERROR_TEXT = "レート制限により実行に失敗しました（自動再試行4回）。時間をおいて再実行してください";
