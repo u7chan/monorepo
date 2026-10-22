@@ -18,13 +18,18 @@ import {
 import { sendCorrection, type DeliveryMode } from "../../scripts/steering-send";
 import { createAgentCatalog } from "../src/agents";
 import type { PiRuntimeLike } from "../src/pi-runtime";
+import { createSecretMasker, REDACTED, type SecretMasker } from "../src/redact";
 import type { EventEntry } from "../src/schema";
 import { SessionStore } from "../src/sessions";
 import { waitFor } from "./stub-pi";
 
-type Scenario = "generation" | "tools";
+type Scenario = "generation" | "tools" | "secret-tail";
 const ORIGINAL = "original";
 const CORRECTION = "correction";
+const TAIL_SECRET = "sk-test-tail-secret";
+const TAIL_DELTA = `回答は ${TAIL_SECRET.slice(0, 8)}`;
+const TAIL_FINAL = `回答は ${TAIL_SECRET} です`;
+const TAIL_MASKED = `回答は ${REDACTED} です`;
 
 function gate() {
   let open!: () => void;
@@ -51,7 +56,15 @@ function contentText(message: Message): string {
   return message.content.flatMap((block) => (block.type === "text" ? [block.text] : [])).join("");
 }
 
-async function createProbe(t: TestContext, scenario: Scenario, execution: "sequential" | "parallel" = "sequential") {
+interface ProbeOptions {
+  execution?: "sequential" | "parallel";
+  /** 秘密値の途中の delta を流した後、テストから中断させるまで最終本文を返さない */
+  holdAfterDelta?: boolean;
+}
+
+async function createProbe(t: TestContext, scenario: Scenario, options: ProbeOptions = {}) {
+  const execution = options.execution ?? "sequential";
+  const holdAfterDelta = options.holdAfterDelta ?? false;
   const root = await mkdtemp(join(tmpdir(), "u7agent-steering-"));
   const trace: string[] = [];
   const requests: string[][] = [];
@@ -60,6 +73,7 @@ async function createProbe(t: TestContext, scenario: Scenario, execution: "seque
   const started = [gate(), gate()];
   const ended = [gate(), gate()];
   const thinking = gate();
+  const deltaStreamed = gate();
   let session: AgentSession | undefined;
   const fetchMock = t.mock.method(globalThis, "fetch", () => {
     throw new Error("The steering probe must not make network requests");
@@ -145,8 +159,17 @@ async function createProbe(t: TestContext, scenario: Scenario, execution: "seque
             const block = { type: "text" as const, text: "" };
             message.content.push(block);
             stream.push({ type: "text_start", contentIndex: index, partial: message });
-            block.text = users.includes(CORRECTION) ? "corrected-done" : "original-done";
-            stream.push({ type: "text_delta", contentIndex: index, delta: block.text, partial: message });
+            if (scenario === "secret-tail") {
+              // 差分は秘密値の途中で止め、残りは最終本文にだけ載せる
+              block.text = TAIL_DELTA;
+              stream.push({ type: "text_delta", contentIndex: index, delta: block.text, partial: message });
+              deltaStreamed.open();
+              if (holdAfterDelta) await pause(release[0].promise, options?.signal);
+              block.text = TAIL_FINAL;
+            } else {
+              block.text = users.includes(CORRECTION) ? "corrected-done" : "original-done";
+              stream.push({ type: "text_delta", contentIndex: index, delta: block.text, partial: message });
+            }
             stream.push({ type: "text_end", contentIndex: index, content: block.text, partial: message });
             message.stopReason = "stop";
           }
@@ -154,6 +177,10 @@ async function createProbe(t: TestContext, scenario: Scenario, execution: "seque
         } catch (error) {
           message.stopReason = options?.signal?.aborted ? "aborted" : "error";
           message.errorMessage = String(error);
+          if (scenario === "secret-tail") {
+            // 上流から受け取った本文は差分より先に進んでいる (中断しても最終本文は全文)
+            for (const part of message.content) if (part.type === "text") part.text = TAIL_FINAL;
+          }
           stream.push({ type: "error", reason: message.stopReason, error: message });
         } finally {
           stream.end();
@@ -236,7 +263,12 @@ async function createProbe(t: TestContext, scenario: Scenario, execution: "seque
     release,
     started,
     ended,
-    paused: scenario === "generation" ? thinking.promise : started[0].promise,
+    paused:
+      scenario === "generation"
+        ? thinking.promise
+        : scenario === "secret-tail"
+          ? deltaStreamed.promise
+          : started[0].promise,
   };
 }
 
@@ -297,7 +329,7 @@ for (const scenario of ["generation", "tools"] as const) {
 }
 
 test("parallel tools: steer waits for the entire batch", { timeout: 10_000 }, async (t) => {
-  const f = await createProbe(t, "tools", "parallel");
+  const f = await createProbe(t, "tools", { execution: "parallel" });
   const run = f.session.prompt(ORIGINAL);
   await Promise.all(f.started.map((item) => item.promise));
   f.trace.push("input:steer");
@@ -378,7 +410,7 @@ test("abort alone leaves undelivered steer and follow-up available for recovery"
 });
 
 test("parallel tools: interrupt cancels both tools before reprompting", { timeout: 10_000 }, async (t) => {
-  const f = await createProbe(t, "tools", "parallel");
+  const f = await createProbe(t, "tools", { execution: "parallel" });
   const run = f.session.prompt(ORIGINAL);
   await Promise.all(f.started.map((item) => item.promise));
   f.trace.push("input:interrupt");
@@ -408,14 +440,20 @@ test("parallel tools: interrupt cancels both tools before reprompting", { timeou
 async function storeOverRealSession(
   t: TestContext,
   scenario: Scenario,
-  execution: "sequential" | "parallel" = "sequential",
+  options: ProbeOptions & { masker?: SecretMasker } = {},
 ) {
-  const probe = await createProbe(t, scenario, execution);
+  const probe = await createProbe(t, scenario, options);
   const runtime = {
     // 実 SDK の AgentSession をそのまま BFF のセッションとして渡す
     createSession: async () => ({ session: probe.session }),
   } as unknown as PiRuntimeLike;
-  const store = new SessionStore({ pi: runtime, catalog: createAgentCatalog(), storeDir: null, rootCwd: "/tmp" });
+  const store = new SessionStore({
+    pi: runtime,
+    catalog: createAgentCatalog(),
+    storeDir: null,
+    rootCwd: "/tmp",
+    ...(options.masker ? { masker: options.masker } : {}),
+  });
   const record = await store.create();
   const events: EventEntry[] = [];
   store.subscribe(record, `${record.generation}:${record.seq}`, (entry) => events.push(entry));
@@ -470,7 +508,7 @@ test("BFF: 生成中の追加入力は元の応答の後・終端より前に次
 test("BFF: 逐次ツールの全完了後・並列バッチの完了後に追加入力を渡す", { timeout: 15_000 }, async (t) => {
   for (const execution of ["sequential", "parallel"] as const) {
     await t.test(execution, { timeout: 15_000 }, async (t2) => {
-      const f = await storeOverRealSession(t2, "tools", execution);
+      const f = await storeOverRealSession(t2, "tools", { execution });
       f.store.postMessage(f.record, ORIGINAL);
       if (execution === "sequential") {
         await f.paused;
@@ -640,4 +678,76 @@ test("BFF: 組み込み provider adapter の次のモデル要求に修正指示
     userItems.map((item) => item.sendId),
     [first.sendId, second.sendId],
   );
+});
+
+// ---------------------------------------------------------------------------
+// 秘密値のマスクとストリーミング境界。差分が登録済み秘密値の途中で止まり、残りが最終本文
+// (message_end) にだけ載ると、保留 delta のフラッシュが秘密値の先頭までを確定してしまう。
+// live / payload / 履歴 API の本文がマスク済みの全文で揃うことを固定する。
+// ---------------------------------------------------------------------------
+
+const tailMasker = createSecretMasker([TAIL_SECRET]);
+
+const streamedText = (events: EventEntry[]): string =>
+  events.flatMap((entry) => (entry.type === "text" ? [entry.data.delta] : [])).join("");
+
+const assistantTextOf = (messages: { role: string; text: string }[]): string | undefined =>
+  messages.find((message) => message.role === "assistant")?.text;
+
+test("BFF: 秘密値の途中で delta が止まっても最終本文の末尾を配る", { timeout: 15_000 }, async (t) => {
+  const f = await storeOverRealSession(t, "secret-tail", { masker: tailMasker });
+  f.store.postMessage(f.record, ORIGINAL);
+  await waitFor(() => f.store.statusOf(f.record) === "completed", 10_000, "run completion");
+
+  // What: live の本文がマスク済み最終本文と一致する (秘密値より後ろの末尾を落とさない)
+  assert.equal(streamedText(f.events), TAIL_MASKED);
+  // What: 本文 → usage → 応答終端 → 実行終端 の順序を保つ
+  assert.deepEqual(
+    f.events.flatMap((entry) =>
+      entry.type === "text" || entry.type === "usage" || entry.type === "assistant_end" || entry.type === "run_end"
+        ? [entry.type]
+        : [],
+    ),
+    ["text", "text", "usage", "assistant_end", "run_end"],
+  );
+  // What: ストリーミング中は保留し、確定時にマスク済みの残りだけを配る
+  assert.deepEqual(
+    f.events.flatMap((entry) => (entry.type === "text" ? [entry.data.delta] : [])),
+    ["回答は ", `${REDACTED} です`],
+  );
+
+  const payload = f.store.payload(f.record);
+  assert.equal(assistantTextOf(payload.messages), TAIL_MASKED, "payload も同じ本文");
+  const history = f.store.history(f.record, {});
+  assert.ok(history.ok);
+  const assistantItem = history.page.items.find((item) => item.kind === "message" && item.role === "assistant");
+  assert.equal(assistantItem?.kind === "message" ? assistantItem.text : undefined, TAIL_MASKED, "履歴 API も同じ本文");
+
+  // What: 登録済み秘密値の完全な値は SSE・payload・履歴 API のどこにも出ない
+  for (const [label, surface] of [
+    ["events", f.events],
+    ["payload", payload],
+    ["history", history],
+  ] as const) {
+    assert.ok(!JSON.stringify(surface).includes(TAIL_SECRET), `${label} must not carry the raw secret`);
+  }
+});
+
+test("BFF: 停止で終わっても秘密値の途中の境界で末尾本文を落とさない", { timeout: 15_000 }, async (t) => {
+  const f = await storeOverRealSession(t, "secret-tail", { masker: tailMasker, holdAfterDelta: true });
+  f.store.postMessage(f.record, ORIGINAL);
+  await f.paused;
+  // What: ストリーミング中は秘密値の先頭部分を保留し、確定前の断片を配らない
+  await waitFor(() => streamedText(f.events) === "回答は ", 5000, "held back secret prefix");
+
+  await f.store.stop(f.record);
+  await waitFor(() => f.store.statusOf(f.record) === "stopped", 10_000, "run stopped");
+
+  // What: 停止で finalize を通っても、保留分のフラッシュで本文が欠けたり秘密値の先頭が出たりしない
+  assert.equal(streamedText(f.events), TAIL_MASKED);
+  const runEnd = f.events.find((entry) => entry.type === "run_end");
+  assert.equal(runEnd?.type === "run_end" ? runEnd.data.status : undefined, "stopped");
+  assert.ok(!JSON.stringify(f.events).includes(TAIL_SECRET), "events must not carry the raw secret");
+  assert.ok(!JSON.stringify(f.store.payload(f.record)).includes(TAIL_SECRET), "payload must not carry the raw secret");
+  assert.equal(assistantTextOf(f.store.payload(f.record).messages), TAIL_MASKED);
 });

@@ -102,8 +102,9 @@ export interface RunEventBridgeDeps {
 
 export interface RunEventBridge {
   listener: PiSessionEventListener;
-  /** 保留中の差分と resync を流し、以降のイベントを無視する (run_end を配る前に呼ぶ) */
+  /** 確定した最終本文との差分と resync を流し、以降のイベントを無視する (run_end を配る前に呼ぶ) */
   finalize: () => void;
+
   /**
    * このランで確定した最後の assistant 本文 (mask 済み)。このランで assistant メッセージを観測しなければ
    * undefined を返す (履歴を遡って前のランの本文を拾わない)。finalize の後に呼ぶ。
@@ -170,6 +171,23 @@ export function createRunEventBridge(deps: RunEventBridgeDeps): RunEventBridge {
     emit("text", { delta, ...(currentAssistantId === undefined ? {} : { assistantId: currentAssistantId }) });
   };
 
+  /**
+   * 最終本文と配信済みの本文を突き合わせ、足りない末尾だけを配る。保留 delta は突き合わせより
+   * 先に流さない: 先に流すと秘密値の途中までが確定し、マスク済みの最終本文と先頭一致しなくなる。
+   */
+  const settleAssistantText = (content: unknown): void => {
+    const finalText = masker.mask(contentText(content));
+    // 保留分は最終本文が上書きするので、先頭一致するときは捨てる
+    const pending = deltaMasker.flush();
+    if (finalText.startsWith(currentAssistantText)) {
+      pushText(finalText.slice(currentAssistantText.length));
+      return;
+    }
+    // 差分と最終本文が食い違うプロバイダ向けの保険。確定済みの本文は取り消せないので保留分だけで終える
+    pushText(pending);
+    if (finalText.startsWith(currentAssistantText)) pushText(finalText.slice(currentAssistantText.length));
+  };
+
   /** 失敗試行の一時状態 (保留 delta・本文) を破棄する。SDK の context_edit が投影へ反映された後に呼ぶ */
   const discardAttempt = (): void => {
     currentAssistantText = "";
@@ -186,16 +204,8 @@ export function createRunEventBridge(deps: RunEventBridgeDeps): RunEventBridge {
     // 失敗試行 (context_edit で除外) や前のランの本文を、保留 delta の flush で再表示しない。
     const projected = lastAssistantMessage(session);
     if (projected && observedAssistants.has(projected)) {
-      // 中断・エラー・正常完了のいずれでも、保留中の末尾をマスクして流す。
-      pushText(deltaMasker.flush());
-      // プロバイダは通常 text delta をストリームする。このフォールバックは
-      // message_end で初めて最終テキストを含めるプロバイダ向け。
-      const finalText = masker.mask(contentText(projected.content));
-      if (finalText && !currentAssistantText) {
-        pushText(finalText);
-      } else if (finalText && currentAssistantText && finalText.startsWith(currentAssistantText)) {
-        pushText(finalText.slice(currentAssistantText.length));
-      }
+      // 中断・エラー・正常完了のいずれでも、確定した最終本文との差分だけを配る
+      settleAssistantText(projected.content);
     } else {
       discardAttempt();
       assistantSeen = false;
@@ -261,14 +271,8 @@ export function createRunEventBridge(deps: RunEventBridgeDeps): RunEventBridge {
             currentAssistantId ??= nextAssistantId();
             observedAssistants.add(event.message);
             onAssistantMessage?.(event.message, currentAssistantId);
-            pushText(deltaMasker.flush());
             // 最終本文だけを message_end で返すプロバイダでも、カードを閉じる前に末尾まで配る
-            const finalText = masker.mask(contentText((event.message as { content?: unknown }).content));
-            if (finalText && !currentAssistantText) {
-              pushText(finalText);
-            } else if (finalText && currentAssistantText && finalText.startsWith(currentAssistantText)) {
-              pushText(finalText.slice(currentAssistantText.length));
-            }
+            settleAssistantText((event.message as { content?: unknown }).content);
             const usage = parseUsage(event.message.usage);
             const metrics = computeMessageMetrics({
               startedAt: assistantStartedAt,
