@@ -32,7 +32,7 @@
    - ユーザーが `ask_user` の回答に登録済みの秘密値を書くと、モデルにも `[REDACTED]` が届く（回答では作業を続けられない。既知の制限）
 4. **BFF の送出層（`server/src/sessions.ts` / `server/src/run-events.ts`）**
    - SSE / イベントログへ出すテキスト（text delta、メッセージ、ツール引数・出力、`tool_progress` の進捗本文、エラー、プロンプトのエコー、タイトル）を防御的にマスクする。`tool_progress` は累積スナップショットとして扱い、末尾の不完全な秘密値もこの層で保留する（[subagent.md](subagent.md#進捗)）
-   - アシスタントの差分は `createStreamingSecretMasker` で配信前に「秘密値の前方一致になり得る末尾」を保留し、チャンク境界をまたぐキーが複数回の配信から復元できないようにする。保留分は `message_end`（アシスタント確定時）と `finish()`（完了・エラー・中断のいすれでも）でフラッシュする
+   - アシスタントの差分は `createStreamingSecretMasker` で配信前に「秘密値の前方一致になり得る末尾」を保留し、チャンク境界をまたぐキーが複数回の配信から復元できないようにする。保留分は `message_end`（アシスタント確定時）と `finish()`（完了・エラー・中断のいすれでも）で、**マスク済みの最終本文と突き合わせてから**配る。保留分を先に流すと秘密値の途中までが確定し、マスク済みの最終本文と先頭一致しなくなるため、突き合わせが先で、最終本文が続きを持つときは保留分を捨てる（最終本文が配信済みの本文と食い違うときだけ保留分を流す）
 
 ## 切り詰め境界への対応
 
@@ -52,6 +52,7 @@ SDK はツール出力をいくつかの方法で切り詰める。キーが切�
 - `server/test/secret-guard.test.ts` — リモート定義を包むマスカーの出力マスク、途中出力とエラーのマスク、SDKの切り詰めで先頭が欠けたケース、実SDKのgrepで行切り詰め境界に跨った断片のマスク、`tool_result` 拡張
 - `server/test/redact.test.ts` — マスク本体（重複値、チャンク境界、中断時のフラッシュ）
 - `server/test/sessions-secrets.test.ts` — SSE イベント・payload・エラー経路のマスクと、秘密を含まない出力が改変されないこと。スキル読み込みの `ToolCall.skill` / `ChatMessage.skillLoads` も対象
+- `server/test/run-events-text.test.ts` / `server/test/sdk-steering.test.ts` — アシスタント本文の差分の届き方（全文 / 最終本文のみ / 秘密値の途中で停止）と停止時の確定。秘密値の途中で差分が止まっても live・payload・履歴 API の本文がマスク済みの全文で揃い、完全な値が出ないこと
 - `server/test/model-settings.test.ts` / `server/test/model-settings-api.test.ts` — GUI 登録キーのマスカー登録順序、DB 例外にキーが載っても応答・health・ログに出ないこと
 - `server/test/content-settings.test.ts` / `server/test/content-settings-api.test.ts` — 画像キーのマスカー登録順序（DB より前・起動時）、DB 例外にキーが載っても応答・health・ログに出ないこと、ローカル定義（`generate_image`）の throw のマスク（`server/test/image-tools.test.ts`）。`web_search` も切り詰めの前のマスクと throw のマスクを `server/test/web-search-tool.test.ts` で、Web 検索キーの登録順序（DB より前・起動時）と応答に値を載せないことを `server/test/web-search-settings.test.ts` / `server/test/web-search-settings-api.test.ts` で固定する
 - `server/test/app-db.test.ts` — `sanitizeError` が `#query` のログ・`#error`・`open()` の失敗の両方に効くこと。secrets の加算移行、新しい schema での作り直しでも秘密が消えないこと、並びと値列の排他
