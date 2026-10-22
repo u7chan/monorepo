@@ -160,7 +160,7 @@
 
 `eventGeneration` は SSE の世代（[イベント購読](#get-apisessionsidevents) を参照）。`lastSeq` と組でカーソルの整合判定に使う。
 
-`pendingSends` は 202 で受理したが user entry としてまだ保存されていない送信（古い→新しい）。要素は `{ sendId, runId?, text, at, state, position? }` で、`text` は表示用にマスク済み、`runId` は実行へ割り当て済みのときだけ載る（手動圧縮待ちなど未割当の送信では省略する）。`state` と `position` の判定は `server/src/schema.ts` の `PendingSendSchema` と `server/src/session-payload.ts` を正とする。`position` は **BFF が持つ分と SDK へ渡した 1 件を合わせた未注入の並び**の index + 1 で、`queueDepth` も同じ集合を数える（SDK へ渡した分を除外して上限を超えない）。送信の照合・取消・再送・破棄はすべて `sendId` で行い、`runId` は実行への所属だけを表す。
+`pendingSends` は 202 で受理したが user entry としてまだ保存されていない送信（古い→新しい）。要素は `{ sendId, runId?, text, at, state, position? }` で、`text` は表示用にマスク済み、`runId` は実行へ割り当て済みのときだけ載る（手動圧縮待ちなど未割当の送信では省略する）。`state` は `unsent`（未送信）/ `queued`（配送待ち。取消できる）/ `steering`（SDK が取り出して反映中。取消・再送・破棄は不可）/ `running`（実行中）で、`queued` と `steering` の境目は SDK の実キューから取り出されたかどうか。判定は `server/src/schema.ts` の `PendingSendSchema` と `server/src/session-steering.ts` / `server/src/session-payload.ts` を正とする。`position` は **BFF の配送キューの並び**（SDK へ渡した分も含む）の index + 1 で、`queueDepth` も同じ集合を数える（上限も同じ件数で判定する）。送信の照合・取消・再送・破棄はすべて `sendId` で行い、`runId` は実行への所属だけを表す。
 
 `pendingSends` の並び（受理順）は再送で実際のキューの並びと入れ替わる（再送は末尾へ積まれ、受理の記録は元の位置に残る）ため、順位は並びから数えず `position` を読む。クライアントは未保存の送信を「未送信」へ切り替え、配送に残る送信は受理済みの pending として保つ（別タブの再送中に表示から消さない。履歴の初回応答前でもバブルを足す）。手元にバブルが無い未送信は末尾へ足し、一覧から消えた未送信は別タブの再送 / 破棄として落とす（[frontend.md](frontend.md#チャット状態とレンダリング)）。再送は本文を送り直さず `POST /api/sessions/:id/messages` の `resendSendId` へ `sendId` を渡す（マスク済みの本文をモデルへ送らないため）。「実行中」は `run.status === "running"` か SDK が streaming のときだけで、**終了した実行の送信は配送対象から外れて `unsent` になる**（`error` で終わって user entry を残さなかった送信も再送 / 破棄できる）。旧サーバーはこのキーを載せないので、省略 = 0 件ではなく未対応として扱う（`state` があっても `position` が無いときは順位が不明として扱う）。
 
@@ -346,7 +346,7 @@ GET /api/sessions/:id/history?limit=50&before=<itemId>
 - BFF は本文の末尾に注記を合成してから `SessionStore.postMessage` へ渡す（[注記](#添付の注記)）。
 - 圧縮中に送ると BFF の配送キューに積まれ、`queued: true` と `queueDepth` を返す（`sendId` は受け付けた時点で振り、`runId` は実行の開始時に確定する）。圧縮の終端処理の後に 1 回だけ pump し、先頭の送信を開始送信として次のランを始める（排他の判定は BFF の `compacting` フラグ。SDK は保存待ちの間 idle に見える）。
 - 受理した送信は user entry が保存されるまで `sends.json` の `unsent` に残る（[session-files.md](session-files.md#sendsjson-と送信id--実行id-の注記)）。サーバー再起動でキューごと消えた分は payload の `pendingSends` に載り、クライアントは「未送信」として見せる（[frontend.md](frontend.md#チャット状態とレンダリング)）。
-- 実行中の追加入力は BFF の配送キューを経て SDK の steering へ渡る。受付の成功は SDK への注入完了やモデルの追従を意味しない。同時に SDK へ渡すのは 1 件だけで、注入を観測したら次を渡す（[run-lifecycle.md](run-lifecycle.md#追加入力steeringの配送)）。
+- 実行中の追加入力は BFF の配送キューを経て SDK の steering へ渡る。受付の成功は SDK への注入完了やモデルの追従を意味しない。受付済みの待機は受付順でまとめて渡り、SDK が次のモデル判断の前に全件注入する（[run-lifecycle.md](run-lifecycle.md#追加入力steeringの配送)）。
 
 ### `DELETE /api/sessions/:id/unsent/:sendId`
 
@@ -359,7 +359,7 @@ GET /api/sessions/:id/history?limit=50&before=<itemId>
 
 待機中の 1 件だけを取り消す（末尾の ID は送信ID）。実行中のターンは止めず、他の待機も破棄しない。本文は記録に残るため、取り消した送信は payload の `pendingSends` で `unsent`（未送信）として見え、以降は既存の再送 / 破棄で扱う。
 
-- BFF が保持する分はそのまま外す。SDK へ渡した 1 件は `session.agent.peekQueuedMessages()` で実キューへの残存を確かめ、await を挟まず `clearQueue()` する。受付処理中の steering は、その完了を待ってから判定する
+- BFF が保持する分はそのまま外す。SDK へ渡した分は、`clearQueue()` の前に実キュー件数から取り出し済みかを確定し、取り出し済みなら 409、実キューに残っていれば `clearQueue()` して残りを渡し直す。受付処理中の steering は、その完了を待ってから判定する。判定から `clearQueue()` までに await を挟まない（取り消せないものを取り消せたと返さないため）
 - 成功は `{ "ok": true }`。件数や順位は応答に載せず、成功時に `resync` を 1 件配って揃える
 - SDK が実キューから取り出した後（注入前でも）・実行中の開始送信は 409 `SDK が取り出したため取り消せません`。待機にも実行中にも無い（別タブが先に取り消した / 実行済み / 保存済み / 既に未送信）は 404 `待機中のメッセージが見つかりません`
 - 送信の記録を保存できない構成（永続化なし）は 409 `送信の記録を保存できないため取り消せません` で断り、キューを触らない（取り消しの事後条件「未送信として残る」を満たせないため）

@@ -121,10 +121,17 @@ export interface StubSessionOptions {
   reply?: string;
   /** false で steering 非対応の SDK を再現する (追加入力は BFF が保持したままになる) */
   steering?: boolean;
+  /**
+   * SDK の steering モード。既定は u7agent の設定と同じ `"all"` (実キューをまとめてドレインする)。
+   * `"one-at-a-time"` は先頭 1 件だけを返す旧挙動の再現
+   */
+  steeringMode?: "all" | "one-at-a-time";
   /** true で steer() が実キューからすぐ取り出す (注入前で取り出された窓を再現する) */
   steerTaken?: boolean;
   /** steer() の受付を遅らせる (停止・取消との直列化の検証用) */
   steerDelayMs?: number;
+  /** 最初の N 回だけ steer() を失敗させる (受付失敗した 1 件だけが未送信に残る経路の検証用) */
+  steerFailures?: number;
   /** false で応答後の steering 注入を行わない (終端時の回収を検証する) */
   drainSteering?: boolean;
   /** assistant を最終エラーで終わらせる (エラー終端の競合を検証する) */
@@ -412,7 +419,9 @@ export interface StubSession extends PiSessionLike {
 export function createStubSession(options: StubSessionOptions = {}): StubSession {
   const { reply = "スタブの返答です", chunkDelayMs = 0, setModelDelayMs = 0 } = options;
   const listeners = new Set<PiSessionEventListener>();
-  // SDK の steering キュー。1 回の prompt の応答とツールが終わった時点で 1 件ずつ取り出して注入する
+  // SDK の steering キュー。1 回の prompt の応答とツールが終わった時点で取り出して注入する。
+  // "all" (既定) は全件まとめて取り出し、user を全件宣言してから assistant を 1 回だけストリームする
+  const steeringMode = options.steeringMode ?? "all";
   const steeringQueue: string[] = [];
   const takenSteering: string[] = [];
   let steeringInjected = 0;
@@ -556,9 +565,14 @@ export function createStubSession(options: StubSessionOptions = {}): StubSession
       listeners.add(listener);
       return () => listeners.delete(listener);
     },
-    // 実 SDK と同じ公開面: 実キューの中身 (未注入) を覗き、steering を積み、キューを捨てる
+    // 実 SDK と同じ公開面: 実キューの中身 (未注入) を覗き、steering を積み、キューを捨てる。
+    // "one-at-a-time" は先頭だけを返す (一括ドレインの前提が成り立たないことの再現)
+    steeringMode,
     agent: {
-      peekQueuedMessages: () => steeringQueue.map((text) => ({ role: "user", content: text })),
+      peekQueuedMessages: () => {
+        const queued = steeringQueue.map((text) => ({ role: "user", content: text }));
+        return steeringMode === "all" ? queued : queued.slice(0, 1);
+      },
       hasQueuedMessages: () => steeringQueue.length > 0,
     },
     /** 取り出し済み (実キューに無い) 入力をテストから確認する */
@@ -567,8 +581,13 @@ export function createStubSession(options: StubSessionOptions = {}): StubSession
     },
     async steer(text: string) {
       if ((options.steerDelayMs ?? 0) > 0) await sleep(options.steerDelayMs ?? 0);
+      if ((options.steerFailures ?? 0) > 0) {
+        options.steerFailures = (options.steerFailures ?? 0) - 1;
+        throw new Error("stub steer failed");
+      }
       steeringQueue.push(text);
       if (options.steerTaken) takenSteering.push(steeringQueue.shift() as string);
+      return "queued" as const;
     },
     clearQueue() {
       const steering = [...steeringQueue];
@@ -971,19 +990,23 @@ export function createStubSession(options: StubSessionOptions = {}): StubSession
           // 実 SDK はリスナーへ配信した後、同じターンで SessionManager へ追加する
           historyUpdated = true;
         }
-        // 応答とツールが終わった後、次のモデル呼び出しの前へ steering を 1 件ずつ渡す
+        // 応答とツールが終わった後、次のモデル呼び出しの前へ steering を渡す。"all" はキューを
+        // まとめて取り出し、user を全件宣言してから assistant を 1 回だけストリームする
         while (options.drainSteering !== false && steeringQueue.length > 0 && !session.abortRequested) {
-          const text = steeringQueue.shift() as string;
-          steeringInjected += 1;
-          const index = steeringInjected;
-          const steeringUser = { role: "user", content: text, timestamp: Date.now() };
-          session.emit({ type: "message_start", message: steeringUser });
-          session.appendMessage(steeringUser);
-          session.emit({ type: "message_end", message: steeringUser });
+          const batch =
+            steeringMode === "all" ? steeringQueue.splice(0, steeringQueue.length) : [steeringQueue.shift() as string];
+          const startIndex = steeringInjected + 1;
+          steeringInjected += batch.length;
+          for (const text of batch) {
+            const steeringUser = { role: "user", content: text, timestamp: Date.now() };
+            session.emit({ type: "message_start", message: steeringUser });
+            session.appendMessage(steeringUser);
+            session.emit({ type: "message_end", message: steeringUser });
+          }
           session.emit({ type: "message_start", message: { role: "assistant" } });
           const textBlock = {
             type: "text",
-            text: options.steeringReply?.(text, index) ?? `追加入力 ${index} を反映しました`,
+            text: options.steeringReply?.(batch[0], startIndex) ?? `追加入力 ${startIndex} を反映しました`,
           };
           const steeringAssistant = {
             role: "assistant",
@@ -1047,9 +1070,12 @@ export interface StubPiOptions {
   reply?: string;
   /** false で steering 非対応の SDK を再現する (StubSessionOptions と同じ) */
   steering?: boolean;
-  /** StubSessionOptions と同じ (取り出し済み / 受付の遅延 / 注入しない / エラー終端) */
+  /** SDK の steering モード (StubSessionOptions と同じ。既定は "all") */
+  steeringMode?: "all" | "one-at-a-time";
+  /** StubSessionOptions と同じ (取り出し済み / 受付の遅延 / 受付失敗 / 注入しない / エラー終端) */
   steerTaken?: boolean;
   steerDelayMs?: number;
+  steerFailures?: number;
   drainSteering?: boolean;
   assistantFailure?: string;
   chunkDelayMs?: number;

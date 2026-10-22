@@ -55,6 +55,7 @@ import type {
   UpdateSessionSettingsInput,
 } from "./session-record";
 import { projectSessionPayload, projectSessionSummary } from "./session-payload";
+import { batchesSteering, sdkQueueLength, takenSendIdsOf } from "./session-steering";
 import { SANDBOX_MAX_HANDOFF_BYTES } from "./sandbox/protocol";
 import { RunOutcomeSchema } from "./schema";
 import { displayableMessages, truncate } from "./session-projection";
@@ -547,6 +548,7 @@ export class SessionStore {
       runInitialSends: new Map(),
       injectedSends: new Set(),
       stopping: false,
+      cancelling: 0,
       unsentSends: [],
       sendsDirty: false,
       compactionMeta: new Map(),
@@ -1123,37 +1125,73 @@ export class SessionStore {
 
   /**
    * 待機中の 1 件だけを配送から外して未送信へ戻す。実行中のターンは止めず、他の入力も破棄しない。
-   * BFF が持つ分はそのまま外し、SDK へ渡した分は実キューへの残存を公開 API で確かめてから
-   * await を挟まずに `clearQueue()` する。実キューから取り出されていれば取消は成立しない (409)。
-   * 記録を残せない構成では取り消しの事後条件 (未送信として見える) を満たせないため、配送を触らない。
+   * BFF が持つ分はそのまま外し、SDK へ渡した分は一括ドレインでしか捨てられないため、`taken` の
+   * 判定から `clearQueue()` までを同期で行い、残りは以降に渡し直す。取り出されていれば 409。
+   * 記録を残せない構成では取消の事後条件 (未送信として見える) を満たせないため、配送を触らない。
    */
   async cancelQueued(record: SessionRecord, sendId: string): Promise<"ok" | "running" | "unstorable" | "missing"> {
     const index = record.queue.findIndex((item) => item.sendId === sendId);
     if (index === -1) return this.isSendActive(record, sendId) ? "running" : "missing";
     if (!record.writer || !this.storeDir) return "unstorable";
-    const entry = record.queue[index];
-    // SDK の受付処理が進行中なら、その完了を待ってから実キューの状態を判定する
-    if (entry.handedOff && record.steerTask) await record.steerTask.catch(() => {});
+    // 取消は直列化する (並行取消で `clearQueue()` が他の対象まで消さないように)。開始時点で
+    // 新規配送と pump を止め、実際の処理は直前の取消の後ろへ積む
+    record.cancelling += 1;
+    const task = (record.cancelTask ?? Promise.resolve())
+      .catch(() => {})
+      .then(async () => {
+        try {
+          return await this.cancelQueuedEntry(record, sendId);
+        } finally {
+          record.cancelling -= 1;
+          if (record.cancelling === 0) {
+            // 取消中に届いた待機を渡し直し、実行が無ければ次の実行を予約する
+            this.deliverSteering(record);
+            if (record.queue.length > 0 && !this.runInProgress(record)) {
+              setTimeout(() => this.pump(record), QUEUE_DELAY_MS).unref?.();
+            }
+          }
+        }
+      });
+    record.cancelTask = task.then(
+      () => {},
+      () => {},
+    );
+    return task;
+  }
+
+  /** 取消 1 件分。受付チェーンの完了を待ってから、実キューと BFF の待機を揃えて外す */
+  private async cancelQueuedEntry(record: SessionRecord, sendId: string): Promise<"ok" | "running" | "missing"> {
+    // SDK の受付処理が進行中なら、その完了を待ってから実キューと taken の状態を判定する
+    await record.steerTask?.catch(() => {});
     // 取消と注入の競合で状態が変わっていないか、await の後にもう一度引く
     const current = record.queue.find((item) => item.sendId === sendId);
     if (current === undefined) return this.isSendActive(record, sendId) ? "running" : "missing";
-    if (current.handedOff) {
-      // 実キューに残っていなければ SDK が取り出している (注入前でも取消は 409)
-      if (this.sdkQueueLength(record) === 0) return "running";
-      record.session.clearQueue?.();
+    if (current.handedOff === true) {
+      if (batchesSteering(record)) {
+        // 実キューは一括でしか捨てられない。taken の判定から clearQueue までに await を挟むと、
+        // 取り消せないものを取り消せたと返すため、ここは同期で閉じる
+        const taken = takenSendIdsOf(record);
+        if (taken.has(current.sendId)) return "running";
+        if (current.steered === true) {
+          record.session.clearQueue?.();
+          // 実キューに残っていた分だけを BFF の配送へ戻し、以降で渡し直す。ドレイン済み (taken) は
+          // SDK がこれから注入するため、渡し直すと二重注入になる
+          for (const entry of record.queue) {
+            if (entry.handedOff === true && entry.steered === true && !taken.has(entry.sendId)) {
+              this.releaseSteering(record, entry);
+            }
+          }
+        }
+      } else if (sdkQueueLength(record) === 0) {
+        // 渡した 1 件が実キューに残っていなければ SDK が取り出している (注入前でも取消は 409)
+        return "running";
+      } else {
+        record.session.clearQueue?.();
+      }
     }
-    const position = record.queue.indexOf(current);
-    if (position !== -1) record.queue.splice(position, 1);
-    const send = record.unsentSends.find((item) => item.sendId === sendId);
-    if (send) {
-      delete send.runId;
-      record.sendsDirty = true;
-      this.writeSends(record);
-    }
+    this.detachQueued(record, current);
     // 取り消した分の順位と件数を別タブへ揃える
     this.emitResync(record);
-    // 次の 1 件は SDK へ渡す (取消で先頭が抜けたら順番を詰める)
-    this.deliverSteering(record);
     return "ok";
   }
 
@@ -1205,20 +1243,21 @@ export class SessionStore {
   }
 
   /**
-   * SDK の実キューに未注入で残る件数。公開 API が無い実装では 0 を返し、steering の取消判定は
-   * 「取り出し済み」に倒す (取り消せたと偽らない)。
+   * SDK へ渡した待機の先頭。一括ドレインを持たない SDK では、実キューから取り出されたかを
+   * この 1 件だけで見る
    */
-  private sdkQueueLength(record: SessionRecord): number {
-    try {
-      return record.session.agent?.peekQueuedMessages?.().length ?? 0;
-    } catch {
-      return 0;
-    }
-  }
-
-  /** SDK へ渡した 1 件の控え (同時に最大 1 件) */
   private steeringOf(record: SessionRecord): QueuedSend | undefined {
     return record.queue.find((item) => item.handedOff === true);
+  }
+
+  /**
+   * その run へ今 steering を渡せるか。終端処理・取消・停止中の窓を取りこぼさないよう、
+   * 実行の同一性と実キューへ積める状態 (streaming か isIdle でない) を毎段で見直す
+   */
+  private canDeliverSteering(record: SessionRecord, run: RunState): boolean {
+    if (record.run !== run || run.status !== "running") return false;
+    if (record.stopping || record.cancelling > 0 || record.compacting) return false;
+    return record.session.isIdle === false || record.session.isStreaming;
   }
 
   /** 送信の実行への所属を控える (注入で確定した時点と、開始送信の即時開始で使う) */
@@ -1234,96 +1273,190 @@ export class SessionStore {
   }
 
   /**
-   * 追加入力を SDK の steering へ 1 件だけ渡す。idle のあいだは `steer()` だけではランが始まらず
-   * キューに置き去りになるため、実行中に限り渡す。
+   * BFF の待機から外し、未送信として残す (次の実行へは自動で再投入しない)。実行への割当も外す。
+   * 保存は呼び出し側がまとめて 1 回行う
+   */
+  private detachQueued(record: SessionRecord, entry: QueuedSend): void {
+    const position = record.queue.indexOf(entry);
+    if (position !== -1) record.queue.splice(position, 1);
+    delete entry.handedOff;
+    delete entry.steered;
+    delete entry.runId;
+    const send = record.unsentSends.find((item) => item.sendId === entry.sendId);
+    if (send) {
+      delete send.runId;
+      record.sendsDirty = true;
+    }
+  }
+
+  /** 配送対象から外して BFF の待機へ戻し、次の実行の開始送信として渡し直す */
+  private releaseSteering(record: SessionRecord, entry: QueuedSend): void {
+    if (entry.handedOff !== true && entry.steered !== true) return;
+    delete entry.handedOff;
+    delete entry.steered;
+    delete entry.runId;
+    const send = record.unsentSends.find((item) => item.sendId === entry.sendId);
+    if (send && !record.injectedSends.has(send.sendId)) {
+      delete send.runId;
+      record.sendsDirty = true;
+    }
+  }
+
+  /**
+   * 追加入力を SDK の steering へ渡す。`"all"` の SDK は受付済みの待機をまとめて渡し、次のモデル
+   * 判断の前に全件注入させる。`steer()` は拡張の入力ハンドラを await してから実キューへ積むため、
+   * 受付はこの直列チェーンにだけ載せ、各段の直前で運行と待機を再確認する。
+   * idle のあいだは `steer()` だけではランが始まらずキューに置き去りになるため、実行中に限り渡す。
    */
   private deliverSteering(record: SessionRecord): void {
-    if (record.stopping || record.compacting) return;
+    if (record.stopping || record.compacting || record.cancelling > 0) return;
     const run = record.run;
     if (!run || run.status !== "running" || !run.initialInjected) return;
-    if (this.steeringOf(record) !== undefined) return;
+    if (!record.session.steer) return;
     // SDK の idle 判定だけでは終端処理中の窓を取りこぼすため、BFF の実行状態と併せて見る
     if (record.session.isIdle !== false && !record.session.isStreaming) return;
+    if (batchesSteering(record)) {
+      // `"all"` は先頭が注入されるのを待たず、未配送の待機を先頭からまとめてチェーンへ載せる
+      const pending = record.queue.filter((item) => item.handedOff !== true);
+      if (pending.length === 0) return;
+      for (const entry of pending) entry.handedOff = true;
+      this.enqueueSteering(record, run, pending);
+      this.emitResync(record);
+      return;
+    }
+    // 一括ドレインを持たない SDK は 1 件ずつ渡す (注入を観測するまで次を渡さない)
+    if (this.steeringOf(record) !== undefined) return;
     const entry = record.queue.find((item) => item.handedOff !== true);
     if (!entry) return;
+    entry.handedOff = true;
+    this.enqueueSteering(record, run, [entry]);
+    this.emitResync(record);
+  }
+
+  /** steering の受付チェーン 1 組分。解決で `steered`、渡せない分は配送から外す */
+  private enqueueSteering(record: SessionRecord, run: RunState, entries: QueuedSend[]): void {
     const steer = record.session.steer?.bind(record.session);
     if (!steer) return;
-    entry.handedOff = true;
-    const task = Promise.resolve(steer(entry.text))
-      .then(() => {
-        if (this.records.get(record.id) === record) this.emitResync(record);
-      })
-      .catch((error) => {
-        if (this.records.get(record.id) !== record) return;
-        // 受付できなかった入力は配送対象から外し、未送信として残す (自動で入れ直さない)
-        const position = record.queue.indexOf(entry);
-        if (position !== -1) record.queue.splice(position, 1);
-        delete entry.handedOff;
-        delete entry.runId;
-        record.sendsDirty = true;
+    const task = (record.steerTask ?? Promise.resolve())
+      .catch(() => {})
+      .then(async () => {
+        let changed = false;
+        for (let index = 0; index < entries.length; index += 1) {
+          const entry = entries[index];
+          const alive = record.queue.includes(entry) && entry.handedOff === true;
+          if (!alive || !this.canDeliverSteering(record, run)) {
+            // 取消・終端・停止で渡せなくなった分は配送から外し、後続も打ち切る
+            for (const remaining of entries.slice(index)) this.releaseSteering(record, remaining);
+            changed = true;
+            break;
+          }
+          let outcome: "queued" | "handled";
+          try {
+            outcome = await steer(entry.text);
+          } catch (error) {
+            // 受付できなかった 1 件だけを配送から外し、未送信として残す (自動で入れ直さない)
+            this.detachQueued(record, entry);
+            record.sendsError = messageFor(error);
+            console.warn(`[u7agent] 追加入力をSDKへ渡せませんでした (${record.id}): ${record.sendsError}`);
+            changed = true;
+            continue;
+          }
+          if (outcome === "handled") {
+            // 実キューに入っていない分は次の実行へ再投入しない (先頭に残して次の注入とずらさない)
+            this.detachQueued(record, entry);
+            changed = true;
+            continue;
+          }
+          entry.steered = true;
+          changed = true;
+        }
+        if (!changed || this.records.get(record.id) !== record) return;
         this.writeSends(record);
-        record.sendsError = messageFor(error);
-        console.warn(`[u7agent] 追加入力をSDKへ渡せませんでした (${record.id}): ${record.sendsError}`);
+        // 受付ごとではなくチェーン完了後に 1 回だけ配る (N 件の受理で payload を N 回配らない)
         this.emitResync(record);
       })
       .finally(() => {
         if (record.steerTask === task) delete record.steerTask;
       });
     record.steerTask = task;
-    this.emitResync(record);
   }
 
   /**
-   * user メッセージの注入を観測し、送信IDと実行IDを対応付ける。SDK は入力を 1 件ずつ渡すため、
-   * 開始送信の次に届く user は控えている steering の 1 件で、本文一致に依存せず対応が取れる。
+   * user メッセージの注入を観測し、送信IDと実行IDを対応付ける。SDK は実キューから取り出した順に
+   * user を渡すため、開始送信の次に届く user は控えている `handedOff` の先頭で、本文一致に依存せず
+   * 対応が取れる。取り出しの印は実キュー件数から導出するため、ここでは立てない。
    * ディスク保存を待たず resync を配り、次の assistant の delta より先に新しい user を見せる。
    */
   private noteUserInjected(record: SessionRecord, run: RunState, message: object): void {
-    const steering = this.steeringOf(record);
     if (!run.initialInjected) {
       run.initialInjected = true;
       record.userMessageSends.set(message, { sendId: run.initialSendId, runId: run.id });
       record.injectedSends.add(run.initialSendId);
       this.assignSendRun(record, run.initialSendId, run.id);
-    } else if (steering !== undefined) {
+    } else {
+      const steering = this.steeringOf(record);
+      // 対応の取れない user (拡張など) に送信IDを捏造しない
+      if (steering === undefined) return;
       record.userMessageSends.set(message, { sendId: steering.sendId, runId: run.id });
       record.injectedSends.add(steering.sendId);
       this.assignSendRun(record, steering.sendId, run.id);
       delete steering.handedOff;
+      delete steering.steered;
       const position = record.queue.indexOf(steering);
       if (position !== -1) record.queue.splice(position, 1);
       record.sendsDirty = true;
       this.writeSends(record);
-    } else {
-      // 対応の取れない user (拡張など) に送信IDを捏造しない
-      return;
     }
     queueMicrotask(() => {
       if (this.records.get(record.id) !== record) return;
       this.emitResync(record);
     });
-    // 注入を観測したら次の 1 件を渡す
+    // 注入中に届いた待機は、改めて次の判断へ渡す
     this.deliverSteering(record);
   }
 
   /**
-   * 終端で未注入の steering を回収する。遅い受付が終端後に SDK の実キューへ入らないよう、
-   * `steerTask` の完了を待ってから実キューを見る。
+   * 終端で未注入の steering を回収する。遅い受付や取消が終端後に SDK の実キューへ残らないよう、
+   * 受付チェーンと取消チェーンの完了を待ってから実キューを見る。
    */
   private async recoverSteeringAtFinish(record: SessionRecord): Promise<void> {
-    const accepted = record.steerTask;
-    if (accepted !== undefined) await accepted.catch(() => {});
+    await record.steerTask?.catch(() => {});
+    if (record.cancelTask !== undefined) await record.cancelTask.catch(() => {});
+    if (batchesSteering(record)) {
+      const handed = record.queue.filter((item) => item.handedOff === true);
+      if (handed.length === 0) return;
+      // taken は clearQueue の前に確定する (後に評価すると全件 taken になる)
+      const taken = takenSendIdsOf(record);
+      if (sdkQueueLength(record) > 0) record.session.clearQueue?.();
+      for (const entry of handed) {
+        if (taken.has(entry.sendId)) {
+          // ドレイン済みで注入されなかった分は配送対象から外して未送信に残す (run id は外さない)
+          const position = record.queue.indexOf(entry);
+          if (position !== -1) record.queue.splice(position, 1);
+          delete entry.handedOff;
+          delete entry.steered;
+        } else {
+          // 実キューに残っていた分は BFF の配送へ戻し、次の実行の開始送信にする
+          this.releaseSteering(record, entry);
+        }
+      }
+      this.writeSends(record);
+      this.emitResync(record);
+      return;
+    }
     const entry = this.steeringOf(record);
     if (!entry) return;
-    if (this.sdkQueueLength(record) > 0) {
+    if (sdkQueueLength(record) > 0) {
       record.session.clearQueue?.();
-      delete entry.handedOff;
-      delete entry.runId;
+      this.releaseSteering(record, entry);
     } else {
+      // 取り出された入力はドレイン済みなので、配送対象から外して未送信に残す
       const position = record.queue.indexOf(entry);
       if (position !== -1) record.queue.splice(position, 1);
       delete entry.handedOff;
+      delete entry.steered;
     }
+    this.writeSends(record);
     this.emitResync(record);
   }
 
@@ -1414,15 +1547,17 @@ export class SessionStore {
 
   /**
    * 実行中のランを中断し、未配信の入力を未送信として回収する。新規の送信は先に止め、SDK の受付処理
-   * (steer) の完了を待ってから実キューを捨て、abort の完了後に積み残しを再確認する。停止後は
+   * (steer) と取消の完了を待ってから実キューを捨て、abort の完了後に積み残しを再確認する。停止後は
    * 自動配送しない (回収した入力は手動の再送 / 破棄に任せる)。
    */
   async stop(record: SessionRecord): Promise<{ ok: true; status: RunStatus }> {
     record.lastUsedAt = Date.now();
     record.stopping = true;
     try {
-      // 受付処理中の steering を取りこぼさない (この完了後にもう一度実キューを見る)
+      // 受付処理中の steering と取消を取りこぼさない (この完了後にもう一度実キューを見る)。
+      // 取消が無い通常の停止で余分な待ちを挟まないよう、進行中の取消があるときだけ待つ
       await record.steerTask?.catch(() => {});
+      if (record.cancelTask !== undefined) await record.cancelTask.catch(() => {});
       record.session.clearQueue?.();
       const cleared = this.collectQueued(record);
       if (cleared.length > 0) {
@@ -1467,6 +1602,7 @@ export class SessionStore {
     const cleared = record.queue.splice(0, record.queue.length);
     for (const entry of cleared) {
       delete entry.handedOff;
+      delete entry.steered;
       const send = record.unsentSends.find((item) => item.sendId === entry.sendId);
       if (send && !record.injectedSends.has(send.sendId)) delete send.runId;
     }
@@ -2737,7 +2873,9 @@ export class SessionStore {
     if (record.queue.length === 0) return;
     // 受付処理中の steering が終わるとき、SDK の実キューへ同じ入力を残さないよう開始を待つ
     if (record.steerTask !== undefined) return;
-    if (record.queue[0].handedOff === true) return;
+    // 取消中は実キューの操作が終わるまで次の実行を始めない (取消した入力を次で開始しない)
+    if (record.cancelling > 0) return;
+    if (record.queue[0].handedOff === true || record.queue[0].steered === true) return;
     if (this.runInProgress(record)) return;
     const next = record.queue.shift();
     if (next === undefined) return;

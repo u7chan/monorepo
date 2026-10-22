@@ -752,6 +752,30 @@ export function compactionSettingsFromEnv(env: NodeJS.ProcessEnv = process.env):
   };
 }
 
+/**
+ * SDK が受付済みの steering を次のモデル判断の前にまとめて注入するモード。1 件ずつ渡す既定では、
+ * 入力のたびにモデル判断が走る。セッション作成時の in-memory 設定でだけ指定し、ユーザーの
+ * pi 設定ファイルには書き込まない (設定 UI にも出さない)
+ */
+export const SESSION_STEERING_MODE = "all" as const;
+
+/** セッション設定へ渡す compaction の値 (SDK の Settings の一部) */
+type SessionCompactionSettings = NonNullable<Parameters<typeof SettingsManager.inMemory>[0]>["compaction"];
+
+/**
+ * セッション 1 件分の in-memory 設定。SDK の設定ファイルを読ませず、値の出所をここへ寄せる。
+ * retry は BFF の budget と揃え、steering は `SESSION_STEERING_MODE` を正とする
+ */
+export function createSessionSettings(
+  compaction: SessionCompactionSettings,
+): Parameters<typeof SettingsManager.inMemory>[0] {
+  return {
+    compaction,
+    retry: { enabled: true, maxRetries: 2 },
+    steeringMode: SESSION_STEERING_MODE,
+  };
+}
+
 function modelLabel(model?: PiModelRef | null): string | undefined {
   return model ? `${model.provider}/${model.id}` : undefined;
 }
@@ -950,10 +974,7 @@ export async function createPiBff({ cwd = process.cwd() }: { cwd?: string } = {}
       throw error;
     }
     // セッションを使い捨てに保つ: JSONL セッションファイルを作らず、ユーザーの pi 設定にも書き込まない。
-    const settingsManager = SettingsManager.inMemory({
-      compaction: compactionSettings,
-      retry: { enabled: true, maxRetries: 2 },
-    });
+    const settingsManager = SettingsManager.inMemory(createSessionSettings(compactionSettings));
     const snapshot = promptSnapshot ?? composePromptSnapshot(agent);
     // ツールの実効はセッション作成時に確定する (作成 / 復元のどちらも呼び出し側が渡すスナップショットを使い、
     // 実行時にエージェント定義を読まない)。子は作業ツールだけを親から引き継ぐ

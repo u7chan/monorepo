@@ -59,7 +59,8 @@ export interface SessionSubscriber {
 }
 
 /**
- * BFF が配送を持つ追加入力。SDK へは先頭 1 件だけを steering として渡し、注入を観測したら次を渡す。
+ * BFF が配送を持つ追加入力。SDK が実キューを一括でドレインする設定では、実行中に受付した待機を
+ * 受付順でまとめて `steer()` へ渡し、SDK が次のモデル判断の前に全件注入する。
  * run id は注入時に確定する (未注入のまま終端したら外し、次の実行へ割り当て直す)。
  */
 export interface QueuedSend {
@@ -69,11 +70,13 @@ export interface QueuedSend {
   at: number;
   /** 実行へ割り当て済みなら実行ID (未注入・手動圧縮待ちは undefined) */
   runId?: string;
-  /**
-   * SDK へ steering として渡した 1 件。実キューから取り出されたかは SDK の公開 API で判定する
-   * (この印だけで取消の成否を決めない)
-   */
+  /** BFF の受付チェーン (`steer()` の直列化) に載せた。実キューに入ったかは `steered` で分ける */
   handedOff?: boolean;
+  /**
+   * SDK が `steer()` を受け付けて実キューへ入れた。実キューから取り出されたかは保存せず、
+   * 実キューに残る件数との差で導出する (この印だけで取消の成否を決めない)
+   */
+  steered?: boolean;
 }
 
 /**
@@ -163,8 +166,12 @@ export interface SessionRecord {
   injectedSends: Set<string>;
   /** stop の処理中。新規送信を 409 にし、回収後の自動配送を止める */
   stopping: boolean;
-  /** 進行中の SDK steering 受付 (取消・停止と直列化する) */
+  /** 進行中の SDK steering 受付 (取消・停止と直列化する) の末尾。`steer()` の完了順を受付順に保つ */
   steerTask?: Promise<void>;
+  /** 進行中の取消の直列化の末尾。並行取消で `clearQueue()` が他の対象まで消さないようにする */
+  cancelTask?: Promise<void>;
+  /** 進行中の取消の件数。0 に戻るまで配送と次の実行を進めない */
+  cancelling: number;
   /**
    * 202 で受理したがまだ user entry として保存されていない送信 (古い→新しい)。再起動でキューごと
    * 消えても、履歴の同一文面 item へ黙って吸収させず「未送信」として見せるために残す。

@@ -24,10 +24,12 @@ startRun():
      - entry_appended(context_edit) → 失敗試行の取り消し resync（後述）
      - agent_settled               → 終了判定
   4. session.prompt(text) を fire-and-forget で呼ぶ（await しない）
-  5. 開始送信の user 注入を観測したら、BFF が保持する先頭 1 件を session.steer() へ渡す
+  5. 開始送信の user 注入を観測したら、その時点で受付済みの待機を session.steer() へまとめて渡す
+     （SDK が次のモデル判断の前に全件注入する）
   6. agent_settled（または prompt の解決）で finish():
      - 失敗試行の取り消し後の最終テキスト補完（対象はこのランで観測した assistant だけ）
-     - SDK に未注入のまま残った steering の回収（実キューに残っていれば BFF へ戻す）
+     - SDK に未注入のまま残った steering の回収（実キューに残っていれば BFF の配送へ戻し、
+       取り出し済みの分は未送信に残す）
      - run.status を completed / stopped / error に確定
      - run_end イベントを記録
      - キューがあれば 200ms 後に pump() で次の送信を開始送信として実行
@@ -37,12 +39,14 @@ SDK の `agent_settled` は、BFF が持つ追加入力の注入完了を意味�
 
 ## 追加入力（steering）の配送
 
-`server/src/sessions.ts` の `SessionStore` が、`sendId` 付きの FIFO を未配信入力の正として持つ。SDK へ渡す steering は同時に最大 1 件で、実キューにある間は BFF の一覧でも `queued`（取消できる）、SDK が取り出した後は `steering`（反映中、取消・再送・破棄は不可）として配る。状態の一覧と判定は `server/src/schema.ts` の `PendingSendSchema` と `server/src/sessions.ts` の `deliverSteering` / `pendingSendsOf` を正とする。
+`server/src/sessions.ts` の `SessionStore` が、`sendId` 付きの FIFO を未配信入力の正として持つ。実行中に受付した待機は、SDK の steering キューへ受付順でまとめて渡し、SDK が次のモデル判断の前に全件注入する。1 件ずつ渡すと注入のたびに次のモデル判断が走り、入力のたびに軌道修正が繰り返されるため、BFF は先頭が注入されるのを待たない。状態の一覧は `server/src/schema.ts` の `PendingSendSchema`、配送状態の導出は `server/src/session-steering.ts` と `server/src/session-payload.ts` の `pendingSendsOf()` を正とする。
 
-- 最初の user の注入を観測するまで追加入力は SDK へ渡さない（開始準備中の取り違えを防ぐ）。注入を観測したら次の 1 件を渡す。
-- SDK の実キューに残るかどうかは `session.agent.peekQueuedMessages()` で見る。ミラーや本文一致では判定しない。
-- 実行が終端したとき、未注入の steering が実キューに残っていれば `clearQueue()` して BFF の配送へ戻し、次の実行の開始送信にする。SDK が取り出して user を注入しなかった場合は配送対象から外し、未送信として残す（自動で再投入しない）。
+- 最初の user の注入を観測するまで追加入力は SDK へ渡さない（開始準備中の取り違えを防ぐ）。注入を観測したら、その時点で受付済みの待機をまとめて渡す。注入中に届いた待機は改めて次の判断へ渡す。
+- `steer()` は拡張の入力ハンドラを await してから実キューへ積むため、BFF は受付を 1 本の直列チェーンに載せる。各段の直前に実行の同一性と待機の残存を確認し、取消・停止・終端で渡せなくなった分は配送から外して BFF の待機へ戻す。
+- SDK の実キューに未注入で残るかは `session.agent.peekQueuedMessages()` で見る。実キューにある間は BFF の一覧でも `queued`（取消できる）、SDK が取り出した後は `steering`（反映中、取消・再送・破棄は不可）として配る。取り出し済みかは保存せず、`handedOff` かつ `steered` の件数から実キューの件数を引いた先頭分として導出する（実キューには受付順の末尾側が残る）。
+- 実行が終端したとき、実キューに残っていれば `clearQueue()` して BFF の配送へ戻し、次の実行の開始送信にする。SDK が取り出して user を注入しなかった場合は配送対象から外し、未送信として残す（自動で再投入しない）。取り出し済みかは `clearQueue()` の前に実キュー件数から確定する。
 - アイドルの SDK へ `steer()` だけを残さない。BFF の終端処理中や手動圧縮中は待機だけを保持し、終端後に先頭から次の実行を開始する。
+- `session.steeringMode` が `"all"` でない SDK（旧 SDK）は、実キューが先頭 1 件しか見えず一括ドレインの前提が成り立たないため、一括配送をせず 1 件ずつ渡す。
 
 ## 自動再試行（SDK の retry）
 
@@ -143,7 +147,7 @@ message_end(assistant, error, usage.total = 0)  失敗試行
 
 自動再試行の待機中の中止は、SDK が失敗試行を投影から除外済みで aborted の assistant が残らない。BFF は stop の要求を `RunState` へ控え、最終 assistant の `stopReason` に依らず `stopped` とする（`run.retry` は解除し、`totalRetryCount` は残す）。
 
-`DELETE /api/sessions/:id/queue/:sendId` は待機から 1 件だけ外して未送信として残す。実行中のターンは止めず、残った待機の順位は繰り上がる。BFF が保持する分はそのまま外し、SDK へ渡した分は実キューへの残存を `peekQueuedMessages()` で確かめてから `clearQueue()` する（取り出し済みなら 409）。キュー全体の破棄は `POST /stop`、記録ごと消すのは `DELETE /api/sessions/:id/unsent/:sendId`。
+`DELETE /api/sessions/:id/queue/:sendId` は待機から 1 件だけ外して未送信として残す。実行中のターンは止めず、残った待機の順位は繰り上がる。BFF が保持する分はそのまま外し、SDK へ渡した分は `clearQueue()` の前に実キュー件数から取り出し済みかを確定し、取り出し済みなら 409、実キューに残っていれば `clearQueue()` して残りを渡し直す。キュー全体の破棄は `POST /stop`、記録ごと消すのは `DELETE /api/sessions/:id/unsent/:sendId`。
 
 `DELETE /api/sessions/:id` は停止 + ストアの履歴削除 + 購読者への `session_deleted` 通知を行う（作業フォルダは残す）。未ロードのセッションは SDK を開かずに消せる。
 
