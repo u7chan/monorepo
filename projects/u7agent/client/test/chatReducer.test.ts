@@ -4663,3 +4663,270 @@ test("停止した本文なし応答のツールカードは、次の run と再
     current.bubbles.find((bubble) => bubble.id === ownersOfStop(current)[0])?.entryId;
   assert.deepEqual(ownerEntry(state), ownerEntry(reloaded), "live と再読み込みで所有者が一致する");
 });
+
+test("同じターンの本文なしツール応答が複数でも、所有者ごとにカードを 1 枚ずつ残す", () => {
+  // What: 停止したターンに本文なし応答 A → B が続くとき、live の a→A / b→B が履歴取得・次の run の
+  // 終端 resync・再読み込みの後も同じ所有者で 1 枚ずつ残る (A のツールを B へ寄せない)
+  const toolOf = (id: string, assistantId: string, output: string, isError: boolean): ToolCall => ({
+    id,
+    assistantId,
+    name: "bash",
+    args: "$ pwd",
+    isError,
+    done: true,
+    output,
+    startedAt: 11,
+    endedAt: 12,
+  });
+  const workA = toolOf("work-a", "run-1:1", "ok", false);
+  const workB = toolOf("work-b", "run-1:2", "This operation was aborted", true);
+  const oldPage: HistoryPage = {
+    sessionId: "session-a",
+    items: [
+      { kind: "message", id: "a-old-u", context: "active", role: "user", text: "前の質問" },
+      { kind: "message", id: "a-old-a", context: "active", role: "assistant", text: "旧回答" },
+    ],
+    prevCursor: null,
+    hasMore: false,
+    nextCursor: null,
+    activeContextStartId: "a-old-u",
+    messageCount: 2,
+    summarizedMessageCount: 0,
+  };
+  const stoppedPage: HistoryPage = {
+    ...oldPage,
+    items: [
+      ...oldPage.items,
+      {
+        kind: "message",
+        id: "a-u1",
+        context: "active",
+        role: "user",
+        text: "停止用",
+        sendId: "send-1",
+        runId: "run-1",
+      },
+      {
+        kind: "message",
+        id: "a-a1",
+        context: "active",
+        role: "assistant",
+        text: "",
+        assistantId: "run-1:1",
+        tools: [workA],
+      },
+      {
+        kind: "message",
+        id: "a-a2",
+        context: "active",
+        role: "assistant",
+        text: "",
+        assistantId: "run-1:2",
+        tools: [workB],
+      },
+    ],
+    prevCursor: "a-old-a",
+    messageCount: 5,
+  };
+  const messages: SessionPayload["messages"] = [
+    { role: "user", text: "前の質問" },
+    { role: "assistant", text: "旧回答" },
+    { role: "user", text: "停止用", sendId: "send-1", runId: "run-1" },
+    { role: "user", text: "次の質問", sendId: "send-2", runId: "run-2" },
+    { role: "assistant", text: "B", assistantId: "run-2:1" },
+  ];
+  const idle = (payloadMessages: SessionPayload["messages"]): SessionPayload => ({
+    ...runningPayload(),
+    status: "idle",
+    run: null,
+    model: "stub/stub-model",
+    thinkingLevel: "high",
+    supportsThinking: true,
+    availableThinkingLevels: ["off", "low", "high"],
+    messages: payloadMessages,
+  });
+  /** カード id -> [所有者の応答ID, 所属 item の entryId] (所有者はカードを持たないバブル側の値) */
+  const ownersOf = (state: ChatState): [string, string | undefined, string | undefined][] =>
+    state.bubbles.flatMap((bubble) =>
+      bubble.tools.map((card): [string, string | undefined, string | undefined] => [
+        card.id,
+        bubble.assistantId,
+        bubble.entryId,
+      ]),
+    );
+
+  let state = chatReducer(initialChatState, {
+    type: "resync",
+    payload: idle([
+      { role: "user", text: "前の質問" },
+      { role: "assistant", text: "旧回答" },
+    ]),
+  });
+  state = chatReducer(state, { type: "resyncHistory", page: oldPage });
+
+  // 本文なし応答 A → B のツールを実行し、run_end を取りこぼしたまま停止する
+  state = chatReducer(state, { type: "localUser", text: "停止用", at: 10 });
+  state = chatReducer(state, { type: "echoSendId", sendId: "send-1", runId: "run-1", stateSeq: state.stateSeq });
+  state = chatReducer(state, {
+    type: "runStart",
+    runId: "run-1",
+    initialSendId: "send-1",
+    prompt: "停止用",
+    at: 10,
+    startedAt: 10,
+  });
+  state = chatReducer(state, {
+    type: "toolStart",
+    id: "work-a",
+    name: "bash",
+    args: "$ pwd",
+    at: 11,
+    assistantId: "run-1:1",
+  });
+  state = chatReducer(state, { type: "toolEnd", id: "work-a", isError: false, output: "ok" });
+  state = chatReducer(state, {
+    type: "toolStart",
+    id: "work-b",
+    name: "bash",
+    args: "$ sleep 120",
+    at: 12,
+    assistantId: "run-1:2",
+  });
+  const live = chatReducer(state, {
+    type: "resync",
+    payload: {
+      ...idle([
+        { role: "user", text: "前の質問" },
+        { role: "assistant", text: "旧回答" },
+        { role: "user", text: "停止用", sendId: "send-1", runId: "run-1" },
+      ]),
+      status: "stopped",
+      run: {
+        id: "run-1",
+        initialSendId: "send-1",
+        status: "stopped",
+        startedAt: 10,
+        endedAt: 20,
+        prompt: "停止用",
+        toolCalls: [workA, workB],
+        totalRetryCount: 0,
+      },
+    },
+  });
+  const liveOwners = ownersOf(live).map(([id, owner]) => [id, owner]);
+  assert.deepEqual(
+    liveOwners,
+    [
+      ["work-a", "run-1:1"],
+      ["work-b", "run-1:2"],
+    ],
+    "live では A のツールが A、B のツールが B に付く",
+  );
+
+  state = chatReducer(live, { type: "resyncHistory", page: stoppedPage });
+  assert.deepEqual(
+    ownersOf(state).map(([id, owner, entry]) => [id, owner, entry]),
+    [
+      ["work-a", "run-1:1", "a-a1"],
+      ["work-b", "run-1:2", "a-a2"],
+    ],
+    "履歴取得で所有者が入れ替わらない",
+  );
+
+  // 同じ会話で次の run を完了する
+  state = chatReducer(state, { type: "localUser", text: "次の質問", at: 30 });
+  state = chatReducer(state, { type: "echoSendId", sendId: "send-2", runId: "run-2", stateSeq: state.stateSeq });
+  state = chatReducer(state, {
+    type: "runStart",
+    runId: "run-2",
+    initialSendId: "send-2",
+    prompt: "次の質問",
+    at: 30,
+    startedAt: 30,
+  });
+  state = chatReducer(state, { type: "text", delta: "B", at: 31, assistantId: "run-2:1" });
+  state = chatReducer(state, { type: "assistantEnd", assistantId: "run-2:1" });
+  state = chatReducer(state, {
+    type: "resync",
+    payload: {
+      ...idle(messages),
+      run: {
+        id: "run-2",
+        initialSendId: "send-2",
+        status: "completed",
+        startedAt: 30,
+        endedAt: 33,
+        prompt: "次の質問",
+        toolCalls: [],
+        totalRetryCount: 0,
+      },
+    },
+  });
+  const nextPage: HistoryPage = {
+    ...stoppedPage,
+    items: [
+      ...stoppedPage.items,
+      {
+        kind: "message",
+        id: "a-u2",
+        context: "active",
+        role: "user",
+        text: "次の質問",
+        sendId: "send-2",
+        runId: "run-2",
+      },
+      {
+        kind: "message",
+        id: "a-b",
+        context: "active",
+        role: "assistant",
+        text: "B",
+        assistantId: "run-2:1",
+        turnEnd: { outcome: "completed", durationMs: 3000 },
+      },
+    ],
+    messageCount: 7,
+  };
+  state = chatReducer(state, { type: "resyncHistory", page: nextPage });
+
+  const expected = [
+    ["work-a", "run-1:1", "a-a1"],
+    ["work-b", "run-1:2", "a-a2"],
+  ];
+  const assertOwners = (current: ChatState, label: string): void => {
+    assert.deepEqual(
+      ownersOf(current).map(([id, owner, entry]) => [id, owner, entry]),
+      expected,
+      `${label}: 所有者ごとに 1 枚ずつ残る`,
+    );
+    const answer = current.bubbles.find((bubble) => bubble.entryId === "a-b");
+    assert.deepEqual(answer?.tools, [], `${label}: 次のターンの本文へ移さない`);
+    const rendered = chatRenderItems({
+      bubbles: current.bubbles,
+      markers: [],
+      compactions: [],
+      activeContextStartId: null,
+    }).flatMap((item) =>
+      item.kind === "message" ? item.bubble.tools.map((card) => [card.id, item.bubble.entryId]) : [],
+    );
+    assert.deepEqual(
+      rendered,
+      [
+        ["work-a", "a-a1"],
+        ["work-b", "a-a2"],
+      ],
+      `${label}: 表示も 1 枚ずつ`,
+    );
+  };
+  assertOwners(state, "次の run の終端 resync と履歴取得の後");
+
+  // 再読み込み: 履歴だけから組み直す
+  let reloaded = chatReducer(initialChatState, { type: "resync", payload: idle(messages) });
+  reloaded = chatReducer(reloaded, { type: "resyncHistory", page: nextPage });
+  assertOwners(reloaded, "再読み込みの後");
+  assert.deepEqual(
+    ownersOf(reloaded).map(([id, owner]) => [id, owner]),
+    liveOwners,
+    "live と再読み込みで所有者が一致する",
+  );
+});

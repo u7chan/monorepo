@@ -230,6 +230,65 @@ test("本文なし assistant の tools は part 順で次の表示 assistant へ
   );
 });
 
+test("本文なし assistant のツールは、後に本文の応答があれば件数を増やさずそこへ繰り上げる", () => {
+  // What: 本文なし応答が A / B と続いても、同じターンの後に本文 C があれば item は C だけで、
+  // ツールはメッセージ順 → part 順で C に集まる (本文なし item を増やさない)
+  const messages = [
+    user("一覧を確認して"),
+    assistant([toolCall("call-a", "bash", { command: "pwd" })]),
+    toolResult("call-a"),
+    assistant([toolCall("call-b", "read", { path: "README.md" })]),
+    toolResult("call-b"),
+    assistant([toolCall("call-c", "grep", { pattern: "TODO" }), text("確認しました")]),
+    toolResult("call-c"),
+  ];
+
+  const projected = project(messages);
+
+  assert.deepEqual(
+    projected.map((message) => [message.role, message.text]),
+    [
+      ["user", "一覧を確認して"],
+      ["assistant", "確認しました"],
+    ],
+    "本文の応答が繰り上げ先になるターンでは本文なし item を作らない",
+  );
+  assert.deepEqual(
+    projected[1]?.tools?.map((call) => call.id),
+    ["call-a", "call-b", "call-c"],
+  );
+});
+
+test("本文なし assistant のツールは、繰り上げ先が無いターンでは所有者ごとに item を残す", () => {
+  // What: 同一ターンに本文なし応答が A / B と続き、その後に本文が無いときは、A と B が
+  // それぞれ自分のツールだけを持つ item になる (最後の応答へ寄せない)
+  const messages = [
+    user("一覧を確認して"),
+    assistant([toolCall("call-a", "bash", { command: "pwd" })]),
+    toolResult("call-a"),
+    assistant([toolCall("call-b", "read", { path: "README.md" })], { stopReason: "aborted" }),
+    { ...toolResult("call-b", true), content: [{ type: "text", text: "aborted" }] },
+    assistant([]),
+  ];
+
+  const projected = project(messages);
+
+  assert.deepEqual(
+    projected.map((message) => [message.role, message.text]),
+    [
+      ["user", "一覧を確認して"],
+      ["assistant", ""],
+      ["assistant", ""],
+    ],
+    "本文なしのツール応答ごとに item を残す",
+  );
+  assert.deepEqual(
+    projected.map((message) => message.tools?.map((call) => call.id)),
+    [undefined, ["call-a"], ["call-b"]],
+    "ツールは要求した応答の item に残す",
+  );
+});
+
 test("projectMessages は繰り上げをターン内の次の user メッセージで止める", () => {
   const messages = [
     user("1 つ目"),

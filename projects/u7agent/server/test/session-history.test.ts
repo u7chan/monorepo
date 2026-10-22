@@ -626,3 +626,74 @@ test("停止した本文なし応答のツールは、次のターンの後も�
 
   await store.close();
 });
+
+test("同じターンに本文なしツール応答が複数あるとき、所有者ごとに item を残す", async () => {
+  // What: 停止したターンに本文なしツール応答が A → B と続くとき、A のツールを B の item へ寄せず、
+  // それぞれの応答の item・payload・件数・ページングで同じ所有者に残す
+  const store = new SessionStore({ pi: createStubPi(), catalog: createAgentCatalog() });
+  const record = await store.create();
+  const session = record.session as unknown as StubSession;
+
+  session.appendMessage({ role: "user", content: text("前の質問") });
+  session.appendMessage({ role: "assistant", content: text("旧回答"), stopReason: "stop" });
+  // 本文なし応答 A → B が続いたまま停止した JSONL (最後に空の error 応答が付く)
+  session.appendMessage({ role: "user", content: text("停止用") });
+  session.appendMessage({
+    role: "assistant",
+    content: [{ type: "toolCall", id: "work-a", name: "bash", arguments: { command: "pwd" } }],
+    stopReason: "toolUse",
+  });
+  session.appendMessage({ role: "toolResult", toolCallId: "work-a", content: text("ok"), isError: false });
+  session.appendMessage({
+    role: "assistant",
+    content: [{ type: "toolCall", id: "work-b", name: "bash", arguments: { command: "sleep 120" } }],
+    stopReason: "toolUse",
+  });
+  session.appendMessage({ role: "toolResult", toolCallId: "work-b", content: text("aborted"), isError: true });
+  session.appendMessage({
+    role: "assistant",
+    content: [],
+    stopReason: "error",
+    errorMessage: "This operation was aborted",
+  });
+  // 同じ会話で次の run を完了させる
+  session.appendMessage({ role: "user", content: text("次の質問") });
+  session.appendMessage({ role: "assistant", content: text("次の回答"), stopReason: "stop" });
+
+  const result = store.history(record, {});
+  assert.ok(result.ok);
+  const page = result.page;
+  const items = messageItems(page);
+  assert.deepEqual(
+    items.map((item) => [item.role, item.text, item.tools?.map((call) => call.id) ?? []]),
+    [
+      ["user", "前の質問", []],
+      ["assistant", "旧回答", []],
+      ["user", "停止用", []],
+      ["assistant", "", ["work-a"]],
+      ["assistant", "", ["work-b"]],
+      ["user", "次の質問", []],
+      ["assistant", "次の回答", []],
+    ],
+    "本文なしのツール応答は所有者ごとに item にする",
+  );
+  assert.equal(page.messageCount, 7, "件数も item と同じ集合で数える");
+  assert.equal(page.summarizedMessageCount, 0);
+
+  // payload (履歴 API を使えない経路) と一覧の件数も同じ集合になる
+  assert.deepEqual(
+    store.payload(record).messages.map((message) => message.text),
+    ["前の質問", "旧回答", "停止用", "", "", "次の質問", "次の回答"],
+  );
+  assert.equal(store.summary(record).messageCount, page.messageCount);
+
+  // 古い側のページを 1 件ずつ遡っても、A と B のツールが 1 件ずつ・重複なく現れる
+  const all = await collectAllPages(store, record, 1);
+  assert.deepEqual(
+    all.flatMap((item) => (item.kind === "message" ? (item.tools ?? []).map((call) => call.id) : [])),
+    ["work-a", "work-b"],
+  );
+  assert.equal(new Set(all.map((item) => item.id)).size, all.length, "ページを跨いで item を重複させない");
+
+  await store.close();
+});

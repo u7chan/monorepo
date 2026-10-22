@@ -119,10 +119,10 @@ function carriesToolCard(
 }
 
 /**
- * 表示 item になるメッセージの集合。本文の無い assistant は原則として item にしないが、ターンの
- * 最後に来たときだけ item にする: 繰り上げ先が無いまま item にしないと、JSONL に残る確定済みの
- * ツール (停止・中断した実行を含む) が履歴と再読み込みで表示から消える。
- * 判定をここ 1 か所に置き、item の列挙と件数が食い違わないようにする。
+ * 表示 item になるメッセージの集合。本文の無い assistant は原則として item にしないが、ツールの
+ * 繰り上げ先が無いときは item にする: item にしないと、JSONL に残る確定済みのツール (停止・中断した
+ * 実行を含む) が履歴と再読み込みで表示から消える。判定をここ 1 か所に置き、item の列挙と件数が
+ * 食い違わないようにする。
  */
 export function displayableMessageSet(
   messages: PiSessionLike["messages"],
@@ -133,14 +133,12 @@ export function displayableMessageSet(
     if (message.role === "toolResult" && typeof message.toolCallId === "string") settled.add(message.toolCallId);
   }
   const displayable = new Set<object>();
-  // ターン (= user の次から次の user まで) の末尾で、結果付きツールを持つ最後の assistant。
-  // その後に本文の item が現れればツールはそちらへ繰り上げるので、item にはしない
-  let owner: PiSessionLike["messages"][number] | undefined;
-  let carriedOver = false;
+  // ターン (= user の次から次の user まで) で、まだ繰り上げ先の無い結果付きツールの応答。
+  // 同じターンに本文の応答が現れたら全件をそこへ繰り上げるので、item にはしない
+  let owners: PiSessionLike["messages"] = [];
   const closeTurn = (): void => {
-    if (owner !== undefined && !carriedOver) displayable.add(owner);
-    owner = undefined;
-    carriedOver = false;
+    for (const owner of owners) displayable.add(owner);
+    owners = [];
   };
   for (const message of messages) {
     if (message.role === "user") {
@@ -149,14 +147,11 @@ export function displayableMessageSet(
       continue;
     }
     if (isDisplayableMessage(message, masker)) {
+      owners = [];
       displayable.add(message);
-      if (owner !== undefined) carriedOver = true;
       continue;
     }
-    if (message.role === "assistant" && carriesToolCard(message, settled, cwd)) {
-      owner = message;
-      carriedOver = false;
-    }
+    if (message.role === "assistant" && carriesToolCard(message, settled, cwd)) owners.push(message);
   }
   closeTurn();
   return displayable;
