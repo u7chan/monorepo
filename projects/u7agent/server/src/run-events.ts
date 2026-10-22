@@ -391,7 +391,7 @@ export function createRunEventBridge(deps: RunEventBridgeDeps): RunEventBridge {
         case "compaction_end": {
           const durationMs = compactionStartedAt === undefined ? undefined : Date.now() - compactionStartedAt;
           compactionStartedAt = undefined;
-          const compactions = recordCompactionOutcome({ session, compactionMeta, masker, event, durationMs });
+          const compactions = recordCompactionOutcome({ session, compactionMeta, masker, cwd, event, durationMs });
           if (!compactions) break;
           emit("compaction", { compaction: compactions[compactions.length - 1], count: compactions.length });
           // 送信メッセージがまだ履歴に入っていなければ、入った時点 (message_end) まで遅らせる

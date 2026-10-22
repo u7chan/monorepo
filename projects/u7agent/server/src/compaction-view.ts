@@ -8,7 +8,7 @@ import type { SecretMasker } from "./redact";
 import type { CompactionInfo } from "./schema";
 import { CompactionReasonSchema } from "./schema";
 import type { CompactionMeta, SessionRecord } from "./session-record";
-import { isDisplayableMessage } from "./session-projection";
+import { displayableMessageSet } from "./session-projection";
 
 /** compaction entry のうち最後の 1 件の index (context に残るのはこの 1 件だけ) */
 function latestCompactionIndex(entries: PiSessionEntryLike[]): number {
@@ -30,7 +30,9 @@ function keptMessageCount(
   entries: PiSessionEntryLike[],
   compactionIndex: number,
   masker: SecretMasker,
+  cwd: string,
 ): number {
+  const displayable = displayableMessageSet(messages, { masker, cwd });
   const entryIndexByMessage = new Map<object, number>();
   entries.forEach((entry, index) => {
     if (entry.type === "message" && entry.message) entryIndexByMessage.set(entry.message, index);
@@ -40,7 +42,7 @@ function keptMessageCount(
     const index = entryIndexByMessage.get(message);
     // context 先頭の compactionSummary など、entry に対応しないメッセージは数えない
     if (index === undefined || index >= compactionIndex) continue;
-    if (!isDisplayableMessage(message, masker)) continue;
+    if (!displayable.has(message)) continue;
     count += 1;
   }
   return count;
@@ -52,6 +54,7 @@ export function compactionsFromEntries(
   messages: PiSessionLike["messages"],
   compactionMeta: Map<string, CompactionMeta>,
   masker: SecretMasker,
+  cwd: string,
 ): CompactionInfo[] {
   const compactionIndexes = entries
     .map((entry, index) => (entry.type === "compaction" ? index : -1))
@@ -72,7 +75,7 @@ export function compactionsFromEntries(
       ...(usage ? { usage } : {}),
       ...(entry.fromHook === true ? { fromHook: true } : {}),
       ...(entryIndex === latestIndex
-        ? { beforeMessageIndex: keptMessageCount(messages, entries, entryIndex, masker) }
+        ? { beforeMessageIndex: keptMessageCount(messages, entries, entryIndex, masker, cwd) }
         : {}),
       ...(meta?.reason ? { reason: meta.reason } : {}),
       ...(meta?.estimatedTokensAfter !== undefined ? { estimatedTokensAfter: meta.estimatedTokensAfter } : {}),
@@ -86,13 +89,14 @@ function projectCompactions(
   session: PiSessionLike,
   compactionMeta: Map<string, CompactionMeta>,
   masker: SecretMasker,
+  cwd: string,
 ): CompactionInfo[] {
-  return compactionsFromEntries(branchEntriesOf(session), session.messages, compactionMeta, masker);
+  return compactionsFromEntries(branchEntriesOf(session), session.messages, compactionMeta, masker, cwd);
 }
 
 /** record を入力にする版 */
-export function compactionsOf(record: SessionRecord, masker: SecretMasker): CompactionInfo[] {
-  return projectCompactions(record.session, record.compactionMeta, masker);
+export function compactionsOf(record: SessionRecord, masker: SecretMasker, cwd: string): CompactionInfo[] {
+  return projectCompactions(record.session, record.compactionMeta, masker, cwd);
 }
 
 /**
@@ -106,12 +110,14 @@ export function recordCompactionOutcome({
   session,
   compactionMeta,
   masker,
+  cwd,
   event,
   durationMs,
 }: {
   session: PiSessionLike;
   compactionMeta: Map<string, CompactionMeta>;
   masker: SecretMasker;
+  cwd: string;
   event: PiSessionEvent;
   /** BFF 計測の圧縮時間 (compaction_start から compaction_end の到着まで) */
   durationMs?: number;
@@ -128,6 +134,6 @@ export function recordCompactionOutcome({
     ...(typeof estimated === "number" ? { estimatedTokensAfter: estimated } : {}),
     ...(durationMs !== undefined ? { durationMs } : {}),
   });
-  const compactions = projectCompactions(session, compactionMeta, masker);
+  const compactions = projectCompactions(session, compactionMeta, masker, cwd);
   return compactions.length > 0 ? compactions : undefined;
 }

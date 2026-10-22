@@ -600,15 +600,6 @@ function mergeStreamingIntoHistory(
   bubbles: Bubble[],
   pairs: Map<number, string>,
 ): { bubbles: Bubble[]; currentAssistantId: number | null; toolBubbleIds: Record<string, number> } {
-  const rebuildTools = (items: Bubble[]): Record<string, number> => {
-    const ids: Record<string, number> = {};
-    for (const bubble of items) {
-      for (const card of bubble.tools) {
-        if (ids[card.id] === undefined) ids[card.id] = bubble.id;
-      }
-    }
-    return ids;
-  };
   const liveId = state.currentAssistantId;
   const live = liveId === null ? undefined : state.bubbles.find((bubble) => bubble.id === liveId);
   if (live === undefined || state.runStatus !== "running") {
@@ -616,7 +607,7 @@ function mergeStreamingIntoHistory(
     return {
       bubbles: kept,
       currentAssistantId: liveId !== null && kept.some((bubble) => bubble.id === liveId) ? liveId : null,
-      toolBubbleIds: rebuildTools(kept),
+      toolBubbleIds: toolBubbleIdsOf(kept),
     };
   }
   let matchIndex = -1;
@@ -669,7 +660,7 @@ function mergeStreamingIntoHistory(
     // 照合できない履歴マージでライブのカードが消えていても、今ターンの応答として残す (データを失わない)
     const base = bubbles.some((bubble) => bubble.id === liveId) ? bubbles : [...bubbles, live];
     const kept = restoreSettledTools(state, base, liveId, pairs);
-    return { bubbles: kept, currentAssistantId: liveId, toolBubbleIds: rebuildTools(kept) };
+    return { bubbles: kept, currentAssistantId: liveId, toolBubbleIds: toolBubbleIdsOf(kept) };
   }
   const mergedBubble = mergeAssistantCard(live, bubbles[matchIndex]);
   const next = restoreSettledTools(
@@ -680,7 +671,111 @@ function mergeStreamingIntoHistory(
     liveId,
     pairs,
   );
-  return { bubbles: next, currentAssistantId: liveId, toolBubbleIds: rebuildTools(next) };
+  return { bubbles: next, currentAssistantId: liveId, toolBubbleIds: toolBubbleIdsOf(next) };
+}
+
+/** ツールカードの持ち主の索引。同じ call は最初に持つバブルだけを指す */
+function toolBubbleIdsOf(bubbles: Bubble[]): Record<string, number> {
+  const ids: Record<string, number> = {};
+  for (const bubble of bubbles) {
+    for (const card of bubble.tools) {
+      if (ids[card.id] === undefined) ids[card.id] = bubble.id;
+    }
+  }
+  return ids;
+}
+
+/**
+ * 本文なし応答のカードを、同じターンで次に確定した本文の応答へ寄せる。履歴の投影は本文なし応答の
+ * ツールを同ターン内の次の表示メッセージへ繰り上げるので、ライブが古い持ち主のままだと同じ記録を
+ * 読み直した表示と所有者が食い違う。本文が確定する前と、本文が現れないターンでは動かさない。
+ */
+function carryToolCardsToAnswers(
+  bubbles: Bubble[],
+  keepId: number | null,
+): { bubbles: Bubble[]; dropped: Set<number> } {
+  const targets = new Map<number, number>();
+  let owners: Bubble[] = [];
+  for (const bubble of bubbles) {
+    if (bubble.role === "user") {
+      owners = [];
+      continue;
+    }
+    if (bubble.role !== "assistant") continue;
+    // 確定した本文だけを繰り上げ先にする。ストリーミング中に移すと、保存前の再読み込みで戻る
+    if (bubble.text !== "" && (bubble.settled === true || bubble.entryId !== undefined)) {
+      for (const owner of owners) targets.set(owner.id, bubble.id);
+      owners = [];
+      continue;
+    }
+    if (bubble.text === "" && bubble.tools.length > 0) owners.push(bubble);
+  }
+  if (targets.size === 0) return { bubbles, dropped: new Set() };
+  const carried = new Map<number, ToolCard[]>();
+  // 移し先に既にある call は足さない (履歴が assistant_end を追い越すと履歴由来のカードが先に載る)
+  const knownOf = new Map<number, Set<string>>();
+  const knownOn = (targetId: number): Set<string> => {
+    const known = knownOf.get(targetId);
+    if (known !== undefined) return known;
+    const ids = new Set(bubbles.find((bubble) => bubble.id === targetId)?.tools.map((card) => card.id) ?? []);
+    knownOf.set(targetId, ids);
+    return ids;
+  };
+  for (const [ownerId, targetId] of targets) {
+    const owner = bubbles.find((bubble) => bubble.id === ownerId);
+    if (owner === undefined) continue;
+    const known = knownOn(targetId);
+    const moved = owner.tools.filter((card) => {
+      if (known.has(card.id)) return false;
+      known.add(card.id);
+      return true;
+    });
+    if (moved.length === 0) continue;
+    carried.set(targetId, [...(carried.get(targetId) ?? []), ...moved]);
+  }
+  const dropped = new Set<number>();
+  const next: Bubble[] = [];
+  for (const bubble of bubbles) {
+    const moved = carried.get(bubble.id);
+    if (moved !== undefined) {
+      // 投影と同じく、繰り上げ分をこの応答の part より先に並べる
+      next.push({ ...bubble, tools: [...moved, ...bubble.tools] });
+      continue;
+    }
+    if (targets.has(bubble.id)) {
+      // カードを移した本文なし応答は、履歴 item / 導出行 / 結末を持つときだけ器として残す
+      if (
+        bubble.id === keepId ||
+        bubble.entryId !== undefined ||
+        bubble.skillLoads.length > 0 ||
+        bubble.turnEnd !== undefined
+      ) {
+        next.push({ ...bubble, tools: [] });
+      } else {
+        dropped.add(bubble.id);
+      }
+      continue;
+    }
+    next.push(bubble);
+  }
+  return { bubbles: next, dropped };
+}
+
+/** 繰り上げの結果を状態へ写す。消したバブルの補完先を指したままにしない */
+function withCarriedToolCards(state: ChatState): ChatState {
+  const { bubbles, dropped } = carryToolCardsToAnswers(state.bubbles, state.currentAssistantId);
+  const currentDropped = state.currentAssistantId !== null && dropped.has(state.currentAssistantId);
+  return {
+    ...state,
+    bubbles,
+    toolBubbleIds: toolBubbleIdsOf(bubbles),
+    currentAssistantId: currentDropped ? null : state.currentAssistantId,
+    currentAssistantKey: currentDropped ? undefined : state.currentAssistantKey,
+    toolTargetAssistantId:
+      state.toolTargetAssistantId !== undefined && dropped.has(state.toolTargetAssistantId)
+        ? undefined
+        : state.toolTargetAssistantId,
+  };
 }
 
 /**
@@ -700,7 +795,13 @@ function dedupeToolCards(
   }
   const next: Bubble[] = [];
   for (const bubble of bubbles) {
-    const tools = bubble.tools.filter((card) => owners.get(card.id) === bubble);
+    // 繰り上げや履歴の突き合わせで同じ応答に同じ call が 2 度載っても、カードは 1 枚にする
+    const seen = new Set<string>();
+    const tools = bubble.tools.filter((card) => {
+      if (owners.get(card.id) !== bubble || seen.has(card.id)) return false;
+      seen.add(card.id);
+      return true;
+    });
     if (tools.length === bubble.tools.length) {
       next.push(bubble);
       continue;
@@ -731,7 +832,8 @@ function applyHistoryMerge(state: ChatState, merged: HistoryMergeResult, page: H
   const identity = runIdentityOf(state, streaming.bubbles);
   const normalized = normalizeInitialSend(streaming.bubbles, identity.initialSendId);
   const ordered = orderInitialUser(normalized, identity.runId, identity.initialSendId);
-  const deduped = dedupeToolCards(ordered, streaming.currentAssistantId);
+  const carried = carryToolCardsToAnswers(ordered, streaming.currentAssistantId);
+  const deduped = dedupeToolCards(carried.bubbles, streaming.currentAssistantId);
   return {
     ...state,
     bubbles: restoreUserTurnEnds(state, deduped.bubbles),
@@ -742,6 +844,9 @@ function applyHistoryMerge(state: ChatState, merged: HistoryMergeResult, page: H
       streaming.currentAssistantId === null
         ? undefined
         : ordered.find((bubble) => bubble.id === streaming.currentAssistantId)?.assistantId,
+    ...(state.toolTargetAssistantId !== undefined && carried.dropped.has(state.toolTargetAssistantId)
+      ? { toolTargetAssistantId: undefined }
+      : {}),
     dividers: merged.markers,
     pendingEchoIds: merged.pendingEchoIds,
     sessionId: page.sessionId,
@@ -1562,7 +1667,8 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
       const assembled = keepHistory
         ? [...state.bubbles.filter((bubble) => bubble.entryId !== undefined), ...keptLive]
         : [...rebuiltWithStreaming, ...(streaming === undefined || streamingMerged ? [] : [streaming])];
-      const deduped = dedupeToolCards(assembled, streaming?.id ?? null);
+      const carried = carryToolCardsToAnswers(assembled, streaming?.id ?? null);
+      const deduped = dedupeToolCards(carried.bubbles, streaming?.id ?? null);
       const bubbles = deduped.bubbles;
       const nextId = keepHistory ? state.nextId : (legacy?.nextId ?? state.nextId);
       const toolBubbleIds = deduped.toolBubbleIds;
@@ -2169,7 +2275,8 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
       }
       const closesCurrent =
         state.currentAssistantId === target.id || (key !== undefined && state.currentAssistantKey === key);
-      return {
+      // 本文の応答が確定した時点で、同じターンの本文なし応答のカードをこの応答へ寄せる (投影と同じ所有者)
+      return withCarriedToolCards({
         ...state,
         currentAssistantId: closesCurrent ? null : state.currentAssistantId,
         currentAssistantKey: closesCurrent ? undefined : state.currentAssistantKey,
@@ -2179,7 +2286,7 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
           key !== undefined || target.text === ""
             ? state.closedAssistantTexts
             : [...new Set([...state.closedAssistantTexts, target.text])],
-      };
+      });
     }
 
     case "toolStart": {
@@ -2498,9 +2605,11 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
               action.durationMs,
               state.currentAssistantId,
             );
+      // assistant_end を取りこぼしても、run が終われば本文の応答は確定している (投影と同じ所有者へ寄せる)
+      const carriedBubbles = carryToolCardsToAnswers(bubbles, state.currentAssistantId).bubbles;
       return {
         ...withTurnEnd,
-        bubbles,
+        bubbles: carriedBubbles,
         pendingEchoIds,
         stateSeq: state.stateSeq + 1,
         currentAssistantId: null,

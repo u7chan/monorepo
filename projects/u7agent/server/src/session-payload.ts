@@ -135,7 +135,7 @@ export function projectSessionPayload({
       record.assistantMessageIds,
       record.userMessageSends,
     ),
-    compactions: compactionsOf(record, masker),
+    compactions: compactionsOf(record, masker, workspaceAbs(rootCwd, cwd)),
     // 引き継ぎの状態は meta が正 (クライアントのメモリでは持たない)。片付けの印もここで合成する
     ...(record.meta.handoff
       ? {
@@ -158,6 +158,7 @@ export function projectSessionSummary({
   awaitingAnswer,
   projectId,
   masker,
+  cwd,
   hasRawLog,
 }: {
   record: SessionRecord;
@@ -166,6 +167,8 @@ export function projectSessionSummary({
   awaitingAnswer: boolean;
   projectId?: string;
   masker: SecretMasker;
+  /** スキル読み込みの判定に使う絶対 cwd。件数を履歴ページと同じ表示集合で数えるために要る */
+  cwd: string;
   /** 生ログ (session.jsonl) がディスクにあるか。UI のダウンロードの出し分けだけに使う */
   hasRawLog: boolean;
 }): SessionSummary {
@@ -184,7 +187,7 @@ export function projectSessionSummary({
     projectSession: record.projectCwd !== undefined,
     ...(record.meta.handoffCleanup ? { handoffCleanup: true } : {}),
     hasRawLog,
-    messageCount: displayableMessages(record.session, masker).length,
+    messageCount: displayableMessages(record.session, masker, cwd).length,
     createdAt: record.createdAt,
     lastUsedAt: record.lastUsedAt,
     model: modelLabel(record.session.model),

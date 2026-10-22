@@ -550,3 +550,198 @@ test("走っているターンの応答 item には結末を載せない", async
 
   await store.close();
 });
+
+test("停止した本文なし応答のツールは、次のターンの後も自分のターンの item に残る", async () => {
+  // What: 停止 (abort) で本文の無いまま終わった応答のツールを、次のターンを完了した後も
+  // 履歴・payload・件数のすべてで同じ 1 か所に残す
+  const store = new SessionStore({ pi: createStubPi(), catalog: createAgentCatalog() });
+  const record = await store.create();
+  const session = record.session as unknown as StubSession;
+
+  session.appendMessage({ role: "user", content: text("前の質問") });
+  session.appendMessage({ role: "assistant", content: text("旧回答"), stopReason: "stop" });
+  // 本文なし応答の bash を実行中に停止した JSONL (SDK は abort の toolResult と空の error 応答を残す)
+  session.appendMessage({ role: "user", content: text("停止用") });
+  session.appendMessage({
+    role: "assistant",
+    content: [{ type: "toolCall", id: "work-stop", name: "bash", arguments: { command: "sleep 120" } }],
+    stopReason: "toolUse",
+  });
+  session.appendMessage({
+    role: "toolResult",
+    toolCallId: "work-stop",
+    content: text("This operation was aborted"),
+    isError: true,
+  });
+  session.appendMessage({
+    role: "assistant",
+    content: [],
+    stopReason: "error",
+    errorMessage: "This operation was aborted",
+  });
+  // 同じ会話で次の run を完了させる
+  session.appendMessage({ role: "user", content: text("次の質問") });
+  session.appendMessage({ role: "assistant", content: text("次の回答"), stopReason: "stop" });
+
+  const result = store.history(record, {});
+  assert.ok(result.ok);
+  const page = result.page;
+  const items = messageItems(page);
+  assert.deepEqual(
+    items.map((item) => [item.role, item.text]),
+    [
+      ["user", "前の質問"],
+      ["assistant", "旧回答"],
+      ["user", "停止用"],
+      ["assistant", ""],
+      ["user", "次の質問"],
+      ["assistant", "次の回答"],
+    ],
+    "本文の無い応答も、ツールの繰り上げ先が無いターンでは item にする",
+  );
+  const stopped = items[3];
+  assert.deepEqual(
+    stopped.tools?.map((call) => [call.id, call.done, call.isError, call.output]),
+    [["work-stop", true, true, "This operation was aborted"]],
+    "停止したツールを中止の結果つきで残す",
+  );
+  assert.equal(stopped.context, "active");
+  assert.equal(items.at(-1)?.tools, undefined, "次のターンの本文へツールを繰り上げない");
+  assert.equal(page.messageCount, 6, "件数も item と同じ集合で数える");
+
+  // payload (履歴 API を使えない経路) と一覧の件数も同じ集合になる
+  assert.deepEqual(
+    store.payload(record).messages.map((message) => message.text),
+    ["前の質問", "旧回答", "停止用", "", "次の質問", "次の回答"],
+  );
+  assert.equal(store.summary(record).messageCount, page.messageCount);
+
+  // 古い側のページを 1 件ずつ遡っても、停止したツールは 1 件だけ現れる
+  const all = await collectAllPages(store, record, 1);
+  const cards = all.flatMap((item) => (item.kind === "message" ? (item.tools ?? []) : []));
+  assert.deepEqual(
+    cards.map((call) => call.id),
+    ["work-stop"],
+  );
+
+  await store.close();
+});
+
+test("同じターンに本文なしツール応答が複数あるとき、所有者ごとに item を残す", async () => {
+  // What: 停止したターンに本文なしツール応答が A → B と続くとき、A のツールを B の item へ寄せず、
+  // それぞれの応答の item・payload・件数・ページングで同じ所有者に残す
+  const store = new SessionStore({ pi: createStubPi(), catalog: createAgentCatalog() });
+  const record = await store.create();
+  const session = record.session as unknown as StubSession;
+
+  session.appendMessage({ role: "user", content: text("前の質問") });
+  session.appendMessage({ role: "assistant", content: text("旧回答"), stopReason: "stop" });
+  // 本文なし応答 A → B が続いたまま停止した JSONL (最後に空の error 応答が付く)
+  session.appendMessage({ role: "user", content: text("停止用") });
+  session.appendMessage({
+    role: "assistant",
+    content: [{ type: "toolCall", id: "work-a", name: "bash", arguments: { command: "pwd" } }],
+    stopReason: "toolUse",
+  });
+  session.appendMessage({ role: "toolResult", toolCallId: "work-a", content: text("ok"), isError: false });
+  session.appendMessage({
+    role: "assistant",
+    content: [{ type: "toolCall", id: "work-b", name: "bash", arguments: { command: "sleep 120" } }],
+    stopReason: "toolUse",
+  });
+  session.appendMessage({ role: "toolResult", toolCallId: "work-b", content: text("aborted"), isError: true });
+  session.appendMessage({
+    role: "assistant",
+    content: [],
+    stopReason: "error",
+    errorMessage: "This operation was aborted",
+  });
+  // 同じ会話で次の run を完了させる
+  session.appendMessage({ role: "user", content: text("次の質問") });
+  session.appendMessage({ role: "assistant", content: text("次の回答"), stopReason: "stop" });
+
+  const result = store.history(record, {});
+  assert.ok(result.ok);
+  const page = result.page;
+  const items = messageItems(page);
+  assert.deepEqual(
+    items.map((item) => [item.role, item.text, item.tools?.map((call) => call.id) ?? []]),
+    [
+      ["user", "前の質問", []],
+      ["assistant", "旧回答", []],
+      ["user", "停止用", []],
+      ["assistant", "", ["work-a"]],
+      ["assistant", "", ["work-b"]],
+      ["user", "次の質問", []],
+      ["assistant", "次の回答", []],
+    ],
+    "本文なしのツール応答は所有者ごとに item にする",
+  );
+  assert.equal(page.messageCount, 7, "件数も item と同じ集合で数える");
+  assert.equal(page.summarizedMessageCount, 0);
+
+  // payload (履歴 API を使えない経路) と一覧の件数も同じ集合になる
+  assert.deepEqual(
+    store.payload(record).messages.map((message) => message.text),
+    ["前の質問", "旧回答", "停止用", "", "", "次の質問", "次の回答"],
+  );
+  assert.equal(store.summary(record).messageCount, page.messageCount);
+
+  // 古い側のページを 1 件ずつ遡っても、A と B のツールが 1 件ずつ・重複なく現れる
+  const all = await collectAllPages(store, record, 1);
+  assert.deepEqual(
+    all.flatMap((item) => (item.kind === "message" ? (item.tools ?? []).map((call) => call.id) : [])),
+    ["work-a", "work-b"],
+  );
+  assert.equal(new Set(all.map((item) => item.id)).size, all.length, "ページを跨いで item を重複させない");
+
+  await store.close();
+});
+
+test("同じターンの後に本文の応答があるとき、本文なし応答のツールは従来どおり本文へ繰り上げる", async () => {
+  // What: A(本文なし) → B(本文なし) → C(本文) のターンは、本文なし item を増やさず、a と b を
+  // C のカードへ集める (live が同じ持ち主へ収束できるように、所有者の正は従来どおり C)
+  const store = new SessionStore({ pi: createStubPi(), catalog: createAgentCatalog() });
+  const record = await store.create();
+  const session = record.session as unknown as StubSession;
+
+  session.appendMessage({ role: "user", content: text("確認して") });
+  session.appendMessage({
+    role: "assistant",
+    content: [{ type: "toolCall", id: "work-a", name: "bash", arguments: { command: "pwd" } }],
+    stopReason: "toolUse",
+  });
+  session.appendMessage({ role: "toolResult", toolCallId: "work-a", content: text("ok"), isError: false });
+  session.appendMessage({
+    role: "assistant",
+    content: [{ type: "toolCall", id: "work-b", name: "bash", arguments: { command: "ls" } }],
+    stopReason: "toolUse",
+  });
+  session.appendMessage({ role: "toolResult", toolCallId: "work-b", content: text("ok"), isError: false });
+  session.appendMessage({ role: "assistant", content: text("answer-C"), stopReason: "stop" });
+
+  const result = store.history(record, {});
+  assert.ok(result.ok);
+  const page = result.page;
+  const items = messageItems(page);
+  assert.deepEqual(
+    items.map((item) => [item.role, item.text, item.tools?.map((call) => call.id) ?? []]),
+    [
+      ["user", "確認して", []],
+      ["assistant", "answer-C", ["work-a", "work-b"]],
+    ],
+    "本文の応答があるターンでは本文なし item を増やさない",
+  );
+  assert.equal(page.messageCount, 2);
+  assert.deepEqual(
+    store.payload(record).messages.map((message) => [message.text, message.tools?.map((call) => call.id) ?? []]),
+    [
+      ["確認して", []],
+      ["answer-C", ["work-a", "work-b"]],
+    ],
+    "payload も同じ所有者で投影する",
+  );
+  assert.equal(store.summary(record).messageCount, page.messageCount);
+
+  await store.close();
+});

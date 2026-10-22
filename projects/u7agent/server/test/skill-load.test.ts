@@ -66,10 +66,6 @@ function project(messages: TestMessage[], secretMasker = masker): ReturnType<typ
   return projectMessages(messagesOf(messages), noMetrics(), secretMasker, CWD);
 }
 
-function skillLoadsOf(messages: ReturnType<typeof projectMessages>): SkillLoad[] {
-  return messages.flatMap((message) => message.skillLoads ?? []);
-}
-
 test("classifySkillRead は解決後の basename だけで判定する", () => {
   assert.deepEqual(classifySkillRead({ path: "/work/.agents/skills/gh/SKILL.md" }, { cwd: CWD, toolName: "read" }), {
     path: "/work/.agents/skills/gh/SKILL.md",
@@ -161,7 +157,7 @@ test("projectMessages は本文を持たない read だけのターンを次の�
     ],
     "表示集合は変わらない (本文を持たないメッセージはバブルにしない)",
   );
-  assert.equal(projected.length, displayableMessages(messagesOf(messages), masker).length);
+  assert.equal(projected.length, displayableMessages(messagesOf(messages), masker, CWD).length);
   assert.deepEqual(projected[1].skillLoads, [{ id: "call-1", name: "gh", path: `${CWD}/.agents/skills/gh/SKILL.md` }]);
   assert.equal(projected[0].skillLoads, undefined, "user バブルには載せない");
 });
@@ -234,6 +230,65 @@ test("本文なし assistant の tools は part 順で次の表示 assistant へ
   );
 });
 
+test("本文なし assistant のツールは、後に本文の応答があれば件数を増やさずそこへ繰り上げる", () => {
+  // What: 本文なし応答が A / B と続いても、同じターンの後に本文 C があれば item は C だけで、
+  // ツールはメッセージ順 → part 順で C に集まる (本文なし item を増やさない)
+  const messages = [
+    user("一覧を確認して"),
+    assistant([toolCall("call-a", "bash", { command: "pwd" })]),
+    toolResult("call-a"),
+    assistant([toolCall("call-b", "read", { path: "README.md" })]),
+    toolResult("call-b"),
+    assistant([toolCall("call-c", "grep", { pattern: "TODO" }), text("確認しました")]),
+    toolResult("call-c"),
+  ];
+
+  const projected = project(messages);
+
+  assert.deepEqual(
+    projected.map((message) => [message.role, message.text]),
+    [
+      ["user", "一覧を確認して"],
+      ["assistant", "確認しました"],
+    ],
+    "本文の応答が繰り上げ先になるターンでは本文なし item を作らない",
+  );
+  assert.deepEqual(
+    projected[1]?.tools?.map((call) => call.id),
+    ["call-a", "call-b", "call-c"],
+  );
+});
+
+test("本文なし assistant のツールは、繰り上げ先が無いターンでは所有者ごとに item を残す", () => {
+  // What: 同一ターンに本文なし応答が A / B と続き、その後に本文が無いときは、A と B が
+  // それぞれ自分のツールだけを持つ item になる (最後の応答へ寄せない)
+  const messages = [
+    user("一覧を確認して"),
+    assistant([toolCall("call-a", "bash", { command: "pwd" })]),
+    toolResult("call-a"),
+    assistant([toolCall("call-b", "read", { path: "README.md" })], { stopReason: "aborted" }),
+    { ...toolResult("call-b", true), content: [{ type: "text", text: "aborted" }] },
+    assistant([]),
+  ];
+
+  const projected = project(messages);
+
+  assert.deepEqual(
+    projected.map((message) => [message.role, message.text]),
+    [
+      ["user", "一覧を確認して"],
+      ["assistant", ""],
+      ["assistant", ""],
+    ],
+    "本文なしのツール応答ごとに item を残す",
+  );
+  assert.deepEqual(
+    projected.map((message) => message.tools?.map((call) => call.id)),
+    [undefined, ["call-a"], ["call-b"]],
+    "ツールは要求した応答の item に残す",
+  );
+});
+
 test("projectMessages は繰り上げをターン内の次の user メッセージで止める", () => {
   const messages = [
     user("1 つ目"),
@@ -251,8 +306,9 @@ test("projectMessages は繰り上げをターン内の次の user メッセー�
   assert.equal(projected[2].skillLoads, undefined, "user メッセージを越えて運ばない");
 });
 
-test("projectMessages は表示バブルが無いターンの read / tools を落とす", () => {
-  // read の直後に abort して本文が無いケース
+test("projectMessages は表示先を失うターン末尾の tools をその応答の item として残す", () => {
+  // What: read の直後に abort して本文が無いターンの toolCall が、次ターンへ繰り上がらず
+  // 自分のターンに残る (停止・中断したツールの記録を履歴・再読み込みでも消さない)
   const messages = [
     user("読んで"),
     assistant([readCall("call-1", "gh/SKILL.md"), toolCall("call-2", "bash", { command: "echo hidden" })], {
@@ -267,10 +323,21 @@ test("projectMessages は表示バブルが無いターンの read / tools を�
 
   assert.deepEqual(
     projected.map((message) => message.text),
-    ["読んで", "次のターン", "このターンの返答"],
+    ["読んで", "", "次のターン", "このターンの返答"],
+    "本文の無い応答は item のままにする",
   );
-  assert.equal(skillLoadsOf(projected).length, 0);
-  assert.equal(projected.at(-1)?.tools, undefined, "表示バブルが無いターンの toolCall は次ターンへ運ばない");
+  assert.deepEqual(
+    projected[1]?.tools?.map((call) => call.id),
+    ["call-2"],
+    "結果のある通常ツールは同じターンの応答に残す",
+  );
+  assert.deepEqual(
+    projected[1]?.skillLoads?.map((load) => load.id),
+    ["call-1"],
+    "同じ応答のスキル読み込みはカードと同じ item に残す",
+  );
+  assert.deepEqual(projected.at(-1)?.skillLoads, undefined, "ターンを越えてスキル読み込みを運ばない");
+  assert.equal(projected.at(-1)?.tools, undefined, "ターンを越えてツールを運ばない");
 });
 
 test("履歴ツールのマスクと切り詰めはライブの summary 関数と一致する", () => {
