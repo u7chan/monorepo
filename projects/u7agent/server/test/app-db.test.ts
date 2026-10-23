@@ -2196,6 +2196,7 @@ test("migrates a v23 db additively and adds the sharing tables", () => {
       "name",
       "sourcePath",
       "provider",
+      "providerAccount",
       "remoteId",
       "publicUrl",
       "status",
@@ -2213,14 +2214,39 @@ test("migrates a v23 db additively and adds the sharing tables", () => {
       "keyVersion",
       "updatedAt",
     ]);
-    // provider 側の識別子は 1 つだけ (同じ script を 2 つの共有物が指さない)
-    assert.deepEqual(
-      check
-        .prepare("PRAGMA index_list(shared_contents)")
-        .all()
-        .map((row) => (row as { name: string }).name)
-        .filter((name) => name === "shared_contents_remote"),
-      ["shared_contents_remote"],
+    // provider 側の識別子は (provider, アカウント) の中で一意。同じ script を 2 つの共有物が指さない
+    const insertShared = check.prepare(
+      `INSERT INTO shared_contents
+         (id, sessionId, name, sourcePath, provider, providerAccount, remoteId, status, createdAt, updatedAt)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    );
+    const sharedRow = (id: string, provider: string, account: string, remoteId: string | null) => [
+      id,
+      "0123456789",
+      id,
+      "dist",
+      provider,
+      account,
+      remoteId,
+      "published",
+      1,
+      1,
+    ];
+    insertShared.run(...sharedRow("sc1", "cloudflare", "acc-a", "u7s-0123456789"));
+    assert.throws(
+      () => insertShared.run(...sharedRow("sc2", "cloudflare", "acc-a", "u7s-0123456789")),
+      /UNIQUE constraint failed/,
+      "同じ provider / アカウント / remoteId の重複を拒否する",
+    );
+    // 別の provider・別のアカウント・未作成 (NULL) の remoteId はそれぞれ独立して持てる
+    insertShared.run(...sharedRow("sc3", "other", "acc-a", "u7s-0123456789"));
+    insertShared.run(...sharedRow("sc4", "cloudflare", "acc-b", "u7s-0123456789"));
+    insertShared.run(...sharedRow("sc5", "cloudflare", "acc-a", null));
+    insertShared.run(...sharedRow("sc6", "cloudflare", "acc-a", null));
+    assert.equal(
+      Number(check.prepare("SELECT COUNT(*) AS n FROM shared_contents").get()?.n),
+      5,
+      "重複しなかった行だけが入る",
     );
     assert.equal(Number(check.prepare("PRAGMA user_version").get()?.user_version), APP_DB_SCHEMA_VERSION);
     check.close();
@@ -2237,8 +2263,8 @@ test("shared_contents と cloudflare_settings は未知の版での作り直し�
     raw
       .prepare(
         `INSERT INTO shared_contents
-           (id, sessionId, name, sourcePath, provider, remoteId, publicUrl, status, createdAt, updatedAt, publishedAt, stoppedAt, lastError)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+           (id, sessionId, name, sourcePath, provider, providerAccount, remoteId, publicUrl, status, createdAt, updatedAt, publishedAt, stoppedAt, lastError)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         "sc1",
@@ -2246,6 +2272,7 @@ test("shared_contents と cloudflare_settings は未知の版での作り直し�
         "ミニゲーム",
         "dist",
         "cloudflare",
+        "acc-a",
         "u7s-0123456789",
         "https://example.invalid/",
         "published",
@@ -2271,15 +2298,41 @@ test("shared_contents と cloudflare_settings は未知の版での作り直し�
     const check = new DatabaseSync(join(dir, APP_DB_FILENAME));
     assert.equal(tableNames(check).includes("shared_contents"), true);
     assert.equal(tableNames(check).includes("cloudflare_settings"), true);
-    const shared = check.prepare("SELECT id, status FROM shared_contents").get() as
-      | { id: string; status: string }
-      | undefined;
-    assert.equal(shared?.id, "sc1");
-    assert.equal(shared?.status, "published");
-    const settings = check.prepare("SELECT accountId FROM cloudflare_settings WHERE id = 1").get() as
-      | { accountId: string }
-      | undefined;
+    const shared = check
+      .prepare(
+        `SELECT id, sessionId, name, sourcePath, provider, providerAccount, remoteId, publicUrl, status,
+                createdAt, updatedAt, publishedAt, stoppedAt, lastError
+           FROM shared_contents`,
+      )
+      .get() as Record<string, unknown>;
+    // null プロトタイプの行を普通の object として全列比較する (値を 1 つでも落とさない)
+    assert.deepEqual(
+      { ...shared },
+      {
+        id: "sc1",
+        sessionId: "0123456789",
+        name: "ミニゲーム",
+        sourcePath: "dist",
+        provider: "cloudflare",
+        providerAccount: "acc-a",
+        remoteId: "u7s-0123456789",
+        publicUrl: "https://example.invalid/",
+        status: "published",
+        createdAt: 1,
+        updatedAt: 2,
+        publishedAt: 2,
+        stoppedAt: null,
+        lastError: null,
+      },
+    );
+    const settings = check
+      .prepare("SELECT accountId, ciphertext, nonce, keyVersion, updatedAt FROM cloudflare_settings WHERE id = 1")
+      .get() as Record<string, unknown>;
     assert.equal(settings?.accountId, "acc");
+    assert.deepEqual(Buffer.from(settings?.ciphertext as Uint8Array), Buffer.from([1, 2, 3]));
+    assert.deepEqual(Buffer.from(settings?.nonce as Uint8Array), Buffer.from([4, 5, 6]));
+    assert.equal(settings?.keyVersion, 1);
+    assert.equal(settings?.updatedAt, 3);
     assert.equal(Number(check.prepare("PRAGMA user_version").get()?.user_version), APP_DB_SCHEMA_VERSION);
     check.close();
   } finally {

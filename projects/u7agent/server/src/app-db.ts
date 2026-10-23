@@ -163,6 +163,8 @@ export interface SharedContentRow {
   /** ワークスペース root 相対のディレクトリ (`""` は root) */
   sourcePath: string;
   provider: string;
+  /** 公開先のアカウント識別子。資格情報を入れ替えても保持し、不一致の操作を拒否する。未公開なら null */
+  providerAccount: string | null;
   /** provider 側の公開単位の識別子。未作成なら null */
   remoteId: string | null;
   publicUrl: string | null;
@@ -393,6 +395,7 @@ const SPACES_TABLE = `CREATE TABLE IF NOT EXISTS spaces (
  * **このテーブルは削除・リネームをしない加算移行の対象で、`DROP_TABLES` に入れない**: 行が消えると
  * Cloudflare 側に公開物が残ったまま追跡・停止・削除できなくなる。`secrets` と同じ理由で、古いビルドへ
  * 戻したとき (#recreate) は放置され、新ビルドで `CREATE TABLE IF NOT EXISTS` が合流させる。
+ * providerAccount は公開先のアカウントで、資格情報を入れ替えても既存行の追跡先を変えないために持つ。
  */
 const SHARED_CONTENTS_TABLE = `
 CREATE TABLE IF NOT EXISTS shared_contents (
@@ -401,6 +404,7 @@ CREATE TABLE IF NOT EXISTS shared_contents (
   name        TEXT NOT NULL,
   sourcePath  TEXT NOT NULL,
   provider    TEXT NOT NULL,
+  providerAccount TEXT,
   remoteId    TEXT,
   publicUrl   TEXT,
   status      TEXT NOT NULL,
@@ -410,7 +414,7 @@ CREATE TABLE IF NOT EXISTS shared_contents (
   stoppedAt   INTEGER,
   lastError   TEXT
 );
-CREATE UNIQUE INDEX IF NOT EXISTS shared_contents_remote ON shared_contents (provider, remoteId);
+CREATE UNIQUE INDEX IF NOT EXISTS shared_contents_remote ON shared_contents (provider, providerAccount, remoteId);
 `;
 
 /**

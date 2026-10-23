@@ -56,7 +56,10 @@ Cloudflare Workers（workers.dev）
 
 - `shared_contents` と `cloudflare_settings` をアプリデータの SQLite に持つ。列は `server/src/app-db.ts` を正とする。
 - どちらも**列追加だけの加算移行**を恒久ルールとし、`DROP_TABLES` に入れない（[persistence.md](persistence.md#アプリデータsqlite)）。行が消えると Cloudflare 側の公開物を追跡・停止・削除できなくなるため。
-- `shared_contents` は `provider` と `remoteId` の組を一意にし、同じ公開先を 2 つの共有物が指さないようにする。
+- `shared_contents` は `provider` と `providerAccount` と `remoteId` の組を一意にし、同じ公開先を 2 つの共有物が指さないようにする（`remoteId` が未作成の行は複数持てる）。
+- 公開の受付時に `provider` / `providerAccount` / `remoteId` を確定して保存する（script 名は id から生成し、以後変えない）。
+- 公開先のアカウントを `providerAccount` に記録する。更新・停止・再公開・削除は記録したアカウントへ行い、現在の接続と一致しないときは provider を呼ばずに `409` で拒否する。資格情報の削除・再登録では `providerAccount` を消さない。
+- 公開済みの共有物がある状態で別のアカウントへ接続を切り替える要求は `409` にする。切り替えるには、旧アカウントで共有物を停止・削除してから登録し直す。
 
 ### アカウント側の権限
 
@@ -67,16 +70,22 @@ Cloudflare Workers（workers.dev）
 
 ### 共有物のライフサイクル
 
-状態は `publishing` / `published` / `stopped` / `failed`。許可する遷移は API 側で検証する。
+状態は `SharedContentStatus`（`server/src/app-db.ts`）で表し、許可する遷移は API 側で検証する。`status` は**外部から見た現在の公開状態**で、最後の操作の成否ではない。
+
+- `failed` は「一度も公開できていない」状態だけを指す。公開済みの共有物の更新に失敗したときは前回の状態（`published` / `stopped`）へ戻し、理由を `lastError` に残す。旧 deployment は有効なままなので、外部の状態と DB を一致させる。
+- `failed` には通常は外部の実体が無い（初回公開の中断で残った可能性があるときは再試行か削除で解消する）ため、停止は受け付けない。公開の再試行だけを受け付ける。
+- `stoppedAt` は停止で立ち、公開成功で消す。中断からの復帰は `publishedAt` と `stoppedAt` で前回の状態を決める。
+- 停止は `published` からだけ行う。
 
 | 操作 | Cloudflare 側 | 必要なもの |
 | --- | --- | --- |
-| 公開 | script 作成 + アセットの deployment | `source_path` の成果物、資格情報、Worker の残枠 |
-| 更新 | 同じ script に新しい deployment（URL は変わらない） | `source_path` の成果物、資格情報 |
-| 停止 | workers.dev の subdomain を `enabled=false` にする | 資格情報だけ（成果物は不要） |
-| 再公開 | 同じ subdomain を `enabled=true` に戻す | 資格情報だけ（成果物は不要） |
-| 削除 | script を削除してから DB の行を消す | 資格情報だけ（成果物は不要） |
+| 公開 | script 作成 + アセットの deployment | `source_path` の成果物、セッション、資格情報、Worker の残枠 |
+| 更新 | 同じ script に新しい deployment（URL は変わらない） | `source_path` の成果物、セッション、資格情報 |
+| 停止 | workers.dev の subdomain を `enabled=false` にする | 資格情報だけ（成果物・セッションは不要） |
+| 再公開 | 同じ subdomain を `enabled=true` に戻す | 資格情報だけ（成果物・セッションは不要） |
+| 削除 | script を削除してから DB の行を消す | 資格情報だけ（成果物・セッションは不要） |
 
+- すべての操作は、記録した `providerAccount` の資格情報が登録されているときだけ行える。
 - 停止と削除は別操作。停止は URL と行を残したまま外部閲覧だけを止める。
 - 削除は provider 側の削除が成功してから行を消す。provider が「既に無い」を返したときだけ成功扱いにし、それ以外の失敗で行を消さない。
 - 削除中を表す状態は設けない（同期削除 + 共有物単位のロックで足りるため）。追加するなら状態遷移とセットで設計する。
@@ -87,7 +96,7 @@ Cloudflare Workers（workers.dev）
 - `sessionId` から BFF が作業ディレクトリを解決する。公開の入力 `directory` はその作業ディレクトリ相対で、保存する `sourcePath` はワークスペース root 相対へ解決した値。client / agent から任意のホストパスは受け取らない。
 - 絶対パス・`..`・symlink でワークスペース root の外へ出る指定は拒否する。
 - セッションを削除しても共有物の行は残す。設定 → 共有（`/settings/sharing`）の一覧から停止・再公開・削除できる。
-- 作業フォルダごと消えた場合（スペース削除など）、更新だけを明示エラーにし、停止・再公開・削除は通す。
+- 更新はセッションが存在し、その作業ディレクトリ配下に `sourcePath` が実在するときだけ行える。セッションが無い / ソースが無い場合は更新だけを明示エラーにし、停止・再公開・削除は通す。セッション削除では作業フォルダが残るが、`sourcePath` の意味が履歴になるため更新の可否はセッションの存在も条件にする。
 - 公開はスナップショット。`source_path` の中身を書き換えただけでは反映されず、更新したときだけ反映される。
 
 ### 公開の実行モデル
@@ -96,7 +105,8 @@ Cloudflare への送信は時間がかかるため、同期 HTTP では扱わな
 
 - 公開・更新は受付だけを返し（`202`）、状態は GET で読む。GUI は状態をポーリングして表示する。
 - agent tool は受付のあと内部で完了までポーリングし、状態が確定してから URL かエラーを返す。
-- BFF の再起動で `publishing` のまま残った行は `failed`（中断）に倒す。Cloudflare 側に未参照の version が残ることはあるが、次回の公開で新しい version を作るため実害はない。
+- BFF の再起動で `publishing` のまま残った行は、`publishedAt` があれば前回の状態（`stoppedAt` があれば `stopped`、無ければ `published`）へ戻し、無ければ `failed` にする。どちらも `lastError` に中断を残す。
+- deployment 成功後に DB を更新できなかった場合、外部は新しい版・DB は前回の状態という食い違いが残る。停止は subdomain を切るだけで外部の版に依存しないため常に効き、次の公開で上書きして解消する。
 - provider の一時的な失敗と、DB の書き込み失敗を混ぜない。公開が成功しても DB を更新できなかった場合は成功を返さず、行の状態を進めない。
 
 ### 読み出し
@@ -168,7 +178,7 @@ Cloudflare への送信は時間がかかるため、同期 HTTP では扱わな
 | `GET` | `/api/shared-contents` | 一覧 |
 | `POST` | `/api/shared-contents` | 作成して公開を開始（202） |
 | `GET` | `/api/shared-contents/:id` | 詳細と状態 |
-| `POST` | `/api/shared-contents/:id/publish` | 更新（同じ URL へ再公開、202） |
+| `POST` | `/api/shared-contents/:id/publish` | 更新（同じ URL へ再公開、202）。未公開（`failed`）からの再試行も同じ経路 |
 | `POST` | `/api/shared-contents/:id/stop` | 停止 |
 | `POST` | `/api/shared-contents/:id/resume` | 再公開 |
 | `DELETE` | `/api/shared-contents/:id` | 削除 |
@@ -178,23 +188,31 @@ Cloudflare への送信は時間がかかるため、同期 HTTP では扱わな
 
 作成の入力は `{ sessionId, directory, name? }`。`directory` はセッションの作業ディレクトリ相対で、BFF が root 相対の `sourcePath` へ解決して保存する。絶対パス・`..`・symlink でワークスペース root を出る指定は 400。`name` を省略したときはディレクトリ名を使う。
 
-一覧・詳細の DTO は `{ id, sessionId, name, sourcePath, provider, status, publicUrl, createdAt, updatedAt, publishedAt, stoppedAt, lastError }`。`lastError` は利用者に見せられる分類済みの文言だけを入れ、provider のレスポンス本文やトークンを含めない。`remoteId` は通常の UI に出さない。
+非同期の受付（作成・更新・再公開）は `202 { id, status: "publishing" }` を返し、状態は GET で読む。停止は `200 { id, status: "stopped" }`、削除は `204`。
+
+一覧・詳細の DTO は `{ id, sessionId, name, sourcePath, provider, status, publicUrl, createdAt, updatedAt, publishedAt, stoppedAt, lastError }`。`lastError` は利用者に見せられる分類済みの文言だけを入れ、provider のレスポンス本文やトークンを含めない。`remoteId` / `providerAccount` は通常の UI に出さない。
 
 状態遷移:
 
 | 現在 | 操作 | 次 |
 | --- | --- | --- |
 | なし | 作成 | `publishing` |
-| `publishing` | 成功 | `published` |
-| `publishing` | 失敗 | `failed` |
+| `publishing`（初回） | 成功 | `published` |
+| `publishing`（初回） | 失敗 | `failed` |
+| `failed` | 公開（再試行） | `publishing` |
 | `published` | 更新 | `publishing` |
+| `publishing`（更新） | 成功 | `published` |
+| `publishing`（更新） | 失敗 | `published`（+ `lastError`） |
 | `published` | 停止 | `stopped` |
 | `stopped` | 再公開 | `publishing` |
-| `failed` | 再試行（公開） | `publishing` |
+| `publishing`（再公開） | 成功 | `published` |
+| `publishing`（再公開） | 失敗 | `stopped`（+ `lastError`） |
 
 - `publishing` の共有物への別の変更は `409`。同じ共有物の二重操作はロックで拒否する。
 - 存在しない id は `404`。他の共有物を誤って操作しないよう、id だけで対象を決める。
-- 削除は provider 成功後に `204`。provider が 404 を返したときも成功扱い。それ以外の provider 失敗では行を残して `502`。
+- 記録した `providerAccount` が現在の接続と一致しないときは `409`。資格情報を入れ替えても既存共有物の操作先を変えない。
+- 更新はセッションが存在し、`sourcePath` が実在するときだけ受け付ける。どちらかが欠けていれば `409`。停止・再公開・削除はこの条件を見ない。
+- 削除は provider 成功後に `204`。provider が 404 を返したときも成功扱い。`providerAccount` または `remoteId` が無い行は provider を呼ばずに行だけ消す。それ以外の provider 失敗では行を残して `502`。
 - 資格情報が未登録のときの公開は、provider を呼ぶ前に `409` で止める。
 - 一覧のページングは初期実装では持たない（個人運用の件数に収める）。
 
@@ -203,9 +221,10 @@ Cloudflare への送信は時間がかかるため、同期 HTTP では扱わな
 - URL は「知っていれば誰でも見られる」公開 URL で、認証・期限・アクセス制御は無い。秘密値を含む成果物を公開しないための注意は GUI と tool の案内で行う。
 - URL は Cloudflare のアカウントサブドメインに依存する。サブドメインを変更すると既存の URL も変わる。
 - アカウントの Free 枠（Worker 数）を他の用途と共有する。
-- 公開中に BFF が落ちた場合、その公開は `failed` になり再試行が要る。Cloudflare 側に未参照の version が残り得るが、削除はしない。
+- 中断した公開は自動で再開しない。初回は `failed`、更新・再公開は前回の状態 + `lastError` で止まる。deployment 成功後・DB 更新前で落ちた場合の食い違いは、provider の deployment を読み直す照会・復旧を初期実装では行わないため、次の公開で上書きするまで残る。
 - 同じ共有物の更新は新しい deployment を積む。過去の deployment の掃除はしない（Cloudflare 側の保持に任せる）。
-- ソースの作業フォルダが消えた共有物は更新できない。停止・再公開・削除だけができる。
+- セッションまたはソースの作業フォルダが消えた共有物は更新できない。停止・再公開・削除だけができる。
+- 公開先アカウントを変えるには、旧アカウントで既存の共有物を停止・削除する。接続を先に切り替える操作は `409` で止まる。
 
 ## 実機で確認する項目
 
