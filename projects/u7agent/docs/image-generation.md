@@ -98,7 +98,7 @@ SVG を返す vectorization モデル（`recraft/*-vector` など）は**製品�
 ### 結果・ログの扱い
 
 - ツール結果の先頭 2 行（モデル行・保存パス行）は編集でも変えない（クライアントの `generationInfo.ts` が読む接頭辞）。編集元はその後に `編集元: <cwd 相対>` として足す
-- 取得した画像の base64 / data URL は、ツール引数・結果・履歴・通常ログへ追加しない。provider のエラー本文が入力を反射したときは、data URL のパターンと入力の base64（JSON 文字列や URL エンコードで反射された表記を含む）を結果から除く（`stripImageInputData()`）。取り除き切れたかを `leaksImageInputData()` で確かめ、残る本文は捨てて分類と固定文言だけを返す
+- 取得した画像の base64 / data URL は、ツール引数・結果・履歴・通常ログへ追加しない。provider のエラー本文は要求 JSON を反射でき、JSON の入れ子・URL エンコード・折り返しの表記を列挙して除去する方式は未知の表記で漏れる。そのため `input_images` を付けた要求が失敗したときは provider の自由文を返さず、分類と固定文言（`画像生成に失敗しました（原因不明）` など）だけを返す。参照画像が無い従来の失敗は今までどおりマスク済みの理由を添える
 - `read` が返す画像 content（SDK が会話履歴へ記録する分）はこの保証の対象外で、従来どおり
 - 入力画像は EXIF 等を含めて無変換で外部 provider へ送られる。ツール説明・`promptGuidelines`・system prompt にこの点と「利用者が明示した編集にだけ使う」ことを書く
 
@@ -153,7 +153,7 @@ cp generated/cafe-1.png assets/cafe-latest.png
 
 SDK(pi-ai 1.3.0) の `openrouter-images` は `chat/completions` へ投げるが、画像生成専用モデルはそちらでは 404（`Use the /api/v1/images endpoint instead.`）になる。そのため `server/src/images.ts` は SDK の `generateImages()` を通さず `POST {baseUrl}/images` を自分で叩き、status と本文も自分で読んで次で分類する。SDK は provider の `baseUrl` / ヘッダのひな形にだけ使い、送信する model id は要求のものをそのまま使う（一覧の正は live なので、SDK の一覧に無い id でもローカルでは弾かない。[モデルカタログ](#モデルカタログ)）。
 
-- 非 2xx の status を分類の根拠にする。理由は本文の `error.message` を優先し、形が違うときだけ生テキストへ落とす（生テキストは非 2xx のみ）
+- 非 2xx の status を分類の根拠にする。理由は本文の `error.message` を優先し、形が違うときだけ生テキストへ落とす（生テキストは非 2xx のみ）。**参照画像を付けた要求では provider の自由文を結果へ載せない**（下記）
 - 期限は自前の `AbortController` + タイマーだけに掛ける。既定は 180 秒
 - ユーザー中断は `signal.aborted` で `timedOut` と区別する。signal はそのまま fetch へ渡す
 - 画像は `data[0].b64_json`。`media_type` は data の各件 → 応答全体の `media_type` → `image/png` の順に落とす
@@ -248,7 +248,7 @@ SDK(pi-ai 1.3.0) の `openrouter-images` は `chat/completions` へ投げるが�
 
 | テスト | 固定すること |
 | --- | --- |
-| `server/test/images.test.ts` | カタログ / `chat/completions` へ戻らないこと（`/images` の送信先・ヘッダ・本文）/ `media_type` の落とし方 / 失敗分類（401・403・402・429・5xx・timeout・ユーザー中断・原因不明）/ 画像 0 件の失敗（2xx の生本文と `error.message`）/ provider メッセージのマスク / SDK 同梱カタログから `openrouter/*` を落とすこと / SDK 同梱の openrouter が provider 内で同じ `baseUrl` / ヘッダを使うこと（ひな形の流用の前提）/ SDK の一覧に無い id（live のみのモデル）も provider の URL で送ること |
+| `server/test/images.test.ts` | カタログ / `chat/completions` へ戻らないこと（`/images` の送信先・ヘッダ・本文）/ `media_type` の落とし方 / 失敗分類（401・403・402・429・5xx・timeout・ユーザー中断・原因不明）/ 画像 0 件の失敗（2xx の生本文と `error.message`）/ provider メッセージのマスク / SDK 同梱カタログから `openrouter/*` を落とすこと / SDK 同梱の openrouter が provider 内で同じ `baseUrl` / ヘッダを使うこと（ひな形の流用の前提）/ SDK の一覧に無い id（live のみのモデル）も provider の URL で送ること / 参照画像ありの失敗では provider の自由文（plain / 1 段・2 段の JSON エスケープ / 折り返し base64）を返さず固定文言だけになること / 参照画像なしの失敗では従来どおり理由を添えること |
 | `server/test/image-catalog.test.ts` | live の採用とキャッシュ保存（認証ヘッダを付けない / id と表示名と形式の宣言）/ 出力形式の取り込みと一覧の絞り込み（不明・形違いは落とさない）/ 宣言がキャッシュから読めること / 一覧から落ちた id の `outputFormatsOf` / 重複 id と表示名の欠落 / 失敗分類（429・5xx・契約外・空・timeout）と一覧の保持 / キャッシュの読込と live 失敗時の維持 / キャッシュの読取・保存失敗 |
 | `server/test/image-tools.test.ts` | ツールの組み立て（有効時だけ）/ path の拒否規則 / slug と拡張子 / 結果パスの参照・一意ファイルの保持・最新コピーのガイドライン / 生成前ガード（保存できない形式だけを宣言したモデルで provider を叩かない・宣言なしと不明は止めない）/ 保存段の失敗文言（クレジット消費済み）/ root 相対への前置き / 同名衝突で実際の保存名と使用モデルを返す / 長い path でも投影の切詰めにモデルが残る / execute が毎回設定を読む / throw のマスク / signal の伝播 |
 | `server/test/image-input.test.ts` | 参照画像のパス解決（cwd 相対 / 添付の絶対パス / 未所属・プロジェクト・追加スペースで起点がずれない）/ 拒否規則（`..`・範囲外・URL・data URL・バックスラッシュ・空）/ 実バイトの形式判定（PNG・JPEG・WebP、無拡張子・拡張子違い、壊れたヘッダ）/ 上限（10 MiB・40 メガピクセル）/ 入力の base64・data URL の除去 |

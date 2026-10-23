@@ -18,7 +18,6 @@ import {
 } from "./provider-failure";
 import type { SpeechGenerationSettings } from "./speech";
 import type { BgmGenerationSettings } from "./bgm";
-import { leaksImageInputData, stripImageInputData } from "./image-format";
 
 /** 失敗の公開分類。分類の規則と provider メッセージの扱いは provider-failure.ts を正とする */
 export type ImageFailureCode = ProviderFailureCode;
@@ -215,13 +214,6 @@ function imagesEndpoint(model: ImageModel<ImageApi>): string {
   return `${model.baseUrl.replace(/\/+$/, "")}/images`;
 }
 
-/** data URL の base64 部。provider の応答に反射されたときの除去に使う */
-function base64PayloadsOf(dataUrls: readonly string[]): string[] {
-  return dataUrls
-    .map((url) => /^data:[^,]*,(.*)$/s.exec(url)?.[1])
-    .filter((payload): payload is string => payload !== undefined && payload !== "");
-}
-
 /**
  * SDK 同梱の画像モデル。0.99 で画像モデルは通常の Models 面へ統合され、provider は
  * `model.provider` が持つ。同梱カタログは生成物で実行中に変わらないため 1 回だけ組む。
@@ -304,14 +296,9 @@ export function createImagesGenerator(options: ImagesGeneratorOptions = {}): Ima
         // OpenAI 直結 API の /images/edits や multipart は使わない（OpenRouter の /images の契約に合わせる）
         requestBody.input_references = inputReferences.map((url) => ({ type: "image_url", image_url: { url } }));
       }
-      // provider のエラー本文が送った入力画像を反射しても、結果・ログ・履歴へ base64 を出さない。
-      // 取り除き切れない表記（未知のエスケープ等）は本文ごと捨て、分類と固定文言だけを返す
-      const payloads = base64PayloadsOf(inputReferences);
-      const scrub = (text: string | undefined): string | undefined => {
-        if (text === undefined) return undefined;
-        const stripped = stripImageInputData(text, payloads);
-        return leaksImageInputData(stripped, payloads) ? undefined : stripped;
-      };
+      // 参照画像がある失敗では provider の自由文を結果へ載せない。本文は要求 JSON を反射でき、
+      // エスケープの表記を列挙して除去する方式は未知の表記で漏れるため、分類と固定文言だけを返す
+      const withholdProviderText = inputReferences.length > 0;
       try {
         const response = await baseFetch(imagesEndpoint(model), {
           method: "POST",
@@ -332,7 +319,7 @@ export function createImagesGenerator(options: ImagesGeneratorOptions = {}): Ima
           status,
           timedOut,
           aborted: aborted(),
-          providerMessage: scrub(providerMessageOf(body, text, !response.ok)),
+          providerMessage: withholdProviderText ? undefined : providerMessageOf(body, text, !response.ok),
           maskText,
         });
       } catch (error) {
@@ -341,7 +328,7 @@ export function createImagesGenerator(options: ImagesGeneratorOptions = {}): Ima
           status,
           timedOut,
           aborted: aborted(),
-          providerMessage: scrub(message),
+          providerMessage: withholdProviderText ? undefined : message,
           maskText,
         });
       } finally {

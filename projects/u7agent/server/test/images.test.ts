@@ -330,44 +330,45 @@ test("参照ありでも失敗分類・timeout・中断の扱いは変わらな�
   assert.equal(abortedResult.code, "aborted");
 });
 
-test("要求 JSON を JSON エスケープして反射したエラー本文も結果へ出さない", async () => {
-  const dataUrl =
-    "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
-  const payload = dataUrl.split(",")[1] as string;
-  // provider が要求 JSON をそのまま返し、JSON 文字列化で `/` が `\/` になった形
-  const reflected = JSON.stringify({
+test("参照画像がある失敗では provider の自由文を結果へ載せず、分類と固定文言だけを返す", async () => {
+  const base64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
+  const dataUrl = `data:image/png;base64,${base64}`;
+  const requestBody = {
     model: baseInput.model,
     prompt: baseInput.prompt,
     n: 1,
     input_references: [{ type: "image_url", image_url: { url: dataUrl } }],
-  }).replaceAll("/", "\\/");
-  const { fetchImpl } = stubFetch(() => errorResponse(400, `invalid image: ${reflected}`));
-  const result = await createImagesGenerator({ models: () => stubModels(), fetchImpl }).generate({
-    ...baseInput,
-    inputReferences: [dataUrl],
-  });
-  assert.equal(result.ok, false);
-  if (result.ok) return;
-  for (const variant of [payload, payload.replaceAll("/", "\\/"), payload.replaceAll("/", "%2F")]) {
-    assert.ok(!result.message.includes(variant), "反射された入力が結果へ出ている");
+  };
+  const escapedOnce = JSON.stringify(requestBody).replaceAll("/", "\\/");
+  // エスケープ済みの要求 JSON をもう一度 JSON 文字列化した反射（表記の列挙では追えない形）
+  const escapedTwice = JSON.stringify(escapedOnce);
+  const wrapped = `invalid image: data:image/png;base64,${(base64.match(/.{1,20}/g) ?? []).join("\n")}`;
+  const reflections: [string, string][] = [
+    ["plain", `invalid image: ${dataUrl} (raw ${base64})`],
+    ["escaped once", `invalid image: ${escapedOnce}`],
+    ["escaped twice", `invalid image: ${escapedTwice}`],
+    ["wrapped base64", wrapped],
+  ];
+  for (const [label, reflection] of reflections) {
+    const { fetchImpl } = stubFetch(() => errorResponse(400, reflection));
+    const result = await createImagesGenerator({ models: () => stubModels(), fetchImpl }).generate({
+      ...baseInput,
+      inputReferences: [dataUrl],
+    });
+    assert.equal(result.ok, false, label);
+    if (result.ok) continue;
+    // 表記の列挙で追い切れない反射に備え、入力がある失敗では本文を返さない
+    assert.equal(result.message, `${IMAGE_UNKNOWN_FAILURE_MESSAGE}（原因不明）`, label);
+    for (const needle of [base64, base64.slice(0, 32), "data:image", escapedOnce.slice(0, 24)]) {
+      assert.ok(!result.message.includes(needle), `${label}: 入力画像のデータが結果へ出ている`);
+    }
   }
-  // 形式の前置き (`data:image\/png;base64,`) だけが残るのはよいが、画像バイト列は残さない
-  assert.ok(!/;base64,[A-Za-z0-9+/=%_\\-]{32,}/.test(result.message), result.message.slice(0, 120));
-  assert.match(result.message, /image omitted|原因不明/);
 });
 
-test("provider のエラー本文が入力の data URL / base64 を反射しても結果へ出さない", async () => {
-  const dataUrl =
-    "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
-  const payload = dataUrl.split(",")[1] as string;
-  const { fetchImpl } = stubFetch(() => errorResponse(400, `invalid image: ${dataUrl} (raw ${payload})`));
-  const result = await createImagesGenerator({ models: () => stubModels(), fetchImpl }).generate({
-    ...baseInput,
-    inputReferences: [dataUrl],
-  });
+test("参照画像が無い失敗では従来どおり provider の理由（マスク済み）を添える", async () => {
+  const { fetchImpl } = stubFetch(() => errorResponse(400, "moderation blocked"));
+  const result = await createImagesGenerator({ models: () => stubModels(), fetchImpl }).generate(baseInput);
   assert.equal(result.ok, false);
   if (result.ok) return;
-  assert.ok(!result.message.includes(payload), "入力の base64 が結果へ出ている");
-  assert.ok(!result.message.includes("data:image/png"), "data URL が結果へ出ている");
-  assert.match(result.message, /image omitted/);
+  assert.match(result.message, /moderation blocked/);
 });
