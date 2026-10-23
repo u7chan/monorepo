@@ -194,3 +194,86 @@ test("timeout と network を分け、AbortSignal の name に依存しすぎな
     (error: unknown) => error instanceof CloudflareApiError && error.kind === "network",
   );
 });
+
+test("_headers / _redirects は metadata.assets.config へ渡す", async () => {
+  const { asset, cleanup } = assetFixture();
+  try {
+    const requests: RequestInit[] = [];
+    const fetchImpl: typeof fetch = async (_input, init = {}) => {
+      requests.push(init);
+      if (requests.length === 1) return json({ jwt: "upload", buckets: [] });
+      if (requests.length === 2) return json({});
+      return json({ enabled: true, previews_enabled: false });
+    };
+    const client = new CloudflareApiClient({ accountId: ACCOUNT, apiToken: TOKEN, fetchImpl });
+    await client.publishAssets(SCRIPT, [asset], { headers: "X-Test: 1", redirects: "/old /new 301" });
+    const metadata = JSON.parse(String(await ((requests[1].body as FormData).get("metadata") as Blob).text()));
+    assert.equal(metadata.assets.config._headers, "X-Test: 1");
+    assert.equal(metadata.assets.config._redirects, "/old /new 301");
+  } finally {
+    cleanup();
+  }
+});
+
+test("HTTP 200 でも本文の欠落・不正 JSON・result 欠落は成功にしない", async () => {
+  const cases: { response: Response; kind: string }[] = [
+    {
+      response: new Response(
+        new ReadableStream({
+          start(controller) {
+            controller.enqueue(new TextEncoder().encode('{"success":true,"result":'));
+            controller.error(new DOMException("aborted", "AbortError"));
+          },
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      ),
+      kind: "timeout",
+    },
+    { response: new Response("not json", { status: 200 }), kind: "invalid" },
+    {
+      response: new Response(JSON.stringify({ success: true, result: {} }), { status: 200 }),
+      kind: "invalid",
+    },
+  ];
+  for (const entry of cases) {
+    const fetchImpl: typeof fetch = async () => entry.response.clone();
+    await assert.rejects(
+      () => new CloudflareApiClient({ accountId: ACCOUNT, apiToken: TOKEN, fetchImpl }).getScriptSubdomain(SCRIPT),
+      (error: unknown) => error instanceof CloudflareApiError && error.kind === entry.kind,
+      entry.kind,
+    );
+  }
+});
+
+test("429 / 5xx は Rate limit の文言でも quota にしない", async () => {
+  for (const [status, kind] of [
+    [429, "rate_limited"],
+    [500, "transient"],
+  ] as const) {
+    const fetchImpl: typeof fetch = async () => failure(status, [{ code: 10001, message: "Rate limit exceeded" }]);
+    await assert.rejects(
+      () => new CloudflareApiClient({ accountId: ACCOUNT, apiToken: TOKEN, fetchImpl }).getScriptSubdomain(SCRIPT),
+      (error: unknown) => error instanceof CloudflareApiError && error.kind === kind,
+      String(status),
+    );
+  }
+});
+
+test("deployment の本文が壊れていたら publishAssets を成功させない", async () => {
+  const { asset, cleanup } = assetFixture();
+  try {
+    let calls = 0;
+    const fetchImpl: typeof fetch = async () => {
+      calls += 1;
+      if (calls === 1) return json({ jwt: "upload", buckets: [] });
+      if (calls === 2) return new Response("broken", { status: 200 });
+      return json({ enabled: true, previews_enabled: false });
+    };
+    await assert.rejects(
+      () => new CloudflareApiClient({ accountId: ACCOUNT, apiToken: TOKEN, fetchImpl }).publishAssets(SCRIPT, [asset]),
+      (error: unknown) => error instanceof CloudflareApiError && error.kind === "invalid",
+    );
+  } finally {
+    cleanup();
+  }
+});

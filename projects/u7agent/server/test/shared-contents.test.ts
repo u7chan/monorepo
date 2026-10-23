@@ -2,12 +2,14 @@
 // 検証・状態遷移・秘密値検査・復帰規則を固定する。
 import assert from "node:assert/strict";
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { Readable } from "node:stream";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import test from "node:test";
 import type { SharedContentRow, SharedContentStatus } from "../src/app-db";
 import { CloudflareApiError, type CloudflareAsset, type CloudflareAssetsApi } from "../src/cloudflare-api";
 import type { SandboxWorkspaceClient } from "../src/sandbox/client";
+import { SandboxRequestError } from "../src/sandbox/client";
 import { createZipStream, type ZipEntry } from "../src/sandbox/zip";
 import {
   SHARED_CONTENT_MAX_FILE_BYTES,
@@ -29,6 +31,7 @@ class FakeStore implements SharedContentStore {
   failInsert = false;
   failRead = false;
   failPublishedUpdate = false;
+  failPublishedOnce = false;
   failAcceptanceUpdate = false;
 
   insertSharedContent(row: SharedContentRow): void {
@@ -48,6 +51,10 @@ class FakeStore implements SharedContentStore {
     },
   ): void {
     if (this.failPublishedUpdate && patch.status === "published") throw new Error("db write boom");
+    if (this.failPublishedOnce && patch.status === "published") {
+      this.failPublishedOnce = false;
+      throw new Error("db write boom once");
+    }
     if (this.failAcceptanceUpdate && patch.status === "publishing") throw new Error("db update boom");
     const row = this.rows.get(id);
     if (!row) throw new Error("missing row");
@@ -88,6 +95,29 @@ function zipFactory(files: Record<string, string>, directories: string[] = []): 
   };
 }
 
+async function collect(stream: ReadableStream<Uint8Array>): Promise<Buffer> {
+  const chunks: Buffer[] = [];
+  for await (const chunk of stream) chunks.push(Buffer.from(chunk));
+  return Buffer.concat(chunks);
+}
+
+/** 先頭のローカルヘッダ直後の deflate を 1 バイト壊す (中央ディレクトリはそのまま) */
+function corruptFirstDeflate(buffer: Buffer): Buffer {
+  const signature = Buffer.from([0x50, 0x4b, 0x03, 0x04]);
+  const offset = buffer.indexOf(signature);
+  assert.ok(offset >= 0, "local header not found");
+  const nameLength = buffer.readUInt16LE(offset + 26);
+  const extraLength = buffer.readUInt16LE(offset + 28);
+  const dataStart = offset + 30 + nameLength + extraLength;
+  const copy = Buffer.from(buffer);
+  copy[dataStart + 1] ^= 0xff;
+  return copy;
+}
+
+function streamOf(buffer: Buffer): ReadableStream<Uint8Array> {
+  return Readable.toWeb(Readable.from(buffer)) as ReadableStream<Uint8Array>;
+}
+
 function workspaceFor(zip: ZipFactory, calls: { path: string; exclude: readonly string[] }[] = []) {
   const workspace = {
     downloadEntry: async (path: string, exclude: readonly string[]) => {
@@ -103,25 +133,38 @@ function workspaceFor(zip: ZipFactory, calls: { path: string; exclude: readonly 
   return workspace;
 }
 
-function cloudflareStub(overrides: Partial<CloudflareAssetsApi> & { published?: CloudflareAsset[][] } = {}) {
+function cloudflareStub(
+  overrides: Partial<CloudflareAssetsApi> & {
+    published?: CloudflareAsset[][];
+    configs?: { headers?: string; redirects?: string }[];
+  } = {},
+) {
   const published: CloudflareAsset[][] = overrides.published ?? [];
+  const configs: { headers?: string; redirects?: string }[] = overrides.configs ?? [];
+  let subdomainCalls = 0;
   const api: CloudflareAssetsApi = {
     getAccountSubdomain: async () => "demo",
-    getScriptSubdomain: async () => ({ enabled: true, previewsEnabled: false }),
-    publishAssets: async (_script, assets) => {
+    getScriptSubdomain: async () => {
+      subdomainCalls += 1;
+      return { enabled: true, previewsEnabled: false };
+    },
+    publishAssets: async (_script, assets, config) => {
       published.push([...assets]);
+      configs.push(config ?? {});
     },
     ...overrides,
   };
-  return { api, published };
+  return { api, published, configs, subdomainCalls: () => subdomainCalls };
 }
 
 interface SetupOptions {
   zip?: ZipFactory;
   cloudflare?: Partial<CloudflareAssetsApi>;
   credentials?: { accountId: string; apiToken: string } | null;
+  credentialError?: boolean;
   sessionCwd?: string | null;
   secretValues?: readonly string[];
+  workspace?: SandboxWorkspaceClient;
 }
 
 function setup(options: SetupOptions = {}) {
@@ -136,14 +179,16 @@ function setup(options: SetupOptions = {}) {
     sessions: {
       workdirOfId: () => (options.sessionCwd === null ? undefined : (options.sessionCwd ?? SESSION_CWD)),
     },
-    workspace: workspaceFor(zip, downloadCalls),
+    workspace: options.workspace ?? workspaceFor(zip, downloadCalls),
     credentials: {
-      credential: () =>
-        options.credentials === undefined
+      credential: () => {
+        if (options.credentialError) throw new Error("master key unavailable");
+        return options.credentials === undefined
           ? { accountId: ACCOUNT, apiToken: TOKEN }
           : options.credentials === null
             ? null
-            : options.credentials,
+            : options.credentials;
+      },
     },
     createCloudflare: () => cloudflare.api,
     rootCwd: ROOT,
@@ -553,6 +598,201 @@ test("ZIP の件数上限を超えたら failed にし、部分公開しない",
     assert.equal(row?.status, "failed");
     assert.match(row?.lastError ?? "", /10,000/);
     assert.equal(cloudflare.published.length, 0);
+  } finally {
+    zip.cleanup();
+  }
+});
+
+test("壊れた deflate は failed にし、BFF プロセスを落とさない", async () => {
+  const zip = zipFactory({ "index.html": "a".repeat(4096) });
+  const corrupt = corruptFirstDeflate(await collect(zip.stream()));
+  const workspace = {
+    listFiles: async (path: string) => ({ path, entries: [], truncated: false }),
+    downloadEntry: async () => ({
+      contentType: "application/zip",
+      contentDisposition: "attachment",
+      body: streamOf(corrupt),
+    }),
+  } as unknown as SandboxWorkspaceClient;
+  const { service, store, cloudflare } = setup({ zip, workspace });
+  try {
+    await service.create(payload());
+    await service.waitForIdle("id1");
+    const row = store.getSharedContent("id1");
+    assert.equal(row?.status, "failed");
+    assert.match(row?.lastError ?? "", /読み取れません/);
+    assert.equal(cloudflare.published.length, 0);
+  } finally {
+    zip.cleanup();
+  }
+});
+
+test("同じ id の受付は直列化し、待機中の二重受付を 409 にする", async () => {
+  const zip = zipFactory({ "index.html": "<h1>v1</h1>" });
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  let listCalls = 0;
+  const base = workspaceFor(zip);
+  const workspace = {
+    ...base,
+    listFiles: async (path: string) => {
+      listCalls += 1;
+      if (listCalls === 2) await gate;
+      return { path, entries: [], truncated: false };
+    },
+  } as unknown as SandboxWorkspaceClient;
+  const { service, store } = setup({ zip, workspace });
+  try {
+    await service.create(payload());
+    await service.waitForIdle("id1");
+    const first = service.publish("id1");
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    await assert.rejects(
+      () => service.publish("id1"),
+      (error: any) => error.statusCode === 409,
+    );
+    release();
+    await first;
+    await service.waitForIdle("id1");
+    assert.equal(store.getSharedContent("id1")?.status, "published");
+  } finally {
+    zip.cleanup();
+  }
+});
+
+test("資格情報の復号失敗でも起動時回収を全件続ける", async () => {
+  const zip = zipFactory({ "index.html": "<h1>v1</h1>" });
+  const { service, store } = setup({ zip, credentialError: true });
+  const row = (id: string): SharedContentRow => ({
+    id,
+    sessionId: "session-1",
+    name: id,
+    sourcePath: "projects/app/dist",
+    provider: "cloudflare",
+    providerAccount: ACCOUNT,
+    remoteId: `u7s-${id}`,
+    publicUrl: `https://u7s-${id}.demo.workers.dev/`,
+    status: "publishing",
+    createdAt: 1,
+    updatedAt: 1,
+    publishedAt: null,
+    stoppedAt: null,
+    lastError: null,
+  });
+  try {
+    store.insertSharedContent(row("id1"));
+    store.insertSharedContent(row("id2"));
+    await service.recoverInterrupted();
+    for (const id of ["id1", "id2"]) {
+      const current = store.getSharedContent(id);
+      assert.equal(current?.status, "publishing");
+      assert.ok(current?.lastError);
+    }
+  } finally {
+    zip.cleanup();
+  }
+});
+
+test("公開後の DB 更新に一度失敗しても published + lastError に回収する", async () => {
+  const zip = zipFactory({ "index.html": "<h1>v1</h1>" });
+  const { service, store, cloudflare } = setup({ zip });
+  store.failPublishedOnce = true;
+  try {
+    await service.create(payload());
+    await service.waitForIdle("id1");
+    const row = store.getSharedContent("id1");
+    assert.equal(row?.status, "published");
+    assert.ok(row?.lastError);
+    assert.equal(cloudflare.subdomainCalls(), 1);
+  } finally {
+    zip.cleanup();
+  }
+});
+
+test("sandbox の SandboxRequestError.status を 400 / 409 / 413 に写す", async () => {
+  const zip = zipFactory({ "index.html": "<h1>v1</h1>" });
+  const notFoundWorkspace = {
+    ...workspaceFor(zip),
+    listFiles: async () => {
+      throw new SandboxRequestError("Path not found", 404);
+    },
+  } as unknown as SandboxWorkspaceClient;
+  const notFound = setup({ zip, workspace: notFoundWorkspace });
+  try {
+    await assert.rejects(
+      () => notFound.service.create(payload()),
+      (error: any) => error.statusCode === 400,
+    );
+  } finally {
+    // 同じ zip を後続のテストでも使う
+  }
+
+  const tooLargeWorkspace = {
+    ...workspaceFor(zip),
+    downloadEntry: async () => {
+      throw new SandboxRequestError("Archive is too large", 413);
+    },
+  } as unknown as SandboxWorkspaceClient;
+  const tooLarge = setup({ zip, workspace: tooLargeWorkspace });
+  try {
+    await tooLarge.service.create(payload());
+    await tooLarge.service.waitForIdle("id1");
+    const row = tooLarge.store.getSharedContent("id1");
+    assert.equal(row?.status, "failed");
+    assert.match(row?.lastError ?? "", /100 MiB/);
+  } finally {
+    zip.cleanup();
+  }
+
+  const publishedZip = zipFactory({ "index.html": "<h1>v1</h1>" });
+  const published = setup({ zip: publishedZip });
+  try {
+    await published.service.create(payload());
+    await published.service.waitForIdle("id1");
+    const publishWorkspace = {
+      ...workspaceFor(publishedZip),
+      listFiles: async () => {
+        throw new SandboxRequestError("Path not found", 404);
+      },
+    } as unknown as SandboxWorkspaceClient;
+    const service = new SharedContentsService({
+      store: published.store,
+      sessions: { workdirOfId: () => SESSION_CWD },
+      workspace: publishWorkspace,
+      credentials: { credential: () => ({ accountId: ACCOUNT, apiToken: TOKEN }) },
+      createCloudflare: () => cloudflareStub().api,
+      rootCwd: ROOT,
+      maskError: (text) => text,
+      secretValues: () => [],
+    });
+    await assert.rejects(
+      () => service.publish("id1"),
+      (error: any) => error.statusCode === 409,
+    );
+  } finally {
+    publishedZip.cleanup();
+  }
+});
+
+test("_headers / _redirects は config へ回し、manifest に載せない", async () => {
+  const zip = zipFactory({
+    "index.html": "<h1>v1</h1>",
+    _headers: "X-Test: 1",
+    _redirects: "/old /new 301",
+    "app.js": "console.log(1)",
+  });
+  const { service, cloudflare, store } = setup({ zip });
+  try {
+    await service.create(payload());
+    await service.waitForIdle("id1");
+    assert.equal(store.getSharedContent("id1")?.status, "published");
+    assert.deepEqual(
+      cloudflare.published[0].map((asset) => asset.path),
+      ["index.html", "app.js"],
+    );
+    assert.deepEqual(cloudflare.configs[0], { headers: "X-Test: 1", redirects: "/old /new 301" });
   } finally {
     zip.cleanup();
   }

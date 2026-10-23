@@ -726,7 +726,7 @@ Content-Security-Policy: sandbox allow-scripts; default-src 'none'; style-src 'u
 { "id": "…", "status": "publishing" }
 ```
 
-一覧・詳細は `{ id, sessionId, name, sourcePath, provider, status, publicUrl, createdAt, updatedAt, publishedAt, stoppedAt, lastError }`。`remoteId` / `providerAccount` は返さない。`status` は `publishing` / `published` / `stopped` / `failed` で、`lastError` は分類済みの固定文言だけを入れる。
+一覧・詳細は `{ id, sessionId, name, sourcePath, provider, status, publicUrl, createdAt, updatedAt, publishedAt, stoppedAt, lastError }`。`remoteId` / `providerAccount` は返さない。`status` の値は `SharedContentStatus`（`server/src/app-db.ts`）と schema を正とし、`lastError` は分類済みの固定文言だけを入れる。
 
 - `directory` はセッションの作業ディレクトリ相対。root 自身・絶対パス・`..` は 400。
 - ソースは sandbox の `GET /v1/files/download?path=<dir>&exclude=`（明示空）で全量 ZIP を取得し、`index.html` の存在、10,000 entries / 100 MiB / 1 ファイル 25 MiB、パス・symlink、既知の秘密値を検証する。違反は部分公開せず `failed`（更新なら前回の状態 + `lastError`）。

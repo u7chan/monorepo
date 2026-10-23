@@ -18,7 +18,6 @@ import {
 } from "./cloudflare-api";
 import type { SharedContentRow, SharedContentStatus } from "./app-db";
 import { httpError, messageFor } from "./http";
-import { MutationLock } from "./model-settings";
 import type { SandboxWorkspaceClient } from "./sandbox/client";
 import { extractZipEntry, readZipArchive, type ZipReadEntry } from "./sandbox/zip-read";
 import type { CreateSharedContentBody, SharedContentMutationResponse, SharedContentResponse } from "./schema";
@@ -101,8 +100,8 @@ export class SharedContentsService {
   #now: () => number;
   #newId: () => string;
   #tempRoot: string;
-  /** 受付の直列化は共有物 id 単位。公開ジョブ自体はロックの外で走る */
-  #locks = new Map<string, MutationLock>();
+  /** 受付中の id。公開ジョブ自体はこの集合の外で走る */
+  #accepting = new Set<string>();
   #active = new Set<string>();
 
   constructor(options: SharedContentsOptions) {
@@ -186,7 +185,9 @@ export class SharedContentsService {
 
   /** 更新 / 未公開からの再試行。ソースとセッションが揃っているときだけ受け付ける */
   async publish(id: string): Promise<SharedContentMutationResponse> {
-    return this.#withLock(id, async () => {
+    if (this.#accepting.has(id)) throw httpError(409, SHARED_CONTENT_BUSY);
+    this.#accepting.add(id);
+    try {
       let row: SharedContentRow | undefined;
       try {
         row = this.#store.getSharedContent(id);
@@ -218,7 +219,9 @@ export class SharedContentsService {
       }
       this.#start(row, row.status);
       return { id, status: "publishing" };
-    });
+    } finally {
+      this.#accepting.delete(id);
+    }
   }
 
   /**
@@ -274,7 +277,6 @@ export class SharedContentsService {
       })
       .finally(() => {
         this.#active.delete(row.id);
-        this.#locks.delete(row.id);
       });
   }
 
@@ -282,10 +284,10 @@ export class SharedContentsService {
     let tempDir: string | undefined;
     try {
       tempDir = await mkdtemp(join(this.#tempRoot, "u7agent-shared-"));
-      const assets = await this.#readAssets(row, tempDir);
+      const { assets, config } = await this.#readAssets(row, tempDir);
       const credential = this.#credentialFor(row);
       if (!credential) throw new SharedContentSourceError(SHARED_CONTENT_ACCOUNT_MISMATCH);
-      await this.#createCloudflare(credential).publishAssets(row.remoteId ?? "", assets);
+      await this.#createCloudflare(credential).publishAssets(row.remoteId ?? "", assets, config);
       try {
         this.#store.updateSharedContentState(row.id, {
           status: "published",
@@ -295,8 +297,18 @@ export class SharedContentsService {
           lastError: null,
         });
       } catch (error) {
-        // 公開は成功している。DB を進めず publishing のまま残し、再起動時の照会で回収する
+        // 公開は成功している。状態を保存できなくても「進行中」のまま放置せず、照会して結果不明を残す
         console.warn(`[u7agent] shared content state save failed: ${this.#maskError(messageFor(error))}`);
+        try {
+          await this.#reconcile(
+            row,
+            new SharedContentSourceError("公開は完了しましたが、状態を保存できませんでした。再起動時に確認します"),
+          );
+        } catch (reconcileError) {
+          console.warn(
+            `[u7agent] shared content reconcile after state failure failed: ${this.#maskError(messageFor(reconcileError))}`,
+          );
+        }
       }
     } catch (error) {
       try {
@@ -309,7 +321,10 @@ export class SharedContentsService {
     }
   }
 
-  async #readAssets(row: SharedContentRow, tempDir: string): Promise<CloudflareAsset[]> {
+  async #readAssets(
+    row: SharedContentRow,
+    tempDir: string,
+  ): Promise<{ assets: CloudflareAsset[]; config: { headers?: string; redirects?: string } }> {
     const workspace = this.#workspace;
     if (!workspace) throw new SharedContentSourceError(SHARED_CONTENT_SANDBOX_UNAVAILABLE);
     const zipPath = join(tempDir, "source.zip");
@@ -358,12 +373,19 @@ export class SharedContentsService {
     const assetsDir = join(tempDir, "assets");
     await mkdir(assetsDir, { recursive: true });
     const assets: CloudflareAsset[] = [];
+    const config: { headers?: string; redirects?: string } = {};
     const secrets = this.#secretValues();
     for (const entry of files) {
       const target = join(assetsDir, entry.name);
       await mkdir(dirname(target), { recursive: true });
-      await extractZipEntry({ archive: zipPath, entry, target, dataLimit: archive.dataLimit });
-      const content = await readFile(target);
+      try {
+        await extractZipEntry({ archive: zipPath, entry, target, dataLimit: archive.dataLimit });
+      } catch (error) {
+        throw zipErrorFor(error);
+      }
+      const content = await readFile(target).catch(() => {
+        throw new SharedContentSourceError("公開する成果物を読み取れませんでした");
+      });
       if (content.length > SHARED_CONTENT_MAX_FILE_BYTES) {
         throw new SharedContentSourceError("公開するファイルが大きすぎます（1 ファイル 25 MiB まで）");
       }
@@ -371,6 +393,13 @@ export class SharedContentsService {
         throw new SharedContentSourceError(
           "公開するファイルに秘密値が含まれています。ビルド成果物から値を除いてください",
         );
+      }
+      if (entry.name === "_headers" || entry.name === "_redirects") {
+        // Cloudflare の特殊ファイルはアセットではなく metadata.assets.config へ渡す
+        const text = content.toString("utf8");
+        if (entry.name === "_headers") config.headers = text;
+        else config.redirects = text;
+        continue;
       }
       const contentType = contentTypeFor(entry.name);
       assets.push({
@@ -381,7 +410,7 @@ export class SharedContentsService {
         hash: cloudflareAssetHash(content, contentType),
       });
     }
-    return assets;
+    return { assets, config };
   }
 
   async #handleFailure(
@@ -451,7 +480,13 @@ export class SharedContentsService {
   }
 
   #credentialFor(row: SharedContentRow): CloudflareCredential | null {
-    const credential = this.#credentials.credential();
+    let credential: CloudflareCredential | null;
+    try {
+      credential = this.#credentials.credential();
+    } catch {
+      // 鍵なし / 復号不能 / 破損行。行単位で「照会不能」として扱い、他の行の回収を止めない
+      return null;
+    }
     if (!credential) return null;
     if (row.providerAccount && row.providerAccount !== credential.accountId) return null;
     return credential;
@@ -468,7 +503,7 @@ export class SharedContentsService {
     try {
       await this.#workspace.listFiles(sourcePath);
     } catch (error) {
-      const status = (error as { statusCode?: number }).statusCode;
+      const status = errorStatus(error);
       if (status === 404) throw httpError(missingStatus, SHARED_CONTENT_SOURCE_REQUIRED);
       if (status === 400) throw httpError(missingStatus, "公開するディレクトリではありません");
       throw httpError(503, "公開するディレクトリを確認できませんでした");
@@ -482,20 +517,6 @@ export class SharedContentsService {
     if (!relative || relative.startsWith("..") || posix.isAbsolute(relative)) {
       throw httpError(409, "公開元のディレクトリがセッションの作業フォルダ外へ移っています");
     }
-  }
-
-  #withLock<T>(id: string, task: () => Promise<T>): Promise<T> {
-    let lock = this.#locks.get(id);
-    if (!lock) {
-      lock = new MutationLock();
-      this.#locks.set(id, lock);
-    }
-    const result = lock.run(task);
-    // 受付で止まった場合 (409 など) はジョブが無いので、id ごとのロックを残さない
-    void result.catch(() => {
-      if (!this.#active.has(id)) this.#locks.delete(id);
-    });
-    return result;
   }
 }
 
@@ -632,8 +653,19 @@ export function contentTypeFor(path: string): string {
   return MIME_TYPES[extension] ?? "application/octet-stream";
 }
 
+function errorStatus(error: unknown): number | undefined {
+  if (!isRecordLike(error)) return undefined;
+  if (typeof error.status === "number") return error.status;
+  if (typeof error.statusCode === "number") return error.statusCode;
+  return undefined;
+}
+
+function isRecordLike(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
 function sourceErrorFor(error: unknown): SharedContentSourceError {
-  const status = (error as { statusCode?: number }).statusCode;
+  const status = errorStatus(error);
   if (status === 404) return new SharedContentSourceError(SHARED_CONTENT_SOURCE_REQUIRED);
   if (status === 413) return new SharedContentSourceError("公開するファイルの合計が大きすぎます（最大 100 MiB）");
   return new SharedContentSourceError("公開する成果物を取得できませんでした");

@@ -8,7 +8,7 @@ import { createHash } from "node:crypto";
 import { createReadStream, createWriteStream } from "node:fs";
 import { mkdir, open, type FileHandle } from "node:fs/promises";
 import { dirname } from "node:path";
-import { Readable, Transform, Writable } from "node:stream";
+import { PassThrough, Readable, Transform, Writable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import { createInflateRaw } from "node:zlib";
 import type { ArchiveLimits } from "./archive";
@@ -360,12 +360,16 @@ async function streamEntryData(input: {
   }
   const source = createReadStream(input.archive, { start: input.dataStart, end: input.dataEnd - 1 });
   const { transform, stats } = inspectBytes(entry, input.hash);
-  const body =
-    entry.compression === METHOD_DEFLATE ? source.pipe(createInflateRaw()).pipe(transform) : source.pipe(transform);
-  // pipe は上流の失敗を下流へ伝えない。伝えないと 'error' が未処理になってプロセスごと落ちる
-  source.on("error", (error) => body.destroy(error));
+  // 上流 (読み出し / inflate) の失敗を下流へ伝えるため、全ストリームを pipeline に含める。
+  // pipe だけだと inflate の 'error' が未処理になり、プロセスごと落ちる
+  const decoder = entry.compression === METHOD_DEFLATE ? createInflateRaw() : new PassThrough();
   try {
-    await pipeline(body, input.target === undefined ? discardSink() : createWriteStream(input.target, { flags: "wx" }));
+    await pipeline(
+      source,
+      decoder,
+      transform,
+      input.target === undefined ? discardSink() : createWriteStream(input.target, { flags: "wx" }),
+    );
   } catch (error) {
     if ((error as { statusCode?: number }).statusCode === 400) throw error;
     throw cannotExtract();

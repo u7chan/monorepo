@@ -61,11 +61,17 @@ export interface CloudflareScriptSubdomain {
   previewsEnabled: boolean;
 }
 
+/** ルートの `_headers` / `_redirects` はアセットではなく config として送る */
+export interface CloudflareAssetConfig {
+  headers?: string;
+  redirects?: string;
+}
+
 export interface CloudflareAssetsApi {
   getAccountSubdomain(): Promise<string>;
   getScriptSubdomain(scriptName: string): Promise<CloudflareScriptSubdomain>;
   /** manifest 登録 → アセット送信 → deployment → workers.dev 有効化 */
-  publishAssets(scriptName: string, assets: readonly CloudflareAsset[]): Promise<void>;
+  publishAssets(scriptName: string, assets: readonly CloudflareAsset[], config?: CloudflareAssetConfig): Promise<void>;
 }
 
 export interface CloudflareApiClientOptions {
@@ -109,19 +115,21 @@ export class CloudflareApiClient implements CloudflareAssetsApi {
 
   async getAccountSubdomain(): Promise<string> {
     const result = await this.#request(this.#accountPath("/workers/subdomain"));
-    const subdomain = isRecord(result) ? result.subdomain : undefined;
-    return typeof subdomain === "string" ? subdomain.trim() : "";
+    if (!isRecord(result) || typeof result.subdomain !== "string") throw new CloudflareApiError("invalid");
+    return result.subdomain.trim();
   }
 
   async getScriptSubdomain(scriptName: string): Promise<CloudflareScriptSubdomain> {
     const result = await this.#request(this.#scriptPath(scriptName, "/subdomain"));
-    return {
-      enabled: isRecord(result) && result.enabled === true,
-      previewsEnabled: isRecord(result) && result.previews_enabled === true,
-    };
+    if (!isRecord(result) || typeof result.enabled !== "boolean") throw new CloudflareApiError("invalid");
+    return { enabled: result.enabled, previewsEnabled: result.previews_enabled === true };
   }
 
-  async publishAssets(scriptName: string, assets: readonly CloudflareAsset[]): Promise<void> {
+  async publishAssets(
+    scriptName: string,
+    assets: readonly CloudflareAsset[],
+    config?: CloudflareAssetConfig,
+  ): Promise<void> {
     if (assets.length === 0) throw new CloudflareApiError("invalid");
     const manifest = Object.fromEntries(
       assets.map((asset) => [`/${asset.path}`, { hash: asset.hash, size: asset.size }]),
@@ -168,6 +176,8 @@ export class CloudflareApiClient implements CloudflareAssetsApi {
         config: {
           html_handling: "auto-trailing-slash",
           not_found_handling: "single-page-application",
+          ...(config?.headers !== undefined ? { _headers: config.headers } : {}),
+          ...(config?.redirects !== undefined ? { _redirects: config.redirects } : {}),
         },
       },
       compatibility_date: new Date(this.#now()).toISOString().slice(0, 10),
@@ -211,17 +221,25 @@ export class CloudflareApiClient implements CloudflareAssetsApi {
       if (name === "TimeoutError" || name === "AbortError") throw new CloudflareApiError("timeout");
       throw new CloudflareApiError("network");
     }
-    const text = await response.text().catch(() => "");
+    let text: string;
+    try {
+      text = await response.text();
+    } catch (error) {
+      // ヘッダ受信後の切断・期限切れも、公開結果が不明な失敗として扱う
+      const name = error instanceof Error ? error.name : "";
+      throw new CloudflareApiError(name === "TimeoutError" || name === "AbortError" ? "timeout" : "network");
+    }
     let body: unknown;
     try {
       body = text ? JSON.parse(text) : undefined;
     } catch {
       body = undefined;
     }
-    if (!response.ok || (isRecord(body) && body.success === false)) {
+    // HTTP 200 でも本文が壊れていれば成功にしない。result の有無も endpoint 側で必ず確かめる
+    if (!response.ok || !isRecord(body) || body.success !== true || !("result" in body)) {
       throw classifyFailure(response.status, body);
     }
-    return isRecord(body) ? body.result : undefined;
+    return body.result;
   }
 }
 
@@ -237,11 +255,14 @@ function classifyFailure(status: number, body: unknown): CloudflareApiError {
   const code = errors
     .map((entry) => (isRecord(entry) && typeof entry.code === "number" ? entry.code : undefined))
     .find((value): value is number => value !== undefined);
-  if (/quota|limit|too many|maximum/i.test(messages)) return new CloudflareApiError("quota", status, code);
-  if (status === 401 || status === 403) return new CloudflareApiError("unauthorized", status, code);
-  if (status === 404) return new CloudflareApiError("not_found", status, code);
+  // 429 / 5xx を「枠不足」へ誤分類しない。quota は 400 / 403 の本文だけで判定する
   if (status === 429) return new CloudflareApiError("rate_limited", status, code);
   if (status >= 500) return new CloudflareApiError("transient", status, code);
+  if ((status === 400 || status === 403) && /quota|limit|too many|maximum/i.test(messages)) {
+    return new CloudflareApiError("quota", status, code);
+  }
+  if (status === 401 || status === 403) return new CloudflareApiError("unauthorized", status, code);
+  if (status === 404) return new CloudflareApiError("not_found", status, code);
   return new CloudflareApiError("invalid", status, code);
 }
 

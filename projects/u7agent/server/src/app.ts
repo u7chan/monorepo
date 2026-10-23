@@ -559,8 +559,13 @@ export async function createBffApp(opts: CreateBffAppOptions = {}) {
     .post(
       "/api/shared-contents",
       appDataMutation,
-      jsonBodyValidator(CreateSharedContentBodySchema, (result, c) =>
-        result.success ? undefined : c.json({ error: "Invalid request body" }, 400),
+      jsonBodyValidator(
+        CreateSharedContentBodySchema,
+        (result, c) =>
+          result.success ? undefined : c.json({ error: "Invalid request body", state: "not_stored" as const }, 400),
+        {
+          invalidJson: (c) => c.json({ error: "Request body must be valid JSON", state: "not_stored" as const }, 400),
+        },
       ),
       (c) => sharedContentRoutes.create(c, c.req.valid("json")),
     )
