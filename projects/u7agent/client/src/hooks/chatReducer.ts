@@ -104,6 +104,11 @@ export type ChatState = {
    * 文言 (activity) で判定すると BFF の文面変更で演出が消えるため、サーバーが配る state を持つ
    */
   activityState?: string;
+  /**
+   * 利用者の操作の結果として出す 1 行 (待機の取り消しに失敗した理由など)。活動文言 (activity) は
+   * status / resync が上書きするため、押した結果は別に持ち、次の操作の開始かセッション切替まで残す
+   */
+  notice?: string;
   sessionModel?: string;
   sessionThinkingLevel?: string;
   /** セッション作成時のエージェントのスナップショット (定義を編集しても既存セッションの表示は変わらない) */
@@ -266,6 +271,10 @@ export type ChatAction =
   /** 停止応答。`stateSeq` (要求時の世代) が現在と一致するときだけ適用する */
   | { type: "setRun"; runStatus: RunStatus; queueDepth?: number; activity?: string; stateSeq?: number }
   | { type: "setActivity"; text: string }
+  /** 操作の結果を状態行の下の 1 行に残す。後から届く status / resync では消さない */
+  | { type: "notice"; text: string }
+  /** 利用者の操作の開始。操作の結果 (notice) はここでだけ用済みにする (応答では消さない) */
+  | { type: "clearNotice" }
   /**
    * 引き継ぎなど、同じ会話 id のまま履歴が入れ替わった世代を開く。旧バブルと履歴のカーソルを捨てる
    * (`resync` は同じ id を「履歴を保つ会話」と見るため、先に捨てないと前の世代が残る)。
@@ -304,6 +313,7 @@ export const initialChatState: ChatState = {
   queueDepth: 0,
   activity: "",
   activityState: undefined,
+  notice: undefined,
   sessionModel: undefined,
   sessionThinkingLevel: undefined,
   sessionAgentId: undefined,
@@ -1466,6 +1476,8 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
         history: initialChatState.history,
         activity: "",
         activityState: undefined,
+        // 履歴ごと入れ替わるので、前の履歴の操作の結果は持ち越さない
+        notice: undefined,
         handoff: undefined,
         compactions: [],
         context: undefined,
@@ -1738,6 +1750,8 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
         compactionStartedAt: status === "compacting" ? payload.compactionStartedAt : undefined,
         queueDepth: payload.queueDepth || 0,
         activity: "",
+        // 押した結果は会話を切り替えたときだけ捨てる (同じ会話の取り直しでは残す)
+        notice: switchedSession ? undefined : state.notice,
         // 活動の由来は status イベントだけが入れる (復帰時の文言は状態ではなくお知らせなので持たない)
         activityState: undefined,
         sessionModel: payload.model,
@@ -2688,6 +2702,16 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
         // 送信の応答や停止の応答で権威ある状態へ移った時点でカードを消す (run_start が遅れても古い失敗を残さない)
         runError: undefined,
       };
+
+    case "clearNotice":
+      // 保持の解除は利用者の操作の **開始** だけ。応答 (setRun / queueCanceled など) で消すと、
+      // 先に始めた要求の後着応答が、その後に出た別の操作の結果を消す
+      return state.notice === undefined ? state : { ...state, notice: undefined };
+
+    case "notice":
+      // 押した結果は活動文言と別に持つ。後続の status / resync が activity を戻しても、この 1 行は
+      // 次の操作かセッション切替まで残る (取り消しの成否が読めないまま消えるのを避ける)
+      return { ...state, notice: action.text };
 
     case "setActivity":
       // 実行とは別の知らせ (設定変更 / 接続エラーなど) を活動行へ出す。演出の対象外

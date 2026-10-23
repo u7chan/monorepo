@@ -31,6 +31,14 @@ function actionsOfType<T extends ChatAction["type"]>(
   return actions.filter((action): action is Extract<ChatAction, { type: T }> => action.type === type);
 }
 
+/**
+ * 操作の開始の合図 (保持している notice の解除)。表示を触らないことの検証では、この 1 件だけを
+ * 差として許す (表示を戻す action を 1 件も出さない、という契約はそのまま固定する)。
+ */
+function withoutOperationStart(actions: ChatAction[]): ChatAction[] {
+  return actions.filter((action) => action.type !== "clearNotice");
+}
+
 interface Deferred<T> {
   promise: Promise<T>;
   resolve: (value: T) => void;
@@ -124,7 +132,7 @@ test("keeps the send target but not the display when the chat switches while cre
   await running;
 
   assert.deepEqual(record.posted, [{ sessionId: "s-1", text: "hello", attachments: [] }], "切替後も入力は捨てない");
-  assert.deepEqual(record.actions, [], "切替後の表示 (バブル / 実行状態) は触らない");
+  assert.deepEqual(withoutOperationStart(record.actions), [], "切替後の表示 (バブル / 実行状態) は触らない");
   assert.deepEqual(record.sending, [true, false]);
 });
 
@@ -399,7 +407,7 @@ test("does not clear the chips when the post fails", async () => {
   );
   assert.deepEqual(
     record.actions.map((action) => action.type),
-    ["localUser", "dropLocalUser", "setActivity"],
+    ["clearNotice", "localUser", "dropLocalUser", "setActivity"],
   );
 });
 
@@ -432,7 +440,7 @@ test("does not drop the local echo when the chat switched while creating the ses
   assert.deepEqual(actionsOfType(record.actions, "dropLocalUser"), []);
   assert.deepEqual(
     record.actions.map((action) => action.type),
-    ["setActivity"],
+    ["clearNotice", "setActivity"],
   );
 });
 
@@ -469,6 +477,7 @@ test("stops the displayed session", async () => {
 
   assert.deepEqual(stops, ["s-1"]);
   assert.deepEqual(record.actions, [
+    { type: "clearNotice" },
     { type: "setRun", runStatus: "stopped", queueDepth: 0, activity: "停止要求を送信しました", stateSeq: 0 },
   ]);
 });
@@ -486,7 +495,7 @@ test("圧縮中の stop の応答では表示を戻さない", async () => {
   });
 
   // 応答は圧縮前の run の値。状態の正は終端 resync / status
-  assert.deepEqual(actions, []);
+  assert.deepEqual(withoutOperationStart(actions), []);
 });
 
 test("stop の応答は、後から入った操作や別セッションには適用しない", async () => {
@@ -504,7 +513,7 @@ test("stop の応答は、後から入った操作や別セッションには適
   // 終端 resync (操作世代が進む) や別会話への切替が先に起きた
   opsRef.current += 1;
   await stopping;
-  assert.deepEqual(actions, []);
+  assert.deepEqual(withoutOperationStart(actions), []);
 
   const switched = stopRun({
     sessionIdRef,
@@ -516,7 +525,7 @@ test("stop の応答は、後から入った操作や別セッションには適
   });
   sessionIdRef.current = "s-3";
   await switched;
-  assert.deepEqual(actions, []);
+  assert.deepEqual(withoutOperationStart(actions), []);
 });
 
 /** 停止要求の前後を reducer で並べる。ref は要求時の値のままで、描画を挟まない経路も再現する */
@@ -728,7 +737,7 @@ test("compactChat は要求とともに操作世代を進め、成功では表�
 
   assert.deepEqual(compacted, ["s-1"]);
   assert.equal(deps.opsRef.current, 1, "同じ表示のまま押し直しても前の応答を捨てられる");
-  assert.deepEqual(actions, [], "状態の正は SSE (開始 / 終端 resync と status)");
+  assert.deepEqual(withoutOperationStart(actions), [], "状態の正は SSE (開始 / 終端 resync と status)");
 });
 
 test("compactChat の失敗は状態行に理由を出し、接続状態は通信の失敗だけ変える", async () => {
@@ -738,7 +747,9 @@ test("compactChat の失敗は状態行に理由を出し、接続状態は通�
     },
   });
   await compactChat(api.deps);
-  assert.deepEqual(api.actions, [{ type: "setActivity", text: "まだ要約できる古い会話がありません" }]);
+  assert.deepEqual(withoutOperationStart(api.actions), [
+    { type: "setActivity", text: "まだ要約できる古い会話がありません" },
+  ]);
   assert.deepEqual(api.statuses, [], "400 は操作の結果で、接続の異常ではない");
 
   const network = compactDeps({
@@ -748,7 +759,7 @@ test("compactChat の失敗は状態行に理由を出し、接続状態は通�
   });
   await compactChat(network.deps);
   assert.equal(network.statuses.length, 1);
-  assert.equal(network.actions.length, 1);
+  assert.equal(withoutOperationStart(network.actions).length, 1);
 });
 
 test("compactChat の応答は、後から入った操作や終端 resync の後では適用しない", async () => {
@@ -763,7 +774,7 @@ test("compactChat の応答は、後から入った操作や終端 resync の後
   deps.opsRef.current += 1;
   await running;
 
-  assert.deepEqual(actions, [], "SSE が配った新しい状態を古い失敗で上書きしない");
+  assert.deepEqual(withoutOperationStart(actions), [], "SSE が配った新しい状態を古い失敗で上書きしない");
   assert.deepEqual(statuses, []);
 });
 
@@ -925,8 +936,9 @@ test("要求後に権威ある payload を適用済みなら、遅れて届い�
   assert.equal(recovered, 0, "成功した要求では取り直しを起こさない");
 });
 
-test("取り消しの 409 / 404 は取り直しの後に理由を状態行へ出し、通信の失敗では取り直さない", async () => {
-  // resync が状態行を空にするため、理由は取り直しの後に出す (順序も固定する)
+test("取り消しの 409 / 404 は取り直しの後に理由を操作の結果として残し、通信の失敗では取り直さない", async () => {
+  // What: 失敗の理由を活動文言 (setActivity) ではなく操作の結果 (notice) に出す。活動行は
+  // resync / status が戻すため、同じ行に出すと押した結果が直後に読めなくなる。順序も固定する
   const order: string[] = [];
   const conflictActions: ChatAction[] = [];
   await cancelQueuedMessage("run-b", {
@@ -945,11 +957,12 @@ test("取り消しの 409 / 404 は取り直しの後に理由を状態行へ出
       conflictActions.push(action);
     },
   });
-  assert.deepEqual(order, ["recover", "dispatch:setActivity"]);
+  assert.deepEqual(order, ["dispatch:clearNotice", "recover", "dispatch:notice"]);
   assert.deepEqual(
-    actionsOfType(conflictActions, "setActivity").map((action) => action.text),
+    actionsOfType(conflictActions, "notice").map((action) => action.text),
     ["実行が始まったため取り消せません"],
   );
+  assert.deepEqual(actionsOfType(conflictActions, "setActivity"), [], "活動行は resync / status に任せる");
   assert.deepEqual(actionsOfType(conflictActions, "queueCanceled"), [], "409 では未送信へ切り替えない");
 
   // 404 も同じ収束へ寄せる (別タブが先に取り消した / 既に実行・保存された)
@@ -966,7 +979,7 @@ test("取り消しの 409 / 404 は取り直しの後に理由を状態行へ出
   await cancelQueuedMessage("run-b", missing.deps);
   assert.equal(recovered, 1, "404 は権威ある payload を取り直す");
   assert.deepEqual(
-    actionsOfType(missing.actions, "setActivity").map((action) => action.text),
+    actionsOfType(missing.actions, "notice").map((action) => action.text),
     ["待機中のメッセージが見つかりません"],
   );
   assert.deepEqual(actionsOfType(missing.actions, "queueCanceled"), []);
@@ -985,10 +998,225 @@ test("取り消しの 409 / 404 は取り直しの後に理由を状態行へ出
   await cancelQueuedMessage("run-b", offline.deps);
   assert.equal(offlineRecovered, 0);
   assert.deepEqual(
-    actionsOfType(offline.actions, "setActivity").map((action) => action.text),
+    actionsOfType(offline.actions, "notice").map((action) => action.text),
     ["network reset"],
   );
   assert.deepEqual(actionsOfType(offline.actions, "queueCanceled"), []);
+});
+
+/** 取り消しの失敗後に届く権威ある状態 (実行が始まった後の resync) */
+function runningPayload(status: SessionPayload["status"]): SessionPayload {
+  return {
+    sessionId: "s-1",
+    piSessionId: "pi-s-1",
+    cwd: "",
+    eventGeneration: "gen-1",
+    status,
+    title: "待機中のメッセージ",
+    createdAt: 1,
+    lastUsedAt: 2,
+    serverNow: 2,
+    queueDepth: 0,
+    pinned: false,
+    lastSeq: 3,
+    run: null,
+    messages: [{ role: "user", text: "待機中のメッセージ" }],
+    compactions: [],
+  };
+}
+
+test("取り消しの失敗理由は、直後に届く status / resync の活動文言に上書きされない", async () => {
+  // What: 404 / 409 の理由を activity に出すと、recover の resync とその後の status が
+  // 「実行中…」に戻して押した結果が消える (実際に再現した不具合)。理由は操作の結果 (notice) として
+  // 別に持ち、同じ会話の取り直しでは消えないことを固定する
+  for (const status of [404, 409] as const) {
+    let state: ChatState = chatReducer(initialChatState, {
+      type: "resync",
+      payload: runningPayload("running"),
+    });
+    const canceling = cancelQueuedMessage("run-b", {
+      sessionIdRef: { current: "s-1" },
+      snapshotSeqRef: { current: 0 },
+      cancel: async () => {
+        throw apiFailure("実行が始まったため取り消せません", status);
+      },
+      // 取り直しでは活動文言が戻る (理由を出す前に reducer が通る)
+      recover: async () => {
+        state = chatReducer(state, { type: "resync", payload: runningPayload("running") });
+        return true;
+      },
+      dispatch: (value) => {
+        state = chatReducer(state, value as ChatAction);
+      },
+    });
+    await canceling;
+    assert.equal(state.notice, "実行が始まったため取り消せません", `${status} の理由を残す`);
+
+    // 後続の活動文言 (status / 実行終了) でも理由は消えない
+    state = chatReducer(state, { type: "status", state: "thinking", text: "考え中…" });
+    assert.equal(state.activity, "考え中…");
+    assert.equal(state.notice, "実行が始まったため取り消せません");
+    state = chatReducer(state, { type: "runEnd", status: "completed", queueDepth: 0 });
+    assert.equal(state.activity, "完了");
+    assert.equal(state.notice, "実行が始まったため取り消せません");
+  }
+});
+
+/** 取消の結果を reducer へ流す harness。ref は reducer が返した値で進め、描画を挟まない経路も再現する */
+function cancelWithReducer(state: ChatState) {
+  const sessionIdRef = { current: "s-1" };
+  const opsRef = { current: 0 };
+  const runStatusRef = { current: state.runStatus };
+  const runEndSeqRef = { current: state.runEndSeq };
+  const stateSeqRef = { current: state.stateSeq };
+  const dispatched: string[] = [];
+  const dispatch: Dispatch<ChatAction> = (value) => {
+    const action = value as ChatAction;
+    dispatched.push(action.type);
+    state = chatReducer(state, action);
+    runStatusRef.current = state.runStatus;
+    runEndSeqRef.current = state.runEndSeq;
+    stateSeqRef.current = state.stateSeq;
+  };
+  return {
+    get state() {
+      return state;
+    },
+    dispatched,
+    sessionIdRef,
+    opsRef,
+    runStatusRef,
+    runEndSeqRef,
+    stateSeqRef,
+    dispatch,
+  };
+}
+
+test("取消より前に始めた送信の後着応答は、後から出た取消失敗の理由を消さない", async () => {
+  // What: 待機 A の取消を失敗させたまま、先に始めた送信 B の応答 (echoSendId / setRun) が後着しても
+  // 理由が残る。解除を応答ではなく操作の開始に紐付けているため、先行要求の応答では消えない
+  for (const status of [404, 409, undefined] as const) {
+    const session = cancelWithReducer(
+      chatReducer(initialChatState, { type: "resync", payload: runningPayload("running") }),
+    );
+    const postStarted = deferred<void>();
+    const posted = deferred<PostMessageResult>();
+    const sending = sendChatMessage("追加の送信 B", {
+      health: health(),
+      busy: false,
+      sessionIdRef: session.sessionIdRef,
+      opsRef: session.opsRef,
+      runStatusRef: session.runStatusRef,
+      runEndSeqRef: session.runEndSeqRef,
+      stateSeqRef: session.stateSeqRef,
+      ensureSession: async () => "s-1",
+      refreshSessions: async () => [],
+      post: () => {
+        postStarted.resolve();
+        return posted.promise;
+      },
+      dispatch: session.dispatch,
+      setSending: () => {},
+      setRuntimeStatus: () => {},
+    });
+    await postStarted.promise;
+
+    const reason =
+      status === 404
+        ? "待機中のメッセージが見つかりません"
+        : status === 409
+          ? "SDK が取り出したため取り消せません"
+          : "network reset";
+    await cancelQueuedMessage("queued-a", {
+      sessionIdRef: session.sessionIdRef,
+      snapshotSeqRef: { current: 0 },
+      cancel: async () => {
+        throw status === undefined ? new Error(reason) : apiFailure(reason, status);
+      },
+      recover: async () => false,
+      dispatch: session.dispatch,
+    });
+    assert.equal(session.state.notice, reason, "失敗した時点で理由を持つ");
+
+    posted.resolve({ queued: true, queueDepth: 2, sendId: "queued-b" });
+    await sending;
+    assert.equal(
+      session.state.notice,
+      reason,
+      `先行送信の後着応答で消さない (${status ?? "network"}: ${session.dispatched.join(" -> ")})`,
+    );
+  }
+});
+
+test("取消の失敗理由は操作の開始で解除し、先行する取消の成功応答では解除しない", async () => {
+  // What: 解除は「利用者が次の操作を始めた時点」で起き、要求の応答を待たない。一方で、先に始めた
+  // 取消の成功応答 (queueCanceled) が、後から出た失敗理由を消さないことも固定する
+  const base = chatReducer(initialChatState, { type: "resync", payload: runningPayload("running") });
+  const noticed = chatReducer(base, { type: "notice", text: "前の取消の失敗" });
+
+  // 取消 A (応答待ち) を先に始める
+  const pendingCancel = deferred<{ ok: true }>();
+  const session = cancelWithReducer(chatReducer(noticed, { type: "clearNotice" }));
+  const cancelingA = cancelQueuedMessage("queued-a", {
+    sessionIdRef: session.sessionIdRef,
+    snapshotSeqRef: { current: 0 },
+    cancel: () => pendingCancel.promise,
+    recover: async () => false,
+    dispatch: session.dispatch,
+  });
+
+  // その間に取消 B が通信断で失敗する (操作の開始 → 理由)
+  await cancelQueuedMessage("queued-b", {
+    sessionIdRef: session.sessionIdRef,
+    snapshotSeqRef: { current: 0 },
+    cancel: async () => {
+      throw new Error("network reset");
+    },
+    recover: async () => false,
+    dispatch: session.dispatch,
+  });
+  assert.equal(session.state.notice, "network reset");
+
+  // 先行の取消 A の成功応答が後着しても、B の理由は残る
+  pendingCancel.resolve({ ok: true });
+  await cancelingA;
+  assert.equal(session.state.notice, "network reset", "先行する取消の成功応答で消さない");
+  assert.deepEqual(
+    session.dispatched,
+    ["clearNotice", "clearNotice", "notice", "queueCanceled"],
+    "解除は操作の開始で 1 回ずつ",
+  );
+});
+
+test("送信の開始は、応答を待たずに保持している理由を解除する", async () => {
+  // What: 次の操作を始めた時点で理由を消す (応答が遅れても残らない)。解除は送信の要求より前
+  const session = cancelWithReducer(
+    chatReducer(chatReducer(initialChatState, { type: "resync", payload: runningPayload("running") }), {
+      type: "notice",
+      text: "前の取消の失敗",
+    }),
+  );
+  const posted = deferred<PostMessageResult>();
+  const sending = sendChatMessage("次の依頼", {
+    health: health(),
+    busy: false,
+    sessionIdRef: session.sessionIdRef,
+    opsRef: session.opsRef,
+    runStatusRef: session.runStatusRef,
+    runEndSeqRef: session.runEndSeqRef,
+    stateSeqRef: session.stateSeqRef,
+    ensureSession: async () => "s-1",
+    refreshSessions: async () => [],
+    post: () => posted.promise,
+    dispatch: session.dispatch,
+    setSending: () => {},
+    setRuntimeStatus: () => {},
+  });
+  await Promise.resolve();
+  assert.equal(session.dispatched[0], "clearNotice", "要求を出す前に解除する");
+  assert.equal(session.state.notice, undefined, "応答を待たずに消える");
+  posted.resolve({ queued: false, queueDepth: 0, sendId: "queued-c", runId: "run-c" });
+  await sending;
 });
 
 test("ask_user の回答は成功で ok、409 / 404 では権威ある状態を取り直す", async () => {

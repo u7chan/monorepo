@@ -64,6 +64,8 @@ export type ComposerProps = {
   liveTools: LiveToolCallView;
   /** 最後に失敗したランの分類コードと、BFF が合成した文言 */
   runError?: RunErrorInfo;
+  /** 利用者の操作の結果 (待機の取り消しに失敗した理由など)。状態行の下の 1 行に出す */
+  notice?: string;
   /** 失敗カードの再実行。固定文言を通常の送信経路で送る */
   onRetry?: () => void;
   agents: AgentDef[];
@@ -163,6 +165,7 @@ export function Composer({
   runStatus,
   liveTools,
   runError,
+  notice,
   onReloadSkills,
   queuedSends,
   onCancelQueued,
@@ -567,6 +570,7 @@ export function Composer({
             singleColumn={singleColumn}
             runStatus={runStatus}
             runError={runError}
+            notice={notice}
             onRetry={onRetry}
             retryDisabled={retryBlockedReason !== undefined}
             retryDisabledReason={retryBlockedReason}
