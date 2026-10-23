@@ -31,7 +31,7 @@ DTO の正は `server/src/schema.ts`（zod）。リクエストボディは `@ho
 | コンテンツ生成（設定 → コンテンツ生成 `/settings/content`） | `GET /api/settings/content`、`PUT /api/settings/content/image`、`PUT /api/settings/content/speech`、`POST /api/settings/content/speech/preview`、`PUT/DELETE /api/settings/content/key`、`POST /api/settings/content/image/catalog/refresh`、`POST /api/settings/content/speech/catalog/refresh` | このファイル、[image-generation.md](image-generation.md)、[speech-generation.md](speech-generation.md) |
 | Web 検索の設定（設定 → Web 検索 `/settings/web-search`） | `GET/PUT /api/settings/web-search`、`PUT /api/settings/web-search/provider`、`PUT/DELETE /api/settings/web-search/providers/:provider/key` | このファイル、[web-search.md](web-search.md) |
 | サービス（serve）の状態と起動・停止 | `GET /api/serve/status`、`POST /api/serve/start`、`POST /api/serve/stop` | このファイル、[sandbox.md](sandbox.md#serveサービスの公開と起動停止) |
-| 共有コンテンツ（公開 API は後続）と Cloudflare の接続 | `/api/shared-contents`、`/api/settings/cloudflare` | [static-sharing.md](static-sharing.md) |
+| 共有コンテンツ（作成・更新は実装済み、停止・削除は後続）と Cloudflare の接続 | `/api/shared-contents`、`/api/settings/cloudflare` | [static-sharing.md](static-sharing.md) |
 | 作業フォルダの環境変数（作業環境 → 環境変数） | `GET/POST /api/secrets`、`GET/PUT/DELETE /api/secrets/:secretId` | このファイル、[secrets.md](secrets.md#作業フォルダの環境変数) |
 | エージェント / スキル | `/api/agents`、`/api/skills/files`（`/detail`・`/delete-preview`・`/export`・`/export/check`・`/import` を含む）、`/api/skills/session` | [api-catalog.md](api-catalog.md)、[api-sessions.md](api-sessions.md) |
 | サンドボックス（内部） | `/v1/*`（BFF からは見えない） | [sandbox-api.md](sandbox-api.md) |
@@ -710,7 +710,29 @@ Content-Security-Policy: sandbox allow-scripts; default-src 'none'; style-src 'u
 
 ## 共有コンテンツ
 
-静的成果物を Cloudflare へ公開する API はまだ実装していない。エンドポイント、DTO、状態遷移、エラーの契約は [static-sharing.md](static-sharing.md#api-契約) を正とする。実装したらこの節へ移す。
+静的な成果物を Cloudflare の静的アセットとして公開する。作成・一覧・詳細・更新（再公開）を実装済みで、停止・再公開・削除は後続。状態遷移・検証・エラーの契約は [static-sharing.md](static-sharing.md#api-契約) を正とする。
+
+| メソッド | パス | 説明 |
+| --- | --- | --- |
+| GET | `/api/shared-contents` | 一覧（新しい順） |
+| POST | `/api/shared-contents` | 作成して公開を開始（202） |
+| GET | `/api/shared-contents/:id` | 詳細と状態 |
+| POST | `/api/shared-contents/:id/publish` | 更新（同じ URL へ再公開、202）。`failed` からの再試行も同じ |
+
+```json
+// POST /api/shared-contents の入力
+{ "sessionId": "…", "directory": "dist", "name": "デモ" }
+// 202 応答
+{ "id": "…", "status": "publishing" }
+```
+
+一覧・詳細は `{ id, sessionId, name, sourcePath, provider, status, publicUrl, createdAt, updatedAt, publishedAt, stoppedAt, lastError }`。`remoteId` / `providerAccount` は返さない。`status` は `publishing` / `published` / `stopped` / `failed` で、`lastError` は分類済みの固定文言だけを入れる。
+
+- `directory` はセッションの作業ディレクトリ相対。root 自身・絶対パス・`..` は 400。
+- ソースは sandbox の `GET /v1/files/download?path=<dir>&exclude=`（明示空）で全量 ZIP を取得し、`index.html` の存在、10,000 entries / 100 MiB / 1 ファイル 25 MiB、パス・symlink、既知の秘密値を検証する。違反は部分公開せず `failed`（更新なら前回の状態 + `lastError`）。
+- 資格情報が未登録なら 409。保存済みの `providerAccount` が現在の接続と違う場合も 409。
+- 受付の失敗（400 / 404 / 409 / 502 / 503）は `{ error, state: "not_stored" }`。`published` になったかは GET で確認する。
+- Cloudflare の応答本文と API トークンは応答・ログ・`lastError` に載せない。
 
 ### Cloudflare の接続
 

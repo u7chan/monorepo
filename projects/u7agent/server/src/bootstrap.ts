@@ -30,9 +30,11 @@ import type {
   SandboxWorkspaceClient,
 } from "./sandbox/client";
 import { SecretService } from "./secrets";
+import { CloudflareApiClient } from "./cloudflare-api";
 import { CloudflareSettingsService } from "./cloudflare-settings";
 import { SecretKeyError, createSecretCipher, resolveMasterKeys, type SecretCipher } from "./secret-crypto";
 import { ServeService, sandboxHostFromUrl, type ServeProbe } from "./serve";
+import { SharedContentsService } from "./shared-contents";
 import { createServeToolHost } from "./serve-tool";
 import { SessionStore } from "./sessions";
 import { prepareSessionStore, resolveSessionStoreDir } from "./session-store";
@@ -60,6 +62,8 @@ export type CreateBffAppOptions = {
   sessionStoreDir?: string | null;
   /** 通知送信のテスト用。省略時は globalThis.fetch */
   notificationFetch?: typeof fetch;
+  /** Cloudflare API のテスト用。省略時は globalThis.fetch */
+  cloudflareFetch?: typeof fetch;
   /** 画像モデル一覧取得のテスト用。省略時は globalThis.fetch */
   imageCatalogFetch?: typeof fetch;
   /** 音声モデル一覧取得のテスト用。省略時は globalThis.fetch */
@@ -137,6 +141,8 @@ export type BffContext = {
   secrets: SecretService;
   /** Cloudflare の資格情報。BFF 専用で、公開バックエンドだけが平文を読む */
   cloudflareSettings: CloudflareSettingsService;
+  /** 静的成果物の公開。sandbox の ZIP 取得と Cloudflare への送信を担う */
+  sharedContents: SharedContentsService;
 };
 
 export async function createBffContext(opts: CreateBffAppOptions = {}): Promise<BffContext> {
@@ -362,6 +368,25 @@ export async function createBffContext(opts: CreateBffAppOptions = {}): Promise<
   pi?.setAskUser(store.askUserHost());
   // investigate の子 runner も SessionStore が持つ。子は record に載せず、親 run の signal で止める
   pi?.setInvestigate(store.investigateHost());
+  const sharedContents = new SharedContentsService({
+    store: appDb,
+    sessions: store,
+    workspace,
+    credentials: cloudflareSettings,
+    createCloudflare: (credential) =>
+      new CloudflareApiClient({
+        accountId: credential.accountId,
+        apiToken: credential.apiToken,
+        ...(opts.cloudflareFetch ? { fetchImpl: opts.cloudflareFetch } : {}),
+      }),
+    rootCwd: cwd,
+    maskError,
+    secretValues: () => pi?.secretMasker.secrets ?? [],
+  });
+  // 中断した公開を起動時に回収する。失敗しても起動は止めず、行は publishing + lastError のまま残す
+  await sharedContents.recoverInterrupted().catch((error) => {
+    console.warn(`[u7agent] shared content recovery failed: ${maskError(messageFor(error))}`);
+  });
   return {
     cwd,
     pi,
@@ -384,6 +409,7 @@ export async function createBffContext(opts: CreateBffAppOptions = {}): Promise<
     serve,
     secrets,
     cloudflareSettings,
+    sharedContents,
   };
 }
 

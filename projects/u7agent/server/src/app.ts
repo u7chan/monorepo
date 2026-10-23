@@ -15,6 +15,7 @@ import { createCatalogRoutes } from "./routes/catalog";
 import { createFileRoutes } from "./routes/files";
 import { createHealthRoutes } from "./routes/health";
 import { createCloudflareSettingsRoutes } from "./routes/cloudflare";
+import { createSharedContentRoutes } from "./routes/shared-contents";
 import { createContentSettingsRoutes } from "./routes/content";
 import { createNotificationRoutes } from "./routes/notifications";
 import { createModelSettingsRoutes } from "./routes/models";
@@ -32,6 +33,7 @@ import { sessionSpaceGuard, spaceContextGuard } from "./space-context";
 import { DEFAULT_CLIENT_DIST_DIR, serveClientAssets } from "./static";
 import {
   AnswerQuestionBodySchema,
+  CreateSharedContentBodySchema,
   CreateSpaceBodySchema,
   CreateAgentBodySchema,
   CreateProjectBodySchema,
@@ -122,6 +124,7 @@ export async function createBffApp(opts: CreateBffAppOptions = {}) {
     serve,
     secrets,
     cloudflareSettings,
+    sharedContents,
     skillSandbox,
     skillArchiveSandbox,
   } = await createBffContext(opts);
@@ -155,6 +158,7 @@ export async function createBffApp(opts: CreateBffAppOptions = {}) {
   const modelSettingsRoutes = createModelSettingsRoutes({ modelSettings, oauthLogin });
   const contentSettingsRoutes = createContentSettingsRoutes({ contentSettings });
   const cloudflareSettingsRoutes = createCloudflareSettingsRoutes({ cloudflareSettings });
+  const sharedContentRoutes = createSharedContentRoutes({ sharedContents });
   const webSearchSettingsRoutes = createWebSearchSettingsRoutes({ webSearchSettings });
   // 環境変数の要求元 (sessionId / projectId) を cwd へ解決する唯一の点。client は cwd を送らない
   const secretRoutes = createSecretRoutes({
@@ -551,6 +555,17 @@ export async function createBffApp(opts: CreateBffAppOptions = {}) {
       (c) => cloudflareSettingsRoutes.update(c, c.req.valid("json")),
     )
     .delete("/api/settings/cloudflare", appDataMutation, cloudflareSettingsRoutes.remove)
+    .get("/api/shared-contents", appData, sharedContentRoutes.list)
+    .post(
+      "/api/shared-contents",
+      appDataMutation,
+      jsonBodyValidator(CreateSharedContentBodySchema, (result, c) =>
+        result.success ? undefined : c.json({ error: "Invalid request body" }, 400),
+      ),
+      (c) => sharedContentRoutes.create(c, c.req.valid("json")),
+    )
+    .get("/api/shared-contents/:id", appData, sharedContentRoutes.detail)
+    .post("/api/shared-contents/:id/publish", appDataMutation, sharedContentRoutes.publish)
     .post("/api/settings/content/image/catalog/refresh", (c) => contentSettingsRoutes.refreshCatalog(c))
     .post("/api/settings/content/speech/catalog/refresh", (c) => contentSettingsRoutes.refreshSpeechCatalog(c))
     .get("/api/settings/web-search", appData, webSearchSettingsRoutes.list)
@@ -627,6 +642,7 @@ export async function createBffApp(opts: CreateBffAppOptions = {}) {
     serve,
     secrets,
     cloudflareSettings,
+    sharedContents,
     close: async () => {
       // 未完了の送信結果は記録しない (プロセス終了時に破棄する)
       notifications.close();

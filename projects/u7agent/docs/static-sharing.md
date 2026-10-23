@@ -178,7 +178,7 @@ Cloudflare への送信は時間がかかるため、同期 HTTP では扱わな
 
 ## API 契約
 
-実装は後続。ここでは DTO と状態遷移だけを固定する。エラーの形は既存の API と同じ `{ error }` とし、DB に何も書いていない変更系の失敗には `state: "not_stored"` を付ける。
+作成・一覧・詳細・更新（再公開）は実装済み。停止・再公開・削除は後続で追加する。エラーの形は既存の API と同じ `{ error }` とし、何も保存していない変更系の失敗には `state: "not_stored"` を付ける。
 
 | メソッド | パス | 用途 |
 | --- | --- | --- |
@@ -186,16 +186,28 @@ Cloudflare への送信は時間がかかるため、同期 HTTP では扱わな
 | `POST` | `/api/shared-contents` | 作成して公開を開始（202） |
 | `GET` | `/api/shared-contents/:id` | 詳細と状態 |
 | `POST` | `/api/shared-contents/:id/publish` | 更新（同じ URL へ再公開、202）。未公開（`failed`）からの再試行も同じ経路 |
-| `POST` | `/api/shared-contents/:id/stop` | 停止 |
-| `POST` | `/api/shared-contents/:id/resume` | 再公開 |
-| `DELETE` | `/api/shared-contents/:id` | 削除 |
+| `POST` | `/api/shared-contents/:id/stop` | 停止（後続） |
+| `POST` | `/api/shared-contents/:id/resume` | 再公開（後続） |
+| `DELETE` | `/api/shared-contents/:id` | 削除（後続） |
 | `GET` | `/api/settings/cloudflare` | 登録状態（トークンは返さない） |
 | `PUT` | `/api/settings/cloudflare` | 登録・更新 |
 | `DELETE` | `/api/settings/cloudflare` | 削除 |
 
-作成の入力は `{ sessionId, directory, name? }`。`directory` はセッションの作業ディレクトリ相対で、BFF が root 相対の `sourcePath` へ解決して保存する。絶対パス・`..`・symlink でワークスペース root を出る指定は 400。`name` を省略したときはディレクトリ名を使う。
+作成の入力は `{ sessionId, directory, name? }`。`directory` はセッションの作業ディレクトリ相対で、BFF が root 相対の `sourcePath` へ解決して保存する。絶対パス・`..`・ワークスペース root 自身を指す指定は 400。`name` を省略したときはディレクトリ名を使う。
 
-非同期の受付（作成・更新・再公開）は `202 { id, status: "publishing" }` を返し、状態は GET で読む。停止は `200 { id, status: "stopped" }`、削除は `204`。
+公開の受付時に `sourcePath` の存在を sandbox へ確認する。ソースは `GET /v1/files/download?path=<dir>&exclude=`（明示空）で ZIP 全量を取得し、除外名は適用しない。ZIP は一時ディレクトリへ展開し、成功・失敗にかかわらず削除する。
+
+公開前の検証:
+
+- `index.html` がルートに存在すること（SPA の入口）
+- ファイル数 10,000 件以内、合計 100 MiB 以内、1 ファイル 25 MiB 以内
+- 絶対パス・`..`・重複・symlink・特殊ファイルを含まないこと
+- `retainSecret()` が保持する既知の秘密値と完全一致する内容を含まないこと
+- 上記のいずれかに違反したら部分公開せず、共有物を `failed`（更新なら前回の状態 + `lastError`）にする
+
+非同期の受付（作成・更新・再公開）は `202 { id, status: "publishing" }` を返し、状態は GET で読む。停止は `200 { id, status: "stopped" }`、削除は `204`（どちらも後続）。
+
+公開は BFF のバックグラウンドジョブで、同じ共有物の受付は id 単位に直列化する。`publishing` 中の別の変更は `409`。受付の失敗（セッションなし 404、ソースなし / 資格情報なし / アカウント不一致 / 状態不一致 409、DB・sandbox 503、Cloudflare の受付失敗 502）は 202 を返さない。
 
 一覧・詳細の DTO は `{ id, sessionId, name, sourcePath, provider, status, publicUrl, createdAt, updatedAt, publishedAt, stoppedAt, lastError }`。`lastError` は利用者に見せられる分類済みの文言だけを入れ、provider のレスポンス本文やトークンを含めない。`remoteId` / `providerAccount` は通常の UI に出さない。
 
@@ -207,16 +219,16 @@ Cloudflare への送信は時間がかかるため、同期 HTTP では扱わな
 | `publishing`（初回） | 成功 | `published` |
 | `publishing`（初回） | 確定した失敗 | `failed` |
 | `publishing`（公開・更新・再公開） | 結果不明 | `publishing`（+ `lastError`、停止のみ可） |
-| `publishing`（+ `lastError`） | 停止 | `stopped` |
+| `publishing`（+ `lastError`） | 停止（後続） | `stopped` |
 | `failed` | 公開（再試行） | `publishing` |
 | `published` | 更新 | `publishing` |
 | `publishing`（更新） | 成功 | `published` |
 | `publishing`（更新） | 確定した失敗 | `published`（+ `lastError`） |
-| `published` | 停止 | `stopped` |
-| `published` | 停止（確定した失敗・結果不明） | `published`（+ `lastError`） |
-| `stopped` | 再公開 | `publishing` |
-| `publishing`（再公開） | 成功 | `published` |
-| `publishing`（再公開） | 確定した失敗 | `stopped`（+ `lastError`） |
+| `published` | 停止（後続） | `stopped` |
+| `published` | 停止（確定した失敗・結果不明、後続） | `published`（+ `lastError`） |
+| `stopped` | 再公開（後続） | `publishing` |
+| `publishing`（再公開、後続） | 成功 | `published` |
+| `publishing`（再公開、後続） | 確定した失敗 | `stopped`（+ `lastError`） |
 
 - `publishing` の共有物への別の変更は `409`。ただし結果不明で止まった行への停止だけは受け付ける。
 - 停止の結果不明は、開始状態が `published` なら `published` + `lastError`、結果不明の `publishing` からなら `publishing` + `lastError` に留める（照会できたときだけ `stopped` / `published` に確定する）。
@@ -225,9 +237,10 @@ Cloudflare への送信は時間がかかるため、同期 HTTP では扱わな
 - 存在しない id は `404`。他の共有物を誤って操作しないよう、id だけで対象を決める。
 - 記録した `providerAccount` が現在の接続と一致しないときは `409`。資格情報を入れ替えても既存共有物の操作先を変えない。
 - 更新はセッションが存在し、`sourcePath` が実在するときだけ受け付ける。どちらかが欠けていれば `409`。停止・再公開・削除はこの条件を見ない。
-- 削除は provider 成功後に `204`。provider が 404 を返したときも成功扱い。`providerAccount` または `remoteId` が無い行は provider を呼ばずに行だけ消す。それ以外の provider 失敗では行を残して `502`。
+- 削除は provider 成功後に `204`。provider が 404 を返したときも成功扱い。`providerAccount` または `remoteId` が無い行は provider を呼ばずに行だけ消す。それ以外の provider 失敗では行を残して `502`（後続）。
 - 資格情報が未登録のときの公開は、provider を呼ぶ前に `409` で止める。
 - 一覧のページングは初期実装では持たない（個人運用の件数に収める）。
+- Cloudflare の失敗は認証 / 不存在 / 枠不足 / レート制限 / 一時障害 / タイムアウト / 通信不能に分類し、固定文言だけを `lastError` と応答へ載せる。応答本文とトークンは載せない。タイムアウト・通信不能・5xx は結果不明として workers.dev subdomain を照会し、確定できなければ `publishing` + `lastError` に留める。
 
 ## 既知の制限
 
