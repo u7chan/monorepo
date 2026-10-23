@@ -89,6 +89,7 @@ SVG を返す vectorization モデル（`recraft/*-vector` など）は**製品�
 
 - 状態は「対応 / 非対応 / 不明」を区別する。宣言の不在・形違い・旧キャッシュは「不明」で、編集だけを止め、新規生成は止めない
 - endpoint の取得は編集実行時だけ（起動時や `GET /api/settings/content` では通信しない）。認証ヘッダを付けず、期限は `IMAGE_CATALOG_TIMEOUT_MS` と同じ。成功だけをプロセス内メモリに残し、失敗はキャッシュせず次の実行で引き直す
+- endpoint 応答の形は、live で観測したとおり `{ id, endpoints: [...] }` を読む（各要素の `supported_parameters.input_references` が参照枚数の宣言）。トップレベルの `data[]` は live の応答には無いため依存しない。`data[]` だけを返す旧い形は後方互換として読み、`endpoints` が配列でなく `data` も無い（または空の）応答は契約外として「不明」に落とす
 - endpoint 応答が `architecture` を持たないことは契約外にしない（モデル一覧側で確認する）。`input_references` の宣言が無い / 形が違う endpoint は「不明」として止める
 - モデル名の固定対応表は持たない。`provider.only` によるルートの pin も行わない（対応 / 非対応が混在するモデルは編集対象外として案内する）
 - 非対応 / 不明のときは別モデル・別キーへ自動で切り替えない

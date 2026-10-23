@@ -292,6 +292,32 @@ function endpointBody(references: unknown[]): unknown {
   };
 }
 
+/** 旧い `data[]` 形式の応答。後方互換の確認用に別名を置く */
+const legacyEndpointBody = endpointBody;
+
+/**
+ * 2026-10-23 に実 URL で観測した形。トップレベルは `id` + `endpoints[]` で `data` を持たず、
+ * 各 endpoint にも `architecture` は無い（`supported_parameters.input_references` だけが宣言）。
+ */
+function liveEndpointBody(references: unknown[]): unknown {
+  return {
+    id: "openai/gpt-image-2",
+    endpoints: references.map((inputReferences) => ({
+      provider_name: "OpenAI",
+      provider_slug: "openai",
+      provider_tag: "openai",
+      supported_parameters: {
+        aspect_ratio: { type: "enum", values: ["1:1", "16:9", "auto"] },
+        n: { type: "range", min: 1, max: 10 },
+        ...(inputReferences === undefined ? {} : { input_references: inputReferences }),
+      },
+      allowed_passthrough_parameters: ["moderation"],
+      supports_streaming: true,
+      pricing: [{ billable: "input_image", unit: "token", cost_usd: 0.000008 }],
+    })),
+  };
+}
+
 test("live の入力宣言（モダリティ / 参照枚数 / endpoints）を取り込み、キャッシュへ往復させる", async () => {
   const { catalog, store } = createWithInputs(() => jsonResponse(endpointBody([{ min: 1, max: 16 }])));
   assert.equal(await catalog.refresh(), null);
@@ -386,6 +412,52 @@ test("endpoint が 1 枚を許容すれば通り、混在・非対応・契約�
     await broken.catalog.refresh();
     assert.match((await broken.catalog.checkImageInput("openai/gpt-image-2")) ?? "", /確認できませんでした/);
   }
+});
+
+test("live の endpoint 応答（id + endpoints[]、architecture なし）を読んで 1 枚を通す", async () => {
+  const { catalog, calls } = createWithInputs(() =>
+    jsonResponse(liveEndpointBody([{ type: "range", min: 0, max: 16 }])),
+  );
+  await catalog.refresh();
+  assert.equal(await catalog.checkImageInput("openai/gpt-image-2"), undefined);
+  assert.deepEqual(calls, [
+    IMAGE_CATALOG_URL,
+    "https://openrouter.ai/api/v1/images/models/openai/gpt-image-2/endpoints",
+  ]);
+});
+
+test("live の endpoint 応答でも混在・宣言欠落・契約外は従来どおり止める", async () => {
+  const mixed = createWithInputs(() =>
+    jsonResponse(
+      liveEndpointBody([
+        { type: "range", min: 0, max: 16 },
+        { type: "range", min: 2, max: 4 },
+      ]),
+    ),
+  );
+  await mixed.catalog.refresh();
+  assert.match((await mixed.catalog.checkImageInput("openai/gpt-image-2")) ?? "", /経路を 1 つも/);
+
+  const missing = createWithInputs(() => jsonResponse(liveEndpointBody([undefined])));
+  await missing.catalog.refresh();
+  assert.match((await missing.catalog.checkImageInput("openai/gpt-image-2")) ?? "", /確認できませんでした/);
+
+  // `endpoints` が配列でなく、`data` も無い応答は契約外（「不明」）
+  for (const body of [
+    { id: "openai/gpt-image-2", endpoints: "https://example.invalid/endpoints" },
+    { id: "openai/gpt-image-2", endpoints: [] },
+    { id: "openai/gpt-image-2" },
+  ]) {
+    const broken = createWithInputs(() => jsonResponse(body));
+    await broken.catalog.refresh();
+    assert.match((await broken.catalog.checkImageInput("openai/gpt-image-2")) ?? "", /確認できませんでした/);
+  }
+});
+
+test("data[] だけの旧い endpoint 応答も引き続き読む", async () => {
+  const { catalog } = createWithInputs(() => jsonResponse(legacyEndpointBody([{ min: 1, max: 16 }])));
+  await catalog.refresh();
+  assert.equal(await catalog.checkImageInput("openai/gpt-image-2"), undefined);
 });
 
 test("endpoint 確認は成功だけをメモリに残し、失敗は次の実行で引き直す", async () => {

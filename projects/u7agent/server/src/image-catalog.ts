@@ -208,15 +208,28 @@ function endpointUrlsOf(entry: ImageCatalogEntry): string[] {
 }
 
 /**
+ * endpoint 一覧の応答から endpoint の配列を読む。live の実応答は `{ id, endpoints: [...] }` で `data` を持たない。
+ * 旧い応答形（`data: [...]`）だけを受けていた頃の経路も残すため、`endpoints` が無いときだけ `data` を見る。
+ * どちらも配列でない / 空のときは undefined（＝契約外）として扱う。
+ */
+function endpointListOf(body: object): unknown[] | undefined {
+  const endpoints = (body as { endpoints?: unknown }).endpoints;
+  // `endpoints` はモデル一覧では URL 文字列でも現れる値なので、配列のときだけ endpoint 一覧の応答と見なす
+  if (Array.isArray(endpoints)) return endpoints.length === 0 ? undefined : endpoints;
+  const data = (body as { data?: unknown }).data;
+  return Array.isArray(data) && data.length > 0 ? data : undefined;
+}
+
+/**
  * endpoint 一覧の応答から 1 枚の参照画像を受け付けられるかを読む。`architecture` の欠落は契約外にしないが、
  * `input_references` の宣言が無い / 形が違う endpoint は「不明」として編集を止める（課金前）。
  */
 function endpointSupportOf(body: unknown): "supported" | "unsupported" | "unknown" {
   if (typeof body !== "object" || body === null) return "unknown";
-  const data = (body as { data?: unknown }).data;
-  if (!Array.isArray(data) || data.length === 0) return "unknown";
+  const endpoints = endpointListOf(body);
+  if (!endpoints) return "unknown";
   let sawUnknown = false;
-  for (const item of data) {
+  for (const item of endpoints) {
     if (typeof item !== "object" || item === null) {
       sawUnknown = true;
       continue;
