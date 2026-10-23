@@ -18,6 +18,7 @@ import { ProjectDialog } from "./components/ProjectDialog";
 import { RuntimePage } from "./components/RuntimePage";
 import { Sidebar } from "./components/Sidebar";
 import { SessionFilesPanel, SessionFilesSheet } from "./components/SessionFilesPanel";
+import { SharingSettingsPage } from "./components/SharingSettingsPage";
 import { SessionHandoffDialog, type SessionHandoffRequest } from "./components/SessionHandoffDialog";
 import { SkillSettingsPage } from "./components/SkillSettingsPage";
 import { Topbar } from "./components/Topbar";
@@ -78,11 +79,13 @@ import {
   DEFAULT_FILES_SUBSECTION,
   DEFAULT_MODELS_SUBSECTION,
   DEFAULT_RUNTIME_SUBSECTION,
+  DEFAULT_SHARING_SUBSECTION,
   type ContentSubsection,
   type FilesSubsection,
   type ModelsSubsection,
   type RuntimeSubsection,
   type SettingsSection,
+  type SharingSubsection,
   type SidebarMode,
 } from "./lib/settingsNav";
 import { activityDisplay, retryRemainingMs } from "./lib/retryState";
@@ -589,6 +592,18 @@ export default function App({ handoffNote = null, onHandoffNote, onHandoffNoteSh
     [navigate],
   );
 
+  // 共有のタブ切替も URL へ集約する (既定タブはパスへ出さない)
+  const openSharingSubsection = useCallback(
+    (subsection: SharingSubsection) => {
+      navigate(
+        subsection === DEFAULT_SHARING_SUBSECTION
+          ? { view: "settings", section: "sharing" }
+          : { view: "settings", section: "sharing", sharingSubsection: subsection },
+      );
+    },
+    [navigate],
+  );
+
   // ランタイムのタブ切替も同じく URL へ集約する
   const openRuntimeSubsection = useCallback(
     (subsection: RuntimeSubsection) => {
@@ -841,6 +856,18 @@ export default function App({ handoffNote = null, onHandoffNote, onHandoffNoteSh
                 },
               })
             }
+          />
+        );
+      case "sharing":
+        return (
+          <SharingSettingsPage
+            {...pageProps}
+            sharingSubsection={
+              route.view === "settings" && route.section === "sharing"
+                ? (route.sharingSubsection ?? DEFAULT_SHARING_SUBSECTION)
+                : DEFAULT_SHARING_SUBSECTION
+            }
+            onSelectSharingSubsection={openSharingSubsection}
           />
         );
       case "notifications":

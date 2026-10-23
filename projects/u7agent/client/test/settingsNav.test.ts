@@ -13,10 +13,12 @@ import {
   parseStoredSettingsSection,
   RUNTIME_SUBSECTIONS,
   SETTINGS_SECTIONS,
+  SHARING_SUBSECTIONS,
+  DEFAULT_SHARING_SUBSECTION,
   SETTINGS_SECTION_KEY,
 } from "../src/lib/settingsNav";
 
-test("設定ナビは 10 項目をこの順で持つ", () => {
+test("設定ナビは 11 項目をこの順で持つ", () => {
   assert.deepEqual(
     SETTINGS_SECTIONS.map((item) => [item.section, item.label]),
     [
@@ -27,6 +29,7 @@ test("設定ナビは 10 項目をこの順で持つ", () => {
       // モデルとは対象そのものが別で、モデルのタブではなくルートのセクションに置く
       ["content", "コンテンツ生成"],
       ["web-search", "Web 検索"],
+      ["sharing", "共有"],
       ["notifications", "通知"],
       ["appearance", "外観"],
       ["files", "ファイル"],
@@ -93,4 +96,12 @@ test("保存された最後のセクションは既知の値だけを受け、�
   assert.equal(parseStoredSettingsSection("archive"), "files");
   assert.equal(DEFAULT_SETTINGS_SECTION, "agents", "新しい項目を加えても既定の入口は変えない");
   assert.equal(SETTINGS_SECTION_KEY, "u7agent-settings-section");
+});
+
+test("設定 → 共有のタブは「接続」だけで、既定も接続", () => {
+  assert.deepEqual(
+    SHARING_SUBSECTIONS.map((item) => [item.subsection, item.label]),
+    [["connections", "接続"]],
+  );
+  assert.equal(DEFAULT_SHARING_SUBSECTION, SHARING_SUBSECTIONS[0].subsection);
 });

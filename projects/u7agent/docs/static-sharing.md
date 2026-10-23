@@ -46,7 +46,11 @@ Cloudflare Workers（workers.dev）
 ### Cloudflare 資格情報
 
 - BFF 専用。API トークンとアカウント ID は `cloudflare_settings` に保存し、トークンは既存 `server/src/secret-crypto.ts` の AES-256-GCM で暗号化する（[secrets.md](secrets.md#master-key-と保存時の暗号化)）。
-- 設定 API は write-only。GET は「登録済みか」とアカウント ID だけを返し、トークンは返さない。
+- 設定 API は write-only。`GET /api/settings/cloudflare` は `{ configured, accountId, available, unavailableReason }` を返し、トークンは返さない。`available: false` は master key が使えない状態で、登録は 503 になる。
+- `PUT /api/settings/cloudflare` は `{ accountId, apiToken? }`。初回はトークンが必須で、2 回目以降は省略できる（省略時は保存済みの暗号文を維持する）。アカウント ID は 32 桁の 16 進数へ正規化し、トークンは空白を含まない印字可能文字 20〜512 文字に限る。
+- `DELETE /api/settings/cloudflare` は行を消す（冪等）。共有物の `providerAccount` は消さない。
+- 別アカウントで公開した共有物が残っている間は、そのアカウントの登録・切替を 409 で拒否する。資格情報を消してから別アカウントを登録する経路も塞ぐ。
+- 保存・復号したトークンは `retainSecret()` へ渡し、例外やログに値が現れてもマスクする。平文を読むのは公開処理の `CloudflareSettingsService.credential()` だけで、応答・tool・sandbox へ渡す経路を持たない。
 - サンドボックスの環境変数、agent tool の引数、`session.jsonl`、ログ、tool 出力へ渡さない。
 - 登録・読み込み時に `retainSecret()` へ渡し、例外やログに値が現れてもマスクする。
 - アセット送信に使うアップロード用 JWT は API トークンとは別物で、メモリ上だけで使う。

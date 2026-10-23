@@ -1254,6 +1254,62 @@ export class AppDb {
     return this.#query((db) => db.prepare("DELETE FROM content_settings WHERE id = 1").run().changes > 0);
   }
 
+  // --- cloudflare settings (1 行だけ。行が無い = 未登録) ---
+
+  /**
+   * 行が無ければ undefined。NOT NULL の列が欠けた行は、未登録と読み違えて上書きしないよう例外にする
+   * (サービスが 503 へ変換し、DELETE だけは通す)。
+   */
+  readCloudflareSettings(): CloudflareSettingsRow | undefined {
+    const row = this.#query(
+      (db) => db.prepare("SELECT * FROM cloudflare_settings WHERE id = 1").get() as Row | undefined,
+    );
+    if (!row) return undefined;
+    const accountId = optionalText(row.accountId);
+    const ciphertext = optionalBlob(row.ciphertext);
+    const nonce = optionalBlob(row.nonce);
+    const keyVersion = optionalNumber(row.keyVersion);
+    if (!accountId || !ciphertext || !nonce || keyVersion === null || !Number.isInteger(keyVersion)) {
+      throw new Error("cloudflare_settings row is incomplete");
+    }
+    return { accountId, ciphertext, nonce, keyVersion, updatedAt: Number(row.updatedAt) };
+  }
+
+  /** 登録と上書きで同じ (id = 1 の upsert)。単一ステートメントなので自動コミットで確定する */
+  saveCloudflareSettings(settings: CloudflareSettingsRow): void {
+    this.#query((db) =>
+      db
+        .prepare(
+          `INSERT INTO cloudflare_settings (id, accountId, ciphertext, nonce, keyVersion, updatedAt)
+           VALUES (1, ?, ?, ?, ?, ?)
+           ON CONFLICT(id) DO UPDATE SET accountId = excluded.accountId, ciphertext = excluded.ciphertext,
+             nonce = excluded.nonce, keyVersion = excluded.keyVersion, updatedAt = excluded.updatedAt`,
+        )
+        .run(settings.accountId, settings.ciphertext, settings.nonce, settings.keyVersion, settings.updatedAt),
+    );
+  }
+
+  /** 行を消して未登録へ戻す。資格情報を消しても shared_contents の providerAccount は変えない */
+  deleteCloudflareSettings(): boolean {
+    return this.#query((db) => db.prepare("DELETE FROM cloudflare_settings WHERE id = 1").run().changes > 0);
+  }
+
+  /**
+   * 別のアカウントで公開した共有物が残っているか。未受付 (providerAccount が NULL) の行は
+   * まだ何も公開していないため対象外にする。
+   */
+  hasSharedContentsForOtherAccount(accountId: string): boolean {
+    const row = this.#query(
+      (db) =>
+        db
+          .prepare(
+            "SELECT 1 AS found FROM shared_contents WHERE providerAccount IS NOT NULL AND providerAccount <> ? LIMIT 1",
+          )
+          .get(accountId) as Row | undefined,
+    );
+    return row !== undefined;
+  }
+
   // --- web search settings (1 行だけ。行が無い = 既定（有効 / exa）) ---
 
   /** 行が無ければ undefined = 既定（有効 / exa）。0 / 1 以外へ手編集された行も 1 として読む */

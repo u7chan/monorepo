@@ -108,6 +108,12 @@ test("parseRoute は pathname だけで画面を決め、表のとおりに畳�
     ["/settings/web-search", settings("web-search")],
     ["/Settings/WEB-SEARCH/", settings("web-search")],
     ["//settings//web-search//", settings("web-search")],
+    // 共有は接続タブだけを実装している。既定タブの明示と未知のサブセクションは既定へ畳む
+    ["/settings/sharing", settings("sharing")],
+    ["/Settings/SHARING/", settings("sharing")],
+    ["/settings/sharing/connections", settings("sharing")],
+    ["/settings/sharing/unknown", settings("sharing")],
+    ["/settings/sharing/connections/extra", CHAT_ROUTE],
     // 設定 → モデルのタブ。正準形は「モデルを選ぶ」= /settings/models、「プロバイダー」= /providers
     ["/settings/models/providers", modelsTab("providers")],
     ["/Settings/MODELS/PROVIDERS/", modelsTab("providers")],
@@ -170,6 +176,7 @@ test("routePath は正準形を返し、parseRoute と往復する", () => {
       "/settings/models",
       "/settings/content",
       "/settings/web-search",
+      "/settings/sharing",
       "/settings/notifications",
       "/settings/appearance",
       "/settings/files",

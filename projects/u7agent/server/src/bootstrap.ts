@@ -30,7 +30,8 @@ import type {
   SandboxWorkspaceClient,
 } from "./sandbox/client";
 import { SecretService } from "./secrets";
-import { SecretKeyError, createSecretCipher, resolveMasterKeys } from "./secret-crypto";
+import { CloudflareSettingsService } from "./cloudflare-settings";
+import { SecretKeyError, createSecretCipher, resolveMasterKeys, type SecretCipher } from "./secret-crypto";
 import { ServeService, sandboxHostFromUrl, type ServeProbe } from "./serve";
 import { createServeToolHost } from "./serve-tool";
 import { SessionStore } from "./sessions";
@@ -134,6 +135,8 @@ export type BffContext = {
   serve: ServeService;
   /** 作業フォルダ単位の環境変数。GUI の API と serve / bash への注入が同じ実体を使う */
   secrets: SecretService;
+  /** Cloudflare の資格情報。BFF 専用で、公開バックエンドだけが平文を読む */
+  cloudflareSettings: CloudflareSettingsService;
 };
 
 export async function createBffContext(opts: CreateBffAppOptions = {}): Promise<BffContext> {
@@ -244,8 +247,8 @@ export async function createBffContext(opts: CreateBffAppOptions = {}): Promise<
   await webSearchSettings.applyStored();
   // シークレットは master key をホスト側 (環境変数 / 鍵ファイル) から受け取り、アプリ DB とは別経路で管理する。
   // 未設定 / 壊れた宣言では「秘密の利用」だけを拒否し、変数 (平文) と起動は続行する。
-  const secrets = (() => {
-    let cipher = null;
+  const secretCrypto = (() => {
+    let cipher: SecretCipher | null = null;
     let unavailableReason: string | undefined;
     try {
       const ring = resolveMasterKeys(process.env);
@@ -258,13 +261,21 @@ export async function createBffContext(opts: CreateBffAppOptions = {}): Promise<
           : `シークレットの master key を読み込めません: ${messageFor(error)}`;
       console.error(`[u7agent] secret master key unavailable: ${unavailableReason}`);
     }
-    return new SecretService({
-      store: appDb,
-      cipher,
-      ...(unavailableReason ? { unavailableReason } : {}),
-      retainSecret: pi ? pi.retainSecret : () => {},
-    });
+    return { cipher, unavailableReason };
   })();
+  const secrets = new SecretService({
+    store: appDb,
+    cipher: secretCrypto.cipher,
+    ...(secretCrypto.unavailableReason ? { unavailableReason: secretCrypto.unavailableReason } : {}),
+    retainSecret: pi ? pi.retainSecret : () => {},
+  });
+  // Cloudflare の資格情報も同じ鍵輪を使う。公開トークンは agent / sandbox へ渡さず、
+  // 公開バックエンドが credential() で読むまで BFF のメモリ外へ出さない。
+  const cloudflareSettings = new CloudflareSettingsService({
+    db: appDb,
+    cipher: secretCrypto.cipher,
+    retainSecret: pi ? pi.retainSecret : () => {},
+  });
   // エージェントの bash へ渡す変数は exec のたびに解決する (変更が「次の bash」から効く) ため、
   // 値ではなく解決関数を注入する。シークレットはここに含めない (serve の起動時だけ渡す)。
   pi?.setSessionEnv({ variablesFor: (cwd) => secrets.variablesFor(cwd) });
@@ -372,6 +383,7 @@ export async function createBffContext(opts: CreateBffAppOptions = {}): Promise<
     webSearchSettings,
     serve,
     secrets,
+    cloudflareSettings,
   };
 }
 
