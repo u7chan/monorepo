@@ -1176,7 +1176,7 @@ test("migrates a v10 db additively and keeps the secrets table across reopen", (
     raw.close();
 
     const first = AppDb.open({ storeDir: dir });
-    assert.equal(APP_DB_SCHEMA_VERSION, 23);
+    assert.equal(APP_DB_SCHEMA_VERSION, 24);
     // 加算移行なので既存の行は残り、secrets は行が無い = 未設定で始まる
     assert.deepEqual(first.listProjects(), [project("p1", "proj-a")]);
     assert.deepEqual(first.getServeCommand("proj-a"), { cwd: "proj-a", command: "pnpm dev", updatedAt: 1 });
@@ -2166,6 +2166,121 @@ test("カタログの限定削除が失敗したら部分適用を残さない",
     assert.ok(columnNames(check, "agents").includes("skillIds"));
     assert.equal(columnNames(check, "agents").includes("sortOrder"), false);
     assert.equal(Number(check.prepare("PRAGMA user_version").get()?.user_version), 22);
+    check.close();
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("migrates a v23 db additively and adds the sharing tables", () => {
+  const dir = tempStoreDir();
+  try {
+    // 現行スキーマで作った DB から新しい 2 テーブルだけを落とし、v23 相当に戻す
+    AppDb.open({ storeDir: dir }).close();
+    const raw = new DatabaseSync(join(dir, APP_DB_FILENAME));
+    raw.exec("DROP TABLE shared_contents");
+    raw.exec("DROP TABLE cloudflare_settings");
+    raw.exec("PRAGMA user_version = 23");
+    raw.prepare("INSERT INTO projects (id, name, cwd, createdAt) VALUES (?, ?, ?, ?)").run("p1", "p1", "proj-a", 1);
+    raw.close();
+
+    const db = AppDb.open({ storeDir: dir });
+    // 加算移行なので既存の行は消えない
+    assert.deepEqual(db.listProjects(), [project("p1", "proj-a")]);
+    db.close();
+
+    const check = new DatabaseSync(join(dir, APP_DB_FILENAME));
+    assert.deepEqual(columnNames(check, "shared_contents"), [
+      "id",
+      "sessionId",
+      "name",
+      "sourcePath",
+      "provider",
+      "remoteId",
+      "publicUrl",
+      "status",
+      "createdAt",
+      "updatedAt",
+      "publishedAt",
+      "stoppedAt",
+      "lastError",
+    ]);
+    assert.deepEqual(columnNames(check, "cloudflare_settings"), [
+      "id",
+      "accountId",
+      "ciphertext",
+      "nonce",
+      "keyVersion",
+      "updatedAt",
+    ]);
+    // provider 側の識別子は 1 つだけ (同じ script を 2 つの共有物が指さない)
+    assert.deepEqual(
+      check
+        .prepare("PRAGMA index_list(shared_contents)")
+        .all()
+        .map((row) => (row as { name: string }).name)
+        .filter((name) => name === "shared_contents_remote"),
+      ["shared_contents_remote"],
+    );
+    assert.equal(Number(check.prepare("PRAGMA user_version").get()?.user_version), APP_DB_SCHEMA_VERSION);
+    check.close();
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("shared_contents と cloudflare_settings は未知の版での作り直しでも残す", () => {
+  const dir = tempStoreDir();
+  try {
+    AppDb.open({ storeDir: dir }).close();
+    const raw = new DatabaseSync(join(dir, APP_DB_FILENAME));
+    raw
+      .prepare(
+        `INSERT INTO shared_contents
+           (id, sessionId, name, sourcePath, provider, remoteId, publicUrl, status, createdAt, updatedAt, publishedAt, stoppedAt, lastError)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        "sc1",
+        "0123456789",
+        "ミニゲーム",
+        "dist",
+        "cloudflare",
+        "u7s-0123456789",
+        "https://example.invalid/",
+        "published",
+        1,
+        2,
+        2,
+        null,
+        null,
+      );
+    raw
+      .prepare(
+        "INSERT INTO cloudflare_settings (id, accountId, ciphertext, nonce, keyVersion, updatedAt) VALUES (1, ?, ?, ?, 1, ?)",
+      )
+      .run("acc", Buffer.from([1, 2, 3]), Buffer.from([4, 5, 6]), 3);
+    raw.exec(`PRAGMA user_version = ${APP_DB_SCHEMA_VERSION + 1}`);
+    raw.close();
+
+    const db = AppDb.open({ storeDir: dir });
+    // 未知の版の作り直しでは seed しない (= 他のアプリ所有テーブルは落ちている)
+    assert.deepEqual(db.listAgents(), []);
+    db.close();
+
+    const check = new DatabaseSync(join(dir, APP_DB_FILENAME));
+    assert.equal(tableNames(check).includes("shared_contents"), true);
+    assert.equal(tableNames(check).includes("cloudflare_settings"), true);
+    const shared = check.prepare("SELECT id, status FROM shared_contents").get() as
+      | { id: string; status: string }
+      | undefined;
+    assert.equal(shared?.id, "sc1");
+    assert.equal(shared?.status, "published");
+    const settings = check.prepare("SELECT accountId FROM cloudflare_settings WHERE id = 1").get() as
+      | { accountId: string }
+      | undefined;
+    assert.equal(settings?.accountId, "acc");
+    assert.equal(Number(check.prepare("PRAGMA user_version").get()?.user_version), APP_DB_SCHEMA_VERSION);
     check.close();
   } finally {
     rmSync(dir, { recursive: true, force: true });

@@ -21,7 +21,7 @@ import type {
 
 export const APP_DB_FILENAME = "u7agent.db";
 /** テーブル定義を変えたら上げる。新規作成と加算移行はこの版へ揃え、未知の版は作り直す */
-export const APP_DB_SCHEMA_VERSION = 23;
+export const APP_DB_SCHEMA_VERSION = 24;
 
 /** プロバイダー API キーの保存行。平文なのでアクセス権の管理は docs/secrets.md を正とする */
 export interface ProviderCredentialRow {
@@ -140,6 +140,50 @@ export interface SecretRow {
   /** 表示順。cwd 内で昇順 (削除しても詰めない) */
   sortOrder: number;
   createdAt: number;
+  updatedAt: number;
+}
+
+/**
+ * 公開した静的成果物の状態。値の検査はサービス側で行い、状態を増やすときに列の移行を要さないよう
+ * テーブル側の CHECK にはしない (docs/static-sharing.md)。
+ */
+export type SharedContentStatus = "publishing" | "published" | "stopped" | "failed";
+
+/**
+ * Cloudflare へ公開した静的成果物の記録。管理操作の主語は u7agent 側の id で、provider 固有の識別子は
+ * remoteId に閉じる。sourcePath はワークスペース root 相対で、作業フォルダが消えても行は残す
+ * (docs/static-sharing.md)。
+ */
+export interface SharedContentRow {
+  id: string;
+  /** 公開元のセッション。セッションを削除しても行は残す */
+  sessionId: string;
+  /** 一覧に出す表示名。URL には使わない */
+  name: string;
+  /** ワークスペース root 相対のディレクトリ (`""` は root) */
+  sourcePath: string;
+  provider: string;
+  /** provider 側の公開単位の識別子。未作成なら null */
+  remoteId: string | null;
+  publicUrl: string | null;
+  status: SharedContentStatus;
+  createdAt: number;
+  updatedAt: number;
+  publishedAt: number | null;
+  stoppedAt: number | null;
+  lastError: string | null;
+}
+
+/**
+ * Cloudflare の資格情報。**行が無い = 未登録**で、BFF 専用 (agent / sandbox へ渡さない)。
+ * 暗号化の書式は `secrets` と同じ AES-256-GCM を再利用する (docs/static-sharing.md)。
+ */
+export interface CloudflareSettingsRow {
+  accountId: string;
+  /** 認証トークンの暗号文 (GCM の認証タグを末尾に含む) */
+  ciphertext: Uint8Array;
+  nonce: Uint8Array;
+  keyVersion: number;
   updatedAt: number;
 }
 
@@ -343,6 +387,47 @@ const SPACES_TABLE = `CREATE TABLE IF NOT EXISTS spaces (
   id TEXT PRIMARY KEY, name TEXT NOT NULL, createdAt INTEGER NOT NULL, sortOrder INTEGER
 );`;
 
+/**
+ * v23 -> v24 で足したテーブル。Cloudflare へ公開した静的成果物を 1 行 1 共有物で持つ。
+ *
+ * **このテーブルは削除・リネームをしない加算移行の対象で、`DROP_TABLES` に入れない**: 行が消えると
+ * Cloudflare 側に公開物が残ったまま追跡・停止・削除できなくなる。`secrets` と同じ理由で、古いビルドへ
+ * 戻したとき (#recreate) は放置され、新ビルドで `CREATE TABLE IF NOT EXISTS` が合流させる。
+ */
+const SHARED_CONTENTS_TABLE = `
+CREATE TABLE IF NOT EXISTS shared_contents (
+  id          TEXT PRIMARY KEY,
+  sessionId   TEXT NOT NULL,
+  name        TEXT NOT NULL,
+  sourcePath  TEXT NOT NULL,
+  provider    TEXT NOT NULL,
+  remoteId    TEXT,
+  publicUrl   TEXT,
+  status      TEXT NOT NULL,
+  createdAt   INTEGER NOT NULL,
+  updatedAt   INTEGER NOT NULL,
+  publishedAt INTEGER,
+  stoppedAt   INTEGER,
+  lastError   TEXT
+);
+CREATE UNIQUE INDEX IF NOT EXISTS shared_contents_remote ON shared_contents (provider, remoteId);
+`;
+
+/**
+ * v23 -> v24 で足したテーブル。Cloudflare の資格情報を 1 行だけ持ち、**行が無い = 未登録**。
+ * `secrets` と同じく `DROP_TABLES` に入れない (暗号文を移行経路で失わない)。
+ */
+const CLOUDFLARE_SETTINGS_TABLE = `
+CREATE TABLE IF NOT EXISTS cloudflare_settings (
+  id         INTEGER PRIMARY KEY CHECK (id = 1),
+  accountId  TEXT NOT NULL,
+  ciphertext BLOB NOT NULL,
+  nonce      BLOB NOT NULL,
+  keyVersion INTEGER NOT NULL,
+  updatedAt  INTEGER NOT NULL
+);
+`;
+
 const CREATE_TABLES = `
 CREATE TABLE projects (
   id TEXT PRIMARY KEY,
@@ -376,6 +461,8 @@ ${SERVE_COMMANDS_TABLE}
 ${WEB_SEARCH_SETTINGS_TABLE}
 ${WEB_SEARCH_PROVIDER_KEYS_TABLE}
 ${SECRETS_TABLE}
+${SHARED_CONTENTS_TABLE}
+${CLOUDFLARE_SETTINGS_TABLE}
 ${SPACES_TABLE}`;
 
 /** アプリ所有のテーブルだけを落とす (同じ DB に足した別機能のテーブルを巻き込まない) */
@@ -395,7 +482,7 @@ DROP TABLE IF EXISTS serve_commands;
 DROP TABLE IF EXISTS web_search_settings;
 DROP TABLE IF EXISTS web_search_provider_keys;
 `;
-// secrets は意図的に含めない (DROP_TABLES の定義冒頭のコメントと docs/secrets.md を参照)。
+// secrets / shared_contents / cloudflare_settings は意図的に含めない (docs/secrets.md / docs/static-sharing.md)。
 // 列追加も #migrate() にだけ足し、既存行を書き換える移行はしない。
 
 /**
@@ -921,6 +1008,8 @@ export class AppDb {
       this.#query((db) => db.exec(WEB_SEARCH_SETTINGS_TABLE));
       this.#query((db) => db.exec(WEB_SEARCH_PROVIDER_KEYS_TABLE));
       this.#query((db) => db.exec(SECRETS_TABLE));
+      this.#query((db) => db.exec(SHARED_CONTENTS_TABLE));
+      this.#query((db) => db.exec(CLOUDFLARE_SETTINGS_TABLE));
       this.#query((db) => db.exec(SPACES_TABLE));
       // 列追加は CREATE TABLE IF NOT EXISTS の後 (既存テーブルでは CREATE が何もしないため)。DDL も
       // トランザクション対象なので、途中失敗で列だけが残らない

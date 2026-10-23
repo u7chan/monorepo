@@ -30,6 +30,7 @@
 | 入力欄へのファイル参照（ツリーの行のドラッグ） | `client/src/lib/fileMention.ts`、`client/src/components/Composer.tsx`、`client/src/components/FileBrowser.tsx`、`client/src/components/SessionFilesPanel.tsx`、`server/src/agent.ts` | [file-preview.md](file-preview.md#ツリーの行のドラッグ入力欄への参照) |
 | チャットのスキル一覧と `/skill:` の展開 | `server/src/session-skills.ts`、`server/src/sessions.ts`、`server/src/routes/sessions.ts`、`client/src/hooks/useSessionSkills.ts`、`client/src/lib/sessionSkills.ts`、`client/src/lib/skillPicker.ts`、`client/src/lib/skillBlock.ts`、`client/src/components/composer/SkillPicker.tsx`、`client/src/components/chat/SkillInvocation.tsx` | [api-sessions.md](api-sessions.md)、[persistence.md](persistence.md) |
 | サンドボックス（ツール実行 / サービスの公開と起動・停止） | `server/src/sandbox/`、`server/src/serve.ts`、`server/src/service-proxy.ts`、`server/src/serve-tool.ts`、`server/src/routes/serve.ts`、`client/src/components/runtime-settings/ServiceTab.tsx`、`client/src/components/RuntimeServiceCard.tsx`、`client/src/components/RuntimeDebugServiceCard.tsx`、`client/src/components/ServedAppStatus.tsx`、`client/src/hooks/useRuntimeServe.ts`、`client/src/hooks/useRuntimeDebugServe.ts`、`client/src/hooks/useServeStatus.ts`、`client/src/lib/runtimeDebugServe.ts` | [sandbox.md](sandbox.md)、[sandbox-api.md](sandbox-api.md)、[api.md](api.md#サービスserveの状態と起動停止) |
+| 静的コンテンツの共有（Cloudflare への公開と URL 管理） | `server/src/app-db.ts`、`server/src/secret-crypto.ts`、`server/src/sandbox/client.ts`、`server/src/sandbox/zip-read.ts` | [static-sharing.md](static-sharing.md)、[persistence.md](persistence.md#アプリデータsqlite)、[api.md](api.md#共有コンテンツ) |
 | ヘッドレスブラウザ（同梱物と検証） | `server/src/browser/`、`server/src/proc-stat.ts`、`server/src/builtin-skills/browser/SKILL.md`、`server/src/builtin-skills.ts`、`scripts/install-browser.mjs`、`scripts/install-browser-cli.mjs`、`Dockerfile`、`scripts/dev.mjs` | [browser.md](browser.md) |
 | APIキーのマスク | `server/src/redact.ts`、`server/src/secret-guard.ts` | [secrets.md](secrets.md) |
 | 作業フォルダの環境変数（変数 / シークレットの登録・暗号化・注入・値の表示） | `server/src/secrets.ts`、`server/src/secret-crypto.ts`、`server/src/env-names.ts`、`server/src/routes/secrets.ts`、`server/src/serve.ts`、`server/src/sandbox/`、`client/src/components/EnvVarsTab.tsx`、`client/src/components/EnvValueBox.tsx`、`client/src/lib/sessionEnv.ts`、`client/src/lib/envValue.ts` | [secrets.md](secrets.md#作業フォルダの環境変数)、[api.md](api.md#作業フォルダの環境変数)、[persistence.md](persistence.md#アプリデータsqlite) |
@@ -64,6 +65,7 @@
 - [web-search.md](web-search.md) — Web 検索（Exa / Tavily の provider 抽象化・引数と結果の整形・失敗の分類・実行時トグルとキーの設定）
 - [bgm-generation.md](bgm-generation.md) — BGM生成（暫定API契約・実API受入の保留・期限とサイズ・非上書き保存・既存音声プレイヤー）
 - [sandbox.md](sandbox.md) — ツール実行のサンドボックス分離
+- [static-sharing.md](static-sharing.md) — 静的コンテンツ共有（公開単位・URL・資格情報の境界・状態遷移・上限・未採用案・実機確認項目）
 - [browser.md](browser.md) — ヘッドレスブラウザ（同梱物と入口・保存と出力の契約・single-shot と残存物・外部到達の境界・実行環境の制約・保証しないこと。使い方は同梱スキル `browser`）
 - [sandbox-api.md](sandbox-api.md) — サンドボックス内部 API と環境変数（ZIP の除外規則と上限を含む）
 - [secrets.md](secrets.md) — APIキー漏洩の抑制と、作業フォルダの環境変数（保存時暗号化・実行時注入）

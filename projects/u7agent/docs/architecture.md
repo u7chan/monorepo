@@ -25,6 +25,7 @@
 | ツール実行のサンドボックス | `server/src/sandbox/` | [sandbox.md](sandbox.md) |
 | 同梱のヘッドレスブラウザ | `server/src/browser/` | [browser.md](browser.md) |
 | サービスの状態と起動・停止 | `server/src/serve.ts`、`server/src/serve-tool.ts`、`server/src/routes/serve.ts` | [sandbox.md](sandbox.md)、[api.md](api.md#サービスserveの状態と起動停止) |
+| 共有した静的コンテンツの記録（Cloudflare） | `server/src/app-db.ts`（`shared_contents` / `cloudflare_settings`） | [static-sharing.md](static-sharing.md) |
 | サービス オリジンの転送と公開ポート | `server/src/service-proxy.ts`、`server/src/preview-port.ts`、`server/src/index.ts` | [sandbox.md](sandbox.md#serveサービスの公開と起動停止) |
 | 秘密値のマスク | `server/src/redact.ts`、`server/src/secret-guard.ts` | [secrets.md](secrets.md) |
 | クライアント（状態 / テーマ / レイアウト） | `client/src/` | [frontend.md](frontend.md)、[ui-layout.md](ui-layout.md) |
@@ -41,6 +42,7 @@
 - モデル / Effort: [model-effort.md](model-effort.md)
 - アプリ側の組み込みツール: [web-search.md](web-search.md) / [image-generation.md](image-generation.md) / [speech-generation.md](speech-generation.md)
 - サンドボックス: [sandbox.md](sandbox.md) / [sandbox-api.md](sandbox-api.md) / [browser.md](browser.md)
+- 静的コンテンツ共有: [static-sharing.md](static-sharing.md)
 - APIキー保護: [secrets.md](secrets.md)
 - フロントエンド: [frontend.md](frontend.md) / [ui-layout.md](ui-layout.md)
 - 圧縮表示: [compaction.md](compaction.md)
