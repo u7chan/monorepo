@@ -83,7 +83,7 @@ desktopとsingleColumnで、BGMラベル・モデル・実パス・caption、複
 
 ## 実行状況の受入
 
-自動検証は `server/test/session-activity.test.ts`（一覧の開始 / 終了 / 所要時間 / 回答待ち開始、`lastUsedAt` を開始時刻に使わないこと、終了から 120 分の sweep 保持、未ロードの会話が時刻を載せないこと）、`server/test/spaces-api.test.ts`（`scope=all` と `spaceId` 既定の維持）、`client/test/activity.test.ts`（区分の排他・並び・件数・経過時間の整形・終了の表示）、`client/test/sessionsFetch.test.ts`（初回未取得 / 失敗 / 回復・逆順完了・破棄した要求の loading 解除・失効）、`client/test/activityPage.test.ts` / `client/test/activityEntry.test.ts`（件数・バッジ・状態ラベル・経過時間・行のリンク・空状態・失敗警告・入口）、`client/test/route.test.ts`（`/activity` の解析と生成、`?space=` を解釈しないこと、会話 URL の同期が上書きしないこと）で行う。
+自動検証は `server/test/session-activity.test.ts`（一覧の開始 / 終了 / 所要時間 / 回答待ち開始、`lastUsedAt` を開始時刻に使わないこと、終了から 120 分の sweep 保持、未ロードの会話が時刻を載せないこと）、`server/test/spaces-api.test.ts`（`scope=all` と `spaceId` 既定の維持）、`client/test/activity.test.ts`（区分の排他・並び・件数・経過時間の整形・終了の表示）、`client/test/sessionsFetch.test.ts`（初回未取得 / 失敗 / 回復・取得中の要求の共有（5 秒遅延の再現）・失効した要求の破棄と loading 解除）、`client/test/activityPage.test.ts` / `client/test/activityEntry.test.ts`（件数・バッジ・状態ラベル・経過時間・行のリンク・空状態・失敗警告・入口）、`client/test/route.test.ts`（`/activity` の解析と生成、`?space=` を解釈しないこと、会話 URL の同期が上書きしないこと）で行う。
 
 GUI は [有料 API を使わない GUI fixture](#有料-api-を使わない-gui-fixture) の一時ストアに 2 つ以上の追加スペースと未所属の会話を作り、実行中・回答待ち・圧縮中・終了を並列にして確認する。有料 API は使わない。
 
@@ -92,7 +92,7 @@ GUI は [有料 API を使わない GUI fixture](#有料-api-を使わない-gui
 - 初回取得失敗で 0 件と断定せず、継続失敗では前回の一覧・最終成功時刻・「更新できていません」が残り、取得中は再読み込みが無効になる。復旧すると警告が消え、全件終了なら「進行中の会話はありません」になる。
 - 行から別スペースの会話を開くとそのスペースへ切り替わって会話が表示され、戻ると同じ会話へ戻る。`/activity` の直接アクセス / F5 では会話を復元せず、「会話に戻る」で新規会話へ移る。ドロワー経由の入口はドロワーを閉じる。
 - 入力途中・実行中に実行状況を開いて戻っても、同じスペース内の下書き・SSE・実行を失わない。Tab で操作でき、非表示のチャットへ焦点が入らない。
-- 1440 / 1024 / 834 / 390 / 320 / 844×390 で横スクロールせず、長い会話名・長いエージェント名・多数行でも末尾まで到達できる。640px 以下では行が縦積みになり、行全体がタップ領域になる。
+- 1440 / 1024 / 834 / 390 / 320 / 844×390 で横スクロールせず、長い会話名・長いエージェント名・多数行でも末尾まで到達できる。**901px でサイドバーの docked / モバイルヘッダが切り替わり、641–900px では ☰・会話に戻る・再読み込み・入口が 44×44px 以上**になる。640px 以下では行が縦積みになり、行全体がタップ領域になる。
 - light / dark の各テーマと reduced motion、ブラウザーの文字拡大で状態と操作が読み取れる。11px 未満のメタ文字と 4.5:1 未満の小さい文字が無い。
 
 ## client の棚卸し

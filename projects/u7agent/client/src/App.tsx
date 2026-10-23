@@ -51,7 +51,7 @@ import {
 } from "./lib/fileRefRequest";
 import type { FileRefTarget } from "./lib/fileRef";
 import { classifyFileRefFailure, createFileRefOpener, fileRefCheckPath, type FileRefCheck } from "./lib/fileRefOpen";
-import { resolveSidebarPlacement } from "./lib/layout";
+import { resolveActivitySidebarPlacement, resolveSidebarPlacement } from "./lib/layout";
 import { openOwnerSession } from "./lib/ownerLink";
 import { queuedSendsOf } from "./lib/queueWait";
 import { sessionPath } from "./lib/route";
@@ -127,7 +127,12 @@ export default function App({ handoffNote = null, onHandoffNote, onHandoffNoteSh
   const singleColumn = singleColumnMode !== null;
   // 左バーの置き方だけが変わる (中身はどちらも同じ Sidebar)。overlay は ☰ から開く
   const viewportWidth = useViewportWidth();
-  const sidebarDocked = resolveSidebarPlacement(viewportWidth, layout) === "docked";
+  // 実行状況は Issue / docs の 901px 以上で docked にする (チャットの 1200px 判定は変えない)。
+  // overlay の帯 (641–900px と singleColumn) はモバイルヘッダなので、タップ領域を 44px 以上にする
+  const activityPlacement = resolveActivitySidebarPlacement(viewportWidth, layout);
+  const activityDocked = route.view === "activity" && activityPlacement === "docked";
+  const compactTapTargets = activityPlacement === "overlay";
+  const sidebarDocked = resolveSidebarPlacement(viewportWidth, layout) === "docked" || activityDocked;
   // 左バーの幅は docked のシェル (grid の 1 列目) が使う。overlay のドロワーは従来どおり固定幅
   const sidebarWidth = useSidebarWidth();
   // 右パネルの幅は main 列の残りで決まる (docked は左バーの実幅を引く。overlay は main = viewport)
@@ -148,6 +153,7 @@ export default function App({ handoffNote = null, onHandoffNote, onHandoffNoteSh
     active: route.view === "activity",
     count: app.sessionsFetch.loaded ? activityCount : undefined,
     stale: app.sessionsFetch.failed,
+    compact: compactTapTargets,
     onOpen: () => navigate({ view: "activity" }),
   };
   // 入力欄の上に浮かぶライブ表示。箱が浮いている間はチャットの下端にも余白を確保するため、
@@ -1054,6 +1060,7 @@ export default function App({ handoffNote = null, onHandoffNote, onHandoffNoteSh
                 onReload={app.reloadSessions}
                 onBack={backToChat}
                 onOpenNav={sidebarDocked ? undefined : openNav}
+                compact={compactTapTargets}
               />
             </div>
           ) : null}

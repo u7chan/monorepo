@@ -140,6 +140,8 @@
   /* 緑の文字色。面 (--c-ok) のまま文字に使うと暗いテーマで沈むため別トークンにする */
   --color-ok-text: var(--c-ok-text);
   --color-warn: var(--c-warn);
+  /* 橙の文字色。11px の状態ラベルは 4.5:1 が要るため、面 (--c-warn) と分ける */
+  --color-warn-text: var(--c-warn-text);
   --color-danger: var(--c-danger);
   --color-danger-text: var(--c-danger-text);
   --color-backdrop: var(--c-backdrop);
@@ -178,6 +180,7 @@
   --c-ok: #65d6a2;
   --c-ok-text: #8ee0b6;
   --c-warn: #f4b46b;
+  --c-warn-text: #f4b46b;
   --c-danger: #ee778b;
   --c-danger-text: #ee9aaa;
   --c-glow: rgba(112, 79, 182, 0.12);
@@ -220,6 +223,8 @@
   --c-ok: #167f56;
   --c-ok-text: #146b4a;
   --c-warn: #ad6800;
+  /* 面はそのままにし、11px の文字は 4.5:1 を満たす暗い橙にする */
+  --c-warn-text: #9c5c00;
   --c-danger: #d6455f;
   --c-danger-text: #bb2d48;
   --c-glow: rgba(139, 92, 246, 0.09);
@@ -262,6 +267,7 @@
   --c-ok: #97c07a;
   --c-ok-text: #b0cf94;
   --c-warn: #e0905f;
+  --c-warn-text: #e0905f;
   --c-danger: #e07a6a;
   --c-danger-text: #eda094;
   --c-glow: rgba(224, 164, 88, 0.1);
@@ -304,6 +310,7 @@
   --c-ok: #58c9a2;
   --c-ok-text: #7ed6b6;
   --c-warn: #d9b163;
+  --c-warn-text: #d9b163;
   --c-danger: #e2777c;
   --c-danger-text: #eb9fa2;
   --c-glow: rgba(111, 206, 143, 0.1);
@@ -344,8 +351,10 @@
   --c-accent-text: #b3496d;
   --c-focus: #b3496d;
   --c-ok: #23875d;
-  --c-ok-text: #2a8f66;
+  /* 白背景の 11px でも 4.5:1 を満たすよう、面より暗い緑にする */
+  --c-ok-text: #237a56;
   --c-warn: #a96a10;
+  --c-warn-text: #965c0c;
   --c-danger: #d24d61;
   --c-danger-text: #b93348;
   --c-glow: rgba(232, 162, 186, 0.14);
@@ -386,8 +395,10 @@
   --c-accent-text: #0a6b91;
   --c-focus: #0a6b91;
   --c-ok: #107a56;
-  --c-ok-text: #177f5c;
+  /* 白背景の 11px でも 4.5:1 を満たすよう、面より暗い緑にする */
+  --c-ok-text: #167a57;
   --c-warn: #a06200;
+  --c-warn-text: #965c00;
   --c-danger: #d4495f;
   --c-danger-text: #b72f47;
   --c-glow: rgba(99, 198, 238, 0.18);

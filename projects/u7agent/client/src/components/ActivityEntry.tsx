@@ -13,6 +13,8 @@ export type ActivityEntryProps = {
   count?: number;
   /** 直近の一覧取得が失敗している (件数は前回の値) */
   stale?: boolean;
+  /** モバイルヘッダの帯 (641–900px と singleColumn)。タップ領域を 44px 以上にする */
+  compact?: boolean;
   onOpen: () => void;
 };
 
@@ -22,7 +24,7 @@ function entryLabel({ count, stale }: Pick<ActivityEntryProps, "count" | "stale"
 }
 
 /** サイドバーの nav モードの入口。「すべてのスペース」をサブテキストで明示する */
-export function ActivityEntry({ active, count, stale, onOpen }: ActivityEntryProps) {
+export function ActivityEntry({ active, count, stale, compact = false, onOpen }: ActivityEntryProps) {
   return (
     <button
       type="button"
@@ -31,7 +33,8 @@ export function ActivityEntry({ active, count, stale, onOpen }: ActivityEntryPro
       aria-label={entryLabel({ count, stale })}
       title={entryLabel({ count, stale })}
       className={cn(
-        "flex min-h-10 w-full min-w-0 items-center gap-2.5 rounded-lg border px-2.5 py-1.5 text-left transition-colors singleColumn:min-h-11",
+        "flex min-h-10 w-full min-w-0 items-center gap-2.5 rounded-lg border px-2.5 py-1.5 text-left transition-colors",
+        compact && "min-h-11",
         active
           ? "border-accent/50 bg-accent-wash text-accent-text"
           : "border-line bg-raised text-ink hover:border-accent/50 hover:text-accent-text",
@@ -48,7 +51,7 @@ export function ActivityEntry({ active, count, stale, onOpen }: ActivityEntryPro
         aria-hidden="true"
         className="inline-flex shrink-0 items-center gap-1 rounded-full border border-line px-1.5 text-1xs text-ink-soft tabular-nums"
       >
-        {stale ? <span className="text-warn">!</span> : null}
+        {stale ? <span className="text-warn-text">!</span> : null}
         {count ?? "—"}
       </span>
     </button>
@@ -63,6 +66,7 @@ export function ActivityEntryButton({
   active,
   count,
   stale,
+  compact = false,
   onOpen,
   label = false,
 }: ActivityEntryProps & { label?: boolean }) {
@@ -75,7 +79,8 @@ export function ActivityEntryButton({
       aria-label={text}
       title={text}
       className={cn(
-        "inline-flex min-h-9 shrink-0 items-center gap-1.5 rounded-lg border px-2.5 text-1xs transition-colors singleColumn:min-h-11",
+        "inline-flex min-h-9 shrink-0 items-center gap-1.5 rounded-lg border px-2.5 text-1xs transition-colors",
+        compact && "min-h-11",
         active
           ? "border-accent/50 text-accent-text"
           : "border-line text-ink-soft hover:border-accent/50 hover:text-accent-text",
@@ -84,7 +89,7 @@ export function ActivityEntryButton({
       <ActivityIcon />
       {label ? <span className="whitespace-nowrap">実行状況</span> : null}
       <span className="inline-flex items-center gap-0.5 tabular-nums" aria-hidden="true">
-        {stale ? <span className="text-warn">!</span> : null}
+        {stale ? <span className="text-warn-text">!</span> : null}
         {count ?? "—"}
       </span>
     </button>

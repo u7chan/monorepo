@@ -137,6 +137,7 @@ export function useU7Agent({ pendingSessionId }: UseU7AgentOptions = {}) {
     notify,
     pinnedError,
     refreshSessions,
+    refreshSessionsNow,
     reloadSessions,
     selectSession,
     newChat,
@@ -291,7 +292,8 @@ export function useU7Agent({ pendingSessionId }: UseU7AgentOptions = {}) {
         runEndSeqRef,
         stateSeqRef,
         ensureSession,
-        refreshSessions,
+        // 送信後の取り直しは、送信前の一覧を返した要求に相乗りさせない (タイトルをすぐ反映する)
+        refreshSessions: refreshSessionsNow,
         post: postMessage,
         attachments: paths,
         // 送れたときだけチップを消す (失敗したファイルは作業フォルダに残るが、送信前に消さない)。
@@ -309,7 +311,7 @@ export function useU7Agent({ pendingSessionId }: UseU7AgentOptions = {}) {
       dispatch,
       ensureSession,
       health,
-      refreshSessions,
+      refreshSessionsNow,
       sending,
       sessionIdRef,
       sessionOpsRef,
@@ -340,12 +342,12 @@ export function useU7Agent({ pendingSessionId }: UseU7AgentOptions = {}) {
         runEndSeqRef,
         resend: resendMessage,
         recover: resyncSession,
-        refreshSessions,
+        refreshSessions: refreshSessionsNow,
         dispatch,
         setRuntimeStatus,
       });
     },
-    [dispatch, refreshSessions, resyncSession, runEndSeqRef, sessionIdRef, sessionOpsRef, setRuntimeStatus],
+    [dispatch, refreshSessionsNow, resyncSession, runEndSeqRef, sessionIdRef, sessionOpsRef, setRuntimeStatus],
   );
 
   /** 未送信メッセージの破棄。再送が実行中の分はサーバーが 409 で拒否する */
@@ -388,10 +390,10 @@ export function useU7Agent({ pendingSessionId }: UseU7AgentOptions = {}) {
       if (!(await confirm(projectDeleteConfirmRequest(project, count)))) return;
       if (!(await removeProject(projectId))) return;
       // サーバーは配下セッションまで停止・破棄する。一覧が取れなければ再選択は次の一覧 (ポーリング / SSE) に任せる
-      const list = await refreshSessions();
+      const list = await refreshSessionsNow();
       if (list) await reselectIfMissing(list);
     },
-    [projects, refreshSessions, removeProject, reselectIfMissing, sessions, confirm],
+    [projects, refreshSessionsNow, removeProject, reselectIfMissing, sessions, confirm],
   );
 
   /**

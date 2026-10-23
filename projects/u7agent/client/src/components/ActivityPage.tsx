@@ -33,6 +33,8 @@ export type ActivityPageProps = {
   onBack: () => void;
   /** サイドバーが隠れる幅だけ渡す (☰ をヘッダに出す) */
   onOpenNav?: () => void;
+  /** モバイルヘッダの帯 (641–900px と singleColumn)。タップ領域を 44px 以上にする */
+  compact?: boolean;
 };
 
 const GROUP_DOT: Record<ActivityKind, string> = {
@@ -46,10 +48,21 @@ const GROUP_DOT: Record<ActivityKind, string> = {
  * 終了を 1 画面に出す。区分・件数・並び・経過時間の文字列は lib/activity を正とする。
  * 経過時間は 1 秒ごとにクライアントで進める (一覧の 4 秒ポーリングとは独立。読み上げの live region にしない)。
  */
-export function ActivityPage({ sessions, projects, spaces, fetch, onReload, onBack, onOpenNav }: ActivityPageProps) {
+export function ActivityPage({
+  sessions,
+  projects,
+  spaces,
+  fetch,
+  onReload,
+  onBack,
+  onOpenNav,
+  compact = false,
+}: ActivityPageProps) {
   const now = useActivityNow();
   const rows = useMemo(() => activityRows(sessions, projects, now), [sessions, projects, now]);
   const counts = useMemo(() => activityCounts(rows), [rows]);
+  // 初回成功前は一覧が空でも「0 件」と断定しない (未取得として出す)
+  const countsReady = fetch.loaded;
   const groups = ACTIVITY_GROUP_ORDER.map((kind) => ({ kind, rows: rows.filter((row) => row.kind === kind) })).filter(
     (group) => group.rows.length > 0,
   );
@@ -71,7 +84,7 @@ export function ActivityPage({ sessions, projects, spaces, fetch, onReload, onBa
             type="button"
             onClick={onOpenNav}
             aria-label="ナビゲーションを開く"
-            className="icon-button singleColumn:min-h-11 singleColumn:min-w-11"
+            className={cn("icon-button", compact && "min-h-11 min-w-11")}
           >
             <MenuIcon />
           </button>
@@ -81,7 +94,11 @@ export function ActivityPage({ sessions, projects, spaces, fetch, onReload, onBa
           <h1 className="truncate text-xl font-semibold text-ink-strong">実行状況</h1>
           <div className="truncate text-1xs text-ink-soft">すべてのスペース</div>
         </div>
-        <button type="button" onClick={onBack} className="btn-quiet shrink-0 whitespace-nowrap singleColumn:min-h-11">
+        <button
+          type="button"
+          onClick={onBack}
+          className={cn("btn-quiet shrink-0 whitespace-nowrap", compact && "min-h-11")}
+        >
           <ArrowLeftIcon />
           会話に戻る
         </button>
@@ -90,15 +107,17 @@ export function ActivityPage({ sessions, projects, spaces, fetch, onReload, onBa
       <div className="grid gap-2 border-b border-line px-4 py-3 sm:flex sm:flex-wrap sm:items-center sm:justify-between sm:gap-x-4 sm:px-6">
         <div className="flex min-w-0 flex-wrap items-center gap-x-4 gap-y-1.5">
           <span className="inline-flex items-baseline gap-1 text-1xs text-ink-soft">
-            <b className="text-xl font-semibold text-ink-strong tabular-nums">{counts.inProgress}</b>
-            <span>件の会話が進行中</span>
+            <b className="text-xl font-semibold text-ink-strong tabular-nums">
+              {countsReady ? counts.inProgress : "—"}
+            </b>
+            <span>{countsReady ? "件の会話が進行中" : "進行中の会話数は未取得"}</span>
           </span>
-          {/* 件数はすべて同じ一覧から数える。状態は色だけでなくラベルでも示す */}
+          {/* 件数はすべて同じ一覧から数える。初回成功前は 0 と断定せず「—」を出す */}
           <ul className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 text-1xs text-ink-soft">
-            <CountItem tone="dot-accent" label="実行中" value={counts.running} />
-            <CountItem tone="dot-warn" label="回答待ち" value={counts.waiting} />
-            <CountItem tone="dot-idle" label="圧縮中" value={counts.compacting} />
-            <CountItem tone="dot-idle" label="直近の終了" value={counts.finished} />
+            <CountItem tone="dot-accent" label="実行中" value={countsReady ? counts.running : "—"} />
+            <CountItem tone="dot-warn" label="回答待ち" value={countsReady ? counts.waiting : "—"} />
+            <CountItem tone="dot-idle" label="圧縮中" value={countsReady ? counts.compacting : "—"} />
+            <CountItem tone="dot-idle" label="直近の終了" value={countsReady ? counts.finished : "—"} />
           </ul>
         </div>
         <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1.5">
@@ -109,7 +128,7 @@ export function ActivityPage({ sessions, projects, spaces, fetch, onReload, onBa
             onClick={reload}
             disabled={reloading}
             aria-label="一覧を再読み込み"
-            className="shrink-0 singleColumn:min-h-11"
+            className={cn("shrink-0", compact && "min-h-11")}
           >
             再読み込み
           </ReloadButton>
@@ -157,7 +176,7 @@ export function ActivityPage({ sessions, projects, spaces, fetch, onReload, onBa
   );
 }
 
-function CountItem({ tone, label, value }: { tone: string; label: string; value: number }) {
+function CountItem({ tone, label, value }: { tone: string; label: string; value: number | string }) {
   return (
     <li className="inline-flex items-center gap-1.5 whitespace-nowrap">
       <span className={cn("dot", tone)} aria-hidden="true" />
@@ -246,7 +265,7 @@ function ActivityRowLink({ row, now, spaceName }: { row: ActivityRow; now: numbe
 }
 
 function statusTone(row: ActivityRow): string {
-  if (row.kind === "waiting") return "border-warn/45 text-warn";
+  if (row.kind === "waiting") return "border-warn/45 text-warn-text";
   if (row.kind === "working") {
     return row.status === "compacting" ? "border-line text-ink-soft" : "border-accent/45 text-accent-text";
   }

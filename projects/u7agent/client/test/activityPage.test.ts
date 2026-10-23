@@ -38,7 +38,7 @@ function summary(overrides: Partial<SessionSummary>): SessionSummary {
 
 function render(
   sessions: SessionSummary[],
-  options: { fetch?: SessionsFetchSnapshot; onOpenNav?: () => void } = {},
+  options: { fetch?: SessionsFetchSnapshot; onOpenNav?: () => void; compact?: boolean } = {},
 ): string {
   return renderToStaticMarkup(
     createElement(ActivityPage, {
@@ -49,6 +49,7 @@ function render(
       onReload: async () => true,
       onBack: () => {},
       onOpenNav: options.onOpenNav,
+      compact: options.compact,
     }),
   );
 }
@@ -133,15 +134,26 @@ test("進行中が 0 のときは空状態を出し、直近の終了はその�
   assert.ok(empty.includes("直近 2 時間に終了した会話もありません"));
 });
 
-test("初回未取得は 0 件と言い切らず、取得失敗は最終成功時刻つきの警告にする", () => {
+test("初回未取得は集計も 0 件と言い切らず、取得失敗は最終成功時刻つきの警告にする", () => {
   const initial = renderedText(render([], { fetch: { loaded: false, pending: true, failed: false } }));
   assert.ok(initial.includes("一覧を取得しています"));
-  assert.ok(!initial.includes("進行中の会話はありません"), "未取得を 0 件として扱わない");
+  // 集計欄も「未取得」にし、空配列から数えた 0 を出さない
+  assert.ok(initial.includes("進行中の会話数は未取得"));
+  assert.ok(initial.includes("実行中 —"));
+  assert.ok(initial.includes("回答待ち —"));
+  assert.ok(initial.includes("圧縮中 —"));
+  assert.ok(initial.includes("直近の終了 —"));
+  assert.ok(!initial.includes("0 件の会話が進行中"), "未取得を 0 件として扱わない");
+  assert.ok(!initial.includes("実行中 0"));
+  assert.ok(!initial.includes("進行中の会話はありません"), "未取得を空状態として扱わない");
 
   const failed = render([], { fetch: { loaded: false, pending: false, failed: true } });
   assert.match(failed, /role="alert"/);
-  assert.ok(renderedText(failed).includes("一覧を取得できていません"));
-  assert.ok(!renderedText(failed).includes("進行中の会話はありません"));
+  const failedText = renderedText(failed);
+  assert.ok(failedText.includes("一覧を取得できていません"));
+  assert.ok(failedText.includes("進行中の会話数は未取得"));
+  assert.ok(!failedText.includes("実行中 0"));
+  assert.ok(!failedText.includes("進行中の会話はありません"));
 
   const stale = renderedText(
     render([RUNNING], { fetch: { loaded: true, pending: false, failed: true, lastSuccessAt: NOW - 60_000 } }),
@@ -149,6 +161,8 @@ test("初回未取得は 0 件と言い切らず、取得失敗は最終成功�
   assert.ok(stale.includes("更新できていません"));
   assert.ok(stale.includes("最終成功:"), "前回の一覧を保つ間は最終成功時刻を出す");
   assert.ok(stale.includes("ヘッダーのレイアウトを調整する"), "前回の一覧を残す");
+  // 一度成功していれば、古い一覧から数えた件数を出す
+  assert.ok(stale.includes("1 件の会話が進行中"));
 });
 
 test("取得中は再読み込みを無効にし、自動更新の件数は live region にしない", () => {
@@ -159,7 +173,7 @@ test("取得中は再読み込みを無効にし、自動更新の件数は live
 });
 
 test("サイドバーが隠れる幅ではヘッダに ☰ を出し、会話に戻る導線は常に出す", () => {
-  const overlay = render([RUNNING], { onOpenNav: () => {} });
+  const overlay = render([RUNNING], { onOpenNav: () => {}, compact: true });
   assert.ok(overlay.includes('aria-label="ナビゲーションを開く"'));
   assert.ok(renderedText(overlay).includes("会話に戻る"));
   const docked = render([RUNNING]);
