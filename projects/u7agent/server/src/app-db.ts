@@ -163,9 +163,9 @@ export interface SharedContentRow {
   /** ワークスペース root 相対のディレクトリ (`""` は root) */
   sourcePath: string;
   provider: string;
-  /** 公開先のアカウント識別子。資格情報を入れ替えても保持し、不一致の操作を拒否する。未公開なら null */
+  /** 公開先のアカウント識別子。公開の受付時に確定して保存し、以後変えない。未受付なら null */
   providerAccount: string | null;
-  /** provider 側の公開単位の識別子。未作成なら null */
+  /** provider 側の公開単位の識別子 (Cloudflare は script 名)。受付時に確定して保存する。未受付なら null */
   remoteId: string | null;
   publicUrl: string | null;
   status: SharedContentStatus;

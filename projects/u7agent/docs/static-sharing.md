@@ -57,7 +57,7 @@ Cloudflare Workers（workers.dev）
 - `shared_contents` と `cloudflare_settings` をアプリデータの SQLite に持つ。列は `server/src/app-db.ts` を正とする。
 - どちらも**列追加だけの加算移行**を恒久ルールとし、`DROP_TABLES` に入れない（[persistence.md](persistence.md#アプリデータsqlite)）。行が消えると Cloudflare 側の公開物を追跡・停止・削除できなくなるため。
 - `shared_contents` は `provider` と `providerAccount` と `remoteId` の組を一意にし、同じ公開先を 2 つの共有物が指さないようにする（`remoteId` が未作成の行は複数持てる）。
-- 公開の受付時に `provider` / `providerAccount` / `remoteId` を確定して保存する（script 名は id から生成し、以後変えない）。
+- 公開の受付時に `provider` / `providerAccount` / `remoteId` / `publicUrl` を確定して保存する（script 名は id から、URL は script 名とアカウントの workers.dev サブドメインから決まり、以後変えない）。
 - 公開先のアカウントを `providerAccount` に記録する。更新・停止・再公開・削除は記録したアカウントへ行い、現在の接続と一致しないときは provider を呼ばずに `409` で拒否する。資格情報の削除・再登録では `providerAccount` を消さない。
 - 公開済みの共有物がある状態で別のアカウントへ接続を切り替える要求は `409` にする。切り替えるには、旧アカウントで共有物を停止・削除してから登録し直す。
 
@@ -72,10 +72,11 @@ Cloudflare Workers（workers.dev）
 
 状態は `SharedContentStatus`（`server/src/app-db.ts`）で表し、許可する遷移は API 側で検証する。`status` は**外部から見た現在の公開状態**で、最後の操作の成否ではない。
 
-- `failed` は「一度も公開できていない」状態だけを指す。公開済みの共有物の更新に失敗したときは前回の状態（`published` / `stopped`）へ戻し、理由を `lastError` に残す。旧 deployment は有効なままなので、外部の状態と DB を一致させる。
-- `failed` には通常は外部の実体が無い（初回公開の中断で残った可能性があるときは再試行か削除で解消する）ため、停止は受け付けない。公開の再試行だけを受け付ける。
-- `stoppedAt` は停止で立ち、公開成功で消す。中断からの復帰は `publishedAt` と `stoppedAt` で前回の状態を決める。
-- 停止は `published` からだけ行う。
+- `failed` は一度も公開できていない状態（復帰時に外部の script が無いと分かった場合も含む）。停止は受け付けず、公開の再試行だけを受け付ける。
+- 公開済みの共有物の更新・再公開・停止が**確定した失敗**をしたときは、前回の状態（`published` / `stopped`）へ戻し、理由を `lastError` に残す。旧 deployment は有効なままなので、外部の状態と DB を一致させる。
+- provider の結果が不明なとき（timeout など）は状態を確定させない。`publishing` のまま `lastError` を記録し、**停止だけ**を受け付ける。停止は subdomain を無効にする冪等な操作なので、外部が公開中でも安全側に倒せる。
+- `stoppedAt` は停止で立ち、公開成功で消す。
+- 停止は `published` と、結果不明で `publishing` のまま残った行から受け付ける。
 
 | 操作 | Cloudflare 側 | 必要なもの |
 | --- | --- | --- |
@@ -103,11 +104,13 @@ Cloudflare Workers（workers.dev）
 
 Cloudflare への送信は時間がかかるため、同期 HTTP では扱わない。
 
-- 公開・更新は受付だけを返し（`202`）、状態は GET で読む。GUI は状態をポーリングして表示する。
-- agent tool は受付のあと内部で完了までポーリングし、状態が確定してから URL かエラーを返す。
-- BFF の再起動で `publishing` のまま残った行は、`publishedAt` があれば前回の状態（`stoppedAt` があれば `stopped`、無ければ `published`）へ戻し、無ければ `failed` にする。どちらも `lastError` に中断を残す。
-- deployment 成功後に DB を更新できなかった場合、外部は新しい版・DB は前回の状態という食い違いが残る。停止は subdomain を切るだけで外部の版に依存しないため常に効き、次の公開で上書きして解消する。
-- provider の一時的な失敗と、DB の書き込み失敗を混ぜない。公開が成功しても DB を更新できなかった場合は成功を返さず、行の状態を進めない。
+- 公開・更新・再公開は受付だけを返し（`202`）、状態は GET で読む。GUI は状態をポーリングして表示する。
+- 受付時に `lastError` を消して `publishing` にする。終端は `publishing` でなくなったときで、成功・失敗は `status` と `lastError` の組で読む。
+- agent tool は受付のあと内部で終端までポーリングし、状態が確定してから URL かエラーを返す。`publishing` + `lastError`（結果不明）を見たらそこで打ち切って、停止で安全側に倒すよう案内する。
+- provider の結果が不明になったとき（timeout など）と、BFF 再起動で `publishing` のまま残ったときは、subdomain を問い合わせて状態を確定する。有効なら `published`、無効なら `stopped`、script が無ければ `failed`。更新・初回公開の中断では配信中の版が分からないため、その旨を `lastError` に残す。問い合わせできないときだけ `publishing` + `lastError` に留め、停止だけを受け付ける。
+- 停止の結果が不明なときも同じ問い合わせを行う。無効なら `stopped`、有効なら `published` + `lastError`（停止を再試行できる）。問い合わせできない間は `published` + `lastError` に留める（誤って「停止済み」と表示しない）。
+- deployment 成功後に DB を更新できなかった場合も同じ復帰規則を使う。subdomain が有効なままなら `published` になり、版の不明は `lastError` に残る。
+- provider の確定した失敗と、DB の書き込み失敗を混ぜない。公開が成功しても DB を更新できなかった場合は成功を返さず、行の状態を進めない。
 
 ### 読み出し
 
@@ -198,17 +201,22 @@ Cloudflare への送信は時間がかかるため、同期 HTTP では扱わな
 | --- | --- | --- |
 | なし | 作成 | `publishing` |
 | `publishing`（初回） | 成功 | `published` |
-| `publishing`（初回） | 失敗 | `failed` |
+| `publishing`（初回） | 確定した失敗 | `failed` |
+| `publishing`（どの操作でも） | 結果不明 | `publishing`（+ `lastError`、停止のみ可） |
+| `publishing`（+ `lastError`） | 停止 | `stopped` |
 | `failed` | 公開（再試行） | `publishing` |
 | `published` | 更新 | `publishing` |
 | `publishing`（更新） | 成功 | `published` |
-| `publishing`（更新） | 失敗 | `published`（+ `lastError`） |
+| `publishing`（更新） | 確定した失敗 | `published`（+ `lastError`） |
 | `published` | 停止 | `stopped` |
+| `published` | 停止（確定した失敗・結果不明） | `published`（+ `lastError`） |
 | `stopped` | 再公開 | `publishing` |
 | `publishing`（再公開） | 成功 | `published` |
-| `publishing`（再公開） | 失敗 | `stopped`（+ `lastError`） |
+| `publishing`（再公開） | 確定した失敗 | `stopped`（+ `lastError`） |
 
-- `publishing` の共有物への別の変更は `409`。同じ共有物の二重操作はロックで拒否する。
+- `publishing` の共有物への別の変更は `409`。ただし結果不明で止まった行への停止だけは受け付ける。
+- `lastError` は受付時に消し、公開・更新・再公開・停止の成功時も消す。確定した失敗と結果不明のときだけ、分類済みの文言を入れる。
+- 操作の成否は終端の `status` と `lastError` で判定する。公開・更新・再公開は `published` かつ `lastError` が null なら成功、停止は `stopped` かつ null なら成功。`publishing` + `lastError` は結果不明で、停止を再試行すると `stopped` に確定する。
 - 存在しない id は `404`。他の共有物を誤って操作しないよう、id だけで対象を決める。
 - 記録した `providerAccount` が現在の接続と一致しないときは `409`。資格情報を入れ替えても既存共有物の操作先を変えない。
 - 更新はセッションが存在し、`sourcePath` が実在するときだけ受け付ける。どちらかが欠けていれば `409`。停止・再公開・削除はこの条件を見ない。
@@ -221,7 +229,9 @@ Cloudflare への送信は時間がかかるため、同期 HTTP では扱わな
 - URL は「知っていれば誰でも見られる」公開 URL で、認証・期限・アクセス制御は無い。秘密値を含む成果物を公開しないための注意は GUI と tool の案内で行う。
 - URL は Cloudflare のアカウントサブドメインに依存する。サブドメインを変更すると既存の URL も変わる。
 - アカウントの Free 枠（Worker 数）を他の用途と共有する。
-- 中断した公開は自動で再開しない。初回は `failed`、更新・再公開は前回の状態 + `lastError` で止まる。deployment 成功後・DB 更新前で落ちた場合の食い違いは、provider の deployment を読み直す照会・復旧を初期実装では行わないため、次の公開で上書きするまで残る。
+- 中断した公開の復帰は subdomain の有効・無効だけを照会する。配信中の版までは照会しないため、更新の中断では新しい版が配信されている可能性がある（`published` + `lastError` で知らせる）。
+- provider の状態を問い合わせできない間は `publishing` + `lastError`（停止を受け付ける）で止まる。接続が戻るまで停止も実行できないため、外部が公開中のまま残り得る。接続を復旧して停止するか、再試行する。
+- 停止の結果不明で `published` のまま残った行は、停止を再試行すれば `stopped` に確定する（冪等）。
 - 同じ共有物の更新は新しい deployment を積む。過去の deployment の掃除はしない（Cloudflare 側の保持に任せる）。
 - セッションまたはソースの作業フォルダが消えた共有物は更新できない。停止・再公開・削除だけができる。
 - 公開先アカウントを変えるには、旧アカウントで既存の共有物を停止・削除する。接続を先に切り替える操作は `409` で止まる。
@@ -236,5 +246,6 @@ Cloudflare への送信は時間がかかるため、同期 HTTP では扱わな
 - アセット送信の 1 リクエストが 100 MB を超えないよう、bucket をサイズで分割する必要があるか
 - subdomain を `enabled=false` にすると外部から 404 になり、`enabled=true` で同じ URL が戻る
 - `previews_enabled` を false にできる（不要な Preview URL を増やさない）
+- `GET /accounts/{account_id}/workers/subdomain` でアカウントの workers.dev サブドメインを取得でき、公開 URL を受付時に確定できる
 - 存在しない script の削除が 404 を返す（冪等扱いの確認）
 - 残枠が無いときの API エラー（Worker 数の上限）を分類できる
