@@ -117,6 +117,11 @@ const MAX_EVENT_LOG = 2000;
 const MAX_QUEUE_DEPTH = 10;
 const QUEUE_DELAY_MS = 200;
 const SESSION_TTL_MS = 60 * 60 * 1000;
+/**
+ * 終了行を実行状況へ残す長さ。sweep はこの間だけ終了済みの live レコードを残し、画面も同じ長さで切る。
+ * `SESSION_TTL_MS` は変えない (保持はメモリ内だけで、BFF 再起動をまたぐ台帳にはしない)。
+ */
+export const FINISHED_RETENTION_MS = 120 * 60 * 1000;
 const SWEEP_INTERVAL_MS = 10 * 60 * 1000;
 const TITLE_MAX = 60;
 /** 引き継ぎの片付け (確定後に残った履歴の削除) が済んでいない会話の共通文言 */
@@ -1669,6 +1674,7 @@ export class SessionStore {
     return new Promise<AskUserAnswer[]>((resolve, reject) => {
       const pending: PendingQuestion = {
         questions: [...questions],
+        createdAt: Date.now(),
         resolve,
         reject,
         settled: false,
@@ -1895,11 +1901,17 @@ export class SessionStore {
   }
 
   summary(record: SessionRecord): SessionSummary {
+    // settle 済みの entry は同じ toolCallId への 2 回目を 409 にする tombstone として残る
+    const awaiting = [...record.questions.values()].filter((pending) => !pending.settled);
     return projectSessionSummary({
       record,
       status: this.statusOf(record),
-      // settle 済みの entry は同じ toolCallId への 2 回目を 409 にする tombstone として残る
-      awaitingAnswer: [...record.questions.values()].some((pending) => !pending.settled),
+      awaitingAnswer: awaiting.length > 0,
+      awaitingSince: awaiting.reduce<number | undefined>(
+        (oldest, pending) => (oldest === undefined ? pending.createdAt : Math.min(oldest, pending.createdAt)),
+        undefined,
+      ),
+      lastRunDurationMs: record.run ? record.runOutcomes.get(record.run.id)?.durationMs : undefined,
       projectId: this.projectIdOf(record),
       masker: this.masker,
       cwd: workspaceAbs(this.rootCwd, record.workdir),
@@ -2585,6 +2597,8 @@ export class SessionStore {
         if (this.deleting.has(id) || this.lifecycle.has(id) || this.metaUpdates.has(id) || this.pinUpdates.has(id))
           continue;
         if (record.lastUsedAt >= cutoff) continue;
+        // 終了直後は実行状況の行として残す (この間だけは lastUsedAt が古くても sweep しない)
+        if (record.run?.endedAt !== undefined && Date.now() - record.run.endedAt <= FINISHED_RETENTION_MS) continue;
         const promise = (async () => {
           // 最終保存を試み、成功したときだけメモリから外す (失敗は次の sweep で再試行する)。
           // sends だけ失敗していても外さない (未送信の本文と再試行元を失わない)

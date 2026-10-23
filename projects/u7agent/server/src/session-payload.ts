@@ -176,6 +176,8 @@ export function projectSessionSummary({
   record,
   status,
   awaitingAnswer,
+  awaitingSince,
+  lastRunDurationMs,
   projectId,
   masker,
   cwd,
@@ -185,6 +187,10 @@ export function projectSessionSummary({
   status: RunStatus;
   /** `record` は待機を持つので、この経路では常に真偽値を載せる (未ロードの summaryOfMeta は載せない) */
   awaitingAnswer: boolean;
+  /** 未 settle の質問のうち最も古い開始時刻 (回答待ちの経過時間の起点) */
+  awaitingSince?: number;
+  /** 直近のランの所要時間。runOutcomes に無ければ省略する */
+  lastRunDurationMs?: number;
   projectId?: string;
   masker: SecretMasker;
   /** スキル読み込みの判定に使う絶対 cwd。件数を履歴ページと同じ表示集合で数えるために要る */
@@ -211,6 +217,12 @@ export function projectSessionSummary({
     createdAt: record.createdAt,
     lastUsedAt: record.lastUsedAt,
     model: modelLabel(record.session.model),
+    // 時刻は live な実行からだけ載せる。未ロードの会話 (summaryOfMeta) は idle で時刻を持たない
+    ...(record.run ? { runStartedAt: record.run.startedAt } : {}),
+    ...(record.run?.endedAt !== undefined ? { finishedAt: record.run.endedAt } : {}),
+    ...(lastRunDurationMs !== undefined ? { lastRunDurationMs } : {}),
+    ...(record.compactionStartedAt !== undefined ? { compactionStartedAt: record.compactionStartedAt } : {}),
+    ...(awaitingSince !== undefined ? { awaitingSince } : {}),
     ...(projectId ? { projectId } : {}),
   };
 }

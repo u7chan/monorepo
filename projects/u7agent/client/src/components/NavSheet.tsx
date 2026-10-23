@@ -127,6 +127,12 @@ export function NavSheet({ mode, onClose, ...sidebarProps }: NavSheetProps) {
           handoffSession={closeAfter(sidebarProps.handoffSession)}
           onNewProject={closeAfter(sidebarProps.onNewProject)}
           onOpenSettingsSection={closeThen(sidebarProps.onOpenSettingsSection)}
+          // ドロワーの入口から開いたときは、遷移と同時にドロワーを閉じる
+          activity={
+            sidebarProps.activity
+              ? { ...sidebarProps.activity, onOpen: closeThen(sidebarProps.activity.onOpen) }
+              : undefined
+          }
         />
       </div>
     </dialog>

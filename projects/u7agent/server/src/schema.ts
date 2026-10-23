@@ -637,6 +637,17 @@ export const SessionSummarySchema = z.object({
   lastUsedAt: z.number(),
   model: z.string().optional(),
   projectId: z.string().optional(),
+  /**
+   * 実行状況 (全スペース横断) の経過時間と終了表示のための時刻。未ロードの会話は実行を持たないため
+   * 載せない (idle として返し、`lastUsedAt` を開始時刻の代用にしない)。
+   */
+  runStartedAt: z.number().optional(),
+  finishedAt: z.number().optional(),
+  /** 直近のランの所要時間 (runOutcomes にあるときだけ)。無ければ終了時刻だけを出す */
+  lastRunDurationMs: z.number().optional(),
+  compactionStartedAt: z.number().optional(),
+  /** 未 settle の質問のうち最も古い開始時刻。回答待ちの経過時間の起点 */
+  awaitingSince: z.number().optional(),
 });
 export type SessionSummary = z.infer<typeof SessionSummarySchema>;
 

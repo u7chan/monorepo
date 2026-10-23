@@ -85,6 +85,8 @@ export interface QueuedSend {
  */
 export interface PendingQuestion {
   questions: AskUserQuestion[];
+  /** 質問を開いた時刻。一覧の回答待ち経過時間の起点にする */
+  createdAt: number;
   resolve: (answers: AskUserAnswer[]) => void;
   reject: (error: Error) => void;
   settled: boolean;

@@ -20,7 +20,9 @@ import type {
   ThinkingLevel,
 } from "../types";
 import type { ChatAction } from "./chatReducer";
-import { createGenerationTracker, createRequestGate } from "./requestGate";
+import { createGenerationTracker } from "./requestGate";
+import { createSessionsFetch } from "../lib/sessionsFetch";
+import { sessionsInSpace } from "../lib/spaceSessions";
 import { createNotifyCarry, createNotifyToggleRunner } from "./notifyToggle";
 import { createPinnedToggleRunner } from "./pinnedToggle";
 import { createSessionCreation } from "./sessionCreation";
@@ -97,8 +99,10 @@ export function useSessions({
   const prompt = usePrompt();
   const [sessions, setSessions] = useState<SessionSummary[]>([]);
   const [pinnedError, setPinnedError] = useState("");
-  /** 一覧の初回取得に成功したか。空配列を「使用なし」と読んで嘘を出さないためのフラグ */
-  const [sessionsLoaded, setSessionsLoaded] = useState(false);
+  // 一覧は全スペースで 1 本。初回未取得 / 取得中 / 成功 / 失敗と最終成功時刻は制御 module が持ち、
+  // サイドバーと実行状況の両方が同じ値を見る
+  const [sessionsFetch] = useState(() => createSessionsFetch<SessionSummary[]>());
+  const sessionsFetchState = useSyncExternalStore(sessionsFetch.subscribe, sessionsFetch.snapshot);
   const [sessionId, setSessionId] = useState("");
   const [cwd, setCwd] = useState<string>("");
   const [settingsChanging, setSettingsChanging] = useState(false);
@@ -125,8 +129,10 @@ export function useSessions({
     return () => {
       mountedRef.current = false;
       selectionSeqRef.current += 1;
+      // スペース切替 (App の作り直し) と unmount の後では、飛んでいる応答を一覧へ適用しない
+      sessionsFetch.invalidate();
     };
-  }, []);
+  }, [sessionsFetch]);
   /**
    * 同一セッション内の操作世代。新しい要求と、compacting を抜けた権威ある状態 (終端 resync /
    * 選択し直し) で進み、遅れて届いた stop / compact の応答を適用しない判定に使う
@@ -153,7 +159,6 @@ export function useSessions({
   const [notifyCarry] = useState(createNotifyCarry);
   const notifyPending = useSyncExternalStore(notifyCarry.subscribe, notifyCarry.snapshot);
 
-  const [beginSessionsRequest] = useState(createRequestGate);
   /**
    * 履歴ページの要求世代と二重取得の防止。カーソル (nextCursor / hasMore) は reducer の
    * history が正で、適用されなかったページ (gap) の値をここへ持ち込まない。世代は会話の切替 /
@@ -186,24 +191,38 @@ export function useSessions({
   /**
    * 一覧を取り直す。取得できなかったときは null を返し、前回のリスト (sessionsRef) は保つ。
    * 空の成功と区別できないと、URL が指定した会話 (`/s/<id>`) を「会話なし」として解決してしまう。
+   * 取得中の要求は制御が共有するので、ポーリング / SSE / 画面を開いたとき / 再読み込みが重なっても
+   * GET は 1 本のままで、遅い応答でも初回成功が捨てられない。
    */
   const refreshSessions = useCallback(
-    async (isCurrent = alwaysCurrent): Promise<SessionSummary[] | null> => {
-      const canApply = beginSessionsRequest(isCurrent);
-      try {
-        const { sessions: list } = await listSessions();
-        if (!canApply()) return list;
-        sessionsRef.current = list;
-        setSessions(list);
-        // 成功のときだけ立てる (失敗時は前回のリストと状態を保つ)
-        setSessionsLoaded(true);
-        return list;
-      } catch {
-        // サーバーが一時的に届かないときは前回のリストを保持
-        return null;
-      }
+    async (isCurrent = alwaysCurrent, supersede = false): Promise<SessionSummary[] | null> => {
+      const list = await sessionsFetch.load(
+        {
+          fetch: async () => (await listSessions()).sessions,
+          apply: (next) => {
+            sessionsRef.current = next;
+            setSessions(next);
+          },
+        },
+        { supersede },
+      );
+      // 呼び出し元の lifecycle が終わっていれば、応答を成功として返さない (適用は制御が 1 回だけ行う)
+      return list !== null && isCurrent() ? list : null;
     },
-    [beginSessionsRequest],
+    [sessionsFetch],
+  );
+  /**
+   * 作成 / 削除 / 移動 / 送信の直後の取り直し。飛んでいる古い一覧を追い越す
+   * (自動のポーリング / SSE は `refreshSessions` で相乗りさせる)。
+   */
+  const refreshSessionsNow = useCallback(
+    (isCurrent = alwaysCurrent) => refreshSessions(isCurrent, true),
+    [refreshSessions],
+  );
+  /** 利用者の「再読み込み」。成否を返し、失敗の通知と成功の通知を分ける (自動更新では呼ばない) */
+  const reloadSessions = useCallback(
+    async (): Promise<boolean> => (await refreshSessions()) !== null,
+    [refreshSessions],
   );
   const applySnapshot = useCallback(
     (payload: SessionPayload) => {
@@ -376,7 +395,8 @@ export function useSessions({
             newChatRef.current();
             return "fallback";
           }
-          const next = nextAfterFailure(sessionsRef.current, failed);
+          // 移り先は現在のスペースから選ぶ (全スペース一覧から別スペースの会話を掴まない)
+          const next = nextAfterFailure(sessionsInSpace(sessionsRef.current, spaceIdRef.current), failed);
           if (next.kind === "newChat") {
             newChatRef.current();
             // 開けなかった理由を状態行へ出す (サーバーの 409 は壊れているファイルを含む)
@@ -461,7 +481,7 @@ export function useSessions({
       // 応答中にユーザーが別のチャットへ切り替えていたら、その選択を奪わず送信先だけを返す
       if (selectionSeqRef.current !== selection) return session.sessionId;
       applySelectedSession(session);
-      await refreshSessions();
+      await refreshSessionsNow();
       void refreshHealth();
       return session.sessionId;
     });
@@ -471,7 +491,7 @@ export function useSessions({
     notifyCarry,
     preselectionCarry,
     refreshHealth,
-    refreshSessions,
+    refreshSessionsNow,
     selectedProjectIdRef,
     sessionCreation,
   ]);
@@ -637,9 +657,9 @@ export function useSessions({
 
   const onClosed = useCallback(() => {
     void refreshHealth();
-    void refreshSessions().then((list) => {
+    void refreshSessionsNow().then((list) => {
       // 取得できなかったときは前回の一覧で再接続を判定する (再選択の判断は次の機会に任せる)
-      const known = list ?? sessionsRef.current;
+      const known = sessionsInSpace(list ?? sessionsRef.current, spaceIdRef.current);
       const current = sessionIdRef.current;
       if (known.some((item) => item.sessionId === current)) {
         setEpoch((e) => e + 1);
@@ -650,7 +670,7 @@ export function useSessions({
       if (next.kind === "select") void selectSession(next.sessionId);
       else newChatRef.current();
     });
-  }, [refreshHealth, refreshSessions, selectSession]);
+  }, [refreshHealth, refreshSessionsNow, selectSession]);
 
   useSessionEvents({
     sessionId,
@@ -672,15 +692,15 @@ export function useSessions({
       } catch (error) {
         console.error(error);
       }
-      const list = await refreshSessions();
+      const list = await refreshSessionsNow();
       if (id === sessionIdRef.current) {
         // 取得できなかったときは前回の一覧から選ぶ (消えたセッションを掴んでも selectSession が移す)
-        const next = nextAfterRemoval(list ?? sessionsRef.current);
+        const next = nextAfterRemoval(sessionsInSpace(list ?? sessionsRef.current, spaceIdRef.current));
         if (next.kind === "select") await selectSession(next.sessionId);
         else newChatRef.current();
       }
     },
-    [refreshSessions, selectSession, confirm],
+    [refreshSessionsNow, selectSession, confirm],
   );
 
   /**
@@ -693,10 +713,10 @@ export function useSessions({
     async (id: string, request: { spaceId: string; agentId?: string; memo: boolean }): Promise<SessionMoveResponse> => {
       // 要求元は現在のスペース (space.api の query)、移動先は body で渡す
       const result = await apiHandoffSession(id, request);
-      await refreshSessions();
+      await refreshSessionsNow();
       return result;
     },
-    [apiHandoffSession, refreshSessions],
+    [apiHandoffSession, refreshSessionsNow],
   );
 
   /**
@@ -722,8 +742,9 @@ export function useSessions({
   const reselectIfMissing = useCallback(
     async (list: SessionSummary[]): Promise<void> => {
       const current = sessionIdRef.current;
-      if (!current || list.some((item) => item.sessionId === current)) return;
-      const next = nextAfterRemoval(list);
+      const candidates = sessionsInSpace(list, spaceIdRef.current);
+      if (!current || candidates.some((item) => item.sessionId === current)) return;
+      const next = nextAfterRemoval(candidates);
       if (next.kind === "select") await selectSession(next.sessionId);
       else newChatRef.current();
     },
@@ -733,7 +754,8 @@ export function useSessions({
   const restoreSession = useCallback(
     async (list: SessionSummary[], isCurrent = alwaysCurrent, pending?: PendingEntry): Promise<void> => {
       if (!pending) return;
-      const requested = list.find((item) => item.sessionId === pending.sessionId);
+      // URL の会話はこのスペースのものだけを探す (別スペースの id を指定されたリンクで開かない)
+      const requested = sessionsInSpace(list, spaceIdRef.current).find((item) => item.sessionId === pending.sessionId);
       if (!isCurrent()) return;
       // 一覧のロード待ちの間にユーザーが会話を選んでいたら、その選択を奪わない
       if (selectionSeqRef.current !== pending.selection) return;
@@ -750,8 +772,10 @@ export function useSessions({
 
   return {
     sessions,
+    /** 一覧の取得状態 (初回未取得 / 取得中 / 失敗 / 最終成功時刻)。表示は「0 件」と混同しない */
+    sessionsFetch: sessionsFetchState,
     /** 一覧の初回取得に成功するまで false。派生値 (最終使用など) を「0 件」と混同しないために使う */
-    sessionsLoaded,
+    sessionsLoaded: sessionsFetchState.loaded,
     sessionId,
     sessionIdRef,
     /** 診断用の受信記録 (このタブの SSE の観測)。スナップショットの組み立てだけが読む */
@@ -773,6 +797,9 @@ export function useSessions({
     notify,
     pinnedError,
     refreshSessions,
+    /** 変更後の取り直し (飛んでいる古い一覧を追い越す)。作成 / 削除 / 移動 / 送信の直後に使う */
+    refreshSessionsNow,
+    reloadSessions,
     selectSession,
     newChat,
     ensureSession,

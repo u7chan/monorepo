@@ -1,12 +1,14 @@
 /**
  * URL の pathname と画面の対応。DOM も history も触らない純関数だけを置き、URL の読み書きは
- * hooks/useRoute.ts が担う。`/` はチャット (会話を指定しない)、`/settings/<section>` は設定の各画面
+ * hooks/useRoute.ts が担う。`/` はチャット (会話を指定しない)、`/activity` は全スペース横断の
+ * 実行状況、`/settings/<section>` は設定の各画面
  * (SETTINGS_SECTIONS)、`/settings/<section>/<sub>` はタブを持つ画面 (MODELS_SUBSECTIONS /
  * CONTENT_SUBSECTIONS / FILES_SUBSECTIONS / RUNTIME_SUBSECTIONS)、`/s/<sessionId>` はチャット + URL が指定する会話。
  * 未知・不正なパスはチャットへ畳み、routePath は常に正準形 (小文字・末尾スラッシュなし・既定タブの
  * パスなし) を返す。
  * `/s/<sessionId>` の `space` クエリだけは会話を指定した URL の入力として解釈し (entrySpaceOf)、
- * 確定した選択の URL には所属スペースを載せ直す (withEntrySpace)。
+ * 確定した選択の URL には所属スペースを載せ直す (withEntrySpace)。`/activity` は全スペースを出す画面で、
+ * `space` を解釈しない。
  */
 import {
   CONTENT_SUBSECTIONS,
@@ -36,6 +38,10 @@ export type Route =
        * 書くのは App の Effect)。未指定の `/` は会話を指定しない
        */
       sessionId?: string;
+    }
+  | {
+      /** 全スペース横断の実行状況。会話を指定しないので、戻る先は選択中の会話か新規会話 */
+      view: "activity";
     }
   | {
       view: "settings";
@@ -111,11 +117,13 @@ export function parseRoute(pathname: string): Route {
       : { view: "settings", section: "models" };
   }
   // id は不透明な値なので、decode 済みのものをそのまま持ち URL へ戻すときだけ encode する
+  if (kind === "activity") return second === undefined ? { view: "activity" } : CHAT_ROUTE;
   return kind === "s" && second && third === undefined ? { view: "chat", sessionId: second } : CHAT_ROUTE;
 }
 
 /** 画面から pathname を作る。URL の分解は呼び出し側が行い、ここではクエリもフラグメントも付けない */
 export function routePath(route: Route): string {
+  if (route.view === "activity") return "/activity";
   if (route.view === "settings") {
     if (
       route.section === "content" &&

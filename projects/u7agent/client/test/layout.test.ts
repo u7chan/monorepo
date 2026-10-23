@@ -2,8 +2,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  ACTIVITY_DOCKED_MIN_WIDTH,
   DESKTOP_MIN_HEIGHT,
   DESKTOP_MIN_WIDTH,
+  resolveActivitySidebarPlacement,
   resolveLayoutMode,
   resolveSidebarPlacement,
   resolveWide,
@@ -65,4 +67,19 @@ test("一覧と編集面を並べる境界は 900px (resolveWide)", () => {
   assert.equal(resolveWide(899), false);
   assert.equal(resolveWide(820), false);
   assert.equal(resolveWide(390), false);
+});
+
+test("実行状況は 901px 以上で docked、641–900px と singleColumn は overlay", () => {
+  // チャットの 1200px 判定より広い帯でも docked にする (Issue / docs の 901px 境界)
+  assert.equal(ACTIVITY_DOCKED_MIN_WIDTH, 901);
+  assert.equal(resolveActivitySidebarPlacement(900, "desktop"), "overlay");
+  assert.equal(resolveActivitySidebarPlacement(901, "desktop"), "docked");
+  assert.equal(resolveActivitySidebarPlacement(1024, "desktop"), "docked");
+  assert.equal(resolveActivitySidebarPlacement(834, "desktop"), "overlay");
+  assert.equal(resolveActivitySidebarPlacement(640, "desktop"), "overlay");
+  // チャットの判定は変えない (同じ 1024px でも overlay)
+  assert.equal(resolveSidebarPlacement(1024, "desktop"), "overlay");
+  // singleColumn は幅に関係なく overlay (44px のタップ領域を当てる帯)
+  assert.equal(resolveActivitySidebarPlacement(1440, "landscape"), "overlay");
+  assert.equal(resolveActivitySidebarPlacement(1920, "portrait"), "overlay");
 });

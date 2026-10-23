@@ -140,6 +140,8 @@
   /* 緑の文字色。面 (--c-ok) のまま文字に使うと暗いテーマで沈むため別トークンにする */
   --color-ok-text: var(--c-ok-text);
   --color-warn: var(--c-warn);
+  /* 橙の文字色。11px の状態ラベルは 4.5:1 が要るため、面 (--c-warn) と分ける */
+  --color-warn-text: var(--c-warn-text);
   --color-danger: var(--c-danger);
   --color-danger-text: var(--c-danger-text);
   --color-backdrop: var(--c-backdrop);
@@ -178,6 +180,7 @@
   --c-ok: #65d6a2;
   --c-ok-text: #8ee0b6;
   --c-warn: #f4b46b;
+  --c-warn-text: #f4b46b;
   --c-danger: #ee778b;
   --c-danger-text: #ee9aaa;
   --c-glow: rgba(112, 79, 182, 0.12);
@@ -206,7 +209,7 @@
   --c-line-strong: #c2c9d6;
   --c-ink: #414b60;
   --c-ink-strong: #1a2130;
-  --c-ink-soft: #5d6779;
+  --c-ink-soft: #5a6475;
   --c-ink-muted: #6f7890;
   --c-ink-faint: #8a93a6;
   --c-ink-ghost: #a5adbd;
@@ -220,6 +223,8 @@
   --c-ok: #167f56;
   --c-ok-text: #146b4a;
   --c-warn: #ad6800;
+  /* 面はそのままにし、11px の文字は通常面 / hover 面 / 選択行の重ね面で 4.5:1 を満たす暗い橙にする */
+  --c-warn-text: #8a5100;
   --c-danger: #d6455f;
   --c-danger-text: #bb2d48;
   --c-glow: rgba(139, 92, 246, 0.09);
@@ -262,6 +267,8 @@
   --c-ok: #97c07a;
   --c-ok-text: #b0cf94;
   --c-warn: #e0905f;
+  /* 選択行の重ね面の 10px でも 4.5:1 を満たすよう、面より明るい橙にする */
+  --c-warn-text: #e39866;
   --c-danger: #e07a6a;
   --c-danger-text: #eda094;
   --c-glow: rgba(224, 164, 88, 0.1);
@@ -304,6 +311,7 @@
   --c-ok: #58c9a2;
   --c-ok-text: #7ed6b6;
   --c-warn: #d9b163;
+  --c-warn-text: #d9b163;
   --c-danger: #e2777c;
   --c-danger-text: #eb9fa2;
   --c-glow: rgba(111, 206, 143, 0.1);
@@ -332,7 +340,7 @@
   --c-line-strong: #dabfc9;
   --c-ink: #5d4a52;
   --c-ink-strong: #31222a;
-  --c-ink-soft: #7a626c;
+  --c-ink-soft: #78606a;
   --c-ink-muted: #8d7580;
   --c-ink-faint: #a58d97;
   --c-ink-ghost: #c0aab2;
@@ -341,11 +349,13 @@
   --c-accent-bright: #f0bfd0;
   --c-on-accent: #47202f;
   --c-accent-wash: rgba(217, 132, 163, 0.12);
-  --c-accent-text: #b3496d;
+  --c-accent-text: #a34263;
   --c-focus: #b3496d;
   --c-ok: #23875d;
-  --c-ok-text: #2a8f66;
+  /* 白背景・hover 面・選択行の重ね面の 11px でも 4.5:1 を満たすよう、面より暗い緑にする */
+  --c-ok-text: #20704f;
   --c-warn: #a96a10;
+  --c-warn-text: #89540b;
   --c-danger: #d24d61;
   --c-danger-text: #b93348;
   --c-glow: rgba(232, 162, 186, 0.14);
@@ -386,8 +396,10 @@
   --c-accent-text: #0a6b91;
   --c-focus: #0a6b91;
   --c-ok: #107a56;
-  --c-ok-text: #177f5c;
+  /* 白背景・選択行の重ね面の 11px でも 4.5:1 を満たすよう、面より暗い緑にする */
+  --c-ok-text: #147151;
   --c-warn: #a06200;
+  --c-warn-text: #8a5300;
   --c-danger: #d4495f;
   --c-danger-text: #b72f47;
   --c-glow: rgba(99, 198, 238, 0.18);
@@ -1670,6 +1682,13 @@
   .settings-view {
     animation: settings-view-in 180ms ease-out;
   }
+  /* 実行状況 (全スペース横断) のページ。チャットと同じマスへ重ね、出入りは設定ページと同じ動きにする */
+  .activity-view {
+    animation: settings-view-in 180ms ease-out;
+  }
+  .activity-view[data-closing="true"] {
+    animation: settings-view-out 180ms ease-out forwards;
+  }
   .settings-view[data-closing="true"] {
     animation: settings-view-out 180ms ease-out forwards;
   }
@@ -1700,7 +1719,9 @@
     .files-sheet,
     .files-sheet[data-closing="true"],
     .settings-view,
-    .settings-view[data-closing="true"] {
+    .settings-view[data-closing="true"],
+    .activity-view,
+    .activity-view[data-closing="true"] {
       animation-duration: 0.01ms;
     }
     .chat-view,

@@ -19,7 +19,8 @@ const DOT_TONE: Record<SidebarStatus["tone"], string> = {
 /** バッジの色は serve-badge-* に倣う。上下の余白を持たず、2 行目の高さと折り返しを変えない */
 const LABEL_TONE: Record<SidebarStatus["tone"], string> = {
   live: cn("border-accent/40 bg-accent/10 text-accent-text"),
-  waiting: cn("border-warn/40 bg-warn/10 text-warn"),
+  // 11px の文字なので、面の warn ではなく 4.5:1 を満たす文字用のトークンを使う
+  waiting: cn("border-warn/40 bg-warn/10 text-warn-text"),
   idle: "",
 };
 
@@ -84,7 +85,11 @@ export function SessionRow({
               ) : null}
               <strong className="truncate text-xs text-ink">{item.title || "無題のセッション"}</strong>
             </span>
-            <small className="flex min-w-0 items-center gap-1 text-2xs text-ink-muted">
+            {/* 選択行は accent-wash を重ねた面になるため、10px のメタは ink-soft まで上げる
+                (非選択の ink-muted はそのままにし、一覧の情報階層を変えない) */}
+            <small
+              className={cn("flex min-w-0 items-center gap-1 text-2xs", active ? "text-ink-soft" : "text-ink-muted")}
+            >
               {/* アイコンはエージェント名の隣にだけ置く (名前が無いセッションでは時刻から始める) */}
               {item.agentName ? <AgentIcon icon={agentIconOf(agents, item.agentId)} variant="inline" /> : null}
               <span className="flex-1 truncate">{bits.join(" · ")}</span>

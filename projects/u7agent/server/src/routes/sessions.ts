@@ -83,7 +83,14 @@ export function createSessionRoutes({
   };
 
   return {
-    list: (c: Context) => c.json({ sessions: store.list(c.req.query("spaceId") ?? "default") }),
+    /**
+     * 一覧。`scope=all` は全スペースの会話を返し、省略時は従来どおり `spaceId` (既定 default) で絞る。
+     * 全スペース一覧も既存の summary 計算の使い回しで、絞り込みを外すだけ。
+     */
+    list: (c: Context) => {
+      const allSpaces = c.req.query("scope") === "all";
+      return c.json({ sessions: store.list(allSpaces ? undefined : (c.req.query("spaceId") ?? "default")) });
+    },
 
     create: async (c: Context, body: CreateSessionBody) => {
       const record = await store.create({
