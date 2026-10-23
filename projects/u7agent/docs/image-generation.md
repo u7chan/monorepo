@@ -2,8 +2,8 @@
 
 チャットから画像を生成し、セッションの作業フォルダへ保存する。生成そのものは BFF が provider（v1 は OpenRouter）の画像専用 API（`POST {baseUrl}/images`）へ要求し、保存だけをサンドボックスの upload API へ委譲する（BFF は作業領域に触らない）。provider の APIキーは 設定 → コンテンツ生成（`/settings/content`）で登録し、アプリ DB の `content_settings` に**平文**で保存する。モデルの選択肢は OpenRouter の画像モデル API（`GET /api/v1/images/models`）を正とし、取得できないときは前回の成功（アプリ DB のキャッシュ）→ SDK 同梱の順に落ちる。保存名を決められない形式（svg など）しか返さないモデルは選択肢から外し、生成前にも止める（[保存できない形式のモデル](#保存できない形式のモデル)）。
 
-- 画像専用のキー・モデルを `provider_credentials` とは別に管理する。プロバイダー登録済みキーは流用せず、設定 → コンテンツ生成で登録したキーだけを使う（別 provider のキーへ黙って切り替えない）
-- キーが有効（`content_settings` に行がある）ときだけ、モデルへ `generate_image` を見せる。未設定ならツール一覧に現れない
+- コンテンツ生成の共有キーと画像モデルを `provider_credentials` とは別に管理する。キーはTTS・[BGM](bgm-generation.md) と共有するが、会話プロバイダー登録済みキーは流用しない（別 provider のキーへ黙って切り替えない）。
+- コンテンツ生成のゲートとエージェントの `toolNames` の積が有効なときだけ、モデルへ `generate_image` を見せる。未設定ならツール一覧に現れない。
 - ツールは **BFF ローカル**（`server/src/image-tools.ts`）。サンドボックスのリモート定義ではなく、`createRemoteToolDefinitions` / `REMOTE_TOOL_NAMES` の外にあり、`PI_AGENT_TOOLS` の影響を受けない。エージェント定義の `toolNames` では外せる（[api-catalog.md](api-catalog.md#ツール許可リスト)）
 - 保存は `workspace.uploadFile({ dir, name })`。`dir` は root 相対で渡す（BFF がセッション cwd を前置する 1 段。`projects.ts` の cwd 解決とは混ぜない）
 - 設定画面は 設定 → コンテンツ生成（`/settings/content`）で操作する。API は [api.md](api.md#コンテンツ生成) を参照
@@ -93,7 +93,7 @@ cp generated/cafe-1.png assets/cafe-latest.png
 
 ## 有効化（ゲート）
 
-`content_settings` の行の有無だけがゲートで、`PiBff.contentGenerationEnabled` と `PiBff.setContentGeneration()` がその写し先になる。
+`content_settings` の行の有無がコンテンツ生成のゲートで、`PiBff.contentGenerationEnabled` と `PiBff.setContentGeneration()` がその写し先になる。公開時にはさらにエージェントの `toolNames` との積を取る。画像・TTS・BGMは同じゲートを共有する。
 
 - `bootstrap.ts` は `AppDb.open()` の後、`ModelSettingsService.applyStored()` と同じ順序で `ContentSettingsService.applyStored()` を呼ぶ。行があれば（キーをマスカーへ登録してから）有効化し、行が無ければ無効のまま起動する
 - キー登録・削除の API は**同じミューテーションロックの内側**で `setContentGeneration()` を更新する。次のセッション作成から効き、再起動は要らない

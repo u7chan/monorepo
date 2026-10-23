@@ -247,6 +247,7 @@ GUI で登録するスキル定義と `agents.skillIds` の割り当て（DB カ
 - 上限は 200 件 / 1 件 200 文字で、trim / 空文字の除去 / 重複排除は保存時に行い、非配列と上限超過は 400。上限はスキル名とは別の定数（ツール名はワークスペースの名前に縛られないため、同じ根拠を使い回さない）。
 - 実在しない名前も保存できる（一覧の入れ替えで保存値を書き換えない）。実行時は無視され、エージェント編集のツール欄は「見つかりません」として出す。
 - **実効はアプリ側の可否との積**で、どちらかが OFF なら OFF。アプリ側には `PI_AGENT_TOOLS`（デプロイ側の上限）、コンテンツ生成のキー、Web 検索の実行時トグル、`serve` / `ask_user` / `investigate` の実体の有無が入る。`available: false` の行はチェックが入っていても使えず、理由（`deploy_allowlist` / `app_disabled` / `no_key`）を画面の行に出す。
+- `generate_bgm` も画像・TTSと同じ共有キーのゲートを使うBFFローカルツール。`toolNames` の積を登録名・定義・カタログに揃え、調査子やremoteツールには公開しない（[bgm-generation.md](bgm-generation.md)）。
 - セッションは作成時の値をスナップショットとして持ち、復元はそれを使う（[api-sessions.md](api-sessions.md#get-apisessionsidskills) と同じ規則）。定義を編集しても既存の会話の振る舞いは変わらない。子セッション（`investigate`）へは親の許可リストを読み取り専用の集合との積で引き継ぐ（[subagent.md](subagent.md)）。
 
 ```json

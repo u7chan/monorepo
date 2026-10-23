@@ -1244,7 +1244,6 @@ test("the built-in agent rejects updates and deletes", async () => {
 
 test("GET /api/agents はアプリ側の可否つきでツールの一覧を返す", async () => {
   // stub の実効は sandbox = ["read"] / コンテンツ生成なし / 他は有効。
-  // 行は常に 13 件返し、使えない行には理由コードを載せる (文言は client の lib が持つ)
   const bff = await createBffApp({ cwd: "/tmp/project", sessionStoreDir: null, pi: asPiBff(createStubPi()) });
   try {
     const catalog = (await jsonBody(bff.app.request("/api/agents"))) as {
@@ -1263,6 +1262,7 @@ test("GET /api/agents はアプリ側の可否つきでツールの一覧を返�
         ["web_search", "app", true, undefined],
         ["generate_image", "app", false, "no_key"],
         ["generate_speech", "app", false, "no_key"],
+        ["generate_bgm", "app", false, "no_key"],
         ["serve", "app", true, undefined],
         ["ask_user", "app", true, undefined],
         ["investigate", "app", true, undefined],

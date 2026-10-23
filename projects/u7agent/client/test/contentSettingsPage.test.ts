@@ -21,6 +21,7 @@ const CONTENT_SETTINGS: ContentSettingsResponse = {
   configured: true,
   provider: "openrouter",
   runtimeAvailable: true,
+  bgm: { model: "google/lyria-3-clip-preview", format: "mp3", expectedDurationSeconds: 30 },
   image: {
     model: "openai/gpt-image-2",
     models: [
@@ -87,15 +88,16 @@ function render(
   );
 }
 
-test("設定済みでは「画像生成 / 音声（TTS）」の 2 タブを出し、既定は画像生成", () => {
+test("設定済みでは画像・TTS・BGMのタブを出し、既定は画像生成", () => {
   const html = render(contentSettings());
   assert.ok(html.includes("CONTENT"), "eyebrow は CONTENT");
   assert.ok(html.includes("コンテンツ生成"), "セクション名を見出しに出す");
   assert.ok(html.includes('role="tablist"'), "タブ行を出す");
   assert.ok(html.includes('aria-label="コンテンツ生成の設定"'), "タブ行のラベルを渡す");
-  assert.equal((html.match(/role="tab"/g) ?? []).length, 2, "タブは 2 つ");
+  assert.equal((html.match(/role="tab"/g) ?? []).length, 3, "画像・TTS・BGM");
   assert.match(html, /<button[^>]*aria-selected="true"[^>]*>画像生成/, "既定は「画像生成」");
   assert.ok(html.includes("音声（TTS）"), "音声のタブを出す");
+  assert.ok(html.includes("音楽（BGM）"), "BGMのタブを出す");
   assert.ok(html.includes('aria-label="コンテンツ生成のモデル"'), "本文は画像の面を出す");
   assert.equal(html.includes("お試し再生"), false, "もう一方の面は出さない");
   assert.ok(html.includes('type="password"'), "APIキーの入力を出す");
@@ -104,6 +106,22 @@ test("設定済みでは「画像生成 / 音声（TTS）」の 2 タブを出�
   const calls: ContentSubsection[] = [];
   render(contentSettings(), { onSelectContentSubsection: (value) => calls.push(value) });
   assert.deepEqual(calls, [], "描画だけでは切替を要求しない");
+});
+
+test("URLがBGMを指すと固定モデルの読取専用面だけを出し、試し生成は提供しない", () => {
+  const html = render(contentSettings(), { contentSubsection: "bgm" });
+  assert.match(html, /<button[^>]*aria-selected="true"[^>]*>音楽（BGM）/);
+  assert.match(
+    html,
+    /<input[^>]*aria-label="BGM生成の固定モデル"[^>]*readOnly=""[^>]*value="google\/lyria-3-clip-preview"/i,
+  );
+  assert.match(html, /30秒のクリップ/);
+  assert.match(html, /課金対象/);
+  assert.match(html, /外部送信/);
+  assert.match(html, /ボーカルなし.*保証しません/);
+  assert.equal(html.includes("お試し再生"), false);
+  assert.equal(html.includes('aria-label="音声生成のモデル"'), false);
+  assert.equal(html.includes('aria-label="コンテンツ生成のモデル"'), false);
 });
 
 test("URL が音声を指すときは音声タブを選び、音声の面だけを出す", () => {

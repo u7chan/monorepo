@@ -25,6 +25,7 @@ function settings(speech: Partial<ContentSpeechSettings> = {}): ContentSettingsR
     configured: true,
     provider: "openrouter",
     runtimeAvailable: true,
+    bgm: { model: "google/lyria-3-clip-preview", format: "mp3", expectedDurationSeconds: 30 },
     image: { model: "openai/gpt-image-2", models: [], catalogSource: "live", fetchedAt: null },
     speech: {
       model: "google/gemini-3.8-flash-tts",

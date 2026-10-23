@@ -27,7 +27,7 @@ function speechPlayersOf(
   const players: SpeechPlayer[] = [];
   for (const badge of badges) {
     const { kind, path } = badge.info;
-    if (kind !== "speech" || path === undefined) continue;
+    if ((kind !== "speech" && kind !== "bgm") || path === undefined) continue;
     const resolved = resolveFileRef(path, rootCwd, cwd);
     if (resolved === null) continue;
     const fetchPath = fileTreeFetchPath(cwd, resolved);

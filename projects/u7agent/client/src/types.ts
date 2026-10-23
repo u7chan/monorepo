@@ -20,6 +20,7 @@ export type {
   ContentMutationResponse,
   ContentSettingsResponse,
   ContentSpeechSettings,
+  ContentBgmSettings,
   ContextUsage,
   CreateAgentBody,
   CreateFileSkillBody,

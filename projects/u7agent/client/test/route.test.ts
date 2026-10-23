@@ -84,6 +84,7 @@ test("parseRoute は pathname だけで画面を決め、表のとおりに畳�
     ["/s/%E3%82%BB%E3%83%83%E3%82%B7%E3%83%A7%E3%83%B3", sessionUrl("セッション")],
     // 設定 (大文字・末尾スラッシュ・連続スラッシュ・percent encoding は正準形へ畳む)
     ["/settings/files", settings("files")],
+    ["/settings/content/bgm", contentTab("bgm")],
     // 旧 設定 → ダウンロード (/settings/archive) はファイルの「ダウンロードの除外」タブへ読み替える
     ["/settings/archive", filesTab("archive")],
     ["/Settings/ARCHIVE/", filesTab("archive")],

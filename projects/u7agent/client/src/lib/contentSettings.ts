@@ -22,9 +22,9 @@ import { messageFor } from "./settingsResource";
 export const CONTENT_SETTINGS_NOTE = "コンテンツ生成の設定はサーバーに保存され、再起動後も残ります。";
 
 export const CONTENT_KEY_SAVED_NOTE =
-  "コンテンツ生成のAPIキーを保存しました。新しい会話から generate_image と generate_speech を使えます。";
+  "コンテンツ生成のAPIキーを保存しました。新しい会話から generate_image・generate_speech・generate_bgm を使えます。";
 export const CONTENT_KEY_DELETED_NOTE =
-  "コンテンツ生成のAPIキーを削除しました。generate_image と generate_speech は新しい会話から使えません。";
+  "コンテンツ生成のAPIキーを削除しました。generate_image・generate_speech・generate_bgm は新しい会話から使えません。";
 export const CONTENT_MODEL_SAVED_NOTE = "画像生成のモデルを保存しました。";
 export const CONTENT_SPEECH_SAVED_NOTE = "音声生成のモデルとボイスを保存しました。";
 
@@ -293,7 +293,7 @@ export function deleteContentKeyConfirmRequest(providerName: string): ConfirmReq
     title: "コンテンツ生成のAPIキーを削除",
     subject: { label: "対象の provider", value: providerName },
     body: [
-      "generate_image と generate_speech は新しい会話で使えなくなり、既存の会話で実行するとキー無効エラーになります。",
+      "generate_image・generate_speech・generate_bgm は新しい会話で使えなくなり、既存の会話で実行するとキー無効エラーになります。",
     ],
     confirmLabel: "削除する",
     danger: true,

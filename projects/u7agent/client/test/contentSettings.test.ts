@@ -56,6 +56,7 @@ function settings(
     configured: true,
     provider: "openrouter",
     runtimeAvailable: true,
+    bgm: { model: "google/lyria-3-clip-preview", format: "mp3", expectedDurationSeconds: 30 },
     image: {
       model: "openai/gpt-image-2",
       models: [

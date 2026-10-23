@@ -34,6 +34,7 @@ desktop と singleColumn の両方で次を確認する。
 
 ```bash
 # terminal 1: 実ファイル操作用の一時サンドボックス
+mkdir -p "$ROOT/workspace" "$ROOT/store"
 PI_SANDBOX_CWD="$ROOT/workspace" PI_SANDBOX_TOKEN=spaces-e2e-local-token \
   SANDBOX_HOST=127.0.0.1 SANDBOX_PORT=17991 pnpm --filter server start:sandbox
 
@@ -63,6 +64,22 @@ done
 ```
 
 右パネルの作業フォルダ面でも同じ場所が見えるので、置いたファイルはそこで確認できる。ファイルを置かなくてもキャプションは出る（画像の読み込みに失敗しても対応が取れていれば出す）。配信の失敗として見えるのは画像 / 音声そのもので、キャプションの有無とは別に切り分ける。
+
+## BGMの課金なし受入
+
+[有料APIを使わないGUI fixture](#有料-api-を使わない-gui-fixture) と同じ一時ストア・workspace・別ポートを使い、通常の `pnpm dev` や既存 `.env` は使わない。fixtureの画像・TTSカタログもstubで、共有キー登録には `bgm-fixture-dummy-key` のようなダミーだけを使う（実キーは不要）。設定 → コンテンツ生成の音楽（BGM）（`/settings/content/bgm`）を開き、固定モデル、モデル仕様の尺、課金・外部送信・無保証の注意を確認する。リロード後もURLと面が復元され、お試し生成やvoice選択が出ないことを見る。画像とTTSの既存面・TTSお試し再生も確認する。
+
+チャットで `BGMバッジ` / `BGM混在` / `BGM失敗` を送ると、**実ツールを実行せず手書きの結果本文**を流す。混在はBGM複数とTTS、失敗はプレイヤーなしのカード。実ファイルは[生成物の置き方](#生成物の実ファイルの置き方)と同じく会話cwd配下へ置く。既存のローカルffmpegがある場合だけ、例えば次で短い合成音を用意できる（製品へffmpegを導入しない。以下はLyriaの生成物でも実APIのfixtureでもない）。SESSIONは会話IDを確認してから指定し、プロジェクト会話ならそのcwdにする。
+
+```bash
+SESSION="$ROOT/workspace/.u7agent/sessions/<id>"
+mkdir -p "$SESSION/generated"
+ffmpeg -f lavfi -i "sine=frequency=440:duration=2" -c:a libmp3lame "$SESSION/generated/bgm-racing.mp3"
+cp "$SESSION/generated/bgm-racing.mp3" "$SESSION/generated/bgm-racing-1.mp3"
+cp "$SESSION/generated/bgm-racing.mp3" "$SESSION/generated/night-platform-cat-intro.mp3"
+```
+
+desktopとsingleColumnで、BGMラベル・モデル・実パス・caption、複数プレイヤーとTTSだけのvoice欄、F5後の履歴復元を確認する。再生・停止・シークでraw/Range以外の生成要求が増えず、自動再生しないこともNetworkと実ブラウザー操作で確認する。結果と未実施項目はPRへ記録する。**合成音の再生成功を、Lyriaの実API契約・生成MP3・所要時間・料金の確認済みとは扱わない**（[実API受入の保留](bgm-generation.md#検証と実apiの保留項目)）。
 
 ## client の棚卸し
 

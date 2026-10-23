@@ -38,6 +38,7 @@ function settings(
     configured: true,
     provider: "openrouter",
     runtimeAvailable: true,
+    bgm: { model: "google/lyria-3-clip-preview", format: "mp3", expectedDurationSeconds: 30 },
     image: { model: "openai/gpt-image-2", models: MODELS, catalogSource: "live", fetchedAt: null, ...image },
     speech: {
       model: "google/gemini-3.8-flash-tts",
@@ -93,7 +94,7 @@ test("未設定ではキー入力だけを出し、モデル選択と削除は�
   assert.ok(html.includes('type="password"'), "キー入力を出す");
   assert.match(html, /<input[^>]*(?:autoComplete|autocomplete)="off"/, "再表示しない前提なので autocomplete を切る");
   assert.ok(
-    html.includes("OpenRouter のコンテンツ生成（画像 / 音声）で共有するキーです"),
+    html.includes("OpenRouter のコンテンツ生成（画像 / 音声 / BGM）で共有するキーです"),
     "どの provider のキーかと、別管理であることを出す",
   );
   assert.equal(html.includes("画像生成専用のキー"), false, "音声と共有するため画像専用とは書かない");

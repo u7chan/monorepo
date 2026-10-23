@@ -58,6 +58,13 @@ const TOOL_REGISTRY: readonly ToolRegistryEntry[] = [
     offReason: "no_key",
   },
   {
+    name: "generate_bgm",
+    description: "インストゥルメンタルBGMを生成してMP3を作業フォルダへ保存する",
+    group: "app",
+    gate: "contentGeneration",
+    offReason: "no_key",
+  },
+  {
     name: "serve",
     description: "アプリを起動・確認・停止する（UI 上の呼称は「サービス」）",
     group: "app",

@@ -10,6 +10,7 @@ import { INVESTIGATE_TOOL_NAME } from "../src/investigate-tool";
 import { REMOTE_TOOL_NAMES } from "../src/sandbox/remote-tools";
 import { SERVE_TOOL_NAME } from "../src/serve-tool";
 import { SPEECH_TOOL_NAME } from "../src/speech-tools";
+import { BGM_TOOL_NAME } from "../src/bgm-tools";
 import { toolCatalog, type ToolAvailability } from "../src/tool-catalog";
 import { WEB_SEARCH_TOOL_NAME } from "../src/web-search-tool";
 
@@ -29,6 +30,7 @@ const APP_TOOL_NAMES = [
   WEB_SEARCH_TOOL_NAME,
   IMAGE_TOOL_NAME,
   SPEECH_TOOL_NAME,
+  BGM_TOOL_NAME,
   SERVE_TOOL_NAME,
   ASK_USER_TOOL_NAME,
   INVESTIGATE_TOOL_NAME,
@@ -38,6 +40,7 @@ const APP_TOOL_NAMES = [
 const REGISTERED_APP_NAMES = [
   IMAGE_TOOL_NAME,
   SPEECH_TOOL_NAME,
+  BGM_TOOL_NAME,
   SERVE_TOOL_NAME,
   WEB_SEARCH_TOOL_NAME,
   ASK_USER_TOOL_NAME,
@@ -53,7 +56,7 @@ function entry(name: string, availability: ToolAvailability = OPEN) {
 /** 意図的に全 OFF にした組み合わせは、アプリ側の理由コードとして出る */
 test("レジストリは作業ツールとアプリのツールを種別つきで並べる", () => {
   const catalog = toolCatalog(OPEN);
-  assert.equal(catalog.length, 13);
+  assert.equal(catalog.length, 14);
   assert.deepEqual(
     catalog.filter((tool) => tool.group === "sandbox").map((tool) => tool.name),
     ALL_SANDBOX_TOOLS,
@@ -102,6 +105,7 @@ test("アプリのツールはキー・実行時トグル・実体の有無で�
     reason: "no_key",
   });
   assert.equal(entry(SPEECH_TOOL_NAME, { ...OPEN, contentGeneration: false }).reason, "no_key");
+  assert.equal(entry(BGM_TOOL_NAME, { ...OPEN, contentGeneration: false }).reason, "no_key");
 
   for (const [name, patch] of [
     [WEB_SEARCH_TOOL_NAME, { webSearch: false }],

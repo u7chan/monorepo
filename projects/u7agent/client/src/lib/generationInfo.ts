@@ -7,7 +7,7 @@ import { fileTreeFetchPath } from "./fileTree";
 import { resolveFileRef } from "./fileRef";
 import { headValue } from "./toolOutput";
 
-export type GenerationKind = "image" | "speech";
+export type GenerationKind = "image" | "speech" | "bgm";
 
 export type GenerationInfo = {
   kind: GenerationKind;
@@ -24,12 +24,14 @@ const VOICE_LINE = "ボイス:";
 const PATH_LINE: Record<GenerationKind, string> = {
   image: "画像を生成して保存しました:",
   speech: "音声を生成して保存しました:",
+  bgm: "BGMを生成して保存しました:",
 };
 
 /** server の定数を import すると client が server の module を辿るため、ツール名はここで literal に持つ */
 function generationKindOf(name: string): GenerationKind | undefined {
   if (name === "generate_image") return "image";
   if (name === "generate_speech") return "speech";
+  if (name === "generate_bgm") return "bgm";
   return undefined;
 }
 
