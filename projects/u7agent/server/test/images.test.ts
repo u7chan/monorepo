@@ -271,3 +271,77 @@ test("SDK カタログに無い id (live のみのモデル) も provider の UR
     n: 1,
   });
 });
+
+// --- 参照画像（input_references）。指定時だけ送り、入力の base64 は結果へ出さない ---
+
+test("参照ありは /images へ input_references を指定順で送り、chat/completions へ戻らない", async () => {
+  const { requests, fetchImpl } = stubFetch(() =>
+    imageResponse({ data: [{ b64_json: "aGVsbG8=", media_type: "image/png" }] }),
+  );
+  const generator = createImagesGenerator({ models: () => stubModels(), fetchImpl });
+  const inputReferences = ["data:image/png;base64,iVBORw0KGgo=", "data:image/webp;base64,UklGRg=="];
+  const result = await generator.generate({ ...baseInput, inputReferences });
+  assert.equal(result.ok, true);
+  assert.equal(requests.length, 1);
+  assert.equal(requests[0]?.url, "https://stub.invalid/api/v1/images");
+  assert.deepEqual(JSON.parse(String(requests[0]?.init?.body)), {
+    model: "stub-image",
+    prompt: "a cafe",
+    n: 1,
+    input_references: inputReferences.map((url) => ({ type: "image_url", image_url: { url } })),
+  });
+});
+
+test("input_references が空配列なら従来の送信 JSON のまま", async () => {
+  const { requests, fetchImpl } = stubFetch(() => imageResponse({ data: [{ b64_json: "aGVsbG8=" }] }));
+  const generator = createImagesGenerator({ models: () => stubModels(), fetchImpl });
+  await generator.generate({ ...baseInput, inputReferences: [] });
+  assert.deepEqual(JSON.parse(String(requests[0]?.init?.body)), { model: "stub-image", prompt: "a cafe", n: 1 });
+});
+
+test("参照ありでも失敗分類・timeout・中断の扱いは変わらない", async () => {
+  // 401 はキー無効のまま
+  const invalidKey = stubFetch(() => errorResponse(401));
+  const rejected = await createImagesGenerator({
+    models: () => stubModels(),
+    fetchImpl: invalidKey.fetchImpl,
+  }).generate({ ...baseInput, inputReferences: ["data:image/png;base64,iVBORw0KGgo="] });
+  assert.equal(rejected.ok, false);
+  if (rejected.ok) return;
+  assert.equal(rejected.code, "invalid_key");
+
+  // ユーザー中断は aborted として分類する
+  const controller = new AbortController();
+  const hanging = stubFetch(
+    (request) =>
+      new Promise<Response>((_resolve, reject) => {
+        request.init?.signal?.addEventListener("abort", () => reject(new Error("aborted")));
+      }),
+  );
+  const aborted = createImagesGenerator({ models: () => stubModels(), fetchImpl: hanging.fetchImpl }).generate({
+    ...baseInput,
+    inputReferences: ["data:image/png;base64,iVBORw0KGgo="],
+    signal: controller.signal,
+  });
+  queueMicrotask(() => controller.abort());
+  const abortedResult = await aborted;
+  assert.equal(abortedResult.ok, false);
+  if (abortedResult.ok) return;
+  assert.equal(abortedResult.code, "aborted");
+});
+
+test("provider のエラー本文が入力の data URL / base64 を反射しても結果へ出さない", async () => {
+  const dataUrl =
+    "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
+  const payload = dataUrl.split(",")[1] as string;
+  const { fetchImpl } = stubFetch(() => errorResponse(400, `invalid image: ${dataUrl} (raw ${payload})`));
+  const result = await createImagesGenerator({ models: () => stubModels(), fetchImpl }).generate({
+    ...baseInput,
+    inputReferences: [dataUrl],
+  });
+  assert.equal(result.ok, false);
+  if (result.ok) return;
+  assert.ok(!result.message.includes(payload), "入力の base64 が結果へ出ている");
+  assert.ok(!result.message.includes("data:image/png"), "data URL が結果へ出ている");
+  assert.match(result.message, /image omitted/);
+});

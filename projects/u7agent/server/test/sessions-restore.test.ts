@@ -6,6 +6,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import { createAgentCatalog } from "../src/agents";
+import { sessionUploadsRel } from "../src/app-paths";
 import { BUILTIN_SKILLS } from "../src/builtin-skills";
 import { ProjectStore } from "../src/projects";
 import type { SandboxWorkspaceClient } from "../src/sandbox/client";
@@ -229,6 +230,8 @@ test("永続化したセッションを新しい store が復元し、続きか�
     const record = await store1.create();
     assert.match(record.id, /^[0-9a-f]{10}$/);
     assert.equal(record.workdir, `.u7agent/sessions/${record.id}`, "作業フォルダを cwd にする");
+    // 参照画像の添付許可範囲は保存先と同じ関数で決め、作成時にツールへ渡す
+    assert.equal(pi1.createInputs.at(-1)?.uploadsDirRel, sessionUploadsRel(record.id));
     assert.deepEqual(dirs, [record.workdir], "作業フォルダはサンドボックスに作らせる");
 
     store1.postMessage(record, "こんにちは");
@@ -270,6 +273,7 @@ test("永続化したセッションを新しい store が復元し、続きか�
     const input = pi2.createInputs.at(-1);
     assert.equal(input?.sessionId, record.id, "SDK へアプリの id を渡す");
     assert.equal(input?.cwd, record.workdir);
+    assert.equal(input?.uploadsDirRel, sessionUploadsRel(record.id), "復元でも同じ添付置き場を渡す");
     assert.equal(input?.entries?.length, 2, "JSONL の entry を SDK へ渡す");
     assert.match(input?.promptSnapshot?.agent ?? "", /<agent_profile/);
 

@@ -244,3 +244,192 @@ test("キャッシュが読めない / 保存できないときも、いま返�
     "[u7agent] image catalog cache save failed",
   ]);
 });
+
+// --- 参照画像入力の宣言と endpoint 確認（課金前判定） ---
+
+const LIVE_WITH_INPUT = [
+  {
+    id: "openai/gpt-image-2",
+    name: "GPT Image 2",
+    architecture: { input_modalities: ["text", "image"] },
+    supported_parameters: { input_references: { type: "range", min: 1, max: 16 } },
+    endpoints: "/api/v1/images/models/openai/gpt-image-2/endpoints",
+  },
+  {
+    id: "recraft/recraft-v4.1-flash",
+    name: "Recraft V4.1 Flash",
+    architecture: { input_modalities: ["text"] },
+  },
+  // 宣言が無いモデルは「不明」として残す
+  { id: "text-only/no-declaration", name: "No Declaration" },
+];
+
+/** テストごとに models と endpoints を振り分ける fetch を作る。endpoint 応答は URL ごとに差し替える */
+function createWithInputs(endpointResponse: (url: string) => Response | Promise<Response>) {
+  const store = new FakeCatalogStore();
+  const calls: string[] = [];
+  const fetchImpl = (async (input: string | URL | Request) => {
+    const url = String(input);
+    calls.push(url);
+    if (url === IMAGE_CATALOG_URL) return jsonResponse({ data: LIVE_WITH_INPUT });
+    return endpointResponse(url);
+  }) as typeof fetch;
+  const catalog = createImageCatalog({
+    store,
+    fetchImpl,
+    now: () => 1000,
+    timeoutMs: 50,
+    sdkCatalog: () => [],
+  });
+  return { catalog, store, calls };
+}
+
+function endpointBody(references: unknown[]): unknown {
+  return {
+    data: references.map((inputReferences) => ({
+      supported_parameters: inputReferences === undefined ? {} : { input_references: inputReferences },
+    })),
+  };
+}
+
+test("live の入力宣言（モダリティ / 参照枚数 / endpoints）を取り込み、キャッシュへ往復させる", async () => {
+  const { catalog, store } = createWithInputs(() => jsonResponse(endpointBody([{ min: 1, max: 16 }])));
+  assert.equal(await catalog.refresh(), null);
+  const declaration = {
+    modalities: ["text", "image"],
+    references: { min: 1, max: 16 },
+    endpoints: ["/api/v1/images/models/openai/gpt-image-2/endpoints"],
+  };
+  assert.deepEqual(catalog.imageInputOf("openai/gpt-image-2"), declaration);
+  assert.deepEqual(store.row?.models[0]?.input, declaration);
+  // 画像入力の宣言は UI 向けの models には載せない（サーバー側の判定だけが使う）
+  assert.equal(catalog.snapshot().entries.find((entry) => entry.id === "openai/gpt-image-2")?.input, undefined);
+
+  // キャッシュから読んでも同じ宣言になる
+  const restored = createImageCatalog({ store, fetchImpl: (async () => jsonResponse({})) as typeof fetch });
+  restored.loadStored();
+  assert.deepEqual(restored.imageInputOf("openai/gpt-image-2"), declaration);
+});
+
+test("旧キャッシュ（入力宣言なし）は不明として読み、編集だけを止める", async () => {
+  const store = new FakeCatalogStore();
+  store.row = { fetchedAt: 500, models: [{ id: "openai/gpt-image-2", name: "GPT Image 2" }] };
+  const calls: string[] = [];
+  const catalog = createImageCatalog({
+    store,
+    fetchImpl: (async (input: string | URL | Request) => {
+      calls.push(String(input));
+      return jsonResponse(endpointBody([{ min: 1, max: 1 }]));
+    }) as typeof fetch,
+  });
+  catalog.loadStored();
+  assert.equal(catalog.imageInputOf("openai/gpt-image-2"), undefined);
+  assert.match((await catalog.checkImageInput("openai/gpt-image-2")) ?? "", /カタログ更新/);
+  assert.deepEqual(calls, [], "宣言が不明なら endpoint 一覧を引きに行かない");
+});
+
+test("宣言が非対応なら endpoint を引かずに課金前で止める", async () => {
+  const { catalog, calls } = createWithInputs(() => jsonResponse(endpointBody([{ min: 1, max: 1 }])));
+  await catalog.refresh();
+  assert.match((await catalog.checkImageInput("recraft/recraft-v4.1-flash")) ?? "", /対応していません/);
+  assert.match((await catalog.checkImageInput("text-only/no-declaration")) ?? "", /確認できませんでした/);
+  assert.deepEqual(calls, [IMAGE_CATALOG_URL], "models 取得以外の通信をしていない");
+});
+
+test("endpoint が 1 枚を許容すれば通り、混在・非対応・契約外は課金前に止める", async () => {
+  const supported = createWithInputs(() =>
+    jsonResponse(
+      endpointBody([
+        { min: 1, max: 16 },
+        { min: 0, max: 4 },
+      ]),
+    ),
+  );
+  await supported.catalog.refresh();
+  assert.equal(await supported.catalog.checkImageInput("openai/gpt-image-2"), undefined);
+  assert.deepEqual(supported.calls, [
+    IMAGE_CATALOG_URL,
+    "https://openrouter.ai/api/v1/images/models/openai/gpt-image-2/endpoints",
+  ]);
+  // 認証ヘッダは付けない（一覧 API と同じ契約）
+  const mixed = createWithInputs(() =>
+    jsonResponse(
+      endpointBody([
+        { min: 1, max: 16 },
+        { min: 2, max: 4 },
+      ]),
+    ),
+  );
+  await mixed.catalog.refresh();
+  assert.match((await mixed.catalog.checkImageInput("openai/gpt-image-2")) ?? "", /参照画像を受け付ける経路を 1 つも/);
+
+  const zero = createWithInputs(() => jsonResponse(endpointBody([{ min: 0, max: 0 }])));
+  await zero.catalog.refresh();
+  assert.match((await zero.catalog.checkImageInput("openai/gpt-image-2")) ?? "", /経路を 1 つも/);
+
+  const numeric = createWithInputs(() => jsonResponse(endpointBody([1])));
+  await numeric.catalog.refresh();
+  assert.equal(
+    await numeric.catalog.checkImageInput("openai/gpt-image-2"),
+    undefined,
+    "数値宣言は 1 点の range として読む",
+  );
+
+  for (const response of [
+    () => jsonResponse({ data: [] }),
+    () => jsonResponse({}),
+    () => new Response("boom", { status: 500 }),
+    () => new Response("not json", { status: 200 }),
+    () => jsonResponse(endpointBody([undefined])),
+  ]) {
+    const broken = createWithInputs(response);
+    await broken.catalog.refresh();
+    assert.match((await broken.catalog.checkImageInput("openai/gpt-image-2")) ?? "", /確認できませんでした/);
+  }
+});
+
+test("endpoint 確認は成功だけをメモリに残し、失敗は次の実行で引き直す", async () => {
+  let attempts = 0;
+  const { catalog, calls } = createWithInputs((url) => {
+    attempts += 1;
+    if (attempts === 1) return new Response("boom", { status: 500 });
+    assert.match(url, /\/endpoints$/);
+    return jsonResponse(endpointBody([{ min: 1, max: 4 }]));
+  });
+  await catalog.refresh();
+  assert.match((await catalog.checkImageInput("openai/gpt-image-2")) ?? "", /確認できませんでした/);
+  assert.equal(await catalog.checkImageInput("openai/gpt-image-2"), undefined, "失敗はキャッシュせず再試行する");
+  assert.equal(await catalog.checkImageInput("openai/gpt-image-2"), undefined);
+  assert.equal(attempts, 2, "成功した endpoint 確認はメモリに残す");
+  assert.equal(calls.length, 3, "models 1 回 + endpoints 2 回");
+});
+
+test("endpoint の宣言が無いモデルは慣例パスを編集実行時に引く", async () => {
+  const store = new FakeCatalogStore();
+  const calls: { url: string; headers: Headers | undefined }[] = [];
+  const catalog = createImageCatalog({
+    store,
+    sdkCatalog: () => [],
+    fetchImpl: (async (input: string | URL | Request, init?: RequestInit) => {
+      const url = String(input);
+      calls.push({ url, headers: new Headers(init?.headers) });
+      if (url === IMAGE_CATALOG_URL) {
+        return jsonResponse({
+          data: [
+            {
+              id: "openai/gpt-image-2",
+              name: "GPT Image 2",
+              architecture: { input_modalities: ["text", "image"] },
+              supported_parameters: { input_references: { min: 1, max: 16 } },
+            },
+          ],
+        });
+      }
+      return jsonResponse(endpointBody([{ min: 1, max: 16 }]));
+    }) as typeof fetch,
+  });
+  await catalog.refresh();
+  assert.equal(await catalog.checkImageInput("openai/gpt-image-2"), undefined);
+  assert.equal(calls[1].url, "https://openrouter.ai/api/v1/images/models/openai/gpt-image-2/endpoints");
+  assert.equal(calls[1].headers?.get("authorization"), null, "認証ヘッダを付けている");
+});

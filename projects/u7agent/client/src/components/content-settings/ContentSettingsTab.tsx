@@ -207,6 +207,10 @@ export function ContentSettingsTab({
             生成物はセッションの作業フォルダの <code>generated/</code> に保存され、チャットの画像 /
             音声としてプレビューできます。
           </p>
+          <p>
+            生成済み画像や添付画像を編集に使うと、その画像は外部の provider
+            へ無変換（埋め込みメタデータを含む）で送信されます。
+          </p>
         </section>
       </div>
     </div>

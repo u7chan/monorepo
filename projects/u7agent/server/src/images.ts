@@ -18,6 +18,7 @@ import {
 } from "./provider-failure";
 import type { SpeechGenerationSettings } from "./speech";
 import type { BgmGenerationSettings } from "./bgm";
+import { stripImageInputData } from "./image-format";
 
 /** 失敗の公開分類。分類の規則と provider メッセージの扱いは provider-failure.ts を正とする */
 export type ImageFailureCode = ProviderFailureCode;
@@ -32,6 +33,20 @@ export type ImageGenerationResult =
   | { ok: true; image: GeneratedImage }
   | { ok: false; code: ImageFailureCode; message: string };
 
+/**
+ * 参照画像入力の宣言。live 一覧の `architecture.input_modalities` と
+ * `supported_parameters.input_references`、`endpoints`（endpoint 一覧の URL）から読み、
+ * 無い項目は「不明」として残す（`server/src/image-catalog.ts` が課金前に判定する）。
+ */
+export interface ImageInputDeclaration {
+  /** 入力モダリティ。`image` を含むときだけ画像入力を宣言している */
+  modalities?: string[] | undefined;
+  /** 参照枚数の許容範囲。1 枚が範囲に入るときだけ 1 枚の編集を宣言している */
+  references?: { min: number; max: number } | undefined;
+  /** endpoint 一覧の URL（絶対 / 相対）。省略時は慣例パスを編集実行時に引く */
+  endpoints?: string[] | undefined;
+}
+
 /** カタログ 1 件。UI の選択肢と model の検証はこの一覧を正とする */
 export interface ImageCatalogEntry {
   provider: string;
@@ -42,6 +57,24 @@ export interface ImageCatalogEntry {
    * 載せない（＝形式は不明）。SDK 同梱カタログと、この項目より前に書かれたキャッシュがこれにあたる。
    */
   outputFormats?: string[] | undefined;
+  /** live 一覧が宣言する画像入力の能力。宣言が無い / 形が違うときは「不明」として載せない */
+  input?: ImageInputDeclaration | undefined;
+}
+
+/** 参照画像入力の可否。宣言の不在（不明）と、宣言された非対応を区別する */
+export type ImageInputSupport = "supported" | "unsupported" | "unknown";
+
+/**
+ * 宣言だけから見た 1 枚の参照画像入力の可否。画像入力の可否はモダリティで、参照枚数は range で確かめ、
+ * どちらかが読めなければ「不明」にする（不明は編集を止めるが新規生成は止めない）。
+ */
+export function imageInputSupportOf(input: ImageInputDeclaration | undefined): ImageInputSupport {
+  if (!input) return "unknown";
+  if (input.modalities && !input.modalities.includes("image")) return "unsupported";
+  const references = input.references;
+  if (references && (references.max < 1 || references.min > 1)) return "unsupported";
+  if (!input.modalities || !references) return "unknown";
+  return "supported";
 }
 
 /** 保存できる画像形式の拡張子。`imageExtensionFor` の戻り値と一致させる */
@@ -90,6 +123,11 @@ export interface ContentGenerationConfig {
    * 保存できる形式を 1 つも宣言していないモデルを provider へ送る前に止めるために使う。
    */
   readOutputFormats: (model: string) => readonly string[] | undefined;
+  /**
+   * 参照画像による編集が可能かを課金前に確かめる。可能なら undefined、止めるときは理由の文言を返す
+   * （モデル宣言と endpoint 宣言の両方を見る）。新規生成はここを通らない。
+   */
+  checkImageInput: (model: string, signal?: AbortSignal | undefined) => Promise<string | undefined>;
   /** 実行のたびに現在の音声設定を読む。行が無ければ undefined（未設定・削除後） */
   readSpeech: () => SpeechGenerationSettings | undefined;
   readBgm: () => BgmGenerationSettings | undefined;
@@ -104,6 +142,11 @@ export interface ImageGenerationInput {
   apiKey: string;
   /** ユーザー中断。timeout の自前タイマーとは別に扱う */
   signal?: AbortSignal | undefined;
+  /**
+   * 参照画像（検証済みの data URL）。空 / 省略なら従来どおりの新規生成で、送信 JSON に
+   * `input_references` を付けない。値はツール引数・結果・ログへ出さない。
+   */
+  inputReferences?: readonly string[] | undefined;
 }
 
 export interface ImagesGeneratorOptions {
@@ -170,6 +213,13 @@ function classifyImageFailure(context: ProviderFailureContext): ImageGenerationR
 /** 画像専用 API の URL。baseUrl の末尾スラッシュは 1 本へ畳む */
 function imagesEndpoint(model: ImageModel<ImageApi>): string {
   return `${model.baseUrl.replace(/\/+$/, "")}/images`;
+}
+
+/** data URL の base64 部。provider の応答に反射されたときの除去に使う */
+function base64PayloadsOf(dataUrls: readonly string[]): string[] {
+  return dataUrls
+    .map((url) => /^data:[^,]*,(.*)$/s.exec(url)?.[1])
+    .filter((payload): payload is string => payload !== undefined && payload !== "");
 }
 
 /**
@@ -248,6 +298,15 @@ export function createImagesGenerator(options: ImagesGeneratorOptions = {}): Ima
       const aborted = (): boolean => input.signal?.aborted === true;
 
       let status: number | undefined;
+      const inputReferences = input.inputReferences ?? [];
+      const requestBody: Record<string, unknown> = { model: model.id, prompt: input.prompt, n: 1 };
+      if (inputReferences.length > 0) {
+        // OpenAI 直結 API の /images/edits や multipart は使わない（OpenRouter の /images の契約に合わせる）
+        requestBody.input_references = inputReferences.map((url) => ({ type: "image_url", image_url: { url } }));
+      }
+      // provider のエラー本文が送った入力画像を反射しても、結果・ログ・履歴へ base64 を出さない
+      const scrub = (text: string | undefined): string | undefined =>
+        text === undefined ? undefined : stripImageInputData(text, base64PayloadsOf(inputReferences));
       try {
         const response = await baseFetch(imagesEndpoint(model), {
           method: "POST",
@@ -256,7 +315,7 @@ export function createImagesGenerator(options: ImagesGeneratorOptions = {}): Ima
             authorization: `Bearer ${input.apiKey}`,
             ...model.headers,
           },
-          body: JSON.stringify({ model: model.id, prompt: input.prompt, n: 1 }),
+          body: JSON.stringify(requestBody),
           signal: controller.signal,
         });
         if (!response.ok) status = response.status;
@@ -268,7 +327,7 @@ export function createImagesGenerator(options: ImagesGeneratorOptions = {}): Ima
           status,
           timedOut,
           aborted: aborted(),
-          providerMessage: providerMessageOf(body, text, !response.ok),
+          providerMessage: scrub(providerMessageOf(body, text, !response.ok)),
           maskText,
         });
       } catch (error) {
@@ -277,7 +336,7 @@ export function createImagesGenerator(options: ImagesGeneratorOptions = {}): Ima
           status,
           timedOut,
           aborted: aborted(),
-          providerMessage: message,
+          providerMessage: scrub(message),
           maskText,
         });
       } finally {

@@ -2,6 +2,7 @@
 
 import assert from "node:assert/strict";
 import test from "node:test";
+import { IMAGE_INPUT_MAX_BYTES } from "../src/image-format";
 import { createSandboxToolClient, SandboxRequestError } from "../src/sandbox/client";
 
 const TOKEN = "client-test-token-0123456789";
@@ -454,6 +455,109 @@ test("rawFile keeps 416 as a response and relays other 4xx messages", async () =
     assert.equal(error.message, "Path not found: x");
     return true;
   });
+});
+
+// ---------------------------------------------------------------------------
+// readImageInput (GET /v1/files/image-input。許可範囲付きの入力読取)
+// ---------------------------------------------------------------------------
+
+test("readImageInput sends path and every scope, and returns the received bytes", async () => {
+  const { calls, impl } = stubFetch(
+    () => new Response(new Uint8Array([1, 2, 3]), { status: 200, headers: { "Content-Length": "3" } }),
+  );
+  const client = createSandboxToolClient({ baseUrl: "http://sandbox.test", token: TOKEN, fetchImpl: impl });
+  const controller = new AbortController();
+  const bytes = await client.readImageInput(
+    "generated/a.png",
+    ["projects/app", ".u7agent/uploads/0123456789"],
+    controller.signal,
+  );
+  assert.deepEqual(new Uint8Array(bytes), new Uint8Array([1, 2, 3]));
+  assert.equal(
+    calls[0].url,
+    "http://sandbox.test/v1/files/image-input?path=generated%2Fa.png&scope=projects%2Fapp&scope=.u7agent%2Fuploads%2F0123456789",
+  );
+  assert.equal((calls[0].init?.headers as Record<string, string> | undefined)?.Authorization, `Bearer ${TOKEN}`);
+  assert.ok(calls[0].init?.signal instanceof AbortSignal, "期限付きの signal を渡す");
+});
+
+test("readImageInput propagates the user abort to the request", async () => {
+  const { calls, impl } = stubFetch(
+    (call) =>
+      new Promise<Response>((_resolve, reject) => {
+        call.init?.signal?.addEventListener("abort", () => reject(new Error("aborted")));
+      }),
+  );
+  const client = createSandboxToolClient({ baseUrl: "http://sandbox.test", token: TOKEN, fetchImpl: impl });
+  const controller = new AbortController();
+  const pending = client.readImageInput("x.png", [""], controller.signal);
+  controller.abort();
+  await assert.rejects(pending);
+  const passed = calls[0].init?.signal;
+  assert.ok(passed instanceof AbortSignal);
+  assert.equal(passed.aborted, true, "ユーザー中断を読み取りへ伝播する");
+});
+
+test("readImageInput relays 4xx messages and rejects a truncated or oversized body", async () => {
+  const notFound = createSandboxToolClient({
+    baseUrl: "http://sandbox.test",
+    token: TOKEN,
+    fetchImpl: stubFetch(() => new Response(JSON.stringify({ error: "Path not found: x" }), { status: 404 })).impl,
+  });
+  await assert.rejects(notFound.readImageInput("x.png", [""]), (error: unknown) => {
+    assert.ok(error instanceof SandboxRequestError);
+    assert.equal(error.status, 404);
+    return true;
+  });
+
+  // Content-Length より短い本文は完成画像として返さない
+  const truncated = createSandboxToolClient({
+    baseUrl: "http://sandbox.test",
+    token: TOKEN,
+    fetchImpl: stubFetch(
+      () => new Response(new Uint8Array([1, 2]), { status: 200, headers: { "Content-Length": "4" } }),
+    ).impl,
+  });
+  await assert.rejects(truncated.readImageInput("x.png", [""]), /受信が途中で終わりました/);
+
+  // 宣言された Content-Length が上限を超える応答は本文を読まずに拒む
+  const declaredTooLarge = createSandboxToolClient({
+    baseUrl: "http://sandbox.test",
+    token: TOKEN,
+    fetchImpl: stubFetch(
+      () =>
+        new Response(new Uint8Array([1]), {
+          status: 200,
+          headers: { "Content-Length": String(IMAGE_INPUT_MAX_BYTES + 1) },
+        }),
+    ).impl,
+  });
+  await assert.rejects(declaredTooLarge.readImageInput("x.png", [""]), /大きすぎます/);
+
+  // Content-Length が無くても実受信バイト数で止める
+  const streamedTooLarge = createSandboxToolClient({
+    baseUrl: "http://sandbox.test",
+    token: TOKEN,
+    fetchImpl: stubFetch(() => {
+      const body = new ReadableStream<Uint8Array>({
+        start(controller) {
+          for (let index = 0; index <= IMAGE_INPUT_MAX_BYTES / (1024 * 1024); index += 1) {
+            controller.enqueue(new Uint8Array(1024 * 1024));
+          }
+          controller.close();
+        },
+      });
+      return new Response(body, { status: 200 });
+    }).impl,
+  });
+  await assert.rejects(streamedTooLarge.readImageInput("x.png", [""]), /大きすぎます/);
+
+  const empty = createSandboxToolClient({
+    baseUrl: "http://sandbox.test",
+    token: TOKEN,
+    fetchImpl: stubFetch(() => new Response(null, { status: 200 })).impl,
+  });
+  await assert.rejects(empty.readImageInput("x.png", [""]));
 });
 
 // ---------------------------------------------------------------------------

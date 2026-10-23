@@ -1064,6 +1064,8 @@ export interface StubCreateInput {
   toolNames?: string[];
   /** 子モード (investigate の子セッション)。呼び出し側の検証用に記録するだけ */
   mode?: "chat" | "investigation";
+  /** この会話の添付置き場 (root 相対)。呼び出し側の検証用に記録するだけ */
+  uploadsDirRel?: string;
 }
 
 export interface StubPiOptions {

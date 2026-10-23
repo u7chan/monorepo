@@ -445,6 +445,8 @@ export class SessionStore {
       // 所有権の束縛は永続化の有無に依らない (serve ツールは常に会話 id を持つ)
       ownerSessionId: id,
       promptSnapshot,
+      // 参照画像の添付許可範囲。保存先はスペースで変わるため、ここで確定した値をツールへ渡す
+      uploadsDirRel: sessionUploadsRel(id, spaceId),
     });
     // 上記の await 中に DELETE /api/projects/:id が走ると、このセッションは破棄対象の
     // スナップショットに含まれない。登録の直前に存在を再確認し、消えていれば作った SDK セッションを
@@ -660,6 +662,8 @@ export class SessionStore {
       model: restored.model,
       thinkingLevel: restored.thinkingLevel,
       cwd: workdir,
+      // 参照画像の添付許可範囲は復元でも同じ関数から組み立てる (保存値のスペースを使う)
+      uploadsDirRel: sessionUploadsRel(id, current.spaceId ?? "default"),
     });
     const session = created.session as PiSessionLike;
     if (this.deleting.has(id)) {

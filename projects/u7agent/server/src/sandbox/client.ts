@@ -2,6 +2,7 @@
  * BFF からサンドボックス ツール実行 API を呼ぶクライアント。NDJSON を execute() の契約
  * (onUpdate / result / abort) に写し替え、abort は cancel エンドポイントと接続切断の両方で伝播させる。
  */
+import { IMAGE_INPUT_MAX_BYTES } from "../image-format";
 import {
   decodeSandboxEvent,
   type SandboxCreateDirResult,
@@ -76,6 +77,12 @@ export const SANDBOX_RUNTIME_INFO_TIMEOUT_MS = 8000;
  * 停止で待ち続けないようにする (serve の操作は直列化されており、待ちは後続の操作を詰まらせる)。
  */
 export const SANDBOX_LISTENER_SCAN_TIMEOUT_MS = 5000;
+
+/**
+ * 参照画像を 1 枚読み切るまでの期限。作業領域内の読み取りなので短く、超えたら接続を捨てる
+ * （ユーザー中断は別に signal で伝播する）。
+ */
+export const SANDBOX_IMAGE_INPUT_TIMEOUT_MS = 30_000;
 
 export interface SandboxExecuteInput {
   toolCallId?: string;
@@ -190,6 +197,7 @@ export function createSandboxToolClient(options: SandboxToolClientOptions): Sand
     checkSkillsExport: () => checkSkillsExport(baseUrl, token, fetchImpl),
     importSkills: (input) => importSkills(input, baseUrl, token, fetchImpl),
     rawFile: (path, options) => rawFile(path, options, baseUrl, token, fetchImpl),
+    readImageInput: (path, scope, signal) => readImageInput(path, scope, signal, baseUrl, token, fetchImpl),
     downloadEntry: (path, excludeNames) => downloadEntry(path, excludeNames, baseUrl, token, fetchImpl),
     checkDownload: (path, excludeNames) => checkDownload(path, excludeNames, baseUrl, token, fetchImpl),
     scanListeners: (port, options) => scanListeners(port, options, baseUrl, token, fetchImpl, listenerScanTimeoutMs),
@@ -265,6 +273,12 @@ export interface SandboxToolClient extends SandboxRuntimeDiagnostics {
   deleteDirectory(path: string): Promise<void>;
   uploadFile(input: SandboxUploadInput): Promise<SandboxFileUpload>;
   rawFile(path: string, options?: SandboxRawFileOptions): Promise<SandboxRawFile>;
+  /**
+   * 画像生成の参照画像を読む。`path` は root 相対、`scope` は BFF が決めた root 相対の許可範囲で、
+   * サンドボックスは実パスが範囲内のときだけ返す。形式は BFF が実バイトから判定するため、
+   * ここは上限付きで本文を読み切るだけ（206 や途中切断を完成画像として返さない）。
+   */
+  readImageInput(path: string, scope: readonly string[], signal?: AbortSignal | undefined): Promise<Uint8Array>;
   /** 通常ファイルは生配信、ディレクトリは ZIP。保存名と `Content-Disposition` はサンドボックスが決める */
   downloadEntry(path: string, excludeNames: readonly string[]): Promise<SandboxDownloadFile>;
   /** download と同じ走査の見積り（除外名 / 合計サイズ / エントリ数）。上限超過は 413 で拒否される */
@@ -898,6 +912,94 @@ async function rawFile(
     ...(acceptRanges === null ? {} : { acceptRanges }),
     body: response.body,
   };
+}
+
+/**
+ * 参照画像の取得。Content-Length と実受信バイト数の両方で上限を見て、途中で切れた応答を完成画像として返さない。
+ */
+async function readImageInput(
+  path: string,
+  scope: readonly string[],
+  signal: AbortSignal | undefined,
+  baseUrl: string,
+  token: string,
+  fetchImpl: typeof fetch,
+): Promise<Uint8Array> {
+  const controller = new AbortController();
+  let timedOut = false;
+  const timer = setTimeout(() => {
+    timedOut = true;
+    controller.abort();
+  }, SANDBOX_IMAGE_INPUT_TIMEOUT_MS);
+  const onUserAbort = (): void => controller.abort();
+  signal?.addEventListener("abort", onUserAbort, { once: true });
+  if (signal?.aborted) onUserAbort();
+  try {
+    return await readImageInputWithSignal(path, scope, controller.signal, baseUrl, token, fetchImpl, () => timedOut);
+  } finally {
+    clearTimeout(timer);
+    signal?.removeEventListener("abort", onUserAbort);
+  }
+}
+
+/** 期限と中断を 1 つの signal に畳んだ後の本体。途中で切れた応答は完成画像として返さない */
+async function readImageInputWithSignal(
+  path: string,
+  scope: readonly string[],
+  signal: AbortSignal,
+  baseUrl: string,
+  token: string,
+  fetchImpl: typeof fetch,
+  timedOut: () => boolean,
+): Promise<Uint8Array> {
+  const params = new URLSearchParams({ path });
+  for (const dir of scope) params.append("scope", dir);
+  let response: Response;
+  try {
+    response = await fetchJson(
+      fetchImpl,
+      `${baseUrl}/v1/files/image-input?${params.toString()}`,
+      { headers: jsonHeaders(token), signal },
+      baseUrl,
+    );
+  } catch (error) {
+    if (timedOut()) throw new SandboxRequestError("参照画像の読み取りがタイムアウトしました", 504);
+    throw error;
+  }
+  if (!response.ok) throw await rawError(response, "参照画像を読み取れませんでした");
+  const tooLarge = (): SandboxRequestError =>
+    new SandboxRequestError(`参照画像が大きすぎます（上限 ${IMAGE_INPUT_MAX_BYTES} バイト）`, 413);
+  const contentLength = Number.parseInt(response.headers.get("content-length") ?? "", 10);
+  if (Number.isFinite(contentLength) && contentLength > IMAGE_INPUT_MAX_BYTES) {
+    await response.body?.cancel().catch(() => {});
+    throw tooLarge();
+  }
+  const reader = response.body?.getReader();
+  if (!reader) throw new SandboxRequestError("参照画像の応答に本文がありません", 502);
+  const chunks: Uint8Array[] = [];
+  let size = 0;
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      size += value.byteLength;
+      if (size > IMAGE_INPUT_MAX_BYTES) {
+        await reader.cancel().catch(() => {});
+        throw tooLarge();
+      }
+      chunks.push(value);
+    }
+  } catch (error) {
+    if (timedOut()) throw new SandboxRequestError("参照画像の読み取りがタイムアウトしました", 504);
+    throw error;
+  } finally {
+    reader.releaseLock();
+  }
+  if (Number.isFinite(contentLength) && size !== contentLength) {
+    throw new SandboxRequestError("参照画像の受信が途中で終わりました", 502);
+  }
+  if (size === 0) throw new SandboxRequestError("参照画像が空です", 400);
+  return Buffer.concat(chunks.map((chunk) => Buffer.from(chunk)));
 }
 
 /**

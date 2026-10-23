@@ -4,7 +4,15 @@
  * 取得はキーの有無・有効性と独立に扱う（正は docs/image-generation.md）。
  */
 import type { ImageCatalogModelRow, ImageCatalogRow } from "./app-db";
-import { IMAGE_PROVIDER_ID, imageModelCatalog, isUnsaveableOutputOnly, type ImageCatalogEntry } from "./images";
+import {
+  IMAGE_ABORTED_MESSAGE,
+  IMAGE_PROVIDER_ID,
+  imageInputSupportOf,
+  imageModelCatalog,
+  isUnsaveableOutputOnly,
+  type ImageCatalogEntry,
+  type ImageInputDeclaration,
+} from "./images";
 
 /** いま表示している一覧の出どころ。live 以外は取得に失敗した状態を表す */
 export type ImageCatalogSource = "live" | "stored" | "sdk";
@@ -38,6 +46,13 @@ export interface ImageCatalog {
   snapshot(): ImageCatalogSnapshot;
   /** 形式の宣言。一覧から落ちたモデルも引ける（生成前ガード用）。未知名・宣言なしは undefined */
   outputFormatsOf(model: string): string[] | undefined;
+  /** 画像入力の宣言。未知名・宣言なしは undefined（＝不明） */
+  imageInputOf(model: string): ImageInputDeclaration | undefined;
+  /**
+   * 参照画像による編集を provider 呼び出し前に確かめる。可なら undefined、止めるときは理由の固定文言。
+   * モデル宣言に加えて endpoint 一覧を編集実行時に 1 回だけ引く（成功だけをメモリに残す）。
+   */
+  checkImageInput(model: string, signal?: AbortSignal | undefined): Promise<string | undefined>;
   /** キャッシュを読む（live は試さない）。読めなければ SDK 同梱のままにする */
   loadStored(): void;
   /** live を試す。失敗しても一覧を保ち、UI 注記用の固定文言を返す（成功は null） */
@@ -52,6 +67,19 @@ export const IMAGE_CATALOG_TIMEOUT_MS = 10_000;
 export const IMAGE_CATALOG_ERROR_TIMEOUT = "モデル一覧の取得がタイムアウトしました";
 export const IMAGE_CATALOG_ERROR_RATE_LIMITED = "モデル一覧の取得が混雑しています（レート制限またはプロバイダー障害）";
 export const IMAGE_CATALOG_ERROR_UNKNOWN = "モデル一覧を取得できませんでした";
+
+/** 参照画像の編集を課金前に止める文言。すべて「課金は起きていない」ことを明示する */
+export const IMAGE_INPUT_UNSUPPORTED_MESSAGE =
+  "この画像モデルは参照画像による編集に対応していません。編集は行っておらず、クレジットは消費していません。設定 → コンテンツ生成 で画像入力に対応したモデルを選んでください";
+
+export const IMAGE_INPUT_UNKNOWN_MESSAGE =
+  "この画像モデルの参照画像入力の可否を宣言から確認できませんでした。編集は行っておらず、クレジットは消費していません。設定 → コンテンツ生成 の [カタログ更新] で最新のモデル一覧を取得してください";
+
+export const IMAGE_INPUT_ENDPOINTS_UNSUPPORTED_MESSAGE =
+  "この画像モデルは参照画像を受け付ける経路を 1 つも宣言していません。編集は行っておらず、クレジットは消費していません";
+
+export const IMAGE_INPUT_ENDPOINTS_UNKNOWN_MESSAGE =
+  "参照画像を受け付ける経路を provider に確認できませんでした。編集は行っておらず、クレジットは消費していません。時間をおいて試してください";
 
 /** 取得失敗の分類。上流の原文はログにも UI にも出さず、この 3 つへ寄せる */
 type FetchOutcome = { entries: ImageCatalogEntry[]; fetchedAt: number } | { error: string };
@@ -73,19 +101,76 @@ function declaredFormatsOf(item: object): string[] | undefined {
 
 /** キャッシュの 1 件。宣言が無い行（この項目より前に書かれたキャッシュ）は「不明」として読む */
 function entryOf(model: ImageCatalogModelRow): ImageCatalogEntry {
-  return model.outputFormats
-    ? { provider: IMAGE_PROVIDER_ID, id: model.id, name: model.name, outputFormats: model.outputFormats }
-    : { provider: IMAGE_PROVIDER_ID, id: model.id, name: model.name };
+  return {
+    provider: IMAGE_PROVIDER_ID,
+    id: model.id,
+    name: model.name,
+    ...(model.outputFormats ? { outputFormats: model.outputFormats } : {}),
+    ...(model.input ? { input: model.input } : {}),
+  };
 }
 
 /** カタログ 1 件をキャッシュ行へ。宣言が無いときは鍵ごと落とす（見分けの付く JSON にする） */
 function cacheModelOf(entry: ImageCatalogEntry): ImageCatalogModelRow {
-  return entry.outputFormats
-    ? { id: entry.id, name: entry.name, outputFormats: entry.outputFormats }
-    : { id: entry.id, name: entry.name };
+  return {
+    id: entry.id,
+    name: entry.name,
+    ...(entry.outputFormats ? { outputFormats: entry.outputFormats } : {}),
+    ...(entry.input ? { input: entry.input } : {}),
+  };
 }
 
-/** `data[]` から id / 表示名 / 形式の宣言を読む。1 件も読めない応答は契約外として失敗にする */
+/** live の `architecture.input_modalities`。無い / 形が違うときは undefined（不明） */
+function declaredModalitiesOf(item: object): string[] | undefined {
+  const architecture = (item as { architecture?: unknown }).architecture;
+  if (typeof architecture !== "object" || architecture === null) return undefined;
+  const modalities = (architecture as { input_modalities?: unknown }).input_modalities;
+  if (!Array.isArray(modalities)) return undefined;
+  const values = modalities.filter((value): value is string => typeof value === "string" && value.trim() !== "");
+  return values.length === 0 ? undefined : values;
+}
+
+/** 参照枚数の宣言。数値は 1 点の range、`{ min, max }` はその範囲として読む */
+function referenceRangeOf(value: unknown): { min: number; max: number } | undefined {
+  if (typeof value === "number") {
+    return Number.isInteger(value) && value >= 0 ? { min: value, max: value } : undefined;
+  }
+  if (typeof value !== "object" || value === null) return undefined;
+  const { min, max } = value as { min?: unknown; max?: unknown };
+  if (typeof min !== "number" || typeof max !== "number") return undefined;
+  if (!Number.isInteger(min) || !Number.isInteger(max) || min < 0 || max < min) return undefined;
+  return { min, max };
+}
+
+/** live の `supported_parameters.input_references`。宣言が無い / 形が違うときは undefined（不明） */
+function declaredReferencesOf(item: object): { min: number; max: number } | undefined {
+  const parameters = (item as { supported_parameters?: unknown }).supported_parameters;
+  if (typeof parameters !== "object" || parameters === null) return undefined;
+  return referenceRangeOf((parameters as { input_references?: unknown }).input_references);
+}
+
+/** live の `endpoints`。URL の文字列 / 配列だけを読み、他の形は無視する */
+function declaredEndpointsOf(item: object): string[] | undefined {
+  const value = (item as { endpoints?: unknown }).endpoints;
+  const list = Array.isArray(value) ? value : [value];
+  const urls = list.filter((entry): entry is string => typeof entry === "string" && entry.trim() !== "");
+  return urls.length === 0 ? undefined : urls;
+}
+
+/** 宣言の内、読めた項目だけを残す。1 つも読めなければ undefined（＝不明） */
+function declaredInputOf(item: object): ImageInputDeclaration | undefined {
+  const modalities = declaredModalitiesOf(item);
+  const references = declaredReferencesOf(item);
+  const endpoints = declaredEndpointsOf(item);
+  if (!modalities && !references && !endpoints) return undefined;
+  return {
+    ...(modalities ? { modalities } : {}),
+    ...(references ? { references } : {}),
+    ...(endpoints ? { endpoints } : {}),
+  };
+}
+
+/** `data[]` から id / 表示名 / 形式 / 入力の宣言を読む。1 件も読めない応答は契約外として失敗にする */
 function entriesOf(body: unknown): ImageCatalogEntry[] | undefined {
   if (typeof body !== "object" || body === null) return undefined;
   const data = (body as { data?: unknown }).data;
@@ -98,14 +183,90 @@ function entriesOf(body: unknown): ImageCatalogEntry[] | undefined {
     if (typeof id !== "string" || id === "" || seen.has(id)) continue;
     seen.add(id);
     const outputFormats = declaredFormatsOf(item);
+    const input = declaredInputOf(item);
     entries.push({
       provider: IMAGE_PROVIDER_ID,
       id,
       name: typeof name === "string" ? name : "",
       ...(outputFormats ? { outputFormats } : {}),
+      ...(input ? { input } : {}),
     });
   }
   return entries.length === 0 ? undefined : entries;
+}
+
+/** endpoint 一覧の URL。宣言を優先し、無ければ慣例パスを編集実行時に引く */
+function endpointUrlsOf(entry: ImageCatalogEntry): string[] {
+  const declared = entry.input?.endpoints ?? [`${IMAGE_CATALOG_URL}/${entry.id}/endpoints`];
+  return declared.map((url) => {
+    try {
+      return new URL(url, IMAGE_CATALOG_URL).toString();
+    } catch {
+      return url;
+    }
+  });
+}
+
+/**
+ * endpoint 一覧の応答から 1 枚の参照画像を受け付けられるかを読む。`architecture` の欠落は契約外にしないが、
+ * `input_references` の宣言が無い / 形が違う endpoint は「不明」として編集を止める（課金前）。
+ */
+function endpointSupportOf(body: unknown): "supported" | "unsupported" | "unknown" {
+  if (typeof body !== "object" || body === null) return "unknown";
+  const data = (body as { data?: unknown }).data;
+  if (!Array.isArray(data) || data.length === 0) return "unknown";
+  let sawUnknown = false;
+  for (const item of data) {
+    if (typeof item !== "object" || item === null) {
+      sawUnknown = true;
+      continue;
+    }
+    const references = declaredReferencesOf(item);
+    if (!references) {
+      sawUnknown = true;
+      continue;
+    }
+    if (references.min > 1 || references.max < 1) return "unsupported";
+  }
+  return sawUnknown ? "unknown" : "supported";
+}
+
+/**
+ * endpoint 一覧の取得。編集実行時だけ呼び、認証ヘッダを付けず、既存のカタログ取得と同じ期限を掛ける。
+ * 失敗・中断中は「不明」として課金前に止める。
+ */
+async function fetchImageInputSupport(
+  urls: readonly string[],
+  baseFetch: typeof fetch,
+  timeoutMs: number,
+  signal: AbortSignal | undefined,
+): Promise<"supported" | "unsupported" | "unknown"> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  const onUserAbort = (): void => controller.abort();
+  signal?.addEventListener("abort", onUserAbort, { once: true });
+  if (signal?.aborted) onUserAbort();
+  try {
+    for (const url of urls) {
+      const response = await baseFetch(url, { signal: controller.signal });
+      if (!response.ok) return "unknown";
+      const text = await response.text();
+      let body: unknown;
+      try {
+        body = text === "" ? undefined : JSON.parse(text);
+      } catch {
+        body = undefined;
+      }
+      const support = endpointSupportOf(body);
+      if (support !== "supported") return support;
+    }
+    return "supported";
+  } catch {
+    return "unknown";
+  } finally {
+    clearTimeout(timer);
+    signal?.removeEventListener("abort", onUserAbort);
+  }
 }
 
 export function createImageCatalog(options: ImageCatalogOptions): ImageCatalog {
@@ -118,6 +279,8 @@ export function createImageCatalog(options: ImageCatalogOptions): ImageCatalog {
   let entries: ImageCatalogEntry[] = [...sdkCatalog()];
   let source: ImageCatalogSource = "sdk";
   let fetchedAt: number | null = null;
+  /** endpoint の確認に成功した組。失敗は残さず、次の実行で引き直す */
+  const verifiedEndpoints = new Set<string>();
 
   /**
    * 取得成功を採用する。メモリを先に更新し、キャッシュ保存の失敗は次の起動で前回の一覧が消えるだけなので
@@ -175,6 +338,27 @@ export function createImageCatalog(options: ImageCatalogOptions): ImageCatalog {
     }),
 
     outputFormatsOf: (model) => entries.find((entry) => entry.id === model)?.outputFormats,
+
+    imageInputOf: (model) => entries.find((entry) => entry.id === model)?.input,
+
+    checkImageInput: async (model, signal) => {
+      const entry = entries.find((candidate) => candidate.id === model);
+      const support = imageInputSupportOf(entry?.input);
+      if (support === "unsupported") return IMAGE_INPUT_UNSUPPORTED_MESSAGE;
+      if (!entry || support === "unknown") return IMAGE_INPUT_UNKNOWN_MESSAGE;
+      const urls = endpointUrlsOf(entry);
+      const key = `${model}\u0000${urls.join(" ")}`;
+      if (verifiedEndpoints.has(key)) return undefined;
+      const endpoints = await fetchImageInputSupport(urls, baseFetch, timeoutMs, signal);
+      if (signal?.aborted) throw new Error(IMAGE_ABORTED_MESSAGE);
+      if (endpoints === "supported") {
+        verifiedEndpoints.add(key);
+        return undefined;
+      }
+      return endpoints === "unsupported"
+        ? IMAGE_INPUT_ENDPOINTS_UNSUPPORTED_MESSAGE
+        : IMAGE_INPUT_ENDPOINTS_UNKNOWN_MESSAGE;
+    },
 
     loadStored: () => {
       try {
