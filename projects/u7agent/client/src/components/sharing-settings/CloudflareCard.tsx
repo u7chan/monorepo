@@ -116,7 +116,7 @@ export function CloudflareCard({ settings, saving, onSave, onDelete }: Cloudflar
       <div className="grid gap-1 text-2xs leading-relaxed text-ink-ghost">
         <p>保存済みの API トークンは再表示しません。変更するときは新しいトークンを入れ直してください。</p>
         <p>
-          トークンには Workers の Admin（product scope）が必要です。zone の権限は不要です。
+          トークンには Workers Scripts の Edit（Account スコープ）が必要です。zone の権限は不要です。
           <a
             className="ml-1 inline-flex items-center gap-1 text-ink-muted underline underline-offset-2 hover:text-ink"
             href="https://dash.cloudflare.com/profile/api-tokens"

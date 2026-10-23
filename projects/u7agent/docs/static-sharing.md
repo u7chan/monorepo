@@ -67,7 +67,8 @@ Cloudflare Workers（workers.dev）
 
 ### アカウント側の権限
 
-- トークンには Workers の **Admin（product scope）** が要る。Cloudflare の Workers ロールでは、既存 Worker の更新は `Editor` で足りるが、**新規作成と削除は Admin が要る**（per-Worker の権限は存在しない Worker には付与できない）。
+- トークンは **Account スコープの `Workers Scripts: Edit`**（API の accepted permission は `Workers Scripts Write`）だけでよい。作成・更新・subdomain の切替・削除のいずれもこの権限で行う（per-Worker の権限は存在しない Worker には付与できないため、アカウント単位で付ける）。
+- 作成手順: Cloudflare ダッシュボード → My Profile → API Tokens → Create Token → Custom token。Permissions は **Account → Workers Scripts → Edit**（画面では「レガシー」表示）、Account Resources は **Include → 対象アカウント**だけにする。Zone Resources は選ばない。
 - `Workers Routes` などの zone 権限は不要（workers.dev のみ使うため）。
 - 権限の範囲はアカウント内の全 Worker に及ぶ。トークンの漏洩時の影響が広いので、保存先とマスクの扱いを他機能より厳しくする。
 - 実装時に、実際のトークンで作成・更新・停止・削除が通ることを確認し、必要な権限名を確定する（下表の実機確認）。
@@ -258,7 +259,7 @@ Cloudflare への送信は時間がかかるため、同期 HTTP では扱わな
 
 設計時点では Cloudflare のドキュメントで確認できる範囲だけを決めている。実装の最初に実アカウントで確かめ、結果をこの節へ追記する。
 
-- Workers `Admin`（product scope）の API トークンで、Worker の作成・更新・subdomain の切り替え・削除が通る
+- `Workers Scripts: Edit`（Account スコープ）の API トークンで、Worker の作成・更新・subdomain の切り替え・削除が通る
 - 静的アセットだけの Worker を API で作れる（Worker スクリプト無し。`main_module` を省略できるか）
 - manifest の hash の作り方が Cloudflare の期待と一致する（Wrangler と同じ結果になるか）
 - アセット送信の 1 リクエストが 100 MB を超えないよう、bucket をサイズで分割する必要があるか
