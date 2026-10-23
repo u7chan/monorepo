@@ -998,9 +998,8 @@ export const ContentMutationResponseSchema = ContentSettingsResponseSchema.exten
 export type ContentMutationResponse = z.infer<typeof ContentMutationResponseSchema>;
 
 /**
- * GET /api/settings/cloudflare。API トークンは返さず、登録済みかとアカウント ID だけを返す。
- * `available: false` は暗号化の master key が使えない状態で、登録・復号は 503 になる。
- * `unavailableReason` は固定文言だけで、鍵の値やファイルパスを含めない。
+ * GET /api/settings/cloudflare。トークンは返さず、登録状態とアカウント ID だけを返す。
+ * `available: false` は master key が使えず、登録・復号が 503 になる状態。
  */
 export const CloudflareSettingsResponseSchema = z.object({
   configured: z.boolean(),

@@ -714,7 +714,7 @@ Content-Security-Policy: sandbox allow-scripts; default-src 'none'; style-src 'u
 
 ### Cloudflare の接続
 
-設定 → 共有 → 接続。BFF 専用の資格情報で、API トークンは write-only（応答・ログ・agent / sandbox へ出さない）。保存方式と権限は [static-sharing.md](static-sharing.md#cloudflare-資格情報) を正とする。
+設定 → 共有 → 接続（`/settings/sharing/connections`、既定タブの正準形は `/settings/sharing`）。BFF 専用の資格情報で、API トークンは write-only（応答・ログ・agent / sandbox へ出さない）。保存方式と権限は [static-sharing.md](static-sharing.md#cloudflare-資格情報) を正とする。
 
 | メソッド | パス | 説明 |
 | --- | --- | --- |

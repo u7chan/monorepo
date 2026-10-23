@@ -202,3 +202,14 @@ test("DB の書き込み・削除失敗は 503 にし、例外文言を応答へ
   db.failDelete = true;
   await rejectsWith(settings.remove(), 503, CLOUDFLARE_DELETE_ERROR);
 });
+
+test("master key が無いときはトークン省略の更新も 503 にし、既存行を変えない", async () => {
+  const db = new FakeDb();
+  const { service: writer } = service(db);
+  await writer.save({ accountId: ACCOUNT, apiToken: TOKEN });
+  const before = { ...db.row! };
+
+  const { service: reader } = service(db, "");
+  await rejectsWith(reader.save({ accountId: OTHER_ACCOUNT }), 503, CLOUDFLARE_ENCRYPTION_UNAVAILABLE_ERROR);
+  assert.deepEqual(db.row, before);
+});

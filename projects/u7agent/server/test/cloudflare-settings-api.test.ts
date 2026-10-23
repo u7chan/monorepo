@@ -1,6 +1,9 @@
 // Cloudflare 資格情報の HTTP 契約。トークンが応答・error・マスク前のログ経路へ出ないこと、
 // 省略更新で維持されること、master key 不在時に 503 で止まることを実アプリで検証する。
 import assert from "node:assert/strict";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import test from "node:test";
 import { createBffApp } from "../src/app";
 import { SECRET_KEY_BYTES, SECRET_MASTER_KEY_ENV } from "../src/secret-crypto";
@@ -134,5 +137,51 @@ test("master key が無いときは GET で理由を返し、PUT は 503 で何�
     assert.equal(bff.cloudflareSettings.credential(), null);
   } finally {
     restore();
+  }
+});
+
+test("保存後に master key なしで再起動しても、トークン省略 PUT は 503 で既存値を変えない", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "u7agent-cloudflare-"));
+  const previous = process.env[SECRET_MASTER_KEY_ENV];
+  try {
+    process.env[SECRET_MASTER_KEY_ENV] = KEY;
+    const first = await createBffApp({
+      cwd: "/workspace",
+      sessionStoreDir: dir,
+      pi: asPiBff(createStubPi()),
+      workspace: null,
+    });
+    assert.equal(
+      (await first.app.request("/api/settings/cloudflare", jsonPut({ accountId: ACCOUNT, apiToken: TOKEN }))).status,
+      200,
+    );
+    await first.close();
+
+    delete process.env[SECRET_MASTER_KEY_ENV];
+    const second = await createBffApp({
+      cwd: "/workspace",
+      sessionStoreDir: dir,
+      pi: asPiBff(createStubPi()),
+      workspace: null,
+    });
+    try {
+      const before = await jsonBody(await second.app.request("/api/settings/cloudflare"));
+      assert.equal(before.configured, true);
+      assert.equal(before.accountId, ACCOUNT);
+      assert.equal(before.available, false);
+
+      const put = await second.app.request("/api/settings/cloudflare", jsonPut({ accountId: OTHER_ACCOUNT }));
+      assert.equal(put.status, 503);
+      assert.equal((await jsonBody(put)).state, "not_stored");
+
+      const after = await jsonBody(await second.app.request("/api/settings/cloudflare"));
+      assert.equal(after.accountId, ACCOUNT, "鍵が無い更新でアカウント ID を変えない");
+    } finally {
+      await second.close();
+    }
+  } finally {
+    if (previous === undefined) delete process.env[SECRET_MASTER_KEY_ENV];
+    else process.env[SECRET_MASTER_KEY_ENV] = previous;
+    await rm(dir, { recursive: true, force: true });
   }
 });

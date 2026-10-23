@@ -1,6 +1,5 @@
 /**
- * Cloudflare の資格情報（アカウント ID と API トークン）の保存。BFF 専用で、トークンは
- * `secret-crypto` の AES-256-GCM を使って保存し、応答へは返さない。agent / sandbox へ渡す経路を持たない。
+ * Cloudflare の資格情報（アカウント ID と暗号化した API トークン）を BFF 専用で保存する。
  * 契約は docs/static-sharing.md を正とする。
  */
 import type { CloudflareSettingsRow } from "./app-db";
@@ -93,6 +92,8 @@ export class CloudflareSettingsService {
       if (!ACCOUNT_ID_PATTERN.test(accountId)) throw httpError(400, CLOUDFLARE_ACCOUNT_ID_ERROR);
       const apiToken = input.apiToken?.trim() ?? "";
       if (apiToken && !TOKEN_PATTERN.test(apiToken)) throw httpError(400, CLOUDFLARE_TOKEN_FORMAT_ERROR);
+      // トークンを省略する更新でも、master key が無ければ既存の暗号文を扱えないため 503 にする
+      const cipher = this.#requireCipher();
 
       const existing = this.#read();
       if (!existing && !apiToken) throw httpError(400, CLOUDFLARE_TOKEN_REQUIRED_ERROR);
@@ -100,7 +101,7 @@ export class CloudflareSettingsService {
 
       let row: CloudflareSettingsRow;
       if (apiToken) {
-        const encrypted = this.#requireCipher().encrypt(TOKEN_SECRET_KIND, TOKEN_SECRET_NAME, apiToken);
+        const encrypted = cipher.encrypt(TOKEN_SECRET_KIND, TOKEN_SECRET_NAME, apiToken);
         retainIfLongEnough(this.#retainSecret, apiToken);
         row = {
           accountId,
