@@ -18,6 +18,8 @@ import { join, resolve } from "node:path";
 import { COMMON_SKILLS_DIR } from "./app-paths";
 import { createAskUserToolDefinitions, ASK_USER_TOOL_NAME, withAskUserTool, type AskUserHost } from "./ask-user-tool";
 import { builtinSkillEnabled } from "./builtin-skills";
+import { createBgmGenerator } from "./bgm";
+import { createBgmToolDefinitions, BGM_GENERATION_PROMPT_LINES, BGM_TOOL_NAME } from "./bgm-tools";
 import { discoverSessionFileSkills } from "./file-skills";
 import {
   createImageToolDefinitions,
@@ -103,6 +105,7 @@ export function appendSystemPrompt(
   options: {
     imageGeneration?: boolean;
     speechGeneration?: boolean;
+    bgmGeneration?: boolean;
     /** エージェント定義の組み込みスキル許可リスト。外したスキルへの案内文はここで落とす */
     builtinSkillNames?: readonly string[] | undefined;
   } = {},
@@ -142,6 +145,7 @@ When the user asks to create or change a reusable skill, put it in the \`.agents
 Do not reveal private chain-of-thought; provide a short useful summary of your reasoning instead.
 ${options.imageGeneration ? IMAGE_GENERATION_PROMPT_LINES.join("\n") : ""}
 ${options.speechGeneration ? SPEECH_GENERATION_PROMPT_LINES.join("\n") : ""}
+${options.bgmGeneration ? BGM_GENERATION_PROMPT_LINES.join("\n") : ""}
 `.trim();
 }
 
@@ -666,6 +670,7 @@ const APP_TOOL_NAMES = [
   WEB_SEARCH_TOOL_NAME,
   IMAGE_TOOL_NAME,
   SPEECH_TOOL_NAME,
+  BGM_TOOL_NAME,
   SERVE_TOOL_NAME,
   ASK_USER_TOOL_NAME,
   INVESTIGATE_TOOL_NAME,
@@ -710,7 +715,11 @@ export function sessionToolPlan(input: {
       withAskUserTool(
         withWebSearchTool(
           withServeTool(
-            sessionToolNames(sandbox, { image: enabled.has(IMAGE_TOOL_NAME), speech: enabled.has(SPEECH_TOOL_NAME) }),
+            sessionToolNames(sandbox, {
+              image: enabled.has(IMAGE_TOOL_NAME),
+              speech: enabled.has(SPEECH_TOOL_NAME),
+              bgm: enabled.has(BGM_TOOL_NAME),
+            }),
             enabled.has(SERVE_TOOL_NAME),
           ),
           enabled.has(WEB_SEARCH_TOOL_NAME),
@@ -857,6 +866,7 @@ export async function createPiBff({ cwd = process.cwd() }: { cwd?: string } = {}
   const contentGeneration: { config: ContentGenerationConfig | undefined } = { config: undefined };
   const imagesGenerator = createImagesGenerator({ maskText: maskError });
   const speechGenerator = createSpeechGenerator({ maskText: maskError });
+  const bgmGenerator = createBgmGenerator({ maskText: maskError });
   // Web 検索の設定も DB を正とする WebSearchSettingsService が写す。既定は有効 / Exa で、
   // ツールは execute のたびにここを読む（セッション作成時に凍結しない）
   const webSearch: { config: WebSearchRuntimeConfig } = {
@@ -979,7 +989,6 @@ export async function createPiBff({ cwd = process.cwd() }: { cwd?: string } = {}
     // ツールの実効はセッション作成時に確定する (作成 / 復元のどちらも呼び出し側が渡すスナップショットを使い、
     // 実行時にエージェント定義を読まない)。子は作業ツールだけを親から引き継ぐ
     const availability = toolAvailability();
-    const contentGenerationEnabled = availability.contentGeneration;
     const sessionTools = sessionToolPlan({
       base: investigation ? investigationTools(configuredTools()) : configuredTools(),
       ...(toolNames === undefined ? {} : { toolNames }),
@@ -1006,8 +1015,9 @@ export async function createPiBff({ cwd = process.cwd() }: { cwd?: string } = {}
         investigation
           ? investigationSystemPrompt()
           : appendSystemPrompt(rootCwd, {
-              imageGeneration: contentGenerationEnabled,
-              speechGeneration: contentGenerationEnabled,
+              imageGeneration: appTool(IMAGE_TOOL_NAME),
+              speechGeneration: appTool(SPEECH_TOOL_NAME),
+              bgmGeneration: appTool(BGM_TOOL_NAME),
               ...(builtinSkillNames === undefined ? {} : { builtinSkillNames }),
             }),
         snapshot.agent,
@@ -1079,6 +1089,14 @@ export async function createPiBff({ cwd = process.cwd() }: { cwd?: string } = {}
                 readSettings: () => contentGeneration.config?.readSpeech(),
                 readVoices: (model) => contentGeneration.config?.readVoices(model),
                 generate: speechGenerator.generate,
+              }),
+              ...createBgmToolDefinitions({
+                enabled: appTool(BGM_TOOL_NAME),
+                sessionCwd: relativeCwd,
+                workspace: sandboxClient,
+                masker: secretMasker,
+                readSettings: () => contentGeneration.config?.readBgm(),
+                generate: bgmGenerator.generate,
               }),
               ...createServeToolDefinitions({
                 enabled: appTool(SERVE_TOOL_NAME),

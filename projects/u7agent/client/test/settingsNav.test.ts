@@ -46,12 +46,13 @@ test("設定 → モデルのタブは「モデルを選ぶ / プロバイダー
   assert.equal(DEFAULT_MODELS_SUBSECTION, MODELS_SUBSECTIONS[0].subsection);
 });
 
-test("設定 → コンテンツ生成のタブは「画像生成 / 音声（TTS）」の 2 項目で、既定は画像生成", () => {
+test("コンテンツ生成は画像・TTS・BGMのタブを持ち、既定は画像生成", () => {
   assert.deepEqual(
     CONTENT_SUBSECTIONS.map((item) => [item.subsection, item.label]),
     [
       ["image", "画像生成"],
       ["speech", "音声（TTS）"],
+      ["bgm", "音楽（BGM）"],
     ],
   );
   assert.equal(DEFAULT_CONTENT_SUBSECTION, CONTENT_SUBSECTIONS[0].subsection);

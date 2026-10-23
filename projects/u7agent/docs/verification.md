@@ -2,6 +2,8 @@
 
 実装後は `pnpm check`（lint → format:check → docs:check → 型チェック → テスト → クライアントビルド）を実行する。テストの判断基準と手動受入は [testing.md](testing.md)。
 
+BGMの通常検証はダミーキーと合成stubだけを使う。[実API受入の保留項目](bgm-generation.md#検証と実apiの保留項目) を自動テストやGUI fixtureの成功で確認済みにしない。GUIの結果は担当者がPRへ記録する（実APIの課金確認とは別の受入）。
+
 ## docs
 
 `pnpm docs:check`（`scripts/docs-check.mjs`）。次を検査する。

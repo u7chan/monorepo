@@ -9,6 +9,7 @@ import { APP_DB_FILENAME } from "../src/app-db";
 import { createBffApp } from "../src/app";
 import { DEFAULT_IMAGE_MODEL } from "../src/content-settings";
 import { IMAGE_PROVIDER_ID } from "../src/images";
+import { bgmSettings } from "../src/bgm";
 import { asPiBff, createStubPi } from "./stub-pi";
 
 const KEY = "sk-image-dummy-key-0123456789abcdef";
@@ -58,6 +59,7 @@ test("GET / PUT / DELETE の往復で設定が変わり、キーは応答に載�
       assert.equal(before.provider, null);
       assert.equal(before.image.model, null);
       assert.equal(before.runtimeAvailable, true);
+      assert.deepEqual(before.bgm, bgmSettings(false));
       assert.ok(before.image.models.length > 0, "カタログが空");
       // キー未設定では live を取りに行かないので、SDK 同梱カタログから始まる
       assert.equal(before.image.catalogSource, "sdk");
@@ -83,6 +85,7 @@ test("GET / PUT / DELETE の往復で設定が変わり、キーは応答に載�
 
       const put = await jsonBody(await bff.app.request("/api/settings/content/key", jsonPut({ apiKey: KEY })));
       assert.equal(put.state, "applied");
+      assert.deepEqual(put.bgm, bgmSettings(true));
       assert.equal(put.configured, true);
       assert.equal(put.provider, IMAGE_PROVIDER_ID);
       assert.equal(put.image.model, DEFAULT_IMAGE_MODEL);
@@ -116,6 +119,7 @@ test("GET / PUT / DELETE の往復で設定が変わり、キーは応答に載�
       const deleted = await jsonBody(await bff.app.request("/api/settings/content/key", { method: "DELETE" }));
       assert.equal(deleted.state, "applied");
       assert.equal(deleted.configured, false);
+      assert.deepEqual(deleted.bgm, bgmSettings(false));
       assert.equal(deleted.provider, null);
       assert.equal(deleted.image.model, null);
       assert.equal(pi.contentGenerationEnabled, false);

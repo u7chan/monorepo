@@ -5,6 +5,7 @@
  * 契約は docs/image-generation.md / docs/speech-generation.md を正とする。
  */
 import { messageFor } from "./http";
+import { bgmSettings, BGM_MODEL } from "./bgm";
 import { MutationLock } from "./model-settings";
 import type { ProviderFailureCode } from "./provider-failure";
 import { REDACTED } from "./redact";
@@ -175,6 +176,7 @@ export class ContentSettingsService {
         catalogSource: speechCatalog.source,
         fetchedAt: speechCatalog.fetchedAt,
       },
+      bgm: bgmSettings(row !== undefined),
     };
   }
 
@@ -482,6 +484,10 @@ export class ContentSettingsService {
       // 実行のたびに現在のカタログを引く。形式の宣言を一覧から絞り込んだあとも、保存済みの選択はここで拾える
       readOutputFormats: (model) => this.#catalog.outputFormatsOf(model),
       readSpeech: () => this.#currentSpeechSettings(),
+      readBgm: () => {
+        const row = this.#db.readContentSettings();
+        return row ? { model: BGM_MODEL, apiKey: row.apiKey } : undefined;
+      },
       readVoices: (model) => this.#speechCatalog.voicesOf(model),
     });
   }
@@ -524,6 +530,7 @@ export class ContentSettingsService {
         fetchedAt: speechCatalog.fetchedAt,
       },
       state: "applied",
+      bgm: bgmSettings(result.configured),
     };
   }
 }

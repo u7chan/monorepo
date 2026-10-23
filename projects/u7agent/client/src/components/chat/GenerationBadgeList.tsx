@@ -3,7 +3,7 @@ import { cn } from "../../lib/cn";
 import { generationBadgesOf, type GenerationInfo } from "../../lib/generationInfo";
 
 // 種類は結果本文に無い（ツール名から決まる）。表示名へ写すのはここ 1 箇所に閉じる
-const KIND_LABEL: Record<GenerationInfo["kind"], string> = { image: "画像", speech: "音声" };
+const KIND_LABEL: Record<GenerationInfo["kind"], string> = { image: "画像", speech: "音声", bgm: "BGM" };
 
 function ImageKindIcon() {
   return (

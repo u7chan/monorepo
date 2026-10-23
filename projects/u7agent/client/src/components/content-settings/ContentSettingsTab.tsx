@@ -163,8 +163,8 @@ export function ContentSettingsTab({
             ) : null}
           </div>
           <p className="text-2xs leading-relaxed text-ink-muted">
-            {providerName} のコンテンツ生成（画像 /
-            音声）で共有するキーです。プロバイダータブで登録したキーとは別に管理し、 流用しません。キーは{" "}
+            {providerName} のコンテンツ生成（画像 / 音声 /
+            BGM）で共有するキーです。プロバイダータブで登録したキーとは別に管理し、 流用しません。キーは{" "}
             {API_KEY_MIN_LENGTH} 文字以上で入力します。
           </p>
         </section>
@@ -183,6 +183,8 @@ export function ContentSettingsTab({
               onRefresh={onRefreshSpeechCatalog}
               onPreview={onPreviewSpeech}
             />
+          ) : contentSubsection === "bgm" ? (
+            <BgmSection settings={settings} />
           ) : (
             <ImageModelSection
               settings={settings}
@@ -215,6 +217,30 @@ export function ContentSettingsTab({
 type SpeechDraft = { model: string | null; voice: string | null };
 
 const EMPTY_SPEECH_DRAFT: SpeechDraft = { model: null, voice: null };
+
+function BgmSection({ settings }: { settings: ContentSettingsResponse }) {
+  return (
+    <section className="grid min-w-0 gap-1.5 border-t border-line pt-3">
+      <h3 className="text-2xs font-semibold tracking-label text-ink-faint uppercase">音楽（BGM）</h3>
+      <label className="grid min-w-0 gap-1.5 text-2xs text-ink-muted">
+        固定モデル（変更不可）
+        <input
+          className="field min-w-0 text-xs"
+          aria-label="BGM生成の固定モデル"
+          readOnly
+          value={settings.bgm.model ?? ""}
+        />
+      </label>
+      <p className="text-2xs leading-relaxed text-ink-muted">
+        モデル仕様では{settings.bgm.expectedDurationSeconds}秒のクリップを{settings.bgm.format.toUpperCase()}
+        で生成します（実測の尺ではありません）。生成は課金対象で、プロンプトをOpenRouterと生成プロバイダーへ外部送信します。
+      </p>
+      <p className="text-2xs leading-relaxed text-ink-muted">
+        会話から新しいインストゥルメンタルBGMを依頼してください。ボーカルなし・正確なBPMや尺・シームレスループは保証しません。失敗や中断でも課金される可能性があるため、自動で再生成しません。
+      </p>
+    </section>
+  );
+}
 
 /** モデル選択。カタログ外の保存値も「（カタログ外）」として選択肢の先頭に残す */
 function ImageModelSection({

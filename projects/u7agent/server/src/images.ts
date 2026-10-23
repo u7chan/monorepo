@@ -17,6 +17,7 @@ import {
   type ProviderFailureMessages,
 } from "./provider-failure";
 import type { SpeechGenerationSettings } from "./speech";
+import type { BgmGenerationSettings } from "./bgm";
 
 /** 失敗の公開分類。分類の規則と provider メッセージの扱いは provider-failure.ts を正とする */
 export type ImageFailureCode = ProviderFailureCode;
@@ -91,6 +92,7 @@ export interface ContentGenerationConfig {
   readOutputFormats: (model: string) => readonly string[] | undefined;
   /** 実行のたびに現在の音声設定を読む。行が無ければ undefined（未設定・削除後） */
   readSpeech: () => SpeechGenerationSettings | undefined;
+  readBgm: () => BgmGenerationSettings | undefined;
   /** 実行のたびにカタログの話者の宣言を引く。未知名・宣言なしは undefined（＝止めない） */
   readVoices: (model: string) => readonly string[] | undefined;
 }

@@ -969,6 +969,13 @@ export const ContentSpeechSettingsSchema = z.object({
 });
 export type ContentSpeechSettings = z.infer<typeof ContentSpeechSettingsSchema>;
 
+export const ContentBgmSettingsSchema = z.object({
+  model: z.string().nullable(),
+  format: z.literal("mp3"),
+  expectedDurationSeconds: z.literal(30),
+});
+export type ContentBgmSettings = z.infer<typeof ContentBgmSettingsSchema>;
+
 /**
  * GET /api/settings/content。`configured: false` のとき provider は null（行が無い = 未設定）。
  * APIキーは返さない。
@@ -980,6 +987,7 @@ export const ContentSettingsResponseSchema = z.object({
   runtimeAvailable: z.boolean(),
   image: ContentImageSettingsSchema,
   speech: ContentSpeechSettingsSchema,
+  bgm: ContentBgmSettingsSchema,
 });
 export type ContentSettingsResponse = z.infer<typeof ContentSettingsResponseSchema>;
 

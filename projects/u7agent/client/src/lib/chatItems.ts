@@ -157,7 +157,9 @@ export function estimateChatItemHeight(item: ChatRenderItem): number {
   const badges = generationBadgesOf(bubble.tools);
   const badgeCount = bubble.skillLoads.length + badges.length;
   // 生成音声のプレイヤーはブラウザー既定の controls の高さ (実寸は measureElement が補正する)
-  const playerCount = badges.filter((badge) => badge.info.kind === "speech" && badge.info.path !== undefined).length;
+  const playerCount = badges.filter(
+    (badge) => (badge.info.kind === "speech" || badge.info.kind === "bgm") && badge.info.path !== undefined,
+  ).length;
   return Math.max(72, Math.min(4000, 64 + textHeight + toolHeight + badgeCount * 28 + playerCount * 64));
 }
 

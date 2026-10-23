@@ -88,7 +88,7 @@ export function ContentSettingsView({
     <SettingsPageLayout
       eyebrow="CONTENT"
       title="コンテンツ生成"
-      caption="画像と音声の生成に使う OpenRouter のAPIキーとモデルを設定します。"
+      caption="画像・音声・BGMの生成に使う OpenRouter のAPIキーとモデルを確認・設定します。"
       // タブが無い（未設定 / 取得前）間も取り直せるよう、面のツールバーは常に出す
       toolbar={
         <TabToolbar

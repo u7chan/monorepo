@@ -18,6 +18,7 @@ import type { SandboxWorkspaceClient } from "./sandbox/client";
 import { wrapToolDefinitionWithSecretMasker } from "./secret-guard";
 import type { SecretMasker } from "./redact";
 import { SPEECH_TOOL_NAME } from "./speech-tools";
+import { BGM_TOOL_NAME } from "./bgm-tools";
 import { cwdRelativePath, parseToolPath, rootRelativeDir } from "./workspace-path";
 
 export const IMAGE_TOOL_NAME = "generate_image";
@@ -48,9 +49,16 @@ export const IMAGE_GENERATION_PROMPT_LINES = [
   "If a fixed-name latest copy is needed, use `cp` to a separate path while keeping the unique generated file. Never use `mv` to move a file referenced by the conversation.",
 ];
 
-/** SDK の tools へ渡す登録名。画像 / 音声のツールは有効なときだけ足す */
-export function sessionToolNames(base: readonly string[], enabled: { image: boolean; speech: boolean }): string[] {
-  return [...base, ...(enabled.image ? [IMAGE_TOOL_NAME] : []), ...(enabled.speech ? [SPEECH_TOOL_NAME] : [])];
+export function sessionToolNames(
+  base: readonly string[],
+  enabled: { image: boolean; speech: boolean; bgm?: boolean },
+): string[] {
+  return [
+    ...base,
+    ...(enabled.image ? [IMAGE_TOOL_NAME] : []),
+    ...(enabled.speech ? [SPEECH_TOOL_NAME] : []),
+    ...(enabled.bgm ? [BGM_TOOL_NAME] : []),
+  ];
 }
 
 const generateImageSchema = Type.Object({

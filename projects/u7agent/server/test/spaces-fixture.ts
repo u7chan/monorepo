@@ -30,6 +30,63 @@ const pi = Object.assign(
     // live 行の枠・ホールド・畳みの受入用: 速い順次 + 並列の連続ツール呼び出し (本文に「連続ツール」で発動)
     toolBurst: [
       {
+        prompt: "BGMバッジ",
+        reply: "合成fixtureのBGMです。保存先: generated/bgm-racing.mp3（実API生成ではありません）",
+        calls: [
+          {
+            name: "generate_bgm",
+            args: { prompt: "明るいレースゲーム" },
+            at: 0,
+            endAt: 900,
+            result:
+              "モデル: google/lyria-3-clip-preview\nBGMを生成して保存しました: generated/bgm-racing.mp3\n形式: MP3\n本文には、この実保存パスを示してください。",
+          },
+        ],
+      },
+      {
+        prompt: "BGM混在",
+        calls: [
+          {
+            name: "generate_bgm",
+            args: { prompt: "1本目" },
+            at: 0,
+            endAt: 600,
+            result:
+              "モデル: google/lyria-3-clip-preview\nBGMを生成して保存しました: generated/bgm-racing.mp3\n形式: MP3\n",
+          },
+          {
+            name: "generate_bgm",
+            args: { prompt: "2本目" },
+            at: 200,
+            endAt: 900,
+            result:
+              "モデル: google/lyria-3-clip-preview\nBGMを生成して保存しました: generated/bgm-racing-1.mp3\n形式: MP3\n",
+          },
+          {
+            name: "generate_speech",
+            args: { text: "TTS" },
+            at: 1000,
+            endAt: 1500,
+            result:
+              "モデル: google/gemini-3.8-flash-tts\nボイス: Kore\n音声を生成して保存しました: generated/night-platform-cat-intro.mp3\n",
+          },
+        ],
+      },
+      {
+        prompt: "BGM失敗",
+        calls: [
+          {
+            name: "generate_bgm",
+            args: { prompt: "異常終了" },
+            at: 0,
+            endAt: 800,
+            isError: true,
+            result:
+              "BGM生成に失敗しました。課金されている可能性があります。明示的な再依頼なしに再生成しないでください。",
+          },
+        ],
+      },
+      {
         prompt: "連続ツール",
         calls: [
           { name: "read", args: { path: "client/src/lib/liveToolCall.ts" }, at: 0, endAt: 120 },
@@ -319,6 +376,17 @@ const bff = await createBffApp({
   skillSandbox: workspace,
   // 公開サービスの確認 (スペース削除の 409) も同じ口から引く。渡さないと削除が必ず 503 になる
   serveSandbox: workspace,
+  imageCatalogFetch: async () => Response.json({ data: [{ id: "openai/gpt-image-2", name: "GPT Image 2" }] }),
+  speechCatalogFetch: async () =>
+    Response.json({
+      data: [
+        {
+          id: "google/gemini-3.8-flash-tts",
+          name: "Google: Gemini 3.8 Flash TTS",
+          supported_voices: ["Kore", "Zephyr"],
+        },
+      ],
+    }),
   pi: asPiBff(pi),
 });
 if (bff.projects.list().length === 0) {

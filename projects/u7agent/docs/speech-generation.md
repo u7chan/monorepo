@@ -48,7 +48,7 @@
 
 ## 有効化（ゲート）
 
-`content_settings` の行の有無だけがゲートで、画像と同じ `ContentGenerationConfig` が写し先になる。音声だけを無効にするトグルは持たない。
+`content_settings` の行の有無とエージェントの `toolNames` の積が公開ゲートで、画像・[BGM](bgm-generation.md) と同じ `ContentGenerationConfig` が写し先になる。音声だけを無効にする専用トグルは持たない。
 
 - `bootstrap.ts` は画像カタログの後に音声カタログのキャッシュを読み、行があるときだけ live を試す（画像と同じ順序）
 - ツール一覧はセッション作成時に固定する（新しい会話と復元から効く）。有効化しても既存の live セッションには遡及しない
@@ -116,7 +116,7 @@
 
 生成した音声を会話の中でそのまま再生できるようにする。順序は バッジ行（本文の上）→ 本文 → プレイヤー → メタ行で、本文の直後にブラウザー既定の `<audio controls>` を出す。配信と再生の土台は[音声プレビュー](file-preview.md#音声プレビュー)と同じで、URL の組み立て（`fileRawUrl`）も二重に持たない（`client/src/components/chat/SpeechPlayerList.tsx`）。
 
-- 対象は `generate_speech` の結果本文から保存パスが読めたカードだけ。1 ターンに複数あれば生成した数だけ並べる（上限は設けない）
+- 対象は `generate_speech` と `generate_bgm` の成功結果本文からモデルと保存パスが読めたカード。1 ターンに複数あれば混在も呼出し順に並べる。BGMはvoiceを表示しない（[bgm-generation.md](bgm-generation.md)）。
 - パスは Markdown 画像と同じ 3 段で解決する（cwd 相対 → root 相対 → raw URL）。版は run の終了ごとに進む既存の仕組み（`useImageVersion`）をそのまま使い、画像と同じ値を使う
 - 出さない条件: 結果本文にモデル行が無い（モデル行を書く前のセッション）、保存パスが読めない（投影で切れた）、cwd / rootCwd が未取得（絶対パスの参照は rootCwd が要り、片方だけで出すと同じターンで有無が混ざる）、参照として成立しない字面（空白入りなど `resolveFileRef` が採らないもの）。実行中は結果本文がまだ無いため出ない
 - 再生 / シークはブラウザーの既定の操作に任せ、再生位置・音量・再生速度は保存しない。読めないときの UI も持たない（プレビューと同じ）

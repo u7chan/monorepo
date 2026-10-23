@@ -17,6 +17,7 @@ import {
 import { IMAGE_PROVIDER_ID, type ContentGenerationConfig } from "../src/images";
 import { SPEECH_PROVIDER_ID } from "../src/speech";
 import { DEFAULT_SPEECH_MODEL, type SpeechCatalog } from "../src/speech-catalog";
+import { bgmSettings, BGM_MODEL } from "../src/bgm";
 
 const SPEECH_STUB = {
   provider: SPEECH_PROVIDER_ID,
@@ -147,6 +148,7 @@ function statusOf(error: unknown): number | undefined {
 test("GET は行が無いとき未設定を返し、キーを載せない", () => {
   const { service } = createService();
   assert.deepEqual(service.settings(), {
+    bgm: bgmSettings(false),
     configured: false,
     provider: null,
     runtimeAvailable: true,
@@ -164,6 +166,29 @@ test("GET は行が無いとき未設定を返し、キーを載せない", () =
       fetchedAt: null,
     },
   });
+});
+
+test("BGMの表示DTOはキー有無だけで決まりreadBgmは実行時の回転・削除に追随する", async () => {
+  const { service, configs, db, catalog } = createService();
+  assert.deepEqual(service.settings().bgm, bgmSettings(false));
+  assert.equal(catalog.refreshes, 0);
+  const saved = await service.putKey(KEY);
+  assert.equal(saved.status, 200);
+  if (saved.status !== 200) return;
+  assert.deepEqual(saved.response.bgm, bgmSettings(true));
+  const sessionRead = configs.at(-1)!.readBgm;
+  assert.deepEqual(sessionRead(), { model: BGM_MODEL, apiKey: KEY });
+  const rotated = KEY + "-rotated";
+  await service.putKey(rotated);
+  assert.deepEqual(sessionRead(), { model: BGM_MODEL, apiKey: rotated });
+  assert.deepEqual(service.settings().bgm, bgmSettings(true));
+  assert.equal(JSON.stringify(service.settings()).includes(rotated), false);
+  assert.equal(Object.hasOwn(db.row!, "bgmModel"), false);
+  assert.equal(catalog.refreshes, 0);
+  const removed = await service.deleteKey();
+  assert.equal(removed.status, 200);
+  assert.equal(sessionRead(), undefined);
+  assert.deepEqual(service.settings().bgm, bgmSettings(false));
 });
 
 test("キー登録はマスカー → DB → 注入の順に通し、行が無ければ既定 provider / model で作る", async () => {
