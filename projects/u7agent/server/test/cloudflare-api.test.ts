@@ -229,10 +229,10 @@ test("HTTP 200 でも本文の欠落・不正 JSON・result 欠落は成功に�
       ),
       kind: "timeout",
     },
-    { response: new Response("not json", { status: 200 }), kind: "invalid" },
+    { response: new Response("not json", { status: 200 }), kind: "unverifiable" },
     {
       response: new Response(JSON.stringify({ success: true, result: {} }), { status: 200 }),
-      kind: "invalid",
+      kind: "unverifiable",
     },
   ];
   for (const entry of cases) {
@@ -271,7 +271,7 @@ test("deployment の本文が壊れていたら publishAssets を成功させな
     };
     await assert.rejects(
       () => new CloudflareApiClient({ accountId: ACCOUNT, apiToken: TOKEN, fetchImpl }).publishAssets(SCRIPT, [asset]),
-      (error: unknown) => error instanceof CloudflareApiError && error.kind === "invalid",
+      (error: unknown) => error instanceof CloudflareApiError && error.kind === "unverifiable",
     );
   } finally {
     cleanup();

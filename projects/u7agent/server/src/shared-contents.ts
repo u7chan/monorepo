@@ -202,7 +202,7 @@ export class SharedContentsService {
       const sessionCwd = this.#sessions.workdirOfId(row.sessionId);
       if (!sessionCwd) throw httpError(409, SHARED_CONTENT_SESSION_REQUIRED);
       this.#assertSourceUnderSession(row.sourcePath, sessionCwd);
-      await this.#requireSource(row.sourcePath, 409);
+      await this.#requireSource(row.sourcePath);
       const credential = this.#requireCredentials();
       if (row.providerAccount !== credential.accountId) throw httpError(409, SHARED_CONTENT_ACCOUNT_MISMATCH);
 
@@ -300,10 +300,7 @@ export class SharedContentsService {
         // 公開は成功している。状態を保存できなくても「進行中」のまま放置せず、照会して結果不明を残す
         console.warn(`[u7agent] shared content state save failed: ${this.#maskError(messageFor(error))}`);
         try {
-          await this.#reconcile(
-            row,
-            new SharedContentSourceError("公開は完了しましたが、状態を保存できませんでした。再起動時に確認します"),
-          );
+          await this.#reconcile(row, new SharedContentSourceError("公開は完了しましたが、状態を保存できませんでした"));
         } catch (reconcileError) {
           console.warn(
             `[u7agent] shared content reconcile after state failure failed: ${this.#maskError(messageFor(reconcileError))}`,
@@ -498,14 +495,14 @@ export class SharedContentsService {
     return credential;
   }
 
-  async #requireSource(sourcePath: string, missingStatus: 400 | 409 = 400): Promise<void> {
+  async #requireSource(sourcePath: string): Promise<void> {
     if (!this.#workspace) throw httpError(503, SHARED_CONTENT_SANDBOX_UNAVAILABLE);
     try {
       await this.#workspace.listFiles(sourcePath);
     } catch (error) {
       const status = errorStatus(error);
-      if (status === 404) throw httpError(missingStatus, SHARED_CONTENT_SOURCE_REQUIRED);
-      if (status === 400) throw httpError(missingStatus, "公開するディレクトリではありません");
+      if (status === 404) throw httpError(409, SHARED_CONTENT_SOURCE_REQUIRED);
+      if (status === 400) throw httpError(409, "公開するディレクトリではありません");
       throw httpError(503, "公開するディレクトリを確認できませんでした");
     }
   }
@@ -687,7 +684,10 @@ function zipErrorFor(error: unknown): SharedContentSourceError {
 function isUnknownResult(error: unknown): boolean {
   return (
     error instanceof CloudflareApiError &&
-    (error.kind === "timeout" || error.kind === "network" || error.kind === "transient")
+    (error.kind === "timeout" ||
+      error.kind === "network" ||
+      error.kind === "transient" ||
+      error.kind === "unverifiable")
   );
 }
 

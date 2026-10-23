@@ -7,7 +7,12 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import test from "node:test";
 import type { SharedContentRow, SharedContentStatus } from "../src/app-db";
-import { CloudflareApiError, type CloudflareAsset, type CloudflareAssetsApi } from "../src/cloudflare-api";
+import {
+  CloudflareApiClient,
+  CloudflareApiError,
+  type CloudflareAsset,
+  type CloudflareAssetsApi,
+} from "../src/cloudflare-api";
 import type { SandboxWorkspaceClient } from "../src/sandbox/client";
 import { SandboxRequestError } from "../src/sandbox/client";
 import { createZipStream, type ZipEntry } from "../src/sandbox/zip";
@@ -711,7 +716,7 @@ test("公開後の DB 更新に一度失敗しても published + lastError に�
   }
 });
 
-test("sandbox の SandboxRequestError.status を 400 / 409 / 413 に写す", async () => {
+test("sandbox の SandboxRequestError.status を 409 / 413 に写す", async () => {
   const zip = zipFactory({ "index.html": "<h1>v1</h1>" });
   const notFoundWorkspace = {
     ...workspaceFor(zip),
@@ -723,7 +728,7 @@ test("sandbox の SandboxRequestError.status を 400 / 409 / 413 に写す", asy
   try {
     await assert.rejects(
       () => notFound.service.create(payload()),
-      (error: any) => error.statusCode === 400,
+      (error: any) => error.statusCode === 409,
     );
   } finally {
     // 同じ zip を後続のテストでも使う
@@ -793,6 +798,91 @@ test("_headers / _redirects は config へ回し、manifest に載せない", as
       ["index.html", "app.js"],
     );
     assert.deepEqual(cloudflare.configs[0], { headers: "X-Test: 1", redirects: "/old /new 301" });
+  } finally {
+    zip.cleanup();
+  }
+});
+
+test("subdomain 有効化の 200 本文が壊れても、照会して published + lastError にする", async () => {
+  const zip = zipFactory({ "index.html": "<h1>v1</h1>" });
+  let calls = 0;
+  const fetchImpl: typeof fetch = async (input) => {
+    calls += 1;
+    const path = new URL(String(input)).pathname;
+    const ok = (result: unknown) =>
+      new Response(JSON.stringify({ success: true, result, errors: [] }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    if (path.endsWith("/workers/subdomain")) return ok({ subdomain: "demo" });
+    if (path.endsWith("/assets-upload-session")) return ok({ jwt: "upload", buckets: [] });
+    if (path.endsWith("/scripts/u7s-id1/subdomain")) {
+      // 1 回目 (POST で有効化) は壊れた 200、2 回目 (照会) は有効
+      return calls === 4 ? new Response("broken", { status: 200 }) : ok({ enabled: true, previews_enabled: false });
+    }
+    return ok({});
+  };
+  const service = new SharedContentsService({
+    store: new FakeStore(),
+    sessions: { workdirOfId: () => SESSION_CWD },
+    workspace: workspaceFor(zip),
+    credentials: { credential: () => ({ accountId: ACCOUNT, apiToken: TOKEN }) },
+    createCloudflare: (credential) =>
+      new CloudflareApiClient({ accountId: credential.accountId, apiToken: credential.apiToken, fetchImpl }),
+    rootCwd: ROOT,
+    maskError: (text) => text,
+    secretValues: () => [],
+    now: () => 1_000,
+    newId: () => "id1",
+  });
+  try {
+    await service.create(payload());
+    await service.waitForIdle("id1");
+    const row = service.get("id1");
+    assert.equal(row.status, "published");
+    assert.match(row.lastError ?? "", /応答を確認できません/);
+    assert.equal(calls, 5, "有効化の後に subdomain を照会する");
+  } finally {
+    zip.cleanup();
+  }
+});
+
+test("有効化の 200 本文が壊れ、照会も壊れていたら publishing + lastError に留める", async () => {
+  const zip = zipFactory({ "index.html": "<h1>v1</h1>" });
+  let calls = 0;
+  const fetchImpl: typeof fetch = async (input) => {
+    calls += 1;
+    const path = new URL(String(input)).pathname;
+    const ok = (result: unknown) =>
+      new Response(JSON.stringify({ success: true, result, errors: [] }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    if (path.endsWith("/workers/subdomain")) return ok({ subdomain: "demo" });
+    if (path.endsWith("/assets-upload-session")) return ok({ jwt: "upload", buckets: [] });
+    if (path.endsWith("/scripts/u7s-id1/subdomain")) return new Response("broken", { status: 200 });
+    return ok({});
+  };
+  const store = new FakeStore();
+  const service = new SharedContentsService({
+    store,
+    sessions: { workdirOfId: () => SESSION_CWD },
+    workspace: workspaceFor(zip),
+    credentials: { credential: () => ({ accountId: ACCOUNT, apiToken: TOKEN }) },
+    createCloudflare: (credential) =>
+      new CloudflareApiClient({ accountId: credential.accountId, apiToken: credential.apiToken, fetchImpl }),
+    rootCwd: ROOT,
+    maskError: (text) => text,
+    secretValues: () => [],
+    now: () => 1_000,
+    newId: () => "id1",
+  });
+  try {
+    await service.create(payload());
+    await service.waitForIdle("id1");
+    const row = store.getSharedContent("id1");
+    assert.equal(row?.status, "publishing");
+    assert.ok(row?.lastError);
   } finally {
     zip.cleanup();
   }

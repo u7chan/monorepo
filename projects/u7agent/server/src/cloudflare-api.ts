@@ -19,7 +19,8 @@ export type CloudflareFailureKind =
   | "invalid"
   | "transient"
   | "timeout"
-  | "network";
+  | "network"
+  | "unverifiable";
 
 const FAILURE_MESSAGES: Record<CloudflareFailureKind, string> = {
   unauthorized: "Cloudflare の認証に失敗しました。API トークンの権限を確認してください",
@@ -30,6 +31,7 @@ const FAILURE_MESSAGES: Record<CloudflareFailureKind, string> = {
   transient: "Cloudflare の一時的なエラーで公開できませんでした",
   timeout: "Cloudflare への接続がタイムアウトしました",
   network: "Cloudflare へ接続できませんでした",
+  unverifiable: "Cloudflare の応答を確認できませんでした",
 };
 
 /** 分類だけを公開する。応答本文・トークン・URL は message へ入れない */
@@ -115,13 +117,17 @@ export class CloudflareApiClient implements CloudflareAssetsApi {
 
   async getAccountSubdomain(): Promise<string> {
     const result = await this.#request(this.#accountPath("/workers/subdomain"));
-    if (!isRecord(result) || typeof result.subdomain !== "string") throw new CloudflareApiError("invalid");
+    if (!isRecord(result) || typeof result.subdomain !== "string") {
+      throw new CloudflareApiError("unverifiable");
+    }
     return result.subdomain.trim();
   }
 
   async getScriptSubdomain(scriptName: string): Promise<CloudflareScriptSubdomain> {
     const result = await this.#request(this.#scriptPath(scriptName, "/subdomain"));
-    if (!isRecord(result) || typeof result.enabled !== "boolean") throw new CloudflareApiError("invalid");
+    if (!isRecord(result) || typeof result.enabled !== "boolean") {
+      throw new CloudflareApiError("unverifiable");
+    }
     return { enabled: result.enabled, previewsEnabled: result.previews_enabled === true };
   }
 
@@ -142,7 +148,7 @@ export class CloudflareApiClient implements CloudflareAssetsApi {
     const uploadJwt = isRecord(session) && typeof session.jwt === "string" ? session.jwt : "";
     const buckets = isRecord(session) && Array.isArray(session.buckets) ? session.buckets : undefined;
     if (!uploadJwt || !buckets || !buckets.every((bucket) => Array.isArray(bucket))) {
-      throw new CloudflareApiError("invalid");
+      throw new CloudflareApiError("unverifiable");
     }
 
     const byHash = new Map(assets.map((asset) => [asset.hash, asset]));
@@ -167,7 +173,7 @@ export class CloudflareApiClient implements CloudflareAssetsApi {
       );
       if (isRecord(uploaded) && typeof uploaded.jwt === "string") completionJwt = uploaded.jwt;
     }
-    if (!completionJwt) throw new CloudflareApiError("invalid");
+    if (!completionJwt) throw new CloudflareApiError("unverifiable");
 
     const metadata = {
       // 静的アセットだけの Worker。main_module / bindings は置かない
@@ -235,9 +241,13 @@ export class CloudflareApiClient implements CloudflareAssetsApi {
     } catch {
       body = undefined;
     }
-    // HTTP 200 でも本文が壊れていれば成功にしない。result の有無も endpoint 側で必ず確かめる
-    if (!response.ok || !isRecord(body) || body.success !== true || !("result" in body)) {
+    // 明示的な拒否 (非 2xx / success:false) と、成功を検証できない 200 を分ける。
+    // 後者は「適用されたかもしれない」ため、呼び出し側で結果不明として照会する
+    if (!response.ok || (isRecord(body) && body.success === false)) {
       throw classifyFailure(response.status, body);
+    }
+    if (!isRecord(body) || body.success !== true || !("result" in body)) {
+      throw new CloudflareApiError("unverifiable", response.status);
     }
     return body.result;
   }

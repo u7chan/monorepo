@@ -173,7 +173,17 @@ test("未知の id は 404、body 不正は 400", async () => {
   const { bff, restore } = await setup();
   try {
     assert.equal((await bff.app.request("/api/shared-contents/nope")).status, 404);
-    assert.equal((await bff.app.request("/api/shared-contents", jsonPost({ directory: "dist" }))).status, 400);
+    const invalidSchema = await bff.app.request("/api/shared-contents", jsonPost({ directory: "dist" }));
+    assert.equal(invalidSchema.status, 400);
+    assert.equal((await jsonBody(invalidSchema)).state, "not_stored");
+
+    const invalidJson = await bff.app.request("/api/shared-contents", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: "{broken",
+    });
+    assert.equal(invalidJson.status, 400);
+    assert.equal((await jsonBody(invalidJson)).state, "not_stored");
     assert.equal((await bff.app.request("/api/shared-contents/nope/publish", { method: "POST" })).status, 404);
   } finally {
     await restore();
