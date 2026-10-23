@@ -83,7 +83,7 @@ desktopとsingleColumnで、BGMラベル・モデル・実パス・caption、複
 
 ## 実行状況の受入
 
-自動検証は `server/test/session-activity.test.ts`（一覧の開始 / 終了 / 所要時間 / 回答待ち開始、`lastUsedAt` を開始時刻に使わないこと、終了から 120 分の sweep 保持、未ロードの会話が時刻を載せないこと）、`server/test/spaces-api.test.ts`（`scope=all` と `spaceId` 既定の維持）、`client/test/activity.test.ts`（区分の排他・並び・件数・経過時間の整形・終了の表示）、`client/test/sessionsFetch.test.ts`（初回未取得 / 失敗 / 回復・取得中の要求の共有（5 秒遅延の再現）・失効した要求の破棄と loading 解除）、`client/test/activityPage.test.ts` / `client/test/activityEntry.test.ts`（件数・バッジ・状態ラベル・経過時間・行のリンク・空状態・失敗警告・入口）、`client/test/route.test.ts`（`/activity` の解析と生成、`?space=` を解釈しないこと、会話 URL の同期が上書きしないこと）で行う。
+自動検証は `server/test/session-activity.test.ts`（一覧の開始 / 終了 / 所要時間 / 回答待ち開始、`lastUsedAt` を開始時刻に使わないこと、終了から 120 分の sweep 保持、未ロードの会話が時刻を載せないこと）、`server/test/spaces-api.test.ts`（`scope=all` と `spaceId` 既定の維持）、`client/test/activity.test.ts`（区分の排他・並び・件数・経過時間の整形・終了の表示）、`client/test/sessionsFetch.test.ts`（初回未取得 / 失敗 / 回復・取得中の要求の共有（5 秒遅延の再現）・失効した要求の破棄と loading 解除）、`client/test/activityPage.test.ts` / `client/test/activityEntry.test.ts`（件数・バッジ・状態ラベル・経過時間・行のリンク・空状態・失敗警告・入口）、`client/test/route.test.ts`（`/activity` の解析と生成、`?space=` を解釈しないこと、会話 URL の同期が上書きしないこと）、`client/test/themeContrast.test.ts`（小さい文字の文字用トークンが全テーマで通常面 / hover 面 / 選択面 / 状態ラベルの淡い面の 4.5:1 以上）で行う。
 
 GUI は [有料 API を使わない GUI fixture](#有料-api-を使わない-gui-fixture) の一時ストアに 2 つ以上の追加スペースと未所属の会話を作り、実行中・回答待ち・圧縮中・終了を並列にして確認する。有料 API は使わない。
 

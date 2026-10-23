@@ -209,7 +209,7 @@
   --c-line-strong: #c2c9d6;
   --c-ink: #414b60;
   --c-ink-strong: #1a2130;
-  --c-ink-soft: #5d6779;
+  --c-ink-soft: #5a6475;
   --c-ink-muted: #6f7890;
   --c-ink-faint: #8a93a6;
   --c-ink-ghost: #a5adbd;
@@ -223,8 +223,8 @@
   --c-ok: #167f56;
   --c-ok-text: #146b4a;
   --c-warn: #ad6800;
-  /* 面はそのままにし、11px の文字は 4.5:1 を満たす暗い橙にする */
-  --c-warn-text: #9c5c00;
+  /* 面はそのままにし、11px の文字は通常面 / hover 面 / 淡い面で 4.5:1 を満たす暗い橙にする */
+  --c-warn-text: #8f5400;
   --c-danger: #d6455f;
   --c-danger-text: #bb2d48;
   --c-glow: rgba(139, 92, 246, 0.09);
@@ -339,7 +339,7 @@
   --c-line-strong: #dabfc9;
   --c-ink: #5d4a52;
   --c-ink-strong: #31222a;
-  --c-ink-soft: #7a626c;
+  --c-ink-soft: #78606a;
   --c-ink-muted: #8d7580;
   --c-ink-faint: #a58d97;
   --c-ink-ghost: #c0aab2;
@@ -348,13 +348,13 @@
   --c-accent-bright: #f0bfd0;
   --c-on-accent: #47202f;
   --c-accent-wash: rgba(217, 132, 163, 0.12);
-  --c-accent-text: #b3496d;
+  --c-accent-text: #a34263;
   --c-focus: #b3496d;
   --c-ok: #23875d;
-  /* 白背景の 11px でも 4.5:1 を満たすよう、面より暗い緑にする */
-  --c-ok-text: #237a56;
+  /* 白背景・hover 面の 11px でも 4.5:1 を満たすよう、面より暗い緑にする */
+  --c-ok-text: #217552;
   --c-warn: #a96a10;
-  --c-warn-text: #965c0c;
+  --c-warn-text: #89540b;
   --c-danger: #d24d61;
   --c-danger-text: #b93348;
   --c-glow: rgba(232, 162, 186, 0.14);
@@ -398,7 +398,7 @@
   /* 白背景の 11px でも 4.5:1 を満たすよう、面より暗い緑にする */
   --c-ok-text: #167a57;
   --c-warn: #a06200;
-  --c-warn-text: #965c00;
+  --c-warn-text: #8f5700;
   --c-danger: #d4495f;
   --c-danger-text: #b72f47;
   --c-glow: rgba(99, 198, 238, 0.18);
