@@ -22,7 +22,6 @@ import {
   stat,
   unlink,
   writeFile,
-  type FileHandle,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, dirname, isAbsolute, join, parse, relative, resolve, sep } from "node:path";
@@ -161,6 +160,11 @@ export interface SandboxServiceOptions {
   resolveLandlockExec?: () => string | undefined;
   /** テストで差し替える Landlock の診断 (既定はラッパーの `--abi` を実行する) */
   probeLandlock?: () => Promise<SandboxLandlockStatus>;
+  /**
+   * テストで差し替える「開いた実体の実パスを引き直す」処理。既定は procfs 経由。
+   * undefined を返すと読取は拒否される (差し替え競合の回帰テスト用)。
+   */
+  resolveOpenedImageInputPath?: (fd: number) => Promise<string | undefined>;
 }
 
 export interface SandboxService {
@@ -856,11 +860,11 @@ function isInsideRoot(root: string, target: string): boolean {
 
 /**
  * 開いた実体の実パス。procfs 経由で fd の指す先を引き直し、解決から open までの差し替えを検出する。
- * procfs が無い環境では判定を飛ばす。
+ * 取得できないときは undefined を返し、呼び出し側が読み取りを拒む (実体を確かめられないまま読まない)。
  */
-async function openedFilePath(handle: FileHandle): Promise<string | undefined> {
+async function openedFilePath(fd: number): Promise<string | undefined> {
   try {
-    return await realpathNative(`/proc/self/fd/${handle.fd}`);
+    return await realpathNative(`/proc/self/fd/${fd}`);
   } catch {
     return undefined;
   }
@@ -870,7 +874,13 @@ async function openedFilePath(handle: FileHandle): Promise<string | undefined> {
  * 参照画像の入力読取。公開 raw と違い拡張子 allowlist は通さず、実バイトで画像形式を決める。
  * 読める範囲は BFF が渡した scope (root 相対) の実パスだけで、検査後の差し替えも open 後に確かめる。
  */
-async function readScopedImageInput(rootCwd: string, requested: string, scopes: readonly string[]): Promise<Buffer> {
+async function readScopedImageInput(
+  rootCwd: string,
+  requested: string,
+  scopes: readonly string[],
+  signal: AbortSignal | undefined,
+  resolveOpenedPath: (fd: number) => Promise<string | undefined>,
+): Promise<Buffer> {
   if (scopes.length === 0) throw pathError(400, "Image input requires a scope");
   if (scopes.length > SANDBOX_MAX_IMAGE_INPUT_SCOPES) {
     throw pathError(400, `Too many scopes (max ${SANDBOX_MAX_IMAGE_INPUT_SCOPES})`);
@@ -902,9 +912,13 @@ async function readScopedImageInput(rootCwd: string, requested: string, scopes: 
     throw pathError(400, `Path outside the image input scope: ${target}`);
   }
 
-  // 解決済みのパスを O_NOFOLLOW で開き、開いた実体が許可範囲の中にあることを引き直して確かめる
+  if (signal?.aborted) throw pathError(400, "Image input read aborted");
+
+  // 種別を確かめる前の blocking open を避けるため O_NONBLOCK を付ける (通常ファイルでは無効)。
+  // これで writer のいない FIFO でも止まらず、open 後の fstat で非通常ファイルとして拒める。
   const noFollow = constants.O_NOFOLLOW ?? 0;
-  const handle = await open(target, constants.O_RDONLY | noFollow).catch((error: NodeJS.ErrnoException) => {
+  const nonBlock = constants.O_NONBLOCK ?? 0;
+  const handle = await open(target, constants.O_RDONLY | noFollow | nonBlock).catch((error: NodeJS.ErrnoException) => {
     if (error.code === "ELOOP") throw pathError(400, `Symbolic links cannot be read: ${candidate}`);
     if (error.code === "ENOENT") throw pathError(404, `Path not found: ${candidate}`);
     throw pathError(400, `Cannot read the image input: ${messageFor(error)}`);
@@ -912,12 +926,12 @@ async function readScopedImageInput(rootCwd: string, requested: string, scopes: 
   try {
     const stats = await handle.stat();
     if (!stats.isFile()) throw pathError(400, `Not a regular file: ${candidate}`);
-    const actual = await openedFilePath(handle);
-    if (actual !== undefined) {
-      if (!isInsideRoot(root, actual)) throw pathError(400, "The opened file left the workspace");
-      if (!scopeRoots.some((scopeRoot) => isInsideRoot(scopeRoot, actual))) {
-        throw pathError(400, "The opened file left the image input scope");
-      }
+    // 実体の実パスを引き直せない = 差し替え・削除の競合下なので、範囲を確かめられないまま読まない
+    const actual = await resolveOpenedPath(handle.fd);
+    if (actual === undefined) throw pathError(400, "Cannot verify the opened image input");
+    if (!isInsideRoot(root, actual)) throw pathError(400, "The opened file left the workspace");
+    if (!scopeRoots.some((scopeRoot) => isInsideRoot(scopeRoot, actual))) {
+      throw pathError(400, "The opened file left the image input scope");
     }
     if (stats.size > IMAGE_INPUT_MAX_BYTES) {
       throw pathError(413, `Image input is too large (max ${IMAGE_INPUT_MAX_BYTES} bytes)`);
@@ -926,6 +940,7 @@ async function readScopedImageInput(rootCwd: string, requested: string, scopes: 
     const buffer = Buffer.alloc(stats.size + 1);
     let size = 0;
     while (size < buffer.length) {
+      if (signal?.aborted) throw pathError(400, "Image input read aborted");
       const { bytesRead } = await handle.read(buffer, size, buffer.length - size, null);
       if (bytesRead === 0) break;
       size += bytesRead;
@@ -2270,6 +2285,7 @@ export function createSandboxService(options: SandboxServiceOptions): SandboxSer
     maxEntries: options.maxArchiveEntries ?? DEFAULT_ARCHIVE_LIMITS.maxEntries,
   };
   const probeRuntimeInfo = options.probeRuntimeInfo ?? ((workspaceRoot: string) => probeSandboxRuntime(workspaceRoot));
+  const resolveOpenedImageInputPath = options.resolveOpenedImageInputPath ?? openedFilePath;
   // ラッパーは PATH からではなく固定パスから解決する (解決できなければ bash を実行しない)
   const landlockExec = options.resolveLandlockExec ? options.resolveLandlockExec() : resolveLandlockWrapper();
   /** ラッパーが exec する本物の shell。SDK の既定の解決結果をそのまま使う (PATH の二重管理をしない) */
@@ -2981,7 +2997,13 @@ export function createSandboxService(options: SandboxServiceOptions): SandboxSer
     const requested = c.req.query("path") ?? "";
     if (requested === "") return c.json({ error: "path is required" }, 400);
     try {
-      const bytes = await readScopedImageInput(rootCwd, requested, c.req.queries("scope") ?? []);
+      const bytes = await readScopedImageInput(
+        rootCwd,
+        requested,
+        c.req.queries("scope") ?? [],
+        c.req.raw.signal,
+        resolveOpenedImageInputPath,
+      );
       return new Response(bytes, {
         status: 200,
         headers: {

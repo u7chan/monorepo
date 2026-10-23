@@ -2,7 +2,12 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { sessionUploadsRel } from "../src/app-paths";
-import { IMAGE_INPUT_MAX_BYTES, inspectImageInput, stripImageInputData } from "../src/image-format";
+import {
+  IMAGE_INPUT_MAX_BYTES,
+  inspectImageInput,
+  leaksImageInputData,
+  stripImageInputData,
+} from "../src/image-format";
 import {
   imageInputReferenceOf,
   imageInputScopeOf,
@@ -162,4 +167,21 @@ test("入力画像の data URL と base64 は本文から取り除く", () => {
   assert.match(stripped, /data:<image omitted>/);
   // 宣言が無い data URL もパターンだけで落とす
   assert.equal(stripImageInputData("see data:image/webp;base64,AAAA"), "see data:<image omitted>");
+});
+
+test("JSON / URL エンコードで反射された入力も除去し、取り除けない残りは漏れとして検出する", () => {
+  // スラッシュを含む base64（PNG の典型）。JSON 文字列では `\/`、URL エンコードでは `%2F` になる
+  const base64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
+  for (const escaped of ["\\/", "\\u002f", "%2F"]) {
+    const payload = base64.replaceAll("/", escaped);
+    const reflected = JSON.stringify({ input_references: [{ url: `data:image/png;base64,${payload}` }] });
+    const stripped = stripImageInputData(reflected, [base64]);
+    assert.ok(!stripped.includes(payload), `${escaped}: 反射が残っている`);
+    assert.ok(!stripped.includes(base64), `${escaped}: base64 が残っている`);
+    assert.equal(leaksImageInputData(stripped, [base64]), false, `${escaped}: 除去後に漏れと判定した`);
+  }
+  // 折り返し（76 桁）で改行が入っても、比較用の正規化で漏れを見つける
+  const wrapped = (base64.match(/.{1,20}/g) ?? []).join("\n");
+  assert.equal(leaksImageInputData(`invalid image: ${wrapped}`, [base64]), true);
+  assert.equal(leaksImageInputData("provider said no", [base64]), false);
 });

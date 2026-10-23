@@ -18,7 +18,7 @@ import {
 } from "./provider-failure";
 import type { SpeechGenerationSettings } from "./speech";
 import type { BgmGenerationSettings } from "./bgm";
-import { stripImageInputData } from "./image-format";
+import { leaksImageInputData, stripImageInputData } from "./image-format";
 
 /** 失敗の公開分類。分類の規則と provider メッセージの扱いは provider-failure.ts を正とする */
 export type ImageFailureCode = ProviderFailureCode;
@@ -304,9 +304,14 @@ export function createImagesGenerator(options: ImagesGeneratorOptions = {}): Ima
         // OpenAI 直結 API の /images/edits や multipart は使わない（OpenRouter の /images の契約に合わせる）
         requestBody.input_references = inputReferences.map((url) => ({ type: "image_url", image_url: { url } }));
       }
-      // provider のエラー本文が送った入力画像を反射しても、結果・ログ・履歴へ base64 を出さない
-      const scrub = (text: string | undefined): string | undefined =>
-        text === undefined ? undefined : stripImageInputData(text, base64PayloadsOf(inputReferences));
+      // provider のエラー本文が送った入力画像を反射しても、結果・ログ・履歴へ base64 を出さない。
+      // 取り除き切れない表記（未知のエスケープ等）は本文ごと捨て、分類と固定文言だけを返す
+      const payloads = base64PayloadsOf(inputReferences);
+      const scrub = (text: string | undefined): string | undefined => {
+        if (text === undefined) return undefined;
+        const stripped = stripImageInputData(text, payloads);
+        return leaksImageInputData(stripped, payloads) ? undefined : stripped;
+      };
       try {
         const response = await baseFetch(imagesEndpoint(model), {
           method: "POST",

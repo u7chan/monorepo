@@ -136,16 +136,47 @@ export function imageDataUrl(mimeType: string, base64: string): string {
 }
 
 const DATA_URL_PATTERN = /data:[a-z0-9.+-]+\/[a-z0-9.+-]+;base64,[A-Za-z0-9+/=_-]+/gi;
+const DATA_URL_DETECT = /data:[a-z0-9.+-]+\/[a-z0-9.+-]+;base64,[A-Za-z0-9+/=_-]+/i;
+
+/** 反射され得る表記揺れ。base64 の `/` は JSON 文字列・URL エンコードで置き換わる */
+const SLASH_ESCAPES = ["\\/", "\\u002f", "\\u002F", "%2F", "%2f"];
+
+function payloadVariantsOf(base64: string): string[] {
+  const variants = new Set([base64]);
+  for (const escaped of SLASH_ESCAPES) variants.add(base64.replaceAll("/", escaped));
+  return [...variants];
+}
+
+/** JSON / URL エンコードを戻した比較用の本文 */
+function canonicalImageInputText(text: string): string {
+  let canonical = text.replaceAll("\\/", "/").replace(/\\u002f/gi, "/");
+  canonical = canonical.replace(/%2f/gi, "/");
+  return canonical;
+}
 
 /**
  * 入力画像の data URL / base64 を本文から取り除く。provider のエラー本文が送った入力を反射しても、
  * 結果・ログ・履歴へ base64 を載せないための境界（docs/image-generation.md）。
+ * 取り除き切れたかは `leaksImageInputData()` で確かめ、残る本文は呼び出し側が捨てる。
  */
 export function stripImageInputData(text: string, base64Payloads: readonly string[] = []): string {
   let stripped = text.replace(DATA_URL_PATTERN, "data:<image omitted>");
   for (const payload of base64Payloads) {
     if (payload.length < 32) continue;
-    stripped = stripped.split(payload).join("<image omitted>");
+    for (const variant of payloadVariantsOf(payload)) stripped = stripped.split(variant).join("<image omitted>");
   }
   return stripped;
+}
+
+/**
+ * 入力画像の base64 / data URL が本文に残っているか。JSON エスケープ（`\/` / `\u002f`）と、
+ * base64 の折り返しで入り込む空白を無視して比べ、取り除けていない本文を安全側で捨てるために使う。
+ */
+export function leaksImageInputData(text: string, base64Payloads: readonly string[] = []): boolean {
+  const canonical = canonicalImageInputText(text);
+  if (DATA_URL_DETECT.test(canonical)) return true;
+  const compact = canonical.replace(/\s+/g, "");
+  return base64Payloads.some(
+    (payload) => payload.length >= 32 && (canonical.includes(payload) || compact.includes(payload)),
+  );
 }

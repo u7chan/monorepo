@@ -12,6 +12,7 @@ import {
   sessionToolNames,
 } from "../src/image-tools";
 import { createMutableSecretMasker } from "../src/redact";
+import { createSandboxToolClient } from "../src/sandbox/client";
 import { toolResultSummary } from "../src/session-projection";
 import type { SandboxUploadInput, SandboxWorkspaceClient } from "../src/sandbox/client";
 import { cwdRelativePath, parseToolPath, rootRelativeDir } from "../src/workspace-path";
@@ -62,7 +63,7 @@ function tool(options: {
   /** root 相対のパス → 返す画像バイト。無いパスは「読めない」として失敗させる */
   inputFiles?: Record<string, Uint8Array>;
   checkImageInput?: (model: string) => Promise<string | undefined>;
-  readImageInput?: (path: string, scope: readonly string[]) => Promise<Uint8Array>;
+  readImageInput?: (path: string, scope: readonly string[], signal?: AbortSignal) => Promise<Uint8Array>;
   generate?: (input: {
     provider: string;
     model: string;
@@ -84,9 +85,9 @@ function tool(options: {
     readSettings: () => (typeof settingsOption === "function" ? settingsOption() : settingsOption),
     readOutputFormats: options.outputFormats ?? (() => undefined),
     checkImageInput: options.checkImageInput ?? (async () => undefined),
-    readImageInput: async (path, scope) => {
+    readImageInput: async (path, scope, signal) => {
       options.capture.reads.push({ path, scope });
-      if (options.readImageInput) return options.readImageInput(path, scope);
+      if (options.readImageInput) return options.readImageInput(path, scope, signal);
       const bytes = options.inputFiles?.[path];
       if (!bytes) throw new Error(`参照画像が見つかりません: ${path}`);
       return bytes;
@@ -565,4 +566,29 @@ test("参照画像の読取中の中断は画像生成の中断として返す",
     /画像生成を中断しました/,
   );
   assert.equal(capture.generated.length, 0);
+});
+
+test("部分応答 (206) の参照画像は provider へ送らず、課金前に拒否する", async () => {
+  const capture: Capture = { uploads: [], bodies: [], generated: [], inputPayloads: [], reads: [] };
+  const client = createSandboxToolClient({
+    baseUrl: "http://sandbox.test",
+    token: "test-sandbox-token-0123456789abcdef",
+    fetchImpl: (async () =>
+      new Response(pngBytes(), {
+        status: 206,
+        headers: { "Content-Length": String(pngBytes().byteLength), "Content-Range": "bytes 0-32/300" },
+      })) as typeof fetch,
+  });
+  const execute = tool({
+    capture,
+    settings,
+    sessionCwd: "projects/app",
+    readImageInput: (path, scope, signal) => client.readImageInput(path, scope, signal),
+  });
+  await assert.rejects(
+    () => run(execute, { prompt: "背景を白に", input_images: ["generated/portrait.png"] }),
+    /全体応答だけを受け付けます/,
+  );
+  assert.equal(capture.generated.length, 0, "部分画像で provider を呼んでいる");
+  assert.equal(capture.uploads.length, 0);
 });

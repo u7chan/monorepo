@@ -966,7 +966,14 @@ async function readImageInputWithSignal(
     if (timedOut()) throw new SandboxRequestError("参照画像の読み取りがタイムアウトしました", 504);
     throw error;
   }
-  if (!response.ok) throw await rawError(response, "参照画像を読み取れませんでした");
+  if (response.status !== 200) {
+    // 206 / 416 の部分応答は完成画像ではない。本文を捨てて、provider を呼ぶ前に拒否する
+    if (response.status === 206 || response.status === 416) {
+      await response.body?.cancel().catch(() => {});
+      throw new SandboxRequestError(`参照画像は全体応答だけを受け付けます (HTTP ${response.status})`, 502);
+    }
+    if (!response.ok) throw await rawError(response, "参照画像を読み取れませんでした");
+  }
   const tooLarge = (): SandboxRequestError =>
     new SandboxRequestError(`参照画像が大きすぎます（上限 ${IMAGE_INPUT_MAX_BYTES} バイト）`, 413);
   const contentLength = Number.parseInt(response.headers.get("content-length") ?? "", 10);

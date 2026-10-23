@@ -498,6 +498,29 @@ test("readImageInput propagates the user abort to the request", async () => {
   assert.equal(passed.aborted, true, "ユーザー中断を読み取りへ伝播する");
 });
 
+test("readImageInput accepts only a whole 200 response and rejects partial content", async () => {
+  // 206 は完成画像ではない。本文を捨てて、provider を呼ぶ前に拒否する
+  const partial = createSandboxToolClient({
+    baseUrl: "http://sandbox.test",
+    token: TOKEN,
+    fetchImpl: stubFetch(
+      () =>
+        new Response(new Uint8Array([1, 2, 3]), {
+          status: 206,
+          headers: { "Content-Length": "3", "Content-Range": "bytes 0-2/300" },
+        }),
+    ).impl,
+  });
+  await assert.rejects(partial.readImageInput("x.png", [""]), /全体応答だけを受け付けます/);
+
+  const notSatisfiable = createSandboxToolClient({
+    baseUrl: "http://sandbox.test",
+    token: TOKEN,
+    fetchImpl: stubFetch(() => new Response(null, { status: 416, headers: { "Content-Range": "bytes */300" } })).impl,
+  });
+  await assert.rejects(notSatisfiable.readImageInput("x.png", [""]), /全体応答だけを受け付けます/);
+});
+
 test("readImageInput relays 4xx messages and rejects a truncated or oversized body", async () => {
   const notFound = createSandboxToolClient({
     baseUrl: "http://sandbox.test",
