@@ -85,7 +85,11 @@ export function SessionRow({
               ) : null}
               <strong className="truncate text-xs text-ink">{item.title || "無題のセッション"}</strong>
             </span>
-            <small className="flex min-w-0 items-center gap-1 text-2xs text-ink-muted">
+            {/* 選択行は accent-wash を重ねた面になるため、10px のメタは ink-soft まで上げる
+                (非選択の ink-muted はそのままにし、一覧の情報階層を変えない) */}
+            <small
+              className={cn("flex min-w-0 items-center gap-1 text-2xs", active ? "text-ink-soft" : "text-ink-muted")}
+            >
               {/* アイコンはエージェント名の隣にだけ置く (名前が無いセッションでは時刻から始める) */}
               {item.agentName ? <AgentIcon icon={agentIconOf(agents, item.agentId)} variant="inline" /> : null}
               <span className="flex-1 truncate">{bits.join(" · ")}</span>

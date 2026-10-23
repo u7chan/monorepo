@@ -223,8 +223,8 @@
   --c-ok: #167f56;
   --c-ok-text: #146b4a;
   --c-warn: #ad6800;
-  /* 面はそのままにし、11px の文字は通常面 / hover 面 / 淡い面で 4.5:1 を満たす暗い橙にする */
-  --c-warn-text: #8f5400;
+  /* 面はそのままにし、11px の文字は通常面 / hover 面 / 選択行の重ね面で 4.5:1 を満たす暗い橙にする */
+  --c-warn-text: #8a5100;
   --c-danger: #d6455f;
   --c-danger-text: #bb2d48;
   --c-glow: rgba(139, 92, 246, 0.09);
@@ -267,7 +267,8 @@
   --c-ok: #97c07a;
   --c-ok-text: #b0cf94;
   --c-warn: #e0905f;
-  --c-warn-text: #e0905f;
+  /* 選択行の重ね面の 10px でも 4.5:1 を満たすよう、面より明るい橙にする */
+  --c-warn-text: #e39866;
   --c-danger: #e07a6a;
   --c-danger-text: #eda094;
   --c-glow: rgba(224, 164, 88, 0.1);
@@ -351,8 +352,8 @@
   --c-accent-text: #a34263;
   --c-focus: #b3496d;
   --c-ok: #23875d;
-  /* 白背景・hover 面の 11px でも 4.5:1 を満たすよう、面より暗い緑にする */
-  --c-ok-text: #217552;
+  /* 白背景・hover 面・選択行の重ね面の 11px でも 4.5:1 を満たすよう、面より暗い緑にする */
+  --c-ok-text: #20704f;
   --c-warn: #a96a10;
   --c-warn-text: #89540b;
   --c-danger: #d24d61;
@@ -395,10 +396,10 @@
   --c-accent-text: #0a6b91;
   --c-focus: #0a6b91;
   --c-ok: #107a56;
-  /* 白背景の 11px でも 4.5:1 を満たすよう、面より暗い緑にする */
-  --c-ok-text: #167a57;
+  /* 白背景・選択行の重ね面の 11px でも 4.5:1 を満たすよう、面より暗い緑にする */
+  --c-ok-text: #147151;
   --c-warn: #a06200;
-  --c-warn-text: #8f5700;
+  --c-warn-text: #8a5300;
   --c-danger: #d4495f;
   --c-danger-text: #b72f47;
   --c-glow: rgba(99, 198, 238, 0.18);

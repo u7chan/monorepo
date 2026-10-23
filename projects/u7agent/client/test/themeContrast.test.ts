@@ -1,5 +1,7 @@
 // テーマの文字色が「小さい文字」の受入条件 (4.5:1) を満たすことを、通常面だけでなく hover 面・
 // 選択面 (accent-wash)・状態ラベルの淡い面 (warn / accent の 10%) でも固定する。
+// サイドバーの選択行は panel に accent-wash、さらにバッジの 10% を重ねた二重合成になるため、
+// その実効背景も同じ計算で検査する。
 // 色は CSS のテーマトークンを入力にした計算で検査する (見た目の調整ではなく、読みやすさの契約)。
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
@@ -135,5 +137,26 @@ test("状態ラベルの面は hover で通常面と異なり、4.5:1 の検査�
       assert.ok(TOKEN_SURFACES[token].includes("hover"), `${token}: hover 面が検査対象に無い`);
       assert.ok(contrast(theme.color[token], surfaces.hover) >= 4.5, `${theme.name}: ${token} on hover`);
     }
+  }
+});
+
+test("選択行の 10px バッジとメタは、panel + accent-wash + 10% の実効背景でも 4.5:1 以上", () => {
+  for (const theme of parseThemes(css)) {
+    // SessionRow の選択行: bg-panel の上に bg-accent-wash、バッジはさらに bg-warn/10 などを重ねる。
+    const selected = over(theme.wash.color, theme.color.panel, theme.wash.alpha);
+    for (const [token, tint] of [
+      ["warn-text", theme.color.warn],
+      ["accent-text", theme.color.accent],
+      ["ok-text", theme.color.ok],
+    ] as const) {
+      const badge = over(tint, selected, 0.1);
+      // 10% の面が選択面と同色になっていないこと (検査が素通りしないようにする)
+      assert.notDeepEqual(badge, selected, `${theme.name}: ${token} のバッジ面が選択面と同じ`);
+      const ratio = contrast(theme.color[token], badge);
+      assert.ok(ratio >= 4.5, `${theme.name}: ${token} on 選択行のバッジ = ${ratio.toFixed(3)}:1 (4.5:1 以上が必要)`);
+    }
+    // 選択行の 10px メタは ink-muted ではなく ink-soft を使う (SessionRow の選択分岐)
+    const meta = contrast(theme.color["ink-soft"], selected);
+    assert.ok(meta >= 4.5, `${theme.name}: 選択行の 10px メタ (ink-soft) = ${meta.toFixed(3)}:1 (4.5:1 以上が必要)`);
   }
 });
