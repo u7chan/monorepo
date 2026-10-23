@@ -188,7 +188,7 @@ export interface SecretServiceOptions {
  * 保存時のマスカー登録は「値を受け取った直後」に、復号時は値を得た直後に行う。
  * 8 文字未満は登録しない (短い値は会話本文を軒並み [REDACTED] にするため。UI にその旨を出す)。
  */
-function retainIfLongEnough(retainSecret: (value: string) => void, value: string): void {
+export function retainIfLongEnough(retainSecret: (value: string) => void, value: string): void {
   if (value.length >= MIN_SECRET_LENGTH) retainSecret(value);
 }
 

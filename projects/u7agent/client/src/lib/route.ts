@@ -14,15 +14,18 @@ import {
   DEFAULT_FILES_SUBSECTION,
   DEFAULT_MODELS_SUBSECTION,
   DEFAULT_RUNTIME_SUBSECTION,
+  DEFAULT_SHARING_SUBSECTION,
   FILES_SUBSECTIONS,
   MODELS_SUBSECTIONS,
   RUNTIME_SUBSECTIONS,
   SETTINGS_SECTIONS,
+  SHARING_SUBSECTIONS,
   type ContentSubsection,
   type FilesSubsection,
   type ModelsSubsection,
   type RuntimeSubsection,
   type SettingsSection,
+  type SharingSubsection,
 } from "./settingsNav";
 
 export type Route =
@@ -45,6 +48,8 @@ export type Route =
       filesSubsection?: FilesSubsection;
       /** 設定 → ランタイムのタブ。同じく既定タブは省略する */
       runtimeSubsection?: RuntimeSubsection;
+      /** 設定 → 共有のタブ。既定タブは省略する */
+      sharingSubsection?: SharingSubsection;
     };
 
 /** 会話を指定しないチャット (正準形の `/`)。未知・解釈不能なパスを畳む先でもある */
@@ -90,6 +95,13 @@ export function parseRoute(pathname: string): Route {
         ? { view: "settings", section: "runtime", runtimeSubsection: subsection }
         : { view: "settings", section: "runtime" };
     }
+    if (found.section === "sharing") {
+      if (rest.length > 0) return CHAT_ROUTE;
+      const subsection = SHARING_SUBSECTIONS.find((item) => item.subsection === third?.toLowerCase())?.subsection;
+      return subsection && subsection !== DEFAULT_SHARING_SUBSECTION
+        ? { view: "settings", section: "sharing", sharingSubsection: subsection }
+        : { view: "settings", section: "sharing" };
+    }
     if (found.section !== "models")
       return third === undefined ? { view: "settings", section: found.section } : CHAT_ROUTE;
     if (rest.length > 0) return CHAT_ROUTE;
@@ -124,6 +136,13 @@ export function routePath(route: Route): string {
       route.runtimeSubsection !== DEFAULT_RUNTIME_SUBSECTION
     ) {
       return `/settings/runtime/${route.runtimeSubsection}`;
+    }
+    if (
+      route.section === "sharing" &&
+      route.sharingSubsection &&
+      route.sharingSubsection !== DEFAULT_SHARING_SUBSECTION
+    ) {
+      return `/settings/sharing/${route.sharingSubsection}`;
     }
     return `/settings/${route.section}`;
   }

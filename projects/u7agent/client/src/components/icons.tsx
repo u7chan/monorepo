@@ -274,6 +274,26 @@ export function DownloadIcon({ small = false }: { small?: boolean } = {}) {
   );
 }
 
+/** 共有。外へ出す箱と上向きの矢印で、公開 URL を配ることを示す */
+export function ShareIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.5"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className="size-4 shrink-0"
+    >
+      <path d="M8 2.75v7.5" />
+      <path d="M5.25 5.5 8 2.75l2.75 2.75" />
+      <path d="M4 8.75H3.5A1.5 1.5 0 0 0 2 10.25v2A1.5 1.5 0 0 0 3.5 13.75h9a1.5 1.5 0 0 0 1.5-1.5v-2a1.5 1.5 0 0 0-1.5-1.5H12" />
+    </svg>
+  );
+}
+
 /** パス行の「新しいタブで開く」。右上へ抜ける矢印で、アプリの外 (ブラウザのタブ) へ出ることを示す */
 export function ExternalLinkIcon() {
   return (

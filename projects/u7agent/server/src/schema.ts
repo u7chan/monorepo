@@ -998,6 +998,34 @@ export const ContentMutationResponseSchema = ContentSettingsResponseSchema.exten
 export type ContentMutationResponse = z.infer<typeof ContentMutationResponseSchema>;
 
 /**
+ * GET /api/settings/cloudflare。トークンは返さず、登録状態とアカウント ID だけを返す。
+ * `available: false` は master key が使えず、登録・復号が 503 になる状態。
+ */
+export const CloudflareSettingsResponseSchema = z.object({
+  configured: z.boolean(),
+  accountId: z.string().nullable(),
+  available: z.boolean(),
+  unavailableReason: z.string().nullable(),
+});
+export type CloudflareSettingsResponse = z.infer<typeof CloudflareSettingsResponseSchema>;
+
+/** 変更系 (PUT / DELETE) の応答。何も保存されなかった 503 は `state: "not_stored"` */
+export const CloudflareMutationResponseSchema = CloudflareSettingsResponseSchema.extend({
+  state: z.literal("applied"),
+});
+export type CloudflareMutationResponse = z.infer<typeof CloudflareMutationResponseSchema>;
+
+/**
+ * PUT /api/settings/cloudflare。`apiToken` を省略した更新は保存済みトークンを維持する。
+ * 形式の検証はサービス側で行い、値そのものは応答・ログへ出さない。
+ */
+export const UpdateCloudflareSettingsBodySchema = z.object({
+  accountId: z.string().min(1).max(64),
+  apiToken: z.string().max(512).optional(),
+});
+export type UpdateCloudflareSettingsBody = z.infer<typeof UpdateCloudflareSettingsBodySchema>;
+
+/**
  * POST /api/settings/content/image/catalog/refresh。設定は変えず、取得できなくても 200 で現在の一覧を返す
  * （`catalogError` にだけ失敗の固定文言を載せる。一覧を失わせない）。
  */

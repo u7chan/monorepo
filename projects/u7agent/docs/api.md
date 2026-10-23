@@ -31,7 +31,7 @@ DTO の正は `server/src/schema.ts`（zod）。リクエストボディは `@ho
 | コンテンツ生成（設定 → コンテンツ生成 `/settings/content`） | `GET /api/settings/content`、`PUT /api/settings/content/image`、`PUT /api/settings/content/speech`、`POST /api/settings/content/speech/preview`、`PUT/DELETE /api/settings/content/key`、`POST /api/settings/content/image/catalog/refresh`、`POST /api/settings/content/speech/catalog/refresh` | このファイル、[image-generation.md](image-generation.md)、[speech-generation.md](speech-generation.md) |
 | Web 検索の設定（設定 → Web 検索 `/settings/web-search`） | `GET/PUT /api/settings/web-search`、`PUT /api/settings/web-search/provider`、`PUT/DELETE /api/settings/web-search/providers/:provider/key` | このファイル、[web-search.md](web-search.md) |
 | サービス（serve）の状態と起動・停止 | `GET /api/serve/status`、`POST /api/serve/start`、`POST /api/serve/stop` | このファイル、[sandbox.md](sandbox.md#serveサービスの公開と起動停止) |
-| 共有コンテンツ（設計。実装は後続） | `/api/shared-contents`、`/api/settings/cloudflare` | [static-sharing.md](static-sharing.md) |
+| 共有コンテンツ（公開 API は後続）と Cloudflare の接続 | `/api/shared-contents`、`/api/settings/cloudflare` | [static-sharing.md](static-sharing.md) |
 | 作業フォルダの環境変数（作業環境 → 環境変数） | `GET/POST /api/secrets`、`GET/PUT/DELETE /api/secrets/:secretId` | このファイル、[secrets.md](secrets.md#作業フォルダの環境変数) |
 | エージェント / スキル | `/api/agents`、`/api/skills/files`（`/detail`・`/delete-preview`・`/export`・`/export/check`・`/import` を含む）、`/api/skills/session` | [api-catalog.md](api-catalog.md)、[api-sessions.md](api-sessions.md) |
 | サンドボックス（内部） | `/v1/*`（BFF からは見えない） | [sandbox-api.md](sandbox-api.md) |
@@ -711,6 +711,38 @@ Content-Security-Policy: sandbox allow-scripts; default-src 'none'; style-src 'u
 ## 共有コンテンツ
 
 静的成果物を Cloudflare へ公開する API はまだ実装していない。エンドポイント、DTO、状態遷移、エラーの契約は [static-sharing.md](static-sharing.md#api-契約) を正とする。実装したらこの節へ移す。
+
+### Cloudflare の接続
+
+設定 → 共有 → 接続（`/settings/sharing/connections`、既定タブの正準形は `/settings/sharing`）。BFF 専用の資格情報で、API トークンは write-only（応答・ログ・agent / sandbox へ出さない）。保存方式と権限は [static-sharing.md](static-sharing.md#cloudflare-資格情報) を正とする。
+
+| メソッド | パス | 説明 |
+| --- | --- | --- |
+| GET | `/api/settings/cloudflare` | 登録状態とアカウント ID |
+| PUT | `/api/settings/cloudflare` | 登録・更新 |
+| DELETE | `/api/settings/cloudflare` | 削除（冪等） |
+
+```json
+// GET / PUT / DELETE の応答
+{
+  "configured": true,
+  "accountId": "0123456789abcdef0123456789abcdef",
+  "available": true,
+  "unavailableReason": null
+}
+```
+
+```json
+// PUT の入力
+{ "accountId": "0123456789abcdef0123456789abcdef", "apiToken": "…" }
+```
+
+- `accountId` は 32 桁の 16 進数。前後の空白を除き、小文字へ正規化する。
+- `apiToken` は空白を含まない印字可能文字 20〜512 文字。初回は必須で、2 回目以降は省略でき、その場合は保存済みの暗号文を維持する。
+- 変更系の成功応答は `state: "applied"` を足す。保存されなかった 503 は `{ "error": "…", "state": "not_stored" }`。
+- `available: false` は暗号化の master key が未設定 / 読めない状態。このとき PUT は 503 になり、トークンの復号も 503 になる。
+- 別アカウントで公開した共有物が残っているアカウントへの登録・切替は 409。資格情報を削除しても共有物の `providerAccount` は残るため、削除 → 別アカウント登録でも迂回できない。
+- エラー文言にはトークンを含めない。`GET` は `accountId` と登録状態だけを返す。
 
 ## セッションへのファイルアップロード
 

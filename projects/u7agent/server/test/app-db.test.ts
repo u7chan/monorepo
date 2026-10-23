@@ -2339,3 +2339,57 @@ test("shared_contents と cloudflare_settings は未知の版での作り直し�
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test("cloudflare_settings の読み書き・削除と、別アカウントの共有物の判定", () => {
+  const dir = tempStoreDir();
+  try {
+    const db = AppDb.open({ storeDir: dir });
+    assert.equal(db.readCloudflareSettings(), undefined);
+
+    const row = {
+      accountId: "acc-a",
+      ciphertext: new Uint8Array([1, 2, 3]),
+      nonce: new Uint8Array([4, 5, 6]),
+      keyVersion: 1,
+      updatedAt: 10,
+    };
+    db.saveCloudflareSettings(row);
+    assert.deepEqual(db.readCloudflareSettings(), row);
+    assert.equal(db.hasSharedContentsForOtherAccount("acc-a"), false);
+
+    const raw = new DatabaseSync(join(dir, APP_DB_FILENAME));
+    raw
+      .prepare(
+        `INSERT INTO shared_contents
+           (id, sessionId, name, sourcePath, provider, providerAccount, remoteId, status, createdAt, updatedAt)
+         VALUES ('sc1', '0123456789', 'ミニゲーム', 'dist', 'cloudflare', 'acc-a', 'u7s-0123456789', 'published', 1, 1)`,
+      )
+      .run();
+    raw
+      .prepare(
+        `INSERT INTO shared_contents
+           (id, sessionId, name, sourcePath, provider, providerAccount, remoteId, status, createdAt, updatedAt)
+         VALUES ('sc2', '0123456789', '未公開', 'dist', 'cloudflare', NULL, NULL, 'failed', 1, 1)`,
+      )
+      .run();
+    raw.close();
+
+    // 同じアカウントと未受付 (NULL) は切替を止めない。別アカウントが混ざったときだけ拒否する
+    assert.equal(db.hasSharedContentsForOtherAccount("acc-a"), false);
+    assert.equal(db.hasSharedContentsForOtherAccount("acc-b"), true);
+
+    // 壊れた行は未登録と読み違えない
+    const corrupt = new DatabaseSync(join(dir, APP_DB_FILENAME));
+    corrupt.prepare("UPDATE cloudflare_settings SET accountId = '' WHERE id = 1").run();
+    corrupt.close();
+    assert.throws(() => db.readCloudflareSettings(), /incomplete/);
+
+    // 削除は壊れた行からでも通る
+    assert.equal(db.deleteCloudflareSettings(), true);
+    assert.equal(db.readCloudflareSettings(), undefined);
+    assert.equal(db.deleteCloudflareSettings(), false);
+    db.close();
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});

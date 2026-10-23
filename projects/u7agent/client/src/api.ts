@@ -9,6 +9,8 @@ import type {
   AskUserAnswer,
   CancelQueuedResult,
   CatalogResponse,
+  CloudflareMutationResponse,
+  CloudflareSettingsResponse,
   ContentMutationResponse,
   ContentSettingsResponse,
   CreateAgentBody,
@@ -66,6 +68,7 @@ import type {
   StopResult,
   ThinkingLevel,
   UpdateAgentBody,
+  UpdateCloudflareSettingsBody,
   UpdateContentImageBody,
   UpdateContentSpeechBody,
   UpdateModelAvailabilityBody,
@@ -711,6 +714,30 @@ export const deleteContentApiKey = async (): Promise<ContentMutationResponse> =>
   const res = await client.api.settings.content.key.$delete();
   if (!res.ok) throw await apiError(res);
   return (await res.json()) as ContentMutationResponse;
+};
+
+/**
+ * 設定 → 共有 → 接続 の Cloudflare 資格情報。GET は登録状態とアカウント ID だけで、
+ * API トークンは返らない。PUT の `apiToken` を省略すると保存済みトークンを維持する。
+ */
+export const getCloudflareSettings = async (): Promise<CloudflareSettingsResponse> => {
+  const res = await client.api.settings.cloudflare.$get();
+  if (!res.ok) throw await apiError(res);
+  return res.json();
+};
+
+export const updateCloudflareSettings = async (
+  input: UpdateCloudflareSettingsBody,
+): Promise<CloudflareMutationResponse> => {
+  const res = await client.api.settings.cloudflare.$put({ json: input });
+  if (!res.ok) throw await apiError(res);
+  return res.json();
+};
+
+export const deleteCloudflareSettings = async (): Promise<CloudflareMutationResponse> => {
+  const res = await client.api.settings.cloudflare.$delete();
+  if (!res.ok) throw await apiError(res);
+  return res.json();
 };
 
 /**

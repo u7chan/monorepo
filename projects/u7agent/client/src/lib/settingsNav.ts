@@ -14,6 +14,7 @@ export type SettingsSection =
   | "models"
   | "content"
   | "web-search"
+  | "sharing"
   | "runtime"
   | "notifications"
   | "spaces";
@@ -29,6 +30,9 @@ export const SETTINGS_SECTIONS: { section: SettingsSection; label: string }[] = 
   // モデルのタブにはせず、ルートのセクションに置く（コンテンツ生成の中は画像 / 音声のタブへ分ける）
   { section: "content", label: "コンテンツ生成" },
   { section: "web-search", label: "Web 検索" },
+  // 共有は公開先の接続と、公開した成果物の管理を同じ画面に置く。接続は外部サービスとキーの面だが、
+  // 対象は「共有」そのもので、モデル / コンテンツ生成 / Web 検索とは別
+  { section: "sharing", label: "共有" },
   { section: "notifications", label: "通知" },
   { section: "appearance", label: "外観" },
   { section: "files", label: "ファイル" },
@@ -91,6 +95,18 @@ export const RUNTIME_SUBSECTIONS: { subsection: RuntimeSubsection; label: string
 ];
 
 export const DEFAULT_RUNTIME_SUBSECTION: RuntimeSubsection = "service";
+
+/**
+ * 設定 → 共有 のタブ。共有コンテンツの一覧は後続で追加し、そのとき「共有コンテンツ」を既定にする。
+ * それまでは接続だけを出し、`/settings/sharing` を接続の既定にする。
+ */
+export type SharingSubsection = "connections";
+
+export const SHARING_SUBSECTIONS: { subsection: SharingSubsection; label: string }[] = [
+  { subsection: "connections", label: "接続" },
+];
+
+export const DEFAULT_SHARING_SUBSECTION: SharingSubsection = "connections";
 
 /** URL にセクションが無いときの行き先 (「設定」の導線と、保存値が読めないときの既定) */
 export const DEFAULT_SETTINGS_SECTION: SettingsSection = "agents";
