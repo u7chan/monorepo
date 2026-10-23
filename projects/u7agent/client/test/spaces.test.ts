@@ -283,7 +283,11 @@ test("会話・プロジェクト・作業環境の全操作へ固定スペー�
   await api.updateSecret(scope, "secret", "v");
   await api.deleteSecret(scope, "secret");
   assert.equal(requests.length, 28);
-  for (const request of requests) assert.equal(new URL(request.url).searchParams.get("spaceId"), demo.id);
+  // 一覧は実行状況のため全スペース横断 (scope=all) の unscoped な取得にし、他の会話操作は固定スペースを渡す
+  const listUrl = new URL(requests[0].url);
+  assert.equal(listUrl.searchParams.get("scope"), "all");
+  assert.equal(listUrl.searchParams.has("spaceId"), false);
+  for (const request of requests.slice(1)) assert.equal(new URL(request.url).searchParams.get("spaceId"), demo.id);
   assert.deepEqual(await requests[1].json(), { spaceId: demo.id, notify: true });
   assert.equal(new URL(requests[3].url).searchParams.get("before"), "entry/?日本語");
   assert.equal(new URL(requests[14].url).searchParams.get("name"), "日本語.txt");

@@ -5,7 +5,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import type { Space } from "server";
 import { openOwnerSession } from "../src/lib/ownerLink";
-import type { Route } from "../src/lib/route";
+import { sessionIdOf, type Route } from "../src/lib/route";
 
 const normal: Space = { id: "default", name: "既定", createdAt: 0 };
 const demo: Space = { id: "space-1111111111111111", name: "デモ", createdAt: 1 };
@@ -16,7 +16,7 @@ function run(ownerSpaceId: string | undefined, spaces: Space[] = [normal, demo])
   openOwnerSession("session-1", ownerSpaceId, {
     spaces,
     currentSpaceId: "default",
-    navigate: (route: Route) => calls.push(`navigate:${route.view === "chat" ? route.sessionId : route.section}`),
+    navigate: (route: Route) => calls.push(`navigate:${sessionIdOf(route)}`),
     selectSpace: (spaceId) => calls.push(`select:${spaceId}`),
     openInPlace: (sessionId) => calls.push(`open:${sessionId}`),
   });

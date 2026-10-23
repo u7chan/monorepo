@@ -111,7 +111,11 @@ export function createSpaceApi(spaceId: string) {
   };
   const session = scoped.api.sessions[":id"];
   return {
-    listSessions: () => read<{ sessions: SessionSummary[] }>(scoped.api.sessions.$get()),
+    /**
+     * 全スペースの一覧。`scope=all` は `spaceId` を付けない unscoped な取得で、サイドバーの
+     * 現在スペースの絞り込みはクライアントが行う (一覧の state は全スペースで 1 本)。
+     */
+    listSessions: () => read<{ sessions: SessionSummary[] }>(client.api.sessions.$get({ query: { scope: "all" } })),
     createSession: (agentId?: string, overrides: CreateSessionOverrides = {}) =>
       read<SessionPayload>(scoped.api.sessions.$post({ json: { ...overrides, agentId, spaceId } })),
     getSession: (id: string) => read<SessionPayload>(session.$get({ param: { id } })),

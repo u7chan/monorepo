@@ -7,6 +7,7 @@ import { groupSessionsByProject } from "../lib/sessionsByProject";
 import { sidebarProjectsStore } from "../lib/sidebarProjects";
 import { sidebarSectionsStore, type SidebarSectionId } from "../lib/sidebarSections";
 import { CloseIcon, DisclosureChevronIcon, GearIcon, LogoStarIcon, PlusIcon } from "./icons";
+import { ActivityEntry, type ActivityEntryProps } from "./ActivityEntry";
 import { MenuItem } from "./MenuItem";
 import { ProjectRow } from "./sidebar/ProjectRow";
 import { SessionList } from "./sidebar/SessionList";
@@ -50,6 +51,8 @@ export type SidebarProps = Omit<
   deleteSession: (sessionId: string) => void;
   deleteProject: (projectId: string) => void;
   togglePinned: (sessionId: string) => void;
+  /** 実行状況 (全スペース横断) の入口。nav モードで「新しい会話」の直下に置く */
+  activity?: ActivityEntryProps;
   onNewProject: () => void;
   onOpenSettingsSection: (section: SettingsSection) => void;
   /** sheet variant のときだけ使う (モバイルのドロワーを閉じる) */
@@ -64,6 +67,7 @@ export function Sidebar({
   onSelectMode,
   activeSettingsSection,
   notificationsFailed,
+  activity,
   onNewProject,
   onOpenSettingsSection,
   onClose,
@@ -168,6 +172,9 @@ export function Sidebar({
             </span>
             <span>新しい会話</span>
           </button>
+
+          {/* 一覧のスクロール領域の外に置く (Projects / Chats をどれだけ畳んでも入口は動かない) */}
+          {activity ? <ActivityEntry {...activity} /> : null}
 
           {/* pr-2 は overlay scrollbar のサム避け。ガターが確保されない環境 (iOS / Android / macOS) では
               scrollbar-gutter が幅を取らず、2px だとサムが行の右端に重なる。::-webkit-scrollbar と同じ 8px */}

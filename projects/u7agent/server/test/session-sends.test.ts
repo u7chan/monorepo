@@ -1123,11 +1123,13 @@ test("sends.json だけ書けない record は sweep で破棄しない", async 
     await waitFor(() => store.statusOf(record) === "completed", 3000, "run completion");
     await store.flush(record);
 
-    // sends だけ書けない状態を作り、sweep の対象にする
+    // sends だけ書けない状態を作り、sweep の対象にする。終了から 120 分以内のレコードは実行状況の行として
+    // 残すため、終了時刻も TTL より前にずらす (そうしないと sweep が persist を試みない)
     failWrites = true;
     record.unsentSends.push({ sendId: "send-dirty", runId: "run-dirty", text: "未送信の本文", at: Date.now() });
     record.sendsDirty = true;
-    record.lastUsedAt = Date.now() - 2 * 60 * 60 * 1000;
+    record.lastUsedAt = Date.now() - 3 * 60 * 60 * 1000;
+    if (record.run) record.run.endedAt = Date.now() - 3 * 60 * 60 * 1000;
     await store.sweep();
     assert.equal(record.sendsError !== undefined, true, "失敗を記録する");
     assert.equal(store.records.has(record.id), true, "sends の失敗中はメモリから外さない");

@@ -136,6 +136,20 @@ test("既定と複数スペースの一覧・所属・cwd・添付は live / swe
       (await jsonBody(f.bff.app.request("/api/sessions"))).sessions.map((item: SessionPayload) => item.sessionId),
       [sessions[0].sessionId],
     );
+    // 実行状況の全スペース一覧。`scope=all` は `spaceId` を付けても全件を返し、省略時の既定は変えない
+    const allIds = sessions.map((session) => session.sessionId).sort();
+    assert.deepEqual(
+      (await jsonBody(f.bff.app.request("/api/sessions?scope=all"))).sessions
+        .map((item: SessionPayload) => item.sessionId)
+        .sort(),
+      allIds,
+    );
+    assert.deepEqual(
+      (await jsonBody(f.bff.app.request(`/api/sessions?scope=all&spaceId=${a.id}`))).sessions
+        .map((item: SessionPayload) => item.sessionId)
+        .sort(),
+      allIds,
+    );
     assert.deepEqual(
       (await jsonBody(f.bff.app.request("/api/spaces"))).spaces.map((space: Space) => space.id),
       ["default", a.id, b.id],

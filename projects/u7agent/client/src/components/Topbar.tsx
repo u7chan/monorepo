@@ -2,6 +2,7 @@ import { cn } from "../lib/cn";
 import type { ChatScope } from "../lib/chatScope";
 import type { RuntimeStatus } from "../hooks/runtimeStatus";
 import { servedAppErrorText } from "../lib/servedApp";
+import { ActivityEntryButton, type ActivityEntryProps } from "./ActivityEntry";
 import { NotifyNote } from "./NotifyNote";
 import { NotifyBell } from "./NotifyBell";
 import { RuntimeAlert } from "./RuntimeAlert";
@@ -30,9 +31,11 @@ export type TopbarProps = {
   sessionFiles?: { open: boolean; onToggle: () => void };
   /** 左バーが overlay のときだけ渡す (docked では左バーが常駐するので ☰ を出さない) */
   nav?: { onOpen: () => void };
+  /** 実行状況の入口。サイドバーが隠れる幅 (nav を渡す帯) だけ出す */
+  activity?: ActivityEntryProps;
 };
 
-export function Topbar({ scope, serve, runtimeStatus, notify, sessionFiles, nav }: TopbarProps) {
+export function Topbar({ scope, serve, runtimeStatus, notify, sessionFiles, nav, activity }: TopbarProps) {
   // accent は「実際に送られる」の意味に保つ (設定が無効 / Webhook 未登録の On は青くしない)
   const delivering = notify.on && notify.deliverable;
   // 配信できない On は、押しても切り替わらない理由をラベルでも示す (色だけに頼らない)
@@ -50,6 +53,8 @@ export function Topbar({ scope, serve, runtimeStatus, notify, sessionFiles, nav 
               <MenuIcon />
             </button>
           ) : null}
+          {/* サイドバーを開かずに実行状況へ行けるようにする (docked では左バーに同じ入口がある) */}
+          {activity ? <ActivityEntryButton {...activity} label /> : null}
           {/* プロジェクト配下の新規会話と未所属は main 領域では同じ見た目になるため、作業先を常時出す */}
           <div
             className="inline-flex min-w-0 items-center gap-1.5 rounded-full border border-line px-2.5 py-1.5 text-1xs text-ink-soft"

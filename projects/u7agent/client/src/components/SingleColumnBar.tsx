@@ -3,6 +3,7 @@ import { cn } from "../lib/cn";
 import type { ChatScope } from "../lib/chatScope";
 import type { LayoutMode } from "../lib/layout";
 import { servedAppErrorText, servedAppRowHref } from "../lib/servedApp";
+import { ActivityEntryButton, type ActivityEntryProps } from "./ActivityEntry";
 import { NotifyBell } from "./NotifyBell";
 import { CloseIcon, ExternalLinkIcon, FolderIcon, MenuIcon } from "./icons";
 import { NotifyNote } from "./NotifyNote";
@@ -31,6 +32,8 @@ export type SingleColumnBarProps = {
     onOpenSettings?: () => void;
   };
   sessionFiles?: { open: boolean; onToggle: () => void };
+  /** 実行状況の入口。サイドバーが drawer の中なので、ここから開かずに到達できるようにする */
+  activity?: ActivityEntryProps;
   onOpenNav: () => void;
 };
 
@@ -43,6 +46,7 @@ export function SingleColumnBar({
   runtimeStatus,
   notify,
   sessionFiles,
+  activity,
   onOpenNav,
 }: SingleColumnBarProps) {
   const landscape = mode === "landscape";
@@ -68,6 +72,7 @@ export function SingleColumnBar({
         <button type="button" onClick={onOpenNav} aria-label="ナビゲーションを開く" className="icon-button">
           <MenuIcon />
         </button>
+        {activity ? <ActivityEntryButton {...activity} /> : null}
         <ServedAppIndicator {...serve} />
         {landscape ? (
           // プロジェクト名に長さ制限は無い。行の半分を上限にして収縮と省略を許し、タイトルと固定幅の

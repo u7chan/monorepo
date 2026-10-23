@@ -47,6 +47,27 @@ export function RunSpinnerIcon({ tone = "soft" }: { tone?: "soft" | "focus" | "o
   );
 }
 
+/**
+ * 実行状況 (全スペース横断のダッシュボード)。並列に動く会話をまとめて見る画面の導線に使う。
+ * ランの状態を表す図形ではないので、スピナーやドットとは混ぜない。
+ */
+export function ActivityIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.5"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className="size-4 shrink-0"
+    >
+      <path d="M1.5 9h2.25l1.5-4.5 2.5 7.5 1.75-3h4.5" />
+    </svg>
+  );
+}
+
 export function MenuIcon() {
   return (
     <svg

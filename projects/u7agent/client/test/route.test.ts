@@ -55,6 +55,9 @@ const runtimeTab = (runtimeSubsection: RuntimeSubsection): Route => ({
 /** 会話を指定した URL (`/s/<id>`) の route。id は不透明な値で、URL へ戻すときだけ encode する */
 const sessionUrl = (sessionId: string): Route => ({ view: "chat", sessionId });
 
+/** 全スペース横断の実行状況 */
+const ACTIVITY_ROUTE: Route = { view: "activity" };
+
 test("parseRoute は pathname だけで画面を決め、表のとおりに畳む", () => {
   const table: [string, Route][] = [
     // チャット
@@ -70,6 +73,15 @@ test("parseRoute は pathname だけで画面を決め、表のとおりに畳�
     // 不正な percent encoding は解釈不能としてチャットへ
     ["/%zz", CHAT_ROUTE],
     ["/s/%zz", CHAT_ROUTE],
+    // 実行状況。大文字・末尾スラッシュ・連続スラッシュ・percent encoding は正準形へ畳み、
+    // 余分なセグメントはチャットへ戻す
+    ["/activity", ACTIVITY_ROUTE],
+    ["/Activity", ACTIVITY_ROUTE],
+    ["/activity/", ACTIVITY_ROUTE],
+    ["//activity//", ACTIVITY_ROUTE],
+    ["/%61ctivity", ACTIVITY_ROUTE],
+    ["/activity/extra", CHAT_ROUTE],
+    ["/activities", CHAT_ROUTE],
     // 通知のリンク。id が無い / セグメントが余る / id に `/` を含む形は入口にしない
     ["/s", CHAT_ROUTE],
     ["/s/", CHAT_ROUTE],
@@ -161,6 +173,8 @@ test("parseRoute は pathname だけで画面を決め、表のとおりに畳�
 
 test("routePath は正準形を返し、parseRoute と往復する", () => {
   assert.equal(routePath(CHAT_ROUTE), "/");
+  assert.equal(routePath(ACTIVITY_ROUTE), "/activity");
+  assert.deepEqual(parseRoute(routePath(ACTIVITY_ROUTE)), ACTIVITY_ROUTE);
   assert.deepEqual(
     SETTINGS_SECTIONS.map((item) => routePath({ view: "settings", section: item.section })),
     [
@@ -230,10 +244,13 @@ test("routePath は `/s/<id>` を encode して返し、parseRoute と往復す�
 
 test("同期は確定した選択を URL に映し、書かない条件では null を返す", () => {
   const table: [Route["view"], string, boolean, string | null][] = [
-    // 設定の表示中は書かない (SSE 切断や削除で選択が変わっても URL と表示を食い違わせない)
+    // 設定と実行状況の表示中は書かない (SSE 切断や削除で選択が変わっても URL と表示を食い違わせない。
+    // 実行状況は会話を指定しない画面なので、選択を載せると戻る先が変わってしまう)
     ["settings", "", true, null],
     ["settings", "abc123", true, null],
     ["settings", "xyz789", false, null],
+    ["activity", "", true, null],
+    ["activity", "abc123", true, null],
     // 未解決の入口が未選択のままの間は URL を保つ (一覧の取得に失敗しても、次の一覧で解決する)
     ["chat", "", false, null],
     // 未解決でも、ユーザー操作で選択が確定したらその選択を書く
@@ -260,6 +277,7 @@ test("URL が指定する会話を返し、入口の解決状態は会話の有�
   assert.equal(sessionIdOf(CHAT_ROUTE), undefined);
   assert.equal(sessionIdOf(sessionUrl("abc123")), "abc123");
   assert.equal(sessionIdOf(settings("agents")), undefined);
+  assert.equal(sessionIdOf(ACTIVITY_ROUTE), undefined);
   // 会話を指定していない URL には保つ URL が無いので、最初から解決済みとする
   assert.equal(entryResolvedInitially(undefined), true);
   assert.equal(entryResolvedInitially("abc123"), false);
@@ -276,6 +294,8 @@ test("`/s/<id>` の `space` だけを読み、他の画面と他のクエリは�
   // 会話を指定しない画面では pathname と同じく解釈しない
   assert.equal(entrySpaceOf(CHAT_ROUTE, "?space=demo"), null);
   assert.equal(entrySpaceOf(settings("spaces"), "?space=demo"), null);
+  // 実行状況は全スペースを出す画面なので、`?space=` で絞らない (解釈しない)
+  assert.equal(entrySpaceOf(ACTIVITY_ROUTE, "?space=demo"), null);
   // 不正な値も「不正な指定」として渡し、既定スペースへ黙って落とさない
   assert.equal(entrySpaceOf(sessionUrl("abc123"), "?space=../bad"), "../bad");
 });
@@ -295,6 +315,7 @@ test("会話を指定した URL の `space` は選択中のスペースで揃え
   assert.equal(withEntrySpace(CHAT_ROUTE, "?space=demo", "demo"), "");
   assert.equal(withEntrySpace(CHAT_ROUTE, "?space=demo&x=%20", "demo"), "?x=%20");
   assert.equal(withEntrySpace(settings("files"), "?space=demo", "demo"), "");
+  assert.equal(withEntrySpace(ACTIVITY_ROUTE, "?space=demo", "demo"), "");
 });
 
 /** アプリが書く会話 URL (pathname + `space`)。hooks/useRoute.ts の syncSessionPath と同じ組み方 */

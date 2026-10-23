@@ -1670,6 +1670,13 @@
   .settings-view {
     animation: settings-view-in 180ms ease-out;
   }
+  /* 実行状況 (全スペース横断) のページ。チャットと同じマスへ重ね、出入りは設定ページと同じ動きにする */
+  .activity-view {
+    animation: settings-view-in 180ms ease-out;
+  }
+  .activity-view[data-closing="true"] {
+    animation: settings-view-out 180ms ease-out forwards;
+  }
   .settings-view[data-closing="true"] {
     animation: settings-view-out 180ms ease-out forwards;
   }
@@ -1700,7 +1707,9 @@
     .files-sheet,
     .files-sheet[data-closing="true"],
     .settings-view,
-    .settings-view[data-closing="true"] {
+    .settings-view[data-closing="true"],
+    .activity-view,
+    .activity-view[data-closing="true"] {
       animation-duration: 0.01ms;
     }
     .chat-view,

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { ApiError, statFile, type CreateProjectInput } from "./api";
 import { useSpace } from "./SpaceContext";
+import { ActivityPage } from "./components/ActivityPage";
 import { SpaceSettingsPage } from "./components/SpaceSettingsPage";
 import { AgentSettingsPage } from "./components/AgentSettingsPage";
 import { AppearancePage } from "./components/AppearancePage";
@@ -35,6 +36,7 @@ import { useSessionFilesPanelWidth } from "./hooks/useSessionFilesPanelWidth";
 import { useSidebarWidth } from "./hooks/useSidebarWidth";
 import { useViewportWidth } from "./hooks/useViewportWidth";
 import { agentIconOf } from "./lib/agentIcon";
+import { activityProgressCount } from "./lib/activity";
 import { chatScope } from "./lib/chatScope";
 import { nextSheetView, type SheetView } from "./lib/sheetView";
 import { cn } from "./lib/cn";
@@ -62,6 +64,7 @@ import {
 } from "./lib/notifications";
 import { sessionFilesDefaultOpen, sessionFilesRoot } from "./lib/sessionFiles";
 import { sessionEnvScope } from "./lib/sessionEnv";
+import { sessionsInSpace } from "./lib/spaceSessions";
 import { servedAppBusyKind, servedAppFocusRequest, servedAppStartConfirm, servedAppView } from "./lib/servedApp";
 import {
   handoffAgentChoices,
@@ -133,6 +136,20 @@ export default function App({ handoffNote = null, onHandoffNote, onHandoffNoteSh
     mainWidth: sidebarDocked ? viewportWidth - sidebarWidth.width : viewportWidth,
   });
   const mainView = route.view;
+  // 一覧の state は全スペースで 1 本。サイドバー・モデルの最終使用・選択の移り先は、従来どおり
+  // 現在のスペースだけを見る (現在スペースの一覧の意味を変えない)
+  const spaceSessions = useMemo(
+    () => sessionsInSpace(app.sessions, space.selected.id),
+    [app.sessions, space.selected.id],
+  );
+  // 実行状況の入口に出す件数。全スペースの進行中で、未取得・取得失敗を 0 件と誤表示しない
+  const activityCount = useMemo(() => activityProgressCount(app.sessions), [app.sessions]);
+  const activityEntry = {
+    active: route.view === "activity",
+    count: app.sessionsFetch.loaded ? activityCount : undefined,
+    stale: app.sessionsFetch.failed,
+    onOpen: () => navigate({ view: "activity" }),
+  };
   // 入力欄の上に浮かぶライブ表示。箱が浮いている間はチャットの下端にも余白を確保するため、
   // 両方を持つここで導出して渡す (段と行の決め方は hooks/useLiveToolCall)
   const liveTools = useLiveToolCall({
@@ -158,7 +175,7 @@ export default function App({ handoffNote = null, onHandoffNote, onHandoffNoteSh
     sessionId: app.sessionId,
     selectedProjectId: app.selectedProjectId,
     projects: app.projects,
-    sessions: app.sessions,
+    sessions: spaceSessions,
   });
   // 作業フォルダの root。projectCwd はセッション未作成かつ作成先が解決済みのときだけ渡す (lib/sessionFiles.ts)
   const filesRoot = sessionFilesRoot({
@@ -441,7 +458,7 @@ export default function App({ handoffNote = null, onHandoffNote, onHandoffNoteSh
   }, [app.sessionId]);
 
   // 表示中のセッション。エージェント切替で引き継ぐ作業先 (所属) の解決にも使う
-  const activeSession = app.sessions.find((item) => item.sessionId === app.sessionId);
+  const activeSession = spaceSessions.find((item) => item.sessionId === app.sessionId);
 
   // サービスの状態と操作。バーの表示条件は lib/servedApp が決める (会話ごとの値なので facade が持つ)
   const serve = app.serve;
@@ -459,7 +476,7 @@ export default function App({ handoffNote = null, onHandoffNote, onHandoffNoteSh
       selfStatus: app.chat.runStatus,
       sessionId: app.sessionId,
       projectId: activeSession?.projectId,
-      sessions: app.sessions,
+      sessions: spaceSessions,
     });
     const request = servedAppStartConfirm(servedAppView(app.serve.status), busy);
     const target = app.sessionId;
@@ -478,7 +495,7 @@ export default function App({ handoffNote = null, onHandoffNote, onHandoffNoteSh
       });
       if (focusRequested) setServeFocusRequest(true);
     })();
-  }, [app.chat.runStatus, app.sessionId, activeSession?.projectId, app.sessions, app.serve, confirm]);
+  }, [app.chat.runStatus, app.sessionId, activeSession?.projectId, spaceSessions, app.serve, confirm]);
   const serveProps = {
     port: app.health?.previewPort,
     status: serve.status,
@@ -663,18 +680,25 @@ export default function App({ handoffNote = null, onHandoffNote, onHandoffNoteSh
     pinError: app.pinnedError,
     commitHash: app.health?.versions?.commitHash,
     conversationOnly: space.selected.id !== "default",
+    activity: activityEntry,
     mode: sidebarMode,
     onSelectMode: selectMode,
     activeSettingsSection: settingsSection,
     // 設定ナビの ⚠。通知設定は facade が持つため、ページを開いていなくても反映される
     notificationsFailed: notificationHasFailure(app.notifications.settings),
-    sessions: app.sessions,
+    sessions: spaceSessions,
     sessionId: app.sessionId,
     agents: app.agents,
     projects: app.projects,
-    newChat: handleNewChat,
+    // 実行状況からサイドバーの会話を選んだときは、選択だけで終わらせずチャットへ戻る (設定と違い
+    // 会話の行が見えているため、選んでも画面が変わらないと操作が伝わらない)
+    newChat: (agentId?: string, projectId?: string) => {
+      handleNewChat(agentId, projectId);
+      if (route.view !== "chat") navigate({ view: "chat" });
+    },
     selectSession: (sessionId: string) => {
       if (sessionId !== app.sessionId) void app.selectSession(sessionId);
+      if (route.view !== "chat") navigate({ view: "chat", sessionId });
     },
     renameSession: (sessionId: string) => {
       void app.renameSession(sessionId);
@@ -683,7 +707,7 @@ export default function App({ handoffNote = null, onHandoffNote, onHandoffNoteSh
       void app.deleteSession(sessionId);
     },
     handoffSession: (sessionId: string) => {
-      const item = app.sessions.find((entry) => entry.sessionId === sessionId);
+      const item = spaceSessions.find((entry) => entry.sessionId === sessionId);
       setHandoffTarget({
         sessionId,
         title: item?.title ?? "",
@@ -710,9 +734,17 @@ export default function App({ handoffNote = null, onHandoffNote, onHandoffNoteSh
   // (hooks/useExitPhase)。シートは dialog 自身がアニメを持つので、その ref も App が持つ
   const filesSheetRef = useRef<HTMLDialogElement | null>(null);
   const settingsViewRef = useRef<HTMLDivElement | null>(null);
+  const activityViewRef = useRef<HTMLDivElement | null>(null);
   const filesPanelPhase = useExitPhase(filesPanelOpen, panelWidth.mainRef);
   const filesSheetPhase = useExitPhase(filesSheetOpen, filesSheetRef);
   const settingsPhase = useExitPhase(mainView === "settings", settingsViewRef);
+  // 実行状況も同じマスへ重ねる。退場アニメの間は mount を保ち、隠れた側は inert にする
+  const activityPhase = useExitPhase(mainView === "activity", activityViewRef);
+  // 画面を開いたときに一覧を取り直す (同じ一覧 state と取得制御を共有する。専用の state は作らない)
+  const activityOpen = mainView === "activity";
+  useEffect(() => {
+    if (activityOpen) void app.refreshSessions();
+  }, [activityOpen, app.refreshSessions]);
   // 退場中はシートの見え方を固定する。key (root) が動くと dialog が作り直され、退場アニメが途中で切れる
   // (終了待ちの listener が外れた要素に残り、スライド中に中身も入れ替わる)。追従させる条件は lib/sheetView.ts
   const [sheetView, setSheetView] = useState<SheetView>(() => ({ root: filesRoot, mode: filesMode }));
@@ -788,7 +820,7 @@ export default function App({ handoffNote = null, onHandoffNote, onHandoffNoteSh
           <ModelSettingsPage
             {...pageProps}
             onRefreshHealth={app.refreshHealth}
-            sessions={app.sessions}
+            sessions={spaceSessions}
             sessionsLoaded={app.sessionsLoaded}
             modelsSubsection={
               route.view === "settings" && route.section === "models"
@@ -824,7 +856,7 @@ export default function App({ handoffNote = null, onHandoffNote, onHandoffNoteSh
             onSelectRuntimeSubsection={openRuntimeSubsection}
             health={app.health}
             onRefreshHealth={app.refreshHealth}
-            sessions={app.sessions}
+            sessions={spaceSessions}
             openSessionId={app.sessionId}
             onOpenSession={(sessionId, spaceId) =>
               openOwnerSession(sessionId, spaceId, {
@@ -900,6 +932,7 @@ export default function App({ handoffNote = null, onHandoffNote, onHandoffNoteSh
                 runtimeStatus={app.runtimeStatus}
                 notify={notifyToggle}
                 sessionFiles={filesRoot ? { open: filesSheetOpen, onToggle: toggleSessionFiles } : undefined}
+                activity={activityEntry}
                 onOpenNav={openNav}
               />
             ) : (
@@ -910,6 +943,7 @@ export default function App({ handoffNote = null, onHandoffNote, onHandoffNoteSh
                 notify={notifyToggle}
                 sessionFiles={filesRoot ? { open: filesPanelOpen, onToggle: toggleSessionFiles } : undefined}
                 nav={sidebarDocked ? undefined : { onOpen: openNav }}
+                activity={sidebarDocked ? undefined : activityEntry}
               />
             )}
             <FileRefProvider rootCwd={app.health?.cwd ?? ""} cwd={app.cwd} onOpen={openFileRef}>
@@ -1003,6 +1037,24 @@ export default function App({ handoffNote = null, onHandoffNote, onHandoffNoteSh
               className="settings-view col-start-1 row-start-1 grid min-h-0 min-w-0 grid-cols-1"
             >
               {settingsScreen()}
+            </div>
+          ) : null}
+          {activityPhase !== "closed" ? (
+            <div
+              ref={activityViewRef}
+              data-closing={activityPhase === "closing"}
+              inert={activityPhase === "closing"}
+              className="activity-view col-start-1 row-start-1 grid min-h-0 min-w-0 grid-cols-1"
+            >
+              <ActivityPage
+                sessions={app.sessions}
+                projects={app.projects}
+                spaces={space.spaces}
+                fetch={app.sessionsFetch}
+                onReload={app.reloadSessions}
+                onBack={backToChat}
+                onOpenNav={sidebarDocked ? undefined : openNav}
+              />
             </div>
           ) : null}
         </div>

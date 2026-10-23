@@ -119,6 +119,7 @@ export function useU7Agent({ pendingSessionId }: UseU7AgentOptions = {}) {
   const {
     sessions,
     sessionsLoaded,
+    sessionsFetch,
     sessionId,
     sessionIdRef,
     /** SSE の受信記録 (診断のスナップショットが読む) */
@@ -136,6 +137,7 @@ export function useU7Agent({ pendingSessionId }: UseU7AgentOptions = {}) {
     notify,
     pinnedError,
     refreshSessions,
+    reloadSessions,
     selectSession,
     newChat,
     ensureSession,
@@ -483,6 +485,8 @@ export function useU7Agent({ pendingSessionId }: UseU7AgentOptions = {}) {
     agents,
     sessions,
     sessionsLoaded,
+    /** 一覧の取得状態 (初回未取得 / 取得中 / 失敗 / 最終成功時刻)。サイドバーと実行状況が共有する */
+    sessionsFetch,
     projects,
     selectedProject,
     selectedProjectId,
@@ -525,6 +529,7 @@ export function useU7Agent({ pendingSessionId }: UseU7AgentOptions = {}) {
     applyAgentOrder,
     refreshHealth,
     refreshSessions,
+    reloadSessions,
     refreshProjects,
     selectSession,
     newChat,
