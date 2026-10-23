@@ -202,7 +202,7 @@ Cloudflare への送信は時間がかかるため、同期 HTTP では扱わな
 | なし | 作成 | `publishing` |
 | `publishing`（初回） | 成功 | `published` |
 | `publishing`（初回） | 確定した失敗 | `failed` |
-| `publishing`（どの操作でも） | 結果不明 | `publishing`（+ `lastError`、停止のみ可） |
+| `publishing`（公開・更新・再公開） | 結果不明 | `publishing`（+ `lastError`、停止のみ可） |
 | `publishing`（+ `lastError`） | 停止 | `stopped` |
 | `failed` | 公開（再試行） | `publishing` |
 | `published` | 更新 | `publishing` |
@@ -215,6 +215,7 @@ Cloudflare への送信は時間がかかるため、同期 HTTP では扱わな
 | `publishing`（再公開） | 確定した失敗 | `stopped`（+ `lastError`） |
 
 - `publishing` の共有物への別の変更は `409`。ただし結果不明で止まった行への停止だけは受け付ける。
+- 停止の結果不明は、開始状態が `published` なら `published` + `lastError`、結果不明の `publishing` からなら `publishing` + `lastError` に留める（照会できたときだけ `stopped` / `published` に確定する）。
 - `lastError` は受付時に消し、公開・更新・再公開・停止の成功時も消す。確定した失敗と結果不明のときだけ、分類済みの文言を入れる。
 - 操作の成否は終端の `status` と `lastError` で判定する。公開・更新・再公開は `published` かつ `lastError` が null なら成功、停止は `stopped` かつ null なら成功。`publishing` + `lastError` は結果不明で、停止を再試行すると `stopped` に確定する。
 - 存在しない id は `404`。他の共有物を誤って操作しないよう、id だけで対象を決める。
