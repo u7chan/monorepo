@@ -1,6 +1,6 @@
 # 画像生成（generate_image ツール）
 
-チャットから画像を生成し、セッションの作業フォルダへ保存する。生成そのものは BFF が provider（v1 は OpenRouter）の画像専用 API（`POST {baseUrl}/images`）へ要求し、保存だけをサンドボックスの upload API へ委譲する（BFF は作業領域に触らない）。provider の APIキーは 設定 → コンテンツ生成（`/settings/content`）で登録し、アプリ DB の `content_settings` に**平文**で保存する。モデルの選択肢は OpenRouter の画像モデル API（`GET /api/v1/images/models`）を正とし、取得できないときは前回の成功（アプリ DB のキャッシュ）→ SDK 同梱の順に落ちる。保存名を決められない形式（svg など）しか返さないモデルは選択肢から外し、生成前にも止める（[保存できない形式のモデル](#保存できない形式のモデル)）。
+チャットから画像を生成し、セッションの作業フォルダへ保存する。生成そのものは BFF が provider（v1 は OpenRouter）の画像専用 API（`POST {baseUrl}/images`）へ要求し、保存だけをサンドボックスの upload API へ委譲する（BFF は作業領域に触らない）。既存の画像を渡しての編集（image-to-image）は同じ `generate_image` の任意引数 `input_images` で行う（[参照画像による編集](#参照画像による編集)）。provider の APIキーは 設定 → コンテンツ生成（`/settings/content`）で登録し、アプリ DB の `content_settings` に**平文**で保存する。モデルの選択肢は OpenRouter の画像モデル API（`GET /api/v1/images/models`）を正とし、取得できないときは前回の成功（アプリ DB のキャッシュ）→ SDK 同梱の順に落ちる。保存名を決められない形式（svg など）しか返さないモデルは選択肢から外し、生成前にも止める（[保存できない形式のモデル](#保存できない形式のモデル)）。
 
 - コンテンツ生成の共有キーと画像モデルを `provider_credentials` とは別に管理する。キーはTTS・[BGM](bgm-generation.md) と共有するが、会話プロバイダー登録済みキーは流用しない（別 provider のキーへ黙って切り替えない）。
 - コンテンツ生成のゲートとエージェントの `toolNames` の積が有効なときだけ、モデルへ `generate_image` を見せる。未設定ならツール一覧に現れない。
@@ -21,7 +21,8 @@
 - 取得は **API キーを使わない**（一覧 API は認証を見ないので、認証ヘッダも付けない）。キーの有無・有効性とは独立で、**キーの死活チェックには使えない**（無効なキーでも 200 が返る）
 - 取得契機は 起動時（`content_settings` に行があるとき）/ 手動の [カタログ更新]。`GET /api/settings/content` はネットワークに触らず、メモリ上の現在値を返すだけ。キー保存にも紐づけない（設定の変更を外部 API の待ち時間へ巻き込まない）
 - 期限は 10 秒（`IMAGE_CATALOG_TIMEOUT_MS`）+ リトライなし。失敗は timeout / 混雑（429・5xx）/ 不明の固定文言へ分類し、上流の応答本文はログにも UI にも出さない
-- 取得成功時だけ DB（`image_catalog`）へ `id` と表示名、あれば出力形式の宣言（`outputFormats`）を残す。失敗しても一覧は前のままで、`catalogSource` / `fetchedAt` も変えない
+- 取得成功時だけ DB（`image_catalog`）へ `id` と表示名、あれば出力形式の宣言（`outputFormats`）と画像入力の宣言（`input`）を残す。失敗しても一覧は前のままで、`catalogSource` / `fetchedAt` も変えない
+- 画像入力の宣言は `architecture.input_modalities` と `supported_parameters.input_references`、`endpoints` から読む（[参照画像による編集](#参照画像による編集)）。宣言が無い / 形が違うモデルは「不明」として残し、旧キャッシュも「不明」として読む（新規生成は巻き添えにしない）
 - live は `supported_parameters.output_format`（`{ type: "enum", values: ["png", ...] }`）に出力形式を宣言する。**保存できる形式（png / jpeg / webp）を 1 つも宣言していないモデルは一覧から落とす**（`recraft/*-vector` が `["svg"]` 単独でこれに当たる）。判定は `server/src/images.ts` の `isUnsaveableOutputOnly()` 1 つで、保存側の `imageExtensionFor()` と同じ表を見る（[保存できない形式のモデル](#保存できない形式のモデル)）
 - 宣言が無い（フィールドが無い / `values` が配列でない）ときは形式「不明」として扱い、一覧の絞り込みも生成前ガードも動かさない。SDK 同梱カタログと、この項目より前に書かれたキャッシュがこれにあたる
 - 形式の宣言は一覧から落ちたモデルもメモリとキャッシュに残し、生成前ガードが引けるようにする（`ImageCatalog.outputFormatsOf()`）。宣言そのものは `models` の応答には載せない（選べるモデルの一覧と、サーバー内の判定を混ぜない）
@@ -60,6 +61,54 @@ SVG を返す vectorization モデル（`recraft/*-vector` など）は**製品�
 - live の取得が一度も成功せず SDK 同梱カタログへ落ちているときは形式宣言が読めず、絞り込みも生成前ガードも効かない（SDK の一覧に形式情報が無い）。[カタログ更新] か次の起動で live を取れれば解消する
 - この変更より前に書かれた `image_catalog` のキャッシュも宣言を持たないため、一時的に vector モデルが出得る（次の live 取得成功が行を上書きして解消する）
 - svg とラスタの両方を宣言するモデルは一覧に残るため、svg が返れば保存段で失敗して課金だけが残る。今のカタログには該当が無く、`output_format` を送らない方針とも合わせて既知の穴に留める
+
+## 参照画像による編集
+
+`generate_image` の任意引数 `input_images` で元画像を渡すと、BFF がサンドボックスから画像を取得し、検証して base64 data URL にし、`/images` の `input_references` として送る。保存は既存の `workspace.uploadFile()` で**別ファイル**として行い、元画像は上書き・移動しない。
+
+```ts
+{ prompt: string; path?: string; input_images?: string[] } // MVP は 1 枚だけ
+```
+
+- `input_images` を省略したときは従来どおりの新規生成で、送信 JSON に `input_references` を付けない（既存呼び出しの送信 JSON・保存・プレビューは不変）
+- 空配列・空パス・2 枚以上・許可範囲外・形式違い・上限超過は、**provider を呼ぶ前に**拒む（課金は発生しない）
+- 入力に指定できるのは、現在のセッション cwd 相対のパス（例: `generated/portrait.png`）と、`<attached_files>` に載る絶対パス（この会話の添付置き場）だけ。許可範囲は BFF が決め、サンドボックスは実パスが範囲内のときだけ返す。範囲はリクエストの `scope` として渡し、モデル引数からは足せない
+- 許可範囲はセッション cwd と `sessionUploadsRel(id, spaceId)` の 2 つ（追加スペースでは保存先も変わる）。モデルへは作成 / 復元時に注入し、ツール実行のたびに読み直さない
+- 形式は拡張子ではなく**実バイト**で判定し、PNG / JPEG / WebP だけを通す（自動リサイズ・変換はしない）。既存の生成ツールは明示 `path` の拡張子を実形式に合わせないため、`.jpg` に PNG バイトが入っていても受け付ける。無拡張子・`.bin` も実体が画像なら通る（ブラウザ向け raw 配信の拡張子 allowlist は広げない）
+- 上限は 1 枚 10 MiB・40 メガピクセル（`server/src/image-format.ts`）。バイト数は Content-Length と実受信バイト数の両方で見る
+- ヘッダ検証までで、深い破損は provider の入力エラーとして扱う（デコーダーは足さない）
+- 元画像が読めないとき・形式が違うとき・能力が不明なときに、参照なしの新規生成や別モデルへの切替へはフォールバックしない
+
+### 課金前の能力判定
+
+参照画像を使う編集だけ、`/images` の前に次を確かめる。どれかで止まったら課金は発生せず、理由を返す。
+
+1. モデル一覧の `architecture.input_modalities` に `image` が含まれる
+2. モデル一覧の `supported_parameters.input_references` が 1 枚を許容する（range なら `min <= 1 <= max`）
+3. `endpoints` が指す URL（無ければ `GET /api/v1/images/models/<id>/endpoints`）を編集実行時に取得し、**すべての** endpoint が `supported_parameters.input_references` で 1 枚を許容する
+
+- 状態は「対応 / 非対応 / 不明」を区別する。宣言の不在・形違い・旧キャッシュは「不明」で、編集だけを止め、新規生成は止めない
+- endpoint の取得は編集実行時だけ（起動時や `GET /api/settings/content` では通信しない）。認証ヘッダを付けず、期限は `IMAGE_CATALOG_TIMEOUT_MS` と同じ。成功だけをプロセス内メモリに残し、失敗はキャッシュせず次の実行で引き直す
+- endpoint 応答の形は、live で観測したとおり `{ id, endpoints: [...] }` を読む（各要素の `supported_parameters.input_references` が参照枚数の宣言）。トップレベルの `data[]` は live の応答には無いため依存しない。`data[]` だけを返す旧い形は後方互換として読み、`endpoints` が配列でなく `data` も無い（または空の）応答は契約外として「不明」に落とす
+- endpoint 応答が `architecture` を持たないことは契約外にしない（モデル一覧側で確認する）。`input_references` の宣言が無い / 形が違う endpoint は「不明」として止める
+- モデル名の固定対応表は持たない。`provider.only` によるルートの pin も行わない（対応 / 非対応が混在するモデルは編集対象外として案内する）
+- 非対応 / 不明のときは別モデル・別キーへ自動で切り替えない
+
+止めた理由（モデル宣言が非対応 / 不明、endpoint が 1 枚を受け付けない、endpoint の取得失敗・契約外）ごとの公開文言は `server/src/image-catalog.ts` の定数が正。どの文言も「編集は行っておらずクレジットは消費していない」ことを示し、同じ実行で参照を外した再生成や別モデルへの切替は行わない。テストは `server/test/image-catalog.test.ts` が固定する。
+
+### 結果・ログの扱い
+
+- ツール結果の先頭 2 行（モデル行・保存パス行）は編集でも変えない（クライアントの `generationInfo.ts` が読む接頭辞）。編集元はその後に `編集元: <cwd 相対>` として足す
+- 取得した画像の base64 / data URL は、ツール引数・結果・履歴・通常ログへ追加しない。provider のエラー本文は要求 JSON を反射でき、JSON の入れ子・URL エンコード・折り返しの表記を列挙して除去する方式は未知の表記で漏れる。そのため `input_images` を付けた要求が失敗したときは provider の自由文を返さず、分類と固定文言（`画像生成に失敗しました（原因不明）` など）だけを返す。参照画像が無い従来の失敗は今までどおりマスク済みの理由を添える
+- `read` が返す画像 content（SDK が会話履歴へ記録する分）はこの保証の対象外で、従来どおり
+- 入力画像は EXIF 等を含めて無変換で外部 provider へ送られる。ツール説明・`promptGuidelines`・system prompt にこの点と「利用者が明示した編集にだけ使う」ことを書く
+
+### 編集の既知の制限
+
+- 参照画像は編集のガイダンスで、人物・構図・変更対象外のピクセルの完全な保持は保証しない（品質の下限はモデル依存でテストできない）
+- endpoint 確認を編集のたびに 1 往復入れるため、その取得に失敗すると編集できない（新規生成は影響を受けない）
+- モデル一覧の取得が成功していない間（SDK 同梱カタログへ落ちている状態）は能力宣言が読めず、編集だけが止まり続ける。[カタログ更新] か次の起動で解消する
+- 既存ファイルで拡張子と実体が食い違う場合に実バイトを正とするため、保存名と中身が一致しないファイルが入力として通る（表示・保存側の既存挙動を変えない範囲で許容する）
 
 ## 保存先とパスの空間
 
@@ -105,7 +154,7 @@ cp generated/cafe-1.png assets/cafe-latest.png
 
 SDK(pi-ai 1.3.0) の `openrouter-images` は `chat/completions` へ投げるが、画像生成専用モデルはそちらでは 404（`Use the /api/v1/images endpoint instead.`）になる。そのため `server/src/images.ts` は SDK の `generateImages()` を通さず `POST {baseUrl}/images` を自分で叩き、status と本文も自分で読んで次で分類する。SDK は provider の `baseUrl` / ヘッダのひな形にだけ使い、送信する model id は要求のものをそのまま使う（一覧の正は live なので、SDK の一覧に無い id でもローカルでは弾かない。[モデルカタログ](#モデルカタログ)）。
 
-- 非 2xx の status を分類の根拠にする。理由は本文の `error.message` を優先し、形が違うときだけ生テキストへ落とす（生テキストは非 2xx のみ）
+- 非 2xx の status を分類の根拠にする。理由は本文の `error.message` を優先し、形が違うときだけ生テキストへ落とす（生テキストは非 2xx のみ）。**参照画像を付けた要求では provider の自由文を結果へ載せない**（下記）
 - 期限は自前の `AbortController` + タイマーだけに掛ける。既定は 180 秒
 - ユーザー中断は `signal.aborted` で `timedOut` と区別する。signal はそのまま fetch へ渡す
 - 画像は `data[0].b64_json`。`media_type` は data の各件 → 応答全体の `media_type` → `image/png` の順に落とす
@@ -121,6 +170,8 @@ SDK(pi-ai 1.3.0) の `openrouter-images` は `chat/completions` へ投げるが�
 | `unknown` | それ以外 | 画像生成に失敗しました（マスク済みの provider メッセージを 500 文字まで添える） |
 
 要求の組み立てと分類はこの 1 箇所に閉じる。将来 OpenAI provider を足すときは `createImagesGenerator({ models })` の差し替えでカタログを足し、エンドポイント / 応答形と status の写像だけを provider ごとに増やす。
+
+参照画像を渡したときも `/images` と応答の `data[].b64_json` / `media_type`、失敗の分類・期限・中断の扱いは変えない（OpenAI 直結 API の `/images/edits` や multipart は使わない）。
 
 ## キーの扱い
 
@@ -146,7 +197,7 @@ SDK(pi-ai 1.3.0) の `openrouter-images` は `chat/completions` へ投げるが�
 
 ## ツールとプレビュー
 
-- ツール引数は `prompt`（必須）と `path`（省略可、cwd 相対）。ツール説明と system prompt（`appendSystemPrompt` の画像生成行）に、生成物の場所と「本文には Markdown 画像で示す」ことを入れる
+- ツール引数は `prompt`（必須）、`path`（省略可、cwd 相対）、`input_images`（省略可、参照画像 1 枚）。ツール説明と system prompt（`appendSystemPrompt` の画像生成行）に、生成物の場所と「本文には Markdown 画像で示す」ことを入れる
 - ツール結果本文には保存パスと一緒に使用モデル（実行時に読んだ `model`）を行で残す。会話履歴は `session.jsonl` の `toolResult` の生 content を正とするため、別途 DB へは保存せず、ライブ・復元後の両方でツール履歴の出力から何で生成したかを追える。設定を変更した後の実行にはその時点のモデルが入る
 - モデル行は結果本文の先頭に置く。投影（`toolResultSummary`）は先頭 900 文字（`SUMMARY_TEXT_MAX`）で切るため、長い `path` を指定しても表示からモデルが欠けないようにする
 - 生成物の確認は `read`。SDK の `read` は画像を返せる
@@ -198,9 +249,11 @@ SDK(pi-ai 1.3.0) の `openrouter-images` は `chat/completions` へ投げるが�
 
 | テスト | 固定すること |
 | --- | --- |
-| `server/test/images.test.ts` | カタログ / `chat/completions` へ戻らないこと（`/images` の送信先・ヘッダ・本文）/ `media_type` の落とし方 / 失敗分類（401・403・402・429・5xx・timeout・ユーザー中断・原因不明）/ 画像 0 件の失敗（2xx の生本文と `error.message`）/ provider メッセージのマスク / SDK 同梱カタログから `openrouter/*` を落とすこと / SDK 同梱の openrouter が provider 内で同じ `baseUrl` / ヘッダを使うこと（ひな形の流用の前提）/ SDK の一覧に無い id（live のみのモデル）も provider の URL で送ること |
+| `server/test/images.test.ts` | カタログ / `chat/completions` へ戻らないこと（`/images` の送信先・ヘッダ・本文）/ `media_type` の落とし方 / 失敗分類（401・403・402・429・5xx・timeout・ユーザー中断・原因不明）/ 画像 0 件の失敗（2xx の生本文と `error.message`）/ provider メッセージのマスク / SDK 同梱カタログから `openrouter/*` を落とすこと / SDK 同梱の openrouter が provider 内で同じ `baseUrl` / ヘッダを使うこと（ひな形の流用の前提）/ SDK の一覧に無い id（live のみのモデル）も provider の URL で送ること / 参照画像ありの失敗では provider の自由文（plain / 1 段・2 段の JSON エスケープ / 折り返し base64）を返さず固定文言だけになること / 参照画像なしの失敗では従来どおり理由を添えること |
 | `server/test/image-catalog.test.ts` | live の採用とキャッシュ保存（認証ヘッダを付けない / id と表示名と形式の宣言）/ 出力形式の取り込みと一覧の絞り込み（不明・形違いは落とさない）/ 宣言がキャッシュから読めること / 一覧から落ちた id の `outputFormatsOf` / 重複 id と表示名の欠落 / 失敗分類（429・5xx・契約外・空・timeout）と一覧の保持 / キャッシュの読込と live 失敗時の維持 / キャッシュの読取・保存失敗 |
 | `server/test/image-tools.test.ts` | ツールの組み立て（有効時だけ）/ path の拒否規則 / slug と拡張子 / 結果パスの参照・一意ファイルの保持・最新コピーのガイドライン / 生成前ガード（保存できない形式だけを宣言したモデルで provider を叩かない・宣言なしと不明は止めない）/ 保存段の失敗文言（クレジット消費済み）/ root 相対への前置き / 同名衝突で実際の保存名と使用モデルを返す / 長い path でも投影の切詰めにモデルが残る / execute が毎回設定を読む / throw のマスク / signal の伝播 |
+| `server/test/image-input.test.ts` | 参照画像のパス解決（cwd 相対 / 添付の絶対パス / 未所属・プロジェクト・追加スペースで起点がずれない）/ 拒否規則（`..`・範囲外・URL・data URL・バックスラッシュ・空）/ 実バイトの形式判定（PNG・JPEG・WebP、無拡張子・拡張子違い、壊れたヘッダ）/ 上限（10 MiB・40 メガピクセル）/ 入力の base64・data URL の除去 |
+| `server/test/sandbox-image-input.test.ts` | `GET /v1/files/image-input` の許可範囲（scope 外・実在しない範囲・root 外 symlink）/ 実バイト判定 / 上限 413 / scope 数の上限 |
 | `server/test/content-settings.test.ts` | GET / PUT / DELETE の契約、マスカー登録の順序、既定行、行が無い / provider / カタログ外の 400、runtime 無しの 503、DB 失敗の 503、起動時の適用（キャッシュ読込と、行があるときだけの live 取得）/ キー保存が取得を待たないこと / 再取得の失敗文言 / 注入する config の形式宣言 |
 | `server/test/content-settings-api.test.ts` | HTTP 契約と DB 例外のマスク、起動時の有効化、キーが応答・health・ログへ出ないこと、カタログの出どころ / 再取得の 200 と `catalogError` / `models` の形（宣言を載せない） |
 | `server/test/app-db.test.ts` | v7 → v8 / v8 → v9 の加算移行、v14 → v15 の改名（`image_settings` → `content_settings`、`model` → `imageModel`）、両テーブル併存時の読み先、v15 → v14 → v15 の往復、`content_settings` の CRUD、空文字行 = 未設定、`image_catalog` の upsert と壊れた行（health を落とさない）、形式宣言の往復と形違いの読み方 |
@@ -214,7 +267,11 @@ SDK(pi-ai 1.3.0) の `openrouter-images` は `chat/completions` へ投げるが�
 - キーの有効性のチェック（live カタログの取得は API キーを見ないため兼用できない。やるなら別 API）
 - TTL / バックグラウンドでのカタログ自動再取得（契機は起動と手動 [カタログ更新] だけ）
 - コスト表示、provider 切替 UI、プロバイダー登録済みキーの流用
-- サイズ / 品質 / 出力形式の変更、参照画像による編集、複数枚生成、ツール結果への画像 content（svg-only の除外と生成前ガードは [保存できない形式のモデル](#保存できない形式のモデル)）
+- 参照画像による**部分編集**（マスク / 領域指定 / レイヤー）。変更対象外のピクセルを厳密に保つことは保証しない（[参照画像による編集](#参照画像による編集)）
+- 複数の参照画像、複数枚の出力、入力の自動縮小・自動変換、外部 URL を直接の入力にすること
+- `provider.only` による endpoint の pin（対応 / 非対応が混在するモデルは編集対象外）
+- 専用の編集ボタン・before/after 比較・画像版管理 UI（自然言語と既存のファイル保存・表示で行う）
+- サイズ / 品質 / 出力形式の変更、複数枚生成、ツール結果への画像 content（svg-only の除外と生成前ガードは [保存できない形式のモデル](#保存できない形式のモデル)）
 - SVG（vectorization）の保存・プレビュー・raw 配信。svg-only モデルを選択肢から外し、保存形式と同じく png / jpeg / webp だけを通す（[保存できない形式のモデル](#保存できない形式のモデル)）
 - バッジのモデルを[カタログ](#モデルカタログ)の表示名へ解決すること。表示名はいつでも変わるので、履歴に残った実行時の id をそのまま出す
 - 生成物のキャプションのための同一ファイル追跡（ハッシュや内容）。別ターンでの再掲・`cp` したコピー・リネーム後の画像には出ない（[生成物のキャプション](#生成物のキャプション)）

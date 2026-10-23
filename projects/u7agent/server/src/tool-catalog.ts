@@ -45,7 +45,7 @@ const TOOL_REGISTRY: readonly ToolRegistryEntry[] = [
   { name: "web_search", description: "Web を検索して上位ページの抜粋を取る", group: "app", gate: "webSearch" },
   {
     name: "generate_image",
-    description: "画像を生成して作業フォルダへ保存する",
+    description: "画像を生成・編集して作業フォルダへ保存する",
     group: "app",
     gate: "contentGeneration",
     offReason: "no_key",

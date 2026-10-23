@@ -96,6 +96,8 @@ function stubImageCatalog(): ImageCatalog {
   return {
     snapshot: () => snapshot,
     outputFormatsOf: () => undefined,
+    imageInputOf: () => undefined,
+    checkImageInput: async () => undefined,
     loadStored: () => {},
     refresh: async () => null,
   };

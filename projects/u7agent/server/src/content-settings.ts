@@ -483,6 +483,7 @@ export class ContentSettingsService {
       read: () => currentImageSettings(this.#db),
       // 実行のたびに現在のカタログを引く。形式の宣言を一覧から絞り込んだあとも、保存済みの選択はここで拾える
       readOutputFormats: (model) => this.#catalog.outputFormatsOf(model),
+      checkImageInput: (model, signal) => this.#catalog.checkImageInput(model, signal),
       readSpeech: () => this.#currentSpeechSettings(),
       readBgm: () => {
         const row = this.#db.readContentSettings();

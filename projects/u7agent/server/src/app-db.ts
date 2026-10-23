@@ -7,6 +7,7 @@ import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { spaceDirRel } from "./app-paths";
 import { httpError, messageFor } from "./http";
+import type { ImageInputDeclaration } from "./images";
 import type { SecretKind } from "./secret-crypto";
 import type {
   AgentDef,
@@ -69,12 +70,14 @@ export interface WebSearchSettingsRow {
   provider: string;
 }
 
-/** カタログ 1 件の保存形。provider は v1 では openrouter 固定なので id と表示名、あれば形式の宣言を残す */
+/** カタログ 1 件の保存形。provider は v1 では openrouter 固定なので id と表示名、あれば形式 / 入力の宣言を残す */
 export interface ImageCatalogModelRow {
   id: string;
   name: string;
   /** live が宣言する出力形式。無い行（この項目より前のキャッシュ）は「宣言なし」として読む */
   outputFormats?: string[] | undefined;
+  /** live が宣言する画像入力の能力。無い行（この項目より前のキャッシュ）は「不明」として読む */
+  input?: ImageInputDeclaration | undefined;
 }
 
 /**
@@ -499,15 +502,55 @@ function imageCatalogModelsOf(value: unknown): ImageCatalogModelRow[] | undefine
   const models: ImageCatalogModelRow[] = [];
   for (const entry of parsed) {
     if (typeof entry !== "object" || entry === null) return undefined;
-    const { id, name, outputFormats } = entry as { id?: unknown; name?: unknown; outputFormats?: unknown };
+    const { id, name, outputFormats, input } = entry as {
+      id?: unknown;
+      name?: unknown;
+      outputFormats?: unknown;
+      input?: unknown;
+    };
     if (typeof id !== "string" || id === "" || typeof name !== "string") return undefined;
-    // 形式の宣言は任意フィールド。形が違えば「宣言なし」として読み、id / 表示名が正しい行まで捨てない
+    // 形式 / 入力の宣言は任意フィールド。形が違えば「宣言なし」として読み、id / 表示名が正しい行まで捨てない
     const formats = Array.isArray(outputFormats)
       ? outputFormats.filter((format): format is string => typeof format === "string" && format !== "")
       : [];
-    models.push(formats.length > 0 ? { id, name, outputFormats: formats } : { id, name });
+    const declaration = imageInputDeclarationOf(input);
+    models.push({
+      id,
+      name,
+      ...(formats.length > 0 ? { outputFormats: formats } : {}),
+      ...(declaration ? { input: declaration } : {}),
+    });
   }
   return models;
+}
+
+/** 旧キャッシュの入力宣言。読めた項目だけを残し、1 つも読めなければ「不明」（鍵ごと落とす）にする */
+function imageInputDeclarationOf(value: unknown): ImageInputDeclaration | undefined {
+  if (typeof value !== "object" || value === null) return undefined;
+  const { modalities, references, endpoints } = value as {
+    modalities?: unknown;
+    references?: unknown;
+    endpoints?: unknown;
+  };
+  const modalityList = Array.isArray(modalities)
+    ? modalities.filter((item): item is string => typeof item === "string" && item !== "")
+    : [];
+  const endpointList = Array.isArray(endpoints)
+    ? endpoints.filter((item): item is string => typeof item === "string" && item !== "")
+    : [];
+  const range = (() => {
+    if (typeof references !== "object" || references === null) return undefined;
+    const { min, max } = references as { min?: unknown; max?: unknown };
+    if (typeof min !== "number" || typeof max !== "number") return undefined;
+    if (!Number.isInteger(min) || !Number.isInteger(max) || min < 0 || max < min) return undefined;
+    return { min, max };
+  })();
+  if (modalityList.length === 0 && !range && endpointList.length === 0) return undefined;
+  return {
+    ...(modalityList.length > 0 ? { modalities: modalityList } : {}),
+    ...(range ? { references: range } : {}),
+    ...(endpointList.length > 0 ? { endpoints: endpointList } : {}),
+  };
 }
 
 /**

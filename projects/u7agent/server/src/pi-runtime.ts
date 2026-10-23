@@ -139,6 +139,8 @@ export interface PiRuntimeLike {
     entries?: unknown[];
     /** 復元時: 作成時のプロンプトスナップショット */
     promptSnapshot?: PromptSnapshot;
+    /** この会話の添付置き場 (root 相対)。参照画像の許可範囲に使う */
+    uploadsDirRel?: string;
     /** 子モード。読み取り専用ツールだけを公開し、常時有効群とスキル発見を落とす (既定 "chat") */
     mode?: "chat" | "investigation";
   }): Promise<{ session: unknown; promptSnapshot?: PromptSnapshot }>;

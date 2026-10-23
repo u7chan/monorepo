@@ -866,6 +866,58 @@ test("the image catalog cache keeps the output format declaration across reopen"
   }
 });
 
+test("the image catalog cache round-trips the image input declaration", () => {
+  const dir = tempStoreDir();
+  try {
+    const db = AppDb.open({ storeDir: dir });
+    const input = {
+      modalities: ["text", "image"],
+      references: { min: 1, max: 16 },
+      endpoints: ["/api/v1/images/models/openai/gpt-image-2/endpoints"],
+    };
+    db.saveImageCatalog({
+      fetchedAt: 1000,
+      models: [
+        { id: "openai/gpt-image-2", name: "GPT Image 2", input },
+        { id: "text-only/model", name: "Text Only", outputFormats: ["png"] },
+      ],
+    });
+    assert.deepEqual(db.readImageCatalog(), {
+      fetchedAt: 1000,
+      models: [
+        { id: "openai/gpt-image-2", name: "GPT Image 2", input },
+        { id: "text-only/model", name: "Text Only", outputFormats: ["png"] },
+      ],
+    });
+    db.close();
+
+    // 旧キャッシュ / 形違いの入力宣言は「不明」（鍵ごと落とす）として読み、行自体は残す
+    const raw = new DatabaseSync(join(dir, APP_DB_FILENAME));
+    raw.prepare("UPDATE image_catalog SET models = ? WHERE id = 1").run(
+      JSON.stringify([
+        { id: "openai/gpt-image-2", name: "GPT Image 2" },
+        { id: "broken/reference", name: "Broken", input: { references: { min: "1", max: 2 }, modalities: "image" } },
+        { id: "partial/reference", name: "Partial", input: { modalities: ["image"], endpoints: [] } },
+      ]),
+    );
+    raw.close();
+
+    const second = AppDb.open({ storeDir: dir });
+    assert.deepEqual(second.readImageCatalog(), {
+      fetchedAt: 1000,
+      models: [
+        { id: "openai/gpt-image-2", name: "GPT Image 2" },
+        { id: "broken/reference", name: "Broken" },
+        { id: "partial/reference", name: "Partial", input: { modalities: ["image"] } },
+      ],
+    });
+    assert.equal(second.status().ok, true);
+    second.close();
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("a broken image catalog cache row reads as unset", () => {
   const dir = tempStoreDir();
   try {

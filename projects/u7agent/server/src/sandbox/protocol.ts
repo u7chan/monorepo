@@ -510,6 +510,12 @@ export const SANDBOX_MAX_ARCHIVE_ENTRIES = 10_000;
 export const SANDBOX_MAX_ENTRY_NAME_LENGTH = 200;
 
 /**
+ * `GET /v1/files/image-input` の許可範囲 (scope) の数。BFF はセッション cwd と添付置き場を送るため、
+ * 直叩きで範囲を増やせないよう上限を置く。
+ */
+export const SANDBOX_MAX_IMAGE_INPUT_SCOPES = 8;
+
+/**
  * GET /v1/files/raw が配信する画像の拡張子と Content-Type。SVG / HTML は同一オリジンでスクリプトが動くため載せない。
  */
 export const RAW_IMAGE_CONTENT_TYPES: Record<string, string> = {

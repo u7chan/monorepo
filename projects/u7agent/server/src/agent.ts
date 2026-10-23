@@ -28,6 +28,7 @@ import {
   sessionToolNames,
 } from "./image-tools";
 import { createImagesGenerator, type ContentGenerationConfig } from "./images";
+import { IMAGE_INPUT_UNKNOWN_MESSAGE } from "./image-catalog";
 import { createSpeechGenerator, type SpeechGenerationInput, type SpeechGenerationResult } from "./speech";
 import { createSpeechToolDefinitions, SPEECH_GENERATION_PROMPT_LINES, SPEECH_TOOL_NAME } from "./speech-tools";
 import {
@@ -192,6 +193,8 @@ export interface CreateSessionInput {
   entries?: unknown[];
   /** 復元時: 作成時のプロンプトスナップショット。無ければ agent から組む */
   promptSnapshot?: PromptSnapshot;
+  /** この会話の添付置き場（root 相対。所属スペースで変わる）。参照画像の許可範囲に使う */
+  uploadsDirRel?: string;
   /**
    * 共通スキルの許可リスト。undefined = 全可視、`[]` = すべて OFF。作成 / 復元ではエージェントの
    * スナップショットから渡し、注入経路 (skillsOverride) と解決経路で同じ値にする。
@@ -950,6 +953,7 @@ export async function createPiBff({ cwd = process.cwd() }: { cwd?: string } = {}
     ownerSessionId,
     entries,
     promptSnapshot,
+    uploadsDirRel,
     commonSkillNames,
     builtinSkillNames,
     toolNames,
@@ -1075,10 +1079,17 @@ export async function createPiBff({ cwd = process.cwd() }: { cwd?: string } = {}
               ...createImageToolDefinitions({
                 enabled: appTool(IMAGE_TOOL_NAME),
                 sessionCwd: relativeCwd,
+                rootCwd,
+                uploadsDirRel,
                 workspace: sandboxClient,
                 masker: secretMasker,
                 readSettings: () => contentGeneration.config?.read(),
                 readOutputFormats: (model) => contentGeneration.config?.readOutputFormats(model),
+                checkImageInput: async (model, signal) =>
+                  contentGeneration.config
+                    ? contentGeneration.config.checkImageInput(model, signal)
+                    : IMAGE_INPUT_UNKNOWN_MESSAGE,
+                readImageInput: (path, scope, signal) => sandboxClient.readImageInput(path, scope, signal),
                 generate: imagesGenerator.generate,
               }),
               ...createSpeechToolDefinitions({

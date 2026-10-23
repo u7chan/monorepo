@@ -7,10 +7,12 @@ import {
   imageExtensionFor,
   imageSlug,
   IMAGE_GENERATION_PROMPT_LINES,
+  IMAGE_TOOL_GUIDELINES,
   IMAGE_TOOL_NAME,
   sessionToolNames,
 } from "../src/image-tools";
 import { createMutableSecretMasker } from "../src/redact";
+import { createSandboxToolClient } from "../src/sandbox/client";
 import { toolResultSummary } from "../src/session-projection";
 import type { SandboxUploadInput, SandboxWorkspaceClient } from "../src/sandbox/client";
 import { cwdRelativePath, parseToolPath, rootRelativeDir } from "../src/workspace-path";
@@ -22,6 +24,10 @@ interface Capture {
   /** アップロード本文を読んだ結果 */
   bodies: Buffer[];
   generated: { provider: string; model: string; prompt: string; apiKey: string; signal?: AbortSignal | undefined }[];
+  /** 画像入力を参照消費した回だけ増える（provider へ渡した data URL） */
+  inputPayloads: (readonly string[] | undefined)[];
+  /** 参照画像の読取要求（path / scope） */
+  reads: { path: string; scope: readonly string[] }[];
 }
 
 function fakeWorkspace(
@@ -45,6 +51,8 @@ function fakeWorkspace(
 function tool(options: {
   enabled?: boolean;
   sessionCwd?: string;
+  rootCwd?: string;
+  uploadsDirRel?: string;
   capture: Capture;
   masker?: ReturnType<typeof createMutableSecretMasker>;
   settings?:
@@ -52,19 +60,42 @@ function tool(options: {
     | undefined
     | (() => { provider: string; model: string; apiKey: string } | undefined);
   outputFormats?: (model: string) => readonly string[] | undefined;
-  generate?: (input: Capture["generated"][number]) => Promise<unknown>;
+  /** root 相対のパス → 返す画像バイト。無いパスは「読めない」として失敗させる */
+  inputFiles?: Record<string, Uint8Array>;
+  checkImageInput?: (model: string) => Promise<string | undefined>;
+  readImageInput?: (path: string, scope: readonly string[], signal?: AbortSignal) => Promise<Uint8Array>;
+  generate?: (input: {
+    provider: string;
+    model: string;
+    prompt: string;
+    apiKey: string;
+    signal?: AbortSignal | undefined;
+    inputReferences?: readonly string[] | undefined;
+  }) => Promise<unknown>;
   workspaceResult?: (input: SandboxUploadInput) => { path: string; name: string; renamed: boolean; size: number };
 }): AnyTool {
   const settingsOption = options.settings;
   const definitions = createImageToolDefinitions({
     enabled: options.enabled ?? true,
     sessionCwd: options.sessionCwd ?? "",
+    rootCwd: options.rootCwd ?? "/workspace",
+    uploadsDirRel: options.uploadsDirRel ?? ".u7agent/uploads/0123456789",
     workspace: fakeWorkspace(options.capture, options.workspaceResult),
     masker: options.masker ?? createMutableSecretMasker([]),
     readSettings: () => (typeof settingsOption === "function" ? settingsOption() : settingsOption),
     readOutputFormats: options.outputFormats ?? (() => undefined),
+    checkImageInput: options.checkImageInput ?? (async () => undefined),
+    readImageInput: async (path, scope, signal) => {
+      options.capture.reads.push({ path, scope });
+      if (options.readImageInput) return options.readImageInput(path, scope, signal);
+      const bytes = options.inputFiles?.[path];
+      if (!bytes) throw new Error(`参照画像が見つかりません: ${path}`);
+      return bytes;
+    },
     generate: async (input) => {
-      options.capture.generated.push(input);
+      const { inputReferences, ...rest } = input;
+      options.capture.generated.push(rest);
+      options.capture.inputPayloads.push(inputReferences);
       if (options.generate) return (await options.generate(input)) as never;
       return { ok: true, image: { mimeType: "image/png", data: Buffer.from("hello").toString("base64") } };
     },
@@ -138,10 +169,14 @@ test("ツール一覧は有効なときだけ generate_image を足す", () => {
     createImageToolDefinitions({
       enabled: false,
       sessionCwd: "",
+      rootCwd: "/workspace",
+      uploadsDirRel: ".u7agent/uploads/0123456789",
       workspace: {} as SandboxWorkspaceClient,
       masker: createMutableSecretMasker([]),
       readSettings: () => undefined,
       readOutputFormats: () => undefined,
+      checkImageInput: async () => undefined,
+      readImageInput: async () => new Uint8Array(),
       generate: async () => ({ ok: false, code: "unknown", message: "x" }),
     }),
     [],
@@ -149,9 +184,13 @@ test("ツール一覧は有効なときだけ generate_image を足す", () => {
 });
 
 test("path の説明と system prompt は結果パスの参照と一意な生成ファイルの保持を指示する", () => {
-  const capture: Capture = { uploads: [], bodies: [], generated: [] };
+  const capture: Capture = { uploads: [], bodies: [], generated: [], inputPayloads: [], reads: [] };
   const definition = tool({ capture, settings });
-  assert.deepEqual(Object.keys(definition.parameters.properties), ["prompt", "path"], "引数は増やさない");
+  assert.deepEqual(
+    Object.keys(definition.parameters.properties),
+    ["prompt", "path", "input_images"],
+    "引数は既知の 3 つだけ",
+  );
   const pathDescription = definition.parameters.properties.path.description;
   assert.equal(typeof pathDescription, "string");
   for (const instructions of [pathDescription, IMAGE_GENERATION_PROMPT_LINES.join("\n")]) {
@@ -161,10 +200,17 @@ test("path の説明と system prompt は結果パスの参照と一意な生成
     assert.match(instructions, /`cp` to a separate path/);
     assert.match(instructions, /never.*`mv`.*file referenced by the conversation/i);
   }
+  // 参照画像は説明だけでなく model 向けのガイドラインにも、外部送信と元画像を消さないことを書く
+  const inputDescription = definition.parameters.properties.input_images?.items?.description;
+  assert.equal(typeof inputDescription, "string");
+  assert.match(inputDescription as string, /PNG \/ JPEG \/ WebP/);
+  assert.match(inputDescription as string, /source is unchanged/);
+  assert.match(IMAGE_TOOL_GUIDELINES.join("\n"), /sent to the external provider unchanged/);
+  assert.match(IMAGE_GENERATION_PROMPT_LINES.join("\n"), /sent to the external image provider unchanged/);
 });
 
 test("省略時は generated/<slug>.<ext> へ保存し、実際の cwd 相対パスを結果に載せる", async () => {
-  const capture: Capture = { uploads: [], bodies: [], generated: [] };
+  const capture: Capture = { uploads: [], bodies: [], generated: [], inputPayloads: [], reads: [] };
   const text = await run(tool({ capture, settings, sessionCwd: "projects/u7agent" }), { prompt: "A Cafe in Kyoto!" });
   assert.equal(capture.uploads.length, 1);
   assert.equal(capture.uploads[0].dir, "projects/u7agent/generated");
@@ -177,7 +223,7 @@ test("省略時は generated/<slug>.<ext> へ保存し、実際の cwd 相対パ
 });
 
 test("path を明示したときは拡張子も含めてそのまま使う", async () => {
-  const capture: Capture = { uploads: [], bodies: [], generated: [] };
+  const capture: Capture = { uploads: [], bodies: [], generated: [], inputPayloads: [], reads: [] };
   const text = await run(tool({ capture, settings, sessionCwd: "projects/u7agent" }), {
     prompt: "hero",
     path: "assets/hero.jpg",
@@ -188,7 +234,7 @@ test("path を明示したときは拡張子も含めてそのまま使う", asy
 });
 
 test("同名衝突ではサンドボックスが返した実際の名前を結果に載せる", async () => {
-  const capture: Capture = { uploads: [], bodies: [], generated: [] };
+  const capture: Capture = { uploads: [], bodies: [], generated: [], inputPayloads: [], reads: [] };
   const text = await run(
     tool({
       capture,
@@ -208,7 +254,7 @@ test("同名衝突ではサンドボックスが返した実際の名前を結�
 });
 
 test("長い path でも使用モデルは投影の切詰め内に残る", async () => {
-  const capture: Capture = { uploads: [], bodies: [], generated: [] };
+  const capture: Capture = { uploads: [], bodies: [], generated: [], inputPayloads: [], reads: [] };
   // 投影 (SUMMARY_TEXT_MAX = 900) より長い path。basename は有効なまま
   const longDir = Array.from({ length: 5 }, () => "d".repeat(180)).join("/");
   const text = await run(tool({ capture, settings }), { prompt: "cafe", path: `${longDir}/cafe.png` });
@@ -219,14 +265,14 @@ test("長い path でも使用モデルは投影の切詰め内に残る", async
 
 test("path が不正なら provider を呼ばずに拒否する", async () => {
   for (const path of ["../cafe.png", "/cafe.png", "generated\\cafe.png", "generated/"]) {
-    const capture: Capture = { uploads: [], bodies: [], generated: [] };
+    const capture: Capture = { uploads: [], bodies: [], generated: [], inputPayloads: [], reads: [] };
     await assert.rejects(() => run(tool({ capture, settings }), { prompt: "cafe", path }));
     assert.equal(capture.generated.length, 0, "拒否した path で生成を呼んでいる");
   }
 });
 
 test("execute は毎回現在の設定を読み、未設定・キー削除後はキー無効エラーにする", async () => {
-  const capture: Capture = { uploads: [], bodies: [], generated: [] };
+  const capture: Capture = { uploads: [], bodies: [], generated: [], inputPayloads: [], reads: [] };
   let calls = 0;
   const execute = tool({
     capture,
@@ -242,7 +288,7 @@ test("execute は毎回現在の設定を読み、未設定・キー削除後は
 
 test("設定の読取失敗と provider の失敗はマスクを通して throw する", async () => {
   const key = "sk-image-dummy-key-0123456789abcdef";
-  const capture: Capture = { uploads: [], bodies: [], generated: [] };
+  const capture: Capture = { uploads: [], bodies: [], generated: [], inputPayloads: [], reads: [] };
   const masker = createMutableSecretMasker([key]);
   const readFailure = tool({
     capture,
@@ -291,7 +337,7 @@ test("設定の読取失敗と provider の失敗はマスクを通して throw 
 });
 
 test("mimeType が未知なら保存せず、生成済みで課金されていることまで文言に載せる", async () => {
-  const capture: Capture = { uploads: [], bodies: [], generated: [] };
+  const capture: Capture = { uploads: [], bodies: [], generated: [], inputPayloads: [], reads: [] };
   const execute = tool({
     capture,
     settings,
@@ -309,7 +355,7 @@ test("mimeType が未知なら保存せず、生成済みで課金されてい�
 });
 
 test("保存できる形式を宣言していないモデルは provider を叩く前に止める", async () => {
-  const capture: Capture = { uploads: [], bodies: [], generated: [] };
+  const capture: Capture = { uploads: [], bodies: [], generated: [], inputPayloads: [], reads: [] };
   const execute = tool({ capture, settings, outputFormats: () => ["svg"] });
   const error = await run(execute, { prompt: "cafe" }).then(
     () => undefined,
@@ -323,7 +369,7 @@ test("保存できる形式を宣言していないモデルは provider を叩�
 });
 
 test("形式が不明 / 保存できる形式を含む宣言のモデルは止めない", async () => {
-  const capture: Capture = { uploads: [], bodies: [], generated: [] };
+  const capture: Capture = { uploads: [], bodies: [], generated: [], inputPayloads: [], reads: [] };
   for (const formats of [undefined, [], ["svg", "png"], ["webp"]]) {
     await run(tool({ capture, settings, outputFormats: () => formats }), { prompt: "cafe" });
   }
@@ -331,17 +377,218 @@ test("形式が不明 / 保存できる形式を含む宣言のモデルは止�
 });
 
 test("中断は provider 呼び出しへ signal を渡す", async () => {
-  const capture: Capture = { uploads: [], bodies: [], generated: [] };
+  const capture: Capture = { uploads: [], bodies: [], generated: [], inputPayloads: [], reads: [] };
   const controller = new AbortController();
   await run(tool({ capture, settings }), { prompt: "cafe" }, controller.signal);
   assert.equal(capture.generated[0].signal, controller.signal);
 });
 
 test("カタログにしか無いモデルの保存値もそのまま provider へ渡す", async () => {
-  const capture: Capture = { uploads: [], bodies: [], generated: [] };
+  const capture: Capture = { uploads: [], bodies: [], generated: [], inputPayloads: [], reads: [] };
   // 生成側はカタログを知らない (SDK の一覧に無い id をローカルで弾かない)
   const liveOnly = { ...settings, model: "recraft/recraft-v4.1-flash" };
   const text = await run(tool({ capture, settings: liveOnly }), { prompt: "cafe" });
   assert.equal(capture.generated[0].model, "recraft/recraft-v4.1-flash");
   assert.ok(text.includes("モデル: recraft/recraft-v4.1-flash"), text);
+});
+
+// --- 参照画像（input_images）。実形式は実バイトで決め、課金前に検証を終える ---
+
+/** IHDR だけを持つ PNG。形式判定はヘッダで行うため、幅・高さの検査に必要な最小構成にする */
+function pngBytes(width = 2, height = 2): Uint8Array {
+  const bytes = Buffer.alloc(33);
+  Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]).copy(bytes, 0);
+  bytes.writeUInt32BE(13, 8);
+  bytes.write("IHDR", 12, "ascii");
+  bytes.writeUInt32BE(width, 16);
+  bytes.writeUInt32BE(height, 20);
+  return new Uint8Array(bytes);
+}
+
+test("input_images を省略すると従来どおり参照なしで生成し、編集元の行も足さない", async () => {
+  const capture: Capture = { uploads: [], bodies: [], generated: [], inputPayloads: [], reads: [] };
+  const text = await run(tool({ capture, settings }), { prompt: "cafe" });
+  assert.equal(capture.reads.length, 0, "参照なしで画像を読みに行っている");
+  assert.deepEqual(capture.inputPayloads, [undefined], "input_references を組み立てている");
+  assert.ok(!text.includes("編集元"), text);
+});
+
+test("生成済み画像を参照すると data URL を provider へ渡し、新規ファイルとして保存する", async () => {
+  const capture: Capture = { uploads: [], bodies: [], generated: [], inputPayloads: [], reads: [] };
+  const bytes = pngBytes(3, 4);
+  const execute = tool({
+    capture,
+    settings,
+    sessionCwd: "projects/app",
+    inputFiles: { "projects/app/generated/portrait.png": bytes },
+  });
+  const text = await run(execute, { prompt: "背景を白に", input_images: ["generated/portrait.png"] });
+
+  // 許可範囲は BFF が決めた cwd と添付置き場だけで、root 相対へ直してからサンドボックスへ渡す
+  assert.deepEqual(capture.reads, [
+    { path: "projects/app/generated/portrait.png", scope: ["projects/app", ".u7agent/uploads/0123456789"] },
+  ]);
+  const payloads = capture.inputPayloads[0];
+  assert.ok(payloads);
+  assert.equal(payloads.length, 1);
+  const [header, encoded] = String(payloads[0]).split(",");
+  assert.equal(header, "data:image/png;base64");
+  assert.deepEqual(new Uint8Array(Buffer.from(encoded as string, "base64")), bytes);
+
+  // 元画像は上書きせず、結果は別ファイル。結果本文の先頭 2 行は従来の形のまま
+  assert.equal(capture.uploads.length, 1);
+  assert.equal(capture.uploads[0].dir, "projects/app/generated");
+  assert.match(capture.uploads[0].name, /^image-/);
+  assert.match(text, /^モデル: openai\/gpt-image-2\n画像を生成して保存しました: /);
+  assert.ok(text.includes(`画像を生成して保存しました: generated/${capture.uploads[0].name}`), text);
+  assert.ok(text.includes("編集元: generated/portrait.png"), text);
+  assert.ok(!text.includes(encoded as string), "base64 を結果へ載せない");
+});
+
+test("添付の絶対パスは追加スペースの添付置き場から読む", async () => {
+  const capture: Capture = { uploads: [], bodies: [], generated: [], inputPayloads: [], reads: [] };
+  const uploadsDirRel = ".u7agent/spaces/blue/uploads/0123456789";
+  const execute = tool({
+    capture,
+    settings,
+    sessionCwd: "projects/app",
+    uploadsDirRel,
+    inputFiles: { [`${uploadsDirRel}/photo.png`]: pngBytes() },
+  });
+  const text = await run(execute, {
+    prompt: "人物はそのまま",
+    input_images: [`/workspace/${uploadsDirRel}/photo.png`],
+  });
+  assert.deepEqual(capture.reads, [{ path: `${uploadsDirRel}/photo.png`, scope: ["projects/app", uploadsDirRel] }]);
+  assert.ok(text.includes(`編集元: ${uploadsDirRel}/photo.png`), text);
+});
+
+test("無拡張子・実体と違う拡張子の入力も実バイトの形式で通す", async () => {
+  for (const name of ["notes.bin", "photo.jpg", "portrait"]) {
+    const capture: Capture = { uploads: [], bodies: [], generated: [], inputPayloads: [], reads: [] };
+    const execute = tool({
+      capture,
+      settings,
+      sessionCwd: "projects/app",
+      inputFiles: { [`projects/app/${name}`]: pngBytes() },
+    });
+    await run(execute, { prompt: "背景を白に", input_images: [name] });
+    assert.match(String(capture.inputPayloads[0]?.[0]), /^data:image\/png;base64,/, name);
+  }
+});
+
+test("能力が不明・非対応なら provider を呼ばず、参照を外した再試行もしない", async () => {
+  const capture: Capture = { uploads: [], bodies: [], generated: [], inputPayloads: [], reads: [] };
+  const execute = tool({
+    capture,
+    settings,
+    sessionCwd: "projects/app",
+    inputFiles: { "projects/app/generated/portrait.png": pngBytes() },
+    checkImageInput: async () => "この画像モデルは参照画像による編集に対応していません",
+  });
+  const error = await run(execute, { prompt: "背景を白に", input_images: ["generated/portrait.png"] }).then(
+    () => undefined,
+    (failure: unknown) => failure,
+  );
+  assert.ok(error instanceof Error);
+  assert.match(error.message, /参照画像による編集に対応していません/);
+  assert.equal(capture.generated.length, 0, "provider を呼んでいる");
+  assert.equal(capture.uploads.length, 0);
+
+  // 参照なしの生成は能力判定を通らない（新規生成を巻き添えにしない）
+  const noInput: Capture = { uploads: [], bodies: [], generated: [], inputPayloads: [], reads: [] };
+  await run(
+    tool({
+      capture: noInput,
+      settings,
+      checkImageInput: async () => {
+        throw new Error("参照なしの生成で能力判定を呼んでいる");
+      },
+    }),
+    { prompt: "cafe" },
+  );
+  assert.equal(noInput.generated.length, 1);
+});
+
+test("入力の不備はどれも provider を呼ぶ前に拒む", async () => {
+  const cases: { params: Record<string, unknown>; pattern: RegExp; files?: Record<string, Uint8Array> }[] = [
+    { params: { input_images: [] }, pattern: /input_images が空です/ },
+    { params: { input_images: [""] }, pattern: /パスが空です/ },
+    { params: { input_images: ["a.png", "b.png"] }, pattern: /1 枚だけです/ },
+    { params: { input_images: ["../secret.png"] }, pattern: /作業フォルダの外/ },
+    { params: { input_images: ["/etc/passwd"] }, pattern: /作業フォルダの外/ },
+    { params: { input_images: ["generated\\portrait.png"] }, pattern: /バックスラッシュ/ },
+    { params: { input_images: ["https://example.invalid/a.png"] }, pattern: /ローカル画像のパスだけ/ },
+    { params: { input_images: ["data:image/png;base64,AAAA"] }, pattern: /ローカル画像のパスだけ/ },
+    { params: { input_images: ["generated/missing.png"] }, pattern: /参照画像が見つかりません/ },
+    {
+      params: { input_images: ["generated/fake.png"] },
+      pattern: /参照画像として使えるのは/,
+      files: { "generated/fake.png": new Uint8Array(Buffer.from("<html><body>not an image</body></html>")) },
+    },
+    {
+      params: { input_images: ["generated/huge.png"] },
+      pattern: /大きすぎます/,
+      files: { "generated/huge.png": new Uint8Array(10 * 1024 * 1024 + 1) },
+    },
+    {
+      params: { input_images: ["generated/tall.png"] },
+      pattern: /画素数が上限を超えています/,
+      files: { "generated/tall.png": pngBytes(20_000, 20_000) },
+    },
+  ];
+  for (const testCase of cases) {
+    const capture: Capture = { uploads: [], bodies: [], generated: [], inputPayloads: [], reads: [] };
+    const execute = tool({ capture, settings, ...(testCase.files ? { inputFiles: testCase.files } : {}) });
+    await assert.rejects(
+      () => run(execute, { prompt: "背景を白に", ...testCase.params }),
+      testCase.pattern,
+      JSON.stringify(testCase.params),
+    );
+    assert.equal(capture.generated.length, 0, `provider を呼んでいる: ${JSON.stringify(testCase.params)}`);
+    assert.equal(capture.uploads.length, 0);
+  }
+});
+
+test("参照画像の読取中の中断は画像生成の中断として返す", async () => {
+  const capture: Capture = { uploads: [], bodies: [], generated: [], inputPayloads: [], reads: [] };
+  const controller = new AbortController();
+  const execute = tool({
+    capture,
+    settings,
+    readImageInput: async () => {
+      controller.abort();
+      throw new Error("The operation was aborted");
+    },
+  });
+  await assert.rejects(
+    () => run(execute, { prompt: "背景を白に", input_images: ["generated/portrait.png"] }, controller.signal),
+    /画像生成を中断しました/,
+  );
+  assert.equal(capture.generated.length, 0);
+});
+
+test("部分応答 (206) の参照画像は provider へ送らず、課金前に拒否する", async () => {
+  const capture: Capture = { uploads: [], bodies: [], generated: [], inputPayloads: [], reads: [] };
+  const client = createSandboxToolClient({
+    baseUrl: "http://sandbox.test",
+    token: "test-sandbox-token-0123456789abcdef",
+    fetchImpl: (async () =>
+      new Response(pngBytes(), {
+        status: 206,
+        headers: { "Content-Length": String(pngBytes().byteLength), "Content-Range": "bytes 0-32/300" },
+      })) as typeof fetch,
+  });
+  const execute = tool({
+    capture,
+    settings,
+    sessionCwd: "projects/app",
+    readImageInput: (path, scope, signal) => client.readImageInput(path, scope, signal),
+  });
+  await assert.rejects(
+    () => run(execute, { prompt: "背景を白に", input_images: ["generated/portrait.png"] }),
+    /全体応答だけを受け付けます/,
+  );
+  assert.equal(capture.generated.length, 0, "部分画像で provider を呼んでいる");
+  assert.equal(capture.uploads.length, 0);
 });
