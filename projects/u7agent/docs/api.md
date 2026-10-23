@@ -31,6 +31,7 @@ DTO の正は `server/src/schema.ts`（zod）。リクエストボディは `@ho
 | コンテンツ生成（設定 → コンテンツ生成 `/settings/content`） | `GET /api/settings/content`、`PUT /api/settings/content/image`、`PUT /api/settings/content/speech`、`POST /api/settings/content/speech/preview`、`PUT/DELETE /api/settings/content/key`、`POST /api/settings/content/image/catalog/refresh`、`POST /api/settings/content/speech/catalog/refresh` | このファイル、[image-generation.md](image-generation.md)、[speech-generation.md](speech-generation.md) |
 | Web 検索の設定（設定 → Web 検索 `/settings/web-search`） | `GET/PUT /api/settings/web-search`、`PUT /api/settings/web-search/provider`、`PUT/DELETE /api/settings/web-search/providers/:provider/key` | このファイル、[web-search.md](web-search.md) |
 | サービス（serve）の状態と起動・停止 | `GET /api/serve/status`、`POST /api/serve/start`、`POST /api/serve/stop` | このファイル、[sandbox.md](sandbox.md#serveサービスの公開と起動停止) |
+| 共有コンテンツ（設計。実装は後続） | `/api/shared-contents`、`/api/settings/cloudflare` | [static-sharing.md](static-sharing.md) |
 | 作業フォルダの環境変数（作業環境 → 環境変数） | `GET/POST /api/secrets`、`GET/PUT/DELETE /api/secrets/:secretId` | このファイル、[secrets.md](secrets.md#作業フォルダの環境変数) |
 | エージェント / スキル | `/api/agents`、`/api/skills/files`（`/detail`・`/delete-preview`・`/export`・`/export/check`・`/import` を含む）、`/api/skills/session` | [api-catalog.md](api-catalog.md)、[api-sessions.md](api-sessions.md) |
 | サンドボックス（内部） | `/v1/*`（BFF からは見えない） | [sandbox-api.md](sandbox-api.md) |
@@ -706,6 +707,10 @@ Content-Security-Policy: sandbox allow-scripts; default-src 'none'; style-src 'u
 - 変更系は 200 で `{ item, trimmed, generation }` を返す（`trimmed` は前後の空白 / 改行を除去したか。削除は `{ removed, generation }`）
 
 エラー: 名前 / 値の規則違反は 400、同名の重複は 409、別の cwd / 存在しない `secretId` は 404、シークレットで master key が未設定 / 宣言が壊れている / 復号できないときは 503（`state: "not_stored"`）。アプリデータが使えないときも 503（変更系は `state: "not_stored"`）。
+
+## 共有コンテンツ
+
+静的成果物を Cloudflare へ公開する API はまだ実装していない。エンドポイント、DTO、状態遷移、エラーの契約は [static-sharing.md](static-sharing.md#api-契約) を正とする。実装したらこの節へ移す。
 
 ## セッションへのファイルアップロード
 

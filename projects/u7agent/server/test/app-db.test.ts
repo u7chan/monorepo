@@ -1176,7 +1176,7 @@ test("migrates a v10 db additively and keeps the secrets table across reopen", (
     raw.close();
 
     const first = AppDb.open({ storeDir: dir });
-    assert.equal(APP_DB_SCHEMA_VERSION, 23);
+    assert.equal(APP_DB_SCHEMA_VERSION, 24);
     // 加算移行なので既存の行は残り、secrets は行が無い = 未設定で始まる
     assert.deepEqual(first.listProjects(), [project("p1", "proj-a")]);
     assert.deepEqual(first.getServeCommand("proj-a"), { cwd: "proj-a", command: "pnpm dev", updatedAt: 1 });
@@ -2166,6 +2166,174 @@ test("カタログの限定削除が失敗したら部分適用を残さない",
     assert.ok(columnNames(check, "agents").includes("skillIds"));
     assert.equal(columnNames(check, "agents").includes("sortOrder"), false);
     assert.equal(Number(check.prepare("PRAGMA user_version").get()?.user_version), 22);
+    check.close();
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("migrates a v23 db additively and adds the sharing tables", () => {
+  const dir = tempStoreDir();
+  try {
+    // 現行スキーマで作った DB から新しい 2 テーブルだけを落とし、v23 相当に戻す
+    AppDb.open({ storeDir: dir }).close();
+    const raw = new DatabaseSync(join(dir, APP_DB_FILENAME));
+    raw.exec("DROP TABLE shared_contents");
+    raw.exec("DROP TABLE cloudflare_settings");
+    raw.exec("PRAGMA user_version = 23");
+    raw.prepare("INSERT INTO projects (id, name, cwd, createdAt) VALUES (?, ?, ?, ?)").run("p1", "p1", "proj-a", 1);
+    raw.close();
+
+    const db = AppDb.open({ storeDir: dir });
+    // 加算移行なので既存の行は消えない
+    assert.deepEqual(db.listProjects(), [project("p1", "proj-a")]);
+    db.close();
+
+    const check = new DatabaseSync(join(dir, APP_DB_FILENAME));
+    assert.deepEqual(columnNames(check, "shared_contents"), [
+      "id",
+      "sessionId",
+      "name",
+      "sourcePath",
+      "provider",
+      "providerAccount",
+      "remoteId",
+      "publicUrl",
+      "status",
+      "createdAt",
+      "updatedAt",
+      "publishedAt",
+      "stoppedAt",
+      "lastError",
+    ]);
+    assert.deepEqual(columnNames(check, "cloudflare_settings"), [
+      "id",
+      "accountId",
+      "ciphertext",
+      "nonce",
+      "keyVersion",
+      "updatedAt",
+    ]);
+    // provider 側の識別子は (provider, アカウント) の中で一意。同じ script を 2 つの共有物が指さない
+    const insertShared = check.prepare(
+      `INSERT INTO shared_contents
+         (id, sessionId, name, sourcePath, provider, providerAccount, remoteId, status, createdAt, updatedAt)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    );
+    const sharedRow = (id: string, provider: string, account: string, remoteId: string | null) => [
+      id,
+      "0123456789",
+      id,
+      "dist",
+      provider,
+      account,
+      remoteId,
+      "published",
+      1,
+      1,
+    ];
+    insertShared.run(...sharedRow("sc1", "cloudflare", "acc-a", "u7s-0123456789"));
+    assert.throws(
+      () => insertShared.run(...sharedRow("sc2", "cloudflare", "acc-a", "u7s-0123456789")),
+      /UNIQUE constraint failed/,
+      "同じ provider / アカウント / remoteId の重複を拒否する",
+    );
+    // 別の provider・別のアカウント・未作成 (NULL) の remoteId はそれぞれ独立して持てる
+    insertShared.run(...sharedRow("sc3", "other", "acc-a", "u7s-0123456789"));
+    insertShared.run(...sharedRow("sc4", "cloudflare", "acc-b", "u7s-0123456789"));
+    insertShared.run(...sharedRow("sc5", "cloudflare", "acc-a", null));
+    insertShared.run(...sharedRow("sc6", "cloudflare", "acc-a", null));
+    assert.equal(
+      Number(check.prepare("SELECT COUNT(*) AS n FROM shared_contents").get()?.n),
+      5,
+      "重複しなかった行だけが入る",
+    );
+    assert.equal(Number(check.prepare("PRAGMA user_version").get()?.user_version), APP_DB_SCHEMA_VERSION);
+    check.close();
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("shared_contents と cloudflare_settings は未知の版での作り直しでも残す", () => {
+  const dir = tempStoreDir();
+  try {
+    AppDb.open({ storeDir: dir }).close();
+    const raw = new DatabaseSync(join(dir, APP_DB_FILENAME));
+    raw
+      .prepare(
+        `INSERT INTO shared_contents
+           (id, sessionId, name, sourcePath, provider, providerAccount, remoteId, publicUrl, status, createdAt, updatedAt, publishedAt, stoppedAt, lastError)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        "sc1",
+        "0123456789",
+        "ミニゲーム",
+        "dist",
+        "cloudflare",
+        "acc-a",
+        "u7s-0123456789",
+        "https://example.invalid/",
+        "published",
+        1,
+        2,
+        2,
+        null,
+        null,
+      );
+    raw
+      .prepare(
+        "INSERT INTO cloudflare_settings (id, accountId, ciphertext, nonce, keyVersion, updatedAt) VALUES (1, ?, ?, ?, 1, ?)",
+      )
+      .run("acc", Buffer.from([1, 2, 3]), Buffer.from([4, 5, 6]), 3);
+    raw.exec(`PRAGMA user_version = ${APP_DB_SCHEMA_VERSION + 1}`);
+    raw.close();
+
+    const db = AppDb.open({ storeDir: dir });
+    // 未知の版の作り直しでは seed しない (= 他のアプリ所有テーブルは落ちている)
+    assert.deepEqual(db.listAgents(), []);
+    db.close();
+
+    const check = new DatabaseSync(join(dir, APP_DB_FILENAME));
+    assert.equal(tableNames(check).includes("shared_contents"), true);
+    assert.equal(tableNames(check).includes("cloudflare_settings"), true);
+    const shared = check
+      .prepare(
+        `SELECT id, sessionId, name, sourcePath, provider, providerAccount, remoteId, publicUrl, status,
+                createdAt, updatedAt, publishedAt, stoppedAt, lastError
+           FROM shared_contents`,
+      )
+      .get() as Record<string, unknown>;
+    // null プロトタイプの行を普通の object として全列比較する (値を 1 つでも落とさない)
+    assert.deepEqual(
+      { ...shared },
+      {
+        id: "sc1",
+        sessionId: "0123456789",
+        name: "ミニゲーム",
+        sourcePath: "dist",
+        provider: "cloudflare",
+        providerAccount: "acc-a",
+        remoteId: "u7s-0123456789",
+        publicUrl: "https://example.invalid/",
+        status: "published",
+        createdAt: 1,
+        updatedAt: 2,
+        publishedAt: 2,
+        stoppedAt: null,
+        lastError: null,
+      },
+    );
+    const settings = check
+      .prepare("SELECT accountId, ciphertext, nonce, keyVersion, updatedAt FROM cloudflare_settings WHERE id = 1")
+      .get() as Record<string, unknown>;
+    assert.equal(settings?.accountId, "acc");
+    assert.deepEqual(Buffer.from(settings?.ciphertext as Uint8Array), Buffer.from([1, 2, 3]));
+    assert.deepEqual(Buffer.from(settings?.nonce as Uint8Array), Buffer.from([4, 5, 6]));
+    assert.equal(settings?.keyVersion, 1);
+    assert.equal(settings?.updatedAt, 3);
+    assert.equal(Number(check.prepare("PRAGMA user_version").get()?.user_version), APP_DB_SCHEMA_VERSION);
     check.close();
   } finally {
     rmSync(dir, { recursive: true, force: true });
