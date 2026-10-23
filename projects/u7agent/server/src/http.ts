@@ -25,7 +25,7 @@ export function httpError(statusCode: number, message: string): Error {
 }
 
 /** 検証失敗時に route 側が返す応答。戻り値型に渡すことで 400 の応答型を route の契約に残す */
-type JsonBodyErrorResponse = Response | TypedResponse<{ error: string }, 400, "json">;
+type JsonBodyErrorResponse = Response | TypedResponse<{ error: string; state?: "not_stored" }, 400, "json">;
 
 type JsonBodyParseResult<S extends z.ZodType> = z.ZodSafeParseResult<z.output<S>>;
 
@@ -44,6 +44,7 @@ export function jsonBodyValidator<
 >(
   schema: S,
   hook: (result: JsonBodyParseResult<S>, c: Context<E, P>) => JsonBodyErrorResponse | void,
+  options?: { invalidJson?: (c: Context<E, P>) => JsonBodyErrorResponse },
 ): MiddlewareHandler<E, P, V, JsonBodyErrorResponse> {
   return async (c, next) => {
     const text = (await c.req.text()).trim();
@@ -51,6 +52,7 @@ export function jsonBodyValidator<
     try {
       parsed = text ? JSON.parse(text) : {};
     } catch {
+      if (options?.invalidJson) return options.invalidJson(c);
       throw httpError(400, "Request body must be valid JSON");
     }
     const result = schema.safeParse(parsed);

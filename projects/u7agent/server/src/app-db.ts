@@ -562,6 +562,31 @@ function providerMemoOf(row: Row): ProviderMemoRow | undefined {
   return memo === undefined ? undefined : { provider: text(row.provider), memo };
 }
 
+/** 未知の状態は公開中 / 公開済みへ寄せず、行の破損として失敗させる */
+function sharedContentStatusOf(value: unknown): SharedContentStatus {
+  if (value === "publishing" || value === "published" || value === "stopped" || value === "failed") return value;
+  throw new Error("shared_contents.status is invalid");
+}
+
+function sharedContentOf(row: Row): SharedContentRow {
+  return {
+    id: text(row.id),
+    sessionId: text(row.sessionId),
+    name: text(row.name),
+    sourcePath: text(row.sourcePath),
+    provider: text(row.provider),
+    providerAccount: optionalText(row.providerAccount) ?? null,
+    remoteId: optionalText(row.remoteId) ?? null,
+    publicUrl: optionalText(row.publicUrl) ?? null,
+    status: sharedContentStatusOf(row.status),
+    createdAt: Number(row.createdAt),
+    updatedAt: Number(row.updatedAt),
+    publishedAt: optionalNumber(row.publishedAt),
+    stoppedAt: optionalNumber(row.stoppedAt),
+    lastError: optionalText(row.lastError) ?? null,
+  };
+}
+
 /** 列は NOT NULL だが、手編集で空文字にされた行は未設定として読む (メモと同じ規約) */
 function contentSettingsOf(row: Row): ContentSettingsRow | undefined {
   const provider = optionalText(row.provider);
@@ -1308,6 +1333,81 @@ export class AppDb {
           .get(accountId) as Row | undefined,
     );
     return row !== undefined;
+  }
+
+  // --- shared contents (1 行 1 共有物) ---
+
+  insertSharedContent(row: SharedContentRow): void {
+    this.#query((db) =>
+      db
+        .prepare(
+          `INSERT INTO shared_contents
+             (id, sessionId, name, sourcePath, provider, providerAccount, remoteId, publicUrl, status,
+              createdAt, updatedAt, publishedAt, stoppedAt, lastError)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        )
+        .run(
+          row.id,
+          row.sessionId,
+          row.name,
+          row.sourcePath,
+          row.provider,
+          row.providerAccount,
+          row.remoteId,
+          row.publicUrl,
+          row.status,
+          row.createdAt,
+          row.updatedAt,
+          row.publishedAt,
+          row.stoppedAt,
+          row.lastError,
+        ),
+    );
+  }
+
+  /** 状態と時刻だけを更新する。ID / ソース / provider の識別子は公開後に変えない */
+  updateSharedContentState(
+    id: string,
+    patch: {
+      status: SharedContentStatus;
+      updatedAt: number;
+      publishedAt: number | null;
+      stoppedAt: number | null;
+      lastError: string | null;
+    },
+  ): void {
+    this.#query((db) =>
+      db
+        .prepare(
+          `UPDATE shared_contents
+              SET status = ?, updatedAt = ?, publishedAt = ?, stoppedAt = ?, lastError = ?
+            WHERE id = ?`,
+        )
+        .run(patch.status, patch.updatedAt, patch.publishedAt, patch.stoppedAt, patch.lastError, id),
+    );
+  }
+
+  getSharedContent(id: string): SharedContentRow | undefined {
+    const row = this.#query(
+      (db) => db.prepare("SELECT * FROM shared_contents WHERE id = ?").get(id) as Row | undefined,
+    );
+    return row ? sharedContentOf(row) : undefined;
+  }
+
+  listSharedContents(): SharedContentRow[] {
+    return this.#query((db) =>
+      (db.prepare("SELECT * FROM shared_contents ORDER BY createdAt DESC, id DESC").all() as Row[]).map(
+        sharedContentOf,
+      ),
+    );
+  }
+
+  listPublishingSharedContents(): SharedContentRow[] {
+    return this.#query((db) =>
+      (
+        db.prepare("SELECT * FROM shared_contents WHERE status = 'publishing' ORDER BY createdAt ASC").all() as Row[]
+      ).map(sharedContentOf),
+    );
   }
 
   // --- web search settings (1 行だけ。行が無い = 既定（有効 / exa）) ---

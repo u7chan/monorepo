@@ -997,6 +997,47 @@ export const ContentMutationResponseSchema = ContentSettingsResponseSchema.exten
 });
 export type ContentMutationResponse = z.infer<typeof ContentMutationResponseSchema>;
 
+/** 共有物の状態。値の正は `server/src/app-db.ts` の `SharedContentStatus` */
+export const SharedContentStatusSchema = z.enum(["publishing", "published", "stopped", "failed"]);
+export type SharedContentStatusValue = z.infer<typeof SharedContentStatusSchema>;
+
+/** GET /api/shared-contents と GET /api/shared-contents/:id。provider 固有の ID とアカウントは返さない */
+export const SharedContentResponseSchema = z.object({
+  id: z.string(),
+  sessionId: z.string(),
+  name: z.string(),
+  sourcePath: z.string(),
+  provider: z.string(),
+  status: SharedContentStatusSchema,
+  publicUrl: z.string().nullable(),
+  createdAt: z.number(),
+  updatedAt: z.number(),
+  publishedAt: z.number().nullable(),
+  stoppedAt: z.number().nullable(),
+  lastError: z.string().nullable(),
+});
+export type SharedContentResponse = z.infer<typeof SharedContentResponseSchema>;
+
+export const SharedContentsResponseSchema = z.object({
+  items: z.array(SharedContentResponseSchema),
+});
+export type SharedContentsResponse = z.infer<typeof SharedContentsResponseSchema>;
+
+/** POST /api/shared-contents。directory はセッションの作業ディレクトリ相対 */
+export const CreateSharedContentBodySchema = z.object({
+  sessionId: z.string().min(1).max(64),
+  directory: z.string().min(1).max(1024),
+  name: z.string().max(100).optional(),
+});
+export type CreateSharedContentBody = z.infer<typeof CreateSharedContentBodySchema>;
+
+/** 作成・更新・再試行の受付応答。状態は GET で読む */
+export const SharedContentMutationResponseSchema = z.object({
+  id: z.string(),
+  status: z.literal("publishing"),
+});
+export type SharedContentMutationResponse = z.infer<typeof SharedContentMutationResponseSchema>;
+
 /**
  * GET /api/settings/cloudflare。トークンは返さず、登録状態とアカウント ID だけを返す。
  * `available: false` は master key が使えず、登録・復号が 503 になる状態。
