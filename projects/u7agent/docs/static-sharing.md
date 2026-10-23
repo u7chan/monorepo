@@ -108,7 +108,7 @@ Cloudflare への送信は時間がかかるため、同期 HTTP では扱わな
 - 受付時に `lastError` を消して `publishing` にする。終端は `publishing` でなくなったときで、成功・失敗は `status` と `lastError` の組で読む。
 - agent tool は受付のあと内部で終端までポーリングし、状態が確定してから URL かエラーを返す。`publishing` + `lastError`（結果不明）を見たらそこで打ち切って、停止で安全側に倒すよう案内する。
 - provider の結果が不明になったとき（timeout など）と、BFF 再起動で `publishing` のまま残ったときは、subdomain を問い合わせて状態を確定する。有効なら `published`、無効なら `stopped`、script が無ければ `failed`。更新・初回公開の中断では配信中の版が分からないため、その旨を `lastError` に残す。問い合わせできないときだけ `publishing` + `lastError` に留め、停止だけを受け付ける。
-- 停止の結果が不明なときも同じ問い合わせを行う。無効なら `stopped`、有効なら `published` + `lastError`（停止を再試行できる）。問い合わせできない間は `published` + `lastError` に留める（誤って「停止済み」と表示しない）。
+- 停止の結果が不明なときも同じ問い合わせを行う。無効なら `stopped`、有効なら `published` + `lastError`（停止を再試行できる）。問い合わせできない間は、開始状態が `published` なら `published` + `lastError`、結果不明の `publishing` からなら `publishing` + `lastError` に留める（誤って「停止済み」と表示しない）。
 - deployment 成功後に DB を更新できなかった場合も同じ復帰規則を使う。subdomain が有効なままなら `published` になり、版の不明は `lastError` に残る。
 - provider の確定した失敗と、DB の書き込み失敗を混ぜない。公開が成功しても DB を更新できなかった場合は成功を返さず、行の状態を進めない。
 
