@@ -44,14 +44,43 @@ test("件数 (ディレクトリを含む) と合計サイズ、上位の一覧�
   assert.deepEqual(summary.notes, []);
 });
 
-test("一覧は先頭だけを並べ、打ち切りは注記で知らせる", () => {
+test("一覧は先頭だけを並べ、取得の打ち切りは注記で知らせる", () => {
   const files = Array.from({ length: SHARE_PREVIEW_ROWS + 1 }, (_, index) => ({
     name: `file-${index}.js`,
     size: 1,
   }));
   const summary = sharePreviewSummary(preview({ files, truncated: true, entries: files.length }));
   assert.equal(summary.rows.length, SHARE_PREVIEW_ROWS);
+  assert.deepEqual(summary.notes, [
+    `一覧は先頭 ${files.length} 件までしか取得できていません。`,
+    `一覧は先頭 ${SHARE_PREVIEW_ROWS} 件だけを表示しています（残り 1 件）。`,
+  ]);
+});
+
+// 11〜500 件では sandbox の truncated が false になるため、表示側の絞り込みを別の注記にしないと
+// 公開対象 (例: 最上位の AGENTS.md) が見えないまま省略されたことも分からなくなる
+test("11 件以上では、表示の絞り込みを取得の打ち切りとは別に知らせる", () => {
+  const files = Array.from({ length: SHARE_PREVIEW_ROWS + 2 }, (_, index) => ({
+    name: `file-${index}.js`,
+    size: 1,
+  }));
+  const summary = sharePreviewSummary(preview({ files, truncated: false, entries: files.length }));
+  assert.equal(summary.rows.length, SHARE_PREVIEW_ROWS);
+  assert.deepEqual(summary.notes, [`一覧は先頭 ${SHARE_PREVIEW_ROWS} 件だけを表示しています（残り 2 件）。`]);
+});
+
+test("取得は打ち切られていても全件を表示できるなら、取得の打ち切りだけを知らせる", () => {
+  const files = Array.from({ length: SHARE_PREVIEW_ROWS }, (_, index) => ({ name: `file-${index}.js`, size: 1 }));
+  const summary = sharePreviewSummary(preview({ files, truncated: true, entries: files.length + 5 }));
+  assert.equal(summary.rows.length, SHARE_PREVIEW_ROWS);
   assert.deepEqual(summary.notes, [`一覧は先頭 ${files.length} 件までしか取得できていません。`]);
+});
+
+test("取得した一覧が上限までとれていても、行数の絞り込みは一覧の件数から数える", () => {
+  const files = Array.from({ length: 500 }, (_, index) => ({ name: `file-${index}.js`, size: 1 }));
+  const summary = sharePreviewSummary(preview({ files, truncated: false, entries: 12_000 }));
+  assert.equal(summary.rows.length, SHARE_PREVIEW_ROWS);
+  assert.deepEqual(summary.notes, [`一覧は先頭 ${SHARE_PREVIEW_ROWS} 件だけを表示しています（残り 490 件）。`]);
 });
 
 test("symlink など公開されないものはパスを並べ、多い分は件数だけを示す", () => {

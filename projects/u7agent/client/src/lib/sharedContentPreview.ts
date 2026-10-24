@@ -29,7 +29,7 @@ export type SharePreviewSummary = {
   totals: string | null;
   /** 一覧に出す行 */
   rows: readonly { name: string; size: string }[];
-  /** 打ち切り・公開されないものの注記 */
+  /** 表示の絞り込み・打ち切り・公開されないものの注記 */
   notes: readonly string[];
 };
 
@@ -46,8 +46,13 @@ export function sharePreviewSummary(preview: SharedContentPreviewResponse): Shar
     preview.limited || preview.entries === null || preview.bytes === null
       ? null
       : `${preview.entries.toLocaleString("en-US")} 件（ディレクトリを含む）・合計 ${formatByteSize(preview.bytes)}`;
+  // 取得側の打ち切り (sandbox の上限) と、表示側の絞り込み (行数) は理由が違うので分けて出す
   if (preview.truncated) {
     notes.push(`一覧は先頭 ${preview.files.length} 件までしか取得できていません。`);
+  }
+  if (preview.files.length > rows.length) {
+    const rest = preview.files.length - rows.length;
+    notes.push(`一覧は先頭 ${rows.length} 件だけを表示しています（残り ${rest.toLocaleString("en-US")} 件）。`);
   }
   if (preview.links.length > 0) {
     const shown = preview.links.slice(0, NOTE_PATHS).join(", ");
