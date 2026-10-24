@@ -738,7 +738,8 @@ Content-Security-Policy: sandbox allow-scripts; default-src 'none'; style-src 'u
 - ソースは sandbox の `GET /v1/files/download?path=<dir>&exclude=`（明示空）で全量 ZIP を取得し、`index.html` の存在、10,000 entries / 100 MiB / 1 ファイル 25 MiB、パス・symlink、既知の秘密値を検証する。違反は部分公開せず `failed`（更新なら前回の状態 + `lastError`）。
 - 資格情報が未登録なら 409。保存済みの `providerAccount` が現在の接続と違う場合も 409。
 - 停止・再公開・削除は `sourcePath` とセッションを必要としない（セッションを削除しても管理できる）。セッション / ソースが要るのは更新だけ。
-- 停止は `published` と、結果不明で `publishing` のまま残った行から受け付ける。`failed` / `stopped` と進行中の `publishing` は 409。再公開は `stopped` だけ、削除は進行中の `publishing` 以外。
+- 停止は `published` と、結果不明で `publishing` のまま残った行から受け付ける。`failed` / `stopped` と進行中の `publishing` は 409。再公開は `stopped` だけ。削除は `publishing` を一律で 409 にし、停止で状態を確定させてから行う。
+- 結果不明の照会で script が無いと分かった場合、一度も公開できていない行だけ `failed` にし、公開実績のある行は `stopped` + `lastError`（`publishedAt` は残す）にする。照会できない間は `publishing` + `lastError` に留める。
 - 削除は provider が 404 を返したときも成功扱い（外部で既に消えている）。同じ id への 2 回目は行が無いので 404。
 - 同じ id の変更系が進行中なら 409。停止 / 再公開 / 削除の状態保存に失敗したときは provider の操作を成功として返さず 503（操作は冪等なので再試行で収束する）。
 - 受付の失敗（400 / 404 / 409 / 502 / 503）は `{ error, state: "not_stored" }`。`published` になったかは GET で確認する。
