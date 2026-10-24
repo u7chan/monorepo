@@ -20,6 +20,7 @@ import {
   type ModelsSubsection,
   type RuntimeSubsection,
   type SettingsSection,
+  type SharingSubsection,
 } from "../src/lib/settingsNav";
 
 const settings = (section: SettingsSection): Route => ({ view: "settings", section });
@@ -50,6 +51,13 @@ const runtimeTab = (runtimeSubsection: RuntimeSubsection): Route => ({
   view: "settings",
   section: "runtime",
   runtimeSubsection,
+});
+
+/** 設定 → 共有のタブ。既定タブ (contents) は URL のパスに出さない */
+const sharingTab = (sharingSubsection: SharingSubsection): Route => ({
+  view: "settings",
+  section: "sharing",
+  sharingSubsection,
 });
 
 /** 会話を指定した URL (`/s/<id>`) の route。id は不透明な値で、URL へ戻すときだけ encode する */
@@ -120,10 +128,11 @@ test("parseRoute は pathname だけで画面を決め、表のとおりに畳�
     ["/settings/web-search", settings("web-search")],
     ["/Settings/WEB-SEARCH/", settings("web-search")],
     ["//settings//web-search//", settings("web-search")],
-    // 共有は接続タブだけを実装している。既定タブの明示と未知のサブセクションは既定へ畳む
+    // 共有は既定タブ (共有コンテンツ) をパスへ出さない。既定タブの明示と未知のサブセクションは既定へ畳む
     ["/settings/sharing", settings("sharing")],
     ["/Settings/SHARING/", settings("sharing")],
-    ["/settings/sharing/connections", settings("sharing")],
+    ["/settings/sharing/contents", settings("sharing")],
+    ["/settings/sharing/connections", sharingTab("connections")],
     ["/settings/sharing/unknown", settings("sharing")],
     ["/settings/sharing/connections/extra", CHAT_ROUTE],
     // 設定 → モデルのタブ。正準形は「モデルを選ぶ」= /settings/models、「プロバイダー」= /providers
@@ -222,6 +231,15 @@ test("routePath は正準形を返し、parseRoute と往復する", () => {
   assert.deepEqual(
     parseRoute(routePath(runtimeTab("service"))),
     settings("runtime"),
+    "既定タブはパスへ出さず、既定へ戻す",
+  );
+  // 共有のタブも同じく、接続だけをパスへ出し、既定の共有コンテンツは出さない
+  assert.equal(routePath(sharingTab("connections")), "/settings/sharing/connections");
+  assert.equal(routePath(sharingTab("contents")), "/settings/sharing");
+  assert.deepEqual(parseRoute(routePath(sharingTab("connections"))), sharingTab("connections"));
+  assert.deepEqual(
+    parseRoute(routePath(sharingTab("contents"))),
+    settings("sharing"),
     "既定タブはパスへ出さず、既定へ戻す",
   );
   // コンテンツ生成と Web 検索はルートのセクションとして往復する

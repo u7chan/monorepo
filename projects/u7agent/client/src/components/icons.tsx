@@ -162,6 +162,24 @@ export function ReloadGlyph() {
   );
 }
 
+/** 更新 / 再試行の操作ボタン。ReloadButton と同じ印を使い、押した後の回転は付けない */
+export function RefreshIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.5"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className="size-3.5 shrink-0"
+    >
+      <ReloadGlyph />
+    </svg>
+  );
+}
+
 /** 作業フォルダの git ブランチ。線と左上の点は「いまの head」、右上の点は分岐先を表す */
 export function GitBranchIcon() {
   return (

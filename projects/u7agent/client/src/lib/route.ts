@@ -3,7 +3,7 @@
  * hooks/useRoute.ts が担う。`/` はチャット (会話を指定しない)、`/activity` は全スペース横断の
  * 実行状況、`/settings/<section>` は設定の各画面
  * (SETTINGS_SECTIONS)、`/settings/<section>/<sub>` はタブを持つ画面 (MODELS_SUBSECTIONS /
- * CONTENT_SUBSECTIONS / FILES_SUBSECTIONS / RUNTIME_SUBSECTIONS)、`/s/<sessionId>` はチャット + URL が指定する会話。
+ * CONTENT_SUBSECTIONS / FILES_SUBSECTIONS / RUNTIME_SUBSECTIONS / SHARING_SUBSECTIONS)、`/s/<sessionId>` はチャット + URL が指定する会話。
  * 未知・不正なパスはチャットへ畳み、routePath は常に正準形 (小文字・末尾スラッシュなし・既定タブの
  * パスなし) を返す。
  * `/s/<sessionId>` の `space` クエリだけは会話を指定した URL の入力として解釈し (entrySpaceOf)、
@@ -64,7 +64,7 @@ export const CHAT_ROUTE: Route = { view: "chat" };
 /**
  * pathname から画面を決める。クエリとフラグメントは pathname に含めない契約
  * (含めると `#foo` 付きのリンクが画面として解釈できなくなる) ため、境界側で切り落とす。
- * タブを持つ画面 (models / content / files / runtime) だけは `/settings/<section>/<sub>` の 1 セグメントを解釈し、
+ * タブを持つ画面 (models / content / files / runtime / sharing) だけは `/settings/<section>/<sub>` の 1 セグメントを解釈し、
  * 未知のサブセクションと既定タブの明示 (`/settings/models/models` 等) は既定タブへ正準化する。
  * 旧 設定 → ダウンロード (`/settings/archive`) は 設定 → ファイル の「ダウンロードの除外」タブへ読み替える。
  */

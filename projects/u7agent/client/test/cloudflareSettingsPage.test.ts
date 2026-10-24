@@ -5,6 +5,7 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import test from "node:test";
 import type { CloudflareSettings } from "../src/hooks/useCloudflareSettings";
+import type { SharedContentsManager } from "../src/hooks/useSharedContentsManager";
 import { MEMORY_NOTE } from "../src/lib/settingsNotes";
 import type { CloudflareSettingsResponse } from "../src/types";
 
@@ -35,6 +36,25 @@ function cloudflare(overrides: Partial<CloudflareSettings> = {}): CloudflareSett
   };
 }
 
+function contents(overrides: Partial<SharedContentsManager> = {}): SharedContentsManager {
+  return {
+    items: [],
+    loading: false,
+    failed: false,
+    listError: null,
+    reloading: false,
+    busy: [],
+    error: null,
+    reload: async () => {},
+    update: async () => {},
+    retry: async () => {},
+    stop: async () => {},
+    resume: async () => {},
+    remove: async () => {},
+    ...overrides,
+  };
+}
+
 function render(value: CloudflareSettings): string {
   return renderToStaticMarkup(
     createElement(
@@ -42,6 +62,9 @@ function render(value: CloudflareSettings): string {
       null,
       createElement(SharingSettingsView, {
         cloudflare: value,
+        contents: contents(),
+        sessions: [],
+        sessionsLoaded: false,
         sharingSubsection: "connections",
         onSelectSharingSubsection: () => {},
         onBack: () => {},
