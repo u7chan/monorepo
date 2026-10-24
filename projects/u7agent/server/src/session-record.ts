@@ -20,6 +20,7 @@ import type {
 } from "./schema";
 import type { PiSessionLike } from "./pi-runtime";
 import type { SessionMeta, SessionFileWriter, PromptSnapshot, UnsentSend } from "./session-store";
+import type { TitleAttempt, TitleOrigin } from "./session-title";
 
 export interface RunState {
   id: string;
@@ -124,6 +125,17 @@ export interface SessionRecord {
   /** 作成時点のスナップショット (定義の編集・削除の影響を受けない) */
   agent: AgentPayloadInfo;
   title: string;
+  /**
+   * タイトルの由来。手動改名を AI 要約で上書きしないための保護で、旧 meta は既存タイトルを
+   * 手動として扱う (titleOriginOf)。
+   */
+  titleOrigin: TitleOrigin;
+  /** AI 要約の判定と試行 (1 会話 1 回。再起動をまたいでも再試行しない) */
+  titleAttempt?: TitleAttempt;
+  /** タイトルの元にした依頼本文 (AI 要約へ渡す。保存はしない) */
+  titleRequest?: string;
+  /** 進行中の AI 要約。取消と、古い結果を適用しない判定に使う */
+  titleTask?: { runId: string; generation: number; model: string | undefined; abort: AbortController };
   createdAt: number;
   lastUsedAt: number;
   seq: number;

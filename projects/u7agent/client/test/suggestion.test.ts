@@ -6,6 +6,7 @@ import {
   shouldClearSuggestionOnBackspace,
   suggestionScopeChange,
   suggestionSendText,
+  suggestionTitleSource,
   type SuggestionKeyState,
   type SuggestionScope,
 } from "../src/lib/suggestion";
@@ -40,6 +41,13 @@ test("本文の組み立て: 本文があれば prompt の後ろに空行を挟�
 
 test("本文の組み立て: 本文の前後の空白は落とし、途中の改行は残す", () => {
   assert.equal(suggestionSendText("prompt", "  1 行目\n2 行目  "), "prompt\n\n1 行目\n2 行目");
+});
+
+test("タイトル用の本文: チップを結合する前の入力を trim して返す", () => {
+  // 送信本文 (suggestionSendText) とは別に渡し、タイトルが定型プロンプトの先頭で埋まらないようにする
+  assert.equal(suggestionTitleSource("  ログイン画面の改善  "), "ログイン画面の改善");
+  // 本文が無ければ渡さず、サーバーに従来の判定 (定型プロンプト / スキル名) をさせる
+  assert.equal(suggestionTitleSource("   \n "), undefined);
 });
 
 test("本文の組み立て: prompt が空なら本文だけを送る (行頭に空行を作らない)", () => {

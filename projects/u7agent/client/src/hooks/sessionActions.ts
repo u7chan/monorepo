@@ -47,7 +47,9 @@ export type SendChatMessageDeps = {
   ensureSession: () => Promise<string>;
   /** 一覧を取り直す。取得できなかったときは null (空の成功と区別する) */
   refreshSessions: () => Promise<SessionSummary[] | null>;
-  post: (sessionId: string, text: string, attachments: string[]) => Promise<PostMessageResult>;
+  post: (sessionId: string, text: string, attachments: string[], titleSource?: string) => Promise<PostMessageResult>;
+  /** 定型プロンプトを結合する前の本文。タイトルの元に使う (省略時はサーバーが text を使う) */
+  titleSource?: string;
   /** 送信できた添付 (root 相対)。成功したときにチップを消すために使う */
   attachments?: string[];
   /** post が成功した直後のフック (チップのクリアなど) */
@@ -99,7 +101,7 @@ export async function sendChatMessage(text: string, deps: SendChatMessageDeps): 
     const ops = opsRef.current;
     const runSeq = runEndSeqRef.current;
     const stateSeq = stateSeqRef.current;
-    const result = await post(targetId, text, attachments);
+    const result = await post(targetId, text, attachments, deps.titleSource);
     deps.onSent?.();
     // 自分の送信の送信IDをエコーへ結び付ける。表示の正は SSE だが、この対応付けは応答だけが持つ
     // (圧縮中 / 待機中でも自分の送信IDが返る)。切替後の表示は触らない

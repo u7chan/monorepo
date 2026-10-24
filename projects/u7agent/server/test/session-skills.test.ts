@@ -509,7 +509,8 @@ test("POST /api/sessions/:id/messages は /skill: を展開し、タイトルは
     assert.deepEqual(previewed, [projectPath], "本文はサンドボックスから取り直す");
 
     const payload = await jsonBody(await bff.app.request(`/api/sessions/${sessionId}`));
-    assert.equal(payload.title, "/skill:writer 短く書いて");
+    // タイトルは認識したスキル参照を外し、後ろの依頼本文から作る (固定文で一覧が埋まらないように)
+    assert.equal(payload.title, "短く書いて");
     const sent = payload.messages[0].text as string;
     assert.ok(sent.startsWith(`<skill name="writer" location="${projectPath}">`), sent);
     assert.ok(sent.includes("プロジェクトの本文"));

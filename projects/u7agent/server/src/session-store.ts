@@ -73,6 +73,22 @@ export interface SessionMeta {
    * 受け付けない。旧 meta は欠落 = 片付け不要。
    */
   handoffCleanup?: boolean;
+  /**
+   * タイトルの由来 (自動 / AI / 手動)。旧 meta は欠落しており、既存タイトルは手動として保護する
+   * (session-title.ts の titleOriginOf)。
+   */
+  titleOrigin?: "auto" | "ai" | "manual";
+  /** AI 要約の判定と試行 (1 会話 1 回)。欠落 = 未判定で、既存の会話には遡及しない */
+  titleAttempt?: {
+    runId: string;
+    at: number;
+    state: "pending" | "done" | "failed" | "skipped";
+    model?: string;
+    generation?: number;
+    inputTokens?: number;
+    outputTokens?: number;
+    costTotal?: number;
+  };
 }
 
 /** 引き継ぎごとの操作 ID。セッション ID と同じ 8 hex 文字 */

@@ -244,7 +244,10 @@ export function useSessions({
       // 一覧とずれたときだけ取り直す (毎回叩かない)
       const listed = sessionsRef.current.find((item) => item.sessionId === payload.sessionId);
       const listedCompacting = listed?.status === "compacting";
-      if ((payload.status === "compacting") !== listedCompacting) void refreshSessions();
+      // AI 要約でタイトルが後から変わると一覧の行だけが古いままになるため、ずれたときは取り直す
+      if ((payload.status === "compacting") !== listedCompacting || (listed && listed.title !== payload.title)) {
+        void refreshSessions();
+      }
     },
     [dispatch, refreshHistory, refreshSessions],
   );

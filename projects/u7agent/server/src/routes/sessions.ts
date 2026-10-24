@@ -283,6 +283,10 @@ export function createSessionRoutes({
       if (text.length > MAX_MESSAGE_CHARS) {
         return c.json({ error: `Message is too long (max ${MAX_MESSAGE_CHARS} characters)` }, 413);
       }
+      // タイトル用の入力は本文の部分集合なので、本文と同じ上限で受ける
+      if ((body.titleSource ?? "").length > MAX_MESSAGE_CHARS) {
+        return c.json({ error: `titleSource is too long (max ${MAX_MESSAGE_CHARS} characters)` }, 413);
+      }
       // SDK の /skill: 展開は BFF プロセスの readFileSync で動くため、Docker ではファイル / 組み込みの
       // どちらも展開できない。アプリ側で本文を取り直してから prompt() へ渡す (docs/api-sessions.md)。
       const prompt = await expandSkillCommand(text, skillsInputOf(record));
@@ -295,8 +299,9 @@ export function createSessionRoutes({
           prompt,
           attachments.map((path) => workspaceAbs(store.rootCwd, path)),
         ),
-        // 展開後の本文でタイトルを作ると `<skill …>` が並ぶので、ユーザーが打った本文を使う
-        { titleSource: text },
+        // 展開後の本文でタイトルを作ると `<skill …>` が並ぶので、ユーザーが打った本文を使う。
+        // 定型プロンプトの結合前の本文が届いていれば、それを優先する (タイトルから固定文を除く)
+        { titleSource: body.titleSource ?? text },
       );
       // 引き継ぎのチップの消費済み印は、受理応答を返す前に保存の成功を確かめる
       const { handoffSaving, ...rest } = result;

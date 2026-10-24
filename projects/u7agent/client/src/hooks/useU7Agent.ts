@@ -52,6 +52,11 @@ export type SendMessageOptions = {
    * 編集中のチップを次のランへ巻き込まない。
    */
   includeAttachments?: boolean;
+  /**
+   * 定型プロンプトを結合する前の本文。一覧のタイトルを固定文ではなく個別の依頼から作るために送る
+   * (省略時はサーバーが送信本文を使う)。
+   */
+  titleSource?: string;
 };
 
 export function useU7Agent({ pendingSessionId }: UseU7AgentOptions = {}) {
@@ -285,6 +290,7 @@ export function useU7Agent({ pendingSessionId }: UseU7AgentOptions = {}) {
       if (pending.some((item) => item.status !== "done")) return;
       await sendChatMessage(text, {
         health,
+        ...(options.titleSource === undefined ? {} : { titleSource: options.titleSource }),
         busy: sending || settingsChanging,
         sessionIdRef,
         opsRef: sessionOpsRef,

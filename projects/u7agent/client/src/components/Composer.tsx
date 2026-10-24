@@ -25,7 +25,7 @@ import type { LayoutMode } from "../lib/layout";
 import type { QueuedSend } from "../lib/queueWait";
 import { runRetryBlockedReason, type RunErrorInfo } from "../lib/runRetry";
 import { skillCommandText } from "../lib/sessionSkills";
-import { shouldClearSuggestionOnBackspace, suggestionSendText } from "../lib/suggestion";
+import { shouldClearSuggestionOnBackspace, suggestionSendText, suggestionTitleSource } from "../lib/suggestion";
 import type { AgentDef, AgentSuggestion, ContextUsage, ModelRef, RunStatus, ThinkingLevel, ToolCall } from "../types";
 import { AgentField } from "./composer/AgentField";
 import { AttachmentChips } from "./composer/AttachmentChips";
@@ -85,7 +85,8 @@ export type ComposerProps = {
   onReloadSkills: () => void;
   /** 非表示 (設定ページ) の間は scrollHeight を読めないので計測を止める */
   visible?: boolean;
-  onSend: (text: string) => void;
+  /** `titleSource` は定型プロンプトを結合する前の本文 (一覧タイトルの元) */
+  onSend: (text: string, titleSource?: string) => void;
   onStop: () => void;
   onAttachFiles: (files: File[]) => void;
   onRemoveAttachment: (id: string) => void;
@@ -314,7 +315,8 @@ export function Composer({
     setValue("");
     setSendHold((count) => count + 1);
     onClearSuggestion();
-    onSend(text);
+    // 結合後の本文だけを渡すとタイトルが定型プロンプトの先頭で埋まるため、個別の依頼を別に渡す
+    onSend(text, suggestionTitleSource(value));
     // 送信後のフォーカスはポインタで決める (docs/ui-layout.md)
     if (composerFocusAfterSend(hasCoarsePointer()) === "focus") inputRef.current?.focus();
     else inputRef.current?.blur();

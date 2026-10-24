@@ -7,11 +7,13 @@ const {
   ApiError,
   cancelOAuthLogin,
   deleteWebSearchApiKey,
+  getTitleSummarySettings,
   getWebSearchSettings,
   isNotStoredError,
   putWebSearchApiKey,
   putWebSearchProvider,
   putWebSearchSettings,
+  putTitleSummarySettings,
   createSpaceApi,
   deleteSpace,
   updateArchiveSettings,
@@ -26,7 +28,7 @@ const {
   stopRuntimeServe,
   submitOAuthLoginCode,
 } = await import("../src/api");
-const { getSessionHistory, updateSessionTitle } = createSpaceApi("default");
+const { getSessionHistory, updateSessionTitle, postMessage } = createSpaceApi("default");
 
 const page: HistoryPage = {
   sessionId: "session-a",
@@ -324,6 +326,53 @@ test("Web 検索の設定は GET / PUT / DELETE の往復で、キーは provide
   assert.deepEqual(await requests[1].json(), { enabled: false });
   assert.deepEqual(await requests[2].json(), { provider: "tavily" });
   assert.deepEqual(await requests[3].json(), { apiKey: "tvly-secret" });
+});
+
+test("会話タイトルの設定は GET / PUT の往復で、3 項目をまとめて送る", async (t) => {
+  const requests: Request[] = [];
+  t.mock.method(globalThis, "fetch", async (input: string | URL | Request, init?: RequestInit) => {
+    const request = new Request(input, init);
+    requests.push(request);
+    return Response.json({
+      enabled: true,
+      model: "stub/stub-model",
+      definition: "定義",
+      defaultDefinition: "既定",
+      models: [],
+      modelAvailable: true,
+    });
+  });
+  assert.equal((await getTitleSummarySettings()).enabled, true);
+  assert.equal(
+    (await putTitleSummarySettings({ enabled: true, model: "stub/stub-model", definition: "定義" })).model,
+    "stub/stub-model",
+  );
+  assert.deepEqual(
+    requests.map((request) => [request.method, new URL(request.url).pathname]),
+    [
+      ["GET", "/api/settings/session-title"],
+      ["PUT", "/api/settings/session-title"],
+    ],
+  );
+  assert.deepEqual(await requests[1].json(), { enabled: true, model: "stub/stub-model", definition: "定義" });
+});
+
+test("送信は定型プロンプトを結合する前の本文を titleSource として送る", async (t) => {
+  const requests: Request[] = [];
+  t.mock.method(globalThis, "fetch", async (input: string | URL | Request, init?: RequestInit) => {
+    const request = new Request(input, init);
+    requests.push(request);
+    return Response.json({ sessionId: "session-a", status: "running", queued: false, queueDepth: 0, sendId: "s1" });
+  });
+  await postMessage("session-a", "固定文\n\n依頼本文", [], "依頼本文");
+  await postMessage("session-a", "固定文だけ", []);
+  assert.deepEqual(await requests[0]!.json(), {
+    text: "固定文\n\n依頼本文",
+    attachments: [],
+    titleSource: "依頼本文",
+  });
+  // titleSource を渡さない従来形式は、送信本文だけを送る (旧クライアントと同じ本文)
+  assert.deepEqual(await requests[1]!.json(), { text: "固定文だけ", attachments: [] });
 });
 
 test("OAuth サインインは provider のパスへ開始 / 送信 / 中断 / サインアウトを送る", async (t) => {

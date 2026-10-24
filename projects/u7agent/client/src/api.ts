@@ -72,12 +72,14 @@ import type {
   SpeechPreviewBody,
   StopResult,
   ThinkingLevel,
+  TitleSummarySettingsResponse,
   UpdateAgentBody,
   UpdateCloudflareSettingsBody,
   UpdateContentImageBody,
   UpdateContentSpeechBody,
   UpdateModelAvailabilityBody,
   UpdateNotificationsBody,
+  UpdateTitleSummaryBody,
   WebSearchMutationResponse,
   WebSearchProviderId,
   WebSearchSettingsResponse,
@@ -148,8 +150,13 @@ export function createSpaceApi(spaceId: string) {
       read<SessionTitleResponse>(session.title.$patch({ param: { id }, json: { title } })),
     stopSession: (id: string) => read<StopResult>(session.stop.$post({ param: { id } })),
     compactSession: (id: string) => read<SessionCompactionResult>(session.compact.$post({ param: { id } })),
-    postMessage: (id: string, text: string, attachments: string[] = []) =>
-      read<PostMessageResult>(session.messages.$post({ param: { id }, json: { text, attachments } })),
+    postMessage: (id: string, text: string, attachments: string[] = [], titleSource?: string) =>
+      read<PostMessageResult>(
+        session.messages.$post({
+          param: { id },
+          json: { text, attachments, ...(titleSource === undefined ? {} : { titleSource }) },
+        }),
+      ),
     resendMessage: (id: string, sendId: string) =>
       read<PostMessageResult>(session.messages.$post({ param: { id }, json: { resendSendId: sendId } })),
     discardUnsentMessage: (id: string, sendId: string) =>
@@ -857,6 +864,23 @@ export const deleteWebSearchApiKey = async (provider: WebSearchProviderId): Prom
   });
   if (!res.ok) throw await apiError(res);
   return (await res.json()) as WebSearchMutationResponse;
+};
+
+/**
+ * 設定 → 会話タイトル。AI 要約の On/Off・要約モデル・定義を持つ。行が無い = 既定 (Off) で、
+ * 本会話のモデルとは独立している。
+ */
+export const getTitleSummarySettings = async (): Promise<TitleSummarySettingsResponse> => {
+  const res = await client.api.settings["session-title"].$get();
+  if (!res.ok) throw await apiError(res);
+  return res.json();
+};
+
+/** 3 項目の保存。省略した項目はサーバーが保存値を保つ (Off への変更でもモデルを消さない) */
+export const putTitleSummarySettings = async (body: UpdateTitleSummaryBody): Promise<TitleSummarySettingsResponse> => {
+  const res = await client.api.settings["session-title"].$put({ json: body });
+  if (!res.ok) throw await apiError(res);
+  return res.json();
 };
 
 /**

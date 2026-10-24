@@ -26,6 +26,7 @@ import { createServeRoutes } from "./routes/serve";
 import { createSkillFileRoutes } from "./routes/skill-files";
 import { createSessionRoutes } from "./routes/sessions";
 import { createWebSearchSettingsRoutes } from "./routes/web-search";
+import { createTitleSummaryRoutes } from "./routes/title-summary";
 import { createSecretScope } from "./secrets";
 import { createSpaceDelete } from "./space-delete";
 import { SpaceStore } from "./spaces";
@@ -56,6 +57,7 @@ import {
   UpdateModelAvailabilityBodySchema,
   UpdateNotificationsBodySchema,
   UpdateProviderKeyBodySchema,
+  UpdateTitleSummaryBodySchema,
   UpdateWebSearchBodySchema,
   UpdateWebSearchKeyBodySchema,
   UpdateWebSearchProviderBodySchema,
@@ -121,6 +123,7 @@ export async function createBffApp(opts: CreateBffAppOptions = {}) {
     oauthLogin,
     contentSettings,
     webSearchSettings,
+    titleSummarySettings,
     serve,
     secrets,
     cloudflareSettings,
@@ -160,6 +163,7 @@ export async function createBffApp(opts: CreateBffAppOptions = {}) {
   const cloudflareSettingsRoutes = createCloudflareSettingsRoutes({ cloudflareSettings });
   const sharedContentRoutes = createSharedContentRoutes({ sharedContents });
   const webSearchSettingsRoutes = createWebSearchSettingsRoutes({ webSearchSettings });
+  const titleSummaryRoutes = createTitleSummaryRoutes({ titleSummarySettings });
   // 環境変数の要求元 (sessionId / projectId) を cwd へ解決する唯一の点。client は cwd を送らない
   const secretRoutes = createSecretRoutes({
     secrets,
@@ -605,6 +609,15 @@ export async function createBffApp(opts: CreateBffAppOptions = {}) {
     .delete("/api/settings/web-search/providers/:provider/key", appDataMutation, (c) =>
       webSearchSettingsRoutes.deleteKey(c, c.req.param("provider")),
     )
+    .get("/api/settings/session-title", appData, titleSummaryRoutes.list)
+    .put(
+      "/api/settings/session-title",
+      appDataMutation,
+      jsonBodyValidator(UpdateTitleSummaryBodySchema, (result, c) =>
+        result.success ? undefined : c.json({ error: "Invalid request body" }, 400),
+      ),
+      (c) => titleSummaryRoutes.put(c, c.req.valid("json")),
+    )
     // Hono は登録順にマッチするため、未マッチの GET を拾う catch-all は最後に置く。
     .get("*", serveClientAssets(clientDistDir, filePreviewPort))
     .notFound((c) => c.json({ error: "Not found" }, 404))
@@ -647,6 +660,7 @@ export async function createBffApp(opts: CreateBffAppOptions = {}) {
     oauthLogin,
     contentSettings,
     webSearchSettings,
+    titleSummarySettings,
     serve,
     secrets,
     cloudflareSettings,

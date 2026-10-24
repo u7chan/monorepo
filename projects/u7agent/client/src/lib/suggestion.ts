@@ -48,6 +48,16 @@ export function suggestionSendText(prompt: string, text: string): string {
 }
 
 /**
+ * タイトル用に送る本文。チップ (定型プロンプト) を結合する前の入力を trim するだけで、
+ * 送信本文の組み立て (suggestionSendText) とは別に持つ (タイトルから固定文を外すため)。
+ * 空なら undefined を返し、サーバーに従来の判定 (本文全体) をさせる。
+ */
+export function suggestionTitleSource(text: string): string | undefined {
+  const body = text.trim();
+  return body === "" ? undefined : body;
+}
+
+/**
  * 本文の先頭 (位置 0・選択なし) の backspace でチップを外すか。位置 0 以外と全選択はテキストの削除に残す
  * (チップは本文の左に接する要素なので、左上で削り始めたときだけをチップの操作として引き取る)。
  */
