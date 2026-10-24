@@ -31,7 +31,7 @@ DTO の正は `server/src/schema.ts`（zod）。リクエストボディは `@ho
 | コンテンツ生成（設定 → コンテンツ生成 `/settings/content`） | `GET /api/settings/content`、`PUT /api/settings/content/image`、`PUT /api/settings/content/speech`、`POST /api/settings/content/speech/preview`、`PUT/DELETE /api/settings/content/key`、`POST /api/settings/content/image/catalog/refresh`、`POST /api/settings/content/speech/catalog/refresh` | このファイル、[image-generation.md](image-generation.md)、[speech-generation.md](speech-generation.md) |
 | Web 検索の設定（設定 → Web 検索 `/settings/web-search`） | `GET/PUT /api/settings/web-search`、`PUT /api/settings/web-search/provider`、`PUT/DELETE /api/settings/web-search/providers/:provider/key` | このファイル、[web-search.md](web-search.md) |
 | サービス（serve）の状態と起動・停止 | `GET /api/serve/status`、`POST /api/serve/start`、`POST /api/serve/stop` | このファイル、[sandbox.md](sandbox.md#serveサービスの公開と起動停止) |
-| 共有コンテンツ（作成・更新は実装済み、停止・削除は後続）と Cloudflare の接続 | `/api/shared-contents`、`/api/settings/cloudflare` | [static-sharing.md](static-sharing.md) |
+| 共有コンテンツ（公開・更新・停止・再公開・削除）と Cloudflare の接続 | `/api/shared-contents`、`/api/settings/cloudflare` | [static-sharing.md](static-sharing.md) |
 | 作業フォルダの環境変数（作業環境 → 環境変数） | `GET/POST /api/secrets`、`GET/PUT/DELETE /api/secrets/:secretId` | このファイル、[secrets.md](secrets.md#作業フォルダの環境変数) |
 | エージェント / スキル | `/api/agents`、`/api/skills/files`（`/detail`・`/delete-preview`・`/export`・`/export/check`・`/import` を含む）、`/api/skills/session` | [api-catalog.md](api-catalog.md)、[api-sessions.md](api-sessions.md) |
 | サンドボックス（内部） | `/v1/*`（BFF からは見えない） | [sandbox-api.md](sandbox-api.md) |
@@ -710,7 +710,7 @@ Content-Security-Policy: sandbox allow-scripts; default-src 'none'; style-src 'u
 
 ## 共有コンテンツ
 
-静的な成果物を Cloudflare の静的アセットとして公開する。作成・一覧・詳細・更新（再公開）を実装済みで、停止・再公開・削除は後続。状態遷移・検証・エラーの契約は [static-sharing.md](static-sharing.md#api-契約) を正とする。
+静的な成果物を Cloudflare の静的アセットとして公開し、公開先の状態とライフサイクルを管理する。状態遷移・検証・エラーの契約は [static-sharing.md](static-sharing.md#api-契約) を正とする。
 
 | メソッド | パス | 説明 |
 | --- | --- | --- |
@@ -718,12 +718,17 @@ Content-Security-Policy: sandbox allow-scripts; default-src 'none'; style-src 'u
 | POST | `/api/shared-contents` | 作成して公開を開始（202） |
 | GET | `/api/shared-contents/:id` | 詳細と状態 |
 | POST | `/api/shared-contents/:id/publish` | 更新（同じ URL へ再公開、202）。`failed` からの再試行も同じ |
+| POST | `/api/shared-contents/:id/stop` | 停止（200）。workers.dev を無効にする。script の不在が確定したときは 502 と終端状態（`stopped` / `failed` + `lastError`） |
+| POST | `/api/shared-contents/:id/resume` | 再公開（202）。同じ URL を有効に戻す |
+| DELETE | `/api/shared-contents/:id` | 削除（204）。provider 側の削除が成功してから行を消す |
 
 ```json
 // POST /api/shared-contents の入力
 { "sessionId": "…", "directory": "dist", "name": "デモ" }
 // 202 応答
 { "id": "…", "status": "publishing" }
+// POST /api/shared-contents/:id/stop の 200 応答
+{ "id": "…", "status": "stopped" }
 ```
 
 一覧・詳細は `{ id, sessionId, name, sourcePath, provider, status, publicUrl, createdAt, updatedAt, publishedAt, stoppedAt, lastError }`。`remoteId` / `providerAccount` は返さない。`status` の値は `SharedContentStatus`（`server/src/app-db.ts`）と schema を正とし、`lastError` は分類済みの固定文言だけを入れる。
@@ -732,6 +737,11 @@ Content-Security-Policy: sandbox allow-scripts; default-src 'none'; style-src 'u
 - 一覧は `sessionId` クエリで絞れる（共有ダイアログの「この会話の共有物」）。省略時は全件、空文字は指定なしとして扱う。
 - ソースは sandbox の `GET /v1/files/download?path=<dir>&exclude=`（明示空）で全量 ZIP を取得し、`index.html` の存在、10,000 entries / 100 MiB / 1 ファイル 25 MiB、パス・symlink、既知の秘密値を検証する。違反は部分公開せず `failed`（更新なら前回の状態 + `lastError`）。
 - 資格情報が未登録なら 409。保存済みの `providerAccount` が現在の接続と違う場合も 409。
+- 停止・再公開・削除は `sourcePath` とセッションを必要としない（セッションを削除しても管理できる）。セッション / ソースが要るのは更新だけ。
+- 停止は `published` と、結果不明で `publishing` のまま残った行から受け付ける。`failed` / `stopped` と進行中の `publishing` は 409。再公開は `stopped` だけ。削除は `publishing` を一律で 409 にし、停止で状態を確定させてから行う。
+- script の不在が確定した場合（照会の 404、停止 / 再公開の要求自体の 404）は、一度も公開できていない行だけ `failed` にし、公開実績のある行は `stopped` + `lastError`（`publishedAt` は残す）にする。停止の場合は `502` を返し、行は `publishing` のまま残さない（削除できる）。照会できない間は `publishing` + `lastError` に留める。
+- 削除は provider が 404 を返したときも成功扱い（外部で既に消えている）。同じ id への 2 回目は行が無いので 404。
+- 同じ id の変更系が進行中なら 409。停止 / 再公開 / 削除の状態保存に失敗したときは provider の操作を成功として返さず 503（操作は冪等なので再試行で収束する）。
 - 受付の失敗（400 / 404 / 409 / 502 / 503）は `{ error, state: "not_stored" }`。`published` になったかは GET で確認する。
 - Cloudflare の応答本文と API トークンは応答・ログ・`lastError` に載せない。
 

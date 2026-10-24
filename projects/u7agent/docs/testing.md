@@ -67,7 +67,7 @@ done
 
 ## 静的共有の受入
 
-自動検証は `server/test/shared-contents-api.test.ts`（202 受付 → 状態 GET → `published`、`?sessionId=` の絞り込み、トークン非漏洩、資格情報が未登録のときの 409）、`client/test/sharedContents.test.ts`（状態の見せ方・確認項目・ポーリングの宛先・受付結果の反映）、`client/test/shareContentDialog.test.ts`（確認に確定 URL を出さないこと、受付中 / 公開中 / 完了 / 失敗の出し分け、受付拒否と一覧取得失敗の表示）、`client/test/fileRowMenu.test.ts`（共有を出す面と行の種類・並び）で行う。ネイティブ dialog の開閉とフォーカス、クリップボード、長い URL の折り返しはブラウザ受入で見る。
+自動検証は `server/test/shared-contents-api.test.ts`（202 受付 → 状態 GET → `published`、`?sessionId=` の絞り込み、停止 200 → 再公開 202 → 削除 204 のライフサイクルと URL 維持、存在しない id の 404、トークン非漏洩、資格情報が未登録のときの 409）、`server/test/shared-contents.test.ts`（公開・更新・停止・再公開・削除の状態遷移と、provider / DB 障害、結果不明の照会、二重操作と共有物単位の排他、セッション削除後、providerAccount 不一致）、`client/test/sharedContents.test.ts`（状態の見せ方・確認項目・ポーリングの宛先・受付結果の反映）、`client/test/shareContentDialog.test.ts`（確認に確定 URL を出さないこと、受付中 / 公開中 / 完了 / 失敗の出し分け、受付拒否と一覧取得失敗の表示）、`client/test/fileRowMenu.test.ts`（共有を出す面と行の種類・並び）で行う。ネイティブ dialog の開閉とフォーカス、クリップボード、長い URL の折り返しはブラウザ受入で見る。
 
 GUI は [有料 API を使わない GUI fixture](#有料-api-を使わない-gui-fixture) の一時ストアとサンドボックスで、資格情報を登録しない状態から確認する。実公開は Cloudflare の実アカウントが要るため、資格情報を登録できる場合だけ完走させ、結果（公開 URL・所要・失敗時の文言）を PR に残す。
 

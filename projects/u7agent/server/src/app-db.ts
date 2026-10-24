@@ -1414,6 +1414,11 @@ export class AppDb {
     );
   }
 
+  /** 行を消す。provider 側の削除が成功したあとにだけ呼ぶ */
+  deleteSharedContent(id: string): void {
+    this.#query((db) => db.prepare("DELETE FROM shared_contents WHERE id = ?").run(id));
+  }
+
   // --- web search settings (1 行だけ。行が無い = 既定（有効 / exa）) ---
 
   /** 行が無ければ undefined = 既定（有効 / exa）。0 / 1 以外へ手編集された行も 1 として読む */
