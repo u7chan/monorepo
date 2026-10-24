@@ -14,7 +14,7 @@ import {
   ContentSettingsService,
   type ContentSettingsDb,
 } from "../src/content-settings";
-import { CONTENT_DISABLED_MESSAGE } from "../src/content-disabled";
+import { CONTENT_DISABLED_MESSAGE, contentGenerationDisabled } from "../src/content-disabled";
 import { IMAGE_PROVIDER_ID, type ContentGenerationConfig } from "../src/images";
 import { SPEECH_PROVIDER_ID } from "../src/speech";
 import { DEFAULT_SPEECH_MODEL, type SpeechCatalog } from "../src/speech-catalog";
@@ -309,6 +309,7 @@ test("有効 / 無効は行の 1 列で、キーと選択を保ったまま切�
   });
   assert.equal(latest()?.enabled, false, "次に作るセッションへ即時反映する");
   assert.equal(latest()?.configured, true, "停止の理由をキー未設定と書き分けられる");
+  assert.equal(latest()?.disabled, true, "実行時の課金前チェックも OFF を見る");
   assert.deepEqual(
     latest()?.read(),
     { provider: IMAGE_PROVIDER_ID, model: DEFAULT_IMAGE_MODEL, apiKey: KEY },
@@ -321,6 +322,7 @@ test("有効 / 無効は行の 1 列で、キーと選択を保ったまま切�
   assert.equal(on.response.enabled, true);
   assert.equal(db.row?.enabled, true);
   assert.equal(latest()?.enabled, true);
+  assert.equal(latest()?.disabled, false);
 });
 
 test("有効 / 無効の変更は行が無ければ 400、保存できなければ 503 で写しも変えない", async () => {
@@ -351,6 +353,13 @@ test("有効 / 無効の変更は行が無ければ 400、保存できなけれ�
   });
   assert.equal(failing.latest(), undefined, "保存できていないのに写しを差し替えない");
   assert.equal(failing.db.row?.enabled, true);
+});
+
+test("実行時の OFF 判定はキー未設定（行が無い）を OFF と混同しない", () => {
+  // 削除後は enabled も false になるが、ツールへ返すのはキー無効エラーでなければならない
+  assert.equal(contentGenerationDisabled(undefined), false);
+  assert.equal(contentGenerationDisabled({ disabled: false }), false, "キーがあって ON なら止めない");
+  assert.equal(contentGenerationDisabled({ disabled: true }), true, "設定のトグルが OFF のときだけ止める");
 });
 
 test("GET は有効 / 無効と、OFF の間にモデルへ返す固定文言を載せる", () => {
@@ -452,6 +461,7 @@ test("キー削除は行ごと消して注入を無効にし、未設定でも 2
   assert.equal(first.response.provider, null);
   assert.equal(db.row, undefined);
   assert.equal(configs.at(-1)?.enabled, false);
+  assert.equal(configs.at(-1)?.disabled, false, "削除は「設定で OFF」ではない（実行時はキー無効エラーへ落とす）");
   assert.equal(configs.at(-1)?.read(), undefined, "削除後の read は未設定を返す");
 
   const second = await service.deleteKey();

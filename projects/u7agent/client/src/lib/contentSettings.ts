@@ -35,10 +35,13 @@ export const SPEECH_SYNC_FAILED_NOTE =
 /** 実行中の操作。null なら操作なし */
 export type ContentSavingAction = "enabled" | "key" | "delete" | "selection" | "catalog" | "speech" | "speech-catalog";
 
-/** 有効 / 無効を保存したときの注記。既存のセッションにも効くことを伝える */
+/**
+ * 有効 / 無効を保存したときの注記。ツール一覧はセッション作成時に固定するため、OFF は既存の会話に
+ * 効くが、ON は OFF の間に作った会話には効かない（そこにはツールが無い）ことを書き分ける。
+ */
 export function contentEnabledNote(enabled: boolean): string {
   return enabled
-    ? "コンテンツ生成を有効にしました。既存の会話でも次の呼び出しから generate_image・generate_speech・generate_bgm を使えます。"
+    ? "コンテンツ生成を有効にしました。ツールを持つ既存の会話では次の呼び出しから generate_image・generate_speech・generate_bgm を使えます（OFF の間に作った会話にはツールが無いため、新しい会話で使えます）。"
     : "コンテンツ生成を無効にしました。既存の会話でも次の呼び出しから固定の文言で失敗します（キーと選択は残ります）。";
 }
 

@@ -590,7 +590,8 @@ test("お試し再生の失敗文言は分類済みの文言をそのまま出�
 test("有効 / 無効の注記は、既存の会話にも効くこととキーが残ることを伝える", () => {
   const on = contentEnabledNote(true);
   assert.ok(on.includes("有効にしました"));
-  assert.ok(on.includes("既存の会話"));
+  assert.ok(on.includes("ツールを持つ既存の会話"), "ツール一覧はセッション作成時に固定される前提で書く");
+  assert.ok(on.includes("OFF の間に作った会話にはツールが無い"), "ON で既存の会話すべてが使えると誤解させない");
   assert.equal(on.includes("キーと選択は残ります"), false, "有効化では削除との違いを説かない");
 
   const off = contentEnabledNote(false);

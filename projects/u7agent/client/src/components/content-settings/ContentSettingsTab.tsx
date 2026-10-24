@@ -149,9 +149,9 @@ export function ContentSettingsTab({
             </div>
             <p className="text-2xs leading-relaxed text-ink-muted">
               OFF にすると <code>generate_image</code>・<code>generate_speech</code>・<code>generate_bgm</code>{" "}
-              は生成を行わず、固定の文言で失敗します。効くのは保存した瞬間からで、
-              <strong>既存のセッション</strong>にも次の呼び出しから効きます（会話の作り直しもデプロイも
-              要りません）。キーと選択は残ります。
+              は生成を行わず、固定の文言で失敗します。OFF は保存した瞬間から
+              <strong>既存のセッション</strong>にも次の呼び出しから効きます（会話の作り直しもデプロイも 要りません）。ON
+              に戻したとき、OFF の間に作った会話にはツールが無いため新しい会話が必要です。 キーと選択は残ります。
             </p>
             {settings.enabled ? null : (
               <p className="rounded border border-line bg-base px-2 py-1.5 text-2xs leading-relaxed text-ink-muted">

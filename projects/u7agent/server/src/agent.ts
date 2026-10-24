@@ -19,6 +19,7 @@ import { COMMON_SKILLS_DIR } from "./app-paths";
 import { createAskUserToolDefinitions, ASK_USER_TOOL_NAME, withAskUserTool, type AskUserHost } from "./ask-user-tool";
 import { builtinSkillEnabled } from "./builtin-skills";
 import { createBgmGenerator } from "./bgm";
+import { contentGenerationDisabled } from "./content-disabled";
 import { createBgmToolDefinitions, BGM_GENERATION_PROMPT_LINES, BGM_TOOL_NAME } from "./bgm-tools";
 import { discoverSessionFileSkills } from "./file-skills";
 import {
@@ -1084,8 +1085,9 @@ export async function createPiBff({ cwd = process.cwd() }: { cwd?: string } = {}
                 uploadsDirRel,
                 workspace: sandboxClient,
                 masker: secretMasker,
-                // 公開はセッション作成時に凍結するが、OFF はこの 1 行で既存の会話にも次の呼び出しから効く
-                readEnabled: () => contentGeneration.config?.enabled === true,
+                // 公開はセッション作成時に凍結するが、OFF はこの 1 行で既存の会話にも次の呼び出しから効く。
+                // キー未設定を OFF と混同しないよう、公開の `enabled` ではなくトグルの `disabled` を見る
+                readEnabled: () => !contentGenerationDisabled(contentGeneration.config),
                 readSettings: () => contentGeneration.config?.read(),
                 readOutputFormats: (model) => contentGeneration.config?.readOutputFormats(model),
                 checkImageInput: async (model, signal) =>
@@ -1100,7 +1102,7 @@ export async function createPiBff({ cwd = process.cwd() }: { cwd?: string } = {}
                 sessionCwd: relativeCwd,
                 workspace: sandboxClient,
                 masker: secretMasker,
-                readEnabled: () => contentGeneration.config?.enabled === true,
+                readEnabled: () => !contentGenerationDisabled(contentGeneration.config),
                 readSettings: () => contentGeneration.config?.readSpeech(),
                 readVoices: (model) => contentGeneration.config?.readVoices(model),
                 generate: speechGenerator.generate,
@@ -1110,7 +1112,7 @@ export async function createPiBff({ cwd = process.cwd() }: { cwd?: string } = {}
                 sessionCwd: relativeCwd,
                 workspace: sandboxClient,
                 masker: secretMasker,
-                readEnabled: () => contentGeneration.config?.enabled === true,
+                readEnabled: () => !contentGenerationDisabled(contentGeneration.config),
                 readSettings: () => contentGeneration.config?.readBgm(),
                 generate: bgmGenerator.generate,
               }),

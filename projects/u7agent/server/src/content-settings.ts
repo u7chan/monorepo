@@ -478,12 +478,13 @@ export class ContentSettingsService {
 
   /**
    * ツールの公開状態の写し。行が無ければキー未設定、行があって OFF なら「設定で無効」として写す。
-   * 実行時の課金前チェックも同じ `enabled` を読むため、保存した瞬間から既存のセッションにも効く。
+   * 実行時の課金前チェックは `disabled`（トグルだけ）を読み、キー未設定はキー無効エラーへ落とす。
    */
   #apply(row: ContentSettingsRow | undefined): void {
     this.#setContentGeneration({
       enabled: row !== undefined && row.enabled,
       configured: row !== undefined,
+      disabled: row !== undefined && !row.enabled,
       read: () => currentImageSettings(this.#db),
       // 実行のたびに現在のカタログを引く。形式の宣言を一覧から絞り込んだあとも、保存済みの選択はここで拾える
       readOutputFormats: (model) => this.#catalog.outputFormatsOf(model),

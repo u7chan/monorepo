@@ -118,6 +118,7 @@ test("有効 / 無効はタブの外に 1 つだけ出し、画像・音声・BG
     assert.ok(html.includes(">有効<"), "現在値のラベルを出す");
     assert.ok(html.includes("既存のセッション"), "会話を作り直さなくても効くことを伝える");
     assert.ok(html.includes("キーと選択は残ります"), "削除との違いを伝える");
+    assert.ok(html.includes("OFF の間に作った会話にはツールが無い"), "ON で既存の会話すべてが使えると誤解させない");
   }
 });
 
