@@ -14,9 +14,11 @@ import type { AssistantMessage } from "@earendil-works/pi-ai";
 import { createBffApp } from "../src/app";
 import type { SandboxWorkspaceClient } from "../src/sandbox/client";
 import { sessionMetaPath } from "../src/session-store";
+// 実 client の結合関数 (Composer が送信本文を組み立てるのと同じ関数) を通して再現する
+import { suggestionSendText } from "../../client/src/lib/suggestion";
 import { TitleSummaryQueue } from "../src/title-summary-queue";
 import type { TitleSummaryGenerate, TitleSummaryGenerateInput, TitleSummaryResult } from "../src/title-summary";
-import { asPiBff, createStubPi, STUB_MODEL, waitFor } from "./stub-pi";
+import { asPiBff, createStubPi, STUB_MODEL, STUB_USAGE, waitFor } from "./stub-pi";
 
 const MODEL = `${STUB_MODEL.provider}/${STUB_MODEL.id}`;
 const PROMPT = "あなたはWebアプリケーションのUX改善を支援するアシスタントです。以下の依頼について提案してください。";
@@ -367,6 +369,36 @@ test("定型プロンプトのみ・スキル参照のみ・展開済みブロ�
   });
 });
 
+test("定型プロンプト側のスキル展開を、個別依頼の未知の /skill: 判定へ流用しない", async () => {
+  await withStoreDir(async (dir) => {
+    const bff = await openBff(dir, createControlledGenerator().generate);
+    try {
+      // 定型プロンプト `/skill:serve 固定の指示` と個別依頼を実 client の結合関数でまとめる
+      const prompt = "/skill:serve 固定の指示";
+      const body = "/skill:nonexistent-example 調査する";
+      const text = suggestionSendText(prompt, body);
+      assert.ok(text.startsWith("/skill:serve"), text);
+
+      const created = await jsonBody(bff.app.request("/api/sessions", jsonPost({})));
+      const sessionId = created.sessionId as string;
+      const res = await bff.app.request(`/api/sessions/${sessionId}/messages`, jsonPost({ text, titleSource: body }));
+      assert.equal(res.status, 202);
+
+      const payload = await jsonBody(bff.app.request(`/api/sessions/${sessionId}`));
+      // 未知の指定はモデル向け本文・保存メッセージに残るので、タイトルからも外さない
+      assert.equal(payload.title, body);
+      assert.ok((payload.messages[0].text as string).includes(body), payload.messages[0].text);
+
+      // 結合せず先頭の指定として送った場合は、実際に展開できた指定だけを外す
+      const direct = await jsonBody(bff.app.request("/api/sessions", jsonPost({})));
+      await bff.app.request(`/api/sessions/${direct.sessionId}/messages`, jsonPost({ text: "/skill:serve 調査する" }));
+      assert.equal((await jsonBody(bff.app.request(`/api/sessions/${direct.sessionId}`))).title, "調査する");
+    } finally {
+      await bff.close();
+    }
+  });
+});
+
 test("AI で更新したタイトルは再起動後の一覧・payload でも一致する", async () => {
   await withStoreDir(async (dir) => {
     const generator = createControlledGenerator();
@@ -507,6 +539,50 @@ test("予約を保存できないときは外部生成を開始しない", async
   });
 });
 
+test("Off で取り消した要求から usage 付きの aborted 応答が届いても usage を記録する", async () => {
+  await withStoreDir(async (dir) => {
+    const pi = createStubPi();
+    const calls: { options: { signal?: AbortSignal }; resolve: (message: AssistantMessage) => void }[] = [];
+    const runtime = pi.modelRuntime as unknown as {
+      completeSimple: (model: unknown, context: unknown, options: unknown) => Promise<AssistantMessage>;
+    };
+    runtime.completeSimple = (_model, _context, options) =>
+      new Promise<AssistantMessage>((resolve) => {
+        calls.push({ options: options as { signal?: AbortSignal }, resolve });
+      });
+    const bff = await openBffWithRealGenerate(dir, pi);
+    try {
+      await enableSummary(bff);
+      const created = await jsonBody(bff.app.request("/api/sessions", jsonPost({})));
+      const sessionId = created.sessionId as string;
+      await sendTitleMessage(bff, sessionId, "ログイン画面のエラー表示を改善したい");
+      await waitCompleted(bff, sessionId);
+      await waitFor(() => calls.length === 1, 3000, "real generate called");
+
+      // 実行中に Off へ。SDK は中断を受け、usage 付きの aborted 応答を返す
+      const off = await bff.app.request("/api/settings/session-title", jsonPut({ enabled: false }));
+      assert.equal(off.status, 200);
+      assert.equal(calls[0]!.options.signal?.aborted, true);
+      calls[0]!.resolve({
+        role: "assistant",
+        content: [{ type: "text", text: "途中までのタイトル" }],
+        stopReason: "aborted",
+        usage: STUB_USAGE,
+      } as AssistantMessage);
+
+      const record = bff.store.records.get(sessionId)!;
+      await waitFor(() => record.meta.titleAttempt?.inputTokens === STUB_USAGE.input, 3000, "usage recorded");
+      assert.equal(record.meta.titleAttempt?.state, "skipped");
+      assert.equal(record.meta.titleAttempt?.outputTokens, STUB_USAGE.output);
+      assert.equal(record.meta.titleAttempt?.costTotal, STUB_USAGE.cost.total);
+      // タイトルは取り消した結果で置き換えない
+      assert.equal(record.title, "ログイン画面のエラー表示を改善したい");
+    } finally {
+      await bff.close();
+    }
+  });
+});
+
 test("予約の保存待ちの間に Off にしたら生成を開始しない", async () => {
   await withStoreDir(async (dir) => {
     const generator = createControlledGenerator();
@@ -560,16 +636,29 @@ test("共有の同時実行上限を超えた要約は待ち期限でスキッ�
       await sendTitleMessage(bff, second, "商品検索の絞り込み操作を改善したい");
       await waitCompleted(bff, first);
       await waitCompleted(bff, second);
-      await waitFor(() => generator.calls.length === 1, 3000, "first generate called");
-      const secondRecord = bff.store.records.get(second)!;
-      await waitFor(() => secondRecord.meta.titleAttempt?.state === "skipped", 3000, "second skipped");
-      assert.equal(generator.calls.length, 1);
-      assert.equal(secondRecord.title, "商品検索の絞り込み操作を改善したい");
 
-      // 1 件目が終われば枠は空く
-      generator.calls[0]!.settle({ ok: true, title: "ログイン画面のエラー改善", usage: undefined });
-      await waitFor(() => bff.store.records.get(first)!.title === "ログイン画面のエラー改善", 3000, "first applied");
+      // どちらの会話が枠を取るかは完了順で決まる。1 件だけが開始し、もう 1 件は待ち期限でスキップする
+      const firstRecord = bff.store.records.get(first)!;
+      const secondRecord = bff.store.records.get(second)!;
+      const records = [firstRecord, secondRecord];
+      await waitFor(
+        () => records.filter((record) => record.meta.titleAttempt?.state === "skipped").length === 1,
+        3000,
+        "one skipped",
+      );
+      assert.equal(generator.calls.length, 1);
+      const skipped = records.find((record) => record.meta.titleAttempt?.state === "skipped")!;
+      const active = records.find((record) => record !== skipped)!;
+      assert.equal(
+        skipped.title,
+        skipped === firstRecord ? "ログイン画面のエラー表示を改善したい" : "商品検索の絞り込み操作を改善したい",
+      );
+
+      // 枠を取った側は結果を適用し、枠は空く
+      generator.calls[0]!.settle({ ok: true, title: "AIのタイトル", usage: undefined });
+      await waitFor(() => active.title === "AIのタイトル", 3000, "active applied");
       assert.equal(queue.active, 0);
+      assert.equal(queue.waiting, 0);
     } finally {
       await bff.close();
     }

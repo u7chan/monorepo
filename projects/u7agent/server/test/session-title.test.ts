@@ -15,6 +15,7 @@ import {
   TITLE_MAX,
   titleOriginOf,
   titleRequestOf,
+  titleSkillCommandRecognized,
 } from "../src/session-title";
 
 test("通常の本文はそのままタイトルの元になる", () => {
@@ -39,6 +40,37 @@ test("/skill: は展開できた指定だけを外し、後ろの依頼本文を
   );
   // 先頭以外の /skill: は本文として残す (実際の展開条件とタイトル側だけを食い違わせない)
   assert.equal(titleRequestOf("本文の途中に /skill:writer と書いた"), "本文の途中に /skill:writer と書いた");
+});
+
+test("タイトル用の文字列が送信本文そのもので、実際に展開できたときだけ参照として扱う", () => {
+  const expanded = '<skill name="serve" location="/x">\n本文\n</skill>\n\n固定の指示';
+  // 結合なし: 送信本文 = タイトル用の文字列。展開できたので参照として扱う
+  assert.equal(
+    titleSkillCommandRecognized({
+      titleSource: "/skill:serve 固定の指示",
+      sentText: "/skill:serve 固定の指示",
+      expandedText: expanded,
+    }),
+    true,
+  );
+  // 未展開 (未知のスキル) は参照として扱わない
+  assert.equal(
+    titleSkillCommandRecognized({
+      titleSource: "/skill:nonexistent-example 調査する",
+      sentText: "/skill:nonexistent-example 調査する",
+      expandedText: "/skill:nonexistent-example 調査する",
+    }),
+    false,
+  );
+  // 定型プロンプトを結合した別文字列の展開結果を、個別依頼の判定へ流用しない
+  assert.equal(
+    titleSkillCommandRecognized({
+      titleSource: "/skill:nonexistent-example 調査する",
+      sentText: "/skill:serve 固定の指示\n\n/skill:nonexistent-example 調査する",
+      expandedText: `${expanded}\n\n/skill:nonexistent-example 調査する`,
+    }),
+    false,
+  );
 });
 
 test("展開済みのスキルブロックは後ろの依頼本文をタイトルの元にする", () => {

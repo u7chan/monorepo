@@ -56,6 +56,23 @@ export function titleRequestOf(text: string, options: { skillCommandRecognized?:
   return trimmed;
 }
 
+/**
+ * タイトル用の文字列 (`titleSource`) の先頭 `/skill:` を、スキル参照として外してよいか。
+ * 送信経路が展開するのは送信本文 (`text`) の先頭の指定だけなので、タイトル用の文字列がその送信本文と
+ * 同じで、かつ実際に展開できたときだけ参照として扱う。定型プロンプト側の展開結果を、別文字列である
+ * 個別依頼の判定へ流用しない (未知の指定をタイトルだけ別の意味にしない)。
+ */
+export function titleSkillCommandRecognized(input: {
+  titleSource: string;
+  sentText: string;
+  expandedText: string;
+}): boolean {
+  const sent = input.sentText.trim();
+  if (sent === "" || input.titleSource.trim() !== sent) return false;
+  if (input.expandedText === input.sentText) return false;
+  return parseSkillCommand(sent) !== undefined;
+}
+
 /** タイトルとして保存する形。改行・連続空白を 1 行へ畳み、先頭 TITLE_MAX 文字に切る */
 export function normalizeTitleText(text: string): string {
   return truncate(text.replace(/\s+/g, " ").trim(), TITLE_MAX);

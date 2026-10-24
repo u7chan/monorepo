@@ -10,6 +10,7 @@ import { HISTORY_PAGE_LIMIT_MAX, type HistoryPageResult } from "../history-proje
 import { isValidEntryName } from "../sandbox/protocol";
 import { SandboxRequestError, type SandboxWorkspaceClient } from "../sandbox/client";
 import { expandSkillCommand, hasProjectSkills, listSessionSkills, type SessionSkillsInput } from "../session-skills";
+import { titleSkillCommandRecognized } from "../session-title";
 import { resolveAgentSkills } from "../sessions";
 import type { SpaceStore } from "../spaces";
 import {
@@ -290,6 +291,8 @@ export function createSessionRoutes({
       // SDK の /skill: 展開は BFF プロセスの readFileSync で動くため、Docker ではファイル / 組み込みの
       // どちらも展開できない。アプリ側で本文を取り直してから prompt() へ渡す (docs/api-sessions.md)。
       const prompt = await expandSkillCommand(text, skillsInputOf(record));
+      // タイトルの元は、定型プロンプトを結合する前の本文 (無ければ送信本文)
+      const titleSource = body.titleSource ?? text;
       // 実行 (またはキュー位置) は SessionStore がバックグラウンドで進めるため即座に返す。
       // 注記は履歴とモデルへ渡すためここで合成し、title は注記と展開結果を除いた本文から作る。
       // 保存先はプロジェクトの外にあるため、モデルへは絶対パスで知らせる
@@ -301,8 +304,16 @@ export function createSessionRoutes({
         ),
         // 展開後の本文でタイトルを作ると `<skill …>` が並ぶので、ユーザーが打った本文を使う。
         // 定型プロンプトの結合前の本文が届いていれば、それを優先する (タイトルから固定文を除く)。
-        // スキル参照は実際に展開できたときだけ外す (未知の `/skill:` をタイトルだけ別の意味にしない)
-        { titleSource: body.titleSource ?? text, skillCommandRecognized: prompt !== text },
+        // スキル参照は、タイトル用の文字列そのものが実際に展開されたときだけ外す (未知の `/skill:` や、
+        // 定型プロンプト側の別スキルの展開結果を流用しない)
+        {
+          titleSource: titleSource,
+          skillCommandRecognized: titleSkillCommandRecognized({
+            titleSource,
+            sentText: text,
+            expandedText: prompt,
+          }),
+        },
       );
       // 引き継ぎのチップの消費済み印は、受理応答を返す前に保存の成功を確かめる
       const { handoffSaving, ...rest } = result;

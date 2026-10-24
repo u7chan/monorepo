@@ -78,7 +78,7 @@ export type CreateBffAppOptions = {
    */
   titleSummaryGenerate?: TitleSummaryGenerate | null;
   /**
-   * AI 要約の共有実行制御。未指定は既定 (同時 2 件・待ち 15 秒)。テストは上限と待ち時間を縮めて渡す。
+   * AI 要約の共有実行制御。未指定は既定 (同時 1 件・待ち 15 秒)。テストは上限と待ち時間を縮めて渡す。
    */
   titleSummaryQueue?: TitleSummaryQueue | null;
   /**

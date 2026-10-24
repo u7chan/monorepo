@@ -28,7 +28,7 @@ interface Waiter {
   settle: (result: "granted" | TitleSummaryQueueSkipReason) => void;
 }
 
-const DEFAULT_CONCURRENCY = 2;
+const DEFAULT_CONCURRENCY = 1;
 const DEFAULT_WAIT_TIMEOUT_MS = 15_000;
 
 export class TitleSummaryQueue {

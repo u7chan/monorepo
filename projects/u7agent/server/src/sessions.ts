@@ -213,7 +213,7 @@ export interface SessionStoreOptions {
    */
   titleSummary?: TitleSummaryHost | null;
   /**
-   * AI 要約の共有実行制御。未指定はプロセス内の既定 (同時 2 件・待ち 15 秒) を使う。
+   * AI 要約の共有実行制御。未指定はプロセス内の既定 (同時 1 件・待ち 15 秒) を使う。
    * テストは上限と待ち時間を縮めた実体を渡す。
    */
   titleSummaryQueue?: TitleSummaryQueue | null;
@@ -2961,9 +2961,14 @@ export class SessionStore {
       queued = await this.titleSummaryQueue.run(
         {
           signal: abort.signal,
-          // 順番待ちの間に本会話が動き出したら、本会話を優先してこの補助呼び出しは捨てる
+          // 順番待ちの間に本会話が動き出したら (新しい実行・圧縮)、本会話を優先して捨てる。
+          // SDK の isStreaming は終端直後にまだ true のことがあるため、判定は run の同一性で行う
           shouldStart: () =>
-            this.records.get(record.id) === record && record.titleTask === task && !this.isBusy(record),
+            this.records.get(record.id) === record &&
+            record.titleTask === task &&
+            record.run?.id === run.id &&
+            record.run?.status === "completed" &&
+            !record.compacting,
         },
         () =>
           host.generate({ model: modelRef, definition: settings.definition, request, response, signal: abort.signal }),
@@ -2992,7 +2997,13 @@ export class SessionStore {
     task: { runId: string; generation: number; model: string | undefined },
     result: TitleSummaryResult,
   ): void {
-    if (record.titleTask === undefined || record.titleTask.runId !== task.runId) return;
+    const running = record.titleTask;
+    if (running === undefined) {
+      // 取消後に届いた結果はタイトルへ適用しないが、送信済みの要求の usage は試行へ残す
+      this.recordTitleAttemptUsage(record, task, result.usage);
+      return;
+    }
+    if (running.runId !== task.runId) return;
     delete record.titleTask;
     if (!result.ok) {
       this.settleTitleAttempt(record, task, { state: "failed", ...usageFields(result.usage) });
@@ -3014,6 +3025,21 @@ export class SessionStore {
     void this.persist(record, { jsonl: false }).then(() => {
       if (this.records.get(record.id) === record) this.emitResync(record);
     });
+  }
+
+  /**
+   * 取得できた usage だけを試行へ足す。取消後 (state が skipped) でも記録し、
+   * タイトルを適用するかとは独立に、送信済みの要求の費用を残す。
+   */
+  private recordTitleAttemptUsage(
+    record: SessionRecord,
+    task: { runId: string },
+    usage: TitleSummaryUsage | undefined,
+  ): void {
+    const attempt = record.titleAttempt;
+    if (!attempt || attempt.runId !== task.runId || !usage) return;
+    record.titleAttempt = { ...attempt, ...usageFields(usage) };
+    void this.persist(record, { jsonl: false });
   }
 
   /** 予約時の設定 (世代・モデル) が現在も同じか。On/Off と定義の変更も世代で検出する */
