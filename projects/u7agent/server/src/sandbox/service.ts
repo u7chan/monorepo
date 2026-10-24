@@ -54,11 +54,13 @@ import {
   archiveExcludedDirectoryError,
   archiveTooLargeError,
   DEFAULT_ARCHIVE_LIMITS,
+  DEFAULT_ARCHIVE_PLAN_LIMITS,
   SKILLS_ARCHIVE_EXCLUDE_NAMES,
   SKILLS_EXPORT_NAME,
   walkArchive,
   type ArchiveLimits,
   type ArchivePlan,
+  type ArchivePlanLimits,
 } from "./archive";
 import { GIT_INFO_TIMEOUT_MS, readWorkspaceGitInfo } from "./git-info";
 import {
@@ -93,12 +95,14 @@ import {
   encodeSandboxEvent,
   isValidEntryName,
   parseArchiveExcludeQuery,
+  parseMaxFileBytesQuery,
   parseRecursiveQuery,
   parseTrueOnlyQuery,
   rawContentType,
   RECURSIVE_QUERY_ERROR,
   type SandboxCreateDirRequestBody,
   type SandboxDownloadCheck,
+  type SandboxDownloadPlan,
   type SandboxExecuteRequestBody,
   type SandboxEvent,
   type SandboxFileEntry,
@@ -148,6 +152,10 @@ export interface SandboxServiceOptions {
   maxArchiveBytes?: number;
   /** テストで小さくできるダウンロードのエントリ数上限 (既定 10,000) */
   maxArchiveEntries?: number;
+  /** テストで小さくできる計画の一覧件数上限 (既定 500) */
+  maxPlanFiles?: number;
+  /** テストで小さくできる計画のパス一覧上限 (既定 100) */
+  maxPlanPaths?: number;
   /** テストで小さくできるスキル走査の期限 (既定 2s) */
   skillsScanTimeoutMs?: number;
   /** テストで小さくできる git 情報の期限 (既定 2s) */
@@ -660,6 +668,9 @@ async function planDownload(input: {
   requested: string;
   excludeNames: readonly string[];
   limits: ArchiveLimits;
+  planLimits?: ArchivePlanLimits;
+  /** このサイズを超えたファイルを oversizeFiles に載せる (省略時は個別サイズを見ない) */
+  maxFileBytes?: number;
 }): Promise<DownloadPlan> {
   const target = await resolveDownloadTarget(input.rootCwd, input.requested);
   if (target.kind === "file") {
@@ -668,8 +679,51 @@ async function planDownload(input: {
   }
   // 除外名のディレクトリそのものを指定されたら断る (UI は行に導線を出さないが、直叩きも防ぐ)
   if (input.excludeNames.includes(target.name)) throw archiveExcludedDirectoryError(target.name);
-  const walk = await walkArchive({ dir: target.target, excludeNames: input.excludeNames, limits: input.limits });
+  const walk = await walkArchive({
+    dir: target.target,
+    excludeNames: input.excludeNames,
+    limits: input.limits,
+    ...(input.planLimits ? { planLimits: input.planLimits } : {}),
+    ...(input.maxFileBytes === undefined ? {} : { maxFileBytes: input.maxFileBytes }),
+  });
   return { ...target, kind: "archive", walk };
+}
+
+/**
+ * 計画の応答。download / check と同じ計画から導き、一覧は先頭だけに切り詰める
+ * (`entries` / `bytes` は打ち切らない)。単体ファイルは walk を通らないのでここで埋める。
+ */
+function downloadPlanFor(plan: DownloadPlan, maxFileBytes: number | undefined): SandboxDownloadPlan {
+  if (plan.kind === "file") {
+    return {
+      kind: "file",
+      name: plan.name,
+      entries: 0,
+      bytes: plan.size,
+      files: [{ name: plan.name, size: plan.size }],
+      truncated: false,
+      links: [],
+      linksTruncated: false,
+      oversizeFiles: maxFileBytes !== undefined && plan.size > maxFileBytes ? [plan.name] : [],
+      oversizeTruncated: false,
+      hasIndexHtml: plan.name === "index.html",
+      skipped: [],
+    };
+  }
+  return {
+    kind: "archive",
+    name: archiveDownloadName(plan.name),
+    entries: plan.walk.entryCount,
+    bytes: plan.walk.bytes,
+    files: plan.walk.files,
+    truncated: plan.walk.filesTruncated,
+    links: plan.walk.links,
+    linksTruncated: plan.walk.linksTruncated,
+    oversizeFiles: plan.walk.oversizeFiles,
+    oversizeTruncated: plan.walk.oversizeTruncated,
+    hasIndexHtml: plan.walk.hasIndexHtml,
+    skipped: plan.walk.skipped,
+  };
 }
 
 /** 事前チェックの応答。見積りは download と同じ計画から導く（エラーの出どころを 1 つにする）。 */
@@ -2284,6 +2338,10 @@ export function createSandboxService(options: SandboxServiceOptions): SandboxSer
     maxBytes: options.maxArchiveBytes ?? DEFAULT_ARCHIVE_LIMITS.maxBytes,
     maxEntries: options.maxArchiveEntries ?? DEFAULT_ARCHIVE_LIMITS.maxEntries,
   };
+  const planLimits: ArchivePlanLimits = {
+    maxFiles: options.maxPlanFiles ?? DEFAULT_ARCHIVE_PLAN_LIMITS.maxFiles,
+    maxPaths: options.maxPlanPaths ?? DEFAULT_ARCHIVE_PLAN_LIMITS.maxPaths,
+  };
   const probeRuntimeInfo = options.probeRuntimeInfo ?? ((workspaceRoot: string) => probeSandboxRuntime(workspaceRoot));
   const resolveOpenedImageInputPath = options.resolveOpenedImageInputPath ?? openedFilePath;
   // ラッパーは PATH からではなく固定パスから解決する (解決できなければ bash を実行しない)
@@ -3014,6 +3072,30 @@ export function createSandboxService(options: SandboxServiceOptions): SandboxSer
           "X-Content-Type-Options": "nosniff",
         },
       });
+    } catch (error) {
+      const statusCode = (error as { statusCode?: number }).statusCode ?? 400;
+      return c.json({ error: messageFor(error) }, statusCode as 400);
+    }
+  });
+
+  // 実効の除外名を保つ計画。public 前のプレビューが「何が上がるか」を確かめるための一覧付きの応答で、
+  // 走査は check / download と同じ planDownload を使う（別実装で見え方と結果をずらさない）
+  app.get("/v1/files/download/plan", async (c) => {
+    const exclude = parseArchiveExcludeQuery(c.req.queries("exclude"));
+    if (!exclude.ok) return c.json({ error: exclude.message }, 400);
+    const maxFileBytes = parseMaxFileBytesQuery(c.req.queries("maxFileBytes"));
+    if (!maxFileBytes.ok) return c.json({ error: maxFileBytes.message }, 400);
+    try {
+      const plan = await planDownload({
+        rootCwd,
+        requested: c.req.query("path") ?? "",
+        // param なしは「BFF 未指定」なので既定に倒す（直叩きでも安全側）
+        excludeNames: exclude.names ?? DEFAULT_ARCHIVE_EXCLUDE_NAMES,
+        limits: archiveLimits,
+        planLimits,
+        ...(maxFileBytes.value === undefined ? {} : { maxFileBytes: maxFileBytes.value }),
+      });
+      return c.json(downloadPlanFor(plan, maxFileBytes.value));
     } catch (error) {
       const statusCode = (error as { statusCode?: number }).statusCode ?? 400;
       return c.json({ error: messageFor(error) }, statusCode as 400);

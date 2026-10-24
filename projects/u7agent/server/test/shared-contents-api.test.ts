@@ -7,7 +7,9 @@ import { join } from "node:path";
 import test from "node:test";
 import { createBffApp } from "../src/app";
 import { SECRET_KEY_BYTES, SECRET_MASTER_KEY_ENV } from "../src/secret-crypto";
-import type { SandboxWorkspaceClient } from "../src/sandbox/client";
+import type { SandboxDownloadPlanClient, SandboxWorkspaceClient } from "../src/sandbox/client";
+import { SandboxRequestError } from "../src/sandbox/client";
+import type { SandboxDownloadPlan } from "../src/sandbox/protocol";
 import { createZipStream, type ZipEntry } from "../src/sandbox/zip";
 import { asPiBff, createStubPi } from "./stub-pi";
 
@@ -76,17 +78,55 @@ function cloudflareFetch(calls: string[]): typeof fetch {
   };
 }
 
-async function setup() {
+/** プレビューの既定の計画。index.html を含む素直なディレクトリ */
+function previewPlan(overrides: Partial<SandboxDownloadPlan> = {}): SandboxDownloadPlan {
+  return {
+    kind: "archive",
+    name: "dist.zip",
+    entries: 2,
+    bytes: 20,
+    files: [{ name: "index.html", size: 20 }],
+    truncated: false,
+    links: [],
+    linksTruncated: false,
+    oversizeFiles: [],
+    oversizeTruncated: false,
+    hasIndexHtml: true,
+    skipped: [],
+    ...overrides,
+  };
+}
+
+interface SetupOptions {
+  planSandbox?: SandboxDownloadPlanClient | null;
+  /** 既定の planSandbox が返す計画。Error を渡すと失敗させる */
+  plan?: SandboxDownloadPlan | Error;
+}
+
+async function setup(options: SetupOptions = {}) {
   const previous = process.env[SECRET_MASTER_KEY_ENV];
   process.env[SECRET_MASTER_KEY_ENV] = KEY;
   const dir = await mkdtemp(join(tmpdir(), "u7agent-shared-api-"));
   const calls: string[] = [];
+  const planCalls: { path: string; exclude: readonly string[]; maxFileBytes: number | undefined }[] = [];
   const pi = createStubPi();
+  const planSandbox: SandboxDownloadPlanClient | null =
+    options.planSandbox === undefined
+      ? {
+          planDownload: async (path, exclude, maxFileBytes) => {
+            planCalls.push({ path, exclude, maxFileBytes });
+            const plan = options.plan ?? previewPlan();
+            if (plan instanceof Error) throw plan;
+            return plan;
+          },
+        }
+      : options.planSandbox;
   const bff = await createBffApp({
     cwd: "/workspace",
     sessionStoreDir: dir,
     pi: asPiBff(pi),
     workspace: workspaceFor(await makeZip(dir)),
+    previewSandbox: planSandbox,
     cloudflareFetch: cloudflareFetch(calls),
   });
   const project = await jsonBody(
@@ -99,6 +139,7 @@ async function setup() {
     pi,
     sessionId: session.sessionId as string,
     calls,
+    planCalls,
     restore: async () => {
       await bff.close();
       if (previous === undefined) delete process.env[SECRET_MASTER_KEY_ENV];
@@ -281,5 +322,110 @@ test("停止 / 再公開 / 削除は存在しない id を 404、遷移できな
     }
   } finally {
     await restore();
+  }
+});
+
+// プレビューは `GET /api/shared-contents/:id` より前に登録した専用ルートで、id="preview" として扱わせない。
+// 資格情報を使わないので、接続未登録でも見えることをここで固定する。
+test("preview は :id と衝突せず、資格情報なしでも公開前の一覧を返す", async () => {
+  const { bff, sessionId, planCalls, restore } = await setup();
+  try {
+    await bff.app.request("/api/settings/cloudflare", { method: "DELETE" });
+    const response = await bff.app.request(`/api/shared-contents/preview?sessionId=${sessionId}&directory=dist`);
+    const body = await jsonBody(response);
+    assert.equal(response.status, 200, JSON.stringify(body));
+    assert.deepEqual(body, {
+      sourcePath: "projects/app/dist",
+      entries: 2,
+      bytes: 20,
+      files: [{ name: "index.html", size: 20 }],
+      truncated: false,
+      links: [],
+      linksTruncated: false,
+      oversizeFiles: [],
+      oversizeTruncated: false,
+      hasIndexHtml: true,
+      skipped: [],
+      excludeNames: [],
+      limited: false,
+      problems: [],
+    });
+    // Phase 1 は公開と同じ「除外なし (明示空)」と 25 MiB の個別上限で計画を取る
+    assert.deepEqual(planCalls, [{ path: "projects/app/dist", exclude: [], maxFileBytes: 25 * 1024 * 1024 }]);
+
+    // 同じ URL の detail は従来どおり id として 404 (preview が id を食っていない)
+    assert.equal((await bff.app.request("/api/shared-contents/preview")).status, 404);
+  } finally {
+    await restore();
+  }
+});
+
+test("preview は index.html 不在と 1 ファイル超過を problems にし、問題なしと言い切らない", async () => {
+  const { bff, sessionId, restore } = await setup({
+    plan: previewPlan({ hasIndexHtml: false, oversizeFiles: ["video.mp4"] }),
+  });
+  try {
+    const body = await jsonBody(
+      await bff.app.request(`/api/shared-contents/preview?sessionId=${sessionId}&directory=dist`),
+    );
+    assert.equal(body.limited, false);
+    assert.equal(body.hasIndexHtml, false);
+    assert.deepEqual(body.oversizeFiles, ["video.mp4"]);
+    assert.deepEqual(body.problems, [
+      "公開するディレクトリに index.html がありません",
+      "1 ファイルの上限（25 MiB）を超えるファイルが 1 件あります",
+    ]);
+  } finally {
+    await restore();
+  }
+});
+
+test("preview の 413 は limited に写し、一覧と index.html の不在を出さない", async () => {
+  for (const [message, problem] of [
+    ["Download has too many entries (max 10000)", "公開するファイルが多すぎます（最大 10,000 件）"],
+    ["Download is too large (max 104857600 bytes)", "公開するファイルの合計が大きすぎます（最大 100 MiB）"],
+  ] as const) {
+    const { bff, sessionId, restore } = await setup({ plan: new SandboxRequestError(message, 413) });
+    try {
+      const body = await jsonBody(
+        await bff.app.request(`/api/shared-contents/preview?sessionId=${sessionId}&directory=dist`),
+      );
+      assert.equal(body.limited, true);
+      assert.equal(body.entries, null);
+      assert.equal(body.bytes, null);
+      assert.equal(body.hasIndexHtml, null);
+      assert.deepEqual(body.files, []);
+      assert.deepEqual(body.problems, [problem]);
+    } finally {
+      await restore();
+    }
+  }
+});
+
+test("preview の異常系はセッションなし 404 / パス不正 400 / ファイル 409 / sandbox 未設定 503", async () => {
+  const { bff, sessionId, restore } = await setup({ plan: previewPlan({ kind: "file", name: "dist" }) });
+  try {
+    assert.equal((await bff.app.request("/api/shared-contents/preview?sessionId=unknown&directory=dist")).status, 404);
+    for (const directory of ["/etc", "../outside", "  "]) {
+      const response = await bff.app.request(
+        `/api/shared-contents/preview?sessionId=${sessionId}&directory=${encodeURIComponent(directory)}`,
+      );
+      assert.equal(response.status, 400, directory);
+    }
+    const file = await bff.app.request(`/api/shared-contents/preview?sessionId=${sessionId}&directory=dist`);
+    assert.equal(file.status, 409);
+    assert.equal((await jsonBody(file)).error, "公開するディレクトリではありません");
+  } finally {
+    await restore();
+  }
+
+  const unavailable = await setup({ planSandbox: null });
+  try {
+    const response = await unavailable.bff.app.request(
+      `/api/shared-contents/preview?sessionId=${unavailable.sessionId}&directory=dist`,
+    );
+    assert.equal(response.status, 503);
+  } finally {
+    await unavailable.restore();
   }
 });

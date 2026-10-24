@@ -28,6 +28,20 @@ export function createSharedContentRoutes({ sharedContents }: { sharedContents: 
       }
     },
 
+    /**
+     * 公開前のプレビュー。`GET /api/shared-contents/:id` より前に登録しないと id="preview" として拾われる。
+     * Cloudflare の資格情報は使わない (接続未登録でも見られる)。
+     */
+    preview: async (c: Context) => {
+      try {
+        const sessionId = (c.req.query("sessionId") ?? "").trim();
+        const directory = c.req.query("directory") ?? "";
+        return c.json(await sharedContents.preview({ sessionId, directory }));
+      } catch (error) {
+        return failure(c, error);
+      }
+    },
+
     create: async (c: Context, body: CreateSharedContentBody) => {
       try {
         return c.json(await sharedContents.create(body), 202);

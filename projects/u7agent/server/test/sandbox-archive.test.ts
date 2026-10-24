@@ -8,7 +8,7 @@ import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import test from "node:test";
 import { createSandboxService, type SandboxServiceOptions } from "../src/sandbox/service";
-import type { SandboxDownloadCheck } from "../src/sandbox/protocol";
+import type { SandboxDownloadCheck, SandboxDownloadPlan } from "../src/sandbox/protocol";
 import { parseZip, type ParsedZipEntry } from "./zip-reader";
 
 const TOKEN = "test-sandbox-token-0123456789abcdef";
@@ -68,6 +68,20 @@ async function check(
   const response = await app.request(archiveUrl("/v1/files/download/check", path, excludes), {
     headers: authHeaders(),
   });
+  const text = await response.text();
+  return { status: response.status, body: text ? JSON.parse(text) : {} };
+}
+
+async function plan(
+  app: App,
+  path: string,
+  excludes?: readonly string[],
+  maxFileBytes?: number,
+): Promise<{ status: number; body: SandboxDownloadPlan | { error: string } }> {
+  const params = new URLSearchParams({ path });
+  if (excludes) for (const name of excludes) params.append("exclude", name);
+  if (maxFileBytes !== undefined) params.set("maxFileBytes", String(maxFileBytes));
+  const response = await app.request(`/v1/files/download/plan?${params.toString()}`, { headers: authHeaders() });
   const text = await response.text();
   return { status: response.status, body: text ? JSON.parse(text) : {} };
 }
@@ -471,6 +485,180 @@ test("認証なしは 401 で、walk もしない", async () => {
       const response = await service.app.request(url);
       assert.equal(response.status, 401, url);
     }
+  } finally {
+    service.close();
+  }
+});
+
+// ---------------------------------------------------------------------------
+// GET /v1/files/download/plan (公開前プレビュー用の一覧付きの計画)
+// ---------------------------------------------------------------------------
+
+test("plan は件数・合計サイズ・一覧・index.html の有無を返し、除外と symlink を分ける", async () => {
+  const root = makeRoot("plan");
+  const outside = makeRoot("plan-outside");
+  const service = createService(root, { maxPlanFiles: 10, maxPlanPaths: 10 });
+  try {
+    await writeFile(join(outside, "secret.txt"), "secret");
+    await mkdir(join(root, "app", "assets"), { recursive: true });
+    await writeFile(join(root, "app", "index.html"), "<h1>hi</h1>");
+    await writeFile(join(root, "app", "assets", "app.js"), "console.log(1)");
+    await writeFile(join(root, "app", "AGENTS.md"), "# agents\n");
+    await mkdir(join(root, "app", "node_modules"));
+    if (HAS_SYMLINK) symlinkSync(join(outside, "secret.txt"), join(root, "app", "secret-link.txt"));
+
+    const result = await plan(service.app, "app", [""], 4);
+    assert.equal(result.status, 200);
+    const body = result.body as SandboxDownloadPlan;
+    assert.equal(body.kind, "archive");
+    assert.equal(body.name, "app.zip");
+    // ディレクトリも entries に数える (assets/ + node_modules/)
+    assert.equal(body.entries, 5);
+    // console.log(1) / "# agents\n" / "<h1>hi</h1>" の合計 (symlink は数えない)
+    assert.equal(body.bytes, 14 + 9 + 11);
+    assert.equal(body.hasIndexHtml, true);
+    assert.equal(body.truncated, false);
+    assert.deepEqual(
+      body.files.map((file) => file.name),
+      ["assets/app.js", "AGENTS.md", "index.html", ...(HAS_SYMLINK ? [] : [])],
+    );
+    // 4 バイト超のファイルだけを oversizeFiles に載せる (全体の上限とは別)
+    assert.deepEqual(body.oversizeFiles, ["assets/app.js", "AGENTS.md", "index.html"]);
+    assert.equal(body.oversizeTruncated, false);
+    assert.deepEqual(body.links, HAS_SYMLINK ? ["secret-link.txt"] : []);
+    assert.equal(body.linksTruncated, false);
+    assert.deepEqual(body.skipped, []);
+
+    // 除外名は skipped に返り、一覧にも入らない
+    const excluded = await plan(service.app, "app", ["AGENTS.md", "node_modules"]);
+    assert.equal(excluded.status, 200);
+    assert.deepEqual((excluded.body as SandboxDownloadPlan).skipped, ["AGENTS.md", "node_modules"]);
+    assert.equal(
+      (excluded.body as SandboxDownloadPlan).files.some((file) => file.name === "AGENTS.md"),
+      false,
+    );
+  } finally {
+    service.close();
+  }
+});
+
+test("plan の一覧は上限で打ち切るが、entries と hasIndexHtml は打ち切らない", async () => {
+  const root = makeRoot("plan-truncate");
+  const service = createService(root, { maxPlanFiles: 2, maxPlanPaths: 1 });
+  try {
+    await mkdir(join(root, "site"));
+    for (const name of ["a.txt", "b.txt", "c.txt"]) await writeFile(join(root, "site", name), name);
+    // 名前順で index.html は 4 番目になり、一覧の上限 (2 件) から外れる
+    await writeFile(join(root, "site", "index.html"), "hi");
+
+    const result = await plan(service.app, "site", [""]);
+    assert.equal(result.status, 200);
+    const body = result.body as SandboxDownloadPlan;
+    assert.equal(body.files.length, 2);
+    assert.equal(body.truncated, true);
+    assert.equal(body.entries, 4, "打ち切りは entries に影響しない");
+    assert.equal(body.hasIndexHtml, true, "一覧から落ちても index.html の有無は判定できる");
+    // 内容はファイル名。a.txt / b.txt / c.txt / index.html の合計
+    assert.equal(body.bytes, 17);
+  } finally {
+    service.close();
+  }
+});
+
+test(
+  "plan の links / oversizeFiles は上限で打ち切り、linksTruncated / oversizeTruncated を立てる",
+  { skip: !HAS_SYMLINK && SYMLINK_SKIP_REASON },
+  async () => {
+    const root = makeRoot("plan-paths");
+    const outside = makeRoot("plan-paths-outside");
+    const service = createService(root, { maxPlanPaths: 1 });
+    try {
+      await writeFile(join(outside, "secret.txt"), "secret");
+      await mkdir(join(root, "site"));
+      await writeFile(join(root, "site", "big.txt"), "0123456789");
+      symlinkSync(join(outside, "secret.txt"), join(root, "site", "a-link.txt"));
+      symlinkSync(join(outside, "secret.txt"), join(root, "site", "b-link.txt"));
+
+      const result = await plan(service.app, "site", [""], 1);
+      assert.equal(result.status, 200);
+      const body = result.body as SandboxDownloadPlan;
+      assert.deepEqual(body.links, ["a-link.txt"]);
+      assert.equal(body.linksTruncated, true);
+      assert.deepEqual(body.oversizeFiles, ["big.txt"]);
+      assert.equal(body.oversizeTruncated, false);
+    } finally {
+      service.close();
+    }
+  },
+);
+
+test("plan も download と同じ全体上限で 413 になり、合計サイズは返さない", async () => {
+  const root = makeRoot("plan-limits");
+  const service = createService(root, { maxArchiveBytes: 10, maxArchiveEntries: 2 });
+  try {
+    await mkdir(join(root, "big"));
+    await writeFile(join(root, "big", "a.txt"), "0123456789");
+    await writeFile(join(root, "big", "b.txt"), "x");
+    const tooLarge = await plan(service.app, "big", [""]);
+    assert.equal(tooLarge.status, 413);
+    assert.deepEqual(tooLarge.body, { error: "Download is too large (max 10 bytes)" });
+
+    await mkdir(join(root, "many"));
+    for (const name of ["a", "b", "c"]) await writeFile(join(root, "many", `${name}.txt`), "");
+    const tooMany = await plan(service.app, "many", [""]);
+    assert.equal(tooMany.status, 413);
+    assert.deepEqual(tooMany.body, { error: "Download has too many entries (max 2)" });
+  } finally {
+    service.close();
+  }
+});
+
+test("plan の maxFileBytes は正の整数だけを受け、単体ファイルはその 1 件を一覧に返す", async () => {
+  const root = makeRoot("plan-max-file-bytes");
+  const service = createService(root);
+  try {
+    await writeFile(join(root, "index.html"), "<h1>hi</h1>");
+    await writeFile(join(root, "big.bin"), "0123456789");
+
+    // 0・負数・小数・数値でない値・空値・全体上限を超える値は 400
+    for (const invalid of ["0", "-1", "1.5", "abc", "", "104857601"]) {
+      const raw = await service.app.request(
+        `/v1/files/download/plan?path=index.html&exclude=&maxFileBytes=${invalid}`,
+        { headers: authHeaders() },
+      );
+      assert.equal(raw.status, 400, invalid);
+      assert.match(((await raw.json()) as { error: string }).error, /maxFileBytes/);
+    }
+    // 全体上限と同じ値は受け付ける (個別サイズの申告であって、総量の上限ではない)
+    assert.equal((await plan(service.app, "index.html", [""], 104857600)).status, 200);
+
+    const file = await plan(service.app, "index.html", [""], 4);
+    assert.equal(file.status, 200);
+    assert.deepEqual(file.body, {
+      kind: "file",
+      name: "index.html",
+      entries: 0,
+      bytes: 11,
+      files: [{ name: "index.html", size: 11 }],
+      truncated: false,
+      links: [],
+      linksTruncated: false,
+      oversizeFiles: ["index.html"],
+      oversizeTruncated: false,
+      hasIndexHtml: true,
+      skipped: [],
+    });
+  } finally {
+    service.close();
+  }
+});
+
+test("plan の認証なしは 401", async () => {
+  const root = makeRoot("plan-auth");
+  const service = createService(root);
+  try {
+    await mkdir(join(root, "src"));
+    assert.equal((await service.app.request("/v1/files/download/plan?path=src")).status, 401);
   } finally {
     service.close();
   }

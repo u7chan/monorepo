@@ -25,6 +25,7 @@ BFF が作業用ツール（`read` / `bash` / `edit` / `write` / `grep` / `find`
 | GET | `/v1/files/raw` | 画像 + 音声の生配信。`?path=<root 相対>`。応答ヘッダは [api.md](api.md#画像配信raw) を参照 |
 | GET | `/v1/files/download` | 通常ファイルは生バイト、ディレクトリは ZIP（ストリーム）。`?path=<root 相対>&exclude=<名前>`（繰り返し可） |
 | GET | `/v1/files/download/check` | ダウンロードの見積り（JSON）。除外 / 上限の判定は download と同じ（`exclude` も共通） |
+| GET | `/v1/files/download/plan` | 見積りに公開前プレビュー用の一覧を足した計画（JSON）。走査と上限は download と同じ |
 | POST | `/v1/files/upload` | ファイル追加（raw 本文）。`?dir=<root 相対>&name=<ファイル名>` |
 | GET | `/v1/files/handoff` | 引き継ぎメモ（`HANDOFF.md`）の読取り（JSON）。`?path=<root 相対>` |
 | POST | `/v1/files/handoff` | 引き継ぎメモの先頭追記（JSON）。`{ path, section, dedupeKey }` |
@@ -270,6 +271,34 @@ X-Content-Type-Options: nosniff
 - `kind` は `file` / `archive`。`name` は保存名（ファイルはその名前、ZIP は `<フォルダ名>.zip`）、`bytes` は含めるファイルの合計サイズ（単体ファイルはそのサイズ）、`entries` は ZIP のエントリ数（単体ファイルは 0）、`skipped` は除外規則で実際に落ちた名前（重複なし・実効の規則順）
 - エラーは `download` と同じ分類（400 / 404 / 413）で、本文は `{ error }`
 - walk は download と共通なので、見積りと実際の内容は同じ判定を通る
+
+### `GET /v1/files/download/plan`
+
+`download` / `check` と同じ計画（解決 + walk）に、公開前のプレビューが使う一覧を足して返す。`exclude` の扱いは共通で、`maxFileBytes` はこのルートだけが読む任意の query（正の整数。省略時は個別サイズを見ない）。
+
+```json
+// GET /v1/files/download/plan?path=dist&exclude=&maxFileBytes=26214400 (200)
+{
+  "kind": "archive",
+  "name": "dist.zip",
+  "entries": 209,
+  "bytes": 1042263,
+  "files": [{ "name": "index.html", "size": 612 }],
+  "truncated": false,
+  "links": ["secret-link.txt"],
+  "linksTruncated": false,
+  "oversizeFiles": [],
+  "oversizeTruncated": false,
+  "hasIndexHtml": true,
+  "skipped": []
+}
+```
+
+- `entries` はディレクトリも数える。`files` はファイルだけを走査順に並べ、先頭 `SANDBOX_MAX_PLAN_FILES` 件で打ち切って `truncated` を立てる
+- `hasIndexHtml` は一覧の打ち切りと無関係に、走査中に最上位の `index.html` を見たかで決める（一覧の先頭 N 件からは判定できない）
+- `links` は symlink / 特殊ファイルのパス（ZIP には入れない）。`oversizeFiles` は `maxFileBytes` を超えたパスで、どちらも先頭 `SANDBOX_MAX_PLAN_PATHS` 件と打ち切りの印を返す
+- 全体の件数 / サイズ上限は `check` と同じく 413 で、このとき件数・サイズ・一覧は返さない（走査が終わっていない）
+- `maxFileBytes` が 0・負数・非整数・`SANDBOX_MAX_ARCHIVE_BYTES` 超のときは 400。download / check の意味は変えない（サンドボックスに 1 ファイル上限は無い）
 
 ## `POST /v1/executions/:id/cancel`
 

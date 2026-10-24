@@ -19,6 +19,7 @@ const {
   updateArchiveSettings,
   resetArchiveSettings,
   getGitInfo,
+  getSharedContentPreview,
   statFile,
   getRuntimeDebugServeStatus,
   getRuntimeServeStatus,
@@ -297,6 +298,44 @@ test("存在確認は root 相対の path を送り、不存在と拒否の stat
     answer = () => Response.json({ error: message }, { status });
     await assert.rejects(statFile("work/app/a.txt"), { message, status });
   }
+});
+
+test("共有のプレビューは sessionId と directory を query で送り、補助なので失敗は理由と status を保つ", async (t) => {
+  const requests: Request[] = [];
+  const preview = {
+    sourcePath: "projects/app/dist",
+    entries: 2,
+    bytes: 10,
+    files: [{ name: "index.html", size: 10 }],
+    truncated: false,
+    links: [],
+    linksTruncated: false,
+    oversizeFiles: [],
+    oversizeTruncated: false,
+    hasIndexHtml: true,
+    skipped: [],
+    excludeNames: [],
+    limited: false,
+    problems: [],
+  };
+  let answer: () => Response = () => Response.json(preview);
+  t.mock.method(globalThis, "fetch", async (input: string | URL | Request, init?: RequestInit) => {
+    requests.push(new Request(input, init));
+    return answer();
+  });
+  assert.deepEqual(await getSharedContentPreview({ sessionId: "session-a", directory: "dist" }), preview);
+  const url = new URL(requests[0].url);
+  assert.equal(requests[0].method, "GET");
+  // :id より前に登録したルートなので、id ではなく固定の preview パスへ送る
+  assert.equal(url.pathname, "/api/shared-contents/preview");
+  assert.equal(url.searchParams.get("sessionId"), "session-a");
+  assert.equal(url.searchParams.get("directory"), "dist");
+
+  answer = () => Response.json({ error: "公開するディレクトリではありません" }, { status: 409 });
+  await assert.rejects(getSharedContentPreview({ sessionId: "session-a", directory: "dist" }), {
+    message: "公開するディレクトリではありません",
+    status: 409,
+  });
 });
 
 test("Web 検索の設定は GET / PUT / DELETE の往復で、キーは provider のパスへ送る", async (t) => {

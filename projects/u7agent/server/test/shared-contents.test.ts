@@ -13,8 +13,9 @@ import {
   type CloudflareAsset,
   type CloudflareAssetsApi,
 } from "../src/cloudflare-api";
-import type { SandboxWorkspaceClient } from "../src/sandbox/client";
+import type { SandboxDownloadPlanClient, SandboxWorkspaceClient } from "../src/sandbox/client";
 import { SandboxRequestError } from "../src/sandbox/client";
+import type { SandboxDownloadPlan } from "../src/sandbox/protocol";
 import { createZipStream, type ZipEntry } from "../src/sandbox/zip";
 import {
   SHARED_CONTENT_MAX_FILE_BYTES,
@@ -186,12 +187,15 @@ interface SetupOptions {
   sessionCwd?: string | null;
   secretValues?: readonly string[];
   workspace?: SandboxWorkspaceClient;
+  planSandbox?: SandboxDownloadPlanClient | null;
+  plan?: SandboxDownloadPlan | Error;
 }
 
 function setup(options: SetupOptions = {}) {
   const zip = options.zip ?? zipFactory({ "index.html": "<!doctype html><title>hello</title>" });
   const store = new FakeStore();
   const downloadCalls: { path: string; exclude: readonly string[] }[] = [];
+  const planCalls: { path: string; exclude: readonly string[]; maxFileBytes: number | undefined }[] = [];
   const cloudflare = cloudflareStub(options.cloudflare);
   let counter = 0;
   let clock = 1_000;
@@ -201,6 +205,17 @@ function setup(options: SetupOptions = {}) {
       workdirOfId: () => (options.sessionCwd === null ? undefined : (options.sessionCwd ?? SESSION_CWD)),
     },
     workspace: options.workspace ?? workspaceFor(zip, downloadCalls),
+    planSandbox:
+      options.planSandbox === undefined
+        ? {
+            planDownload: async (path, exclude, maxFileBytes) => {
+              planCalls.push({ path, exclude, maxFileBytes });
+              const plan = options.plan ?? defaultPreviewPlan();
+              if (plan instanceof Error) throw plan;
+              return plan;
+            },
+          }
+        : options.planSandbox,
     credentials: {
       credential: () => {
         if (options.credentialError) throw new Error("master key unavailable");
@@ -218,7 +233,25 @@ function setup(options: SetupOptions = {}) {
     now: () => (clock += 1),
     newId: () => `id${++counter}`,
   });
-  return { service, store, downloadCalls, cloudflare, zip };
+  return { service, store, downloadCalls, planCalls, cloudflare, zip };
+}
+
+/** プレビューの既定の計画。index.html を含む素直なディレクトリ */
+function defaultPreviewPlan(): SandboxDownloadPlan {
+  return {
+    kind: "archive",
+    name: "dist.zip",
+    entries: 2,
+    bytes: 20,
+    files: [{ name: "index.html", size: 20 }],
+    truncated: false,
+    links: [],
+    linksTruncated: false,
+    oversizeFiles: [],
+    oversizeTruncated: false,
+    hasIndexHtml: true,
+    skipped: [],
+  };
 }
 
 const payload = (overrides: Record<string, unknown> = {}) => ({
@@ -1656,5 +1689,119 @@ test("管理操作は記録した providerAccount と現在の接続が違えば
     assert.equal(store.getSharedContent("id1")?.status, "published");
   } finally {
     zip.cleanup();
+  }
+});
+
+// プレビューは公開と同じ対象解決と計画を使い、上限超過 (413) を「走査が終わっていない」応答へ写す。
+// 資格情報と provider を使わないので、未登録でも応答が返ることをここで固定する。
+test("プレビューは公開と同じ除外 (空) と 25 MiB で計画を取り、index.html 不在を problems に出す", async () => {
+  const zip = zipFactory({ "index.html": "<h1>hi</h1>" });
+  const { service, planCalls } = setup({
+    zip,
+    credentials: null,
+    plan: { ...defaultPreviewPlan(), hasIndexHtml: false, skipped: [] },
+  });
+  try {
+    const preview = await service.preview({ sessionId: "session-1", directory: "dist" });
+    assert.deepEqual(planCalls, [
+      { path: "projects/app/dist", exclude: [], maxFileBytes: SHARED_CONTENT_MAX_FILE_BYTES },
+    ]);
+    assert.equal(preview.sourcePath, "projects/app/dist");
+    assert.equal(preview.entries, 2);
+    assert.equal(preview.bytes, 20);
+    assert.deepEqual(preview.files, [{ name: "index.html", size: 20 }]);
+    assert.equal(preview.hasIndexHtml, false);
+    assert.deepEqual(preview.excludeNames, [], "Phase 1 は共有の除外設定がまだ無い");
+    assert.equal(preview.limited, false);
+    assert.deepEqual(preview.problems, ["公開するディレクトリに index.html がありません"]);
+  } finally {
+    zip.cleanup();
+  }
+});
+
+test("プレビューは 1 ファイルの上限を超えたパスを problems に出す", async () => {
+  const zip = zipFactory({ "index.html": "<h1>hi</h1>" });
+  const { service } = setup({
+    zip,
+    plan: { ...defaultPreviewPlan(), oversizeFiles: ["video.mp4"], oversizeTruncated: true },
+  });
+  try {
+    const preview = await service.preview({ sessionId: "session-1", directory: "dist" });
+    assert.deepEqual(preview.oversizeFiles, ["video.mp4"]);
+    assert.equal(preview.oversizeTruncated, true);
+    assert.deepEqual(preview.problems, ["1 ファイルの上限（25 MiB）を超えるファイルが 1 件あります"]);
+  } finally {
+    zip.cleanup();
+  }
+});
+
+test("プレビューの 413 は limited にして、件数・index.html の有無を判定しない", async () => {
+  const zip = zipFactory({ "index.html": "<h1>hi</h1>" });
+  try {
+    for (const [message, problem] of [
+      ["Download has too many entries (max 10)", "公開するファイルが多すぎます（最大 10,000 件）"],
+      ["Download is too large (max 10 bytes)", "公開するファイルの合計が大きすぎます（最大 100 MiB）"],
+    ] as const) {
+      const { service } = setup({ zip, plan: new SandboxRequestError(message, 413) });
+      const preview = await service.preview({ sessionId: "session-1", directory: "dist" });
+      assert.equal(preview.limited, true);
+      assert.equal(preview.entries, null);
+      assert.equal(preview.bytes, null);
+      assert.equal(preview.hasIndexHtml, null);
+      assert.deepEqual(preview.files, []);
+      assert.deepEqual(preview.links, []);
+      assert.deepEqual(preview.oversizeFiles, []);
+      assert.deepEqual(preview.problems, [problem], "上限超過だけを problems にする");
+    }
+  } finally {
+    zip.cleanup();
+  }
+});
+
+test("プレビューの異常系はセッションなし 404 / パス不正 400 / ファイル 409 / sandbox 未設定 503", async () => {
+  const zip = zipFactory({ "index.html": "<h1>hi</h1>" });
+  const noSession = setup({ zip, sessionCwd: null });
+  try {
+    await assert.rejects(noSession.service.preview({ sessionId: "session-1", directory: "dist" }), {
+      statusCode: 404,
+    });
+  } finally {
+    zip.cleanup();
+  }
+
+  const zip2 = zipFactory({ "index.html": "<h1>hi</h1>" });
+  const { service } = setup({ zip: zip2 });
+  try {
+    for (const directory of ["/etc", "../outside", "", "  "]) {
+      await assert.rejects(service.preview({ sessionId: "session-1", directory }), (error: any) => {
+        assert.equal(error.statusCode, 400, directory);
+        return true;
+      });
+    }
+  } finally {
+    zip2.cleanup();
+  }
+
+  const zip3 = zipFactory({ "index.html": "<h1>hi</h1>" });
+  const fileCase = setup({ zip: zip3, plan: { ...defaultPreviewPlan(), kind: "file", name: "dist" } });
+  try {
+    await assert.rejects(fileCase.service.preview({ sessionId: "session-1", directory: "dist" }), (error: any) => {
+      assert.equal(error.statusCode, 409);
+      assert.equal(error.message, "公開するディレクトリではありません");
+      return true;
+    });
+  } finally {
+    zip3.cleanup();
+  }
+
+  const zip4 = zipFactory({ "index.html": "<h1>hi</h1>" });
+  const unavailable = setup({ zip: zip4, planSandbox: null });
+  try {
+    await assert.rejects(unavailable.service.preview({ sessionId: "session-1", directory: "dist" }), (error: any) => {
+      assert.equal(error.statusCode, 503);
+      return true;
+    });
+  } finally {
+    zip4.cleanup();
   }
 });

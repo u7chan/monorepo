@@ -1075,6 +1075,32 @@ export const SharedContentStopResponseSchema = z.object({
 export type SharedContentStopResponse = z.infer<typeof SharedContentStopResponseSchema>;
 
 /**
+ * GET /api/shared-contents/preview。公開前の見え方を返す補助で、確定は公開ジョブの検証。
+ * `limited` (413) のときは走査が終わっていないため、件数・サイズ・index.html の有無は `null` にする。
+ */
+export const SharedContentPreviewResponseSchema = z.object({
+  sourcePath: z.string(),
+  entries: z.number().int().nonnegative().nullable(),
+  bytes: z.number().int().nonnegative().nullable(),
+  files: z.array(z.object({ name: z.string(), size: z.number().int().nonnegative() })),
+  truncated: z.boolean(),
+  /** symlink / 特殊ファイル。公開されないことを GUI で説明するために返す */
+  links: z.array(z.string()),
+  linksTruncated: z.boolean(),
+  oversizeFiles: z.array(z.string()),
+  oversizeTruncated: z.boolean(),
+  hasIndexHtml: z.boolean().nullable(),
+  skipped: z.array(z.string()),
+  /** 実効の除外名。Phase 1 は共有の除外設定がまだ無いため常に空 */
+  excludeNames: z.array(z.string()),
+  /** 合計サイズ・件数の上限超過。このとき一覧と index.html の有無は判定しない */
+  limited: z.boolean(),
+  /** 公開すると失敗する条件。問題なしと言い切らない (秘密値の検査は ZIP を読むまでできない) */
+  problems: z.array(z.string()),
+});
+export type SharedContentPreviewResponse = z.infer<typeof SharedContentPreviewResponseSchema>;
+
+/**
  * GET /api/settings/cloudflare。トークンは返さず、登録状態とアカウント ID だけを返す。
  * `available: false` は master key が使えず、登録・復号が 503 になる状態。
  */

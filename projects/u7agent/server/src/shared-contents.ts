@@ -18,11 +18,13 @@ import {
 } from "./cloudflare-api";
 import type { SharedContentRow, SharedContentStatus } from "./app-db";
 import { httpError, messageFor } from "./http";
-import type { SandboxWorkspaceClient } from "./sandbox/client";
+import type { SandboxDownloadPlanClient, SandboxWorkspaceClient } from "./sandbox/client";
+import type { SandboxDownloadPlan } from "./sandbox/protocol";
 import { extractZipEntry, readZipArchive, type ZipReadEntry } from "./sandbox/zip-read";
 import type {
   CreateSharedContentBody,
   SharedContentMutationResponse,
+  SharedContentPreviewResponse,
   SharedContentResponse,
   SharedContentStopResponse,
 } from "./schema";
@@ -45,6 +47,9 @@ export const SHARED_CONTENT_SOURCE_REQUIRED = "公開するディレクトリが
 export const SHARED_CONTENT_SANDBOX_UNAVAILABLE = "サンドボックスが利用できないため公開できません";
 export const SHARED_CONTENT_NO_SUBDOMAIN =
   "Cloudflare アカウントの workers.dev サブドメインが未設定です。Cloudflare のダッシュボードで有効にしてください";
+/** 公開の検証とプレビューの problems が同じ文言を使う (SPA の入口はルートの index.html だけ) */
+export const SHARED_CONTENT_NO_INDEX_HTML = "公開するディレクトリに index.html がありません";
+export const SHARED_CONTENT_NOT_DIRECTORY = "公開するディレクトリではありません";
 export const SHARED_CONTENT_BUSY = "公開処理中です。完了してから操作してください";
 export const SHARED_CONTENT_NOT_UPDATABLE = "この状態からは公開できません";
 export const SHARED_CONTENT_NOT_STOPPABLE = "この状態からは停止できません";
@@ -107,6 +112,11 @@ export interface SharedContentsOptions {
   store: SharedContentStore;
   sessions: { workdirOfId(id: string): string | undefined };
   workspace: SandboxWorkspaceClient | null;
+  /**
+   * プレビューの計画 (plan) を取るサンドボックス。workspace とは別の狭い IF で注入し、
+   * 既存の workspace スタブへ planDownload を要求しない (未設定は 503)。
+   */
+  planSandbox?: SandboxDownloadPlanClient | null;
   credentials: Pick<CloudflareSettingsService, "credential">;
   createCloudflare: (credential: CloudflareCredential) => CloudflareAssetsApi;
   rootCwd: string;
@@ -124,6 +134,7 @@ export class SharedContentsService {
   #store: SharedContentStore;
   #sessions: { workdirOfId(id: string): string | undefined };
   #workspace: SandboxWorkspaceClient | null;
+  #planSandbox: SandboxDownloadPlanClient | null;
   #credentials: Pick<CloudflareSettingsService, "credential">;
   #createCloudflare: (credential: CloudflareCredential) => CloudflareAssetsApi;
   #rootCwd: string;
@@ -140,6 +151,7 @@ export class SharedContentsService {
     this.#store = options.store;
     this.#sessions = options.sessions;
     this.#workspace = options.workspace;
+    this.#planSandbox = options.planSandbox ?? null;
     this.#credentials = options.credentials;
     this.#createCloudflare = options.createCloudflare;
     this.#rootCwd = options.rootCwd;
@@ -167,6 +179,52 @@ export class SharedContentsService {
     }
     if (!row) throw httpError(404, "Shared content not found");
     return toResponse(row);
+  }
+
+  /**
+   * 公開前のプレビュー。対象の解決と sandbox の走査は作成と同じ経路を通し、除外は公開時と同じ実効値を渡す
+   * (Phase 1 は共有の除外設定がまだ無いため空)。上限超過 (413) は走査が終わっていないので limited に写す。
+   */
+  async preview(input: { sessionId: string; directory: string }): Promise<SharedContentPreviewResponse> {
+    const sessionCwd = this.#sessions.workdirOfId(input.sessionId);
+    if (!sessionCwd) throw httpError(404, "Session not found");
+    const sourcePath = resolveSharedContentSource(this.#rootCwd, sessionCwd, input.directory);
+    const sandbox = this.#planSandbox;
+    if (!sandbox) throw httpError(503, SHARED_CONTENT_SANDBOX_UNAVAILABLE);
+    const excludeNames: string[] = [];
+    let plan: SandboxDownloadPlan;
+    try {
+      plan = await sandbox.planDownload(sourcePath, excludeNames, SHARED_CONTENT_MAX_FILE_BYTES);
+    } catch (error) {
+      // 413 は上限超過。それ以外はソース確認 (作成時の #requireSource) と同じ分類へ寄せる
+      const status = errorStatus(error);
+      if (status === 413) return limitedPreview(sourcePath, excludeNames, messageFor(error));
+      if (status === 404) throw httpError(409, SHARED_CONTENT_SOURCE_REQUIRED);
+      if (status === 400) throw httpError(400, "公開するディレクトリを指定できません");
+      throw httpError(503, SHARED_CONTENT_SANDBOX_UNAVAILABLE);
+    }
+    if (plan.kind === "file") throw httpError(409, SHARED_CONTENT_NOT_DIRECTORY);
+    const problems: string[] = [];
+    if (!plan.hasIndexHtml) problems.push(SHARED_CONTENT_NO_INDEX_HTML);
+    if (plan.oversizeFiles.length > 0) {
+      problems.push(`1 ファイルの上限（25 MiB）を超えるファイルが ${plan.oversizeFiles.length} 件あります`);
+    }
+    return {
+      sourcePath,
+      entries: plan.entries,
+      bytes: plan.bytes,
+      files: plan.files,
+      truncated: plan.truncated,
+      links: plan.links,
+      linksTruncated: plan.linksTruncated,
+      oversizeFiles: plan.oversizeFiles,
+      oversizeTruncated: plan.oversizeTruncated,
+      hasIndexHtml: plan.hasIndexHtml,
+      skipped: plan.skipped,
+      excludeNames,
+      limited: false,
+      problems,
+    };
   }
 
   /** 作成して公開を開始する。URL は受付時に確定し、ジョブの成否で変えない */
@@ -819,6 +877,33 @@ export function normalizeSharedContentName(raw: string | undefined, sourcePath: 
   return name;
 }
 
+/**
+ * 413 (上限超過) のプレビュー。走査が終わっていないため件数・サイズ・index.html の有無は判定できず、
+ * `index.html` 不在も problems に出さない (判定不能を「問題なし」とも言わない)。
+ */
+function limitedPreview(sourcePath: string, excludeNames: string[], message: string): SharedContentPreviewResponse {
+  return {
+    sourcePath,
+    entries: null,
+    bytes: null,
+    files: [],
+    truncated: false,
+    links: [],
+    linksTruncated: false,
+    oversizeFiles: [],
+    oversizeTruncated: false,
+    hasIndexHtml: null,
+    skipped: [],
+    excludeNames,
+    limited: true,
+    problems: [
+      /too many/i.test(message)
+        ? `公開するファイルが多すぎます（最大 ${SHARED_CONTENT_MAX_ENTRIES.toLocaleString("en-US")} 件）`
+        : `公開するファイルの合計が大きすぎます（最大 ${SHARED_CONTENT_MAX_BYTES / (1024 * 1024)} MiB）`,
+    ],
+  };
+}
+
 /** ZIP のエントリを検証し、公開する通常ファイルだけを返す。ディレクトリと symlink は公開しない */
 export function validateSharedAssetEntries(entries: readonly ZipReadEntry[]): ZipReadEntry[] {
   const seen = new Set<string>();
@@ -847,7 +932,7 @@ export function validateSharedAssetEntries(entries: readonly ZipReadEntry[]): Zi
     files.push(entry);
   }
   if (!files.some((entry) => entry.name === "index.html")) {
-    throw new SharedContentSourceError("公開するディレクトリに index.html がありません");
+    throw new SharedContentSourceError(SHARED_CONTENT_NO_INDEX_HTML);
   }
   return files;
 }

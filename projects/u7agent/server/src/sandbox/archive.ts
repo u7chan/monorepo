@@ -5,7 +5,12 @@
  */
 import { lstat, readdir } from "node:fs/promises";
 import { join } from "node:path";
-import { SANDBOX_MAX_ARCHIVE_BYTES, SANDBOX_MAX_ARCHIVE_ENTRIES } from "./protocol";
+import {
+  SANDBOX_MAX_ARCHIVE_BYTES,
+  SANDBOX_MAX_ARCHIVE_ENTRIES,
+  SANDBOX_MAX_PLAN_FILES,
+  SANDBOX_MAX_PLAN_PATHS,
+} from "./protocol";
 import { zipCompressionFor, type ZipCompression, type ZipEntry } from "./zip";
 
 /** 上限の判定に使う値。テストで小さくできるよう引数で受ける */
@@ -17,6 +22,17 @@ export interface ArchiveLimits {
 export const DEFAULT_ARCHIVE_LIMITS: ArchiveLimits = {
   maxBytes: SANDBOX_MAX_ARCHIVE_BYTES,
   maxEntries: SANDBOX_MAX_ARCHIVE_ENTRIES,
+};
+
+/** 計画が応答に載せる一覧の上限。テストで小さくできるよう引数で受ける */
+export interface ArchivePlanLimits {
+  maxFiles: number;
+  maxPaths: number;
+}
+
+export const DEFAULT_ARCHIVE_PLAN_LIMITS: ArchivePlanLimits = {
+  maxFiles: SANDBOX_MAX_PLAN_FILES,
+  maxPaths: SANDBOX_MAX_PLAN_PATHS,
 };
 
 export interface ArchiveFileEntry extends ZipEntry {
@@ -34,6 +50,24 @@ export interface ArchivePlan {
   bytes: number;
   /** 除外規則で落とした名前（重複なし・規則の順） */
   skipped: string[];
+  /** 一覧用のファイル (先頭 maxFiles 件) */
+  files: ArchivePlanFile[];
+  /** `files` を上限で打ち切ったか */
+  filesTruncated: boolean;
+  /** symlink / 特殊ファイルのパス (先頭 maxPaths 件)。ZIP には入れない */
+  links: string[];
+  linksTruncated: boolean;
+  /** `maxFileBytes` を超えたファイルのパス (先頭 maxPaths 件) */
+  oversizeFiles: string[];
+  oversizeTruncated: boolean;
+  /** 最上位に `index.html` があるか。一覧の打ち切りとは別に、走査で見た結果だけで決める */
+  hasIndexHtml: boolean;
+}
+
+export interface ArchivePlanFile {
+  /** ZIP 内のパス */
+  name: string;
+  size: number;
 }
 
 /** スキル持ち出し ZIP の保存名 (ダウンロードの `<フォルダ名>.zip` とは別の固定名) */
@@ -83,14 +117,43 @@ export async function walkArchive(input: {
   /** 実効の除外名 */
   excludeNames: readonly string[];
   limits?: ArchiveLimits;
+  /** 計画が載せる一覧の上限 */
+  planLimits?: ArchivePlanLimits;
+  /** このサイズを超えたファイルを oversizeFiles に載せる (省略時は個別サイズを見ない) */
+  maxFileBytes?: number;
   /** 直下をスキルフォルダ (SKILL.md を直接持つディレクトリ) だけに絞る */
   skillsOnly?: boolean;
 }): Promise<ArchivePlan> {
   const { dir, excludeNames } = input;
   const limits = input.limits ?? DEFAULT_ARCHIVE_LIMITS;
+  const planLimits = input.planLimits ?? DEFAULT_ARCHIVE_PLAN_LIMITS;
+  const maxFileBytes = input.maxFileBytes;
   const exclude = new Set(excludeNames);
   const seen = new Set<string>();
-  const plan: ArchivePlan = { entries: [], entryCount: 0, bytes: 0, skipped: [] };
+  const plan: ArchivePlan = {
+    entries: [],
+    entryCount: 0,
+    bytes: 0,
+    skipped: [],
+    files: [],
+    filesTruncated: false,
+    links: [],
+    linksTruncated: false,
+    oversizeFiles: [],
+    oversizeTruncated: false,
+    hasIndexHtml: false,
+  };
+
+  /** パスの一覧は先頭 maxPaths 件だけを持ち、打ち切ったことを記録する */
+  const addLink = (path: string): void => {
+    if (plan.links.length < planLimits.maxPaths) plan.links.push(path);
+    else plan.linksTruncated = true;
+  };
+
+  const addOversize = (path: string): void => {
+    if (plan.oversizeFiles.length < planLimits.maxPaths) plan.oversizeFiles.push(path);
+    else plan.oversizeTruncated = true;
+  };
 
   const addEntry = (entry: ArchiveFileEntry, size: number): void => {
     plan.entryCount += 1;
@@ -126,7 +189,11 @@ export async function walkArchive(input: {
         continue;
       }
       // symlink と特殊ファイル（socket / fifo / device）はエントリに入れない
-      if (!dirent.isFile()) continue;
+      if (!dirent.isFile()) {
+        // 公開されないことをプレビューで説明できるよう、捨てる前にパスだけを記録する
+        addLink(zipName);
+        continue;
+      }
       // 直下の通常ファイルはスキルフォルダではない (import の検証も同じ規則を要求する)
       if (topLevel && input.skillsOnly) continue;
       const stats = await lstat(target).catch((error: unknown) => {
@@ -143,6 +210,10 @@ export async function walkArchive(input: {
         },
         stats.size,
       );
+      if (zipName === "index.html") plan.hasIndexHtml = true;
+      if (plan.files.length < planLimits.maxFiles) plan.files.push({ name: zipName, size: stats.size });
+      else plan.filesTruncated = true;
+      if (maxFileBytes !== undefined && stats.size > maxFileBytes) addOversize(zipName);
     }
   };
 

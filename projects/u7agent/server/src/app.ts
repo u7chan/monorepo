@@ -578,6 +578,8 @@ export async function createBffApp(opts: CreateBffAppOptions = {}) {
       (c) => cloudflareSettingsRoutes.update(c, c.req.valid("json")),
     )
     .delete("/api/settings/cloudflare", appDataMutation, cloudflareSettingsRoutes.remove)
+    // preview は :id より前に置く (後に置くと id="preview" として 404 になる)
+    .get("/api/shared-contents/preview", appData, sharedContentRoutes.preview)
     .get("/api/shared-contents", appData, sharedContentRoutes.list)
     .post(
       "/api/shared-contents",
