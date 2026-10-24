@@ -78,99 +78,105 @@ export function ActivityPage({
   const reloading = fetch.pending;
   return (
     <section className="activity-view grid h-full min-h-0 grid-cols-1 grid-rows-[auto_auto_minmax(0,1fr)] overflow-hidden bg-base">
-      <header className="flex min-w-0 items-center gap-2.5 border-b border-line px-4 py-3 sm:px-6">
-        {onOpenNav ? (
+      <header className="border-b border-line">
+        <div className="mx-auto flex w-full max-w-5xl min-w-0 items-center gap-2.5 px-4 py-3 sm:px-6">
+          {onOpenNav ? (
+            <button
+              type="button"
+              onClick={onOpenNav}
+              aria-label="ナビゲーションを開く"
+              className={cn("icon-button", compact && "min-h-11 min-w-11")}
+            >
+              <MenuIcon />
+            </button>
+          ) : null}
+          <div className="min-w-0 flex-1">
+            <div className="text-1xs font-semibold tracking-label text-ink-soft uppercase">Activity</div>
+            <h1 className="truncate text-xl font-semibold text-ink-strong">実行状況</h1>
+            <div className="truncate text-1xs text-ink-soft">すべてのスペース</div>
+          </div>
           <button
             type="button"
-            onClick={onOpenNav}
-            aria-label="ナビゲーションを開く"
-            className={cn("icon-button", compact && "min-h-11 min-w-11")}
+            onClick={onBack}
+            className={cn("btn-quiet shrink-0 whitespace-nowrap", compact && "min-h-11")}
           >
-            <MenuIcon />
+            <ArrowLeftIcon />
+            会話に戻る
           </button>
-        ) : null}
-        <div className="min-w-0 flex-1">
-          <div className="text-1xs font-semibold tracking-label text-ink-soft uppercase">Activity</div>
-          <h1 className="truncate text-xl font-semibold text-ink-strong">実行状況</h1>
-          <div className="truncate text-1xs text-ink-soft">すべてのスペース</div>
         </div>
-        <button
-          type="button"
-          onClick={onBack}
-          className={cn("btn-quiet shrink-0 whitespace-nowrap", compact && "min-h-11")}
-        >
-          <ArrowLeftIcon />
-          会話に戻る
-        </button>
       </header>
 
-      <div className="grid gap-2 border-b border-line px-4 py-3 sm:flex sm:flex-wrap sm:items-center sm:justify-between sm:gap-x-4 sm:px-6">
-        <div className="flex min-w-0 flex-wrap items-center gap-x-4 gap-y-1.5">
-          <span className="inline-flex items-baseline gap-1 text-1xs text-ink-soft">
-            <b className="text-xl font-semibold text-ink-strong tabular-nums">
-              {countsReady ? counts.inProgress : "—"}
-            </b>
-            <span>{countsReady ? "件の会話が進行中" : "進行中の会話数は未取得"}</span>
-          </span>
-          {/* 件数はすべて同じ一覧から数える。初回成功前は 0 と断定せず「—」を出す */}
-          <ul className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 text-1xs text-ink-soft">
-            <CountItem tone="dot-accent" label="実行中" value={countsReady ? counts.running : "—"} />
-            <CountItem tone="dot-warn" label="回答待ち" value={countsReady ? counts.waiting : "—"} />
-            <CountItem tone="dot-idle" label="圧縮中" value={countsReady ? counts.compacting : "—"} />
-            <CountItem tone="dot-idle" label="直近の終了" value={countsReady ? counts.finished : "—"} />
-          </ul>
-        </div>
-        <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1.5">
-          {fetch.lastSuccessAt !== undefined ? (
-            <span className="text-1xs text-ink-soft">最終更新 {messageTimeLabel(fetch.lastSuccessAt, { now })}</span>
-          ) : null}
-          <ReloadButton
-            onClick={reload}
-            disabled={reloading}
-            aria-label="一覧を再読み込み"
-            className={cn("shrink-0", compact && "min-h-11")}
-          >
-            再読み込み
-          </ReloadButton>
+      <div className="border-b border-line">
+        <div className="mx-auto grid w-full max-w-5xl gap-2 px-4 py-3 sm:flex sm:flex-wrap sm:items-center sm:justify-between sm:gap-x-4 sm:px-6">
+          <div className="flex min-w-0 flex-wrap items-center gap-x-4 gap-y-1.5">
+            <span className="inline-flex items-baseline gap-1 text-1xs text-ink-soft">
+              <b className="text-xl font-semibold text-ink-strong tabular-nums">
+                {countsReady ? counts.inProgress : "—"}
+              </b>
+              <span>{countsReady ? "件の会話が進行中" : "進行中の会話数は未取得"}</span>
+            </span>
+            {/* 件数はすべて同じ一覧から数える。初回成功前は 0 と断定せず「—」を出す */}
+            <ul className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 text-1xs text-ink-soft">
+              <CountItem tone="dot-accent" label="実行中" value={countsReady ? counts.running : "—"} />
+              <CountItem tone="dot-warn" label="回答待ち" value={countsReady ? counts.waiting : "—"} />
+              <CountItem tone="dot-idle" label="圧縮中" value={countsReady ? counts.compacting : "—"} />
+              <CountItem tone="dot-idle" label="直近の終了" value={countsReady ? counts.finished : "—"} />
+            </ul>
+          </div>
+          <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1.5">
+            {fetch.lastSuccessAt !== undefined ? (
+              <span className="text-1xs text-ink-soft">最終更新 {messageTimeLabel(fetch.lastSuccessAt, { now })}</span>
+            ) : null}
+            <ReloadButton
+              onClick={reload}
+              disabled={reloading}
+              aria-label="一覧を再読み込み"
+              className={cn("shrink-0", compact && "min-h-11")}
+            >
+              再読み込み
+            </ReloadButton>
+          </div>
         </div>
       </div>
 
-      <div className="min-h-0 scrollbar-thin overflow-y-auto px-4 pt-3 pb-6 sm:px-6">
-        <FetchNote fetch={fetch} reloadNote={reloadNote} />
-        {!fetch.loaded ? (
-          fetch.failed ? null : (
-            <div className="flex items-center gap-2 py-6 text-1xs text-ink-soft">
-              <LoadingMark />
-              <span>一覧を取得しています…</span>
-            </div>
-          )
-        ) : (
-          <>
-            {counts.inProgress === 0 ? <p className="py-3 text-1sm text-ink-soft">進行中の会話はありません</p> : null}
-            {groups.map((group) => (
-              <section key={group.kind} className="mt-3 first:mt-0">
-                <h2 className="flex min-w-0 items-center gap-2 text-1xs font-semibold text-ink-soft">
-                  <span className={cn("dot", GROUP_DOT[group.kind])} aria-hidden="true" />
-                  <span>{activityGroupLabel(group.kind)}</span>
-                  <span className="text-ink tabular-nums">{group.rows.length}</span>
-                  <span className="font-normal text-ink-soft">
-                    {group.kind === "finished" ? "終了時刻の新しい順" : "最後に使った順"}
-                  </span>
-                </h2>
-                <ul className="mt-1.5 grid gap-1.5">
-                  {group.rows.map((row) => (
-                    <li key={row.sessionId} className="min-w-0">
-                      <ActivityRowLink row={row} now={now} spaceName={spaceNames.get(row.spaceId)} />
-                    </li>
-                  ))}
-                </ul>
-              </section>
-            ))}
-            {rows.length === 0 ? (
-              <p className="py-3 text-1xs text-ink-soft">直近 2 時間に終了した会話もありません</p>
-            ) : null}
-          </>
-        )}
+      <div className="min-h-0 scrollbar-thin overflow-y-auto">
+        <div className="mx-auto w-full max-w-5xl px-4 pt-3 pb-6 sm:px-6">
+          <FetchNote fetch={fetch} reloadNote={reloadNote} />
+          {!fetch.loaded ? (
+            fetch.failed ? null : (
+              <div className="flex items-center gap-2 py-6 text-1xs text-ink-soft">
+                <LoadingMark />
+                <span>一覧を取得しています…</span>
+              </div>
+            )
+          ) : (
+            <>
+              {counts.inProgress === 0 ? <p className="py-3 text-1sm text-ink-soft">進行中の会話はありません</p> : null}
+              {groups.map((group) => (
+                <section key={group.kind} className="mt-3 first:mt-0">
+                  <h2 className="flex min-w-0 items-center gap-2 text-1xs font-semibold text-ink-soft">
+                    <span className={cn("dot", GROUP_DOT[group.kind])} aria-hidden="true" />
+                    <span>{activityGroupLabel(group.kind)}</span>
+                    <span className="text-ink tabular-nums">{group.rows.length}</span>
+                    <span className="font-normal text-ink-soft">
+                      {group.kind === "finished" ? "終了時刻の新しい順" : "最後に使った順"}
+                    </span>
+                  </h2>
+                  <ul className="mt-1.5 grid gap-1.5">
+                    {group.rows.map((row) => (
+                      <li key={row.sessionId} className="min-w-0">
+                        <ActivityRowLink row={row} now={now} spaceName={spaceNames.get(row.spaceId)} />
+                      </li>
+                    ))}
+                  </ul>
+                </section>
+              ))}
+              {rows.length === 0 ? (
+                <p className="py-3 text-1xs text-ink-soft">直近 2 時間に終了した会話もありません</p>
+              ) : null}
+            </>
+          )}
+        </div>
       </div>
     </section>
   );
