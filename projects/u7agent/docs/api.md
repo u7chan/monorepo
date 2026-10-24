@@ -714,7 +714,7 @@ Content-Security-Policy: sandbox allow-scripts; default-src 'none'; style-src 'u
 
 | メソッド | パス | 説明 |
 | --- | --- | --- |
-| GET | `/api/shared-contents` | 一覧（新しい順） |
+| GET | `/api/shared-contents` | 一覧（`?sessionId=` でその会話の共有物だけに絞れる） |
 | POST | `/api/shared-contents` | 作成して公開を開始（202） |
 | GET | `/api/shared-contents/:id` | 詳細と状態 |
 | POST | `/api/shared-contents/:id/publish` | 更新（同じ URL へ再公開、202）。`failed` からの再試行も同じ |
@@ -729,6 +729,7 @@ Content-Security-Policy: sandbox allow-scripts; default-src 'none'; style-src 'u
 一覧・詳細は `{ id, sessionId, name, sourcePath, provider, status, publicUrl, createdAt, updatedAt, publishedAt, stoppedAt, lastError }`。`remoteId` / `providerAccount` は返さない。`status` の値は `SharedContentStatus`（`server/src/app-db.ts`）と schema を正とし、`lastError` は分類済みの固定文言だけを入れる。
 
 - `directory` はセッションの作業ディレクトリ相対。root 自身・絶対パス・`..` は 400。
+- 一覧は `sessionId` クエリで絞れる（共有ダイアログの「この会話の共有物」）。省略時は全件、空文字は指定なしとして扱う。
 - ソースは sandbox の `GET /v1/files/download?path=<dir>&exclude=`（明示空）で全量 ZIP を取得し、`index.html` の存在、10,000 entries / 100 MiB / 1 ファイル 25 MiB、パス・symlink、既知の秘密値を検証する。違反は部分公開せず `failed`（更新なら前回の状態 + `lastError`）。
 - 資格情報が未登録なら 409。保存済みの `providerAccount` が現在の接続と違う場合も 409。
 - 受付の失敗（400 / 404 / 409 / 502 / 503）は `{ error, state: "not_stored" }`。`published` になったかは GET で確認する。

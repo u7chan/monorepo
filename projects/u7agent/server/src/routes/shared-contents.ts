@@ -9,7 +9,15 @@ import type { SharedContentsService } from "../shared-contents";
  */
 export function createSharedContentRoutes({ sharedContents }: { sharedContents: SharedContentsService }) {
   return {
-    list: (c: Context) => c.json({ items: sharedContents.list() }),
+    list: (c: Context) => {
+      try {
+        // 会話の絞り込みは hc の要求型を推論させるため handler の本体で読む (client は全共有物の一覧を持たない)
+        const sessionId = (c.req.query("sessionId") ?? "").trim();
+        return c.json({ items: sharedContents.list(sessionId === "" ? undefined : sessionId) });
+      } catch (error) {
+        return failure(c, error);
+      }
+    },
 
     detail: (c: Context) => {
       try {

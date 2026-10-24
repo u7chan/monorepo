@@ -404,7 +404,7 @@ assistant 本文のインラインコードが指すファイルを、右パネ�
 
 行の右端の ⋯（`client/src/components/RowMenu.tsx`）に、その行の操作（パスをコピー（相対 / 絶対） / ダウンロード / リネーム / 削除）を 1 つのメニューとして畳む。同じ ⋯ を左サイドバーのプロジェクト行 / セッション行とも共有する（[ui-layout.md](ui-layout.md#サイドバー)）。行ごとにアイコンを並べる方式では、幅の狭い列（当時は `@2xl:w-72` = 288px 固定。最大 3 スロット = 84px）で名前が数文字まで truncate され、1 行あたりのタブストップも最大 3 つあった。
 
-- **出し分けの正は `client/src/lib/fileRowMenu.ts` の `fileRowActions`**。`null` = 行の操作領域ごと出さない（`readOnly`）、`[]` = 領域は出すが項目が無い（`aria-hidden` の `size-6` の空きスロット `EmptySlot` を 1 個だけ置いて時刻の右端をそろえる）と契約を分ける（`[]` だけで両方を表すと、`FileBrowser` 側で `readOnly` と項目の無い行を区別できない。パスをコピーを全行に出すようになって `[]` を返す行は無くなったが、契約は変えずに受け側の分岐を残す）。項目は パスをコピー → 絶対パスをコピー → ダウンロード → リネーム → 削除 の順で（絶対パスはワークスペース root の絶対パスが取れた行にだけ加わる）、ディレクトリのダウンロードだけラベル「ZIP でダウンロード」+ 2 行目「ビルド成果物と依存を除く」を持つ（以前の `title` の開示をメニュー項目へ移した）。条件は移行前と同じで、[パスをコピー](#パスをコピー) / [ダウンロード](#ダウンロード) / [リネーム](#リネーム) / [削除](#削除) をそれぞれ参照
+- **出し分けの正は `client/src/lib/fileRowMenu.ts` の `fileRowActions`**。`null` = 行の操作領域ごと出さない（`readOnly`）、`[]` = 領域は出すが項目が無い（`aria-hidden` の `size-6` の空きスロット `EmptySlot` を 1 個だけ置いて時刻の右端をそろえる）と契約を分ける（`[]` だけで両方を表すと、`FileBrowser` 側で `readOnly` と項目の無い行を区別できない。パスをコピーを全行に出すようになって `[]` を返す行は無くなったが、契約は変えずに受け側の分岐を残す）。項目は パスをコピー → 絶対パスをコピー → 共有（ディレクトリだけ、共有できる面だけ） → ダウンロード → リネーム → 削除 の順で（絶対パスはワークスペース root の絶対パスが取れた行にだけ加わる）、ディレクトリのダウンロードだけラベル「ZIP でダウンロード」+ 2 行目「ビルド成果物と依存を除く」を持つ（以前の `title` の開示をメニュー項目へ移した）。条件は移行前と同じで、[パスをコピー](#パスをコピー) / [共有](#共有) / [ダウンロード](#ダウンロード) / [リネーム](#リネーム) / [削除](#削除) をそれぞれ参照
 - **項目の型と、位置 / キーボード移動の計算は `client/src/lib/rowMenu.ts` の共有部**（`RowMenuAction` / `rowMenuPlacement` / `rowMenuAnchorVisible` / `nextRowMenuIndex`）。画面ごとの出し分けはここ（`fileRowMenu.ts` の `fileRowActions`）と `client/src/lib/sidebarRowMenu.ts` の `projectRowActions` / `sessionRowActions` が持ち、描画は `RowMenu.tsx` 1 箇所で共有する
 - **外装は native `popover="auto"`**。top layer に載るのでツリーのスクロール枠（`overflow-y-auto`）に切られず、外側クリックと `Escape` は標準の light dismiss に任せる。本体は常時 mount し、React の条件付き mount で出し入れしない（閉じている間の非表示は UA 既定の `display: none`）。開閉の正は popover の状態で、React は `toggle` イベントで `aria-expanded` を写すだけにする
 - **⋯ には `popoverTarget` を付け、`onClick` で既定動作を打ち消してから `showPopover()` / `hidePopover()` を呼ぶ**。popover の外にある ⋯ の click は light dismiss（pointerup）の後に届くため、`popoverTarget` が無いと「開いた状態で ⋯ を押す」たびに閉じて開き直り、トグルが効かない。`popoverTarget` は UA の activation behavior も持つので、同じトグルを二重に走らせないよう `preventDefault()` する。開閉の入口はこの 1 つで、標準の close（Escape / 外側クリック）も含めて状態は `toggle` イベントで観測する
@@ -429,6 +429,14 @@ assistant 本文のインラインコードが指すファイルを、右パネ�
 - **成功したら ⋯ をチェック + `コピーしました` に 2 秒替える**（`useMessageCopy`。項目は選択で消えるため、結果は ⋯ の位置に出す）
 - **失敗したら成功表示にせず、行の中に `role="alert"` の 1 行を出す**。文言と内訳は [コピー](#コピー) の `CopyButton` と同じもの（`useMessageCopy` の `copyFailure`）を使い、開発者ツールを開けない環境でも理由が読めるようにする。`選択` は、コピーする字面が行の上で選択状態にできないため付けない。同じ行のコピーをやり直すと消える
 - 同じ行の再コピーは弾かない（冪等）。連続したコピーでは `useMessageCopy` の連番が古い結果だけを捨てる
+
+## 共有
+
+ディレクトリを Cloudflare へ外部公開する導線。ディレクトリ行の ⋯（[行の操作メニュー](#行の操作メニュー)）の「共有」から、共有ダイアログ（`client/src/components/ShareContentDialog.tsx`）を開く。
+
+- **出す面はチャット右パネル（作業フォルダ面）だけ**。項目の採否は `fileRowActions` の `canShare` で、`FileBrowser` に渡すのは作業フォルダ面だけ（共有 API の `directory` がセッションの作業フォルダ相対のため）。**設定 → ファイルには出さない**。会話が決まっていない面（プロジェクト起点の新規会話）・スキル面・読み取り専用の面と、symlink とファイルの行にも出さない
+- メニューの 2 行目は `serve`（一時プレビュー）との違いを開示する（押す前に知る条件なので `singleColumn` でも残す）
+- ダイアログの流れ・確認項目・ポーリング・既知の制限は [static-sharing.md](static-sharing.md#gui共有ダイアログ) を正とする
 
 ## 削除
 

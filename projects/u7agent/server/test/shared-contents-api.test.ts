@@ -169,6 +169,42 @@ test("資格情報が未登録なら 409 で受け付けず、行を作らない
   }
 });
 
+test("一覧は sessionId で絞れる (この会話の共有物) が、指定しなければ全件を返す", async () => {
+  const { bff, sessionId, restore } = await setup();
+  try {
+    const project = await jsonBody(
+      await bff.app.request("/api/projects", jsonPost({ cwd: "projects/other", name: "other" })),
+    );
+    const otherSession = await jsonBody(
+      await bff.app.request("/api/sessions", jsonPost({ projectId: project.project.id })),
+    );
+    const first = await jsonBody(
+      await bff.app.request("/api/shared-contents", jsonPost({ sessionId, directory: "dist" })),
+    );
+    const second = await jsonBody(
+      await bff.app.request("/api/shared-contents", jsonPost({ sessionId: otherSession.sessionId, directory: "dist" })),
+    );
+
+    const mine = await jsonBody(await bff.app.request(`/api/shared-contents?sessionId=${sessionId}`));
+    assert.deepEqual(
+      mine.items.map((item: { id: string }) => item.id),
+      [first.id],
+    );
+    const theirs = await jsonBody(await bff.app.request(`/api/shared-contents?sessionId=${otherSession.sessionId}`));
+    assert.deepEqual(
+      theirs.items.map((item: { id: string }) => item.id),
+      [second.id],
+    );
+    // 絞り込みは一覧の追加であり、指定しなければ従来どおり全件を返す
+    assert.equal((await jsonBody(await bff.app.request("/api/shared-contents"))).items.length, 2);
+    // 空の sessionId は絞り込みなしとして扱う (client のビルド不備で全件が消えない)
+    assert.equal((await jsonBody(await bff.app.request("/api/shared-contents?sessionId="))).items.length, 2);
+    assert.deepEqual((await jsonBody(await bff.app.request("/api/shared-contents?sessionId=unknown"))).items, []);
+  } finally {
+    await restore();
+  }
+});
+
 test("未知の id は 404、body 不正は 400", async () => {
   const { bff, restore } = await setup();
   try {

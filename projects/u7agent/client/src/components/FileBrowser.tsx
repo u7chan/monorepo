@@ -111,6 +111,12 @@ export type FileBrowserProps = {
   /** 未消費の「ファイル参照から開く」要求。適用したら onHandled(seq) で App へ返す */
   openRequest?: FileRefRequest | null;
   onHandled?: (seq: number) => void;
+  /**
+   * 行の ⋯ の「共有」(Cloudflare への静的公開) から呼ぶ。渡した面にだけ項目を出す。
+   * path は面の root 相対で、作業フォルダ面では共有 API の `directory` と同じ基準になる
+   * (ワークスペース root を指す設定 → ファイル には渡さない)
+   */
+  onShareDirectory?: (path: string) => void;
   /** プレビュー オリジン (別オリジン) のブラウザから見たポート。health から受け取り、未取得は undefined */
   filePreviewPort?: number;
 };
@@ -133,6 +139,7 @@ export function FileBrowser({
   excludeNames,
   openRequest,
   onHandled,
+  onShareDirectory,
   filePreviewPort,
 }: FileBrowserProps) {
   const rootPath = normalizeFileTreeRoot(root);
@@ -463,6 +470,7 @@ export function FileBrowser({
                   readOnly={readOnly}
                   canRef={canRef}
                   excludeNames={excludeNames}
+                  onShare={onShareDirectory}
                   onToggle={toggle}
                   onSelect={openTab}
                   onRename={renameRow}
@@ -543,6 +551,8 @@ type BranchProps = {
   canRef: boolean;
   /** ワークスペースの除外名 (行のダウンロードを出すかの判定に使う) */
   excludeNames: readonly string[];
+  /** 「共有」を出せる面のときだけ渡す (未指定は項目を出さない) */
+  onShare?: (path: string) => void;
   /** reveal 対象のパス。一致する行だけ ref を付け、スクロールと一時ハイライトの対象にする */
   revealPath: string | null;
   revealRef: RefObject<HTMLDivElement | null>;
@@ -564,6 +574,7 @@ function Branch({
   readOnly,
   canRef,
   excludeNames,
+  onShare,
   revealPath,
   revealRef,
   onToggle,
@@ -590,6 +601,7 @@ function Branch({
           readOnly={readOnly}
           canRef={canRef}
           excludeNames={excludeNames}
+          onShare={onShare}
           revealPath={revealPath}
           revealRef={revealRef}
           onToggle={onToggle}
@@ -631,6 +643,7 @@ function EntryRow({
   readOnly,
   canRef,
   excludeNames,
+  onShare,
   revealPath,
   revealRef,
   onToggle,
@@ -649,6 +662,7 @@ function EntryRow({
   readOnly: boolean;
   canRef: boolean;
   excludeNames: readonly string[];
+  onShare?: (path: string) => void;
   revealPath: string | null;
   revealRef: RefObject<HTMLDivElement | null>;
   onToggle: (path: string) => void;
@@ -670,6 +684,7 @@ function EntryRow({
       readOnly={readOnly}
       excludeNames={excludeNames}
       absolutePath={absolutePath}
+      canShare={onShare !== undefined}
       copied={copiedId === path}
       onCopyPath={() => void copyMessage(path, path)}
       onCopyAbsolutePath={() => {
@@ -679,6 +694,7 @@ function EntryRow({
       onRename={() => onRename(path, entry.name)}
       onDelete={() => onDelete(path, entry.type)}
       onDownload={() => onDownload(path, entry.name, entry.type)}
+      onShare={() => onShare?.(path)}
     />
   );
 
@@ -772,6 +788,7 @@ function EntryRow({
                 readOnly={readOnly}
                 canRef={canRef}
                 excludeNames={excludeNames}
+                onShare={onShare}
                 revealPath={revealPath}
                 revealRef={revealRef}
                 onToggle={onToggle}
@@ -852,12 +869,14 @@ export function EntryRowActions({
   readOnly,
   excludeNames,
   absolutePath,
+  canShare = false,
   copied,
   onCopyPath,
   onCopyAbsolutePath,
   onRename,
   onDelete,
   onDownload,
+  onShare,
 }: {
   name: string;
   type: "file" | "dir";
@@ -868,6 +887,8 @@ export function EntryRowActions({
   excludeNames: readonly string[];
   /** 行の絶対パス。undefined のときは「絶対パスをコピー」を出さない */
   absolutePath?: string;
+  /** 「共有」(Cloudflare への静的公開) を出せる面か。未指定は出さない */
+  canShare?: boolean;
   /** 直前のパスコピーが成功した行。⋯ をチェックに替える */
   copied: boolean;
   /** パスをコピーする。失敗の表示は行 (EntryRow) が受け持つ */
@@ -877,8 +898,9 @@ export function EntryRowActions({
   onRename: () => void;
   onDelete: () => void;
   onDownload: () => void;
+  onShare?: () => void;
 }) {
-  const actions = fileRowActions({ name, type, symlink, canRename, readOnly, excludeNames, absolutePath });
+  const actions = fileRowActions({ name, type, symlink, canRename, readOnly, excludeNames, absolutePath, canShare });
   // null = 読み取り専用の面で行の操作ごと消す。空配列 = 領域は出すが項目が無い (空きスロット 1 個)
   if (actions === null) return null;
   if (actions.length === 0) return <EmptySlot />;
@@ -886,6 +908,8 @@ export function EntryRowActions({
     // 同じパスの再コピーは弾かない (冪等)。useMessageCopy が連番で古い結果だけを捨てる
     "copy-path": onCopyPath,
     "copy-absolute-path": onCopyAbsolutePath,
+    // canShare が false の行には項目が出ないため、undefined の分岐は実際には通らない
+    share: onShare ?? (() => {}),
     download: onDownload,
     rename: onRename,
     delete: onDelete,

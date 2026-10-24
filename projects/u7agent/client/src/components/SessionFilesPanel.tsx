@@ -18,6 +18,7 @@ import { FileBrowser } from "./FileBrowser";
 import { GitBranchBadge } from "./GitBranchBadge";
 import { CloseIcon } from "./icons";
 import { ReloadButton } from "./ReloadButton";
+import { ShareContentDialog, type ShareContentTarget } from "./ShareContentDialog";
 import { TabToolbar } from "./TabToolbar";
 
 export type SessionFilesPanelProps = {
@@ -61,6 +62,8 @@ function SessionFilesContent({
 }: SessionFilesPanelProps & { singleColumn: boolean }) {
   const [manualReload, setManualReload] = useState(0);
   const [tab, setTab] = useState<SessionEnvTab>("files");
+  // 共有 (Cloudflare への静的公開) の確認ダイアログ。対象は行の ⋯ から選ぶ 1 ディレクトリだけ
+  const [shareTarget, setShareTarget] = useState<ShareContentTarget | null>(null);
   // ヘッダの「再読み込み」と run_end を 1 つの token にまとめる。どちらも単調なので、合計が
   // 変わったときだけ取り直す。描画間の runStatus の差は使わない (run_start と run_end が同じ
   // バッチで届くと running を観測できず、run_end を取りこぼす。カウンタは reducer が進める)
@@ -137,6 +140,10 @@ function SessionFilesContent({
             openRequest={fileRefRequestForKind(openRequest ?? null, "work")}
             onHandled={onHandled}
             canRef={!singleColumn}
+            // 共有 API の directory はセッションの作業フォルダ相対なので、会話が決まっている面だけに出さす
+            onShareDirectory={
+              envScope.sessionId === undefined ? undefined : (path) => setShareTarget({ directory: path })
+            }
           />
         </div>
       ) : (
@@ -144,6 +151,15 @@ function SessionFilesContent({
         // (決定事項 4。パネル自体は key={filesRoot} なので、cwd が同じ切替では再 mount されない)
         <EnvVarsTab key={sessionEnvScopeKey(envScope)} scope={envScope} reloadToken={reloadToken} />
       )}
+      {/* ダイアログは面の外側の兄弟に置く (ファイル一覧のグリッド行に混ぜない)。開閉は state で、閉じたら対象も捨てる */}
+      {shareTarget !== null && envScope.sessionId !== undefined ? (
+        <ShareContentDialog
+          sessionId={envScope.sessionId}
+          target={shareTarget}
+          singleColumn={singleColumn}
+          onClose={() => setShareTarget(null)}
+        />
+      ) : null}
     </>
   );
 }

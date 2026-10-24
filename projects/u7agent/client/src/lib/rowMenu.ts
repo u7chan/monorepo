@@ -8,6 +8,7 @@
 export type RowMenuActionKind =
   | "copy-path"
   | "copy-absolute-path"
+  | "share"
   | "download"
   | "rename"
   | "pin"
