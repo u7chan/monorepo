@@ -4,7 +4,8 @@ import type { CreateSharedContentBody } from "../schema";
 import type { SharedContentsService } from "../shared-contents";
 
 /**
- * 共有コンテンツの公開 API。作成・更新は 202 で受け付け、状態は GET で読む。
+ * 共有コンテンツの管理 API。作成・更新・再公開は 202 で受け付け、状態は GET で読む。
+ * 停止は provider の結果を status で返すため 200、削除は本文なしの 204。
  * 受付に失敗した要求は何も保存していないため `state: "not_stored"` を付ける。
  */
 export function createSharedContentRoutes({ sharedContents }: { sharedContents: SharedContentsService }) {
@@ -38,6 +39,31 @@ export function createSharedContentRoutes({ sharedContents }: { sharedContents: 
     publish: async (c: Context) => {
       try {
         return c.json(await sharedContents.publish(c.req.param("id") ?? ""), 202);
+      } catch (error) {
+        return failure(c, error);
+      }
+    },
+
+    stop: async (c: Context) => {
+      try {
+        return c.json(await sharedContents.stop(c.req.param("id") ?? ""), 200);
+      } catch (error) {
+        return failure(c, error);
+      }
+    },
+
+    resume: async (c: Context) => {
+      try {
+        return c.json(await sharedContents.resume(c.req.param("id") ?? ""), 202);
+      } catch (error) {
+        return failure(c, error);
+      }
+    },
+
+    remove: async (c: Context) => {
+      try {
+        await sharedContents.remove(c.req.param("id") ?? "");
+        return c.body(null, 204);
       } catch (error) {
         return failure(c, error);
       }

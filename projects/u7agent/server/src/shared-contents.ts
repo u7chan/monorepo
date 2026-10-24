@@ -20,7 +20,12 @@ import type { SharedContentRow, SharedContentStatus } from "./app-db";
 import { httpError, messageFor } from "./http";
 import type { SandboxWorkspaceClient } from "./sandbox/client";
 import { extractZipEntry, readZipArchive, type ZipReadEntry } from "./sandbox/zip-read";
-import type { CreateSharedContentBody, SharedContentMutationResponse, SharedContentResponse } from "./schema";
+import type {
+  CreateSharedContentBody,
+  SharedContentMutationResponse,
+  SharedContentResponse,
+  SharedContentStopResponse,
+} from "./schema";
 
 /** Cloudflare の上限と u7agent の ZIP 上限の厳しいほう */
 export const SHARED_CONTENT_MAX_FILE_BYTES = 25 * 1024 * 1024;
@@ -42,6 +47,9 @@ export const SHARED_CONTENT_NO_SUBDOMAIN =
   "Cloudflare アカウントの workers.dev サブドメインが未設定です。Cloudflare のダッシュボードで有効にしてください";
 export const SHARED_CONTENT_BUSY = "公開処理中です。完了してから操作してください";
 export const SHARED_CONTENT_NOT_UPDATABLE = "この状態からは公開できません";
+export const SHARED_CONTENT_NOT_STOPPABLE = "この状態からは停止できません";
+export const SHARED_CONTENT_NOT_RESUMABLE = "停止中の共有物だけを再公開できます";
+export const SHARED_CONTENT_DELETE_ERROR = "Cloudflare の公開物を削除できませんでした。時間をおいて再試行してください";
 export const SHARED_CONTENT_RECONCILE_FAILED = "公開の結果を確認できませんでした。Cloudflare の状態を確認してください";
 export const SHARED_CONTENT_STORE_ERROR = "共有コンテンツを保存できませんでした";
 export const SHARED_CONTENT_READ_ERROR = "共有コンテンツを読み取れません";
@@ -51,6 +59,25 @@ class SharedContentSourceError extends Error {
   constructor(message: string) {
     super(message);
     this.name = "SharedContentSourceError";
+  }
+}
+
+/**
+ * 共有物 id 単位の排他。全共有物を 1 本のロックで直列化しない。
+ * 待たせずに断るのは、二重操作を 409 で返す契約だから (待つと応答が provider の所要時間に引きずられる)。
+ */
+class SharedContentLock {
+  #busy = new Set<string>();
+
+  /** 同じ id の操作が進行中なら null。進行中でなければ占有して実行する */
+  tryRun<T>(id: string, task: () => Promise<T>): Promise<T> | null {
+    if (this.#busy.has(id)) return null;
+    this.#busy.add(id);
+    return Promise.resolve()
+      .then(task)
+      .finally(() => {
+        this.#busy.delete(id);
+      });
   }
 }
 
@@ -70,6 +97,8 @@ export interface SharedContentStore {
   /** `sessionId` を渡すと、その会話で作った共有物だけを返す (GUI の「この会話の共有物」) */
   listSharedContents(sessionId?: string): SharedContentRow[];
   listPublishingSharedContents(): SharedContentRow[];
+  /** provider 側の削除が成功したあとにだけ呼ぶ */
+  deleteSharedContent(id: string): void;
 }
 
 export interface SharedContentsOptions {
@@ -101,8 +130,8 @@ export class SharedContentsService {
   #now: () => number;
   #newId: () => string;
   #tempRoot: string;
-  /** 受付中の id。公開ジョブ自体はこの集合の外で走る */
-  #accepting = new Set<string>();
+  /** 共有物 id 単位の排他。公開ジョブ自体はこのロックの外で走る */
+  #lock = new SharedContentLock();
   #active = new Set<string>();
 
   constructor(options: SharedContentsOptions) {
@@ -186,16 +215,8 @@ export class SharedContentsService {
 
   /** 更新 / 未公開からの再試行。ソースとセッションが揃っているときだけ受け付ける */
   async publish(id: string): Promise<SharedContentMutationResponse> {
-    if (this.#accepting.has(id)) throw httpError(409, SHARED_CONTENT_BUSY);
-    this.#accepting.add(id);
-    try {
-      let row: SharedContentRow | undefined;
-      try {
-        row = this.#store.getSharedContent(id);
-      } catch {
-        throw httpError(503, SHARED_CONTENT_READ_ERROR);
-      }
-      if (!row) throw httpError(404, "Shared content not found");
+    return this.#mutate(id, async () => {
+      const row = this.#requireRow(id);
       if (row.status === "publishing") throw httpError(409, SHARED_CONTENT_BUSY);
       if (row.status !== "published" && row.status !== "failed") {
         throw httpError(409, SHARED_CONTENT_NOT_UPDATABLE);
@@ -204,24 +225,117 @@ export class SharedContentsService {
       if (!sessionCwd) throw httpError(409, SHARED_CONTENT_SESSION_REQUIRED);
       this.#assertSourceUnderSession(row.sourcePath, sessionCwd);
       await this.#requireSource(row.sourcePath);
-      const credential = this.#requireCredentials();
-      if (row.providerAccount !== credential.accountId) throw httpError(409, SHARED_CONTENT_ACCOUNT_MISMATCH);
+      this.#requireRowCredential(row);
 
+      this.#persistState(row, "publishing", null, { publishedAt: row.publishedAt, stoppedAt: row.stoppedAt });
+      this.#start(row, row.status);
+      return { id, status: "publishing" as const };
+    });
+  }
+
+  /**
+   * 停止。workers.dev の subdomain を無効にするだけで、URL と行は残す。
+   * provider の呼び出しを伴うが、結果を status で返す契約なので同期で確定させる (200)。
+   */
+  async stop(id: string): Promise<SharedContentStopResponse> {
+    return this.#mutate(id, async () => {
+      const row = this.#requireRow(id);
+      const startStatus = row.status;
+      if (startStatus === "publishing" && row.lastError === null) throw httpError(409, SHARED_CONTENT_BUSY);
+      // 結果不明で publishing のまま残った行は、停止が冪等なので安全側に倒せる
+      if (startStatus !== "published" && startStatus !== "publishing") {
+        throw httpError(409, SHARED_CONTENT_NOT_STOPPABLE);
+      }
+      if (!row.remoteId) throw httpError(409, SHARED_CONTENT_NOT_STOPPABLE);
+      const client = this.#createCloudflare(this.#requireRowCredential(row));
       try {
-        this.#store.updateSharedContentState(id, {
-          status: "publishing",
-          updatedAt: this.#now(),
-          publishedAt: row.publishedAt,
-          stoppedAt: row.stoppedAt,
-          lastError: null,
-        });
+        await client.setScriptSubdomain(row.remoteId, false);
+      } catch (error) {
+        return await this.#settleStopFailure(row, startStatus, error);
+      }
+      this.#persistState(row, "stopped", null, { publishedAt: row.publishedAt, stoppedAt: this.#now() });
+      return { id, status: "stopped" as const };
+    });
+  }
+
+  /** 再公開。停止中だった公開物の subdomain を有効に戻すだけで、成果物は送らない */
+  async resume(id: string): Promise<SharedContentMutationResponse> {
+    return this.#mutate(id, async () => {
+      const row = this.#requireRow(id);
+      if (row.status !== "stopped") throw httpError(409, SHARED_CONTENT_NOT_RESUMABLE);
+      if (!row.remoteId) throw httpError(409, SHARED_CONTENT_NOT_RESUMABLE);
+      this.#requireRowCredential(row);
+      this.#persistState(row, "publishing", null, { publishedAt: row.publishedAt, stoppedAt: row.stoppedAt });
+      this.#startResume(row);
+      return { id, status: "publishing" as const };
+    });
+  }
+
+  /**
+   * 削除。provider 側の削除が成功してから行を消す。
+   * provider が「既に無い」(404) を返したときも、外部に公開物が無いので成功として扱う。
+   */
+  async remove(id: string): Promise<void> {
+    await this.#mutate(id, async () => {
+      const row = this.#requireRow(id);
+      // 公開ジョブと provider の操作が重なると、消したはずの script が後から作り直される
+      if (row.status === "publishing" && row.lastError === null) throw httpError(409, SHARED_CONTENT_BUSY);
+      if (row.remoteId && row.providerAccount) {
+        const client = this.#createCloudflare(this.#requireRowCredential(row));
+        try {
+          await client.deleteScript(row.remoteId);
+        } catch (error) {
+          if (!(error instanceof CloudflareApiError && error.kind === "not_found")) {
+            throw httpError(502, error instanceof CloudflareApiError ? error.message : SHARED_CONTENT_DELETE_ERROR);
+          }
+        }
+      }
+      try {
+        this.#store.deleteSharedContent(id);
       } catch {
         throw httpError(503, SHARED_CONTENT_STORE_ERROR);
       }
-      this.#start(row, row.status);
-      return { id, status: "publishing" };
-    } finally {
-      this.#accepting.delete(id);
+    });
+  }
+
+  /** 同じ id の操作を排他する。進行中なら状態を読まずに 409 を返す */
+  async #mutate<T>(id: string, task: () => Promise<T>): Promise<T> {
+    const run = this.#lock.tryRun(id, task);
+    if (!run) throw httpError(409, SHARED_CONTENT_BUSY);
+    return run;
+  }
+
+  #requireRow(id: string): SharedContentRow {
+    let row: SharedContentRow | undefined;
+    try {
+      row = this.#store.getSharedContent(id);
+    } catch {
+      throw httpError(503, SHARED_CONTENT_READ_ERROR);
+    }
+    if (!row) throw httpError(404, "Shared content not found");
+    return row;
+  }
+
+  #requireRowCredential(row: SharedContentRow): CloudflareCredential {
+    const credential = this.#requireCredentials();
+    if (row.providerAccount && row.providerAccount !== credential.accountId) {
+      throw httpError(409, SHARED_CONTENT_ACCOUNT_MISMATCH);
+    }
+    return credential;
+  }
+
+  /** 状態の保存失敗を 503 にし、provider の操作を成功として返さない */
+  #persistState(
+    row: SharedContentRow,
+    status: SharedContentStatus,
+    lastError: string | null,
+    times: { publishedAt?: number | null; stoppedAt?: number | null },
+  ): void {
+    try {
+      this.#setState(row, status, lastError, times);
+    } catch (error) {
+      console.warn(`[u7agent] shared content state save failed: ${this.#maskError(messageFor(error))}`);
+      throw httpError(503, SHARED_CONTENT_STORE_ERROR);
     }
   }
 
@@ -279,6 +393,50 @@ export class SharedContentsService {
       .finally(() => {
         this.#active.delete(row.id);
       });
+  }
+
+  #startResume(row: SharedContentRow): void {
+    this.#active.add(row.id);
+    void this.#runResume(row)
+      .catch((error) => {
+        console.warn(`[u7agent] shared content resume failed: ${this.#maskError(messageFor(error))}`);
+      })
+      .finally(() => {
+        this.#active.delete(row.id);
+      });
+  }
+
+  /** 再公開は成果物を送らず、subdomain を有効に戻すだけ。版は変えないので publishedAt を進めない */
+  async #runResume(row: SharedContentRow): Promise<void> {
+    const credential = this.#credentialFor(row);
+    if (!credential || !row.remoteId) {
+      this.#setState(row, "stopped", SHARED_CONTENT_ACCOUNT_MISMATCH, {
+        publishedAt: row.publishedAt,
+        stoppedAt: row.stoppedAt ?? this.#now(),
+      });
+      return;
+    }
+    try {
+      await this.#createCloudflare(credential).setScriptSubdomain(row.remoteId, true);
+    } catch (error) {
+      await this.#settleResumeFailure(row, error);
+      return;
+    }
+    try {
+      this.#setState(row, "published", null, { publishedAt: row.publishedAt, stoppedAt: null });
+    } catch (error) {
+      // 有効化は成功している。状態を保存できなくても publishing のまま放置せず、照会して結果不明を残す
+      console.warn(`[u7agent] shared content state save failed: ${this.#maskError(messageFor(error))}`);
+      try {
+        await this.#reconcile(row, new SharedContentSourceError("再公開は完了しましたが、状態を保存できませんでした"));
+      } catch (reconcileError) {
+        console.warn(
+          `[u7agent] shared content reconcile after state failure failed: ${this.#maskError(
+            messageFor(reconcileError),
+          )}`,
+        );
+      }
+    }
   }
 
   async #run(row: SharedContentRow, previousStatus: SharedContentStatus | null): Promise<void> {
@@ -409,6 +567,70 @@ export class SharedContentsService {
       });
     }
     return { assets, config };
+  }
+
+  /** 停止の失敗。結果不明なら subdomain を照会し、無効なら停止済みとして確定する */
+  async #settleStopFailure(
+    row: SharedContentRow,
+    startStatus: SharedContentStatus,
+    error: unknown,
+  ): Promise<SharedContentStopResponse> {
+    const message = failureMessageFor(error);
+    const state = isUnknownResult(error) ? await this.#subdomainStateOf(row) : null;
+    if (state && "enabled" in state && !state.enabled) {
+      this.#persistState(row, "stopped", null, {
+        publishedAt: row.publishedAt,
+        stoppedAt: row.stoppedAt ?? this.#now(),
+      });
+      return { id: row.id, status: "stopped" as const };
+    }
+    if (state && "missing" in state) {
+      // 外部に公開物が無い。failed は初回公開前だけなので、開始状態へ戻して retry に委ねる
+      const missing = "Cloudflare に公開物が見つかりません";
+      this.#persistState(row, startStatus, missing, { publishedAt: row.publishedAt, stoppedAt: row.stoppedAt });
+      throw httpError(502, missing);
+    }
+    const lastError = state === null && isUnknownResult(error) ? SHARED_CONTENT_RECONCILE_FAILED : message;
+    this.#persistState(row, startStatus, lastError, { publishedAt: row.publishedAt, stoppedAt: row.stoppedAt });
+    throw httpError(502, lastError);
+  }
+
+  /** 再公開の失敗。停止のやり直しで戻せるよう、既定では stopped + lastError に留める */
+  async #settleResumeFailure(row: SharedContentRow, error: unknown): Promise<void> {
+    const message = failureMessageFor(error);
+    const state = isUnknownResult(error) ? await this.#subdomainStateOf(row) : null;
+    const times = { publishedAt: row.publishedAt, stoppedAt: row.stoppedAt ?? this.#now() };
+    if (state && "enabled" in state && state.enabled) {
+      // 照会できたときだけ公開中へ確定する
+      this.#setState(row, "published", null, { publishedAt: row.publishedAt, stoppedAt: null });
+      return;
+    }
+    if (state && "missing" in state) {
+      this.#setState(row, "stopped", "Cloudflare に公開物が見つかりません。削除して公開し直してください", times);
+      return;
+    }
+    this.#setState(
+      row,
+      "stopped",
+      state === null && isUnknownResult(error) ? SHARED_CONTENT_RECONCILE_FAILED : message,
+      times,
+    );
+  }
+
+  /**
+   * 結果不明のあと、workers.dev の有効・無効だけを照会する。
+   * 照会できなければ null (呼び出し側は状態を確定させない)。
+   */
+  async #subdomainStateOf(row: SharedContentRow): Promise<{ enabled: boolean } | { missing: true } | null> {
+    const credential = this.#credentialFor(row);
+    if (!credential || !row.remoteId) return null;
+    try {
+      const subdomain = await this.#createCloudflare(credential).getScriptSubdomain(row.remoteId);
+      return { enabled: subdomain.enabled };
+    } catch (error) {
+      if (error instanceof CloudflareApiError && error.kind === "not_found") return { missing: true };
+      return null;
+    }
   }
 
   async #handleFailure(

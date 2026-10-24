@@ -72,6 +72,10 @@ export interface CloudflareAssetConfig {
 export interface CloudflareAssetsApi {
   getAccountSubdomain(): Promise<string>;
   getScriptSubdomain(scriptName: string): Promise<CloudflareScriptSubdomain>;
+  /** workers.dev の有効・無効を切り替える。有効化は URL を変えずに停止中の公開物を戻す */
+  setScriptSubdomain(scriptName: string, enabled: boolean): Promise<void>;
+  /** script の削除。存在しない script は `not_found` で失敗する (呼び出し側が成功扱いにする) */
+  deleteScript(scriptName: string): Promise<void>;
   /** manifest 登録 → アセット送信 → deployment → workers.dev 有効化 */
   publishAssets(scriptName: string, assets: readonly CloudflareAsset[], config?: CloudflareAssetConfig): Promise<void>;
 }
@@ -129,6 +133,19 @@ export class CloudflareApiClient implements CloudflareAssetsApi {
       throw new CloudflareApiError("unverifiable");
     }
     return { enabled: result.enabled, previewsEnabled: result.previews_enabled === true };
+  }
+
+  async setScriptSubdomain(scriptName: string, enabled: boolean): Promise<void> {
+    await this.#request(this.#scriptPath(scriptName, "/subdomain"), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ enabled, previews_enabled: false }),
+    });
+  }
+
+  async deleteScript(scriptName: string): Promise<void> {
+    // 削除の応答は result を持たないため、本文の result ではなく success だけを検証する
+    await this.#request(this.#scriptPath(scriptName, ""), { method: "DELETE" }, this.#timeoutMs, this.#apiToken, false);
   }
 
   async publishAssets(
@@ -192,11 +209,7 @@ export class CloudflareApiClient implements CloudflareAssetsApi {
     deployForm.append("metadata", new Blob([JSON.stringify(metadata)], { type: "application/json" }), "metadata.json");
     await this.#request(this.#scriptPath(scriptName, ""), { method: "PUT", body: deployForm }, this.#uploadTimeoutMs);
 
-    await this.#request(this.#scriptPath(scriptName, "/subdomain"), {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ enabled: true, previews_enabled: false }),
-    });
+    await this.setScriptSubdomain(scriptName, true);
   }
 
   #accountPath(suffix: string): string {
@@ -212,6 +225,7 @@ export class CloudflareApiClient implements CloudflareAssetsApi {
     init: RequestInit = {},
     timeoutMs = this.#timeoutMs,
     token = this.#apiToken,
+    requireResult = true,
   ): Promise<unknown> {
     const headers = new Headers(init.headers);
     headers.set("Authorization", `Bearer ${token}`);
@@ -246,10 +260,10 @@ export class CloudflareApiClient implements CloudflareAssetsApi {
     if (!response.ok || (isRecord(body) && body.success === false)) {
       throw classifyFailure(response.status, body);
     }
-    if (!isRecord(body) || body.success !== true || !("result" in body)) {
+    if (!isRecord(body) || body.success !== true || (requireResult && !("result" in body))) {
       throw new CloudflareApiError("unverifiable", response.status);
     }
-    return body.result;
+    return requireResult ? body.result : undefined;
   }
 }
 

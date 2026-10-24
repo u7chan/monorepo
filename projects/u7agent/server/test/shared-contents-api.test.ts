@@ -225,3 +225,61 @@ test("未知の id は 404、body 不正は 400", async () => {
     await restore();
   }
 });
+
+test("停止 200 → 再公開 202 → 削除 204 で URL と行のライフサイクルを閉じる", async () => {
+  const { bff, sessionId, calls, restore } = await setup();
+  try {
+    const created = await jsonBody(
+      await bff.app.request("/api/shared-contents", jsonPost({ sessionId, directory: "dist" })),
+    );
+    const before = await waitForSettled(bff, created.id);
+    assert.equal(before.status, "published");
+
+    const stoppedResponse = await bff.app.request(`/api/shared-contents/${created.id}/stop`, { method: "POST" });
+    assert.equal(stoppedResponse.status, 200);
+    assert.deepEqual(await jsonBody(stoppedResponse), { id: created.id, status: "stopped" });
+    const stopped = await jsonBody(await bff.app.request(`/api/shared-contents/${created.id}`));
+    assert.equal(stopped.status, "stopped");
+    assert.equal(stopped.publicUrl, before.publicUrl, "停止しても URL は変わらない");
+    assert.equal(stopped.lastError, null);
+
+    const resumedResponse = await bff.app.request(`/api/shared-contents/${created.id}/resume`, { method: "POST" });
+    assert.equal(resumedResponse.status, 202);
+    assert.deepEqual(await jsonBody(resumedResponse), { id: created.id, status: "publishing" });
+    const resumed = await waitForSettled(bff, created.id);
+    assert.equal(resumed.status, "published");
+    assert.equal(resumed.publicUrl, before.publicUrl);
+    assert.equal(resumed.stoppedAt, null);
+
+    const deleted = await bff.app.request(`/api/shared-contents/${created.id}`, { method: "DELETE" });
+    assert.equal(deleted.status, 204);
+    assert.equal(await deleted.text(), "");
+    assert.equal((await bff.app.request(`/api/shared-contents/${created.id}`)).status, 404);
+    assert.deepEqual((await jsonBody(await bff.app.request("/api/shared-contents"))).items, []);
+    assert.ok(
+      calls.some((line) => line.startsWith("DELETE ") && line.endsWith(`/workers/scripts/u7s-${created.id}`)),
+      "削除は provider の script 削除を通る",
+    );
+  } finally {
+    await restore();
+  }
+});
+
+test("停止 / 再公開 / 削除は存在しない id を 404、遷移できない状態を 409 にする", async () => {
+  const { bff, restore } = await setup();
+  try {
+    assert.equal((await bff.app.request("/api/shared-contents/nope/stop", { method: "POST" })).status, 404);
+    assert.equal((await bff.app.request("/api/shared-contents/nope/resume", { method: "POST" })).status, 404);
+    assert.equal((await bff.app.request("/api/shared-contents/nope", { method: "DELETE" })).status, 404);
+    for (const response of [
+      await bff.app.request("/api/shared-contents/nope/stop", { method: "POST" }),
+      await bff.app.request("/api/shared-contents/nope/resume", { method: "POST" }),
+      await bff.app.request("/api/shared-contents/nope", { method: "DELETE" }),
+    ]) {
+      const body = await jsonBody(response);
+      assert.equal(body.state, "not_stored");
+    }
+  } finally {
+    await restore();
+  }
+});

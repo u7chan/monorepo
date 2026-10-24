@@ -1049,6 +1049,13 @@ export const SharedContentMutationResponseSchema = z.object({
 });
 export type SharedContentMutationResponse = z.infer<typeof SharedContentMutationResponseSchema>;
 
+/** POST /api/shared-contents/:id/stop。停止は同期で確定する (200) */
+export const SharedContentStopResponseSchema = z.object({
+  id: z.string(),
+  status: z.literal("stopped"),
+});
+export type SharedContentStopResponse = z.infer<typeof SharedContentStopResponseSchema>;
+
 /**
  * GET /api/settings/cloudflare。トークンは返さず、登録状態とアカウント ID だけを返す。
  * `available: false` は master key が使えず、登録・復号が 503 になる状態。
