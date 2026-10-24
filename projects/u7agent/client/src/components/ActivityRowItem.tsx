@@ -15,6 +15,8 @@ import { ExternalLinkIcon } from "./icons";
  * 実行状況の 1 行。操作を持たない行は行全体が会話のリンク (タップ領域を行にする)。
  * `起動` / `開く` を持つ行だけ「タイトル + メタのリンク」と「状態ピル + 操作」に分ける
  * (リンクの中に button を入れ子にしない)。操作の有無は lib/activityServe が決める。
+ * 起動に失敗した理由は操作の有無と切り離して行に出す (状態を取得できず操作が消えても、
+ * 失敗した会話の理由を残す)。
  */
 export type ActivityRowItemProps = {
   row: ActivityRow;
@@ -42,7 +44,7 @@ export function ActivityRowItem({ row, now, spaceName, serve, compact = false, e
   const body = <RowBody row={row} now={now} spaceName={spaceName} served={serve.served} />;
   if (serve.action === "none") {
     return (
-      <li className="min-w-0">
+      <li className={cn("min-w-0", error && "grid gap-1.5")}>
         {/* 行全体をリンクにし、タップ・クリックの当たり判定を行にする。accessible name は中の会話タイトルを含む */}
         <a
           href={sessionEntryHref(row.sessionId, row.spaceId)}
@@ -61,6 +63,8 @@ export function ActivityRowItem({ row, now, spaceName, serve, compact = false, e
             </span>
           </RowSide>
         </a>
+        {/* 理由はリンクの外 (入れ子の interactive を作らない) */}
+        <RowError error={error} />
       </li>
     );
   }
@@ -79,13 +83,18 @@ export function ActivityRowItem({ row, now, spaceName, serve, compact = false, e
             <RowAction row={row} serve={serve} compact={compact} onStart={onStart} />
           </RowSide>
         </div>
-        {error ? (
-          <p role="alert" className="text-1xs break-all text-danger-text">
-            サービスの起動に失敗しました: {error}
-          </p>
-        ) : null}
+        <RowError error={error} />
       </div>
     </li>
+  );
+}
+
+function RowError({ error }: { error?: string }) {
+  if (!error) return null;
+  return (
+    <p role="alert" className="text-1xs break-all text-danger-text">
+      サービスの起動に失敗しました: {error}
+    </p>
   );
 }
 

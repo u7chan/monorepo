@@ -8,8 +8,10 @@ import test from "node:test";
 import type { Space } from "server";
 import type { ActivityRow } from "../src/lib/activity";
 import { activityRows } from "../src/lib/activity";
+import { activityRowServe } from "../src/lib/activityServe";
 import type { ActivityRowServe } from "../src/lib/activityServe";
 import type { ActivityServiceView } from "../src/lib/activityServe";
+import { createRuntimeServeController, INITIAL_RUNTIME_SERVE_STATE } from "../src/lib/runtimeServe";
 import type { SessionsFetchSnapshot } from "../src/lib/sessionsFetch";
 import type { Project, SessionSummary } from "../src/types";
 
@@ -389,9 +391,60 @@ test("起動に失敗した理由はその行に出し、行の起動は再試�
   assert.ok(markup.includes("起動: sessions/done / python3 -m http.server 8080"));
   assertNoNestedInteractive(markup);
 
-  // 失敗していない行と、操作を持たない行には出さない
+  // 失敗していない行には出さない
   const other = renderRow(finishedRow({ sessionId: "done-2" }), serve);
   assert.equal(other.includes('role="alert"'), false);
-  const plain = renderRow(row, NO_ACTION, false, "x");
-  assert.equal(plain.includes('role="alert"'), false, "操作の無い行には理由を出さない");
+  // 操作が無くなっても (状態を取得できない間も)、失敗した行の理由は残す
+  const failedWithoutAction = renderRow(row, NO_ACTION, false, "サンドボックスに接続できません");
+  assert.match(failedWithoutAction, /role="alert"/);
+  assert.ok(renderedText(failedWithoutAction).includes("サービスの起動に失敗しました: サンドボックスに接続できません"));
+  assert.equal((failedWithoutAction.match(/<a[\s>]/g) ?? []).length, 1, "行全体のリンクは維持する");
+  assertNoNestedInteractive(failedWithoutAction);
+  // 失敗していない操作なし行には出さない
+  const plain = renderRow(row, NO_ACTION);
+  assert.equal(plain.includes('role="alert"'), false);
+});
+
+test("起動失敗のあと状態も取得できなくても、失敗した行に理由が残る", async () => {
+  let state = INITIAL_RUNTIME_SERVE_STATE;
+  const controller = createRuntimeServeController({
+    // 起動の後は状態を取得できない (サンドボックスへの接続が失われた経路)
+    getStatus: async () => {
+      throw new Error("サンドボックスに接続できません");
+    },
+    start: async () => {
+      throw new Error("サンドボックスに接続できません");
+    },
+    stop: async () => {
+      throw new Error("unused");
+    },
+    confirm: async () => true,
+    onChange: (next) => {
+      state = next;
+    },
+  });
+  await controller.refresh();
+  const result = await controller.start({
+    sessionId: "done-1",
+    confirm: { kind: "confirm", title: "サービスを起動", confirmLabel: "起動する" },
+  });
+  // 失敗の後の取り直しも失敗し、状態は「取得できない」になる
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.deepEqual(result, { kind: "failed", error: "サンドボックスに接続できません" });
+  assert.equal(state.status, null);
+  assert.equal(state.failed, true);
+
+  const row = finishedRow();
+  const serve = activityRowServe({
+    row,
+    status: state.status,
+    failed: state.failed,
+    starting: state.starting,
+    hostname: "localhost",
+    port: 8016,
+  });
+  assert.equal(serve.action, "none", "状態を取得できない間は操作を出さない");
+  const markup = renderRow(row, serve, false, result.kind === "failed" ? result.error : undefined);
+  assert.match(markup, /role="alert"/);
+  assert.ok(renderedText(markup).includes("サービスの起動に失敗しました: サンドボックスに接続できません"));
 });
