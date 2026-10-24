@@ -165,3 +165,57 @@ test("未ロードの会話の summary は実行の時刻を載せず、idle と
   assert.equal("awaitingSince" in list.sessions[0], false);
   assert.equal(typeof list.sessions[0].lastUsedAt, "number");
 });
+
+test("summary は serve の成功実績を workdir 単位で載せ、無い会話は null にする", async (t) => {
+  const f = await setup(t);
+  const live = await f.session();
+  assert.equal(f.bff.store.summary(live).serveCommand, null, "実績が無い会話は null");
+
+  f.bff.appDb.saveServeCommand({ cwd: live.workdir, command: "python3 -m http.server 8080", updatedAt: 1 });
+  assert.deepEqual(f.bff.store.summary(live).serveCommand, {
+    cwd: live.workdir,
+    command: "python3 -m http.server 8080",
+  });
+
+  // 未ロード (再起動後) も descriptor から同じ workdir を引いて同じ値を返す
+  await f.bff.store.flush(live);
+  await f.restart();
+  assert.equal(f.bff.store.get(live.id), undefined);
+  const unloaded = (await (await f.bff.app.request("/api/sessions?scope=all")).json()) as {
+    sessions: Array<{ sessionId: string; serveCommand: { cwd: string; command: string } | null }>;
+  };
+  assert.deepEqual(unloaded.sessions.find((item) => item.sessionId === live.id)?.serveCommand, {
+    cwd: live.workdir,
+    command: "python3 -m http.server 8080",
+  });
+});
+
+test("serveCommand は cwd を共有するプロジェクト会話で同じ値になり、別ディレクトリへは漏れない", async (t) => {
+  const f = await setup(t);
+  const post = (path: string, body: unknown) =>
+    f.bff.app.request(path, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+  const project = (await (await post("/api/projects", { cwd: "proj-a", name: "demo" })).json()) as {
+    project: { id: string; cwd: string };
+  };
+  const create = async (body: unknown) => (await (await post("/api/sessions", body)).json()) as { sessionId: string };
+  const first = await create({ projectId: project.project.id });
+  const second = await create({ projectId: project.project.id });
+  const other = await create({});
+  f.bff.appDb.saveServeCommand({ cwd: project.project.cwd, command: "pnpm dev", updatedAt: 1 });
+
+  const list = (await (await f.bff.app.request("/api/sessions?scope=all")).json()) as {
+    sessions: Array<{ sessionId: string; serveCommand: { cwd: string; command: string } | null }>;
+  };
+  const serveCommandOf = (id: string) => list.sessions.find((item) => item.sessionId === id)?.serveCommand;
+  assert.deepEqual(serveCommandOf(first.sessionId), { cwd: project.project.cwd, command: "pnpm dev" });
+  assert.deepEqual(
+    serveCommandOf(second.sessionId),
+    { cwd: project.project.cwd, command: "pnpm dev" },
+    "同じ cwd のプロジェクト会話は実績を共有する",
+  );
+  assert.equal(serveCommandOf(other.sessionId), null, "実績の無い workdir へは漏れない");
+});

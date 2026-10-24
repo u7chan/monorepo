@@ -20,6 +20,7 @@ const session = (sessionId: string, lastUsedAt: number, projectId?: string): Ses
   messageCount: 0,
   createdAt: lastUsedAt,
   lastUsedAt,
+  serveCommand: null,
   pinned: false,
   ...(projectId ? { projectId } : {}),
 });

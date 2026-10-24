@@ -117,6 +117,7 @@ import type {
   SessionPinnedResponse,
   SessionPayload,
   SessionSummary,
+  ServeCommand,
   SessionTitleResponse,
   SSEEventData,
   SSEEventType,
@@ -181,6 +182,14 @@ function compactionFailure(error: unknown): CompactionFailure {
   return { error: httpError(500, "会話の圧縮に失敗しました"), text: "会話の圧縮に失敗しました" };
 }
 
+/**
+ * 会話の作業ディレクトリ (root 相対の cwd) から serve の成功実績を引く狭い lookup。
+ * AppDb が構造的に満たす (一覧の応答へ実績を載せるためだけに使う)。
+ */
+export interface ServeCommandLookup {
+  getServeCommand(cwd: string): { cwd: string; command: string } | undefined;
+}
+
 export interface SessionStoreOptions {
   pi?: PiRuntimeLike | null;
   catalog?: AgentCatalog;
@@ -198,6 +207,8 @@ export interface SessionStoreOptions {
   handoffSandbox?: SandboxHandoffClient | null;
   /** cwd をキーにする行 (secrets / serve_commands) の付け替え。未指定は付け替えない (テスト) */
   cwdKeys?: CwdKeyStore | null;
+  /** serve の成功実績の参照。未指定は一覧の `serveCommand` を常に null にする (テスト) */
+  serveCommands?: ServeCommandLookup | null;
   /** BFF 側のワークスペース root (作業フォルダの絶対パス解決用) */
   rootCwd?: string;
   /** 完了通知の送信先。未指定なら通知しない (テスト・未設定のデプロイ) */
@@ -323,6 +334,8 @@ export class SessionStore {
   handoffSandbox: SandboxHandoffClient | null;
   /** 引っ越しで cwd をキーにする行を付け替えるアプリ DB。null は付け替えない */
   cwdKeys: CwdKeyStore | null;
+  /** serve の成功実績。null は一覧の `serveCommand` を常に null にする */
+  serveCommands: ServeCommandLookup | null;
   rootCwd: string;
   /** ストア上のメタデータ。live な record の分も持つ */
   descriptors: Map<string, SessionMeta>;
@@ -372,6 +385,7 @@ export class SessionStore {
     moveSandbox,
     handoffSandbox,
     cwdKeys,
+    serveCommands,
     rootCwd,
     notifications,
     writeSends,
@@ -389,6 +403,7 @@ export class SessionStore {
     this.moveSandbox = moveSandbox ?? null;
     this.handoffSandbox = handoffSandbox ?? null;
     this.cwdKeys = cwdKeys ?? null;
+    this.serveCommands = serveCommands ?? null;
     this.rootCwd = rootCwd ?? process.cwd();
     this.notifications = notifications ?? null;
     this.titleSummary = titleSummary ?? null;
@@ -1971,7 +1986,17 @@ export class SessionStore {
       masker: this.masker,
       cwd: workspaceAbs(this.rootCwd, record.workdir),
       hasRawLog: this.hasRawLogOf(record.id, record.storeDir),
+      serveCommand: this.serveCommandOf(record.workdir),
     });
+  }
+
+  /**
+   * その作業ディレクトリの serve 成功実績。cwd を共有するプロジェクト会話は同じ値を返し、
+   * 実績が無い会話は null (他ディレクトリの実績は返さない)。
+   */
+  private serveCommandOf(workdir: string): ServeCommand | null {
+    const stored = this.serveCommands?.getServeCommand(workdir);
+    return stored ? { cwd: stored.cwd, command: stored.command } : null;
   }
 
   /** 生ログ (session.jsonl) がディスクにあるか。一覧の「生ログをダウンロード」の出し分けに使う */
@@ -2103,6 +2128,7 @@ export class SessionStore {
       projectSession: meta.projectCwd !== undefined,
       ...(meta.handoffCleanup ? { handoffCleanup: true } : {}),
       hasRawLog: this.hasRawLogOf(meta.id, this.storeDir ?? ""),
+      serveCommand: this.serveCommandOf(this.workdirOf(meta.id, meta.projectCwd, meta.spaceId)),
       messageCount: meta.messageCount,
       createdAt: meta.createdAt,
       lastUsedAt: meta.lastUsedAt,

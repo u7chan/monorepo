@@ -388,6 +388,7 @@ test("サイドバーのセッション行は On の会話だけ鳴っている�
     createdAt: 0,
     lastUsedAt: 0,
     pinned: false,
+    serveCommand: null,
   };
   const render = (session: SessionSummary) =>
     renderToStaticMarkup(

@@ -634,6 +634,7 @@ Content-Security-Policy: sandbox allow-scripts; default-src 'none'; style-src 'u
 | POST | `/api/serve/start` | 起動（到達可なら他会話のプロセスを停止して置き換える） |
 | POST | `/api/serve/stop` | 停止 |
 | GET | `/api/serve/runtime/status` | 設定 → ランタイム のサービス面から全体の状態を取得（会話 id は不要） |
+| POST | `/api/serve/runtime/start` | 実行状況から会話を指定して起動（全体管理の面。所属スペースを問わない） |
 | POST | `/api/serve/runtime/stop` | 設定 → ランタイム のサービス面から現在公開中のサーバーを停止 |
 | GET | `/api/serve/debug/status` | 設定 → ランタイム のデバッグ欄から 18000–18099 の待受を取得（会話 id は不要） |
 | POST | `/api/serve/debug/stop` | 設定 → ランタイム のデバッグ欄から指定したポートの待受を強制停止 |
@@ -664,6 +665,8 @@ Content-Security-Policy: sandbox allow-scripts; default-src 'none'; style-src 'u
 ### ランタイムからの全体管理
 
 `GET /api/serve/runtime/status` と `POST /api/serve/runtime/stop` の応答は `{ reachable, owner, generation, command }`。`owner` は記録と待受ソケットが一致し、会話ストアに起動元が残っているときだけ `{ sessionId, title, spaceId }`、それ以外は `null`。`spaceId` は起動元の所属スペースで、引けないときは載せない（リンクの `?space=` に使う）。`command` は一致する稼働記録の `{ cwd, command }` で、会話ごとの成功実績は使わない。到達不可なら `owner` / `generation` / `command` はすべて `null`。記録のない bash 起動は起動元不明とし、推測した会話リンクを返さない。
+
+`POST /api/serve/runtime/start` の body は `{ sessionId, generation? }` で、応答は同じ `RuntimeServeStatus`。**閲覧中の会話に依存せず、会話の所属スペースも問わない**（`/api/serve/start` は `?spaceId` と `sessionId` の所属一致を要求するため、実行状況から別スペースの会話を起動できない）。実装は会話からの起動と同じロック・世代照合・エラー分類を通し、起動コマンドはその会話の作業ディレクトリの成功実績を使う（実績が無ければ既存のサービスを止めずに 400）。到達可なら置き換えなので `generation` を必須の照合に使い、確認後に変わっていれば 409（UI は状態を取り直して確認をやり直す）。サンドボックス未設定は 503。
 
 全体停止の body は `{ generation: "確認した値" }`（空・null・省略・余分な項目は 400）。会話の選択と所有者に依存せず停止でき、会話未作成・起動元不明・削除済みの会話が起動したサービスも対象。既存の会話からの停止権限は変更しない。全体停止も同じロック・世代照合・待受 PID の特定・ポート解放確認を通す。確認後の入れ替わりは 409 で拒否し、自動再試行はしない。同一オリジンの書き込み検査も適用する。
 

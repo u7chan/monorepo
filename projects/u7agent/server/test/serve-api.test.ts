@@ -139,6 +139,41 @@ test("ランタイムは会話未選択でも全体の状態を取得し、所�
   }
 });
 
+test("実行状況からの起動は別スペースの会話も起動し、実績なし・世代不一致を区別する", async (t) => {
+  const { bff, sandbox, space, session } = await setupWithStore(t);
+  const target = await space("別スペース");
+  const created = await session(target.id);
+  bff.appDb.saveServeCommand({ cwd: created.cwd, command: "pnpm dev", updatedAt: 1 });
+  const withoutCommand = await session("default");
+
+  // 実績の無い会話は、既存のサービスを止めずに 400 にする
+  const missing = await bff.app.request("/api/serve/runtime/start", jsonPost({ sessionId: withoutCommand.sessionId }));
+  assert.equal(missing.status, 400);
+  assert.match((await jsonBody(missing)).error, /実績/);
+  assert.deepEqual(sandbox.state.killed, []);
+
+  // 別スペースの会話でも起動でき、応答は全体の状態 (設定 → ランタイムと同じ形)
+  const started = await bff.app.request("/api/serve/runtime/start", jsonPost({ sessionId: created.sessionId }));
+  assert.equal(started.status, 200);
+  const status = await jsonBody(started);
+  assert.equal(RuntimeServeStatusSchema.safeParse(status).success, true);
+  assert.deepEqual(status.owner, { sessionId: created.sessionId, title: "無題のセッション", spaceId: target.id });
+  assert.deepEqual(status.command, { cwd: created.cwd, command: "pnpm dev" });
+  assert.deepEqual(await jsonBody(await bff.app.request("/api/serve/runtime/status")), status);
+
+  // 確認した世代と実行時の値が違えば 409 (自動で置き換えない)
+  const conflict = await bff.app.request(
+    "/api/serve/runtime/start",
+    jsonPost({ sessionId: created.sessionId, generation: "stale" }),
+  );
+  assert.equal(conflict.status, 409);
+  assert.equal(sandbox.state.killed.length, 0);
+
+  // body の契約と未知の会話
+  assert.equal((await bff.app.request("/api/serve/runtime/start", jsonPost({}))).status, 400);
+  assert.equal((await bff.app.request("/api/serve/runtime/start", jsonPost({ sessionId: "unknown000" }))).status, 404);
+});
+
 test("スペース削除は公開中のサービスを 409 で止め、停止すると消せる", async (t) => {
   const { bff, sandbox, space, session } = await setupWithStore(t);
   const target = await space("消す");
@@ -304,6 +339,12 @@ test("サンドボックス未設定は 503、プローブの失敗は 502 に�
     assert.equal((await unconfigured.app.request("/api/serve/runtime/status")).status, 503);
     assert.equal(
       (await unconfigured.app.request("/api/serve/runtime/stop", jsonPost({ generation: "g" }))).status,
+      503,
+    );
+    // 実績があってもサンドボックス未設定では起動しない (状態を取得できないのを停止中へ丸めない)
+    unconfigured.appDb.saveServeCommand({ cwd: "", command: "pnpm dev", updatedAt: 1 });
+    assert.equal(
+      (await unconfigured.app.request("/api/serve/runtime/start", jsonPost({ sessionId: created.sessionId }))).status,
       503,
     );
     assert.match((await jsonBody(response)).error, /PI_SANDBOX_URL/);

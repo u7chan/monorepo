@@ -538,59 +538,76 @@ export class ServeService {
    */
   async start(sessionId: string, input: { command?: string; generation?: string | null } = {}): Promise<ServeStatus> {
     const view = this.#view(sessionId);
+    return this.#lock.run(async () => this.#compose(view, await this.#startLocked(view, input)));
+  }
+
+  /**
+   * 実行状況からの起動。閲覧中の会話に依存せず、会話の所属スペースも問わない (全体管理の面)。
+   * ロック・世代照合・エラー分類は会話からの起動と同じ経路を通す。
+   */
+  async runtimeStart(input: { sessionId: string; generation?: string | null }): Promise<RuntimeServeStatus> {
+    const view = this.#view(input.sessionId);
+    return this.#lock.run(async () =>
+      this.#composeRuntime(await this.#startLocked(view, { generation: input.generation ?? null })),
+    );
+  }
+
+  /** 起動の本体。呼び出し側がロックを持ち、応答は呼び出し元の面 (会話 / 全体) に合わせて組む */
+  async #startLocked(
+    view: { sessionId: string; cwd: string; title: string },
+    input: { command?: string; generation?: string | null },
+  ): Promise<ServeObservation> {
     const explicit = input.command?.trim();
-    return this.#lock.run(async () => {
+    this.#cached = null;
+    // 実績の解決と検証は置き換えの停止より先に行う (コマンドが無いのに既存を止めない)
+    const command = explicit || this.#db.getServeCommand(view.cwd)?.command;
+    if (!command) throw httpError(400, "この作業ディレクトリには serve の実績がありません");
+    const before = await this.#observe({ fresh: true, scanPids: true });
+    if (before.reachable) {
+      this.#assertGeneration(before, input.generation ?? null);
+      // 置き換えは所有者を問わない (UI が所有者名を出して確認してから呼ぶ)
+      await this.#stopListener(before);
+    }
+    const generation = randomBytes(4).toString("hex");
+    // 値の解決は起動の直前に行う。失敗したら起動せず、部分適用もしない
+    const env = this.#secretEnv?.resolveServiceEnv(view.cwd) ?? { variables: {}, secrets: {}, generation: "" };
+    const pid = await this.#launch(view, command, { ...env.variables, ...env.secrets }, { log: SERVE_LOG_REL });
+    // 失敗しても「起動を試みた事実」は残す。以前の成功コマンドは上書きしない
+    let record: ServeRecord = {
+      sessionId: view.sessionId,
+      cwd: view.cwd,
+      command,
+      pid,
+      startedAt: this.#now(),
+      inodes: [],
+      generation,
+      secretGeneration: env.generation,
+    };
+    await this.#writeRecord(record);
+    // 到達しただけでは成功としない。待受プロセスがこの起動に由来することまで確かめる
+    // (期限超過した別の起動が遅れて listen した場合、それを今回の成功として記録しない)
+    const waited = await this.#waitForOwnListener(pid);
+    if (!waited.ok) {
       this.#cached = null;
-      // 実績の解決と検証は置き換えの停止より先に行う (コマンドが無いのに既存を止めない)
-      const command = explicit || this.#db.getServeCommand(view.cwd)?.command;
-      if (!command) throw httpError(400, "この作業ディレクトリには serve の実績がありません");
-      const before = await this.#observe({ fresh: true, scanPids: true });
-      if (before.reachable) {
-        this.#assertGeneration(before, input.generation ?? null);
-        // 置き換えは所有者を問わない (UI が所有者名を出して確認してから呼ぶ)
-        await this.#stopListener(before);
-      }
-      const generation = randomBytes(4).toString("hex");
-      // 値の解決は起動の直前に行う。失敗したら起動せず、部分適用もしない
-      const env = this.#secretEnv?.resolveServiceEnv(view.cwd) ?? { variables: {}, secrets: {}, generation: "" };
-      const pid = await this.#launch(view, command, { ...env.variables, ...env.secrets }, { log: SERVE_LOG_REL });
-      // 失敗しても「起動を試みた事実」は残す。以前の成功コマンドは上書きしない
-      let record: ServeRecord = {
-        sessionId: view.sessionId,
-        cwd: view.cwd,
-        command,
-        pid,
-        startedAt: this.#now(),
-        inodes: [],
-        generation,
-        secretGeneration: env.generation,
-      };
-      await this.#writeRecord(record);
-      // 到達しただけでは成功としない。待受プロセスがこの起動に由来することまで確かめる
-      // (期限超過した別の起動が遅れて listen した場合、それを今回の成功として記録しない)
-      const waited = await this.#waitForOwnListener(pid);
-      if (!waited.ok) {
-        this.#cached = null;
-        throw httpError(
-          502,
-          waited.reachable
-            ? `serve を起動しましたが、${this.#listenPort} 番ポートはこの起動に由来しないプロセスが使用しています。エージェントに確認を依頼してください`
-            : `serve を起動しましたが、期限内に ${this.#listenPort} 番ポートへ到達できませんでした。${SERVE_LOG_REL} のログを確認してください`,
-        );
-      }
-      // 到達できたら「いま待受しているプロセス」を正として記録し直す (所有者の照合を効かせる)
-      record = {
-        ...record,
-        pid: waited.listener.pid,
-        startedAt: waited.listener.startedAt,
-        inodes: [...waited.listener.inodes],
-      };
-      await this.#writeRecord(record);
-      // 実績の更新は成功時だけ (失敗したコマンドで以前の成功を上書きしない)
-      this.#db.saveServeCommand({ cwd: view.cwd, command, updatedAt: this.#now() });
-      this.#cached = null;
-      return this.#compose(view, await this.#observe());
-    });
+      throw httpError(
+        502,
+        waited.reachable
+          ? `serve を起動しましたが、${this.#listenPort} 番ポートはこの起動に由来しないプロセスが使用しています。エージェントに確認を依頼してください`
+          : `serve を起動しましたが、期限内に ${this.#listenPort} 番ポートへ到達できませんでした。${SERVE_LOG_REL} のログを確認してください`,
+      );
+    }
+    // 到達できたら「いま待受しているプロセス」を正として記録し直す (所有者の照合を効かせる)
+    record = {
+      ...record,
+      pid: waited.listener.pid,
+      startedAt: waited.listener.startedAt,
+      inodes: [...waited.listener.inodes],
+    };
+    await this.#writeRecord(record);
+    // 実績の更新は成功時だけ (失敗したコマンドで以前の成功を上書きしない)
+    this.#db.saveServeCommand({ cwd: view.cwd, command, updatedAt: this.#now() });
+    this.#cached = null;
+    return await this.#observe();
   }
 
   /**

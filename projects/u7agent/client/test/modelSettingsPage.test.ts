@@ -51,6 +51,7 @@ function session(overrides: Partial<SessionSummary> = {}): SessionSummary {
     createdAt: 1,
     lastUsedAt: 2,
     pinned: false,
+    serveCommand: null,
     ...overrides,
   };
 }

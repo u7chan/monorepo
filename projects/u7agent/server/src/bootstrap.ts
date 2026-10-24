@@ -373,6 +373,7 @@ export async function createBffContext(opts: CreateBffAppOptions = {}): Promise<
     moveSandbox,
     handoffSandbox,
     cwdKeys: appDb,
+    serveCommands: appDb,
     rootCwd: cwd,
     notifications,
     titleSummary: titleSummaryGenerate ? titleSummaryHost(titleSummarySettings, titleSummaryGenerate) : null,

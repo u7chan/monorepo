@@ -607,6 +607,14 @@ export const SessionPayloadSchema = z.object({
 });
 export type SessionPayload = z.infer<typeof SessionPayloadSchema>;
 
+/** 作業ディレクトリ単位の serve 成功実績。一覧の会話と稼働記録の両方がこの形で cwd とコマンドを持つ */
+export const ServeCommandSchema = z.object({
+  /** ワークスペース root 相対の作業ディレクトリ */
+  cwd: z.string(),
+  command: z.string(),
+});
+export type ServeCommand = z.infer<typeof ServeCommandSchema>;
+
 export const SessionSummarySchema = z.object({
   spaceId: z.string().optional(),
   sessionId: z.string(),
@@ -635,6 +643,11 @@ export const SessionSummarySchema = z.object({
   messageCount: z.number(),
   createdAt: z.number(),
   lastUsedAt: z.number(),
+  /**
+   * その会話の作業ディレクトリ (workdir) の serve 成功実績。実績が無ければ null。
+   * cwd を共有するプロジェクト会話は同じ値を返す (実行状況からの起動可否と起動の確認に使う)。
+   */
+  serveCommand: ServeCommandSchema.nullable(),
   model: z.string().optional(),
   projectId: z.string().optional(),
   /**
@@ -1743,12 +1756,6 @@ export const ServeOwnerSchema = z.object({
   title: z.string().optional(),
 });
 
-export const ServeCommandSchema = z.object({
-  /** ワークスペース root 相対の作業ディレクトリ */
-  cwd: z.string(),
-  command: z.string(),
-});
-
 export const ServeStatusSchema = z.object({
   reachable: z.boolean(),
   owner: ServeOwnerSchema,
@@ -1763,7 +1770,6 @@ export const ServeStatusSchema = z.object({
   secretGeneration: z.string().nullable(),
 });
 export type ServeStatus = z.infer<typeof ServeStatusSchema>;
-export type ServeCommand = z.infer<typeof ServeCommandSchema>;
 
 /** 設定 → ランタイム。閲覧中の会話の実績ではなく、いま公開中のサービスを返す。 */
 export const RuntimeServeStatusSchema = z.object({
@@ -1795,6 +1801,16 @@ export const ServeStopBodySchema = z.object({
   generation: z.string().nullable().optional(),
 });
 export type ServeStopBody = z.infer<typeof ServeStopBodySchema>;
+
+/**
+ * 実行状況から全スペース横断で起動する。会話の所属スペースは問わない (全体管理の面) ため、
+ * `/api/serve/start` と違って `?spaceId` との一致を要求しない。
+ */
+export const RuntimeServeStartBodySchema = z.object({
+  sessionId: z.string().min(1),
+  generation: z.string().nullable().optional(),
+});
+export type RuntimeServeStartBody = z.infer<typeof RuntimeServeStartBodySchema>;
 
 /**
  * 設定 → ランタイム のデバッグ一覧。行はレンジ走査で見付かった待受だけで、lease の無い行 (追跡外) は
