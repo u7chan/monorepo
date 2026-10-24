@@ -81,3 +81,24 @@ test("次の assistant メッセージ (ターン) でも書き出しを知ら�
     ["writing", "writing"],
   );
 });
+
+// What: ツールを終えた後、次のモデル判断に入る間も状態行は終わったツールを実行中のままにしない。
+test("ツールを終えて次のターンへ入ると考え中へ戻す", () => {
+  const { bridge, statuses } = createActivityBridge();
+  bridge.listener(assistantStart);
+  bridge.listener({ type: "tool_execution_start", toolCallId: "call-1", toolName: "bash", args: {} });
+  bridge.listener({ type: "tool_execution_end", toolCallId: "call-1", toolName: "bash", result: {} });
+  assert.deepEqual(statuses().at(-1), { state: "tool", text: "bash を実行中…" }, "ツール実行中はツール名を出す");
+
+  bridge.listener({ type: "turn_start" });
+  assert.deepEqual(statuses().at(-1), { state: "thinking", text: "考え中…" }, "モデル判断へ戻したら考え中にする");
+});
+
+// What: 最初のターンは agent_start と同じ文言なので、同じ status を二重に配らない。
+test("最初のターンは agent_start の考え中を繰り返さない", () => {
+  const { bridge, statuses } = createActivityBridge();
+  bridge.listener({ type: "agent_start" });
+  bridge.listener({ type: "turn_start" });
+
+  assert.deepEqual(statuses(), [{ state: "thinking", text: "考え中…" }]);
+});

@@ -237,6 +237,11 @@ export function createRunEventBridge(deps: RunEventBridgeDeps): RunEventBridge {
         case "agent_start":
           emit("status", { state: "thinking", text: "考え中…" });
           break;
+        case "turn_start":
+          // 最初のターンは agent_start と同じ文言。ツールを終えた後のモデル待ちで、
+          // 終わったツール名を実行中のまま残さない
+          if (assistantSeen) emit("status", { state: "thinking", text: "考え中…" });
+          break;
         case "message_start":
           if (event.message?.role === "assistant") {
             assistantSeen = true;

@@ -51,6 +51,7 @@
 実装済みの製品仕様とは分け、対象バージョンと調査範囲を限定した観測・未解決事項を残す。現行の挙動はコードとテストを正とする。
 
 - [Pi SDK steering の調査](surveys/pi-steering.md) — 追加入力の注入境界、steering と中断の違い、最小再現（現行契約は [run-lifecycle.md](run-lifecycle.md#追加入力steeringの配送)）
+- [長時間ランの可視化と追加入力の扱い](surveys/long-run-visibility.md) — 実行中の質問が回答されないこと、進捗の見せ方、中断して送信する案、TODO リストの成立条件（未着手）
 
 ## ドキュメントの構成
 
