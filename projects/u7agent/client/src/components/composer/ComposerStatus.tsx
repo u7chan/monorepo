@@ -173,7 +173,7 @@ export function ComposerStatus({
                   isElapsedTier(elapsed.ms) ? "elapsed-beat-tier" : "",
                 )}
               >
-                ({elapsed.text})
+                (実行 {elapsed.text})
               </span>
             )}
           </span>

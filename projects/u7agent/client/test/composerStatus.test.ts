@@ -145,7 +145,7 @@ test("描画: モデル / Effort の入口とゲージは aria-live の外へ置
   assert.ok(live.includes("実行中…（タブを閉じても処理は続きます）"), "活動テキストは読み上げる");
   assert.ok(!live.includes("GLM-5.3 Flash"), "モデル / Effort の入口は毎回読み上げない");
   assert.ok(!live.includes("Context"), "ゲージは毎回読み上げない");
-  assert.ok(html.includes("(0s)"), "経過時間は aria-hidden の別スパンに出す");
+  assert.ok(html.includes("(実行 0s)"), "経過時間は run の経過だと分かる形で aria-hidden の別スパンに出す");
 });
 
 test("描画: 活動が空なら活動欄ごと出さない (空行を残さない)", () => {
@@ -170,8 +170,24 @@ test("描画: 実行中の経過時間は 10 秒の拍の枠に出し、1 分以
     runningSince: Date.now() - 90_000,
     modelSlot: slot(),
   });
-  assert.match(long, /\(1m 3\ds\)/, "1 分を超えたら分と秒で出す");
+  assert.match(long, /\(実行 1m 3\ds\)/, "1 分を超えたら分と秒で出す");
   assert.ok(long.includes("elapsed-beat-tier"), "長いランは色を残す");
+});
+
+// What: 状態行の数字は run 全体の経過で、直前のツールの所要時間ではない。
+test("描画: 経過時間は直近ツールの所要時間ではなく run 全体の経過を出す", () => {
+  const now = Date.now();
+  const html = render({
+    activity: "bash を実行中…",
+    runningSince: now - 70_000,
+    runStatus: "running",
+    runTools: {
+      t1: { id: "t1", name: "bash", args: "", isError: false, done: false, output: "", startedAt: now - 2_000 },
+    },
+  });
+
+  assert.match(html, /\(実行 1m 1[01]s\)/, "run の経過を出す");
+  assert.ok(!html.includes("(実行 2s)"), "ツールの所要時間を run の経過として出さない");
 });
 
 test("描画: 実行中の経過時間は回答待ち (ask_user の区間) を除く", () => {
@@ -194,7 +210,7 @@ test("描画: 実行中の経過時間は回答待ち (ask_user の区間) を�
     runTools: { q1: open("q1", now - 60_000), q2: open("q2", now - 50_000) },
   });
 
-  assert.match(html, /\(10s\)/, "待機 60 秒を引いた 10 秒を出す");
+  assert.match(html, /\(実行 10s\)/, "待機 60 秒を引いた 10 秒を出す");
   assert.ok(!html.includes("elapsed-beat-tier"), "待機を引いた値で色を判定する");
 });
 
@@ -208,7 +224,7 @@ test("描画: 回答が届いたカードは待機の続きから数え、開始
     runStatus: "running",
     runTools: { q1: { ...base, id: "q1", done: true, startedAt: now - 60_000, endedAt: now - 50_000 } },
   });
-  assert.match(answered, /\(1m 0s\)/, "待機 10 秒だけを引いて続きを数える");
+  assert.match(answered, /\(実行 1m 0s\)/, "待機 10 秒だけを引いて続きを数える");
 
   const noStart = render({
     activity: "実行中…",
@@ -216,7 +232,7 @@ test("描画: 回答が届いたカードは待機の続きから数え、開始
     runStatus: "running",
     runTools: { q1: { ...base, id: "q1", endedAt: now - 50_000 } },
   });
-  assert.match(noStart, /\(1m 1[01]s\)/, "startedAt が無ければ待機を含めて数える");
+  assert.match(noStart, /\(実行 1m 1[01]s\)/, "startedAt が無ければ待機を含めて数える");
 });
 
 test("描画: 圧縮中の経過時間は前の run の回答待ちを引かない", () => {
@@ -239,7 +255,7 @@ test("描画: 圧縮中の経過時間は前の run の回答待ちを引かな�
     },
   });
 
-  assert.match(html, /\(1m 1[01]s\)/, "圧縮の起点からの経過をそのまま出す");
+  assert.match(html, /\(実行 1m 1[01]s\)/, "圧縮の起点からの経過をそのまま出す");
 });
 
 // --- 手動圧縮の導線 ---
