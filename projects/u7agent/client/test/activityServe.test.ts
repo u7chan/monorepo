@@ -14,7 +14,7 @@ const running: RuntimeServeStatus = {
 const unknown: RuntimeServeStatus = { reachable: true, owner: null, generation: "gen-b", command: null };
 const stopped: RuntimeServeStatus = { reachable: false, owner: null, generation: null, command: null };
 
-const row = { sessionId: "session-a", kind: "finished" as const, serveCommand: "pnpm dev" };
+const row = { sessionId: "session-a", kind: "finished" as const, serveCommand: { cwd: "app", command: "pnpm dev" } };
 
 test("サービス行は取得前・取得失敗・停止中・起動中・稼働中・起動元不明を区別する", () => {
   const view = (status: RuntimeServeStatus | null, failed = false, launching?: { title?: string; command?: string }) =>
@@ -60,7 +60,7 @@ test("行の操作は稼働中の起動元が開く、実績のある終了行�
   const finished = serve({ ...base, row: { ...row, sessionId: "other" } });
   assert.equal(finished.served, false);
   assert.equal(finished.action, "start");
-  assert.equal(finished.command, "pnpm dev");
+  assert.deepEqual(finished.command, { cwd: "app", command: "pnpm dev" });
 
   // 実行中の行には起動を出さない (エージェントの serve と競合させない)
   assert.equal(serve({ ...base, row: { ...row, sessionId: "other", kind: "working" } }).action, "none");
@@ -83,21 +83,26 @@ test("起動中は対象の行を操作に変え、他の行の起動を無効�
   assert.equal(other.disabled, true, "同時に 1 件だけ");
 });
 
-test("起動の確認は対象の会話・コマンドと、置き換える現在の起動元を出す", () => {
-  const target = { title: "起動する会話", serveCommand: "pnpm dev" };
+test("起動の確認は対象の会話・作業ディレクトリ・コマンドと、停止する現在のサービスを出す", () => {
+  const target = { title: "起動する会話", serveCommand: { cwd: "projects/foo", command: "pnpm dev" } };
   const plain = runtimeServeStartConfirm(target, stopped);
   assert.equal(plain.title, "サービスを起動");
-  assert.deepEqual(plain.body, []);
+  // 停止中からの起動でも、これから起動する作業ディレクトリとコマンドが分かる
+  assert.deepEqual(plain.body, ["起動する作業ディレクトリ: projects/foo"]);
   assert.deepEqual(plain.subject, { label: "起動元の会話", value: "起動する会話" });
   assert.deepEqual(plain.code, { label: "起動コマンド", value: "pnpm dev" });
   assert.equal(plain.confirmLabel, "起動する");
   assert.equal(plain.danger, false);
 
   const replace = runtimeServeStartConfirm(target, running);
-  assert.equal(replace.body?.[0], "公開中の「会話A」を停止して置き換えます。");
+  assert.deepEqual(replace.body, [
+    "公開中の「会話A」を停止して置き換えます。",
+    "起動する作業ディレクトリ: projects/foo",
+  ]);
   assert.equal(replace.confirmLabel, "停止して起動");
   assert.equal(replace.danger, true);
-  assert.match(replace.notes?.[0] ?? "", /いま公開中の作業ディレクトリ: app（python3 -m http\.server 8080）/);
+  // 止める側の作業ディレクトリは起動する側とは別の行に出す (同じコマンドでも取り違えない)
+  assert.match(replace.notes?.[0] ?? "", /停止する現在のサービス: app（python3 -m http\.server 8080）/);
 
   const unclear = runtimeServeStartConfirm(target, unknown);
   assert.equal(unclear.body?.[0], "起動元不明のプロセスを停止して置き換えます。");

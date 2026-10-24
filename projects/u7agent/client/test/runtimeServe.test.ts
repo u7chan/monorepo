@@ -173,7 +173,7 @@ const startRequest = {
 test("起動は確認した世代を送り、成功で状態を適用する", async () => {
   const view = setup();
   await view.controller.refresh();
-  assert.equal(await view.controller.start(startRequest), "started");
+  assert.deepEqual(await view.controller.start(startRequest), { kind: "started" });
   assert.deepEqual(view.starts, [{ sessionId: "session-b", generation: "gen-a" }]);
   assert.equal(view.state().status?.owner?.sessionId, "session-b", "適用するのは応答の状態");
   assert.equal(view.state().starting, null);
@@ -185,14 +185,14 @@ test("起動の取消は API を呼ばず、二重クリックでも起動を重
   await view.controller.refresh();
   const action = view.controller.start(startRequest);
   assert.equal(view.state().starting, "session-b", "確認待ちの対象を持つ");
-  assert.equal(await view.controller.start(startRequest), "cancelled");
+  assert.deepEqual(await view.controller.start(startRequest), { kind: "cancelled" });
   answer.resolve(false);
-  assert.equal(await action, "cancelled");
+  assert.deepEqual(await action, { kind: "cancelled" });
   assert.deepEqual(view.starts, []);
   assert.equal(view.state().starting, null);
 });
 
-test("起動の 409 は自動で再試行せず、理由を残して最新状態を取り直す", async () => {
+test("起動の 409 は自動で再試行せず、理由を持ち帰って最新状態を取り直す", async () => {
   let attempts = 0;
   const replacement = { ...running, generation: "gen-b", owner: { sessionId: "session-c", title: "他会話" } };
   const view = setup({
@@ -203,11 +203,16 @@ test("起動の 409 は自動で再試行せず、理由を残して最新状態
     },
   });
   await view.controller.refresh();
-  assert.equal(await view.controller.start(startRequest), "failed");
+  const result = await view.controller.start(startRequest);
   await Promise.resolve();
   assert.equal(attempts, 1, "確認済みの世代で再試行しない");
+  assert.deepEqual(result, {
+    kind: "failed",
+    error: "サービスの状態が変わりました。最新の状態で確認し直してください",
+  });
   assert.equal(view.state().status, replacement, "状態を取り直す");
-  assert.match(view.state().error!, /状態が変わりました/);
+  // 失敗はどの会話の起動かを知っている呼び出し側 (行) が出す。サービス行の error へは載せない
+  assert.equal(view.state().error, undefined);
 });
 
 test("画面を閉じた後は起動の確認と応答を適用しない", async () => {
@@ -218,7 +223,7 @@ test("画面を閉じた後は起動の確認と応答を適用しない", async
   confirming.controller.dispose();
   const count = confirming.changes.length;
   answer.resolve(true);
-  assert.equal(await action, "cancelled");
+  assert.deepEqual(await action, { kind: "cancelled" });
   assert.deepEqual(confirming.starts, []);
   assert.equal(confirming.changes.length, count);
 });

@@ -3,7 +3,7 @@
  * 直近 120 分の終了を 1 画面に出す。区分は排他 (圧縮中 → 回答待ち → 実行中 → 終了) で、件数・並び・
  * 経過時間の文字列はすべてこの module を正とする (docs/frontend.md)。
  */
-import type { Project, SessionSummary } from "../types";
+import type { Project, ServeCommand, SessionSummary } from "../types";
 import { messageTimeLabel } from "./messageTime";
 import { DEFAULT_SPACE_ID } from "./spaceSelection";
 
@@ -31,7 +31,7 @@ export type ActivityRow = {
   /** 終了行の所要時間 (runOutcomes にあるときだけ) */
   durationMs?: number;
   /** その会話の作業ディレクトリの serve 成功実績。無ければ null (起動の操作を出す条件) */
-  serveCommand: string | null;
+  serveCommand: ServeCommand | null;
   /** 並びの基準 (処理中 / 回答待ちは lastUsedAt、終了は finishedAt) */
   sortAt: number;
 };

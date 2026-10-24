@@ -107,6 +107,7 @@ import type {
   SessionPinnedResponse,
   SessionPayload,
   SessionSummary,
+  ServeCommand,
   SessionTitleResponse,
   SSEEventData,
   SSEEventType,
@@ -177,7 +178,7 @@ function compactionFailure(error: unknown): CompactionFailure {
  * AppDb が構造的に満たす (一覧の応答へ実績を載せるためだけに使う)。
  */
 export interface ServeCommandLookup {
-  getServeCommand(cwd: string): { command: string } | undefined;
+  getServeCommand(cwd: string): { cwd: string; command: string } | undefined;
 }
 
 export interface SessionStoreOptions {
@@ -1938,8 +1939,9 @@ export class SessionStore {
    * その作業ディレクトリの serve 成功実績。cwd を共有するプロジェクト会話は同じ値を返し、
    * 実績が無い会話は null (他ディレクトリの実績は返さない)。
    */
-  private serveCommandOf(workdir: string): string | null {
-    return this.serveCommands?.getServeCommand(workdir)?.command ?? null;
+  private serveCommandOf(workdir: string): ServeCommand | null {
+    const stored = this.serveCommands?.getServeCommand(workdir);
+    return stored ? { cwd: stored.cwd, command: stored.command } : null;
   }
 
   /** 生ログ (session.jsonl) がディスクにあるか。一覧の「生ログをダウンロード」の出し分けに使う */

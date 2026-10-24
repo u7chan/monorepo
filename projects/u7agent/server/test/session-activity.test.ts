@@ -172,19 +172,22 @@ test("summary は serve の成功実績を workdir 単位で載せ、無い会�
   assert.equal(f.bff.store.summary(live).serveCommand, null, "実績が無い会話は null");
 
   f.bff.appDb.saveServeCommand({ cwd: live.workdir, command: "python3 -m http.server 8080", updatedAt: 1 });
-  assert.equal(f.bff.store.summary(live).serveCommand, "python3 -m http.server 8080");
+  assert.deepEqual(f.bff.store.summary(live).serveCommand, {
+    cwd: live.workdir,
+    command: "python3 -m http.server 8080",
+  });
 
   // 未ロード (再起動後) も descriptor から同じ workdir を引いて同じ値を返す
   await f.bff.store.flush(live);
   await f.restart();
   assert.equal(f.bff.store.get(live.id), undefined);
   const unloaded = (await (await f.bff.app.request("/api/sessions?scope=all")).json()) as {
-    sessions: Array<{ sessionId: string; serveCommand: string | null }>;
+    sessions: Array<{ sessionId: string; serveCommand: { cwd: string; command: string } | null }>;
   };
-  assert.equal(
-    unloaded.sessions.find((item) => item.sessionId === live.id)?.serveCommand,
-    "python3 -m http.server 8080",
-  );
+  assert.deepEqual(unloaded.sessions.find((item) => item.sessionId === live.id)?.serveCommand, {
+    cwd: live.workdir,
+    command: "python3 -m http.server 8080",
+  });
 });
 
 test("serveCommand は cwd を共有するプロジェクト会話で同じ値になり、別ディレクトリへは漏れない", async (t) => {
@@ -205,10 +208,14 @@ test("serveCommand は cwd を共有するプロジェクト会話で同じ値�
   f.bff.appDb.saveServeCommand({ cwd: project.project.cwd, command: "pnpm dev", updatedAt: 1 });
 
   const list = (await (await f.bff.app.request("/api/sessions?scope=all")).json()) as {
-    sessions: Array<{ sessionId: string; serveCommand: string | null }>;
+    sessions: Array<{ sessionId: string; serveCommand: { cwd: string; command: string } | null }>;
   };
   const serveCommandOf = (id: string) => list.sessions.find((item) => item.sessionId === id)?.serveCommand;
-  assert.equal(serveCommandOf(first.sessionId), "pnpm dev");
-  assert.equal(serveCommandOf(second.sessionId), "pnpm dev", "同じ cwd のプロジェクト会話は実績を共有する");
+  assert.deepEqual(serveCommandOf(first.sessionId), { cwd: project.project.cwd, command: "pnpm dev" });
+  assert.deepEqual(
+    serveCommandOf(second.sessionId),
+    { cwd: project.project.cwd, command: "pnpm dev" },
+    "同じ cwd のプロジェクト会話は実績を共有する",
+  );
   assert.equal(serveCommandOf(other.sessionId), null, "実績の無い workdir へは漏れない");
 });

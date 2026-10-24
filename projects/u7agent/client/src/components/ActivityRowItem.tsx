@@ -23,11 +23,14 @@ export type ActivityRowItemProps = {
   serve: ActivityRowServe;
   /** モバイルヘッダの帯 (641–900px と singleColumn)。操作のタップ領域を 44px 以上にする */
   compact?: boolean;
+  /** この行の起動に失敗した理由。どの会話の失敗かは行だけが知っているので、行の中に出す */
+  error?: string;
   onStart: (row: ActivityRow) => void;
 };
 
 const ROW_BASE =
   "flex min-h-14 min-w-0 flex-col gap-1.5 rounded-xl border border-line bg-raised px-3 py-2.5 sm:flex-row sm:items-center sm:gap-3";
+const ROW_FRAME = "grid min-w-0 gap-1.5 rounded-xl border border-line bg-raised px-3 py-2.5";
 
 const GROUP_DOT: Record<ActivityKind, string> = {
   waiting: "dot-warn",
@@ -35,7 +38,7 @@ const GROUP_DOT: Record<ActivityKind, string> = {
   finished: "dot-idle",
 };
 
-export function ActivityRowItem({ row, now, spaceName, serve, compact = false, onStart }: ActivityRowItemProps) {
+export function ActivityRowItem({ row, now, spaceName, serve, compact = false, error, onStart }: ActivityRowItemProps) {
   const body = <RowBody row={row} now={now} spaceName={spaceName} served={serve.served} />;
   if (serve.action === "none") {
     return (
@@ -63,17 +66,24 @@ export function ActivityRowItem({ row, now, spaceName, serve, compact = false, o
   }
   return (
     <li className="min-w-0">
-      <div className={ROW_BASE}>
-        <a
-          href={sessionEntryHref(row.sessionId, row.spaceId)}
-          className="flex min-w-0 flex-1 flex-col gap-1.5 rounded-lg transition-colors hover:text-accent-text focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"
-        >
-          <span className="sr-only">会話を開く: </span>
-          {body}
-        </a>
-        <RowSide row={row}>
-          <RowAction row={row} serve={serve} compact={compact} onStart={onStart} />
-        </RowSide>
+      <div className={ROW_FRAME}>
+        <div className="flex min-h-14 min-w-0 flex-col gap-1.5 sm:flex-row sm:items-center sm:gap-3">
+          <a
+            href={sessionEntryHref(row.sessionId, row.spaceId)}
+            className="flex min-w-0 flex-1 flex-col gap-1.5 rounded-lg transition-colors hover:text-accent-text focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"
+          >
+            <span className="sr-only">会話を開く: </span>
+            {body}
+          </a>
+          <RowSide row={row}>
+            <RowAction row={row} serve={serve} compact={compact} onStart={onStart} />
+          </RowSide>
+        </div>
+        {error ? (
+          <p role="alert" className="text-1xs break-all text-danger-text">
+            サービスの起動に失敗しました: {error}
+          </p>
+        ) : null}
       </div>
     </li>
   );
@@ -184,7 +194,7 @@ function RowAction({
       onClick={() => onStart(row)}
       disabled={serve.disabled}
       aria-label={`「${row.title}」のサービスを起動`}
-      title={serve.command ? `起動コマンド: ${serve.command}` : undefined}
+      title={serve.command ? `起動: ${serve.command.cwd || "."} / ${serve.command.command}` : undefined}
       className={cn("btn-quiet border-accent/45 text-accent-text", compact && "min-h-11")}
     >
       起動

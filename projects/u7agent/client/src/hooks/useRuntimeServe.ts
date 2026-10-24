@@ -38,7 +38,7 @@ export function useRuntimeServe() {
   }, []);
   const start = useCallback(
     async (input: { sessionId: string; confirm: ConfirmRequest }): Promise<RuntimeServeStartResult> =>
-      (await controller.current?.start(input)) ?? "cancelled",
+      (await controller.current?.start(input)) ?? { kind: "cancelled" },
     [],
   );
   const stop = useCallback(async () => {

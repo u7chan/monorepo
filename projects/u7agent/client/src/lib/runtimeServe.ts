@@ -22,8 +22,11 @@ export const INITIAL_RUNTIME_SERVE_STATE: RuntimeServeState = {
   failed: false,
 };
 
-/** 起動の結果。取り消し・失敗は状態の適用を行わない (失敗の理由は state.error に載る) */
-export type RuntimeServeStartResult = "started" | "cancelled" | "failed";
+/**
+ * 起動の結果。状態の適用は成功時だけ行う。失敗は理由を持ち帰り、呼び出し側が対象の行に出す
+ * (どの会話の起動に失敗したかは呼び出し側しか知らないため、共有の state.error には載せない)。
+ */
+export type RuntimeServeStartResult = { kind: "started" } | { kind: "cancelled" } | { kind: "failed"; error: string };
 
 export function runtimeServeStopConfirm(status: RuntimeServeStatus): ConfirmRequest {
   return {
@@ -79,21 +82,20 @@ export function createRuntimeServeController(deps: {
      * 理由を残して状態を取り直すだけで、確認済みの世代での自動再試行はしない。
      */
     start: async (input: { sessionId: string; confirm: ConfirmRequest }): Promise<RuntimeServeStartResult> => {
-      if (!active || state.stopping || state.starting !== null) return "cancelled";
+      if (!active || state.stopping || state.starting !== null) return { kind: "cancelled" };
       const generation = state.status?.generation ?? null;
       revision += 1;
       update({ starting: input.sessionId, error: undefined });
       // 成功した応答は起動の結果そのものなので、直後の取得で上書きしない (サーバー側のキャッシュが古い値を返し得る)
       let refetch = true;
       try {
-        if (!(await deps.confirm(input.confirm)) || !active) return "cancelled";
+        if (!(await deps.confirm(input.confirm)) || !active) return { kind: "cancelled" };
         const next = await deps.start({ sessionId: input.sessionId, generation });
         update({ status: next, failed: false, loading: false });
         refetch = false;
-        return "started";
+        return { kind: "started" };
       } catch (error) {
-        update({ error: error instanceof Error ? error.message : String(error) });
-        return "failed";
+        return { kind: "failed", error: error instanceof Error ? error.message : String(error) };
       } finally {
         update({ starting: null });
         // 取り消し・409 の後も、確認済みの世代で自動再試行はせず状態だけ取り直す

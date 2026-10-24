@@ -95,6 +95,7 @@ export type {
   SecretMutationResponse,
   SecretRemovalResponse,
   SecretsListResponse,
+  ServeCommand,
   ServeStatus,
   SessionCompactionResult,
   SessionDiagnostics,

@@ -79,9 +79,15 @@ export function ActivityPage({
   const [reloadNote, setReloadNote] = useState("");
   /** 起動の結果の通知。成功したときだけ「開く」へ案内する */
   const [serveNote, setServeNote] = useState("");
+  /**
+   * 起動に失敗した会話と理由。共有のサービス行ではなく**その行**に出す (別の会話が公開中のときに、
+   * どの会話の失敗か分からないまま見えるのを避ける)。一覧を更新したら消す。
+   */
+  const [startError, setStartError] = useState<{ sessionId: string; message: string } | null>(null);
   const refreshService = service.refresh;
   const reload = useCallback(() => {
     setReloadNote("");
+    setStartError(null);
     void onReload().then((ok) => {
       if (ok) setReloadNote("一覧を更新しました");
     });
@@ -97,7 +103,7 @@ export function ActivityPage({
       ? undefined
       : {
           ...(launchingSession ? { title: launchingSession.title } : {}),
-          ...(launchingSession?.serveCommand ? { command: launchingSession.serveCommand } : {}),
+          ...(launchingSession?.serveCommand ? { command: launchingSession.serveCommand.command } : {}),
         };
   const serviceView = activityServiceView({
     status: service.status,
@@ -110,8 +116,13 @@ export function ActivityPage({
     const status = service.status;
     if (!status || service.failed || !row.serveCommand) return;
     setServeNote("");
+    setStartError(null);
     void service.start({ sessionId: row.sessionId, confirm: runtimeServeStartConfirm(row, status) }).then((result) => {
-      if (result === "started") setServeNote("サービスを起動しました。「開く」で別タブに開きます");
+      if (result.kind === "started") {
+        setServeNote("サービスを起動しました。「開く」で別タブに開きます");
+        return;
+      }
+      if (result.kind === "failed") setStartError({ sessionId: row.sessionId, message: result.error });
     });
   };
   return (
@@ -228,6 +239,7 @@ export function ActivityPage({
                           port: previewPort,
                         })}
                         compact={compact}
+                        error={startError?.sessionId === row.sessionId ? startError.message : undefined}
                         onStart={start}
                       />
                     ))}

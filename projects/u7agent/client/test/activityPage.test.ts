@@ -305,7 +305,7 @@ function finishedRow(overrides: Partial<SessionSummary> = {}): ActivityRow {
         title: "おえかきぼうとる",
         status: "completed",
         finishedAt: NOW - 60_000,
-        serveCommand: "python3 -m http.server 8080",
+        serveCommand: { cwd: "sessions/done", command: "python3 -m http.server 8080" },
         ...overrides,
       }),
     ],
@@ -318,20 +318,25 @@ function finishedRow(overrides: Partial<SessionSummary> = {}): ActivityRow {
 
 const NO_ACTION: ActivityRowServe = { served: false, action: "none", disabled: false };
 
-function renderRow(row: ActivityRow, serve: ActivityRowServe, compact = false): string {
+function renderRow(row: ActivityRow, serve: ActivityRowServe, compact = false, error?: string): string {
   return renderToStaticMarkup(
-    createElement(ActivityRowItem, { row, now: NOW, spaceName: "デモ", serve, compact, onStart: () => {} }),
+    createElement(ActivityRowItem, { row, now: NOW, spaceName: "デモ", serve, compact, error, onStart: () => {} }),
   );
 }
 
 test("操作を持つ行はリンクと操作を分け、入れ子の interactive を作らない", () => {
   const row = finishedRow();
-  const start = renderRow(row, { served: false, action: "start", disabled: false, command: row.serveCommand ?? "" });
+  const start = renderRow(row, {
+    served: false,
+    action: "start",
+    disabled: false,
+    ...(row.serveCommand ? { command: row.serveCommand } : {}),
+  });
   // 行全体のリンクではなく、タイトル + メタのリンクと状態ピル + 操作の 2 つに分かれる
   assert.equal((start.match(/<a[\s>]/g) ?? []).length, 1);
   assert.ok(start.includes('href="/s/done-1?space=default"'));
   assert.match(start, /aria-label="「おえかきぼうとる」のサービスを起動"/);
-  assert.match(start, /title="起動コマンド: python3 -m http\.server 8080"/);
+  assert.match(start, /title="起動: sessions\/done \/ python3 -m http\.server 8080"/);
   assertNoNestedInteractive(start);
 
   const open = renderRow(row, { served: true, action: "open", disabled: false, url: "http://localhost:8016/" });
@@ -352,8 +357,41 @@ test("操作のない行は行全体をリンクにし、起動中は他の行�
   assert.equal((plain.match(/<button[\s>]/g) ?? []).length, 0);
   assertNoNestedInteractive(plain);
 
-  const disabled = renderRow(row, { served: false, action: "start", disabled: true, command: "pnpm dev" });
+  const disabled = renderRow(row, {
+    served: false,
+    action: "start",
+    disabled: true,
+    command: { cwd: "app", command: "pnpm dev" },
+  });
   assert.match(disabled, /<button[^>]*disabled[^>]*>起動<\/button>/);
-  const compact = renderRow(row, { served: false, action: "start", disabled: false, command: "pnpm dev" }, true);
+  const compact = renderRow(
+    row,
+    { served: false, action: "start", disabled: false, command: { cwd: "app", command: "pnpm dev" } },
+    true,
+  );
   assert.match(compact, /<button[^>]*min-h-11/);
+});
+
+test("起動に失敗した理由はその行に出し、行の起動は再試行できる", () => {
+  const row = finishedRow();
+  const serve: ActivityRowServe = {
+    served: false,
+    action: "start",
+    disabled: false,
+    command: { cwd: "sessions/done", command: "python3 -m http.server 8080" },
+  };
+  const markup = renderRow(row, serve, false, "この作業ディレクトリには serve の実績がありません");
+  assert.match(markup, /role="alert"/);
+  assert.ok(
+    renderedText(markup).includes("サービスの起動に失敗しました: この作業ディレクトリには serve の実績がありません"),
+  );
+  assert.match(markup, /aria-label="「おえかきぼうとる」のサービスを起動"/);
+  assert.ok(markup.includes("起動: sessions/done / python3 -m http.server 8080"));
+  assertNoNestedInteractive(markup);
+
+  // 失敗していない行と、操作を持たない行には出さない
+  const other = renderRow(finishedRow({ sessionId: "done-2" }), serve);
+  assert.equal(other.includes('role="alert"'), false);
+  const plain = renderRow(row, NO_ACTION, false, "x");
+  assert.equal(plain.includes('role="alert"'), false, "操作の無い行には理由を出さない");
 });

@@ -9,7 +9,7 @@ import type { SecretMasker } from "./redact";
 import type { SessionRecord } from "./session-record";
 import { displayableMessages, projectMessages, truncate, unprojectedAssistantMeta } from "./session-projection";
 import { batchesSteering, sdkQueueLength, takenSendIdsOf } from "./session-steering";
-import type { PendingSend, RunStatus, SessionPayload, SessionSummary, ThinkingLevel } from "./schema";
+import type { PendingSend, RunStatus, ServeCommand, SessionPayload, SessionSummary, ThinkingLevel } from "./schema";
 
 const PROMPT_TEXT_MAX = 300;
 
@@ -198,8 +198,8 @@ export function projectSessionSummary({
   cwd: string;
   /** 生ログ (session.jsonl) がディスクにあるか。UI のダウンロードの出し分けだけに使う */
   hasRawLog: boolean;
-  /** その作業ディレクトリの serve 成功実績。無ければ null (実行状況からの起動可否) */
-  serveCommand: string | null;
+  /** その作業ディレクトリの serve 成功実績。無ければ null (実行状況からの起動可否と確認) */
+  serveCommand: ServeCommand | null;
 }): SessionSummary {
   return {
     sessionId: record.id,

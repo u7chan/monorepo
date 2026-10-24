@@ -3,7 +3,7 @@
  * 稼働状態は全スペース共通の runtime status を正とし、取得できない間はリンクも起動も停止も出さない
  * (既存の 設定 → ランタイム と同じ規則)。描画は components/ActivityServiceRow と components/ActivityRowItem。
  */
-import type { RuntimeServeStatus } from "../types";
+import type { RuntimeServeStatus, ServeCommand } from "../types";
 import type { ActivityRow } from "./activity";
 import type { ConfirmRequest } from "./confirmDialog";
 import { servedAppUrl } from "./servedApp";
@@ -67,8 +67,8 @@ export type ActivityRowServe = {
   action: ActivityRowAction;
   /** 操作はあるが押せない (別の行の起動中) */
   disabled: boolean;
-  /** `start` の起動コマンド */
-  command?: string;
+  /** `start` で起動する作業ディレクトリとコマンド */
+  command?: ServeCommand;
   /** `open` の URL */
   url?: string;
 };
@@ -113,35 +113,38 @@ export function activityRowServe({
 }
 
 /**
- * 起動の確認。公開中のサービスがあれば置き換えなので、いま公開中の起動元と、その作業ディレクトリ・
- * 起動コマンドを出す (どのディレクトリを止めて、どの会話を起動するのかを押す前に読めるようにする)。
- * 対象の会話名は本文へ埋めず subject へ 1 回だけ出す。
+ * 起動の確認。押す前に「どの会話の、どの作業ディレクトリを、どのコマンドで起動するか」を出す。
+ * 置き換えのときは、止める側の作業ディレクトリとコマンドも別の行に出す (同じコマンドを複数の
+ * 作業フォルダで使っていても、起動する先と止める先を取り違えない)。対象の会話名は本文へ埋めず
+ * subject へ 1 回だけ出す。
  */
 export function runtimeServeStartConfirm(
   row: Pick<ActivityRow, "title" | "serveCommand">,
   status: RuntimeServeStatus,
 ): ConfirmRequest {
   const replace = status.reachable;
+  const target = row.serveCommand;
   const current = status.command;
+  const body = replace
+    ? [
+        status.owner
+          ? `公開中の「${status.owner.title}」を停止して置き換えます。`
+          : "起動元不明のプロセスを停止して置き換えます。",
+      ]
+    : [];
   const notes = replace
     ? [
         current
-          ? `いま公開中の作業ディレクトリ: ${current.cwd || "."}（${current.command}）`
+          ? `停止する現在のサービス: ${current.cwd || "."}（${current.command}）`
           : "いま公開中のサービスは起動元を特定できません。",
       ]
     : undefined;
   return {
     kind: "confirm",
     title: "サービスを起動",
-    body: replace
-      ? [
-          status.owner
-            ? `公開中の「${status.owner.title}」を停止して置き換えます。`
-            : "起動元不明のプロセスを停止して置き換えます。",
-        ]
-      : [],
+    body: target ? [...body, `起動する作業ディレクトリ: ${target.cwd || "."}`] : body,
     subject: { label: "起動元の会話", value: row.title },
-    ...(row.serveCommand ? { code: { label: "起動コマンド", value: row.serveCommand } } : {}),
+    ...(target ? { code: { label: "起動コマンド", value: target.command } } : {}),
     ...(notes ? { notes } : {}),
     confirmLabel: replace ? "停止して起動" : "起動する",
     danger: replace,
