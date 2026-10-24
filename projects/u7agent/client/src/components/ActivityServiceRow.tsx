@@ -48,7 +48,7 @@ export function ActivityServiceRow({ view, stopping, error, compact = false, onS
   const stopLabel = `「${subject}」のサービスを停止`;
   return (
     <section aria-label="公開中のサービス" className="grid gap-2 rounded-xl border border-line bg-raised px-3 py-2.5">
-      <div className="flex min-w-0 flex-col gap-2 sm:flex-row sm:items-center sm:justify-between sm:gap-3">
+      <div className="flex min-w-0 flex-col gap-2 min-[641px]:flex-row min-[641px]:items-center min-[641px]:justify-between min-[641px]:gap-3">
         <div className="grid min-w-0 gap-1">
           <p className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-1sm font-medium text-ink-strong">
             <span className="inline-flex shrink-0 items-center gap-1.5">

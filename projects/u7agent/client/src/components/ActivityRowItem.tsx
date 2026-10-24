@@ -29,7 +29,7 @@ export type ActivityRowItemProps = {
 };
 
 const ROW_BASE =
-  "flex min-h-14 min-w-0 flex-col gap-1.5 rounded-xl border border-line bg-raised px-3 py-2.5 sm:flex-row sm:items-center sm:gap-3";
+  "flex min-h-14 min-w-0 flex-col gap-1.5 rounded-xl border border-line bg-raised px-3 py-2.5 min-[641px]:flex-row min-[641px]:items-center min-[641px]:gap-3";
 const ROW_FRAME = "grid min-w-0 gap-1.5 rounded-xl border border-line bg-raised px-3 py-2.5";
 
 const GROUP_DOT: Record<ActivityKind, string> = {
@@ -55,8 +55,8 @@ export function ActivityRowItem({ row, now, spaceName, serve, compact = false, e
           {body}
           <RowSide row={row}>
             <span aria-hidden="true" className="inline-flex shrink-0 items-center gap-1 text-1xs text-ink-soft">
-              <span className="hidden sm:inline">会話を開く</span>
-              <span className="sm:hidden">開く</span>
+              <span className="hidden min-[641px]:inline">会話を開く</span>
+              <span className="min-[641px]:hidden">開く</span>
               <span aria-hidden="true">→</span>
             </span>
           </RowSide>
@@ -67,7 +67,7 @@ export function ActivityRowItem({ row, now, spaceName, serve, compact = false, e
   return (
     <li className="min-w-0">
       <div className={ROW_FRAME}>
-        <div className="flex min-h-14 min-w-0 flex-col gap-1.5 sm:flex-row sm:items-center sm:gap-3">
+        <div className="flex min-h-14 min-w-0 flex-col gap-1.5 min-[641px]:flex-row min-[641px]:items-center min-[641px]:gap-3">
           <a
             href={sessionEntryHref(row.sessionId, row.spaceId)}
             className="flex min-w-0 flex-1 flex-col gap-1.5 rounded-lg transition-colors hover:text-accent-text focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"
@@ -106,7 +106,7 @@ function RowBody({
     row.kind === "waiting" ? "回答待ちの開始から" : row.status === "compacting" ? "圧縮開始から" : "実行開始から";
   return (
     <span className="grid min-w-0 flex-1 gap-1">
-      <span className="min-w-0 text-1sm font-medium break-words text-ink-strong sm:truncate">{row.title}</span>
+      <span className="min-w-0 text-1sm font-medium break-words text-ink-strong min-[641px]:truncate">{row.title}</span>
       <span className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-1xs text-ink-soft">
         <span className="inline-flex max-w-full min-w-0 items-center rounded-full border border-line px-1.5 text-1xs text-ink-soft">
           <span className="min-w-0 truncate">{spaceName ?? "不明なスペース"}</span>
@@ -145,7 +145,7 @@ function RowBody({
 
 function RowSide({ row, children }: { row: ActivityRow; children: ReactNode }) {
   return (
-    <span className="flex min-w-0 shrink-0 items-center justify-between gap-2 sm:justify-end">
+    <span className="flex min-w-0 shrink-0 items-center justify-between gap-2 min-[641px]:justify-end">
       <span
         className={cn(
           "inline-flex shrink-0 items-center gap-1.5 rounded-full border px-2 py-0.5 text-1xs",
