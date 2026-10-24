@@ -49,7 +49,7 @@ export interface ModelSettingsRow {
 /**
  * コンテンツ生成の保存行。**行が無い = 未設定**で、キー削除は行ごと消す。apiKey は平文
  * (アクセス権の管理と残存リスクは docs/secrets.md / docs/image-generation.md を正とする)。
- * `enabled` はアプリ全体の有効 / 無効で、v24 -> v25 で足した列（既存行は ON）。OFF でも行は残すため、
+ * `enabled` はアプリ全体の有効 / 無効で、v25 -> v26 で足した列（既存行は ON）。OFF でも行は残すため、
  * キーと選択は消えない（削除は別操作）。
  * 音声の 2 列は v15 -> v16 で足した nullable 列で、NULL は既定（モデル）と「宣言する先頭ボイス」
  * （voice）へフォールバックして読む。
