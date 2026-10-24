@@ -25,6 +25,7 @@ import { NotificationService } from "./notifications";
 import { ProjectStore } from "./projects";
 import { createSandboxToolClientFromEnv } from "./sandbox/client";
 import type {
+  SandboxDownloadPlanClient,
   SandboxHandoffClient,
   SandboxMoveClient,
   SandboxRuntimeDiagnostics,
@@ -106,6 +107,11 @@ export type CreateBffAppOptions = {
    * 再利用する (workspace を差し替えたテストでは null = 持ち出し / 取り込みは 503)。
    */
   skillArchiveSandbox?: SandboxSkillArchiveClient | null;
+  /**
+   * 共有のプレビュー (計画) に使うサンドボックス。未指定なら env から生成したサンドボックスクライアントを
+   * 再利用する (workspace を差し替えたテストでは null = プレビューは 503)。
+   */
+  previewSandbox?: SandboxDownloadPlanClient | null;
   /** serve の稼働判定に使うプローブ。テストで差し替える */
   serveProbe?: ServeProbe;
   /** プローブ先のホスト。未指定は PI_SANDBOX_URL のホスト (同一ホストのサンドボックス) */
@@ -362,6 +368,9 @@ export async function createBffContext(opts: CreateBffAppOptions = {}): Promise<
       : sandboxClient !== undefined
         ? sandboxClient
         : null;
+  // 共有のプレビューも同じクライアントを狭い IF で注入する (workspace のスタブを広げない)
+  const previewSandbox =
+    opts.previewSandbox !== undefined ? opts.previewSandbox : sandboxClient !== undefined ? sandboxClient : null;
   const store = new SessionStore({
     pi,
     catalog,
@@ -413,6 +422,7 @@ export async function createBffContext(opts: CreateBffAppOptions = {}): Promise<
     store: appDb,
     sessions: store,
     workspace,
+    planSandbox: previewSandbox,
     credentials: cloudflareSettings,
     createCloudflare: (credential) =>
       new CloudflareApiClient({

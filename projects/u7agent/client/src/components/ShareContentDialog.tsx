@@ -1,8 +1,9 @@
 import { useEffect, useRef, type FormEvent } from "react";
-import { useSharedContents, type SharedContentsController } from "../hooks/useSharedContents";
+import { useSharedContents, type SharePreviewState, type SharedContentsController } from "../hooks/useSharedContents";
 import { useMessageCopy } from "../hooks/useMessageCopy";
 import { cn } from "../lib/cn";
 import { SHARE_CONFIRM_NOTES, shareStatusView, type ShareStatusView } from "../lib/sharedContents";
+import { sharePreviewSummary } from "../lib/sharedContentPreview";
 import type { SharedContentResponse } from "../types";
 import { ExternalLinkIcon, RunSpinnerIcon, ShareIcon, WarningIcon } from "./icons";
 import { LoadingMark } from "./LoadingMark";
@@ -24,8 +25,14 @@ export type ShareContentDialogProps = {
  * 行の ⋯ から 1 ディレクトリを公開するダイアログ。停止・削除・更新をここへ足さないのは、取り消しにくい操作の確認と結果だけを 1 画面に閉じるため
  * （一覧の管理は 設定 → 共有）。振る舞いは `docs/static-sharing.md#gui共有ダイアログ` を正とする。
  */
-export function ShareContentDialog({ sessionId, ...props }: ShareContentDialogProps) {
-  return <ShareContentDialogView {...props} share={useSharedContents({ sessionId })} />;
+export function ShareContentDialog({ sessionId, target, ...props }: ShareContentDialogProps) {
+  return (
+    <ShareContentDialogView
+      {...props}
+      target={target}
+      share={useSharedContents({ sessionId, directory: target.directory })}
+    />
+  );
 }
 
 export type ShareContentDialogViewProps = {
@@ -119,16 +126,19 @@ export function ShareContentDialogView({ target, share, singleColumn = false, on
           </div>
 
           {started ? null : (
-            <ul className="grid gap-1.5">
-              {SHARE_CONFIRM_NOTES.map((note) => (
-                <li key={note} className="flex min-w-0 gap-1.5 break-words text-ink-soft">
-                  <span className="shrink-0 text-warn">
-                    <WarningIcon />
-                  </span>
-                  <span className="min-w-0">{note}</span>
-                </li>
-              ))}
-            </ul>
+            <>
+              <SharePreview state={share.preview} />
+              <ul className="grid gap-1.5">
+                {SHARE_CONFIRM_NOTES.map((note) => (
+                  <li key={note} className="flex min-w-0 gap-1.5 break-words text-ink-soft">
+                    <span className="shrink-0 text-warn">
+                      <WarningIcon />
+                    </span>
+                    <span className="min-w-0">{note}</span>
+                  </li>
+                ))}
+              </ul>
+            </>
           )}
 
           {share.error === undefined ? null : (
@@ -179,6 +189,69 @@ export function ShareContentDialogView({ target, share, singleColumn = false, on
         )}
       </form>
     </dialog>
+  );
+}
+
+/**
+ * 公開前のプレビュー。取得中 / 失敗 / 成功を分けて出し、失敗しても公開の操作は塞がない
+ * （プレビューは補助で、公開されるものの確定は公開ジョブの検証）。
+ */
+function SharePreview({ state }: { state: SharePreviewState }) {
+  const preview = state.status === "ready" ? state.preview : null;
+  const summary = preview === null ? null : sharePreviewSummary(preview);
+  return (
+    <section aria-label="公開される内容" className="grid gap-1.5 rounded-lg border border-line bg-soft px-3 py-2.5">
+      <h3 className="text-2xs font-semibold tracking-widest text-ink-faint uppercase">公開される内容</h3>
+      {state.status === "loading" ? (
+        <p className="flex items-center gap-1.5 text-ink-muted">
+          <RunSpinnerIcon />
+          確認しています…
+        </p>
+      ) : null}
+      {state.status === "failed" ? (
+        <>
+          <p role="alert" className="break-words text-warn">
+            {state.message}
+          </p>
+          <p className="text-1xs break-words text-ink-muted">プレビューは取得できませんでしたが、共有はできます。</p>
+        </>
+      ) : null}
+      {preview === null || summary === null ? null : (
+        <>
+          {summary.totals === null ? null : <p className="break-words text-ink-soft">{summary.totals}</p>}
+          {summary.rows.length === 0 ? null : (
+            <ul className="grid gap-0.5">
+              {summary.rows.map((row) => (
+                <li key={row.name} className="flex min-w-0 items-baseline justify-between gap-2 text-1xs">
+                  <span className="min-w-0 break-all text-ink-soft">{row.name}</span>
+                  <span className="shrink-0 text-ink-muted">{row.size}</span>
+                </li>
+              ))}
+            </ul>
+          )}
+          {summary.notes.map((note) => (
+            <p key={note} className="text-1xs break-words text-ink-muted">
+              {note}
+            </p>
+          ))}
+          {preview.problems.length === 0 ? null : (
+            <ul className="grid gap-0.5">
+              {preview.problems.map((problem) => (
+                <li key={problem} className="flex min-w-0 gap-1.5 break-words text-warn">
+                  <span className="shrink-0">
+                    <WarningIcon />
+                  </span>
+                  <span className="min-w-0">{problem}</span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </>
+      )}
+      <p className="text-1xs break-words text-ink-muted">
+        この時点の見え方です。公開されるものは公開時に検証し直します。
+      </p>
+    </section>
   );
 }
 

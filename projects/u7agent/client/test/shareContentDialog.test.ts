@@ -37,6 +37,7 @@ function controller(overrides: Partial<SharedContentsController> = {}): SharedCo
     activeId: null,
     error: undefined,
     submitting: false,
+    preview: { status: "loading" },
     share: async () => {},
     reload: async () => {},
     ...overrides,
@@ -161,5 +162,113 @@ test("一覧の取得失敗: 空と区別して理由を出し、共有するは
   const html = render(controller({ failed: true }));
   assert.match(html, /共有物の一覧を取得できませんでした。/);
   assert.equal(html.includes("共有物はまだありません"), false);
+  assert.equal(actionTag(html, "共有する").includes("disabled"), false);
+});
+
+// プレビューは補助。取得できなくても公開の確定を塞がないことを、ボタンの状態で固定する
+test("プレビュー取得中: 確認中を示し、公開の操作は行える", () => {
+  const html = render(controller());
+  assert.match(html, /公開される内容/);
+  assert.match(html, /確認しています/);
+  assert.equal(actionTag(html, "共有する").includes("disabled"), false);
+});
+
+test("プレビュー失敗: 文言をそのまま出し、共有はできると添えて公開を塞がない", () => {
+  const html = render(controller({ preview: { status: "failed", message: "公開するディレクトリが見つかりません" } }));
+  assert.match(html, /公開するディレクトリが見つかりません/);
+  assert.match(html, /プレビューは取得できませんでしたが、共有はできます。/);
+  assert.equal(actionTag(html, "共有する").includes("disabled"), false);
+});
+
+test("プレビュー: 件数（ディレクトリを含む）・合計サイズ・一覧・問題を出し、ファイル数とは書かない", () => {
+  const html = render(
+    controller({
+      preview: {
+        status: "ready",
+        preview: {
+          sourcePath: "projects/app/dist",
+          entries: 1200,
+          bytes: 2048,
+          files: [
+            { name: "index.html", size: 512 },
+            { name: "assets/app.js", size: 1536 },
+          ],
+          truncated: false,
+          links: [],
+          linksTruncated: false,
+          oversizeFiles: [],
+          oversizeTruncated: false,
+          hasIndexHtml: true,
+          skipped: [],
+          excludeNames: [],
+          limited: false,
+          problems: [],
+        },
+      },
+    }),
+  );
+  assert.match(html, /1,200 件（ディレクトリを含む）・合計 2 KB/);
+  assert.match(html, /index\.html/);
+  assert.match(html, /assets\/app\.js/);
+  assert.equal(html.includes("ファイル数"), false, "件数はディレクトリも数える");
+  assert.match(html, /公開されるものは公開時に検証し直します/);
+});
+
+test("プレビュー: 問題と、公開されないもの・打ち切りを出す", () => {
+  const html = render(
+    controller({
+      preview: {
+        status: "ready",
+        preview: {
+          sourcePath: "projects/app/dist",
+          entries: 900,
+          bytes: 10,
+          files: [{ name: "app.js", size: 10 }],
+          truncated: true,
+          links: ["secret-link.txt"],
+          linksTruncated: false,
+          oversizeFiles: ["video.mp4"],
+          oversizeTruncated: false,
+          hasIndexHtml: false,
+          skipped: [],
+          excludeNames: [],
+          limited: false,
+          problems: ["公開するディレクトリに index.html がありません"],
+        },
+      },
+    }),
+  );
+  assert.match(html, /公開するディレクトリに index\.html がありません/);
+  assert.match(html, /symlink など公開されないもの: secret-link\.txt/);
+  assert.match(html, /一覧は先頭 1 件までしか取得できていません。/);
+});
+
+test("プレビュー: 上限超過 (limited) は件数と index.html の有無を出さず、問題だけを出す", () => {
+  const html = render(
+    controller({
+      preview: {
+        status: "ready",
+        preview: {
+          sourcePath: "projects/app/dist",
+          entries: null,
+          bytes: null,
+          files: [],
+          truncated: false,
+          links: [],
+          linksTruncated: false,
+          oversizeFiles: [],
+          oversizeTruncated: false,
+          hasIndexHtml: null,
+          skipped: [],
+          excludeNames: [],
+          limited: true,
+          problems: ["公開するファイルが多すぎます（最大 10,000 件）"],
+        },
+      },
+    }),
+  );
+  assert.match(html, /公開するファイルが多すぎます（最大 10,000 件）/);
+  assert.match(html, /上限を超えているため、一覧と index\.html の有無を確認できませんでした。/);
+  assert.equal(html.includes("index.html がありません"), false, "判定できない不在を出さない");
   assert.equal(actionTag(html, "共有する").includes("disabled"), false);
 });

@@ -65,6 +65,7 @@ import type {
   SessionSummary,
   SessionTitleResponse,
   SharedContentMutationResponse,
+  SharedContentPreviewResponse,
   SharedContentResponse,
   SharedContentsResponse,
   SharedContentStopResponse,
@@ -786,6 +787,22 @@ export const getAllSharedContents = async (signal?: AbortSignal): Promise<Shared
 /** 1 件の共有物。`publishing` の間のポーリングに使う */
 export const getSharedContent = async (id: string, signal?: AbortSignal): Promise<SharedContentResponse> => {
   const res = await client.api["shared-contents"][":id"].$get({ param: { id } }, { init: { signal } });
+  if (!res.ok) throw await apiError(res);
+  return res.json();
+};
+
+/**
+ * 公開前のプレビュー。応答の型は hc が AppType から推論するので、ここで DTO を書き起こさない。
+ * 補助情報なので、取得できなくても公開の受付はそのまま行う。
+ */
+export const getSharedContentPreview = async (
+  input: { sessionId: string; directory: string },
+  signal?: AbortSignal,
+): Promise<SharedContentPreviewResponse> => {
+  const res = await client.api["shared-contents"].preview.$get(
+    { query: { sessionId: input.sessionId, directory: input.directory } },
+    { init: { signal } },
+  );
   if (!res.ok) throw await apiError(res);
   return res.json();
 };
