@@ -7,7 +7,13 @@ import {
   resumeSharedContent,
   stopSharedContent,
 } from "../api";
-import { SHARE_POLL_MS, type SharedContentBusyKind } from "../lib/sharedContents";
+import {
+  settleAcceptedSharedContent,
+  SHARE_POLL_MS,
+  sharedContentsPolling,
+  trackAcceptedSharedContent,
+  type SharedContentBusyKind,
+} from "../lib/sharedContents";
 import type { SharedContentResponse } from "../types";
 
 /**
@@ -47,6 +53,11 @@ function messageFor(error: unknown): string {
 
 export function useSharedContentsManager() {
   const [state, setState] = useState<SharedContentsManagerState>(INITIAL);
+  /**
+   * 202 を受けたが終端をまだ確認できていない id。受付直後の一覧取得が失敗すると items は
+   * 操作前のままなので、これが空だとポーリングが始まらない（終端と lastError を読めなくなる）。
+   */
+  const [acceptedPublishing, setAcceptedPublishing] = useState<string[]>([]);
   /** 発行した取得の通し番号。遅れて届いた古い応答を適用しない */
   const requestSeq = useRef(0);
   const appliedSeq = useRef(0);
@@ -61,6 +72,8 @@ export function useSharedContentsManager() {
       const { items } = await getAllSharedContents();
       if (seq < appliedSeq.current) return;
       appliedSeq.current = seq;
+      // 終端を確認できた id は追跡をやめる。一覧が古い応答で上書きされても追跡は次の成功で揃う
+      setAcceptedPublishing((prev) => settleAcceptedSharedContent(prev, items));
       setState((prev) => ({ ...prev, items, loading: false, failed: false, listError: null }));
     } catch (error) {
       if (seq < appliedSeq.current) return;
@@ -100,6 +113,15 @@ export function useSharedContentsManager() {
       setState((prev) => ({ ...prev, busy: [...prev.busy, { id, kind }], error: null }));
       try {
         await run();
+        // 操作より前に発行した一覧取得は操作前の状態を返す。成功応答のあとに適用させない
+        appliedSeq.current = ++requestSeq.current;
+        // 202 を受けた経路は、一覧を取り直せるまで items に publishing が現れない。追跡対象へ入れる
+        if (kind === "update" || kind === "retry" || kind === "resume") {
+          setAcceptedPublishing((prev) => trackAcceptedSharedContent(prev, id));
+        } else {
+          // 停止・削除の成功応答は終端。追跡を続ける理由が無い
+          setAcceptedPublishing((prev) => prev.filter((entry) => entry !== id));
+        }
         after?.();
       } catch (error) {
         setState((prev) => ({ ...prev, error: { id, message: messageFor(error) } }));
@@ -125,15 +147,14 @@ export function useSharedContentsManager() {
         "delete",
         () => deleteSharedContent(id),
         () => {
-          // provider の成功後なので即座に消す。進行中の一覧取得が古い行を戻さないよう、先に失効させる
-          appliedSeq.current = ++requestSeq.current;
+          // provider の成功後なので即座に消す (操作前の一覧取得は runAction が先に失効させている)
           setState((prev) => ({ ...prev, items: prev.items.filter((item) => item.id !== id) }));
         },
       ),
     [runAction],
   );
 
-  const publishing = state.items.some((item) => item.status === "publishing");
+  const publishing = sharedContentsPolling(state.items, acceptedPublishing);
   useEffect(() => {
     if (!publishing) return;
     const timer = setInterval(() => {

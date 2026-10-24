@@ -82,6 +82,29 @@ export function withSharedContent(
   return items.map((entry) => (entry.id === item.id ? item : entry));
 }
 
+/**
+ * 受付済み（202）の共有物 id を、終端を確認するまで保持する。受付直後の一覧取得が失敗すると
+ * 手元の items は操作前の状態のままなので、これが無いとポーリングが始まらない。
+ */
+export function trackAcceptedSharedContent(tracked: readonly string[], id: string): string[] {
+  return tracked.includes(id) ? [...tracked] : [...tracked, id];
+}
+
+/** 取得できた一覧で publishing のままの id だけを残す。終端・消失した id は追跡をやめる */
+export function settleAcceptedSharedContent(
+  tracked: readonly string[],
+  items: readonly SharedContentResponse[],
+): string[] {
+  if (tracked.length === 0) return [];
+  const publishing = new Set(items.filter((item) => item.status === "publishing").map((item) => item.id));
+  return tracked.filter((id) => publishing.has(id));
+}
+
+/** 一覧を取り直し続ける必要があるか。受付済みで未確認の id があれば、items が古くても追跡を続ける */
+export function sharedContentsPolling(items: readonly SharedContentResponse[], tracked: readonly string[]): boolean {
+  return tracked.length > 0 || shareItemsPublishing(items);
+}
+
 /** 管理一覧の状態フィルタ。`publishing` は結果不明（lastError 付き）も含む（status は publishing のまま） */
 export type SharedContentsFilter = "all" | "published" | "publishing" | "stopped" | "failed";
 

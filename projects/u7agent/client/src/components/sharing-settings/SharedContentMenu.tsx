@@ -9,7 +9,9 @@ import {
   type FocusEvent,
   type MouseEvent,
 } from "react";
-import { nextRowMenuIndex, ROW_MENU_MARGIN, rowMenuPlacement } from "../../lib/rowMenu";
+import { visibleClips } from "../../lib/popoverAnchor";
+import { nextRowMenuIndex, ROW_MENU_MARGIN } from "../../lib/rowMenu";
+import { sharedContentMenuPosition } from "../../lib/sharedContentMenu";
 import type { SharedContentAction, SharedContentMenuKind } from "../../lib/sharedContents";
 import { MenuItem } from "../MenuItem";
 import { MoreIcon, RefreshIcon, StopIcon, TrashIcon } from "../icons";
@@ -52,9 +54,19 @@ export function SharedContentMenu({ name, actions, onSelect }: SharedContentMenu
     // 幅 / 高さの上限を測る前に書く。上限が無いと低い窓でメニューが viewport をはみ出す
     popover.style.maxWidth = `${Math.max(0, viewport.width - ROW_MENU_MARGIN * 2)}px`;
     popover.style.maxHeight = `${Math.max(0, viewport.height - ROW_MENU_MARGIN * 2)}px`;
-    const { left, top } = rowMenuPlacement(trigger.getBoundingClientRect(), popover.getBoundingClientRect(), viewport);
-    popover.style.left = `${left}px`;
-    popover.style.top = `${top}px`;
+    // 一覧の更新でカードが枠の外へ動いたら、見えていない共有物の操作を残さず閉じる
+    const position = sharedContentMenuPosition(
+      trigger.getBoundingClientRect(),
+      popover.getBoundingClientRect(),
+      viewport,
+      visibleClips(trigger),
+    );
+    if (position === null) {
+      popover.hidePopover();
+      return;
+    }
+    popover.style.left = `${position.left}px`;
+    popover.style.top = `${position.top}px`;
   }, []);
 
   // 開いている間は commit のたびに置き直す。カードの再描画で ⋯ が動いても追従させる

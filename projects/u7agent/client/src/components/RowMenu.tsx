@@ -19,9 +19,9 @@ import {
   ROW_MENU_MARGIN,
   type RowMenuAction,
   type RowMenuActionKind,
-  type RowMenuRect,
 } from "../lib/rowMenu";
 import { cn } from "../lib/cn";
+import { visibleClips } from "../lib/popoverAnchor";
 import { MenuItem } from "./MenuItem";
 import {
   CheckIcon,
@@ -49,22 +49,6 @@ const ACTION_ICONS: Record<RowMenuActionKind, ReactNode> = {
   delete: <TrashIcon />,
   "new-chat": <PlusIcon />,
 };
-
-/** overflow-y を持つ直近の祖先 = ツリーのスクロール枠。popover は top layer に載るので切られはしないが、
- * ⋯ が枠の外へスクロールしたら追従せず閉じる (見えていない行のメニューを残さない) */
-function scrollClip(element: HTMLElement): RowMenuRect | null {
-  for (let parent = element.parentElement; parent !== null; parent = parent.parentElement) {
-    const { overflowY } = getComputedStyle(parent);
-    if (overflowY === "auto" || overflowY === "scroll") return parent.getBoundingClientRect();
-  }
-  return null;
-}
-
-function visibleClips(element: HTMLElement): RowMenuRect[] {
-  const viewport = { top: 0, left: 0, right: window.innerWidth, bottom: window.innerHeight };
-  const clip = scrollClip(element);
-  return clip === null ? [viewport] : [viewport, clip];
-}
 
 export type RowMenuProps<K extends RowMenuActionKind> = {
   /** ⋯ の読み上げ名に含める行の名前 */

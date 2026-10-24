@@ -16,6 +16,9 @@ import {
   sharedContentPrimaryAction,
   sharedContentSessionMissing,
   sharedContentUpdateConfirm,
+  sharedContentsPolling,
+  settleAcceptedSharedContent,
+  trackAcceptedSharedContent,
   SHARED_CONTENT_FILTERS,
   SHARED_CONTENT_NO_CREDENTIALS_NOTE,
   SHARED_CONTENT_SESSION_MISSING_NOTE,
@@ -114,6 +117,27 @@ test("ポーリングの宛先: 受付した 1 件は詳細、他の進行中は
   assert.equal(shareItemsPublishing([item({ status: "published" }), item({ id: "def456" })]), true);
   // 受付した 1 件だけが進行中なら、一覧の取り直しは要らない
   assert.equal(shareItemsPublishing([item()], "abc123"), false);
+});
+
+test("受付済みの追跡: 202 の直後の一覧取得が失敗しても、終端を取得するまでポーリングを続ける", () => {
+  const published = item({ id: "abc123", status: "published" });
+  // 202 の受付時に追跡へ入れる
+  let tracked = trackAcceptedSharedContent([], "abc123");
+  assert.deepEqual(tracked, ["abc123"]);
+  // 受付直後の一覧 GET が失敗した場合、items は操作前 (published) のまま。それでも追跡が残るので続ける
+  assert.equal(sharedContentsPolling([published], tracked), true);
+  // 一覧が取れて publishing を確認できた: 追跡を続ける
+  tracked = settleAcceptedSharedContent(tracked, [item({ id: "abc123", status: "publishing" })]);
+  assert.deepEqual(tracked, ["abc123"]);
+  assert.equal(sharedContentsPolling([], tracked), true);
+  // 終端を確認できたら追跡をやめる
+  tracked = settleAcceptedSharedContent(tracked, [item({ id: "abc123", status: "stopped" })]);
+  assert.deepEqual(tracked, []);
+  assert.equal(sharedContentsPolling([published], tracked), false);
+  // 一覧から消えた id も追跡をやめる
+  assert.deepEqual(settleAcceptedSharedContent(["gone"], [published]), []);
+  // 同じ id を重ねて追跡しない
+  assert.deepEqual(trackAcceptedSharedContent(["abc123"], "abc123"), ["abc123"]);
 });
 
 test("受付した 1 件の反映: 同じ id は差し替え、未取得なら先頭へ足す", () => {
