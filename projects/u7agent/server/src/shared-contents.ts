@@ -574,7 +574,10 @@ export class SharedContentsService {
     return { assets, config };
   }
 
-  /** 停止の失敗。結果不明なら subdomain を照会し、確定できなければ publishing + lastError に留める */
+  /**
+   * 停止の失敗。結果不明なら subdomain を照会し、確定できなければ publishing + lastError に留める。
+   * script の不在が確定したときは、外部公開物が無いので公開実績に応じた終端状態へ収束させる。
+   */
   async #settleStopFailure(
     row: SharedContentRow,
     startStatus: SharedContentStatus,
@@ -590,11 +593,9 @@ export class SharedContentsService {
       });
       return { id: row.id, status: "stopped" as const };
     }
-    if (state && "missing" in state) {
-      // 外部に公開物が無い。failed は初回公開前だけなので、開始状態へ戻して retry に委ねる
-      const missing = "Cloudflare に公開物が見つかりません";
-      this.#persistState(row, startStatus, missing, { publishedAt: row.publishedAt, stoppedAt: row.stoppedAt });
-      throw httpError(502, missing);
+    // 直接の 404 も照会の 404 も「外部に公開物が無い」の確定。結果不明と混ぜない
+    if ((state && "missing" in state) || isMissingScript(error)) {
+      throw httpError(502, this.#markScriptMissing(row));
     }
     if (unknown && state === null) {
       // 照会できない間は状態を確定させない。停止だけを受け付ける側に倒す
@@ -608,7 +609,10 @@ export class SharedContentsService {
     throw httpError(502, message);
   }
 
-  /** 再公開の失敗。確定失敗は stopped + lastError、結果不明で照会できなければ publishing + lastError */
+  /**
+   * 再公開の失敗。確定失敗は stopped + lastError、結果不明で照会できなければ publishing + lastError。
+   * script の不在が確定したときは停止と同じ規則で終端へ収束させる。
+   */
   async #settleResumeFailure(row: SharedContentRow, error: unknown): Promise<void> {
     const message = failureMessageFor(error);
     const unknown = isUnknownResult(error);
@@ -619,8 +623,8 @@ export class SharedContentsService {
       this.#setState(row, "published", null, { publishedAt: row.publishedAt, stoppedAt: null });
       return;
     }
-    if (state && "missing" in state) {
-      this.#setState(row, "stopped", "Cloudflare に公開物が見つかりません。削除して公開し直してください", times);
+    if ((state && "missing" in state) || isMissingScript(error)) {
+      this.#markScriptMissing(row);
       return;
     }
     if (unknown && state === null) {
@@ -702,21 +706,21 @@ export class SharedContentsService {
   }
 
   /**
-   * 照会した結果 script が無かったときの確定。
+   * 照会した結果 script が無かったときの確定。行に保存した文言を返す。
    * failed は一度も公開できていない行だけにし、公開実績があれば外部から見えない stopped にする。
    */
-  #markScriptMissing(row: SharedContentRow): void {
+  #markScriptMissing(row: SharedContentRow): string {
     if (row.publishedAt === null) {
-      this.#setState(row, "failed", "Cloudflare に公開物が見つかりません。再公開してください", {
-        publishedAt: null,
-        stoppedAt: null,
-      });
-      return;
+      const message = "Cloudflare に公開物が見つかりません。再公開してください";
+      this.#persistState(row, "failed", message, { publishedAt: null, stoppedAt: null });
+      return message;
     }
-    this.#setState(row, "stopped", "Cloudflare に公開物が見つかりません。削除して公開し直してください", {
+    const message = "Cloudflare に公開物が見つかりません。削除して公開し直してください";
+    this.#persistState(row, "stopped", message, {
       publishedAt: row.publishedAt,
       stoppedAt: row.stoppedAt ?? this.#now(),
     });
+    return message;
   }
 
   #setState(
@@ -947,6 +951,11 @@ function isUnknownResult(error: unknown): boolean {
       error.kind === "transient" ||
       error.kind === "unverifiable")
   );
+}
+
+/** script の不在が確定した失敗。結果不明と違って外部公開物が無いことを意味する */
+function isMissingScript(error: unknown): boolean {
+  return error instanceof CloudflareApiError && error.kind === "not_found";
 }
 
 function failureMessageFor(error: unknown): string {

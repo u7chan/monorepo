@@ -140,7 +140,8 @@ Cloudflare への送信は時間がかかるため、同期 HTTP では扱わな
 - 受付時に `lastError` を消して `publishing` にする。終端は `publishing` でなくなったときで、成功・失敗は `status` と `lastError` の組で読む。
 - agent tool は受付のあと内部で終端までポーリングし、状態が確定してから URL かエラーを返す。`publishing` + `lastError`（結果不明）を見たらそこで打ち切って、停止で安全側に倒すよう案内する。
 - provider の結果が不明になったとき（timeout など）と、BFF 再起動で `publishing` のまま残ったときは、subdomain を問い合わせて状態を確定する。有効なら `published`、無効なら `stopped`、script が無ければ一度も公開できていない行だけ `failed`（公開実績のある行は `stopped` + `lastError`。`publishedAt` は残す）。更新・初回公開の中断では配信中の版が分からないため、その旨を `lastError` に残す。問い合わせできないときは `publishing` + `lastError` に留め、停止だけを受け付ける。
-- 停止の結果が不明なときも同じ問い合わせを行う。無効なら `stopped`、有効なら開始状態 + `lastError`（停止を再試行できる）。問い合わせできない間は開始状態にかかわらず `publishing` + `lastError` に留める（誤って「停止済み」と表示せず、停止を受け付ける）。
+- script の不在は「照会が 404」だけでなく「操作の要求自体が 404」でも確定する。どちらも同じ規則（公開実績あり → `stopped` + `lastError`、未公開 → `failed`）で終端へ収束させ、`publishing` のまま残さない。
+- 停止の結果が不明なときも同じ問い合わせを行う。無効なら `stopped`、有効なら開始状態 + `lastError`（停止を再試行できる）。問い合わせできない間は開始状態にかかわらず `publishing` + `lastError` に留める（誤って「停止済み」と表示せず、停止を受け付ける）。照会または停止要求が 404 を返したときは不在の確定として終端へ収束させる（次の節と同じ規則）。
 - deployment 成功後に DB を更新できなかった場合も同じ復帰規則を使う。subdomain が有効なままなら `published` になり、版の不明は `lastError` に残る。
 - provider の確定した失敗と、DB の書き込み失敗を混ぜない。公開が成功しても DB を更新できなかった場合は成功を返さず、行の状態を進めない。
 
@@ -235,7 +236,7 @@ Cloudflare への送信は時間がかかるため、同期 HTTP では扱わな
 - `retainSecret()` が保持する既知の秘密値と完全一致する内容を含まないこと
 - 上記のいずれかに違反したら部分公開せず、共有物を `failed`（更新なら前回の状態 + `lastError`）にする
 
-非同期の受付（作成・更新・再公開）は `202 { id, status: "publishing" }` を返し、状態は GET で読む。停止は provider の結果を待って `200 { id, status: "stopped" }` を返す（停止は subdomain の切替 1 回で終わり、`publishing` を経由しない）。削除は本文なしの `204`。
+非同期の受付（作成・更新・再公開）は `202 { id, status: "publishing" }` を返し、状態は GET で読む。停止は provider の結果を待って `200 { id, status: "stopped" }` を返す（停止は subdomain の切替 1 回で終わり、`publishing` を経由しない）。script の不在が確定した停止は `502` を返し、行は `stopped`（公開実績あり）/ `failed`（未公開）+ `lastError` に確定する。削除は本文なしの `204`。
 
 変更系は共有物 id 単位で排他し、同じ id の操作が進行中なら状態を読まずに `409` を返す。別の共有物の操作は待たせない。
 
@@ -257,14 +258,18 @@ Cloudflare への送信は時間がかかるため、同期 HTTP では扱わな
 | `publishing`（更新） | 成功 | `published` |
 | `publishing`（更新） | 確定した失敗 | `published`（+ `lastError`） |
 | `published` | 停止 | `stopped` |
-| `published` | 停止（確定した失敗・結果不明） | `published`（+ `lastError`） |
+| `published` | 停止（確定した失敗） | `published`（+ `lastError`） |
+| `published` / `publishing`（+ `lastError`） | 停止（結果不明で照会不能） | `publishing`（+ `lastError`、停止のみ可） |
+| `published` / `publishing`（+ `lastError`） | 停止（script 不在が確定） | `stopped` + `lastError`（公開実績あり）/ `failed`（未公開） |
 | `stopped` | 再公開 | `publishing` |
 | `publishing`（再公開） | 成功 | `published` |
 | `publishing`（再公開） | 確定した失敗 | `stopped`（+ `lastError`） |
+| `publishing`（再公開、script 不在が確定） | 収束 | `stopped` + `lastError`（公開実績あり）/ `failed`（未公開） |
 | `published` / `stopped` / `failed` | 削除 | 行なし |
 
 - `publishing` の共有物への別の変更は `409`。ただし結果不明で止まった行への停止だけは受け付ける（削除は停止で確定させてから）。
 - 停止の結果不明は、subdomain を照会できたときだけ確定する（無効なら `stopped`、有効なら開始状態 + `lastError`）。照会できない間は開始状態にかかわらず `publishing` + `lastError` に留め、停止を受け付ける。停止をやり直すか、接続が戻ってから停止で確定させる。
+- **「結果不明」と「script の不在が確定」は別扱い**。停止・再公開の要求自体が 404 を返した場合と、照会が 404 を返した場合は、外部に公開物が無いことの確定なので、公開実績に応じた終端（公開実績あり → `stopped` + `lastError`、未公開 → `failed`）へ収束させる。`publishing` のまま残して停止も削除もできない状態にはしない（停止の応答は `502`）。
 - 再公開は確定失敗なら `stopped` + `lastError` に戻し、結果不明は照会できたときだけ確定する（有効なら `published`、無効なら `stopped` + `lastError`）。照会できない間は `publishing` + `lastError` に留める。再公開は版を変えないので `publishedAt` を進めない。
 - 復帰・照会の結果 script が無いと分かった場合、一度も公開できていない行は `failed`、公開実績のある行は `stopped` + `lastError`（`publishedAt` は残す）にする。`failed` は「一度も公開できていない」場合だけに使い、公開実績を消さない。
 - `lastError` は受付時に消し、公開・更新・再公開・停止の成功時も消す。確定した失敗と結果不明のときだけ、分類済みの文言を入れる。
@@ -285,7 +290,7 @@ Cloudflare への送信は時間がかかるため、同期 HTTP では扱わな
 - アカウントの Free 枠（Worker 数）を他の用途と共有する。
 - 中断した公開の復帰は subdomain の有効・無効だけを照会する。配信中の版までは照会しないため、更新の中断では新しい版が配信されている可能性がある（`published` + `lastError` で知らせる）。
 - provider の状態を問い合わせできない間は `publishing` + `lastError`（停止を受け付ける）で止まる。接続が戻るまで停止も実行できないため、外部が公開中のまま残り得る。接続を復旧して停止するか、再試行する。
-- 停止の結果不明で `publishing` + `lastError` になった行は、停止を再試行すれば `stopped` に確定する（冪等）。停止で確定するまで削除はできない。
+- 停止の結果不明で `publishing` + `lastError` になった行は、停止を再試行すれば `stopped` に確定する（冪等）。停止で確定するまで削除はできない。接続が戻った時点で script が既に無ければ、停止の再試行で `stopped` + `lastError`（公開実績あり）または `failed`（未公開）に確定し、削除できる。
 - 同じ共有物の更新は新しい deployment を積む。過去の deployment の掃除はしない（Cloudflare 側の保持に任せる）。
 - 削除の冪等性は応答では表さない。同じ id への 2 回目は `404` で、外部で既に消えていたときの 1 回目だけが `204` になる。
 - 停止した共有物の script が外部で削除されていると再公開できない（subdomain を有効にする先が無い）。その行は削除してから公開し直す。
