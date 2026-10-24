@@ -41,15 +41,32 @@ export function useSharedContents({ sessionId }: { sessionId: string }) {
   const appliedSeq = useRef(0);
   /** ポーリングを重ねない（応答が間隔より遅いときに要求が積み上がらない） */
   const inFlight = useRef(false);
+  /**
+   * 応答を適用してよい会話。同じ作業フォルダの別会話へ移っても `activeId` を持ち越すと、
+   * 新しい会話の一覧に前の会話の結果が混ざるため、切替で状態ごと捨てる。
+   */
+  const sessionRef = useRef(sessionId);
+  const [tracked, setTracked] = useState(sessionId);
+  if (tracked !== sessionId) {
+    setTracked(sessionId);
+    setState(INITIAL);
+    requestSeq.current = 0;
+    appliedSeq.current = 0;
+    inFlight.current = false;
+  }
+  sessionRef.current = sessionId;
 
   const loadList = useCallback(async (): Promise<void> => {
+    const session = sessionId;
     const seq = (requestSeq.current += 1);
     try {
-      const { items } = await getSharedContents(sessionId);
+      const { items } = await getSharedContents(session);
+      if (sessionRef.current !== session) return;
       if (seq < appliedSeq.current) return;
       appliedSeq.current = seq;
       setState((prev) => ({ ...prev, items, loading: false, failed: false }));
     } catch {
+      if (sessionRef.current !== session) return;
       if (seq < appliedSeq.current) return;
       appliedSeq.current = seq;
       // 一覧は残したまま失敗だけを示す（一瞬の失敗で読めた URL を捨てない）
@@ -64,12 +81,15 @@ export function useSharedContents({ sessionId }: { sessionId: string }) {
   /** 受付して公開を開始する。202 の後に一覧を取り直し、以降は状態をポーリングする */
   const share = useCallback(
     async (directory: string): Promise<void> => {
+      const session = sessionId;
       setState((prev) => ({ ...prev, submitting: true, error: undefined }));
       try {
-        const accepted = await createSharedContent({ sessionId, directory });
+        const accepted = await createSharedContent({ sessionId: session, directory });
+        if (sessionRef.current !== session) return;
         setState((prev) => ({ ...prev, submitting: false, activeId: accepted.id }));
         await loadList();
       } catch (error) {
+        if (sessionRef.current !== session) return;
         setState((prev) => ({ ...prev, submitting: false, error: messageFor(error) }));
       }
     },
@@ -77,25 +97,29 @@ export function useSharedContents({ sessionId }: { sessionId: string }) {
   );
 
   const plan = sharePollPlan(state.activeId, state.items);
-  const pollKind = plan?.kind ?? "none";
-  const pollId = plan?.kind === "detail" ? plan.id : "";
+  const pollDetailId = plan.detailId ?? "";
+  const pollList = plan.list;
 
   useEffect(() => {
-    if (pollKind === "none") return;
+    if (pollDetailId === "" && !pollList) return;
+    const session = sessionId;
     let cancelled = false;
     const tick = async (): Promise<void> => {
       if (inFlight.current) return;
       inFlight.current = true;
       try {
-        if (pollKind === "detail") {
-          const item = await getSharedContent(pollId);
-          if (cancelled) return;
-          setState((prev) => ({ ...prev, items: withSharedContent(prev.items, item) }));
-          return;
+        if (pollDetailId !== "") {
+          try {
+            const item = await getSharedContent(pollDetailId);
+            if (!cancelled && sessionRef.current === session) {
+              setState((prev) => ({ ...prev, items: withSharedContent(prev.items, item) }));
+            }
+          } catch {
+            // 次のティックで再試行する。失敗は一覧側の表示（failed）に閉じる
+          }
         }
-        await loadList();
-      } catch {
-        // 次のティックで再試行する。失敗は一覧側の表示（failed）に閉じる
+        // 受付した 1 件の詳細を追っている間も、一覧の他の進行中を止めたままにしない
+        if (pollList) await loadList();
       } finally {
         inFlight.current = false;
       }
@@ -107,7 +131,7 @@ export function useSharedContents({ sessionId }: { sessionId: string }) {
       cancelled = true;
       clearInterval(timer);
     };
-  }, [pollKind, pollId, loadList]);
+  }, [pollDetailId, pollList, sessionId, loadList]);
 
   return { ...state, share, reload: loadList };
 }

@@ -46,24 +46,29 @@ export function shareStatusView(item: SharedContentResponse): ShareStatusView {
   }
 }
 
-/** 公開がまだ進行中の共有物があるか。1 件でもあれば一覧を取り直す */
-export function shareItemsPublishing(items: readonly SharedContentResponse[]): boolean {
-  return items.some((item) => item.status === "publishing");
+/** 公開がまだ進行中の共有物があるか。`exceptId` を渡すとその 1 件は数えない */
+export function shareItemsPublishing(items: readonly SharedContentResponse[], exceptId: string | null = null): boolean {
+  return items.some((item) => item.status === "publishing" && item.id !== exceptId);
 }
 
-export type SharePollPlan = { kind: "detail"; id: string } | { kind: "list" } | null;
+/** 次の tick で読む対象。両方 true なら 1 tick で両方を読む */
+export type SharePollPlan = {
+  /** 受付した 1 件の詳細。null = 追う必要が無い */
+  detailId: string | null;
+  /** 一覧の取り直し。受付した 1 件とは別に進行中の共有物があるときだけ要る */
+  list: boolean;
+};
 
 /**
- * 次に読む対象。受付直後の 1 件は詳細で追い（一覧にまだ載っていない間も含む）、
- * それ以外の進行中は一覧の取り直しで追う。`null` = 読む必要が無い。
+ * 詳細だけにすると受付後に一覧の他の進行中が止まったままになるため、両方を 1 tick で追う。
+ * 受付した 1 件は一覧にまだ載っていない間も詳細で追う。
  */
 export function sharePollPlan(activeId: string | null, items: readonly SharedContentResponse[]): SharePollPlan {
   const active = activeId === null ? undefined : items.find((item) => item.id === activeId);
-  if (activeId !== null && (active === undefined || active.status === "publishing")) {
-    return { kind: "detail", id: activeId };
-  }
-  if (shareItemsPublishing(items)) return { kind: "list" };
-  return null;
+  return {
+    detailId: activeId !== null && (active === undefined || active.status === "publishing") ? activeId : null,
+    list: shareItemsPublishing(items, activeId),
+  };
 }
 
 /** 受付した 1 件を一覧へ差し替える（未取得なら先頭に足す）。詳細のポーリング結果を反映する 1 箇所 */

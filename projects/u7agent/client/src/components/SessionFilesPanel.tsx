@@ -64,6 +64,13 @@ function SessionFilesContent({
   const [tab, setTab] = useState<SessionEnvTab>("files");
   // 共有 (Cloudflare への静的公開) の確認ダイアログ。対象は行の ⋯ から選ぶ 1 ディレクトリだけ
   const [shareTarget, setShareTarget] = useState<ShareContentTarget | null>(null);
+  // 同じ作業フォルダの別会話へ移ってもパネルは remount されない (key は cwd)。開始元の会話の共有を
+  // 持ったままにしないよう、会話が変わったら対象ごと捨てる
+  const [shareSessionId, setShareSessionId] = useState(envScope.sessionId);
+  if (shareSessionId !== envScope.sessionId) {
+    setShareSessionId(envScope.sessionId);
+    setShareTarget(null);
+  }
   // ヘッダの「再読み込み」と run_end を 1 つの token にまとめる。どちらも単調なので、合計が
   // 変わったときだけ取り直す。描画間の runStatus の差は使わない (run_start と run_end が同じ
   // バッチで届くと running を観測できず、run_end を取りこぼす。カウンタは reducer が進める)

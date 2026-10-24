@@ -44,6 +44,7 @@ Cloudflare Workers（workers.dev）
 - 受付（`POST /api/shared-contents` の `202`）の後は `GET /api/shared-contents/:id` を `publishing` の間だけポーリングし、その間は確定の操作を出さない。完了で URL・share id・「開く」・「URL をコピー」を出す
 - ダイアログ内の「この会話の共有物」は `GET /api/shared-contents?sessionId=<id>` の結果だけを並べる（全共有物の一覧は作らない）。**閉じて開き直すと状態と URL が戻る**（画面は状態を持ち越さず、開くたびに一覧から復元する）。`publishing` が含まれる間は一覧もポーリングする
 - 資格情報が未登録でもメニューは出し、受付時に BFF の固定文言（設定 → 共有 → 接続 で登録）をそのまま見せる
+- Escape は共有ダイアログだけを閉じる。`compact` ではダイアログが作業環境のシートの中に開くため、`cancel` / `close` を背面のシートへ伝播させない（1 回でシートごと閉じない）
 - **`serve`（サービス）との違いを文言で示す。** 共有は Cloudflare への外部公開、サービスはアプリを開いている間だけの一時プレビュー
 - 失敗時も BFF が分類した固定文言（`lastError` / `error`）だけを出し、API トークン・Cloudflare の生レスポンス・内部識別子は画面へ出さない
 

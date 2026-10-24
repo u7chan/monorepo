@@ -21,9 +21,8 @@ export type ShareContentDialogProps = {
 };
 
 /**
- * ディレクトリを Cloudflare へ公開する最小の GUI（確認 → 受付 → 状態 → 結果）。
- * この会話の共有物だけを一覧にし、全共有物の管理（停止・削除・更新）は設定 → 共有（`/settings/sharing`）に置く。
- * 取得と変更は `useSharedContents` が持ち、ここは表示に徹する。
+ * 行の ⋯ から 1 ディレクトリを公開するダイアログ。停止・削除・更新をここへ足さないのは、取り消しにくい操作の確認と結果だけを 1 画面に閉じるため
+ * （一覧の管理は 設定 → 共有）。振る舞いは `docs/static-sharing.md#gui共有ダイアログ` を正とする。
  */
 export function ShareContentDialog({ sessionId, ...props }: ShareContentDialogProps) {
   return <ShareContentDialogView {...props} share={useSharedContents({ sessionId })} />;
@@ -73,7 +72,15 @@ export function ShareContentDialogView({ target, share, singleColumn = false, on
   return (
     <dialog
       ref={dialogRef}
-      onClose={onClose}
+      // `cancel` / `close` は React の祖先 (作業環境のシート) の handler まで届く。止めないと Escape 1 回で背面まで閉じる
+      // (既定動作の「このダイアログを閉じる」は止めない)
+      onCancel={(event) => {
+        event.stopPropagation();
+      }}
+      onClose={(event) => {
+        event.stopPropagation();
+        onClose();
+      }}
       aria-modal="true"
       aria-label="共有"
       tabIndex={-1}
@@ -191,9 +198,7 @@ function ShareOutcome({ active, submitting }: { active: SharedContentResponse | 
     <div className="grid gap-1.5 rounded-lg border border-line bg-soft px-3 py-2.5">
       <ShareStatusLine view={view} />
       {view.openUrl === null ? null : <ShareUrl url={view.openUrl} id={active.id} />}
-      <p className="text-1xs break-all text-ink-muted">
-        共有 ID: <span className="text-ink-soft select-all">{active.id}</span>
-      </p>
+      <ShareId id={active.id} />
       <ShareNote view={view} />
     </div>
   );
@@ -209,8 +214,20 @@ function ShareListItem({ item }: { item: SharedContentResponse }) {
         <ShareStatusLine view={view} />
       </div>
       {view.openUrl === null ? null : <ShareUrl url={view.openUrl} id={item.id} />}
+      <ShareId id={item.id} />
       <ShareNote view={view} />
     </li>
+  );
+}
+
+/**
+ * 共有 ID。`failed` は URL が無く、同じディレクトリの再公開は名前が重なるため、一覧でも出さないと識別できない
+ */
+function ShareId({ id }: { id: string }) {
+  return (
+    <p className="text-1xs break-all text-ink-muted">
+      共有 ID: <span className="text-ink-soft select-all">{id}</span>
+    </p>
   );
 }
 

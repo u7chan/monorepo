@@ -110,14 +110,25 @@ test("完了: URL と共有 ID と 開く / URL をコピー を結果に出す"
   assert.equal((html.match(/>開く</g) ?? []).length, 1);
 });
 
-test("一覧: 受付した 1 件を除いた他の共有物を並べ、開き直したときと同じ情報を出す", () => {
+test("一覧: 受付した 1 件を除いた他の共有物を並べ、共有 ID も出す", () => {
   const other = item({ id: "def456", name: "site", status: "published" });
   const html = render(controller({ items: [item({ status: "published" }), other], activeId: "abc123" }));
   assert.match(html, /この会話の共有物/);
   assert.match(html, />site</, "他の共有物を一覧に出す");
   assert.ok(html.includes(`href="${URL_PUBLISHED}"`), "他の共有物の URL も出す");
-  // 受付した 1 件は結果の欄だけに出る
-  assert.equal((html.match(/共有 ID: /g) ?? []).length, 1);
+  assert.ok(html.includes(">def456<"), "一覧の共有物にも共有 ID を出す");
+});
+
+test("再オープン: 受付していない状態でも一覧の各共有物に共有 ID と URL を出す", () => {
+  const published = item({ status: "published" });
+  // failed は URL が無く、同じディレクトリの再公開では名前が重なる。ID が無いと見分けられない
+  const failed = item({ id: "def456", status: "failed", publicUrl: null, lastError: "index.html がありません" });
+  const html = render(controller({ items: [published, failed] }));
+  assert.equal((html.match(/共有 ID: /g) ?? []).length, 2, "一覧の全件に共有 ID を出す");
+  assert.ok(html.includes(">abc123<"));
+  assert.ok(html.includes(">def456<"));
+  assert.ok(html.includes(`href="${URL_PUBLISHED}"`), "公開済みの URL は開き直しでも出す");
+  assert.match(html, /公開できませんでした/);
 });
 
 test("失敗: BFF の固定文言だけを出し、URL も生の応答も出さない", () => {

@@ -77,14 +77,30 @@ test("確認の条件: 対象外の URL を出さず、外部公開・秘密値�
   );
 });
 
-test("ポーリングの宛先: 受付した 1 件は詳細、他の公開中は一覧、進行中が無ければ読まない", () => {
-  assert.deepEqual(sharePollPlan("abc123", []), { kind: "detail", id: "abc123" });
-  assert.deepEqual(sharePollPlan("abc123", [item()]), { kind: "detail", id: "abc123" });
-  assert.deepEqual(sharePollPlan("abc123", [item({ status: "published" })]), null);
-  assert.deepEqual(sharePollPlan(null, [item()]), { kind: "list" });
-  assert.deepEqual(sharePollPlan(null, [item({ status: "published" }), item({ id: "def456" })]), { kind: "list" });
+test("ポーリングの宛先: 受付した 1 件は詳細、他の進行中は一覧、両方あるときは同じ tick で両方読む", () => {
+  // 受付した 1 件が一覧に載っていない間も詳細で追う
+  assert.deepEqual(sharePollPlan("abc123", []), { detailId: "abc123", list: false });
+  assert.deepEqual(sharePollPlan("abc123", [item()]), { detailId: "abc123", list: false });
+  // 受付した 1 件を詳細で追っている間も、他の進行中は一覧の取り直しで更新する (止まったままにしない)
+  assert.deepEqual(sharePollPlan("abc123", [item(), item({ id: "def456" })]), {
+    detailId: "abc123",
+    list: true,
+  });
+  assert.deepEqual(sharePollPlan("abc123", [item({ status: "published" }), item({ id: "def456" })]), {
+    detailId: null,
+    list: true,
+  });
+  assert.deepEqual(sharePollPlan("abc123", [item({ status: "published" })]), { detailId: null, list: false });
+  assert.deepEqual(sharePollPlan(null, [item()]), { detailId: null, list: true });
+  assert.deepEqual(sharePollPlan(null, [item({ status: "published" }), item({ id: "def456" })]), {
+    detailId: null,
+    list: true,
+  });
+  assert.deepEqual(sharePollPlan(null, [item({ status: "published" })]), { detailId: null, list: false });
   assert.equal(shareItemsPublishing([item({ status: "published" })]), false);
   assert.equal(shareItemsPublishing([item({ status: "published" }), item({ id: "def456" })]), true);
+  // 受付した 1 件だけが進行中なら、一覧の取り直しは要らない
+  assert.equal(shareItemsPublishing([item()], "abc123"), false);
 });
 
 test("受付した 1 件の反映: 同じ id は差し替え、未取得なら先頭へ足す", () => {
