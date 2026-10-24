@@ -1652,6 +1652,11 @@ export type SessionMoveResponse = z.infer<typeof SessionMoveResponseSchema>;
 export const PostMessageBodySchema = z.object({
   /** 通常の送信は必須。`resendRunId` を指定した再送では本文を送らず、サーバーが保存済みの本文を使う */
   text: z.string().optional(),
+  /**
+   * タイトル用の入力。定型プロンプト (suggestion) を結合する前の本文で、省略時は `text` を使う
+   * (従来形式のクライアントはタイトル用の情報を送らない)。
+   */
+  titleSource: z.string().optional(),
   /** 添付 (root 相対。既定スペースは `<appdir>/uploads/<sessionId>/` 配下)。件数とパスの検証は attachments.ts が正 */
   attachments: z.array(z.string()).optional(),
   /** 未送信メッセージの再送。本文は保存済みの生テキストを使い、同じ送信IDで実行し直す */
@@ -2141,6 +2146,27 @@ export const SessionDiagnosticsSchema = z.object({
     .nullable(),
   /** ask_user の待機 / 回答済み (toolCallId と件数だけ。質問文と回答本文は載せない) */
   questions: z.array(z.object({ toolCallId: z.string(), questionCount: z.number(), settled: z.boolean() })),
+  /**
+   * タイトルの由来と AI 要約の試行 (状態・モデル・usage)。依頼本文と生成タイトルは載せない
+   * (診断 JSON が本文を含まない契約の一部)。旧サーバーは載せないため省略可。
+   */
+  title: z
+    .object({
+      origin: z.enum(["auto", "ai", "manual"]),
+      attempt: z
+        .object({
+          runId: z.string(),
+          at: z.number(),
+          state: z.enum(["pending", "done", "failed", "skipped"]),
+          model: z.string().optional(),
+          generation: z.number().optional(),
+          inputTokens: z.number().optional(),
+          outputTokens: z.number().optional(),
+          costTotal: z.number().optional(),
+        })
+        .optional(),
+    })
+    .optional(),
   events: z.object({
     /** 件数の上限 (これより古い分は返さない) */
     limit: z.number(),
@@ -2218,3 +2244,36 @@ export const WebSearchMutationErrorSchema = z.object({
   state: z.literal("not_stored"),
 });
 export type WebSearchMutationError = z.infer<typeof WebSearchMutationErrorSchema>;
+
+/**
+ * GET / PUT `/api/settings/session-title`。会話タイトルの AI 要約 (On/Off・要約モデル・定義) を持つ。
+ * 行が無い = 既定 (Off・モデル未選択・既定の定義)。モデルは本会話のモデルと独立で、`provider/id` で表す。
+ */
+export const TitleSummaryModelChoiceSchema = z.object({
+  provider: z.string(),
+  id: z.string(),
+  name: z.string(),
+});
+export type TitleSummaryModelChoice = z.infer<typeof TitleSummaryModelChoiceSchema>;
+
+export const TitleSummarySettingsResponseSchema = z.object({
+  enabled: z.boolean(),
+  /** 選択中のモデル (`provider/id`)。未選択は null */
+  model: z.string().nullable(),
+  definition: z.string(),
+  /** 既定の定義 (画面の「既定に戻す」が使う) */
+  defaultDefinition: z.string(),
+  /** 認証済みで選択できるモデル。候補が無ければ空 */
+  models: z.array(TitleSummaryModelChoiceSchema),
+  /** 保存済みモデルが現在の候補に無い。true の間は要約だけを飛ばし、会話の送信は止めない */
+  modelAvailable: z.boolean(),
+});
+export type TitleSummarySettingsResponse = z.infer<typeof TitleSummarySettingsResponseSchema>;
+
+/** 3 項目をまとめて保存する。省略した項目は保存値を保つ (Off から On への切替でモデルを消さない) */
+export const UpdateTitleSummaryBodySchema = z.object({
+  enabled: z.boolean(),
+  model: z.string().nullable().optional(),
+  definition: z.string().optional(),
+});
+export type UpdateTitleSummaryBody = z.infer<typeof UpdateTitleSummaryBodySchema>;

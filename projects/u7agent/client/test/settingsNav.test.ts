@@ -18,7 +18,7 @@ import {
   SETTINGS_SECTION_KEY,
 } from "../src/lib/settingsNav";
 
-test("設定ナビは 11 項目をこの順で持つ", () => {
+test("設定ナビは 12 項目をこの順で持つ", () => {
   assert.deepEqual(
     SETTINGS_SECTIONS.map((item) => [item.section, item.label]),
     [
@@ -29,6 +29,8 @@ test("設定ナビは 11 項目をこの順で持つ", () => {
       // モデルとは対象そのものが別で、モデルのタブではなくルートのセクションに置く
       ["content", "コンテンツ生成"],
       ["web-search", "Web 検索"],
+      // 会話タイトルの AI 要約は本会話のモデルとは独立の設定なので、モデルのタブにせずルートへ置く
+      ["session-title", "会話タイトル"],
       ["sharing", "共有"],
       ["notifications", "通知"],
       ["appearance", "外観"],

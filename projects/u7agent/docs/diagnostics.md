@@ -18,7 +18,7 @@
 
 ## mask の範囲
 
-- **診断 JSON に本文は入れない。** メッセージ・質問・回答の本文は載せず、件数と `skipped` の数、文字数に落とす。イベントの `data` は emit 時点で mask 済みの値を、種別ごとの要約（`server/src/diagnostics.ts` の `summarizeEventData`）で本文なしにしてから載せる（SSE の mask 規則は変えない。[secrets.md](secrets.md)）。会話タイトルも本文の先頭を含み得るため載せない
+- **診断 JSON に本文は入れない。** メッセージ・質問・回答の本文は載せず、件数と `skipped` の数、文字数に落とす。イベントの `data` は emit 時点で mask 済みの値を、種別ごとの要約（`server/src/diagnostics.ts` の `summarizeEventData`）で本文なしにしてから載せる（SSE の mask 規則は変えない。[secrets.md](secrets.md)）。会話タイトルも本文の先頭を含み得るため載せない（タイトルの由来と AI 要約の試行は `title` に載せ、状態・モデル・usage だけにして依頼本文と生成タイトルは含めない）
 - **生ログは mask 前。** `session.jsonl` をそのまま返すため、画面や履歴へ渡す前にマスクしている値も含まれる。毎回確認ダイアログを出し（既定の焦点はキャンセル、danger トーンにはしない）、注意書きを常設の折りたたみでも読めるようにする。`meta.json` / `sends.json` は同梱しない
 - 内容の安全性は約束しない。共有する前に中身を確認する導線（注意書き）だけを出す
 

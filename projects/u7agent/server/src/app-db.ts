@@ -21,7 +21,7 @@ import type {
 
 export const APP_DB_FILENAME = "u7agent.db";
 /** テーブル定義を変えたら上げる。新規作成と加算移行はこの版へ揃え、未知の版は作り直す */
-export const APP_DB_SCHEMA_VERSION = 24;
+export const APP_DB_SCHEMA_VERSION = 25;
 
 /** プロバイダー API キーの保存行。平文なのでアクセス権の管理は docs/secrets.md を正とする */
 export interface ProviderCredentialRow {
@@ -68,6 +68,18 @@ export interface ContentSettingsRow {
 export interface WebSearchSettingsRow {
   enabled: boolean;
   provider: string;
+}
+
+/**
+ * 会話タイトルの AI 要約の保存行。**行が無い = 既定 (Off・モデル未選択・定義は既定文)**。
+ * model は `provider/id` で、本会話のモデルとは独立に選ぶ。定義は編集可能な指示で、固定指示は
+ * アプリ側の実装が持ち、この行では解除できない (docs/session-title.md)。
+ */
+export interface TitleSummarySettingsRow {
+  enabled: boolean;
+  /** `provider/id`。null は未選択 */
+  model: string | null;
+  definition: string;
 }
 
 /** カタログ 1 件の保存形。provider は v1 では openrouter 固定なので id と表示名、あれば形式 / 入力の宣言を残す */
@@ -380,6 +392,19 @@ CREATE TABLE IF NOT EXISTS web_search_provider_keys (
 `;
 
 /**
+ * v24 -> v25 で足したテーブル。会話タイトルの AI 要約の設定を 1 行だけ持つ。
+ * **行が無い = 既定 (Off / モデル未選択 / 既定の定義)**。本会話のモデルや compaction の要約とは別の設定。
+ */
+const TITLE_SUMMARY_SETTINGS_TABLE = `
+CREATE TABLE IF NOT EXISTS title_summary_settings (
+  id         INTEGER PRIMARY KEY CHECK (id = 1),
+  enabled    INTEGER NOT NULL,
+  model      TEXT,
+  definition TEXT NOT NULL
+);
+`;
+
+/**
  * provider メモは retainSecret に登録しない方針なので、SQLite の例外文言に値が写り得る。
  * ログ・health・503 へは、この値を含まない固定文言だけを渡す。
  */
@@ -464,6 +489,7 @@ ${SPEECH_CATALOG_TABLE}
 ${SERVE_COMMANDS_TABLE}
 ${WEB_SEARCH_SETTINGS_TABLE}
 ${WEB_SEARCH_PROVIDER_KEYS_TABLE}
+${TITLE_SUMMARY_SETTINGS_TABLE}
 ${SECRETS_TABLE}
 ${SHARED_CONTENTS_TABLE}
 ${CLOUDFLARE_SETTINGS_TABLE}
@@ -485,6 +511,7 @@ DROP TABLE IF EXISTS speech_catalog;
 DROP TABLE IF EXISTS serve_commands;
 DROP TABLE IF EXISTS web_search_settings;
 DROP TABLE IF EXISTS web_search_provider_keys;
+DROP TABLE IF EXISTS title_summary_settings;
 `;
 // secrets / shared_contents / cloudflare_settings は意図的に含めない (docs/secrets.md / docs/static-sharing.md)。
 // 列追加も #migrate() にだけ足し、既存行を書き換える移行はしない。
@@ -1036,6 +1063,7 @@ export class AppDb {
       this.#query((db) => db.exec(SERVE_COMMANDS_TABLE));
       this.#query((db) => db.exec(WEB_SEARCH_SETTINGS_TABLE));
       this.#query((db) => db.exec(WEB_SEARCH_PROVIDER_KEYS_TABLE));
+      this.#query((db) => db.exec(TITLE_SUMMARY_SETTINGS_TABLE));
       this.#query((db) => db.exec(SECRETS_TABLE));
       this.#query((db) => db.exec(SHARED_CONTENTS_TABLE));
       this.#query((db) => db.exec(CLOUDFLARE_SETTINGS_TABLE));
@@ -1445,8 +1473,35 @@ export class AppDb {
     );
   }
 
-  // --- web search provider keys (1 行 1 provider。行が無い = キー未設定) ---
+  // --- title summary settings (1 行だけ。行が無い = 既定 = Off / モデル未選択) ---
 
+  /** 行が無ければ undefined = 既定。空白だけの定義も既定として読む */
+  readTitleSummarySettings(): TitleSummarySettingsRow | undefined {
+    const row = this.#query(
+      (db) => db.prepare("SELECT * FROM title_summary_settings WHERE id = 1").get() as Row | undefined,
+    );
+    if (!row) return undefined;
+    return {
+      enabled: Number(row.enabled) !== 0,
+      model: typeof row.model === "string" && row.model !== "" ? row.model : null,
+      definition: typeof row.definition === "string" ? row.definition : "",
+    };
+  }
+
+  /** 保存は id = 1 の upsert (web_search_settings と同じ形) */
+  saveTitleSummarySettings(settings: TitleSummarySettingsRow): void {
+    this.#query((db) =>
+      db
+        .prepare(
+          `INSERT INTO title_summary_settings (id, enabled, model, definition) VALUES (1, ?, ?, ?)
+           ON CONFLICT(id) DO UPDATE SET enabled = excluded.enabled, model = excluded.model,
+             definition = excluded.definition`,
+        )
+        .run(settings.enabled ? 1 : 0, settings.model, settings.definition),
+    );
+  }
+
+  // --- web search provider keys (1 行 1 provider。行が無い = キー未設定) ---
   /** 行が無ければ undefined。空文字へ手編集された行も未設定として読む */
   readWebSearchProviderKey(provider: string): string | undefined {
     const row = this.#query(

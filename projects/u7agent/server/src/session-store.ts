@@ -73,6 +73,22 @@ export interface SessionMeta {
    * 受け付けない。旧 meta は欠落 = 片付け不要。
    */
   handoffCleanup?: boolean;
+  /**
+   * タイトルの由来 (自動 / AI / 手動)。旧 meta は欠落しており、既存タイトルは手動として保護する
+   * (session-title.ts の titleOriginOf)。
+   */
+  titleOrigin?: "auto" | "ai" | "manual";
+  /** AI 要約の判定と試行 (1 会話 1 回)。欠落 = 未判定で、既存の会話には遡及しない */
+  titleAttempt?: {
+    runId: string;
+    at: number;
+    state: "pending" | "done" | "failed" | "skipped";
+    model?: string;
+    generation?: number;
+    inputTokens?: number;
+    outputTokens?: number;
+    costTotal?: number;
+  };
 }
 
 /** 引き継ぎごとの操作 ID。セッション ID と同じ 8 hex 文字 */
@@ -207,6 +223,7 @@ function parseMeta(value: unknown, id: string): SessionMeta | undefined {
   // 開き直して再保存してもカタログ専用キーを書き戻さない (docs/api-sessions.md)
   if (!prompt || typeof prompt.agent !== "string") return undefined;
   const handoff = parseHandoff(meta.handoff);
+  const titleAttempt = parseTitleAttempt(meta.titleAttempt);
   return {
     version: 1,
     ...(meta.spaceId !== undefined ? { spaceId: meta.spaceId } : {}),
@@ -230,6 +247,32 @@ function parseMeta(value: unknown, id: string): SessionMeta | undefined {
     // 不正な記録は落とし、読み込みそのものは妨げない
     ...(handoff ? { handoff } : {}),
     ...(meta.handoffCleanup === true ? { handoffCleanup: true } : {}),
+    // タイトルの由来と AI 要約の試行。欠落・不正値は未保存として落とし、読み込みは妨げない。
+    // ここで落とすと再起動後に「判定済み」が消え、1 会話 1 試行を守れない
+    ...(meta.titleOrigin === "auto" || meta.titleOrigin === "ai" || meta.titleOrigin === "manual"
+      ? { titleOrigin: meta.titleOrigin }
+      : {}),
+    ...(titleAttempt ? { titleAttempt } : {}),
+  };
+}
+
+/** 試行の保存値。必須項目が欠けた記録は落とす (欠落 = 未判定として安全側に倒す) */
+function parseTitleAttempt(value: unknown): SessionMeta["titleAttempt"] | undefined {
+  if (!value || typeof value !== "object") return undefined;
+  const attempt = value as Record<string, unknown>;
+  const state = attempt.state;
+  if (typeof attempt.runId !== "string" || attempt.runId === "") return undefined;
+  if (typeof attempt.at !== "number" || !Number.isFinite(attempt.at)) return undefined;
+  if (state !== "pending" && state !== "done" && state !== "failed" && state !== "skipped") return undefined;
+  return {
+    runId: attempt.runId,
+    at: attempt.at,
+    state,
+    ...(typeof attempt.model === "string" ? { model: attempt.model } : {}),
+    ...(typeof attempt.generation === "number" ? { generation: attempt.generation } : {}),
+    ...(typeof attempt.inputTokens === "number" ? { inputTokens: attempt.inputTokens } : {}),
+    ...(typeof attempt.outputTokens === "number" ? { outputTokens: attempt.outputTokens } : {}),
+    ...(typeof attempt.costTotal === "number" ? { costTotal: attempt.costTotal } : {}),
   };
 }
 

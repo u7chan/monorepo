@@ -14,6 +14,7 @@ export type SettingsSection =
   | "models"
   | "content"
   | "web-search"
+  | "session-title"
   | "sharing"
   | "runtime"
   | "notifications"
@@ -30,6 +31,9 @@ export const SETTINGS_SECTIONS: { section: SettingsSection; label: string }[] = 
   // モデルのタブにはせず、ルートのセクションに置く（コンテンツ生成の中は画像 / 音声のタブへ分ける）
   { section: "content", label: "コンテンツ生成" },
   { section: "web-search", label: "Web 検索" },
+  // 会話タイトルの AI 要約は、本会話のモデル (設定 → モデル) とは独立したモデルを選ぶ別の設定。
+  // 対象は「会話の見出し」なので、モデルやコンテンツ生成のタブにはせずルートのセクションに置く
+  { section: "session-title", label: "会話タイトル" },
   // 共有は公開先の接続と、公開した成果物の管理を同じ画面に置く。接続は外部サービスとキーの面だが、
   // 対象は「共有」そのもので、モデル / コンテンツ生成 / Web 検索とは別
   { section: "sharing", label: "共有" },

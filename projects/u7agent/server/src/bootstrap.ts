@@ -15,6 +15,10 @@ import { ContentSettingsService } from "./content-settings";
 import { createImageCatalog } from "./image-catalog";
 import { createSpeechCatalog } from "./speech-catalog";
 import { WebSearchSettingsService } from "./web-search-settings";
+import { TitleSummarySettingsService } from "./title-summary-settings";
+import { createTitleSummaryGenerate, type TitleSummaryGenerate, type TitleSummaryHost } from "./title-summary";
+import { TitleSummaryQueue } from "./title-summary-queue";
+import { TITLE_OUTPUT_TOKENS } from "./session-title";
 import { ModelSettingsService, type CredentialCommit, type ProviderKeyRuntime } from "./model-settings";
 import { OAuthLoginService, canSignInHere, type OAuthLoginRuntime } from "./oauth-login";
 import { NotificationService } from "./notifications";
@@ -68,6 +72,15 @@ export type CreateBffAppOptions = {
   imageCatalogFetch?: typeof fetch;
   /** 音声モデル一覧取得のテスト用。省略時は globalThis.fetch */
   speechCatalogFetch?: typeof fetch;
+  /**
+   * 会話タイトルの AI 要約の生成。未指定なら pi のモデルランタイムから組み立てる (テストは差し替える)。
+   * null を渡すと要約しない (呼び出しの配線だけを検証するとき)。
+   */
+  titleSummaryGenerate?: TitleSummaryGenerate | null;
+  /**
+   * AI 要約の共有実行制御。未指定は既定 (同時 1 件・待ち 15 秒)。テストは上限と待ち時間を縮めて渡す。
+   */
+  titleSummaryQueue?: TitleSummaryQueue | null;
   /**
    * セッションの引っ越しで作業フォルダ / 添付を移すサンドボックス。未指定なら env から生成した
    * サンドボックスクライアントを再利用する (workspace を差し替えたテストでは null = 移動は 503)。
@@ -135,6 +148,8 @@ export type BffContext = {
   contentSettings: ContentSettingsService;
   /** Web 検索の実行時トグル (設定 → Web 検索)。行が無い = 既定 (有効) を execute のたびに読む */
   webSearchSettings: WebSearchSettingsService;
+  /** 会話タイトルの AI 要約の設定 (On/Off・要約モデル・定義)。保存はサーバー側だけで行う */
+  titleSummarySettings: TitleSummarySettingsService;
   /** serve (サービス) の状態と起動・停止。GUI とエージェントの serve ツールが同じ実体を使う */
   serve: ServeService;
   /** 作業フォルダ単位の環境変数。GUI の API と serve / bash への注入が同じ実体を使う */
@@ -251,6 +266,27 @@ export async function createBffContext(opts: CreateBffAppOptions = {}): Promise<
     maskError,
   });
   await webSearchSettings.applyStored();
+  // 会話タイトルの AI 要約はモデル / 定義を DB で持つ。生成は会話ストアが判定し、ここは設定と 1 回の呼び出しだけ。
+  const titleSummarySettings = new TitleSummarySettingsService({ db: appDb, models: () => pi?.modelOptions ?? [] });
+  await titleSummarySettings.applyStored();
+  const titleSummaryGenerate: TitleSummaryGenerate | null =
+    opts.titleSummaryGenerate !== undefined
+      ? opts.titleSummaryGenerate
+      : pi
+        ? createTitleSummaryGenerate(
+            {
+              resolveModel: (model) => pi.resolveModel(model),
+              // 取消 (Off / 手動改名 / 停止) を HTTP 呼び出しまで伝播させる
+              complete: (model, context, options) =>
+                pi.modelRuntime.completeSimple(model, context, {
+                  maxTokens: TITLE_OUTPUT_TOKENS,
+                  reasoning: "minimal",
+                  signal: options.signal,
+                }),
+            },
+            pi.secretMasker,
+          )
+        : null;
   // シークレットは master key をホスト側 (環境変数 / 鍵ファイル) から受け取り、アプリ DB とは別経路で管理する。
   // 未設定 / 壊れた宣言では「秘密の利用」だけを拒否し、変数 (平文) と起動は続行する。
   const secretCrypto = (() => {
@@ -339,7 +375,11 @@ export async function createBffContext(opts: CreateBffAppOptions = {}): Promise<
     cwdKeys: appDb,
     rootCwd: cwd,
     notifications,
+    titleSummary: titleSummaryGenerate ? titleSummaryHost(titleSummarySettings, titleSummaryGenerate) : null,
+    ...(opts.titleSummaryQueue !== undefined ? { titleSummaryQueue: opts.titleSummaryQueue } : {}),
   });
+  // Off への変更では未開始の要約を取り消す (実行中は中断し、後から届いた結果も適用しない)
+  titleSummarySettings.onChange(() => store.cancelTitleSummaries());
   if (storeDir) {
     try {
       await store.init();
@@ -406,11 +446,17 @@ export async function createBffContext(opts: CreateBffAppOptions = {}): Promise<
     oauthLogin,
     contentSettings,
     webSearchSettings,
+    titleSummarySettings,
     serve,
     secrets,
     cloudflareSettings,
     sharedContents,
   };
+}
+
+/** 会話ストアへ渡す AI 要約の口。設定は呼び出しのたびに読み、世代の比較はストアが行う */
+function titleSummaryHost(settings: TitleSummarySettingsService, generate: TitleSummaryGenerate): TitleSummaryHost {
+  return { settings: () => settings.runtime(), generate };
 }
 
 /** SDK のログインで名乗る名前。同意画面の `agent_name_hint` に出る静的な文字列で、秘密情報ではない */

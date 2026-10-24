@@ -24,6 +24,7 @@ import { SessionHandoffDialog, type SessionHandoffRequest } from "./components/S
 import { SkillSettingsPage } from "./components/SkillSettingsPage";
 import { Topbar } from "./components/Topbar";
 import { WebSearchSettingsPage } from "./components/WebSearchSettingsPage";
+import { SessionTitleSettingsPage } from "./components/SessionTitleSettingsPage";
 import { FileRefProvider } from "./components/markdown/FileRefLink";
 import { MarkdownImageProvider } from "./components/markdown/MarkdownImageRefs";
 import { useU7Agent, type SendMessageOptions } from "./hooks/useU7Agent";
@@ -403,6 +404,13 @@ export default function App({ handoffNote = null, onHandoffNote, onHandoffNoteSh
       void app.sendMessage(text, options);
     },
     [app],
+  );
+  // 入力欄は定型プロンプトを結合する前の本文も渡す (一覧タイトルを固定文で埋めないため)
+  const handleComposerSend = useCallback(
+    (text: string, titleSource?: string) => {
+      handleSend(text, titleSource === undefined ? undefined : { titleSource });
+    },
+    [handleSend],
   );
 
   const handleStop = useCallback(() => {
@@ -865,6 +873,9 @@ export default function App({ handoffNote = null, onHandoffNote, onHandoffNoteSh
         );
       case "web-search":
         return <WebSearchSettingsPage {...pageProps} refreshCatalog={refreshCatalog} />;
+      case "session-title":
+        // 本会話のモデルとは独立した設定なので、モデル画面の共有 state は渡さない (開いたときだけ取得する)
+        return <SessionTitleSettingsPage {...pageProps} />;
       case "runtime":
         return (
           <RuntimePage
@@ -1043,7 +1054,7 @@ export default function App({ handoffNote = null, onHandoffNote, onHandoffNoteSh
               suggestion={activeSuggestion}
               rootCwd={app.health?.cwd ?? ""}
               skills={app.sessionSkills}
-              onSend={handleSend}
+              onSend={handleComposerSend}
               onStop={handleStop}
               onCompact={app.sessionId ? handleCompact : undefined}
               runStatus={app.chat.runStatus}
