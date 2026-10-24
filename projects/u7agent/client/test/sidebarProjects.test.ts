@@ -149,6 +149,7 @@ const session: SessionSummary = {
   lastUsedAt: 0,
   pinned: false,
   projectId: "p-1",
+  serveCommand: null,
 };
 
 function renderProjectRow(open: boolean, sessions: SessionSummary[] = [session]): string {

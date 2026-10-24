@@ -4,18 +4,18 @@ import type { Project, SessionSummary } from "../types";
 import {
   ACTIVITY_GROUP_ORDER,
   activityCounts,
-  activityElapsedLabel,
-  activityFinishedLabel,
   activityGroupLabel,
   activityRows,
-  activityStatusLabel,
   type ActivityKind,
   type ActivityRow,
 } from "../lib/activity";
+import { activityRowServe, activityServiceView, runtimeServeStartConfirm } from "../lib/activityServe";
 import { cn } from "../lib/cn";
 import { messageFullTimeLabel, messageTimeLabel } from "../lib/messageTime";
-import { sessionEntryHref } from "../lib/route";
 import type { SessionsFetchSnapshot } from "../lib/sessionsFetch";
+import { useRuntimeServe } from "../hooks/useRuntimeServe";
+import { ActivityRowItem } from "./ActivityRowItem";
+import { ActivityServiceRow } from "./ActivityServiceRow";
 import { ArrowLeftIcon, MenuIcon } from "./icons";
 import { LoadingMark } from "./LoadingMark";
 import { ReloadButton } from "./ReloadButton";
@@ -35,6 +35,10 @@ export type ActivityPageProps = {
   onOpenNav?: () => void;
   /** モバイルヘッダの帯 (641–900px と singleColumn)。タップ領域を 44px 以上にする */
   compact?: boolean;
+  /** health の previewPort (ブラウザから見た公開ポート)。未取得なら「開く」を出さない */
+  previewPort?: number;
+  /** ブラウザから見たホスト (公開 URL を組む) */
+  hostname: string;
 };
 
 const GROUP_DOT: Record<ActivityKind, string> = {
@@ -45,7 +49,8 @@ const GROUP_DOT: Record<ActivityKind, string> = {
 
 /**
  * 全スペース横断の実行状況。行の単位は会話 (sessionId) で、進行中 (回答待ち / 処理中) と直近 120 分の
- * 終了を 1 画面に出す。区分・件数・並び・経過時間の文字列は lib/activity を正とする。
+ * 終了を 1 画面に出す。区分・件数・並び・経過時間の文字列は lib/activity、上部のサービス行と行の操作は
+ * lib/activityServe を正とする。サービス状態は `/activity` を表示している間だけ 4 秒で回す。
  * 経過時間は 1 秒ごとにクライアントで進める (一覧の 4 秒ポーリングとは独立。読み上げの live region にしない)。
  */
 export function ActivityPage({
@@ -57,8 +62,11 @@ export function ActivityPage({
   onBack,
   onOpenNav,
   compact = false,
+  previewPort,
+  hostname,
 }: ActivityPageProps) {
   const now = useActivityNow();
+  const service = useRuntimeServe();
   const rows = useMemo(() => activityRows(sessions, projects, now), [sessions, projects, now]);
   const counts = useMemo(() => activityCounts(rows), [rows]);
   // 初回成功前は一覧が空でも「0 件」と断定しない (未取得として出す)
@@ -69,13 +77,43 @@ export function ActivityPage({
   const spaceNames = useMemo(() => new Map(spaces.map((space) => [space.id, space.name])), [spaces]);
   // 利用者の再読み込みの結果だけを通知する (自動更新のたびに読み上げない)
   const [reloadNote, setReloadNote] = useState("");
+  /** 起動の結果の通知。成功したときだけ「開く」へ案内する */
+  const [serveNote, setServeNote] = useState("");
+  const refreshService = service.refresh;
   const reload = useCallback(() => {
     setReloadNote("");
     void onReload().then((ok) => {
       if (ok) setReloadNote("一覧を更新しました");
     });
-  }, [onReload]);
+    // サービス状態は自動でも回るが、取得失敗の案内からも同じ操作で取り直せるようにする
+    void refreshService();
+  }, [onReload, refreshService]);
   const reloading = fetch.pending;
+  // 起動中の対象は一覧から引く (起動の確認待ちの間に対象が一覧から消えたら、会話名は出さない)
+  const launchingSession =
+    service.starting === null ? undefined : sessions.find((summary) => summary.sessionId === service.starting);
+  const launching =
+    service.starting === null
+      ? undefined
+      : {
+          ...(launchingSession ? { title: launchingSession.title } : {}),
+          ...(launchingSession?.serveCommand ? { command: launchingSession.serveCommand } : {}),
+        };
+  const serviceView = activityServiceView({
+    status: service.status,
+    failed: service.failed,
+    launching,
+    hostname,
+    port: previewPort,
+  });
+  const start = (row: ActivityRow) => {
+    const status = service.status;
+    if (!status || service.failed || !row.serveCommand) return;
+    setServeNote("");
+    void service.start({ sessionId: row.sessionId, confirm: runtimeServeStartConfirm(row, status) }).then((result) => {
+      if (result === "started") setServeNote("サービスを起動しました。「開く」で別タブに開きます");
+    });
+  };
   return (
     <section className="activity-view grid h-full min-h-0 grid-cols-1 grid-rows-[auto_auto_minmax(0,1fr)] overflow-hidden bg-base">
       <header className="border-b border-line">
@@ -141,6 +179,18 @@ export function ActivityPage({
 
       <div className="min-h-0 scrollbar-thin overflow-y-auto">
         <div className="mx-auto w-full max-w-5xl px-4 pt-3 pb-6 sm:px-6">
+          <ActivityServiceRow
+            view={serviceView}
+            stopping={service.stopping}
+            error={service.error}
+            compact={compact}
+            onStop={() => void service.stop()}
+          />
+          {serveNote ? (
+            <p role="status" className="mt-2 text-1xs text-ink-soft">
+              {serveNote}
+            </p>
+          ) : null}
           <FetchNote fetch={fetch} reloadNote={reloadNote} />
           {!fetch.loaded ? (
             fetch.failed ? null : (
@@ -164,9 +214,22 @@ export function ActivityPage({
                   </h2>
                   <ul className="mt-1.5 grid gap-1.5">
                     {group.rows.map((row) => (
-                      <li key={row.sessionId} className="min-w-0">
-                        <ActivityRowLink row={row} now={now} spaceName={spaceNames.get(row.spaceId)} />
-                      </li>
+                      <ActivityRowItem
+                        key={row.sessionId}
+                        row={row}
+                        now={now}
+                        spaceName={spaceNames.get(row.spaceId)}
+                        serve={activityRowServe({
+                          row,
+                          status: service.status,
+                          failed: service.failed,
+                          starting: service.starting,
+                          hostname,
+                          port: previewPort,
+                        })}
+                        compact={compact}
+                        onStart={start}
+                      />
                     ))}
                   </ul>
                 </section>
@@ -210,74 +273,6 @@ function FetchNote({ fetch, reloadNote }: { fetch: SessionsFetchSnapshot; reload
       {reloadNote}
     </p>
   );
-}
-
-function ActivityRowLink({ row, now, spaceName }: { row: ActivityRow; now: number; spaceName?: string }) {
-  const elapsed = activityElapsedLabel(row, now);
-  const finished = activityFinishedLabel(row, now);
-  const sinceTitle =
-    row.kind === "waiting" ? "回答待ちの開始から" : row.status === "compacting" ? "圧縮開始から" : "実行開始から";
-  return (
-    // 行全体をリンクにし、タップ・クリックの当たり判定を行にする。accessible name は中の会話タイトルを含む
-    <a
-      href={sessionEntryHref(row.sessionId, row.spaceId)}
-      className="flex min-h-14 min-w-0 flex-col gap-1.5 rounded-xl border border-line bg-raised px-3 py-2.5 transition-colors hover:border-accent/50 hover:bg-hover focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none sm:flex-row sm:items-center sm:gap-3"
-    >
-      <span className="sr-only">会話を開く: </span>
-      <span className="grid min-w-0 flex-1 gap-1">
-        <span className="min-w-0 text-1sm font-medium break-words text-ink-strong sm:truncate">{row.title}</span>
-        <span className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-1xs text-ink-soft">
-          <span className="inline-flex max-w-full min-w-0 items-center rounded-full border border-line px-1.5 text-1xs text-ink-soft">
-            <span className="min-w-0 truncate">{spaceName ?? "不明なスペース"}</span>
-          </span>
-          <span className="min-w-0 truncate">{row.agentName}</span>
-          <span aria-hidden="true">·</span>
-          <span className="min-w-0 truncate">{row.projectLabel}</span>
-          {elapsed !== undefined ? (
-            <>
-              <span aria-hidden="true">·</span>
-              {/* 毎秒変わる数字は読み上げの live region にしない (視覚更新だけ) */}
-              <span className="min-w-12 shrink-0 tabular-nums" title={sinceTitle}>
-                {elapsed}
-              </span>
-            </>
-          ) : null}
-          {finished !== undefined ? (
-            <>
-              <span aria-hidden="true">·</span>
-              <span className="shrink-0 tabular-nums">{finished}</span>
-            </>
-          ) : null}
-        </span>
-      </span>
-      <span className="flex min-w-0 shrink-0 items-center justify-between gap-2 sm:justify-end">
-        <span
-          className={cn(
-            "inline-flex shrink-0 items-center gap-1.5 rounded-full border px-2 py-0.5 text-1xs",
-            statusTone(row),
-          )}
-        >
-          <span className={cn("dot", GROUP_DOT[row.kind])} aria-hidden="true" />
-          {activityStatusLabel(row)}
-        </span>
-        <span aria-hidden="true" className="inline-flex shrink-0 items-center gap-1 text-1xs text-ink-soft">
-          <span className="hidden sm:inline">会話を開く</span>
-          <span className="sm:hidden">開く</span>
-          <span aria-hidden="true">→</span>
-        </span>
-      </span>
-    </a>
-  );
-}
-
-function statusTone(row: ActivityRow): string {
-  if (row.kind === "waiting") return "border-warn/45 text-warn-text";
-  if (row.kind === "working") {
-    return row.status === "compacting" ? "border-line text-ink-soft" : "border-accent/45 text-accent-text";
-  }
-  if (row.status === "error") return "border-danger/45 text-danger-text";
-  if (row.status === "stopped") return "border-line text-ink-soft";
-  return "border-ok/45 text-ok-text";
 }
 
 /** 経過時間用の時計。ページを開いている間だけ 1 秒ごとに進める */

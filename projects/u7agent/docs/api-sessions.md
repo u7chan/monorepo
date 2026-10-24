@@ -29,6 +29,7 @@
       "messageCount": 4,
       "createdAt": 1700000000000,
       "lastUsedAt": 1700000001000,
+      "serveCommand": "python3 -m http.server 8080",
       "model": "<provider>/<id>",
       "projectId": "…",
       "runStartedAt": 1700000000500,
@@ -44,6 +45,8 @@
 `runStartedAt` / `finishedAt` は live な実行の開始・終了、`compactionStartedAt` は圧縮の開始、`awaitingSince` は未 settle の質問のうち最も古い開始時刻、`lastRunDurationMs` は直近のランの所要時間（`runOutcomes` にあるときだけ）で、どれも該当が無ければキーを省略する。未ロードの会話は `idle` でこれらの時刻を載せない（`lastUsedAt` を開始時刻の代用にしない）。終了済みの live レコードは終了から 120 分の間だけ sweep の対象外になる。
 
 `pinned` はサイドバーで固定するかを示す（常に boolean）。`awaitingAnswer` は `ask_user` の未 settle の回答待ちがあるか（省略 = false）。この間もランは `running` のままで、左バーの行が「回答待ち」になる（[ask-user.md](ask-user.md#ui)）。待機を持たない未ロードの会話は省略し、ロード済みの会話は待機が無くても `false` を返す。`canHandoff` は同じ会話のままエージェント / スペースを引き継げるか（常に true。旧サーバーは省略 = false）。`projectSession` はプロジェクト所属か（真では引き継ぎ先のスペースを選ばない）。`handoffCleanup` は確定後の履歴削除（片付け）が残っているか（省略 = false。真の間は開く要求が 409 になり、新しい引き継ぎも受け付けない）。`hasRawLog` は生ログ（`session.jsonl`）がディスクにあるか（省略 = false）。設定 → ランタイム の診断タブは、まだ診断応答を取れていないときの出し分けにこの値を使い、応答が取れていれば `raw.available` を正とする。false のときだけダウンロードを押せなくし、理由を 1 行で出す（[diagnostics.md](diagnostics.md#取れないもの)）。`projectId` は所属プロジェクト（未所属はキーを省略する）。所属は保存された `projectCwd` をプロジェクト一覧と突き合わせて読み取り時に解決するため、プロジェクトを解除すると配下セッションは未所属として返る（セッションと履歴・ピン状態は残る）。復元したセッションも同じ規則で解決する。
+
+`serveCommand` はその会話の作業ディレクトリ（workdir）の serve 成功実績で、**無ければ `null`**（キーは常に載る）。cwd を共有するプロジェクト会話は同じ値を返し、別ディレクトリの実績は返さない。実行状況（`/activity`）はこれを終了行に起動の操作を出す条件に使う（[frontend.md](frontend.md#全スペースの一覧)）。
 
 `messageCount` は表示メッセージ数（`user` と、テキストを持つ `assistant`。ツール呼び出しだけのターンは数えない）で、履歴の生件数ではない。未ロードのセッションは保存された `meta.json` の値、ロード済みは現在の履歴から数えた値を返す（ずれの扱いは [session-files.md](session-files.md)）。
 

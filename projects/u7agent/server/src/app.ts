@@ -70,6 +70,7 @@ import {
   ServeStartBodySchema,
   ServeStopBodySchema,
   RuntimeDebugServeStopBodySchema,
+  RuntimeServeStartBodySchema,
   RuntimeServeStopBodySchema,
 } from "./schema";
 
@@ -402,6 +403,15 @@ export async function createBffApp(opts: CreateBffAppOptions = {}) {
         result.success ? undefined : c.json({ error: "Invalid request body" }, 400),
       ),
       (c) => serveRoutes.runtimeStop(c, c.req.valid("json")),
+    )
+    // 実行状況からの起動。閲覧中の会話に依存せず、別スペースの会話も起動できる (全体管理の面)
+    .post(
+      "/api/serve/runtime/start",
+      appDataMutation,
+      jsonBodyValidator(RuntimeServeStartBodySchema, (result, c) =>
+        result.success ? undefined : c.json({ error: "Invalid request body" }, 400),
+      ),
+      (c) => serveRoutes.runtimeStart(c, c.req.valid("json")),
     )
     .post(
       "/api/serve/start",

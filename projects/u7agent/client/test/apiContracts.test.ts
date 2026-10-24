@@ -22,6 +22,7 @@ const {
   getRuntimeServeStatus,
   logoutOAuthProvider,
   startOAuthLogin,
+  startRuntimeServe,
   stopRuntimeDebugServe,
   stopRuntimeServe,
   submitOAuthLoginCode,
@@ -39,7 +40,7 @@ const page: HistoryPage = {
   summarizedMessageCount: 0,
 };
 
-test("ランタイムのサービスAPIは会話IDなしで取得し、停止には確認した世代を送る", async (t) => {
+test("ランタイムのサービスAPIは会話IDなしで取得し、停止と起動には確認した世代を送る", async (t) => {
   const requests: Request[] = [];
   const result = { reachable: false, owner: null, generation: null, command: null };
   t.mock.method(globalThis, "fetch", async (input: string | URL | Request, init?: RequestInit) => {
@@ -48,14 +49,17 @@ test("ランタイムのサービスAPIは会話IDなしで取得し、停止に
   });
   assert.deepEqual(await getRuntimeServeStatus(), result);
   assert.deepEqual(await stopRuntimeServe({ generation: "gen-a" }), result);
+  assert.deepEqual(await startRuntimeServe({ sessionId: "session-a", generation: "gen-a" }), result);
   assert.deepEqual(
     requests.map((request) => [request.method, new URL(request.url).pathname, new URL(request.url).search]),
     [
       ["GET", "/api/serve/runtime/status", ""],
       ["POST", "/api/serve/runtime/stop", ""],
+      ["POST", "/api/serve/runtime/start", ""],
     ],
   );
   assert.deepEqual(await requests[1].json(), { generation: "gen-a" });
+  assert.deepEqual(await requests[2].json(), { sessionId: "session-a", generation: "gen-a" });
 });
 
 test("デバッグ用サービスのAPIは公開枠とは別のパスを使い、停止にはポートを送る", async (t) => {

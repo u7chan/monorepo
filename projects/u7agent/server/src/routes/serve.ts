@@ -1,6 +1,12 @@
 import type { Context } from "hono";
 import { sandboxFailure } from "../http";
-import type { RuntimeDebugServeStopBody, RuntimeServeStopBody, ServeStartBody, ServeStopBody } from "../schema";
+import type {
+  RuntimeDebugServeStopBody,
+  RuntimeServeStartBody,
+  RuntimeServeStopBody,
+  ServeStartBody,
+  ServeStopBody,
+} from "../schema";
 import type { ServeService } from "../serve";
 
 /**
@@ -28,6 +34,15 @@ export function createServeRoutes({ serve }: { serve: ServeService }) {
     runtimeStop: async (c: Context, body: RuntimeServeStopBody) => {
       try {
         return c.json(await serve.runtimeStop(body));
+      } catch (error) {
+        return failure(c, error);
+      }
+    },
+
+    // 実行状況からの起動。会話の所属スペースを問わず、応答は全体の状態 (runtime status と同じ形)
+    runtimeStart: async (c: Context, body: RuntimeServeStartBody) => {
+      try {
+        return c.json(await serve.runtimeStart(body));
       } catch (error) {
         return failure(c, error);
       }

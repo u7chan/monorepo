@@ -894,6 +894,19 @@ export const stopRuntimeServe = async (
 };
 
 /**
+ * 実行状況からの起動。会話の所属スペースを問わず、応答は全体の状態 (runtime status と同じ形)。
+ * `generation` は確認を表示した時点の値で、実行時に変わっていれば 409。
+ */
+export const startRuntimeServe = async (
+  input: { sessionId: string; generation: string | null },
+  signal?: AbortSignal,
+): Promise<RuntimeServeStatus> => {
+  const res = await client.api.serve.runtime.start.$post({ json: input }, { init: { signal } });
+  if (!res.ok) throw await apiError(res);
+  return (await res.json()) as RuntimeServeStatus;
+};
+
+/**
  * デバッグ枠 (18000–18099) の一覧。公開枠の status とは別に取得し、失敗をデバッグ節の中だけに閉じる。
  * 一覧は軽い走査だけで、待受 PID の特定は停止のときに行う。
  */

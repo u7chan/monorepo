@@ -182,6 +182,7 @@ export function projectSessionSummary({
   masker,
   cwd,
   hasRawLog,
+  serveCommand,
 }: {
   record: SessionRecord;
   status: RunStatus;
@@ -197,6 +198,8 @@ export function projectSessionSummary({
   cwd: string;
   /** 生ログ (session.jsonl) がディスクにあるか。UI のダウンロードの出し分けだけに使う */
   hasRawLog: boolean;
+  /** その作業ディレクトリの serve 成功実績。無ければ null (実行状況からの起動可否) */
+  serveCommand: string | null;
 }): SessionSummary {
   return {
     sessionId: record.id,
@@ -216,6 +219,7 @@ export function projectSessionSummary({
     messageCount: displayableMessages(record.session, masker, cwd).length,
     createdAt: record.createdAt,
     lastUsedAt: record.lastUsedAt,
+    serveCommand,
     model: modelLabel(record.session.model),
     // 時刻は live な実行からだけ載せる。未ロードの会話 (summaryOfMeta) は idle で時刻を持たない
     ...(record.run ? { runStartedAt: record.run.startedAt } : {}),

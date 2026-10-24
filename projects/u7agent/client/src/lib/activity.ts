@@ -30,6 +30,8 @@ export type ActivityRow = {
   finishedAt?: number;
   /** 終了行の所要時間 (runOutcomes にあるときだけ) */
   durationMs?: number;
+  /** その会話の作業ディレクトリの serve 成功実績。無ければ null (起動の操作を出す条件) */
+  serveCommand: string | null;
   /** 並びの基準 (処理中 / 回答待ちは lastUsedAt、終了は finishedAt) */
   sortAt: number;
 };
@@ -82,6 +84,7 @@ export function activityRows(
       agentName: summary.agentName || "エージェント名不明",
       projectLabel: (summary.projectId ? projectNames.get(summary.projectId) : undefined) ?? "未所属",
       status: summary.status,
+      serveCommand: summary.serveCommand,
       sortAt: summary.lastUsedAt,
     };
     if (summary.status === "compacting") {

@@ -48,6 +48,7 @@ function renderSessionRow(overrides: Partial<SessionSummary> = {}, onHandoff?: (
     createdAt: 0,
     lastUsedAt: 0,
     pinned: false,
+    serveCommand: null,
     ...overrides,
   };
   return renderToStaticMarkup(

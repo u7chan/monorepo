@@ -1090,6 +1090,8 @@ export default function App({ handoffNote = null, onHandoffNote, onHandoffNoteSh
                 onBack={backToChat}
                 onOpenNav={sidebarDocked ? undefined : openNav}
                 compact={compactTapTargets}
+                previewPort={app.health?.previewPort}
+                hostname={location.hostname}
               />
             </div>
           ) : null}

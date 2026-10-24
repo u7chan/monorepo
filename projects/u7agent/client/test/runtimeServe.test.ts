@@ -25,8 +25,13 @@ function setup(overrides: Partial<Parameters<typeof createRuntimeServeController
   let state: RuntimeServeState = INITIAL_RUNTIME_SERVE_STATE;
   const changes: RuntimeServeState[] = [];
   const calls: Array<{ generation: string }> = [];
+  const starts: Array<{ sessionId: string; generation: string | null }> = [];
   const controller = createRuntimeServeController({
     getStatus: async () => running,
+    start: async (input) => {
+      starts.push(input);
+      return { ...running, owner: { sessionId: input.sessionId, title: "起動した会話" }, generation: "gen-b" };
+    },
     stop: async (input) => {
       calls.push(input);
       return stopped;
@@ -38,7 +43,7 @@ function setup(overrides: Partial<Parameters<typeof createRuntimeServeController
     },
     ...overrides,
   });
-  return { controller, calls, changes, state: () => state };
+  return { controller, calls, starts, changes, state: () => state };
 }
 
 test("遅いポーリングは重ねず、応答を捨てずに反映する", async () => {
@@ -158,4 +163,62 @@ test("画面を閉じた後は取得・確認・停止の遅い応答を適用�
   stopResponse.resolve(stopped);
   await stop;
   assert.equal(stopping.changes.length, updates);
+});
+
+const startRequest = {
+  sessionId: "session-b",
+  confirm: { kind: "confirm" as const, title: "サービスを起動", confirmLabel: "起動する" },
+};
+
+test("起動は確認した世代を送り、成功で状態を適用する", async () => {
+  const view = setup();
+  await view.controller.refresh();
+  assert.equal(await view.controller.start(startRequest), "started");
+  assert.deepEqual(view.starts, [{ sessionId: "session-b", generation: "gen-a" }]);
+  assert.equal(view.state().status?.owner?.sessionId, "session-b", "適用するのは応答の状態");
+  assert.equal(view.state().starting, null);
+});
+
+test("起動の取消は API を呼ばず、二重クリックでも起動を重ねない", async () => {
+  const answer = deferred<boolean>();
+  const view = setup({ confirm: () => answer.promise });
+  await view.controller.refresh();
+  const action = view.controller.start(startRequest);
+  assert.equal(view.state().starting, "session-b", "確認待ちの対象を持つ");
+  assert.equal(await view.controller.start(startRequest), "cancelled");
+  answer.resolve(false);
+  assert.equal(await action, "cancelled");
+  assert.deepEqual(view.starts, []);
+  assert.equal(view.state().starting, null);
+});
+
+test("起動の 409 は自動で再試行せず、理由を残して最新状態を取り直す", async () => {
+  let attempts = 0;
+  const replacement = { ...running, generation: "gen-b", owner: { sessionId: "session-c", title: "他会話" } };
+  const view = setup({
+    getStatus: async () => (attempts ? replacement : running),
+    start: async () => {
+      attempts += 1;
+      throw new Error("サービスの状態が変わりました。最新の状態で確認し直してください");
+    },
+  });
+  await view.controller.refresh();
+  assert.equal(await view.controller.start(startRequest), "failed");
+  await Promise.resolve();
+  assert.equal(attempts, 1, "確認済みの世代で再試行しない");
+  assert.equal(view.state().status, replacement, "状態を取り直す");
+  assert.match(view.state().error!, /状態が変わりました/);
+});
+
+test("画面を閉じた後は起動の確認と応答を適用しない", async () => {
+  const answer = deferred<boolean>();
+  const confirming = setup({ confirm: () => answer.promise });
+  await confirming.controller.refresh();
+  const action = confirming.controller.start(startRequest);
+  confirming.controller.dispose();
+  const count = confirming.changes.length;
+  answer.resolve(true);
+  assert.equal(await action, "cancelled");
+  assert.deepEqual(confirming.starts, []);
+  assert.equal(confirming.changes.length, count);
 });

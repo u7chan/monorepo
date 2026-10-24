@@ -635,6 +635,11 @@ export const SessionSummarySchema = z.object({
   messageCount: z.number(),
   createdAt: z.number(),
   lastUsedAt: z.number(),
+  /**
+   * その会話の作業ディレクトリ (workdir) の serve 成功実績。実績が無ければ null。
+   * cwd を共有するプロジェクト会話は同じ値を返す (実行状況からの起動可否に使う)。
+   */
+  serveCommand: z.string().nullable(),
   model: z.string().optional(),
   projectId: z.string().optional(),
   /**
@@ -1790,6 +1795,16 @@ export const ServeStopBodySchema = z.object({
   generation: z.string().nullable().optional(),
 });
 export type ServeStopBody = z.infer<typeof ServeStopBodySchema>;
+
+/**
+ * 実行状況から全スペース横断で起動する。会話の所属スペースは問わない (全体管理の面) ため、
+ * `/api/serve/start` と違って `?spaceId` との一致を要求しない。
+ */
+export const RuntimeServeStartBodySchema = z.object({
+  sessionId: z.string().min(1),
+  generation: z.string().nullable().optional(),
+});
+export type RuntimeServeStartBody = z.infer<typeof RuntimeServeStartBodySchema>;
 
 /**
  * 設定 → ランタイム のデバッグ一覧。行はレンジ走査で見付かった待受だけで、lease の無い行 (追跡外) は
