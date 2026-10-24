@@ -67,7 +67,8 @@ export interface SharedContentStore {
     },
   ): void;
   getSharedContent(id: string): SharedContentRow | undefined;
-  listSharedContents(): SharedContentRow[];
+  /** `sessionId` を渡すと、その会話で作った共有物だけを返す (GUI の「この会話の共有物」) */
+  listSharedContents(sessionId?: string): SharedContentRow[];
   listPublishingSharedContents(): SharedContentRow[];
 }
 
@@ -118,9 +119,9 @@ export class SharedContentsService {
     this.#tempRoot = options.tempRoot ?? tmpdir();
   }
 
-  list(): SharedContentResponse[] {
+  list(sessionId?: string): SharedContentResponse[] {
     try {
-      return this.#store.listSharedContents().map(toResponse);
+      return this.#store.listSharedContents(sessionId).map(toResponse);
     } catch {
       throw httpError(503, SHARED_CONTENT_READ_ERROR);
     }

@@ -21,12 +21,17 @@ export type FileRowActionsInput = {
   excludeNames: readonly string[];
   /** 行の絶対パス。undefined = ワークスペース root の絶対パス (health.cwd) が未取得で、その項目を出さない */
   absolutePath?: string;
+  /**
+   * 「共有」(Cloudflare への静的公開) を出せる面か。作業フォルダ面だけが true を渡す
+   * (共有 API の directory がセッションの作業フォルダ相対なので、設定 → ファイル では出さない)
+   */
+  canShare?: boolean;
 };
 
 /**
- * 行に出す操作を パスをコピー → 絶対パスをコピー → ダウンロード → リネーム → 削除 の順で返す。`null` = 行の操作領域ごと出さない
- * (読み取り専用)、`[]` = 領域は出すが項目が無い (= 空きスロット 1 個) と契約を分ける (呼び出し側で `readOnly`
- * と区別できないため)。パスはどの行でも取れるので、現在の出し分けは `[]` を返さない。
+ * 行に出す操作を パスをコピー → 絶対パスをコピー → 共有 (ディレクトリだけ) → ダウンロード → リネーム → 削除 の順で返す。
+ * `null` = 行の操作領域ごと出さない (読み取り専用)、`[]` = 領域は出すが項目が無い (= 空きスロット 1 個) と契約を
+ * 分ける (呼び出し側で `readOnly` と区別できないため)。パスはどの行でも取れるので、現在の出し分けは `[]` を返さない。
  */
 export function fileRowActions({
   name,
@@ -36,6 +41,7 @@ export function fileRowActions({
   readOnly,
   excludeNames,
   absolutePath,
+  canShare = false,
 }: FileRowActionsInput): FileRowAction[] | null {
   if (readOnly) return null;
   // 相対パスはファイル / ディレクトリ / symlink のどれでも取れる (危険な削除は末尾に残す)
@@ -46,6 +52,16 @@ export function fileRowActions({
   // 絶対パスは health.cwd を前置して組み立てる。未取得の間は字面を作れないので項目ごと出さない
   if (absolutePath !== undefined) {
     actions.push({ kind: "copy-absolute-path", label: "絶対パスをコピー" });
+  }
+  // 共有はディレクトリ単位 (index.html の確認は公開ジョブが行うのでクライアントでは見ない)。
+  // サービス (一時プレビュー) との違いは押す前に知る条件なので singleColumn でも残す
+  if (canShare && type === "dir" && !symlink) {
+    actions.push({
+      kind: "share",
+      label: "共有",
+      description: "Cloudflare へ静的公開（サービスは一時プレビュー）",
+      descriptionKind: "disclosure",
+    });
   }
   // ダウンロードは通常ファイルとディレクトリに出す。symlink は api が 400 で拒否し、除外名の行は zip に入らない
   if (!symlink && !isArchiveExcludedName(name, excludeNames)) {

@@ -15,6 +15,7 @@ import type {
   ContentSettingsResponse,
   CreateAgentBody,
   CreateFileSkillBody,
+  CreateSharedContentBody,
   DiscardUnsentResult,
   FileDownloadCheck,
   FileListing,
@@ -63,6 +64,9 @@ import type {
   SessionSkillsResponse,
   SessionSummary,
   SessionTitleResponse,
+  SharedContentMutationResponse,
+  SharedContentResponse,
+  SharedContentsResponse,
   SpeechCatalogRefreshResponse,
   SpeechPreviewBody,
   StopResult,
@@ -740,6 +744,33 @@ export const updateCloudflareSettings = async (
 
 export const deleteCloudflareSettings = async (): Promise<CloudflareMutationResponse> => {
   const res = await client.api.settings.cloudflare.$delete();
+  if (!res.ok) throw await apiError(res);
+  return res.json();
+};
+
+/**
+ * この会話の共有物（静的コンテンツ）。全共有物の一覧は作らず、`sessionId` で絞って取る。
+ * 公開は非同期なので、`publishing` の間は `getSharedContent` で状態を読み直す。
+ */
+export const getSharedContents = async (sessionId: string, signal?: AbortSignal): Promise<SharedContentsResponse> => {
+  const res = await client.api["shared-contents"].$get({ query: { sessionId } }, { init: { signal } });
+  if (!res.ok) throw await apiError(res);
+  return res.json();
+};
+
+/** 1 件の共有物。`publishing` の間のポーリングに使う */
+export const getSharedContent = async (id: string, signal?: AbortSignal): Promise<SharedContentResponse> => {
+  const res = await client.api["shared-contents"][":id"].$get({ param: { id } }, { init: { signal } });
+  if (!res.ok) throw await apiError(res);
+  return res.json();
+};
+
+/**
+ * 共有を開始する。202 が返った時点では公開中で、URL は既に確定している。
+ * 受付の失敗（資格情報の未登録など）は BFF の固定文言を `ApiError.message` で返す。
+ */
+export const createSharedContent = async (input: CreateSharedContentBody): Promise<SharedContentMutationResponse> => {
+  const res = await client.api["shared-contents"].$post({ json: input });
   if (!res.ok) throw await apiError(res);
   return res.json();
 };

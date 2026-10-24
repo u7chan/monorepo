@@ -42,6 +42,14 @@ const downloadDir = {
   description: "ビルド成果物と依存を除く",
   descriptionKind: "disclosure",
 };
+/** 共有は押す前に serve との違いを知る必要があるので singleColumn でも残す */
+const shareDir = {
+  kind: "share",
+  label: "共有",
+  description: "Cloudflare へ静的公開（サービスは一時プレビュー）",
+  descriptionKind: "disclosure",
+};
+const deleteDir = { kind: "delete", label: "削除", danger: true };
 
 test("出し分け: パスをコピー → ダウンロード → リネーム → 削除 を画面 / 種類 / symlink / 除外名どおりに返す", () => {
   assert.deepEqual(fileRowActions({ ...base, canRename: true }), [
@@ -58,6 +66,21 @@ test("出し分け: パスをコピー → ダウンロード → リネーム �
     { kind: "download", label: "ダウンロード" },
     { kind: "delete", label: "削除", danger: true },
   ]);
+});
+
+test("出し分け: 共有は共有できる面のディレクトリ行だけに、ダウンロードより前に出す", () => {
+  assert.deepEqual(fileRowActions({ ...base, canShare: true }), [copyPath, shareDir, downloadDir, deleteDir]);
+  // ファイル行には出さない (共有は 1 ディレクトリ単位で、index.html の確認は公開ジョブが行う)
+  assert.deepEqual(fileRowActions({ ...base, type: "file", canShare: true }), [
+    copyPath,
+    { kind: "download", label: "ダウンロード" },
+    deleteDir,
+  ]);
+  // symlink はサンドボックスがワークスペース外を指し得るため共有しない
+  assert.deepEqual(fileRowActions({ ...base, symlink: true, canShare: true }), [copyPath]);
+  // 設定 → ファイル は directory の基準が違うため共有を出さない (canShare を渡さない)
+  assert.deepEqual(fileRowActions(base), [copyPath, downloadDir, deleteDir]);
+  assert.equal(fileRowActions({ ...base, canShare: true, readOnly: true }), null);
 });
 
 test("出し分け: symlink はパスをコピーだけ、除外名はダウンロードを落とし、readOnly は領域ごと消す", () => {

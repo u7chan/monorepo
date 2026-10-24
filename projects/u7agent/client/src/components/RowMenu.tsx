@@ -32,6 +32,7 @@ import {
   PencilIcon,
   PinIcon,
   PlusIcon,
+  ShareIcon,
   TrashIcon,
 } from "./icons";
 
@@ -39,6 +40,7 @@ import {
 const ACTION_ICONS: Record<RowMenuActionKind, ReactNode> = {
   "copy-path": <CopyIcon />,
   "copy-absolute-path": <CopyIcon />,
+  share: <ShareIcon />,
   download: <DownloadIcon small />,
   rename: <PencilIcon />,
   pin: <PinIcon />,

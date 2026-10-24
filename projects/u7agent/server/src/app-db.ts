@@ -1394,11 +1394,15 @@ export class AppDb {
     return row ? sharedContentOf(row) : undefined;
   }
 
-  listSharedContents(): SharedContentRow[] {
+  listSharedContents(sessionId?: string): SharedContentRow[] {
     return this.#query((db) =>
-      (db.prepare("SELECT * FROM shared_contents ORDER BY createdAt DESC, id DESC").all() as Row[]).map(
-        sharedContentOf,
-      ),
+      (
+        (sessionId === undefined
+          ? db.prepare("SELECT * FROM shared_contents ORDER BY createdAt DESC, id DESC").all()
+          : db
+              .prepare("SELECT * FROM shared_contents WHERE sessionId = ? ORDER BY createdAt DESC, id DESC")
+              .all(sessionId)) as Row[]
+      ).map(sharedContentOf),
     );
   }
 
