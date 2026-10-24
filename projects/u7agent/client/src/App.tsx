@@ -900,6 +900,8 @@ export default function App({ handoffNote = null, onHandoffNote, onHandoffNoteSh
         return (
           <SharingSettingsPage
             {...pageProps}
+            sessions={app.sessions}
+            sessionsLoaded={app.sessionsLoaded && !app.sessionsFetch.failed}
             sharingSubsection={
               route.view === "settings" && route.section === "sharing"
                 ? (route.sharingSubsection ?? DEFAULT_SHARING_SUBSECTION)

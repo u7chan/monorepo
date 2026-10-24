@@ -98,10 +98,13 @@ test("保存された最後のセクションは既知の値だけを受け、�
   assert.equal(SETTINGS_SECTION_KEY, "u7agent-settings-section");
 });
 
-test("設定 → 共有のタブは「接続」だけで、既定も接続", () => {
+test("設定 → 共有のタブは「共有コンテンツ / 接続」で、既定は共有コンテンツ", () => {
   assert.deepEqual(
     SHARING_SUBSECTIONS.map((item) => [item.subsection, item.label]),
-    [["connections", "接続"]],
+    [
+      ["contents", "共有コンテンツ"],
+      ["connections", "接続"],
+    ],
   );
   assert.equal(DEFAULT_SHARING_SUBSECTION, SHARING_SUBSECTIONS[0].subsection);
 });

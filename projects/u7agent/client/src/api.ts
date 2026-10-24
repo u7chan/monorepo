@@ -67,6 +67,7 @@ import type {
   SharedContentMutationResponse,
   SharedContentResponse,
   SharedContentsResponse,
+  SharedContentStopResponse,
   SpeechCatalogRefreshResponse,
   SpeechPreviewBody,
   StopResult,
@@ -749,11 +750,18 @@ export const deleteCloudflareSettings = async (): Promise<CloudflareMutationResp
 };
 
 /**
- * この会話の共有物（静的コンテンツ）。全共有物の一覧は作らず、`sessionId` で絞って取る。
- * 公開は非同期なので、`publishing` の間は `getSharedContent` で状態を読み直す。
+ * この会話の共有物（静的コンテンツ）。会話の絞り込みは共有ダイアログ用で、管理一覧は
+ * `getAllSharedContents` を使う。公開は非同期なので、`publishing` の間は状態を読み直す。
  */
 export const getSharedContents = async (sessionId: string, signal?: AbortSignal): Promise<SharedContentsResponse> => {
   const res = await client.api["shared-contents"].$get({ query: { sessionId } }, { init: { signal } });
+  if (!res.ok) throw await apiError(res);
+  return res.json();
+};
+
+/** 全共有物の一覧。設定 → 共有 の管理一覧が使う（会話では絞らない） */
+export const getAllSharedContents = async (signal?: AbortSignal): Promise<SharedContentsResponse> => {
+  const res = await client.api["shared-contents"].$get({}, { init: { signal } });
   if (!res.ok) throw await apiError(res);
   return res.json();
 };
@@ -773,6 +781,36 @@ export const createSharedContent = async (input: CreateSharedContentBody): Promi
   const res = await client.api["shared-contents"].$post({ json: input });
   if (!res.ok) throw await apiError(res);
   return res.json();
+};
+
+/**
+ * 更新と failed からの再試行。現在の `source_path` を読み直して同じ URL へ再公開する（202）。
+ * 状態は GET で読み直す。失敗の固定文言は BFF の `error` をそのまま使う。
+ */
+export const publishSharedContent = async (id: string): Promise<SharedContentMutationResponse> => {
+  const res = await client.api["shared-contents"][":id"].publish.$post({ param: { id } });
+  if (!res.ok) throw await apiError(res);
+  return res.json();
+};
+
+/** 停止。provider の結果を待って 200 で確定する（URL と行は残る） */
+export const stopSharedContent = async (id: string): Promise<SharedContentStopResponse> => {
+  const res = await client.api["shared-contents"][":id"].stop.$post({ param: { id } });
+  if (!res.ok) throw await apiError(res);
+  return res.json();
+};
+
+/** 再公開。停止中の共有物の subdomain を有効に戻す（202、版は変えない） */
+export const resumeSharedContent = async (id: string): Promise<SharedContentMutationResponse> => {
+  const res = await client.api["shared-contents"][":id"].resume.$post({ param: { id } });
+  if (!res.ok) throw await apiError(res);
+  return res.json();
+};
+
+/** 削除。provider 側の削除が成功してから行が消える（204、本文なし） */
+export const deleteSharedContent = async (id: string): Promise<void> => {
+  const res = await client.api["shared-contents"][":id"].$delete({ param: { id } });
+  if (!res.ok) throw await apiError(res);
 };
 
 /**

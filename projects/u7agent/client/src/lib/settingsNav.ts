@@ -97,16 +97,17 @@ export const RUNTIME_SUBSECTIONS: { subsection: RuntimeSubsection; label: string
 export const DEFAULT_RUNTIME_SUBSECTION: RuntimeSubsection = "service";
 
 /**
- * 設定 → 共有 のタブ。共有コンテンツの一覧は後続で追加し、そのとき「共有コンテンツ」を既定にする。
- * それまでは接続だけを出し、`/settings/sharing` を接続の既定にする。
+ * 設定 → 共有 のタブ。公開した成果物の一覧と、公開先の接続を分ける。
+ * URL は `/settings/sharing` と `/settings/sharing/<sub>` を正とし、既定タブ (共有コンテンツ) はパスへ出さない。
  */
-export type SharingSubsection = "connections";
+export type SharingSubsection = "contents" | "connections";
 
 export const SHARING_SUBSECTIONS: { subsection: SharingSubsection; label: string }[] = [
+  { subsection: "contents", label: "共有コンテンツ" },
   { subsection: "connections", label: "接続" },
 ];
 
-export const DEFAULT_SHARING_SUBSECTION: SharingSubsection = "connections";
+export const DEFAULT_SHARING_SUBSECTION: SharingSubsection = "contents";
 
 /** URL にセクションが無いときの行き先 (「設定」の導線と、保存値が読めないときの既定) */
 export const DEFAULT_SETTINGS_SECTION: SettingsSection = "agents";
