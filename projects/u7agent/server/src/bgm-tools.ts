@@ -10,6 +10,7 @@ import {
   type BgmGenerationInput,
   type BgmGenerationSettings,
 } from "./bgm";
+import { CONTENT_DISABLED_MESSAGE } from "./content-disabled";
 import type { SandboxWorkspaceClient } from "./sandbox/client";
 import { wrapToolDefinitionWithSecretMasker } from "./secret-guard";
 import type { SecretMasker } from "./redact";
@@ -48,6 +49,11 @@ export interface BgmToolDefinitionOptions {
   workspace: SandboxWorkspaceClient;
   masker: SecretMasker;
   readSettings: () => BgmGenerationSettings | undefined;
+  /**
+   * 実行のたびに読む有効 / 無効。OFF は provider を叩く前に固定文言で止める（セッション作成時に
+   * 凍結しないので、既存の会話にも次の呼び出しから効く）。省くと常に有効
+   */
+  readEnabled?: () => boolean;
   generate: (input: BgmGenerationInput) => Promise<Uint8Array<ArrayBuffer>>;
   timeoutMs?: number;
 }
@@ -85,6 +91,8 @@ export function createBgmToolDefinitions(options: BgmToolDefinitionOptions): Too
     parameters: schema,
     constrainedSampling: { type: "json_schema", strict: "prefer" },
     async execute(_id, params: Static<typeof schema>, signal) {
+      // 判定を execute まで遅らせないと、OFF が既存セッションの次の呼び出しに効かない
+      if (!(options.readEnabled?.() ?? true)) throw new Error(CONTENT_DISABLED_MESSAGE);
       if (
         typeof params.prompt !== "string" ||
         params.prompt.trim() === "" ||

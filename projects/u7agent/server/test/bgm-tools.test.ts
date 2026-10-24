@@ -13,6 +13,7 @@ import {
   type BgmGenerationSettings,
 } from "../src/bgm";
 import { bgmTarget, createBgmToolDefinitions, BGM_TOOL_NAME, type BgmToolDefinitionOptions } from "../src/bgm-tools";
+import { CONTENT_DISABLED_MESSAGE } from "../src/content-disabled";
 import { createMutableSecretMasker } from "../src/redact";
 import { createSandboxService } from "../src/sandbox/service";
 import { createSandboxToolClient, type SandboxUploadInput, type SandboxWorkspaceClient } from "../src/sandbox/client";
@@ -50,10 +51,25 @@ function fixture(overrides: Partial<BgmToolDefinitionOptions> = {}) {
   return { generated, uploaded, definitions, run };
 }
 
+test("有効 / 無効が OFF の間は provider を呼ばず、固定文言で失敗する（既存セッションにも効く）", async () => {
+  let enabled = true;
+  const { generated, run } = fixture({ readEnabled: () => enabled });
+  await run();
+  assert.equal(generated.length, 1);
+
+  enabled = false;
+  await assert.rejects(
+    () => run(),
+    (error: Error) => error.message.includes(CONTENT_DISABLED_MESSAGE),
+  );
+  assert.equal(generated.length, 1, "OFF の間は課金しない");
+});
+
 test("公開はcontentゲートとtoolNamesの積で固定し、調査子とremoteには追加しない", () => {
   const availability = {
     sandboxTools: ["read"],
     contentGeneration: true,
+    contentGenerationConfigured: true,
     webSearch: false,
     serve: false,
     askUser: false,

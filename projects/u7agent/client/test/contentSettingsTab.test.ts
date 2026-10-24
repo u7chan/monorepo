@@ -37,6 +37,8 @@ function settings(
   return {
     configured: true,
     provider: "openrouter",
+    enabled: true,
+    disabledMessage: "コンテンツ生成は無効化されています。有効にするには 設定 → コンテンツ生成 を開いてください。",
     runtimeAvailable: true,
     bgm: { model: "google/lyria-3-clip-preview", format: "mp3", expectedDurationSeconds: 30 },
     image: { model: "openai/gpt-image-2", models: MODELS, catalogSource: "live", fetchedAt: null, ...image },
@@ -72,6 +74,7 @@ function render(
         settings: settings(image, overrides, speech),
         contentSubsection: subsection,
         saving,
+        onSetEnabled: async () => true,
         onSaveKey: async () => true,
         onDeleteKey: async () => true,
         onSaveSelection: async () => true,
@@ -104,6 +107,33 @@ test("未設定ではキー入力だけを出し、モデル選択と削除は�
   assert.equal(html.includes(">削除</button>"), false, "削除もキー保存後にだけ出す");
   assert.equal(html.includes(">カタログ更新</button>"), false, "カタログ更新もモデル欄と同じくキー保存後にだけ出す");
   assert.equal(html.includes("音声（TTS）"), false, "音声の欄もキー保存後にだけ出す");
+});
+
+test("有効 / 無効はタブの外に 1 つだけ出し、画像・音声・BGM 共通だと伝える", () => {
+  for (const subsection of ["image", "speech", "bgm"] as const) {
+    const html = render({ subsection });
+    assert.ok(html.includes("有効 / 無効"), `${subsection} でも同じトグルを出す`);
+    assert.equal(html.split("有効 / 無効").length - 1, 1, "面ごとに複製しない");
+    assert.ok(html.includes("アプリ全体の生成を止めます（画像・音声・BGM で共通）"));
+    assert.ok(html.includes(">有効<"), "現在値のラベルを出す");
+    assert.ok(html.includes("既存のセッション"), "会話を作り直さなくても効くことを伝える");
+    assert.ok(html.includes("キーと選択は残ります"), "削除との違いを伝える");
+    assert.ok(html.includes("OFF の間に作った会話にはツールが無い"), "ON で既存の会話すべてが使えると誤解させない");
+  }
+});
+
+test("無効のときは固定文言と警告色を出し、未設定ではトグル自体を出さない", () => {
+  const disabled = render({ enabled: false });
+  assert.ok(disabled.includes(">無効<"));
+  assert.ok(disabled.includes("コンテンツ生成は無効化されています"));
+  assert.match(disabled, /border-warn\/50 bg-raised/, "止まっていることが見た目で分かる");
+
+  const unset = render({
+    configured: false,
+    provider: null,
+    image: { model: null, catalogSource: "sdk", fetchedAt: null },
+  });
+  assert.equal(unset.includes("有効 / 無効"), false, "キーが無ければ止める対象が無いので出さない");
 });
 
 test("見出しに provider のロゴ・名前・id とキーの登録状態を出す", () => {

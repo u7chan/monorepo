@@ -11,6 +11,7 @@ import {
   IMAGE_TOOL_NAME,
   sessionToolNames,
 } from "../src/image-tools";
+import { CONTENT_DISABLED_MESSAGE } from "../src/content-disabled";
 import { createMutableSecretMasker } from "../src/redact";
 import { createSandboxToolClient } from "../src/sandbox/client";
 import { toolResultSummary } from "../src/session-projection";
@@ -60,6 +61,8 @@ function tool(options: {
     | undefined
     | (() => { provider: string; model: string; apiKey: string } | undefined);
   outputFormats?: (model: string) => readonly string[] | undefined;
+  /** 実行時の有効 / 無効。省略は常に有効 */
+  readEnabled?: () => boolean;
   /** root 相対のパス → 返す画像バイト。無いパスは「読めない」として失敗させる */
   inputFiles?: Record<string, Uint8Array>;
   checkImageInput?: (model: string) => Promise<string | undefined>;
@@ -83,6 +86,7 @@ function tool(options: {
     workspace: fakeWorkspace(options.capture, options.workspaceResult),
     masker: options.masker ?? createMutableSecretMasker([]),
     readSettings: () => (typeof settingsOption === "function" ? settingsOption() : settingsOption),
+    ...(options.readEnabled ? { readEnabled: options.readEnabled } : {}),
     readOutputFormats: options.outputFormats ?? (() => undefined),
     checkImageInput: options.checkImageInput ?? (async () => undefined),
     readImageInput: async (path, scope, signal) => {
@@ -284,6 +288,25 @@ test("execute は毎回現在の設定を読み、未設定・キー削除後は
   await run(execute, { prompt: "cafe" });
   await assert.rejects(() => run(execute, { prompt: "cafe" }), /画像APIキーが未設定です/);
   assert.equal(capture.generated.length, 1, "未設定のときは provider を呼ばない");
+});
+
+test("有効 / 無効が OFF の間は provider を呼ばず、固定文言で失敗する（既存セッションにも効く）", async () => {
+  const capture: Capture = { uploads: [], bodies: [], generated: [], inputPayloads: [], reads: [] };
+  let enabled = true;
+  const execute = tool({ capture, settings, readEnabled: () => enabled });
+  await run(execute, { prompt: "cafe" });
+  assert.equal(capture.generated.length, 1);
+
+  enabled = false;
+  await assert.rejects(
+    () => run(execute, { prompt: "cafe" }),
+    (error: Error) => error.message.includes(CONTENT_DISABLED_MESSAGE),
+  );
+  assert.equal(capture.generated.length, 1, "OFF の間は課金しない");
+
+  enabled = true;
+  await run(execute, { prompt: "cafe" });
+  assert.equal(capture.generated.length, 2, "ON に戻すと同じ定義のまま生成できる");
 });
 
 test("設定の読取失敗と provider の失敗はマスクを通して throw する", async () => {

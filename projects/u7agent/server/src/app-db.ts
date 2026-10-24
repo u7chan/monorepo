@@ -21,7 +21,7 @@ import type {
 
 export const APP_DB_FILENAME = "u7agent.db";
 /** テーブル定義を変えたら上げる。新規作成と加算移行はこの版へ揃え、未知の版は作り直す */
-export const APP_DB_SCHEMA_VERSION = 25;
+export const APP_DB_SCHEMA_VERSION = 26;
 
 /** プロバイダー API キーの保存行。平文なのでアクセス権の管理は docs/secrets.md を正とする */
 export interface ProviderCredentialRow {
@@ -49,6 +49,8 @@ export interface ModelSettingsRow {
 /**
  * コンテンツ生成の保存行。**行が無い = 未設定**で、キー削除は行ごと消す。apiKey は平文
  * (アクセス権の管理と残存リスクは docs/secrets.md / docs/image-generation.md を正とする)。
+ * `enabled` はアプリ全体の有効 / 無効で、v25 -> v26 で足した列（既存行は ON）。OFF でも行は残すため、
+ * キーと選択は消えない（削除は別操作）。
  * 音声の 2 列は v15 -> v16 で足した nullable 列で、NULL は既定（モデル）と「宣言する先頭ボイス」
  * （voice）へフォールバックして読む。
  */
@@ -57,6 +59,7 @@ export interface ContentSettingsRow {
   imageModel: string;
   speechModel: string | null;
   speechVoice: string | null;
+  enabled: boolean;
   apiKey: string;
 }
 
@@ -300,6 +303,7 @@ CREATE TABLE IF NOT EXISTS content_settings (
   imageModel  TEXT NOT NULL,
   speechModel TEXT,
   speechVoice TEXT,
+  enabled     INTEGER NOT NULL DEFAULT 1,
   apiKey      TEXT NOT NULL
 );
 `;
@@ -626,6 +630,8 @@ function contentSettingsOf(row: Row): ContentSettingsRow | undefined {
     // 空文字も NULL と同じく「未設定」として既定へフォールバックさせる
     speechModel: optionalText(row.speechModel) ?? null,
     speechVoice: optionalText(row.speechVoice) ?? null,
+    // 足した列なので、手編集で NULL にされた行も既定 (ON) として読む
+    enabled: Number(row.enabled) !== 0,
     apiKey,
   };
 }
@@ -1076,6 +1082,8 @@ export class AppDb {
       // v15 以前の content_settings に無い音声の 2 列。既存行は NULL = 既定へのフォールバック
       this.#addColumnIfMissing("content_settings", "speechModel", "TEXT");
       this.#addColumnIfMissing("content_settings", "speechVoice", "TEXT");
+      // v25 以前に無い有効 / 無効。既存行は ON で埋める (キーがあるのに止まって見えないように)
+      this.#addColumnIfMissing("content_settings", "enabled", "INTEGER NOT NULL DEFAULT 1");
       // v16 以前の agents に無い列。NULL = 未指定 (全可視) として読む。`#migrate()` は agents を
       // 作らないため、テーブルを持たない壊れた DB では列追加を飛ばす (ALTER で起動できなくしない)
       if (this.#tableExists("agents")) this.#addColumnIfMissing("agents", "commonSkillNames", "TEXT");
@@ -1294,11 +1302,20 @@ export class AppDb {
     this.#query((db) =>
       db
         .prepare(
-          `INSERT INTO content_settings (id, provider, imageModel, speechModel, speechVoice, apiKey) VALUES (1, ?, ?, ?, ?, ?)
+          `INSERT INTO content_settings (id, provider, imageModel, speechModel, speechVoice, enabled, apiKey)
+           VALUES (1, ?, ?, ?, ?, ?, ?)
            ON CONFLICT(id) DO UPDATE SET provider = excluded.provider, imageModel = excluded.imageModel,
-             speechModel = excluded.speechModel, speechVoice = excluded.speechVoice, apiKey = excluded.apiKey`,
+             speechModel = excluded.speechModel, speechVoice = excluded.speechVoice, enabled = excluded.enabled,
+             apiKey = excluded.apiKey`,
         )
-        .run(settings.provider, settings.imageModel, settings.speechModel, settings.speechVoice, settings.apiKey),
+        .run(
+          settings.provider,
+          settings.imageModel,
+          settings.speechModel,
+          settings.speechVoice,
+          settings.enabled ? 1 : 0,
+          settings.apiKey,
+        ),
     );
   }
 

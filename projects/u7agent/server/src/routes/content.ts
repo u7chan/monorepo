@@ -1,9 +1,14 @@
 import type { Context } from "hono";
 import type { ContentSettingsService, ContentMutationOutcome, SpeechPreviewOutcome } from "../content-settings";
-import type { SpeechPreviewBody, UpdateContentImageBody, UpdateContentSpeechBody } from "../schema";
+import type {
+  SpeechPreviewBody,
+  UpdateContentEnabledBody,
+  UpdateContentImageBody,
+  UpdateContentSpeechBody,
+} from "../schema";
 
 /**
- * 設定 → コンテンツ生成の provider / model / APIキー API。GET は純粋読取、
+ * 設定 → コンテンツ生成の provider / model / APIキー / 有効無効 API。GET は純粋読取、
  * 変更系（PUT / DELETE）は 200 の応答に必ず `state: "applied"` を載せ、
  * DB に何も保存されなかったときだけ 503 `{ error, state: "not_stored" }` を返す。
  * お試し再生は設定を変えないため、応答は音声バイトか `{ error, code? }` になる。
@@ -11,6 +16,10 @@ import type { SpeechPreviewBody, UpdateContentImageBody, UpdateContentSpeechBody
 export function createContentSettingsRoutes({ contentSettings }: { contentSettings: ContentSettingsService }) {
   return {
     list: (c: Context) => c.json(contentSettings.settings()),
+
+    // トグルは画像・音声・BGM で共通（行の enabled 1 列）。サブリソースは provider / model / キーだけにする
+    putEnabled: async (c: Context, body: UpdateContentEnabledBody) =>
+      respond(c, await contentSettings.putEnabled(body.enabled)),
 
     putSelection: async (c: Context, body: UpdateContentImageBody) =>
       respond(c, await contentSettings.putSelection(body)),

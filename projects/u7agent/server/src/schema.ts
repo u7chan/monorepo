@@ -1002,11 +1002,16 @@ export type ContentBgmSettings = z.infer<typeof ContentBgmSettingsSchema>;
 
 /**
  * GET /api/settings/content。`configured: false` のとき provider は null（行が無い = 未設定）。
- * APIキーは返さない。
+ * APIキーは返さない。`enabled` はアプリ全体の有効 / 無効で、行が無いときは既定 (ON) を返す
+ * （`configured` が false ならツールはどちらにせよ公開されない）。
  */
 export const ContentSettingsResponseSchema = z.object({
   configured: z.boolean(),
   provider: z.string().nullable(),
+  /** 画像・音声・BGM の 3 ツール共通の実行時トグル。行が無ければ true（既定） */
+  enabled: z.boolean(),
+  /** 画面が同じ文言を出すため、ツールが OFF の間に返す固定文言も応答に載せる */
+  disabledMessage: z.string(),
   /** SDK ランタイムの初期化に成功したか。false のときキー登録は 503（model-settings と同じ） */
   runtimeAvailable: z.boolean(),
   image: ContentImageSettingsSchema,
@@ -1146,6 +1151,15 @@ export const UpdateContentSpeechBodySchema = z.object({
   voice: z.string(),
 });
 export type UpdateContentSpeechBody = z.infer<typeof UpdateContentSpeechBodySchema>;
+
+/**
+ * PUT /api/settings/content。有効 / 無効の切り替え。キーと選択は保持し、行が無ければ 400（キー登録が先）。
+ * 画像・音声・BGM は 1 つのトグルを共有する。
+ */
+export const UpdateContentEnabledBodySchema = z.object({
+  enabled: z.boolean(),
+});
+export type UpdateContentEnabledBody = z.infer<typeof UpdateContentEnabledBodySchema>;
 
 /**
  * POST /api/settings/content/speech/preview の本文（お試し再生）。モデルと声は画面で選んだ値をそのまま送り、

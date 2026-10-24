@@ -7,6 +7,7 @@ import { join } from "node:path";
 import test from "node:test";
 import { APP_DB_FILENAME } from "../src/app-db";
 import { createBffApp } from "../src/app";
+import { CONTENT_DISABLED_MESSAGE } from "../src/content-disabled";
 import { DEFAULT_IMAGE_MODEL } from "../src/content-settings";
 import { IMAGE_PROVIDER_ID } from "../src/images";
 import { bgmSettings } from "../src/bgm";
@@ -124,6 +125,45 @@ test("GET / PUT / DELETE の往復で設定が変わり、キーは応答に載�
       assert.equal(deleted.image.model, null);
       assert.equal(pi.contentGenerationEnabled, false);
       assert.equal(config?.read(), undefined, "execute が読む現在の設定も未設定へ戻る");
+    } finally {
+      await bff.close();
+    }
+  });
+});
+
+test("PUT /api/settings/content は有効 / 無効を切り替え、キーと選択を残す", async () => {
+  await withStoreDir(async (dir) => {
+    const pi = createStubPi();
+    const bff = await openBff({ cwd: "/tmp/project", sessionStoreDir: dir, pi: asPiBff(pi), workspace: null });
+    try {
+      // 行が無い = 止める対象が無い。キー登録が先
+      const unset = bff.app.request("/api/settings/content", jsonPut({ enabled: false }));
+      assert.equal((await unset).status, 400);
+
+      const created = await jsonBody(await bff.app.request("/api/settings/content/key", jsonPut({ apiKey: KEY })));
+      assert.equal(created.enabled, true, "キー登録で作る行は既定で有効");
+      assert.equal(created.disabledMessage, CONTENT_DISABLED_MESSAGE);
+
+      const off = await jsonBody(await bff.app.request("/api/settings/content", jsonPut({ enabled: false })));
+      assert.equal(off.state, "applied");
+      assert.equal(off.enabled, false);
+      assert.equal(off.configured, true, "OFF でも未設定へは戻さない");
+      assert.equal(off.image.model, DEFAULT_IMAGE_MODEL, "キーと選択は残る");
+      assert.ok(!JSON.stringify(off).includes(KEY), "応答にキーを載せない");
+      assert.equal(pi.contentGenerationEnabled, false, "次に作るセッションへ即時反映する");
+      assert.equal(pi.contentGenerationConfigs.at(-1)?.configured, true, "停止の理由をキー未設定と書き分ける");
+
+      const after = await jsonBody(await bff.app.request("/api/settings/content"));
+      assert.equal(after.enabled, false);
+      assert.equal(after.configured, true);
+      assert.equal(after.image.model, DEFAULT_IMAGE_MODEL);
+
+      const on = await jsonBody(await bff.app.request("/api/settings/content", jsonPut({ enabled: true })));
+      assert.equal(on.enabled, true);
+      assert.equal(pi.contentGenerationEnabled, true);
+
+      const invalid = bff.app.request("/api/settings/content", jsonPut({ enabled: "yes" }));
+      assert.equal((await invalid).status, 400);
     } finally {
       await bff.close();
     }

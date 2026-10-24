@@ -19,6 +19,7 @@ const ALL_SANDBOX_TOOLS = ["read", "bash", "edit", "write", "grep", "find", "ls"
 const OPEN: ToolAvailability = {
   sandboxTools: ALL_SANDBOX_TOOLS,
   contentGeneration: true,
+  contentGenerationConfigured: true,
   webSearch: true,
   serve: true,
   askUser: true,
@@ -96,16 +97,23 @@ test("作業ツールの可否は PI_AGENT_TOOLS の実効で決まり、外れ�
 });
 
 test("アプリのツールはキー・実行時トグル・実体の有無で止まり、理由コードが変わる", () => {
-  // キー未設定 (コンテンツ生成が無効) だけは no_key。行は残し、画面が「キーを設定すれば使える」と伝える
-  assert.deepEqual(entry(IMAGE_TOOL_NAME, { ...OPEN, contentGeneration: false }), {
+  // キー未設定だけは no_key。行は残し、画面が「キーを設定すれば使える」と伝える
+  const noKey = { ...OPEN, contentGeneration: false, contentGenerationConfigured: false };
+  assert.deepEqual(entry(IMAGE_TOOL_NAME, noKey), {
     name: IMAGE_TOOL_NAME,
     description: entry(IMAGE_TOOL_NAME).description,
     group: "app",
     available: false,
     reason: "no_key",
   });
-  assert.equal(entry(SPEECH_TOOL_NAME, { ...OPEN, contentGeneration: false }).reason, "no_key");
-  assert.equal(entry(BGM_TOOL_NAME, { ...OPEN, contentGeneration: false }).reason, "no_key");
+  assert.equal(entry(SPEECH_TOOL_NAME, noKey).reason, "no_key");
+  assert.equal(entry(BGM_TOOL_NAME, noKey).reason, "no_key");
+
+  // キーはあるが設定で OFF。画面は「アプリ側で無効」と出し、キーの登録を促さない
+  const disabled = { ...OPEN, contentGeneration: false, contentGenerationConfigured: true };
+  for (const name of [IMAGE_TOOL_NAME, SPEECH_TOOL_NAME, BGM_TOOL_NAME]) {
+    assert.equal(entry(name, disabled).reason, "app_disabled", name);
+  }
 
   for (const [name, patch] of [
     [WEB_SEARCH_TOOL_NAME, { webSearch: false }],

@@ -4,6 +4,7 @@ import {
   getContentSettings,
   previewSpeechAudio,
   putContentApiKey,
+  putContentEnabled,
   putContentImageSettings,
   putContentSpeechSettings,
   refreshImageCatalog,
@@ -17,6 +18,7 @@ import {
   CONTENT_SPEECH_SAVED_NOTE,
   SPEECH_SYNC_FAILED_NOTE,
   catalogRefreshNote,
+  contentEnabledNote,
   speechSettingsAfterRefresh,
   speechSyncedAfterRefresh,
   type ContentSavingAction,
@@ -59,6 +61,16 @@ export function useContentSettings() {
     load: getContentSettings,
     onApply: markSpeechSynced,
   });
+
+  /**
+   * 有効 / 無効。保存するとツールの公開状態が変わるため、画面は成功後にエージェントのツール一覧を
+   * 取り直す（エージェント編集のツール欄が取得時点のスナップショットを見るため）。
+   */
+  const setEnabled = useCallback(
+    (enabled: boolean): Promise<boolean> =>
+      runMutation("enabled", contentEnabledNote(enabled), () => putContentEnabled(enabled)),
+    [runMutation],
+  );
 
   const saveKey = useCallback(
     async (apiKey: string): Promise<boolean> => {
@@ -170,6 +182,7 @@ export function useContentSettings() {
     saving,
     reloading,
     reload,
+    setEnabled,
     saveKey,
     removeKey,
     saveSelection,

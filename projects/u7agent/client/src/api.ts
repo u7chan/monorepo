@@ -687,6 +687,16 @@ export const getContentSettings = async (): Promise<ContentSettingsResponse> => 
   return res.json();
 };
 
+/**
+ * 有効 / 無効（画像・音声・BGM 共通の 1 つのトグル）。キーと選択は保持され、行が無ければ 400。
+ * 保存した瞬間から、既存のセッションにも次の呼び出しから効く。
+ */
+export const putContentEnabled = async (enabled: boolean): Promise<ContentMutationResponse> => {
+  const res = await client.api.settings.content.$put({ json: { enabled } });
+  if (!res.ok) throw await apiError(res);
+  return await res.json();
+};
+
 /** 画像モデルの変更。キーは保持され、行が無ければ 400 */
 export const putContentImageSettings = async (input: UpdateContentImageBody): Promise<ContentMutationResponse> => {
   const res = await client.api.settings.content.image.$put({ json: input });

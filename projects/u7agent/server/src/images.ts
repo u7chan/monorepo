@@ -112,9 +112,20 @@ export interface ImageGenerationSettings {
   apiKey: string;
 }
 
-/** PiBff へ注入する有効状態と読取口。`enabled` はセッション作成時のツール一覧にだけ使う */
+/**
+ * PiBff へ注入する有効状態と読取口。`enabled` はセッション作成時のツール一覧に使い、実行時の
+ * 課金前チェックは `disabled`（設定のトグルだけ）を見る。
+ */
 export interface ContentGenerationConfig {
+  /** ツールを公開してよいか。キーの行があり、かつ設定が ON のときだけ true（セッション作成時の一覧用） */
   enabled: boolean;
+  /** キーの行があるか。止まっている理由をキー未設定と設定 OFF で書き分けるために持つ */
+  configured: boolean;
+  /**
+   * 設定のトグルが OFF か（行があり enabled = false）。キー未設定では false のままにして、
+   * 実行時は `readSettings()` のキー無効エラーへ落とす（「無効化」と誤案内しない）
+   */
+  disabled: boolean;
   /** 実行のたびに現在の設定を読む。行が無ければ undefined（未設定・削除後） */
   read: () => ImageGenerationSettings | undefined;
   /**

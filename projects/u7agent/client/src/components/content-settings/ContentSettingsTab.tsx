@@ -20,6 +20,7 @@ import {
   type SpeechPreviewAudio,
 } from "../../lib/contentSettings";
 import { API_KEY_MIN_LENGTH } from "../../lib/modelSettings";
+import { cn } from "../../lib/cn";
 import type { ContentSubsection } from "../../lib/settingsNav";
 import type {
   ContentSettingsResponse,
@@ -33,6 +34,7 @@ import { ReloadButton } from "../ReloadButton";
 import { useConfirm } from "../ConfirmProvider";
 import { ProviderIcon } from "../ProviderIcon";
 import { SelectField } from "../SelectField";
+import { ToggleSwitch } from "../ToggleSwitch";
 import { MetaChip } from "../model-settings/MetaChip";
 import { ProviderBadgeTag } from "../model-settings/ProviderBadgeTag";
 import { SpeechPlayground } from "./SpeechPlayground";
@@ -44,6 +46,8 @@ export type ContentSettingsTabProps = {
   contentSubsection: ContentSubsection;
   /** 実行中の操作。null なら操作なし */
   saving: ContentSavingAction | null;
+  /** 有効 / 無効（画像・音声・BGM 共通の 1 つのトグル）。キーと選択は残したまま止められる */
+  onSetEnabled: (enabled: boolean) => Promise<boolean>;
   onSaveKey: (apiKey: string) => Promise<boolean>;
   onDeleteKey: () => Promise<boolean>;
   onSaveSelection: (input: UpdateContentImageBody) => Promise<boolean>;
@@ -67,6 +71,7 @@ export function ContentSettingsTab({
   settings,
   contentSubsection,
   saving,
+  onSetEnabled,
   onSaveKey,
   onDeleteKey,
   onSaveSelection,
@@ -122,6 +127,41 @@ export function ContentSettingsTab({
         )}
         <SecurityNotice />
 
+        {/* 実行時トグルはタブの外に置く。画像・音声・BGM は同じキー / 課金を共有するので 1 つに閉じる */}
+        {settings.configured ? (
+          <section
+            className={cn(
+              "grid gap-2 rounded-lg border p-3",
+              settings.enabled ? "border-line bg-soft" : "border-warn/50 bg-raised",
+            )}
+          >
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+              <div className="min-w-0 flex-1">
+                <div className="text-2xs font-semibold tracking-label text-ink-faint uppercase">有効 / 無効</div>
+                <p className="mt-0.5 text-xs text-ink">アプリ全体の生成を止めます（画像・音声・BGM で共通）。</p>
+              </div>
+              <ToggleSwitch
+                checked={settings.enabled}
+                label={settings.enabled ? "有効" : "無効"}
+                disabled={busy}
+                onChange={(next) => void onSetEnabled(next)}
+              />
+            </div>
+            <p className="text-2xs leading-relaxed text-ink-muted">
+              OFF にすると <code>generate_image</code>・<code>generate_speech</code>・<code>generate_bgm</code>{" "}
+              は生成を行わず、固定の文言で失敗します。OFF は保存した瞬間から
+              <strong>既存のセッション</strong>にも次の呼び出しから効きます（会話の作り直しもデプロイも 要りません）。ON
+              に戻したとき、OFF の間に作った会話にはツールが無いため新しい会話が必要です。 キーと選択は残ります。
+            </p>
+            {settings.enabled ? null : (
+              <p className="rounded border border-line bg-base px-2 py-1.5 text-2xs leading-relaxed text-ink-muted">
+                無効の間、モデルへはこの文言だけが返ります:
+                <span className="text-ink">{settings.disabledMessage}</span>
+              </p>
+            )}
+          </section>
+        ) : null}
+
         <section className="grid gap-1.5">
           <div className="text-2xs font-semibold tracking-label text-ink-faint uppercase">APIキー</div>
           <div className="flex flex-wrap items-center gap-2">
@@ -176,6 +216,7 @@ export function ContentSettingsTab({
               settings={settings}
               busy={busy}
               synced={speechSynced}
+              enabled={settings.enabled}
               refreshing={saving === "speech-catalog"}
               draft={speechDraft}
               onChangeDraft={setSpeechDraft}
@@ -326,6 +367,7 @@ function SpeechSection({
   settings,
   busy,
   synced,
+  enabled,
   refreshing,
   draft,
   onChangeDraft,
@@ -336,6 +378,8 @@ function SpeechSection({
   settings: ContentSettingsResponse;
   busy: boolean;
   synced: boolean;
+  /** アプリ全体の有効 / 無効。OFF の間はお試し再生でも課金させない */
+  enabled: boolean;
   refreshing: boolean;
   draft: SpeechDraft;
   onChangeDraft: (draft: SpeechDraft) => void;
@@ -441,7 +485,7 @@ function SpeechSection({
         </ReloadButton>
       </div>
       {/* 同期できていない間も、保存値を書き換えずにその場で試せる（保存のゲートを持ち込まない） */}
-      <SpeechPlayground settings={settings} onPreview={onPreview} />
+      <SpeechPlayground settings={settings} enabled={enabled} onPreview={onPreview} />
     </section>
   );
 }

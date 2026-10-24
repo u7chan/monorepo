@@ -707,6 +707,7 @@ test("migrates a v7 db additively and keeps content settings across reopen", () 
       imageModel: "openai/gpt-image-2",
       speechModel: null,
       speechVoice: null,
+      enabled: true,
       apiKey: "sk-image-1",
     });
     // id = 1 の upsert なので上書きしても行は増えない
@@ -715,6 +716,7 @@ test("migrates a v7 db additively and keeps content settings across reopen", () 
       imageModel: "black-forest-labs/flux.2-max",
       speechModel: "google/gemini-3.8-flash-tts",
       speechVoice: "Kore",
+      enabled: true,
       apiKey: "sk-image-2",
     });
     assert.deepEqual(first.readContentSettings(), {
@@ -722,6 +724,7 @@ test("migrates a v7 db additively and keeps content settings across reopen", () 
       imageModel: "black-forest-labs/flux.2-max",
       speechModel: "google/gemini-3.8-flash-tts",
       speechVoice: "Kore",
+      enabled: true,
       apiKey: "sk-image-2",
     });
     first.close();
@@ -732,6 +735,7 @@ test("migrates a v7 db additively and keeps content settings across reopen", () 
       imageModel: "black-forest-labs/flux.2-max",
       speechModel: "google/gemini-3.8-flash-tts",
       speechVoice: "Kore",
+      enabled: true,
       apiKey: "sk-image-2",
     });
     assert.equal(second.deleteContentSettings(), true);
@@ -743,7 +747,7 @@ test("migrates a v7 db additively and keeps content settings across reopen", () 
     const columns = check.prepare("PRAGMA table_info(content_settings)").all() as { name: string }[];
     assert.deepEqual(
       columns.map((column) => column.name),
-      ["id", "provider", "imageModel", "speechModel", "speechVoice", "apiKey"],
+      ["id", "provider", "imageModel", "speechModel", "speechVoice", "enabled", "apiKey"],
     );
     assert.equal(Number(check.prepare("PRAGMA user_version").get()?.user_version), APP_DB_SCHEMA_VERSION);
     check.close();
@@ -781,6 +785,7 @@ test("migrates a v8 db additively and keeps the image catalog cache across reope
       imageModel: "openai/gpt-image-2",
       speechModel: null,
       speechVoice: null,
+      enabled: true,
       apiKey: "sk-image-1",
     });
     assert.equal(first.readImageCatalog(), undefined);
@@ -948,7 +953,14 @@ test("a content settings row with empty values reads as unset", () => {
 
     const db = AppDb.open({ storeDir: dir });
     // 手編集で壊れた行を「設定済み」と読み違えない (メモと同じ規約)
-    db.saveContentSettings({ provider: "", imageModel: "", speechModel: null, speechVoice: null, apiKey: "" });
+    db.saveContentSettings({
+      provider: "",
+      imageModel: "",
+      speechModel: null,
+      speechVoice: null,
+      enabled: true,
+      apiKey: "",
+    });
     assert.equal(db.readContentSettings(), undefined);
     db.close();
   } finally {
@@ -1176,7 +1188,7 @@ test("migrates a v10 db additively and keeps the secrets table across reopen", (
     raw.close();
 
     const first = AppDb.open({ storeDir: dir });
-    assert.equal(APP_DB_SCHEMA_VERSION, 25);
+    assert.equal(APP_DB_SCHEMA_VERSION, 26);
     // 加算移行なので既存の行は残り、secrets は行が無い = 未設定で始まる
     assert.deepEqual(first.listProjects(), [project("p1", "proj-a")]);
     assert.deepEqual(first.getServeCommand("proj-a"), { cwd: "proj-a", command: "pnpm dev", updatedAt: 1 });
@@ -1529,6 +1541,7 @@ test("migrates a v14 db by renaming image_settings to content_settings", () => {
       imageModel: "openai/gpt-image-2",
       speechModel: null,
       speechVoice: null,
+      enabled: true,
       apiKey: "sk-image-1",
     });
     first.saveContentSettings({
@@ -1536,6 +1549,7 @@ test("migrates a v14 db by renaming image_settings to content_settings", () => {
       imageModel: "black-forest-labs/flux.2-max",
       speechModel: null,
       speechVoice: null,
+      enabled: true,
       apiKey: "sk-image-2",
     });
     first.close();
@@ -1546,6 +1560,7 @@ test("migrates a v14 db by renaming image_settings to content_settings", () => {
       imageModel: "black-forest-labs/flux.2-max",
       speechModel: null,
       speechVoice: null,
+      enabled: true,
       apiKey: "sk-image-2",
     });
     reopened.close();
@@ -1557,7 +1572,7 @@ test("migrates a v14 db by renaming image_settings to content_settings", () => {
     assert.deepEqual(
       columns.map((column) => column.name),
       // 加算移行の列追加は末尾に付く（新規作成の定義順とは異なる。読み書きは名前で行う）
-      ["id", "provider", "imageModel", "apiKey", "speechModel", "speechVoice"],
+      ["id", "provider", "imageModel", "apiKey", "speechModel", "speechVoice", "enabled"],
     );
     assert.equal(Number(check.prepare("PRAGMA user_version").get()?.user_version), APP_DB_SCHEMA_VERSION);
     check.close();
@@ -1595,6 +1610,7 @@ CREATE TABLE content_settings (
       imageModel: "openai/gpt-image-2",
       speechModel: null,
       speechVoice: null,
+      enabled: true,
       apiKey: "sk-content-1",
     });
     db.close();
@@ -1616,6 +1632,7 @@ test("a round trip through the v14 schema keeps content settings readable", () =
       imageModel: "openai/gpt-image-2",
       speechModel: null,
       speechVoice: null,
+      enabled: true,
       apiKey: "sk-image-1",
     });
     first.close();
@@ -1632,6 +1649,7 @@ test("a round trip through the v14 schema keeps content settings readable", () =
       imageModel: "openai/gpt-image-2",
       speechModel: null,
       speechVoice: null,
+      enabled: true,
       apiKey: "sk-image-1",
     });
     assert.deepEqual(second.listProjects(), [], "既知のテーブルは作り直される");
@@ -1666,6 +1684,7 @@ test("migrates a v15 db additively by adding the speech columns", () => {
       imageModel: "openai/gpt-image-2",
       speechModel: null,
       speechVoice: null,
+      enabled: true,
       apiKey: "sk-image-1",
     });
     first.saveContentSettings({
@@ -1673,6 +1692,7 @@ test("migrates a v15 db additively by adding the speech columns", () => {
       imageModel: "openai/gpt-image-2",
       speechModel: "google/gemini-3.8-flash-tts",
       speechVoice: "Kore",
+      enabled: true,
       apiKey: "sk-image-1",
     });
     first.close();
@@ -1682,7 +1702,7 @@ test("migrates a v15 db additively by adding the speech columns", () => {
     assert.deepEqual(
       columns.map((column) => column.name),
       // 加算移行の列追加は末尾に付く（新規作成の定義順とは異なる。読み書きは名前で行う）
-      ["id", "provider", "imageModel", "apiKey", "speechModel", "speechVoice"],
+      ["id", "provider", "imageModel", "apiKey", "speechModel", "speechVoice", "enabled"],
     );
     assert.equal(check.prepare("SELECT count(*) AS n FROM speech_catalog").get()?.n, 0, "キャッシュは未取得で始まる");
     assert.equal(Number(check.prepare("PRAGMA user_version").get()?.user_version), APP_DB_SCHEMA_VERSION);
@@ -1694,6 +1714,7 @@ test("migrates a v15 db additively by adding the speech columns", () => {
       imageModel: "openai/gpt-image-2",
       speechModel: "google/gemini-3.8-flash-tts",
       speechVoice: "Kore",
+      enabled: true,
       apiKey: "sk-image-1",
     });
     reopened.close();

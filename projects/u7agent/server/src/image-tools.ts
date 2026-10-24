@@ -6,6 +6,7 @@
 import { Type, type Static } from "@earendil-works/pi-ai";
 import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { messageFor } from "./http";
+import { CONTENT_DISABLED_MESSAGE } from "./content-disabled";
 import {
   IMAGE_ABORTED_MESSAGE,
   isUnsaveableOutputOnly,
@@ -193,6 +194,11 @@ export interface ImageToolDefinitionOptions {
   masker: SecretMasker;
   /** 実行のたびに読む。未設定・削除後は undefined（キー無効エラー） */
   readSettings: () => ImageGenerationSettings | undefined;
+  /**
+   * 実行のたびに読む有効 / 無効。OFF は provider を叩く前に固定文言で止める（セッション作成時に
+   * 凍結しないので、既存の会話にも次の呼び出しから効く）。省くと常に有効
+   */
+  readEnabled?: () => boolean;
   /** 実行のたびに読むカタログの形式宣言。未知名・宣言なしは undefined（＝止めない） */
   readOutputFormats: (model: string) => readonly string[] | undefined;
   /**
@@ -223,6 +229,8 @@ export function createImageToolDefinitions(options: ImageToolDefinitionOptions):
     parameters: generateImageSchema,
     constrainedSampling: { type: "json_schema", strict: "prefer" },
     async execute(_toolCallId, params: GenerateImageParams, signal) {
+      // 判定を execute まで遅らせないと、OFF が既存セッションの次の呼び出しに効かない
+      if (!(options.readEnabled?.() ?? true)) throw new Error(CONTENT_DISABLED_MESSAGE);
       // 支出の前に path・参照画像・形式を検証する。dir と name は実際に保存するまで確定しない
       const explicit = params.path === undefined ? undefined : parseToolPath(params.path);
       const targets = resolveImageInputTargets(params.input_images, options);

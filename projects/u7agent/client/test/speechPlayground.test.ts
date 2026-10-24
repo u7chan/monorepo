@@ -24,6 +24,8 @@ function settings(speech: Partial<ContentSpeechSettings> = {}): ContentSettingsR
   return {
     configured: true,
     provider: "openrouter",
+    enabled: true,
+    disabledMessage: "コンテンツ生成は無効化されています。有効にするには 設定 → コンテンツ生成 を開いてください。",
     runtimeAvailable: true,
     bgm: { model: "google/lyria-3-clip-preview", format: "mp3", expectedDurationSeconds: 30 },
     image: { model: "openai/gpt-image-2", models: [], catalogSource: "live", fetchedAt: null },
@@ -65,6 +67,8 @@ function render(
     primaryLabel?: string;
     /** false で「ランタイム不可（`pi: null`）」の起動を再現する */
     runtimeAvailable?: boolean;
+    /** false でアプリ全体の生成が無効な状態を再現する */
+    enabled?: boolean;
   } = {},
 ): string {
   const replayable = options.replayable ?? false;
@@ -72,6 +76,7 @@ function render(
   return renderToStaticMarkup(
     createElement(SpeechPlaygroundView, {
       settings: { ...settings(options.speech), runtimeAvailable: options.runtimeAvailable ?? true },
+      enabled: options.enabled ?? true,
       values: draft(options.values),
       busy: options.busy ?? false,
       error: options.error ?? null,
@@ -185,6 +190,18 @@ test("ランタイム不可では主ボタンを無効にし、理由を出す",
   const disabled = render({ runtimeAvailable: false, result: played, replayable: true });
   assert.match(disabled, /<button[^>]*\sdisabled=""[^>]*>もう一度再生<\/button>/, "再生も無効にする");
   assert.match(disabled, /<button[^>]*\sdisabled=""[^>]*>別のテイクを生成<\/button>/, "別テイクも無効にする");
+});
+
+test("コンテンツ生成が無効な間は生成だけを止め、生成済みの再生は残す", () => {
+  const off = render({ enabled: false });
+  assert.match(off, /<button[^>]*\sdisabled=""[^>]*>音声を生成<\/button>/, "生成の主ボタンを無効にする");
+  assert.match(off, /role="status"[^>]*>コンテンツ生成が無効のため、お試し再生はできません/, "理由を出す");
+
+  // すでに作った音声の再生は課金しないため、OFF でも残す（別テイクの生成は止める）
+  const played = { blob: new Blob(), url: "blob:http://localhost/9", format: "mp3" as const };
+  const replay = render({ enabled: false, result: played, replayable: true });
+  assert.match(replay, /<button(?![^>]*\sdisabled=)[^>]*>もう一度再生<\/button>/, "再生は押せるままにする");
+  assert.match(replay, /<button[^>]*\sdisabled=""[^>]*>別のテイクを生成<\/button>/, "別テイクは止める");
 });
 
 test("失敗は分類済みの文言を出し、入力と選択を保つ", () => {

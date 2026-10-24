@@ -7,14 +7,16 @@
  * powershell のようなプラットフォーム差は扱わない (サンドボックスは提供せず、PI_AGENT_TOOLS の設定ミスは
  * createRemoteToolDefinitions が UnknownRemoteToolError で検出する既存の規則を残す)。
  */
-import type { ToolCatalogEntry, ToolGroup, ToolUnavailableReason } from "./schema";
+import type { ToolCatalogEntry, ToolGroup } from "./schema";
 
 /** アプリ側の実効。エージェントの許可リストとの積を取る前に、アプリ自身がツールを公開しているか */
 export interface ToolAvailability {
   /** `PI_AGENT_TOOLS` の実効 (agent.ts の `configuredTools()`)。デプロイ側の上限 */
   sandboxTools: readonly string[];
-  /** コンテンツ生成の設定が有効か (キー未設定では false) */
+  /** コンテンツ生成の設定が有効か (キーの行があり、かつ設定が ON) */
   contentGeneration: boolean;
+  /** キーの行があるか。止まっている理由をキー未設定と設定 OFF で書き分ける */
+  contentGenerationConfigured: boolean;
   /** Web 検索の実行時トグル。セッション作成時に読む */
   webSearch: boolean;
   serve: boolean;
@@ -23,15 +25,13 @@ export interface ToolAvailability {
 }
 
 /** アプリ側の可否を引くキー。作業ツールは `sandboxTools` の一覧で決まるため持たない */
-type AppGate = Exclude<keyof ToolAvailability, "sandboxTools">;
+type AppGate = Exclude<keyof ToolAvailability, "sandboxTools" | "contentGenerationConfigured">;
 
 interface ToolRegistryEntry {
   name: string;
   description: string;
   group: ToolGroup;
   gate?: AppGate;
-  /** 止まっている理由。省略は app_disabled で、キー未設定で止まるものだけ no_key にする */
-  offReason?: ToolUnavailableReason;
 }
 
 const TOOL_REGISTRY: readonly ToolRegistryEntry[] = [
@@ -48,21 +48,18 @@ const TOOL_REGISTRY: readonly ToolRegistryEntry[] = [
     description: "画像を生成・編集して作業フォルダへ保存する",
     group: "app",
     gate: "contentGeneration",
-    offReason: "no_key",
   },
   {
     name: "generate_speech",
     description: "音声を生成して作業フォルダへ保存する",
     group: "app",
     gate: "contentGeneration",
-    offReason: "no_key",
   },
   {
     name: "generate_bgm",
     description: "インストゥルメンタルBGMを生成してMP3を作業フォルダへ保存する",
     group: "app",
     gate: "contentGeneration",
-    offReason: "no_key",
   },
   {
     name: "serve",
@@ -83,8 +80,18 @@ export function toolCatalog(availability: ToolAvailability): ToolCatalogEntry[] 
         ? { ...base, available: true }
         : { ...base, available: false, reason: "deploy_allowlist" as const };
     }
+    // コンテンツ生成だけは止まっている理由が 2 つある (キー未設定 / 設定で OFF)。キーの行があれば
+    // 画面は「アプリ側で無効」と出せる
+    if (entry.gate === "contentGeneration") {
+      if (availability.contentGeneration) return { ...base, available: true };
+      return {
+        ...base,
+        available: false,
+        reason: availability.contentGenerationConfigured ? ("app_disabled" as const) : ("no_key" as const),
+      };
+    }
     return availability[entry.gate]
       ? { ...base, available: true }
-      : { ...base, available: false, reason: entry.offReason ?? ("app_disabled" as const) };
+      : { ...base, available: false, reason: "app_disabled" as const };
   });
 }

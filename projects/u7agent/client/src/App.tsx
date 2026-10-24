@@ -869,6 +869,7 @@ export default function App({ handoffNote = null, onHandoffNote, onHandoffNoteSh
                 : DEFAULT_CONTENT_SUBSECTION
             }
             onSelectContentSubsection={openContentSubsection}
+            refreshToolCatalog={refreshCatalog}
           />
         );
       case "web-search":
