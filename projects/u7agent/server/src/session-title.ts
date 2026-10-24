@@ -41,14 +41,18 @@ const LEADING_SKILL_BLOCK =
  * タイトルの元にする依頼本文。定型プロンプト (suggestion) は呼び出し側が結合前に落として渡す。
  * 先頭のスキル参照だけを外し、認識できないタグやコードフェンスは本文として残す
  * (任意の XML 風タグを一律に削ると、依頼そのものが消える)。
+ *
+ * `skillCommandRecognized` は送信経路が `/skill:` を実際に展開できたか。構文だけで外すと、
+ * 未知のスキル指定を含む本文と保存メッセージはそのままなのにタイトルだけ別の意味になるため、
+ * 展開できた指定に限って参照として扱う。
  */
-export function titleRequestOf(text: string): string {
+export function titleRequestOf(text: string, options: { skillCommandRecognized?: boolean } = {}): string {
   const trimmed = text.trim();
   if (!trimmed) return "";
   const block = trimmed.match(LEADING_SKILL_BLOCK);
   if (block) return (block[2] ?? "").trim() || (block[1] as string);
   const command = parseSkillCommand(trimmed);
-  if (command) return command.args || command.name;
+  if (command && options.skillCommandRecognized === true) return command.args || command.name;
   return trimmed;
 }
 

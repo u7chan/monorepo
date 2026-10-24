@@ -300,8 +300,9 @@ export function createSessionRoutes({
           attachments.map((path) => workspaceAbs(store.rootCwd, path)),
         ),
         // 展開後の本文でタイトルを作ると `<skill …>` が並ぶので、ユーザーが打った本文を使う。
-        // 定型プロンプトの結合前の本文が届いていれば、それを優先する (タイトルから固定文を除く)
-        { titleSource: body.titleSource ?? text },
+        // 定型プロンプトの結合前の本文が届いていれば、それを優先する (タイトルから固定文を除く)。
+        // スキル参照は実際に展開できたときだけ外す (未知の `/skill:` をタイトルだけ別の意味にしない)
+        { titleSource: body.titleSource ?? text, skillCommandRecognized: prompt !== text },
       );
       // 引き継ぎのチップの消費済み印は、受理応答を返す前に保存の成功を確かめる
       const { handoffSaving, ...rest } = result;

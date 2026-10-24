@@ -66,7 +66,8 @@ import {
   type TitleAttempt,
   type TitleOrigin,
 } from "./session-title";
-import type { TitleSummaryHost, TitleSummaryResult } from "./title-summary";
+import type { TitleSummaryHost, TitleSummaryResult, TitleSummaryUsage } from "./title-summary";
+import { TitleSummaryQueue, type TitleSummaryQueueResult } from "./title-summary-queue";
 import { displayableMessages, truncate } from "./session-projection";
 import type { SandboxHandoffClient, SandboxMoveClient, SandboxWorkspaceClient } from "./sandbox/client";
 import { SandboxRequestError } from "./sandbox/client";
@@ -211,6 +212,11 @@ export interface SessionStoreOptions {
    * 試行の記録は会話ストアが持ち、ホストは設定の読み取りと 1 回の生成だけを担う。
    */
   titleSummary?: TitleSummaryHost | null;
+  /**
+   * AI 要約の共有実行制御。未指定はプロセス内の既定 (同時 2 件・待ち 15 秒) を使う。
+   * テストは上限と待ち時間を縮めた実体を渡す。
+   */
+  titleSummaryQueue?: TitleSummaryQueue | null;
 }
 
 function messageFor(error: unknown): string {
@@ -220,6 +226,16 @@ function messageFor(error: unknown): string {
 function modelLabel(model?: { provider: string; id: string } | null): string | undefined {
   if (!model) return undefined;
   return `${model.provider}/${model.id}`;
+}
+
+/** 補助呼び出しの usage を試行の記録へ写す (タイトルを採用できなくても消費した分を残す) */
+function usageFields(usage: TitleSummaryUsage | undefined): Partial<TitleAttempt> {
+  if (!usage) return {};
+  return {
+    inputTokens: usage.inputTokens,
+    outputTokens: usage.outputTokens,
+    costTotal: usage.costTotal,
+  };
 }
 
 function parseModelLabel(value: string | undefined): ModelRef | undefined {
@@ -338,6 +354,8 @@ export class SessionStore {
   notifications: NotificationService | null;
   /** 会話タイトルの AI 要約。null は要約しない */
   titleSummary: TitleSummaryHost | null;
+  /** 補助呼び出しの共有枠 (同時実行数・待ち期限) */
+  titleSummaryQueue: TitleSummaryQueue;
   /** 送信対応記録の書込み (テスト差し替え用) */
   writeSendsFile: (storeDir: string, id: string, sends: SessionSends) => void;
   /** investigate の子 runner。子は record に載せず、並列と待ち行列の在庫をここに持つ */
@@ -358,6 +376,7 @@ export class SessionStore {
     notifications,
     writeSends,
     titleSummary,
+    titleSummaryQueue,
   }: SessionStoreOptions = {}) {
     if (!catalog) throw new Error("SessionStore requires an agent catalog");
     this.pi = pi || null;
@@ -373,6 +392,7 @@ export class SessionStore {
     this.rootCwd = rootCwd ?? process.cwd();
     this.notifications = notifications ?? null;
     this.titleSummary = titleSummary ?? null;
+    this.titleSummaryQueue = titleSummaryQueue ?? new TitleSummaryQueue();
     this.writeSendsFile = writeSends ?? writeSessionSends;
     this.investigator = createInvestigateRunner({
       masker: this.masker,
@@ -1058,7 +1078,7 @@ export class SessionStore {
   postMessage(
     record: SessionRecord,
     text: string,
-    options: { titleSource?: string; sendId?: string } = {},
+    options: { titleSource?: string; sendId?: string; skillCommandRecognized?: boolean } = {},
   ): PostMessageResultInternal {
     // 設定変更・停止処理中の送信は 409 (BFF のルートでも同じ扱い)
     if (record.changingSettings) {
@@ -1077,7 +1097,11 @@ export class SessionStore {
     if (!record.title) {
       // 依頼本文 (定型プロンプトの結合前・スキル参照の展開前) から認識したスキル参照だけを外す。
       // 秘密値はタイトルにも AI 要約の入力にも残さないよう、ここで 1 回だけマスクする
-      const request = this.masker.mask(titleRequestOf(stripAttachedFiles(options.titleSource ?? text)));
+      const request = this.masker.mask(
+        titleRequestOf(stripAttachedFiles(options.titleSource ?? text), {
+          skillCommandRecognized: options.skillCommandRecognized === true,
+        }),
+      );
       record.titleRequest = request;
       record.title = normalizeTitleText(request);
       record.titleOrigin = "auto";
@@ -2885,14 +2909,10 @@ export class SessionStore {
   }
 
   /**
-   * 完了通知。送信は fire-and-forget で、失敗してもランとその記録に影響させない。
-   * 送るかどうかは finish 時点の値で決め、本文はこのランで確定したものだけを使う
-   * (履歴を遡ると、assistant を生成しなかったランで前の応答を再送してしまう)。
-   */
-  /**
    * 判定点 (初めて本文を伴う正常完了が得られたランの直後) で AI 要約を 1 回だけ予約する。
    * Off・モデル不在・手動改名・依頼本文なしでも判定を残し、後続のターンや設定変更で再走査しない。
-   * 予約は外部呼び出しより先に保存し、再起動・複数タブ・クラッシュで重複実行しない。
+   * 予約は外部呼び出しより先に保存し、保存できないときは生成を始めない (再起動・複数タブ・
+   * クラッシュで重複実行しないための前提)。
    */
   private async summarizeTitle(record: SessionRecord, run: RunState, assistantText: string | undefined): Promise<void> {
     const host = this.titleSummary;
@@ -2901,10 +2921,11 @@ export class SessionStore {
     const response = assistantText?.trim();
     if (!response) return;
     const settings = host.settings();
-    const model = settings.model ? `${settings.model.provider}/${settings.model.id}` : undefined;
+    const modelRef = settings.model;
+    const model = modelLabel(modelRef);
     const request = record.titleRequest ?? record.title;
     const eligible =
-      settings.enabled && settings.model !== undefined && record.titleOrigin !== "manual" && request.trim() !== "";
+      settings.enabled && modelRef !== undefined && record.titleOrigin !== "manual" && request.trim() !== "";
     record.titleAttempt = {
       runId: run.id,
       at: Date.now(),
@@ -2912,21 +2933,59 @@ export class SessionStore {
       ...(model ? { model } : {}),
       generation: settings.generation,
     };
-    await this.persist(record, { jsonl: false });
-    if (!eligible || !settings.model) return;
-    if (this.records.get(record.id) !== record) return;
+    if (!eligible || !modelRef) {
+      await this.persist(record, { jsonl: false });
+      return;
+    }
+    // 保存待ちの間も Off / 手動改名の取消が効くよう、予約の task を保存より先に立てる
     const abort = new AbortController();
     const task = { runId: run.id, generation: settings.generation, model, abort };
     record.titleTask = task;
-    void host
-      .generate({ model: settings.model, definition: settings.definition, request, response, signal: abort.signal })
-      .then((result) => this.applyTitleSummary(record, task, result))
-      .catch(() => this.settleTitleAttempt(record, task, { state: "failed" }));
+    const failure = await this.persist(record, { jsonl: false });
+    if (failure) {
+      // 予約が保存できていない状態で送ると、クラッシュ後に試行済みかを復元できない
+      if (record.titleTask === task) delete record.titleTask;
+      this.settleTitleAttempt(record, task, { state: "failed" });
+      return;
+    }
+    // 保存を待つ間に取り消された (Off / 手動改名 / 停止)。結果の適用だけでなく開始も止める
+    if (record.titleTask !== task) return;
+    const current = host.settings();
+    if (!this.titleSummarySettingsMatch(current, settings.generation, model) || record.titleOrigin === "manual") {
+      delete record.titleTask;
+      this.settleTitleAttempt(record, task, { state: "skipped" });
+      return;
+    }
+    let queued: TitleSummaryQueueResult<TitleSummaryResult>;
+    try {
+      queued = await this.titleSummaryQueue.run(
+        {
+          signal: abort.signal,
+          // 順番待ちの間に本会話が動き出したら、本会話を優先してこの補助呼び出しは捨てる
+          shouldStart: () =>
+            this.records.get(record.id) === record && record.titleTask === task && !this.isBusy(record),
+        },
+        () =>
+          host.generate({ model: modelRef, definition: settings.definition, request, response, signal: abort.signal }),
+      );
+    } catch {
+      // 補助呼び出しの想定外の失敗はタイトルを変えず、試行だけ消費する (自動再試行しない)
+      if (record.titleTask === task) delete record.titleTask;
+      this.settleTitleAttempt(record, task, { state: "failed" });
+      return;
+    }
+    if (queued.kind === "skipped") {
+      if (record.titleTask !== task) return;
+      delete record.titleTask;
+      this.settleTitleAttempt(record, task, { state: "skipped" });
+      return;
+    }
+    this.applyTitleSummary(record, task, queued.value);
   }
 
   /**
    * 生成結果の適用。予約後にタイトルが手動で変えられた / 設定が変わった / 取り消された結果は捨てる
-   * (文字列比較ではなく、タイトルの由来と設定の世代で判定する)。
+   * (文字列比較ではなく、タイトルの由来と設定の世代で判定する)。usage は採用できたかと独立に残す。
    */
   private applyTitleSummary(
     record: SessionRecord,
@@ -2936,36 +2995,34 @@ export class SessionStore {
     if (record.titleTask === undefined || record.titleTask.runId !== task.runId) return;
     delete record.titleTask;
     if (!result.ok) {
-      this.settleTitleAttempt(record, task, { state: "failed" });
+      this.settleTitleAttempt(record, task, { state: "failed", ...usageFields(result.usage) });
       return;
     }
     const current = this.titleSummary?.settings();
-    const currentModel = current?.model ? `${current.model.provider}/${current.model.id}` : undefined;
     if (
-      !current?.enabled ||
-      current.generation !== task.generation ||
-      currentModel !== task.model ||
+      !current ||
+      !this.titleSummarySettingsMatch(current, task.generation, task.model) ||
       record.titleOrigin === "manual"
     ) {
-      this.settleTitleAttempt(record, task, { state: "skipped" });
+      this.settleTitleAttempt(record, task, { state: "skipped", ...usageFields(result.usage) });
       return;
     }
     record.title = result.title;
     record.titleOrigin = "ai";
-    this.settleTitleAttempt(record, task, {
-      state: "done",
-      ...(result.usage
-        ? {
-            inputTokens: result.usage.inputTokens,
-            outputTokens: result.usage.outputTokens,
-            costTotal: result.usage.costTotal,
-          }
-        : {}),
-    });
+    this.settleTitleAttempt(record, task, { state: "done", ...usageFields(result.usage) });
     // 一覧と開いている画面のタイトルを取り直させる (本文の完了・保存は待たせない)
     void this.persist(record, { jsonl: false }).then(() => {
       if (this.records.get(record.id) === record) this.emitResync(record);
     });
+  }
+
+  /** 予約時の設定 (世代・モデル) が現在も同じか。On/Off と定義の変更も世代で検出する */
+  private titleSummarySettingsMatch(
+    current: { enabled: boolean; model?: { provider: string; id: string }; generation: number },
+    generation: number,
+    model: string | undefined,
+  ): boolean {
+    return current.enabled && current.generation === generation && modelLabel(current.model) === model;
   }
 
   private settleTitleAttempt(
@@ -2992,6 +3049,11 @@ export class SessionStore {
     this.settleTitleAttempt(record, task, { state: "skipped" });
   }
 
+  /**
+   * 完了通知。送信は fire-and-forget で、失敗してもランとその記録に影響させない。
+   * 送るかどうかは finish 時点の値で決め、本文はこのランで確定したものだけを使う
+   * (履歴を遡ると、assistant を生成しなかったランで前の応答を再送してしまう)。
+   */
   private notifyCompleted(record: SessionRecord, run: RunState, body: string | undefined, durationMs: number): void {
     if (!this.notifications || run.status !== "completed" || !record.notify) return;
     if (!body?.trim()) return;

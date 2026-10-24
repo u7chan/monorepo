@@ -23,10 +23,20 @@ test("通常の本文はそのままタイトルの元になる", () => {
   assert.equal(titleRequestOf(""), "");
 });
 
-test("/skill: の指定は後ろの依頼本文をタイトルの元にする", () => {
-  assert.equal(titleRequestOf("/skill:writer ログイン画面の説明文を改善したい"), "ログイン画面の説明文を改善したい");
+test("/skill: は展開できた指定だけを外し、後ろの依頼本文をタイトルの元にする", () => {
+  const recognized = { skillCommandRecognized: true };
+  assert.equal(
+    titleRequestOf("/skill:writer ログイン画面の説明文を改善したい", recognized),
+    "ログイン画面の説明文を改善したい",
+  );
   // 引数が無ければスキル名を使う (個別の依頼が無い会話を空タイトルにしない)
-  assert.equal(titleRequestOf("/skill:writer"), "writer");
+  assert.equal(titleRequestOf("/skill:writer", recognized), "writer");
+  // 未知のスキル指定は本文も保存メッセージも展開されないため、タイトルだけ別の意味にしない
+  assert.equal(titleRequestOf("/skill:nonexistent-example 調査する"), "/skill:nonexistent-example 調査する");
+  assert.equal(
+    titleRequestOf("/skill:nonexistent-example 調査する", { skillCommandRecognized: false }),
+    "/skill:nonexistent-example 調査する",
+  );
   // 先頭以外の /skill: は本文として残す (実際の展開条件とタイトル側だけを食い違わせない)
   assert.equal(titleRequestOf("本文の途中に /skill:writer と書いた"), "本文の途中に /skill:writer と書いた");
 });

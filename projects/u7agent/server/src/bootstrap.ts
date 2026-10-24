@@ -17,6 +17,7 @@ import { createSpeechCatalog } from "./speech-catalog";
 import { WebSearchSettingsService } from "./web-search-settings";
 import { TitleSummarySettingsService } from "./title-summary-settings";
 import { createTitleSummaryGenerate, type TitleSummaryGenerate, type TitleSummaryHost } from "./title-summary";
+import { TitleSummaryQueue } from "./title-summary-queue";
 import { TITLE_OUTPUT_TOKENS } from "./session-title";
 import { ModelSettingsService, type CredentialCommit, type ProviderKeyRuntime } from "./model-settings";
 import { OAuthLoginService, canSignInHere, type OAuthLoginRuntime } from "./oauth-login";
@@ -76,6 +77,10 @@ export type CreateBffAppOptions = {
    * null を渡すと要約しない (呼び出しの配線だけを検証するとき)。
    */
   titleSummaryGenerate?: TitleSummaryGenerate | null;
+  /**
+   * AI 要約の共有実行制御。未指定は既定 (同時 2 件・待ち 15 秒)。テストは上限と待ち時間を縮めて渡す。
+   */
+  titleSummaryQueue?: TitleSummaryQueue | null;
   /**
    * セッションの引っ越しで作業フォルダ / 添付を移すサンドボックス。未指定なら env から生成した
    * サンドボックスクライアントを再利用する (workspace を差し替えたテストでは null = 移動は 503)。
@@ -271,10 +276,12 @@ export async function createBffContext(opts: CreateBffAppOptions = {}): Promise<
         ? createTitleSummaryGenerate(
             {
               resolveModel: (model) => pi.resolveModel(model),
-              complete: (model, context) =>
+              // 取消 (Off / 手動改名 / 停止) を HTTP 呼び出しまで伝播させる
+              complete: (model, context, options) =>
                 pi.modelRuntime.completeSimple(model, context, {
                   maxTokens: TITLE_OUTPUT_TOKENS,
                   reasoning: "minimal",
+                  signal: options.signal,
                 }),
             },
             pi.secretMasker,
@@ -369,6 +376,7 @@ export async function createBffContext(opts: CreateBffAppOptions = {}): Promise<
     rootCwd: cwd,
     notifications,
     titleSummary: titleSummaryGenerate ? titleSummaryHost(titleSummarySettings, titleSummaryGenerate) : null,
+    ...(opts.titleSummaryQueue !== undefined ? { titleSummaryQueue: opts.titleSummaryQueue } : {}),
   });
   // Off への変更では未開始の要約を取り消す (実行中は中断し、後から届いた結果も適用しない)
   titleSummarySettings.onChange(() => store.cancelTitleSummaries());

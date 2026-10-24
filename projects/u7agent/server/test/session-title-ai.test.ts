@@ -6,12 +6,15 @@
 //   - usage は診断にだけ載り、依頼本文と生成タイトルは載らない
 
 import assert from "node:assert/strict";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
+import type { AssistantMessage } from "@earendil-works/pi-ai";
 import { createBffApp } from "../src/app";
 import type { SandboxWorkspaceClient } from "../src/sandbox/client";
+import { sessionMetaPath } from "../src/session-store";
+import { TitleSummaryQueue } from "../src/title-summary-queue";
 import type { TitleSummaryGenerate, TitleSummaryGenerateInput, TitleSummaryResult } from "../src/title-summary";
 import { asPiBff, createStubPi, STUB_MODEL, waitFor } from "./stub-pi";
 
@@ -80,13 +83,30 @@ function createControlledGenerator() {
   return { generate, calls };
 }
 
-async function openBff(dir: string, generate: TitleSummaryGenerate, pi = createStubPi()) {
+async function openBff(
+  dir: string,
+  generate: TitleSummaryGenerate,
+  pi = createStubPi(),
+  extra: { queue?: TitleSummaryQueue } = {},
+) {
   return createBffApp({
     cwd: "/tmp/project",
     sessionStoreDir: dir,
     pi: asPiBff(pi),
     workspace: stubWorkspace(),
     titleSummaryGenerate: generate,
+    ...(extra.queue ? { titleSummaryQueue: extra.queue } : {}),
+  });
+}
+
+/** 本番の生成器・bootstrap 経路を使う (実モデルの代わりに completeSimple を差し替える) */
+async function openBffWithRealGenerate(dir: string, pi: ReturnType<typeof createStubPi>, queue?: TitleSummaryQueue) {
+  return createBffApp({
+    cwd: "/tmp/project",
+    sessionStoreDir: dir,
+    pi: asPiBff(pi),
+    workspace: stubWorkspace(),
+    ...(queue ? { titleSummaryQueue: queue } : {}),
   });
 }
 
@@ -228,7 +248,7 @@ test("生成に失敗したら仮タイトルを維持し、自動再試行し�
       await waitCompleted(bff, sessionId);
       await waitFor(() => generator.calls.length === 1, 3000, "generate called");
 
-      generator.calls[0]!.settle({ ok: false, error: "rate limited" });
+      generator.calls[0]!.settle({ ok: false, error: "rate limited", usage: undefined });
       const record = bff.store.records.get(sessionId)!;
       await waitFor(() => record.meta.titleAttempt?.state === "failed", 3000, "failed attempt");
       assert.equal(record.title, "請求書のPDF出力を追加したい");
@@ -311,10 +331,21 @@ test("定型プロンプトのみ・スキル参照のみ・展開済みブロ�
       const promptTitle = (await jsonBody(bff.app.request(`/api/sessions/${promptOnly}`))).title as string;
       assert.ok(PROMPT.startsWith(promptTitle));
 
-      // スキル参照のみはスキル名をタイトルにする (空タイトルにしない)
+      // 展開できたスキル参照のみはスキル名をタイトルにする (空タイトルにしない)
       const skillOnly = await createSession();
-      await bff.app.request(`/api/sessions/${skillOnly}/messages`, jsonPost({ text: "/skill:writer" }));
-      assert.equal((await jsonBody(bff.app.request(`/api/sessions/${skillOnly}`))).title, "writer");
+      await bff.app.request(`/api/sessions/${skillOnly}/messages`, jsonPost({ text: "/skill:serve" }));
+      assert.equal((await jsonBody(bff.app.request(`/api/sessions/${skillOnly}`))).title, "serve");
+
+      // 未知のスキルはモデル向け本文も展開されないため、タイトルからも外さない
+      const unknownSkill = await createSession();
+      await bff.app.request(
+        `/api/sessions/${unknownSkill}/messages`,
+        jsonPost({ text: "/skill:nonexistent-example 調査する" }),
+      );
+      assert.equal(
+        (await jsonBody(bff.app.request(`/api/sessions/${unknownSkill}`))).title,
+        "/skill:nonexistent-example 調査する",
+      );
 
       // 展開済みのブロックをそのまま送る従来形式でも、後ろの依頼をタイトルにする
       const expanded = await createSession();
@@ -367,6 +398,33 @@ test("AI で更新したタイトルは再起動後の一覧・payload でも一
   });
 });
 
+test("生成が失敗しても取得できた usage を試行へ残す", async () => {
+  await withStoreDir(async (dir) => {
+    const generator = createControlledGenerator();
+    const bff = await openBff(dir, generator.generate);
+    try {
+      await enableSummary(bff);
+      const created = await jsonBody(bff.app.request("/api/sessions", jsonPost({})));
+      const sessionId = created.sessionId as string;
+      await sendTitleMessage(bff, sessionId, "請求書のPDF出力を追加したい");
+      await waitCompleted(bff, sessionId);
+      await waitFor(() => generator.calls.length === 1, 3000, "generate called");
+      generator.calls[0]!.settle({
+        ok: false,
+        error: "出力が不正です",
+        usage: { inputTokens: 321, outputTokens: 7, costTotal: 0.0002 },
+      });
+      const record = bff.store.records.get(sessionId)!;
+      await waitFor(() => record.meta.titleAttempt?.state === "failed", 3000, "failed attempt");
+      assert.equal(record.meta.titleAttempt?.inputTokens, 321);
+      assert.equal(record.meta.titleAttempt?.outputTokens, 7);
+      assert.equal(record.meta.titleAttempt?.costTotal, 0.0002);
+    } finally {
+      await bff.close();
+    }
+  });
+});
+
 test("既知の秘密値は仮タイトルにも AI 要約の入力にも残さない", async () => {
   const KEY = "sk-ant-dummy-key-0123456789abcdef";
   await withStoreDir(async (dir) => {
@@ -414,6 +472,180 @@ test("予約後に定義が変わったら、古い定義で生成した結果�
       const record = bff.store.records.get(sessionId)!;
       await waitFor(() => record.meta.titleAttempt?.state === "skipped", 3000, "skipped attempt");
       assert.equal(record.title, "商品検索の絞り込み操作を改善したい");
+    } finally {
+      await bff.close();
+    }
+  });
+});
+
+test("予約を保存できないときは外部生成を開始しない", async () => {
+  await withStoreDir(async (dir) => {
+    const generator = createControlledGenerator();
+    const bff = await openBff(dir, generator.generate);
+    try {
+      await enableSummary(bff);
+      const original = bff.store.persist.bind(bff.store);
+      let failed = false;
+      bff.store.persist = async (record, options) => {
+        if (!failed && options?.jsonl === false && record.titleAttempt?.state === "pending") {
+          failed = true;
+          return "meta write failed";
+        }
+        return original(record, options);
+      };
+      const created = await jsonBody(bff.app.request("/api/sessions", jsonPost({})));
+      const sessionId = created.sessionId as string;
+      await sendTitleMessage(bff, sessionId, "ログイン画面のエラー表示を改善したい");
+      await waitCompleted(bff, sessionId);
+      await new Promise((resolveTick) => setTimeout(resolveTick, 100));
+
+      assert.equal(generator.calls.length, 0);
+      assert.equal(bff.store.records.get(sessionId)?.meta.titleAttempt?.state, "failed");
+    } finally {
+      await bff.close();
+    }
+  });
+});
+
+test("予約の保存待ちの間に Off にしたら生成を開始しない", async () => {
+  await withStoreDir(async (dir) => {
+    const generator = createControlledGenerator();
+    const bff = await openBff(dir, generator.generate);
+    try {
+      await enableSummary(bff);
+      const original = bff.store.persist.bind(bff.store);
+      let release = (): void => {};
+      const gate = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      bff.store.persist = async (record, options) => {
+        if (options?.jsonl === false && record.titleAttempt?.state === "pending") await gate;
+        return original(record, options);
+      };
+      const created = await jsonBody(bff.app.request("/api/sessions", jsonPost({})));
+      const sessionId = created.sessionId as string;
+      await sendTitleMessage(bff, sessionId, "商品検索の絞り込み操作を改善したい");
+      const record = bff.store.records.get(sessionId)!;
+      await waitFor(
+        () => record.meta.titleAttempt?.state === "pending" && record.titleTask !== undefined,
+        3000,
+        "reservation",
+      );
+
+      // 予約の保存が終わる前に Off へ。未開始の呼び出しも取り消される
+      const off = await bff.app.request("/api/settings/session-title", jsonPut({ enabled: false }));
+      assert.equal(off.status, 200);
+      assert.equal(record.titleTask, undefined);
+      release();
+      await waitCompleted(bff, sessionId);
+      await new Promise((resolveTick) => setTimeout(resolveTick, 100));
+      assert.equal(generator.calls.length, 0);
+      assert.equal(record.meta.titleAttempt?.state, "skipped");
+    } finally {
+      await bff.close();
+    }
+  });
+});
+
+test("共有の同時実行上限を超えた要約は待ち期限でスキップする", async () => {
+  await withStoreDir(async (dir) => {
+    const generator = createControlledGenerator();
+    const queue = new TitleSummaryQueue({ concurrency: 1, waitTimeoutMs: 50 });
+    const bff = await openBff(dir, generator.generate, createStubPi(), { queue });
+    try {
+      await enableSummary(bff);
+      const first = (await jsonBody(bff.app.request("/api/sessions", jsonPost({})))).sessionId as string;
+      const second = (await jsonBody(bff.app.request("/api/sessions", jsonPost({})))).sessionId as string;
+      await sendTitleMessage(bff, first, "ログイン画面のエラー表示を改善したい");
+      await sendTitleMessage(bff, second, "商品検索の絞り込み操作を改善したい");
+      await waitCompleted(bff, first);
+      await waitCompleted(bff, second);
+      await waitFor(() => generator.calls.length === 1, 3000, "first generate called");
+      const secondRecord = bff.store.records.get(second)!;
+      await waitFor(() => secondRecord.meta.titleAttempt?.state === "skipped", 3000, "second skipped");
+      assert.equal(generator.calls.length, 1);
+      assert.equal(secondRecord.title, "商品検索の絞り込み操作を改善したい");
+
+      // 1 件目が終われば枠は空く
+      generator.calls[0]!.settle({ ok: true, title: "ログイン画面のエラー改善", usage: undefined });
+      await waitFor(() => bff.store.records.get(first)!.title === "ログイン画面のエラー改善", 3000, "first applied");
+      assert.equal(queue.active, 0);
+    } finally {
+      await bff.close();
+    }
+  });
+});
+
+test("再起動後もタイトルの由来と試行状態を復元し、判定済みの会話を再走査しない", async () => {
+  await withStoreDir(async (dir) => {
+    const first = await openBff(dir, createControlledGenerator().generate);
+    let sessionId: string;
+    try {
+      const created = await jsonBody(first.app.request("/api/sessions", jsonPost({})));
+      sessionId = created.sessionId as string;
+    } finally {
+      await first.close();
+    }
+
+    // 添付のみの初回ランを skipped として保存した状態を再現する (タイトルは空のまま)
+    const metaPath = sessionMetaPath(sessionId, dir);
+    const meta = JSON.parse(await readFile(metaPath, "utf8")) as Record<string, unknown>;
+    meta.titleAttempt = { runId: "run-attachment-only", at: 1, state: "skipped", generation: 0 };
+    meta.titleOrigin = "auto";
+    await writeFile(metaPath, `${JSON.stringify(meta)}\n`);
+
+    const generator = createControlledGenerator();
+    const restarted = await openBff(dir, generator.generate);
+    try {
+      const restored = restarted.store.descriptors.get(sessionId);
+      assert.equal(restored?.titleAttempt?.state, "skipped");
+      assert.equal(restored?.titleOrigin, "auto");
+
+      await enableSummary(restarted);
+      await sendTitleMessage(restarted, sessionId, "ログイン画面のエラー表示を改善したい");
+      await waitCompleted(restarted, sessionId);
+      await new Promise((resolveTick) => setTimeout(resolveTick, 100));
+      assert.equal(generator.calls.length, 0);
+      assert.equal(restarted.store.records.get(sessionId)?.meta.titleAttempt?.state, "skipped");
+    } finally {
+      await restarted.close();
+    }
+  });
+});
+
+test("本番の生成器経路でも入力全体をマスクし、Off で model 呼び出しまで中断する", async () => {
+  const KEY = "sk-ant-dummy-key-0123456789abcdef";
+  await withStoreDir(async (dir) => {
+    const pi = createStubPi();
+    pi.retainSecret(KEY);
+    const calls: { options: { signal?: AbortSignal; maxTokens?: number; reasoning?: string }; context: unknown }[] = [];
+    const runtime = pi.modelRuntime as unknown as {
+      completeSimple: (model: unknown, context: unknown, options: unknown) => Promise<AssistantMessage>;
+    };
+    runtime.completeSimple = (_model, context, options) =>
+      new Promise<AssistantMessage>(() => {
+        calls.push({ context, options: options as { signal?: AbortSignal } });
+      });
+    const bff = await openBffWithRealGenerate(dir, pi);
+    try {
+      await enableSummary(bff, { definition: `定義に鍵 ${KEY} を含めた` });
+      const created = await jsonBody(bff.app.request("/api/sessions", jsonPost({})));
+      const sessionId = created.sessionId as string;
+      await sendTitleMessage(bff, sessionId, `鍵 ${KEY} の画面を改善したい`);
+      await waitCompleted(bff, sessionId);
+      await waitFor(() => calls.length === 1, 3000, "real generate called");
+
+      const sent = JSON.stringify(calls[0]!.context);
+      assert.ok(!sent.includes(KEY), sent);
+      assert.match(sent, /\[REDACTED\]/);
+      assert.equal(calls[0]!.options.maxTokens, 96);
+      assert.equal(calls[0]!.options.reasoning, "minimal");
+      assert.ok(calls[0]!.options.signal instanceof AbortSignal);
+      assert.equal(calls[0]!.options.signal?.aborted, false);
+
+      const off = await bff.app.request("/api/settings/session-title", jsonPut({ enabled: false }));
+      assert.equal(off.status, 200);
+      assert.equal(calls[0]!.options.signal?.aborted, true);
     } finally {
       await bff.close();
     }

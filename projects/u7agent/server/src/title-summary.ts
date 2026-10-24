@@ -15,9 +15,13 @@ export interface TitleSummaryUsage {
   costTotal: number;
 }
 
+/**
+ * 補助呼び出しの結果。usage はタイトルを採用できたかと独立に返す
+ * (失敗した要求も課金され得るため、状態 `failed` でも診断へ残す)。
+ */
 export type TitleSummaryResult =
   | { ok: true; title: string; usage: TitleSummaryUsage | undefined }
-  | { ok: false; error: string };
+  | { ok: false; error: string; usage: TitleSummaryUsage | undefined };
 
 export interface TitleSummaryGenerateInput {
   model: ModelRef;
@@ -26,6 +30,7 @@ export interface TitleSummaryGenerateInput {
   request: string;
   /** 判定点のランで確定した最終応答 */
   response: string;
+  /** 取消 (Off への変更・停止)。実際の HTTP 呼び出しまで伝播させる */
   signal: AbortSignal;
 }
 
@@ -40,12 +45,12 @@ export interface TitleSummaryHost {
 /** 生成に渡るモデルの呼び出し。`completeSimple` は認証を ModelRuntime 側で解決する */
 export interface TitleSummaryCompletion {
   resolveModel: (model: ModelRef) => PiAiModel<Api> | undefined;
-  complete: (model: PiAiModel<Api>, context: Context) => Promise<AssistantMessage>;
+  complete: (model: PiAiModel<Api>, context: Context, options: { signal: AbortSignal }) => Promise<AssistantMessage>;
 }
 
 /**
  * 1 回の生成。モデルが現在の候補に無ければ外部へ送らずに失敗にする (無断のフォールバックをしない)。
- * 出力は 1 行だけを受理し、空・複数行・例外はすべて「タイトルを更新しない」に畳む。
+ * 出力は 1 行だけを受理し、空・複数行・出力上限での打ち切り・例外は「タイトルを更新しない」に畳む。
  */
 export function createTitleSummaryGenerate(
   completion: TitleSummaryCompletion,
@@ -53,23 +58,39 @@ export function createTitleSummaryGenerate(
 ): TitleSummaryGenerate {
   return async (input) => {
     const model = completion.resolveModel(input.model);
-    if (!model) return { ok: false, error: "選択したモデルは利用できません" };
+    if (!model) return { ok: false, error: "選択したモデルは利用できません", usage: undefined };
+    // 編集可能な定義・応答・再登録された秘密値を含む実送信入力の全体を、外部へ出す直前にマスクする
     const prompt = buildTitlePrompt(input);
+    const systemPrompt = masker.mask(prompt.system);
+    const userText = masker.mask(prompt.user);
     try {
-      const message = await completion.complete(model, {
-        systemPrompt: prompt.system,
-        messages: [{ role: "user", content: [{ type: "text", text: prompt.user }], timestamp: Date.now() }],
-      });
+      const message = await completion.complete(
+        model,
+        {
+          systemPrompt,
+          messages: [{ role: "user", content: [{ type: "text", text: userText }], timestamp: Date.now() }],
+        },
+        { signal: input.signal },
+      );
+      const usage = usageOf(message);
       if (message.stopReason === "error" || message.stopReason === "aborted") {
-        return { ok: false, error: message.errorMessage ?? "要約モデルの呼び出しに失敗しました" };
+        return {
+          ok: false,
+          error: message.errorMessage ?? "要約モデルの呼び出しに失敗しました",
+          usage,
+        };
+      }
+      // 出力トークンの上限で切れた応答は、1 行に見えても予算超過として採用しない
+      if (message.stopReason === "length") {
+        return { ok: false, error: "要約モデルの出力が上限に達しました", usage };
       }
       const raw = textOf(message);
       // モデルが秘密値をそのまま返しても、既知の値はタイトルにも usage 記録にも残さない
       const title = parseGeneratedTitle(masker.mask(raw));
-      if (!title) return { ok: false, error: "要約モデルの出力をタイトルとして使えません" };
-      return { ok: true, title, usage: usageOf(message) };
+      if (!title) return { ok: false, error: "要約モデルの出力をタイトルとして使えません", usage };
+      return { ok: true, title, usage };
     } catch (error) {
-      return { ok: false, error: error instanceof Error ? error.message : String(error) };
+      return { ok: false, error: error instanceof Error ? error.message : String(error), usage: undefined };
     }
   };
 }
