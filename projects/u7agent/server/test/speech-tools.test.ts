@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { IMAGE_TOOL_NAME, sessionToolNames } from "../src/image-tools";
+import { CONTENT_DISABLED_MESSAGE } from "../src/content-disabled";
 import { createMutableSecretMasker } from "../src/redact";
 import type { SandboxUploadInput, SandboxWorkspaceClient } from "../src/sandbox/client";
 import { toolResultSummary } from "../src/session-projection";
@@ -63,6 +64,8 @@ function tool(options: {
   capture: Capture;
   masker?: ReturnType<typeof createMutableSecretMasker>;
   settings?: SpeechGenerationSettings | undefined | (() => SpeechGenerationSettings | undefined);
+  /** 実行時の有効 / 無効。省略は常に有効 */
+  readEnabled?: () => boolean;
   voices?: (model: string) => readonly string[] | undefined;
   generate?: (input: Capture["generated"][number]) => Promise<unknown>;
   workspaceResult?: (input: SandboxUploadInput) => { path: string; name: string; renamed: boolean; size: number };
@@ -74,6 +77,7 @@ function tool(options: {
     workspace: fakeWorkspace(options.capture, options.workspaceResult),
     masker: options.masker ?? createMutableSecretMasker([]),
     readSettings: () => (typeof settingsOption === "function" ? settingsOption() : settingsOption),
+    ...(options.readEnabled ? { readEnabled: options.readEnabled } : {}),
     readVoices: options.voices ?? (() => undefined),
     generate: async (input) => {
       options.capture.generated.push(input);
@@ -342,6 +346,25 @@ test("課金前に止める失敗は provider を呼ばず、固定文言を返�
   // 上限ちょうどは通す
   await run(execute, { text: "x".repeat(SPEECH_TEXT_MAX_LENGTH) });
   assert.equal(capture.generated.length, 1, "拒否した呼び出しで provider を呼んでいる");
+});
+
+test("有効 / 無効が OFF の間は provider を呼ばず、固定文言で失敗する（既存セッションにも効く）", async () => {
+  const capture: Capture = { uploads: [], bodies: [], generated: [] };
+  let enabled = true;
+  const execute = tool({ capture, settings, readEnabled: () => enabled });
+  await run(execute, { text: "こんにちは" });
+  assert.equal(capture.generated.length, 1);
+
+  enabled = false;
+  await assert.rejects(
+    () => run(execute, { text: "こんにちは" }),
+    (error: Error) => error.message.includes(CONTENT_DISABLED_MESSAGE),
+  );
+  assert.equal(capture.generated.length, 1, "OFF の間は課金しない");
+
+  enabled = true;
+  await run(execute, { text: "こんにちは" });
+  assert.equal(capture.generated.length, 2, "ON に戻すと同じ定義のまま生成できる");
 });
 
 test("execute は毎回現在の設定を読み、未設定・キー削除後はキー無効エラーにする", async () => {

@@ -19,6 +19,7 @@ import {
 } from "../src/content-settings";
 import { SPEECH_PROVIDER_ID } from "../src/speech";
 import type { SpeechGenerationInput, SpeechGenerationResult } from "../src/speech";
+import { CONTENT_DISABLED_MESSAGE } from "../src/content-disabled";
 import { DEFAULT_SPEECH_MODEL, type SpeechCatalog, type SpeechCatalogSnapshot } from "../src/speech-catalog";
 
 const KEY = "sk-speech-dummy-key-0123456789abcdef";
@@ -152,8 +153,15 @@ function statusOf(error: unknown): number | undefined {
   return (error as { statusCode?: number } | undefined)?.statusCode;
 }
 
-function rowWith(speechModel: string | null, speechVoice: string | null): ContentSettingsRow {
-  return { provider: IMAGE_PROVIDER_ID, imageModel: "openai/gpt-image-2", speechModel, speechVoice, apiKey: KEY };
+function rowWith(speechModel: string | null, speechVoice: string | null, enabled = true): ContentSettingsRow {
+  return {
+    provider: IMAGE_PROVIDER_ID,
+    imageModel: "openai/gpt-image-2",
+    speechModel,
+    speechVoice,
+    enabled,
+    apiKey: KEY,
+  };
 }
 
 test("GET は音声列が NULL の既存行を既定モデルと先頭ボイスへフォールバックする", () => {
@@ -196,6 +204,7 @@ test("PUT はモデル / ボイスを保存し、キーと画像の選択を保�
     imageModel: "openai/gpt-image-2",
     speechModel: "fish/audio",
     speechVoice: "any-voice-id",
+    enabled: true,
     apiKey: KEY,
   });
   assert.equal(latest()?.enabled, true, "保存で注入を更新する");
@@ -511,6 +520,16 @@ test("お試し再生は行なし 400 / 未注入 503 / DB 不通 503 で provid
     { status: 503, error: CONTENT_SPEECH_PREVIEW_READ_FAILED_MESSAGE },
   );
   assert.equal(failing.previewCalls.length, 0);
+});
+
+test("お試し再生は有効 / 無効が OFF なら課金前に 400 で止め、生成器を呼ばない", async () => {
+  const { db, service, previewCalls } = createService({ generateSpeech: async () => speechResult() });
+  db.row = rowWith(DEFAULT_SPEECH_MODEL, "Zephyr", false);
+  assert.deepEqual(await service.previewSpeech({ model: DEFAULT_SPEECH_MODEL, voice: "Zephyr", text: "こんにちは" }), {
+    status: 400,
+    error: CONTENT_DISABLED_MESSAGE,
+  });
+  assert.deepEqual(previewCalls, [], "ツールと同じく OFF は課金も止める");
 });
 
 test("お試し再生は pcm を RIFF 付きの wav にし、指定した演技指示と速度を生成器へ渡す", async () => {

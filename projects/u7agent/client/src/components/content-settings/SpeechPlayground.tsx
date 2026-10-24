@@ -21,6 +21,8 @@ import { SpeechVoiceOptions } from "./SpeechVoiceOptions";
 
 export type SpeechPlaygroundProps = {
   settings: ContentSettingsResponse;
+  /** アプリ全体の有効 / 無効。OFF の間は生成（課金）だけを止め、生成済みの再生は残す */
+  enabled: boolean;
   /** お試し再生の要求。signal で画面を離れたときの中断を伝える */
   onPreview: (input: SpeechPreviewBody, signal?: AbortSignal) => Promise<SpeechPreviewAudio>;
 };
@@ -35,7 +37,7 @@ type SpeechPreviewResult = { body: SpeechPreviewBody; audio: SpeechPreviewPlayba
  * 音声セクションの「お試し再生」。保存した設定は変えず、この場で選んだ値で 1 回だけ鳴らす。
  * モデルとボイスは保存値を初期値にし、未保存の選択をそのまま試せる（同期できていない間も使える）。
  */
-export function SpeechPlayground({ settings, onPreview }: SpeechPlaygroundProps) {
+export function SpeechPlayground({ settings, enabled, onPreview }: SpeechPlaygroundProps) {
   // null は保存値へ追随する。この画面で選び直したら、保存が変わってもその値を試し続ける
   const [draftModel, setDraftModel] = useState<string | null>(null);
   const [draftVoice, setDraftVoice] = useState<string | null>(null);
@@ -116,6 +118,7 @@ export function SpeechPlayground({ settings, onPreview }: SpeechPlaygroundProps)
   return (
     <SpeechPlaygroundView
       settings={settings}
+      enabled={enabled}
       values={values}
       busy={busy}
       error={error}
@@ -143,6 +146,7 @@ export function SpeechPlayground({ settings, onPreview }: SpeechPlaygroundProps)
 /** お試し再生の描画だけを持つ部分。生成中 / 失敗 / 形式の表示を SSR でも検査できるように分ける */
 export function SpeechPlaygroundView({
   settings,
+  enabled,
   values,
   busy,
   error,
@@ -155,6 +159,8 @@ export function SpeechPlaygroundView({
   onReplay,
 }: {
   settings: ContentSettingsResponse;
+  /** アプリ全体の有効 / 無効。OFF の間は生成（課金）のボタンを止める */
+  enabled: boolean;
   values: SpeechPreviewDraft;
   busy: boolean;
   error: string | null;
@@ -174,6 +180,8 @@ export function SpeechPlaygroundView({
   const speedNoteId = useId();
   // 生成器はランタイムが持つため、runtime 不可では押しても必ず 503 になる（未同期とは別のゲート）
   const runtimeAvailable = settings.runtimeAvailable;
+  // OFF の間は生成（課金）を止める。すでに作った音声の再生は課金しないので残す
+  const generationDisabled = !enabled;
 
   return (
     <section className="grid gap-1.5 border-t border-line pt-3">
@@ -186,6 +194,11 @@ export function SpeechPlaygroundView({
       {runtimeAvailable ? null : (
         <p role="alert" className="rounded-lg border border-warn/40 bg-raised px-2.5 py-2 text-2xs text-warn">
           ランタイムが利用できないため、お試し再生はできません。サーバーの起動ログを確認してください。
+        </p>
+      )}
+      {enabled ? null : (
+        <p role="status" className="rounded-lg border border-warn/40 bg-raised px-2.5 py-2 text-2xs text-warn">
+          コンテンツ生成が無効のため、お試し再生はできません（生成済みの音声の再生だけできます）。
         </p>
       )}
       {/* 保存フォームと同じ順（モデル → ボイス → 本文 → 演技指示）で読めるようにする */}
@@ -303,7 +316,7 @@ export function SpeechPlaygroundView({
         <button
           type="button"
           className="btn-primary"
-          disabled={busy || !runtimeAvailable}
+          disabled={busy || !runtimeAvailable || (generationDisabled && !replayable)}
           onClick={() => (replayable ? onReplay() : onSubmit())}
         >
           {primaryLabel}
@@ -323,7 +336,12 @@ export function SpeechPlaygroundView({
             <p className="text-2xs text-ink-muted">{speechPreviewFormatNote(result.audio.format)}</p>
             {/* 同じ入力でも出力は毎回同じとは限らないため、再生のときだけ別テイクへ行ける導線を残す */}
             {replayable ? (
-              <button type="button" className="btn-quiet" disabled={busy || !runtimeAvailable} onClick={onSubmit}>
+              <button
+                type="button"
+                className="btn-quiet"
+                disabled={busy || !runtimeAvailable || generationDisabled}
+                onClick={onSubmit}
+              >
                 別のテイクを生成
               </button>
             ) : null}

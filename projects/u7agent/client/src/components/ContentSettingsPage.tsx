@@ -21,9 +21,10 @@ export function ContentSettingsPage({
   contentSubsection,
   onSelectContentSubsection,
   singleColumn,
+  refreshToolCatalog,
   onBack,
   onOpenNav,
-}: ContentSettingsPageProps) {
+}: ContentSettingsPageProps & { refreshToolCatalog?: () => Promise<unknown> }) {
   const contentSettings = useContentSettings();
   return (
     <ContentSettingsView
@@ -31,6 +32,7 @@ export function ContentSettingsPage({
       contentSubsection={contentSubsection}
       onSelectContentSubsection={onSelectContentSubsection}
       singleColumn={singleColumn}
+      refreshToolCatalog={refreshToolCatalog}
       onBack={onBack}
       onOpenNav={onOpenNav}
     />
@@ -43,12 +45,15 @@ export function ContentSettingsView({
   singleColumn = false,
   contentSubsection = DEFAULT_CONTENT_SUBSECTION,
   onSelectContentSubsection,
+  refreshToolCatalog,
   onBack,
   onOpenNav,
 }: SettingsPageProps & {
   contentSettings: ContentSettings;
   contentSubsection?: ContentSubsection;
   onSelectContentSubsection?: (subsection: ContentSubsection) => void;
+  /** 有効 / 無効でツールの `available` が変わるため、保存後にエージェントの一覧を取り直す */
+  refreshToolCatalog?: () => Promise<unknown>;
 }) {
   const {
     settings,
@@ -56,6 +61,7 @@ export function ContentSettingsView({
     saving,
     reloading,
     reload,
+    setEnabled,
     saveKey,
     removeKey,
     saveSelection,
@@ -110,6 +116,12 @@ export function ContentSettingsView({
           settings={settings}
           contentSubsection={contentSubsection}
           saving={saving}
+          onSetEnabled={async (enabled) => {
+            const saved = await setEnabled(enabled);
+            // 保存できたときだけ取り直す（失敗時は旧い一覧のままでも実害が無い）
+            if (saved) void refreshToolCatalog?.();
+            return saved;
+          }}
           onSaveKey={saveKey}
           onDeleteKey={removeKey}
           onSaveSelection={saveSelection}

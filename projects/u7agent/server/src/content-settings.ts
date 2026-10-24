@@ -1,11 +1,12 @@
 /**
  * 設定 → コンテンツ生成のサービス。アプリ DB の `content_settings`（id = 1 の 1 行）を
- * 希望状態の正とし、行の有無を PiBff のツール公開 state へロックの内側で写す。
+ * 希望状態の正とし、行の有無と `enabled` を PiBff のツール公開 state へロックの内側で写す。
  * SDK への認証反映が無いため degraded は持たず、変更系の応答は常に `applied` になる。
  * 契約は docs/image-generation.md / docs/speech-generation.md を正とする。
  */
 import { messageFor } from "./http";
 import { bgmSettings, BGM_MODEL } from "./bgm";
+import { CONTENT_DISABLED_MESSAGE } from "./content-disabled";
 import { MutationLock } from "./model-settings";
 import type { ProviderFailureCode } from "./provider-failure";
 import { REDACTED } from "./redact";
@@ -162,6 +163,9 @@ export class ContentSettingsService {
     return {
       configured: row !== undefined,
       provider: row?.provider ?? null,
+      // 行が無い = 未設定。トグルの既定は ON（Web 検索の「行が無い = 有効」と同じ読み替え）
+      enabled: row?.enabled ?? true,
+      disabledMessage: CONTENT_DISABLED_MESSAGE,
       runtimeAvailable: this.#runtimeAvailable,
       image: {
         model: row?.imageModel ?? null,
@@ -214,7 +218,10 @@ export class ContentSettingsService {
     });
   }
 
-  /** キーの登録・上書き。行が無ければ既定 provider / model で作る */
+  /**
+   * キーの登録・上書き。行が無ければ既定 provider / model で作る。有効 / 無効は引き継ぐ
+   * （OFF にしたままキーだけ差し替えられる）
+   */
   async putKey(apiKey: string): Promise<ContentMutationOutcome> {
     return this.#lock.run(async () => {
       if (!this.#runtimeAvailable) {
@@ -230,31 +237,49 @@ export class ContentSettingsService {
       }
       // マスカーへの登録は DB より前。ここが失敗しても保護対象だけは残す
       this.#retainSecret(apiKey);
+      const next: ContentSettingsRow = {
+        provider: existing?.provider ?? IMAGE_PROVIDER_ID,
+        imageModel: existing?.imageModel ?? DEFAULT_IMAGE_MODEL,
+        speechModel: existing?.speechModel ?? null,
+        speechVoice: existing?.speechVoice ?? null,
+        enabled: existing?.enabled ?? true,
+        apiKey,
+      };
       try {
-        this.#db.saveContentSettings({
-          provider: existing?.provider ?? IMAGE_PROVIDER_ID,
-          imageModel: existing?.imageModel ?? DEFAULT_IMAGE_MODEL,
-          speechModel: existing?.speechModel ?? null,
-          speechVoice: existing?.speechVoice ?? null,
-          apiKey,
-        });
+        this.#db.saveContentSettings(next);
       } catch {
         // DB の理由は AppDb の境界がマスクして記録する。ここは操作の分類だけに絞る
         console.warn("[u7agent] content key save failed");
         return { status: 503, error: CONTENT_KEY_NOT_STORED_MESSAGE };
       }
-      this.#apply(true);
-      return {
-        status: 200,
-        response: this.#applied({
-          configured: true,
-          provider: existing?.provider ?? IMAGE_PROVIDER_ID,
-          imageModel: existing?.imageModel ?? DEFAULT_IMAGE_MODEL,
-          speechModel: existing?.speechModel ?? null,
-          speechVoice: existing?.speechVoice ?? null,
-          apiKey,
-        }),
-      };
+      this.#apply(next);
+      return { status: 200, response: this.#applied(next) };
+    });
+  }
+
+  /**
+   * 有効 / 無効。行ごと消すとキーと選択まで失うため、一時的に止めたいだけのときはこちらを使う。
+   * 行が無ければ 400（キー登録が先。止める対象が無い）。
+   */
+  async putEnabled(enabled: boolean): Promise<ContentMutationOutcome> {
+    return this.#lock.run(async () => {
+      let existing: ContentSettingsRow | undefined;
+      try {
+        existing = this.#db.readContentSettings();
+      } catch (error) {
+        console.warn(`[u7agent] content settings read failed: ${this.#maskError(messageFor(error))}`);
+        return { status: 503, error: CONTENT_SETTINGS_NOT_STORED_MESSAGE };
+      }
+      if (!existing) throw badRequest(CONTENT_SETTINGS_UNCONFIGURED_MESSAGE);
+      const next: ContentSettingsRow = { ...existing, enabled };
+      try {
+        this.#db.saveContentSettings(next);
+      } catch {
+        console.warn("[u7agent] content settings save failed");
+        return { status: 503, error: CONTENT_SETTINGS_NOT_STORED_MESSAGE };
+      }
+      this.#apply(next);
+      return { status: 200, response: this.#applied(next) };
     });
   }
 
@@ -278,24 +303,15 @@ export class ContentSettingsService {
         throw badRequest(
           `${CONTENT_MODEL_NOT_IN_CATALOG_MESSAGE}: ${this.#reflectedValue(input.model, existing.apiKey)}`,
         );
+      const next: ContentSettingsRow = { ...existing, provider: input.provider, imageModel: input.model };
       try {
-        this.#db.saveContentSettings({ ...existing, provider: input.provider, imageModel: input.model });
+        this.#db.saveContentSettings(next);
       } catch {
         console.warn("[u7agent] content settings save failed");
         return { status: 503, error: CONTENT_SETTINGS_NOT_STORED_MESSAGE };
       }
-      this.#apply(true);
-      return {
-        status: 200,
-        response: this.#applied({
-          configured: true,
-          provider: input.provider,
-          imageModel: input.model,
-          speechModel: existing.speechModel,
-          speechVoice: existing.speechVoice,
-          apiKey: existing.apiKey,
-        }),
-      };
+      this.#apply(next);
+      return { status: 200, response: this.#applied(next) };
     });
   }
 
@@ -331,24 +347,15 @@ export class ContentSettingsService {
         }
       }
       const speechVoice = input.voice === "" ? null : input.voice;
+      const next: ContentSettingsRow = { ...existing, speechModel: input.model, speechVoice };
       try {
-        this.#db.saveContentSettings({ ...existing, speechModel: input.model, speechVoice });
+        this.#db.saveContentSettings(next);
       } catch {
         console.warn("[u7agent] content settings save failed");
         return { status: 503, error: CONTENT_SETTINGS_NOT_STORED_MESSAGE };
       }
-      this.#apply(true);
-      return {
-        status: 200,
-        response: this.#applied({
-          configured: true,
-          provider: existing.provider,
-          imageModel: existing.imageModel,
-          speechModel: input.model,
-          speechVoice,
-          apiKey: existing.apiKey,
-        }),
-      };
+      this.#apply(next);
+      return { status: 200, response: this.#applied(next) };
     });
   }
 
@@ -373,6 +380,8 @@ export class ContentSettingsService {
       return { status: 503, error: CONTENT_SPEECH_PREVIEW_READ_FAILED_MESSAGE };
     }
     if (!row) return { status: 400, error: CONTENT_SETTINGS_UNCONFIGURED_MESSAGE };
+    // OFF は「課金も止める」。ツールへ返すのと同じ文言で止め、画面はこの間だけ主ボタンを無効にする
+    if (!row.enabled) return { status: 400, error: CONTENT_DISABLED_MESSAGE };
 
     // モデルの照合は PUT /speech と同じく `default`（live に一度も成功していない）を免除し、
     // 声の宣言は generate_speech と同じくカタログの出どころに関係なく引く
@@ -426,7 +435,7 @@ export class ContentSettingsService {
 
   /**
    * キーの削除（行ごと消す）。未設定でも 200 を返す（削除は冪等で、画面は行の有無だけを見る）。
-   * 有効なキーは 8..2048 文字なので、これが未設定へ戻る唯一の導線になる。
+   * 有効なキーは 8..2048 文字なので、これが未設定へ戻る唯一の導線になる。有効 / 無効も行と一緒に消える。
    */
   async deleteKey(): Promise<ContentMutationOutcome> {
     return this.#lock.run(async () => {
@@ -436,18 +445,8 @@ export class ContentSettingsService {
         console.warn("[u7agent] content key delete failed");
         return { status: 503, error: CONTENT_SETTINGS_NOT_STORED_MESSAGE };
       }
-      this.#apply(false);
-      return {
-        status: 200,
-        response: this.#applied({
-          configured: false,
-          provider: null,
-          imageModel: null,
-          speechModel: null,
-          speechVoice: null,
-          apiKey: null,
-        }),
-      };
+      this.#apply(undefined);
+      return { status: 200, response: this.#applied(undefined) };
     });
   }
 
@@ -473,13 +472,18 @@ export class ContentSettingsService {
         await this.#catalog.refresh();
         await this.#speechCatalog.refresh();
       }
-      this.#apply(row !== undefined);
+      this.#apply(row);
     });
   }
 
-  #apply(enabled: boolean): void {
+  /**
+   * ツールの公開状態の写し。行が無ければキー未設定、行があって OFF なら「設定で無効」として写す。
+   * 実行時の課金前チェックも同じ `enabled` を読むため、保存した瞬間から既存のセッションにも効く。
+   */
+  #apply(row: ContentSettingsRow | undefined): void {
     this.#setContentGeneration({
-      enabled,
+      enabled: row !== undefined && row.enabled,
+      configured: row !== undefined,
       read: () => currentImageSettings(this.#db),
       // 実行のたびに現在のカタログを引く。形式の宣言を一覧から絞り込んだあとも、保存済みの選択はここで拾える
       readOutputFormats: (model) => this.#catalog.outputFormatsOf(model),
@@ -496,29 +500,23 @@ export class ContentSettingsService {
   /**
    * DB 書込が確定した後の応答。値を知っている側から組み、read の成否に依存させない
    * （書込成功後の読取失敗を not_stored と誤伝しない）。カタログはメモリ上の現在値を載せる。
+   * `row` が undefined のときは削除後（未設定）の応答になる。
    */
-  #applied(result: {
-    configured: boolean;
-    provider: string | null;
-    imageModel: string | null;
-    speechModel: string | null;
-    speechVoice: string | null;
-    /** この行の APIキー。応答へ音声の値を出す前に保護対象と照合する（未設定の行は null） */
-    apiKey: string | null;
-  }): ContentMutationResponse {
+  #applied(row: ContentSettingsRow | undefined): ContentMutationResponse {
     const catalog = this.#catalog.snapshot();
     const speechCatalog = this.#speechCatalog.snapshot();
     // 未設定の行を「音声の既定」へ寄せないため、キーの有無で分ける
-    const speech =
-      result.apiKey === null
-        ? { model: null, voice: "" }
-        : this.#speechSelection(result.speechModel, result.speechVoice, result.apiKey);
+    const speech = row
+      ? this.#speechSelection(row.speechModel, row.speechVoice, row.apiKey)
+      : { model: null, voice: "" };
     return {
-      configured: result.configured,
-      provider: result.provider,
+      configured: row !== undefined,
+      provider: row?.provider ?? null,
+      enabled: row?.enabled ?? true,
+      disabledMessage: CONTENT_DISABLED_MESSAGE,
       runtimeAvailable: this.#runtimeAvailable,
       image: {
-        model: result.imageModel,
+        model: row?.imageModel ?? null,
         models: catalog.entries,
         catalogSource: catalog.source,
         fetchedAt: catalog.fetchedAt,
@@ -531,7 +529,7 @@ export class ContentSettingsService {
         fetchedAt: speechCatalog.fetchedAt,
       },
       state: "applied",
-      bgm: bgmSettings(result.configured),
+      bgm: bgmSettings(row !== undefined),
     };
   }
 }

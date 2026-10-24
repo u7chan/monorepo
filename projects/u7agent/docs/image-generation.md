@@ -142,12 +142,14 @@ cp generated/cafe-1.png assets/cafe-latest.png
 
 ## 有効化（ゲート）
 
-`content_settings` の行の有無がコンテンツ生成のゲートで、`PiBff.contentGenerationEnabled` と `PiBff.setContentGeneration()` がその写し先になる。公開時にはさらにエージェントの `toolNames` との積を取る。画像・TTS・BGMは同じゲートを共有する。
+`content_settings` の行の有無と `enabled` 列がコンテンツ生成のゲートで、`PiBff.contentGenerationEnabled` と `PiBff.setContentGeneration()` がその写し先になる。公開時にはさらにエージェントの `toolNames` との積を取る。画像・TTS・BGMは同じゲートを共有する（**有効 / 無効は 1 つの列**。タブごとのトグルは持たない。3 つは同じキーと同じ課金を共有し、止めたい依存も同じため）。
 
-- `bootstrap.ts` は `AppDb.open()` の後、`ModelSettingsService.applyStored()` と同じ順序で `ContentSettingsService.applyStored()` を呼ぶ。行があれば（キーをマスカーへ登録してから）有効化し、行が無ければ無効のまま起動する
-- キー登録・削除の API は**同じミューテーションロックの内側**で `setContentGeneration()` を更新する。次のセッション作成から効き、再起動は要らない
-- ツール一覧はセッション作成時に固定する（新しい会話と復元から効く）。有効化しても既存の live セッションには遡及しない
+- `bootstrap.ts` は `AppDb.open()` の後、`ModelSettingsService.applyStored()` と同じ順序で `ContentSettingsService.applyStored()` を呼ぶ。行があり `enabled` が ON なら（キーをマスカーへ登録してから）有効化し、行が無ければ未設定、行があっても OFF なら停止のまま起動する
+- キー登録・削除・有効 / 無効の API は**同じミューテーションロックの内側**で `setContentGeneration()` を更新する。次のセッション作成から効き、再起動は要らない。キー登録（上書き）は OFF を引き継ぎ、削除は行ごと消すため OFF も一緒に失われる（未設定へ戻る）
+- ツール一覧はセッション作成時に固定する（新しい会話と復元から効く）。**OFF は実行時にも見る**ため、既存の live セッションでも次の呼び出しから `CONTENT_DISABLED_MESSAGE`（「コンテンツ生成は無効化されています。有効にするには 設定 → コンテンツ生成 を開いてください。」）で失敗し、provider を叩かない。キー未設定・削除後とは別の文言にし、キーの再登録を促さない
 - `execute` は作成時のキーを握らず、毎回 `content_settings` を読み直す。未設定・削除後はキー無効エラーを返し、キーの変更・回転にも追随する
+- ツール一覧の止まっている理由は 2 つに分ける: キーの行が無ければ `no_key`、行があって OFF なら `app_disabled`（[api-catalog.md](api-catalog.md#ツール許可リスト)）
+- 設定画面の「お試し再生」も OFF の間は課金しない（同じ文言の 400 を返し、画面は生成のボタンを止める。生成済みの音声の再生は課金しないため残す）
 - pi ランタイム初期化に失敗したとき（`pi` が null）は `retainSecret` が no-op になり、キーを保護対象へ足せない。この状態のキー登録は model-settings と同じく 503 `not_stored` にする（DB へも書き込まない）
 
 ## 失敗の分類
@@ -194,6 +196,7 @@ SDK(pi-ai 1.3.0) の `openrouter-images` は `chat/completions` へ投げるが�
 - 注意書きは詳細の上部で既定に畳んで出す（1 行の要点 + 展開で全文。平文保存・再表示しない・ログイン無しで公開しない・有効性は保存時に見ない・キーは 8 文字以上・プロバイダー登録キーとは別管理）。下部に「保存したキーは新しい会話から使える（ツール一覧はセッション作成時に固定）」と、生成物の保存先（作業フォルダの `generated/`）を注記する
 - `runtimeAvailable: false` のときはキー登録・上書き・削除を disable し、プロバイダータブと同じ理由（サーバーの起動ログ）を出す。モデルの変更は SDK に触れないため残す。変更系の 503 `state: "not_stored"` は「変更は保存されていません。」を付けて画面の注記へ出す
 - 画面の [再読み込み] はこの画面の設定だけを取り直す（設定 → モデルの [再読み込み] はモデル側だけを取り直す）。キーの登録・削除は再起動を待たず、次に作るセッションから効く
+- 有効 / 無効のトグルは**タブの外に 1 つだけ**置く（画像・音声・BGM のどのタブでも同じカードが出る）。ラベルは「アプリ全体の生成を止めます（画像・音声・BGM で共通）」で、OFF の間は API が返す `disabledMessage` をその場に出す。未設定（キーが無い）では止める対象が無いため出さない。保存に成功したらエージェントのツール一覧を取り直す（エージェント編集のツール欄が取得時点のスナップショットを見るため）
 
 ## ツールとプレビュー
 
@@ -251,15 +254,15 @@ SDK(pi-ai 1.3.0) の `openrouter-images` は `chat/completions` へ投げるが�
 | --- | --- |
 | `server/test/images.test.ts` | カタログ / `chat/completions` へ戻らないこと（`/images` の送信先・ヘッダ・本文）/ `media_type` の落とし方 / 失敗分類（401・403・402・429・5xx・timeout・ユーザー中断・原因不明）/ 画像 0 件の失敗（2xx の生本文と `error.message`）/ provider メッセージのマスク / SDK 同梱カタログから `openrouter/*` を落とすこと / SDK 同梱の openrouter が provider 内で同じ `baseUrl` / ヘッダを使うこと（ひな形の流用の前提）/ SDK の一覧に無い id（live のみのモデル）も provider の URL で送ること / 参照画像ありの失敗では provider の自由文（plain / 1 段・2 段の JSON エスケープ / 折り返し base64）を返さず固定文言だけになること / 参照画像なしの失敗では従来どおり理由を添えること |
 | `server/test/image-catalog.test.ts` | live の採用とキャッシュ保存（認証ヘッダを付けない / id と表示名と形式の宣言）/ 出力形式の取り込みと一覧の絞り込み（不明・形違いは落とさない）/ 宣言がキャッシュから読めること / 一覧から落ちた id の `outputFormatsOf` / 重複 id と表示名の欠落 / 失敗分類（429・5xx・契約外・空・timeout）と一覧の保持 / キャッシュの読込と live 失敗時の維持 / キャッシュの読取・保存失敗 |
-| `server/test/image-tools.test.ts` | ツールの組み立て（有効時だけ）/ path の拒否規則 / slug と拡張子 / 結果パスの参照・一意ファイルの保持・最新コピーのガイドライン / 生成前ガード（保存できない形式だけを宣言したモデルで provider を叩かない・宣言なしと不明は止めない）/ 保存段の失敗文言（クレジット消費済み）/ root 相対への前置き / 同名衝突で実際の保存名と使用モデルを返す / 長い path でも投影の切詰めにモデルが残る / execute が毎回設定を読む / throw のマスク / signal の伝播 |
+| `server/test/image-tools.test.ts` | ツールの組み立て（有効時だけ）/ path の拒否規則 / slug と拡張子 / 結果パスの参照・一意ファイルの保持・最新コピーのガイドライン / 生成前ガード（保存できない形式だけを宣言したモデルで provider を叩かない・宣言なしと不明は止めない）/ 保存段の失敗文言（クレジット消費済み）/ root 相対への前置き / 同名衝突で実際の保存名と使用モデルを返す / 長い path でも投影の切詰めにモデルが残る / execute が毎回設定を読む / OFF の間は provider を叩かず固定文言で失敗し ON へ戻すと同じ定義で生成できる / throw のマスク / signal の伝播 |
 | `server/test/image-input.test.ts` | 参照画像のパス解決（cwd 相対 / 添付の絶対パス / 未所属・プロジェクト・追加スペースで起点がずれない）/ 拒否規則（`..`・範囲外・URL・data URL・バックスラッシュ・空）/ 実バイトの形式判定（PNG・JPEG・WebP、無拡張子・拡張子違い、壊れたヘッダ）/ 上限（10 MiB・40 メガピクセル）/ 入力の base64・data URL の除去 |
 | `server/test/sandbox-image-input.test.ts` | `GET /v1/files/image-input` の許可範囲（scope 外・実在しない範囲・root 外 symlink）/ 実バイト判定 / 上限 413 / scope 数の上限 |
-| `server/test/content-settings.test.ts` | GET / PUT / DELETE の契約、マスカー登録の順序、既定行、行が無い / provider / カタログ外の 400、runtime 無しの 503、DB 失敗の 503、起動時の適用（キャッシュ読込と、行があるときだけの live 取得）/ キー保存が取得を待たないこと / 再取得の失敗文言 / 注入する config の形式宣言 |
-| `server/test/content-settings-api.test.ts` | HTTP 契約と DB 例外のマスク、起動時の有効化、キーが応答・health・ログへ出ないこと、カタログの出どころ / 再取得の 200 と `catalogError` / `models` の形（宣言を載せない） |
-| `server/test/app-db.test.ts` | v7 → v8 / v8 → v9 の加算移行、v14 → v15 の改名（`image_settings` → `content_settings`、`model` → `imageModel`）、両テーブル併存時の読み先、v15 → v14 → v15 の往復、`content_settings` の CRUD、空文字行 = 未設定、`image_catalog` の upsert と壊れた行（health を落とさない）、形式宣言の往復と形違いの読み方 |
+| `server/test/content-settings.test.ts` | GET / PUT / DELETE の契約、有効 / 無効の切替（キーと選択を保つ・行が無ければ 400・保存失敗は 503 で写しも変えない・キー上書きが OFF を引き継ぐ）、マスカー登録の順序、既定行、行が無い / provider / カタログ外の 400、runtime 無しの 503、DB 失敗の 503、起動時の適用（キャッシュ読込と、行があるときだけの live 取得）/ キー保存が取得を待たないこと / 再取得の失敗文言 / 注入する config の形式宣言 |
+| `server/test/content-settings-api.test.ts` | HTTP 契約と DB 例外のマスク、`PUT /api/settings/content` の有効 / 無効（行が無ければ 400）、起動時の有効化、キーが応答・health・ログへ出ないこと、カタログの出どころ / 再取得の 200 と `catalogError` / `models` の形（宣言を載せない） |
+| `server/test/app-db.test.ts` | v7 → v8 / v8 → v9 の加算移行、v14 → v15 の改名（`image_settings` → `content_settings`、`model` → `imageModel`）、両テーブル併存時の読み先、v15 → v14 → v15 の往復、`content_settings` の CRUD、空文字行 = 未設定、`enabled` の列追加（既存行は ON）と往復、`image_catalog` の upsert と壊れた行（health を落とさない）、形式宣言の往復と形違いの読み方 |
 | `client/test/markdownImage.test.ts` | Markdown 画像の 3 段解決 / version が変わったときだけ解決 URL が変わること / App の `runEndSeq` 配線 / 解決できない src / `components/markdown/` が `api.ts` を import しないこと |
 | `client/test/imageRefresh.test.ts` | 実フックの再描画安定性・更新時の URL 非衝突 / 実 Markdown と FileBrowser の再 mount が過去の URL を再利用しないこと（SSR） |
-| `client/test/contentSettings.test.ts` / `client/test/contentSettingsTab.test.ts` | 選択肢（表示名の昇順・同名への id 添え・カタログ外の現在値）/ 現在値と PUT の本文 / 保存成功時だけキー入力を消す / キーの登録状態バッジと provider の id・表示名 / 見出しの provider（ロゴ・未設定でも OpenRouter・対応表に無い provider は頭文字）と `画像 <n>` / `音声 <n>` のチップ / 一覧の出どころのチップと最終取得 / 再取得の注記 / 選んだ面だけの描画（未設定はキーのみ・設定済みは削除と選んだ面の選択・キーを再表示しない・runtime 不可の disable・[カタログ更新] の出し分け） |
+| `client/test/contentSettings.test.ts` / `client/test/contentSettingsTab.test.ts` | 選択肢（表示名の昇順・同名への id 添え・カタログ外の現在値）/ 現在値と PUT の本文 / 保存成功時だけキー入力を消す / キーの登録状態バッジと provider の id・表示名 / 見出しの provider（ロゴ・未設定でも OpenRouter・対応表に無い provider は頭文字）と `画像 <n>` / `音声 <n>` のチップ / 一覧の出どころのチップと最終取得 / 再取得の注記 / 選んだ面だけの描画（未設定はキーのみ・設定済みは削除と選んだ面の選択・キーを再表示しない・runtime 不可の disable・[カタログ更新] の出し分け）/ 有効 / 無効のカード（どのタブでも 1 つだけ・無効時の固定文言と警告色・未設定では出さない）と注記の文面 |
 
 ## 非ゴール
 

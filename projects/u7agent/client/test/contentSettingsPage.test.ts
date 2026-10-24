@@ -20,6 +20,8 @@ const { ConfirmProvider } = await import("../src/components/ConfirmProvider");
 const CONTENT_SETTINGS: ContentSettingsResponse = {
   configured: true,
   provider: "openrouter",
+  enabled: true,
+  disabledMessage: "コンテンツ生成は無効化されています。有効にするには 設定 → コンテンツ生成 を開いてください。",
   runtimeAvailable: true,
   bgm: { model: "google/lyria-3-clip-preview", format: "mp3", expectedDurationSeconds: 30 },
   image: {
@@ -54,6 +56,7 @@ function contentSettings(overrides: Partial<ContentSettings> = {}): ContentSetti
     saving: null,
     reloading: false,
     reload: async () => {},
+    setEnabled: async () => true,
     saveKey: async () => true,
     removeKey: async () => true,
     saveSelection: async () => true,

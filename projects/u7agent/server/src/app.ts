@@ -50,6 +50,7 @@ import {
   SpeechPreviewBodySchema,
   UpdateAgentBodySchema,
   UpdateArchiveSettingsBodySchema,
+  UpdateContentEnabledBodySchema,
   UpdateContentImageBodySchema,
   UpdateContentKeyBodySchema,
   UpdateCloudflareSettingsBodySchema,
@@ -515,6 +516,14 @@ export async function createBffApp(opts: CreateBffAppOptions = {}) {
     .delete("/api/settings/models/:provider/login", modelSettingsRoutes.cancelOAuthLogin)
     .post("/api/settings/models/:provider/logout", modelSettingsRoutes.logoutOAuth)
     .get("/api/settings/content", appData, contentSettingsRoutes.list)
+    .put(
+      "/api/settings/content",
+      appDataMutation,
+      jsonBodyValidator(UpdateContentEnabledBodySchema, (result, c) =>
+        result.success ? undefined : c.json({ error: "Invalid request body" }, 400),
+      ),
+      (c) => contentSettingsRoutes.putEnabled(c, c.req.valid("json")),
+    )
     .put(
       "/api/settings/content/image",
       appDataMutation,

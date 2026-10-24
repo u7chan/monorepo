@@ -28,7 +28,7 @@ DTO の正は `server/src/schema.ts`（zod）。リクエストボディは `@ho
 | 通知（Discord） | `GET/PUT /api/notifications`、`POST /api/notifications/test`、`PATCH /api/sessions/:id/notify` | [notifications.md](notifications.md) |
 | アーカイブの除外名 | `GET/PUT/DELETE /api/settings/archive` | このファイル |
 | プロバイダーAPIキーとメモ（設定 → モデル `/settings/models`） | `GET /api/settings/models`、`PUT/DELETE /api/settings/models/:provider/key`、`PUT /api/settings/models/:provider/memo`、`POST /api/settings/models/:provider/resync`、`POST/DELETE /api/settings/models/:provider/login`、`POST /api/settings/models/:provider/login/code`、`POST /api/settings/models/:provider/logout`、`POST /api/settings/models/catalog/refresh` | このファイル、[model-settings.md](model-settings.md) |
-| コンテンツ生成（設定 → コンテンツ生成 `/settings/content`） | `GET /api/settings/content`、`PUT /api/settings/content/image`、`PUT /api/settings/content/speech`、`POST /api/settings/content/speech/preview`、`PUT/DELETE /api/settings/content/key`、`POST /api/settings/content/image/catalog/refresh`、`POST /api/settings/content/speech/catalog/refresh` | このファイル、[image-generation.md](image-generation.md)、[speech-generation.md](speech-generation.md) |
+| コンテンツ生成（設定 → コンテンツ生成 `/settings/content`） | `GET/PUT /api/settings/content`、`PUT /api/settings/content/image`、`PUT /api/settings/content/speech`、`POST /api/settings/content/speech/preview`、`PUT/DELETE /api/settings/content/key`、`POST /api/settings/content/image/catalog/refresh`、`POST /api/settings/content/speech/catalog/refresh` | このファイル、[image-generation.md](image-generation.md)、[speech-generation.md](speech-generation.md) |
 | Web 検索の設定（設定 → Web 検索 `/settings/web-search`） | `GET/PUT /api/settings/web-search`、`PUT /api/settings/web-search/provider`、`PUT/DELETE /api/settings/web-search/providers/:provider/key` | このファイル、[web-search.md](web-search.md) |
 | 会話タイトルの設定（設定 → 会話タイトル `/settings/session-title`） | `GET/PUT /api/settings/session-title` | このファイル、[session-title.md](session-title.md) |
 | サービス（serve）の状態と起動・停止 | `GET /api/serve/status`、`POST /api/serve/start`、`POST /api/serve/stop` | このファイル、[sandbox.md](sandbox.md#serveサービスの公開と起動停止) |
@@ -542,7 +542,8 @@ Content-Security-Policy: sandbox allow-scripts; default-src 'none'; style-src 'u
 
 | メソッド | パス | 説明 |
 | --- | --- | --- |
-| GET | `/api/settings/content` | `configured` / `provider` / `runtimeAvailable` / `image` / `speech` / `bgm`。画像・TTSはモデル一覧、BGMは固定モデル・形式・モデル仕様の尺を返す。純粋読取でAPIキーは返さず、生成APIも呼ばない |
+| GET | `/api/settings/content` | `configured` / `provider` / `enabled` / `disabledMessage` / `runtimeAvailable` / `image` / `speech` / `bgm`。画像・TTSはモデル一覧、BGMは固定モデル・形式・モデル仕様の尺を返す。純粋読取でAPIキーは返さず、生成APIも呼ばない |
+| PUT | `/api/settings/content` | `{ enabled }`。画像・音声・BGM 共通の有効 / 無効（キーと選択は保持。行が無ければ 400）。保存した瞬間から既存のセッションの次の呼び出しにも効く |
 | PUT | `/api/settings/content/image` | `{ provider, model }`。キーを保持したまま画像モデルの選択を更新（行が無ければ 400） |
 | PUT | `/api/settings/content/speech` | `{ model, voice }`。キーと画像モデルを保持したまま音声モデル / ボイスを更新（行が無ければ 400） |
 | POST | `/api/settings/content/speech/preview` | `{ model, voice, text, instructions?, speed? }`。音声のお試し再生（[speech-generation.md](speech-generation.md#お試し再生パラメーターのプレイグラウンド)）。成功は音声バイト、失敗は `{ error, code? }` |
@@ -551,13 +552,15 @@ Content-Security-Policy: sandbox allow-scripts; default-src 'none'; style-src 'u
 | POST | `/api/settings/content/image/catalog/refresh` | live カタログの再取得。常に 200 で `{ models, catalogSource, fetchedAt, catalogError }` を返す（失敗時も前の一覧を返し、`catalogError` に固定文言を載せる） |
 | POST | `/api/settings/content/speech/catalog/refresh` | 音声カタログの再取得。応答は画像と同じ形 |
 
-アプリデータの SQLite を読むため DB が使えないときは 503（[persistence.md](persistence.md#アプリデータsqlite)）。モデル、保存先、ゲート、失敗分類は [image-generation.md](image-generation.md) / [speech-generation.md](speech-generation.md) / [bgm-generation.md](bgm-generation.md) を参照する。
+アプリデータの SQLite を読むため DB が使えないときは 503（[persistence.md](persistence.md#アプリデータsqlite)）。`enabled` は行が無いとき（未設定）も既定の `true` を返し、ツールの公開可否は `configured` との積で決まる。OFF の間、モデルへは `disabledMessage` の固定文言だけが返る（[image-generation.md](image-generation.md#有効化ゲート)）。モデル、保存先、ゲート、失敗分類は [image-generation.md](image-generation.md) / [speech-generation.md](speech-generation.md) / [bgm-generation.md](bgm-generation.md) を参照する。
 
 ```json
 // GET /api/settings/content (200)
 {
   "configured": true,
   "provider": "openrouter",
+  "enabled": true,
+  "disabledMessage": "コンテンツ生成は無効化されています。有効にするには 設定 → コンテンツ生成 を開いてください。",
   "runtimeAvailable": true,
   "image": {
     "model": "openai/gpt-image-2",

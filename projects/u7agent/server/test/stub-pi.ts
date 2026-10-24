@@ -1340,6 +1340,7 @@ export function createStubPi(options: StubPiOptions = {}) {
       toolCatalog({
         sandboxTools: ["read"],
         contentGeneration: contentGenerationConfigs.at(-1)?.enabled === true,
+        contentGenerationConfigured: contentGenerationConfigs.at(-1)?.configured === true,
         webSearch: webSearchConfigs.at(-1)?.readEnabled() ?? true,
         serve: serveHosts.length > 0,
         askUser: askUserHosts.length > 0,

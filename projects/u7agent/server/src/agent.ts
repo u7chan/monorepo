@@ -930,6 +930,7 @@ export async function createPiBff({ cwd = process.cwd() }: { cwd?: string } = {}
     return {
       sandboxTools: configuredTools(),
       contentGeneration: contentGeneration.config?.enabled === true,
+      contentGenerationConfigured: contentGeneration.config?.configured === true,
       webSearch: webSearch.config.readEnabled(),
       serve: serveHost.value?.configured === true,
       askUser: askUserHost.value !== null,
@@ -1083,6 +1084,8 @@ export async function createPiBff({ cwd = process.cwd() }: { cwd?: string } = {}
                 uploadsDirRel,
                 workspace: sandboxClient,
                 masker: secretMasker,
+                // 公開はセッション作成時に凍結するが、OFF はこの 1 行で既存の会話にも次の呼び出しから効く
+                readEnabled: () => contentGeneration.config?.enabled === true,
                 readSettings: () => contentGeneration.config?.read(),
                 readOutputFormats: (model) => contentGeneration.config?.readOutputFormats(model),
                 checkImageInput: async (model, signal) =>
@@ -1097,6 +1100,7 @@ export async function createPiBff({ cwd = process.cwd() }: { cwd?: string } = {}
                 sessionCwd: relativeCwd,
                 workspace: sandboxClient,
                 masker: secretMasker,
+                readEnabled: () => contentGeneration.config?.enabled === true,
                 readSettings: () => contentGeneration.config?.readSpeech(),
                 readVoices: (model) => contentGeneration.config?.readVoices(model),
                 generate: speechGenerator.generate,
@@ -1106,6 +1110,7 @@ export async function createPiBff({ cwd = process.cwd() }: { cwd?: string } = {}
                 sessionCwd: relativeCwd,
                 workspace: sandboxClient,
                 masker: secretMasker,
+                readEnabled: () => contentGeneration.config?.enabled === true,
                 readSettings: () => contentGeneration.config?.readBgm(),
                 generate: bgmGenerator.generate,
               }),

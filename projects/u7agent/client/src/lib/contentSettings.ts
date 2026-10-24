@@ -33,7 +33,14 @@ export const SPEECH_SYNC_FAILED_NOTE =
   "音声モデル一覧は取得しましたが、現在の設定を確認できませんでした。再読み込みするまで音声の設定は保存できません。";
 
 /** 実行中の操作。null なら操作なし */
-export type ContentSavingAction = "key" | "delete" | "selection" | "catalog" | "speech" | "speech-catalog";
+export type ContentSavingAction = "enabled" | "key" | "delete" | "selection" | "catalog" | "speech" | "speech-catalog";
+
+/** 有効 / 無効を保存したときの注記。既存のセッションにも効くことを伝える */
+export function contentEnabledNote(enabled: boolean): string {
+  return enabled
+    ? "コンテンツ生成を有効にしました。既存の会話でも次の呼び出しから generate_image・generate_speech・generate_bgm を使えます。"
+    : "コンテンツ生成を無効にしました。既存の会話でも次の呼び出しから固定の文言で失敗します（キーと選択は残ります）。";
+}
 
 /** APIキーの登録状態バッジ。同じ意味の表示をプロバイダータブと同じ見た目で揃える */
 export function contentKeyStatusBadge(configured: boolean): ProviderBadge {

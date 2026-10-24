@@ -14,6 +14,7 @@ import {
   ContentSettingsService,
   type ContentSettingsDb,
 } from "../src/content-settings";
+import { CONTENT_DISABLED_MESSAGE } from "../src/content-disabled";
 import { IMAGE_PROVIDER_ID, type ContentGenerationConfig } from "../src/images";
 import { SPEECH_PROVIDER_ID } from "../src/speech";
 import { DEFAULT_SPEECH_MODEL, type SpeechCatalog } from "../src/speech-catalog";
@@ -153,6 +154,8 @@ test("GET は行が無いとき未設定を返し、キーを載せない", () =
     bgm: bgmSettings(false),
     configured: false,
     provider: null,
+    enabled: true,
+    disabledMessage: CONTENT_DISABLED_MESSAGE,
     runtimeAvailable: true,
     image: {
       model: null,
@@ -208,6 +211,7 @@ test("キー登録はマスカー → DB → 注入の順に通し、行が無�
     imageModel: DEFAULT_IMAGE_MODEL,
     speechModel: null,
     speechVoice: null,
+    enabled: true,
     apiKey: KEY,
   });
   assert.deepEqual(retained, [KEY], "マスカー登録は 1 回");
@@ -253,13 +257,14 @@ test("カタログの再取得は失敗しても一覧を返し、固定文言�
   });
 });
 
-test("キー上書きは選択済みの provider / model を保つ", async () => {
-  const { db, service } = createService();
+test("キー上書きは選択済みの provider / model と有効 / 無効を保つ", async () => {
+  const { db, service, latest } = createService();
   db.row = {
     provider: IMAGE_PROVIDER_ID,
     imageModel: "black-forest-labs/flux.2-max",
     speechModel: null,
     speechVoice: null,
+    enabled: false,
     apiKey: "old-key",
   };
   const outcome = await service.putKey(KEY);
@@ -269,8 +274,98 @@ test("キー上書きは選択済みの provider / model を保つ", async () =>
     imageModel: "black-forest-labs/flux.2-max",
     speechModel: null,
     speechVoice: null,
+    // OFF のままキーだけ差し替える（キー登録で黙って有効へ戻さない）
+    enabled: false,
     apiKey: KEY,
   });
+  assert.equal(latest()?.enabled, false, "OFF のままツールを公開しない");
+});
+
+test("有効 / 無効は行の 1 列で、キーと選択を保ったまま切り替えられる", async () => {
+  const { db, service, latest } = createService();
+  db.row = {
+    provider: IMAGE_PROVIDER_ID,
+    imageModel: DEFAULT_IMAGE_MODEL,
+    speechModel: null,
+    speechVoice: null,
+    enabled: true,
+    apiKey: KEY,
+  };
+
+  const off = await service.putEnabled(false);
+  assert.equal(off.status, 200);
+  if (off.status !== 200) return;
+  assert.equal(off.response.state, "applied");
+  assert.equal(off.response.enabled, false);
+  assert.equal(off.response.configured, true, "OFF でも未設定にはしない");
+  assert.equal(off.response.image.model, DEFAULT_IMAGE_MODEL, "モデルの選択を保つ");
+  assert.deepEqual(db.row, {
+    provider: IMAGE_PROVIDER_ID,
+    imageModel: DEFAULT_IMAGE_MODEL,
+    speechModel: null,
+    speechVoice: null,
+    enabled: false,
+    apiKey: KEY,
+  });
+  assert.equal(latest()?.enabled, false, "次に作るセッションへ即時反映する");
+  assert.equal(latest()?.configured, true, "停止の理由をキー未設定と書き分けられる");
+  assert.deepEqual(
+    latest()?.read(),
+    { provider: IMAGE_PROVIDER_ID, model: DEFAULT_IMAGE_MODEL, apiKey: KEY },
+    "OFF でも実行時の読み取りはキーを返す（キー無効エラーとは別の止め方）",
+  );
+
+  const on = await service.putEnabled(true);
+  assert.equal(on.status, 200);
+  if (on.status !== 200) return;
+  assert.equal(on.response.enabled, true);
+  assert.equal(db.row?.enabled, true);
+  assert.equal(latest()?.enabled, true);
+});
+
+test("有効 / 無効の変更は行が無ければ 400、保存できなければ 503 で写しも変えない", async () => {
+  const unset = createService();
+  await assert.rejects(async () => {
+    try {
+      await unset.service.putEnabled(false);
+    } catch (error) {
+      assert.equal(statusOf(error), 400);
+      assert.equal((error as Error).message, CONTENT_SETTINGS_UNCONFIGURED_MESSAGE);
+      throw error;
+    }
+  }, "キー未設定で止める対象は無い");
+
+  const failing = createService();
+  failing.db.row = {
+    provider: IMAGE_PROVIDER_ID,
+    imageModel: DEFAULT_IMAGE_MODEL,
+    speechModel: null,
+    speechVoice: null,
+    enabled: true,
+    apiKey: KEY,
+  };
+  failing.db.failSave = true;
+  assert.deepEqual(await failing.service.putEnabled(false), {
+    status: 503,
+    error: CONTENT_SETTINGS_NOT_STORED_MESSAGE,
+  });
+  assert.equal(failing.latest(), undefined, "保存できていないのに写しを差し替えない");
+  assert.equal(failing.db.row?.enabled, true);
+});
+
+test("GET は有効 / 無効と、OFF の間にモデルへ返す固定文言を載せる", () => {
+  const { db, service } = createService();
+  db.row = {
+    provider: IMAGE_PROVIDER_ID,
+    imageModel: DEFAULT_IMAGE_MODEL,
+    speechModel: null,
+    speechVoice: null,
+    enabled: false,
+    apiKey: KEY,
+  };
+  assert.equal(service.settings().enabled, false);
+  assert.equal(service.settings().disabledMessage, CONTENT_DISABLED_MESSAGE);
+  assert.equal(service.settings().configured, true);
 });
 
 test("provider / model の変更はキーを保持し、行が無い / provider が違う / カタログ外は 400", async () => {
@@ -290,6 +385,7 @@ test("provider / model の変更はキーを保持し、行が無い / provider 
     imageModel: DEFAULT_IMAGE_MODEL,
     speechModel: null,
     speechVoice: null,
+    enabled: true,
     apiKey: KEY,
   };
   await assert.rejects(async () => {
@@ -331,6 +427,7 @@ test("provider / model の変更はキーを保持し、行が無い / provider 
       imageModel: DEFAULT_IMAGE_MODEL,
       speechModel: null,
       speechVoice: null,
+      enabled: true,
       apiKey: KEY,
     },
     "キーを保つ",
@@ -344,6 +441,7 @@ test("キー削除は行ごと消して注入を無効にし、未設定でも 2
     imageModel: DEFAULT_IMAGE_MODEL,
     speechModel: null,
     speechVoice: null,
+    enabled: true,
     apiKey: KEY,
   };
   const first = await service.deleteKey();
@@ -381,6 +479,7 @@ test("DB 失敗は 503 not_stored にして理由の分類だけを残す", asyn
     imageModel: DEFAULT_IMAGE_MODEL,
     speechModel: null,
     speechVoice: null,
+    enabled: true,
     apiKey: KEY,
   };
   db.failRead = true;
@@ -416,6 +515,7 @@ test("書込成功後の読取失敗でも applied を返す（not_stored と誤
     imageModel: DEFAULT_IMAGE_MODEL,
     speechModel: null,
     speechVoice: null,
+    enabled: true,
     apiKey: KEY,
   });
 });
@@ -427,6 +527,7 @@ test("起動時の適用は行の有無を注入し、読めないときは無�
     imageModel: DEFAULT_IMAGE_MODEL,
     speechModel: null,
     speechVoice: null,
+    enabled: true,
     apiKey: KEY,
   };
   await configured.service.applyStored();
