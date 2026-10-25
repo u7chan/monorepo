@@ -3,7 +3,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
-  filterSharedContents,
   SHARE_CONFIRM_NOTES,
   shareItemsPublishing,
   sharePollPlan,
@@ -23,6 +22,7 @@ import {
   SHARED_CONTENT_FILTERS,
   SHARED_CONTENT_NO_CREDENTIALS_NOTE,
   SHARED_CONTENT_SESSION_MISSING_NOTE,
+  visibleSharedContents,
   withSharedContent,
   type SharedContentBusyKind,
 } from "../src/lib/sharedContents";
@@ -238,13 +238,34 @@ test("状態フィルタ: 件数は全件から数え、絞り込みは status �
     ],
   );
   assert.deepEqual(
-    filterSharedContents(items, "publishing").map((entry) => entry.id),
+    visibleSharedContents(items, "publishing").map((entry) => entry.id),
     ["b", "c"],
   );
   assert.deepEqual(
-    filterSharedContents(items, "all").map((entry) => entry.id),
-    ["a", "b", "c", "d", "e"],
-    "all は API の並びを変えない",
+    visibleSharedContents(items, "all").map((entry) => entry.id),
+    ["a", "b", "c", "e", "d"],
+    "all は状態で固める（公開済み → 処理中 → 失敗 → 停止中）",
+  );
+});
+
+test("一覧の並び: 状態で固め、その中は更新の新しい順、同時刻は API の順を保つ", () => {
+  const items = [
+    item({ id: "old-stopped", status: "stopped", updatedAt: 100 }),
+    item({ id: "new-published", status: "published", updatedAt: 300 }),
+    item({ id: "new-stopped", status: "stopped", updatedAt: 900 }),
+    item({ id: "old-published", status: "published", updatedAt: 200 }),
+    item({ id: "failed", status: "failed", updatedAt: 800 }),
+    item({ id: "tie-a", status: "publishing", updatedAt: 400 }),
+    item({ id: "tie-b", status: "publishing", updatedAt: 400 }),
+  ];
+  assert.deepEqual(
+    visibleSharedContents(items, "all").map((entry) => entry.id),
+    ["new-published", "old-published", "tie-a", "tie-b", "failed", "new-stopped", "old-stopped"],
+  );
+  assert.deepEqual(
+    visibleSharedContents(items, "stopped").map((entry) => entry.id),
+    ["new-stopped", "old-stopped"],
+    "単一状態のタブでも更新の新しい順",
   );
 });
 

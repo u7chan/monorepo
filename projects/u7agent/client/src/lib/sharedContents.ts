@@ -2,7 +2,12 @@
  * 共有ダイアログの文言と状態の見せ方。公開は非同期なので、`publishing` の間だけポーリングし、
  * 終端は `status` と `lastError` の組で読む（契約は docs/static-sharing.md）。
  */
-import type { CreateSharedContentBody, SessionSummary, SharedContentResponse } from "../types";
+import type {
+  CreateSharedContentBody,
+  SessionSummary,
+  SharedContentResponse,
+  SharedContentStatusValue,
+} from "../types";
 import type { ConfirmRequest } from "./confirmDialog";
 
 /** 状態を読み直す間隔。公開ジョブの所要は数十秒なので、待ちすぎず叩きすぎない値にする */
@@ -181,12 +186,33 @@ export function sharedContentFilterCounts(
   return counts;
 }
 
-/** 一覧の絞り込み。`all` はそのまま返し、並びは API の順（更新の新しい順）を変えない */
-export function filterSharedContents(
+/** 一覧の並びの重み。生きている共有物を先に置き、寝ている停止中を最後にする */
+const SHARED_CONTENT_STATUS_ORDER: Record<SharedContentStatusValue, number> = {
+  published: 0,
+  publishing: 1,
+  failed: 2,
+  stopped: 3,
+};
+
+/**
+ * 一覧に出す行。`filter` で絞ってから、状態で固め、その中は更新の新しい順にする
+ * （カードが前面に出す「更新」と一致させ、並びの理由を画面だけで説明できるようにする）。
+ */
+export function visibleSharedContents(
   items: readonly SharedContentResponse[],
   filter: SharedContentsFilter,
 ): SharedContentResponse[] {
-  return filter === "all" ? [...items] : items.filter((item) => item.status === filter);
+  return items
+    .filter((item) => filter === "all" || item.status === filter)
+    .map((item, index) => ({ item, index }))
+    .sort(
+      (a, b) =>
+        SHARED_CONTENT_STATUS_ORDER[a.item.status] - SHARED_CONTENT_STATUS_ORDER[b.item.status] ||
+        b.item.updatedAt - a.item.updatedAt ||
+        // 同時刻は API の並び（作成の新しい順）を保つ
+        a.index - b.index,
+    )
+    .map(({ item }) => item);
 }
 
 /** 一覧の操作種別。`retry` は failed からの再公開で、API は `update` と同じ publish 経路 */
